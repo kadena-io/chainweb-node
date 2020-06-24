@@ -21,12 +21,12 @@ import Test.Tasty.QuickCheck
 -- internal modules
 import Chainweb.BlockHeader
 import Chainweb.BlockHeaderDB
-import qualified Chainweb.Difficulty (properties)
-import qualified Chainweb.HostAddress (properties)
+import qualified Chainweb.Test.Difficulty (properties)
 import qualified Chainweb.Test.BlockHeader.Genesis
 import qualified Chainweb.Test.BlockHeader.Validation
 import qualified Chainweb.Test.BlockHeaderDB
 import qualified Chainweb.Test.Cut (properties)
+import qualified Chainweb.Test.HostAddress (properties)
 import qualified Chainweb.Test.Mempool.Consensus
 import qualified Chainweb.Test.Mempool.InMem
 import qualified Chainweb.Test.Mempool.RestAPI
@@ -49,17 +49,17 @@ import qualified Chainweb.Test.Roundtrips
 import qualified Chainweb.Test.SPV
 import qualified Chainweb.Test.Store.CAS.FS
 import qualified Chainweb.Test.Sync.WebBlockHeaderStore (properties)
+import qualified Chainweb.Test.TreeDB (properties)
 import qualified Chainweb.Test.TreeDB.RemoteDB
 import Chainweb.Test.Utils
     (RunStyle(..), ScheduledTest, schedule, testGroupSch, toyChainId,
     withToyDB)
 import qualified Chainweb.Test.Version (tests)
-import qualified Chainweb.TreeDB (properties)
-import qualified Chainweb.Utils.Paging (properties)
+import qualified Chainweb.Test.Chainweb.Utils.Paging (properties)
 
 import Data.CAS.RocksDB
 import qualified Data.Test.PQueue (properties)
-import qualified Data.Word.Encoding (properties)
+import qualified Data.Test.Word.Encoding (properties)
 
 import qualified P2P.Test.TaskQueue (properties)
 
@@ -101,7 +101,7 @@ suite rdb =
         [ testGroup "BlockHeaderDb"
             [ Chainweb.Test.BlockHeaderDB.tests rdb
             , Chainweb.Test.TreeDB.RemoteDB.tests
-            , testProperties "Chainweb.TreeDB" Chainweb.TreeDB.properties
+            , testProperties "Chainweb.Test.TreeDB" Chainweb.Test.TreeDB.properties
             ]
         , Chainweb.Test.Pact.TransactionTests.tests
         , Chainweb.Test.Store.CAS.FS.tests
@@ -117,13 +117,13 @@ suite rdb =
         , Chainweb.Test.BlockHeader.Genesis.tests
         , Chainweb.Test.BlockHeader.Validation.tests
         , Chainweb.Test.Version.tests
-        , testProperties "Chainweb.BlockHeaderDb.RestAPI.Server" Chainweb.Utils.Paging.properties
-        , testProperties "Chainweb.HostAddress" Chainweb.HostAddress.properties
+        , testProperties "Chainweb.Test.Chainweb.Utils.Paging" Chainweb.Test.Chainweb.Utils.Paging.properties
+        , testProperties "Chainweb.Test.HostAddress" Chainweb.Test.HostAddress.properties
         , testProperties "Chainweb.Test.Sync.WebBlockHeaderStore" Chainweb.Test.Sync.WebBlockHeaderStore.properties
         , testProperties "P2P.Test.TaskQueue" P2P.Test.TaskQueue.properties
         , testProperties "Data.Test.PQueue" Data.Test.PQueue.properties
-        , testProperties "Chainweb.Difficulty" Chainweb.Difficulty.properties
-        , testProperties "Data.Word.Encoding" Data.Word.Encoding.properties
+        , testProperties "Chainweb.Test.Difficulty" Chainweb.Test.Difficulty.properties
+        , testProperties "Data.Test.Word.Encoding" Data.Test.Word.Encoding.properties
         , testProperties "Chainweb.Test.Cut" (Chainweb.Test.Cut.properties rdb)
         ]
     ]

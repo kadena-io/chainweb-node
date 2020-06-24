@@ -8,7 +8,7 @@
 -- Maintainer: Lars Kuhtz <lars@kadena.io>
 -- Stability: experimental
 --
--- TODO
+-- The type of a P2P network session.
 --
 module P2P.Session
 (

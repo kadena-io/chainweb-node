@@ -12,7 +12,7 @@
 -- Maintainer: Lars Kuhtz <lars@kadena.io>
 -- Stability: experimental
 --
--- TODO
+-- Collect the 'BlockHeaderDB's for all chains in a single data structure.
 --
 module Chainweb.WebBlockHeaderDB
 ( WebBlockHeaderDb

@@ -1,13 +1,11 @@
 -- |
--- Module: Data.PQueue.Test
+-- Module: Data.Test.PQueue
 -- Copyright: Copyright © 2018 - 2020 Kadena LLC.
 -- License: MIT
 -- Maintainer: Lars Kuhtz <lars@kadena.io>
 -- Stability: experimental
 --
--- TODO
---
-module Data.PQueue.Test
+module Data.Test.PQueue
 (
   properties
 

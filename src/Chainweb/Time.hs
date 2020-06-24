@@ -117,8 +117,6 @@ import Language.Haskell.TH (ExpQ)
 import Language.Haskell.TH.Quote
 import Language.Haskell.TH.Syntax (Lift)
 
-import Test.QuickCheck (Arbitrary(..), Gen)
-
 -- internal imports
 
 import Chainweb.Utils
@@ -352,7 +350,7 @@ newtype Micros = Micros Int64
     deriving (Show, Eq, Ord, Enum, Bounded, Generic, Data, Lift)
     deriving anyclass (Hashable, NFData)
     deriving newtype (Num, Integral, Real, AdditiveGroup, AdditiveMonoid, AdditiveSemigroup)
-    deriving newtype (Arbitrary, ToJSON, FromJSON)
+    deriving newtype (ToJSON, FromJSON)
 
 microsToTimeSpan :: Num a => Micros -> TimeSpan a
 microsToTimeSpan (Micros us) = scaleTimeSpan us microsecond
@@ -378,14 +376,3 @@ instance HasTextRepresentation Micros where
     fromText = microsFromText
     {-# INLINABLE fromText #-}
 
--- -------------------------------------------------------------------------- --
--- Arbitrary Instances
-
-instance Arbitrary a => Arbitrary (Time a) where
-    arbitrary = Time <$> arbitrary
-
-instance Arbitrary a => Arbitrary (TimeSpan a) where
-    arbitrary = TimeSpan <$> arbitrary
-
-instance Arbitrary Seconds where
-    arbitrary = int <$> (arbitrary :: Gen Integer)

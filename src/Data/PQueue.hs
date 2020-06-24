@@ -8,7 +8,7 @@
 -- Maintainer: Lars Kuhtz <lars@kadena.io>
 -- Stability: experimental
 --
--- TODO
+-- A thread safe priority queue.
 --
 module Data.PQueue
 ( PQueue

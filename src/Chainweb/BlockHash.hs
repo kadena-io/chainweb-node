@@ -27,7 +27,9 @@
 -- Maintainer: Lars Kuhtz <lars@kadena.io>
 -- Stability: experimental
 --
--- TODO
+-- Chainweb block hashes. A block hash identifies a node in the Merkle tree of a
+-- chainweb, that includes the block headers and block payloads with includs the
+-- outputs of pact validation.
 --
 module Chainweb.BlockHash
 (

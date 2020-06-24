@@ -19,6 +19,12 @@
 -- Maintainer: Lars Kuhtz <lars@kadena.io>
 -- Stability: experimental
 --
+-- Representation of a 'Cut' via the block hashes of the block headers of the
+-- 'Cut'. When nodes exchange/publish cuts they only transmit the 'CutHashes'.
+-- This is more efficient, because in most cases the receiving node already has
+-- some or all of the block headers of the cut in it's local block header
+-- database.
+--
 module Chainweb.Cut.CutHashes
 (
 -- * Cut Id

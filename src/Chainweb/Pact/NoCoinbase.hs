@@ -8,7 +8,7 @@
 -- Maintainer: Lars Kuhtz <lars@kadena.io>
 -- Stability: experimental
 --
--- TODO
+-- A fake coin base for testing purposes.
 --
 module Chainweb.Pact.NoCoinbase
 ( noCoinbase

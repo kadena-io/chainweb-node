@@ -8,7 +8,7 @@
 -- Maintainer: Lars Kuhtz <lars@kadena.io>
 -- Stability: experimental
 --
--- TODO
+-- Verification of Merkle proofs in the Chainweb Merkle tree.
 --
 module Chainweb.SPV.VerifyProof
 (
