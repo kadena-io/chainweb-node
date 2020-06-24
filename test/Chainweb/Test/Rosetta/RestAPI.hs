@@ -18,7 +18,7 @@ import qualified Data.HashMap.Strict as HM
 import Data.IORef
 import Data.List (union)
 import Data.Text (Text)
-import Data.Foldable (traverse_)
+import Data.Foldable
 
 import GHC.Natural
 
@@ -64,7 +64,7 @@ cid :: ChainId
 cid = unsafeChainId 0
 
 cids :: [Text]
-cids = chainIds v ^.. folded . to (sshow @Int. chainIdInt)
+cids = chainIds v ^.. folded . to (sshow @Int . chainIdInt)
 
 nonceRef :: IORef Natural
 nonceRef = unsafePerformIO $ newIORef 0
@@ -176,14 +176,12 @@ networkListTests _ envIo = testCaseSteps "Network List Tests" $ \step -> do
     step "send network list request"
     resp <- networkList cenv req
 
-    let checkChainIds n = do
-          _networkId_blockchain n @=? "kadena"
-          _networkId_network n @=? "fastTimedCPM-peterson"
-          assertBool "chain id of subnetwork is valid"
-            $ maybe False (\a -> elem (_subNetworkId_network a) cids)
-            $ _networkId_subNetworkId n
-
-    traverse_ checkChainIds (_networkListResp_networkIds resp)
+    for_ (_networkListResp_networkIds resp) $ \n -> do
+       _networkId_blockchain n @=? "kadena"
+       _networkId_network n @=? "fastTimedCPM-peterson"
+       assertBool "chain id of subnetwork is valid"
+         $ maybe False (\a -> elem (_subNetworkId_network a) cids)
+         $ _networkId_subNetworkId n
   where
     req = MetadataReq Nothing
 
@@ -209,7 +207,8 @@ networkOptionsTests _ envIo = testCaseSteps "Network Options Tests" $ \step -> d
       "allowed operation statuses coincide"
 
     step "Check that response op types are a subset of op types"
-    (_allow_operationTypes allow `subset` allowedOperations) @? "allowed operations coincide"
+    (_allow_operationTypes allow `subset` allowedOperations) @?
+      "allowed operations coincide"
 
   where
     req0 = NetworkReq nid Nothing
@@ -281,8 +280,6 @@ rosettaVersion = RosettaNodeVersion
 genesisTxId :: TransactionId
 genesisTxId = TransactionId "Inlsd2hVbVVBOUtnZjM5d191c2dGRHoycV9RX09YX1lMQmNDMXZBSC1Mc0Ei"
 
--- write out allowables and check failures against alloweds
-
 rosettaFailures :: [RosettaError]
 rosettaFailures = rosettaError <$> enumFrom RosettaChainUnspecified
 
@@ -334,5 +331,5 @@ transferOne_ tio cenv = void $! transferOne tio cenv
 -- ------------------------------------------------------------------ --
 -- Utils
 
-subset :: Eq a => [a] -> [a] -> Bool
+subset :: (Foldable f, Eq a) => f a -> f a -> Bool
 subset as bs = all (`elem` bs) as
