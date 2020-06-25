@@ -5,7 +5,7 @@
 -- Maintainer: Lars Kuhtz <lars@kadena.io>
 -- Stability: experimental
 --
--- TODO
+-- A TreeDB for all blocks of a single chain of a Chainweb.
 --
 module Chainweb.BlockHeaderDB
 (

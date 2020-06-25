@@ -103,8 +103,8 @@ getHeaderByHeight mgr v cid height = do
     return $ head $ _pageItems page
   where
     query b = branchHeadersClient v cid (Just 1) Nothing
-        (Just $ int height)
         Nothing
+        (Just $ int height)
         (BranchBounds mempty $ HS.singleton (UpperBound b))
 
 currentHash

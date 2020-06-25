@@ -14,7 +14,10 @@
 -- Maintainer: Lars Kuhtz <lars@kadena.io>
 -- Stability: experimental
 --
--- TODO
+-- A hash that identifies a node in a Chainweb Merkle Tree. This type usually
+-- isn't used directly but wrapped with a newtype for the type that it
+-- represents in the tree. Example newtype wrappers are 'BlockHash' and
+-- 'BlockPayloadHash'.
 --
 module Chainweb.MerkleLogHash
 (

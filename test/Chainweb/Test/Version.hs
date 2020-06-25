@@ -129,7 +129,7 @@ prop_headerSizeBytes_gen v = property $ do
         l = int $ B.length $ runPut $ encodeBlockHeader $ hdr
     return
         $ counterexample ("chain: " <> sshow cid)
-        $ headerSizeBytes v (_blockHeight hdr) === l
+        $ headerSizeBytes v cid (_blockHeight hdr) === l
 
 prop_headerSizeBytes :: ChainwebVersion -> Property
 prop_headerSizeBytes v = property $ do
@@ -137,13 +137,16 @@ prop_headerSizeBytes v = property $ do
     let l = int $ B.length $ runPut $ encodeBlockHeader h
     return
         $ counterexample ("header: " <> sshow h)
-        $ headerSizeBytes (_chainwebVersion h) (_blockHeight h) === l
+        $ headerSizeBytes (_chainwebVersion h) (_blockChainId h) (_blockHeight h) === l
 
 prop_workSizeBytes :: ChainwebVersion -> Property
 prop_workSizeBytes v = property $ do
     h <- arbitraryBlockHeaderVersion v
-    let l = int $ B.length $ runPut $ encodeBlockHeaderWithoutHash h
-    return
-        $ counterexample ("header: " <> sshow h)
-        $ workSizeBytes (_chainwebVersion h) (_blockHeight h) === l
+    if (_blockHeight h == genesisHeight v (_chainId h))
+      then discard
+      else do
+        let l = int $ B.length $ runPut $ encodeBlockHeaderWithoutHash h
+        return
+            $ counterexample ("header: " <> sshow h)
+            $ workSizeBytes (_chainwebVersion h) (_blockHeight h) === l
 

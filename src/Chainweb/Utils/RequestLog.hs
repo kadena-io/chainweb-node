@@ -17,7 +17,7 @@
 -- Maintainer: Lars Kuhtz <lars@kadena.io>
 -- Stability: experimental
 --
--- TODO
+-- A Wai middleware for logging HTTP requests
 --
 module Chainweb.Utils.RequestLog
 (

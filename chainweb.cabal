@@ -222,7 +222,6 @@ library
         , Chainweb.Store.CAS
         , Chainweb.Store.CAS.FS
         , Chainweb.Sync.WebBlockHeaderStore
-        , Chainweb.Sync.WebBlockHeaderStore.Test
         , Chainweb.Time
         , Chainweb.Transaction
         , Chainweb.TreeDB
@@ -240,7 +239,6 @@ library
         , Data.IVar
         , Data.LogMessage
         , Data.PQueue
-        , Data.PQueue.Test
         , Data.Singletons
         , Data.TaskMap
         , Data.Word.Encoding
@@ -260,7 +258,6 @@ library
         , P2P.Peer
         , P2P.Session
         , P2P.TaskQueue
-        , P2P.TaskQueue.Test
 
         -- pact
         , Chainweb.Pact.Backend.ChainwebPactDb
@@ -308,7 +305,6 @@ library
 
     build-depends:
           Decimal >= 0.4.2
-        , QuickCheck >= 2.12.6
         , aeson >= 1.4.3
         , aeson-pretty >= 0.8
         , asn1-encoding >=0.9
@@ -368,7 +364,6 @@ library
         , paths >= 0.2
         , pem >=0.2
         , process >= 1.5
-        , quickcheck-instances >= 0.3
         , random >= 1.1
         , random-bytestring >= 0.1
         , resourcet >= 1.2
@@ -443,9 +438,12 @@ test-suite chainweb-tests
         Chainweb.Test.BlockHeader.Genesis
         Chainweb.Test.BlockHeader.Validation
         Chainweb.Test.BlockHeaderDB
+        Chainweb.Test.Chainweb.Utils.Paging
         Chainweb.Test.Cut
         Chainweb.Test.Cut.TestBlockDb
         Chainweb.Test.CutDB
+        Chainweb.Test.Difficulty
+        Chainweb.Test.HostAddress
         Chainweb.Test.Mempool
         Chainweb.Test.Mempool.Consensus
         Chainweb.Test.Mempool.InMem
@@ -453,6 +451,7 @@ test-suite chainweb-tests
         Chainweb.Test.Mempool.Sync
         Chainweb.Test.Misc
         Chainweb.Test.Orphans.Internal
+        Chainweb.Test.Orphans.Time
         Chainweb.Test.Pact.PactInProcApi
         Chainweb.Test.P2P.Peer.BootstrapConfig
         Chainweb.Test.Pact.Checkpointer
@@ -473,6 +472,7 @@ test-suite chainweb-tests
         Chainweb.Test.SPV
         Chainweb.Test.Store.CAS
         Chainweb.Test.Store.CAS.FS
+        Chainweb.Test.Sync.WebBlockHeaderStore
         Chainweb.Test.TreeDB
         Chainweb.Test.TreeDB.RemoteDB
         Chainweb.Test.Utils
@@ -480,6 +480,14 @@ test-suite chainweb-tests
         Chainweb.Test.Utils.BlockHeader
         Chainweb.Test.Utils.TestHeader
         Chainweb.Test.Utils.ApiQueries
+
+        -- Data
+        Data.Test.PQueue
+        Data.Test.Word.Encoding
+
+        -- P2P
+        P2P.Test.Orphans
+        P2P.Test.TaskQueue
 
     build-depends:
         -- internal
@@ -497,6 +505,7 @@ test-suite chainweb-tests
             -- due to change in error message that is inlined in pact
         , bytes >= 0.15
         , bytestring >= 0.10
+        , case-insensitive >= 1.2
         , cereal >= 0.5
         , chainweb-storage >= 0.1
         , connection >=0.2
@@ -682,6 +691,7 @@ executable cwtool
         , pact >= 2.6
         , paths >= 0.2
         , process >= 1.5
+        , quickcheck-instances >= 0.3
         , random >= 1.1
         , resourcet >= 1.2
         , rocksdb-haskell >= 1.0

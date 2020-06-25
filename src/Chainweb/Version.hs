@@ -56,7 +56,7 @@ module Chainweb.Version
 , slowEpochGuard
 , oldTargetGuard
 , skipFeatureFlagValidationGuard
-, fixedEpochStartGuard
+, oldDaGuard
 
 -- * Typelevel ChainwebVersion
 , ChainwebVersionT(..)
@@ -512,8 +512,7 @@ chainwebGraphs (TimedCPM g) = pure (0, g)
 chainwebGraphs (FastTimedCPM g) = pure (0, g)
 chainwebGraphs Testnet04 = pure (0, petersonChainGraph)
 chainwebGraphs Mainnet01 = pure (0, petersonChainGraph)
-chainwebGraphs Development = pure (0, petersonChainGraph)
--- chainwebGraphs Development = (50, twentyChainGraph) NE.:| [ (0, petersonChainGraph) ]
+chainwebGraphs Development = (50, twentyChainGraph) NE.:| [ (0, petersonChainGraph) ]
 {-# INLINE chainwebGraphs #-}
 
 -- | Return the Graph History at a given block height in descending order.
@@ -663,6 +662,9 @@ headerBaseSizeBytes _ = 318 - 110
 -- * @not . null $ headerSizes v@, and
 -- * @0 == (fst . last) (headerSizes v)@.
 --
+-- Note that for all but genesis headers the number of adjacent hashes depends
+-- on the graph of the parent.
+--
 headerSizes :: ChainwebVersion -> NE.NonEmpty (BlockHeight, Natural)
 headerSizes v = fmap (\g -> headerBaseSizeBytes v + 36 * degree g + 2) <$> chainwebGraphs v
 
@@ -671,20 +673,33 @@ headerSizes v = fmap (\g -> headerBaseSizeBytes v + 36 * degree g + 2) <$> chain
 -- This function is safe because of the invariant of 'headerSize' that there
 -- exists and entry for block height 0.
 --
+-- Note that for all but genesis headers the number of adjacent hashes depends
+-- on the graph of the parent.
+--
 headerSizeBytes
     :: HasCallStack
     => ChainwebVersion
+    -> ChainId
     -> BlockHeight
     -> Natural
-headerSizeBytes v h = snd
+headerSizeBytes v cid h = snd
     $ head
-    $ NE.dropWhile ((> h) . fst)
+    $ NE.dropWhile ((> relevantHeight) . fst)
     $ headerSizes v
+  where
+    relevantHeight
+        | genesisHeight v cid == h = h
+        | otherwise = h - 1
 {-# INLINE headerSizeBytes #-}
 
 -- | The size of the work bytes /without/ the preamble of the chain id and target
 --
--- NOTE: For projection versions we require that the value is constant for a
+-- The chain graph, and therefore also the header size, is constant for all
+-- blocks at the same height except for genesis blocks. Because genesis blocks
+-- are never mined, we can ignore this difference here and just return the
+-- result for chain 0.
+--
+-- NOTE: For production versions we require that the value is constant for a
 -- given chainweb version. This would only ever change as part of the
 -- introduction of new block header format.
 --
@@ -693,7 +708,7 @@ workSizeBytes
     => ChainwebVersion
     -> BlockHeight
     -> Natural
-workSizeBytes v h = headerSizeBytes v h - 32
+workSizeBytes v h = headerSizeBytes v (unsafeChainId 0) h - 32
 {-# INLINE workSizeBytes #-}
 
 -- -------------------------------------------------------------------------- --
@@ -870,8 +885,9 @@ skipFeatureFlagValidationGuard :: ChainwebVersion -> BlockHeight -> Bool
 skipFeatureFlagValidationGuard Mainnet01 h = h < 530500  -- ~ 2020-05-01T00:00:xxZ
 skipFeatureFlagValidationGuard _ _ = False
 
-fixedEpochStartGuard :: ChainwebVersion -> BlockHeight -> Bool
-fixedEpochStartGuard Mainnet01 _ = True
-fixedEpochStartGuard Testnet04 _ = True
-fixedEpochStartGuard Development _ = True
-fixedEpochStartGuard _ _ = False
+oldDaGuard :: ChainwebVersion -> BlockHeight -> Bool
+oldDaGuard Mainnet01 _ = True
+oldDaGuard Testnet04 _ = True
+oldDaGuard Development _ = False
+oldDaGuard _ _ = False
+

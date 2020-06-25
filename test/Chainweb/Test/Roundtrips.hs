@@ -49,6 +49,7 @@ import Chainweb.Version
 import P2P.Node
 import P2P.Node.Configuration
 import P2P.Peer
+import P2P.Test.Orphans ()
 
 -- -------------------------------------------------------------------------- --
 -- Roundrip Tests
