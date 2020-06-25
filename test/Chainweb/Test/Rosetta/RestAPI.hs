@@ -175,21 +175,22 @@ constructionSubmitTests tio envIo =
 -- | Rosetta mempool transaction endpoint tests
 --
 mempoolTransactionTests :: RosettaTest
-mempoolTransactionTests tio envIo = testCaseSteps "Mempool Transaction Tests" $ \step -> do
-    cenv <- envIo
-    rkmv <- newEmptyMVar @RequestKeys
+mempoolTransactionTests tio envIo =
+    testCaseSteps "Mempool Transaction Tests" $ \step -> do
+      cenv <- envIo
+      rkmv <- newEmptyMVar @RequestKeys
 
-    step "execute transfer and wait on mempool data"
-    a <- async $ transferOneAsync tio cenv (putMVar rkmv)
-    MempoolResp [tid] <- repeatUntil test $ do
-      RequestKeys (rk NEL.:| []) <- _rkRequestKeys <$> takeMVar rkmv
-      mempoolTransaction cenv req (req rk)
+      step "execute transfer and wait on mempool data"
+      void $! async $ transferOneAsync tio cenv (putMVar rkmv)
 
-    step "compare requestkey against transaction id"
-    rk NEL.:| [] <- _rkRequestKeys <$> takeMVar rkmv
-    show rk @=? show (_transactionId_hash tid)
+      step "wait until mempool registers transfer"
+      rk <- NEL.head . _rkRequestKeys <$> takeMVar rkmv
+      MempoolTransactionResp tx _meta <- mempoolTransactionWithFastRetry cenv (req rk)
+
+      step "compare requestkey against transaction id"
+      rkToTransactionId rk @=? _transaction_transactionId tx
   where
-    req = MempoolReq nid
+    req rk = MempoolTransactionReq nid (rkToTransactionId rk)
 
 -- | Rosetta mempool endpoint tests
 --
@@ -199,16 +200,16 @@ mempoolTests tio envIo = testCaseSteps "Mempool Tests" $ \step -> do
     rkmv <- newEmptyMVar @RequestKeys
 
     step "execute transfer and wait on mempool data"
-    a <- async $ transferOneAsync tio cenv (putMVar rkmv)
+    void $! async $ transferOneAsync tio cenv (putMVar rkmv)
 
-    let test (MempoolResp [xs]) = return True
+    let test (MempoolResp [_]) = return True
         test (MempoolResp _) = return False
 
     MempoolResp [tid] <- repeatUntil test $ mempool cenv req
 
     step "compare requestkey against transaction id"
     rk NEL.:| [] <- _rkRequestKeys <$> takeMVar rkmv
-    show rk @=? show (_transactionId_hash tid)
+    rkToTransactionId rk @=? tid
   where
     req = MempoolReq nid
 
@@ -348,35 +349,40 @@ operationStatuses =
 --
 transferOne :: IO (Time Micros) -> ClientEnv -> IO PollResponses
 transferOne tio cenv = do
-    batch0 <- mkTransfer
+    batch0 <- mkTransfer tio
     rks <- sending cid cenv batch0
     prs <- polling cid cenv rks ExpectPactResult
     return prs
-  where
-    mkTransfer = do
-      t <- toTxCreationTime <$> tio
-      n <- readIORef nonceRef
-      c <- buildTextCmd
-        $ set cbSigners
-          [ mkSigner' sender00
-            [ mkTransferCap "sender00" "sender01" 1.0
-            , mkGasCap
-            ]
-          ]
-        $ set cbCreationTime t
-        $ set cbNetworkId (Just v)
-        $ mkCmd ("nonce-transfer-" <> sshow t <> "-" <> sshow n)
-        $ mkExec' "(coin.transfer \"sender00\" \"sender01\" 1.0)"
-
-      modifyIORef' nonceRef (+1)
-      return $ SubmitBatch (pure c)
 
 -- | Transfer one, ignoring the resulting responses
 --
 transferOne_ :: IO (Time Micros) -> ClientEnv -> IO ()
 transferOne_ tio cenv = void $! transferOne tio cenv
 
--- | Transfer one token from sender00 to sender01, polling for responses
+-- | Build a simple transfer from sender00 to sender01
+--
+mkTransfer :: IO (Time Micros) -> IO SubmitBatch
+mkTransfer tio = do
+    t <- toTxCreationTime <$> tio
+    n <- readIORef nonceRef
+    c <- buildTextCmd
+      $ set cbSigners
+        [ mkSigner' sender00
+          [ mkTransferCap "sender00" "sender01" 1.0
+          , mkGasCap
+          ]
+        ]
+      $ set cbCreationTime t
+      $ set cbNetworkId (Just v)
+      $ mkCmd ("nonce-transfer-" <> sshow t <> "-" <> sshow n)
+      $ mkExec' "(coin.transfer \"sender00\" \"sender01\" 1.0)"
+
+    modifyIORef' nonceRef (+1)
+    return $ SubmitBatch (pure c)
+
+-- | Transfer one token from sender00 to sender01, applying some callback to
+-- the command batch before sending. This is used for updating 'MVar's that
+-- require request keys for rosetta tx submission in the mempool endpoints.
 --
 transferOneAsync
     :: IO (Time Micros)
@@ -384,27 +390,11 @@ transferOneAsync
     -> (RequestKeys -> IO ())
     -> IO ()
 transferOneAsync tio cenv callback = do
-    batch0 <- mkTransfer
-    rks <- sending cid cenv batch0
-    void $! callback rks
+    batch0 <- mkTransfer tio
+    void $ callback (f batch0)
+    void $ sending cid cenv batch0
   where
-    mkTransfer = do
-      t <- toTxCreationTime <$> tio
-      n <- readIORef nonceRef
-      c <- buildTextCmd
-        $ set cbSigners
-          [ mkSigner' sender00
-            [ mkTransferCap "sender00" "sender01" 1.0
-            , mkGasCap
-            ]
-          ]
-        $ set cbCreationTime t
-        $ set cbNetworkId (Just v)
-        $ mkCmd ("nonce-transfer-" <> sshow t <> "-" <> sshow n)
-        $ mkExec' "(coin.transfer \"sender00\" \"sender01\" 1.0)"
-
-      modifyIORef' nonceRef (+1)
-      return $ SubmitBatch (pure c)
+    f (SubmitBatch cs) = RequestKeys (cmdToRequestKey <$> cs)
 
 -- ------------------------------------------------------------------ --
 -- Utils

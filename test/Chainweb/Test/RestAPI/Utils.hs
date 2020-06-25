@@ -4,8 +4,9 @@
 {-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE OverloadedStrings #-}
 module Chainweb.Test.RestAPI.Utils
-( -- * Retry Policy
+( -- * Retry Policies
   testRetryPolicy
+, fastRetryPolicy
   -- * Debugging
 , debug
   -- * Utils
@@ -26,6 +27,7 @@ module Chainweb.Test.RestAPI.Utils
 , constructionMetadata
 , constructionSubmit
 , mempoolTransaction
+, mempoolTransactionWithFastRetry
 , mempool
 , networkOptions
 , networkList
@@ -86,6 +88,23 @@ testRetryPolicy = stepped <> limitRetries 150
       2 -> Just 100_000
       _ -> Just 250_000
 
+-- | Backoff up to a constant 25ms, limiting to 12s
+--
+fastRetryPolicy :: RetryPolicy
+fastRetryPolicy = fastSteps <> limitRetries 500
+  where
+    fastSteps = retryPolicy $ \rs -> case rsIterNumber rs of
+      0 -> Just 100
+      1 -> Just 200
+      2 -> Just 300
+      3 -> Just 400
+      4 -> Just 500
+      5 -> Just 600
+      6 -> Just 700
+      7 -> Just 800
+      8 -> Just 900
+      _ -> Just 25_000
+
 -- ------------------------------------------------------------------ --
 -- Pact api client utils w/ retry
 
@@ -136,10 +155,8 @@ localTestToRetry
     -> Command Text
     -> (CommandResult Hash -> Bool)
     -> IO (CommandResult Hash)
-localTestToRetry sid cenv cmd test = retrying testRetryPolicy check_ (\_ -> go)
-  where
-    go = local sid cenv cmd
-    check_ _ cr = return $ not $ test cr
+localTestToRetry sid cenv cmd test =
+    repeatUntil (return . test) (local sid cenv cmd)
 
 -- | Request an SPV proof using exponential retry logic
 --
@@ -256,7 +273,7 @@ accountBalance
 accountBalance cenv req =
     recovering testRetryPolicy [h] $ \s -> do
     debug
-      $ "requesting account balance for " <> (take 10 $ show req)
+      $ "requesting account balance for " <> (show req)
       <> " [" <> show (view rsIterNumberL s) <> "]"
 
     runClientM (rosettaAccountBalanceApiClient v req) cenv >>= \case
@@ -274,7 +291,7 @@ blockTransaction
 blockTransaction cenv req =
     recovering testRetryPolicy [h] $ \s -> do
     debug
-      $ "requesting block transaction for " <> (take 10 $ show req)
+      $ "requesting block transaction for " <> (show req)
       <> " [" <> show (view rsIterNumberL s) <> "]"
 
     runClientM (rosettaBlockTransactionApiClient v req) cenv >>= \case
@@ -292,7 +309,7 @@ block
 block cenv req =
     recovering testRetryPolicy [h] $ \s -> do
     debug
-      $ "requesting block for " <> (take 10 $ show req)
+      $ "requesting block for " <> (show req)
       <> " [" <> show (view rsIterNumberL s) <> "]"
 
     runClientM (rosettaBlockApiClient v req) cenv >>= \case
@@ -310,7 +327,7 @@ constructionMetadata
 constructionMetadata cenv req =
     recovering testRetryPolicy [h] $ \s -> do
     debug
-      $ "requesting construction metadata for " <> (take 10 $ show req)
+      $ "requesting construction metadata for " <> (show req)
       <> " [" <> show (view rsIterNumberL s) <> "]"
 
     runClientM (rosettaConstructionMetadataApiClient v req) cenv >>= \case
@@ -328,7 +345,7 @@ constructionSubmit
 constructionSubmit cenv req =
     recovering testRetryPolicy [h] $ \s -> do
     debug
-      $ "requesting construction submit for " <> (take 10 $ show req)
+      $ "requesting construction submit for " <> (show req)
       <> " [" <> show (view rsIterNumberL s) <> "]"
 
     runClientM (rosettaConstructionSubmitApiClient v req) cenv >>= \case
@@ -346,7 +363,25 @@ mempoolTransaction
 mempoolTransaction cenv req =
     recovering testRetryPolicy [h] $ \s -> do
     debug
-      $ "requesting mempool transaction for " <> (take 10 $ show req)
+      $ "requesting mempool transaction for " <> (show req)
+      <> " [" <> show (view rsIterNumberL s) <> "]"
+
+    runClientM (rosettaMempoolTransactionApiClient v req) cenv >>= \case
+      Left e -> throwM $ MempoolTransactionFailure (show e)
+      Right t -> return t
+  where
+    h _ = Handler $ \case
+      MempoolTransactionFailure _ -> return True
+      _ -> return False
+
+mempoolTransactionWithFastRetry
+    :: ClientEnv
+    -> MempoolTransactionReq
+    -> IO MempoolTransactionResp
+mempoolTransactionWithFastRetry cenv req =
+    recovering fastRetryPolicy [h] $ \s -> do
+    debug
+      $ "requesting mempool transaction for " <> (show req)
       <> " [" <> show (view rsIterNumberL s) <> "]"
 
     runClientM (rosettaMempoolTransactionApiClient v req) cenv >>= \case
@@ -364,7 +399,7 @@ mempool
 mempool cenv req =
     recovering testRetryPolicy [h] $ \s -> do
     debug
-      $ "requesting mempool for " <> (take 10 $ show req)
+      $ "requesting mempool for " <> (show req)
       <> " [" <> show (view rsIterNumberL s) <> "]"
 
     runClientM (rosettaMempoolApiClient v req) cenv >>= \case
