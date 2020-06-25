@@ -138,12 +138,12 @@ instance HasChainwebVersion CutExtension where
 -- | Witness that a cut can be extended for the given chain by trying to
 -- assemble the adjacent hashes for a new work header.
 --
--- Generally, validation uses the graph of the parent header. This ensures that
--- during a graph transition the current header and all dependencies use the
--- same graph and the inductive validation step works without special cases.
--- Genesis headers don't require validation, because they are hard-coded. Only
--- in the first step after the transition, the dependencies have a different
--- graph. But at this point all dependencies exist.
+-- Generally, adajacent validation uses the graph of the parent header. This
+-- ensures that during a graph transition the current header and all
+-- dependencies use the same graph and the inductive validation step works
+-- without special cases. Genesis headers don't require validation, because they
+-- are hard-coded. Only in the first step after the transition, the dependencies
+-- have a different graph. But at this point all dependencies exist.
 --
 -- A transition cut is a cut where the graph of minimum height header is
 -- different than the graph of the header of maximum height. If this is a

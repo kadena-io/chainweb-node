@@ -142,8 +142,11 @@ prop_headerSizeBytes v = property $ do
 prop_workSizeBytes :: ChainwebVersion -> Property
 prop_workSizeBytes v = property $ do
     h <- arbitraryBlockHeaderVersion v
-    let l = int $ B.length $ runPut $ encodeBlockHeaderWithoutHash h
-    return
-        $ counterexample ("header: " <> sshow h)
-        $ workSizeBytes (_chainwebVersion h) (_blockHeight h) === l
+    if (_blockHeight h == genesisHeight v (_chainId h))
+      then discard
+      else do
+        let l = int $ B.length $ runPut $ encodeBlockHeaderWithoutHash h
+        return
+            $ counterexample ("header: " <> sshow h)
+            $ workSizeBytes (_chainwebVersion h) (_blockHeight h) === l
 
