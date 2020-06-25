@@ -64,6 +64,7 @@ module Chainweb.HostAddress
 (
 -- * Port Numbers
   Port
+, portFromInt
 , portToText
 , portFromText
 , pPort
@@ -96,41 +97,29 @@ module Chainweb.HostAddress
 , hostAddressToText
 , hostAddressFromText
 , unsafeHostAddressFromText
-, arbitraryHostAddress
 , pHostAddress
 , pHostAddress'
 , hostAddressToBaseUrl
 , isPrivateHostAddress
 , isReservedHostAddress
 
--- * Arbitrary Values
-, arbitraryPort
-, arbitraryDomainName
-, arbitraryHostname
-, arbitraryIpV4
-, arbitraryIpV6
-
 -- * HostPreference Utils
 , hostPreferenceToText
 , hostPreferenceFromText
-
--- * Properties
-, properties
 ) where
 
 import Configuration.Utils hiding ((<?>))
 
 import Control.DeepSeq (NFData)
 import Control.Lens.TH (makeLenses)
-import Control.Monad (guard, replicateM, foldM)
-import Control.Monad.Catch (MonadThrow(..))
+import Control.Monad (guard)
+import Control.Monad.Catch (MonadThrow(..), Exception)
 
 import Data.Attoparsec.ByteString.Char8
 import qualified Data.ByteString.Char8 as B8
 import qualified Data.CaseInsensitive as CI
 import Data.Hashable (Hashable(..))
 import Data.IP
-import qualified Data.List as L
 import Data.Streaming.Network.Internal
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
@@ -140,8 +129,6 @@ import GHC.Generics (Generic)
 import GHC.Stack (HasCallStack)
 
 import Servant.Client (BaseUrl(..), Scheme(..))
-
-import Test.QuickCheck
 
 -- internal modules
 import Chainweb.Utils
@@ -232,7 +219,7 @@ ipV6Parser = p0
 
 portParser :: Parser Port
 portParser = Port
-    <$> (decimal >>= \(d :: Integer) -> int d <$ guard (d < 2^(16 :: Int)))
+    <$> (decimal >>= \(d :: Integer) -> int d <$ guard (d <= 2^(16 :: Int)-1))
     <?> "port"
 
 parseBytes :: MonadThrow m => T.Text -> Parser a -> B8.ByteString -> m a
@@ -243,59 +230,28 @@ parseBytes name parser b = either (throwM . TextFormatException . msg) return
         <> T.pack e
 
 -- -------------------------------------------------------------------------- --
--- Arbitrary Values
-
--- | TODO should we exclude network, broadcast, otherwise special values?
---
-arbitraryIpV4 :: Gen Hostname
-arbitraryIpV4 = HostnameIPv4 . CI.mk . B8.intercalate "." . fmap sshow
-    <$> replicateM 4 (arbitrary :: Gen Word8)
-
-arbitraryIpV6 :: Gen Hostname
-arbitraryIpV6 = HostnameIPv6 . CI.mk . B8.intercalate ":" . fmap sshow
-    <$> replicateM 8 (arbitrary :: Gen Word8)
-
-arbitraryDomainName :: Gen Hostname
-arbitraryDomainName = sized $ \n -> resize (min n 254)
-    . fmap (HostnameName . mconcat . L.intersperse ".")
-    $ (<>)
-        <$> listOf (arbitraryDomainLabel False)
-        <*> vectorOf 1 (arbitraryDomainLabel True)
-
--- TODO add frequency or used sized to yield a better distribution
---
-arbitraryDomainLabel :: Bool -> Gen (CI.CI B8.ByteString)
-arbitraryDomainLabel isTop = sized $ \n -> resize (min n 63)
-    $ CI.mk . B8.pack <$> oneof
-        [ vectorOf 1 (if isTop then letter else letterOrDigit)
-        , foldM (\l a -> (l <>) <$> a) []
-            [ vectorOf 1 (if isTop then letter else letterOrDigit)
-            , listOf letterOrDigitOrHyphen
-            , vectorOf 1 letterOrDigit
-            ]
-        ]
-  where
-    letter = elements $ ['a'..'z'] <> ['A'..'Z']
-    letterOrDigit = elements $ ['a'..'z'] <> ['A'..'Z'] <> ['0'..'9']
-    letterOrDigitOrHyphen = elements $ ['a'..'z'] <> ['A'..'Z'] <> ['-']
-
--- -------------------------------------------------------------------------- --
 -- Port Numbers
+
+newtype InvalidPortException = InvalidPortException Integer
+    deriving (Show, Eq, Ord, Generic)
+    deriving newtype (NFData)
+
+instance Exception InvalidPortException
 
 newtype Port = Port Word16
     deriving (Eq, Ord, Generic)
     deriving anyclass (Hashable, NFData)
     deriving newtype (Show, Real, Integral, Num, Bounded, Enum, ToJSON, FromJSON)
 
+portFromInt :: MonadThrow m => Integral a => a -> m Port
+portFromInt n
+    | n >= 0 && n <= 2^(16 :: Int)-1 = return $ Port (int n)
+    | otherwise = throwM $ InvalidPortException (int n)
+{-# INLINE portFromInt #-}
+
 readPortBytes :: MonadThrow m => B8.ByteString -> m Port
 readPortBytes = parseBytes "port" portParser
 {-# INLINE readPortBytes #-}
-
-arbitraryPort :: Gen Port
-arbitraryPort = Port <$> arbitrary
-
-instance Arbitrary Port where
-    arbitrary = arbitraryPort
 
 portToText :: Port -> T.Text
 portToText = sshow
@@ -414,18 +370,6 @@ hostnameBytes (HostnameIPv4 b) = CI.original b
 hostnameBytes (HostnameIPv6 b) = CI.original b
 {-# INLINE hostnameBytes #-}
 
-arbitraryHostname :: Gen Hostname
-arbitraryHostname = oneof
-    [ arbitraryIpV4
-    , arbitraryIpV4
-    , arbitraryDomainName
-        --  Note that not every valid domain name is also a valid host name.
-        --  Generally, a hostname has at least one associated IP address.
-        --  Also, syntactic restriction apply for certain top-level domains.
-    , pure (HostnameName "localhost")
-    , pure localhost
-    ]
-
 hostnameToText :: Hostname -> T.Text
 hostnameToText = T.decodeUtf8 . hostnameBytes
 {-# INLINE hostnameToText #-}
@@ -457,12 +401,6 @@ pHostname service = textOption
     % prefixLong service "hostname"
     <> suffixHelp service "hostname"
 {-# INLINE pHostname #-}
-
-instance Arbitrary Hostname where
-    arbitrary = arbitraryHostname
-
-prop_readHostnameBytes :: Hostname -> Property
-prop_readHostnameBytes h = readHostnameBytes (hostnameBytes h) === Just h
 
 -- -------------------------------------------------------------------------- --
 -- Host Addresses
@@ -549,15 +487,6 @@ pHostAddress service = id
 pHostAddress' :: Maybe String -> OptionParser HostAddress
 pHostAddress' service = HostAddress <$> pHostname service <*> pPort service
 
-arbitraryHostAddress :: Gen HostAddress
-arbitraryHostAddress = HostAddress <$> arbitrary <*> arbitrary
-
-instance Arbitrary HostAddress where
-    arbitrary = arbitraryHostAddress
-
-prop_readHostAddressBytes :: HostAddress -> Property
-prop_readHostAddressBytes a = readHostAddressBytes (hostAddressBytes a) === Just a
-
 hostAddressToBaseUrl :: Scheme -> HostAddress -> BaseUrl
 hostAddressToBaseUrl s (HostAddress hn p) = BaseUrl s hn' p' ""
   where
@@ -599,11 +528,3 @@ instance HasTextRepresentation HostPreference where
     fromText = hostPreferenceFromText
     {-# INLINE fromText #-}
 
--- -------------------------------------------------------------------------- --
--- Properties
-
-properties :: [(String, Property)]
-properties =
-    [ ("readHostnameBytes", property prop_readHostnameBytes)
-    , ("readHostAddressBytes", property prop_readHostAddressBytes)
-    ]

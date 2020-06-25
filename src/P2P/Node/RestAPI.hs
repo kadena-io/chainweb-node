@@ -16,7 +16,7 @@
 -- Maintainer: Lars Kuhtz <lars@kadena.io>
 -- Stability: experimental
 --
--- TODO
+-- REST API endpoints for the Chainweb P2P network.
 --
 module P2P.Node.RestAPI
 (

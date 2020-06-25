@@ -20,7 +20,8 @@
 -- Maintainer: Kadena Chainweb Team <chainweb-dev@kadena.io>
 -- Stability: experimental
 --
--- TODO
+-- Tools for generating self-signed certificates and using them with warp-tls
+-- and http-client-tls.
 --
 module Network.X509.SelfSigned
 (

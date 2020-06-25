@@ -70,8 +70,6 @@ import Data.Word (Word32)
 import GHC.Generics (Generic)
 import GHC.TypeLits
 
-import Test.QuickCheck (Arbitrary(..))
-
 -- internal imports
 
 import Chainweb.Crypto.MerkleLog
@@ -257,7 +255,4 @@ unsafeChainId = ChainId
 chainIdInt :: Integral i => ChainId -> i
 chainIdInt (ChainId cid) = int cid
 {-# INLINE chainIdInt #-}
-
-instance Arbitrary ChainId where
-    arbitrary = unsafeChainId <$> arbitrary
 

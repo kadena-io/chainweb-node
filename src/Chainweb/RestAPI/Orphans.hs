@@ -19,7 +19,15 @@
 -- Maintainer: Lars Kuhtz <lars@kadena.io>
 -- Stability: experimental
 --
--- TODO
+-- Orphan type class instances for various types and classes that are used in
+-- the definition of the Chainweb REST API.
+--
+-- This classes don't abstract over inherent (algebraic) properties of the
+-- respective types  but instead just abstract over the behavior of a data types
+-- in the context of a particular REST API. It therefor makes sense to implement
+-- these as orphans in a module that is specific for the particular REST API.
+-- The instances are brought into scope only in the modules that implement that
+-- API and are out of scope otherwise.
 --
 module Chainweb.RestAPI.Orphans () where
 
@@ -54,9 +62,9 @@ import Chainweb.BlockHeight
 import Chainweb.BlockWeight
 import Chainweb.ChainId
 import Chainweb.Cut.CutHashes
-import Chainweb.Difficulty hiding (properties)
+import Chainweb.Difficulty
 import Chainweb.Graph
-import Chainweb.HostAddress hiding (properties)
+import Chainweb.HostAddress
 import Chainweb.MerkleLogHash (MerkleLogHash, merkleLogHashBytesCount)
 import Chainweb.Miner.Core (ChainBytes, HeaderBytes, WorkBytes)
 import Chainweb.Miner.Pact (Miner, defaultMiner)
@@ -64,9 +72,9 @@ import Chainweb.Pact.Service.Types
 import Chainweb.Payload
 import Chainweb.SPV
 import Chainweb.Time (Micros, Time, TimeSpan)
-import Chainweb.TreeDB hiding (properties)
+import Chainweb.TreeDB
 import Chainweb.Utils
-import Chainweb.Utils.Paging hiding (properties)
+import Chainweb.Utils.Paging
 import Chainweb.Version
 import Chainweb.Version.Utils
 

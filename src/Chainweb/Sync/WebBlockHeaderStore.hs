@@ -23,7 +23,8 @@
 -- Maintainer: Lars Kuhtz <lars@kadena.io>
 -- Stability: experimental
 --
--- TODO
+-- A handle that provides tools obtaining and validating block headers within
+-- the Chainweb network and making them available in the local database.
 --
 module Chainweb.Sync.WebBlockHeaderStore
 ( WebBlockHeaderStore(..)

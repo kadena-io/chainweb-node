@@ -14,7 +14,7 @@
 -- Maintainer: Lars Kuhtz <lars@kadena.io>
 -- Stability: experimental
 --
--- TODO
+-- Server implementation of the BlockHeader database REST API
 --
 module Chainweb.BlockHeaderDB.RestAPI.Server
 (
@@ -71,7 +71,7 @@ import Chainweb.PowHash (powHashBytes)
 import Chainweb.RestAPI.Orphans ()
 import Chainweb.RestAPI.Utils
 import Chainweb.TreeDB
-import Chainweb.Utils.Paging hiding (properties)
+import Chainweb.Utils.Paging
 import Chainweb.Version
 
 -- -------------------------------------------------------------------------- --

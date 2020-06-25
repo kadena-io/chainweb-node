@@ -26,7 +26,15 @@
 -- Maintainer: Lars Kuhtz <lars@kadena.io>
 -- Stability: experimental
 --
--- TODO
+-- A cut represents the a distributed state of a concurrent computation.
+--
+-- In the context of Chainweb it contains one block for each chain (possibly of
+-- a subset of all chains) that any pair of two blocks in the cut either
+-- directly depend on each other or are independent from each other.
+--
+-- Intuitively, a cut is a set of blocks from different chains that can (but
+-- doesn't have to) occur at the same time as the head of their respective
+-- chains.
 --
 module Chainweb.Cut
 ( Cut
@@ -121,7 +129,7 @@ import Chainweb.BlockHeight
 import Chainweb.BlockWeight
 import Chainweb.ChainId
 import Chainweb.Graph
-import Chainweb.TreeDB hiding (properties)
+import Chainweb.TreeDB
 import Chainweb.Utils
 import Chainweb.Version
 import Chainweb.Version.Utils

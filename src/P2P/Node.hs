@@ -19,7 +19,18 @@
 -- Maintainer: Lars Kuhtz <lars@kadena.io>
 -- Stability: experimental
 --
--- TODO
+-- A node in a Chainweb P2P network. It consists of the local peer, the database
+-- of remote peers, and a process that selects remote peers and exectutes P2P
+-- sessions with the selected peers.
+--
+-- A P2P session is an action that is schedules and executed on behave of the
+-- local peer and that is provided with a an API client context for some remote
+-- peer.
+--
+-- Sessions are scheduled using either fixed configured schedule or via a task
+-- queue. The former sessions are more expensive and are usually long lived (in
+-- the order of several seconds or even minutes). The latter are very cheap and
+-- can be used for ad-hoc queries of remote peers.
 --
 module P2P.Node
 (
@@ -91,8 +102,6 @@ import System.LogLevel
 import qualified System.Random as R
 import System.Timeout
 
-import Test.QuickCheck (Arbitrary(..), oneof)
-
 -- Internal imports
 
 import Chainweb.HostAddress (isReservedHostAddress)
@@ -149,12 +158,6 @@ _p2pStatsSessionCount s
     + _p2pStatsTimeoutCount s
     + _p2pStatsExceptionCount s
 
-instance Arbitrary P2pNodeStats where
-    arbitrary = P2pNodeStats
-        <$> arbitrary <*> arbitrary <*> arbitrary
-        <*> arbitrary <*> arbitrary <*> arbitrary
-        <*> arbitrary
-
 -- -------------------------------------------------------------------------- --
 -- Session Info
 
@@ -174,14 +177,6 @@ isSuccess P2pSessionResultSuccess = True
 isSuccess P2pSessionTimeout = True
 isSuccess _ = False
 
-instance Arbitrary P2pSessionResult where
-    arbitrary = oneof
-        [ pure P2pSessionResultSuccess
-        , pure P2pSessionResultFailure
-        , P2pSessionException <$> arbitrary
-        , pure P2pSessionTimeout
-        ]
-
 data P2pSessionInfo = P2pSessionInfo
     { _p2pSessionInfoId :: !T.Text
     , _p2pSessionInfoSource :: !PeerInfo
@@ -194,11 +189,6 @@ data P2pSessionInfo = P2pSessionInfo
     deriving anyclass (Hashable, ToJSON, FromJSON, NFData)
 
 makeLenses ''P2pSessionInfo
-
-instance Arbitrary P2pSessionInfo where
-    arbitrary = P2pSessionInfo
-        <$> arbitrary <*> arbitrary <*> arbitrary
-        <*> arbitrary <*> arbitrary <*> arbitrary
 
 -- -------------------------------------------------------------------------- --
 -- P2P Node State

@@ -23,7 +23,9 @@
 -- Maintainer: Lars Kuhtz <lars@kadena.io>
 -- Stability: experimental
 --
--- TODO
+-- The difficulty of a block. The difficulty is a measure for the expected work
+-- that is needed to mine a block. Formally it is defined as the maximum hash
+-- target value divided by the hash target for the block.
 --
 module Chainweb.Difficulty
 (
@@ -57,10 +59,6 @@ module Chainweb.Difficulty
 -- * Difficulty Adjustment
 , adjust
 , legacyAdjust
-
--- * Test Properties
-, properties
-, prop_littleEndian
 ) where
 
 import Control.DeepSeq
@@ -72,7 +70,6 @@ import Data.Aeson.Types (toJSONKeyText)
 import Data.Bits
 import Data.Bytes.Get
 import Data.Bytes.Put
-import qualified Data.ByteString as B
 import qualified Data.ByteString.Short as SB
 import Data.Coerce
 import Data.DoubleWord
@@ -81,8 +78,6 @@ import qualified Data.Text as T
 
 import GHC.Generics
 import GHC.TypeNats
-
-import Test.QuickCheck (Property, property)
 
 import Text.Printf (printf)
 
@@ -95,7 +90,7 @@ import Chainweb.Time (Micros(..), Seconds, TimeSpan(..))
 import Chainweb.Utils
 import Chainweb.Version
 
-import Data.Word.Encoding hiding (properties)
+import Data.Word.Encoding
 
 import Numeric.Additive
 
@@ -352,21 +347,3 @@ legacyAdjust v (WindowWidth ww) (TimeSpan delta) (HashTarget oldTarget) = newTar
     newTarget :: HashTarget
     newTarget = HashTarget . PowHashNat $ maxTargetWord `div` ceiling newDiff
 
--- -------------------------------------------------------------------------- --
--- Properties
-
-prop_littleEndian :: Bool
-prop_littleEndian = all run [1..31]
-  where
-    run i = (==) i
-        $ length
-        $ takeWhile (== 0x00)
-        $ reverse
-        $ B.unpack
-        $ runPutS
-        $ encodePowHashNat (maxBound `div` 2^(8*i))
-
-properties :: [(String, Property)]
-properties =
-    [ ("BlockHashNat is encoded as little endian", property prop_littleEndian)
-    ]

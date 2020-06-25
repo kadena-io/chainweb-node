@@ -9,7 +9,19 @@
 -- Maintainer: Lars Kuhtz <lars@kadena.io>
 -- Stability: experimental
 --
--- TODO
+-- A map for concurrent asynchronous task that can be awaited. Inserting a task
+-- for an existing key doesn't create a new task but instead returns an
+-- awaitable 'Async' handle to the existing task.
+--
+-- Task may depend on each other. It is up to the user to ensure to not create
+-- infinite cylces that may not terminate.
+--
+-- Task are not memoized beyond the completion of the task. Once a task finishes
+-- it is removed from the map. Computations that await the task still have
+-- access to the result, but new requests for the task will trigger a new
+-- exectuion. Therefore the methods from this module are best suited for long
+-- running operations that may be requested by serveral concurrent proceses
+-- roughly at the same time while the operation is running.
 --
 module Data.TaskMap
 ( TaskMap

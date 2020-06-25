@@ -342,10 +342,10 @@ nonGenesisTransaction logs initial rest target
         :: Either (Either String Transaction) (TxAccumulator Transaction)
         -> Either String (Maybe Transaction)
     fromShortCircuit (Right _) = pure Nothing
-    -- ^ Tx not found
+        -- Tx not found
     fromShortCircuit (Left (Left s)) = Left s
     fromShortCircuit (Left (Right tx)) = pure (Just tx)
-    -- ^ Tx found
+        -- Tx found
 
 
 -------------------------

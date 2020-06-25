@@ -20,7 +20,7 @@
 -- Maintainer: Lars Kuhtz <lars@kadena.io>
 -- Stability: experimental
 --
--- TODO
+-- Identifiers for Chainweb P2P networks.
 --
 module Chainweb.RestAPI.NetworkID
 ( NetworkId(..)
@@ -55,10 +55,6 @@ import qualified Data.Text as T
 
 import GHC.Generics (Generic)
 import GHC.Stack (HasCallStack)
-
-import Test.QuickCheck
-
-import Test.QuickCheck.Instances ()  -- Arbitrary V4.UUID
 
 -- Internal imports
 
@@ -116,13 +112,6 @@ instance HasTextRepresentation NetworkId where
 pNetworkId :: OptionParser NetworkId
 pNetworkId = textOption
     % long "network-id"
-
-instance Arbitrary NetworkId where
-    arbitrary = frequency
-        [ (1, pure CutNetwork)
-        , (5, ChainNetwork <$> arbitrary)
-        , (5, MempoolNetwork <$> arbitrary)
-        ]
 
 -- -------------------------------------------------------------------------- --
 -- Type Level Network Id

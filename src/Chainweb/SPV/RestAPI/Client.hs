@@ -12,7 +12,7 @@
 -- Maintainer: Lars Kuhtz <lars@kadena.io>
 -- Stability: experimental
 --
--- TODO
+-- Client implementation of the SPV REST API
 --
 module Chainweb.SPV.RestAPI.Client
 ( spvGetTransactionProofClient
