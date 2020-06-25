@@ -194,7 +194,9 @@ arbitraryBlockHashRecordVersionHeightChain v h cid
         <$> infiniteListOf arbitrary
     | otherwise = discard
   where
-    graph = chainGraphAt v (max 0 (h - 1))
+    graph
+        | h == genesisHeight v cid = chainGraphAt v h
+        | otherwise = chainGraphAt v (h - 1)
 
 arbitraryBlockHeaderVersion :: ChainwebVersion -> Gen BlockHeader
 arbitraryBlockHeaderVersion v = do

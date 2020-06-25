@@ -209,8 +209,8 @@ decodeBlockHashWithChainId = (,) <$!> decodeChainId <*> decodeBlockHash
 decodeBlockHashRecord :: MonadGet m => m BlockHashRecord
 decodeBlockHashRecord = do
     l <- getWord16le
-    hashes <- mapM (const decodeBlockHashWithChainId) [1 .. l]
-    return $! BlockHashRecord $! HM.fromList hashes
+    hashes <- replicateM (int l) decodeBlockHashWithChainId
+    return $ BlockHashRecord $! HM.fromList hashes
 
 decodeBlockHashWithChainIdChecked
     :: MonadGet m
