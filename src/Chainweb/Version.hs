@@ -762,8 +762,10 @@ twentyChainUpgrade
     -> ChainId
     -> BlockHeight
     -> Bool
-twentyChainUpgrade Development _ h = h == 1
-twentyChainUpgrade _ _ _ = error $ "TODO: set 20-chain upgrade block height"
+twentyChainUpgrade Mainnet01 _ _h = error $ "TODO: set 20-chain upgrade block height"
+twentyChainUpgrade Development _ h = h == 5 -- happens after v2 upgrade
+twentyChainUpgrade _ _ 1 = error $ "TODO: set 20-chain upgrade block height"
+twentyChainUpgrade _ _ _ = False
 
 -- | Preserve Pact bugs pre 1.6 chainweb version
 -- Mainnet 328000 ~ UTC Feb 20 15:36, EST Feb 20 10:56

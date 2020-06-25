@@ -209,6 +209,7 @@ genTxModules = void $ do
     genMainnetTxs
     genOtherTxs
     gen20ChainRemeds
+    gen20ChainUpgrades
     putStrLn "Done."
   where
     gen tag remeds = genTxModule tag $ upgrades <> remeds
@@ -222,8 +223,10 @@ genTxModules = void $ do
 
     genMainnetTxs = mapM_ genMain [0..9]
 
-    gen20ChainRemeds = gen ("MainnetKAD")
+    gen20ChainRemeds = genTxModule "MainnetKAD"
       ["pact/coin-contract/remediations/mainnet/remediations20chain.yaml"]
+
+    gen20ChainUpgrades = genTxModule "Mainnet20" upgrades
 
     upgrades = [ "pact/coin-contract/v2/load-fungible-asset-v2.yaml"
                , "pact/coin-contract/v2/load-coin-contract-v2.yaml"

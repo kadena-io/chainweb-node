@@ -21,6 +21,7 @@ import qualified Chainweb.Pact.Transactions.Mainnet7Transactions as MN7
 import qualified Chainweb.Pact.Transactions.Mainnet8Transactions as MN8
 import qualified Chainweb.Pact.Transactions.Mainnet9Transactions as MN9
 import qualified Chainweb.Pact.Transactions.MainnetKADTransactions as MNKAD
+import qualified Chainweb.Pact.Transactions.Mainnet20Transactions as MN20
 import qualified Chainweb.Pact.Transactions.DevelopmentTransactions as Devnet
 import qualified Chainweb.Pact.Transactions.OtherTransactions as Other
 
@@ -45,10 +46,12 @@ upgradeTransactions _ _ = Other.transactions
 twentyChainUpgradeTransactions :: ChainwebVersion -> ChainId -> IO [ChainwebTransaction]
 twentyChainUpgradeTransactions Mainnet01 cid = case chainIdInt @Int cid of
   0 -> MNKAD.transactions
-  c | c >= 1, c <= 19 -> return []
+  c | c >= 1, c <= 9 -> return [] -- no upgrades or remeds
+  c | c >= 10, c <= 19 -> MN20.transactions
   c -> internalError $ "Invalid mainnet chain id: " <> sshow c
 twentyChainUpgradeTransactions Development cid = case chainIdInt @Int cid of
-  0 -> MNKAD.transactions
-  c | c >= 1, c <= 19 -> return []
+  0 -> MNKAD.transactions -- remed + upgrades
+  c | c >= 1, c <= 9 -> return [] -- no upgrades or remeds
+  c | c >= 10, c <= 19 -> MN20.transactions -- just upgrades
   c -> internalError $ "Invalid devnet chain id: " <> sshow c
-twentyChainUpgradeTransactions _ _ = internalError "remediations: invalid chainweb version"
+twentyChainUpgradeTransactions _ _ = internalError "20-chain remediations: invalid chainweb version"
