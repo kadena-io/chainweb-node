@@ -67,14 +67,12 @@ module Chainweb.TreeDB
 , branchDiff_
 , collectForkBlocks
 , seekAncestor
+, seekLimitStream
 
 -- * Membership Queries
 , onLongestBranch
 , ancestorOf
 , ancestorOfEntry
-
--- * properties
-, properties
 ) where
 
 import Control.Arrow ((***))
@@ -107,12 +105,10 @@ import Prelude hiding (lookup)
 
 import qualified Streaming.Prelude as S
 
-import Test.QuickCheck
-
 -- internal modules
 
 import Chainweb.Utils hiding ((==>))
-import Chainweb.Utils.Paging hiding (properties)
+import Chainweb.Utils.Paging
 
 -- -------------------------------------------------------------------------- --
 -- Exceptions
@@ -614,22 +610,6 @@ seekStreamSet k (Just (Exclusive s))
     = S.dropWhile (\a -> k a `HS.member` s)
     . S.dropWhile (\a -> not (k a `HS.member` s))
 
-prop_seekLimitStream_limit :: [Int] -> Natural -> Property
-prop_seekLimitStream_limit l i = i <= len l ==> actual === expected
-    & cover 1 (i == len l) "limit == length of stream"
-    & cover 1 (i == 0) "limit == 0"
-    & cover 1 (null l) "length of stream == 0"
-  where
-    actual = runIdentity . S.toList $ seekLimitStream id Nothing (Just (Limit i)) (S.each l)
-    expected = take (int i) l :> (i, Eos (i >= len l))
-
-prop_seekLimitStream_id :: [Int] -> Property
-prop_seekLimitStream_id l = actual === expected
-    & cover 1 (null l) "len l == 0"
-  where
-    actual = runIdentity $ S.toList $ seekLimitStream id Nothing Nothing (S.each l)
-    expected = l :> (len l, Eos True)
-
 -- -------------------------------------------------------------------------- --
 -- The following functions are based on 'lookup' and are meant for the
 -- implementation of base layers in contexts with fast fast local db access.
@@ -939,11 +919,3 @@ onLongestBranch db h = do
     th <- maxEntry db
     ancestorOfEntry db h th
 
--- -------------------------------------------------------------------------- --
--- Properties
-
-properties :: [(String, Property)]
-properties =
-    [ ("seekLimitStream_limit", property prop_seekLimitStream_limit)
-    , ("seekLimitStream_id", property prop_seekLimitStream_id)
-    ]

@@ -57,7 +57,7 @@ testGetNewAdjacentParentHeaders v hdb = itraverse select . _getBlockHashRecord
         | otherwise = Right . ParentHeader <$> hdb (ChainValue cid h)
 
 testBlockHeader
-    :: HM.HashMap ChainId (Either BlockHash ParentHeader)
+    :: HM.HashMap ChainId ParentHeader
         -- ^ Adjacent parent hashes
     -> Nonce
         -- ^ Randomness to affect the block hash

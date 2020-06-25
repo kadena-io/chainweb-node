@@ -8,7 +8,7 @@
 -- Maintainer: Lars Kuhtz <lars@kadena.io>
 -- Stability: experimental
 --
--- TODO
+-- A noop coin base for genesis transactions and testing purposes.
 --
 module Chainweb.Pact.NoCoinbase
 ( noCoinbase

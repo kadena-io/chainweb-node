@@ -106,7 +106,7 @@ import Chainweb.ChainId
 import Chainweb.RestAPI.Orphans ()
 import Chainweb.RestAPI.Utils
 import Chainweb.TreeDB
-import Chainweb.Utils.Paging hiding (properties)
+import Chainweb.Utils.Paging
 import Chainweb.Version
 
 -- -------------------------------------------------------------------------- --

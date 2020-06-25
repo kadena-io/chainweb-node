@@ -15,7 +15,9 @@
 -- Maintainer: Lars Kuhtz <lars@kadena.io>
 -- Stability: experimental
 --
--- TODO
+-- The Merkle Universe for the Chainweb Merkle Tree. One must define a
+-- 'ChainwebHashTag' for every type that appears as a node in the Chainweb
+-- Merkle Tree.
 --
 module Chainweb.MerkleUniverse
 ( ChainwebHashTag(..)

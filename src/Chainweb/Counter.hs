@@ -21,7 +21,7 @@
 -- Maintainer: Lars Kuhtz <lars@kadena.io>
 -- Stability: experimental
 --
--- TODO
+-- Tools for counting events and logging the results.
 --
 module Chainweb.Counter
 ( Counter

@@ -166,7 +166,11 @@ newWork logFun choice eminer hdb pact tpw c = do
 
     mr <- case eminer of
         Primed m -> primed m cid <$> readTVarIO tpw
-        Plebian m -> public m cid
+        Plebian m -> do
+            logFun @T.Text Debug
+                $ "newWork: call getCutExtension for chain "
+                <> sshow cid <> " on cut " <> cutIdToTextShort (_cutId c)
+            public m cid
     case mr of
         Nothing -> do
             logFun @T.Text Debug $ "newWork: chain " <> sshow cid <> " not mineable"
@@ -197,6 +201,11 @@ newWork logFun choice eminer hdb pact tpw c = do
                 <> " Cuthashes: " <> encodeToText (cutToCutHashes Nothing c)
             pure Nothing
         Just ext -> do
+            logFun @T.Text Debug
+                $ "newWork.public: got extension."
+                <> " Parent: " <> encodeToText (ObjectEncoded $ _parentHeader $ _cutExtensionParent ext)
+                <> " Adjacents: " <> encodeToText (_cutExtensionAdjacentHashes ext)
+                <> " Cuthashes: " <> encodeToText (cutToCutHashes Nothing (_cutExtensionCut ext))
             -- This is an expensive call --
             payload <- trace logFun "Chainweb.Miner.Coordinator.newWork.newBlock" () 1
                 (_pactNewBlock pact miner $ _cutExtensionParent ext)

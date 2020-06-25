@@ -18,7 +18,8 @@
 -- Maintainer: Lars Kuhtz <lars@kadena.io>
 -- Stability: experimental
 --
--- TODO
+-- Node Id of a P2P node. This module is deprecated and will be removed
+-- in a future version of chainweb.
 --
 module Chainweb.NodeId
 (
@@ -45,8 +46,6 @@ import Data.Word
 
 import GHC.Generics
 
-import Test.QuickCheck
-
 -- internal imports
 
 import Chainweb.Utils
@@ -59,7 +58,6 @@ newtype NodeId = NodeId
     }
     deriving stock (Show, Read, Eq, Ord, Generic)
     deriving anyclass (Hashable, NFData, FromJSON, ToJSON)
-    deriving newtype (Arbitrary)
 
 makeLenses ''NodeId
 

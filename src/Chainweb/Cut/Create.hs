@@ -33,7 +33,6 @@
 -- 9. Submit cut hashes (along with attached new header and payload) to cut
 --    validation pipeline.
 --
---
 module Chainweb.Cut.Create
 (
 -- * Cut Extension
@@ -82,7 +81,6 @@ import GHC.Stack
 import Chainweb.BlockCreationTime
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
-import Chainweb.BlockHeader.Genesis
 import Chainweb.BlockHeader.Validation
 import Chainweb.BlockHeight
 import Chainweb.ChainValue
@@ -107,6 +105,7 @@ data CutExtension = CutExtension
     , _cutExtensionParent' :: !ParentHeader
     , _cutExtensionAdjacentHashes' :: !BlockHashRecord
     }
+    deriving (Show, Eq, Generic)
 
 makeLenses ''CutExtension
 
@@ -139,21 +138,19 @@ instance HasChainwebVersion CutExtension where
 -- | Witness that a cut can be extended for the given chain by trying to
 -- assemble the adjacent hashes for a new work header.
 --
--- If there is a graph change the adajacent parents on the new chains are the
--- genesis parents.
+-- Generally, adajacent validation uses the graph of the parent header. This
+-- ensures that during a graph transition the current header and all
+-- dependencies use the same graph and the inductive validation step works
+-- without special cases. Genesis headers don't require validation, because they
+-- are hard-coded. Only in the first step after the transition, the dependencies
+-- have a different graph. But at this point all dependencies exist.
 --
--- Graph changes add some complexity to this function. There are three cases:
---
--- 1. This is a transition cut, i.e. the cut contains block headers with
---    different graphs. In this case we wait until all chains transitions to the
---    new graph before add the genesis blocks for the new chains and move ahead.
---
--- 2. This is a transition step (parentGraph /= targetGraph). Only do the step
---    when new /and/ old adjacents headers are available. The old dependencies
---    are not used but are needed to guarantee that the cut can extended on
---    other chains.
---
--- 3. This is a "normal" transition.
+-- A transition cut is a cut where the graph of minimum height header is
+-- different than the graph of the header of maximum height. If this is a
+-- transition cut, i.e. the cut contains block headers with different graphs, we
+-- wait until all chains transitions to the new graph before add the genesis
+-- blocks for the new chains and move ahead. So steps in the new graph are not
+-- allowed.
 --
 -- TODO: it is important that the semantics of this function corresponds to the
 -- respective validation in the module "Chainweb.Cut", in particular
@@ -171,16 +168,12 @@ getCutExtension
     -> Maybe CutExtension
 getCutExtension c cid = do
 
-    -- In a graph transition we wait for all chains to do the transition
-    -- to the new graph before moving ahead.
+    -- In a graph transition we wait for all chains to do the transition to the
+    -- new graph before moving ahead.
+    --
     guard (not $ isGraphTransitionCut && isGraphTransitionPost)
 
-    -- If this is a graph transition step we have to check braiding for the
-    -- old /and/ the new graph.
-    when isGraphTransitionPre (void $ newAdjHashes parentGraph)
-
-    -- Finally, compute the adjacent hashes for the target graph.
-    as <- BlockHashRecord <$> newAdjHashes targetGraph
+    as <- BlockHashRecord <$> newAdjHashes parentGraph
 
     return CutExtension
         { _cutExtensionCut' = c
@@ -193,8 +186,6 @@ getCutExtension c cid = do
     parentHeight = _blockHeight p
     targetHeight = parentHeight + 1
     parentGraph = chainGraphAt_ p parentHeight
-    targetGraph = chainGraphAt_ p targetHeight
-    isGraphTransitionPre = isGraphChange c targetHeight
     isGraphTransitionPost = isGraphChange c parentHeight
     isGraphTransitionCut = isTransitionCut c
 
@@ -209,8 +200,10 @@ getCutExtension c cid = do
     hashForChain acid
         -- existing chain
         | Just b <- lookupCutM acid c = tryAdj b
-        -- new chain after graph transition
-        | targetHeight == genesisHeight v acid = Just $ genesisParentBlockHash v acid
+        | targetHeight == genesisHeight v acid = error $ T.unpack
+            $ "getAdjacentParents: invalid cut extension, requested parent of a genesis block for chain "
+            <> sshow acid
+            <> ". Parent: " <> encodeToText (ObjectEncoded p)
         | otherwise = error $ T.unpack
             $ "getAdjacentParents: invalid cut, can't find adjacent hash for chain "
             <> sshow acid
@@ -336,21 +329,18 @@ getAdjacentParentHeaders
     => Applicative m
     => (ChainValue BlockHash -> m BlockHeader)
     -> CutExtension
-    -> m (HM.HashMap ChainId (Either BlockHash ParentHeader))
+    -> m (HM.HashMap ChainId ParentHeader)
 getAdjacentParentHeaders hdb extension
     = itraverse select
     . _getBlockHashRecord
     $ _cutExtensionAdjacentHashes extension
   where
-    ver = _chainwebVersion c
     c = _cutExtensionCut extension
 
     select cid h = case c ^? ixg cid of
-        Just ch -> Right . ParentHeader <$> if _blockHash ch == h
+        Just ch -> ParentHeader <$> if _blockHash ch == h
             then pure ch
             else hdb (ChainValue cid h)
-
-        Nothing | h == genesisParentBlockHash ver cid -> Left <$> pure h
 
         Nothing -> error $ T.unpack
             $ "Chainweb.Cut.Create.getAdjacentParentHeaders: inconsistent cut extension detected"
@@ -436,6 +426,4 @@ extendCut c ph (SolvedWork bh) = do
         -- If the `BlockHeader` is already stale and can't be appended to the
         -- best `Cut`, Nothing is returned
         --
-        -- (bh,) <$> tryMonotonicCutExtension c bh
         (bh,) <$> tryMonotonicCutExtension c bh
-        -- return (bh, Just $ c & ix (_chainId bh) .~ bh)

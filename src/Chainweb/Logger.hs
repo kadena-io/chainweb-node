@@ -15,7 +15,7 @@
 -- Maintainer: Lars Kuhtz <lars@kadena.io>
 -- Stability: experimental
 --
--- TODO
+-- Chainweb Logger and logging tools.
 --
 module Chainweb.Logger
 ( Logger

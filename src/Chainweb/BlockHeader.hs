@@ -273,6 +273,8 @@ slowEpoch (ParentHeader p) (BlockCreationTime ct) = actual > (expected * 5)
 powTarget
     :: ParentHeader
         -- ^ parent header
+    -> HM.HashMap ChainId ParentHeader
+        -- ^ adjacent Parents
     -> BlockCreationTime
         -- ^ block creation time of new block
         --
@@ -280,7 +282,7 @@ powTarget
         --
     -> HashTarget
         -- ^ POW target of new block
-powTarget p@(ParentHeader ph) bct = case effectiveWindow ph of
+powTarget p@(ParentHeader ph) as bct = case effectiveWindow ph of
     Nothing -> maxTarget
     Just w
         -- A special case for starting a new devnet. Using maxtarget results in
@@ -292,11 +294,10 @@ powTarget p@(ParentHeader ph) bct = case effectiveWindow ph of
 
         -- Emergency DA, legacy
         | slowEpochGuard ver (_blockHeight ph) && slowEpoch p bct ->
-            adjust ver w (t .-. _blockEpochStart ph) (_blockTarget ph)
+            activeAdjust w
 
         -- End of epoch
-        | isLastInEpoch ph ->
-            adjust ver w (t .-. _blockEpochStart ph) (_blockTarget ph)
+        | isLastInEpoch ph -> activeAdjust w
 
         | otherwise -> _blockTarget ph
   where
@@ -305,6 +306,24 @@ powTarget p@(ParentHeader ph) bct = case effectiveWindow ph of
         else _bct (_blockCreationTime ph)
     ver = _chainwebVersion p
     cid = _chainId p
+
+    activeAdjust w
+        | oldDaGuard ver (_blockHeight ph + 1)
+            = legacyAdjust ver w (t .-. _blockEpochStart ph) (_blockTarget ph)
+        | otherwise
+            = avgTarget $ adjustForParent w <$> (p : HM.elems as)
+        --  | otherwise
+        --    = adjust ver w (t .-. _blockEpochStart ph) (_blockTarget ph)
+
+    adjustForParent w (ParentHeader a)
+        = adjust ver w (toEpochStart a .-. _blockEpochStart a) (_blockTarget a)
+
+    toEpochStart = EpochStartTime . _bct . _blockCreationTime
+
+    avgTarget targets = HashTarget $ floor $ s / int (length targets)
+      where
+        s = sum $ fmap (int @_ @Rational . _hashTarget) targets
+
 {-# INLINE powTarget #-}
 
 -- | Compute the epoch start value for a new BlockHeader
@@ -344,41 +363,73 @@ epochStart ph@(ParentHeader p) adj (BlockCreationTime bt)
 
     -- End of epoch, DA adjustment
     | isLastInEpoch p = EpochStartTime (_bct $ _blockCreationTime p)
+        -- TODO should this be the average?
 
-    -- Within epoch but before fixed epoch start guard
-    | fixedEpochStartGuard ver (_blockHeight p + 1) = _blockEpochStart p
-    -- Within an epoch when legacy 'fixedEpochStartGuard' does not apply
-    | otherwise = _blockEpochStart p .+^ timeBlocked
+    -- Within epoch with old legacy DA
+    | oldDaGuard ver (_blockHeight p + 1) = _blockEpochStart p
+
+    -- Within an epoch with new DA
+    | otherwise = _blockEpochStart p
+
+    -- Experimental, allow DA to support multiple hash functions
+    --  | otherwise = _blockEpochStart p .+^ _adjustmentAvg
   where
     ver = _chainwebVersion p
     cid = _chainId p
 
-    -- 1. timeBlock < _blockCreationTime h .-. _blockCreationTime p
-    --    and thus, epochStart < _blockCreationTime p
+    -- Add a penalty for fast chains by adding the different between the
+    -- creation time of the current chain and the maximum of the adjacent chains
+    -- to the epoch start time. By shortening the epoch DA is going to adjust to
+    -- a higher difficulty.
     --
-    -- 2. this can only increase difficulty but not reduce difficulty compared
-    --    to the slowest chain.
+    -- This DA has the disadvantage, that it adjusts to a block rate that is
+    -- smaller than the targeted blockrate, because with high probablity all
+    -- chains are receiving some positive penalty.
     --
-    -- 3. Difficulty adjustment for the slowest chain is just like difficulty
-    --    adjustment without timeBlocked, assuming that the slowest chain is
-    --    always the slowest chain.
+    -- Properties of DA:
     --
-    -- 4. Assuming that not a single chain is always the slowest difficulty
-    --    adjustement is will adjust for somewhat higher difficulty than
-    --    targeted and thus for a blockrate that is slower than the target.
+    -- * Requires that miners set creation time >0.5 of solve time.
+    -- * Requires correction factor for targeted block rate.
+    -- * Can handle non continuous non uniform distribution of hash power
+    --   accross chains.
     --
-    --    How can we adjust for that?
-    --
-    --    a) using a constant factor that is based on properties of the
-    --       geometric distribution.
-    --    b) adjusting timeBlocked in both directions, possibly based off the
-    --       avg?
-    --
-    timeBlocked = maximum adjCreationTimes .-. _blockCreationTime p
+    _adjustmentMax = maximum adjCreationTimes .-. _blockCreationTime p
         -- the maximum is at least @_blockCreationTime p@ and thus the result is
         -- greater or equal 0.
 
-    adjCreationTimes = _blockCreationTime . _parentHeader <$> HM.insert cid ph adj
+    -- This computes @mean adjCreationTimes - _blockCreationTime p
+    --
+    -- It holds that
+    --
+    -- \(\left(mean_{0 \leq i < n} a_i\right)
+    -- = \frac{\sum_{0 \leq i < n} a_i}{n} - t
+    -- = \frac{\left(sum_{0 \leq i < n} a_i\right) - \left(\sum_{0 \leq i < n} t\right)}{n}
+    -- = \frac{sum_{0 \leq i < n} (a_i - t)}{n}
+    -- \)
+    --
+    -- this is numberically sound because we compute the differences on integral
+    -- types without rounding.
+    --
+    -- Properties of DA:
+    --
+    -- * Requires that miners set creation time >0.5 of solve time
+    -- * Can handle non continuous non uniform distribution of hash power
+    --   accross chains.
+    --
+    _adjustmentAvg = x `divTimeSpan` length adjCreationTimes
+      where
+        x :: TimeSpan Micros
+        x = foldr1 addTimeSpan $ (.-. _blockCreationTime p) <$> adjCreationTimes
+
+    -- This includes the parent header itself, but excludes any adjacent genesis
+    -- headers which usually don't have accurate creation time.
+    --
+    -- The result is guaranteed to be non-empty
+    --
+    adjCreationTimes = fmap (_blockCreationTime)
+        $ HM.insert cid (_parentHeader ph)
+        $ HM.filter (not . isGenesisBlockHeader)
+        $ fmap _parentHeader adj
 
     parentIsFirstOnNewChain
         = _blockHeight p > 1 && _blockHeight p == genesisHeight ver cid + 1
@@ -543,6 +594,11 @@ data BlockHeader :: Type where
         deriving (Show, Generic)
         deriving anyclass (NFData)
 
+isGenesisBlockHeader :: BlockHeader -> Bool
+isGenesisBlockHeader b =
+    _blockHeight b == genesisHeight (_blockChainwebVersion b) (_blockChainId b)
+{-# INLINE isGenesisBlockHeader #-}
+
 instance Eq BlockHeader where
      (==) = (==) `on` _blockHash
      {-# INLINE (==) #-}
@@ -628,7 +684,7 @@ instance HasMerkleLog ChainwebHashTag BlockHeader where
             , _blockChainwebVersion = cwv
             , _blockEpochStart = es
             , _blockNonce = nonce
-            , _blockAdjacentHashes = blockHashRecordFromVector (cwv, height) cid adjParents
+            , _blockAdjacentHashes = blockHashRecordFromVector adjGraph cid adjParents
             }
       where
         ( flags
@@ -644,6 +700,10 @@ instance HasMerkleLog ChainwebHashTag BlockHeader where
             :+: nonce
             :+: MerkleLogBody adjParents
             ) = _merkleLogEntries l
+
+        adjGraph
+            | height == genesisHeight cwv cid = chainGraphAt cwv height
+            | otherwise = chainGraphAt cwv (height - 1)
 
 encodeBlockHeaderWithoutHash
     :: MonadPut m
@@ -787,11 +847,6 @@ computeBlockHash :: BlockHeader -> BlockHash
 computeBlockHash h = BlockHash $ MerkleLogHash $ computeMerkleLogRoot h
 {-# INLINE computeBlockHash #-}
 
-isGenesisBlockHeader :: BlockHeader -> Bool
-isGenesisBlockHeader b =
-    _blockHeight b == genesisHeight (_blockChainwebVersion b) (_blockChainId b)
-{-# INLINE isGenesisBlockHeader #-}
-
 -- | The Proof-Of-Work hash includes all data in the block except for the
 -- '_blockHash'. The value (interpreted as 'BlockHashNat' must be smaller than
 -- the value of '_blockTarget' (interpreted as 'BlockHashNat').
@@ -913,11 +968,8 @@ hashPayload v cid b = BlockPayloadHash $ MerkleLogHash
 -- but might be worth it!
 --
 newBlockHeader
-    :: HM.HashMap ChainId (Either BlockHash ParentHeader)
-        -- ^ Adjacent parent hashes. In case of a graph change it can happen
-        -- that some adjacent parents are the parent hashes of genesis blocks,
-        -- in which case the header doesn't exist and only the block hash is
-        -- provided.
+    :: HM.HashMap ChainId ParentHeader
+        -- ^ Adjacent parent hashes.
     -> BlockPayloadHash
         -- ^ payload hash
     -> Nonce
@@ -938,15 +990,14 @@ newBlockHeader adj pay nonce t p@(ParentHeader b) = fromLog $ newMerkleLog
     :+: _blockWeight b + BlockWeight (targetToDifficulty target)
     :+: _blockHeight b + 1
     :+: v
-    :+: epochStart p adjParents t
+    :+: epochStart p adj t
     :+: nonce
     :+: MerkleLogBody (blockHashRecordToVector adjHashes)
   where
     cid = _chainId p
     v = _chainwebVersion p
-    target = powTarget p t
-    adjHashes = BlockHashRecord $ either id (_blockHash . _parentHeader) <$> adj
-    adjParents = HM.mapMaybe (either (const Nothing) Just) adj
+    target = powTarget p adj t
+    adjHashes = BlockHashRecord $ (_blockHash . _parentHeader) <$> adj
 
 -- -------------------------------------------------------------------------- --
 -- TreeDBEntry instance

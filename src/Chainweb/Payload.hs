@@ -21,7 +21,11 @@
 -- Maintainer: Lars Kuhtz <lars@kadena.io>
 -- Stability: experimental
 --
--- TODO
+-- Block payloads in the format as they are stored in the Chainweb Merkle tree.
+--
+-- The format abstracts from the smart contract language. I.e. it does not
+-- depend on any Pact data structure. The reason for this is to allow changes to
+-- Pact without breaking the Merkle tree.
 --
 module Chainweb.Payload
 (

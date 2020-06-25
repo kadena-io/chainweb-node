@@ -359,7 +359,7 @@ avgBlockHeightAtCutHeight :: HasChainwebVersion v => v -> CutHeight -> Double
 avgBlockHeightAtCutHeight v h = int h / int (chainCountAtCutHeight v h)
 {-# INLINE avgBlockHeightAtCutHeight #-}
 
--- | The number global number of blocks that exist at the given cut height.
+-- | The global number of blocks that exist at the given cut height.
 --
 -- Note, that the result isn't accurate for block heights around a chain graph
 -- change.
