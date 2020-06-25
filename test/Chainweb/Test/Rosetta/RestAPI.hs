@@ -9,7 +9,8 @@ module Chainweb.Test.Rosetta.RestAPI
 ) where
 
 
-
+import Control.Concurrent.Async
+import Control.Concurrent.MVar
 import Control.Lens
 
 import qualified Data.Aeson as A
@@ -17,6 +18,7 @@ import Data.Functor (void)
 import qualified Data.HashMap.Strict as HM
 import Data.IORef
 import Data.List (union)
+import qualified Data.List.NonEmpty as NEL
 import Data.Text (Text)
 import Data.Foldable
 
@@ -93,6 +95,8 @@ tests rdb = testGroup "Chainweb.Test.Rosetta.RestAPI" go
       , networkStatusTests
       ]
 
+-- | Rosetta account balance endpoint tests
+--
 accountBalanceTests :: RosettaTest
 accountBalanceTests tio envIo = testCaseSteps "Account Balance Lookup" $ \step -> do
     step "check initial balance"
@@ -117,6 +121,8 @@ accountBalanceTests tio envIo = testCaseSteps "Account Balance Lookup" $ \step -
       b1 @=? b0
       curr @=? kda
 
+-- | Rosetta block transaction endpoint tests
+--
 blockTransactionTests :: RosettaTest
 blockTransactionTests tio envIo =
     testCaseSteps "Block Transaction Tests" $ \step -> do
@@ -129,6 +135,8 @@ blockTransactionTests tio envIo =
   where
     req = BlockTransactionReq nid genesisId genesisTxId
 
+-- | Rosetta block endpoint tests
+--
 blockTests :: RosettaTest
 blockTests tio envIo = testCaseSteps "Block Tests" $ \step -> do
     step "fetch genesis block"
@@ -158,18 +166,54 @@ blockTests tio envIo = testCaseSteps "Block Tests" $ \step -> do
         Just (A.Object o) -> return o
         _ -> assertFailure "test transfer did not succeed"
 
+-- | Rosetta construction submit endpoint tests (i.e. tx submission directly to mempool)
+--
 constructionSubmitTests :: RosettaTest
 constructionSubmitTests tio envIo =
     testCaseSteps "Construction Submit Tests" $ \step -> return ()
 
+-- | Rosetta mempool transaction endpoint tests
+--
 mempoolTransactionTests :: RosettaTest
-mempoolTransactionTests tio envIo =
-    testCaseSteps "Mempool Transaction Tests" $ \step -> return ()
+mempoolTransactionTests tio envIo = testCaseSteps "Mempool Transaction Tests" $ \step -> do
+    cenv <- envIo
+    rkmv <- newEmptyMVar @RequestKeys
 
+    step "execute transfer and wait on mempool data"
+    a <- async $ transferOneAsync tio cenv (putMVar rkmv)
+    MempoolResp [tid] <- repeatUntil test $ do
+      RequestKeys (rk NEL.:| []) <- _rkRequestKeys <$> takeMVar rkmv
+      mempoolTransaction cenv req (req rk)
+
+    step "compare requestkey against transaction id"
+    rk NEL.:| [] <- _rkRequestKeys <$> takeMVar rkmv
+    show rk @=? show (_transactionId_hash tid)
+  where
+    req = MempoolReq nid
+
+-- | Rosetta mempool endpoint tests
+--
 mempoolTests :: RosettaTest
-mempoolTests tio envIo =
-    testCaseSteps "Mempool Tests" $ \step -> return ()
+mempoolTests tio envIo = testCaseSteps "Mempool Tests" $ \step -> do
+    cenv <- envIo
+    rkmv <- newEmptyMVar @RequestKeys
 
+    step "execute transfer and wait on mempool data"
+    a <- async $ transferOneAsync tio cenv (putMVar rkmv)
+
+    let test (MempoolResp [xs]) = return True
+        test (MempoolResp _) = return False
+
+    MempoolResp [tid] <- repeatUntil test $ mempool cenv req
+
+    step "compare requestkey against transaction id"
+    rk NEL.:| [] <- _rkRequestKeys <$> takeMVar rkmv
+    show rk @=? show (_transactionId_hash tid)
+  where
+    req = MempoolReq nid
+
+-- | Rosetta network list endpoint tests
+--
 networkListTests :: RosettaTest
 networkListTests _ envIo = testCaseSteps "Network List Tests" $ \step -> do
     cenv <- envIo
@@ -185,6 +229,8 @@ networkListTests _ envIo = testCaseSteps "Network List Tests" $ \step -> do
   where
     req = MetadataReq Nothing
 
+-- | Rosetta network options tests
+--
 networkOptionsTests :: RosettaTest
 networkOptionsTests _ envIo = testCaseSteps "Network Options Tests" $ \step -> do
     cenv <- envIo
@@ -215,6 +261,8 @@ networkOptionsTests _ envIo = testCaseSteps "Network Options Tests" $ \step -> d
     respErrors = _allow_errors . _networkOptionsResp_allow
     allowedOperations = _operationStatus_status <$> operationStatuses
 
+-- | Rosetta network status tests
+--
 networkStatusTests :: RosettaTest
 networkStatusTests tio envIo = testCaseSteps "Network Status Tests" $ \step -> do
     cenv <- envIo
@@ -327,6 +375,36 @@ transferOne tio cenv = do
 --
 transferOne_ :: IO (Time Micros) -> ClientEnv -> IO ()
 transferOne_ tio cenv = void $! transferOne tio cenv
+
+-- | Transfer one token from sender00 to sender01, polling for responses
+--
+transferOneAsync
+    :: IO (Time Micros)
+    -> ClientEnv
+    -> (RequestKeys -> IO ())
+    -> IO ()
+transferOneAsync tio cenv callback = do
+    batch0 <- mkTransfer
+    rks <- sending cid cenv batch0
+    void $! callback rks
+  where
+    mkTransfer = do
+      t <- toTxCreationTime <$> tio
+      n <- readIORef nonceRef
+      c <- buildTextCmd
+        $ set cbSigners
+          [ mkSigner' sender00
+            [ mkTransferCap "sender00" "sender01" 1.0
+            , mkGasCap
+            ]
+          ]
+        $ set cbCreationTime t
+        $ set cbNetworkId (Just v)
+        $ mkCmd ("nonce-transfer-" <> sshow t <> "-" <> sshow n)
+        $ mkExec' "(coin.transfer \"sender00\" \"sender01\" 1.0)"
+
+      modifyIORef' nonceRef (+1)
+      return $ SubmitBatch (pure c)
 
 -- ------------------------------------------------------------------ --
 -- Utils

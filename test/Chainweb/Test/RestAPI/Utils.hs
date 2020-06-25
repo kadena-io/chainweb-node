@@ -8,6 +8,8 @@ module Chainweb.Test.RestAPI.Utils
   testRetryPolicy
   -- * Debugging
 , debug
+  -- * Utils
+, repeatUntil
   -- * Pact client DSL
 , PactTestFailure(..)
 , PollingExpectation(..)
@@ -97,6 +99,13 @@ data PactTestFailure
     deriving Show
 
 instance Exception PactTestFailure
+
+-- | Retry an IO action until it satisfies a predicate
+--
+repeatUntil :: (a -> IO Bool) -> IO a -> IO a
+repeatUntil test action = retrying testRetryPolicy
+    (\_ b -> not <$> test b)
+    (const action)
 
 -- | Calls to /local via the pact local api client with retry
 --
