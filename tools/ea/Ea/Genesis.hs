@@ -33,8 +33,10 @@ module Ea.Genesis
 , mainnetKAD
 
   -- * Coin Contract genesis
-, coinContract
-, fungibleAsset
+, coinContractV1
+, coinContractV2
+, fungibleAssetV1
+, fungibleAssetV2
 , gasPayer
 ) where
 
@@ -123,14 +125,20 @@ coinbase = lens _coinbase (\t b -> t { _coinbase = b })
 -- ---------------------------------------------------------------------- --
 --  Coin Contract Essentials
 
-coinContract :: FilePath
-coinContract = "pact/coin-contract/load-coin-contract.yaml"
+coinContractV1 :: FilePath
+coinContractV1 = "pact/coin-contract/load-coin-contract.yaml"
 
-fungibleAsset :: FilePath
-fungibleAsset = "pact/coin-contract/load-fungible-asset.yaml"
+fungibleAssetV1 :: FilePath
+fungibleAssetV1 = "pact/coin-contract/load-fungible-asset.yaml"
 
 gasPayer :: FilePath
 gasPayer = "pact/gas-payer/load-gas-payer.yaml"
+
+coinContractV2 :: FilePath
+coinContractV2 = "pact/coin-contract/v2/load-coin-contract-v2.yaml"
+
+fungibleAssetV2 :: FilePath
+fungibleAssetV2 = "pact/coin-contract/v2/load-fungible-asset-v2.yaml"
 
 -- ---------------------------------------------------------------------- --
 -- Devnet - Development
@@ -153,6 +161,7 @@ developmentN = development0
 
 developmentKAD :: Genesis
 developmentKAD = development0
+    & allocations .~ Nothing
     & txChainId .~ KAD
     & coinbase .~ (Just mainnetKadOps)
 
@@ -301,6 +310,7 @@ mainnet9 = mainnet0
 
 mainnetKAD :: Genesis
 mainnetKAD = mainnet0
+    & allocations .~ Nothing
     & txChainId .~ KAD
     & coinbase .~ (Just mainnetKadOps)
 

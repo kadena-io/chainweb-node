@@ -24,7 +24,7 @@
 --
 -- Eä means "to be" in Quenya, the ancient language of Tolkien's elves.
 --
-module Ea ( main, genTxModules ) where
+module Ea ( main, genTxModules, gen20ChainPayloads ) where
 
 import Control.Lens (set)
 
@@ -82,7 +82,6 @@ main = void $ do
   where
     devnet = mkPayloads
       [ development0
-      , developmentKAD
       , developmentN
       ]
     fastnet = mkPayloads [fastTimedCPM0, fastTimedCPMN]
@@ -98,8 +97,13 @@ main = void $ do
       , mainnet7
       , mainnet8
       , mainnet9
-      , mainnetKAD
       ]
+
+show_ :: GChainId -> String
+show_ = \case
+    N -> "all chains"
+    KAD -> "chains 10-19"
+    n -> "Chain " <> show n
 
 -- | Generate paylaods for a traversable of txs
 --
@@ -113,17 +117,24 @@ mkPayload (Genesis v tag cid c k a ns) = do
     printf ("Generating Genesis Payload for %s on " <> show_ cid <> "...\n") $ show v
     genPayloadModule v (tag <> sshow cid) txs
   where
-    show_ = \case
-      N -> "all chains"
-      KAD -> "chains 10-19"
-      n -> "Chain " <> show n
     -- coin contract genesis txs
     cc :: [FilePath]
-    cc = [fungibleAsset, coinContract, gasPayer]
+    cc = [fungibleAssetV1, coinContractV1, gasPayer]
     -- final tx list.
     -- NB: this is position-sensitive data.
     txs :: [FilePath]
     txs = cc <> toList ns <> toList k <> toList a <> toList c
+
+
+gen20ChainPayloads :: IO ()
+gen20ChainPayloads = traverse_ mk20ChainPayload [developmentKAD, mainnetKAD]
+  where
+    mk20ChainPayload (Genesis v tag cid c k a ns) = do
+      let cc = [fungibleAssetV1, fungibleAssetV2, coinContractV2, gasPayer]
+          txs = cc <> toList ns <> toList k <> toList a <> toList c
+
+      printf ("Generating Genesis 20-chain payload for %s on " <> show_ cid <> "...\n") $ show v
+      genPayloadModule v (tag <> sshow cid) txs
 
 ---------------------
 -- Payload Generation
@@ -209,7 +220,6 @@ genTxModules = void $ do
     genMainnetTxs
     genOtherTxs
     gen20ChainRemeds
-    gen20ChainUpgrades
     putStrLn "Done."
   where
     gen tag remeds = genTxModule tag $ upgrades <> remeds
@@ -226,11 +236,7 @@ genTxModules = void $ do
     gen20ChainRemeds = genTxModule "MainnetKAD"
       ["pact/coin-contract/remediations/mainnet/remediations20chain.yaml"]
 
-    gen20ChainUpgrades = genTxModule "Mainnet20" upgrades
-
-    upgrades = [ "pact/coin-contract/v2/load-fungible-asset-v2.yaml"
-               , "pact/coin-contract/v2/load-coin-contract-v2.yaml"
-               ]
+    upgrades = [coinContractV2, fungibleAssetV2]
 
 genTxModule :: Text -> [FilePath] -> IO ()
 genTxModule tag txFiles = do
