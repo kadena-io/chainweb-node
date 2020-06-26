@@ -6,11 +6,13 @@
 module Chainweb.Test.RestAPI.Utils
 ( -- * Retry Policies
   testRetryPolicy
-, fastRetryPolicy
+
   -- * Debugging
 , debug
+
   -- * Utils
 , repeatUntil
+
   -- * Pact client DSL
 , PactTestFailure(..)
 , PollingExpectation(..)
@@ -19,6 +21,7 @@ module Chainweb.Test.RestAPI.Utils
 , spv
 , sending
 , polling
+
   -- * Rosetta client DSL
 , RosettaTestException(..)
 , accountBalance
@@ -27,7 +30,6 @@ module Chainweb.Test.RestAPI.Utils
 , constructionMetadata
 , constructionSubmit
 , mempoolTransaction
-, mempoolTransactionWithFastRetry
 , mempool
 , networkOptions
 , networkList
@@ -87,23 +89,6 @@ testRetryPolicy = stepped <> limitRetries 150
       1 -> Just 50_000
       2 -> Just 100_000
       _ -> Just 250_000
-
--- | Backoff up to a constant 25ms, limiting to 12s
---
-fastRetryPolicy :: RetryPolicy
-fastRetryPolicy = fastSteps <> limitRetries 500
-  where
-    fastSteps = retryPolicy $ \rs -> case rsIterNumber rs of
-      0 -> Just 100
-      1 -> Just 200
-      2 -> Just 300
-      3 -> Just 400
-      4 -> Just 500
-      5 -> Just 600
-      6 -> Just 700
-      7 -> Just 800
-      8 -> Just 900
-      _ -> Just 25_000
 
 -- ------------------------------------------------------------------ --
 -- Pact api client utils w/ retry
@@ -362,24 +347,6 @@ mempoolTransaction
     -> IO MempoolTransactionResp
 mempoolTransaction cenv req =
     recovering testRetryPolicy [h] $ \s -> do
-    debug
-      $ "requesting mempool transaction for " <> (show req)
-      <> " [" <> show (view rsIterNumberL s) <> "]"
-
-    runClientM (rosettaMempoolTransactionApiClient v req) cenv >>= \case
-      Left e -> throwM $ MempoolTransactionFailure (show e)
-      Right t -> return t
-  where
-    h _ = Handler $ \case
-      MempoolTransactionFailure _ -> return True
-      _ -> return False
-
-mempoolTransactionWithFastRetry
-    :: ClientEnv
-    -> MempoolTransactionReq
-    -> IO MempoolTransactionResp
-mempoolTransactionWithFastRetry cenv req =
-    recovering fastRetryPolicy [h] $ \s -> do
     debug
       $ "requesting mempool transaction for " <> (show req)
       <> " [" <> show (view rsIterNumberL s) <> "]"

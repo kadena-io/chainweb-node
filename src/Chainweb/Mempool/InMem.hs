@@ -189,7 +189,6 @@ memberInMem :: MVar (InMemoryMempoolData t)
 memberInMem lock txs = do
     q <- withMVarMasked lock (readIORef . _inmemPending)
     V.mapM (memberOne q) txs
-
   where
     memberOne q txHash = return $! HashMap.member txHash q
 

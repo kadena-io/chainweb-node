@@ -73,6 +73,7 @@ main =
             $ testGroup "Chainweb Tests" . schedule Sequential
             $ pactTestSuite rdb
             : mempoolTestSuite db h0
+            : rosettaTestSuite rdb
             : suite rdb
   where
     adj NoTimeout = Timeout (1_000_000 * 60 * 10) "10m"
@@ -96,6 +97,11 @@ pactTestSuite rdb = testGroupSch "Chainweb-Pact Tests"
         , Chainweb.Test.Pact.NoCoinbase.tests
         ]
 
+rosettaTestSuite :: RocksDb -> ScheduledTest
+rosettaTestSuite rdb = testGroupSch "Chainweb-Rosetta API Tests" $ schedule Sequential
+    [ Chainweb.Test.Rosetta.RestAPI.tests rdb
+    ]
+
 suite :: RocksDb -> [ScheduledTest]
 suite rdb =
     [ testGroupSch "Chainweb Unit Tests"
@@ -108,7 +114,6 @@ suite rdb =
         , Chainweb.Test.Store.CAS.FS.tests
         , Chainweb.Test.Roundtrips.tests
         , Chainweb.Test.Rosetta.tests
-        , Chainweb.Test.Rosetta.RestAPI.tests rdb
         , Chainweb.Test.RestAPI.tests rdb
         , Chainweb.Test.SPV.tests rdb
         , Chainweb.Test.Pact.SPV.tests

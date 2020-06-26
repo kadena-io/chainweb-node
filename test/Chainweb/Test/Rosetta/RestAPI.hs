@@ -1,5 +1,6 @@
 {-# LANGUAGE ConstraintKinds #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
@@ -76,8 +77,8 @@ type RosettaTest = IO (Time Micros) -> IO ClientEnv -> TestTree
 -- -------------------------------------------------------------------------- --
 -- Test Tree
 
-tests :: RocksDb -> TestTree
-tests rdb = testGroup "Chainweb.Test.Rosetta.RestAPI" go
+tests :: RocksDb -> ScheduledTest
+tests rdb = testGroupSch "Chainweb.Test.Rosetta.RestAPI" go
   where
     go = return $
       withNodes v "rosettaRemoteTests-" rdb nodes $ \envIo ->
@@ -88,7 +89,7 @@ tests rdb = testGroup "Chainweb.Test.Rosetta.RestAPI" go
       , blockTransactionTests
       , blockTests
       , constructionSubmitTests
-      , mempoolTransactionTests
+      -- , mempoolTransactionTests
       , mempoolTests
       , networkListTests
       , networkOptionsTests
@@ -105,7 +106,7 @@ accountBalanceTests tio envIo = testCaseSteps "Account Balance Lookup" $ \step -
     checkBalance resp0 100000000.000
 
     step "send 1.0 tokens to sender00 from sender01"
-    void $ transferOne tio cenv
+    transferOneAsync_ tio cenv (void . return)
 
     step "check post-transfer balance"
     resp1 <- accountBalance cenv req
@@ -124,92 +125,130 @@ accountBalanceTests tio envIo = testCaseSteps "Account Balance Lookup" $ \step -
 -- | Rosetta block transaction endpoint tests
 --
 blockTransactionTests :: RosettaTest
-blockTransactionTests tio envIo =
+blockTransactionTests tio envIo = after AllSucceed "Account Balance" $
     testCaseSteps "Block Transaction Tests" $ \step -> do
       cenv <- envIo
+      rkmv <- newEmptyMVar @RequestKeys
 
-      step "fetch genesis tx id"
-      -- resp <- blockTransaction cenv req
+      step "send 1.0 from sender00 to sender01 and extract block tx request"
+      prs <- transferOneAsync tio cenv (putMVar rkmv)
+      req <- mkTxReq rkmv prs
 
-      return ()
+      step "send in block tx request"
+      resp <- blockTransaction cenv req
+
+      (fundtx,cred,deb,redeem,reward) <-
+        case _transaction_operations $ _blockTransactionResp_transaction resp of
+          [a,b,c,d,e] -> return (a,b,c,d,e)
+          _ -> assertFailure "every transfer should result in 5 transactions"
+
+      step "validate initial gas buy at index 0"
+      validateOp 0 "99999996890600000000" "FundTx" fundtx
+
+      step "validate sender01 credit at index 1"
+      validateOp 1 "110000003000000000000" "TransferOrCreateAcct" cred
+
+      step "validate sender00 debit at index 2"
+      validateOp 2 "99999995890600000000" "TransferOrCreateAcct" deb
+
+      step "validate sender00 gas redemption at index 3"
+      validateOp 3 "99999996835900000000" "GasPayment" redeem
+
+      step "validate miner gas reward at index 4"
+      validateOp 4 "7077669000000" "GasPayment" reward
+
   where
-    req = BlockTransactionReq nid genesisId genesisTxId
+    mkTxReq rkmv prs = do
+      rk <- NEL.head . _rkRequestKeys <$> takeMVar rkmv
+      hm <- extractMetadata rk prs
+      bh <- hm ^?! ix "blockHeight" . to readAeson
+      bhash <- hm ^?! ix "blockHash" . to readAeson
+
+      let bid = BlockId bh bhash
+          tid = rkToTransactionId rk
+
+      return $ BlockTransactionReq nid bid tid
+
+    validateOp idx amount opType o = do
+      _operation_operationId o @?= OperationId idx Nothing
+      _operation_type o @?= opType
+      _operation_status o @?= "Successful"
+      _operation_amount o @?= Just (Amount amount kda Nothing)
+
 
 -- | Rosetta block endpoint tests
 --
 blockTests :: RosettaTest
-blockTests tio envIo = testCaseSteps "Block Tests" $ \step -> do
-    step "fetch genesis block"
-    cenv <- envIo
-    resp0 <- _block_blockId . _blockResp_block <$> block cenv (req 0)
-    resp0 @=? genesisId
+blockTests tio envIo = after AllSucceed "Block Transaction Tests" $
+    testCaseSteps "Block Tests" $ \step -> do
+      cenv <- envIo
+      rkmv <- newEmptyMVar @RequestKeys
 
-    step "send transaction"
-    prs <- transferOne tio cenv
-    cmdMeta <- extractMetadata prs
-    bh <- cmdMeta ^?! ix "blockHeight" . to fromAeson
+      step "fetch genesis block"
+      resp0 <- _block_blockId . _blockResp_block <$> block cenv (req 0)
+      resp0 @=? genesisId
 
-    step "check tx at block height matches sent tx"
-    resp1 <- block cenv (req bh)
+      step "send transaction"
+      prs <- transferOneAsync tio cenv (putMVar rkmv)
+      rk <- NEL.head . _rkRequestKeys <$> takeMVar rkmv
+      cmdMeta <- extractMetadata rk prs
+      bh <- cmdMeta ^?! ix "blockHeight" . to readAeson
 
-    step "validate remediations at block height 1"
-    remResp <- block cenv (req 1)
-    -- check remediation tx id's
-    return ()
+      step "check tx at block height matches sent tx"
+      resp1 <- block cenv (req bh)
+
+      step "validate remediations at block height 1"
+      remResp <- block cenv (req 1)
+      -- check remediation tx id's
+      return ()
   where
     req h = BlockReq nid $ PartialBlockId (Just h) Nothing
-
-    fromAeson = aeson assertFailure return . A.fromJSON
-
-    extractMetadata (PollResponses pr) =
-      case _crMetaData . snd . head . HM.toList $ pr of
-        Just (A.Object o) -> return o
-        _ -> assertFailure "test transfer did not succeed"
 
 -- | Rosetta construction submit endpoint tests (i.e. tx submission directly to mempool)
 --
 constructionSubmitTests :: RosettaTest
-constructionSubmitTests tio envIo =
+constructionSubmitTests tio envIo = after AllSucceed "Block Tests" $
     testCaseSteps "Construction Submit Tests" $ \step -> return ()
 
--- | Rosetta mempool transaction endpoint tests
---
-mempoolTransactionTests :: RosettaTest
-mempoolTransactionTests tio envIo =
-    testCaseSteps "Mempool Transaction Tests" $ \step -> do
-      cenv <- envIo
-      rkmv <- newEmptyMVar @RequestKeys
+-- -- | Rosetta mempool transaction endpoint tests
+-- --
+-- -- (PENDING: the only way to test this is to DOS the mempool)
+-- --
+-- mempoolTransactionTests :: RosettaTest
+-- mempoolTransactionTests tio envIo =
+--     testCaseSteps "Mempool Transaction Tests" $ \step -> do
+--       cenv <- envIo
+--       rkmv <- newEmptyMVar @RequestKeys
 
-      step "execute transfer and wait on mempool data"
-      void $! async $ transferOneAsync tio cenv (putMVar rkmv)
+--       step "execute transfer and wait on mempool data"
+--       void $! async $ transferOneAsync_ tio cenv (putMVar rkmv)
 
-      step "wait until mempool registers transfer"
-      rk <- NEL.head . _rkRequestKeys <$> takeMVar rkmv
-      MempoolTransactionResp tx _meta <- mempoolTransactionWithFastRetry cenv (req rk)
+--       step "wait until mempool registers transfer"
+--       rk <- NEL.head . _rkRequestKeys <$> takeMVar rkmv
+--       MempoolTransactionResp tx _meta <- mempoolTransactionWithFastRetry cenv (req rk)
 
-      step "compare requestkey against transaction id"
-      rkToTransactionId rk @=? _transaction_transactionId tx
-  where
-    req rk = MempoolTransactionReq nid (rkToTransactionId rk)
+--       step "compare requestkey against transaction id"
+--       rkToTransactionId rk @=? _transaction_transactionId tx
+--   where
+--     req rk = MempoolTransactionReq nid (rkToTransactionId rk)
 
 -- | Rosetta mempool endpoint tests
 --
 mempoolTests :: RosettaTest
-mempoolTests tio envIo = testCaseSteps "Mempool Tests" $ \step -> do
-    cenv <- envIo
-    rkmv <- newEmptyMVar @RequestKeys
+mempoolTests tio envIo = after AllSucceed "Construction Submit Tests" $
+    testCaseSteps "Mempool Tests" $ \step -> do
+      cenv <- envIo
+      rkmv <- newEmptyMVar @RequestKeys
 
-    step "execute transfer and wait on mempool data"
-    void $! async $ transferOneAsync tio cenv (putMVar rkmv)
+      step "execute transfer and wait on mempool data"
+      void $! async $ transferOneAsync_ tio cenv (putMVar rkmv)
+      rk NEL.:| [] <- _rkRequestKeys <$> takeMVar rkmv
 
-    let test (MempoolResp [_]) = return True
-        test (MempoolResp _) = return False
+      let tid = rkToTransactionId rk
+      let test (MempoolResp ts) = return $ elem tid ts
 
-    MempoolResp [tid] <- repeatUntil test $ mempool cenv req
-
-    step "compare requestkey against transaction id"
-    rk NEL.:| [] <- _rkRequestKeys <$> takeMVar rkmv
-    rkToTransactionId rk @=? tid
+      step "compare requestkey against mempool responses"
+      void $! repeatUntil test $ mempool cenv req
   where
     req = MempoolReq nid
 
@@ -218,6 +257,7 @@ mempoolTests tio envIo = testCaseSteps "Mempool Tests" $ \step -> do
 networkListTests :: RosettaTest
 networkListTests _ envIo = testCaseSteps "Network List Tests" $ \step -> do
     cenv <- envIo
+
     step "send network list request"
     resp <- networkList cenv req
 
@@ -275,7 +315,7 @@ networkStatusTests tio envIo = testCaseSteps "Network Status Tests" $ \step -> d
     genesisId @=? _networkStatusResp_genesisBlockId resp0
 
     step "send in a transaction and update current block"
-    transferOne_ tio cenv
+    transferOneAsync_ tio cenv (void . return)
     resp1 <- networkStatus cenv req
 
     step "check status response genesis and block height"
@@ -326,9 +366,6 @@ rosettaVersion = RosettaNodeVersion
       ]
     }
 
-genesisTxId :: TransactionId
-genesisTxId = TransactionId "Inlsd2hVbVVBOUtnZjM5d191c2dGRHoycV9RX09YX1lMQmNDMXZBSC1Mc0Ei"
-
 rosettaFailures :: [RosettaError]
 rosettaFailures = rosettaError <$> enumFrom RosettaChainUnspecified
 
@@ -344,20 +381,6 @@ operationStatuses =
 
 -- ------------------------------------------------------------------ --
 -- Test Pact Cmds
-
--- | Transfer one token from sender00 to sender01, polling for responses
---
-transferOne :: IO (Time Micros) -> ClientEnv -> IO PollResponses
-transferOne tio cenv = do
-    batch0 <- mkTransfer tio
-    rks <- sending cid cenv batch0
-    prs <- polling cid cenv rks ExpectPactResult
-    return prs
-
--- | Transfer one, ignoring the resulting responses
---
-transferOne_ :: IO (Time Micros) -> ClientEnv -> IO ()
-transferOne_ tio cenv = void $! transferOne tio cenv
 
 -- | Build a simple transfer from sender00 to sender01
 --
@@ -388,16 +411,44 @@ transferOneAsync
     :: IO (Time Micros)
     -> ClientEnv
     -> (RequestKeys -> IO ())
-    -> IO ()
+    -> IO PollResponses
 transferOneAsync tio cenv callback = do
     batch0 <- mkTransfer tio
-    void $ callback (f batch0)
-    void $ sending cid cenv batch0
+    void $! callback (f batch0)
+    rks <- sending cid cenv batch0
+    prs <- polling cid cenv rks ExpectPactResult
+    return prs
   where
     f (SubmitBatch cs) = RequestKeys (cmdToRequestKey <$> cs)
+
+transferOneAsync_
+    :: IO (Time Micros)
+    -> ClientEnv
+    -> (RequestKeys -> IO ())
+    -> IO ()
+transferOneAsync_ tio cenv callback
+    = void $! transferOneAsync tio cenv callback
 
 -- ------------------------------------------------------------------ --
 -- Utils
 
+
+-- | Extract poll response metadata at some request key
+--
+extractMetadata :: RequestKey -> PollResponses -> IO (HM.HashMap Text A.Value)
+extractMetadata rk (PollResponses pr) = case HM.lookup rk pr of
+    Just cr -> case _crMetaData cr of
+      Just (A.Object o) -> return o
+      _ -> assertFailure "impossible: empty metadata"
+    _ -> assertFailure "test transfer did not succeed"
+
+-- | Tell whether a list is a subset of
+-- another list
+--
 subset :: (Foldable f, Eq a) => f a -> f a -> Bool
 subset as bs = all (`elem` bs) as
+
+-- | Decode a JSON value or fail as an assertion. Analogous to 'read'
+--
+readAeson :: A.FromJSON b => A.Value -> IO b
+readAeson = aeson assertFailure return . A.fromJSON
