@@ -291,7 +291,6 @@ library
         , Chainweb.Pact.Transactions.Mainnet8Transactions
         , Chainweb.Pact.Transactions.Mainnet9Transactions
         , Chainweb.Pact.Transactions.MainnetKADTransactions
-        , Chainweb.Pact.Transactions.Mainnet20Transactions
         , Chainweb.Pact.Transactions.OtherTransactions
         , Chainweb.Pact.Transactions.UpgradeTransactions
         , Chainweb.Pact.Types
