@@ -236,7 +236,7 @@ genTxModules = void $ do
     gen20ChainRemeds = genTxModule "MainnetKAD"
       ["pact/coin-contract/remediations/mainnet/remediations20chain.yaml"]
 
-    upgrades = [coinContractV2, fungibleAssetV2]
+    upgrades = [fungibleAssetV2, coinContractV2]
 
 genTxModule :: Text -> [FilePath] -> IO ()
 genTxModule tag txFiles = do
