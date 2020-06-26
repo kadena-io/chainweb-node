@@ -48,7 +48,7 @@ import Chainweb.Version
 
 type CoinbaseTx chainwebTx = chainwebTx
 newtype BalanceDelta = BalanceDelta { _balanceDelta :: Decimal }
-  deriving Show
+  deriving (Show, Eq)
 data AccountLog = AccountLog
   { _accountLogKey :: T.Text
   , _accountLogBalanceTotal :: Decimal
@@ -56,7 +56,7 @@ data AccountLog = AccountLog
   , _accountLogCurrGuard :: Value
   , _accountLogPrevGuard :: Value
   }
-  deriving Show
+  deriving (Show, Eq)
 type AccountRow = (T.Text, Decimal, Value)
 type UnindexedOperation = (Word64 -> Operation)
 

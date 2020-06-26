@@ -516,7 +516,7 @@ getBalanceDeltas
     -> Map RowKey AccountRow
     -> Map TxId [AccountLog]
 getBalanceDeltas hist lastBalSeenDef =
-  snd $! M.mapAccumRWithKey g lastBalSeenDef hist
+  snd $! M.mapAccumWithKey g lastBalSeenDef hist
   where
     g
       :: Map RowKey AccountRow

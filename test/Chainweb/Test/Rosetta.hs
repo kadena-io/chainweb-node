@@ -12,20 +12,21 @@ module Chainweb.Test.Rosetta
   ( tests
   ) where
 
-import Control.Monad (foldM)
+import Control.Monad (foldM, void)
 import Control.Monad.Trans.Except
 import Data.Aeson
 import Data.Decimal
+import Data.List (foldl')
 import Data.Map (Map)
 import Data.Word (Word64)
 
 import qualified Data.Set as S
---import qualified Data.Map as M
+import qualified Data.Map as M
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
 import qualified Data.Vector as V
 
-import Pact.Types.Runtime (TxId(..))
+import Pact.Types.Runtime (TxId(..), RowKey(..))
 import Pact.Types.Command (RequestKey(..))
 import Pact.Types.Hash (Hash(..))
 
@@ -47,7 +48,8 @@ import Chainweb.Version
 tests :: TestTree
 tests = testGroup "Chainweb.Test.Rosetta.Server"
   [ testGroup "Unit Tests"
-    [ testCase "matchNonGenesisBlockTransactionsToLogs" matchNonGenesisBlockTransactionsToLogs
+    [ testCase "checkBalanceDeltas" checkBalanceDeltas
+    , testCase "matchNonGenesisBlockTransactionsToLogs" matchNonGenesisBlockTransactionsToLogs
     , testCase "matchFailedCoinbaseBlockTransactionsToLogs" matchFailedCoinbaseBlockTransactionsToLogs
     , testCase "matchNonGenesisSingleTransactionsToLogs" matchNonGenesisSingleTransactionsToLogs
     , testCase "checkKDAToRosettaAmount" checkKDAToRosettaAmount
@@ -55,6 +57,115 @@ tests = testGroup "Chainweb.Test.Rosetta.Server"
     , testCase "checkUniqueRosettaErrorCodes" checkUniqueRosettaErrorCodes
     ]
   ]
+
+
+checkBalanceDeltas :: Assertion
+checkBalanceDeltas =
+  case1 >> case2 >> case3 >> case4 >> case5 >> case6
+  where
+    createCase
+        :: T.Text
+        -> Decimal
+        -> BalanceDelta
+        -> (AccountRow, AccountLog)
+    createCase key endingBal delta =
+      let g = mockGuard key
+          acctRow = (key, endingBal, g)
+          acctLog = AccountLog key endingBal delta g g
+      in (acctRow, acctLog)
+
+    cases
+        :: Word64
+        -> [(AccountRow, AccountLog)]
+        -> (TxId, [(AccountRow, AccountLog)])
+    cases i rows = (TxId i, rows)
+
+    test
+        :: String
+        -> Map RowKey AccountRow
+        -> [(TxId, [(AccountRow, AccountLog)])]
+        -> Assertion
+    test label prevBals cs =
+      let justAcctRows (tid, rows) = (tid, map fst rows)
+          justAcctLogs (tid, rows) = (tid, map snd rows)
+          hist = M.fromList $ map justAcctRows cs
+          actuals = getBalanceDeltas hist prevBals
+          expects = M.fromList $ map justAcctLogs cs
+      in do
+        assertEqualMap label expects actuals
+
+    case1 =
+      let noPrevLogs = mockPrevTxs []
+          unique = [ cases 0 [createCase "k1" 1.0 (bd 1.0)]
+                   , cases 1 [createCase "k2" (negate 2.0) (bd $ negate 2.0)]
+                   ]
+      in test "unique keys, not previously seen" noPrevLogs unique
+
+    case2 =
+      let allHavePrevLogs = mockPrevTxs
+            [ ("k1", 1.0)
+            , ("k2", 2.0)
+            , ("k3", 3.0)
+            , ("k4", 4.0)]
+          unique = [ cases 0 [createCase "k1" 1.0 (bd 0.0)]
+                   , cases 1 [createCase "k2" 0.0 (bd $ negate 2.0)]
+                   , cases 2 [createCase "k3" 3.5 (bd 0.5)]
+                   , cases 3 [createCase "k4" 5.0 (bd 1.0)]
+                   ]
+      in test "unique keys, all seen before" allHavePrevLogs unique
+
+    case3 =
+      let onlyOneSeenPrevLogs = mockPrevTxs [("k1", 1.0)]
+          unique = [ cases 0 [createCase "k1" 0.5 (bd $ negate 0.5)]
+                   , cases 1 [createCase "k2" 2.0 (bd 2.0)]
+                   ]
+      in test "unique keys, only one seen before" onlyOneSeenPrevLogs unique
+
+    case4 =
+      let noPrevLogs = mockPrevTxs []
+          repeated = [ cases 0 [createCase "k1" 1.0 (bd 1.0)]
+                     , cases 1 [createCase "k1" 3.0 (bd 2.0)]
+                     , cases 2 [createCase "k1" 2.5 (bd $ negate 0.5)]
+                     , cases 3 [createCase "k1" 2.5 (bd 0.0)]
+                     , cases 4 [createCase "k1" 6.0 (bd 3.5)]
+                     ]
+      in test "same key, different txs, not previously seen" noPrevLogs repeated
+
+    case5 =
+      let prevLogs = mockPrevTxs [("k1", 10.0)]
+          repeated = [ cases 0 [ createCase "k1" 9.99 (bd $ negate 0.01)
+                               , createCase "k1" 9.0 (bd $ negate 0.99)
+                               , createCase "k1" 9.5 (bd 0.5) ]
+                     , cases 1 [ createCase "k1" 1.0 (bd $ negate 8.5)
+                               , createCase "k1" 5.0 (bd 4.0)
+                               , createCase "k1" 4.5 (bd $ negate 0.5)
+                               , createCase "k1" 4.55 (bd 0.05) ]
+                     , cases 2 [ createCase "k1" 4.0 (bd $ negate 0.55) ]
+                     ]
+      in test "same key, different and same txs, previously seen" prevLogs repeated
+
+    case6 =
+      let prevLogs = mockPrevTxs [("miner", 10.0), ("sender1", 10.0), ("sender2", 10.0)]
+          mock = [ cases 0 [createCase "miner" 12.0 (bd 2.0)]
+                 , cases 1 [ createCase "sender1" 8.0 (bd $ negate 2.0)
+                           , createCase "sender1" 9.0 (bd 1.0)
+                           , createCase "miner" 13.0 (bd 1.0)]
+                 , cases 2 [ createCase "sender1" 7.0 (bd $ negate 2.0)
+                           , createCase "sender1" 5.0 (bd $ negate 2.0) -- transfer
+                           , createCase "sender2" 12.0 (bd 2.0) -- transfer
+                           , createCase "sender1" 6.0 (bd 1.0)
+                           , createCase "miner" 14.0 (bd 1.0)]
+                 , cases 3 [ createCase "sender2" 10.0 (bd $ negate 2.0)
+                           , createCase "sender2" 9.5 (bd $ negate 0.5) -- transfer
+                           , createCase "sender1" 6.5 (bd 0.5) -- transfer
+                           , createCase "sender2" 10.5 (bd 1.0)
+                           , createCase "miner" 15.0 (bd 1.0)]
+                 , cases 4 [ createCase "sender1" 4.5 (bd $ negate 2.0)
+                           , createCase "sender1" 5.5 (bd 1.0)
+                           , createCase "miner" 16.0 (bd 1.0)]
+                 ]
+      in test "simulate actual block, previously seen transactions" prevLogs mock
+
 
 matchNonGenesisBlockTransactionsToLogs :: Assertion
 matchNonGenesisBlockTransactionsToLogs = do
@@ -94,24 +205,34 @@ matchNonGenesisBlockTransactionsToLogs = do
                 [ op FundTx 11 "sender1" 10.0 undefined 0
                 , op GasPayment 12 "miner1" 12.0 undefined 1]
 
+
+
 matchFailedCoinbaseBlockTransactionsToLogs :: Assertion
 matchFailedCoinbaseBlockTransactionsToLogs = do
-  Right [r1, r2] <- pure run
-  assertEqualEncode "coinbase tx" r1 expected1
-  assertEqualEncode "successful, non-coin 1" r2 expected2
+  initial:rest <- pure $ mockResults txs
+  Right [r0, r1] <- pure $ run initial (V.fromList rest)
+  assertEqualEncode "coinbase tx" r0 expected0
+  assertEqualEncode "successful, non-coin" r1 expected1
   where
-    run :: Either String [Transaction]
-    run = nonGenesisTransactions logs initial rest
+    run = nonGenesisTransactions logs
 
-    (logs, initial, rest) = mockTxLogsFailedCoinbaseAndTx
+    txs =
+      [ PendingCoinbase "miner" 10.0 CoinbaseFailure
+      , PendingMockTx "sender" "miner" TxSuccessNonCoin 10.0 10.0 ]
+
+    prevLogs = mockPrevTxs
+      [ ("miner", 10.0)
+      , ("sender", 10.0)]
+    logs = getBalanceDeltas (mockLogs txs) prevLogs
 
     -- Coinbase Tx
-    expected1 = mockRosettaTx "ReqKey1" []
+    expected0 = mockRosettaTx (mockRkText 0) []
     
     -- Successful, non-coin contract tx
-    expected2 = mockRosettaTx "ReqKey2"
-                [ op FundTx 2 "sender1" 10.0 undefined 0
-                , op GasPayment 4 "miner1" 12.0 undefined 1 ]
+    expected1 = mockRosettaTx (mockRkText 1)
+                [ op FundTx 2 "sender" (10.0 - gasLimit) (negate gasLimit) 0
+                , op GasPayment 4 "sender" (10.0 - gasCost) (negate gasCost) 1
+                , op GasPayment 4 "miner" (10.0 + gasLimit) gasLimit 1 ]
 
 
 matchNonGenesisSingleTransactionsToLogs :: Assertion
@@ -249,6 +370,25 @@ checkUniqueRosettaErrorCodes = case repeated of
 --------------------------------------------------------------------------------
 -- Utils
 
+data TxResultType =
+  TxSuccessNonCoin | TxSuccessCoin Decimal (T.Text, Decimal) | TxFailure
+
+data CoinbaseResultType = CoinbaseFailure | CoinbaseSuccess
+
+data PendingMockTx =
+    PendingMockTx
+    { _pmt_senderAccount :: T.Text
+    , _pmt_minerAccount :: T.Text
+    , _pmt_txType :: TxResultType
+    , _pmt_prevSenderBalance :: Decimal
+    , _pmt_prevMinerBalance :: Decimal
+    }
+  | PendingCoinbase
+    { _pc_minerAccount :: T.Text
+    , _pc_prevMinerBalance :: Decimal
+    , _pc_isSuccess :: CoinbaseResultType
+    }
+
 newtype MockTxResult = MockTxResult (Maybe TxId, T.Text)
 
 instance PendingTx MockTxResult where
@@ -322,32 +462,108 @@ mockTxLogs = undefined -- (logs, initial, rest) -- TODO
     logs = M.fromList $ [log1] <> logs2 <> logs3 <> logs4 <> logs5
 --}
 
-mockTxLogsFailedCoinbaseAndTx :: (Map TxId [AccountLog], MockTxResult, V.Vector MockTxResult)
-mockTxLogsFailedCoinbaseAndTx = undefined --(logs, initial, rest) -- TODO
-{--  where
-    initial = MockTxResult (Nothing, "ReqKey1")
+mockPrevTxs :: [(T.Text, Decimal)] -> Map RowKey AccountRow
+mockPrevTxs txs = M.fromList $ map f txs
+  where
+    f (key, bal) = (RowKey key, mockAcctRow key bal)
 
-    -- successful, non-coin contract tx
-    (logs2,tx1) =
-      let minerKey = "miner1"
-          key = "sender1"
-          gMiner = toJSON (minerKey <> "PublicKey" :: T.Text)
-          gKey = toJSON (key <> "PublicKey" :: T.Text)
-          (fundTid, tid, gasTid) = (TxId 1, TxId 2, TxId 3)
-          fundLogs = (fundTid, [(key, 10.0, gKey)])
-          gasLogs = (gasTid, [(minerKey, 12.0, gMiner)])
-          a = (Just tid, "ReqKey2")
-      in ([fundLogs,gasLogs], MockTxResult a)
+mockResults :: [PendingMockTx] -> [MockTxResult]
+mockResults txs = reverse $ snd $ foldl' f ((-1 :: Int, TxId 0), []) txs
+  where
+    f ((i, lastTxIdSeen), li) tx = case tx of
+      PendingCoinbase _ _ isSuccess -> case isSuccess of
+        CoinbaseSuccess ->
+          let tid = succ lastTxIdSeen
+              idx = succ i
+              res = MockTxResult (Just tid, mockRkText idx)
+          in ((idx, tid), res:li)
+        CoinbaseFailure ->
+          let idx = succ i
+              res = MockTxResult (Nothing, mockRkText idx)
+          in ((idx, lastTxIdSeen), res:li)
+      PendingMockTx _ _ typ _ _ -> case typ of
+        TxFailure ->
+          let fundTid = succ lastTxIdSeen
+              gasTid = succ fundTid
+              idx = succ i
+              res = MockTxResult (Nothing, mockRkText idx)
+          in ((idx, gasTid), res:li)
+        TxSuccessNonCoin ->
+          let fundTid = succ lastTxIdSeen
+              tid = succ fundTid
+              gasTid = succ tid
+              idx = succ i
+              res = MockTxResult (Just tid, mockRkText idx)
+          in ((idx, gasTid), res:li)
+        TxSuccessCoin _ _ ->
+          let fundTid = succ lastTxIdSeen
+              tid = succ fundTid
+              gasTid = succ tid
+              idx = succ i
+              res = MockTxResult (Just tid, mockRkText idx)
+          in ((idx, gasTid), res:li)
 
-    rest = V.fromList [tx1]
-    logs = M.fromList logs2
---}
 
-op :: OperationType -> Word64 -> T.Text -> Decimal -> BalanceDelta -> Word64 -> Operation
+mockLogs :: [PendingMockTx] -> Map TxId [AccountRow]
+mockLogs txs = M.fromList $ reverse $ snd $ foldl' f (TxId 0, []) txs
+  where
+    f (lastTxIdSeen, li) tx = case tx of
+      PendingCoinbase miner bal isSuccess -> case isSuccess of
+        CoinbaseSuccess ->
+          let tid = succ lastTxIdSeen
+              logs = (tid, [mockAcctRow miner bal])  -- assumes no miner reward
+          in (tid, logs:li)
+        CoinbaseFailure -> (lastTxIdSeen, li) -- no logs added
+      PendingMockTx sender miner typ senderBal minerBal -> case typ of
+        TxFailure ->
+          let fundTid = succ lastTxIdSeen
+              gasTid = succ fundTid
+              fundLogs = (fundTid, [mockAcctRow sender (senderBal - gasLimit)])
+              gasLogs = (gasTid, [mockAcctRow miner (minerBal + gasLimit)])
+          in (gasTid, gasLogs:fundLogs:li)
+        TxSuccessNonCoin ->
+          let fundTid = succ lastTxIdSeen
+              gasTid = succ (succ fundTid)
+              fundLogs = (fundTid, [mockAcctRow sender (senderBal - gasLimit)])
+              gasLogs = (gasTid, [ mockAcctRow sender (senderBal - gasLimit + gasCost)
+                                 , mockAcctRow miner (minerBal + gasCost)])
+          in (gasTid, gasLogs:fundLogs:li)
+        TxSuccessCoin amt (toAcct, toBal) ->
+          let fundTid = succ lastTxIdSeen
+              transferTid = succ fundTid
+              gasTid = succ transferTid
+              fundLogs = (fundTid, [mockAcctRow sender (senderBal - gasLimit)])
+              transferLogs = (transferTid, [ mockAcctRow sender (senderBal - gasLimit - amt)
+                                           , mockAcctRow toAcct (toBal + amt)])
+              gasLogs = (gasTid, [ mockAcctRow sender (senderBal - gasLimit - amt + gasCost)
+                                 , mockAcctRow miner (minerBal + gasCost)])
+          in (gasTid, gasLogs:transferLogs:fundLogs:li)
+
+gasLimit :: Decimal
+gasLimit = 0.005
+
+gasCost :: Decimal
+gasCost = 0.5 * gasLimit
+
+mockAcctRow :: T.Text -> Decimal -> AccountRow
+mockAcctRow key bal =
+  (key, bal, mockGuard key)
+
+
+mockRkText :: Int -> T.Text
+mockRkText i = "RequestKey" <> (T.pack $ show i)
+
+mockGuard :: T.Text -> Value
+mockGuard key = toJSON (key <> "PublicKey")
+
+bd :: Decimal -> BalanceDelta
+bd d = BalanceDelta d
+
+op :: OperationType -> Word64 -> T.Text -> Decimal -> Decimal -> Word64 -> Operation
 op t i key amt delta oid = operation Successful t (TxId i) acctLog oid
   where
-    gKey = toJSON (key <> "PublicKey")
-    acctLog = AccountLog key amt delta gKey gKey
+    gKey = mockGuard key
+    acctLog = AccountLog key amt (BalanceDelta delta) gKey gKey
 
 assertEqualEncode
     :: (ToJSON a)
@@ -357,6 +573,28 @@ assertEqualEncode
     -> Assertion
 assertEqualEncode msg e1 e2 =
   assertEqual msg (encode e1) (encode e2)
+
+assertEqualMap
+    :: (Eq a, Ord a, Show a, Eq b, Show b)
+    => String
+    -> Map a [b]
+    -> Map a [b]
+    -> Assertion
+assertEqualMap msg m1 m2 = do
+  assertEqual (msg ++ ": maps should be the same size") (M.size m1) (M.size m2)
+  void $ M.traverseWithKey f m1
+  where
+    f tid e1 =
+      case (M.lookup tid m2) of
+        Nothing -> assertFailure $ (msg ++ ": second map didn't have key txId=" ++ show tid)
+        Just e2 -> assertEqualElems tid e1 e2
+
+    assertEqualElems tid li1 li2 = do
+      assertEqual (msg ++ ": elem list should be same size") (length li1) (length li2)
+      mapM (assertEqualElem tid) (zip li1 li2)
+
+    assertEqualElem tid (e1, e2) =
+      assertEqual (msg ++ ": txId=" ++ show tid) e1 e2
 
 mockRosettaTx :: T.Text -> [Operation] -> Transaction
 mockRosettaTx mrk ops =
