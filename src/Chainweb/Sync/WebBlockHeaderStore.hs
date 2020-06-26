@@ -23,7 +23,8 @@
 -- Maintainer: Lars Kuhtz <lars@kadena.io>
 -- Stability: experimental
 --
--- TODO
+-- A handle that provides tools obtaining and validating block headers within
+-- the Chainweb network and making them available in the local database.
 --
 module Chainweb.Sync.WebBlockHeaderStore
 ( WebBlockHeaderStore(..)
@@ -307,7 +308,7 @@ getBlockHeaderInternal headerStore payloadStore candidateHeaderCas candidatePayl
         now <- getCurrentTimeIntegral
         validateIntrinsicM now header
 
-        -- Query Prerequesits recursively. If there is already job for this
+        -- Query Prerequesits recursively. If there is already a job for this
         -- prerequesite in the memo-table it is awaited, otherwise a new job is
         -- created.
         --

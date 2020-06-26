@@ -10,7 +10,10 @@
 -- Maintainer: Lars Kuhtz <lars@kadena.io>
 -- Stability: experimental
 --
--- TODO
+-- The Version of a chainweb node. This is also the version of the cabal
+-- package.
+--
+-- The module also includes tools for querying the version of a remote node.
 --
 module Chainweb.NodeVersion
 ( NodeVersion(..)

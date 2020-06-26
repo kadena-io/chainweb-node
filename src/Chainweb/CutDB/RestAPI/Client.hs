@@ -8,7 +8,7 @@
 -- Maintainer: Lars Kuhtz <lars@kadena.io>
 -- Stability: experimental
 --
--- TODO
+-- Client implementation of the 'Cut' REST API.
 --
 module Chainweb.CutDB.RestAPI.Client
 ( cutGetClient

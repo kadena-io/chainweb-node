@@ -18,7 +18,13 @@
 -- Maintainer: Lars Kuhtz <lars@kadena.io>
 -- Stability: experimental
 --
--- TODO
+-- A priority task queue for the P2P network. Tasks are actions that take an API
+-- client context for a remote peer has a parameter. Tasks also have a priority,
+-- logging facility, and an limit on the number of attempts in case of failure.
+-- The completion of a task can be awaited.
+--
+-- This module alos provides a P2P session that listens on the queue and runs
+-- tasks with peers from the P2P network.
 --
 module P2P.TaskQueue
 (

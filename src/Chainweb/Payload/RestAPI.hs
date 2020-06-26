@@ -12,7 +12,7 @@
 -- Maintainer: Lars Kuhtz <lars@kadena.io>
 -- Stability: experimental
 --
--- TODO
+-- The Block Payload REST API
 --
 module Chainweb.Payload.RestAPI
 (

@@ -11,7 +11,7 @@
 -- Maintainer: Lars Kuhtz <lars@kadena.io>
 -- Stability: experimental
 --
--- TODO
+-- REST API client implementation for the Chainweb P2P network endpoints.
 --
 module P2P.Node.RestAPI.Client
 ( peerGetClient

@@ -65,8 +65,8 @@ import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
 import Chainweb.Payload.PayloadStore.RocksDB
 import Chainweb.Sync.WebBlockHeaderStore
-import Chainweb.Sync.WebBlockHeaderStore.Test
 import Chainweb.Test.Orphans.Internal ()
+import Chainweb.Test.Sync.WebBlockHeaderStore
 import Chainweb.Test.Utils (testRocksDb)
 import Chainweb.Time
 import Chainweb.Utils

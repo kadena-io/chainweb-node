@@ -2,15 +2,13 @@
 {-# LANGUAGE TypeApplications #-}
 
 -- |
--- Module: P2P.TaskQueue.Test
+-- Module: P2P.Test.TaskQueue
 -- Copyright: Copyright © 2018 - 2020 Kadena LLC.
 -- License: MIT
 -- Maintainer: Lars Kuhtz <lars@kadena.io>
 -- Stability: experimental
 --
--- TODO
---
-module P2P.TaskQueue.Test
+module P2P.Test.TaskQueue
 (
 -- * Test Task Runner
   TestRunnerException(..)

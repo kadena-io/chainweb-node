@@ -11,7 +11,7 @@
 -- Maintainer: Lars Kuhtz <lars@kadena.io>
 -- Stability: experimental
 --
--- TODO
+-- SPV proofs for the Chainweb Merkle Tree.
 --
 module Chainweb.SPV
 ( SpvException(..)

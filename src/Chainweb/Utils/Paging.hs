@@ -15,7 +15,7 @@
 -- Maintainer: Lars Kuhtz <lars@kadena.io>
 -- Stability: experimental
 --
--- TODO
+-- Tools for paging HTTP responses
 --
 module Chainweb.Utils.Paging
 (
@@ -46,15 +46,11 @@ module Chainweb.Utils.Paging
 , finitePrefixOfInfiniteStreamToPage
 , finiteStreamToPage
 , seekFiniteStreamToPage
-
--- * Properties
-, properties
 ) where
 
 import Control.Lens (Getter, to)
 import Control.Lens.TH
 import Control.Monad.Catch
-import Control.Monad.Identity
 
 import Data.Aeson
 import Data.Functor.Of
@@ -67,9 +63,6 @@ import GHC.Generics (Generic)
 import Numeric.Natural
 
 import qualified Streaming.Prelude as S
-
-import Test.QuickCheck
-import Test.QuickCheck.Instances ()
 
 -- internal modules
 
@@ -84,9 +77,6 @@ newtype Limit = Limit { _getLimit :: Natural }
     deriving stock (Eq, Show, Generic)
     deriving anyclass (Hashable)
     deriving newtype (Num, Real, Integral, Enum, Ord)
-
-instance Arbitrary Limit where
-  arbitrary = Limit <$> arbitrary
 
 -- -------------------------------------------------------------------------- --
 -- Page
@@ -266,30 +256,3 @@ seekFiniteStreamToPage k next limit = finiteStreamToPage k limit
         Just (Exclusive n) -> S.drop 1 . S.dropWhile (\x -> k x /= n)
         Just (Inclusive n) -> S.dropWhile (\x -> k x /= n)
 
--- -------------------------------------------------------------------------- --
--- Properties
-
-prop_streamToPage_limit :: [Int] -> Limit -> Property
-prop_streamToPage_limit l i = i <= len l ==> actual === expected
-    & cover 1 (i == len l) "limit == length of stream"
-    & cover 1 (i == 0) "limit == 0"
-    & cover 1 (null l) "length of stream == 0"
-  where
-    s = S.each l
-    is = take (int i) l
-    actual = runIdentity $ finiteStreamToPage id (Just i) s
-    expected = Page i is (Inclusive <$> listToMaybe (drop (int i) l))
-
-prop_streamToPage_id :: [Int] -> Property
-prop_streamToPage_id l = actual === expected
-    & cover 1 (null l) "len l == 0"
-  where
-    s = S.each l
-    actual = runIdentity $ finiteStreamToPage id Nothing s
-    expected = Page (len l) l Nothing
-
-properties :: [(String, Property)]
-properties =
-    [ ("streamToPage_limit", property prop_streamToPage_limit)
-    , ("streamToPage_id", property prop_streamToPage_id)
-    ]

@@ -21,7 +21,7 @@
 -- Maintainer: Lars Kuhtz <lars@kadena.io>
 -- Stability: experimental
 --
--- TODO
+-- Peer data base for Chainweb nodes.
 --
 module P2P.Node.PeerDB
 (
@@ -104,7 +104,7 @@ import System.Random
 -- internal modules
 
 import Chainweb.ChainId
-import Chainweb.HostAddress hiding (properties)
+import Chainweb.HostAddress
 import Chainweb.RestAPI.NetworkID
 import Chainweb.Utils
 import Chainweb.Version

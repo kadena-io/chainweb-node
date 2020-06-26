@@ -11,7 +11,8 @@
 -- Maintainer: Lars Kuhtz <lars@kadena.io>
 -- Stability: experimental
 --
--- TODO
+-- P2P session for synchronizing the current cut with the the peers in the P2P
+-- network.
 --
 module Chainweb.CutDB.Sync
 ( syncSession

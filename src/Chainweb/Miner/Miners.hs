@@ -16,7 +16,12 @@
 -- Maintainer: Colin Woodbury <colin@kadena.io>
 -- Stability: experimental
 --
--- TODO
+-- Implementation of in-node miners. These miners are only used in testing or
+-- in-node mining on development or testnets.
+--
+-- `localPOW` is capable of mining on production networks and is used for
+-- in-node mining on the development and test networks. However, single threaded
+-- CPU mining is by far not powerful enough to win blocks on mainnet.
 --
 module Chainweb.Miner.Miners
   ( -- * Local Mining
@@ -117,6 +122,7 @@ localTest lf v tpw m cdb gen miners = runForever lf "Chainweb.Miner.Miners.local
 -- | A miner that grabs new blocks from mempool and discards them. Mempool
 -- pruning happens during new-block time, so we need to ask for a new block
 -- regularly to prune mempool.
+--
 mempoolNoopMiner
     :: LogFunction
     -> HashMap ChainId (MempoolBackend ChainwebTransaction)

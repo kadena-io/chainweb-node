@@ -12,7 +12,10 @@
 -- Maintainer: Lars Kuhtz <lars@kadena.io>
 -- Stability: experimental
 --
--- TODO
+-- Resources for initializing a chainweb P2P peer and related components.
+--
+-- This datastructure must only be used during node startup. No heap reference
+-- should be kept after intialization of the node is complete.
 --
 module Chainweb.Chainweb.PeerResources
 ( PeerResources(..)
