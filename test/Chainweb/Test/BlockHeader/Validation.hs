@@ -67,6 +67,8 @@ tests = testGroup "Chainweb.Test.Blockheader.Validation"
     [ prop_validateMainnet
     , prop_validateTestnet04
     , prop_fail_validate
+    , prop_da_validate
+    , prop_legacy_da_validate
     , prop_featureFlag (Test petersonChainGraph) 10
     , testProperty "validate arbitrary test header" prop_validateArbitrary
     , testProperty "validate arbitrary test header for mainnet" $ prop_validateArbitrary Mainnet01
@@ -140,13 +142,24 @@ prop_validateHeader msg h = testCase msg $ do
 --
 
 prop_fail_validate :: TestTree
-prop_fail_validate = testCase "validate invalid BlockHeaders" $ do
+prop_fail_validate = validate_cases "validate invalid BlockHeaders" validationFailures
+
+prop_da_validate :: TestTree
+prop_da_validate = validate_cases "difficulty adjustment validation" daValidation
+
+prop_legacy_da_validate :: TestTree
+prop_legacy_da_validate = validate_cases "legacy difficulty adjustment validation" legacyDaValidation
+
+validate_cases :: String -> [(TestHeader, [ValidationFailureType])] -> TestTree
+validate_cases msg testCases = testCase msg $ do
     now <- getCurrentTimeIntegral
-    traverse_ (f now) $ zip [0 :: Int ..] validationFailures
+    traverse_ (f now) $ zip [0 :: Int ..] testCases
   where
     f now (i, (h, expectedErrs))
         = try (validateBlockHeaderM now (testHeaderChainLookup h) (_testHeaderHdr h)) >>= \case
-            Right _ -> assertFailure $ "Validation of test case " <> sshow i <> " succeeded unexpectedly for validationFailures BlockHeader"
+            Right _
+                | null expectedErrs -> return ()
+                | otherwise -> assertFailure $ "Validation of test case " <> sshow i <> " succeeded unexpectedly for validationFailures BlockHeader"
             Left ValidationFailure{ _validationFailureFailures = errs }
                 | sort errs /= sort expectedErrs -> assertFailure
                     $ "Validation of test case " <> sshow i <> " failed with unexpected errors for BlockHeader"
@@ -220,12 +233,12 @@ validationFailures =
     , ( hdr & testHeaderHdr . blockEpochStart %~ add second
       , [IncorrectHash, IncorrectPow, IncorrectEpoch]
       )
+    -- Nr. 10
     , ( hdr & testHeaderHdr . blockChainId .~ unsafeChainId 1
       , [IncorrectHash, IncorrectPow, ChainMismatch, AdjacentChainMismatch]
       )
     , ( hdr & testHeaderHdr . blockChainwebVersion .~ Development
-      , [IncorrectHash, IncorrectPow, VersionMismatch, InvalidFeatureFlags]
-            -- when 'fixedEpochStartGuard' is enabled add 'CreatedBeforeParent'
+      , [IncorrectHash, IncorrectPow, VersionMismatch, InvalidFeatureFlags, CreatedBeforeParent, AdjacentChainMismatch, InvalidAdjacentVersion]
       )
     , ( hdr & testHeaderHdr . blockWeight .~ 10
       , [IncorrectHash, IncorrectPow, IncorrectWeight]
@@ -233,79 +246,6 @@ validationFailures =
     , ( hdr & testHeaderHdr . blockWeight %~ (+ 1)
       , [IncorrectHash, IncorrectPow, IncorrectWeight]
       )
-
-    -- The following 6 tests suffer from redundant rounding in the target computations of
-    -- the current code, that introduced imprecsion. Once that is fixed, the failures
-    -- that are labeled with `tmp` will disappear and can be removed.
-    --
-
-    -- test correct epoch transition
-    , ( hdr & h . blockFlags .~ mkFeatureFlags
-            & p . blockHeight .~ 599999
-            & p . blockEpochStart .~ EpochStartTime epoch
-            & p . blockCreationTime .~ BlockCreationTime (hour ^+. epoch)
-            & h . blockHeight .~ 600000
-            & h . blockEpochStart .~ EpochStartTime (hour ^+. epoch)
-            & h . blockTarget . hashTarget .~ view (p . blockTarget . hashTarget) hdr
-            & h . blockCreationTime .~ BlockCreationTime (scaleTimeSpan @Int 2 hour ^+. epoch)
-      , [IncorrectHash, IncorrectPow, IncorrectTarget {- tmp -}]
-      )
-    -- epoch transition with wrong epoch start time
-    , ( hdr & h . blockFlags .~ mkFeatureFlags
-            & p . blockHeight .~ 599999
-            & p . blockEpochStart .~ EpochStartTime epoch
-            & p . blockCreationTime .~ BlockCreationTime (hour ^+. epoch)
-            & h . blockHeight .~ 600000
-            & h . blockEpochStart .~ EpochStartTime (second ^+. (hour ^+. epoch))
-            & h . blockTarget .~ (view (p . blockTarget) hdr)
-            & h . blockCreationTime .~ BlockCreationTime (scaleTimeSpan @Int 2 hour ^+. epoch)
-      , [IncorrectHash, IncorrectPow, IncorrectEpoch, IncorrectTarget {- tmp -} ]
-      )
-    -- test epoch transition with correct target adjustment (*2)
-    , ( hdr & h . blockFlags .~ mkFeatureFlags
-            & p . blockHeight .~ 599999
-            & p . blockEpochStart .~ EpochStartTime epoch
-            & p . blockCreationTime .~ BlockCreationTime (scaleTimeSpan @Int 2 hour  ^+. epoch)
-            & h . blockHeight .~ 600000
-            & h . blockEpochStart .~ EpochStartTime (scaleTimeSpan @Int 2 hour ^+. epoch)
-            & h . blockTarget . hashTarget .~ (view (p . blockTarget . hashTarget) hdr * 2)
-            & h . blockCreationTime .~ BlockCreationTime (scaleTimeSpan @Int 3 hour ^+. epoch)
-      , [IncorrectHash, IncorrectPow, IncorrectWeight, IncorrectTarget {- tmp -}]
-      )
-    -- test epoch transition with correct target adjustment (/ 2)
-    , ( hdr & h . blockFlags .~ mkFeatureFlags
-            & p . blockHeight .~ 599999
-            & p . blockEpochStart .~ EpochStartTime epoch
-            & p . blockCreationTime .~ BlockCreationTime (scaleTimeSpan @Int 30 minute  ^+. epoch)
-            & h . blockHeight .~ 600000
-            & h . blockEpochStart .~ EpochStartTime (scaleTimeSpan @Int 30 minute ^+. epoch)
-            & h . blockTarget . hashTarget .~ ceiling (view (p . blockTarget . hashTarget) hdr % 2)
-            & h . blockCreationTime .~ BlockCreationTime (scaleTimeSpan @Int 3 hour ^+. epoch)
-      , [IncorrectHash, IncorrectPow, IncorrectWeight, IncorrectTarget {- tmp -}]
-      )
-    -- test epoch transition with incorrect target adjustment
-    , ( hdr & h . blockFlags .~ mkFeatureFlags
-            & p . blockHeight .~ 599999
-            & p . blockEpochStart .~ EpochStartTime epoch
-            & p . blockCreationTime .~ BlockCreationTime (scaleTimeSpan @Int 30 minute  ^+. epoch)
-            & h . blockHeight .~ 600000
-            & h . blockEpochStart .~ EpochStartTime (scaleTimeSpan @Int 30 minute ^+. epoch)
-            & h . blockTarget . hashTarget .~ (view (p . blockTarget . hashTarget) hdr)
-            & h . blockCreationTime .~ BlockCreationTime (scaleTimeSpan @Int 3 hour ^+. epoch)
-      , [IncorrectHash, IncorrectPow, IncorrectTarget]
-      )
-    -- test epoch transition with incorrect target adjustment
-    , ( hdr & h . blockFlags .~ mkFeatureFlags
-            & p . blockHeight .~ 599999
-            & p . blockEpochStart .~ EpochStartTime epoch
-            & p . blockCreationTime .~ BlockCreationTime (scaleTimeSpan @Int 30 minute  ^+. epoch)
-            & h . blockHeight .~ 600000
-            & h . blockEpochStart .~ EpochStartTime (scaleTimeSpan @Int 30 minute ^+. epoch)
-            & h . blockTarget . hashTarget .~ (view (p . blockTarget . hashTarget) hdr * 2)
-            & h . blockCreationTime .~ BlockCreationTime (scaleTimeSpan @Int 3 hour ^+. epoch)
-      , [IncorrectHash, IncorrectPow, IncorrectWeight, IncorrectTarget]
-      )
-
     , ( hdr & testHeaderHdr . blockHeight .~ 10
       , [IncorrectHash, IncorrectPow, IncorrectHeight]
       )
@@ -328,15 +268,18 @@ validationFailures =
             & testHeaderHdr . blockHeight .~ 530500
       , [IncorrectHash, IncorrectPow, InvalidFeatureFlags, IncorrectHeight]
       )
+    -- Nr. 20
     , ( hdr & testHeaderHdr . blockAdjacentHashes .~ BlockHashRecord mempty
-      , [IncorrectHash, IncorrectPow]
+      , [IncorrectHash, IncorrectPow, AdjacentChainMismatch]
+      )
+    , ( hdr & testHeaderAdjs . each . parentHeader . blockChainwebVersion .~ Development
+      , [InvalidAdjacentVersion]
+      )
+    , ( hdr & testHeaderAdjs . ix 0 . parentHeader . blockChainId .~ unsafeChainId 0
+      , [AdjacentParentChainMismatch]
       )
     ]
   where
-    h, p :: Lens' TestHeader BlockHeader
-    h = testHeaderHdr
-    p = testHeaderParent . parentHeader
-
     -- From mainnet
     hdr = testHeader
         [ "parent" .= t "AFHBANxHkLyt2kf7v54FAByxfFrR-pBP8iMLDNKO0SSt-ntTEh1IVT2E4mSPkq02AwACAAAAfaGIEe7a-wGT8OdEXz9RvlzJVkJgmEPmzk42bzjQOi0GAAAAjFsgdB2riCtIs0j40vovGGfcFIZmKPnxEXEekcV28eUIAAAAQcKA2py0L5t1Z1u833Z93V5N4hoKv_7-ZejC_QKTCzTtgKwxXj4Eovf97ELmo_iBruVLoK_Yann5LQIAAAAAALFMJ1gcC8oKW90MW2xY07gN10bM2-GvdC7fDvKDDwAPBwAAAJkPwMVeS7ZkAQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAOdsEAAAAAAAFAAAAT3hhzb-eBQAAAGFSDbQAAJru7keLmw3rHfSVm9wkTHWQBBTwEPwEg8RA99vzMuj-"
@@ -357,6 +300,118 @@ validationFailures =
     messWords enc dec f x = messByteString enc dec g x
       where
         g bytes = runPut (encodeWordLe $ f $ fromJuste $ runGet decodeWordLe bytes)
+
+-- -------------------------------------------------------------------------- --
+-- DA Validation
+
+daValidation :: [(TestHeader, [ValidationFailureType])]
+daValidation =
+    -- test corret epoch transition
+    [ ( hdr, expected)
+
+    -- epoch transition with wrong epoch start time
+    , ( hdr & h . blockEpochStart .~ EpochStartTime (second ^+. (hour ^+. epoch))
+      , IncorrectEpoch : expected
+      )
+    -- test epoch transition with correct target adjustment (*2)
+    , ( hdr & p . blockCreationTime .~ BlockCreationTime (scaleTimeSpan @Int 2 hour ^+. epoch)
+            & a . blockCreationTime .~ BlockCreationTime (scaleTimeSpan @Int 2 hour ^+. epoch)
+            & h . blockEpochStart .~ EpochStartTime (scaleTimeSpan @Int 2 hour ^+. epoch)
+            & h . blockTarget . hashTarget .~ (view (p . blockTarget . hashTarget) hdr * 2)
+            & h . blockCreationTime .~ BlockCreationTime (scaleTimeSpan @Int 3 hour ^+. epoch)
+      , IncorrectWeight : expected
+      )
+    -- test epoch transition with correct target adjustment (/ 2)
+    , ( hdr & p . blockCreationTime .~ BlockCreationTime (scaleTimeSpan @Int 30 minute  ^+. epoch)
+            & a . blockCreationTime .~ BlockCreationTime (scaleTimeSpan @Int 30 minute ^+. epoch)
+            & h . blockEpochStart .~ EpochStartTime (scaleTimeSpan @Int 30 minute ^+. epoch)
+            & h . blockTarget . hashTarget .~ ceiling (view (p . blockTarget . hashTarget) hdr % 2)
+            & h . blockCreationTime .~ BlockCreationTime (scaleTimeSpan @Int 3 hour ^+. epoch)
+      , IncorrectWeight : expected
+      )
+    -- test epoch transition with incorrect target adjustment
+    , ( hdr & p . blockCreationTime .~ BlockCreationTime (scaleTimeSpan @Int 30 minute  ^+. epoch)
+            & h . blockEpochStart .~ EpochStartTime (scaleTimeSpan @Int 30 minute ^+. epoch)
+            & h . blockTarget . hashTarget .~ (view (p . blockTarget . hashTarget) hdr)
+            & h . blockCreationTime .~ BlockCreationTime (scaleTimeSpan @Int 3 hour ^+. epoch)
+      , IncorrectTarget : expected
+      )
+    -- test epoch transition with incorrect target adjustment
+    , ( hdr & p . blockCreationTime .~ BlockCreationTime (scaleTimeSpan @Int 30 minute  ^+. epoch)
+            & h . blockEpochStart .~ EpochStartTime (scaleTimeSpan @Int 30 minute ^+. epoch)
+            & h . blockTarget . hashTarget .~ (view (p . blockTarget . hashTarget) hdr * 2)
+            & h . blockCreationTime .~ BlockCreationTime (scaleTimeSpan @Int 3 hour ^+. epoch)
+      , IncorrectWeight : IncorrectTarget : expected
+      )
+    ]
+  where
+    h, p :: Lens' TestHeader BlockHeader
+    h = testHeaderHdr
+    p = testHeaderParent . parentHeader
+
+    a = testHeaderAdjs . each . parentHeader
+
+    expected = [IncorrectHash, IncorrectPow, AdjacentChainMismatch]
+
+    -- From mainnet
+    hdr = set (h . blockChainwebVersion) Development
+        $ set (h . blockFlags) mkFeatureFlags
+        $ set (h . blockHeight) 600000
+        $ set (h . blockEpochStart) (EpochStartTime (hour ^+. epoch))
+        $ set (h . blockTarget) ((view (p . blockTarget) hdr'))
+        $ set (h . blockCreationTime) (BlockCreationTime (scaleTimeSpan @Int 2 hour ^+. epoch))
+
+        $ set (p . blockChainwebVersion) Development
+        $ set (p . blockCreationTime) (BlockCreationTime (hour ^+. epoch))
+        $ set (p . blockEpochStart) (EpochStartTime epoch)
+        $ set (p . blockHeight) 599999
+
+        $ set (a . blockChainwebVersion) Development
+        $ set (a . blockCreationTime) (BlockCreationTime (hour ^+. epoch))
+        $ set (a . blockTarget) (view (p . blockTarget) hdr')
+        $ set (a . blockEpochStart) (EpochStartTime epoch)
+        $ hdr'
+
+    -- it almost doesn't matter what is used here, because most of it is overwritten above
+    --
+    hdr' = testHeader
+        [ "parent" .= t "AFHBANxHkLyt2kf7v54FAByxfFrR-pBP8iMLDNKO0SSt-ntTEh1IVT2E4mSPkq02AwACAAAAfaGIEe7a-wGT8OdEXz9RvlzJVkJgmEPmzk42bzjQOi0GAAAAjFsgdB2riCtIs0j40vovGGfcFIZmKPnxEXEekcV28eUIAAAAQcKA2py0L5t1Z1u833Z93V5N4hoKv_7-ZejC_QKTCzTtgKwxXj4Eovf97ELmo_iBruVLoK_Yann5LQIAAAAAALFMJ1gcC8oKW90MW2xY07gN10bM2-GvdC7fDvKDDwAPBwAAAJkPwMVeS7ZkAQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAOdsEAAAAAAAFAAAAT3hhzb-eBQAAAGFSDbQAAJru7keLmw3rHfSVm9wkTHWQBBTwEPwEg8RA99vzMuj-"
+        , "header" .=  t "AEbpAIzqpiins1r8v54FAJru7keLmw3rHfSVm9wkTHWQBBTwEPwEg8RA99vzMuj-AwACAAAAy7QSAHoIeFj0JXide_co-OaEzzYWbeZhAfphXI8-IR0GAAAAa-PzO_zUmk1yLOyt2kD3iI6cehKqQ_KdK8D6qZ-X6X4IAAAA79Vw2kqbVDHm9WDzksFwxZcmx5OJJNW-ge7jVa3HiHbtgKwxXj4Eovf97ELmo_iBruVLoK_Yann5LQIAAAAAAL701u70FOrdivm6quNUsKgfi2L8zYHeyOI0j2gfP16jBwAAANz0ZdfSwLZkAQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAOtsEAAAAAAAFAAAAT3hhzb-eBQAAAPvI7fkAAFFuYkCHZRcNl1k3-A1EZvyPxhiFKdHZwZRTqos57aiO"
+        , "adjacents" .=
+            [ t "ACcMAPA_ii9z0Ez7v54FAEHCgNqctC-bdWdbvN92fd1eTeIaCr_-_mXowv0Ckws0AwADAAAAxnGpa89fzxURJdpCA92MZmlDtgG9AZFVPCsCwNyDly8HAAAAHLF8WtH6kE_yIwsM0o7RJK36e1MSHUhVPYTiZI-SrTYJAAAAzmf29gDZjNcpxkw3EP9JgnU3-ARNJ14NisscofzzARCjTKbuwLbdyjay0MQ3l7xPGULH_yLMDPh4LQIAAAAAADbjm8GoWvx_3YNJ47vz54_LXV95MTKI4drB2fk5AdPlCAAAADS2qD13VlhnAQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAOdsEAAAAAAAFAAAA0wwnzb-eBQAAAAnWry0AAO_VcNpKm1Qx5vVg85LBcMWXJseTiSTVvoHu41Wtx4h2"
+            , t "AAARACjupkPfZFz8v54FAIxbIHQdq4grSLNI-NL6Lxhn3BSGZij58RFxHpHFdvHlAwABAAAAfdHDK_Q8xoD-W0nBPPBPMOgs1VukuCImYwCNnaBUwOMFAAAA4eefM0SUltzJ0Qszo3N0R9B4w_ap2_M2e6nlKEqJmkoHAAAAHLF8WtH6kE_yIwsM0o7RJK36e1MSHUhVPYTiZI-SrTbiMNKcS7VzGITdCwrGSYWrFNQvGP7KAzjbLQIAAAAAABlK0LefdM1J4t_Qeg6xAVNNDKEOhiEmNKe6SK9N6TAZBgAAALFBPU7YDgRoAQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAOdsEAAAAAAAFAAAA2eJ0y7-eBQAAAORH5OUAAGvj8zv81JpNcizsrdpA94iOnHoSqkPynSvA-qmfl-l-"
+            , t "AABPAIw5kEeHUtD7v54FAH2hiBHu2vsBk_DnRF8_Ub5cyVZCYJhD5s5ONm840DotAwAAAAAAPYZZ2yg5iXsMOyKqKKUhrGaboexUhUVK8e-fhn3FzNkEAAAAu_A9WCeRoLM17g_jc0A2UnhvCQFe5LCtTnaze9LqajQHAAAAHLF8WtH6kE_yIwsM0o7RJK36e1MSHUhVPYTiZI-SrTbP1aVtUvTRaiRyg9hCVSPXuIpf3IjuwHaBKgIAAAAAABQWMBli4UbscIslyPPH2ItcNaY2_Fm7yFucQM86oqojAgAAAFy5ttLGN19tAQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAOdsEAAAAAAAFAAAAddFMzL-eBQAAALuSPmYAAMu0EgB6CHhY9CV4nXv3KPjmhM82Fm3mYQH6YVyPPiEd"
+            ]
+        ]
+
+legacyDaValidation :: [(TestHeader, [ValidationFailureType])]
+legacyDaValidation =
+    [ (hdr, [])
+    , ( hdr & h . blockTarget . hashTarget %~ succ
+      , [IncorrectHash, IncorrectPow, IncorrectWeight, IncorrectTarget]
+      )
+    , ( hdr & p . blockEpochStart .~ EpochStartTime epoch
+      , [IncorrectTarget]
+      )
+    , ( hdr & p . blockCreationTime .~ BlockCreationTime epoch
+      , [IncorrectTarget, IncorrectEpoch]
+      )
+    ]
+  where
+    h, p :: Lens' TestHeader BlockHeader
+    h = testHeaderHdr
+    p = testHeaderParent . parentHeader
+
+    -- From mainnet height 600000
+    hdr = testHeader
+        [ "header" .= t "AAAAAAAAAAA_z6O3cKYFALWkfYX5u1mHlFtc6m2WzkGyfpxOiulPgdj213nd8hNCAwACAAAAKNL9BjFylWotmGlC3rla-zHjLWZCDGG47may6L1ae9kDAAAA7_-rMA7UiQz_XeraRer-t8P2e_8-Re9HI1RaWMmAyQAFAAAArdgCPhV4s40pYFtd33MfIvT_aNmSQC8BAl7Kszbi_m3ompSQKQSQuVbBqJHsmwTQvJlyxtaXrHyzZAAAAAAAAOtnvFu0Pe4bQU_3jXijQkKuxRQkwpmROWLrEcU4EmB3AAAAAP4UmaUADZnXBwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAwCcJAAAAAAAFAAAAomkWtXCmBQABfTg_apMwAEiTnEtTDSfsw05RrfAUyla41lBEhgeIvc01oE_HRwWw"
+        , "parent" .= t "AAAAAAAAAACiaRa1cKYFAFmK5kokRr2Fr1ThRJgyGZMDeYdjtR39rDLQCJTCCRLAAwACAAAAqop56-rmaZlP3cJ8ovBMFh0b13YKJKusxDQ6e-rY5qYDAAAA6OdCZnblItB_EHfWRU8HoVTTa8JCG3bcsfHqSCPuLXkFAAAAiSc1iYB55Z_WBNNNbXbBYxorn4UE5e9To3pkGAyFVg1nyi1HTRbA2OW66_x5xU7Jgj8tiqTiDb5WZAAAAAAAAPoy4IlkdUrT13QLpkmjs-O_Tfcdin9_XxN5p5QYNzDzAAAAAC6_SZU0gpbXBwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAvycJAAAAAAAFAAAAim-83W-mBQAQDFzNxfwJALWkfYX5u1mHlFtc6m2WzkGyfpxOiulPgdj213nd8hNC"
+        , "adjacents" .=
+            [ t "AAAAAAAAAADGdEe1cKYFAIknNYmAeeWf1gTTTW12wWMaK5-FBOXvU6N6ZBgMhVYNAwAAAAAAWYrmSiRGvYWvVOFEmDIZkwN5h2O1Hf2sMtAIlMIJEsAGAAAAoMmMNHSLx2wpeeJn8lXRAQZub-WogHiPaGYjgy0qIiYJAAAAWxaxAJCLTuupkbNvOep8LDFEGk-6m6w9C-BSUX3aMztULiyLjgVYj-tJ3mh0jTliCJ8-ae90BDymawAAAAAAAL2hV48ZKfa-SbrWH9tHcDW9Oj70qbf2d1LPyqhX13K0BQAAACvhOnkx9qxiBwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAvycJAAAAAAAFAAAA2_xh3G-mBQAAVugAKTcyAK3YAj4VeLONKWBbXd9zHyL0_2jZkkAvAQJeyrM24v5t"
+            , t "AAAAAAAAAAB9T2i0cKYFAKqKeevq5mmZT93CfKLwTBYdG9d2CiSrrMQ0Onvq2OamAwAAAAAAWYrmSiRGvYWvVOFEmDIZkwN5h2O1Hf2sMtAIlMIJEsAEAAAAh7BgJ4wxjG-OKGOgKPajOT5ywh1l29syB19A9B-mdbsHAAAAKZlUzTfZQBCLI5MTAWzW0mvOORYiQ_btd49N3CWomCBUJiHnZBlRe74hC19btnFxBdWan7D-C04UYgAAAAAAAIyzoodCtQ9Kdczg9pzXeqVPncAn6WgmscfupIb-n-bbAgAAAIiXRcBcsif7BwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAvycJAAAAAAAFAAAAUjDf3G-mBQADAeXeuu4hAyjS_QYxcpVqLZhpQt65Wvsx4y1mQgxhuO5msui9WnvZ"
+            , t "AAAAAAAAAAAaeyy1cKYFAOjnQmZ25SLQfxB31kVPB6FU02vCQht23LHx6kgj7i15AwAAAAAAWYrmSiRGvYWvVOFEmDIZkwN5h2O1Hf2sMtAIlMIJEsABAAAAV6d6LbiVwJ28s-N5uMmVpXxGEA-CwWMBCgiH16XGZcQIAAAAYB68abZbinHjE2RW-F_imNz8YelXj5KRsKy0CoX3bJWPPdqLJ59WXprzBoRWm317ioRu1dW-vP9ZYgAAAAAAAI5y7btLk5ykQLaB9x0OGNEvcScbtsagoPN2F7bgbx23AwAAAJ3kLThfYhvcBwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAvycJAAAAAAAFAAAAeMMA3G-mBQAJgYTO0ebsAO__qzAO1IkM_13q2kXq_rfD9nv_PkXvRyNUWljJgMkA"
+            ]
+        ]
 
 -- -------------------------------------------------------------------------- --
 -- A representative collection of Mainnet01 Headers pairs

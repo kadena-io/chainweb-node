@@ -310,6 +310,8 @@ checkAdjacentChainIds
     => HasChainId cid
     => HasChainId adj
     => g
+        -- ^ For all block but genesis blocks, this should be the graph of
+        -- the parent block.
     -> cid
     -> Expected (HS.HashSet adj)
     -> m (HS.HashSet adj)

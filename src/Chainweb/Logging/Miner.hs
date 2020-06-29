@@ -9,7 +9,7 @@
 -- Maintainer: Lars Kuhtz <lars@kadena.io>
 -- Stability: experimental
 --
--- TODO
+-- Datatypes for logging mined blocks.
 --
 module Chainweb.Logging.Miner
   ( NewMinedBlock(..)

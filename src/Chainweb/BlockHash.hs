@@ -27,7 +27,9 @@
 -- Maintainer: Lars Kuhtz <lars@kadena.io>
 -- Stability: experimental
 --
--- TODO
+-- Chainweb block hashes. A block hash identifies a node in the Merkle tree of a
+-- chainweb, that includes the block headers and block payloads with includs the
+-- outputs of pact validation.
 --
 module Chainweb.BlockHash
 (
@@ -207,8 +209,8 @@ decodeBlockHashWithChainId = (,) <$!> decodeChainId <*> decodeBlockHash
 decodeBlockHashRecord :: MonadGet m => m BlockHashRecord
 decodeBlockHashRecord = do
     l <- getWord16le
-    hashes <- mapM (const decodeBlockHashWithChainId) [1 .. l]
-    return $! BlockHashRecord $! HM.fromList hashes
+    hashes <- replicateM (int l) decodeBlockHashWithChainId
+    return $ BlockHashRecord $! HM.fromList hashes
 
 decodeBlockHashWithChainIdChecked
     :: MonadGet m
@@ -241,6 +243,9 @@ blockHashRecordChainIdx :: BlockHashRecord -> ChainId -> Maybe Int
 blockHashRecordChainIdx r cid
     = L.elemIndex cid . L.sort . HM.keys $ _getBlockHashRecord r
 
+-- | Note, that as long as this is not a genesis block, the graph must be the
+-- graph of the parent header!
+--
 blockHashRecordFromVector
     :: HasChainGraph g
     => HasChainId c

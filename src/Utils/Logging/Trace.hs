@@ -12,7 +12,14 @@
 -- Maintainer: Lars Kuhtz <lars@kadena.io>
 -- Stability: experimental
 --
--- TODO
+-- Tools for tracing and logging the runtime of functions.
+--
+-- This should be used with care, since it adds overhead to the system. /It is
+-- not meant to replace a profiling/. There is a reason why GHC uses a dedicated
+-- runtime for profiling: performance.
+--
+-- The tools in this module are indented to measure and log the runtime of
+-- long-running high-level operations in production.
 --
 module Utils.Logging.Trace
 ( trace

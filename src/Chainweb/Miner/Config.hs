@@ -12,9 +12,8 @@
 -- Maintainer: Lars Kuhtz <lars@kadena.io>
 -- Stability: experimental
 --
--- TODO
+-- Mining configuration for a Chainweb node.
 --
-
 module Chainweb.Miner.Config
 ( MiningConfig(..)
 , defaultMining

@@ -12,7 +12,7 @@
 -- Maintainer: Lars Kuhtz <lars@kadena.io>
 -- Stability: experimental
 --
--- TODO
+-- Server implementation of the 'Cut' REST API.
 --
 module Chainweb.CutDB.RestAPI.Server
 (

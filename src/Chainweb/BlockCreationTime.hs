@@ -14,7 +14,10 @@
 -- Maintainer: Lars Kuhtz <lars@kadena.io>
 -- Stability: experimental
 --
--- TODO
+-- The creation time of a block. The creation time of a block must be strictly
+-- larger than the creation time of the parent and the adjacent parents.
+-- Chainweb node ignore blocks that have a creation time that is in the future
+-- relatively the real world clock of the respective node.
 --
 module Chainweb.BlockCreationTime
 (
