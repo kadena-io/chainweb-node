@@ -41,7 +41,6 @@ module Chainweb.Graph
 -- * Chain Graph
 
 , ChainGraph
-, _chainGraphGraph
 , chainGraphKnown
 , chainGraphGraph
 , validChainGraph

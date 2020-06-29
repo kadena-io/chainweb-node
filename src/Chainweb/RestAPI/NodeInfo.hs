@@ -11,6 +11,7 @@
 
 module Chainweb.RestAPI.NodeInfo where
 
+import Control.Lens
 import Data.Aeson
 import Data.Bifunctor
 import qualified Data.DiGraph as G
@@ -74,5 +75,5 @@ unpackGraphs :: ChainwebVersion -> [(BlockHeight, [(Int, [Int])])]
 unpackGraphs v = gs
   where
     gs = map (second graphAdjacencies) $ NE.toList $ chainwebGraphs v
-    graphAdjacencies = map unChain . HashMap.toList . fmap HashSet.toList . G.adjacencySets . _chainGraphGraph
+    graphAdjacencies = map unChain . HashMap.toList . fmap HashSet.toList . G.adjacencySets . view chainGraphGraph
     unChain (a, bs) = (chainIdInt a, map chainIdInt bs)
