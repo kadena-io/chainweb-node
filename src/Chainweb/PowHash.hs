@@ -16,7 +16,7 @@
 -- Maintainer: Lars Kuhtz <lars@kadena.io>
 -- Stability: experimental
 --
--- TODO
+-- Chainweb Proof-Of-Work hash
 --
 module Chainweb.PowHash
 ( PowHash

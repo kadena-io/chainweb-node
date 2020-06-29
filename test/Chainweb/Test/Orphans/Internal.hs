@@ -36,6 +36,7 @@ import qualified Data.HashMap.Strict as HM
 import Test.QuickCheck.Arbitrary
 import Test.QuickCheck.Exception (discard)
 import Test.QuickCheck.Gen
+import Test.QuickCheck.Instances ({- Arbitrary V4.UUID -})
 import Test.QuickCheck.Modifiers
 
 -- internal modules
@@ -51,16 +52,21 @@ import Chainweb.Cut.Create
 import Chainweb.Difficulty
 import Chainweb.Graph
 import Chainweb.MerkleLogHash
+import Chainweb.NodeId
 import Chainweb.Payload
 import Chainweb.PowHash
+import Chainweb.RestAPI.NetworkID
+import Chainweb.Test.Orphans.Time ()
 import Chainweb.Test.Utils (genEnum)
 import Chainweb.Time
 import Chainweb.Utils
+import Chainweb.Utils.Paging
 import Chainweb.Version
 import Chainweb.Version.Utils
 
 import P2P.Node.Configuration
 import P2P.Node.PeerDB
+import P2P.Test.Orphans ()
 
 -- -------------------------------------------------------------------------- --
 -- Utils
@@ -98,6 +104,11 @@ instance Arbitrary ChainwebVersion where
 instance Arbitrary MerkleLogHash where
     arbitrary = unsafeMerkleLogHash . B.pack
         <$> vector (int merkleLogHashBytesCount)
+
+-- Deprecated
+--
+instance Arbitrary NodeId where
+    arbitrary = NodeId <$> arbitrary
 
 -- -------------------------------------------------------------------------- --
 -- POW
@@ -183,7 +194,9 @@ arbitraryBlockHashRecordVersionHeightChain v h cid
         <$> infiniteListOf arbitrary
     | otherwise = discard
   where
-    graph = chainGraphAt v h
+    graph
+        | h == genesisHeight v cid = chainGraphAt v h
+        | otherwise = chainGraphAt v (h - 1)
 
 arbitraryBlockHeaderVersion :: ChainwebVersion -> Gen BlockHeader
 arbitraryBlockHeaderVersion v = do
@@ -279,3 +292,20 @@ instance Arbitrary PayloadData where
 
 instance Arbitrary PayloadWithOutputs where
     arbitrary = newPayloadWithOutputs <$> arbitrary <*> arbitrary <*> arbitrary
+
+-- -------------------------------------------------------------------------- --
+-- Misc
+
+instance Arbitrary Limit where
+  arbitrary = Limit <$> arbitrary
+
+instance Arbitrary NetworkId where
+    arbitrary = frequency
+        [ (1, pure CutNetwork)
+        , (5, ChainNetwork <$> arbitrary)
+        , (5, MempoolNetwork <$> arbitrary)
+        ]
+
+instance Arbitrary ChainId where
+    arbitrary = unsafeChainId <$> arbitrary
+

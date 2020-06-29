@@ -327,25 +327,25 @@ nonGenesisTransaction logs initial rest target
       TxAccumulator logsLeft lastSeenTx <- shortCircuit (match acc cr)
       if (getRequestKey cr == target)
         then Left $ Right lastSeenTx
-            -- short-circuit if find target tx's logs
+          -- short-circuit if find target tx's logs
         else pure $ (TxAccumulator logsLeft lastSeenTx)
-            -- continue matching other txs' logs until find target
+          -- continue matching other txs' logs until find target
 
     shortCircuit
         :: Either String (TxAccumulator Transaction)
         -> Either (Either String Transaction) (TxAccumulator Transaction)
     shortCircuit (Left e) = Left $ Left e
-    -- ^ short-circuit if matching function threw error
+      -- short-circuit if matching function threw error
     shortCircuit (Right r) = Right r
 
     fromShortCircuit
         :: Either (Either String Transaction) (TxAccumulator Transaction)
         -> Either String (Maybe Transaction)
     fromShortCircuit (Right _) = pure Nothing
-    -- ^ Tx not found
+        -- Tx not found
     fromShortCircuit (Left (Left s)) = Left s
     fromShortCircuit (Left (Right tx)) = pure (Just tx)
-    -- ^ Tx found
+        -- Tx found
 
 
 -------------------------

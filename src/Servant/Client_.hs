@@ -18,7 +18,11 @@
 -- Maintainer: Lars Kuhtz <lars@kadena.io>
 -- Stability: experimental
 --
--- TODO
+-- A version of Servant's 'ClientM' that provides hooks to locally overwrite
+-- requests and response.
+--
+-- TODO: it might be the cases that recent versions of servant directly support
+-- this functionality and that this module is now obsolete.
 --
 module Servant.Client_
 ( ClientM_

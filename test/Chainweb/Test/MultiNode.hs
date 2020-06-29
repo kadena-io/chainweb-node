@@ -359,7 +359,7 @@ test loglevel v n seconds = testCaseSteps label $ \f -> do
 
     label = "ConsensusNetwork (nodes: " <> show n <> ", seconds: " <> show seconds <> ")"
 
-    bc = blockCountAtCutHeight v
+    bc x = blockCountAtCutHeight v x - order (chainGraphAtCutHeight v x)
 
 -- -------------------------------------------------------------------------- --
 -- Results
@@ -436,7 +436,7 @@ consensusStateSummary s
     medHeight = median $ HM.elems cutHeights
 
 expectedBlockCount :: ChainwebVersion -> Seconds -> Double
-expectedBlockCount v s = expectedCutHeightAfterSeconds v s
+expectedBlockCount v s = expectedGlobalBlockCountAfterSeconds v s
 
 lowerStats :: ChainwebVersion -> Seconds -> Stats
 lowerStats v seconds = Stats

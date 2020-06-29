@@ -9,22 +9,18 @@
 -- Maintainer: Lars Kuhtz <lars@kadena.io>
 -- Stability: experimental
 --
--- TODO
+-- A type class and instances for encoding binary words with support for large
+-- word sizes (> 64 bits).
 --
 module Data.Word.Encoding
 ( WordEncoding(..)
-, properties
 ) where
 
 import Control.Monad ((<$!>))
-import Data.Bits
 import Data.Bytes.Get
 import Data.Bytes.Put
-import qualified Data.ByteString as B
 import Data.DoubleWord (Word128(..), Word256(..))
 import Data.Word
-
-import Test.QuickCheck
 
 class WordEncoding w where
     encodeWordLe :: MonadPut m => w -> m ()
@@ -93,48 +89,3 @@ instance WordEncoding Word256 where
     {-# INLINE encodeWordBe #-}
     {-# INLINE decodeWordBe #-}
 
--- -------------------------------------------------------------------------- --
--- Properties
-
-prop_bigEndian
-    :: forall a
-    . Integral a
-    => Bounded a
-    => WordEncoding a
-    => FiniteBits a
-    => Bool
-prop_bigEndian = all run [1 .. (finiteBitSize (undefined :: a) `div` 8 -  1)]
-  where
-    run i = (==) i
-        $ length
-        $ takeWhile (== 0x00)
-        $ B.unpack
-        $ runPutS
-        $ encodeWordBe
-        $ maxBound @a `div` 2^(8*i)
-
-prop_littleEndian
-    :: forall a
-    . Integral a
-    => Bounded a
-    => WordEncoding a
-    => FiniteBits a
-    => Bool
-prop_littleEndian = all run [1 .. (finiteBitSize (undefined :: a) `div` 8 - 1)]
-  where
-    run i = (==) i
-        $ length
-        $ takeWhile (== 0x00)
-        $ reverse
-        $ B.unpack
-        $ runPutS
-        $ encodeWordLe
-        $ maxBound @a `div` 2^(8*i)
-
-properties :: [(String, Property)]
-properties =
-    [ ("Word128 little endian encoding", property $ prop_littleEndian @Word128)
-    , ("Word256 little endian encoding", property $ prop_littleEndian @Word128)
-    , ("Word128 big endian encoding", property $ prop_bigEndian @Word128)
-    , ("Word256 big endian encoding", property $ prop_bigEndian @Word128)
-    ]
