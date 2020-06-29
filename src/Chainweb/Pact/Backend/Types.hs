@@ -297,6 +297,8 @@ data Checkpointer = Checkpointer
     , _cpLookupProcessedTx :: !(P.PactHash -> IO (Maybe (T2 BlockHeight BlockHash)))
     , _cpGetBlockHistory :: !(
         forall k v . (FromJSON v) => BlockHeader -> Domain k v -> IO BlockTxHistory)
+    , _cpGetHistoricalLookup :: !(
+        forall k v . (FromJSON v) => BlockHeader -> Domain k v -> RowKey -> IO (Maybe (TxLog Value)))
     }
 
 data CheckpointEnv = CheckpointEnv

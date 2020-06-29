@@ -134,7 +134,6 @@ import Control.Lens hiding ((.=), (<.>))
 import Control.Monad
 import Control.Monad.Catch (throwM)
 
-import Data.Align (alignWith)
 import Data.Bifunctor (second)
 import Data.CAS (casLookupM)
 import Data.Foldable
@@ -413,7 +412,7 @@ instance ToJSON ChainwebConfiguration where
         , "reorgLimit" .= _configReorgLimit o
         , "validateHashesOnReplay" .= _configValidateHashesOnReplay o
         , "allowReadsInLocal" .= _configAllowReadsInLocal o
-        -- , "rosetta" .= _configRosetta o
+        , "rosetta" .= _configRosetta o
         , "localApi" .= _configLocalApi o
         ]
 
@@ -434,7 +433,7 @@ instance FromJSON (ChainwebConfiguration -> ChainwebConfiguration) where
         <*< configReorgLimit ..: "reorgLimit" % o
         <*< configValidateHashesOnReplay ..: "validateHashesOnReplay" % o
         <*< configAllowReadsInLocal ..: "allowReadsInLocal" % o
-        -- <*< configRosetta ..: "rosetta" % o
+        <*< configRosetta ..: "rosetta" % o
         <*< configLocalApi %.: "localApi" % o
 
 pChainwebConfiguration :: MParser ChainwebConfiguration
@@ -475,9 +474,9 @@ pChainwebConfiguration = id
     <*< configAllowReadsInLocal .:: boolOption_
         % long "allowReadsInLocal"
         <> help "Enable direct database reads of smart contract tables in local queries."
-    -- <*< configRosetta .:: boolOption_
-    --     % long "rosetta"
-    --     <> help "Enable the Rosetta endpoints."
+    <*< configRosetta .:: boolOption_
+        % long "rosetta"
+        <> help "Enable the Rosetta endpoints."
 
 -- -------------------------------------------------------------------------- --
 -- Chainweb Resources
@@ -591,7 +590,7 @@ validatingMempoolConfig cid v gl mv = Mempool.InMemConfig
     preInsertBatch txs = do
         pex <- readMVar mv
         rs <- _pactPreInsertCheck pex cid (V.map ssnd txs) >>= either throwM pure
-        pure $ alignWith f rs txs
+        pure $ alignWithV f rs txs
       where
         f (These r (T2 h t)) = case r of
                                  Left e -> Left (T2 h e)

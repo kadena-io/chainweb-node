@@ -263,7 +263,7 @@ testCoinbaseEnforceFailure = do
 testCoinbaseUpgradeDevnet :: V.ChainId -> BlockHeight -> Assertion
 testCoinbaseUpgradeDevnet cid upgradeHeight = do
     (pdb,mc) <- loadScript "test/pact/coin-and-devaccts.repl"
-    r <- tryAllSynchronous $ applyCoinbase v logger pdb miner 0.1 (TxContext parentHeader def)
+    r <- tryAllSynchronous $ applyCoinbase v logger pdb miner 0.1 (TxContext parent def)
       (EnforceCoinbaseFailure True) (CoinbaseUsePrecompiled False) mc
     case r of
       Left e -> assertFailure $ "upgrade coinbase failed: " ++ (sshow e)
@@ -306,7 +306,7 @@ testCoinbaseUpgradeDevnet cid upgradeHeight = do
     miner = Miner (MinerId "abcd") (MinerKeys $ mkKeySet [] "<")
     logger = newLogger neverLog "" -- set to alwaysLog to debug
 
-    parentHeader = ParentHeader $ (someBlockHeader v upgradeHeight)
+    parent = ParentHeader $ (someBlockHeader v upgradeHeight)
       { _blockChainwebVersion = v
       , _blockChainId = cid
       , _blockHeight = pred upgradeHeight

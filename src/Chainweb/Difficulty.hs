@@ -36,6 +36,7 @@ module Chainweb.Difficulty
 
 -- * HashTarget
 , HashTarget(..)
+, hashTarget
 , showTargetHex
 , showTargetBits
 , checkTarget
@@ -62,6 +63,7 @@ module Chainweb.Difficulty
 ) where
 
 import Control.DeepSeq
+import Control.Lens
 import Control.Monad
 
 import Data.Aeson
@@ -215,10 +217,14 @@ decodeHashDifficultyBe = HashDifficulty <$!> decodePowHashNatBe
 --
 -- network hash rate is interpolated from observered past block times.
 --
-newtype HashTarget = HashTarget PowHashNat
+newtype HashTarget = HashTarget { _hashTarget :: PowHashNat }
     deriving (Show, Eq, Ord, Generic)
     deriving anyclass (NFData)
     deriving newtype (ToJSON, FromJSON, Hashable, Bounded)
+
+hashTarget :: Lens' HashTarget PowHashNat
+hashTarget = lens _hashTarget $ const HashTarget
+{-# INLINE hashTarget #-}
 
 -- | A visualization of a `HashTarget` as binary.
 --
