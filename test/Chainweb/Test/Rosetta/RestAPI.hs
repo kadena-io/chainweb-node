@@ -208,11 +208,31 @@ blockTests tio envIo = after AllSucceed "Block Transaction Tests" $
 --
 constructionSubmitTests :: RosettaTest
 constructionSubmitTests tio envIo = after AllSucceed "Block Tests" $
-    testCaseSteps "Construction Submit Tests" $ \step -> return ()
+    testCaseSteps "Construction Submit Tests" $ \step -> do
+      cenv <- envIo
+
+      step "build one-off construction submit request"
+      SubmitBatch (c NEL.:| []) <- mkTransfer tio
+
+      let rk = cmdToRequestKey c
+          req = ConstructionSubmitReq nid (encodeToText c)
+
+      step "send construction submit request and poll on request key"
+      resp0 <- constructionSubmit cenv req
+
+      _constructionSubmitResp_transactionId resp0 @?= rkToTransactionId rk
+      _constructionSubmitResp_metadata resp0 @?= Nothing
+
+      step "confirm transaction details via poll"
+      PollResponses prs <- polling cid cenv (RequestKeys $ pure rk) ExpectPactResult
+
+      case HM.lookup rk prs of
+        Nothing -> assertFailure $ "unable to find poll response for: " <> show rk
+        Just cr -> _crReqKey cr @?= rk
 
 -- -- | Rosetta mempool transaction endpoint tests
 -- --
--- -- (PENDING: the only way to test this is to DOS the mempool)
+-- -- (PENDING: the only way to test this currently is to DOS the mempool)
 -- --
 -- mempoolTransactionTests :: RosettaTest
 -- mempoolTransactionTests tio envIo =
@@ -449,6 +469,7 @@ subset :: (Foldable f, Eq a) => f a -> f a -> Bool
 subset as bs = all (`elem` bs) as
 
 -- | Decode a JSON value or fail as an assertion. Analogous to 'read'
+-- with failure assertion
 --
 readAeson :: A.FromJSON b => A.Value -> IO b
 readAeson = aeson assertFailure return . A.fromJSON
