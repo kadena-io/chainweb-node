@@ -207,8 +207,7 @@ blockTests tio envIo = after AllSucceed "Block Transaction Tests" $
 -- | Rosetta construction submit endpoint tests (i.e. tx submission directly to mempool)
 --
 constructionSubmitTests :: RosettaTest
-constructionSubmitTests tio envIo = after AllSucceed "Block Tests" $
-    testCaseSteps "Construction Submit Tests" $ \step -> do
+constructionSubmitTests tio envIo = testCaseSteps "Construction Submit Tests" $ \step -> do
       cenv <- envIo
 
       step "build one-off construction submit request"

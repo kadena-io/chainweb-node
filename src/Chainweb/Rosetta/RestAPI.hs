@@ -159,7 +159,6 @@ type RosettaNetworkListApi_
     :> ReqBody '[JSON] MetadataReq
     :> Post '[JSON] NetworkListResp
 
-
 type RosettaNetworkOptionsApi_
     = "network"
     :> "options"
