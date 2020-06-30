@@ -777,7 +777,7 @@ twentyChainUpgrade
     -> ChainId
     -> BlockHeight
     -> Bool
-twentyChainUpgrade Mainnet01 _ _h = error $ "TODO: set 20-chain upgrade block height"
+twentyChainUpgrade Mainnet01 _ 745000 = True
 twentyChainUpgrade Development _ 150 = True
 twentyChainUpgrade _ _ 2 = True
 twentyChainUpgrade _ _ _ = False
