@@ -34,7 +34,8 @@ import Chainweb.Version (ChainwebVersion(..))
 -- FIXME This doesn't warn of incomplete pattern matches upon the addition of a
 -- new `ChainwebVersion` value!
 tests :: TestTree
-tests = testGroup "Chainweb.Test.BlockHeader.Genesis" $ map blockHash
+tests = testGroup "Chainweb.Test.BlockHeader.Genesis" $ do
+  map blockHash
     [ Development
     , Testnet04
     , Mainnet01

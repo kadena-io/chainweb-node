@@ -141,7 +141,7 @@ genesisBlockPayload FastTimedCPM{} cid = case chainIdInt @Int cid of
 genesisBlockPayload Development cid = case chainIdInt @Int cid of
     0 -> DN0.payloadBlock
     c | c >= 1, c <= 9 -> DNN.payloadBlock
-    c | c >= 10 && c <= 19 -> DNKAD.payloadBlock
+    c | c >= 10, c <= 19 -> DNKAD.payloadBlock
     _ -> error "chainweb graph only supports a maximum of 20 chains - please review"
 
 -- Production Instances
@@ -160,7 +160,7 @@ genesisBlockPayload Mainnet01 cid = case chainIdInt @Int cid of
     7 -> MN7.payloadBlock
     8 -> MN8.payloadBlock
     9 -> MN9.payloadBlock
-    c | c >= 10 && c <= 19 -> MNKAD.payloadBlock
+    c | c >= 10, c <= 19 -> MNKAD.payloadBlock
     _ -> error "chainweb graph only supports a maximum of 20 chains - please review"
 
 -- | A block chain is globally uniquely identified by its genesis hash.
