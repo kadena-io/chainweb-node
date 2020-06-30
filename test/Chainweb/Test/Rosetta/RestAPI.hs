@@ -18,7 +18,6 @@ import qualified Data.Aeson as A
 import Data.Functor (void)
 import qualified Data.HashMap.Strict as HM
 import Data.IORef
-import Data.List (union)
 import qualified Data.List.NonEmpty as NEL
 import Data.Text (Text)
 import Data.Foldable
@@ -67,7 +66,7 @@ cid :: ChainId
 cid = unsafeChainId 0
 
 cids :: [Text]
-cids = chainIds v ^.. folded . to (sshow @Int . chainIdInt)
+cids = chainIds v ^.. folded . to chainIdInt . to (sshow @Int)
 
 nonceRef :: IORef Natural
 nonceRef = unsafePerformIO $ newIORef 0
@@ -185,8 +184,8 @@ blockTests tio envIo = after AllSucceed "Block Transaction Tests" $
       rkmv <- newEmptyMVar @RequestKeys
 
       step "fetch genesis block"
-      resp0 <- _block_blockId . _blockResp_block <$> block cenv (req 0)
-      resp0 @=? genesisId
+      resp0 <- block cenv (req 0)
+      (_block_blockId $ _blockResp_block resp0) @?= genesisId
 
       step "send transaction"
       prs <- transferOneAsync tio cenv (putMVar rkmv)
@@ -196,6 +195,7 @@ blockTests tio envIo = after AllSucceed "Block Transaction Tests" $
 
       step "check tx at block height matches sent tx"
       resp1 <- block cenv (req bh)
+      validateBlock rk cmdMeta resp1
 
       step "validate remediations at block height 1"
       remResp <- block cenv (req 1)
@@ -203,6 +203,11 @@ blockTests tio envIo = after AllSucceed "Block Transaction Tests" $
       return ()
   where
     req h = BlockReq nid $ PartialBlockId (Just h) Nothing
+
+    validateBlock rk meta resp = do
+      print resp
+
+
 
 -- | Rosetta construction submit endpoint tests (i.e. tx submission directly to mempool)
 --
@@ -309,7 +314,7 @@ networkOptionsTests _ envIo = testCaseSteps "Network Options Tests" $ \step -> d
       "allowable errors must coincide with failure list"
 
     step "Check that response statuses are a subset of valid statuses"
-    (_allow_operationStatuses allow `union` operationStatuses) `subset` operationStatuses @?
+    (_allow_operationStatuses allow `subset` operationStatuses) @?
       "allowed operation statuses coincide"
 
     step "Check that response op types are a subset of op types"
@@ -450,7 +455,6 @@ transferOneAsync_ tio cenv callback
 
 -- ------------------------------------------------------------------ --
 -- Utils
-
 
 -- | Extract poll response metadata at some request key
 --
