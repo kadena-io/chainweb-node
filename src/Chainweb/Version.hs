@@ -778,8 +778,8 @@ twentyChainUpgrade
     -> BlockHeight
     -> Bool
 twentyChainUpgrade Mainnet01 _ _h = error $ "TODO: set 20-chain upgrade block height"
-twentyChainUpgrade Development _ h = h == 5 -- happens after v2 upgrade
-twentyChainUpgrade _ _ 1 = error $ "TODO: set 20-chain upgrade block height"
+twentyChainUpgrade Development _ 150 = True
+twentyChainUpgrade _ _ 2 = True
 twentyChainUpgrade _ _ _ = False
 
 -- | Preserve Pact bugs pre 1.6 chainweb version
@@ -890,4 +890,3 @@ oldDaGuard Mainnet01 _ = True
 oldDaGuard Testnet04 _ = True
 oldDaGuard Development _ = False
 oldDaGuard _ _ = False
-

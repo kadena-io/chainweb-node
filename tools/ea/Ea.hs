@@ -130,8 +130,14 @@ gen20ChainPayloads :: IO ()
 gen20ChainPayloads = traverse_ mk20ChainPayload [developmentKAD, mainnetKAD]
   where
     mk20ChainPayload (Genesis v tag cid c k a ns) = do
-      let cc = [fungibleAssetV1, fungibleAssetV2, coinContractV2, gasPayer]
-          txs = cc <> toList ns <> toList k <> toList a <> toList c
+      let cc =
+            [ fungibleAssetV1
+            , fungibleAssetV2
+            , coinContractV2Temp
+            , gasPayer
+            ]
+
+      let txs = cc <> toList ns <> toList k <> toList a <> toList c
 
       printf ("Generating Genesis 20-chain payload for %s on " <> show_ cid <> "...\n") $ show v
       genPayloadModule v (tag <> sshow cid) txs

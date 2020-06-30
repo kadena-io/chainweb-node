@@ -35,6 +35,7 @@ module Ea.Genesis
   -- * Coin Contract genesis
 , coinContractV1
 , coinContractV2
+, coinContractV2Temp
 , fungibleAssetV1
 , fungibleAssetV2
 , gasPayer
@@ -137,6 +138,9 @@ gasPayer = "pact/gas-payer/load-gas-payer.yaml"
 coinContractV2 :: FilePath
 coinContractV2 = "pact/coin-contract/v2/load-coin-contract-v2.yaml"
 
+coinContractV2Temp :: FilePath
+coinContractV2Temp = "pact/coin-contract/v2/load-coin-contract-v2-temp.yaml"
+
 fungibleAssetV2 :: FilePath
 fungibleAssetV2 = "pact/coin-contract/v2/load-fungible-asset-v2.yaml"
 
@@ -160,10 +164,15 @@ developmentN = development0
     & coinbase .~ (Just devNGrants)
 
 developmentKAD :: Genesis
-developmentKAD = development0
-    & allocations .~ Nothing
-    & txChainId .~ KAD
-    & coinbase .~ (Just mainnetKadOps)
+developmentKAD = Genesis
+    { _version = Development
+    , _tag = "Development"
+    , _txChainId = KAD
+    , _coinbase = Just mainnetKadOps
+    , _keysets = Nothing
+    , _allocations = Nothing
+    , _namespaces = Just devNs
+    }
 
 devNs :: FilePath
 devNs = "pact/genesis/ns.yaml"
@@ -309,10 +318,15 @@ mainnet9 = mainnet0
     & allocations .~ (Just mainnetAllocations9)
 
 mainnetKAD :: Genesis
-mainnetKAD = mainnet0
-    & allocations .~ Nothing
-    & txChainId .~ KAD
-    & coinbase .~ (Just mainnetKadOps)
+mainnetKAD = Genesis
+    { _version = Mainnet01
+    , _tag = "Mainnet"
+    , _txChainId = KAD
+    , _coinbase = Just mainnetKadOps
+    , _keysets = Nothing
+    , _allocations = Nothing
+    , _namespaces = Just mainNs
+    }
 
 mainnetKadOps :: FilePath
 mainnetKadOps = "pact/genesis/mainnet/kad-ops-grants.yaml"
