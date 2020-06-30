@@ -51,4 +51,4 @@ twentyChainUpgradeTransactions Development cid = case chainIdInt @Int cid of
   0 -> MNKAD.transactions -- just remeds
   c | c >= 1, c <= 19 -> return []
   c -> internalError $ "Invalid devnet chain id: " <> sshow c
-twentyChainUpgradeTransactions _ _ = internalError "20-chain remediations: invalid chainweb version"
+twentyChainUpgradeTransactions _ _ = return []
