@@ -35,7 +35,7 @@ module Ea.Genesis
   -- * Coin Contract genesis
 , coinContractV1
 , coinContractV2
-, coinContractV2Temp
+, coinContractV2Install
 , fungibleAssetV1
 , fungibleAssetV2
 , gasPayer
@@ -138,8 +138,8 @@ gasPayer = "pact/gas-payer/load-gas-payer.yaml"
 coinContractV2 :: FilePath
 coinContractV2 = "pact/coin-contract/v2/load-coin-contract-v2.yaml"
 
-coinContractV2Temp :: FilePath
-coinContractV2Temp = "pact/coin-contract/v2/load-coin-contract-v2-temp.yaml"
+coinContractV2Install :: FilePath
+coinContractV2Install = "pact/coin-contract/v2/coin-install.pact"
 
 fungibleAssetV2 :: FilePath
 fungibleAssetV2 = "pact/coin-contract/v2/load-fungible-asset-v2.yaml"
