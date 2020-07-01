@@ -403,21 +403,16 @@ spvTest iot nio = testCaseSteps "spv client tests" $ \step -> do
 
     txcode =
       [text|
-         (coin.cross-chain-transfer
+         (coin.transfer-crosschain
            'sender00
+           'sender01
+           (read-keyset 'sender01-keyset)
            (read-msg 'target-chain-id)
-           'sender00
-           (read-keyset 'sender00-keyset)
            1.0)
          |]
 
-    txdata =
-      -- sender00 keyset
-      let ks = mkKeySet
-            ["6be2f485a7af75fedb4b7f153a903f7e6000ca4aa501179c91a2450b777bd2a7"]
-            "keys-all"
-      in A.object
-        [ "sender01-keyset" A..= ks
+    txdata = A.object
+        [ "sender01-keyset" A..= [fst sender01]
         , "target-chain-id" A..= tid
         ]
 
