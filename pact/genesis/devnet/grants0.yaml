@@ -13,6 +13,8 @@ code: |-
   (coin.coinbase "multi-00-01" (read-keyset "multi-00-01") 101000000.0)
   (coin.coinbase "multi-02-03-04-any" (read-keyset "multi-02-03-04-any") 123400000.0)
 
+  (coin.coinbase "e7f7634e925541f368b827ad5c72421905100f6205285a78c19d7b4a38711805" (read-keyset "e7f7") 150.0)
+
   ; enough to cover the gas costs for allocation release
   (coin.coinbase "allocation00" (keyset-ref-guard "allocation00") 100000.0)
   (coin.coinbase "allocation01" (keyset-ref-guard "allocation01") 100000.0)
@@ -39,5 +41,8 @@ data:
       - "43f2adb1de192000cb3777bacc7f983b6614fd9c1715cd44cd484b6d3a0d34c8"
       - "2d70aa4f697c3a3b8dd6d97745ac074edcfd0eb65c37774cde25135483bea71e"
     pred: "keys-any"
+
+  e7f7: ["e7f7634e925541f368b827ad5c72421905100f6205285a78c19d7b4a38711805"]
+
 nonce: devnet-grants0
 keyPairs: []
