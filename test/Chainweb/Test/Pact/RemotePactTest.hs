@@ -398,13 +398,13 @@ spvTest iot nio = testCaseSteps "spv client tests" $ \step -> do
       cmd2 <- liftIO $ Pact.mkExec txcode txdata pm ks (Just "fastTimedCPM-peterson") (Just "2")
       return $ SubmitBatch (pure cmd1 <> pure cmd2)
 
-    txcode = show
+    txcode = T.unpack
       [text|
-         (coin.cross-chain-transfer
+         (coin.transfer-crosschain
            'sender00
-           (read-msg 'target-chain-id)
            'sender00
            (read-keyset 'sender00-keyset)
+           (read-msg 'target-chain-id)
            1.0)
          |]
 
@@ -414,7 +414,7 @@ spvTest iot nio = testCaseSteps "spv client tests" $ \step -> do
             ["6be2f485a7af75fedb4b7f153a903f7e6000ca4aa501179c91a2450b777bd2a7"]
             "keys-all"
       in A.object
-        [ "sender01-keyset" A..= ks
+        [ "sender00-keyset" A..= ks
         , "target-chain-id" A..= tid
         ]
 
