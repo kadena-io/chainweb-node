@@ -1,8 +1,8 @@
 {
   "owner": "kadena-io",
   "repo": "kpkgs",
-  "branch": "master",
+  "branch": "pact-apireq-fix",
   "private": false,
-  "rev": "371862478bb55128093d99b10317693856eaeb8b",
-  "sha256": "003famxri7gap18j37kj9i6iw9wszyyb4kvf19qayfgah8x5c3z6"
+  "rev": "31be89e70483e76e26e29e4cc9c756e47e1a96e7",
+  "sha256": "0xgjviigqgbkwrqx7rdvszyn5zczkq22gwlkn7jsmarvnli8kq0k"
 }
