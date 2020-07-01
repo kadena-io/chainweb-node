@@ -146,6 +146,9 @@ gp = 0.1
 
 -- ------------------------------------------------------------------------- --
 -- Tests. GHCI use `runSchedRocks tests`
+-- also:
+-- :set -package retry
+-- :set -package extra
 
 -- | Note: These tests are intermittently non-deterministic due to the way
 -- random chain sampling works with our test harnesses.
@@ -398,23 +401,18 @@ spvTest iot nio = testCaseSteps "spv client tests" $ \step -> do
       cmd2 <- liftIO $ Pact.mkExec txcode txdata pm ks (Just "fastTimedCPM-peterson") (Just "2")
       return $ SubmitBatch (pure cmd1 <> pure cmd2)
 
-    txcode = show
+    txcode =
       [text|
-         (coin.cross-chain-transfer
+         (coin.transfer-crosschain
            'sender00
+           'sender01
+           (read-keyset 'sender01-keyset)
            (read-msg 'target-chain-id)
-           'sender00
-           (read-keyset 'sender00-keyset)
            1.0)
          |]
 
-    txdata =
-      -- sender00 keyset
-      let ks = mkKeySet
-            ["6be2f485a7af75fedb4b7f153a903f7e6000ca4aa501179c91a2450b777bd2a7"]
-            "keys-all"
-      in A.object
-        [ "sender01-keyset" A..= ks
+    txdata = A.object
+        [ "sender01-keyset" A..= [fst sender01]
         , "target-chain-id" A..= tid
         ]
 
@@ -479,7 +477,7 @@ txTooBigGasTest iot nio = testCaseSteps "transaction size gas tests" $ \step -> 
       cmd <- liftIO $ Pact.mkExec code cdata pm ks (Just "fastTimedCPM-peterson") (Just "0")
       return $ SubmitBatch (pure cmd)
 
-    txcode0 = T.unpack $ T.concat ["[", T.replicate 10 " 1", "]"]
+    txcode0 = T.concat ["[", T.replicate 10 " 1", "]"]
     txcode1 = txcode0 <> "(identity 1)"
 
 
@@ -710,7 +708,7 @@ mkSingletonBatch
     :: IO (Time Micros)
     -> SimpleKeyPair
     -> PactTransaction
-    -> Maybe String
+    -> Maybe Text
     -> (Pact.TxCreationTime -> Pact.PublicMeta)
     -> Maybe [SigCapability]
     -> IO SubmitBatch
@@ -718,7 +716,7 @@ mkSingletonBatch iot kps (PactTransaction c d) nonce pmk clist = do
     ks <- testKeyPairs kps clist
     pm <- pmk . toTxCreationTime <$> iot
     let dd = fromMaybe A.Null d
-    cmd <- liftIO $ Pact.mkExec (T.unpack c) dd pm ks (Just "fastTimedCPM-peterson") nonce
+    cmd <- liftIO $ Pact.mkExec c dd pm ks (Just "fastTimedCPM-peterson") nonce
     return $ SubmitBatch (cmd NEL.:| [])
 
 withRequestKeys
