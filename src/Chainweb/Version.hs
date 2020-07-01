@@ -777,8 +777,8 @@ twentyChainUpgrade
     -> ChainId
     -> BlockHeight
     -> Bool
-twentyChainUpgrade Mainnet01 _ 745000 = True
-twentyChainUpgrade Development _ 150 = True
+twentyChainUpgrade Mainnet01 _ h = h == 745000
+twentyChainUpgrade Development _ h = h == 4
 twentyChainUpgrade _ _ 2 = True
 twentyChainUpgrade _ _ _ = False
 
