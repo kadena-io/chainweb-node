@@ -24,7 +24,7 @@
 --
 -- Eä means "to be" in Quenya, the ancient language of Tolkien's elves.
 --
-module Ea ( main, genTxModules ) where
+module Ea ( main, genTxModules, gen20ChainPayloads ) where
 
 import Control.Lens (set)
 
@@ -34,6 +34,7 @@ import Data.ByteString (ByteString)
 import qualified Data.ByteString.Lazy as BL
 import Data.CAS.RocksDB
 import Data.Foldable
+import Data.Functor
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
@@ -72,13 +73,17 @@ import Pact.Types.Command hiding (Payload)
 ---
 
 main :: IO ()
-main = devnet
-    >> fastnet
-    >> testnet
-    >> mainnet
-    >> putStrLn "Done."
+main = void $ do
+    devnet
+    fastnet
+    testnet
+    mainnet
+    putStrLn "Done."
   where
-    devnet  = mkPayloads [development0, developmentN]
+    devnet = mkPayloads
+      [ development0
+      , developmentN
+      ]
     fastnet = mkPayloads [fastTimedCPM0, fastTimedCPMN]
     testnet = mkPayloads [testnet0, testnetN]
     mainnet = mkPayloads
@@ -94,6 +99,12 @@ main = devnet
       , mainnet9
       ]
 
+show_ :: GChainId -> String
+show_ = \case
+    N -> "all chains"
+    KAD -> "chains 10-19"
+    n -> "Chain " <> show n
+
 -- | Generate paylaods for a traversable of txs
 --
 mkPayloads :: Traversable t => t Genesis -> IO ()
@@ -106,16 +117,30 @@ mkPayload (Genesis v tag cid c k a ns) = do
     printf ("Generating Genesis Payload for %s on " <> show_ cid <> "...\n") $ show v
     genPayloadModule v (tag <> sshow cid) txs
   where
-    show_ = \case
-      N -> "all chains"
-      n -> "Chain " <> show n
     -- coin contract genesis txs
     cc :: [FilePath]
-    cc = [fungibleAsset, coinContract, gasPayer]
+    cc = [fungibleAssetV1, coinContractV1, gasPayer]
     -- final tx list.
     -- NB: this is position-sensitive data.
     txs :: [FilePath]
     txs = cc <> toList ns <> toList k <> toList a <> toList c
+
+
+gen20ChainPayloads :: IO ()
+gen20ChainPayloads = traverse_ mk20ChainPayload [developmentKAD, mainnetKAD]
+  where
+    mk20ChainPayload (Genesis v tag cid c k a ns) = do
+      let cc =
+            [ fungibleAssetV1
+            , fungibleAssetV2
+            , coinContractV2Temp
+            , gasPayer
+            ]
+
+      let txs = cc <> toList ns <> toList k <> toList a <> toList c
+
+      printf ("Generating Genesis 20-chain payload for %s on " <> show_ cid <> "...\n") $ show v
+      genPayloadModule v (tag <> sshow cid) txs
 
 ---------------------
 -- Payload Generation
@@ -196,20 +221,28 @@ encodeJSON = BL.toStrict . encodePretty' (defConfig { confCompare = compare })
 ------------------------------------------------------
 
 genTxModules :: IO ()
-genTxModules = genDevTxs >> genMainnetTxs >> genOtherTxs >> putStrLn "Done."
+genTxModules = void $ do
+    genDevTxs
+    genMainnetTxs
+    genOtherTxs
+    gen20ChainRemeds
+    putStrLn "Done."
   where
     gen tag remeds = genTxModule tag $ upgrades <> remeds
     genOtherTxs = gen "Other" []
     genDevTxs = gen "Development"
       ["pact/coin-contract/remediations/devother/remediations.yaml"]
+
     genMain :: Int -> IO ()
     genMain chain = gen ("Mainnet" <> sshow chain)
       ["pact/coin-contract/remediations/mainnet/remediations" <> show chain <> ".yaml"]
+
     genMainnetTxs = mapM_ genMain [0..9]
 
-    upgrades = [ "pact/coin-contract/v2/load-fungible-asset-v2.yaml"
-               , "pact/coin-contract/v2/load-coin-contract-v2.yaml"
-               ]
+    gen20ChainRemeds = genTxModule "MainnetKAD"
+      ["pact/coin-contract/remediations/mainnet/remediations20chain.yaml"]
+
+    upgrades = [fungibleAssetV2, coinContractV2]
 
 genTxModule :: Text -> [FilePath] -> IO ()
 genTxModule tag txFiles = do

@@ -42,6 +42,7 @@ import Chainweb.BlockHash
 import Chainweb.BlockHeader
 import qualified Chainweb.BlockHeader.Genesis.Development0Payload as DN0
 import qualified Chainweb.BlockHeader.Genesis.DevelopmentNPayload as DNN
+import qualified Chainweb.BlockHeader.Genesis.DevelopmentKADPayload as DNKAD
 import qualified Chainweb.BlockHeader.Genesis.FastTimedCPM0Payload as TN0
 import qualified Chainweb.BlockHeader.Genesis.FastTimedCPMNPayload as TNN
 import qualified Chainweb.BlockHeader.Genesis.Mainnet0Payload as MN0
@@ -54,6 +55,7 @@ import qualified Chainweb.BlockHeader.Genesis.Mainnet6Payload as MN6
 import qualified Chainweb.BlockHeader.Genesis.Mainnet7Payload as MN7
 import qualified Chainweb.BlockHeader.Genesis.Mainnet8Payload as MN8
 import qualified Chainweb.BlockHeader.Genesis.Mainnet9Payload as MN9
+import qualified Chainweb.BlockHeader.Genesis.MainnetKADPayload as MNKAD
 import qualified Chainweb.BlockHeader.Genesis.Testnet0Payload as PN0
 import qualified Chainweb.BlockHeader.Genesis.TestnetNPayload as PNN
 import Chainweb.BlockHeight
@@ -138,7 +140,9 @@ genesisBlockPayload FastTimedCPM{} cid = case chainIdInt @Int cid of
 -- Development Instances
 genesisBlockPayload Development cid = case chainIdInt @Int cid of
     0 -> DN0.payloadBlock
-    _ -> DNN.payloadBlock
+    c | c >= 1, c <= 9 -> DNN.payloadBlock
+    c | c >= 10, c <= 19 -> DNKAD.payloadBlock
+    _ -> error "chainweb graph only supports a maximum of 20 chains - please review"
 
 -- Production Instances
 genesisBlockPayload Testnet04 cid = case chainIdInt @Int cid of
@@ -156,7 +160,8 @@ genesisBlockPayload Mainnet01 cid = case chainIdInt @Int cid of
     7 -> MN7.payloadBlock
     8 -> MN8.payloadBlock
     9 -> MN9.payloadBlock
-    _ -> error "peterson graph only supports a maximum of 10 chains - please review"
+    c | c >= 10, c <= 19 -> MNKAD.payloadBlock
+    _ -> error "chainweb graph only supports a maximum of 20 chains - please review"
 
 -- | A block chain is globally uniquely identified by its genesis hash.
 -- Internally, we use the 'ChainwebVersion' value and the 'ChainId'

@@ -48,6 +48,7 @@ module Chainweb.Version
 -- ** Payload Validation Guards
 , vuln797Fix
 , coinV2Upgrade
+, twentyChainUpgrade
 , pactBackCompat_v16
 , useLegacyCreationTimeForTxValidation
 , enableModuleNameFix
@@ -766,6 +767,21 @@ coinV2Upgrade Development cid h
 coinV2Upgrade _ _ 1 = True
 coinV2Upgrade _ _ _ = False
 
+-- | Mainnet 20-chain remediations
+--
+-- This function provides the block heights when remediations will be applied
+-- to the respective 20-chain fork chains.
+--
+twentyChainUpgrade
+    :: ChainwebVersion
+    -> ChainId
+    -> BlockHeight
+    -> Bool
+twentyChainUpgrade Mainnet01 _ 745000 = True
+twentyChainUpgrade Development _ 150 = True
+twentyChainUpgrade _ _ 2 = True
+twentyChainUpgrade _ _ _ = False
+
 -- | Preserve Pact bugs pre 1.6 chainweb version
 -- Mainnet 328000 ~ UTC Feb 20 15:36, EST Feb 20 10:56
 --
@@ -874,4 +890,3 @@ oldDaGuard Mainnet01 _ = True
 oldDaGuard Testnet04 _ = True
 oldDaGuard Development _ = False
 oldDaGuard _ _ = False
-

@@ -223,7 +223,7 @@ localContTest iot nio = testCaseSteps "local continuation test" $ \step -> do
 
     step "execute /send with initial pact continuation tx"
     cmd1 <- firstStep
-    rks <- liftIO $ sending sid cenv (SubmitBatch $ pure cmd1)
+    rks <- sending sid cenv (SubmitBatch $ pure cmd1)
 
     step "check /poll responses to extract pact id for continuation"
     PollResponses m <- polling sid cenv rks ExpectPactResult
