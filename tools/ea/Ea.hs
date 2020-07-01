@@ -28,11 +28,8 @@ module Ea ( main, genTxModules, gen20ChainPayloads ) where
 
 import Control.Lens (set)
 
-import Data.Aeson (ToJSON)
-import Data.Aeson.Encode.Pretty
-import Data.ByteString (ByteString)
-import qualified Data.ByteString.Lazy as BL
 import Data.CAS.RocksDB
+import Data.Default
 import Data.Foldable
 import Data.Functor
 import Data.Text (Text)
@@ -66,7 +63,7 @@ import Chainweb.Utils
 import Chainweb.Version (ChainwebVersion(..))
 import Chainweb.Version.Utils (someChainId)
 
-import Pact.ApiReq (mkApiReq)
+import Pact.ApiReq
 import Pact.Types.ChainMeta
 import Pact.Types.Command hiding (Payload)
 
@@ -130,28 +127,40 @@ gen20ChainPayloads :: IO ()
 gen20ChainPayloads = traverse_ mk20ChainPayload [developmentKAD, mainnetKAD]
   where
     mk20ChainPayload (Genesis v tag cid c k a ns) = do
-      let cc =
-            [ fungibleAssetV1
-            , fungibleAssetV2
-            , coinContractV2Temp
-            , gasPayer
-            ]
 
-      let txs = cc <> toList ns <> toList k <> toList a <> toList c
+      ((ccAr,ccCode,_,_),_) <- mkApiReq coinContractV2
+      v2Install <- TIO.readFile coinContractV2Install
+      let ccCode' = ccCode <> v2Install
+          ccAr' = ccAr
+            { _ylCode = Just ccCode'
+            , _ylCodeFile = Nothing
+            , _ylNonce = Just "coin-contract-v2-temp"
+            }
+      (_,ccTx) <- mkApiReqCmd False coinContractV2 ccAr'
+
+      fa1 <- mkTx fungibleAssetV1
+      fa2 <- mkTx fungibleAssetV2
+      gp <- mkTx gasPayer
+
+      txs <- ([fa1,fa2,ccTx,gp] ++) <$>
+             mapM mkTx (toList ns <> toList k <> toList a <> toList c)
+      cwTxs <- mkChainwebTxs' txs
+
 
       printf ("Generating Genesis 20-chain payload for %s on " <> show_ cid <> "...\n") $ show v
-      genPayloadModule v (tag <> sshow cid) txs
+      genPayloadModule' v (tag <> sshow cid) cwTxs
 
 ---------------------
 -- Payload Generation
 ---------------------
 
 genPayloadModule :: ChainwebVersion -> Text -> [FilePath] -> IO ()
-genPayloadModule v tag txFiles =
+genPayloadModule v tag txFiles = genPayloadModule' v tag =<< mkChainwebTxs txFiles
+
+genPayloadModule' :: ChainwebVersion -> Text -> [ChainwebTransaction] -> IO ()
+genPayloadModule' v tag cwTxs =
     withTempRocksDb "chainweb-ea" $ \rocks ->
     withBlockHeaderDb rocks v cid $ \bhdb -> do
-        cwTxs <- mkChainwebTxs txFiles
-
         let logger = genericLogger Warn TIO.putStrLn
         pdb <- newPayloadDb
         T2 payloadWO _ <- withSqliteDb v cid logger Nothing Nothing False $ \env ->
@@ -193,15 +202,15 @@ endModule =
     [ "|]"
     ]
 
-mkTx :: FilePath -> IO (ByteString,Command Text)
-mkTx yamlFile = do
-    (_,cmd) <- mkApiReq yamlFile
-    pure (encodeJSON cmd,cmd)
+mkTx :: FilePath -> IO (Command Text)
+mkTx yamlFile = snd <$> mkApiReq yamlFile
 
 mkChainwebTxs :: [FilePath] -> IO [ChainwebTransaction]
-mkChainwebTxs txFiles = do
-  rawTxs <- traverse mkTx txFiles
-  forM rawTxs $ \(_, cmd) -> do
+mkChainwebTxs txFiles = mkChainwebTxs' =<< traverse mkTx txFiles
+
+mkChainwebTxs' :: [Command Text] -> IO [ChainwebTransaction]
+mkChainwebTxs' rawTxs = do
+  forM rawTxs $ \cmd -> do
     let cmdBS = fmap TE.encodeUtf8 cmd
         procCmd = verifyCommand cmdBS
     case procCmd of
@@ -212,9 +221,6 @@ mkChainwebTxs txFiles = do
   where
     setTxTime = set (cmdPayload . pMeta . pmCreationTime)
     setTTL = set (cmdPayload . pMeta . pmTTL)
-
-encodeJSON :: ToJSON a => a -> ByteString
-encodeJSON = BL.toStrict . encodePretty' (defConfig { confCompare = compare })
 
 ------------------------------------------------------
 -- Transaction Generation for coin v2 and remediations
