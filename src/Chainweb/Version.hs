@@ -772,6 +772,10 @@ coinV2Upgrade _ _ _ = False
 -- This function provides the block heights when remediations will be applied
 -- to the respective 20-chain fork chains.
 --
+-- Note: 20-chain upgrades consist of a single remediation on chain 0 for one
+-- account which must occur *after* the coin-v2 upgrade. There is nothing that
+-- depends on 20chain chainweb version specifically.
+--
 twentyChainUpgrade
     :: ChainwebVersion
     -> ChainId
