@@ -29,7 +29,6 @@ module Ea ( main, genTxModules, gen20ChainPayloads ) where
 import Control.Lens (set)
 
 import Data.CAS.RocksDB
-import Data.Default
 import Data.Foldable
 import Data.Functor
 import Data.Text (Text)
