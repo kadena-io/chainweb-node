@@ -782,7 +782,7 @@ twentyChainUpgrade
     -> BlockHeight
     -> Bool
 twentyChainUpgrade Mainnet01 _ h = h == maxBound -- TODO: update me with a calculated height
-twentyChainUpgrade Development _ 150 = True
+twentyChainUpgrade Development _ h = h == 150
 twentyChainUpgrade _ _ 2 = True
 twentyChainUpgrade _ _ _ = False
 
