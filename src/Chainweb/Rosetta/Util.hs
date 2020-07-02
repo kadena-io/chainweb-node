@@ -164,7 +164,10 @@ operation ostatus otype txid acctLog idx =
   where
     opMeta
       | enableMetaData = Just $ HM.fromList
-        [ ("txId", toJSON txid) ] -- TODO: document
+        [ ("txId", toJSON txid)
+        , ("totalBalance", toJSON $ kdaToRosettaAmount $
+            _accountLogBalanceTotal acctLog)
+        , ("prevOwnership", _accountLogPrevGuard acctLog) ] -- TODO: document
       | otherwise = Nothing
     accountId = AccountId
       { _accountId_address = _accountLogKey acctLog
@@ -173,10 +176,7 @@ operation ostatus otype txid acctLog idx =
       }
     accountIdMeta
       | enableMetaData = Just $ HM.fromList
-        [ ("totalBalance", toJSON $ kdaToRosettaAmount $
-            _accountLogBalanceTotal acctLog)
-        , ("currentOwnership", _accountLogCurrGuard acctLog)
-        , ("prevOwnership", _accountLogPrevGuard acctLog) ]  -- TODO: document
+        [ ("currentOwnership", _accountLogCurrGuard acctLog) ]  -- TODO: document
       | otherwise = Nothing
 
 
@@ -209,7 +209,7 @@ kdaToRosettaAmount k = Amount (sshow amount) currency Nothing
 -- BUG: validator throws error when writing (some?) unstructured json to db.
 -- Disable filling in metadata for now.
 enableMetaData :: Bool
-enableMetaData = False
+enableMetaData = True
 
 -- TODO: document
 maxRosettaNodePeerLimit :: Natural

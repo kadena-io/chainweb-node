@@ -71,12 +71,12 @@ data LogType tx where
   SingleLog :: RequestKey -> LogType Transaction
   -- ^ Signals wanting only a single Rosetta Transaction
 
-class PendingTx chainwebTx where
+class PendingRosettaTx chainwebTx where
   getSomeTxId :: chainwebTx -> Maybe TxId
   getRequestKey :: chainwebTx -> RequestKey
   makeRosettaTx :: chainwebTx -> [Operation] -> Transaction
 
-instance PendingTx (CommandResult a) where
+instance PendingRosettaTx (CommandResult a) where
   getSomeTxId = _crTxId
   getRequestKey = _crReqKey
   makeRosettaTx = rosettaTransaction
@@ -194,7 +194,7 @@ genesisTransaction logs rest target = do
 
 -- | Matches the first coin contract logs to the coinbase tx
 nonGenesisCoinbaseLog
-    :: PendingTx chainwebTx
+    :: PendingRosettaTx chainwebTx
     => [(TxId, [AccountLog])]
     -> CoinbaseTx chainwebTx
     -> Either String (TxAccumulator Transaction)
@@ -235,7 +235,7 @@ nonGenesisCoinbaseLog logs cr = case (getSomeTxId cr) of
 --   (8) If the TxIds don't match, then the tx did not interact with the coin contract
 --       and thus the "unknown" peeked logs (1) are gas payment logs.
 gasTransactionAcc
-    :: PendingTx chainwebTx
+    :: PendingRosettaTx chainwebTx
     => AccumulatorType (TxAccumulator rosettaTxAcc)
     -> TxAccumulator rosettaTxAcc
     -> chainwebTx
@@ -244,24 +244,31 @@ gasTransactionAcc accTyp txa@(TxAccumulator logs' _) ctx = combine logs'
   where
     combine (fundLog:someLog:restLogs) =
       case (getSomeTxId ctx) of
-        Nothing -> -- tx was unsuccessful
+        Nothing -> do -- tx was unsuccessful
+          assertSequentialTxIds (txId fundLog) (txId someLog)
           makeAcc restLogs
-          (makeOps FundTx fundLog)
-          [] -- no transfer logs
-          (makeOps GasPayment someLog)
-        Just tid   -- tx was successful
-          | tid /= (fst someLog) ->  -- tx didn't touch coin table
-            makeAcc restLogs
             (makeOps FundTx fundLog)
             [] -- no transfer logs
             (makeOps GasPayment someLog)
+        Just tid   -- tx was successful
+          | tid /= (txId someLog) -> do -- if tx didn't touch coin table
+            assertSequentialTxIds (txId fundLog) tid
+            assertSequentialTxIds tid (txId someLog)
+            makeAcc restLogs
+              (makeOps FundTx fundLog)
+              [] -- no transfer logs
+              (makeOps GasPayment someLog)
           | otherwise -> case restLogs of
-              gasLog:restLogs' -> makeAcc restLogs'
-                (makeOps FundTx fundLog)
-                (makeOps TransferOrCreateAcct someLog)
-                (makeOps GasPayment gasLog)
+              gasLog:restLogs' -> do  -- if tx DID touch coin table
+                assertSequentialTxIds (txId fundLog) (txId someLog)
+                assertSequentialTxIds (txId someLog) (txId gasLog)
+                makeAcc restLogs'
+                  (makeOps FundTx fundLog)
+                  (makeOps TransferOrCreateAcct someLog)
+                  (makeOps GasPayment gasLog)
               l -> listErr "No gas logs found after transfer logs" l
-    combine l = listErr "No fund and gas logs found" l
+    combine (f:[]) = listErr "Only fund logs found" f
+    combine [] = listErr "No logs found" ([] :: [(TxId, [AccountLog])])
 
     makeAcc restLogs fund transfer gas = pure $
       accumulatorFunction accTyp txa restLogs tx
@@ -269,12 +276,20 @@ gasTransactionAcc accTyp txa@(TxAccumulator logs' _) ctx = combine logs'
         tx = makeRosettaTx ctx $ indexedOperations $
              fund <> transfer <> gas
 
+    txId (tid,_) = tid
+
     makeOps ot (tid, als) =
       map (operation Successful ot tid) als
 
     listErr expectedMsg logs = Left $
       expectedMsg ++ ": Received logs list " ++ show logs
 
+    -- NOTE: no way to check fund's txId and prev txId seen are sequential
+    -- Assumption: Operations related to a transaction have sequential txIds.
+    assertSequentialTxIds tid1 tid2
+      | tid2 == succ tid1 = pure ()
+      | otherwise = Left $ "Expected sequential txId, found txId1="
+        ++ show tid1 ++ ", txId2=" ++ show tid2
 
 -- TODO: Max limit of tx to return at once.
 --       When to do pagination using /block/transaction?
@@ -283,7 +298,7 @@ gasTransactionAcc accTyp txa@(TxAccumulator logs' _) ctx = combine logs'
 --   Each transactions that follows has (1) logs that fund the transaction,
 --   (2) optional tx specific coin contract logs, and (3) logs that pay gas.
 nonGenesisTransactions
-    :: PendingTx chainwebTx
+    :: PendingRosettaTx chainwebTx
     => Map TxId [AccountLog]
     -> CoinbaseTx chainwebTx
     -> V.Vector chainwebTx
@@ -301,7 +316,7 @@ nonGenesisTransactions logs initial rest = do
 -- | Matches a single non-genesis transaction to its coin contract logs
 -- if it exists in the given block.
 nonGenesisTransaction
-    :: PendingTx chainwebTx
+    :: PendingRosettaTx chainwebTx
     => Map TxId [AccountLog]
     -> CoinbaseTx chainwebTx
     -> V.Vector chainwebTx
