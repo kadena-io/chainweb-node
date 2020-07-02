@@ -36,10 +36,14 @@ upgradeTransactions Mainnet01 cid = case cidInt of
   7 -> MN7.transactions
   8 -> MN8.transactions
   9 -> MN9.transactions
+  c | c >= 10, c <= 19 -> return []
   c -> internalError $ "Invalid mainnet chain id: " <> sshow c
   where cidInt :: Int
         cidInt = chainIdInt cid
-upgradeTransactions Development _ = Devnet.transactions
+upgradeTransactions Development cid = case chainIdInt @Int cid of
+  c | c >= 0, c <= 9 -> Devnet.transactions
+  c | c >= 10, c <= 19 -> return []
+  c -> internalError $ "Invalid devnet chain id: "  <> sshow c
 upgradeTransactions _ _ = Other.transactions
 
 twentyChainUpgradeTransactions :: ChainwebVersion -> ChainId -> IO [ChainwebTransaction]
