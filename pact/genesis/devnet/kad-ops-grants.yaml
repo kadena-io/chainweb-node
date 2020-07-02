@@ -1,0 +1,46 @@
+code: |-
+  (coin.coinbase "KAD_OPS_20" (read-keyset "kad-ops-20") 10.0)
+
+  (coin.coinbase "sender00" (read-keyset "sender00") 100000000.0)
+  (coin.coinbase "sender01" (read-keyset "sender01") 110000000.0)
+  (coin.coinbase "sender02" (read-keyset "sender02") 120000000.0)
+  (coin.coinbase "sender03" (read-keyset "sender03") 130000000.0)
+  (coin.coinbase "sender04" (read-keyset "sender04") 140000000.0)
+  (coin.coinbase "sender05" (read-keyset "sender05") 150000000.0)
+  (coin.coinbase "sender06" (read-keyset "sender06") 160000000.0)
+  (coin.coinbase "sender07" (read-keyset "sender07") 170000000.0)
+  (coin.coinbase "sender08" (read-keyset "sender08") 180000000.0)
+  (coin.coinbase "sender09" (read-keyset "sender09") 190000000.0)
+  (coin.coinbase "multi-00-01" (read-keyset "multi-00-01") 101000000.0)
+  (coin.coinbase "multi-02-03-04-any" (read-keyset "multi-02-03-04-any") 123400000.0)
+
+data:
+  kad-ops-20:
+    keys:
+      - "e7f7634e925541f368b827ad5c72421905100f6205285a78c19d7b4a38711805"
+      - "be229f4a975e441dc694ded0e9260d993270128702ff5a5af7bed2e42c95ce09"
+      - "9a4849687cbcfeb1f7c6510539638da576289508aedcc75f4d6ad3ed2623635c"
+    pred: "keys-any"
+
+  sender00: ["368820f80c324bbc7c2b0610688a7da43e39f91d118732671cd9c7500ff43cca"]
+  sender01: ["6be2f485a7af75fedb4b7f153a903f7e6000ca4aa501179c91a2450b777bd2a7"]
+  sender02: ["3a9dd532d73dace195dbb64d1dba6572fb783d0fdd324685e32fbda2f89f99a6"]
+  sender03: ["43f2adb1de192000cb3777bacc7f983b6614fd9c1715cd44cd484b6d3a0d34c8"]
+  sender04: ["2d70aa4f697c3a3b8dd6d97745ac074edcfd0eb65c37774cde25135483bea71e"]
+  sender05: ["f09d8f6394aea425fe6783d88cd81363d8017f16afd3711c575be0f5cd5c9bb9"]
+  sender06: ["5ffc1f7fef7a44738625762f75a4229454951e03f2afc6f81309c0c1bdf9ee6f"]
+  sender07: ["4c31dc9ee7f24177f78b6f518012a208326e2af1f37bb0a2405b5056d0cad628"]
+  sender08: ["63b2eba4ed70d4612d3e7bc90db2fbf4c76f7b074363e86d73f0bc617f8e8b81"]
+  sender09: ["c59d9840b0b66090836546b7eb4a73606257527ec8c2b482300fd229264b07e6"]
+  multi-00-01:
+    - "368820f80c324bbc7c2b0610688a7da43e39f91d118732671cd9c7500ff43cca"
+    - "6be2f485a7af75fedb4b7f153a903f7e6000ca4aa501179c91a2450b777bd2a7"
+  multi-02-03-04-any:
+    keys:
+      - "3a9dd532d73dace195dbb64d1dba6572fb783d0fdd324685e32fbda2f89f99a6"
+      - "43f2adb1de192000cb3777bacc7f983b6614fd9c1715cd44cd484b6d3a0d34c8"
+      - "2d70aa4f697c3a3b8dd6d97745ac074edcfd0eb65c37774cde25135483bea71e"
+    pred: "keys-any"
+
+nonce: devnet-grants-kadops
+keyPairs: []
