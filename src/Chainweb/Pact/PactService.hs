@@ -331,8 +331,8 @@ initializeCoinContract _logger v cid pwo = do
       withCheckpointer target "readContracts" $ \(PactDbEnv' pdbenv) -> do
         PactServiceEnv{..} <- ask
         pd <- getTxContext def
-        mc <- liftIO $ readInitModules (_cpeLogger _psCheckpointEnv) pdbenv pd
-        psInitCache .= mc
+        !mc <- liftIO $ readInitModules (_cpeLogger _psCheckpointEnv) pdbenv pd
+        modify' $ set psInitCache mc
         return $! Discard ()
 
 lookupBlockHeader :: BlockHash -> Text -> PactServiceM cas BlockHeader
@@ -625,9 +625,9 @@ withCheckpointer target caller act = mask $ \restore -> do
         Right (Save header !result) -> saveTx header >> return result
   where
     discardTx = finalizeCheckpointer _cpDiscard
-    saveTx header = do
+    saveTx !header = do
         finalizeCheckpointer (flip _cpSave $ _blockHash header)
-        psStateValidated .= Just header
+        modify' $ set psStateValidated $ Just header
 
 -- | 'withCheckpointer' but using the cached parent header for target.
 withCurrentCheckpointer
@@ -1101,9 +1101,9 @@ logDebug = logg "DEBUG"
 setParentHeader :: String -> ParentHeader -> PactServiceM cas ()
 setParentHeader msg ph@(ParentHeader bh) = do
   logDebug $ "setParentHeader: " ++ msg ++ ": " ++ show (_blockHash bh,_blockHeight bh)
-  psParentHeader .= ph
+  modify' $ set psParentHeader ph
   bdb <- view psBlockHeaderDb
-  psSpvSupport .= pactSPV bdb (_blockHash bh)
+  modify' $ set psSpvSupport $! pactSPV bdb (_blockHash bh)
 
 -- | Execute a block -- only called in validate either for replay or for validating current block.
 --
@@ -1148,7 +1148,7 @@ playOneBlock currHeader plData pdbenv = do
       errs -> throwM $ TransactionValidationException $ errs
 
     !results <- go miner trans
-    psStateValidated .= Just currHeader
+    modify' $ set psStateValidated $ Just currHeader
 
     -- Validate hashes if requested
     asks _psValidateHashesOnReplay >>= \x -> when x $
@@ -1338,7 +1338,7 @@ runCoinbase False dbEnv miner enfCBFail usePrecomp mc = do
 
     upgradeInitCache newCache = do
       logInfo "Updating init cache for upgrade"
-      psInitCache %= HM.union newCache
+      modify' $ over psInitCache (HM.union newCache)
 
 
 -- | Apply multiple Pact commands, incrementing the transaction Id for each.
