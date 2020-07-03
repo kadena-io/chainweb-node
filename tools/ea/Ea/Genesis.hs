@@ -168,7 +168,7 @@ developmentKAD = Genesis
     { _version = Development
     , _tag = "Development"
     , _txChainId = KAD
-    , _coinbase = Just mainnetKadOps
+    , _coinbase = Just devnetKadOps
     , _keysets = Nothing
     , _allocations = Nothing
     , _namespaces = Just devNs
@@ -189,6 +189,8 @@ devNGrants = "pact/genesis/devnet/grantsN.yaml"
 devAllocations :: FilePath
 devAllocations = "pact/genesis/devnet/allocations.yaml"
 
+devnetKadOps :: FilePath
+devnetKadOps = "pact/genesis/devnet/kad-ops-grants.yaml"
 
 -- ---------------------------------------------------------------------- --
 -- Fast timed CPM
