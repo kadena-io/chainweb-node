@@ -1,0 +1,11 @@
+code: |-
+  (coin.coinbase "KAD_OPS_20" (read-keyset "kad-ops-20") 10.0)
+data:
+  kad-ops-20:
+    keys:
+      - "e7f7634e925541f368b827ad5c72421905100f6205285a78c19d7b4a38711805"
+      - "be229f4a975e441dc694ded0e9260d993270128702ff5a5af7bed2e42c95ce09"
+      - "9a4849687cbcfeb1f7c6510539638da576289508aedcc75f4d6ad3ed2623635c"
+    pred: "keys-any"
+nonce: mainnet-grants-kadops
+keyPairs: []

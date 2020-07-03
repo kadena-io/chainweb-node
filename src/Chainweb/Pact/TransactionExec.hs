@@ -61,7 +61,7 @@ import qualified Data.ByteString as B
 import qualified Data.ByteString.Short as SB
 import Data.Decimal (Decimal, roundTo)
 import Data.Default (def)
-import Data.Foldable (for_)
+import Data.Foldable (for_, traverse_)
 import qualified Data.HashMap.Strict as HM
 import Data.Maybe (isJust)
 import qualified Data.Set as S
@@ -95,7 +95,7 @@ import Chainweb.BlockHeight
 import Chainweb.Miner.Pact
 import Chainweb.Pact.Service.Types
 import Chainweb.Pact.Templates
-import Chainweb.Pact.Transactions.UpgradeTransactions (upgradeTransactions)
+import Chainweb.Pact.Transactions.UpgradeTransactions
 import Chainweb.Pact.Types
 import Chainweb.Transaction
 import Chainweb.Utils (encodeToByteString, sshow, tryAllSynchronous)
@@ -308,6 +308,7 @@ applyCoinbase v logger dbEnv (Miner mid mks) reward@(ParsedDecimal d) txCtx
             <> sshow mid
 
           upgradedModuleCache <- applyUpgrades v cid bh
+          void $! applyTwentyChainUpgrade v cid bh
           logs <- use txLogs
 
           return $! T2
@@ -427,12 +428,8 @@ applyUpgrades v cid height
     installCoinModuleAdmin = set (evalCapabilities . capModuleAdmin) $ S.singleton (ModuleName "coin" Nothing)
     go = applyTxs (upgradeTransactions v cid)
 
-    infoLog s = do
-      l <- view txLogger
-      liftIO $! logLog l "INFO" $! T.unpack s
-
     applyTxs txsIO = do
-      infoLog $ "Applying upgrade!"
+      infoLog "Applying upgrade!"
       txs <- map (fmap payloadObj) <$> liftIO txsIO
       local (set txExecutionConfig def) $
         mapM_ applyTx txs
@@ -443,7 +440,6 @@ applyUpgrades v cid height
       initCapabilities [mkMagicCapSlot "REMEDIATE"]
 
     applyTx tx = do
-
       infoLog $ "Running upgrade tx " <> sshow (_cmdHash tx)
 
       tryAllSynchronous (runGenesis tx permissiveNamespacePolicy interp) >>= \case
@@ -451,6 +447,37 @@ applyUpgrades v cid height
         Left e -> do
           logError $ "Upgrade transaction failed! " <> sshow e
           void $ throwM e
+
+
+applyTwentyChainUpgrade
+    :: ChainwebVersion
+    -> V.ChainId
+    -> BlockHeight
+    -> TransactionM p ()
+applyTwentyChainUpgrade v cid bh
+    | twentyChainUpgrade v cid bh = do
+      txlist <- liftIO $ twentyChainUpgradeTransactions v cid
+
+      infoLog $ "Applying 20-chain upgrades on chain " <> sshow cid
+
+      let txs = fmap payloadObj <$> txlist
+      traverse_ applyTx txs
+    | otherwise = return ()
+  where
+    applyTx tx = do
+      infoLog $ "Running 20-chain upgrade tx " <> sshow (_cmdHash tx)
+
+      let i = initStateInterpreter
+            $ initCapabilities [mkMagicCapSlot "REMEDIATE"]
+
+      r <- tryAllSynchronous (runGenesis tx permissiveNamespacePolicy i)
+      case r of
+        Left e -> do
+          logError $ "Upgrade transaction failed: " <> sshow e
+          void $! throwM e
+        Right _ -> return ()
+
+
 
 jsonErrorResult
     :: PactError
@@ -900,4 +927,7 @@ fatal e = do
     throwM $ PactTransactionExecError (fromUntypedHash $ unRequestKey rk) e
 
 logError :: Text -> TransactionM db ()
-logError msg = view txLogger >>= \l -> liftIO $ logLog l "ERROR" (T.unpack msg)
+logError msg = view txLogger >>= \l -> liftIO $! logLog l "ERROR" (T.unpack msg)
+
+infoLog :: Text -> TransactionM db ()
+infoLog msg = view txLogger >>= \l -> liftIO $! logLog l "INFO" (T.unpack msg)
