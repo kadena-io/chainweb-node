@@ -112,13 +112,18 @@ type Db = MVar (BlockEnv SQLiteEnv)
 -- | Rollback any open transaction or safepoint in the db. Usually this should
 -- be executed in masked state from within a handler.
 --
+-- TODO: check that this guaranteess that the checkpointer state and the sqlite
+-- state are in sync.
+--
 doCleanupDb :: Db -> IO ()
-doCleanupDb dbenv = runBlockEnv dbenv $ rollbackAll
+doCleanupDb dbenv = runBlockEnv dbenv $
+    clearPendingTxState
+    rollbackAll
 
 doRestore :: ChainwebVersion -> ChainId -> Db -> Maybe (BlockHeight, ParentHash) -> IO PactDbEnv'
 doRestore v cid dbenv (Just (bh, hash)) = runBlockEnv dbenv $ do
     setModuleNameFix
-    clearPendingTxState
+    clearPendingTxState -- TODO should we do DB rollback here, too?
     void $ withSavepoint PreBlock $ handlePossibleRewind v cid bh hash
     beginSavepoint Block
     return $! PactDbEnv' $! PactDbEnv chainwebPactDb dbenv
