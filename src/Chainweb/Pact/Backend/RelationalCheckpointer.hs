@@ -116,7 +116,7 @@ type Db = MVar (BlockEnv SQLiteEnv)
 -- state are in sync.
 --
 doCleanupDb :: Db -> IO ()
-doCleanupDb dbenv = runBlockEnv dbenv $
+doCleanupDb dbenv = runBlockEnv dbenv $ do
     clearPendingTxState
     rollbackAll
 
