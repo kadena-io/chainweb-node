@@ -1455,6 +1455,8 @@ execPreInsertCheckReq txs = do
           cid = _chainId psEnv
       liftIO $ fmap Discard $ V.zipWith (>>)
         <$> validateChainwebTxs v cid cp parentTime lenientCreationTime currHeight txs (runGas pdb psState psEnv)
+            -- FIXME: it seems suspicious that the checkpointer is provided to the inner action.
+            -- withCurrentCheckpointer should abstract over the checkpointer that is used.
 
         -- This code can be removed once the transition is complete and the guard
         -- @useLegacyCreationTimeForTxValidation@ is false for all new blocks
