@@ -637,7 +637,9 @@ withCheckpointer target caller act = mask $ \restore -> do
     discardTx = finalizeCheckpointer _cpDiscard
     saveTx !header = do
         finalizeCheckpointer (flip _cpSave $ _blockHash header)
-        modify' $ set psStateValidated $ Just header
+        modify'
+            $ set psStateValidated (Just header)
+            . set psParentHeader (ParentHeader header)
 
 -- | 'withCheckpointer' but using the cached parent header for target.
 withCurrentCheckpointer
