@@ -364,9 +364,10 @@ serviceRequests logFn memPoolAccess reqQ = do
         case msg of
             CloseMsg -> return ()
             LocalMsg LocalReq{..} -> do
-                trace logFn "Chainweb.Pact.PactService.execLocal"
+                trace logFn "Chainweb.Pact.PactService.execLocal" () 0 $
                     tryOne "execLocal" _localResultVar $
                         execLocal _localRequest
+                go
             NewBlockMsg NewBlockReq {..} -> do
                 trace logFn "Chainweb.Pact.PactService.execNewBlock"
                     (_parentHeader _newBlockHeader) 1 $
@@ -428,6 +429,7 @@ serviceRequests logFn memPoolAccess reqQ = do
                     , "): "
                     , show e
                     ]
+                cleanupDb
                 liftIO $ do
                     void $ tryPutMVar mvar $! toPactInternalError e
                     throwM e
@@ -438,9 +440,14 @@ serviceRequests logFn memPoolAccess reqQ = do
                     , "): "
                     , show e
                     ]
-                liftIO $ void $ tryPutMVar mvar $! toPactInternalError e
+                cleanupDb
+                liftIO $ do
+                    void $ tryPutMVar mvar $! toPactInternalError e
            ]
       where
+        -- Rolls back all open transactions and safepoints
+        cleanupDb = getCheckpointer >>= liftIO . _cpCleanupDb
+
         -- Pact turns AsyncExceptions into textual exceptions within
         -- PactInternalError. So there is no easy way for us to distinguish
         -- whether an exception originates from within pact or from the outside.

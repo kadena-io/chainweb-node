@@ -441,8 +441,7 @@ doCreateUserTable tn@(TableName ttxt) mn = do
 {-# INLINE doCreateUserTable #-}
 
 doRollback :: BlockHandler SQLiteEnv ()
-doRollback = do
-  modify'
+doRollback = modify'
     $ set bsMode Nothing
     . set bsPendingTx Nothing
 
