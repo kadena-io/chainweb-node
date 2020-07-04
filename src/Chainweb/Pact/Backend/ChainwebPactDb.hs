@@ -706,30 +706,40 @@ handlePossibleRewind v cid bRestore hsh = do
     checkHistoryInvariant succOfCurrent = do
         -- enforce invariant that the history has
         -- (B_restore-1,H_parent).
-        historyInvariant <- callDb "handlePossibleRewind" $ \db -> do
+        resultCount <- callDb "handlePossibleRewind" $ \db -> do
             qry db "SELECT COUNT(*) FROM BlockHistory WHERE \
                    \blockheight = ? AND hash = ?;"
                    [ SInt $! fromIntegral $ pred bRestore
                    , SBlob (Data.Serialize.encode hsh) ]
                    [RInt]
                 >>= expectSingleRowCol "handlePossibleRewind: (historyInvariant):"
-        when (historyInvariant /= SInt 1) $
-          internalError $ historyInvariantMessage historyInvariant
+        when (resultCount /= SInt 1) $
+          internalError $ historyInvariantMessage resultCount
       where
         historyInvariantMessage (SInt entryCount)
             | entryCount < 0 = error "impossible"
-            | entryCount == 0 = futureRestorePointMessage
+            | entryCount == 0 && bRestore > succOfCurrent = futureRestorePointMessage
+            | entryCount == 0 && bRestore <= succOfCurrent = missingBlockMessage
             | otherwise = rowCountErrorMessage entryCount
         historyInvariantMessage _ = error "impossible"
 
+        missingBlockMessage :: T.Text
+        missingBlockMessage = T.pack $
+            printf "handlePossibleRewind: The checkpointer attempted to restore to block hash\
+                \ %s at block height %d, which is not in the current block history of the\
+                \ checkpointer at height %d."
+                (blockHashToText hsh) (_height bRestore - 1) (_height succOfCurrent - 1)
+
         rowCountErrorMessage = T.pack .
-              printf "At this blockheight/blockhash (%d, %s) in BlockHistoryTable, there are %d entries." (fromIntegral bRestore :: Int) (show hsh)
+            printf "At this blockheight/blockhash (%d, %s) in BlockHistoryTable, there are %d entries."
+                (fromIntegral bRestore :: Int) (show hsh)
 
         futureRestorePointMessage :: Text
         futureRestorePointMessage = T.pack $
-          printf "handlePossibleRewind: The checkpointer attempted to restore to a block height(%d)\
-                 \, which is greater than the \"to be saved\" block height(%d) in the checkpointer."
-          (_height bRestore) (_height succOfCurrent)
+            printf "handlePossibleRewind: The checkpointer attempted to restore to block hash %s\
+                \ at height %d, which is greater than the max entry in the block history of the\
+                \ checkpointer at height %d."
+                (blockHashToText hsh) (_height bRestore - 1) (_height succOfCurrent - 1)
 
     newChildBlock bCurrent = do
         assign bsBlockHeight bRestore
