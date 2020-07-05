@@ -1,3 +1,4 @@
+{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
@@ -56,7 +57,7 @@ import Chainweb.Pact.Service.Types
 runBlockEnv :: MVar (BlockEnv SQLiteEnv) -> BlockHandler SQLiteEnv a -> IO a
 runBlockEnv e m = modifyMVar e $
   \(BlockEnv dbenv bs) -> do
-    (a,s) <- runStateT (runReaderT (runBlockHandler m) dbenv) bs
+    (!a,!s) <- runStateT (runReaderT (runBlockHandler m) dbenv) bs
     return (BlockEnv dbenv s, a)
 
 callDb :: (MonadCatch m, MonadReader (BlockDbEnv SQLiteEnv) m, MonadIO m) => Text -> (Database -> IO b) -> m b

@@ -579,35 +579,21 @@ validateHashes bHeader pData miner transactions =
           prevOutputsHash newOutputsHash
         ]
 
--- | Restore the checkpointer and prepare the execution of a block.
---
--- The use of 'withCheckpointer' is safer and should be preferred where possible.
---
--- This function adds @Block@ savepoint to the db transaction stack. It must be
--- followed by a call to @finalizeCheckpointer (save blockHash)@ or
--- @finalizeCheckpointer discard@.
---
--- Postcondition: beginSavepoint Block
---
-restoreCheckpointer
-    :: PayloadCasLookup cas
-    => Maybe (BlockHeight,BlockHash)
-        -- ^ The block height @height@ to which to restore and the parent header
-        -- @parent@.
-        --
-        -- It holds that @(_blockHeight parent == pred height)@
-
-    -> String
-        -- ^ Putative caller
-    -> PactServiceM cas PactDbEnv'
-restoreCheckpointer maybeBB caller = do
-    checkPointer <- getCheckpointer
-    logInfo $ "restoring (with caller " <> caller <> ") " <> sshow maybeBB
-    liftIO $ _cpRestore checkPointer maybeBB
-
 data WithCheckpointerResult a
     = Discard !a
     | Save BlockHeader !a
+
+syncParentHeader :: String -> PactServiceM cas ()
+syncParentHeader msg = do
+    cp <- getCheckpointer
+    liftIO (_cpGetLatestBlock cp) >>= \case
+        Just (_, ph) -> do
+            cur <- _parentHeader <$> use psParentHeader
+            unless (_blockHash cur == ph) $ do
+                parent <- ParentHeader
+                    <$!> lookupBlockHeader (_blockParent cur) "playOneBlock"
+                setParentHeader (msg <> ": syncParentHeader") parent
+        _ -> return ()
 
 -- | Execute an action in the context of an @Block@ that is provided by the
 -- checkpointer.
@@ -623,12 +609,36 @@ data WithCheckpointerResult a
 withCheckpointer
     :: PayloadCasLookup cas
     => Maybe (BlockHeight, BlockHash)
-        -- The current block height and the parent hash
+        -- ^ The block height @height@ to which to restore and the parent header
+        -- @parent@.
+        --
+        -- It holds that @(_blockHeight parent == pred height)@
+
     -> String
+        -- ^ Putative caller
     -> (PactDbEnv' -> PactServiceM cas (WithCheckpointerResult a))
     -> PactServiceM cas a
 withCheckpointer target caller act = mask $ \restore -> do
-    cenv <- restore $ restoreCheckpointer target caller
+    cenv <- restore $ do
+        checkPointer <- getCheckpointer
+        logInfo $ "restoring (with caller " <> caller <> ") " <> sshow target
+        r <- liftIO $ _cpRestore checkPointer target
+
+        -- FIXME:
+        --
+        syncParentHeader "withCheckpointer"
+        --
+        -- _cpRestore may move the checkpointer back in history. This won't be
+        -- reverted even if the checkpointer actions is discarded. We must make sure
+        -- that is is reflected in the value of psParentHeader in the pact service
+        -- state. Otherwise successive uses of the checkpointer may fail with an
+        -- history invariant violation.
+        --
+        -- One solution is to wrap all calls of withCheckpointer into withBatch or
+        -- withDiscardBatch.
+
+        return r
+
     try (restore (act cenv)) >>= \case
         Left e -> discardTx >> throwM @_ @SomeException e
         Right (Discard !result) -> discardTx >> return result
@@ -1039,28 +1049,21 @@ execNewBlock mpAccess parent miner = handle onTxFailure $ do
 
 
 withBatch :: PactServiceM cas a -> PactServiceM cas a
-withBatch act = mask $ \r -> do
+withBatch act = do
     cp <- getCheckpointer
-    r $ liftIO $ _cpBeginCheckpointerBatch cp
-    v <- r act `catch` hndl cp
-    r $ liftIO $ _cpCommitCheckpointerBatch cp
-    return v
-
-  where
-    hndl cp (e :: SomeException) = do
-        liftIO $ _cpDiscardCheckpointerBatch cp
-        throwM e
-
+    mask $ \r -> do
+        liftIO $ _cpBeginCheckpointerBatch cp
+        v <- r act `onException` (liftIO $ _cpDiscardCheckpointerBatch cp)
+        liftIO $ _cpCommitCheckpointerBatch cp
+        return v
 
 withDiscardedBatch :: PactServiceM cas a -> PactServiceM cas a
-withDiscardedBatch act = bracket start end (const act)
-  where
-    start = do
-        cp <- getCheckpointer
-        liftIO (_cpBeginCheckpointerBatch cp)
-        return cp
-    end = liftIO . _cpDiscardCheckpointerBatch
-
+withDiscardedBatch act = do
+    cp <- getCheckpointer
+    bracket_
+        (liftIO $ _cpBeginCheckpointerBatch cp)
+        (liftIO $ _cpDiscardCheckpointerBatch cp)
+        act
 
 -- | only for use in generating genesis blocks in tools
 --

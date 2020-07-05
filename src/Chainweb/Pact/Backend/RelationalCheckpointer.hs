@@ -123,7 +123,7 @@ doCleanupDb dbenv = runBlockEnv dbenv $ do
 doRestore :: ChainwebVersion -> ChainId -> Db -> Maybe (BlockHeight, ParentHash) -> IO PactDbEnv'
 doRestore v cid dbenv (Just (bh, hash)) = runBlockEnv dbenv $ do
     setModuleNameFix
-    clearPendingTxState -- TODO should we do DB rollback here, too?
+    clearPendingTxState
     void $ withSavepoint PreBlock $ handlePossibleRewind v cid bh hash
     beginSavepoint Block
     return $! PactDbEnv' $! PactDbEnv chainwebPactDb dbenv
