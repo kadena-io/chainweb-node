@@ -658,6 +658,7 @@ withCurrentCheckpointer
     -> (PactDbEnv' -> PactServiceM cas (WithCheckpointerResult a))
     -> PactServiceM cas a
 withCurrentCheckpointer caller act = do
+    syncParentHeader "withCurrentCheckpointer"
     ph <- _parentHeader <$> use psParentHeader
     let target = Just (succ $ _blockHeight ph, _blockHash ph)
     withCheckpointer target caller act
