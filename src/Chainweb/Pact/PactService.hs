@@ -587,9 +587,14 @@ syncParentHeader :: String -> PactServiceM cas ()
 syncParentHeader msg = do
     cp <- getCheckpointer
     liftIO (_cpGetLatestBlock cp) >>= \case
-        Just (_, ph) -> do
+        Just (h, ph) -> do
             cur <- _parentHeader <$> use psParentHeader
             unless (_blockHash cur == ph) $ do
+                logInfo $ T.unpack
+                    $ T.pack msg <> ": syncParentHeader: the parent header " <> blockHashToText (_blockHash cur)
+                    <> " at height " <> sshow (_blockHeight cur) <> " does not match the header "
+                    <> blockHashToText ph  <> " at height " <> sshow h
+                    <> " that is stored in the block history of the checkpointer"
                 parent <- ParentHeader
                     <$!> lookupBlockHeader (_blockParent cur) "playOneBlock"
                 setParentHeader (msg <> ": syncParentHeader") parent
