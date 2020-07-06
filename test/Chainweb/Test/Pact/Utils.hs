@@ -438,6 +438,8 @@ testPactCtxSQLite v cid bhdb pdb sqlenv config = do
         , _psVersion = v
         , _psValidateHashesOnReplay = _pactRevalidate config
         , _psAllowReadsInLocal = _pactAllowReadsInLocal config
+        , _psIsBatch = False
+        , _psCheckpointerDepth = 0
         }
 
 

@@ -72,6 +72,8 @@ module Chainweb.Pact.Types
   , psVersion
   , psValidateHashesOnReplay
   , psAllowReadsInLocal
+  , psIsBatch
+  , psCheckpointerDepth
 
     -- * TxContext
   , TxContext(..)
@@ -297,6 +299,17 @@ data PactServiceEnv cas = PactServiceEnv
     , _psVersion :: ChainwebVersion
     , _psValidateHashesOnReplay :: !Bool
     , _psAllowReadsInLocal :: !Bool
+
+    -- The following two fields are used to enforce invariants for using the
+    -- checkpointer. These would better be enforced on the type level. But that
+    -- would require changing many function signatures and is postponed for now.
+    --
+    -- DO NOT use these fields if you don't know what they do!
+    --
+    , _psIsBatch :: !Bool
+        -- ^ True when within a `withBatch` or `withDiscardBatch` call.
+    , _psCheckpointerDepth :: !Int
+        -- ^ Number of nested checkpointer calls
     }
 makeLenses ''PactServiceEnv
 

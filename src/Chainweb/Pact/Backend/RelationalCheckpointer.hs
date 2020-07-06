@@ -156,6 +156,9 @@ doSave dbenv hash = runBlockEnv dbenv $ do
     runPending height
     nextTxId <- gets _bsTxId
     blockHistoryInsert height hash nextTxId
+
+    -- FIXME: if any of the above fails with an exception the following isn't
+    -- executed and a pending SAVEPOINT is left on the stack.
     commitSavepoint Block
     clearPendingTxState
   where
