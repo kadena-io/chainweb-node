@@ -338,9 +338,9 @@ initializeCoinContract _logger v cid pwo = do
 lookupBlockHeader :: BlockHash -> Text -> PactServiceM cas BlockHeader
 lookupBlockHeader bhash ctx = do
   bhdb <- asks _psBlockHeaderDb
-  liftIO $! lookupM bhdb bhash
-        `catch` \e -> throwM $ BlockHeaderLookupFailure $
-                      "failed lookup of parent header in " <> ctx <> ": " <> sshow (e :: SomeException)
+  liftIO $! lookupM bhdb bhash `catchAllSynchronous` \e ->
+        throwM $ BlockHeaderLookupFailure $
+            "failed lookup of parent header in " <> ctx <> ": " <> sshow e
 
 isGenesisParent :: ParentHeader -> Bool
 isGenesisParent (ParentHeader p)
@@ -364,41 +364,45 @@ serviceRequests logFn memPoolAccess reqQ = do
         case msg of
             CloseMsg -> return ()
             LocalMsg LocalReq{..} -> do
-                tryOne "execLocal" _localResultVar $ execLocal _localRequest
+                trace logFn "Chainweb.Pact.PactService.execLocal" () 0 $
+                    tryOne "execLocal" _localResultVar $
+                        execLocal _localRequest
                 go
             NewBlockMsg NewBlockReq {..} -> do
                 trace logFn "Chainweb.Pact.PactService.execNewBlock"
                     (_parentHeader _newBlockHeader) 1 $
                     tryOne "execNewBlock" _newResultVar $
-                    execNewBlock memPoolAccess _newBlockHeader _newMiner
+                        execNewBlock memPoolAccess _newBlockHeader _newMiner
                 go
             ValidateBlockMsg ValidateBlockReq {..} -> do
                 trace logFn "Chainweb.Pact.PactService.execValidateBlock"
                     _valBlockHeader
                     (length (_payloadDataTransactions _valPayloadData)) $
                     tryOne "execValidateBlock" _valResultVar $
-                    execValidateBlock _valBlockHeader _valPayloadData
+                        execValidateBlock _valBlockHeader _valPayloadData
                 go
             LookupPactTxsMsg (LookupPactTxsReq restorePoint txHashes resultVar) -> do
                 trace logFn "Chainweb.Pact.PactService.execLookupPactTxs" ()
                     (length txHashes) $
                     tryOne "execLookupPactTxs" resultVar $
-                    execLookupPactTxs restorePoint txHashes
+                        execLookupPactTxs restorePoint txHashes
                 go
             PreInsertCheckMsg (PreInsertCheckReq txs resultVar) -> do
                 trace logFn "Chainweb.Pact.PactService.execPreInsertCheckReq" ()
                     (length txs) $
                     tryOne "execPreInsertCheckReq" resultVar $
-                    V.map (() <$) <$> execPreInsertCheckReq txs
+                        V.map (() <$) <$> execPreInsertCheckReq txs
                 go
             BlockTxHistoryMsg (BlockTxHistoryReq bh d resultVar) -> do
-              trace logFn "Chainweb.Pact.PactService.execBlockTxHistory" bh 1 $
-                tryOne "execBlockTxHistory" resultVar $
-                execBlockTxHistory bh d
+                trace logFn "Chainweb.Pact.PactService.execBlockTxHistory" bh 1 $
+                    tryOne "execBlockTxHistory" resultVar $
+                        execBlockTxHistory bh d
+                go
             HistoricalLookupMsg (HistoricalLookupReq bh d k resultVar) -> do
-              trace logFn "Chainweb.Pact.PactService.execHistoricalLookup" bh 1 $
-                tryOne "execHistoricalLookup" resultVar $
-                execHistoricalLookup bh d k
+                trace logFn "Chainweb.Pact.PactService.execHistoricalLookup" bh 1 $
+                    tryOne "execHistoricalLookup" resultVar $
+                        execHistoricalLookup bh d k
+                go
 
     toPactInternalError e = Left $ PactInternalError $ T.pack $ show e
 
