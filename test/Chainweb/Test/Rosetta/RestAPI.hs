@@ -5,6 +5,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE TypeFamilies #-}
 module Chainweb.Test.Rosetta.RestAPI
 ( tests
 ) where
@@ -23,6 +24,7 @@ import Data.Text (Text)
 import Data.Foldable
 
 import GHC.Natural
+import GHC.Word
 
 import Servant.Client
 
@@ -52,6 +54,7 @@ import Data.CAS.RocksDB
 import Rosetta
 
 import System.IO.Unsafe (unsafePerformIO)
+
 
 -- -------------------------------------------------------------------------- --
 -- Global Settings
@@ -83,12 +86,17 @@ tests rdb = testGroupSch "Chainweb.Test.Rosetta.RestAPI" go
       withNodes v "rosettaRemoteTests-" rdb nodes $ \envIo ->
       withTime $ \tio -> testGroup "Rosetta API tests" (tgroup tio envIo)
 
+    -- Not supported:
+    --
+    --  * Mempool Transaction: cant test reasonably without DOS'ing the mempool
+    --  * Construction Metadata: N/A
+    --
+
     tgroup tio envIo = fmap (\test -> test tio envIo)
       [ accountBalanceTests
       , blockTransactionTests
       , blockTests
       , constructionSubmitTests
-      -- , mempoolTransactionTests
       , mempoolTests
       , networkListTests
       , networkOptionsTests
@@ -142,37 +150,31 @@ blockTransactionTests tio envIo = after AllSucceed "Account Balance" $
           _ -> assertFailure "every transfer should result in 5 transactions"
 
       step "validate initial gas buy at index 0"
-      validateOp 0 "99999996890600000000" "FundTx" fundtx
+      validateOp 0 "99999996890600000000" "FundTx" "sender00" fundtx
 
       step "validate sender01 credit at index 1"
-      validateOp 1 "110000003000000000000" "TransferOrCreateAcct" cred
+      validateOp 1 "110000003000000000000" "TransferOrCreateAcct" "sender01" cred
 
       step "validate sender00 debit at index 2"
-      validateOp 2 "99999995890600000000" "TransferOrCreateAcct" deb
+      validateOp 2 "99999995890600000000" "TransferOrCreateAcct" "sender00" deb
 
       step "validate sender00 gas redemption at index 3"
-      validateOp 3 "99999996835900000000" "GasPayment" redeem
+      validateOp 3 "99999996835900000000" "GasPayment" "sender00" redeem
 
       step "validate miner gas reward at index 4"
-      validateOp 4 "7077669000000" "GasPayment" reward
+      validateOp 4 "7077669000000" "GasPayment" "NoMiner" reward
 
   where
     mkTxReq rkmv prs = do
       rk <- NEL.head . _rkRequestKeys <$> takeMVar rkmv
-      hm <- extractMetadata rk prs
-      bh <- hm ^?! ix "blockHeight" . to readAeson
-      bhash <- hm ^?! ix "blockHash" . to readAeson
+      meta <- extractMetadata rk prs
+      bh <- meta ^?! mix "blockHeight"
+      bhash <- meta ^?! mix "blockHash"
 
       let bid = BlockId bh bhash
           tid = rkToTransactionId rk
 
       return $ BlockTransactionReq nid bid tid
-
-    validateOp idx amount opType o = do
-      _operation_operationId o @?= OperationId idx Nothing
-      _operation_type o @?= opType
-      _operation_status o @?= "Successful"
-      _operation_amount o @?= Just (Amount amount kda Nothing)
 
 
 -- | Rosetta block endpoint tests
@@ -191,21 +193,44 @@ blockTests tio envIo = after AllSucceed "Block Transaction Tests" $
       prs <- transferOneAsync tio cenv (putMVar rkmv)
       rk <- NEL.head . _rkRequestKeys <$> takeMVar rkmv
       cmdMeta <- extractMetadata rk prs
-      bh <- cmdMeta ^?! ix "blockHeight" . to readAeson
+      bh <- cmdMeta ^?! mix "blockHeight"
 
       step "check tx at block height matches sent tx"
       resp1 <- block cenv (req bh)
-      validateBlock rk cmdMeta resp1
+      validateTransferResp bh resp1
 
       step "validate remediations at block height 1"
       remResp <- block cenv (req 1)
-      -- check remediation tx id's
+
+      print remResp
       return ()
   where
     req h = BlockReq nid $ PartialBlockId (Just h) Nothing
 
-    validateBlock rk meta resp = do
-      print resp
+    validateTransferResp bh resp = do
+      _blockResp_otherTransactions resp @?= Nothing
+
+      let validateBlock b = do
+            _block_metadata b @?= Nothing
+            _blockId_index (_block_blockId b) @?= bh
+            _blockId_index (_block_parentBlockId b) @?= (bh - 1)
+
+            (cbase,fundtx,cred,deb,redeem,reward) <-
+              case _block_transactions b of
+                [x,y] -> case _transaction_operations x <> _transaction_operations y of
+                  [a,b',c,d,e,f] -> return (a,b',c,d,e,f)
+                  _ -> assertFailure "total tx # should be 6: coinbase + 5 for every tx"
+                _ -> assertFailure "every block should result in at least 2 transactions: coinbase + txs"
+
+            validateOp 0 "4609046000000" "CoinbaseReward" "NoMiner" cbase
+            validateOp 0 "99999999000000000000" "FundTx" "sender00" fundtx
+            validateOp 1 "110000001000000000000" "TransferOrCreateAcct" "sender01" cred
+            validateOp 2 "99999998000000000000" "TransferOrCreateAcct" "sender00" deb
+            validateOp 3 "99999998945300000000" "GasPayment" "sender00" redeem
+            validateOp 4 "4663746000000" "GasPayment" "NoMiner" reward
+
+      validateBlock $ _blockResp_block resp
+
 
 
 
@@ -233,28 +258,6 @@ constructionSubmitTests tio envIo = testCaseSteps "Construction Submit Tests" $ 
       case HM.lookup rk prs of
         Nothing -> assertFailure $ "unable to find poll response for: " <> show rk
         Just cr -> _crReqKey cr @?= rk
-
--- -- | Rosetta mempool transaction endpoint tests
--- --
--- -- (PENDING: the only way to test this currently is to DOS the mempool)
--- --
--- mempoolTransactionTests :: RosettaTest
--- mempoolTransactionTests tio envIo =
---     testCaseSteps "Mempool Transaction Tests" $ \step -> do
---       cenv <- envIo
---       rkmv <- newEmptyMVar @RequestKeys
-
---       step "execute transfer and wait on mempool data"
---       void $! async $ transferOneAsync_ tio cenv (putMVar rkmv)
-
---       step "wait until mempool registers transfer"
---       rk <- NEL.head . _rkRequestKeys <$> takeMVar rkmv
---       MempoolTransactionResp tx _meta <- mempoolTransactionWithFastRetry cenv (req rk)
-
---       step "compare requestkey against transaction id"
---       rkToTransactionId rk @=? _transaction_transactionId tx
---   where
---     req rk = MempoolTransactionReq nid (rkToTransactionId rk)
 
 -- | Rosetta mempool endpoint tests
 --
@@ -377,7 +380,7 @@ aid = AccountId
     }
 
 genesisId :: BlockId
-genesisId = BlockId 0 "d69wD5SUpshDI6rbmQGugDXTd1-riqr7gfg5ZjvUrqk"
+genesisId = BlockId 0 "rdfJIktp_WL0oMr8Wr6lH49YkERAJ9MlFp0RPLMXPDE"
 
 rosettaVersion :: RosettaNodeVersion
 rosettaVersion = RosettaNodeVersion
@@ -402,6 +405,27 @@ operationStatuses =
     , OperationStatus "GasPayment" True
     , OperationStatus "TransferOrCreateAcct" True
     ]
+
+-- | Validate all useful data for a tx operation
+--
+validateOp
+    :: Word64
+      -- ^ tx idx
+    -> Text
+      -- ^ operation amount
+    -> Text
+      -- ^ operation type
+    -> Text
+      -- ^ operation account name
+    -> Operation
+      -- ^ the op
+    -> Assertion
+validateOp idx amount opType acct o = do
+    _operation_operationId o @?= OperationId idx Nothing
+    _operation_type o @?= opType
+    _operation_status o @?= "Successful"
+    _operation_amount o @?= Just (Amount amount kda Nothing)
+    _operation_account o @?= Just (AccountId acct Nothing Nothing)
 
 -- ------------------------------------------------------------------ --
 -- Test Pact Cmds
@@ -471,8 +495,16 @@ extractMetadata rk (PollResponses pr) = case HM.lookup rk pr of
 subset :: (Foldable f, Eq a) => f a -> f a -> Bool
 subset as bs = all (`elem` bs) as
 
--- | Decode a JSON value or fail as an assertion. Analogous to 'read'
--- with failure assertion
+-- | A composition of an index into a k-v structure with aeson values
+-- and conversion to non-JSONified structured, asserting test failure if
+-- it fails to decode as the give type @a@.
 --
-readAeson :: A.FromJSON b => A.Value -> IO b
-readAeson = aeson assertFailure return . A.fromJSON
+mix
+    :: forall a m
+    . ( A.FromJSON a
+      , Ixed m
+      , IxValue m ~ A.Value
+      )
+    => Index m
+    -> Fold m (IO a)
+mix i = ix i . to A.fromJSON . to (aeson assertFailure return)
