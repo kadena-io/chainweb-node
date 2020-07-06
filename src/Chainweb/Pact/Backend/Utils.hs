@@ -115,6 +115,9 @@ rollbackSavepoint :: SavepointName -> BlockHandler SQLiteEnv ()
 rollbackSavepoint name =
   callDb "rollbackSavepoint" $ \db -> exec_ db $ "ROLLBACK TRANSACTION TO SAVEPOINT [" <> toS (asString name) <> "];"
 
+rollbackAll :: BlockHandler SQLiteEnv ()
+rollbackAll = callDb "rollback all open transactions" $ \db -> exec_ db "ROLLBACK;"
+
 data SavepointName = BatchSavepoint | Block | DbTransaction |  PreBlock
   deriving (Eq, Ord, Enum)
 
