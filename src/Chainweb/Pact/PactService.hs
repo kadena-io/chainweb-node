@@ -426,7 +426,6 @@ serviceRequests logFn memPoolAccess reqQ = do
                     , "): "
                     , show e
                     ]
-                -- cleanupDb
                 liftIO $ do
                     void $ tryPutMVar mvar $! toPactInternalError e
                     throwM e
@@ -437,14 +436,10 @@ serviceRequests logFn memPoolAccess reqQ = do
                     , "): "
                     , show e
                     ]
-                -- cleanupDb
                 liftIO $ do
                     void $ tryPutMVar mvar $! toPactInternalError e
            ]
       where
-        -- Rolls back all open transactions and safepoints
-        -- cleanupDb = getCheckpointer >>= liftIO . _cpCleanupDb
-
         -- Pact turns AsyncExceptions into textual exceptions within
         -- PactInternalError. So there is no easy way for us to distinguish
         -- whether an exception originates from within pact or from the outside.
