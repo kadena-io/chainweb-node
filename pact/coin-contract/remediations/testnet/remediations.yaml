@@ -1,6 +1,0 @@
-# testnet remediations
-
-code: |-
-  (coin.remediate "sender00" 1337.7)
-nonce: testnet-other-remediations
-keyPairs: []
