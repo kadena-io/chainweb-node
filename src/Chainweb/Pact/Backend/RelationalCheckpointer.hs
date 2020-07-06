@@ -102,12 +102,20 @@ initRelationalCheckpointer' bstate sqlenv loggr v cid = do
               , _cpLookupProcessedTx = doLookupSuccessful db
               , _cpGetBlockHistory = doGetBlockHistory db
               , _cpGetHistoricalLookup = doGetHistoricalLookup db
+              , _cpCleanupDb = doCleanupDb db
               }
         , _cpeLogger = loggr
         })
 
 type Db = MVar (BlockEnv SQLiteEnv)
 
+-- | Rollback any open transaction or safepoint in the db. Usually this should
+-- be executed in masked state from within a handler.
+--
+doCleanupDb :: Db -> IO ()
+doCleanupDb dbenv = runBlockEnv dbenv $ do
+    clearPendingTxState
+    rollbackAll
 
 doRestore :: ChainwebVersion -> ChainId -> Db -> Maybe (BlockHeight, ParentHash) -> IO PactDbEnv'
 doRestore v cid dbenv (Just (bh, hash)) = runBlockEnv dbenv $ do
