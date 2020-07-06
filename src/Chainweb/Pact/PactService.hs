@@ -325,7 +325,7 @@ initializeCoinContract _logger v cid pwo = do
     readContracts = withDiscardedBatch $ do
       ParentHeader parent <- syncParentHeader "initializeCoinContract.readContracts"
       let target = (_blockHeight parent + 1, _blockHash parent)
-      withCheckpointerX Nothing (Just target) "initializeCoinContract.readContracts" $ \(PactDbEnv' pdbenv) -> do
+      withCheckpointer Nothing (Just target) "initializeCoinContract.readContracts" $ \(PactDbEnv' pdbenv) -> do
         PactServiceEnv{..} <- ask
         pd <- getTxContext def
         !mc <- liftIO $ readInitModules (_cpeLogger _psCheckpointEnv) pdbenv pd
@@ -665,7 +665,7 @@ withCurrentCheckpointer
 withCurrentCheckpointer caller act = do
     ParentHeader ph <- syncParentHeader "withCurrentCheckpointer"
     let target = Just (succ $ _blockHeight ph, _blockHash ph)
-    withCheckpointerX (Just 0) target caller act
+    withCheckpointer (Just 0) target caller act
 
 -- | Execute an action in the context of an @Block@ that is provided by the
 -- checkpointer. The checkpointer is rewinded and restored to the state to the
@@ -676,7 +676,7 @@ withCurrentCheckpointer caller act = do
 --
 -- If the inner action throws an exception the checkpointer state is discarded.
 --
-withCheckpointerX
+withCheckpointer
     :: PayloadCasLookup cas
     => Maybe BlockHeight
         -- ^ if set, limit rewinds to this delta
@@ -688,7 +688,7 @@ withCheckpointerX
     -> String
     -> (PactDbEnv' -> PactServiceM cas (WithCheckpointerResult a))
     -> PactServiceM cas a
-withCheckpointerX rewindLimit target caller act = do
+withCheckpointer rewindLimit target caller act = do
     rewindTo rewindLimit target
     withCheckpointerWithoutRewind target caller act
 
@@ -991,8 +991,8 @@ execNewBlock mpAccess parent miner = handle onTxFailure $ do
     updateMempool
     withDiscardedBatch $ do
       setParentHeader "execNewBlock" parent
-      newTrans <- withCheckpointerX newblockRewindLimit target "preBlock" doPreBlock
-      withCheckpointerX (Just 0) target "execNewBlock" (doNewBlock newTrans)
+      newTrans <- withCheckpointer newblockRewindLimit target "preBlock" doPreBlock
+      withCheckpointer (Just 0) target "execNewBlock" (doNewBlock newTrans)
   where
     onTxFailure e@(PactTransactionExecError rk _) = do
         -- add the failing transaction to the mempool bad list, so it is not
@@ -1088,7 +1088,7 @@ execNewGenesisBlock
     -> Vector ChainwebTransaction
     -> PactServiceM cas PayloadWithOutputs
 execNewGenesisBlock miner newTrans = withDiscardedBatch $
-    withCheckpointerX Nothing Nothing "execNewGenesisBlock" $ \pdbenv -> do
+    withCheckpointer Nothing Nothing "execNewGenesisBlock" $ \pdbenv -> do
 
         -- NEW GENESIS COINBASE: Reject bad coinbase, use date rule for precompilation
         results <- execTransactions True miner newTrans
@@ -1315,7 +1315,7 @@ execValidateBlock currHeader plData = do
     psEnv <- ask
     let reorgLimit = fromIntegral $ view psReorgLimit psEnv
     (T2 miner transactions) <- handle handleEx $ withBatch $ do
-        withCheckpointerX (Just reorgLimit) mb "execValidateBlock" $ \pdbenv -> do
+        withCheckpointer (Just reorgLimit) mb "execValidateBlock" $ \pdbenv -> do
             !result <- playOneBlock currHeader plData pdbenv
             return $! Save currHeader result
     either throwM setCurrAsParent $!
@@ -1536,7 +1536,7 @@ execLookupPactTxs restorePoint txs
         liftIO $! V.mapM (_cpLookupProcessedTx cp) txs
       DoRewind bh -> withDiscardedBatch $ do
         let !t = Just (_blockHeight bh + 1, _blockHash bh)
-        withCheckpointerX Nothing t "lookupPactTxs" $ \_ ->
+        withCheckpointer Nothing t "lookupPactTxs" $ \_ ->
           liftIO $ Discard <$> V.mapM (_cpLookupProcessedTx cp) txs
 
 findLatestValidBlock :: PactServiceM cas (Maybe BlockHeader)
