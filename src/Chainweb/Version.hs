@@ -512,7 +512,7 @@ chainwebGraphs (TimedCPM g) = pure (0, g)
 chainwebGraphs (FastTimedCPM g) = pure (0, g)
 chainwebGraphs Testnet04 = pure (0, petersonChainGraph)
 chainwebGraphs Mainnet01 = pure (0, petersonChainGraph)
-chainwebGraphs Development = (50, twentyChainGraph) NE.:| [ (0, petersonChainGraph) ]
+chainwebGraphs Development = (twentyChainUpgradeBlockHeight Development, twentyChainGraph) NE.:| [ (0, petersonChainGraph) ]
 {-# INLINE chainwebGraphs #-}
 
 -- | Return the Graph History at a given block height in descending order.
@@ -767,6 +767,12 @@ coinV2Upgrade Development cid h
 coinV2Upgrade _ _ 1 = True
 coinV2Upgrade _ _ _ = False
 
+-- | Specify the twenty chain fork block height in one place.
+twentyChainUpgradeBlockHeight :: ChainwebVersion -> BlockHeight
+twentyChainUpgradeBlockHeight Development = 150
+twentyChainUpgradeBlockHeight Mainnet01 = maxBound
+twentyChainUpgradeBlockHeight _ = 2
+
 -- | Mainnet 20-chain remediations
 --
 -- This function provides the block heights when remediations will be applied
@@ -778,13 +784,9 @@ coinV2Upgrade _ _ _ = False
 --
 twentyChainUpgrade
     :: ChainwebVersion
-    -> ChainId
     -> BlockHeight
     -> Bool
-twentyChainUpgrade Mainnet01 _ h = h == maxBound -- TODO: update me with a calculated height
-twentyChainUpgrade Development _ h = h == 150
-twentyChainUpgrade _ _ 2 = True
-twentyChainUpgrade _ _ _ = False
+twentyChainUpgrade v h = h == twentyChainUpgradeBlockHeight v
 
 -- | Preserve Pact bugs pre 1.6 chainweb version
 -- Mainnet 328000 ~ UTC Feb 20 15:36, EST Feb 20 10:56
