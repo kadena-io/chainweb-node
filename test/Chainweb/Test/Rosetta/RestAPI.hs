@@ -232,8 +232,6 @@ blockTests tio envIo = after AllSucceed "Block Transaction Tests" $
       validateBlock $ _blockResp_block resp
 
 
-
-
 -- | Rosetta construction submit endpoint tests (i.e. tx submission directly to mempool)
 --
 constructionSubmitTests :: RosettaTest
@@ -241,7 +239,7 @@ constructionSubmitTests tio envIo = testCaseSteps "Construction Submit Tests" $ 
       cenv <- envIo
 
       step "build one-off construction submit request"
-      SubmitBatch (c NEL.:| []) <- mkTransfer tio
+      SubmitBatch (c NEL.:| []) <- mkTransfer "sender00" "sender01" sender00 tio
 
       let rk = cmdToRequestKey c
           req = ConstructionSubmitReq nid (encodeToText c)
@@ -432,21 +430,26 @@ validateOp idx amount opType acct o = do
 
 -- | Build a simple transfer from sender00 to sender01
 --
-mkTransfer :: IO (Time Micros) -> IO SubmitBatch
-mkTransfer tio = do
+mkTransfer
+    :: Text
+    -> Text
+    -> SimpleKeyPair
+    -> IO (Time Micros)
+    -> IO SubmitBatch
+mkTransfer sender receiver keys tio = do
     t <- toTxCreationTime <$> tio
     n <- readIORef nonceRef
     c <- buildTextCmd
       $ set cbSigners
-        [ mkSigner' sender00
-          [ mkTransferCap "sender00" "sender01" 1.0
+        [ mkSigner' keys
+          [ mkTransferCap sender receiver 1.0
           , mkGasCap
           ]
         ]
       $ set cbCreationTime t
       $ set cbNetworkId (Just v)
       $ mkCmd ("nonce-transfer-" <> sshow t <> "-" <> sshow n)
-      $ mkExec' "(coin.transfer \"sender00\" \"sender01\" 1.0)"
+      $ mkExec' ("(coin.transfer \"" <> sender <> "\" \"" <> receiver <> "\" 1.0)")
 
     modifyIORef' nonceRef (+1)
     return $ SubmitBatch (pure c)
@@ -461,7 +464,7 @@ transferOneAsync
     -> (RequestKeys -> IO ())
     -> IO PollResponses
 transferOneAsync tio cenv callback = do
-    batch0 <- mkTransfer tio
+    batch0 <- mkTransfer "sender00" "sender01" sender00 tio
     void $! callback (f batch0)
     rks <- sending cid cenv batch0
     prs <- polling cid cenv rks ExpectPactResult
