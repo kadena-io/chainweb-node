@@ -208,8 +208,9 @@ kdaToRosettaAmount k = Amount (sshow amount) currency Nothing
 
 -- BUG: validator throws error when writing (some?) unstructured json to db.
 -- Disable filling in metadata for now.
+-- TODO: how to dynamically pass this? Would be useful to enable for tests at least.
 enableMetaData :: Bool
-enableMetaData = True
+enableMetaData = False
 
 -- TODO: document
 maxRosettaNodePeerLimit :: Natural
