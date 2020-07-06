@@ -395,22 +395,22 @@ recordTxLog
 recordTxLog tt d k v = do
     -- are we in a tx?
     mptx <- use bsPendingTx
-    case mptx of
-      Nothing -> bsPendingBlock . pendingTxLogMap %= upd
-      (Just _) -> bsPendingTx . _Just . pendingTxLogMap %= upd
+    modify' $ case mptx of
+      Nothing -> over (bsPendingBlock . pendingTxLogMap) upd
+      (Just _) -> over (bsPendingTx . _Just . pendingTxLogMap) upd
 
   where
-    upd = M.insertWith DL.append tt txlogs
-    txlogs = DL.singleton (TxLog (asString d) (asString k) (toJSON v))
+    !upd = M.insertWith DL.append tt txlogs
+    !txlogs = DL.singleton (TxLog (asString d) (asString k) (toJSON v))
 
 modifyPendingData
     :: (SQLitePendingData -> SQLitePendingData)
     -> BlockHandler SQLiteEnv ()
 modifyPendingData f = do
     m <- use bsPendingTx
-    case m of
-      Just d -> bsPendingTx .= Just (f d)
-      Nothing -> bsPendingBlock %= f
+    modify' $ case m of
+      Just d -> set bsPendingTx (Just $! f d)
+      Nothing -> over bsPendingBlock f
 
 doCreateUserTable :: TableName -> ModuleName -> BlockHandler SQLiteEnv ()
 doCreateUserTable tn@(TableName ttxt) mn = do
@@ -442,8 +442,9 @@ doCreateUserTable tn@(TableName ttxt) mn = do
 
 doRollback :: BlockHandler SQLiteEnv ()
 doRollback = do
-  bsMode .= Nothing
-  bsPendingTx .= Nothing
+  modify'
+    $ set bsMode Nothing
+    . set bsPendingTx Nothing
 
 doCommit :: BlockHandler SQLiteEnv [TxLog Value]
 doCommit = use bsMode >>= \mm -> case mm of
@@ -451,12 +452,12 @@ doCommit = use bsMode >>= \mm -> case mm of
     Just m -> do
         txrs <- if m == Transactional
           then do
-              modify' (over bsTxId succ)
+              modify' $ over bsTxId succ
               -- merge pending tx into block data
               pending <- use bsPendingTx
-              bsPendingBlock %= merge pending
+              modify' $ over bsPendingBlock (merge pending)
               blockLogs <- use $ bsPendingBlock . pendingTxLogMap
-              bsPendingTx .= Nothing
+              modify' $ set bsPendingTx Nothing
               resetTemp
               return blockLogs
           else doRollback >> return mempty
@@ -478,8 +479,9 @@ doCommit = use bsMode >>= \mm -> case mm of
 
 clearPendingTxState :: BlockHandler SQLiteEnv ()
 clearPendingTxState = do
-    bsPendingBlock .= emptySQLitePendingData
-    bsPendingTx .= Nothing
+    modify'
+        $ set bsPendingBlock emptySQLitePendingData
+        . set bsPendingTx Nothing
     resetTemp
 
 doBegin :: ExecutionMode -> BlockHandler SQLiteEnv (Maybe TxId)
@@ -490,18 +492,19 @@ doBegin m = do
             doRollback
         Nothing -> return ()
     resetTemp
-    bsMode .= Just m
-    bsPendingTx .= Just emptySQLitePendingData
+    modify'
+        $ set bsMode (Just m)
+        . set bsPendingTx (Just emptySQLitePendingData)
     case m of
         Transactional -> Just <$> use bsTxId
         Local -> pure Nothing
 {-# INLINE doBegin #-}
 
 resetTemp :: BlockHandler SQLiteEnv ()
-resetTemp = do
-    bsMode .= Nothing
+resetTemp = modify'
+    $ set bsMode Nothing
     -- clear out txlog entries
-    bsPendingBlock . pendingTxLogMap .= mempty
+    . set (bsPendingBlock . pendingTxLogMap) mempty
 
 doGetTxLog :: FromJSON v => Domain k v -> TxId -> BlockHandler SQLiteEnv [TxLog v]
 doGetTxLog d txid = do
@@ -576,7 +579,8 @@ createTransactionIndexTable = callDb "createTransactionIndexTable" $ \db -> do
              \ transactionIndexByBH ON TransactionIndex(blockheight)";
 
 indexPactTransaction :: ByteString -> BlockHandler SQLiteEnv ()
-indexPactTransaction h = bsPendingBlock . pendingSuccessfulTxs %= HashSet.insert h
+indexPactTransaction h = modify' $
+    over (bsPendingBlock . pendingSuccessfulTxs) $! HashSet.insert h
 
 
 indexPendingPactTransactions :: BlockHandler SQLiteEnv ()
