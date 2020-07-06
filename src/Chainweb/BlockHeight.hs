@@ -14,7 +14,9 @@
 -- Maintainer: Lars Kuhtz <lars@kadena.io>
 -- Stability: experimental
 --
--- TODO
+-- Chainweb Block heights. Note the height of genesis blocks can be strictly
+-- larger than zero, if the chain was added to the network during a graph
+-- transition.
 --
 module Chainweb.BlockHeight
 (

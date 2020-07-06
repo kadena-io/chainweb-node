@@ -160,7 +160,7 @@ arbitraryTestHeaderHeight v cid h = do
             <$> HM.insert cid (_parentHeader parent) as
     t <- BlockCreationTime <$> genEnum (pt, maxBound)
     return $ TestHeader
-        { _testHeaderHdr = newBlockHeader (Right . ParentHeader <$> as) payloadHash nonce t parent
+        { _testHeaderHdr = newBlockHeader (ParentHeader <$> as) payloadHash nonce t parent
         , _testHeaderParent = parent
         , _testHeaderAdjs = toList $ ParentHeader <$> as
         }

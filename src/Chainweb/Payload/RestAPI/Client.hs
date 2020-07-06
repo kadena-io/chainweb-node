@@ -11,7 +11,7 @@
 -- Maintainer: Lars Kuhtz <lars@kadena.io>
 -- Stability: experimental
 --
--- TODO
+-- Client implementation of the block payload REST API
 --
 module Chainweb.Payload.RestAPI.Client
 ( payloadClient

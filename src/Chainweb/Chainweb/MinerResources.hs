@@ -14,7 +14,10 @@
 -- Maintainer: Lars Kuhtz <lars@kadena.io>
 -- Stability: experimental
 --
--- TODO
+-- Resources for initializing mining and related components.
+--
+-- This datastructure must only be used during node startup. No heap reference
+-- should be kept after intialization of the node is complete.
 --
 module Chainweb.Chainweb.MinerResources
   ( -- * In-process Mining

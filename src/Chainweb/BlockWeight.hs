@@ -14,7 +14,8 @@
 -- Maintainer: Lars Kuhtz <lars@kadena.io>
 -- Stability: experimental
 --
--- TODO
+-- The weight of a block. This is the accumulated difficulty of all predecessors
+-- of a block including the block itself.
 --
 module Chainweb.BlockWeight
 (

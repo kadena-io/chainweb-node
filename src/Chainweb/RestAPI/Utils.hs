@@ -109,7 +109,7 @@ import Chainweb.HostAddress
 import Chainweb.RestAPI.NetworkID
 import Chainweb.RestAPI.Orphans ()
 import Chainweb.Utils
-import Chainweb.Utils.Paging hiding (properties)
+import Chainweb.Utils.Paging
 import Chainweb.Version
 
 -- -------------------------------------------------------------------------- --

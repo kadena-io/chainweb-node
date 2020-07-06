@@ -9,6 +9,7 @@ module Ea.Genesis
   -- * Devnet Genesis Txs
 , development0
 , developmentN
+, developmentKAD
 
   -- * Devnet (testing) Genesis Txs
 , fastTimedCPM0
@@ -29,10 +30,14 @@ module Ea.Genesis
 , mainnet7
 , mainnet8
 , mainnet9
+, mainnetKAD
 
   -- * Coin Contract genesis
-, coinContract
-, fungibleAsset
+, coinContractV1
+, coinContractV2
+, coinContractV2Install
+, fungibleAssetV1
+, fungibleAssetV2
 , gasPayer
 ) where
 
@@ -63,6 +68,7 @@ data GChainId
     | Eight
     | Nine
     | N
+    | KAD
     deriving (Eq, Ord, Enum)
 
 instance Show GChainId where
@@ -78,6 +84,7 @@ instance Show GChainId where
     Eight -> "8"
     Nine -> "9"
     N -> "N"
+    KAD -> "KAD"
 
 -- | Genesis transaction record
 --
@@ -119,14 +126,23 @@ coinbase = lens _coinbase (\t b -> t { _coinbase = b })
 -- ---------------------------------------------------------------------- --
 --  Coin Contract Essentials
 
-coinContract :: FilePath
-coinContract = "pact/coin-contract/load-coin-contract.yaml"
+coinContractV1 :: FilePath
+coinContractV1 = "pact/coin-contract/load-coin-contract.yaml"
 
-fungibleAsset :: FilePath
-fungibleAsset = "pact/coin-contract/load-fungible-asset.yaml"
+fungibleAssetV1 :: FilePath
+fungibleAssetV1 = "pact/coin-contract/load-fungible-asset.yaml"
 
 gasPayer :: FilePath
 gasPayer = "pact/gas-payer/load-gas-payer.yaml"
+
+coinContractV2 :: FilePath
+coinContractV2 = "pact/coin-contract/v2/load-coin-contract-v2.yaml"
+
+coinContractV2Install :: FilePath
+coinContractV2Install = "pact/coin-contract/v2/coin-install.pact"
+
+fungibleAssetV2 :: FilePath
+fungibleAssetV2 = "pact/coin-contract/v2/load-fungible-asset-v2.yaml"
 
 -- ---------------------------------------------------------------------- --
 -- Devnet - Development
@@ -147,6 +163,17 @@ developmentN = development0
     & txChainId .~ N
     & coinbase .~ (Just devNGrants)
 
+developmentKAD :: Genesis
+developmentKAD = Genesis
+    { _version = Development
+    , _tag = "Development"
+    , _txChainId = KAD
+    , _coinbase = Just devnetKadOps
+    , _keysets = Nothing
+    , _allocations = Nothing
+    , _namespaces = Just devNs
+    }
+
 devNs :: FilePath
 devNs = "pact/genesis/ns.yaml"
 
@@ -162,6 +189,8 @@ devNGrants = "pact/genesis/devnet/grantsN.yaml"
 devAllocations :: FilePath
 devAllocations = "pact/genesis/devnet/allocations.yaml"
 
+devnetKadOps :: FilePath
+devnetKadOps = "pact/genesis/devnet/kad-ops-grants.yaml"
 
 -- ---------------------------------------------------------------------- --
 -- Fast timed CPM
@@ -289,6 +318,20 @@ mainnet9 :: Genesis
 mainnet9 = mainnet0
     & txChainId .~ Nine
     & allocations .~ (Just mainnetAllocations9)
+
+mainnetKAD :: Genesis
+mainnetKAD = Genesis
+    { _version = Mainnet01
+    , _tag = "Mainnet"
+    , _txChainId = KAD
+    , _coinbase = Just mainnetKadOps
+    , _keysets = Nothing
+    , _allocations = Nothing
+    , _namespaces = Just mainNs
+    }
+
+mainnetKadOps :: FilePath
+mainnetKadOps = "pact/genesis/mainnet/kad-ops-grants.yaml"
 
 mainNs :: FilePath
 mainNs = "pact/genesis/mainnet/ns.yaml"

@@ -67,9 +67,9 @@ import Chainweb.Rosetta.Util
 
 data LogType tx where
   FullLogs :: LogType [Transaction]
-  -- ^ Signals wanting all Rosetta Transactions
+    -- ^ Signals wanting all Rosetta Transactions
   SingleLog :: RequestKey -> LogType Transaction
-  -- ^ Signals wanting only a single Rosetta Transaction
+    -- ^ Signals wanting only a single Rosetta Transaction
 
 class PendingRosettaTx chainwebTx where
   getSomeTxId :: chainwebTx -> Maybe TxId
@@ -90,9 +90,9 @@ data TxAccumulator rosettaTx = TxAccumulator
 
 data AccumulatorType rosettaTx where
   AppendTx :: AccumulatorType (TxAccumulator (DList.DList Transaction))
-  -- ^ Signals wanting to keep track of all the Rosetta Transactions seen so far.
+    -- ^ Signals wanting to keep track of all the Rosetta Transactions seen so far.
   Overwrite :: AccumulatorType (TxAccumulator Transaction)
-  -- ^ Signals wanting to only keep track of the latest Rosetta Transaction seen so far.
+    -- ^ Signals wanting to only keep track of the latest Rosetta Transaction seen so far.
 
 accumulatorFunction
     :: AccumulatorType (TxAccumulator rosettaTx)
@@ -325,11 +325,11 @@ nonGenesisTransaction
     -> Either String (Maybe Transaction)
 nonGenesisTransaction logs initial rest target
   | (getRequestKey initial == target) = do
-      -- | Looking for coinbase tx
+      -- Looking for coinbase tx
       TxAccumulator _ initTx <- nonGenesisCoinbaseLog logsList initial
       pure $ Just initTx
   | otherwise = do
-      -- | Traverse list matching transactions to their logs.
+      -- Traverse list matching transactions to their logs.
       -- If target's logs found or if error throw by matching function,
       -- short circuit.
       TxAccumulator restLogs initTx <- nonGenesisCoinbaseLog logsList initial
@@ -344,25 +344,25 @@ nonGenesisTransaction logs initial rest target
       TxAccumulator logsLeft lastSeenTx <- shortCircuit (match acc cr)
       if (getRequestKey cr == target)
         then Left $ Right lastSeenTx
-        -- ^ short-circuit if find target tx's logs
+          -- short-circuit if find target tx's logs
         else pure $ (TxAccumulator logsLeft lastSeenTx)
-        -- ^ continue matching other txs' logs until find target
+          -- continue matching other txs' logs until find target
 
     shortCircuit
         :: Either String (TxAccumulator Transaction)
         -> Either (Either String Transaction) (TxAccumulator Transaction)
     shortCircuit (Left e) = Left $ Left e
-    -- ^ short-circuit if matching function threw error
+      -- short-circuit if matching function threw error
     shortCircuit (Right r) = Right r
 
     fromShortCircuit
         :: Either (Either String Transaction) (TxAccumulator Transaction)
         -> Either String (Maybe Transaction)
     fromShortCircuit (Right _) = pure Nothing
-    -- ^ Tx not found
+        -- Tx not found
     fromShortCircuit (Left (Left s)) = Left s
     fromShortCircuit (Left (Right tx)) = pure (Just tx)
-    -- ^ Tx found
+        -- Tx found
 
 
 -------------------------
@@ -416,7 +416,7 @@ singleRemediation logs initial target =
      overwriteError RosettaMismatchTxLogs)
     work
   where
-    logsList = M.toAscList logs 
+    logsList = M.toAscList logs
     work = do
       TxAccumulator restLogs initTx <- nonGenesisCoinbaseLog logsList initial
       if (_crReqKey initial == target)

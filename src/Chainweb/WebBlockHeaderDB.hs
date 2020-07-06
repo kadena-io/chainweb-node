@@ -12,7 +12,7 @@
 -- Maintainer: Lars Kuhtz <lars@kadena.io>
 -- Stability: experimental
 --
--- TODO
+-- Collect the 'BlockHeaderDB's for all chains in a single data structure.
 --
 module Chainweb.WebBlockHeaderDB
 ( WebBlockHeaderDb
@@ -244,14 +244,19 @@ insertWebBlockHeaderDbMany db es = do
 -- @_chainId h@ is a vertex in @g@ and that the adjacent hashes of @h@
 -- correspond exactly to the adjacent vertices of @h@ in @g@.
 --
--- TODO: move this to "Chainweb.BlockHeader"?
+-- NOTE: for all but the genesis headers the graph for the adjacent parents is
+-- the graph of the parent headers.
 --
 checkBlockHeaderGraph
     :: MonadThrow m
     => BlockHeader
     -> m ()
 checkBlockHeaderGraph b = void
-    $ checkAdjacentChainIds b b $ Expected $ _blockAdjacentChainIds b
+    $ checkAdjacentChainIds graph b $ Expected $ _blockAdjacentChainIds b
+  where
+    graph
+        | isGenesisBlockHeader b = _chainGraph b
+        | otherwise = chainGraphAt (_blockChainwebVersion b) (_blockHeight b - 1)
 {-# INLINE checkBlockHeaderGraph #-}
 
 -- | Given a 'WebBlockHeaderDb' @db@, @checkBlockAdjacentParents h@ checks that

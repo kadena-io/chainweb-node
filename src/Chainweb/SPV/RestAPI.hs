@@ -11,7 +11,7 @@
 -- Maintainer: Lars Kuhtz <lars@kadena.io>
 -- Stability: experimental
 --
--- TODO
+-- SPV RestAPI
 --
 module Chainweb.SPV.RestAPI
 (

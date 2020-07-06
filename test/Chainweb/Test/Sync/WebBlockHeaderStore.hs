@@ -8,15 +8,13 @@
 {-# LANGUAGE TypeFamilies #-}
 
 -- |
--- Module: Chainweb.WebBlockHeaderDB.Test
+-- Module: Chainweb.Test.Sync.WebBlockHeaderDB
 -- Copyright: Copyright © 2018 - 2020 Kadena LLC.
 -- License: MIT
 -- Maintainer: Lars Kuhtz <lars@kadena.io>
 -- Stability: experimental
 --
--- TODO
---
-module Chainweb.Sync.WebBlockHeaderStore.Test
+module Chainweb.Test.Sync.WebBlockHeaderStore
 ( properties
 
 -- * Utils

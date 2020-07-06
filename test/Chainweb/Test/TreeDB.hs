@@ -12,12 +12,18 @@
 --
 -- Test the invariants of the `TreeDb` typeclass.
 --
-module Chainweb.Test.TreeDB ( treeDbInvariants, RunStyle(..) ) where
+module Chainweb.Test.TreeDB
+( treeDbInvariants
+, RunStyle(..)
+, properties
+) where
 
 import Control.Lens (each, from, over, to, (^.), (^..))
 
 import Data.Bool (bool)
 import Data.Foldable (foldlM, toList)
+import Data.Function
+import Data.Functor.Identity
 import qualified Data.HashSet as HS
 import Data.Maybe (isJust, isNothing)
 import qualified Data.Set as S
@@ -39,7 +45,8 @@ import Chainweb.BlockHeader
 import Chainweb.BlockHeader.Validation
 import Chainweb.Test.Utils
 import Chainweb.TreeDB
-import Chainweb.Utils (len, tryAllSynchronous)
+import Chainweb.Utils (int, len, tryAllSynchronous)
+import Chainweb.Utils.Paging
 
 type Insert db = db -> [DbEntry db] -> IO ()
 type WithTestDb db = DbEntry db -> (db -> Insert db -> IO Bool) -> IO Bool
@@ -252,3 +259,28 @@ genParent_prop f (SparseTree t0) = ioProperty . withTreeDb f t $ \db _ ->
   where
     t :: Tree (DbEntry db)
     t = fmap (^. from isoBH) t0
+
+-- -------------------------------------------------------------------------- --
+-- Seek Limit Stream Properties
+
+prop_seekLimitStream_limit :: [Int] -> Natural -> Property
+prop_seekLimitStream_limit l i = i <= len l ==> actual === expected
+    & cover 1 (i == len l) "limit == length of stream"
+    & cover 1 (i == 0) "limit == 0"
+    & cover 1 (null l) "length of stream == 0"
+  where
+    actual = runIdentity . P.toList $ seekLimitStream id Nothing (Just (Limit i)) (P.each l)
+    expected = take (int i) l :> (i, Eos (i >= len l))
+
+prop_seekLimitStream_id :: [Int] -> Property
+prop_seekLimitStream_id l = actual === expected
+    & cover 1 (null l) "len l == 0"
+  where
+    actual = runIdentity $ P.toList $ seekLimitStream id Nothing Nothing (P.each l)
+    expected = l :> (len l, Eos True)
+
+properties :: [(String, Property)]
+properties =
+    [ ("seekLimitStream_limit", property prop_seekLimitStream_limit)
+    , ("seekLimitStream_id", property prop_seekLimitStream_id)
+    ]

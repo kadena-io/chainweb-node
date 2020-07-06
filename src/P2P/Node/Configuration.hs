@@ -15,7 +15,7 @@
 -- Maintainer: Lars Kuhtz <lars@kadena.io>
 -- Stability: experimental
 --
--- TODO
+-- Configuration for Chainweb P2P network nodes.
 --
 module P2P.Node.Configuration
 (

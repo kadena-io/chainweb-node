@@ -11,7 +11,7 @@
 -- Maintainer: Lars Kuhtz <lars@kadena.io>
 -- Stability: experimental
 --
--- TODO
+-- REST API for the current 'Cut' of a Chainweb node.
 --
 module Chainweb.CutDB.RestAPI
 (
