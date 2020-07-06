@@ -21,7 +21,7 @@ import Control.Lens
 import Control.Monad
 import Control.Monad.Catch
 import Control.Monad.IO.Class
-import Control.Monad.State (gets)
+import Control.Monad.State (gets, modify')
 
 import Data.ByteString (ByteString)
 import Data.Aeson hiding (encode,(.=))
@@ -118,7 +118,7 @@ doRestore v cid dbenv (Just (bh, hash)) = runBlockEnv dbenv $ do
     return $! PactDbEnv' $! PactDbEnv chainwebPactDb dbenv
   where
     -- Module name fix follows the restore call to checkpointer.
-    setModuleNameFix = bsModuleNameFix .= enableModuleNameFix v bh
+    setModuleNameFix = modify' $ set bsModuleNameFix $! enableModuleNameFix v bh
 doRestore _ _ dbenv Nothing = runBlockEnv dbenv $ do
     clearPendingTxState
     withSavepoint DbTransaction $
