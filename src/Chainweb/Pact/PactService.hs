@@ -250,6 +250,12 @@ initPactService' ver cid chainwebLogger bhDb pdb sqlenv config act = do
     checkpointEnv <- initRelationalCheckpointer initialBlockState sqlenv logger ver cid
     let !rs = readRewards
         !gasModel = officialGasModel
+
+        -- FIXME: this must be the header that matches the latest header in the
+        -- checkpointer. Otherwise, if the latest header was on an orphaned
+        -- fork, there is no way to recover it in the call of
+        -- 'initalPayloadState.readContracts'.
+        --
         !initialParentHeader = ParentHeader $ genesisBlockHeader ver cid
         !pse = PactServiceEnv
                 { _psMempoolAccess = Nothing
@@ -322,6 +328,11 @@ initializeCoinContract _logger v cid pwo = do
     genesisHeader :: BlockHeader
     genesisHeader = genesisBlockHeader v cid
 
+    -- FIXME: This is called with the genesis header as '_psParentHeader'. However,
+    -- syncParentHeader assumes that the latest header in the checkpointere is
+    -- either the current header or it is in the block header database. But if
+    -- the latest header was orphaned this isn't true.
+    --
     readContracts = withDiscardedBatch $ do
       ParentHeader parent <- syncParentHeader "initializeCoinContract.readContracts"
       let target = (_blockHeight parent + 1, _blockHash parent)
@@ -332,12 +343,28 @@ initializeCoinContract _logger v cid pwo = do
         modify' $ set psInitCache mc
         return $! Discard ()
 
+-- | Lookup a block header.
+--
+-- The block header is expected to be either in the block header database or to
+-- be the the currently stored '_psParentHeader'. The latter addresses the case
+-- when a block has already been validate with 'execValidateBlock' but isn't (yet)
+-- available in the block header database. If that's the case two things can
+-- happen:
+--
+-- 1. the header becomes available before the next 'execValidateBlock' call, or
+-- 2. the header gets orphaned and the next 'execValidateBlock' call would cause
+--    a rewind to an ancestor, which is available in the db.
+--
 lookupBlockHeader :: BlockHash -> Text -> PactServiceM cas BlockHeader
 lookupBlockHeader bhash ctx = do
-  bhdb <- asks _psBlockHeaderDb
-  liftIO $! lookupM bhdb bhash `catchAllSynchronous` \e ->
-        throwM $ BlockHeaderLookupFailure $
-            "failed lookup of parent header in " <> ctx <> ": " <> sshow e
+    ParentHeader cur <- use psParentHeader
+    if (bhash == _blockHash cur)
+      then return cur
+      else do
+        bhdb <- asks _psBlockHeaderDb
+        liftIO $! lookupM bhdb bhash `catchAllSynchronous` \e ->
+            throwM $ BlockHeaderLookupFailure $
+                "failed lookup of parent header in " <> ctx <> ": " <> sshow e
 
 isGenesisParent :: ParentHeader -> Bool
 isGenesisParent (ParentHeader p)
@@ -575,6 +602,24 @@ data WithCheckpointerResult a
     = Discard !a
     | Save BlockHeader !a
 
+-- | Synchronizes the parent header with the latest block of the checkpointer.
+--
+-- Ideally, this function would not be needed. It
+--
+-- 1. does a best effort to recover from a situation where '_cpGetLatestBlock'
+--    '_psParentHeader' got out of sync, and
+-- 2. provides visibility into the state of that invariant via the info log
+--    message.
+--
+-- This call would fail if the latest block that is stored in the checkpointer
+-- got orphaned and the '_psParentHeader' got reset to some other block
+-- /without/ rewinding the checkpointer, too. That must not be possible. Hence,
+-- the result of '_cpGetLatestBlock' and '_psParentHeader' must be kept in sync.
+--
+-- FIXME: currently, the previously described scenario /is/ possible if the
+-- service gets restarted and the latest block got orphaned after the service
+-- stopped.
+--
 syncParentHeader :: String -> PactServiceM cas ParentHeader
 syncParentHeader caller = do
     cp <- getCheckpointer
@@ -582,9 +627,7 @@ syncParentHeader caller = do
         Nothing -> throwM NoBlockValidatedYet
         Just (h, ph) -> do
             cur <- _parentHeader <$> use psParentHeader
-            if (_blockHash cur == ph)
-              then return $ ParentHeader cur
-              else do
+            unless (_blockHash cur == ph) $
                 logInfo $ T.unpack
                     $ T.pack caller <> ".syncParentHeader"
                     <> "; current hash: " <> blockHashToText (_blockHash cur)
@@ -592,10 +635,10 @@ syncParentHeader caller = do
                     <> "; checkpointer hash: " <> blockHashToText ph
                     <> "; checkpointer height: " <>  sshow h
 
-                parent <- ParentHeader
-                    <$!> lookupBlockHeader ph (T.pack caller <> ".syncParentHeader")
-                setParentHeader (caller <> ".syncParentHeader") parent
-                return parent
+            parent <- ParentHeader
+                <$!> lookupBlockHeader ph (T.pack caller <> ".syncParentHeader")
+            setParentHeader (caller <> ".syncParentHeader") parent
+            return parent
 
 -- | INTERNAL FUNCTION. ONLY USE WHEN YOU KNOW WHAT YOU DO!
 --
@@ -609,7 +652,7 @@ syncParentHeader caller = do
 -- /NOTE:/
 --
 -- In most use cases one needs to rewind the checkpointer first to the target
--- and function 'withCheckpointerRewind' should be preferred.
+-- and function 'withCheckpointer' should be preferred.
 --
 -- Only use this function when 1. you need the extra performance from skipping
 -- the call to 'rewindTo' and 2. you know exactly what you do.
@@ -633,6 +676,8 @@ withCheckpointerWithoutRewind target caller act = do
     -- check requirement that this must be called within a batch
     unlessM (asks _psIsBatch) $
         error $ "Code invariant violation: withCheckpointer called by " <> caller <> " outside of batch. Please report this as a bug."
+    -- we allow exactly one nested call of 'withCheckpointer', which is used
+    -- during fastforward in 'rewindTo'.
     unlessM ((<= 1) <$> asks _psCheckpointerDepth) $ do
         error $ "Code invariant violation: to many nested calls of withCheckpointer. Please report this as a bug."
 
@@ -651,9 +696,8 @@ withCheckpointerWithoutRewind target caller act = do
         -- TODO: _cpSave is a complex call. If any thing in there throws
         -- an exception it would result in a pending tx.
         finalizeCheckpointer (flip _cpSave $ _blockHash header)
-        modify'
-            $ set psStateValidated (Just header)
-            . set psParentHeader (ParentHeader header)
+        modify' $ set psStateValidated (Just header)
+        setParentHeader (caller <> ".withCheckpointerWithoutRewind") (ParentHeader header)
 
 -- | 'withCheckpointer' but using the cached parent header for target.
 --
@@ -1236,19 +1280,7 @@ rewindTo rewindLimit = maybe rewindGenesis doRewind
     rewindGenesis = return ()
     doRewind (reqHeight, parentHash) = do
 
-        -- skip if the checkpointer is already at the target. This check is
-        -- important, because after validating a block it may take some time
-        -- until is is included in the block header db. Therefore it can happen
-        -- that the target of a subsequent newBlock call (or any call that uses
-        -- 'withCurrentCheckpointer' is only available in the checkpointer and
-        -- pact but and calls to lookupBlockHeader in the code below would fail.
-        --
-        -- However, we can be certain that the parent of the latest block is
-        -- always available in the block header db, since there is not way for
-        -- pact to get more than one block ahead. Only execValidateBlock can
-        -- trigger a safe operation, and that call can only be made if the
-        -- target block header is already in the block header db.
-
+        -- skip if the checkpointer is already at the target.
         (_, lastHash) <- getCheckpointer >>= liftIO . _cpGetLatestBlock >>= \case
             Nothing -> throwM NoBlockValidatedYet
             Just p -> return p
