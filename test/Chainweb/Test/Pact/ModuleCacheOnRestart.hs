@@ -1,10 +1,10 @@
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TupleSections #-}
 {-# LANGUAGE TypeFamilies #-}
-
 module Chainweb.Test.Pact.ModuleCacheOnRestart (tests) where
 
 import Control.Concurrent.MVar.Strict
@@ -34,10 +34,10 @@ import Chainweb.BlockHeader.Genesis
 import Chainweb.ChainId
 import Chainweb.Logger
 import Chainweb.Miner.Pact
+import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.PactService
 import Chainweb.Pact.Types
 import Chainweb.Payload
-import Chainweb.Payload.PayloadStore
 import Chainweb.Time
 import Chainweb.Test.Cut
 import Chainweb.Test.Cut.TestBlockDb
@@ -47,45 +47,59 @@ import Chainweb.Version
 import Chainweb.Version.Utils
 import Chainweb.WebBlockHeaderDB
 
+
+-- ---------------------------------------------------------------------- --
+--  Global data
+
+logger :: GenericLogger
+logger = genericLogger Quiet T.putStrLn
+
 testVer :: ChainwebVersion
 testVer = FastTimedCPM peterson
 
 testChainId :: ChainId
 testChainId = someChainId testVer
 
+genblock :: BlockHeader
+genblock = genesisBlockHeader testVer testChainId
+
+type CacheTest
+    =  ( PactServiceM RocksDbCas ()
+       , IO (MVar ModuleCache) -> ModuleCache -> Assertion
+       )
+
+type CacheTestStep
+    = (SQLiteEnv, CacheTest -> Assertion)
+
+-- ---------------------------------------------------------------------- --
+-- Tests
+
 tests :: ScheduledTest
-tests =
-      ScheduledTest label $
-      withMVarResource mempty $ \iom ->
-      withTestBlockDbTest testVer $ \bdbio ->
-      withTemporaryDir $ \dir ->
-      testGroup label
-      [
-        withPact' bdbio dir iom testInitial (testCase "testInitial")
+tests = ScheduledTest label $
+    withMVarResource mempty $ \iom ->
+    withTestBlockDbTest testVer $ \bdbio ->
+    withTemporaryDir $ \dir -> testGroup label
+      [ withPactTestCase bdbio dir iom testInitial "testInitial"
       , after AllSucceed "testInitial" $
-        withPact' bdbio dir iom testRestart (testCase "testRestart1")
+        withPactTestCase bdbio dir iom testRestart "testRestart1"
       , after AllSucceed "testRestart1" $
         -- wow, Tasty thinks there's a "loop" if the following test is called "testCoinbase"!!
-        withPact' bdbio dir iom (testCoinbase bdbio) (testCase "testDoUpgrades")
+        withPactTestCase bdbio dir iom (testCoinbase bdbio) "testDoUpgrades"
       , after AllSucceed "testDoUpgrades" $
-        withPact' bdbio dir iom testRestart (testCase "testRestart2")
-
+        withPactTestCase bdbio dir iom testRestart "testRestart2"
       ]
   where
     label = "Chainweb.Test.Pact.ModuleCacheOnRestart"
 
-type CacheTest cas =
-  (PactServiceM cas ()
-  ,IO (MVar ModuleCache) -> ModuleCache -> Assertion)
-
 -- | Do genesis load, snapshot cache.
-testInitial :: PayloadCasLookup cas => CacheTest cas
-testInitial = (initPayloadState,snapshotCache)
-  where
+--
+testInitial :: CacheTest
+testInitial = (initPayloadState, snapshotCache)
 
 -- | Do restart load, test results of 'initialPayloadState' against snapshotted cache.
-testRestart :: PayloadCasLookup cas => CacheTest cas
-testRestart = (initPayloadState,checkLoadedCache)
+--
+testRestart :: CacheTest
+testRestart = (initPayloadState, checkLoadedCache)
   where
     checkLoadedCache ioa initCache = do
       a <- ioa >>= readMVar
@@ -99,7 +113,8 @@ testRestart = (initPayloadState,checkLoadedCache)
       assertBool msg (a' == c')
 
 -- | Run coinbase to do upgrade to v2, snapshot cache.
-testCoinbase :: PayloadCasLookup cas => IO TestBlockDb -> CacheTest cas
+--
+testCoinbase :: IO TestBlockDb -> CacheTest
 testCoinbase iobdb = (initPayloadState >> doCoinbase,snapshotCache)
   where
     doCoinbase = do
@@ -109,14 +124,15 @@ testCoinbase iobdb = (initPayloadState >> doCoinbase,snapshotCache)
       nextH <- liftIO $ getParentTestBlockDb bdb testChainId
       void $ execValidateBlock nextH (payloadWithOutputsToPayloadData pwo)
 
+-- ---------------------------------------------------------------------- --
+-- Test data
+
 -- | Interfaces can't be upgraded, but modules can, so verify hash in that case.
+--
 justModuleHashes :: ModuleCache -> HM.HashMap ModuleName (Maybe ModuleHash)
 justModuleHashes = HM.map $ \v -> preview (_1 . mdModule . _MDModule . mHash) v
 
-genblock :: BlockHeader
-genblock = genesisBlockHeader testVer testChainId
-
-initPayloadState :: PayloadCasLookup cas => PactServiceM cas ()
+initPayloadState :: PactServiceM RocksDbCas ()
 initPayloadState = initialPayloadState dummyLogger testVer testChainId
 
 snapshotCache :: IO (MVar ModuleCache) -> ModuleCache -> IO ()
@@ -124,28 +140,33 @@ snapshotCache iomcache initCache = do
   mcache <- iomcache
   modifyMVar_ mcache (const (pure initCache))
 
+-- ---------------------------------------------------------------------- --
+-- Test runners
 
-withPact'
+withPactTestCase
     :: IO TestBlockDb
     -> IO FilePath
     -> IO (MVar ModuleCache)
-    -> CacheTest RocksDbCas
-    -> (Assertion -> TestTree)
+    -> CacheTest
+    -> String
     -> TestTree
-withPact' bdbio iodir r ctest toTestTree =
+withPactTestCase bdbio iodir r ctest label =
     withResource startPact stopPact go
   where
-    go iof = toTestTree $ iof >>= \(_,f) -> f ctest
+    go :: IO CacheTestStep -> TestTree
+    go iof = testCase label $ iof >>= \(_,f) -> f ctest
+
+    startPact :: IO CacheTestStep
     startPact = do
         bdb <- bdbio
         bhdb <- getWebBlockHeaderDb (_bdbWebBlockHeaderDb bdb) testChainId
         let pdb = _bdbPayloadDb bdb
         dir <- iodir
         sqlEnv <- startSqliteDb testVer testChainId logger (Just dir) Nothing False
-        return $ (sqlEnv,) $ \(ps,cacheTest) -> do
+        return $ (sqlEnv,) $ \(ps, cacheTest) -> do
             T2 _ pstate <- initPactService' testVer testChainId logger
                            bhdb pdb sqlEnv defaultPactServiceConfig ps
             cacheTest r (_psInitCache pstate)
 
+    stopPact :: CacheTestStep -> IO ()
     stopPact (sqlEnv, _) = stopSqliteDb sqlEnv
-    logger = genericLogger Quiet T.putStrLn

@@ -193,18 +193,14 @@ blockTests tio envIo = testCaseSchSteps "Block Tests" $ \step -> do
     (_block_blockId $ _blockResp_block resp0) @?= genesisId
 
     step "send transaction"
-    !prs <- transferOneAsync tio cenv (putMVar rkmv)
+    prs <- transferOneAsync tio cenv (putMVar rkmv)
     rk <- NEL.head . _rkRequestKeys <$> takeMVar rkmv
     cmdMeta <- extractMetadata rk prs
     bh <- cmdMeta ^?! mix "blockHeight"
 
-    step "check tx at block height matches sent tx"
+    step "check tx at block height matches sent tx + remediations"
     resp1 <- block cenv (req bh)
     validateTransferResp bh resp1
-
-    step "validate remediations at block height 1"
-    remResp <- block cenv (req 1)
-    validateRemediations remResp
   where
     req h = BlockReq nid $ PartialBlockId (Just h) Nothing
 
@@ -216,40 +212,40 @@ blockTests tio envIo = testCaseSchSteps "Block Tests" $ \step -> do
             _blockId_index (_block_blockId b) @?= bh
             _blockId_index (_block_parentBlockId b) @?= (bh - 1)
 
-            (cbase,fundtx,cred,deb,redeem,reward) <-
-              case _block_transactions b of
-                [x,y] -> case _transaction_operations x <> _transaction_operations y of
-                  [a,b',c,d,e,f] -> return (a,b',c,d,e,f)
-                  _ -> assertFailure "total tx # should be 6: coinbase + 5 for every tx"
-                _ -> assertFailure "every block should result in at least 2 transactions: coinbase + txs"
-            -- coinbase is considered a separate tx list
-            validateOp 0 "CoinbaseReward" "NoMiner" cbase
-
-            -- transfers form their own tx list
-            validateOp 0 "FundTx" "sender00" fundtx
-            validateOp 1 "TransferOrCreateAcct" "sender01" cred
-            validateOp 2 "TransferOrCreateAcct" "sender00" deb
-            validateOp 3 "GasPayment" "sender00" redeem
-            validateOp 4 "GasPayment" "NoMiner" reward
+            case _block_transactions b of
+              [x,y] -> case _transaction_operations x <> _transaction_operations y of
+                [a,r1, r2, b',c,d,e,f] -> validateTxs (Just (r1,r2)) a b' c d e f
+                [a,b',c,d,e,f] -> validateTxs Nothing a b' c d e f
+                _ -> assertFailure "total tx # should be >= 6: coinbase + possible remeds + 5 for every tx"
+              _ -> assertFailure "every block should result in at least 2 transactions: coinbase + txs"
 
       validateBlock $ _blockResp_block resp
 
-    validateRemediations resp = do
-      _blockResp_otherTransactions resp @?= Nothing
+    validateTxs remeds cbase fundtx cred deb redeem reward = do
 
-      let b = _blockResp_block resp
-
-      (cbase,rem1,rem2) <-
-        case _block_transactions b of
-          [x,y] -> case _transaction_operations x <> _transaction_operations y of
-            [a,b',c] -> return (a,b',c)
-            _ -> assertFailure "total tx # should be 3: coinbase + remediations"
-          _ -> assertFailure "remediation block should have 3 txs"
-
+      -- coinbase is considered a separate tx list
       validateOp 0 "CoinbaseReward" "NoMiner" cbase
 
-      validateOp 0 "TransferOrCreateAcct" "sender09" rem1
-      validateOp 1 "TransferOrCreateAcct" "sender07" rem2
+      case remeds of
+        Just (rem1, rem2) -> do
+
+          -- TODO: this case preserves Linda's txlog bug when
+          -- txs and remeds are present
+
+          validateOp 0 "TransferOrCreateAcct" "sender09" rem1
+          validateOp 1 "TransferOrCreateAcct" "sender07" rem2
+          validateOp 2 "TransferOrCreateAcct" "sender00" fundtx
+          validateOp 3 "TransferOrCreateAcct" "sender01" cred
+          validateOp 4 "TransferOrCreateAcct" "sender00" deb
+          validateOp 5 "TransferOrCreateAcct" "sender00" redeem
+          validateOp 6 "TransferOrCreateAcct" "NoMiner" reward
+        Nothing -> do
+          validateOp 0 "FundTx" "sender00" fundtx
+          validateOp 1 "TransferOrCreateAcct" "sender01" cred
+          validateOp 2 "TransferOrCreateAcct" "sender00" deb
+          validateOp 3 "GasPayment" "sender00" redeem
+          validateOp 4 "GasPayment" "NoMiner" reward
+
 
 -- | Rosetta construction submit endpoint tests (i.e. tx submission directly to mempool)
 --

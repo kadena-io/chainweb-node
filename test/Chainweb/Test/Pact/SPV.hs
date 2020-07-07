@@ -301,9 +301,6 @@ burnGen time pidv sid tid = do
 
                 putMVar pidv pid `finally` writeIORef ref1 True
                 return $ Vector.singleton cmd
-
-
-
     tx1Code =
       [text|
         (coin.transfer-crosschain
