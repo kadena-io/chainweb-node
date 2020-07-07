@@ -50,11 +50,11 @@ type CoinbaseTx chainwebTx = chainwebTx
 newtype BalanceDelta = BalanceDelta { _balanceDelta :: Decimal }
   deriving (Show, Eq)
 data AccountLog = AccountLog
-  { _accountLogKey :: T.Text
-  , _accountLogBalanceTotal :: Decimal
-  , _accountLogBalanceDelta :: BalanceDelta
-  , _accountLogCurrGuard :: Value
-  , _accountLogPrevGuard :: Value
+  { _accountLogKey :: !T.Text
+  , _accountLogBalanceTotal :: !Decimal
+  , _accountLogBalanceDelta :: !BalanceDelta
+  , _accountLogCurrGuard :: !Value
+  , _accountLogPrevGuard :: !Value
   }
   deriving (Show, Eq)
 type AccountRow = (T.Text, Decimal, Value)

@@ -244,24 +244,19 @@ gasTransactionAcc accTyp txa@(TxAccumulator logs' _) ctx = combine logs'
   where
     combine (fundLog:someLog:restLogs) =
       case (getSomeTxId ctx) of
-        Nothing -> do -- tx was unsuccessful
-          assertSequentialTxIds (txId fundLog) (txId someLog)
+        Nothing -> -- tx was unsuccessful
           makeAcc restLogs
             (makeOps FundTx fundLog)
             [] -- no transfer logs
             (makeOps GasPayment someLog)
         Just tid   -- tx was successful
-          | tid /= (txId someLog) -> do -- if tx didn't touch coin table
-            assertSequentialTxIds (txId fundLog) tid
-            assertSequentialTxIds tid (txId someLog)
+          | tid /= (txId someLog) -> -- if tx didn't touch coin table
             makeAcc restLogs
               (makeOps FundTx fundLog)
               [] -- no transfer logs
               (makeOps GasPayment someLog)
           | otherwise -> case restLogs of
-              gasLog:restLogs' -> do  -- if tx DID touch coin table
-                assertSequentialTxIds (txId fundLog) (txId someLog)
-                assertSequentialTxIds (txId someLog) (txId gasLog)
+              gasLog:restLogs' -> -- if tx DID touch coin table
                 makeAcc restLogs'
                   (makeOps FundTx fundLog)
                   (makeOps TransferOrCreateAcct someLog)
@@ -283,13 +278,6 @@ gasTransactionAcc accTyp txa@(TxAccumulator logs' _) ctx = combine logs'
 
     listErr expectedMsg logs = Left $
       expectedMsg ++ ": Received logs list " ++ show logs
-
-    -- NOTE: no way to check fund's txId and prev txId seen are sequential
-    -- Assumption: Operations related to a transaction have sequential txIds.
-    assertSequentialTxIds tid1 tid2
-      | tid2 == succ tid1 = pure ()
-      | otherwise = Left $ "Expected sequential txId, found txId1="
-        ++ show tid1 ++ ", txId2=" ++ show tid2
 
 -- TODO: Max limit of tx to return at once.
 --       When to do pagination using /block/transaction?

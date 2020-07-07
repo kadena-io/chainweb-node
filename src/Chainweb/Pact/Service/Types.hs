@@ -95,8 +95,8 @@ instance Exception PactException
 -- key in history, if any
 -- Not intended for public API use; ToJSONs are for logging output.
 data BlockTxHistory = BlockTxHistory
-  { _blockTxHistory :: Map TxId [TxLog Value]
-  , _blockPrevHistory :: Map RowKey (TxLog Value)
+  { _blockTxHistory :: !(Map TxId [TxLog Value])
+  , _blockPrevHistory :: !(Map RowKey (TxLog Value))
   }
   deriving (Eq,Generic)
 instance Show BlockTxHistory where
