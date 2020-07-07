@@ -231,7 +231,7 @@ someChainwebServer
 someChainwebServer v dbs mr (HeaderStream hs) (Rosetta r) =
     someSwaggerServer v (fst <$> peers)
         <> someHealthCheckServer
-        <> someNodeInfoServer v
+        <> maybe mempty (someNodeInfoServer v) cuts
         <> maybe mempty (someCutServer v cutPeerDb) cuts
         <> maybe mempty (someSpvServers v) cuts
         <> somePayloadServers v payloads
