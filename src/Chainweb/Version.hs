@@ -782,7 +782,6 @@ twentyChainUpgrade
     -> Bool
 twentyChainUpgrade Testnet04 h = h == maxBound -- FIXME: should trigger shortly after chainweb version 1.21 is released
 twentyChainUpgrade Mainnet01 h = h == maxBound -- FIXME: should trigger shortly after chainweb version 1.21 is released
-twentyChainUpgrade Development h = h == 390 -- FIXME: remove this line after chainweb version 1.21 is released
 twentyChainUpgrade _ h = h == 2
 
 -- | Preserve Pact bugs pre 1.6 chainweb version

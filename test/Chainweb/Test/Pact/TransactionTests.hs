@@ -107,13 +107,13 @@ tests = testGroup "Chainweb.Test.Pact.TransactionTests"
     ]
   , testGroup "20-Chain Fork Upgrade Tests"
     [ testCase "testTwentyChainUpgradesDevnet0" $
-      testTwentyChainUpgrades (unsafeChainId 0) 150
+      testTwentyChainUpgrades (unsafeChainId 0) 2
     , testCase "testTwentyChainUpgradesNegatives149" $
-      testTwentyChainUpgradesNegative (unsafeChainId 0) 149
+      testTwentyChainUpgradesNegative (unsafeChainId 0) 1
     , testCase "testTwentyChainUpgradesNegatives151" $
-      testTwentyChainUpgradesNegative (unsafeChainId 0) 151
+      testTwentyChainUpgradesNegative (unsafeChainId 0) 3
     , testCase "testTwentyChainUpgradesNegativesChain1" $
-      testTwentyChainUpgradesNegative (unsafeChainId 1) 150
+      testTwentyChainUpgradesNegative (unsafeChainId 1) 2
     ]
   ]
 
