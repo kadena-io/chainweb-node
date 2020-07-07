@@ -530,30 +530,35 @@ getBalanceDeltas
     :: Map TxId [AccountRow]
     -> Map RowKey AccountRow
     -> Map TxId [AccountLog]
-getBalanceDeltas hist lastBalSeenDef =
-  snd $! M.mapAccumWithKey g lastBalSeenDef hist
+getBalanceDeltas hist lastBalsSeenDef =
+  snd $! M.mapAccumWithKey f lastBalsSeenDef hist
   where
-    g
+    -- | For given txId and the rows it affected, calculate
+    -- | how each row key has changed since previously seen.
+    -- | Adds or updates map of previously seen rows with each
+    -- | of this txId's rows.
+    f
       :: Map RowKey AccountRow
       -> TxId
       -> [AccountRow]
       -> (Map RowKey AccountRow, [AccountLog])
-    g lastBals _txId currRows = (lastBals', reverse logs)
+    f lastBals _txId currRows = (updatedBals, reverse logs)
       where
-        (lastBals', logs) = foldl' helper (lastBals, []) currRows
+        (updatedBals, logs) = foldl' helper (lastBals, []) currRows
         helper (bals, li) row = (bals', li')
           where
-            (bals', acctLog) = f bals row
+            (bals', acctLog) = lookupAndUpdate bals row
             li' = acctLog:li -- needs to be reversed at the end
-    
-    -- TODO: test when row present before, row not present,
-    -- row present and occurs twice in block, row not present but
-    -- occurs twice in the block.
-    f
-      :: Map RowKey AccountRow
-      -> AccountRow
-      -> (Map RowKey AccountRow, AccountLog)
-    f lastBals currRow = (lastBals', acctLog)
+
+    -- | Lookup current row key in map of previous seen rows
+    -- | to calculate how row has changed.
+    -- | Adds or updates the map of previously seen rows with
+    -- | the current row.
+    lookupAndUpdate
+        :: Map RowKey AccountRow
+        -> AccountRow
+        -> (Map RowKey AccountRow, AccountLog)
+    lookupAndUpdate lastBals currRow = (lastBals', acctLog)
       where
         (key, _, _) = currRow
         (prevRow, lastBals') =

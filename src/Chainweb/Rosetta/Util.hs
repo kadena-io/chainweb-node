@@ -216,10 +216,6 @@ enableMetaData = False
 maxRosettaNodePeerLimit :: Natural
 maxRosettaNodePeerLimit = 64
 
-calcBalanceDelta :: Decimal -> Maybe Decimal -> BalanceDelta
-calcBalanceDelta curr Nothing = BalanceDelta curr
-calcBalanceDelta curr (Just prev) = BalanceDelta $ curr - prev
-
 rowDataToAccountLog :: AccountRow -> Maybe AccountRow -> AccountLog
 rowDataToAccountLog (currKey, currBal, currGuard) prev = do
   case prev of
@@ -262,9 +258,3 @@ noteOptional :: a -> Either a (Maybe c) -> Either a c
 noteOptional e (Right Nothing) = Left e
 noteOptional _ (Right (Just c)) = pure c
 noteOptional _ (Left oe) = Left oe
-
-thrd3 :: (a, b, c) -> c
-thrd3 (_,_,c) = c
-
-snd3 :: (a, b, c) -> b
-snd3 (_,b,_) = b
