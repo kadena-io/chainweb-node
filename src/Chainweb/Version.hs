@@ -769,7 +769,7 @@ coinV2Upgrade _ _ _ = False
 
 -- | Specify the twenty chain fork block height in one place.
 twentyChainUpgradeBlockHeight :: ChainwebVersion -> BlockHeight
-twentyChainUpgradeBlockHeight Development = 400
+twentyChainUpgradeBlockHeight Development = 60
 twentyChainUpgradeBlockHeight Mainnet01 = maxBound
 twentyChainUpgradeBlockHeight _ = 2
 
