@@ -318,7 +318,7 @@ testTwentyChainUpgrades cid upgradeHeight =
       [ ("USER_coin_coin-table","NoMiner",Just (Number 0.1))
       , ( "USER_coin_coin-table"
         , "e7f7634e925541f368b827ad5c72421905100f6205285a78c19d7b4a38711805"
-        , Just (Number 50.0)
+        , Just (Number 210.0)
         )
       ]
 
