@@ -1,3 +1,4 @@
+{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE ConstraintKinds #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -74,7 +75,7 @@ cids = chainIds v ^.. folded . to chainIdInt . to (sshow @Int)
 nonceRef :: IORef Natural
 nonceRef = unsafePerformIO $ newIORef 0
 
-type RosettaTest = IO (Time Micros) -> IO ClientEnv -> TestTree
+type RosettaTest = IO (Time Micros) -> IO ClientEnv -> ScheduledTest
 
 -- -------------------------------------------------------------------------- --
 -- Test Tree
@@ -84,7 +85,8 @@ tests rdb = testGroupSch "Chainweb.Test.Rosetta.RestAPI" go
   where
     go = return $
       withNodes v "rosettaRemoteTests-" rdb nodes $ \envIo ->
-      withTime $ \tio -> testGroup "Rosetta API tests" (tgroup tio envIo)
+      withTime $ \tio -> testGroup "Rosetta Api tests" $
+        schedule Sequential (tgroup tio envIo)
 
     -- Not supported:
     --
@@ -106,18 +108,19 @@ tests rdb = testGroupSch "Chainweb.Test.Rosetta.RestAPI" go
 -- | Rosetta account balance endpoint tests
 --
 accountBalanceTests :: RosettaTest
-accountBalanceTests tio envIo = testCaseSteps "Account Balance Lookup" $ \step -> do
-    step "check initial balance"
-    cenv <- envIo
-    resp0 <- accountBalance cenv req
-    checkBalance resp0 100000000.000
+accountBalanceTests tio envIo =
+    testCaseSchSteps "Account Balance Tests" $ \step -> do
+      step "check initial balance"
+      cenv <- envIo
+      resp0 <- accountBalance cenv req
+      checkBalance resp0 100000000.000
 
-    step "send 1.0 tokens to sender00 from sender01"
-    transferOneAsync_ tio cenv (void . return)
+      step "send 1.0 tokens to sender00 from sender01"
+      void $! transferOneAsync_ tio cenv (void . return)
 
-    step "check post-transfer balance"
-    resp1 <- accountBalance cenv req
-    checkBalance resp1 99999997.8906
+      step "check post-transfer balance"
+      resp1 <- accountBalance cenv req
+      checkBalance resp1 99999998.9453
   where
     req = AccountBalanceReq nid aid Nothing
 
@@ -132,8 +135,8 @@ accountBalanceTests tio envIo = testCaseSteps "Account Balance Lookup" $ \step -
 -- | Rosetta block transaction endpoint tests
 --
 blockTransactionTests :: RosettaTest
-blockTransactionTests tio envIo = after AllSucceed "Account Balance" $
-    testCaseSteps "Block Transaction Tests" $ \step -> do
+blockTransactionTests tio envIo =
+    testCaseSchSteps "Block Transaction Tests" $ \step -> do
       cenv <- envIo
       rkmv <- newEmptyMVar @RequestKeys
 
@@ -149,20 +152,21 @@ blockTransactionTests tio envIo = after AllSucceed "Account Balance" $
           [a,b,c,d,e] -> return (a,b,c,d,e)
           _ -> assertFailure "every transfer should result in 5 transactions"
 
+
       step "validate initial gas buy at index 0"
-      validateOp 0 "99999996890600000000" "FundTx" "sender00" fundtx
+      validateOp 0 "FundTx" "sender00" fundtx
 
       step "validate sender01 credit at index 1"
-      validateOp 1 "110000003000000000000" "TransferOrCreateAcct" "sender01" cred
+      validateOp 1 "TransferOrCreateAcct" "sender01" cred
 
       step "validate sender00 debit at index 2"
-      validateOp 2 "99999995890600000000" "TransferOrCreateAcct" "sender00" deb
+      validateOp 2 "TransferOrCreateAcct" "sender00" deb
 
       step "validate sender00 gas redemption at index 3"
-      validateOp 3 "99999996835900000000" "GasPayment" "sender00" redeem
+      validateOp 3 "GasPayment" "sender00" redeem
 
       step "validate miner gas reward at index 4"
-      validateOp 4 "7077669000000" "GasPayment" "NoMiner" reward
+      validateOp 4 "GasPayment" "NoMiner" reward
 
   where
     mkTxReq rkmv prs = do
@@ -180,30 +184,27 @@ blockTransactionTests tio envIo = after AllSucceed "Account Balance" $
 -- | Rosetta block endpoint tests
 --
 blockTests :: RosettaTest
-blockTests tio envIo = after AllSucceed "Block Transaction Tests" $
-    testCaseSteps "Block Tests" $ \step -> do
-      cenv <- envIo
-      rkmv <- newEmptyMVar @RequestKeys
+blockTests tio envIo = testCaseSchSteps "Block Tests" $ \step -> do
+    cenv <- envIo
+    rkmv <- newEmptyMVar @RequestKeys
 
-      step "fetch genesis block"
-      resp0 <- block cenv (req 0)
-      (_block_blockId $ _blockResp_block resp0) @?= genesisId
+    step "fetch genesis block"
+    resp0 <- block cenv (req 0)
+    (_block_blockId $ _blockResp_block resp0) @?= genesisId
 
-      step "send transaction"
-      prs <- transferOneAsync tio cenv (putMVar rkmv)
-      rk <- NEL.head . _rkRequestKeys <$> takeMVar rkmv
-      cmdMeta <- extractMetadata rk prs
-      bh <- cmdMeta ^?! mix "blockHeight"
+    step "send transaction"
+    !prs <- transferOneAsync tio cenv (putMVar rkmv)
+    rk <- NEL.head . _rkRequestKeys <$> takeMVar rkmv
+    cmdMeta <- extractMetadata rk prs
+    bh <- cmdMeta ^?! mix "blockHeight"
 
-      step "check tx at block height matches sent tx"
-      resp1 <- block cenv (req bh)
-      validateTransferResp bh resp1
+    step "check tx at block height matches sent tx"
+    resp1 <- block cenv (req bh)
+    validateTransferResp bh resp1
 
-      step "validate remediations at block height 1"
-      remResp <- block cenv (req 1)
-
-      print remResp
-      return ()
+    step "validate remediations at block height 1"
+    remResp <- block cenv (req 1)
+    validateRemediations remResp
   where
     req h = BlockReq nid $ PartialBlockId (Just h) Nothing
 
@@ -221,21 +222,40 @@ blockTests tio envIo = after AllSucceed "Block Transaction Tests" $
                   [a,b',c,d,e,f] -> return (a,b',c,d,e,f)
                   _ -> assertFailure "total tx # should be 6: coinbase + 5 for every tx"
                 _ -> assertFailure "every block should result in at least 2 transactions: coinbase + txs"
+            -- coinbase is considered a separate tx list
+            validateOp 0 "CoinbaseReward" "NoMiner" cbase
 
-            validateOp 0 "4609046000000" "CoinbaseReward" "NoMiner" cbase
-            validateOp 0 "99999999000000000000" "FundTx" "sender00" fundtx
-            validateOp 1 "110000001000000000000" "TransferOrCreateAcct" "sender01" cred
-            validateOp 2 "99999998000000000000" "TransferOrCreateAcct" "sender00" deb
-            validateOp 3 "99999998945300000000" "GasPayment" "sender00" redeem
-            validateOp 4 "4663746000000" "GasPayment" "NoMiner" reward
+            -- transfers form their own tx list
+            validateOp 0 "FundTx" "sender00" fundtx
+            validateOp 1 "TransferOrCreateAcct" "sender01" cred
+            validateOp 2 "TransferOrCreateAcct" "sender00" deb
+            validateOp 3 "GasPayment" "sender00" redeem
+            validateOp 4 "GasPayment" "NoMiner" reward
 
       validateBlock $ _blockResp_block resp
 
+    validateRemediations resp = do
+      _blockResp_otherTransactions resp @?= Nothing
+
+      let b = _blockResp_block resp
+
+      (cbase,rem1,rem2) <-
+        case _block_transactions b of
+          [x,y] -> case _transaction_operations x <> _transaction_operations y of
+            [a,b',c] -> return (a,b',c)
+            _ -> assertFailure "total tx # should be 3: coinbase + remediations"
+          _ -> assertFailure "remediation block should have 3 txs"
+
+      validateOp 0 "CoinbaseReward" "NoMiner" cbase
+
+      validateOp 0 "TransferOrCreateAcct" "sender09" rem1
+      validateOp 1 "TransferOrCreateAcct" "sender07" rem2
 
 -- | Rosetta construction submit endpoint tests (i.e. tx submission directly to mempool)
 --
 constructionSubmitTests :: RosettaTest
-constructionSubmitTests tio envIo = testCaseSteps "Construction Submit Tests" $ \step -> do
+constructionSubmitTests tio envIo =
+    testCaseSchSteps "Construction Submit Tests" $ \step -> do
       cenv <- envIo
 
       step "build one-off construction submit request"
@@ -260,68 +280,68 @@ constructionSubmitTests tio envIo = testCaseSteps "Construction Submit Tests" $ 
 -- | Rosetta mempool endpoint tests
 --
 mempoolTests :: RosettaTest
-mempoolTests tio envIo = after AllSucceed "Construction Submit Tests" $
-    testCaseSteps "Mempool Tests" $ \step -> do
-      cenv <- envIo
-      rkmv <- newEmptyMVar @RequestKeys
+mempoolTests tio envIo = testCaseSchSteps "Mempool Tests" $ \step -> do
+    cenv <- envIo
+    rkmv <- newEmptyMVar @RequestKeys
 
-      step "execute transfer and wait on mempool data"
-      void $! async $ transferOneAsync_ tio cenv (putMVar rkmv)
-      rk NEL.:| [] <- _rkRequestKeys <$> takeMVar rkmv
+    step "execute transfer and wait on mempool data"
+    void $! async $ transferOneAsync_ tio cenv (putMVar rkmv)
+    rk NEL.:| [] <- _rkRequestKeys <$> takeMVar rkmv
 
-      let tid = rkToTransactionId rk
-      let test (MempoolResp ts) = return $ elem tid ts
+    let tid = rkToTransactionId rk
+    let test (MempoolResp ts) = return $ elem tid ts
 
-      step "compare requestkey against mempool responses"
-      void $! repeatUntil test $ mempool cenv req
+    step "compare requestkey against mempool responses"
+    void $! repeatUntil test $ mempool cenv req
   where
     req = MempoolReq nid
 
 -- | Rosetta network list endpoint tests
 --
 networkListTests :: RosettaTest
-networkListTests _ envIo = testCaseSteps "Network List Tests" $ \step -> do
-    cenv <- envIo
+networkListTests _ envIo =
+    testCaseSchSteps "Network List Tests" $ \step -> do
+      cenv <- envIo
 
-    step "send network list request"
-    resp <- networkList cenv req
+      step "send network list request"
+      resp <- networkList cenv req
 
-    for_ (_networkListResp_networkIds resp) $ \n -> do
-       _networkId_blockchain n @=? "kadena"
-       _networkId_network n @=? "fastTimedCPM-peterson"
-       assertBool "chain id of subnetwork is valid"
-         $ maybe False (\a -> elem (_subNetworkId_network a) cids)
-         $ _networkId_subNetworkId n
+      for_ (_networkListResp_networkIds resp) $ \n -> do
+         _networkId_blockchain n @=? "kadena"
+         _networkId_network n @=? "fastTimedCPM-peterson"
+         assertBool "chain id of subnetwork is valid"
+           $ maybe False (\a -> elem (_subNetworkId_network a) cids)
+           $ _networkId_subNetworkId n
   where
     req = MetadataReq Nothing
 
 -- | Rosetta network options tests
 --
 networkOptionsTests :: RosettaTest
-networkOptionsTests _ envIo = testCaseSteps "Network Options Tests" $ \step -> do
-    cenv <- envIo
+networkOptionsTests _ envIo =
+    testCaseSchSteps "Network Options Tests" $ \step -> do
+      cenv <- envIo
 
-    step "send network options request"
-    resp <- networkOptions cenv req0
+      step "send network options request"
+      resp <- networkOptions cenv req0
 
-    let allow = _networkOptionsResp_allow resp
-        version = _networkOptionsResp_version resp
+      let allow = _networkOptionsResp_allow resp
+          version = _networkOptionsResp_version resp
 
-    step "check options responses against allowable data and versions"
-    version  @=? rosettaVersion
+      step "check options responses against allowable data and versions"
+      version  @=? rosettaVersion
 
-    step "Check that response errors are a subset of valid errors"
-    (respErrors resp `subset` rosettaFailures) @?
-      "allowable errors must coincide with failure list"
+      step "Check that response errors are a subset of valid errors"
+      (respErrors resp `subset` rosettaFailures) @?
+        "allowable errors must coincide with failure list"
 
-    step "Check that response statuses are a subset of valid statuses"
-    (_allow_operationStatuses allow `subset` operationStatuses) @?
-      "allowed operation statuses coincide"
+      step "Check that response statuses are a subset of valid statuses"
+      (_allow_operationStatuses allow `subset` operationStatuses) @?
+        "allowed operation statuses coincide"
 
-    step "Check that response op types are a subset of op types"
-    (_allow_operationTypes allow `subset` allowedOperations) @?
-      "allowed operations coincide"
-
+      step "Check that response op types are a subset of op types"
+      (_allow_operationTypes allow `subset` allowedOperations) @?
+        "allowed operations coincide"
   where
     req0 = NetworkReq nid Nothing
     respErrors = _allow_errors . _networkOptionsResp_allow
@@ -330,22 +350,23 @@ networkOptionsTests _ envIo = testCaseSteps "Network Options Tests" $ \step -> d
 -- | Rosetta network status tests
 --
 networkStatusTests :: RosettaTest
-networkStatusTests tio envIo = testCaseSteps "Network Status Tests" $ \step -> do
-    cenv <- envIo
+networkStatusTests tio envIo =
+    testCaseSchSteps "Network Status Tests" $ \step -> do
+      cenv <- envIo
 
-    step "send network status request"
-    resp0 <- networkStatus cenv req
+      step "send network status request"
+      resp0 <- networkStatus cenv req
 
-    step "check status response against genesis"
-    genesisId @=? _networkStatusResp_genesisBlockId resp0
+      step "check status response against genesis"
+      genesisId @=? _networkStatusResp_genesisBlockId resp0
 
-    step "send in a transaction and update current block"
-    transferOneAsync_ tio cenv (void . return)
-    resp1 <- networkStatus cenv req
+      step "send in a transaction and update current block"
+      transferOneAsync_ tio cenv (void . return)
+      resp1 <- networkStatus cenv req
 
-    step "check status response genesis and block height"
-    genesisId @=? _networkStatusResp_genesisBlockId resp1
-    (blockIdOf resp1 > blockIdOf resp0) @? "current block id heights must increment"
+      step "check status response genesis and block height"
+      genesisId @=? _networkStatusResp_genesisBlockId resp1
+      (blockIdOf resp1 > blockIdOf resp0) @? "current block id heights must increment"
   where
     req = NetworkReq nid Nothing
 
@@ -410,19 +431,16 @@ validateOp
     :: Word64
       -- ^ tx idx
     -> Text
-      -- ^ operation amount
-    -> Text
       -- ^ operation type
     -> Text
       -- ^ operation account name
     -> Operation
       -- ^ the op
     -> Assertion
-validateOp idx amount opType acct o = do
+validateOp idx opType acct o = do
     _operation_operationId o @?= OperationId idx Nothing
     _operation_type o @?= opType
     _operation_status o @?= "Successful"
-    _operation_amount o @?= Just (Amount amount kda Nothing)
     _operation_account o @?= Just (AccountId acct Nothing Nothing)
 
 -- ------------------------------------------------------------------ --

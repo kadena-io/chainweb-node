@@ -92,6 +92,7 @@ module Chainweb.Test.Utils
 , ScheduledTest(..)
 , schedule
 , testCaseSch
+, testCaseSchSteps
 , testGroupSch
 , testPropertySch
 
@@ -848,6 +849,9 @@ data ScheduledTest = ScheduledTest { _schLabel :: String , _schTest :: TestTree 
 
 testCaseSch :: String -> Assertion -> ScheduledTest
 testCaseSch l a = ScheduledTest l $ testCase l a
+
+testCaseSchSteps :: String -> ((String -> IO ()) -> Assertion) -> ScheduledTest
+testCaseSchSteps l a = ScheduledTest l $ testCaseSteps l a
 
 testGroupSch :: String -> [TestTree] -> ScheduledTest
 testGroupSch l ts = ScheduledTest l $ testGroup l ts
