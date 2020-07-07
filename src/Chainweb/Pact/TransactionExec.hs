@@ -449,6 +449,8 @@ applyUpgrades v cid height
           void $ throwM e
 
 
+-- | This is a noop on all chains but chain 0.
+--
 applyTwentyChainUpgrade
     :: ChainwebVersion
     -> V.ChainId
