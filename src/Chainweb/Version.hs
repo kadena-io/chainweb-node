@@ -512,7 +512,7 @@ chainwebGraphs (TimedCPM g) = pure (0, g)
 chainwebGraphs (FastTimedCPM g) = pure (0, g)
 chainwebGraphs Testnet04 = pure (0, petersonChainGraph)
 chainwebGraphs Mainnet01 = pure (0, petersonChainGraph)
-chainwebGraphs Development = (400, twentyChainGraph) NE.:| [ (0, petersonChainGraph) ]
+chainwebGraphs Development = (40, twentyChainGraph) NE.:| [ (0, petersonChainGraph) ]
 {-# INLINE chainwebGraphs #-}
 
 -- | Return the Graph History at a given block height in descending order.
