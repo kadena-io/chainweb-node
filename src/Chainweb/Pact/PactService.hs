@@ -1542,7 +1542,7 @@ execPreInsertCheckReq txs = withDiscardedBatch $ do
           cid = _chainId psEnv
       liftIO $ fmap Discard $ V.zipWith (>>)
         <$> validateChainwebTxs v cid cp parentTime lenientCreationTime currHeight txs (runGas pdb psState psEnv)
-            -- withCurrentCheckpointer should abstract over the checkpointer that is used.
+ ``
 
         -- This code can be removed once the transition is complete and the guard
         -- @useLegacyCreationTimeForTxValidation@ is false for all new blocks
