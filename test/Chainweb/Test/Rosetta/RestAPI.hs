@@ -259,7 +259,7 @@ constructionSubmitTests tio envIo =
       cenv <- envIo
 
       step "build one-off construction submit request"
-      SubmitBatch (c NEL.:| []) <- mkTransfer "sender00" "sender01" sender00 tio
+      SubmitBatch (c NEL.:| []) <- mkTransfer tio
 
       let rk = cmdToRequestKey c
           req = ConstructionSubmitReq nid (encodeToText c)
@@ -448,33 +448,27 @@ validateOp idx opType acct o = do
 
 -- | Build a simple transfer from sender00 to sender01
 --
-mkTransfer
-    :: Text
-    -> Text
-    -> SimpleKeyPair
-    -> IO (Time Micros)
-    -> IO SubmitBatch
-mkTransfer sender receiver keys tio = do
+mkTransfer :: IO (Time Micros) -> IO SubmitBatch
+mkTransfer tio = do
     t <- toTxCreationTime <$> tio
     n <- readIORef nonceRef
     c <- buildTextCmd
       $ set cbSigners
-        [ mkSigner' keys
-          [ mkTransferCap sender receiver 1.0
+        [ mkSigner' sender00
+          [ mkTransferCap "sender00" "sender01" 1.0
           , mkGasCap
           ]
         ]
       $ set cbCreationTime t
       $ set cbNetworkId (Just v)
       $ mkCmd ("nonce-transfer-" <> sshow t <> "-" <> sshow n)
-      $ mkExec' ("(coin.transfer \"" <> sender <> "\" \"" <> receiver <> "\" 1.0)")
+      $ mkExec' "(coin.transfer \"sender00\" \"sender01\" 1.0)"
 
     modifyIORef' nonceRef (+1)
     return $ SubmitBatch (pure c)
 
 -- | Transfer one token from sender00 to sender01, applying some callback to
--- the command batch before sending. This is used for updating 'MVar's that
--- require request keys for rosetta tx submission in the mempool endpoints.
+-- the command batch before sending.
 --
 transferOneAsync
     :: IO (Time Micros)
@@ -482,7 +476,7 @@ transferOneAsync
     -> (RequestKeys -> IO ())
     -> IO PollResponses
 transferOneAsync tio cenv callback = do
-    batch0 <- mkTransfer "sender00" "sender01" sender00 tio
+    batch0 <- mkTransfer tio
     void $! callback (f batch0)
     rks <- sending cid cenv batch0
     prs <- polling cid cenv rks ExpectPactResult
@@ -490,6 +484,11 @@ transferOneAsync tio cenv callback = do
   where
     f (SubmitBatch cs) = RequestKeys (cmdToRequestKey <$> cs)
 
+-- | Transfer one token from sender00 to sender01 asynchronously applying some
+-- callback (usually putting the requestkeys into some 'MVar'), and forgetting
+-- the poll response results. We use this when we want to just execute and poll
+-- and do not need the responses.
+--
 transferOneAsync_
     :: IO (Time Micros)
     -> ClientEnv
