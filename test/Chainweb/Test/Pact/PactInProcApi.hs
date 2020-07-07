@@ -158,10 +158,10 @@ getHistory refIO reqIO = testCase "getHistory" $ do
       ]
     )
 
-    (M.lookup 8 hist)
+    (M.lookup 11 hist) -- skip remediations at 10
   -- and transaction txids
   assertEqual "check txids"
-    [7,8,10,11,13,14,16,17,19,20,22,23,25,26,28,29,31,32,34,35,37,38,40]
+    [7,10,11,13,14,16,17,19,20,22,23,25,26,28,29,31,32,34,35,37,38,40,41,43]
     (M.keys hist)
 
 getHistoricalLookupNoTxs

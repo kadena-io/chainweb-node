@@ -1,4 +1,4 @@
-- output: ot8MVGDNWISNvcQYXO98nZibj7RVnEl__ETRjplshxo
+- output: BNiectSkmcr9CxdfPSjl6nyDkCJlV0iCpNhUk4vRXcs
   cmd: coinbase
 - output: G15srpFoJgfoVchKV2ilyjMGtscxfNFlxwV0tvUC6bE
   cmd:

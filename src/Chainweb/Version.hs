@@ -764,7 +764,7 @@ coinV2Upgrade Mainnet01 cid h
 coinV2Upgrade Development cid h
     | cid == unsafeChainId 0 = h == 3
     | otherwise = h == 4
-coinV2Upgrade _ _ 2 = True
+coinV2Upgrade _ _ 1 = True
 coinV2Upgrade _ _ _ = False
 
 -- | Mainnet 20-chain remediations
@@ -783,7 +783,7 @@ twentyChainUpgrade
     -> Bool
 twentyChainUpgrade Mainnet01 _ h = h == maxBound -- TODO: update me with a calculated height
 twentyChainUpgrade Development _ h = h == 150
-twentyChainUpgrade _ _ 3 = True
+twentyChainUpgrade _ _ 2 = True
 twentyChainUpgrade _ _ _ = False
 
 -- | Preserve Pact bugs pre 1.6 chainweb version
