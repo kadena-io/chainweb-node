@@ -21,7 +21,7 @@ import Control.Lens
 import Control.Monad
 import Control.Monad.Catch
 import Control.Monad.IO.Class
-import Control.Monad.State (gets)
+import Control.Monad.State (gets, modify')
 
 import Data.ByteString (ByteString)
 import Data.Aeson hiding (encode,(.=))
@@ -108,7 +108,6 @@ initRelationalCheckpointer' bstate sqlenv loggr v cid = do
 
 type Db = MVar (BlockEnv SQLiteEnv)
 
-
 doRestore :: ChainwebVersion -> ChainId -> Db -> Maybe (BlockHeight, ParentHash) -> IO PactDbEnv'
 doRestore v cid dbenv (Just (bh, hash)) = runBlockEnv dbenv $ do
     setModuleNameFix
@@ -118,7 +117,7 @@ doRestore v cid dbenv (Just (bh, hash)) = runBlockEnv dbenv $ do
     return $! PactDbEnv' $! PactDbEnv chainwebPactDb dbenv
   where
     -- Module name fix follows the restore call to checkpointer.
-    setModuleNameFix = bsModuleNameFix .= enableModuleNameFix v bh
+    setModuleNameFix = modify' $ set bsModuleNameFix $! enableModuleNameFix v bh
 doRestore _ _ dbenv Nothing = runBlockEnv dbenv $ do
     clearPendingTxState
     withSavepoint DbTransaction $
@@ -145,6 +144,9 @@ doSave dbenv hash = runBlockEnv dbenv $ do
     runPending height
     nextTxId <- gets _bsTxId
     blockHistoryInsert height hash nextTxId
+
+    -- FIXME: if any of the above fails with an exception the following isn't
+    -- executed and a pending SAVEPOINT is left on the stack.
     commitSavepoint Block
     clearPendingTxState
   where
