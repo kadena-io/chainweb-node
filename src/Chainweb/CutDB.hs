@@ -195,16 +195,16 @@ defaultCutDbParams v ft = CutDbParams
 --    intermediate steps instead of starting all over again.
 --
 -- For the latter to work it is important that the local node only pulls cuts
--- that are at most 'forAheadThreshold' blocks in the ahead. Otherwise the
--- pulled blocks would be immediately rejected by the cut processing pipeline
+-- that are at most 'forAheadThreshold' blocks ahead. Otherwise the pulled
+-- blocks would be immediately rejected by the cut processing pipeline
 -- 'processCuts' below in the module and the node would never be able to join
 -- the consensus of the network.
 --
 -- NOTE: THIS NUMBER MUST BE STRICTLY LARGER THAN THE RESPECTIVE LIMIT IN
 -- 'CutDB.Sync'
 --
-farAheadThreshold :: Int
-farAheadThreshold = 2000
+farAheadThreshold :: BlockHeight
+farAheadThreshold = 200
 
 -- -------------------------------------------------------------------------- --
 -- CutHashes Table
@@ -489,33 +489,48 @@ processCuts conf logFun headerStore payloadStore cutHashesStore queue cutVar = q
 
     hdrStore = _webBlockHeaderStoreCas headerStore
 
-    threshold :: Cut -> Int
-    threshold c = int $ 2 * diameter graph * order graph
-      where
-        graph = chainGraphAt_ headerStore (minChainHeight c)
-
     queueToStream = do
         Down a <- liftIO (pQueueRemove queue)
         S.yield a
         queueToStream
 
-    -- FIXME: this is problematic. We should drop these before they are
-    -- added to the queue, to prevent the queue becoming stale.
+    -- FIXME: this is problematic. We should drop these much earlier before they
+    -- are even added to the queue, to prevent the queue from becoming stale.
+    -- Although its probably low risk, since the processing pipeline is probably
+    -- faster in removing these from the queue than the network stack can add
+    -- them.
+    --
+    -- Note that _cutHashesMaxHeight is linear in the number of chains. If
+    -- that's not acceptable any more, it would also be fine to just pick the
+    -- height from some arbitrary chain, e.g. 0, in which case the result would
+    -- be off by at most the diameter of the graph.
+    --
     farAhead x = do
-        !h <- _cutHeight <$> readTVarIO cutVar
-        let r = (int (_cutHashesHeight x) - farAheadThreshold) >= int h
+        curMax <- maxChainHeight <$> readTVarIO cutVar
+        let newMax = _cutHashesMaxHeight x
+        let r = newMax >= curMax + farAheadThreshold
         when r $ loggc Debug x
-            $ "skip far ahead cut. Current height: " <> sshow h
-            <> ", got: " <> sshow (_cutHashesHeight x)
+            $ "skip far ahead cut. Current maximum block height: " <> sshow curMax
+            <> ", got: " <> sshow newMax
+            -- log at debug level because this is a common case during catchup
         return r
 
     -- This could be problematic if there is a very lightweight fork that is far
-    -- ahead
+    -- ahead. Otherwise, there should be no fork that has 2*diam less blocks and
+    -- exceeds the current fork in weight.
+    --
+    -- Note that _cutHashesMaxHeight is linear in the number of chains. If
+    -- that's not acceptable any more, it would also be fine to just pick the
+    -- height from some arbitrary chain, e.g. 0, in which case the result would
+    -- be off by at most the diameter of the graph.
     --
     isVeryOld x = do
-        cur <- readTVarIO cutVar
-        let r = int (_cutHashesHeight x) <= (int (_cutHeight cur) - threshold cur)
+        curMin <- minChainHeight <$> readTVarIO cutVar
+        let diam = diameter $ chainGraphAt_ headerStore curMin
+            newMin = _cutHashesMinHeight x
+        let r = newMin <= curMin - 2 * int diam
         when r $ loggc Debug x "skip very old cut"
+            -- log at debug level because this is a common case during catchup
         return r
 
     -- This should be based on weight
