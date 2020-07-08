@@ -138,7 +138,6 @@ import Data.Coerce (coerce)
 import Data.Foldable
 import qualified Data.HashMap.Strict as HashMap
 import Data.List (sortOn,isInfixOf)
--- import Data.Streaming.Network (HostPreference)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
 import Data.Tree
