@@ -473,6 +473,13 @@ applyTwentyChainUpgrade v cid bh
       infoLog $ "Applying 20-chain upgrades on chain " <> sshow cid
 
       let txs = fmap payloadObj <$> txlist
+
+      --
+      -- Note (emily): This function does not need to care about
+      -- module caching, because it is already seeded with the correct cache
+      -- state, and is not updating the module cache, unlike 'applyUpgrades'.
+      --
+
       traverse_ applyTx txs
     | otherwise = return ()
   where
