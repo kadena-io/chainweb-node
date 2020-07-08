@@ -429,8 +429,10 @@ testPactCtxSQLite v cid bhdb pdb sqlenv conf = do
         , _psReorgLimit = fromIntegral $ _pactReorgLimit conf
         , _psOnFatalError = defaultOnFatalError mempty
         , _psVersion = v
-        , _psValidateHashesOnReplay = _pactRevalidate conf
-        , _psAllowReadsInLocal = _pactAllowReadsInLocal conf
+        , _psValidateHashesOnReplay = _pactRevalidate config
+        , _psAllowReadsInLocal = _pactAllowReadsInLocal config
+        , _psIsBatch = False
+        , _psCheckpointerDepth = 0
         }
 
 
