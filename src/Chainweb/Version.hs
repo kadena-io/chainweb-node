@@ -52,6 +52,7 @@ module Chainweb.Version
 , pactBackCompat_v16
 , useLegacyCreationTimeForTxValidation
 , enableModuleNameFix
+, enableModuleNameFix2
 -- ** BlockHeader Validation Guards
 , slowEpochGuard
 , oldTargetGuard
@@ -817,6 +818,12 @@ useLegacyCreationTimeForTxValidation _ h = h <= 1
 enableModuleNameFix :: ChainwebVersion -> BlockHeight -> Bool
 enableModuleNameFix Mainnet01 bh = bh >= 448501 -- ~ 2020-04-02T12:00:00Z
 enableModuleNameFix _ bh = bh >= 2
+
+-- | Related, later fix (Pact #801)
+--
+enableModuleNameFix2 :: ChainwebVersion -> BlockHeight -> Bool
+enableModuleNameFix2 Mainnet01 bh = bh >= 752214 -- ~ 2020-07-17 0:00:00 UTC
+enableModuleNameFix2 _ bh = bh >= 2
 
 -- -------------------------------------------------------------------------- --
 -- Header Validation Guards
