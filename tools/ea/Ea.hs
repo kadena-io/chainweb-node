@@ -234,11 +234,9 @@ genTxModules = void $ do
     putStrLn "Done."
   where
     gen tag remeds = genTxModule tag $ upgrades <> remeds
-    genOtherTxs = gen "Other"
-      ["pact/coin-contract/remediations/devother/remediations.yaml"]
-
+    genOtherTxs = gen "Other" []
     genDevTxs = gen "Development"
-      ["pact/coin-contract/remediations/devnet/remediations.yaml"]
+      ["pact/coin-contract/remediations/devother/remediations.yaml"]
 
     genMain :: Int -> IO ()
     genMain chain = gen ("Mainnet" <> sshow chain)

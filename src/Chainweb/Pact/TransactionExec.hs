@@ -431,6 +431,18 @@ applyUpgrades v cid height
     applyTxs txsIO = do
       infoLog "Applying upgrade!"
       txs <- map (fmap payloadObj) <$> liftIO txsIO
+
+      --
+      -- Note (emily): the historical use of 'mapM_' here means that we are not
+      -- threading the updated module cache from tx to tx in our upgrades.
+      -- This means that the outputed module cache is the set of modules
+      -- loaded in the /last/ tx, and that result will go into the hash.
+      --
+      -- Whether this can be fixed in the future should be explored, but we've
+      -- already built fixes to address this problem that also affect the
+      -- hashes of later blocks.
+      --
+
       local (set txExecutionConfig def) $
         mapM_ applyTx txs
       mc <- use txCache
