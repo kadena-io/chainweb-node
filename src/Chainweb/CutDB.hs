@@ -200,11 +200,10 @@ defaultCutDbParams v ft = CutDbParams
 -- 'processCuts' below in the module and the node would never be able to join
 -- the consensus of the network.
 --
--- NOTE: THIS NUMBER MUST BE STRICTLY LARGER THAN THE RESPECTIVE LIMIT IN
--- 'CutDB.Sync'
+-- NOTE: this number multiplied by the (current) number of chains must always be
+-- STRICTLY LARGER THAN 'catchupStepSize' in "Chainweb.CutDB.Sync".
 --
-farAheadThreshold :: BlockHeight
-farAheadThreshold = 200
+farAheadThreshold :: BlockHeight farAheadThreshold = 200
 
 -- -------------------------------------------------------------------------- --
 -- CutHashes Table
@@ -528,7 +527,7 @@ processCuts conf logFun headerStore payloadStore cutHashesStore queue cutVar = q
         curMin <- minChainHeight <$> readTVarIO cutVar
         let diam = diameter $ chainGraphAt_ headerStore curMin
             newMin = _cutHashesMinHeight x
-        let r = newMin <= curMin - 2 * int diam
+        let r = newMin + 2 * (1 + int diam) <= curMin
         when r $ loggc Debug x "skip very old cut"
             -- log at debug level because this is a common case during catchup
         return r
