@@ -105,7 +105,7 @@ syncSession v useOrigin p db logg env pinf = do
     receive = do
         cur <- _cut db
 
-        -- Query cut that is at most 1000 blocks ahead
+        -- Query cut that is at most 'catchupStepSize' blocks ahead
         let curHeight = _cutHeight cur
             curChainCount = length $ view cutMap cur
             limit = curHeight + min catchupStepSize (int farAheadThreshold * int curChainCount - 1)
@@ -121,4 +121,3 @@ syncSession v useOrigin p db logg env pinf = do
         addCutHashes db c'
 
     origin = if useOrigin then Just p else Nothing
-
