@@ -203,7 +203,8 @@ defaultCutDbParams v ft = CutDbParams
 -- NOTE: this number multiplied by the (current) number of chains must always be
 -- STRICTLY LARGER THAN 'catchupStepSize' in "Chainweb.CutDB.Sync".
 --
-farAheadThreshold :: BlockHeight farAheadThreshold = 200
+farAheadThreshold :: BlockHeight
+farAheadThreshold = 200
 
 -- -------------------------------------------------------------------------- --
 -- CutHashes Table
