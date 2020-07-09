@@ -519,7 +519,7 @@ chainwebGraphs Mainnet01 =
     ( to20ChainsMainnet, twentyChainGraph ) NE.:|
     [ ( 0, petersonChainGraph ) ]
 chainwebGraphs Development =
-    ( 50, twentyChainGraph ) NE.:|
+    ( to20ChainsDevelopment, twentyChainGraph ) NE.:|
     [ ( 0, petersonChainGraph ) ]
 {-# INLINE chainwebGraphs #-}
 
