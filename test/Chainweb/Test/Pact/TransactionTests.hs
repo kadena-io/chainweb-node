@@ -20,7 +20,6 @@ import Test.Tasty
 import Test.Tasty.HUnit
 
 import Control.Concurrent (readMVar)
-import Control.Exception (SomeException)
 import Control.Lens hiding ((.=))
 import Control.Monad
 
@@ -106,14 +105,7 @@ tests = testGroup "Chainweb.Test.Pact.TransactionTests"
     , testCase "testCoinbaseUpgradeDevnet1" (testCoinbaseUpgradeDevnet (unsafeChainId 1) 4)
     ]
   , testGroup "20-Chain Fork Upgrade Tests"
-    [ testCase "testTwentyChainUpgradesDevnet0" $
-      testTwentyChainUpgrades (unsafeChainId 0) 150
-    , testCase "testTwentyChainUpgradesNegatives149" $
-      testTwentyChainUpgradesNegative (unsafeChainId 0) 149
-    , testCase "testTwentyChainUpgradesNegatives151" $
-      testTwentyChainUpgradesNegative (unsafeChainId 0) 151
-    , testCase "testTwentyChainUpgradesNegativesChain1" $
-      testTwentyChainUpgradesNegative (unsafeChainId 1) 150
+    [ testTwentyChainDevnetUpgrades
     ]
   ]
 
@@ -289,12 +281,10 @@ testCoinbaseUpgradeDevnet :: V.ChainId -> BlockHeight -> Assertion
 testCoinbaseUpgradeDevnet cid upgradeHeight =
     testUpgradeScript "test/pact/coin-and-devaccts.repl" cid upgradeHeight test
   where
-    test = \case
-      Left e -> assertFailure $ "upgrade coinbase failed: " ++ (sshow e)
-      Right (T2 cr mcm) -> case (_crLogs cr,mcm) of
-        (_,Nothing) -> assertFailure "Expected module cache from successful upgrade"
-        (Nothing,_) -> assertFailure "Expected logs from successful upgrade"
-        (Just logs,_) -> matchLogs (logResults logs) expectedResults
+    test (T2 cr mcm) = case (_crLogs cr,mcm) of
+      (_,Nothing) -> assertFailure "Expected module cache from successful upgrade"
+      (Nothing,_) -> assertFailure "Expected logs from successful upgrade"
+      (Just logs,_) -> matchLogs (logResults logs) expectedResults
 
     expectedResults =
       [ ("USER_coin_coin-table", "NoMiner", Just (Number 0.1))
@@ -304,37 +294,36 @@ testCoinbaseUpgradeDevnet cid upgradeHeight =
       , ("USER_coin_coin-table","sender09",Just (Number 998662.1))
       ]
 
-testTwentyChainUpgrades :: V.ChainId -> BlockHeight -> Assertion
-testTwentyChainUpgrades cid upgradeHeight =
-    testUpgradeScript "test/pact/twenty-chain-upgrades.repl" cid upgradeHeight test
+testTwentyChainDevnetUpgrades :: TestTree
+testTwentyChainDevnetUpgrades = testCaseSteps "Test 20-chain Devnet upgrades" $ \step -> do
+      step "Check that 20-chain upgrades fire at block height 150"
+      testUpgradeScript "test/pact/twenty-chain-upgrades.repl" (unsafeChainId 0) 150 test0
+
+      step "Check that 20-chain upgrades do not fire at block heights < 150 and > 150"
+      testUpgradeScript "test/pact/twenty-chain-upgrades.repl" (unsafeChainId 0) 149 test1
+      testUpgradeScript "test/pact/twenty-chain-upgrades.repl" (unsafeChainId 0) 151 test1
+
+      step "Check that 20-chain upgrades do not fire at on other chains"
+      testUpgradeScript "test/pact/twenty-chain-upgrades.repl" (unsafeChainId 1) 150 test1
+
+      step "Check that 20-chain upgrades succeed even if e7f7 balance is insufficient"
+      testUpgradeScript "test/pact/twenty-chain-insufficient-bal.repl" (unsafeChainId 0) 150 test1
   where
-    test = \case
-      Left e -> assertFailure $ "twenty-chain remediations failed" ++ show e
-      Right (T2 cr _) -> case _crLogs cr of
-        Just logs -> matchLogs (logResults logs) expectedResults
-        Nothing -> assertFailure "Expected logs from upgrade"
+    test0 (T2 cr _) = case _crLogs cr of
+      Just logs -> matchLogs (logResults logs)
+        [ ("USER_coin_coin-table","NoMiner",Just (Number 0.1))
+        , ( "USER_coin_coin-table"
+          , "e7f7634e925541f368b827ad5c72421905100f6205285a78c19d7b4a38711805"
+          , Just (Number 50.0) -- 100.0 tokens remediated
+          )
+        ]
+      Nothing -> assertFailure "Expected logs from upgrade"
 
-    expectedResults =
-      [ ("USER_coin_coin-table","NoMiner",Just (Number 0.1))
-      , ( "USER_coin_coin-table"
-        , "e7f7634e925541f368b827ad5c72421905100f6205285a78c19d7b4a38711805"
-        , Just (Number 50.0)
-        )
-      ]
-
-testTwentyChainUpgradesNegative :: V.ChainId -> BlockHeight -> Assertion
-testTwentyChainUpgradesNegative cid upgradeHeight =
-    testUpgradeScript "test/pact/twenty-chain-upgrades.repl" cid upgradeHeight test
-  where
-    test = \case
-      Left e -> assertFailure $ "twenty-chain remediations failed" ++ show e
-      Right (T2 cr _) -> case _crLogs cr of
-        Just logs -> matchLogs (logResults logs) expectedResults
-        Nothing -> assertFailure "Expected logs from upgrade"
-
-    expectedResults =
-      [ ("USER_coin_coin-table", "NoMiner", Just (Number 0.1))
-      ]
+    test1 (T2 cr _) = case _crLogs cr of
+      Just logs -> matchLogs (logResults logs)
+        [ ("USER_coin_coin-table", "NoMiner", Just (Number 0.1))
+        ]
+      Nothing -> assertFailure "Expected logs from upgrade"
 
 -- ---------------------------------------------------------------------- --
 -- Utils
@@ -343,13 +332,15 @@ testUpgradeScript
     :: FilePath
     -> V.ChainId
     -> BlockHeight
-    -> (Either SomeException (T2 (CommandResult [TxLog Value]) (Maybe ModuleCache)) -> IO ())
+    -> (T2 (CommandResult [TxLog Value]) (Maybe ModuleCache) -> IO ())
     -> IO ()
 testUpgradeScript script cid bh test = do
     (pdb, mc) <- loadScript script
     r <- tryAllSynchronous $ applyCoinbase v logger pdb noMiner 0.1 (TxContext p def)
         (EnforceCoinbaseFailure True) (CoinbaseUsePrecompiled False) mc
-    test r
+    case r of
+      Left e -> assertFailure $ "tx execution failed: " ++ show e
+      Right cr -> test cr
   where
     p = parent bh cid
 
