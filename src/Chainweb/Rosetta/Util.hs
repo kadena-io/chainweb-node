@@ -220,7 +220,7 @@ rowDataToAccountLog :: AccountRow -> Maybe AccountRow -> AccountLog
 rowDataToAccountLog (currKey, currBal, currGuard) prev = do
   case prev of
     Nothing ->
-      -- ^ First time seeing account
+      -- First time seeing account
       AccountLog
         { _accountLogKey = currKey
         , _accountLogBalanceTotal = currBal
@@ -229,7 +229,7 @@ rowDataToAccountLog (currKey, currBal, currGuard) prev = do
         , _accountLogPrevGuard = currGuard
         }
     Just (_, prevBal, prevGuard) ->
-      -- ^ Already seen this account
+      -- Already seen this account
       AccountLog
         { _accountLogKey = currKey
         , _accountLogBalanceTotal = currBal
