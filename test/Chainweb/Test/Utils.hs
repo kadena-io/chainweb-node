@@ -1,6 +1,7 @@
 {-# LANGUAGE CPP #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE MultiWayIf #-}
+{-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE RankNTypes #-}
@@ -91,6 +92,7 @@ module Chainweb.Test.Utils
 , ScheduledTest(..)
 , schedule
 , testCaseSch
+, testCaseSchSteps
 , testGroupSch
 , testPropertySch
 
@@ -103,13 +105,27 @@ module Chainweb.Test.Utils
 
 -- * Misc
 , genEnum
+
+-- * Multi-node testing utils
+, withNodes
+, runTestNodes
+, node
+, deadbeef
+, config
+, bootstrapConfig
+, setBootstrapPeerInfo
+, host
+, interface
+, withTime
+, withMVarResource
 ) where
 
 import Control.Concurrent
 import Control.Concurrent.Async
 import Control.Exception (bracket)
-import Control.Lens (deep, filtered, toListOf)
-import Control.Monad.Catch (MonadThrow)
+import Control.Lens
+import Control.Monad
+import Control.Monad.Catch (MonadThrow, finally)
 import Control.Monad.IO.Class
 
 import qualified Data.ByteString.Lazy as BL
@@ -120,13 +136,17 @@ import Data.Bytes.Put
 import qualified Data.ByteString as B
 import Data.Coerce (coerce)
 import Data.Foldable
+import qualified Data.HashMap.Strict as HashMap
 import Data.List (sortOn,isInfixOf)
 import qualified Data.Text as T
+import qualified Data.Text.Encoding as T
 import Data.Tree
 import qualified Data.Tree.Lens as LT
 import Data.Word (Word64)
 
+import qualified Network.Connection as HTTP
 import qualified Network.HTTP.Client as HTTP
+import qualified Network.HTTP.Client.TLS as HTTP
 import Network.Socket (close)
 import qualified Network.Wai as W
 import qualified Network.Wai.Handler.Warp as W
@@ -138,7 +158,9 @@ import Servant.Client (BaseUrl(..), ClientEnv, Scheme(..), mkClientEnv)
 
 import System.Directory
 import System.Environment (withArgs)
+import qualified System.IO.Extra as Extra
 import System.IO.Temp
+import System.LogLevel
 import System.Random (randomIO)
 
 import Test.QuickCheck.Property (Property, Testable, (===))
@@ -162,18 +184,25 @@ import Chainweb.BlockHeaderDB.Internal
 import Chainweb.BlockHeight
 import Chainweb.BlockWeight
 import Chainweb.ChainId
+import Chainweb.Chainweb
+import Chainweb.Chainweb.ChainResources
 import Chainweb.Chainweb.MinerResources (MiningCoordination)
+import Chainweb.Chainweb.PeerResources
 import Chainweb.Crypto.MerkleLog hiding (header)
 import Chainweb.CutDB
 import Chainweb.Difficulty (targetToDifficulty)
 import Chainweb.Graph
-import Chainweb.Logger (Logger, GenericLogger)
-import Chainweb.Mempool.Mempool (MempoolBackend(..))
+import Chainweb.HostAddress
+import Chainweb.Logger
+import Chainweb.Mempool.Mempool (MempoolBackend(..), TransactionHash(..))
+import Chainweb.Miner.Config
+import Chainweb.Miner.Pact
+import Chainweb.NodeId
 import Chainweb.Payload.PayloadStore
 import Chainweb.RestAPI
 import Chainweb.RestAPI.NetworkID
 import Chainweb.Test.P2P.Peer.BootstrapConfig
-    (bootstrapCertificate, bootstrapKey)
+    (bootstrapCertificate, bootstrapKey, bootstrapPeerConfig)
 import Chainweb.Test.Utils.BlockHeader
 import Chainweb.Time
 import Chainweb.TreeDB
@@ -186,6 +215,8 @@ import Data.CAS.RocksDB
 import Network.X509.SelfSigned
 
 import qualified P2P.Node.PeerDB as P2P
+import P2P.Node.Configuration
+import P2P.Peer
 
 -- -------------------------------------------------------------------------- --
 -- Misc
@@ -818,6 +849,9 @@ data ScheduledTest = ScheduledTest { _schLabel :: String , _schTest :: TestTree 
 testCaseSch :: String -> Assertion -> ScheduledTest
 testCaseSch l a = ScheduledTest l $ testCase l a
 
+testCaseSchSteps :: String -> ((String -> IO ()) -> Assertion) -> ScheduledTest
+testCaseSchSteps l a = ScheduledTest l $ testCaseSteps l a
+
 testGroupSch :: String -> [TestTree] -> ScheduledTest
 testGroupSch l ts = ScheduledTest l $ testGroup l ts
 
@@ -849,3 +883,144 @@ runSchedRocks test = withTempRocksDb "chainweb-tests" $ \rdb -> runSched (test r
 -- > matchTest "myTest" $ runSched tests
 matchTest :: String -> IO a -> IO a
 matchTest pat = withArgs ["-p",pat]
+
+-- ------------------------------------------------------------------------ --
+-- Multi-node network utils
+
+withNodes
+    :: ChainwebVersion
+    -> B.ByteString
+    -> RocksDb
+    -> Natural
+    -> (IO ClientEnv -> TestTree)
+    -> TestTree
+withNodes v label rdb n f = withResource start
+    (cancel . fst)
+    (f . fmap snd)
+  where
+    start :: IO (Async (), ClientEnv)
+    start = do
+        peerInfoVar <- newEmptyMVar
+        a <- async $ runTestNodes label rdb Quiet v n peerInfoVar
+        i <- readMVar peerInfoVar
+        cwEnv <- getClientEnv $ getCwBaseUrl $ _hostAddressPort $ _peerAddr i
+        return (a, cwEnv)
+
+    getCwBaseUrl :: Port -> BaseUrl
+    getCwBaseUrl p = BaseUrl
+        { baseUrlScheme = Https
+        , baseUrlHost = "127.0.0.1"
+        , baseUrlPort = fromIntegral p
+        , baseUrlPath = ""
+        }
+
+runTestNodes
+    :: B.ByteString
+    -> RocksDb
+    -> LogLevel
+    -> ChainwebVersion
+    -> Natural
+    -> MVar PeerInfo
+    -> IO ()
+runTestNodes label rdb loglevel ver n portMVar =
+    forConcurrently_ [0 .. int n - 1] $ \i -> do
+        threadDelay (1000 * int i)
+        let baseConf = config ver n (NodeId i)
+        conf <- if
+            | i == 0 ->
+                return $ bootstrapConfig baseConf
+            | otherwise ->
+                setBootstrapPeerInfo <$> readMVar portMVar <*> pure baseConf
+        node label rdb loglevel portMVar conf
+
+node
+    :: B.ByteString
+    -> RocksDb
+    -> LogLevel
+    -> MVar PeerInfo
+    -> ChainwebConfiguration
+    -> IO ()
+node label rdb loglevel peerInfoVar conf = do
+    rocksDb <- testRocksDb (label <> T.encodeUtf8 (toText nid)) rdb
+    Extra.withTempDir $ \dir -> withChainweb conf logger rocksDb (Just dir) False $ \cw -> do
+
+        -- If this is the bootstrap node we extract the port number and publish via an MVar.
+        when (nid == NodeId 0) $ do
+            let bootStrapInfo = view (chainwebPeer . peerResPeer . peerInfo) cw
+            putMVar peerInfoVar bootStrapInfo
+
+        poisonDeadBeef cw
+        runChainweb cw `finally` do
+            logFunctionText logger Info "write sample data"
+            logFunctionText logger Info "shutdown node"
+        return ()
+  where
+    nid = _configNodeId conf
+    logger :: GenericLogger
+    logger = addLabel ("node", toText nid) $ genericLogger loglevel print
+
+    poisonDeadBeef cw = mapM_ poison crs
+      where
+        crs = map snd $ HashMap.toList $ view chainwebChains cw
+        poison cr = mempoolAddToBadList (view chainResMempool cr) deadbeef
+
+deadbeef :: TransactionHash
+deadbeef = TransactionHash "deadbeefdeadbeefdeadbeefdeadbeef"
+
+config
+    :: ChainwebVersion
+    -> Natural
+    -> NodeId
+    -> ChainwebConfiguration
+config ver n nid = defaultChainwebConfiguration ver
+    & set configNodeId nid
+    & set (configP2p . p2pConfigPeer . peerConfigHost) host
+    & set (configP2p . p2pConfigPeer . peerConfigInterface) interface
+    & set (configP2p . p2pConfigKnownPeers) mempty
+    & set (configP2p . p2pConfigIgnoreBootstrapNodes) True
+    & set (configP2p . p2pConfigMaxPeerCount) (n * 2)
+    & set (configP2p . p2pConfigMaxSessionCount) 4
+    & set (configP2p . p2pConfigSessionTimeout) 60
+    & set (configMining . miningInNode) miner
+    & set configReintroTxs True
+    & set (configTransactionIndex . enableConfigEnabled) True
+    & set configBlockGasLimit 1_000_000
+    & set configRosetta True
+  where
+    miner = NodeMiningConfig
+        { _nodeMiningEnabled = True
+        , _nodeMiner = noMiner
+        , _nodeTestMiners = MinerCount n }
+
+bootstrapConfig :: ChainwebConfiguration -> ChainwebConfiguration
+bootstrapConfig conf = conf
+    & set (configP2p . p2pConfigPeer) peerConfig
+    & set (configP2p . p2pConfigKnownPeers) []
+  where
+    peerConfig = head (bootstrapPeerConfig $ _configChainwebVersion conf)
+        & set peerConfigPort 0
+        & set peerConfigHost host
+
+setBootstrapPeerInfo :: PeerInfo -> ChainwebConfiguration -> ChainwebConfiguration
+setBootstrapPeerInfo =
+    over (configP2p . p2pConfigKnownPeers) . (:)
+
+
+host :: Hostname
+host = unsafeHostnameFromText "::1"
+
+interface :: W.HostPreference
+interface = "::1"
+
+getClientEnv :: BaseUrl -> IO ClientEnv
+getClientEnv url = flip mkClientEnv url <$> HTTP.newTlsManagerWith mgrSettings
+    where
+      mgrSettings = HTTP.mkManagerSettings
+       (HTTP.TLSSettingsSimple True False False)
+       Nothing
+
+withMVarResource :: a -> (IO (MVar a) -> TestTree) -> TestTree
+withMVarResource value = withResource (newMVar value) mempty
+
+withTime :: (IO (Time Micros) -> TestTree) -> TestTree
+withTime = withResource getCurrentTimeIntegral mempty

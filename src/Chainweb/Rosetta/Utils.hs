@@ -2,14 +2,14 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 
 -- |
--- Module: Chainweb.Rosetta.Util
+-- Module: Chainweb.Rosetta.Utils
 -- Copyright: Copyright © 2018 - 2020 Kadena LLC.
 -- License: MIT
 -- Maintainer: Linda Ortega <linda@kadena.io>
 -- Stability: experimental
 --
 --
-module Chainweb.Rosetta.Util where
+module Chainweb.Rosetta.Utils where
 
 import Data.Aeson
 import Data.Decimal
