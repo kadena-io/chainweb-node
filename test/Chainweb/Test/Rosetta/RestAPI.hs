@@ -412,7 +412,7 @@ operationStatuses =
 --
 validateOp
     :: Word64
-      -- ^ tx idx
+      -- ^ op idx
     -> Text
       -- ^ operation type
     -> Text
