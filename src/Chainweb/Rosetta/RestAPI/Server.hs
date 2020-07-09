@@ -1,9 +1,7 @@
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DataKinds #-}
-{-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeApplications #-}
@@ -27,6 +25,7 @@ import Control.Monad.Trans.Except
 import Data.Aeson
 import Data.Bifunctor
 import Data.IORef
+import Data.List (sort)
 import Data.Proxy (Proxy(..))
 
 import qualified Data.HashMap.Strict as HM
@@ -310,7 +309,7 @@ networkListH :: ChainwebVersion -> MetadataReq -> Handler NetworkListResp
 networkListH v _ = pure $ NetworkListResp networkIds
   where
     -- Unique Rosetta network ids for each of the chainweb version's chain ids
-    networkIds = map f (HS.toList (chainIds v))
+    networkIds = map f $ sort (HS.toList (chainIds v))
     f :: ChainId -> NetworkId
     f cid =  NetworkId
       { _networkId_blockchain = "kadena"
