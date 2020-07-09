@@ -468,10 +468,10 @@ pkgInfoScopes =
 -- -------------------------------------------------------------------------- --
 -- main
 
--- KILLSWITCH for version 1.9
+-- KILLSWITCH for version 2.0
 --
 killSwitchDate :: Maybe String
-killSwitchDate = Just "2020-07-16T00:00:00Z"
+killSwitchDate = Just "2020-08-13T00:00:00Z"
 
 mainInfo :: ProgramInfo ChainwebNodeConfiguration
 mainInfo = programInfoValidate
@@ -492,4 +492,3 @@ main = do
                 node conf logger
   where
     timeFormat = iso8601DateFormat (Just "%H:%M:%SZ")
-

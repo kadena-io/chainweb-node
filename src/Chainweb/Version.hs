@@ -48,7 +48,7 @@ module Chainweb.Version
 -- ** Payload Validation Guards
 , vuln797Fix
 , coinV2Upgrade
-, twentyChainUpgrade
+, to20ChainRebalance
 , pactBackCompat_v16
 , useLegacyCreationTimeForTxValidation
 , enableModuleNameFix
@@ -511,10 +511,22 @@ chainwebGraphs (TimedConsensus g1 g2) = (8, g2) NE.:| [ (0, g1) ]
 chainwebGraphs (PowConsensus g) = pure (0, g)
 chainwebGraphs (TimedCPM g) = pure (0, g)
 chainwebGraphs (FastTimedCPM g) = pure (0, g)
-chainwebGraphs Testnet04 = pure (0, petersonChainGraph)
-chainwebGraphs Mainnet01 = pure (0, petersonChainGraph)
-chainwebGraphs Development = (50, twentyChainGraph) NE.:| [ (0, petersonChainGraph) ]
+chainwebGraphs Testnet04 =
+    ( to20ChainsTestnet, twentyChainGraph ) NE.:|
+    [ ( 0, petersonChainGraph ) ]
+chainwebGraphs Mainnet01 =
+    ( to20ChainsMainnet, twentyChainGraph ) NE.:|
+    [ ( 0, petersonChainGraph ) ]
+chainwebGraphs Development =
+    ( 50, twentyChainGraph ) NE.:|
+    [ ( 0, petersonChainGraph ) ]
 {-# INLINE chainwebGraphs #-}
+
+to20ChainsMainnet :: BlockHeight
+to20ChainsMainnet = 852_054 -- 2020-08-20 16:00:00
+
+to20ChainsTestnet :: BlockHeight
+to20ChainsTestnet = 332_604 -- 2020-07-28 16:00:00
 
 -- | Return the Graph History at a given block height in descending order.
 --
@@ -768,24 +780,21 @@ coinV2Upgrade Development cid h
 coinV2Upgrade _ _ 1 = True
 coinV2Upgrade _ _ _ = False
 
--- | Mainnet 20-chain remediations
+-- | 20-chain rebalance
 --
 -- This function provides the block heights when remediations will be applied
--- to the respective 20-chain fork chains.
+-- to correspond to genesis grants in the new chains.
 --
--- Note: 20-chain upgrades consist of a single remediation on chain 0 for one
--- account which must occur *after* the coin-v2 upgrade. There is nothing that
--- depends on 20chain chainweb version specifically.
---
-twentyChainUpgrade
+to20ChainRebalance
     :: ChainwebVersion
     -> ChainId
     -> BlockHeight
     -> Bool
-twentyChainUpgrade Mainnet01 _ h = h == maxBound -- TODO: update me with a calculated height
-twentyChainUpgrade Development _ h = h == 150
-twentyChainUpgrade _ _ 2 = True
-twentyChainUpgrade _ _ _ = False
+to20ChainRebalance Mainnet01 _ h = h == to20ChainsMainnet
+to20ChainRebalance Testnet04 _ h = h == to20ChainsTestnet
+to20ChainRebalance Development _ h = h == 150
+to20ChainRebalance _ _ 2 = True
+to20ChainRebalance _ _ _ = False
 
 -- | Preserve Pact bugs pre 1.6 chainweb version
 -- Mainnet 328000 ~ UTC Feb 20 15:36, EST Feb 20 10:56
@@ -897,7 +906,7 @@ skipFeatureFlagValidationGuard Mainnet01 h = h < 530500  -- ~ 2020-05-01T00:00:x
 skipFeatureFlagValidationGuard _ _ = False
 
 oldDaGuard :: ChainwebVersion -> BlockHeight -> Bool
-oldDaGuard Mainnet01 _ = True
-oldDaGuard Testnet04 _ = True
+oldDaGuard Mainnet01 h = h < 771_414 -- ~ 2020-07-23 16:00:00
+oldDaGuard Testnet04 h = h < 318_204 -- ~ 2020-07-23 16:00:00
 oldDaGuard Development _ = False
 oldDaGuard _ _ = False
