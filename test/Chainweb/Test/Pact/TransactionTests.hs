@@ -334,19 +334,9 @@ testUpgradeScript
     -> BlockHeight
     -> (T2 (CommandResult [TxLog Value]) (Maybe ModuleCache) -> IO ())
     -> IO ()
-testUpgradeScript fp cid bh f
-    = testUpgradeScript' fp v cid bh f
-
-testUpgradeScript'
-    :: FilePath
-    -> V.ChainwebVersion
-    -> V.ChainId
-    -> BlockHeight
-    -> (T2 (CommandResult [TxLog Value]) (Maybe ModuleCache) -> IO ())
-    -> IO ()
-testUpgradeScript' script v' cid bh test = do
+testUpgradeScript script cid bh test = do
     (pdb, mc) <- loadScript script
-    r <- tryAllSynchronous $ applyCoinbase v' logger pdb noMiner 0.1 (TxContext p def)
+    r <- tryAllSynchronous $ applyCoinbase v logger pdb noMiner 0.1 (TxContext p def)
         (EnforceCoinbaseFailure True) (CoinbaseUsePrecompiled False) mc
     case r of
       Left e -> assertFailure $ "tx execution failed: " ++ show e
