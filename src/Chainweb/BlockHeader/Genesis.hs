@@ -61,7 +61,7 @@ import qualified Chainweb.BlockHeader.Genesis.TestnetNPayload as PNN
 import Chainweb.BlockHeight
 import Chainweb.BlockWeight
 import Chainweb.Crypto.MerkleLog
-import Chainweb.Difficulty (HashTarget, maxTarget)
+import Chainweb.Difficulty (HashTarget(..), maxTarget)
 import Chainweb.MerkleLogHash
 import Chainweb.MerkleUniverse
 import Chainweb.Miner.Pact
@@ -91,8 +91,88 @@ genesisParentBlockHash v p = BlockHash $ MerkleLogHash
 -- subsequent block mining can have a `HashTarget` easier (re: higher) than
 -- this. Equivalent to `maxTarget`.
 --
-genesisBlockTarget :: HashTarget
-genesisBlockTarget = maxTarget
+-- When the graph is extended new chains should "enter" with a non-trivial
+-- difficulty in order to avoid races and resulting forks during the first two
+-- or three difficulty adjustement epochs.
+--
+-- On devnet, using maxTarget results in a too high block production and
+-- consecutively orphans and network congestion. The consequence are
+-- osciallations to take serval hundred blocks before the system stabilizes.
+-- This setting cools down initial block production.
+--
+genesisBlockTarget :: ChainwebVersion -> ChainId -> HashTarget
+genesisBlockTarget v@Mainnet01 cid
+    | genesisHeight v cid > 731382 = mainnet20InitialHashTarget
+genesisBlockTarget v@Testnet04 cid
+    | genesisHeight v cid > 278626 = testnet20InitialHashTarget
+genesisBlockTarget Development _ = HashTarget (maxBound `div` 100000)
+genesisBlockTarget _ _ = maxTarget
+
+-- Memoize initial hash target for mainnet 20-chain transition. Based on
+-- (2020-07-09):
+--
+-- @
+-- {
+--   "creationTime": 1594319266887602,
+--   "parent": "aSIkDjuJQGGOwJW-60T_1WRK9KPJm1rz63a4SW8WtSc",
+--   "height": 731382,
+--   "hash": "Ua_pSMMo-szlMpXMuSYWTcVlaSIf01TxJvBCmFkmhBM",
+--   "chainId": 0,
+--   "weight": "xo3dabqEYpUPAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+--   "featureFlags": 0,
+--   "epochStart": 1594316109999615,
+--   "adjacents": {
+--     "2": "KuuujcD6yeZ9jRXwlRE0ed5dHc3x_akIz1REmKXuDtk",
+--     "5": "qFU32Qmlj-syzuZ2awCvyoW6Jex3TQqGTzd-Dchn1gc",
+--     "3": "Lgu1FgiCw4qPpptoVRmijn8WKG2OcAUAp1Ha7KFbrWg"
+--   },
+--   "payloadHash": "MV079yClHYSYBW74WySK-15AUVQg8QMKHJZbtzTCbgA",
+--   "chainwebVersion": "mainnet01",
+--   "target": "DOordl9cgfs4ZTBdFnbjRW5th-hW-pL33DIAAAAAAAA",
+--   "nonce": "149742924667593745"
+-- }
+-- @
+--
+-- Difficulty on the new chains is 1/4 of the current difficulty.
+--
+-- prop> mainnet20InitialHashTarget == HashTarget . (4 *) <$> (runGet decodePowHashNat "DOordl9cgfs4ZTBdFnbjRW5th-hW-pL33DIAAAAAAAA")
+--
+mainnet20InitialHashTarget :: HashTarget
+mainnet20InitialHashTarget = HashTarget 92812039490652836170182663013446053204096613861175006070293989356886611016976
+{-# NOINLINE mainnet20InitialHashTarget #-}
+
+-- Memoize initial hash target for testnet 20-chain transition. Based on
+-- (2020-07-09):
+--
+-- @
+-- {
+--   "creationTime": 1594332562756196,
+--   "parent": "c0NiMaEG8bb6eFSBsvhDt-pBtgaoPhfrlajNz0g68ow",
+--   "height": 278626,
+--   "hash": "T2dMNIvoDwhcd2bPz7XLML2QGa6u151p3S4f2QORYqk",
+--   "chainId": 0,
+--   "weight": "sc5nZT4IAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+--   "featureFlags": 0,
+--   "epochStart": 1594329397022046,
+--   "adjacents": {
+--     "2": "NPG_xNLicepHj10WqZ2aFdd7AzkMsOZu-FZKxaEcvrA",
+--     "5": "71Qe91f1OpnZrMWE7h3YBoqEH_q1jNR-qRGPCr4IM_I",
+--     "3": "M-LOSdn40ibQjfX-zU_ri6S_WUeLMMj7mDZE-cfjDWU"
+--   },
+--   "payloadHash": "DGFQnekgDLAfyxQC04N_6x47So8geSYW0OwsqhMfebU",
+--   "chainwebVersion": "testnet04",
+--   "target": "UWGTKb1Jt2oMPuayWSTeOXvcpN4bk2AsyNaMDeMEAAA",
+--   "nonce": "3430113"
+-- }
+-- @
+--
+-- Difficulty on the new chains is 1/4 of the current difficulty.
+--
+-- prop> testnet20InitialHashTarget == HashTarget . (4 *) <$> (runGet decodePowHashNat "UWGTKb1Jt2oMPuayWSTeOXvcpN4bk2AsyNaMDeMEAAA")
+--
+testnet20InitialHashTarget :: HashTarget
+testnet20InitialHashTarget = HashTarget 92732593277323743564702843783986955023191593410093893802967421484438852033876
+{-# NOINLINE testnet20InitialHashTarget #-}
 
 -- | Empty payload marking no-op transaction payloads for deprecated
 -- versions.
@@ -192,7 +272,7 @@ genesisBlockHeader' v p ct@(BlockCreationTime t) n = fromLog mlog
         $ mkFeatureFlags
         :+: ct
         :+: genesisParentBlockHash v cid
-        :+: genesisBlockTarget
+        :+: genesisBlockTarget v cid
         :+: genesisBlockPayloadHash v cid
         :+: cid
         :+: BlockWeight 0
