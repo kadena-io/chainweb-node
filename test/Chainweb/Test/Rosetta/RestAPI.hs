@@ -328,20 +328,16 @@ networkOptionsTests _ envIo =
       version  @=? rosettaVersion
 
       step "Check that response errors are a subset of valid errors"
-      (respErrors resp `subset` rosettaFailures) @?
-        "allowable errors must coincide with failure list"
+      respErrors resp @?= rosettaFailures
 
       step "Check that response statuses are a subset of valid statuses"
-      (_allow_operationStatuses allow `subset` operationStatuses) @?
-        "allowed operation statuses coincide"
+      _allow_operationStatuses allow @?= operationStatuses
 
       step "Check that response op types are a subset of op types"
-      (_allow_operationTypes allow `subset` allowedOperations) @?
-        "allowed operations coincide"
+      _allow_operationTypes allow @?= operationTypes
   where
     req0 = NetworkReq nid Nothing
     respErrors = _allow_errors . _networkOptionsResp_allow
-    allowedOperations = _operationStatus_status <$> operationStatuses
 
 -- | Rosetta network status tests
 --
@@ -402,10 +398,14 @@ operationStatuses :: [OperationStatus]
 operationStatuses =
     [ OperationStatus "Successful" True
     , OperationStatus "Remediation" True
-    , OperationStatus "CoinbaseReward" True
-    , OperationStatus "FundTx" True
-    , OperationStatus "GasPayment" True
-    , OperationStatus "TransferOrCreateAcct" True
+    ]
+
+operationTypes :: [Text]
+operationTypes =
+    [ "CoinbaseReward"
+    , "FundTx"
+    , "GasPayment"
+    , "TransferOrCreateAcct"
     ]
 
 -- | Validate all useful data for a tx operation
@@ -491,12 +491,6 @@ extractMetadata rk (PollResponses pr) = case HM.lookup rk pr of
       Just (A.Object o) -> return o
       _ -> assertFailure "impossible: empty metadata"
     _ -> assertFailure "test transfer did not succeed"
-
--- | Tell whether a list is a subset of
--- another list
---
-subset :: (Foldable f, Eq a) => f a -> f a -> Bool
-subset as bs = all (`elem` bs) as
 
 -- | A composition of an index into a k-v structure with aeson values
 -- and conversion to non-JSONified structured, asserting test failure if
