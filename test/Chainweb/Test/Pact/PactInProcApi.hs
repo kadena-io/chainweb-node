@@ -142,7 +142,8 @@ getHistory refIO reqIO = testCase "getHistory" $ do
   void $ runBlock q bdb second "getHistory"
   h <- getParentTestBlockDb bdb cid
   mv <- pactBlockTxHistory h (Domain' (UserTables "coin_coin-table")) q
-  (BlockTxHistory hist) <- forSuccess "getHistory" (return mv)
+
+  (BlockTxHistory hist prevBals) <- forSuccess "getHistory" (return mv)
   -- just check first one here
   assertEqual "check first entry of history"
     (Just [TxLog "coin_coin-table" "sender00"
@@ -159,6 +160,22 @@ getHistory refIO reqIO = testCase "getHistory" $ do
   assertEqual "check txids"
     [7,10,12,13,15,16,18,19,21,22,24,25,27,28,30,31,33,34,36,37,39,40,42]
     (M.keys hist)
+  -- and last tx log change for accounts touched in given block
+  assertEqual "check previous balance"
+    (M.fromList
+     [(RowKey "sender00",
+       (TxLog "coin_coin-table" "sender00"
+        (object
+         [ "guard" .= object
+           [ "pred" .= ("keys-all" :: T.Text)
+           , "keys" .=
+             ["368820f80c324bbc7c2b0610688a7da43e39f91d118732671cd9c7500ff43cca" :: T.Text]
+           ]
+         , "balance" .= (Number 100000000.0)
+         ]
+        )
+       ))])
+    prevBals
 
 getHistoricalLookupNoTxs
     :: T.Text

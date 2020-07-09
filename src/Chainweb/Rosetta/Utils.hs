@@ -1,8 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE TypeFamilies #-}
-{-# LANGUAGE BangPatterns #-}
-{-# LANGUAGE GADTs #-}
 
 -- |
 -- Module: Chainweb.Rosetta.Util
@@ -50,7 +47,17 @@ import Chainweb.Version
 --------------------------------------------------------------------------------
 
 type CoinbaseTx chainwebTx = chainwebTx
-type AccountLog = (T.Text, Decimal, Value)
+newtype BalanceDelta = BalanceDelta { _balanceDelta :: Decimal }
+  deriving (Show, Eq)
+data AccountLog = AccountLog
+  { _accountLogKey :: !T.Text
+  , _accountLogBalanceTotal :: !Decimal
+  , _accountLogBalanceDelta :: !BalanceDelta
+  , _accountLogCurrGuard :: !Value
+  , _accountLogPrevGuard :: !Value
+  }
+  deriving (Show, Eq)
+type AccountRow = (T.Text, Decimal, Value)
 type UnindexedOperation = (Word64 -> Operation)
 
 data ChainwebOperationStatus = Successful | Remediation
@@ -143,27 +150,33 @@ operation
     -> AccountLog
     -> Word64
     -> Operation
-operation ostatus otype txid (key, bal, guard) idx =
+operation ostatus otype txid acctLog idx =
   Operation
     { _operation_operationId = OperationId idx Nothing
     , _operation_relatedOperations = Nothing -- TODO: implement
     , _operation_type = sshow otype
     , _operation_status = sshow ostatus
     , _operation_account = Just accountId
-    , _operation_amount = Just $ kdaToRosettaAmount bal
+    , _operation_amount = Just $ kdaToRosettaAmount $
+                          _balanceDelta $ _accountLogBalanceDelta acctLog
     , _operation_metadata = opMeta
     }
   where
     opMeta
-      | enableMetaData = Just $ HM.fromList [("txId", toJSON txid)] -- TODO: document
+      | enableMetaData = Just $ HM.fromList
+        [ ("txId", toJSON txid)
+        , ("totalBalance", toJSON $ kdaToRosettaAmount $
+            _accountLogBalanceTotal acctLog)
+        , ("prevOwnership", _accountLogPrevGuard acctLog) ] -- TODO: document
       | otherwise = Nothing
     accountId = AccountId
-      { _accountId_address = key
+      { _accountId_address = _accountLogKey acctLog
       , _accountId_subAccount = Nothing  -- assumes coin acct contract only
       , _accountId_metadata = accountIdMeta
       }
     accountIdMeta
-      | enableMetaData = Just $ HM.fromList [("ownership", guard)]  -- TODO: document
+      | enableMetaData = Just $ HM.fromList
+        [ ("currentOwnership", _accountLogCurrGuard acctLog) ]  -- TODO: document
       | otherwise = Nothing
 
 
@@ -195,6 +208,7 @@ kdaToRosettaAmount k = Amount (sshow amount) currency Nothing
 
 -- BUG: validator throws error when writing (some?) unstructured json to db.
 -- Disable filling in metadata for now.
+-- TODO: how to dynamically pass this? Would be useful to enable for tests at least.
 enableMetaData :: Bool
 enableMetaData = False
 
@@ -202,13 +216,35 @@ enableMetaData = False
 maxRosettaNodePeerLimit :: Natural
 maxRosettaNodePeerLimit = 64
 
+rowDataToAccountLog :: AccountRow -> Maybe AccountRow -> AccountLog
+rowDataToAccountLog (currKey, currBal, currGuard) prev = do
+  case prev of
+    Nothing ->
+      -- ^ First time seeing account
+      AccountLog
+        { _accountLogKey = currKey
+        , _accountLogBalanceTotal = currBal
+        , _accountLogBalanceDelta = BalanceDelta currBal
+        , _accountLogCurrGuard = currGuard
+        , _accountLogPrevGuard = currGuard
+        }
+    Just (_, prevBal, prevGuard) ->
+      -- ^ Already seen this account
+      AccountLog
+        { _accountLogKey = currKey
+        , _accountLogBalanceTotal = currBal
+        , _accountLogBalanceDelta = BalanceDelta (currBal - prevBal)
+        , _accountLogCurrGuard = currGuard
+        , _accountLogPrevGuard = prevGuard
+        }
+
 -- | Parse TxLog Value into fungible asset account columns
-txLogToAccountInfo :: TxLog Value -> Maybe AccountLog
-txLogToAccountInfo (TxLog _ key (Object row)) = do
+txLogToAccountRow :: TxLog Value -> Maybe AccountRow
+txLogToAccountRow (TxLog _ key (Object row)) = do
   guard :: Value <- (HM.lookup "guard" row) >>= (hushResult . fromJSON)
   (PLiteral (LDecimal bal)) <- (HM.lookup "balance" row) >>= (hushResult . fromJSON)
   pure $! (key, bal, guard)
-txLogToAccountInfo _ = Nothing
+txLogToAccountRow _ = Nothing
 
 hushResult :: Result a -> Maybe a
 hushResult (Success w) = Just w
