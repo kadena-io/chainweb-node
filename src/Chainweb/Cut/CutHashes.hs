@@ -51,6 +51,10 @@ module Chainweb.Cut.CutHashes
 , cutHashesPayloads
 , cutToCutHashes
 , CutHashesCas
+, _cutHashesMaxHeight
+, cutHashesMaxHeight
+, _cutHashesMinHeight
+, cutHashesMinHeight
 ) where
 
 import Control.Applicative
@@ -240,6 +244,26 @@ data CutHashes = CutHashes
     deriving anyclass (NFData)
 
 makeLenses ''CutHashes
+
+-- | Complexity is linear in the number of chains
+--
+_cutHashesMaxHeight :: CutHashes -> BlockHeight
+_cutHashesMaxHeight = maximum . fmap fst . toList . _cutHashes
+{-# INLINE _cutHashesMaxHeight #-}
+
+cutHashesMaxHeight :: Getter CutHashes BlockHeight
+cutHashesMaxHeight = to _cutHashesMaxHeight
+{-# INLINE cutHashesMaxHeight #-}
+
+-- | Complexity is linear in the number of chains
+--
+_cutHashesMinHeight :: CutHashes -> BlockHeight
+_cutHashesMinHeight = minimum . fmap fst . toList . _cutHashes
+{-# INLINE _cutHashesMinHeight #-}
+
+cutHashesMinHeight :: Getter CutHashes BlockHeight
+cutHashesMinHeight = to _cutHashesMinHeight
+{-# INLINE cutHashesMinHeight #-}
 
 -- | The value of 'cutOrigin' is ignored for equality
 --
