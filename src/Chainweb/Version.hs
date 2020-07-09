@@ -48,7 +48,7 @@ module Chainweb.Version
 -- ** Payload Validation Guards
 , vuln797Fix
 , coinV2Upgrade
-, twentyChainUpgrade
+, to20ChainRebalance
 , pactBackCompat_v16
 , useLegacyCreationTimeForTxValidation
 , enableModuleNameFix
@@ -780,25 +780,21 @@ coinV2Upgrade Development cid h
 coinV2Upgrade _ _ 1 = True
 coinV2Upgrade _ _ _ = False
 
--- | Mainnet 20-chain remediations
+-- | 20-chain rebalance
 --
 -- This function provides the block heights when remediations will be applied
--- to the respective 20-chain fork chains.
+-- to correspond to genesis grants in the new chains.
 --
--- Note: 20-chain upgrades consist of a single remediation on chain 0 for one
--- account which must occur *after* the coin-v2 upgrade. There is nothing that
--- depends on 20chain chainweb version specifically.
---
-twentyChainUpgrade
+to20ChainRebalance
     :: ChainwebVersion
     -> ChainId
     -> BlockHeight
     -> Bool
-twentyChainUpgrade Mainnet01 _ h = h == to20ChainsMainnet
-twentyChainUpgrade Testnet04 _ h = h == to20ChainsTestnet
-twentyChainUpgrade Development _ h = h == 150
-twentyChainUpgrade _ _ 2 = True
-twentyChainUpgrade _ _ _ = False
+to20ChainRebalance Mainnet01 _ h = h == to20ChainsMainnet
+to20ChainRebalance Testnet04 _ h = h == to20ChainsTestnet
+to20ChainRebalance Development _ h = h == 150
+to20ChainRebalance _ _ 2 = True
+to20ChainRebalance _ _ _ = False
 
 -- | Preserve Pact bugs pre 1.6 chainweb version
 -- Mainnet 328000 ~ UTC Feb 20 15:36, EST Feb 20 10:56

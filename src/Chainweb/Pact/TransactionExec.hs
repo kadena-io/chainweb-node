@@ -458,7 +458,7 @@ applyTwentyChainUpgrade
     -> BlockHeight
     -> TransactionM p ()
 applyTwentyChainUpgrade v cid bh
-    | twentyChainUpgrade v cid bh = do
+    | to20ChainRebalance v cid bh = do
       txlist <- liftIO $ twentyChainUpgradeTransactions v cid
 
       infoLog $ "Applying 20-chain upgrades on chain " <> sshow cid
