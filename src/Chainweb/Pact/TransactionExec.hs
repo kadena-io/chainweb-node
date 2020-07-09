@@ -155,7 +155,9 @@ applyCmd v logger pdbenv miner gasModel txCtx spv cmdIn mcache0 =
     executionConfigNoHistory = mkExecutionConfig
       $ FlagDisableHistoryInTransactionalMode
       : ( [ FlagOldReadOnlyBehavior | isPactBackCompatV16 ]
-          ++ [ FlagPreserveModuleNameBug | not isModuleNameFix ] )
+          ++ [ FlagPreserveModuleNameBug | not isModuleNameFix ]
+          ++ [ FlagPreserveNsModuleInstallBug | not isModuleNameFix2 ]
+        )
 
     cenv = TransactionEnv Transactional pdbenv logger (ctxToPublicData txCtx) spv nid gasPrice
       requestKey (fromIntegral gasLimit) executionConfigNoHistory
@@ -168,6 +170,7 @@ applyCmd v logger pdbenv miner gasModel txCtx spv cmdIn mcache0 =
     nid = networkIdOf cmd
     currHeight = ctxCurrentBlockHeight txCtx
     isModuleNameFix = enableModuleNameFix v currHeight
+    isModuleNameFix2 = enableModuleNameFix2 v currHeight
     isPactBackCompatV16 = pactBackCompat_v16 v currHeight
 
     redeemAllGas r = do
@@ -455,7 +458,7 @@ applyTwentyChainUpgrade
     -> BlockHeight
     -> TransactionM p ()
 applyTwentyChainUpgrade v cid bh
-    | twentyChainUpgrade v cid bh = do
+    | to20ChainRebalance v cid bh = do
       txlist <- liftIO $ twentyChainUpgradeTransactions v cid
 
       infoLog $ "Applying 20-chain upgrades on chain " <> sshow cid
