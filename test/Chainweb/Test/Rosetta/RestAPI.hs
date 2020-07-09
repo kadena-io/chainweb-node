@@ -93,6 +93,12 @@ tests rdb = testGroupSch "Chainweb.Test.Rosetta.RestAPI" go
     --  * Mempool Transaction: cant test reasonably without DOS'ing the mempool
     --  * Construction Metadata: N/A
     --
+    -- Note:
+    --
+    --   * Tests run in sequence, but still interact with each other because
+    --     confirmation depths are not validated for each tx. Checking account
+    --     balances between two different tests is futile.
+    --
 
     tgroup tio envIo = fmap (\test -> test tio envIo)
       [ accountBalanceTests
