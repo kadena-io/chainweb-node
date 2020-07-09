@@ -122,7 +122,7 @@ accountBalanceTests tio envIo =
       resp1 <- accountBalance cenv req
       checkBalance resp1 99999998.9453
   where
-    req = AccountBalanceReq nid aid Nothing
+    req = AccountBalanceReq nid (AccountId "sender00" Nothing Nothing) Nothing
 
     checkBalance resp bal1 = do
       let b0 = head $ _accountBalanceResp_balances resp
@@ -374,24 +374,11 @@ networkStatusTests tio envIo =
 kda :: Currency
 kda = Currency "KDA" 12 Nothing
 
-snid :: SubNetworkId
-snid = SubNetworkId
-    { _subNetworkId_metadata = Nothing
-    , _subNetworkId_network = "0"
-    }
-
 nid :: NetworkId
 nid = NetworkId
     { _networkId_blockchain = "kadena"
     , _networkId_network = "fastTimedCPM-peterson"
-    , _networkId_subNetworkId = Just snid
-    }
-
-aid :: AccountId
-aid = AccountId
-    { _accountId_address = "sender00"
-    , _accountId_subAccount = Nothing
-    , _accountId_metadata = Nothing
+    , _networkId_subNetworkId = Just (SubNetworkId "0" Nothing)
     }
 
 genesisId :: BlockId
@@ -400,7 +387,7 @@ genesisId = BlockId 0 "rdfJIktp_WL0oMr8Wr6lH49YkERAJ9MlFp0RPLMXPDE"
 rosettaVersion :: RosettaNodeVersion
 rosettaVersion = RosettaNodeVersion
     { _version_rosettaVersion = "1.3.1"
-    , _version_nodeVersion = "1.9"
+    , _version_nodeVersion = "2.0"
     , _version_middlewareVersion = Nothing
     , _version_metadata = Just $ HM.fromList
       [ "node-api-version" A..= ("0.0" :: Text)
