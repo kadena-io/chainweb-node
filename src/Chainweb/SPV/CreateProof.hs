@@ -494,6 +494,12 @@ minimumTrgHeader headerDb tcid scid bh = do
             -- This assumes that graph changes are at least graph-diameter
             -- blocks appart.
 
+        -- FXIME consider the case that the target chain doesn't exist at the
+        -- source height: traverse targDistance above genesis block and
+        -- complete path on the source chain. NOTE: this can become very
+        -- expensive (or even exceed internal pact limits), if the transfer was
+        -- initiated long before the graph transition.
+
     srcGraph = chainGraphAt_ headerDb bh
     srcDistance = length $ shortestPath tcid scid srcGraph
     trgGraph = chainGraphAt_ headerDb (bh + int srcDistance)
