@@ -38,6 +38,7 @@ module Chainweb.Version
 , chainwebGraphs
 , genesisGraph
 , genesisHeight
+, to20ChainsDevelopment
 -- ** POW
 , BlockRate(..)
 , blockRate
@@ -528,6 +529,9 @@ to20ChainsMainnet = 852_054 -- 2020-08-20 16:00:00
 to20ChainsTestnet :: BlockHeight
 to20ChainsTestnet = 332_604 -- 2020-07-28 16:00:00
 
+to20ChainsDevelopment :: BlockHeight
+to20ChainsDevelopment = 210
+
 -- | Return the Graph History at a given block height in descending order.
 --
 -- The functions provided in 'Chainweb.Version.Utils' are generally more
@@ -792,7 +796,7 @@ to20ChainRebalance
     -> Bool
 to20ChainRebalance Mainnet01 _ h = h == to20ChainsMainnet
 to20ChainRebalance Testnet04 _ h = h == to20ChainsTestnet
-to20ChainRebalance Development _ h = h == 150
+to20ChainRebalance Development _ h = h == to20ChainsDevelopment
 to20ChainRebalance _ _ 2 = True
 to20ChainRebalance _ _ _ = False
 
@@ -908,5 +912,6 @@ skipFeatureFlagValidationGuard _ _ = False
 oldDaGuard :: ChainwebVersion -> BlockHeight -> Bool
 oldDaGuard Mainnet01 h = h < 771_414 -- ~ 2020-07-23 16:00:00
 oldDaGuard Testnet04 h = h < 318_204 -- ~ 2020-07-23 16:00:00
-oldDaGuard Development _ = False
+oldDaGuard Development h = h + 30 < to20ChainsDevelopment -- 30 blocks before the transition
 oldDaGuard _ _ = False
+
