@@ -211,8 +211,9 @@ library
         , Chainweb.RestAPI.Utils
         , Chainweb.Rosetta.Internal
         , Chainweb.Rosetta.RestAPI
+        , Chainweb.Rosetta.RestAPI.Client
         , Chainweb.Rosetta.RestAPI.Server
-        , Chainweb.Rosetta.Util
+        , Chainweb.Rosetta.Utils
         , Chainweb.SPV
         , Chainweb.SPV.CreateProof
         , Chainweb.SPV.VerifyProof
@@ -466,7 +467,9 @@ test-suite chainweb-tests
         Chainweb.Test.Pact.Utils
         Chainweb.Test.RestAPI
         Chainweb.Test.RestAPI.Client_
+        Chainweb.Test.RestAPI.Utils
         Chainweb.Test.Rosetta
+        Chainweb.Test.Rosetta.RestAPI
         Chainweb.Test.Roundtrips
         Chainweb.Test.SPV
         Chainweb.Test.Store.CAS
@@ -666,6 +669,7 @@ executable cwtool
         , chainweb-storage >= 0.1
         , clock >= 0.7
         , configuration-tools >= 0.5
+        , connection >=0.2
         , containers >= 0.5
         , cryptonite >= 0.25
         , deepseq >= 1.4
@@ -675,6 +679,7 @@ executable cwtool
         , file-embed
         , errors >= 2.3
         , exceptions >= 0.8
+        , extra >= 1.6
         , file-embed >= 0.0
         , formatting >= 6.3
         , http-client >= 0.5

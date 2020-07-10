@@ -297,17 +297,17 @@ testCoinbaseUpgradeDevnet cid upgradeHeight =
 testTwentyChainDevnetUpgrades :: TestTree
 testTwentyChainDevnetUpgrades = testCaseSteps "Test 20-chain Devnet upgrades" $ \step -> do
       step "Check that 20-chain upgrades fire at block height 150"
-      testUpgradeScript "test/pact/twenty-chain-upgrades.repl" (unsafeChainId 0) 150 test0
+      testUpgradeScript "test/pact/twenty-chain-upgrades.repl" (unsafeChainId 0) V.to20ChainsDevelopment test0
 
       step "Check that 20-chain upgrades do not fire at block heights < 150 and > 150"
-      testUpgradeScript "test/pact/twenty-chain-upgrades.repl" (unsafeChainId 0) 149 test1
-      testUpgradeScript "test/pact/twenty-chain-upgrades.repl" (unsafeChainId 0) 151 test1
+      testUpgradeScript "test/pact/twenty-chain-upgrades.repl" (unsafeChainId 0) (V.to20ChainsDevelopment - 1) test1
+      testUpgradeScript "test/pact/twenty-chain-upgrades.repl" (unsafeChainId 0) (V.to20ChainsDevelopment + 1) test1
 
       step "Check that 20-chain upgrades do not fire at on other chains"
-      testUpgradeScript "test/pact/twenty-chain-upgrades.repl" (unsafeChainId 1) 150 test1
+      testUpgradeScript "test/pact/twenty-chain-upgrades.repl" (unsafeChainId 1) V.to20ChainsDevelopment test1
 
       step "Check that 20-chain upgrades succeed even if e7f7 balance is insufficient"
-      testUpgradeScript "test/pact/twenty-chain-insufficient-bal.repl" (unsafeChainId 0) 150 test1
+      testUpgradeScript "test/pact/twenty-chain-insufficient-bal.repl" (unsafeChainId 0) V.to20ChainsDevelopment test1
   where
     test0 (T2 cr _) = case _crLogs cr of
       Just logs -> matchLogs (logResults logs)

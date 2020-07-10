@@ -1,6 +1,7 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeOperators #-}
 
@@ -14,8 +15,29 @@
 --
 module Chainweb.Rosetta.RestAPI
   ( -- * Endpoints
-    RosettaApi_
-  , RosettaApi
+    RosettaApi
+  , rosettaApi
+    -- * Standalone APIs for client derivation
+  , RosettaAccountBalanceApi
+  , rosettaAccountBalanceApi
+  , RosettaBlockTransactionApi
+  , rosettaBlockTransactionApi
+  , RosettaBlockApi
+  , rosettaBlockApi
+  , RosettaConstructionMetadataApi
+  , rosettaConstructionMetadataApi
+  , RosettaConstructionSubmitApi
+  , rosettaConstructionSubmitApi
+  , RosettaMempoolTransactionApi
+  , rosettaMempoolTransactionApi
+  , RosettaMempoolApi
+  , rosettaMempoolApi
+  , RosettaNetworkListApi
+  , rosettaNetworkListApi
+  , RosettaNetworkOptionsApi
+  , rosettaNetworkOptionsApi
+  , RosettaNetworkStatusApi
+  , rosettaNetworkStatusApi
     -- * Errors
   , RosettaFailure(..)
   , rosettaError
@@ -25,7 +47,6 @@ module Chainweb.Rosetta.RestAPI
 
 import Control.Error.Util
 import Control.Monad (when)
-import Control.Monad.Except (throwError)
 import Control.Monad.Trans.Except (ExceptT)
 
 import Data.Aeson (encode)
@@ -33,8 +54,7 @@ import qualified Data.Text as T
 
 import Rosetta
 
-import Servant.API
-import Servant.Server
+import Servant
 
 import Text.Read (readMaybe)
 
@@ -46,46 +66,165 @@ import Chainweb.Version
 
 ---
 
-type RosettaApi_ =
-    -- Accounts --
-    "rosetta" :> "account" :> "balance"
-        :> ReqBody '[JSON] AccountBalanceReq
-        :> Post '[JSON] AccountBalanceResp
-    -- Blocks --
-    :<|> "rosetta" :> "block" :> "transaction"
-        :> ReqBody '[JSON] BlockTransactionReq
-        :> Post '[JSON] BlockTransactionResp
-    :<|> "rosetta" :> "block"
-        :> ReqBody '[JSON] BlockReq
-        :> Post '[JSON] BlockResp
-    -- Construction --
-    :<|> "rosetta" :> "construction" :> "metadata"
-        :> ReqBody '[JSON] ConstructionMetadataReq
-        :> Post '[JSON] ConstructionMetadataResp
-    :<|> "rosetta" :> "construction" :> "submit"
-        :> ReqBody '[JSON] ConstructionSubmitReq
-        :> Post '[JSON] ConstructionSubmitResp
-    -- Mempool --
-    :<|> "rosetta" :> "mempool" :> "transaction"
-        :> ReqBody '[JSON] MempoolTransactionReq
-        :> Post '[JSON] MempoolTransactionResp
-    :<|> "rosetta" :> "mempool"
-        :> ReqBody '[JSON] MempoolReq
-        :> Post '[JSON] MempoolResp
-    -- Network --
-    :<|> "rosetta" :> "network" :> "list"
-        :> ReqBody '[JSON] MetadataReq
-        :> Post '[JSON] NetworkListResp
-    :<|> "rosetta" :> "network" :> "options"
-        :> ReqBody '[JSON] NetworkReq
-        :> Post '[JSON] NetworkOptionsResp
-    :<|> "rosetta" :> "network" :> "status"
-        :> ReqBody '[JSON] NetworkReq
-        :> Post '[JSON] NetworkStatusResp
+-- ------------------------------------------------------------------ --
+-- Rosetta Api
 
 type RosettaApi (v :: ChainwebVersionT) = 'ChainwebEndpoint v :> Reassoc RosettaApi_
 
--- TODO: Investigate if Rosetta Erros can be dynamic?
+type RosettaApi_ = "rosetta" :>
+    ( -- Accounts --
+      RosettaAccountBalanceApi_
+      -- Blocks --
+    :<|> RosettaBlockTransactionApi_
+    :<|> RosettaBlockApi_
+      -- Construction --
+    :<|> RosettaConstructionMetadataApi_
+    :<|> RosettaConstructionSubmitApi_
+      -- Mempool --
+    :<|> RosettaMempoolTransactionApi_
+    :<|> RosettaMempoolApi_
+      -- Network --
+    :<|> RosettaNetworkListApi_
+    :<|> RosettaNetworkOptionsApi_
+    :<|> RosettaNetworkStatusApi_
+    )
+
+rosettaApi
+    :: forall (v :: ChainwebVersionT)
+    . Proxy (RosettaApi v)
+rosettaApi = Proxy
+
+-- ------------------------------------------------------------------ --
+-- Standalone Endpoints + Witnesses
+
+type RosettaApiEndpoint (v :: ChainwebVersionT) api
+    = 'ChainwebEndpoint v
+    :> "rosetta"
+    :> api
+
+type RosettaAccountBalanceApi v = RosettaApiEndpoint v RosettaAccountBalanceApi_
+type RosettaBlockTransactionApi v = RosettaApiEndpoint v RosettaBlockTransactionApi_
+type RosettaBlockApi v = RosettaApiEndpoint v RosettaBlockApi_
+type RosettaConstructionSubmitApi v = RosettaApiEndpoint v RosettaConstructionSubmitApi_
+type RosettaConstructionMetadataApi v = RosettaApiEndpoint v RosettaConstructionMetadataApi_
+type RosettaMempoolTransactionApi v = RosettaApiEndpoint v RosettaMempoolTransactionApi_
+type RosettaMempoolApi v = RosettaApiEndpoint v RosettaMempoolApi_
+type RosettaNetworkListApi v = RosettaApiEndpoint v RosettaNetworkListApi_
+type RosettaNetworkOptionsApi v = RosettaApiEndpoint v RosettaNetworkOptionsApi_
+type RosettaNetworkStatusApi v = RosettaApiEndpoint v RosettaNetworkStatusApi_
+
+type RosettaAccountBalanceApi_
+    = "account"
+    :> "balance"
+    :> ReqBody '[JSON] AccountBalanceReq
+    :> Post '[JSON] AccountBalanceResp
+
+type RosettaBlockTransactionApi_
+    = "block"
+    :> "transaction"
+    :> ReqBody '[JSON] BlockTransactionReq
+    :> Post '[JSON] BlockTransactionResp
+
+type RosettaBlockApi_
+    = "block"
+    :> ReqBody '[JSON] BlockReq
+    :> Post '[JSON] BlockResp
+
+type RosettaConstructionMetadataApi_
+    = "construction"
+    :> "metadata"
+    :> ReqBody '[JSON] ConstructionMetadataReq
+    :> Post '[JSON] ConstructionMetadataResp
+
+type RosettaConstructionSubmitApi_
+    = "construction"
+    :> "submit"
+    :> ReqBody '[JSON] ConstructionSubmitReq
+    :> Post '[JSON] ConstructionSubmitResp
+
+type RosettaMempoolTransactionApi_
+    = "mempool"
+    :> "transaction"
+    :> ReqBody '[JSON] MempoolTransactionReq
+    :> Post '[JSON] MempoolTransactionResp
+
+type RosettaMempoolApi_
+    = "mempool"
+    :> ReqBody '[JSON] MempoolReq
+    :> Post '[JSON] MempoolResp
+
+type RosettaNetworkListApi_
+    = "network"
+    :> "list"
+    :> ReqBody '[JSON] MetadataReq
+    :> Post '[JSON] NetworkListResp
+
+type RosettaNetworkOptionsApi_
+    = "network"
+    :> "options"
+    :> ReqBody '[JSON] NetworkReq
+    :> Post '[JSON] NetworkOptionsResp
+
+type RosettaNetworkStatusApi_
+    = "network"
+    :> "status"
+    :> ReqBody '[JSON] NetworkReq
+    :> Post '[JSON] NetworkStatusResp
+
+rosettaAccountBalanceApi
+    :: forall (v :: ChainwebVersionT)
+    . Proxy (RosettaAccountBalanceApi v)
+rosettaAccountBalanceApi = Proxy
+
+rosettaBlockTransactionApi
+    :: forall (v :: ChainwebVersionT)
+    . Proxy (RosettaBlockTransactionApi v)
+rosettaBlockTransactionApi = Proxy
+
+rosettaBlockApi
+    :: forall (v :: ChainwebVersionT)
+    . Proxy (RosettaBlockApi v)
+rosettaBlockApi = Proxy
+
+rosettaConstructionMetadataApi
+    :: forall (v :: ChainwebVersionT)
+    . Proxy (RosettaConstructionMetadataApi v)
+rosettaConstructionMetadataApi = Proxy
+
+rosettaConstructionSubmitApi
+    :: forall (v :: ChainwebVersionT)
+    . Proxy (RosettaConstructionSubmitApi v)
+rosettaConstructionSubmitApi = Proxy
+
+rosettaMempoolTransactionApi
+    :: forall (v :: ChainwebVersionT)
+    . Proxy (RosettaMempoolTransactionApi v)
+rosettaMempoolTransactionApi = Proxy
+
+rosettaMempoolApi
+    :: forall (v :: ChainwebVersionT)
+    . Proxy (RosettaMempoolApi v)
+rosettaMempoolApi = Proxy
+
+rosettaNetworkListApi
+    :: forall (v :: ChainwebVersionT)
+    . Proxy (RosettaNetworkListApi v)
+rosettaNetworkListApi = Proxy
+
+rosettaNetworkOptionsApi
+    :: forall (v :: ChainwebVersionT)
+    . Proxy (RosettaNetworkOptionsApi v)
+rosettaNetworkOptionsApi = Proxy
+
+rosettaNetworkStatusApi
+    :: forall (v :: ChainwebVersionT)
+    . Proxy (RosettaNetworkStatusApi v)
+rosettaNetworkStatusApi = Proxy
+
+-- ------------------------------------------------------------------ --
+-- Rosetta Exceptions
+
+-- TODO: Investigate if Rosetta Erros can be dynamic
 data RosettaFailure
     = RosettaChainUnspecified
     | RosettaInvalidChain
@@ -167,4 +306,3 @@ readChainIdText :: ChainwebVersion -> T.Text -> Maybe ChainId
 readChainIdText v c = do
   cid <- readMaybe @Word (T.unpack c)
   mkChainId v maxBound cid
-

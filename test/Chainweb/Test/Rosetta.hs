@@ -38,7 +38,7 @@ import Test.Tasty.HUnit
 
 import Chainweb.Rosetta.Internal
 import Chainweb.Rosetta.RestAPI
-import Chainweb.Rosetta.Util
+import Chainweb.Rosetta.Utils
 import Chainweb.Version
 
 ---
@@ -265,7 +265,7 @@ matchNonGenesisSingleTransactionsToLogs = do
   expectMatch rk3 rk3Exp
   expectMatch rk4 rk4Exp
   expectMissing "request key should not be present" missingRk
-  
+
   where
     run :: T.Text -> Either String (Maybe Transaction)
     run trk = getActual cases f
@@ -273,7 +273,7 @@ matchNonGenesisSingleTransactionsToLogs = do
 
     targets =
       [ "ReqKey1", "ReqKey0", "ReqKey3", "ReqKey2", "ReqKey4", "RandomReqKey"]
-    
+
     expectMatch actual (msg, expect) =
       case actual of
         Left err -> assertFailure $ adjust msg err
@@ -381,7 +381,7 @@ checkValidateNetwork = do
   where
     run :: (ChainwebVersion, NetworkId) -> Either RosettaFailure T.Text
     run (v,net) = runExceptT (validateNetwork v net) >>= either Left (pure . chainIdToText)
-    
+
     validNetId = (Development, NetworkId
       { _networkId_blockchain = "kadena"
       , _networkId_network = "development"
