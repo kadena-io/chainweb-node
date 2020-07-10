@@ -260,15 +260,12 @@ slowEpoch (ParentHeader p) (BlockCreationTime ct) = actual > (expected * 5)
 
 -- | Compute the POW target for a new BlockHeader.
 --
--- TODO: if we wanted to adjust the difficulty on graph changes we can scale the
--- result of this function. Genesis blocks for new chains should have a
--- "reasonable" target.
---
--- Alternatively, we new chains can use a very low target and the target of the
--- old chains arent' adjusted. That includes the risk of larger orphan rates,
--- but the risk is somewhat mitigated by the fact that whoever mines a block
--- that unblocks a new chains immediately wins the block on the new chain,
--- hopefully before blocks start to race.
+-- Alternatively, the new chains can use a higher target and the target of the
+-- old chains arent' adjusted. That includes the risk of larger orphan rates. In
+-- particular after the first and second DA, the current DA will compute targets
+-- that are averages between chains, which cause the difficulty to go donwn
+-- globally. This is usually mostly mitigated after the third DA after the
+-- transition.
 --
 powTarget
     :: ParentHeader
@@ -285,35 +282,22 @@ powTarget
 powTarget p@(ParentHeader ph) as bct = case effectiveWindow ph of
     Nothing -> maxTarget
     Just w
-        -- A special case for starting a new devnet. Using maxtarget results in
-        -- a too high block production and consecutively orphans and network
-        -- congestion. The consequence are osciallations to take serval hundred
-        -- blocks before the system stabilizes. This code cools down initial
-        -- block production.
-        | ver == Development && _blockHeight ph == (genesisHeight ver cid + 1) -> HashTarget (maxBound `div` 100000)
-
         -- Emergency DA, legacy
         | slowEpochGuard ver (_blockHeight ph) && slowEpoch p bct ->
             activeAdjust w
-
-        -- End of epoch
         | isLastInEpoch ph -> activeAdjust w
-
         | otherwise -> _blockTarget ph
   where
     t = EpochStartTime $ if oldTargetGuard ver (_blockHeight ph)
         then _bct bct
         else _bct (_blockCreationTime ph)
     ver = _chainwebVersion p
-    cid = _chainId p
 
     activeAdjust w
         | oldDaGuard ver (_blockHeight ph + 1)
             = legacyAdjust ver w (t .-. _blockEpochStart ph) (_blockTarget ph)
         | otherwise
             = avgTarget $ adjustForParent w <$> (p : HM.elems as)
-        --  | otherwise
-        --    = adjust ver w (t .-. _blockEpochStart ph) (_blockTarget ph)
 
     adjustForParent w (ParentHeader a)
         = adjust ver w (toEpochStart a .-. _blockEpochStart a) (_blockTarget a)
@@ -344,11 +328,9 @@ epochStart
 epochStart ph@(ParentHeader p) adj (BlockCreationTime bt)
     | Nothing <- effectiveWindow p = _blockEpochStart p
 
-    -- A special case for starting a new devnet. Using maxtarget results in an
-    -- two high block production and consecutively orphans and network
-    -- congestion. The consequence are osciallations to take serval hundred
-    -- blocks before the system stabilizes. This code cools down initial block
-    -- production.
+    -- A special case for starting a new devnet, to compensate the inaccurate
+    -- creation time of the genesis blocks. This would result in a very long
+    -- first epoch that cause a trivial target in the second epoch.
     | ver == Development && _blockHeight p == 1 = EpochStartTime (_bct $ _blockCreationTime p)
 
     -- New Graph: the block time of the genesis block isn't accurate, we thus
@@ -363,7 +345,6 @@ epochStart ph@(ParentHeader p) adj (BlockCreationTime bt)
 
     -- End of epoch, DA adjustment
     | isLastInEpoch p = EpochStartTime (_bct $ _blockCreationTime p)
-        -- TODO should this be the average?
 
     -- Within epoch with old legacy DA
     | oldDaGuard ver (_blockHeight p + 1) = _blockEpochStart p
