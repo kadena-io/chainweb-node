@@ -20,7 +20,9 @@ import Control.Monad (foldM)
 import Control.Monad.Except (throwError)
 import Control.Monad.IO.Class
 import Control.Monad.Trans.Except
+import Data.Aeson (Value)
 import Data.Map (Map)
+import Data.List (foldl')
 import Data.Decimal
 import Data.CAS
 import Data.Word (Word64)
@@ -34,7 +36,7 @@ import qualified Data.Vector as V
 
 import Pact.Types.Command
 import Pact.Types.Hash
-import Pact.Types.Runtime (TxId(..), Domain(..))
+import Pact.Types.Runtime (TxId(..), Domain(..), TxLog(..))
 import Pact.Types.Persistence (RowKey(..))
 
 import Rosetta
@@ -50,12 +52,11 @@ import Chainweb.Pact.Service.Types (Domain'(..), BlockTxHistory(..))
 import Chainweb.Payload hiding (Transaction(..))
 import Chainweb.Payload.PayloadStore
 import Chainweb.Rosetta.RestAPI
+import Chainweb.Rosetta.Utils
 import Chainweb.TreeDB (seekAncestor)
 import Chainweb.Utils
 import Chainweb.Version
 import Chainweb.WebPactExecutionService (PactExecutionService(..))
-
-import Chainweb.Rosetta.Util
 
 ---
 
@@ -69,12 +70,12 @@ data LogType tx where
   SingleLog :: RequestKey -> LogType Transaction
     -- ^ Signals wanting only a single Rosetta Transaction
 
-class PendingTx chainwebTx where
+class PendingRosettaTx chainwebTx where
   getSomeTxId :: chainwebTx -> Maybe TxId
   getRequestKey :: chainwebTx -> RequestKey
   makeRosettaTx :: chainwebTx -> [Operation] -> Transaction
 
-instance PendingTx (CommandResult a) where
+instance PendingRosettaTx (CommandResult a) where
   getSomeTxId = _crTxId
   getRequestKey = _crReqKey
   makeRosettaTx = rosettaTransaction
@@ -192,7 +193,7 @@ genesisTransaction logs rest target = do
 
 -- | Matches the first coin contract logs to the coinbase tx
 nonGenesisCoinbaseLog
-    :: PendingTx chainwebTx
+    :: PendingRosettaTx chainwebTx
     => [(TxId, [AccountLog])]
     -> CoinbaseTx chainwebTx
     -> Either String (TxAccumulator Transaction)
@@ -233,7 +234,7 @@ nonGenesisCoinbaseLog logs cr = case (getSomeTxId cr) of
 --   (8) If the TxIds don't match, then the tx did not interact with the coin contract
 --       and thus the "unknown" peeked logs (1) are gas payment logs.
 gasTransactionAcc
-    :: PendingTx chainwebTx
+    :: PendingRosettaTx chainwebTx
     => AccumulatorType (TxAccumulator rosettaTxAcc)
     -> TxAccumulator rosettaTxAcc
     -> chainwebTx
@@ -244,22 +245,24 @@ gasTransactionAcc accTyp txa@(TxAccumulator logs' _) ctx = combine logs'
       case (getSomeTxId ctx) of
         Nothing -> -- tx was unsuccessful
           makeAcc restLogs
-          (makeOps FundTx fundLog)
-          [] -- no transfer logs
-          (makeOps GasPayment someLog)
-        Just tid   -- tx was successful
-          | tid /= (fst someLog) ->  -- tx didn't touch coin table
-            makeAcc restLogs
             (makeOps FundTx fundLog)
             [] -- no transfer logs
             (makeOps GasPayment someLog)
+        Just tid   -- tx was successful
+          | tid /= (txId someLog) -> -- if tx didn't touch coin table
+            makeAcc restLogs
+              (makeOps FundTx fundLog)
+              [] -- no transfer logs
+              (makeOps GasPayment someLog)
           | otherwise -> case restLogs of
-              gasLog:restLogs' -> makeAcc restLogs'
-                (makeOps FundTx fundLog)
-                (makeOps TransferOrCreateAcct someLog)
-                (makeOps GasPayment gasLog)
+              gasLog:restLogs' -> -- if tx DID touch coin table
+                makeAcc restLogs'
+                  (makeOps FundTx fundLog)
+                  (makeOps TransferOrCreateAcct someLog)
+                  (makeOps GasPayment gasLog)
               l -> listErr "No gas logs found after transfer logs" l
-    combine l = listErr "No fund and gas logs found" l
+    combine (f:[]) = listErr "Only fund logs found" f
+    combine [] = listErr "No logs found" ([] :: [(TxId, [AccountLog])])
 
     makeAcc restLogs fund transfer gas = pure $
       accumulatorFunction accTyp txa restLogs tx
@@ -267,12 +270,13 @@ gasTransactionAcc accTyp txa@(TxAccumulator logs' _) ctx = combine logs'
         tx = makeRosettaTx ctx $ indexedOperations $
              fund <> transfer <> gas
 
+    txId (tid,_) = tid
+
     makeOps ot (tid, als) =
       map (operation Successful ot tid) als
 
     listErr expectedMsg logs = Left $
       expectedMsg ++ ": Received logs list " ++ show logs
-
 
 -- TODO: Max limit of tx to return at once.
 --       When to do pagination using /block/transaction?
@@ -281,7 +285,7 @@ gasTransactionAcc accTyp txa@(TxAccumulator logs' _) ctx = combine logs'
 --   Each transactions that follows has (1) logs that fund the transaction,
 --   (2) optional tx specific coin contract logs, and (3) logs that pay gas.
 nonGenesisTransactions
-    :: PendingTx chainwebTx
+    :: PendingRosettaTx chainwebTx
     => Map TxId [AccountLog]
     -> CoinbaseTx chainwebTx
     -> V.Vector chainwebTx
@@ -299,7 +303,7 @@ nonGenesisTransactions logs initial rest = do
 -- | Matches a single non-genesis transaction to its coin contract logs
 -- if it exists in the given block.
 nonGenesisTransaction
-    :: PendingTx chainwebTx
+    :: PendingRosettaTx chainwebTx
     => Map TxId [AccountLog]
     -> CoinbaseTx chainwebTx
     -> V.Vector chainwebTx
@@ -483,14 +487,74 @@ getTxLogs
     -> ExceptT RosettaFailure Handler (Map TxId [AccountLog])
 getTxLogs cr bh = do
   someHist <- liftIO $ (_pactBlockTxHistory cr) bh d
-  (BlockTxHistory hist) <- (hush someHist) ?? RosettaPactExceptionThrown
-  let histParsed = M.mapMaybe (mapM txLogToAccountInfo) hist
-  if (M.size histParsed == M.size hist)
-    then pure histParsed  -- all logs successfully parsed
-    else throwError RosettaUnparsableTxLog
+  (BlockTxHistory hist prevTxs) <- (hush someHist) ?? RosettaPactExceptionThrown
+  lastBalSeen <- hoistEither $ parsePrevTxs prevTxs
+  histAcctRow <- hoistEither $ parseHist hist
+  pure $ getBalanceDeltas histAcctRow lastBalSeen
   where
     d = (Domain' (UserTables "coin_coin-table"))
 
+    parseHist
+        :: Map TxId [TxLog Value]
+        -> Either RosettaFailure (Map TxId [AccountRow])
+    parseHist m
+      | (M.size parsed == M.size m) = pure $! parsed
+      | otherwise = throwError RosettaUnparsableTxLog
+      where
+        parsed = M.mapMaybe (mapM txLogToAccountRow) m
+
+    parsePrevTxs
+        :: Map RowKey (TxLog Value)
+        -> Either RosettaFailure (Map RowKey AccountRow)
+    parsePrevTxs m
+      | (M.size parsed == M.size m) = pure $! parsed
+      | otherwise = throwError RosettaUnparsableTxLog
+      where 
+        parsed = M.mapMaybe txLogToAccountRow m
+
+getBalanceDeltas
+    :: Map TxId [AccountRow]
+    -> Map RowKey AccountRow
+    -> Map TxId [AccountLog]
+getBalanceDeltas hist lastBalsSeenDef =
+  snd $! M.mapAccumWithKey f lastBalsSeenDef hist
+  where
+    -- | For given txId and the rows it affected, calculate
+    -- | how each row key has changed since previously seen.
+    -- | Adds or updates map of previously seen rows with each
+    -- | of this txId's rows.
+    f
+      :: Map RowKey AccountRow
+      -> TxId
+      -> [AccountRow]
+      -> (Map RowKey AccountRow, [AccountLog])
+    f lastBals _txId currRows = (updatedBals, reverse logs)
+      where
+        (updatedBals, logs) = foldl' helper (lastBals, []) currRows
+        helper (bals, li) row = (bals', li')
+          where
+            (bals', acctLog) = lookupAndUpdate bals row
+            li' = acctLog:li -- needs to be reversed at the end
+
+    -- | Lookup current row key in map of previous seen rows
+    -- | to calculate how row has changed.
+    -- | Adds or updates the map of previously seen rows with
+    -- | the current row.
+    lookupAndUpdate
+        :: Map RowKey AccountRow
+        -> AccountRow
+        -> (Map RowKey AccountRow, AccountLog)
+    lookupAndUpdate lastBals currRow = (lastBals', acctLog)
+      where
+        (key, _, _) = currRow
+        (prevRow, lastBals') =
+          M.insertLookupWithKey
+          lookupAndReplace
+          (RowKey key)
+          currRow
+          lastBals
+        acctLog = rowDataToAccountLog currRow prevRow
+        lookupAndReplace _key new _old = new
 
 getHistoricalLookupBalance
     :: PactExecutionService
@@ -503,7 +567,7 @@ getHistoricalLookupBalance cr bh k = do
   case hist of
     Nothing -> pure 0.0
     Just h -> do
-      (_,bal,_) <- (txLogToAccountInfo h) ?? RosettaUnparsableTxLog
+      (_,bal,_) <- (txLogToAccountRow h) ?? RosettaUnparsableTxLog
       pure bal
   where
     d = (Domain' (UserTables "coin_coin-table"))

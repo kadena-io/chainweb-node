@@ -38,7 +38,7 @@ module Chainweb.Test.Pact.Utils
 -- * Command builder
 , defaultCmd
 , mkCmd
-, buildCmd
+, buildRawCmd
 , buildCwCmd
 , buildTextCmd
 , mkExec'
@@ -105,6 +105,7 @@ import Control.Monad
 import Control.Monad.Catch
 
 import Data.Aeson (Value(..), object, (.=))
+import Data.ByteString (ByteString)
 import Data.CAS.HashMap hiding (toList)
 import Data.CAS.RocksDB
 import Data.Decimal
@@ -331,32 +332,29 @@ mkCmd nonce rpc = defaultCmd
   , _cbNonce = nonce
   }
 
--- | Main builder command.
-buildCmd :: CmdBuilder -> IO (Command (Payload PublicMeta ParsedCode))
-buildCmd CmdBuilder{..} = do
-  akps <- mapM toApiKp _cbSigners
-  kps <- mkKeyPairs akps
-  cmd <- mkCommand kps pm _cbNonce nid _cbRPC
-  case verifyCommand cmd of
-    ProcSucc r -> return r
+-- | Build parsed + verified Pact command
+--
+buildCwCmd :: CmdBuilder -> IO ChainwebTransaction
+buildCwCmd cmd = buildRawCmd cmd >>= \c -> case verifyCommand c of
+    ProcSucc r -> return $ fmap mkPayloadWithText r
     ProcFail e -> throwM $ userError $ "buildCmd failed: " ++ e
-  where
-    nid = fmap (P.NetworkId . sshow) _cbNetworkId
-    cid = fromString $ show (chainIdInt _cbChainId :: Int)
-    pm = PublicMeta cid _cbSender _cbGasLimit _cbGasPrice _cbTTL _cbCreationTime
 
--- | Main builder command.
+-- | Build unparsed, unverified command
+--
 buildTextCmd :: CmdBuilder -> IO (Command Text)
-buildTextCmd CmdBuilder{..} = do
-  akps <- mapM toApiKp _cbSigners
-  kps <- mkKeyPairs akps
-  cmd <- mkCommand kps pm _cbNonce nid _cbRPC
-  return $ T.decodeUtf8 <$> cmd
+buildTextCmd = fmap (fmap T.decodeUtf8) . buildRawCmd
+
+-- | Build a raw bytestring command
+--
+buildRawCmd :: CmdBuilder -> IO (Command ByteString)
+buildRawCmd CmdBuilder{..} = do
+    akps <- mapM toApiKp _cbSigners
+    kps <- mkKeyPairs akps
+    mkCommand kps pm _cbNonce nid _cbRPC
   where
     nid = fmap (P.NetworkId . sshow) _cbNetworkId
     cid = fromString $ show (chainIdInt _cbChainId :: Int)
     pm = PublicMeta cid _cbSender _cbGasLimit _cbGasPrice _cbTTL _cbCreationTime
-
 
 dieL :: MonadThrow m => [Char] -> Either [Char] a -> m a
 dieL msg = either (\s -> throwM $ userError $ msg ++ ": " ++ s) return
@@ -367,11 +365,6 @@ toApiKp (CmdSigner Signer{..} privKey) = do
   pk <- dieL "public key" $ parseB16TextOnly _siPubKey
   return $!
     ApiKeyPair (PrivBS sk) (Just (PubBS pk)) _siAddress _siScheme (Just _siCapList)
-
--- | 'buildCmd' variant for 'ChainwebTransaction'
-buildCwCmd :: CmdBuilder -> IO ChainwebTransaction
-buildCwCmd = fmap (fmap mkPayloadWithText) . buildCmd
-
 
 -- ----------------------------------------------------------------------- --
 -- Service creation utilities
@@ -413,7 +406,7 @@ testPactCtxSQLite
   -> SQLiteEnv
   -> PactServiceConfig
   -> IO (TestPactCtx cas,PactDbEnv')
-testPactCtxSQLite v cid bhdb pdb sqlenv config = do
+testPactCtxSQLite v cid bhdb pdb sqlenv conf = do
     (dbSt,cpe) <- initRelationalCheckpointer' initialBlockState sqlenv logger v cid
     let rs = readRewards
         ph = ParentHeader $ genesisBlockHeader v cid
@@ -433,11 +426,13 @@ testPactCtxSQLite v cid bhdb pdb sqlenv config = do
         , _psBlockHeaderDb = bhdb
         , _psGasModel = constGasModel 0
         , _psMinerRewards = rs
-        , _psReorgLimit = fromIntegral $ _pactReorgLimit config
+        , _psReorgLimit = fromIntegral $ _pactReorgLimit conf
         , _psOnFatalError = defaultOnFatalError mempty
         , _psVersion = v
-        , _psValidateHashesOnReplay = _pactRevalidate config
-        , _psAllowReadsInLocal = _pactAllowReadsInLocal config
+        , _psValidateHashesOnReplay = _pactRevalidate conf
+        , _psAllowReadsInLocal = _pactAllowReadsInLocal conf
+        , _psIsBatch = False
+        , _psCheckpointerDepth = 0
         }
 
 
@@ -524,7 +519,7 @@ withPactCtxSQLite
   -> PactServiceConfig
   -> (WithPactCtxSQLite cas -> TestTree)
   -> TestTree
-withPactCtxSQLite v bhdbIO pdbIO config f =
+withPactCtxSQLite v bhdbIO pdbIO conf f =
   withResource
     initializeSQLite
     freeSQLiteResource $ \io ->
@@ -538,13 +533,7 @@ withPactCtxSQLite v bhdbIO pdbIO config f =
         bhdb <- bhdbIO
         pdb <- pdbIO
         (_,s) <- ios
-        testPactCtxSQLite v cid bhdb pdb s config
-
-withMVarResource :: a -> (IO (MVar a) -> TestTree) -> TestTree
-withMVarResource value = withResource (newMVar value) mempty
-
-withTime :: (IO (Time Micros) -> TestTree) -> TestTree
-withTime = withResource getCurrentTimeIntegral mempty
+        testPactCtxSQLite v cid bhdb pdb s conf
 
 toTxCreationTime :: Integral a => Time a -> TxCreationTime
 toTxCreationTime (Time timespan) = TxCreationTime $ fromIntegral $ timeSpanToSeconds timespan

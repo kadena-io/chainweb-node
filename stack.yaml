@@ -38,8 +38,8 @@ extra-deps:
 
   # --- Custom Pins --- #
   - github: kadena-io/pact
-    commit: ae01cd2ca7549b67f5e9a02dd19509c8975f12c8
+    commit: 2ca4cae3eb8a0ef2783aa9457388c31b44a0dfbc
   - github: kadena-io/chainweb-storage
     commit: 07e7eb7596c7105aee42dbdb6edd10e3f23c0d7e
   - github: kadena-io/rosetta
-    commit: d20b0012c6f5e1d28843b89a4edd5ea652ade0c3
+    commit: 1ccb68d7aec0414f494fb06f591214e7cf845627

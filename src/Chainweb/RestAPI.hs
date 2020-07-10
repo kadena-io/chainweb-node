@@ -252,7 +252,7 @@ someChainwebServer
 someChainwebServer v dbs =
     someSwaggerServer v (fst <$> peers)
         <> someHealthCheckServer
-        <> someNodeInfoServer v
+        <> maybe mempty (someNodeInfoServer v) cuts
         <> maybe mempty (someCutServer v cutPeerDb) cuts
         <> maybe mempty (someSpvServers v) cuts
         <> somePayloadServers v payloads
@@ -346,7 +346,7 @@ someLocalApiServer
 someLocalApiServer v dbs pacts mr (HeaderStream hs) (Rosetta r) =
     someSwaggerServer v (fst <$> peers)
         <> someHealthCheckServer
-        <> someNodeInfoServer v
+        <> maybe mempty (someNodeInfoServer v) cuts
         <> PactAPI.somePactServers v pacts
         <> maybe mempty (Mining.someMiningServer v) mr
         <> maybe mempty (someHeaderStreamServer v) (bool Nothing cuts hs)

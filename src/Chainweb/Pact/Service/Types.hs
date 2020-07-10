@@ -91,12 +91,17 @@ instance FromJSON PactException
 
 instance Exception PactException
 
--- | Gather tx logs for a block. Not intended
--- for public API use; ToJSONs are for logging output.
-newtype BlockTxHistory = BlockTxHistory { _blockTxHistory :: Map TxId [TxLog Value] }
-  deriving (Eq,Generic, NFData)
+-- | Gather tx logs for a block, along with last tx for each
+-- key in history, if any
+-- Not intended for public API use; ToJSONs are for logging output.
+data BlockTxHistory = BlockTxHistory
+  { _blockTxHistory :: !(Map TxId [TxLog Value])
+  , _blockPrevHistory :: !(Map RowKey (TxLog Value))
+  }
+  deriving (Eq,Generic)
 instance Show BlockTxHistory where
   show = show . fmap encodeToText . _blockTxHistory
+instance NFData BlockTxHistory
 
 
 

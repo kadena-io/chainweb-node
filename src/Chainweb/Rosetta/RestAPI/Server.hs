@@ -1,9 +1,7 @@
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DataKinds #-}
-{-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeApplications #-}
@@ -27,10 +25,10 @@ import Control.Monad.Trans.Except
 import Data.Aeson
 import Data.Bifunctor
 import Data.IORef
+import Data.List (sort)
 import Data.Proxy (Proxy(..))
 
 import qualified Data.HashMap.Strict as HM
-import qualified Data.HashSet as HS
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
 import qualified Data.Vector as V
@@ -48,6 +46,7 @@ import Servant.Server
 import Chainweb.BlockHeader (BlockHeader(..))
 import Chainweb.BlockHeader.Genesis (genesisBlockHeader)
 import Chainweb.Chainweb.ChainResources (ChainResources(..))
+import Chainweb.Cut (_cutMap)
 import Chainweb.CutDB
 import Chainweb.HostAddress
 import Chainweb.Mempool.Mempool
@@ -57,7 +56,7 @@ import qualified Chainweb.RestAPI.NetworkID as ChainwebNetId
 import Chainweb.RestAPI.Utils
 import Chainweb.Rosetta.Internal
 import Chainweb.Rosetta.RestAPI
-import Chainweb.Rosetta.Util
+import Chainweb.Rosetta.Utils
 import Chainweb.Transaction (ChainwebTransaction)
 import Chainweb.Utils
 import Chainweb.Utils.Paging
@@ -92,7 +91,7 @@ rosettaServer v ps ms peerDb cutDb cr =
     :<|> mempoolTransactionH v ms
     :<|> mempoolH v ms
     -- Network --
-    :<|> networkListH v
+    :<|> (networkListH v cutDb)
     :<|> networkOptionsH v
     :<|> (networkStatusH v cutDb peerDb)
 
@@ -154,7 +153,6 @@ blockH
 blockH v cutDb ps crs (BlockReq net (PartialBlockId bheight bhash)) =
   runExceptT work >>= either throwRosetta pure
   where
- 
     block :: BlockHeader -> [Transaction] -> Block
     block bh txs = Block
       { _block_blockId = blockId bh
@@ -306,11 +304,19 @@ mempoolTransactionH v ms mtr = runExceptT work >>= either throwRosetta pure
 --------------------------------------------------------------------------------
 -- Network Handlers
 
-networkListH :: ChainwebVersion -> MetadataReq -> Handler NetworkListResp
-networkListH v _ = pure $ NetworkListResp networkIds
+networkListH :: ChainwebVersion -> CutDb cas -> MetadataReq -> Handler NetworkListResp
+networkListH v cutDb _ = runExceptT work >>= either throwRosetta pure
   where
-    -- Unique Rosetta network ids for each of the chainweb version's chain ids
-    networkIds = map f (HS.toList (chainIds v))
+    work = do
+      c <- liftIO $ _cut cutDb
+
+      -- Unique Rosetta network ids for each of the Chainweb Version's chain ids at
+      -- the current cut.
+      -- NOTE: This ensures only returning chains that are "active" at
+      -- the current time.
+      let networkIds = map f $! sort $! (HM.keys (_cutMap c))
+      pure $ NetworkListResp networkIds
+
     f :: ChainId -> NetworkId
     f cid =  NetworkId
       { _networkId_blockchain = "kadena"

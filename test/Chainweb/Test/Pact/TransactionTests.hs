@@ -1,3 +1,4 @@
+{-# LANGUAGE CPP #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
@@ -21,12 +22,13 @@ import Test.Tasty.HUnit
 import Control.Concurrent (readMVar)
 import Control.Lens hiding ((.=))
 import Control.Monad
+
 import Data.Aeson
 import Data.Aeson.Lens
 import Data.Foldable (for_, traverse_)
 import Data.Function (on)
 import Data.List (intercalate)
-import Data.Text (isInfixOf,unpack)
+import Data.Text (Text,isInfixOf,unpack)
 import Data.Default
 import Data.Tuple.Strict (T2(..))
 
@@ -62,8 +64,24 @@ import Chainweb.Version as V
 import Chainweb.Test.Pact.Utils
 
 
+-- ---------------------------------------------------------------------- --
+-- Global settings
+
+v :: ChainwebVersion
+v = Development
+
 coinRepl :: FilePath
 coinRepl = "pact/coin-contract/coin.repl"
+
+logger :: Logger
+#if DEBUG_TEST
+logger = newLogger alwaysLog ""
+#else
+logger = newLogger neverLog ""
+#endif
+
+-- ---------------------------------------------------------------------- --
+-- Tests
 
 tests :: TestTree
 tests = testGroup "Chainweb.Test.Pact.TransactionTests"
@@ -86,8 +104,10 @@ tests = testGroup "Chainweb.Test.Pact.TransactionTests"
     , testCase "testCoinbaseUpgradeDevnet0" (testCoinbaseUpgradeDevnet (unsafeChainId 0) 3)
     , testCase "testCoinbaseUpgradeDevnet1" (testCoinbaseUpgradeDevnet (unsafeChainId 1) 4)
     ]
+  , testGroup "20-Chain Fork Upgrade Tests"
+    [ testTwentyChainDevnetUpgrades
+    ]
   ]
-
 
 -- ---------------------------------------------------------------------- --
 -- Coin Contract repl tests
@@ -229,8 +249,6 @@ testCoinbase797DateFix = testCaseSteps "testCoinbase791Fix" $ \step -> do
     preForkHeight = 121451
     postForkHeight = 121452
 
-    logger = newLogger neverLog ""
-
     -- | someBlockHeader is a bit slow for the vuln797Fix to trigger. So, instead
     -- of mining a full chain we fake the height.
     --
@@ -242,7 +260,7 @@ testCoinbase797DateFix = testCaseSteps "testCoinbase791Fix" $ \step -> do
 testCoinbaseEnforceFailure :: Assertion
 testCoinbaseEnforceFailure = do
     (pdb,mc) <- loadCC
-    r <- tryAllSynchronous $ applyCoinbase toyVersion logger pdb miner 0.1 (TxContext someParentHeader def)
+    r <- tryAllSynchronous $ applyCoinbase toyVersion logger pdb badMiner 0.1 (TxContext someParentHeader def)
       (EnforceCoinbaseFailure True) (CoinbaseUsePrecompiled False) mc
     case r of
       Left e ->
@@ -251,63 +269,109 @@ testCoinbaseEnforceFailure = do
         else assertFailure $ "Coinbase failed for unknown reason: " <> show e
       Right _ -> assertFailure "Coinbase did not fail for bad miner id"
   where
-    miner = Miner (MinerId "") (MinerKeys $ mkKeySet [] "<")
+    badMiner = Miner (MinerId "") (MinerKeys $ mkKeySet [] "<")
     blockHeight' = 123
-    logger = newLogger neverLog ""
-    someParentHeader = ParentHeader (someTestVersionHeader
-                       { _blockHeight = blockHeight'
-                       , _blockCreationTime = BlockCreationTime [timeMicrosQQ| 2019-12-10T01:00:00.0 |]
-                       })
+    someParentHeader = ParentHeader $ someTestVersionHeader
+      { _blockHeight = blockHeight'
+      , _blockCreationTime = BlockCreationTime [timeMicrosQQ| 2019-12-10T01:00:00.0 |]
+      }
 
 
 testCoinbaseUpgradeDevnet :: V.ChainId -> BlockHeight -> Assertion
-testCoinbaseUpgradeDevnet cid upgradeHeight = do
-    (pdb,mc) <- loadScript "test/pact/coin-and-devaccts.repl"
-    r <- tryAllSynchronous $ applyCoinbase v logger pdb miner 0.1 (TxContext parent def)
-      (EnforceCoinbaseFailure True) (CoinbaseUsePrecompiled False) mc
-    case r of
-      Left e -> assertFailure $ "upgrade coinbase failed: " ++ (sshow e)
-      Right (T2 cr mcm) -> case (_crLogs cr,mcm) of
-        (_,Nothing) -> assertFailure "Expected module cache from successful upgrade"
-        (Nothing,_) -> assertFailure "Expected logs from successful upgrade"
-        (Just logs,_) -> do
-          void $ matchLogs (logResults logs)
+testCoinbaseUpgradeDevnet cid upgradeHeight =
+    testUpgradeScript "test/pact/coin-and-devaccts.repl" cid upgradeHeight test
   where
-    logResults logs = flip fmap logs $ \l ->
-      ( _txDomain l
-      , _txKey l
-      , preview (_Object . ix "balance") (_txValue l)
-      )
+    test (T2 cr mcm) = case (_crLogs cr,mcm) of
+      (_,Nothing) -> assertFailure "Expected module cache from successful upgrade"
+      (Nothing,_) -> assertFailure "Expected logs from successful upgrade"
+      (Just logs,_) -> matchLogs (logResults logs) expectedResults
 
     expectedResults =
-      [ ("USER_coin_coin-table","abcd",Just (Number 0.1))
+      [ ("USER_coin_coin-table", "NoMiner", Just (Number 0.1))
       , ("SYS_modules","fungible-v2",Nothing)
       , ("SYS_modules","coin",Nothing)
       , ("USER_coin_coin-table","sender07",Just (Number 998662.3))
       , ("USER_coin_coin-table","sender09",Just (Number 998662.1))
       ]
 
-    matchLogs actualResults
-      | length actualResults /= length expectedResults =
-          assertFailure $ intercalate "\n" $
-            [ "matchLogs: length mismatch "
-                <> show (length actualResults) <> " /= " <> show (length expectedResults)
-            , "actual: " ++ show actualResults
-            , "expected: " ++ show expectedResults
-            ]
-      | otherwise = zipWithM matchLog actualResults expectedResults
+testTwentyChainDevnetUpgrades :: TestTree
+testTwentyChainDevnetUpgrades = testCaseSteps "Test 20-chain Devnet upgrades" $ \step -> do
+      step "Check that 20-chain upgrades fire at block height 150"
+      testUpgradeScript "test/pact/twenty-chain-upgrades.repl" (unsafeChainId 0) V.to20ChainsDevelopment test0
 
+      step "Check that 20-chain upgrades do not fire at block heights < 150 and > 150"
+      testUpgradeScript "test/pact/twenty-chain-upgrades.repl" (unsafeChainId 0) (V.to20ChainsDevelopment - 1) test1
+      testUpgradeScript "test/pact/twenty-chain-upgrades.repl" (unsafeChainId 0) (V.to20ChainsDevelopment + 1) test1
+
+      step "Check that 20-chain upgrades do not fire at on other chains"
+      testUpgradeScript "test/pact/twenty-chain-upgrades.repl" (unsafeChainId 1) V.to20ChainsDevelopment test1
+
+      step "Check that 20-chain upgrades succeed even if e7f7 balance is insufficient"
+      testUpgradeScript "test/pact/twenty-chain-insufficient-bal.repl" (unsafeChainId 0) V.to20ChainsDevelopment test1
+  where
+    test0 (T2 cr _) = case _crLogs cr of
+      Just logs -> matchLogs (logResults logs)
+        [ ("USER_coin_coin-table","NoMiner",Just (Number 0.1))
+        , ( "USER_coin_coin-table"
+          , "e7f7634e925541f368b827ad5c72421905100f6205285a78c19d7b4a38711805"
+          , Just (Number 50.0) -- 100.0 tokens remediated
+          )
+        ]
+      Nothing -> assertFailure "Expected logs from upgrade"
+
+    test1 (T2 cr _) = case _crLogs cr of
+      Just logs -> matchLogs (logResults logs)
+        [ ("USER_coin_coin-table", "NoMiner", Just (Number 0.1))
+        ]
+      Nothing -> assertFailure "Expected logs from upgrade"
+
+-- ---------------------------------------------------------------------- --
+-- Utils
+
+testUpgradeScript
+    :: FilePath
+    -> V.ChainId
+    -> BlockHeight
+    -> (T2 (CommandResult [TxLog Value]) (Maybe ModuleCache) -> IO ())
+    -> IO ()
+testUpgradeScript script cid bh test = do
+    (pdb, mc) <- loadScript script
+    r <- tryAllSynchronous $ applyCoinbase v logger pdb noMiner 0.1 (TxContext p def)
+        (EnforceCoinbaseFailure True) (CoinbaseUsePrecompiled False) mc
+    case r of
+      Left e -> assertFailure $ "tx execution failed: " ++ show e
+      Right cr -> test cr
+  where
+    p = parent bh cid
+
+matchLogs :: [(Text, Text, Maybe Value)] -> [(Text, Text, Maybe Value)] -> IO ()
+matchLogs actualResults expectedResults
+    | length actualResults /= length expectedResults = void $
+      assertFailure $ intercalate "\n" $
+        [ "matchLogs: length mismatch "
+          <> show (length actualResults) <> " /= " <> show (length expectedResults)
+        , "actual: " ++ show actualResults
+        , "expected: " ++ show expectedResults
+        ]
+    | otherwise = void $ zipWithM matchLog actualResults expectedResults
+  where
     matchLog actual expected = do
       (assertEqual "domain matches" `on` view _1) actual expected
       (assertEqual "key matches" `on` view _2) actual expected
       (assertEqual "balance matches" `on` view _3) actual expected
 
-    v = Development
-    miner = Miner (MinerId "abcd") (MinerKeys $ mkKeySet [] "<")
-    logger = newLogger neverLog "" -- set to alwaysLog to debug
+parent :: BlockHeight -> V.ChainId -> ParentHeader
+parent bh cid = ParentHeader $ (someBlockHeader v bh)
+    { _blockChainwebVersion = v
+    , _blockChainId = cid
+    , _blockHeight = pred bh
+    }
 
-    parent = ParentHeader $ (someBlockHeader v upgradeHeight)
-      { _blockChainwebVersion = v
-      , _blockChainId = cid
-      , _blockHeight = pred upgradeHeight
-      }
+logResults :: [TxLog Value] -> [(Text, Text, Maybe Value)]
+logResults = fmap f
+  where
+    f l =
+      ( _txDomain l
+      , _txKey l
+      , l ^? txValue . _Object . ix "balance"
+      )

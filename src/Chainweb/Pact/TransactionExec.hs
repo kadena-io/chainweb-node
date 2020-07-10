@@ -61,7 +61,7 @@ import qualified Data.ByteString as B
 import qualified Data.ByteString.Short as SB
 import Data.Decimal (Decimal, roundTo)
 import Data.Default (def)
-import Data.Foldable (for_)
+import Data.Foldable (for_, traverse_)
 import qualified Data.HashMap.Strict as HM
 import Data.Maybe (isJust)
 import qualified Data.Set as S
@@ -95,7 +95,7 @@ import Chainweb.BlockHeight
 import Chainweb.Miner.Pact
 import Chainweb.Pact.Service.Types
 import Chainweb.Pact.Templates
-import Chainweb.Pact.Transactions.UpgradeTransactions (upgradeTransactions)
+import Chainweb.Pact.Transactions.UpgradeTransactions
 import Chainweb.Pact.Types
 import Chainweb.Transaction
 import Chainweb.Utils (encodeToByteString, sshow, tryAllSynchronous)
@@ -155,7 +155,9 @@ applyCmd v logger pdbenv miner gasModel txCtx spv cmdIn mcache0 =
     executionConfigNoHistory = mkExecutionConfig
       $ FlagDisableHistoryInTransactionalMode
       : ( [ FlagOldReadOnlyBehavior | isPactBackCompatV16 ]
-          ++ [ FlagPreserveModuleNameBug | not isModuleNameFix ] )
+          ++ [ FlagPreserveModuleNameBug | not isModuleNameFix ]
+          ++ [ FlagPreserveNsModuleInstallBug | not isModuleNameFix2 ]
+        )
 
     cenv = TransactionEnv Transactional pdbenv logger (ctxToPublicData txCtx) spv nid gasPrice
       requestKey (fromIntegral gasLimit) executionConfigNoHistory
@@ -168,6 +170,7 @@ applyCmd v logger pdbenv miner gasModel txCtx spv cmdIn mcache0 =
     nid = networkIdOf cmd
     currHeight = ctxCurrentBlockHeight txCtx
     isModuleNameFix = enableModuleNameFix v currHeight
+    isModuleNameFix2 = enableModuleNameFix2 v currHeight
     isPactBackCompatV16 = pactBackCompat_v16 v currHeight
 
     redeemAllGas r = do
@@ -308,6 +311,7 @@ applyCoinbase v logger dbEnv (Miner mid mks) reward@(ParsedDecimal d) txCtx
             <> sshow mid
 
           upgradedModuleCache <- applyUpgrades v cid bh
+          void $! applyTwentyChainUpgrade v cid bh
           logs <- use txLogs
 
           return $! T2
@@ -427,13 +431,21 @@ applyUpgrades v cid height
     installCoinModuleAdmin = set (evalCapabilities . capModuleAdmin) $ S.singleton (ModuleName "coin" Nothing)
     go = applyTxs (upgradeTransactions v cid)
 
-    infoLog s = do
-      l <- view txLogger
-      liftIO $! logLog l "INFO" $! T.unpack s
-
     applyTxs txsIO = do
-      infoLog $ "Applying upgrade!"
+      infoLog "Applying upgrade!"
       txs <- map (fmap payloadObj) <$> liftIO txsIO
+
+      --
+      -- Note (emily): the historical use of 'mapM_' here means that we are not
+      -- threading the updated module cache from tx to tx in our upgrades.
+      -- This means that the outputed module cache is the set of modules
+      -- loaded in the /last/ tx, and that result will go into the hash.
+      --
+      -- Whether this can be fixed in the future should be explored, but we've
+      -- already built fixes to address this problem that also affect the
+      -- hashes of later blocks.
+      --
+
       local (set txExecutionConfig def) $
         mapM_ applyTx txs
       mc <- use txCache
@@ -443,7 +455,6 @@ applyUpgrades v cid height
       initCapabilities [mkMagicCapSlot "REMEDIATE"]
 
     applyTx tx = do
-
       infoLog $ "Running upgrade tx " <> sshow (_cmdHash tx)
 
       tryAllSynchronous (runGenesis tx permissiveNamespacePolicy interp) >>= \case
@@ -451,6 +462,44 @@ applyUpgrades v cid height
         Left e -> do
           logError $ "Upgrade transaction failed! " <> sshow e
           void $ throwM e
+
+
+applyTwentyChainUpgrade
+    :: ChainwebVersion
+    -> V.ChainId
+    -> BlockHeight
+    -> TransactionM p ()
+applyTwentyChainUpgrade v cid bh
+    | to20ChainRebalance v cid bh = do
+      txlist <- liftIO $ twentyChainUpgradeTransactions v cid
+
+      infoLog $ "Applying 20-chain upgrades on chain " <> sshow cid
+
+      let txs = fmap payloadObj <$> txlist
+
+      --
+      -- Note (emily): This function does not need to care about
+      -- module caching, because it is already seeded with the correct cache
+      -- state, and is not updating the module cache, unlike 'applyUpgrades'.
+      --
+
+      traverse_ applyTx txs
+    | otherwise = return ()
+  where
+    applyTx tx = do
+      infoLog $ "Running 20-chain upgrade tx " <> sshow (_cmdHash tx)
+
+      let i = initStateInterpreter
+            $ initCapabilities [mkMagicCapSlot "REMEDIATE"]
+
+      r <- tryAllSynchronous (runGenesis tx permissiveNamespacePolicy i)
+      case r of
+        Left e -> do
+          logError $ "Upgrade transaction failed: " <> sshow e
+          void $! throwM e
+        Right _ -> return ()
+
+
 
 jsonErrorResult
     :: PactError
@@ -900,4 +949,7 @@ fatal e = do
     throwM $ PactTransactionExecError (fromUntypedHash $ unRequestKey rk) e
 
 logError :: Text -> TransactionM db ()
-logError msg = view txLogger >>= \l -> liftIO $ logLog l "ERROR" (T.unpack msg)
+logError msg = view txLogger >>= \l -> liftIO $! logLog l "ERROR" (T.unpack msg)
+
+infoLog :: Text -> TransactionM db ()
+infoLog msg = view txLogger >>= \l -> liftIO $! logLog l "INFO" (T.unpack msg)

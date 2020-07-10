@@ -1,0 +1,17 @@
+(begin-tx)
+(load "../../pact/coin-contract/v2/fungible-v2.pact")
+(load "../../pact/coin-contract/v2/coin.pact")
+(create-table coin-table)
+(create-table allocation-table)
+(commit-tx)
+
+(begin-tx)
+
+(test-capability (coin.COINBASE))
+(env-data { "k": ["k"] })
+
+(coin.coinbase
+   "e7f7634e925541f368b827ad5c72421905100f6205285a78c19d7b4a38711805"
+   (read-keyset "k") 50.0
+  )
+(commit-tx)

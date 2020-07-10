@@ -1,7 +1,7 @@
 cabal-version: 2.4
 
 name:         chainweb
-version:      1.9
+version:      2.0
 synopsis:     A Proof-of-Work Parallel-Chain Architecture for Massive Throughput
 description:  A Proof-of-Work Parallel-Chain Architecture for Massive Throughput.
 homepage:     https://github.com/kadena-io/chainweb
@@ -125,6 +125,7 @@ library
         , Chainweb.BlockHeader
         , Chainweb.BlockHeader.Genesis
         , Chainweb.BlockHeader.Genesis.Development0Payload
+        , Chainweb.BlockHeader.Genesis.DevelopmentKADPayload
         , Chainweb.BlockHeader.Genesis.DevelopmentNPayload
         , Chainweb.BlockHeader.Genesis.FastTimedCPM0Payload
         , Chainweb.BlockHeader.Genesis.FastTimedCPMNPayload
@@ -140,6 +141,7 @@ library
         , Chainweb.BlockHeader.Genesis.Mainnet7Payload
         , Chainweb.BlockHeader.Genesis.Mainnet8Payload
         , Chainweb.BlockHeader.Genesis.Mainnet9Payload
+        , Chainweb.BlockHeader.Genesis.MainnetKADPayload
         , Chainweb.BlockHeader.Validation
         , Chainweb.BlockHeaderDB
         , Chainweb.BlockHeaderDB.Internal
@@ -209,8 +211,9 @@ library
         , Chainweb.RestAPI.Utils
         , Chainweb.Rosetta.Internal
         , Chainweb.Rosetta.RestAPI
+        , Chainweb.Rosetta.RestAPI.Client
         , Chainweb.Rosetta.RestAPI.Server
-        , Chainweb.Rosetta.Util
+        , Chainweb.Rosetta.Utils
         , Chainweb.SPV
         , Chainweb.SPV.CreateProof
         , Chainweb.SPV.VerifyProof
@@ -288,6 +291,7 @@ library
         , Chainweb.Pact.Transactions.Mainnet7Transactions
         , Chainweb.Pact.Transactions.Mainnet8Transactions
         , Chainweb.Pact.Transactions.Mainnet9Transactions
+        , Chainweb.Pact.Transactions.MainnetKADTransactions
         , Chainweb.Pact.Transactions.OtherTransactions
         , Chainweb.Pact.Transactions.UpgradeTransactions
         , Chainweb.Pact.Types
@@ -463,7 +467,9 @@ test-suite chainweb-tests
         Chainweb.Test.Pact.Utils
         Chainweb.Test.RestAPI
         Chainweb.Test.RestAPI.Client_
+        Chainweb.Test.RestAPI.Utils
         Chainweb.Test.Rosetta
+        Chainweb.Test.Rosetta.RestAPI
         Chainweb.Test.Roundtrips
         Chainweb.Test.SPV
         Chainweb.Test.Store.CAS
@@ -663,6 +669,7 @@ executable cwtool
         , chainweb-storage >= 0.1
         , clock >= 0.7
         , configuration-tools >= 0.5
+        , connection >=0.2
         , containers >= 0.5
         , cryptonite >= 0.25
         , deepseq >= 1.4
@@ -672,6 +679,7 @@ executable cwtool
         , file-embed
         , errors >= 2.3
         , exceptions >= 0.8
+        , extra >= 1.6
         , file-embed >= 0.0
         , formatting >= 6.3
         , http-client >= 0.5

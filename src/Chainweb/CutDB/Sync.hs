@@ -19,7 +19,7 @@ module Chainweb.CutDB.Sync
 ) where
 
 import Control.Concurrent.Async
-import Control.Lens (set)
+import Control.Lens (set, view)
 import Control.Monad
 
 import qualified Data.Text as T
@@ -35,7 +35,7 @@ import System.LogLevel
 -- internal modules
 
 import Chainweb.BlockHeight
-import Chainweb.Cut (_cutHeight)
+import Chainweb.Cut (_cutHeight, cutMap)
 import Chainweb.Cut.CutHashes
 import Chainweb.CutDB
 import Chainweb.CutDB.RestAPI.Client
@@ -103,15 +103,21 @@ syncSession v useOrigin p db logg env pinf = do
         logg @T.Text Debug $ "put cut " <> encodeToText c
 
     receive = do
-        -- Query cut that is at most 1000 blocks ahead
-        h <- _cutHeight <$> _cut db
-        c <- getCut cenv (h + min catchupStepSize (int farAheadThreshold - 1))
-            -- Cf. documentation of 'fastAheadThreshold' for why this bound is
-            -- needed
+        cur <- _cut db
+
+        -- Query cut that is at most 'catchupStepSize' blocks ahead
+        let curHeight = _cutHeight cur
+            curChainCount = length $ view cutMap cur
+            limit = curHeight + min catchupStepSize (int farAheadThreshold * int curChainCount - 1)
+                -- Cf. documentation of 'farAheadThreshold' for why this bound
+                -- is needed. Note that 'farAheadThreshold' is of type
+                -- 'BlockHeight'. So we multiply it with the (current) number
+                -- chains to get an upper bound on the cut height.
+
+        c <- getCut cenv limit
 
         let c' = set cutOrigin (Just pinf) c
         logg @T.Text Info $ "received cut " <> encodeToText c'
         addCutHashes db c'
 
     origin = if useOrigin then Just p else Nothing
-

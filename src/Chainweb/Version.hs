@@ -38,6 +38,7 @@ module Chainweb.Version
 , chainwebGraphs
 , genesisGraph
 , genesisHeight
+, to20ChainsDevelopment
 -- ** POW
 , BlockRate(..)
 , blockRate
@@ -48,9 +49,11 @@ module Chainweb.Version
 -- ** Payload Validation Guards
 , vuln797Fix
 , coinV2Upgrade
+, to20ChainRebalance
 , pactBackCompat_v16
 , useLegacyCreationTimeForTxValidation
 , enableModuleNameFix
+, enableModuleNameFix2
 -- ** BlockHeader Validation Guards
 , slowEpochGuard
 , oldTargetGuard
@@ -509,10 +512,25 @@ chainwebGraphs (TimedConsensus g1 g2) = (8, g2) NE.:| [ (0, g1) ]
 chainwebGraphs (PowConsensus g) = pure (0, g)
 chainwebGraphs (TimedCPM g) = pure (0, g)
 chainwebGraphs (FastTimedCPM g) = pure (0, g)
-chainwebGraphs Testnet04 = pure (0, petersonChainGraph)
-chainwebGraphs Mainnet01 = pure (0, petersonChainGraph)
-chainwebGraphs Development = (50, twentyChainGraph) NE.:| [ (0, petersonChainGraph) ]
+chainwebGraphs Testnet04 =
+    ( to20ChainsTestnet, twentyChainGraph ) NE.:|
+    [ ( 0, petersonChainGraph ) ]
+chainwebGraphs Mainnet01 =
+    ( to20ChainsMainnet, twentyChainGraph ) NE.:|
+    [ ( 0, petersonChainGraph ) ]
+chainwebGraphs Development =
+    ( to20ChainsDevelopment, twentyChainGraph ) NE.:|
+    [ ( 0, petersonChainGraph ) ]
 {-# INLINE chainwebGraphs #-}
+
+to20ChainsMainnet :: BlockHeight
+to20ChainsMainnet = 852_054 -- 2020-08-20 16:00:00
+
+to20ChainsTestnet :: BlockHeight
+to20ChainsTestnet = 332_604 -- 2020-07-28 16:00:00
+
+to20ChainsDevelopment :: BlockHeight
+to20ChainsDevelopment = 210
 
 -- | Return the Graph History at a given block height in descending order.
 --
@@ -766,6 +784,22 @@ coinV2Upgrade Development cid h
 coinV2Upgrade _ _ 1 = True
 coinV2Upgrade _ _ _ = False
 
+-- | 20-chain rebalance
+--
+-- This function provides the block heights when remediations will be applied
+-- to correspond to genesis grants in the new chains.
+--
+to20ChainRebalance
+    :: ChainwebVersion
+    -> ChainId
+    -> BlockHeight
+    -> Bool
+to20ChainRebalance Mainnet01 _ h = h == to20ChainsMainnet
+to20ChainRebalance Testnet04 _ h = h == to20ChainsTestnet
+to20ChainRebalance Development _ h = h == to20ChainsDevelopment
+to20ChainRebalance _ _ 2 = True
+to20ChainRebalance _ _ _ = False
+
 -- | Preserve Pact bugs pre 1.6 chainweb version
 -- Mainnet 328000 ~ UTC Feb 20 15:36, EST Feb 20 10:56
 --
@@ -797,6 +831,12 @@ useLegacyCreationTimeForTxValidation _ h = h <= 1
 enableModuleNameFix :: ChainwebVersion -> BlockHeight -> Bool
 enableModuleNameFix Mainnet01 bh = bh >= 448501 -- ~ 2020-04-02T12:00:00Z
 enableModuleNameFix _ bh = bh >= 2
+
+-- | Related, later fix (Pact #801)
+--
+enableModuleNameFix2 :: ChainwebVersion -> BlockHeight -> Bool
+enableModuleNameFix2 Mainnet01 bh = bh >= 752214 -- ~ 2020-07-17 0:00:00 UTC
+enableModuleNameFix2 _ bh = bh >= 2
 
 -- -------------------------------------------------------------------------- --
 -- Header Validation Guards
@@ -870,8 +910,8 @@ skipFeatureFlagValidationGuard Mainnet01 h = h < 530500  -- ~ 2020-05-01T00:00:x
 skipFeatureFlagValidationGuard _ _ = False
 
 oldDaGuard :: ChainwebVersion -> BlockHeight -> Bool
-oldDaGuard Mainnet01 _ = True
-oldDaGuard Testnet04 _ = True
-oldDaGuard Development _ = False
+oldDaGuard Mainnet01 h = h < 771_414 -- ~ 2020-07-23 16:00:00
+oldDaGuard Testnet04 h = h < 318_204 -- ~ 2020-07-23 16:00:00
+oldDaGuard Development h = h + 30 < to20ChainsDevelopment -- 30 blocks before the transition
 oldDaGuard _ _ = False
 
