@@ -100,6 +100,9 @@ genesisParentBlockHash v p = BlockHash $ MerkleLogHash
 -- osciallations to take serval hundred blocks before the system stabilizes.
 -- This setting cools down initial block production.
 --
+-- TODO: move this and the following definitions to Chainweb.Version (or a
+-- submodule of Chainweb.Version`).
+--
 genesisBlockTarget :: ChainwebVersion -> ChainId -> HashTarget
 genesisBlockTarget v@Mainnet01 cid
     | genesisHeight v cid > 731382 = mainnet20InitialHashTarget
