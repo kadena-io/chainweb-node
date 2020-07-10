@@ -511,7 +511,6 @@ getTxLogs cr bh = do
       | otherwise = throwError RosettaUnparsableTxLog
       where 
         parsed = M.mapMaybe txLogToAccountRow m
-      
 
 getBalanceDeltas
     :: Map TxId [AccountRow]
@@ -556,8 +555,6 @@ getBalanceDeltas hist lastBalsSeenDef =
           lastBals
         acctLog = rowDataToAccountLog currRow prevRow
         lookupAndReplace _key new _old = new
-      
-
 
 getHistoricalLookupBalance
     :: PactExecutionService
