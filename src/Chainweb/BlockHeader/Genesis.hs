@@ -108,8 +108,9 @@ genesisBlockTarget v@Testnet04 cid
 genesisBlockTarget Development _ = HashTarget (maxBound `div` 100000)
 genesisBlockTarget _ _ = maxTarget
 
--- Memoize initial hash target for mainnet 20-chain transition. Based on
--- (2020-07-09):
+-- | Initial hash target for mainnet 20-chain transition. Difficulty on the new
+-- chains is 1/4 of the current difficulty. Based on the following header from
+-- 2020-07-09:
 --
 -- @
 -- {
@@ -133,16 +134,16 @@ genesisBlockTarget _ _ = maxTarget
 -- }
 -- @
 --
--- Difficulty on the new chains is 1/4 of the current difficulty.
+-- It holds that:
 --
 -- prop> mainnet20InitialHashTarget == HashTarget . (4 *) <$> (runGet decodePowHashNat "DOordl9cgfs4ZTBdFnbjRW5th-hW-pL33DIAAAAAAAA")
 --
 mainnet20InitialHashTarget :: HashTarget
 mainnet20InitialHashTarget = HashTarget 92812039490652836170182663013446053204096613861175006070293989356886611016976
-{-# NOINLINE mainnet20InitialHashTarget #-}
 
--- Memoize initial hash target for testnet 20-chain transition. Based on
--- (2020-07-09):
+-- | Initial hash target for testnet 20-chain transition. Difficulty on the new
+-- chains is 1/4 of the current difficulty. Based on the following header from
+-- 2020-07-09:
 --
 -- @
 -- {
@@ -166,13 +167,12 @@ mainnet20InitialHashTarget = HashTarget 9281203949065283617018266301344605320409
 -- }
 -- @
 --
--- Difficulty on the new chains is 1/4 of the current difficulty.
+-- It holds that:
 --
 -- prop> testnet20InitialHashTarget == HashTarget . (4 *) <$> (runGet decodePowHashNat "UWGTKb1Jt2oMPuayWSTeOXvcpN4bk2AsyNaMDeMEAAA")
 --
 testnet20InitialHashTarget :: HashTarget
 testnet20InitialHashTarget = HashTarget 92732593277323743564702843783986955023191593410093893802967421484438852033876
-{-# NOINLINE testnet20InitialHashTarget #-}
 
 -- | Empty payload marking no-op transaction payloads for deprecated
 -- versions.
