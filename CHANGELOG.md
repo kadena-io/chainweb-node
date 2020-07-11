@@ -12,7 +12,7 @@ This version includes the fork that adds 10 additional chains to Chainweb
 resulting in 20 chains in total. The fork will occur on
 
 *   Testnet at block height 332,604, which is expect to happen around
-    2020-07-28 16:00:00, and
+    2020-07-28 16:00:00 UTC, and
 *   Mainnet at block height 852,054, which is expected to happen around
     2020-08-20 16:00:00.
 
