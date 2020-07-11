@@ -260,7 +260,7 @@ encodeWorkHeader wh = do
     putByteString $ SB.fromShort $ _workHeaderBytes wh
 
 -- FIXME: We really want this indepenent of the block height. For production
--- chainweb version this is actually the case. We should
+-- chainweb version this is actually the case.
 --
 decodeWorkHeader :: MonadGet m => ChainwebVersion -> BlockHeight -> m WorkHeader
 decodeWorkHeader ver h = WorkHeader
