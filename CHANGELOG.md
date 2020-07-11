@@ -1,5 +1,46 @@
 # `chainweb-node` Changelog
 
+## 2.0 (2020-07-11)
+
+This version replaces all previous versions. Any prior version will stop working
+on **2020-07-16T00:00:00Z**. Node administrators must upgrade to this version
+before that date.
+
+This version will stop working on **2020-08-13T00:00:00Z**.
+
+This version includes the fork that adds 10 additional chains to Chainweb
+resulting in 20 chains in total. The fork will occur on
+
+*   Testnet at block height 332,604, which is expect to happen around
+    2020-07-28 16:00:00, and
+*   Mainnet at block height 852,054, which is expected to happen around
+    2020-08-20 16:00:00.
+
+The mining API of chainweb-node will start serving work items for the new chains
+starting at above block heights for the respective network. The mempool and pact
+service APIs will accept requests already some time before the transition. POW
+difficulties will re-adjust within a few hours after the transition. During that
+time block rates may be slightly higher or lower than usual. Node operators and
+miners are encouraged to participate in the transition of Testnet as a dress
+rehearsal for the mainnet transition.
+
+Other changes:
+
+*   Full support for [Rosetta](https://www.rosetta-api.org).
+    (#1050, #1077, #1079, #1093)
+*   Support for Pact continuations in `local` queries. (#1080)
+*   Make Pact service more stable and fix a memory leak. (#1104, #1100)
+*   Fix a Pact bug related to module namespaces. (#1107)
+*   Make `info` endpoint show currently in use chains. (#1099)
+*   An improved difficult adjustment algorithm to support the graph transition
+    and improve overall performance. Some research background regarding the new
+    algorithm can be found [in this document](https://github.com/larskuhtz/ChainwebSimulations/blob/master/Results.ipynb).
+    (#1075)
+
+Beside these major changes, the release includes several smaller bug fixes and
+performance improvements.
+
+
 ## 1.9 (2020-06-07)
 
 This version replaces all previous versions. Any prior version will stop working
