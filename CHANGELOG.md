@@ -32,7 +32,7 @@ Other changes:
 *   Make Pact service more stable and fix a memory leak. (#1104, #1100)
 *   Fix a Pact bug related to module namespaces. (#1107)
 *   Make `info` endpoint show currently in use chains. (#1099)
-*   An improved difficult adjustment algorithm to support the graph transition
+*   An improved difficulty adjustment algorithm to support the graph transition
     and improve overall performance. Some research background regarding the new
     algorithm can be found [in this document](https://github.com/larskuhtz/ChainwebSimulations/blob/master/Results.ipynb).
     (#1075)
