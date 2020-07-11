@@ -14,7 +14,7 @@ resulting in 20 chains in total. The fork will occur on
 *   Testnet at block height 332,604, which is expect to happen around
     2020-07-28 16:00:00 UTC, and
 *   Mainnet at block height 852,054, which is expected to happen around
-    2020-08-20 16:00:00.
+    2020-08-20 16:00:00 UTC.
 
 The mining API of chainweb-node will start serving work items for the new chains
 starting at above block heights for the respective network. The mempool and pact
