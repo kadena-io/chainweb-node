@@ -114,7 +114,7 @@ genesisBlockTarget v@Testnet04 cid
     | genesisHeight v cid > 278626 = testnet20InitialHashTarget
 genesisBlockTarget v@Development cid
     | genesisHeight v cid > (to20ChainsDevelopment - (min to20ChainsDevelopment 10)) =
-        HashTarget 111242886617111495631374831972406466735975400851195739878255421227060
+        HashTarget 0x0000000420507a4c13117578145f36acfcf4f40b6c1ed181fde65b5ae6770034
             -- 4 * target of 1 GPU and 12 node-mining
     | otherwise = HashTarget (maxBound `div` 100000)
 genesisBlockTarget _ _ = maxTarget
@@ -151,7 +151,7 @@ genesisBlockTarget _ _ = maxTarget
 -- prop> Just mainnet20InitialHashTarget == HashTarget . (4 *) <$> (runGet decodePowHashNat =<< decodeB64UrlNoPaddingText "DOordl9cgfs4ZTBdFnbjRW5th-hW-pL33DIAAAAAAAA")
 --
 mainnet20InitialHashTarget :: HashTarget
-mainnet20InitialHashTarget = HashTarget 326935740379188069500505933882552768991030445202673027909658672
+mainnet20InitialHashTarget = HashTarget 0x000000000000cb73de4be95ba21db5b9178dd85974c194e3ee05717dd8afa830
 
 -- | Initial hash target for testnet 20-chain transition. Based on the following
 -- header from devnet running with 5 GPUs hash power. Using this target unchanged
@@ -192,7 +192,7 @@ mainnet20InitialHashTarget = HashTarget 3269357403791880695005059338825527689910
 -- prop> _hashTarget (genesisBlockTarget Development (unsafeChainId 10)) `div` _hashTarget testnet20InitialHashTarget == PowHashNat 38
 --
 testnet20InitialHashTarget :: HashTarget
-testnet20InitialHashTarget = HashTarget 2907583025528086321637876153055936792354583297535878818731978428981
+testnet20InitialHashTarget = HashTarget 0x000000001b9bf15be43824bae4c4f17722572883f7b53ed2e8c6ba9596249235
 
 -- | Empty payload marking no-op transaction payloads for deprecated
 -- versions.
