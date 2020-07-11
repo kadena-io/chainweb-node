@@ -108,7 +108,11 @@ genesisBlockTarget v@Mainnet01 cid
     | genesisHeight v cid > 731382 = mainnet20InitialHashTarget
 genesisBlockTarget v@Testnet04 cid
     | genesisHeight v cid > 278626 = testnet20InitialHashTarget
-genesisBlockTarget Development _ = HashTarget (maxBound `div` 100000)
+genesisBlockTarget v@Development cid
+    | genesisHeight v cid > (to20ChainsDevelopment - (min to20ChainsDevelopment 10)) =
+        HashTarget 111242886617111495631374831972406466735975400851195739878255421227060
+            -- 4 * target of 1 GPU and 12 node-mining
+    | otherwise = HashTarget (maxBound `div` 100000)
 genesisBlockTarget _ _ = maxTarget
 
 -- | Initial hash target for mainnet 20-chain transition. Difficulty on the new
@@ -139,10 +143,10 @@ genesisBlockTarget _ _ = maxTarget
 --
 -- It holds that:
 --
--- prop> mainnet20InitialHashTarget == HashTarget . (4 *) <$> (runGet decodePowHashNat "DOordl9cgfs4ZTBdFnbjRW5th-hW-pL33DIAAAAAAAA")
+-- prop> Just mainnet20InitialHashTarget == HashTarget . (4 *) <$> (runGet decodePowHashNat =<< decodeB64UrlNoPaddingText "DOordl9cgfs4ZTBdFnbjRW5th-hW-pL33DIAAAAAAAA")
 --
 mainnet20InitialHashTarget :: HashTarget
-mainnet20InitialHashTarget = HashTarget 92812039490652836170182663013446053204096613861175006070293989356886611016976
+mainnet20InitialHashTarget = HashTarget 326935740379188069500505933882552768991030445202673027909658672
 
 -- | Initial hash target for testnet 20-chain transition. Difficulty on the new
 -- chains is 1/4 of the current difficulty. Based on the following header from
@@ -172,10 +176,10 @@ mainnet20InitialHashTarget = HashTarget 9281203949065283617018266301344605320409
 --
 -- It holds that:
 --
--- prop> testnet20InitialHashTarget == HashTarget . (4 *) <$> (runGet decodePowHashNat "UWGTKb1Jt2oMPuayWSTeOXvcpN4bk2AsyNaMDeMEAAA")
+-- prop> Just testnet20InitialHashTarget == HashTarget . (4 *) <$> (runGet decodePowHashNat =<< decodeB64UrlNoPaddingText "UWGTKb1Jt2oMPuayWSTeOXvcpN4bk2AsyNaMDeMEAAA")
 --
 testnet20InitialHashTarget :: HashTarget
-testnet20InitialHashTarget = HashTarget 92732593277323743564702843783986955023191593410093893802967421484438852033876
+testnet20InitialHashTarget = HashTarget 134913281112791591256568861458815033084872408716879543266904296498496836
 
 -- | Empty payload marking no-op transaction payloads for deprecated
 -- versions.
