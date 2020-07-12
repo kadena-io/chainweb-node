@@ -215,14 +215,15 @@ jobs:
       matrix:
         ghc: ['8.6.5', '8.8.3', '8.10.1']
         cabal: ['3.2.0.0']
-        os: ['ubuntu-16.04', 'ubuntu-18.04', 'macOS-latest']
+        os: ['ubuntu-16.04', 'ubuntu-18.04', 'ubuntu-20.4', 'macOS-latest']
         cabalcache: ['true']
-        # exclusions can be removed once https://github.com/actions/setup-haskell/issues/21 is resolved
         exclude:
           - os: 'macOS-latest'
             ghc: '8.6.5'
-          - os: 'macOS-latest'
-            ghc: '8.8.3'
+          - os: 'ubuntu-16.04'
+            ghc: '8.6.5'
+          - os: 'ubuntu-20.04'
+            ghc: '8.6.5'
 
     env:
       ARTIFACT_BUCKET: kadena-cabal-cache
@@ -249,7 +250,7 @@ jobs:
         fi
 
     - name: Install GHC and Cabal
-      uses: actions/setup-haskell@v1.1.0
+      uses: actions/setup-haskell@v1.1.2
       with:
          ghc-version: ${{ matrix.ghc }}
          cabal-version: ${{ matrix.cabal }}
