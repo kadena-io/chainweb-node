@@ -26,6 +26,10 @@ module Chainweb.BlockHeader.Genesis
   , genesisTime
     -- * No-op payloads
   , emptyPayload
+
+  -- * Genesis targets
+  , mainnet20InitialHashTarget
+  , testnet20InitialHashTarget
   ) where
 
 import Control.Arrow ((&&&))
@@ -61,7 +65,7 @@ import qualified Chainweb.BlockHeader.Genesis.TestnetNPayload as PNN
 import Chainweb.BlockHeight
 import Chainweb.BlockWeight
 import Chainweb.Crypto.MerkleLog
-import Chainweb.Difficulty (HashTarget, maxTarget)
+import Chainweb.Difficulty (HashTarget(..), maxTarget)
 import Chainweb.MerkleLogHash
 import Chainweb.MerkleUniverse
 import Chainweb.Miner.Pact
@@ -91,8 +95,104 @@ genesisParentBlockHash v p = BlockHash $ MerkleLogHash
 -- subsequent block mining can have a `HashTarget` easier (re: higher) than
 -- this. Equivalent to `maxTarget`.
 --
-genesisBlockTarget :: HashTarget
-genesisBlockTarget = maxTarget
+-- When the graph is extended new chains should "enter" with a non-trivial
+-- difficulty in order to avoid races and resulting forks during the first two
+-- or three difficulty adjustement epochs.
+--
+-- On devnet, using maxTarget results in a too high block production and
+-- consecutively orphans and network congestion. The consequence are
+-- osciallations to take serval hundred blocks before the system stabilizes.
+-- This setting cools down initial block production.
+--
+-- TODO: move this and the following definitions to Chainweb.Version (or a
+-- submodule of Chainweb.Version`).
+--
+genesisBlockTarget :: ChainwebVersion -> ChainId -> HashTarget
+genesisBlockTarget v@Mainnet01 cid
+    | genesisHeight v cid > 731382 = mainnet20InitialHashTarget
+genesisBlockTarget v@Testnet04 cid
+    | genesisHeight v cid > 278626 = testnet20InitialHashTarget
+genesisBlockTarget v@Development cid
+    | genesisHeight v cid > (to20ChainsDevelopment - (min to20ChainsDevelopment 10)) =
+        HashTarget 0x0000000420507a4c13117578145f36acfcf4f40b6c1ed181fde65b5ae6770034
+            -- 4 * target of 1 GPU and 12 node-mining
+    | otherwise = HashTarget (maxBound `div` 100000)
+genesisBlockTarget _ _ = maxTarget
+
+-- | Initial hash target for mainnet 20-chain transition. Difficulty on the new
+-- chains is 1/4 of the current difficulty. It is based on the following header
+-- from 2020-07-09. This value should be double checked after the testnet
+-- transition and before the release of chainweb node version 2.1.
+--
+-- @
+-- {
+--   "creationTime": 1594319266887602,
+--   "parent": "aSIkDjuJQGGOwJW-60T_1WRK9KPJm1rz63a4SW8WtSc",
+--   "height": 731382,
+--   "hash": "Ua_pSMMo-szlMpXMuSYWTcVlaSIf01TxJvBCmFkmhBM",
+--   "chainId": 0,
+--   "weight": "xo3dabqEYpUPAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+--   "featureFlags": 0,
+--   "epochStart": 1594316109999615,
+--   "adjacents": {
+--     "2": "KuuujcD6yeZ9jRXwlRE0ed5dHc3x_akIz1REmKXuDtk",
+--     "5": "qFU32Qmlj-syzuZ2awCvyoW6Jex3TQqGTzd-Dchn1gc",
+--     "3": "Lgu1FgiCw4qPpptoVRmijn8WKG2OcAUAp1Ha7KFbrWg"
+--   },
+--   "payloadHash": "MV079yClHYSYBW74WySK-15AUVQg8QMKHJZbtzTCbgA",
+--   "chainwebVersion": "mainnet01",
+--   "target": "DOordl9cgfs4ZTBdFnbjRW5th-hW-pL33DIAAAAAAAA",
+--   "nonce": "149742924667593745"
+-- }
+-- @
+--
+-- It holds that:
+--
+-- prop> Just mainnet20InitialHashTarget == HashTarget . (4 *) <$> (runGet decodePowHashNat =<< decodeB64UrlNoPaddingText "DOordl9cgfs4ZTBdFnbjRW5th-hW-pL33DIAAAAAAAA")
+--
+mainnet20InitialHashTarget :: HashTarget
+mainnet20InitialHashTarget = HashTarget 0x000000000000cb73de4be95ba21db5b9178dd85974c194e3ee05717dd8afa830
+
+-- | Initial hash target for testnet 20-chain transition. Based on the following
+-- header from devnet running with 5 GPUs hash power. Using this target unchanged
+-- means, that we should do to the transition with the hash power of about
+-- 5 - 50 GPUs in the system for a smooth transition.
+--
+-- The value for the initial target is 38 times smaller larger than value of an
+-- successful test run on devnet with 5 GPUs. During that test the initial
+-- target was about 32 times larger than the actual target at the time of the
+-- transition.
+--
+-- @
+-- {
+--   "creationTime": 1594433454304125,
+--   "parent": "DHSarVwhj6Xvu0KewCI1nRdGcNSWKFoOUy7us27mDac",
+--   "height": 200,
+--   "hash": "DC8HV9W0JM5gzliwDupjG10Lnwav09xWtxy01kGPTLM",
+--   "chainId": 0,
+--   "weight": "ReZ2aCAEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+--   "featureFlags": 0,
+--   "epochStart": 1594430808323849,
+--   "adjacents": {
+--     "2": "JPbz_YjWIvDgdGxdemkU6vVRimZZawxY_j0Hwo0pzb0",
+--     "5": "wMFfoFrQ1GWOFj6jCNGRa3SiuFRGOCmS06F7HfmLnNw",
+--     "3": "9WIBnxDGGZsy9FCCorvAUa4SlE5Rqs-cTLEsWCPOVbQ"
+--   },
+--   "payloadHash": "AOYQdE5xl_YueZSppW4MoadasjF149K28CON2GuH9Mc",
+--   "chainwebVersion": "development",
+--   "target": "NZIklpW6xujSPrX3gyhXInfxxOS6JDjkW_GbGwAAAAA",
+--   "nonce": "5805155470630695"
+-- }
+-- @
+--
+-- It holds that:
+--
+-- prop> Just testnet20InitialHashTarget == HashTarget <$> (runGet decodePowHashNat =<< decodeB64UrlNoPaddingText "NZIklpW6xujSPrX3gyhXInfxxOS6JDjkW_GbGwAAAAA")
+-- prop> _hashTarget testnet20InitialHashTarget `div` _hashTarget mainnet20InitialHashTarget == PowHashNat 8893
+-- prop> _hashTarget (genesisBlockTarget Development (unsafeChainId 10)) `div` _hashTarget testnet20InitialHashTarget == PowHashNat 38
+--
+testnet20InitialHashTarget :: HashTarget
+testnet20InitialHashTarget = HashTarget 0x000000001b9bf15be43824bae4c4f17722572883f7b53ed2e8c6ba9596249235
 
 -- | Empty payload marking no-op transaction payloads for deprecated
 -- versions.
@@ -192,7 +292,7 @@ genesisBlockHeader' v p ct@(BlockCreationTime t) n = fromLog mlog
         $ mkFeatureFlags
         :+: ct
         :+: genesisParentBlockHash v cid
-        :+: genesisBlockTarget
+        :+: genesisBlockTarget v cid
         :+: genesisBlockPayloadHash v cid
         :+: cid
         :+: BlockWeight 0
