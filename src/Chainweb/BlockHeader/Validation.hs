@@ -673,7 +673,10 @@ validateInductiveWebStep s = concat
 -- -------------------------------------------------------------------------- --
 
 prop_block_pow :: BlockHeader -> Bool
-prop_block_pow b = checkTarget (_blockTarget b) (_blockPow b)
+prop_block_pow b
+    | isGenesisBlockHeader b = True
+        -- Genesis block headers are not mined. So there's not need for POW
+    | otherwise = checkTarget (_blockTarget b) (_blockPow b)
 
 prop_block_hash :: BlockHeader -> Bool
 prop_block_hash b = _blockHash b == computeBlockHash b
@@ -688,7 +691,7 @@ prop_block_genesis_parent b
 
 prop_block_genesis_target :: BlockHeader -> Bool
 prop_block_genesis_target b = isGenesisBlockHeader b
-    ==> _blockTarget b == genesisBlockTarget
+    ==> _blockTarget b == genesisBlockTarget (_chainwebVersion b) (_chainId b)
 
 prop_block_current :: Time Micros -> BlockHeader -> Bool
 prop_block_current t b = BlockCreationTime t >= _blockCreationTime b
