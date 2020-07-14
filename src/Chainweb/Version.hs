@@ -836,6 +836,7 @@ enableModuleNameFix _ bh = bh >= 2
 --
 enableModuleNameFix2 :: ChainwebVersion -> BlockHeight -> Bool
 enableModuleNameFix2 Mainnet01 bh = bh >= 752214 -- ~ 2020-07-17 0:00:00 UTC
+enableModuleNameFix2 Testnet04 bh = bh >= 289966 -- ~ 2020-07-13
 enableModuleNameFix2 _ bh = bh >= 2
 
 -- -------------------------------------------------------------------------- --
