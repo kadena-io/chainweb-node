@@ -251,11 +251,6 @@ initPactService' ver cid chainwebLogger bhDb pdb sqlenv config act = do
     let !rs = readRewards
         !gasModel = officialGasModel
 
-        -- FIXME: this must be the header that matches the latest header in the
-        -- checkpointer. Otherwise, if the latest header was on an orphaned
-        -- fork, there is no way to recover it in the call of
-        -- 'initalPayloadState.readContracts'.
-        --
         !initialParentHeader = ParentHeader $ genesisBlockHeader ver cid
         !pse = PactServiceEnv
                 { _psMempoolAccess = Nothing
@@ -273,11 +268,26 @@ initPactService' ver cid chainwebLogger bhDb pdb sqlenv config act = do
                 , _psCheckpointerDepth = 0
                 }
         !pst = PactServiceState Nothing mempty initialParentHeader P.noSPVSupport
-    runPactServiceM pst pse act
+    runPactServiceM pst pse $ do
+        -- If the latest header that is stored in the checkpointer was on an
+        -- orphaned fork, there is no way to recover it in the call of
+        -- 'initalPayloadState.readContracts'. We therefore rewind to the latest
+        -- avaliable header in the block header database.
+        --
+        initializeParentHeader
+        act
   where
     initialBlockState = initBlockState $ genesisHeight ver cid
     loggers = pactLoggers chainwebLogger
     logger = P.newLogger loggers $ P.LogName ("PactService" <> show cid)
+
+initializeParentHeader :: PayloadCasLookup cas => PactServiceM cas ()
+initializeParentHeader = do
+    findLatestValidBlock >>= \case
+        Nothing -> return ()
+        Just b -> rewindTo initialRewindLimit $ Just (_blockHeight b + 1, _blockHash b)
+  where
+    initialRewindLimit = Just 10000
 
 initialPayloadState
     :: Logger logger
@@ -328,11 +338,6 @@ initializeCoinContract _logger v cid pwo = do
     genesisHeader :: BlockHeader
     genesisHeader = genesisBlockHeader v cid
 
-    -- FIXME: This is called with the genesis header as '_psParentHeader'. However,
-    -- syncParentHeader assumes that the latest header in the checkpointere is
-    -- either the current header or it is in the block header database. But if
-    -- the latest header was orphaned this isn't true.
-    --
     readContracts = withDiscardedBatch $ do
       ParentHeader parent <- syncParentHeader "initializeCoinContract.readContracts"
       let target = (_blockHeight parent + 1, _blockHash parent)
@@ -616,9 +621,10 @@ data WithCheckpointerResult a
 -- /without/ rewinding the checkpointer, too. That must not be possible. Hence,
 -- the result of '_cpGetLatestBlock' and '_psParentHeader' must be kept in sync.
 --
--- FIXME: currently, the previously described scenario /is/ possible if the
--- service gets restarted and the latest block got orphaned after the service
--- stopped.
+-- The previously described scenario /is/ possible if the service gets restarted
+-- and the latest block got orphaned after the service stopped. This is
+-- prevented by rewinding on pact service startup to the latest available header
+-- in the block header db.
 --
 syncParentHeader :: String -> PactServiceM cas ParentHeader
 syncParentHeader caller = do
