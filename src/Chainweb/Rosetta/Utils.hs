@@ -13,6 +13,7 @@ module Chainweb.Rosetta.Utils where
 
 import Data.Aeson
 import Data.Decimal
+import Data.List (sortOn, inits)
 import Data.Word (Word64)
 
 
@@ -58,7 +59,14 @@ data AccountLog = AccountLog
   }
   deriving (Show, Eq)
 type AccountRow = (T.Text, Decimal, Value)
-type UnindexedOperation = (Word64 -> Operation)
+
+type UnindexedOperation = Word64 -> Operation
+
+data UnindexedOperations = UnindexedOperations
+  { _unindexedOperation_fundOps :: [UnindexedOperation]
+  , _unindexedOperation_transferOps :: [UnindexedOperation]
+  , _unindexedOperation_gasOps :: [UnindexedOperation]
+  }
 
 data ChainwebOperationStatus = Successful | Remediation
   deriving (Enum, Bounded, Show)
@@ -128,9 +136,6 @@ pactHashToTransactionId hsh = TransactionId $ hashToText $ toUntypedHash hsh
 rkToTransactionId :: RequestKey -> TransactionId
 rkToTransactionId rk = TransactionId $ requestKeyToB16Text rk
 
-indexedOperations :: [UnindexedOperation] -> [Operation]
-indexedOperations logs = zipWith (\f i -> f i) logs [(0 :: Word64)..]
-
 operationStatus :: ChainwebOperationStatus -> OperationStatus
 operationStatus s@Successful =
   OperationStatus
@@ -143,6 +148,41 @@ operationStatus s@Remediation =
     , _operationStatus_successful = True
     }
 
+indexedOperations :: UnindexedOperations -> [Operation]
+indexedOperations unIdxOps = fundOps <> transferOps <> gasOps
+  where
+    fundUnIdxOps = _unindexedOperation_fundOps $! unIdxOps
+    fundOps = weaveRelatedOperations [] $!
+      zipWith (\f i -> f i) fundUnIdxOps [0..]
+
+    begIdxOfTransferOps = fromIntegral $! length fundOps
+    transferUnIdxOps = _unindexedOperation_transferOps $! unIdxOps
+    transferOps = weaveRelatedOperations [] $!
+      zipWith (\f i -> f i) transferUnIdxOps [begIdxOfTransferOps..]
+
+    begIdxOfGasOps = begIdxOfTransferOps + (fromIntegral $! length transferOps)
+    gasUnIdxOps = _unindexedOperation_gasOps $! unIdxOps
+    gasOps = weaveRelatedOperations fundOps $!
+      zipWith (\f i -> f i) gasUnIdxOps [begIdxOfGasOps..]
+
+weaveRelatedOperations :: [Operation] -> [Operation] -> [Operation]
+weaveRelatedOperations defRelatedOps ops =
+  map (overwriteRelatedOps defRelatedOpIds) (zip ops $! inits opIds)
+  where
+    defRelatedOpIds = map _operation_operationId defRelatedOps
+    opIds = map _operation_operationId ops
+
+overwriteRelatedOps
+    :: [OperationId]
+    -> (Operation, [OperationId])
+    -> Operation
+overwriteRelatedOps defOpIds (op, newRelatedOpIds) =
+  op { _operation_relatedOperations = relatedOpIds }
+  where
+    relatedOpIds = case (defOpIds <> newRelatedOpIds) of
+       [] -> Nothing
+       indices -> Just $! sortOn _operationId_index indices
+
 operation
     :: ChainwebOperationStatus
     -> OperationType
@@ -153,7 +193,7 @@ operation
 operation ostatus otype txid acctLog idx =
   Operation
     { _operation_operationId = OperationId idx Nothing
-    , _operation_relatedOperations = Nothing -- TODO: implement
+    , _operation_relatedOperations = Nothing
     , _operation_type = sshow otype
     , _operation_status = sshow ostatus
     , _operation_account = Just accountId
@@ -210,7 +250,7 @@ kdaToRosettaAmount k = Amount (sshow amount) currency Nothing
 -- Disable filling in metadata for now.
 -- TODO: how to dynamically pass this? Would be useful to enable for tests at least.
 enableMetaData :: Bool
-enableMetaData = False
+enableMetaData = True
 
 -- TODO: document
 maxRosettaNodePeerLimit :: Natural

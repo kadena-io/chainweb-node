@@ -157,13 +157,17 @@ getGenesisLog
 getGenesisLog logs cr =
   case (_crTxId cr) of
     Just tid -> case (M.lookup tid logs) of
-      Just l -> rosettaTransaction cr $ makeOps tid l
+      Just l -> rosettaTransaction cr $! makeOps tid l
       Nothing -> rosettaTransaction cr []  -- not a coin contract tx
     Nothing -> rosettaTransaction cr [] -- all genesis tx should have a txid
   where
-    makeOps tid l = indexedOperations $
-      map (operation Successful TransferOrCreateAcct tid) l
-
+    makeOps tid l = indexedOperations $!
+      UnindexedOperations
+      { _unindexedOperation_fundOps = []
+      , _unindexedOperation_transferOps =
+          map (operation Successful TransferOrCreateAcct tid) l
+      , _unindexedOperation_gasOps = []
+      }
 
 -- | Matches all genesis transactions to their coin contract logs.
 genesisTransactions
@@ -209,7 +213,12 @@ nonGenesisCoinbaseLog logs cr = case (getSomeTxId cr) of
 
   where
     makeAcc restLogs ops =
-      let tx = makeRosettaTx cr $ indexedOperations $ ops
+      let tx = makeRosettaTx cr $! indexedOperations $!
+            UnindexedOperations
+            { _unindexedOperation_fundOps = []
+            , _unindexedOperation_transferOps = ops
+            , _unindexedOperation_gasOps = []
+            }
       in pure $ TxAccumulator restLogs tx
 
 ------------------------
@@ -268,7 +277,11 @@ gasTransactionAcc accTyp txa@(TxAccumulator logs' _) ctx = combine logs'
       accumulatorFunction accTyp txa restLogs tx
       where
         tx = makeRosettaTx ctx $ indexedOperations $
-             fund <> transfer <> gas
+          UnindexedOperations
+          { _unindexedOperation_fundOps = fund
+          , _unindexedOperation_transferOps = transfer
+          , _unindexedOperation_gasOps = gas
+          }
 
     txId (tid,_) = tid
 
@@ -371,7 +384,12 @@ getRemediationsTx
 getRemediationsTx logsList =
   let t = rkToTransactionId remediationRequestKey
       f (tid, ali) = map (operation Successful TransferOrCreateAcct tid) ali
-      ops = indexedOperations $ concat $ map f logsList
+      ops = indexedOperations $!
+        UnindexedOperations
+        { _unindexedOperation_fundOps = []
+        , _unindexedOperation_transferOps = concat $! map f logsList
+        , _unindexedOperation_gasOps = []
+        }
   in (Transaction t ops Nothing)
 
 
