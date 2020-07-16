@@ -762,6 +762,7 @@ branchDiff_ db = go
 -- -------------------------------------------------------------------------- --
 -- | Collects the blocks on the old and new branches of a fork. Returns
 --   @(commonAncestor, oldBlocks, newBlocks)@.
+--
 collectForkBlocks
     :: forall db . TreeDb db
     => db

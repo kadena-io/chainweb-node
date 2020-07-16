@@ -285,9 +285,9 @@ initializeParentHeader :: PayloadCasLookup cas => PactServiceM cas ()
 initializeParentHeader = do
     findLatestValidBlock >>= \case
         Nothing -> return ()
-        Just b -> rewindTo initialRewindLimit $ Just (_blockHeight b + 1, _blockHash b)
+        Just b -> rewindTo initialRewindLimit (Just $ ParentHeader b)
   where
-    initialRewindLimit = Just 10000
+    initialRewindLimit = Just 1000
 
 initialPayloadState
     :: Logger logger
@@ -339,9 +339,8 @@ initializeCoinContract _logger v cid pwo = do
     genesisHeader = genesisBlockHeader v cid
 
     readContracts = withDiscardedBatch $ do
-      ParentHeader parent <- syncParentHeader "initializeCoinContract.readContracts"
-      let target = (_blockHeight parent + 1, _blockHash parent)
-      withCheckpointerRewind Nothing (Just target) "initializeCoinContract.readContracts" $ \(PactDbEnv' pdbenv) -> do
+      parent <- syncParentHeader "initializeCoinContract.readContracts"
+      withCheckpointerRewind Nothing (Just parent) "initializeCoinContract.readContracts" $ \(PactDbEnv' pdbenv) -> do
         PactServiceEnv{..} <- ask
         pd <- getTxContext def
         !mc <- liftIO $ readInitModules (_cpeLogger _psCheckpointEnv) pdbenv pd
@@ -665,12 +664,8 @@ syncParentHeader caller = do
 --
 withCheckpointerWithoutRewind
     :: PayloadCasLookup cas
-    => Maybe (BlockHeight, BlockHash)
-        -- ^ The block height @height@ to which to restore and the parent header
-        -- @parent@.
-        --
-        -- It holds that @(_blockHeight parent == pred height)@
-
+    => Maybe ParentHeader
+        -- ^ block height and hash of the parent header
     -> String
         -- ^ Putative caller
     -> (PactDbEnv' -> PactServiceM cas (WithCheckpointerResult a))
@@ -689,7 +684,7 @@ withCheckpointerWithoutRewind target caller act = do
 
     local (over psCheckpointerDepth succ) $ mask $ \restore -> do
         cenv <- restore $ do
-            r <- liftIO $ _cpRestore checkPointer target
+            r <- liftIO $ _cpRestore checkPointer checkpointerTarget
             return r
 
         try (restore (act cenv)) >>= \case
@@ -697,6 +692,12 @@ withCheckpointerWithoutRewind target caller act = do
             Right (Discard !result) -> discardTx >> return result
             Right (Save header !result) -> saveTx header >> return result
   where
+    checkpointerTarget = case target of
+        Nothing -> Nothing
+        Just (ParentHeader h) -> Just (_blockHeight h + 1, _blockHash h)
+            -- the second argument of _cpRestore expects the hash of the parent
+            -- and the height of the parent plus one.
+
     discardTx = finalizeCheckpointer _cpDiscard
     saveTx !header = do
         -- TODO: _cpSave is a complex call. If any thing in there throws
@@ -713,9 +714,8 @@ withCurrentCheckpointer
     -> (PactDbEnv' -> PactServiceM cas (WithCheckpointerResult a))
     -> PactServiceM cas a
 withCurrentCheckpointer caller act = do
-    ParentHeader ph <- syncParentHeader "withCurrentCheckpointer"
-    let target = Just (succ $ _blockHeight ph, _blockHash ph)
-    withCheckpointerRewind (Just 0) target caller act
+    ph <- syncParentHeader "withCurrentCheckpointer"
+    withCheckpointerRewind (Just 0) (Just ph) caller act
 
 -- | Execute an action in the context of an @Block@ that is provided by the
 -- checkpointer. The checkpointer is rewinded and restored to the state to the
@@ -730,17 +730,14 @@ withCheckpointerRewind
     :: PayloadCasLookup cas
     => Maybe BlockHeight
         -- ^ if set, limit rewinds to this delta
-    -> Maybe (BlockHeight, ParentHash)
-        -- ^ The block height @height@ to which to restore and the parent header
-        -- @parent@.
-        --
-        -- It holds that @(_blockHeight parent == pred height)@
+    -> Maybe ParentHeader
+        -- ^ The parent header to which the checkpointer is restored
     -> String
     -> (PactDbEnv' -> PactServiceM cas (WithCheckpointerResult a))
     -> PactServiceM cas a
-withCheckpointerRewind rewindLimit target caller act = do
-    rewindTo rewindLimit target
-    withCheckpointerWithoutRewind target caller act
+withCheckpointerRewind rewindLimit p caller act = do
+    rewindTo rewindLimit p
+    withCheckpointerWithoutRewind p caller act
 
 finalizeCheckpointer :: (Checkpointer -> IO ()) -> PactServiceM cas ()
 finalizeCheckpointer finalize = do
@@ -1041,8 +1038,8 @@ execNewBlock mpAccess parent miner = handle onTxFailure $ do
     updateMempool
     withDiscardedBatch $ do
       setParentHeader "execNewBlock" parent
-      newTrans <- withCheckpointerRewind newblockRewindLimit target "preBlock" doPreBlock
-      withCheckpointerRewind (Just 0) target "execNewBlock" (doNewBlock newTrans)
+      newTrans <- withCheckpointerRewind newblockRewindLimit (Just parent) "preBlock" doPreBlock
+      withCheckpointerRewind (Just 0) (Just parent) "execNewBlock" (doNewBlock newTrans)
   where
     onTxFailure e@(PactTransactionExecError rk _) = do
         -- add the failing transaction to the mempool bad list, so it is not
@@ -1085,7 +1082,7 @@ execNewBlock mpAccess parent miner = handle onTxFailure $ do
                 Left _e -> return False
 
       liftIO $! fmap Discard $!
-        mpaGetBlock mpAccess validate bHeight pHash (_parentHeader parent)
+        mpaGetBlock mpAccess validate (pHeight + 1) pHash (_parentHeader parent)
 
     doNewBlock newTrans pdbenv = do
         logInfo $ "execNewBlock, about to get call processFork: "
@@ -1105,8 +1102,6 @@ execNewBlock mpAccess parent miner = handle onTxFailure $ do
 
     pHeight = _blockHeight $ _parentHeader parent
     pHash = _blockHash $ _parentHeader parent
-    target = Just (bHeight, pHash)
-    bHeight = succ pHeight
 
     updateMempool = liftIO $ do
       mpaProcessFork mpAccess $ _parentHeader parent
@@ -1275,66 +1270,65 @@ rewindTo
     :: forall cas . PayloadCasLookup cas
     => Maybe BlockHeight
         -- ^ if set, limit rewinds to this delta
-    -> Maybe (BlockHeight, ParentHash)
-        -- ^ The block height @height@ to which to restore and the parent header
-        -- @parent@.
-        --
-        -- It holds that @(_blockHeight parent == pred height)@
+    -> Maybe ParentHeader
+        -- ^ The parent header which is the rewind target
     -> PactServiceM cas ()
-rewindTo rewindLimit = maybe rewindGenesis doRewind
+rewindTo _ Nothing = return ()
+rewindTo rewindLimit (Just (ParentHeader parent)) = do
+
+    -- skip if the checkpointer is already at the target.
+    (_, lastHash) <- getCheckpointer >>= liftIO . _cpGetLatestBlock >>= \case
+        Nothing -> throwM NoBlockValidatedYet
+        Just p -> return p
+
+    unless (lastHash == parentHash) $ do
+
+        lastHeader <- findLatestValidBlock >>= maybe failNonGenesisOnEmptyDb return
+        logInfo $ T.unpack $ "rewind from last to checkpointer target"
+            <> ". last height: " <> sshow (_blockHeight lastHeader)
+            <> "; last hash: " <> blockHashToText (_blockHash lastHeader)
+            <> "; target height: " <> sshow parentHeight
+            <> "; target hash: " <> blockHashToText parentHash
+
+        failOnTooLowRequestedHeight rewindLimit lastHeader
+        playFork lastHeader
+
   where
-    rewindGenesis = return ()
-    doRewind (reqHeight, parentHash) = do
+    parentHeight = _blockHeight parent
+    parentHash = _blockHash parent
 
-        -- skip if the checkpointer is already at the target.
-        (_, lastHash) <- getCheckpointer >>= liftIO . _cpGetLatestBlock >>= \case
-            Nothing -> throwM NoBlockValidatedYet
-            Just p -> return p
-
-        unless (lastHash == parentHash) $ do
-
-            lastHeader <- findLatestValidBlock >>= maybe failNonGenesisOnEmptyDb return
-            logInfo $ T.unpack $ "rewind from last to target"
-                <> ". last height: " <> sshow (_blockHeight lastHeader)
-                <> "; last hash: " <> blockHashToText (_blockHash lastHeader)
-                <> "; target height: " <> sshow (reqHeight - 1)
-                <> "; target hash: " <> blockHashToText parentHash
-
-            failOnTooLowRequestedHeight rewindLimit lastHeader reqHeight
-            payloadDb <- asks _psPdb
-            bhDb <- asks _psBlockHeaderDb
-            playFork bhDb payloadDb parentHash lastHeader
-
-    failOnTooLowRequestedHeight (Just limit) lastHeader reqHeight
-      | reqHeight + limit < lastHeight = -- need to stick with addition because Word64
-        throwM $ RewindLimitExceeded
-        ("Requested rewind exceeds limit (" <> sshow limit <> ")")
-        reqHeight lastHeight
+    failOnTooLowRequestedHeight (Just limit) lastHeader
+        | parentHeight + 1 + limit < lastHeight = -- need to stick with addition because Word64
+            throwM $ RewindLimitExceeded
+                ("Requested rewind exceeds limit (" <> sshow limit <> ")")
+                parentHeight
+                lastHeight
       where
         lastHeight = _blockHeight lastHeader
-    failOnTooLowRequestedHeight _ _ _ = return ()
+    failOnTooLowRequestedHeight _ _ = return ()
 
     failNonGenesisOnEmptyDb = error "impossible: playing non-genesis block to empty DB"
 
-    playFork bhdb payloadDb parentHash lastHeader = do
-        parent <- ParentHeader <$!> lookupBlockHeader parentHash "rewindTo"
-
-        (!_, _, newBlocks) <-
-            liftIO $ collectForkBlocks bhdb lastHeader $ _parentHeader parent
+    playFork lastHeader = do
+        bhdb <- asks _psBlockHeaderDb
+        (!commonAncestor, _, newBlocks) <-
+            liftIO $ collectForkBlocks bhdb lastHeader parent
         -- play fork blocks
-        V.mapM_ (fastForward payloadDb) newBlocks
+        V.mapM_ fastForward $ V.zip
+            (ParentHeader <$> commonAncestor `V.cons` newBlocks)
+            newBlocks
 
     fastForward
         :: forall c . PayloadCasLookup c
-        => PayloadDb c -> BlockHeader -> PactServiceM c ()
-    fastForward payloadDb block = do
-        let h = _blockHeight block
-        let ph = _blockParent block
+        => (ParentHeader, BlockHeader)
+        -> PactServiceM c ()
+    fastForward (target, block) = do
         let bpHash = _blockPayloadHash block
+        payloadDb <- asks _psPdb
 
         -- This does a restore, i.e. it rewinds the checkpointer back in
         -- history, if needed.
-        withCheckpointerWithoutRewind (Just (h, ph)) "fastForward" $ \pdbenv -> do
+        withCheckpointerWithoutRewind (Just target) "fastForward" $ \pdbenv -> do
             payload <- liftIO (payloadWithOutputsToPayloadData <$> casLookupM payloadDb bpHash)
             void $ playOneBlock block payload pdbenv
             return $! Save block ()
@@ -1350,23 +1344,25 @@ execValidateBlock
     -> PayloadData
     -> PactServiceM cas PayloadWithOutputs
 execValidateBlock currHeader plData = do
+    -- The parent block header must be available in the block header data base
+    target <- getTarget
     psEnv <- ask
     let reorgLimit = fromIntegral $ view psReorgLimit psEnv
-    (T2 miner transactions) <- handle handleEx $ withBatch $ do
-        withCheckpointerRewind (Just reorgLimit) mb "execValidateBlock" $ \pdbenv -> do
+    T2 miner transactions <- handle handleEx $ withBatch $ do
+        withCheckpointerRewind (Just reorgLimit) target "execValidateBlock" $ \pdbenv -> do
             !result <- playOneBlock currHeader plData pdbenv
             return $! Save currHeader result
     either throwM setCurrAsParent $!
-      validateHashes currHeader plData miner transactions
+        validateHashes currHeader plData miner transactions
   where
-    mb = if isGenesisBlock then Nothing else Just (bHeight, bParent)
-    bHeight = _blockHeight currHeader
-    bParent = _blockParent currHeader
-    isGenesisBlock = isGenesisBlockHeader currHeader
+    getTarget
+        | isGenesisBlockHeader currHeader = return Nothing
+        | otherwise = Just . ParentHeader
+            <$> lookupBlockHeader (_blockParent currHeader) "execValidateBlock"
 
     -- On final success, use header as the new/next parent header
     setCurrAsParent pwos =
-      setParentHeader "setCurrAsParent" (ParentHeader currHeader) >> return pwos
+        setParentHeader "setCurrAsParent" (ParentHeader currHeader) >> return pwos
 
     -- TODO: knob to configure whether this rewind is fatal
     fatalRewindError a h1 h2 = do
@@ -1570,11 +1566,21 @@ execLookupPactTxs restorePoint txs
     go = getCheckpointer >>= \(!cp) -> case restorePoint of
       NoRewind _ ->
         liftIO $! V.mapM (_cpLookupProcessedTx cp) txs
-      DoRewind bh -> withDiscardedBatch $ do
-        let !t = Just (_blockHeight bh + 1, _blockHash bh)
-        withCheckpointerRewind Nothing t "lookupPactTxs" $ \_ ->
+      DoRewind parent -> withDiscardedBatch $ do
+        withCheckpointerRewind Nothing (Just $ ParentHeader parent) "lookupPactTxs" $ \_ ->
           liftIO $ Discard <$> V.mapM (_cpLookupProcessedTx cp) txs
 
+-- | Find the latest block stored in the checkpointer for which the respective
+-- block header is available in the block header database.
+--
+-- NOTE: the function doesn't take into consideration the block header stored in
+-- '_psParentHeader' in 'PactServiceM'. It is meant to be used during re-orgs
+-- (recovering from forks).
+--
+-- First the result of '_cpGetLatestBlock' is checked. If the respective block
+-- header isn't available, the fucntion recursively checks the result of
+-- '_cpGetBlockParent'.
+--
 findLatestValidBlock :: PactServiceM cas (Maybe BlockHeader)
 findLatestValidBlock = getCheckpointer >>= liftIO . _cpGetLatestBlock >>= \case
     Nothing -> return Nothing
