@@ -1330,7 +1330,12 @@ rewindTo rewindLimit (Just (ParentHeader parent)) = do
         Just p -> return p
 
     if lastHash == parentHash
-      then setParentHeader "rewindTo" (ParentHeader parent)
+      then
+        -- We want to guarantee that '_psParentHeader' is in sync with the
+        -- latest block of the checkpointer at the end of and call to
+        -- 'rewindTo'. In the @else@ branch this is taken care of by the call to
+        -- 'withCheckPointerWithoutRewind'.
+        setParentHeader "rewindTo" (ParentHeader parent)
       else do
         lastHeader <- findLatestValidBlock >>= maybe failNonGenesisOnEmptyDb return
         logInfo $ T.unpack $ "rewind from last to checkpointer target"
