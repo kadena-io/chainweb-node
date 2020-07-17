@@ -63,7 +63,7 @@ import System.IO.Unsafe (unsafePerformIO)
 v :: ChainwebVersion
 v = FastTimedCPM petersonChainGraph
 
-nodes:: Natural
+nodes :: Natural
 nodes = 1
 
 cid :: ChainId
@@ -160,19 +160,19 @@ blockTransactionTests tio envIo =
 
 
       step "validate initial gas buy at index 0"
-      validateOp 0 "FundTx" "sender00" fundtx
+      validateOp 0 "FundTx" sender00ks fundtx
 
       step "validate sender01 credit at index 1"
-      validateOp 1 "TransferOrCreateAcct" "sender01" cred
+      validateOp 1 "TransferOrCreateAcct" sender01ks cred
 
       step "validate sender00 debit at index 2"
-      validateOp 2 "TransferOrCreateAcct" "sender00" deb
+      validateOp 2 "TransferOrCreateAcct" sender00ks deb
 
       step "validate sender00 gas redemption at index 3"
-      validateOp 3 "GasPayment" "sender00" redeem
+      validateOp 3 "GasPayment" sender00ks redeem
 
       step "validate miner gas reward at index 4"
-      validateOp 4 "GasPayment" "NoMiner" reward
+      validateOp 4 "GasPayment" noMinerks reward
 
   where
     mkTxReq rkmv prs = do
@@ -230,7 +230,7 @@ blockTests tio envIo = testCaseSchSteps "Block Tests" $ \step -> do
     validateTxs remeds cbase fundtx cred deb redeem reward = do
 
       -- coinbase is considered a separate tx list
-      validateOp 0 "CoinbaseReward" "NoMiner" cbase
+      validateOp 0 "CoinbaseReward" noMinerks cbase
 
       case remeds of
         Just (rem1, rem2) -> do
@@ -238,19 +238,19 @@ blockTests tio envIo = testCaseSchSteps "Block Tests" $ \step -> do
           -- TODO: this case preserves Linda's txlog bug when
           -- txs and remeds are present
 
-          validateOp 0 "TransferOrCreateAcct" "sender09" rem1
-          validateOp 1 "TransferOrCreateAcct" "sender07" rem2
-          validateOp 2 "TransferOrCreateAcct" "sender00" fundtx
-          validateOp 3 "TransferOrCreateAcct" "sender01" cred
-          validateOp 4 "TransferOrCreateAcct" "sender00" deb
-          validateOp 5 "TransferOrCreateAcct" "sender00" redeem
-          validateOp 6 "TransferOrCreateAcct" "NoMiner" reward
+          validateOp 0 "TransferOrCreateAcct" sender09ks rem1
+          validateOp 1 "TransferOrCreateAcct" sender07ks rem2
+          validateOp 2 "TransferOrCreateAcct" sender00ks fundtx
+          validateOp 3 "TransferOrCreateAcct" sender01ks cred
+          validateOp 4 "TransferOrCreateAcct" sender00ks deb
+          validateOp 5 "TransferOrCreateAcct" sender00ks redeem
+          validateOp 6 "TransferOrCreateAcct" noMinerks reward
         Nothing -> do
-          validateOp 0 "FundTx" "sender00" fundtx
-          validateOp 1 "TransferOrCreateAcct" "sender01" cred
-          validateOp 2 "TransferOrCreateAcct" "sender00" deb
-          validateOp 3 "GasPayment" "sender00" redeem
-          validateOp 4 "GasPayment" "NoMiner" reward
+          validateOp 0 "FundTx" sender00ks fundtx
+          validateOp 1 "TransferOrCreateAcct" sender01ks cred
+          validateOp 2 "TransferOrCreateAcct" sender00ks deb
+          validateOp 3 "GasPayment" sender00ks redeem
+          validateOp 4 "GasPayment" noMinerks reward
 
 
 -- | Rosetta construction submit endpoint tests (i.e. tx submission directly to mempool)
@@ -421,16 +421,18 @@ validateOp
       -- ^ op idx
     -> Text
       -- ^ operation type
-    -> Text
+    -> (Text, [Text], Text)
       -- ^ operation account name
     -> Operation
       -- ^ the op
     -> Assertion
-validateOp idx opType acct o = do
+validateOp idx opType (acct,keys,pred') o = do
     _operation_operationId o @?= OperationId idx Nothing
     _operation_type o @?= opType
     _operation_status o @?= "Successful"
-    _operation_account o @?= Just (AccountId acct Nothing Nothing)
+    _operation_account o @?= Just (AccountId acct Nothing acctMeta)
+  where
+    acctMeta = Just $ accountIdMetadata keys pred'
 
 -- ------------------------------------------------------------------ --
 -- Test Pact Cmds
@@ -511,3 +513,28 @@ mix
     => Index m
     -> Fold m (IO a)
 mix i = ix i . to A.fromJSON . to (aeson assertFailure return)
+
+noMinerks :: (Text, [Text], Text)
+noMinerks = ("NoMiner", [], "<")
+
+sender00ks :: (Text, [Text], Text)
+sender00ks = ("sender00", keys, "keys-all")
+  where keys = map fst [sender00]
+
+sender01ks :: (Text, [Text], Text)
+sender01ks = ("sender01", keys, "keys-all")
+  where keys = map fst [sender01]
+
+sender07ks :: (Text, [Text], Text)
+sender07ks = ("sender07", keys, "keys-all")
+  where keys = ["4c31dc9ee7f24177f78b6f518012a208326e2af1f37bb0a2405b5056d0cad628"]
+
+sender09ks :: (Text, [Text], Text)
+sender09ks = ("sender09", keys, "keys-all")
+  where keys = ["c59d9840b0b66090836546b7eb4a73606257527ec8c2b482300fd229264b07e6"]
+
+accountIdMetadata :: [Text] -> Text -> A.Object
+accountIdMetadata keys p = HM.fromList
+  [ "currentOwnership" A..= A.object
+    [ "pred" A..= p
+    , "keys" A..= keys ]]
