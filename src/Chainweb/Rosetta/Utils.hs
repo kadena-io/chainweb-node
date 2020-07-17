@@ -60,7 +60,7 @@ data AccountLog = AccountLog
   deriving (Show, Eq)
 type AccountRow = (T.Text, Decimal, Value)
 
-type UnindexedOperation = Word64 -> Operation
+type UnindexedOperation = Word64 -> [OperationId] -> Operation
 
 data UnindexedOperations = UnindexedOperations
   { _unindexedOperation_fundOps :: [UnindexedOperation]
@@ -151,37 +151,33 @@ operationStatus s@Remediation =
 indexedOperations :: UnindexedOperations -> [Operation]
 indexedOperations unIdxOps = fundOps <> transferOps <> gasOps
   where
+    indexOps ops beg relatedOps =
+      let related = map _operation_operationId relatedOps
+          ops' = zipWith (\f i -> f i related) ops [beg..]
+      in weaveRelatedOperations $! ops'
+
     fundUnIdxOps = _unindexedOperation_fundOps $! unIdxOps
-    fundOps = weaveRelatedOperations [] $!
-      zipWith (\f i -> f i) fundUnIdxOps [0..]
+    fundOps = indexOps fundUnIdxOps 0 []
 
-    begIdxOfTransferOps = fromIntegral $! length fundOps
+    transferIdx = fromIntegral $! length fundOps
     transferUnIdxOps = _unindexedOperation_transferOps $! unIdxOps
-    transferOps = weaveRelatedOperations [] $!
-      zipWith (\f i -> f i) transferUnIdxOps [begIdxOfTransferOps..]
+    transferOps = indexOps transferUnIdxOps transferIdx []
 
-    begIdxOfGasOps = begIdxOfTransferOps + (fromIntegral $! length transferOps)
+    gasIdx = transferIdx + (fromIntegral $! length transferOps)
     gasUnIdxOps = _unindexedOperation_gasOps $! unIdxOps
-    gasOps = weaveRelatedOperations fundOps $!
-      zipWith (\f i -> f i) gasUnIdxOps [begIdxOfGasOps..]
+    gasOps = indexOps gasUnIdxOps gasIdx fundOps
 
-weaveRelatedOperations :: [Operation] -> [Operation] -> [Operation]
-weaveRelatedOperations defRelatedOps ops =
-  map (overwriteRelatedOps defRelatedOpIds) (zip ops $! inits opIds)
+weaveRelatedOperations :: [Operation] -> [Operation]
+weaveRelatedOperations ops = map weave opsWithRelatedOpIds
   where
-    defRelatedOpIds = map _operation_operationId defRelatedOps
     opIds = map _operation_operationId ops
+    opsWithRelatedOpIds = zip ops $! inits $! opIds
 
-overwriteRelatedOps
-    :: [OperationId]
-    -> (Operation, [OperationId])
-    -> Operation
-overwriteRelatedOps defOpIds (op, newRelatedOpIds) =
-  op { _operation_relatedOperations = relatedOpIds }
-  where
-    relatedOpIds = case (defOpIds <> newRelatedOpIds) of
-       [] -> Nothing
-       indices -> Just $! sortOn _operationId_index indices
+    weave (op, newRelated) =
+      let someOldRelated = _operation_relatedOperations op
+          related = addToMaybeList newRelated someOldRelated
+          sortedRelated = fmap (sortOn _operationId_index) related
+      in op { _operation_relatedOperations = sortedRelated }
 
 operation
     :: ChainwebOperationStatus
@@ -189,11 +185,12 @@ operation
     -> TxId
     -> AccountLog
     -> Word64
+    -> [OperationId]
     -> Operation
-operation ostatus otype txid acctLog idx =
+operation ostatus otype txid acctLog idx related =
   Operation
     { _operation_operationId = OperationId idx Nothing
-    , _operation_relatedOperations = Nothing
+    , _operation_relatedOperations = listToMaybe related
     , _operation_type = sshow otype
     , _operation_status = sshow ostatus
     , _operation_account = Just accountId
@@ -298,3 +295,14 @@ noteOptional :: a -> Either a (Maybe c) -> Either a c
 noteOptional e (Right Nothing) = Left e
 noteOptional _ (Right (Just c)) = pure c
 noteOptional _ (Left oe) = Left oe
+
+listToMaybe :: [a] -> Maybe [a]
+listToMaybe [] = Nothing
+listToMaybe li = Just li
+
+addToMaybeList :: [a] -> Maybe [a] -> Maybe [a]
+addToMaybeList newList someList = case newList of
+  [] -> someList
+  li -> case someList of
+    Nothing -> Just li
+    Just oldList -> Just $! oldList <> li

@@ -45,16 +45,14 @@ import Chainweb.Version
 
 
 tests :: TestTree
-tests = testGroup "Chainweb.Test.Rosetta.Server"
-  [ testGroup "Unit Tests"
-    [ testCase "checkBalanceDeltas" checkBalanceDeltas
-    , testCase "matchNonGenesisBlockTransactionsToLogs" matchNonGenesisBlockTransactionsToLogs
-    , testCase "matchFailedCoinbaseBlockTransactionsToLogs" matchFailedCoinbaseBlockTransactionsToLogs
-    , testCase "matchNonGenesisSingleTransactionsToLogs" matchNonGenesisSingleTransactionsToLogs
-    , testCase "checkKDAToRosettaAmount" checkKDAToRosettaAmount
-    , testCase "checkValidateNetwork" checkValidateNetwork
-    , testCase "checkUniqueRosettaErrorCodes" checkUniqueRosettaErrorCodes
-    ]
+tests = testGroup "Chainweb.Test.Rosetta.UnitTests"
+  [ testCase "checkBalanceDeltas" checkBalanceDeltas
+  , testCase "matchNonGenesisBlockTransactionsToLogs" matchNonGenesisBlockTransactionsToLogs
+  , testCase "matchFailedCoinbaseBlockTransactionsToLogs" matchFailedCoinbaseBlockTransactionsToLogs
+  , testCase "matchNonGenesisSingleTransactionsToLogs" matchNonGenesisSingleTransactionsToLogs
+  , testCase "checkKDAToRosettaAmount" checkKDAToRosettaAmount
+  , testCase "checkValidateNetwork" checkValidateNetwork
+  , testCase "checkUniqueRosettaErrorCodes" checkUniqueRosettaErrorCodes
   ]
 
 
@@ -490,12 +488,7 @@ createOperations opsCases = concat $! map f opsCases
     opIdx = _operationId_index
 
     createOperation tid (MatchOperation acctLog otype oid related) =
-      op { _operation_relatedOperations = relatedOps }
-      where
-        op = operation Successful otype tid acctLog (opIdx oid)
-        relatedOps = case related of
-          [] -> Nothing
-          lis -> Just $! lis
+      operation Successful otype tid acctLog (opIdx oid) related
 
 createExpectedRosettaTx :: MatchRosettaTx -> (String, Transaction)
 createExpectedRosettaTx m = (msg, mockRosettaTx rk ops)
