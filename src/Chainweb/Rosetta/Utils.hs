@@ -121,13 +121,10 @@ rosettaTransaction cr ops =
     }
   where
     -- Include information on related transactions (i.e. continuations)
-    txMeta
-      | enableMetaData =
-          case _crContinuation cr of
-            Nothing -> Nothing
-            Just pe -> Just $ HM.fromList
-              [("related-transaction", toJSON pe)] -- TODO: document, make nicer?
-      | otherwise = Nothing
+    txMeta = case _crContinuation cr of
+      Nothing -> Nothing
+      Just pe -> Just $ HM.fromList
+        [("related-transaction", toJSON pe)] -- TODO: document, make nicer?
 
 
 pactHashToTransactionId :: PactHash -> TransactionId
@@ -199,22 +196,18 @@ operation ostatus otype txid acctLog idx related =
     , _operation_metadata = opMeta
     }
   where
-    opMeta
-      | enableMetaData = Just $ HM.fromList
-        [ ("txId", toJSON txid)
-        , ("totalBalance", toJSON $ kdaToRosettaAmount $
-            _accountLogBalanceTotal acctLog)
-        , ("prevOwnership", _accountLogPrevGuard acctLog) ] -- TODO: document
-      | otherwise = Nothing
+    opMeta = Just $ HM.fromList
+      [ ("txId", toJSON txid)
+      , ("totalBalance", toJSON $ kdaToRosettaAmount $
+          _accountLogBalanceTotal acctLog)
+      , ("prevOwnership", _accountLogPrevGuard acctLog) ] -- TODO: document
     accountId = AccountId
       { _accountId_address = _accountLogKey acctLog
       , _accountId_subAccount = Nothing  -- assumes coin acct contract only
       , _accountId_metadata = accountIdMeta
       }
-    accountIdMeta
-      | enableMetaData = Just $ HM.fromList
-        [ ("currentOwnership", _accountLogCurrGuard acctLog) ]  -- TODO: document
-      | otherwise = Nothing
+    accountIdMeta = Just $ HM.fromList
+      [ ("currentOwnership", _accountLogCurrGuard acctLog) ]  -- TODO: document
 
 
 -- Timestamp of the block in milliseconds since the Unix Epoch.
@@ -242,12 +235,6 @@ kdaToRosettaAmount k = Amount (sshow amount) currency Nothing
 --------------------------------------------------------------------------------
 -- Misc Helper Functions --
 --------------------------------------------------------------------------------
-
--- BUG: validator throws error when writing (some?) unstructured json to db.
--- Disable filling in metadata for now.
--- TODO: how to dynamically pass this? Would be useful to enable for tests at least.
-enableMetaData :: Bool
-enableMetaData = True
 
 -- TODO: document
 maxRosettaNodePeerLimit :: Natural
