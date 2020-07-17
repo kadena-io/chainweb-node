@@ -269,23 +269,23 @@ initPactService' ver cid chainwebLogger bhDb pdb sqlenv config act = do
                 }
         !pst = PactServiceState Nothing mempty initialParentHeader P.noSPVSupport
     runPactServiceM pst pse $ do
+
         -- If the latest header that is stored in the checkpointer was on an
         -- orphaned fork, there is no way to recover it in the call of
         -- 'initalPayloadState.readContracts'. We therefore rewind to the latest
         -- avaliable header in the block header database.
         --
-        initializeParentHeader
+        initializeLatestBlock
         act
   where
     initialBlockState = initBlockState $ genesisHeight ver cid
     loggers = pactLoggers chainwebLogger
     logger = P.newLogger loggers $ P.LogName ("PactService" <> show cid)
 
-initializeParentHeader :: PayloadCasLookup cas => PactServiceM cas ()
-initializeParentHeader = do
-    findLatestValidBlock >>= \case
-        Nothing -> return ()
-        Just b -> rewindTo initialRewindLimit (Just $ ParentHeader b)
+initializeLatestBlock :: PayloadCasLookup cas => PactServiceM cas ()
+initializeLatestBlock = findLatestValidBlock >>= \case
+    Nothing -> return ()
+    Just b -> withBatch $ rewindTo initialRewindLimit (Just $ ParentHeader b)
   where
     initialRewindLimit = Just 1000
 
@@ -602,6 +602,10 @@ validateHashes bHeader pData miner transactions =
           prevOutputsHash newOutputsHash
         ]
 
+-- | When using the checkpointer for evaluating pact code the caller must
+-- indicate whether the result of the evaluation should be persisted or
+-- discarded.
+--
 data WithCheckpointerResult a
     = Discard !a
     | Save BlockHeader !a
@@ -654,13 +658,22 @@ syncParentHeader caller = do
 -- in the current history. It doesn't resolve forks or fast forwards the
 -- checkpointer.
 --
+-- /Assumption:/
+--
+-- This function assumes that '_psParentHeader' has been updated to match the
+-- latest block in the checkpointers. This is guaranteed to be the case after
+-- calling any of 'rewindTo', 'syncParentHeader', 'withCheckPointerRewind',
+-- 'withCheckPointerWithoutRewind', or 'withCurrentCheckpointer'.
+--
 -- /NOTE:/
 --
 -- In most use cases one needs to rewind the checkpointer first to the target
 -- and function 'withCheckpointer' should be preferred.
 --
--- Only use this function when 1. you need the extra performance from skipping
--- the call to 'rewindTo' and 2. you know exactly what you do.
+-- Only use this function when
+--
+-- 1. you need the extra performance from skipping the call to 'rewindTo' and
+-- 2. you know exactly what you do.
 --
 withCheckpointerWithoutRewind
     :: PayloadCasLookup cas
@@ -682,15 +695,19 @@ withCheckpointerWithoutRewind target caller act = do
     unlessM ((<= 1) <$> asks _psCheckpointerDepth) $ do
         error $ "Code invariant violation: to many nested calls of withCheckpointerRewind. Please report this as a bug."
 
+    case target of
+        Just h -> setParentHeader (caller <> ".withCheckpointerWithoutRewind") h
+        Nothing -> return ()
+
     local (over psCheckpointerDepth succ) $ mask $ \restore -> do
         cenv <- restore $ do
-            r <- liftIO $ _cpRestore checkPointer checkpointerTarget
+            r <- liftIO $! _cpRestore checkPointer checkpointerTarget
             return r
 
         try (restore (act cenv)) >>= \case
-            Left e -> discardTx >> throwM @_ @SomeException e
-            Right (Discard !result) -> discardTx >> return result
-            Right (Save header !result) -> saveTx header >> return result
+            Left !e -> discardTx checkPointer >> throwM @_ @SomeException e
+            Right (Discard !result) -> discardTx checkPointer >> return result
+            Right (Save header !result) -> saveTx checkPointer header >> return result
   where
     checkpointerTarget = case target of
         Nothing -> Nothing
@@ -698,13 +715,14 @@ withCheckpointerWithoutRewind target caller act = do
             -- the second argument of _cpRestore expects the hash of the parent
             -- and the height of the parent plus one.
 
-    discardTx = finalizeCheckpointer _cpDiscard
-    saveTx !header = do
+    discardTx checkPointer = liftIO $! _cpDiscard checkPointer
+
+    saveTx checkPointer !header = do
         -- TODO: _cpSave is a complex call. If any thing in there throws
         -- an exception it would result in a pending tx.
-        finalizeCheckpointer (flip _cpSave $ _blockHash header)
+        liftIO $! _cpSave checkPointer $ _blockHash header
         modify' $ set psStateValidated (Just header)
-        setParentHeader (caller <> ".withCheckpointerWithoutRewind") (ParentHeader header)
+        setParentHeader (caller <> ".withCheckpointerWithoutRewind.saveTx") (ParentHeader header)
 
 -- | 'withCheckpointer' but using the cached parent header for target.
 --
@@ -715,6 +733,8 @@ withCurrentCheckpointer
     -> PactServiceM cas a
 withCurrentCheckpointer caller act = do
     ph <- syncParentHeader "withCurrentCheckpointer"
+        -- discover the header for the latest block that is stored in the
+        -- checkpointer.
     withCheckpointerRewind (Just 0) (Just ph) caller act
 
 -- | Execute an action in the context of an @Block@ that is provided by the
@@ -732,18 +752,16 @@ withCheckpointerRewind
         -- ^ if set, limit rewinds to this delta
     -> Maybe ParentHeader
         -- ^ The parent header to which the checkpointer is restored
+        --
+        -- 'Nothing' restores the checkpointer for evaluating the genesis block.
+        --
     -> String
     -> (PactDbEnv' -> PactServiceM cas (WithCheckpointerResult a))
     -> PactServiceM cas a
 withCheckpointerRewind rewindLimit p caller act = do
     rewindTo rewindLimit p
+        -- This updates '_psParentHeader'
     withCheckpointerWithoutRewind p caller act
-
-finalizeCheckpointer :: (Checkpointer -> IO ()) -> PactServiceM cas ()
-finalizeCheckpointer finalize = do
-    checkPointer <- getCheckpointer
-    liftIO $! finalize checkPointer
-
 
 _liftCPErr :: Either String a -> PactServiceM cas a
 _liftCPErr = either internalError' return
@@ -1037,7 +1055,6 @@ execNewBlock
 execNewBlock mpAccess parent miner = handle onTxFailure $ do
     updateMempool
     withDiscardedBatch $ do
-      setParentHeader "execNewBlock" parent
       newTrans <- withCheckpointerRewind newblockRewindLimit (Just parent) "preBlock" doPreBlock
       withCheckpointerRewind (Just 0) (Just parent) "execNewBlock" (doNewBlock newTrans)
   where
@@ -1089,8 +1106,6 @@ execNewBlock mpAccess parent miner = handle onTxFailure $ do
                 <> " (parent height = " <> sshow pHeight <> ")"
                 <> " (parent hash = " <> sshow pHash <> ")"
 
-        setParentHeader "doNewBlock" parent -- could have been overwritten in rewind, so set again
-
         -- NEW BLOCK COINBASE: Reject bad coinbase, always use precompilation
         results <- execTransactions False miner newTrans
           (EnforceCoinbaseFailure True)
@@ -1108,6 +1123,12 @@ execNewBlock mpAccess parent miner = handle onTxFailure $ do
       mpaSetLastHeader mpAccess $ _parentHeader parent
 
 
+-- | Run a batch of checkpointer operations, possibly involving the evaluation
+-- transactions accross several blocks using more than a single call of
+-- 'withCheckPointerRewind' or 'withCurrentCheckpointer', and persist the final
+-- state. In case of an failure, the checkpointer is reverted to the initial
+-- state.
+--
 withBatch :: PactServiceM cas a -> PactServiceM cas a
 withBatch act = do
     cp <- getCheckpointer
@@ -1117,6 +1138,11 @@ withBatch act = do
         liftIO $ _cpCommitCheckpointerBatch cp
         return v
 
+-- | Run a batch of checkpointer operations, possibly involving the evaluation
+-- transactions accross several blocks using more than a single call of
+-- 'withCheckPointerRewind' or 'withCurrentCheckpointer', and discard the final
+-- state at the end.
+--
 withDiscardedBatch :: PactServiceM cas a -> PactServiceM cas a
 withDiscardedBatch act = do
     cp <- getCheckpointer
@@ -1182,6 +1208,12 @@ setParentHeader msg ph@(ParentHeader bh) = do
 
 -- | Execute a block -- only called in validate either for replay or for validating current block.
 --
+-- /NOTE:/
+--
+-- Any call of this function must occur within a dedicated call to
+-- 'withChwithCheckpointerRewind', 'withCurrentCheckpointer' or
+-- 'withCheckPointerWithoutRewind'.
+--
 playOneBlock
     :: (PayloadCasLookup cas)
     => BlockHeader
@@ -1193,6 +1225,10 @@ playOneBlock
     -> PactDbEnv'
     -> PactServiceM cas (T2 Miner Transactions)
 playOneBlock currHeader plData pdbenv = do
+
+    unlessM ((> 0) <$> asks _psCheckpointerDepth) $ do
+        error $ "Code invariant violation: playOneBlock must be called with withCheckpointer. Please report this as a bug."
+
     miner <- decodeStrictOrThrow' (_minerData $ _payloadDataMiner plData)
     trans <- liftIO $ transactionsFromPayload plData
     cp <- getCheckpointer
@@ -1207,9 +1243,7 @@ playOneBlock currHeader plData pdbenv = do
       then
         return (_blockCreationTime currHeader, False)
       else do
-        -- FIXME don't do this twice. Instead store the parent header in the context
-        -- (and don't use the current header at all)
-        parent <- ParentHeader <$!> lookupBlockHeader  (_blockParent currHeader) "playOneBlock"
+        parent <- use psParentHeader
         return (_blockCreationTime $ _parentHeader parent, True)
 
     -- prop_tx_ttl_validate
@@ -1245,13 +1279,10 @@ playOneBlock currHeader plData pdbenv = do
 
     go m txs = if isGenesisBlock
       then do
-        setParentHeader "playOneBlock:genesis" (ParentHeader currHeader)
         -- GENESIS VALIDATE COINBASE: Reject bad coinbase, use date rule for precompilation
         execTransactions True m txs
           (EnforceCoinbaseFailure True) (CoinbaseUsePrecompiled False) pdbenv
       else do
-        parent <- ParentHeader <$!> lookupBlockHeader (_blockParent currHeader) "playOneBlock.go"
-        setParentHeader "playOneBlock:normal" parent
         -- VALIDATE COINBASE: back-compat allow failures, use date rule for precompilation
         execTransactions False m txs
           (EnforceCoinbaseFailure False) (CoinbaseUsePrecompiled False) pdbenv
@@ -1281,8 +1312,9 @@ rewindTo rewindLimit (Just (ParentHeader parent)) = do
         Nothing -> throwM NoBlockValidatedYet
         Just p -> return p
 
-    unless (lastHash == parentHash) $ do
-
+    if lastHash == parentHash
+      then setParentHeader "rewindTo" (ParentHeader parent)
+      else do
         lastHeader <- findLatestValidBlock >>= maybe failNonGenesisOnEmptyDb return
         logInfo $ T.unpack $ "rewind from last to checkpointer target"
             <> ". last height: " <> sshow (_blockHeight lastHeader)
@@ -1313,10 +1345,19 @@ rewindTo rewindLimit (Just (ParentHeader parent)) = do
         bhdb <- asks _psBlockHeaderDb
         (!commonAncestor, _, newBlocks) <-
             liftIO $ collectForkBlocks bhdb lastHeader parent
-        -- play fork blocks
-        V.mapM_ fastForward $ V.zip
-            (ParentHeader <$> commonAncestor `V.cons` newBlocks)
-            newBlocks
+
+        if V.null newBlocks
+          then
+            -- If newBlocks is empty the checkpointer isn't restored via
+            -- 'fastForward'. So we do an empty 'withCheckPointerWithoutRewind'.
+            withCheckpointerWithoutRewind (Just $ ParentHeader commonAncestor) "rewindTo" $ \_ ->
+                return $! Save commonAncestor ()
+
+          else
+            -- play fork blocks
+            V.mapM_ fastForward $ V.zip
+                (ParentHeader <$> commonAncestor `V.cons` newBlocks)
+                newBlocks
 
     fastForward
         :: forall c . PayloadCasLookup c
@@ -1352,17 +1393,16 @@ execValidateBlock currHeader plData = do
         withCheckpointerRewind (Just reorgLimit) target "execValidateBlock" $ \pdbenv -> do
             !result <- playOneBlock currHeader plData pdbenv
             return $! Save currHeader result
-    either throwM setCurrAsParent $!
+    either throwM return $!
         validateHashes currHeader plData miner transactions
   where
     getTarget
         | isGenesisBlockHeader currHeader = return Nothing
         | otherwise = Just . ParentHeader
             <$> lookupBlockHeader (_blockParent currHeader) "execValidateBlock"
-
-    -- On final success, use header as the new/next parent header
-    setCurrAsParent pwos =
-        setParentHeader "setCurrAsParent" (ParentHeader currHeader) >> return pwos
+                -- It is up to the user of pact serivce to guaranteed that this
+                -- succeeds. If this fails it usually means that the block
+                -- header database is corrupted.
 
     -- TODO: knob to configure whether this rewind is fatal
     fatalRewindError a h1 h2 = do
@@ -1619,3 +1659,57 @@ freeModuleLoadGasModel = modifiedGasModel
 --
 officialGasModel :: P.GasModel
 officialGasModel = freeModuleLoadGasModel
+
+-- -------------------------------------------------------------------------- --
+-- Checkpointer Batches
+--
+-- All usages of the checkpointer must be in the context of a checkpointer
+-- batch, which ensure proper finalization of checkpointer usage by pact serice
+-- calls.
+
+-- TODO move the following function into this section
+--
+-- * 'withBatch'
+-- * 'withDiscardedBatch'
+
+-- -------------------------------------------------------------------------- --
+-- Pact Service Checkpointer
+--
+-- Within Chainweb Pact code is evaluated in the context of a parent header,
+-- which the parent block, which is the latest block that was commit to the
+-- block chain before the new transaction code is evaluated.
+--
+-- There are two function for restoring the checkpointer for evaluation of back
+-- code:
+--
+-- * 'withCheckPointerRewind' and
+-- * 'withCurrentCheckpointer'.
+--
+-- 'withCheckPointerRewind' rewinds the checkpointer to the provided parent
+-- header. 'withCurrentCheckpointer' evaluates the pact transaction within the
+-- context of the current checkpointer state. Both functions update the value of
+-- '_psParentHeader' at the beginning and the end of each call.
+--
+-- The result of the evaluation indicates whether the result of the evaluation
+-- is persisted, i.e. is commited as a new block, or is discarded, i.e.
+-- subsequent evaluation are performed the same context as the current one.
+--
+
+-- TODO: move the following functions into this section:
+--
+-- * 'withCheckpointerRewind'
+-- * 'withCurrentCheckpointer'
+
+-- -------------------------------------------------------------------------- --
+-- Low Level Pact Service Checkpointer Tools
+
+-- TODO: move the following functions into this section:
+--
+-- * 'withCheckpointerWithoutRewind'
+-- * 'rewindTo'
+-- * 'findLatestValidBlock'
+-- * 'setParentHeader'
+-- * 'syncParentHeader'
+-- * 'getCheckpointer'
+-- * 'initializeLatestBlock'
+--
