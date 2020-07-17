@@ -275,7 +275,7 @@ initPactService' ver cid chainwebLogger bhDb pdb sqlenv config act = do
         -- 'initalPayloadState.readContracts'. We therefore rewind to the latest
         -- avaliable header in the block header database.
         --
-        initializeLatestBlock
+        exitOnRewindLimitExceeded $ initializeLatestBlock
         act
   where
     initialBlockState = initBlockState $ genesisHeight ver cid
@@ -524,6 +524,23 @@ toPayloadWithOutputs mi ts =
         blockPL = blockPayload blockTrans blockOuts
         plData = payloadData blockTrans blockPL
      in payloadWithOutputs plData cb transOuts
+
+exitOnRewindLimitExceeded :: PactServiceM cas a -> PactServiceM cas a
+exitOnRewindLimitExceeded = handle $ \case
+    e@RewindLimitExceeded{} -> do
+        killFunction <- asks _psOnFatalError
+        liftIO $ killFunction e (encodeToText $ msg e)
+    e -> throwM e
+  where
+    msg e = A.object
+        [ "details" A..= e
+        , "message" A..= id @T.Text "Your node is part of a losing fork longer than your\
+            \ reorg-limit, which is a situation that requires manual\
+            \ intervention.\
+            \ For information on recovering from this, please consult:\
+            \ https://github.com/kadena-io/chainweb-node/blob/master/\
+            \ docs/RecoveringFromDeepForks.md"
+        ]
 
 data CRLogPair = CRLogPair P.Hash [P.TxLog A.Value]
 instance A.ToJSON CRLogPair where
@@ -1331,10 +1348,7 @@ rewindTo rewindLimit (Just (ParentHeader parent)) = do
 
     failOnTooLowRequestedHeight (Just limit) lastHeader
         | parentHeight + 1 + limit < lastHeight = -- need to stick with addition because Word64
-            throwM $ RewindLimitExceeded
-                ("Requested rewind exceeds limit (" <> sshow limit <> ")")
-                parentHeight
-                lastHeight
+            throwM $ RewindLimitExceeded (int limit) parentHeight lastHeight parent
       where
         lastHeight = _blockHeight lastHeader
     failOnTooLowRequestedHeight _ _ = return ()
@@ -1389,7 +1403,7 @@ execValidateBlock currHeader plData = do
     target <- getTarget
     psEnv <- ask
     let reorgLimit = fromIntegral $ view psReorgLimit psEnv
-    T2 miner transactions <- handle handleEx $ withBatch $ do
+    T2 miner transactions <- exitOnRewindLimitExceeded $ withBatch $ do
         withCheckpointerRewind (Just reorgLimit) target "execValidateBlock" $ \pdbenv -> do
             !result <- playOneBlock currHeader plData pdbenv
             return $! Save currHeader result
@@ -1403,36 +1417,6 @@ execValidateBlock currHeader plData = do
                 -- It is up to the user of pact serivce to guaranteed that this
                 -- succeeds. If this fails it usually means that the block
                 -- header database is corrupted.
-
-    -- TODO: knob to configure whether this rewind is fatal
-    fatalRewindError a h1 h2 = do
-        let msg = concat [
-              "Fatal error: "
-              , T.unpack a
-              , ". Our previous cut block height: "
-              , show h1
-              , ", fork ancestor's block height: "
-              , show h2
-              , ".\nOffending new block: \n"
-              , show currHeader
-              , "\n\n"
-              , "Your node is part of a losing fork longer than your \
-                \reorg-limit, which\nis a situation that requires manual \
-                \intervention. \n\
-                \For information on recovering from this, please consult:\n\
-                \    https://github.com/kadena-io/chainweb-node/blob/master/\
-                \docs/RecoveringFromDeepForks.md"
-              ]
-
-        -- TODO: will this work? is it the best way? If we exit the process
-        -- then it will be difficult to test this. An alternative is to put the
-        -- "handle fatal error" routine into the PactServiceEnv
-        killFunction <- asks _psOnFatalError
-        liftIO $ killFunction (RewindLimitExceeded a h1 h2) (T.pack msg)
-
-    -- Handle RewindLimitExceeded, rethrow everything else
-    handleEx (RewindLimitExceeded a h1 h2) = fatalRewindError a h1 h2
-    handleEx e = throwM e
 
 execTransactions
     :: Bool
