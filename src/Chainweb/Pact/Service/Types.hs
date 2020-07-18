@@ -79,7 +79,16 @@ data PactException
   | TransactionValidationException [(PactHash, Text)]
   | PactDuplicateTableError Text
   | TransactionDecodeFailure Text
-  | RewindLimitExceeded Text BlockHeight BlockHeight
+  | RewindLimitExceeded
+      { _rewindExceededLimit :: !Natural
+          -- ^ Rewind limit
+      , _rewindExceededLastHeight :: !BlockHeight
+          -- ^ current height
+      , _rewindExceededForkHeight :: !BlockHeight
+          -- ^ fork height
+      , _rewindExceededTarget :: !BlockHeader
+          -- ^ target header
+      }
   | BlockHeaderLookupFailure Text
   deriving (Eq,Generic)
 
