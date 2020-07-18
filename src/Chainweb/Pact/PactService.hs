@@ -690,7 +690,7 @@ syncParentHeader caller = do
 -- Only use this function when
 --
 -- 1. you need the extra performance from skipping the call to 'rewindTo' and
--- 2. you know exactly what you do.
+-- 2. you know exactly what you are doing.
 --
 withCheckpointerWithoutRewind
     :: PayloadCasLookup cas
@@ -1404,7 +1404,7 @@ execValidateBlock
     -> PayloadData
     -> PactServiceM cas PayloadWithOutputs
 execValidateBlock currHeader plData = do
-    -- The parent block header must be available in the block header data base
+    -- The parent block header must be available in the block header database
     target <- getTarget
     psEnv <- ask
     let reorgLimit = fromIntegral $ view psReorgLimit psEnv
@@ -1419,7 +1419,7 @@ execValidateBlock currHeader plData = do
         | isGenesisBlockHeader currHeader = return Nothing
         | otherwise = Just . ParentHeader
             <$> lookupBlockHeader (_blockParent currHeader) "execValidateBlock"
-                -- It is up to the user of pact serivce to guaranteed that this
+                -- It is up to the user of pact service to guaranteed that this
                 -- succeeds. If this fails it usually means that the block
                 -- header database is corrupted.
 
@@ -1607,7 +1607,7 @@ execLookupPactTxs restorePoint txs
 -- (recovering from forks).
 --
 -- First the result of '_cpGetLatestBlock' is checked. If the respective block
--- header isn't available, the fucntion recursively checks the result of
+-- header isn't available, the function recursively checks the result of
 -- '_cpGetBlockParent'.
 --
 findLatestValidBlock :: PactServiceM cas (Maybe BlockHeader)
