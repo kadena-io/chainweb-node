@@ -96,7 +96,7 @@ import Chainweb.Miner.Pact
 import Chainweb.Pact.Service.Types
 import Chainweb.Pact.Templates
 import Chainweb.Pact.Transactions.UpgradeTransactions
-import Chainweb.Pact.Types
+import Chainweb.Pact.Types hiding (logError)
 import Chainweb.Transaction
 import Chainweb.Utils (encodeToByteString, sshow, tryAllSynchronous)
 import Chainweb.Version as V

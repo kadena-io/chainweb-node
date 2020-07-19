@@ -8,14 +8,14 @@
 
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 
--- | SQLite interaction utilities
---
+-- |
 -- Module: Chainweb.Pact.ChainwebPactDb
 -- Copyright: Copyright © 2018 - 2020 Kadena LLC.
 -- License: MIT
 -- Maintainer: Emmanuel Denloye-Ito <emmanuel@kadena.io>
 -- Stability: experimental
 --
+-- SQLite interaction utilities.
 
 module Chainweb.Pact.Backend.Utils
   ( -- * General utils
@@ -41,6 +41,9 @@ module Chainweb.Pact.Backend.Utils
   , withSqliteDb
   , startSqliteDb
   , stopSqliteDb
+  , withSQLiteConnection
+  , openSQLiteConnection
+  , closeSQLiteConnection
   , withTempSQLiteConnection
   -- * SQLite Pragmas
   , chainwebPragmas

@@ -35,6 +35,7 @@ import Chainweb.ChainId
 import Chainweb.Logger
 import Chainweb.Miner.Pact
 import Chainweb.Pact.PactService
+import Chainweb.Pact.Backend.Utils
 import Chainweb.Pact.Types
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
