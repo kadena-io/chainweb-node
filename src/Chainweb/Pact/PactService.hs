@@ -21,11 +21,9 @@
 --
 module Chainweb.Pact.PactService
     ( -- * SQLite Database
-      withSqliteDb
-    , startSqliteDb
-    , stopSqliteDb
+
       -- * For Chainweb
-    , initialPayloadState
+      initialPayloadState
     , execNewBlock
     , execValidateBlock
     , execTransactions
@@ -76,7 +74,6 @@ import Data.Tuple.Strict (T2(..))
 import Data.Vector (Vector)
 import qualified Data.Vector as V
 
-import System.Directory
 import System.IO
 import System.LogLevel
 
@@ -114,10 +111,8 @@ import Chainweb.BlockHeight
 import Chainweb.Logger
 import Chainweb.Mempool.Mempool as Mempool
 import Chainweb.Miner.Pact
-import Chainweb.NodeId
 import Chainweb.Pact.Backend.RelationalCheckpointer (initRelationalCheckpointer)
 import Chainweb.Pact.Backend.Types
-import Chainweb.Pact.Backend.Utils
 import Chainweb.Pact.NoCoinbase
 import Chainweb.Pact.Service.PactQueue (PactQueue, getNextRequest)
 import Chainweb.Pact.Service.Types
@@ -135,69 +130,6 @@ import Chainweb.Version
 import Data.CAS (casLookupM)
 import Data.LogMessage
 import Utils.Logging.Trace
-
-
-withSqliteDb
-    :: Logger logger
-    => ChainwebVersion
-    -> ChainId
-    -> logger
-    -> Maybe FilePath
-    -> Maybe NodeId
-    -> Bool
-    -> (SQLiteEnv -> IO a)
-    -> IO a
-withSqliteDb ver cid logger dbDir nodeid resetDb = bracket
-    (startSqliteDb ver cid logger dbDir nodeid resetDb)
-    stopSqliteDb
-
-startSqliteDb
-    :: Logger logger
-    => ChainwebVersion
-    -> ChainId
-    -> logger
-    -> Maybe FilePath
-    -> Maybe NodeId
-    -> Bool
-    -> IO SQLiteEnv
-startSqliteDb ver cid logger dbDir nodeid doResetDb = do
-    sqlitedir <- getSqliteDir
-    when doResetDb $ resetDb sqlitedir
-    createDirectoryIfMissing True sqlitedir
-    textLog Info $ mconcat
-        [ "opened sqlitedb for "
-        , sshow cid
-        , " in directory "
-        , sshow sqlitedir
-        ]
-    let sqlitefile = getSqliteFile sqlitedir
-    textLog Info $ "opening sqlitedb named " <> T.pack sqlitefile
-    openSQLiteConnection sqlitefile chainwebPragmas
-  where
-    textLog = logFunctionText logger
-
-    resetDb sqlitedir = do
-      exist <- doesDirectoryExist sqlitedir
-      when exist $ removeDirectoryRecursive sqlitedir
-
-    getSqliteFile dir = mconcat
-        [ dir
-        , "/pact-v1-chain-"
-        , T.unpack (chainIdToText cid)
-        , ".sqlite"
-        ]
-
-    getSqliteDir = case dbDir of
-        Nothing -> getXdgDirectory XdgData $ mconcat
-            [ "chainweb-node/"
-            , show ver
-            , maybe mempty (("/" <>) . T.unpack . toText) nodeid
-            , "/sqlite"
-            ]
-        Just d -> return (d <> "sqlite")
-
-stopSqliteDb :: SQLiteEnv -> IO ()
-stopSqliteDb = closeSQLiteConnection
 
 ------------------------------------------------------------------------------
 
