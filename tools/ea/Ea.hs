@@ -51,6 +51,7 @@ import Text.Printf
 import Chainweb.BlockHeaderDB
 import Chainweb.Logger (genericLogger)
 import Chainweb.Miner.Pact (noMiner)
+import Chainweb.Pact.Backend.Utils
 import Chainweb.Pact.PactService
 import Chainweb.Pact.Types (defaultPactServiceConfig)
 import Chainweb.Pact.Utils (toTxCreationTime)

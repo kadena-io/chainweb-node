@@ -1,3 +1,4 @@
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveFunctor #-}
@@ -74,6 +75,7 @@ module Chainweb.Pact.Types
   , psAllowReadsInLocal
   , psIsBatch
   , psCheckpointerDepth
+  , getCheckpointer
 
     -- * TxContext
   , TxContext(..)
@@ -95,6 +97,14 @@ module Chainweb.Pact.Types
   , evalPactServiceM
   , execPactServiceM
 
+    -- * Logging with Pact logger
+
+  , pactLoggers
+  , logg
+  , logInfo
+  , logError
+  , logDebug
+
     -- * types
   , ModuleCache
 
@@ -114,6 +124,7 @@ import Control.Monad.State.Strict
 
 
 import Data.Aeson hiding (Error)
+import Data.Default (def)
 import Data.HashMap.Strict (HashMap)
 import qualified Data.Set as S
 import Data.Text (pack, unpack, Text)
@@ -133,7 +144,7 @@ import Pact.Types.ChainId (NetworkId)
 import Pact.Types.ChainMeta
 import Pact.Types.Command
 import Pact.Types.Gas
-import Pact.Types.Logger
+import qualified Pact.Types.Logger as P
 import Pact.Types.Names
 import Pact.Types.Persistence (ExecutionMode, TxLog)
 import Pact.Types.Runtime (ExecutionConfig(..), ExecutionFlag(..), ModuleData)
@@ -148,6 +159,7 @@ import Chainweb.BlockHeader
 import Chainweb.BlockHeight
 import Chainweb.BlockHeaderDB
 import Chainweb.Miner.Pact
+import Chainweb.Logger
 import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.Service.Types
 import Chainweb.Payload.PayloadStore
@@ -212,7 +224,7 @@ makeLenses ''TransactionState
 data TransactionEnv db = TransactionEnv
     { _txMode :: !ExecutionMode
     , _txDbEnv :: PactDbEnv db
-    , _txLogger :: !Logger
+    , _txLogger :: !P.Logger
     , _txPublicData :: !PublicData
     , _txSpvSupport :: !SPVSupport
     , _txNetworkId :: !(Maybe NetworkId)
@@ -465,3 +477,37 @@ execPactServiceM
     -> IO PactServiceState
 execPactServiceM st env act
     = execStateT (runReaderT (_unPactServiceM act) env) st
+
+
+getCheckpointer :: PactServiceM cas Checkpointer
+getCheckpointer = view (psCheckpointEnv . cpeCheckpointer)
+
+
+
+pactLogLevel :: String -> LogLevel
+pactLogLevel "INFO" = Info
+pactLogLevel "ERROR" = Error
+pactLogLevel "DEBUG" = Debug
+pactLogLevel "WARN" = Warn
+pactLogLevel _ = Info
+
+pactLoggers :: Logger logger => logger -> P.Loggers
+pactLoggers logger = P.Loggers $ P.mkLogger (error "ignored") fun def
+  where
+    fun :: P.LoggerLogFun
+    fun _ (P.LogName n) cat msg = do
+        let namedLogger = addLabel ("logger", pack n) logger
+        logFunctionText namedLogger (pactLogLevel cat) $ pack msg
+
+logg :: String -> String -> PactServiceM cas ()
+logg level msg = view (psCheckpointEnv . cpeLogger)
+  >>= \l -> liftIO $ P.logLog l level msg
+
+logInfo :: String -> PactServiceM cas ()
+logInfo = logg "INFO"
+
+logError :: String -> PactServiceM cas ()
+logError = logg "ERROR"
+
+logDebug :: String -> PactServiceM cas ()
+logDebug = logg "DEBUG"

@@ -14,6 +14,7 @@
 --
 module Chainweb.BlockHeaderDB.PruneForks
 ( pruneForks
+, pruneForks_
 ) where
 
 import Control.Monad
@@ -46,7 +47,7 @@ import Chainweb.Utils hiding (Codec)
 
 import Data.CAS
 import Data.CAS.RocksDB
-
+import Data.LogMessage
 
 -- -------------------------------------------------------------------------- --
 -- Prune Old Forks
@@ -91,7 +92,18 @@ pruneForks
         -- of the block is shared with any block header that isn't marked for
         -- deletion.
     -> IO Int
-pruneForks logger cdb limit callback = do
+pruneForks logger = pruneForks_ logg
+  where
+    logg = logFunctionText (setComponent "pact-tx-replay" logger)
+
+
+pruneForks_
+    :: LogFunctionText
+    -> BlockHeaderDb
+    -> Natural
+    -> (BlockHeader -> Bool -> IO ())
+    -> IO Int
+pruneForks_ logg cdb limit callback = do
 
     -- find all roots at \(maxEntry - limit\)
     --
@@ -141,7 +153,6 @@ pruneForks logger cdb limit callback = do
         $ S.foldM_ (go marked markedPayloads) (return (mempty, 0)) (return . snd)
 
   where
-    logg = logFunctionText (setComponent "pact-tx-replay" logger)
 
     -- The falsePositiveSet collects all deleted nodes that are known to be
     -- false positives.
