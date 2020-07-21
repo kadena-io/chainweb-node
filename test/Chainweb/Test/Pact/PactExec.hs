@@ -48,6 +48,7 @@ import Chainweb.BlockHeaderDB (BlockHeaderDb)
 import Chainweb.Graph
 import Chainweb.Miner.Pact
 import Chainweb.Pact.PactService
+import Chainweb.Pact.PactService.ExecBlock
 import Chainweb.Pact.Types
 import Chainweb.Pact.Service.Types
 import Chainweb.Payload

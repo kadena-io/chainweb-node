@@ -270,6 +270,8 @@ library
         , Chainweb.Pact.Backend.Utils
         , Chainweb.Pact.NoCoinbase
         , Chainweb.Pact.PactService
+        , Chainweb.Pact.PactService.Checkpointer
+        , Chainweb.Pact.PactService.ExecBlock
         , Chainweb.Pact.RestAPI
         , Chainweb.Pact.RestAPI.Server
         , Chainweb.Pact.RestAPI.Client
@@ -632,8 +634,10 @@ executable cwtool
     main-is: CwTool.hs
     other-modules:
         Allocations
+        Chainweb.Test.HostAddress
         Chainweb.Test.MultiNode
         Chainweb.Test.Orphans.Internal
+        Chainweb.Test.Orphans.Time
         Chainweb.Test.P2P.Peer.BootstrapConfig
         Chainweb.Test.Utils
         Chainweb.Test.Utils.BlockHeader
@@ -643,12 +647,14 @@ executable cwtool
         EncodeDecodeB64Util
         GenConf
         HeaderDump
+        KnownGraphs
         Network.X509.SelfSigned.Test
+        P2P.Test.Orphans
         RunNodes
         SlowTests
-        TxStream
-        KnownGraphs
         TestMiner
+        TxStream
+
     build-depends:
         -- internal
           chainweb
