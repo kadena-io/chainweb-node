@@ -21,7 +21,7 @@
 --
 module Chainweb.Pact.PactService.ExecBlock
     ( setParentHeader
-    , playOneBlock
+    , execBlock
     , execTransactions
     , toHashCommandResult
     , minerReward
@@ -106,7 +106,7 @@ setParentHeader msg ph@(ParentHeader bh) = do
 -- 'withChwithCheckpointerRewind', 'withCurrentCheckpointer' or
 -- 'withCheckPointerWithoutRewind'.
 --
-playOneBlock
+execBlock
     :: (PayloadCasLookup cas)
     => BlockHeader
         -- ^ this is the current header. We may consider changing this to the parent
@@ -116,10 +116,10 @@ playOneBlock
     -> PayloadData
     -> PactDbEnv'
     -> PactServiceM cas (T2 Miner Transactions)
-playOneBlock currHeader plData pdbenv = do
+execBlock currHeader plData pdbenv = do
 
     unlessM ((> 0) <$> asks _psCheckpointerDepth) $ do
-        error $ "Code invariant violation: playOneBlock must be called with withCheckpointer. Please report this as a bug."
+        error $ "Code invariant violation: execBlock must be called with withCheckpointer. Please report this as a bug."
 
     miner <- decodeStrictOrThrow' (_minerData $ _payloadDataMiner plData)
     trans <- liftIO $ transactionsFromPayload plData

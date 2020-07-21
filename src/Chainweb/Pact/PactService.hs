@@ -651,7 +651,7 @@ execValidateBlock currHeader plData = do
     let reorgLimit = fromIntegral $ view psReorgLimit psEnv
     T2 miner transactions <- exitOnRewindLimitExceeded $ withBatch $ do
         withCheckpointerRewind (Just reorgLimit) target "execValidateBlock" $ \pdbenv -> do
-            !result <- playOneBlock currHeader plData pdbenv
+            !result <- execBlock currHeader plData pdbenv
             return $! Save currHeader result
     either throwM return $!
         validateHashes currHeader plData miner transactions

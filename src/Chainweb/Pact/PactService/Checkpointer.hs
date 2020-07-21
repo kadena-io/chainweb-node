@@ -350,7 +350,7 @@ rewindTo rewindLimit (Just (ParentHeader parent)) = do
         -- history, if needed.
         withCheckpointerWithoutRewind (Just target) "fastForward" $ \pdbenv -> do
             payload <- liftIO (payloadWithOutputsToPayloadData <$> casLookupM payloadDb bpHash)
-            void $ playOneBlock block payload pdbenv
+            void $ execBlock block payload pdbenv
             return $! Save block ()
         -- double check output hash here?
 
