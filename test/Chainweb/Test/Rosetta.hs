@@ -267,7 +267,7 @@ matchNonGenesisSingleTransactionsToLogs = do
   where
     run :: T.Text -> Either String (Maybe Transaction)
     run trk = getActual cases f
-      where f logs initial rest = nonGenesisTransaction logs initial rest (textToRk trk)
+      where f logs cid initial rest = nonGenesisTransaction logs cid initial rest (textToRk trk)
 
     targets =
       [ "ReqKey1", "ReqKey0", "ReqKey3", "ReqKey2", "ReqKey4", "RandomReqKey"]
@@ -424,6 +424,7 @@ instance PendingRosettaTx MockCommandResult where
 
 type MatchFunction tx =
      Map TxId [AccountLog]
+  -> ChainId
   -> CoinbaseTx MockCommandResult
   -> V.Vector MockCommandResult
   -> Either String tx
@@ -491,20 +492,22 @@ createOperations opsCases = concat $! map f opsCases
       operation Successful otype tid acctLog (opIdx oid) related
 
 createExpectedRosettaTx :: MatchRosettaTx -> (String, Transaction)
-createExpectedRosettaTx m = (msg, mockRosettaTx rk ops)
+createExpectedRosettaTx m = (msg, mockRosettaTx rk cid ops)
   where
     rk = _matchRosettaTx_requestKey m
     msg = _matchRosettaTx_caseLabel m
     ops = createOperations (_matchRosettaTx_operations m)
+    cid = unsafeChainId 0
 
 
 getActual :: [MatchRosettaTx] -> MatchFunction tx -> Either String tx
 getActual cases f =
   case (createMockCmdResults cases) of
-    coinbaseResult:restResults -> f logs coinbaseResult (V.fromList $! restResults)
+    coinbaseResult:restResults -> f logs cid coinbaseResult (V.fromList $! restResults)
     _ -> Left "Missing coinbase case"
   where
     logs = createLogsMap cases
+    cid = unsafeChainId 0
 
 testNonGenesisBlock :: String -> [MatchRosettaTx] -> Assertion
 testNonGenesisBlock msg cases = do
@@ -603,8 +606,8 @@ assertEqualMap msg liF m1 m2 = do
            Nothing -> assertFailure $ (msg' ++ ": second map didn't have key")
            Just e2 -> assertEqualList msg' liF e1 e2
 
-mockRosettaTx :: T.Text -> [Operation] -> Transaction
-mockRosettaTx mrk ops =
+mockRosettaTx :: T.Text -> ChainId -> [Operation] -> Transaction
+mockRosettaTx mrk _ ops =
   Transaction
   { _transaction_transactionId = TransactionId mrk
   , _transaction_operations = ops

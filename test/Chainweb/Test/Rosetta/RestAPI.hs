@@ -535,6 +535,6 @@ sender09ks = ("sender09", keys, "keys-all")
 
 accountIdMetadata :: [Text] -> Text -> A.Object
 accountIdMetadata keys p = HM.fromList
-  [ "currentOwnership" A..= A.object
+  [ "current-ownership" A..= A.object
     [ "pred" A..= p
     , "keys" A..= keys ]]
