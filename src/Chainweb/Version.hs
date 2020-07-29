@@ -779,7 +779,7 @@ coinV2Upgrade Mainnet01 cid h
     | cid == unsafeChainId 9 = h == 140808
     | otherwise = error $ "invalid chain id " <> sshow cid
 coinV2Upgrade Testnet04 cid h
-    | chainIdInt @Int cid >= 10 = h == 337000
+    | chainIdInt @Int cid >= 10  && chainIdInt @Int cid < 20 = h == 337000
     | otherwise = h == 1
 coinV2Upgrade Development cid h
     | cid == unsafeChainId 0 = h == 3
@@ -918,4 +918,3 @@ oldDaGuard Mainnet01 h = h < 771_414 -- ~ 2020-07-23 16:00:00
 oldDaGuard Testnet04 h = h < 318_204 -- ~ 2020-07-23 16:00:00
 oldDaGuard Development h = h + 30 < to20ChainsDevelopment -- 30 blocks before the transition
 oldDaGuard _ _ = False
-
