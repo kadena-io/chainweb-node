@@ -244,10 +244,19 @@ runBlockUpdateMonitor logger db = L.withLoggerLabel ("component", "block-update-
         <*> pure True -- _blockUpdateOrphaned
         <*> ((0 -) <$> txCount bh) -- _blockUpdateTxCount
 
-runAmberdataBlockMonitor :: (PayloadCasLookup cas, Logger logger) => Maybe ChainId -> logger -> CutDb cas -> IO ()
-runAmberdataBlockMonitor cid logger db
-    = L.withLoggerLabel ("component", "amberdata-block-monitor") logger $ \l ->
+runAmberdataBlockMonitor
+    :: PayloadCasLookup cas
+    => Logger logger
+    => EnableConfig AmberdataConfig
+    -> logger
+    -> CutDb cas
+    -> IO ()
+runAmberdataBlockMonitor config logger db
+    | _enableConfigEnabled config = L.withLoggerLabel ("component", "amberdata-block-monitor") logger $ \l ->
         runMonitorLoop "Chainweb.Logging.amberdataBlockMonitor" l (amberdataBlockMonitor cid l db)
+    | otherwise = return ()
+  where
+    cid = _amberdataChainId $ _enableConfigConfig config
 
 -- type CutLog = HM.HashMap ChainId (ObjectEncoded BlockHeader)
 
@@ -299,7 +308,7 @@ node conf logger = do
             [ runChainweb cw
               -- we should probably push 'onReady' deeper here but this should be ok
             , runCutMonitor (_chainwebLogger cw) (_cutResCutDb $ _chainwebCutResources cw)
-            , runAmberdataBlockMonitor (amberdataChainId conf) (_chainwebLogger cw) (_cutResCutDb $ _chainwebCutResources cw)
+            , runAmberdataBlockMonitor (amberdataConfig conf) (_chainwebLogger cw) (_cutResCutDb $ _chainwebCutResources cw)
             , runQueueMonitor (_chainwebLogger cw) (_cutResCutDb $ _chainwebCutResources cw)
             , runRtsMonitor (_chainwebLogger cw)
             , runBlockUpdateMonitor (_chainwebLogger cw) (_cutResCutDb $ _chainwebCutResources cw)
@@ -312,7 +321,7 @@ node conf logger = do
         Nothing -> getXdgDirectory XdgData
             $ "chainweb-node/" <> sshow v <> "/" <> nodeText <> "/rocksDb"
         Just d -> return d
-    amberdataChainId = _amberdataChainId . _enableConfigConfig . _logConfigAmberdataBackend . _nodeConfigLog
+    amberdataConfig = _logConfigAmberdataBackend . _nodeConfigLog
 
 withNodeLogger
     :: LogConfig
