@@ -778,6 +778,9 @@ coinV2Upgrade Mainnet01 cid h
     | cid == unsafeChainId 8 = h == 140808
     | cid == unsafeChainId 9 = h == 140808
     | otherwise = error $ "invalid chain id " <> sshow cid
+coinV2Upgrade Testnet04 cid h
+    | chainIdInt @Int cid >= 10 = h == 337000
+    | otherwise = h == 1
 coinV2Upgrade Development cid h
     | cid == unsafeChainId 0 = h == 3
     | otherwise = h == 4
