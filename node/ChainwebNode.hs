@@ -173,6 +173,20 @@ pChainwebNodeConfiguration = id
         % long "reset-chain-databases"
         <> help "Reset the chain databases for all chains on startup"
 
+getRocksDbDir :: ChainwebNodeConfiguration -> IO FilePath
+getRocksDbDir conf = (<> "/rocksDb") <$> getDbBaseDir conf
+
+getPactDbDir :: ChainwebNodeConfiguration -> IO FilePath
+getPactDbDir conf =  (<> "/sqlite") <$> getDbBaseDir conf
+
+getDbBaseDir :: ChainwebNodeConfiguration -> IO FilePath
+getDbBaseDir conf = case _nodeConfigDatabaseDirectory conf of
+    Nothing -> getXdgDirectory XdgData
+        $ "chainweb-node/" <> sshow v <> "/0"
+    Just d -> return d
+  where
+    v = _configChainwebVersion $ _nodeConfigChainweb conf
+
 -- -------------------------------------------------------------------------- --
 -- Monitors
 
@@ -300,11 +314,14 @@ runQueueMonitor logger cutDb = L.withLoggerLabel ("component", "queue-monitor") 
 
 node :: Logger logger => ChainwebNodeConfiguration -> logger -> IO ()
 node conf logger = do
-    rocksDbDir <- getRocksDbDir
-    when (_nodeConfigResetChainDbs conf) $ destroyRocksDb rocksDbDir
+    migrateDbDirectory logger conf
+    dbBaseDir <- getDbBaseDir conf
+    when (_nodeConfigResetChainDbs conf) $ removeDirectoryRecursive dbBaseDir
+    rocksDbDir <- getRocksDbDir conf
+    pactDbDir <- getPactDbDir conf
     withRocksDb rocksDbDir $ \rocksDb -> do
         logFunctionText logger Info $ "opened rocksdb in directory " <> sshow rocksDbDir
-        withChainweb cwConf logger rocksDb (_nodeConfigDatabaseDirectory conf) (_nodeConfigResetChainDbs conf) $ \cw -> mapConcurrently_ id
+        withChainweb cwConf logger rocksDb pactDbDir (_nodeConfigResetChainDbs conf) $ \cw -> mapConcurrently_ id
             [ runChainweb cw
               -- we should probably push 'onReady' deeper here but this should be ok
             , runCutMonitor (_chainwebLogger cw) (_cutResCutDb $ _chainwebCutResources cw)
@@ -315,13 +332,9 @@ node conf logger = do
             ]
   where
     cwConf = _nodeConfigChainweb conf
-    nodeText = T.unpack (toText (_configNodeId cwConf))
-    v = _configChainwebVersion cwConf
-    getRocksDbDir = case _nodeConfigDatabaseDirectory conf of
-        Nothing -> getXdgDirectory XdgData
-            $ "chainweb-node/" <> sshow v <> "/" <> nodeText <> "/rocksDb"
-        Just d -> return d
     amberdataConfig = _logConfigAmberdataBackend . _nodeConfigLog
+
+
 
 withNodeLogger
     :: LogConfig
@@ -501,3 +514,70 @@ main = do
                 node conf logger
   where
     timeFormat = iso8601DateFormat (Just "%H:%M:%SZ")
+
+-- -------------------------------------------------------------------------- --
+-- Database Director Migration
+--
+-- Legacy default locations:
+--
+-- `$XDGDATA/chainweb-node/$CHAINWEB_VERSION/$NODEID/rocksDb`
+-- `$XDGDATA/chainweb-node/$CHAINWEB_VERSION/$NODEID/sqlite`
+--
+-- New default locations:
+--
+-- `$XDGDATA/chainweb-node/$CHAINWEB_VERSION/0/rocksDb`
+-- `$XDGDATA/chainweb-node/$CHAINWEB_VERSION/0/sqlite`
+--
+-- Legacy custom locations:
+--
+-- `$CUSTOM_PATH/rocksDb`
+-- `$CUSTOM_PATH/rocksDbsqlite`
+--
+-- New custom locations:
+--
+-- `$CUSTOM_PATH/rocksDb`
+-- `$CUSTOM_PATH/sqlite`
+--
+-- Migration scenarios:
+--
+-- 1. Custom location configured (and directory exists):
+--
+--    * Log warning
+--    * `mv "$CUSTOM_PATH/rocksDbslqite "$CUSTOM_PATH/sqlite"`
+--    * fail if target directory already exists
+--
+-- 2. No custom location configured:
+--
+--    * Log warning if `$XDGDATA/chainweb-node/$CHAINWEB_VERSION/[1-9]*` exists
+--
+--
+-- Migration code can be removed in the next version. We don't need to support
+-- longer backwards compatibility, because in those situations it will be faster
+-- and more convenient to start over with a fresh db.
+--
+
+migrateDbDirectory :: Logger logger => logger -> ChainwebNodeConfiguration -> IO ()
+migrateDbDirectory logger config = case _nodeConfigDatabaseDirectory config of
+    Just custom -> do
+        let legacyCustomPact = custom <> "sqlite"
+        newCustomPact <- getPactDbDir config
+        whenM (doesDirectoryExist legacyCustomPact) $ do
+            logg Warn
+                $ "Updated database directory layout for new chainweb version"
+                <> ". Old pact db location: " <> T.pack legacyCustomPact
+                <> ". New pact db location: " <> T.pack newCustomPact
+            targetExists <- doesDirectoryExist newCustomPact
+            if targetExists
+              then logg Error
+                $ "Can't move old pact database to new location because the database already exists"
+                <> ". The database at the new location will be used."
+              else renameDirectory legacyCustomPact newCustomPact
+    Nothing -> do
+        defDir <- getXdgDirectory XdgData $ "chainweb-node/" <> sshow v
+        dirs <- getDirectoryContents defDir
+        forM_ (filter (/= defDir <> "/0") dirs) $ \i ->
+            logg Warn $ "ignoring existing database directory " <> T.pack i
+  where
+    logg = logFunctionText logger
+    v = _configChainwebVersion $ _nodeConfigChainweb config
+
