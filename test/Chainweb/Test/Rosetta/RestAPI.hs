@@ -63,7 +63,7 @@ import System.IO.Unsafe (unsafePerformIO)
 v :: ChainwebVersion
 v = FastTimedCPM petersonChainGraph
 
-nodes:: Natural
+nodes :: Natural
 nodes = 1
 
 cid :: ChainId
@@ -160,19 +160,19 @@ blockTransactionTests tio envIo =
 
 
       step "validate initial gas buy at index 0"
-      validateOp 0 "FundTx" "sender00" fundtx
+      validateOp 0 "FundTx" sender00ks fundtx
 
       step "validate sender01 credit at index 1"
-      validateOp 1 "TransferOrCreateAcct" "sender01" cred
+      validateOp 1 "TransferOrCreateAcct" sender01ks cred
 
       step "validate sender00 debit at index 2"
-      validateOp 2 "TransferOrCreateAcct" "sender00" deb
+      validateOp 2 "TransferOrCreateAcct" sender00ks deb
 
       step "validate sender00 gas redemption at index 3"
-      validateOp 3 "GasPayment" "sender00" redeem
+      validateOp 3 "GasPayment" sender00ks redeem
 
       step "validate miner gas reward at index 4"
-      validateOp 4 "GasPayment" "NoMiner" reward
+      validateOp 4 "GasPayment" noMinerks reward
 
   where
     mkTxReq rkmv prs = do
@@ -230,7 +230,7 @@ blockTests tio envIo = testCaseSchSteps "Block Tests" $ \step -> do
     validateTxs remeds cbase fundtx cred deb redeem reward = do
 
       -- coinbase is considered a separate tx list
-      validateOp 0 "CoinbaseReward" "NoMiner" cbase
+      validateOp 0 "CoinbaseReward" noMinerks cbase
 
       case remeds of
         Just (rem1, rem2) -> do
@@ -238,19 +238,19 @@ blockTests tio envIo = testCaseSchSteps "Block Tests" $ \step -> do
           -- TODO: this case preserves Linda's txlog bug when
           -- txs and remeds are present
 
-          validateOp 0 "TransferOrCreateAcct" "sender09" rem1
-          validateOp 1 "TransferOrCreateAcct" "sender07" rem2
-          validateOp 2 "TransferOrCreateAcct" "sender00" fundtx
-          validateOp 3 "TransferOrCreateAcct" "sender01" cred
-          validateOp 4 "TransferOrCreateAcct" "sender00" deb
-          validateOp 5 "TransferOrCreateAcct" "sender00" redeem
-          validateOp 6 "TransferOrCreateAcct" "NoMiner" reward
+          validateOp 0 "TransferOrCreateAcct" sender09ks rem1
+          validateOp 1 "TransferOrCreateAcct" sender07ks rem2
+          validateOp 2 "TransferOrCreateAcct" sender00ks fundtx
+          validateOp 3 "TransferOrCreateAcct" sender01ks cred
+          validateOp 4 "TransferOrCreateAcct" sender00ks deb
+          validateOp 5 "TransferOrCreateAcct" sender00ks redeem
+          validateOp 6 "TransferOrCreateAcct" noMinerks reward
         Nothing -> do
-          validateOp 0 "FundTx" "sender00" fundtx
-          validateOp 1 "TransferOrCreateAcct" "sender01" cred
-          validateOp 2 "TransferOrCreateAcct" "sender00" deb
-          validateOp 3 "GasPayment" "sender00" redeem
-          validateOp 4 "GasPayment" "NoMiner" reward
+          validateOp 0 "FundTx" sender00ks fundtx
+          validateOp 1 "TransferOrCreateAcct" sender01ks cred
+          validateOp 2 "TransferOrCreateAcct" sender00ks deb
+          validateOp 3 "GasPayment" sender00ks redeem
+          validateOp 4 "GasPayment" noMinerks reward
 
 
 -- | Rosetta construction submit endpoint tests (i.e. tx submission directly to mempool)
@@ -421,19 +421,34 @@ validateOp
       -- ^ op idx
     -> Text
       -- ^ operation type
-    -> Text
-      -- ^ operation account name
+    -> TestKeySet
+      -- ^ operation keyset
     -> Operation
       -- ^ the op
     -> Assertion
-validateOp idx opType acct o = do
+validateOp idx opType ks o = do
     _operation_operationId o @?= OperationId idx Nothing
     _operation_type o @?= opType
     _operation_status o @?= "Successful"
-    _operation_account o @?= Just (AccountId acct Nothing Nothing)
+    _operation_account o @?= Just (AccountId acct Nothing acctMeta)
+  where
+    acct = _testKeySet_name ks
+    publicKeys = case (_testKeySet_key ks) of
+      Nothing -> []
+      Just k -> [fst k]
+    pred' = _testKeySet_pred ks
+    acctMeta = Just $ accountIdMetadata publicKeys pred'
 
 -- ------------------------------------------------------------------ --
 -- Test Pact Cmds
+
+{--mkCrossChainStart :: ChainId -> IO (Time Micros) -> IO SubmitBatch
+mkCrossChainStart cidTarget tio = do
+  t <- toTxCreationTime <$> tio
+  n <- readIORef nonceRef
+  c <- buildTextCmd
+    $ undefined
+  undefined--}
 
 -- | Build a simple transfer from sender00 to sender01
 --
@@ -511,3 +526,57 @@ mix
     => Index m
     -> Fold m (IO a)
 mix i = ix i . to A.fromJSON . to (aeson assertFailure return)
+
+accountIdMetadata :: [Text] -> Text -> A.Object
+accountIdMetadata keys p = HM.fromList
+  [ "current-ownership" A..= A.object
+    [ "pred" A..= p
+    , "keys" A..= keys ]]
+
+-- ------------------------------------------------------------------ --
+-- Key Sets
+
+data TestKeySet = TestKeySet
+  { _testKeySet_name :: !Text
+  , _testKeySet_key :: !(Maybe SimpleKeyPair)
+  , _testKeySet_pred :: !Text
+  }
+
+noMinerks :: TestKeySet
+noMinerks = TestKeySet
+  { _testKeySet_name = "NoMiner"
+  , _testKeySet_key = Nothing
+  , _testKeySet_pred = "<"
+  }
+
+sender00ks :: TestKeySet
+sender00ks = TestKeySet
+  { _testKeySet_name = "sender00"
+  , _testKeySet_key = Just sender00
+  , _testKeySet_pred = "keys-all"
+  }
+
+sender01ks :: TestKeySet
+sender01ks = TestKeySet
+  { _testKeySet_name = "sender01"
+  , _testKeySet_key = Just sender01
+  , _testKeySet_pred = "keys-all"
+  }
+
+sender07ks :: TestKeySet
+sender07ks = TestKeySet
+  { _testKeySet_name = "sender07"
+  , _testKeySet_key = Just sender07
+  , _testKeySet_pred = "keys-all"
+  }
+  where sender07 = ("4c31dc9ee7f24177f78b6f518012a208326e2af1f37bb0a2405b5056d0cad628"
+                   ,"f1c1923e49cb23d15fe45bdc3f65d7fc1d031ce50dd81bb5085bdd2c63364d7f")
+
+sender09ks :: TestKeySet
+sender09ks = TestKeySet
+  { _testKeySet_name = "sender09"
+  , _testKeySet_key = Just sender09
+  , _testKeySet_pred = "keys-all"
+  }
+  where sender09 = ("c59d9840b0b66090836546b7eb4a73606257527ec8c2b482300fd229264b07e6"
+                   ,"adbe3793a0daf70c7e7a5d59349e0f51d928178de55c6328302ef5b628ed448b")

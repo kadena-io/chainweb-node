@@ -2,7 +2,6 @@
 {-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeOperators #-}
 
 -- |
@@ -50,16 +49,14 @@ import Control.Monad (when)
 import Control.Monad.Trans.Except (ExceptT)
 
 import Data.Aeson (encode)
-import qualified Data.Text as T
 
 import Rosetta
 
 import Servant
 
-import Text.Read (readMaybe)
-
 -- internal modules
 
+import Chainweb.Rosetta.Utils (readChainIdText)
 import Chainweb.RestAPI.Utils (ChainwebEndpoint(..), Reassoc)
 import Chainweb.Utils
 import Chainweb.Version
@@ -297,12 +294,3 @@ validateNetwork v (NetworkId bc n msni) = do
     when (Just v /= fromText n) $ throwError RosettaMismatchNetworkName
     SubNetworkId cid _ <- msni ?? RosettaChainUnspecified
     readChainIdText v cid ?? RosettaInvalidChain
-
-
--- | Guarantees that the `ChainId` given actually belongs to this
--- `ChainwebVersion`. This doesn't guarantee that the chain is active.
---
-readChainIdText :: ChainwebVersion -> T.Text -> Maybe ChainId
-readChainIdText v c = do
-  cid <- readMaybe @Word (T.unpack c)
-  mkChainId v maxBound cid
