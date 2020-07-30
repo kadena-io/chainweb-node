@@ -772,9 +772,9 @@ withChainwebInternal conf logger peer localSock rocksDb dbDir nodeid resetDb inn
             let hsh = _blockHash bh
             let h = _blockHeight bh
             logCr Info $ "pact db synchronizing to block "
-                      <> T.pack (show (h, hsh))
+                <> T.pack (show (h, hsh))
             payload <- payloadWithOutputsToPayloadData
-                       <$> casLookupM payloadDb (_blockPayloadHash bh)
+                <$> casLookupM payloadDb (_blockPayloadHash bh)
             void $ _pactValidateBlock pact bh payload
             logCr Info "pact db synchronized"
 

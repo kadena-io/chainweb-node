@@ -94,6 +94,7 @@ import Chainweb.Logger
 import Chainweb.Miner.Core
 import Chainweb.Miner.Pact
 import Chainweb.Pact.Backend.Types
+import Chainweb.Pact.Backend.Utils
 import Chainweb.Pact.PactService
 import Chainweb.Pact.Service.BlockValidation
 import Chainweb.Pact.Service.PactQueue

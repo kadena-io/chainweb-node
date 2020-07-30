@@ -44,6 +44,7 @@ import Chainweb.Mempool.Consensus
 import Chainweb.Mempool.Mempool
 import Chainweb.NodeId
 import Chainweb.Pact.Backend.Types
+import Chainweb.Pact.Backend.Utils
 import Chainweb.Pact.Service.Types
 import qualified Chainweb.Pact.PactService as PS
 import Chainweb.Pact.Service.PactQueue
@@ -70,7 +71,7 @@ withPactService
     -> (PactQueue -> IO a)
     -> IO a
 withPactService ver cid logger mpc bhdb pdb dbDir nodeid config action =
-    PS.withSqliteDb ver cid logger dbDir nodeid (_pactResetDb config) $ \sqlenv ->
+    withSqliteDb ver cid logger dbDir nodeid (_pactResetDb config) $ \sqlenv ->
         withPactService' ver cid logger mpa bhdb pdb sqlenv config action
   where
     mpa = pactMemPoolAccess mpc logger

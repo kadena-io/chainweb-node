@@ -21,6 +21,7 @@ import qualified Data.Vector as V
 import Data.Word
 
 import System.LogLevel
+import System.Timeout
 
 import Test.Tasty
 import Test.Tasty.HUnit
@@ -47,6 +48,9 @@ import Chainweb.Utils (sshow, tryAllSynchronous, catchAllSynchronous)
 import Chainweb.Version
 import Chainweb.Version.Utils
 
+import Data.CAS
+import Chainweb.BlockHeaderDB.Internal (_chainDbCas, RankedBlockHeader(..))
+
 testVer :: ChainwebVersion
 testVer = FastTimedCPM peterson
 
@@ -64,6 +68,9 @@ tests =
         [ withPactTestBlockDb testVer cid Warn mp (forkLimit 100_000)
             (testCase "initial-playthrough" . firstPlayThrough mpio genblock)
         , after AllSucceed "initial-playthrough" $
+            withPactTestBlockDb testVer cid Warn mp (forkLimit 100_000)
+                (testCase "serivce-init-after-fork" . serviceInitializationAfterFork mpio genblock)
+        , after AllSucceed "serivce-init-after-fork" $
             withPactTestBlockDb testVer cid Warn mp (forkLimit 100_000)
                 (testCaseSteps "on-restart" . onRestart mpio)
         , after AllSucceed "on-restart" $
@@ -142,6 +149,54 @@ dupegenMemPoolAccess = mempty
             ]
         return outtxs
     }
+
+-- | This is a regression test for correct initialization of the checkpointer
+-- during pact service initialization.
+--
+-- Removing the call to 'initializeLatestBlock' in 'initPactService' causes
+-- this test to fail.
+--
+serviceInitializationAfterFork
+    :: IO (IORef MemPoolAccess)
+    -> BlockHeader
+    -> IO (PactQueue,TestBlockDb)
+    -> Assertion
+serviceInitializationAfterFork mpio genesisBlock iop = do
+    setMempool mpio testMemPoolAccess
+    nonceCounter <- newIORef (1 :: Word64)
+    mainlineblocks <- mineLine genesisBlock nonceCounter 10
+    -- Delete latest block from block header db. This simulates the situation
+    -- when the latest block of the checkpointer gets orphaned during a restart
+    -- cycle.
+    pruneDbs
+    restartPact
+    let T3 _ line1 _ = mainlineblocks !! 6
+    void $ mineLine line1 nonceCounter 4
+  where
+    mineLine start ncounter len =
+      evalStateT (mapM (const go) [startHeight :: Word64 .. (startHeight + len)]) start
+        where
+          startHeight = fromIntegral $ _blockHeight start
+          go = do
+              pblock <- gets ParentHeader
+              n <- liftIO $ Nonce <$> readIORef ncounter
+              ret@(T3 _ newblock _) <- liftIO $ mineBlock pblock n iop
+              liftIO $ modifyIORef' ncounter succ
+              put newblock
+              return ret
+
+    restartPact :: IO ()
+    restartPact = do
+        q <- fst <$> iop
+        addRequest q CloseMsg
+
+    pruneDbs = forM_ cids $ \c -> do
+        dbs <- snd <$> iop
+        db <- getBlockHeaderDb c dbs
+        h <- maxEntry db
+        casDelete (_chainDbCas db) (casKey $ RankedBlockHeader h)
+
+    cids = chainIds testVer
 
 firstPlayThrough
     :: IO (IORef MemPoolAccess)
@@ -248,37 +303,40 @@ mineBlock
     -> Nonce
     -> IO (PactQueue,TestBlockDb)
     -> IO (T3 ParentHeader BlockHeader PayloadWithOutputs)
-mineBlock ph nonce iop = do
+mineBlock ph nonce iop = timeout 5000000 go >>= \case
+    Nothing -> error "PactReplay.mineBlock: Test timeout. Most likely a test case caused a pact service failure that wasn't caught, and the test was blocked while waiting for the result"
+    Just x -> return x
+  where
+    go = do
 
-     -- assemble block without nonce and timestamp
-     let r = fst <$> iop
-     mv <- r >>= newBlock noMiner ph
-     payload <- assertNotLeft =<< takeMVar mv
+      -- assemble block without nonce and timestamp
+      let r = fst <$> iop
+      mv <- r >>= newBlock noMiner ph
+      payload <- assertNotLeft =<< takeMVar mv
 
-     let bh = newBlockHeader
-              mempty
-              (_payloadWithOutputsPayloadHash payload)
-              nonce
-              creationTime
-              ph
+      let bh = newBlockHeader
+               mempty
+               (_payloadWithOutputsPayloadHash payload)
+               nonce
+               creationTime
+               ph
 
-     mv' <- r >>= validateBlock bh (payloadWithOutputsToPayloadData payload)
-     void $ assertNotLeft =<< takeMVar mv'
+      mv' <- r >>= validateBlock bh (payloadWithOutputsToPayloadData payload)
+      void $ assertNotLeft =<< takeMVar mv'
 
-     bdb <- snd <$> iop
-     let pdb = _bdbPayloadDb bdb
-     addNewPayload pdb payload
+      bdb <- snd <$> iop
+      let pdb = _bdbPayloadDb bdb
+      addNewPayload pdb payload
 
-     bhdb <- getBlockHeaderDb cid bdb
-     unsafeInsertBlockHeaderDb bhdb bh
+      bhdb <- getBlockHeaderDb cid bdb
+      unsafeInsertBlockHeaderDb bhdb bh
 
-     return $ T3 ph bh payload
+      return $ T3 ph bh payload
 
-   where
-     creationTime = BlockCreationTime
-          . add (TimeSpan 1_000_000)
-          . _bct . _blockCreationTime
-          $ _parentHeader ph
+    creationTime = BlockCreationTime
+      . add (TimeSpan 1_000_000)
+      . _bct . _blockCreationTime
+      $ _parentHeader ph
 
 assertNotLeft :: (MonadThrow m, Exception e) => Either e a -> m a
 assertNotLeft (Left l) = throwM l

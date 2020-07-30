@@ -1,3 +1,4 @@
+{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DerivingStrategies #-}
@@ -63,6 +64,7 @@ module Chainweb.Pact.Backend.Types
     , BlockEnv(..)
     , benvBlockState
     , benvDb
+    , runBlockEnv
     , SQLiteEnv(..)
     , sConn
     , sConfig
@@ -78,6 +80,7 @@ module Chainweb.Pact.Backend.Types
     , PactServiceException(..)
     ) where
 
+import Control.Concurrent.MVar
 import Control.Exception
 import Control.Exception.Safe hiding (bracket)
 import Control.Lens
@@ -248,6 +251,13 @@ data BlockEnv p = BlockEnv
     }
 
 makeLenses ''BlockEnv
+
+
+runBlockEnv :: MVar (BlockEnv SQLiteEnv) -> BlockHandler SQLiteEnv a -> IO a
+runBlockEnv e m = modifyMVar e $
+  \(BlockEnv dbenv bs) -> do
+    (!a,!s) <- runStateT (runReaderT (runBlockHandler m) dbenv) bs
+    return (BlockEnv dbenv s, a)
 
 newtype BlockHandler p a = BlockHandler
     { runBlockHandler :: ReaderT (BlockDbEnv p) (StateT BlockState IO) a

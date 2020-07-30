@@ -15,10 +15,40 @@
 -- Maintainer: Emmanuel Denloye-Ito <emmanuel@kadena.io>
 -- Stability: experimental
 --
+-- SQLite interaction utilities.
 
-module Chainweb.Pact.Backend.Utils where
+module Chainweb.Pact.Backend.Utils
+  ( -- * General utils
+    callDb
+  , open2
+    -- * Savepoints
+  , withSavepoint
+  , beginSavepoint
+  , commitSavepoint
+  , rollbackSavepoint
+  , SavepointName(..)
+  -- * SQLite conversions and assertions
+  , domainTableName
+  , convKeySetName
+  , convModuleName
+  , convNamespaceName
+  , convRowKey
+  , convPactId
+  , expectSingleRowCol
+  , expectSingle
+  , execMulti
+  -- * SQLite runners
+  , withSqliteDb
+  , startSqliteDb
+  , stopSqliteDb
+  , withSQLiteConnection
+  , openSQLiteConnection
+  , closeSQLiteConnection
+  , withTempSQLiteConnection
+  -- * SQLite Pragmas
+  , chainwebPragmas
+  ) where
 
-import Control.Concurrent.MVar
 import Control.Exception (AsyncException, evaluate)
 import Control.Exception.Safe (tryAny)
 import Control.Lens
@@ -29,16 +59,17 @@ import Control.Monad.State.Strict
 import Control.Monad.Reader
 
 import Data.Bits
-import Data.ByteString hiding (pack)
+import Data.ByteString hiding (pack,unpack)
 import Data.String
 import Data.String.Conv
-import Data.Text (Text, pack)
+import Data.Text (Text, pack, unpack)
 import Database.SQLite3.Direct as SQ3
 
 import Prelude hiding (log)
 
-import System.Directory (removeFile)
+import System.Directory
 import System.IO.Temp
+import System.LogLevel
 
 -- pact
 
@@ -50,15 +81,14 @@ import Pact.Types.Util (AsString(..))
 
 -- chainweb
 
+import Chainweb.Logger
+import Chainweb.NodeId
 import Chainweb.Pact.Backend.SQLite.DirectV2
 import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.Service.Types
+import Chainweb.Version
+import Chainweb.Utils
 
-runBlockEnv :: MVar (BlockEnv SQLiteEnv) -> BlockHandler SQLiteEnv a -> IO a
-runBlockEnv e m = modifyMVar e $
-  \(BlockEnv dbenv bs) -> do
-    (!a,!s) <- runStateT (runReaderT (runBlockHandler m) dbenv) bs
-    return (BlockEnv dbenv s, a)
 
 callDb :: (MonadCatch m, MonadReader (BlockDbEnv SQLiteEnv) m, MonadIO m) => Text -> (Database -> IO b) -> m b
 callDb callerName action = do
@@ -85,14 +115,6 @@ withSavepoint name action = mask $ \resetMask -> do
                , Handler $ \(e :: AsyncException) -> throwM e
                , Handler $ \(e :: SomeException) -> throwErr ("non-pact exception: " <> show e)
                ]
-
--- for debugging
-withTrace :: Database -> (Utf8 -> IO ()) -> IO a -> IO a
-withTrace db tracer dbaction = do
-  setTrace db (Just tracer)
-  a <- dbaction
-  setTrace db Nothing
-  return a
 
 beginSavepoint :: SavepointName -> BlockHandler SQLiteEnv ()
 beginSavepoint name =
@@ -128,41 +150,6 @@ instance Show SavepointName where
 instance AsString SavepointName where
   asString = Data.Text.pack . show
 
-withBlockEnv :: a -> (MVar a -> IO b) -> IO b
-withBlockEnv blockenv f = newMVar blockenv >>= f
-
-readBlockEnv :: (a -> b) -> MVar a -> IO b
-readBlockEnv f = fmap f . readMVar
-
-withSQLiteConnection :: String -> [Pragma] -> Bool -> (SQLiteEnv -> IO c) -> IO c
-withSQLiteConnection file ps todelete action =
-  bracket (openSQLiteConnection file ps) closer action
-  where
-    closer c = do
-      closeSQLiteConnection c
-      when todelete (removeFile file)
-
-
-openSQLiteConnection :: String -> [Pragma] -> IO SQLiteEnv
-openSQLiteConnection file ps = do
-  -- e <- open (fromString file) -- old way
-  e <- open2 file -- new way
-  case e of
-    Left (err, msg) ->
-      internalError $
-      "withSQLiteConnection: Can't open db with "
-      <> asString (show err) <> ": " <> asString (show msg)
-    Right r -> do
-      runPragmas r ps
-      return $ SQLiteEnv r
-        (SQLiteConfig file ps)
-
-closeSQLiteConnection :: SQLiteEnv -> IO ()
-closeSQLiteConnection c = void $ close_v2 $ _sConn c
-
-withTempSQLiteConnection :: [Pragma] -> (SQLiteEnv -> IO c) -> IO c
-withTempSQLiteConnection ps action =
-  withSystemTempFile "sqlite-tmp" (\file _ -> withSQLiteConnection file ps False action)
 
 domainTableName :: Domain k v -> Utf8
 domainTableName = Utf8 . toS . asString
@@ -233,20 +220,6 @@ chainwebPragmas =
   ]
 
 
-open2 :: String -> IO (Either (Error, Utf8) Database)
-open2 file = open_v2 (fromString file) (collapseFlags [sqlite_open_readwrite , sqlite_open_create , sqlite_open_fullmutex]) Nothing
--- Nothing corresponds to the nullPtr
-
-collapseFlags :: [SQLiteFlag] -> SQLiteFlag
-collapseFlags xs =
-    if Prelude.null xs then error "collapseFlags: You must pass a non-empty list"
-    else Prelude.foldr1 (.|.) xs
-
-sqlite_open_readwrite, sqlite_open_create, sqlite_open_fullmutex :: SQLiteFlag
-sqlite_open_readwrite = 0x00000002
-sqlite_open_create = 0x00000004
-sqlite_open_fullmutex = 0x00010000
-
 
 execMulti :: Traversable t => Database -> Utf8 -> t [SType] -> IO ()
 execMulti db q rows = do
@@ -260,3 +233,114 @@ execMulti db q rows = do
   where
     checkError (Left e) = void $ fail $ "error during batch insert: " ++ show e
     checkError (Right _) = return ()
+
+
+
+
+withSqliteDb
+    :: Logger logger
+    => ChainwebVersion
+    -> ChainId
+    -> logger
+    -> Maybe FilePath
+    -> Maybe NodeId
+    -> Bool
+    -> (SQLiteEnv -> IO a)
+    -> IO a
+withSqliteDb ver cid logger dbDir nodeid resetDb = bracket
+    (startSqliteDb ver cid logger dbDir nodeid resetDb)
+    stopSqliteDb
+
+startSqliteDb
+    :: Logger logger
+    => ChainwebVersion
+    -> ChainId
+    -> logger
+    -> Maybe FilePath
+    -> Maybe NodeId
+    -> Bool
+    -> IO SQLiteEnv
+startSqliteDb ver cid logger dbDir nodeid doResetDb = do
+    sqlitedir <- getSqliteDir
+    when doResetDb $ resetDb sqlitedir
+    createDirectoryIfMissing True sqlitedir
+    textLog Info $ mconcat
+        [ "opened sqlitedb for "
+        , sshow cid
+        , " in directory "
+        , sshow sqlitedir
+        ]
+    let sqlitefile = getSqliteFile sqlitedir
+    textLog Info $ "opening sqlitedb named " <> pack sqlitefile
+    openSQLiteConnection sqlitefile chainwebPragmas
+  where
+    textLog = logFunctionText logger
+
+    resetDb sqlitedir = do
+      exist <- doesDirectoryExist sqlitedir
+      when exist $ removeDirectoryRecursive sqlitedir
+
+    getSqliteFile dir = mconcat
+        [ dir
+        , "/pact-v1-chain-"
+        , unpack (chainIdToText cid)
+        , ".sqlite"
+        ]
+
+    getSqliteDir = case dbDir of
+        Nothing -> getXdgDirectory XdgData $ mconcat
+            [ "chainweb-node/"
+            , show ver
+            , maybe mempty (("/" <>) . unpack . toText) nodeid
+            , "/sqlite"
+            ]
+        Just d -> return (d <> "sqlite")
+
+stopSqliteDb :: SQLiteEnv -> IO ()
+stopSqliteDb = closeSQLiteConnection
+
+withSQLiteConnection :: String -> [Pragma] -> Bool -> (SQLiteEnv -> IO c) -> IO c
+withSQLiteConnection file ps todelete action =
+  bracket (openSQLiteConnection file ps) closer action
+  where
+    closer c = do
+      closeSQLiteConnection c
+      when todelete (removeFile file)
+
+
+openSQLiteConnection :: String -> [Pragma] -> IO SQLiteEnv
+openSQLiteConnection file ps = do
+  -- e <- open (fromString file) -- old way
+  e <- open2 file -- new way
+  case e of
+    Left (err, msg) ->
+      internalError $
+      "withSQLiteConnection: Can't open db with "
+      <> asString (show err) <> ": " <> asString (show msg)
+    Right r -> do
+      runPragmas r ps
+      return $ SQLiteEnv r
+        (SQLiteConfig file ps)
+
+closeSQLiteConnection :: SQLiteEnv -> IO ()
+closeSQLiteConnection c = void $ close_v2 $ _sConn c
+
+withTempSQLiteConnection :: [Pragma] -> (SQLiteEnv -> IO c) -> IO c
+withTempSQLiteConnection ps action =
+  withSystemTempFile "sqlite-tmp" (\file _ -> withSQLiteConnection file ps False action)
+
+
+
+open2 :: String -> IO (Either (Error, Utf8) Database)
+open2 file = open_v2 (fromString file) (collapseFlags [sqlite_open_readwrite , sqlite_open_create , sqlite_open_fullmutex]) Nothing
+-- Nothing corresponds to the nullPtr
+
+collapseFlags :: [SQLiteFlag] -> SQLiteFlag
+collapseFlags xs =
+    if Prelude.null xs then error "collapseFlags: You must pass a non-empty list"
+    else Prelude.foldr1 (.|.) xs
+
+sqlite_open_readwrite, sqlite_open_create, sqlite_open_fullmutex :: SQLiteFlag
+sqlite_open_readwrite = 0x00000002
+sqlite_open_create = 0x00000004
+sqlite_open_fullmutex = 0x00010000

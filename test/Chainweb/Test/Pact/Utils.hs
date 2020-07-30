@@ -614,8 +614,8 @@ withPactTestBlockDb version cid logLevel mempoolIO pactConfig f =
         bhdb <- getWebBlockHeaderDb (_bdbWebBlockHeaderDb bdb) cid
         let pdb = _bdbPayloadDb bdb
         sqlEnv <- startSqliteDb version cid logger (Just dir) Nothing False
-        a <- async $
-             initPactService version cid logger reqQ mempool bhdb pdb sqlEnv pactConfig
+        a <- async $ runForever (\_ _ -> return ()) "Chainweb.Test.Pact.Utils.withPactTestBlockDb" $
+            initPactService version cid logger reqQ mempool bhdb pdb sqlEnv pactConfig
         return (a, sqlEnv, (reqQ,bdb))
 
     stopPact (a, sqlEnv, _) = cancel a >> stopSqliteDb sqlEnv
