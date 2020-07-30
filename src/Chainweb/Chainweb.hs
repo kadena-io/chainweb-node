@@ -400,7 +400,9 @@ pChainwebConfiguration = id
         <> short 'v'
         <> help "the chainweb version that this node is using"
     <*< configNodeIdDeprecated .:: option auto
-        % long "node-id"
+        % hidden
+        <> internal
+        <> long "node-id"
         <> short 'i'
         <> help "DEPRECATED. The value is ignored"
     <*< configHeaderStream .:: boolOption_
