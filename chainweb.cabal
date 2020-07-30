@@ -734,6 +734,7 @@ executable cwtool
 
 
 benchmark bench
+    import: warning-flags, debugging-flags
     default-language: Haskell2010
     ghc-options:
         -threaded
