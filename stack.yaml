@@ -32,13 +32,13 @@ extra-deps:
   - direct-sqlite-2.3.26
   - ed25519-donna-0.1.1
   - prettyprinter-1.6.0
-  - sbv-8.6
+  - sbv-8.7
   - github: kadena-io/thyme
     commit: 6ee9fcb026ebdb49b810802a981d166680d867c9
 
   # --- Custom Pins --- #
   - github: kadena-io/pact
-    commit: 2ca4cae3eb8a0ef2783aa9457388c31b44a0dfbc
+    commit: 94cfeb57e2f90c299fc27cc3e72f6b6aa9109c06
   - github: kadena-io/chainweb-storage
     commit: 07e7eb7596c7105aee42dbdb6edd10e3f23c0d7e
   - github: kadena-io/rosetta
