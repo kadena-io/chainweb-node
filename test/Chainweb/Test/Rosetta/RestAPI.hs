@@ -421,21 +421,34 @@ validateOp
       -- ^ op idx
     -> Text
       -- ^ operation type
-    -> (Text, [Text], Text)
-      -- ^ operation account name
+    -> TestKeySet
+      -- ^ operation keyset
     -> Operation
       -- ^ the op
     -> Assertion
-validateOp idx opType (acct,keys,pred') o = do
+validateOp idx opType ks o = do
     _operation_operationId o @?= OperationId idx Nothing
     _operation_type o @?= opType
     _operation_status o @?= "Successful"
     _operation_account o @?= Just (AccountId acct Nothing acctMeta)
   where
-    acctMeta = Just $ accountIdMetadata keys pred'
+    acct = _testKeySet_name ks
+    publicKeys = case (_testKeySet_key ks) of
+      Nothing -> []
+      Just k -> [fst k]
+    pred' = _testKeySet_pred ks
+    acctMeta = Just $ accountIdMetadata publicKeys pred'
 
 -- ------------------------------------------------------------------ --
 -- Test Pact Cmds
+
+{--mkCrossChainStart :: ChainId -> IO (Time Micros) -> IO SubmitBatch
+mkCrossChainStart cidTarget tio = do
+  t <- toTxCreationTime <$> tio
+  n <- readIORef nonceRef
+  c <- buildTextCmd
+    $ undefined
+  undefined--}
 
 -- | Build a simple transfer from sender00 to sender01
 --
@@ -514,27 +527,56 @@ mix
     -> Fold m (IO a)
 mix i = ix i . to A.fromJSON . to (aeson assertFailure return)
 
-noMinerks :: (Text, [Text], Text)
-noMinerks = ("NoMiner", [], "<")
-
-sender00ks :: (Text, [Text], Text)
-sender00ks = ("sender00", keys, "keys-all")
-  where keys = map fst [sender00]
-
-sender01ks :: (Text, [Text], Text)
-sender01ks = ("sender01", keys, "keys-all")
-  where keys = map fst [sender01]
-
-sender07ks :: (Text, [Text], Text)
-sender07ks = ("sender07", keys, "keys-all")
-  where keys = ["4c31dc9ee7f24177f78b6f518012a208326e2af1f37bb0a2405b5056d0cad628"]
-
-sender09ks :: (Text, [Text], Text)
-sender09ks = ("sender09", keys, "keys-all")
-  where keys = ["c59d9840b0b66090836546b7eb4a73606257527ec8c2b482300fd229264b07e6"]
-
 accountIdMetadata :: [Text] -> Text -> A.Object
 accountIdMetadata keys p = HM.fromList
   [ "current-ownership" A..= A.object
     [ "pred" A..= p
     , "keys" A..= keys ]]
+
+-- ------------------------------------------------------------------ --
+-- Key Sets
+
+data TestKeySet = TestKeySet
+  { _testKeySet_name :: !Text
+  , _testKeySet_key :: !(Maybe SimpleKeyPair)
+  , _testKeySet_pred :: !Text
+  }
+
+noMinerks :: TestKeySet
+noMinerks = TestKeySet
+  { _testKeySet_name = "NoMiner"
+  , _testKeySet_key = Nothing
+  , _testKeySet_pred = "<"
+  }
+
+sender00ks :: TestKeySet
+sender00ks = TestKeySet
+  { _testKeySet_name = "sender00"
+  , _testKeySet_key = Just sender00
+  , _testKeySet_pred = "keys-all"
+  }
+
+sender01ks :: TestKeySet
+sender01ks = TestKeySet
+  { _testKeySet_name = "sender01"
+  , _testKeySet_key = Just sender01
+  , _testKeySet_pred = "keys-all"
+  }
+
+sender07ks :: TestKeySet
+sender07ks = TestKeySet
+  { _testKeySet_name = "sender07"
+  , _testKeySet_key = Just sender07
+  , _testKeySet_pred = "keys-all"
+  }
+  where sender07 = ("4c31dc9ee7f24177f78b6f518012a208326e2af1f37bb0a2405b5056d0cad628"
+                   ,"f1c1923e49cb23d15fe45bdc3f65d7fc1d031ce50dd81bb5085bdd2c63364d7f")
+
+sender09ks :: TestKeySet
+sender09ks = TestKeySet
+  { _testKeySet_name = "sender09"
+  , _testKeySet_key = Just sender09
+  , _testKeySet_pred = "keys-all"
+  }
+  where sender09 = ("c59d9840b0b66090836546b7eb4a73606257527ec8c2b482300fd229264b07e6"
+                   ,"adbe3793a0daf70c7e7a5d59349e0f51d928178de55c6328302ef5b628ed448b")
