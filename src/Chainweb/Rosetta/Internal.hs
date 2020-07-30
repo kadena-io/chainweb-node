@@ -121,7 +121,8 @@ matchLogs
     -> Either RosettaFailure tx
 matchLogs typ bh logs coinbase txs
   | bheight == genesisHeight v cid = matchGenesis
-  | coinV2Upgrade v cid bheight = matchRemediation
+  | coinV2Upgrade v cid bheight = matchCoinV2Remediation
+  | to20ChainRebalance v cid bheight = match20ChainRemediation
   | otherwise = matchRest
   where
     bheight = _blockHeight bh
@@ -132,9 +133,13 @@ matchLogs typ bh logs coinbase txs
       FullLogs -> genesisTransactions logs cid txs
       SingleLog rk -> genesisTransaction logs cid txs rk
 
-    matchRemediation = case typ of
-      FullLogs -> remediations logs cid coinbase
-      SingleLog rk -> singleRemediation logs cid coinbase rk
+    matchCoinV2Remediation = case typ of
+      FullLogs -> remediations remediationCoinV2RequestKey logs cid coinbase
+      SingleLog rk -> singleRemediation remediationCoinV2RequestKey logs cid coinbase rk
+
+    match20ChainRemediation = case typ of
+      FullLogs -> remediations remediation20ChainRequestKey logs cid coinbase
+      SingleLog rk -> singleRemediation remediation20ChainRequestKey logs cid coinbase rk
 
     matchRest = case typ of
       FullLogs ->
@@ -376,9 +381,11 @@ nonGenesisTransaction logs cid initial rest target
 -- Remediation Helpers --
 -------------------------
 
-remediationRequestKey :: RequestKey
-remediationRequestKey = RequestKey $ pactHash "remediation"
+remediationCoinV2RequestKey :: RequestKey
+remediationCoinV2RequestKey = RequestKey $ pactHash "remediation"
 
+remediation20ChainRequestKey :: RequestKey
+remediation20ChainRequestKey = RequestKey $ pactHash "remediation20Chain"
 
 -- | Group the rest of the logs into a single transaction id because
 -- remediations all have different txIds and we don't have access to
@@ -386,10 +393,11 @@ remediationRequestKey = RequestKey $ pactHash "remediation"
 -- NOTE: If a normal transaction occurs in this block, it will be grouped with
 -- the remediation changes.
 getRemediationsTx
-    :: [(TxId, [AccountLog])]
+    :: RequestKey
+    -> [(TxId, [AccountLog])]
     -> Transaction
-getRemediationsTx logsList =
-  let t = rkToTransactionId remediationRequestKey
+getRemediationsTx rk logsList =
+  let t = rkToTransactionId rk
       f (tid, ali) = map (operation Successful TransferOrCreateAcct tid) ali
       ops = indexedOperations $!
         UnindexedOperations
@@ -405,27 +413,31 @@ getRemediationsTx logsList =
 -- TODO: Are we loading "pact/coin-contract/v2/load-fungible-asset-v2.yaml"
 -- "pact/coin-contract/v2/load-coin-contract-v2.yaml" every time a remediation is
 -- run? Is it always 3 commands that are run for each remediation?
+-- TODO: Take into account 20 chain remediations.
 remediations
-    :: Map TxId [AccountLog]
+    :: RequestKey
+    -> Map TxId [AccountLog]
     -> ChainId
     -> CoinbaseTx (CommandResult Hash)
     -> Either RosettaFailure [Transaction]
-remediations logs cid initial =
+remediations rk logs cid initial =
     overwriteError RosettaMismatchTxLogs work
   where
     logsList = M.toAscList logs
     work = do
       TxAccumulator restLogs initTx <- nonGenesisCoinbaseLog logsList cid initial
-      pure $! [initTx, getRemediationsTx restLogs]
+      pure $! [initTx, getRemediationsTx rk restLogs]
 
 singleRemediation
-    :: Map TxId [AccountLog]
+    :: RequestKey
+    -- ^ Request Key to wrap all logs in
+    -> Map TxId [AccountLog]
     -> ChainId
     -> CoinbaseTx (CommandResult Hash)
     -> RequestKey
     -- ^ target
     -> Either RosettaFailure Transaction
-singleRemediation logs cid initial target =
+singleRemediation rk logs cid initial target =
     (noteOptional RosettaTxIdNotFound .
      overwriteError RosettaMismatchTxLogs)
     work
@@ -435,8 +447,8 @@ singleRemediation logs cid initial target =
       TxAccumulator restLogs initTx <- nonGenesisCoinbaseLog logsList cid initial
       if (_crReqKey initial == target)
         then pure $ Just initTx
-        else if (target == remediationRequestKey)
-          then pure $ Just $ getRemediationsTx restLogs
+        else if (target == rk)
+          then pure $ Just $ getRemediationsTx rk restLogs
           else pure Nothing -- Tx not found
 
 --------------------------------------------------------------------------------
