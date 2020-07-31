@@ -302,7 +302,7 @@ defaultCutConfig = CutConfig
 
 data ChainwebConfiguration = ChainwebConfiguration
     { _configChainwebVersion :: !ChainwebVersion
-    , _configNodeIdDeprecated :: !Int
+    , _configNodeIdDeprecated :: !Value
         -- ^ Deprecated, won't show up in --print-config
     , _configCuts :: !CutConfig
     , _configMining :: !MiningConfig
@@ -330,7 +330,7 @@ instance HasChainwebVersion ChainwebConfiguration where
 validateChainwebConfiguration :: ConfigValidation ChainwebConfiguration []
 validateChainwebConfiguration c = do
     validateMinerConfig (_configMining c)
-    unless (_configNodeIdDeprecated c == (-1)) $ tell
+    unless (_configNodeIdDeprecated c == Null) $ tell
         [ "Usage NodeId is deprecated. This option will be removed in a future version of chainweb-node"
         , "The value of NodeId is ignored by chainweb-node. In particular the database path will not depend on it"
         ]
@@ -338,7 +338,7 @@ validateChainwebConfiguration c = do
 defaultChainwebConfiguration :: ChainwebVersion -> ChainwebConfiguration
 defaultChainwebConfiguration v = ChainwebConfiguration
     { _configChainwebVersion = v
-    , _configNodeIdDeprecated = (-1)
+    , _configNodeIdDeprecated = Null
     , _configCuts = defaultCutConfig
     , _configMining = defaultMining
     , _configHeaderStream = False
@@ -399,7 +399,7 @@ pChainwebConfiguration = id
         % long "chainweb-version"
         <> short 'v'
         <> help "the chainweb version that this node is using"
-    <*< configNodeIdDeprecated .:: option auto
+    <*< configNodeIdDeprecated .:: fmap (String . T.pack) . strOption
         % hidden
         <> internal
         <> long "node-id"
