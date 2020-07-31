@@ -27,7 +27,6 @@ import qualified Criterion.Main as C
 
 import Data.Aeson hiding (Error)
 import Data.Bool
-import Data.Bytes.Put
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Short as BS
@@ -80,15 +79,12 @@ import Pact.Types.Util hiding (unwrap)
 -- chainweb imports
 
 import Chainweb.BlockCreationTime
-import Chainweb.BlockHash
 import Chainweb.BlockHeader
 import Chainweb.BlockHeader.Genesis
 import Chainweb.BlockHeaderDB
 import Chainweb.BlockHeaderDB.Internal
-import Chainweb.BlockHeight
 import Chainweb.Cut.Create
 import Chainweb.ChainId
-import Chainweb.Difficulty
 import Chainweb.Graph
 import Chainweb.Logger
 import Chainweb.Miner.Core
@@ -112,9 +108,6 @@ import Chainweb.Version.Utils
 
 import Data.CAS.HashMap hiding (toList)
 import Data.CAS.RocksDB
-
-import Numeric.Additive
-import Numeric.AffineSpace
 
 _run :: [String] -> IO ()
 _run args = withArgs args $ C.defaultMain [bench]
@@ -251,8 +244,6 @@ mineBlock parent nonce pdb bhdb r = do
               nonce
               creationTime
               parent
-         hbytes = HeaderBytes . runPutS $ encodeBlockHeaderWithoutHash bh
-         tbytes = TargetBytes . runPutS . encodeHashTarget $ _blockTarget bh
          work = WorkHeader
             { _workHeaderBytes = BS.toShort $ runPut $ encodeBlockHeaderWithoutHash bh
             , _workHeaderChainId = _chainId bh
