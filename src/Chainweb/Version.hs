@@ -777,7 +777,7 @@ coinV2Upgrade Mainnet01 cid h
     | cid == unsafeChainId 7 = h == 140809
     | cid == unsafeChainId 8 = h == 140808
     | cid == unsafeChainId 9 = h == 140808
-    | otherwise = error $ "invalid chain id " <> sshow cid
+    -- new chains on mainnet start already with v2 deployed in the genesis block
 coinV2Upgrade Testnet04 cid h
     | chainIdInt @Int cid >= 10  && chainIdInt @Int cid < 20 = h == 337000
     | otherwise = h == 1
