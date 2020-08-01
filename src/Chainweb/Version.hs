@@ -752,7 +752,6 @@ vuln797Fix Mainnet01 cid h
     | cid == unsafeChainId 7 = h >= 121451
     | cid == unsafeChainId 8 = h >= 121452
     | cid == unsafeChainId 9 = h >= 121451
-    | otherwise = error $ "invalid chain id " <> sshow cid
 vuln797Fix _ _ _ = True
 {-# INLINE vuln797Fix #-}
 
