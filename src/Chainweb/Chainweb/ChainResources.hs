@@ -135,23 +135,16 @@ withChainResources
             -- prune block header db
             when prune $ do
                 logg Info "start pruning block header database"
-                x <- pruneForks logger cdb (diam * 3) $ \_h _payloadInUse ->
-
-                    -- FIXME At the time of writing his payload hashes are not
-                    -- unique. The pruning algorithm can handle non-uniquness
-                    -- between within a chain between forks, but not accross
-                    -- chains. Also cas-deletion is sound for payload hashes if
-                    -- outputs are unique for payload hashes.
+                x <- pruneForksLogg logger cdb (diam * 3) (\_ -> return ()) (\_ -> return ())
+                    -- FIXME The pruning algorithm can handle non-uniquness
+                    -- between forks on the same chain, but not accross chains.
+                    -- Payload hashes are unique between chains except for
+                    -- genesis blocks.
                     --
-                    -- Renable this code once pact
+                    -- However, it's not clear if uniquness holds for all
+                    -- components of the payloads. Presumably they are unique
+                    -- for all but transaction hashes of empty blocks.
                     --
-                    -- includes the parent hash into the coinbase hash,
-                    -- includes the transaction hash into the respective output hash, and
-                    -- guarantees that transaction hashes are unique.
-                    --
-                    -- unless payloadInUse
-                    --     $ casDelete payloadDb (_blockPayloadHash h)
-                    return ()
                 logg Info $ "finished pruning block header database. Deleted " <> sshow x <> " block headers."
             let pex = pes requestQ
             putMVar pexMv pex
