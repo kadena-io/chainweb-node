@@ -23,28 +23,16 @@ module Chainweb.BlockHeaderDB.PruneForks
 ( pruneForksLogg
 , pruneForks
 , pruneForks_
-
--- * Mark and sweep GC for payloads
-, mkFilter
-, markPayload
 ) where
-
-import Chainweb.MerkleLogHash
 
 import Control.Monad
 import Control.Monad.Catch
 import Control.Monad.IO.Class
 
-import Data.Aeson
-import qualified Data.ByteArray as BA
-import Data.Coerce
-import Data.Cuckoo
 import Data.Function
 import qualified Data.List as L
 import Data.Maybe
 import Data.Semigroup
-
-import Foreign.Ptr
 
 import Numeric.Natural
 
@@ -62,8 +50,6 @@ import Chainweb.BlockHeaderDB.Internal
 import Chainweb.BlockHeight
 import Chainweb.ChainId
 import Chainweb.Logger
-import Chainweb.Payload
-import Chainweb.Payload.PayloadStore
 import Chainweb.TreeDB
 import Chainweb.Utils hiding (Codec)
 
@@ -83,13 +69,13 @@ pruneForksLogg
         -- necessarly included in the current best cut. So one, should choose a
         -- depth for which one is confident that all forks are resolved.
 
-    -> (BlockHeader -> IO ())
+    -> (Bool -> BlockHeader -> IO ())
         -- ^ Deletion call back. This hook is called /after/ the entry is
         -- deleted from the database. It's main purpose is to delete any
         -- resources that were related to the deleted header and that are not
         -- needed any more.
 
-    -> (BlockPayloadHash -> IO ())
+    -> (Bool -> BlockPayloadHash -> IO ())
         -- ^ Deletion call back. This hook is called /after/ the entry is
         -- deleted from the database. It's main purpose is to delete any
         -- resources that were related to the deleted header and that are not
@@ -108,12 +94,9 @@ pruneForksLogg logger = pruneForks logg
 -- This function doesn't guarantee to delete all blocks on forks. A small number
 -- of fork blocks may not get deleted.
 --
--- The function takes a callback that is invoked on each deleted block header.
--- The callback takes a parameter that indicates whether the block payload hash
--- is shared with any non-deleted block header. There is a small rate of false
--- positives of block payload hashes that are marked in use.
---
--- This doesn't update the the cut db or the payload db.
+-- The function takes callbacks that are invoked on each block header and
+-- paylaod hash. The callback takes a parameter that indicates whether the
+-- related block is pruned or not.
 --
 pruneForks
     :: LogFunctionText
@@ -123,13 +106,13 @@ pruneForks
         -- necessarly included in the current best cut. So one, should choose a
         -- depth for which one is confident that all forks are resolved.
 
-    -> (BlockHeader -> IO ())
+    -> (Bool -> BlockHeader -> IO ())
         -- ^ Deletion call back. This hook is called /after/ the entry is
         -- deleted from the database. It's main purpose is to delete any
         -- resources that were related to the deleted header and that are not
         -- needed any more.
 
-    -> (BlockPayloadHash -> IO ())
+    -> (Bool -> BlockPayloadHash -> IO ())
         -- ^ Deletion call back. This hook is called /after/ the entry is
         -- deleted from the database. It's main purpose is to delete any
         -- resources that were related to the deleted header and that are not
@@ -147,8 +130,8 @@ pruneForks_
     -> BlockHeaderDb
     -> MaxRank
     -> MinRank
-    -> (BlockHeader -> IO ())
-    -> (BlockPayloadHash -> IO ())
+    -> (Bool -> BlockHeader -> IO ())
+    -> (Bool -> BlockPayloadHash -> IO ())
     -> IO Int
 pruneForks_ logg cdb mar mir hdrCallback payloadCallback = do
 
@@ -198,6 +181,7 @@ pruneForks_ logg cdb mar mir hdrCallback payloadCallback = do
             -- Delete element
             ([], _) -> do
                 deleteHdr cur
+                hdrCallback True cur
                 return (pivots, _blockPayloadHash cur : payloads, n+1)
 
             -- We've got a new pivot. This case happens almost always.
@@ -213,9 +197,15 @@ pruneForks_ logg cdb mar mir hdrCallback payloadCallback = do
                 --
                 -- This check is fast when bs is empty.
                 --
-                when (all (((==) `on` _blockHeight) cur) bs) $
-                    mapM_ deletePayload (payloads L.\\ fmap _blockPayloadHash newPivots)
+                when (all (((==) `on` _blockHeight) cur) bs) $ do
+                    let pivotPayloads = _blockPayloadHash <$> newPivots
+                    forM_ (_blockPayloadHash cur : payloads) $ \p -> do
+                        let del = not $ elem p pivotPayloads
+                        when del $ logg Debug
+                            $ "call payload callback for deleted payload: " <> encodeToText p
+                        payloadCallback del p
 
+                hdrCallback False cur
                 return (newPivots, [], n)
 
     deleteHdr k = do
@@ -226,11 +216,6 @@ pruneForks_ logg cdb mar mir hdrCallback payloadCallback = do
         logg Debug
             $ "pruned block header " <> encodeToText (_blockHash k)
             <> " at height " <> sshow (_blockHeight k)
-        hdrCallback k
-
-    deletePayload p = do
-        logg Debug $ "call payload pruning callback for hash: " <> encodeToText p
-        payloadCallback p
 
 -- -------------------------------------------------------------------------- --
 -- Utils
@@ -267,75 +252,3 @@ withReverseHeaderStream db mar mir inner = withTableIter headerTbl $ \it -> do
     headerTbl = _chainDbCas db
 {-# INLINE withReverseHeaderStream #-}
 
--- -------------------------------------------------------------------------- --
--- Mark and sweep GC for Payloads
---
-
-newtype GcHash = GcHash MerkleLogHash
-    deriving newtype (Show, ToJSON)
-
-instance CuckooFilterHash GcHash where
-    cuckooHash (Salt s) (GcHash a) = fnv1a_bytes s a  --  $ BA.takeView a 32
-    cuckooFingerprint (Salt s) (GcHash a) = sip_bytes s a  -- s $ BA.takeView a 32
-    {-# INLINE cuckooHash #-}
-    {-# INLINE cuckooFingerprint #-}
-
-gcHash :: Coercible a MerkleLogHash => a -> GcHash
-gcHash = coerce
-{-# INLINE gcHash #-}
-
-type Filter = CuckooFilterIO 4 8 GcHash
-
-mkFilter :: IO Filter
-mkFilter = do
-    newCuckooFilter 0 80000000
-        -- 100 items per block (as of summer 2020)
-        -- TODO: should depend on current block height
-
-markPayload
-    :: HasCasLookupConstraint cas BlockPayload
-    => PayloadDb cas
-    -> Filter
-    -> BlockPayloadHash
-    -> IO ()
-markPayload db cf h = do
-    casLookup pdb h >>= \case
-        Nothing -> error "corrupted database: payload not found"
-        Just payload -> do
-            tryInsert "payload hash" (gcHash $ _blockPayloadPayloadHash payload)
-            tryInsert "transactions hash" (gcHash $ _blockPayloadTransactionsHash payload)
-            tryInsert "outputs hash" (gcHash $ _blockPayloadOutputsHash payload)
-  where
-    tryInsert k a = do
-        -- inserting a large number of equal elements causes the filter to fail.
-        m <- member cf a
-        if m
-          then
-            print $ "member found for " <> k <> ": " <> encodeToText a
-          else
-            unlessM (insert cf a) $
-                error "failed to insert item in cuckoo filter: increase the size of the filter and try again"
-
-    pdb = _transactionDbBlockPayloads $ _transactionDb db
-
-    -- Tables
-    --
-    -- BlockPayloadStore - BlockPayload:
-    --     *BlockPayloadHash, BlockTransactionsHash, BlockOutputsHash
-    --
-    -- BlockTransactionStore - BlockTransactions:
-    --     *BlockTransactionsHash, Vector Transactions, MinerData
-    --
-    -- BlockOutputsStore - BlockOutputs:
-    --     *BlockOutputsHash, Vector TransactionOutput, CoinbaseOutput
-    --
-    -- TransactionTreeStore - TransactionTree:
-    --     *BlockTransactionsHash, MerkleTree
-    --
-    -- OutputTreeStore - OutputTree
-    --     *BlockOutputsHash, MerkleTree
-    --
-
-
-    -- 1. Delete payloads hashes
-    -- 2. do payload mark and sweep gc after pruning all chain databases

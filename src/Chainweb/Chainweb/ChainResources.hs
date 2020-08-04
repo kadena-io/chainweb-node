@@ -51,8 +51,8 @@ import System.LogLevel
 -- internal modules
 
 import Chainweb.BlockHeaderDB
-import Chainweb.BlockHeight
 import Chainweb.BlockHeaderDB.PruneForks
+import Chainweb.BlockHeight
 import Chainweb.ChainId
 import Chainweb.Chainweb.PeerResources
 import Chainweb.Graph
@@ -68,6 +68,7 @@ import Chainweb.NodeId
 import Chainweb.Pact.Service.PactInProcApi
 import Chainweb.Pact.Service.Types
 import Chainweb.Payload.PayloadStore
+import Chainweb.Payload.PayloadStore.RocksDB
 import Chainweb.RestAPI.NetworkID
 import Chainweb.Transaction
 import Chainweb.Utils
@@ -115,8 +116,6 @@ withChainResources
     -> logger
     -> (MVar PactExecutionService -> Mempool.InMemConfig ChainwebTransaction)
     -> PayloadDb cas
-    -> Bool
-        -- ^ whether to prune the chain database
     -> Maybe FilePath
         -- ^ database directory for checkpointer
     -> Maybe NodeId
@@ -124,7 +123,7 @@ withChainResources
     -> (ChainResources logger -> IO a)
     -> IO a
 withChainResources
-  v cid rdb peer logger mempoolCfg0 payloadDb prune dbDir nodeid pactConfig inner =
+  v cid rdb peer logger mempoolCfg0 payloadDb dbDir nodeid pactConfig inner =
     withBlockHeaderDb rdb v cid $ \cdb -> do
       pexMv <- newEmptyMVar
       let mempoolCfg = mempoolCfg0 pexMv
@@ -132,20 +131,6 @@ withChainResources
         mpc <- MPCon.mkMempoolConsensus mempool cdb $ Just payloadDb
         withPactService v cid (setComponent "pact" logger) mpc cdb
                         payloadDb dbDir nodeid pactConfig $ \requestQ -> do
-            -- prune block header db
-            when prune $ do
-                logg Info "start pruning block header database"
-                x <- pruneForksLogg logger cdb (diam * 3) (\_ -> return ()) (\_ -> return ())
-                    -- FIXME The pruning algorithm can handle non-uniquness
-                    -- between forks on the same chain, but not accross chains.
-                    -- Payload hashes are unique between chains except for
-                    -- genesis blocks.
-                    --
-                    -- However, it's not clear if uniquness holds for all
-                    -- components of the payloads. Presumably they are unique
-                    -- for all but transaction hashes of empty blocks.
-                    --
-                logg Info $ "finished pruning block header database. Deleted " <> sshow x <> " block headers."
             let pex = pes requestQ
             putMVar pexMv pex
 
@@ -158,8 +143,6 @@ withChainResources
                 , _chainResPact = pex
                 }
   where
-    logg = logFunctionText (setComponent "pact-tx-replay" logger)
-    diam = diameter (_chainGraph (v, maxBound @BlockHeight))
     pes requestQ = case v of
         Test{} -> emptyPactExecutionService
         TimedConsensus{} -> emptyPactExecutionService

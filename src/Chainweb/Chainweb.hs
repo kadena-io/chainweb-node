@@ -158,10 +158,6 @@ import System.LogLevel
 
 -- internal modules
 
-import qualified Pact.Types.ChainId as P
-import qualified Pact.Types.ChainMeta as P
-import qualified Pact.Types.Command as P
-
 import Chainweb.BlockHeader
 import Chainweb.BlockHeaderDB (BlockHeaderDb)
 import Chainweb.BlockHeight
@@ -170,6 +166,7 @@ import Chainweb.Chainweb.ChainResources
 import Chainweb.Chainweb.CutResources
 import Chainweb.Chainweb.MinerResources
 import Chainweb.Chainweb.PeerResources
+import Chainweb.Chainweb.PruneChainDatabase
 import Chainweb.Cut
 import Chainweb.CutDB
 import Chainweb.HostAddress
@@ -201,6 +198,10 @@ import Data.LogMessage (LogFunctionText)
 import P2P.Node.Configuration
 import P2P.Node.PeerDB (PeerDb)
 import P2P.Peer
+
+import qualified Pact.Types.ChainId as P
+import qualified Pact.Types.ChainMeta as P
+import qualified Pact.Types.Command as P
 
 -- -------------------------------------------------------------------------- --
 -- TransactionIndexConfig
@@ -571,14 +572,19 @@ withChainwebInternal
     -> (forall cas' . PayloadCasLookup cas' => Chainweb logger cas' -> IO a)
     -> IO a
 withChainwebInternal conf logger peer rocksDb dbDir nodeid resetDb inner = do
+
+    -- TODO distinguish between "prune: headers" and "prune: full"
+    when prune $ fullGc (setComponent "database-gc" logger) rocksDb v
+
     initializePayloadDb v payloadDb
+
     concurrentWith
         -- initialize chains concurrently
         (\cid -> do
             let mcfg = validatingMempoolConfig cid v (_configBlockGasLimit conf)
             withChainResources v cid rocksDb peer (chainLogger cid)
-                     mcfg payloadDb prune dbDir nodeid
-                     pactConfig)
+                     mcfg payloadDb dbDir nodeid pactConfig
+        )
 
         -- initialize global resources after all chain resources are initialized
         (\cs -> global (HM.fromList $ zip cidsList cs))

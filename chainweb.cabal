@@ -158,6 +158,7 @@ library
         , Chainweb.Chainweb.CutResources
         , Chainweb.Chainweb.MinerResources
         , Chainweb.Chainweb.PeerResources
+        , Chainweb.Chainweb.PruneChainDatabase
         , Chainweb.Counter
         , Chainweb.Crypto.MerkleLog
         , Chainweb.Cut
