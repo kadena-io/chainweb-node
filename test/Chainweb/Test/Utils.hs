@@ -881,7 +881,7 @@ matchTest pat = withArgs ["-p",pat]
 
 data ChainwebNetwork = ChainwebNetwork
     { _getClientEnv :: !ClientEnv
-    , _getLocalClientEnv :: !ClientEnv
+    , _getServiceClientEnv :: !ClientEnv
     }
 
 withNodes
@@ -899,10 +899,10 @@ withNodes v label rdb n f = withResource start
     start = do
         peerInfoVar <- newEmptyMVar
         a <- async $ runTestNodes label rdb Quiet v n peerInfoVar
-        (i, localPort) <- readMVar peerInfoVar
+        (i, servicePort) <- readMVar peerInfoVar
         cwEnv <- getClientEnv $ getCwBaseUrl Https $ _hostAddressPort $ _peerAddr i
-        cwLocalEnv <- getClientEnv $ getCwBaseUrl Http localPort
-        return (a, (cwEnv, cwLocalEnv))
+        cwServiceEnv <- getClientEnv $ getCwBaseUrl Http servicePort
+        return (a, (cwEnv, cwServiceEnv))
 
     getCwBaseUrl :: Scheme -> Port -> BaseUrl
     getCwBaseUrl prot p = BaseUrl
@@ -945,7 +945,7 @@ node label rdb loglevel peerInfoVar conf = do
         -- If this is the bootstrap node we extract the port number and publish via an MVar.
         when (nid == NodeId 0) $ do
             let bootStrapInfo = view (chainwebPeer . peerResPeer . peerInfo) cw
-                bootStrapPort = view (chainwebLocalSocket . _1) cw
+                bootStrapPort = view (chainwebServiceSocket . _1) cw
             putMVar peerInfoVar (bootStrapInfo, bootStrapPort)
 
         poisonDeadBeef cw

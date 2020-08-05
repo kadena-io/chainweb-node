@@ -86,7 +86,7 @@ tests rdb = testGroupSch "Chainweb.Test.Rosetta.RestAPI" go
     go = return $
       withNodes v "rosettaRemoteTests-" rdb nodes $ \envIo ->
       withTime $ \tio -> testGroup "Rosetta Api tests" $
-        schedule Sequential (tgroup tio $ _getLocalClientEnv <$> envIo)
+        schedule Sequential (tgroup tio $ _getServiceClientEnv <$> envIo)
 
     -- Not supported:
     --

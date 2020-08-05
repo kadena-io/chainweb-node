@@ -52,10 +52,10 @@ module Chainweb.RestAPI
 , serveChainwebSocketTls
 , Port
 
--- * Local API Server
-, someLocalApiServer
-, localApiApplication
-, serveLocalApiSocket
+-- * Service API Server
+, someServiceApiServer
+, serviceApiApplication
+, serveServiceApiSocket
 
 -- * Chainweb API Client
 
@@ -330,9 +330,9 @@ serveChainwebSocketTls settings certChain key sock v dbs m =
     app = chainwebApplication v dbs
 
 -- -------------------------------------------------------------------------- --
--- Local API Server
+-- Service API Server
 
-someLocalApiServer
+someServiceApiServer
     :: Show t
     => PayloadCasLookup cas
     => Logger logger
@@ -343,7 +343,7 @@ someLocalApiServer
     -> HeaderStream
     -> Rosetta
     -> SomeServer
-someLocalApiServer v dbs pacts mr (HeaderStream hs) (Rosetta r) =
+someServiceApiServer v dbs pacts mr (HeaderStream hs) (Rosetta r) =
     someSwaggerServer v (fst <$> peers)
         <> someHealthCheckServer
         <> maybe mempty (someNodeInfoServer v) cuts
@@ -361,7 +361,7 @@ someLocalApiServer v dbs pacts mr (HeaderStream hs) (Rosetta r) =
     cutPeerDb = fromJuste $ lookup CutNetwork peers
     payloads = _chainwebServerPayloadDbs dbs
 
-localApiApplication
+serviceApiApplication
     :: Show t
     => PayloadCasLookup cas
     => Logger logger
@@ -372,14 +372,14 @@ localApiApplication
     -> HeaderStream
     -> Rosetta
     -> Application
-localApiApplication v dbs pacts mr hs r
+serviceApiApplication v dbs pacts mr hs r
     = chainwebTime
     . chainwebNodeVersion
     . chainwebCors
     . someServerApplication
-    $ someLocalApiServer v dbs pacts mr hs r
+    $ someServiceApiServer v dbs pacts mr hs r
 
-serveLocalApiSocket
+serveServiceApiSocket
     :: Show t
     => PayloadCasLookup cas
     => Logger logger
@@ -393,6 +393,6 @@ serveLocalApiSocket
     -> Rosetta
     -> Middleware
     -> IO ()
-serveLocalApiSocket s sock v dbs pacts mr hs r m =
-    runSettingsSocket s sock $ m $ localApiApplication v dbs pacts mr hs r
+serveServiceApiSocket s sock v dbs pacts mr hs r m =
+    runSettingsSocket s sock $ m $ serviceApiApplication v dbs pacts mr hs r
 
