@@ -31,6 +31,8 @@ module Chainweb.RestAPI
 
 -- * Chainweb API
 , someChainwebApi
+, someChainwebPeerApi
+, someChainwebServiceApi
 , prettyShowChainwebApi
 , apiVersion
 , prettyApiVersion
@@ -38,6 +40,11 @@ module Chainweb.RestAPI
 -- * Swagger
 , prettyChainwebSwagger
 , chainwebSwagger
+, chainwebPeerSwagger
+, chainwebServiceSwagger
+, someSwaggerServer
+, somePeerSwaggerServer
+, someServiceSwaggerServer
 
 -- * Component Triggers
 , HeaderStream(..)
@@ -158,8 +165,12 @@ emptyChainwebServerDbs = ChainwebServerDbs
 -- -------------------------------------------------------------------------- --
 -- Chainweb API
 
+-- | All APIs. This includes the service and the peer APIs. This is only used
+-- for documentation / swagger purposes.
+--
 someChainwebApi :: ChainwebVersion -> [NetworkId] -> SomeApi
-someChainwebApi v cs = someSwaggerApi
+someChainwebApi v cs
+    = someSwaggerApi
     <> someHealthCheckApi
     <> someNodeInfoApi
     <> someCutApi v
@@ -183,6 +194,30 @@ prettyShowChainwebApi :: ChainwebVersion -> [NetworkId] -> T.Text
 prettyShowChainwebApi v cs = case someChainwebApi v cs of
     SomeApi a -> layout a
 
+-- | All Service API endpoints
+--
+someChainwebServiceApi :: ChainwebVersion -> [NetworkId] -> SomeApi
+someChainwebServiceApi v cs
+    = someSwaggerApi
+    <> someHealthCheckApi
+    <> someNodeInfoApi
+    <> PactAPI.somePactServiceApis v chains
+    <> someMiningApi v
+    <> someHeaderStreamApi v
+  where
+    chains = selectChainIds cs
+
+-- | All Peer API endpoints
+--
+someChainwebPeerApi :: ChainwebVersion -> [NetworkId] -> SomeApi
+someChainwebPeerApi v cs
+    = someCutApi v
+    <> someBlockHeaderDbApis v chains
+    <> somePayloadApis v chains
+    <> someP2pApis v cs
+  where
+    chains = selectChainIds cs
+
 -- -------------------------------------------------------------------------- --
 -- Swagger
 --
@@ -200,12 +235,34 @@ someSwaggerServer :: ChainwebVersion -> [NetworkId] -> SomeServer
 someSwaggerServer v cs = SomeServer (Proxy @SwaggerApi)
     $ return (chainwebSwagger v cs)
 
+somePeerSwaggerServer :: ChainwebVersion -> [NetworkId] -> SomeServer
+somePeerSwaggerServer v cs = SomeServer (Proxy @SwaggerApi)
+    $ return (chainwebPeerSwagger v cs)
+
+someServiceSwaggerServer :: ChainwebVersion -> [NetworkId] -> SomeServer
+someServiceSwaggerServer v cs = SomeServer (Proxy @SwaggerApi)
+    $ return (chainwebServiceSwagger v cs)
+
 chainwebSwagger :: ChainwebVersion -> [NetworkId] -> Swagger
 chainwebSwagger v cs = case someChainwebApi v cs of
     SomeApi a -> toSwagger a
         & info.title   .~ "Chainweb"
         & info.version .~ prettyApiVersion
         & info.description ?~ "Chainweb/" <> sshow v <> " API"
+
+chainwebPeerSwagger :: ChainwebVersion -> [NetworkId] -> Swagger
+chainwebPeerSwagger v cs = case someChainwebPeerApi v cs of
+    SomeApi a -> toSwagger a
+        & info.title   .~ "Chainweb Peer API"
+        & info.version .~ prettyApiVersion
+        & info.description ?~ "Chainweb/" <> sshow v <> "Peer  API"
+
+chainwebServiceSwagger :: ChainwebVersion -> [NetworkId] -> Swagger
+chainwebServiceSwagger v cs = case someChainwebServiceApi v cs of
+    SomeApi a -> toSwagger a
+        & info.title   .~ "Chainweb Service API"
+        & info.version .~ prettyApiVersion
+        & info.description ?~ "Chainweb/" <> sshow v <> "Service  API"
 
 prettyChainwebSwagger :: ChainwebVersion -> [NetworkId] -> T.Text
 prettyChainwebSwagger v cs = T.decodeUtf8 . BL.toStrict . encodePretty
@@ -241,7 +298,7 @@ chainwebNodeVersion app req resp = app req $ \res ->
         res
 
 -- -------------------------------------------------------------------------- --
--- Chainweb Server
+-- Chainweb Peer Server
 
 someChainwebServer
     :: Show t
@@ -250,9 +307,7 @@ someChainwebServer
     -> ChainwebServerDbs t cas
     -> SomeServer
 someChainwebServer v dbs =
-    someSwaggerServer v (fst <$> peers)
-        <> someHealthCheckServer
-        <> maybe mempty (someNodeInfoServer v) cuts
+    somePeerSwaggerServer v (fst <$> peers)
         <> maybe mempty (someCutServer v cutPeerDb) cuts
         <> maybe mempty (someSpvServers v) cuts
         <> somePayloadServers v payloads
@@ -344,7 +399,7 @@ someServiceApiServer
     -> Rosetta
     -> SomeServer
 someServiceApiServer v dbs pacts mr (HeaderStream hs) (Rosetta r) =
-    someSwaggerServer v (fst <$> peers)
+    someServiceSwaggerServer v (fst <$> peers)
         <> someHealthCheckServer
         <> maybe mempty (someNodeInfoServer v) cuts
         <> PactAPI.somePactServers v pacts
