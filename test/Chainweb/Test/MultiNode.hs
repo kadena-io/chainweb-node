@@ -79,7 +79,6 @@ import Chainweb.Chainweb.PeerResources
 import Chainweb.Cut
 import Chainweb.CutDB
 import Chainweb.Graph
-import Chainweb.HostAddress
 import Chainweb.Logger
 import Chainweb.Miner.Config
 import Chainweb.Miner.Pact
@@ -92,8 +91,6 @@ import Chainweb.Version.Utils
 import Chainweb.WebBlockHeaderDB
 
 import Data.CAS.RocksDB
-
-import Network.Wai.Handler.Warp (HostPreference)
 
 import P2P.Node.Configuration
 import P2P.Peer
@@ -112,12 +109,6 @@ import P2P.Peer
 -- similulate a full-scale chain in a miniaturized settings.
 --
 
-multiHost :: Hostname
-multiHost = unsafeHostnameFromText "::1"
-
-multiInterface :: HostPreference
-multiInterface = "::1"
-
 -- | Test Configuration for a scaled down Test chainweb.
 --
 multiConfig
@@ -131,8 +122,8 @@ multiConfig v n nid = defaultChainwebConfiguration v
     & set configNodeId nid
         -- Set the node id.
 
-    & set (configP2p . p2pConfigPeer . peerConfigHost) multiHost
-    & set (configP2p . p2pConfigPeer . peerConfigInterface) multiInterface
+    & set (configP2p . p2pConfigPeer . peerConfigHost) host
+    & set (configP2p . p2pConfigPeer . peerConfigInterface) interface
         -- Only listen on the loopback device. On Mac OS X this prevents the
         -- firewall dialog form poping up.
 
