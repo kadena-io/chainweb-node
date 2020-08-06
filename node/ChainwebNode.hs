@@ -63,6 +63,7 @@ import Data.Time
 import Data.Typeable
 
 import GHC.Generics hiding (from)
+import GHC.Stack
 import GHC.Stats
 
 import qualified Network.HTTP.Client as HTTP
@@ -175,13 +176,13 @@ pChainwebNodeConfiguration = id
         % long "reset-chain-databases"
         <> help "Reset the chain databases for all chains on startup"
 
-getRocksDbDir :: ChainwebNodeConfiguration -> IO FilePath
+getRocksDbDir :: HasCallStack => ChainwebNodeConfiguration -> IO FilePath
 getRocksDbDir conf = (<> "/rocksDb") <$> getDbBaseDir conf
 
-getPactDbDir :: ChainwebNodeConfiguration -> IO FilePath
+getPactDbDir :: HasCallStack => ChainwebNodeConfiguration -> IO FilePath
 getPactDbDir conf =  (<> "/sqlite") <$> getDbBaseDir conf
 
-getDbBaseDir :: ChainwebNodeConfiguration -> IO FilePath
+getDbBaseDir :: HasCallStack => ChainwebNodeConfiguration -> IO FilePath
 getDbBaseDir conf = case _nodeConfigDatabaseDirectory conf of
     Nothing -> getXdgDirectory XdgData
         $ "chainweb-node/" <> sshow v <> "/0"
@@ -314,7 +315,7 @@ runQueueMonitor logger cutDb = L.withLoggerLabel ("component", "queue-monitor") 
 -- -------------------------------------------------------------------------- --
 -- Run Node
 
-node :: Logger logger => ChainwebNodeConfiguration -> logger -> IO ()
+node :: HasCallStack => Logger logger => ChainwebNodeConfiguration -> logger -> IO ()
 node conf logger = do
     migrateDbDirectory logger conf
     dbBaseDir <- getDbBaseDir conf
@@ -561,8 +562,12 @@ main = do
 -- longer backwards compatibility, because in those situations it will be faster
 -- and more convenient to start over with a fresh db.
 --
-
-migrateDbDirectory :: Logger logger => logger -> ChainwebNodeConfiguration -> IO ()
+migrateDbDirectory
+    :: HasCallStack
+    => Logger logger
+    => logger
+    -> ChainwebNodeConfiguration
+    -> IO ()
 migrateDbDirectory logger config = case _nodeConfigDatabaseDirectory config of
     Just custom -> do
         let legacyCustomRocksDb = custom
@@ -586,9 +591,10 @@ migrateDbDirectory logger config = case _nodeConfigDatabaseDirectory config of
 
     Nothing -> do
         defDir <- getXdgDirectory XdgData $ "chainweb-node/" <> sshow v
-        dirs <- getDirectoryContents defDir
-        forM_ (filter (/= defDir <> "/0") dirs) $ \i ->
-            logg Warn $ "ignoring existing database directory " <> T.pack i
+        whenM (doesDirectoryExist defDir) $
+            dirs <- getDirectoryContents defDir
+            forM_ (filter (/= defDir <> "/0") dirs) $ \i ->
+                logg Warn $ "ignoring existing database directory " <> T.pack i
   where
     logg = logFunctionText (setComponent "database-migration" logger)
     v = _configChainwebVersion $ _nodeConfigChainweb config
@@ -655,4 +661,3 @@ migrateDbDirectory logger config = case _nodeConfigDatabaseDirectory config of
                     <> ". Old location: " <> T.pack old
                     <> ". New location: " <> T.pack new
                 renameDirectory old new
-

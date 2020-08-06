@@ -1,0 +1,57 @@
+allowReadsInLocal: false
+rosetta: false
+throttling:
+  local: 0.1
+  mining: 5
+  global: 50.0
+  putPeer: 11
+validateHashesOnReplay: false
+chainwebVersion: mainnet01
+pactQueueSize: 2000
+mining:
+  coordination:
+    enabled: true
+    mode: private
+    updateStreamTimeout: 240
+    limit: 1200
+    updateStreamLimit: 2000
+    miners: []
+  nodeMining:
+    miner:
+      account: ''
+      predicate: keys-all
+      public-keys: []
+    enabled: false
+p2p:
+  peer:
+    certificateChainFile: null
+    key: null
+    interface: '*'
+    certificateChain: null
+    hostaddress:
+      hostname: 47.27.82.149
+      port: 443
+    keyFile: null
+  maxPeerCount: 50
+  private: false
+  ignoreBootstrapNodes: false
+  maxSessionCount: 10
+  sessionTimeout: 240
+  peers: []
+transactionIndex:
+  enabled: true
+  configuration: {}
+gasLimitOfBlock: 150000
+reorgLimit: 480
+headerStream: false
+mempoolP2p:
+  enabled: true
+  configuration:
+    pollInterval: 30
+    maxSessionCount: 6
+    sessionTimeout: 300
+reintroTxs: true
+cuts:
+  pruneChainDatabase: true
+  fetchTimeout: 3000000
+  initialCutHeightLimit: null
