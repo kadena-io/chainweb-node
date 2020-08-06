@@ -222,7 +222,7 @@ fullGc logger rdb v = do
         markedPayloads <- mkFilter (round $ int @_ @Double m * 1.1)
 
         logg Info $ "Allocated "
-            <> sshow (sizeInAllocatedBytes markedTrans * sizeInAllocatedBytes markedPayloads `div` (1024 * 1024))
+            <> sshow ((sizeInAllocatedBytes markedTrans + sizeInAllocatedBytes markedPayloads) `div` (1024 * 1024))
             <> "MB for marking database entries"
 
         -- TODO mark all entries above a depth of depth, so it doesn't get GCed
