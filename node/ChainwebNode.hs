@@ -594,7 +594,7 @@ migrateDbDirectory logger config = case _nodeConfigDatabaseDirectory config of
         whenM (doesDirectoryExist defDir) $ do
             dirs <- listDirectory defDir
             forM_ (filter (/= defDir <> "/0") dirs) $ \i ->
-                logg Warn $ "ignoring existing database directory " <> T.pack (defDir "/" i)
+                logg Warn $ "ignoring existing database directory " <> T.pack (defDir <> "/" <> i)
   where
     logg = logFunctionText (setComponent "database-migration" logger)
     v = _configChainwebVersion $ _nodeConfigChainweb config
