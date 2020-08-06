@@ -5,6 +5,7 @@
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -56,6 +57,7 @@ import Control.Monad.Managed
 import Data.CAS
 import Data.CAS.RocksDB
 import qualified Data.HashSet as HS
+import qualified Data.List as L
 import qualified Data.Text as T
 import Data.Time
 import Data.Typeable
@@ -518,6 +520,8 @@ main = do
 -- -------------------------------------------------------------------------- --
 -- Database Director Migration
 --
+-- TODO: This code can be removed in chainweb-2.2.
+--
 -- Legacy default locations:
 --
 -- `$XDGDATA/chainweb-node/$CHAINWEB_VERSION/$NODEID/rocksDb`
@@ -530,8 +534,8 @@ main = do
 --
 -- Legacy custom locations:
 --
--- `$CUSTOM_PATH/rocksDb`
--- `$CUSTOM_PATH/rocksDbsqlite`
+-- `${CUSTOM_PATH}`
+-- `${CUSTOM_PATH}sqlite` # Note that there is no slash before `sqlite`
 --
 -- New custom locations:
 --
@@ -543,7 +547,9 @@ main = do
 -- 1. Custom location configured (and directory exists):
 --
 --    * Log warning
---    * `mv "$CUSTOM_PATH/rocksDbslqite "$CUSTOM_PATH/sqlite"`
+--    * `mkdir -p "$CUSTOM_PATH/rockDb"
+--    * `mv "${CUSTOM_PATH}*" "$CUSTOM_PATH/rocksDb"
+--    * `mv "${CUSTOM_PATH}slqite "$CUSTOM_PATH/sqlite"`
 --    * fail if target directory already exists
 --
 -- 2. No custom location configured:
@@ -559,25 +565,91 @@ main = do
 migrateDbDirectory :: Logger logger => logger -> ChainwebNodeConfiguration -> IO ()
 migrateDbDirectory logger config = case _nodeConfigDatabaseDirectory config of
     Just custom -> do
-        let legacyCustomPact = custom <> "sqlite"
-        newCustomPact <- getPactDbDir config
-        whenM (doesDirectoryExist legacyCustomPact) $ do
-            logg Warn
-                $ "Updated database directory layout for new chainweb version"
-                <> ". Old pact db location: " <> T.pack legacyCustomPact
-                <> ". New pact db location: " <> T.pack newCustomPact
-            targetExists <- doesDirectoryExist newCustomPact
-            if targetExists
-              then logg Error
-                $ "Can't move old pact database to new location because the database already exists"
-                <> ". The database at the new location will be used."
-              else renameDirectory legacyCustomPact newCustomPact
+        let legacyCustomRocksDb = custom
+        newCustomRocksDb <- getRocksDbDir config
+
+        let legacyCustomPactDb = custom <> "sqlite"
+        newCustomPactDb <- getPactDbDir config
+
+        logg Warn
+            $ "Updated database directory layout for new chainweb version"
+            <> ". Old chain db location: " <> T.pack legacyCustomRocksDb
+            <> ". New chain db location: " <> T.pack newCustomRocksDb
+            <> ". Old pact db location: " <> T.pack legacyCustomPactDb
+            <> ". New pact db location: " <> T.pack newCustomPactDb
+        logg Warn
+            $ "If this operation fails it may be retried"
+            <> ". If it still fails the database may be corrupted and must be deleted and re-synchronized"
+
+        migrateDb "chain" legacyCustomRocksDb newCustomRocksDb
+        migrateDb "pact" legacyCustomPactDb newCustomPactDb
+
     Nothing -> do
         defDir <- getXdgDirectory XdgData $ "chainweb-node/" <> sshow v
         dirs <- getDirectoryContents defDir
         forM_ (filter (/= defDir <> "/0") dirs) $ \i ->
             logg Warn $ "ignoring existing database directory " <> T.pack i
   where
-    logg = logFunctionText logger
+    logg = logFunctionText (setComponent "database-migration" logger)
     v = _configChainwebVersion $ _nodeConfigChainweb config
+
+    -- There are many things that can go wrong in here. In particular we don't
+    -- check for permissions, mounts, hard links, etc. We also don't care about
+    -- races with other operating system threads.
+    --
+    -- However, the worst that can happen is that the database becomes corrupted
+    -- and must be resynchronized.
+    --
+    migrateDb db oldRaw newRaw = do
+        old <- canonicalizePath oldRaw
+        new <- canonicalizePath newRaw
+
+        oldExists <- doesDirectoryExist old
+        newExists <- doesDirectoryExist new
+        oldIsFile <- doesFileExist old
+        newIsFile <- doesFileExist new
+
+        let cpy f = copyFile (old <> "/" <> f) (new <> "/" <> f)
+            rm dir f = removeFile (dir <> "/" <> f)
+
+        if
+            | oldIsFile -> do
+                logg Error
+                    $ "A file with the name of the old directory for the " <> db <> " database exists. Terminating chainweb node"
+                error $ "A file with the name of the old directory for the " <> T.unpack db <> " database exists"
+            | newIsFile -> do
+                logg Error
+                    $ "A file with the name of the new directory for " <> db <> " database exists. Terminating chainweb node"
+                error $ "A file with the name of the new directory for " <> T.unpack db <> " database exists"
+            | old == new -> logg Warn
+                $ "Old and new " <> db <> " directories are the the same. No action needed"
+            | not oldExists -> logg Warn
+                $ "Old " <> db <> " database directory doesn't exist. No action needed"
+            | newExists -> logg Error
+                $ "Can't move old " <> db <> " database to new location because the database already exists"
+                <> ". Chainweb node will attempt to use the database at the new location"
+            | old `L.isPrefixOf` new -> do
+                logg Warn
+                    $ "moving " <> db <> " database:"
+                    <> ". Old location: " <> T.pack old
+                    <> ". New location: " <> T.pack new
+
+                fileEntries <- filterM doesFileExist =<< listDirectory old
+
+                -- This isn't bullet proof. If something goes wrong here, there's a chance for a
+                -- corrupted database.
+                (mask_ $ createDirectoryIfMissing True new >> mapM_ cpy fileEntries)
+                    `onException` do
+                        removeDirectoryRecursive new
+                        -- we know that the directory didn't exist before. So, this is safe.
+                        -- (modulo races with other operating system processes)
+                        logg Error $ "failed to create new " <> db <> " database directory " <> T.pack new
+                mapM_ (rm old) fileEntries
+
+            | otherwise -> do
+                logg Warn
+                    $ "moving " <> db <> " database:"
+                    <> ". Old location: " <> T.pack old
+                    <> ". New location: " <> T.pack new
+                renameDirectory old new
 
