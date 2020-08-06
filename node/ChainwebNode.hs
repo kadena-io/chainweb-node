@@ -186,7 +186,7 @@ getDbBaseDir :: HasCallStack => ChainwebNodeConfiguration -> IO FilePath
 getDbBaseDir conf = case _nodeConfigDatabaseDirectory conf of
     Nothing -> getXdgDirectory XdgData
         $ "chainweb-node/" <> sshow v <> "/0"
-    Just d -> return d
+    Just d -> return (d <> "/0")
   where
     v = _configChainwebVersion $ _nodeConfigChainweb conf
 
@@ -577,7 +577,7 @@ migrateDbDirectory logger config = case _nodeConfigDatabaseDirectory config of
         newCustomPactDb <- getPactDbDir config
 
         logg Warn
-            $ "Updating database directory layout for new chainweb version"
+            $ "Checking database directory layout for new chainweb version"
             <> ". Old chain db location: " <> T.pack legacyCustomRocksDb
             <> ". New chain db location: " <> T.pack newCustomRocksDb
             <> ". Old pact db location: " <> T.pack legacyCustomPactDb
@@ -594,7 +594,7 @@ migrateDbDirectory logger config = case _nodeConfigDatabaseDirectory config of
         whenM (doesDirectoryExist defDir) $ do
             dirs <- listDirectory defDir
             forM_ (filter (/= defDir <> "/0") dirs) $ \i ->
-                logg Warn $ "ignoring existing database directory " <> T.pack i
+                logg Warn $ "ignoring existing database directory " <> T.pack (defDir "/" i)
   where
     logg = logFunctionText (setComponent "database-migration" logger)
     v = _configChainwebVersion $ _nodeConfigChainweb config
