@@ -238,6 +238,11 @@ fullGc logger rdb v = do
         chainLogg Info $ "finished pruning block header database. Deleted " <> sshow x <> " block headers."
         return (markedPayloads, markedTrans)
 
+    -- TODO: consider using bloom fiters instead that can be merged. Alternatively,
+    -- implement concurrent insertion for cuckoo filters, where the hashing is done
+    -- concurrently and a lock is used only for the actual modification of the
+    -- underlying buffer. Or do fine grained locking on the filter.
+    --
     checkMark :: BA.ByteArrayAccess a => [(Filter a)] -> a -> IO Bool
     checkMark [] _ = return False
     checkMark (h : t) a = member h (GcHash a) >>= \case
@@ -319,11 +324,12 @@ payloadGcCallback logg db markedPayloads markedTrans isDelete h = do
                 tryInsert cf "transactions hash" (gcHash $ _blockPayloadTransactionsHash payload)
   where
     tryInsert cf k a = do
-        -- inserting a large number of equal elements causes the filter to fail.
+        -- inserting a somewhat larger number (I think, it's actually 7) of
+        -- equal elements causes the filter to fail.
         unlessM (member cf a) $
             unlessM (insert cf a) $ error
-                $ "failed to insert item in cuckoo filter " <> k
-                <> ": increase the size of the filter and try again"
+                $ "failed to insert item " <> k <> " in cuckoo filter"
+                <> ": while very rare this can happen. Usually it is resolve by retrying."
 
     pdb = _transactionDbBlockPayloads $ _transactionDb db
 
