@@ -126,7 +126,7 @@ import Control.Concurrent.MVar (MVar, readMVar)
 import Control.Error.Util (note)
 import Control.Lens hiding ((.=), (<.>))
 import Control.Monad
-import Control.Monad.Catch (throwM)
+import Control.Monad.Catch (MonadThrow, throwM)
 
 import Data.Bifunctor (second)
 import Data.CAS (casLookupM)
@@ -269,11 +269,45 @@ instance FromJSON (ThrottlingConfig -> ThrottlingConfig) where
         <*< throttlingPeerRate ..: "putPeer" % o
         <*< throttlingLocalRate ..: "local" % o
 
---
+-- -------------------------------------------------------------------------- --
+-- Cut Coniguration
+
+data ChainDatabaseGcConfig = GcNone | GcPruneForks | GcFull
+    deriving (Show, Eq, Ord, Enum, Bounded, Generic)
+
+chainDatabaseGcToText :: ChainDatabaseGcConfig -> T.Text
+chainDatabaseGcToText GcNone = "none"
+chainDatabaseGcToText GcPruneForks = "forks"
+chainDatabaseGcToText GcFull = "full"
+
+chainDatabaseGcFromText :: MonadThrow m => T.Text -> m ChainDatabaseGcConfig
+chainDatabaseGcFromText t = case T.toCaseFold t of
+    "none" -> return GcNone
+    "forks" -> return GcPruneForks
+    "full" -> return GcFull
+    x -> throwM $ TextFormatException $ "unknown value for database pruning configuration: " <> sshow x
+
+instance HasTextRepresentation ChainDatabaseGcConfig where
+    toText = chainDatabaseGcToText
+    fromText = chainDatabaseGcFromText
+    {-# INLINE toText #-}
+    {-# INLINE fromText #-}
+
+instance ToJSON ChainDatabaseGcConfig where
+    toJSON = toJSON . chainDatabaseGcToText
+    {-# INLINE toJSON #-}
+
+instance FromJSON ChainDatabaseGcConfig where
+    parseJSON v = parseJsonFromText "ChainDatabaseGcConfig" v <|> legacy v
+      where
+        legacy = withBool "ChainDatabaseGcConfig" $ \case
+            True -> return GcPruneForks
+            False -> return GcNone
+    {-# INLINE parseJSON #-}
 
 data CutConfig = CutConfig
     { _cutIncludeOrigin :: !Bool
-    , _cutPruneChainDatabase :: !Bool
+    , _cutPruneChainDatabase :: !ChainDatabaseGcConfig
     , _cutFetchTimeout :: !Int
     , _cutInitialCutHeightLimit :: !(Maybe CutHeight)
     } deriving (Eq, Show)
@@ -296,9 +330,26 @@ instance FromJSON (CutConfig -> CutConfig) where
 defaultCutConfig :: CutConfig
 defaultCutConfig = CutConfig
     { _cutIncludeOrigin = True
-    , _cutPruneChainDatabase = True
+    , _cutPruneChainDatabase = GcPruneForks
     , _cutFetchTimeout = 3_000_000
-    , _cutInitialCutHeightLimit = Nothing }
+    , _cutInitialCutHeightLimit = Nothing
+    }
+
+pCutConfig :: MParser CutConfig
+pCutConfig = id
+    <$< cutIncludeOrigin .:: boolOption_
+        % long "cut-include-origin"
+        <> hidden
+        <> internal
+        <> help "whether to include the origin when sending cuts"
+    <*< cutPruneChainDatabase .:: textOption
+        % long "prune-chain-database"
+        <> help "How to prune the chain database on startup. Pruning forks takes about 1-2min. A full GC takes several minutes"
+        <> metavar "none|forks|full"
+    <*< cutFetchTimeout .:: option auto
+        % long "cut-fetch-timeout"
+        <> help "The timeout for processing new cuts in microseconds"
+    -- cutInitialCutHeightLimit isn't supported on the command line
 
 -- -------------------------------------------------------------------------- --
 -- Chainweb Configuration
@@ -433,6 +484,7 @@ pChainwebConfiguration = id
     <*< configRosetta .:: boolOption_
         % long "rosetta"
         <> help "Enable the Rosetta endpoints."
+    <*< configCuts %:: pCutConfig
 
 -- -------------------------------------------------------------------------- --
 -- Chainweb Resources
@@ -573,10 +625,14 @@ withChainwebInternal
     -> IO a
 withChainwebInternal conf logger peer rocksDb dbDir nodeid resetDb inner = do
 
-    -- TODO distinguish between "prune: headers" and "prune: full"
-    when prune $ fullGc (setComponent "database-gc" logger) rocksDb v
-
     initializePayloadDb v payloadDb
+
+    -- Garbage Collection
+    -- performed before PayloadDb and BlockHeaderDb used by other components
+    case _cutPruneChainDatabase (_configCuts conf) of
+        GcFull -> fullGc (setComponent "database-gc" logger) rocksDb v
+        GcPruneForks -> pruneAllChains (setComponent "database-prune" logger) rocksDb v
+        GcNone -> return ()
 
     concurrentWith
         -- initialize chains concurrently
@@ -597,9 +653,6 @@ withChainwebInternal conf logger peer rocksDb dbDir nodeid resetDb inner = do
       , _pactResetDb = resetDb
       , _pactAllowReadsInLocal = _configAllowReadsInLocal conf
       }
-
-    prune :: Bool
-    prune = _cutPruneChainDatabase $ _configCuts conf
 
     cidsList :: [ChainId]
     cidsList = toList cids

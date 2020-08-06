@@ -1,5 +1,6 @@
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE GADTs #-}
@@ -33,6 +34,10 @@ import Data.Function
 import qualified Data.List as L
 import Data.Maybe
 import Data.Semigroup
+import qualified Data.Text as T
+
+import GHC.Generics
+import GHC.Stack
 
 import Numeric.Natural
 
@@ -123,10 +128,22 @@ pruneForks logg cdb depth headerCallback payloadCallback = do
     let mar = MaxRank $ Max $ int (_blockHeight hdr) - depth
     pruneForks_ logg cdb mar (MinRank $ Min 0) headerCallback payloadCallback
 
--- | TODO add option to also validate the block headers
+data PruneForksException
+    = PruneForksDbInvariantViolation BlockHeight [BlockHeight] T.Text
+    deriving (Show, Eq, Ord, Generic)
+
+instance Exception PruneForksException
+
+-- | Prune forks between the given min rank and max rank.
+--
+-- Only block headers that are ancestors of a block header that has block height
+-- max rank are kept.
+--
+-- TODO add option to also validate the block headers
 --
 pruneForks_
-    :: LogFunctionText
+    :: HasCallStack
+    => LogFunctionText
     -> BlockHeaderDb
     -> MaxRank
     -> MinRank
@@ -145,68 +162,46 @@ pruneForks_ logg cdb mar mir hdrCallback payloadCallback = do
             $ "Skipping database pruning because of an empty set of block headers at upper pruning bound " <> sshow mar
             <> ". This would otherwise delete the complete database."
 
-    withReverseHeaderStream cdb (mar - 1) mir $
-        S.foldM_ go (return (pivots, [], 0)) (\(_, _, n) -> return n)
+    withReverseHeaderStream cdb (mar - 1) mir $ \s -> s
+        & S.groupBy ((==) `on` _blockHeight)
+        & S.mapped S.toList
+        & S.foldM_ go (return (_blockParent <$> pivots, 0)) (return . snd)
+
   where
-
-    go
-        :: ([BlockHeader], [BlockPayloadHash], Int)
-        -> BlockHeader
-        -> IO ([BlockHeader], [BlockPayloadHash], Int)
-
-    go ([], _, _) _ = error "impossible" -- FIXME
-
     -- Note that almost always `pivots` is a singleton list and `bs` is empty.
     -- Also `payloads` almost always empty.
     --
-    go (!pivots, !payloads, !n) cur = do
+    go :: ([BlockHash], Int) -> [BlockHeader] -> IO ([BlockHash], Int)
+    go ([], _) _ = throwM $ InternalInvariantViolation "PrunForks.pruneForks_: impossible case"
+    go (!pivots, !n) curs = do
 
-        -- Sanity Check: make sure didn't miss the pivot:
+        let (newPivots, toDelete) = L.partition (\h -> _blockHash h `elem` pivots) curs
+            pivotPayloads = _blockPayloadHash <$> newPivots
+
+        -- TODO: try to repair the database by fetching the missing block from
+        -- remote peers?
         --
-        when (_blockHeight cur + 1 < maximum (fmap _blockHeight pivots)) $ do
-            let pivot = head pivots
-            throwM
-                $ TreeDbAncestorMissing @BlockHeaderDb pivot (int (_blockHeight cur))
+        -- It's probably the best to write an independent repair program or
+        -- module
+        when (null newPivots) $ do
+            logg Error
                 $ "Corrupted chain database for chain " <> toText (_chainId cdb)
                 <> ". The chain db must be deleted and re-resynchronized."
+            throwM $ TreeDbKeyNotFound @BlockHeaderDb (head pivots)
+            -- note that the use of `head` here is safe
 
-            -- FIXME: try to repair the database by fetching the missing
-            -- block from remote peers?
-            --
-            -- It's probably the best to write an independent repair
-            -- program or module
+        forM_ toDelete $ \b -> do
+            deleteHdr b
+            hdrCallback True b
+            let payload = _blockPayloadHash b
+            payloadCallback (payload `notElem` pivotPayloads) payload
 
-        case L.partition (\p -> _blockHash cur == _blockParent p) pivots of
+        forM_ newPivots $ \b -> do
+            hdrCallback False b
+            payloadCallback False (_blockPayloadHash b)
 
-            -- Delete element
-            ([], _) -> do
-                deleteHdr cur
-                hdrCallback True cur
-                return (pivots, _blockPayloadHash cur : payloads, n+1)
+        return (_blockParent <$> newPivots, n + length toDelete)
 
-            -- We've got a new pivot. This case happens almost always.
-            --
-            (_, bs) -> do
-                -- TODO: add intrinsic and inductive valiation?
-
-                let newPivots = cur : bs
-
-                -- When after adding this pivot all pivots have the same block
-                -- height we can delete the pending payloads, since we've seen
-                -- the payloads of all pivots down to the current height.
-                --
-                -- This check is fast when bs is empty.
-                --
-                when (all (((==) `on` _blockHeight) cur) bs) $ do
-                    let pivotPayloads = _blockPayloadHash <$> newPivots
-                    forM_ (_blockPayloadHash cur : payloads) $ \p -> do
-                        let del = not $ elem p pivotPayloads
-                        when del $ logg Debug
-                            $ "call payload callback for deleted payload: " <> encodeToText p
-                        payloadCallback del p
-
-                hdrCallback False cur
-                return (newPivots, [], n)
 
     deleteHdr k = do
         -- TODO: make this atomic (create boilerplate to combine queries for
