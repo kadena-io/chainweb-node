@@ -24,7 +24,7 @@ import Control.Concurrent.STM.TVar
     (TVar, modifyTVar', readTVar, readTVarIO, registerDelay)
 import Control.Lens (over, view)
 import Control.Monad (when)
-import Control.Monad.Catch (bracket, try)
+import Control.Monad.Catch (bracket, finally, try)
 import Control.Monad.Except (throwError)
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.STM (atomically)
@@ -138,8 +138,7 @@ solvedHandler
 solvedHandler mr (HeaderBytes bytes) =
     liftIO (try $ runGet decodeSolvedWork bytes) >>= \case
         Left (DecodeException e) -> do
-            let err = TL.encodeUtf8 $ TL.fromStrict e
-            throwError err400 { errBody = "Decoding error: " <> err }
+            throwError err400 { errBody = "Decoding error: " <> toErrText e }
         Left _ ->
             throwError err400 { errBody = "Unexpected encoding exception" }
 
@@ -149,23 +148,27 @@ solvedHandler mr (HeaderBytes bytes) =
             --
             let key = _blockPayloadHash hdr
             MiningState ms <- liftIO $ readTVarIO tms
-            T3 m pd _ <- case M.lookup key ms of
+            case M.lookup key ms of
                 Nothing -> throwError err404 { errBody = "No associated Payload" }
-                Just x -> return x
-
-            liftIO $ NoContent <$ do
-                publish lf (_coordCutDb mr) (view minerId m) pd solved
-
-                -- There is a race here, but we don't care if the same cut is
-                -- published twice. There is also the risk that an item doesn't get
-                -- deleted of a leak in case an item doesn't get deleted. Items get
-                -- GCed on a regular basis by the coordinator.
-                atomically . modifyTVar' tms . over _Unwrapped $ M.delete key
+                Just x -> tryPublishWork solved x `finally` deleteKey key
+                    -- There is a race here, but we don't care if the same cut
+                    -- is published twice. There is also the risk that an item
+                    -- doesn't get deleted. Items get GCed on a regular basis by
+                    -- the coordinator.
   where
+    toErrText = TL.encodeUtf8 . TL.fromStrict
     tms = _coordState mr
 
     lf :: LogFunction
     lf = logFunction $ _coordLogger mr
+
+    deleteKey key = liftIO . atomically . modifyTVar' tms . over _Unwrapped $ M.delete key
+
+    tryPublishWork solved (T3 m pd _) =
+        liftIO (try $ publish lf (_coordCutDb mr) (view minerId m) pd solved) >>= \case
+            Left (InvalidSolvedHeader _ msg) ->
+                throwError err400 { errBody = "Invalid solved work: " <> toErrText msg}
+            Right _ -> return NoContent
 
 updatesHandler
     :: Logger l
