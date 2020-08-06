@@ -591,7 +591,7 @@ migrateDbDirectory logger config = case _nodeConfigDatabaseDirectory config of
 
     Nothing -> do
         defDir <- getXdgDirectory XdgData $ "chainweb-node/" <> sshow v
-        whenM (doesDirectoryExist defDir) $
+        whenM (doesDirectoryExist defDir) $ do
             dirs <- getDirectoryContents defDir
             forM_ (filter (/= defDir <> "/0") dirs) $ \i ->
                 logg Warn $ "ignoring existing database directory " <> T.pack i
