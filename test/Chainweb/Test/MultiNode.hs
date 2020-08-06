@@ -79,7 +79,10 @@ import Chainweb.Chainweb.PeerResources
 import Chainweb.Cut
 import Chainweb.CutDB
 import Chainweb.Graph
+import Chainweb.HostAddress
 import Chainweb.Logger
+import Chainweb.Miner.Config
+import Chainweb.Miner.Pact
 import Chainweb.NodeId
 import Chainweb.Test.Utils
 import Chainweb.Time (Seconds(..))
@@ -89,6 +92,8 @@ import Chainweb.Version.Utils
 import Chainweb.WebBlockHeaderDB
 
 import Data.CAS.RocksDB
+
+import Network.Wai.Handler.Warp (HostPreference)
 
 import P2P.Node.Configuration
 import P2P.Peer
@@ -107,6 +112,12 @@ import P2P.Peer
 -- similulate a full-scale chain in a miniaturized settings.
 --
 
+multiHost :: Hostname
+multiHost = unsafeHostnameFromText "::1"
+
+multiInterface :: HostPreference
+multiInterface = "::1"
+
 -- | Test Configuration for a scaled down Test chainweb.
 --
 multiConfig
@@ -116,19 +127,56 @@ multiConfig
     -> NodeId
         -- ^ NodeId
     -> ChainwebConfiguration
-multiConfig v n nid = config v n nid
+multiConfig v n nid = defaultChainwebConfiguration v
+    & set configNodeId nid
+        -- Set the node id.
+
+    & set (configP2p . p2pConfigPeer . peerConfigHost) multiHost
+    & set (configP2p . p2pConfigPeer . peerConfigInterface) multiInterface
+        -- Only listen on the loopback device. On Mac OS X this prevents the
+        -- firewall dialog form poping up.
+
+    & set (configP2p . p2pConfigKnownPeers) mempty
+    & set (configP2p . p2pConfigIgnoreBootstrapNodes) True
+        -- The bootstrap peer info is set later after the bootstrap nodes
+        -- has started and got its port assigned.
+
+    & set (configP2p . p2pConfigMaxPeerCount) (n * 2)
+        -- We make room for all test peers in peer db.
+
+    & set (configP2p . p2pConfigMaxSessionCount) 4
+        -- We set this to a low number in order to keep the network sparse (or
+        -- at last no being a clique) and to also limit the number of
+        -- port allocations
+
     & set (configP2p . p2pConfigSessionTimeout) 20
         -- Use short sessions to cover session timeouts and setup logic in the
         -- test.
+
+    & set (configMining . miningInNode) miner
+
+    & set configReintroTxs True
+        -- enable transaction re-introduction
+
+    & set (configTransactionIndex . enableConfigEnabled) True
+        -- enable transaction index
+
     & set configThrottling throttling
         -- throttling is effectively disabled to not slow down the test nodes
   where
+    miner = NodeMiningConfig
+        { _nodeMiningEnabled = True
+        , _nodeMiner = noMiner
+        , _nodeTestMiners = MinerCount n
+        }
+
     throttling = defaultThrottlingConfig
         { _throttlingRate = 10_000 -- per second
         , _throttlingMiningRate = 10_000 --  per second
         , _throttlingPeerRate = 10_000 -- per second, one for each p2p network
         , _throttlingLocalRate = 10_000  -- per 10 seconds
         }
+
 
 -- -------------------------------------------------------------------------- --
 -- Minimal Node Setup that logs conensus state to the given mvar
