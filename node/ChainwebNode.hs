@@ -572,7 +572,7 @@ migrateDbDirectory logger config = case _nodeConfigDatabaseDirectory config of
         newCustomPactDb <- getPactDbDir config
 
         logg Warn
-            $ "Updated database directory layout for new chainweb version"
+            $ "Updating database directory layout for new chainweb version"
             <> ". Old chain db location: " <> T.pack legacyCustomRocksDb
             <> ". New chain db location: " <> T.pack newCustomRocksDb
             <> ". Old pact db location: " <> T.pack legacyCustomPactDb
@@ -611,6 +611,7 @@ migrateDbDirectory logger config = case _nodeConfigDatabaseDirectory config of
 
         let cpy f = copyFile (old <> "/" <> f) (new <> "/" <> f)
             rm dir f = removeFile (dir <> "/" <> f)
+            ex dir f = doesFileExist (dir <> "/" <> f)
 
         if
             | oldIsFile -> do
@@ -630,11 +631,11 @@ migrateDbDirectory logger config = case _nodeConfigDatabaseDirectory config of
                 <> ". Chainweb node will attempt to use the database at the new location"
             | old `L.isPrefixOf` new -> do
                 logg Warn
-                    $ "moving " <> db <> " database:"
+                    $ "moving " <> db <> " database files to new location in sub-directory"
                     <> ". Old location: " <> T.pack old
                     <> ". New location: " <> T.pack new
 
-                fileEntries <- filterM doesFileExist =<< listDirectory old
+                fileEntries <- filterM (ex old) =<< listDirectory old
 
                 -- This isn't bullet proof. If something goes wrong here, there's a chance for a
                 -- corrupted database.
@@ -644,7 +645,9 @@ migrateDbDirectory logger config = case _nodeConfigDatabaseDirectory config of
                         -- we know that the directory didn't exist before. So, this is safe.
                         -- (modulo races with other operating system processes)
                         logg Error $ "failed to create new " <> db <> " database directory " <> T.pack new
+                logg Info "done moving files. Cleaning up"
                 mapM_ (rm old) fileEntries
+                logg Info "done cleaning up"
 
             | otherwise -> do
                 logg Warn
