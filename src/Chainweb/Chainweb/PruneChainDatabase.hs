@@ -162,7 +162,7 @@ fullGc logger rdb v = do
     (markedPayloads, markedTrans) <- unzip <$> forConcurrently (toList $ chainIds v) pruneChain
     logg Info $ "Finished mark phase"
 
-    -- TODO: paralleize he the sweep phases to use all available cors.
+    -- TODO: paralleize he the sweep phases to use all available cores.
 
     -- 2. Traverse BlockPayloads table
     --
