@@ -259,8 +259,7 @@ fullGc logger rdb v = do
 -- Utils for Mark and sweep GC for Payloads
 --
 
--- | Wraps any types wrapper around a MerkleLogHash for usage with a Cuckoo
--- filter.
+-- | Wraps a MerkleLogHash for usage with a Cuckoo filter.
 --
 newtype GcHash a = GcHash a
     deriving newtype (Show, ToJSON)
@@ -391,4 +390,3 @@ deleteBlockTransactions logg db p = do
   where
     tdb = _transactionDbBlockTransactions $ _transactionDb db
     ttdb = _payloadCacheTransactionTrees $ _payloadCache db
-
