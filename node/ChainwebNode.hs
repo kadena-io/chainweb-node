@@ -519,7 +519,7 @@ main = do
     timeFormat = iso8601DateFormat (Just "%H:%M:%SZ")
 
 -- -------------------------------------------------------------------------- --
--- Database Director Migration
+-- Database Directory Migration
 --
 -- TODO: This code can be removed in chainweb-2.2.
 --
