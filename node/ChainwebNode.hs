@@ -660,6 +660,6 @@ migrateDbDirectory logger config = case _nodeConfigDatabaseDirectory config of
             | otherwise -> do
                 logg Warn
                     $ "moving " <> db <> " database:"
-                    <> ". Legacy location: " <> T.pack old
+                    <> " Legacy location: " <> T.pack old
                     <> ". New location: " <> T.pack new
                 renameDirectory old new
