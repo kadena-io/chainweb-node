@@ -218,8 +218,8 @@ fullGc logger rdb v = do
             chainLogg = logFunctionText chainLogger
 
         m <- maxRank cdb
-        markedTrans <- mkFilter (round $ int @_ @Double m * 1.1)
-        markedPayloads <- mkFilter (round $ int @_ @Double m * 1.1)
+        markedTrans <- mkFilter (round $ (1024 + int @_ @Double m) * 1.1)
+        markedPayloads <- mkFilter (round $ (1024 + int @_ @Double m) * 1.1)
 
         logg Info $ "Allocated "
             <> sshow ((sizeInAllocatedBytes markedTrans + sizeInAllocatedBytes markedPayloads) `div` (1024 * 1024))

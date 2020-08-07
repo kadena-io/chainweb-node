@@ -125,8 +125,16 @@ pruneForks
     -> IO Int
 pruneForks logg cdb depth headerCallback payloadCallback = do
     hdr <- maxEntry cdb
-    let mar = MaxRank $ Max $ int (_blockHeight hdr) - depth
-    pruneForks_ logg cdb mar (MinRank $ Min 0) headerCallback payloadCallback
+    if int (_blockHeight hdr) < depth + 1
+      then do
+        logg Warn
+            $ "Skipping database prunning because the maximum block height of "
+            <> sshow (_blockHeight hdr) <> " is smaller than the requested depth "
+            <> sshow depth <> " plus one."
+        return 0
+      else do
+        let mar = MaxRank $ Max $ int (_blockHeight hdr) - depth
+        pruneForks_ logg cdb mar (MinRank $ Min 0) headerCallback payloadCallback
 
 data PruneForksException
     = PruneForksDbInvariantViolation BlockHeight [BlockHeight] T.Text
@@ -150,6 +158,9 @@ pruneForks_
     -> (Bool -> BlockHeader -> IO ())
     -> (Bool -> BlockPayloadHash -> IO ())
     -> IO Int
+pruneForks_ logg _ mar mir  _ _
+    | mar <= 1 = 0 <$ logg Warn ("Skipping database prunning on for max bound of " <> sshow mar)
+    | mir <= 1 = 0 <$ logg Warn ("Skipping database prunning on for min bound of " <> sshow mir)
 pruneForks_ logg cdb mar mir hdrCallback payloadCallback = do
 
     !pivots <- entries cdb Nothing Nothing
