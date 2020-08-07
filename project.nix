@@ -16,9 +16,14 @@ proj = kpkgs.rp.project ({ pkgs, hackGet, ... }: with pkgs.haskell.lib;
     });
   in {
     name = "chainweb";
-    overrides = self: super: {
+    overrides = self: super: with pkgs.haskell.lib; {
       chainweb = enableCabalFlag (
         justStaticExecutables (enableDWARFDebugging (convertCabalTestsAndBenchmarksToExecutables super.chainweb))) "use_systemd";
+      cuckoo = dontCheck (callHackageDirect {
+          pkg = "cuckoo";
+          ver = "0.2";
+          sha256 = "0rn4kjlxbfj3336rwrwcvfavf7y7a9hmgsm5hd1mdqw86haxjhg0";
+      });
     };
 
     packages = {
