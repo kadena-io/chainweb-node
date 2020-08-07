@@ -39,7 +39,6 @@ import Control.Monad
 import Control.Monad.Catch
 
 import Data.Maybe
-import Data.Semigroup
 import qualified Data.Text as T
 
 import qualified Network.HTTP.Client as HTTP
@@ -51,11 +50,8 @@ import System.LogLevel
 -- internal modules
 
 import Chainweb.BlockHeaderDB
-import Chainweb.BlockHeaderDB.PruneForks
-import Chainweb.BlockHeight
 import Chainweb.ChainId
 import Chainweb.Chainweb.PeerResources
-import Chainweb.Graph
 import Chainweb.Logger
 import qualified Chainweb.Mempool.Consensus as MPCon
 import qualified Chainweb.Mempool.InMem as Mempool
@@ -68,7 +64,6 @@ import Chainweb.NodeId
 import Chainweb.Pact.Service.PactInProcApi
 import Chainweb.Pact.Service.Types
 import Chainweb.Payload.PayloadStore
-import Chainweb.Payload.PayloadStore.RocksDB
 import Chainweb.RestAPI.NetworkID
 import Chainweb.Transaction
 import Chainweb.Utils
