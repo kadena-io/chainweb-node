@@ -83,6 +83,7 @@ import Chainweb.Logger
 import Chainweb.Miner.Config
 import Chainweb.Miner.Pact
 import Chainweb.NodeId
+import Chainweb.Test.P2P.Peer.BootstrapConfig
 import Chainweb.Test.Utils
 import Chainweb.Time (Seconds(..))
 import Chainweb.Utils
@@ -168,6 +169,23 @@ multiConfig v n nid = defaultChainwebConfiguration v
         , _throttlingLocalRate = 10_000  -- per 10 seconds
         }
 
+-- | Configure a bootstrap node
+--
+multiBootstrapConfig
+    :: ChainwebConfiguration
+    -> ChainwebConfiguration
+multiBootstrapConfig conf = conf
+    & set (configP2p . p2pConfigPeer) peerConfig
+    & set (configP2p . p2pConfigKnownPeers) []
+  where
+    peerConfig = (head $ bootstrapPeerConfig $ _configChainwebVersion conf)
+        & set peerConfigPort 0
+        -- Normally, the port of bootstrap nodes is hard-coded. But in
+        -- test-suites that may run concurrently we want to use a port that is
+        -- assigned by the OS.
+
+        & set peerConfigHost host
+        & set peerConfigInterface interface
 
 -- -------------------------------------------------------------------------- --
 -- Minimal Node Setup that logs conensus state to the given mvar
@@ -239,7 +257,7 @@ runNodes loglevel write stateVar v n =
             let baseConf = multiConfig v n (NodeId i)
             conf <- if
                 | i == 0 ->
-                    return $ bootstrapConfig baseConf
+                    return $ multiBootstrapConfig baseConf
                 | otherwise ->
                     setBootstrapPeerInfo <$> readMVar bootstrapPortVar <*> pure baseConf
 
