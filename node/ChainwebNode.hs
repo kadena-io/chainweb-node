@@ -578,16 +578,16 @@ migrateDbDirectory logger config = case _nodeConfigDatabaseDirectory config of
 
         logg Warn
             $ "Checking database directory layout for new chainweb version"
-            <> ". Old chain db location: " <> T.pack legacyCustomRocksDb
-            <> ". New chain db location: " <> T.pack newCustomRocksDb
-            <> ". Old pact db location: " <> T.pack legacyCustomPactDb
-            <> ". New pact db location: " <> T.pack newCustomPactDb
+            <> ". Legacy rocks db location: " <> T.pack legacyCustomRocksDb
+            <> ". New rocks db location: " <> T.pack newCustomRocksDb
+            <> ". Legacy sqlite db location: " <> T.pack legacyCustomPactDb
+            <> ". New sqlite db location: " <> T.pack newCustomPactDb
         logg Warn
             $ "If this operation fails it may be retried"
             <> ". If it still fails the database may be corrupted and must be deleted and re-synchronized"
 
-        migrateDb "chain" legacyCustomRocksDb newCustomRocksDb
-        migrateDb "pact" legacyCustomPactDb newCustomPactDb
+        migrateDb "rocks" legacyCustomRocksDb newCustomRocksDb
+        migrateDb "sqlite" legacyCustomPactDb newCustomPactDb
 
     Nothing -> do
         defDir <- getXdgDirectory XdgData $ "chainweb-node/" <> sshow v
@@ -622,25 +622,25 @@ migrateDbDirectory logger config = case _nodeConfigDatabaseDirectory config of
         if
             | oldIsFile -> do
                 logg Error
-                    $ "A file with the name of the old directory for the " <> db <> " database exists. Terminating chainweb node"
-                error $ "A file with the name of the old directory for the " <> T.unpack db <> " database exists"
+                    $ "A file with the name of the legacy directory for the " <> db <> " database exists. Terminating chainweb node"
+                error $ "A file with the name of the legacy directory for the " <> T.unpack db <> " database exists"
             | newIsFile -> do
                 logg Error
                     $ "A file with the name of the new directory for " <> db <> " database exists. Terminating chainweb node"
                 error $ "A file with the name of the new directory for " <> T.unpack db <> " database exists"
             | old == new -> logg Warn
-                $ "Old and new " <> db <> " directories are the the same. No action needed"
+                $ "Legacy and new " <> db <> " directories are the the same. No action needed"
             | not oldExists -> logg Warn
-                $ "Old " <> db <> " database directory doesn't exist. No action needed"
+                $ "Legacy " <> db <> " database directory doesn't exist. No action needed"
             | newExists && (old `L.isPrefixOf` new) -> logg Warn
-                $ "New " <> db <> " database already exists. If an old database exists, it is ignored. No action needed"
+                $ "New " <> db <> " database already exists. If an legacy database exists, it is ignored. No action needed"
             | newExists -> logg Error
-                $ "Can't move old " <> db <> " database to new location because the database already exists"
+                $ "Can't move legacy " <> db <> " database to new location because the database already exists"
                 <> ". Chainweb node will attempt to use the database at the new location"
             | old `L.isPrefixOf` new -> do
                 logg Warn
                     $ "moving " <> db <> " database files to new location in sub-directory"
-                    <> ". Old location: " <> T.pack old
+                    <> ". Legacy location: " <> T.pack old
                     <> ". New location: " <> T.pack new
 
                 fileEntries <- filterM (ex old) =<< listDirectory old
@@ -660,6 +660,6 @@ migrateDbDirectory logger config = case _nodeConfigDatabaseDirectory config of
             | otherwise -> do
                 logg Warn
                     $ "moving " <> db <> " database:"
-                    <> ". Old location: " <> T.pack old
+                    <> ". Legacy location: " <> T.pack old
                     <> ". New location: " <> T.pack new
                 renameDirectory old new
