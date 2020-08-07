@@ -78,13 +78,17 @@ pruneForksLogg
         -- ^ Deletion call back. This hook is called /after/ the entry is
         -- deleted from the database. It's main purpose is to delete any
         -- resources that were related to the deleted header and that are not
-        -- needed any more.
+        -- needed any more. The first parameter indicates whether the block
+        -- header got deleted from the chain database.
 
     -> (Bool -> BlockPayloadHash -> IO ())
-        -- ^ Deletion call back. This hook is called /after/ the entry is
-        -- deleted from the database. It's main purpose is to delete any
-        -- resources that were related to the deleted header and that are not
-        -- needed any more.
+        -- ^ Deletion call back for payload hashes. This hook is called once for
+        -- each payload hash that is used by a block header. The 'Bool'
+        -- parameter is true if, and only if, the payload isn't used any more by
+        -- any block header. The 'pruneForksLogg' function doesn't delete
+        -- paylaods, only block headers. This hook can be used to also cleanup
+        -- up related payload data structures.
+
     -> IO Int
 pruneForksLogg logger = pruneForks logg
   where
@@ -115,13 +119,17 @@ pruneForks
         -- ^ Deletion call back. This hook is called /after/ the entry is
         -- deleted from the database. It's main purpose is to delete any
         -- resources that were related to the deleted header and that are not
-        -- needed any more.
+        -- needed any more. The first parameter indicates whether the block
+        -- header got deleted from the chain database.
 
     -> (Bool -> BlockPayloadHash -> IO ())
-        -- ^ Deletion call back. This hook is called /after/ the entry is
-        -- deleted from the database. It's main purpose is to delete any
-        -- resources that were related to the deleted header and that are not
-        -- needed any more.
+        -- ^ Deletion call back for payload hashes. This hook is called once for
+        -- each payload hash that is used by a block header. The 'Bool'
+        -- parameter is true if, and only if, the payload isn't used any more by
+        -- any block header. The 'pruneForksLogg' function doesn't delete
+        -- paylaods, only block headers. This hook can be used to also cleanup
+        -- up related payload data structures.
+
     -> IO Int
 pruneForks logg cdb depth headerCallback payloadCallback = do
     hdr <- maxEntry cdb
@@ -146,6 +154,9 @@ instance Exception PruneForksException
 --
 -- Only block headers that are ancestors of a block header that has block height
 -- max rank are kept.
+--
+-- This function is mostly for internal usage. For details about the arguments
+-- and behavior see the documentation of 'pruneForks'.
 --
 -- TODO add option to also validate the block headers
 --
@@ -226,22 +237,8 @@ pruneForks_ logg cdb mar mir hdrCallback payloadCallback = do
 -- -------------------------------------------------------------------------- --
 -- Utils
 
--- TODO: provide this function in chainweb-storage:
+-- TODO: provide this function in chainweb-storage
 --
--- Returns the stream of key-value pairs of an 'RocksDbTableIter' in reverse
--- order.
---
--- The iterator must be released after the stream is consumed. Releasing the
--- iterator to early while the stream is still in use results in a runtime
--- error. Not releasing the iterator after the processing of the stream has
--- finished results in a memory leak.
---
-iterToReverseValueStream :: RocksDbTableIter k v -> S.Stream (S.Of v) IO ()
-iterToReverseValueStream it = liftIO (tableIterValue it) >>= \case
-    Nothing -> return ()
-    Just x -> S.yield x >> liftIO (tableIterPrev it) >> iterToReverseValueStream it
-{-# INLINE iterToReverseValueStream #-}
-
 withReverseHeaderStream
     :: BlockHeaderDb
     -> MaxRank
@@ -254,7 +251,21 @@ withReverseHeaderStream db mar mir inner = withTableIter headerTbl $ \it -> do
     inner $ iterToReverseValueStream it
         & S.map _getRankedBlockHeader
         & S.takeWhile (\a -> int (_blockHeight a) >= mir)
-    where
+  where
     headerTbl = _chainDbCas db
-{-# INLINE withReverseHeaderStream #-}
 
+    -- Returns the stream of key-value pairs of an 'RocksDbTableIter' in reverse
+    -- order.
+    --
+    -- The iterator must be released after the stream is consumed. Releasing the
+    -- iterator to early while the stream is still in use results in a runtime
+    -- error. Not releasing the iterator after the processing of the stream has
+    -- finished results in a memory leak.
+    --
+    iterToReverseValueStream :: RocksDbTableIter k v -> S.Stream (S.Of v) IO ()
+    iterToReverseValueStream it = liftIO (tableIterValue it) >>= \case
+        Nothing -> return ()
+        Just x -> S.yield x >> liftIO (tableIterPrev it) >> iterToReverseValueStream it
+    {-# INLINE iterToReverseValueStream #-}
+
+{-# INLINE withReverseHeaderStream #-}
