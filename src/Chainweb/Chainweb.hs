@@ -50,7 +50,6 @@ module Chainweb.Chainweb
 
 -- * Chainweb Configuration
 , ChainwebConfiguration(..)
-, configNodeId
 , configChainwebVersion
 , configMining
 , configHeaderStream
@@ -127,6 +126,7 @@ import Control.Error.Util (note)
 import Control.Lens hiding ((.=), (<.>))
 import Control.Monad
 import Control.Monad.Catch (MonadThrow, throwM)
+import Control.Monad.Writer
 
 import Data.Bifunctor (second)
 import Data.CAS (casLookupM)
@@ -135,7 +135,6 @@ import Data.Function (on)
 import qualified Data.HashMap.Strict as HM
 import Data.List (isPrefixOf, sortBy)
 import Data.Maybe
-import Data.Monoid
 import qualified Data.Text as T
 import Data.These (These(..))
 import Data.Tuple.Strict (T2(..))
@@ -175,7 +174,6 @@ import qualified Chainweb.Mempool.InMemTypes as Mempool
 import qualified Chainweb.Mempool.Mempool as Mempool
 import Chainweb.Mempool.P2pConfig
 import Chainweb.Miner.Config
-import Chainweb.NodeId
 import Chainweb.Pact.RestAPI.Server (PactServerData)
 import Chainweb.Pact.Service.Types (PactServiceConfig(..))
 import Chainweb.Pact.Types (defaultReorgLimit)
@@ -356,7 +354,8 @@ pCutConfig = id
 
 data ChainwebConfiguration = ChainwebConfiguration
     { _configChainwebVersion :: !ChainwebVersion
-    , _configNodeId :: !NodeId
+    , _configNodeIdDeprecated :: !Value
+        -- ^ Deprecated, won't show up in --print-config
     , _configCuts :: !CutConfig
     , _configMining :: !MiningConfig
     , _configHeaderStream :: !Bool
@@ -380,14 +379,18 @@ instance HasChainwebVersion ChainwebConfiguration where
     _chainwebVersion = _configChainwebVersion
     {-# INLINE _chainwebVersion #-}
 
-validateChainwebConfiguration :: ConfigValidation ChainwebConfiguration l
+validateChainwebConfiguration :: ConfigValidation ChainwebConfiguration []
 validateChainwebConfiguration c = do
     validateMinerConfig (_configMining c)
+    unless (_configNodeIdDeprecated c == Null) $ tell
+        [ "Usage NodeId is deprecated. This option will be removed in a future version of chainweb-node"
+        , "The value of NodeId is ignored by chainweb-node. In particular the database path will not depend on it"
+        ]
 
 defaultChainwebConfiguration :: ChainwebVersion -> ChainwebConfiguration
 defaultChainwebConfiguration v = ChainwebConfiguration
     { _configChainwebVersion = v
-    , _configNodeId = NodeId 0 -- FIXME
+    , _configNodeIdDeprecated = Null
     , _configCuts = defaultCutConfig
     , _configMining = defaultMining
     , _configHeaderStream = False
@@ -407,7 +410,6 @@ defaultChainwebConfiguration v = ChainwebConfiguration
 instance ToJSON ChainwebConfiguration where
     toJSON o = object
         [ "chainwebVersion" .= _configChainwebVersion o
-        , "nodeId" .= _configNodeId o
         , "cuts" .= _configCuts o
         , "mining" .= _configMining o
         , "headerStream" .= _configHeaderStream o
@@ -427,7 +429,7 @@ instance ToJSON ChainwebConfiguration where
 instance FromJSON (ChainwebConfiguration -> ChainwebConfiguration) where
     parseJSON = withObject "ChainwebConfig" $ \o -> id
         <$< configChainwebVersion ..: "chainwebVersion" % o
-        <*< configNodeId ..: "nodeId" % o
+        <*< configNodeIdDeprecated ..: "nodeId" % o
         <*< configCuts %.: "cuts" % o
         <*< configMining %.: "mining" % o
         <*< configHeaderStream ..: "headerStream" % o
@@ -449,10 +451,12 @@ pChainwebConfiguration = id
         % long "chainweb-version"
         <> short 'v'
         <> help "the chainweb version that this node is using"
-    <*< configNodeId .:: textOption
-        % long "node-id"
+    <*< configNodeIdDeprecated .:: fmap (String . T.pack) . strOption
+        % hidden
+        <> internal
+        <> long "node-id"
         <> short 'i'
-        <> help "unique id of the node that is used as miner id in new blocks"
+        <> help "DEPRECATED. The value is ignored"
     <*< configHeaderStream .:: boolOption_
         % long "header-stream"
         <> help "whether to enable an endpoint for streaming block updates"
@@ -523,19 +527,19 @@ withChainweb
     => ChainwebConfiguration
     -> logger
     -> RocksDb
-    -> Maybe FilePath
+    -> FilePath
+        -- ^ Pact database directory
     -> Bool
     -> (forall cas' . PayloadCasLookup cas' => Chainweb logger cas' -> IO a)
     -> IO a
-withChainweb c logger rocksDb dbDir resetDb inner =
+withChainweb c logger rocksDb pactDbDir resetDb inner =
     withPeerResources v (view configP2p conf) logger $ \logger' peer ->
         withChainwebInternal
             (set configP2p (_peerResConfig peer) conf)
             logger'
             peer
             rocksDb
-            dbDir
-            (Just (_configNodeId c))
+            pactDbDir
             resetDb
             inner
   where
@@ -618,12 +622,11 @@ withChainwebInternal
     -> logger
     -> PeerResources logger
     -> RocksDb
-    -> Maybe FilePath
-    -> Maybe NodeId
+    -> FilePath
     -> Bool
     -> (forall cas' . PayloadCasLookup cas' => Chainweb logger cas' -> IO a)
     -> IO a
-withChainwebInternal conf logger peer rocksDb dbDir nodeid resetDb inner = do
+withChainwebInternal conf logger peer rocksDb pactDbDir resetDb inner = do
 
     initializePayloadDb v payloadDb
 
@@ -639,7 +642,7 @@ withChainwebInternal conf logger peer rocksDb dbDir nodeid resetDb inner = do
         (\cid -> do
             let mcfg = validatingMempoolConfig cid v (_configBlockGasLimit conf)
             withChainResources v cid rocksDb peer (chainLogger cid)
-                     mcfg payloadDb dbDir nodeid pactConfig
+                     mcfg payloadDb pactDbDir pactConfig
         )
 
         -- initialize global resources after all chain resources are initialized

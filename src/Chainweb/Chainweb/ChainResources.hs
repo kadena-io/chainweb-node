@@ -60,7 +60,6 @@ import Chainweb.Mempool.Mempool (MempoolBackend)
 import qualified Chainweb.Mempool.Mempool as Mempool
 import Chainweb.Mempool.P2pConfig
 import qualified Chainweb.Mempool.RestAPI.Client as MPC
-import Chainweb.NodeId
 import Chainweb.Pact.Service.PactInProcApi
 import Chainweb.Pact.Service.Types
 import Chainweb.Payload.PayloadStore
@@ -111,21 +110,20 @@ withChainResources
     -> logger
     -> (MVar PactExecutionService -> Mempool.InMemConfig ChainwebTransaction)
     -> PayloadDb cas
-    -> Maybe FilePath
+    -> FilePath
         -- ^ database directory for checkpointer
-    -> Maybe NodeId
     -> PactServiceConfig
     -> (ChainResources logger -> IO a)
     -> IO a
 withChainResources
-  v cid rdb peer logger mempoolCfg0 payloadDb dbDir nodeid pactConfig inner =
+  v cid rdb peer logger mempoolCfg0 payloadDb pactDbDir pactConfig inner =
     withBlockHeaderDb rdb v cid $ \cdb -> do
       pexMv <- newEmptyMVar
       let mempoolCfg = mempoolCfg0 pexMv
       Mempool.withInMemoryMempool_ (setComponent "mempool" logger) mempoolCfg v $ \mempool -> do
         mpc <- MPCon.mkMempoolConsensus mempool cdb $ Just payloadDb
         withPactService v cid (setComponent "pact" logger) mpc cdb
-                        payloadDb dbDir nodeid pactConfig $ \requestQ -> do
+                        payloadDb pactDbDir pactConfig $ \requestQ -> do
             let pex = pes requestQ
             putMVar pexMv pex
 
