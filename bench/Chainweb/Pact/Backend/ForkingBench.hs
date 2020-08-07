@@ -331,7 +331,7 @@ withResources trunkLength logLevel f = C.envWithCleanup create destroy unwrap
         coinAccounts <- newMVar mempty
         nonceCounter <- newIORef 1
         txPerBlock <- newIORef 10
-        sqlEnv <- startSqliteDb testVer cid logger (Just tempDir) Nothing False
+        sqlEnv <- startSqliteDb cid logger tempDir False
         pactService <-
           startPact testVer logger blockHeaderDb payloadDb (testMemPoolAccess txPerBlock coinAccounts) sqlEnv
         mainTrunkBlocks <-

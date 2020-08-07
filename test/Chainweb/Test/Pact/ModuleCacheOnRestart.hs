@@ -142,7 +142,7 @@ withPact' bdbio iodir r ctest toTestTree =
         bhdb <- getWebBlockHeaderDb (_bdbWebBlockHeaderDb bdb) testChainId
         let pdb = _bdbPayloadDb bdb
         dir <- iodir
-        sqlEnv <- startSqliteDb testVer testChainId logger (Just dir) Nothing False
+        sqlEnv <- startSqliteDb testChainId logger dir False
         return $ (sqlEnv,) $ \(ps,cacheTest) -> do
             T2 _ pstate <- initPactService' testVer testChainId logger
                            bhdb pdb sqlEnv defaultPactServiceConfig ps
