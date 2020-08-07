@@ -83,7 +83,6 @@ import Chainweb.Graph
 import Chainweb.Logger
 import Chainweb.Miner.Config
 import Chainweb.Miner.Pact
-import Chainweb.NodeId
 import Chainweb.Test.P2P.Peer.BootstrapConfig
 import Chainweb.Test.Utils
 import Chainweb.Time (Seconds(..))
@@ -116,12 +115,9 @@ import P2P.Peer
 multiConfig
     :: ChainwebVersion
     -> Natural
-        -- ^ number of nodes
+        -- ^ number of node
     -> ChainwebConfiguration
-multiConfig v n nid = defaultChainwebConfiguration v
-    & set configNodeId nid
-        -- Set the node id.
-
+multiConfig v n = defaultChainwebConfiguration v
     & set (configP2p . p2pConfigPeer . peerConfigHost) host
     & set (configP2p . p2pConfigPeer . peerConfigInterface) interface
         -- Only listen on the loopback device. On Mac OS X this prevents the
