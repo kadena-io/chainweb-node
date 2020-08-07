@@ -95,7 +95,6 @@ main = void $ do
       , mainnet7
       , mainnet8
       , mainnet9
-
       ]
 
 show_ :: GChainId -> String
