@@ -632,6 +632,8 @@ migrateDbDirectory logger config = case _nodeConfigDatabaseDirectory config of
                 $ "Old and new " <> db <> " directories are the the same. No action needed"
             | not oldExists -> logg Warn
                 $ "Old " <> db <> " database directory doesn't exist. No action needed"
+            | newExists && (old `L.isPrefixOf` new) -> logg Warn
+                $ "New " <> db <> " database already exists. If an old database exists, it is ignored. No action needed"
             | newExists -> logg Error
                 $ "Can't move old " <> db <> " database to new location because the database already exists"
                 <> ". Chainweb node will attempt to use the database at the new location"
