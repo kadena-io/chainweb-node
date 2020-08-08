@@ -175,17 +175,20 @@ pruneForks_ logg cdb mar mir callback = do
             -- the set of pivots is expected to be very small. In fact it is
             -- almost always a singleton set.
 
-    when (null pivots) $ do
+    if null pivots
+      then do
         logg Warn
             $ "Skipping database pruning because of an empty set of block headers at upper pruning bound " <> sshow mar
             <> ". This would otherwise delete the complete database."
-
-    withReverseHeaderStream cdb (mar - 1) mir
-        $ S.foldM_ go (return (pivots, 0)) (evaluate . snd)
+        return 0
+      else
+        withReverseHeaderStream cdb (mar - 1) mir
+            $ S.foldM_ go (return (pivots, 0)) (evaluate . snd)
 
   where
     go :: ([BlockHash], Int) -> BlockHeader -> IO ([BlockHash], Int)
-    go ([], _) _ = throwM $ InternalInvariantViolation "PrunForks.pruneForks_: impossible case"
+    go ([], _) cur = throwM $ InternalInvariantViolation
+        $ "PrunForks.pruneForks_: no pivots left at block " <> encodeToText (ObjectEncoded cur)
     go (!pivots, !n) !cur
         | _blockHash cur `elem` pivots = do
             callback False cur
