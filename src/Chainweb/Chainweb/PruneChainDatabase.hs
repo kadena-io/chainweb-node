@@ -110,9 +110,10 @@ import Chainweb.Version
 
 import Data.LogMessage
 
--- | Prune all chains and cleanup BlockPayloads and BlockOutputs.
---
--- This doesn't cleanup BlockTransactions in the payload database.
+-- -------------------------------------------------------------------------- --
+-- Fork Pruning
+
+-- | Prune all chains. This doesn't clean up Payloads.
 --
 -- Note: this assumes that the payload db is already initialized, i.e. that
 -- genesis headers have been injected.
@@ -126,20 +127,18 @@ pruneAllChains
 pruneAllChains logger rdb v = do
     forConcurrently_ (toList $ chainIds v) pruneChain
   where
-    pdb = newPayloadDb rdb
     diam = diameter $ chainGraphAt v (maxBound @BlockHeight)
     pruneChain cid = withBlockHeaderDb rdb v cid $ \cdb -> do
         let chainLogger = addLabel ("chain", toText cid) logger
             chainLogg = logFunctionText chainLogger
         chainLogg Info "start pruning block header database"
-        x <- pruneForksLogg chainLogger cdb (diam * 3)
-            (\_ _ -> return ())
-            (payloadGcCallback chainLogg pdb Nothing Nothing)
+        x <- pruneForksLogg chainLogger cdb (diam * 3) (\_ _ -> return ())
         chainLogg Info $ "finished pruning block header database. Deleted " <> sshow x <> " block headers."
 
--- | Prune all chains and cleanup BlockPayloads and BlockOutputs.
---
--- This also cleans up BlockTransactions in the payload database.
+-- -------------------------------------------------------------------------- --
+-- Full GC
+
+-- | Prune all chains and clean up payloads.
 --
 -- It currently doesn't garbage collect entries that aren't reachable from the
 -- BlockPayload table. This can happen when a node crashes, but is expected to
@@ -159,55 +158,27 @@ fullGc logger rdb v = do
     logg Info $ "Starting chain database garbage collection"
 
     -- 1. Concurrently prune chain dbs (TODO use a pool to limit concurrency)
-    (markedPayloads, markedTrans) <- unzip <$> forConcurrently (toList $ chainIds v) pruneChain
-    logg Info $ "Finished mark phase"
+    markedPayloads <- forConcurrently (toList $ chainIds v) pruneChain
+    logg Info $ "Finished pruning block headers"
 
-    -- TODO: paralleize he the sweep phases to use all available cores.
+    -- TODO: parallelize he the sweep phases to use all available cores.
 
-    -- 2. Traverse BlockPayloads table
-    --
-    let sweepPayloads = do
-            logg Info $ "Sweeping BlockPayloads and Outputs"
-            c0 <- withTableIter payloadsTable $ \it -> do
-                iterToValueStream it
-                    & S.filterM (fmap not . checkMark markedPayloads . _blockPayloadPayloadHash)
-                    & S.mapM (deleteBlockPayload logg db)
-                    & S.length_
-            logg Info $ "Swept entries for " <> sshow c0 <> " block payload hashes"
+    -- Sweep Payloads and mark transactions
+    (markedTrans, markedOutputs) <- sweepPayloads logg db markedPayloads
 
-    -- 3. Traverse BlockTransactions table
-    --
-    let sweepTransactions = do
-            logg Info $ "Sweeping BlockTransactions"
-            c1 <- withTableIter transactionsTable $ \it -> do
-                iterToValueStream it
-                    & S.map _blockTransactionsHash
-                    & S.filterM (fmap not . checkMark markedTrans)
-                    & S.mapM (deleteBlockTransactions logg db)
-                    & S.length_
-            logg Info $ "Swept entries for " <> sshow c1 <> " block transactions hashes"
+    -- Sweep transactions
+    concurrently_
+        (sweepTransactions logg db markedTrans)
+        (sweepOutputs logg db markedOutputs)
 
-    concurrently_ sweepPayloads sweepTransactions
     logg Info $ "Finished chain database garbage collection"
 
   where
-
     logg = logFunctionText logger
     diam = diameter $ chainGraphAt v (maxBound @BlockHeight)
     depth = diam * 3
 
     db = newPayloadDb rdb
-
-    -- Extract RocksDB Tables from Payload Db
-    payloadsTable :: RocksDbTable BlockPayloadHash BlockPayload
-    payloadsTable = _getRocksDbCas t
-      where
-        BlockPayloadStore t = _transactionDbBlockPayloads $ _transactionDb db
-
-    transactionsTable :: RocksDbTable BlockTransactionsHash BlockTransactions
-    transactionsTable = _getRocksDbCas t
-      where
-        BlockTransactionsStore t = _transactionDbBlockTransactions $ _transactionDb db
 
 
     -- Prune a single chain and return the sets of marked payloads and
@@ -218,42 +189,132 @@ fullGc logger rdb v = do
             chainLogg = logFunctionText chainLogger
 
         m <- maxRank cdb
-        markedTrans <- mkFilter (round $ (1024 + int @_ @Double m) * 1.1)
         markedPayloads <- mkFilter (round $ (1024 + int @_ @Double m) * 1.1)
 
-        logg Info $ "Allocated "
-            <> sshow ((sizeInAllocatedBytes markedTrans + sizeInAllocatedBytes markedPayloads) `div` (1024 * 1024))
+        chainLogg Info $ "Allocated "
+            <> sshow (sizeInAllocatedBytes markedPayloads `div` (1024 * 1024))
             <> "MB for marking database entries"
 
-        -- TODO mark all entries above a depth of depth, so it doesn't get GCed
-        void $ entries cdb Nothing Nothing (Just $ int $ depth + 1) Nothing $ \s -> s
-            & S.map _blockPayloadHash
-            & S.mapM_ (payloadGcCallback chainLogg db (Just markedPayloads) (Just markedTrans) False)
+        -- Mark all entries above depth, so they don't get GCed
+        --
+        void $ entries cdb Nothing Nothing (Just $ int $ depth + 1) Nothing
+            $ S.mapM_ (markPayload markedPayloads)
 
         chainLogg Info "start pruning block header database"
-        x <- pruneForksLogg chainLogger cdb depth
-            (loggHdrDelete chainLogg)
-            (payloadGcCallback chainLogg db (Just markedPayloads) (Just markedTrans))
+        x <- pruneForksLogg chainLogger cdb depth $ \isDeleted hdr -> case isDeleted of
+            True -> chainLogg Debug
+                $ "pruned header " <> toText (_blockHash hdr)
+                <> " at height " <> sshow (_blockHeight hdr)
+            False -> markPayload markedPayloads hdr
 
         chainLogg Info $ "finished pruning block header database. Deleted " <> sshow x <> " block headers."
-        return (markedPayloads, markedTrans)
+        return markedPayloads
 
-    -- TODO: consider using bloom fiters instead that can be merged. Alternatively,
-    -- implement concurrent insertion for cuckoo filters, where the hashing is done
-    -- concurrently and a lock is used only for the actual modification of the
-    -- underlying buffer. Or do fine grained locking on the filter.
-    --
-    checkMark :: BA.ByteArrayAccess a => [(Filter a)] -> a -> IO Bool
-    checkMark [] _ = return False
-    checkMark (h : t) a = member h (GcHash a) >>= \case
-        True -> return True
-        False -> checkMark t a
+-- -------------------------------------------------------------------------- --
+-- Payload Mark and Sweep
 
+-- | Mark Payloads of non-deleted block headers.
+--
+markPayload :: Filter BlockPayloadHash -> BlockHeader -> IO ()
+markPayload f = tryInsert f "payload hash" . _blockPayloadHash
+{-# INLINE markPayload #-}
 
-    loggHdrDelete _ False _ = return ()
-    loggHdrDelete l True h = l Info
-        $ "pruned header " <> toText (_blockHash h)
-        <> " at height " <> sshow (_blockHeight h)
+-- | Mark Payload Transactions
+--
+markTransactions :: Filter BlockTransactionsHash -> BlockPayload -> IO ()
+markTransactions f
+    = tryInsert f "transactions hash" . _blockPayloadTransactionsHash
+{-# INLINE markTransactions #-}
+
+-- | Mark Payload Outputs
+--
+markOutputs :: Filter BlockOutputsHash -> BlockPayload -> IO ()
+markOutputs f
+    = tryInsert f "outputs hash" . _blockPayloadOutputsHash
+{-# INLINE markOutputs #-}
+
+-- | Sweep payload and mark all transactions that are kept
+--
+sweepPayloads
+    :: LogFunctionText
+    -> PayloadDb RocksDbCas
+    -> [Filter BlockPayloadHash]
+    -> IO (Filter BlockTransactionsHash, Filter BlockOutputsHash)
+sweepPayloads logg db markedPayloads = do
+    logg Info $ "Sweeping BlockPayloads"
+
+    -- create filter with sufficient capacity
+    m <- sum <$> mapM itemCount markedPayloads
+    markedTrans <- mkFilter (round $ int @_ @Double m * 1.1)
+
+    logg Info $ "Allocated "
+        <> sshow (sizeInAllocatedBytes markedTrans `div` (1024 * 1024))
+        <> "MB for marking transaction hashes entries"
+
+    markedOutputs <- mkFilter (round $ int @_ @Double m * 1.1)
+    logg Info $ "Allocated "
+        <> sshow (sizeInAllocatedBytes markedOutputs `div` (1024 * 1024))
+        <> "MB for marking outputs hashes entries"
+
+    -- traverse all payloads
+    c0 <- withTableIter payloadsTable
+        $ S.sum_ @_ @Int . S.mapM (go markedTrans markedOutputs) . iterToValueStream
+    logg Info $ "Swept entries for " <> sshow c0 <> " block payload hashes"
+    return (markedTrans, markedOutputs)
+  where
+    go mt mo x = checkMark markedPayloads (_blockPayloadPayloadHash x) >>= \case
+        True -> 0 <$ markTransactions mt x <* markOutputs mo x
+        False -> 1 <$ deleteBlockPayload logg db x
+
+    -- Extract RocksDB Tables from Payload Db
+    payloadsTable :: RocksDbTable BlockPayloadHash BlockPayload
+    payloadsTable = _getRocksDbCas t
+      where
+        BlockPayloadStore t = _transactionDbBlockPayloads $ _transactionDb db
+
+-- | Sweep Transations
+--
+sweepTransactions
+    :: LogFunctionText
+    -> PayloadDb RocksDbCas
+    -> Filter BlockTransactionsHash
+    -> IO ()
+sweepTransactions logg db marked = do
+    logg Info $ "Sweeping BlockTransactions"
+    c1 <- withTableIter table $ S.sum_ @_ @Int . S.mapM go . iterToKeyStream
+    logg Info $ "Swept " <> sshow c1 <> " block transactions hashes"
+  where
+    go x = member marked (GcHash x) >>= \case
+        True -> return 0
+        False -> 1 <$ deleteBlockTransactions logg db x
+
+    -- Extract RocksDB Tables from Payload Db
+    table :: RocksDbTable BlockTransactionsHash BlockTransactions
+    table = _getRocksDbCas t
+      where
+        BlockTransactionsStore t = _transactionDbBlockTransactions $ _transactionDb db
+
+-- | Sweep Outputs
+--
+sweepOutputs
+    :: LogFunctionText
+    -> PayloadDb RocksDbCas
+    -> Filter BlockOutputsHash
+    -> IO ()
+sweepOutputs logg db marked = do
+    logg Info $ "Sweeping BlockOutputss"
+    c1 <- withTableIter table $ S.sum_ @_ @Int . S.mapM go . iterToKeyStream
+    logg Info $ "Swept " <> sshow c1 <> " block output hashes"
+  where
+    go x = member marked (GcHash x) >>= \case
+        True -> return 0
+        False -> 1 <$ deleteBlockOutputs logg db x
+
+    -- Extract RocksDB Tables from Payload Db
+    table :: RocksDbTable BlockOutputsHash BlockOutputs
+    table = _getRocksDbCas t
+      where
+        BlockOutputsStore t = _payloadCacheBlockOutputs $ _payloadCache db
 
 -- -------------------------------------------------------------------------- --
 -- Utils for Mark and sweep GC for Payloads
@@ -270,10 +331,6 @@ instance BA.ByteArrayAccess a => CuckooFilterHash (GcHash a) where
     {-# INLINE cuckooHash #-}
     {-# INLINE cuckooFingerprint #-}
 
-gcHash :: a -> GcHash a
-gcHash = GcHash
-{-# INLINE gcHash #-}
-
 type Filter a = CuckooFilterIO 4 10 (GcHash a)
 
 mkFilter :: Natural -> IO (Filter a)
@@ -281,56 +338,26 @@ mkFilter n = do
     s <- randomIO
     newCuckooFilter (Salt s) n
 
--- | 'BlockPayloadHash'es and 'BlockOutputsHash'es are unique up to orphans
--- (and genesis blocks). They can therefore be garbage collected during database
--- pruning.
+-- | inserting a somewhat larger number (I think, it's actually 7) of
+-- equal elements causes the filter to fail.
 --
--- 'BlockTransactionHash's are not unique for block payload hashes. We use
--- mark and sweep garbage collection to remove them.
+tryInsert :: BA.ByteArrayAccess a => Filter a -> [Char] -> a -> IO ()
+tryInsert cf k a = unlessM (member cf $ GcHash a) $
+    unlessM (insert cf $ GcHash a) $ error
+        $ "failed to insert item " <> k <> " in cuckoo filter"
+        <> ": while very rare this can happen. Usually it is resolve by retrying."
+{-# INLINE tryInsert #-}
+
+-- TODO: consider using bloom fiters instead that can be merged. Alternatively,
+-- implement concurrent insertion for cuckoo filters, where the hashing is done
+-- concurrently and a lock is used only for the actual modification of the
+-- underlying buffer. Or do fine grained locking on the filter.
 --
-payloadGcCallback
-    :: CasConstraint cas BlockPayload
-    => CasConstraint cas BlockOutputs
-    => CasConstraint cas OutputTree
-    => LogFunctionText
-    -> PayloadDb cas
-    -> (Maybe (Filter BlockPayloadHash))
-        -- ^ Set of marked payloads
-    -> (Maybe (Filter BlockTransactionsHash))
-        -- ^ Set of marked block transactions
-        --
-        -- This are shared globally (across chains) and it is possible that a
-        -- payload isn't marked but the block transactions of the payload are
-        -- marked.
-        --
-    -> Bool
-    -> BlockPayloadHash
-    -> IO ()
-payloadGcCallback logg db markedPayloads markedTrans isDelete h = do
-    casLookup pdb h >>= \case
-        Nothing -> logg Error
-            $ "While pruning database: payload not found for " <> encodeToText h
-            <> "; block deleted: " <> sshow isDelete
-            <> ". The database may be corrupted. In case of doubt it is recommended to delete the database and synchronize a new database"
-        Just payload -> if isDelete
-          then deleteBlockPayload logg db payload
-
-          else do
-             -- mark PayloadTransactionsHash as being used
-            forM_ markedPayloads $ \cf ->
-                tryInsert cf "payload hash" (gcHash $ _blockPayloadPayloadHash payload)
-            forM_ markedTrans $ \cf ->
-                tryInsert cf "transactions hash" (gcHash $ _blockPayloadTransactionsHash payload)
-  where
-    tryInsert cf k a = do
-        -- inserting a somewhat larger number (I think, it's actually 7) of
-        -- equal elements causes the filter to fail.
-        unlessM (member cf a) $
-            unlessM (insert cf a) $ error
-                $ "failed to insert item " <> k <> " in cuckoo filter"
-                <> ": while very rare this can happen. Usually it is resolve by retrying."
-
-    pdb = _transactionDbBlockPayloads $ _transactionDb db
+checkMark :: BA.ByteArrayAccess a => [(Filter a)] -> a -> IO Bool
+checkMark [] _ = return False
+checkMark (h : t) a = member h (GcHash a) >>= \case
+    True -> return True
+    False -> checkMark t a
 
 -- -------------------------------------------------------------------------- --
 -- Delete Payload
@@ -356,6 +383,8 @@ payloadGcCallback logg db markedPayloads markedTrans isDelete h = do
 --     *BlockOutputsHash, MerkleTree
 --
 
+-- | delete BlockPayload
+--
 deleteBlockPayload
     :: CasConstraint cas BlockPayload
     => CasConstraint cas BlockOutputs
@@ -366,15 +395,29 @@ deleteBlockPayload
     -> IO ()
 deleteBlockPayload logg db p = do
     logg Debug $ "Delete PayloadHash and OutputsHash for " <> encodeToText (_blockPayloadPayloadHash p)
-    -- delete BlockPayload, BlockOutputs, and OutputTree
     casDelete pdb (_blockPayloadPayloadHash p)
-    casDelete odb (_blockPayloadOutputsHash p)
-    casDelete otdb (_blockPayloadOutputsHash p)
   where
     pdb = _transactionDbBlockPayloads $ _transactionDb db
+
+-- | Delete BlockOutputs and OutputTree
+--
+deleteBlockOutputs
+    :: CasConstraint cas BlockOutputs
+    => CasConstraint cas OutputTree
+    => LogFunctionText
+    -> PayloadDb cas
+    -> BlockOutputsHash
+    -> IO ()
+deleteBlockOutputs logg db p = do
+    logg Debug $ "Delete BlockOutputs for " <> encodeToText p
+    casDelete odb p
+    casDelete otdb p
+  where
     odb = _payloadCacheBlockOutputs $ _payloadCache db
     otdb = _payloadCacheOutputTrees $ _payloadCache db
 
+-- | Delete BlockTransactions and TransactionsTree
+--
 deleteBlockTransactions
     :: CasConstraint cas BlockTransactions
     => CasConstraint cas TransactionTree
@@ -383,8 +426,7 @@ deleteBlockTransactions
     -> BlockTransactionsHash
     -> IO ()
 deleteBlockTransactions logg db p = do
-    logg Debug $ "Delete BlockTransactionsHash for " <> encodeToText p
-    -- delete BlockTransactions and TransactionsTree
+    logg Debug $ "Delete BlockTransactions for " <> encodeToText p
     casDelete tdb p
     casDelete ttdb p
   where

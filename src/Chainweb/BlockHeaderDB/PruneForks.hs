@@ -6,6 +6,7 @@
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE PolyKinds #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -26,6 +27,8 @@ module Chainweb.BlockHeaderDB.PruneForks
 , pruneForks_
 ) where
 
+import Control.DeepSeq
+import Control.Exception (evaluate)
 import Control.Monad
 import Control.Monad.Catch
 import Control.Monad.IO.Class
@@ -53,10 +56,10 @@ import Chainweb.BlockHash
 import Chainweb.BlockHeader
 import Chainweb.BlockHeaderDB.Internal
 import Chainweb.BlockHeight
-import Chainweb.ChainId
 import Chainweb.Logger
 import Chainweb.TreeDB
 import Chainweb.Utils hiding (Codec)
+import Chainweb.Version
 
 import Data.CAS
 import Data.CAS.RocksDB
@@ -81,21 +84,13 @@ pruneForksLogg
         -- needed any more. The first parameter indicates whether the block
         -- header got deleted from the chain database.
 
-    -> (Bool -> BlockPayloadHash -> IO ())
-        -- ^ Deletion call back for payload hashes. This hook is called once for
-        -- each payload hash that is used by a block header. The 'Bool'
-        -- parameter is true if, and only if, the payload isn't used any more by
-        -- any block header. The 'pruneForksLogg' function doesn't delete
-        -- paylaods, only block headers. This hook can be used to also cleanup
-        -- up related payload data structures.
-
     -> IO Int
 pruneForksLogg logger = pruneForks logg
   where
     logg = logFunctionText (setComponent "ChainDatabasePrunning" logger)
 
--- | Prunes most block headers and block payloads from forks that are older than
--- the given number of blocks.
+-- | Prunes most block headers from forks that are older than the given number
+-- of blocks.
 --
 -- This function guarantees that the predecessors of all remaining nodes also
 -- remain in the database and that there are are no tangling references.
@@ -103,9 +98,9 @@ pruneForksLogg logger = pruneForks logg
 -- This function doesn't guarantee to delete all blocks on forks. A small number
 -- of fork blocks may not get deleted.
 --
--- The function takes callbacks that are invoked on each block header and
--- paylaod hash. The callback takes a parameter that indicates whether the
--- related block is pruned or not.
+-- The function takes a callback that are invoked on each block header in the
+-- database starting from the given depth. The callback takes a parameter that
+-- indicates whether the related block is pruned or not.
 --
 pruneForks
     :: LogFunctionText
@@ -122,27 +117,27 @@ pruneForks
         -- needed any more. The first parameter indicates whether the block
         -- header got deleted from the chain database.
 
-    -> (Bool -> BlockPayloadHash -> IO ())
-        -- ^ Deletion call back for payload hashes. This hook is called once for
-        -- each payload hash that is used by a block header. The 'Bool'
-        -- parameter is true if, and only if, the payload isn't used any more by
-        -- any block header. The 'pruneForksLogg' function doesn't delete
-        -- paylaods, only block headers. This hook can be used to also cleanup
-        -- up related payload data structures.
-
     -> IO Int
-pruneForks logg cdb depth headerCallback payloadCallback = do
+pruneForks logg cdb depth callback = do
     hdr <- maxEntry cdb
-    if int (_blockHeight hdr) < depth + 1
-      then do
-        logg Warn
-            $ "Skipping database prunning because the maximum block height of "
-            <> sshow (_blockHeight hdr) <> " is smaller than the requested depth "
-            <> sshow depth <> " plus one."
-        return 0
-      else do
-        let mar = MaxRank $ Max $ int (_blockHeight hdr) - depth
-        pruneForks_ logg cdb mar (MinRank $ Min 0) headerCallback payloadCallback
+    if
+        | int (_blockHeight hdr) <= depth -> do
+            logg Info
+                $ "Skipping database prunning because the requested depth "
+                <> sshow depth <> " is not larger than the maximum block height "
+                <> sshow (_blockHeight hdr)
+            return 0
+        | int (_blockHeight hdr) <= int genHeight + depth -> do
+            logg Info $ "Skipping database prunning because there are not yet"
+                <> " enough block headers on the chain"
+            return 0
+        | otherwise -> do
+            let mar = MaxRank $ Max $ int (_blockHeight hdr) - depth
+            pruneForks_ logg cdb mar (MinRank $ Min $ int genHeight) callback
+  where
+    v = _chainwebVersion cdb
+    cid = _chainId cdb
+    genHeight = genesisHeight v cid
 
 data PruneForksException
     = PruneForksDbInvariantViolation BlockHeight [BlockHeight] T.Text
@@ -167,63 +162,39 @@ pruneForks_
     -> MaxRank
     -> MinRank
     -> (Bool -> BlockHeader -> IO ())
-    -> (Bool -> BlockPayloadHash -> IO ())
     -> IO Int
-pruneForks_ logg _ mar mir  _ _
-    | mar <= 1 = 0 <$ logg Warn ("Skipping database prunning on for max bound of " <> sshow mar)
-    | mir <= 1 = 0 <$ logg Warn ("Skipping database prunning on for min bound of " <> sshow mir)
-pruneForks_ logg cdb mar mir hdrCallback payloadCallback = do
+pruneForks_ logg _ (MaxRank (Max mar)) _  _
+    | mar <= 1 = 0 <$ logg Warn ("Skipping database prunning for max bound of " <> sshow mar)
+pruneForks_ logg cdb mar mir callback = do
+    logg Debug $ "Prunning block header database for chain " <> sshow (_chainId cdb)
+        <> " with upper bound " <> sshow (_getMaxRank mar)
+        <> " and lower bound " <> sshow (_getMinRank mir)
 
-    !pivots <- entries cdb Nothing Nothing
-        (Just $ MinRank $ Min $ _getMaxRank mar)
-        (Just mar)
-        S.toList_
+    !pivots <- entries cdb Nothing Nothing (Just $ MinRank $ Min $ _getMaxRank mar) (Just mar)
+        $ fmap (force . L.nub) . S.toList_ . S.map _blockParent
+            -- the set of pivots is expected to be very small. In fact it is
+            -- almost always a singleton set.
 
     when (null pivots) $ do
         logg Warn
             $ "Skipping database pruning because of an empty set of block headers at upper pruning bound " <> sshow mar
             <> ". This would otherwise delete the complete database."
 
-    withReverseHeaderStream cdb (mar - 1) mir $ \s -> s
-        & S.groupBy ((==) `on` _blockHeight)
-        & S.mapped S.toList
-        & S.foldM_ go (return (_blockParent <$> pivots, 0)) (return . snd)
+    withReverseHeaderStream cdb (mar - 1) mir
+        $ S.foldM_ go (return (pivots, 0)) (evaluate . snd)
 
   where
-    -- Note that almost always `pivots` is a singleton list and `bs` is empty.
-    -- Also `payloads` almost always empty.
-    --
-    go :: ([BlockHash], Int) -> [BlockHeader] -> IO ([BlockHash], Int)
+    go :: ([BlockHash], Int) -> BlockHeader -> IO ([BlockHash], Int)
     go ([], _) _ = throwM $ InternalInvariantViolation "PrunForks.pruneForks_: impossible case"
-    go (!pivots, !n) curs = do
-
-        let (newPivots, toDelete) = L.partition (\h -> _blockHash h `elem` pivots) curs
-            pivotPayloads = _blockPayloadHash <$> newPivots
-
-        -- TODO: try to repair the database by fetching the missing block from
-        -- remote peers?
-        --
-        -- It's probably the best to write an independent repair program or
-        -- module
-        when (null newPivots) $ do
-            logg Error
-                $ "Corrupted chain database for chain " <> toText (_chainId cdb)
-                <> ". The chain db must be deleted and re-resynchronized."
-            throwM $ TreeDbKeyNotFound @BlockHeaderDb (head pivots)
-            -- note that the use of `head` here is safe
-
-        forM_ toDelete $ \b -> do
-            deleteHdr b
-            hdrCallback True b
-            let payload = _blockPayloadHash b
-            payloadCallback (payload `notElem` pivotPayloads) payload
-
-        forM_ newPivots $ \b -> do
-            hdrCallback False b
-            payloadCallback False (_blockPayloadHash b)
-
-        return (_blockParent <$> newPivots, n + length toDelete)
-
+    go (!pivots, !n) !cur
+        | _blockHash cur `elem` pivots = do
+            callback False cur
+            let !pivots' = force $ L.nub $ _blockParent cur : L.delete (_blockHash cur) pivots
+            return (pivots', n)
+        | otherwise = do
+            deleteHdr cur
+            callback True cur
+            return (pivots, n+1)
 
     deleteHdr k = do
         -- TODO: make this atomic (create boilerplate to combine queries for
