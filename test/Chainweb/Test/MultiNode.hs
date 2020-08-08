@@ -62,6 +62,7 @@ import Numeric.Natural
 
 import qualified Streaming.Prelude as S
 
+import System.IO.Temp
 import System.LogLevel
 import System.Timeout
 
@@ -80,7 +81,6 @@ import Chainweb.Cut
 import Chainweb.CutDB
 import Chainweb.Graph
 import Chainweb.Logger
-import Chainweb.NodeId
 import Chainweb.Test.Utils
 import Chainweb.Time (Seconds(..))
 import Chainweb.Utils
@@ -113,10 +113,8 @@ multiConfig
     :: ChainwebVersion
     -> Natural
         -- ^ number of nodes
-    -> NodeId
-        -- ^ NodeId
     -> ChainwebConfiguration
-multiConfig v n nid = config v n nid
+multiConfig v n = config v n
     & set (configP2p . p2pConfigSessionTimeout) 20
         -- Use short sessions to cover session timeouts and setup logic in the
         -- test.
@@ -140,22 +138,23 @@ multiNode
     -> MVar PeerInfo
     -> ChainwebConfiguration
     -> RocksDb
+    -> Int
+        -- ^ Unique node id. Node id 0 is used for the bootstrap node
     -> IO ()
-multiNode loglevel write stateVar bootstrapPeerInfoVar conf rdb = do
-    withChainweb conf logger nodeRocksDb Nothing False $ \cw -> do
+multiNode loglevel write stateVar bootstrapPeerInfoVar conf rdb nid = do
+    withSystemTempDirectory "multiNode-pact-db" $ \pactDbDir ->
+        withChainweb conf logger nodeRocksDb pactDbDir False $ \cw -> do
 
-        -- If this is the bootstrap node we extract the port number and
-        -- publish via an MVar.
-        when (nid == NodeId 0) $ putMVar bootstrapPeerInfoVar
-            $ view (chainwebPeer . peerResPeer . peerInfo) cw
+            -- If this is the bootstrap node we extract the port number and
+            -- publish via an MVar.
+            when (nid == 0) $ putMVar bootstrapPeerInfoVar
+                $ view (chainwebPeer . peerResPeer . peerInfo) cw
 
-        runChainweb cw `finally` do
-            logFunctionText logger Info "write sample data"
-            sample cw
-            logFunctionText logger Info "shutdown node"
+            runChainweb cw `finally` do
+                logFunctionText logger Info "write sample data"
+                sample cw
+                logFunctionText logger Info "shutdown node"
   where
-    nid = _configNodeId conf
-
     logger :: GenericLogger
     logger = addLabel ("node", toText nid) $ genericLogger loglevel write
 
@@ -197,14 +196,14 @@ runNodes loglevel write stateVar v n =
         forConcurrently_ [0 .. int n - 1] $ \i -> do
             threadDelay (500_000 * int i)
 
-            let baseConf = multiConfig v n (NodeId i)
+            let baseConf = multiConfig v n
             conf <- if
                 | i == 0 ->
                     return $ bootstrapConfig baseConf
                 | otherwise ->
                     setBootstrapPeerInfo <$> readMVar bootstrapPortVar <*> pure baseConf
 
-            multiNode loglevel write stateVar bootstrapPortVar conf rdb
+            multiNode loglevel write stateVar bootstrapPortVar conf rdb i
 
 runNodesForSeconds
     :: LogLevel
@@ -291,7 +290,8 @@ data ConsensusState = ConsensusState
         -- ^ for short tests this is fine. For larger test runs we should
         -- use HyperLogLog+
 
-    , _stateCutMap :: !(HM.HashMap NodeId Cut)
+    , _stateCutMap :: !(HM.HashMap Int Cut)
+        -- ^ Node Id map
     , _stateChainwebVersion :: !ChainwebVersion
     }
     deriving (Show, Generic, NFData)
@@ -304,7 +304,8 @@ emptyConsensusState :: ChainwebVersion -> ConsensusState
 emptyConsensusState v = ConsensusState mempty mempty v
 
 sampleConsensusState
-    :: NodeId
+    :: Int
+        -- ^ node Id
     -> WebBlockHeaderDb
     -> CutDb cas
     -> ConsensusState

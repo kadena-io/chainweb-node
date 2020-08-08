@@ -36,7 +36,6 @@ import Chainweb.Cut.Create
 import Chainweb.Difficulty
 import Chainweb.HostAddress
 import Chainweb.MerkleLogHash
-import Chainweb.NodeId
 import Chainweb.Payload
 import Chainweb.PowHash
 import Chainweb.RestAPI.NetworkID
@@ -73,8 +72,6 @@ encodeDecodeTests = testGroup "Encode-Decode roundtrips"
         $ prop_encodeDecodeRoundtrip decodeChainwebVersion encodeChainwebVersion
     , testProperty "ChainId"
         $ prop_encodeDecodeRoundtrip decodeChainId encodeChainId
-    , testProperty "NodeId"
-        $ prop_encodeDecodeRoundtrip decodeNodeId encodeNodeId
     , testProperty "MerkleLogHash"
         $ prop_encodeDecodeRoundtrip decodeMerkleLogHash encodeMerkleLogHash
     , testProperty "BlockHash"
@@ -137,7 +134,6 @@ jsonTestCases f =
     , testProperty "TimeSpan Micros" $ f @(TimeSpan Micros)
     , testProperty "Seconds" $ f @Seconds
     , testProperty "ChainId" $ f @ChainId
-    , testProperty "NodeId" $ f @NodeId
     , testProperty "ChainwebVersion" $ f @ChainwebVersion
     , testProperty "Nonce" $ f @Nonce
     , testProperty "HashDifficulty" $ f @HashDifficulty
@@ -215,7 +211,6 @@ showReadTestCases f =
     , testProperty "Either String Int" $ f @(Either String Int)
     , testProperty "Text" $ f @T.Text
     , testProperty "ChainId" $ f @ChainId
-    , testProperty "NodeId" $ f @NodeId
     ]
 
 showReadTests :: TestTree
@@ -249,7 +244,6 @@ hasTextRepresentationTests = testGroup "HasTextRepresentation roundtrips"
     [ testProperty "ChainwebVersion" $ prop_iso' @_ @ChainwebVersion fromText toText
     , testProperty "ChainwebVersion" $ prop_iso' @_ @ChainwebVersion eitherFromText toText
     , testProperty "ChainId" $ prop_iso' @_ @ChainId fromText toText
-    , testProperty "NodeId" $ prop_iso' @_ @NodeId fromText toText
     , testProperty "BlockHash" $ prop_iso' @_ @BlockHash fromText toText
     , testProperty "Seconds" $ prop_iso' @_ @Seconds fromText toText
     , testProperty "Hostname" $ prop_iso' @_ @Hostname fromText toText

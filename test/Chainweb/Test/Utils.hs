@@ -197,7 +197,6 @@ import Chainweb.Logger
 import Chainweb.Mempool.Mempool (MempoolBackend(..), TransactionHash(..))
 import Chainweb.Miner.Config
 import Chainweb.Miner.Pact
-import Chainweb.NodeId
 import Chainweb.Payload.PayloadStore
 import Chainweb.RestAPI
 import Chainweb.RestAPI.NetworkID
@@ -923,13 +922,13 @@ runTestNodes
 runTestNodes label rdb loglevel ver n portMVar =
     forConcurrently_ [0 .. int n - 1] $ \i -> do
         threadDelay (1000 * int i)
-        let baseConf = config ver n (NodeId i)
+        let baseConf = config ver n
         conf <- if
             | i == 0 ->
                 return $ bootstrapConfig baseConf
             | otherwise ->
                 setBootstrapPeerInfo <$> (fst <$> readMVar portMVar) <*> pure baseConf
-        node label rdb loglevel portMVar conf
+        node label rdb loglevel portMVar conf i
 
 node
     :: B.ByteString
@@ -937,13 +936,15 @@ node
     -> LogLevel
     -> MVar (PeerInfo, Port)
     -> ChainwebConfiguration
+    -> Int
+        -- ^ Unique Node Id. The node id 0 is used for the bootstrap node
     -> IO ()
-node label rdb loglevel peerInfoVar conf = do
+node label rdb loglevel peerInfoVar conf nid = do
     rocksDb <- testRocksDb (label <> T.encodeUtf8 (toText nid)) rdb
-    Extra.withTempDir $ \dir -> withChainweb conf logger rocksDb (Just dir) False $ \cw -> do
+    Extra.withTempDir $ \dir -> withChainweb conf logger rocksDb dir False $ \cw -> do
 
         -- If this is the bootstrap node we extract the port number and publish via an MVar.
-        when (nid == NodeId 0) $ do
+        when (nid == 0) $ do
             let bootStrapInfo = view (chainwebPeer . peerResPeer . peerInfo) cw
                 bootStrapPort = view (chainwebServiceSocket . _1) cw
             putMVar peerInfoVar (bootStrapInfo, bootStrapPort)
@@ -954,9 +955,8 @@ node label rdb loglevel peerInfoVar conf = do
             logFunctionText logger Info "shutdown node"
         return ()
   where
-    nid = _configNodeId conf
     logger :: GenericLogger
-    logger = addLabel ("node", toText nid) $ genericLogger loglevel print
+    logger = addLabel ("node", sshow nid) $ genericLogger loglevel print
 
     poisonDeadBeef cw = mapM_ poison crs
       where
@@ -969,10 +969,8 @@ deadbeef = TransactionHash "deadbeefdeadbeefdeadbeefdeadbeef"
 config
     :: ChainwebVersion
     -> Natural
-    -> NodeId
     -> ChainwebConfiguration
-config ver n nid = defaultChainwebConfiguration ver
-    & set configNodeId nid
+config ver n = defaultChainwebConfiguration ver
     & set (configP2p . p2pConfigPeer . peerConfigHost) host
     & set (configP2p . p2pConfigPeer . peerConfigInterface) interface
     & set (configP2p . p2pConfigKnownPeers) mempty

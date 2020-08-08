@@ -42,6 +42,7 @@ import qualified Data.Yaml as Yaml
 
 import Ea.Genesis
 
+import System.IO.Temp
 import System.LogLevel (LogLevel(..))
 
 import Text.Printf
@@ -163,15 +164,16 @@ genPayloadModule' v tag cwTxs =
     withBlockHeaderDb rocks v cid $ \bhdb -> do
         let logger = genericLogger Warn TIO.putStrLn
         pdb <- newPayloadDb
-        T2 payloadWO _ <- withSqliteDb v cid logger Nothing Nothing False $ \env ->
-            initPactService' v cid logger bhdb pdb env defaultPactServiceConfig $
-                execNewGenesisBlock noMiner (V.fromList cwTxs)
+        withSystemTempDirectory "ea-pact-db" $ \pactDbDir -> do
+            T2 payloadWO _ <- withSqliteDb cid logger pactDbDir False $ \env ->
+                initPactService' v cid logger bhdb pdb env defaultPactServiceConfig $
+                    execNewGenesisBlock noMiner (V.fromList cwTxs)
 
-        let payloadYaml = TE.decodeUtf8 $ Yaml.encode payloadWO
-            modl = T.unlines $ startModule tag <> [payloadYaml] <> endModule
-            fileName = "src/Chainweb/BlockHeader/Genesis/" <> tag <> "Payload.hs"
+            let payloadYaml = TE.decodeUtf8 $ Yaml.encode payloadWO
+                modl = T.unlines $ startModule tag <> [payloadYaml] <> endModule
+                fileName = "src/Chainweb/BlockHeader/Genesis/" <> tag <> "Payload.hs"
 
-        TIO.writeFile (T.unpack fileName) modl
+            TIO.writeFile (T.unpack fileName) modl
   where
     cid = someChainId v
 
