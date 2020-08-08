@@ -389,7 +389,7 @@ genesisId = BlockId 0 "rdfJIktp_WL0oMr8Wr6lH49YkERAJ9MlFp0RPLMXPDE"
 rosettaVersion :: RosettaNodeVersion
 rosettaVersion = RosettaNodeVersion
     { _version_rosettaVersion = "1.3.1"
-    , _version_nodeVersion = "2.0"
+    , _version_nodeVersion = "2.1"
     , _version_middlewareVersion = Nothing
     , _version_metadata = Just $ HM.fromList
       [ "node-api-version" A..= ("0.0" :: Text)
