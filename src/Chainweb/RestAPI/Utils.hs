@@ -1,4 +1,5 @@
 {-# LANGUAGE AllowAmbiguousTypes #-}
+{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE CPP #-}
 {-# LANGUAGE ConstraintKinds #-}
 {-# LANGUAGE DataKinds #-}
@@ -75,6 +76,10 @@ module Chainweb.RestAPI.Utils
 
 -- * Misc Utils
 , bindPortTcp
+, allocateSocket
+, deallocateSocket
+, withSocket
+
 -- ** Content Types for Clients
 , SupportedReqBodyContentType
 , SetReqBodyContentType
@@ -82,6 +87,8 @@ module Chainweb.RestAPI.Utils
 , SetRespBodyContentType
 
 ) where
+
+import Control.Monad.Catch (bracket)
 
 import Data.Aeson
 import qualified Data.CaseInsensitive as CI
@@ -479,3 +486,15 @@ bindPortTcp p interface = do
         return (int port, socket)
     N.listen sock (max 2048 N.maxListenQueue)
     return (port, sock)
+
+allocateSocket :: Port -> HostPreference -> IO (Port, N.Socket)
+allocateSocket port interface = do
+    (!p, !sock) <- bindPortTcp port interface
+    return (p, sock)
+
+deallocateSocket :: (Port, N.Socket) -> IO ()
+deallocateSocket (_, sock) = N.close sock
+
+withSocket :: Port -> HostPreference -> ((Port, N.Socket) -> IO a) -> IO a
+withSocket port interface = bracket (allocateSocket port interface) deallocateSocket
+

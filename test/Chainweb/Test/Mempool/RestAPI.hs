@@ -16,9 +16,7 @@ import Test.Tasty
 
 -- internal modules
 
-import Chainweb.Chainweb.MinerResources (MiningCoordination)
 import Chainweb.Graph
-import Chainweb.Logger (GenericLogger)
 import qualified Chainweb.Mempool.InMem as InMem
 import Chainweb.Mempool.InMemTypes (InMemConfig(..))
 import Chainweb.Mempool.Mempool
@@ -85,13 +83,7 @@ newTestServer = mask_ $ do
     chain = someChainId version
 
     mkApp :: MempoolBackend MockTx -> Application
-    mkApp mp = chainwebApplication version (serverMempools [(chain, mp)]) mr hs r
-      where
-        hs = HeaderStream False
-        r  = Rosetta False
-
-        mr :: Maybe (MiningCoordination GenericLogger cas)
-        mr = Nothing
+    mkApp mp = chainwebApplication version (serverMempools [(chain, mp)])
 
     mkEnv :: Int -> IO ClientEnv
     mkEnv port = do
@@ -109,7 +101,7 @@ newPool = Pool.createPool newTestServer destroyTestServer 1 10 20
 
 serverMempools
     :: [(ChainId, MempoolBackend t)]
-    -> ChainwebServerDbs t a RocksDbCas {- ununsed -}
+    -> ChainwebServerDbs t RocksDbCas {- ununsed -}
 serverMempools mempools = emptyChainwebServerDbs
     { _chainwebServerMempools = mempools
     }

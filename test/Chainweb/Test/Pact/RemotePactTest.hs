@@ -165,24 +165,24 @@ tests rdb = testGroupSch "Chainweb.Test.Pact.RemotePactTest"
 -- about 10 seconds. Once initialization is complete even large numbers of empty
 -- blocks were mined almost instantaneously.
 --
-awaitNetworkHeight :: IO ClientEnv -> CutHeight -> IO ()
+awaitNetworkHeight :: IO ChainwebNetwork -> CutHeight -> IO ()
 awaitNetworkHeight nio h = do
-    cenv <- nio
+    cenv <- _getClientEnv <$> nio
     ch <- awaitCutHeight cenv h
     debug $ "cut height: " <> sshow (_cutHashesHeight ch)
 
-responseGolden :: IO ClientEnv -> IO RequestKeys -> TestTree
+responseGolden :: IO ChainwebNetwork -> IO RequestKeys -> TestTree
 responseGolden networkIO rksIO = golden "remote-golden" $ do
     rks <- rksIO
-    cenv <- networkIO
+    cenv <- _getServiceClientEnv <$> networkIO
     PollResponses theMap <- polling cid cenv rks ExpectPactResult
     let values = mapMaybe (\rk -> _crResult <$> HashMap.lookup rk theMap)
                           (NEL.toList $ _rkRequestKeys rks)
     return $! toS $! foldMap A.encode values
 
-localTest :: IO (Time Micros) -> IO ClientEnv -> IO ()
+localTest :: IO (Time Micros) -> IO ChainwebNetwork -> IO ()
 localTest iot nio = do
-    cenv <- nio
+    cenv <- fmap _getServiceClientEnv nio
     mv <- newMVar 0
     SubmitBatch batch <- testBatch iot mv gp
     let cmd = head $ toList batch
@@ -191,10 +191,9 @@ localTest iot nio = do
     assertEqual "expect /local to return gas for tx" (_crGas res) 5
     assertEqual "expect /local to succeed and return 3" e (Right (PLiteral $ LDecimal 3))
 
-localContTest :: IO (Time Micros) -> IO ClientEnv -> TestTree
+localContTest :: IO (Time Micros) -> IO ChainwebNetwork -> TestTree
 localContTest iot nio = testCaseSteps "local continuation test" $ \step -> do
-    cenv <- nio
-    let sid = unsafeChainId 0
+    cenv <- _getServiceClientEnv <$> nio
 
     step "execute /send with initial pact continuation tx"
     cmd1 <- firstStep
@@ -218,6 +217,7 @@ localContTest iot nio = testCaseSteps "local continuation test" $ \step -> do
       Right (PLiteral (LDecimal a)) | a == 2 -> return ()
       Right p -> assertFailure $ "unexpected cont return value: " ++ show p
   where
+    sid = unsafeChainId 0
     tx =
       "(namespace 'free)(module m G (defcap G () true) (defpact p () (step (yield { \"a\" : (+ 1 1) })) (step (resume { \"a\" := a } a))))(free.m.p)"
     firstStep = do
@@ -239,9 +239,9 @@ localContTest iot nio = testCaseSteps "local continuation test" $ \step -> do
         $ mkCont
         $ mkContMsg pid 1
 
-localChainDataTest :: IO (Time Micros) -> IO ClientEnv -> IO ()
+localChainDataTest :: IO (Time Micros) -> IO ChainwebNetwork -> IO ()
 localChainDataTest iot nio = do
-    cenv <- nio
+    cenv <- fmap _getServiceClientEnv nio
     mv <- newMVar (0 :: Int)
     SubmitBatch batch <- localTestBatch iot mv
     let cmd = head $ toList batch
@@ -274,19 +274,19 @@ localChainDataTest iot nio = do
           assert' name value = assertEqual name (M.lookup  (FieldKey (toS name)) m) (Just value)
     expectedResult _ = assertFailure "Didn't get back an object map!"
 
-pollingBadlistTest :: IO ClientEnv -> TestTree
+pollingBadlistTest :: IO ChainwebNetwork -> TestTree
 pollingBadlistTest nio = testCase "/poll reports badlisted txs" $ do
-    cenv <- nio
+    cenv <- fmap _getServiceClientEnv nio
     let rks = RequestKeys $ NEL.fromList [pactDeadBeef]
     sid <- liftIO $ mkChainId v maxBound (0 :: Int)
     void $ polling sid cenv rks ExpectPactError
 
 
-sendValidationTest :: IO (Time Micros) -> IO ClientEnv -> TestTree
+sendValidationTest :: IO (Time Micros) -> IO ChainwebNetwork -> TestTree
 sendValidationTest iot nio =
     testCaseSteps "/send reports validation failure" $ \step -> do
         step "check sending poisoned TTL batch"
-        cenv <- nio
+        cenv <- fmap _getServiceClientEnv nio
         mv <- newMVar 0
         SubmitBatch batch1 <- testBatch' iot 10_000 mv gp
         SubmitBatch batch2 <- testBatch' (return $ Time $ TimeSpan 0) 2 mv gp
@@ -342,9 +342,9 @@ expectSendFailure expectErr act = tryAllSynchronous act >>= \case
     test er = assertSatisfies ("Expected message containing '" ++ expectErr ++ "'") er (L.isInfixOf expectErr)
 
 
-spvTest :: IO (Time Micros) -> IO ClientEnv -> TestTree
+spvTest :: IO (Time Micros) -> IO ChainwebNetwork -> TestTree
 spvTest iot nio = testCaseSteps "spv client tests" $ \step -> do
-    cenv <- nio
+    cenv <- fmap _getServiceClientEnv nio
     batch <- mkTxBatch
     sid <- mkChainId v maxBound (1 :: Int)
     r <- flip runClientM cenv $ do
@@ -388,10 +388,9 @@ spvTest iot nio = testCaseSteps "spv client tests" $ \step -> do
         , "target-chain-id" A..= tid
         ]
 
-txTooBigGasTest :: IO (Time Micros) -> IO ClientEnv -> TestTree
+txTooBigGasTest :: IO (Time Micros) -> IO ChainwebNetwork -> TestTree
 txTooBigGasTest iot nio = testCaseSteps "transaction size gas tests" $ \step -> do
-    cenv <- nio
-    sid <- mkChainId v maxBound (0 :: Int)
+    cenv <- fmap _getServiceClientEnv nio
 
     let runSend batch expectation = flip runClientM cenv $ do
           void $ liftIO $ step "sendApiClient: submit transaction"
@@ -436,6 +435,7 @@ txTooBigGasTest iot nio = testCaseSteps "transaction size gas tests" $ \step -> 
         (Just gasError1) (getFailureMsg . resultOf <$> cr)
 
   where
+    sid = unsafeChainId 0
     resultOf (CommandResult _ _ (PactResult pr) _ _ _ _) = pr
     gasError0 = Just $ Left $
       Pact.PactError Pact.GasError def [] "Tx too big (4), limit 1"
@@ -453,13 +453,10 @@ txTooBigGasTest iot nio = testCaseSteps "transaction size gas tests" $ \step -> 
     txcode1 = txcode0 <> "(identity 1)"
 
 
-caplistTest :: IO (Time Micros) -> IO ClientEnv -> TestTree
+caplistTest :: IO (Time Micros) -> IO ChainwebNetwork -> TestTree
 caplistTest iot nio = testCaseSteps "caplist TRANSFER + FUND_TX test" $ \step -> do
-
     let testCaseStep = void . liftIO . step
-
-    cenv <- nio
-    sid <- liftIO $ mkChainId v maxBound (0 :: Int)
+    cenv <- fmap _getServiceClientEnv nio
 
     r <- flip runClientM cenv $ do
       batch <- liftIO
@@ -480,6 +477,7 @@ caplistTest iot nio = testCaseSteps "caplist TRANSFER + FUND_TX test" $ \step ->
         assertSatisfies "meta in output" (preview (_Just . crMetaData . _Just . _Object . at "blockHash") t) isJust
 
   where
+    sid = unsafeChainId 0
     n0 = Just "transfer-clist0"
     ttl = 2 * 24 * 60 * 60
     pm t = Pact.PublicMeta (Pact.ChainId "0") t 100_000 0.01 ttl
@@ -524,13 +522,10 @@ allocation02KeyPair' =
     , "2f75b5d875dd7bf07cc1a6973232a9e53dc1d4ffde2bab0bbace65cd87e87f53"
     )
 
-allocationTest :: IO (Time Micros) -> IO ClientEnv -> TestTree
+allocationTest :: IO (Time Micros) -> IO ChainwebNetwork -> TestTree
 allocationTest iot nio = testCaseSteps "genesis allocation tests" $ \step -> do
-
     let testCaseStep = void . liftIO . step
-
-    cenv <- nio
-    sid <- liftIO $ mkChainId v maxBound (0 :: Int)
+    cenv <- fmap _getServiceClientEnv nio
 
     step "positive allocation test: allocation00 release"
     p <- flip runClientM cenv $ do
@@ -612,6 +607,8 @@ allocationTest iot nio = testCaseSteps "genesis allocation tests" $ \step -> do
     n4 = Just "allocation-4"
     n5 = Just "allocation-5"
 
+    sid = unsafeChainId 0
+
     localAfterPollResponse (PollResponses prs) cr =
         getBlockHeight cr > getBlockHeight (snd $ head $ HashMap.toList prs)
 
@@ -682,14 +679,14 @@ mkSingletonBatch iot kps (PactTransaction c d) nonce pmk clist = do
 withRequestKeys
     :: IO (Time Micros)
     -> IO (MVar Int)
-    -> IO ClientEnv
+    -> IO ChainwebNetwork
     -> (IO RequestKeys -> TestTree)
     -> TestTree
 withRequestKeys iot ioNonce networkIO f = withResource mkKeys (\_ -> return ()) f
   where
     mkKeys :: IO RequestKeys
     mkKeys = do
-        cenv <- networkIO
+        cenv <- _getServiceClientEnv <$> networkIO
         mNonce <- ioNonce
         testSend iot mNonce cenv
 
@@ -740,10 +737,6 @@ testBatch :: IO (Time Micros) -> MVar Int -> GasPrice -> IO SubmitBatch
 testBatch iot mnonce = testBatch' iot ttl mnonce
   where
     ttl = 2 * 24 * 60 * 60
-
---------------------------------------------------------------------------------
--- test node(s), config, etc. for this test
---------------------------------------------------------------------------------
 
 pactDeadBeef :: RequestKey
 pactDeadBeef = let (TransactionHash b) = deadbeef
