@@ -1,5 +1,55 @@
 # `chainweb-node` Changelog
 
+## 2.1 (2020-08-11)
+
+This version replaces all previous versions. Any prior version will stop working
+on **2020-08-13T00:00:00Z**. Node administrators must upgrade to this version
+before that date.
+
+This version will stop working on **2020-10-08T00:00:00Z**.
+
+*Forks:*
+
+This version includes the fork that adds 10 additional chains to Chainweb
+resulting in 20 chains in total. The fork will occur on
+
+*   Mainnet at block height 852,054, which is expected to happen around
+    2020-08-20 16:55:14 UTC.
+
+The mining API of chainweb-node will start serving work items for the new chains
+starting at above block heights for the respective network. The mempool and pact
+service APIs will accept requests already some time before the transition. POW
+difficulties will re-adjust within a few hours after the transition. During that
+time block rates may be slightly higher or lower than usual.
+
+*Possibly Breaking Changes:*
+
+*   Fix the database location and layout when a custom location is configured.
+    (#1128)
+
+    This only affects users who configured custom database locations.
+
+    This is a potentially breaking change. The chainweb node tries hard to
+    adjust the database location by itself without user intervention. If you
+    have tooling that depends on a custom database location, you may want check
+    the logs at first start up and double check that everything works as expected.
+
+*   Deprecate the use of the node-id configuration. (#1128)
+
+    This only affects users who configured the node-id either on the command line or
+    in the configuration files.
+
+    Any node-id settings are now ignored. In particular the database locations
+    doesn't include the node-id any more and just defaults to `0/rocksDb` and
+    `0/sqlitedb`.
+
+*Other Changes*:
+
+*   More efficient chain database pruning. (#1132)
+*   Fix a bug where Chainweb node would fail to start when it stopped after
+    the last block that pact evaluated got orphaned. (#1123)
+*   Improve failure response for invalid solved work. (#1126)
+
 ## 2.0 (2020-07-11)
 
 This version replaces all previous versions. Any prior version will stop working
