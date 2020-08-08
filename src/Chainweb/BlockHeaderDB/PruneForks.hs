@@ -179,25 +179,33 @@ pruneForks_ logg cdb mar mir callback = do
       then do
         logg Warn
             $ "Skipping database pruning because of an empty set of block headers at upper pruning bound " <> sshow mar
-            <> ". This would otherwise delete the complete database."
         return 0
       else
         withReverseHeaderStream cdb (mar - 1) mir
-            $ S.foldM_ go (return (pivots, 0)) (evaluate . snd)
+            $ S.foldM_ go (return (pivots, int (_getMaxRank mar), 0)) (\(_,_,!n) -> evaluate n)
 
   where
-    go :: ([BlockHash], Int) -> BlockHeader -> IO ([BlockHash], Int)
-    go ([], _) cur = throwM $ InternalInvariantViolation
+    go :: ([BlockHash], BlockHeight, Int) -> BlockHeader -> IO ([BlockHash], BlockHeight, Int)
+    go ([], _, _) cur = throwM $ InternalInvariantViolation
         $ "PrunForks.pruneForks_: no pivots left at block " <> encodeToText (ObjectEncoded cur)
-    go (!pivots, !n) !cur
+    go (!pivots, !prevHeight, !n) !cur
+        -- This checks the consistency of the database.
+        | prevHeight /= curHeight && prevHeight /= curHeight + 1 =
+            throwM $ InternalInvariantViolation
+                $ "PrunForks.pruneForks_: detected a corrupted database. Some block headers are missing"
+                <> ". Current pivots: " <> encodeToText pivots
+                <> ". Current header: " <> encodeToText (ObjectEncoded cur)
+                <> ". Previous height: " <> sshow prevHeight
         | _blockHash cur `elem` pivots = do
             callback False cur
             let !pivots' = force $ L.nub $ _blockParent cur : L.delete (_blockHash cur) pivots
-            return (pivots', n)
+            return (pivots', curHeight, n)
         | otherwise = do
             deleteHdr cur
             callback True cur
-            return (pivots, n+1)
+            return (pivots, curHeight, n+1)
+      where
+        curHeight = _blockHeight cur
 
     deleteHdr k = do
         -- TODO: make this atomic (create boilerplate to combine queries for
