@@ -6,7 +6,7 @@ This version replaces all previous versions. Any prior version will stop working
 on **2020-08-13T00:00:00Z**. Node administrators must upgrade to this version
 before that date.
 
-This version will stop working on **2020-10-08T00:00:00Z**.
+This version will stop working on **2020-10-15T00:00:00Z**.
 
 *Forks:*
 
@@ -49,6 +49,7 @@ time block rates may be slightly higher or lower than usual.
 *   Fix a bug where Chainweb node would fail to start when it stopped after
     the last block that pact evaluated got orphaned. (#1123)
 *   Improve failure response for invalid solved work. (#1126)
+*   Fix mainnet coin v2 upgrade for new chains. (#1130)
 
 ## 2.0 (2020-07-11)
 
