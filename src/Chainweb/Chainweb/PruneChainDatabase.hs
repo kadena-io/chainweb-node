@@ -161,12 +161,13 @@ fullGc logger rdb v = do
     markedPayloads <- forConcurrently (toList $ chainIds v) pruneChain
     logg Info $ "Finished pruning block headers"
 
-    -- TODO: parallelize he the sweep phases to use all available cores.
+    -- TODO: parallelize he the sweep payload phase to use all available cores.
 
     -- Sweep Payloads and mark transactions
     (markedTrans, markedOutputs) <- sweepPayloads logg db markedPayloads
 
     -- Sweep transactions
+    -- (these are reasonably fast, prossibly because they only iterate over the keys)
     concurrently_
         (sweepTransactions logg db markedTrans)
         (sweepOutputs logg db markedOutputs)
@@ -353,11 +354,14 @@ tryInsert cf k a = unlessM (member cf $ GcHash a) $
 -- concurrently and a lock is used only for the actual modification of the
 -- underlying buffer. Or do fine grained locking on the filter.
 --
-checkMark :: BA.ByteArrayAccess a => [(Filter a)] -> a -> IO Bool
-checkMark [] _ = return False
-checkMark (h : t) a = member h (GcHash a) >>= \case
-    True -> return True
-    False -> checkMark t a
+checkMark :: BA.ByteArrayAccess a => [Filter a] -> a -> IO Bool
+checkMark fs a = go fs
+  where
+    go [] = return False
+    go (h : t) = member h (GcHash a) >>= \case
+        True -> return True
+        False -> go t
+    {-# INLINE go #-}
 
 -- -------------------------------------------------------------------------- --
 -- Delete Payload
