@@ -45,7 +45,6 @@ time block rates may be slightly higher or lower than usual.
 
 *Other Changes*:
 
-*   More efficient chain database pruning. (#1132)
 *   Fix a bug where Chainweb node would fail to start when it stopped after
     the last block that pact evaluated got orphaned. (#1123)
 *   Improve failure response for invalid solved work. (#1126)
