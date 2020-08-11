@@ -73,9 +73,12 @@ pruneForksLogg
     => logger
     -> BlockHeaderDb
     -> Natural
-        -- ^ The depth at which deletion starts. Note, that the max rank isn't
-        -- necessarly included in the current best cut. So one, should choose a
-        -- depth for which one is confident that all forks are resolved.
+        -- ^ The depth at which pruning starts. Block at this depth are used as
+        -- pivots and actual deletion starts at (depth - 1).
+        --
+        -- Note, that the max rank isn't necessarly included in the current best
+        -- cut. So one, should choose a depth for which one is confident that
+        -- all forks are resolved.
 
     -> (Bool -> BlockHeader -> IO ())
         -- ^ Deletion call back. This hook is called /after/ the entry is
@@ -85,9 +88,7 @@ pruneForksLogg
         -- header got deleted from the chain database.
 
     -> IO Int
-pruneForksLogg logger = pruneForks logg
-  where
-    logg = logFunctionText (setComponent "ChainDatabasePrunning" logger)
+pruneForksLogg = pruneForks . logFunctionText
 
 -- | Prunes most block headers from forks that are older than the given number
 -- of blocks.
@@ -106,9 +107,12 @@ pruneForks
     :: LogFunctionText
     -> BlockHeaderDb
     -> Natural
-        -- ^ The depth at which deletion starts. Note, that the max rank isn't
-        -- necessarly included in the current best cut. So one, should choose a
-        -- depth for which one is confident that all forks are resolved.
+        -- ^ The depth at which pruning starts. Block at this depth are used as
+        -- pivots and actual deletion starts at (depth - 1).
+        --
+        -- Note, that the max rank isn't necessarly included in the current best
+        -- cut. So one, should choose a depth for which one is confident that
+        -- all forks are resolved.
 
     -> (Bool -> BlockHeader -> IO ())
         -- ^ Deletion call back. This hook is called /after/ the entry is
@@ -170,6 +174,8 @@ pruneForks_ logg cdb mar mir callback = do
         <> " with upper bound " <> sshow (_getMaxRank mar)
         <> " and lower bound " <> sshow (_getMinRank mir)
 
+    -- parent hashes of all blocks at height max rank @mar@.
+    --
     !pivots <- entries cdb Nothing Nothing (Just $ MinRank $ Min $ _getMaxRank mar) (Just mar)
         $ fmap (force . L.nub) . S.toList_ . S.map _blockParent
             -- the set of pivots is expected to be very small. In fact it is

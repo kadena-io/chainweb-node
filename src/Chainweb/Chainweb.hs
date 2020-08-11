@@ -270,18 +270,24 @@ instance FromJSON (ThrottlingConfig -> ThrottlingConfig) where
 -- -------------------------------------------------------------------------- --
 -- Cut Coniguration
 
-data ChainDatabaseGcConfig = GcNone | GcPruneForks | GcFull
+data ChainDatabaseGcConfig
+    = GcNone
+    | GcHeaders
+    | GcHeadersChecked
+    | GcFull
     deriving (Show, Eq, Ord, Enum, Bounded, Generic)
 
 chainDatabaseGcToText :: ChainDatabaseGcConfig -> T.Text
 chainDatabaseGcToText GcNone = "none"
-chainDatabaseGcToText GcPruneForks = "forks"
+chainDatabaseGcToText GcHeaders = "headers"
+chainDatabaseGcToText GcHeadersChecked = "headers-checked"
 chainDatabaseGcToText GcFull = "full"
 
 chainDatabaseGcFromText :: MonadThrow m => T.Text -> m ChainDatabaseGcConfig
 chainDatabaseGcFromText t = case T.toCaseFold t of
     "none" -> return GcNone
-    "forks" -> return GcPruneForks
+    "headers" -> return GcHeaders
+    "headers-checked" -> return GcHeadersChecked
     "full" -> return GcFull
     x -> throwM $ TextFormatException $ "unknown value for database pruning configuration: " <> sshow x
 
@@ -299,7 +305,7 @@ instance FromJSON ChainDatabaseGcConfig where
     parseJSON v = parseJsonFromText "ChainDatabaseGcConfig" v <|> legacy v
       where
         legacy = withBool "ChainDatabaseGcConfig" $ \case
-            True -> return GcPruneForks
+            True -> return GcHeaders
             False -> return GcNone
     {-# INLINE parseJSON #-}
 
@@ -328,7 +334,7 @@ instance FromJSON (CutConfig -> CutConfig) where
 defaultCutConfig :: CutConfig
 defaultCutConfig = CutConfig
     { _cutIncludeOrigin = True
-    , _cutPruneChainDatabase = GcPruneForks
+    , _cutPruneChainDatabase = GcHeaders
     , _cutFetchTimeout = 3_000_000
     , _cutInitialCutHeightLimit = Nothing
     }
@@ -342,8 +348,13 @@ pCutConfig = id
         <> help "whether to include the origin when sending cuts"
     <*< cutPruneChainDatabase .:: textOption
         % long "prune-chain-database"
-        <> help "How to prune the chain database on startup. Pruning forks takes about 1-2min. A full GC takes several minutes"
-        <> metavar "none|forks|full"
+        <> help
+            ( "How to prune the chain database on startup."
+            <> " Pruning headers takes about 0.5-2min. "
+            <> " A pruning headers with full header validation (headers-checked) and full GC can take"
+            <> " a longer time (10 minutes or more)."
+            )
+        <> metavar "none|headers|headers-checked|full"
     <*< cutFetchTimeout .:: option auto
         % long "cut-fetch-timeout"
         <> help "The timeout for processing new cuts in microseconds"
@@ -633,9 +644,13 @@ withChainwebInternal conf logger peer rocksDb pactDbDir resetDb inner = do
     -- Garbage Collection
     -- performed before PayloadDb and BlockHeaderDb used by other components
     case _cutPruneChainDatabase (_configCuts conf) of
-        GcFull -> fullGc (setComponent "database-gc" logger) rocksDb v
-        GcPruneForks -> pruneAllChains (setComponent "database-prune" logger) rocksDb v
         GcNone -> return ()
+        GcHeaders ->
+            pruneAllChains (pruningLogger "headers") rocksDb v []
+        GcHeadersChecked ->
+            pruneAllChains (pruningLogger "headers-checked") rocksDb v [CheckPayloads, CheckFull]
+        GcFull ->
+            fullGc (pruningLogger "full") rocksDb v
 
     concurrentWith
         -- initialize chains concurrently
@@ -656,6 +671,9 @@ withChainwebInternal conf logger peer rocksDb pactDbDir resetDb inner = do
       , _pactResetDb = resetDb
       , _pactAllowReadsInLocal = _configAllowReadsInLocal conf
       }
+
+    pruningLogger l = addLabel ("sub-component", l)
+        $ setComponent ("database-pruning") logger
 
     cidsList :: [ChainId]
     cidsList = toList cids

@@ -15,52 +15,51 @@
 -- Maintainer: Lars Kuhtz <lars@kadena.io>
 -- Stability: experimental
 --
--- There is a block header database for each, but only a single shared payload
--- database.
+-- There are three modes for pruning the database:
 --
--- Since BlockTransactions can be shared between blocks, even across chains,
--- we'll have to take a global approach at garabage collecting payloads.
+-- * `none`: pruning is skipped
+-- * `headers`: only block headers of stale forks below are certain depth are
+--   pruned. The payload db is left unchanged.
+-- * `headers-checked`: like `headers` but block headers are also validated and
+--   the existence of the respective paylaods is checked.
+-- * `full`: like `headers` but additionally garbage collection is performed
+--   on payload database.
 --
--- There's also the advantage of guaranteeing that there are no concurrent
--- writes during the garbage collections, because the chain databases aren't
--- initialized yet.
+-- There is a block header database for each chain, but only a single shared
+-- payload database. Payloads or parts thereof can be shared between blocks
+-- on the same chain and on different chains. Therefore garbage collection is
+-- implemented as marke and sweep, using a probabilistic set representation
+-- for marking.
 --
--- 1. Concurrently for each chain:
---     * initialize temporary block header db,
---     * prune the block header db, and
---     * use the callbacks to delete those parts of the payloads that are
---       per chain, and also mark all payloads and all transactions.
--- 2. traverse payloads and delete all unused entries.
--- 3. traverse transactions and delete all unused entries.
+-- This is an offline implementation. There must be no concurrent writes during
+-- database pruning. Although, if needed it could be (relatively easily) be
+-- extended for online garbage collection.
 --
 -- /Notes on the GC scope:/
 --
--- The second step is optional. It shouldn't be needed in most cases, but should
--- be performed on the first run of this function and after that from time to
--- time to cleanup garbage that could result from crashes.
---
--- The third step is optional, too. By skipping it, some garbage accumulates,
--- but it's a relatively small amount and skipping make pruning much more
--- efficient. It should be performed from time to time.
---
--- Garabage collecting all other payload tables isn't currently supported --
--- we assume that the overhead due to gargabe in those tables (which can
--- accumulate during crashes) is smaller than the false positive rate of the
--- member ship query sets. We may add support for offline GC in the future.
--- In order to support all tables we would also have to mark BlockOutputHashes.
---
 -- /Implementation:/
+--
+-- The algorithm is probabilistic. Some small percentage of unreachable data
+-- remains in the database. The datastructure for marking used entries is uses a
+-- random seed, such that repeated pruning will delete an increasing amount of
+-- items.
 --
 -- For marking Cuckoo filters are used. Cuckoo filters have the disadvantage
 -- that they don't support concurrent insertion. Also merging cuckoo filters is
--- slow. So we rather use seperate filters for each chain and query them
--- individually. We may explore other techniques to represent set membership in
--- the future.
+-- slow. We use seperate filters for each chain and query them individually. We
+-- may explore other techniques to represent set membership in the future.
+--
+-- The algorithm works top down on the hiearchical structure of the data. It
+-- guarantees that the database is consistent even if an exception occurs during
+-- a sweep phase. In that case some extra garbage would remain in the database,
+-- but there will be no dangling references.
 --
 -- /TODO:/
 --
 -- * implement incremental pruning (which can't be used with mark and sweep,
 --   though)
+--
+-- * implement online garbage collection
 --
 -- * Consider changing the database format to store the transactions with the
 --   block payloads and eliminate sharing. Sharing is benefitial only when most
@@ -71,7 +70,8 @@
 --
 --
 module Chainweb.Chainweb.PruneChainDatabase
-( pruneAllChains
+( PruningChecks(..)
+, pruneAllChains
 , fullGc
 ) where
 
@@ -96,22 +96,39 @@ import System.Random
 
 -- internal modules
 
+import Chainweb.BlockHash
+import Chainweb.BlockHeader.Validation
 import Chainweb.BlockHeaderDB
 import Chainweb.BlockHeaderDB.PruneForks
 import Chainweb.BlockHeight
+import Chainweb.ChainValue
 import Chainweb.Graph
 import Chainweb.Logger
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
 import Chainweb.Payload.PayloadStore.RocksDB
+import Chainweb.Time
 import Chainweb.TreeDB
 import Chainweb.Utils
 import Chainweb.Version
+import Chainweb.WebBlockHeaderDB
 
 import Data.LogMessage
 
 -- -------------------------------------------------------------------------- --
 -- Fork Pruning
+
+-- | Different consistency checks that can be piggybacked onto database pruning.
+--
+-- TODO: add case for validation of paylaod Merkle hash (if it isn't too
+-- expensive, it could be included with the payload existence check)
+--
+data PruningChecks
+    = CheckIntrinsic
+    | CheckInductive
+    | CheckFull
+    | CheckPayloads
+    deriving (Show, Eq, Ord, Enum, Bounded)
 
 -- | Prune all chains. This doesn't clean up Payloads.
 --
@@ -123,17 +140,79 @@ pruneAllChains
     => logger
     -> RocksDb
     -> ChainwebVersion
+    -> [PruningChecks]
     -> IO ()
-pruneAllChains logger rdb v = do
-    forConcurrently_ (toList $ chainIds v) pruneChain
+pruneAllChains logger rdb v checks = do
+    now <- getCurrentTimeIntegral
+    wdb <- initWebBlockHeaderDb rdb v
+    forConcurrently_ (toList $ chainIds v) (pruneChain now wdb)
   where
     diam = diameter $ chainGraphAt v (maxBound @BlockHeight)
-    pruneChain cid = withBlockHeaderDb rdb v cid $ \cdb -> do
+    pruneChain now wdb cid = do
         let chainLogger = addLabel ("chain", toText cid) logger
             chainLogg = logFunctionText chainLogger
+        cdb <- getWebBlockHeaderDb wdb cid
         chainLogg Info "start pruning block header database"
-        x <- pruneForksLogg chainLogger cdb (diam * 3) (\_ _ -> return ())
+        x <- pruneForksLogg chainLogger cdb (diam * 3) (callback now wdb cdb)
         chainLogg Info $ "finished pruning block header database. Deleted " <> sshow x <> " block headers."
+
+    pdb = newPayloadDb rdb
+
+    callback now wdb cdb d h = mapM_ (\c -> run c d h) checks
+      where
+        run CheckIntrinsic = checkIntrinsic now
+        run CheckInductive = checkInductive now cdb
+        run CheckPayloads = checkPayloads pdb
+        run CheckFull = checkFull now wdb
+
+-- -------------------------------------------------------------------------- --
+-- Fork Pruning callbacks
+
+-- | Verify existence of payloads for all block headers that are not deleted.
+--
+-- Adds about 4 minutes of overhead at block height 800,000 on a mac bock pro.
+--
+-- TODO: casMember for rocksdb internally uses the default implementation that
+-- uses casLookup. The Haskell rocksdb bindings don't provide a member check
+-- without getting the value. It could be done via the iterator API, which has
+-- different cost overheads. One optimization could be an implementation that
+-- avoids decoding of the key.
+--
+checkPayloads :: PayloadDb RocksDbCas -> Bool -> BlockHeader -> IO ()
+checkPayloads pdb False = void . casMember pdb . _blockPayloadHash
+checkPayloads _ True = const $ return ()
+{-# INLINE checkPayloads #-}
+
+-- | Intrinsically validate all block headers that are not deleted.
+--
+-- Adds less than 1 minute of overhead at block height 800,000 on a mac bock pro.
+--
+checkIntrinsic :: Time Micros -> Bool -> BlockHeader -> IO ()
+checkIntrinsic now False h = validateIntrinsicM now h
+checkIntrinsic _ True _ = return ()
+{-# INLINE checkIntrinsic #-}
+
+-- | Intrinsically validate all block headers that are not deleted.
+--
+checkInductive :: Time Micros -> BlockHeaderDb -> Bool -> BlockHeader -> IO ()
+checkInductive now cdb False h = do
+    validateIntrinsicM now h
+    validateInductiveChainM (casLookup cdb) h
+    return ()
+checkInductive _ _ True _ = return ()
+{-# INLINE checkInductive #-}
+
+-- | Perform complete block header validation for all block that are not deleted.
+--
+-- Adds about 5 minutes of overhead at block height 800,000 on a mac book pro
+--
+checkFull :: Time Micros -> WebBlockHeaderDb -> Bool -> BlockHeader -> IO ()
+checkFull now wdb False = void . validateBlockHeaderM now ctx
+  where
+    ctx :: ChainValue BlockHash -> IO (Maybe BlockHeader)
+    ctx cv = fmap _chainValueValue <$> casLookup wdb cv
+checkFull _ _ True = const $ return ()
+{-# INLINE checkFull #-}
 
 -- -------------------------------------------------------------------------- --
 -- Full GC
@@ -196,9 +275,12 @@ fullGc logger rdb v = do
             <> sshow (sizeInAllocatedBytes markedPayloads `div` (1024 * 1024))
             <> "MB for marking database entries"
 
-        -- Mark all entries above depth, so they don't get GCed
+        -- Mark all entries down to the requested depth, so they don't get GCed
         --
-        void $ entries cdb Nothing Nothing (Just $ int $ depth + 1) Nothing
+        -- Blocks at depth are used at pivots and pruning and marking starts at
+        -- (depth - 1)
+        --
+        void $ entries cdb Nothing Nothing (Just $ MinRank $ int $ depth) Nothing
             $ S.mapM_ (markPayload markedPayloads)
 
         chainLogg Info "start pruning block header database"
