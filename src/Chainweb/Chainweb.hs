@@ -48,6 +48,11 @@ module Chainweb.Chainweb
 , defaultTransactionIndexConfig
 , pTransactionIndexConfig
 
+-- * GC Configuration
+, ChainDatabaseGcConfig(..)
+, chainDatabaseGcToText
+, chainDatabaseGcFromText
+
 -- * Chainweb Configuration
 , ChainwebConfiguration(..)
 , configChainwebVersion
