@@ -261,8 +261,7 @@ fullGc logger rdb v = do
     db = newPayloadDb rdb
 
 
-    -- Prune a single chain and return the sets of marked payloads and
-    -- transactions.
+    -- Prune a single chain and return the sets of marked payloads
     --
     pruneChain cid = withBlockHeaderDb rdb v cid $ \cdb -> do
         let chainLogger = addLabel ("chain", toText cid) logger
