@@ -440,6 +440,7 @@ test-suite chainweb-tests
         Chainweb.Test.BlockHeader.Genesis
         Chainweb.Test.BlockHeader.Validation
         Chainweb.Test.BlockHeaderDB
+        Chainweb.Test.BlockHeaderDB.PruneForks
         Chainweb.Test.Chainweb.Utils.Paging
         Chainweb.Test.Cut
         Chainweb.Test.Cut.TestBlockDb
