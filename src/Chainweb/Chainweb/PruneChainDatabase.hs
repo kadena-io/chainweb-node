@@ -128,6 +128,15 @@ import Data.LogMessage
 -- TODO: confirm that payload Merkle hash are validated as part of
 -- 'CheckPayloads'
 --
+-- The following runtimes were measured on a mac book pro at a block height of
+-- about 820,000:
+--
+-- * `[]`: 10s
+-- * `[CheckInductive]`: 2min
+-- * `[CheckIntrinsic, CheckPayloadsExist]`: 4min
+-- * `[CheckFull, CheckPayloads]`: 8min
+-- * `[CheckFull, CheckPayloadsExist]`: 8min
+--
 data PruningChecks
     = CheckIntrinsic
         -- ^ Performs intrinsic validation on all block headers.
@@ -137,12 +146,11 @@ data PruningChecks
         -- ^ Performs full block header validation. This includes intrinsic,
         -- inductive, and braiding validation.
     | CheckPayloads
-        -- ^ checks that all payload components exist in the payload and
-        -- can be decoded.
+        -- ^ checks that all payload components exist in the payload and can be
+        -- decoded.
     | CheckPayloadsExist
         -- ^ only checks the existence of the payload hash in the
-        -- BlockPayloadStore, which is much faster than fully checking
-        -- payloads.
+        -- BlockPayloadStore, which is faster than fully checking payloads.
     deriving (Show, Eq, Ord, Enum, Bounded)
 
 -- | Prune all chains. This doesn't clean up Payloads.

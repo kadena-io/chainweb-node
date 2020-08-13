@@ -355,9 +355,9 @@ pCutConfig = id
         % long "prune-chain-database"
         <> help
             ( "How to prune the chain database on startup."
-            <> " Pruning headers takes about 0.5-2min. "
-            <> " A pruning headers with full header validation (headers-checked) and full GC can take"
-            <> " a longer time (10 minutes or more)."
+            <> " Pruning headers takes about between 10s to 2min. "
+            <> " Pruning headers with full header validation (headers-checked) and full GC can take"
+            <> " a longer time (up to 10 minutes or more)."
             )
         <> metavar "none|headers|headers-checked|full"
     <*< cutFetchTimeout .:: option auto

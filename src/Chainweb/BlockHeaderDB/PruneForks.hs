@@ -195,7 +195,10 @@ pruneForks_ logg cdb mar mir callback = do
     go ([], _, _) cur = throwM $ InternalInvariantViolation
         $ "PrunForks.pruneForks_: no pivots left at block " <> encodeToText (ObjectEncoded cur)
     go (!pivots, !prevHeight, !n) !cur
-        -- This checks the consistency of the database.
+
+        -- This checks some structural consistency. It's not a comprehensive
+        -- check. Comprehensive checks on various levels are availabe through
+        -- callbacks that are offered in the module "Chainweb.Chainweb.PruneChainDatabase"
         | prevHeight /= curHeight && prevHeight /= curHeight + 1 =
             throwM $ InternalInvariantViolation
                 $ "PrunForks.pruneForks_: detected a corrupted database. Some block headers are missing"
