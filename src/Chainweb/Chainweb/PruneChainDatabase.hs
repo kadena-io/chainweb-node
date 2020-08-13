@@ -1,4 +1,5 @@
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE GADTs #-}
@@ -73,12 +74,14 @@ module Chainweb.Chainweb.PruneChainDatabase
 ( PruningChecks(..)
 , pruneAllChains
 , fullGc
+, DatabaseCheckException(..)
 ) where
 
 import Chainweb.BlockHeader
 
 import Control.Concurrent.Async
 import Control.Monad
+import Control.Monad.Catch
 
 import Data.Aeson hiding (Error)
 import qualified Data.ByteArray as BA
@@ -86,6 +89,8 @@ import Data.CAS
 import Data.CAS.RocksDB
 import Data.Cuckoo
 import Data.Foldable
+
+import GHC.Generics
 
 import Numeric.Natural
 
@@ -120,14 +125,24 @@ import Data.LogMessage
 
 -- | Different consistency checks that can be piggybacked onto database pruning.
 --
--- TODO: add case for validation of paylaod Merkle hash (if it isn't too
--- expensive, it could be included with the payload existence check)
+-- TODO: confirm that payload Merkle hash are validated as part of
+-- 'CheckPayloads'
 --
 data PruningChecks
     = CheckIntrinsic
+        -- ^ Performs intrinsic validation on all block headers.
     | CheckInductive
+        -- ^ Performs all intrinsic and inductive block header validations.
     | CheckFull
+        -- ^ Performs full block header validation. This includes intrinsic,
+        -- inductive, and braiding validation.
     | CheckPayloads
+        -- ^ checks that all payload components exist in the payload and
+        -- can be decoded.
+    | CheckPayloadsExist
+        -- ^ only checks the existence of the payload hash in the
+        -- BlockPayloadStore, which is much faster than fully checking
+        -- payloads.
     deriving (Show, Eq, Ord, Enum, Bounded)
 
 -- | Prune all chains. This doesn't clean up Payloads.
@@ -153,7 +168,7 @@ pruneAllChains logger rdb v checks = do
             chainLogg = logFunctionText chainLogger
         cdb <- getWebBlockHeaderDb wdb cid
         chainLogg Info "start pruning block header database"
-        x <- pruneForksLogg chainLogger cdb (diam * 3) (callback now wdb cdb)
+        x <- pruneForksLogg chainLogger cdb (1 + diam * 3) (callback now wdb cdb)
         chainLogg Info $ "finished pruning block header database. Deleted " <> sshow x <> " block headers."
 
     pdb = newPayloadDb rdb
@@ -162,15 +177,26 @@ pruneAllChains logger rdb v checks = do
       where
         run CheckIntrinsic = checkIntrinsic now
         run CheckInductive = checkInductive now cdb
+        run CheckPayloadsExist = checkPayloadsExist pdb
         run CheckPayloads = checkPayloads pdb
         run CheckFull = checkFull now wdb
 
 -- -------------------------------------------------------------------------- --
 -- Fork Pruning callbacks
 
+data DatabaseCheckException
+    = MissingPayloadException BlockHeader
+    deriving (Show, Eq, Ord, Generic)
+
+instance Exception DatabaseCheckException
+
 -- | Verify existence of payloads for all block headers that are not deleted.
 --
 -- Adds about 4 minutes of overhead at block height 800,000 on a mac bock pro.
+--
+-- The main overhead is probably, because /all/ payload components are queried
+-- and decoded. Just checking the existence of the payload hash in the
+-- BlockPayloads table would presumable be much faster.
 --
 -- TODO: casMember for rocksdb internally uses the default implementation that
 -- uses casLookup. The Haskell rocksdb bindings don't provide a member check
@@ -179,27 +205,35 @@ pruneAllChains logger rdb v checks = do
 -- avoids decoding of the key.
 --
 checkPayloads :: PayloadDb RocksDbCas -> Bool -> BlockHeader -> IO ()
-checkPayloads pdb False = void . casMember pdb . _blockPayloadHash
-checkPayloads _ True = const $ return ()
+checkPayloads _ True _ = return ()
+checkPayloads pdb False h = casLookup pdb (_blockPayloadHash h) >>= \case
+    Just _ -> return ()
+    Nothing -> throwM $ MissingPayloadException h
 {-# INLINE checkPayloads #-}
 
+checkPayloadsExist :: PayloadDb RocksDbCas -> Bool -> BlockHeader -> IO ()
+checkPayloadsExist _ True _ = return ()
+checkPayloadsExist pdb False h = unlessM (casMember db $ _blockPayloadHash h) $
+    throwM $ MissingPayloadException h
+  where
+    db = _transactionDbBlockPayloads $ _transactionDb pdb
+{-# INLINE checkPayloadsExist #-}
 -- | Intrinsically validate all block headers that are not deleted.
 --
 -- Adds less than 1 minute of overhead at block height 800,000 on a mac bock pro.
 --
 checkIntrinsic :: Time Micros -> Bool -> BlockHeader -> IO ()
-checkIntrinsic now False h = validateIntrinsicM now h
 checkIntrinsic _ True _ = return ()
+checkIntrinsic now False h = validateIntrinsicM now h
 {-# INLINE checkIntrinsic #-}
 
 -- | Intrinsically validate all block headers that are not deleted.
 --
 checkInductive :: Time Micros -> BlockHeaderDb -> Bool -> BlockHeader -> IO ()
-checkInductive now cdb False h = do
-    validateIntrinsicM now h
-    validateInductiveChainM (casLookup cdb) h
-    return ()
 checkInductive _ _ True _ = return ()
+checkInductive now cdb False h = do
+    validateInductiveChainM (casLookup cdb) h
+    validateIntrinsicM now h
 {-# INLINE checkInductive #-}
 
 -- | Perform complete block header validation for all block that are not deleted.
@@ -207,11 +241,11 @@ checkInductive _ _ True _ = return ()
 -- Adds about 5 minutes of overhead at block height 800,000 on a mac book pro
 --
 checkFull :: Time Micros -> WebBlockHeaderDb -> Bool -> BlockHeader -> IO ()
+checkFull _ _ True = const $ return ()
 checkFull now wdb False = void . validateBlockHeaderM now ctx
   where
     ctx :: ChainValue BlockHash -> IO (Maybe BlockHeader)
     ctx cv = fmap _chainValueValue <$> casLookup wdb cv
-checkFull _ _ True = const $ return ()
 {-# INLINE checkFull #-}
 
 -- -------------------------------------------------------------------------- --
@@ -276,10 +310,11 @@ fullGc logger rdb v = do
 
         -- Mark all entries down to the requested depth, so they don't get GCed
         --
-        -- Blocks at depth are used at pivots and pruning and marking starts at
+        -- Blocks at (maxRank - depth) are used as pivots and pruning and marking starts at
         -- (depth - 1)
         --
-        void $ entries cdb Nothing Nothing (Just $ MinRank $ int $ depth) Nothing
+        let keptBound = MinRank $ int $ m - min m depth
+        void $ entries cdb Nothing Nothing (Just keptBound) Nothing
             $ S.mapM_ (markPayload markedPayloads)
 
         chainLogg Info "start pruning block header database"
@@ -418,7 +453,7 @@ type Filter a = CuckooFilterIO 4 10 (GcHash a)
 mkFilter :: Natural -> IO (Filter a)
 mkFilter n = do
     s <- randomIO
-    newCuckooFilter (Salt s) n
+    newCuckooFilter (Salt s) $ max 128 n
 
 -- | inserting a somewhat larger number (I think, it's actually 7) of
 -- equal elements causes the filter to fail.
@@ -479,7 +514,7 @@ deleteBlockPayload
     -> BlockPayload
     -> IO ()
 deleteBlockPayload logg db p = do
-    logg Debug $ "Delete PayloadHash and OutputsHash for " <> encodeToText (_blockPayloadPayloadHash p)
+    logg Debug $ "Delete PayloadHash for " <> encodeToText (_blockPayloadPayloadHash p)
     casDelete pdb (_blockPayloadPayloadHash p)
   where
     pdb = _transactionDbBlockPayloads $ _transactionDb db

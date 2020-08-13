@@ -127,9 +127,9 @@ pruneForks logg cdb depth callback = do
     if
         | int (_blockHeight hdr) <= depth -> do
             logg Info
-                $ "Skipping database prunning because the requested depth "
-                <> sshow depth <> " is not larger than the maximum block height "
-                <> sshow (_blockHeight hdr)
+                $ "Skipping database prunning because the maximum block height "
+                <> sshow (_blockHeight hdr) <> " is not larger than then requested depth "
+                <> sshow depth
             return 0
         | int (_blockHeight hdr) <= int genHeight + depth -> do
             logg Info $ "Skipping database prunning because there are not yet"

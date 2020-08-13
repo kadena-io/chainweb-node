@@ -43,6 +43,7 @@ import Chainweb.Crypto.MerkleLog hiding (header)
 import Chainweb.Difficulty (targetToDifficulty)
 import Chainweb.Mempool.Consensus
 import Chainweb.Mempool.Mempool
+import Chainweb.Payload
 import Chainweb.Test.Orphans.Time ()
 import Chainweb.Test.Utils
 import Chainweb.Test.Utils.BlockHeader
@@ -343,7 +344,7 @@ header' h = do
             :+: t'
             :+: _blockHash h
             :+: target
-            :+: testBlockPayload h
+            :+: _payloadWithOutputsPayloadHash (testBlockPayload h)
             :+: _chainId h
             :+: BlockWeight (targetToDifficulty target) + _blockWeight h
             :+: succ (_blockHeight h)
