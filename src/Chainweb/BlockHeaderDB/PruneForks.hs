@@ -127,12 +127,12 @@ pruneForks logg cdb depth callback = do
     if
         | int (_blockHeight hdr) <= depth -> do
             logg Info
-                $ "Skipping database prunning because the maximum block height "
+                $ "Skipping database pruning because the maximum block height "
                 <> sshow (_blockHeight hdr) <> " is not larger than then requested depth "
                 <> sshow depth
             return 0
         | int (_blockHeight hdr) <= int genHeight + depth -> do
-            logg Info $ "Skipping database prunning because there are not yet"
+            logg Info $ "Skipping database pruning because there are not yet"
                 <> " enough block headers on the chain"
             return 0
         | otherwise -> do
@@ -168,9 +168,9 @@ pruneForks_
     -> (Bool -> BlockHeader -> IO ())
     -> IO Int
 pruneForks_ logg _ (MaxRank (Max mar)) _  _
-    | mar <= 1 = 0 <$ logg Warn ("Skipping database prunning for max bound of " <> sshow mar)
+    | mar <= 1 = 0 <$ logg Warn ("Skipping database pruning for max bound of " <> sshow mar)
 pruneForks_ logg cdb mar mir callback = do
-    logg Debug $ "Prunning block header database for chain " <> sshow (_chainId cdb)
+    logg Debug $ "Pruning block header database for chain " <> sshow (_chainId cdb)
         <> " with upper bound " <> sshow (_getMaxRank mar)
         <> " and lower bound " <> sshow (_getMinRank mir)
 

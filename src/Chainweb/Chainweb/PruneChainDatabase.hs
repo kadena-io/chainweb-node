@@ -16,27 +16,28 @@
 -- Maintainer: Lars Kuhtz <lars@kadena.io>
 -- Stability: experimental
 --
--- There are three modes for pruning the database:
+-- There are four modes for pruning the database:
 --
 -- * `none`: pruning is skipped
 -- * `headers`: only block headers of stale forks below are certain depth are
 --   pruned. The payload db is left unchanged.
 -- * `headers-checked`: like `headers` but block headers are also validated and
---   the existence of the respective paylaods is checked.
+--   the existence and consistency of the respective paylaods is checked.
 -- * `full`: like `headers` but additionally garbage collection is performed
 --   on payload database.
+--
+-- The `headers-checked` mode does a verification of the complete Merkle tree of
+-- the chain.
 --
 -- There is a block header database for each chain, but only a single shared
 -- payload database. Payloads or parts thereof can be shared between blocks
 -- on the same chain and on different chains. Therefore garbage collection is
--- implemented as marke and sweep, using a probabilistic set representation
+-- implemented as mark and sweep, using a probabilistic set representation
 -- for marking.
 --
 -- This is an offline implementation. There must be no concurrent writes during
--- database pruning. Although, if needed it could be (relatively easily) be
+-- database pruning. Although, if needed it could (relatively easily) be
 -- extended for online garbage collection.
---
--- /Notes on the GC scope:/
 --
 -- /Implementation:/
 --
@@ -55,6 +56,17 @@
 -- a sweep phase. In that case some extra garbage would remain in the database,
 -- but there will be no dangling references.
 --
+-- /NOTE: READ BEFORE MAKING A CHANGE TO THE ALGORITHM:/
+--
+-- For the algorithm to maintain database "deep" consistency (no dangling
+-- references) it is madatory that GC proceedes in stages. For instance, it is
+-- tempting to merge all marking phases into a single traversal of the
+-- BlockPaylaod store. However, due to the probabilistic nature of marking, some
+-- BlockPayloads are marked that are not reachable from a block header and will
+-- thus remain in the database. Hence, marking of the lower-level BlockOutputs
+-- and BlockTransactions must be based on what is /actually/ kept in the store
+-- and not just on what is reachable from a block header.
+--
 -- /TODO:/
 --
 -- * implement incremental pruning (which can't be used with mark and sweep,
@@ -68,7 +80,6 @@
 --   that case storage requirements are moderate anyways. When most block
 --   contain transactions the benefits of sharing become marginal, but the
 --   saving during GC (in particular incremental GC) become larger.
---
 --
 module Chainweb.Chainweb.PruneChainDatabase
 ( PruningChecks(..)
@@ -125,9 +136,6 @@ import Data.LogMessage
 
 -- | Different consistency checks that can be piggybacked onto database pruning.
 --
--- TODO: confirm that payload Merkle hash are validated as part of
--- 'CheckPayloads'
---
 -- The following runtimes were measured on a mac book pro at a block height of
 -- about 820,000:
 --
@@ -147,7 +155,7 @@ data PruningChecks
         -- inductive, and braiding validation.
     | CheckPayloads
         -- ^ checks that all payload components exist in the payload and can be
-        -- decoded.
+        -- decoded and the Merkle Trees are consitent.
     | CheckPayloadsExist
         -- ^ only checks the existence of the payload hash in the
         -- BlockPayloadStore, which is faster than fully checking payloads.
@@ -194,31 +202,37 @@ pruneAllChains logger rdb v checks = do
 
 data DatabaseCheckException
     = MissingPayloadException BlockHeader
-    deriving (Show, Eq, Ord, Generic)
+    | InconsistentPaylaod BlockHeader PayloadWithOutputs
+    deriving (Show, Generic)
 
 instance Exception DatabaseCheckException
 
--- | Verify existence of payloads for all block headers that are not deleted.
+-- | Verify existance and consistency of payloads for all block headers that are
+-- not deleted.
 --
 -- Adds about 4 minutes of overhead at block height 800,000 on a mac bock pro.
 --
--- The main overhead is probably, because /all/ payload components are queried
--- and decoded. Just checking the existence of the payload hash in the
--- BlockPayloads table would presumable be much faster.
+checkPayloads :: PayloadDb RocksDbCas -> Bool -> BlockHeader -> IO ()
+checkPayloads _ True _ = return ()
+checkPayloads pdb False h = casLookup pdb (_blockPayloadHash h) >>= \case
+    Just p
+        | verifyPayloadWithOutputs p -> return ()
+        | otherwise -> throwM $ InconsistentPaylaod h p
+    Nothing -> throwM $ MissingPayloadException h
+{-# INLINE checkPayloads #-}
+
+-- | Just check the existence of the Payload in the Database but don't check
+-- that it can actually be decoded and is consistent.
+--
+-- This is faster than 'checkPayload' because only the top-level 'PayloadData'
+-- structure is queried -- and immediately discarded.
 --
 -- TODO: casMember for rocksdb internally uses the default implementation that
 -- uses casLookup. The Haskell rocksdb bindings don't provide a member check
 -- without getting the value. It could be done via the iterator API, which has
 -- different cost overheads. One optimization could be an implementation that
--- avoids decoding of the key.
+-- avoids decoding of the value.
 --
-checkPayloads :: PayloadDb RocksDbCas -> Bool -> BlockHeader -> IO ()
-checkPayloads _ True _ = return ()
-checkPayloads pdb False h = casLookup pdb (_blockPayloadHash h) >>= \case
-    Just _ -> return ()
-    Nothing -> throwM $ MissingPayloadException h
-{-# INLINE checkPayloads #-}
-
 checkPayloadsExist :: PayloadDb RocksDbCas -> Bool -> BlockHeader -> IO ()
 checkPayloadsExist _ True _ = return ()
 checkPayloadsExist pdb False h = unlessM (casMember db $ _blockPayloadHash h) $
@@ -226,6 +240,7 @@ checkPayloadsExist pdb False h = unlessM (casMember db $ _blockPayloadHash h) $
   where
     db = _transactionDbBlockPayloads $ _transactionDb pdb
 {-# INLINE checkPayloadsExist #-}
+
 -- | Intrinsically validate all block headers that are not deleted.
 --
 -- Adds less than 1 minute of overhead at block height 800,000 on a mac bock pro.
@@ -260,11 +275,6 @@ checkFull now wdb False = void . validateBlockHeaderM now ctx
 -- Full GC
 
 -- | Prune all chains and clean up payloads.
---
--- It currently doesn't garbage collect entries that aren't reachable from the
--- BlockPayload table. This can happen when a node crashes, but is expected to
--- be rare. Since, we take an probablistic take an garbage collection we don't
--- care.
 --
 -- Note: this assumes that the payload db is already initialized, i.e. that
 -- genesis headers have been injected.
