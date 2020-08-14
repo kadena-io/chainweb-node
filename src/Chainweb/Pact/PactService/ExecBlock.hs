@@ -71,7 +71,6 @@ import Pact.Types.RPC
 import qualified Pact.Types.Runtime as P
 import qualified Pact.Types.SPV as P
 
-import Chainweb.BlockCreationTime
 import Chainweb.BlockHeader
 import Chainweb.BlockHeight
 import Chainweb.Mempool.Mempool as Mempool
@@ -130,18 +129,15 @@ execBlock currHeader plData pdbenv = do
     -- The legacy behavior is to use the creation time of the /current/ header.
     -- The new default behavior is to use the creation time of the /parent/ header.
     --
-    (txValidationTime,lenientCreationTime) <- if
-        useLegacyCreationTimeForTxValidation v h || isGenesisBlockHeader currHeader
+    txValidationTime <- if isGenesisBlockHeader currHeader
       then
-        return (_blockCreationTime currHeader, False)
-      else do
-        parent <- use psParentHeader
-        return (_blockCreationTime $ _parentHeader parent, True)
+        return (ParentCreationTime $ _blockCreationTime currHeader)
+      else
+         (ParentCreationTime . _blockCreationTime . _parentHeader) <$> use psParentHeader
 
     -- prop_tx_ttl_validate
     valids <- liftIO $ V.zip trans <$>
-        validateChainwebTxs v cid cp
-            txValidationTime lenientCreationTime
+        validateChainwebTxs v cid cp txValidationTime
             (_blockHeight currHeader) trans skipDebitGas
 
     case foldr handleValids [] valids of
@@ -164,7 +160,6 @@ execBlock currHeader plData pdbenv = do
     handleValids _ es = es
 
     v = _chainwebVersion currHeader
-    h = _blockHeight currHeader
     cid = _chainId currHeader
 
     isGenesisBlock = isGenesisBlockHeader currHeader
@@ -189,22 +184,14 @@ validateChainwebTxs
     :: ChainwebVersion
     -> ChainId
     -> Checkpointer
-    -> BlockCreationTime
+    -> ParentCreationTime
         -- ^ reference time for tx validation.
-        --
-        -- This time is the creation time of the parent header for calls from
-        -- newBlock. It is the creation time of the current header
-        -- for block validation if
-        -- @useLegacyCreationTimeForTxValidation blockHeight@ true.
-        --
-    -> Bool
-        -- ^ lenientCreationTime flag, see 'lenientTimeSlop' for details.
     -> BlockHeight
         -- ^ Current block height
     -> Vector ChainwebTransaction
     -> RunGas
     -> IO ValidateTxs
-validateChainwebTxs v cid cp txValidationTime lenientCreationTime bh txs doBuyGas
+validateChainwebTxs v cid cp txValidationTime bh txs doBuyGas
   | bh == genesisHeight v cid = pure $! V.map Right txs
   | V.null txs = pure V.empty
   | otherwise = go
@@ -224,7 +211,8 @@ validateChainwebTxs v cid cp txValidationTime lenientCreationTime bh txs doBuyGa
 
     checkTimes :: ChainwebTransaction -> IO (Either InsertError ChainwebTransaction)
     checkTimes t
-        | timingsCheck txValidationTime lenientCreationTime $ fmap payloadObj t = return $ Right t
+        | skipTxTimingValidation v bh = return $ Right t
+        | timingsCheck txValidationTime $ fmap payloadObj t = return $ Right t
         | otherwise = return $ Left InsertErrorInvalidTime
 
     initTxList :: ValidateTxs
