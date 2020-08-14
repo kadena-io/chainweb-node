@@ -306,6 +306,9 @@ failPayloadCheck rio checks n step = withDbs rio $ \rdb bdb pdb h -> do
     casDelete db (_blockPayloadHash $ f0 !! int n)
     try (pruneAllChains logger rdb toyVersion checks) >>= \case
         Left (MissingPayloadException{}) -> return ()
+        Left e -> assertFailure
+            $ "Expected MissingPayloadException but got: "
+            <> sshow e
         Right x -> assertFailure
             $ "missing expected MissingPayloadException"
             <> ". Instead pruning succeeded and deleted "
@@ -327,6 +330,9 @@ failPayloadCheck2 rio checks n step = withDbs rio $ \rdb bdb pdb h -> do
         $ _payloadWithOutputsTransactionsHash payload
     try (pruneAllChains logger rdb toyVersion checks) >>= \case
         Left (MissingPayloadException{}) -> return ()
+        Left e -> assertFailure
+            $ "Expected MissingPayloadException but got: "
+            <> sshow e
         Right x -> assertFailure
             $ "missing expected MissingPayloadException"
             <> ". Instead pruning succeeded and deleted "
