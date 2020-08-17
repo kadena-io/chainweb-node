@@ -77,7 +77,7 @@ maxTTL = ParsedInteger $ 2 * 24 * 60 * 60
 -- Timing checks used to be based on the creation time of the validated
 -- block. That changed on mainnet at block height 449940. Tx creation time
 -- and TTL don't affect the tx outputs and pact state and can thus be
--- when replaying old blocks.
+-- skipped when replaying old blocks.
 --
 timingsCheck
     :: ParentCreationTime

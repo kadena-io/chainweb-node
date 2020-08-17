@@ -133,7 +133,7 @@ execBlock currHeader plData pdbenv = do
       then
         return (ParentCreationTime $ _blockCreationTime currHeader)
       else
-         (ParentCreationTime . _blockCreationTime . _parentHeader) <$> use psParentHeader
+         ParentCreationTime . _blockCreationTime . _parentHeader <$> use psParentHeader
 
     -- prop_tx_ttl_validate
     valids <- liftIO $ V.zip trans <$>
