@@ -100,7 +100,7 @@ import Chainweb.TreeDB (getBranchIncreasing, forkEntry, lookup, lookupM)
 import Chainweb.Utils hiding (check)
 import Data.CAS (casLookupM)
 
--- | Allow liften bracket style continuations in 'IO' into 'PactServiceM' by
+-- | Support lifting bracket style continuations in 'IO' into 'PactServiceM' by
 -- providing a function that allows unwrapping pact actions in IO while
 -- threading through the pact service state.
 --
