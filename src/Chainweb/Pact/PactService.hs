@@ -68,10 +68,9 @@ import qualified Pact.Types.Logger as P
 import qualified Pact.Types.Runtime as P
 import qualified Pact.Types.SPV as P
 
-import Chainweb.BlockCreationTime
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
-import Chainweb.BlockHeader.Genesis (genesisParentBlockHash, genesisBlockHeader, genesisBlockPayload)
+import Chainweb.BlockHeader.Genesis (genesisBlockHeader, genesisBlockPayload)
 import Chainweb.BlockHeaderDB
 import Chainweb.BlockHeight
 import Chainweb.Logger
@@ -87,7 +86,6 @@ import Chainweb.Pact.TransactionExec
 import Chainweb.Pact.Types
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
-import Chainweb.Time
 import Chainweb.Transaction
 import Chainweb.TreeDB (lookupM)
 import Chainweb.Utils hiding (check)
@@ -249,10 +247,6 @@ lookupBlockHeader bhash ctx = do
         liftIO $! lookupM bhdb bhash `catchAllSynchronous` \e ->
             throwM $ BlockHeaderLookupFailure $
                 "failed lookup of parent header in " <> ctx <> ": " <> sshow e
-
-isGenesisParent :: ParentHeader -> Bool
-isGenesisParent (ParentHeader p)
-    = _blockParent p == genesisParentBlockHash (_chainwebVersion p) p
 
 -- | Loop forever, serving Pact execution requests and reponses from the queues
 serviceRequests
@@ -440,83 +434,6 @@ attemptBuyGas miner (PactDbEnv' dbEnv) txs = do
             Left err -> return (T2 mcache (Left (InsertErrorBuyGas (T.pack $ show err))))
             Right t -> return (T2 (_txCache t) (Right tx))
 
-
--- | Legacy validation of tx TTL for new Blocks. This function uses the parent header
--- but guarantees that the TTL is valid for validation both with the parent header and
--- the current headers.
---
--- FOR NEWBLOCK ONLY. DON'T USE FOR BLOCK VALITION OF BLOCK ON THE CHAIN.
---
--- Running this validation in additon to other timing validations on the creation time
--- of the parent header ensures that the the new block satisfies both new and old timing
--- validations.
---
--- There are four ways how timing checks are currently performed:
---
--- 1. legacy behavior for validation: current header
--- 2. new behavior for validation: parent header
--- 2. legacy behavior for newBlock: parent header, TTL compat
--- 3. new behavior for newBlock: parent header, no TTL compat
---
--- This function covers the TTL compat for the (2.) and (3.) case.
---
--- This code can be removed once the transition is complete and the guard
--- @useLegacyCreationTimeForTxValidation@ is false for all new blocks
--- of all chainweb versions.
---
-validateLegacyTTL
-    :: ParentHeader
-    -> Vector ChainwebTransaction
-    -> ValidateTxs
-validateLegacyTTL parent txs
-    | isGenesisParent parent = V.map Right txs
-    | V.null txs = V.empty
-    | otherwise = V.map check txs
-  where
-    timeFromSeconds = Time . secondsToTimeSpan . Seconds . fromIntegral
-    parentTime = _bct $ _blockCreationTime $ _parentHeader parent
-    check tx
-        | expirationTime >= parentTime = Right tx
-        | otherwise = Left InsertErrorInvalidTime
-      where
-        expirationTime = timeFromSeconds (txOriginationTime + ttl - compatPeriod)
-        P.TTLSeconds ttl = timeToLiveOf (payloadObj <$> tx)
-        P.TxCreationTime txOriginationTime = creationTimeOf (payloadObj <$> tx)
-
-    -- ensure that every block that validates with
-    -- @txValidationTime == _blockCreatinTime parent@ (new behavior) also validates with
-    -- @txValidationTime == _blockCreationTime currentHeader@ (old behavior).
-    --
-    -- The compat period puts an effective lower limit on the TTL value. During
-    -- the transition period any transactions that is submitted with a lower TTL
-    -- value is considered expired and rejected immediately. After the
-    -- transition period, which will probably last a few days, the compat period
-    -- is disabled again.
-    --
-    -- The time between two blocks is distributed exponentially with a rate \(r\) of 2
-    -- blocks per minutes. The quantiles of the exponential distribution with
-    -- parameter \(r\) is \(quantile(x) = \frac{- ln(1 - x)}{r}\).
-    --
-    -- Thus the 99.99% will be solved in less than @(- log (1 - 0.9999)) / 2@
-    -- minutes, which is less than 5 minutes.
-    --
-    -- In practice, due to the effects of difficulty adjustement, the
-    -- distribution is skewed such that the 99.99 percentile is actually a
-    -- little less than 3 minutes.
-    --
-    compatPeriod
-        | useLegacyCreationTimeNewBlockOrInsert parent = 60 * 3
-        | otherwise = 0
-
--- | Guard for new block or insert checks vs. parent block height + 1,
--- whereas validate checks "current block height".
-useLegacyCreationTimeNewBlockOrInsert :: ParentHeader -> Bool
-useLegacyCreationTimeNewBlockOrInsert parent =
-  useLegacyCreationTimeForTxValidation v bh
-  where
-    v = _chainwebVersion parent
-    bh = succ $ _blockHeight $ _parentHeader parent
-
 type ValidateTxs = Vector (Either InsertError ChainwebTransaction)
 type RunGas = ValidateTxs -> IO ValidateTxs
 
@@ -557,19 +474,11 @@ execNewBlock mpAccess parent miner = handle onTxFailure $ do
               runGas = attemptBuyGas miner pdbenv txs
           validate bhi _bha txs = do
 
-            let parentTime = _blockCreationTime $ _parentHeader parent
-                lenientCreationTime = not $ useLegacyCreationTimeNewBlockOrInsert parent
-            results <- V.zipWith (>>)
-                <$> do
-                    let v = _chainwebVersion psEnv
-                        cid = _chainId psEnv
-                    validateChainwebTxs v cid cp parentTime lenientCreationTime bhi txs runDebitGas
-
-                -- This code can be removed once the transition is complete and the guard
-                -- @useLegacyCreationTimeForTxValidation@ is false for all new blocks
-                -- of all chainweb versions.
-                --
-                <*> pure (validateLegacyTTL parent txs)
+            let parentTime = ParentCreationTime $ _blockCreationTime $ _parentHeader parent
+            results <- do
+                let v = _chainwebVersion psEnv
+                    cid = _chainId psEnv
+                validateChainwebTxs v cid cp parentTime bhi txs runDebitGas
 
             V.forM results $ \case
                 Right _ -> return True
@@ -633,8 +542,6 @@ execLocal cmd = withDiscardedBatch $ do
           applyLocal logger pdbenv officialGasModel pd spv cmd mc execConfig
         return $! Discard (toHashCommandResult r)
 
-
-
 -- | Validate a mined block. Execute the transactions in Pact again as
 -- validation. Note: The BlockHeader here is the header of the block being
 -- validated.
@@ -664,9 +571,6 @@ execValidateBlock currHeader plData = do
                 -- succeeds. If this fails it usually means that the block
                 -- header database is corrupted.
 
-
-
-
 execBlockTxHistory :: BlockHeader -> Domain' -> PactServiceM cas BlockTxHistory
 execBlockTxHistory bh (Domain' d) = do
   !cp <- getCheckpointer
@@ -686,20 +590,13 @@ execPreInsertCheckReq txs = withDiscardedBatch $ do
     let currHeight = succ $ _blockHeight $ _parentHeader parent
     psEnv <- ask
     psState <- get
-    let parentTime = _blockCreationTime $ _parentHeader parent
-        lenientCreationTime = not $ useLegacyCreationTimeNewBlockOrInsert parent
+    let parentTime = ParentCreationTime $ _blockCreationTime $ _parentHeader parent
     cp <- getCheckpointer
     withCurrentCheckpointer "execPreInsertCheckReq" $ \pdb -> do
       let v = _chainwebVersion psEnv
           cid = _chainId psEnv
-      liftIO $ fmap Discard $ V.zipWith (>>)
-        <$> validateChainwebTxs v cid cp parentTime lenientCreationTime currHeight txs (runGas pdb psState psEnv)
-
-        -- This code can be removed once the transition is complete and the guard
-        -- @useLegacyCreationTimeForTxValidation@ is false for all new blocks
-        -- of all chainweb versions.
-        --
-        <*> pure (validateLegacyTTL parent txs)
+      liftIO $ fmap Discard $
+        validateChainwebTxs v cid cp parentTime currHeight txs (runGas pdb psState psEnv)
   where
     runGas pdb pst penv ts =
         evalPactServiceM pst penv (attemptBuyGas noMiner pdb ts)
