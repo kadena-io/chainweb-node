@@ -114,9 +114,9 @@ withPactState
     -> PactServiceM cas b
 withPactState inner = bracket captureState releaseState $ \ref -> do
     e <- ask
-    liftIO $ inner $ \act -> do
+    liftIO $ inner $ \act -> mask $ \umask -> do
         s <- readIORef ref
-        T2 r s' <- runPactServiceM s e act
+        T2 r s' <- umask $ runPactServiceM s e act
         writeIORef ref s'
         return r
   where
