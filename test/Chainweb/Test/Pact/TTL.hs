@@ -86,26 +86,10 @@ tests = ScheduledTest "Chainweb.Test.Pact.TTL" $
         , withTestPact testExpiredTight
         , withTestPact testJustMadeItSmall
         , withTestPact testJustMadeItLarge
-
-        -- This tests can be removed once the transition is complete and the guard
-        -- @useLegacyCreationTimeForTxValidation@ is false for all new blocks
-        -- of all chainweb versions.
-        --
-        , testGroup "mainnet transition to new timing checks"
-            [ withTestPact testTtlTooSmall
-            , withTestPact testTtlSmall2
-            , withTestPact testExpiredTight2
-            , withTestPact testExpiredExtraTight
-            , withTestPact testExpiredExtraTight2
-            , withTestPact testJustMadeIt2
-            , withTestPact testJustMadeIt3
-            ]
         ]
 
 -- -------------------------------------------------------------------------- --
 -- Tests
-
-
 
 testTxTime :: IO Ctx -> TestTree
 testTxTime ctxIO =
@@ -167,76 +151,6 @@ testJustMadeItLarge ctxIO =
     testCase "testJustMadeItLage" $ do
         T2 hdr _ <- mineBlock ctxIO mempty (ParentHeader genblock) (Nonce 1) 500
         void $ doNewBlock ctxIO (offsetTtl (-399) 400) (ParentHeader hdr) (Nonce 2) 1
-
--- -------------------------------------------------------------------------- --
--- Mainnet transition to new timing checks
---
--- @useLegacyCreationTimeForTxValidation@ is @True@.
---
--- The tests in this section may be removed once the transition is complete and
--- the guard @useLegacyCreationTimeForTxValidation@ is false for all new
--- blocks of all chainweb versions. Some tests actually must be removed.
---
-
--- | During the transition periods transactions with too small TTL are rejected.
---
--- This test will fail after the transition period.
---
-testTtlTooSmall :: IO Ctx -> TestTree
-testTtlTooSmall ctxIO =
-    testCase "too small TTL fails validation" $ do
-        T2 hdr _ <- mineBlock ctxIO mempty (ParentHeader genblock) (Nonce 1) 1
-        let hdr' = hdr { _blockChainwebVersion = Mainnet01 }
-        assertDoPreBlockFailure $ doNewBlock ctxIO (ttl 179) (ParentHeader hdr') (Nonce 2) 1
-
-testTtlSmall2 :: IO Ctx -> TestTree
-testTtlSmall2 ctxIO =
-    testCase "small TTL just passes validation" $ do
-        T2 hdr _ <- mineBlock ctxIO mempty (ParentHeader genblock) (Nonce 1) 1
-        let hdr' = hdr { _blockChainwebVersion = Mainnet01 }
-        void $ doNewBlock ctxIO (ttl 181) (ParentHeader hdr') (Nonce 2) 1
-
-testExpiredTight2 :: IO Ctx -> TestTree
-testExpiredTight2 ctxIO =
-    testCase "tightly expired transaction fails validation" $ do
-        T2 hdr _ <- mineBlock ctxIO mempty (ParentHeader genblock) (Nonce 1) 2000
-        let hdr' = hdr { _blockChainwebVersion = Mainnet01 }
-        assertDoPreBlockFailure $ doNewBlock ctxIO (offsetTtl (-1000) 1000) (ParentHeader hdr') (Nonce 2) 1
-
--- This code must be removed once the transition is complete and the guard
--- @useLegacyCreationTimeForTxValidation@ is false for all new blocks
--- of all chainweb versions.
---
-testExpiredExtraTight :: IO Ctx -> TestTree
-testExpiredExtraTight ctxIO =
-    testCase "extra tightly expired transaction passes validation on non-mainnet version" $ do
-        T2 hdr _ <- mineBlock ctxIO mempty (ParentHeader genblock) (Nonce 1) 2000
-        void $ doNewBlock ctxIO (offsetTtl (179 -1000) 1000) (ParentHeader hdr) (Nonce 2) 1
-
--- This code must be removed once the transition is complete and the guard
--- @useLegacyCreationTimeForTxValidation@ is false for all new blocks
--- of all chainweb versions.
---
-testExpiredExtraTight2 :: IO Ctx -> TestTree
-testExpiredExtraTight2 ctxIO =
-    testCase "extra tightly expired transaction fails validation (mainnet)" $ do
-        T2 hdr _ <- mineBlock ctxIO mempty (ParentHeader genblock) (Nonce 1) 2000
-        let hdr' = hdr { _blockChainwebVersion = Mainnet01 }
-        assertDoPreBlockFailure $ doNewBlock ctxIO (offsetTtl (179-1000) 1000) (ParentHeader hdr') (Nonce 2) 1
-
-testJustMadeIt2 :: IO Ctx -> TestTree
-testJustMadeIt2 ctxIO =
-    testCase "just not expired transaction passes validation (mainnet)" $ do
-        T2 hdr _ <- mineBlock ctxIO mempty (ParentHeader genblock) (Nonce 1) 2000
-        let hdr' = hdr { _blockChainwebVersion = Mainnet01 }
-        assertDoPreBlockFailure $ doNewBlock ctxIO (offsetTtl (-999) 1000) (ParentHeader hdr') (Nonce 2) 1
-
-testJustMadeIt3 :: IO Ctx -> TestTree
-testJustMadeIt3 ctxIO =
-    testCase "just not expired transaction passes validation (mainnet)" $ do
-        T2 hdr _ <- mineBlock ctxIO mempty (ParentHeader genblock) (Nonce 1) 2000
-        let hdr' = hdr { _blockChainwebVersion = Mainnet01 }
-        assertDoPreBlockFailure $ doNewBlock ctxIO (offsetTtl (-999) 1000) (ParentHeader hdr') (Nonce 2) 1
 
 -- -------------------------------------------------------------------------- --
 -- Mempool Access

@@ -34,6 +34,7 @@ import Pact.Types.ChainMeta
 import Pact.Types.Command
 
 import Chainweb.BlockCreationTime
+import Chainweb.BlockHeader
 import Chainweb.ChainId
 import Chainweb.Pact.Backend.Types
 import Chainweb.Time
@@ -72,17 +73,17 @@ maxTTL = ParsedInteger $ 2 * 24 * 60 * 60
 -- This is probably going to be changed. Let us make it 2 days for now.
 
 -- prop_tx_ttl_newBlock/validateBlock
+--
+-- Timing checks used to be based on the creation time of the validated
+-- block. That changed on mainnet at block height 449940. Tx creation time
+-- and TTL don't affect the tx outputs and pact state and can thus be
+-- skipped when replaying old blocks.
+--
 timingsCheck
-    :: BlockCreationTime
-        -- ^ reference time for tx validation.
-        --  If @useLegacyCreationTimeForTxValidation blockHeight@
-        --  this is the the creation time of the current block. Otherwise it
-        --  is the creation time of the parent block header.
-    -> Bool
-        -- ^ use lenient creation time validation. See 'lenientTimeSlop' for details.
+    :: ParentCreationTime
     -> Command (Payload PublicMeta ParsedCode)
     -> Bool
-timingsCheck (BlockCreationTime txValidationTime) lenientCreationTime tx =
+timingsCheck (ParentCreationTime (BlockCreationTime txValidationTime)) tx =
     ttl > 0
     && txValidationTime >= timeFromSeconds 0
     && txOriginationTime >= 0
@@ -93,9 +94,7 @@ timingsCheck (BlockCreationTime txValidationTime) lenientCreationTime tx =
     (TTLSeconds ttl) = timeToLiveOf tx
     timeFromSeconds = Time . secondsToTimeSpan . Seconds . fromIntegral
     (TxCreationTime txOriginationTime) = creationTimeOf tx
-    lenientTxValidationTime
-      | lenientCreationTime = add (scaleTimeSpan lenientTimeSlop second) txValidationTime
-      | otherwise = txValidationTime
+    lenientTxValidationTime = add (scaleTimeSpan lenientTimeSlop second) txValidationTime
 
 -- | Validation "slop" to allow for a more lenient creation time check after
 -- @useLegacyCreationTimeForTxValidation@ is no longer true.

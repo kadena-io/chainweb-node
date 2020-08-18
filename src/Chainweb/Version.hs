@@ -51,7 +51,7 @@ module Chainweb.Version
 , coinV2Upgrade
 , to20ChainRebalance
 , pactBackCompat_v16
-, useLegacyCreationTimeForTxValidation
+, skipTxTimingValidation
 , enableModuleNameFix
 , enableModuleNameFix2
 -- ** BlockHeader Validation Guards
@@ -809,17 +809,15 @@ pactBackCompat_v16 :: ChainwebVersion -> BlockHeight -> Bool
 pactBackCompat_v16 Mainnet01 h = h < 328000
 pactBackCompat_v16 _ _ = False
 
--- | If this is true the creation time of the current header is used for pact tx
--- creation time and ttl validation.
+-- | Early versions of chainweb used the creation time of the current header
+-- for validation of pact tx creation time and TTL. Nowadays the times of
+-- the parent header a used.
 --
--- Once the block height for triggering this on mainnet is in the past, the
--- result of this guard becomes trivial for `newBlock` applications and the
--- dependency of `newBlock` on the creation time of the current header can be
--- removed.
+-- When this guard is enabled timing validation is skipped.
 --
-useLegacyCreationTimeForTxValidation :: ChainwebVersion -> BlockHeight -> Bool
-useLegacyCreationTimeForTxValidation Mainnet01 h = h < 449940 -- ~ 2020-04-03T00:00:00Z
-useLegacyCreationTimeForTxValidation _ h = h <= 1
+skipTxTimingValidation :: ChainwebVersion -> BlockHeight -> Bool
+skipTxTimingValidation Mainnet01 h = h < 449940 -- ~ 2020-04-03T00:00:00Z
+skipTxTimingValidation _ h = h <= 1
     -- For most chainweb versions there is a large gap between creation times of
     -- the genesis blocks and the corresponding first blocks.
     --
