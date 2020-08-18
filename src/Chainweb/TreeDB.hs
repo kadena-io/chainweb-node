@@ -715,10 +715,12 @@ forkEntry
     -> DbEntry db
     -> IO (DbEntry db)
 forkEntry db l r
-    | rank l < rank r && rank l < (rank r + 20) = do
+    | rank l + 20 < rank r = do
         r' <- fromJuste <$> seekAncestor db r (rank l)
         S.effects $ branchDiff_ db l r'
-    | rank r < rank l && rank r < (rank l + 20) = forkEntry db r l
+    | rank r + 20 < rank l = do
+        l' <- fromJuste <$> seekAncestor db l (rank r)
+        S.effects $ branchDiff_ db l' r
     | otherwise = S.effects $ branchDiff_ db l r
 
 -- | Compares two branches of a 'TreeDb'. The fork entry is included as last
