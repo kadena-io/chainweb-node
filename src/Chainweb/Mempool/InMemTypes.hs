@@ -40,6 +40,7 @@ import Pact.Types.Gas (GasPrice(..))
 
 -- internal imports
 
+import Chainweb.Mempool.CurrentTxIndex
 import Chainweb.Mempool.Mempool
 import Chainweb.Time (Micros(..), Time(..))
 
@@ -85,6 +86,7 @@ data InMemoryMempoolData t = InMemoryMempoolData {
   , _inmemPending :: !(IORef PendingMap)
   , _inmemRecentLog :: !(IORef RecentLog)
   , _inmemBadMap :: !(IORef BadMap)
+  , _inmemCurrentTxIdx :: !(IORef CurrentTxIdx)
 }
 
 ------------------------------------------------------------------------------
@@ -99,6 +101,7 @@ data MempoolStats = MempoolStats
     { _mStatsPendingCount :: {-# UNPACK #-} !Int
     , _mStatsRecentCount :: {-# UNPACK #-} !Int
     , _mStatsBadlistCount :: {-# UNPACK #-} !Int
+    , _mStatsCurrentTxIdxCount :: {-# UNPACK #-} !Int
     }
     deriving (Show, Eq, Ord, Generic)
     deriving anyclass (ToJSON, NFData)

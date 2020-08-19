@@ -176,6 +176,7 @@ library
         , Chainweb.Logging.Config
         , Chainweb.Logging.Miner
         , Chainweb.Mempool.Consensus
+        , Chainweb.Mempool.CurrentTxIndex
         , Chainweb.Mempool.InMem
         , Chainweb.Mempool.InMemTypes
         , Chainweb.Mempool.Mempool
