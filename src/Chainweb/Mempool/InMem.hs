@@ -106,9 +106,11 @@ newInMemMempoolData =
 ------------------------------------------------------------------------------
 toMempoolBackend
     :: NFData t
-    => InMemoryMempool t
+    => Logger logger
+    => logger
+    -> InMemoryMempool t
     -> IO (MempoolBackend t)
-toMempoolBackend mempool = do
+toMempoolBackend logger mempool = do
     return $! MempoolBackend
       { mempoolTxConfig = tcfg
       , mempoolMember = member
@@ -133,7 +135,7 @@ toMempoolBackend mempool = do
     lookup = lookupInMem tcfg lockMVar
     insert = insertInMem cfg lockMVar
     insertCheck = insertCheckInMem cfg lockMVar
-    markValidated = markValidatedInMem tcfg lockMVar
+    markValidated = markValidatedInMem logger tcfg lockMVar
     addToBadList = addToBadListInMem lockMVar
     checkBadList = checkBadListInMem lockMVar
     getBlock = getBlockInMem cfg lockMVar
@@ -144,6 +146,10 @@ toMempoolBackend mempool = do
 
 ------------------------------------------------------------------------------
 -- | A 'bracket' function for in-memory mempools.
+--
+-- This function is only used in testing. Use 'withInMemoryMempool_' for
+-- production.
+--
 withInMemoryMempool :: ToJSON t
                     => FromJSON t
                     => NFData t
@@ -153,10 +159,14 @@ withInMemoryMempool :: ToJSON t
                     -> IO a
 withInMemoryMempool cfg _v f = do
     let action inMem = do
-          back <- toMempoolBackend inMem
+          back <- toMempoolBackend l inMem
           f $! back
     bracket (makeInMemPool cfg) destroyInMemPool action
+  where
+    l = genericLogger Debug (\ _ -> return ())
 
+-- | A 'bracket' function for in-memory mempools.
+--
 withInMemoryMempool_ :: Logger logger
                      => NFData t
                      => logger
@@ -167,7 +177,7 @@ withInMemoryMempool_ :: Logger logger
 withInMemoryMempool_ l cfg _v f = do
     let action inMem = do
           r <- race (monitor inMem) $ do
-            back <- toMempoolBackend inMem
+            back <- toMempoolBackend l inMem
             f $! back
           case r of
             Left () -> throw $ InternalInvariantViolation "mempool monitor exited unexpectedly"
@@ -218,11 +228,13 @@ lookupInMem txcfg lock txs = do
 
 ------------------------------------------------------------------------------
 markValidatedInMem
-    :: TransactionConfig t
+    :: Logger logger
+    => logger
+    -> TransactionConfig t
     -> MVar (InMemoryMempoolData t)
     -> Vector t
     -> IO ()
-markValidatedInMem tcfg lock txs = withMVarMasked lock $ \mdata -> do
+markValidatedInMem logger tcfg lock txs = withMVarMasked lock $ \mdata -> do
     modifyIORef' (_inmemPending mdata) $ \psq ->
         foldl' (flip HashMap.delete) psq hashes
 
@@ -231,12 +243,17 @@ markValidatedInMem tcfg lock txs = withMVarMasked lock $ \mdata -> do
     -- resources for pending txs.
     --
     let curTxIdxRef = _inmemCurrentTxIdx mdata
-    readIORef curTxIdxRef
-        >>= flip currentTxIdxInsertBatch (V.zip expiries hashes)
-        >>= writeIORef curTxIdxRef
+    logg Info $ "mark " <> sshow (length (V.zip expiries hashes)) <> " txs as validated"
+    x <- readIORef curTxIdxRef
+    logg Info $ "previous current tx index size: " <> sshow (currentTxIdxSize x)
+    x' <- flip currentTxIdxInsertBatch (V.zip expiries hashes) x
+    logg Info $ "new current tx index size: " <> sshow (currentTxIdxSize x')
+    writeIORef curTxIdxRef x'
   where
     hashes = txHasher tcfg <$> txs
     expiries = txMetaExpiryTime . txMetadata tcfg <$> txs
+
+    logg = logFunctionText logger
 
 ------------------------------------------------------------------------------
 addToBadListInMem :: MVar (InMemoryMempoolData t)
