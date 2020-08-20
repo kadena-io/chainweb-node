@@ -115,8 +115,7 @@ currentTxIdxInsertBatch
     -> IO CurrentTxIdx
 currentTxIdxInsertBatch s txs = do
     s0 <- pruneCurrentTxIdx s
-    let s1 = CurrentTxIdx $ foldr ins (_currentTxIdx s0) txs
-    pruneCurrentTxIdx s1
+    pruneCurrentTxIdx $ CurrentTxIdx $ foldr ins (_currentTxIdx s0) txs
   where
     ins (e, h) = S.insert (getCurrentTxIdxKey e h)
 
