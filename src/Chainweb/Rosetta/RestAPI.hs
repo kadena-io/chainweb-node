@@ -48,7 +48,7 @@ import Control.Error.Util
 import Control.Monad (when)
 import Control.Monad.Trans.Except (ExceptT)
 
-import Data.Aeson (encode)
+import Data.Aeson (encode, Object)
 
 import Rosetta
 
@@ -137,7 +137,7 @@ type RosettaConstructionSubmitApi_
     = "construction"
     :> "submit"
     :> ReqBody '[JSON] ConstructionSubmitReq
-    :> Post '[JSON] ConstructionSubmitResp
+    :> Post '[JSON] TransactionIdResp
 
 type RosettaMempoolTransactionApi_
     = "mempool"
@@ -147,7 +147,7 @@ type RosettaMempoolTransactionApi_
 
 type RosettaMempoolApi_
     = "mempool"
-    :> ReqBody '[JSON] MempoolReq
+    :> ReqBody '[JSON] NetworkReq
     :> Post '[JSON] MempoolResp
 
 type RosettaNetworkListApi_
@@ -250,7 +250,7 @@ data RosettaFailure
 
 
 -- TODO: Better grouping of rosetta error index?
-rosettaError :: RosettaFailure -> RosettaError
+rosettaError :: RosettaFailure -> Maybe Object -> RosettaError
 rosettaError RosettaChainUnspecified = RosettaError 0 "No SubNetwork (chain) specified" False
 rosettaError RosettaInvalidChain = RosettaError 1 "Invalid SubNetwork (chain) value" False
 rosettaError RosettaMempoolBadTx = RosettaError 2 "Transaction not present in mempool" False
@@ -279,7 +279,7 @@ rosettaError RosettaInvalidAccountKey = RosettaError 22 "Invalid AccountId addre
 
 
 throwRosetta :: RosettaFailure -> Handler a
-throwRosetta e = throwError err500 { errBody = encode $ rosettaError e }
+throwRosetta e = throwError err500 { errBody = encode $ rosettaError e Nothing }
 
 
 -- | Every Rosetta request that requires a `NetworkId` also requires a

@@ -311,6 +311,7 @@ operation ostatus otype txId acctLog idx related =
     , _operation_account = Just accountId
     , _operation_amount = Just $ kdaToRosettaAmount $
                           _balanceDelta $ _accountLogBalanceDelta acctLog
+    , _operation_coinChange = Nothing
     , _operation_metadata = opMeta
     }
   where

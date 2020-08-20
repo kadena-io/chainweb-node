@@ -409,7 +409,8 @@ checkUniqueRosettaErrorCodes = case repeated of
       if (S.member x acc)
       then (Left x)
       else (Right $ S.insert x acc)
-    errCodes = map (_error_code . rosettaError) [minBound .. maxBound]
+    rosettaError' err = rosettaError err Nothing
+    errCodes = map (_error_code . rosettaError') [minBound .. maxBound]
 
 --------------------------------------------------------------------------------
 -- Utils
@@ -561,10 +562,11 @@ assertSameOperation msg (op1, op2) = do
   assertEqual (adjust msg' "same operation status") ostatus1 ostatus2
   assertEqual (adjust msg' "same operation account") acct1 acct2
   assertEqual (adjust msg' "same operation amount") amt1 amt2
+  assertEqual (adjust msg' "same operation coinChange") coin1 coin2
   where
     msg' = adjust msg $ "operationId=" ++ show (_operationId_index oid1)
-    Operation oid1 rops1 otype1 ostatus1 acct1 amt1 meta1 = op1
-    Operation oid2 rops2 otype2 ostatus2 acct2 amt2 meta2 = op2
+    Operation oid1 rops1 otype1 ostatus1 acct1 amt1 coin1 meta1 = op1
+    Operation oid2 rops2 otype2 ostatus2 acct2 amt2 coin2 meta2 = op2
 
 assertEqualRosettaTx
     :: String
