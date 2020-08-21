@@ -39,7 +39,6 @@ import Control.Monad
 import Control.Monad.Catch
 
 import Data.Maybe
-import Data.Semigroup
 import qualified Data.Text as T
 
 import qualified Network.HTTP.Client as HTTP
@@ -51,11 +50,8 @@ import System.LogLevel
 -- internal modules
 
 import Chainweb.BlockHeaderDB
-import Chainweb.BlockHeight
-import Chainweb.BlockHeaderDB.PruneForks
 import Chainweb.ChainId
 import Chainweb.Chainweb.PeerResources
-import Chainweb.Graph
 import Chainweb.Logger
 import qualified Chainweb.Mempool.Consensus as MPCon
 import qualified Chainweb.Mempool.InMem as Mempool
@@ -114,15 +110,13 @@ withChainResources
     -> logger
     -> (MVar PactExecutionService -> Mempool.InMemConfig ChainwebTransaction)
     -> PayloadDb cas
-    -> Bool
-        -- ^ whether to prune the chain database
     -> FilePath
         -- ^ database directory for checkpointer
     -> PactServiceConfig
     -> (ChainResources logger -> IO a)
     -> IO a
 withChainResources
-  v cid rdb peer logger mempoolCfg0 payloadDb prune pactDbDir pactConfig inner =
+  v cid rdb peer logger mempoolCfg0 payloadDb pactDbDir pactConfig inner =
     withBlockHeaderDb rdb v cid $ \cdb -> do
       pexMv <- newEmptyMVar
       let mempoolCfg = mempoolCfg0 pexMv
@@ -130,27 +124,6 @@ withChainResources
         mpc <- MPCon.mkMempoolConsensus mempool cdb $ Just payloadDb
         withPactService v cid (setComponent "pact" logger) mpc cdb
                         payloadDb pactDbDir pactConfig $ \requestQ -> do
-            -- prune block header db
-            when prune $ do
-                logg Info "start pruning block header database"
-                x <- pruneForks logger cdb (diam * 3) $ \_h _payloadInUse ->
-
-                    -- FIXME At the time of writing his payload hashes are not
-                    -- unique. The pruning algorithm can handle non-uniquness
-                    -- between within a chain between forks, but not accross
-                    -- chains. Also cas-deletion is sound for payload hashes if
-                    -- outputs are unique for payload hashes.
-                    --
-                    -- Renable this code once pact
-                    --
-                    -- includes the parent hash into the coinbase hash,
-                    -- includes the transaction hash into the respective output hash, and
-                    -- guarantees that transaction hashes are unique.
-                    --
-                    -- unless payloadInUse
-                    --     $ casDelete payloadDb (_blockPayloadHash h)
-                    return ()
-                logg Info $ "finished pruning block header database. Deleted " <> sshow x <> " block headers."
             let pex = pes requestQ
             putMVar pexMv pex
 
@@ -163,8 +136,6 @@ withChainResources
                 , _chainResPact = pex
                 }
   where
-    logg = logFunctionText (setComponent "pact-tx-replay" logger)
-    diam = diameter (_chainGraph (v, maxBound @BlockHeight))
     pes requestQ = case v of
         Test{} -> emptyPactExecutionService
         TimedConsensus{} -> emptyPactExecutionService

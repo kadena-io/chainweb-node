@@ -1,7 +1,16 @@
-{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE DataKinds #-}
+{-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE DerivingStrategies #-}
+{-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE GADTs #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE PolyKinds #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeApplications #-}
 
 -- |
 -- Module: Chainweb.BlockHeaderDB.PruneForks
@@ -13,20 +22,25 @@
 -- Prune old forks from BlockHeader DB
 --
 module Chainweb.BlockHeaderDB.PruneForks
-( pruneForks
+( pruneForksLogg
+, pruneForks
 , pruneForks_
 ) where
 
+import Control.DeepSeq
+import Control.Exception (evaluate)
 import Control.Monad
-import Control.Monad.ST
+import Control.Monad.Catch
+import Control.Monad.IO.Class
 
-import qualified Data.BloomFilter.Easy as BF (suggestSizing)
-import qualified Data.BloomFilter.Hash as BF
-import qualified Data.BloomFilter.Mutable as BF
 import Data.Function
-import qualified Data.HashSet as HS
+import qualified Data.List as L
 import Data.Maybe
 import Data.Semigroup
+import qualified Data.Text as T
+
+import GHC.Generics
+import GHC.Stack
 
 import Numeric.Natural
 
@@ -41,19 +55,43 @@ import System.LogLevel
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
 import Chainweb.BlockHeaderDB.Internal
+import Chainweb.BlockHeight
 import Chainweb.Logger
 import Chainweb.TreeDB
 import Chainweb.Utils hiding (Codec)
+import Chainweb.Version
 
 import Data.CAS
 import Data.CAS.RocksDB
 import Data.LogMessage
 
 -- -------------------------------------------------------------------------- --
--- Prune Old Forks
+-- Chain Database Pruning
 
--- | Prunes most block headers and block payloads from forks that are older than
--- the given number of blocks.
+pruneForksLogg
+    :: Logger logger
+    => logger
+    -> BlockHeaderDb
+    -> Natural
+        -- ^ The depth at which pruning starts. Block at this depth are used as
+        -- pivots and actual deletion starts at (depth - 1).
+        --
+        -- Note, that the max rank isn't necessarly included in the current best
+        -- cut. So one, should choose a depth for which one is confident that
+        -- all forks are resolved.
+
+    -> (Bool -> BlockHeader -> IO ())
+        -- ^ Deletion call back. This hook is called /after/ the entry is
+        -- deleted from the database. It's main purpose is to delete any
+        -- resources that were related to the deleted header and that are not
+        -- needed any more. The first parameter indicates whether the block
+        -- header got deleted from the chain database.
+
+    -> IO Int
+pruneForksLogg = pruneForks . logFunctionText
+
+-- | Prunes most block headers from forks that are older than the given number
+-- of blocks.
 --
 -- This function guarantees that the predecessors of all remaining nodes also
 -- remain in the database and that there are are no tangling references.
@@ -61,160 +99,164 @@ import Data.LogMessage
 -- This function doesn't guarantee to delete all blocks on forks. A small number
 -- of fork blocks may not get deleted.
 --
--- The function takes a callback that is invoked on each deleted block header.
--- The callback takes a parameter that indicates whether the block payload hash
--- is shared with any non-deleted block header. There is a small rate of false
--- positives of block payload hashes that are marked in use.
---
--- This doesn't update the the cut db or the payload db.
+-- The function takes a callback that are invoked on each block header in the
+-- database starting from the given depth. The callback takes a parameter that
+-- indicates whether the related block is pruned or not.
 --
 pruneForks
-    :: Logger logger
-    => logger
-    -> BlockHeaderDb
-    -> Natural
-        -- ^ The depth at which the roots are collected for marking block
-        -- headers that are kept. Any fork that was active that the given depth
-        -- is kept.
-        --
-        -- The depth is computed based on the entry of maximum rank. This entry
-        -- is not necessarily included in the overall consensus of the chainweb.
-        -- In particular the the higest ranking entry is not necessarily the
-        -- entry of largest POW weight.
-        --
-        -- Usually this number would be defined in terms of the chainweb
-        -- diameter and/or the difficulty adjustment window.
-    -> (BlockHeader -> Bool -> IO ())
-        -- ^ Deletion call back. This hook is called /after/ the entry is
-        -- deleted from the database. It's main purpose is to delete any
-        -- resources that were related to the deleted header and that are not
-        -- needed any more. The Boolean argument indicates whether the payload
-        -- of the block is shared with any block header that isn't marked for
-        -- deletion.
-    -> IO Int
-pruneForks logger = pruneForks_ logg
-  where
-    logg = logFunctionText (setComponent "pact-tx-replay" logger)
-
-
-pruneForks_
     :: LogFunctionText
     -> BlockHeaderDb
     -> Natural
-    -> (BlockHeader -> Bool -> IO ())
+        -- ^ The depth at which pruning starts. Block at this depth are used as
+        -- pivots and actual deletion starts at (depth - 1).
+        --
+        -- Note, that the max rank isn't necessarly included in the current best
+        -- cut. So one, should choose a depth for which one is confident that
+        -- all forks are resolved.
+
+    -> (Bool -> BlockHeader -> IO ())
+        -- ^ Deletion call back. This hook is called /after/ the entry is
+        -- deleted from the database. It's main purpose is to delete any
+        -- resources that were related to the deleted header and that are not
+        -- needed any more. The first parameter indicates whether the block
+        -- header got deleted from the chain database.
+
     -> IO Int
-pruneForks_ logg cdb limit callback = do
+pruneForks logg cdb depth callback = do
+    hdr <- maxEntry cdb
+    if
+        | int (_blockHeight hdr) <= depth -> do
+            logg Info
+                $ "Skipping database pruning because the maximum block height "
+                <> sshow (_blockHeight hdr) <> " is not larger than then requested depth "
+                <> sshow depth
+            return 0
+        | int (_blockHeight hdr) <= int genHeight + depth -> do
+            logg Info $ "Skipping database pruning because there are not yet"
+                <> " enough block headers on the chain"
+            return 0
+        | otherwise -> do
+            let mar = MaxRank $ Max $ int (_blockHeight hdr) - depth
+            pruneForks_ logg cdb mar (MinRank $ Min $ int genHeight) callback
+  where
+    v = _chainwebVersion cdb
+    cid = _chainId cdb
+    genHeight = genesisHeight v cid
 
-    -- find all roots at \(maxEntry - limit\)
-    --
-    m <- maxRank cdb
-    let rootHeight = m - min m limit
+data PruneForksException
+    = PruneForksDbInvariantViolation BlockHeight [BlockHeight] T.Text
+    deriving (Show, Eq, Ord, Generic)
 
-    !roots <- keys cdb Nothing Nothing
-        (Just $ MinRank $ Min rootHeight)
-        Nothing
-            -- include all block headers in the root set, so that all headers
-            -- are included in the marking phase. PayloadBlockHashes can be
-            -- shared between blocks at different height, so we must make sure
-            -- that they are retained if a root depends on them.
-        streamToHashSet_
+instance Exception PruneForksException
 
-    -- Bloom filter for marking block headers
-    --
-    let s = max (int rootHeight + 10 * HS.size roots) (int rootHeight * 2)
-    let (size, hashNum) = BF.suggestSizing s 0.0001
-    !marked <- stToIO $ BF.new (BF.cheapHashes hashNum) size
+-- | Prune forks between the given min rank and max rank.
+--
+-- Only block headers that are ancestors of a block header that has block height
+-- max rank are kept.
+--
+-- This function is mostly for internal usage. For details about the arguments
+-- and behavior see the documentation of 'pruneForks'.
+--
+-- TODO add option to also validate the block headers
+--
+pruneForks_
+    :: HasCallStack
+    => LogFunctionText
+    -> BlockHeaderDb
+    -> MaxRank
+    -> MinRank
+    -> (Bool -> BlockHeader -> IO ())
+    -> IO Int
+pruneForks_ logg _ (MaxRank (Max mar)) _  _
+    | mar <= 1 = 0 <$ logg Warn ("Skipping database pruning for max bound of " <> sshow mar)
+pruneForks_ logg cdb mar mir callback = do
+    logg Debug $ "Pruning block header database for chain " <> sshow (_chainId cdb)
+        <> " with upper bound " <> sshow (_getMaxRank mar)
+        <> " and lower bound " <> sshow (_getMinRank mir)
 
-    -- Bloom filter for marking block payload hashes
+    -- parent hashes of all blocks at height max rank @mar@.
     --
-    -- Payloads can be shared between different blocks. Thus, to be on the safe
-    -- side, we are not deleting any marked payload.
-    --
-    -- Note that we could use cuckoo hashes or counting bloom filters to do
-    -- reference counting and collect more unreferenced payloads.
-    --
-    -- TODO: would it be better to use a single shared filter?
-    --
-    let (psize, phashNum) = BF.suggestSizing s 0.0001
-    !markedPayloads <- stToIO $ BF.new (BF.cheapHashes phashNum) psize
+    !pivots <- entries cdb Nothing Nothing (Just $ MinRank $ Min $ _getMaxRank mar) (Just mar)
+        $ fmap (force . L.nub) . S.toList_ . S.map _blockParent
+            -- the set of pivots is expected to be very small. In fact it is
+            -- almost always a singleton set.
 
-    -- Iterate backwards and mark all predecessors of the roots
-    --
-    void $ branchEntries cdb Nothing Nothing Nothing Nothing mempty (HS.map UpperBound roots)
-        $ S.mapM_ $ \h -> stToIO $ do
-            BF.insert marked $ runPut $ encodeBlockHash $ _blockHash h
-            BF.insert markedPayloads
-                $ runPut $ encodeBlockPayloadHash $ _blockPayloadHash h
-
-    -- Iterate forward and delete all non-marked block headers that are not a
-    -- predecessor of a block header that is kept.
-    --
-    entries cdb Nothing Nothing Nothing (Just $ MaxRank $ Max rootHeight)
-        $ S.foldM_ (go marked markedPayloads) (return (mempty, 0)) (return . snd)
+    if null pivots
+      then do
+        logg Warn
+            $ "Skipping database pruning because of an empty set of block headers at upper pruning bound " <> sshow mar
+        return 0
+      else
+        withReverseHeaderStream cdb (mar - 1) mir
+            $ S.foldM_ go (return (pivots, int (_getMaxRank mar), 0)) (\(_,_,!n) -> evaluate n)
 
   where
+    go :: ([BlockHash], BlockHeight, Int) -> BlockHeader -> IO ([BlockHash], BlockHeight, Int)
+    go ([], _, _) cur = throwM $ InternalInvariantViolation
+        $ "PrunForks.pruneForks_: no pivots left at block " <> encodeToText (ObjectEncoded cur)
+    go (!pivots, !prevHeight, !n) !cur
 
-    -- The falsePositiveSet collects all deleted nodes that are known to be
-    -- false positives.
-    --
-    -- We know that a node is false positive when it is in the filter but any of
-    -- its ancestors is neither in the filter nor in the falsePositiveSet.
-    -- (Because for a true positive all ancestors are in the filter.) We also
-    -- know that a node is false positive if it's payload isn't marked, because
-    -- we mark the payload of all nodes that are true positives.
-    --
-    -- Note that this doesn't capture all false positives, but only those that
-    -- are not connected to the main chain.
-    --
-    -- Nodes that are known to be false positives are safe to remove, if also
-    -- all of its successors are removed.
-    --
-    -- Nodes that are known to be false postives must be removed, if any of their
-    -- predecessors got removed or if their payload got removed.
-    --
-    go marked markedPayloads (!falsePositiveSet, !i) !h = do
-        let k = runPut $ encodeBlockHash $ _blockHash h
-        let p = runPut $ encodeBlockHash $ _blockParent h
-        isMarked <- stToIO $ BF.elem k marked
+        -- This checks some structural consistency. It's not a comprehensive
+        -- check. Comprehensive checks on various levels are availabe through
+        -- callbacks that are offered in the module "Chainweb.Chainweb.PruneChainDatabase"
+        | prevHeight /= curHeight && prevHeight /= curHeight + 1 =
+            throwM $ InternalInvariantViolation
+                $ "PrunForks.pruneForks_: detected a corrupted database. Some block headers are missing"
+                <> ". Current pivots: " <> encodeToText pivots
+                <> ". Current header: " <> encodeToText (ObjectEncoded cur)
+                <> ". Previous height: " <> sshow prevHeight
+        | _blockHash cur `elem` pivots = do
+            callback False cur
+            let !pivots' = force $ L.nub $ _blockParent cur : L.delete (_blockHash cur) pivots
+            return (pivots', curHeight, n)
+        | otherwise = do
+            deleteHdr cur
+            callback True cur
+            return (pivots, curHeight, n+1)
+      where
+        curHeight = _blockHeight cur
 
-        let payloadHashBytes = runPut $ encodeBlockPayloadHash $ _blockPayloadHash h
-        isPayloadMarked <- stToIO $ BF.elem payloadHashBytes markedPayloads
-
-        -- Delete nodes not in the filter
-        if not isMarked
-          then do
-            deleteKey h isPayloadMarked
-            return (falsePositiveSet, succ i)
-          else do
-            -- Delete nodes which parent isn't in the filter or is in the
-            -- falsePositiveSet
-            parentIsMarked <- stToIO $ BF.elem p marked
-            if not (isGenesisBlockHeader h) && (not parentIsMarked || HS.member p falsePositiveSet || not isPayloadMarked)
-              then do
-                -- We know that this a false positive. We keep track of this for
-                -- future reference.
-                --
-                -- TODO: consider using cuckoo filters because entries can be
-                -- deleted from them. So we wouldn't need to keep track of
-                -- deleted falsePositives. However, with cuckoo filters we'd
-                -- have to re-hash or keep track of failing inserts.
-                deleteKey h isPayloadMarked
-                return (HS.insert k falsePositiveSet, succ i)
-              else
-                -- The key is either
-                -- 1. in the chain or
-                -- 2. is a false positive that has a payload and is connected to
-                --    the chain (i.e. has all of its predecessors).
-                --
-                -- We accept a small number of nodes of the second case.
-                --
-                return (falsePositiveSet, i)
-
-    deleteKey h isPayloadMarked = do
+    deleteHdr k = do
         -- TODO: make this atomic (create boilerplate to combine queries for
         -- different tables)
-        casDelete (_chainDbCas cdb) (casKey $ RankedBlockHeader h)
-        tableDelete (_chainDbRankTable cdb) (_blockHash h)
-        logg Debug $ "deleted block header at height " <> sshow (_blockHeight h) <> " with payload mark " <> sshow isPayloadMarked
-        callback h isPayloadMarked
+        casDelete (_chainDbCas cdb) (casKey $ RankedBlockHeader k)
+        tableDelete (_chainDbRankTable cdb) (_blockHash k)
+        logg Debug
+            $ "pruned block header " <> encodeToText (_blockHash k)
+            <> " at height " <> sshow (_blockHeight k)
 
+-- -------------------------------------------------------------------------- --
+-- Utils
+
+-- TODO: provide this function in chainweb-storage
+--
+withReverseHeaderStream
+    :: BlockHeaderDb
+    -> MaxRank
+    -> MinRank
+    -> (S.Stream (S.Of BlockHeader) IO () -> IO a)
+    -> IO a
+withReverseHeaderStream db mar mir inner = withTableIter headerTbl $ \it -> do
+    tableIterSeek it $ RankedBlockHash (BlockHeight $ int $ _getMaxRank mar + 1) nullBlockHash
+    tableIterPrev it
+    inner $ iterToReverseValueStream it
+        & S.map _getRankedBlockHeader
+        & S.takeWhile (\a -> int (_blockHeight a) >= mir)
+  where
+    headerTbl = _chainDbCas db
+
+    -- Returns the stream of key-value pairs of an 'RocksDbTableIter' in reverse
+    -- order.
+    --
+    -- The iterator must be released after the stream is consumed. Releasing the
+    -- iterator to early while the stream is still in use results in a runtime
+    -- error. Not releasing the iterator after the processing of the stream has
+    -- finished results in a memory leak.
+    --
+    iterToReverseValueStream :: RocksDbTableIter k v -> S.Stream (S.Of v) IO ()
+    iterToReverseValueStream it = liftIO (tableIterValue it) >>= \case
+        Nothing -> return ()
+        Just x -> S.yield x >> liftIO (tableIterPrev it) >> iterToReverseValueStream it
+    {-# INLINE iterToReverseValueStream #-}
+
+{-# INLINE withReverseHeaderStream #-}

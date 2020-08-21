@@ -50,18 +50,22 @@ module Chainweb.Payload
 
 , BlockPayload(..)
 , BlockTransactions(..)
+, verifyBlockPayload
 
 -- * Redundant Data / Caches
 
 , BlockOutputs(..)
 , TransactionTree(..)
+, verifyTransactionTree
 , OutputTree(..)
+, verifyOutputTree
 
 -- * Create Data
 , BlockTransactionsLog
 , newTransactionLog
 , newBlockTransactions
 , transactionLog
+, verifyBlockTransactions
 
 , MinerData(..)
 , CoinbaseOutput(..)
@@ -71,6 +75,7 @@ module Chainweb.Payload
 , newBlockOutputLog
 , newBlockOutputs
 , blockOutputLog
+, verifyBlockOutputs
 
 , blockPayload
 , newBlockPayload
@@ -80,6 +85,7 @@ module Chainweb.Payload
 , payloadData
 , newPayloadData
 , PayloadDataCas
+, verifyPayloadData
 
 -- * All Payload Data in a Single Structure
 , PayloadWithOutputs(..)
@@ -87,6 +93,7 @@ module Chainweb.Payload
 , newPayloadWithOutputs
 , payloadWithOutputsToBlockObjects
 , payloadWithOutputsToPayloadData
+, verifyPayloadWithOutputs
 ) where
 
 import Control.DeepSeq
@@ -348,6 +355,11 @@ instance HasMerkleLog ChainwebHashTag BlockPayload where
       where
         (txHash :+: outHash :+: _) = _merkleLogEntries l
 
+-- | Verify the consistency of the MerkleTree of a 'BlockPayload' value.
+--
+verifyBlockPayload :: BlockPayload -> Bool
+verifyBlockPayload p
+    = BlockPayloadHash (MerkleLogHash (computeMerkleLogRoot p)) == _blockPayloadPayloadHash p
 
 -- -------------------------------------------------------------------------- --
 -- Miner data as an opaque Pact-specific bytestring
@@ -444,6 +456,15 @@ instance HasMerkleLog ChainwebHashTag BlockTransactions where
 
 type BlockTransactionsLog = MkLogType ChainwebHashTag BlockTransactions
 
+-- | Verify the consistency of the MerkleTree of a 'BlockTransactions' value.
+--
+-- This forces the MerkleTree which can be (somewhat) expensive for large input
+-- values.
+--
+verifyBlockTransactions :: BlockTransactions -> Bool
+verifyBlockTransactions p
+    = BlockTransactionsHash (MerkleLogHash $ computeMerkleLogRoot p) == _blockTransactionsHash p
+
 -- -------------------------------------------------------------------------- --
 -- Redundant / Caches
 -- -------------------------------------------------------------------------- --
@@ -500,7 +521,6 @@ noCoinbaseOutput = CoinbaseOutput $ encodeToByteString $ object
     , "txId" .= Null
     ]
 {-# NOINLINE noCoinbaseOutput #-}
-
 
 instance HasTextRepresentation CoinbaseOutput where
     toText = coinbaseOutputToText
@@ -566,6 +586,15 @@ instance HasMerkleLog ChainwebHashTag BlockOutputs where
 
 type BlockOutputsLog = MkLogType ChainwebHashTag BlockOutputs
 
+-- | Verify the consistency of the MerkleTree of a 'BlockOutputs' value.
+--
+-- This forces the MerkleTree which can be (somewhat) expensive for large input
+-- values.
+--
+verifyBlockOutputs :: BlockOutputs -> Bool
+verifyBlockOutputs p
+    = BlockOutputsHash (MerkleLogHash $ computeMerkleLogRoot p) == _blockOutputsHash p
+
 -- -------------------------------------------------------------------------- --
 -- Transaction Merkle Tree
 
@@ -602,6 +631,15 @@ merkleTreeFromJson :: HashAlgorithm a => Value -> A.Parser (MerkleTree a)
 merkleTreeFromJson = withText "MerkleTree" $ \t -> either (fail . sshow) return
     $ decodeB64UrlNoPaddingText t >>= decodeMerkleTree
 
+-- | Verify the consistency of the MerkleTree of a 'TransactionTree' value.
+--
+-- This forces the MerkleTree which can be (somewhat) expensive for large input
+-- values.
+--
+verifyTransactionTree :: TransactionTree -> Bool
+verifyTransactionTree p = _transactionTreeHash p
+    == BlockTransactionsHash (MerkleLogHash $ merkleRoot $ _transactionTree p)
+
 -- -------------------------------------------------------------------------- --
 -- Output Merkle Tree
 
@@ -630,6 +668,15 @@ instance FromJSON OutputTree where
     parseJSON = withObject "OutputTree" $ \o -> OutputTree
         <$!> o .: "hash"
         <*> (o .: "tree" >>= merkleTreeFromJson)
+
+-- | Verify the consistency of the MerkleTree of a 'OuputTree' value.
+--
+-- This forces the MerkleTree which can be (somewhat) expensive for large input
+-- values.
+--
+verifyOutputTree :: OutputTree -> Bool
+verifyOutputTree p = _outputTreeHash p
+    == BlockOutputsHash (MerkleLogHash $ merkleRoot $ _outputTree p)
 
 -- -------------------------------------------------------------------------- --
 -- Data Creation
@@ -704,9 +751,9 @@ blockOutputLog outs tree
         = (toLog outs) { _merkleLogTree = _outputTree tree }
     | otherwise = error "Output tree and block outputs don't match"
 
--- |
+-- | Create a BlockPayload from 'BlockTransactions' and 'BlockOutputs'
 --
--- Note, that forcing the 'MerkleTree' is cheap for 'BlockPayload'.
+-- This doesn't force the Merkle trees of the input structures.
 --
 blockPayload :: BlockTransactions -> BlockOutputs -> BlockPayload
 blockPayload txs outs
@@ -715,6 +762,11 @@ blockPayload txs outs
         :+: _blockOutputsHash outs
         :+: emptyBody
 
+-- | Compute BlockPayload from transactions and outputs.
+--
+-- This forces the MerkleTrees of all payload components. The returned
+-- '_blockPayloadPayloadHash' value can be trusted.
+--
 newBlockPayload
     :: MinerData
     -> CoinbaseOutput
@@ -779,6 +831,31 @@ newPayloadData txs outputs = payloadData txs $ blockPayload txs outputs
 
 type PayloadDataCas cas = CasConstraint cas PayloadData
 
+-- | Verify the consistency of the MerkleTree of a 'PayloadData' value.
+--
+-- This doesn't verify the MerkleTree for the outputs because those are not
+-- available in the 'PayloadData'.
+--
+-- This forces the MerkleTree which can be (somewhat) expensive for large input
+-- values.
+--
+verifyPayloadData :: PayloadData -> Bool
+verifyPayloadData p
+    = _payloadDataTransactionsHash p == _blockTransactionsHash txs
+    && _payloadDataPayloadHash p == _blockPayloadPayloadHash bp
+  where
+    -- forces the transactions Merkle Tree
+    txs :: BlockTransactions
+    txs = fromLog $ newTransactionLog
+        (_payloadDataMiner p)
+        (_payloadDataTransactions p)
+
+    -- forces the BlockPayload Merkle Tree
+    bp = fromLog $ newMerkleLog
+        $ _payloadDataTransactionsHash p
+        :+: _payloadDataOutputsHash p
+        :+: emptyBody
+
 -- -------------------------------------------------------------------------- --
 -- All Payload Data in a Single Structure
 
@@ -803,6 +880,11 @@ instance IsCasValue PayloadWithOutputs where
 -- Precondition: the vector of transaction output has the same length (and is
 -- in the same order, i.e. the two vectors will be zipped) as the list of input
 -- transactions inside the 'PayloadData'.
+--
+-- NOTE: The resulting structure is consistent only if the input 'PayloadData'
+-- is consistent. Use 'newPayloadWithOutputs' and compare
+-- '_payloadWithOutputsPayloadHash' to verify consistency.
+--
 payloadWithOutputs
     :: HasCallStack
     => PayloadData
@@ -855,6 +937,12 @@ instance ToJSON PayloadWithOutputs where
         , "outputsHash" .= _payloadWithOutputsOutputsHash o
         ]
 
+-- | This instance trusts the content of the JSON structure. It doesn't
+-- guarantee that the result is consistent (it doesn't rebuild the Merkle tree).
+--
+-- Use 'newPayloadWithOutputs' and compare '_payloadWithOutputsPayloadHash' to
+-- verify consistency.
+--
 instance FromJSON PayloadWithOutputs where
     parseJSON = withObject "PayloadWithOutputs" $ \o -> PayloadWithOutputs
         <$!> o .: "transactions"
@@ -880,3 +968,23 @@ payloadWithOutputsToPayloadData o = PayloadData
     , _payloadDataTransactionsHash = _payloadWithOutputsTransactionsHash o
     , _payloadDataOutputsHash = _payloadWithOutputsOutputsHash o
     }
+
+-- | Verify the consistency of the MerkleTree of a 'PayloadData' value.
+--
+-- This doesn't verify the MerkleTree for the outputs because those are not
+-- available in the 'PayloadData'.
+--
+-- This forces the MerkleTree which can be (somewhat) expensive for large input
+-- values.
+--
+verifyPayloadWithOutputs :: PayloadWithOutputs -> Bool
+verifyPayloadWithOutputs p
+    = _payloadWithOutputsPayloadHash p == _blockPayloadPayloadHash p'
+  where
+    -- recreate the structure and force all MerkleTrees
+    --
+    p' = newBlockPayload
+        (_payloadWithOutputsMiner p)
+        (_payloadWithOutputsCoinbase p)
+        (_payloadWithOutputsTransactions p)
+
