@@ -67,6 +67,7 @@ import Control.Monad hiding (join)
 import Control.Monad.Catch
 import Control.Monad.IO.Class
 
+import qualified Data.ByteString.Char8 as B8
 import qualified Data.ByteString.Short as BS
 import Data.Foldable
 import Data.Function
@@ -96,7 +97,9 @@ import Chainweb.ChainValue
 import Chainweb.Cut
 import Chainweb.Cut.Create
 import Chainweb.Graph
+import Chainweb.Payload
 import Chainweb.Test.Utils (genEnum)
+import Chainweb.Test.Utils.BlockHeader
 import Chainweb.Time (Micros(..), Time, TimeSpan)
 import qualified Chainweb.Time as Time (second)
 import Chainweb.Utils
@@ -293,7 +296,8 @@ arbitraryCut v = T.sized $ \s -> do
     mine :: TestHeaderMap -> Cut -> ChainId -> T.Gen (Maybe (T2 BlockHeader Cut))
     mine db c cid = do
         n <- Nonce <$> T.arbitrary
-        let pay = hashPayload v cid "TEST PAYLOAD"
+        let pay = _payloadWithOutputsPayloadHash $ testPayload
+                $ B8.intercalate "," [ sshow v, sshow cid, "TEST PAYLOAD"]
         case try (createNewCut1Second (testLookup db) n pay cid c) of
             Left e -> throw e
             Right (Left BadAdjacents) -> return Nothing
@@ -346,7 +350,9 @@ arbitraryWebChainCut_ wdb initialCut seed = do
             Left BadAdjacents -> return Nothing
             Left e -> throw e
       where
-        pay = hashPayload (_chainwebVersion wdb) cid "TEST PAYLOAD"
+        v = _chainwebVersion wdb
+        pay = _payloadWithOutputsPayloadHash $ testPayload
+            $ B8.intercalate "," [ sshow v, sshow cid, "TEST PAYLOAD"]
 
 -- -------------------------------------------------------------------------- --
 -- Arbitrary Fork
