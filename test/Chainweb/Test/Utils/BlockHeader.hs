@@ -15,15 +15,22 @@ module Chainweb.Test.Utils.BlockHeader
 ( testBlockHeader
 , testBlockHeaders
 , testBlockHeadersWithNonce
-, testBlockPayload
 , testGetNewAdjacentParentHeaders
+
+-- * Test Payloads
+, testPayload
+, testBlockPayloadFromParent
+, testBlockPayload
+, testBlockPayload_
 ) where
 
 import Control.Arrow ((&&&))
 import Control.Lens
 
+import qualified Data.ByteString.Char8 as B8
 import qualified Data.HashMap.Strict as HM
 import qualified Data.List as L
+import qualified Data.Vector as V
 
 import GHC.Stack
 
@@ -34,14 +41,79 @@ import Chainweb.BlockHash
 import Chainweb.BlockHeader
 import Chainweb.BlockHeader.Genesis
 import Chainweb.ChainValue
+import Chainweb.Payload
 import Chainweb.Time
+import Chainweb.Utils
 import Chainweb.Version
 
 -- -------------------------------------------------------------------------- --
--- Testing
+-- Test Payloads
 
-testBlockPayload :: BlockHeader -> BlockPayloadHash
-testBlockPayload b = hashPayload (_blockChainwebVersion b) b "TEST PAYLOAD"
+-- | Test PayloadWithOutputs that is parameterized with some bytes.
+--
+testPayload :: B8.ByteString -> PayloadWithOutputs
+testPayload n = newPayloadWithOutputs
+    (MinerData "TEST MINER DATA")
+    (CoinbaseOutput "TEST COINBASE OUTPUT")
+    (V.singleton
+        ( Transaction $ "TEST TRANSACTION: " <> n
+        , TransactionOutput $ "TEST OUTPUT: " <> n
+        )
+    )
+
+-- | Generate a test payload for a given parent header. Includes the block
+-- height of the block.
+--
+-- Payloads that are created with this function match respective payloads
+-- that are created with 'testBlockPayload'.
+--
+testBlockPayloadFromParent :: ParentHeader -> PayloadWithOutputs
+testBlockPayloadFromParent (ParentHeader b) = testPayload $ B8.intercalate ","
+    [ sshow (_blockChainwebVersion b)
+    , sshow (_blockHeight b + 1)
+    ]
+
+-- | Generate a test payload for a given header. Includes the block height of
+-- the block.
+--
+-- Payloads that are created with this function match respective payloads
+-- that are created with 'testBlockPayloadFromParent'.
+--
+testBlockPayload :: BlockHeader -> PayloadWithOutputs
+testBlockPayload b = testPayload $ B8.intercalate ","
+    [ sshow (_blockChainwebVersion b)
+    , sshow (_blockHeight b)
+    ]
+
+-- | Generate a test payload for a given parent header. Includes the block
+-- height of the block and the given Nonce.
+--
+-- Payloads that are created with this function match respective payloads
+-- that are created with 'testBlockPayload_', assuming that the same nonce is
+-- used.
+--
+testBlockPayloadFromParent_ :: Nonce -> ParentHeader -> PayloadWithOutputs
+testBlockPayloadFromParent_ n (ParentHeader b) = testPayload $ B8.intercalate ","
+    [ sshow (_blockChainwebVersion b)
+    , sshow (_blockHeight b + 1)
+    , sshow n
+    ]
+
+-- | Includes the nonce of the block.
+--
+-- Payloads that are created with this function match respective payloads
+-- that are created with 'testBlockPayloadFromParent_', assuming that the same
+-- nonce is used.
+--
+testBlockPayload_ :: BlockHeader -> PayloadWithOutputs
+testBlockPayload_ b = testPayload $ B8.intercalate ","
+    [ sshow (_blockChainwebVersion b)
+    , sshow (_blockHeight b)
+    , sshow (_blockNonce b)
+    ]
+
+-- -------------------------------------------------------------------------- --
+-- Testing
 
 testGetNewAdjacentParentHeaders
     :: HasCallStack
@@ -60,13 +132,15 @@ testBlockHeader
     :: HM.HashMap ChainId ParentHeader
         -- ^ Adjacent parent hashes
     -> Nonce
-        -- ^ Randomness to affect the block hash
+        -- ^ Randomness to affect the block hash. It is also included into
+        -- the payload
     -> ParentHeader
         -- ^ parent block header
     -> BlockHeader
 testBlockHeader adj nonce p@(ParentHeader b) =
-    newBlockHeader adj (testBlockPayload b) nonce (BlockCreationTime $ add second t) p
+    newBlockHeader adj payload nonce (BlockCreationTime $ add second t) p
   where
+    payload = _payloadWithOutputsPayloadHash $ testBlockPayloadFromParent_ nonce p
     BlockCreationTime t = _blockCreationTime b
 
 -- | Given a `BlockHeader` of some initial parent, generate an infinite stream

@@ -98,7 +98,7 @@ import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
 import Chainweb.TreeDB (getBranchIncreasing, forkEntry, lookup, lookupM)
 import Chainweb.Utils hiding (check)
-import Data.CAS (casLookupM)
+import Data.CAS (casLookup)
 
 -- | Support lifting bracket style continuations in 'IO' into 'PactServiceM' by
 -- providing a function that allows unwrapping pact actions in IO while
@@ -400,7 +400,12 @@ rewindTo rewindLimit (Just (ParentHeader parent)) = do
         -- This does a restore, i.e. it rewinds the checkpointer back in
         -- history, if needed.
         withCheckpointerWithoutRewind (Just target) "fastForward" $ \pdbenv -> do
-            payload <- liftIO (payloadWithOutputsToPayloadData <$> casLookupM payloadDb bpHash)
+            payload <- liftIO $ casLookup payloadDb bpHash >>= \case
+                Nothing -> throwM $ PactInternalError
+                    $ "Checkpointer.rewindTo.fastForward: lookup of payload failed"
+                    <> ". BlockPayloadHash: " <> encodeToText bpHash
+                    <> ". Block: "<> encodeToText (ObjectEncoded block)
+                Just x -> return $ payloadWithOutputsToPayloadData x
             void $ execBlock block payload pdbenv
             return $! Save block ()
         -- double check output hash here?
