@@ -48,6 +48,11 @@ module Chainweb.Chainweb
 , defaultTransactionIndexConfig
 , pTransactionIndexConfig
 
+-- * GC Configuration
+, ChainDatabaseGcConfig(..)
+, chainDatabaseGcToText
+, chainDatabaseGcFromText
+
 -- * Chainweb Configuration
 , ChainwebConfiguration(..)
 , configChainwebVersion
@@ -125,7 +130,7 @@ import Control.Concurrent.MVar (MVar, readMVar)
 import Control.Error.Util (note)
 import Control.Lens hiding ((.=), (<.>))
 import Control.Monad
-import Control.Monad.Catch (throwM)
+import Control.Monad.Catch (MonadThrow, throwM)
 import Control.Monad.Writer
 
 import Data.Bifunctor (second)
@@ -157,10 +162,6 @@ import System.LogLevel
 
 -- internal modules
 
-import qualified Pact.Types.ChainId as P
-import qualified Pact.Types.ChainMeta as P
-import qualified Pact.Types.Command as P
-
 import Chainweb.BlockHeader
 import Chainweb.BlockHeaderDB (BlockHeaderDb)
 import Chainweb.BlockHeight
@@ -169,6 +170,7 @@ import Chainweb.Chainweb.ChainResources
 import Chainweb.Chainweb.CutResources
 import Chainweb.Chainweb.MinerResources
 import Chainweb.Chainweb.PeerResources
+import Chainweb.Chainweb.PruneChainDatabase
 import Chainweb.Cut
 import Chainweb.CutDB
 import Chainweb.HostAddress
@@ -199,6 +201,10 @@ import Data.LogMessage (LogFunctionText)
 import P2P.Node.Configuration
 import P2P.Node.PeerDB (PeerDb)
 import P2P.Peer
+
+import qualified Pact.Types.ChainId as P
+import qualified Pact.Types.ChainMeta as P
+import qualified Pact.Types.Command as P
 
 -- -------------------------------------------------------------------------- --
 -- TransactionIndexConfig
@@ -266,11 +272,51 @@ instance FromJSON (ThrottlingConfig -> ThrottlingConfig) where
         <*< throttlingPeerRate ..: "putPeer" % o
         <*< throttlingLocalRate ..: "local" % o
 
---
+-- -------------------------------------------------------------------------- --
+-- Cut Coniguration
+
+data ChainDatabaseGcConfig
+    = GcNone
+    | GcHeaders
+    | GcHeadersChecked
+    | GcFull
+    deriving (Show, Eq, Ord, Enum, Bounded, Generic)
+
+chainDatabaseGcToText :: ChainDatabaseGcConfig -> T.Text
+chainDatabaseGcToText GcNone = "none"
+chainDatabaseGcToText GcHeaders = "headers"
+chainDatabaseGcToText GcHeadersChecked = "headers-checked"
+chainDatabaseGcToText GcFull = "full"
+
+chainDatabaseGcFromText :: MonadThrow m => T.Text -> m ChainDatabaseGcConfig
+chainDatabaseGcFromText t = case T.toCaseFold t of
+    "none" -> return GcNone
+    "headers" -> return GcHeaders
+    "headers-checked" -> return GcHeadersChecked
+    "full" -> return GcFull
+    x -> throwM $ TextFormatException $ "unknown value for database pruning configuration: " <> sshow x
+
+instance HasTextRepresentation ChainDatabaseGcConfig where
+    toText = chainDatabaseGcToText
+    fromText = chainDatabaseGcFromText
+    {-# INLINE toText #-}
+    {-# INLINE fromText #-}
+
+instance ToJSON ChainDatabaseGcConfig where
+    toJSON = toJSON . chainDatabaseGcToText
+    {-# INLINE toJSON #-}
+
+instance FromJSON ChainDatabaseGcConfig where
+    parseJSON v = parseJsonFromText "ChainDatabaseGcConfig" v <|> legacy v
+      where
+        legacy = withBool "ChainDatabaseGcConfig" $ \case
+            True -> return GcHeaders
+            False -> return GcNone
+    {-# INLINE parseJSON #-}
 
 data CutConfig = CutConfig
     { _cutIncludeOrigin :: !Bool
-    , _cutPruneChainDatabase :: !Bool
+    , _cutPruneChainDatabase :: !ChainDatabaseGcConfig
     , _cutFetchTimeout :: !Int
     , _cutInitialCutHeightLimit :: !(Maybe CutHeight)
     } deriving (Eq, Show)
@@ -293,9 +339,31 @@ instance FromJSON (CutConfig -> CutConfig) where
 defaultCutConfig :: CutConfig
 defaultCutConfig = CutConfig
     { _cutIncludeOrigin = True
-    , _cutPruneChainDatabase = True
+    , _cutPruneChainDatabase = GcHeaders
     , _cutFetchTimeout = 3_000_000
-    , _cutInitialCutHeightLimit = Nothing }
+    , _cutInitialCutHeightLimit = Nothing
+    }
+
+pCutConfig :: MParser CutConfig
+pCutConfig = id
+    <$< cutIncludeOrigin .:: boolOption_
+        % long "cut-include-origin"
+        <> hidden
+        <> internal
+        <> help "whether to include the origin when sending cuts"
+    <*< cutPruneChainDatabase .:: textOption
+        % long "prune-chain-database"
+        <> help
+            ( "How to prune the chain database on startup."
+            <> " Pruning headers takes about between 10s to 2min. "
+            <> " Pruning headers with full header validation (headers-checked) and full GC can take"
+            <> " a longer time (up to 10 minutes or more)."
+            )
+        <> metavar "none|headers|headers-checked|full"
+    <*< cutFetchTimeout .:: option auto
+        % long "cut-fetch-timeout"
+        <> help "The timeout for processing new cuts in microseconds"
+    -- cutInitialCutHeightLimit isn't supported on the command line
 
 -- -------------------------------------------------------------------------- --
 -- Chainweb Configuration
@@ -436,6 +504,7 @@ pChainwebConfiguration = id
     <*< configRosetta .:: boolOption_
         % long "rosetta"
         <> help "Enable the Rosetta endpoints."
+    <*< configCuts %:: pCutConfig
 
 -- -------------------------------------------------------------------------- --
 -- Chainweb Resources
@@ -574,13 +643,26 @@ withChainwebInternal
     -> (forall cas' . PayloadCasLookup cas' => Chainweb logger cas' -> IO a)
     -> IO a
 withChainwebInternal conf logger peer rocksDb pactDbDir resetDb inner = do
+
     initializePayloadDb v payloadDb
+
+    -- Garbage Collection
+    -- performed before PayloadDb and BlockHeaderDb used by other components
+    case _cutPruneChainDatabase (_configCuts conf) of
+        GcNone -> return ()
+        GcHeaders ->
+            pruneAllChains (pruningLogger "headers") rocksDb v []
+        GcHeadersChecked ->
+            pruneAllChains (pruningLogger "headers-checked") rocksDb v [CheckPayloads, CheckFull]
+        GcFull ->
+            fullGc (pruningLogger "full") rocksDb v
+
     concurrentWith
         -- initialize chains concurrently
         (\cid -> do
             let mcfg = validatingMempoolConfig cid v (_configBlockGasLimit conf)
             withChainResources v cid rocksDb peer (chainLogger cid)
-                     mcfg payloadDb prune pactDbDir pactConfig
+                     mcfg payloadDb pactDbDir pactConfig
         )
 
         -- initialize global resources after all chain resources are initialized
@@ -595,8 +677,8 @@ withChainwebInternal conf logger peer rocksDb pactDbDir resetDb inner = do
       , _pactAllowReadsInLocal = _configAllowReadsInLocal conf
       }
 
-    prune :: Bool
-    prune = _cutPruneChainDatabase $ _configCuts conf
+    pruningLogger l = addLabel ("sub-component", l)
+        $ setComponent ("database-pruning") logger
 
     cidsList :: [ChainId]
     cidsList = toList cids

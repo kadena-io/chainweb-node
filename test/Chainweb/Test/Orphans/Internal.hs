@@ -47,6 +47,7 @@ import Chainweb.BlockHeader
 import Chainweb.BlockHeight
 import Chainweb.BlockWeight
 import Chainweb.ChainId
+import Chainweb.Chainweb
 import Chainweb.Crypto.MerkleLog
 import Chainweb.Cut.Create
 import Chainweb.Difficulty
@@ -303,3 +304,10 @@ instance Arbitrary NetworkId where
 instance Arbitrary ChainId where
     arbitrary = unsafeChainId <$> arbitrary
 
+instance Arbitrary ChainDatabaseGcConfig where
+    arbitrary = elements
+        [ GcNone
+        , GcHeaders
+        , GcHeadersChecked
+        , GcFull
+        ]

@@ -41,7 +41,6 @@ module Chainweb.BlockHeader
 , BlockPayloadHash(..)
 , encodeBlockPayloadHash
 , decodeBlockPayloadHash
-, hashPayload
 
 -- * Nonce
 , Nonce(..)
@@ -118,14 +117,12 @@ import Data.Aeson
 import Data.Aeson.Types (Parser)
 import Data.Bytes.Get
 import Data.Bytes.Put
-import Data.ByteString.Char8 (ByteString)
 import Data.Function (on)
 import Data.Hashable
 import qualified Data.HashMap.Strict as HM
 import qualified Data.HashSet as HS
 import Data.Kind
 import qualified Data.Memory.Endian as BA
-import Data.MerkleLog hiding (Actual, Expected, MerkleHash)
 import Data.Serialize (Serialize(..))
 import qualified Data.Text as T
 import Data.Word
@@ -914,17 +911,6 @@ class IsBlockHeader t where
 
 instance IsBlockHeader BlockHeader where
     isoBH = id
-
--- FIXME: only for testing:
---
-hashPayload :: HasChainId p => ChainwebVersion -> p -> ByteString -> BlockPayloadHash
-hashPayload v cid b = BlockPayloadHash $ MerkleLogHash
-    $ merkleRoot $ merkleTree @(HashAlg ChainwebHashTag)
-        [ InputNode "CHAINWEB_PAYLOAD"
-        , encodeMerkleInputNode encodeChainwebVersion v
-        , encodeMerkleInputNode encodeChainId (_chainId cid)
-        , InputNode b
-        ]
 
 -- -------------------------------------------------------------------------- --
 -- Create new BlockHeader
