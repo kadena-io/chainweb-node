@@ -36,6 +36,7 @@ module Chainweb.Test.Utils
 , genesisBlockHeaderForChain
 , withToyDB
 , insertN
+, insertN_
 , prettyTree
 , normalizeTree
 , treeLeaves
@@ -135,6 +136,7 @@ import Data.Bifunctor hiding (second)
 import Data.Bytes.Get
 import Data.Bytes.Put
 import qualified Data.ByteString as B
+import Data.CAS (casKey)
 import Data.Coerce (coerce)
 import Data.Foldable
 import qualified Data.HashMap.Strict as HashMap
@@ -324,10 +326,25 @@ genesisBlockHeaderForChain v i
 
 -- | Populate a `TreeDb` with /n/ generated `BlockHeader`s.
 --
+-- Payload hashes are generated using 'testBlockPayloadFromParent_', which
+-- includes the nonce. They payloads can be recovered using
+-- 'testBlockPayload_'.
+--
 insertN :: Int -> BlockHeader -> BlockHeaderDb -> IO ()
 insertN n g db = traverse_ (unsafeInsertBlockHeaderDb db) bhs
   where
     bhs = take n $ testBlockHeaders $ ParentHeader g
+
+-- | Payload hashes are generated using 'testBlockPayloadFromParent_', which
+-- includes the nonce. They payloads can be recovered using
+-- 'testBlockPayload_'.
+--
+insertN_ :: Nonce -> Natural -> BlockHeader -> BlockHeaderDb -> IO [BlockHeader]
+insertN_ s n g db = do
+    traverse_ (unsafeInsertBlockHeaderDb db) bhs
+    return bhs
+  where
+    bhs = take (int n) $ testBlockHeadersWithNonce s $ ParentHeader g
 
 -- | Useful for terminal-based debugging. A @Tree BlockHeader@ can be obtained
 -- from any `TreeDb` via `toTree`.
@@ -411,7 +428,7 @@ header p = do
             :+: t'
             :+: _blockHash p
             :+: target
-            :+: testBlockPayload p
+            :+: casKey (testBlockPayloadFromParent (ParentHeader p))
             :+: _chainId p
             :+: BlockWeight (targetToDifficulty target) + _blockWeight p
             :+: succ (_blockHeight p)

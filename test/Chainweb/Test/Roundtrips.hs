@@ -32,6 +32,7 @@ import Chainweb.BlockHeader
 import Chainweb.BlockHeight
 import Chainweb.BlockWeight
 import Chainweb.ChainId
+import Chainweb.Chainweb
 import Chainweb.Cut.Create
 import Chainweb.Difficulty
 import Chainweb.HostAddress
@@ -156,6 +157,7 @@ jsonTestCases f =
     , testProperty "PeerId" $ f @PeerId
     , testProperty "PeerInfo" $ f @PeerInfo
     , testProperty "NetworkId" $ f @NetworkId
+    , testProperty "ChainDatabaseGcConfig" $ f @ChainDatabaseGcConfig
 
     , testProperty "BlockPayloadHash" $ f @BlockPayloadHash
     , testProperty "BlockTransactionsHash" $ f @BlockTransactionsHash
@@ -256,4 +258,5 @@ hasTextRepresentationTests = testGroup "HasTextRepresentation roundtrips"
     , testProperty "P2pNetworkId" $ prop_iso' @_ @NetworkId fromText toText
     , testProperty "Transaction" $ prop_iso' @_ @Transaction fromText toText
     , testProperty "TransactionOutput" $ prop_iso' @_ @TransactionOutput fromText toText
+    , testProperty "ChainDatabaseGcConfig" $ prop_iso' @_ @ChainDatabaseGcConfig fromText toText
     ]
