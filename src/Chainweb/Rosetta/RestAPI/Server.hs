@@ -18,6 +18,7 @@ module Chainweb.Rosetta.RestAPI.Server where
 
 
 import Control.Error.Util
+import Data.EitherR (fmapLT)
 import Control.Monad (void, (<$!>))
 import Control.Monad.IO.Class
 import Control.Monad.Trans.Class
@@ -186,24 +187,30 @@ blockTransactionH
     -> [(ChainId, ChainResources a)]
     -> BlockTransactionReq
     -> Handler BlockTransactionResp
-blockTransactionH v cutDb ps crs (BlockTransactionReq net bid t) =
-  runExceptT work >>= either throwRosetta pure
+blockTransactionH v cutDb ps crs (BlockTransactionReq net bid t) = do
+  runExceptT work >>= either throwRosettaError pure
   where
     BlockId bheight bhash = bid
     TransactionId rtid = t
 
-    work :: ExceptT RosettaFailure Handler BlockTransactionResp
-    work = do
-      cid <- validateNetwork v net
-      cr <- lookup cid crs ?? RosettaInvalidChain
-      payloadDb <- lookup cid ps ?? RosettaInvalidChain
-      bh <- findBlockHeaderInCurrFork cutDb cid (Just bheight) (Just bhash)
-      rkTarget <- (hush $ fromText' rtid) ?? RosettaUnparsableTransactionId
-      (coinbase, txs) <- getBlockOutputs payloadDb bh
-      logs <- getTxLogs (_chainResPact cr) bh
+    hoistRosettaError details w = fmapLT annotate w
+      where details' = case details of
+              Nothing -> Nothing
+              Just p -> Just $ HM.fromList p
+            annotate e = rosettaError e details'
 
-      tran <- hoistEither $ matchLogs
-              (SingleLog rkTarget) bh logs coinbase txs
+    work :: ExceptT RosettaError Handler BlockTransactionResp
+    work = do
+      cid <- hoistRosettaError Nothing (validateNetwork v net)
+      cr <- lookup cid crs ?? (rosettaError RosettaInvalidChain Nothing)
+      payloadDb <- lookup cid ps ?? (rosettaError RosettaInvalidChain Nothing)
+      bh <- hoistRosettaError Nothing $ findBlockHeaderInCurrFork cutDb cid (Just bheight) (Just bhash)
+      rkTarget <- (hush $ fromText' rtid) ?? (rosettaError RosettaUnparsableTransactionId Nothing)
+      (coinbase, txs) <- hoistRosettaError Nothing $ getBlockOutputs payloadDb bh
+      logs <- hoistRosettaError Nothing $ getTxLogs (_chainResPact cr) bh
+
+      tran <- hoistRosettaError (Just ["txId" .= t, "block-txs" .= txs, "block-height" .= _blockHeight bh])
+              $ hoistEither $ (matchLogs (SingleLog rkTarget) bh logs coinbase txs)
 
       pure $ BlockTransactionResp tran
 

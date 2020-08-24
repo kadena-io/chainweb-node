@@ -42,6 +42,7 @@ import Pact.Types.Command
 import Chainweb.Graph
 import Chainweb.Pact.Utils (aeson)
 import Chainweb.Rosetta.RestAPI
+import Chainweb.Rosetta.Internal (remediation20ChainRequestKey)
 import Chainweb.Rosetta.Utils
 import Chainweb.Test.Pact.Utils
 import Chainweb.Test.RestAPI.Utils
@@ -177,12 +178,13 @@ blockTransactionTests tio envIo =
   where
     mkTxReq rkmv prs = do
       rk <- NEL.head . _rkRequestKeys <$> takeMVar rkmv
+      let rkRem = remediation20ChainRequestKey
       meta <- extractMetadata rk prs
       bh <- meta ^?! mix "blockHeight"
       bhash <- meta ^?! mix "blockHash"
 
       let bid = BlockId bh bhash
-          tid = rkToTransactionId rk
+          tid = rkToTransactionId rkRem
 
       return $ BlockTransactionReq nid bid tid
 

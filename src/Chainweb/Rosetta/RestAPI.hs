@@ -41,6 +41,7 @@ module Chainweb.Rosetta.RestAPI
   , RosettaFailure(..)
   , rosettaError
   , throwRosetta
+  , throwRosettaError
   , validateNetwork
   ) where
 
@@ -281,6 +282,8 @@ rosettaError RosettaInvalidAccountKey = RosettaError 22 "Invalid AccountId addre
 throwRosetta :: RosettaFailure -> Handler a
 throwRosetta e = throwError err500 { errBody = encode $ rosettaError e Nothing }
 
+throwRosettaError :: RosettaError -> Handler a
+throwRosettaError e = throwError err500 { errBody = encode e }
 
 -- | Every Rosetta request that requires a `NetworkId` also requires a
 -- `SubNetworkId`, at least in the case of Chainweb.
