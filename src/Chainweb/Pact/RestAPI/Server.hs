@@ -474,7 +474,7 @@ validateRequestKey (RequestKey h'@(Hash h))
     | otherwise = throwError err400
       { errBody = "Request Key "
         <> keyString
-        <> " has incorrect hash length of "
+        <> " has incorrect hash of length "
         <> BSL8.pack (show keyLength)
       }
   where
