@@ -921,6 +921,7 @@ getBranchIncreasing
     -> IO a
 getBranchIncreasing db e r inner
     | r > rank e = inner $ return ()
+    | r == rank e = inner $ S.yield e
     | otherwise = go
   where
     go = entries db Nothing Nothing (Just $ int r) (Just $ int (rank e - 1)) $ \s ->
@@ -964,7 +965,7 @@ getBranchIncreasing db e r inner
     streamResults :: [[DbEntry db]] -> S.Stream (Of (DbEntry db)) IO ()
     streamResults [] = liftIO $ throwM $ InternalInvariantViolation
         "TreeDB.getBranchIncreasing: streamResults can't be empty. This is a bug"
-    streamResults [x] = S.each x
+    streamResults [x] = S.each $ reverse x
     streamResults _ = return ()
 
 -- -------------------------------------------------------------------------- --
