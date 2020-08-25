@@ -73,6 +73,7 @@ module Chainweb.Utils
 , runGet
 , runPut
 , runGetEither
+, eof
 
 -- ** Codecs
 , Codec(..)
@@ -441,14 +442,14 @@ instance Exception EncodingException
 -- 'DecodeException' is thrown.
 --
 runGet :: MonadThrow m => Get a -> B.ByteString -> m a
-runGet g = fromEitherM . runGetEither g
+runGet g = fromEitherM . runGetEither (g <* eof)
 {-# INLINE runGet #-}
 
 -- | Decode a value from a 'B.ByteString' and return either the result or a
 -- 'DecodeException'.
 --
 runGetEither :: Get a -> B.ByteString -> Either EncodingException a
-runGetEither g = first (DecodeException . T.pack) . runGetS g
+runGetEither g = first (DecodeException . T.pack) . runGetS (g <* eof)
 {-# INLINE runGetEither #-}
 
 -- | Encode a value into a 'B.ByteString'.
@@ -456,6 +457,10 @@ runGetEither g = first (DecodeException . T.pack) . runGetS g
 runPut :: Put -> B.ByteString
 runPut = runPutS
 {-# INLINE runPut #-}
+
+eof :: MonadFail m => MonadGet m => m ()
+eof = unlessM isEmpty $ fail "pending bytes in input"
+{-# INLINE eof #-}
 
 -- -------------------------------------------------------------------------- --
 -- ** Text
