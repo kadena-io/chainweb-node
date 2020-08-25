@@ -83,6 +83,7 @@ import Control.Monad.Catch
 import Control.Monad.Trans
 
 import Data.Aeson
+import Data.Foldable
 import Data.Function
 import Data.Functor.Of
 import Data.Graph
@@ -90,6 +91,7 @@ import Data.Hashable
 import qualified Data.HashSet as HS
 import Data.Kind
 import qualified Data.List as L
+import qualified Data.List.NonEmpty as NE
 import Data.Maybe (fromMaybe)
 import Data.Semigroup
 import qualified Data.Text as T
@@ -894,9 +896,9 @@ seekAncestor db h r
 --
 -- /NOTE:/
 --
--- This space complexity of this \(O(1 + f * n)\), where \(f\) is the length of
+-- This space complexity of this \(O(1 + f * n)\), where \(f\) is the depth of
 -- the largest fork in the database and \(n\) is the number of concurrent forks
--- in the database. The size of the largest fork is the number of blocks on the
+-- in the database. The depth of the largest fork is the number of blocks on the
 -- shorter branch from the fork point onward.
 --
 -- The worst case complexity is thus worse than for 'reverse . branchDiff',
@@ -928,45 +930,59 @@ getBranchIncreasing db e r inner
         (s >> S.yield e)
             & S.groupBy ((==) `on` rank)
             & S.mapped S.toList
-            & S.scan goRank [] id
-            & S.drop 1 -- skip the initial scan state of []
-            & flip S.for streamResults
+            & S.scan (goRank . fst) ([], []) snd
+            & flip S.for S.each
             & inner
 
     -- Fold over all ranks of the db: track all branches that exist at
     -- each rank.
     --
     goRank
-        :: [[DbEntry db]]
+        :: [Branch (DbEntry db)]
             -- ^ currently active branches
-            --
-            -- This must be empty only at the very beginning. If this becomes
-            -- empty later on something is wrong. This case is caught in
-            -- 'streamResults' below.
-            --
         -> [DbEntry db]
             -- ^ entries at current rank
-        -> [[DbEntry db]]
+        -> ([Branch (DbEntry db)], [DbEntry db])
             -- ^ new active branches
-    goRank [] new = pure <$> new -- initial case
-    goRank [_] new = pure <$> new -- after a singleton we start over
-    goRank actives new =
-        [ n : a | n <- new, a@(h:_) <- actives, parent n == Just (key h) ]
-            -- complexity is quadratic in the number active branches, which is
-            -- acceptable for an healthy chain database. The expected number of
-            -- branches is small and doesn't justify the use of a more complex
-            -- set data structure. In most cases @actives@ and @new@ are
-            -- singleton lists.
-            --
-            -- Note that active branches can't be empty
+    goRank actives new = case extendActives actives new of
+        [Branch _ a] -> ([], L.reverse $ toList a)
+        Branch l0 a0 : bs@(Branch l1 _ : _)
+            -- Invariant: `length l1 >= 1` and, thus, length keep >= 1`
+            | l0 > l1, (keep, yield) <- NE.splitAt l1 a0 ->
+                (Branch l1 (NE.fromList keep) : bs, L.reverse $ toList yield)
+        as -> (as, [])
 
-    -- If new active branches are a singleton its content is "released" into the
-    --
-    streamResults :: [[DbEntry db]] -> S.Stream (Of (DbEntry db)) IO ()
-    streamResults [] = liftIO $ throwM $ InternalInvariantViolation
-        "TreeDB.getBranchIncreasing: streamResults can't be empty. This is a bug"
-    streamResults [x] = S.each $ reverse x
-    streamResults _ = return ()
+-- | Data type for keeping track of active branches
+--
+-- For long forks, it may be more efficient to use a stream or a dlist instead
+-- of a list that must be reversed. However, it is is not clear (1.) what the
+-- overhead is, given that most forks are very short and (2.) how efficient
+-- 'splitAt' is for dlist or stream.
+--
+data Branch a = Branch Int (NE.NonEmpty a)
+
+newBranch :: a -> Branch a
+newBranch = Branch 1 . pure
+
+extendBranch :: Branch a -> a -> Branch a
+extendBranch (Branch l as) n = Branch (l + 1) (NE.cons n as)
+
+matchBranch :: TreeDbEntry e => Branch e -> e -> Bool
+matchBranch (Branch _ (h NE.:| _)) n = parent n == Just (key h)
+
+-- | Extend active branches and sort by length in descending order
+--
+-- complexity is quadratic in the number active branches, which is acceptable
+-- for an healthy chain database. The expected number of branches is small and
+-- doesn't justify the use of a more complex set data structure. In most cases
+-- @actives@ and @new@ are singleton lists.
+--
+-- Note that active branches can't be empty
+--
+extendActives :: TreeDbEntry a => [Branch a] -> [a] -> [Branch a]
+extendActives [] new = newBranch <$> new
+extendActives actives new = L.sortOn (\(Branch l _) -> negate l)
+    [ extendBranch as n | n <- new, as <- actives, matchBranch as n ]
 
 -- -------------------------------------------------------------------------- --
 -- Membership Queries
