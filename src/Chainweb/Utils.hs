@@ -458,7 +458,7 @@ runPut :: Put -> B.ByteString
 runPut = runPutS
 {-# INLINE runPut #-}
 
-eof :: MonadFail m => MonadGet m => m ()
+eof :: Get ()
 eof = unlessM isEmpty $ fail "pending bytes in input"
 {-# INLINE eof #-}
 
