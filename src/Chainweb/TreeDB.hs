@@ -935,18 +935,28 @@ getBranchIncreasing db e r inner
             & inner
 
     -- Fold over all ranks of the db: track all branches that exist at
-    -- each rank.
+    -- each rank and return entries on the main branch that are yielded
+    -- to the result stream.
     --
+    -- When an active branch becomes longer than all other active branches
+    -- it means that it contains values at ranks for which no other active branch
+    -- exists -if there were branches at those levels, those have died off- and the
+    -- unique entries at those level are yielded to the result stream.
     goRank
         :: [Branch (DbEntry db)]
             -- ^ currently active branches
         -> [DbEntry db]
             -- ^ entries at current rank
         -> ([Branch (DbEntry db)], [DbEntry db])
-            -- ^ new active branches
+            -- ^ new active branches and entries that are yielded to the result stream
     goRank actives new = case extendActives actives new of
         [Branch _ a] -> ([], L.reverse $ toList a)
         Branch l0 a0 : bs@(Branch l1 _ : _)
+            -- active branches are sorted by length in decreasing order. If the first branch
+            -- is longer than the second branch it is also longer than all other branches.
+            -- That means that its entries at the lowest ranks are unique for their rank and 
+            -- can be yielded to the result stream.
+            --
             -- Invariant: `length l1 >= 1` and, thus, length keep >= 1`
             | l0 > l1, (keep, yield) <- NE.splitAt l1 a0 ->
                 (Branch l1 (NE.fromList keep) : bs, L.reverse $ toList yield)
@@ -1034,4 +1044,3 @@ onLongestBranch
 onLongestBranch db h = do
     th <- maxEntry db
     ancestorOfEntry db h th
-
