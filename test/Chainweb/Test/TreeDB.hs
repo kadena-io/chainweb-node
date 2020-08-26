@@ -97,7 +97,6 @@ treeDbInvariants f rs = testGroup "TreeDb Invariants"
 
 -- | Sugar for producing a populated `TreeDb` from a `Tree`.
 --
-
 withTreeDb
     :: TreeDb db
     => Testable prop
