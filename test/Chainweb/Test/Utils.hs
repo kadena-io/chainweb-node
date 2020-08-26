@@ -74,7 +74,10 @@ module Chainweb.Test.Utils
 -- * QuickCheck Properties
 , prop_iso
 , prop_iso'
+, prop_encodeDecode
 , prop_encodeDecodeRoundtrip
+, prop_decode_failPending
+, prop_decode_failMissing
 
 -- * Expectations
 , assertExpectation
@@ -129,17 +132,16 @@ import Control.Monad
 import Control.Monad.Catch (MonadThrow, finally)
 import Control.Monad.IO.Class
 
-import qualified Data.ByteString.Lazy as BL
 import Data.Aeson (FromJSON, ToJSON)
 import Data.Bifunctor hiding (second)
 import Data.Bytes.Get
 import Data.Bytes.Put
 import qualified Data.ByteString as B
+import qualified Data.ByteString.Lazy as BL
 import Data.CAS (casKey)
 import Data.Coerce (coerce)
 import Data.Foldable
 import qualified Data.HashMap.Strict as HashMap
-import Data.List (sortOn,isInfixOf)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
 import Data.Tree
@@ -165,16 +167,18 @@ import System.IO.Temp
 import System.LogLevel
 import System.Random (randomIO)
 
-import Test.QuickCheck.Property (Property, Testable, (===))
 import Test.QuickCheck.Arbitrary
 import Test.QuickCheck.Gen
+import Test.QuickCheck.Property (Property, Testable, (===))
 import Test.QuickCheck.Random (mkQCGen)
 import Test.Tasty
 import Test.Tasty.Golden
 import Test.Tasty.HUnit
-import Test.Tasty.QuickCheck (testProperty)
+import Test.Tasty.QuickCheck (testProperty, property, discard, (.&&.))
 
 import Text.Printf (printf)
+
+import Data.List (sortOn,isInfixOf)
 
 -- internal modules
 
@@ -750,6 +754,18 @@ prop_iso'
     -> Property
 prop_iso' d e a = Right a === first show (d (e a))
 
+prop_encodeDecode
+    :: Eq a
+    => Show a
+    => (forall m . MonadGet m => m a)
+    -> (forall m . MonadPut m => a -> m ())
+    -> a
+    -> Property
+prop_encodeDecode d e a
+    = prop_encodeDecodeRoundtrip d e a
+    .&&. prop_decode_failPending d e a
+    .&&. prop_decode_failMissing d e a
+
 prop_encodeDecodeRoundtrip
     :: Eq a
     => Show a
@@ -757,7 +773,34 @@ prop_encodeDecodeRoundtrip
     -> (forall m . MonadPut m => a -> m ())
     -> a
     -> Property
-prop_encodeDecodeRoundtrip d e = prop_iso' (runGetEither d) (runPutS . e)
+prop_encodeDecodeRoundtrip d e =
+    prop_iso' (runGetEither d) (runPutS . e)
+
+prop_decode_failPending
+    :: Eq a
+    => Show a
+    => (forall m . MonadGet m => m a)
+    -> (forall m . MonadPut m => a -> m ())
+    -> a
+    -> Property
+prop_decode_failPending d e a = case runGetEither d (runPutS (e a) <> "a") of
+    Left _ -> property True
+    Right _ -> property False
+
+prop_decode_failMissing
+    :: Eq a
+    => Show a
+    => (forall m . MonadGet m => m a)
+    -> (forall m . MonadPut m => a -> m ())
+    -> a
+    -> Property
+prop_decode_failMissing d e a
+    | B.null x = discard
+    | otherwise = case runGetEither d $ B.init x of
+        Left _ -> property True
+        Right _ -> property False
+  where
+    x = runPutS $ e a
 
 -- -------------------------------------------------------------------------- --
 -- Expectations
