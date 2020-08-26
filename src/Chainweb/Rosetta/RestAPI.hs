@@ -23,8 +23,20 @@ module Chainweb.Rosetta.RestAPI
   , rosettaBlockTransactionApi
   , RosettaBlockApi
   , rosettaBlockApi
+  , RosettaConstructionDeriveApi
+  , rosettaConstructionDeriveApi
+  , RosettaConstructionPreprocessApi
+  , rosettaConstructionPreprocessApi
   , RosettaConstructionMetadataApi
   , rosettaConstructionMetadataApi
+  , RosettaConstructionPayloadsApi
+  , rosettaConstructionPayloadsApi
+  , RosettaConstructionParseApi
+  , rosettaConstructionParseApi
+  , RosettaConstructionCombineApi
+  , rosettaConstructionCombineApi
+  , RosettaConstructionHashApi
+  , rosettaConstructionHashApi
   , RosettaConstructionSubmitApi
   , rosettaConstructionSubmitApi
   , RosettaMempoolTransactionApi
@@ -76,7 +88,13 @@ type RosettaApi_ = "rosetta" :>
     :<|> RosettaBlockTransactionApi_
     :<|> RosettaBlockApi_
       -- Construction --
+    :<|> RosettaConstructionDeriveApi_
+    :<|> RosettaConstructionPreprocessApi_
     :<|> RosettaConstructionMetadataApi_
+    :<|> RosettaConstructionPayloadsApi_
+    :<|> RosettaConstructionParseApi_
+    :<|> RosettaConstructionCombineApi_
+    :<|> RosettaConstructionHashApi_
     :<|> RosettaConstructionSubmitApi_
       -- Mempool --
     :<|> RosettaMempoolTransactionApi_
@@ -103,8 +121,14 @@ type RosettaApiEndpoint (v :: ChainwebVersionT) api
 type RosettaAccountBalanceApi v = RosettaApiEndpoint v RosettaAccountBalanceApi_
 type RosettaBlockTransactionApi v = RosettaApiEndpoint v RosettaBlockTransactionApi_
 type RosettaBlockApi v = RosettaApiEndpoint v RosettaBlockApi_
-type RosettaConstructionSubmitApi v = RosettaApiEndpoint v RosettaConstructionSubmitApi_
+type RosettaConstructionDeriveApi v = RosettaApiEndpoint v RosettaConstructionDeriveApi_
+type RosettaConstructionPreprocessApi v = RosettaApiEndpoint v RosettaConstructionPreprocessApi_
 type RosettaConstructionMetadataApi v = RosettaApiEndpoint v RosettaConstructionMetadataApi_
+type RosettaConstructionPayloadsApi v = RosettaApiEndpoint v RosettaConstructionPayloadsApi_
+type RosettaConstructionParseApi v = RosettaApiEndpoint v RosettaConstructionParseApi_
+type RosettaConstructionCombineApi v = RosettaApiEndpoint v RosettaConstructionCombineApi_
+type RosettaConstructionHashApi v = RosettaApiEndpoint v RosettaConstructionHashApi_
+type RosettaConstructionSubmitApi v = RosettaApiEndpoint v RosettaConstructionSubmitApi_
 type RosettaMempoolTransactionApi v = RosettaApiEndpoint v RosettaMempoolTransactionApi_
 type RosettaMempoolApi v = RosettaApiEndpoint v RosettaMempoolApi_
 type RosettaNetworkListApi v = RosettaApiEndpoint v RosettaNetworkListApi_
@@ -128,11 +152,47 @@ type RosettaBlockApi_
     :> ReqBody '[JSON] BlockReq
     :> Post '[JSON] BlockResp
 
+type RosettaConstructionDeriveApi_
+    = "construction"
+    :> "derive"
+    :> ReqBody '[JSON] ConstructionDeriveReq
+    :> Post '[JSON] ConstructionDeriveResp
+
+type RosettaConstructionPreprocessApi_
+    = "construction"
+    :> "preprocess"
+    :> ReqBody '[JSON] ConstructionPreprocessReq
+    :> Post '[JSON] ConstructionPreprocessResp
+
 type RosettaConstructionMetadataApi_
     = "construction"
     :> "metadata"
     :> ReqBody '[JSON] ConstructionMetadataReq
     :> Post '[JSON] ConstructionMetadataResp
+
+type RosettaConstructionPayloadsApi_
+    = "construction"
+    :> "payloads"
+    :> ReqBody '[JSON] ConstructionPayloadsReq
+    :> Post '[JSON] ConstructionPayloadsResp
+
+type RosettaConstructionParseApi_
+    = "construction"
+    :> "parse"
+    :> ReqBody '[JSON] ConstructionParseReq
+    :> Post '[JSON] ConstructionParseResp
+
+type RosettaConstructionCombineApi_
+    = "construction"
+    :> "combine"
+    :> ReqBody '[JSON] ConstructionCombineReq
+    :> Post '[JSON] ConstructionCombineResp
+
+type RosettaConstructionHashApi_
+    = "construction"
+    :> "hash"
+    :> ReqBody '[JSON] ConstructionHashReq
+    :> Post '[JSON] TransactionIdResp
 
 type RosettaConstructionSubmitApi_
     = "construction"
@@ -184,10 +244,40 @@ rosettaBlockApi
     . Proxy (RosettaBlockApi v)
 rosettaBlockApi = Proxy
 
+rosettaConstructionDeriveApi
+    :: forall (v :: ChainwebVersionT)
+    . Proxy (RosettaConstructionDeriveApi v)
+rosettaConstructionDeriveApi = Proxy
+
+rosettaConstructionPreprocessApi
+    :: forall (v :: ChainwebVersionT)
+    . Proxy (RosettaConstructionPreprocessApi v)
+rosettaConstructionPreprocessApi = Proxy
+
 rosettaConstructionMetadataApi
     :: forall (v :: ChainwebVersionT)
     . Proxy (RosettaConstructionMetadataApi v)
 rosettaConstructionMetadataApi = Proxy
+
+rosettaConstructionPayloadsApi
+    :: forall (v :: ChainwebVersionT)
+    . Proxy (RosettaConstructionPayloadsApi v)
+rosettaConstructionPayloadsApi = Proxy
+
+rosettaConstructionParseApi
+    :: forall (v :: ChainwebVersionT)
+    . Proxy (RosettaConstructionParseApi v)
+rosettaConstructionParseApi = Proxy
+
+rosettaConstructionCombineApi
+    :: forall (v :: ChainwebVersionT)
+    . Proxy (RosettaConstructionCombineApi v)
+rosettaConstructionCombineApi = Proxy
+
+rosettaConstructionHashApi
+    :: forall (v :: ChainwebVersionT)
+    . Proxy (RosettaConstructionHashApi v)
+rosettaConstructionHashApi = Proxy
 
 rosettaConstructionSubmitApi
     :: forall (v :: ChainwebVersionT)
@@ -222,7 +312,6 @@ rosettaNetworkStatusApi = Proxy
 -- ------------------------------------------------------------------ --
 -- Rosetta Exceptions
 
--- TODO: Investigate if Rosetta Erros can be dynamic
 data RosettaFailure
     = RosettaChainUnspecified
     | RosettaInvalidChain

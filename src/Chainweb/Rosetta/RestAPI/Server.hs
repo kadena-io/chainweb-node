@@ -86,7 +86,13 @@ rosettaServer v ps ms peerDb cutDb cr =
     :<|> blockTransactionH v cutDb ps cr
     :<|> blockH v cutDb ps cr
     -- Construction --
+    :<|> constructionDeriveH v
+    :<|> constructionPreprocessH v
     :<|> constructionMetadataH v
+    :<|> constructionPayloadsH v
+    :<|> constructionParseH v
+    :<|> constructionCombineH v
+    :<|> constructionHashH v
     :<|> constructionSubmitH v ms
     -- Mempool --
     :<|> mempoolTransactionH v ms
@@ -218,6 +224,18 @@ blockTransactionH v cutDb ps crs (BlockTransactionReq net bid t) = do
 --------------------------------------------------------------------------------
 -- Construction Handlers
 
+constructionDeriveH
+    :: ChainwebVersion
+    -> ConstructionDeriveReq
+    -> Handler ConstructionDeriveResp
+constructionDeriveH = undefined
+
+constructionPreprocessH
+    :: ChainwebVersion
+    -> ConstructionPreprocessReq
+    -> Handler ConstructionPreprocessResp
+constructionPreprocessH = undefined
+
 constructionMetadataH
     :: ChainwebVersion
     -> ConstructionMetadataReq
@@ -230,6 +248,30 @@ constructionMetadataH v (ConstructionMetadataReq net _) =
     work = do
         void $ validateNetwork v net
         pure $ ConstructionMetadataResp HM.empty Nothing
+
+constructionPayloadsH
+    :: ChainwebVersion
+    -> ConstructionPayloadsReq
+    -> Handler ConstructionPayloadsResp
+constructionPayloadsH = undefined
+
+constructionParseH
+    :: ChainwebVersion
+    -> ConstructionParseReq
+    -> Handler ConstructionParseResp
+constructionParseH = undefined
+
+constructionCombineH
+    :: ChainwebVersion
+    -> ConstructionCombineReq
+    -> Handler ConstructionCombineResp
+constructionCombineH = undefined
+
+constructionHashH
+    :: ChainwebVersion
+    -> ConstructionHashReq
+    -> Handler TransactionIdResp
+constructionHashH = undefined
 
 constructionSubmitH
     :: ChainwebVersion
