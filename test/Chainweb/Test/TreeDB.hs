@@ -97,8 +97,6 @@ treeDbInvariants f rs = testGroup "TreeDb Invariants"
 
 -- | Sugar for producing a populated `TreeDb` from a `Tree`.
 --
--- withTreeDb :: TreeDb db => WithTestDb db -> Tree (DbEntry db) -> (db -> Insert db -> IO Bool) -> IO Bool
--- withTreeDb f t g = f (rootLabel t) $ \db insert -> insert db (toList t) *> g db insert
 
 withTreeDb
     :: TreeDb db
@@ -377,4 +375,3 @@ prop_getBranchIncreasing_parents f (SparseTree t0) = forAll (int <$> choose (0,m
   where
     m = length $ levels t0
     t = fmap (^. from isoBH) t0
-
