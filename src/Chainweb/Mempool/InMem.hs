@@ -64,7 +64,7 @@ import System.Random
 import Chainweb.BlockHash
 import Chainweb.BlockHeight
 import Chainweb.Logger
-import Chainweb.Mempool.CurrentTxIndex
+import Chainweb.Mempool.CurrentTxs
 import Chainweb.Mempool.InMemTypes
 import Chainweb.Mempool.Mempool
 import Chainweb.Pact.Utils (maxTTL)
@@ -100,7 +100,7 @@ newInMemMempoolData =
                         <*> newIORef mempty
                         <*> newIORef emptyRecentLog
                         <*> newIORef mempty
-                        <*> newIORef newCurrentTxIdx
+                        <*> newIORef newCurrentTxs
 
 
 ------------------------------------------------------------------------------
@@ -242,12 +242,12 @@ markValidatedInMem logger tcfg lock txs = withMVarMasked lock $ \mdata -> do
     -- with some false negatives, which means that the mempool would use more
     -- resources for pending txs.
     --
-    let curTxIdxRef = _inmemCurrentTxIdx mdata
+    let curTxIdxRef = _inmemCurrentTxs mdata
     logg Info $ "mark " <> sshow (length (V.zip expiries hashes)) <> " txs as validated"
     x <- readIORef curTxIdxRef
-    logg Info $ "previous current tx index size: " <> sshow (currentTxIdxSize x)
-    x' <- flip currentTxIdxInsertBatch (V.zip expiries hashes) x
-    logg Info $ "new current tx index size: " <> sshow (currentTxIdxSize x')
+    logg Info $ "previous current tx index size: " <> sshow (currentTxsSize x)
+    x' <- flip currentTxsInsertBatch (V.zip expiries hashes) x
+    logg Info $ "new current tx index size: " <> sshow (currentTxsSize x')
     writeIORef curTxIdxRef x'
   where
     hashes = txHasher tcfg <$> txs
@@ -302,7 +302,7 @@ insertCheckInMem cfg lock txs
   | otherwise = do
     now <- getCurrentTimeIntegral
     badmap <- withMVarMasked lock $ readIORef . _inmemBadMap
-    curTxIdx <- withMVarMasked lock $ readIORef . _inmemCurrentTxIdx
+    curTxIdx <- withMVarMasked lock $ readIORef . _inmemCurrentTxs
 
     -- We hash the tx here and pass it around around to avoid needing to repeat
     -- the hashing effort.
@@ -325,7 +325,7 @@ validateOne
     .  NFData t
     => InMemConfig t
     -> HashMap TransactionHash a
-    -> CurrentTxIdx
+    -> CurrentTxs
     -> Time Micros
     -> t
     -> TransactionHash
@@ -372,7 +372,7 @@ validateOne cfg badmap curTxIdx now t h =
 
     notDuplicate :: Either InsertError ()
     notDuplicate
-        | currentTxIdxMember curTxIdx expiry h = Left InsertErrorDuplicate
+        | currentTxsMember curTxIdx expiry h = Left InsertErrorDuplicate
         | otherwise = Right ()
 
 -- | Check the TTL of a transaction.
@@ -398,7 +398,7 @@ insertCheckInMem' cfg lock txs
   | otherwise = do
     now <- getCurrentTimeIntegral
     badmap <- withMVarMasked lock $ readIORef . _inmemBadMap
-    curTxIdx <- withMVarMasked lock $ readIORef . _inmemCurrentTxIdx
+    curTxIdx <- withMVarMasked lock $ readIORef . _inmemCurrentTxs
 
     let withHashes :: Vector (T2 TransactionHash t)
         withHashes = flip V.mapMaybe txs $ \tx ->
@@ -683,7 +683,7 @@ getMempoolStats m = do
         <$!> (HashMap.size <$!> readIORef (_inmemPending d))
         <*> (length . _rlRecent <$!> readIORef (_inmemRecentLog d))
         <*> (HashMap.size <$!> readIORef (_inmemBadMap d))
-        <*> (currentTxIdxSize <$!> readIORef (_inmemCurrentTxIdx d))
+        <*> (currentTxsSize <$!> readIORef (_inmemCurrentTxs d))
 
 ------------------------------------------------------------------------------
 -- | Prune the mempool's pending map and badmap.

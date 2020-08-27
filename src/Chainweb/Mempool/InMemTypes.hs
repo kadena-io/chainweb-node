@@ -40,7 +40,7 @@ import Pact.Types.Gas (GasPrice(..))
 
 -- internal imports
 
-import Chainweb.Mempool.CurrentTxIndex
+import Chainweb.Mempool.CurrentTxs
 import Chainweb.Mempool.Mempool
 import Chainweb.Time (Micros(..), Time(..))
 
@@ -97,7 +97,7 @@ data InMemoryMempoolData t = InMemoryMempoolData {
     -- known to be bad. Those must not be attempted again because the user would
     -- possibly have to pay gas for it several times.
 
-  , _inmemCurrentTxIdx :: !(IORef CurrentTxIdx)
+  , _inmemCurrentTxs :: !(IORef CurrentTxs)
     -- ^ The set of non-expired transactions that have been addeded to a block.
     -- Transactions are remove from the set of pending transactions when they
     -- are added to a block. This set is used to prevent transactions from being
@@ -117,7 +117,7 @@ data MempoolStats = MempoolStats
     { _mStatsPendingCount :: {-# UNPACK #-} !Int
     , _mStatsRecentCount :: {-# UNPACK #-} !Int
     , _mStatsBadlistCount :: {-# UNPACK #-} !Int
-    , _mStatsCurrentTxIdxCount :: {-# UNPACK #-} !Int
+    , _mStatsCurrentTxsCount :: {-# UNPACK #-} !Int
     }
     deriving (Show, Eq, Ord, Generic)
     deriving anyclass (ToJSON, NFData)

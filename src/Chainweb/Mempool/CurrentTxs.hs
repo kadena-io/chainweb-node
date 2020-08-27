@@ -3,7 +3,7 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 
 -- |
--- Module: Chainweb.Mempool.CurrentTxIndex
+-- Module: Chainweb.Mempool.CurrentTxs
 -- Copyright: Copyright © 2020 Kadena LLC.
 -- License: MIT
 -- Maintainer: Lars Kuhtz <lars@kadena.io>
@@ -12,7 +12,7 @@
 -- A probabilistic index for non-expired transactions.
 --
 -- The false positive rate is very low. False negatives rate is 0 when the
--- number of entries is smaller than 'maxCurrentTxIdxSize' and grows with each
+-- number of entries is smaller than 'maxCurrentTxsSize' and grows with each
 -- entry beyond that size.
 --
 -- The purpose of this data structure is to allow the mempool to keep track of
@@ -23,14 +23,14 @@
 -- pact service during new block validation once it has been included in another
 -- block.
 --
-module Chainweb.Mempool.CurrentTxIndex
-( CurrentTxIdx
-, newCurrentTxIdx
-, currentTxIdxSize
-, currentTxIdxInsert
-, currentTxIdxInsertBatch
-, currentTxIdxMember
-, currentTxIdxRemove
+module Chainweb.Mempool.CurrentTxs
+( CurrentTxs
+, newCurrentTxs
+, currentTxsSize
+, currentTxsInsert
+, currentTxsInsertBatch
+, currentTxsMember
+, currentTxsRemove
 ) where
 
 import qualified Data.ByteString as B
@@ -59,8 +59,8 @@ import Chainweb.Utils
 --
 -- 16 MB ~ 1000000 entries
 --
-maxCurrentTxIdxSize :: Natural
-maxCurrentTxIdxSize = 1024 * 1024
+maxCurrentTxsSize :: Natural
+maxCurrentTxsSize = 1024 * 1024
 
 -- -------------------------------------------------------------------------- --
 -- Keys
@@ -70,86 +70,86 @@ maxCurrentTxIdxSize = 1024 * 1024
 -- to make collisions very unlikely. In the rare event of an collision, the
 -- mempool may ignore some legitimate txs.
 --
-data CurrentTxIdxKey = CurrentTxIdxKey
-    { _currentTxIdxExpiration :: {-# UNPACK #-} !(Time Micros)
-    , _currentTxIdxKey :: {-# UNPACK #-} !BS.ShortByteString
+data CurrentTxsKey = CurrentTxsKey
+    { _currentTxsExpiration :: {-# UNPACK #-} !(Time Micros)
+    , _currentTxsKey :: {-# UNPACK #-} !BS.ShortByteString
     }
     deriving (Show, Eq, Ord)
 
-getCurrentTxIdxKey :: Time Micros -> TransactionHash -> CurrentTxIdxKey
-getCurrentTxIdxKey expiry h = CurrentTxIdxKey
-    { _currentTxIdxExpiration = expiry
-    , _currentTxIdxKey = BS.toShort $ B.take 8 $ BS.fromShort $ unTransactionHash h
+getCurrentTxsKey :: Time Micros -> TransactionHash -> CurrentTxsKey
+getCurrentTxsKey expiry h = CurrentTxsKey
+    { _currentTxsExpiration = expiry
+    , _currentTxsKey = BS.toShort $ B.take 8 $ BS.fromShort $ unTransactionHash h
     }
 
 -- -------------------------------------------------------------------------- --
 -- Index
 
-newtype CurrentTxIdx = CurrentTxIdx { _currentTxIdx :: S.Set CurrentTxIdxKey }
+newtype CurrentTxs = CurrentTxs { _currentTxs :: S.Set CurrentTxsKey }
 
-newCurrentTxIdx :: CurrentTxIdx
-newCurrentTxIdx = CurrentTxIdx mempty
+newCurrentTxs :: CurrentTxs
+newCurrentTxs = CurrentTxs mempty
 
-currentTxIdxSize :: CurrentTxIdx -> Int
-currentTxIdxSize (CurrentTxIdx s) = S.size s
-{-# INLINE currentTxIdxSize #-}
+currentTxsSize :: CurrentTxs -> Int
+currentTxsSize (CurrentTxs s) = S.size s
+{-# INLINE currentTxsSize #-}
 
 -- Membership
 
-currentTxIdxMember :: CurrentTxIdx -> Time Micros -> TransactionHash -> Bool
-currentTxIdxMember s expiry h = S.member (getCurrentTxIdxKey expiry h) (_currentTxIdx s)
-{-# INLINE currentTxIdxMember #-}
+currentTxsMember :: CurrentTxs -> Time Micros -> TransactionHash -> Bool
+currentTxsMember s expiry h = S.member (getCurrentTxsKey expiry h) (_currentTxs s)
+{-# INLINE currentTxsMember #-}
 
 -- Insertion
 
 -- | If the set is full random elements are deleted.
 --
-currentTxIdxInsert :: CurrentTxIdx -> Time Micros -> TransactionHash -> IO CurrentTxIdx
-currentTxIdxInsert s expiry h =
-    CurrentTxIdx . S.insert (getCurrentTxIdxKey expiry h) . _currentTxIdx
-    <$> pruneCurrentTxIdx s
+currentTxsInsert :: CurrentTxs -> Time Micros -> TransactionHash -> IO CurrentTxs
+currentTxsInsert s expiry h =
+    CurrentTxs . S.insert (getCurrentTxsKey expiry h) . _currentTxs
+    <$> pruneCurrentTxs s
 
-currentTxIdxInsertBatch
-    :: CurrentTxIdx
+currentTxsInsertBatch
+    :: CurrentTxs
     -> V.Vector (Time Micros, TransactionHash)
-    -> IO CurrentTxIdx
-currentTxIdxInsertBatch s txs = do
-    s0 <- pruneCurrentTxIdx s
-    pruneCurrentTxIdx $ CurrentTxIdx $ foldr ins (_currentTxIdx s0) txs
+    -> IO CurrentTxs
+currentTxsInsertBatch s txs = do
+    s0 <- pruneCurrentTxs s
+    pruneCurrentTxs $ CurrentTxs $ foldr ins (_currentTxs s0) txs
   where
-    ins (e, h) = S.insert (getCurrentTxIdxKey e h)
+    ins (e, h) = S.insert (getCurrentTxsKey e h)
 
 -- Deletion
 
-currentTxIdxRemove :: CurrentTxIdx -> Time Micros -> TransactionHash -> CurrentTxIdx
-currentTxIdxRemove (CurrentTxIdx s) expiry h = CurrentTxIdx $
-    S.delete (getCurrentTxIdxKey expiry h) s
-{-# INLINE currentTxIdxRemove #-}
+currentTxsRemove :: CurrentTxs -> Time Micros -> TransactionHash -> CurrentTxs
+currentTxsRemove (CurrentTxs s) expiry h = CurrentTxs $
+    S.delete (getCurrentTxsKey expiry h) s
+{-# INLINE currentTxsRemove #-}
 
 -- Pruning
 
-pruneCurrentTxIdx :: CurrentTxIdx -> IO CurrentTxIdx
-pruneCurrentTxIdx (CurrentTxIdx s) = do
+pruneCurrentTxs :: CurrentTxs -> IO CurrentTxs
+pruneCurrentTxs (CurrentTxs s) = do
     now <- getCurrentTimeIntegral
-    let s0 = S.dropWhileAntitone (\x -> _currentTxIdxExpiration x < now) s
+    let s0 = S.dropWhileAntitone (\x -> _currentTxsExpiration x < now) s
         l = S.size s0
 
     -- a random set of distinct set indexes that are going to be deleted to make
     -- room for the new entry. For performance reasons we delete elements in
     -- chunks of 1000.
     --
-    indexesToBeDeleted <- if l >= int maxCurrentTxIdxSize
+    indexesToBeDeleted <- if l >= int maxCurrentTxsSize
       then
         -- The following terminates because n <= l
         --
-        -- @maxCurrentTxIdxSize@ should be much larger than 1000. The worst case
-        -- expected running time is for @1000 == maxCurrentTxIdxSize@, which still
+        -- @maxCurrentTxsSize@ should be much larger than 1000. The worst case
+        -- expected running time is for @1000 == maxCurrentTxsSize@, which still
         -- is very fast.
         --
-        let n = min l (max 1000 (l - int maxCurrentTxIdxSize))
+        let n = min l (max 1000 (l - int maxCurrentTxsSize))
         in take n . L.nub . randomRs (0, l-1) <$> newStdGen
       else return []
 
     -- Not sure if foldl' would be faster here
-    return $ CurrentTxIdx $! foldr S.deleteAt s0 indexesToBeDeleted
+    return $ CurrentTxs $! foldr S.deleteAt s0 indexesToBeDeleted
 
