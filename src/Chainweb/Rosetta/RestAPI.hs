@@ -336,6 +336,7 @@ data RosettaFailure
     | RosettaTxIdNotFound
     | RosettaUnparsableTransactionId
     | RosettaInvalidAccountKey
+    | RosettaConstructionDeriveNotSupported
     deriving (Show, Enum, Bounded, Eq)
 
 
@@ -366,6 +367,7 @@ rosettaError RosettaUnparsableTxOut = RosettaError 19 "Transaction output not pa
 rosettaError RosettaTxIdNotFound = RosettaError 20 "Transaction Id not found in block" False
 rosettaError RosettaUnparsableTransactionId = RosettaError 21 "Transaction Id not parsable" False
 rosettaError RosettaInvalidAccountKey = RosettaError 22 "Invalid AccountId address" False
+rosettaError RosettaConstructionDeriveNotSupported = RosettaError 23 "/construction/derive not supported" False
 
 
 throwRosetta :: RosettaFailure -> Handler a

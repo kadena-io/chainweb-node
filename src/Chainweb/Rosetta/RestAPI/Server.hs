@@ -29,6 +29,7 @@ import Data.IORef
 import Data.List (sort)
 import Data.Proxy (Proxy(..))
 
+import qualified Data.ByteString.Lazy as BSL
 import qualified Data.HashMap.Strict as HM
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
@@ -91,8 +92,8 @@ rosettaServer v ps ms peerDb cutDb cr =
     :<|> constructionMetadataH v
     :<|> constructionPayloadsH v
     :<|> constructionParseH v
-    :<|> constructionCombineH v
-    :<|> constructionHashH v
+    :<|> constructionCombineH
+    :<|> constructionHashH
     :<|> constructionSubmitH v ms
     -- Mempool --
     :<|> mempoolTransactionH v ms
@@ -224,17 +225,24 @@ blockTransactionH v cutDb ps crs (BlockTransactionReq net bid t) = do
 --------------------------------------------------------------------------------
 -- Construction Handlers
 
+
 constructionDeriveH
     :: ChainwebVersion
     -> ConstructionDeriveReq
     -> Handler ConstructionDeriveResp
-constructionDeriveH = undefined
+constructionDeriveH _ _ =
+   -- NOTE: Blockchains that require an on-chain action to create
+   -- an account should not implement this method
+  throwRosetta RosettaConstructionDeriveNotSupported
 
 constructionPreprocessH
     :: ChainwebVersion
     -> ConstructionPreprocessReq
     -> Handler ConstructionPreprocessResp
-constructionPreprocessH = undefined
+constructionPreprocessH _ _ =
+  -- NOTE: If it is not necessary to make a request to
+  -- /construction/metadata, options should be null.
+  pure $ ConstructionPreprocessResp Nothing
 
 constructionMetadataH
     :: ChainwebVersion
@@ -262,16 +270,33 @@ constructionParseH
 constructionParseH = undefined
 
 constructionCombineH
-    :: ChainwebVersion
-    -> ConstructionCombineReq
+    :: ConstructionCombineReq
     -> Handler ConstructionCombineResp
-constructionCombineH = undefined
+constructionCombineH (ConstructionCombineReq _ unsignedTx sigs) =
+  runExceptT work >>= either throwRosetta pure
+  where
+    work :: ExceptT RosettaFailure Handler ConstructionCombineResp
+    work = do
+      unsignedCmd <- command unsignedTx ?? RosettaUnparsableTx
+      let userSigs = map (UserSig . _rosettaSignature_hexBytes) sigs
+          signedCmd = unsignedCmd { _cmdSigs = userSigs }
+          -- ^ Assumes list of signatures are in correct order to match
+          --   their respective Signers in the signed payload.
+          --   No rearrangement of signatures done.
+          --   No validity checks run.
+          signedTx = fromCommand signedCmd
+      pure $ ConstructionCombineResp signedTx
 
 constructionHashH
-    :: ChainwebVersion
-    -> ConstructionHashReq
+    :: ConstructionHashReq
     -> Handler TransactionIdResp
-constructionHashH = undefined
+constructionHashH (ConstructionHashReq _ signedTx) =
+  runExceptT work >>= either throwRosetta pure
+  where
+    work :: ExceptT RosettaFailure Handler TransactionIdResp
+    work = do
+      cmd <- command signedTx ?? RosettaUnparsableTx
+      pure $ TransactionIdResp (cmdToTransactionId cmd) Nothing
 
 constructionSubmitH
     :: ChainwebVersion
@@ -290,8 +315,13 @@ constructionSubmitH v ms (ConstructionSubmitReq net tx) =
         let !vec = V.singleton validated
         liftIO (mempoolInsertCheck mp vec) >>= hoistEither . first (const RosettaInvalidTx)
         liftIO (mempoolInsert mp UncheckedInsert vec)
-        let rk = requestKeyToB16Text $ cmdToRequestKey validated
-        pure $ TransactionIdResp (TransactionId rk) Nothing
+        pure $ TransactionIdResp (cmdToTransactionId cmd) Nothing
+
+cmdToTransactionId :: Command T.Text -> TransactionId
+cmdToTransactionId = TransactionId . requestKeyToB16Text . cmdToRequestKey
+
+fromCommand :: Command T.Text -> T.Text
+fromCommand = T.decodeUtf8 . BSL.toStrict . encode
 
 command :: T.Text -> Maybe (Command T.Text)
 command = decodeStrict' . T.encodeUtf8
