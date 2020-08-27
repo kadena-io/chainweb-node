@@ -312,15 +312,15 @@ prop_forkEntry f i j = do
     ioProperty $ withTreeDb f t $ \db insert -> do
         insert db a
         insert db b
-        e <- forkEntry db (head (g : a)) (head (g : b))
+        e <- forkEntry db (head $ reverse (g : a)) (head $ reverse $ (g : b))
         return $ e === g
   where
     g = view (from isoBH) $ toyGenesis toyChainId
     t = Node g []
-    a = take (int i) $ branch g
-    b = take (int j) $ branch g
+    a = take (int i) $ branch (Nonce 0) g
+    b = take (int j) $ branch (Nonce 1) g
 
-    branch x = view (from isoBH) <$> testBlockHeaders (ParentHeader $ view isoBH x)
+    branch n x = view (from isoBH) <$> testBlockHeadersWithNonce n (ParentHeader $ view isoBH x)
 
 -- -------------------------------------------------------------------------- --
 -- forward branch entries
