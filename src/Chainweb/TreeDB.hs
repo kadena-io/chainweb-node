@@ -68,6 +68,7 @@ module Chainweb.TreeDB
 , collectForkBlocks
 , seekAncestor
 , seekLimitStream
+, getBranchIncreasing
 
 -- * Membership Queries
 , onLongestBranch
@@ -82,6 +83,7 @@ import Control.Monad.Catch
 import Control.Monad.Trans
 
 import Data.Aeson
+import Data.Foldable
 import Data.Function
 import Data.Functor.Of
 import Data.Graph
@@ -89,6 +91,7 @@ import Data.Hashable
 import qualified Data.HashSet as HS
 import Data.Kind
 import qualified Data.List as L
+import qualified Data.List.NonEmpty as NE
 import Data.Maybe (fromMaybe)
 import Data.Semigroup
 import qualified Data.Text as T
@@ -713,7 +716,14 @@ forkEntry
     -> DbEntry db
     -> DbEntry db
     -> IO (DbEntry db)
-forkEntry db a b = S.effects $ branchDiff_ db a b
+forkEntry db l r
+    | rank l + 20 < rank r = do
+        r' <- fromJuste <$> seekAncestor db r (rank l)
+        S.effects $ branchDiff_ db l r'
+    | rank r + 20 < rank l = do
+        l' <- fromJuste <$> seekAncestor db l (rank r)
+        S.effects $ branchDiff_ db l' r
+    | otherwise = S.effects $ branchDiff_ db l r
 
 -- | Compares two branches of a 'TreeDb'. The fork entry is included as last
 -- item in the stream.
@@ -757,7 +767,6 @@ branchDiff_ db = go
             rp <- step r
             go lp rp
     step = lift . lookupParentM GenesisParentThrow db
-
 
 -- -------------------------------------------------------------------------- --
 -- | Collects the blocks on the old and new branches of a fork. Returns
@@ -879,9 +888,120 @@ seekAncestor db h r
                 $ "branch traversal yields no result"
             x -> return x
 
+-- | @getBranchIncreasing db e r@ returns a stream of acestors of e sorted by
+-- rank in ascending order starting at rank @r@.
+--
+-- An empty stream is returned if @r@ is larger than @rank e@. Otherwise at least
+-- the entry @e@ is in the stream.
+--
+-- /NOTE:/
+--
+-- This space complexity of this \(O(1 + f * n)\), where \(f\) is the depth of
+-- the largest fork in the database and \(n\) is the number of concurrent forks
+-- in the database. The depth of the largest fork is the number of blocks on the
+-- shorter branch from the fork point onward.
+--
+-- The worst case complexity is thus worse than for 'reverse . branchDiff',
+-- which is linear in the longest branch. However for a "healthy" block chain
+-- database the space complexity is \(O(1)\). Even on a block chain with long
+-- forks the worst case complexities are of the same order as long as the number
+-- of concurrent forks isn't dominating the the length of the branches in the
+-- database.
+--
+-- A non-healthy block chain database can be fixed by prunning forks before
+-- using this function.
+--
+getBranchIncreasing
+    :: forall db a
+    . TreeDb db
+    => db
+    -> DbEntry db
+        -- ^ branch
+    -> Natural
+        -- ^ rank
+    -> (S.Stream (Of (DbEntry db)) IO () -> IO a)
+    -> IO a
+getBranchIncreasing db e r inner
+    | r > rank e = inner $ return ()
+    | r == rank e = inner $ S.yield e
+    | otherwise = go
+  where
+    go = entries db Nothing Nothing (Just $ int r) (Just $ int (rank e - 1)) $ \s ->
+        (s >> S.yield e)
+            & S.groupBy ((==) `on` rank)
+            & S.mapped S.toList
+            & S.scan (goRank . fst) ([], []) snd
+            & flip S.for S.each
+            & inner
+
+    -- Fold over all ranks of the db: track all branches that exist at
+    -- each rank and return entries on the main branch that are yielded
+    -- to the result stream.
+    --
+    -- When an active branch becomes longer than all other active branches
+    -- it means that it contains values at ranks for which no other active branch
+    -- exists -if there were branches at those levels, those have died off- and the
+    -- unique entries at those level are yielded to the result stream.
+    goRank
+        :: [Branch (DbEntry db)]
+            -- ^ currently active branches
+        -> [DbEntry db]
+            -- ^ entries at current rank
+        -> ([Branch (DbEntry db)], [DbEntry db])
+            -- ^ new active branches and entries that are yielded to the result stream
+    goRank actives new = case extendActives actives new of
+        [Branch _ a] -> ([], L.reverse $ toList a)
+        Branch l0 a0 : bs@(Branch l1 _ : _)
+            -- active branches are sorted by length in decreasing order. If the first branch
+            -- is longer than the second branch it is also longer than all other branches.
+            -- That means that its entries at the lowest ranks are unique for their rank and 
+            -- can be yielded to the result stream.
+            --
+            -- Invariant: `length l1 >= 1` and, thus, length keep >= 1`
+            | l0 > l1, (keep, yield) <- NE.splitAt l1 a0 ->
+                (Branch l1 (NE.fromList keep) : bs, L.reverse $ toList yield)
+        as -> (as, [])
+
+-- | Data type for keeping track of active branches
+--
+-- For long forks, it may be more efficient to use a stream or a dlist instead
+-- of a list that must be reversed. However, it is is not clear (1.) what the
+-- overhead is, given that most forks are very short and (2.) how efficient
+-- 'splitAt' is for dlist or stream.
+--
+data Branch a = Branch {-# UNPACK #-} !Int {-# UNPACK #-} !(NE.NonEmpty a)
+
+newBranch :: a -> Branch a
+newBranch = Branch 1 . pure
+
+extendBranch :: Branch a -> a -> Branch a
+extendBranch (Branch l as) n = Branch (l + 1) (NE.cons n as)
+
+matchBranch :: TreeDbEntry e => Branch e -> e -> Bool
+matchBranch (Branch _ (h NE.:| _)) n = parent n == Just (key h)
+
+-- | Extend active branches and sort by length in descending order
+--
+-- complexity is quadratic in the number active branches, which is acceptable
+-- for an healthy chain database. The expected number of branches is small and
+-- doesn't justify the use of a more complex set data structure. In most cases
+-- @actives@ and @new@ are singleton lists.
+--
+-- Note that active branches can't be empty
+--
+extendActives :: TreeDbEntry a => [Branch a] -> [a] -> [Branch a]
+extendActives [] new = newBranch <$> new
+extendActives actives new = L.sortOn (\(Branch l _) -> negate l)
+    [ extendBranch as n | n <- new, as <- actives, matchBranch as n ]
+
 -- -------------------------------------------------------------------------- --
 -- Membership Queries
 
+-- | @ancestorOfEntry db h ctx@ returns @True@ if @h@ is an ancestor of @ctx@
+-- in @db@.
+--
+-- If either of @h@ or @ctx@ doesn't exist in @db@, @False@ is returned.
+--
 ancestorOfEntry
     :: forall db
     . TreeDb db
@@ -897,6 +1017,11 @@ ancestorOfEntry db h ctx = lookup db h >>= \case
         Nothing -> return False
         Just x -> return $ key x == h
 
+-- | @ancestorOfEntry db h ctx@ returns @True@ if @h@ is an ancestor of @ctx@
+-- in @db@.
+--
+-- An exception is raised if @th@ doesn't exist in @db@.
+--
 ancestorOf
     :: forall db
     . TreeDb db
@@ -919,4 +1044,3 @@ onLongestBranch
 onLongestBranch db h = do
     th <- maxEntry db
     ancestorOfEntry db h th
-
