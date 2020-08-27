@@ -959,7 +959,7 @@ getBranchIncreasing db e r inner
 -- overhead is, given that most forks are very short and (2.) how efficient
 -- 'splitAt' is for dlist or stream.
 --
-data Branch a = Branch Int (NE.NonEmpty a)
+data Branch a = Branch {-# UNPACK #-} !Int {-# UNPACK #-} !(NE.NonEmpty a)
 
 newBranch :: a -> Branch a
 newBranch = Branch 1 . pure
