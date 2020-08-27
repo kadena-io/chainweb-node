@@ -311,7 +311,7 @@ toyBlockHeaderDb db cid = (g,) <$> testBlockHeaderDb db g
 -- an initialized `BlockHeaderDb`, perform some action
 -- and cleanly close the DB.
 --
-withToyDB :: RocksDb -> ChainId -> (BlockHeader -> BlockHeaderDb -> IO ()) -> IO ()
+withToyDB :: RocksDb -> ChainId -> (BlockHeader -> BlockHeaderDb -> IO a) -> IO a
 withToyDB db cid
     = bracket (toyBlockHeaderDb db cid) (closeBlockHeaderDb . snd) . uncurry
 

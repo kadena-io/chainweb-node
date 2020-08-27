@@ -1,5 +1,6 @@
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeFamilies #-}
 
@@ -18,7 +19,7 @@ module Chainweb.Test.TreeDB
 , properties
 ) where
 
-import Control.Lens (each, from, over, to, (^.), (^..))
+import Control.Lens (each, from, over, to, (^.), (^..), view)
 
 import Data.Bool (bool)
 import Data.Foldable (foldlM, toList)
@@ -27,7 +28,7 @@ import Data.Functor.Identity
 import qualified Data.HashSet as HS
 import Data.Maybe (isJust, isNothing)
 import qualified Data.Set as S
-import Data.Tree (Tree(..))
+import Data.Tree (Tree(..), levels)
 
 import Numeric.Natural (Natural)
 
@@ -44,12 +45,13 @@ import Test.Tasty.QuickCheck
 import Chainweb.BlockHeader
 import Chainweb.BlockHeader.Validation
 import Chainweb.Test.Utils
+import Chainweb.Test.Utils.BlockHeader
 import Chainweb.TreeDB
 import Chainweb.Utils (int, len, tryAllSynchronous)
 import Chainweb.Utils.Paging
 
 type Insert db = db -> [DbEntry db] -> IO ()
-type WithTestDb db = DbEntry db -> (db -> Insert db -> IO Bool) -> IO Bool
+type WithTestDb db = forall prop . Testable prop => DbEntry db -> (db -> Insert db -> IO prop) -> IO prop
 
 treeDbInvariants
     :: (TreeDb db, IsBlockHeader (DbEntry db), Ord (DbEntry db), Ord (DbKey db))
@@ -85,13 +87,23 @@ treeDbInvariants f rs = testGroup "TreeDb Invariants"
             , testPropertySch "Cannot manipulate old nodes" $ handOfGod_prop f
             , testPropertySch "Entries are streamed in ascending order" $ entryOrder_prop f
             , testPropertySch "maxRank reports correct height" $ maxRank_prop f
+            , testPropertySch "getBranchIncreasing streams in ascending order" $ prop_getBranchIncreasing_order f
+            , testPropertySch "getBranchIncreasing streams returns leaf entry last" $ prop_getBranchIncreasing_end f
+            , testPropertySch "getBranchIncreasing streams ordered by parent relation" $ prop_getBranchIncreasing_parents f
+            , testPropertySch "forkEntry returns correct results" $ prop_forkEntry f
             ]
         ]
     ]
 
 -- | Sugar for producing a populated `TreeDb` from a `Tree`.
 --
-withTreeDb :: TreeDb db => WithTestDb db -> Tree (DbEntry db) -> (db -> Insert db -> IO Bool) -> IO Bool
+withTreeDb
+    :: TreeDb db
+    => Testable prop
+    => WithTestDb db
+    -> Tree (DbEntry db)
+    -> (db -> Insert db -> IO prop)
+    -> IO prop
 withTreeDb f t g = f (rootLabel t) $ \db insert -> insert db (toList t) *> g db insert
 
 -- | Property: There must exist an isomorphism between any `Tree BlockHeader`
@@ -284,3 +296,81 @@ properties =
     [ ("seekLimitStream_limit", property prop_seekLimitStream_limit)
     , ("seekLimitStream_id", property prop_seekLimitStream_id)
     ]
+
+-- -------------------------------------------------------------------------- --
+-- Fork Entry
+
+prop_forkEntry
+    :: forall db
+    . TreeDb db
+    => IsBlockHeader (DbEntry db)
+    => WithTestDb db
+    -> Natural
+    -> Natural
+    -> Property
+prop_forkEntry f i j = do
+    ioProperty $ withTreeDb f t $ \db insert -> do
+        insert db a
+        insert db b
+        e <- forkEntry db (head $ reverse (g : a)) (head $ reverse $ (g : b))
+        return $ e === g
+  where
+    g = view (from isoBH) $ toyGenesis toyChainId
+    t = Node g []
+    a = take (int i) $ branch (Nonce 0) g
+    b = take (int j) $ branch (Nonce 1) g
+
+    branch n x = view (from isoBH) <$> testBlockHeadersWithNonce n (ParentHeader $ view isoBH x)
+
+-- -------------------------------------------------------------------------- --
+-- forward branch entries
+
+prop_getBranchIncreasing_order
+    :: forall db
+    . TreeDb db
+    => IsBlockHeader (DbEntry db)
+    => WithTestDb db
+    -> SparseTree
+    -> Property
+prop_getBranchIncreasing_order f (SparseTree t0) = forAll (int <$> choose (0,m)) $ \i -> do
+    label ("depth " <> show m) $ label ("width " <> show w) $
+        ioProperty $ withTreeDb f t $ \db _ -> do
+            e <- maxEntry db
+            branch <- getBranchIncreasing db e i $ \s -> s & P.map rank & P.toList_
+            return $ branch === [i .. rank e]
+  where
+    w = maximum $ length <$> levels t0
+    m = length $ levels t0
+    t = fmap (^. from isoBH) t0
+
+prop_getBranchIncreasing_end
+    :: forall db
+    . TreeDb db
+    => IsBlockHeader (DbEntry db)
+    => WithTestDb db
+    -> SparseTree
+    -> Property
+prop_getBranchIncreasing_end f (SparseTree t0) = forAll (int <$> choose (0,m - 1)) $ \i ->
+    ioProperty $ withTreeDb f t $ \db _ -> do
+        e <- maxEntry db
+        l <- getBranchIncreasing db e i P.last_
+        return $ l === Just e
+  where
+    m = length $ levels t0
+    t = fmap (^. from isoBH) t0
+
+prop_getBranchIncreasing_parents
+    :: forall db
+    . TreeDb db
+    => IsBlockHeader (DbEntry db)
+    => WithTestDb db
+    -> SparseTree
+    -> Property
+prop_getBranchIncreasing_parents f (SparseTree t0) = forAll (int <$> choose (0,m)) $ \i ->
+    ioProperty $ withTreeDb f t $ \db _ -> do
+        e <- maxEntry db
+        branch <- getBranchIncreasing db e i $ \s -> P.toList_ $ P.map (view isoBH) s
+        return $ and $ zipWith (\a b -> _blockHash a == _blockParent b) branch (drop 1 branch)
+  where
+    m = length $ levels t0
+    t = fmap (^. from isoBH) t0
