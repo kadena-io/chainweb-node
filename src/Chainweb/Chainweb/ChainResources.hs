@@ -39,7 +39,6 @@ import Control.Monad
 import Control.Monad.Catch
 
 import Data.Maybe
-import Data.Semigroup
 import qualified Data.Text as T
 
 import qualified Network.HTTP.Client as HTTP
@@ -51,11 +50,8 @@ import System.LogLevel
 -- internal modules
 
 import Chainweb.BlockHeaderDB
-import Chainweb.BlockHeight
-import Chainweb.BlockHeaderDB.PruneForks
 import Chainweb.ChainId
 import Chainweb.Chainweb.PeerResources
-import Chainweb.Graph
 import Chainweb.Logger
 import qualified Chainweb.Mempool.Consensus as MPCon
 import qualified Chainweb.Mempool.InMem as Mempool
@@ -64,7 +60,6 @@ import Chainweb.Mempool.Mempool (MempoolBackend)
 import qualified Chainweb.Mempool.Mempool as Mempool
 import Chainweb.Mempool.P2pConfig
 import qualified Chainweb.Mempool.RestAPI.Client as MPC
-import Chainweb.NodeId
 import Chainweb.Pact.Service.PactInProcApi
 import Chainweb.Pact.Service.Types
 import Chainweb.Payload.PayloadStore
@@ -115,44 +110,20 @@ withChainResources
     -> logger
     -> (MVar PactExecutionService -> Mempool.InMemConfig ChainwebTransaction)
     -> PayloadDb cas
-    -> Bool
-        -- ^ whether to prune the chain database
-    -> Maybe FilePath
+    -> FilePath
         -- ^ database directory for checkpointer
-    -> Maybe NodeId
     -> PactServiceConfig
     -> (ChainResources logger -> IO a)
     -> IO a
 withChainResources
-  v cid rdb peer logger mempoolCfg0 payloadDb prune dbDir nodeid pactConfig inner =
+  v cid rdb peer logger mempoolCfg0 payloadDb pactDbDir pactConfig inner =
     withBlockHeaderDb rdb v cid $ \cdb -> do
       pexMv <- newEmptyMVar
       let mempoolCfg = mempoolCfg0 pexMv
       Mempool.withInMemoryMempool_ (setComponent "mempool" logger) mempoolCfg v $ \mempool -> do
         mpc <- MPCon.mkMempoolConsensus mempool cdb $ Just payloadDb
         withPactService v cid (setComponent "pact" logger) mpc cdb
-                        payloadDb dbDir nodeid pactConfig $ \requestQ -> do
-            -- prune block header db
-            when prune $ do
-                logg Info "start pruning block header database"
-                x <- pruneForks logger cdb (diam * 3) $ \_h _payloadInUse ->
-
-                    -- FIXME At the time of writing his payload hashes are not
-                    -- unique. The pruning algorithm can handle non-uniquness
-                    -- between within a chain between forks, but not accross
-                    -- chains. Also cas-deletion is sound for payload hashes if
-                    -- outputs are unique for payload hashes.
-                    --
-                    -- Renable this code once pact
-                    --
-                    -- includes the parent hash into the coinbase hash,
-                    -- includes the transaction hash into the respective output hash, and
-                    -- guarantees that transaction hashes are unique.
-                    --
-                    -- unless payloadInUse
-                    --     $ casDelete payloadDb (_blockPayloadHash h)
-                    return ()
-                logg Info $ "finished pruning block header database. Deleted " <> sshow x <> " block headers."
+                        payloadDb pactDbDir pactConfig $ \requestQ -> do
             let pex = pes requestQ
             putMVar pexMv pex
 
@@ -165,8 +136,6 @@ withChainResources
                 , _chainResPact = pex
                 }
   where
-    logg = logFunctionText (setComponent "pact-tx-replay" logger)
-    diam = diameter (_chainGraph (v, maxBound @BlockHeight))
     pes requestQ = case v of
         Test{} -> emptyPactExecutionService
         TimedConsensus{} -> emptyPactExecutionService

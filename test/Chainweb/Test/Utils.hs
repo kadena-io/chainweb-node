@@ -36,6 +36,7 @@ module Chainweb.Test.Utils
 , genesisBlockHeaderForChain
 , withToyDB
 , insertN
+, insertN_
 , prettyTree
 , normalizeTree
 , treeLeaves
@@ -73,7 +74,10 @@ module Chainweb.Test.Utils
 -- * QuickCheck Properties
 , prop_iso
 , prop_iso'
+, prop_encodeDecode
 , prop_encodeDecodeRoundtrip
+, prop_decode_failPending
+, prop_decode_failMissing
 
 -- * Expectations
 , assertExpectation
@@ -128,16 +132,16 @@ import Control.Monad
 import Control.Monad.Catch (MonadThrow, finally)
 import Control.Monad.IO.Class
 
-import qualified Data.ByteString.Lazy as BL
 import Data.Aeson (FromJSON, ToJSON)
 import Data.Bifunctor hiding (second)
 import Data.Bytes.Get
 import Data.Bytes.Put
 import qualified Data.ByteString as B
+import qualified Data.ByteString.Lazy as BL
+import Data.CAS (casKey)
 import Data.Coerce (coerce)
 import Data.Foldable
 import qualified Data.HashMap.Strict as HashMap
-import Data.List (sortOn,isInfixOf)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
 import Data.Tree
@@ -163,16 +167,18 @@ import System.IO.Temp
 import System.LogLevel
 import System.Random (randomIO)
 
-import Test.QuickCheck.Property (Property, Testable, (===))
 import Test.QuickCheck.Arbitrary
 import Test.QuickCheck.Gen
+import Test.QuickCheck.Property (Property, Testable, (===))
 import Test.QuickCheck.Random (mkQCGen)
 import Test.Tasty
 import Test.Tasty.Golden
 import Test.Tasty.HUnit
-import Test.Tasty.QuickCheck (testProperty)
+import Test.Tasty.QuickCheck (testProperty, property, discard, (.&&.))
 
 import Text.Printf (printf)
+
+import Data.List (sortOn,isInfixOf)
 
 -- internal modules
 
@@ -197,7 +203,6 @@ import Chainweb.Logger
 import Chainweb.Mempool.Mempool (MempoolBackend(..), TransactionHash(..))
 import Chainweb.Miner.Config
 import Chainweb.Miner.Pact
-import Chainweb.NodeId
 import Chainweb.Payload.PayloadStore
 import Chainweb.RestAPI
 import Chainweb.RestAPI.NetworkID
@@ -306,7 +311,7 @@ toyBlockHeaderDb db cid = (g,) <$> testBlockHeaderDb db g
 -- an initialized `BlockHeaderDb`, perform some action
 -- and cleanly close the DB.
 --
-withToyDB :: RocksDb -> ChainId -> (BlockHeader -> BlockHeaderDb -> IO ()) -> IO ()
+withToyDB :: RocksDb -> ChainId -> (BlockHeader -> BlockHeaderDb -> IO a) -> IO a
 withToyDB db cid
     = bracket (toyBlockHeaderDb db cid) (closeBlockHeaderDb . snd) . uncurry
 
@@ -325,10 +330,25 @@ genesisBlockHeaderForChain v i
 
 -- | Populate a `TreeDb` with /n/ generated `BlockHeader`s.
 --
+-- Payload hashes are generated using 'testBlockPayloadFromParent_', which
+-- includes the nonce. They payloads can be recovered using
+-- 'testBlockPayload_'.
+--
 insertN :: Int -> BlockHeader -> BlockHeaderDb -> IO ()
 insertN n g db = traverse_ (unsafeInsertBlockHeaderDb db) bhs
   where
     bhs = take n $ testBlockHeaders $ ParentHeader g
+
+-- | Payload hashes are generated using 'testBlockPayloadFromParent_', which
+-- includes the nonce. They payloads can be recovered using
+-- 'testBlockPayload_'.
+--
+insertN_ :: Nonce -> Natural -> BlockHeader -> BlockHeaderDb -> IO [BlockHeader]
+insertN_ s n g db = do
+    traverse_ (unsafeInsertBlockHeaderDb db) bhs
+    return bhs
+  where
+    bhs = take (int n) $ testBlockHeadersWithNonce s $ ParentHeader g
 
 -- | Useful for terminal-based debugging. A @Tree BlockHeader@ can be obtained
 -- from any `TreeDb` via `toTree`.
@@ -412,7 +432,7 @@ header p = do
             :+: t'
             :+: _blockHash p
             :+: target
-            :+: testBlockPayload p
+            :+: casKey (testBlockPayloadFromParent (ParentHeader p))
             :+: _chainId p
             :+: BlockWeight (targetToDifficulty target) + _blockWeight p
             :+: succ (_blockHeight p)
@@ -734,6 +754,18 @@ prop_iso'
     -> Property
 prop_iso' d e a = Right a === first show (d (e a))
 
+prop_encodeDecode
+    :: Eq a
+    => Show a
+    => (forall m . MonadGet m => m a)
+    -> (forall m . MonadPut m => a -> m ())
+    -> a
+    -> Property
+prop_encodeDecode d e a
+    = prop_encodeDecodeRoundtrip d e a
+    .&&. prop_decode_failPending d e a
+    .&&. prop_decode_failMissing d e a
+
 prop_encodeDecodeRoundtrip
     :: Eq a
     => Show a
@@ -741,7 +773,34 @@ prop_encodeDecodeRoundtrip
     -> (forall m . MonadPut m => a -> m ())
     -> a
     -> Property
-prop_encodeDecodeRoundtrip d e = prop_iso' (runGetEither d) (runPutS . e)
+prop_encodeDecodeRoundtrip d e =
+    prop_iso' (runGetEither d) (runPutS . e)
+
+prop_decode_failPending
+    :: Eq a
+    => Show a
+    => (forall m . MonadGet m => m a)
+    -> (forall m . MonadPut m => a -> m ())
+    -> a
+    -> Property
+prop_decode_failPending d e a = case runGetEither d (runPutS (e a) <> "a") of
+    Left _ -> property True
+    Right _ -> property False
+
+prop_decode_failMissing
+    :: Eq a
+    => Show a
+    => (forall m . MonadGet m => m a)
+    -> (forall m . MonadPut m => a -> m ())
+    -> a
+    -> Property
+prop_decode_failMissing d e a
+    | B.null x = discard
+    | otherwise = case runGetEither d $ B.init x of
+        Left _ -> property True
+        Right _ -> property False
+  where
+    x = runPutS $ e a
 
 -- -------------------------------------------------------------------------- --
 -- Expectations
@@ -925,13 +984,13 @@ runTestNodes
 runTestNodes label rdb loglevel ver n portMVar =
     forConcurrently_ [0 .. int n - 1] $ \i -> do
         threadDelay (1000 * int i)
-        let baseConf = config ver n (NodeId i)
+        let baseConf = config ver n
         conf <- if
             | i == 0 ->
                 return $ bootstrapConfig baseConf
             | otherwise ->
                 setBootstrapPeerInfo <$> readMVar portMVar <*> pure baseConf
-        node label rdb loglevel portMVar conf
+        node label rdb loglevel portMVar conf i
 
 node
     :: B.ByteString
@@ -939,15 +998,16 @@ node
     -> LogLevel
     -> MVar PeerInfo
     -> ChainwebConfiguration
+    -> Int
+        -- ^ Unique Node Id. The node id 0 is used for the bootstrap node
     -> IO ()
-node label rdb loglevel peerInfoVar conf = do
+node label rdb loglevel peerInfoVar conf nid = do
     rocksDb <- testRocksDb (label <> T.encodeUtf8 (toText nid)) rdb
-    Extra.withTempDir $ \dir -> withChainweb conf logger rocksDb (Just dir) False $ \cw -> do
+    Extra.withTempDir $ \dir -> withChainweb conf logger rocksDb dir False $ \cw -> do
 
         -- If this is the bootstrap node we extract the port number and publish via an MVar.
-        when (nid == NodeId 0) $ do
-            let bootStrapInfo = view (chainwebPeer . peerResPeer . peerInfo) cw
-            putMVar peerInfoVar bootStrapInfo
+        when (nid == 0) $
+            putMVar peerInfoVar $! view (chainwebPeer . peerResPeer . peerInfo) cw
 
         poisonDeadBeef cw
         runChainweb cw `finally` do
@@ -955,9 +1015,8 @@ node label rdb loglevel peerInfoVar conf = do
             logFunctionText logger Info "shutdown node"
         return ()
   where
-    nid = _configNodeId conf
     logger :: GenericLogger
-    logger = addLabel ("node", toText nid) $ genericLogger loglevel print
+    logger = addLabel ("node", sshow nid) $ genericLogger loglevel print
 
     poisonDeadBeef cw = mapM_ poison crs
       where
@@ -970,10 +1029,8 @@ deadbeef = TransactionHash "deadbeefdeadbeefdeadbeefdeadbeef"
 config
     :: ChainwebVersion
     -> Natural
-    -> NodeId
     -> ChainwebConfiguration
-config ver n nid = defaultChainwebConfiguration ver
-    & set configNodeId nid
+config ver n = defaultChainwebConfiguration ver
     & set (configP2p . p2pConfigPeer . peerConfigHost) host
     & set (configP2p . p2pConfigPeer . peerConfigInterface) interface
     & set (configP2p . p2pConfigKnownPeers) mempty

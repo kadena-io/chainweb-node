@@ -62,6 +62,7 @@ import Numeric.Natural
 
 import qualified Streaming.Prelude as S
 
+import System.IO.Temp
 import System.LogLevel
 import System.Timeout
 
@@ -80,7 +81,9 @@ import Chainweb.Cut
 import Chainweb.CutDB
 import Chainweb.Graph
 import Chainweb.Logger
-import Chainweb.NodeId
+import Chainweb.Miner.Config
+import Chainweb.Miner.Pact
+import Chainweb.Test.P2P.Peer.BootstrapConfig
 import Chainweb.Test.Utils
 import Chainweb.Time (Seconds(..))
 import Chainweb.Utils
@@ -112,23 +115,72 @@ import P2P.Peer
 multiConfig
     :: ChainwebVersion
     -> Natural
-        -- ^ number of nodes
-    -> NodeId
-        -- ^ NodeId
+        -- ^ number of node
     -> ChainwebConfiguration
-multiConfig v n nid = config v n nid
+multiConfig v n = defaultChainwebConfiguration v
+    & set (configP2p . p2pConfigPeer . peerConfigHost) host
+    & set (configP2p . p2pConfigPeer . peerConfigInterface) interface
+        -- Only listen on the loopback device. On Mac OS X this prevents the
+        -- firewall dialog form poping up.
+
+    & set (configP2p . p2pConfigKnownPeers) mempty
+    & set (configP2p . p2pConfigIgnoreBootstrapNodes) True
+        -- The bootstrap peer info is set later after the bootstrap nodes
+        -- has started and got its port assigned.
+
+    & set (configP2p . p2pConfigMaxPeerCount) (n * 2)
+        -- We make room for all test peers in peer db.
+
+    & set (configP2p . p2pConfigMaxSessionCount) 4
+        -- We set this to a low number in order to keep the network sparse (or
+        -- at last no being a clique) and to also limit the number of
+        -- port allocations
+
     & set (configP2p . p2pConfigSessionTimeout) 20
         -- Use short sessions to cover session timeouts and setup logic in the
         -- test.
+
+    & set (configMining . miningInNode) miner
+
+    & set configReintroTxs True
+        -- enable transaction re-introduction
+
+    & set (configTransactionIndex . enableConfigEnabled) True
+        -- enable transaction index
+
     & set configThrottling throttling
         -- throttling is effectively disabled to not slow down the test nodes
   where
+    miner = NodeMiningConfig
+        { _nodeMiningEnabled = True
+        , _nodeMiner = noMiner
+        , _nodeTestMiners = MinerCount n
+        }
+
     throttling = defaultThrottlingConfig
         { _throttlingRate = 10_000 -- per second
         , _throttlingMiningRate = 10_000 --  per second
         , _throttlingPeerRate = 10_000 -- per second, one for each p2p network
         , _throttlingLocalRate = 10_000  -- per 10 seconds
         }
+
+-- | Configure a bootstrap node
+--
+multiBootstrapConfig
+    :: ChainwebConfiguration
+    -> ChainwebConfiguration
+multiBootstrapConfig conf = conf
+    & set (configP2p . p2pConfigPeer) peerConfig
+    & set (configP2p . p2pConfigKnownPeers) []
+  where
+    peerConfig = (head $ bootstrapPeerConfig $ _configChainwebVersion conf)
+        & set peerConfigPort 0
+        -- Normally, the port of bootstrap nodes is hard-coded. But in
+        -- test-suites that may run concurrently we want to use a port that is
+        -- assigned by the OS.
+
+        & set peerConfigHost host
+        & set peerConfigInterface interface
 
 -- -------------------------------------------------------------------------- --
 -- Minimal Node Setup that logs conensus state to the given mvar
@@ -140,21 +192,24 @@ multiNode
     -> MVar PeerInfo
     -> ChainwebConfiguration
     -> RocksDb
+    -> Int
+        -- ^ Unique node id. Node id 0 is used for the bootstrap node
     -> IO ()
-multiNode loglevel write stateVar bootstrapPeerInfoVar conf rdb = do
-    withChainweb conf logger nodeRocksDb Nothing False $ \cw -> do
+multiNode loglevel write stateVar bootstrapPeerInfoVar conf rdb nid = do
+    withSystemTempDirectory "multiNode-pact-db" $ \tmpDir ->
+        withChainweb conf logger nodeRocksDb (pactDbDir tmpDir) False $ \cw -> do
 
-        -- If this is the bootstrap node we extract the port number and
-        -- publish via an MVar.
-        when (nid == NodeId 0) $ putMVar bootstrapPeerInfoVar
-            $ view (chainwebPeer . peerResPeer . peerInfo) cw
+            -- If this is the bootstrap node we extract the port number and
+            -- publish via an MVar.
+            when (nid == 0) $ putMVar bootstrapPeerInfoVar
+                $ view (chainwebPeer . peerResPeer . peerInfo) cw
 
-        runChainweb cw `finally` do
-            logFunctionText logger Info "write sample data"
-            sample cw
-            logFunctionText logger Info "shutdown node"
+            runChainweb cw `finally` do
+                logFunctionText logger Info "write sample data"
+                sample cw
+                logFunctionText logger Info "shutdown node"
   where
-    nid = _configNodeId conf
+    pactDbDir tmpDir = tmpDir <> "/" <> show nid
 
     logger :: GenericLogger
     logger = addLabel ("node", toText nid) $ genericLogger loglevel write
@@ -197,14 +252,14 @@ runNodes loglevel write stateVar v n =
         forConcurrently_ [0 .. int n - 1] $ \i -> do
             threadDelay (500_000 * int i)
 
-            let baseConf = multiConfig v n (NodeId i)
+            let baseConf = multiConfig v n
             conf <- if
                 | i == 0 ->
-                    return $ bootstrapConfig baseConf
+                    return $ multiBootstrapConfig baseConf
                 | otherwise ->
                     setBootstrapPeerInfo <$> readMVar bootstrapPortVar <*> pure baseConf
 
-            multiNode loglevel write stateVar bootstrapPortVar conf rdb
+            multiNode loglevel write stateVar bootstrapPortVar conf rdb i
 
 runNodesForSeconds
     :: LogLevel
@@ -291,7 +346,8 @@ data ConsensusState = ConsensusState
         -- ^ for short tests this is fine. For larger test runs we should
         -- use HyperLogLog+
 
-    , _stateCutMap :: !(HM.HashMap NodeId Cut)
+    , _stateCutMap :: !(HM.HashMap Int Cut)
+        -- ^ Node Id map
     , _stateChainwebVersion :: !ChainwebVersion
     }
     deriving (Show, Generic, NFData)
@@ -304,7 +360,8 @@ emptyConsensusState :: ChainwebVersion -> ConsensusState
 emptyConsensusState v = ConsensusState mempty mempty v
 
 sampleConsensusState
-    :: NodeId
+    :: Int
+        -- ^ node Id
     -> WebBlockHeaderDb
     -> CutDb cas
     -> ConsensusState

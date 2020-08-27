@@ -48,9 +48,13 @@ module Chainweb.Chainweb
 , defaultTransactionIndexConfig
 , pTransactionIndexConfig
 
+-- * GC Configuration
+, ChainDatabaseGcConfig(..)
+, chainDatabaseGcToText
+, chainDatabaseGcFromText
+
 -- * Chainweb Configuration
 , ChainwebConfiguration(..)
-, configNodeId
 , configChainwebVersion
 , configMining
 , configHeaderStream
@@ -126,7 +130,8 @@ import Control.Concurrent.MVar (MVar, readMVar)
 import Control.Error.Util (note)
 import Control.Lens hiding ((.=), (<.>))
 import Control.Monad
-import Control.Monad.Catch (throwM)
+import Control.Monad.Catch (MonadThrow, throwM)
+import Control.Monad.Writer
 
 import Data.Bifunctor (second)
 import Data.CAS (casLookupM)
@@ -135,7 +140,6 @@ import Data.Function (on)
 import qualified Data.HashMap.Strict as HM
 import Data.List (isPrefixOf, sortBy)
 import Data.Maybe
-import Data.Monoid
 import qualified Data.Text as T
 import Data.These (These(..))
 import Data.Tuple.Strict (T2(..))
@@ -158,10 +162,6 @@ import System.LogLevel
 
 -- internal modules
 
-import qualified Pact.Types.ChainId as P
-import qualified Pact.Types.ChainMeta as P
-import qualified Pact.Types.Command as P
-
 import Chainweb.BlockHeader
 import Chainweb.BlockHeaderDB (BlockHeaderDb)
 import Chainweb.BlockHeight
@@ -170,6 +170,7 @@ import Chainweb.Chainweb.ChainResources
 import Chainweb.Chainweb.CutResources
 import Chainweb.Chainweb.MinerResources
 import Chainweb.Chainweb.PeerResources
+import Chainweb.Chainweb.PruneChainDatabase
 import Chainweb.Cut
 import Chainweb.CutDB
 import Chainweb.HostAddress
@@ -178,7 +179,6 @@ import qualified Chainweb.Mempool.InMemTypes as Mempool
 import qualified Chainweb.Mempool.Mempool as Mempool
 import Chainweb.Mempool.P2pConfig
 import Chainweb.Miner.Config
-import Chainweb.NodeId
 import Chainweb.Pact.RestAPI.Server (PactServerData)
 import Chainweb.Pact.Service.Types (PactServiceConfig(..))
 import Chainweb.Pact.Types (defaultReorgLimit)
@@ -201,6 +201,10 @@ import Data.LogMessage (LogFunctionText)
 import P2P.Node.Configuration
 import P2P.Node.PeerDB (PeerDb)
 import P2P.Peer
+
+import qualified Pact.Types.ChainId as P
+import qualified Pact.Types.ChainMeta as P
+import qualified Pact.Types.Command as P
 
 -- -------------------------------------------------------------------------- --
 -- TransactionIndexConfig
@@ -268,11 +272,51 @@ instance FromJSON (ThrottlingConfig -> ThrottlingConfig) where
         <*< throttlingPeerRate ..: "putPeer" % o
         <*< throttlingLocalRate ..: "local" % o
 
---
+-- -------------------------------------------------------------------------- --
+-- Cut Coniguration
+
+data ChainDatabaseGcConfig
+    = GcNone
+    | GcHeaders
+    | GcHeadersChecked
+    | GcFull
+    deriving (Show, Eq, Ord, Enum, Bounded, Generic)
+
+chainDatabaseGcToText :: ChainDatabaseGcConfig -> T.Text
+chainDatabaseGcToText GcNone = "none"
+chainDatabaseGcToText GcHeaders = "headers"
+chainDatabaseGcToText GcHeadersChecked = "headers-checked"
+chainDatabaseGcToText GcFull = "full"
+
+chainDatabaseGcFromText :: MonadThrow m => T.Text -> m ChainDatabaseGcConfig
+chainDatabaseGcFromText t = case T.toCaseFold t of
+    "none" -> return GcNone
+    "headers" -> return GcHeaders
+    "headers-checked" -> return GcHeadersChecked
+    "full" -> return GcFull
+    x -> throwM $ TextFormatException $ "unknown value for database pruning configuration: " <> sshow x
+
+instance HasTextRepresentation ChainDatabaseGcConfig where
+    toText = chainDatabaseGcToText
+    fromText = chainDatabaseGcFromText
+    {-# INLINE toText #-}
+    {-# INLINE fromText #-}
+
+instance ToJSON ChainDatabaseGcConfig where
+    toJSON = toJSON . chainDatabaseGcToText
+    {-# INLINE toJSON #-}
+
+instance FromJSON ChainDatabaseGcConfig where
+    parseJSON v = parseJsonFromText "ChainDatabaseGcConfig" v <|> legacy v
+      where
+        legacy = withBool "ChainDatabaseGcConfig" $ \case
+            True -> return GcHeaders
+            False -> return GcNone
+    {-# INLINE parseJSON #-}
 
 data CutConfig = CutConfig
     { _cutIncludeOrigin :: !Bool
-    , _cutPruneChainDatabase :: !Bool
+    , _cutPruneChainDatabase :: !ChainDatabaseGcConfig
     , _cutFetchTimeout :: !Int
     , _cutInitialCutHeightLimit :: !(Maybe CutHeight)
     } deriving (Eq, Show)
@@ -295,16 +339,39 @@ instance FromJSON (CutConfig -> CutConfig) where
 defaultCutConfig :: CutConfig
 defaultCutConfig = CutConfig
     { _cutIncludeOrigin = True
-    , _cutPruneChainDatabase = True
+    , _cutPruneChainDatabase = GcHeaders
     , _cutFetchTimeout = 3_000_000
-    , _cutInitialCutHeightLimit = Nothing }
+    , _cutInitialCutHeightLimit = Nothing
+    }
+
+pCutConfig :: MParser CutConfig
+pCutConfig = id
+    <$< cutIncludeOrigin .:: boolOption_
+        % long "cut-include-origin"
+        <> hidden
+        <> internal
+        <> help "whether to include the origin when sending cuts"
+    <*< cutPruneChainDatabase .:: textOption
+        % long "prune-chain-database"
+        <> help
+            ( "How to prune the chain database on startup."
+            <> " Pruning headers takes about between 10s to 2min. "
+            <> " Pruning headers with full header validation (headers-checked) and full GC can take"
+            <> " a longer time (up to 10 minutes or more)."
+            )
+        <> metavar "none|headers|headers-checked|full"
+    <*< cutFetchTimeout .:: option auto
+        % long "cut-fetch-timeout"
+        <> help "The timeout for processing new cuts in microseconds"
+    -- cutInitialCutHeightLimit isn't supported on the command line
 
 -- -------------------------------------------------------------------------- --
 -- Chainweb Configuration
 
 data ChainwebConfiguration = ChainwebConfiguration
     { _configChainwebVersion :: !ChainwebVersion
-    , _configNodeId :: !NodeId
+    , _configNodeIdDeprecated :: !Value
+        -- ^ Deprecated, won't show up in --print-config
     , _configCuts :: !CutConfig
     , _configMining :: !MiningConfig
     , _configHeaderStream :: !Bool
@@ -328,14 +395,18 @@ instance HasChainwebVersion ChainwebConfiguration where
     _chainwebVersion = _configChainwebVersion
     {-# INLINE _chainwebVersion #-}
 
-validateChainwebConfiguration :: ConfigValidation ChainwebConfiguration l
+validateChainwebConfiguration :: ConfigValidation ChainwebConfiguration []
 validateChainwebConfiguration c = do
     validateMinerConfig (_configMining c)
+    unless (_configNodeIdDeprecated c == Null) $ tell
+        [ "Usage NodeId is deprecated. This option will be removed in a future version of chainweb-node"
+        , "The value of NodeId is ignored by chainweb-node. In particular the database path will not depend on it"
+        ]
 
 defaultChainwebConfiguration :: ChainwebVersion -> ChainwebConfiguration
 defaultChainwebConfiguration v = ChainwebConfiguration
     { _configChainwebVersion = v
-    , _configNodeId = NodeId 0 -- FIXME
+    , _configNodeIdDeprecated = Null
     , _configCuts = defaultCutConfig
     , _configMining = defaultMining
     , _configHeaderStream = False
@@ -355,7 +426,6 @@ defaultChainwebConfiguration v = ChainwebConfiguration
 instance ToJSON ChainwebConfiguration where
     toJSON o = object
         [ "chainwebVersion" .= _configChainwebVersion o
-        , "nodeId" .= _configNodeId o
         , "cuts" .= _configCuts o
         , "mining" .= _configMining o
         , "headerStream" .= _configHeaderStream o
@@ -375,7 +445,7 @@ instance ToJSON ChainwebConfiguration where
 instance FromJSON (ChainwebConfiguration -> ChainwebConfiguration) where
     parseJSON = withObject "ChainwebConfig" $ \o -> id
         <$< configChainwebVersion ..: "chainwebVersion" % o
-        <*< configNodeId ..: "nodeId" % o
+        <*< configNodeIdDeprecated ..: "nodeId" % o
         <*< configCuts %.: "cuts" % o
         <*< configMining %.: "mining" % o
         <*< configHeaderStream ..: "headerStream" % o
@@ -397,10 +467,12 @@ pChainwebConfiguration = id
         % long "chainweb-version"
         <> short 'v'
         <> help "the chainweb version that this node is using"
-    <*< configNodeId .:: textOption
-        % long "node-id"
+    <*< configNodeIdDeprecated .:: fmap (String . T.pack) . strOption
+        % hidden
+        <> internal
+        <> long "node-id"
         <> short 'i'
-        <> help "unique id of the node that is used as miner id in new blocks"
+        <> help "DEPRECATED. The value is ignored"
     <*< configHeaderStream .:: boolOption_
         % long "header-stream"
         <> help "whether to enable an endpoint for streaming block updates"
@@ -432,6 +504,7 @@ pChainwebConfiguration = id
     <*< configRosetta .:: boolOption_
         % long "rosetta"
         <> help "Enable the Rosetta endpoints."
+    <*< configCuts %:: pCutConfig
 
 -- -------------------------------------------------------------------------- --
 -- Chainweb Resources
@@ -470,19 +543,19 @@ withChainweb
     => ChainwebConfiguration
     -> logger
     -> RocksDb
-    -> Maybe FilePath
+    -> FilePath
+        -- ^ Pact database directory
     -> Bool
     -> (forall cas' . PayloadCasLookup cas' => Chainweb logger cas' -> IO a)
     -> IO a
-withChainweb c logger rocksDb dbDir resetDb inner =
+withChainweb c logger rocksDb pactDbDir resetDb inner =
     withPeerResources v (view configP2p conf) logger $ \logger' peer ->
         withChainwebInternal
             (set configP2p (_peerResConfig peer) conf)
             logger'
             peer
             rocksDb
-            dbDir
-            (Just (_configNodeId c))
+            pactDbDir
             resetDb
             inner
   where
@@ -565,20 +638,32 @@ withChainwebInternal
     -> logger
     -> PeerResources logger
     -> RocksDb
-    -> Maybe FilePath
-    -> Maybe NodeId
+    -> FilePath
     -> Bool
     -> (forall cas' . PayloadCasLookup cas' => Chainweb logger cas' -> IO a)
     -> IO a
-withChainwebInternal conf logger peer rocksDb dbDir nodeid resetDb inner = do
+withChainwebInternal conf logger peer rocksDb pactDbDir resetDb inner = do
+
     initializePayloadDb v payloadDb
+
+    -- Garbage Collection
+    -- performed before PayloadDb and BlockHeaderDb used by other components
+    case _cutPruneChainDatabase (_configCuts conf) of
+        GcNone -> return ()
+        GcHeaders ->
+            pruneAllChains (pruningLogger "headers") rocksDb v []
+        GcHeadersChecked ->
+            pruneAllChains (pruningLogger "headers-checked") rocksDb v [CheckPayloads, CheckFull]
+        GcFull ->
+            fullGc (pruningLogger "full") rocksDb v
+
     concurrentWith
         -- initialize chains concurrently
         (\cid -> do
             let mcfg = validatingMempoolConfig cid v (_configBlockGasLimit conf)
             withChainResources v cid rocksDb peer (chainLogger cid)
-                     mcfg payloadDb prune dbDir nodeid
-                     pactConfig)
+                     mcfg payloadDb pactDbDir pactConfig
+        )
 
         -- initialize global resources after all chain resources are initialized
         (\cs -> global (HM.fromList $ zip cidsList cs))
@@ -592,8 +677,8 @@ withChainwebInternal conf logger peer rocksDb dbDir nodeid resetDb inner = do
       , _pactAllowReadsInLocal = _configAllowReadsInLocal conf
       }
 
-    prune :: Bool
-    prune = _cutPruneChainDatabase $ _configCuts conf
+    pruningLogger l = addLabel ("sub-component", l)
+        $ setComponent ("database-pruning") logger
 
     cidsList :: [ChainId]
     cidsList = toList cids
@@ -714,9 +799,9 @@ withChainwebInternal conf logger peer rocksDb dbDir nodeid resetDb inner = do
             let hsh = _blockHash bh
             let h = _blockHeight bh
             logCr Info $ "pact db synchronizing to block "
-                      <> T.pack (show (h, hsh))
+                <> T.pack (show (h, hsh))
             payload <- payloadWithOutputsToPayloadData
-                       <$> casLookupM payloadDb (_blockPayloadHash bh)
+                <$> casLookupM payloadDb (_blockPayloadHash bh)
             void $ _pactValidateBlock pact bh payload
             logCr Info "pact db synchronized"
 

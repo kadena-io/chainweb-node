@@ -48,8 +48,6 @@ import Chainweb.Version
 v :: ChainwebVersion
 v = FastTimedCPM petersonChainGraph
 
-cid = unsafeChainId 0
-
 bench :: C.Benchmark
 bench = C.bgroup "pact-backend" $
         play [ pactSqliteWithBench False . benchUserTable
@@ -103,7 +101,6 @@ cpWithBench torun =
     C.envWithCleanup setup teardown $ \ ~(NoopNFData (_,e,_)) ->
                                         C.bgroup name (benches e)
   where
-
     name = "batchedCheckpointer"
     cid = unsafeChainId 0
 

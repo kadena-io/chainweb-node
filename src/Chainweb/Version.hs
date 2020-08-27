@@ -51,7 +51,7 @@ module Chainweb.Version
 , coinV2Upgrade
 , to20ChainRebalance
 , pactBackCompat_v16
-, useLegacyCreationTimeForTxValidation
+, skipTxTimingValidation
 , enableModuleNameFix
 , enableModuleNameFix2
 -- ** BlockHeader Validation Guards
@@ -752,7 +752,6 @@ vuln797Fix Mainnet01 cid h
     | cid == unsafeChainId 7 = h >= 121451
     | cid == unsafeChainId 8 = h >= 121452
     | cid == unsafeChainId 9 = h >= 121451
-    | otherwise = error $ "invalid chain id " <> sshow cid
 vuln797Fix _ _ _ = True
 {-# INLINE vuln797Fix #-}
 
@@ -777,7 +776,10 @@ coinV2Upgrade Mainnet01 cid h
     | cid == unsafeChainId 7 = h == 140809
     | cid == unsafeChainId 8 = h == 140808
     | cid == unsafeChainId 9 = h == 140808
-    | otherwise = error $ "invalid chain id " <> sshow cid
+    -- new chains on mainnet start already with v2 deployed in the genesis block
+coinV2Upgrade Testnet04 cid h
+    | chainIdInt @Int cid >= 10  && chainIdInt @Int cid < 20 = h == 337000
+    | otherwise = h == 1
 coinV2Upgrade Development cid h
     | cid == unsafeChainId 0 = h == 3
     | otherwise = h == 4
@@ -807,17 +809,15 @@ pactBackCompat_v16 :: ChainwebVersion -> BlockHeight -> Bool
 pactBackCompat_v16 Mainnet01 h = h < 328000
 pactBackCompat_v16 _ _ = False
 
--- | If this is true the creation time of the current header is used for pact tx
--- creation time and ttl validation.
+-- | Early versions of chainweb used the creation time of the current header
+-- for validation of pact tx creation time and TTL. Nowadays the times of
+-- the parent header a used.
 --
--- Once the block height for triggering this on mainnet is in the past, the
--- result of this guard becomes trivial for `newBlock` applications and the
--- dependency of `newBlock` on the creation time of the current header can be
--- removed.
+-- When this guard is enabled timing validation is skipped.
 --
-useLegacyCreationTimeForTxValidation :: ChainwebVersion -> BlockHeight -> Bool
-useLegacyCreationTimeForTxValidation Mainnet01 h = h < 449940 -- ~ 2020-04-03T00:00:00Z
-useLegacyCreationTimeForTxValidation _ h = h <= 1
+skipTxTimingValidation :: ChainwebVersion -> BlockHeight -> Bool
+skipTxTimingValidation Mainnet01 h = h < 449940 -- ~ 2020-04-03T00:00:00Z
+skipTxTimingValidation _ h = h <= 1
     -- For most chainweb versions there is a large gap between creation times of
     -- the genesis blocks and the corresponding first blocks.
     --
@@ -836,6 +836,7 @@ enableModuleNameFix _ bh = bh >= 2
 --
 enableModuleNameFix2 :: ChainwebVersion -> BlockHeight -> Bool
 enableModuleNameFix2 Mainnet01 bh = bh >= 752214 -- ~ 2020-07-17 0:00:00 UTC
+enableModuleNameFix2 Testnet04 bh = bh >= 289966 -- ~ 2020-07-13
 enableModuleNameFix2 _ bh = bh >= 2
 
 -- -------------------------------------------------------------------------- --
@@ -914,4 +915,3 @@ oldDaGuard Mainnet01 h = h < 771_414 -- ~ 2020-07-23 16:00:00
 oldDaGuard Testnet04 h = h < 318_204 -- ~ 2020-07-23 16:00:00
 oldDaGuard Development h = h + 30 < to20ChainsDevelopment -- 30 blocks before the transition
 oldDaGuard _ _ = False
-

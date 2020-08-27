@@ -47,12 +47,12 @@ import Chainweb.BlockHeader
 import Chainweb.BlockHeight
 import Chainweb.BlockWeight
 import Chainweb.ChainId
+import Chainweb.Chainweb
 import Chainweb.Crypto.MerkleLog
 import Chainweb.Cut.Create
 import Chainweb.Difficulty
 import Chainweb.Graph
 import Chainweb.MerkleLogHash
-import Chainweb.NodeId
 import Chainweb.Payload
 import Chainweb.PowHash
 import Chainweb.RestAPI.NetworkID
@@ -104,11 +104,6 @@ instance Arbitrary ChainwebVersion where
 instance Arbitrary MerkleLogHash where
     arbitrary = unsafeMerkleLogHash . B.pack
         <$> vector (int merkleLogHashBytesCount)
-
--- Deprecated
---
-instance Arbitrary NodeId where
-    arbitrary = NodeId <$> arbitrary
 
 -- -------------------------------------------------------------------------- --
 -- POW
@@ -309,3 +304,10 @@ instance Arbitrary NetworkId where
 instance Arbitrary ChainId where
     arbitrary = unsafeChainId <$> arbitrary
 
+instance Arbitrary ChainDatabaseGcConfig where
+    arbitrary = elements
+        [ GcNone
+        , GcHeaders
+        , GcHeadersChecked
+        , GcFull
+        ]
