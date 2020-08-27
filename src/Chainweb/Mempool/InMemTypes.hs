@@ -36,6 +36,8 @@ import qualified Data.Vector as V
 
 import GHC.Generics
 
+import Numeric.Natural
+
 import Pact.Types.Gas (GasPrice(..))
 
 -- internal imports
@@ -67,6 +69,12 @@ data InMemConfig t = InMemConfig {
   , _inmemPreInsertBatchChecks
         :: V.Vector (T2 TransactionHash t)
         -> IO (V.Vector (Either (T2 TransactionHash InsertError) (T2 TransactionHash t)))
+  , _inmemCurrentTxsSize :: !Natural
+    -- ^ The number of active transactions in validated blocks that can be
+    -- distinguished. If there are more txs than this number, checks can
+    -- return false negatives (and a very small amount of false positives).
+    --
+    -- The set uses 16 bytes per entry.
 }
 
 ------------------------------------------------------------------------------
