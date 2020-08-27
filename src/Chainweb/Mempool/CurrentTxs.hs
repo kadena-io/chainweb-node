@@ -53,9 +53,9 @@ import Chainweb.Utils
 -- -------------------------------------------------------------------------- --
 -- Configuration
 
--- | Limits the size of the commit log. If the size is reached elements are
--- deleted, and queries may return false negatives. Not guarantee is made about
--- what elements are deleted.
+-- | Limits the size of the set of current txs. If the size is reached elements are
+-- deleted, and queries may return false negatives. No guarantee is made about
+-- which elements are deleted.
 --
 -- 16 MB ~ 1000000 entries
 --
@@ -152,4 +152,3 @@ pruneCurrentTxs (CurrentTxs s) = do
 
     -- Not sure if foldl' would be faster here
     return $ CurrentTxs $! foldr S.deleteAt s0 indexesToBeDeleted
-
