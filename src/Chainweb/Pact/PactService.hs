@@ -567,6 +567,15 @@ execValidateBlock memPoolAccess currHeader plData = do
         validateHashes currHeader plData miner transactions
 
     -- update mempool
+    --
+    -- Using the parent isn't optimal, since it doesn't delete the txs of
+    -- `currHeader` from the set of pending tx. The reason for this is that the
+    -- implementation 'mpaProcessFork' uses the chain database and at this point
+    -- 'currHeader' is generally not yet available in the database. It would be
+    -- possible to extract the txs from the result and remove them from the set
+    -- of pending txs. However, that would add extra complexity and at little
+    -- gain.
+    --
     case target of
         Nothing -> return ()
         Just (ParentHeader p) -> liftIO $ do
