@@ -384,7 +384,7 @@ rewindTo rewindLimit (Just (ParentHeader parent)) = do
     -- (e.g. when revalidating the pact history)
     progress block = do
         let h = _blockHeight block
-        when (h `mod` 10000 == 0) $
+        when (h `rem` 10000 == 0) $
             logInfo $ "rewindTo.fastForward: replay block at height " <> sshow (_blockHeight block)
 
     fastForward
