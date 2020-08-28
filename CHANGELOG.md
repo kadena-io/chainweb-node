@@ -7,28 +7,30 @@ This release provides performance improvements and bug fixes.
 *   More rigorously check the correct length of request keys,
     transactions ids, and hashes in API requests. (#1139, #1140)
 
-*   Improved performance of rebuilding the pact database from the
-    chain data. (#1137)
-
-*   Fix a bug in mempool where transactions that have been included in a
-    block are still marked as pending. Those transactions occupy memory in the
-    mempool and are synchronized until they finally expire. (#1138)
+*   Fix a bug in the Mempool where transactions that have been included in a
+    block are still marked as pending. Those transactions occupied memory in the
+    Mempool and got synchronized between nodes until they finally expired.
+    (#1138)
 
 *   The database pruning at node startup is more efficient and can now
     operate in four different modes, which can be used on the command line with
     the `--prune-chain-database` option and in the configuration file with the
     property `chainweb.cuts.pruneChainDatabase`.
 
-    1.  `none` no database pruning is performed
-    2.  `headers` only block headers but no payloads are pruned
-    3.  `headers-checked` like `headers` but also validates all block headers and
+    *   `none` no database pruning is performed
+    *   `headers` only block headers but no payloads are pruned (10-30 seconds)
+    *   `headers-checked` like `headers` but also validates all block headers and
         checks the complete chain Merkle tree including payload hashes.
-    4.  `full` prunes block headers and payloads.
+        (5-20 minutes)
+    *   `full` prunes block headers and payloads. (10-20 minutes)
 
     The default is `headers`. For backward compatibility it is possible to also
     use Boolean values for setting `chainweb.cuts.prunChainDatabase` in the
     configuration file, where `false` is equivalent with `none` and `true` is
     equivalent with `headers`. (#1132)
+
+*   Improved performance of rebuilding the pact database from the
+    chain data. (#1137)
 
 ## 2.1 (2020-08-11)
 
