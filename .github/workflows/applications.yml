@@ -16,6 +16,10 @@ on:
 env:
   AWS_ACCESS_KEY_ID: ${{ secrets.kadena_cabal_cache_aws_access_key_id }}
   AWS_SECRET_ACCESS_KEY: ${{ secrets.kadena_cabal_cache_aws_secret_access_key }}
+  AWS_DEFAULT_REGION: us-east-1
+
+  S3_ARTIFACT_BUCKET: kadena-cabal-cache
+  S3_ARTIFACT_FOLDER: chainweb-node
 
 jobs:
 
@@ -28,11 +32,11 @@ jobs:
       fail-fast: false
       matrix:
         chainwebVersion: ['mainnet01', 'development']
-
+    env:
+      DB_SNAPSHOT_URI: 's3://chainweb-chain-db/${{ matrix.chainwebVersion }}/rocksdb/'
     steps:
     - name: Sync chain database from S3
-      run: |
-        aws s3 sync "s3://chainweb-chain-db/${{ matrix.chainwebVersion }}/rocksdb/" db/rocksdb/ --delete --exclude=LOCK
+      run: aws s3 sync "$DB_SNAPSHOT_URI" db/0/rocksDb --delete --exclude=LOCK
     - name: Store chain database as artifact
       uses: actions/upload-artifact@v2
       with:
@@ -49,7 +53,7 @@ jobs:
       fail-fast: false
       matrix:
         os: [ 'ubuntu-18.04' ]
-        ghc: ['8.6.5', '8.8.3', '8.10.1']
+        ghc: ['8.6.5', '8.8.4', '8.10.2']
     steps:
     - name: Install non-Haskell dependencies
       run: |
@@ -60,7 +64,7 @@ jobs:
       with:
         name: chainweb-applications.${{ matrix.ghc }}.${{ matrix.os }}
         path: bin
-    - name: Validate block header database
+    - name: Run slow tests
       run: |
         chmod 755 ./bin/cwtool
         ./bin/cwtool slow-tests
@@ -68,11 +72,16 @@ jobs:
   run-benchmarks:
     name: Benchmarks
     needs: [build]
-    runs-on: 'ubuntu-18.04'
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ 'ubuntu-20.04' ]
+        ghc: ['8.10.2']
+    runs-on: ${{ matrix.os }}
     env:
       BENCH_FILE: results.${{ github.run_id }}.${{ github.run_number }}.json
       BENCH_BUCKET: kadena-cabal-cache
-      BENCH_FOLDER: chainweb-benchmark-results/ghc-8.8.3/ubuntu-18.04
+      BENCH_FOLDER: chainweb-benchmark-results/${{ matrix.ghc }}/${{ matrix.os }}
     steps:
     - name: Install non-Haskell dependencies
       run: |
@@ -81,7 +90,7 @@ jobs:
     - name: Download build artifacts
       uses: actions/download-artifact@v2
       with:
-        name: chainweb-applications.8.8.3.ubuntu-18.04
+        name: chainweb-applications.${{ matrix.ghc }}.${{ matrix.os }}
         path: bin
     - name: Run all benchmarks
       run: |
@@ -97,15 +106,17 @@ jobs:
   validate-header-db:
     name: Validate headers
     needs: [sync-chain-db, build]
-    runs-on: 'ubuntu-18.04'
     strategy:
       fail-fast: false
       matrix:
-        ghc: ['8.6.5', '8.8.3', '8.10.1']
+        os: [ 'ubuntu-18.04', 'ubuntu-20.04' ]
+        ghc: ['8.6.5', '8.8.4', '8.10.2']
         chainwebVersion: ['development']
         include:
-        - ghc: '8.8.3'
+        - ghc: '8.8.4'
+          os: 'ubuntu-18.04'
           chainwebVersion: 'mainnet01'
+    runs-on: ${{ matrix.os }}
     steps:
     - name: Install non-Haskell dependencies
       run: |
@@ -121,24 +132,73 @@ jobs:
       with:
         name: chainweb-applications.${{ matrix.ghc }}.ubuntu-18.04
         path: bin
-    - name: Validate block header database
+    - name: Write chainweb-node configuration file
       run: |
-        chmod 755 ./bin/cwtool
-        ./bin/cwtool header-dump --database=db/rocksdb --chainweb-version=${{ matrix.chainwebVersion }} -o none --validate
+        cat >> config.yaml <<EOF
+          databaseDirectory: "db/"
+          chainweb:
+            chainwebVersion: ${{ matrix.chainwebVersion }}
+            validateHashesOnReplay: false
+            p2p:
+              peer:
+                hostaddress:
+                  hostname: localhost
+                  port: 4445
+              private: true
+              ignoreBootstrapNodes: true
+            transactionIndex:
+              enabled: false
+            headerStream: false
+            mempoolP2p:
+              enabled: false
+            cuts:
+              pruneChainDatabase: headers-checked
+          logging:
+            telemetryBackend:
+              enabled: true
+              configuration:
+                handle: stdout
+                color: "True"
+            backend:
+              handle: stdout
+              color: "True"
+            logger:
+              log_level: info
+            filter:
+              rules:
+              - key: component
+                value: init
+                level: info
+              - key: component
+                value: database-pruning
+                level: info
+              default: warn
+        EOF
+    - name: Validate block headers and check Merkle tree
+      run: |
+        set -eo pipefail
+        chmod 755 ./bin/chainweb-node
+        ./bin/chainweb-node --config-file=config.yaml | {
+          sed -u -e '/finished pruning databases/{p;q0};/\[Error\]/{p;q1}' ;
+          x=$? ;
+          echo "finished with exit code $x" ;
+          killall -q chainweb-node || true ;
+          exit $x ;
+        }
 
-  # Validate Mainnet01 Chain Database With chainweb-node
+  # Validate Mainnet01 pact history
   #
-  validate-chain-db:
+  validate-pact-history:
     name: Validate pact history
     needs: [sync-chain-db, build]
     runs-on: 'ubuntu-18.04'
     strategy:
       fail-fast: false
       matrix:
-        ghc: ['8.6.5', '8.8.3', '8.10.1']
+        ghc: ['8.6.5', '8.8.4', '8.10.2']
         chainwebVersion: ['development']
         include:
-        - ghc: '8.8.3'
+        - ghc: '8.8.4'
           chainwebVersion: 'mainnet01'
     steps:
     - name: Install non-Haskell dependencies
@@ -158,7 +218,7 @@ jobs:
     - name: Write chainweb-node configuration file
       run: |
         cat >> config.yaml <<EOF
-          databaseDirectory: "db/rocksdb"
+          databaseDirectory: "db"
           chainweb:
             chainwebVersion: ${{ matrix.chainwebVersion }}
             validateHashesOnReplay: true
@@ -187,18 +247,20 @@ jobs:
               color: "True"
             logger:
               log_level: info
+              log_policy: keep
             filter:
               rules:
               - key: component
-                value: pact
-                level: warn
-              default: info
+                value: init
+                level: info
+              default: warn
         EOF
     - name: Validate pact history
       run: |
+        set -eo pipefail
         chmod 755 ./bin/chainweb-node
         ./bin/chainweb-node --config-file=config.yaml | {
-          sed -u -e '/start chainweb node/{p;q0};/\[Error\]/{p;q1}' ;
+          sed -u -e '/finished synchronizing Pact DBs/{p;q0};/\[Error\]/{p;q1}' ;
           x=$? ;
           echo "finished with exit code $x" ;
           killall -q chainweb-node || true ;
@@ -213,7 +275,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        ghc: ['8.6.5', '8.8.3', '8.10.1']
+        ghc: ['8.6.5', '8.8.4', '8.10.2']
         cabal: ['3.2.0.0']
         os: ['ubuntu-16.04', 'ubuntu-18.04', 'ubuntu-20.4', 'macOS-latest']
         cabalcache: ['true']
@@ -225,15 +287,11 @@ jobs:
           - os: 'ubuntu-20.04'
             ghc: '8.6.5'
 
-    env:
-      ARTIFACT_BUCKET: kadena-cabal-cache
-      ARTIFACT_FOLDER: chainweb-node
-
     steps:
 
     # Setup
     - name: Checkout repository
-      uses: actions/checkout@v2.2.0
+      uses: actions/checkout@v2.3.2
     - name: Create env variables for git objects
       run: |
         echo "::set-env name=IS_RELEASE::${{ contains(github.event_name, 'release') }}"
@@ -241,12 +299,14 @@ jobs:
         echo "::set-env name=GIT_HEAD_REF_SHORT::${GITHUB_HEAD_REF#refs/heads/}"
         echo "::set-env name=GIT_SHA_SHORT::$(git rev-parse --short HEAD || true)"
 
-    - name: Set optimization level
+    - name: Set optimization level and binary stripping
       run: |
         if [[ "$GIT_REF_SHORT" = "master" || "$IS_RELEASE" = "true" ]] ; then
           echo "::set-env name=OPT_LEVEL::2"
+          echo "::set-env name=STRIP::True"
         else
           echo "::set-env name=OPT_LEVEL::1"
+          echo "::set-env name=STRIP::False"
         fi
 
     - name: Install GHC and Cabal
@@ -273,9 +333,10 @@ jobs:
     - name: Create cabal.project.local
       run: |
         cat > cabal.project.local <<EOF
-        documentation: False
-        executable-stripping: True
-        library-stripping: True
+        package *
+          documentation: False
+          executable-stripping: $STRIP
+          library-stripping: $STRIP
         package chainweb
           documentation: False
           optimization: $OPT_LEVEL
@@ -289,30 +350,18 @@ jobs:
       if: contains(matrix.ghc, '8.10')
       run : |
         cat >> cabal.project.local <<EOF
-        package chainweb
-          ghc-options: -Wwarn
-        package cassava
-          flags: -bytestring--lt-0_10_4
         allow-newer:
-          *:base
-          *:template-haskell
-          *:lens
-          *:haskeline
-          *:Cabal
-          *:ghc-prim
-          thyme:*
-          *:optics-core
-          *:optics-extra
-          *:optics-th
-          *:process
-    - uses: actions/cache@v1
+          pact:*
+          tocken-bucket:*
+          servant-swagger:*
+    - uses: actions/cache@v2.1.1
       name: Cache dist-newstyle
       with:
-        path: dist-newstyle
-        key: ${{ matrix.os }}-${{ matrix.ghc }}-dist-newstyle-${{ github.sha }}
-        restore-keys: |
-          ${{ matrix.os }}-${{ matrix.ghc }}-dist-newstyle-
-          ${{ matrix.os }}-${{ matrix.ghc }}-dist-newstyle
+        path: |
+          ~/.cabal/packages
+          ~/.cabal/store
+          dist-newstyle
+        key: ${{ runner.os }}-${{ matrix.ghc }}-cabal
 
     # Build
     - name: Update package database
@@ -363,10 +412,12 @@ jobs:
         export VER=$(grep '^version' chainweb.cabal | sed -e 's/.*: *//')
         if [ "$OPT_LEVEL" -gt 1 ] ; then
           cp dist-newstyle/build/*/ghc-${{ matrix.ghc }}/chainweb-${VER}/opt/build/*/chainweb-node artifacts/applications
+          cp dist-newstyle/build/*/ghc-${{ matrix.ghc }}/chainweb-${VER}/opt/build/*/chainweb-tests artifacts/applications
           cp dist-newstyle/build/*/ghc-${{ matrix.ghc }}/chainweb-${VER}/opt/build/*/cwtool artifacts/applications
           cp dist-newstyle/build/*/ghc-${{ matrix.ghc }}/chainweb-${VER}/opt/build/*/bench artifacts/applications
         else
           cp dist-newstyle/build/*/ghc-${{ matrix.ghc }}/chainweb-${VER}/build/*/chainweb-node artifacts/applications
+          cp dist-newstyle/build/*/ghc-${{ matrix.ghc }}/chainweb-${VER}/build/*/chainweb-tests artifacts/applications
           cp dist-newstyle/build/*/ghc-${{ matrix.ghc }}/chainweb-${VER}/build/*/cwtool artifacts/applications
           cp dist-newstyle/build/*/ghc-${{ matrix.ghc }}/chainweb-${VER}/build/*/bench artifacts/applications
         fi
@@ -414,15 +465,15 @@ jobs:
     - name: Publish applications to S3
       run: |
         tar -C ./artifacts/applications/ -czf $BINFILE chainweb-node
-        aws s3 cp $BINFILE s3://$ARTIFACT_BUCKET/$ARTIFACT_FOLDER/
-        aws s3api put-object-acl --bucket $ARTIFACT_BUCKET --key=$ARTIFACT_FOLDER/$BINFILE --acl public-read
+        aws s3 cp $BINFILE s3://$S3_ARTIFACT_BUCKET/$S3_ARTIFACT_FOLDER/
+        aws s3api put-object-acl --bucket $S3_ARTIFACT_BUCKET --key=$S3_ARTIFACT_FOLDER/$BINFILE --acl public-read
     - name: Publish applications to S3 for master builds
       if: env.GIT_REF_SHORT == 'master'
       run: |
-        aws s3 cp s3://$ARTIFACT_BUCKET/$ARTIFACT_FOLDER/$BINFILE s3://$ARTIFACT_BUCKET/$ARTIFACT_FOLDER/$BRANCH_BINFILE
-        aws s3api put-object-acl --bucket $ARTIFACT_BUCKET --key=$ARTIFACT_FOLDER/$BRANCH_BINFILE --acl public-read
+        aws s3 cp s3://$S3_ARTIFACT_BUCKET/$S3_ARTIFACT_FOLDER/$BINFILE s3://$S3_ARTIFACT_BUCKET/$S3_ARTIFACT_FOLDER/$BRANCH_BINFILE
+        aws s3api put-object-acl --bucket $S3_ARTIFACT_BUCKET --key=$S3_ARTIFACT_FOLDER/$BRANCH_BINFILE --acl public-read
     - name: Publish applications to S3 for release tag builds
       if: contains(github.event_name, 'release') || startsWith(env.GIT_TAG, '1.')
       run: |
-        aws s3 cp s3://$ARTIFACT_BUCKET/$ARTIFACT_FOLDER/$BINFILE s3://$ARTIFACT_BUCKET/$ARTIFACT_FOLDER/$TAG_BINFILE
-        aws s3api put-object-acl --bucket $ARTIFACT_BUCKET --key=$ARTIFACT_FOLDER/$TAG_BINFILE --acl public-read
+        aws s3 cp s3://$S3_ARTIFACT_BUCKET/$S3_ARTIFACT_FOLDER/$BINFILE s3://$S3_ARTIFACT_BUCKET/$S3_ARTIFACT_FOLDER/$TAG_BINFILE
+        aws s3api put-object-acl --bucket $S3_ARTIFACT_BUCKET --key=$S3_ARTIFACT_FOLDER/$TAG_BINFILE --acl public-read
