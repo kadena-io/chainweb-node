@@ -363,15 +363,17 @@ jobs:
           dist-newstyle
         key: ${{ matrix.os }}-${{ matrix.ghc }}-cabal
     # The following is probably only needed on macos
-    - name: Fix file permissions for cached executables
+    - name: Reset dist-newstyle caches
       run: |
         test -d dist-newstyle && rm -rf dist-newstyle
     - name: Check executables
       run: |
-        test -d dist-newstyle && find dist-newstyle -type f -path '*chainweb*' -name "chainweb-node" -exec file {} +
-        test -d dist-newstyle && find dist-newstyle -type f -path '*chainweb*' -name "chainweb-tests" -exec file {} +
-        test -d dist-newstyle && find dist-newstyle -type f -path '*chainweb*' -name "bench" -exec file {} +
-        test -d dist-newstyle && find dist-newstyle -type f -path '*chainweb*' -name "cwtool" -exec file {} +
+        if test -d dist-newstyle ; then
+            find dist-newstyle -type f -path '*chainweb*' -name "chainweb-node" -exec file {} +
+            find dist-newstyle -type f -path '*chainweb*' -name "chainweb-tests" -exec file {} +
+            find dist-newstyle -type f -path '*chainweb*' -name "bench" -exec file {} +
+            find dist-newstyle -type f -path '*chainweb*' -name "cwtool" -exec file {} +
+        fi
 
     # Build
     - name: Update package database
