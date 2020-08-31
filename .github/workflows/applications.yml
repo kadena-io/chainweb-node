@@ -365,10 +365,10 @@ jobs:
     # The following is probably only needed on macos
     - name: Fix file permissions for cached executables
       run: |
-        'test -d dist-newstyle && find dist-newstyle -type file -name "chainweb-node" -exec chmod ug+x {} +'
-        'test -d dist-newstyle && find dist-newstyle -type file -name "chainweb-tests" -exec chmod ug+x {} +'
-        'test -d dist-newstyle && find dist-newstyle -type file -name "bench" -exec chmod ug+x {} +'
-        'test -d dist-newstyle && find dist-newstyle -type file -name "cwtool" -exec chmod ug+x {} +'
+        test -d dist-newstyle && find dist-newstyle -type f -name "chainweb-node" -exec chmod ug+x {} +
+        test -d dist-newstyle && find dist-newstyle -type f -name "chainweb-tests" -exec chmod ug+x {} +
+        test -d dist-newstyle && find dist-newstyle -type f -name "bench" -exec chmod ug+x {} +
+        test -d dist-newstyle && find dist-newstyle -type f -name "cwtool" -exec chmod ug+x {} +
 
     # Build
     - name: Update package database
