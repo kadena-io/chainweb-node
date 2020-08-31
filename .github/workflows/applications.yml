@@ -109,16 +109,16 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ 'ubuntu-18.04', 'ubuntu-20.04' ]
-        ghc: ['8.6.5', '8.8.4', '8.10.2']
+        os: ['ubuntu-18.04', 'ubuntu-20.04']
+        ghc: ['8.8.4', '8.10.2']
         chainwebVersion: ['development']
         include:
         - ghc: '8.8.4'
           os: 'ubuntu-18.04'
           chainwebVersion: 'mainnet01'
-          timeout: 60
+          timeout: 90
         - chainwebVersion: 'development'
-          timeout: 10
+          timeout: 40
     runs-on: ${{ matrix.os }}
     steps:
     - name: Install non-Haskell dependencies
@@ -182,7 +182,7 @@ jobs:
       run: |
         set -eo pipefail
         chmod 755 ./bin/chainweb-node
-        ./bin/chainweb-node --config-file=config.yaml | tee /dev/stderr | {
+        ./bin/chainweb-node --config-file=config.yaml | {
           sed -u -e '/finished pruning databases/{p;q0};/\[Error\]/{p;q1}' ;
           x=$? ;
           echo "finished with exit code $x" ;
@@ -200,20 +200,20 @@ jobs:
       fail-fast: false
       matrix:
         os: [ 'ubuntu-18.04', 'ubuntu-20.04' ]
-        ghc: ['8.6.5', '8.8.4', '8.10.2']
+        ghc: ['8.8.4', '8.10.2']
         chainwebVersion: ['development']
         include:
         - ghc: '8.8.4'
           os: 'ubuntu-18.04'
           chainwebVersion: 'mainnet01'
-          timeout: 60
+          timeout: 90
         - chainwebVersion: 'development'
-          timeout: 10
+          timeout: 40
     steps:
     - name: Install non-Haskell dependencies
       run: |
         sudo apt-get update
-        sudo apt-get install -y librocksdb-dev
+        sudo apt-get install -y librocksdb-dev libtinfo-dev
     - name: Download ${{ matrix.chainwebVersion }} chain database artifact
       uses: actions/download-artifact@v2
       with:
@@ -269,7 +269,7 @@ jobs:
       run: |
         set -eo pipefail
         chmod 755 ./bin/chainweb-node
-        ./bin/chainweb-node --config-file=config.yaml | tee /dev/stderr | {
+        ./bin/chainweb-node --config-file=config.yaml | {
           sed -u -e '/finished synchronizing Pact DBs/{p;q0};/\[Error\]/{p;q1}' ;
           x=$? ;
           echo "finished with exit code $x" ;
