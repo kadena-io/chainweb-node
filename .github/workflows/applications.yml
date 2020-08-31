@@ -365,16 +365,16 @@ jobs:
     # The following is probably only needed on macos
     - name: Fix file permissions for cached executables
       run: |
-        test -d dist-newstyle && find dist-newstyle -type f -name "chainweb-node" -exec chmod ug+x {} +
-        test -d dist-newstyle && find dist-newstyle -type f -name "chainweb-tests" -exec chmod ug+x {} +
-        test -d dist-newstyle && find dist-newstyle -type f -name "bench" -exec chmod ug+x {} +
-        test -d dist-newstyle && find dist-newstyle -type f -name "cwtool" -exec chmod ug+x {} +
+        test -d dist-newstyle && find dist-newstyle -type f -path '*chainweb*' -name "chainweb-node" -exec rm {} +
+        test -d dist-newstyle && find dist-newstyle -type f -path '*chainweb*' -name "chainweb-tests" -exec rm {} +
+        test -d dist-newstyle && find dist-newstyle -type f -path '*chainweb*' -name "bench" -exec rm {} +
+        test -d dist-newstyle && find dist-newstyle -type f -path '*chainweb*' -name "cwtool" -exec rm {} +
     - name: Check executables
       run: |
-        test -d dist-newstyle && find dist-newstyle -type f -name "chainweb-node" -exec file {} +
-        test -d dist-newstyle && find dist-newstyle -type f -name "chainweb-tests" -exec file {} +
-        test -d dist-newstyle && find dist-newstyle -type f -name "bench" -exec file {} +
-        test -d dist-newstyle && find dist-newstyle -type f -name "cwtool" -exec file {} +
+        test -d dist-newstyle && find dist-newstyle -type f -path '*chainweb*' -name "chainweb-node" -exec file {} +
+        test -d dist-newstyle && find dist-newstyle -type f -path '*chainweb*' -name "chainweb-tests" -exec file {} +
+        test -d dist-newstyle && find dist-newstyle -type f -path '*chainweb*' -name "bench" -exec file {} +
+        test -d dist-newstyle && find dist-newstyle -type f -path '*chainweb*' -name "cwtool" -exec file {} +
 
     # Build
     - name: Update package database
