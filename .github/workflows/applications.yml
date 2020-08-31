@@ -366,9 +366,6 @@ jobs:
     - name: Fix file permissions for cached executables
       run: |
         test -d dist-newstyle && rm -rf dist-newstyle
-        test -d dist-newstyle && rm -rf dist-newstyle
-        test -d dist-newstyle && rm -rf dist-newstyle
-        test -d dist-newstyle && rm -rf dist-newstyle
     - name: Check executables
       run: |
         test -d dist-newstyle && find dist-newstyle -type f -path '*chainweb*' -name "chainweb-node" -exec file {} +
