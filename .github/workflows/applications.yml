@@ -116,6 +116,9 @@ jobs:
         - ghc: '8.8.4'
           os: 'ubuntu-18.04'
           chainwebVersion: 'mainnet01'
+          timeout: 60
+        - chainwebVersion: 'development'
+          timeout: 10
     runs-on: ${{ matrix.os }}
     steps:
     - name: Install non-Haskell dependencies
@@ -130,7 +133,7 @@ jobs:
     - name: Download build artifacts
       uses: actions/download-artifact@v2
       with:
-        name: chainweb-applications.${{ matrix.ghc }}.ubuntu-18.04
+        name: chainweb-applications.${{ matrix.ghc }}.${{ matrix.os }}
         path: bin
     - name: Write chainweb-node configuration file
       run: |
@@ -175,10 +178,11 @@ jobs:
               default: warn
         EOF
     - name: Validate block headers and check Merkle tree
+      timeout-minutes: ${{ matrix.timeout }}
       run: |
         set -eo pipefail
         chmod 755 ./bin/chainweb-node
-        ./bin/chainweb-node --config-file=config.yaml | {
+        ./bin/chainweb-node --config-file=config.yaml | tee /dev/stderr | {
           sed -u -e '/finished pruning databases/{p;q0};/\[Error\]/{p;q1}' ;
           x=$? ;
           echo "finished with exit code $x" ;
@@ -195,11 +199,16 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
+        os: [ 'ubuntu-18.04', 'ubuntu-20.04' ]
         ghc: ['8.6.5', '8.8.4', '8.10.2']
         chainwebVersion: ['development']
         include:
         - ghc: '8.8.4'
+          os: 'ubuntu-18.04'
           chainwebVersion: 'mainnet01'
+          timeout: 60
+        - chainwebVersion: 'development'
+          timeout: 10
     steps:
     - name: Install non-Haskell dependencies
       run: |
@@ -213,7 +222,7 @@ jobs:
     - name: Download build artifacts
       uses: actions/download-artifact@v2
       with:
-        name: chainweb-applications.${{ matrix.ghc }}.ubuntu-18.04
+        name: chainweb-applications.${{ matrix.ghc }}.${{ matrix.os }}
         path: bin
     - name: Write chainweb-node configuration file
       run: |
@@ -256,10 +265,11 @@ jobs:
               default: warn
         EOF
     - name: Validate pact history
+      timeout-minutes: ${{ matrix.timeout }}
       run: |
         set -eo pipefail
         chmod 755 ./bin/chainweb-node
-        ./bin/chainweb-node --config-file=config.yaml | {
+        ./bin/chainweb-node --config-file=config.yaml | tee /dev/stderr | {
           sed -u -e '/finished synchronizing Pact DBs/{p;q0};/\[Error\]/{p;q1}' ;
           x=$? ;
           echo "finished with exit code $x" ;
@@ -363,17 +373,17 @@ jobs:
           dist-newstyle
         key: ${{ matrix.os }}-${{ matrix.ghc }}-cabal
     # The following is probably only needed on macos
-    - name: Reset dist-newstyle caches
-      run: |
-        test -d dist-newstyle && rm -rf dist-newstyle
-    - name: Check executables
-      run: |
-        if test -d dist-newstyle ; then
-            find dist-newstyle -type f -path '*chainweb*' -name "chainweb-node" -exec file {} +
-            find dist-newstyle -type f -path '*chainweb*' -name "chainweb-tests" -exec file {} +
-            find dist-newstyle -type f -path '*chainweb*' -name "bench" -exec file {} +
-            find dist-newstyle -type f -path '*chainweb*' -name "cwtool" -exec file {} +
-        fi
+    # - name: Reset dist-newstyle caches
+    #   run: |
+    #     test -d dist-newstyle && rm -rf dist-newstyle
+    # - name: Check executables
+    #   run: |
+    #     if test -d dist-newstyle ; then
+    #         find dist-newstyle -type f -path '*chainweb*' -name "chainweb-node" -exec file {} +
+    #         find dist-newstyle -type f -path '*chainweb*' -name "chainweb-tests" -exec file {} +
+    #         find dist-newstyle -type f -path '*chainweb*' -name "bench" -exec file {} +
+    #         find dist-newstyle -type f -path '*chainweb*' -name "cwtool" -exec file {} +
+    #     fi
 
     # Build
     - name: Update package database
