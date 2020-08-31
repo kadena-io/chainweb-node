@@ -362,6 +362,13 @@ jobs:
           ~/.cabal/store
           dist-newstyle
         key: ${{ matrix.os }}-${{ matrix.ghc }}-cabal
+    # The following is probably only needed on macos
+    - name: Fix file permissions for cached executables
+      run: |
+        find dist-newstyle -type file -name 'chainweb-node' -exec chmod ug+x {} +
+        find dist-newstyle -type file -name 'chainweb-tests' -exec chmod ug+x {} +
+        find dist-newstyle -type file -name 'bench' -exec chmod ug+x {} +
+        find dist-newstyle -type file -name 'cwtool' -exec chmod ug+x {} +
 
     # Build
     - name: Update package database
