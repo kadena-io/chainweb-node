@@ -369,6 +369,12 @@ jobs:
         test -d dist-newstyle && find dist-newstyle -type f -name "chainweb-tests" -exec chmod ug+x {} +
         test -d dist-newstyle && find dist-newstyle -type f -name "bench" -exec chmod ug+x {} +
         test -d dist-newstyle && find dist-newstyle -type f -name "cwtool" -exec chmod ug+x {} +
+    - name: Check executables
+      run: |
+        test -d dist-newstyle && find dist-newstyle -type f -name "chainweb-node" -exec file {} +
+        test -d dist-newstyle && find dist-newstyle -type f -name "chainweb-tests" -exec file {} +
+        test -d dist-newstyle && find dist-newstyle -type f -name "bench" -exec file {} +
+        test -d dist-newstyle && find dist-newstyle -type f -name "cwtool" -exec file {} +
 
     # Build
     - name: Update package database
