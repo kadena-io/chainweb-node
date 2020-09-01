@@ -180,7 +180,7 @@ jobs:
       timeout-minutes: ${{ matrix.timeout }}
       run: |
         chmod 755 ./bin/chainweb-node
-        ./bin/chainweb-node --config-file=config.yaml |
+        unbuffer ./bin/chainweb-node --config-file=config.yaml |
         sed -u -e '/finished pruning databases/q0;/\[Error\]/q1;$q2'
 
   # Validate Mainnet01 pact history
@@ -259,7 +259,7 @@ jobs:
       timeout-minutes: ${{ matrix.timeout }}
       run: |
         chmod 755 ./bin/chainweb-node
-        unbuffer ./bin/chainweb-node --config-file=config.yaml } |
+        unbuffer ./bin/chainweb-node --config-file=config.yaml |
         sed -u -e '/finished synchronizing Pact DBs/q0;/\[Error\]/q1;$q2'
 
   # Build Chainweb Node
