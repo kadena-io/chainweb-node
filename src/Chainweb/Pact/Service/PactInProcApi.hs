@@ -145,13 +145,9 @@ pactProcessFork mpc theLogger bHeader = do
     -- No need to run pre-insert check here -- we know these are ok, and
     -- calling the pre-check would block here (it calls back into pact service)
     mempoolInsert (mpcMempool mpc) UncheckedInsert reintroTxs
-    mempoolMarkValidated (mpcMempool mpc) $ fmap hasher validatedTxs
+    mempoolMarkValidated (mpcMempool mpc) validatedTxs
 
   where
-    mempool = mpcMempool mpc
-    txcfg = mempoolTxConfig mempool
-    hasher = txHasher txcfg
-
     logFn :: Logger l => l -> LogFunctionText
     logFn lg = logFunction lg
 
