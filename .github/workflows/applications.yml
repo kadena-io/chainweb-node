@@ -116,9 +116,9 @@ jobs:
         - ghc: '8.8.4'
           os: 'ubuntu-18.04'
           chainwebVersion: 'mainnet01'
-          timeout: 90
+          timeout: 120
         - chainwebVersion: 'development'
-          timeout: 40
+          timeout: 10
     runs-on: ${{ matrix.os }}
     steps:
     - name: Install non-Haskell dependencies
@@ -158,15 +158,13 @@ jobs:
               pruneChainDatabase: headers-checked
           logging:
             telemetryBackend:
-              enabled: true
-              configuration:
-                handle: stdout
-                color: "True"
+              enabled: false
             backend:
               handle: stdout
-              color: "True"
+              color: "true"
             logger:
               log_level: info
+              log_policy: keep
             filter:
               rules:
               - key: component
@@ -182,7 +180,7 @@ jobs:
       timeout-minutes: ${{ matrix.timeout }}
       run: |
         chmod 755 ./bin/chainweb-node
-        ./bin/chainweb-node --config-file=config.yaml | {
+        { ./bin/chainweb-node --config-file=config.yaml || true ; } | {
           sed -u -e '/finished pruning databases/{p;q0};/\[Error\]/{p;q1}' ;
           x=$? ;
           echo "finished with exit code $x" ;
@@ -206,9 +204,9 @@ jobs:
         - ghc: '8.8.4'
           os: 'ubuntu-18.04'
           chainwebVersion: 'mainnet01'
-          timeout: 90
+          timeout: 120
         - chainwebVersion: 'development'
-          timeout: 40
+          timeout: 10
     steps:
     - name: Install non-Haskell dependencies
       run: |
@@ -247,10 +245,7 @@ jobs:
               pruneChainDatabase: false
           logging:
             telemetryBackend:
-              enabled: true
-              configuration:
-                handle: stdout
-                color: "True"
+              enabled: false
             backend:
               handle: stdout
               color: "True"
@@ -269,7 +264,7 @@ jobs:
       timeout-minutes: ${{ matrix.timeout }}
       run: |
         chmod 755 ./bin/chainweb-node
-        ./bin/chainweb-node --config-file=config.yaml | {
+        { ./bin/chainweb-node --config-file=config.yaml || true ; } | {
           sed -u -e '/finished synchronizing Pact DBs/{p;q0};/\[Error\]/{p;q1}' ;
           x=$? ;
           echo "finished with exit code $x" ;
