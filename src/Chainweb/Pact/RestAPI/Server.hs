@@ -39,13 +39,14 @@ import Control.Monad.Trans.Maybe
 import Data.Aeson as Aeson
 import Data.Bifunctor (second)
 import Data.ByteString (ByteString)
+import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy.Char8 as BSL8
 import qualified Data.ByteString.Short as SB
 import Data.CAS
 import Data.Default (def)
+import Data.Foldable
 import Data.HashMap.Strict (HashMap)
 import qualified Data.HashMap.Strict as HM
-import Data.List (find)
 import Data.List.NonEmpty (NonEmpty)
 import qualified Data.List.NonEmpty as NEL
 import Data.Maybe
@@ -226,11 +227,13 @@ pollHandler
     -> MempoolBackend ChainwebTransaction
     -> Poll
     -> Handler PollResponses
-pollHandler logger cdb cid pact mem (Poll request) = liftIO $ do
-    logg Info $ PactCmdLogPoll $ fmap requestKeyToB16Text request
+pollHandler logger cdb cid pact mem (Poll request) = do
+    traverse_ validateRequestKey request
+
+    liftIO $! logg Info $ PactCmdLogPoll $ fmap requestKeyToB16Text request
     -- get current best cut
-    cut <- CutDB._cut cdb
-    PollResponses <$> internalPoll pdb bdb mem pact cut request
+    cut <- liftIO $! CutDB._cut cdb
+    PollResponses <$!> liftIO (internalPoll pdb bdb mem pact cut request)
   where
     pdb = view CutDB.cutDbPayloadCas cdb
     bdb = fromJuste $ preview (CutDB.cutDbBlockHeaderDb cid) cdb
@@ -247,6 +250,8 @@ listenHandler
     -> ListenerRequest
     -> Handler ListenResponse
 listenHandler logger cdb cid pact mem (ListenerRequest key) = do
+    validateRequestKey key
+
     liftIO $ logg Info $ PactCmdLogListen $ requestKeyToB16Text key
     liftIO (registerDelay defaultTimeout >>= runListen)
   where
@@ -324,6 +329,8 @@ spvHandler
         -- tx request.
     -> Handler TransactionOutputProofB64
 spvHandler l cdb cid pe (SpvRequest rk (Pact.ChainId ptid)) = do
+    validateRequestKey rk
+
     liftIO $! logg (sshow ph)
 
     T2 bhe _bha <- liftIO (_pactLookup pe (NoRewind cid) (pure ph)) >>= \case
@@ -458,3 +465,28 @@ validateCommand cmdText = case verifyCommand cmdBS of
   where
     cmdBS :: Command ByteString
     cmdBS = encodeUtf8 <$> cmdText
+
+-- | Validate the length of the request key's underlying hash.
+--
+validateRequestKey :: RequestKey -> Handler ()
+validateRequestKey (RequestKey h'@(Hash h))
+    | keyLength == blakeHashLength = return ()
+    | otherwise = throwError err400
+      { errBody = "Request Key "
+        <> keyString
+        <> " has incorrect hash of length "
+        <> BSL8.pack (show keyLength)
+      }
+  where
+    keyString = BSL8.pack $ T.unpack $ Pact.hashToText h'
+
+    -- length of the encoded request key hash
+    --
+    keyLength = BS.length h
+
+    -- Blake hash length = 32 - the length of a
+    -- Blake2b_256 hash
+    --
+    blakeHashLength :: Int
+    blakeHashLength = Pact.hashLength Pact.Blake2b_256
+{-# INLINE validateRequestKey #-}

@@ -41,6 +41,7 @@ import Control.Retry
 
 import qualified Data.Aeson as A
 import Data.Aeson.Lens hiding (values)
+import qualified Data.ByteString as BS
 import qualified Data.ByteString.Short as SB
 import Data.Decimal
 import Data.Default (def)
@@ -158,6 +159,8 @@ tests rdb = testGroupSch "Chainweb.Test.Pact.RemotePactTest"
                 [ caplistTest iot net ]
               , after AllSucceed "caplistTests" $
                 localContTest iot net
+              , after AllSucceed "localContTest" $
+                pollBadKeyTest net
               ]
     ]
 
@@ -281,6 +284,28 @@ pollingBadlistTest nio = testCase "/poll reports badlisted txs" $ do
     sid <- liftIO $ mkChainId v maxBound (0 :: Int)
     void $ polling sid cenv rks ExpectPactError
 
+-- | Check request key length validation in the /poll endpoints
+--
+pollBadKeyTest :: IO ChainwebNetwork -> TestTree
+pollBadKeyTest nio =
+    testCaseSteps "/poll rejects keys of incorrect length" $ \step -> do
+      cenv <- _getServiceClientEnv <$> nio
+      let tooBig = toRk $ BS.replicate 33 0x3d
+          tooSmall = toRk $ BS.replicate 31 0x3d
+
+      sid <- liftIO $ mkChainId v maxBound (0 :: Int)
+
+      step "RequestKeys of length > 32 fail fast"
+      runClientM (pactPollApiClient v sid (Poll tooBig)) cenv >>= \case
+        Left _ -> return ()
+        Right r -> assertFailure $ "Poll succeeded with response: " <> show r
+
+      step "RequestKeys of length < 32 fail fast"
+      runClientM (pactPollApiClient v sid (Poll tooSmall)) cenv >>= \case
+        Left _ -> return ()
+        Right r -> assertFailure $ "Poll succeeded with response: " <> show r
+  where
+    toRk = (NEL.:| []) . RequestKey . Hash
 
 sendValidationTest :: IO (Time Micros) -> IO ChainwebNetwork -> TestTree
 sendValidationTest iot nio =
