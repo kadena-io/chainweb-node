@@ -35,6 +35,7 @@ module Chainweb.Mempool.CurrentTxs
 
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Short as BS
+import Data.Foldable
 import qualified Data.List as L
 import qualified Data.Set as S
 import qualified Data.Vector as V
@@ -115,9 +116,9 @@ currentTxsInsertBatch
     -> IO CurrentTxs
 currentTxsInsertBatch s txs = do
     s0 <- pruneCurrentTxs s
-    pruneCurrentTxs $ CurrentTxs $ foldr ins (_currentTxs s0) txs
+    pruneCurrentTxs $ CurrentTxs $ foldl' ins (_currentTxs s0) txs
   where
-    ins (e, h) = S.insert (getCurrentTxsKey e h)
+    ins x (e, h) = S.insert (getCurrentTxsKey e h) x
 
 -- Deletion
 
@@ -151,4 +152,4 @@ pruneCurrentTxs (CurrentTxs s) = do
       else return []
 
     -- Not sure if foldl' would be faster here
-    return $ CurrentTxs $! foldr S.deleteAt s0 indexesToBeDeleted
+    return $ CurrentTxs $! foldl' (flip S.deleteAt) s0 indexesToBeDeleted
