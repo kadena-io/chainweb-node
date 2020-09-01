@@ -64,6 +64,7 @@ import System.Random
 import Chainweb.BlockHash
 import Chainweb.BlockHeight
 import Chainweb.Logger
+import Chainweb.Mempool.CurrentTxs
 import Chainweb.Mempool.InMemTypes
 import Chainweb.Mempool.Mempool
 import Chainweb.Pact.Utils (maxTTL)
@@ -99,14 +100,17 @@ newInMemMempoolData =
                         <*> newIORef mempty
                         <*> newIORef emptyRecentLog
                         <*> newIORef mempty
+                        <*> newIORef newCurrentTxs
 
 
 ------------------------------------------------------------------------------
 toMempoolBackend
     :: NFData t
-    => InMemoryMempool t
+    => Logger logger
+    => logger
+    -> InMemoryMempool t
     -> IO (MempoolBackend t)
-toMempoolBackend mempool = do
+toMempoolBackend logger mempool = do
     return $! MempoolBackend
       { mempoolTxConfig = tcfg
       , mempoolMember = member
@@ -126,12 +130,12 @@ toMempoolBackend mempool = do
     nonce = _inmemNonce mempool
     lockMVar = _inmemDataLock mempool
 
-    InMemConfig tcfg _ _ _ _ = cfg
+    InMemConfig tcfg _ _ _ _ _ = cfg
     member = memberInMem lockMVar
     lookup = lookupInMem tcfg lockMVar
     insert = insertInMem cfg lockMVar
     insertCheck = insertCheckInMem cfg lockMVar
-    markValidated = markValidatedInMem lockMVar
+    markValidated = markValidatedInMem logger tcfg lockMVar
     addToBadList = addToBadListInMem lockMVar
     checkBadList = checkBadListInMem lockMVar
     getBlock = getBlockInMem cfg lockMVar
@@ -142,6 +146,10 @@ toMempoolBackend mempool = do
 
 ------------------------------------------------------------------------------
 -- | A 'bracket' function for in-memory mempools.
+--
+-- This function is only used in testing. Use 'withInMemoryMempool_' for
+-- production.
+--
 withInMemoryMempool :: ToJSON t
                     => FromJSON t
                     => NFData t
@@ -151,10 +159,14 @@ withInMemoryMempool :: ToJSON t
                     -> IO a
 withInMemoryMempool cfg _v f = do
     let action inMem = do
-          back <- toMempoolBackend inMem
+          back <- toMempoolBackend l inMem
           f $! back
     bracket (makeInMemPool cfg) destroyInMemPool action
+  where
+    l = genericLogger Debug (\ _ -> return ())
 
+-- | A 'bracket' function for in-memory mempools.
+--
 withInMemoryMempool_ :: Logger logger
                      => NFData t
                      => logger
@@ -165,7 +177,7 @@ withInMemoryMempool_ :: Logger logger
 withInMemoryMempool_ l cfg _v f = do
     let action inMem = do
           r <- race (monitor inMem) $ do
-            back <- toMempoolBackend inMem
+            back <- toMempoolBackend l inMem
             f $! back
           case r of
             Left () -> throw $ InternalInvariantViolation "mempool monitor exited unexpectedly"
@@ -215,13 +227,33 @@ lookupInMem txcfg lock txs = do
 
 
 ------------------------------------------------------------------------------
-markValidatedInMem :: MVar (InMemoryMempoolData t)
-                   -> Vector TransactionHash
-                   -> IO ()
-markValidatedInMem lock txs = withMVarMasked lock $ \mdata -> do
-    let pref = _inmemPending mdata
-    modifyIORef' pref $ \psq -> foldl' (flip HashMap.delete) psq txs
+markValidatedInMem
+    :: Logger logger
+    => logger
+    -> TransactionConfig t
+    -> MVar (InMemoryMempoolData t)
+    -> Vector t
+    -> IO ()
+markValidatedInMem logger tcfg lock txs = withMVarMasked lock $ \mdata -> do
+    modifyIORef' (_inmemPending mdata) $ \psq ->
+        foldl' (flip HashMap.delete) psq hashes
 
+    -- This isn't atomic, which is fine. If something goes wrong we may end up
+    -- with some false negatives, which means that the mempool would use more
+    -- resources for pending txs.
+    --
+    let curTxIdxRef = _inmemCurrentTxs mdata
+    logg Info $ "mark " <> sshow (length (V.zip expiries hashes)) <> " txs as validated"
+    x <- readIORef curTxIdxRef
+    logg Info $ "previous current tx index size: " <> sshow (currentTxsSize x)
+    x' <- flip currentTxsInsertBatch (V.zip expiries hashes) x
+    logg Info $ "new current tx index size: " <> sshow (currentTxsSize x')
+    writeIORef curTxIdxRef x'
+  where
+    hashes = txHasher tcfg <$> txs
+    expiries = txMetaExpiryTime . txMetadata tcfg <$> txs
+
+    logg = logFunctionText logger
 
 ------------------------------------------------------------------------------
 addToBadListInMem :: MVar (InMemoryMempoolData t)
@@ -270,13 +302,14 @@ insertCheckInMem cfg lock txs
   | otherwise = do
     now <- getCurrentTimeIntegral
     badmap <- withMVarMasked lock $ readIORef . _inmemBadMap
+    curTxIdx <- withMVarMasked lock $ readIORef . _inmemCurrentTxs
 
     -- We hash the tx here and pass it around around to avoid needing to repeat
     -- the hashing effort.
     let withHashes :: Either (T2 TransactionHash InsertError) (Vector (T2 TransactionHash t))
         withHashes = for txs $ \tx ->
           let !h = hasher tx
-          in bimap (T2 h) (T2 h) $ validateOne cfg badmap now tx h
+          in bimap (T2 h) (T2 h) $ validateOne cfg badmap curTxIdx now tx h
 
     case withHashes of
         Left _ -> pure $! void withHashes
@@ -292,19 +325,24 @@ validateOne
     .  NFData t
     => InMemConfig t
     -> HashMap TransactionHash a
+    -> CurrentTxs
     -> Time Micros
     -> t
     -> TransactionHash
     -> Either InsertError t
-validateOne cfg badmap now t h =
+validateOne cfg badmap curTxIdx now t h =
     sizeOK
     >> gasPriceRoundingCheck
     >> ttlCheck
+    >> notDuplicate
     >> notInBadMap
     >> _inmemPreInsertPureChecks cfg t
   where
     txcfg :: TransactionConfig t
     txcfg = _inmemTxCfg cfg
+
+    expiry :: Time Micros
+    expiry = txMetaExpiryTime $ txMetadata txcfg t
 
     sizeOK :: Either InsertError ()
     sizeOK = ebool_ (InsertErrorOversized maxSize) (getSize t <= maxSize)
@@ -332,6 +370,11 @@ validateOne cfg badmap now t h =
     notInBadMap :: Either InsertError ()
     notInBadMap = maybe (Right ()) (const $ Left InsertErrorBadlisted) $ HashMap.lookup h badmap
 
+    notDuplicate :: Either InsertError ()
+    notDuplicate
+        | currentTxsMember curTxIdx expiry h = Left InsertErrorDuplicate
+        | otherwise = Right ()
+
 -- | Check the TTL of a transaction.
 txTTLCheck :: TransactionConfig t -> Time Micros -> t -> Either InsertError ()
 txTTLCheck txcfg (Time (TimeSpan now)) t =
@@ -355,11 +398,12 @@ insertCheckInMem' cfg lock txs
   | otherwise = do
     now <- getCurrentTimeIntegral
     badmap <- withMVarMasked lock $ readIORef . _inmemBadMap
+    curTxIdx <- withMVarMasked lock $ readIORef . _inmemCurrentTxs
 
     let withHashes :: Vector (T2 TransactionHash t)
         withHashes = flip V.mapMaybe txs $ \tx ->
           let !h = hasher tx
-          in (T2 h) <$> hush (validateOne cfg badmap now tx h)
+          in (T2 h) <$> hush (validateOne cfg badmap curTxIdx now tx h)
 
     V.mapMaybe hush <$!> _inmemPreInsertBatchChecks cfg withHashes
   where
@@ -389,7 +433,6 @@ insertInMem cfg lock runCheck txs0 = do
         writeIORef (_inmemPending mdata) $! force pending'
         modifyIORef' (_inmemRecentLog mdata) $
             recordRecentTransactions maxRecent newHashes
-
   where
     insertCheck :: IO (Vector (T2 TransactionHash t))
     insertCheck = if runCheck == CheckedInsert
@@ -640,6 +683,7 @@ getMempoolStats m = do
         <$!> (HashMap.size <$!> readIORef (_inmemPending d))
         <*> (length . _rlRecent <$!> readIORef (_inmemRecentLog d))
         <*> (HashMap.size <$!> readIORef (_inmemBadMap d))
+        <*> (currentTxsSize <$!> readIORef (_inmemCurrentTxs d))
 
 ------------------------------------------------------------------------------
 -- | Prune the mempool's pending map and badmap.

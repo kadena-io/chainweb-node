@@ -639,10 +639,16 @@ validatingMempoolConfig cid v gl mv = Mempool.InMemConfig
     , Mempool._inmemMaxRecentItems = maxRecentLog
     , Mempool._inmemPreInsertPureChecks = preInsertSingle
     , Mempool._inmemPreInsertBatchChecks = preInsertBatch
+    , Mempool._inmemCurrentTxsSize = currentTxsSize
     }
   where
     txcfg = Mempool.chainwebTransactionConfig
     maxRecentLog = 2048
+
+    currentTxsSize = 1024 * 1024 -- ~16MB per mempool
+        -- 1M items is is sufficient for supporing about 12 TPS per chain, which
+        -- is about 360 tx per block. Larger TPS values would result in false
+        -- negatives in the set.
 
     preInsertSingle :: ChainwebTransaction -> Either Mempool.InsertError ChainwebTransaction
     preInsertSingle tx = checkMetadata tx

@@ -109,7 +109,7 @@ initPactService
     -> IO ()
 initPactService ver cid chainwebLogger reqQ mempoolAccess bhDb pdb sqlenv config =
     void $ initPactService' ver cid chainwebLogger bhDb pdb sqlenv config $ do
-        initialPayloadState chainwebLogger ver cid
+        initialPayloadState chainwebLogger mempoolAccess ver cid
         serviceRequests (logFunction chainwebLogger) mempoolAccess reqQ
 
 initPactService'
@@ -171,31 +171,33 @@ initialPayloadState
     :: Logger logger
     => PayloadCasLookup cas
     => logger
+    -> MemPoolAccess
     -> ChainwebVersion
     -> ChainId
     -> PactServiceM cas ()
-initialPayloadState _ Test{} _ = pure ()
-initialPayloadState _ TimedConsensus{} _ = pure ()
-initialPayloadState _ PowConsensus{} _ = pure ()
-initialPayloadState logger v@TimedCPM{} cid =
-    initializeCoinContract logger v cid $ genesisBlockPayload v cid
-initialPayloadState logger v@FastTimedCPM{} cid =
-    initializeCoinContract logger v cid $ genesisBlockPayload v cid
-initialPayloadState logger  v@Development cid =
-    initializeCoinContract logger v cid $ genesisBlockPayload v cid
-initialPayloadState logger v@Testnet04 cid =
-    initializeCoinContract logger v cid $ genesisBlockPayload v cid
-initialPayloadState logger v@Mainnet01 cid =
-    initializeCoinContract logger v cid $ genesisBlockPayload v cid
+initialPayloadState _ _ Test{} _ = pure ()
+initialPayloadState _ _ TimedConsensus{} _ = pure ()
+initialPayloadState _ _ PowConsensus{} _ = pure ()
+initialPayloadState logger mpa v@TimedCPM{} cid =
+    initializeCoinContract logger mpa v cid $ genesisBlockPayload v cid
+initialPayloadState logger mpa v@FastTimedCPM{} cid =
+    initializeCoinContract logger mpa v cid $ genesisBlockPayload v cid
+initialPayloadState logger mpa v@Development cid =
+    initializeCoinContract logger mpa v cid $ genesisBlockPayload v cid
+initialPayloadState logger mpa v@Testnet04 cid =
+    initializeCoinContract logger mpa v cid $ genesisBlockPayload v cid
+initialPayloadState logger mpa v@Mainnet01 cid =
+    initializeCoinContract logger mpa v cid $ genesisBlockPayload v cid
 
 initializeCoinContract
     :: forall cas logger. (PayloadCasLookup cas, Logger logger)
     => logger
+    -> MemPoolAccess
     -> ChainwebVersion
     -> ChainId
     -> PayloadWithOutputs
     -> PactServiceM cas ()
-initializeCoinContract _logger v cid pwo = do
+initializeCoinContract _logger memPoolAccess v cid pwo = do
     cp <- getCheckpointer
     genesisExists <- liftIO
         $ _cpLookupBlockInCheckpointer cp (genesisHeight v cid, ghash)
@@ -205,7 +207,7 @@ initializeCoinContract _logger v cid pwo = do
 
   where
     validateGenesis = void $!
-        execValidateBlock genesisHeader inputPayloadData
+        execValidateBlock memPoolAccess genesisHeader inputPayloadData
 
     ghash :: BlockHash
     ghash = _blockHash genesisHeader
@@ -281,7 +283,7 @@ serviceRequests logFn memPoolAccess reqQ = do
                     _valBlockHeader
                     (length (_payloadDataTransactions _valPayloadData)) $
                     tryOne "execValidateBlock" _valResultVar $
-                        execValidateBlock _valBlockHeader _valPayloadData
+                        execValidateBlock memPoolAccess _valBlockHeader _valPayloadData
                 go
             LookupPactTxsMsg (LookupPactTxsReq restorePoint txHashes resultVar) -> do
                 trace logFn "Chainweb.Pact.PactService.execLookupPactTxs" ()
@@ -548,10 +550,11 @@ execLocal cmd = withDiscardedBatch $ do
 --
 execValidateBlock
     :: PayloadCasLookup cas
-    => BlockHeader
+    => MemPoolAccess
+    -> BlockHeader
     -> PayloadData
     -> PactServiceM cas PayloadWithOutputs
-execValidateBlock currHeader plData = do
+execValidateBlock memPoolAccess currHeader plData = do
     -- The parent block header must be available in the block header database
     target <- getTarget
     psEnv <- ask
@@ -560,8 +563,26 @@ execValidateBlock currHeader plData = do
         withCheckpointerRewind (Just reorgLimit) target "execValidateBlock" $ \pdbenv -> do
             !result <- execBlock currHeader plData pdbenv
             return $! Save currHeader result
-    either throwM return $!
+    result <- either throwM return $!
         validateHashes currHeader plData miner transactions
+
+    -- update mempool
+    --
+    -- Using the parent isn't optimal, since it doesn't delete the txs of
+    -- `currHeader` from the set of pending tx. The reason for this is that the
+    -- implementation 'mpaProcessFork' uses the chain database and at this point
+    -- 'currHeader' is generally not yet available in the database. It would be
+    -- possible to extract the txs from the result and remove them from the set
+    -- of pending txs. However, that would add extra complexity and at little
+    -- gain.
+    --
+    case target of
+        Nothing -> return ()
+        Just (ParentHeader p) -> liftIO $ do
+            mpaProcessFork memPoolAccess p
+            mpaSetLastHeader memPoolAccess p
+
+    return result
   where
     getTarget
         | isGenesisBlockHeader currHeader = return Nothing
