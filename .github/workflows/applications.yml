@@ -180,13 +180,8 @@ jobs:
       timeout-minutes: ${{ matrix.timeout }}
       run: |
         chmod 755 ./bin/chainweb-node
-        { ./bin/chainweb-node --config-file=config.yaml || true ; } | {
-          sed -u -e '/finished pruning databases/{p;q0};/\[Error\]/{p;q1}' ;
-          x=$? ;
-          echo "finished with exit code $x" ;
-          killall -s 9 -q chainweb-node || true ;
-          exit $x ;
-        }
+        ./bin/chainweb-node --config-file=config.yaml |
+        sed -u -e '/finished pruning databases/q0;/\[Error\]/q1;$q2'
 
   # Validate Mainnet01 pact history
   #
@@ -211,7 +206,7 @@ jobs:
     - name: Install non-Haskell dependencies
       run: |
         sudo apt-get update
-        sudo apt-get install -y librocksdb-dev libtinfo-dev libsqlite3
+        sudo apt-get install -y librocksdb-dev libtinfo-dev zlib1g-dev libsqlite3-dev
     - name: Download ${{ matrix.chainwebVersion }} chain database artifact
       uses: actions/download-artifact@v2
       with:
@@ -264,13 +259,8 @@ jobs:
       timeout-minutes: ${{ matrix.timeout }}
       run: |
         chmod 755 ./bin/chainweb-node
-        { ./bin/chainweb-node --config-file=config.yaml || true ; } | {
-          sed -u -e '/finished synchronizing Pact DBs/{p;q0};/\[Error\]/{p;q1}' ;
-          x=$? ;
-          echo "finished with exit code $x" ;
-          killall -s 9 -q chainweb-node || true ;
-          exit $x ;
-        }
+        unbuffer ./bin/chainweb-node --config-file=config.yaml } |
+        sed -u -e '/finished synchronizing Pact DBs/q0;/\[Error\]/q1;$q2'
 
   # Build Chainweb Node
   #
