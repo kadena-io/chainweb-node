@@ -47,7 +47,7 @@ jobs:
   #
   slow-tests:
     name: Slow tests
-    needs: [sync-chain-db, build]
+    needs: [build]
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -124,7 +124,7 @@ jobs:
     - name: Install non-Haskell dependencies
       run: |
         sudo apt-get update
-        sudo apt-get install -y librocksdb-dev
+        sudo apt-get install -y librocksdb-dev expect
     - name: Download chain database artifact
       uses: actions/download-artifact@v2
       with:
@@ -206,7 +206,7 @@ jobs:
     - name: Install non-Haskell dependencies
       run: |
         sudo apt-get update
-        sudo apt-get install -y librocksdb-dev libtinfo-dev zlib1g-dev libsqlite3-dev
+        sudo apt-get install -y librocksdb-dev libtinfo-dev zlib1g-dev libsqlite3-dev expect
     - name: Download ${{ matrix.chainwebVersion }} chain database artifact
       uses: actions/download-artifact@v2
       with:
