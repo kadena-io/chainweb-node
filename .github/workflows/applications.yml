@@ -138,7 +138,7 @@ jobs:
     - name: Write chainweb-node configuration file
       run: |
         cat >> config.yaml <<EOF
-          databaseDirectory: "db/"
+          databaseDirectory: "db"
           chainweb:
             chainwebVersion: ${{ matrix.chainwebVersion }}
             validateHashesOnReplay: false
@@ -180,15 +180,17 @@ jobs:
       timeout-minutes: ${{ matrix.timeout }}
       run: |
         chmod 755 ./bin/chainweb-node
-        unbuffer ./bin/chainweb-node --config-file=config.yaml |
+        unbuffer ./bin/chainweb-node --config-file config.yaml |
         sed -u -e '/finished pruning databases/q0;/\[Error\]/q1;$q2'
+        x=$?
+        echo $x
+        exit $x
 
   # Validate Mainnet01 pact history
   #
   validate-pact-history:
     name: Validate pact history
     needs: [sync-chain-db, build]
-    runs-on: 'ubuntu-18.04'
     strategy:
       fail-fast: false
       matrix:
@@ -202,11 +204,12 @@ jobs:
           timeout: 120
         - chainwebVersion: 'development'
           timeout: 10
+    runs-on: ${{ matrix.os }}
     steps:
     - name: Install non-Haskell dependencies
       run: |
         sudo apt-get update
-        sudo apt-get install -y librocksdb-dev libtinfo-dev zlib1g-dev libsqlite3-dev expect
+        sudo apt-get install -y librocksdb-dev zlib1g-dev libsqlite3-dev expect
     - name: Download ${{ matrix.chainwebVersion }} chain database artifact
       uses: actions/download-artifact@v2
       with:
@@ -259,7 +262,7 @@ jobs:
       timeout-minutes: ${{ matrix.timeout }}
       run: |
         chmod 755 ./bin/chainweb-node
-        unbuffer ./bin/chainweb-node --config-file=config.yaml |
+        unbuffer ./bin/chainweb-node --config-file config.yaml |
         sed -u -e '/finished synchronizing Pact DBs/q0;/\[Error\]/q1;$q2'
 
   # Build Chainweb Node
@@ -372,11 +375,11 @@ jobs:
 
     # Build
     - name: Update package database
-      run: cabal v2-update
+      run: cabal update
     - name: Configure build
       run: |
-        cabal v2-build all --dry-run
-        cabal v2-freeze
+        cabal build all --dry-run
+        cabal freeze
     - name: Sync from cabal cache
       if: matrix.cabalcache == 'true'
       uses: larskuhtz/cabal-cache-action@21220b9f6499bb12cb0b4b926d6faa9c46a7b146
@@ -387,16 +390,16 @@ jobs:
         aws_access_key_id: "${{ secrets.kadena_cabal_cache_aws_access_key_id }}"
         aws_secret_access_key: "${{ secrets.kadena_cabal_cache_aws_secret_access_key }}"
     - name: Install build dependencies
-      run: cabal v2-build chainweb --only-dependencies
+      run: cabal build chainweb --only-dependencies
     - name: Build chainweb library
-      run: cabal v2-build lib:chainweb
+      run: cabal build lib:chainweb
     - name: Build chainweb applications
-      run: cabal v2-build exe:chainweb-node test:chainweb-tests exe:cwtool chainweb:bench:bench
+      run: cabal build exe:chainweb-node test:chainweb-tests exe:cwtool chainweb:bench:bench
 
     # Tests
     - name: Run Tests
       id: tests
-      run: cabal v2-run chainweb-tests -- --hide-successes --results-json test-results.json
+      run: cabal run chainweb-tests -- --hide-successes --results-json test-results.json
     - name: Check that working directly tree is clean
       run: |
         if ! git diff --exit-code; then
@@ -405,7 +408,7 @@ jobs:
         fi
     - name: Run ea and verify consistency of genesis headers
       run: |
-        cabal v2-run cwtool -- ea
+        cabal run cwtool -- ea
         if ! git diff --exit-code; then
           echo "Inconsistent genesis headers detected. Did you forget to run ea?" 1>&2
           exit 1
