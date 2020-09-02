@@ -17,6 +17,7 @@ import Control.Concurrent.MVar
 import Control.Lens
 
 import qualified Data.Aeson as A
+import Data.Decimal
 import Data.Functor (void)
 import qualified Data.HashMap.Strict as HM
 import Data.IORef
@@ -41,8 +42,8 @@ import Pact.Types.Command
 
 import Chainweb.Graph
 import Chainweb.Pact.Utils (aeson)
+import Chainweb.Pact.Transactions.UpgradeTransactions
 import Chainweb.Rosetta.RestAPI
-import Chainweb.Rosetta.Internal (remediation20ChainRequestKey)
 import Chainweb.Rosetta.Utils
 import Chainweb.Test.Pact.Utils
 import Chainweb.Test.RestAPI.Utils
@@ -76,6 +77,19 @@ cids = chainIds v ^.. folded . to chainIdInt . to (sshow @Int)
 nonceRef :: IORef Natural
 nonceRef = unsafePerformIO $ newIORef 0
 
+defGasLimit, defGasPrice :: Decimal
+defGasLimit = realToFrac $ _cbGasLimit defaultCmd
+defGasPrice = realToFrac $_cbGasPrice defaultCmd
+
+defFundGas :: Decimal
+defFundGas = defGasLimit * defGasPrice
+
+gasCost :: Integer -> Decimal
+gasCost units = (realToFrac units) * defGasPrice
+
+defMiningReward :: Decimal
+defMiningReward = 2.304523
+
 type RosettaTest = IO (Time Micros) -> IO ClientEnv -> ScheduledTest
 
 -- -------------------------------------------------------------------------- --
@@ -102,9 +116,13 @@ tests rdb = testGroupSch "Chainweb.Test.Rosetta.RestAPI" go
     --
 
     tgroup tio envIo = fmap (\test -> test tio envIo)
-      [ accountBalanceTests
+      [ blockTests "Block Test with transfer and potential coin v2 remediation"
+      , blockTests "Block Test with transfer and potential chain 20 remediation"
       , blockTransactionTests
-      , blockTests
+      , blockCoinV2RemediationTests
+      , block20ChainRemediationTests
+      , blockTests "Block Test without potential remediation"
+      , accountBalanceTests
       , constructionSubmitTests
       , mempoolTests
       , networkListTests
@@ -120,14 +138,14 @@ accountBalanceTests tio envIo =
       step "check initial balance"
       cenv <- envIo
       resp0 <- accountBalance cenv req
-      checkBalance resp0 100000000.000
+      checkBalance resp0 99999995.7812
 
       step "send 1.0 tokens to sender00 from sender01"
       void $! transferOneAsync_ tio cenv (void . return)
 
-      step "check post-transfer balance"
+      step "check post-transfer and gas fees balance"
       resp1 <- accountBalance cenv req
-      checkBalance resp1 99999998.9453
+      checkBalance resp1 99999994.7265
   where
     req = AccountBalanceReq nid (AccountId "sender00" Nothing Nothing) Nothing
 
@@ -157,42 +175,43 @@ blockTransactionTests tio envIo =
       (fundtx,cred,deb,redeem,reward) <-
         case _transaction_operations $ _blockTransactionResp_transaction resp of
           [a,b,c,d,e] -> return (a,b,c,d,e)
-          _ -> assertFailure "every transfer should result in 5 transactions"
+          _ -> assertFailure "transfer should have resulted in 5 transactions"
 
 
-      step "validate initial gas buy at index 0"
-      validateOp 0 "FundTx" sender00ks fundtx
+      step "validate initial gas buy at op index 0"
+      validateOp 0 "FundTx" sender00ks Successful (negate defFundGas) fundtx
 
-      step "validate sender01 credit at index 1"
-      validateOp 1 "TransferOrCreateAcct" sender01ks cred
+      step "validate sender01 credit at op index 1"
+      validateOp 1 "TransferOrCreateAcct" sender01ks Successful 1.0 cred
 
-      step "validate sender00 debit at index 2"
-      validateOp 2 "TransferOrCreateAcct" sender00ks deb
+      step "validate sender00 debit at op index 2"
+      validateOp 2 "TransferOrCreateAcct" sender00ks Successful (negate 1.0) deb
 
-      step "validate sender00 gas redemption at index 3"
-      validateOp 3 "GasPayment" sender00ks redeem
+      step "validate sender00 gas redemption at op index 3"
+      validateOp 3 "GasPayment" sender00ks Successful (defFundGas - transferGasCost) redeem
 
-      step "validate miner gas reward at index 4"
-      validateOp 4 "GasPayment" noMinerks reward
+      step "validate miner gas reward at op index 4"
+      validateOp 4 "GasPayment" noMinerks Successful transferGasCost reward
 
   where
+    transferGasCost = gasCost 547
+
     mkTxReq rkmv prs = do
       rk <- NEL.head . _rkRequestKeys <$> takeMVar rkmv
-      let rkRem = remediation20ChainRequestKey
       meta <- extractMetadata rk prs
       bh <- meta ^?! mix "blockHeight"
       bhash <- meta ^?! mix "blockHash"
 
       let bid = BlockId bh bhash
-          tid = rkToTransactionId rkRem
+          tid = rkToTransactionId rk
 
       return $ BlockTransactionReq nid bid tid
 
 
 -- | Rosetta block endpoint tests
 --
-blockTests :: RosettaTest
-blockTests tio envIo = testCaseSchSteps "Block Tests" $ \step -> do
+blockTests :: String -> RosettaTest
+blockTests testname tio envIo = testCaseSchSteps testname $ \step -> do
     cenv <- envIo
     rkmv <- newEmptyMVar @RequestKeys
 
@@ -211,6 +230,7 @@ blockTests tio envIo = testCaseSchSteps "Block Tests" $ \step -> do
     validateTransferResp bh resp1
   where
     req h = BlockReq nid $ PartialBlockId (Just h) Nothing
+    transferGasCost = gasCost 547
 
     validateTransferResp bh resp = do
       _blockResp_otherTransactions resp @?= Nothing
@@ -222,39 +242,124 @@ blockTests tio envIo = testCaseSchSteps "Block Tests" $ \step -> do
             _blockId_index (_block_parentBlockId b) @?= (bh - 1)
 
             case _block_transactions b of
-              [x,y] -> case _transaction_operations x <> _transaction_operations y of
-                [a,r1, r2, b',c,d,e,f] -> validateTxs (Just (r1,r2)) a b' c d e f
-                [a,b',c,d,e,f] -> validateTxs Nothing a b' c d e f
-                _ -> assertFailure "total tx # should be >= 6: coinbase + possible remeds + 5 for every tx"
-              _ -> assertFailure "every block should result in at least 2 transactions: coinbase + txs"
+              [x,r1,r2,y] -> do
+                -- ^ coin v2 remediation block.
+                -- No coin table remediation for this version.
+                let ops = _transaction_operations x <> _transaction_operations r1 <>
+                          _transaction_operations r2 <> _transaction_operations y
+                case ops of
+                  [a,b',c,d,e,f] -> validateTxs Nothing a b' c d e f
+                  _ -> assertFailure "should have 6 ops: coinbase + 5 for transfer tx"
+
+              [x,r1,y] -> do
+                -- ^ 20 chain remediation block
+                let ops = _transaction_operations x <> _transaction_operations r1 <>
+                          _transaction_operations y
+                case ops of
+                  [a,rop1, b',c,d,e,f] -> validateTxs (Just rop1) a b' c d e f
+                  _ -> assertFailure "should have 7 ops: coinbase + 20 chain rem + 5 for transfer tx"
+
+              [x,y] -> do
+                -- ^ not a remediation block
+                let ops = _transaction_operations x <> _transaction_operations y
+                case ops of
+                  [a,b',c,d,e,f] -> validateTxs Nothing a b' c d e f
+                  _ -> assertFailure "should have 6 ops: coinbase + 5 for transfer tx"
+     
+              _ -> assertFailure "block should have at least 2 transactions: coinbase + txs"
 
       validateBlock $ _blockResp_block resp
 
     validateTxs remeds cbase fundtx cred deb redeem reward = do
 
       -- coinbase is considered a separate tx list
-      validateOp 0 "CoinbaseReward" noMinerks cbase
+      validateOp 0 "CoinbaseReward" noMinerks Successful defMiningReward cbase
 
+      -- 20 chain remediation
       case remeds of
-        Just (rem1, rem2) -> do
+        Just rem1 -> validateOp 0 "TransferOrCreateAcct" e7f7ks Remediation (negate 100) rem1
+        Nothing -> pure ()
 
-          -- TODO: this case preserves Linda's txlog bug when
-          -- txs and remeds are present
+      -- rest txs (i.e. transfer transaction)
+      validateOp 0 "FundTx" sender00ks Successful (negate defFundGas) fundtx
+      validateOp 1 "TransferOrCreateAcct" sender01ks Successful 1.0 cred
+      validateOp 2 "TransferOrCreateAcct" sender00ks Successful (negate 1.0) deb
+      validateOp 3 "GasPayment" sender00ks Successful (defFundGas - transferGasCost) redeem
+      validateOp 4 "GasPayment" noMinerks Successful transferGasCost reward
 
-          validateOp 0 "TransferOrCreateAcct" sender09ks rem1
-          validateOp 1 "TransferOrCreateAcct" sender07ks rem2
-          validateOp 2 "TransferOrCreateAcct" sender00ks fundtx
-          validateOp 3 "TransferOrCreateAcct" sender01ks cred
-          validateOp 4 "TransferOrCreateAcct" sender00ks deb
-          validateOp 5 "TransferOrCreateAcct" sender00ks redeem
-          validateOp 6 "TransferOrCreateAcct" noMinerks reward
-        Nothing -> do
-          validateOp 0 "FundTx" sender00ks fundtx
-          validateOp 1 "TransferOrCreateAcct" sender01ks cred
-          validateOp 2 "TransferOrCreateAcct" sender00ks deb
-          validateOp 3 "GasPayment" sender00ks redeem
-          validateOp 4 "GasPayment" noMinerks reward
+blockCoinV2RemediationTests :: RosettaTest
+blockCoinV2RemediationTests _ envIo =
+  testCaseSchSteps "Block CoinV2 Remediation Tests" $ \step -> do
+    cenv <- envIo
 
+    step "fetch coin v2 remediation block"
+    resp <- block cenv (req bhCoinV2Rem)
+
+    step "validate block"
+    _blockResp_otherTransactions resp @?= Nothing
+    Just b <- pure $ (_blockResp_block resp)
+    _block_metadata b @?= Nothing
+    _blockId_index (_block_blockId b) @?= bhCoinV2Rem
+    _blockId_index (_block_parentBlockId b) @?= (bhCoinV2Rem - 1)
+
+    case (_block_transactions b) of
+      x:y:z:_ -> do
+        step "check remediation transactions' request keys"
+        -- TODO: are these unique across lifetime of blockchain/chains?
+        [ycmd, zcmd] <- upgradeTransactions v cid
+        _transaction_transactionId y @?= (pactHashToTransactionId (_cmdHash ycmd))
+        _transaction_transactionId z @?= (pactHashToTransactionId (_cmdHash zcmd))
+
+        step "check remediation transactions' operations"
+        _transaction_operations y @?= [] -- didn't touch the coin table
+        _transaction_operations z @?= [] -- didn't touch the coin table
+                                         -- NOTE: no remedition withdrawl happens in this version
+
+        step "check coinbase transaction"
+        [cbase] <- pure $ _transaction_operations x
+        validateOp 0 "CoinbaseReward" noMinerks Successful defMiningReward cbase
+
+      _ -> assertFailure $ "coin v2 remediation block should have at least 3 transactions:"
+           ++ " coinbase + 2 remediations"
+  where
+    bhCoinV2Rem = 1
+    req h = BlockReq nid $ PartialBlockId (Just h) Nothing
+
+block20ChainRemediationTests :: RosettaTest
+block20ChainRemediationTests _ envIo =
+  testCaseSchSteps "Block 20 Chain Remediation Tests" $ \step -> do
+    cenv <- envIo
+
+    step "fetch  remediation block"
+    resp <- block cenv (req bhChain20Rem)
+
+    step "validate block"
+    _blockResp_otherTransactions resp @?= Nothing
+    Just b <- pure $ (_blockResp_block resp)
+    _block_metadata b @?= Nothing
+    _blockId_index (_block_blockId b) @?= bhChain20Rem
+    _blockId_index (_block_parentBlockId b) @?= (bhChain20Rem - 1)
+
+    case (_block_transactions b) of
+      x:y:_ -> do
+        step "check remediation transactions' request keys"
+        -- TODO: are these unique across lifetime of blockchain/chains?
+        [ycmd] <- twentyChainUpgradeTransactions v cid
+        _transaction_transactionId y @?= (pactHashToTransactionId (_cmdHash ycmd))
+
+        step "check remediation transactions' operations"
+        case _transaction_operations x <> _transaction_operations y of
+          [cbase,remOp] -> do
+            validateOp 0 "CoinbaseReward" noMinerks Successful defMiningReward cbase
+            validateOp 0 "TransferOrCreateAcct" e7f7ks Remediation (negate 100) remOp
+      
+          _ -> assertFailure $ "total # of ops should be == 2: coinbase + remediation"
+
+      _ -> assertFailure $ "20 chain remediation block should have at least 2 transactions:"
+           ++ " coinbase + 1 remediations"
+  where
+    bhChain20Rem = 2
+    req h = BlockReq nid $ PartialBlockId (Just h) Nothing
 
 -- | Rosetta construction submit endpoint tests (i.e. tx submission directly to mempool)
 --
@@ -426,15 +531,22 @@ validateOp
       -- ^ operation type
     -> TestKeySet
       -- ^ operation keyset
+    -> ChainwebOperationStatus
+      -- ^ operation status
+    -> Decimal
+      -- ^ operation balance delta
+      -- (how balance increased or decreased in given operation)
     -> Operation
       -- ^ the op
     -> Assertion
-validateOp idx opType ks o = do
+validateOp idx opType ks st bal o = do
     _operation_operationId o @?= OperationId idx Nothing
     _operation_type o @?= opType
-    _operation_status o @?= "Successful"
+    _operation_status o @?= sshow st
     _operation_account o @?= Just (AccountId acct Nothing acctMeta)
+    _operation_amount o @?= Just balRosettaAmt
   where
+    balRosettaAmt = kdaToRosettaAmount bal
     acct = _testKeySet_name ks
     publicKeys = case (_testKeySet_key ks) of
       Nothing -> []
@@ -444,14 +556,6 @@ validateOp idx opType ks o = do
 
 -- ------------------------------------------------------------------ --
 -- Test Pact Cmds
-
-{--mkCrossChainStart :: ChainId -> IO (Time Micros) -> IO SubmitBatch
-mkCrossChainStart cidTarget tio = do
-  t <- toTxCreationTime <$> tio
-  n <- readIORef nonceRef
-  c <- buildTextCmd
-    $ undefined
-  undefined--}
 
 -- | Build a simple transfer from sender00 to sender01
 --
@@ -545,6 +649,14 @@ data TestKeySet = TestKeySet
   , _testKeySet_pred :: !Text
   }
 
+e7f7ks :: TestKeySet
+e7f7ks = TestKeySet
+  { _testKeySet_name = "e7f7634e925541f368b827ad5c72421905100f6205285a78c19d7b4a38711805"
+  , _testKeySet_key = Just ("e7f7634e925541f368b827ad5c72421905100f6205285a78c19d7b4a38711805"
+                           , "") -- Never used for signing
+  , _testKeySet_pred = "keys-all"
+  }
+
 noMinerks :: TestKeySet
 noMinerks = TestKeySet
   { _testKeySet_name = "NoMiner"
@@ -565,21 +677,3 @@ sender01ks = TestKeySet
   , _testKeySet_key = Just sender01
   , _testKeySet_pred = "keys-all"
   }
-
-sender07ks :: TestKeySet
-sender07ks = TestKeySet
-  { _testKeySet_name = "sender07"
-  , _testKeySet_key = Just sender07
-  , _testKeySet_pred = "keys-all"
-  }
-  where sender07 = ("4c31dc9ee7f24177f78b6f518012a208326e2af1f37bb0a2405b5056d0cad628"
-                   ,"f1c1923e49cb23d15fe45bdc3f65d7fc1d031ce50dd81bb5085bdd2c63364d7f")
-
-sender09ks :: TestKeySet
-sender09ks = TestKeySet
-  { _testKeySet_name = "sender09"
-  , _testKeySet_key = Just sender09
-  , _testKeySet_pred = "keys-all"
-  }
-  where sender09 = ("c59d9840b0b66090836546b7eb4a73606257527ec8c2b482300fd229264b07e6"
-                   ,"adbe3793a0daf70c7e7a5d59349e0f51d928178de55c6328302ef5b628ed448b")

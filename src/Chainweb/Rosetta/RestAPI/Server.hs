@@ -172,7 +172,7 @@ blockH v cutDb ps crs (BlockReq net (PartialBlockId bheight bhash)) =
       bh <- findBlockHeaderInCurrFork cutDb cid bheight bhash
       (coinbase, txs) <- getBlockOutputs payloadDb bh
       logs <- getTxLogs (_chainResPact cr) bh
-      trans <- hoistEither $ matchLogs FullLogs bh logs coinbase txs
+      trans <- matchLogs FullLogs bh logs coinbase txs
       pure $ BlockResp
         { _blockResp_block = Just $ block bh trans
         , _blockResp_otherTransactions = Nothing
@@ -210,7 +210,7 @@ blockTransactionH v cutDb ps crs (BlockTransactionReq net bid t) = do
       logs <- hoistRosettaError Nothing $ getTxLogs (_chainResPact cr) bh
 
       tran <- hoistRosettaError (Just ["txId" .= t, "block-txs" .= txs, "block-height" .= _blockHeight bh])
-              $ hoistEither $ (matchLogs (SingleLog rkTarget) bh logs coinbase txs)
+              $ (matchLogs (SingleLog rkTarget) bh logs coinbase txs)
 
       pure $ BlockTransactionResp tran
 

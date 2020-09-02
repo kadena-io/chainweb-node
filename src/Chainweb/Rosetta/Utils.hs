@@ -316,7 +316,7 @@ operation ostatus otype txId acctLog idx related =
     }
   where
     opMeta = Just $ toObject $ OperationMetaData
-      {  _operationMetaData_txId = txId
+      { _operationMetaData_txId = txId
       , _operationMetaData_totalBalance =
           kdaToRosettaAmount $ _accountLogBalanceTotal acctLog
       , _operationMetaData_prevOwnership = _accountLogPrevGuard acctLog
