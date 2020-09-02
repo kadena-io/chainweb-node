@@ -108,7 +108,7 @@ testCoinbase iobdb = (initPayloadState >> doCoinbase,snapshotCache)
       pwo <- execNewBlock mempty (ParentHeader genblock) noMiner
       liftIO $ addTestBlockDb bdb (Nonce 0) (offsetBlockTime second) testChainId pwo
       nextH <- liftIO $ getParentTestBlockDb bdb testChainId
-      void $ execValidateBlock nextH (payloadWithOutputsToPayloadData pwo)
+      void $ execValidateBlock mempty nextH (payloadWithOutputsToPayloadData pwo)
 
 -- | Interfaces can't be upgraded, but modules can, so verify hash in that case.
 justModuleHashes :: ModuleCache -> HM.HashMap ModuleName (Maybe ModuleHash)
@@ -118,7 +118,7 @@ genblock :: BlockHeader
 genblock = genesisBlockHeader testVer testChainId
 
 initPayloadState :: PayloadCasLookup cas => PactServiceM cas ()
-initPayloadState = initialPayloadState dummyLogger testVer testChainId
+initPayloadState = initialPayloadState dummyLogger mempty testVer testChainId
 
 snapshotCache :: IO (MVar ModuleCache) -> ModuleCache -> IO ()
 snapshotCache iomcache initCache = do

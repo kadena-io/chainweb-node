@@ -76,11 +76,16 @@ import Control.Monad.State.Strict
 
 import qualified Data.Aeson as A
 import Data.Either
+import Data.IORef
 import Data.Text (Text)
 import qualified Data.Text as T
-import qualified Data.Vector as V
+import Data.Tuple.Strict
 
 import Prelude hiding (lookup)
+
+import qualified Streaming.Prelude as S
+
+-- internal modules
 
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
@@ -91,9 +96,32 @@ import Chainweb.Pact.Service.Types
 import Chainweb.Pact.Types
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
-import Chainweb.TreeDB (collectForkBlocks, lookup, lookupM)
+import Chainweb.TreeDB (getBranchIncreasing, forkEntry, lookup, lookupM)
 import Chainweb.Utils hiding (check)
 import Data.CAS (casLookup)
+
+-- | Support lifting bracket style continuations in 'IO' into 'PactServiceM' by
+-- providing a function that allows unwrapping pact actions in IO while
+-- threading through the pact service state.
+--
+-- /NOTE:/ This must not be used to access the pact service state from another
+-- thread.
+--
+withPactState
+    :: forall cas a b
+    . PayloadCasLookup cas
+    => ((PactServiceM cas a -> IO a) -> IO b)
+    -> PactServiceM cas b
+withPactState inner = bracket captureState releaseState $ \ref -> do
+    e <- ask
+    liftIO $ inner $ \act -> mask $ \umask -> do
+        s <- readIORef ref
+        T2 r s' <- umask $ runPactServiceM s e act
+        writeIORef ref s'
+        return r
+  where
+    captureState = liftIO . newIORef =<< get
+    releaseState = liftIO . readIORef >=> put
 
 exitOnRewindLimitExceeded :: PactServiceM cas a -> PactServiceM cas a
 exitOnRewindLimitExceeded = handle $ \case
@@ -322,29 +350,52 @@ rewindTo rewindLimit (Just (ParentHeader parent)) = do
 
     playFork lastHeader = do
         bhdb <- asks _psBlockHeaderDb
-        (!commonAncestor, _, newBlocks) <-
-            liftIO $ collectForkBlocks bhdb lastHeader parent
+        commonAncestor <- liftIO $ forkEntry bhdb lastHeader parent
+        let ancestorHeight = _blockHeight commonAncestor
 
-        if V.null newBlocks
+        if commonAncestor == parent
           then
-            -- If newBlocks is empty the checkpointer isn't restored via
+            -- If no blocks got replayed the checkpointer isn't restored via
             -- 'fastForward'. So we do an empty 'withCheckPointerWithoutRewind'.
             withCheckpointerWithoutRewind (Just $ ParentHeader commonAncestor) "rewindTo" $ \_ ->
                 return $! Save commonAncestor ()
+          else do
+            logInfo $ "rewindTo.playFork"
+                <> ": checkpointer is at height: " <> sshow (_blockHeight lastHeader)
+                <> ", target height: " <> sshow (_blockHeight parent)
+                <> ", common ancestor height " <> sshow ancestorHeight
 
-          else
-            -- play fork blocks
-            V.mapM_ fastForward $ V.zip
-                (ParentHeader <$> commonAncestor `V.cons` newBlocks)
-                newBlocks
+            -- 'getBranchIncreasing' expects an 'IO' callback because it maintains an 'TreeDB'
+            -- iterator. 'withPactState' allows us to call pact service actions
+            -- from the callback.
+            c <- withPactState $ \runPact ->
+                getBranchIncreasing bhdb parent (int ancestorHeight) $ \newBlocks -> do
+                    -- This stream is guaranteed to at least contain @e@.
+                    (h, s) <- fromJuste <$> S.uncons newBlocks
+                    s
+                        & S.scanM
+                            (\(!p) (!c) -> runPact (fastForward (ParentHeader p, c)) >> return c)
+                            (return h) -- initial parent
+                            return
+                        & S.length_
+            logInfo $ "rewindTo.playFork: replayed " <> sshow c <> " blocks"
+
+    -- This provides some progress feedback in case of long pact replays
+    -- (e.g. when revalidating the pact history)
+    progress block = do
+        let h = _blockHeight block
+        when (h `rem` 10000 == 0) $
+            logInfo $ "rewindTo.fastForward: replay block at height " <> sshow (_blockHeight block)
 
     fastForward
-        :: forall c . PayloadCasLookup c
+        :: forall c
+        . PayloadCasLookup c
         => (ParentHeader, BlockHeader)
         -> PactServiceM c ()
     fastForward (target, block) = do
-        let bpHash = _blockPayloadHash block
+        progress block
         payloadDb <- asks _psPdb
+        let bpHash = _blockPayloadHash block
 
         -- This does a restore, i.e. it rewinds the checkpointer back in
         -- history, if needed.
@@ -358,8 +409,6 @@ rewindTo rewindLimit (Just (ParentHeader parent)) = do
             void $ execBlock block payload pdbenv
             return $! Save block ()
         -- double check output hash here?
-
-
 
 -- | Find the latest block stored in the checkpointer for which the respective
 -- block header is available in the block header database.

@@ -241,7 +241,7 @@ data MempoolBackend t = MempoolBackend {
   , mempoolInsertCheck :: Vector t -> IO (Either (T2 TransactionHash InsertError) ())
 
     -- | Remove the given hashes from the pending set.
-  , mempoolMarkValidated :: Vector TransactionHash -> IO ()
+  , mempoolMarkValidated :: Vector t -> IO ()
 
     -- | Mark a transaction as bad.
   , mempoolAddToBadList :: TransactionHash -> IO ()

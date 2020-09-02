@@ -70,53 +70,53 @@ tests = testGroup "roundtrip tests"
 encodeDecodeTests :: TestTree
 encodeDecodeTests = testGroup "Encode-Decode roundtrips"
     [ testProperty "ChainwebVersion"
-        $ prop_encodeDecodeRoundtrip decodeChainwebVersion encodeChainwebVersion
+        $ prop_encodeDecode decodeChainwebVersion encodeChainwebVersion
     , testProperty "ChainId"
-        $ prop_encodeDecodeRoundtrip decodeChainId encodeChainId
+        $ prop_encodeDecode decodeChainId encodeChainId
     , testProperty "MerkleLogHash"
-        $ prop_encodeDecodeRoundtrip decodeMerkleLogHash encodeMerkleLogHash
+        $ prop_encodeDecode decodeMerkleLogHash encodeMerkleLogHash
     , testProperty "BlockHash"
-        $ prop_encodeDecodeRoundtrip decodeBlockHash encodeBlockHash
+        $ prop_encodeDecode decodeBlockHash encodeBlockHash
     , testProperty "BlockHeight"
-        $ prop_encodeDecodeRoundtrip decodeBlockHeight encodeBlockHeight
+        $ prop_encodeDecode decodeBlockHeight encodeBlockHeight
     , testProperty "CutHeight"
-        $ prop_encodeDecodeRoundtrip decodeCutHeight encodeCutHeight
+        $ prop_encodeDecode decodeCutHeight encodeCutHeight
     , testProperty "PowHash"
-        $ prop_encodeDecodeRoundtrip decodePowHash encodePowHash
+        $ prop_encodeDecode decodePowHash encodePowHash
     , testProperty "PowHashNat"
-        $ prop_encodeDecodeRoundtrip decodePowHashNat encodePowHashNat
+        $ prop_encodeDecode decodePowHashNat encodePowHashNat
     , testProperty "HashDifficulty"
-        $ prop_encodeDecodeRoundtrip decodeHashDifficulty encodeHashDifficulty
+        $ prop_encodeDecode decodeHashDifficulty encodeHashDifficulty
     , testProperty "HashTarget"
-        $ prop_encodeDecodeRoundtrip decodeHashTarget encodeHashTarget
+        $ prop_encodeDecode decodeHashTarget encodeHashTarget
     , testProperty "BlockWeight"
-        $ prop_encodeDecodeRoundtrip decodeBlockWeight encodeBlockWeight
+        $ prop_encodeDecode decodeBlockWeight encodeBlockWeight
 
     , testProperty "BlockHashRecord"
-        $ prop_encodeDecodeRoundtrip decodeBlockHashRecord encodeBlockHashRecord
+        $ prop_encodeDecode decodeBlockHashRecord encodeBlockHashRecord
     , testProperty "BlockHeader"
-        $ prop_encodeDecodeRoundtrip decodeBlockHeader encodeBlockHeader
+        $ prop_encodeDecode decodeBlockHeader encodeBlockHeader
     , testProperty "Nonce"
-       $ prop_encodeDecodeRoundtrip decodeNonce encodeNonce
+       $ prop_encodeDecode decodeNonce encodeNonce
    , testProperty "Time"
-       $ prop_encodeDecodeRoundtrip decodeTime encodeTime
+       $ prop_encodeDecode decodeTime encodeTime
    , testProperty "TimeSpan"
-       $ prop_encodeDecodeRoundtrip decodeTimeSpan encodeTimeSpan
+       $ prop_encodeDecode decodeTimeSpan encodeTimeSpan
 
     , testProperty "BlockPayloadHash"
-        $ prop_encodeDecodeRoundtrip decodeBlockPayloadHash encodeBlockPayloadHash
+        $ prop_encodeDecode decodeBlockPayloadHash encodeBlockPayloadHash
     , testProperty "BlockTransactionsHash"
-        $ prop_encodeDecodeRoundtrip decodeBlockTransactionsHash encodeBlockTransactionsHash
+        $ prop_encodeDecode decodeBlockTransactionsHash encodeBlockTransactionsHash
     , testProperty "BlockTransactionsHash"
-        $ prop_encodeDecodeRoundtrip decodeBlockTransactionsHash encodeBlockTransactionsHash
+        $ prop_encodeDecode decodeBlockTransactionsHash encodeBlockTransactionsHash
 
     , testProperty "SolvedWork"
-        $ prop_encodeDecodeRoundtrip decodeSolvedWork encodeSolvedWork
+        $ prop_encodeDecode decodeSolvedWork encodeSolvedWork
 
     -- FIXME: decoding depends on version and block height (which is something
     -- that we should fix)
     -- , testProperty "WorkHeader"
-    --    $ prop_encodeDecodeRoundtrip decodeWorkHeader encodeWorkHeader
+    --    $ prop_encodeDecode decodeWorkHeader encodeWorkHeader
 
     -- TODO Fix this!
     -- The following doesn't hold:
