@@ -1,0 +1,201 @@
+name: History Validation
+
+on:
+  push:
+    branches:
+    - lars/ci/history-validation
+
+env:
+  AWS_ACCESS_KEY_ID: ${{ secrets.kadena_cabal_cache_aws_access_key_id }}
+  AWS_SECRET_ACCESS_KEY: ${{ secrets.kadena_cabal_cache_aws_secret_access_key }}
+  AWS_DEFAULT_REGION: us-east-1
+
+  S3_ARTIFACT_BUCKET: kadena-cabal-cache
+  S3_ARTIFACT_FOLDER: chainweb-node
+
+jobs:
+
+  # Synchronize Chain Database
+  #
+  sync-chain-db:
+    name: Synchronize chain database
+    runs-on: 'ubuntu-latest'
+    strategy:
+      fail-fast: false
+      matrix:
+        chainwebVersion: ['development']
+    env:
+      DB_SNAPSHOT_URI: 's3://chainweb-chain-db/${{ matrix.chainwebVersion }}/rocksdb/'
+    steps:
+    - name: Sync chain database from S3
+      run: aws s3 sync "$DB_SNAPSHOT_URI" db/0/rocksDb --delete --exclude=LOCK
+    - name: Store chain database as artifact
+      uses: actions/upload-artifact@v2
+      with:
+        name: chain-db-${{ matrix.chainwebVersion }}
+        path: db
+
+  # Validate Mainnet01 Chain Database With chainweb-node
+  #
+  validate-header-db:
+    name: Validate headers
+    needs: [sync-chain-db, build]
+    strategy:
+      fail-fast: false
+      matrix:
+        os: ['ubuntu-18.04', 'ubuntu-20.04']
+        ghc: ['8.8.4', '8.10.2']
+        chainwebVersion: ['development']
+        include:
+        - chainwebVersion: 'development'
+          timeout: 10
+        # - ghc: '8.8.4'
+        #   os: 'ubuntu-18.04'
+        #   chainwebVersion: 'mainnet01'
+        #   timeout: 120
+    runs-on: ${{ matrix.os }}
+    steps:
+    - name: Install non-Haskell dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y librocksdb-dev expect
+    - name: Download chain database artifact
+      uses: actions/download-artifact@v2
+      with:
+        name: chain-db-${{ matrix.chainwebVersion }}
+        path: db
+    - name: install chainweb-node
+      uses: larskuhtz/install-chainweb-action@master
+      with:
+        ghc-version: ${{ matrix.ghc }}
+        version: 'ff6664d'
+        github_token: ${{ secrets.GITHUB_TOKEN }}
+    - name: Check chainweb-node installation
+      run: chainweb-node --version
+    - name: Write chainweb-node configuration file
+      run: |
+        cat >> config.yaml <<EOF
+          databaseDirectory: "db"
+          chainweb:
+            chainwebVersion: ${{ matrix.chainwebVersion }}
+            validateHashesOnReplay: false
+            p2p:
+              peer:
+                hostaddress:
+                  hostname: localhost
+                  port: 4445
+              private: true
+              ignoreBootstrapNodes: true
+            transactionIndex:
+              enabled: false
+            headerStream: false
+            mempoolP2p:
+              enabled: false
+            cuts:
+              pruneChainDatabase: headers-checked
+          logging:
+            telemetryBackend:
+              enabled: false
+            backend:
+              handle: stdout
+              color: "true"
+            logger:
+              log_level: info
+              log_policy: keep
+            filter:
+              rules:
+              - key: component
+                value: init
+                level: info
+              - key: component
+                value: database-pruning
+                level: info
+              default: warn
+        EOF
+    - name: Validate block headers and check Merkle tree
+      shell: bash
+      timeout-minutes: ${{ matrix.timeout }}
+      run: |
+        unbuffer chainweb-node --config-file config.yaml |
+        sed -u -e '/finished pruning databases/q0;/\[Error\]/q1;$q2'
+
+  # Validate Mainnet01 pact history
+  #
+  validate-pact-history:
+    name: Validate pact history
+    needs: [sync-chain-db, build]
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ 'ubuntu-18.04', 'ubuntu-20.04' ]
+        ghc: ['8.8.4', '8.10.2']
+        chainwebVersion: ['development']
+        include:
+        - chainwebVersion: 'development'
+          timeout: 10
+        # - ghc: '8.8.4'
+        #   os: 'ubuntu-18.04'
+        #   chainwebVersion: 'mainnet01'
+        #   timeout: 120
+    runs-on: ${{ matrix.os }}
+    steps:
+    - name: Install non-Haskell dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y librocksdb-dev zlib1g-dev libsqlite3-dev expect
+    - name: Download ${{ matrix.chainwebVersion }} chain database artifact
+      uses: actions/download-artifact@v2
+      with:
+        name: chain-db-${{ matrix.chainwebVersion}}
+        path: db
+    - name: install chainweb-node
+      uses: larskuhtz/install-chainweb-action@master
+      with:
+        ghc-version: ${{ matrix.ghc }}
+        version: 'ff6664d'
+        github_token: ${{ secrets.GITHUB_TOKEN }}
+    - name: Check chainweb-node installation
+      run: chainweb-node --version
+    - name: Write chainweb-node configuration file
+      run: |
+        cat >> config.yaml <<EOF
+          databaseDirectory: "db"
+          chainweb:
+            chainwebVersion: ${{ matrix.chainwebVersion }}
+            validateHashesOnReplay: true
+            p2p:
+              peer:
+                hostaddress:
+                  hostname: localhost
+                  port: 4445
+              private: true
+              ignoreBootstrapNodes: true
+            transactionIndex:
+              enabled: false
+            headerStream: false
+            mempoolP2p:
+              enabled: false
+            cuts:
+              pruneChainDatabase: false
+          logging:
+            telemetryBackend:
+              enabled: false
+            backend:
+              handle: stdout
+              color: "True"
+            logger:
+              log_level: info
+              log_policy: keep
+            filter:
+              rules:
+              - key: component
+                value: init
+                level: info
+              default: warn
+        EOF
+    - name: Validate pact history
+      shell: bash
+      timeout-minutes: ${{ matrix.timeout }}
+      run: |
+        unbuffer chainweb-node --config-file config.yaml |
+        sed -u -e '/finished synchronizing Pact DBs/q0;/\[Error\]/q1;$q2'
