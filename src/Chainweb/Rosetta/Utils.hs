@@ -63,7 +63,7 @@ instance ToObject OperationMetaData where
   toPairs (OperationMetaData txId bal prevOwnership) =
     [ "tx-id" .= txId
     , "total-balance" .= bal
-    , "prev-owenership" .= prevOwnership ]
+    , "prev-ownership" .= prevOwnership ]
   toObject opMeta = HM.fromList (toPairs opMeta)
 
 newtype AccountIdMetaData = AccountIdMetaData
