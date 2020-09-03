@@ -131,14 +131,14 @@ rosettaConstructionSubmitApiClient_
     . KnownChainwebVersionSymbol v
     => ConstructionSubmitReq
         -- ^ Contains a network id and a signed transaction
-    -> ClientM ConstructionSubmitResp
+    -> ClientM TransactionIdResp
 rosettaConstructionSubmitApiClient_ = client (rosettaConstructionSubmitApi @v)
 
 rosettaConstructionSubmitApiClient
     :: ChainwebVersion
     -> ConstructionSubmitReq
         -- ^ Contains a network id and a signed transaction
-    -> ClientM ConstructionSubmitResp
+    -> ClientM TransactionIdResp
 rosettaConstructionSubmitApiClient
     (FromSingChainwebVersion (SChainwebVersion :: Sing v))
     = rosettaConstructionSubmitApiClient_ @v
@@ -166,14 +166,14 @@ rosettaMempoolTransactionApiClient
 rosettaMempoolApiClient_
     :: forall (v :: ChainwebVersionT)
     . KnownChainwebVersionSymbol v
-    => MempoolReq
+    => NetworkReq
         -- ^ contains a network id
     -> ClientM MempoolResp
 rosettaMempoolApiClient_ = client (rosettaMempoolApi @v)
 
 rosettaMempoolApiClient
     :: ChainwebVersion
-    -> MempoolReq
+    -> NetworkReq
       -- ^ contains a network id
     -> ClientM MempoolResp
 rosettaMempoolApiClient

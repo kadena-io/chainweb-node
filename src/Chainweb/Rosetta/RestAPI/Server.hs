@@ -18,6 +18,7 @@ module Chainweb.Rosetta.RestAPI.Server where
 
 
 import Control.Error.Util
+import Data.EitherR (fmapLT)
 import Control.Monad (void, (<$!>))
 import Control.Monad.IO.Class
 import Control.Monad.Trans.Class
@@ -123,6 +124,7 @@ accountBalanceH v cutDb crs (AccountBalanceReq net (AccountId acct _ _) pbid) = 
     acctBalResp bid bal = AccountBalanceResp
       { _accountBalanceResp_blockId = bid
       , _accountBalanceResp_balances = [ kdaToRosettaAmount bal ]
+      , _accountBalanceResp_coins = Nothing
       , _accountBalanceResp_metadata = Nothing
       }
 
@@ -170,9 +172,9 @@ blockH v cutDb ps crs (BlockReq net (PartialBlockId bheight bhash)) =
       bh <- findBlockHeaderInCurrFork cutDb cid bheight bhash
       (coinbase, txs) <- getBlockOutputs payloadDb bh
       logs <- getTxLogs (_chainResPact cr) bh
-      trans <- hoistEither $ matchLogs FullLogs bh logs coinbase txs
+      trans <- matchLogs FullLogs bh logs coinbase txs
       pure $ BlockResp
-        { _blockResp_block = block bh trans
+        { _blockResp_block = Just $ block bh trans
         , _blockResp_otherTransactions = Nothing
         }
 
@@ -185,24 +187,30 @@ blockTransactionH
     -> [(ChainId, ChainResources a)]
     -> BlockTransactionReq
     -> Handler BlockTransactionResp
-blockTransactionH v cutDb ps crs (BlockTransactionReq net bid t) =
-  runExceptT work >>= either throwRosetta pure
+blockTransactionH v cutDb ps crs (BlockTransactionReq net bid t) = do
+  runExceptT work >>= either throwRosettaError pure
   where
     BlockId bheight bhash = bid
     TransactionId rtid = t
 
-    work :: ExceptT RosettaFailure Handler BlockTransactionResp
-    work = do
-      cid <- validateNetwork v net
-      cr <- lookup cid crs ?? RosettaInvalidChain
-      payloadDb <- lookup cid ps ?? RosettaInvalidChain
-      bh <- findBlockHeaderInCurrFork cutDb cid (Just bheight) (Just bhash)
-      rkTarget <- (hush $ fromText' rtid) ?? RosettaUnparsableTransactionId
-      (coinbase, txs) <- getBlockOutputs payloadDb bh
-      logs <- getTxLogs (_chainResPact cr) bh
+    hoistRosettaError details w = fmapLT annotate w
+      where details' = case details of
+              Nothing -> Nothing
+              Just p -> Just $ HM.fromList p
+            annotate e = rosettaError e details'
 
-      tran <- hoistEither $ matchLogs
-              (SingleLog rkTarget) bh logs coinbase txs
+    work :: ExceptT RosettaError Handler BlockTransactionResp
+    work = do
+      cid <- hoistRosettaError Nothing (validateNetwork v net)
+      cr <- lookup cid crs ?? (rosettaError RosettaInvalidChain Nothing)
+      payloadDb <- lookup cid ps ?? (rosettaError RosettaInvalidChain Nothing)
+      bh <- hoistRosettaError Nothing $ findBlockHeaderInCurrFork cutDb cid (Just bheight) (Just bhash)
+      rkTarget <- (hush $ fromText' rtid) ?? (rosettaError RosettaUnparsableTransactionId Nothing)
+      (coinbase, txs) <- hoistRosettaError Nothing $ getBlockOutputs payloadDb bh
+      logs <- hoistRosettaError Nothing $ getTxLogs (_chainResPact cr) bh
+
+      tran <- hoistRosettaError (Just ["txId" .= t, "block-txs" .= txs, "block-height" .= _blockHeight bh])
+              $ (matchLogs (SingleLog rkTarget) bh logs coinbase txs)
 
       pure $ BlockTransactionResp tran
 
@@ -221,17 +229,17 @@ constructionMetadataH v (ConstructionMetadataReq net _) =
     work :: ExceptT RosettaFailure Handler ConstructionMetadataResp
     work = do
         void $ validateNetwork v net
-        pure $ ConstructionMetadataResp HM.empty
+        pure $ ConstructionMetadataResp HM.empty Nothing
 
 constructionSubmitH
     :: ChainwebVersion
     -> [(ChainId, MempoolBackend ChainwebTransaction)]
     -> ConstructionSubmitReq
-    -> Handler ConstructionSubmitResp
+    -> Handler TransactionIdResp
 constructionSubmitH v ms (ConstructionSubmitReq net tx) =
     runExceptT work >>= either throwRosetta pure
   where
-    work :: ExceptT RosettaFailure Handler ConstructionSubmitResp
+    work :: ExceptT RosettaFailure Handler TransactionIdResp
     work = do
         cid <- validateNetwork v net
         cmd <- command tx ?? RosettaUnparsableTx
@@ -241,7 +249,7 @@ constructionSubmitH v ms (ConstructionSubmitReq net tx) =
         liftIO (mempoolInsertCheck mp vec) >>= hoistEither . first (const RosettaInvalidTx)
         liftIO (mempoolInsert mp UncheckedInsert vec)
         let rk = requestKeyToB16Text $ cmdToRequestKey validated
-        pure $ ConstructionSubmitResp (TransactionId rk) Nothing
+        pure $ TransactionIdResp (TransactionId rk) Nothing
 
 command :: T.Text -> Maybe (Command T.Text)
 command = decodeStrict' . T.encodeUtf8
@@ -252,9 +260,9 @@ command = decodeStrict' . T.encodeUtf8
 mempoolH
     :: ChainwebVersion
     -> [(ChainId, MempoolBackend a)]
-    -> MempoolReq
+    -> NetworkReq
     -> Handler MempoolResp
-mempoolH v ms (MempoolReq net) = work >>= \case
+mempoolH v ms (NetworkReq net _) = work >>= \case
     Left !e -> throwRosetta e
     Right !a -> pure a
   where
@@ -346,10 +354,11 @@ networkOptionsH v (NetworkReq nid _) = runExceptT work >>= either throwRosetta p
     allow = Allow
       { _allow_operationStatuses = opStatuses
       , _allow_operationTypes = opTypes
-      , _allow_errors = errExamples }
+      , _allow_errors = errExamples
+      , _allow_historicalBalanceLookup = True }
 
     errExamples :: [RosettaError]
-    errExamples = map rosettaError [minBound .. maxBound]
+    errExamples = map (\e -> rosettaError e Nothing) [minBound .. maxBound]
 
     opStatuses :: [OperationStatus]
     opStatuses = map operationStatus [minBound .. maxBound]
@@ -385,6 +394,8 @@ networkStatusH v cutDb peerDb (NetworkReq nid _) =
       { _networkStatusResp_currentBlockId = blockId bh
       , _networkStatusResp_currentBlockTimestamp = rosettaTimestamp bh
       , _networkStatusResp_genesisBlockId = blockId genesis
+      , _networkStatusResp_oldestBlockIdentifier = Nothing
+      , _networkStatusResp_syncStatus = Nothing
       , _networkStatusResp_peers = rosettaNodePeers ps
       }
 
