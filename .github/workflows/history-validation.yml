@@ -67,7 +67,7 @@ jobs:
     - name: install chainweb-node
       uses: larskuhtz/install-chainweb-action@master
       with:
-        ghc-version: ${{ matrix.ghc }}
+        ghc_version: ${{ matrix.ghc }}
         version: 'ff6664d'
         github_token: ${{ secrets.GITHUB_TOKEN }}
     - name: Check chainweb-node installation
@@ -151,7 +151,7 @@ jobs:
     - name: install chainweb-node
       uses: larskuhtz/install-chainweb-action@master
       with:
-        ghc-version: ${{ matrix.ghc }}
+        ghc_version: ${{ matrix.ghc }}
         version: 'ff6664d'
         github_token: ${{ secrets.GITHUB_TOKEN }}
     - name: Check chainweb-node installation
