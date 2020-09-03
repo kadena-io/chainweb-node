@@ -39,7 +39,7 @@ jobs:
   #
   validate-header-db:
     name: Validate headers
-    needs: [sync-chain-db, build]
+    needs: [sync-chain-db]
     strategy:
       fail-fast: false
       matrix:
@@ -123,7 +123,7 @@ jobs:
   #
   validate-pact-history:
     name: Validate pact history
-    needs: [sync-chain-db, build]
+    needs: [sync-chain-db]
     strategy:
       fail-fast: false
       matrix:
