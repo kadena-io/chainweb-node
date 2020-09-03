@@ -23,7 +23,7 @@ env:
 
 jobs:
 
-  # Synchronize Mainnet01 Chain Database
+  # Synchronize Chain Database
   #
   sync-chain-db:
     name: Synchronize chain database
@@ -182,9 +182,6 @@ jobs:
         chmod 755 ./bin/chainweb-node
         unbuffer ./bin/chainweb-node --config-file config.yaml |
         sed -u -e '/finished pruning databases/q0;/\[Error\]/q1;$q2'
-        x=$?
-        echo $x
-        exit $x
 
   # Validate Mainnet01 pact history
   #
