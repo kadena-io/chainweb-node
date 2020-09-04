@@ -56,9 +56,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
     - name: Install non-Haskell dependencies
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y expect
+      run: sudo apt-get install -y expect
     - name: Download chain database artifact
       uses: actions/download-artifact@v2
       with:
@@ -142,9 +140,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
     - name: Install non-Haskell dependencies
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y librocksdb-dev zlib1g-dev libsqlite3-dev expect
+      run: sudo apt-get install -y expect
     - name: Download ${{ matrix.chainwebVersion }} chain database artifact
       uses: actions/download-artifact@v2
       with:
