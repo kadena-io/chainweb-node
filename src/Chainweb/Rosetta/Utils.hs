@@ -49,9 +49,13 @@ import Chainweb.Version
 -- Rosetta Metadata Types --
 --------------------------------------------------------------------------------
 
+-- | Helper typeclass for transforming Rosetta metadata into a
+--   JSON Object.
+-- NOTE: Rosetta types expect metadata to be `Object`
 class ToObject a where
   toPairs :: a -> [(T.Text, Value)]
   toObject :: a -> Object
+
 
 data OperationMetaData = OperationMetaData
   { _operationMetaData_txId :: !P.TxId
@@ -66,6 +70,7 @@ instance ToObject OperationMetaData where
     , "prev-ownership" .= prevOwnership ]
   toObject opMeta = HM.fromList (toPairs opMeta)
 
+
 newtype AccountIdMetaData = AccountIdMetaData
   { _accountIdMetaData_currOwnership :: Value }
   deriving Show
@@ -75,60 +80,35 @@ instance ToObject AccountIdMetaData where
     [ "current-ownership" .= currOwnership ]
   toObject acctMeta = HM.fromList (toPairs acctMeta)
 
--- Continuation MetaDatas
---
-data ContinuationCurrStep = ContinuationCurrStep
-  { _continuationCurrStep_chainId :: !T.Text
-  , _continuationCurrStep_stepId :: !Int
-  -- ^ Step that was executed or skipped
-  , _continuationCurrStep_hasRollback :: Bool
-  -- ^ Track whether a current step has a rollback
-  } deriving Show
--- TODO: document
-instance ToObject ContinuationCurrStep where
-  toPairs (ContinuationCurrStep cid step rollback) =
-    [ "chain-id" .= cid
-    , "step-id" .= step
-    , "has-rollback" .= rollback ]
-  toObject contCurrStep = HM.fromList (toPairs contCurrStep)
 
-toContStep :: ChainId -> P.PactExec -> ContinuationCurrStep
-toContStep cid pe = ContinuationCurrStep
-  { _continuationCurrStep_chainId = chainIdToText cid
-  , _continuationCurrStep_stepId = P._peStep pe
-  , _continuationCurrStep_hasRollback = P._peStepHasRollback pe
+newtype TransactionMetaData = TransactionMetaData
+  { _transactionMetaData_multiStepTx :: Maybe ContinuationMetaData
   }
+instance ToObject TransactionMetaData where
+  toPairs (TransactionMetaData Nothing) = []
+  toPairs (TransactionMetaData (Just multi)) =
+    [ "multi-step-transaction" .= toObject multi ]
+  toObject txMeta = HM.fromList (toPairs txMeta)
+
+transactionMetaData :: ChainId -> CommandResult a -> TransactionMetaData
+transactionMetaData cid cr = case (_crContinuation cr) of
+  Nothing -> TransactionMetaData Nothing
+  Just pe -> TransactionMetaData $ Just (toContMeta cid pe)
 
 
-newtype ContinuationNextStep = ContinuationNextStep
-  { _continuationNextStep_chainId :: T.Text
-  } deriving Show
--- TODO: document
-instance ToObject ContinuationNextStep where
-  toPairs (ContinuationNextStep cid) = [ "target-chain-id" .= cid ]
-  toObject contNextStep = HM.fromList (toPairs contNextStep)
-
-toContNextStep
-    :: ChainId
-    -> P.PactExec
-    -> Maybe ContinuationNextStep
-toContNextStep currChainId pe
-  | isLastStep = Nothing
-  | otherwise = case (P._peYield pe >>= P._yProvenance) of
-      -- next step occurs in the same chain
-      Nothing -> Just $ ContinuationNextStep $ chainIdToText currChainId
-      -- next step is a cross-chain step
-      Just (P.Provenance nextChainId _) ->
-        Just $ ContinuationNextStep (P._chainId nextChainId)
-  where
-    isLastStep = (succ $ P._peStep pe) == (P._peStepCount pe)
-
-
+-- | Adds more transparency into continuation transactions.
+--
 data ContinuationMetaData = ContinuationMetaData
   { _continuationMetaData_currStep :: !ContinuationCurrStep
+  -- ^ Information on the current step in the continuation.
   , _continuationStep_nextStep :: !(Maybe ContinuationNextStep)
+  -- ^ Information on the next step in the continuation (if there is one).
   , _continuationMetaData_pactIdReqKey :: !P.PactId
+  -- ^ The request key of the transaction that initiated this continuation.
+  -- TODO: Further work needs to be done to know WHICH chain this
+  --       initial transaction occurred in.
   , _continuationMetaData_totalSteps :: !Int
+  -- ^ Total number of steps in the entire continuation.
   } deriving Show
 -- TODO: document
 instance ToObject ContinuationMetaData where
@@ -152,14 +132,60 @@ toContMeta cid pe = ContinuationMetaData
   }
 
 
-newtype TransactionMetaData = TransactionMetaData
-  { _transactionMetaData_multiStepTx :: Maybe ContinuationMetaData
+-- | Provides information on the step that was just executed.
+data ContinuationCurrStep = ContinuationCurrStep
+  { _continuationCurrStep_chainId :: !T.Text
+  -- ^ Chain id where step was executed
+  , _continuationCurrStep_stepId :: !Int
+  -- ^ Step that was executed or skipped
+  , _continuationCurrStep_rollbackAvailable :: Bool
+  -- ^ Track whether a current step allows for rollbacks
+  } deriving Show
+-- TODO: Add ability to detect if step was rolled back.
+-- TODO: document
+instance ToObject ContinuationCurrStep where
+  toPairs (ContinuationCurrStep cid step rollback) =
+    [ "chain-id" .= cid
+    , "step-id" .= step
+    , "rollback-available" .= rollback ]
+  toObject contCurrStep = HM.fromList (toPairs contCurrStep)
+
+toContStep :: ChainId -> P.PactExec -> ContinuationCurrStep
+toContStep cid pe = ContinuationCurrStep
+  { _continuationCurrStep_chainId = chainIdToText cid
+  , _continuationCurrStep_stepId = P._peStep pe
+  , _continuationCurrStep_rollbackAvailable = P._peStepHasRollback pe
   }
-instance ToObject TransactionMetaData where
-  toPairs (TransactionMetaData Nothing) = []
-  toPairs (TransactionMetaData (Just multi)) =
-    [ "multi-step-transaction" .= toObject multi ]
-  toObject txMeta = HM.fromList (toPairs txMeta)
+
+
+-- | Indicates if the next step of a continuation occurs in a
+--   different chain or in the same chain.
+newtype ContinuationNextStep = ContinuationNextStep
+  { _continuationNextStep_chainId :: T.Text
+  } deriving Show
+-- TODO: document
+instance ToObject ContinuationNextStep where
+  toPairs (ContinuationNextStep cid) = [ "target-chain-id" .= cid ]
+  toObject contNextStep = HM.fromList (toPairs contNextStep)
+
+-- | Determines if the continuation has a next step and, if so, provides
+--   the chain id of where this next step will need to occur.
+toContNextStep
+    :: ChainId
+    -> P.PactExec
+    -> Maybe ContinuationNextStep
+toContNextStep currChainId pe
+  | isLastStep = Nothing
+  -- TODO: Add check to see if curr step was rolled back.
+  --       This would also mean a next step is not occuring.
+  | otherwise = case (P._peYield pe >>= P._yProvenance) of
+      Nothing -> Just $ ContinuationNextStep $ chainIdToText currChainId
+      -- ^ next step occurs in the same chain
+      Just (P.Provenance nextChainId _) ->
+      -- ^ next step is a cross-chain step
+        Just $ ContinuationNextStep (P._chainId nextChainId)
+  where
+    isLastStep = (succ $ P._peStep pe) == (P._peStepCount pe)
 
 --------------------------------------------------------------------------------
 -- Rosetta Helper Types --
@@ -178,7 +204,14 @@ data AccountLog = AccountLog
   deriving (Show, Eq)
 type AccountRow = (T.Text, Decimal, Value)
 
-type UnindexedOperation = Word64 -> [OperationId] -> Operation
+-- | An operation index and related operations can only be
+--   determined once all operations in a transaction are known.
+type UnindexedOperation =
+     Word64
+  -- ^ Operation index
+  -> [OperationId]
+  -- ^ Id of Related Operations
+  -> Operation
 
 data UnindexedOperations = UnindexedOperations
   { _unindexedOperation_fundOps :: [UnindexedOperation]
@@ -238,11 +271,6 @@ rosettaTransaction cr cid ops =
     , _transaction_metadata = Just $ toObject (transactionMetaData cid cr)
     }
 
-transactionMetaData :: ChainId -> CommandResult a -> TransactionMetaData
-transactionMetaData cid cr = case (_crContinuation cr) of
-  Nothing -> TransactionMetaData Nothing
-  Just pe -> TransactionMetaData $ Just (toContMeta cid pe)
-
 pactHashToTransactionId :: PactHash -> TransactionId
 pactHashToTransactionId hsh = TransactionId $ hashToText $ toUntypedHash hsh
 
@@ -261,38 +289,59 @@ operationStatus s@Remediation =
     , _operationStatus_successful = True
     }
 
+-- | Flatten operations grouped by TxId into a single list of operations;
+--   give each operation a unique, numerical operation id based on its position
+--   in this new flattened list; and create DAG of related operations.
 indexedOperations :: UnindexedOperations -> [Operation]
 indexedOperations unIdxOps = fundOps <> transferOps <> gasOps
   where
-    indexOps ops begIdx relatedOps =
-      let related = map _operation_operationId relatedOps
-          ops' = zipWith (\f i -> f i related) ops [begIdx..]
-      in weaveRelatedOperations $! ops'
+    opIds = map _operation_operationId
+
+    createOps opsF begIdx defRelatedOpIds =
+      let ops = zipWith (\f i -> f i defRelatedOpIds) opsF [begIdx..]
+      in weaveRelatedOperations $! ops
+      -- connect operations to each other
 
     fundUnIdxOps = _unindexedOperation_fundOps $! unIdxOps
-    fundOps = indexOps fundUnIdxOps 0 []
+    fundOps = createOps fundUnIdxOps 0 []
 
     transferIdx = fromIntegral $! length fundOps
     transferUnIdxOps = _unindexedOperation_transferOps $! unIdxOps
-    transferOps = indexOps transferUnIdxOps transferIdx []
+    transferOps = createOps transferUnIdxOps transferIdx []
 
     gasIdx = transferIdx + (fromIntegral $! length transferOps)
     gasUnIdxOps = _unindexedOperation_gasOps $! unIdxOps
-    gasOps = indexOps gasUnIdxOps gasIdx fundOps
-    -- ^ connect fund operations to gas operations
+    gasOps = createOps gasUnIdxOps gasIdx (opIds $! fundOps)
+    -- connect gas operations to fund operations
 
--- | Add all previous operation seen to current operation's relation operations
+-- | Create a DAG of related operations.
+-- Algorithm:
+--   Given a list of operations that are related:
+--     For operation x at position i,
+--       Overwrite or append all operations ids at
+--         position 0th to ith (not inclusive) to operation x's
+--         related operations list.
+-- Example: list of operations to weave: [ 4: [], 5: [1], 6: [] ]
+--          weaved operations: [ 4: [], 5: [1, 4], 6: [4, 5] ]
 weaveRelatedOperations :: [Operation] -> [Operation]
-weaveRelatedOperations ops = map weave opsWithRelatedOpIds
+weaveRelatedOperations relatedOps = map weave opsWithRelatedOpIds
   where
-    opIds = map _operation_operationId ops
-    opsWithRelatedOpIds = zip ops $! inits $! opIds
+    -- example: [1, 2, 3] -> [[], [1], [1,2], [1,2,3]]
+    opIdsDAG = inits $! map _operation_operationId relatedOps
+    -- example: [(op 1, []), (op 2, [1]), (op 3, [1,2])]
+    opsWithRelatedOpIds = zip relatedOps opIdsDAG
 
-    weave (op, newRelated) =
-      let someOldRelated = _operation_relatedOperations op
-          related = addToMaybeList newRelated someOldRelated
-          sortedRelated = fmap (sortOn _operationId_index) related
-      in op { _operation_relatedOperations = sortedRelated }
+    -- related operation ids must be in descending order.
+    justSortRelated r = Just $! sortOn _operationId_index r
+
+    weave (op, newRelatedIds) =
+      case newRelatedIds of
+        [] -> op  -- no new related operations to add
+        l -> case (_operation_relatedOperations op) of
+          Nothing -> op  -- no previous related operations
+            { _operation_relatedOperations = justSortRelated l }
+          Just oldRelatedIds -> op
+            { _operation_relatedOperations = justSortRelated $! (oldRelatedIds <> l) }
 
 operation
     :: ChainwebOperationStatus
@@ -305,7 +354,7 @@ operation
 operation ostatus otype txId acctLog idx related =
   Operation
     { _operation_operationId = OperationId idx Nothing
-    , _operation_relatedOperations = listToMaybe related
+    , _operation_relatedOperations = someRelatedOps
     , _operation_type = sshow otype
     , _operation_status = sshow ostatus
     , _operation_account = Just accountId
@@ -315,6 +364,9 @@ operation ostatus otype txId acctLog idx related =
     , _operation_metadata = opMeta
     }
   where
+    someRelatedOps = case related of
+      [] -> Nothing
+      li -> Just li
     opMeta = Just $ toObject $ OperationMetaData
       { _operationMetaData_txId = txId
       , _operationMetaData_totalBalance =
@@ -411,14 +463,3 @@ noteOptional :: a -> Either a (Maybe c) -> Either a c
 noteOptional e (Right Nothing) = Left e
 noteOptional _ (Right (Just c)) = pure c
 noteOptional _ (Left oe) = Left oe
-
-listToMaybe :: [a] -> Maybe [a]
-listToMaybe [] = Nothing
-listToMaybe li = Just li
-
-addToMaybeList :: [a] -> Maybe [a] -> Maybe [a]
-addToMaybeList newList someList = case newList of
-  [] -> someList
-  li -> case someList of
-    Nothing -> Just li
-    Just oldList -> Just $! oldList <> li

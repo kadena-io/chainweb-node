@@ -112,8 +112,8 @@ matchLogs
     -> ExceptT RosettaFailure Handler tx
 matchLogs typ bh logs coinbase txs
   | bheight == genesisHeight v cid = matchGenesis
-  | coinV2Upgrade v cid bheight = matchCoinV2Remediation
-  | to20ChainRebalance v cid bheight = match20ChainRemediation
+  | coinV2Upgrade v cid bheight = matchRemediation upgradeTransactions
+  | to20ChainRebalance v cid bheight = matchRemediation twentyChainUpgradeTransactions
   | otherwise = matchRest
   where
     bheight = _blockHeight bh
@@ -124,27 +124,16 @@ matchLogs typ bh logs coinbase txs
       FullLogs -> genesisTransactions logs cid txs
       SingleLog rk -> genesisTransaction logs cid txs rk
 
-    matchCoinV2Remediation = do
-      coinV2Rems <- liftIO $ upgradeTransactions v cid
+    matchRemediation getRemTxs = do
+      rems <- liftIO $ getRemTxs v cid
       hoistEither $ case typ of
         FullLogs ->
           overwriteError RosettaMismatchTxLogs $!
-            remediations logs cid coinbase coinV2Rems txs
+            remediations logs cid coinbase rems txs
         SingleLog rk ->
           (noteOptional RosettaTxIdNotFound .
             overwriteError RosettaMismatchTxLogs) $
-              singleRemediation logs cid coinbase coinV2Rems txs rk
-
-    match20ChainRemediation = do
-      chain20Rems <- liftIO $ twentyChainUpgradeTransactions v cid
-      hoistEither $ case typ of
-        FullLogs ->
-          overwriteError RosettaMismatchTxLogs $!
-            remediations logs cid coinbase chain20Rems txs
-        SingleLog rk ->
-          (noteOptional RosettaTxIdNotFound .
-            overwriteError RosettaMismatchTxLogs) $
-              singleRemediation logs cid coinbase chain20Rems txs rk
+              singleRemediation logs cid coinbase rems txs rk
 
     matchRest = hoistEither $ case typ of
       FullLogs ->
@@ -399,10 +388,15 @@ nonGenesisTransaction logs cid initial rest target
 -- Remediation Helpers --
 -------------------------
 
--- | Given a remediation Command and its assumed TxId, tries to get its coin table logs.
---   If the last coin table log TxId it sees matches the remediation's TxId, then assumes
---   that this log corresponds to that remediation. Otherwise, a rosetta transaction is created
---   for that remediation with no coin table logs.
+-- | Given a remediation Command and its assumed TxId:
+--     Query the latest coin table log in the list.
+--     If the TxId of this coin table log matches the remediation's TxId,
+--       then assumes that this log corresponds to the given remediation.
+--     Otherwise, a rosetta transaction is created for the given
+--       remediation with an empty operations list.
+-- NOTE: Assumes that each remediation must have been successful and thus
+--       would have a TxId associated with it.
+-- NOTE: Not all remediations transactions will output coin table logs.
 remediationAcc
     :: AccumulatorType (TxAccumulator rosettaTx)
     -> TxAccumulator rosettaTx
@@ -429,11 +423,17 @@ remediationAcc accTyp acc (remTx, remTid) =
     makeOps (tid, logs) =
       map (operation Remediation TransferOrCreateAcct tid) logs
 
--- | Matches all transactions in a remediation block (including coinbase, remediations,
---   and user transactions) to their coin table logs.
---  Matches coinbase logs first, then remediations (assumes that each remediation transaction
---  incremented the TxId counter), and uses same algorithm as non-genesis transaction matching
---  for the rest of the user transactions.
+-- | Matches all transactions in a remediation block
+--   (including coinbase, remediations, and user transactions)
+--   to their coin table logs.
+--  Coinbase logs are matched first, followed by remediations txs,
+--  and finally user transactions are matched using the same algorithm
+--  as non-genesis transactions.
+-- NOTE: Assumes that each remediation transaction incremented
+--       the TxId counter by one.
+-- NOTE: Assumes remediations don't occur in blocks where coinbase transaction
+--       could have failed. It needs to know the TxId of the coinbase transaction in
+--       order to derive the remediation's TxIds.
 remediations
     :: Map TxId [AccountLog]
     -> ChainId
