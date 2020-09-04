@@ -3,6 +3,18 @@ name: Mainnet History Validation
 on:
   repository_dispatch:
     types: [request-mainnet-history-validation]
+  workflow_dispatch:
+    inputs:
+      os:
+        description: Operating system that the jobs run on
+        default: 'ubuntu-latest'
+      version:
+        description: chainweb-node version or revision that is used
+        default: 'master'
+      ghc_version:
+        descritpion: GHC of the build that is used
+        default: '8.10.2'
+
 
 env:
   AWS_ACCESS_KEY_ID: ${{ secrets.kadena_cabal_cache_aws_access_key_id }}
@@ -20,7 +32,7 @@ jobs:
   #
   validate-headers:
     name: Validate headers
-    runs-on: ${{ github.event.client_payload.version }}
+    runs-on: ${{ github.event.*.os[0] }}
     steps:
     - name: Install non-Haskell dependencies (ubuntu)
       if: contains(matrix.os, 'ubuntu')
@@ -31,8 +43,8 @@ jobs:
     - name: install chainweb-node
       uses: larskuhtz/install-chainweb-action@master
       with:
-        ghc_version: ${{ github.event.client_payload.ghc_version }}
-        version: ${{ github.event.client_payload.version }}
+        ghc_version: ${{ github.event.*.ghc_version[0] }}
+        version: ${{ github.event.*.version[0] }}
         github_token: ${{ secrets.GITHUB_TOKEN }}
     - name: Check chainweb-node installation
       run: chainweb-node --version
@@ -90,7 +102,7 @@ jobs:
   #
   validate-pact-history:
     name: Validate pact history
-    runs-on: ${{ github.event.client_payload.version }}
+    runs-on: ${{ github.event.*.os[0] }}
     steps:
     - name: Install non-Haskell dependencies (ubuntu)
       if: contains(matrix.os, 'ubuntu')
@@ -101,8 +113,8 @@ jobs:
     - name: install chainweb-node
       uses: larskuhtz/install-chainweb-action@master
       with:
-        ghc_version: ${{ github.event.client_payload.ghc_version }}
-        version: ${{ github.event.client_payload.version }}
+        ghc_version: ${{ github.event.*.ghc_version[0] }}
+        version: ${{ github.event.*.version[0] }}
         github_token: ${{ secrets.GITHUB_TOKEN }}
     - name: Check chainweb-node installation
       run: chainweb-node --version
