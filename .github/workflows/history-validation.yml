@@ -49,10 +49,10 @@ jobs:
         include:
         - chainwebVersion: 'development'
           timeout: 1
-        # - ghc: '8.8.4'
-        #   os: 'ubuntu-18.04'
-        #   chainwebVersion: 'mainnet01'
-        #   timeout: 90
+        - ghc: '8.8.4'
+          os: 'ubuntu-18.04'
+          chainwebVersion: 'mainnet01'
+          timeout: 90
     runs-on: ${{ matrix.os }}
     steps:
     - name: Install non-Haskell dependencies
@@ -133,10 +133,10 @@ jobs:
         include:
         - chainwebVersion: 'development'
           timeout: 1
-        # - ghc: '8.8.4'
-        #   os: 'ubuntu-18.04'
-        #   chainwebVersion: 'mainnet01'
-        #   timeout: 120
+        - ghc: '8.8.4'
+          os: 'ubuntu-18.04'
+          chainwebVersion: 'mainnet01'
+          timeout: 120
     runs-on: ${{ matrix.os }}
     steps:
     - name: Install non-Haskell dependencies
