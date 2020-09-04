@@ -2,7 +2,7 @@ name: Mainnet History Validation
 
 on:
   repository_dispatch:
-  - types: [request-mainnet-history-validation]
+    types: [request-mainnet-history-validation]
 
 env:
   AWS_ACCESS_KEY_ID: ${{ secrets.kadena_cabal_cache_aws_access_key_id }}
