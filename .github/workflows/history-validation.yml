@@ -1,9 +1,8 @@
-name: History Validation
+name: Mainnet History Validation
 
 on:
-  push:
-    branches:
-    - lars/ci/history-validation
+  repository_dispatch:
+  - types: [request-mainnet-history-validation]
 
 env:
   AWS_ACCESS_KEY_ID: ${{ secrets.kadena_cabal_cache_aws_access_key_id }}
@@ -13,69 +12,38 @@ env:
   S3_ARTIFACT_BUCKET: kadena-cabal-cache
   S3_ARTIFACT_FOLDER: chainweb-node
 
-jobs:
+  DB_SNAPSHOT_URI: 's3://chainweb-chain-db/mainnet01/rocksdb/'
 
-  # Synchronize Chain Database
-  #
-  sync-chain-db:
-    name: Synchronize chain database
-    runs-on: 'ubuntu-latest'
-    strategy:
-      fail-fast: false
-      matrix:
-        chainwebVersion: ['mainnet01', 'development']
-    env:
-      DB_SNAPSHOT_URI: 's3://chainweb-chain-db/${{ matrix.chainwebVersion }}/rocksdb/'
-    steps:
-    - name: Sync chain database from S3
-      run: aws s3 sync "$DB_SNAPSHOT_URI" db/0/rocksDb --delete --exclude=LOCK
-    - name: Store chain database as artifact
-      uses: actions/upload-artifact@v2
-      with:
-        name: chain-db-${{ matrix.chainwebVersion }}
-        path: db
+jobs:
 
   # Validate Mainnet01 Chain Database With chainweb-node
   #
-  validate-header-db:
+  validate-headers:
     name: Validate headers
-    needs: [sync-chain-db]
-    strategy:
-      fail-fast: false
-      matrix:
-        os: ['ubuntu-18.04', 'ubuntu-20.04']
-        ghc: ['8.8.4', '8.10.2']
-        chainwebVersion: ['development']
-        include:
-        - chainwebVersion: 'development'
-          timeout: 1
-        - ghc: '8.8.4'
-          os: 'ubuntu-18.04'
-          chainwebVersion: 'mainnet01'
-          timeout: 90
-    runs-on: ${{ matrix.os }}
+    runs-on: ${{ github.event.client_payload.version }}
     steps:
-    - name: Install non-Haskell dependencies
+    - name: Install non-Haskell dependencies (ubuntu)
+      if: contains(matrix.os, 'ubuntu')
       run: sudo apt-get install -y expect
-    - name: Download chain database artifact
-      uses: actions/download-artifact@v2
-      with:
-        name: chain-db-${{ matrix.chainwebVersion }}
-        path: db
+    - name: Install non-Haskell dependencies (macOS)
+      if: contains(matrix.os, 'mac')
+      run: brew install expect
     - name: install chainweb-node
       uses: larskuhtz/install-chainweb-action@master
       with:
-        ghc_version: ${{ matrix.ghc }}
-        version: 'ff6664d'
+        ghc_version: ${{ github.event.client_payload.ghc_version }}
+        version: ${{ github.event.client_payload.version }}
         github_token: ${{ secrets.GITHUB_TOKEN }}
     - name: Check chainweb-node installation
       run: chainweb-node --version
+    - name: Sync chain database from S3
+      run: aws s3 sync "$DB_SNAPSHOT_URI" db/0/rocksDb --delete --exclude=LOCK
     - name: Write chainweb-node configuration file
       run: |
         cat >> config.yaml <<EOF
           databaseDirectory: "db"
           chainweb:
-            chainwebVersion: ${{ matrix.chainwebVersion }}
+            chainwebVersion: mainnet01
             validateHashesOnReplay: false
             p2p:
               peer:
@@ -111,11 +79,10 @@ jobs:
               default: warn
         EOF
     - name: Validate block headers and check Merkle tree
-      shell: bash
-      timeout-minutes: ${{ matrix.timeout }}
+      timeout-minutes: 60
       run: |
         unbuffer chainweb-node --config-file config.yaml |
-        { sed -u -e '/finished pruning databases/q0;/\[Error\]/q1;$q2'; x=$? ; killall -9 chainweb-node; } || 
+        { sed -u -e '/finished pruning databases/q0;/\[Error\]/q1;$q2'; x=$? ; killall -9 chainweb-node; } ||
         true
         exit $x
 
@@ -123,43 +90,30 @@ jobs:
   #
   validate-pact-history:
     name: Validate pact history
-    needs: [sync-chain-db]
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ 'ubuntu-18.04', 'ubuntu-20.04' ]
-        ghc: ['8.8.4', '8.10.2']
-        chainwebVersion: ['development']
-        include:
-        - chainwebVersion: 'development'
-          timeout: 1
-        - ghc: '8.8.4'
-          os: 'ubuntu-18.04'
-          chainwebVersion: 'mainnet01'
-          timeout: 120
-    runs-on: ${{ matrix.os }}
+    runs-on: ${{ github.event.client_payload.version }}
     steps:
-    - name: Install non-Haskell dependencies
+    - name: Install non-Haskell dependencies (ubuntu)
+      if: contains(matrix.os, 'ubuntu')
       run: sudo apt-get install -y expect
-    - name: Download ${{ matrix.chainwebVersion }} chain database artifact
-      uses: actions/download-artifact@v2
-      with:
-        name: chain-db-${{ matrix.chainwebVersion}}
-        path: db
+    - name: Install non-Haskell dependencies (macOS)
+      if: contains(matrix.os, 'mac')
+      run: brew install expect
     - name: install chainweb-node
       uses: larskuhtz/install-chainweb-action@master
       with:
-        ghc_version: ${{ matrix.ghc }}
-        version: 'ff6664d'
+        ghc_version: ${{ github.event.client_payload.ghc_version }}
+        version: ${{ github.event.client_payload.version }}
         github_token: ${{ secrets.GITHUB_TOKEN }}
     - name: Check chainweb-node installation
       run: chainweb-node --version
+    - name: Sync chain database from S3
+      run: aws s3 sync "$DB_SNAPSHOT_URI" db/0/rocksDb --delete --exclude=LOCK
     - name: Write chainweb-node configuration file
       run: |
         cat >> config.yaml <<EOF
           databaseDirectory: "db"
           chainweb:
-            chainwebVersion: ${{ matrix.chainwebVersion }}
+            chainwebVersion: mainnet01
             validateHashesOnReplay: true
             p2p:
               peer:
@@ -192,8 +146,7 @@ jobs:
               default: warn
         EOF
     - name: Validate pact history
-      shell: bash
-      timeout-minutes: ${{ matrix.timeout }}
+      timeout-minutes: 120
       run: |
         unbuffer chainweb-node --config-file config.yaml |
         { sed -u -e '/finished synchronizing Pact DBs/q0;/\[Error\]/q1;$q2'; x=$?; killall -9 chainweb-node; } ||

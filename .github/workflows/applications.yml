@@ -7,11 +7,6 @@ on:
     - ci/*
     - github-ci
     - release-candidate/*
-    tags:
-    - '[0-9].[0-9]+'
-  release:
-    types:
-    - created
 
 env:
   AWS_ACCESS_KEY_ID: ${{ secrets.kadena_cabal_cache_aws_access_key_id }}
@@ -23,15 +18,70 @@ env:
 
 jobs:
 
-  # Synchronize Chain Database
+  # ########################################################################## #
+  # Configure Workflow
+
+  config:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.set-matrix.outputs.matrix }}
+      git-sha-short: ${{ steps.git-info.outputs.git-sha-short }}
+      git-ref-short: ${{ steps.git-info.outputs.git-ref-short }}
+      is-release: ${{ steps.git-info.outputs.is-release }}
+      strip: ${{ steps.git-info.outputs.strip }}
+      opt-level: ${{ steps.git-info.outputs.opt-level }}
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v2.3.2
+    - name: Git revision infos
+      run: |
+        echo "::set-output name=git-sha-short::$(git rev-parse --short HEAD || true)"
+        echo "::set-output name=is-release::${{ contains(github.event_name, 'release') }}"
+        echo "::set-output name=git-ref-short::${GITHUB_REF#refs/heads/}"
+    - name: Set optimization level and binary stripping
+      run: |
+        if [[ "${{ steps.git-info.git-ref-short }}" = "master" || "${{ steps.git-info.git-ref-short }}" = "true" ]] ; then
+          echo "::set-output name=opt-level::2"
+          echo "::set-output name=strip::True"
+        else
+          echo "::set-env name=OPT_LEVEL::1"
+          echo "::set-env name=STRIP::False"
+        fi
+    - id: set-matrix
+      run: |
+        MATRIX="$(jq -c '.' <<EOF
+        {
+          'ghc': ['8.6.5', '8.8.4', '8.10.2'],
+          'cabal': ['3.2.0.0'],
+          'os': ['ubuntu-16.04', 'ubuntu-18.04', 'ubuntu-20.04', 'macOS-latest'],
+          'cabalcache': ['true'],
+          'exclude': [
+            'os': 'macOS-latest',
+            'ghc': '8.6.5',
+            'os': 'ubuntu-16.04',
+            'ghc': '8.6.5',
+            'os': 'ubuntu-20.04',
+            'ghc': '8.6.5'
+          ]
+        }
+        EOF
+        )"
+        echo "::set-output name=matrix::$( echo "$MATRIX" )"
+
+  # ########################################################################## #
+  # Synchronize Development Database
   #
+  # Uploading artifacts is slow, but downloading is fast.
+  # For the development database that pays off. For the mainnet database
+  # the upload would take > 20 min.
+
   sync-chain-db:
     name: Synchronize chain database
     runs-on: 'ubuntu-latest'
     strategy:
       fail-fast: false
       matrix:
-        chainwebVersion: ['mainnet01', 'development']
+        chainwebVersion: ['development']
     env:
       DB_SNAPSHOT_URI: 's3://chainweb-chain-db/${{ matrix.chainwebVersion }}/rocksdb/'
     steps:
@@ -43,267 +93,24 @@ jobs:
         name: chain-db-${{ matrix.chainwebVersion }}
         path: db
 
-  # Run benchmarks and slow tests
-  #
-  slow-tests:
-    name: Slow tests
-    needs: [build]
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ 'ubuntu-18.04' ]
-        ghc: ['8.6.5', '8.8.4', '8.10.2']
-    steps:
-    - name: Install non-Haskell dependencies
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y librocksdb-dev
-    - name: Download build artifacts
-      uses: actions/download-artifact@v2
-      with:
-        name: chainweb-applications.${{ matrix.ghc }}.${{ matrix.os }}
-        path: bin
-    - name: Run slow tests
-      run: |
-        chmod 755 ./bin/cwtool
-        ./bin/cwtool slow-tests
+  # ########################################################################## #
+  # Run Build and Upload Artifacts
 
-  run-benchmarks:
-    name: Benchmarks
-    needs: [build]
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ 'ubuntu-20.04' ]
-        ghc: ['8.10.2']
-    runs-on: ${{ matrix.os }}
-    env:
-      BENCH_FILE: results.${{ github.run_id }}.${{ github.run_number }}.json
-      BENCH_BUCKET: kadena-cabal-cache
-      BENCH_FOLDER: chainweb-benchmark-results/${{ matrix.ghc }}/${{ matrix.os }}
-    steps:
-    - name: Install non-Haskell dependencies
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y librocksdb-dev
-    - name: Download build artifacts
-      uses: actions/download-artifact@v2
-      with:
-        name: chainweb-applications.${{ matrix.ghc }}.${{ matrix.os }}
-        path: bin
-    - name: Run all benchmarks
-      run: |
-        chmod 755 ./bin/bench
-        ./bin/bench --json $BENCH_FILE +RTS -N
-    - name: Upload results
-      run: |
-        aws s3 cp $BENCH_FILE s3://$BENCH_BUCKET/$BENCH_FOLDER/
-        aws s3api put-object-acl --bucket $BENCH_BUCKET --key=$BENCH_FOLDER/$BENCH_FILE --acl public-read
-
-  # Validate Mainnet01 Chain Database With chainweb-node
-  #
-  validate-header-db:
-    name: Validate headers
-    needs: [sync-chain-db, build]
-    strategy:
-      fail-fast: false
-      matrix:
-        os: ['ubuntu-18.04', 'ubuntu-20.04']
-        ghc: ['8.8.4', '8.10.2']
-        chainwebVersion: ['development']
-        include:
-        - ghc: '8.8.4'
-          os: 'ubuntu-18.04'
-          chainwebVersion: 'mainnet01'
-          timeout: 120
-        - chainwebVersion: 'development'
-          timeout: 10
-    runs-on: ${{ matrix.os }}
-    steps:
-    - name: Install non-Haskell dependencies
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y librocksdb-dev expect
-    - name: Download chain database artifact
-      uses: actions/download-artifact@v2
-      with:
-        name: chain-db-${{ matrix.chainwebVersion }}
-        path: db
-    - name: Download build artifacts
-      uses: actions/download-artifact@v2
-      with:
-        name: chainweb-applications.${{ matrix.ghc }}.${{ matrix.os }}
-        path: bin
-    - name: Write chainweb-node configuration file
-      run: |
-        cat >> config.yaml <<EOF
-          databaseDirectory: "db"
-          chainweb:
-            chainwebVersion: ${{ matrix.chainwebVersion }}
-            validateHashesOnReplay: false
-            p2p:
-              peer:
-                hostaddress:
-                  hostname: localhost
-                  port: 4445
-              private: true
-              ignoreBootstrapNodes: true
-            transactionIndex:
-              enabled: false
-            headerStream: false
-            mempoolP2p:
-              enabled: false
-            cuts:
-              pruneChainDatabase: headers-checked
-          logging:
-            telemetryBackend:
-              enabled: false
-            backend:
-              handle: stdout
-              color: "true"
-            logger:
-              log_level: info
-              log_policy: keep
-            filter:
-              rules:
-              - key: component
-                value: init
-                level: info
-              - key: component
-                value: database-pruning
-                level: info
-              default: warn
-        EOF
-    - name: Validate block headers and check Merkle tree
-      shell: bash
-      timeout-minutes: ${{ matrix.timeout }}
-      run: |
-        chmod 755 ./bin/chainweb-node
-        unbuffer ./bin/chainweb-node --config-file config.yaml |
-        sed -u -e '/finished pruning databases/q0;/\[Error\]/q1;$q2'
-
-  # Validate Mainnet01 pact history
-  #
-  validate-pact-history:
-    name: Validate pact history
-    needs: [sync-chain-db, build]
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ 'ubuntu-18.04', 'ubuntu-20.04' ]
-        ghc: ['8.8.4', '8.10.2']
-        chainwebVersion: ['development']
-        include:
-        - ghc: '8.8.4'
-          os: 'ubuntu-18.04'
-          chainwebVersion: 'mainnet01'
-          timeout: 120
-        - chainwebVersion: 'development'
-          timeout: 10
-    runs-on: ${{ matrix.os }}
-    steps:
-    - name: Install non-Haskell dependencies
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y librocksdb-dev zlib1g-dev libsqlite3-dev expect
-    - name: Download ${{ matrix.chainwebVersion }} chain database artifact
-      uses: actions/download-artifact@v2
-      with:
-        name: chain-db-${{ matrix.chainwebVersion}}
-        path: db
-    - name: Download build artifacts
-      uses: actions/download-artifact@v2
-      with:
-        name: chainweb-applications.${{ matrix.ghc }}.${{ matrix.os }}
-        path: bin
-    - name: Write chainweb-node configuration file
-      run: |
-        cat >> config.yaml <<EOF
-          databaseDirectory: "db"
-          chainweb:
-            chainwebVersion: ${{ matrix.chainwebVersion }}
-            validateHashesOnReplay: true
-            p2p:
-              peer:
-                hostaddress:
-                  hostname: localhost
-                  port: 4445
-              private: true
-              ignoreBootstrapNodes: true
-            transactionIndex:
-              enabled: false
-            headerStream: false
-            mempoolP2p:
-              enabled: false
-            cuts:
-              pruneChainDatabase: false
-          logging:
-            telemetryBackend:
-              enabled: false
-            backend:
-              handle: stdout
-              color: "True"
-            logger:
-              log_level: info
-              log_policy: keep
-            filter:
-              rules:
-              - key: component
-                value: init
-                level: info
-              default: warn
-        EOF
-    - name: Validate pact history
-      shell: bash
-      timeout-minutes: ${{ matrix.timeout }}
-      run: |
-        chmod 755 ./bin/chainweb-node
-        unbuffer ./bin/chainweb-node --config-file config.yaml |
-        sed -u -e '/finished synchronizing Pact DBs/q0;/\[Error\]/q1;$q2'
-
-  # Build Chainweb Node
-  #
   build:
     name: Build
+    needs: [config]
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
-      matrix:
-        ghc: ['8.6.5', '8.8.4', '8.10.2']
-        cabal: ['3.2.0.0']
-        os: ['ubuntu-16.04', 'ubuntu-18.04', 'ubuntu-20.04', 'macOS-latest']
-        cabalcache: ['true']
-        exclude:
-          - os: 'macOS-latest'
-            ghc: '8.6.5'
-          - os: 'ubuntu-16.04'
-            ghc: '8.6.5'
-          - os: 'ubuntu-20.04'
-            ghc: '8.6.5'
+      matrix: ${{ fromJson(needs.config.outputs.matrix) }}
+
+    env:
+      OPT_LEVEL: ${{ needs.config.outputs.opt-level }}
 
     steps:
-
     # Setup
     - name: Checkout repository
       uses: actions/checkout@v2.3.2
-    - name: Create env variables for git objects
-      run: |
-        echo "::set-env name=IS_RELEASE::${{ contains(github.event_name, 'release') }}"
-        echo "::set-env name=GIT_REF_SHORT::${GITHUB_REF#refs/heads/}"
-        echo "::set-env name=GIT_HEAD_REF_SHORT::${GITHUB_HEAD_REF#refs/heads/}"
-        echo "::set-env name=GIT_SHA_SHORT::$(git rev-parse --short HEAD || true)"
-
-    - name: Set optimization level and binary stripping
-      run: |
-        if [[ "$GIT_REF_SHORT" = "master" || "$IS_RELEASE" = "true" ]] ; then
-          echo "::set-env name=OPT_LEVEL::2"
-          echo "::set-env name=STRIP::True"
-        else
-          echo "::set-env name=OPT_LEVEL::1"
-          echo "::set-env name=STRIP::False"
-        fi
-
     - name: Install GHC and Cabal
       uses: actions/setup-haskell@v1.1.2
       with:
@@ -315,16 +122,10 @@ jobs:
         cabal --version
     - name: Install non-Haskell dependencies (ubuntu)
       if: contains(matrix.os, 'ubuntu')
-      run: |
-          sudo apt-get update
-          sudo apt-get install -y git librocksdb-dev zlib1g-dev libtinfo-dev libsqlite3-dev z3
+      run: sudo apt-get install -y librocksdb-dev z3
     - name: Install non-Haskell dependencies (macOS)
       if: contains(matrix.os, 'mac')
-      run: |
-        brew update
-        brew install sqlite
-        brew install rocksdb
-        brew install z3
+      run: brew install rocksdb z3
     - name: Create cabal.project.local
       run: |
         cat > cabal.project.local <<EOF
@@ -357,18 +158,6 @@ jobs:
           ~/.cabal/store
           dist-newstyle
         key: ${{ matrix.os }}-${{ matrix.ghc }}-cabal
-    # The following is probably only needed on macos
-    # - name: Reset dist-newstyle caches
-    #   run: |
-    #     test -d dist-newstyle && rm -rf dist-newstyle
-    # - name: Check executables
-    #   run: |
-    #     if test -d dist-newstyle ; then
-    #         find dist-newstyle -type f -path '*chainweb*' -name "chainweb-node" -exec file {} +
-    #         find dist-newstyle -type f -path '*chainweb*' -name "chainweb-tests" -exec file {} +
-    #         find dist-newstyle -type f -path '*chainweb*' -name "bench" -exec file {} +
-    #         find dist-newstyle -type f -path '*chainweb*' -name "cwtool" -exec file {} +
-    #     fi
 
     # Build
     - name: Update package database
@@ -393,10 +182,7 @@ jobs:
     - name: Build chainweb applications
       run: cabal build exe:chainweb-node test:chainweb-tests exe:cwtool chainweb:bench:bench
 
-    # Tests
-    - name: Run Tests
-      id: tests
-      run: cabal run chainweb-tests -- --hide-successes --results-json test-results.json
+    # Checks
     - name: Check that working directly tree is clean
       run: |
         if ! git diff --exit-code; then
@@ -416,6 +202,8 @@ jobs:
       run: |
         mkdir -p artifacts/applications
         mkdir -p artifacts/docs
+
+        # TODO use cabal install to prepare artificats
         export VER=$(grep '^version' chainweb.cabal | sed -e 's/.*: *//')
         if [ "$OPT_LEVEL" -gt 1 ] ; then
           cp dist-newstyle/build/*/ghc-${{ matrix.ghc }}/chainweb-${VER}/opt/build/*/chainweb-node artifacts/applications
@@ -441,17 +229,248 @@ jobs:
         name: chainweb-applications.${{ matrix.ghc }}.${{ matrix.os }}
         path: artifacts/applications
 
-    # Publish to S3
-    - name: Define S3 locations
-      if: always()
-      run: |
-        echo "::set-env name=BINFILE::chainweb.${{ matrix.ghc }}.${{ matrix.os }}.${{ env.GIT_SHA_SHORT }}.tar.gz"
-        echo "::set-env name=BRANCH_BINFILE::chainweb.${{ matrix.ghc }}.${{ matrix.os }}.${{ env.GIT_REF_SHORT }}.tar.gz"
-        echo "::set-env name=TAG_BINFILE::chainweb.${{ matrix.ghc }}.${{ matrix.os }}.${{ env.GIT_TAG }}.tar.gz"
+  # ########################################################################## #
+  # Run Slow tests (Multinode test)
 
-        echo "::set-env name=TEST_RESULT_FILE::test-results.${{ github.run_id }}.${{ github.run_number }}.json"
-        echo "::set-env name=TEST_RESULT_BUCKET::kadena-cabal-cache"
-        echo "::set-env name=TEST_RESULT_FOLDER::chainweb-test-results/ghc-${{ matrix.ghc }}/${{ matrix.os }}"
+  slow-tests:
+    name: Slow tests
+    needs: [config, build]
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJson(needs.config.outputs.matrix) }}
+    steps:
+    - name: Install non-Haskell dependencies (ubuntu)
+      if: contains(matrix.os, 'ubuntu')
+      run: sudo apt-get install -y librocksdb-dev
+    - name: Install non-Haskell dependencies (macOS)
+      if: contains(matrix.os, 'mac')
+      run: brew install rocksdb
+    - name: Download build artifacts
+      uses: actions/download-artifact@v2
+      with:
+        name: chainweb-applications.${{ matrix.ghc }}.${{ matrix.os }}
+        path: bin
+    - name: Run slow tests
+      run: |
+        chmod 755 ./bin/cwtool
+        ./bin/cwtool slow-tests
+
+  # ########################################################################## #
+  # Run Benchmarks
+
+  benchmarks:
+    name: Benchmarks
+    needs: [build]
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJson(needs.config.outputs.matrix) }}
+    runs-on: ${{ matrix.os }}
+    env:
+      BENCH_FILE: results.${{ github.run_id }}.${{ github.run_number }}.json
+      BENCH_BUCKET: kadena-cabal-cache
+      BENCH_FOLDER: chainweb-benchmark-results/${{ matrix.ghc }}/${{ matrix.os }}
+    steps:
+    - name: Install non-Haskell dependencies (ubuntu)
+      if: contains(matrix.os, 'ubuntu')
+      run: sudo apt-get install -y librocksdb-dev
+    - name: Install non-Haskell dependencies (macOS)
+      if: contains(matrix.os, 'mac')
+      run: brew install rocksdb
+    - name: Download build artifacts
+      uses: actions/download-artifact@v2
+      with:
+        name: chainweb-applications.${{ matrix.ghc }}.${{ matrix.os }}
+        path: bin
+    - name: Run all benchmarks
+      run: |
+        chmod 755 ./bin/bench
+        ./bin/bench --json $BENCH_FILE +RTS -N
+    - name: Upload results
+      run: |
+        aws s3 cp $BENCH_FILE s3://$BENCH_BUCKET/$BENCH_FOLDER/
+        aws s3api put-object-acl --bucket $BENCH_BUCKET --key=$BENCH_FOLDER/$BENCH_FILE --acl public-read
+
+  # ########################################################################## #
+  # Validate Development headers
+
+  validate-headers:
+    name: Validate headers
+    needs: [config, sync-chain-db, build]
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJson(needs.config.outputs.matrix) }}
+    runs-on: ${{ matrix.os }}
+    steps:
+    - name: Install non-Haskell dependencies (ubuntu)
+      if: contains(matrix.os, 'ubuntu')
+      run: sudo apt-get install -y librocksdb-dev expect
+    - name: Install non-Haskell dependencies (macOS)
+      if: contains(matrix.os, 'mac')
+      run: brew install rocksdb expect
+    - name: Download chain database artifact
+      uses: actions/download-artifact@v2
+      with:
+        name: chain-db-development
+        path: db
+    - name: Download build artifacts
+      uses: actions/download-artifact@v2
+      with:
+        name: chainweb-applications.${{ matrix.ghc }}.${{ matrix.os }}
+        path: bin
+    - name: Write chainweb-node configuration file
+      run: |
+        cat >> config.yaml <<EOF
+          databaseDirectory: "db"
+          chainweb:
+            chainwebVersion: development
+            validateHashesOnReplay: false
+            p2p:
+              peer:
+                hostaddress:
+                  hostname: localhost
+                  port: 4445
+              private: true
+              ignoreBootstrapNodes: true
+            transactionIndex:
+              enabled: false
+            headerStream: false
+            mempoolP2p:
+              enabled: false
+            cuts:
+              pruneChainDatabase: headers-checked
+          logging:
+            telemetryBackend:
+              enabled: false
+            backend:
+              handle: stdout
+              color: "true"
+            logger:
+              log_level: info
+              policy: block
+            filter:
+              rules:
+              - key: component
+                value: init
+                level: info
+              - key: component
+                value: database-pruning
+                level: info
+              default: warn
+        EOF
+    - name: Validate block headers and check Merkle tree
+      timeout-minutes: 2
+      run: |
+        chmod 755 ./bin/chainweb-node
+        unbuffer ./bin/chainweb-node --config-file config.yaml |
+        { sed -u -e '/finished pruning databases/q0;/\[Error\]/q1;$q2'; x=$? ; killall -9 chainweb-node; } ||
+        true
+        exit $x
+
+  # ########################################################################## #
+  # Validate Development pact history
+
+  validate-pact-history:
+    name: Validate pact history
+    needs: [config, sync-chain-db, build]
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJson(needs.config.outputs.matrix) }}
+    runs-on: ${{ matrix.os }}
+    steps:
+    - name: Install non-Haskell dependencies (ubuntu)
+      if: contains(matrix.os, 'ubuntu')
+      run: sudo apt-get install -y librocksdb-dev expect
+    - name: Install non-Haskell dependencies (macOS)
+      if: contains(matrix.os, 'mac')
+      run: brew install rocksdb expect
+    - name: Download ${{ matrix.chainwebVersion }} chain database artifact
+      uses: actions/download-artifact@v2
+      with:
+        name: chain-db-development
+        path: db
+    - name: Download build artifacts
+      uses: actions/download-artifact@v2
+      with:
+        name: chainweb-applications.${{ matrix.ghc }}.${{ matrix.os }}
+        path: bin
+    - name: Write chainweb-node configuration file
+      run: |
+        cat >> config.yaml <<EOF
+          databaseDirectory: "db"
+          chainweb:
+            chainwebVersion: development
+            validateHashesOnReplay: true
+            p2p:
+              peer:
+                hostaddress:
+                  hostname: localhost
+                  port: 4445
+              private: true
+              ignoreBootstrapNodes: true
+            transactionIndex:
+              enabled: false
+            headerStream: false
+            mempoolP2p:
+              enabled: false
+            cuts:
+              pruneChainDatabase: false
+          logging:
+            telemetryBackend:
+              enabled: false
+            backend:
+              handle: stdout
+              color: "True"
+            logger:
+              log_level: info
+              policy: block
+            filter:
+              rules:
+              - key: component
+                value: init
+                level: info
+              default: warn
+        EOF
+    - name: Validate pact history
+      timeout-minutes: 2
+      run: |
+        chmod 755 ./bin/chainweb-node
+        unbuffer ./bin/chainweb-node --config-file config.yaml |
+        { sed -u -e '/finished synchronizing Pact DBs/q0;/\[Error\]/q1;$q2'; x=$?; killall -9 chainweb-node; } ||
+        true
+        exit $x;
+
+  # ########################################################################## #
+  # Run Unit Tests
+
+  unit-tests:
+    name: Unit tests
+    needs: [config, build]
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJson(needs.config.outputs.matrix) }}
+    env:
+      TEST_RESULT_FILE: test-results.${{ github.run_id }}.${{ github.run_number }}.json
+      TEST_RESULT_BUCKET: kadena-cabal-cache
+      TEST_RESULT_FOLDER: chainweb-test-results/ghc-${{ matrix.ghc }}/${{ matrix.os }}
+    steps:
+    - name: Install non-Haskell dependencies (ubuntu)
+      if: contains(matrix.os, 'ubuntu')
+      run: sudo apt-get install -y librocksdb-dev
+    - name: Install non-Haskell dependencies (macOS)
+      if: contains(matrix.os, 'mac')
+      run: brew install rocksdb
+    - name: Download build artifacts
+      uses: actions/download-artifact@v2
+      with:
+        name: chainweb-applications.${{ matrix.ghc }}.${{ matrix.os }}
+        path: bin
+    - name: Run Tests
+      id: tests
+      run: |
+        chmod 755 ./bin/chainweb-node
+        ./bin/chainweb-tests -- --hide-successes --results-json test-results.json
 
     # Publish test results to S3
     - name: Upload test results
@@ -459,8 +478,7 @@ jobs:
       run: |
         cat > filter.jq <<EOF
             .gitRevision = "${{ github.sha }}" |
-            .gitRef = "${{ env.GIT_REF_SHORT }}" |
-            .gitTag = "${{ env.GIT_TAG }}" |
+            .gitRef = "${{ needs.config.outputs.git-short-ref }}" |
             .githubRunId = ${{ github.run_id }} |
             .githubRunNumber = ${{ github.run_number }}
         EOF
@@ -468,19 +486,59 @@ jobs:
         aws s3 cp $TEST_RESULT_FILE s3://$TEST_RESULT_BUCKET/$TEST_RESULT_FOLDER/
         aws s3api put-object-acl --bucket $TEST_RESULT_BUCKET --key=$TEST_RESULT_FOLDER/$TEST_RESULT_FILE --acl public-read
 
-    # Publish artifacts to S3
+  # ########################################################################## #
+  # Publish Artifiacts to S3
+
+  publish:
+    name: Publish
+    needs: [config, build]
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJson(needs.config.outputs.matrix) }}
+
+    env:
+      BINFILE: chainweb.${{ matrix.ghc }}.${{ matrix.os }}.${{ needs.config.outputs.git-sha-short }}.tar.gz
+      BRANCH_BINFILE: chainweb.${{ matrix.ghc }}.${{ matrix.os }}.${{ needs.config.outputs.git-ref-short }}.tar.gz
+
+    steps:
+    - name: Download build artifacts
+      uses: actions/download-artifact@v2
+      with:
+        name: chainweb-applications.${{ matrix.ghc }}.${{ matrix.os }}
+        path: artifacts
     - name: Publish applications to S3
       run: |
-        tar -C ./artifacts/applications/ -czf $BINFILE chainweb-node
+        tar -C ./artifacts/ -czf $BINFILE chainweb-node
         aws s3 cp $BINFILE s3://$S3_ARTIFACT_BUCKET/$S3_ARTIFACT_FOLDER/
         aws s3api put-object-acl --bucket $S3_ARTIFACT_BUCKET --key=$S3_ARTIFACT_FOLDER/$BINFILE --acl public-read
     - name: Publish applications to S3 for master builds
-      if: env.GIT_REF_SHORT == 'master'
+      if: ${{ needs.config.output.git-short-ref == 'master' }
       run: |
         aws s3 cp s3://$S3_ARTIFACT_BUCKET/$S3_ARTIFACT_FOLDER/$BINFILE s3://$S3_ARTIFACT_BUCKET/$S3_ARTIFACT_FOLDER/$BRANCH_BINFILE
         aws s3api put-object-acl --bucket $S3_ARTIFACT_BUCKET --key=$S3_ARTIFACT_FOLDER/$BRANCH_BINFILE --acl public-read
-    - name: Publish applications to S3 for release tag builds
-      if: contains(github.event_name, 'release') || startsWith(env.GIT_TAG, '1.')
-      run: |
-        aws s3 cp s3://$S3_ARTIFACT_BUCKET/$S3_ARTIFACT_FOLDER/$BINFILE s3://$S3_ARTIFACT_BUCKET/$S3_ARTIFACT_FOLDER/$TAG_BINFILE
-        aws s3api put-object-acl --bucket $S3_ARTIFACT_BUCKET --key=$S3_ARTIFACT_FOLDER/$TAG_BINFILE --acl public-read
+
+  # ########################################################################## #
+  # Trigger mainnet history validation
+
+  request-mainnet-validation:
+    name: Request Mainnet history validation
+    needs: [config, publish]
+    runs-on: 'ubuntu-latest'
+
+    steps:
+    - name: trigger mainnet history validation
+      if: env.GIT_REF_SHORT == 'master'
+      uses: peter-evans/repository-dispatch@v1
+      with:
+        token: ${{ secrets.GITHUB_TOKEN }}
+        repository: kadena-io/chainweb-node
+        event-type: request-mainnet-history-validation
+        client-payload: |
+          {
+            "ref": "${{ github.ref }}",
+            "sha": "${{ github.sha }}",
+            "ghc_version": '8.10.2',
+            "version": "${{ needs.config.outputs.git-short-ref }}",
+            "os": "ubuntu-20.04"
+          }
