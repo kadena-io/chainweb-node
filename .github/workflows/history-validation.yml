@@ -101,7 +101,7 @@ jobs:
               color: "true"
             logger:
               log_level: info
-              log_policy: keep
+              policy: keep
             filter:
               rules:
               - key: component
@@ -185,7 +185,7 @@ jobs:
               color: "True"
             logger:
               log_level: info
-              log_policy: keep
+              policy: keep
             filter:
               rules:
               - key: component
