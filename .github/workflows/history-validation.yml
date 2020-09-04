@@ -23,7 +23,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        chainwebVersion: ['development']
+        chainwebVersion: ['mainnet01', 'development']
     env:
       DB_SNAPSHOT_URI: 's3://chainweb-chain-db/${{ matrix.chainwebVersion }}/rocksdb/'
     steps:
