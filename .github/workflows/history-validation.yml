@@ -116,7 +116,7 @@ jobs:
       shell: bash
       timeout-minutes: ${{ matrix.timeout }}
       run: |
-        stdbuf -eL oL chainweb-node --config-file config.yaml |
+        stdbuf -eL -oL chainweb-node --config-file config.yaml |
         sed -u -e '/finished pruning databases/q0;/\[Error\]/q1;$q2'
 
   # Validate Mainnet01 pact history
