@@ -48,7 +48,7 @@ jobs:
         chainwebVersion: ['development']
         include:
         - chainwebVersion: 'development'
-          timeout: 2
+          timeout: 1
         # - ghc: '8.8.4'
         #   os: 'ubuntu-18.04'
         #   chainwebVersion: 'mainnet01'
@@ -117,7 +117,9 @@ jobs:
       timeout-minutes: ${{ matrix.timeout }}
       run: |
         unbuffer chainweb-node --config-file config.yaml |
-        { sed -u -e '/finished pruning databases/q0;/\[Error\]/q1;$q2'; x=$? ; echo $x; exit $x;}
+        { sed -u -e '/finished pruning databases/q0;/\[Error\]/q1;$q2'; x=$? ; echo $x; killall chainweb-node; } || 
+        true
+        exit $x
 
   # Validate Mainnet01 pact history
   #
