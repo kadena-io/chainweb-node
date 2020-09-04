@@ -52,13 +52,13 @@ jobs:
         # - ghc: '8.8.4'
         #   os: 'ubuntu-18.04'
         #   chainwebVersion: 'mainnet01'
-        #   timeout: 120
+        #   timeout: 90
     runs-on: ${{ matrix.os }}
     steps:
     - name: Install non-Haskell dependencies
       run: |
         sudo apt-get update
-        sudo apt-get install -y librocksdb-dev expect
+        sudo apt-get install -y expect
     - name: Download chain database artifact
       uses: actions/download-artifact@v2
       with:
@@ -117,9 +117,8 @@ jobs:
       timeout-minutes: ${{ matrix.timeout }}
       run: |
         unbuffer chainweb-node --config-file config.yaml |
-        { sed -u -e '/finished pruning databases/q0;/\[Error\]/q1;$q2'; x=$? ; echo $x; killall -9 chainweb-node; } || 
+        { sed -u -e '/finished pruning databases/q0;/\[Error\]/q1;$q2'; x=$? ; killall -9 chainweb-node; } || 
         true
-        echo $x
         exit $x
 
   # Validate Mainnet01 pact history
@@ -135,7 +134,7 @@ jobs:
         chainwebVersion: ['development']
         include:
         - chainwebVersion: 'development'
-          timeout: 2
+          timeout: 1
         # - ghc: '8.8.4'
         #   os: 'ubuntu-18.04'
         #   chainwebVersion: 'mainnet01'
@@ -201,4 +200,6 @@ jobs:
       timeout-minutes: ${{ matrix.timeout }}
       run: |
         unbuffer chainweb-node --config-file config.yaml |
-        sed -u -e '/finished synchronizing Pact DBs/q0;/\[Error\]/q1;$q2'
+        { sed -u -e '/finished synchronizing Pact DBs/q0;/\[Error\]/q1;$q2'; x=$?; killall -9 chainweb-node; } ||
+        true
+        exit $x;
