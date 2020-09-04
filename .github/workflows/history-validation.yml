@@ -117,8 +117,9 @@ jobs:
       timeout-minutes: ${{ matrix.timeout }}
       run: |
         unbuffer chainweb-node --config-file config.yaml |
-        { sed -u -e '/finished pruning databases/q0;/\[Error\]/q1;$q2'; x=$? ; echo $x; killall chainweb-node; } || 
+        { sed -u -e '/finished pruning databases/q0;/\[Error\]/q1;$q2'; x=$? ; echo $x; killall -9 chainweb-node; } || 
         true
+        echo $x
         exit $x
 
   # Validate Mainnet01 pact history
