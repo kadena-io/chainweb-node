@@ -45,8 +45,8 @@ jobs:
           echo "::set-output name=opt-level::2"
           echo "::set-output name=strip::True"
         else
-          echo "::set-env name=opt-level::1"
-          echo "::set-env name=strip::False"
+          echo "::set-output name=opt-level::1"
+          echo "::set-output name=strip::False"
         fi
     - name: Create matrix
       id: set-matrix
