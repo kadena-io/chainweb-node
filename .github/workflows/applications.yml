@@ -130,16 +130,16 @@ jobs:
         cat > cabal.project.local <<EOF
         package *
           documentation: False
-          executable-stripping: $STRIP
-          library-stripping: $STRIP
+          executable-stripping: ${{ needs.config.outputs.strip }}
+          library-stripping: ${{ needs.confg.outputs.strip }}
         package chainweb
           documentation: False
-          optimization: $OPT_LEVEL
+          optimization: ${{ needs.config.outputs.opt-level }}
           benchmarks: True
           tests: True
         package pact
           documentation: False
-          optimization: $OPT_LEVEL
+          optimization: ${{ needs.config.outputs.opt-level }}
         EOF
     - name: Append cabal.project.local for GHC-8.10
       if: contains(matrix.ghc, '8.10')
@@ -204,7 +204,7 @@ jobs:
 
         # TODO use cabal install to prepare artificats
         export VER=$(grep '^version' chainweb.cabal | sed -e 's/.*: *//')
-        if [ "$OPT_LEVEL" -gt 1 ] ; then
+        if [ "${{ needs.config.outputs.opt-level }}" -gt 1 ] ; then
           cp dist-newstyle/build/*/ghc-${{ matrix.ghc }}/chainweb-${VER}/opt/build/*/chainweb-node artifacts/applications
           cp dist-newstyle/build/*/ghc-${{ matrix.ghc }}/chainweb-${VER}/opt/build/*/chainweb-tests artifacts/applications
           cp dist-newstyle/build/*/ghc-${{ matrix.ghc }}/chainweb-${VER}/opt/build/*/cwtool artifacts/applications
