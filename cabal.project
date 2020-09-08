@@ -32,5 +32,5 @@ package vault
     documentation: false
 
 constraints:
-    sbv <= 8.7
+    sbv <= 8.7,
     megaparsec < 9
