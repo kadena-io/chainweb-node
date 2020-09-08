@@ -61,13 +61,15 @@ data OperationMetaData = OperationMetaData
   { _operationMetaData_txId :: !P.TxId
   , _operationMetaData_totalBalance :: !Amount
   , _operationMetaData_prevOwnership :: !Value
+  , _operationMetaData_currOwnership :: !Value --TODO: hack for rotation bug
   } deriving Show
 -- TODO: document
 instance ToObject OperationMetaData where
-  toPairs (OperationMetaData txId bal prevOwnership) =
+  toPairs (OperationMetaData txId bal prevOwnership currOwnership) =
     [ "tx-id" .= txId
     , "total-balance" .= bal
-    , "prev-ownership" .= prevOwnership ]
+    , "prev-ownership" .= prevOwnership
+    , "curr-ownership" .= currOwnership ]
   toObject opMeta = HM.fromList (toPairs opMeta)
 
 
@@ -372,13 +374,14 @@ operation ostatus otype txId acctLog idx related =
       , _operationMetaData_totalBalance =
           kdaToRosettaAmount $ _accountLogBalanceTotal acctLog
       , _operationMetaData_prevOwnership = _accountLogPrevGuard acctLog
+      , _operationMetaData_currOwnership = _accountLogCurrGuard acctLog
       }
     accountId = AccountId
       { _accountId_address = _accountLogKey acctLog
       , _accountId_subAccount = Nothing  -- assumes coin acct contract only
-      , _accountId_metadata = accountIdMeta
+      , _accountId_metadata = Nothing -- disabled due to ownership rotation bug
       }
-    accountIdMeta = Just $ toObject $ AccountIdMetaData
+    _accountIdMeta = Just $ toObject $ AccountIdMetaData
       { _accountIdMetaData_currOwnership = _accountLogCurrGuard acctLog
       }
 
