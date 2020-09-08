@@ -15,6 +15,8 @@ env:
   S3_ARTIFACT_BUCKET: kadena-cabal-cache
   S3_ARTIFACT_FOLDER: chainweb-node
 
+  ARTIFACTS_ARCHIVE: chainweb.${{ matrix.ghc }}.${{ matrix.os }}.${{ needs.config.outputs.git-sha-short }}.tar.gz
+
 jobs:
 
   # ########################################################################## #
@@ -222,14 +224,12 @@ jobs:
         cp cabal.project.local artifacts/chainweb
         cp cabal.project.freeze artifacts/chainweb
     - name: Create artifacts archive
-      env:
-        BINFILE: chainweb.${{ matrix.ghc }}.${{ matrix.os }}.${{ needs.config.outputs.git-sha-short }}.tar.gz
-      run: tar -C ./artifacts/ -czf $BINFILE chainweb
+      run: tar -C ./artifacts/ -czf $ARTIFACTS_ARCHIVE chainweb
     - name: Safe artifacts
       uses: actions/upload-artifact@v2
       with:
         name: chainweb-applications.${{ matrix.ghc }}.${{ matrix.os }}
-        path: $BINFILE
+        path: $ARTIFACTS_ARCHIVE
 
   # ########################################################################## #
   # Run Slow tests (Multinode test)
@@ -408,8 +408,8 @@ jobs:
       fail-fast: false
       matrix: ${{ fromJson(needs.config.outputs.matrix) }}
     env:
-      BINFILE: chainweb.${{ matrix.ghc }}.${{ matrix.os }}.${{ needs.config.outputs.git-sha-short }}.tar.gz
-      BRANCH_BINFILE: chainweb.${{ matrix.ghc }}.${{ matrix.os }}.${{ needs.config.outputs.git-ref-short }}.tar.gz
+      ARTIFACTS_ARCHIVE: chainweb.${{ matrix.ghc }}.${{ matrix.os }}.${{ needs.config.outputs.git-sha-short }}.tar.gz
+      BRANCH_ARTIFACTS_ARCHIVE: chainweb.${{ matrix.ghc }}.${{ matrix.os }}.${{ needs.config.outputs.git-ref-short }}.tar.gz
     steps:
     - name: Download build artifacts
       uses: actions/download-artifact@v2
@@ -418,13 +418,13 @@ jobs:
         path: .
     - name: Publish applications to S3
       run: |
-        aws s3 cp $BINFILE s3://$S3_ARTIFACT_BUCKET/$S3_ARTIFACT_FOLDER/
-        aws s3api put-object-acl --bucket $S3_ARTIFACT_BUCKET --key=$S3_ARTIFACT_FOLDER/$BINFILE --acl public-read
+        aws s3 cp $ARTIFACTS_ARCHIVE s3://$S3_ARTIFACT_BUCKET/$S3_ARTIFACT_FOLDER/
+        aws s3api put-object-acl --bucket $S3_ARTIFACT_BUCKET --key=$S3_ARTIFACT_FOLDER/$ARTIFACTS_ARCHIVE --acl public-read
     - name: Publish applications to S3 for master builds
       if: ${{ needs.config.output.git-short-ref == 'master' }}
       run: |
-        aws s3 cp s3://$S3_ARTIFACT_BUCKET/$S3_ARTIFACT_FOLDER/$BINFILE s3://$S3_ARTIFACT_BUCKET/$S3_ARTIFACT_FOLDER/$BRANCH_BINFILE
-        aws s3api put-object-acl --bucket $S3_ARTIFACT_BUCKET --key=$S3_ARTIFACT_FOLDER/$BRANCH_BINFILE --acl public-read
+        aws s3 cp s3://$S3_ARTIFACT_BUCKET/$S3_ARTIFACT_FOLDER/$ARTIFACTS_ARCHIVE s3://$S3_ARTIFACT_BUCKET/$S3_ARTIFACT_FOLDER/$BRANCH_ARTIFACTS_ARCHIVE
+        aws s3api put-object-acl --bucket $S3_ARTIFACT_BUCKET --key=$S3_ARTIFACT_FOLDER/$BRANCH_ARTIFACTS_ARCHIVE --acl public-read
 
   # ########################################################################## #
   # Trigger mainnet history validation
