@@ -5,7 +5,6 @@ on:
     branches:
     - master
     - ci/*
-    - github-ci
     - release-candidate/*
 
 env:
@@ -28,17 +27,19 @@ jobs:
       git-sha-short: ${{ steps.git-info.outputs.git-sha-short }}
       git-ref-short: ${{ steps.git-info.outputs.git-ref-short }}
       is-release: ${{ steps.git-info.outputs.is-release }}
-      strip: ${{ steps.git-info.outputs.strip }}
-      opt-level: ${{ steps.git-info.outputs.opt-level }}
+      strip: ${{ steps.compile-flags.outputs.strip }}
+      opt-level: ${{ steps.compile-flags.outputs.opt-level }}
     steps:
     - name: Checkout repository
       uses: actions/checkout@v2.3.2
     - name: Git revision infos
+      id: git-info
       run: |
         echo "::set-output name=git-sha-short::$(git rev-parse --short HEAD || true)"
         echo "::set-output name=is-release::${{ contains(github.event_name, 'release') }}"
         echo "::set-output name=git-ref-short::${GITHUB_REF#refs/heads/}"
     - name: Set optimization level and binary stripping
+      id: compile-flags
       run: |
         if [[ "${{ steps.git-info.git-ref-short }}" = "master" || "${{ steps.git-info.git-ref-short }}" = "true" ]] ; then
           echo "::set-output name=opt-level::2"
@@ -47,7 +48,8 @@ jobs:
           echo "::set-env name=OPT_LEVEL::1"
           echo "::set-env name=STRIP::False"
         fi
-    - id: set-matrix
+    - name: Create matrix
+      id: set-matrix
       run: |
         MATRIX="$(jq -c '.' <<EOF
         {
@@ -302,12 +304,20 @@ jobs:
       matrix: ${{ fromJson(needs.config.outputs.matrix) }}
     runs-on: ${{ matrix.os }}
     steps:
-    - name: Install non-Haskell dependencies (ubuntu)
-      if: contains(matrix.os, 'ubuntu')
-      run: sudo apt-get install -y librocksdb-dev expect
-    - name: Install non-Haskell dependencies (macOS)
-      if: contains(matrix.os, 'mac')
-      run: brew install rocksdb expect
+    - name: Install non-Haskell dependencies
+      run: |
+        case "${{ needs.config.outputs.os }}" in
+        ubuntu*)
+          sudo apt-get install -y librocksdb-dev expect
+          ;;
+        mac*)
+          brew install rocksdb expect
+          ;;
+        *)
+          echo "::error::unsupported operating system ${{ needs.config.output.os }}"
+          exit 1
+          ;;
+        esac
     - name: Download chain database artifact
       uses: actions/download-artifact@v2
       with:
@@ -318,54 +328,16 @@ jobs:
       with:
         name: chainweb-applications.${{ matrix.ghc }}.${{ matrix.os }}
         path: bin
-    - name: Write chainweb-node configuration file
-      run: |
-        cat >> config.yaml <<EOF
-          databaseDirectory: "db"
-          chainweb:
-            chainwebVersion: development
-            validateHashesOnReplay: false
-            p2p:
-              peer:
-                hostaddress:
-                  hostname: localhost
-                  port: 4445
-              private: true
-              ignoreBootstrapNodes: true
-            transactionIndex:
-              enabled: false
-            headerStream: false
-            mempoolP2p:
-              enabled: false
-            cuts:
-              pruneChainDatabase: headers-checked
-          logging:
-            telemetryBackend:
-              enabled: false
-            backend:
-              handle: stdout
-              color: "true"
-            logger:
-              log_level: info
-              policy: block
-            filter:
-              rules:
-              - key: component
-                value: init
-                level: info
-              - key: component
-                value: database-pruning
-                level: info
-              default: warn
-        EOF
-    - name: Validate block headers and check Merkle tree
-      timeout-minutes: 2
+    - name: Install chainweb-node
       run: |
         chmod 755 ./bin/chainweb-node
-        unbuffer ./bin/chainweb-node --config-file config.yaml |
-        { sed -u -e '/finished pruning databases/q0;/\[Error\]/q1;$q2'; x=$? ; killall -9 chainweb-node; } ||
-        true
-        exit $x
+        echo "::add-path::`pwd`/bin"
+    - name: test chainweb-node installation
+      run: chainweb-node --version
+    - name: Validate Headers
+      uses: larskuhtz/validate-chainweb-history/.github/actions/validate-headers
+      with:
+        chainweb_version: development
 
   # ########################################################################## #
   # Validate Development pact history
@@ -378,12 +350,20 @@ jobs:
       matrix: ${{ fromJson(needs.config.outputs.matrix) }}
     runs-on: ${{ matrix.os }}
     steps:
-    - name: Install non-Haskell dependencies (ubuntu)
-      if: contains(matrix.os, 'ubuntu')
-      run: sudo apt-get install -y librocksdb-dev expect
-    - name: Install non-Haskell dependencies (macOS)
-      if: contains(matrix.os, 'mac')
-      run: brew install rocksdb expect
+    - name: Install non-Haskell dependencies
+      run: |
+        case "${{ needs.config.outputs.os }}" in
+        ubuntu*)
+          sudo apt-get install -y librocksdb-dev expect
+          ;;
+        mac*)
+          brew install rocksdb expect
+          ;;
+        *)
+          echo "::error::unsupported operating system ${{ needs.config.output.os }}"
+          exit 1
+          ;;
+        esac
     - name: Download ${{ matrix.chainwebVersion }} chain database artifact
       uses: actions/download-artifact@v2
       with:
@@ -394,51 +374,16 @@ jobs:
       with:
         name: chainweb-applications.${{ matrix.ghc }}.${{ matrix.os }}
         path: bin
-    - name: Write chainweb-node configuration file
-      run: |
-        cat >> config.yaml <<EOF
-          databaseDirectory: "db"
-          chainweb:
-            chainwebVersion: development
-            validateHashesOnReplay: true
-            p2p:
-              peer:
-                hostaddress:
-                  hostname: localhost
-                  port: 4445
-              private: true
-              ignoreBootstrapNodes: true
-            transactionIndex:
-              enabled: false
-            headerStream: false
-            mempoolP2p:
-              enabled: false
-            cuts:
-              pruneChainDatabase: false
-          logging:
-            telemetryBackend:
-              enabled: false
-            backend:
-              handle: stdout
-              color: "True"
-            logger:
-              log_level: info
-              policy: block
-            filter:
-              rules:
-              - key: component
-                value: init
-                level: info
-              default: warn
-        EOF
-    - name: Validate pact history
-      timeout-minutes: 2
+    - name: Install chainweb-node
       run: |
         chmod 755 ./bin/chainweb-node
-        unbuffer ./bin/chainweb-node --config-file config.yaml |
-        { sed -u -e '/finished synchronizing Pact DBs/q0;/\[Error\]/q1;$q2'; x=$?; killall -9 chainweb-node; } ||
-        true
-        exit $x;
+        echo "::add-path::`pwd`/bin"
+    - name: test chainweb-node installation
+      run: chainweb-node --version
+    - name: Validate Pact History
+      uses: larskuhtz/validate-chainweb-history/.github/actions/validate-pact-history
+      with:
+        chainweb_version: development
 
   # ########################################################################## #
   # Run Unit Tests
@@ -541,4 +486,5 @@ jobs:
             "ghc_version": '8.10.2',
             "version": "${{ needs.config.outputs.git-short-ref }}",
             "os": "ubuntu-20.04"
+            "chainweb_version": "mainnet01"
           }
