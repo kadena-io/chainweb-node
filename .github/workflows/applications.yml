@@ -51,7 +51,7 @@ jobs:
     - name: Create matrix
       id: set-matrix
       run: |
-        MATRIX="$(jq -c <<EOF
+        MATRIX="$(jq -c '.' <<EOF
         {
           "ghc": ["8.6.5", "8.8.4", "8.10.2"],
           "cabal": ["3.2.0.0"],
