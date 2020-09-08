@@ -335,7 +335,7 @@ jobs:
     - name: test chainweb-node installation
       run: chainweb-node --version
     - name: Validate Headers
-      uses: larskuhtz/validate-chainweb-history/.github/actions/validate-headers
+      uses: larskuhtz/validate-chainweb-history/.github/actions/validate-headers@master
       with:
         chainweb_version: development
 
@@ -381,7 +381,7 @@ jobs:
     - name: test chainweb-node installation
       run: chainweb-node --version
     - name: Validate Pact History
-      uses: larskuhtz/validate-chainweb-history/.github/actions/validate-pact-history
+      uses: larskuhtz/validate-chainweb-history/.github/actions/validate-pact-history@master
       with:
         chainweb_version: development
 
