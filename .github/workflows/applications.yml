@@ -196,37 +196,40 @@ jobs:
           exit 1
         fi
 
-    # Publish Artifacts
+    # Archive Artifacts
     - name: Prepare artifacts
       run: |
-        mkdir -p artifacts/applications
-        mkdir -p artifacts/docs
+        mkdir -p artifacts/chainweb
 
         # TODO use cabal install to prepare artificats
         export VER=$(grep '^version' chainweb.cabal | sed -e 's/.*: *//')
         if [ "${{ needs.config.outputs.opt-level }}" -gt 1 ] ; then
-          cp dist-newstyle/build/*/ghc-${{ matrix.ghc }}/chainweb-${VER}/opt/build/*/chainweb-node artifacts/applications
-          cp dist-newstyle/build/*/ghc-${{ matrix.ghc }}/chainweb-${VER}/opt/build/*/chainweb-tests artifacts/applications
-          cp dist-newstyle/build/*/ghc-${{ matrix.ghc }}/chainweb-${VER}/opt/build/*/cwtool artifacts/applications
-          cp dist-newstyle/build/*/ghc-${{ matrix.ghc }}/chainweb-${VER}/opt/build/*/bench artifacts/applications
+          cp dist-newstyle/build/*/ghc-${{ matrix.ghc }}/chainweb-${VER}/opt/build/*/chainweb-node artifacts/chainweb
+          cp dist-newstyle/build/*/ghc-${{ matrix.ghc }}/chainweb-${VER}/opt/build/*/chainweb-tests artifacts/chainweb
+          cp dist-newstyle/build/*/ghc-${{ matrix.ghc }}/chainweb-${VER}/opt/build/*/cwtool artifacts/chainweb
+          cp dist-newstyle/build/*/ghc-${{ matrix.ghc }}/chainweb-${VER}/opt/build/*/bench artifacts/chainweb
         else
-          cp dist-newstyle/build/*/ghc-${{ matrix.ghc }}/chainweb-${VER}/build/*/chainweb-node artifacts/applications
-          cp dist-newstyle/build/*/ghc-${{ matrix.ghc }}/chainweb-${VER}/build/*/chainweb-tests artifacts/applications
-          cp dist-newstyle/build/*/ghc-${{ matrix.ghc }}/chainweb-${VER}/build/*/cwtool artifacts/applications
-          cp dist-newstyle/build/*/ghc-${{ matrix.ghc }}/chainweb-${VER}/build/*/bench artifacts/applications
+          cp dist-newstyle/build/*/ghc-${{ matrix.ghc }}/chainweb-${VER}/build/*/chainweb-node artifacts/chainweb
+          cp dist-newstyle/build/*/ghc-${{ matrix.ghc }}/chainweb-${VER}/build/*/chainweb-tests artifacts/chainweb
+          cp dist-newstyle/build/*/ghc-${{ matrix.ghc }}/chainweb-${VER}/build/*/cwtool artifacts/chainweb
+          cp dist-newstyle/build/*/ghc-${{ matrix.ghc }}/chainweb-${VER}/build/*/bench artifacts/chainweb
         fi
-        cp README.md artifacts/applications
-        cp CHANGELOG.md artifacts/applications
-        cp LICENSE artifacts/applications
-        cp chainweb.cabal artifacts/applications
-        cp cabal.project artifacts/applications
-        cp cabal.project.local artifacts/applications
-        cp cabal.project.freeze artifacts/applications
+        cp README.md artifacts/chainweb
+        cp CHANGELOG.md artifacts/chainweb
+        cp LICENSE artifacts/chainweb
+        cp chainweb.cabal artifacts/chainweb
+        cp cabal.project artifacts/chainweb
+        cp cabal.project.local artifacts/chainweb
+        cp cabal.project.freeze artifacts/chainweb
+    - name: Create artifacts archive
+      env:
+        BINFILE: chainweb.${{ matrix.ghc }}.${{ matrix.os }}.${{ needs.config.outputs.git-sha-short }}.tar.gz
+      run: tar -C ./artifacts/ -czf $BINFILE chainweb
     - name: Safe artifacts
       uses: actions/upload-artifact@v2
       with:
         name: chainweb-applications.${{ matrix.ghc }}.${{ matrix.os }}
-        path: artifacts/applications
+        path: $BINFILE
 
   # ########################################################################## #
   # Run Slow tests (Multinode test)
@@ -264,6 +267,11 @@ jobs:
       BENCH_FOLDER: chainweb-benchmark-results/${{ matrix.ghc }}/${{ matrix.os }}
     steps:
     - uses: actions/checkout@v2.3.2
+    - name: Download build artifacts
+      uses: actions/download-artifact@v2
+      with:
+        name: chainweb-applications.${{ inputs.ghc }}.${{ inputs.os }}
+        path: .
     - name: Install chainweb from artifacts
       uses: ./.github/actions/install-chainweb-from-artifacts
       with:
@@ -293,6 +301,11 @@ jobs:
       with:
         name: chain-db-development
         path: db
+    - name: Download build artifacts
+      uses: actions/download-artifact@v2
+      with:
+        name: chainweb-applications.${{ inputs.ghc }}.${{ inputs.os }}
+        path: .
     - name: Install chainweb from artifacts
       uses: ./.github/actions/install-chainweb-from-artifacts
       with:
@@ -320,6 +333,11 @@ jobs:
       with:
         name: chain-db-development
         path: db
+    - name: Download build artifacts
+      uses: actions/download-artifact@v2
+      with:
+        name: chainweb-applications.${{ inputs.ghc }}.${{ inputs.os }}
+        path: .
     - name: Install chainweb from artifacts
       uses: ./.github/actions/install-chainweb-from-artifacts
       with:
@@ -346,6 +364,11 @@ jobs:
       TEST_RESULT_FOLDER: chainweb-test-results/ghc-${{ matrix.ghc }}/${{ matrix.os }}
     steps:
     - uses: actions/checkout@v2.3.2
+    - name: Download build artifacts
+      uses: actions/download-artifact@v2
+      with:
+        name: chainweb-applications.${{ inputs.ghc }}.${{ inputs.os }}
+        path: .
     - name: Install chainweb from artifacts
       uses: ./.github/actions/install-chainweb-from-artifacts
       with:
@@ -379,20 +402,17 @@ jobs:
     strategy:
       fail-fast: false
       matrix: ${{ fromJson(needs.config.outputs.matrix) }}
-
     env:
       BINFILE: chainweb.${{ matrix.ghc }}.${{ matrix.os }}.${{ needs.config.outputs.git-sha-short }}.tar.gz
       BRANCH_BINFILE: chainweb.${{ matrix.ghc }}.${{ matrix.os }}.${{ needs.config.outputs.git-ref-short }}.tar.gz
-
     steps:
     - name: Download build artifacts
       uses: actions/download-artifact@v2
       with:
         name: chainweb-applications.${{ matrix.ghc }}.${{ matrix.os }}
-        path: artifacts
+        path: .
     - name: Publish applications to S3
       run: |
-        tar -C ./artifacts/ -czf $BINFILE chainweb-node
         aws s3 cp $BINFILE s3://$S3_ARTIFACT_BUCKET/$S3_ARTIFACT_FOLDER/
         aws s3api put-object-acl --bucket $S3_ARTIFACT_BUCKET --key=$S3_ARTIFACT_FOLDER/$BINFILE --acl public-read
     - name: Publish applications to S3 for master builds
