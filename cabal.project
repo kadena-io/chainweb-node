@@ -31,5 +31,5 @@ source-repository-package
 package vault
     documentation: false
 
-constraints
+constraints:
     sbv <= 8.7
