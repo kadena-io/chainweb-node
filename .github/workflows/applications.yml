@@ -458,7 +458,7 @@ jobs:
         aws s3 cp $BINFILE s3://$S3_ARTIFACT_BUCKET/$S3_ARTIFACT_FOLDER/
         aws s3api put-object-acl --bucket $S3_ARTIFACT_BUCKET --key=$S3_ARTIFACT_FOLDER/$BINFILE --acl public-read
     - name: Publish applications to S3 for master builds
-      if: ${{ needs.config.output.git-short-ref == 'master' }
+      if: ${{ needs.config.output.git-short-ref == 'master' }}
       run: |
         aws s3 cp s3://$S3_ARTIFACT_BUCKET/$S3_ARTIFACT_FOLDER/$BINFILE s3://$S3_ARTIFACT_BUCKET/$S3_ARTIFACT_FOLDER/$BRANCH_BINFILE
         aws s3api put-object-acl --bucket $S3_ARTIFACT_BUCKET --key=$S3_ARTIFACT_FOLDER/$BRANCH_BINFILE --acl public-read
