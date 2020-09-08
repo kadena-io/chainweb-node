@@ -549,11 +549,12 @@ validateOp idx opType ks st bal o = do
   where
     balRosettaAmt = kdaToRosettaAmount bal
     acct = _testKeySet_name ks
-    publicKeys = case (_testKeySet_key ks) of
+    _publicKeys = case (_testKeySet_key ks) of
       Nothing -> []
       Just k -> [fst k]
-    pred' = _testKeySet_pred ks
-    acctMeta = Just $ accountIdMetadata publicKeys pred'
+    _pred' = _testKeySet_pred ks
+    acctMeta = Nothing --Just $ _accountIdMetadata _publicKeys _pred'
+                       --for fixing ownership rotation bug
 
 -- ------------------------------------------------------------------ --
 -- Test Pact Cmds
@@ -635,11 +636,12 @@ mix
     -> Fold m (IO a)
 mix i = ix i . to A.fromJSON . to (aeson assertFailure return)
 
-accountIdMetadata :: [Text] -> Text -> A.Object
-accountIdMetadata keys p = HM.fromList
+_accountIdMetadata :: [Text] -> Text -> A.Object
+_accountIdMetadata keys p = HM.fromList
   [ "current-ownership" A..= A.object
     [ "pred" A..= p
     , "keys" A..= keys ]]
+
 
 -- ------------------------------------------------------------------ --
 -- Key Sets
