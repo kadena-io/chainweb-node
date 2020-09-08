@@ -243,6 +243,11 @@ jobs:
       matrix: ${{ fromJson(needs.config.outputs.matrix) }}
     steps:
     - uses: actions/checkout@v2.3.2
+    - name: Download build artifacts
+      uses: actions/download-artifact@v2
+      with:
+        name: chainweb-applications.${{ matrix.ghc }}.${{ matrix.os }}
+        path: .
     - name: Install chainweb from artifacts
       uses: ./.github/actions/install-chainweb-from-artifacts
       with:
@@ -270,7 +275,7 @@ jobs:
     - name: Download build artifacts
       uses: actions/download-artifact@v2
       with:
-        name: chainweb-applications.${{ inputs.ghc }}.${{ inputs.os }}
+        name: chainweb-applications.${{ matrix.ghc }}.${{ matrix.os }}
         path: .
     - name: Install chainweb from artifacts
       uses: ./.github/actions/install-chainweb-from-artifacts
@@ -304,7 +309,7 @@ jobs:
     - name: Download build artifacts
       uses: actions/download-artifact@v2
       with:
-        name: chainweb-applications.${{ inputs.ghc }}.${{ inputs.os }}
+        name: chainweb-applications.${{ matrix.ghc }}.${{ matrix.os }}
         path: .
     - name: Install chainweb from artifacts
       uses: ./.github/actions/install-chainweb-from-artifacts
@@ -336,7 +341,7 @@ jobs:
     - name: Download build artifacts
       uses: actions/download-artifact@v2
       with:
-        name: chainweb-applications.${{ inputs.ghc }}.${{ inputs.os }}
+        name: chainweb-applications.${{ matrix.ghc }}.${{ matrix.os }}
         path: .
     - name: Install chainweb from artifacts
       uses: ./.github/actions/install-chainweb-from-artifacts
@@ -367,7 +372,7 @@ jobs:
     - name: Download build artifacts
       uses: actions/download-artifact@v2
       with:
-        name: chainweb-applications.${{ inputs.ghc }}.${{ inputs.os }}
+        name: chainweb-applications.${{ matrix.ghc }}.${{ matrix.os }}
         path: .
     - name: Install chainweb from artifacts
       uses: ./.github/actions/install-chainweb-from-artifacts
