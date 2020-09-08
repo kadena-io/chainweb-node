@@ -33,3 +33,4 @@ package vault
 
 constraints:
     sbv <= 8.7
+    megaparsec < 9
