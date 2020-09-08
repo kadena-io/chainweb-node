@@ -239,21 +239,14 @@ jobs:
       fail-fast: false
       matrix: ${{ fromJson(needs.config.outputs.matrix) }}
     steps:
-    - name: Install non-Haskell dependencies (ubuntu)
-      if: contains(matrix.os, 'ubuntu')
-      run: sudo apt-get install -y librocksdb-dev
-    - name: Install non-Haskell dependencies (macOS)
-      if: contains(matrix.os, 'mac')
-      run: brew install rocksdb
-    - name: Download build artifacts
-      uses: actions/download-artifact@v2
+    - uses: actions/checkout@v2.3.2
+    - name: Install chainweb from artifacts
+      uses: ./.github/actions/install-chainweb-from-artifacts
       with:
-        name: chainweb-applications.${{ matrix.ghc }}.${{ matrix.os }}
-        path: bin
+        os: ${{ matrix.os }}
+        ghc: ${{ matrix.ghc }}
     - name: Run slow tests
-      run: |
-        chmod 755 ./bin/cwtool
-        ./bin/cwtool slow-tests
+      run: cwtool slow-tests
 
   # ########################################################################## #
   # Run Benchmarks
@@ -270,21 +263,14 @@ jobs:
       BENCH_BUCKET: kadena-cabal-cache
       BENCH_FOLDER: chainweb-benchmark-results/${{ matrix.ghc }}/${{ matrix.os }}
     steps:
-    - name: Install non-Haskell dependencies (ubuntu)
-      if: contains(matrix.os, 'ubuntu')
-      run: sudo apt-get install -y librocksdb-dev
-    - name: Install non-Haskell dependencies (macOS)
-      if: contains(matrix.os, 'mac')
-      run: brew install rocksdb
-    - name: Download build artifacts
-      uses: actions/download-artifact@v2
+    - uses: actions/checkout@v2.3.2
+    - name: Install chainweb from artifacts
+      uses: ./.github/actions/install-chainweb-from-artifacts
       with:
-        name: chainweb-applications.${{ matrix.ghc }}.${{ matrix.os }}
-        path: bin
+        os: ${{ matrix.os }}
+        ghc: ${{ matrix.ghc }}
     - name: Run all benchmarks
-      run: |
-        chmod 755 ./bin/bench
-        ./bin/bench --json $BENCH_FILE +RTS -N
+      run: bench --json $BENCH_FILE +RTS -N
     - name: Upload results
       run: |
         aws s3 cp $BENCH_FILE s3://$BENCH_BUCKET/$BENCH_FOLDER/
@@ -301,38 +287,19 @@ jobs:
       matrix: ${{ fromJson(needs.config.outputs.matrix) }}
     runs-on: ${{ matrix.os }}
     steps:
-    - name: Install non-Haskell dependencies
-      run: |
-        case "${{ needs.config.outputs.os }}" in
-        ubuntu*)
-          sudo apt-get install -y librocksdb-dev expect
-          ;;
-        mac*)
-          brew install rocksdb expect
-          ;;
-        *)
-          echo "::error::unsupported operating system ${{ needs.config.output.os }}"
-          exit 1
-          ;;
-        esac
+    - uses: actions/checkout@v2.3.2
     - name: Download chain database artifact
       uses: actions/download-artifact@v2
       with:
         name: chain-db-development
         path: db
-    - name: Download build artifacts
-      uses: actions/download-artifact@v2
+    - name: Install chainweb from artifacts
+      uses: ./.github/actions/install-chainweb-from-artifacts
       with:
-        name: chainweb-applications.${{ matrix.ghc }}.${{ matrix.os }}
-        path: bin
-    - name: Install chainweb-node
-      run: |
-        chmod 755 ./bin/chainweb-node
-        echo "::add-path::`pwd`/bin"
-    - name: test chainweb-node installation
-      run: chainweb-node --version
+        os: ${{ matrix.os }}
+        ghc: ${{ matrix.ghc }}
     - name: Validate Headers
-      uses: larskuhtz/validate-chainweb-history/.github/actions/validate-headers@master
+      uses: larskuhtz/chainweb-history-validation/.github/actions/validate-headers@master
       with:
         chainweb_version: development
 
@@ -347,38 +314,19 @@ jobs:
       matrix: ${{ fromJson(needs.config.outputs.matrix) }}
     runs-on: ${{ matrix.os }}
     steps:
-    - name: Install non-Haskell dependencies
-      run: |
-        case "${{ needs.config.outputs.os }}" in
-        ubuntu*)
-          sudo apt-get install -y librocksdb-dev expect
-          ;;
-        mac*)
-          brew install rocksdb expect
-          ;;
-        *)
-          echo "::error::unsupported operating system ${{ needs.config.output.os }}"
-          exit 1
-          ;;
-        esac
+    - uses: actions/checkout@v2.3.2
     - name: Download ${{ matrix.chainwebVersion }} chain database artifact
       uses: actions/download-artifact@v2
       with:
         name: chain-db-development
         path: db
-    - name: Download build artifacts
-      uses: actions/download-artifact@v2
+    - name: Install chainweb from artifacts
+      uses: ./.github/actions/install-chainweb-from-artifacts
       with:
-        name: chainweb-applications.${{ matrix.ghc }}.${{ matrix.os }}
-        path: bin
-    - name: Install chainweb-node
-      run: |
-        chmod 755 ./bin/chainweb-node
-        echo "::add-path::`pwd`/bin"
-    - name: test chainweb-node installation
-      run: chainweb-node --version
+        os: ${{ matrix.os }}
+        ghc: ${{ matrix.ghc }}
     - name: Validate Pact History
-      uses: larskuhtz/validate-chainweb-history/.github/actions/validate-pact-history@master
+      uses: larskuhtz/chainweb-history-validation/.github/actions/validate-headers@master
       with:
         chainweb_version: development
 
@@ -397,22 +345,15 @@ jobs:
       TEST_RESULT_BUCKET: kadena-cabal-cache
       TEST_RESULT_FOLDER: chainweb-test-results/ghc-${{ matrix.ghc }}/${{ matrix.os }}
     steps:
-    - name: Install non-Haskell dependencies (ubuntu)
-      if: contains(matrix.os, 'ubuntu')
-      run: sudo apt-get install -y librocksdb-dev
-    - name: Install non-Haskell dependencies (macOS)
-      if: contains(matrix.os, 'mac')
-      run: brew install rocksdb
-    - name: Download build artifacts
-      uses: actions/download-artifact@v2
+    - uses: actions/checkout@v2.3.2
+    - name: Install chainweb from artifacts
+      uses: ./.github/actions/install-chainweb-from-artifacts
       with:
-        name: chainweb-applications.${{ matrix.ghc }}.${{ matrix.os }}
-        path: bin
+        os: ${{ matrix.os }}
+        ghc: ${{ matrix.ghc }}
     - name: Run Tests
       id: tests
-      run: |
-        chmod 755 ./bin/chainweb-node
-        ./bin/chainweb-tests -- --hide-successes --results-json test-results.json
+      run: chainweb-tests -- --hide-successes --results-json test-results.json
 
     # Publish test results to S3
     - name: Upload test results
