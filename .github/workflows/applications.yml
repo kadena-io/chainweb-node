@@ -58,12 +58,9 @@ jobs:
           "os": ["ubuntu-16.04", "ubuntu-18.04", "ubuntu-20.04", "macOS-latest"],
           "cabalcache": ["true"],
           "exclude": [
-            "os": "macOS-latest",
-            "ghc": "8.6.5",
-            "os": "ubuntu-16.04",
-            "ghc": "8.6.5",
-            "os": "ubuntu-20.04",
-            "ghc": "8.6.5"
+            { "os": "macOS-latest", "ghc": "8.6.5" },
+            { "os": "ubuntu-16.04", "ghc": "8.6.5" },
+            { "os": "ubuntu-20.04", "ghc": "8.6.5" }
           ]
         }
         EOF
