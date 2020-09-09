@@ -265,6 +265,7 @@ jobs:
         os: ${{ matrix.os }}
         ghc: ${{ matrix.ghc }}
     - name: Run slow tests
+      timeout-minutes: 3
       run: cwtool slow-tests
 
   # ########################################################################## #
@@ -294,6 +295,7 @@ jobs:
         os: ${{ matrix.os }}
         ghc: ${{ matrix.ghc }}
     - name: Run all benchmarks
+      timeout-minutes: 6
       run: bench --json $BENCH_FILE +RTS -N
     - name: Upload results
       run: |
@@ -394,6 +396,7 @@ jobs:
         ghc: ${{ matrix.ghc }}
     - name: Run Tests
       id: tests
+      timeout-minutes: 10
       run: chainweb-tests --hide-successes --results-json test-results.json
 
     # Publish test results to S3
