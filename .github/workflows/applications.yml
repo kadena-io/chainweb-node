@@ -224,16 +224,21 @@ jobs:
         cp cabal.project.freeze artifacts/chainweb
     - name: Create artifacts archive
       run: |
+        echo ls ./artifacts
         ls ./artifacts
+        echo ls ./artifacts/chainweb
         ls ./artifacts/chainweb
         echo "tar -C ./artifacts/ -czf $ARTIFACTS_ARCHIVE chainweb"
         tar -C ./artifacts/ -czf "$ARTIFACTS_ARCHIVE" chainweb
+        echo ls ./artifacts
         ls ./artifacts
+        echo ls .
+        ls .
     - name: Safe artifacts
       uses: actions/upload-artifact@v2
       with:
         name: chainweb-applications.${{ matrix.ghc }}.${{ matrix.os }}
-        path: artifacts/${{ env.ARTIFACTS_ARCHIVE }}
+        path: ${{ env.ARTIFACTS_ARCHIVE }}
         if-no-files-found: error
 
   # ########################################################################## #
