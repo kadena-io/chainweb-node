@@ -223,7 +223,12 @@ jobs:
         cp cabal.project.local artifacts/chainweb
         cp cabal.project.freeze artifacts/chainweb
     - name: Create artifacts archive
-      run: tar -C ./artifacts/ -czf $ARTIFACTS_ARCHIVE chainweb
+      run: |
+        ls ./artifacts
+        ls ./artifacts/chainweb
+        echo "tar -C ./artifacts/ -czf $ARTIFACTS_ARCHIVE chainweb"
+        tar -C ./artifacts/ -czf "$ARTIFACTS_ARCHIVE" chainweb
+        ls ./artifacts
     - name: Safe artifacts
       uses: actions/upload-artifact@v2
       with:
