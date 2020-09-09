@@ -328,7 +328,7 @@ jobs:
         os: ${{ matrix.os }}
         ghc: ${{ matrix.ghc }}
     - name: Validate Headers
-      timeout-seconds: 90
+      timeout-minutes: 3
       uses: larskuhtz/chainweb-history-validation/.github/actions/validate-headers@master
       with:
         chainweb_version: development
@@ -361,7 +361,7 @@ jobs:
         os: ${{ matrix.os }}
         ghc: ${{ matrix.ghc }}
     - name: Validate Pact History
-      timeout-seconds: 120
+      timeout-minutes: 3
       uses: larskuhtz/chainweb-history-validation/.github/actions/validate-headers@master
       with:
         chainweb_version: development
