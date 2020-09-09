@@ -272,7 +272,7 @@ jobs:
 
   benchmarks:
     name: Benchmarks
-    needs: [build]
+    needs: [config, build]
     strategy:
       fail-fast: false
       matrix: ${{ fromJson(needs.config.outputs.matrix) }}
