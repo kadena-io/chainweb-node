@@ -10,9 +10,6 @@ inputs:
 
 runs:
   using: 'composite'
-  env:
-    ARCHIVE_PATTERN: chainweb.${{ inputs.ghc }}.${{ ghc.os }}.*.tar.gz
-
   steps:
     # We can't use `uses: actions/download-artifact@v2` here to download artifacts
     - name: Install non-Haskell dependencies
@@ -31,6 +28,8 @@ runs:
           ;;
         esac
     - name: Install chainweb applications
+      env:
+        ARCHIVE_PATTERN: chainweb.${{ inputs.ghc }}.${{ inputs.os }}.*.tar.gz
       shell: bash
       run: |
           tar -xzf $ARCHIVE_PATTERN
