@@ -266,7 +266,9 @@ jobs:
         ghc: ${{ matrix.ghc }}
     - name: Run slow tests
       timeout-minutes: 3
-      run: cwtool slow-tests
+      run: |
+          ulimit -n 10000
+          cwtool slow-tests
 
   # ########################################################################## #
   # Run Benchmarks
@@ -397,7 +399,9 @@ jobs:
     - name: Run Tests
       id: tests
       timeout-minutes: 10
-      run: chainweb-tests --hide-successes --results-json test-results.json
+      run: |
+          ulimit -n 10000
+          chainweb-tests --hide-successes --results-json test-results.json
 
     # Publish test results to S3
     - name: Upload test results
