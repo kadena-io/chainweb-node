@@ -431,9 +431,9 @@ lowerStats v seconds = Stats
 
 upperStats :: ChainwebVersion -> Seconds -> Stats
 upperStats v seconds = Stats
-    { _statBlockCount = round $ ebc * 1.2
-    , _statMaxHeight = round $ ebc * 1.2
-    , _statMinHeight = round $ ebc * 1.2
+    { _statBlockCount = round $ ebc * 1.4
+    , _statMaxHeight = round $ ebc * 1.4
+    , _statMinHeight = round $ ebc * 1.1
     , _statMedHeight = round $ ebc * 1.2
     , _statAvgHeight = ebc * 1.2
     }
