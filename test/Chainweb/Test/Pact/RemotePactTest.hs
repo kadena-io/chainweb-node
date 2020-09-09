@@ -168,9 +168,23 @@ tests rdb = testGroupSch "Chainweb.Test.Pact.RemotePactTest"
 -- about 10 seconds. Once initialization is complete even large numbers of empty
 -- blocks were mined almost instantaneously.
 --
+-- 'FastTimedCPM' has a "nominal" block rate of 1 second per chain. However,
+-- chains on on the peterson graph are blocked about 60% of the time and there
+-- is no difficulty adjustment. Thus the actual block rate is about 2.5 seconds,
+-- and the expected time to reach 20 blocks in total is about 5 seconds plus
+-- some initialization overhead.
+--
+-- The 99.9th percentile of the exponential distribution is with a scale parameter
+-- of 5 is about 35. Assuming about 5-10 seconds for node startup (database
+-- initialization and network initialization), we should account for at least 45
+-- seconds startup time. The default test retry logic provides about 42 seconds.
+-- So, we add some extra time here.
+--
+--
 awaitNetworkHeight :: IO ClientEnv -> CutHeight -> IO ()
 awaitNetworkHeight nio h = do
     cenv <- nio
+    threadDelay 20_000_000
     ch <- awaitCutHeight cenv h
     debug $ "cut height: " <> sshow (_cutHashesHeight ch)
 
