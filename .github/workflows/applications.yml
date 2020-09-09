@@ -228,7 +228,8 @@ jobs:
       uses: actions/upload-artifact@v2
       with:
         name: chainweb-applications.${{ matrix.ghc }}.${{ matrix.os }}
-        path: artifacts/$ARTIFACTS_ARCHIVE
+        path: artifacts/${{ env.ARTIFACTS_ARCHIVE }}
+        if-no-files-found: error
 
   # ########################################################################## #
   # Run Slow tests (Multinode test)
