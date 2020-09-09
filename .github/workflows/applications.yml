@@ -1,12 +1,12 @@
 name: Build and publish application binaries
 
 on:
-  - workflow_dispatch:
-  - push:
-      branches:
-      - master
-      - ci/*
-      - release-candidate/*
+  workflow_dispatch:
+  push:
+    branches:
+    - master
+    - ci/*
+    - release-candidate/*
 
 env:
   AWS_ACCESS_KEY_ID: ${{ secrets.kadena_cabal_cache_aws_access_key_id }}
