@@ -328,6 +328,7 @@ jobs:
         os: ${{ matrix.os }}
         ghc: ${{ matrix.ghc }}
     - name: Validate Headers
+      timeout-seconds: 90
       uses: larskuhtz/chainweb-history-validation/.github/actions/validate-headers@master
       with:
         chainweb_version: development
@@ -360,6 +361,7 @@ jobs:
         os: ${{ matrix.os }}
         ghc: ${{ matrix.ghc }}
     - name: Validate Pact History
+      timeout-seconds: 120
       uses: larskuhtz/chainweb-history-validation/.github/actions/validate-headers@master
       with:
         chainweb_version: development
@@ -392,7 +394,7 @@ jobs:
         ghc: ${{ matrix.ghc }}
     - name: Run Tests
       id: tests
-      run: chainweb-tests -- --hide-successes --results-json test-results.json
+      run: chainweb-tests --hide-successes --results-json test-results.json
 
     # Publish test results to S3
     - name: Upload test results
