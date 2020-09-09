@@ -25,7 +25,7 @@ tests = testGroup "Chainweb.Test.Mempool"
     wf :: (InsertCheck -> MempoolBackend MockTx -> IO a) -> IO a
     wf f = do
         mv <- newMVar (pure . V.map Right)
-        let cfg = InMemConfig txcfg mockBlockGasLimit 2048 Right (checkMv mv)
+        let cfg = InMemConfig txcfg mockBlockGasLimit 2048 Right (checkMv mv) (1024 * 10)
         InMem.withInMemoryMempool cfg (Test singletonChainGraph) $ f mv
 
     checkMv :: MVar (t -> IO b) -> t -> IO b

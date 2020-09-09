@@ -18,7 +18,6 @@ module Chainweb.Rosetta.RestAPI.Server where
 
 
 import Control.Error.Util
-import Data.EitherR (fmapLT)
 import Control.Monad (void, (<$!>))
 import Control.Monad.IO.Class
 import Control.Monad.Trans.Class
@@ -179,7 +178,7 @@ blockH v cutDb ps crs (BlockReq net (PartialBlockId bheight bhash)) =
       bh <- findBlockHeaderInCurrFork cutDb cid bheight bhash
       (coinbase, txs) <- getBlockOutputs payloadDb bh
       logs <- getTxLogs (_chainResPact cr) bh
-      trans <- hoistEither $ matchLogs FullLogs bh logs coinbase txs
+      trans <- matchLogs FullLogs bh logs coinbase txs
       pure $ BlockResp
         { _blockResp_block = Just $ block bh trans
         , _blockResp_otherTransactions = Nothing
@@ -195,29 +194,21 @@ blockTransactionH
     -> BlockTransactionReq
     -> Handler BlockTransactionResp
 blockTransactionH v cutDb ps crs (BlockTransactionReq net bid t) = do
-  runExceptT work >>= either throwRosettaError pure
+  runExceptT work >>= either throwRosetta pure
   where
     BlockId bheight bhash = bid
     TransactionId rtid = t
 
-    hoistRosettaError details w = fmapLT annotate w
-      where details' = case details of
-              Nothing -> Nothing
-              Just p -> Just $ HM.fromList p
-            annotate e = rosettaError e details'
-
-    work :: ExceptT RosettaError Handler BlockTransactionResp
+    work :: ExceptT RosettaFailure Handler BlockTransactionResp
     work = do
-      cid <- hoistRosettaError Nothing (validateNetwork v net)
-      cr <- lookup cid crs ?? (rosettaError RosettaInvalidChain Nothing)
-      payloadDb <- lookup cid ps ?? (rosettaError RosettaInvalidChain Nothing)
-      bh <- hoistRosettaError Nothing $ findBlockHeaderInCurrFork cutDb cid (Just bheight) (Just bhash)
-      rkTarget <- (hush $ fromText' rtid) ?? (rosettaError RosettaUnparsableTransactionId Nothing)
-      (coinbase, txs) <- hoistRosettaError Nothing $ getBlockOutputs payloadDb bh
-      logs <- hoistRosettaError Nothing $ getTxLogs (_chainResPact cr) bh
-
-      tran <- hoistRosettaError (Just ["txId" .= t, "block-txs" .= txs, "block-height" .= _blockHeight bh])
-              $ hoistEither $ (matchLogs (SingleLog rkTarget) bh logs coinbase txs)
+      cid <- validateNetwork v net
+      cr <- lookup cid crs ?? RosettaInvalidChain
+      payloadDb <- lookup cid ps ?? RosettaInvalidChain
+      bh <- findBlockHeaderInCurrFork cutDb cid (Just bheight) (Just bhash)
+      rkTarget <- (hush $ fromText' rtid) ?? RosettaUnparsableTransactionId
+      (coinbase, txs) <- getBlockOutputs payloadDb bh
+      logs <- getTxLogs (_chainResPact cr) bh
+      tran <- matchLogs (SingleLog rkTarget) bh logs coinbase txs
 
       pure $ BlockTransactionResp tran
 
@@ -421,7 +412,14 @@ networkOptionsH v (NetworkReq nid _) = runExceptT work >>= either throwRosetta p
     -- TODO: Document this meta data
     metaPairs =
       [ "node-api-version" .= prettyApiVersion
-      , "chainweb-version" .= chainwebVersionToText v ]
+      , "chainweb-version" .= chainwebVersionToText v
+      , "rosetta-chainweb-version" .= rosettaImplementationVersion
+      -- ^ The version of the rosetta implementation.
+      --   Meant to capture if something about the internal
+      --   implementation has changed.
+      ]
+
+    rosettaImplementationVersion = "1.0.0" :: T.Text
 
     allow = Allow
       { _allow_operationStatuses = opStatuses

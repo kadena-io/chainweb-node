@@ -48,7 +48,7 @@ module Chainweb.Test.Pact.Utils
 , ContMsg (..)
 , mkSigner
 , mkSigner'
-, CmdBuilder
+, CmdBuilder(..)
 , cbSigners
 , cbRPC
 , cbNonce
@@ -413,7 +413,7 @@ testPactCtxSQLite v cid bhdb pdb sqlenv conf = do
     !ctx <- TestPactCtx
       <$!> newMVar (PactServiceState Nothing mempty ph noSPVSupport)
       <*> pure (pactServiceEnv cpe rs)
-    evalPactServiceM_ ctx (initialPayloadState dummyLogger v cid)
+    evalPactServiceM_ ctx (initialPayloadState dummyLogger mempty v cid)
     return (ctx,dbSt)
   where
     initialBlockState = initBlockState $ Version.genesisHeight v cid
@@ -461,7 +461,7 @@ withWebPactExecutionService v bdb mempoolAccess act =
           { _pactNewBlock = \m p ->
               evalPactServiceM_ ctx $ execNewBlock mempoolAccess p m
           , _pactValidateBlock = \h d ->
-              evalPactServiceM_ ctx $ execValidateBlock h d
+              evalPactServiceM_ ctx $ execValidateBlock mempoolAccess h d
           , _pactLocal = \cmd ->
               evalPactServiceM_ ctx $ Right <$> execLocal cmd
           , _pactLookup = \rp hashes ->
