@@ -410,7 +410,7 @@ expectedBlockCountAfterSeconds
     -> cid
     -> Seconds
     -> Double
-expectedBlockCountAfterSeconds v cid s = 1 + (int s / int r) - int gh
+expectedBlockCountAfterSeconds v cid s = max 0 (1 + (int s / int r) - int gh)
   where
     BlockRate r = blockRate (_chainwebVersion v)
     gh = genesisHeight (_chainwebVersion v) (_chainId cid)
@@ -418,13 +418,17 @@ expectedBlockCountAfterSeconds v cid s = 1 + (int s / int r) - int gh
 -- | This function is usefull for performance testing when calculating the
 -- expected number of mined blocks during a test accross all chains.
 --
+-- The sum of count for all chains is multiplied by 0.4 to compensate for the
+-- fact that chains are blocked about 60% of the time on small graphs.
+--
 expectedGlobalBlockCountAfterSeconds
     :: HasCallStack
     => HasChainwebVersion v
     => v
     -> Seconds
     -> Double
-expectedGlobalBlockCountAfterSeconds v s = sum
+expectedGlobalBlockCountAfterSeconds v s = (* 0.4)
+    $ sum
     $ fmap (\c -> expectedBlockCountAfterSeconds v c s)
     $ toList
     $ chainIdsAt v (round eh)
