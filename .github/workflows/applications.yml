@@ -15,8 +15,6 @@ env:
   S3_ARTIFACT_BUCKET: kadena-cabal-cache
   S3_ARTIFACT_FOLDER: chainweb-node
 
-  ARTIFACTS_ARCHIVE: chainweb.${{ matrix.ghc }}.${{ matrix.os }}.${{ needs.config.outputs.git-sha-short }}.tar.gz
-
 jobs:
 
   # ########################################################################## #
@@ -107,6 +105,7 @@ jobs:
 
     env:
       OPT_LEVEL: ${{ needs.config.outputs.opt-level }}
+      ARTIFACTS_ARCHIVE: chainweb.${{ matrix.ghc }}.${{ matrix.os }}.${{ needs.config.outputs.git-sha-short }}.tar.gz
 
     steps:
     # Setup
