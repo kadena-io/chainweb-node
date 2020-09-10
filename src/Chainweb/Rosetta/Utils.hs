@@ -18,10 +18,13 @@ import Data.List (sortOn, inits)
 import Data.Word (Word64)
 import Text.Read (readMaybe)
 
+import qualified Data.ByteString.Lazy as BSL
 import qualified Data.HashMap.Strict as HM
 import qualified Data.Memory.Endian as BA
 import qualified Data.Text as T
+import qualified Data.Text.Encoding as T
 import qualified Pact.Types.Runtime as P
+import qualified Pact.Types.RPC as P
 
 import Numeric.Natural
 
@@ -190,6 +193,63 @@ toContNextStep currChainId pe
     isLastStep = (succ $ P._peStep pe) == (P._peStepCount pe)
 
 --------------------------------------------------------------------------------
+-- Rosetta ConstructionAPI Types --
+--------------------------------------------------------------------------------
+
+data ConstructionTxType =
+    ConstructTransfer
+      { _constructTransfer_from :: !T.Text
+      , _constructTransfer_to :: !T.Text
+      , _constructTransfer_toGuard :: !P.PactGuard
+      , _constructTransfer_amount :: !Decimal
+      }
+  | ConstructAcctCreate
+      { _constructAcctCreate_acctName :: !T.Text
+      , _constructAcctCreate_acctGuard :: !P.KeySet  -- can be expanded to other guards later
+      }
+  | ConstructStartCrossChain
+      { _constructStartCrossChain_from :: !T.Text
+      , _constructStartCrossChain_to :: !T.Text
+      , _constructStartCrossChain_toGuard :: !P.PactGuard
+      , _constructStartCrossChain_amount :: !Decimal
+      , _constructStartCrossChain_targetChain :: !P.ChainId
+      }
+  | ConstructFinishCrossChain
+      { _constructFinishCrossChain_pactId :: !P.PactId
+      , _constructFinishCrossChain_proof :: !T.Text
+      }
+
+data ConstructionPayloadsReqMetaData = ConstructionPayloadsReqMetaData
+  { _constructionPayloadsReqMetaData_signers :: ![Signer]
+  , _constructionPayloadsReqMetaData_nonce :: !T.Text
+  , _constructionPayloadsReqMetaData_publicMeta :: !P.PublicMeta
+  , _constructionPayloadsReqMetaData_txType :: !ConstructionTxType
+  }
+
+createUnsignedCmd :: ConstructionPayloadsReqMetaData -> Command T.Text
+createUnsignedCmd req = Command encodedPayloadT [] hsh
+  where
+    hsh = P.hash encodedPayload
+    encodedPayloadT = T.decodeUtf8 $! encodedPayload
+    encodedPayload = BSL.toStrict $ encode (createPayload pactRPC)
+    
+    createPayload :: P.PactRPC T.Text -> Payload P.PublicMeta T.Text
+    createPayload rpc = undefined
+    
+    pactRPC :: P.PactRPC T.Text
+    pactRPC = undefined
+
+
+createSigningPayloads :: Command T.Text -> [Signer] -> [RosettaSigningPayload]
+createSigningPayloads cmd pactSigners = map f pactSigners
+  where f signer = RosettaSigningPayload
+          { _rosettaSigningPayload_address = _siPubKey signer -- TODO: FIX!! Depending on rosetta feedback 
+          , _rosettaSigningPayload_hexBytes = _cmdPayload cmd
+          , _rosettaSigningPayload_signatureType = Just RosettaEd25519
+          }
+
+
+--------------------------------------------------------------------------------
 -- Rosetta Helper Types --
 --------------------------------------------------------------------------------
 
@@ -256,6 +316,9 @@ blockId bh = BlockId
   { _blockId_index = _height (_blockHeight bh)
   , _blockId_hash = blockHashToText (_blockHash bh)
   }
+
+cmdToTransactionId :: Command T.Text -> TransactionId
+cmdToTransactionId = TransactionId . requestKeyToB16Text . cmdToRequestKey
 
 rosettaTransactionFromCmd :: Command a -> [Operation] -> Transaction
 rosettaTransactionFromCmd cmd ops =
@@ -411,6 +474,12 @@ kdaToRosettaAmount k = Amount (sshow amount) currency Nothing
 --------------------------------------------------------------------------------
 -- Misc Helper Functions --
 --------------------------------------------------------------------------------
+
+fromCommand :: Command T.Text -> T.Text
+fromCommand = T.decodeUtf8 . BSL.toStrict . encode
+
+command :: T.Text -> Maybe (Command T.Text)
+command = decodeStrict' . T.encodeUtf8
 
 -- | Guarantees that the `ChainId` given actually belongs to this
 -- `ChainwebVersion`. This doesn't guarantee that the chain is active.

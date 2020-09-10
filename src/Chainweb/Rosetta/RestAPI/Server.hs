@@ -28,10 +28,8 @@ import Data.IORef
 import Data.List (sort)
 import Data.Proxy (Proxy(..))
 
-import qualified Data.ByteString.Lazy as BSL
 import qualified Data.HashMap.Strict as HM
 import qualified Data.Text as T
-import qualified Data.Text.Encoding as T
 import qualified Data.Vector as V
 
 import Pact.Types.Command
@@ -253,6 +251,16 @@ constructionPayloadsH
     -> ConstructionPayloadsReq
     -> Handler ConstructionPayloadsResp
 constructionPayloadsH = undefined
+  where
+    resp parsedMeta = ConstructionPayloadsResp
+      { _constructionPayloadsResp_unsignedTransaction = encodedUnsignedCmd
+      , _constructionPayloadsResp_payloads = rosettaSignPayloads
+      }
+      where
+        signers = _constructionPayloadsReqMetaData_signers parsedMeta
+        rosettaSignPayloads = createSigningPayloads unsignedCmd signers
+        unsignedCmd = createUnsignedCmd parsedMeta
+        encodedUnsignedCmd = fromCommand $! unsignedCmd
 
 constructionParseH
     :: ChainwebVersion
@@ -307,15 +315,6 @@ constructionSubmitH v ms (ConstructionSubmitReq net tx) =
         liftIO (mempoolInsertCheck mp vec) >>= hoistEither . first (const RosettaInvalidTx)
         liftIO (mempoolInsert mp UncheckedInsert vec)
         pure $ TransactionIdResp (cmdToTransactionId cmd) Nothing
-
-cmdToTransactionId :: Command T.Text -> TransactionId
-cmdToTransactionId = TransactionId . requestKeyToB16Text . cmdToRequestKey
-
-fromCommand :: Command T.Text -> T.Text
-fromCommand = T.decodeUtf8 . BSL.toStrict . encode
-
-command :: T.Text -> Maybe (Command T.Text)
-command = decodeStrict' . T.encodeUtf8
 
 --------------------------------------------------------------------------------
 -- Mempool Handlers
