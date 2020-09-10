@@ -132,8 +132,8 @@ tests rdb = testGroupSch "Chainweb.Test.Pact.RemotePactTest"
         withMVarResource 0 $ \iomvar ->
           withTime $ \iot ->
             testGroup "remote pact tests"
-              [ testCase "await network" $
-                awaitNetworkHeight net 20
+              [ testCaseSteps "await network" $ \step ->
+                awaitNetworkHeight step net 20
               , after AllSucceed "await network" $
                 withRequestKeys iot iomvar net $ responseGolden net
               , after AllSucceed "remote-golden" $
@@ -168,25 +168,11 @@ tests rdb = testGroupSch "Chainweb.Test.Pact.RemotePactTest"
 -- about 10 seconds. Once initialization is complete even large numbers of empty
 -- blocks were mined almost instantaneously.
 --
--- 'FastTimedCPM' has a "nominal" block rate of 1 second per chain. However,
--- chains on on the peterson graph are blocked about 60% of the time and there
--- is no difficulty adjustment. Thus the actual block rate is about 2.5 seconds,
--- and the expected time to reach 20 blocks in total is about 5 seconds plus
--- some initialization overhead.
---
--- The 99.9th percentile of the exponential distribution is with a scale parameter
--- of 5 is about 35. Assuming about 5-10 seconds for node startup (database
--- initialization and network initialization), we should account for at least 45
--- seconds startup time. The default test retry logic provides about 42 seconds.
--- So, we add some extra time here.
---
---
-awaitNetworkHeight :: IO ClientEnv -> CutHeight -> IO ()
-awaitNetworkHeight nio h = do
+awaitNetworkHeight :: (String -> IO ()) -> IO ClientEnv -> CutHeight -> IO ()
+awaitNetworkHeight step nio h = do
     cenv <- nio
-    threadDelay 5_000_000
-    ch <- awaitCutHeight cenv h
-    debug $ "cut height: " <> sshow (_cutHashesHeight ch)
+    ch <- awaitCutHeight step cenv h
+    step $ "cut height: " <> sshow (_cutHashesHeight ch)
 
 responseGolden :: IO ClientEnv -> IO RequestKeys -> TestTree
 responseGolden networkIO rksIO = golden "remote-golden" $ do
@@ -736,10 +722,11 @@ testSend :: IO (Time Micros) -> MVar Int -> ClientEnv -> IO RequestKeys
 testSend iot mNonce env = testBatch iot mNonce gp >>= sending cid env
 
 awaitCutHeight
-    :: ClientEnv
+    :: (String -> IO ())
+    -> ClientEnv
     -> CutHeight
     -> IO CutHashes
-awaitCutHeight cenv i = do
+awaitCutHeight step cenv i = do
     result <- retrying testRetryPolicy checkRetry
         $ const $ runClientM (cutGetClient v) cenv
     case result of
@@ -750,11 +737,15 @@ awaitCutHeight cenv i = do
                 $ "retries exhausted: waiting for cut height " <> sshow i
                 <> " but only got " <> sshow (_cutHashesHeight x)
   where
-    checkRetry _ Left{} = return True
+    checkRetry s (Left e) = do
+        step $ "awaiting cut of height " <> show i
+            <> ". No reslt from node: " <> show e
+            <> " [" <> show (view rsIterNumberL s) <> "]"
+        return True
     checkRetry s (Right c)
         | _cutHashesHeight c >= i = return False
         | otherwise = do
-            debug
+            step
                 $ "awaiting cut of height " <> show i
                 <> ". Current height: " <> show (_cutHashesHeight c)
                 <> " [" <> show (view rsIterNumberL s) <> "]"

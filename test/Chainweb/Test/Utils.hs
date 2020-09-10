@@ -960,7 +960,7 @@ withNodes v label rdb n f = withResource start
     start :: IO (Async (), ClientEnv)
     start = do
         peerInfoVar <- newEmptyMVar
-        a <- async $ runTestNodes label rdb Quiet v n peerInfoVar
+        a <- async $ runTestNodes label rdb Error v n peerInfoVar
         i <- readMVar peerInfoVar
         cwEnv <- getClientEnv $ getCwBaseUrl $ _hostAddressPort $ _peerAddr i
         return (a, cwEnv)
@@ -1064,10 +1064,12 @@ setBootstrapPeerInfo =
 
 
 host :: Hostname
-host = unsafeHostnameFromText "::1"
+-- host = unsafeHostnameFromText "::1"
+host = unsafeHostnameFromText "localhost"
 
 interface :: W.HostPreference
-interface = "::1"
+-- interface = "::1"
+interface = "127.0.0.1"
 
 getClientEnv :: BaseUrl -> IO ClientEnv
 getClientEnv url = flip mkClientEnv url <$> HTTP.newTlsManagerWith mgrSettings
