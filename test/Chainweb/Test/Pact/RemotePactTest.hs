@@ -7,7 +7,6 @@
 {-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE QuasiQuotes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 
@@ -54,8 +53,6 @@ import Data.Maybe
 import Data.String.Conv (toS)
 import Data.Text (Text)
 import qualified Data.Text as T
-
-import NeatInterpolation
 
 import Numeric.Natural
 
@@ -398,15 +395,14 @@ spvTest iot nio = testCaseSteps "spv client tests" $ \step -> do
       cmd2 <- liftIO $ Pact.mkExec txcode txdata pm ks (Just "fastTimedCPM-peterson") (Just "2")
       return $ SubmitBatch (pure cmd1 <> pure cmd2)
 
-    txcode =
-      [text|
-         (coin.transfer-crosschain
-           'sender00
-           'sender01
-           (read-keyset 'sender01-keyset)
-           (read-msg 'target-chain-id)
-           1.0)
-         |]
+    txcode = T.unlines
+      [ "(coin.transfer-crosschain"
+      , "  'sender00"
+      , "  'sender01"
+      , "  (read-keyset 'sender01-keyset)"
+      , "  (read-msg 'target-chain-id)"
+      , "  1.0)"
+      ]
 
     txdata = A.object
         [ "sender01-keyset" A..= [fst sender01]
