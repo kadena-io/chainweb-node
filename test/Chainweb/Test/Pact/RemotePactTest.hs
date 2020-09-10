@@ -154,12 +154,12 @@ tests rdb = testGroupSch "Chainweb.Test.Pact.RemotePactTest"
               , after AllSucceed "remote spv" $
                 testGroup "genesisAllocations"
                 [ allocationTest iot net ]
-              , after AllSucceed "genesis allocations" $
+              , after AllSucceed "genesisAllocations" $
                 testGroup "caplistTests"
                 [ caplistTest iot net ]
               , after AllSucceed "caplistTests" $
                 localContTest iot net
-              , after AllSucceed "localContTest" $
+              , after AllSucceed "local continuation test" $
                 pollBadKeyTest net
               ]
     ]
@@ -184,7 +184,7 @@ tests rdb = testGroupSch "Chainweb.Test.Pact.RemotePactTest"
 awaitNetworkHeight :: IO ClientEnv -> CutHeight -> IO ()
 awaitNetworkHeight nio h = do
     cenv <- nio
-    threadDelay 20_000_000
+    threadDelay 5_000_000
     ch <- awaitCutHeight cenv h
     debug $ "cut height: " <> sshow (_cutHashesHeight ch)
 
