@@ -156,7 +156,7 @@ httpHeaderTests envIO cid =
                         let d = cur - x
                         assertBool
                             ("test failed because X-Server-Time is of by " <> sshow d <> " seconds")
-                            (d <= 1)
+                            (d <= 2)
                         return res
 
 simpleClientSession :: IO TestClientEnv_ -> ChainId -> TestTree
