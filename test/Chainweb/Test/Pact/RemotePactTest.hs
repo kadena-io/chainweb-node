@@ -30,7 +30,7 @@ module Chainweb.Test.Pact.RemotePactTest
 , PollingExpectation(..)
 ) where
 
-import Control.Concurrent hiding (modifyMVar, newMVar, putMVar, readMVar)
+import Control.Concurrent hiding (modifyMVar, newMVar, putMVar, readMVar, withMVar)
 import Control.Concurrent.MVar.Strict
 import Control.DeepSeq
 import Control.Lens
