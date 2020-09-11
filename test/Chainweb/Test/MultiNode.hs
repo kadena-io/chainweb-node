@@ -432,10 +432,11 @@ lowerStats v seconds = Stats
 upperStats :: ChainwebVersion -> Seconds -> Stats
 upperStats v seconds = Stats
     { _statBlockCount = round $ ebc * 1.4
-    , _statMaxHeight = round $ ebc * 1.4
-    , _statMinHeight = round $ ebc * 1.4
-    , _statMedHeight = round $ ebc * 1.4
-    , _statAvgHeight = ebc * 1.4
+    , _statMaxHeight = round $ ech * 1.4
+    , _statMinHeight = round $ ech * 1.4
+    , _statMedHeight = round $ ech * 1.4
+    , _statAvgHeight = ech * 1.4
     }
   where
     ebc = expectedBlockCount v seconds
+    ech = expectedCutHeightAfterSeconds v seconds
