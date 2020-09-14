@@ -32,7 +32,9 @@ extra-deps:
   - direct-sqlite-2.3.26
   - ed25519-donna-0.1.1
   - prettyprinter-1.6.0
-  - sbv-8.7
+  - sbv-8.8
+  - neat-interpolation-0.5.1.2
+  - megaparsec-9.0.0
   - github: kadena-io/thyme
     commit: 6ee9fcb026ebdb49b810802a981d166680d867c9
 
