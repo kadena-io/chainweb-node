@@ -32,8 +32,8 @@ proj = kpkgs.rp.project ({ pkgs, hackGet, ... }: with pkgs.haskell.lib;
       rosetta = dontCheck (self.fetchFromGitHub {
         owner = "kadena-io";
         repo = "rosetta";
-        "rev": "1ccb68d7aec0414f494fb06f591214e7cf845627";
-        "sha256": "05d20p1gbi33g72rxjik7l5s0s3wcisdkp3bnfckx345wdpdbl6p"
+        "rev" = "1ccb68d7aec0414f494fb06f591214e7cf845627";
+        "sha256" = "05d20p1gbi33g72rxjik7l5s0s3wcisdkp3bnfckx345wdpdbl6p"
       } {});
     };
 
