@@ -1,3 +1,4 @@
+{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE OverloadedLists #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TypeApplications #-}
@@ -27,11 +28,14 @@ import Control.Monad.Catch
 import qualified Data.ByteString.Char8 as B8
 import Data.Foldable
 import Data.List
-import Data.Vector ({- IsList Vector #-})
 
 import GHC.Stack
 
+import NoThunks.Class
+
 import Text.Read
+
+import Data.Vector ({- IsList Vector #-})
 
 -- internal modules
 
@@ -54,6 +58,13 @@ assertIO f r = f >>= \a -> unless (a == r) $ throwM
     $ "test failed:\n  expected: " <> show r <> "\n  actual: " <> show a
     <> " " <> prettyCallStack callStack
 
+assertNoThunks :: HasCallStack => NoThunks a => a -> IO ()
+assertNoThunks !a = case unsafeNoThunks $! a of
+    Nothing -> return ()
+    Just e -> throwM $ RocksDbTableTestFailure
+        $ "test failed:\n  unexpected thunk: " <> show e
+        <> " " <> prettyCallStack callStack
+
 -- -------------------------------------------------------------------------- --
 -- Test Table
 
@@ -70,11 +81,13 @@ intTable db tableName = newTable db intCodec intCodec [tableName]
 
 assertEmptyTable :: HasCallStack => RocksDbTable Int Int -> IO ()
 assertEmptyTable t = do
+    assertNoThunks t
     assertIO (tableLookup t 1) Nothing
     assertEntries t []
 
 assertEntries :: HasCallStack => RocksDbTable Int Int -> [(Int, Int)] -> IO ()
 assertEntries t l_ = do
+    assertNoThunks t
     forM_ l $ \(k,v) ->
         assertIO (tableLookup t k) (Just v)
 
@@ -109,6 +122,7 @@ assertEntries t l_ = do
 
 tableTests :: HasCallStack => RocksDb -> B8.ByteString -> IO ()
 tableTests db tableName = do
+    assertNoThunks t
     assertEmptyTable t
 
     tableInsert t 1 8
@@ -126,10 +140,11 @@ tableTests db tableName = do
     tableDelete t 2
     assertEmptyTable t
   where
-    t = intTable db tableName
+    !t = intTable db tableName
 
 tableBatchTests :: HasCallStack => RocksDb -> B8.ByteString -> IO ()
 tableBatchTests db tableName = do
+    assertNoThunks t
     assertEmptyTable t
 
     updateBatch []
@@ -263,7 +278,9 @@ casTests db tableName = do
     t = intTable db tableName
 
 assertCasEntries :: HasCallStack => RocksDbTable Int Int -> [Int] -> IO ()
-assertCasEntries t = assertEntries t . fmap (\x -> (casKey x, x))
+assertCasEntries t l = do
+    assertNoThunks t
+    assertEntries t $ (\x -> (casKey x, x)) <$> l
 
 -- -------------------------------------------------------------------------- --
 -- Main

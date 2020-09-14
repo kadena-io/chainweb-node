@@ -45,6 +45,7 @@ library
         , hashable >=1.2
         , lens >=4.16
         , memory >=0.14
+        , nothunks >= 0.1.0.0
         , rocksdb-haskell >=1.0.1
         , stm >=2.4
         , streaming >=0.2
@@ -74,6 +75,7 @@ test-suite rocksdb-tests
         , bytestring >=0.10
         , exceptions >=0.10
         , lens >=4.16
+        , nothunks >= 0.1.0.0
         , vector >=0.12
 
 executable dedup-profiling
