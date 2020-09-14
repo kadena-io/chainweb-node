@@ -13,7 +13,6 @@ module Chainweb.Test.Rosetta
   ) where
 
 import Control.Monad (foldM, void)
-import Control.Monad.Trans.Except
 import Data.Aeson
 import Data.Decimal
 import Data.Map (Map)
@@ -378,7 +377,7 @@ checkValidateNetwork = do
     (run invalidChainId) (Left RosettaInvalidChain)
   where
     run :: (ChainwebVersion, NetworkId) -> Either RosettaFailure T.Text
-    run (v,net) = runExceptT (validateNetwork v net) >>= either Left (pure . chainIdToText)
+    run (v,net) = either Left (pure . chainIdToText) (validateNetwork v net)
 
     validNetId = (Development, NetworkId
       { _networkId_blockchain = "kadena"

@@ -101,8 +101,8 @@ transactionMetaData cid cr = case (_crContinuation cr) of
   Just pe -> TransactionMetaData $ Just (toContMeta cid pe)
 
 
--- | Adds more transparency into continuation transactions.
---
+-- | Adds more transparency into a continuation transaction
+-- that was just executed.
 data ContinuationMetaData = ContinuationMetaData
   { _continuationMetaData_currStep :: !ContinuationCurrStep
   -- ^ Information on the current step in the continuation.
@@ -137,7 +137,7 @@ toContMeta cid pe = ContinuationMetaData
   }
 
 
--- | Provides information on the step that was just executed.
+-- | Provides information on the continuation step that was just executed.
 data ContinuationCurrStep = ContinuationCurrStep
   { _continuationCurrStep_chainId :: !T.Text
   -- ^ Chain id where step was executed
@@ -193,55 +193,176 @@ toContNextStep currChainId pe
     isLastStep = (succ $ P._peStep pe) == (P._peStepCount pe)
 
 --------------------------------------------------------------------------------
--- Rosetta ConstructionAPI Types --
+-- Rosetta ConstructionAPI Types and Helper Functions --
 --------------------------------------------------------------------------------
 
-data ConstructionTxType =
+data CrossChainTxMetaData =
+    StartCrossChainTx
+      { _startCrossChainTx_to :: !T.Text
+      , _startCrossChainTx_toGuard :: !P.KeySet
+      , _startCrossChainTx_targetChain :: !P.ChainId
+      }
+  | FinishCrossChainTx
+      { _finishCrossChainTx_sourceChain :: !P.ChainId
+      , _finishCrossChainTx_pactId :: !P.PactId
+      }
+  deriving (Show, Eq)
+instance FromJSON CrossChainTxMetaData where
+  parseJSON = undefined
+
+data ConstructionPreprocessReqMetaData = ConstructionPreprocessReqMetaData
+  { _constructionPreprocessReqMetaData_crossChainTxMetaData :: !(Maybe CrossChainTxMetaData)
+  , _constructionPreprocessReqMetaData_gasPayer :: !AccountId
+  , _constructionPreprocessReqMetaData_nonce :: !(Maybe T.Text)
+  } deriving (Show, Eq)
+instance ToJSON ConstructionPreprocessReqMetaData where
+  toJSON = undefined
+instance FromJSON ConstructionPreprocessReqMetaData where
+  parseJSON = undefined
+
+data ConstructionPreprocessRespMetaData = ConstructionPreprocessRespMetaData
+  { _constructionPreprocessRespMetaData_preprocessMetaData :: ConstructionPreprocessReqMetaData
+  , _constructionPreprocessRespMetaData_tx :: ConstructionTx
+  , _constructionPreprocessRespMetaData_suggestedFee :: Amount
+  , _constructionPreprocessRespMetaData_gasLimit :: P.GasLimit
+  , _constructionPreprocessRespMetaData_gasPrice :: P.GasPrice
+  } deriving (Show, Eq)
+instance ToObject ConstructionPreprocessRespMetaData where
+  toPairs = undefined
+  toObject m = HM.fromList (toPairs m)
+instance FromJSON ConstructionPreprocessRespMetaData where
+  parseJSON = undefined
+
+
+-- | NOTE: if finish cross chain, don't have notion of proof at this moment.
+parseOps
+    :: NetworkId
+    -> Maybe CrossChainTxMetaData
+    -> [Operation]
+    -> Either RosettaError ConstructionTx
+parseOps = undefined
+
+constructionTxToOps :: ConstructionTx -> [Operation]
+constructionTxToOps = undefined
+
+getSuggestedFee
+    :: ConstructionTx
+    -> Maybe [Amount]
+    -> Maybe Double
+    -> (P.GasLimit, P.GasPrice, Amount)
+getSuggestedFee _tx _someMaxFee _someMult = undefined
+
+
+-- | The different types of pact coin-contract transactions allowed in
+-- Construction API. Used in the response of both /preprocess and /metadata endpoints.
+-- NOTE: Only KeySet guards are considered for simplicity.
+data ConstructionTx =
     ConstructTransfer
       { _constructTransfer_from :: !T.Text
+      , _constructTransfer_fromGuard :: !P.KeySet
       , _constructTransfer_to :: !T.Text
-      , _constructTransfer_toGuard :: !P.PactGuard
+      , _constructTransfer_toGuard :: !P.KeySet
       , _constructTransfer_amount :: !Decimal
       }
   | ConstructAcctCreate
       { _constructAcctCreate_acctName :: !T.Text
-      , _constructAcctCreate_acctGuard :: !P.KeySet  -- can be expanded to other guards later
+      , _constructAcctCreate_acctGuard :: !P.KeySet
       }
   | ConstructStartCrossChain
       { _constructStartCrossChain_from :: !T.Text
+      , _constructStartCrossChain_fromGuard :: !P.KeySet
       , _constructStartCrossChain_to :: !T.Text
-      , _constructStartCrossChain_toGuard :: !P.PactGuard
+      , _constructStartCrossChain_toGuard :: !P.KeySet
       , _constructStartCrossChain_amount :: !Decimal
       , _constructStartCrossChain_targetChain :: !P.ChainId
       }
   | ConstructFinishCrossChain
-      { _constructFinishCrossChain_pactId :: !P.PactId
-      , _constructFinishCrossChain_proof :: !T.Text
+      { _constructFinishCrossChain_to :: !T.Text
+      , _constructFinishCrossChain_toGuard :: !P.KeySet
+      , _constructFinishCrossChain_amount :: !Decimal
+      , _constructFinishCrossChain_pactId :: !P.PactId
+      , _constructFinishCrossChain_sourceChain :: !P.ChainId
+      , _constructFinishCrossChain_proof :: !(Maybe T.Text)
+      -- ^ Retrieved during /metadata endpoint only
       }
+  deriving (Show, Eq)
+
+constructionTxToPactRPC :: ConstructionTx -> P.PactRPC T.Text
+constructionTxToPactRPC = undefined
+
+pactRPCToConstructionTx
+    :: P.PactRPC T.Text
+    -> Either RosettaError ConstructionTx
+pactRPCToConstructionTx = undefined
+
+
+txWithSPVProofIfNeeded :: ConstructionTx -> IO (Either RosettaError ConstructionTx)
+txWithSPVProofIfNeeded (ConstructFinishCrossChain _ _ _ _ _ _) = undefined
+txWithSPVProofIfNeeded tx = pure $ pure tx
+
+
+getCmdNonce :: Maybe T.Text -> T.Text
+getCmdNonce _someUserNonce = undefined
+
+
+createCmdPublicMeta
+    :: ChainId
+    -> AccountId
+    -> P.GasLimit
+    -> P.GasPrice
+    -> P.PublicMeta
+createCmdPublicMeta = undefined
+
 
 data ConstructionPayloadsReqMetaData = ConstructionPayloadsReqMetaData
   { _constructionPayloadsReqMetaData_signers :: ![Signer]
   , _constructionPayloadsReqMetaData_nonce :: !T.Text
   , _constructionPayloadsReqMetaData_publicMeta :: !P.PublicMeta
-  , _constructionPayloadsReqMetaData_txType :: !ConstructionTxType
+  , _constructionPayloadsReqMetaData_tx :: !ConstructionTx
+  }
+instance ToObject ConstructionPayloadsReqMetaData where
+  toPairs = undefined   -- TODO: returned by /metadata endpoint
+  toObject m = HM.fromList (toPairs m)
+instance FromJSON ConstructionPayloadsReqMetaData where
+  parseJSON = undefined
+
+
+data EnrichedCommand = EnrichedCommand
+  { _enrichedUnsignedCommand_cmd :: !(Command T.Text)
+  , _enrichedUnsignedCommand_txInfo :: !ConstructionTx
   }
 
-createUnsignedCmd :: ConstructionPayloadsReqMetaData -> Command T.Text
-createUnsignedCmd req = Command encodedPayloadT [] hsh
+instance ToJSON EnrichedCommand where
+  toJSON = undefined
+instance FromJSON EnrichedCommand where
+  parseJSON = undefined
+
+enrichedCommandToText :: EnrichedCommand -> T.Text
+enrichedCommandToText = T.decodeUtf8 . BSL.toStrict . encode
+
+textToEnrichedCommand :: T.Text -> Maybe EnrichedCommand
+textToEnrichedCommand = decodeStrict' . T.encodeUtf8
+
+
+-- TODO: IMPORTANT! Take not of what information gets left out when RPC constructed.
+createUnsignedCmd :: ConstructionPayloadsReqMetaData -> EnrichedCommand
+createUnsignedCmd req = EnrichedCommand cmd txInfo
   where
+    cmd = Command encodedPayloadT [] hsh
+    txInfo = _constructionPayloadsReqMetaData_tx req
+    
     hsh = P.hash encodedPayload
     encodedPayloadT = T.decodeUtf8 $! encodedPayload
     encodedPayload = BSL.toStrict $ encode (createPayload pactRPC)
     
     createPayload :: P.PactRPC T.Text -> Payload P.PublicMeta T.Text
     createPayload rpc = undefined
-    
-    pactRPC :: P.PactRPC T.Text
-    pactRPC = undefined
+
+    pactRPC = constructionTxToPactRPC $ _constructionPayloadsReqMetaData_tx req
 
 
-createSigningPayloads :: Command T.Text -> [Signer] -> [RosettaSigningPayload]
-createSigningPayloads cmd pactSigners = map f pactSigners
+createSigningPayloads :: EnrichedCommand -> [Signer] -> [RosettaSigningPayload]
+createSigningPayloads (EnrichedCommand cmd _) pactSigners = map f pactSigners
   where f signer = RosettaSigningPayload
           { _rosettaSigningPayload_address = _siPubKey signer -- TODO: FIX!! Depending on rosetta feedback 
           , _rosettaSigningPayload_hexBytes = _cmdPayload cmd
@@ -472,14 +593,80 @@ kdaToRosettaAmount k = Amount (sshow amount) currency Nothing
 
 
 --------------------------------------------------------------------------------
+-- Rosetta Exceptions --
+--------------------------------------------------------------------------------
+
+data RosettaFailure
+    = RosettaChainUnspecified
+    | RosettaInvalidChain
+    | RosettaMempoolBadTx
+    | RosettaUnparsableTx
+    | RosettaInvalidTx
+    | RosettaInvalidBlockchainName
+    | RosettaMismatchNetworkName
+    | RosettaPactExceptionThrown
+    | RosettaExpectedBalDecimal
+    | RosettaInvalidResultMetaData
+    | RosettaSubAcctUnsupported
+    | RosettaMismatchTxLogs
+    | RosettaUnparsableTxLog
+    | RosettaInvalidBlockHeight
+    | RosettaBlockHashNotFound
+    | RosettaUnparsableBlockHash
+    | RosettaOrphanBlockHash
+    | RosettaMismatchBlockHashHeight
+    | RosettaPayloadNotFound
+    | RosettaUnparsableTxOut
+    | RosettaTxIdNotFound
+    | RosettaUnparsableTransactionId
+    | RosettaInvalidAccountKey
+    | RosettaConstructionDeriveNotSupported
+    | RosettaUnparsableMetaData
+    | RosettaMissingMetaData
+    deriving (Show, Enum, Bounded, Eq)
+
+
+-- TODO: Better grouping of rosetta error index?
+rosettaError :: RosettaFailure -> Maybe Object -> RosettaError
+rosettaError RosettaChainUnspecified = RosettaError 0 "No SubNetwork (chain) specified" False
+rosettaError RosettaInvalidChain = RosettaError 1 "Invalid SubNetwork (chain) value" False
+rosettaError RosettaMempoolBadTx = RosettaError 2 "Transaction not present in mempool" False
+rosettaError RosettaUnparsableTx = RosettaError 3 "Transaction not parsable" False
+rosettaError RosettaInvalidTx = RosettaError 4 "Invalid transaction" False
+rosettaError RosettaInvalidBlockchainName = RosettaError 5 "Invalid blockchain name" False
+rosettaError RosettaMismatchNetworkName = RosettaError 6 "Invalid Chainweb network name" False
+rosettaError RosettaPactExceptionThrown =
+  RosettaError 7 "A pact exception was thrown" False
+rosettaError RosettaExpectedBalDecimal = RosettaError 8 "Expected balance as a decimal" False
+rosettaError RosettaInvalidResultMetaData = RosettaError 9 "Invalid meta data field in command result" False
+rosettaError RosettaSubAcctUnsupported = RosettaError 10 "Sub account identifier is not supported" False
+rosettaError RosettaMismatchTxLogs =
+  RosettaError 11 "Unable to match transactions to transaction logs as expected" False
+rosettaError RosettaUnparsableTxLog = RosettaError 12 "TxLogs not parsable" False
+rosettaError RosettaInvalidBlockHeight = RosettaError 13 "Invalid block height" False -- TODO if retry could succeed
+rosettaError RosettaBlockHashNotFound = RosettaError 14 "Block hash was not found" False
+rosettaError RosettaUnparsableBlockHash = RosettaError 15 "Block hash not parsable" False
+rosettaError RosettaOrphanBlockHash = RosettaError 16 "Block hash not in the latest fork" False
+rosettaError RosettaMismatchBlockHashHeight = RosettaError 17 "Block hash and block height did not match" False
+rosettaError RosettaPayloadNotFound = RosettaError 18 "Block payload not found" False
+rosettaError RosettaUnparsableTxOut = RosettaError 19 "Transaction output not parsable" False
+rosettaError RosettaTxIdNotFound = RosettaError 20 "Transaction Id not found in block" False
+rosettaError RosettaUnparsableTransactionId = RosettaError 21 "Transaction Id not parsable" False
+rosettaError RosettaInvalidAccountKey = RosettaError 22 "Invalid AccountId address" False
+rosettaError RosettaConstructionDeriveNotSupported = RosettaError 23 "/construction/derive not supported" False
+rosettaError RosettaUnparsableMetaData = RosettaError 24 "Unparsable metadata field" False
+rosettaError RosettaMissingMetaData = RosettaError 25 "Required metadata field is missing" False
+
+--------------------------------------------------------------------------------
 -- Misc Helper Functions --
 --------------------------------------------------------------------------------
 
-fromCommand :: Command T.Text -> T.Text
-fromCommand = T.decodeUtf8 . BSL.toStrict . encode
+extractMetaData :: (FromJSON a) => Object -> Either RosettaError a
+extractMetaData = (annotate toRosettaError) . noteResult . fromJSON . Object
+  where
+    toRosettaError s = rosettaError RosettaUnparsableMetaData
+                       (Just $ HM.fromList [ "parsing_error_message" .= s ])
 
-command :: T.Text -> Maybe (Command T.Text)
-command = decodeStrict' . T.encodeUtf8
 
 -- | Guarantees that the `ChainId` given actually belongs to this
 -- `ChainwebVersion`. This doesn't guarantee that the chain is active.
@@ -526,6 +713,14 @@ txLogToAccountRow _ = Nothing
 hushResult :: Result a -> Maybe a
 hushResult (Success w) = Just w
 hushResult (Error _) = Nothing
+
+noteResult :: Result a -> Either String a
+noteResult (Success w) = Right w
+noteResult (Error e) = Left e
+
+annotate :: (a -> c) -> Either a b -> Either c b
+annotate f (Left err) = Left $ f err
+annotate _ (Right r) = Right r
 
 overwriteError :: a -> Either b c -> Either a c
 overwriteError e (Left _) = Left e

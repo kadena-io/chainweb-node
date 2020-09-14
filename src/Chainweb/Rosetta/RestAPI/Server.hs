@@ -134,7 +134,7 @@ accountBalanceH v cutDb crs (AccountBalanceReq net (AccountId acct _ _) pbid) = 
 
     work :: ExceptT RosettaFailure Handler AccountBalanceResp
     work = do
-      cid <- validateNetwork v net
+      cid <- hoistEither $ validateNetwork v net
       cr <- lookup cid crs ?? RosettaInvalidChain
       bh <- findBlockHeaderInCurrFork cutDb cid
         (get _partialBlockId_index pbid) (get _partialBlockId_hash pbid)
@@ -170,7 +170,7 @@ blockH v cutDb ps crs (BlockReq net (PartialBlockId bheight bhash)) =
 
     work :: ExceptT RosettaFailure Handler BlockResp
     work = do
-      cid <- validateNetwork v net
+      cid <- hoistEither $ validateNetwork v net
       cr <- lookup cid crs ?? RosettaInvalidChain
       payloadDb <- lookup cid ps ?? RosettaInvalidChain
       bh <- findBlockHeaderInCurrFork cutDb cid bheight bhash
@@ -199,7 +199,7 @@ blockTransactionH v cutDb ps crs (BlockTransactionReq net bid t) = do
 
     work :: ExceptT RosettaFailure Handler BlockTransactionResp
     work = do
-      cid <- validateNetwork v net
+      cid <- hoistEither $ validateNetwork v net
       cr <- lookup cid crs ?? RosettaInvalidChain
       payloadDb <- lookup cid ps ?? RosettaInvalidChain
       bh <- findBlockHeaderInCurrFork cutDb cid (Just bheight) (Just bhash)
@@ -213,7 +213,8 @@ blockTransactionH v cutDb ps crs (BlockTransactionReq net bid t) = do
 
 --------------------------------------------------------------------------------
 -- Construction Handlers
-
+-- NOTE: all Construction API endpoints except /metadata and /submit must
+-- operate in "offline" mode.
 
 constructionDeriveH
     :: ChainwebVersion
@@ -224,27 +225,64 @@ constructionDeriveH _ _ =
    -- an account should not implement this method
   throwRosetta RosettaConstructionDeriveNotSupported
 
+
 constructionPreprocessH
     :: ChainwebVersion
     -> ConstructionPreprocessReq
     -> Handler ConstructionPreprocessResp
-constructionPreprocessH _ _ =
-  -- NOTE: If it is not necessary to make a request to
-  -- /construction/metadata, options should be null.
-  pure $ ConstructionPreprocessResp Nothing
+constructionPreprocessH v req = do
+    either throwRosetta pure (void $ validateNetwork v net)
+    either throwRosettaError pure work
+  where
+    ConstructionPreprocessReq net ops someMeta someMaxFee someMult = req
+    xchainMeta = _constructionPreprocessReqMetaData_crossChainTxMetaData
+    
+    work :: Either RosettaError ConstructionPreprocessResp
+    work = do
+      meta <- note (rosettaError RosettaMissingMetaData Nothing) someMeta
+      parsedMeta <- extractMetaData meta
+      tx <- parseOps net (xchainMeta parsedMeta) ops
+      let (gasLimit, gasPrice, fee) = getSuggestedFee tx someMaxFee someMult
+          respMeta = toObject $ ConstructionPreprocessRespMetaData
+            { _constructionPreprocessRespMetaData_preprocessMetaData = parsedMeta
+            , _constructionPreprocessRespMetaData_tx = tx
+            , _constructionPreprocessRespMetaData_suggestedFee = fee
+            , _constructionPreprocessRespMetaData_gasLimit = gasLimit
+            , _constructionPreprocessRespMetaData_gasPrice = gasPrice
+            }
+      pure $ ConstructionPreprocessResp (Just respMeta)
+
 
 constructionMetadataH
     :: ChainwebVersion
     -> ConstructionMetadataReq
     -> Handler ConstructionMetadataResp
-constructionMetadataH v (ConstructionMetadataReq net _) =
-    runExceptT work >>= either throwRosetta pure
+constructionMetadataH v (ConstructionMetadataReq net opts) =
+    runExceptT work >>= either throwRosettaError pure
   where
-    -- TODO: Extend as necessary.
-    work :: ExceptT RosettaFailure Handler ConstructionMetadataResp
+    validateNetwork' = annotate (\f -> rosettaError f Nothing)
+                       (validateNetwork v net)
+    
+    work :: ExceptT RosettaError Handler ConstructionMetadataResp
     work = do
-        void $ validateNetwork v net
-        pure $ ConstructionMetadataResp HM.empty Nothing
+      cid <- hoistEither validateNetwork'
+      (ConstructionPreprocessRespMetaData meta tx fee gasLimit gasPrice) <-
+        hoistEither $ extractMetaData opts
+      let (ConstructionPreprocessReqMetaData xchainMeta payer someNonce) = meta
+
+      tx' <- (liftIO $ txWithSPVProofIfNeeded tx) >>= hoistEither
+          
+      
+      let pubMeta = createCmdPublicMeta cid payer gasLimit gasPrice
+          nonce = getCmdNonce someNonce
+          payloadMeta = ConstructionPayloadsReqMetaData
+            { _constructionPayloadsReqMetaData_signers = undefined -- :: ![Signer]
+            , _constructionPayloadsReqMetaData_nonce = nonce
+            , _constructionPayloadsReqMetaData_publicMeta = pubMeta
+            , _constructionPayloadsReqMetaData_tx = tx'
+            }
+      
+      pure $ ConstructionMetadataResp HM.empty (Just [fee])
 
 constructionPayloadsH
     :: ChainwebVersion
@@ -253,14 +291,14 @@ constructionPayloadsH
 constructionPayloadsH = undefined
   where
     resp parsedMeta = ConstructionPayloadsResp
-      { _constructionPayloadsResp_unsignedTransaction = encodedUnsignedCmd
+      { _constructionPayloadsResp_unsignedTransaction = encodedEnrichedUnsignedCmd
       , _constructionPayloadsResp_payloads = rosettaSignPayloads
       }
       where
         signers = _constructionPayloadsReqMetaData_signers parsedMeta
-        rosettaSignPayloads = createSigningPayloads unsignedCmd signers
-        unsignedCmd = createUnsignedCmd parsedMeta
-        encodedUnsignedCmd = fromCommand $! unsignedCmd
+        rosettaSignPayloads = createSigningPayloads enrichedUnsignedCmd signers
+        enrichedUnsignedCmd = createUnsignedCmd parsedMeta
+        encodedEnrichedUnsignedCmd = enrichedCommandToText $! enrichedUnsignedCmd
 
 constructionParseH
     :: ChainwebVersion
@@ -276,14 +314,16 @@ constructionCombineH (ConstructionCombineReq _ unsignedTx sigs) =
   where
     work :: ExceptT RosettaFailure Handler ConstructionCombineResp
     work = do
-      unsignedCmd <- command unsignedTx ?? RosettaUnparsableTx
+      (EnrichedCommand unsignedCmd meta) <- textToEnrichedCommand unsignedTx ?? RosettaUnparsableTx
       let userSigs = map (UserSig . _rosettaSignature_hexBytes) sigs
           signedCmd = unsignedCmd { _cmdSigs = userSigs }
-          -- ^ Assumes list of signatures are in correct order to match
-          --   their respective Signers in the signed payload.
-          --   No rearrangement of signatures done.
-          --   No validity checks run.
-          signedTx = fromCommand signedCmd
+          --  Assumes list of signatures are in correct order to match
+          --  their respective Signers in the signed payload.
+          --  No rearrangement of signatures done.
+          --  No validity checks run.
+          -- TOOD: Add check to put sigs in correct order.
+          -- TODO: check public keys signing type?
+          signedTx = enrichedCommandToText (EnrichedCommand signedCmd meta)
       pure $ ConstructionCombineResp signedTx
 
 constructionHashH
@@ -294,7 +334,7 @@ constructionHashH (ConstructionHashReq _ signedTx) =
   where
     work :: ExceptT RosettaFailure Handler TransactionIdResp
     work = do
-      cmd <- command signedTx ?? RosettaUnparsableTx
+      (EnrichedCommand cmd _) <- textToEnrichedCommand signedTx ?? RosettaUnparsableTx
       pure $ TransactionIdResp (cmdToTransactionId cmd) Nothing
 
 constructionSubmitH
@@ -307,8 +347,8 @@ constructionSubmitH v ms (ConstructionSubmitReq net tx) =
   where
     work :: ExceptT RosettaFailure Handler TransactionIdResp
     work = do
-        cid <- validateNetwork v net
-        cmd <- command tx ?? RosettaUnparsableTx
+        cid <- hoistEither $ validateNetwork v net
+        (EnrichedCommand cmd _) <- textToEnrichedCommand tx ?? RosettaUnparsableTx
         validated <- hoistEither . first (const RosettaInvalidTx) $ validateCommand cmd
         mp <- lookup cid ms ?? RosettaInvalidChain
         let !vec = V.singleton validated
@@ -332,7 +372,7 @@ mempoolH v ms (NetworkReq net _) = work >>= \case
     f !h = TransactionId $ toText h
 
     work = runExceptT $! do
-        cid <- validateNetwork v net
+        cid <- hoistEither $ validateNetwork v net
         mp <- lookup cid ms ?? RosettaInvalidChain
         r <- liftIO $ newIORef mempty
         -- TODO: This will need to be revisited once we can add
@@ -365,7 +405,7 @@ mempoolTransactionH v ms mtr = runExceptT work >>= either throwRosetta pure
 
     work :: ExceptT RosettaFailure Handler MempoolTransactionResp
     work = do
-        cid <- validateNetwork v net
+        cid <- hoistEither $ validateNetwork v net
         mp <- lookup cid ms ?? RosettaInvalidChain
         th <- (hush $ fromText ti) ?? RosettaUnparsableTransactionId
         lrs <- liftIO . mempoolLookup mp $ V.singleton th
@@ -399,7 +439,7 @@ networkOptionsH v (NetworkReq nid _) = runExceptT work >>= either throwRosetta p
   where
     work :: ExceptT RosettaFailure Handler NetworkOptionsResp
     work = do
-        void $ validateNetwork v nid
+        void $ hoistEither $ validateNetwork v nid
         pure $ NetworkOptionsResp version allow
 
     version = RosettaNodeVersion
@@ -446,7 +486,7 @@ networkStatusH v cutDb peerDb (NetworkReq nid _) =
   where
     work :: ExceptT RosettaFailure Handler NetworkStatusResp
     work = do
-        cid <- validateNetwork v nid
+        cid <- hoistEither $ validateNetwork v nid
         bh <- getLatestBlockHeader cutDb cid
         let genesisBh = genesisBlockHeader v cid
         peers <- lift $ _pageItems <$>

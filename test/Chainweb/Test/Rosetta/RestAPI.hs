@@ -43,7 +43,6 @@ import Pact.Types.Command
 import Chainweb.Graph
 import Chainweb.Pact.Utils (aeson)
 import Chainweb.Pact.Transactions.UpgradeTransactions
-import Chainweb.Rosetta.RestAPI
 import Chainweb.Rosetta.Utils
 import Chainweb.Test.Pact.Utils
 import Chainweb.Test.RestAPI.Utils
