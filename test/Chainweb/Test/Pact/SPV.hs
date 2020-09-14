@@ -4,7 +4,6 @@
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE QuasiQuotes #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
@@ -43,11 +42,10 @@ import Data.IORef
 import Data.List (isInfixOf)
 import Data.Text (pack,Text)
 import qualified Data.Text.IO as T
+import qualified Data.Text as T
 import Data.Vector (Vector)
 import qualified Data.Vector as Vector
 import Data.Word
-
-import NeatInterpolation (text)
 
 import System.LogLevel
 
@@ -304,15 +302,14 @@ burnGen time pidv sid tid = do
 
 
 
-    tx1Code =
-      [text|
-        (coin.transfer-crosschain
-          'sender00
-          'sender01
-          (read-keyset 'sender01-keyset)
-          (read-msg 'target-chain-id)
-          1.0)
-        |]
+    tx1Code = T.unlines
+      [ "(coin.transfer-crosschain"
+      , "  'sender00"
+      , "  'sender01"
+      , "  (read-keyset 'sender01-keyset)"
+      , "  (read-msg 'target-chain-id)"
+      , "  1.0)"
+      ]
 
     tx1Data =
       -- sender01 keyset guard
