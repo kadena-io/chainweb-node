@@ -1,8 +1,10 @@
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveFunctor #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DerivingStrategies #-}
+{-# LANGUAGE DerivingVia #-}
 {-# LANGUAGE ExistentialQuantification #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
@@ -115,6 +117,8 @@ import qualified Database.RocksDB.Iterator as I
 import GHC.Generics (Generic)
 import GHC.Stack
 
+import NoThunks.Class
+
 import qualified Streaming.Prelude as S
 
 import System.IO.Temp
@@ -127,12 +131,14 @@ import System.IO.Temp
 --
 newtype Expected a = Expected { getExpected :: a }
     deriving (Show, Eq, Ord, Generic, Functor)
+    deriving newtype (NoThunks)
 
 -- | A newtype wrapper for tagger values as "actual" outcomes of some
 -- computation.
 --
 newtype Actual a = Actual { getActual :: a }
     deriving (Show, Eq, Ord, Generic, Functor)
+    deriving newtype (NoThunks)
 
 -- | A textual message that describes the 'Expected' and the 'Actual' outcome of
 -- some computation.
@@ -159,6 +165,15 @@ data RocksDb = RocksDb
     { _rocksDbHandle :: !R.DB
     , _rocksDbNamespace :: !B.ByteString
     }
+
+instance NoThunks RocksDb where
+    wNoThunks ctx (RocksDb a b) = allNoThunks
+        [ noThunks ctx (InspectHeapNamed @"Data.RocksDB.Base.DB" a)
+        , noThunks ctx b
+        ]
+    showTypeOf _ = "Data.CAS.RocksDB.RocksDb"
+    {-# INLINE wNoThunks #-}
+    {-# INLINE showTypeOf #-}
 
 makeLenses ''RocksDb
 
@@ -244,6 +259,16 @@ data Codec a = Codec
         -- ^ decode a value. Throws an exception of decoding fails.
     }
 
+instance NoThunks (Codec a) where
+    wNoThunks c (Codec a _) = allNoThunks
+        [ noThunks c a
+          -- _codecDecode is existentially quantified and the instance dictionary
+          -- reference is a thunk, even thought the field is strict
+        ]
+    showTypeOf _ = "Data.CAS.RocksDB.Codec"
+    {-# INLINE wNoThunks #-}
+    {-# INLINE showTypeOf #-}
+
 -- | A logical table in a 'RocksDb'. Tables in a rocks db are have isolated key
 -- namespaces.
 --
@@ -253,6 +278,17 @@ data RocksDbTable k v = RocksDbTable
     , _rocksDbTableName :: !B.ByteString
     , _rocksDbTableDb :: !R.DB
     }
+
+instance NoThunks (RocksDbTable k v) where
+    wNoThunks ctx (RocksDbTable a b c d) = allNoThunks
+        [ noThunks ctx a
+        , noThunks ctx b
+        , noThunks ctx c
+        , noThunks ctx (InspectHeapNamed @"Data.RocksDB.Base.DB" d)
+        ]
+    showTypeOf _ = "Data.CAS.RocksDB.RocksDbTable"
+    {-# INLINE wNoThunks #-}
+    {-# INLINE showTypeOf #-}
 
 -- | Create a new 'RocksDbTable' in the given 'RocksDb'.
 --
@@ -365,6 +401,17 @@ data RocksDbTableIter k v = RocksDbTableIter
     , _rocksDbTableIterNamespace :: !B.ByteString
     , _rocksDbTableIter :: !I.Iterator
     }
+
+instance NoThunks (RocksDbTableIter k v) where
+    wNoThunks ctx (RocksDbTableIter a b c d) = allNoThunks
+        [ noThunks ctx a
+        , noThunks ctx b
+        , noThunks ctx c
+        , noThunks ctx (InspectHeapNamed @"Data.RocksDB.Iterator.Iterator" d)
+        ]
+    showTypeOf _ = "Data.CAS.RocksDB.RocksDbTableIterator"
+    {-# INLINE wNoThunks #-}
+    {-# INLINE showTypeOf #-}
 
 -- | Creates a 'RocksDbTableIterator'. If the 'RocksDbTable' is not empty, the
 -- iterator is pointing to the first key in the 'RocksDbTable' and is valid.
@@ -599,6 +646,7 @@ instance (IsCasValue v, CasKeyType v ~ k) => IsCas (RocksDbTable k v) where
 -- fully applied.
 --
 newtype RocksDbCas v = RocksDbCas { _getRocksDbCas :: RocksDbTable (CasKeyType v) v }
+    deriving newtype (NoThunks)
 
 instance IsCasValue v => HasCasLookup (RocksDbCas v) where
     type CasValueType (RocksDbCas v) = v
@@ -635,7 +683,7 @@ newCas db vc kc n = RocksDbCas $ newTable db vc kc n
 --
 data RocksDbException
     = RocksDbTableIterInvalidKeyNamespace (Expected B.ByteString) (Actual B.ByteString)
-    deriving (Eq, Ord, Generic)
+    deriving (Eq, Ord, Generic, NoThunks)
 
 instance Exception RocksDbException where
     displayException (RocksDbTableIterInvalidKeyNamespace e a)
