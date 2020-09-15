@@ -31,6 +31,3 @@ source-repository-package
 package vault
     documentation: false
 
-constraints:
-    sbv <= 8.7,
-    megaparsec < 9
