@@ -380,6 +380,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix: ${{ fromJson(needs.config.outputs.matrix) }}
+    if: ! cointains(matrix.os, 'macOS')
     env:
       TEST_RESULT_FILE: test-results.${{ github.run_id }}.${{ github.run_number }}.json
       TEST_RESULT_BUCKET: kadena-cabal-cache
