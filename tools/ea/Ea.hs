@@ -170,38 +170,39 @@ genPayloadModule' v tag cwTxs =
                     execNewGenesisBlock noMiner (V.fromList cwTxs)
 
             let payloadYaml = TE.decodeUtf8 $ Yaml.encode payloadWO
-                modl = T.unlines $ startModule tag <> [payloadYaml] <> endModule
+
+                -- Encode yaml as list of Haskell string literals. The extra empty line
+                -- at the end is for backward compatibility.
+                payloadHaskell
+                    = "    [ "
+                    <> (T.intercalate "\n    , " $ quoted <$> (T.lines payloadYaml <> [""]))
+                    <> "\n    ]"
+                modl = T.unlines $ startModule tag <> [payloadHaskell]
                 fileName = "src/Chainweb/BlockHeader/Genesis/" <> tag <> "Payload.hs"
 
             TIO.writeFile (T.unpack fileName) modl
   where
     cid = someChainId v
+    quoted t = "\"" <> t <> "\""
 
 
 startModule :: Text -> [Text]
 startModule tag =
     [ "{-# LANGUAGE OverloadedStrings #-}"
-    , "{-# LANGUAGE QuasiQuotes #-}"
     , ""
     , "-- This module is auto-generated. DO NOT EDIT IT MANUALLY."
     , ""
     , "module Chainweb.BlockHeader.Genesis." <> tag <> "Payload ( payloadBlock ) where"
     , ""
     , "import Data.Text.Encoding (encodeUtf8)"
+    , "import qualified Data.Text as T"
     , "import Data.Yaml (decodeThrow)"
-    , ""
-    , "import NeatInterpolation (text)"
     , ""
     , "import Chainweb.Payload (PayloadWithOutputs)"
     , "import Chainweb.Utils (fromJuste)"
     , ""
     , "payloadBlock :: PayloadWithOutputs"
-    , "payloadBlock = fromJuste $ decodeThrow $ encodeUtf8 [text|"
-    ]
-
-endModule :: [Text]
-endModule =
-    [ "|]"
+    , "payloadBlock = fromJuste $ decodeThrow $ encodeUtf8 $ T.unlines"
     ]
 
 mkTx :: FilePath -> IO (Command Text)
