@@ -380,7 +380,6 @@ jobs:
     strategy:
       fail-fast: false
       matrix: ${{ fromJson(needs.config.outputs.matrix) }}
-    if: "runner.os != 'macOS'"
     env:
       TEST_RESULT_FILE: test-results.${{ github.run_id }}.${{ github.run_number }}.json
       TEST_RESULT_BUCKET: kadena-cabal-cache
@@ -402,7 +401,11 @@ jobs:
       timeout-minutes: 10
       run: |
           ulimit -n 10000
-          chainweb-tests --hide-successes --results-json test-results.json
+          if [[ "${{ runner.os }}" = "macOS" ]] ; then
+            chainweb-tests --hide-successes --results-json test-results.json --pattern='! ( /RemotePactTest/ || /PactInProcApi/ || /PactReplay/ || /Rosetta.RestAPI/ )'
+          else
+            chainweb-tests --hide-successes --results-json test-results.json
+          if
 
     # Publish test results to S3
     - name: Upload test results
