@@ -364,7 +364,8 @@ createUnsignedCmd req = EnrichedCommand cmd txInfo
 createSigningPayloads :: EnrichedCommand -> [Signer] -> [RosettaSigningPayload]
 createSigningPayloads (EnrichedCommand cmd _) pactSigners = map f pactSigners
   where f signer = RosettaSigningPayload
-          { _rosettaSigningPayload_address = _siPubKey signer -- TODO: FIX!! Depending on rosetta feedback 
+          { _rosettaSigningPayload_address = Nothing
+          , _rosettaSigningPayload_accountIdentifier = undefined
           , _rosettaSigningPayload_hexBytes = _cmdPayload cmd
           , _rosettaSigningPayload_signatureType = Just RosettaEd25519
           }

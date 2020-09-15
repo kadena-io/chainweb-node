@@ -42,4 +42,4 @@ extra-deps:
   - github: kadena-io/chainweb-storage
     commit: 07e7eb7596c7105aee42dbdb6edd10e3f23c0d7e
   - github: kadena-io/rosetta
-    commit: 470166fd767ceea9ef577dfcbd6fa89f5dd0946c 
+    commit: 94ef4b82b685def8e8c677eb7d02447f2cdc5f37

@@ -250,14 +250,14 @@ constructionPreprocessH v req = do
             , _constructionPreprocessRespMetaData_gasLimit = gasLimit
             , _constructionPreprocessRespMetaData_gasPrice = gasPrice
             }
-      pure $ ConstructionPreprocessResp (Just respMeta)
+      pure $ ConstructionPreprocessResp (Just respMeta) undefined
 
 
 constructionMetadataH
     :: ChainwebVersion
     -> ConstructionMetadataReq
     -> Handler ConstructionMetadataResp
-constructionMetadataH v (ConstructionMetadataReq net opts) =
+constructionMetadataH v (ConstructionMetadataReq net opts _undefined) =
     runExceptT work >>= either throwRosettaError pure
   where
     validateNetwork' = annotate (\f -> rosettaError f Nothing)
