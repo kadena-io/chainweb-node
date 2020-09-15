@@ -14,8 +14,9 @@ maintainer: lars@kadena.io
 copyright: Copyright (c) 2019, Kadena LLC
 category: Data
 tested-with:
-      GHC==8.6.5
-    , GHC==8.4.4
+      GHC==8.10.2
+    , GHC==8.8.4
+    , GHC==8.6.5
 extra-source-files:
     README.md
     CHANGELOG.md
