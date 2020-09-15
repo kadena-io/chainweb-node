@@ -401,11 +401,13 @@ jobs:
       timeout-minutes: 10
       run: |
           ulimit -n 10000
+          ulimit -a
+          env
           if [[ "${{ runner.os }}" = "macOS" ]] ; then
             chainweb-tests --hide-successes --results-json test-results.json --pattern='! ( /RemotePactTest/ || /PactInProcApi/ || /PactReplay/ || /Rosetta.RestAPI/ )'
           else
             chainweb-tests --hide-successes --results-json test-results.json
-          if
+          fi
 
     # Publish test results to S3
     - name: Upload test results
