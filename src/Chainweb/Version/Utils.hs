@@ -419,7 +419,8 @@ expectedBlockCountAfterSeconds v cid s = max 0 (1 + (int s / int r) - int gh)
 -- expected number of mined blocks during a test accross all chains.
 --
 -- The sum of count for all chains is multiplied by 0.4 to compensate for the
--- fact that chains are blocked about 60% of the time on small graphs.
+-- fact that chains are blocked about 60% of the time on small graphs when used with
+-- chainweb versions with fixed expected solve times and no difficulty adjustment.
 --
 expectedGlobalBlockCountAfterSeconds
     :: HasCallStack
