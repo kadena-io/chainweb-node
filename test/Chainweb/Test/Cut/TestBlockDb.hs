@@ -1,3 +1,4 @@
+{-# LANGUAGE OverloadedStrings #-}
 -- |
 -- Module: Chainweb.Test.Cut.TestBlockDb
 -- Copyright: Copyright © 2020 Kadena LLC.
@@ -28,6 +29,7 @@ import Chainweb.BlockHeader
 import Chainweb.BlockHeaderDB
 import Chainweb.ChainId
 import Chainweb.Cut
+import Chainweb.Test.Utils (testRocksDb)
 import Chainweb.Test.Cut (GenBlockTime, testMine')
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
@@ -55,8 +57,9 @@ withTestBlockDb cv a = do
 -- | Initialize TestBlockDb.
 mkTestBlockDb :: ChainwebVersion -> RocksDb -> IO TestBlockDb
 mkTestBlockDb cv rdb = do
-    wdb <- initWebBlockHeaderDb rdb cv
-    let pdb = newPayloadDb rdb
+    testRdb <- testRocksDb "mkTestBlockDb" rdb
+    wdb <- initWebBlockHeaderDb testRdb cv
+    let pdb = newPayloadDb testRdb
     initializePayloadDb cv pdb
     initCut <- newMVar $ genesisCut cv
     return $! TestBlockDb wdb pdb initCut
