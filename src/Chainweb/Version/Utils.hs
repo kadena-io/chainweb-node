@@ -411,6 +411,8 @@ expectedBlockCountAfterSeconds
     -> Seconds
     -> Double
 expectedBlockCountAfterSeconds v cid s = max 0 (1 + (int s / int r) - int gh)
+    -- The `max 0` term is required for chains that were added during graph transitions 
+    -- and thus have `genesisHeight > 0`
   where
     BlockRate r = blockRate (_chainwebVersion v)
     gh = genesisHeight (_chainwebVersion v) (_chainId cid)
