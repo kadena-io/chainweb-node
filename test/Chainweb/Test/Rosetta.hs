@@ -408,7 +408,6 @@ checkUniqueRosettaErrorCodes = case repeated of
       if (S.member x acc)
       then (Left x)
       else (Right $ S.insert x acc)
-    rosettaError' err = rosettaError err Nothing
     errCodes = map (_error_code . rosettaError') [minBound .. maxBound]
 
 --------------------------------------------------------------------------------

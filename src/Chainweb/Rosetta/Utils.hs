@@ -287,14 +287,6 @@ data ConstructionTx =
       }
   deriving (Show, Eq)
 
-constructionTxToPactRPC :: ConstructionTx -> P.PactRPC T.Text
-constructionTxToPactRPC = undefined
-
-pactRPCToConstructionTx
-    :: P.PactRPC T.Text
-    -> Either RosettaError ConstructionTx
-pactRPCToConstructionTx = undefined
-
 
 txWithSPVProofIfNeeded :: ConstructionTx -> IO (Either RosettaError ConstructionTx)
 txWithSPVProofIfNeeded (ConstructFinishCrossChain _ _ _ _ _ _) = undefined
@@ -327,16 +319,6 @@ instance FromJSON ConstructionPayloadsReqMetaData where
   parseJSON = undefined
 
 
-data EnrichedCommand = EnrichedCommand
-  { _enrichedUnsignedCommand_cmd :: !(Command T.Text)
-  , _enrichedUnsignedCommand_txInfo :: !ConstructionTx
-  }
-
-instance ToJSON EnrichedCommand where
-  toJSON = undefined
-instance FromJSON EnrichedCommand where
-  parseJSON = undefined
-
 enrichedCommandToText :: EnrichedCommand -> T.Text
 enrichedCommandToText = T.decodeUtf8 . BSL.toStrict . encode
 
@@ -344,31 +326,109 @@ textToEnrichedCommand :: T.Text -> Maybe EnrichedCommand
 textToEnrichedCommand = decodeStrict' . T.encodeUtf8
 
 
--- TODO: IMPORTANT! Take not of what information gets left out when RPC constructed.
-createUnsignedCmd :: ConstructionPayloadsReqMetaData -> EnrichedCommand
-createUnsignedCmd req = EnrichedCommand cmd txInfo
+--------------------------------------------------------------------------------
+-- /payloads
+
+data PayloadsMetaData = PayloadsMetaData
+  { _payloadsMetaData_signers :: ![Signer]
+  , _payloadsMetaData_nonce :: !T.Text
+  , _payloadsMetaData_publicMeta :: !P.PublicMeta
+  , _payloadsMetaData_tx :: !ConstructionTx
+  , _payloadsMetaData_payerGuard :: !P.KeySet
+  }
+instance ToObject PayloadsMetaData where
+  toPairs = undefined
+  toObject m = HM.fromList (toPairs m)
+instance FromJSON PayloadsMetaData where
+  parseJSON = undefined
+
+
+data EnrichedCommand = EnrichedCommand
+  { _enrichedCommand_cmd :: !(Command T.Text)
+  , _enrichedCommand_txInfo :: !ConstructionTx
+  , _enrichedCommand_payerGuard :: !P.KeySet
+  }
+instance ToJSON EnrichedCommand where
+  toJSON = undefined
+instance FromJSON EnrichedCommand where
+  parseJSON = undefined
+
+
+constructionTxToPactRPC :: ConstructionTx -> P.PactRPC T.Text
+constructionTxToPactRPC = undefined
+
+-- | Creates an enriched Command that consists of an
+--   unsigned Command object, as well as any extra information lost
+--   when constructing the command but needed in the /parse
+--   endpoint.
+createUnsignedCmd :: ChainwebVersion -> PayloadsMetaData -> EnrichedCommand
+createUnsignedCmd v req = EnrichedCommand cmd txInfo payerGuard
   where
-    cmd = Command encodedPayloadT [] hsh
-    txInfo = _constructionPayloadsReqMetaData_tx req
-    
+    PayloadsMetaData signers nonce pubMeta txInfo payerGuard = req
+
+    -- creates the unsigned command
+    cmd = Command encodedPayloadText [] hsh
+
     hsh = P.hash encodedPayload
-    encodedPayloadT = T.decodeUtf8 $! encodedPayload
-    encodedPayload = BSL.toStrict $ encode (createPayload pactRPC)
+    encodedPayloadText = T.decodeUtf8 $! encodedPayload
+    encodedPayload = BSL.toStrict $ encode
+      Payload
+        { _pPayload = pactRPC
+        , _pNonce = nonce
+        , _pMeta = pubMeta
+        , _pSigners = signers
+        , _pNetworkId = Just $ P.NetworkId $! chainwebVersionToText v
+        }
+    pactRPC = constructionTxToPactRPC txInfo
+
+
+createSigningPayloads :: EnrichedCommand -> T.Text -> [RosettaSigningPayload]
+createSigningPayloads (EnrichedCommand cmd txInfo payerGuard) payerName =
+  map f signerAccts
+  where
+    signerAccts = expectedSignersAccts payerName payerGuard txInfo
     
-    createPayload :: P.PactRPC T.Text -> Payload P.PublicMeta T.Text
-    createPayload rpc = undefined
+    f acct = RosettaSigningPayload
+      { _rosettaSigningPayload_address = Nothing
+      , _rosettaSigningPayload_accountIdentifier = Just acct
+      , _rosettaSigningPayload_hexBytes = _cmdPayload cmd
+      , _rosettaSigningPayload_signatureType = Just RosettaEd25519
+      -- Assumes signing public keys are all Ed22519
+      }
 
-    pactRPC = constructionTxToPactRPC $ _constructionPayloadsReqMetaData_tx req
+--------------------------------------------------------------------------------
+-- /parse
+
+-- | Retrieves the AccountIds that need to sign the transaction.
+expectedSignersAccts
+    :: T.Text
+    -> P.KeySet
+    -> ConstructionTx
+    -> [AccountId]
+expectedSignersAccts _payerName = undefined
 
 
-createSigningPayloads :: EnrichedCommand -> [Signer] -> [RosettaSigningPayload]
-createSigningPayloads (EnrichedCommand cmd _) pactSigners = map f pactSigners
-  where f signer = RosettaSigningPayload
-          { _rosettaSigningPayload_address = Nothing
-          , _rosettaSigningPayload_accountIdentifier = undefined
-          , _rosettaSigningPayload_hexBytes = _cmdPayload cmd
-          , _rosettaSigningPayload_signatureType = Just RosettaEd25519
-          }
+txToOps :: ConstructionTx -> [Operation]
+txToOps = undefined
+
+
+--------------------------------------------------------------------------------
+-- /combine
+
+getCmdPayload
+    :: Command T.Text
+    -> Either RosettaError (Payload P.PublicMeta T.Text)
+getCmdPayload = undefined
+
+
+-- TODO: Check SignatureType and PublicKey's CurveType.
+-- TODO: Check that expected Signers are these types as well.
+-- TODO: Check correct arrangement of UserSigs and Signers
+matchSigs
+    :: [RosettaSignature]
+    -> Payload m c
+    -> Either RosettaError [UserSig]
+matchSigs = undefined
 
 
 --------------------------------------------------------------------------------
@@ -624,6 +684,7 @@ data RosettaFailure
     | RosettaConstructionDeriveNotSupported
     | RosettaUnparsableMetaData
     | RosettaMissingMetaData
+    | RosettaMissingPublicKeys
     deriving (Show, Enum, Bounded, Eq)
 
 
@@ -657,16 +718,25 @@ rosettaError RosettaInvalidAccountKey = RosettaError 22 "Invalid AccountId addre
 rosettaError RosettaConstructionDeriveNotSupported = RosettaError 23 "/construction/derive not supported" False
 rosettaError RosettaUnparsableMetaData = RosettaError 24 "Unparsable metadata field" False
 rosettaError RosettaMissingMetaData = RosettaError 25 "Required metadata field is missing" False
+rosettaError RosettaMissingPublicKeys = RosettaError 26 "Required public_keys field is missing" False
+
+rosettaError' :: RosettaFailure -> RosettaError
+rosettaError' f = rosettaError f Nothing
 
 --------------------------------------------------------------------------------
 -- Misc Helper Functions --
 --------------------------------------------------------------------------------
 
+toRosettaError
+    :: RosettaFailure
+    -> Either String a
+    -> Either RosettaError a
+toRosettaError failure = annotate $ \msg -> do
+  rosettaError failure (Just $ HM.fromList ["error_message" .= msg ])
+
 extractMetaData :: (FromJSON a) => Object -> Either RosettaError a
-extractMetaData = (annotate toRosettaError) . noteResult . fromJSON . Object
-  where
-    toRosettaError s = rosettaError RosettaUnparsableMetaData
-                       (Just $ HM.fromList [ "parsing_error_message" .= s ])
+extractMetaData = (toRosettaError RosettaUnparsableMetaData)
+                  . noteResult . fromJSON . Object
 
 
 -- | Guarantees that the `ChainId` given actually belongs to this

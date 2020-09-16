@@ -18,7 +18,7 @@ module Chainweb.Rosetta.RestAPI.Server where
 
 
 import Control.Error.Util
-import Control.Monad (void, (<$!>))
+import Control.Monad
 import Control.Monad.IO.Class
 import Control.Monad.Trans.Class
 import Control.Monad.Trans.Except
@@ -31,6 +31,7 @@ import Data.Proxy (Proxy(..))
 import qualified Data.HashMap.Strict as HM
 import qualified Data.Text as T
 import qualified Data.Vector as V
+import qualified Pact.Types.ChainMeta as P
 
 import Pact.Types.Command
 import Pact.Types.Util (fromText')
@@ -56,7 +57,7 @@ import Chainweb.RestAPI.Utils
 import Chainweb.Rosetta.Internal
 import Chainweb.Rosetta.RestAPI
 import Chainweb.Rosetta.Utils
-import Chainweb.Transaction (ChainwebTransaction)
+import Chainweb.Transaction (payloadObj, ChainwebTransaction)
 import Chainweb.Utils
 import Chainweb.Utils.Paging
 import Chainweb.Version
@@ -260,7 +261,7 @@ constructionMetadataH
 constructionMetadataH v (ConstructionMetadataReq net opts _undefined) =
     runExceptT work >>= either throwRosettaError pure
   where
-    validateNetwork' = annotate (\f -> rosettaError f Nothing)
+    validateNetwork' = annotate rosettaError'
                        (validateNetwork v net)
     
     work :: ExceptT RosettaError Handler ConstructionMetadataResp
@@ -284,59 +285,105 @@ constructionMetadataH v (ConstructionMetadataReq net opts _undefined) =
       
       pure $ ConstructionMetadataResp HM.empty (Just [fee])
 
+
+--------------------------------------------------------------------------------
+-- (practically) DONE
+
+
 constructionPayloadsH
     :: ChainwebVersion
     -> ConstructionPayloadsReq
     -> Handler ConstructionPayloadsResp
-constructionPayloadsH = undefined
+constructionPayloadsH v req =
+  either throwRosettaError pure work
   where
-    resp parsedMeta = ConstructionPayloadsResp
-      { _constructionPayloadsResp_unsignedTransaction = encodedEnrichedUnsignedCmd
-      , _constructionPayloadsResp_payloads = rosettaSignPayloads
-      }
-      where
-        signers = _constructionPayloadsReqMetaData_signers parsedMeta
-        rosettaSignPayloads = createSigningPayloads enrichedUnsignedCmd signers
-        enrichedUnsignedCmd = createUnsignedCmd parsedMeta
-        encodedEnrichedUnsignedCmd = enrichedCommandToText $! enrichedUnsignedCmd
+    (ConstructionPayloadsReq net _ someMeta _) = req
+
+    work :: Either RosettaError ConstructionPayloadsResp
+    work = do
+      void $ annotate rosettaError' (validateNetwork v net)
+      meta <- note (rosettaError' RosettaMissingMetaData) someMeta >>=
+              extractMetaData
+
+      let unsigned = createUnsignedCmd v meta
+          payerName = P._pmSender $ _payloadsMetaData_publicMeta meta
+          signingPayloads = createSigningPayloads unsigned payerName
+          encoded = enrichedCommandToText $! unsigned
+
+      pure $ ConstructionPayloadsResp
+        { _constructionPayloadsResp_unsignedTransaction = encoded
+        , _constructionPayloadsResp_payloads = signingPayloads
+        }
+
 
 constructionParseH
     :: ChainwebVersion
     -> ConstructionParseReq
     -> Handler ConstructionParseResp
-constructionParseH = undefined
+constructionParseH v (ConstructionParseReq net isSigned tx) =
+  either throwRosettaError pure work
+  where
+    work :: Either RosettaError ConstructionParseResp
+    work = do
+      void $ annotate rosettaError' (validateNetwork v net)
+
+      (EnrichedCommand cmd txInfo payerGuard) <- note
+        (rosettaError' RosettaUnparsableTx)
+        $ textToEnrichedCommand tx
+      signers <- getRosettaSigners cmd txInfo payerGuard
+      let ops = txToOps txInfo
+
+      pure $ ConstructionParseResp
+        { _constructionParseResp_operations = ops
+        , _constructionParseResp_signers = Nothing
+        , _constructionParseResp_accountIdentifierSigners = Just signers
+        , _constructionParseResp_metadata = Nothing
+        }
+
+    getRosettaSigners cmd txInfo payerGuard
+      | isSigned = do
+          validatedCmd <- toRosettaError RosettaInvalidTx $ validateCommand cmd
+          let payerName = P._pmSender $ _pMeta $ payloadObj $ _cmdPayload validatedCmd
+              -- If transaction successfully validates, it was correctly signed with
+              -- all of the account public keys needed.
+              signerAccts = expectedSignersAccts payerName payerGuard txInfo
+          pure signerAccts
+      | otherwise = pure []
+
 
 constructionCombineH
     :: ConstructionCombineReq
     -> Handler ConstructionCombineResp
 constructionCombineH (ConstructionCombineReq _ unsignedTx sigs) =
-  runExceptT work >>= either throwRosetta pure
+  either throwRosettaError pure work
   where
-    work :: ExceptT RosettaFailure Handler ConstructionCombineResp
+    work :: Either RosettaError ConstructionCombineResp
     work = do
-      (EnrichedCommand unsignedCmd meta) <- textToEnrichedCommand unsignedTx ?? RosettaUnparsableTx
-      let userSigs = map (UserSig . _rosettaSignature_hexBytes) sigs
-          signedCmd = unsignedCmd { _cmdSigs = userSigs }
-          --  Assumes list of signatures are in correct order to match
-          --  their respective Signers in the signed payload.
-          --  No rearrangement of signatures done.
-          --  No validity checks run.
-          -- TOOD: Add check to put sigs in correct order.
-          -- TODO: check public keys signing type?
-          signedTx = enrichedCommandToText (EnrichedCommand signedCmd meta)
+      (EnrichedCommand unsignedCmd meta payerGuard) <- note
+        (rosettaError' RosettaUnparsableTx)
+        $ textToEnrichedCommand unsignedTx
+      payload <- getCmdPayload unsignedCmd
+      userSigs <- matchSigs sigs payload
+
+      let signedCmd = unsignedCmd { _cmdSigs = userSigs }
+          signedTx = enrichedCommandToText (EnrichedCommand signedCmd meta payerGuard)
       pure $ ConstructionCombineResp signedTx
+
 
 constructionHashH
     :: ConstructionHashReq
     -> Handler TransactionIdResp
 constructionHashH (ConstructionHashReq _ signedTx) =
-  runExceptT work >>= either throwRosetta pure
+  either throwRosetta pure work
   where
-    work :: ExceptT RosettaFailure Handler TransactionIdResp
+    work :: Either RosettaFailure TransactionIdResp
     work = do
-      (EnrichedCommand cmd _) <- textToEnrichedCommand signedTx ?? RosettaUnparsableTx
+      (EnrichedCommand cmd _ _) <- note RosettaUnparsableTx
+        $ textToEnrichedCommand signedTx
       pure $ TransactionIdResp (cmdToTransactionId cmd) Nothing
 
+
+-- TODO: Submit tx using the /send endpoint instead
 constructionSubmitH
     :: ChainwebVersion
     -> [(ChainId, MempoolBackend ChainwebTransaction)]
@@ -348,7 +395,7 @@ constructionSubmitH v ms (ConstructionSubmitReq net tx) =
     work :: ExceptT RosettaFailure Handler TransactionIdResp
     work = do
         cid <- hoistEither $ validateNetwork v net
-        (EnrichedCommand cmd _) <- textToEnrichedCommand tx ?? RosettaUnparsableTx
+        (EnrichedCommand cmd _ _) <- textToEnrichedCommand tx ?? RosettaUnparsableTx
         validated <- hoistEither . first (const RosettaInvalidTx) $ validateCommand cmd
         mp <- lookup cid ms ?? RosettaInvalidChain
         let !vec = V.singleton validated
