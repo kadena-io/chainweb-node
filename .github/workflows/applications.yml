@@ -467,7 +467,7 @@ jobs:
       if: ${{ needs.config.output.git-short-ref == 'master' }}
       uses: peter-evans/repository-dispatch@v1
       with:
-        token: ${{ secrets.GITHUB_TOKEN }}
+        token: ${{ secrets.KADENA_BUILD_CI_TOKEN }}
         repository: kadena-io/chainweb-node
         event-type: request-mainnet-history-validation
         client-payload: |
