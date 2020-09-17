@@ -24,6 +24,7 @@ import Control.Lens hiding ((.=))
 import Control.Monad
 
 import Data.Aeson (object, (.=), Value(..))
+import Data.CAS.RocksDB
 import Data.Either (isRight)
 import qualified Data.ByteString.Lazy as BL
 import Data.IORef
@@ -74,8 +75,8 @@ cid = someChainId testVersion
 genesisHeader :: BlockHeader
 genesisHeader = genesisBlockHeader testVersion cid
 
-tests :: ScheduledTest
-tests = ScheduledTest testName $ go
+tests :: RocksDb -> ScheduledTest
+tests rdb = ScheduledTest testName $ go
   where
     testName = "Chainweb.Test.Pact.PactInProcApi"
     go = testGroup testName
@@ -94,7 +95,7 @@ tests = ScheduledTest testName $ go
       where
         test logLevel f =
           withDelegateMempool $ \dm ->
-          withPactTestBlockDb testVersion cid logLevel (snd <$> dm) defaultPactServiceConfig $
+          withPactTestBlockDb testVersion cid logLevel rdb (snd <$> dm) defaultPactServiceConfig $
           f (fst <$> dm)
         testHistLookup1 = getHistoricalLookupNoTxs "sender00"
           (assertSender00Bal 100000000 "check latest entry for sender00 after a no txs block")
