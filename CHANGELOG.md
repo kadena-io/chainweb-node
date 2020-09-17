@@ -1,6 +1,6 @@
 # `chainweb-node` Changelog
 
-## 2.1.1 (2020-08-28)
+## 2.1.1 (2020-09-17)
 
 This release provides performance improvements and bug fixes.
 
