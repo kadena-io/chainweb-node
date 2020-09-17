@@ -464,7 +464,7 @@ jobs:
 
     steps:
     - name: trigger mainnet history validation
-      if: ${{ needs.config.output.git-short-ref == 'master' }}
+      if: ${{ needs.config.outputs.git-short-ref == 'master' }}
       uses: peter-evans/repository-dispatch@v1
       with:
         token: ${{ secrets.KADENA_BUILD_CI_TOKEN }}
