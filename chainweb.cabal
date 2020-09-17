@@ -15,8 +15,8 @@ category:     Blockchain, Currency, Bitcoin
 build-type:   Custom
 
 tested-with:
-    GHC == 8.10.1
-    GHC == 8.8.3
+    GHC == 8.10.2
+    GHC == 8.8.4
     GHC == 8.6.5
 
 extra-source-files:

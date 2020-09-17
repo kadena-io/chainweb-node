@@ -129,8 +129,8 @@ tests rdb = testGroupSch "Chainweb.Test.Pact.RemotePactTest"
         withMVarResource 0 $ \iomvar ->
           withTime $ \iot ->
             testGroup "remote pact tests"
-              [ testCase "await network" $
-                awaitNetworkHeight net 20
+              [ testCaseSteps "await network" $ \step ->
+                awaitNetworkHeight step net 20
               , after AllSucceed "await network" $
                 withRequestKeys iot iomvar net $ responseGolden net
               , after AllSucceed "remote-golden" $
@@ -151,12 +151,12 @@ tests rdb = testGroupSch "Chainweb.Test.Pact.RemotePactTest"
               , after AllSucceed "remote spv" $
                 testGroup "genesisAllocations"
                 [ allocationTest iot net ]
-              , after AllSucceed "genesis allocations" $
+              , after AllSucceed "genesisAllocations" $
                 testGroup "caplistTests"
                 [ caplistTest iot net ]
               , after AllSucceed "caplistTests" $
                 localContTest iot net
-              , after AllSucceed "localContTest" $
+              , after AllSucceed "local continuation test" $
                 pollBadKeyTest net
               ]
     ]
@@ -165,11 +165,11 @@ tests rdb = testGroupSch "Chainweb.Test.Pact.RemotePactTest"
 -- about 10 seconds. Once initialization is complete even large numbers of empty
 -- blocks were mined almost instantaneously.
 --
-awaitNetworkHeight :: IO ClientEnv -> CutHeight -> IO ()
-awaitNetworkHeight nio h = do
+awaitNetworkHeight :: (String -> IO ()) -> IO ClientEnv -> CutHeight -> IO ()
+awaitNetworkHeight step nio h = do
     cenv <- nio
-    ch <- awaitCutHeight cenv h
-    debug $ "cut height: " <> sshow (_cutHashesHeight ch)
+    ch <- awaitCutHeight step cenv h
+    step $ "cut height: " <> sshow (_cutHashesHeight ch)
 
 responseGolden :: IO ClientEnv -> IO RequestKeys -> TestTree
 responseGolden networkIO rksIO = golden "remote-golden" $ do
@@ -718,10 +718,11 @@ testSend :: IO (Time Micros) -> MVar Int -> ClientEnv -> IO RequestKeys
 testSend iot mNonce env = testBatch iot mNonce gp >>= sending cid env
 
 awaitCutHeight
-    :: ClientEnv
+    :: (String -> IO ())
+    -> ClientEnv
     -> CutHeight
     -> IO CutHashes
-awaitCutHeight cenv i = do
+awaitCutHeight step cenv i = do
     result <- retrying testRetryPolicy checkRetry
         $ const $ runClientM (cutGetClient v) cenv
     case result of
@@ -732,13 +733,18 @@ awaitCutHeight cenv i = do
                 $ "retries exhausted: waiting for cut height " <> sshow i
                 <> " but only got " <> sshow (_cutHashesHeight x)
   where
-    checkRetry _ Left{} = return True
+    checkRetry s (Left e) = do
+        step $ "awaiting cut of height " <> show i
+            <> ". No reslt from node: " <> show e
+            <> " [" <> show (view rsIterNumberL s) <> "]"
+        return True
     checkRetry s (Right c)
         | _cutHashesHeight c >= i = return False
         | otherwise = do
-            debug
+            step
                 $ "awaiting cut of height " <> show i
-                <> ". Current height: " <> show (_cutHashesHeight c)
+                <> ". Current cut height: " <> show (_cutHashesHeight c)
+                <> ". Current block heights: " <> show (fst <$> _cutHashes c)
                 <> " [" <> show (view rsIterNumberL s) <> "]"
             return True
 

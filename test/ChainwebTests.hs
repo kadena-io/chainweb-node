@@ -89,11 +89,11 @@ pactTestSuite rdb = testGroupSch "Chainweb-Pact Tests"
     $ schedule Sequential
         [ Chainweb.Test.Pact.PactExec.tests
         , Chainweb.Test.Pact.Checkpointer.tests
-        , Chainweb.Test.Pact.PactInProcApi.tests
+        , Chainweb.Test.Pact.PactInProcApi.tests rdb
         , Chainweb.Test.Pact.RemotePactTest.tests rdb
-        , Chainweb.Test.Pact.PactReplay.tests
-        , Chainweb.Test.Pact.ModuleCacheOnRestart.tests
-        , Chainweb.Test.Pact.TTL.tests
+        , Chainweb.Test.Pact.PactReplay.tests rdb
+        , Chainweb.Test.Pact.ModuleCacheOnRestart.tests rdb
+        , Chainweb.Test.Pact.TTL.tests rdb
         , Chainweb.Test.Pact.RewardsTest.tests
         , Chainweb.Test.Pact.NoCoinbase.tests
         ]
