@@ -151,6 +151,8 @@ jobs:
           pact:*
           tocken-bucket:*
           servant-swagger:*
+        constraints:
+          base16-bytestring <1.0
     - uses: actions/cache@v2.1.1
       name: Cache dist-newstyle
       with:
@@ -462,7 +464,7 @@ jobs:
 
     steps:
     - name: trigger mainnet history validation
-      if: env.GIT_REF_SHORT == 'master'
+      if: ${{ needs.config.output.git-short-ref == 'master' }}
       uses: peter-evans/repository-dispatch@v1
       with:
         token: ${{ secrets.GITHUB_TOKEN }}
