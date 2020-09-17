@@ -113,6 +113,7 @@ module Chainweb.Test.Utils
 -- * Multi-node testing utils
 , ChainwebNetwork(..)
 , withNodes
+, withNodes_
 , runTestNodes
 , node
 , deadbeef
@@ -943,21 +944,23 @@ data ChainwebNetwork = ChainwebNetwork
     , _getServiceClientEnv :: !ClientEnv
     }
 
-withNodes
-    :: ChainwebVersion
+withNodes_
+    :: Logger logger
+    => logger
+    -> ChainwebVersion
     -> B.ByteString
     -> RocksDb
     -> Natural
     -> (IO ChainwebNetwork -> TestTree)
     -> TestTree
-withNodes v label rdb n f = withResource start
+withNodes_ logger v label rdb n f = withResource start
     (cancel . fst)
     (f . fmap (uncurry ChainwebNetwork . snd))
   where
     start :: IO (Async (), (ClientEnv, ClientEnv))
     start = do
         peerInfoVar <- newEmptyMVar
-        a <- async $ runTestNodes label rdb Quiet v n peerInfoVar
+        a <- async $ runTestNodes label rdb logger v n peerInfoVar
         (i, servicePort) <- readMVar peerInfoVar
         cwEnv <- getClientEnv $ getCwBaseUrl Https $ _hostAddressPort $ _peerAddr i
         cwServiceEnv <- getClientEnv $ getCwBaseUrl Http servicePort
@@ -971,15 +974,25 @@ withNodes v label rdb n f = withResource start
         , baseUrlPath = ""
         }
 
-runTestNodes
-    :: B.ByteString
+withNodes
+    :: ChainwebVersion
+    -> B.ByteString
     -> RocksDb
-    -> LogLevel
+    -> Natural
+    -> (IO ClientEnv -> TestTree)
+    -> TestTree
+withNodes = withNodes_ (genericLogger Warn print)
+
+runTestNodes
+    :: Logger logger
+    => B.ByteString
+    -> RocksDb
+    -> logger
     -> ChainwebVersion
     -> Natural
     -> MVar (PeerInfo, Port)
     -> IO ()
-runTestNodes label rdb loglevel ver n portMVar =
+runTestNodes label rdb logger ver n portMVar =
     forConcurrently_ [0 .. int n - 1] $ \i -> do
         threadDelay (1000 * int i)
         let baseConf = config ver n
@@ -988,18 +1001,19 @@ runTestNodes label rdb loglevel ver n portMVar =
                 return $ bootstrapConfig baseConf
             | otherwise ->
                 setBootstrapPeerInfo <$> (fst <$> readMVar portMVar) <*> pure baseConf
-        node label rdb loglevel portMVar conf i
+        node label rdb logger portMVar conf i
 
 node
-    :: B.ByteString
+    :: Logger logger
+    => B.ByteString
     -> RocksDb
-    -> LogLevel
+    -> logger
     -> MVar (PeerInfo, Port)
     -> ChainwebConfiguration
     -> Int
         -- ^ Unique Node Id. The node id 0 is used for the bootstrap node
     -> IO ()
-node label rdb loglevel peerInfoVar conf nid = do
+node label rdb rawLogger peerInfoVar conf nid = do
     rocksDb <- testRocksDb (label <> T.encodeUtf8 (toText nid)) rdb
     Extra.withTempDir $ \dir -> withChainweb conf logger rocksDb dir False $ \cw -> do
 
@@ -1015,8 +1029,7 @@ node label rdb loglevel peerInfoVar conf nid = do
             logFunctionText logger Info "shutdown node"
         return ()
   where
-    logger :: GenericLogger
-    logger = addLabel ("node", sshow nid) $ genericLogger loglevel print
+    logger = addLabel ("node", sshow nid) rawLogger
 
     poisonDeadBeef cw = mapM_ poison crs
       where
@@ -1064,10 +1077,12 @@ setBootstrapPeerInfo =
 
 
 host :: Hostname
-host = unsafeHostnameFromText "::1"
+-- host = unsafeHostnameFromText "::1"
+host = unsafeHostnameFromText "localhost"
 
 interface :: W.HostPreference
-interface = "::1"
+-- interface = "::1"
+interface = "127.0.0.1"
 
 getClientEnv :: BaseUrl -> IO ClientEnv
 getClientEnv url = flip mkClientEnv url <$> HTTP.newTlsManagerWith mgrSettings

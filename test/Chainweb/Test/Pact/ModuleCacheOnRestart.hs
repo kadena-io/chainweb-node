@@ -12,6 +12,7 @@ import Control.Lens
 import Control.Monad
 import Control.Monad.IO.Class
 
+import Data.CAS.RocksDB
 import qualified Data.HashMap.Strict as HM
 import Data.List (intercalate)
 import Data.Tuple.Strict (T2(..))
@@ -54,11 +55,11 @@ testVer = FastTimedCPM peterson
 testChainId :: ChainId
 testChainId = someChainId testVer
 
-tests :: ScheduledTest
-tests =
+tests :: RocksDb -> ScheduledTest
+tests rdb =
       ScheduledTest label $
       withMVarResource mempty $ \iom ->
-      withTestBlockDbTest testVer $ \bdbio ->
+      withTestBlockDbTest testVer rdb $ \bdbio ->
       withTemporaryDir $ \dir ->
       testGroup label
       [

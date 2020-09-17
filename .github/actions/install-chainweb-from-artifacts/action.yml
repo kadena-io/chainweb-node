@@ -1,0 +1,39 @@
+name: install-chainweb-from-artifacts
+
+inputs:
+  os:
+    description: the operating system of the build
+    required: true
+  ghc:
+    description: GHC version of the build
+    required: true
+
+runs:
+  using: 'composite'
+  steps:
+    # We can't use `uses: actions/download-artifact@v2` here to download artifacts
+    - name: Install non-Haskell dependencies
+      shell: bash
+      run: |
+        case "${{ inputs.os }}" in
+        ubuntu*)
+          sudo apt-get install -y librocksdb-dev z3
+          ;;
+        mac*)
+          brew install rocksdb z3
+          ;;
+        *)
+          echo "::error::unsupported operating system ${{ inputs.os }}"
+          exit 1
+          ;;
+        esac
+    - name: Install chainweb applications
+      env:
+        ARCHIVE_PATTERN: chainweb.${{ inputs.ghc }}.${{ inputs.os }}.*.tar.gz
+      shell: bash
+      run: |
+          tar -xzf $ARCHIVE_PATTERN
+          echo "::add-path::`pwd`/chainweb"
+    - name: test chainweb installation
+      shell: bash
+      run: chainweb-node --version
