@@ -12,7 +12,6 @@ import qualified GenConf
 import qualified HeaderDump
 import qualified RunNodes
 import qualified SlowTests
-import qualified TestMiner
 import qualified TxStream
 import qualified KnownGraphs
 
@@ -67,10 +66,6 @@ topLevelCommands =
       "tx-list"
       "List all transactions in a chain starting with the most recent block"
       TxStream.main
-  , CommandSpec
-      "test-miner"
-      "Test an external miner"
-      TestMiner.main
   , CommandSpec
       "genconf"
       "Interactively generate a chainweb-node config"

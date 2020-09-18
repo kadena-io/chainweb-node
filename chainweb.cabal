@@ -365,7 +365,6 @@ library
         , pact >= 3.7
         , paths >= 0.2
         , pem >=0.2
-        , process >= 1.5
         , random >= 1.1
         , random-bytestring >= 0.1
         , resourcet >= 1.2
@@ -630,7 +629,7 @@ executable cwtool
         -threaded
         -rtsopts
         "-with-rtsopts=-N -H1G -A64M"
-    hs-source-dirs: tools/cwtool tools/ea tools/encode-decode tools/genconf tools/run-nodes tools/txstream tools/test-miner tools/header-dump tools/db-checksum tools/known-graphs node test
+    hs-source-dirs: tools/cwtool tools/ea tools/encode-decode tools/genconf tools/run-nodes tools/txstream tools/header-dump tools/db-checksum tools/known-graphs node test
     main-is: CwTool.hs
     other-modules:
         Allocations
@@ -652,7 +651,6 @@ executable cwtool
         P2P.Test.Orphans
         RunNodes
         SlowTests
-        TestMiner
         TxStream
 
     build-depends:
