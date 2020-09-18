@@ -151,8 +151,6 @@ jobs:
           pact:*
           tocken-bucket:*
           servant-swagger:*
-        constraints:
-          base16-bytestring <1.0
     - uses: actions/cache@v2.1.1
       name: Cache dist-newstyle
       with:
