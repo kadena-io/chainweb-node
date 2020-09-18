@@ -1,5 +1,7 @@
 resolver: lts-16.0
 
+allow-newer: true
+
 build:
   test-arguments:
     additional-args: ["--hide-successes", "--color", "never"]

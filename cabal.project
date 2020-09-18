@@ -31,3 +31,6 @@ source-repository-package
 package vault
     documentation: false
 
+allow-newer:
+    *:base64-bytestring
+
