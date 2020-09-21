@@ -31,7 +31,6 @@ import Data.Proxy (Proxy(..))
 import qualified Data.HashMap.Strict as HM
 import qualified Data.Text as T
 import qualified Data.Vector as V
-import qualified Pact.Types.ChainMeta as P
 
 import Pact.Types.Command
 import Pact.Types.Util (fromText')
@@ -57,7 +56,7 @@ import Chainweb.RestAPI.Utils
 import Chainweb.Rosetta.Internal
 import Chainweb.Rosetta.RestAPI
 import Chainweb.Rosetta.Utils
-import Chainweb.Transaction (payloadObj, ChainwebTransaction)
+import Chainweb.Transaction (ChainwebTransaction)
 import Chainweb.Utils
 import Chainweb.Utils.Paging
 import Chainweb.Version
@@ -217,6 +216,9 @@ blockTransactionH v cutDb ps crs (BlockTransactionReq net bid t) = do
 -- NOTE: all Construction API endpoints except /metadata and /submit must
 -- operate in "offline" mode.
 
+--TODO: Add ! to Rosetta
+--TODO: Add Ord to types
+
 constructionDeriveH
     :: ChainwebVersion
     -> ConstructionDeriveReq
@@ -232,62 +234,68 @@ constructionPreprocessH
     -> ConstructionPreprocessReq
     -> Handler ConstructionPreprocessResp
 constructionPreprocessH v req = do
-    either throwRosetta pure (void $ validateNetwork v net)
     either throwRosettaError pure work
   where
     ConstructionPreprocessReq net ops someMeta someMaxFee someMult = req
-    xchainMeta = _constructionPreprocessReqMetaData_crossChainTxMetaData
     
     work :: Either RosettaError ConstructionPreprocessResp
     work = do
-      meta <- note (rosettaError RosettaMissingMetaData Nothing) someMeta
+      void $ annotate rosettaError' (validateNetwork v net)
+      meta <- note (rosettaError' RosettaMissingMetaData) someMeta
       parsedMeta <- extractMetaData meta
-      tx <- parseOps net (xchainMeta parsedMeta) ops
-      let (gasLimit, gasPrice, fee) = getSuggestedFee tx someMaxFee someMult
-          respMeta = toObject $ ConstructionPreprocessRespMetaData
-            { _constructionPreprocessRespMetaData_preprocessMetaData = parsedMeta
-            , _constructionPreprocessRespMetaData_tx = tx
-            , _constructionPreprocessRespMetaData_suggestedFee = fee
-            , _constructionPreprocessRespMetaData_gasLimit = gasLimit
-            , _constructionPreprocessRespMetaData_gasPrice = gasPrice
+
+      let PreprocessReqMetaData xchainMeta payer _ = parsedMeta
+
+      tx <- parseOps net xchainMeta ops
+
+      let expectedAccts = HM.keys $! toSignerAcctsMap tx payer
+          (gasLimit, gasPrice, fee) = getSuggestedFee tx someMaxFee someMult
+          respMeta = toObject $! PreprocessRespMetaData
+            { _preprocessRespMetaData_reqMetaData = parsedMeta
+            , _preprocessRespMetaData_tx = tx
+            , _preprocessRespMetaData_suggestedFee = fee
+            , _preprocessRespMetaData_gasLimit = gasLimit
+            , _preprocessRespMetaData_gasPrice = gasPrice
             }
-      pure $ ConstructionPreprocessResp (Just respMeta) undefined
+
+      pure $ ConstructionPreprocessResp (Just $! respMeta) (Just $! expectedAccts)
 
 
 constructionMetadataH
     :: ChainwebVersion
     -> ConstructionMetadataReq
     -> Handler ConstructionMetadataResp
-constructionMetadataH v (ConstructionMetadataReq net opts _undefined) =
+constructionMetadataH v (ConstructionMetadataReq net opts someKeys) =
     runExceptT work >>= either throwRosettaError pure
   where
-    validateNetwork' = annotate rosettaError'
-                       (validateNetwork v net)
     
     work :: ExceptT RosettaError Handler ConstructionMetadataResp
     work = do
-      cid <- hoistEither validateNetwork'
-      (ConstructionPreprocessRespMetaData meta tx fee gasLimit gasPrice) <-
-        hoistEither $ extractMetaData opts
-      let (ConstructionPreprocessReqMetaData xchainMeta payer someNonce) = meta
+      cid <- hoistEither $ annotate rosettaError' (validateNetwork v net)
+      availableSigners <- (someKeys ?? (rosettaError' RosettaMissingPublicKeys))
+                          >>= hoistEither . toSignerMap
+      meta <- hoistEither $ extractMetaData opts
+      let PreprocessRespMetaData reqMeta tx fee gLimit gPrice = meta
+          PreprocessReqMetaData _ payer someNonce = reqMeta
 
-      tx' <- (liftIO $ txWithSPVProofIfNeeded tx) >>= hoistEither
-          
+      tx' <- (liftIO $ txWithSPVProofIfNeeded cid tx) >>= hoistEither
+      nonce <- liftIO $ toNonce someNonce
+      pubMeta <- liftIO $ toPublicMeta cid payer gLimit gPrice
+
+      let expectedAccts = toSignerAcctsMap tx' payer
+      expectedAcctsWithGuards <- (liftIO $ addAccountGuards expectedAccts)
+                                 >>= hoistEither
+      signersAndAccts <- hoistEither $!
+                         createSigners availableSigners expectedAcctsWithGuards
       
-      let pubMeta = createCmdPublicMeta cid payer gasLimit gasPrice
-          nonce = getCmdNonce someNonce
-          payloadMeta = ConstructionPayloadsReqMetaData
-            { _constructionPayloadsReqMetaData_signers = undefined -- :: ![Signer]
-            , _constructionPayloadsReqMetaData_nonce = nonce
-            , _constructionPayloadsReqMetaData_publicMeta = pubMeta
-            , _constructionPayloadsReqMetaData_tx = tx'
+      let payloadMeta = toObject $! PayloadsMetaData
+            { _payloadsMetaData_signers = signersAndAccts
+            , _payloadsMetaData_nonce = nonce
+            , _payloadsMetaData_publicMeta = pubMeta
+            , _payloadsMetaData_tx = tx'
             }
       
-      pure $ ConstructionMetadataResp HM.empty (Just [fee])
-
-
---------------------------------------------------------------------------------
--- (practically) DONE
+      pure $ ConstructionMetadataResp payloadMeta (Just [fee])
 
 
 constructionPayloadsH
@@ -306,9 +314,9 @@ constructionPayloadsH v req =
               extractMetaData
 
       let unsigned = createUnsignedCmd v meta
-          payerName = P._pmSender $ _payloadsMetaData_publicMeta meta
-          signingPayloads = createSigningPayloads unsigned payerName
           encoded = enrichedCommandToText $! unsigned
+          signingPayloads = createSigningPayloads unsigned
+                            (_payloadsMetaData_signers meta)
 
       pure $ ConstructionPayloadsResp
         { _constructionPayloadsResp_unsignedTransaction = encoded
@@ -327,10 +335,10 @@ constructionParseH v (ConstructionParseReq net isSigned tx) =
     work = do
       void $ annotate rosettaError' (validateNetwork v net)
 
-      (EnrichedCommand cmd txInfo payerGuard) <- note
+      (EnrichedCommand cmd txInfo signAccts) <- note
         (rosettaError' RosettaUnparsableTx)
         $ textToEnrichedCommand tx
-      signers <- getRosettaSigners cmd txInfo payerGuard
+      signers <- getRosettaSigners cmd signAccts
       let ops = txToOps txInfo
 
       pure $ ConstructionParseResp
@@ -340,14 +348,14 @@ constructionParseH v (ConstructionParseReq net isSigned tx) =
         , _constructionParseResp_metadata = Nothing
         }
 
-    getRosettaSigners cmd txInfo payerGuard
+    getRosettaSigners cmd expectedSignerAccts
       | isSigned = do
-          validatedCmd <- toRosettaError RosettaInvalidTx $ validateCommand cmd
-          let payerName = P._pmSender $ _pMeta $ payloadObj $ _cmdPayload validatedCmd
-              -- If transaction successfully validates, it was correctly signed with
-              -- all of the account public keys needed.
-              signerAccts = expectedSignersAccts payerName payerGuard txInfo
-          pure signerAccts
+          _ <- toRosettaError RosettaInvalidTx $ validateCommand cmd
+          pure expectedSignerAccts
+          -- If transaction successfully validates, it was correctly signed with
+          -- all of the account public keys needed.
+          -- NOTE: Might contain repetitions.
+          -- TODO: Just return unique account ids.
       | otherwise = pure []
 
 
@@ -359,14 +367,14 @@ constructionCombineH (ConstructionCombineReq _ unsignedTx sigs) =
   where
     work :: Either RosettaError ConstructionCombineResp
     work = do
-      (EnrichedCommand unsignedCmd meta payerGuard) <- note
+      (EnrichedCommand unsignedCmd meta signAccts) <- note
         (rosettaError' RosettaUnparsableTx)
         $ textToEnrichedCommand unsignedTx
       payload <- getCmdPayload unsignedCmd
-      userSigs <- matchSigs sigs payload
+      userSigs <- matchSigs sigs signAccts payload
 
       let signedCmd = unsignedCmd { _cmdSigs = userSigs }
-          signedTx = enrichedCommandToText (EnrichedCommand signedCmd meta payerGuard)
+          signedTx = enrichedCommandToText (EnrichedCommand signedCmd meta signAccts)
       pure $ ConstructionCombineResp signedTx
 
 

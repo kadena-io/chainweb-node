@@ -12,6 +12,7 @@
 --
 module Chainweb.Rosetta.Utils where
 
+import Control.Error.Util
 import Data.Aeson
 import Data.Decimal
 import Data.List (sortOn, inits)
@@ -25,6 +26,8 @@ import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
 import qualified Pact.Types.Runtime as P
 import qualified Pact.Types.RPC as P
+import qualified Pact.Types.Capability as P
+import qualified Pact.Types.Scheme as P
 
 import Numeric.Natural
 
@@ -196,6 +199,9 @@ toContNextStep currChainId pe
 -- Rosetta ConstructionAPI Types and Helper Functions --
 --------------------------------------------------------------------------------
 
+--------------------------------------------------------------------------------
+-- /preprocess
+
 data CrossChainTxMetaData =
     StartCrossChainTx
       { _startCrossChainTx_to :: !T.Text
@@ -210,27 +216,29 @@ data CrossChainTxMetaData =
 instance FromJSON CrossChainTxMetaData where
   parseJSON = undefined
 
-data ConstructionPreprocessReqMetaData = ConstructionPreprocessReqMetaData
-  { _constructionPreprocessReqMetaData_crossChainTxMetaData :: !(Maybe CrossChainTxMetaData)
-  , _constructionPreprocessReqMetaData_gasPayer :: !AccountId
-  , _constructionPreprocessReqMetaData_nonce :: !(Maybe T.Text)
+
+data PreprocessReqMetaData = PreprocessReqMetaData
+  { _preprocessReqMetaData_crossChainTxMetaData :: !(Maybe CrossChainTxMetaData)
+  , _preprocessReqMetaData_gasPayer :: !AccountId
+  , _preprocessReqMetaData_nonce :: !(Maybe T.Text)
   } deriving (Show, Eq)
-instance ToJSON ConstructionPreprocessReqMetaData where
+instance ToJSON PreprocessReqMetaData where
   toJSON = undefined
-instance FromJSON ConstructionPreprocessReqMetaData where
+instance FromJSON PreprocessReqMetaData where
   parseJSON = undefined
 
-data ConstructionPreprocessRespMetaData = ConstructionPreprocessRespMetaData
-  { _constructionPreprocessRespMetaData_preprocessMetaData :: ConstructionPreprocessReqMetaData
-  , _constructionPreprocessRespMetaData_tx :: ConstructionTx
-  , _constructionPreprocessRespMetaData_suggestedFee :: Amount
-  , _constructionPreprocessRespMetaData_gasLimit :: P.GasLimit
-  , _constructionPreprocessRespMetaData_gasPrice :: P.GasPrice
+
+data PreprocessRespMetaData = PreprocessRespMetaData
+  { _preprocessRespMetaData_reqMetaData :: PreprocessReqMetaData
+  , _preprocessRespMetaData_tx :: ConstructionTx
+  , _preprocessRespMetaData_suggestedFee :: Amount
+  , _preprocessRespMetaData_gasLimit :: P.GasLimit
+  , _preprocessRespMetaData_gasPrice :: P.GasPrice
   } deriving (Show, Eq)
-instance ToObject ConstructionPreprocessRespMetaData where
+instance ToObject PreprocessRespMetaData where
   toPairs = undefined
   toObject m = HM.fromList (toPairs m)
-instance FromJSON ConstructionPreprocessRespMetaData where
+instance FromJSON PreprocessRespMetaData where
   parseJSON = undefined
 
 
@@ -242,8 +250,6 @@ parseOps
     -> Either RosettaError ConstructionTx
 parseOps = undefined
 
-constructionTxToOps :: ConstructionTx -> [Operation]
-constructionTxToOps = undefined
 
 getSuggestedFee
     :: ConstructionTx
@@ -288,53 +294,84 @@ data ConstructionTx =
   deriving (Show, Eq)
 
 
-txWithSPVProofIfNeeded :: ConstructionTx -> IO (Either RosettaError ConstructionTx)
-txWithSPVProofIfNeeded (ConstructFinishCrossChain _ _ _ _ _ _) = undefined
-txWithSPVProofIfNeeded tx = pure $ pure tx
+--------------------------------------------------------------------------------
+-- /metadata
 
-
-getCmdNonce :: Maybe T.Text -> T.Text
-getCmdNonce _someUserNonce = undefined
-
-
-createCmdPublicMeta
+toPublicMeta
     :: ChainId
     -> AccountId
     -> P.GasLimit
     -> P.GasPrice
-    -> P.PublicMeta
-createCmdPublicMeta = undefined
+    -> IO P.PublicMeta
+toPublicMeta = undefined
 
 
-data ConstructionPayloadsReqMetaData = ConstructionPayloadsReqMetaData
-  { _constructionPayloadsReqMetaData_signers :: ![Signer]
-  , _constructionPayloadsReqMetaData_nonce :: !T.Text
-  , _constructionPayloadsReqMetaData_publicMeta :: !P.PublicMeta
-  , _constructionPayloadsReqMetaData_tx :: !ConstructionTx
-  }
-instance ToObject ConstructionPayloadsReqMetaData where
-  toPairs = undefined   -- TODO: returned by /metadata endpoint
-  toObject m = HM.fromList (toPairs m)
-instance FromJSON ConstructionPayloadsReqMetaData where
-  parseJSON = undefined
+toNonce :: Maybe T.Text -> IO T.Text
+toNonce _someUserNonce = undefined
 
 
-enrichedCommandToText :: EnrichedCommand -> T.Text
-enrichedCommandToText = T.decodeUtf8 . BSL.toStrict . encode
+txWithSPVProofIfNeeded
+    :: ChainId
+    -> ConstructionTx
+    -> IO (Either RosettaError ConstructionTx)
+txWithSPVProofIfNeeded _cid (ConstructFinishCrossChain _ _ _ _ _ _) = undefined
+txWithSPVProofIfNeeded _ tx = pure $ pure tx
 
-textToEnrichedCommand :: T.Text -> Maybe EnrichedCommand
-textToEnrichedCommand = decodeStrict' . T.encodeUtf8
+
+-- | Map from a Pact Address (derived from PublicKey) to a function to create a Signer
+-- TODO: Validate that its valid Public Keys.
+toSignerMap
+    :: [RosettaPublicKey]
+    -> Either RosettaError (HM.HashMap T.Text ([P.SigCapability] -> Signer))
+toSignerMap = undefined 
+
+
+toSignerAcctsMap
+    :: ConstructionTx
+    -> AccountId
+    -- ^ Gas payer account id
+    -> HM.HashMap AccountId [P.SigCapability]
+toSignerAcctsMap = undefined
+
+
+-- | Looks up the guard of a coin-contract accounts.
+--   Throws error if guard is anything except a KeySet
+--   (i.e. list of "address" derived from public key)
+addAccountGuards
+    :: HM.HashMap AccountId a
+    -> IO (Either RosettaError (HM.HashMap AccountId (a, [T.Text])))
+addAccountGuards = undefined
+
+
+createSigners
+    :: HM.HashMap T.Text ([P.SigCapability] -> Signer)
+    -> HM.HashMap AccountId ([P.SigCapability], [T.Text])
+    -> Either RosettaError [(Signer, AccountId)]
+createSigners addrToSigMap acctToCapMap =
+  concat <$> mapM f acctToCapList
+  where
+    acctToCapList = HM.toList acctToCapMap
+
+    f (acct, (caps, pubKeyAddrs)) =
+      mapM (lookupSigner acct caps) pubKeyAddrs
+
+    lookupSigner acct caps apk = do
+      mkSigner <- toRosettaError RosettaMissingExpectedPublicKey $
+                  note ("No Rosetta Public Key found for pact public key address="
+                        ++ show apk ++ " for AccountId=" ++ show acct)
+                  (HM.lookup apk addrToSigMap)
+      pure (mkSigner caps, acct)
 
 
 --------------------------------------------------------------------------------
 -- /payloads
 
 data PayloadsMetaData = PayloadsMetaData
-  { _payloadsMetaData_signers :: ![Signer]
+  { _payloadsMetaData_signers :: ![(Signer, AccountId)]
   , _payloadsMetaData_nonce :: !T.Text
   , _payloadsMetaData_publicMeta :: !P.PublicMeta
   , _payloadsMetaData_tx :: !ConstructionTx
-  , _payloadsMetaData_payerGuard :: !P.KeySet
+  -- ^ Needed to construct gas payer AccountId
   }
 instance ToObject PayloadsMetaData where
   toPairs = undefined
@@ -346,7 +383,7 @@ instance FromJSON PayloadsMetaData where
 data EnrichedCommand = EnrichedCommand
   { _enrichedCommand_cmd :: !(Command T.Text)
   , _enrichedCommand_txInfo :: !ConstructionTx
-  , _enrichedCommand_payerGuard :: !P.KeySet
+  , _enrichedCommand_signerAccounts:: ![AccountId]
   }
 instance ToJSON EnrichedCommand where
   toJSON = undefined
@@ -354,17 +391,25 @@ instance FromJSON EnrichedCommand where
   parseJSON = undefined
 
 
+enrichedCommandToText :: EnrichedCommand -> T.Text
+enrichedCommandToText = T.decodeUtf8 . BSL.toStrict . encode
+
+textToEnrichedCommand :: T.Text -> Maybe EnrichedCommand
+textToEnrichedCommand = decodeStrict' . T.encodeUtf8
+
+
 constructionTxToPactRPC :: ConstructionTx -> P.PactRPC T.Text
 constructionTxToPactRPC = undefined
+
 
 -- | Creates an enriched Command that consists of an
 --   unsigned Command object, as well as any extra information lost
 --   when constructing the command but needed in the /parse
 --   endpoint.
 createUnsignedCmd :: ChainwebVersion -> PayloadsMetaData -> EnrichedCommand
-createUnsignedCmd v req = EnrichedCommand cmd txInfo payerGuard
+createUnsignedCmd v meta = EnrichedCommand cmd txInfo (map snd signers)
   where
-    PayloadsMetaData signers nonce pubMeta txInfo payerGuard = req
+    PayloadsMetaData signers nonce pubMeta txInfo = meta
 
     -- creates the unsigned command
     cmd = Command encodedPayloadText [] hsh
@@ -376,37 +421,33 @@ createUnsignedCmd v req = EnrichedCommand cmd txInfo payerGuard
         { _pPayload = pactRPC
         , _pNonce = nonce
         , _pMeta = pubMeta
-        , _pSigners = signers
+        , _pSigners = map fst signers
         , _pNetworkId = Just $ P.NetworkId $! chainwebVersionToText v
         }
     pactRPC = constructionTxToPactRPC txInfo
 
 
-createSigningPayloads :: EnrichedCommand -> T.Text -> [RosettaSigningPayload]
-createSigningPayloads (EnrichedCommand cmd txInfo payerGuard) payerName =
-  map f signerAccts
+createSigningPayloads
+    :: EnrichedCommand
+    -> [(Signer, AccountId)]
+    -> [RosettaSigningPayload]
+createSigningPayloads (EnrichedCommand cmd _ _) signers =
+  map f signers
   where
-    signerAccts = expectedSignersAccts payerName payerGuard txInfo
     
-    f acct = RosettaSigningPayload
+    f (signer, acct) = RosettaSigningPayload
       { _rosettaSigningPayload_address = Nothing
       , _rosettaSigningPayload_accountIdentifier = Just acct
       , _rosettaSigningPayload_hexBytes = _cmdPayload cmd
-      , _rosettaSigningPayload_signatureType = Just RosettaEd25519
-      -- Assumes signing public keys are all Ed22519
+      , _rosettaSigningPayload_signatureType = toRosettaSigType $ _siScheme signer
       }
+
+    toRosettaSigType Nothing = Just RosettaEd25519
+    toRosettaSigType (Just P.ED25519) = Just RosettaEd25519
+    toRosettaSigType (Just P.ETH) = Just RosettaEcdsa
 
 --------------------------------------------------------------------------------
 -- /parse
-
--- | Retrieves the AccountIds that need to sign the transaction.
-expectedSignersAccts
-    :: T.Text
-    -> P.KeySet
-    -> ConstructionTx
-    -> [AccountId]
-expectedSignersAccts _payerName = undefined
-
 
 txToOps :: ConstructionTx -> [Operation]
 txToOps = undefined
@@ -426,6 +467,7 @@ getCmdPayload = undefined
 -- TODO: Check correct arrangement of UserSigs and Signers
 matchSigs
     :: [RosettaSignature]
+    -> [AccountId]
     -> Payload m c
     -> Either RosettaError [UserSig]
 matchSigs = undefined
@@ -685,6 +727,7 @@ data RosettaFailure
     | RosettaUnparsableMetaData
     | RosettaMissingMetaData
     | RosettaMissingPublicKeys
+    | RosettaMissingExpectedPublicKey
     deriving (Show, Enum, Bounded, Eq)
 
 
@@ -719,6 +762,7 @@ rosettaError RosettaConstructionDeriveNotSupported = RosettaError 23 "/construct
 rosettaError RosettaUnparsableMetaData = RosettaError 24 "Unparsable metadata field" False
 rosettaError RosettaMissingMetaData = RosettaError 25 "Required metadata field is missing" False
 rosettaError RosettaMissingPublicKeys = RosettaError 26 "Required public_keys field is missing" False
+rosettaError RosettaMissingExpectedPublicKey = RosettaError 27 "Expected public key not provided" False
 
 rosettaError' :: RosettaFailure -> RosettaError
 rosettaError' f = rosettaError f Nothing
@@ -790,7 +834,7 @@ noteResult (Success w) = Right w
 noteResult (Error e) = Left e
 
 annotate :: (a -> c) -> Either a b -> Either c b
-annotate f (Left err) = Left $ f err
+annotate f (Left e) = Left $ f e
 annotate _ (Right r) = Right r
 
 overwriteError :: a -> Either b c -> Either a c
