@@ -12,12 +12,16 @@
 --
 module Chainweb.Rosetta.Utils where
 
+import Control.Monad (when)
 import Control.Error.Util
 import Data.Aeson
+import Data.Aeson.Types (Pair)
+import Data.Foldable (foldl')
 import Data.Decimal
 import Data.List (sortOn, inits)
 import Data.Word (Word64)
 import Text.Read (readMaybe)
+import Text.Printf
 
 import qualified Data.ByteString.Lazy as BSL
 import qualified Data.HashMap.Strict as HM
@@ -27,7 +31,12 @@ import qualified Data.Text.Encoding as T
 import qualified Pact.Types.Runtime as P
 import qualified Pact.Types.RPC as P
 import qualified Pact.Types.Capability as P
+import qualified Pact.Types.Command as P
 import qualified Pact.Types.Scheme as P
+import qualified Pact.Parse as P
+import qualified Pact.Types.Crypto as P
+import qualified Pact.Types.SPV as P
+
 
 import Numeric.Natural
 
@@ -77,6 +86,18 @@ instance ToObject OperationMetaData where
     , "prev-ownership" .= prevOwnership
     , "curr-ownership" .= currOwnership ]
   toObject opMeta = HM.fromList (toPairs opMeta)
+instance FromJSON OperationMetaData where
+  parseJSON = withObject "OperationMetaData" $ \o -> do
+    txId <- o .: "tx-id"
+    bal <- o .: "total-balance"
+    prevOwnership <- o .: "prev-ownership"
+    currOwnership <- o .: "curr-ownership"
+    pure OperationMetaData
+      { _operationMetaData_txId = txId
+      , _operationMetaData_totalBalance = bal
+      , _operationMetaData_prevOwnership = prevOwnership
+      , _operationMetaData_currOwnership = currOwnership
+      }
 
 
 newtype AccountIdMetaData = AccountIdMetaData
@@ -213,8 +234,38 @@ data CrossChainTxMetaData =
       , _finishCrossChainTx_pactId :: !P.PactId
       }
   deriving (Show, Eq)
+instance ToJSON CrossChainTxMetaData where
+  toJSON (StartCrossChainTx toAcct toGuard targetChain) =
+    object [ "cross_chain_stage" .= ("start" :: T.Text)
+           , "receiver_account" .= toAcct
+           , "receiver_ownership" .= toGuard
+           , "target_chain" .= targetChain ]
+  toJSON (FinishCrossChainTx sourceChain pactId) =
+    object [ "cross_chain_stage" .= ("finish" :: T.Text)
+           , "source_chain" .= sourceChain
+           , "pact_id" .= pactId ]
+
 instance FromJSON CrossChainTxMetaData where
-  parseJSON = undefined
+  parseJSON = withObject "CrossChainTxMetaData" $ \o -> do
+    typ :: T.Text <- o .: "cross_chain_stage"
+    case typ of
+      "start" -> do
+        receiverAcct <- o .: "receiver_account"
+        receiverGuard <- o .: "receiver_ownership"
+        targetChain <- o .: "target_chain"
+        return $ StartCrossChainTx
+          { _startCrossChainTx_to = receiverAcct
+          , _startCrossChainTx_toGuard = receiverGuard
+          , _startCrossChainTx_targetChain = targetChain
+          }
+      "finish" -> do
+        sourceChain <- o .: "source_chain"
+        pactId <- o .: "pact_id"
+        return $ FinishCrossChainTx
+          { _finishCrossChainTx_sourceChain = sourceChain
+          , _finishCrossChainTx_pactId = pactId
+          }
+      _ -> error $ "Invalid CrossChainTxMetaData 'cross_chain_stage' value: " ++ show typ
 
 
 data PreprocessReqMetaData = PreprocessReqMetaData
@@ -223,40 +274,27 @@ data PreprocessReqMetaData = PreprocessReqMetaData
   , _preprocessReqMetaData_nonce :: !(Maybe T.Text)
   } deriving (Show, Eq)
 instance ToJSON PreprocessReqMetaData where
-  toJSON = undefined
+  toJSON (PreprocessReqMetaData someXChain payer someNonce) =
+    toJSONOmitMaybe
+    [ "gas_payer" .= payer ]
+    [ maybePair "cross_chain_tx" someXChain
+    , maybePair "nonce" someNonce ]
 instance FromJSON PreprocessReqMetaData where
-  parseJSON = undefined
+  parseJSON = withObject "PreprocessReqMetaData" $ \o -> do
+    xchain <- o .:? "cross_chain_tx"
+    payer <- o .: "gas_payer"
+    nonce <- o .:? "nonce"
+    return $ PreprocessReqMetaData
+      { _preprocessReqMetaData_crossChainTxMetaData = xchain
+      , _preprocessReqMetaData_gasPayer = payer
+      , _preprocessReqMetaData_nonce = nonce
+      }
 
-
-data PreprocessRespMetaData = PreprocessRespMetaData
-  { _preprocessRespMetaData_reqMetaData :: PreprocessReqMetaData
-  , _preprocessRespMetaData_tx :: ConstructionTx
-  , _preprocessRespMetaData_suggestedFee :: Amount
-  , _preprocessRespMetaData_gasLimit :: P.GasLimit
-  , _preprocessRespMetaData_gasPrice :: P.GasPrice
-  } deriving (Show, Eq)
-instance ToObject PreprocessRespMetaData where
-  toPairs = undefined
-  toObject m = HM.fromList (toPairs m)
-instance FromJSON PreprocessRespMetaData where
-  parseJSON = undefined
-
-
--- | NOTE: if finish cross chain, don't have notion of proof at this moment.
-parseOps
-    :: NetworkId
-    -> Maybe CrossChainTxMetaData
-    -> [Operation]
-    -> Either RosettaError ConstructionTx
-parseOps = undefined
-
-
-getSuggestedFee
-    :: ConstructionTx
-    -> Maybe [Amount]
-    -> Maybe Double
-    -> (P.GasLimit, P.GasPrice, Amount)
-getSuggestedFee _tx _someMaxFee _someMult = undefined
+validatePreprocessReqMetaData
+    :: PreprocessReqMetaData -> Either RosettaError ()
+validatePreprocessReqMetaData = undefined
+  -- TODO: validate ChainIds used
+  -- TODO: validate AccountIds used
 
 
 -- | The different types of pact coin-contract transactions allowed in
@@ -268,7 +306,7 @@ data ConstructionTx =
       , _constructTransfer_fromGuard :: !P.KeySet
       , _constructTransfer_to :: !T.Text
       , _constructTransfer_toGuard :: !P.KeySet
-      , _constructTransfer_amount :: !Decimal
+      , _constructTransfer_amount :: !P.ParsedDecimal
       }
   | ConstructAcctCreate
       { _constructAcctCreate_acctName :: !T.Text
@@ -279,20 +317,343 @@ data ConstructionTx =
       , _constructStartCrossChain_fromGuard :: !P.KeySet
       , _constructStartCrossChain_to :: !T.Text
       , _constructStartCrossChain_toGuard :: !P.KeySet
-      , _constructStartCrossChain_amount :: !Decimal
+      , _constructStartCrossChain_amount :: !P.ParsedDecimal
       , _constructStartCrossChain_targetChain :: !P.ChainId
       }
   | ConstructFinishCrossChain
       { _constructFinishCrossChain_to :: !T.Text
       , _constructFinishCrossChain_toGuard :: !P.KeySet
-      , _constructFinishCrossChain_amount :: !Decimal
+      , _constructFinishCrossChain_amount :: !P.ParsedDecimal
       , _constructFinishCrossChain_pactId :: !P.PactId
       , _constructFinishCrossChain_sourceChain :: !P.ChainId
       , _constructFinishCrossChain_proof :: !(Maybe T.Text)
-      -- ^ Retrieved during /metadata endpoint only
+      -- ^ Retrieved during /metadata endpoint only!
       }
   deriving (Show, Eq)
+instance ToJSON ConstructionTx where
+  toJSON (ConstructTransfer from fromGuard to toGuard amt) =
+    object [ "tx_type" .= ("transfer" :: T.Text)
+           , "sender_account" .= from
+           , "sender_ownership" .= fromGuard
+           , "receiver_account" .= to
+           , "receiver_ownership" .= toGuard
+           , "transfer_amount" .= amt ]
+  toJSON (ConstructAcctCreate name guard) =
+    object [ "tx_type" .= ("create_account" :: T.Text)
+           , "account_name" .= name
+           , "account_ownership" .= guard ]
+  toJSON (ConstructStartCrossChain from fromGuard to toGuard amt targetChain) =
+    object [ "tx_type" .= ("start_cross_chain" :: T.Text)
+           , "sender_account" .= from
+           , "sender_ownership" .= fromGuard
+           , "receiver_account" .= to
+           , "receiver_ownership" .= toGuard
+           , "transfer_amount" .= amt
+           , "target_chain" .= targetChain ]
+  toJSON (ConstructFinishCrossChain to toGuard amt pactId sourceChain someProof) =
+    toJSONOmitMaybe
+    [ "tx_type" .= ("finish_cross_chain" :: T.Text)
+    , "receiver_account" .= to
+    , "receiver_ownership" .= toGuard
+    , "transfer_amount" .= amt
+    , "pact_id" .= pactId
+    , "source_chain" .= sourceChain ]
+    [ maybePair "spv_proof" someProof]
+instance FromJSON ConstructionTx where
+  parseJSON = withObject "ConstructionTx" $ \o -> do
+    typ :: T.Text <- o .: "tx_type"
+    case typ of
+      "transfer" -> parseTransfer o
+      "create_account" -> parseAcctCreate o
+      "start_cross_chain" -> parseStartCrossChain o
+      "finish_cross_chain" -> parseFinishCrossChain o
+      _ -> error $ "Invalid ConstructionTx 'tx_type' value: " ++ show typ
+    where
+      parseTransfer o = do
+        from <- o .: "sender_account"
+        fromGuard <- o .: "sender_ownership"
+        to <- o .: "receiver_account"
+        toGuard <- o .: "receiver_ownership"
+        amt <- o .: "transfer_amount"
+        return $ ConstructTransfer
+          { _constructTransfer_from = from
+          , _constructTransfer_fromGuard = fromGuard
+          , _constructTransfer_to = to
+          , _constructTransfer_toGuard = toGuard
+          , _constructTransfer_amount = amt
+          }
+      parseAcctCreate o = do
+        name <- o .: "account_name"
+        guard <- o .: "account_ownership"
+        return ConstructAcctCreate
+          { _constructAcctCreate_acctName = name
+          , _constructAcctCreate_acctGuard = guard
+          }
+      parseStartCrossChain o = do
+         from <- o .: "sender_account"
+         fromGuard <- o .: "sender_ownership"
+         to <- o .: "receiver_account"
+         toGuard <- o .: "receiver_ownership"
+         amt <- o .: "transfer_amount"
+         targetChain <- o .: "target_chain"
+         return ConstructStartCrossChain
+           { _constructStartCrossChain_from = from
+           , _constructStartCrossChain_fromGuard = fromGuard
+           , _constructStartCrossChain_to = to
+           , _constructStartCrossChain_toGuard = toGuard
+           , _constructStartCrossChain_amount = amt
+           , _constructStartCrossChain_targetChain = targetChain
+           }
+      parseFinishCrossChain o = do
+        to <- o .: "receiver_account"
+        toGuard <- o .: "receiver_ownership"
+        amt <- o .: "transfer_amount"
+        pactId <- o .: "pact_id"
+        sourceChain <- o .: "source_chain"
+        someProof <- o .:? "spv_proof"
+        return ConstructFinishCrossChain
+          { _constructFinishCrossChain_to = to
+          , _constructFinishCrossChain_toGuard = toGuard
+          , _constructFinishCrossChain_amount = amt
+          , _constructFinishCrossChain_pactId = pactId
+          , _constructFinishCrossChain_sourceChain = sourceChain
+          , _constructFinishCrossChain_proof = someProof
+          }
 
+
+data PreprocessRespMetaData = PreprocessRespMetaData
+  { _preprocessRespMetaData_reqMetaData :: PreprocessReqMetaData
+  , _preprocessRespMetaData_tx :: ConstructionTx
+  , _preprocessRespMetaData_suggestedFee :: Amount
+  , _preprocessRespMetaData_gasLimit :: P.GasLimit
+  , _preprocessRespMetaData_gasPrice :: P.GasPrice
+  } deriving (Show, Eq)
+instance ToObject PreprocessRespMetaData where
+  toPairs (PreprocessRespMetaData reqMeta txInfo fee gasLimit gasPrice) =
+    [ "preprocess_request_metadata" .= reqMeta
+    , "tx_info" .= txInfo
+    , "suggested_fee" .= fee
+    , "gas_limit" .= gasLimit
+    , "gas_price" .= gasPrice ]
+  toObject m = HM.fromList (toPairs m)
+instance FromJSON PreprocessRespMetaData where
+  parseJSON = withObject "PreprocessRespMetaData" $ \o -> do
+    reqMeta <- o .: "preprocess_request_metadata"
+    txInfo <- o .: "tx_info"
+    fee <- o .: "suggested_fee"
+    gasLimit <- o .: "gas_limit"
+    gasPrice <- o .: "gas_price"
+    return PreprocessRespMetaData
+      { _preprocessRespMetaData_reqMetaData = reqMeta
+      , _preprocessRespMetaData_tx = txInfo
+      , _preprocessRespMetaData_suggestedFee = fee
+      , _preprocessRespMetaData_gasLimit = gasLimit
+      , _preprocessRespMetaData_gasPrice = gasPrice
+      }
+
+
+-- | Parse list of Operations into feasible Pact transactions.
+-- NOTE: Expects that user-provided values are valid (i.e. ChainIds, AccountIds).
+opsToConstructionTx
+    :: ChainId
+    -> Maybe CrossChainTxMetaData
+    -> [Operation]
+    -> Either RosettaError ConstructionTx
+opsToConstructionTx cid someXChain ops = do
+  ops' <- mapM parseOp ops
+  case ops' of
+    [(acct, bal, ks)]
+      | bal == 0.0 -> createAcct acct ks
+      | bal < 0.0 -> startCrossChain acct bal ks -- debit, negative bal
+      | otherwise -> finishCrossChain acct bal ks -- credit, positive bal
+    [op1, op2] -> transfer op1 op2
+    [] -> rerr RosettaInvalidOperations
+            "Found empty list of Operations"
+    _ -> rerr RosettaInvalidOperations
+           "Expected at MOST two operations"
+  where
+    rerr f msg = Left $ stringRosettaError f msg
+    pactChainId = P.ChainId $ chainIdToText cid
+
+    transfer (acct1, bal1, ks1) (acct2, bal2, ks2)
+      | (bal1 == 0 || bal2 == 0) = rerr RosettaInvalidOperations
+                                   "transfer amounts: Cannot transfer zero amounts"
+      | (bal1 + bal2 /= 1.0) = rerr RosettaInvalidOperations
+                               "transfer amounts: Mass conversation not preserved"
+      | (acct1 == acct2) = rerr RosettaInvalidOperations
+                           "Cannot transfer to the same account name"
+      | bal1 < 0.0 = pure $ ConstructTransfer
+        { _constructTransfer_from = acct1    -- bal1 is negative, so acct1 is debitor (from)
+        , _constructTransfer_fromGuard = ks1
+        , _constructTransfer_to = acct2      -- bal2 is positive, so acct2 is creditor (to)
+        , _constructTransfer_toGuard = ks2
+        , _constructTransfer_amount = P.ParsedDecimal $ abs bal1
+        }
+      | otherwise = pure $ ConstructTransfer
+        { _constructTransfer_from = acct2    -- bal2 is negative, so acct2 is debitor (from)
+        , _constructTransfer_fromGuard = ks2
+        , _constructTransfer_to = acct1      -- bal1 is positive, so acct1 is creditor (to)
+        , _constructTransfer_toGuard = ks1
+        , _constructTransfer_amount = P.ParsedDecimal $ abs bal1
+        }
+
+    createAcct acct ks =
+      pure ConstructAcctCreate
+        { _constructAcctCreate_acctName = acct
+        , _constructAcctCreate_acctGuard = ks
+        }
+
+    startCrossChain debAcct bal ks =
+      case someXChain of
+        Just (StartCrossChainTx to toGuard target) -> do
+          when (target == pactChainId)
+            (rerr RosettaInvalidOperations $ "Source and target chainId must be different")
+
+          let amt = abs bal
+          
+          pure ConstructStartCrossChain
+            { _constructStartCrossChain_from = debAcct
+            , _constructStartCrossChain_fromGuard = ks
+            , _constructStartCrossChain_to = to
+            , _constructStartCrossChain_toGuard = toGuard
+            , _constructStartCrossChain_amount = P.ParsedDecimal amt
+            , _constructStartCrossChain_targetChain = target
+            }
+
+        _ -> rerr RosettaInvalidOperations $
+             "Expected `cross_chain_tx` field of type `start`"
+
+    finishCrossChain credAcct bal ks =
+      case someXChain of
+        Just (FinishCrossChainTx src pid) -> do
+          when (src == pactChainId)
+            (rerr RosettaInvalidOperations $ "Source and target chainId must be different")
+
+          let amt = abs bal
+          
+          pure ConstructFinishCrossChain
+            { _constructFinishCrossChain_to = credAcct
+            , _constructFinishCrossChain_toGuard = ks
+            , _constructFinishCrossChain_amount = P.ParsedDecimal amt
+            , _constructFinishCrossChain_pactId = pid
+            , _constructFinishCrossChain_sourceChain = src
+            , _constructFinishCrossChain_proof = Nothing
+            }
+
+        _ -> rerr RosettaInvalidOperations $
+             "Expected `cross_chain_tx` field of type `finish`"
+
+
+-- | Calculate the suggested fee in KDA for the transaction to be performed.
+-- Some optional parameters might be specified, i.e. a max KDA fee and a fee multiplier.
+-- FORMULA: fee = gasLimit * (gasPrice * multiplier)
+-- NOTE: The multiplier will be absorbed into the gasPrice since assuming that
+--       the higher the gasPrice the more likely the transaction will be added to a block.
+getSuggestedFee
+    :: ConstructionTx
+    -> Maybe [Amount]
+    -> Maybe Double
+    -> Either RosettaError (P.GasLimit, P.GasPrice, Amount)
+getSuggestedFee tx someMaxFees someMult = do
+  someMaxFee <- parseMaxFees someMaxFees
+  mapM_ checkMaxFeeSufficient someMaxFee
+  let gasLimit = estimatedGasLimit
+      someMaxPrice = fmap (calcMaxGasPrice gasLimit) someMaxFee
+      gasPrice = calcGasPrice someMaxPrice
+      fee = kdaToRosettaAmount $! calcKDAFee gasLimit gasPrice
+
+  pure $! (gasLimit, gasPrice, fee)
+    
+  where
+    ------------
+    -- Defaults
+    ------------
+    -- NOTE: GasLimit should never be greater than default block gas limit.
+    defGasUnitsTransferCreate = 600
+    defGasUnitsCreateAcct = 250
+    defGasUnitsStartCrossChain = 450
+    defGasUnitsFinishCrossChain = 350
+
+    minGasPrice = Decimal 12 1
+
+    -------------------
+    -- Helper Functions
+    -------------------
+    parseMaxFees :: Maybe [Amount] -> Either RosettaError (Maybe Decimal)
+    parseMaxFees Nothing = pure Nothing
+    parseMaxFees (Just []) = pure Nothing
+    parseMaxFees (Just [a]) = do
+      dec <- parseAmount a
+      checkIfPositive dec
+      pure $ Just dec
+      where
+        checkIfPositive d
+          | d >= 0 = pure ()
+          | otherwise =
+            Left $ stringRosettaError RosettaInvalidAmount
+              "max_fee: Expected positive Amount"
+    parseMaxFees _ =
+      Left $ stringRosettaError RosettaInvalidAmount
+        "max_fee: Expected single Amount, but found multiple Amounts."
+
+    -- Make sure that the max fee is sufficent to cover the cost of
+    -- the specified transaction at the minimum gas price.
+    checkMaxFeeSufficient :: Decimal -> Either RosettaError ()
+    checkMaxFeeSufficient maxFee
+      | maxFee >= minFeeNeeded = pure ()
+      | otherwise =
+        Left $ stringRosettaError RosettaInvalidAmount $
+          "max_fee: Expected a minimum fee of " ++ show minFeeNeeded ++
+          "KDA for specified operations, but received max_fee=" ++ show maxFee ++ "KDA"
+      where
+        minFeeNeeded =
+          calcKDAFee estimatedGasLimit
+            (P.GasPrice $ P.ParsedDecimal minGasPrice)
+    
+    estimatedGasLimit = P.GasLimit $ P.ParsedInteger $! case tx of
+      ConstructTransfer _ _ _ _ _ -> defGasUnitsTransferCreate
+      ConstructAcctCreate _ _ -> defGasUnitsCreateAcct
+      ConstructStartCrossChain _ _ _ _ _ _ -> defGasUnitsStartCrossChain
+      ConstructFinishCrossChain _ _ _ _ _ _ -> defGasUnitsFinishCrossChain
+
+    -- Calculate the maximum gas price possible give the max fee provided and the
+    -- needed gas units for the specified transaction.
+    -- NOTE: The max fee acts as upper bound on the suggested fee
+    --       (regardless of the multiplier provided).
+    calcMaxGasPrice :: P.GasLimit -> Decimal -> Decimal
+    calcMaxGasPrice gasLimit maxFee = fromIntegral maxGasPrice
+      where
+        P.GasLimit (P.ParsedInteger units) = gasLimit
+        maxGasPrice :: Integer = floor $ (maxFee / (fromInteger units))
+
+    -- Sanitize the fee multiplier provided by user.
+    -- Since the multiplier will multiplied into the min gas price,
+    -- (1) Makes sure that it's not zero.
+    -- (2) Makes sure that it's above 1.0, otherwise the final gas price
+    --     will be lower than the min precision allowed in Pact.
+    mult :: Decimal
+    mult = realToFrac $
+      case someMult of
+        Nothing -> 1.0
+        Just m
+          | m <= 1.0 -> 1.0
+          | otherwise -> m
+
+    calcGasPrice :: Maybe Decimal -> P.GasPrice
+    calcGasPrice someMaxGasPrice = P.GasPrice $ P.ParsedDecimal $!
+      case someMaxGasPrice of
+        Nothing -> minGasPrice * mult  -- no max fee provided
+        Just maxGasPrice
+          | ((minGasPrice * mult) > maxGasPrice) -> maxGasPrice
+          | otherwise -> minGasPrice * mult
+
+    calcKDAFee :: P.GasLimit -> P.GasPrice -> Decimal
+    calcKDAFee gasLimit gasPrice = fee
+      where
+        P.GasLimit (P.ParsedInteger units) = gasLimit
+        P.GasPrice (P.ParsedDecimal price) = gasPrice
+        fee = (fromIntegral units) * price
+  
 
 --------------------------------------------------------------------------------
 -- /metadata
@@ -303,11 +664,24 @@ toPublicMeta
     -> P.GasLimit
     -> P.GasPrice
     -> IO P.PublicMeta
-toPublicMeta = undefined
+toPublicMeta cid acct gasLimit gasPrice = do
+  let creationTime = undefined
+
+  pure $ P.PublicMeta
+    { P._pmChainId = P.ChainId $ chainIdToText cid
+    , P._pmSender = _accountId_address acct
+    , P._pmGasLimit = gasLimit
+    , P._pmGasPrice = gasPrice
+    , P._pmTTL = defaultTransactionTTL
+    , P._pmCreationTime = creationTime
+    }
+  where
+    defaultTransactionTTL = P.TTLSeconds (8 * 60 * 60) -- 8 hours
 
 
-toNonce :: Maybe T.Text -> IO T.Text
-toNonce _someUserNonce = undefined
+toNonce :: Maybe T.Text -> P.PublicMeta -> T.Text
+toNonce Nothing pm = sshow $! P._pmCreationTime pm
+toNonce (Just n) _ = n
 
 
 txWithSPVProofIfNeeded
@@ -318,20 +692,57 @@ txWithSPVProofIfNeeded _cid (ConstructFinishCrossChain _ _ _ _ _ _) = undefined
 txWithSPVProofIfNeeded _ tx = pure $ pure tx
 
 
--- | Map from a Pact Address (derived from PublicKey) to a function to create a Signer
--- TODO: Validate that its valid Public Keys.
+toPactPubKeyAddr
+    :: T.Text
+    -> P.PPKScheme
+    -> Either RosettaError T.Text
+toPactPubKeyAddr pk sk = do
+  let scheme = P.toScheme sk
+  bs <- toRosettaError RosettaInvalidPublicKey $! P.parseB16TextOnly pk
+  addrBS <- toRosettaError RosettaInvalidPublicKey $!
+            P.formatPublicKeyBS scheme (P.PubBS bs)
+  pure $! P.toB16Text addrBS
+
+
+signerToAddr :: Signer -> Either RosettaError T.Text
+signerToAddr (Signer someScheme pk someAddr _) = do
+  let sk = maybe P.ED25519 id someScheme
+      addr = maybe pk id someAddr
+  toPactPubKeyAddr addr sk
+
+
+getScheme :: CurveType -> Either RosettaError P.PPKScheme
+getScheme CurveEdwards25519 = pure P.ED25519
+getScheme ct = Left $ stringRosettaError RosettaInvalidPublicKey $
+               "Found unsupported CurveType: " ++ show ct
+
+sigToScheme :: RosettaSignatureType -> Either RosettaError P.PPKScheme
+sigToScheme RosettaEd25519 = pure P.ED25519
+sigToScheme st = Left $ stringRosettaError RosettaInvalidSignature $
+                 "Found unsupported SignatureType: " ++ show st
+
+-- | Maps a Pact Address (derived from PublicKey) to a
+--   function to create a Signer.
 toSignerMap
     :: [RosettaPublicKey]
     -> Either RosettaError (HM.HashMap T.Text ([P.SigCapability] -> Signer))
-toSignerMap = undefined 
+toSignerMap pubKeys = HM.fromList <$> mapM f pubKeys
+  where 
+    f (RosettaPublicKey pk ct) = do
+      sk <- getScheme ct
+      addr <- toPactPubKeyAddr pk sk
+      let signerWithoutCap = P.Signer (Just sk) pk (Just addr)
+      pure (addr, signerWithoutCap)
 
 
-toSignerAcctsMap
+-- TODO: check that create-account doesn't exist
+toAcctGuardMap
     :: ConstructionTx
     -> AccountId
     -- ^ Gas payer account id
-    -> HM.HashMap AccountId [P.SigCapability]
-toSignerAcctsMap = undefined
+    -> IO (Either RosettaError (HM.HashMap AccountId ([P.SigCapability], [T.Text])))
+toAcctGuardMap = do
+  undefined
 
 
 -- | Looks up the guard of a coin-contract accounts.
@@ -341,6 +752,20 @@ addAccountGuards
     :: HM.HashMap AccountId a
     -> IO (Either RosettaError (HM.HashMap AccountId (a, [T.Text])))
 addAccountGuards = undefined
+
+
+type AccountName = T.Text
+
+
+-- | Maps all AccountId needed when signing to their SigCapabilities.
+toSignerAcctsMap
+    :: ConstructionTx
+    -> AccountId
+    -- ^ Gas payer account id
+    -> HM.HashMap AccountId [P.SigCapability]
+toSignerAcctsMap = undefined
+  --where
+    --m = HM.singleton undefined []
 
 
 createSigners
@@ -398,8 +823,53 @@ textToEnrichedCommand :: T.Text -> Maybe EnrichedCommand
 textToEnrichedCommand = decodeStrict' . T.encodeUtf8
 
 
-constructionTxToPactRPC :: ConstructionTx -> P.PactRPC T.Text
-constructionTxToPactRPC = undefined
+constructionTxToPactRPC
+    :: ConstructionTx
+    -> P.PactRPC T.Text
+constructionTxToPactRPC txInfo =
+  case txInfo of
+    ConstructAcctCreate acctName guard ->
+      let code = t $! printf
+            "(coin.create-account \"%s\" (read-keyset \"%s\"))"
+            (str acctName) guardName
+          rdata = object [ guardName .= guard ]
+      in P.Exec $ P.ExecMsg (guardCheckCode <> code) rdata
+
+    ConstructTransfer from _ to toGuard amt ->
+      let code = t $! printf
+            "(coin.transfer-create \"%s\" \"%s\" (read-keyset \"%s\") (read-decimal \"%s\"))"
+            (str from) (str to) guardName amountName
+          rdata = object
+            [ guardName .= toGuard
+            , amountName .= amt ]
+      in P.Exec $ P.ExecMsg (guardCheckCode <> code) rdata
+
+    ConstructStartCrossChain
+      from _ to toGuard amt (P.ChainId targetChain) ->
+      let code = t $! printf
+            "(coin.transfer-crosschain \"%s\" \"%s\" (read-keyset \"%s\") (read-decimal \"%s\"))"
+            (str from) (str to) guardName (str targetChain) amountName
+          rdata = object
+            [ guardName .= toGuard
+            , amountName .= amt ]
+      in P.Exec $ P.ExecMsg (guardCheckCode <> code) rdata
+
+    ConstructFinishCrossChain _ _ _ pactId _ proof ->
+      P.Continuation $ P.ContMsg
+        { P._cmPactId = pactId
+        , P._cmStep = 1 -- the last step of `coin.transfer-crosschain`
+        , P._cmRollback = False
+        , P._cmData = Null
+        , P._cmProof = fmap (P.ContProof . T.encodeUtf8) proof
+        }
+  where
+    str = T.unpack
+    t = T.pack
+    amountName = "amount"
+    guardName = "ks"
+    guardCheckCode = t $! printf
+                     "(enforce-keyset (read-keyset \"%s\")\n"
+                     guardName
 
 
 -- | Creates an enriched Command that consists of an
@@ -444,13 +914,40 @@ createSigningPayloads (EnrichedCommand cmd _ _) signers =
 
     toRosettaSigType Nothing = Just RosettaEd25519
     toRosettaSigType (Just P.ED25519) = Just RosettaEd25519
-    toRosettaSigType (Just P.ETH) = Just RosettaEcdsa
+    toRosettaSigType (Just P.ETH) = Just RosettaEcdsa -- TODO: unsupport this
 
 --------------------------------------------------------------------------------
 -- /parse
 
 txToOps :: ConstructionTx -> [Operation]
-txToOps = undefined
+txToOps txInfo = case txInfo of
+  ConstructAcctCreate name guard ->
+    [ op name 0.0 guard 0 ]
+  ConstructTransfer from fromGuard to toGuard (P.ParsedDecimal amt) ->
+    [ op from (negate amt) fromGuard 0
+    , op to amt toGuard 1
+    ]
+  ConstructStartCrossChain from fromGuard _ _ (P.ParsedDecimal amt) _ ->
+    [ op from (negate amt) fromGuard 0 ]
+  ConstructFinishCrossChain to toGuard (P.ParsedDecimal amt) _ _ _ ->
+    [ op to amt toGuard 0 ]
+  
+  where
+    op name delta guard idx =
+      operation Successful
+                TransferOrCreateAcct
+                (P.TxId 0) -- TOOD: dummy variable
+                (toAcctLog name 0.0 delta guard) -- TODO: total is dummy var
+                idx
+                []
+      
+    toAcctLog name total delta guard = AccountLog
+      { _accountLogKey = name
+      , _accountLogBalanceTotal = total
+      , _accountLogBalanceDelta = BalanceDelta delta
+      , _accountLogCurrGuard = toJSON guard
+      , _accountLogPrevGuard = toJSON guard
+      }
 
 
 --------------------------------------------------------------------------------
@@ -459,18 +956,42 @@ txToOps = undefined
 getCmdPayload
     :: Command T.Text
     -> Either RosettaError (Payload P.PublicMeta T.Text)
-getCmdPayload = undefined
+getCmdPayload (Command p _ _) =
+  note (rosettaError' RosettaUnparsableTx)
+    (decodeStrict' $! T.encodeUtf8 p)
 
 
--- TODO: Check SignatureType and PublicKey's CurveType.
--- TODO: Check that expected Signers are these types as well.
--- TODO: Check correct arrangement of UserSigs and Signers
 matchSigs
     :: [RosettaSignature]
-    -> [AccountId]
-    -> Payload m c
+    -> [Signer]
     -> Either RosettaError [UserSig]
-matchSigs = undefined
+matchSigs sigs signers = do
+  sigMap <- HM.fromList <$> mapM sigAndAddr sigs
+  mapM (match sigMap) signers
+  
+  where
+    match
+        :: HM.HashMap T.Text UserSig
+        -> Signer
+        -> Either RosettaError UserSig
+    match m signer = do
+      addr <- signerToAddr signer
+      sig <- note (stringRosettaError RosettaInvalidSignature $
+                  "Missing signature for public key=" ++ show (_siPubKey signer))
+             $ HM.lookup addr m
+      pure sig
+    
+    sigAndAddr (RosettaSignature _ (RosettaPublicKey pk ct) sigTyp sig) = do
+      _ <- toRosettaError RosettaInvalidSignature $! P.parseB16TextOnly sig
+      sigScheme <- sigToScheme sigTyp
+      pkScheme <- getScheme ct
+      when (sigScheme /= pkScheme)
+        (Left $ stringRosettaError RosettaInvalidSignature $
+         "Expected the same Signature and PublicKey type for Signature=" ++ show sig) 
+
+      let userSig = P.UserSig sig      
+      addr <- toPactPubKeyAddr pk pkScheme
+      pure (addr, userSig)
 
 
 --------------------------------------------------------------------------------
@@ -672,6 +1193,54 @@ operation ostatus otype txId acctLog idx related =
       { _accountIdMetaData_currOwnership = _accountLogCurrGuard acctLog
       }
 
+parseOp
+    :: Operation
+    -> Either RosettaError (T.Text, Decimal, P.KeySet)
+parseOp (Operation i _ typ stat someAcct someAmt _ someMeta) = do
+  typ @?= "TransferOrCreateAcct"
+  stat @?= "Successful"
+  acct <- someAcct @?? "Missing AccountId"
+  amtDelta <- someAmt @?? "Missing Amount" >>= parseAmount
+  (OperationMetaData _ _ prevOwn currOwn) <- someMeta @?? "Missing metadata"
+                                             >>= extractMetaData
+  prevOwn @?= currOwn   -- ensure that the ownership wasn't rotated
+  ownership <- (hushResult $ fromJSON currOwn) @??
+               "Only Pact KeySet is supported for account ownership"
+
+  validateAccountId acct
+  validateAmount (abs amtDelta)
+  
+  pure (_accountId_address acct, amtDelta, ownership)
+
+  where
+    (@??) :: Maybe a -> String -> Either RosettaError a
+    Nothing @?? msg =
+      Left $ stringRosettaError RosettaInvalidOperation $
+        "Operation id=" ++ show i ++ ": " ++ msg
+    (Just a) @?? _ = pure a
+    
+    (@?=)
+        :: (Show a, Eq a) => a
+        -> a
+        -> Either RosettaError ()
+    actual @?= expected
+      | actual == expected = pure ()
+      | otherwise =
+        Left $ stringRosettaError RosettaInvalidOperation $
+          "Operation id=" ++ show i ++ ": expected " ++ show expected
+          ++ " but received " ++ show actual
+
+-- TODO
+validateAccountId :: AccountId -> Either RosettaError ()
+validateAccountId = undefined
+  -- check account name min length
+  -- check account name max length
+  -- check account name charset latin1
+  -- RosettaInvalidAccountKey
+
+-- TODO
+validateAmount :: Decimal -> Either RosettaError ()
+validateAmount = undefined
 
 -- | Timestamp of the block in milliseconds since the Unix Epoch.
 -- NOTE: Chainweb provides this timestamp in microseconds.
@@ -682,18 +1251,37 @@ rosettaTimestamp bh = BA.unLE . BA.toLE $ fromInteger msTime
     TimeSpan ms = millisecond
     microTime = encodeTimeToWord64 $ _bct (_blockCreationTime bh)
 
+
+-- | How to convert from atomic units to standard units in Rosetta Currency.
+defaultNumOfDecimals :: Word
+defaultNumOfDecimals = 12
+
+defaultCurrency :: Currency
+defaultCurrency = Currency "KDA" defaultNumOfDecimals Nothing
+
 kdaToRosettaAmount :: Decimal -> Amount
-kdaToRosettaAmount k = Amount (sshow amount) currency Nothing
+kdaToRosettaAmount k = Amount (sshow amount) defaultCurrency Nothing
   where
     -- Value in atomic units represented as an arbitrary-sized signed integer.
     amount :: Integer
-    amount = floor $ k * (realToFrac ((10 :: Integer) ^ numDecimals))
+    amount = floor $ k * (realToFrac ((10 :: Integer) ^ defaultNumOfDecimals))
 
-    -- How to convert from atomic units to standard units
-    numDecimals = 12 :: Word
+parseAmount :: Amount -> Either RosettaError Decimal
+parseAmount a@(Amount txt (Currency _ numDecs _) _) = do
+  validateCurrency (_amount_currency a)
+  P.ParsedInteger i <- f $ String txt
+  pure $ Decimal (fromIntegral numDecs) i
+  where
+    f =
+      (toRosettaError RosettaInvalidAmount) .  noteResult . fromJSON
 
-    currency = Currency "KDA" numDecimals Nothing
-
+validateCurrency :: Currency -> Either RosettaError ()
+validateCurrency curr
+  | curr /= defaultCurrency =
+    Left $ stringRosettaError RosettaInvalidAmount $
+      "Expected currency " ++ show defaultCurrency ++
+      " but received currency " ++ show curr
+  | otherwise = pure ()
 
 --------------------------------------------------------------------------------
 -- Rosetta Exceptions --
@@ -728,6 +1316,11 @@ data RosettaFailure
     | RosettaMissingMetaData
     | RosettaMissingPublicKeys
     | RosettaMissingExpectedPublicKey
+    | RosettaInvalidAmount
+    | RosettaInvalidOperation
+    | RosettaInvalidOperations
+    | RosettaInvalidPublicKey
+    | RosettaInvalidSignature
     deriving (Show, Enum, Bounded, Eq)
 
 
@@ -763,20 +1356,39 @@ rosettaError RosettaUnparsableMetaData = RosettaError 24 "Unparsable metadata fi
 rosettaError RosettaMissingMetaData = RosettaError 25 "Required metadata field is missing" False
 rosettaError RosettaMissingPublicKeys = RosettaError 26 "Required public_keys field is missing" False
 rosettaError RosettaMissingExpectedPublicKey = RosettaError 27 "Expected public key not provided" False
+rosettaError RosettaInvalidAmount = RosettaError 28 "Invalid Amount type" False
+rosettaError RosettaInvalidOperation = RosettaError 29 "Invalid Operation type" False
+rosettaError RosettaInvalidOperations = RosettaError 30 "Invalid Operations list found" False
+rosettaError RosettaInvalidPublicKey = RosettaError 31 "Invalid PublicKey" False
+rosettaError RosettaInvalidSignature = RosettaError 32 "Invalid Signature" False
 
 rosettaError' :: RosettaFailure -> RosettaError
 rosettaError' f = rosettaError f Nothing
+
+stringRosettaError :: RosettaFailure -> String -> RosettaError
+stringRosettaError e msg = rosettaError e $ Just $
+  HM.fromList ["error_message" .= msg ]
 
 --------------------------------------------------------------------------------
 -- Misc Helper Functions --
 --------------------------------------------------------------------------------
 
+maybePair :: (ToJSON a) => T.Text -> Maybe a -> (T.Text, Maybe Value)
+maybePair label Nothing = (label, Nothing)
+maybePair label (Just v) = (label, Just (toJSON v))
+
+toJSONOmitMaybe :: [Pair] -> [(T.Text, Maybe Value)] -> Value
+toJSONOmitMaybe defPairs li = object allPairs
+  where
+    allPairs = foldl' f defPairs li
+    f acc (_, Nothing) = acc
+    f acc (t, Just p) = acc ++ [t .= p]
+
 toRosettaError
     :: RosettaFailure
     -> Either String a
     -> Either RosettaError a
-toRosettaError failure = annotate $ \msg -> do
-  rosettaError failure (Just $ HM.fromList ["error_message" .= msg ])
+toRosettaError failure = annotate (stringRosettaError failure)
 
 extractMetaData :: (FromJSON a) => Object -> Either RosettaError a
 extractMetaData = (toRosettaError RosettaUnparsableMetaData)

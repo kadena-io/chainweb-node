@@ -240,16 +240,17 @@ constructionPreprocessH v req = do
     
     work :: Either RosettaError ConstructionPreprocessResp
     work = do
-      void $ annotate rosettaError' (validateNetwork v net)
+      cid <- annotate rosettaError' (validateNetwork v net)
       meta <- note (rosettaError' RosettaMissingMetaData) someMeta
       parsedMeta <- extractMetaData meta
+      validatePreprocessReqMetaData parsedMeta
 
       let PreprocessReqMetaData xchainMeta payer _ = parsedMeta
 
-      tx <- parseOps net xchainMeta ops
+      tx <- opsToConstructionTx cid xchainMeta ops
+      (gasLimit, gasPrice, fee) <- getSuggestedFee tx someMaxFee someMult
 
       let expectedAccts = HM.keys $! toSignerAcctsMap tx payer
-          (gasLimit, gasPrice, fee) = getSuggestedFee tx someMaxFee someMult
           respMeta = toObject $! PreprocessRespMetaData
             { _preprocessRespMetaData_reqMetaData = parsedMeta
             , _preprocessRespMetaData_tx = tx
@@ -279,8 +280,8 @@ constructionMetadataH v (ConstructionMetadataReq net opts someKeys) =
           PreprocessReqMetaData _ payer someNonce = reqMeta
 
       tx' <- (liftIO $ txWithSPVProofIfNeeded cid tx) >>= hoistEither
-      nonce <- liftIO $ toNonce someNonce
       pubMeta <- liftIO $ toPublicMeta cid payer gLimit gPrice
+      let nonce = toNonce someNonce pubMeta
 
       let expectedAccts = toSignerAcctsMap tx' payer
       expectedAcctsWithGuards <- (liftIO $ addAccountGuards expectedAccts)
@@ -352,8 +353,9 @@ constructionParseH v (ConstructionParseReq net isSigned tx) =
       | isSigned = do
           _ <- toRosettaError RosettaInvalidTx $ validateCommand cmd
           pure expectedSignerAccts
-          -- If transaction successfully validates, it was correctly signed with
-          -- all of the account public keys needed.
+          -- If transaction signatures successfully validates,
+          -- it was signed correctly with all of the account public
+          -- keys needed.
           -- NOTE: Might contain repetitions.
           -- TODO: Just return unique account ids.
       | otherwise = pure []
@@ -371,7 +373,7 @@ constructionCombineH (ConstructionCombineReq _ unsignedTx sigs) =
         (rosettaError' RosettaUnparsableTx)
         $ textToEnrichedCommand unsignedTx
       payload <- getCmdPayload unsignedCmd
-      userSigs <- matchSigs sigs signAccts payload
+      userSigs <- matchSigs sigs (_pSigners $! payload)
 
       let signedCmd = unsignedCmd { _cmdSigs = userSigs }
           signedTx = enrichedCommandToText (EnrichedCommand signedCmd meta signAccts)
