@@ -849,18 +849,17 @@ createSigners
     -> Either RosettaError [(Signer, AccountId)]
 createSigners addrToSignerMap acctToCapMap =
   -- TODO: There might be duplicates but that's okay
-  concat <$> mapM f acctToCapList
+  concat <$> mapM f (HM.toList acctToCapMap)
   where
-    acctToCapList = HM.toList acctToCapMap
 
     f (acct, (caps, pubKeyAddrs)) =
       mapM (lookupSigner acct caps) pubKeyAddrs
 
-    lookupSigner acct caps apk = do
+    lookupSigner acct caps pkAddr = do
       mkSigner <- toRosettaError RosettaMissingExpectedPublicKey $
                   note ("No Rosetta Public Key found for pact public key address="
-                        ++ show apk ++ " for AccountId=" ++ show acct)
-                  (HM.lookup apk addrToSignerMap)
+                        ++ show pkAddr ++ " for AccountId=" ++ show acct)
+                  (HM.lookup pkAddr addrToSignerMap)
       pure (mkSigner caps, acctNameToAcctId acct)
 
 
