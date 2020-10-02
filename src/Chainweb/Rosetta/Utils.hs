@@ -18,7 +18,9 @@ import Data.Aeson
 import Data.Aeson.Types (Pair)
 import Data.Foldable (foldl')
 import Data.Decimal
+import Data.Hashable (Hashable(..))
 import Data.List (sortOn, inits)
+import Data.Default (def)
 import Data.Word (Word64)
 import Text.Read (readMaybe)
 import Text.Printf
@@ -41,7 +43,6 @@ import qualified Pact.Types.SPV as P
 import Numeric.Natural
 
 import Pact.Types.Command
-import Pact.Types.Hash
 import Pact.Types.PactValue (PactValue(..))
 import Pact.Types.Exp (Literal(..))
 
@@ -738,7 +739,7 @@ toSignerMap pubKeys = HM.fromList <$> mapM f pubKeys
 -- TODO: check that create-account doesn't exist
 toAcctGuardMap
     :: ConstructionTx
-    -> AccountId
+    -> AccountName
     -- ^ Gas payer account id
     -> IO (Either RosettaError (HM.HashMap AccountId ([P.SigCapability], [T.Text])))
 toAcctGuardMap = do
@@ -749,30 +750,105 @@ toAcctGuardMap = do
 --   Throws error if guard is anything except a KeySet
 --   (i.e. list of "address" derived from public key)
 addAccountGuards
-    :: HM.HashMap AccountId a
-    -> IO (Either RosettaError (HM.HashMap AccountId (a, [T.Text])))
+    :: HM.HashMap AccountName a
+    -> IO (Either RosettaError (HM.HashMap AccountName (a, [T.Text])))
 addAccountGuards = undefined
 
 
-type AccountName = T.Text
+newtype AccountName = AccountName { _accountName :: T.Text }
+  deriving (Show, Eq)
+instance Hashable AccountName where
+  hash (AccountName n) = hash n
+  hashWithSalt i (AccountName n) = hashWithSalt i n
+
+-- TODO: If metadata changes, might need to include information on keyset
+acctNameToAcctId :: AccountName -> AccountId
+acctNameToAcctId (AccountName name) = AccountId name Nothing Nothing
 
 
--- | Maps all AccountId needed when signing to their SigCapabilities.
+-- | Maps the name of all AccountId needed when signing to their
+-- required SigCapabilities.
 toSignerAcctsMap
     :: ConstructionTx
     -> AccountId
     -- ^ Gas payer account id
-    -> HM.HashMap AccountId [P.SigCapability]
-toSignerAcctsMap = undefined
-  --where
-    --m = HM.singleton undefined []
+    -> HM.HashMap AccountName [P.SigCapability]
+toSignerAcctsMap txInfo payer =
+  case txInfo of
+    ConstructTransfer from _ to _ (P.ParsedDecimal amt) ->
+      insertWith' to [] $
+        insertWith' from [ mkTransferCap from to amt ] mapWithGas
+    ConstructAcctCreate name _ ->
+      insertWith' name [] mapWithGas
+    ConstructStartCrossChain from _ to _ (P.ParsedDecimal amt) _ ->
+      insertWith' to [] $
+        insertWith' from [ mkDebitCap from amt ] mapWithGas
+    ConstructFinishCrossChain to _ _ _ _ _ ->
+      insertWith' to [ mkCreditCap to ] mapWithGas
+  where
+    mapWithGas = HM.singleton
+      (AccountName $ _accountId_address payer)
+      [ mkGasCap ]
+
+    insertWith'
+        :: T.Text
+        -> [P.SigCapability]
+        -> HM.HashMap AccountName [P.SigCapability]
+        -> HM.HashMap AccountName [P.SigCapability]
+    insertWith' name sigs m = HM.insertWith f (AccountName name) sigs m
+      where
+        f new old = old <> new
+
+    -- Cap smart constructor.
+    mkCapability
+        :: P.ModuleName
+        -> T.Text
+        -> [PactValue]
+        -> P.SigCapability
+    mkCapability mn cap args =
+      P.SigCapability (P.QualifiedName mn cap def) args
+
+    -- Convenience to make caps like TRANSFER, GAS etc.
+    mkCoinCap
+        :: T.Text
+        -> [PactValue]
+        -> P.SigCapability
+    mkCoinCap n = mkCapability "coin" n
+
+    mkTransferCap
+        :: T.Text
+        -> T.Text
+        -> Decimal
+        -> P.SigCapability
+    mkTransferCap sender receiver amount = mkCoinCap "TRANSFER"
+      [ pString sender, pString receiver, pDecimal amount ]
+
+    mkGasCap :: P.SigCapability
+    mkGasCap = mkCoinCap "GAS" []
+
+    mkDebitCap :: T.Text -> Decimal -> P.SigCapability
+    mkDebitCap sender amount = mkCoinCap "DEBIT"
+      [ pString sender, pDecimal amount ]
+
+    mkCreditCap :: T.Text -> P.SigCapability
+    mkCreditCap receiver = mkCoinCap "CREDIT"
+      [ pString receiver ]
+
+    -- Make PactValue from text
+    pString :: T.Text -> PactValue
+    pString = PLiteral . LString
+
+    -- Make PactValue from decimal
+    pDecimal :: Decimal -> PactValue
+    pDecimal = PLiteral . LDecimal
 
 
 createSigners
     :: HM.HashMap T.Text ([P.SigCapability] -> Signer)
-    -> HM.HashMap AccountId ([P.SigCapability], [T.Text])
+    -> HM.HashMap AccountName ([P.SigCapability], [T.Text])
     -> Either RosettaError [(Signer, AccountId)]
-createSigners addrToSigMap acctToCapMap =
+createSigners addrToSignerMap acctToCapMap =
+  -- TODO: There might be duplicates but that's okay
   concat <$> mapM f acctToCapList
   where
     acctToCapList = HM.toList acctToCapMap
@@ -784,8 +860,8 @@ createSigners addrToSigMap acctToCapMap =
       mkSigner <- toRosettaError RosettaMissingExpectedPublicKey $
                   note ("No Rosetta Public Key found for pact public key address="
                         ++ show apk ++ " for AccountId=" ++ show acct)
-                  (HM.lookup apk addrToSigMap)
-      pure (mkSigner caps, acct)
+                  (HM.lookup apk addrToSignerMap)
+      pure (mkSigner caps, acctNameToAcctId acct)
 
 
 --------------------------------------------------------------------------------
@@ -1081,8 +1157,8 @@ rosettaTransaction cr cid ops =
     , _transaction_metadata = Just $ toObject (transactionMetaData cid cr)
     }
 
-pactHashToTransactionId :: PactHash -> TransactionId
-pactHashToTransactionId hsh = TransactionId $ hashToText $ toUntypedHash hsh
+pactHashToTransactionId :: P.PactHash -> TransactionId
+pactHashToTransactionId hsh = TransactionId $ P.hashToText $ P.toUntypedHash hsh
 
 rkToTransactionId :: RequestKey -> TransactionId
 rkToTransactionId rk = TransactionId $ requestKeyToB16Text rk

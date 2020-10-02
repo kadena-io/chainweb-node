@@ -250,7 +250,7 @@ constructionPreprocessH v req = do
       tx <- opsToConstructionTx cid xchainMeta ops
       (gasLimit, gasPrice, fee) <- getSuggestedFee tx someMaxFee someMult
 
-      let expectedAccts = HM.keys $! toSignerAcctsMap tx payer
+      let expectedAccts = map acctNameToAcctId $! HM.keys $! toSignerAcctsMap tx payer
           respMeta = toObject $! PreprocessRespMetaData
             { _preprocessRespMetaData_reqMetaData = parsedMeta
             , _preprocessRespMetaData_tx = tx
