@@ -54,6 +54,7 @@ module Chainweb.Version
 , skipTxTimingValidation
 , enableModuleNameFix
 , enableModuleNameFix2
+, enablePactEvents
 -- ** BlockHeader Validation Guards
 , slowEpochGuard
 , oldTargetGuard
@@ -838,6 +839,12 @@ enableModuleNameFix2 :: ChainwebVersion -> BlockHeight -> Bool
 enableModuleNameFix2 Mainnet01 bh = bh >= 752214 -- ~ 2020-07-17 0:00:00 UTC
 enableModuleNameFix2 Testnet04 bh = bh >= 289966 -- ~ 2020-07-13
 enableModuleNameFix2 _ bh = bh >= 2
+
+-- | Enable serialization of Pact Events (Pact 3.6) in output
+enablePactEvents :: ChainwebVersion -> BlockHeight -> Bool
+enablePactEvents Mainnet01 bh = bh >= 1_000_000 -- TODO
+enablePactEvents Testnet04 bh = bh >= 600_000 -- TODO
+enablePactEvents _ bh = bh >= 2
 
 -- -------------------------------------------------------------------------- --
 -- Header Validation Guards
