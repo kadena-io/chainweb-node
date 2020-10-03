@@ -844,6 +844,7 @@ enableModuleNameFix2 _ bh = bh >= 2
 enablePactEvents :: ChainwebVersion -> BlockHeight -> Bool
 enablePactEvents Mainnet01 bh = bh >= 1_000_000 -- TODO
 enablePactEvents Testnet04 bh = bh >= 600_000 -- TODO
+enablePactEvents (FastTimedCPM g) _ = g == singletonChainGraph -- For testing events
 enablePactEvents _ bh = bh >= 2
 
 -- -------------------------------------------------------------------------- --
