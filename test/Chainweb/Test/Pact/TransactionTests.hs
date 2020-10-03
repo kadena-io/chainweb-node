@@ -190,7 +190,7 @@ testCoinbase797DateFix = testCaseSteps "testCoinbase791Fix" $ \step -> do
 
     doCoinbaseExploit pdb mc preForkHeight cmd False $ \case
       Left _ -> assertFailure "local call to get-balance failed"
-      Right (PLiteral (LDecimal d))
+      Right (PactSuccess (PLiteral (LDecimal d)) _)
         | d == 1000.1 -> return ()
         | otherwise -> assertFailure $ "miner balance is incorrect: " <> show d
       Right l -> assertFailure $ "wrong return type: " <> show l
@@ -202,7 +202,7 @@ testCoinbase797DateFix = testCaseSteps "testCoinbase791Fix" $ \step -> do
 
     doCoinbaseExploit pdb mc postForkHeight cmd' False $ \case
       Left _ -> assertFailure "local call to get-balance failed"
-      Right (PLiteral (LDecimal d))
+      Right (PactSuccess (PLiteral (LDecimal d)) _)
         | d == 0.1 -> return ()
         | otherwise -> assertFailure $ "miner balance is incorrect: " <> show d
       Right l -> assertFailure $ "wrong return type: " <> show l
@@ -211,7 +211,7 @@ testCoinbase797DateFix = testCaseSteps "testCoinbase791Fix" $ \step -> do
 
     doCoinbaseExploit pdb mc preForkHeight cmd' True $ \case
       Left _ -> assertFailure "local call to get-balance failed"
-      Right (PLiteral (LDecimal d))
+      Right (PactSuccess (PLiteral (LDecimal d)) _)
         | d == 0.2 -> return ()
         | otherwise -> assertFailure $ "miner balance is incorrect: " <> show d
       Right l -> assertFailure $ "wrong return type: " <> show l
@@ -220,7 +220,7 @@ testCoinbase797DateFix = testCaseSteps "testCoinbase791Fix" $ \step -> do
 
     doCoinbaseExploit pdb mc postForkHeight cmd' True $ \case
       Left _ -> assertFailure "local call to get-balance failed"
-      Right (PLiteral (LDecimal d))
+      Right (PactSuccess (PLiteral (LDecimal d)) _)
         | d == 0.3 -> return ()
         | otherwise -> assertFailure $ "miner balance is incorrect: " <> show d
       Right l -> assertFailure $ "wrong return type: " <> show l
