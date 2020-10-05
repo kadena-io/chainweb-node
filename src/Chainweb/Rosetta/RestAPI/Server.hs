@@ -123,6 +123,7 @@ accountBalanceH v cutDb crs (AccountBalanceReq net (AccountId acct _ _) pbid) = 
     acctBalResp bid bal = AccountBalanceResp
       { _accountBalanceResp_blockId = bid
       , _accountBalanceResp_balances = [ kdaToRosettaAmount bal ]
+      , _accountBalanceResp_coins = Nothing
       , _accountBalanceResp_metadata = Nothing
       }
 
@@ -172,7 +173,7 @@ blockH v cutDb ps crs (BlockReq net (PartialBlockId bheight bhash)) =
       logs <- getTxLogs (_chainResPact cr) bh
       trans <- hoistEither $ matchLogs FullLogs bh logs coinbase txs
       pure $ BlockResp
-        { _blockResp_block = block bh trans
+        { _blockResp_block = Just $ block bh trans
         , _blockResp_otherTransactions = Nothing
         }
 
@@ -214,24 +215,24 @@ constructionMetadataH
     :: ChainwebVersion
     -> ConstructionMetadataReq
     -> Handler ConstructionMetadataResp
-constructionMetadataH v (ConstructionMetadataReq net _) =
+constructionMetadataH v (ConstructionMetadataReq net _ _) =
     runExceptT work >>= either throwRosetta pure
   where
     -- TODO: Extend as necessary.
     work :: ExceptT RosettaFailure Handler ConstructionMetadataResp
     work = do
         void $ validateNetwork v net
-        pure $ ConstructionMetadataResp HM.empty
+        pure $ ConstructionMetadataResp HM.empty Nothing
 
 constructionSubmitH
     :: ChainwebVersion
     -> [(ChainId, MempoolBackend ChainwebTransaction)]
     -> ConstructionSubmitReq
-    -> Handler ConstructionSubmitResp
+    -> Handler TransactionIdResp
 constructionSubmitH v ms (ConstructionSubmitReq net tx) =
     runExceptT work >>= either throwRosetta pure
   where
-    work :: ExceptT RosettaFailure Handler ConstructionSubmitResp
+    work :: ExceptT RosettaFailure Handler TransactionIdResp
     work = do
         cid <- validateNetwork v net
         cmd <- command tx ?? RosettaUnparsableTx
@@ -241,7 +242,7 @@ constructionSubmitH v ms (ConstructionSubmitReq net tx) =
         liftIO (mempoolInsertCheck mp vec) >>= hoistEither . first (const RosettaInvalidTx)
         liftIO (mempoolInsert mp UncheckedInsert vec)
         let rk = requestKeyToB16Text $ cmdToRequestKey validated
-        pure $ ConstructionSubmitResp (TransactionId rk) Nothing
+        pure $ TransactionIdResp (TransactionId rk) Nothing
 
 command :: T.Text -> Maybe (Command T.Text)
 command = decodeStrict' . T.encodeUtf8
@@ -252,9 +253,9 @@ command = decodeStrict' . T.encodeUtf8
 mempoolH
     :: ChainwebVersion
     -> [(ChainId, MempoolBackend a)]
-    -> MempoolReq
+    -> NetworkReq
     -> Handler MempoolResp
-mempoolH v ms (MempoolReq net) = work >>= \case
+mempoolH v ms (NetworkReq net _) = work >>= \case
     Left !e -> throwRosetta e
     Right !a -> pure a
   where
@@ -346,10 +347,11 @@ networkOptionsH v (NetworkReq nid _) = runExceptT work >>= either throwRosetta p
     allow = Allow
       { _allow_operationStatuses = opStatuses
       , _allow_operationTypes = opTypes
-      , _allow_errors = errExamples }
+      , _allow_errors = errExamples
+      , _allow_historicalBalanceLookup = True }
 
     errExamples :: [RosettaError]
-    errExamples = map rosettaError [minBound .. maxBound]
+    errExamples = map (\e -> rosettaError e Nothing) [minBound .. maxBound]
 
     opStatuses :: [OperationStatus]
     opStatuses = map operationStatus [minBound .. maxBound]
@@ -385,6 +387,8 @@ networkStatusH v cutDb peerDb (NetworkReq nid _) =
       { _networkStatusResp_currentBlockId = blockId bh
       , _networkStatusResp_currentBlockTimestamp = rosettaTimestamp bh
       , _networkStatusResp_genesisBlockId = blockId genesis
+      , _networkStatusResp_oldestBlockIdentifier = Nothing
+      , _networkStatusResp_syncStatus = Nothing
       , _networkStatusResp_peers = rosettaNodePeers ps
       }
 
