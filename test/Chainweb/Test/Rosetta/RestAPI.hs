@@ -197,8 +197,8 @@ blockTests tio envIo = testCaseSchSteps "Block Tests" $ \step -> do
     rkmv <- newEmptyMVar @RequestKeys
 
     step "fetch genesis block"
-    resp0 <- block cenv (req 0)
-    (_block_blockId $ _blockResp_block resp0) @?= genesisId
+    (BlockResp (Just bl0) _) <- block cenv (req 0)
+    (_block_blockId $ bl0) @?= genesisId
 
     step "send transaction"
     prs <- transferOneAsync tio cenv (putMVar rkmv)
@@ -215,7 +215,8 @@ blockTests tio envIo = testCaseSchSteps "Block Tests" $ \step -> do
     validateTransferResp bh resp = do
       _blockResp_otherTransactions resp @?= Nothing
 
-      let validateBlock b = do
+      let validateBlock someBlock = do
+            Just b <- pure $ someBlock
             _block_metadata b @?= Nothing
             _blockId_index (_block_blockId b) @?= bh
             _blockId_index (_block_parentBlockId b) @?= (bh - 1)
@@ -271,8 +272,8 @@ constructionSubmitTests tio envIo =
       step "send construction submit request and poll on request key"
       resp0 <- constructionSubmit cenv req
 
-      _constructionSubmitResp_transactionId resp0 @?= rkToTransactionId rk
-      _constructionSubmitResp_metadata resp0 @?= Nothing
+      _transactionIdRes_transactionIdentifier resp0 @?= rkToTransactionId rk
+      _transactionIdRes_metadata resp0 @?= Nothing
 
       step "confirm transaction details via poll"
       PollResponses prs <- polling cid cenv (RequestKeys $ pure rk) ExpectPactResult
@@ -298,7 +299,7 @@ mempoolTests tio envIo = testCaseSchSteps "Mempool Tests" $ \step -> do
     step "compare requestkey against mempool responses"
     void $! repeatUntil test $ mempool cenv req
   where
-    req = MempoolReq nid
+    req = NetworkReq nid Nothing
 
 -- | Rosetta network list endpoint tests
 --
@@ -390,7 +391,7 @@ genesisId = BlockId 0 "rdfJIktp_WL0oMr8Wr6lH49YkERAJ9MlFp0RPLMXPDE"
 
 rosettaVersion :: RosettaNodeVersion
 rosettaVersion = RosettaNodeVersion
-    { _version_rosettaVersion = "1.3.1"
+    { _version_rosettaVersion = "1.4.4"
     , _version_nodeVersion = VERSION_chainweb
     , _version_middlewareVersion = Nothing
     , _version_metadata = Just $ HM.fromList
@@ -400,7 +401,7 @@ rosettaVersion = RosettaNodeVersion
     }
 
 rosettaFailures :: [RosettaError]
-rosettaFailures = rosettaError <$> enumFrom RosettaChainUnspecified
+rosettaFailures = map (\e -> rosettaError e Nothing) (enumFrom RosettaChainUnspecified)
 
 operationStatuses :: [OperationStatus]
 operationStatuses =
