@@ -159,6 +159,7 @@ operation ostatus otype txid acctLog idx =
     , _operation_account = Just accountId
     , _operation_amount = Just $ kdaToRosettaAmount $
                           _balanceDelta $ _accountLogBalanceDelta acctLog
+    , _operation_coinChange = Nothing
     , _operation_metadata = opMeta
     }
   where

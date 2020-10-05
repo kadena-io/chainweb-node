@@ -326,7 +326,7 @@ constructionMetadata cenv req =
 constructionSubmit
     :: ClientEnv
     -> ConstructionSubmitReq
-    -> IO ConstructionSubmitResp
+    -> IO TransactionIdResp
 constructionSubmit cenv req =
     recovering testRetryPolicy [h] $ \s -> do
     debug
@@ -361,7 +361,7 @@ mempoolTransaction cenv req =
 
 mempool
     :: ClientEnv
-    -> MempoolReq
+    -> NetworkReq
     -> IO MempoolResp
 mempool cenv req =
     recovering testRetryPolicy [h] $ \s -> do
