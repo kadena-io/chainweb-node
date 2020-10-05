@@ -14,6 +14,7 @@ import Control.Monad.Reader
 import Control.Monad.State
 import Control.Lens
 
+import Data.CAS.RocksDB
 import Data.IORef
 import qualified Data.Text as T
 import Data.Tuple.Strict (T3(..))
@@ -57,28 +58,28 @@ testVer = FastTimedCPM peterson
 cid :: ChainId
 cid = someChainId testVer
 
-tests :: ScheduledTest
-tests =
+tests :: RocksDb -> ScheduledTest
+tests rdb =
     ScheduledTest label $
     withDelegateMempool $ \dmp ->
     let mp = snd <$> dmp
         mpio = fst <$> dmp
     in
     testGroup label
-        [ withPactTestBlockDb testVer cid Warn mp (forkLimit 100_000)
+        [ withPactTestBlockDb testVer cid Warn rdb mp (forkLimit 100_000)
             (testCase "initial-playthrough" . firstPlayThrough mpio genblock)
         , after AllSucceed "initial-playthrough" $
-            withPactTestBlockDb testVer cid Warn mp (forkLimit 100_000)
+            withPactTestBlockDb testVer cid Warn rdb mp (forkLimit 100_000)
                 (testCase "serivce-init-after-fork" . serviceInitializationAfterFork mpio genblock)
         , after AllSucceed "serivce-init-after-fork" $
-            withPactTestBlockDb testVer cid Warn mp (forkLimit 100_000)
+            withPactTestBlockDb testVer cid Warn rdb mp (forkLimit 100_000)
                 (testCaseSteps "on-restart" . onRestart mpio)
         , after AllSucceed "on-restart" $
-            withPactTestBlockDb testVer cid Quiet mp (forkLimit 100_000)
+            withPactTestBlockDb testVer cid Quiet rdb mp (forkLimit 100_000)
             (testCase "reject-dupes" . testDupes mpio genblock)
         , after AllSucceed "reject-dupes" $
             let deepForkLimit = 4
-            in withPactTestBlockDb testVer cid Quiet mp (forkLimit deepForkLimit)
+            in withPactTestBlockDb testVer cid Quiet rdb mp (forkLimit deepForkLimit)
                 (testCaseSteps "deep-fork-limit" . testDeepForkLimit mpio (fromIntegral deepForkLimit))
         ]
   where

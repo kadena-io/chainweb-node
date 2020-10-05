@@ -654,6 +654,7 @@ withChainwebInternal conf logger peer rocksDb pactDbDir resetDb inner = do
 
     -- Garbage Collection
     -- performed before PayloadDb and BlockHeaderDb used by other components
+    logg Info "start pruning databases"
     case _cutPruneChainDatabase (_configCuts conf) of
         GcNone -> return ()
         GcHeaders ->
@@ -662,17 +663,22 @@ withChainwebInternal conf logger peer rocksDb pactDbDir resetDb inner = do
             pruneAllChains (pruningLogger "headers-checked") rocksDb v [CheckPayloads, CheckFull]
         GcFull ->
             fullGc (pruningLogger "full") rocksDb v
+    logg Info "finished pruning databases"
 
+    logg Info "start initializing chain resources"
     concurrentWith
         -- initialize chains concurrently
-        (\cid -> do
+        (\cid x -> do
             let mcfg = validatingMempoolConfig cid v (_configBlockGasLimit conf)
             withChainResources v cid rocksDb peer (chainLogger cid)
-                     mcfg payloadDb pactDbDir pactConfig
+                     mcfg payloadDb pactDbDir pactConfig x
         )
 
         -- initialize global resources after all chain resources are initialized
-        (\cs -> global (HM.fromList $ zip cidsList cs))
+        (\cs -> do
+            logg Info "finished initializing chain resources"
+            global (HM.fromList $ zip cidsList cs)
+        )
         cidsList
   where
     pactConfig = PactServiceConfig
@@ -683,6 +689,7 @@ withChainwebInternal conf logger peer rocksDb pactDbDir resetDb inner = do
       , _pactAllowReadsInLocal = _configAllowReadsInLocal conf
       }
 
+    pruningLogger :: T.Text -> logger
     pruningLogger l = addLabel ("sub-component", l)
         $ setComponent ("database-pruning") logger
 
@@ -695,8 +702,11 @@ withChainwebInternal conf logger peer rocksDb pactDbDir resetDb inner = do
     chainLogger :: ChainId -> logger
     chainLogger cid = addLabel ("chain", toText cid) logger
 
+    initLogger :: logger
+    initLogger = setComponent "init" logger
+
     logg :: LogFunctionText
-    logg = logFunctionText logger
+    logg = logFunctionText initLogger
 
     -- Initialize global resources
     global
@@ -723,12 +733,13 @@ withChainwebInternal conf logger peer rocksDb pactDbDir resetDb inner = do
             miningThrottler <- mkMiningThrottler $ _throttlingMiningRate throt
             putPeerThrottler <- mkPutPeerThrottler $ _throttlingPeerRate throt
             localThrottler <- mkLocalThrottler $ _throttlingLocalRate throt
+            logg Info "initialized throttlers"
 
             -- synchronize pact dbs with latest cut before we start the server
             -- and clients and begin mining.
             --
             -- This is a consistency check that validates the blocks in the
-            -- current cut. If it fails in exception is raised. Also, if it
+            -- current cut. If it fails an exception is raised. Also, if it
             -- takes long (why would it?) we want this to happen before we go
             -- online.
             --

@@ -419,11 +419,11 @@ expectedBlockCount v s = expectedGlobalBlockCountAfterSeconds v s
 
 lowerStats :: ChainwebVersion -> Seconds -> Stats
 lowerStats v seconds = Stats
-    { _statBlockCount = round $ ebc * 0.3 -- temporarily, was 0.8
-    , _statMaxHeight = round $ ebc * 0.3 -- temporarily, was 0.7
-    , _statMinHeight = round $ ebc * 0.09 -- temporarily, was 0.3
-    , _statMedHeight = round $ ebc * 0.3 -- temporarily, was 0.5
-    , _statAvgHeight = ebc * 0.3 -- temporarily, was 0.5
+    { _statBlockCount = round $ ebc * 0.6 -- temporarily, was 0.8
+    , _statMaxHeight = round $ ebc * 0.5 -- temporarily, was 0.7
+    , _statMinHeight = round $ ebc * 0.1 -- temporarily, was 0.3
+    , _statMedHeight = round $ ebc * 0.5
+    , _statAvgHeight = ebc * 0.5
     }
   where
     ebc = expectedBlockCount v seconds
@@ -431,11 +431,12 @@ lowerStats v seconds = Stats
 
 upperStats :: ChainwebVersion -> Seconds -> Stats
 upperStats v seconds = Stats
-    { _statBlockCount = round $ ebc * 1.2
-    , _statMaxHeight = round $ ebc * 1.2
-    , _statMinHeight = round $ ebc * 1.2
-    , _statMedHeight = round $ ebc * 1.2
-    , _statAvgHeight = ebc * 1.2
+    { _statBlockCount = round $ ebc * 1.4
+    , _statMaxHeight = round $ ech * 1.4
+    , _statMinHeight = round $ ech * 1.4
+    , _statMedHeight = round $ ech * 1.4
+    , _statAvgHeight = ech * 1.4
     }
   where
     ebc = expectedBlockCount v seconds
+    ech = expectedCutHeightAfterSeconds v seconds

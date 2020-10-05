@@ -213,7 +213,7 @@ constructionMetadataH
     :: ChainwebVersion
     -> ConstructionMetadataReq
     -> Handler ConstructionMetadataResp
-constructionMetadataH v (ConstructionMetadataReq net _) =
+constructionMetadataH v (ConstructionMetadataReq net _ _) =
     runExceptT work >>= either throwRosetta pure
   where
     -- TODO: Extend as necessary.
