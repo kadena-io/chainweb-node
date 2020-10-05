@@ -15,6 +15,7 @@ import Control.Lens (set)
 import Control.Monad
 import Control.Monad.Catch
 
+import Data.CAS.RocksDB
 import Data.Tuple.Strict
 import qualified Data.Vector as V
 
@@ -73,19 +74,19 @@ defTtl = 60 * 60 * 2 -- 2 hours
 -- Thus, all failing tests are expected to already fail during pre block
 -- validation.
 --
-tests :: ScheduledTest
-tests = ScheduledTest "Chainweb.Test.Pact.TTL" $
+tests :: RocksDb -> ScheduledTest
+tests rdb = ScheduledTest "Chainweb.Test.Pact.TTL" $
     testGroup "timing tests"
-        [ withTestPact testTxTime
-        , withTestPact testTxTimeLenient
-        , withTestPact testTxTimeFail1
-        , withTestPact testTxTimeFail2
-        , withTestPact testTtlTooLarge
-        , withTestPact testTtlSmall
-        , withTestPact testExpired
-        , withTestPact testExpiredTight
-        , withTestPact testJustMadeItSmall
-        , withTestPact testJustMadeItLarge
+        [ withTestPact rdb testTxTime
+        , withTestPact rdb testTxTimeLenient
+        , withTestPact rdb testTxTimeFail1
+        , withTestPact rdb testTxTimeFail2
+        , withTestPact rdb testTtlTooLarge
+        , withTestPact rdb testTtlSmall
+        , withTestPact rdb testExpired
+        , withTestPact rdb testExpiredTight
+        , withTestPact rdb testJustMadeItSmall
+        , withTestPact rdb testJustMadeItLarge
         ]
 
 -- -------------------------------------------------------------------------- --
@@ -276,11 +277,12 @@ data Ctx = Ctx
     }
 
 withTestPact
-    :: (IO Ctx -> TestTree)
+    :: RocksDb
+    -> (IO Ctx -> TestTree)
     -> TestTree
-withTestPact test =
+withTestPact rdb test =
   withResource newEmptyMVar (const $ return ()) $ \mempoolVarIO ->
-    withPactTestBlockDb testVer cid Quiet (mempool mempoolVarIO) defaultPactServiceConfig $ \ios ->
+    withPactTestBlockDb testVer cid Quiet rdb (mempool mempoolVarIO) defaultPactServiceConfig $ \ios ->
       test $ do
         (pq,bdb) <- ios
         mp <- mempoolVarIO

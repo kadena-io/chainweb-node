@@ -585,25 +585,25 @@ withTemporaryDir :: (IO FilePath -> TestTree) -> TestTree
 withTemporaryDir = withResource (fst <$> newTempDir) removeDirectoryRecursive
 
 withTestBlockDbTest
-  :: ChainwebVersion -> (IO TestBlockDb -> TestTree) -> TestTree
-withTestBlockDbTest v a =
-  withRocksResource $ \rdb ->
-  withResource (start rdb) mempty a
-  where
-    start r = r >>= mkTestBlockDb v
+  :: ChainwebVersion
+  -> RocksDb
+  -> (IO TestBlockDb -> TestTree)
+  -> TestTree
+withTestBlockDbTest v rdb = withResource (mkTestBlockDb v rdb) mempty
 
 -- | Single-chain Pact via service queue.
 withPactTestBlockDb
     :: ChainwebVersion
     -> ChainId
     -> LogLevel
+    -> RocksDb
     -> (IO MemPoolAccess)
     -> PactServiceConfig
     -> (IO (PactQueue,TestBlockDb) -> TestTree)
     -> TestTree
-withPactTestBlockDb version cid logLevel mempoolIO pactConfig f =
+withPactTestBlockDb version cid logLevel rdb mempoolIO pactConfig f =
   withTemporaryDir $ \iodir ->
-  withTestBlockDbTest version $ \bdbio ->
+  withTestBlockDbTest version rdb $ \bdbio ->
   withResource (startPact bdbio iodir) stopPact $ f . fmap (view _3)
   where
     startPact bdbio iodir = do

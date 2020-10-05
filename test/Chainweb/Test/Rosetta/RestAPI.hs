@@ -1,12 +1,14 @@
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE CPP #-}
 {-# LANGUAGE ConstraintKinds #-}
 {-# LANGUAGE LambdaCase #-}
-{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
+
 module Chainweb.Test.Rosetta.RestAPI
 ( tests
 ) where
@@ -495,8 +497,8 @@ genesisId = BlockId 0 "rdfJIktp_WL0oMr8Wr6lH49YkERAJ9MlFp0RPLMXPDE"
 
 rosettaVersion :: RosettaNodeVersion
 rosettaVersion = RosettaNodeVersion
-    { _version_rosettaVersion = "1.4.2"
-    , _version_nodeVersion = "2.1"
+    { _version_rosettaVersion = "1.4.4"
+    , _version_nodeVersion = VERSION_chainweb
     , _version_middlewareVersion = Nothing
     , _version_metadata = Just $ HM.fromList
       [ "node-api-version" A..= ("0.0" :: Text)

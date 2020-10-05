@@ -1,7 +1,6 @@
 {-# LANGUAGE TupleSections #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE QuasiQuotes #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
@@ -22,8 +21,7 @@ import Data.Function
 import qualified Data.HashMap.Strict as HM
 import qualified Data.Map.Strict as M
 import Data.Text (Text)
-
-import NeatInterpolation (text)
+import qualified Data.Text as T
 
 import Pact.Gas
 import Pact.Interpreter (EvalResult(..), PactDbEnv(..), defaultInterpreter)
@@ -663,62 +661,63 @@ toTerm' :: ToTerm a => a -> Term Name
 toTerm' = toTerm
 
 defModule :: Text -> Text
-defModule idx = [text| ;;
-
-(define-keyset 'k$idx (read-keyset 'k$idx))
-
-(module m$idx 'k$idx
-
-  (defschema sch col:integer)
-
-  (deftable tbl:{sch})
-
-  (defun insertTbl (a i)
-    (insert tbl a { 'col: i }))
-
-  (defun updateTbl (a i)
-    (update tbl a { 'col: i}))
-
-  (defun weirdUpdateTbl (a i)
-    (update tbl a { 'col: 0})
-    (update tbl a { 'col: i}))
-
-  (defun readTbl ()
-    (sort (map (at 'col)
-      (select tbl (constantly true)))))
-
-  (defpact dopact (n)
-    (step { 'name: n, 'value: 1 })
-    (step { 'name: n, 'value: 2 }))
-
-)
-(create-table tbl)
-(readTbl)
-(insertTbl "a" 1)
-|]
+defModule idx = T.unlines
+    [ " ;;"
+    , ""
+    , "(define-keyset 'k" <> idx <> " (read-keyset 'k" <> idx <> "))"
+    , ""
+    , "(module m" <> idx <> " 'k" <> idx
+    , ""
+    , "  (defschema sch col:integer)"
+    , ""
+    , "  (deftable tbl:{sch})"
+    , ""
+    , "  (defun insertTbl (a i)"
+    , "    (insert tbl a { 'col: i }))"
+    , ""
+    , "  (defun updateTbl (a i)"
+    , "    (update tbl a { 'col: i}))"
+    , ""
+    , "  (defun weirdUpdateTbl (a i)"
+    , "    (update tbl a { 'col: 0})"
+    , "    (update tbl a { 'col: i}))"
+    , ""
+    , "  (defun readTbl ()"
+    , "    (sort (map (at 'col)"
+    , "      (select tbl (constantly true)))))"
+    , ""
+    , "  (defpact dopact (n)"
+    , "    (step { 'name: n, 'value: 1 })"
+    , "    (step { 'name: n, 'value: 2 }))"
+    , ""
+    , ")"
+    , "(create-table tbl)"
+    , "(readTbl)"
+    , "(insertTbl \"a\" 1)"
+    ]
 
 tablecode :: Text
-tablecode = [text|
-(define-keyset 'table-admin-keyset
-  (read-keyset "test-keyset"))
-
-(module table-example 'table-admin-keyset
-
-  (defschema test-schema
-    content:string)
-
-  (deftable test-table:{test-schema})
-
-  (defun add-row (row:string content:string)
-    (insert test-table row {
-      "content": content
-      })
-  )
-  (defun read-table ()
-    (select test-table (constantly true))
-  )
-)
-
-(create-table test-table)
-|]
+tablecode = T.unlines
+    [ "(define-keyset 'table-admin-keyset"
+    , "  (read-keyset \"test-keyset\"))"
+    , ""
+    , "(module table-example 'table-admin-keyset"
+    , ""
+    , "  (defschema test-schema"
+    , "    content:string)"
+    , ""
+    , "  (deftable test-table:{test-schema})"
+    , ""
+    , "  (defun add-row (row:string content:string)"
+    , "    (insert test-table row {"
+    , "      \"content\": content"
+    , "      })"
+    , "  )"
+    , "  (defun read-table ()"
+    , "    (select test-table (constantly true))"
+    , "  )"
+    , ")"
+    , ""
+    , "(create-table test-table)"
+    ]
 

@@ -11,7 +11,7 @@ debug-info: True
 source-repository-package
     type: git
     location: https://github.com/kadena-io/pact.git
-    tag: 94cfeb57e2f90c299fc27cc3e72f6b6aa9109c06
+    tag: eff39aefdcff3979dd93b20bca8bff7ed8490ea8
 
 source-repository-package
     type: git
@@ -26,7 +26,8 @@ source-repository-package
 source-repository-package
     type: git
     location: https://github.com/kadena-io/rosetta.git
-    tag: 94ef4b82b685def8e8c677eb7d02447f2cdc5f37
+    tag: 1d69bb4ec46c001f2b501121e6c93e83ac60162b 
 
 package vault
     documentation: false
+
