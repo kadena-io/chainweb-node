@@ -32,6 +32,10 @@ This release provides performance improvements and bug fixes.
 *   Improved performance of rebuilding the pact database from the
     chain data. (#1137)
 
+*   Adjust the default API request rate limits to better match the expected
+    networking loads for 20 chains. This reduces overhead due to HTTP responses
+    with status 429 and improves catchup performance. (#1152)
+
 ## 2.1 (2020-08-11)
 
 This version replaces all previous versions. Any prior version will stop working
