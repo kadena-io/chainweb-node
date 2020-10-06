@@ -71,12 +71,13 @@ import Data.Tuple.Strict (T2(..))
 
 -- internal Pact modules
 
-import Pact.Eval (eval, liftTerm, lookupModule)
+import Pact.Eval (eval, liftTerm)
 import Pact.Gas (freeGasEnv)
 import Pact.Interpreter
 import Pact.Native.Capabilities (evalCap)
 import Pact.Parse (ParsedDecimal(..), parseExprs)
 import Pact.Runtime.Capabilities (popCapStack)
+import Pact.Runtime.Utils
 import Pact.Types.Capability
 import Pact.Types.Command
 import Pact.Types.Hash as Pact
@@ -157,6 +158,7 @@ applyCmd v logger pdbenv miner gasModel txCtx spv cmdIn mcache0 =
       : ( [ FlagOldReadOnlyBehavior | isPactBackCompatV16 ]
           ++ [ FlagPreserveModuleNameBug | not isModuleNameFix ]
           ++ [ FlagPreserveNsModuleInstallBug | not isModuleNameFix2 ]
+          ++ enablePactEvents' txCtx
         )
 
     cenv = TransactionEnv Transactional pdbenv logger (ctxToPublicData txCtx) spv nid gasPrice
@@ -279,9 +281,10 @@ applyCoinbase v logger dbEnv (Miner mid mks) reward@(ParsedDecimal d) txCtx
   where
     fork1_3InEffect = vuln797Fix v cid bh
     throwCritical = fork1_3InEffect || enfCBFailure
-    ec = mkExecutionConfig
+    ec = mkExecutionConfig $
       [ FlagDisableModuleInstall
-      , FlagDisableHistoryInTransactionalMode ]
+      , FlagDisableHistoryInTransactionalMode ] ++
+      enablePactEvents' txCtx
     tenv = TransactionEnv Transactional dbEnv logger (ctxToPublicData txCtx) noSPVSupport
            Nothing 0.0 rk 0 ec
     txst = TransactionState mc mempty 0 Nothing (_geGasModel freeGasEnv)
@@ -315,9 +318,14 @@ applyCoinbase v logger dbEnv (Miner mid mks) reward@(ParsedDecimal d) txCtx
           logs <- use txLogs
 
           return $! T2
-            (CommandResult rk (_erTxId er) (PactResult (Right (last $ _erOutput er)))
+            (CommandResult rk (_erTxId er) (successResult er)
               (_erGas er) (Just $ logs) (_erExec er) Nothing)
             upgradedModuleCache
+
+enablePactEvents' :: TxContext -> [ExecutionFlag]
+enablePactEvents' tc
+    | enablePactEvents (ctxVersion tc) (ctxCurrentBlockHeight tc) = []
+    | otherwise = [FlagDisablePactEvents]
 
 
 applyLocal
@@ -556,6 +564,12 @@ runGenesis cmd nsp interp = case payload of
     chash = toUntypedHash $ _cmdHash cmd
     payload = _pPayload $ _cmdPayload cmd
 
+-- | Create success result.
+-- Note that 'last' is ok as interpreter guarantees correct output
+-- Forces evaluation for lazy errors.
+successResult :: EvalResult -> PactResult
+successResult er = PactResult $!! Right $ PactSuccess (last $ _erOutput er) (_erEvents er)
+
 -- | Execute an 'ExecMsg' and Return the result with module cache
 --
 applyExec
@@ -566,14 +580,11 @@ applyExec
     -> NamespacePolicy
     -> TransactionM p (CommandResult [TxLog Value])
 applyExec interp em senderSigs hsh nsp = do
-    EvalResult{..} <- applyExec' interp em senderSigs hsh nsp
+    er@EvalResult{..} <- applyExec' interp em senderSigs hsh nsp
     debug $ "gas logs: " <> sshow _erLogGas
     logs <- use txLogs
     rk <- view txRequestKey
-    -- applyExec enforces non-empty expression set so `last` ok
-    -- forcing it here for lazy errors. TODO NFData the Pacts
-    lastResult <- return $!! last _erOutput
-    return $! CommandResult rk _erTxId (PactResult (Right lastResult))
+    return $! CommandResult rk _erTxId (successResult er)
       _erGas (Just logs) _erExec Nothing
 
 -- | Variation on 'applyExec' that returns 'EvalResult' as opposed to
@@ -613,12 +624,11 @@ applyContinuation
     -> NamespacePolicy
     -> TransactionM p (CommandResult [TxLog Value])
 applyContinuation interp cm senderSigs hsh nsp = do
-    EvalResult{..} <- applyContinuation' interp cm senderSigs hsh nsp
+    er@EvalResult{..} <- applyContinuation' interp cm senderSigs hsh nsp
     debug $ "gas logs: " <> sshow _erLogGas
     logs <- use txLogs
     rk <- view txRequestKey
-    -- last safe here because cont msg is guaranteed one exp
-    return $! (CommandResult rk _erTxId (PactResult (Right (last _erOutput)))
+    return $! (CommandResult rk _erTxId (successResult er)
       _erGas (Just logs) _erExec Nothing)
 
 -- | Execute a 'ContMsg' and return just eval result, not wrapped in a
