@@ -1,5 +1,28 @@
 # `chainweb-node` Changelog
 
+## 2.2 (2020-10-08)
+
+This version replaces all previous versions. Any prior version will stop working
+on **2020-10-15T00:00:00Z**. Node administrators must upgrade to this version
+before that date.
+
+This version will stop working on **2020-11-19T00:00:00Z**.
+
+*Forks:*
+
+* Support for Pact Events. This new pact feature will be activated on
+  the Kadena Mainnet at block height 1,013,500, which is expected to occur at
+  2020-10-15 18:47:13 UTC. On Testnet it is activated at block height 558,000,
+  which is expected to occur at 2020-10-15 17:11:45 UTC. (#1150)
+
+*Other Changes*:
+
+* Upgrade to Rosetta version 1.4.4 (#1149)
+
+*   Adjust the default API request rate limits to better match the expected
+    networking loads for 20 chains. This reduces overhead due to HTTP responses
+    with status 429 and improves catchup performance. (#1152)
+
 ## 2.1.1 (2020-09-17)
 
 This release provides performance improvements and bug fixes.
@@ -31,10 +54,6 @@ This release provides performance improvements and bug fixes.
 
 *   Improved performance of rebuilding the pact database from the
     chain data. (#1137)
-
-*   Adjust the default API request rate limits to better match the expected
-    networking loads for 20 chains. This reduces overhead due to HTTP responses
-    with status 429 and improves catchup performance. (#1152)
 
 ## 2.1 (2020-08-11)
 
