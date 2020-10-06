@@ -844,6 +844,7 @@ enableModuleNameFix2 _ bh = bh >= 2
 enablePactEvents :: ChainwebVersion -> BlockHeight -> Bool
 enablePactEvents Mainnet01 bh = bh >= 1_013_500 -- 2020-10-15 18:47:13 UTC
 enablePactEvents Testnet04 bh = bh >= 558_000 -- 2020-10-15 17:11:45 UTC
+enablePactEvents Development bh = bh >= 120
 enablePactEvents (FastTimedCPM g) _ = g == singletonChainGraph -- For testing events
 enablePactEvents _ bh = bh >= 2
 
