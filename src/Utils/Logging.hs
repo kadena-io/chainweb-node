@@ -450,8 +450,8 @@ withBaseHandleBackend label mgr pkgScopes c inner = case _backendConfigHandle c 
     StdOut -> fdBackend stdout
     StdErr -> fdBackend stderr
     FileHandle f -> withFile f WriteMode fdBackend
-    ElasticSearch f ->
-        withElasticsearchBackend mgr f (T.toLower label) pkgScopes esBackend
+    ElasticSearch f auth ->
+        withElasticsearchBackend mgr f auth (T.toLower label) pkgScopes esBackend
   where
 
     fdBackend h = case _backendConfigFormat c of
@@ -515,7 +515,7 @@ withJsonHandleBackend label mgr pkgScopes c inner = case _backendConfigHandle c 
     StdOut -> fdBackend stdout
     StdErr -> fdBackend stderr
     FileHandle f -> withFile f WriteMode fdBackend
-    ElasticSearch f -> withElasticsearchBackend mgr f (T.toLower label) pkgScopes inner
+    ElasticSearch f auth -> withElasticsearchBackend mgr f auth (T.toLower label) pkgScopes inner
   where
     fdBackend h = case _backendConfigFormat c of
         LogFormatText -> do
@@ -544,7 +544,7 @@ withTextHandleBackend label mgr pkgScopes c inner = case _backendConfigHandle c 
     StdOut -> fdBackend stdout
     StdErr -> fdBackend stderr
     FileHandle f -> withFile f WriteMode $ \h -> fdBackend h
-    ElasticSearch f -> withElasticsearchBackend mgr f (T.toLower label) pkgScopes $ \b ->
+    ElasticSearch f auth -> withElasticsearchBackend mgr f auth (T.toLower label) pkgScopes $ \b ->
         inner (b . fmap logText)
   where
 
@@ -587,6 +587,8 @@ withElasticsearchBackend
     => HTTP.Manager
     -> T.Text
         -- ^ Server URL
+    -> Maybe T.Text
+        -- ^ optional API Key
     -> T.Text
         -- ^ Index Name
     -> [(T.Text, T.Text)]
@@ -594,8 +596,13 @@ withElasticsearchBackend
         -- this is used for package info data.
     -> (Backend a -> IO b)
     -> IO b
-withElasticsearchBackend mgr esServer ixName pkgScopes inner = do
-    req <- HTTP.parseUrlThrow (T.unpack esServer)
+withElasticsearchBackend mgr esServer key ixName pkgScopes inner = do
+    req <- HTTP.parseUrlThrow (T.unpack esServer) >>= \x -> case key of
+        Nothing -> return x
+        Just k -> return x
+            { HTTP.requestHeaders = ("Authorization", "ApiKey " <> T.encodeUtf8 k) : HTTP.requestHeaders x
+            }
+
     i <- curIxName
     createIndex req i
     queue <- newTBQueueIO 2000
@@ -652,14 +659,14 @@ withElasticsearchBackend mgr esServer ixName pkgScopes inner = do
         { HTTP.method = "PUT"
         , HTTP.path = HTTP.path req <> T.encodeUtf8 i
         , HTTP.responseTimeout = HTTP.responseTimeoutMicro 10000000
-        , HTTP.requestHeaders = [("content-type", "application/json")]
+        , HTTP.requestHeaders = ("content-type", "application/json") : HTTP.requestHeaders req
         }
 
     _putLog req i a = req
         { HTTP.method = "POST"
         , HTTP.path = HTTP.path req <> T.encodeUtf8 i <> "/_doc"
         , HTTP.responseTimeout = HTTP.responseTimeoutMicro 3000000
-        , HTTP.requestHeaders = [("content-type", "application/json")]
+        , HTTP.requestHeaders = ("content-type", "application/json") : HTTP.requestHeaders req
         , HTTP.requestBody = HTTP.RequestBodyLBS $ encode $ JsonLogMessage a
         }
 
@@ -667,7 +674,7 @@ withElasticsearchBackend mgr esServer ixName pkgScopes inner = do
         { HTTP.method = "POST"
         , HTTP.path = HTTP.path req <> "/_bulk"
         , HTTP.responseTimeout = HTTP.responseTimeoutMicro 10000000
-        , HTTP.requestHeaders = [("content-type", "application/x-ndjson")]
+        , HTTP.requestHeaders = ("content-type", "application/x-ndjson") : HTTP.requestHeaders req
         , HTTP.requestBody = HTTP.RequestBodyLBS $ BB.toLazyByteString a
         }
 
