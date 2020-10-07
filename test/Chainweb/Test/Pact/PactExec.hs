@@ -59,19 +59,16 @@ import Chainweb.Test.Utils
 import Chainweb.Transaction
 import Chainweb.Version (ChainwebVersion(..))
 import Chainweb.Version.Utils (someChainId)
-import Chainweb.Utils (sshow, tryAllSynchronous, decodeB64UrlNoPaddingText)
+import Chainweb.Utils (sshow, tryAllSynchronous)
 
 import Pact.Types.Command
 import Pact.Types.Hash
+import Pact.Types.PactValue
 import Pact.Types.Persistence
 import Pact.Types.Pretty
-import Pact.Types.Runtime (PactEvent(..),ModuleHash(..))
 
 testVersion :: ChainwebVersion
 testVersion = FastTimedCPM petersonChainGraph
-
-testEventsVersion :: ChainwebVersion
-testEventsVersion = FastTimedCPM singletonChainGraph
 
 tests :: ScheduledTest
 tests = ScheduledTest label $
@@ -91,7 +88,7 @@ tests = ScheduledTest label $
         \ctx -> _schTest $ execTest ctx testReq4
     , withPactCtxSQLite testVersion (bhdbIO rocksIO) pdb defaultPactServiceConfig $
         \ctx -> _schTest $ execTest ctx testReq5
-    , withPactCtxSQLite testEventsVersion (bhdbIO rocksIO) pdb defaultPactServiceConfig $
+    , withPactCtxSQLite testVersion (bhdbIO rocksIO) pdb defaultPactServiceConfig $
         \ctx -> _schTest $ execTxsTest ctx "testTfrGas" testTfrGas
     , withPactCtxSQLite testVersion (bhdbIO rocksIO) pdb defaultPactServiceConfig $
         \ctx -> _schTest $ execTxsTest ctx "testGasPayer" testGasPayer
@@ -204,11 +201,11 @@ checkResultSuccess :: HasCallStack => ([PactResult] -> Assertion) -> Either Stri
 checkResultSuccess _ (Left e) = assertFailure $ "Expected success, got: " ++ show e
 checkResultSuccess test (Right (TestResponse outs _)) = test $ map (_crResult . snd) outs
 
-checkPactResultSuccess :: HasCallStack => String -> PactResult -> (PactSuccess -> Assertion) -> Assertion
+checkPactResultSuccess :: HasCallStack => String -> PactResult -> (PactValue -> Assertion) -> Assertion
 checkPactResultSuccess _ (PactResult (Right pv)) test = test pv
 checkPactResultSuccess msg (PactResult (Left e)) _ = assertFailure $ msg ++ ": expected tx success, got " ++ show e
 
-checkPactResultSuccessLocal :: HasCallStack => String -> (PactSuccess -> Assertion) -> PactResult -> Assertion
+checkPactResultSuccessLocal :: HasCallStack => String -> (PactValue -> Assertion) -> PactResult -> Assertion
 checkPactResultSuccessLocal msg test r = checkPactResultSuccess msg r test
 
 checkPactResultFailure :: HasCallStack => String -> String -> PactResult -> Assertion
@@ -238,16 +235,7 @@ testTfrGas = (V.singleton <$> tx,checkResultSuccess test)
          ]
          $ mkCmd "testTfrGas"
          $ mkExec' "(coin.transfer \"sender00\" \"sender01\" 1.0)"
-    test [PactResult (Right pv)] = do
-      mh <- decodeB64UrlNoPaddingText "_S6HOO3J8-dEusvtnjSF4025dAxKu6eFSIOZocQwimA"
-      assertEqual "transfer succeeds"
-          (PactSuccess (pString "Write succeeded")
-           [PactEvent "TRANSFER"
-            [pString "sender00",pString "sender01",pDecimal 1.0]
-            "coin"
-            (ModuleHash (Hash mh))
-           ])
-          pv
+    test [PactResult (Right pv)] = assertEqual "transfer succeeds" (pString "Write succeeded") pv
     test r = assertFailure $ "Expected single result, got: " ++ show r
 
 testBadSenderFails :: TxsTest
@@ -308,13 +296,13 @@ testGasPayer = (txs,checkResultSuccess test)
 
     test [impl,setupUser,fundGasAcct,paidTx] = do
       checkPactResultSuccess "impl" impl $
-        assertEqual "impl" (pactSuccess $ pString "TableCreated")
+        assertEqual "impl" (pString "TableCreated")
       checkPactResultSuccess "setupUser" setupUser $
-        assertEqual "setupUser" (pactSuccess $ pString "Write succeeded")
+        assertEqual "setupUser" (pString "Write succeeded")
       checkPactResultSuccess "fundGasAcct" fundGasAcct $
-        assertEqual "fundGasAcct" (pactSuccess $ pString "Write succeeded")
+        assertEqual "fundGasAcct" (pString "Write succeeded")
       checkPactResultSuccess "paidTx" paidTx $
-        assertEqual "paidTx" (pactSuccess $ pDecimal 3)
+        assertEqual "paidTx" (pDecimal 3)
     test r = assertFailure $ "Expected 4 results, got: " ++ show r
 
 
@@ -366,15 +354,15 @@ testContinuationGasPayer = (txs,checkResultSuccess test)
 
     test [impl,fundGasAcct,contFirstStep,balCheck1,paidSecondStep,balCheck2] = do
       checkPactResultSuccess "impl" impl $ assertEqual "impl"
-        (pactSuccess $ pString "Loaded module user.simple-cont-module, hash pCtVh0IDPvRIdVFXxznBFTwsZcwbIcYAnfv7yzr4wRI")
+        (pString "Loaded module user.simple-cont-module, hash pCtVh0IDPvRIdVFXxznBFTwsZcwbIcYAnfv7yzr4wRI")
       checkPactResultSuccess "fundGasAcct" fundGasAcct $ assertEqual "fundGasAcct"
-        (pactSuccess $ pString "Write succeeded")
+        (pString "Write succeeded")
       checkPactResultSuccess "contFirstStep" contFirstStep $ assertEqual "contFirstStep"
-        (pactSuccess $ pString "Step One")
-      checkPactResultSuccess "balCheck1" balCheck1 $ assertEqual "balCheck1" (pactSuccess $ pDecimal 100)
+        (pString "Step One")
+      checkPactResultSuccess "balCheck1" balCheck1 $ assertEqual "balCheck1" (pDecimal 100)
       checkPactResultSuccess "paidSecondStep" paidSecondStep $ assertEqual "paidSecondStep"
-        (pactSuccess $ pString "Step Two")
-      checkPactResultSuccess "balCheck2" balCheck2 $ assertEqual "balCheck2" (pactSuccess $ pDecimal 99.999_5)
+        (pString "Step Two")
+      checkPactResultSuccess "balCheck2" balCheck2 $ assertEqual "balCheck2" (pDecimal 99.999_5)
     test r = assertFailure $ "Expected 6 results, got: " ++ show r
 
 testExecGasPayer :: TxsTest
@@ -418,12 +406,12 @@ testExecGasPayer = (txs,checkResultSuccess test)
 
     test [impl,fundGasAcct,balCheck1,paidTx,balCheck2] = do
       checkPactResultSuccess "impl" impl $ assertEqual "impl"
-        (pactSuccess $ pString "Loaded module user.gas-payer-for-exec, hash _S7ASfb_Lvr5wmjERG_XwPUoojW6GHBWI2u0W6jmID0")
+        (pString "Loaded module user.gas-payer-for-exec, hash _S7ASfb_Lvr5wmjERG_XwPUoojW6GHBWI2u0W6jmID0")
       checkPactResultSuccess "fundGasAcct" fundGasAcct $ assertEqual "fundGasAcct"
-        (pactSuccess $ pString "Write succeeded")
-      checkPactResultSuccess "balCheck1" balCheck1 $ assertEqual "balCheck1" (pactSuccess $ pDecimal 100)
-      checkPactResultSuccess "paidTx" paidTx $ assertEqual "paidTx" (pactSuccess $ pDecimal 3)
-      checkPactResultSuccess "balCheck2" balCheck2 $ assertEqual "balCheck2" (pactSuccess $ pDecimal 99.999_6)
+        (pString "Write succeeded")
+      checkPactResultSuccess "balCheck1" balCheck1 $ assertEqual "balCheck1" (pDecimal 100)
+      checkPactResultSuccess "paidTx" paidTx $ assertEqual "paidTx" (pDecimal 3)
+      checkPactResultSuccess "balCheck2" balCheck2 $ assertEqual "balCheck2" (pDecimal 99.999_6)
     test r = assertFailure $ "Expected 6 results, got: " ++ show r
 
 testFailureRedeem :: TxsTest
@@ -445,19 +433,19 @@ testFailureRedeem = (txs,checkResultSuccess test)
     test [sbal0,mbal0,ferror,sbal1,mbal1] = do
       -- sender 00 first is 100000000 - full gas debit during tx (1)
       checkPactResultSuccess "sender bal 0" sbal0 $
-        assertEqual "sender bal 0" (pactSuccess $ pDecimal 99_999_990)
+        assertEqual "sender bal 0" (pDecimal 99_999_990)
       -- miner first is reward + epsilon tx size gas for [0]
       checkPactResultSuccess "miner bal 0" mbal0 $
-        assertEqual "miner bal 0" (pactSuccess $ pDecimal 2.344523)
+        assertEqual "miner bal 0" (pDecimal 2.344523)
       -- this should reward 10 more to miner
       checkPactResultFailure "forced error" "forced error" ferror
       -- sender 00 second is down epsilon size costs
       -- from [0,1] + 10 for error + 10 full gas debit during tx ~ 99999980
       checkPactResultSuccess "sender bal 1" sbal1 $
-        assertEqual "sender bal 1" (pactSuccess $ pDecimal 99_999_979.92)
+        assertEqual "sender bal 1" (pDecimal 99_999_979.92)
       -- miner second is up 10 from error plus epsilon from [1,2,3] ~ 12
       checkPactResultSuccess "miner bal 1" mbal1 $
-        assertEqual "miner bal 1" (pactSuccess $ pDecimal 12.424523)
+        assertEqual "miner bal 1" (pDecimal 12.424523)
     test r = assertFailure $ "Expected 5 results, got: " ++ show r
 
 
@@ -480,7 +468,7 @@ testAllowReadsLocalSuccess = (tx,test)
          mkExec' "(at 'balance (read coin.coin-table \"sender00\"))"
     test = checkLocalSuccess $
       checkPactResultSuccessLocal "testAllowReadsLocalSuccess" $
-      assertEqual "sender00 bal" (pactSuccess $ pDecimal 100_000_000.0)
+      assertEqual "sender00 bal" (pDecimal 100_000_000.0)
 
 
 -- -------------------------------------------------------------------------- --
@@ -591,7 +579,7 @@ _showValidationFailure = do
   let cr1 = CommandResult
         { _crReqKey = RequestKey pactInitialHash
         , _crTxId = Nothing
-        , _crResult = PactResult $ Right $ pactSuccess $ pString "hi"
+        , _crResult = PactResult $ Right $ pString "hi"
         , _crGas = 0
         , _crLogs = Just [TxLog "Domain" "Key" (object [ "stuff" .= True ])]
         , _crContinuation = Nothing
