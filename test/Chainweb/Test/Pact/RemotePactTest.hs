@@ -189,7 +189,7 @@ localTest iot nio = do
     res <- local (unsafeChainId 0) cenv cmd
     let (PactResult e) = _crResult res
     assertEqual "expect /local to return gas for tx" (_crGas res) 5
-    assertEqual "expect /local to succeed and return 3" e (Right $ pactSuccess (PLiteral $ LDecimal 3))
+    assertEqual "expect /local to succeed and return 3" e (Right (PLiteral $ LDecimal 3))
 
 localContTest :: IO (Time Micros) -> IO ClientEnv -> TestTree
 localContTest iot nio = testCaseSteps "local continuation test" $ \step -> do
@@ -215,7 +215,7 @@ localContTest iot nio = testCaseSteps "local continuation test" $ \step -> do
     r <- _pactResult . _crResult <$> local sid cenv cmd2
     case r of
       Left err -> assertFailure (show err)
-      Right (PactSuccess (PLiteral (LDecimal a)) _) | a == 2 -> return ()
+      Right (PLiteral (LDecimal a)) | a == 2 -> return ()
       Right p -> assertFailure $ "unexpected cont return value: " ++ show p
   where
     tx =
@@ -265,7 +265,7 @@ localChainDataTest iot nio = do
           ttl = 2 * 24 * 60 * 60
           pm = Pact.PublicMeta pactCid "sender00" 1000 0.1 (fromInteger ttl)
 
-    expectedResult (PactSuccess (PObject (ObjectMap m)) _) = do
+    expectedResult (PObject (ObjectMap m)) = do
           assert' "chain-id" (PLiteral (LString "8"))
           assert' "gas-limit" (PLiteral (LInteger 1000))
           assert' "gas-price" (PLiteral (LDecimal 0.1))
@@ -506,7 +506,7 @@ caplistTest iot nio = testCaseSteps "caplist TRANSFER + FUND_TX test" $ \step ->
     pm t = Pact.PublicMeta (Pact.ChainId "0") t 100_000 0.01 ttl
 
     resultOf (CommandResult _ _ (PactResult pr) _ _ _ _) = pr
-    result0 = Just (Right (pactSuccess $ PLiteral (LString "Write succeeded")))
+    result0 = Just (Right (PLiteral (LString "Write succeeded")))
 
     clist :: Maybe [SigCapability]
     clist = Just $
@@ -641,7 +641,7 @@ allocationTest iot nio = testCaseSteps "genesis allocation tests" $ \step -> do
     getBlockHeight = preview (crMetaData . _Just . key "blockHeight" . _Number . to (fromRational . toRational))
 
     resultOf (CommandResult _ _ (PactResult pr) _ _ _ _) = pr
-    accountInfo = Right $ pactSuccess
+    accountInfo = Right
       $ PObject
       $ ObjectMap
       $ M.fromList
@@ -666,7 +666,7 @@ allocationTest iot nio = testCaseSteps "genesis allocation tests" $ \step -> do
     tx4 = PactTransaction "(coin.release-allocation \"allocation02\")" Nothing
     tx5 = PactTransaction "(coin.details \"allocation02\")" Nothing
 
-    accountInfo' = Right $ pactSuccess
+    accountInfo' = Right
       $ PObject
       $ ObjectMap
       $ M.fromList

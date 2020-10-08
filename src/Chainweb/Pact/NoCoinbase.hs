@@ -26,6 +26,6 @@ import Pact.Types.PactValue
 noCoinbase :: CommandResult a
 noCoinbase = CommandResult
     (RequestKey pactInitialHash) Nothing
-    (PactResult (Right (PactSuccess (PLiteral (LString "NO_COINBASE")) [])))
+    (PactResult (Right (PLiteral (LString "NO_COINBASE"))))
     0 Nothing Nothing Nothing
 {-# NOINLINE noCoinbase #-}
