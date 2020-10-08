@@ -86,7 +86,7 @@ rosettaServer v ps ms peerDb cutDb cr =
     -- Construction --
     :<|> constructionDeriveH v
     :<|> constructionPreprocessH v
-    :<|> constructionMetadataH v
+    :<|> constructionMetadataH v cutDb cr
     :<|> constructionPayloadsH v
     :<|> constructionParseH v
     :<|> constructionCombineH
@@ -121,7 +121,8 @@ accountBalanceH
     -> [(ChainId, ChainResources a)]
     -> AccountBalanceReq
     -> Handler AccountBalanceResp
-accountBalanceH _ _ _ (AccountBalanceReq _ (AccountId _ (Just _) _) _) = throwRosetta RosettaSubAcctUnsupported
+accountBalanceH _ _ _ (AccountBalanceReq _ (AccountId _ (Just _) _) _) =
+  throwRosetta RosettaSubAcctUnsupported
 accountBalanceH v cutDb crs (AccountBalanceReq net (AccountId acct _ _) pbid) = do
   runExceptT work >>= either throwRosetta pure
   where
@@ -243,14 +244,13 @@ constructionPreprocessH v req = do
       cid <- annotate rosettaError' (validateNetwork v net)
       meta <- note (rosettaError' RosettaMissingMetaData) someMeta
       parsedMeta <- extractMetaData meta
-      validatePreprocessReqMetaData parsedMeta
 
       let PreprocessReqMetaData xchainMeta payer _ = parsedMeta
 
       tx <- opsToConstructionTx cid xchainMeta ops
       (gasLimit, gasPrice, fee) <- getSuggestedFee tx someMaxFee someMult
 
-      let expectedAccts = map acctNameToAcctId $! HM.keys $! toSignerAcctsMap tx payer
+      let expectedAccts = map acctNameToAcctId $ neededAccounts tx payer
           respMeta = toObject $! PreprocessRespMetaData
             { _preprocessRespMetaData_reqMetaData = parsedMeta
             , _preprocessRespMetaData_tx = tx
@@ -264,9 +264,11 @@ constructionPreprocessH v req = do
 
 constructionMetadataH
     :: ChainwebVersion
+    -> CutDb cas
+    -> [(ChainId, ChainResources a)]
     -> ConstructionMetadataReq
     -> Handler ConstructionMetadataResp
-constructionMetadataH v (ConstructionMetadataReq net opts someKeys) =
+constructionMetadataH v cutDb crs (ConstructionMetadataReq net opts someKeys) =
     runExceptT work >>= either throwRosettaError pure
   where
     
@@ -279,21 +281,18 @@ constructionMetadataH v (ConstructionMetadataReq net opts someKeys) =
       let PreprocessRespMetaData reqMeta tx fee gLimit gPrice = meta
           PreprocessReqMetaData _ payer someNonce = reqMeta
 
-      tx' <- (liftIO $ txWithSPVProofIfNeeded cid tx) >>= hoistEither
       pubMeta <- liftIO $ toPublicMeta cid payer gLimit gPrice
       let nonce = toNonce someNonce pubMeta
 
-      let expectedAccts = toSignerAcctsMap tx' payer
-      expectedAcctsWithGuards <- (liftIO $ addAccountGuards expectedAccts)
-                                 >>= hoistEither
+      expectedAccts <- toSignerAcctsMap tx payer v cid crs cutDb
       signersAndAccts <- hoistEither $!
-                         createSigners availableSigners expectedAcctsWithGuards
+                         createSigners availableSigners expectedAccts
       
       let payloadMeta = toObject $! PayloadsMetaData
             { _payloadsMetaData_signers = signersAndAccts
             , _payloadsMetaData_nonce = nonce
             , _payloadsMetaData_publicMeta = pubMeta
-            , _payloadsMetaData_tx = tx'
+            , _payloadsMetaData_tx = tx
             }
       
       pure $ ConstructionMetadataResp payloadMeta (Just [fee])
