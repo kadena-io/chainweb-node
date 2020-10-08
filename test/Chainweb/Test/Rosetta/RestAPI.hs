@@ -25,6 +25,7 @@ import qualified Data.HashMap.Strict as HM
 import Data.IORef
 import qualified Data.List.NonEmpty as NEL
 import Data.Text (Text)
+import qualified Data.Text.Encoding as T
 import Data.Foldable
 
 import GHC.Natural
@@ -39,6 +40,8 @@ import Test.Tasty.HUnit
 
 import Pact.Types.API
 import Pact.Types.Command
+
+import qualified Pact.Types.Runtime as P
 
 -- internal chainweb modules
 
@@ -125,6 +128,7 @@ tests rdb = testGroupSch "Chainweb.Test.Rosetta.RestAPI" go
       , blockTests "Block Test without potential remediation"
       , accountBalanceTests
       , constructionSubmitTests
+      , constructionFlowTests
       , mempoolTests
       , networkListTests
       , networkOptionsTests
@@ -387,6 +391,69 @@ constructionSubmitTests tio envIo =
       case HM.lookup rk prs of
         Nothing -> assertFailure $ "unable to find poll response for: " <> show rk
         Just cr -> _crReqKey cr @?= rk
+
+-- | Rosetta construction endpoints tests (i.e. tx formatting and submission)
+--
+constructionFlowTests :: RosettaTest
+constructionFlowTests _ envIo =
+    testCaseSchSteps "Construction Flow Tests" $ \step -> do
+      cenv <- envIo
+
+      step "preprocess intended operations"
+      let amt = 2.0
+          fromAcct = "sender00"
+          fromGuard = ks sender00ks
+          toAcct = "sender01"
+          toGuard = ks sender01ks
+          ops = [ mkOp fromAcct (negate amt) fromGuard 0
+                , mkOp toAcct amt toGuard 1 ]
+          gasPayer = AccountId "sender00" Nothing Nothing
+          preMeta = toObject $! PreprocessReqMetaData Nothing gasPayer Nothing
+          preReq = ConstructionPreprocessReq nid ops (Just preMeta) Nothing Nothing
+
+      _ <- constructionPreprocess cenv preReq
+      pure ()
+      
+      
+      
+      {--SubmitBatch (c NEL.:| []) <- mkTransfer tio
+
+      let rk = cmdToRequestKey c
+          req = ConstructionSubmitReq nid (encodeToText c)
+
+      step "send construction submit request and poll on request key"
+      resp0 <- constructionSubmit cenv req
+
+      _transactionIdRes_transactionIdentifier resp0 @?= rkToTransactionId rk
+      _transactionIdRes_metadata resp0 @?= Nothing
+
+      step "confirm transaction details via poll"
+      PollResponses prs <- polling cid cenv (RequestKeys $ pure rk) ExpectPactResult
+
+      case HM.lookup rk prs of
+        Nothing -> assertFailure $ "unable to find poll response for: " <> show rk
+        Just cr -> _crReqKey cr @?= rk--}
+
+  where
+    mkOp name delta guard idx =
+      operation Successful
+                TransferOrCreateAcct
+                (P.TxId 0) -- TOOD: dummy variable
+                (toAcctLog name 0.0 delta guard) -- TODO: total is dummy var
+                idx
+                []
+
+    toAcctLog name total delta guard = AccountLog
+      { _accountLogKey = name
+      , _accountLogBalanceTotal = total
+      , _accountLogBalanceDelta = BalanceDelta delta
+      , _accountLogCurrGuard = A.toJSON guard
+      , _accountLogPrevGuard = A.toJSON guard
+      }
+
+    ks (TestKeySet _ Nothing pred') = P.mkKeySet [] pred'
+    ks (TestKeySet _ (Just (pk,_)) pred') =
+      P.mkKeySet [P.PublicKey $ T.encodeUtf8 pk] pred'
 
 -- | Rosetta mempool endpoint tests
 --

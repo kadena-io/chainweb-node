@@ -27,7 +27,12 @@ module Chainweb.Test.RestAPI.Utils
 , accountBalance
 , blockTransaction
 , block
+, constructionPreprocess
 , constructionMetadata
+, constructionPayloads
+, constructionParse
+, constructionCombine
+, constructionHash
 , constructionSubmit
 , mempoolTransaction
 , mempool
@@ -240,7 +245,12 @@ data RosettaTestException
     = AccountBalanceFailure String
     | BlockTransactionFailure String
     | BlockFailure String
+    | ConstructionPreprocessFailure String
     | ConstructionMetadataFailure String
+    | ConstructionPayloadsFailure String
+    | ConstructionParseFailure String
+    | ConstructionCombineFailure String
+    | ConstructionHashFailure String
     | ConstructionSubmitFailure String
     | MempoolTransactionFailure String
     | MempoolFailure String
@@ -305,6 +315,25 @@ block cenv req =
       BlockFailure _ -> return True
       _ -> return False
 
+
+constructionPreprocess
+    :: ClientEnv
+    -> ConstructionPreprocessReq
+    -> IO ConstructionPreprocessResp
+constructionPreprocess cenv req =
+  recovering testRetryPolicy [h] $ \s -> do
+    debug
+      $ "requesting construction preprocess for " <> (show req)
+      <> " [" <> show (view rsIterNumberL s) <> "]"
+
+    runClientM (rosettaConstructionPreprocessApiClient v req) cenv >>= \case
+      Left e -> throwM $ ConstructionPreprocessFailure (show e)
+      Right t -> return t
+  where
+    h _ = Handler $ \case
+      ConstructionPreprocessFailure _ -> return True
+      _ -> return False
+
 constructionMetadata
     :: ClientEnv
     -> ConstructionMetadataReq
@@ -321,6 +350,78 @@ constructionMetadata cenv req =
   where
     h _ = Handler $ \case
       ConstructionMetadataFailure _ -> return True
+      _ -> return False
+
+constructionPayloads
+    :: ClientEnv
+    -> ConstructionPayloadsReq
+    -> IO ConstructionPayloadsResp
+constructionPayloads cenv req =
+  recovering testRetryPolicy [h] $ \s -> do
+    debug
+      $ "requesting construction payloads for " <> (show req)
+      <> " [" <> show (view rsIterNumberL s) <> "]"
+
+    runClientM (rosettaConstructionPayloadsApiClient v req) cenv >>= \case
+      Left e -> throwM $ ConstructionPayloadsFailure (show e)
+      Right t -> return t
+  where
+    h _ = Handler $ \case
+      ConstructionPayloadsFailure _ -> return True
+      _ -> return False
+
+constructionParse
+    :: ClientEnv
+    -> ConstructionParseReq
+    -> IO ConstructionParseResp
+constructionParse cenv req =
+  recovering testRetryPolicy [h] $ \s -> do
+    debug
+      $ "requesting construction parse for " <> (show req)
+      <> " [" <> show (view rsIterNumberL s) <> "]"
+
+    runClientM (rosettaConstructionParseApiClient v req) cenv >>= \case
+      Left e -> throwM $ ConstructionParseFailure (show e)
+      Right t -> return t
+  where
+    h _ = Handler $ \case
+      ConstructionParseFailure _ -> return True
+      _ -> return False
+
+constructionCombine
+    :: ClientEnv
+    -> ConstructionCombineReq
+    -> IO ConstructionCombineResp
+constructionCombine cenv req =
+  recovering testRetryPolicy [h] $ \s -> do
+    debug
+      $ "requesting construction combine for " <> (show req)
+      <> " [" <> show (view rsIterNumberL s) <> "]"
+
+    runClientM (rosettaConstructionCombineApiClient v req) cenv >>= \case
+      Left e -> throwM $ ConstructionCombineFailure (show e)
+      Right t -> return t
+  where
+    h _ = Handler $ \case
+      ConstructionCombineFailure _ -> return True
+      _ -> return False
+
+constructionHash
+    :: ClientEnv
+    -> ConstructionHashReq
+    -> IO TransactionIdResp
+constructionHash cenv req =
+  recovering testRetryPolicy [h] $ \s -> do
+    debug
+      $ "requesting construction hash for " <> (show req)
+      <> " [" <> show (view rsIterNumberL s) <> "]"
+
+    runClientM (rosettaConstructionHashApiClient v req) cenv >>= \case
+      Left e -> throwM $ ConstructionHashFailure (show e)
+      Right t -> return t
+  where
+    h _ = Handler $ \case
+      ConstructionHashFailure _ -> return True
       _ -> return False
 
 constructionSubmit

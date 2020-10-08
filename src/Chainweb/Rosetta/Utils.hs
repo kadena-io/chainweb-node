@@ -279,12 +279,15 @@ data PreprocessReqMetaData = PreprocessReqMetaData
   , _preprocessReqMetaData_gasPayer :: !AccountId
   , _preprocessReqMetaData_nonce :: !(Maybe T.Text)
   } deriving (Show, Eq)
-instance ToJSON PreprocessReqMetaData where
-  toJSON (PreprocessReqMetaData someXChain payer someNonce) =
-    toJSONOmitMaybe
+instance ToObject PreprocessReqMetaData where
+  toPairs (PreprocessReqMetaData someXChain payer someNonce) =
+    toPairOmitMaybe
     [ "gas_payer" .= payer ]
     [ maybePair "cross_chain_tx" someXChain
     , maybePair "nonce" someNonce ]
+  toObject meta = HM.fromList (toPairs meta)
+instance ToJSON PreprocessReqMetaData where
+  toJSON = object . toPairs
 instance FromJSON PreprocessReqMetaData where
   parseJSON = withObject "PreprocessReqMetaData" $ \o -> do
     xchain <- o .:? "cross_chain_tx"
@@ -478,7 +481,7 @@ opsToConstructionTx cid someXChain ops = do
     transfer (acct1, bal1, ks1) (acct2, bal2, ks2)
       | (bal1 == 0 || bal2 == 0) = rerr RosettaInvalidOperations
                                    "transfer amounts: Cannot transfer zero amounts"
-      | (bal1 + bal2 /= 1.0) = rerr RosettaInvalidOperations
+      | (bal1 + bal2 /= 0.0) = rerr RosettaInvalidOperations
                                "transfer amounts: Mass conversation not preserved"
       | (acct1 == acct2) = rerr RosettaInvalidOperations
                            "Cannot transfer to the same account name"
@@ -1362,12 +1365,15 @@ maybePair :: (ToJSON a) => T.Text -> Maybe a -> (T.Text, Maybe Value)
 maybePair label Nothing = (label, Nothing)
 maybePair label (Just v) = (label, Just (toJSON v))
 
-toJSONOmitMaybe :: [Pair] -> [(T.Text, Maybe Value)] -> Value
-toJSONOmitMaybe defPairs li = object allPairs
+toPairOmitMaybe :: [Pair] -> [(T.Text, Maybe Value)] -> [Pair]
+toPairOmitMaybe defPairs li = allPairs
   where
     allPairs = foldl' f defPairs li
     f acc (_, Nothing) = acc
     f acc (t, Just p) = acc ++ [t .= p]
+
+toJSONOmitMaybe :: [Pair] -> [(T.Text, Maybe Value)] -> Value
+toJSONOmitMaybe defPairs li = object $ toPairOmitMaybe defPairs li
 
 toRosettaError
     :: RosettaFailure
