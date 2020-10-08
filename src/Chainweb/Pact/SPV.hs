@@ -31,7 +31,6 @@ import Control.Monad.Catch
 
 import Data.Aeson hiding (Object, (.=))
 import Data.Default (def)
-import qualified Data.Map.Strict as M
 import Data.Text (Text, pack)
 import qualified Data.Text.Encoding as T
 
@@ -122,22 +121,11 @@ verifySPV bdb bh typ proof = go typ proof
             case _crResult q of
               PactResult Left{} ->
                 return (Left "invalid command result in tx output proof")
-              PactResult (Right v) -> return $ Right $ translatePactSuccess v
+              PactResult (Right v) -> case fromPactValue v of
+                TObject !j _ -> return (Right j)
+                _ -> return $ Left "spv-verified tx output has invalid type"
 
       t -> return . Left $! "unsupported SPV types: " <> t
-
-translatePactSuccess :: PactSuccess -> Object Name
-translatePactSuccess (PactSuccess v es) = Object (ObjectMap m) TyAny def def
-  where
-    m = M.fromList
-        [("value",fromPactValue v)
-        ,("events",toTList TyAny def $ map ev es)]
-    ev e = toTObject TyAny def $
-           [("name",toTerm $ _eventName e)
-           ,("params",toTList TyAny def $ map fromPactValue $ _eventParams e)
-           ,("module",toTerm $ asString $ _eventModule e)
-           ,("moduleHash",toTerm $ asString $ _eventModuleHash e)
-           ]
 
 -- | SPV defpact transaction verification support. This call validates a pact 'endorsement'
 -- in Pact, providing a validation that the yield data of a cross-chain pact is valid.
