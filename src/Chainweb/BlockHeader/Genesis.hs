@@ -114,8 +114,8 @@ genesisBlockTarget v@Testnet04 cid
     | genesisHeight v cid > 278626 = testnet20InitialHashTarget
 genesisBlockTarget v@Development cid
     | genesisHeight v cid > (to20ChainsDevelopment - (min to20ChainsDevelopment 10)) =
-        HashTarget 0x0000000420507a4c13117578145f36acfcf4f40b6c1ed181fde65b5ae6770034
-            -- 4 * target of 1 GPU and 12 node-mining
+        HashTarget 0x0000088f99632cadf39b0db7655be62cb7dbc84ebbd9a90e5b5756d3e7d9196c
+            -- 4 * 10 node-mining
     | otherwise = HashTarget (maxBound `div` 100000)
 genesisBlockTarget _ _ = maxTarget
 
