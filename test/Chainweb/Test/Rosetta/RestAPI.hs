@@ -127,7 +127,6 @@ tests rdb = testGroupSch "Chainweb.Test.Rosetta.RestAPI" go
       , block20ChainRemediationTests
       , blockTests "Block Test without potential remediation"
       , accountBalanceTests
-      , constructionSubmitTests
       , constructionFlowTests
       , mempoolTests
       , networkListTests
@@ -366,31 +365,6 @@ block20ChainRemediationTests _ envIo =
     bhChain20Rem = 2
     req h = BlockReq nid $ PartialBlockId (Just h) Nothing
 
--- | Rosetta construction submit endpoint tests (i.e. tx submission directly to mempool)
---
-constructionSubmitTests :: RosettaTest
-constructionSubmitTests tio envIo =
-    testCaseSchSteps "Construction Submit Tests" $ \step -> do
-      cenv <- envIo
-
-      step "build one-off construction submit request"
-      SubmitBatch (c NEL.:| []) <- mkTransfer tio
-
-      let rk = cmdToRequestKey c
-          req = ConstructionSubmitReq nid (encodeToText c)
-
-      step "send construction submit request and poll on request key"
-      resp0 <- constructionSubmit cenv req
-
-      _transactionIdRes_transactionIdentifier resp0 @?= rkToTransactionId rk
-      _transactionIdRes_metadata resp0 @?= Nothing
-
-      step "confirm transaction details via poll"
-      PollResponses prs <- polling cid cenv (RequestKeys $ pure rk) ExpectPactResult
-
-      case HM.lookup rk prs of
-        Nothing -> assertFailure $ "unable to find poll response for: " <> show rk
-        Just cr -> _crReqKey cr @?= rk
 
 -- | Rosetta construction endpoints tests (i.e. tx formatting and submission)
 --
@@ -402,16 +376,45 @@ constructionFlowTests _ envIo =
       step "preprocess intended operations"
       let amt = 2.0
           fromAcct = "sender00"
-          fromGuard = ks sender00ks
+          fromGuard = sender00Guard
           toAcct = "sender01"
-          toGuard = ks sender01ks
+          toGuard = sender01Guard
           ops = [ mkOp fromAcct (negate amt) fromGuard 0
                 , mkOp toAcct amt toGuard 1 ]
           gasPayer = AccountId "sender00" Nothing Nothing
-          preMeta = toObject $! PreprocessReqMetaData Nothing gasPayer Nothing
-          preReq = ConstructionPreprocessReq nid ops (Just preMeta) Nothing Nothing
+          preMeta = PreprocessReqMetaData Nothing gasPayer Nothing
+          preReq = ConstructionPreprocessReq nid ops (Just $! toObject preMeta)
+                   Nothing Nothing
 
-      _ <- constructionPreprocess cenv preReq
+      (ConstructionPreprocessResp (Just preRespMetaObj) (Just _reqAccts)) <-
+        constructionPreprocess cenv preReq
+      --Right preRespMeta <- pure $ extractMetaData preRespMetaObj
+      
+      {--reqAccts @?= [sender00Acct, sender01Acct]
+      _preprocessRespMetaData_reqMetaData preRespMeta @?= preMeta
+      _preprocessRespMetaData_gasLimit preRespMeta @?= P.GasLimit 600
+      _preprocessRespMetaData_gasPrice preRespMeta @?= P.GasPrice 0.000000000001
+      _preprocessRespMetaData_suggestedFee preRespMeta @?= kdaToRosettaAmount 0.0000000006
+      _preprocessRespMetaData_tx preRespMeta @?=
+        ConstructTransfer fromAcct fromGuard toAcct toGuard undefined --(P.ParsedDecimal amt)
+     --}
+      step "feed preprocessed tx into metadata endpoint"
+      let opts = preRespMetaObj
+          pubKeys = (toRosettaPks sender00ks) <> (toRosettaPks sender01ks)
+          metaReq = ConstructionMetadataReq nid opts (Just pubKeys)
+          
+      (ConstructionMetadataResp payloadMeta _) <- constructionMetadata cenv metaReq
+
+
+      step "feed metadata to get payload"
+      let payloadReq = ConstructionPayloadsReq nid ops (Just payloadMeta) (Just pubKeys)
+      payloadResp <- constructionPayloads cenv payloadReq
+
+      step "parse unsigned tx"
+      let parseReq = ConstructionParseReq nid False
+                     (_constructionPayloadsResp_unsignedTransaction payloadResp)
+      _parseResp <- constructionParse cenv parseReq
+      
       pure ()
       
       
@@ -435,6 +438,12 @@ constructionFlowTests _ envIo =
         Just cr -> _crReqKey cr @?= rk--}
 
   where
+    _sender00Acct = AccountId "sender00" Nothing Nothing
+    sender00Guard = ks sender00ks
+
+    _sender01Acct = AccountId "sender01" Nothing Nothing
+    sender01Guard = ks sender01ks
+    
     mkOp name delta guard idx =
       operation Successful
                 TransferOrCreateAcct
@@ -450,6 +459,10 @@ constructionFlowTests _ envIo =
       , _accountLogCurrGuard = A.toJSON guard
       , _accountLogPrevGuard = A.toJSON guard
       }
+
+    toRosettaPks (TestKeySet _ Nothing _) = []
+    toRosettaPks (TestKeySet _ (Just (pk,_)) _) =
+      [ RosettaPublicKey pk CurveEdwards25519 ]
 
     ks (TestKeySet _ Nothing pred') = P.mkKeySet [] pred'
     ks (TestKeySet _ (Just (pk,_)) pred') =

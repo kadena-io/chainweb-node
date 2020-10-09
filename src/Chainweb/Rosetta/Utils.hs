@@ -1384,7 +1384,7 @@ toRosettaError failure = annotate (stringRosettaError failure)
 
 ksToPubKeys :: P.KeySet -> [T.Text]
 ksToPubKeys (P.KeySet pkSet _) =
-  map (P.toB16Text . P._pubKey) (S.toList pkSet)
+  map (T.decodeUtf8 . P._pubKey) (S.toList pkSet)
 
 
 parsePubKeys :: T.Text -> Value -> Either RosettaError [T.Text]
