@@ -396,14 +396,44 @@ newtype JsonLogMessage a = JsonLogMessage
     deriving (Generic)
 
 instance ToJSON a => ToJSON (JsonLogMessage a) where
-    toJSON (JsonLogMessage a) = object
-        [ "level" .= L._logMsgLevel a
-        , "scope" .= scopeToJson (L._logMsgScope a)
-        , "time" .= L.formatIso8601Milli @T.Text (L._logMsgTime a)
-        , "message" .= L._logMsg a
-        ]
-      where
-        scopeToJson = object . map (uncurry (.=)) . reverse
+    toEncoding = pairs . mconcat . jsonLogMessageEncoding
+    toJSON = object . jsonLogMessageEncoding
+    {-# INLINE toEncoding #-}
+    {-# INLINE toJSON #-}
+
+jsonLogMessageEncoding :: KeyValue kv => ToJSON a => JsonLogMessage a -> [kv]
+jsonLogMessageEncoding (JsonLogMessage a) =
+    [ "level" .= L._logMsgLevel a
+    , "scope" .= scopeToJson (L._logMsgScope a)
+    , "@timestamp" .= L.formatIso8601Milli @T.Text (L._logMsgTime a)
+    , "message" .= L._logMsg a
+    ]
+  where
+    scopeToJson = object . map (uncurry (.=)) . reverse
+{-# INLINE jsonLogMessageEncoding #-}
+
+-- | Format a Log Message for Usage in Elasticsearch DataStreams
+--
+newtype EsJsonLogMessage a = EsJsonLogMessage
+    { _getEsJsonLogMessage :: L.LogMessage a }
+    deriving (Generic)
+
+instance ToJSON a => ToJSON (EsJsonLogMessage a) where
+    toEncoding = pairs . mconcat . esJsonLogMessageEncoding
+    toJSON = object . esJsonLogMessageEncoding
+    {-# INLINE toEncoding #-}
+    {-# INLINE toJSON #-}
+
+esJsonLogMessageEncoding :: KeyValue kv => ToJSON a => EsJsonLogMessage a -> [kv]
+esJsonLogMessageEncoding (EsJsonLogMessage a) =
+    [ "level" .= L._logMsgLevel a
+    , "scope" .= scopeToJson (L._logMsgScope a)
+    , "@timestamp" .= L.formatIso8601Milli @T.Text (L._logMsgTime a)
+    , "message" .= L._logMsg a
+    ]
+  where
+    scopeToJson = object . map (uncurry (.=)) . reverse
+{-# INLINE esJsonLogMessageEncoding #-}
 
 -- -------------------------------------------------------------------------- --
 -- Base Backends
@@ -568,9 +598,15 @@ elasticSearchBatchDelayMs :: Natural
 elasticSearchBatchDelayMs = 1000
 
 -- | A backend for JSON log messags that sends all logs to the given index of an
--- Elasticsearch server. The index is created at startup if it doesn't exist.
--- Messages are sent in a fire-and-forget fashion. If a connection fails, the
--- messages are dropped without notice.
+-- Elasticsearch server. Messages are sent in a fire-and-forget fashion. If a
+-- connection fails, the messages are dropped without notice.
+--
+-- This backend uses Elasticsearch Data streams. It requires Elasticsearch-7.8
+-- or later. In order to use it one must create an index template for data
+-- streams for the prefix @chainweb-*@.
+--
+-- Elasticsearch will create the datastream from a matching index template if it
+-- doesn't exist.
 --
 -- TODO: if the backend fails to deliver a message it should produce a result
 -- that allows the message (or the failure message) to be passed to another
@@ -597,6 +633,111 @@ withElasticsearchBackend
     -> (Backend a -> IO b)
     -> IO b
 withElasticsearchBackend mgr esServer key ixName pkgScopes inner = do
+    req <- HTTP.parseUrlThrow (T.unpack esServer) >>= \x -> case key of
+        Nothing -> return x
+        Just k -> return x
+            { HTTP.requestHeaders = ("Authorization", "ApiKey " <> T.encodeUtf8 k) : HTTP.requestHeaders x
+            }
+
+    -- New versions of Elasticsearch (>= 7.8) will create the datastream from
+    -- a matching index template if it doesn't exist.
+    -- createDataStream req
+
+    queue <- newTBQueueIO 2000
+    withAsync (runForever errorLogFun "Utils.Logging.withElasticsearchBackend" (processor req queue)) $ \_ -> do
+        inner $ \a -> atomically (writeTBQueue queue a)
+
+  where
+    streamName = "chainweb-" <> ixName
+    errorLogFun Error msg = T.hPutStrLn stderr msg
+    errorLogFun _ _ = return ()
+
+    -- Collect messages. If there is at least one pending message, submit a
+    -- `_bulk` request every second or when the batch size is 1000 messages,
+    -- whatever happens first.
+    --
+    processor req queue = do
+        -- ensure that there is at least one transaction in every batch
+        h <- atomically $ readTBQueue queue
+
+        -- set timer to 1 second
+        timer <- registerDelay (int elasticSearchBatchDelayMs)
+
+        -- Fill the batch
+        (remaining, batch) <- go elasticSearchBatchSize (indexAction h) timer
+
+        errorLogFun Info $ "send " <> sshow (elasticSearchBatchSize - remaining) <> " messages"
+        void $ HTTP.httpLbs (putBulgLog req batch) mgr
+      where
+        getNextAction timer = atomically $ isTimeout `orElse` fill
+          where
+            isTimeout = Nothing <$ (readTVar timer >>= check)
+            fill = tryReadTBQueue queue >>= maybe retry (return . Just)
+
+        go 0 !batch _ = return (0, batch)
+        go !remaining !batch !timer = getNextAction timer >>= \case
+            Nothing -> return (remaining, batch)
+            Just x -> go (remaining - 1) (batch <> indexAction x) timer
+
+    _createDataStream req =
+        void $ HTTP.httpLbs (putDataStream req) { HTTP.method = "HEAD"} mgr
+            `catch` \case
+                (HTTP.HttpExceptionRequest _ (HTTP.StatusCodeException _ _)) -> do
+                    errorLogFun Error $ "Datastream doesn't exist " <> streamName <> ". Trying to create it ..."
+                    HTTP.httpLbs (putDataStream req) mgr
+                ex -> throwM ex
+
+    putDataStream req = req
+        { HTTP.method = "PUT"
+        , HTTP.path = HTTP.path req <> "/_data_stream/" <> T.encodeUtf8 streamName
+        , HTTP.responseTimeout = HTTP.responseTimeoutMicro 10000000
+        , HTTP.requestHeaders = ("content-type", "application/json") : HTTP.requestHeaders req
+        }
+
+    _putLog req a = req
+        { HTTP.method = "POST"
+        , HTTP.path = HTTP.path req <> T.encodeUtf8 streamName <> "/_doc"
+        , HTTP.responseTimeout = HTTP.responseTimeoutMicro 3000000
+        , HTTP.requestHeaders = ("content-type", "application/json") : HTTP.requestHeaders req
+        , HTTP.requestBody = HTTP.RequestBodyLBS $ encode $ JsonLogMessage a
+        }
+
+    putBulgLog req a = req
+        { HTTP.method = "POST"
+        , HTTP.path = HTTP.path req <> T.encodeUtf8 streamName <> "/_bulk"
+        , HTTP.responseTimeout = HTTP.responseTimeoutMicro 10000000
+        , HTTP.requestHeaders = ("content-type", "application/x-ndjson") : HTTP.requestHeaders req
+        , HTTP.requestBody = HTTP.RequestBodyLBS $ BB.toLazyByteString a
+        }
+
+    e = fromEncoding . toEncoding
+    indexAction a
+        = fromEncoding indexActionHeader
+        <> BB.char7 '\n'
+        <> e (EsJsonLogMessage $ L.logMsgScope <>~ pkgScopes $ a)
+        <> BB.char7 '\n'
+
+    indexActionHeader :: Encoding
+    indexActionHeader = pairs $ pair "create" $ pairs $ mempty
+
+-- | Old backend that creates daily indexes. Indexes are created at startup if
+-- it doesn't exist.
+--
+_withElasticsearchBackend_
+    :: ToJSON a
+    => HTTP.Manager
+    -> T.Text
+        -- ^ Server URL
+    -> Maybe T.Text
+        -- ^ optional API Key
+    -> T.Text
+        -- ^ Index Name
+    -> [(T.Text, T.Text)]
+        -- ^ Scope that are included only with remote backends. In chainweb-node
+        -- this is used for package info data.
+    -> (Backend a -> IO b)
+    -> IO b
+_withElasticsearchBackend_ mgr esServer key ixName pkgScopes inner = do
     req <- HTTP.parseUrlThrow (T.unpack esServer) >>= \x -> case key of
         Nothing -> return x
         Just k -> return x
@@ -651,7 +792,7 @@ withElasticsearchBackend mgr esServer key ixName pkgScopes inner = do
         void $ HTTP.httpLbs (putIndex req i) { HTTP.method = "HEAD"} mgr
             `catch` \case
                 (HTTP.HttpExceptionRequest _ (HTTP.StatusCodeException _ _)) -> do
-                    errorLogFun Error $ "Index creation failed for index " <> i <> ". Retrying ..."
+                    errorLogFun Error $ "Index doesn't exist " <> i <> ". Retrying to create it ..."
                     HTTP.httpLbs (putIndex req i) mgr
                 ex -> throwM ex
 
@@ -690,7 +831,6 @@ withElasticsearchBackend mgr esServer key ixName pkgScopes inner = do
         $ pair "index" $ pairs
             $ ("_index" .= (i :: T.Text))
             <> ("_type" .= ("_doc" :: T.Text))
-
 -- -------------------------------------------------------------------------- --
 -- Event Source Backend for JSON messages
 
