@@ -809,8 +809,8 @@ toSignerAcctsMap txInfo payerAcct v cid crs cutDb = do
         -> HM.HashMap AccountName ([P.SigCapability], [T.Text])
     insertWith' name sigs m = HM.insertWith f (AccountName name) sigs m
       where
-        f (newSigs, newKeys) (oldSigs, oldKeys) =
-          (oldSigs <> newSigs, oldKeys <> newKeys)
+        f (newSigs, _) (oldSigs, oldKeys) =
+          (oldSigs <> newSigs, oldKeys) -- keys wouldn't change
 
     -- Cap smart constructor.
     mkCapability

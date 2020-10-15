@@ -303,18 +303,18 @@ constructionPayloadsH
     -> ConstructionPayloadsReq
     -> Handler ConstructionPayloadsResp
 constructionPayloadsH v req =
-  either throwRosettaError pure work
+  runExceptT work >>= either throwRosettaError pure
   where
     (ConstructionPayloadsReq net _ someMeta _) = req
 
-    work :: Either RosettaError ConstructionPayloadsResp
+    work :: ExceptT RosettaError Handler ConstructionPayloadsResp
     work = do
-      void $ annotate rosettaError' (validateNetwork v net)
-      meta <- note (rosettaError' RosettaMissingMetaData) someMeta >>=
+      void $ hoistEither $ annotate rosettaError' (validateNetwork v net)
+      meta <- hoistEither $ note
+              (rosettaError' RosettaMissingMetaData) someMeta >>=
               extractMetaData
-
-      let unsigned = createUnsignedCmd v meta
-          encoded = enrichedCommandToText $! unsigned
+      unsigned <- liftIO $ createUnsignedCmd v meta
+      let encoded = enrichedCommandToText $! unsigned
           signingPayloads = createSigningPayloads unsigned
                             (_payloadsMetaData_signers meta)
 

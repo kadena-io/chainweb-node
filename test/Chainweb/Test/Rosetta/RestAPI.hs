@@ -42,6 +42,9 @@ import Pact.Types.API
 import Pact.Types.Command
 
 import qualified Pact.Types.Runtime as P
+import qualified Pact.Types.Command as P
+import qualified Pact.ApiReq as P
+import qualified Pact.Types.Crypto as P
 
 -- internal chainweb modules
 
@@ -389,6 +392,7 @@ constructionFlowTests _ envIo =
       (ConstructionPreprocessResp (Just preRespMetaObj) (Just _reqAccts)) <-
         constructionPreprocess cenv preReq
       --Right preRespMeta <- pure $ extractMetaData preRespMetaObj
+
       
       {--reqAccts @?= [sender00Acct, sender01Acct]
       _preprocessRespMetaData_reqMetaData preRespMeta @?= preMeta
@@ -405,15 +409,24 @@ constructionFlowTests _ envIo =
           
       (ConstructionMetadataResp payloadMeta _) <- constructionMetadata cenv metaReq
 
-
       step "feed metadata to get payload"
       let payloadReq = ConstructionPayloadsReq nid ops (Just payloadMeta) (Just pubKeys)
-      payloadResp <- constructionPayloads cenv payloadReq
+      ConstructionPayloadsResp unsigned payloads <- constructionPayloads cenv payloadReq
 
       step "parse unsigned tx"
-      let parseReq = ConstructionParseReq nid False
-                     (_constructionPayloadsResp_unsignedTransaction payloadResp)
-      _parseResp <- constructionParse cenv parseReq
+      let parseReqUnsigned = ConstructionParseReq nid False unsigned
+      _parseRespUnsigned <- constructionParse cenv parseReqUnsigned
+
+      step "combine tx signatures"
+      sigs <- mapM sign payloads
+      let combineReq = ConstructionCombineReq nid unsigned sigs
+      ConstructionCombineResp signed <- constructionCombine cenv combineReq
+
+      step "parse signed tx"
+      let parseReqSigned = ConstructionParseReq nid True signed
+      _parseRespSigned <- constructionParse cenv parseReqSigned
+
+
       
       pure ()
       
@@ -467,6 +480,30 @@ constructionFlowTests _ envIo =
     ks (TestKeySet _ Nothing pred') = P.mkKeySet [] pred'
     ks (TestKeySet _ (Just (pk,_)) pred') =
       P.mkKeySet [P.PublicKey $ T.encodeUtf8 pk] pred'
+
+    getKeys "sender00" = Just sender00
+    getKeys "sender01" = Just sender01
+    getKeys _ = Nothing
+
+    sign payload = do
+      Just acct <- pure $ _rosettaSigningPayload_accountIdentifier payload
+      Just (pk,sk) <- pure $ getKeys $ _accountId_address acct 
+      Right sk' <- pure $ P.parseB16TextOnly sk
+      Right pk' <- pure $ P.parseB16TextOnly pk
+      let akps = P.ApiKeyPair (P.PrivBS sk') (Just $ P.PubBS pk')
+                 Nothing Nothing Nothing 
+      [(kp,_)] <- P.mkKeyPairs [akps]
+      (Right (hsh :: P.PactHash)) <- pure $ P.fromText' $
+        _rosettaSigningPayload_hexBytes payload
+      sig <- P.signHash hsh kp
+      
+      pure $! RosettaSignature
+        { _rosettaSignature_signingPayload = payload
+        , _rosettaSignature_publicKey =
+            RosettaPublicKey pk CurveEdwards25519
+        , _rosettaSignature_signatureType = RosettaEd25519
+        , _rosettaSignature_hexBytes = P._usSig sig
+        }
 
 -- | Rosetta mempool endpoint tests
 --

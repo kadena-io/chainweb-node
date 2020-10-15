@@ -771,7 +771,7 @@ data PayloadsMetaData = PayloadsMetaData
   , _payloadsMetaData_publicMeta :: !P.PublicMeta
   , _payloadsMetaData_tx :: !ConstructionTx
   -- ^ Needed to construct gas payer AccountId
-  }
+  } deriving (Show)
 instance ToObject PayloadsMetaData where
   toPairs (PayloadsMetaData signers nonce pm tx) =
     [ "signers" .= signers
@@ -798,7 +798,7 @@ data EnrichedCommand = EnrichedCommand
   { _enrichedCommand_cmd :: !(Command T.Text)
   , _enrichedCommand_txInfo :: !ConstructionTx
   , _enrichedCommand_signerAccounts :: ![AccountId]
-  }
+  } deriving (Show)
 instance ToJSON EnrichedCommand where
   toJSON (EnrichedCommand cmd tx accts) = object
     [ "cmd" .= cmd
@@ -868,7 +868,7 @@ constructionTxToPactRPC txInfo =
     amountName = "amount"
     guardName = "ks"
     guardCheckCode = t $! printf
-                     "(enforce-keyset (read-keyset \"%s\")\n"
+                     "(enforce-keyset (read-keyset \"%s\"))\n"
                      guardName
 
 
@@ -876,24 +876,16 @@ constructionTxToPactRPC txInfo =
 --   unsigned Command object, as well as any extra information lost
 --   when constructing the command but needed in the /parse
 --   endpoint.
-createUnsignedCmd :: ChainwebVersion -> PayloadsMetaData -> EnrichedCommand
-createUnsignedCmd v meta = EnrichedCommand cmd txInfo (map snd signers)
+createUnsignedCmd :: ChainwebVersion -> PayloadsMetaData -> IO EnrichedCommand
+createUnsignedCmd v meta = do
+  cmd <- mkUnsignedCommand pactSigners pubMeta nonce networkId pactRPC
+  let cmdText = T.decodeUtf8 <$> cmd
+  pure $ EnrichedCommand cmdText txInfo signerAccts
   where
     PayloadsMetaData signers nonce pubMeta txInfo = meta
-
-    -- creates the unsigned command
-    cmd = Command encodedPayloadText [] hsh
-
-    hsh = P.hash encodedPayload
-    encodedPayloadText = T.decodeUtf8 $! encodedPayload
-    encodedPayload = BSL.toStrict $ encode
-      Payload
-        { _pPayload = pactRPC
-        , _pNonce = nonce
-        , _pMeta = pubMeta
-        , _pSigners = map fst signers
-        , _pNetworkId = Just $ P.NetworkId $! chainwebVersionToText v
-        }
+    signerAccts = map snd signers
+    pactSigners = map fst signers
+    networkId = Just $ P.NetworkId $! chainwebVersionToText v
     pactRPC = constructionTxToPactRPC txInfo
 
 
@@ -908,7 +900,7 @@ createSigningPayloads (EnrichedCommand cmd _ _) signers =
     f (signer, acct) = RosettaSigningPayload
       { _rosettaSigningPayload_address = Nothing
       , _rosettaSigningPayload_accountIdentifier = Just acct
-      , _rosettaSigningPayload_hexBytes = _cmdPayload cmd
+      , _rosettaSigningPayload_hexBytes = P.asString $ _cmdHash cmd
       , _rosettaSigningPayload_signatureType = toRosettaSigType $ _siScheme signer
       }
 
