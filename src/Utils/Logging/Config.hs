@@ -136,7 +136,7 @@ handleConfigFromText x = case CI.mk x of
     _ | CI.mk (T.take 5 x) == "file:" -> return $ FileHandle (T.unpack (T.drop 5 x))
     _ | CI.mk (T.take 4 x) == "es::" -> return $ ElasticSearch (T.drop 4 x) Nothing
     _ | CI.mk (T.take 7 x) == "es:http" -> return $ ElasticSearch (T.drop 3 x) Nothing
-        -- legathy format without API key (deprecated)
+        -- legacy format without API key (deprecated)
     _ | CI.mk (T.take 3 x) == "es:" -> case T.break (== ':') (T.drop 3 x) of
         (auth, rest) -> let url = T.drop 1 rest in
             case HTTP.parseRequest (T.unpack $ url) of
