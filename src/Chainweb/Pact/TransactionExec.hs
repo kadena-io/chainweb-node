@@ -27,6 +27,7 @@ module Chainweb.Pact.TransactionExec
 , applyContinuation'
 , runPayload
 , readInitModules
+, enablePactEvents'
 
   -- * Gas Execution
 , buyGas
@@ -71,12 +72,13 @@ import Data.Tuple.Strict (T2(..))
 
 -- internal Pact modules
 
-import Pact.Eval (eval, liftTerm, lookupModule)
+import Pact.Eval (eval, liftTerm)
 import Pact.Gas (freeGasEnv)
 import Pact.Interpreter
 import Pact.Native.Capabilities (evalCap)
 import Pact.Parse (ParsedDecimal(..), parseExprs)
 import Pact.Runtime.Capabilities (popCapStack)
+import Pact.Runtime.Utils (lookupModule)
 import Pact.Types.Capability
 import Pact.Types.Command
 import Pact.Types.Hash as Pact
@@ -157,6 +159,7 @@ applyCmd v logger pdbenv miner gasModel txCtx spv cmdIn mcache0 =
       : ( [ FlagOldReadOnlyBehavior | isPactBackCompatV16 ]
           ++ [ FlagPreserveModuleNameBug | not isModuleNameFix ]
           ++ [ FlagPreserveNsModuleInstallBug | not isModuleNameFix2 ]
+          ++ enablePactEvents' txCtx
         )
 
     cenv = TransactionEnv Transactional pdbenv logger (ctxToPublicData txCtx) spv nid gasPrice
@@ -279,9 +282,10 @@ applyCoinbase v logger dbEnv (Miner mid mks) reward@(ParsedDecimal d) txCtx
   where
     fork1_3InEffect = vuln797Fix v cid bh
     throwCritical = fork1_3InEffect || enfCBFailure
-    ec = mkExecutionConfig
+    ec = mkExecutionConfig $
       [ FlagDisableModuleInstall
-      , FlagDisableHistoryInTransactionalMode ]
+      , FlagDisableHistoryInTransactionalMode ] ++
+      enablePactEvents' txCtx
     tenv = TransactionEnv Transactional dbEnv logger (ctxToPublicData txCtx) noSPVSupport
            Nothing 0.0 rk 0 ec
     txst = TransactionState mc mempty 0 Nothing (_geGasModel freeGasEnv)
@@ -316,7 +320,7 @@ applyCoinbase v logger dbEnv (Miner mid mks) reward@(ParsedDecimal d) txCtx
 
           return $! T2
             (CommandResult rk (_erTxId er) (PactResult (Right (last $ _erOutput er)))
-              (_erGas er) (Just $ logs) (_erExec er) Nothing)
+              (_erGas er) (Just $ logs) (_erExec er) Nothing (_erEvents er))
             upgradedModuleCache
 
 
@@ -518,7 +522,7 @@ jsonErrorResult err msg = do
       <> ": " <> show err
 
     return $! CommandResult rk Nothing (PactResult (Left err))
-      gas (Just logs) Nothing Nothing
+      gas (Just logs) Nothing Nothing []
 
 runPayload
     :: Command (Payload PublicMeta ParsedCode)
@@ -574,7 +578,7 @@ applyExec interp em senderSigs hsh nsp = do
     -- forcing it here for lazy errors. TODO NFData the Pacts
     lastResult <- return $!! last _erOutput
     return $! CommandResult rk _erTxId (PactResult (Right lastResult))
-      _erGas (Just logs) _erExec Nothing
+      _erGas (Just logs) _erExec Nothing _erEvents
 
 -- | Variation on 'applyExec' that returns 'EvalResult' as opposed to
 -- wrapping it up in a JSON result.
@@ -602,6 +606,10 @@ applyExec' interp (ExecMsg parsedCode execData) senderSigs hsh nsp
 
       return er
 
+enablePactEvents' :: TxContext -> [ExecutionFlag]
+enablePactEvents' tc
+    | enablePactEvents (ctxVersion tc) (ctxCurrentBlockHeight tc) = []
+    | otherwise = [FlagDisablePactEvents]
 
 -- | Execute a 'ContMsg' and return the command result and module cache
 --
@@ -619,7 +627,7 @@ applyContinuation interp cm senderSigs hsh nsp = do
     rk <- view txRequestKey
     -- last safe here because cont msg is guaranteed one exp
     return $! (CommandResult rk _erTxId (PactResult (Right (last _erOutput)))
-      _erGas (Just logs) _erExec Nothing)
+      _erGas (Just logs) _erExec Nothing) _erEvents
 
 -- | Execute a 'ContMsg' and return just eval result, not wrapped in a
 -- 'CommandResult' wrapper

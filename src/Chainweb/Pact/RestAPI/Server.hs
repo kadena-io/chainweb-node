@@ -442,7 +442,7 @@ internalPoll cutR cid chain cut requestKeys0 = do
         let res = PactResult (Left err)
             err = PactError TxFailure def [] doc
             doc = pretty (T.pack $ show InsertErrorBadlisted)
-            !cr = CommandResult rk Nothing res 0 Nothing Nothing Nothing
+            !cr = CommandResult rk Nothing res 0 Nothing Nothing Nothing []
         in (rk, cr)
 
     enrichCR :: BlockHeader -> CommandResult Hash -> MaybeT IO (CommandResult Hash)
