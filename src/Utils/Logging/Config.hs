@@ -119,8 +119,12 @@ pLogFormat_ prefix = option textReader
 data HandleConfig
     = StdOut
     | StdErr
-    | FileHandle FilePath
-    | ElasticSearch T.Text
+    | FileHandle !FilePath
+    | ElasticSearch
+        !T.Text
+            -- ^ URL
+        !(Maybe T.Text)
+            -- ^ API Key
     deriving (Show, Eq, Ord, Generic)
 
 instance NFData HandleConfig
@@ -130,19 +134,27 @@ handleConfigFromText x = case CI.mk x of
     "stdout" -> return StdOut
     "stderr" -> return StdErr
     _ | CI.mk (T.take 5 x) == "file:" -> return $ FileHandle (T.unpack (T.drop 5 x))
-    _ | CI.mk (T.take 3 x) == "es:" -> return $ ElasticSearch (T.drop 3 x)
+    _ | CI.mk (T.take 4 x) == "es::" -> return $ ElasticSearch (T.drop 4 x) Nothing
+    _ | CI.mk (T.take 7 x) == "es:http" -> return $ ElasticSearch (T.drop 3 x) Nothing
+        -- legacy format without API key (deprecated)
+    _ | CI.mk (T.take 3 x) == "es:" -> case T.break (== ':') (T.drop 3 x) of
+        (auth, rest) -> let url = T.drop 1 rest in
+            case HTTP.parseRequest (T.unpack $ url) of
+                Right _ -> return $ ElasticSearch url (Just auth)
+                Left _ -> configFromTextErr x
     e -> configFromTextErr e
-
-  where configFromTextErr e =
-          throwM $ DecodeException $ "unexpected logger handle value: "
-          <> fromString (show e)
-          <> ", expected \"stdout\", \"stderr\", \"file:<FILENAME>\", or \"es:<URL>\""
+  where
+    configFromTextErr e =
+        throwM $ DecodeException $ "unexpected logger handle value: "
+        <> fromString (show e)
+        <> ", expected \"stdout\", \"stderr\", \"file:<FILENAME>\", or \"es:[APIKEY]:<URL>\""
 
 handleConfigToText :: HandleConfig -> T.Text
 handleConfigToText StdOut = "stdout"
 handleConfigToText StdErr = "stderr"
 handleConfigToText (FileHandle f) = "file:" <> T.pack f
-handleConfigToText (ElasticSearch f) = "es:" <> f
+handleConfigToText (ElasticSearch f Nothing) = "es:" <> f
+handleConfigToText (ElasticSearch f (Just auth)) = "es:" <> auth <> ":" <> f
 
 instance HasTextRepresentation HandleConfig where
     toText = handleConfigToText
@@ -153,7 +165,7 @@ instance HasTextRepresentation HandleConfig where
 
 validateHandleConfig :: ConfigValidation HandleConfig l
 validateHandleConfig (FileHandle filepath) = validateFileWritable "file handle" filepath
-validateHandleConfig (ElasticSearch urlText) = case HTTP.parseRequest (T.unpack urlText) of
+validateHandleConfig (ElasticSearch urlText _) = case HTTP.parseRequest (T.unpack urlText) of
     Left e -> throwError $ "failed to parse URL for ElasticSearch logging backend handle: " <> sshow e
     Right _ -> return ()
 
@@ -174,7 +186,7 @@ pHandleConfig_
     -> OptionParser HandleConfig
 pHandleConfig_ prefix = option textReader
     % long (T.unpack prefix <> "log-handle")
-    <> metavar "stdout|stderr|file:<FILENAME>|es:<URL>"
+    <> metavar "stdout|stderr|file:<FILENAME>|es:[APIKEY]:<URL>"
     <> help "handle where the logs are written"
 
 -- -------------------------------------------------------------------------- --
