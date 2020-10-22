@@ -20,6 +20,11 @@ module Chainweb.Pact.RestAPI.Server
 , SomePactServerData(..)
 , somePactServerData
 , pactServer
+, sendHandler
+, pollHandler
+, listenHandler
+, localHandler
+, spvHandler
 , somePactServer
 , somePactServers
 , validateCommand
@@ -177,6 +182,7 @@ data PactCmdLog
   | PactCmdLogLocal (Command Text)
   | PactCmdLogSpv Text
   deriving (Show, Generic, ToJSON, NFData)
+
 
 sendHandler
     :: Logger logger

@@ -22,6 +22,7 @@ import qualified Data.Aeson as A
 import Data.Decimal
 import Data.Functor (void)
 import qualified Data.HashMap.Strict as HM
+--import qualified Data.Map.Strict as M
 import Data.IORef
 import qualified Data.List.NonEmpty as NEL
 import Data.Text (Text)
@@ -45,12 +46,15 @@ import qualified Pact.Types.Runtime as P
 import qualified Pact.Types.Command as P
 import qualified Pact.ApiReq as P
 import qualified Pact.Types.Crypto as P
+import qualified Pact.Types.PactValue as P
 
 -- internal chainweb modules
 
 import Chainweb.Graph
 import Chainweb.Pact.Utils (aeson)
 import Chainweb.Pact.Transactions.UpgradeTransactions
+--import Chainweb.Pact.RestAPI.Client (pactSendApiClient)
+--import Chainweb.Pact.Service.Types
 import Chainweb.Rosetta.Utils
 import Chainweb.Test.Pact.Utils
 import Chainweb.Test.RestAPI.Utils
@@ -130,7 +134,7 @@ tests rdb = testGroupSch "Chainweb.Test.Rosetta.RestAPI" go
       , block20ChainRemediationTests
       , blockTests "Block Test without potential remediation"
       , accountBalanceTests
-      , constructionFlowTests
+      , constructionTransferTests
       , mempoolTests
       , networkListTests
       , networkOptionsTests
@@ -148,7 +152,7 @@ accountBalanceTests tio envIo =
       checkBalance resp0 99999995.7812
 
       step "send 1.0 tokens to sender00 from sender01"
-      void $! transferOneAsync_ tio cenv (void . return)
+      void $! transferOneAsync_ cid tio cenv (void . return)
 
       step "check post-transfer and gas fees balance"
       resp1 <- accountBalance cenv req
@@ -173,7 +177,7 @@ blockTransactionTests tio envIo =
       rkmv <- newEmptyMVar @RequestKeys
 
       step "send 1.0 from sender00 to sender01 and extract block tx request"
-      prs <- transferOneAsync tio cenv (putMVar rkmv)
+      prs <- transferOneAsync cid tio cenv (putMVar rkmv)
       req <- mkTxReq rkmv prs
 
       step "send in block tx request"
@@ -227,7 +231,7 @@ blockTests testname tio envIo = testCaseSchSteps testname $ \step -> do
     (_block_blockId $ bl0) @?= genesisId
 
     step "send transaction"
-    prs <- transferOneAsync tio cenv (putMVar rkmv)
+    prs <- transferOneAsync cid tio cenv (putMVar rkmv)
     rk <- NEL.head . _rkRequestKeys <$> takeMVar rkmv
     cmdMeta <- extractMetadata rk prs
     bh <- cmdMeta ^?! mix "blockHeight"
@@ -370,93 +374,83 @@ block20ChainRemediationTests _ envIo =
 
 
 -- | Rosetta construction endpoints tests (i.e. tx formatting and submission)
+-- for a transfer tx.
 --
-constructionFlowTests :: RosettaTest
-constructionFlowTests _ envIo =
-    testCaseSchSteps "Construction Flow Tests" $ \step -> do
-      cenv <- envIo
+constructionTransferTests :: RosettaTest
+constructionTransferTests _ envIo =
+  testCaseSchSteps "Construction Flow Tests" $ \step -> do
+    cenv <- envIo
+    rkmv <- newEmptyMVar @RequestKeys
 
-      step "preprocess intended operations"
+    let constructValidTx' ops cid' xchain res =
+          constructValidTx ops cid' "sender00" xchain getKeys res (putMVar rkmv) cenv step
+
+    step "Transfer to existing account"
+    void $ do
       let amt = 2.0
           fromAcct = "sender00"
-          fromGuard = sender00Guard
+          fromGuard = ks sender00ks
           toAcct = "sender01"
-          toGuard = sender01Guard
+          toGuard = ks sender01ks
           ops = [ mkOp fromAcct (negate amt) fromGuard 0
                 , mkOp toAcct amt toGuard 1 ]
-          gasPayer = AccountId "sender00" Nothing Nothing
-          preMeta = PreprocessReqMetaData Nothing gasPayer Nothing
-          preReq = ConstructionPreprocessReq nid ops (Just $! toObject preMeta)
-                   Nothing Nothing
+          res = P.PLiteral $ P.LString "Write succeeded"
+      constructValidTx' ops (unsafeChainId 4) Nothing res --cid Nothing res
+{--
+    step "Transfer to new account"
+    void $ do
+      let amt = 2.0
+          fromAcct = "sender01"
+          fromGuard = ks sender01ks
+          toAcct = "someNewAccount"
+          toGuard = ks sender00ks
+          ops = [ mkOp fromAcct (negate amt) fromGuard 0
+                , mkOp toAcct amt toGuard 1 ]
+          res = P.PLiteral $ P.LString "Write succeeded"
+      constructValidTx' ops cid Nothing res
 
-      (ConstructionPreprocessResp (Just preRespMetaObj) (Just _reqAccts)) <-
-        constructionPreprocess cenv preReq
-      --Right preRespMeta <- pure $ extractMetaData preRespMetaObj
+    step "Create new account"
+    void $ do
+      let ops = [ mkOp "anotherNewAccount" 0.0 (ks sender01ks) 0 ]
+          res = P.PLiteral $ P.LString "Write succeeded"
+      constructValidTx' ops cid Nothing res
 
-      
-      {--reqAccts @?= [sender00Acct, sender01Acct]
-      _preprocessRespMetaData_reqMetaData preRespMeta @?= preMeta
-      _preprocessRespMetaData_gasLimit preRespMeta @?= P.GasLimit 600
-      _preprocessRespMetaData_gasPrice preRespMeta @?= P.GasPrice 0.000000000001
-      _preprocessRespMetaData_suggestedFee preRespMeta @?= kdaToRosettaAmount 0.0000000006
-      _preprocessRespMetaData_tx preRespMeta @?=
-        ConstructTransfer fromAcct fromGuard toAcct toGuard undefined --(P.ParsedDecimal amt)
-     --}
-      step "feed preprocessed tx into metadata endpoint"
-      let opts = preRespMetaObj
-          pubKeys = (toRosettaPks sender00ks) <> (toRosettaPks sender01ks)
-          metaReq = ConstructionMetadataReq nid opts (Just pubKeys)
-          
-      (ConstructionMetadataResp payloadMeta _) <- constructionMetadata cenv metaReq
+    step "Start crosschain transfer to new account"
+    let amt = 2.0
+        fromAcct = "sender01"
+        fromGuard = ks sender01ks
+        toAcct = "yetAnotherNewAccount"
+        toGuard = ks sender00ks
+        ops = [ mkOp fromAcct (negate amt) fromGuard 0 ]
+        srcChain = unsafeChainId 1
+        targetChain = unsafeChainId 0
+        targetChainText = P.ChainId $ chainIdToText targetChain
+        xchain = Just $ StartCrossChainTx
+          { _startCrossChainTx_to = toAcct
+          , _startCrossChainTx_toGuard = toGuard
+          , _startCrossChainTx_targetChain = targetChainText
+          }
+        res = P.PObject $ P.ObjectMap $ M.fromList
+              [ ("amount", (P.PLiteral $ P.LDecimal amt))
+              , ("receiver", (P.PLiteral $ P.LString toAcct))
+              , ("receiver-guard", (P.PGuard $ P.GKeySet toGuard)) ]
+    pactId <- constructValidTx' ops srcChain xchain res
 
-      step "feed metadata to get payload"
-      let payloadReq = ConstructionPayloadsReq nid ops (Just payloadMeta) (Just pubKeys)
-      ConstructionPayloadsResp unsigned payloads <- constructionPayloads cenv payloadReq
+    step "Finish crosschain transfer to new account"
+    let spvReq = SpvRequest pactId targetChainText
+    TransactionOutputProofB64 spvProof <- spv srcChain cenv spvReq
 
-      step "parse unsigned tx"
-      let parseReqUnsigned = ConstructionParseReq nid False unsigned
-      _parseRespUnsigned <- constructionParse cenv parseReqUnsigned
+    let xchainEndOps = [ mkOp toAcct amt toGuard 0 ]
+        xchainEnd = Just $ FinishCrossChainTx
+          { _finishCrossChainTx_sourceChain = P.ChainId $ chainIdToText cid
+          , _finishCrossChainTx_pactId = P.toPactId $ P.unRequestKey pactId
+          , _finishCrossChainTx_proof = spvProof
+          }
+        xchainEndRes = P.PLiteral $ P.LString "Write succeeded"
+    void $ constructValidTx' xchainEndOps targetChain xchainEnd xchainEndRes
+    --}
 
-      step "combine tx signatures"
-      sigs <- mapM sign payloads
-      let combineReq = ConstructionCombineReq nid unsigned sigs
-      ConstructionCombineResp signed <- constructionCombine cenv combineReq
-
-      step "parse signed tx"
-      let parseReqSigned = ConstructionParseReq nid True signed
-      _parseRespSigned <- constructionParse cenv parseReqSigned
-
-
-      
-      pure ()
-      
-      
-      
-      {--SubmitBatch (c NEL.:| []) <- mkTransfer tio
-
-      let rk = cmdToRequestKey c
-          req = ConstructionSubmitReq nid (encodeToText c)
-
-      step "send construction submit request and poll on request key"
-      resp0 <- constructionSubmit cenv req
-
-      _transactionIdRes_transactionIdentifier resp0 @?= rkToTransactionId rk
-      _transactionIdRes_metadata resp0 @?= Nothing
-
-      step "confirm transaction details via poll"
-      PollResponses prs <- polling cid cenv (RequestKeys $ pure rk) ExpectPactResult
-
-      case HM.lookup rk prs of
-        Nothing -> assertFailure $ "unable to find poll response for: " <> show rk
-        Just cr -> _crReqKey cr @?= rk--}
-
-  where
-    _sender00Acct = AccountId "sender00" Nothing Nothing
-    sender00Guard = ks sender00ks
-
-    _sender01Acct = AccountId "sender01" Nothing Nothing
-    sender01Guard = ks sender01ks
-    
+  where    
     mkOp name delta guard idx =
       operation Successful
                 TransferOrCreateAcct
@@ -473,21 +467,111 @@ constructionFlowTests _ envIo =
       , _accountLogPrevGuard = A.toJSON guard
       }
 
-    toRosettaPks (TestKeySet _ Nothing _) = []
-    toRosettaPks (TestKeySet _ (Just (pk,_)) _) =
-      [ RosettaPublicKey pk CurveEdwards25519 ]
-
     ks (TestKeySet _ Nothing pred') = P.mkKeySet [] pred'
     ks (TestKeySet _ (Just (pk,_)) pred') =
       P.mkKeySet [P.PublicKey $ T.encodeUtf8 pk] pred'
 
     getKeys "sender00" = Just sender00
     getKeys "sender01" = Just sender01
+    getKeys "someNewAccount" = Just sender01
+    getKeys "anotherNewAccount" = Just sender01
+    getKeys "yetAnotherNewAccount" = Just sender00
     getKeys _ = Nothing
 
+constructValidTx
+    :: [Operation]
+    -> ChainId
+    -> Text
+    -> Maybe CrossChainTxMetaData
+    -> (Text -> Maybe SimpleKeyPair)
+    -> P.PactValue
+    -> (RequestKeys -> IO ())
+    -> ClientEnv
+    -> (String -> IO ())
+    -> IO RequestKey
+constructValidTx expectOps chainId' payer xchain getKeys expectResult callback cenv step = do
+  step "preprocess intended operations"
+  let preMeta = PreprocessReqMetaData xchain (acct payer) Nothing
+      preReq = ConstructionPreprocessReq netId expectOps (Just $! toObject preMeta)
+               Nothing Nothing
+
+  (ConstructionPreprocessResp (Just preRespMetaObj) (Just reqAccts)) <-
+    constructionPreprocess cenv preReq
+  --Right preRespMeta <- pure $ extractMetaData preRespMetaObj
+
+
+  {--reqAccts @?= [sender00Acct, sender01Acct]
+  _preprocessRespMetaData_reqMetaData preRespMeta @?= preMeta
+  _preprocessRespMetaData_gasLimit preRespMeta @?= P.GasLimit 600
+  _preprocessRespMetaData_gasPrice preRespMeta @?= P.GasPrice 0.000000000001
+  _preprocessRespMetaData_suggestedFee preRespMeta @?= kdaToRosettaAmount 0.0000000006
+  _preprocessRespMetaData_tx preRespMeta @?=
+    ConstructTransfer fromAcct fromGuard toAcct toGuard undefined --(P.ParsedDecimal amt)
+  --}
+  step "feed preprocessed tx into metadata endpoint"
+  let opts = preRespMetaObj
+      pubKeys = concat $ map toRosettaPk reqAccts
+      metaReq = ConstructionMetadataReq netId opts (Just pubKeys)
+
+  (ConstructionMetadataResp payloadMeta _) <- constructionMetadata cenv metaReq
+
+  step "feed metadata to get payload"
+  let payloadReq = ConstructionPayloadsReq netId expectOps (Just payloadMeta) (Just pubKeys)
+  ConstructionPayloadsResp unsigned payloads <- constructionPayloads cenv payloadReq
+
+  step "parse unsigned tx"
+  let parseReqUnsigned = ConstructionParseReq netId False unsigned
+  _parseRespUnsigned <- constructionParse cenv parseReqUnsigned
+
+  step "combine tx signatures"
+  sigs <- mapM sign payloads
+  let combineReq = ConstructionCombineReq netId unsigned sigs
+  ConstructionCombineResp signed <- constructionCombine cenv combineReq
+
+  step "parse signed tx"
+  let parseReqSigned = ConstructionParseReq netId True signed
+  _parseRespSigned <- constructionParse cenv parseReqSigned
+
+
+  step "get hash (request key) of tx"
+  let hshReq = ConstructionHashReq netId signed
+  _hshResp <- constructionHash cenv hshReq
+
+  step "run tx locally"
+  Just (EnrichedCommand cmd _ _) <- pure $ textToEnrichedCommand signed
+  crDryRun <- local chainId' cenv cmd
+  putStrLn $ "local: " ++ show crDryRun
+
+  step "-----submit tx to blockchain"
+  {--let submitReq = ConstructionSubmitReq netId signed
+  (TransactionIdResp (TransactionId tid) _) <- constructionSubmit cenv submitReq
+  Right rk <- pure $ P.fromText' tid--}
+  let batch = SubmitBatch $ pure cmd
+      f (SubmitBatch cs) = RequestKeys (cmdToRequestKey <$> cs)
+      --sending' = runClientM (pactSendApiClient v chainId' batch) cenv
+  void $! callback (f batch)
+  RequestKeys rks <- sending chainId' cenv batch
+  let rk = NEL.head rks
+
+  step "confirm transaction details via poll"
+  PollResponses prs <- polling cid cenv (RequestKeys $ pure rk) ExpectPactResult
+
+  case HM.lookup rk prs of
+    Nothing -> assertFailure $ "unable to find poll response for: " <> show rk
+    Just cr -> do
+      _crReqKey cr @?= rk
+      _crResult cr @?= (PactResult $ Right expectResult)
+
+  pure rk
+
+  where
+    toRosettaPk (AccountId n _ _) = case (getKeys n) of
+      Nothing -> []
+      Just (pk,_) -> [ RosettaPublicKey pk CurveEdwards25519 ]
+
     sign payload = do
-      Just acct <- pure $ _rosettaSigningPayload_accountIdentifier payload
-      Just (pk,sk) <- pure $ getKeys $ _accountId_address acct 
+      Just a <- pure $ _rosettaSigningPayload_accountIdentifier payload
+      Just (pk,sk) <- pure $ getKeys $ _accountId_address a
       Right sk' <- pure $ P.parseB16TextOnly sk
       Right pk' <- pure $ P.parseB16TextOnly pk
       let akps = P.ApiKeyPair (P.PrivBS sk') (Just $ P.PubBS pk')
@@ -505,6 +589,10 @@ constructionFlowTests _ envIo =
         , _rosettaSignature_hexBytes = P._usSig sig
         }
 
+    acct n = AccountId n Nothing Nothing
+    netId = nid
+      { _networkId_subNetworkId = Just (SubNetworkId (chainIdToText chainId') Nothing) }
+
 -- | Rosetta mempool endpoint tests
 --
 mempoolTests :: RosettaTest
@@ -513,7 +601,7 @@ mempoolTests tio envIo = testCaseSchSteps "Mempool Tests" $ \step -> do
     rkmv <- newEmptyMVar @RequestKeys
 
     step "execute transfer and wait on mempool data"
-    void $! async $ transferOneAsync_ tio cenv (putMVar rkmv)
+    void $! async $ transferOneAsync_ cid tio cenv (putMVar rkmv)
     rk NEL.:| [] <- _rkRequestKeys <$> takeMVar rkmv
 
     let tid = rkToTransactionId rk
@@ -585,7 +673,7 @@ networkStatusTests tio envIo =
       genesisId @=? _networkStatusResp_genesisBlockId resp0
 
       step "send in a transaction and update current block"
-      transferOneAsync_ tio cenv (void . return)
+      transferOneAsync_ cid tio cenv (void . return)
       resp1 <- networkStatus cenv req
 
       step "check status response genesis and block height"
@@ -606,7 +694,7 @@ nid :: NetworkId
 nid = NetworkId
     { _networkId_blockchain = "kadena"
     , _networkId_network = "fastTimedCPM-peterson"
-    , _networkId_subNetworkId = Just (SubNetworkId "0" Nothing)
+    , _networkId_subNetworkId = Just (SubNetworkId (chainIdToText cid) Nothing)
     }
 
 genesisId :: BlockId
@@ -679,8 +767,8 @@ validateOp idx opType ks st bal o = do
 
 -- | Build a simple transfer from sender00 to sender01
 --
-mkTransfer :: IO (Time Micros) -> IO SubmitBatch
-mkTransfer tio = do
+mkTransfer :: ChainId -> IO (Time Micros) -> IO SubmitBatch
+mkTransfer sid tio = do
     t <- toTxCreationTime <$> tio
     n <- readIORef nonceRef
     c <- buildTextCmd
@@ -692,6 +780,7 @@ mkTransfer tio = do
         ]
       $ set cbCreationTime t
       $ set cbNetworkId (Just v)
+      $ set cbChainId sid 
       $ mkCmd ("nonce-transfer-" <> sshow t <> "-" <> sshow n)
       $ mkExec' "(coin.transfer \"sender00\" \"sender01\" 1.0)"
 
@@ -702,15 +791,16 @@ mkTransfer tio = do
 -- the command batch before sending.
 --
 transferOneAsync
-    :: IO (Time Micros)
+    :: ChainId
+    -> IO (Time Micros)
     -> ClientEnv
     -> (RequestKeys -> IO ())
     -> IO PollResponses
-transferOneAsync tio cenv callback = do
-    batch0 <- mkTransfer tio
+transferOneAsync sid tio cenv callback = do
+    batch0 <- mkTransfer sid tio
     void $! callback (f batch0)
-    rks <- sending cid cenv batch0
-    prs <- polling cid cenv rks ExpectPactResult
+    rks <- sending sid cenv batch0
+    prs <- polling sid cenv rks ExpectPactResult
     return prs
   where
     f (SubmitBatch cs) = RequestKeys (cmdToRequestKey <$> cs)
@@ -721,12 +811,13 @@ transferOneAsync tio cenv callback = do
 -- and do not need the responses.
 --
 transferOneAsync_
-    :: IO (Time Micros)
+    :: ChainId
+    -> IO (Time Micros)
     -> ClientEnv
     -> (RequestKeys -> IO ())
     -> IO ()
-transferOneAsync_ tio cenv callback
-    = void $! transferOneAsync tio cenv callback
+transferOneAsync_ sid tio cenv callback
+    = void $! transferOneAsync sid tio cenv callback
 
 -- ------------------------------------------------------------------ --
 -- Utils

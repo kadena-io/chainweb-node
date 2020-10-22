@@ -761,7 +761,7 @@ toSignerAcctsMap txInfo payerAcct v cid crs cutDb = do
       let caps = []
       pure $ insertWith' name (caps, expected) mapWithGas
 
-    ConstructStartCrossChain from fromGuard to toGuard (P.ParsedDecimal amt) (P.ChainId target) -> do
+    ConstructStartCrossChain from fromGuard to toGuard (P.ParsedDecimal _) (P.ChainId target) -> do
       let expectedFrom = ksToPubKeys fromGuard
           expectedTo = ksToPubKeys toGuard
 
@@ -780,7 +780,7 @@ toSignerAcctsMap txInfo payerAcct v cid crs cutDb = do
       checkExpectedOwnership to expectedTo someActualTo
 
       let capsTo = []
-          capsFrom = [ mkDebitCap from amt ]
+          capsFrom = [ mkDebitCap from ]
       
       pure $ insertWith' to (capsTo, expectedTo) $
         insertWith' from (capsFrom, expectedFrom) mapWithGas
@@ -790,7 +790,7 @@ toSignerAcctsMap txInfo payerAcct v cid crs cutDb = do
       someActual <- getOwnership peCurr bhCurr to
       checkExpectedOwnership to expected someActual
 
-      let capsTo = [ mkCreditCap to ]
+      let capsTo = [] --[ mkCreditCap to ]
 
       pure $ insertWith' to (capsTo, expected) mapWithGas
       
@@ -839,13 +839,13 @@ toSignerAcctsMap txInfo payerAcct v cid crs cutDb = do
     mkGasCap :: P.SigCapability
     mkGasCap = mkCoinCap "GAS" []
 
-    mkDebitCap :: T.Text -> Decimal -> P.SigCapability
-    mkDebitCap sender amount = mkCoinCap "DEBIT"
-      [ pString sender, pDecimal amount ]
+    mkDebitCap :: T.Text -> P.SigCapability
+    mkDebitCap sender = mkCoinCap "DEBIT"
+      [ pString sender ]
 
-    mkCreditCap :: T.Text -> P.SigCapability
+    {--mkCreditCap :: T.Text -> P.SigCapability
     mkCreditCap receiver = mkCoinCap "CREDIT"
-      [ pString receiver ]
+      [ pString receiver ]--}
 
     -- Make PactValue from text
     pString :: T.Text -> PactValue

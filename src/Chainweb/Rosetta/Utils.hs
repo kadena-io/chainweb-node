@@ -847,7 +847,7 @@ constructionTxToPactRPC txInfo =
     ConstructStartCrossChain
       from _ to toGuard amt (P.ChainId targetChain) ->
       let code = t $! printf
-            "(coin.transfer-crosschain \"%s\" \"%s\" (read-keyset \"%s\") (read-decimal \"%s\"))"
+            "(coin.transfer-crosschain \"%s\" \"%s\" (read-keyset \"%s\") \"%s\" (read-decimal \"%s\"))"
             (str from) (str to) guardName (str targetChain) amountName
           rdata = object
             [ guardName .= toGuard

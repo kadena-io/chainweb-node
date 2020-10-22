@@ -23,8 +23,8 @@ import Control.Monad.IO.Class
 import Control.Monad.Trans.Class
 import Control.Monad.Trans.Except
 import Data.Aeson
-import Data.Bifunctor
 import Data.IORef
+import Data.Tuple.Strict (T2(..))
 import Data.List (sort)
 import Data.Proxy (Proxy(..))
 
@@ -399,18 +399,37 @@ constructionSubmitH
     -> ConstructionSubmitReq
     -> Handler TransactionIdResp
 constructionSubmitH v ms (ConstructionSubmitReq net tx) =
-    runExceptT work >>= either throwRosetta pure
+    runExceptT work >>= either throwRosettaError pure
   where
-    work :: ExceptT RosettaFailure Handler TransactionIdResp
+    checkResult
+        :: Either (T2 TransactionHash InsertError) ()
+        -> ExceptT RosettaError Handler ()
+    checkResult (Right _) = pure ()
+    checkResult (Left (T2 hsh insErr)) =
+      throwE $ stringRosettaError RosettaInvalidTx
+      $ "Validation failed for hash "
+      ++ (show $! hsh) ++ ": "
+      ++ show insErr
+    
+    work :: ExceptT RosettaError Handler TransactionIdResp
     work = do
-        cid <- hoistEither $ validateNetwork v net
-        (EnrichedCommand cmd _ _) <- textToEnrichedCommand tx ?? RosettaUnparsableTx
-        validated <- hoistEither . first (const RosettaInvalidTx) $ validateCommand cmd
-        mp <- lookup cid ms ?? RosettaInvalidChain
-        let !vec = V.singleton validated
-        liftIO (mempoolInsertCheck mp vec) >>= hoistEither . first (const RosettaInvalidTx)
-        liftIO (mempoolInsert mp UncheckedInsert vec)
-        pure $ TransactionIdResp (cmdToTransactionId cmd) Nothing
+        cid <- hoistEither $ annotate rosettaError' (validateNetwork v net)
+        mempool <- hoistEither $
+          note (rosettaError' RosettaInvalidChain)
+          $ lookup cid ms
+        (EnrichedCommand cmd _ _) <- hoistEither $
+          note (rosettaError' RosettaUnparsableTx)
+          $ textToEnrichedCommand tx
+
+        case validateCommand cmd of
+          Right validated -> do
+            let txs = V.fromList [validated]
+            -- If any of the txs in the batch fail validation, we reject them all.
+            liftIO (mempoolInsertCheck mempool txs) >>= checkResult
+            liftIO (mempoolInsert mempool UncheckedInsert txs)
+            pure $ TransactionIdResp (cmdToTransactionId cmd) Nothing
+          Left e -> throwE $ stringRosettaError RosettaInvalidTx
+            $ "Validation failed: " ++ show e
 
 --------------------------------------------------------------------------------
 -- Mempool Handlers
