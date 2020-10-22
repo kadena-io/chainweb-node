@@ -88,7 +88,7 @@ graphTransitionTargetTests = testGroup "graph transition genesis targets"
     , testProperty "cross check testnet20InitialHashTarget and mainnet20InitialHashTarget" $
         _hashTarget testnet20InitialHashTarget `div` _hashTarget mainnet20InitialHashTarget === PowHashNat 8893
     , testProperty "cross check development and testnet20InitialHashTarget" $
-        _hashTarget (genesisBlockTarget Development (unsafeChainId 10)) `div` _hashTarget testnet20InitialHashTarget === PowHashNat 38
+        _hashTarget (genesisBlockTarget Development (unsafeChainId 10)) `div` _hashTarget testnet20InitialHashTarget === PowHashNat 20321
     ]
 
   where
