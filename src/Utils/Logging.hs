@@ -118,7 +118,6 @@ import Data.Semigroup
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
 import qualified Data.Text.IO as T
-import Data.Time
 
 import GHC.Generics
 
@@ -405,7 +404,7 @@ jsonLogMessageEncoding :: KeyValue kv => ToJSON a => JsonLogMessage a -> [kv]
 jsonLogMessageEncoding (JsonLogMessage a) =
     [ "level" .= L._logMsgLevel a
     , "scope" .= scopeToJson (L._logMsgScope a)
-    , "@timestamp" .= L.formatIso8601Milli @T.Text (L._logMsgTime a)
+    , "time" .= L.formatIso8601Milli @T.Text (L._logMsgTime a)
     , "message" .= L._logMsg a
     ]
   where
@@ -641,7 +640,11 @@ withElasticsearchBackend mgr esServer key ixName pkgScopes inner = do
 
     -- New versions of Elasticsearch (>= 7.8) will create the datastream from
     -- a matching index template if it doesn't exist.
-    -- createDataStream req
+    --
+    -- FIXME for this to work we'll have to figure out the correct set of user priveledges
+    -- for checking the existence of data streams.
+    --
+    -- _createDataStream req
 
     queue <- newTBQueueIO 2000
     withAsync (runForever errorLogFun "Utils.Logging.withElasticsearchBackend" (processor req queue)) $ \_ -> do
@@ -679,6 +682,9 @@ withElasticsearchBackend mgr esServer key ixName pkgScopes inner = do
             Nothing -> return (remaining, batch)
             Just x -> go (remaining - 1) (batch <> indexAction x) timer
 
+    -- currently unused. We keep it in case we figure out how to configure users with minimal
+    -- rights to check for the existence of a data stream
+    --
     _createDataStream req =
         void $ HTTP.httpLbs (putDataStream req) { HTTP.method = "HEAD"} mgr
             `catch` \case
@@ -692,14 +698,6 @@ withElasticsearchBackend mgr esServer key ixName pkgScopes inner = do
         , HTTP.path = HTTP.path req <> "/_data_stream/" <> T.encodeUtf8 streamName
         , HTTP.responseTimeout = HTTP.responseTimeoutMicro 10000000
         , HTTP.requestHeaders = ("content-type", "application/json") : HTTP.requestHeaders req
-        }
-
-    _putLog req a = req
-        { HTTP.method = "POST"
-        , HTTP.path = HTTP.path req <> T.encodeUtf8 streamName <> "/_doc"
-        , HTTP.responseTimeout = HTTP.responseTimeoutMicro 3000000
-        , HTTP.requestHeaders = ("content-type", "application/json") : HTTP.requestHeaders req
-        , HTTP.requestBody = HTTP.RequestBodyLBS $ encode $ JsonLogMessage a
         }
 
     putBulgLog req a = req
@@ -720,117 +718,6 @@ withElasticsearchBackend mgr esServer key ixName pkgScopes inner = do
     indexActionHeader :: Encoding
     indexActionHeader = pairs $ pair "create" $ pairs $ mempty
 
--- | Old backend that creates daily indexes. Indexes are created at startup if
--- it doesn't exist.
---
-_withElasticsearchBackend_
-    :: ToJSON a
-    => HTTP.Manager
-    -> T.Text
-        -- ^ Server URL
-    -> Maybe T.Text
-        -- ^ optional API Key
-    -> T.Text
-        -- ^ Index Name
-    -> [(T.Text, T.Text)]
-        -- ^ Scope that are included only with remote backends. In chainweb-node
-        -- this is used for package info data.
-    -> (Backend a -> IO b)
-    -> IO b
-_withElasticsearchBackend_ mgr esServer key ixName pkgScopes inner = do
-    req <- HTTP.parseUrlThrow (T.unpack esServer) >>= \x -> case key of
-        Nothing -> return x
-        Just k -> return x
-            { HTTP.requestHeaders = ("Authorization", "ApiKey " <> T.encodeUtf8 k) : HTTP.requestHeaders x
-            }
-
-    i <- curIxName
-    createIndex req i
-    queue <- newTBQueueIO 2000
-    withAsync (runForever errorLogFun "Utils.Logging.withElasticsearchBackend" (processor req queue)) $ \_ -> do
-        inner $ \a -> atomically (writeTBQueue queue a)
-
-  where
-    curIxName = do
-        d <- T.pack . formatTime defaultTimeLocale "%Y.%m.%d" <$> getCurrentTime
-        return $! ixName <> "-" <> d
-
-    errorLogFun Error msg = T.hPutStrLn stderr msg
-    errorLogFun _ _ = return ()
-
-    -- Collect messages. If there is at least one pending message, submit a
-    -- `_bulk` request every second or when the batch size is 1000 messages,
-    -- whatever happens first.
-    --
-    processor req queue = do
-        i <- curIxName
-
-        -- ensure that there is at least one transaction in every batch
-        h <- atomically $ readTBQueue queue
-
-        -- set timer to 1 second
-        timer <- registerDelay (int elasticSearchBatchDelayMs)
-
-        -- Fill the batch
-        (remaining, batch) <- go i elasticSearchBatchSize (indexAction i h) timer
-
-        createIndex req i
-        errorLogFun Info $ "send " <> sshow (elasticSearchBatchSize - remaining) <> " messages"
-        void $ HTTP.httpLbs (putBulgLog req batch) mgr
-      where
-        getNextAction timer = atomically $ isTimeout `orElse` fill
-          where
-            isTimeout = Nothing <$ (readTVar timer >>= check)
-            fill = tryReadTBQueue queue >>= maybe retry (return . Just)
-
-        go _ 0 !batch _ = return (0, batch)
-        go i !remaining !batch !timer = getNextAction timer >>= \case
-            Nothing -> return (remaining, batch)
-            Just x -> go i (remaining - 1) (batch <> indexAction i x) timer
-
-    createIndex req i =
-        void $ HTTP.httpLbs (putIndex req i) { HTTP.method = "HEAD"} mgr
-            `catch` \case
-                (HTTP.HttpExceptionRequest _ (HTTP.StatusCodeException _ _)) -> do
-                    errorLogFun Error $ "Index doesn't exist " <> i <> ". Retrying to create it ..."
-                    HTTP.httpLbs (putIndex req i) mgr
-                ex -> throwM ex
-
-    putIndex req i = req
-        { HTTP.method = "PUT"
-        , HTTP.path = HTTP.path req <> T.encodeUtf8 i
-        , HTTP.responseTimeout = HTTP.responseTimeoutMicro 10000000
-        , HTTP.requestHeaders = ("content-type", "application/json") : HTTP.requestHeaders req
-        }
-
-    _putLog req i a = req
-        { HTTP.method = "POST"
-        , HTTP.path = HTTP.path req <> T.encodeUtf8 i <> "/_doc"
-        , HTTP.responseTimeout = HTTP.responseTimeoutMicro 3000000
-        , HTTP.requestHeaders = ("content-type", "application/json") : HTTP.requestHeaders req
-        , HTTP.requestBody = HTTP.RequestBodyLBS $ encode $ JsonLogMessage a
-        }
-
-    putBulgLog req a = req
-        { HTTP.method = "POST"
-        , HTTP.path = HTTP.path req <> "/_bulk"
-        , HTTP.responseTimeout = HTTP.responseTimeoutMicro 10000000
-        , HTTP.requestHeaders = ("content-type", "application/x-ndjson") : HTTP.requestHeaders req
-        , HTTP.requestBody = HTTP.RequestBodyLBS $ BB.toLazyByteString a
-        }
-
-    e = fromEncoding . toEncoding
-    indexAction i a
-        = fromEncoding (indexActionHeader i)
-        <> BB.char7 '\n'
-        <> e (JsonLogMessage $ L.logMsgScope <>~ pkgScopes $ a)
-        <> BB.char7 '\n'
-
-    indexActionHeader :: T.Text -> Encoding
-    indexActionHeader i = pairs
-        $ pair "index" $ pairs
-            $ ("_index" .= (i :: T.Text))
-            <> ("_type" .= ("_doc" :: T.Text))
 -- -------------------------------------------------------------------------- --
 -- Event Source Backend for JSON messages
 
