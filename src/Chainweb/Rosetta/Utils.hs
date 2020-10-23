@@ -896,11 +896,13 @@ createSigningPayloads
 createSigningPayloads (EnrichedCommand cmd _ _) signers =
   map f signers
   where
+    hashBase16 = P.toB16Text $! P.unHash $!
+                 P.toUntypedHash $! _cmdHash cmd
     
     f (signer, acct) = RosettaSigningPayload
       { _rosettaSigningPayload_address = Nothing
       , _rosettaSigningPayload_accountIdentifier = Just acct
-      , _rosettaSigningPayload_hexBytes = P.asString $ _cmdHash cmd
+      , _rosettaSigningPayload_hexBytes = hashBase16
       , _rosettaSigningPayload_signatureType = toRosettaSigType $ _siScheme signer
       }
 
@@ -926,7 +928,10 @@ txToOps txInfo = case txInfo of
   
   where
     op name delta guard idx =
-      operation Successful
+      o { _operation_status = "" }
+      -- validator expects empty op status
+      where o = operation
+                Successful
                 TransferOrCreateAcct
                 (P.TxId 0) -- TOOD: dummy variable
                 (toAcctLog name 0.0 delta guard) -- TODO: total is dummy var
