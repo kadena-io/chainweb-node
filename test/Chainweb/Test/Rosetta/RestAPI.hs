@@ -22,7 +22,7 @@ import qualified Data.Aeson as A
 import Data.Decimal
 import Data.Functor (void)
 import qualified Data.HashMap.Strict as HM
---import qualified Data.Map.Strict as M
+import qualified Data.Map.Strict as M
 import Data.IORef
 import qualified Data.List.NonEmpty as NEL
 import Data.Text (Text)
@@ -53,8 +53,7 @@ import qualified Pact.Types.PactValue as P
 import Chainweb.Graph
 import Chainweb.Pact.Utils (aeson)
 import Chainweb.Pact.Transactions.UpgradeTransactions
---import Chainweb.Pact.RestAPI.Client (pactSendApiClient)
---import Chainweb.Pact.Service.Types
+import Chainweb.Pact.Service.Types
 import Chainweb.Rosetta.Utils
 import Chainweb.Test.Pact.Utils
 import Chainweb.Test.RestAPI.Utils
@@ -380,24 +379,25 @@ constructionTransferTests :: RosettaTest
 constructionTransferTests _ envIo =
   testCaseSchSteps "Construction Flow Tests" $ \step -> do
     cenv <- envIo
-    rkmv <- newEmptyMVar @RequestKeys
-
     let constructValidTx' ops cid' xchain res =
-          constructValidTx ops cid' "sender00" xchain getKeys res (putMVar rkmv) cenv step
+          constructValidTx ops cid' "sender00" xchain getKeys res cenv step
 
-    step "Transfer to existing account"
+    step "--- TRANSFER TO AN EXISTING ACCOUNT ---"
     void $ do
       let amt = 2.0
           fromAcct = "sender00"
           fromGuard = ks sender00ks
           toAcct = "sender01"
           toGuard = ks sender01ks
+          srcChainId = cid
+          --srcChainId = unsafeChainId 4
+          -- TOOD: non-zero chainId fails with "PollingFailure "polling check failed: {}"
           ops = [ mkOp fromAcct (negate amt) fromGuard 0
                 , mkOp toAcct amt toGuard 1 ]
           res = P.PLiteral $ P.LString "Write succeeded"
-      constructValidTx' ops (unsafeChainId 4) Nothing res --cid Nothing res
-{--
-    step "Transfer to new account"
+      constructValidTx' ops srcChainId Nothing res
+
+    step "--- TRANSFER TO A NEW ACCOUNT ---"
     void $ do
       let amt = 2.0
           fromAcct = "sender01"
@@ -409,21 +409,21 @@ constructionTransferTests _ envIo =
           res = P.PLiteral $ P.LString "Write succeeded"
       constructValidTx' ops cid Nothing res
 
-    step "Create new account"
+    step "--- CREATE A NEW ACCOUNT ---"
     void $ do
       let ops = [ mkOp "anotherNewAccount" 0.0 (ks sender01ks) 0 ]
           res = P.PLiteral $ P.LString "Write succeeded"
       constructValidTx' ops cid Nothing res
 
-    step "Start crosschain transfer to new account"
-    let amt = 2.0
+    step "--- START CROSSCHAIN TRANSFER TO NEW ACCOUNT ---"
+    let srcChain = unsafeChainId 0
+        targetChain = unsafeChainId 1
+        amt = 2.0
         fromAcct = "sender01"
         fromGuard = ks sender01ks
         toAcct = "yetAnotherNewAccount"
         toGuard = ks sender00ks
         ops = [ mkOp fromAcct (negate amt) fromGuard 0 ]
-        srcChain = unsafeChainId 1
-        targetChain = unsafeChainId 0
         targetChainText = P.ChainId $ chainIdToText targetChain
         xchain = Just $ StartCrossChainTx
           { _startCrossChainTx_to = toAcct
@@ -436,26 +436,30 @@ constructionTransferTests _ envIo =
               , ("receiver-guard", (P.PGuard $ P.GKeySet toGuard)) ]
     pactId <- constructValidTx' ops srcChain xchain res
 
-    step "Finish crosschain transfer to new account"
+    step "--- FINISH CROSSCHAIN TRANSFER TO A NEW ACCOUNT ---"
+    step "get spv proof"
     let spvReq = SpvRequest pactId targetChainText
     TransactionOutputProofB64 spvProof <- spv srcChain cenv spvReq
 
-    let xchainEndOps = [ mkOp toAcct amt toGuard 0 ]
-        xchainEnd = Just $ FinishCrossChainTx
-          { _finishCrossChainTx_sourceChain = P.ChainId $ chainIdToText cid
+    let _xchainEndOps = [ mkOp toAcct amt toGuard 0 ]
+        _xchainEnd = Just $ FinishCrossChainTx
+          { _finishCrossChainTx_sourceChain = P.ChainId $ chainIdToText srcChain
           , _finishCrossChainTx_pactId = P.toPactId $ P.unRequestKey pactId
           , _finishCrossChainTx_proof = spvProof
           }
-        xchainEndRes = P.PLiteral $ P.LString "Write succeeded"
-    void $ constructValidTx' xchainEndOps targetChain xchainEnd xchainEndRes
-    --}
+        _xchainEndRes = P.PLiteral $ P.LString "Write succeeded"
+    pure ()
+    --void $ constructValidTx' _xchainEndOps targetChain _xchainEnd _xchainEndRes
+    -- TODO: This fails when validating the polling result because it can't
+    -- find the poll. This seems to be related to submiting a tx to a non-zero
+    -- chainId in this testing infrastructure.
 
   where    
     mkOp name delta guard idx =
       operation Successful
                 TransferOrCreateAcct
-                (P.TxId 0) -- TOOD: dummy variable
-                (toAcctLog name 0.0 delta guard) -- TODO: total is dummy var
+                (P.TxId 0) -- dummy variable
+                (toAcctLog name 0.0 delta guard) -- total is dummy var
                 idx
                 []
 
@@ -485,11 +489,10 @@ constructValidTx
     -> Maybe CrossChainTxMetaData
     -> (Text -> Maybe SimpleKeyPair)
     -> P.PactValue
-    -> (RequestKeys -> IO ())
     -> ClientEnv
     -> (String -> IO ())
     -> IO RequestKey
-constructValidTx expectOps chainId' payer xchain getKeys expectResult callback cenv step = do
+constructValidTx expectOps chainId' payer xchain getKeys expectResult cenv step = do
   step "preprocess intended operations"
   let preMeta = PreprocessReqMetaData xchain (acct payer) Nothing
       preReq = ConstructionPreprocessReq netId expectOps (Just $! toObject preMeta)
@@ -497,17 +500,7 @@ constructValidTx expectOps chainId' payer xchain getKeys expectResult callback c
 
   (ConstructionPreprocessResp (Just preRespMetaObj) (Just reqAccts)) <-
     constructionPreprocess cenv preReq
-  --Right preRespMeta <- pure $ extractMetaData preRespMetaObj
 
-
-  {--reqAccts @?= [sender00Acct, sender01Acct]
-  _preprocessRespMetaData_reqMetaData preRespMeta @?= preMeta
-  _preprocessRespMetaData_gasLimit preRespMeta @?= P.GasLimit 600
-  _preprocessRespMetaData_gasPrice preRespMeta @?= P.GasPrice 0.000000000001
-  _preprocessRespMetaData_suggestedFee preRespMeta @?= kdaToRosettaAmount 0.0000000006
-  _preprocessRespMetaData_tx preRespMeta @?=
-    ConstructTransfer fromAcct fromGuard toAcct toGuard undefined --(P.ParsedDecimal amt)
-  --}
   step "feed preprocessed tx into metadata endpoint"
   let opts = preRespMetaObj
       pubKeys = concat $ map toRosettaPk reqAccts
@@ -521,7 +514,7 @@ constructValidTx expectOps chainId' payer xchain getKeys expectResult callback c
 
   step "parse unsigned tx"
   let parseReqUnsigned = ConstructionParseReq netId False unsigned
-  _parseRespUnsigned <- constructionParse cenv parseReqUnsigned
+  _ <- constructionParse cenv parseReqUnsigned
 
   step "combine tx signatures"
   sigs <- mapM sign payloads
@@ -530,41 +523,36 @@ constructValidTx expectOps chainId' payer xchain getKeys expectResult callback c
 
   step "parse signed tx"
   let parseReqSigned = ConstructionParseReq netId True signed
-  _parseRespSigned <- constructionParse cenv parseReqSigned
+  _ <- constructionParse cenv parseReqSigned
 
 
   step "get hash (request key) of tx"
   let hshReq = ConstructionHashReq netId signed
-  _hshResp <- constructionHash cenv hshReq
+  (TransactionIdResp (TransactionId tid) _) <- constructionHash cenv hshReq
+  Right rk <- pure $ P.fromText' tid
 
   step "run tx locally"
   Just (EnrichedCommand cmd _ _) <- pure $ textToEnrichedCommand signed
   crDryRun <- local chainId' cenv cmd
-  putStrLn $ "local: " ++ show crDryRun
+  isCorrectResult rk crDryRun
 
-  step "-----submit tx to blockchain"
-  {--let submitReq = ConstructionSubmitReq netId signed
-  (TransactionIdResp (TransactionId tid) _) <- constructionSubmit cenv submitReq
-  Right rk <- pure $ P.fromText' tid--}
-  let batch = SubmitBatch $ pure cmd
-      f (SubmitBatch cs) = RequestKeys (cmdToRequestKey <$> cs)
-      --sending' = runClientM (pactSendApiClient v chainId' batch) cenv
-  void $! callback (f batch)
-  RequestKeys rks <- sending chainId' cenv batch
-  let rk = NEL.head rks
+  step "submit tx to blockchain"
+  let submitReq = ConstructionSubmitReq netId signed
+  _ <- constructionSubmit cenv submitReq
 
   step "confirm transaction details via poll"
   PollResponses prs <- polling cid cenv (RequestKeys $ pure rk) ExpectPactResult
-
   case HM.lookup rk prs of
     Nothing -> assertFailure $ "unable to find poll response for: " <> show rk
-    Just cr -> do
-      _crReqKey cr @?= rk
-      _crResult cr @?= (PactResult $ Right expectResult)
+    Just cr -> isCorrectResult rk cr
 
   pure rk
 
   where
+    isCorrectResult rk cr = do
+      _crReqKey cr @?= rk
+      _crResult cr @?= (PactResult $ Right expectResult)
+
     toRosettaPk (AccountId n _ _) = case (getKeys n) of
       Nothing -> []
       Just (pk,_) -> [ RosettaPublicKey pk CurveEdwards25519 ]
@@ -577,7 +565,10 @@ constructValidTx expectOps chainId' payer xchain getKeys expectResult callback c
       let akps = P.ApiKeyPair (P.PrivBS sk') (Just $ P.PubBS pk')
                  Nothing Nothing Nothing 
       [(kp,_)] <- P.mkKeyPairs [akps]
-      (Right (hsh :: P.PactHash)) <- pure $ P.fromText' $
+      (Right (hsh :: P.PactHash)) <- pure $
+        fmap P.fromUntypedHash $
+        fmap P.Hash $
+        P.parseB16TextOnly $
         _rosettaSigningPayload_hexBytes payload
       sig <- P.signHash hsh kp
       

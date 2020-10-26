@@ -217,9 +217,6 @@ blockTransactionH v cutDb ps crs (BlockTransactionReq net bid t) = do
 -- NOTE: all Construction API endpoints except /metadata and /submit must
 -- operate in "offline" mode.
 
---TODO: Add ! to Rosetta
---TODO: Add Ord to types
-
 constructionDeriveH
     :: ChainwebVersion
     -> ConstructionDeriveReq

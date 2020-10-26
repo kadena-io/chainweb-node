@@ -790,7 +790,7 @@ toSignerAcctsMap txInfo payerAcct v cid crs cutDb = do
       someActual <- getOwnership peCurr bhCurr to
       checkExpectedOwnership to expected someActual
 
-      let capsTo = [] --[ mkCreditCap to ]
+      let capsTo = []
 
       pure $ insertWith' to (capsTo, expected) mapWithGas
       
@@ -842,10 +842,6 @@ toSignerAcctsMap txInfo payerAcct v cid crs cutDb = do
     mkDebitCap :: T.Text -> P.SigCapability
     mkDebitCap sender = mkCoinCap "DEBIT"
       [ pString sender ]
-
-    {--mkCreditCap :: T.Text -> P.SigCapability
-    mkCreditCap receiver = mkCoinCap "CREDIT"
-      [ pString receiver ]--}
 
     -- Make PactValue from text
     pString :: T.Text -> PactValue
