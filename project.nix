@@ -34,8 +34,8 @@ proj = kpkgs.rp.project ({ pkgs, hackGet, ... }: with pkgs.haskell.lib;
       pact = dontCheck (self.callCabal2nix "rosetta" (pkgs.fetchFromGitHub {
         owner = "kadena-io";
         repo = "pact";
-        rev = "5167ac64c4a44ab800bf1ad079b8681689da1779";
-        sha256 = "04m879cm3n49q1fhxhxshmzl1sfm70vab7zj3l3506yy9k8xpl99";
+        rev = "d5e6545f1419eb0a91b3aae57c0b1687c4d82d0e";
+        sha256 = "0qhqrn2z2qc2zdyai1c8m8hrw7s8ffd9w0gx72j3v2wmwgpnpwz1";
       }) {});
     };
 
