@@ -288,9 +288,9 @@ headerStreamServer
 headerStreamServer cdb = headerStreamHandler cdb
 
 headerStreamHandler :: forall cas. PayloadCasLookup cas => CutDb cas -> Tagged Handler Application
-headerStreamHandler db = Tagged $ \req respond -> do
+headerStreamHandler db = Tagged $ \req resp -> do
     streamRef <- newIORef $ SP.map f $ SP.mapM g $ SP.concat $ blockDiffStream db
-    eventSourceAppIO (run streamRef) req respond
+    eventSourceAppIO (run streamRef) req resp
   where
     run :: IORef (SP.Stream (Of ServerEvent) IO ()) -> IO ServerEvent
     run var = readIORef var >>= SP.uncons >>= \case
