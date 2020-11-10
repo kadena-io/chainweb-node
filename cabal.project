@@ -30,3 +30,6 @@ source-repository-package
 
 package vault
     documentation: false
+
+package pact
+    ghc-options: -Wwarn
