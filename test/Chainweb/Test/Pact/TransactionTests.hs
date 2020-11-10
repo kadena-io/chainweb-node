@@ -237,7 +237,7 @@ testCoinbase797DateFix = testCaseSteps "testCoinbase791Fix" $ \step -> do
             noSPVSupport Nothing 0.0 (RequestKey h) 0 def
           txst = TransactionState mempty mempty 0 Nothing (_geGasModel freeGasEnv)
 
-      CommandResult _ _ (PactResult pr) _ _ _ _ <- evalTransactionM tenv txst $!
+      CommandResult _ _ (PactResult pr) _ _ _ _ _ <- evalTransactionM tenv txst $!
         applyExec defaultInterpreter localCmd [] h permissiveNamespacePolicy
 
       testResult pr
