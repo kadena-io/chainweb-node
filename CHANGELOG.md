@@ -8,6 +8,7 @@ before that date.
 
 This version will stop working on **2020-12-22T00:00:00Z**.
 
+*   Support for Pact Events (#1157)
 *   Upgrade Pact version 3.7 (#1158)
 
 ## 2.2 (2020-10-08)
