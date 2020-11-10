@@ -29,12 +29,14 @@ proj = kpkgs.rp.project ({ pkgs, hackGet, ... }: with pkgs.haskell.lib;
         ver = "0.6.0.0";
         sha256 = "1mmhfp95wqg6i5gzap4b4g87zgbj46nnpir56hqah97igsbvis70";
       } {});
-      # rosetta = dontCheck (self.callCabal2nix "rosetta" (pkgs.fetchFromGitHub {
-      #   owner = "kadena-io";
-      #   repo = "rosetta";
-      #   rev = "1ccb68d7aec0414f494fb06f591214e7cf845627";
-      #   sha256 = "05d20p1gbi33g72rxjik7l5s0s3wcisdkp3bnfckx345wdpdbl6p";
-      # }) {});
+
+      # TODO Replace with kpkgs bump after everything is ready
+      pact = dontCheck (self.callCabal2nix "rosetta" (pkgs.fetchFromGitHub {
+        owner = "kadena-io";
+        repo = "pact";
+        rev = "a9c9b92e313a680574479ffda4700533f19d16d5";
+        sha256 = "1idnn3w0i3iq60j4wd5k3rs4c8kq14ii5jx100ka789c85sxhiks";
+      }) {});
     };
 
     packages = {
