@@ -457,7 +457,6 @@ txTooBigGasTest iot nio = testCaseSteps "transaction size gas tests" $ \step -> 
         (Just gasError1) (getFailureMsg . resultOf <$> cr)
 
   where
-    resultOf (CommandResult _ _ (PactResult pr) _ _ _ _) = pr
     gasError0 = Just $ Left $
       Pact.PactError Pact.GasError def [] "Tx too big (4), limit 1"
     gasError1 = "Gas limit (5) exceeded: 6"
@@ -505,7 +504,6 @@ caplistTest iot nio = testCaseSteps "caplist TRANSFER + FUND_TX test" $ \step ->
     ttl = 2 * 24 * 60 * 60
     pm t = Pact.PublicMeta (Pact.ChainId "0") t 100_000 0.01 ttl
 
-    resultOf (CommandResult _ _ (PactResult pr) _ _ _ _) = pr
     result0 = Just (Right (PLiteral (LString "Write succeeded")))
 
     clist :: Maybe [SigCapability]
@@ -640,7 +638,6 @@ allocationTest iot nio = testCaseSteps "genesis allocation tests" $ \step -> do
     getBlockHeight :: CommandResult a -> Maybe Decimal
     getBlockHeight = preview (crMetaData . _Just . key "blockHeight" . _Number . to (fromRational . toRational))
 
-    resultOf (CommandResult _ _ (PactResult pr) _ _ _ _) = pr
     accountInfo = Right
       $ PObject
       $ ObjectMap
@@ -684,6 +681,9 @@ data PactTransaction = PactTransaction
   { _pactCode :: Text
   , _pactData :: Maybe A.Value
   } deriving (Eq, Show)
+
+resultOf :: CommandResult l -> Either Pact.PactError PactValue
+resultOf = _pactResult . _crResult
 
 mkSingletonBatch
     :: IO (Time Micros)

@@ -362,7 +362,7 @@ library
         , mwc-probability >= 2.0 && <2.4
         , network >= 2.6 && < 3.1.1
         , optparse-applicative >= 0.14
-        , pact >= 2.6
+        , pact >= 3.6.0.1
         , paths >= 0.2
         , pem >=0.2
         , process >= 1.5

@@ -82,6 +82,7 @@ module Chainweb.Pact.Types
   , ctxToPublicData
   , ctxToPublicData'
   , ctxCurrentBlockHeight
+  , ctxVersion
   , getTxContext
 
     -- * Pact Service State
@@ -425,6 +426,9 @@ ctxBlockHeader = _parentHeader . _tcParentHeader
 -- which influenced legacy switch checks as well.
 ctxCurrentBlockHeight :: TxContext -> BlockHeight
 ctxCurrentBlockHeight = succ . _blockHeight . ctxBlockHeader
+
+ctxVersion :: TxContext -> ChainwebVersion
+ctxVersion = _blockChainwebVersion . ctxBlockHeader
 
 -- | Assemble tx context from transaction metadata and parent header.
 getTxContext :: PublicMeta -> PactServiceM cas TxContext
