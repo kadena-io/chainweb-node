@@ -536,8 +536,9 @@ execLocal cmd = withDiscardedBatch $ do
     mc <- use psInitCache
     pd <- getTxContext (publicMetaOf $! payloadObj <$> cmd)
     spv <- use psSpvSupport
-    let execConfig | _psAllowReadsInLocal = mkExecutionConfig [P.FlagAllowReadInLocal]
-                   | otherwise = def
+    let execConfig = mkExecutionConfig $
+            [ P.FlagAllowReadInLocal | _psAllowReadsInLocal ] ++
+            enablePactEvents' pd
         logger = _cpeLogger _psCheckpointEnv
     withCurrentCheckpointer "execLocal" $ \(PactDbEnv' pdbenv) -> do
         r <- liftIO $
