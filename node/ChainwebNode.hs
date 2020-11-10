@@ -57,7 +57,6 @@ import Control.Monad.Managed
 import Data.CAS
 import Data.CAS.RocksDB
 import qualified Data.HashSet as HS
-import qualified Data.List as L
 import qualified Data.Text as T
 import Data.Time
 import Data.Typeable
