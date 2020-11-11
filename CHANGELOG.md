@@ -1,5 +1,16 @@
 # `chainweb-node` Changelog
 
+## 2.3 (2020-11-11)
+
+This version replaces all previous versions. Any prior version will stop working
+on **2020-11-19T00:00:00Z**. Node administrators must upgrade to this version
+before that date.
+
+This version will stop working on **2021-01-14T00:00:00Z**.
+
+*   Support for Pact Events (#1157)
+*   **Upgrade to Pact 3.7.** This includes an API change to the `pact` endpoints for events. For further information see the [Pact readthedocs](https://pact-language.readthedocs.io/en/latest/pact-reference.html#events-1). (#1157,#1158)
+
 ## 2.2 (2020-10-08)
 
 This version replaces all previous versions. Any prior version will stop working
@@ -8,7 +19,7 @@ before that date.
 
 This version will stop working on **2020-11-19T00:00:00Z**.
 
-* Upgrade to Rosetta version 1.4.4 (#1149)
+*   Upgrade to Rosetta version 1.4.4 (#1149)
 
 *   Adjust the default API request rate limits to better match the expected
     networking loads for 20 chains. This reduces overhead due to HTTP responses
