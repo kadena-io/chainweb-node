@@ -9,7 +9,7 @@ before that date.
 This version will stop working on **2021-01-14T00:00:00Z**.
 
 *   Support for Pact Events (#1157)
-*   Upgrade Pact version 3.7 (#1158)
+*   **Upgrade to Pact 3.7.** This includes an API change to the `pact` endpoints for events. For further information see the [Pact readthedocs](https://pact-language.readthedocs.io/en/latest/pact-reference.html#events-1). (#1157,#1158)
 
 ## 2.2 (2020-10-08)
 
