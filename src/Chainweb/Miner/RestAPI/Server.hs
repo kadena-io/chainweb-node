@@ -175,7 +175,7 @@ updatesHandler
     => MiningCoordination l cas
     -> ChainBytes
     -> Tagged Handler Application
-updatesHandler mr (ChainBytes cbytes) = Tagged $ \req respond -> withLimit respond $ do
+updatesHandler mr (ChainBytes cbytes) = Tagged $ \req resp -> withLimit resp $ do
     cid <- runGet decodeChainId cbytes
     cv  <- _cut (_coordCutDb mr) >>= newIORef
 
@@ -186,7 +186,7 @@ updatesHandler mr (ChainBytes cbytes) = Tagged $ \req respond -> withLimit respo
     jitter <- randomRIO @Double (0.9, 1.1)
     timer <- registerDelay (round $ jitter * realToFrac timeout * 1_000_000)
 
-    eventSourceAppIO (go timer cid cv) req respond
+    eventSourceAppIO (go timer cid cv) req resp
   where
     timeout = _coordinationUpdateStreamTimeout $ _coordConf mr
 
@@ -216,13 +216,13 @@ updatesHandler mr (ChainBytes cbytes) = Tagged $ \req respond -> withLimit respo
 
     count = _coordUpdateStreamCount mr
 
-    withLimit respond inner = bracket
+    withLimit resp inner = bracket
         (atomicModifyIORef' count $ \x -> (x - 1, x - 1))
         (const $ atomicModifyIORef' count $ \x -> (x + 1, ()))
-        (\x -> if x <= 0 then ret503 respond else inner)
+        (\x -> if x <= 0 then ret503 resp else inner)
 
-    ret503 respond = do
-        respond $ responseLBS status503 [] "No more update streams available currently. Retry later."
+    ret503 resp = do
+        resp $ responseLBS status503 [] "No more update streams available currently. Retry later."
 
 miningServer
     :: forall l cas (v :: ChainwebVersionT)

@@ -1,7 +1,7 @@
 cabal-version: 2.4
 
 name:         chainweb
-version:      2.2
+version:      2.3
 synopsis:     A Proof-of-Work Parallel-Chain Architecture for Massive Throughput
 description:  A Proof-of-Work Parallel-Chain Architecture for Massive Throughput.
 homepage:     https://github.com/kadena-io/chainweb
@@ -362,7 +362,7 @@ library
         , mwc-probability >= 2.0 && <2.4
         , network >= 2.6 && < 3.1.1
         , optparse-applicative >= 0.14
-        , pact >= 2.6
+        , pact >= 3.7
         , paths >= 0.2
         , pem >=0.2
         , process >= 1.5
@@ -533,7 +533,7 @@ test-suite chainweb-tests
         , mtl >= 2.2
         , network >= 2.6 && < 3.1.1
         , http-client-tls >=0.3
-        , pact >= 2.6
+        , pact
         , paths >= 0.2
         , quickcheck-instances >= 0.3
         , random >= 1.1
@@ -698,7 +698,7 @@ executable cwtool
         , mwc-random >= 0.14
         , network >= 2.6 && < 3.1.1
         , optparse-applicative >= 0.14
-        , pact >= 2.6
+        , pact
         , paths >= 0.2
         , process >= 1.5
         , quickcheck-instances >= 0.3
@@ -766,7 +766,7 @@ benchmark bench
         , lens >= 4.16
         , loglevel >= 0.1
         , mtl >= 2.2
-        , pact >= 2.6
+        , pact
         , random >= 1.1
         , stm >= 2.4
         , strict-tuple >= 0.1.3

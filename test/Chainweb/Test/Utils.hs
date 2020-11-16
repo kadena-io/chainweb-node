@@ -979,7 +979,7 @@ withNodes
     -> B.ByteString
     -> RocksDb
     -> Natural
-    -> (IO ClientEnv -> TestTree)
+    -> (IO ChainwebNetwork -> TestTree)
     -> TestTree
 withNodes = withNodes_ (genericLogger Warn print)
 
