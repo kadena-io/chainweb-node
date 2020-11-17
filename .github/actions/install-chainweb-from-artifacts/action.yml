@@ -33,7 +33,7 @@ runs:
       shell: bash
       run: |
           tar -xzf $ARCHIVE_PATTERN
-          echo "::add-path::`pwd`/chainweb"
+          echo "`pwd`/chainweb" >> $GITHUB_PATH
     - name: test chainweb installation
       shell: bash
       run: chainweb-node --version
