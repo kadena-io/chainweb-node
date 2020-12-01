@@ -111,9 +111,9 @@ jobs:
     steps:
     # Setup
     - name: Checkout repository
-      uses: actions/checkout@v2.3.2
+      uses: actions/checkout@v2
     - name: Install GHC and Cabal
-      uses: actions/setup-haskell@v1.1.2
+      uses: actions/setup-haskell@v1
       with:
          ghc-version: ${{ matrix.ghc }}
          cabal-version: ${{ matrix.cabal }}
@@ -153,7 +153,7 @@ jobs:
           servant-swagger:*
         constraints:
           base16-bytestring <1.0
-    - uses: actions/cache@v2.1.1
+    - uses: actions/cache@v2
       name: Cache dist-newstyle
       with:
         path: |
@@ -171,7 +171,7 @@ jobs:
         cabal freeze
     - name: Sync from cabal cache
       if: matrix.cabalcache == 'true'
-      uses: larskuhtz/cabal-cache-action@21220b9f6499bb12cb0b4b926d6faa9c46a7b146
+      uses: larskuhtz/cabal-cache-action@ecc751af6d31b3ed5a3b4aefdefd0ed6ef4cb414
       with:
         bucket: "kadena-cabal-cache"
         region: "us-east-1"
@@ -255,7 +255,7 @@ jobs:
       fail-fast: false
       matrix: ${{ fromJson(needs.config.outputs.matrix) }}
     steps:
-    - uses: actions/checkout@v2.3.2
+    - uses: actions/checkout@v2
     - name: Download build artifacts
       uses: actions/download-artifact@v2
       with:
@@ -287,7 +287,7 @@ jobs:
       BENCH_BUCKET: kadena-cabal-cache
       BENCH_FOLDER: chainweb-benchmark-results/${{ matrix.ghc }}/${{ matrix.os }}
     steps:
-    - uses: actions/checkout@v2.3.2
+    - uses: actions/checkout@v2
     - name: Download build artifacts
       uses: actions/download-artifact@v2
       with:
@@ -317,7 +317,7 @@ jobs:
       matrix: ${{ fromJson(needs.config.outputs.matrix) }}
     runs-on: ${{ matrix.os }}
     steps:
-    - uses: actions/checkout@v2.3.2
+    - uses: actions/checkout@v2
     - name: Download chain database artifact
       uses: actions/download-artifact@v2
       with:
@@ -350,7 +350,7 @@ jobs:
       matrix: ${{ fromJson(needs.config.outputs.matrix) }}
     runs-on: ${{ matrix.os }}
     steps:
-    - uses: actions/checkout@v2.3.2
+    - uses: actions/checkout@v2
     - name: Download ${{ matrix.chainwebVersion }} chain database artifact
       uses: actions/download-artifact@v2
       with:
@@ -387,7 +387,7 @@ jobs:
       TEST_RESULT_BUCKET: kadena-cabal-cache
       TEST_RESULT_FOLDER: chainweb-test-results/ghc-${{ matrix.ghc }}/${{ matrix.os }}
     steps:
-    - uses: actions/checkout@v2.3.2
+    - uses: actions/checkout@v2
     - name: Download build artifacts
       uses: actions/download-artifact@v2
       with:
