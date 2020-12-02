@@ -125,7 +125,7 @@ initPactService'
     -> PactServiceM cas a
     -> IO (T2 a PactServiceState)
 initPactService' ver cid chainwebLogger bhDb pdb sqlenv config act = do
-    checkpointEnv <- initRelationalCheckpointer initialBlockState sqlenv logger ver cid
+    checkpointEnv <- initRelationalCheckpointer initialBlockState sqlenv cplogger ver cid
     let !rs = readRewards
         !gasModel = officialGasModel
 
@@ -144,6 +144,8 @@ initPactService' ver cid chainwebLogger bhDb pdb sqlenv config act = do
                 , _psAllowReadsInLocal = _pactAllowReadsInLocal config
                 , _psIsBatch = False
                 , _psCheckpointerDepth = 0
+                , _psLogger = pactLogger
+                , _psLoggers = loggers
                 }
         !pst = PactServiceState Nothing mempty initialParentHeader P.noSPVSupport
     runPactServiceM pst pse $ do
@@ -158,7 +160,8 @@ initPactService' ver cid chainwebLogger bhDb pdb sqlenv config act = do
   where
     initialBlockState = initBlockState $ genesisHeight ver cid
     loggers = pactLoggers chainwebLogger
-    logger = P.newLogger loggers $ P.LogName ("PactService" <> show cid)
+    cplogger = P.newLogger loggers $ P.LogName "Checkpointer"
+    pactLogger = P.newLogger loggers $ P.LogName "PactService"
 
 initializeLatestBlock :: PayloadCasLookup cas => PactServiceM cas ()
 initializeLatestBlock = findLatestValidBlock >>= \case
@@ -223,7 +226,7 @@ initializeCoinContract _logger memPoolAccess v cid pwo = do
       withCheckpointerRewind Nothing (Just parent) "initializeCoinContract.readContracts" $ \(PactDbEnv' pdbenv) -> do
         PactServiceEnv{..} <- ask
         pd <- getTxContext def
-        !mc <- liftIO $ readInitModules (_cpeLogger _psCheckpointEnv) pdbenv pd
+        !mc <- liftIO $ readInitModules _psLogger pdbenv pd
         modify' $ set psInitCache mc
         return $! Discard ()
 
@@ -245,7 +248,7 @@ lookupBlockHeader bhash ctx = do
     if (bhash == _blockHash cur)
       then return cur
       else do
-        bhdb <- asks _psBlockHeaderDb
+        bhdb <- view psBlockHeaderDb
         liftIO $! lookupM bhdb bhash `catchAllSynchronous` \e ->
             throwM $ BlockHeaderLookupFailure $
                 "failed lookup of parent header in " <> ctx <> ": " <> sshow e
@@ -395,7 +398,7 @@ attemptBuyGas miner (PactDbEnv' dbEnv) txs = do
         -> P.Gas
         -> PactServiceM cas (TransactionEnv db)
     createGasEnv db cmd gp gl = do
-        l <- view $ psCheckpointEnv . cpeLogger
+        l <- P.newLogger <$> view psLoggers <*> pure "AtemptByGas"
 
         pd <- getTxContext (publicMetaOf cmd)
         spv <- use psSpvSupport
@@ -539,7 +542,7 @@ execLocal cmd = withDiscardedBatch $ do
     let execConfig = mkExecutionConfig $
             [ P.FlagAllowReadInLocal | _psAllowReadsInLocal ] ++
             enablePactEvents' pd
-        logger = _cpeLogger _psCheckpointEnv
+        logger = P.newLogger _psLoggers "execLocal"
     withCurrentCheckpointer "execLocal" $ \(PactDbEnv' pdbenv) -> do
         r <- liftIO $
           applyLocal logger pdbenv officialGasModel pd spv cmd mc execConfig
