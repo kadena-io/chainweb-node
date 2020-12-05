@@ -29,6 +29,7 @@ module Chainweb.Pact.PactService.Checkpointer
       -- calls.
 
       withBatch
+    , withBatchIO
     , withDiscardedBatch
 
     -- * Pact Service Checkpointer
@@ -65,6 +66,7 @@ module Chainweb.Pact.PactService.Checkpointer
     , syncParentHeader
     , getCheckpointer
     , exitOnRewindLimitExceeded
+    , rewindToIncremental
 
     ) where
 
@@ -86,6 +88,7 @@ import qualified Pact.Types.Logger as P
 import Prelude hiding (lookup)
 
 import qualified Streaming.Prelude as S
+import Streaming
 
 -- internal modules
 
@@ -110,9 +113,9 @@ import Data.CAS (casLookup)
 -- thread.
 --
 withPactState
-    :: forall cas a b
+    :: forall cas b
     . PayloadCasLookup cas
-    => ((PactServiceM cas a -> IO a) -> IO b)
+    => ((forall a . PactServiceM cas a -> IO a) -> IO b)
     -> PactServiceM cas b
 withPactState inner = bracket captureState releaseState $ \ref -> do
     e <- ask
@@ -280,6 +283,26 @@ withBatch act = do
         liftIO $ _cpCommitCheckpointerBatch cp
         return v
 
+-- | Same as 'withBatch' but in IO, such that it can be used along with
+-- 'withPactState'. The same restrictions and precautions apply as for
+-- 'withPactState'.
+--
+withBatchIO
+    :: forall cas b
+    . PayloadCasLookup cas
+    => (forall a . PactServiceM cas a -> IO a)
+    -> ((forall a . PactServiceM cas a -> IO a) -> IO b)
+    -> IO b
+withBatchIO runPact act = mask $ \umask -> do
+    cp <- runPact getCheckpointer
+    _cpBeginCheckpointerBatch cp
+    v <- umask (act runLocalPact) `onException` (_cpDiscardCheckpointerBatch cp)
+    _cpCommitCheckpointerBatch cp
+    return v
+  where
+    runLocalPact :: forall a . PactServiceM cas a -> IO a
+    runLocalPact f = runPact $ local (set psIsBatch True) f
+
 -- | Run a batch of checkpointer operations, possibly involving the evaluation
 -- transactions accross several blocks using more than a single call of
 -- 'withCheckPointerRewind' or 'withCurrentCheckpointer', and discard the final
@@ -299,10 +322,11 @@ withDiscardedBatch act = do
 -- TODO: The performance overhead is relatively low if there is no fork. We
 -- should consider merging it with 'restoreCheckpointer' and always rewind.
 --
--- Rewinds the pact state to @mb@.
+-- Rewinds the pact state to the given parent in a single database transactions.
+-- Rewinds to the genesis block if he parent is 'Nothing'.
 --
--- If @mb@ is 'Nothing', it rewinds to the genesis block. If the rewind is
--- deeper than the optionally provided rewind limit, an exception is raised.
+-- If the rewind is deeper than the optionally provided rewind limit, an
+-- exception is raised.
 --
 rewindTo
     :: forall cas . PayloadCasLookup cas
@@ -380,53 +404,35 @@ rewindTo rewindLimit (Just (ParentHeader parent)) = do
                             (\(!p) (!c) -> runPact (fastForward (ParentHeader p, c)) >> return c)
                             (return h) -- initial parent
                             return
-                        & progress runPact progressLogger 25000
+                        & blockStreamProgress 25000 (logInfo_ progressLogger)
                         & S.length_
             logInfo $ "rewindTo.playFork: replayed " <> sshow c <> " blocks"
 
-    -- This provides some progress feedback in case of long pact replays
-    -- (e.g. when revalidating the pact history)
-    --
-    progress
-        :: (PactServiceM cas () -> IO ())
-            -- ^ Callback for running a pact action (used for logging)
-        -> P.Logger
-            -- ^ logger for loggingprogress
-        -> Int
-            -- ^ How often a progress message is issued
-        -> S.Stream (S.Of BlockHeader) IO r
-        -> S.Stream (S.Of BlockHeader) IO r
-    progress runPact logger (n :: Int) s = s
-        & S.zip (S.enumFrom 1)
-        & S.mapM
-            (\(!i, !b) -> do
-                when (i `rem` n == 0) $ runPact $ logInfo_ logger
-                    $ "progress: replayed " <> sshow i
-                    <> " blocks. Current height " <> sshow (_blockHeight b)
-                return b
-            )
+-- | INTERNAL UTILITY FUNCTION. DON'T EXPORT FROM THIS MODULE.
+--
+-- Fast forward a block within a 'rewindTo' loop.
+--
+fastForward
+    :: forall c
+    . PayloadCasLookup c
+    => (ParentHeader, BlockHeader)
+    -> PactServiceM c ()
+fastForward (target, block) = do
+    payloadDb <- asks _psPdb
+    let bpHash = _blockPayloadHash block
 
-    fastForward
-        :: forall c
-        . PayloadCasLookup c
-        => (ParentHeader, BlockHeader)
-        -> PactServiceM c ()
-    fastForward (target, block) = do
-        payloadDb <- asks _psPdb
-        let bpHash = _blockPayloadHash block
-
-        -- This does a restore, i.e. it rewinds the checkpointer back in
-        -- history, if needed.
-        withCheckpointerWithoutRewind (Just target) "fastForward" $ \pdbenv -> do
-            payload <- liftIO $ casLookup payloadDb bpHash >>= \case
-                Nothing -> throwM $ PactInternalError
-                    $ "Checkpointer.rewindTo.fastForward: lookup of payload failed"
-                    <> ". BlockPayloadHash: " <> encodeToText bpHash
-                    <> ". Block: "<> encodeToText (ObjectEncoded block)
-                Just x -> return $ payloadWithOutputsToPayloadData x
-            void $ execBlock block payload pdbenv
-            return $! Save block ()
-        -- double check output hash here?
+    -- This does a restore, i.e. it rewinds the checkpointer back in
+    -- history, if needed.
+    withCheckpointerWithoutRewind (Just target) "fastForward" $ \pdbenv -> do
+        payload <- liftIO $ casLookup payloadDb bpHash >>= \case
+            Nothing -> throwM $ PactInternalError
+                $ "Checkpointer.rewindTo.fastForward: lookup of payload failed"
+                <> ". BlockPayloadHash: " <> encodeToText bpHash
+                <> ". Block: "<> encodeToText (ObjectEncoded block)
+            Just x -> return $ payloadWithOutputsToPayloadData x
+        void $ execBlock block payload pdbenv
+        return $! Save block ()
+    -- double check output hash here?
 
 -- | Find the latest block stored in the checkpointer for which the respective
 -- block header is available in the block header database.
@@ -457,8 +463,6 @@ findLatestValidBlock = getCheckpointer >>= liftIO . _cpGetLatestBlock >>= \case
                         $ "missing block parent of last hash " <> sshow (height, hash)
                     Just predHash -> go (pred height) predHash
             x -> return x
-
-
 
 -- | Synchronizes the parent header with the latest block of the checkpointer.
 --
@@ -521,3 +525,123 @@ lookupBlockHeader bhash ctx = do
         liftIO $! lookupM bhdb bhash `catchAllSynchronous` \e ->
             throwM $ BlockHeaderLookupFailure $
                 "failed lookup of parent header in " <> ctx <> ": " <> sshow e
+
+-- -------------------------------------------------------------------------- --
+-- Incremental rewindTo
+
+-- | INTERNAL FUNCTION. DON'T USE UNLESS YOU KNOW WHAT YOU DO.
+--
+-- Used for large incremental rewinds during pact history replay. Unlike
+-- @rewindTo@, this version is not transactional but instead incrementally
+-- commits the intermediate evaluation state to the pact database.
+--
+-- Rewinds the pact state to the given parent header.
+--
+-- If the rewind is deeper than the optionally provided rewind limit, an
+-- exception is raised.
+--
+rewindToIncremental
+    :: forall cas . PayloadCasLookup cas
+    => Maybe BlockHeight
+        -- ^ if set, limit rewinds to this delta
+    -> Maybe ParentHeader
+        -- ^ The parent header which is the rewind target
+    -> PactServiceM cas ()
+rewindToIncremental _ Nothing = return ()
+rewindToIncremental rewindLimit (Just (ParentHeader parent)) = do
+
+    -- skip if the checkpointer is already at the target.
+    (_, lastHash) <- getCheckpointer >>= liftIO . _cpGetLatestBlock >>= \case
+        Nothing -> throwM NoBlockValidatedYet
+        Just p -> return p
+
+    if lastHash == parentHash
+      then
+        -- We want to guarantee that '_psParentHeader' is in sync with the
+        -- latest block of the checkpointer at the end of and call to
+        -- 'rewindTo'. In the @else@ branch this is taken care of by the call to
+        -- 'withCheckPointerWithoutRewind'.
+        setParentHeader "rewindTo" (ParentHeader parent)
+      else do
+        lastHeader <- findLatestValidBlock >>= maybe failNonGenesisOnEmptyDb return
+        logInfo $ T.unpack $ "rewind from last to checkpointer target"
+            <> ". last height: " <> sshow (_blockHeight lastHeader)
+            <> "; last hash: " <> blockHashToText (_blockHash lastHeader)
+            <> "; target height: " <> sshow parentHeight
+            <> "; target hash: " <> blockHashToText parentHash
+
+        failOnTooLowRequestedHeight rewindLimit lastHeader
+        playFork lastHeader
+
+  where
+    parentHeight = _blockHeight parent
+    parentHash = _blockHash parent
+
+    failOnTooLowRequestedHeight (Just limit) lastHeader
+        | parentHeight + 1 + limit < lastHeight = -- need to stick with addition because Word64
+            throwM $ RewindLimitExceeded (int limit) parentHeight lastHeight parent
+      where
+        lastHeight = _blockHeight lastHeader
+    failOnTooLowRequestedHeight _ _ = return ()
+
+    failNonGenesisOnEmptyDb = error "impossible: playing non-genesis block to empty DB"
+
+    playFork lastHeader = do
+        progressLogger <- P.newLogger <$> view psLoggers <*> pure "RewindProgress"
+        bhdb <- asks _psBlockHeaderDb
+        commonAncestor <- liftIO $ forkEntry bhdb lastHeader parent
+        let ancestorHeight = _blockHeight commonAncestor
+
+        if commonAncestor == parent
+          then
+            -- If no blocks got replayed the checkpointer isn't restored via
+            -- 'fastForward'. So we do an empty 'withCheckPointerWithoutRewind'.
+            withCheckpointerWithoutRewind (Just $ ParentHeader commonAncestor) "rewindTo" $ \_ ->
+                return $! Save commonAncestor ()
+          else do
+            logInfo $ "rewindTo.playFork"
+                <> ": checkpointer is at height: " <> sshow (_blockHeight lastHeader)
+                <> ", target height: " <> sshow (_blockHeight parent)
+                <> ", common ancestor height " <> sshow ancestorHeight
+
+            -- 'getBranchIncreasing' expects an 'IO' callback because it
+            -- maintains an 'TreeDB' iterator. 'withPactState' allows us to call
+            -- pact service actions from the callback.
+            (_ S.:> c) <- withPactState $ \runPact ->
+                getBranchIncreasing bhdb parent (int ancestorHeight) $ \newBlocks -> do
+
+                    -- fastforwards all blocks in a chunks in a single database
+                    -- transactions (withBatchIO).
+                    let playChunk :: BlockHeader -> Stream (Of BlockHeader) IO r -> IO (Of BlockHeader r)
+                        playChunk cur s = withBatchIO runPact $ \runPactLocal -> S.foldM
+                            (\c x -> x <$ runPactLocal (fastForward (ParentHeader c, x)))
+                            (return cur)
+                            return
+                            s
+
+                    -- This stream is guaranteed to at least contain @e@.
+                    (curHdr, remaining) <- fromJuste <$> S.uncons newBlocks
+                    remaining
+                        & blockStreamProgress 25000 (logInfo_ progressLogger)
+                        & S.copy
+                        & S.length_
+                        & chunksOf 1000
+                        & foldChunksM playChunk curHdr
+
+            logInfo $ "rewindTo.playFork: replayed " <> sshow c <> " blocks"
+
+-- -------------------------------------------------------------------------- --
+-- Utils
+
+blockStreamProgress
+    :: Monad m
+    => Int
+        -- ^ Progress reporting callback
+    -> (String -> m ())
+        -- ^ progress callback
+    -> S.Stream (S.Of BlockHeader) m r
+    -> S.Stream (S.Of BlockHeader) m r
+blockStreamProgress n logFun = progress n $ \i b -> logFun
+    $ "processes blocks: " <> sshow i
+    <> ", current height: " <> sshow (_blockHeight b)
+
