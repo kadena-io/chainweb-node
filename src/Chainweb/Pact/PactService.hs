@@ -29,6 +29,7 @@ module Chainweb.Pact.PactService
     , execPreInsertCheckReq
     , execBlockTxHistory
     , execHistoricalLookup
+    , execSyncToBlock
     , initPactService
     , initPactService'
     , execNewGenesisBlock
@@ -310,6 +311,11 @@ serviceRequests logFn memPoolAccess reqQ = do
                     tryOne "execHistoricalLookup" resultVar $
                         execHistoricalLookup bh d k
                 go
+            SyncToBlockMsg SyncToBlockReq {..} -> do
+                trace logFn "Chainweb.Pact.PactService.execSyncToBlock" _syncToBlockHeader 1 $
+                    tryOne "syncToBlockBlock" _syncToResultVar $
+                        execSyncToBlock _syncToBlockHeader
+                go
 
     toPactInternalError e = Left $ PactInternalError $ T.pack $ show e
 
@@ -547,6 +553,12 @@ execLocal cmd = withDiscardedBatch $ do
         r <- liftIO $
           applyLocal logger pdbenv officialGasModel pd spv cmd mc execConfig
         return $! Discard (toHashCommandResult r)
+
+execSyncToBlock
+    :: PayloadCasLookup cas
+    => BlockHeader
+    -> PactServiceM cas ()
+execSyncToBlock hdr = rewindToIncremental Nothing (Just $ ParentHeader hdr)
 
 -- | Validate a mined block. Execute the transactions in Pact again as
 -- validation. Note: The BlockHeader here is the header of the block being
