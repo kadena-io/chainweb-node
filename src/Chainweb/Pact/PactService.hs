@@ -398,7 +398,7 @@ attemptBuyGas miner (PactDbEnv' dbEnv) txs = do
         -> P.Gas
         -> PactServiceM cas (TransactionEnv db)
     createGasEnv db cmd gp gl = do
-        l <- P.newLogger <$> view psLoggers <*> pure "AtemptByGas"
+        l <- P.newLogger <$> view psLoggers <*> pure "attemptBuyGas"
 
         pd <- getTxContext (publicMetaOf cmd)
         spv <- use psSpvSupport
