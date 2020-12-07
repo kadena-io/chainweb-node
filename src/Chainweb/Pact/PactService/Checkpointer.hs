@@ -87,8 +87,8 @@ import qualified Pact.Types.Logger as P
 
 import Prelude hiding (lookup)
 
-import qualified Streaming.Prelude as S
 import Streaming
+import qualified Streaming.Prelude as S
 
 -- internal modules
 
@@ -205,9 +205,7 @@ withCheckpointerWithoutRewind target caller act = do
         Nothing -> return ()
 
     local (over psCheckpointerDepth succ) $ mask $ \restore -> do
-        cenv <- restore $ do
-            r <- liftIO $! _cpRestore checkPointer checkpointerTarget
-            return r
+        cenv <- restore $ liftIO $! _cpRestore checkPointer checkpointerTarget
 
         try (restore (act cenv)) >>= \case
             Left !e -> discardTx checkPointer >> throwM @_ @SomeException e
@@ -417,13 +415,11 @@ fastForward
     . PayloadCasLookup c
     => (ParentHeader, BlockHeader)
     -> PactServiceM c ()
-fastForward (target, block) = do
-    payloadDb <- asks _psPdb
-    let bpHash = _blockPayloadHash block
-
+fastForward (target, block) =
     -- This does a restore, i.e. it rewinds the checkpointer back in
     -- history, if needed.
     withCheckpointerWithoutRewind (Just target) "fastForward" $ \pdbenv -> do
+        payloadDb <- asks _psPdb
         payload <- liftIO $ casLookup payloadDb bpHash >>= \case
             Nothing -> throwM $ PactInternalError
                 $ "Checkpointer.rewindTo.fastForward: lookup of payload failed"
@@ -433,6 +429,8 @@ fastForward (target, block) = do
         void $ execBlock block payload pdbenv
         return $! Save block ()
     -- double check output hash here?
+  where
+    bpHash = _blockPayloadHash block
 
 -- | Find the latest block stored in the checkpointer for which the respective
 -- block header is available in the block header database.
