@@ -407,7 +407,7 @@ testPactCtxSQLite
   -> PactServiceConfig
   -> IO (TestPactCtx cas,PactDbEnv')
 testPactCtxSQLite v cid bhdb pdb sqlenv conf = do
-    (dbSt,cpe) <- initRelationalCheckpointer' initialBlockState sqlenv logger v cid
+    (dbSt,cpe) <- initRelationalCheckpointer' initialBlockState sqlenv cpLogger v cid
     let rs = readRewards
         ph = ParentHeader $ genesisBlockHeader v cid
     !ctx <- TestPactCtx
@@ -418,7 +418,7 @@ testPactCtxSQLite v cid bhdb pdb sqlenv conf = do
   where
     initialBlockState = initBlockState $ Version.genesisHeight v cid
     loggers = pactTestLogger False -- toggle verbose pact test logging
-    logger = newLogger loggers $ LogName ("PactService" ++ show cid)
+    cpLogger = newLogger loggers $ LogName ("Checkpointer" ++ show cid)
     pactServiceEnv cpe rs = PactServiceEnv
         { _psMempoolAccess = Nothing
         , _psCheckpointEnv = cpe
@@ -433,6 +433,8 @@ testPactCtxSQLite v cid bhdb pdb sqlenv conf = do
         , _psAllowReadsInLocal = _pactAllowReadsInLocal conf
         , _psIsBatch = False
         , _psCheckpointerDepth = 0
+        , _psLogger = newLogger loggers $ LogName ("PactService" ++ show cid)
+        , _psLoggers = loggers
         }
 
 

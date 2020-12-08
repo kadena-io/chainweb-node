@@ -812,7 +812,10 @@ withChainwebInternal conf logger peer rocksDb pactDbDir resetDb inner = do
         syncOne :: (BlockHeader, ChainResources logger) -> IO ()
         syncOne (bh, cr) = do
             let pact = _chainResPact cr
-            let logCr = logFunctionText $ _chainResLogger cr
+            let logCr = logFunctionText
+                    $ addLabel ("component", "pact")
+                    $ addLabel ("sub-component", "init")
+                    $ _chainResLogger cr
             let hsh = _blockHash bh
             let h = _blockHeight bh
             logCr Info $ "pact db synchronizing to block "

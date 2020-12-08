@@ -81,6 +81,8 @@ import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Tuple.Strict
 
+import qualified Pact.Types.Logger as P
+
 import Prelude hiding (lookup)
 
 import qualified Streaming.Prelude as S
@@ -185,7 +187,7 @@ withCheckpointerWithoutRewind
     -> PactServiceM cas a
 withCheckpointerWithoutRewind target caller act = do
     checkPointer <- getCheckpointer
-    logInfo $ "restoring (with caller " <> caller <> ") " <> sshow target
+    logDebug $ "restoring (with caller " <> caller <> ") " <> sshow target
 
     -- check requirement that this must be called within a batch
     unlessM (asks _psIsBatch) $
@@ -349,6 +351,7 @@ rewindTo rewindLimit (Just (ParentHeader parent)) = do
     failNonGenesisOnEmptyDb = error "impossible: playing non-genesis block to empty DB"
 
     playFork lastHeader = do
+        progressLogger <- P.newLogger <$> view psLoggers <*> pure "RewindProgress"
         bhdb <- asks _psBlockHeaderDb
         commonAncestor <- liftIO $ forkEntry bhdb lastHeader parent
         let ancestorHeight = _blockHeight commonAncestor
@@ -377,15 +380,31 @@ rewindTo rewindLimit (Just (ParentHeader parent)) = do
                             (\(!p) (!c) -> runPact (fastForward (ParentHeader p, c)) >> return c)
                             (return h) -- initial parent
                             return
+                        & progress runPact progressLogger 25000
                         & S.length_
             logInfo $ "rewindTo.playFork: replayed " <> sshow c <> " blocks"
 
     -- This provides some progress feedback in case of long pact replays
     -- (e.g. when revalidating the pact history)
-    progress block = do
-        let h = _blockHeight block
-        when (h `rem` 10000 == 0) $
-            logInfo $ "rewindTo.fastForward: replay block at height " <> sshow (_blockHeight block)
+    --
+    progress
+        :: (PactServiceM cas () -> IO ())
+            -- ^ Callback for running a pact action (used for logging)
+        -> P.Logger
+            -- ^ logger for loggingprogress
+        -> Int
+            -- ^ How often a progress message is issued
+        -> S.Stream (S.Of BlockHeader) IO r
+        -> S.Stream (S.Of BlockHeader) IO r
+    progress runPact logger (n :: Int) s = s
+        & S.zip (S.enumFrom 1)
+        & S.mapM
+            (\(!i, !b) -> do
+                when (i `rem` n == 0) $ runPact $ logInfo_ logger
+                    $ "progress: replayed " <> sshow i
+                    <> " blocks. Current height " <> sshow (_blockHeight b)
+                return b
+            )
 
     fastForward
         :: forall c
@@ -393,7 +412,6 @@ rewindTo rewindLimit (Just (ParentHeader parent)) = do
         => (ParentHeader, BlockHeader)
         -> PactServiceM c ()
     fastForward (target, block) = do
-        progress block
         payloadDb <- asks _psPdb
         let bpHash = _blockPayloadHash block
 
