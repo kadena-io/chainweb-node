@@ -128,6 +128,7 @@ data RequestMsg = NewBlockMsg NewBlockReq
                 | PreInsertCheckMsg PreInsertCheckReq
                 | BlockTxHistoryMsg BlockTxHistoryReq
                 | HistoricalLookupMsg HistoricalLookupReq
+                | SyncToBlockMsg SyncToBlockReq
                 | CloseMsg
                 deriving (Show)
 
@@ -194,6 +195,12 @@ data HistoricalLookupReq = HistoricalLookupReq
 instance Show HistoricalLookupReq where
   show (HistoricalLookupReq h d k _) =
     "HistoricalLookupReq@" ++ show h ++ ", " ++ show d ++ ", " ++ show k
+
+data SyncToBlockReq = SyncToBlockReq
+    { _syncToBlockHeader :: BlockHeader
+    , _syncToResultVar :: PactExMVar ()
+    }
+instance Show SyncToBlockReq where show SyncToBlockReq{..} = show _syncToBlockHeader
 
 data SpvRequest = SpvRequest
     { _spvRequestKey :: RequestKey
