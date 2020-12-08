@@ -1,4 +1,5 @@
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE LambdaCase #-}
 
 module Chainweb.WebPactExecutionService
   ( WebPactExecutionService(..)
@@ -90,6 +91,10 @@ data PactExecutionService = PactExecutionService
         IO (Either PactException (Maybe (TxLog Value)))
         )
       -- ^ Obtain latest entry at or before the given block for specified table/domain and row key.
+    , _pactSyncToBlock :: !(
+        BlockHeader ->
+        IO ()
+        )
     }
 
 -- | Newtype to indicate "routing"/multi-chain service.
@@ -126,6 +131,7 @@ mkWebPactExecutionService hm = WebPactExecutionService $ PactExecutionService
     , _pactPreInsertCheck = \cid txs -> withChainService cid $ \p -> _pactPreInsertCheck p cid txs
     , _pactBlockTxHistory = \h d -> withChainService (_chainId h) $ \p -> _pactBlockTxHistory p h d
     , _pactHistoricalLookup = \h d k -> withChainService (_chainId h) $ \p -> _pactHistoricalLookup p h d k
+    , _pactSyncToBlock = \h -> withChainService (_chainId h) $ \p -> _pactSyncToBlock p h
     }
   where
     withChainService cid act =  maybe (err cid) act $ HM.lookup cid hm
@@ -158,6 +164,9 @@ mkPactExecutionService q = PactExecutionService
         pactBlockTxHistory h d q >>= takeMVar
     , _pactHistoricalLookup = \h d k ->
         pactHistoricalLookup h d k q >>= takeMVar
+    , _pactSyncToBlock = \h -> pactSyncToBlock h q >>= takeMVar >>= \case
+        Right () -> return ()
+        Left e -> throwM e
     }
 
 -- | A mock execution service for testing scenarios. Throws out anything it's
@@ -172,4 +181,5 @@ emptyPactExecutionService = PactExecutionService
     , _pactPreInsertCheck = \_ txs -> return $ Right $ V.map (const (Right ())) txs
     , _pactBlockTxHistory = \_ _ -> throwM (userError "unsupported")
     , _pactHistoricalLookup = \_ _ _ -> throwM (userError "unsupported")
+    , _pactSyncToBlock = \_ -> throwM (userError "unsupported")
     }

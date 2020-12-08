@@ -155,6 +155,9 @@ module Chainweb.Utils
 , nub
 , timeoutStream
 , reverseStream
+, foldChunksM
+, foldChunksM_
+, progress
 
 -- * Filesystem
 , withTempDir
@@ -262,7 +265,7 @@ import Numeric.Natural
 
 import qualified Options.Applicative as O
 
-import qualified Streaming as S (concats, effect)
+import qualified Streaming as S (concats, effect, inspect)
 import qualified Streaming.Prelude as S
 
 import System.Directory (removeDirectoryRecursive)
@@ -1065,6 +1068,53 @@ streamToHashSet_ = fmap HS.fromList . S.toList_
 --
 reverseStream :: Monad m => S.Stream (Of a) m () -> S.Stream (Of a) m ()
 reverseStream = S.effect . S.fold_ (flip (:)) [] S.each
+
+-- | Fold over a chunked stream
+--
+foldChunksM
+    :: Monad m
+    => (forall b . t -> (S.Stream f m b) -> m (Of t b))
+    -> t
+    -> S.Stream (S.Stream f m) m a
+    -> m (Of t a)
+foldChunksM f = go
+  where
+    go seed s = S.inspect s >>= \case
+        Left r -> return (seed S.:> r)
+        Right chunk -> do
+            (!seed' S.:> s') <- f seed chunk
+            go seed' s'
+{-# INLINE foldChunksM #-}
+
+-- | Fold over a chunked stream
+--
+foldChunksM_
+    :: Monad m
+    => (forall b . t -> (S.Stream f m b) -> m (Of t b))
+    -> t
+    -> S.Stream (S.Stream f m) m a
+    -> m t
+foldChunksM_ f seed = fmap (fst . S.lazily) . foldChunksM f seed
+{-# INLINE foldChunksM_ #-}
+
+-- | Progress reporting for long-running streams. I calls an action
+-- every @n@ streams items.
+--
+progress
+    :: Monad m
+    => Int
+        -- ^ How often to report progress
+    -> (Int -> a -> m ())
+        -- ^ progress callback
+    -> S.Stream (S.Of a) m r
+    -> S.Stream (S.Of a) m r
+progress n act s = s
+    & S.zip (S.enumFrom 1)
+    & S.mapM (\(!i, !a) -> a <$ when (i `rem` n == 0) (act i a))
+{-# INLINE progress #-}
+
+-- -------------------------------------------------------------------------- --
+-- Misc
 
 -- | A binary codec.
 --
