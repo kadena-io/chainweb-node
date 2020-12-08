@@ -640,6 +640,5 @@ blockStreamProgress
     -> S.Stream (S.Of BlockHeader) m r
     -> S.Stream (S.Of BlockHeader) m r
 blockStreamProgress n logFun = progress n $ \i b -> logFun
-    $ "processes blocks: " <> sshow i
+    $ "processed blocks: " <> sshow i
     <> ", current height: " <> sshow (_blockHeight b)
-
