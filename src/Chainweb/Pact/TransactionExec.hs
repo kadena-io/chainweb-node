@@ -440,11 +440,6 @@ applyUpgrades v cid height
       txs <- map (fmap payloadObj) <$> liftIO txsIO
 
       --
-      -- Note (emily): the historical use of 'mapM' here means that we are not
-      -- threading the updated module cache from tx to tx in our upgrades. This
-      -- means that the resulting module cache is the set of modules loaded in
-      -- the /last/ tx, and that result will go into the hash of the block.
-      --
       -- In order to prime the module cache with all new modules for subsequent
       -- blocks, the caches from each tx are collected and the union of all
       -- those caches is returned. The calling code adds this new cache to the
