@@ -108,7 +108,7 @@ import Chainweb.Payload.PayloadStore
 import Chainweb.Payload.PayloadStore.RocksDB
 import Chainweb.Time
 import Chainweb.TreeDB hiding (key)
-import Chainweb.Utils
+import Chainweb.Utils hiding (progress)
 import Chainweb.Version
 
 import Pact.Types.Command

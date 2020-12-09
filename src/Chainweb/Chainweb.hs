@@ -140,7 +140,6 @@ import Control.Monad.Catch (MonadThrow, throwM)
 import Control.Monad.Writer
 
 import Data.Bifunctor (second)
-import Data.CAS (casLookupM)
 import Data.Foldable
 import Data.Function (on)
 import qualified Data.HashMap.Strict as HM
@@ -189,7 +188,6 @@ import Chainweb.Pact.RestAPI.Server (PactServerData)
 import Chainweb.Pact.Service.Types (PactServiceConfig(..))
 import Chainweb.Pact.Types (defaultReorgLimit)
 import Chainweb.Pact.Utils (fromPactChainId)
-import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
 import Chainweb.Payload.PayloadStore.RocksDB
 import Chainweb.RestAPI
@@ -870,14 +868,15 @@ withChainwebInternal conf logger peer serviceSock rocksDb pactDbDir resetDb inne
         syncOne :: (BlockHeader, ChainResources logger) -> IO ()
         syncOne (bh, cr) = do
             let pact = _chainResPact cr
-            let logCr = logFunctionText $ _chainResLogger cr
+            let logCr = logFunctionText
+                    $ addLabel ("component", "pact")
+                    $ addLabel ("sub-component", "init")
+                    $ _chainResLogger cr
             let hsh = _blockHash bh
             let h = _blockHeight bh
             logCr Info $ "pact db synchronizing to block "
                 <> T.pack (show (h, hsh))
-            payload <- payloadWithOutputsToPayloadData
-                <$> casLookupM payloadDb (_blockPayloadHash bh)
-            void $ _pactValidateBlock pact bh payload
+            void $ _pactSyncToBlock pact bh
             logCr Info "pact db synchronized"
 
 -- -------------------------------------------------------------------------- --

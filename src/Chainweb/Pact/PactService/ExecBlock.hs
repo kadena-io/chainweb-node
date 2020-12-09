@@ -265,7 +265,7 @@ runCoinbase
     -> PactServiceM cas (P.CommandResult [P.TxLog A.Value])
 runCoinbase True _ _ _ _ _ = return noCoinbase
 runCoinbase False dbEnv miner enfCBFail usePrecomp mc = do
-    logger <- view (psCheckpointEnv . cpeLogger)
+    logger <- view psLogger
     rs <- view psMinerRewards
     v <- view chainwebVersion
     pd <- getTxContext def
@@ -312,7 +312,7 @@ applyPactCmd
     -> DList (P.CommandResult [P.TxLog A.Value])
     -> PactServiceM cas (T2 (DList (P.CommandResult [P.TxLog A.Value])) ModuleCache)
 applyPactCmd isGenesis dbEnv cmdIn miner mcache dl = do
-    logger <- view (psCheckpointEnv . cpeLogger)
+    logger <- view psLogger
     gasModel <- view psGasModel
     v <- view psVersion
 

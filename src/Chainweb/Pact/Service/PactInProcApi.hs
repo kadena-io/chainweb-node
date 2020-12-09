@@ -72,7 +72,7 @@ withPactService ver cid logger mpc bhdb pdb pactDbDir config action =
     withSqliteDb cid logger pactDbDir (_pactResetDb config) $ \sqlenv ->
         withPactService' ver cid logger mpa bhdb pdb sqlenv config action
   where
-    mpa = pactMemPoolAccess mpc logger
+    mpa = pactMemPoolAccess mpc $ addLabel ("sub-component", "MempoolAccess") logger
 
 -- | Alternate Initialization for Pact (in process) Api, only used directly in
 --   tests to provide memPool with test transactions

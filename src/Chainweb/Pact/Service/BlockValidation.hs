@@ -20,6 +20,7 @@ module Chainweb.Pact.Service.BlockValidation
 , pactPreInsertCheck
 , pactBlockTxHistory
 , pactHistoricalLookup
+, pactSyncToBlock
 ) where
 
 
@@ -125,3 +126,16 @@ pactHistoricalLookup bh d k reqQ = do
   let !msg = HistoricalLookupMsg req
   addRequest reqQ msg
   return resultVar
+
+pactSyncToBlock
+    :: BlockHeader
+    -> PactQueue
+    -> IO (MVar (Either PactException ()))
+pactSyncToBlock bh reqQ = do
+    !resultVar <- newEmptyMVar
+    let !msg = SyncToBlockMsg SyncToBlockReq
+          { _syncToBlockHeader = bh
+          , _syncToResultVar = resultVar
+          }
+    addRequest reqQ msg
+    return resultVar
