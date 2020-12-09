@@ -440,20 +440,14 @@ applyUpgrades v cid height
       txs <- map (fmap payloadObj) <$> liftIO txsIO
 
       --
-      -- Note (emily): the historical use of 'mapM_' here means that we are not
-      -- threading the updated module cache from tx to tx in our upgrades.
-      -- This means that the outputed module cache is the set of modules
-      -- loaded in the /last/ tx, and that result will go into the hash.
-      --
-      -- Whether this can be fixed in the future should be explored, but we've
-      -- already built fixes to address this problem that also affect the
-      -- hashes of later blocks.
+      -- In order to prime the module cache with all new modules for subsequent
+      -- blocks, the caches from each tx are collected and the union of all
+      -- those caches is returned. The calling code adds this new cache to the
+      -- init cache in the pact service state (_psInitCache).
       --
 
-      local (set txExecutionConfig def) $
-        mapM_ applyTx txs
-      mc <- use txCache
-      return $ Just mc
+      caches <- local (set txExecutionConfig def) $ mapM applyTx txs
+      return $ Just (HM.unions caches)
 
     interp = initStateInterpreter $ installCoinModuleAdmin $
       initCapabilities [mkMagicCapSlot "REMEDIATE"]
@@ -462,11 +456,10 @@ applyUpgrades v cid height
       infoLog $ "Running upgrade tx " <> sshow (_cmdHash tx)
 
       tryAllSynchronous (runGenesis tx permissiveNamespacePolicy interp) >>= \case
-        Right _ -> return ()
+        Right _ -> use txCache
         Left e -> do
           logError $ "Upgrade transaction failed! " <> sshow e
-          void $ throwM e
-
+          throwM e
 
 applyTwentyChainUpgrade
     :: ChainwebVersion

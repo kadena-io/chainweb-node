@@ -72,6 +72,8 @@ module Chainweb.Pact.Types
   , psOnFatalError
   , psVersion
   , psValidateHashesOnReplay
+  , psLogger
+  , psLoggers
   , psAllowReadsInLocal
   , psIsBatch
   , psCheckpointerDepth
@@ -101,6 +103,10 @@ module Chainweb.Pact.Types
     -- * Logging with Pact logger
 
   , pactLoggers
+  , logg_
+  , logInfo_
+  , logError_
+  , logDebug_
   , logg
   , logInfo
   , logError
@@ -312,6 +318,11 @@ data PactServiceEnv cas = PactServiceEnv
     , _psVersion :: ChainwebVersion
     , _psValidateHashesOnReplay :: !Bool
     , _psAllowReadsInLocal :: !Bool
+    , _psLogger :: !P.Logger
+    , _psLoggers :: !P.Loggers
+        -- ^ logger factory. A new logger can be created via
+        --
+        -- P.newLogger loggers (P.LogName "myLogger")
 
     -- The following two fields are used to enforce invariants for using the
     -- checkpointer. These would better be enforced on the type level. But that
@@ -486,7 +497,8 @@ execPactServiceM st env act
 getCheckpointer :: PactServiceM cas Checkpointer
 getCheckpointer = view (psCheckpointEnv . cpeCheckpointer)
 
-
+-- -------------------------------------------------------------------------- --
+-- Pact Logger
 
 pactLogLevel :: String -> LogLevel
 pactLogLevel "INFO" = Info
@@ -495,6 +507,8 @@ pactLogLevel "DEBUG" = Debug
 pactLogLevel "WARN" = Warn
 pactLogLevel _ = Info
 
+-- | Create Pact Loggers that use the the chainweb logging system as backend.
+--
 pactLoggers :: Logger logger => logger -> P.Loggers
 pactLoggers logger = P.Loggers $ P.mkLogger (error "ignored") fun def
   where
@@ -503,15 +517,32 @@ pactLoggers logger = P.Loggers $ P.mkLogger (error "ignored") fun def
         let namedLogger = addLabel ("logger", pack n) logger
         logFunctionText namedLogger (pactLogLevel cat) $ pack msg
 
+-- | Write log message
+--
+logg_ :: MonadIO m => P.Logger -> String -> String -> m ()
+logg_ logger level msg = liftIO $ P.logLog logger level msg
+
+-- | Write log message using the logger in Checkpointer environment
+
+logInfo_ :: MonadIO m => P.Logger -> String -> m ()
+logInfo_ l = logg_ l "INFO"
+
+logError_ :: MonadIO m => P.Logger -> String -> m ()
+logError_ l = logg_ l "ERROR"
+
+logDebug_ :: MonadIO m => P.Logger -> String -> m ()
+logDebug_ l = logg_ l "DEBUG"
+
+-- | Write log message using the logger in Checkpointer environment
+--
 logg :: String -> String -> PactServiceM cas ()
-logg level msg = view (psCheckpointEnv . cpeLogger)
-  >>= \l -> liftIO $ P.logLog l level msg
+logg level msg = view psLogger >>= \l -> logg_ l level msg
 
 logInfo :: String -> PactServiceM cas ()
-logInfo = logg "INFO"
+logInfo msg = view psLogger >>= \l -> logInfo_ l msg
 
 logError :: String -> PactServiceM cas ()
-logError = logg "ERROR"
+logError msg = view psLogger >>= \l -> logError_ l msg
 
 logDebug :: String -> PactServiceM cas ()
-logDebug = logg "DEBUG"
+logDebug msg = view psLogger >>= \l -> logDebug_ l msg
