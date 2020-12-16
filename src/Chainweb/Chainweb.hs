@@ -404,6 +404,15 @@ instance FromJSON (ServiceApiConfig -> ServiceApiConfig) where
         <$< serviceApiConfigPort ..: "port" % o
         <*< setProperty serviceApiConfigInterface "interface" (parseJsonFromText "interface") o
 
+pServiceApi :: MParser ServiceApiConfig
+pServiceApi = id
+    <$< serviceApiConfigPort .:: pPort service
+    <*< serviceApiConfigInterface .:: textOption
+        % prefixLong service "interface"
+        <> suffixHelp service "interface that the service Rest API binds to (see HostPreference documentation for details)"
+  where
+    service = Just "service"
+
 -- -------------------------------------------------------------------------- --
 -- Chainweb Configuration
 
@@ -522,7 +531,7 @@ pChainwebConfiguration = id
     <*< configReintroTxs .:: enableDisableFlag
         % long "tx-reintro"
         <> help "whether to enable transaction reintroduction from losing forks"
-    <*< configP2p %:: pP2pConfiguration Nothing
+    <*< configP2p %:: pP2pConfiguration
     <*< configTransactionIndex %::
         pEnableConfig "transaction-index" pTransactionIndexConfig
     <*< configMempoolP2p %::
@@ -548,6 +557,7 @@ pChainwebConfiguration = id
         % long "rosetta"
         <> help "Enable the Rosetta endpoints."
     <*< configCuts %:: pCutConfig
+    <*< configServiceApi %:: pServiceApi
 
 -- -------------------------------------------------------------------------- --
 -- Chainweb Resources
