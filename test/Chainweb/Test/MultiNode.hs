@@ -150,6 +150,8 @@ multiConfig v n = defaultChainwebConfiguration v
 
     & set configThrottling throttling
         -- throttling is effectively disabled to not slow down the test nodes
+
+    & set (configServiceApi . serviceApiConfigPort) 0
   where
     miner = NodeMiningConfig
         { _nodeMiningEnabled = True
