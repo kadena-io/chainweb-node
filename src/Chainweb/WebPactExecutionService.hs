@@ -19,6 +19,8 @@ import Data.Aeson (Value)
 import qualified Data.HashMap.Strict as HM
 import qualified Data.Vector as V
 
+import GHC.Stack
+
 -- internal modules
 
 import Chainweb.BlockHash
@@ -121,12 +123,13 @@ _webPactValidateBlock = _pactValidateBlock . _webPactExecutionService
 {-# INLINE _webPactValidateBlock #-}
 
 mkWebPactExecutionService
-    :: HM.HashMap ChainId PactExecutionService
+    :: HasCallStack
+    => HM.HashMap ChainId PactExecutionService
     -> WebPactExecutionService
 mkWebPactExecutionService hm = WebPactExecutionService $ PactExecutionService
     { _pactValidateBlock = \h pd -> withChainService (_chainId h) $ \p -> _pactValidateBlock p h pd
     , _pactNewBlock = \m h -> withChainService (_chainId h) $ \p -> _pactNewBlock p m h
-    , _pactLocal = \_ct -> throwM $ userError "No web-level local execution supported"
+    , _pactLocal = \_ct -> throwM $ userError "Chainweb.WebPactExecutionService.mkPactExecutionService: No web-level local execution supported"
     , _pactLookup = \h txs -> withChainService (_chainId h) $ \p -> _pactLookup p h txs
     , _pactPreInsertCheck = \cid txs -> withChainService cid $ \p -> _pactPreInsertCheck p cid txs
     , _pactBlockTxHistory = \h d -> withChainService (_chainId h) $ \p -> _pactBlockTxHistory p h d
@@ -172,14 +175,14 @@ mkPactExecutionService q = PactExecutionService
 -- | A mock execution service for testing scenarios. Throws out anything it's
 -- given.
 --
-emptyPactExecutionService :: PactExecutionService
+emptyPactExecutionService :: HasCallStack => PactExecutionService
 emptyPactExecutionService = PactExecutionService
     { _pactValidateBlock = \_ _ -> pure emptyPayload
     , _pactNewBlock = \_ _ -> pure emptyPayload
     , _pactLocal = \_ -> throwM (userError "emptyPactExecutionService: attempted `local` call")
     , _pactLookup = \_ v -> return $! Right $! V.map (const Nothing) v
     , _pactPreInsertCheck = \_ txs -> return $ Right $ V.map (const (Right ())) txs
-    , _pactBlockTxHistory = \_ _ -> throwM (userError "unsupported")
-    , _pactHistoricalLookup = \_ _ _ -> throwM (userError "unsupported")
-    , _pactSyncToBlock = \_ -> throwM (userError "unsupported")
+    , _pactBlockTxHistory = \_ _ -> throwM (userError "Chainweb.WebPactExecutionService.emptyPactExecutionService: pactBlockTxHistory unsupported")
+    , _pactHistoricalLookup = \_ _ _ -> throwM (userError "Chainweb.WebPactExecutionService.emptyPactExecutionService: pactHistoryLookup unsupported")
+    , _pactSyncToBlock = \_ -> return ()
     }
