@@ -126,7 +126,7 @@ jobs:
       run: sudo apt-get install -y librocksdb-dev z3
     - name: Install non-Haskell dependencies (macOS)
       if: contains(matrix.os, 'mac')
-      run: brew install rocksdb z3
+      run: brew update && brew install rocksdb z3
     - name: Create cabal.project.local
       run: |
         cat > cabal.project.local <<EOF
