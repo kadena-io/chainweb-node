@@ -394,6 +394,7 @@ library
         , these-skinny >= 0.7.4
         , time >= 1.8
         , tls >=1.5.2
+        , tls-session-manager >= 0.0
         , token-bucket >= 0.1
         , transformers >= 0.5
         , unordered-containers >= 0.2
