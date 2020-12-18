@@ -65,6 +65,7 @@ module Chainweb.Chainweb
 , configThrottling
 , configReorgLimit
 , configRosetta
+, configServiceApi
 , defaultChainwebConfiguration
 , pChainwebConfiguration
 , validateChainwebConfiguration
