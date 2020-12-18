@@ -184,5 +184,5 @@ emptyPactExecutionService = PactExecutionService
     , _pactPreInsertCheck = \_ txs -> return $ Right $ V.map (const (Right ())) txs
     , _pactBlockTxHistory = \_ _ -> throwM (userError "Chainweb.WebPactExecutionService.emptyPactExecutionService: pactBlockTxHistory unsupported")
     , _pactHistoricalLookup = \_ _ _ -> throwM (userError "Chainweb.WebPactExecutionService.emptyPactExecutionService: pactHistoryLookup unsupported")
-    , _pactSyncToBlock = \_ -> throwM (userError "Chainweb.WebPactExecutionService.emptyPactExecutionService: pactSyncToBlock unsupported")
+    , _pactSyncToBlock = \_ -> return ()
     }
