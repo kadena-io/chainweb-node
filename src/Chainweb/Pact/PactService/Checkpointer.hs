@@ -83,6 +83,8 @@ import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Tuple.Strict
 
+import GHC.Stack
+
 import qualified Pact.Types.Logger as P
 
 import Prelude hiding (lookup)
@@ -181,7 +183,8 @@ data WithCheckpointerResult a
 -- 2. you know exactly what you are doing.
 --
 withCheckpointerWithoutRewind
-    :: PayloadCasLookup cas
+    :: HasCallStack
+    => PayloadCasLookup cas
     => Maybe ParentHeader
         -- ^ block height and hash of the parent header
     -> String
@@ -250,7 +253,8 @@ withCurrentCheckpointer caller act = do
 -- If the inner action throws an exception the checkpointer state is discarded.
 --
 withCheckpointerRewind
-    :: PayloadCasLookup cas
+    :: HasCallStack
+    => PayloadCasLookup cas
     => Maybe BlockHeight
         -- ^ if set, limit rewinds to this delta
     -> Maybe ParentHeader
@@ -327,7 +331,9 @@ withDiscardedBatch act = do
 -- exception is raised.
 --
 rewindTo
-    :: forall cas . PayloadCasLookup cas
+    :: forall cas
+    . HasCallStack
+    => PayloadCasLookup cas
     => Maybe BlockHeight
         -- ^ if set, limit rewinds to this delta
     -> Maybe ParentHeader
@@ -412,7 +418,8 @@ rewindTo rewindLimit (Just (ParentHeader parent)) = do
 --
 fastForward
     :: forall c
-    . PayloadCasLookup c
+    . HasCallStack
+    => PayloadCasLookup c
     => (ParentHeader, BlockHeader)
     -> PactServiceM c ()
 fastForward (target, block) =
@@ -539,7 +546,9 @@ lookupBlockHeader bhash ctx = do
 -- exception is raised.
 --
 rewindToIncremental
-    :: forall cas . PayloadCasLookup cas
+    :: forall cas
+    . HasCallStack
+    => PayloadCasLookup cas
     => Maybe BlockHeight
         -- ^ if set, limit rewinds to this delta
     -> Maybe ParentHeader
@@ -594,8 +603,9 @@ rewindToIncremental rewindLimit (Just (ParentHeader parent)) = do
           then
             -- If no blocks got replayed the checkpointer isn't restored via
             -- 'fastForward'. So we do an empty 'withCheckPointerWithoutRewind'.
-            withCheckpointerWithoutRewind (Just $ ParentHeader commonAncestor) "rewindTo" $ \_ ->
-                return $! Save commonAncestor ()
+            withBatch $
+                withCheckpointerWithoutRewind (Just $ ParentHeader commonAncestor) "rewindTo" $ \_ ->
+                    return $! Save commonAncestor ()
           else do
             logInfo $ "rewindTo.playFork"
                 <> ": checkpointer is at height: " <> sshow (_blockHeight lastHeader)
@@ -608,7 +618,7 @@ rewindToIncremental rewindLimit (Just (ParentHeader parent)) = do
             (_ S.:> c) <- withPactState $ \runPact ->
                 getBranchIncreasing bhdb parent (int ancestorHeight) $ \newBlocks -> do
 
-                    -- fastforwards all blocks in a chunks in a single database
+                    -- fastforwards all blocks in a chunk in a single database
                     -- transactions (withBatchIO).
                     let playChunk :: BlockHeader -> Stream (Of BlockHeader) IO r -> IO (Of BlockHeader r)
                         playChunk cur s = withBatchIO runPact $ \runPactLocal -> S.foldM
