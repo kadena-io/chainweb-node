@@ -76,7 +76,7 @@ import qualified Data.Text.Encoding as T
 import GHC.Generics (Generic)
 
 import Network.Socket
-import Network.Wai (Middleware, mapResponseHeaders)
+import Network.Wai (Middleware, mapResponseHeaders, remoteHost)
 import Network.Wai.Handler.Warp hiding (Port)
 import Network.Wai.Handler.WarpTLS (TLSSettings, runTLSSocket)
 import Network.Wai.Middleware.Cors
@@ -267,6 +267,7 @@ chainwebApplication
     -> Application
 chainwebApplication v dbs mr hs r
     = chainwebTime
+    . chainwebPeerAddr
     . chainwebNodeVersion
     . chainwebCors
     . someServerApplication
@@ -289,6 +290,12 @@ chainwebNodeVersion :: Middleware
 chainwebNodeVersion app req resp = app req $ \res ->
     resp $ mapResponseHeaders
         ((:) chainwebNodeVersionHeader)
+        res
+
+chainwebPeerAddr :: Middleware
+chainwebPeerAddr app req resp = app req $ \res ->
+    resp $ mapResponseHeaders
+        (("X-Peer-Addr", sshow (remoteHost req)) :)
         res
 
 serveChainwebOnPort
