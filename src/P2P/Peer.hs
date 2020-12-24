@@ -316,11 +316,11 @@ defaultPeerConfig = PeerConfig
 
 validatePeerConfig :: Applicative a => ConfigValidation PeerConfig a
 validatePeerConfig c = do
-    when (isReservedHostAddress (_peerConfigAddr c)) $ throwError
-        $ "The configured hostname is a localhost name or from a reserved IP address range. Please use a public hostname or IP address."
+    when (isReservedHostAddress (_peerConfigAddr c)) $ tell
+        $ pure "The configured hostname is a localhost name or from a reserved IP address range. Please use a public hostname or IP address."
 
-    when (_peerConfigInterface c == "localhost" || _peerConfigInterface c == "localnet") $ throwError
-        $ "The node is configured to listen only on a private network. Please use a public network as interface configuration, e.g. '*' or '0.0.0.0'"
+    when (_peerConfigInterface c == "localhost" || _peerConfigInterface c == "localnet") $ tell
+        $ pure "The node is configured to listen only on a private network. Please use a public network as interface configuration, e.g. '*' or '0.0.0.0'"
 
     mapM_ (validateFileReadable "certificateChainFile") (_peerConfigCertificateChainFile c)
 
