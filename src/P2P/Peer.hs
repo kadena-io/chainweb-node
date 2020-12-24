@@ -3,6 +3,7 @@
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DerivingStrategies #-}
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
@@ -46,6 +47,7 @@ module P2P.Peer
 , peerConfigCertificateChain
 , peerConfigKey
 , defaultPeerConfig
+, validatePeerConfig
 , _peerConfigPort
 , peerConfigPort
 , _peerConfigHost
@@ -70,12 +72,14 @@ module P2P.Peer
 ) where
 
 import Configuration.Utils hiding (Lens')
+import Configuration.Utils.Validation
 
 import Control.DeepSeq
 import Control.Exception (evaluate)
 import Control.Lens hiding ((.=))
 import Control.Monad
 import Control.Monad.Catch
+import Control.Monad.Writer
 
 import qualified Data.Attoparsec.Text as A
 import qualified Data.ByteString as B
@@ -101,6 +105,8 @@ import Chainweb.Utils hiding (check)
 import Chainweb.Version
 
 import Network.X509.SelfSigned
+
+import P2P.BootstrapNodes
 
 -- -------------------------------------------------------------------------- --
 -- Peer Id
@@ -309,6 +315,25 @@ defaultPeerConfig = PeerConfig
     , _peerConfigKeyFile = Nothing
     }
 
+validatePeerConfig :: Applicative a => ConfigValidation PeerConfig a
+validatePeerConfig c = do
+    when (isReservedHostAddress (_peerConfigAddr c)) $ tell
+        $ pure "The configured hostname is a localhost name or from a reserved IP address range. Please use a public hostname or IP address."
+
+    when (_peerConfigInterface c == "localhost" || _peerConfigInterface c == "localnet") $ tell
+        $ pure "The node is configured to listen only on a private network. Please use a public network as interface configuration, e.g. '*' or '0.0.0.0'"
+
+    mapM_ (validateFileReadable "certificateChainFile") (_peerConfigCertificateChainFile c)
+
+    mapM_ (validateFileReadable "certificateChainFile") (_peerConfigKeyFile c)
+
+    when (isJust (_peerConfigCertificateChainFile c) && isJust (_peerConfigCertificateChain c)) $
+        tell $ pure "The configuration provides both 'certificateChain' and 'certificateChainFile'. The 'certificateChain' setting will be used."
+
+    when (isJust (_peerConfigKeyFile c) && isJust (_peerConfigKey c)) $
+        tell $ pure "The configuration provides both 'key' and 'keyFile'. The 'key' setting will be used."
+
+
 instance ToJSON PeerConfig where
     toJSON o = object
         [ "hostaddress" .= _peerConfigAddr o
@@ -441,9 +466,9 @@ bootstrapPeerInfos TimedConsensus{} = [testBootstrapPeerInfos]
 bootstrapPeerInfos PowConsensus{} = [testBootstrapPeerInfos]
 bootstrapPeerInfos TimedCPM{} = [testBootstrapPeerInfos]
 bootstrapPeerInfos FastTimedCPM{} = [testBootstrapPeerInfos]
-bootstrapPeerInfos Development = productionBootstrapPeerInfo
-bootstrapPeerInfos Testnet04 = productionBootstrapPeerInfo
-bootstrapPeerInfos Mainnet01 = productionBootstrapPeerInfo
+bootstrapPeerInfos Development = []
+bootstrapPeerInfos Testnet04 = domainAddr2PeerInfo testnetBootstrapHosts
+bootstrapPeerInfos Mainnet01 = domainAddr2PeerInfo mainnetBootstrapHosts
 
 testBootstrapPeerInfos :: PeerInfo
 testBootstrapPeerInfos =
@@ -465,19 +490,7 @@ testBootstrapPeerInfos =
             }
         }
 
-productionBootstrapPeerInfo :: [PeerInfo]
-productionBootstrapPeerInfo = map f testnetBootstrapHosts
-  where
-    f hn = PeerInfo
-        { _peerId = Nothing
-        , _peerAddr = HostAddress
-            { _hostAddressHost = hn
-            , _hostAddressPort = 443
-            }
-        }
-
--- | Official TestNet bootstrap nodes.
+-- | Official testnet bootstrap nodes
 --
-testnetBootstrapHosts :: [Hostname]
-testnetBootstrapHosts = map unsafeHostnameFromText []
-
+domainAddr2PeerInfo :: [HostAddress] -> [PeerInfo]
+domainAddr2PeerInfo = fmap (PeerInfo Nothing)
