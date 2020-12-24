@@ -79,7 +79,6 @@ import Control.Exception (evaluate)
 import Control.Lens hiding ((.=))
 import Control.Monad
 import Control.Monad.Catch
-import Control.Monad.Except
 import Control.Monad.Writer
 
 import qualified Data.Attoparsec.Text as A
@@ -106,6 +105,8 @@ import Chainweb.Utils hiding (check)
 import Chainweb.Version
 
 import Network.X509.SelfSigned
+
+import P2P.BootstrapNodes
 
 -- -------------------------------------------------------------------------- --
 -- Peer Id
@@ -465,9 +466,9 @@ bootstrapPeerInfos TimedConsensus{} = [testBootstrapPeerInfos]
 bootstrapPeerInfos PowConsensus{} = [testBootstrapPeerInfos]
 bootstrapPeerInfos TimedCPM{} = [testBootstrapPeerInfos]
 bootstrapPeerInfos FastTimedCPM{} = [testBootstrapPeerInfos]
-bootstrapPeerInfos Development = productionBootstrapPeerInfo
-bootstrapPeerInfos Testnet04 = productionBootstrapPeerInfo
-bootstrapPeerInfos Mainnet01 = productionBootstrapPeerInfo
+bootstrapPeerInfos Development = []
+bootstrapPeerInfos Testnet04 = domainAddr2PeerInfo testnetBootstrapHosts
+bootstrapPeerInfos Mainnet01 = domainAddr2PeerInfo mainnetBootstrapHosts
 
 testBootstrapPeerInfos :: PeerInfo
 testBootstrapPeerInfos =
@@ -489,19 +490,7 @@ testBootstrapPeerInfos =
             }
         }
 
-productionBootstrapPeerInfo :: [PeerInfo]
-productionBootstrapPeerInfo = map f testnetBootstrapHosts
-  where
-    f hn = PeerInfo
-        { _peerId = Nothing
-        , _peerAddr = HostAddress
-            { _hostAddressHost = hn
-            , _hostAddressPort = 443
-            }
-        }
-
--- | Official TestNet bootstrap nodes.
+-- | Official testnet bootstrap nodes
 --
-testnetBootstrapHosts :: [Hostname]
-testnetBootstrapHosts = map unsafeHostnameFromText []
-
+domainAddr2PeerInfo :: [HostAddress] -> [PeerInfo]
+domainAddr2PeerInfo = fmap (PeerInfo Nothing)
