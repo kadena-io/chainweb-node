@@ -1,6 +1,7 @@
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DerivingStrategies #-}
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE LambdaCase #-}
@@ -28,12 +29,17 @@ module P2P.Node.Configuration
 , p2pConfigKnownPeers
 , p2pConfigIgnoreBootstrapNodes
 , defaultP2pConfiguration
+, validateP2pConfiguration
 , pP2pConfiguration
 ) where
 
 import Configuration.Utils
+import Configuration.Utils.Validation
 
 import Control.Lens hiding ((.=))
+import Control.Monad
+import Control.Monad.Except
+import Control.Monad.Writer
 
 import qualified Data.Text as T
 
@@ -102,6 +108,29 @@ defaultP2pConfiguration = P2pConfiguration
     , _p2pConfigIgnoreBootstrapNodes = False
     , _p2pConfigPrivate = False
     }
+
+validateP2pConfiguration :: Applicative a => ConfigValidation P2pConfiguration a
+validateP2pConfiguration c = do
+    validatePeerConfig $ _p2pConfigPeer c
+
+    when (_p2pConfigIgnoreBootstrapNodes c && null (_p2pConfigKnownPeers c)) $ tell
+        $ pure "Default bootstrap nodes are ignored and no known peers are configured. This node won't be able to communicate with the network"
+
+    when (_p2pConfigPrivate c && null (_p2pConfigKnownPeers c)) $ tell
+        $ pure "This node is configured to communicate only with the default bootstrap nodes."
+
+    validateRange "sessionTimeout" (60 {- 1 min -}, 900 {- 15 min -}) (_p2pConfigSessionTimeout c)
+
+    when (_p2pConfigSessionTimeout c < 120) $ tell
+        $ pure "This node is configured with a p2p session timeout of less than 120. This causes network overhead for creating new sessions. A connection timeout between 180 and 600 seconds is recommended."
+
+    validateRange "maxSessionCount" (2, 30) (_p2pConfigMaxSessionCount c)
+
+    when (_p2pConfigMaxSessionCount c < 3) $ tell
+        $ pure "This node is configured to have a maximum session count of less than 5. This will limit the ability of this node to communicate with the rest of the network. A max session count between 5 and 15 is adviced"
+
+    when (_p2pConfigMaxSessionCount c > 30) $ throwError
+        "This node is configured with a maximum session count of more than 30. This may put a high load on the network stack of the node and may cause connectivity problems. A max session count between 5 and 15 is adviced"
 
 instance ToJSON P2pConfiguration where
     toJSON o = object

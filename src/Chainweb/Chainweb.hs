@@ -396,6 +396,10 @@ instance HasChainwebVersion ChainwebConfiguration where
 validateChainwebConfiguration :: ConfigValidation ChainwebConfiguration []
 validateChainwebConfiguration c = do
     validateMinerConfig (_configMining c)
+    case _configChainwebVersion c of
+        Mainnet01 -> validateP2pConfiguration (_configP2p c)
+        Testnet04 -> validateP2pConfiguration (_configP2p c)
+        _ -> return ()
     unless (_configNodeIdDeprecated c == Null) $ tell
         [ "Usage NodeId is deprecated. This option will be removed in a future version of chainweb-node"
         , "The value of NodeId is ignored by chainweb-node. In particular the database path will not depend on it"

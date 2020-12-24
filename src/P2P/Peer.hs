@@ -3,6 +3,7 @@
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DerivingStrategies #-}
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
@@ -46,6 +47,7 @@ module P2P.Peer
 , peerConfigCertificateChain
 , peerConfigKey
 , defaultPeerConfig
+, validatePeerConfig
 , _peerConfigPort
 , peerConfigPort
 , _peerConfigHost
@@ -70,17 +72,21 @@ module P2P.Peer
 ) where
 
 import Configuration.Utils hiding (Lens')
+import Configuration.Utils.Validation
 
 import Control.DeepSeq
+import Control.Exception (evaluate)
 import Control.Lens hiding ((.=))
 import Control.Monad
 import Control.Monad.Catch
-import Control.Exception (evaluate)
+import Control.Monad.Except
+import Control.Monad.Writer
 
 import qualified Data.Attoparsec.Text as A
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Char8 as B8
 import Data.Hashable
+import Data.Maybe
 import Data.Streaming.Network
 import Data.String
 import qualified Data.Text as T
@@ -307,6 +313,25 @@ defaultPeerConfig = PeerConfig
     , _peerConfigKey = Nothing
     , _peerConfigKeyFile = Nothing
     }
+
+validatePeerConfig :: Applicative a => ConfigValidation PeerConfig a
+validatePeerConfig c = do
+    when (isReservedHostAddress (_peerConfigAddr c)) $ throwError
+        $ "The configured hostname is a localhost name or from a reserved IP address range. Please use a public hostname or IP address."
+
+    when (_peerConfigInterface c == "localhost" || _peerConfigInterface c == "localnet") $ throwError
+        $ "The node is configured to listen only on a private network. Please use a public network as interface configuration, e.g. '*' or '0.0.0.0'"
+
+    mapM_ (validateFileReadable "certificateChainFile") (_peerConfigCertificateChainFile c)
+
+    mapM_ (validateFileReadable "certificateChainFile") (_peerConfigKeyFile c)
+
+    when (isJust (_peerConfigCertificateChainFile c) && isJust (_peerConfigCertificateChain c)) $
+        tell $ pure "The configuration provides both 'certificateChain' and 'certificateChainFile'. The 'certificateChain' setting will be used."
+
+    when (isJust (_peerConfigKeyFile c) && isJust (_peerConfigKey c)) $
+        tell $ pure "The configuration provides both 'key' and 'keyFile'. The 'key' setting will be used."
+
 
 instance ToJSON PeerConfig where
     toJSON o = object
