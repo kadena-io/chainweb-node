@@ -317,9 +317,9 @@ defaultPeerConfig = PeerConfig
 validatePeerConfig :: Applicative a => ConfigValidation PeerConfig a
 validatePeerConfig c = do
     when (isReservedHostAddress (_peerConfigAddr c)) $ throwError
-        $ "The configured hostname is a localhost name or from a reserved IP address range. Please use a public hostname or IP address"
+        $ "The configured hostname is a localhost name or from a reserved IP address range. Please use a public hostname or IP address."
 
-    when (_peerConfigInterface c == "loalhost" || _peerConfigInterface c == "localnet") $ throwError
+    when (_peerConfigInterface c == "localhost" || _peerConfigInterface c == "localnet") $ throwError
         $ "The node is configured to listen only on a private network. Please use a public network as interface configuration, e.g. '*' or '0.0.0.0'"
 
     mapM_ (validateFileReadable "certificateChainFile") (_peerConfigCertificateChainFile c)
@@ -327,10 +327,10 @@ validatePeerConfig c = do
     mapM_ (validateFileReadable "certificateChainFile") (_peerConfigKeyFile c)
 
     when (isJust (_peerConfigCertificateChainFile c) && isJust (_peerConfigCertificateChain c)) $
-        tell $ pure "The configuration provides both 'certificateChain' and 'certificateChainFile'. The 'certificateChain' setting is used"
+        tell $ pure "The configuration provides both 'certificateChain' and 'certificateChainFile'. The 'certificateChain' setting will be used."
 
     when (isJust (_peerConfigKeyFile c) && isJust (_peerConfigKey c)) $
-        tell $ pure "The configuration provides both 'key' and 'keyFile'. The 'key' setting is used"
+        tell $ pure "The configuration provides both 'key' and 'keyFile'. The 'key' setting will be used."
 
 
 instance ToJSON PeerConfig where

@@ -117,7 +117,7 @@ validateP2pConfiguration c = do
         $ pure "Default bootstrap nodes are ignored and no known peers are configured. This node won't be able to communicate with the network"
 
     when (_p2pConfigPrivate c && null (_p2pConfigKnownPeers c)) $ tell
-        $ pure "This node is configured to communicate only with the default bootstrap nodes"
+        $ pure "This node is configured to communicate only with the default bootstrap nodes."
 
     validateRange "sessionTimeout" (60 {- 1 min -}, 900 {- 15 min -}) (_p2pConfigSessionTimeout c)
 
@@ -130,7 +130,7 @@ validateP2pConfiguration c = do
         $ pure "This node is configured to have a maximum session count of less than 5. This will limit the ability of this node to communicate with the rest of the network. A max session count between 5 and 15 is adviced"
 
     when (_p2pConfigMaxSessionCount c > 30) $ throwError
-        $ "This node is configured with a maximum session count of more than 30. This may put a high load on the network stack of the node and may cause connectivity problems. A max session count between 5 and 15 is adviced"
+        "This node is configured with a maximum session count of more than 30. This may put a high load on the network stack of the node and may cause connectivity problems. A max session count between 5 and 15 is adviced"
 
 instance ToJSON P2pConfiguration where
     toJSON o = object
