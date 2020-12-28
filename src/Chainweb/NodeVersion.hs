@@ -161,7 +161,7 @@ data NodeInfoException
     | PeerAddrHeaderMissing !HostAddress
     | HeaderFormatException !HostAddress !SomeException
     | NodeInfoConnectionFailure !HostAddress !SomeException
-    | NodeInfoUnsupported !HostAddress
+    | NodeInfoUnsupported !HostAddress !NodeVersion
         -- ^ this constructor can be removed once all nodes are running
         -- version 2.4 or larger
     deriving (Show, Generic)
@@ -200,7 +200,7 @@ requestRemoteNodeInfo mgr ver addr maybeReq =
 -- | Obtain 'NodeInfo' of a remote Chainweb node from response headers.
 --
 -- This function throws 'NodeInfoUnsupported' for remote chainweb nodes
--- with a node version smaller or equal 2.3.
+-- with a node version smaller or equal 2.3.1.
 --
 getRemoteNodeInfo
     :: forall m
@@ -214,7 +214,7 @@ getRemoteNodeInfo addr hdrs = do
         Just x -> hdrFromText x
 
     -- can be removed once all nodes run version 2.4 or larger
-    unless (vers >= NodeVersion [2,3,1]) $ throwM $ NodeInfoUnsupported addr
+    unless (vers >= NodeVersion [2,3,1]) $ throwM $ NodeInfoUnsupported addr vers
 
     RemoteNodeInfo vers
         <$> case lookup serverTimestampHeaderName hdrs of
