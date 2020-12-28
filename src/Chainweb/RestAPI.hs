@@ -283,19 +283,17 @@ chainwebTime :: Middleware
 chainwebTime app req resp = app req $ \res -> do
     timestamp <- sec <$> getTime Realtime
     resp $ mapResponseHeaders
-        ((:) ("X-Server-Timestamp", sshow timestamp))
+        ((serverTimestampHeaderName, sshow timestamp) :)
         res
 
 chainwebNodeVersion :: Middleware
 chainwebNodeVersion app req resp = app req $ \res ->
-    resp $ mapResponseHeaders
-        ((:) chainwebNodeVersionHeader)
-        res
+    resp $ mapResponseHeaders (chainwebNodeVersionHeader :) res
 
 chainwebPeerAddr :: Middleware
 chainwebPeerAddr app req resp = app req $ \res ->
     resp $ mapResponseHeaders
-        (("X-Peer-Addr", sshow (remoteHost req)) :)
+        ((peerAddrHeaderName, sshow (remoteHost req)) :)
         res
 
 serveChainwebOnPort

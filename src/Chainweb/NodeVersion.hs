@@ -1,7 +1,11 @@
+{-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeApplications #-}
 
 -- |
 -- Module: Chainweb.NodeVersion
@@ -20,20 +24,30 @@ module Chainweb.NodeVersion
 , minAcceptedVersion
 , isAcceptedVersion
 , getNodeVersion
+
+-- * Node Information
+, RemoteNodeInfo(..)
+, NodeInfoException(..)
+, getRemoteNodeInfo
+, requestRemoteNodeInfo
 ) where
 
 import Control.DeepSeq
--- import Control.Retry
+import Control.Monad
+import Control.Monad.Catch
 
 import Data.Aeson
 import Data.Bifunctor
+import qualified Data.ByteString as B
 import qualified Data.CaseInsensitive as CI
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
+import Data.Time.Clock.POSIX
 
 import GHC.Generics
 
 import qualified Network.HTTP.Client as HTTP
+import qualified Network.HTTP.Types as HTTP
 
 -- internal modules
 
@@ -46,7 +60,8 @@ import Chainweb.Version
 -- Chainweb Node Version
 
 newtype NodeVersion = NodeVersion { _getNodeVersion :: [Int] }
-    deriving (Show, Eq, Ord, Generic, NFData)
+    deriving (Show, Eq, Ord, Generic)
+    deriving newtype (NFData)
 
 instance HasTextRepresentation NodeVersion where
     toText (NodeVersion l) = T.intercalate "." $ sshow <$> l
@@ -93,7 +108,7 @@ getNodeVersion mgr ver addr maybeReq = do
                 $ "missing " <> CI.original chainwebNodeVersionHeaderName <> " header"
             Just x ->
                 Right x
-        first sshow $ fromText $ T.decodeUtf8 $ h
+        first sshow $ fromText $ T.decodeUtf8 h
   where
     -- policy = exponentialBackoff 100 <> limitRetries 2
 
@@ -136,3 +151,81 @@ cutReq ver addr = HTTP.defaultRequest
     , HTTP.checkResponse = HTTP.throwErrorStatusCodes
     , HTTP.requestHeaders = [chainwebNodeVersionHeader]
     }
+
+-- -------------------------------------------------------------------------- --
+-- Node Info
+
+data NodeInfoException
+    = VersionHeaderMissing !HostAddress
+    | ServerTimestampHeaderMissing !HostAddress
+    | PeerAddrHeaderMissing !HostAddress
+    | HeaderFormatException !HostAddress !SomeException
+    | NodeInfoConnectionFailure !HostAddress !SomeException
+    | NodeInfoUnsupported !HostAddress
+        -- ^ this constructor can be removed once all nodes are running
+        -- version 2.4 or larger
+    deriving (Show, Generic)
+
+instance Exception NodeInfoException
+
+data RemoteNodeInfo = RemoteNodeInfo
+    { _remoteNodeInfoVersion :: !NodeVersion
+    , _remoteNodeInfoTimestamp :: !POSIXTime
+    , _remoteNodeInfoAddr :: !HostAddress
+    }
+    deriving (Show, Eq, Ord, Generic)
+    deriving anyclass (NFData)
+
+-- | Request NodeInfos from a remote chainweb node.
+--
+-- This function throws 'NodeInfoUnsupported' for remote chainweb nodes
+-- with a node version smaller or equal 2.3.
+--
+requestRemoteNodeInfo
+    :: HTTP.Manager
+    -> ChainwebVersion
+    -> HostAddress
+    -> Maybe T.Text
+    -> IO RemoteNodeInfo
+requestRemoteNodeInfo mgr ver addr maybeReq =
+    tryAllSynchronous reqHdrs >>= \case
+        Left e -> throwM $ NodeInfoConnectionFailure addr e
+        Right x -> getRemoteNodeInfo addr x
+  where
+    reqHdrs = HTTP.responseHeaders <$> HTTP.httpNoBody url mgr
+    url = case maybeReq of
+        Nothing -> cutReq ver addr
+        Just e -> req ver addr e
+
+-- | Obtain 'NodeInfo' of a remote Chainweb node from response headers.
+--
+-- This function throws 'NodeInfoUnsupported' for remote chainweb nodes
+-- with a node version smaller or equal 2.3.
+--
+getRemoteNodeInfo
+    :: forall m
+    . MonadThrow m
+    => HostAddress
+    -> HTTP.ResponseHeaders
+    -> m RemoteNodeInfo
+getRemoteNodeInfo addr hdrs = do
+    vers <- case lookup chainwebNodeVersionHeaderName hdrs of
+        Nothing -> throwM $ VersionHeaderMissing addr
+        Just x -> hdrFromText x
+
+    -- can be removed once all nodes run version 2.4 or larger
+    unless (vers >= NodeVersion [2,3,1]) $ throwM $ NodeInfoUnsupported addr
+
+    RemoteNodeInfo vers
+        <$> case lookup serverTimestampHeaderName hdrs of
+            Nothing -> throwM $ ServerTimestampHeaderMissing addr
+            Just x -> fromIntegral @Int <$> hdrFromText x
+        <*> case lookup peerAddrHeaderName hdrs of
+            Nothing -> throwM $ PeerAddrHeaderMissing addr
+            Just x -> hdrFromText x
+
+  where
+    hdrFromText :: HasTextRepresentation a => B.ByteString -> m a
+    hdrFromText hdr = case fromText (T.decodeUtf8 hdr) of
+        Left e -> throwM $ HeaderFormatException addr e
+        Right x -> return x

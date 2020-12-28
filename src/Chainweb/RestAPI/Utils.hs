@@ -9,6 +9,7 @@
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE MagicHash #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE OverloadedLists #-}
 {-# LANGUAGE OverloadedStrings #-}
@@ -50,6 +51,14 @@ module Chainweb.RestAPI.Utils
 , chainwebNodeVersionHeaderName
 , chainwebNodeVersionHeaderValue
 , chainwebNodeVersionHeader
+
+-- * Server Timestamp Header
+, type ServerTimestampHeaderName
+, serverTimestampHeaderName
+
+-- * Peer Addr Header
+, type PeerAddrHeaderName
+, peerAddrHeaderName
 
 -- * Paging
 , type PageParams
@@ -93,6 +102,7 @@ import qualified Data.Text as T
 
 import GHC.Generics
 import GHC.TypeLits
+import GHC.Exts (proxy#)
 
 import qualified Network.HTTP.Types.Header as HTTP
 import qualified Network.Socket as N
@@ -145,16 +155,34 @@ type ChainwebNodeVersionHeaderName = "X-Chainweb-Node-Version"
 type ChainwebNodeVersionHeaderValue = CURRENT_PACKAGE_VERSION
 
 chainwebNodeVersionHeaderName :: IsString a => CI.FoldCase a => CI.CI a
-chainwebNodeVersionHeaderName = fromString $ symbolVal $ Proxy @ChainwebNodeVersionHeaderName
+chainwebNodeVersionHeaderName = fromString $ symbolVal' (proxy# @ChainwebNodeVersionHeaderName)
 {-# INLINE chainwebNodeVersionHeaderName #-}
 
 chainwebNodeVersionHeaderValue :: IsString a => a
-chainwebNodeVersionHeaderValue = fromString $ symbolVal $ Proxy @ChainwebNodeVersionHeaderValue
+chainwebNodeVersionHeaderValue = fromString $ symbolVal' (proxy# @ChainwebNodeVersionHeaderValue)
 {-# INLINE chainwebNodeVersionHeaderValue #-}
 
 chainwebNodeVersionHeader :: HTTP.Header
 chainwebNodeVersionHeader = (chainwebNodeVersionHeaderName, chainwebNodeVersionHeaderValue)
 {-# INLINE chainwebNodeVersionHeader #-}
+
+-- -------------------------------------------------------------------------- --
+-- Peer Addr header
+
+type PeerAddrHeaderName = "X-Peer-Addr"
+
+peerAddrHeaderName :: IsString a => CI.FoldCase a => CI.CI a
+peerAddrHeaderName = fromString $ symbolVal' (proxy# @PeerAddrHeaderName)
+{-# INLINE peerAddrHeaderName #-}
+
+-- -------------------------------------------------------------------------- --
+-- Server Timestamp header
+
+type ServerTimestampHeaderName = "X-Server-Timestamp"
+
+serverTimestampHeaderName :: IsString a => CI.FoldCase a => CI.CI a
+serverTimestampHeaderName = fromString $ symbolVal' (proxy# @ServerTimestampHeaderName)
+{-# INLINE serverTimestampHeaderName #-}
 
 -- -------------------------------------------------------------------------- --
 -- Paging Utils
