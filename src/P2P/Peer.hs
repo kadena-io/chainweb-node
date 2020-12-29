@@ -253,7 +253,10 @@ peerInfoClientEnv mgr = mkClientEnv mgr . peerBaseUrl . _peerAddr
 data PeerConfig = PeerConfig
     { _peerConfigAddr :: !HostAddress
         -- ^ The public host address of the peer.
+        --
         -- A port number of 0 means that a free port is assigned by the system.
+        -- An IP address of 0.0.0.0 means that the node discovers it's
+        -- external IP address itself.
 
     , _peerConfigInterface :: !HostPreference
         -- ^ The network interface that the peer binds to. Default is to

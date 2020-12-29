@@ -61,7 +61,6 @@ testCertType l = testCaseSteps l $ \step -> do
     step "Generate Certificate"
 
     (fp, cert, key) <- generateLocalhostCertificate @k 1
-    let cred = unsafeMakeCredential (X509CertChainPem cert []) key
 
     step "Start Server"
     bracket openFreePort (close . snd) $ \(p, sock) -> do
@@ -78,7 +77,7 @@ testCertType l = testCaseSteps l $ \step -> do
             let query h (port :: Int) policy = do
                     let uri = "https://" <> h <> ":" <> show port
                     step $ "query " <> uri <> " with " <> showPolicy policy
-                    mgr <- newManager =<< certificateCacheManagerSettings policy (Just cred)
+                    mgr <- newManager =<< certificateCacheManagerSettings policy
                     req <- parseRequest uri
                     rsp <- httpLbs req mgr
                     return (statusIsSuccessful (responseStatus rsp), rsp)
