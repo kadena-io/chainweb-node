@@ -396,6 +396,10 @@ instance HasChainwebVersion ChainwebConfiguration where
 validateChainwebConfiguration :: ConfigValidation ChainwebConfiguration []
 validateChainwebConfiguration c = do
     validateMinerConfig (_configMining c)
+    case _configChainwebVersion c of
+        Mainnet01 -> validateP2pConfiguration (_configP2p c)
+        Testnet04 -> validateP2pConfiguration (_configP2p c)
+        _ -> return ()
     unless (_configNodeIdDeprecated c == Null) $ tell
         [ "Usage NodeId is deprecated. This option will be removed in a future version of chainweb-node"
         , "The value of NodeId is ignored by chainweb-node. In particular the database path will not depend on it"
@@ -547,9 +551,9 @@ withChainweb
     -> (forall cas' . PayloadCasLookup cas' => Chainweb logger cas' -> IO a)
     -> IO a
 withChainweb c logger rocksDb pactDbDir resetDb inner =
-    withPeerResources v (view configP2p conf) logger $ \logger' peer ->
+    withPeerResources v (view configP2p confWithBootstraps) logger $ \logger' peer ->
         withChainwebInternal
-            (set configP2p (_peerResConfig peer) conf)
+            (set configP2p (_peerResConfig peer) confWithBootstraps)
             logger'
             peer
             rocksDb
@@ -561,8 +565,9 @@ withChainweb c logger rocksDb pactDbDir resetDb inner =
 
     -- Here we inject the hard-coded bootstrap peer infos for the configured
     -- chainweb version into the configuration.
-    conf | _p2pConfigIgnoreBootstrapNodes (_configP2p c) = c
-         | otherwise = configP2p . p2pConfigKnownPeers <>~ bootstrapPeerInfos v $ c
+    confWithBootstraps
+        | _p2pConfigIgnoreBootstrapNodes (_configP2p c) = c
+        | otherwise = configP2p . p2pConfigKnownPeers <>~ bootstrapPeerInfos v $ c
 
 -- TODO: The type InMempoolConfig contains parameters that should be
 -- configurable as well as parameters that are determined by the chainweb

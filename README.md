@@ -187,7 +187,27 @@ cabal v2-install
 
 ## Bootstrap Nodes
 
-### Testnet Nodes
+Bootstrap nodes are used by chainweb-nodes on startup in order to discover other
+nodes in the network. A least one of the bootstrap nodes must be trusted.
+
+Chainweb node operators can configure additional bootstrap nodes by using the
+`--known-peer-info` command line option or in a configuration file. It is also
+possible to ignore the builtin bootstrap nodes by using the
+`--enable-ignore-bootstrap-nodes` option or the respective configuration file
+setting.
+
+Bootstrap nodes must have public DNS names and a corresponding TLS certificate
+that is issued by an widely accepted CA (a minimum requirement is acceptance by
+the OpenSSL library).
+
+Operators of bootstrap nodes are expected be committed to guarantee long-term
+availability of the nodes. The list of builtin bootstrap nodes should be kept
+up-to-date and concise for each chainweb-node release.
+
+If you like to have your node included as a bootstrap node please make a pull
+request that adds your node to [P2P.BootstrapNodes module](src/P2P/BootstrapNodes.hs).
+
+### Current Testnet Bootstrap Nodes
 
 - us1.testnet.chainweb.com
 - us2.testnet.chainweb.com
@@ -196,7 +216,7 @@ cabal v2-install
 - ap1.testnet.chainweb.com
 - ap2.testnet.chainweb.com
 
-### Mainnet Nodes
+### Current Mainnet Bootstrap Nodes
 
 All bootstrap nodes are running on port 443.
 
