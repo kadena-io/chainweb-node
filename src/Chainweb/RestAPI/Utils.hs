@@ -102,7 +102,6 @@ import qualified Data.Text as T
 
 import GHC.Generics
 import GHC.TypeLits
-import GHC.Exts (proxy#)
 
 import qualified Network.HTTP.Types.Header as HTTP
 import qualified Network.Socket as N
@@ -155,11 +154,11 @@ type ChainwebNodeVersionHeaderName = "X-Chainweb-Node-Version"
 type ChainwebNodeVersionHeaderValue = CURRENT_PACKAGE_VERSION
 
 chainwebNodeVersionHeaderName :: IsString a => CI.FoldCase a => CI.CI a
-chainwebNodeVersionHeaderName = fromString $ symbolVal' (proxy# @ChainwebNodeVersionHeaderName)
+chainwebNodeVersionHeaderName = fromString $ symbolVal (Proxy @ChainwebNodeVersionHeaderName)
 {-# INLINE chainwebNodeVersionHeaderName #-}
 
 chainwebNodeVersionHeaderValue :: IsString a => a
-chainwebNodeVersionHeaderValue = fromString $ symbolVal' (proxy# @ChainwebNodeVersionHeaderValue)
+chainwebNodeVersionHeaderValue = fromString $ symbolVal (Proxy @ChainwebNodeVersionHeaderValue)
 {-# INLINE chainwebNodeVersionHeaderValue #-}
 
 chainwebNodeVersionHeader :: HTTP.Header
@@ -172,7 +171,7 @@ chainwebNodeVersionHeader = (chainwebNodeVersionHeaderName, chainwebNodeVersionH
 type PeerAddrHeaderName = "X-Peer-Addr"
 
 peerAddrHeaderName :: IsString a => CI.FoldCase a => CI.CI a
-peerAddrHeaderName = fromString $ symbolVal' (proxy# @PeerAddrHeaderName)
+peerAddrHeaderName = fromString $ symbolVal (Proxy @PeerAddrHeaderName)
 {-# INLINE peerAddrHeaderName #-}
 
 -- -------------------------------------------------------------------------- --
@@ -181,7 +180,7 @@ peerAddrHeaderName = fromString $ symbolVal' (proxy# @PeerAddrHeaderName)
 type ServerTimestampHeaderName = "X-Server-Timestamp"
 
 serverTimestampHeaderName :: IsString a => CI.FoldCase a => CI.CI a
-serverTimestampHeaderName = fromString $ symbolVal' (proxy# @ServerTimestampHeaderName)
+serverTimestampHeaderName = fromString $ symbolVal (Proxy @ServerTimestampHeaderName)
 {-# INLINE serverTimestampHeaderName #-}
 
 -- -------------------------------------------------------------------------- --
