@@ -22,9 +22,7 @@ module Chainweb.Miner.Config
 , validateMinerConfig
 , CoordinationConfig(..)
 , coordinationEnabled
-, coordinationMode
 , coordinationMiners
-, CoordinationMode(..)
 , NodeMiningConfig(..)
 , defaultNodeMining
 , nodeMiningEnabled
@@ -100,12 +98,9 @@ data CoordinationConfig = CoordinationConfig
     { _coordinationEnabled :: !Bool
       -- ^ Is mining coordination enabled? If not, the @/mining/@ won't even be
       -- present on the node.
-    , _coordinationMode :: !CoordinationMode
-      -- ^ `Public` or `Private`.
     , _coordinationMiners :: !(S.Set Miner)
-      -- ^ When the mode is set to `Private`, this field must contain at least
-      -- one `Miner` identity in order for work requests to be made.
-      -- Further, such miners are eligible for "Primed Coordination".
+      -- ^ This field must contain at least one `Miner` identity in order for
+      -- work requests to be made.
     , _coordinationReqLimit :: !Int
       -- ^ The number of @/mining/work/@ requests that can be made to this node
       -- in a 5 minute period.
@@ -120,9 +115,6 @@ coordinationEnabled = lens _coordinationEnabled (\m c -> m { _coordinationEnable
 
 coordinationLimit :: Lens' CoordinationConfig Int
 coordinationLimit = lens _coordinationReqLimit (\m c -> m { _coordinationReqLimit = c })
-
-coordinationMode :: Lens' CoordinationConfig CoordinationMode
-coordinationMode = lens _coordinationMode (\m c -> m { _coordinationMode = c })
 
 coordinationMiners :: Lens' CoordinationConfig (S.Set Miner)
 coordinationMiners = lens _coordinationMiners (\m c -> m { _coordinationMiners = c })
@@ -139,7 +131,6 @@ instance ToJSON CoordinationConfig where
     toJSON o = object
         [ "enabled" .= _coordinationEnabled o
         , "limit" .= _coordinationReqLimit o
-        , "mode" .= _coordinationMode o
         , "miners" .= _coordinationMiners o
         , "updateStreamLimit" .= _coordinationUpdateStreamLimit o
         , "updateStreamTimeout" .= _coordinationUpdateStreamTimeout o
@@ -149,7 +140,6 @@ instance FromJSON (CoordinationConfig -> CoordinationConfig) where
     parseJSON = withObject "CoordinationConfig" $ \o -> id
         <$< coordinationEnabled ..: "enabled" % o
         <*< coordinationLimit ..: "limit" % o
-        <*< coordinationMode ..: "mode" % o
         <*< coordinationMiners ..: "miners" % o
         <*< coordinationUpdateStreamLimit ..: "updateStreamLimit" % o
         <*< coordinationUpdateStreamTimeout ..: "updateStreamTimeout" % o
@@ -157,26 +147,11 @@ instance FromJSON (CoordinationConfig -> CoordinationConfig) where
 defaultCoordination :: CoordinationConfig
 defaultCoordination = CoordinationConfig
     { _coordinationEnabled = False
-    , _coordinationMode = Private
     , _coordinationMiners = mempty
     , _coordinationReqLimit = 1200
     , _coordinationUpdateStreamLimit = 2000
     , _coordinationUpdateStreamTimeout = 240
     }
-
--- | When `Public`, anyone can make Mining work requests to this node.
--- When `Private`, only designated Miners can do so.
-data CoordinationMode = Public | Private
-    deriving stock (Eq, Show)
-
-instance ToJSON CoordinationMode where
-    toJSON Public = "public"
-    toJSON Private = "private"
-
-instance FromJSON CoordinationMode where
-    parseJSON (String "private") = pure Private
-    parseJSON (String "public") = pure Public
-    parseJSON _ = fail "Failed to parse CoordinationMode. Expected 'private' or 'public'."
 
 data NodeMiningConfig = NodeMiningConfig
     { _nodeMiningEnabled :: !Bool

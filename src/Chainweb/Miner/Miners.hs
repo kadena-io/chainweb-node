@@ -91,7 +91,7 @@ localTest lf v tpw m cdb gen miners = runForever lf "Chainweb.Miner.Miners.local
     loop :: IO a
     loop = do
         c <- _cut cdb
-        T2 wh pd <- newWork lf Anything (Plebian m) hdb pact tpw c
+        T2 wh pd <- newWork lf Anything m hdb pact tpw c
         let height = c ^?! ixg (_workHeaderChainId wh) . blockHeight
         work height wh >>= publish lf cdb (view minerId m) pd
         void $ awaitNewCut cdb c
@@ -150,7 +150,7 @@ localPOW lf v tpw m cdb = runForever lf "Chainweb.Miner.Miners.localPOW" loop
     loop :: IO a
     loop = do
         c <- _cut cdb
-        T2 wh pd <- newWork lf Anything (Plebian m) hdb pact tpw c
+        T2 wh pd <- newWork lf Anything m hdb pact tpw c
         race (awaitNewCutByChainId cdb (_workHeaderChainId wh) c) (work wh) >>= \case
             Left _ -> loop
             Right new -> do

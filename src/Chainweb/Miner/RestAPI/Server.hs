@@ -23,14 +23,13 @@ module Chainweb.Miner.RestAPI.Server where
 import Control.Concurrent.STM.TVar
     (TVar, modifyTVar', readTVar, readTVarIO, registerDelay)
 import Control.Lens (over, view)
-import Control.Monad (when)
+import Control.Monad (when, unless)
 import Control.Monad.Catch (bracket, finally, try)
 import Control.Monad.Except (throwError)
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.STM (atomically)
 
 import Data.Binary.Builder (fromByteString)
-import Data.Bool (bool)
 import Data.Generics.Wrapped (_Unwrapped)
 import Data.IORef (IORef, atomicModifyIORef', newIORef, readIORef, writeIORef)
 import qualified Data.Map.Strict as M
@@ -88,19 +87,18 @@ workHandler mr mcid m@(Miner (MinerId mid) _) = do
         throwError err503 { errBody = "Too many work requests" }
     let !conf = _coordConf mr
         !primed = S.member m $ _coordinationMiners conf
-        !miner = bool (Plebian m) (Primed m) primed
-    when (_coordinationMode conf == Private && not primed) $ do
+    unless primed $ do
         liftIO $ atomicModifyIORef' (_coord403s mr) (\c -> (c + 1, ()))
         let midb = TL.encodeUtf8 $ TL.fromStrict mid
         throwError err403 { errBody = "Unauthorized Miner: " <> midb }
-    liftIO $ workHandler' mr mcid miner
+    liftIO $ workHandler' mr mcid m
 
 workHandler'
     :: forall l cas
     .  Logger l
     => MiningCoordination l cas
     -> Maybe ChainId
-    -> MinerStatus
+    -> Miner
     -> IO WorkBytes
 workHandler' mr mcid m = do
     c <- _cut cdb
@@ -111,7 +109,7 @@ workHandler' mr mcid m = do
         . modifyTVar' (_coordState mr)
         . over _Unwrapped
         . M.insert key
-        $ T3 (minerStatus m) pd now
+        $ T3 m pd now
     return $ WorkBytes $ runPut $ encodeWorkHeader wh
   where
     logf :: LogFunction

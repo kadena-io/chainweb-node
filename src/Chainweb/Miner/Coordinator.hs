@@ -28,7 +28,7 @@ module Chainweb.Miner.Coordinator
 , PrevTime(..)
 , ChainChoice(..)
 , PrimedWork(..)
-, MinerStatus(..), minerStatus
+
   -- * Functions
 , newWork
 , publish
@@ -36,7 +36,7 @@ module Chainweb.Miner.Coordinator
 
 import Control.Concurrent.STM.TVar
 import Control.DeepSeq (NFData)
-import Control.Lens (view, (^?!))
+import Control.Lens (view)
 import Control.Monad
 import Control.Monad.Catch
 
@@ -74,8 +74,6 @@ import Chainweb.Version.Utils
 import Chainweb.WebBlockHeaderDB
 
 import Data.LogMessage (JsonLog(..), LogFunction)
-
-import Utils.Logging.Trace (trace)
 
 -- -------------------------------------------------------------------------- --
 -- Utils
@@ -134,21 +132,12 @@ newtype PrevTime = PrevTime BlockCreationTime
 
 data ChainChoice = Anything | TriedLast ChainId | Suggestion ChainId
 
--- | A `Miner`'s status. Will be `Primed` if defined in the nodes `miners` list.
--- This affects whether to serve the Miner primed payloads.
---
-data MinerStatus = Primed Miner | Plebian Miner
-
-minerStatus :: MinerStatus -> Miner
-minerStatus (Primed m) = m
-minerStatus (Plebian m) = m
-
 -- | Construct a new `BlockHeader` to mine on.
 --
 newWork
     :: LogFunction
     -> ChainChoice
-    -> MinerStatus
+    -> Miner
     -> WebBlockHeaderDb
         -- ^ this is used to lookup parent headers that are not in the cut
         -- itself.
@@ -156,7 +145,7 @@ newWork
     -> TVar PrimedWork
     -> Cut
     -> IO (T2 WorkHeader PayloadData)
-newWork logFun choice eminer hdb pact tpw c = do
+newWork logFun choice eminer@(Miner mid _) hdb pact tpw c = do
 
     -- Randomly pick a chain to mine on, unless the caller specified a specific
     -- one.
@@ -164,13 +153,11 @@ newWork logFun choice eminer hdb pact tpw c = do
     cid <- chainChoice c choice
     logFun @T.Text Debug $ "newWork: picked chain " <> sshow cid
 
-    mr <- case eminer of
-        Primed m -> primed m cid <$> readTVarIO tpw
-        Plebian m -> do
-            logFun @T.Text Debug
-                $ "newWork: call getCutExtension for chain "
-                <> sshow cid <> " on cut " <> cutIdToTextShort (_cutId c)
-            public m cid
+    PrimedWork pw <- readTVarIO tpw
+    let mr = T2
+            <$> join (HM.lookup mid pw >>= HM.lookup cid)
+            <*> getCutExtension c cid
+
     case mr of
         Nothing -> do
             logFun @T.Text Debug $ "newWork: chain " <> sshow cid <> " not mineable"
@@ -179,37 +166,6 @@ newWork logFun choice eminer hdb pact tpw c = do
             let !phash = _payloadDataPayloadHash payload
             !wh <- newWorkHeader hdb extension phash
             pure $ T2 wh payload
-  where
-    primed
-        :: Miner
-        -> ChainId
-        -> PrimedWork
-        -> Maybe (T2 PayloadData CutExtension)
-    primed (Miner mid _) cid (PrimedWork pw) = T2
-        <$> join (HM.lookup mid pw >>= HM.lookup cid)
-        <*> getCutExtension c cid
-
-    public
-        :: Miner
-        -> ChainId
-        -> IO (Maybe (T2 PayloadData CutExtension))
-    public miner cid = case getCutExtension c cid of
-        Nothing -> do
-            logFun @T.Text Debug
-                $ "newWork.public: failed to get adjacent parents."
-                <> " Parent: " <> encodeToText (ObjectEncoded $ c ^?! ixg cid)
-                <> " Cuthashes: " <> encodeToText (cutToCutHashes Nothing c)
-            pure Nothing
-        Just ext -> do
-            logFun @T.Text Debug
-                $ "newWork.public: got extension."
-                <> " Parent: " <> encodeToText (ObjectEncoded $ _parentHeader $ _cutExtensionParent ext)
-                <> " Adjacents: " <> encodeToText (_cutExtensionAdjacentHashes ext)
-                <> " Cuthashes: " <> encodeToText (cutToCutHashes Nothing (_cutExtensionCut ext))
-            -- This is an expensive call --
-            payload <- trace logFun "Chainweb.Miner.Coordinator.newWork.newBlock" () 1
-                (_pactNewBlock pact miner $ _cutExtensionParent ext)
-            pure . Just $ T2 (payloadWithOutputsToPayloadData payload) ext
 
 chainChoice :: Cut -> ChainChoice -> IO ChainId
 chainChoice c choice = case choice of
