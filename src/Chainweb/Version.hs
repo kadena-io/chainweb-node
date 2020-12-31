@@ -847,7 +847,7 @@ enablePactEvents :: ChainwebVersion -> BlockHeight -> Bool
 enablePactEvents Mainnet01 bh = bh >= 1138000
 enablePactEvents Testnet04 bh = bh >= 660000
 enablePactEvents Development bh = bh >= 120
-enablePactEvents (FastTimedCPM g) _ = g == singletonChainGraph -- For testing events
+enablePactEvents (FastTimedCPM g) _ = g == singletonChainGraph || g == pairChainGraph -- For testing events
 enablePactEvents _ bh = bh >= 2
 
 -- | Bridge support: ETH and event SPV.

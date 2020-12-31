@@ -95,8 +95,9 @@ import Data.LogMessage
 tests :: TestTree
 tests = testGroup "Chainweb.Test.Pact.SPV"
     [ testCaseSteps "standard SPV verification round trip" standard
-    , testCaseSteps "standardTXOUT" standardTXOUT
-    , testCaseSteps "standardTXOUTNew" standardTXOUTNew
+    , testCaseSteps "contTXOUT" contTXOUT
+    , testCaseSteps "contTXOUTNew" contTXOUTNew
+    , testCaseSteps "tfrTXOUTNew" tfrTXOUTNew
     , testCaseSteps "wrong chain execution fails" wrongChain
     , testCaseSteps "invalid proof formats fail" invalidProof
     , testCaseSteps "wrong target chain in proofs fail" wrongChainProof
@@ -128,8 +129,8 @@ standard step = do
   checkResult c1 0 "ObjectMap"
   checkResult c3 1 "Write succeeded"
 
-standardTXOUT :: (String -> IO ()) -> Assertion
-standardTXOUT step = do
+contTXOUT :: (String -> IO ()) -> Assertion
+contTXOUT step = do
   (c1,c3) <- roundtrip 0 1 burnGen (createVerify code) step
   checkResult c1 0 "ObjectMap"
   checkResult' c3 1 $ PactResult $ Right $ PLiteral $ LString rSuccessTXOUT
@@ -141,8 +142,8 @@ standardTXOUT step = do
            \  (enforce (= (at 'amount spv) 1.0) fail) \
            \  \"TXOUT Success\")"
 
-standardTXOUTNew :: (String -> IO ()) -> Assertion
-standardTXOUTNew step = do
+contTXOUTNew :: (String -> IO ()) -> Assertion
+contTXOUTNew step = do
   (c1,c3) <- roundtrip' (FastTimedCPM pairChainGraph) 0 1 burnGen (createVerify code) step
   checkResult c1 0 "ObjectMap"
   checkResult' c3 1 $ PactResult $ Right $ PLiteral $ LString rSuccessTXOUT
@@ -162,6 +163,23 @@ standardTXOUTNew step = do
            \  (enforce (= (at 'pact-id cont) \"rwFh_qoxumclpxZj6QIo5GOM0CmE5AztlKukhFCRTVA\") fail) \
            \  (enforce (= (at 'name app) \"coin.transfer-crosschain\") fail) \
            \  (enforce (= (at 'events spv) []) fail) \
+           \  \"TXOUT Success\")"
+
+tfrTXOUTNew :: (String -> IO ()) -> Assertion
+tfrTXOUTNew step = do
+  (c1,c3) <- roundtrip' (FastTimedCPM pairChainGraph) 0 1 transferGen (createVerify code) step
+  checkResult c1 0 "Write succeeded"
+  checkResult' c3 1 $ PactResult $ Right $ PLiteral $ LString rSuccessTXOUT
+  where
+    code = "(let* \
+           \  ( (spv (verify-spv 'TXOUT (read-msg))) \
+           \    (event (at 0 (at 'events spv))) \
+           \    (fail (format \"Failure, result={}\" [spv])) ) \
+           \  (enforce (= (at 'result spv) \"Write succeeded\") fail) \
+           \  (enforce (= (at 'module event) 'coin) fail) \
+           \  (enforce (= (at 'name event) 'TRANSFER) fail) \
+           \  (enforce (= (at 'params event) ['sender00 'sender01 1.0]) fail) \
+           \  (enforce (= (at 'module-hash event) \"ut_J_ZNkoyaPUEJhiwVeWnkSQn9JT9sQCWKdjjVVrWo\") fail) \
            \  \"TXOUT Success\")"
 
 
@@ -385,6 +403,42 @@ burnGen time pidv sid tid = do
          [ "sender01-keyset" .= ks
          , "target-chain-id" .= chainIdToText tid
          ]
+
+-- | Generate arbitrary coin.transfer call.
+--
+transferGen :: BurnGenerator
+transferGen time pidv sid _tid = do
+    ref0 <- newIORef False
+    ref1 <- newIORef False
+    return $ go ref0 ref1
+  where
+    go ref0 ref1 _cid _bhe _bha _
+      | sid /= _cid = return mempty
+      | otherwise = readIORef ref0 >>= \case
+        True -> return mempty
+        False -> do
+            readIORef ref1 >>= \case
+              True -> return mempty
+              False -> do
+                cmd <- buildCwCmd $
+                  set cbSigners
+                    [mkSigner' sender00
+                       [mkTransferCap "sender00" "sender01" 1.0
+                       ,mkGasCap]] $
+                  set cbCreationTime (toTxCreationTime time) $
+                  set cbChainId sid $
+                  mkCmd "0" $
+                  mkExec' tx1Code
+                writeIORef ref0 True
+
+                let pid = toPactId $ toUntypedHash $ _cmdHash cmd
+
+                putMVar pidv pid `finally` writeIORef ref1 True
+                return $ Vector.singleton cmd
+
+
+
+    tx1Code = "(coin.transfer 'sender00 'sender01 1.0)"
 
 createCont
   :: ChainId

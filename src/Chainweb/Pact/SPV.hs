@@ -100,9 +100,10 @@ verifySPV bdb bh typ proof = go typ proof
 
     mkSPVResult' cr j
         | CW.enableSPVBridge (_blockChainwebVersion bh) (_blockHeight bh) =
-          mkSPVResult cr j
-        | otherwise = j
-
+          return $ Right $ mkSPVResult cr j
+        | otherwise = case fromPactValue j of
+            TObject o _ -> return $ Right $ o
+            _ -> return $ Left "spv-verified tx output has invalid type"
 
     go s o = case s of
       "TXOUT" -> case extractProof o of
@@ -129,10 +130,8 @@ verifySPV bdb bh typ proof = go typ proof
 
             case _crResult q of
               PactResult Left{} ->
-                return (Left "invalid command result in tx output proof")
-              PactResult (Right v) -> case fromPactValue v of
-                TObject !j _ -> return $ Right $ mkSPVResult' q j
-                _ -> return $ Left "spv-verified tx output has invalid type"
+                return (Left "Failed command result in tx output proof")
+              PactResult (Right v) -> mkSPVResult' q v
 
       t -> return . Left $! "unsupported SPV types: " <> t
 
@@ -238,10 +237,10 @@ getTxIdx bdb pdb bh th = do
 
 
 
-mkSPVResult :: CommandResult Hash -> Object Name -> Object Name
+mkSPVResult :: CommandResult Hash -> PactValue -> Object Name
 mkSPVResult CommandResult{..} j =
     Object (ObjectMap $ M.fromList $
-            [ ("result",TObject j def)
+            [ ("result", fromPactValue j)
             , ("reqkey", tStr $ asString $ unRequestKey _crReqKey)
             , ("txid", tStr $ maybe "" asString _crTxId)
             , ("gas", toTerm $ (fromIntegral _crGas :: Integer))
@@ -284,6 +283,7 @@ mkSPVResult CommandResult{..} j =
         [ ("name", toTerm _eventName)
         , ("params", toTList TyAny def (map fromPactValue _eventParams))
         , ("module", tStr $ asString _eventModule)
+        , ("module-hash", tStr $ asString _eventModuleHash)
         ]
 
     obj = toTObject TyAny def
