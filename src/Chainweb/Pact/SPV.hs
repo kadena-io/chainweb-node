@@ -1,3 +1,4 @@
+{-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
@@ -31,6 +32,7 @@ import Control.Monad.Catch
 
 import Data.Aeson hiding (Object, (.=))
 import Data.Default (def)
+import qualified Data.Map.Strict as M
 import Data.Text (Text, pack)
 import qualified Data.Text.Encoding as T
 
@@ -72,10 +74,10 @@ import Pact.Types.SPV
 pactSPV
     :: BlockHeaderDb
       -- ^ handle into the cutdb
-    -> BlockHash
+    -> BlockHeader
       -- ^ the context for verifying the proof
     -> SPVSupport
-pactSPV bdb bh = SPVSupport (verifySPV bdb bh) (verifyCont bdb bh)
+pactSPV bdb bh = SPVSupport (verifySPV bdb bh) (verifyCont bdb (_blockHash bh))
 
 -- | SPV transaction verification support. Calls to 'verify-spv' in Pact
 -- will thread through this function and verify an SPV receipt, making the
@@ -84,7 +86,7 @@ pactSPV bdb bh = SPVSupport (verifySPV bdb bh) (verifyCont bdb bh)
 verifySPV
     :: BlockHeaderDb
       -- ^ handle into the cut db
-    -> BlockHash
+    -> BlockHeader
         -- ^ the context for verifying the proof
     -> Text
       -- ^ TXOUT or TXIN - defines the type of proof
@@ -95,6 +97,13 @@ verifySPV
 verifySPV bdb bh typ proof = go typ proof
   where
     cid = CW._chainId bdb
+
+    mkSPVResult' cr j
+        | CW.enableSPVBridge (_blockChainwebVersion bh) (_blockHeight bh) =
+          mkSPVResult cr j
+        | otherwise = j
+
+
     go s o = case s of
       "TXOUT" -> case extractProof o of
         Left t -> return (Left t)
@@ -112,7 +121,7 @@ verifySPV bdb bh typ proof = go typ proof
             --  3. Extract tx outputs as a pact object and return the
             --  object.
 
-            TransactionOutput p <- verifyTransactionOutputProofAt_ bdb u bh
+            TransactionOutput p <- verifyTransactionOutputProofAt_ bdb u (_blockHash bh)
 
             q <- case decodeStrict' p :: Maybe (CommandResult Hash) of
               Nothing -> internalError "unable to decode spv transaction output"
@@ -122,10 +131,12 @@ verifySPV bdb bh typ proof = go typ proof
               PactResult Left{} ->
                 return (Left "invalid command result in tx output proof")
               PactResult (Right v) -> case fromPactValue v of
-                TObject !j _ -> return (Right j)
+                TObject !j _ -> return $ Right $ mkSPVResult' q j
                 _ -> return $ Left "spv-verified tx output has invalid type"
 
       t -> return . Left $! "unsupported SPV types: " <> t
+
+
 
 -- | SPV defpact transaction verification support. This call validates a pact 'endorsement'
 -- in Pact, providing a validation that the yield data of a cross-chain pact is valid.
@@ -224,3 +235,57 @@ getTxIdx bdb pdb bh th = do
 
     sindex :: Monad m => (a -> Bool) -> S.Stream (S.Of a) m () -> m (Maybe Natural)
     sindex p s = S.zip (S.each [0..]) s & sfind (p . snd) & fmap (fmap fst)
+
+
+
+mkSPVResult :: CommandResult Hash -> Object Name -> Object Name
+mkSPVResult CommandResult{..} j =
+    Object (ObjectMap $ M.fromList $
+            [ ("result",TObject j def)
+            , ("reqkey", tStr $ asString $ unRequestKey _crReqKey)
+            , ("txid", tStr $ maybe "" asString _crTxId)
+            , ("gas", toTerm $ (fromIntegral _crGas :: Integer))
+            , ("meta", maybe empty metaField _crMetaData)
+            , ("cont", maybe empty contField _crContinuation)
+            , ("events", toTList TyAny def $ map eventField _crEvents)
+            ])
+    TyAny Nothing def
+  where
+    metaField v = case fromJSON v of
+      Error _ -> obj []
+      Success p -> fromPactValue p
+
+    contField PactExec{..} = obj
+        [ ("step", toTerm _peStep)
+        , ("step-count", toTerm _peStepCount)
+        , ("yield", maybe empty yieldField _peYield)
+        , ("pact-id", toTerm _pePactId)
+        , ("cont",contField1 _peContinuation)
+        , ("step-has-rollback",toTerm _peStepHasRollback)
+        , ("executed",tStr $ maybe "" sshow _peExecuted)
+        ]
+
+    contField1 PactContinuation {..} = obj
+        [ ("name",tStr $ asString _pcDef)
+        , ("args",toTList TyAny def $ map fromPactValue _pcArgs)
+        ]
+
+    yieldField Yield {..} = obj
+        [ ("data",fromPactValue (PObject _yData))
+        , ("provenance", maybe empty provField _yProvenance)
+        ]
+
+    provField Provenance {..} = obj
+        [ ("target-chain", toTerm $ _chainId _pTargetChainId)
+        , ("module-hash", tStr $ asString $ _mhHash $ _pModuleHash)
+        ]
+
+    eventField PactEvent {..} = obj
+        [ ("name", toTerm _eventName)
+        , ("params", toTList TyAny def (map fromPactValue _eventParams))
+        , ("module", tStr $ asString _eventModule)
+        ]
+
+    obj = toTObject TyAny def
+
+    empty = obj []

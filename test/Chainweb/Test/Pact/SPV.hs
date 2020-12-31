@@ -55,7 +55,9 @@ import Test.Tasty.HUnit
 -- internal pact modules
 
 import Pact.Types.Command
+import Pact.Types.Exp
 import Pact.Types.Hash
+import Pact.Types.PactValue
 import Pact.Types.Runtime (toPactId)
 import Pact.Types.SPV
 import Pact.Types.Term
@@ -93,13 +95,15 @@ import Data.LogMessage
 tests :: TestTree
 tests = testGroup "Chainweb.Test.Pact.SPV"
     [ testCaseSteps "standard SPV verification round trip" standard
+    , testCaseSteps "standardTXOUT" standardTXOUT
+    , testCaseSteps "standardTXOUTNew" standardTXOUTNew
     , testCaseSteps "wrong chain execution fails" wrongChain
     , testCaseSteps "invalid proof formats fail" invalidProof
     , testCaseSteps "wrong target chain in proofs fail" wrongChainProof
     ]
 
-v :: ChainwebVersion
-v = FastTimedCPM triangleChainGraph
+testVer :: ChainwebVersion
+testVer = FastTimedCPM triangleChainGraph
 
 logg :: LogMessage a => LogLevel -> a -> IO ()
 logg l
@@ -124,6 +128,45 @@ standard step = do
   checkResult c1 0 "ObjectMap"
   checkResult c3 1 "Write succeeded"
 
+standardTXOUT :: (String -> IO ()) -> Assertion
+standardTXOUT step = do
+  (c1,c3) <- roundtrip 0 1 burnGen (createSuccessTXOUT code) step
+  checkResult c1 0 "ObjectMap"
+  checkResult' c3 1 $ PactResult $ Right $ PLiteral $ LString rSuccessTXOUT
+  where
+    code = "(let* \
+           \  ( (spv (verify-spv 'TXOUT (read-msg))) \
+           \    (fail (format \"Failure, result={}\" [spv])) ) \
+           \  (enforce (= (at 'receiver spv) 'sender01) fail) \
+           \  (enforce (= (at 'amount spv) 1.0) fail) \
+           \  \"TXOUT Success\")"
+
+standardTXOUTNew :: (String -> IO ()) -> Assertion
+standardTXOUTNew step = do
+  (c1,c3) <- roundtrip' (FastTimedCPM pairChainGraph) 0 1 burnGen (createSuccessTXOUT code) step
+  checkResult c1 0 "ObjectMap"
+  checkResult' c3 1 $ PactResult $ Right $ PLiteral $ LString rSuccessTXOUT
+  where
+    code = "(let* \
+           \  ( (spv (verify-spv 'TXOUT (read-msg))) \
+           \    (result (at 'result spv)) \
+           \    (cont (at 'cont spv)) \
+           \    (y (at 'yield cont)) \
+           \    (prov (at 'provenance y)) \
+           \    (app (at 'cont cont)) \
+           \    (fail (format \"Failure, result={}\" [spv])) ) \
+           \  (enforce (= (at 'receiver result) 'sender01) fail) \
+           \  (enforce (= (at 'amount result) 1.0) fail) \
+           \  (enforce (= (at 'module-hash prov) \"ut_J_ZNkoyaPUEJhiwVeWnkSQn9JT9sQCWKdjjVVrWo\") fail) \
+           \  (enforce (= (at 'target-chain prov) \"1\") fail) \
+           \  (enforce (= (at 'pact-id cont) \"rwFh_qoxumclpxZj6QIo5GOM0CmE5AztlKukhFCRTVA\") fail) \
+           \  (enforce (= (at 'name app) \"coin.transfer-crosschain\") fail) \
+           \  (enforce (= (at 'events spv) []) fail) \
+           \  \"TXOUT Success\")"
+
+
+rSuccessTXOUT :: Text
+rSuccessTXOUT = "TXOUT Success"
 
 wrongChain :: (String -> IO ()) -> Assertion
 wrongChain step = do
@@ -149,6 +192,13 @@ checkResult co ci expect =
   assertSatisfies ("result on chain " ++ show ci ++ " contains '" ++ show expect ++ "'")
     (HM.lookup (unsafeChainId ci) co) (isInfixOf expect . show)
 
+checkResult' :: HasCallStack => CutOutputs -> Word32 -> PactResult -> Assertion
+checkResult' co ci expect = case HM.lookup (unsafeChainId ci) co of
+  Nothing -> assertFailure $ "No result found for chain " ++ show ci
+  Just v -> case Vector.toList v of
+    [(_,cr)] -> assertEqual "pact results match" expect (_crResult cr)
+    _ -> assertFailure $ "expected single result, got " ++ show v
+
 
 
 getCutOutputs :: TestBlockDb -> IO CutOutputs
@@ -158,8 +208,8 @@ getCutOutputs (TestBlockDb _ pdb cmv) = do
 
 -- | Populate blocks for every chain of the current cut. Uses provided pact
 -- service to produce a new block, add it
-runCut' :: TestBlockDb -> WebPactExecutionService -> IO CutOutputs
-runCut' bdb pact = do
+runCut' :: ChainwebVersion -> TestBlockDb -> WebPactExecutionService -> IO CutOutputs
+runCut' v bdb pact = do
   runCut v bdb pact (offsetBlockTime second) zeroNoncer
   getCutOutputs bdb
 
@@ -175,7 +225,21 @@ roundtrip
       -- ^ create tx generator
     -> (String -> IO ())
     -> IO (CutOutputs, CutOutputs)
-roundtrip sid0 tid0 burn create step = withTestBlockDb v $ \bdb -> do
+roundtrip = roundtrip' testVer
+
+roundtrip'
+    :: ChainwebVersion
+    -> Int
+      -- ^ source chain id
+    -> Int
+      -- ^ target chain id
+    -> BurnGenerator
+      -- ^ burn tx generator
+    -> CreatesGenerator
+      -- ^ create tx generator
+    -> (String -> IO ())
+    -> IO (CutOutputs, CutOutputs)
+roundtrip' v sid0 tid0 burn create step = withTestBlockDb v $ \bdb -> do
   tg <- newMVar mempty
   withWebPactExecutionService v bdb (chainToMPA' tg) $ \pact -> do
 
@@ -187,14 +251,14 @@ roundtrip sid0 tid0 burn create step = withTestBlockDb v $ \bdb -> do
 
     -- cut 0: empty run (not sure why this is needed but test fails without it)
     step "cut 0: empty run"
-    void $ runCut' bdb pact
+    void $ runCut' v bdb pact
 
     -- cut 1: burn
     step "cut 1: burn"
     (BlockCreationTime t1) <- _blockCreationTime <$> getParentTestBlockDb bdb sid
     txGen1 <- burn t1 pidv sid tid
     void $ swapMVar tg txGen1
-    co1 <- runCut' bdb pact
+    co1 <- runCut' v bdb pact
 
     -- setup create txgen with cut 1
     step "setup create txgen with cut 1"
@@ -205,12 +269,12 @@ roundtrip sid0 tid0 burn create step = withTestBlockDb v $ \bdb -> do
     -- cut 2: empty cut for diameter 1
     step "cut 2: empty cut for diameter 1"
     void $ swapMVar tg mempty
-    void $ runCut' bdb pact
+    void $ runCut' v bdb pact
 
     -- cut 3: create
     step "cut 3: create"
     void $ swapMVar tg txGen2
-    co2 <- runCut' bdb pact
+    co2 <- runCut' v bdb pact
 
     return (co1,co2)
 
@@ -338,6 +402,33 @@ createCont cid pidv proof time = do
     mkCmd "1" $
     mkCont $
     ((mkContMsg pid 1) { _cmProof = proof })
+
+
+-- | Generate the 'create-coin' command in response to the previous 'delete-coin' call.
+-- Note that we maintain an atomic update to make sure that if a given chain id
+-- has already called the 'create-coin' half of the transaction, it will not do so again.
+--
+createSuccessTXOUT :: Text -> CreatesGenerator
+createSuccessTXOUT code time (TestBlockDb wdb pdb _c) pidv sid tid bhe = do
+    ref <- newIORef False
+    return $ go ref
+  where
+    go ref cid _bhe _bha _
+        | tid /= cid = return mempty
+        | otherwise = readIORef ref >>= \case
+            True -> return mempty
+            False -> do
+                q <- toJSON <$> createTransactionOutputProof_ wdb pdb tid sid bhe 0
+                cmd <- buildCwCmd $
+                  set cbSigners [mkSigner' sender00 []] $
+                  set cbCreationTime (toTxCreationTime time) $
+                  set cbChainId tid $
+                  mkCmd "0" $
+                  mkExec
+                    code
+                    q
+                return $ Vector.singleton cmd
+
 
 -- | Generate the 'create-coin' command in response to the previous 'delete-coin' call.
 -- Note that we maintain an atomic update to make sure that if a given chain id
