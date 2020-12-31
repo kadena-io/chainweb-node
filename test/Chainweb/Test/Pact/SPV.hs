@@ -95,7 +95,7 @@ import Data.LogMessage
 tests :: TestTree
 tests = testGroup "Chainweb.Test.Pact.SPV"
     [ testCaseSteps "standard SPV verification round trip" standard
-    , testCaseSteps "contTXOUT" contTXOUT
+    , testCaseSteps "contTXOUTOld" contTXOUTOld
     , testCaseSteps "contTXOUTNew" contTXOUTNew
     , testCaseSteps "tfrTXOUTNew" tfrTXOUTNew
     , testCaseSteps "wrong chain execution fails" wrongChain
@@ -129,58 +129,35 @@ standard step = do
   checkResult c1 0 "ObjectMap"
   checkResult c3 1 "Write succeeded"
 
-contTXOUT :: (String -> IO ()) -> Assertion
-contTXOUT step = do
-  (c1,c3) <- roundtrip 0 1 burnGen (createVerify code) step
+contTXOUTOld :: (String -> IO ()) -> Assertion
+contTXOUTOld step = do
+  code <- T.readFile "test/pact/contTXOUTOld.pact"
+  (c1,c3) <- roundtrip 0 1 burnGen (createVerify code mdata) step
   checkResult c1 0 "ObjectMap"
   checkResult' c3 1 $ PactResult $ Right $ PLiteral $ LString rSuccessTXOUT
   where
-    code = "(let* \
-           \  ( (spv (verify-spv 'TXOUT (read-msg))) \
-           \    (fail (format \"Failure, result={}\" [spv])) ) \
-           \  (enforce (= (at 'receiver spv) 'sender01) fail) \
-           \  (enforce (= (at 'amount spv) 1.0) fail) \
-           \  \"TXOUT Success\")"
+    mdata = toJSON [fst sender01] :: Value
+
 
 contTXOUTNew :: (String -> IO ()) -> Assertion
 contTXOUTNew step = do
-  (c1,c3) <- roundtrip' (FastTimedCPM pairChainGraph) 0 1 burnGen (createVerify code) step
+  code <- T.readFile "test/pact/contTXOUTNew.pact"
+  (c1,c3) <- roundtrip' (FastTimedCPM pairChainGraph) 0 1 burnGen (createVerify code mdata) step
   checkResult c1 0 "ObjectMap"
   checkResult' c3 1 $ PactResult $ Right $ PLiteral $ LString rSuccessTXOUT
   where
-    code = "(let* \
-           \  ( (spv (verify-spv 'TXOUT (read-msg))) \
-           \    (result (at 'result spv)) \
-           \    (cont (at 'cont spv)) \
-           \    (y (at 'yield cont)) \
-           \    (prov (at 'provenance y)) \
-           \    (app (at 'cont cont)) \
-           \    (fail (format \"Failure, result={}\" [spv])) ) \
-           \  (enforce (= (at 'receiver result) 'sender01) fail) \
-           \  (enforce (= (at 'amount result) 1.0) fail) \
-           \  (enforce (= (at 'module-hash prov) \"ut_J_ZNkoyaPUEJhiwVeWnkSQn9JT9sQCWKdjjVVrWo\") fail) \
-           \  (enforce (= (at 'target-chain prov) \"1\") fail) \
-           \  (enforce (= (at 'pact-id cont) \"rwFh_qoxumclpxZj6QIo5GOM0CmE5AztlKukhFCRTVA\") fail) \
-           \  (enforce (= (at 'name app) \"coin.transfer-crosschain\") fail) \
-           \  (enforce (= (at 'events spv) []) fail) \
-           \  \"TXOUT Success\")"
+    mdata = toJSON [fst sender01] :: Value
+
 
 tfrTXOUTNew :: (String -> IO ()) -> Assertion
 tfrTXOUTNew step = do
-  (c1,c3) <- roundtrip' (FastTimedCPM pairChainGraph) 0 1 transferGen (createVerify code) step
+  code <- T.readFile "test/pact/tfrTXOUTNew.pact"
+  (c1,c3) <- roundtrip' (FastTimedCPM pairChainGraph) 0 1 transferGen (createVerify code mdata) step
   checkResult c1 0 "Write succeeded"
   checkResult' c3 1 $ PactResult $ Right $ PLiteral $ LString rSuccessTXOUT
   where
-    code = "(let* \
-           \  ( (spv (verify-spv 'TXOUT (read-msg))) \
-           \    (event (at 0 (at 'events spv))) \
-           \    (fail (format \"Failure, result={}\" [spv])) ) \
-           \  (enforce (= (at 'result spv) \"Write succeeded\") fail) \
-           \  (enforce (= (at 'module event) 'coin) fail) \
-           \  (enforce (= (at 'name event) 'TRANSFER) fail) \
-           \  (enforce (= (at 'params event) ['sender00 'sender01 1.0]) fail) \
-           \  (enforce (= (at 'module-hash event) \"ut_J_ZNkoyaPUEJhiwVeWnkSQn9JT9sQCWKdjjVVrWo\") fail) \
-           \  \"TXOUT Success\")"
+    mdata = toJSON [fst sender01] :: Value
+
 
 
 rSuccessTXOUT :: Text
@@ -460,8 +437,8 @@ createCont cid pidv proof time = do
 
 -- | Generate a tx to run 'verify-spv' tests.
 --
-createVerify :: Text -> CreatesGenerator
-createVerify code time (TestBlockDb wdb pdb _c) _pidv sid tid bhe = do
+createVerify :: Text -> Value -> CreatesGenerator
+createVerify code mdata time (TestBlockDb wdb pdb _c) _pidv sid tid bhe = do
     ref <- newIORef False
     return $ go ref
   where
@@ -478,7 +455,7 @@ createVerify code time (TestBlockDb wdb pdb _c) _pidv sid tid bhe = do
                   mkCmd "0" $
                   mkExec
                     code
-                    q
+                    (object [("proof",q),("data",mdata)])
                 return $ Vector.singleton cmd
 
 

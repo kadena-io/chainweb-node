@@ -236,16 +236,22 @@ getTxIdx bdb pdb bh th = do
     sindex p s = S.zip (S.each [0..]) s & sfind (p . snd) & fmap (fmap fst)
 
 
-
-mkSPVResult :: CommandResult Hash -> PactValue -> Object Name
+-- | Encode a "successful" CommandResult into a Pact object.
+mkSPVResult
+    :: CommandResult Hash
+       -- ^ Full CR
+    -> PactValue
+       -- ^ Success result
+    -> Object Name
 mkSPVResult CommandResult{..} j =
     Object (ObjectMap $ M.fromList $
             [ ("result", fromPactValue j)
-            , ("reqkey", tStr $ asString $ unRequestKey _crReqKey)
+            , ("req-key", tStr $ asString $ unRequestKey _crReqKey)
             , ("txid", tStr $ maybe "" asString _crTxId)
             , ("gas", toTerm $ (fromIntegral _crGas :: Integer))
             , ("meta", maybe empty metaField _crMetaData)
-            , ("cont", maybe empty contField _crContinuation)
+            , ("logs", tStr $ asString $ _crLogs)
+            , ("continuation", maybe empty contField _crContinuation)
             , ("events", toTList TyAny def $ map eventField _crEvents)
             ])
     TyAny Nothing def
