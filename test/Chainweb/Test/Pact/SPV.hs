@@ -130,7 +130,7 @@ standard step = do
 
 standardTXOUT :: (String -> IO ()) -> Assertion
 standardTXOUT step = do
-  (c1,c3) <- roundtrip 0 1 burnGen (createSuccessTXOUT code) step
+  (c1,c3) <- roundtrip 0 1 burnGen (createVerify code) step
   checkResult c1 0 "ObjectMap"
   checkResult' c3 1 $ PactResult $ Right $ PLiteral $ LString rSuccessTXOUT
   where
@@ -143,7 +143,7 @@ standardTXOUT step = do
 
 standardTXOUTNew :: (String -> IO ()) -> Assertion
 standardTXOUTNew step = do
-  (c1,c3) <- roundtrip' (FastTimedCPM pairChainGraph) 0 1 burnGen (createSuccessTXOUT code) step
+  (c1,c3) <- roundtrip' (FastTimedCPM pairChainGraph) 0 1 burnGen (createVerify code) step
   checkResult c1 0 "ObjectMap"
   checkResult' c3 1 $ PactResult $ Right $ PLiteral $ LString rSuccessTXOUT
   where
@@ -404,12 +404,10 @@ createCont cid pidv proof time = do
     ((mkContMsg pid 1) { _cmProof = proof })
 
 
--- | Generate the 'create-coin' command in response to the previous 'delete-coin' call.
--- Note that we maintain an atomic update to make sure that if a given chain id
--- has already called the 'create-coin' half of the transaction, it will not do so again.
+-- | Generate a tx to run 'verify-spv' tests.
 --
-createSuccessTXOUT :: Text -> CreatesGenerator
-createSuccessTXOUT code time (TestBlockDb wdb pdb _c) pidv sid tid bhe = do
+createVerify :: Text -> CreatesGenerator
+createVerify code time (TestBlockDb wdb pdb _c) _pidv sid tid bhe = do
     ref <- newIORef False
     return $ go ref
   where
