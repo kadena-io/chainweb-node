@@ -98,6 +98,7 @@ tests = testGroup "Chainweb.Test.Pact.SPV"
     , testCaseSteps "contTXOUTOld" contTXOUTOld
     , testCaseSteps "contTXOUTNew" contTXOUTNew
     , testCaseSteps "tfrTXOUTNew" tfrTXOUTNew
+    , testCaseSteps "ethReceiptProof" ethReceiptProof
     , testCaseSteps "wrong chain execution fails" wrongChain
     , testCaseSteps "invalid proof formats fail" invalidProof
     , testCaseSteps "wrong target chain in proofs fail" wrongChainProof
@@ -158,6 +159,12 @@ tfrTXOUTNew step = do
   where
     mdata = toJSON [fst sender01] :: Value
 
+ethReceiptProof :: (String -> IO ()) -> Assertion
+ethReceiptProof step = do
+  code <- T.readFile "test/pact/ethReceiptProof.pact"
+  (c1,c3) <- roundtrip' (FastTimedCPM pairChainGraph) 0 1 transferGen (createVerifyEth code) step
+  checkResult c1 0 "Write succeeded"
+  checkResult' c3 1 $ PactResult $ Right $ PLiteral $ LString "ETH Success"
 
 
 rSuccessTXOUT :: Text
@@ -458,6 +465,31 @@ createVerify code mdata time (TestBlockDb wdb pdb _c) _pidv sid tid bhe = do
                     (object [("proof",q),("data",mdata)])
                 return $ Vector.singleton cmd
 
+-- | Generate a tx to run 'verify-spv' tests.
+--
+createVerifyEth :: Text -> CreatesGenerator
+createVerifyEth code time (TestBlockDb wdb pdb _c) _pidv sid tid bhe = do
+    ref <- newIORef False
+    return $ go ref
+  where
+    q = "-QdS-QU2HLkBDPkBCQGDH6OZuQEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAMD5BAK40_jRoOqA5T9trZLzUZ7iu_cpmBeQiBimHJG6rSiDGsZNKAlKoOrfdMPBRC-RLa3WS5USV-2afDqtpbbpfzJPHs32aaiRoFeEzg4ts7yAKHbn-Anwg5JI6-GzC0rDkMDLiGggs_NPoKuvi6EWeuc3O9KzuKZ4AL9jfOaNflhaLMA-GjIlPpZQoNCrDRWOe3cq6BXY00bvTGxzms6BnsyLxp61qwW6xHzEgICAoFxXLThaidlorPGcdCzyXNXatDLw_ugQVB6-rlAYXft7gICAgICAgIC5AhT5AhGgork3HtnCQM0aHiClVlRtHMz1F9uNanMIU1k8OqPp5DSgsENQkgfTX_zfA6tIia05wWGzH6wECToR8X1YMiWgKQ-gLu9HGhh4s_ApZJCLcaDbkzJh1CtgEIcuRlKnkLfmmcKgSGkj28dlZfhooqtbpLGysO2C-CCwN_wdMRXr--9LlLug-wKhHCwnaYWK6k1qC70OyNykBq17olKmQhq2TwLuR1Sg3sNQDzLqQ8bNF5pmDRDCTlX8gCS-CrYEp_FmI3-P8eKgmPYQiFu3Z_ELZco_BxIFWe2FNcFR8wx97vq9rFHi02OgoPWefa_LIUJKv7OjoKEnrgMDfZkyWnMq8n2ls5N1bW-gS8SBThEAccVOYwC7T5jp5rq74gfwriI-ZVEwpczBPXqgJ9cOfRUSwUjiUK31Od2paPImV7T5w0_r5UDOH2KGCpugWdaeAE41DGv4V5z1Q8nSEAqcyCH-HNAdEMonU7f9eBagXxygFhOLS7j3exam_md3ZuIiCRPLuSJ3wYlWf8IPe7OgryzejrJxpH3goHH4JdcoeweNVILyYtGLgLwSyyf34deg4VUDF5cJMPBLWBSDKWmn7brxXhWpopzrIbqhEo-LT52gtUCpW7DSH0u6P4upJtBcpNaYEdVN6KfUaSbVBpIhk5ygEtUYLPcSWojf8AmckZXmojZqwDouspfjU4jCtsgxBxeAuQET-QEQILkBDPkBCQGDH6OZuQEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAMCgXs7VNLPYTT1zLdvHFPX9UdmKlBsoGCtu_m3zoP6QAEv5AhWgYaitUwqKQ-NYP47BY_dzrTcDKbI3XWZDPrgvAF4dYgKgilYudjR3TT46NmmKxJFeN_yEos0ARMuE-l2AJj0q9PaUWgtU1dwX4KrcOD0ttDsKDT4CnEyg9SCP_6K6Wj86L2Tr1co9CYl4vt118zX1a3BdhxXuIwWg-YYx4pDoj1ika3Ay8CWWkDmqm1aWSY78drr0NvppsmKgXs7VNLPYTT1zLdvHFPX9UdmKlBsoGCtu_m3zoP6QAEu5AQBISBEgAqICCqoIEhgARYQCEAIABSgWAMgBBCZDAAgACAAEkSIBREYQJgFTABAAABKABQGEAQAgkKgkpBUAFUEAIBQEANgIRAEGaJsp0CgLEAUgAAdIDKlQsVsBCQiBTgGREAAFQgKgILBYgLkUZCoAADAAAwEARARAggdSkCg1Fr6CUECCADAIxNjRRGKogAwpkMiAAqAwFAGAA2wiAgUgGGBAIAEBQEAYAAIAaGCBDsChEAoUFEFIQIEYYIIABgRhghgCwIEAAELQgQEEqABFEAICEcCIIAQggioIIEDhAQTADQEAZABMEiaSAgxAihqiNIAgRFQDgUACyACIggixhwv6vNvZPdqDW61Vg3nznoN5zNOEW1QUSZRzcGFya3Bvb2wtY24tbm9kZS0xMqA9H90W8Vrqty59sQE7nwNO4zZB2S9xwHNr6rTmfTTHp4hNt6HAHYqAcsA"
+    go ref cid _bhe _bha _
+        | tid /= cid = return mempty
+        | otherwise = readIORef ref >>= \case
+            True -> return mempty
+            False -> do
+                -- q <- toJSON <$> createTransactionOutputProof_ wdb pdb tid sid bhe 0
+                cmd <- buildCwCmd $
+                  set cbSigners [mkSigner' sender00 []] $
+                  set cbCreationTime (toTxCreationTime time) $
+                  set cbChainId tid $
+                  mkCmd "0" $
+                  mkExec
+                    code
+                    -- TODO: this nesting seems redundant. Could we pass q just
+                    -- as literal string to verify-spv?
+                    (object [("proof",object [("proof", q)])])
+                return $ Vector.singleton cmd
 
 -- | Generate the 'create-coin' command in response to the previous 'delete-coin' call.
 -- Note that we maintain an atomic update to make sure that if a given chain id
