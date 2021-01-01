@@ -122,7 +122,13 @@ verifySPV bdb bh typ proof = go typ proof
           -- Should we include more detailed failure messages from the ethereum package, assuming
           -- that those are stable?
           Left{} -> return $ Left "Validation of of Eth proof failed. The proof is not valid."
-          Right result -> return $ ethResultToPactObject result
+
+          -- TODO clean up the following code
+          Right result -> return $ do
+            val <- ethResultToPactValue result
+            case fromPactValue val of
+                TObject oo _ -> Right oo
+                _ -> Left "spv-verified eth receipt has invalid type"
 
       -- Chainweb tx output proof
       "TXOUT" -> case extractProof o of
@@ -215,6 +221,8 @@ extractProof o = toPactValue (TObject o def) >>= k
 -- therefore replace failure and exception messages from external libraries with
 -- stable internal messages.
 --
+-- TODO: could we just use a Pact Literal instead of an object to obtain the proof?
+--
 extractEthProof :: Object Name -> Either Text ReceiptProof
 extractEthProof o = do
     obj <- toPactValue (TObject o def)
@@ -227,11 +235,11 @@ extractEthProof o = do
   where
     errMsg t = first (const t)
 
-ethResultToPactObject :: ReceiptProofValidation -> Either Text (Object Name)
-ethResultToPactObject = aeson (const $ Left errMsg) Right . fromJSON . toJSON
+ethResultToPactValue :: ReceiptProofValidation -> Either Text PactValue
+ethResultToPactValue = aeson (const $ Left errMsg) Right . fromJSON . toJSON
   where
-    errMsg = "failed to convert ethereum receipt proof validation result to pact object"
-{-# INLINE ethResultToPactObject #-}
+    errMsg = "failed to convert ethereum receipt proof validation result to pact value"
+{-# INLINE ethResultToPactValue #-}
 
 -- | Look up pact tx hash at some block height in the
 -- payload db, and return the tx index for proof creation.
