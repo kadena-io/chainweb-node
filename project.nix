@@ -41,8 +41,8 @@ proj = kpkgs.rp.project ({ pkgs, hackGet, ... }: with pkgs.haskell.lib;
       ethereum = dontCheck (self.callCabal2nix "ethereum" (pkgs.fetchFromGitHub {
         owner = "kadena-io";
         repo = "kadena-ethereum-bridge";
-        rev = "eac47f69541f844b6b93963961e94d8d0d91cc70";
-        sha256 = "0kw7il27mplrg4a1jdn7igr4nv64phmisnrysgapz94q7cy7cpwl";
+        rev = "652f5873084ef7830c2dbe70815f72218e85b3fa";
+        sha256 = "0kw7il27mplrg4a1jdn7igr4nv64phmisnrysgapz94q7cy7cpw0";
       }) {});
     };
 
