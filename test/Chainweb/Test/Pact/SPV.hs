@@ -468,7 +468,7 @@ createVerify code mdata time (TestBlockDb wdb pdb _c) _pidv sid tid bhe = do
 -- | Generate a tx to run 'verify-spv' tests.
 --
 createVerifyEth :: Text -> CreatesGenerator
-createVerifyEth code time (TestBlockDb wdb pdb _c) _pidv sid tid bhe = do
+createVerifyEth code time (TestBlockDb _wdb _pdb _c) _pidv _sid tid _bhe = do
     ref <- newIORef False
     return $ go ref
   where
