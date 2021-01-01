@@ -28,6 +28,11 @@ source-repository-package
     location: https://github.com/kadena-io/rosetta.git
     tag: 1d69bb4ec46c001f2b501121e6c93e83ac60162b
 
+source-repository-package
+    type: git
+    location: https://github.com/kadena-io/kadena-ethereum-bridge.git
+    tag: 5bf41eeb24b6633e705a58a146b7fa06a0acac19
+
 package vault
     documentation: false
 

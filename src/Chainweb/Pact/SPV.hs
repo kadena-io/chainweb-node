@@ -31,12 +31,17 @@ import Control.Lens hiding (index)
 import Control.Monad.Catch
 
 import Data.Aeson hiding (Object, (.=))
+import Data.Aeson.Types (parseEither)
+import Data.Bifunctor
 import Data.Default (def)
 import qualified Data.Map.Strict as M
 import Data.Text (Text, pack)
 import qualified Data.Text.Encoding as T
 
 import Crypto.Hash.Algorithms
+
+import Ethereum.Receipt
+import Ethereum.RLP
 
 import Numeric.Natural
 
@@ -106,6 +111,17 @@ verifySPV bdb bh typ proof = go typ proof
             _ -> return $ Left "spv-verified tx output has invalid type"
 
     go s o = case s of
+
+      -- Ethereum Receipt Proof
+      "ETH" -> case extractEthProof o of
+        Left e -> return (Left e)
+        Right parsedProof -> case validateReceiptProof parsedProof of
+          -- Should we include more detailed failure messages from the ethereum package, assuming
+          -- that those are stable?
+          Left{} -> return $ Left "Validation of of Eth proof failed. The proof is not valid."
+          Right result -> return $ ethResultToPactObject result
+
+      -- Chainweb tx output proof
       "TXOUT" -> case extractProof o of
         Left t -> return (Left t)
         Right u
@@ -186,6 +202,33 @@ extractProof o = toPactValue (TObject o def) >>= k
     k = aeson (Left . pack) Right
       . fromJSON
       . toJSON
+
+-- | Extract an Eth 'ReceiptProof' from a generic pact object
+--
+-- The proof object has a sinle property "proof". The value is the
+-- base64UrlWithoutPadding encoded proof blob.
+--
+-- NOTE: If this fails the failure message is included on the chain. We
+-- therefore replace failure and exception messages from external libraries with
+-- stable internal messages.
+--
+extractEthProof :: Object Name -> Either Text ReceiptProof
+extractEthProof o = do
+    obj <- toPactValue (TObject o def)
+    b64 <- errMsg "Decoding of Eth proof object failed: missing 'proof' property"
+        $ parseEither (withObject "EthProof" (.: "proof")) $ toJSON obj
+    bytes <- errMsg "Decoding of Eth proof object failed: invalid base64URLWithoutPadding encoding"
+        $ decodeB64UrlNoPaddingText b64
+    errMsg "Decoding of Eth proof object failed: invalid binary proof data"
+        $ get getRlp bytes
+  where
+    errMsg t = first (const t)
+
+ethResultToPactObject :: ReceiptProofValidation -> Either Text (Object Name)
+ethResultToPactObject = aeson (const $ Left errMsg) Right . fromJSON . toJSON
+  where
+    errMsg = "failed to convert ethereum receipt proof validation result to pact object"
+{-# INLINE ethResultToPactObject #-}
 
 -- | Look up pact tx hash at some block height in the
 -- payload db, and return the tx index for proof creation.
