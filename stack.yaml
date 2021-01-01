@@ -24,6 +24,8 @@ extra-deps:
   - wai-middleware-throttle-0.3.0.1
   - yet-another-logger-0.4.0
   - cuckoo-0.2.0.1
+  - cryptonite-0.27
+  - lens-4.19.2
 
   # --- Forced Downgrades --- #
   - network-3.1.0.1
@@ -47,3 +49,4 @@ extra-deps:
     commit: 1d69bb4ec46c001f2b501121e6c93e83ac60162b
   - github: kadena-io/kadena-ethereum-bridge
     commit: 5bf41eeb24b6633e705a58a146b7fa06a0acac19
+

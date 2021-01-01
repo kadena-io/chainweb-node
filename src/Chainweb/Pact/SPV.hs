@@ -113,6 +113,9 @@ verifySPV bdb bh typ proof = go typ proof
     go s o = case s of
 
       -- Ethereum Receipt Proof
+      --
+      -- For details of the returned value see https://github.com/kadena-io/kadena-ethereum-bridge/blob/5bf41eeb24b6633e705a58a146b7fa06a0acac19/src/Ethereum/Receipt.hs#L548
+      --
       "ETH" -> case extractEthProof o of
         Left e -> return (Left e)
         Right parsedProof -> case validateReceiptProof parsedProof of
