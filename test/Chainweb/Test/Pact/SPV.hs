@@ -55,7 +55,9 @@ import Test.Tasty.HUnit
 -- internal pact modules
 
 import Pact.Types.Command
+import Pact.Types.Exp
 import Pact.Types.Hash
+import Pact.Types.PactValue
 import Pact.Types.Runtime (toPactId)
 import Pact.Types.SPV
 import Pact.Types.Term
@@ -93,13 +95,16 @@ import Data.LogMessage
 tests :: TestTree
 tests = testGroup "Chainweb.Test.Pact.SPV"
     [ testCaseSteps "standard SPV verification round trip" standard
+    , testCaseSteps "contTXOUTOld" contTXOUTOld
+    , testCaseSteps "contTXOUTNew" contTXOUTNew
+    , testCaseSteps "tfrTXOUTNew" tfrTXOUTNew
     , testCaseSteps "wrong chain execution fails" wrongChain
     , testCaseSteps "invalid proof formats fail" invalidProof
     , testCaseSteps "wrong target chain in proofs fail" wrongChainProof
     ]
 
-v :: ChainwebVersion
-v = FastTimedCPM triangleChainGraph
+testVer :: ChainwebVersion
+testVer = FastTimedCPM triangleChainGraph
 
 logg :: LogMessage a => LogLevel -> a -> IO ()
 logg l
@@ -124,6 +129,39 @@ standard step = do
   checkResult c1 0 "ObjectMap"
   checkResult c3 1 "Write succeeded"
 
+contTXOUTOld :: (String -> IO ()) -> Assertion
+contTXOUTOld step = do
+  code <- T.readFile "test/pact/contTXOUTOld.pact"
+  (c1,c3) <- roundtrip 0 1 burnGen (createVerify code mdata) step
+  checkResult c1 0 "ObjectMap"
+  checkResult' c3 1 $ PactResult $ Right $ PLiteral $ LString rSuccessTXOUT
+  where
+    mdata = toJSON [fst sender01] :: Value
+
+
+contTXOUTNew :: (String -> IO ()) -> Assertion
+contTXOUTNew step = do
+  code <- T.readFile "test/pact/contTXOUTNew.pact"
+  (c1,c3) <- roundtrip' (FastTimedCPM pairChainGraph) 0 1 burnGen (createVerify code mdata) step
+  checkResult c1 0 "ObjectMap"
+  checkResult' c3 1 $ PactResult $ Right $ PLiteral $ LString rSuccessTXOUT
+  where
+    mdata = toJSON [fst sender01] :: Value
+
+
+tfrTXOUTNew :: (String -> IO ()) -> Assertion
+tfrTXOUTNew step = do
+  code <- T.readFile "test/pact/tfrTXOUTNew.pact"
+  (c1,c3) <- roundtrip' (FastTimedCPM pairChainGraph) 0 1 transferGen (createVerify code mdata) step
+  checkResult c1 0 "Write succeeded"
+  checkResult' c3 1 $ PactResult $ Right $ PLiteral $ LString rSuccessTXOUT
+  where
+    mdata = toJSON [fst sender01] :: Value
+
+
+
+rSuccessTXOUT :: Text
+rSuccessTXOUT = "TXOUT Success"
 
 wrongChain :: (String -> IO ()) -> Assertion
 wrongChain step = do
@@ -149,6 +187,13 @@ checkResult co ci expect =
   assertSatisfies ("result on chain " ++ show ci ++ " contains '" ++ show expect ++ "'")
     (HM.lookup (unsafeChainId ci) co) (isInfixOf expect . show)
 
+checkResult' :: HasCallStack => CutOutputs -> Word32 -> PactResult -> Assertion
+checkResult' co ci expect = case HM.lookup (unsafeChainId ci) co of
+  Nothing -> assertFailure $ "No result found for chain " ++ show ci
+  Just v -> case Vector.toList v of
+    [(_,cr)] -> assertEqual "pact results match" expect (_crResult cr)
+    _ -> assertFailure $ "expected single result, got " ++ show v
+
 
 
 getCutOutputs :: TestBlockDb -> IO CutOutputs
@@ -158,8 +203,8 @@ getCutOutputs (TestBlockDb _ pdb cmv) = do
 
 -- | Populate blocks for every chain of the current cut. Uses provided pact
 -- service to produce a new block, add it
-runCut' :: TestBlockDb -> WebPactExecutionService -> IO CutOutputs
-runCut' bdb pact = do
+runCut' :: ChainwebVersion -> TestBlockDb -> WebPactExecutionService -> IO CutOutputs
+runCut' v bdb pact = do
   runCut v bdb pact (offsetBlockTime second) zeroNoncer
   getCutOutputs bdb
 
@@ -175,7 +220,21 @@ roundtrip
       -- ^ create tx generator
     -> (String -> IO ())
     -> IO (CutOutputs, CutOutputs)
-roundtrip sid0 tid0 burn create step = withTestBlockDb v $ \bdb -> do
+roundtrip = roundtrip' testVer
+
+roundtrip'
+    :: ChainwebVersion
+    -> Int
+      -- ^ source chain id
+    -> Int
+      -- ^ target chain id
+    -> BurnGenerator
+      -- ^ burn tx generator
+    -> CreatesGenerator
+      -- ^ create tx generator
+    -> (String -> IO ())
+    -> IO (CutOutputs, CutOutputs)
+roundtrip' v sid0 tid0 burn create step = withTestBlockDb v $ \bdb -> do
   tg <- newMVar mempty
   withWebPactExecutionService v bdb (chainToMPA' tg) $ \pact -> do
 
@@ -187,14 +246,14 @@ roundtrip sid0 tid0 burn create step = withTestBlockDb v $ \bdb -> do
 
     -- cut 0: empty run (not sure why this is needed but test fails without it)
     step "cut 0: empty run"
-    void $ runCut' bdb pact
+    void $ runCut' v bdb pact
 
     -- cut 1: burn
     step "cut 1: burn"
     (BlockCreationTime t1) <- _blockCreationTime <$> getParentTestBlockDb bdb sid
     txGen1 <- burn t1 pidv sid tid
     void $ swapMVar tg txGen1
-    co1 <- runCut' bdb pact
+    co1 <- runCut' v bdb pact
 
     -- setup create txgen with cut 1
     step "setup create txgen with cut 1"
@@ -205,12 +264,12 @@ roundtrip sid0 tid0 burn create step = withTestBlockDb v $ \bdb -> do
     -- cut 2: empty cut for diameter 1
     step "cut 2: empty cut for diameter 1"
     void $ swapMVar tg mempty
-    void $ runCut' bdb pact
+    void $ runCut' v bdb pact
 
     -- cut 3: create
     step "cut 3: create"
     void $ swapMVar tg txGen2
-    co2 <- runCut' bdb pact
+    co2 <- runCut' v bdb pact
 
     return (co1,co2)
 
@@ -322,6 +381,42 @@ burnGen time pidv sid tid = do
          , "target-chain-id" .= chainIdToText tid
          ]
 
+-- | Generate arbitrary coin.transfer call.
+--
+transferGen :: BurnGenerator
+transferGen time pidv sid _tid = do
+    ref0 <- newIORef False
+    ref1 <- newIORef False
+    return $ go ref0 ref1
+  where
+    go ref0 ref1 _cid _bhe _bha _
+      | sid /= _cid = return mempty
+      | otherwise = readIORef ref0 >>= \case
+        True -> return mempty
+        False -> do
+            readIORef ref1 >>= \case
+              True -> return mempty
+              False -> do
+                cmd <- buildCwCmd $
+                  set cbSigners
+                    [mkSigner' sender00
+                       [mkTransferCap "sender00" "sender01" 1.0
+                       ,mkGasCap]] $
+                  set cbCreationTime (toTxCreationTime time) $
+                  set cbChainId sid $
+                  mkCmd "0" $
+                  mkExec' tx1Code
+                writeIORef ref0 True
+
+                let pid = toPactId $ toUntypedHash $ _cmdHash cmd
+
+                putMVar pidv pid `finally` writeIORef ref1 True
+                return $ Vector.singleton cmd
+
+
+
+    tx1Code = "(coin.transfer 'sender00 'sender01 1.0)"
+
 createCont
   :: ChainId
      -> MVar PactId
@@ -338,6 +433,31 @@ createCont cid pidv proof time = do
     mkCmd "1" $
     mkCont $
     ((mkContMsg pid 1) { _cmProof = proof })
+
+
+-- | Generate a tx to run 'verify-spv' tests.
+--
+createVerify :: Text -> Value -> CreatesGenerator
+createVerify code mdata time (TestBlockDb wdb pdb _c) _pidv sid tid bhe = do
+    ref <- newIORef False
+    return $ go ref
+  where
+    go ref cid _bhe _bha _
+        | tid /= cid = return mempty
+        | otherwise = readIORef ref >>= \case
+            True -> return mempty
+            False -> do
+                q <- toJSON <$> createTransactionOutputProof_ wdb pdb tid sid bhe 0
+                cmd <- buildCwCmd $
+                  set cbSigners [mkSigner' sender00 []] $
+                  set cbCreationTime (toTxCreationTime time) $
+                  set cbChainId tid $
+                  mkCmd "0" $
+                  mkExec
+                    code
+                    (object [("proof",q),("data",mdata)])
+                return $ Vector.singleton cmd
+
 
 -- | Generate the 'create-coin' command in response to the previous 'delete-coin' call.
 -- Note that we maintain an atomic update to make sure that if a given chain id
