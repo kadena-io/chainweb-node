@@ -42,7 +42,7 @@ proj = kpkgs.rp.project ({ pkgs, hackGet, ... }: with pkgs.haskell.lib;
         owner = "kadena-io";
         repo = "kadena-ethereum-bridge";
         rev = "a182bf17b4a59c21c9adc9c1a57b145727faad0f";
-        sha256 = "1wbwwc3zc9p67abf45cz55z45h2vcinp1ffwjixn8m5kd81wxjj0";
+        sha256 = "1g8465yypzkir085b3wjnsy3fhs7c7dpwwaqg4snplblkw7wz86c";
       }) {});
     };
 
