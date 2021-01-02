@@ -478,7 +478,7 @@ createVerify code mdata time (TestBlockDb wdb pdb _c) _pidv sid tid bhe = do
 createVerifyEth :: Text -> CreatesGenerator
 createVerifyEth code time (TestBlockDb _wdb _pdb _c) _pidv _sid tid _bhe = do
     ref <- newIORef False
-    q <- encodeB64UrlNoPaddingText . BL8.toStrict . BB.toLazyByteString . builder . putRlp <$> receiptProofTest 28
+    q <- encodeB64UrlNoPaddingText . BL8.toStrict . BB.toLazyByteString . builder . putRlp <$> receiptProofTest 2
     return $ go q ref
   where
     go q ref cid _bhe _bha _
