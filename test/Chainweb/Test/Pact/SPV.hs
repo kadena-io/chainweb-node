@@ -486,9 +486,7 @@ createVerifyEth code time (TestBlockDb _wdb _pdb _c) _pidv _sid tid _bhe = do
                   mkCmd "0" $
                   mkExec
                     code
-                    -- TODO: this nesting seems redundant. Could we pass q just
-                    -- as literal string to verify-spv?
-                    (object [("proof",object [("proof", q)])])
+                    (object [("proof", q)])
                 return $ Vector.singleton cmd
 
 -- | Generate the 'create-coin' command in response to the previous 'delete-coin' call.

@@ -1,5 +1,5 @@
 (let (
-  (spv (verify-spv 'ETH (read-msg 'proof)))
+  (spv (verify-spv 'ETH (read-msg)))
   )
 
   ; TODO:

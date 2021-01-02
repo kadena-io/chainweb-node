@@ -97,7 +97,7 @@ verifySPV
       -- ^ TXOUT or TXIN - defines the type of proof
       -- used in validation
     -> Object Name
-      -- ^ the 'TransactionOutputProof' object to validate
+      -- ^ the proof object to validate
     -> IO (Either Text (Object Name))
 verifySPV bdb bh typ proof = go typ proof
   where
@@ -220,8 +220,6 @@ extractProof o = toPactValue (TObject o def) >>= k
 -- NOTE: If this fails the failure message is included on the chain. We
 -- therefore replace failure and exception messages from external libraries with
 -- stable internal messages.
---
--- TODO: could we just use a Pact Literal instead of an object to obtain the proof?
 --
 extractEthProof :: Object Name -> Either Text ReceiptProof
 extractEthProof o = do
