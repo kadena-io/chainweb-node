@@ -35,9 +35,7 @@ import Control.Lens (set)
 
 import Data.Aeson as Aeson
 import qualified Data.ByteString.Base64.URL as B64U
-import qualified Data.ByteString.Builder as BB
 import qualified Data.ByteString.Char8 as B8
-import qualified Data.ByteString.Lazy.Char8 as BL8
 
 import Data.ByteString.Lazy (toStrict)
 import Data.CAS (casLookupM)
@@ -478,7 +476,7 @@ createVerify code mdata time (TestBlockDb wdb pdb _c) _pidv sid tid bhe = do
 createVerifyEth :: Text -> CreatesGenerator
 createVerifyEth code time (TestBlockDb _wdb _pdb _c) _pidv _sid tid _bhe = do
     ref <- newIORef False
-    q <- encodeB64UrlNoPaddingText . BL8.toStrict . BB.toLazyByteString . builder . putRlp <$> receiptProofTest 2
+    q <- encodeB64UrlNoPaddingText . putRlpByteString <$> receiptProofTest 2
     return $ go q ref
   where
     go q ref cid _bhe _bha _
@@ -504,8 +502,7 @@ receiptProofTest i = do
     rs <- decodeStrictOrThrow @_ @[RpcReceipt] $ B8.pack recps
     block <- decodeStrictOrThrow @_ @RpcBlock $ B8.pack blk
     let hdr = _rpcBlockHeader block
-    p <- rpcReceiptProof hdr [] rs (TransactionIndex $ fromIntegral i)
-    return p
+    rpcReceiptProof hdr [] rs (TransactionIndex $ fromIntegral i)
 
 
 -- | Generate the 'create-coin' command in response to the previous 'delete-coin' call.
