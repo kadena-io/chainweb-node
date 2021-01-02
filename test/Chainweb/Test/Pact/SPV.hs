@@ -35,6 +35,10 @@ import Control.Lens (set)
 
 import Data.Aeson as Aeson
 import qualified Data.ByteString.Base64.URL as B64U
+import qualified Data.ByteString.Builder as BB
+import qualified Data.ByteString.Char8 as B8
+import qualified Data.ByteString.Lazy.Char8 as BL8
+
 import Data.ByteString.Lazy (toStrict)
 import Data.CAS (casLookupM)
 import qualified Data.HashMap.Strict as HM
@@ -46,6 +50,10 @@ import qualified Data.Text as T
 import Data.Vector (Vector)
 import qualified Data.Vector as Vector
 import Data.Word
+
+import Ethereum.Block
+import Ethereum.Receipt
+import Ethereum.RLP
 
 import System.LogLevel
 
@@ -470,10 +478,10 @@ createVerify code mdata time (TestBlockDb wdb pdb _c) _pidv sid tid bhe = do
 createVerifyEth :: Text -> CreatesGenerator
 createVerifyEth code time (TestBlockDb _wdb _pdb _c) _pidv _sid tid _bhe = do
     ref <- newIORef False
-    return $ go ref
+    q <- encodeB64UrlNoPaddingText . BL8.toStrict . BB.toLazyByteString . builder . putRlp <$> receiptProofTest 28
+    return $ go q ref
   where
-    q = "-QdS-QU2HLkBDPkBCQGDH6OZuQEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAMD5BAK40_jRoOqA5T9trZLzUZ7iu_cpmBeQiBimHJG6rSiDGsZNKAlKoOrfdMPBRC-RLa3WS5USV-2afDqtpbbpfzJPHs32aaiRoFeEzg4ts7yAKHbn-Anwg5JI6-GzC0rDkMDLiGggs_NPoKuvi6EWeuc3O9KzuKZ4AL9jfOaNflhaLMA-GjIlPpZQoNCrDRWOe3cq6BXY00bvTGxzms6BnsyLxp61qwW6xHzEgICAoFxXLThaidlorPGcdCzyXNXatDLw_ugQVB6-rlAYXft7gICAgICAgIC5AhT5AhGgork3HtnCQM0aHiClVlRtHMz1F9uNanMIU1k8OqPp5DSgsENQkgfTX_zfA6tIia05wWGzH6wECToR8X1YMiWgKQ-gLu9HGhh4s_ApZJCLcaDbkzJh1CtgEIcuRlKnkLfmmcKgSGkj28dlZfhooqtbpLGysO2C-CCwN_wdMRXr--9LlLug-wKhHCwnaYWK6k1qC70OyNykBq17olKmQhq2TwLuR1Sg3sNQDzLqQ8bNF5pmDRDCTlX8gCS-CrYEp_FmI3-P8eKgmPYQiFu3Z_ELZco_BxIFWe2FNcFR8wx97vq9rFHi02OgoPWefa_LIUJKv7OjoKEnrgMDfZkyWnMq8n2ls5N1bW-gS8SBThEAccVOYwC7T5jp5rq74gfwriI-ZVEwpczBPXqgJ9cOfRUSwUjiUK31Od2paPImV7T5w0_r5UDOH2KGCpugWdaeAE41DGv4V5z1Q8nSEAqcyCH-HNAdEMonU7f9eBagXxygFhOLS7j3exam_md3ZuIiCRPLuSJ3wYlWf8IPe7OgryzejrJxpH3goHH4JdcoeweNVILyYtGLgLwSyyf34deg4VUDF5cJMPBLWBSDKWmn7brxXhWpopzrIbqhEo-LT52gtUCpW7DSH0u6P4upJtBcpNaYEdVN6KfUaSbVBpIhk5ygEtUYLPcSWojf8AmckZXmojZqwDouspfjU4jCtsgxBxeAuQET-QEQILkBDPkBCQGDH6OZuQEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAMCgXs7VNLPYTT1zLdvHFPX9UdmKlBsoGCtu_m3zoP6QAEv5AhWgYaitUwqKQ-NYP47BY_dzrTcDKbI3XWZDPrgvAF4dYgKgilYudjR3TT46NmmKxJFeN_yEos0ARMuE-l2AJj0q9PaUWgtU1dwX4KrcOD0ttDsKDT4CnEyg9SCP_6K6Wj86L2Tr1co9CYl4vt118zX1a3BdhxXuIwWg-YYx4pDoj1ika3Ay8CWWkDmqm1aWSY78drr0NvppsmKgXs7VNLPYTT1zLdvHFPX9UdmKlBsoGCtu_m3zoP6QAEu5AQBISBEgAqICCqoIEhgARYQCEAIABSgWAMgBBCZDAAgACAAEkSIBREYQJgFTABAAABKABQGEAQAgkKgkpBUAFUEAIBQEANgIRAEGaJsp0CgLEAUgAAdIDKlQsVsBCQiBTgGREAAFQgKgILBYgLkUZCoAADAAAwEARARAggdSkCg1Fr6CUECCADAIxNjRRGKogAwpkMiAAqAwFAGAA2wiAgUgGGBAIAEBQEAYAAIAaGCBDsChEAoUFEFIQIEYYIIABgRhghgCwIEAAELQgQEEqABFEAICEcCIIAQggioIIEDhAQTADQEAZABMEiaSAgxAihqiNIAgRFQDgUACyACIggixhwv6vNvZPdqDW61Vg3nznoN5zNOEW1QUSZRzcGFya3Bvb2wtY24tbm9kZS0xMqA9H90W8Vrqty59sQE7nwNO4zZB2S9xwHNr6rTmfTTHp4hNt6HAHYqAcsA"
-    go ref cid _bhe _bha _
+    go q ref cid _bhe _bha _
         | tid /= cid = return mempty
         | otherwise = readIORef ref >>= \case
             True -> return mempty
@@ -486,8 +494,19 @@ createVerifyEth code time (TestBlockDb _wdb _pdb _c) _pidv _sid tid _bhe = do
                   mkCmd "0" $
                   mkExec
                     code
-                    (object [("proof", q)])
+                    (object [("proof", toJSON q)])
                 return $ Vector.singleton cmd
+
+receiptProofTest :: Int -> IO ReceiptProof
+receiptProofTest i = do
+    recps <- readFile "test/pact/receipts.json"
+    blk <- readFile "test/pact/block.json"
+    rs <- decodeStrictOrThrow @_ @[RpcReceipt] $ B8.pack recps
+    block <- decodeStrictOrThrow @_ @RpcBlock $ B8.pack blk
+    let hdr = _rpcBlockHeader block
+    p <- rpcReceiptProof hdr [] rs (TransactionIndex $ fromIntegral i)
+    return p
+
 
 -- | Generate the 'create-coin' command in response to the previous 'delete-coin' call.
 -- Note that we maintain an atomic update to make sure that if a given chain id
