@@ -522,6 +522,7 @@ test-suite chainweb-tests
         , deepseq >= 1.4
         , directory >= 1.2
         , errors >= 2.3
+        , ethereum
         , exceptions
         , extra >= 1.6
         , file-embed >= 0.0
