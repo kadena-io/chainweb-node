@@ -31,7 +31,7 @@ source-repository-package
 source-repository-package
     type: git
     location: https://github.com/kadena-io/kadena-ethereum-bridge.git
-    tag: b85e254e57a49aae13b4c70afba877c08d8aa1b3
+    tag: f19f6f8342890bfd6c85b3837088c7aaa009b54d
 
 package vault
     documentation: false
