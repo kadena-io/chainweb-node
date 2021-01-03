@@ -229,40 +229,40 @@ extractEthProof o = case M.lookup "proof" $ _objectMap $ _oObject o of
 
 ethResultToPactValue :: ReceiptProofValidation -> Object Name
 ethResultToPactValue ReceiptProofValidation{..} = mkObject
-    [("depth", tInt _receiptProofValidationDepth)
-    ,("header", header _receiptProofValidationHeader)
-    ,("index", tix _receiptProofValidationIndex)
-    ,("root",jsonStr _receiptProofValidationRoot)
-    ,("weight",tInt _receiptProofValidationWeight)
-    ,("receipt",receipt _receiptProofValidationReceipt)
+    [ ("depth", tInt _receiptProofValidationDepth)
+    , ("header", header _receiptProofValidationHeader)
+    , ("index", tix _receiptProofValidationIndex)
+    , ("root",jsonStr _receiptProofValidationRoot)
+    , ("weight",tInt _receiptProofValidationWeight)
+    , ("receipt",receipt _receiptProofValidationReceipt)
     ]
   where
     receipt Receipt{..} = obj
-      [("cumulative-gas-used", tInt _receiptGasUsed)
-      ,("status",toTerm $ _receiptStatus == TxStatus 1)
-      ,("logs",toTList TyAny def $ map rlog _receiptLogs)]
+      [ ("cumulative-gas-used", tInt _receiptGasUsed)
+      , ("status",toTerm $ _receiptStatus == TxStatus 1)
+      , ("logs",toTList TyAny def $ map rlog _receiptLogs)]
     rlog LogEntry{..} = obj
-      [("address",jsonStr _logEntryAddress)
-      ,("topics",toTList TyAny def $ map topic _logEntryTopics)
-      ,("data",jsonStr _logEntryData)]
+      [ ("address",jsonStr _logEntryAddress)
+      , ("topics",toTList TyAny def $ map topic _logEntryTopics)
+      , ("data",jsonStr _logEntryData)]
     topic t = jsonStr t
     header ch@ConsensusHeader{..} = obj
-      [("difficulty", jsonStr _hdrDifficulty)
-      ,("extra-data", jsonStr _hdrExtraData)
-       ,("gas-limit", tInt _hdrGasLimit)
-       ,("gas-used", tInt _hdrGasUsed)
-       ,("hash", jsonStr $ EthHeader.blockHash ch)
-        ,("miner", jsonStr _hdrBeneficiary)
-        ,("mix-hash", jsonStr _hdrMixHash)
-        ,("nonce", jsonStr _hdrNonce)
-        ,("number", tInt _hdrNumber)
-        ,("parent-hash", jsonStr _hdrParentHash)
-        ,("receipts-root", jsonStr _hdrReceiptsRoot)
-        ,("sha3-uncles", jsonStr _hdrOmmersHash)
-        ,("state-root", jsonStr _hdrStateRoot)
-        ,("timestamp", ts _hdrTimestamp)
-        ,("transactions-root", jsonStr _hdrTransactionsRoot)
-        ]
+      [ ("difficulty", jsonStr _hdrDifficulty)
+      , ("extra-data", jsonStr _hdrExtraData)
+      , ("gas-limit", tInt _hdrGasLimit)
+      , ("gas-used", tInt _hdrGasUsed)
+      , ("hash", jsonStr $ EthHeader.blockHash ch)
+      , ("miner", jsonStr _hdrBeneficiary)
+      , ("mix-hash", jsonStr _hdrMixHash)
+      , ("nonce", jsonStr _hdrNonce)
+      , ("number", tInt _hdrNumber)
+      , ("parent-hash", jsonStr _hdrParentHash)
+      , ("receipts-root", jsonStr _hdrReceiptsRoot)
+      , ("sha3-uncles", jsonStr _hdrOmmersHash)
+      , ("state-root", jsonStr _hdrStateRoot)
+      , ("timestamp", ts _hdrTimestamp)
+      , ("transactions-root", jsonStr _hdrTransactionsRoot)
+      ]
     jsonStr v = case toJSON v of
       String s -> tStr s
       _ -> tStr $ sshow v
