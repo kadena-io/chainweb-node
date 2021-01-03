@@ -102,9 +102,10 @@ verifySPV
 verifySPV bdb bh typ proof = go typ proof
   where
     cid = CW._chainId bdb
+    enableBridge = CW.enableSPVBridge (_blockChainwebVersion bh) (_blockHeight bh)
 
     mkSPVResult' cr j
-        | CW.enableSPVBridge (_blockChainwebVersion bh) (_blockHeight bh) =
+        | enableBridge =
           return $ Right $ mkSPVResult cr j
         | otherwise = case fromPactValue j of
             TObject o _ -> return $ Right $ o
@@ -116,7 +117,7 @@ verifySPV bdb bh typ proof = go typ proof
       --
       -- For details of the returned value see https://github.com/kadena-io/kadena-ethereum-bridge/blob/5bf41eeb24b6633e705a58a146b7fa06a0acac19/src/Ethereum/Receipt.hs#L548
       --
-      "ETH" -> case extractEthProof o of
+      "ETH" | enableBridge -> case extractEthProof o of
         Left e -> return (Left e)
         Right parsedProof -> case validateReceiptProof parsedProof of
           -- Should we include more detailed failure messages from the ethereum package, assuming

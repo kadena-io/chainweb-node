@@ -105,6 +105,7 @@ tests = testGroup "Chainweb.Test.Pact.SPV"
     , testCaseSteps "contTXOUTNew" contTXOUTNew
     , testCaseSteps "tfrTXOUTNew" tfrTXOUTNew
     , testCaseSteps "ethReceiptProof" ethReceiptProof
+    , testCaseSteps "noEthReceiptProof" noEthReceiptProof
     , testCaseSteps "wrong chain execution fails" wrongChain
     , testCaseSteps "invalid proof formats fail" invalidProof
     , testCaseSteps "wrong target chain in proofs fail" wrongChainProof
@@ -112,6 +113,9 @@ tests = testGroup "Chainweb.Test.Pact.SPV"
 
 testVer :: ChainwebVersion
 testVer = FastTimedCPM triangleChainGraph
+
+bridgeVer :: ChainwebVersion
+bridgeVer = FastTimedCPM pairChainGraph
 
 logg :: LogMessage a => LogLevel -> a -> IO ()
 logg l
@@ -149,7 +153,7 @@ contTXOUTOld step = do
 contTXOUTNew :: (String -> IO ()) -> Assertion
 contTXOUTNew step = do
   code <- T.readFile "test/pact/contTXOUTNew.pact"
-  (c1,c3) <- roundtrip' (FastTimedCPM pairChainGraph) 0 1 burnGen (createVerify code mdata) step
+  (c1,c3) <- roundtrip' bridgeVer 0 1 burnGen (createVerify code mdata) step
   checkResult c1 0 "ObjectMap"
   checkResult' c3 1 $ PactResult $ Right $ PLiteral $ LString rSuccessTXOUT
   where
@@ -159,7 +163,7 @@ contTXOUTNew step = do
 tfrTXOUTNew :: (String -> IO ()) -> Assertion
 tfrTXOUTNew step = do
   code <- T.readFile "test/pact/tfrTXOUTNew.pact"
-  (c1,c3) <- roundtrip' (FastTimedCPM pairChainGraph) 0 1 transferGen (createVerify code mdata) step
+  (c1,c3) <- roundtrip' bridgeVer 0 1 transferGen (createVerify code mdata) step
   checkResult c1 0 "Write succeeded"
   checkResult' c3 1 $ PactResult $ Right $ PLiteral $ LString rSuccessTXOUT
   where
@@ -168,10 +172,17 @@ tfrTXOUTNew step = do
 ethReceiptProof :: (String -> IO ()) -> Assertion
 ethReceiptProof step = do
   code <- T.readFile "test/pact/ethReceiptProof.pact"
-  (c1,c3) <- roundtrip' (FastTimedCPM pairChainGraph) 0 1 transferGen (createVerifyEth code) step
+  (c1,c3) <- roundtrip' bridgeVer 0 1 transferGen (createVerifyEth code) step
   checkResult c1 0 "Write succeeded"
   checkResult' c3 1 $ PactResult $ Right $ PLiteral $ LString "ETH Success"
 
+
+noEthReceiptProof :: (String -> IO ()) -> Assertion
+noEthReceiptProof step = do
+  code <- T.readFile "test/pact/ethReceiptProof.pact"
+  (c1,c3) <- roundtrip' testVer 0 1 transferGen (createVerifyEth code) step
+  checkResult c1 0 "Write succeeded"
+  checkResult c3 1 "unsupported SPV types: ETH"
 
 rSuccessTXOUT :: Text
 rSuccessTXOUT = "TXOUT Success"
