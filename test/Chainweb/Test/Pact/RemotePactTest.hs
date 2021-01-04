@@ -85,6 +85,7 @@ import Chainweb.CutDB.RestAPI.Client
 import Chainweb.Graph
 import Chainweb.Mempool.Mempool
 import Chainweb.Pact.RestAPI.Client
+import Chainweb.Pact.RestAPI.EthSpv
 import Chainweb.Pact.Service.Types
 import Chainweb.Test.Pact.Utils
 import Chainweb.Test.RestAPI.Utils
@@ -135,6 +136,8 @@ tests rdb = testGroupSch "Chainweb.Test.Pact.RemotePactTest"
                 withRequestKeys iot iomvar net $ responseGolden net
               , after AllSucceed "remote-golden" $
                 testGroup "remote spv" [spvTest iot net]
+              , after AllSucceed "remote-golden" $
+                testGroup "remote eth spv" [ethSpvTest iot net]
               , after AllSucceed "remote spv" $
                 sendValidationTest iot net
               , after AllSucceed "remote spv" $
@@ -363,6 +366,46 @@ expectSendFailure expectErr act = tryAllSynchronous act >>= \case
   where
     test er = assertSatisfies ("Expected message containing '" ++ expectErr ++ "'") er (L.isInfixOf expectErr)
 
+ethSpvTest :: IO (Time Micros) -> IO ClientEnv -> TestTree
+ethSpvTest iot nio = testCaseSteps "eth spv client tests" $ \step -> do
+
+    req <- A.eitherDecodeFileStrict' "test/pact/eth-spv-request.json" >>= \case
+        Left e -> assertFailure $ "failed to decode test/pact/eth-spv-request: " <> e
+        Right x -> return (x :: EthSpvRequest)
+
+    cenv <- nio
+    c <- mkChainId v maxBound (1 :: Int)
+    r <- flip runClientM cenv $ do
+
+        void $ liftIO $ step "ethSpvApiClient: submit eth proof request"
+        proof <- liftIO $ ethSpv c cenv req
+
+        batch <- liftIO $ mkTxBatch proof
+
+        void $ liftIO $ step "sendApiClient: submit batch for proof validation"
+        rks <- liftIO $ sending c cenv batch
+
+        void $ liftIO $ step "pollApiClient: poll until key is found"
+        void $ liftIO $ polling c cenv rks ExpectPactResult
+
+        liftIO $ return ()
+
+    case r of
+        Left e -> assertFailure $ "eth proof roundtrip failed: " <> sshow e
+        Right _ -> return ()
+  where
+    ttl = 2 * 24 * 60 * 60
+
+    mkTxBatch proof = do
+      ks <- liftIO $ testKeyPairs sender00 Nothing
+      t <- toTxCreationTime <$> iot
+      let pm = Pact.PublicMeta (Pact.ChainId "1") "sender00" 100_000 0.01 ttl t
+      cmd <- liftIO $ Pact.mkExec txcode (txdata proof) pm ks (Just "fastTimedCPM-peterson") (Just "1")
+      return $ SubmitBatch (pure cmd)
+
+    txcode = "(verify-spv 'ETH (read-msg))"
+
+    txdata proof = A.toJSON proof
 
 spvTest :: IO (Time Micros) -> IO ClientEnv -> TestTree
 spvTest iot nio = testCaseSteps "spv client tests" $ \step -> do
