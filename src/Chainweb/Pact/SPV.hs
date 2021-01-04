@@ -43,6 +43,7 @@ import Crypto.Hash.Algorithms
 import Ethereum.Header as EthHeader
 import Ethereum.Misc
 import Ethereum.Receipt
+import Ethereum.Receipt.ReceiptProof
 import Ethereum.RLP
 
 import Numeric.Natural

@@ -51,6 +51,7 @@ import Data.Word
 
 import Ethereum.Block
 import Ethereum.Receipt
+import Ethereum.Receipt.ReceiptProof
 import Ethereum.RLP
 
 import System.LogLevel
