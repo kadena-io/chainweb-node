@@ -35,6 +35,8 @@ import Control.Lens (set)
 
 import Data.Aeson as Aeson
 import qualified Data.ByteString.Base64.URL as B64U
+import qualified Data.ByteString.Char8 as B8
+
 import Data.ByteString.Lazy (toStrict)
 import Data.CAS (casLookupM)
 import qualified Data.HashMap.Strict as HM
@@ -46,6 +48,11 @@ import qualified Data.Text as T
 import Data.Vector (Vector)
 import qualified Data.Vector as Vector
 import Data.Word
+
+import Ethereum.Block
+import Ethereum.Receipt
+import Ethereum.Receipt.ReceiptProof
+import Ethereum.RLP
 
 import System.LogLevel
 
@@ -98,6 +105,8 @@ tests = testGroup "Chainweb.Test.Pact.SPV"
     , testCaseSteps "contTXOUTOld" contTXOUTOld
     , testCaseSteps "contTXOUTNew" contTXOUTNew
     , testCaseSteps "tfrTXOUTNew" tfrTXOUTNew
+    , testCaseSteps "ethReceiptProof" ethReceiptProof
+    , testCaseSteps "noEthReceiptProof" noEthReceiptProof
     , testCaseSteps "wrong chain execution fails" wrongChain
     , testCaseSteps "invalid proof formats fail" invalidProof
     , testCaseSteps "wrong target chain in proofs fail" wrongChainProof
@@ -105,6 +114,9 @@ tests = testGroup "Chainweb.Test.Pact.SPV"
 
 testVer :: ChainwebVersion
 testVer = FastTimedCPM triangleChainGraph
+
+bridgeVer :: ChainwebVersion
+bridgeVer = FastTimedCPM pairChainGraph
 
 logg :: LogMessage a => LogLevel -> a -> IO ()
 logg l
@@ -142,7 +154,7 @@ contTXOUTOld step = do
 contTXOUTNew :: (String -> IO ()) -> Assertion
 contTXOUTNew step = do
   code <- T.readFile "test/pact/contTXOUTNew.pact"
-  (c1,c3) <- roundtrip' (FastTimedCPM pairChainGraph) 0 1 burnGen (createVerify code mdata) step
+  (c1,c3) <- roundtrip' bridgeVer 0 1 burnGen (createVerify code mdata) step
   checkResult c1 0 "ObjectMap"
   checkResult' c3 1 $ PactResult $ Right $ PLiteral $ LString rSuccessTXOUT
   where
@@ -152,13 +164,26 @@ contTXOUTNew step = do
 tfrTXOUTNew :: (String -> IO ()) -> Assertion
 tfrTXOUTNew step = do
   code <- T.readFile "test/pact/tfrTXOUTNew.pact"
-  (c1,c3) <- roundtrip' (FastTimedCPM pairChainGraph) 0 1 transferGen (createVerify code mdata) step
+  (c1,c3) <- roundtrip' bridgeVer 0 1 transferGen (createVerify code mdata) step
   checkResult c1 0 "Write succeeded"
   checkResult' c3 1 $ PactResult $ Right $ PLiteral $ LString rSuccessTXOUT
   where
     mdata = toJSON [fst sender01] :: Value
 
+ethReceiptProof :: (String -> IO ()) -> Assertion
+ethReceiptProof step = do
+  code <- T.readFile "test/pact/ethReceiptProof.pact"
+  (c1,c3) <- roundtrip' bridgeVer 0 1 transferGen (createVerifyEth code) step
+  checkResult c1 0 "Write succeeded"
+  checkResult' c3 1 $ PactResult $ Right $ PLiteral $ LString "ETH Success"
 
+
+noEthReceiptProof :: (String -> IO ()) -> Assertion
+noEthReceiptProof step = do
+  code <- T.readFile "test/pact/ethReceiptProof.pact"
+  (c1,c3) <- roundtrip' testVer 0 1 transferGen (createVerifyEth code) step
+  checkResult c1 0 "Write succeeded"
+  checkResult c3 1 "unsupported SPV types: ETH"
 
 rSuccessTXOUT :: Text
 rSuccessTXOUT = "TXOUT Success"
@@ -457,6 +482,39 @@ createVerify code mdata time (TestBlockDb wdb pdb _c) _pidv sid tid bhe = do
                     code
                     (object [("proof",q),("data",mdata)])
                 return $ Vector.singleton cmd
+
+-- | Generate a tx to run 'verify-spv' tests.
+--
+createVerifyEth :: Text -> CreatesGenerator
+createVerifyEth code time (TestBlockDb _wdb _pdb _c) _pidv _sid tid _bhe = do
+    ref <- newIORef False
+    q <- encodeB64UrlNoPaddingText . putRlpByteString <$> receiptProofTest 2
+    return $ go q ref
+  where
+    go q ref cid _bhe _bha _
+        | tid /= cid = return mempty
+        | otherwise = readIORef ref >>= \case
+            True -> return mempty
+            False -> do
+                -- q <- toJSON <$> createTransactionOutputProof_ wdb pdb tid sid bhe 0
+                cmd <- buildCwCmd $
+                  set cbSigners [mkSigner' sender00 []] $
+                  set cbCreationTime (toTxCreationTime time) $
+                  set cbChainId tid $
+                  mkCmd "0" $
+                  mkExec
+                    code
+                    (object [("proof", toJSON q)])
+                return $ Vector.singleton cmd
+
+receiptProofTest :: Int -> IO ReceiptProof
+receiptProofTest i = do
+    recps <- readFile "test/pact/receipts.json"
+    blk <- readFile "test/pact/block.json"
+    rs <- decodeStrictOrThrow @_ @[RpcReceipt] $ B8.pack recps
+    block <- decodeStrictOrThrow @_ @RpcBlock $ B8.pack blk
+    let hdr = _rpcBlockHeader block
+    rpcReceiptProof hdr [] rs (TransactionIndex $ fromIntegral i)
 
 
 -- | Generate the 'create-coin' command in response to the previous 'delete-coin' call.
