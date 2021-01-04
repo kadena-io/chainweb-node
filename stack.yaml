@@ -46,5 +46,5 @@ extra-deps:
   - github: kadena-io/rosetta
     commit: 1d69bb4ec46c001f2b501121e6c93e83ac60162b
   - github: kadena-io/kadena-ethereum-bridge
-    commit: 3fabcf11adbab74a07742f7dd131d28314d313ad
+    commit: 9838d1266b9ee43c88af6c01cd819e0c96b685e6
 
