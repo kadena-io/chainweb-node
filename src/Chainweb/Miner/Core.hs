@@ -109,7 +109,7 @@ mine orig@(Nonce o) work = do
                 -- inner mining loop
                 --
                 let go1 0 n = return (Just n)
-                    go1 !i !n@(Nonce nv) = do
+                    go1 !i n@(Nonce nv) = do
                         -- Compute POW hash for the nonce
                         injectNonce n buf
                         hash ctx buf pow

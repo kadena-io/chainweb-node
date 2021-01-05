@@ -32,7 +32,7 @@ module Chainweb.Miner.Miners
 
 import Control.Concurrent (threadDelay)
 import Control.Concurrent.Async (race)
-import Control.Concurrent.STM.TVar (newTVarIO)
+import Control.Concurrent.STM.TVar (TVar)
 import Control.Lens
 import Control.Monad
 
@@ -80,22 +80,19 @@ import Data.LogMessage (LogFunction)
 localTest
     :: LogFunction
     -> ChainwebVersion
+    -> TVar PrimedWork
     -> Miner
     -> CutDb cas
     -> MWC.GenIO
     -> MinerCount
     -> IO ()
-localTest lf v m@(Miner mid _) cdb gen miners = do
-    tpw <- newTVarIO (PrimedWork $ HashMap.singleton mid mempty)
-    let loop :: IO a
-        loop = do
-            c <- _cut cdb
-            T2 wh pd <- newWork lf Anything m hdb pact tpw c
-            let height = c ^?! ixg (_workHeaderChainId wh) . blockHeight
-            work height wh >>= publish lf cdb (view minerId m) pd
-            void $ awaitNewCut cdb c
-            loop
-    runForever lf "Chainweb.Miner.Miners.localTest" loop
+localTest lf v tpw m cdb gen miners = do
+    runForever lf "Chainweb.Miner.Miners.localTest" $ do
+        c <- _cut cdb
+        T2 wh pd <- newWork lf Anything m hdb pact tpw c
+        let height = c ^?! ixg (_workHeaderChainId wh) . blockHeight
+        work height wh >>= publish lf cdb (view minerId m) pd
+        void $ awaitNewCut cdb c
   where
     pact :: PactExecutionService
     pact = _webPactExecutionService $ view cutDbPactService cdb
@@ -117,8 +114,6 @@ localTest lf v m@(Miner mid _) cdb gen miners = do
         graphOrder :: Natural
         graphOrder = order $ chainGraphAt v height
 
-
-
 -- | A miner that grabs new blocks from mempool and discards them. Mempool
 -- pruning happens during new-block time, so we need to ask for a new block
 -- regularly to prune mempool.
@@ -128,11 +123,10 @@ mempoolNoopMiner
     -> HashMap ChainId (MempoolBackend ChainwebTransaction)
     -> IO ()
 mempoolNoopMiner lf chainRes =
-    runForever lf "Chainweb.Miner.Miners.mempoolNoopMiner" loop
-  where
-    loop = do
+    runForever lf "Chainweb.Miner.Miners.mempoolNoopMiner" $ do
         mapM_ runOne $ HashMap.toList chainRes
         approximateThreadDelay 60_000_000 -- wake up once a minute
+  where
 
     runOne (_, cr) = Mempool.mempoolPrune cr
 
@@ -141,22 +135,19 @@ mempoolNoopMiner lf chainRes =
 localPOW
     :: LogFunction
     -> ChainwebVersion
+    -> TVar PrimedWork
     -> Miner
     -> CutDb cas
     -> IO ()
-localPOW lf v m@(Miner mid _) cdb = do
-    tpw <- newTVarIO (PrimedWork $ HashMap.singleton mid mempty)
-    let loop :: IO a
-        loop = do
-            c <- _cut cdb
-            T2 wh pd <- newWork lf Anything m hdb pact tpw c
-            race (awaitNewCutByChainId cdb (_workHeaderChainId wh) c) (work wh) >>= \case
-                Left _ -> loop
-                Right new -> do
-                    publish lf cdb (view minerId m) pd new
-                    void $ awaitNewCut cdb c
-                    loop
-    runForever lf "Chainweb.Miner.Miners.localPOW" loop
+localPOW lf v tpw m cdb = do
+    runForever lf "Chainweb.Miner.Miners.localPOW" $ do
+        c <- _cut cdb
+        T2 wh pd <- newWork lf Anything m hdb pact tpw c
+        race (awaitNewCutByChainId cdb (_workHeaderChainId wh) c) (work wh) >>= \case
+            Left _ -> return ()
+            Right new -> do
+                publish lf cdb (view minerId m) pd new
+                void $ awaitNewCut cdb c
   where
     pact :: PactExecutionService
     pact = _webPactExecutionService $ view cutDbPactService cdb

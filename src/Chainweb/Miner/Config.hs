@@ -36,6 +36,7 @@ import Configuration.Utils
 import Control.Lens (lens, view)
 import Control.Monad (when)
 import Control.Monad.Except (throwError)
+import Control.Monad.Writer (tell)
 
 import qualified Data.Set as S
 
@@ -58,12 +59,19 @@ newtype MinerCount = MinerCount { _minerCount :: Natural }
     deriving stock (Eq, Ord, Show)
     deriving newtype (FromJSON)
 
-validateMinerConfig :: ConfigValidation MiningConfig l
-validateMinerConfig c =
+validateMinerConfig :: ConfigValidation MiningConfig []
+validateMinerConfig c = do
+    when (_nodeMiningEnabled nmc) $ tell
+        [ "In-node mining is enabled. This should only be used for testing"
+        , "In order to use in-node mining, mining-coordination must be enabled, too"
+        ]
+    when (_nodeMiningEnabled nmc && not (_coordinationEnabled cc))
+        $ throwError "In-node mining is enabled but mining coordination is disabled"
     when (_nodeMiningEnabled nmc && view minerId (_nodeMiner nmc) == "")
         $ throwError "In-node Mining is enabled but no miner id is configured"
   where
     nmc = _miningInNode c
+    cc = _miningCoordination c
 
 -- | Full configuration for Mining.
 --
