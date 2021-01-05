@@ -16,6 +16,8 @@
 module Chainweb.Pact.RestAPI.Client
 ( pactSpvApiClient_
 , pactSpvApiClient
+, ethSpvApiClient_
+, ethSpvApiClient
 , pactPollApiClient_
 , pactPollApiClient
 , pactListenApiClient_
@@ -39,6 +41,7 @@ import Servant.Client
 
 import Chainweb.ChainId
 import Chainweb.Pact.RestAPI
+import Chainweb.Pact.RestAPI.EthSpv
 import Chainweb.Pact.Service.Types
 import Chainweb.Version
 
@@ -72,6 +75,29 @@ pactSpvApiClient
     (FromSingChainwebVersion (SChainwebVersion :: Sing v))
     (FromSingChainId (SChainId :: Sing c))
     = pactSpvApiClient_ @v @c
+
+-- -------------------------------------------------------------------------- --
+-- Pact ETH Spv Transaction Output Proof Client
+
+ethSpvApiClient_
+    :: forall (v :: ChainwebVersionT) (c :: ChainIdT)
+    . KnownChainwebVersionSymbol v
+    => KnownChainIdSymbol c
+    => EthSpvRequest
+    -> ClientM EthSpvResponse
+ethSpvApiClient_ = client (ethSpvApi @v @c)
+
+ethSpvApiClient
+    :: ChainwebVersion
+    -> ChainId
+        -- ^ chain to which the request is submitted. The resuting proof does
+        -- not depend on the chain and can be validated on any chain.
+    -> EthSpvRequest
+    -> ClientM EthSpvResponse
+ethSpvApiClient
+    (FromSingChainwebVersion (SChainwebVersion :: Sing v))
+    (FromSingChainId (SChainId :: Sing c))
+    = ethSpvApiClient_ @v @c
 
 -- -------------------------------------------------------------------------- --
 -- Pact local

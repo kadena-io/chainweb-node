@@ -274,6 +274,7 @@ library
         , Chainweb.Pact.PactService.Checkpointer
         , Chainweb.Pact.PactService.ExecBlock
         , Chainweb.Pact.RestAPI
+        , Chainweb.Pact.RestAPI.EthSpv
         , Chainweb.Pact.RestAPI.Server
         , Chainweb.Pact.RestAPI.Client
         , Chainweb.Pact.SPV
