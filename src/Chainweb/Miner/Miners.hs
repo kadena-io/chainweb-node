@@ -32,7 +32,7 @@ module Chainweb.Miner.Miners
 
 import Control.Concurrent (threadDelay)
 import Control.Concurrent.Async (race)
-import Control.Concurrent.STM.TVar (TVar)
+import Control.Concurrent.STM.TVar (newTVarIO)
 import Control.Lens
 import Control.Monad
 
@@ -80,23 +80,23 @@ import Data.LogMessage (LogFunction)
 localTest
     :: LogFunction
     -> ChainwebVersion
-    -> TVar PrimedWork
     -> Miner
     -> CutDb cas
     -> MWC.GenIO
     -> MinerCount
     -> IO ()
-localTest lf v tpw m cdb gen miners = runForever lf "Chainweb.Miner.Miners.localTest" loop
+localTest lf v m@(Miner mid _) cdb gen miners = do
+    tpw <- newTVarIO (PrimedWork $ HashMap.singleton mid mempty)
+    let loop :: IO a
+        loop = do
+            c <- _cut cdb
+            T2 wh pd <- newWork lf Anything m hdb pact tpw c
+            let height = c ^?! ixg (_workHeaderChainId wh) . blockHeight
+            work height wh >>= publish lf cdb (view minerId m) pd
+            void $ awaitNewCut cdb c
+            loop
+    runForever lf "Chainweb.Miner.Miners.localTest" loop
   where
-    loop :: IO a
-    loop = do
-        c <- _cut cdb
-        T2 wh pd <- newWork lf Anything m hdb pact tpw c
-        let height = c ^?! ixg (_workHeaderChainId wh) . blockHeight
-        work height wh >>= publish lf cdb (view minerId m) pd
-        void $ awaitNewCut cdb c
-        loop
-
     pact :: PactExecutionService
     pact = _webPactExecutionService $ view cutDbPactService cdb
 
@@ -141,23 +141,23 @@ mempoolNoopMiner lf chainRes =
 localPOW
     :: LogFunction
     -> ChainwebVersion
-    -> TVar PrimedWork
     -> Miner
     -> CutDb cas
     -> IO ()
-localPOW lf v tpw m cdb = runForever lf "Chainweb.Miner.Miners.localPOW" loop
+localPOW lf v m@(Miner mid _) cdb = do
+    tpw <- newTVarIO (PrimedWork $ HashMap.singleton mid mempty)
+    let loop :: IO a
+        loop = do
+            c <- _cut cdb
+            T2 wh pd <- newWork lf Anything m hdb pact tpw c
+            race (awaitNewCutByChainId cdb (_workHeaderChainId wh) c) (work wh) >>= \case
+                Left _ -> loop
+                Right new -> do
+                    publish lf cdb (view minerId m) pd new
+                    void $ awaitNewCut cdb c
+                    loop
+    runForever lf "Chainweb.Miner.Miners.localPOW" loop
   where
-    loop :: IO a
-    loop = do
-        c <- _cut cdb
-        T2 wh pd <- newWork lf Anything m hdb pact tpw c
-        race (awaitNewCutByChainId cdb (_workHeaderChainId wh) c) (work wh) >>= \case
-            Left _ -> loop
-            Right new -> do
-                publish lf cdb (view minerId m) pd new
-                void $ awaitNewCut cdb c
-                loop
-
     pact :: PactExecutionService
     pact = _webPactExecutionService $ view cutDbPactService cdb
 

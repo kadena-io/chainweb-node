@@ -283,10 +283,7 @@ runMiner v mr =
     testMiner :: IO ()
     testMiner = do
         gen <- MWC.createSystemRandom
-        tpw <- newTVarIO mempty
-        localTest lf v tpw (_nodeMiner conf) cdb gen (_nodeTestMiners conf)
+        localTest lf v (_nodeMiner conf) cdb gen (_nodeTestMiners conf)
 
     powMiner :: IO ()
-    powMiner = do
-        tpw <- newTVarIO mempty
-        localPOW lf v tpw (_nodeMiner conf) cdb
+    powMiner = localPOW lf v (_nodeMiner conf) cdb
