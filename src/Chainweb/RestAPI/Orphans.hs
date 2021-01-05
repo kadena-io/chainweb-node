@@ -69,6 +69,7 @@ import Chainweb.MerkleLogHash (MerkleLogHash, merkleLogHashBytesCount)
 import Chainweb.Miner.Core (ChainBytes, HeaderBytes, WorkBytes)
 import Chainweb.Miner.Pact (Miner, defaultMiner)
 import Chainweb.Pact.Service.Types
+import Chainweb.Pact.RestAPI.EthSpv
 import Chainweb.Payload
 import Chainweb.SPV
 import Chainweb.Time (Micros, Time, TimeSpan)
@@ -454,6 +455,25 @@ deriving instance ToSchema Word256
 deriving instance ToSchema a => ToSchema (Time a)
 deriving instance ToSchema a => ToSchema (TimeSpan a)
 deriving instance ToSchema SpvRequest
+deriving instance ToSchema EthSpvResponse
+
+instance ToSchema EthSpvRequest where
+    declareNamedSchema _ = return $
+        NamedSchema (Just "EthSpvRequet") $ mempty
+            & description ?~ "TODO"
+            & type_ ?~ SwaggerObject
+            & properties .~
+                [ ("transactionHash", Inline transactionHashSchema)
+                , ("blocks", Inline rpcBlocksSchema)
+                , ("receipts", Inline rpcReceiptsSchema)
+                ]
+      where
+        transactionHashSchema = mempty
+            & description ?~ "transaction hash"
+        rpcBlocksSchema = mempty
+            & description ?~ "List of Ethereum JSON RPC blocks"
+        rpcReceiptsSchema = mempty
+            & description ?~ "List of Ethereum JSON RPC Receipts"
 
 instance ToSchema ChainwebVersion where
     declareNamedSchema _ = pure . NamedSchema (Just "ChainwebVersion") $ mempty

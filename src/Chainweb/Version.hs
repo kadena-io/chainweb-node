@@ -855,7 +855,7 @@ enableSPVBridge :: ChainwebVersion -> BlockHeight -> Bool
 enableSPVBridge Mainnet01 = (>= 2000000) -- TODOTODOTODOTODOTODOTODO
 enableSPVBridge Testnet04 = (>= 1900000) -- TODOTODOTODOTODOTODOTODO
 enableSPVBridge Development = (>= 130)
-enableSPVBridge (FastTimedCPM g) = const $ g == pairChainGraph -- For testing
+enableSPVBridge (FastTimedCPM g) = const $ g == pairChainGraph || g == petersonChainGraph
 enableSPVBridge _ = const True
 
 -- -------------------------------------------------------------------------- --
