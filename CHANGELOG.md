@@ -3,7 +3,7 @@
 ## 2.4 (2021-01-11)
 
 This version replaces all previous versions. Any prior version will stop working
-on **2020-01-14T00:00:00Z**. Node administrators must upgrade to this version
+on **2021-01-14T00:00:00Z**. Node administrators must upgrade to this version
 before that date.
 
 This version will stop working on **2021-02-25T00:00:00Z**.
