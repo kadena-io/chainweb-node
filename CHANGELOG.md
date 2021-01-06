@@ -1,5 +1,20 @@
 # `chainweb-node` Changelog
 
+## 2.4 (2021-01-11)
+
+This version replaces all previous versions. Any prior version will stop working
+on **2020-01-14T00:00:00Z**. Node administrators must upgrade to this version
+before that date.
+
+This version will stop working on **2021-02-25T00:00:00Z**.
+
+ *  Ethereum bridge support
+   *  add endpoint for creating eth-receipt-proofs (#1181)
+   *  ethereum receipt SPV (#1179)
+ *  Improve TXOUT SPV to include events (#1178)
+ *  Pact replay bug fix (#1172,#1169,#1168)
+ *  run brew update before installing rocksdb (#1171)
+
 ## 2.3 (2020-11-11)
 
 This version replaces all previous versions. Any prior version will stop working
