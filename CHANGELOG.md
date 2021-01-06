@@ -13,7 +13,6 @@ This version will stop working on **2021-02-25T00:00:00Z**.
    *  ethereum receipt SPV (#1179)
  *  Improve TXOUT SPV to include events (#1178)
  *  Pact replay bug fix (#1172,#1169,#1168)
- *  run brew update before installing rocksdb (#1171)
 
 ## 2.3 (2020-11-11)
 
