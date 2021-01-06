@@ -852,8 +852,8 @@ enablePactEvents _ bh = bh >= 2
 
 -- | Bridge support: ETH and event SPV.
 enableSPVBridge :: ChainwebVersion -> BlockHeight -> Bool
-enableSPVBridge Mainnet01 = (>= 2000000) -- TODOTODOTODOTODOTODOTODO
-enableSPVBridge Testnet04 = (>= 1900000) -- TODOTODOTODOTODOTODOTODO
+enableSPVBridge Mainnet01 = (>= 1_275_000) -- 2021-01-14T16:35:58
+enableSPVBridge Testnet04 = (>= 820_000) -- 2021-01-14T17:12:02
 enableSPVBridge Development = (>= 130)
 enableSPVBridge (FastTimedCPM g) = const $ g == pairChainGraph || g == petersonChainGraph
 enableSPVBridge _ = const True
