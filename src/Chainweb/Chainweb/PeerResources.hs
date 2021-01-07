@@ -151,10 +151,22 @@ withHost conf f
     | anyIpv4 == _peerConfigHost (_p2pConfigPeer conf) = do
         h <- getHost (_p2pConfigKnownPeers conf)
         f (set (p2pConfigPeer . peerConfigHost) h conf)
-    | otherwise  = f conf
+    | otherwise = do
+        h <- getHost (_p2pConfigKnownPeers conf)
+        f conf
 
-getHost :: [PeerInfo] -> IO Hostname
-getHost = error "Chainweb.Chainweb.PeerResources.getHost: not yet implemented"
+getHost :: HTTP.Manager -> ChainwebVersion -> [PeerInfo] -> IO Hostname
+getHost mgr ver peers = do
+    nis <- forM peers tryAllSynchronous (requestRemoteNodeInfo mgr ver Nothing)
+
+    hostnames = L.nub $ L.sort $ view remoteNodeInfoHostname <$> nis
+
+    if
+        | length hostnames >= 1 = error "failed to identify a unique IP"
+        | length hostnames < 1 = error "failed to identify external IP address"
+        | otherwise = error "TODO"
+
+    return ()
 
     -- get all remote node infos
     -- - check reachablility
@@ -277,6 +289,4 @@ withConnectionLogger logger counter inner =
             logFunctionText logger Error ("Connection manager logger failed: " <> sshow e)
         logFunctionText logger Info "Restarting connection manager logger"
         runLogClientConnections umask
-
-
 

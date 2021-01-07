@@ -5,6 +5,7 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeApplications #-}
 
 -- |
@@ -27,12 +28,17 @@ module Chainweb.NodeVersion
 
 -- * Node Information
 , RemoteNodeInfo(..)
+, remoteNodeInfoAddr
+, remoteNodeInfoHostname
+, remoteNodeInfoTimestamp
+, remoteNodeInfoVersion
 , NodeInfoException(..)
 , getRemoteNodeInfo
 , requestRemoteNodeInfo
 ) where
 
 import Control.DeepSeq
+import Control.Lens
 import Control.Monad
 import Control.Monad.Catch
 
@@ -176,10 +182,18 @@ data RemoteNodeInfo = RemoteNodeInfo
     deriving (Show, Eq, Ord, Generic)
     deriving anyclass (NFData)
 
+makeLenses ''RemoteNodeInfo
+
+remoteNodeInfoHostname :: Lens' RemoteNodeInfo Hostname
+remoteNodeInfoHostname = remoteNodeInfoAddr . hostAddressHost
+{-# INLINE remoteNodeInfoHostname #-}
+
 -- | Request NodeInfos from a remote chainweb node.
 --
 -- This function throws 'NodeInfoUnsupported' for remote chainweb nodes
 -- with a node version smaller or equal 2.3.
+--
+-- No retries are attempted in case of a failure.
 --
 requestRemoteNodeInfo
     :: HTTP.Manager
@@ -194,13 +208,15 @@ requestRemoteNodeInfo mgr ver addr maybeReq =
   where
     reqHdrs = HTTP.responseHeaders <$> HTTP.httpNoBody url mgr
     url = case maybeReq of
-        Nothing -> cutReq ver addr
-        Just e -> req ver addr e
+        Nothing -> (cutReq ver addr) { HTTP.method = "HEAD" }
+        Just e -> (req ver addr e) { HTTP.method = "HEAD" }
 
 -- | Obtain 'NodeInfo' of a remote Chainweb node from response headers.
 --
 -- This function throws 'NodeInfoUnsupported' for remote chainweb nodes
 -- with a node version smaller or equal 2.3.1.
+--
+-- No retries are attempted in case of a failure.
 --
 getRemoteNodeInfo
     :: forall m
