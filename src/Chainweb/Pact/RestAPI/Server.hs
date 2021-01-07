@@ -25,7 +25,6 @@ module Chainweb.Pact.RestAPI.Server
 , validateCommand
 ) where
 
-
 import Control.Applicative
 import Control.Concurrent.STM (atomically, retry)
 import Control.Concurrent.STM.TVar
@@ -33,6 +32,7 @@ import Control.DeepSeq
 import Control.Lens (set, view, preview, (^?!), _head)
 import Control.Monad.Catch hiding (Handler)
 import Control.Monad.Reader
+import Control.Monad.State.Strict
 import Control.Monad.Trans.Except (ExceptT)
 import Control.Monad.Trans.Maybe
 
@@ -45,8 +45,10 @@ import qualified Data.ByteString.Short as SB
 import Data.CAS
 import Data.Default (def)
 import Data.Foldable
+import Data.Function
 import Data.HashMap.Strict (HashMap)
 import qualified Data.HashMap.Strict as HM
+import qualified Data.List as L
 import Data.List.NonEmpty (NonEmpty)
 import qualified Data.List.NonEmpty as NEL
 import Data.Maybe
@@ -58,12 +60,21 @@ import Data.Tuple.Strict
 import Data.Vector (Vector)
 import qualified Data.Vector as V
 
+import Ethereum.Block
+import Ethereum.Header
+import Ethereum.Misc (bytes)
+import Ethereum.Receipt
+import Ethereum.Receipt.ReceiptProof
+import Ethereum.RLP (putRlpByteString)
+
 import GHC.Generics
 import GHC.Stack
 
 import Prelude hiding (init, lookup)
 
 import Servant
+
+import qualified Streaming.Prelude as S
 
 import System.LogLevel
 
@@ -90,6 +101,7 @@ import Chainweb.Logger
 import Chainweb.Mempool.Mempool
     (InsertError(..), InsertType(..), MempoolBackend(..), TransactionHash(..))
 import Chainweb.Pact.RestAPI
+import Chainweb.Pact.RestAPI.EthSpv
 import Chainweb.Pact.Service.Types
 import Chainweb.Pact.SPV
 import Chainweb.Payload
@@ -143,7 +155,9 @@ pactServer
     => PactServerData logger cas
     -> Server (PactServiceApi v c)
 pactServer (cut, chain) =
-    pactApiHandlers :<|> pactSpvHandler
+    pactApiHandlers
+        :<|> pactSpvHandler
+        :<|> ethSpvHandler
   where
     cid = FromSing (SChainId :: Sing c)
     mempool = _chainResMempool chain
@@ -374,7 +388,55 @@ spvHandler l cdb cid pe (SpvRequest rk (Pact.ChainId ptid)) = do
       . encodeUtf8
       . _spvExceptionMsg
 
-------------------------------------------------------------------------------
+ethSpvHandler
+    :: EthSpvRequest
+    -> Handler EthSpvResponse
+ethSpvHandler req = do
+
+    -- find block with transaction
+    (block, rest) <- case evalState start Nothing of
+        Left () -> toErr $ "the transaction " <> sshow tx <> " is not contained in any of the provided blocks"
+        Right x -> return x
+
+    -- select and order set of receipts in the block
+    --
+    -- How big can blocks be? Should we create an index instead?
+    --
+    rcs <- forM (_rpcBlockTransactions block) $ \t -> do
+        case L.find (\r -> _rpcReceiptTransactionHash r == t) receipts of
+            Nothing -> toErr $ "missing receipt for tx " <> sshow t
+            Just x -> return x
+
+    -- select and order set of extra headers and create proof
+    case rpcReceiptProof (_rpcBlockHeader block) (hdrs block rest) rcs (TransactionIndex 28) of
+        Left e -> toErr $ "failed to create proof: " <> sshow e
+        Right proof -> return $ EthSpvResponse $
+            encodeB64UrlNoPaddingText (putRlpByteString proof)
+
+  where
+    receipts = _ethSpvReqReceipts req
+    blocks = _ethSpvReqBlocks req
+    orderedBlocks = L.sortOn (_hdrNumber . _rpcBlockHeader) blocks
+    tx = _ethSpvReqTransactionHash req
+
+    start = S.each orderedBlocks
+        & S.dropWhile (notElem tx . _rpcBlockTransactions)
+        & S.next
+
+    -- filter sequence consecutive headers
+    hdrs block rest = flip evalState (Just $ _rpcBlockHash block) $ rest
+        & S.filterM (\b -> do
+            c <- get
+            if Just (bytes $ _hdrParentHash $ _rpcBlockHeader b) == (bytes <$> c)
+                then True <$ put (Just $ _rpcBlockHash b)
+                else return False
+        )
+        & S.map _rpcBlockHeader
+        & S.toList_
+
+    toErr e = throwError $ err400 { errBody = e }
+
+-- --------------------------------------------------------------------------- --
 
 internalPoll
     :: PayloadCasLookup cas

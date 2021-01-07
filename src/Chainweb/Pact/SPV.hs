@@ -1,8 +1,10 @@
+{-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE GADTs #-}
+{-# LANGUAGE TypeApplications #-}
 
 -- |
 -- Module: Chainweb.Pact.PactService
@@ -30,11 +32,19 @@ import Control.Lens hiding (index)
 import Control.Monad.Catch
 
 import Data.Aeson hiding (Object, (.=))
+import Data.Bifunctor
 import Data.Default (def)
+import qualified Data.Map.Strict as M
 import Data.Text (Text, pack)
 import qualified Data.Text.Encoding as T
 
 import Crypto.Hash.Algorithms
+
+import Ethereum.Header as EthHeader
+import Ethereum.Misc
+import Ethereum.Receipt
+import Ethereum.Receipt.ReceiptProof
+import Ethereum.RLP
 
 import Numeric.Natural
 
@@ -42,7 +52,7 @@ import qualified Streaming.Prelude as S
 
 -- internal chainweb modules
 
-import Chainweb.BlockHash
+import Chainweb.BlockHash as CW
 import Chainweb.BlockHeader
 import Chainweb.BlockHeaderDB
 import Chainweb.BlockHeight
@@ -72,10 +82,10 @@ import Pact.Types.SPV
 pactSPV
     :: BlockHeaderDb
       -- ^ handle into the cutdb
-    -> BlockHash
+    -> BlockHeader
       -- ^ the context for verifying the proof
     -> SPVSupport
-pactSPV bdb bh = SPVSupport (verifySPV bdb bh) (verifyCont bdb bh)
+pactSPV bdb bh = SPVSupport (verifySPV bdb bh) (verifyCont bdb (_blockHash bh))
 
 -- | SPV transaction verification support. Calls to 'verify-spv' in Pact
 -- will thread through this function and verify an SPV receipt, making the
@@ -84,18 +94,36 @@ pactSPV bdb bh = SPVSupport (verifySPV bdb bh) (verifyCont bdb bh)
 verifySPV
     :: BlockHeaderDb
       -- ^ handle into the cut db
-    -> BlockHash
+    -> BlockHeader
         -- ^ the context for verifying the proof
     -> Text
       -- ^ TXOUT or TXIN - defines the type of proof
       -- used in validation
     -> Object Name
-      -- ^ the 'TransactionOutputProof' object to validate
+      -- ^ the proof object to validate
     -> IO (Either Text (Object Name))
 verifySPV bdb bh typ proof = go typ proof
   where
     cid = CW._chainId bdb
+    enableBridge = CW.enableSPVBridge (_blockChainwebVersion bh) (_blockHeight bh)
+
+    mkSPVResult' cr j
+        | enableBridge =
+          return $ Right $ mkSPVResult cr j
+        | otherwise = case fromPactValue j of
+            TObject o _ -> return $ Right $ o
+            _ -> return $ Left "spv-verified tx output has invalid type"
+
     go s o = case s of
+
+      -- Ethereum Receipt Proof
+      "ETH" | enableBridge -> case extractEthProof o of
+        Left e -> return (Left e)
+        Right parsedProof -> case validateReceiptProof parsedProof of
+          Left e -> return $ Left $ "Validation of of Eth proof failed: " <> sshow e
+          Right result -> return $ Right $ ethResultToPactValue result
+
+      -- Chainweb tx output proof
       "TXOUT" -> case extractProof o of
         Left t -> return (Left t)
         Right u
@@ -112,7 +140,7 @@ verifySPV bdb bh typ proof = go typ proof
             --  3. Extract tx outputs as a pact object and return the
             --  object.
 
-            TransactionOutput p <- verifyTransactionOutputProofAt_ bdb u bh
+            TransactionOutput p <- verifyTransactionOutputProofAt_ bdb u (_blockHash bh)
 
             q <- case decodeStrict' p :: Maybe (CommandResult Hash) of
               Nothing -> internalError "unable to decode spv transaction output"
@@ -120,12 +148,12 @@ verifySPV bdb bh typ proof = go typ proof
 
             case _crResult q of
               PactResult Left{} ->
-                return (Left "invalid command result in tx output proof")
-              PactResult (Right v) -> case fromPactValue v of
-                TObject !j _ -> return (Right j)
-                _ -> return $ Left "spv-verified tx output has invalid type"
+                return (Left "Failed command result in tx output proof")
+              PactResult (Right v) -> mkSPVResult' q v
 
       t -> return . Left $! "unsupported SPV types: " <> t
+
+
 
 -- | SPV defpact transaction verification support. This call validates a pact 'endorsement'
 -- in Pact, providing a validation that the yield data of a cross-chain pact is valid.
@@ -133,7 +161,7 @@ verifySPV bdb bh typ proof = go typ proof
 verifyCont
     :: BlockHeaderDb
       -- ^ handle into the cut db
-    -> BlockHash
+    -> CW.BlockHash
         -- ^ the context for verifying the proof
     -> ContProof
       -- ^ bytestring of 'TransactionOutputP roof' object to validate
@@ -176,6 +204,72 @@ extractProof o = toPactValue (TObject o def) >>= k
     k = aeson (Left . pack) Right
       . fromJSON
       . toJSON
+
+-- | Extract an Eth 'ReceiptProof' from a generic pact object
+--
+-- The proof object has a sinle property "proof". The value is the
+-- base64UrlWithoutPadding encoded proof blob.
+--
+-- NOTE: If this fails the failure message is included on the chain. We
+-- therefore replace failure and exception messages from external libraries with
+-- stable internal messages.
+--
+-- For details of the returned value see 'Ethereum.Receipt'
+--
+extractEthProof :: Object Name -> Either Text ReceiptProof
+extractEthProof o = case M.lookup "proof" $ _objectMap $ _oObject o of
+  Nothing -> Left "Decoding of Eth proof object failed: missing 'proof' property"
+  Just (TLitString p) -> do
+    bytes' <- errMsg "Decoding of Eth proof object failed: invalid base64URLWithoutPadding encoding"
+        $ decodeB64UrlNoPaddingText p
+    errMsg "Decoding of Eth proof object failed: invalid binary proof data"
+        $ get getRlp bytes'
+  Just _ -> Left "Decoding of Eth proof object failed: invalid 'proof' property"
+  where
+    errMsg t = first (const t)
+
+ethResultToPactValue :: ReceiptProofValidation -> Object Name
+ethResultToPactValue ReceiptProofValidation{..} = mkObject
+    [ ("depth", tInt _receiptProofValidationDepth)
+    , ("header", header _receiptProofValidationHeader)
+    , ("index", tix _receiptProofValidationIndex)
+    , ("root",jsonStr _receiptProofValidationRoot)
+    , ("weight",tInt _receiptProofValidationWeight)
+    , ("receipt",receipt _receiptProofValidationReceipt)
+    ]
+  where
+    receipt Receipt{..} = obj
+      [ ("cumulative-gas-used", tInt _receiptGasUsed)
+      , ("status",toTerm $ _receiptStatus == TxStatus 1)
+      , ("logs",toTList TyAny def $ map rlog _receiptLogs)]
+    rlog LogEntry{..} = obj
+      [ ("address",jsonStr _logEntryAddress)
+      , ("topics",toTList TyAny def $ map topic _logEntryTopics)
+      , ("data",jsonStr _logEntryData)]
+    topic t = jsonStr t
+    header ch@ConsensusHeader{..} = obj
+      [ ("difficulty", jsonStr _hdrDifficulty)
+      , ("extra-data", jsonStr _hdrExtraData)
+      , ("gas-limit", tInt _hdrGasLimit)
+      , ("gas-used", tInt _hdrGasUsed)
+      , ("hash", jsonStr $ EthHeader.blockHash ch)
+      , ("miner", jsonStr _hdrBeneficiary)
+      , ("mix-hash", jsonStr _hdrMixHash)
+      , ("nonce", jsonStr _hdrNonce)
+      , ("number", tInt _hdrNumber)
+      , ("parent-hash", jsonStr _hdrParentHash)
+      , ("receipts-root", jsonStr _hdrReceiptsRoot)
+      , ("sha3-uncles", jsonStr _hdrOmmersHash)
+      , ("state-root", jsonStr _hdrStateRoot)
+      , ("timestamp", ts _hdrTimestamp)
+      , ("transactions-root", jsonStr _hdrTransactionsRoot)
+      ]
+    jsonStr v = case toJSON v of
+      String s -> tStr s
+      _ -> tStr $ sshow v
+    ts (Timestamp t) = tInt t
+    tix (TransactionIndex i) = tInt i
+{-# INLINE ethResultToPactValue #-}
 
 -- | Look up pact tx hash at some block height in the
 -- payload db, and return the tx index for proof creation.
@@ -224,3 +318,69 @@ getTxIdx bdb pdb bh th = do
 
     sindex :: Monad m => (a -> Bool) -> S.Stream (S.Of a) m () -> m (Maybe Natural)
     sindex p s = S.zip (S.each [0..]) s & sfind (p . snd) & fmap (fmap fst)
+
+mkObject :: [(FieldKey, Term n)] -> Object n
+mkObject ps = Object (ObjectMap (M.fromList ps)) TyAny Nothing def
+
+obj :: [(FieldKey, Term n)] -> Term n
+obj = toTObject TyAny def
+
+tInt :: Integral i => i -> Term Name
+tInt = toTerm . fromIntegral @_ @Integer
+
+-- | Encode a "successful" CommandResult into a Pact object.
+mkSPVResult
+    :: CommandResult Hash
+       -- ^ Full CR
+    -> PactValue
+       -- ^ Success result
+    -> Object Name
+mkSPVResult CommandResult{..} j =
+    mkObject
+    [ ("result", fromPactValue j)
+    , ("req-key", tStr $ asString $ unRequestKey _crReqKey)
+    , ("txid", tStr $ maybe "" asString _crTxId)
+    , ("gas", toTerm $ (fromIntegral _crGas :: Integer))
+    , ("meta", maybe empty metaField _crMetaData)
+    , ("logs", tStr $ asString $ _crLogs)
+    , ("continuation", maybe empty contField _crContinuation)
+    , ("events", toTList TyAny def $ map eventField _crEvents)
+    ]
+  where
+    metaField v = case fromJSON v of
+      Error _ -> obj []
+      Success p -> fromPactValue p
+
+    contField PactExec{..} = obj
+        [ ("step", toTerm _peStep)
+        , ("step-count", toTerm _peStepCount)
+        , ("yield", maybe empty yieldField _peYield)
+        , ("pact-id", toTerm _pePactId)
+        , ("cont",contField1 _peContinuation)
+        , ("step-has-rollback",toTerm _peStepHasRollback)
+        , ("executed",tStr $ maybe "" sshow _peExecuted)
+        ]
+
+    contField1 PactContinuation {..} = obj
+        [ ("name",tStr $ asString _pcDef)
+        , ("args",toTList TyAny def $ map fromPactValue _pcArgs)
+        ]
+
+    yieldField Yield {..} = obj
+        [ ("data",fromPactValue (PObject _yData))
+        , ("provenance", maybe empty provField _yProvenance)
+        ]
+
+    provField Provenance {..} = obj
+        [ ("target-chain", toTerm $ _chainId _pTargetChainId)
+        , ("module-hash", tStr $ asString $ _mhHash $ _pModuleHash)
+        ]
+
+    eventField PactEvent {..} = obj
+        [ ("name", toTerm _eventName)
+        , ("params", toTList TyAny def (map fromPactValue _eventParams))
+        , ("module", tStr $ asString _eventModule)
+        , ("module-hash", tStr $ asString _eventModuleHash)
+        ]
+
+    empty = obj []

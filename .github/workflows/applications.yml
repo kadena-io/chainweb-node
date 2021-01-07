@@ -126,7 +126,10 @@ jobs:
       run: sudo apt-get install -y librocksdb-dev z3
     - name: Install non-Haskell dependencies (macOS)
       if: contains(matrix.os, 'mac')
-      run: brew update && brew install rocksdb z3
+      run: |
+        brew update && brew install rocksdb z3 gnu-tar
+        # work around bug in macOS and github actions cache (cf. https://github.com/actions/cache/issues/403)
+        echo PATH="/usr/local/opt/gnu-tar/libexec/gnubin:$PATH" >> $GITHUB_ENV
     - name: Create cabal.project.local
       run: |
         cat > cabal.project.local <<EOF
@@ -160,7 +163,7 @@ jobs:
           ~/.cabal/packages
           ~/.cabal/store
           dist-newstyle
-        key: ${{ matrix.os }}-${{ matrix.ghc }}-2-cabal
+        key: ${{ matrix.os }}-${{ matrix.ghc }}-3-cabal
 
     # Build
     - name: Update package database
