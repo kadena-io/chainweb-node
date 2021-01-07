@@ -366,14 +366,14 @@ expectSendFailure expectErr act = tryAllSynchronous act >>= \case
   where
     test er = assertSatisfies ("Expected message containing '" ++ expectErr ++ "'") er (L.isInfixOf expectErr)
 
-ethSpvTest :: IO (Time Micros) -> IO ClientEnv -> TestTree
+ethSpvTest :: IO (Time Micros) -> IO ChainwebNetwork -> TestTree
 ethSpvTest iot nio = testCaseSteps "eth spv client tests" $ \step -> do
 
     req <- A.eitherDecodeFileStrict' "test/pact/eth-spv-request.json" >>= \case
         Left e -> assertFailure $ "failed to decode test/pact/eth-spv-request: " <> e
         Right x -> return (x :: EthSpvRequest)
 
-    cenv <- nio
+    cenv <- _getServiceClientEnv <$> nio
     c <- mkChainId v maxBound (1 :: Int)
     r <- flip runClientM cenv $ do
 
