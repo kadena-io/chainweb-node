@@ -144,7 +144,7 @@ standard step = do
 contTXOUTOld :: (String -> IO ()) -> Assertion
 contTXOUTOld step = do
   code <- T.readFile "test/pact/contTXOUTOld.pact"
-  (c1,c3) <- roundtrip 0 1 burnGen (createVerify code mdata) step
+  (c1,c3) <- roundtrip 0 1 burnGen (createVerify False code mdata) step
   checkResult c1 0 "ObjectMap"
   checkResult' c3 1 $ PactResult $ Right $ PLiteral $ LString rSuccessTXOUT
   where
@@ -154,7 +154,7 @@ contTXOUTOld step = do
 contTXOUTNew :: (String -> IO ()) -> Assertion
 contTXOUTNew step = do
   code <- T.readFile "test/pact/contTXOUTNew.pact"
-  (c1,c3) <- roundtrip' bridgeVer 0 1 burnGen (createVerify code mdata) step
+  (c1,c3) <- roundtrip' bridgeVer 0 1 burnGen (createVerify True code mdata) step
   checkResult c1 0 "ObjectMap"
   checkResult' c3 1 $ PactResult $ Right $ PLiteral $ LString rSuccessTXOUT
   where
@@ -164,7 +164,7 @@ contTXOUTNew step = do
 tfrTXOUTNew :: (String -> IO ()) -> Assertion
 tfrTXOUTNew step = do
   code <- T.readFile "test/pact/tfrTXOUTNew.pact"
-  (c1,c3) <- roundtrip' bridgeVer 0 1 transferGen (createVerify code mdata) step
+  (c1,c3) <- roundtrip' bridgeVer 0 1 transferGen (createVerify True code mdata) step
   checkResult c1 0 "Write succeeded"
   checkResult' c3 1 $ PactResult $ Right $ PLiteral $ LString rSuccessTXOUT
   where
@@ -462,8 +462,8 @@ createCont cid pidv proof time = do
 
 -- | Generate a tx to run 'verify-spv' tests.
 --
-createVerify :: Text -> Value -> CreatesGenerator
-createVerify code mdata time (TestBlockDb wdb pdb _c) _pidv sid tid bhe = do
+createVerify :: Bool -> Text -> Value -> CreatesGenerator
+createVerify bridge code mdata time (TestBlockDb wdb pdb _c) _pidv sid tid bhe = do
     ref <- newIORef False
     return $ go ref
   where
@@ -472,7 +472,9 @@ createVerify code mdata time (TestBlockDb wdb pdb _c) _pidv sid tid bhe = do
         | otherwise = readIORef ref >>= \case
             True -> return mempty
             False -> do
-                q <- toJSON <$> createTransactionOutputProof_ wdb pdb tid sid bhe 0
+                pf <- createTransactionOutputProof_ wdb pdb tid sid bhe 0
+                let q | bridge = object [("proof",String $ encodeB64UrlNoPaddingText $ encodeToByteString pf)]
+                      | otherwise = toJSON pf
                 cmd <- buildCwCmd $
                   set cbSigners [mkSigner' sender00 []] $
                   set cbCreationTime (toTxCreationTime time) $
