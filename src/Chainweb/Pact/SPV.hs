@@ -124,7 +124,7 @@ verifySPV bdb bh typ proof = go typ proof
           Right result -> return $ Right $ ethResultToPactValue result
 
       -- Chainweb tx output proof
-      "TXOUT" -> case extractProof o of
+      "TXOUT" -> case extractProof enableBridge o of
         Left t -> return (Left t)
         Right u
           | (view outputProofChainId u) /= cid ->
@@ -198,12 +198,17 @@ verifyCont bdb bh (ContProof cp) = do
 
 -- | Extract a 'TransactionOutputProof' from a generic pact object
 --
-extractProof :: Object Name -> Either Text (TransactionOutputProof SHA512t_256)
-extractProof o = toPactValue (TObject o def) >>= k
+extractProof :: Bool -> Object Name -> Either Text (TransactionOutputProof SHA512t_256)
+extractProof False o = toPactValue (TObject o def) >>= k
   where
     k = aeson (Left . pack) Right
       . fromJSON
       . toJSON
+extractProof True (Object (ObjectMap o) _ _ _) = case M.lookup "proof" o of
+  Just (TLitString proof) -> do
+    j <- first (const "Base64 decode failed") (decodeB64UrlNoPaddingText proof)
+    first (const "Decode of TransactionOutputProof failed") (decodeStrictOrThrow j)
+  _ -> Left "Invalid input, expected 'proof' field with base64url unpadded text"
 
 -- | Extract an Eth 'ReceiptProof' from a generic pact object
 --
