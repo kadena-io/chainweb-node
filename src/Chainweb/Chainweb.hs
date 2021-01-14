@@ -751,7 +751,7 @@ withChainwebInternal conf logger peer rocksDb pactDbDir resetDb inner = do
                     -- mining is configured or by the mempool noop-miner (which
                     -- keeps the mempool updated) in production setups.
                     --
-                    withMinerResources mLogger (_miningInNode mConf) cs mCutDb (_coordPrimedWork <$> mc) $ \m -> do
+                    withMinerResources mLogger (_miningInNode mConf) cs mCutDb mc $ \m -> do
                         logg Info "finished initializing miner resources"
                         let !haddr = _peerConfigAddr $ _p2pConfigPeer $ _configP2p conf
                         inner Chainweb

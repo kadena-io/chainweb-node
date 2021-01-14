@@ -28,15 +28,22 @@ module Chainweb.Miner.Coordinator
 , PrevTime(..)
 , ChainChoice(..)
 , PrimedWork(..)
+, MiningCoordination(..)
+, NoAsscociatedPayload(..)
 
-  -- * Functions
+-- * Mining API Functions
+, work
+, solve
+
+-- ** Internal Functions
 , newWork
 , publish
 ) where
 
+import Control.Concurrent.STM (atomically)
 import Control.Concurrent.STM.TVar
 import Control.DeepSeq (NFData)
-import Control.Lens (view)
+import Control.Lens (over, view)
 import Control.Monad
 import Control.Monad.Catch
 
@@ -45,6 +52,7 @@ import Data.Bool (bool)
 import qualified Data.ByteString as BS
 import Data.Generics.Wrapped (_Unwrapped)
 import qualified Data.HashMap.Strict as HM
+import Data.IORef
 import qualified Data.Map.Strict as M
 import qualified Data.Text as T
 import Data.Tuple.Strict (T2(..), T3(..))
@@ -54,6 +62,7 @@ import GHC.Generics (Generic)
 import GHC.Stack
 
 import System.LogLevel (LogLevel(..))
+import System.Random
 
 -- internal modules
 
@@ -63,8 +72,10 @@ import Chainweb.Cut hiding (join)
 import Chainweb.Cut.Create
 import Chainweb.Cut.CutHashes
 import Chainweb.CutDB
+import Chainweb.Logger (Logger, logFunction)
 import Chainweb.Logging.Miner
-import Chainweb.Miner.Pact (Miner(..), MinerId(..))
+import Chainweb.Miner.Config
+import Chainweb.Miner.Pact (Miner(..), MinerId(..), minerId)
 import Chainweb.Payload
 import Chainweb.Sync.WebBlockHeaderStore
 import Chainweb.Time (Micros(..), Time(..), getCurrentTimeIntegral)
@@ -72,6 +83,7 @@ import Chainweb.Utils hiding (check)
 import Chainweb.Version
 import Chainweb.Version.Utils
 import Chainweb.WebBlockHeaderDB
+import Chainweb.WebPactExecutionService
 
 import Data.LogMessage (JsonLog(..), LogFunction)
 
@@ -95,7 +107,22 @@ lookupInCut c cid
         <> " Cut Hashes: " <> encodeToText (cutToCutHashes Nothing c) <> "."
 
 -- -------------------------------------------------------------------------- --
--- Miner
+-- MiningCoordination
+
+-- | For coordinating requests for work and mining solutions from remote Mining
+-- Clients.
+--
+data MiningCoordination logger cas = MiningCoordination
+    { _coordLogger :: !logger
+    , _coordCutDb :: !(CutDb cas)
+    , _coordState :: !(TVar MiningState)
+    , _coordLimit :: !Int
+    , _coord503s :: !(IORef Int)
+    , _coord403s :: !(IORef Int)
+    , _coordConf :: !CoordinationConfig
+    , _coordUpdateStreamCount :: !(IORef Int)
+    , _coordPrimedWork :: !(TVar PrimedWork)
+    }
 
 -- | Precached payloads for Private Miners. This allows new work requests to be
 -- made as often as desired, without clogging the Pact queue.
@@ -199,6 +226,29 @@ publish lf cdb miner pd s = do
 
         -- Publish CutHashes to CutDb and log success
         Right (bh, Just ch) -> do
+
+            -- DEBUGGING
+            x <- rem 10000 . abs <$> randomIO @Int
+            lf @T.Text Warn $ "START DEBUG [" <> sshow x <> "]: " <> sshow (_blockChainId bh)
+            unless (_blockPayloadHash bh == _payloadDataPayloadHash pd) $ do
+                lf @T.Text Error "block does not match payload hash"
+                error "Chainweb.Miner.Coordinator.publish: block doesn't match payload hash"
+
+            let pact = _webPactExecutionService $ view cutDbPactService cdb
+            pd' <- _pactValidateBlock pact bh pd `catch` \e -> do
+                lf @T.Text Warn $ "VALIDATE BLOCK FAILED [" <> sshow x <> "]: " <> sshow (_blockChainId bh)
+                lf @T.Text Warn $ "_blockPayloadHash bh: " <> sshow (_blockPayloadHash bh)
+                lf @T.Text Warn $ "_payloadDataPayloadHash pd: " <> sshow (_payloadDataPayloadHash pd)
+                lf @T.Text Warn $ "_blockHeight bh: " <> sshow (_blockHeight bh)
+                throwM @_ @SomeException e
+
+            unless (_blockPayloadHash bh == _payloadWithOutputsPayloadHash pd') $ do
+                lf @T.Text Error "2: block does not match payload hash"
+                error "2: Chainweb.Miner.Coordinator.publish: block doesn't match payload hash"
+            lf @T.Text Warn $ "END DEBUG [" <> sshow x <> "]: " <> sshow (_blockChainId bh)
+
+            -- END DEBUG
+
             addCutHashes cdb ch
             let bytes = sum . fmap (BS.length . _transactionBytes) $
                         _payloadDataTransactions pd
@@ -229,4 +279,78 @@ publish lf cdb miner pd s = do
         , _orphanedMiner = view _Unwrapped miner
         , _orphanedReason = msg
         }
+
+-- -------------------------------------------------------------------------- --
+-- Mining API
+
+-- | Get new work
+--
+-- This function does not check if the miner is authorized. If the miner doesn't
+-- yet exist in the primed work cache it is added.
+--
+work
+    :: forall l cas
+    .  Logger l
+    => MiningCoordination l cas
+    -> Maybe ChainId
+    -> Miner
+    -> IO WorkHeader
+work mr mcid m = do
+    c <- _cut cdb
+    T2 wh pd <- newWork logf choice m hdb pact (_coordPrimedWork mr) c
+    now <- getCurrentTimeIntegral
+    atomically
+        . modifyTVar' (_coordState mr)
+        . over _Unwrapped
+        . M.insert (_payloadDataPayloadHash pd)
+        $ T3 m pd now
+    return wh
+  where
+    logf :: LogFunction
+    logf = logFunction $ _coordLogger mr
+
+    hdb :: WebBlockHeaderDb
+    hdb = view cutDbWebBlockHeaderDb cdb
+
+    choice :: ChainChoice
+    choice = maybe Anything Suggestion mcid
+
+    cdb :: CutDb cas
+    cdb = _coordCutDb mr
+
+    pact :: PactExecutionService
+    pact = _webPactExecutionService $ view cutDbPactService cdb
+
+data NoAsscociatedPayload = NoAsscociatedPayload
+    deriving (Show, Eq)
+
+instance Exception NoAsscociatedPayload
+
+solve
+    :: forall l cas
+    . Logger l
+    => MiningCoordination l cas
+    -> SolvedWork
+    -> IO ()
+solve mr solved@(SolvedWork hdr) = do
+    -- Fail Early: If a `BlockHeader` comes in that isn't associated with any
+    -- Payload we know about, reject it.
+    --
+    MiningState ms <- readTVarIO tms
+    case M.lookup key ms of
+        Nothing -> throwM NoAsscociatedPayload
+        Just x -> publishWork x `finally` deleteKey
+            -- There is a race here, but we don't care if the same cut
+            -- is published twice. There is also the risk that an item
+            -- doesn't get deleted. Items get GCed on a regular basis by
+            -- the coordinator.
+  where
+    key = _blockPayloadHash hdr
+    tms = _coordState mr
+
+    lf :: LogFunction
+    lf = logFunction $ _coordLogger mr
+
+    deleteKey = atomically . modifyTVar' tms . over _Unwrapped $ M.delete key
+    publishWork (T3 m pd _) = publish lf (_coordCutDb mr) (view minerId m) pd solved
 

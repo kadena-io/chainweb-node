@@ -75,21 +75,6 @@ import Utils.Logging.Trace (trace)
 -- -------------------------------------------------------------------------- --
 -- Miner
 
--- | For coordinating requests for work and mining solutions from remote Mining
--- Clients.
---
-data MiningCoordination logger cas = MiningCoordination
-    { _coordLogger :: !logger
-    , _coordCutDb :: !(CutDb cas)
-    , _coordState :: !(TVar MiningState)
-    , _coordLimit :: !Int
-    , _coord503s :: !(IORef Int)
-    , _coord403s :: !(IORef Int)
-    , _coordConf :: !CoordinationConfig
-    , _coordUpdateStreamCount :: !(IORef Int)
-    , _coordPrimedWork :: !(TVar PrimedWork)
-    }
-
 withMiningCoordination
     :: Logger logger
     => logger
@@ -245,7 +230,7 @@ data MinerResources logger cas = MinerResources
     , _minerResCutDb :: !(CutDb cas)
     , _minerChainResources :: HashMap ChainId (ChainResources logger)
     , _minerResConfig :: !NodeMiningConfig
-    , _minerResPrimedWork :: !(Maybe (TVar PrimedWork))
+    , _minerResCoordination :: !(Maybe (MiningCoordination logger cas))
         -- ^ The primed work cache. This is Nothing when coordination is
         -- disable. It is needed by the in-node test miner. The mempoolNoopMiner
         -- does not use it.
@@ -256,7 +241,7 @@ withMinerResources
     -> NodeMiningConfig
     -> HashMap ChainId (ChainResources logger)
     -> CutDb cas
-    -> Maybe (TVar PrimedWork)
+    -> Maybe (MiningCoordination logger cas)
     -> (Maybe (MinerResources logger cas) -> IO a)
     -> IO a
 withMinerResources logger conf chainRes cutDb tpw inner =
@@ -265,7 +250,7 @@ withMinerResources logger conf chainRes cutDb tpw inner =
         , _minerResCutDb = cutDb
         , _minerChainResources = chainRes
         , _minerResConfig = conf
-        , _minerResPrimedWork = tpw
+        , _minerResCoordination = tpw
         }
 
 -- | This runs the internal in-node miner. It is only used during testing.
@@ -280,12 +265,12 @@ runMiner
     -> MinerResources logger cas
     -> IO ()
 runMiner v mr
-    | enabled = case _minerResPrimedWork mr of
+    | enabled = case _minerResCoordination mr of
         Nothing -> error
             "Mining coordination must be enabled in order to use the in-node test miner"
-        Just tpw -> case window v of
-            Nothing -> testMiner tpw
-            Just _ -> powMiner tpw
+        Just coord -> case window v of
+            Nothing -> testMiner coord
+            Just _ -> powMiner coord
     | otherwise = mempoolNoopMiner lf (_chainResMempool <$> _minerChainResources mr)
 
   where
@@ -300,9 +285,9 @@ runMiner v mr
     lf :: LogFunction
     lf = logFunction $ _minerResLogger mr
 
-    testMiner tpw = do
+    testMiner coord = do
         gen <- MWC.createSystemRandom
-        localTest lf v tpw (_nodeMiner conf) cdb gen (_nodeTestMiners conf)
+        localTest lf v coord (_nodeMiner conf) cdb gen (_nodeTestMiners conf)
 
-    powMiner tpw = localPOW lf v tpw (_nodeMiner conf) cdb
+    powMiner coord = localPOW lf v coord (_nodeMiner conf) cdb
 
