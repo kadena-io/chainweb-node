@@ -34,6 +34,10 @@ module Chainweb.Pact.RestAPI
 , PactSpvApi
 , pactSpvApi
 
+-- * Eth Spv Api
+, EthSpvApi
+, ethSpvApi
+
 -- * Pact Service Api
 , PactServiceApi
 , pactServiceApi
@@ -50,6 +54,7 @@ import Servant
 
 import Chainweb.ChainId
 import Chainweb.Pact.Service.Types
+import Chainweb.Pact.RestAPI.EthSpv
 import Chainweb.RestAPI.Utils
 import Chainweb.Version
 
@@ -124,11 +129,30 @@ pactSpvApi
 pactSpvApi = Proxy
 
 -- -------------------------------------------------------------------------- --
+-- GET Eth Receipt SPV Proof
+
+type EthSpvApi_
+    = "pact"
+    :> "spv"
+    :> "eth"
+    :> ReqBody '[JSON] EthSpvRequest
+    :> Post '[JSON] EthSpvResponse
+
+type EthSpvApi (v :: ChainwebVersionT) (c :: ChainIdT)
+    = 'ChainwebEndpoint v :> ChainEndpoint c :> EthSpvApi_
+
+ethSpvApi
+    :: forall (v :: ChainwebVersionT) (c :: ChainIdT)
+    . Proxy (EthSpvApi v c)
+ethSpvApi = Proxy
+
+-- -------------------------------------------------------------------------- --
 -- PactService Api
 
 type PactServiceApi v c
     = PactApi v c
     :<|> PactSpvApi v c
+    :<|> EthSpvApi v c
 
 pactServiceApi
     :: forall (v :: ChainwebVersionT) (c :: ChainIdT)

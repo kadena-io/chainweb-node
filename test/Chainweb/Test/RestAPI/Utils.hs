@@ -19,6 +19,7 @@ module Chainweb.Test.RestAPI.Utils
 , local
 , localTestToRetry
 , spv
+, ethSpv
 , sending
 , polling
 
@@ -55,6 +56,7 @@ import Servant.Client
 import Chainweb.ChainId
 import Chainweb.Graph
 import Chainweb.Pact.RestAPI.Client
+import Chainweb.Pact.RestAPI.EthSpv
 import Chainweb.Pact.Service.Types
 import Chainweb.Rosetta.RestAPI.Client
 import Chainweb.Utils
@@ -159,6 +161,29 @@ spv sid cenv r =
       -- send a single spv request and return the result
       --
       runClientM (pactSpvApiClient v sid r) cenv >>= \case
+        Left e -> throwM $ SpvFailure (show e)
+        Right t -> return t
+  where
+    h _ = Handler $ \case
+      SpvFailure _ -> return True
+      _ -> return False
+
+-- | Request an Eth SPV proof using exponential retry logic
+--
+ethSpv
+    :: ChainId
+    -> ClientEnv
+    -> EthSpvRequest
+    -> IO EthSpvResponse
+ethSpv sid cenv r =
+    recovering testRetryPolicy [h] $ \s -> do
+      debug
+        $ "requesting eth-spv proof for " <> show (_ethSpvReqTransactionHash r)
+        <> " [" <> show (view rsIterNumberL s) <> "]"
+
+      -- send a single spv request and return the result
+      --
+      runClientM (ethSpvApiClient v sid r) cenv >>= \case
         Left e -> throwM $ SpvFailure (show e)
         Right t -> return t
   where

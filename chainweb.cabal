@@ -1,7 +1,7 @@
 cabal-version: 2.4
 
 name:         chainweb
-version:      2.3
+version:      2.4
 synopsis:     A Proof-of-Work Parallel-Chain Architecture for Massive Throughput
 description:  A Proof-of-Work Parallel-Chain Architecture for Massive Throughput.
 homepage:     https://github.com/kadena-io/chainweb
@@ -274,6 +274,7 @@ library
         , Chainweb.Pact.PactService.Checkpointer
         , Chainweb.Pact.PactService.ExecBlock
         , Chainweb.Pact.RestAPI
+        , Chainweb.Pact.RestAPI.EthSpv
         , Chainweb.Pact.RestAPI.Server
         , Chainweb.Pact.RestAPI.Client
         , Chainweb.Pact.SPV
@@ -339,6 +340,7 @@ library
         , directory >= 1.3
         , dlist >= 0.8
         , errors >= 2.3
+        , ethereum >= 0.1
         , exceptions >= 0.8
         , file-embed >= 0.0
         , generic-lens >= 1.1
@@ -522,6 +524,7 @@ test-suite chainweb-tests
         , deepseq >= 1.4
         , directory >= 1.2
         , errors >= 2.3
+        , ethereum
         , exceptions
         , extra >= 1.6
         , file-embed >= 0.0
