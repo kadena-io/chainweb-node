@@ -531,7 +531,7 @@ jobs:
         FROM ubuntu:${UBUNTU_VERSION}
         LABEL ghc="${GHC_VERSION}"
         LABEL ubuntu="${UBUNTU_VERSION}"
-        RUN apt-get update && apt-get install -y librocksdb-dev && rm -rf /var/lib/apt/lists/*
+        RUN apt-get update && apt-get install -y librocksdb-dev ca-certificates && rm -rf /var/lib/apt/lists/*
         WORKDIR /chainweb
         COPY chainweb/chainweb-node .
         COPY chainweb/LICENSE .
