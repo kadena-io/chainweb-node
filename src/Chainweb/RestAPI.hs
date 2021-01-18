@@ -88,9 +88,10 @@ import qualified Data.Text.Encoding as T
 import GHC.Generics (Generic)
 
 import Network.Socket
+import qualified Network.TLS.SessionManager as TLS
 import Network.Wai (Middleware, mapResponseHeaders)
 import Network.Wai.Handler.Warp hiding (Port)
-import Network.Wai.Handler.WarpTLS (TLSSettings, runTLSSocket)
+import Network.Wai.Handler.WarpTLS (TLSSettings(..), runTLSSocket)
 import Network.Wai.Middleware.Cors
 
 import Servant.API
@@ -379,7 +380,8 @@ serveChainwebSocketTls settings certChain key sock v dbs m =
     runTLSSocket tlsSettings settings sock $ m app
   where
     tlsSettings :: TLSSettings
-    tlsSettings = tlsServerChainSettings certChain key
+    tlsSettings = (tlsServerChainSettings certChain key)
+        { tlsSessionManagerConfig = Just TLS.defaultConfig }
 
     app :: Application
     app = chainwebApplication v dbs
