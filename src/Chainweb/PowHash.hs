@@ -3,6 +3,7 @@
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DerivingStrategies #-}
+{-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -89,7 +90,7 @@ unsafeMkPowHash :: HasCallStack => B.ByteString -> PowHash
 unsafeMkPowHash = fromJuste . runGet decodePowHash
 {-# INLINE unsafeMkPowHash #-}
 
-instance IsMerkleLogEntry ChainwebHashTag PowHash where
+instance MerkleHashAlgorithm a => IsMerkleLogEntry a ChainwebHashTag PowHash where
     type Tag PowHash = 'PowHashTag
     toMerkleNode = encodeMerkleInputNode encodePowHash
     fromMerkleNode = decodeMerkleInputNode decodePowHash

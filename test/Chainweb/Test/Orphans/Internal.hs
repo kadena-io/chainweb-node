@@ -53,6 +53,7 @@ import Chainweb.Cut.Create
 import Chainweb.Difficulty
 import Chainweb.Graph
 import Chainweb.MerkleLogHash
+import Chainweb.MerkleUniverse
 import Chainweb.Payload
 import Chainweb.PowHash
 import Chainweb.RestAPI.NetworkID
@@ -101,7 +102,7 @@ instance Arbitrary ChainwebVersion where
         , Mainnet01
         ]
 
-instance Arbitrary MerkleLogHash where
+instance MerkleHashAlgorithm a => Arbitrary (MerkleLogHash a) where
     arbitrary = unsafeMerkleLogHash . B.pack
         <$> vector (int merkleLogHashBytesCount)
 
@@ -216,7 +217,7 @@ arbitraryBlockHeaderVersionHeightChain
 arbitraryBlockHeaderVersionHeightChain v h cid
     | isWebChain (chainGraphAt v h) cid = do
         t <- genEnum (epoch, add (scaleTimeSpan @Int (365 * 200) day) epoch)
-        fromLog . newMerkleLog <$> entries t
+        fromLog @ChainwebMerkleHashAlgorithm . newMerkleLog <$> entries t
     | otherwise = discard
   where
     entries t

@@ -481,7 +481,7 @@ instance ToSchema ChainwebVersion where
         & type_ .~ Just SwaggerString
         & example ?~ toJSON Testnet04
 
-instance ToSchema MerkleLogHash where
+instance ToSchema (MerkleLogHash a) where
     declareNamedSchema _ = pure $ NamedSchema (Just "MerkleLogHash") mempty
 
 instance ToSchema HeaderBytes where

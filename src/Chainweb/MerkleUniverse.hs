@@ -1,5 +1,6 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE EmptyCase #-}
+{-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE OverloadedStrings #-}
@@ -21,6 +22,7 @@
 --
 module Chainweb.MerkleUniverse
 ( ChainwebHashTag(..)
+, ChainwebMerkleHashAlgorithm
 ) where
 
 import Control.Monad.Catch
@@ -57,8 +59,9 @@ data ChainwebHashTag
     | FeatureFlagsTag
     deriving (Show, Eq)
 
+type ChainwebMerkleHashAlgorithm = SHA512t_256
+
 instance MerkleUniverse ChainwebHashTag where
-    type HashAlg ChainwebHashTag = SHA512t_256
     type MerkleTagVal ChainwebHashTag 'VoidTag = 0x0000
     type MerkleTagVal ChainwebHashTag 'MerkleRootTag = 0x0001
     type MerkleTagVal ChainwebHashTag 'ChainIdTag = 0x0002
@@ -80,7 +83,7 @@ instance MerkleUniverse ChainwebHashTag where
     type MerkleTagVal ChainwebHashTag 'EpochStartTimeTag = 0x0019
     type MerkleTagVal ChainwebHashTag 'BlockNonceTag = 0x00020
 
-instance IsMerkleLogEntry ChainwebHashTag Void where
+instance HashAlgorithm a => IsMerkleLogEntry a ChainwebHashTag Void where
     type Tag Void = 'VoidTag
     toMerkleNode = \case
     fromMerkleNode _ = throwM

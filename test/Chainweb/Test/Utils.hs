@@ -202,6 +202,7 @@ import Chainweb.Graph
 import Chainweb.HostAddress
 import Chainweb.Logger
 import Chainweb.Mempool.Mempool (MempoolBackend(..), TransactionHash(..))
+import Chainweb.MerkleUniverse
 import Chainweb.Miner.Config
 import Chainweb.Miner.Pact
 import Chainweb.Payload.PayloadStore
@@ -427,7 +428,7 @@ header :: BlockHeader -> Gen BlockHeader
 header p = do
     nonce <- Nonce <$> chooseAny
     return
-        . fromLog
+        . fromLog @ChainwebMerkleHashAlgorithm
         . newMerkleLog
         $ mkFeatureFlags
             :+: t'

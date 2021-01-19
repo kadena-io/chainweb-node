@@ -37,6 +37,7 @@ import Chainweb.Cut.Create
 import Chainweb.Difficulty
 import Chainweb.HostAddress
 import Chainweb.MerkleLogHash
+import Chainweb.MerkleUniverse
 import Chainweb.Payload
 import Chainweb.PowHash
 import Chainweb.RestAPI.NetworkID
@@ -74,9 +75,9 @@ encodeDecodeTests = testGroup "Encode-Decode roundtrips"
     , testProperty "ChainId"
         $ prop_encodeDecode decodeChainId encodeChainId
     , testProperty "MerkleLogHash"
-        $ prop_encodeDecode decodeMerkleLogHash encodeMerkleLogHash
+        $ prop_encodeDecode decodeMerkleLogHash (encodeMerkleLogHash @_ @ChainwebMerkleHashAlgorithm)
     , testProperty "BlockHash"
-        $ prop_encodeDecode decodeBlockHash encodeBlockHash
+        $ prop_encodeDecode decodeBlockHash (encodeBlockHash @_ @ChainwebMerkleHashAlgorithm)
     , testProperty "BlockHeight"
         $ prop_encodeDecode decodeBlockHeight encodeBlockHeight
     , testProperty "CutHeight"
@@ -104,11 +105,11 @@ encodeDecodeTests = testGroup "Encode-Decode roundtrips"
        $ prop_encodeDecode decodeTimeSpan encodeTimeSpan
 
     , testProperty "BlockPayloadHash"
-        $ prop_encodeDecode decodeBlockPayloadHash encodeBlockPayloadHash
+        $ prop_encodeDecode decodeBlockPayloadHash (encodeBlockPayloadHash @_ @ChainwebMerkleHashAlgorithm)
     , testProperty "BlockTransactionsHash"
-        $ prop_encodeDecode decodeBlockTransactionsHash encodeBlockTransactionsHash
+        $ prop_encodeDecode decodeBlockTransactionsHash (encodeBlockTransactionsHash @_ @ChainwebMerkleHashAlgorithm)
     , testProperty "BlockTransactionsHash"
-        $ prop_encodeDecode decodeBlockTransactionsHash encodeBlockTransactionsHash
+        $ prop_encodeDecode decodeBlockTransactionsHash (encodeBlockTransactionsHash @_ @ChainwebMerkleHashAlgorithm)
 
     , testProperty "SolvedWork"
         $ prop_encodeDecode decodeSolvedWork encodeSolvedWork
@@ -139,7 +140,7 @@ jsonTestCases f =
     , testProperty "Nonce" $ f @Nonce
     , testProperty "HashDifficulty" $ f @HashDifficulty
     , testProperty "HashTarget" $ f @HashTarget
-    , testProperty "MerkleLogHash" $ f @MerkleLogHash
+    , testProperty "MerkleLogHash" $ f @(MerkleLogHash ChainwebMerkleHashAlgorithm)
     , testProperty "PowHash" $ f @PowHash
     , testProperty "PowHashNat" $ f @PowHashNat
     , testProperty "BlockHash" $ f @BlockHash

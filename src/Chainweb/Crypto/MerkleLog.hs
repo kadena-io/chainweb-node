@@ -109,6 +109,7 @@ module Chainweb.Crypto.MerkleLog
 -- * Merkle Log Universe
   MerkleUniverse(..)
 , tagVal
+, MerkleHashAlgorithm
 
 -- * Merkle Log Entries
 , IsMerkleLogEntry(..)
@@ -176,8 +177,8 @@ import qualified Data.Memory.Endian as BA
 import Data.MerkleLog hiding (Expected, Actual)
 import Data.Proxy
 import qualified Data.Text as T
-import Data.Word
 import qualified Data.Vector as V
+import Data.Word
 
 import Foreign.Storable
 
@@ -281,8 +282,7 @@ toWordBE bytes
 -- The 'MerkleTagVal' type family is used to assing each type-constructor in the
 -- universe a type-level 'Nat' that represents a 'Word16' value.
 --
-class (HashAlgorithm (HashAlg k)) => MerkleUniverse k where
-    type HashAlg k :: Type
+class MerkleUniverse k where
     type MerkleTagVal k (a :: k) :: Nat
 
 -- | Term level representation of the 'MerkleTagVal' of a type in a Merkle
@@ -290,6 +290,11 @@ class (HashAlgorithm (HashAlg k)) => MerkleUniverse k where
 --
 tagVal :: forall u (t :: u) . KnownNat (MerkleTagVal u t) => Word16
 tagVal = fromIntegral $ natVal (Proxy @(MerkleTagVal u t))
+
+-- -------------------------------------------------------------------------- --
+-- Hash Algorithms
+
+type MerkleHashAlgorithm = HashAlgorithm
 
 -- -------------------------------------------------------------------------- --
 -- Merkle Log Entries
@@ -307,24 +312,24 @@ type InUniverse u (t :: u) = (MerkleUniverse u, KnownNat (MerkleTagVal u t))
 -- The functions of the type class specify whether the entry corresponds to the
 -- root of a nested Merkle tree or corresponds to an input node.
 --
-class (InUniverse u (Tag b)) => IsMerkleLogEntry u b | b -> u where
+class (MerkleHashAlgorithm a, InUniverse u (Tag b)) => IsMerkleLogEntry a u b | b -> u where
     type Tag b :: u
 
     toMerkleNode
         :: b
-        -> MerkleNodeType (HashAlg u) B.ByteString
+        -> MerkleNodeType a B.ByteString
 
     fromMerkleNode
-        :: MerkleNodeType (HashAlg u) B.ByteString
+        :: MerkleNodeType a B.ByteString
         -> Either SomeException b
 
 fromMerkleNodeM
-    :: forall u b m
+    :: forall a u b m
     . MonadThrow m
-    => IsMerkleLogEntry u b
-    => MerkleNodeType (HashAlg u) B.ByteString
+    => IsMerkleLogEntry a u b
+    => MerkleNodeType a B.ByteString
     -> m b
-fromMerkleNodeM = either throwM return . fromMerkleNode @u
+fromMerkleNodeM = either throwM return . fromMerkleNode @a
 {-# INLINE fromMerkleNodeM #-}
 
 -- -------------------------------------------------------------------------- --
@@ -341,6 +346,8 @@ fromMerkleNodeM = either throwM return . fromMerkleNode @u
 --
 data MerkleLogEntries
     :: Type
+        -- Hash Algorithm
+    -> Type
         -- Universe
     -> [Type]
         -- HeaderTypes
@@ -349,15 +356,15 @@ data MerkleLogEntries
     -> Type
   where
     MerkleLogBody
-        :: IsMerkleLogEntry u b
+        :: IsMerkleLogEntry a u b
         => V.Vector b
-        -> MerkleLogEntries u '[] b
+        -> MerkleLogEntries a u '[] b
 
     (:+:)
-        :: IsMerkleLogEntry u h
+        :: IsMerkleLogEntry a u h
         => h
-        -> MerkleLogEntries u t b
-        -> MerkleLogEntries u (h ': t) b
+        -> MerkleLogEntries a u t b
+        -> MerkleLogEntries a u (h ': t) b
 
     -- TODO: should we support lazy lists/streams in the body or more
     -- generally abstracting a store the may be backed by a persisted
@@ -367,27 +374,27 @@ data MerkleLogEntries
 
 infixr 5 :+:
 
-emptyBody :: IsMerkleLogEntry u b => MerkleLogEntries u '[] b
+emptyBody :: IsMerkleLogEntry a u b => MerkleLogEntries a u '[] b
 emptyBody = MerkleLogBody mempty
 {-# INLINE emptyBody #-}
 
 mapLogEntries
-    :: forall u h s b
-    . (forall x . IsMerkleLogEntry u x => x -> b)
-    -> MerkleLogEntries u h s
+    :: forall a u h s b
+    . (forall x . IsMerkleLogEntry a u x => x -> b)
+    -> MerkleLogEntries a u h s
     -> V.Vector b
 mapLogEntries f m = V.concat $ go m
   where
-    go :: forall h' . MerkleLogEntries u h' s -> [V.Vector b]
+    go :: forall h' . MerkleLogEntries a u h' s -> [V.Vector b]
     go (MerkleLogBody s) = [V.map f s]
     go (h :+: t) = V.singleton (f h) : go t
 {-# INLINE mapLogEntries #-}
 
-entriesHeaderSize :: MerkleLogEntries u l s -> Int
+entriesHeaderSize :: MerkleLogEntries a u l s -> Int
 entriesHeaderSize MerkleLogBody{} = 0
 entriesHeaderSize (_ :+: t) = succ $ entriesHeaderSize t
 
-entriesBody :: MerkleLogEntries u l s -> V.Vector s
+entriesBody :: MerkleLogEntries a u l s -> V.Vector s
 entriesBody (MerkleLogBody s) = s
 entriesBody (_ :+: t) = entriesBody t
 {-# INLINE entriesBody #-}
@@ -398,18 +405,18 @@ entriesBody (_ :+: t) = entriesBody t
 -- | A merkle log represents values of 'IsMerkleLog' types in a generic way that
 -- supports computing the root hash and a merkle tree.
 --
-data MerkleLog u (h :: [Type]) (b :: Type) = MerkleLog
-    { _merkleLogRoot :: {-# UNPACK #-} !(MerkleRoot (HashAlg u))
+data MerkleLog a u (h :: [Type]) (b :: Type) = MerkleLog
+    { _merkleLogRoot :: {-# UNPACK #-} !(MerkleRoot a)
         -- ^ The root hash of the Merkle tree of the log.
 
-    , _merkleLogEntries :: !(MerkleLogEntries u h b)
+    , _merkleLogEntries :: !(MerkleLogEntries a u h b)
         -- ^ The entries of the Merkle log.
         --
         -- Note: For creating proofs this isn't needed. Should we make this
         -- lazy, too? For large entries it may be somewhat costly to pull it
         -- from the store.
 
-    , _merkleLogTree :: {- Lazy -} MerkleTree (HashAlg u)
+    , _merkleLogTree :: {- Lazy -} MerkleTree a
         -- ^ The merkle tree for the entries of the log. It is required to
         -- compute the root and for creating a merkle proofs.
         --
@@ -426,14 +433,14 @@ data MerkleLog u (h :: [Type]) (b :: Type) = MerkleLog
 -- 2. a body that consists of a monomorphic sequence of 'IsMerkleEntry'
 --    instances.
 --
-class (MerkleUniverse u, HashAlgorithm (HashAlg u)) => HasMerkleLog u b | b -> u where
+class (MerkleUniverse u, MerkleHashAlgorithm a) => HasMerkleLog a u b | b -> u where
     type MerkleLogHeader b :: [Type]
         -- The header of the Merkle log representation of the type.
 
     type MerkleLogBody b :: Type
         -- the body of the Merkle log representation of the type.
 
-    toLog :: b -> MerkleLog u (MerkleLogHeader b) (MerkleLogBody b)
+    toLog :: b -> MerkleLog a u (MerkleLogHeader b) (MerkleLogBody b)
         -- ^ Transform a value into a Merkle log.
         --
         -- Often the root of the Merkle tree is used as identifier and is stored
@@ -441,40 +448,40 @@ class (MerkleUniverse u, HashAlgorithm (HashAlg u)) => HasMerkleLog u b | b -> u
         -- 'merkleLog' can be used to create the 'MerkleLog' from the root and
         -- the entries without forcing the computation of the Merkle tree field.
 
-    fromLog :: MerkleLog u (MerkleLogHeader b) (MerkleLogBody b) -> b
+    fromLog :: MerkleLog a u (MerkleLogHeader b) (MerkleLogBody b) -> b
         -- ^ Recover a value from a Merkle log.
 
-type MkLogType u b = MerkleLog u (MerkleLogHeader b) (MerkleLogBody b)
+type MkLogType a u b = MerkleLog a u (MerkleLogHeader b) (MerkleLogBody b)
 
 -- | Create a 'MerkleLog' from a 'MerkleRoot' and a sequence of 'MerkleLogEntry's.
 -- The '_merkleLogTree' fields is instantiated lazily.
 --
 merkleLog
-    :: forall u h b
-    . HashAlgorithm (HashAlg u)
-    => MerkleRoot (HashAlg u)
-    -> MerkleLogEntries u h b
-    -> MerkleLog u h b
+    :: forall a u h b
+    . MerkleHashAlgorithm a
+    => MerkleRoot a
+    -> MerkleLogEntries a u h b
+    -> MerkleLog a u h b
 merkleLog root entries = MerkleLog
     { _merkleLogRoot = root
     , _merkleLogEntries = entries
     , _merkleLogTree = {- Lazy -} merkleTree
         $ toList
-        $ mapLogEntries (toMerkleNodeTagged @u) entries
+        $ mapLogEntries (toMerkleNodeTagged @a) entries
     }
 
 -- | /Internal:/ Create a representation Merkle nodes that are tagged with the
 -- respedtive type from the Merkle universe.
 --
 toMerkleNodeTagged
-    :: forall u b
-    . IsMerkleLogEntry u b
+    :: forall a u b
+    . IsMerkleLogEntry a u b
     => b
-    -> MerkleNodeType (HashAlg u) B.ByteString
-toMerkleNodeTagged b = case toMerkleNode @u @b b of
-    InputNode bytes -> InputNode @(HashAlg u) @B.ByteString
+    -> MerkleNodeType a B.ByteString
+toMerkleNodeTagged b = case toMerkleNode @a @u @b b of
+    InputNode bytes -> InputNode @a @B.ByteString
         $ fromWordBE @Word16 tag <> bytes
-    TreeNode r -> TreeNode @(HashAlg u) r
+    TreeNode r -> TreeNode @a r
   where
     tag :: Word16
     tag = tagVal @u @(Tag b)
@@ -483,20 +490,20 @@ toMerkleNodeTagged b = case toMerkleNode @u @b b of
 -- from the Merkle universe.
 --
 fromMerkleNodeTagged
-    :: forall u b m
+    :: forall a u b m
     . MonadThrow m
-    => IsMerkleLogEntry u b
-    => MerkleNodeType (HashAlg u) B.ByteString
+    => IsMerkleLogEntry a u b
+    => MerkleNodeType a B.ByteString
     -> m b
 fromMerkleNodeTagged (InputNode bytes) = do
     w16 <- toWordBE @Word16 bytes
     if w16 /= tag
         then throwM
             $ MerkleLogWrongTagException (Expected (sshow tag)) (Actual (sshow w16))
-        else fromMerkleNodeM @u $ InputNode (B.drop 2 bytes)
+        else fromMerkleNodeM @a $ InputNode (B.drop 2 bytes)
   where
     tag = tagVal @u @(Tag b)
-fromMerkleNodeTagged r = fromMerkleNodeM @u r
+fromMerkleNodeTagged r = fromMerkleNodeM @a r
 
 -- | 'IsMerkleLog' values often include a hash of the value itself, which
 -- represents cyclic dependency of a value on itself. This function allows to
@@ -504,17 +511,18 @@ fromMerkleNodeTagged r = fromMerkleNodeM @u r
 -- entries.
 --
 newMerkleLog
-    :: forall u h b
+    :: forall a u h b
     . MerkleUniverse u
-    => MerkleLogEntries u h b
-    -> MerkleLog u h b
+    => MerkleHashAlgorithm a
+    => MerkleLogEntries a u h b
+    -> MerkleLog a u h b
 newMerkleLog entries = MerkleLog
     { _merkleLogRoot = merkleRoot tree
     , _merkleLogEntries = entries
     , _merkleLogTree = tree
     }
   where
-    tree = merkleTree $ toList $ mapLogEntries (toMerkleNodeTagged @u) entries
+    tree = merkleTree $ toList $ mapLogEntries (toMerkleNodeTagged @a) entries
 
 -- | /Internal:/ Get (first) header entry of given type from a Merkle log.
 --
@@ -527,8 +535,8 @@ class HasHeader c b where
     header :: b -> c
     headerPos :: Int
 
-instance HasHeader c (MerkleLog u (c ': t) s) where
-    type HeaderPos c (MerkleLog u (c ': t) s) = 0
+instance HasHeader c (MerkleLog a u (c ': t) s) where
+    type HeaderPos c (MerkleLog a u (c ': t) s) = 0
     header (MerkleLog _ (c :+: _) _) = c
     headerPos = 0
 
@@ -537,27 +545,27 @@ instance HasHeader c (MerkleLog u (c ': t) s) where
 -- * recurse only on entries
 --
 instance {-# INCOHERENT #-}
-    HasHeader c (MerkleLog u t s) => HasHeader c (MerkleLog u (x ': t) s)
+    HasHeader c (MerkleLog a u t s) => HasHeader c (MerkleLog a u (x ': t) s)
   where
-    type HeaderPos c (MerkleLog u (x ': t) s) = 0
-    header (MerkleLog x (_ :+: t) y) = header (MerkleLog @u x t y)
-    headerPos = succ $ headerPos @c @(MerkleLog u t s)
+    type HeaderPos c (MerkleLog a u (x ': t) s) = 0
+    header (MerkleLog x (_ :+: t) y) = header (MerkleLog @a x t y)
+    headerPos = succ $ headerPos @c @(MerkleLog a u t s)
 
 -- | Get the body sequence of a Merkle log.
 --
-body :: MerkleLog a l s -> V.Vector s
+body :: MerkleLog a u l s -> V.Vector s
 body = entriesBody . _merkleLogEntries
 {-# INLINE body #-}
 
 -- | Get the number of entries in the header of a Merkle log.
 --
-headerSize :: MerkleLog a l s -> Int
+headerSize :: MerkleLog a u l s -> Int
 headerSize = entriesHeaderSize . _merkleLogEntries
 {-# INLINE headerSize #-}
 
 -- | Get the number of entries in the body of a Merkle log.
 --
-bodySize :: MerkleLog a l s -> Int
+bodySize :: MerkleLog a u l s -> Int
 bodySize = V.length . body
 {-# INLINE bodySize #-}
 
@@ -568,11 +576,11 @@ bodySize = V.length . body
 -- be cached.
 --
 computeMerkleLogRoot
-    :: forall u b
-    . HasMerkleLog u b
+    :: forall a u b
+    . HasMerkleLog a u b
     => b
-    -> MerkleRoot (HashAlg u)
-computeMerkleLogRoot = merkleRoot . _merkleLogTree . toLog @u
+    -> MerkleRoot a
+computeMerkleLogRoot = merkleRoot . _merkleLogTree . toLog @a
 {-# INLINE computeMerkleLogRoot #-}
 
 -- -------------------------------------------------------------------------- --
@@ -592,14 +600,14 @@ computeMerkleLogRoot = merkleRoot . _merkleLogTree . toLog @u
 -- but, again, our current use case wouldn't justify the overhead.
 --
 headerProof
-    :: forall c u b m
+    :: forall c a u b m
     . MonadThrow m
-    => HasHeader c (MkLogType u b)
-    => IsMerkleLogEntry u c
-    => HasMerkleLog u b
+    => HasHeader c (MkLogType a u b)
+    => IsMerkleLogEntry a u c
+    => HasMerkleLog a u b
     => b
-    -> m (MerkleProof (HashAlg u))
-headerProof = uncurry3 merkleProof . headerTree @c @u
+    -> m (MerkleProof a)
+headerProof = uncurry3 merkleProof . headerTree @c @a
 {-# INLINE headerProof #-}
 
 -- | Create the parameters for creating nested inclusion proofs with the
@@ -609,17 +617,17 @@ headerProof = uncurry3 merkleProof . headerTree @c @u
 -- Merkle tree and should be used for the leaf tree in the nested proof.
 --
 headerTree
-    :: forall c u b
-    . HasHeader c (MkLogType u b)
-    => IsMerkleLogEntry u c
-    => HasMerkleLog u b
+    :: forall c a u b
+    . HasHeader c (MkLogType a u b)
+    => IsMerkleLogEntry a u c
+    => HasMerkleLog a u b
     => b
-    -> (MerkleNodeType (HashAlg u) B.ByteString, Int, MerkleTree (HashAlg u))
-headerTree b = (node, p, _merkleLogTree @u mlog)
+    -> (MerkleNodeType a B.ByteString, Int, MerkleTree a)
+headerTree b = (node, p, _merkleLogTree @a mlog)
   where
-    mlog = toLog @u b
-    p = headerPos @c @(MkLogType u b)
-    node = toMerkleNodeTagged @u $ header @c mlog
+    mlog = toLog @a b
+    p = headerPos @c @(MkLogType a u b)
+    node = toMerkleNodeTagged @a $ header @c mlog
 
 -- | Create the parameters for creating nested inclusion proofs with the
 -- 'merkleProof_' of the merkle-log package.
@@ -628,15 +636,15 @@ headerTree b = (node, p, _merkleLogTree @u mlog)
 -- the subject. It should be used for inner trees in the nested proof.
 --
 headerTree_
-    :: forall c u b
-    . HasHeader c (MkLogType u b)
-    => HasMerkleLog u b
+    :: forall c a u b
+    . HasHeader c (MkLogType a u b)
+    => HasMerkleLog a u b
     => b
-    -> (Int, MerkleTree (HashAlg u))
-headerTree_ b = (p, _merkleLogTree @u mlog)
+    -> (Int, MerkleTree a)
+headerTree_ b = (p, _merkleLogTree @a mlog)
   where
-    mlog = toLog @u b
-    p = headerPos @c @(MkLogType u b)
+    mlog = toLog @a b
+    p = headerPos @c @(MkLogType a u b)
 
 -- | Create an inclusion proof for a value in the body of a Merkle log.
 --
@@ -646,14 +654,14 @@ headerTree_ b = (p, _merkleLogTree @u mlog)
 -- 'MerkleLog' value.
 --
 bodyProof
-    :: forall u b m
+    :: forall a u b m
     . MonadThrow m
-    => HasMerkleLog u b
+    => HasMerkleLog a u b
     => b
     -> Int
         -- ^ the index in the body of the log
-    -> m (MerkleProof (HashAlg u))
-bodyProof b = uncurry3 merkleProof . bodyTree @u b
+    -> m (MerkleProof a)
+bodyProof b = uncurry3 merkleProof . bodyTree @a b
 {-# INLINE bodyProof #-}
 
 -- | Create the parameters for creating nested inclusion proofs with the
@@ -663,17 +671,17 @@ bodyProof b = uncurry3 merkleProof . bodyTree @u b
 -- Merkle tree and should be used for the leaf tree in the nested proof.
 --
 bodyTree
-    :: forall u b
-    . HasMerkleLog u b
+    :: forall a u b
+    . HasMerkleLog a u b
     => b
     -> Int
         -- ^ the index in the body of the log
-    -> (MerkleNodeType (HashAlg u) B.ByteString, Int, MerkleTree (HashAlg u))
-bodyTree b i = (node, i_, _merkleLogTree @u mlog)
+    -> (MerkleNodeType a B.ByteString, Int, MerkleTree a)
+bodyTree b i = (node, i_, _merkleLogTree @a mlog)
   where
-    mlog = toLog @u b
+    mlog = toLog @a b
     i_ = i + headerSize mlog
-    node = (mapLogEntries (toMerkleNodeTagged @u) $ _merkleLogEntries mlog) V.! i_
+    node = mapLogEntries (toMerkleNodeTagged @a) (_merkleLogEntries mlog) V.! i_
 
 -- | Create the parameters for creating nested inclusion proofs with the
 -- 'merkleProof_' of the merkle-log package.
@@ -682,26 +690,26 @@ bodyTree b i = (node, i_, _merkleLogTree @u mlog)
 -- the subject. It should be used for inner trees in the nested proof.
 --
 bodyTree_
-    :: forall u b
-    . HasMerkleLog u b
+    :: forall a u b
+    . HasMerkleLog a u b
     => b
     -> Int
         -- ^ the index in the body of the log
-    -> (Int, MerkleTree (HashAlg u))
-bodyTree_ b i = (i_, _merkleLogTree @u mlog)
+    -> (Int, MerkleTree a)
+bodyTree_ b i = (i_, _merkleLogTree @a mlog)
   where
-    mlog = toLog @u b
+    mlog = toLog @a b
     i_ = i + headerSize mlog
 
 -- | Extract the proof subject from a 'MerkleProof' value.
 --
 proofSubject
-    :: forall u b m
+    :: forall a u b m
     . MonadThrow m
-    => IsMerkleLogEntry u b
-    => MerkleProof (HashAlg u)
+    => IsMerkleLogEntry a u b
+    => MerkleProof a
     -> m b
-proofSubject p = fromMerkleNodeTagged @u subj
+proofSubject p = fromMerkleNodeTagged @a subj
   where
     MerkleProofSubject subj = _merkleProofSubject p
 {-# INLINE proofSubject #-}
@@ -743,8 +751,8 @@ decodeMerkleTreeNode (InputNode _) = throwM expectedTreeNodeException
 newtype ByteArrayMerkleLogEntry u (t :: u) b = ByteArrayMerkleLogEntry b
 
 instance
-    (InUniverse u t, BA.ByteArray b)
-    => IsMerkleLogEntry u (ByteArrayMerkleLogEntry u (t :: u) b)
+    (MerkleHashAlgorithm a, InUniverse u t, BA.ByteArray b)
+    => IsMerkleLogEntry a u (ByteArrayMerkleLogEntry u (t :: u) b)
   where
     type Tag (ByteArrayMerkleLogEntry u t b) = t
     toMerkleNode (ByteArrayMerkleLogEntry b) = InputNode $ BA.convert b
@@ -756,10 +764,10 @@ instance
 -- | Support for deriving IsMerkleLogEntry for types that are newtype wrappers of
 -- 'MerkleRoot' via the @DerivingVia@ extension.
 --
-newtype MerkleRootLogEntry (t :: u) = MerkleRootLogEntry (MerkleRoot (HashAlg u))
+newtype MerkleRootLogEntry a (t :: u) = MerkleRootLogEntry (MerkleRoot a)
 
-instance (InUniverse u t) => IsMerkleLogEntry u (MerkleRootLogEntry (t :: u)) where
-    type Tag (MerkleRootLogEntry t) = t
+instance (MerkleHashAlgorithm a, InUniverse u t) => IsMerkleLogEntry a u (MerkleRootLogEntry a (t :: u)) where
+    type Tag (MerkleRootLogEntry a t) = t
     toMerkleNode (MerkleRootLogEntry r) = TreeNode r
     fromMerkleNode (TreeNode !x) = return $! MerkleRootLogEntry x
     fromMerkleNode (InputNode _) = throwM expectedTreeNodeException
@@ -772,7 +780,7 @@ instance (InUniverse u t) => IsMerkleLogEntry u (MerkleRootLogEntry (t :: u)) wh
 newtype Word8MerkleLogEntry (t :: u) = Word8MerkleLogEntry { _getWord8LogEntry :: Word8 }
 
 instance
-    InUniverse u t => IsMerkleLogEntry u (Word8MerkleLogEntry (t :: u))
+    (MerkleHashAlgorithm a, InUniverse u t) => IsMerkleLogEntry a u (Word8MerkleLogEntry (t :: u))
   where
     type Tag (Word8MerkleLogEntry t) = t
     toMerkleNode = InputNode . B.singleton . _getWord8LogEntry
@@ -793,7 +801,7 @@ newtype Word16BeMerkleLogEntry (t :: u) = Word16BeMerkleLogEntry
     { _getWord16BeLogEntry :: Word16 }
 
 instance
-    InUniverse u t => IsMerkleLogEntry u (Word16BeMerkleLogEntry (t :: u))
+    (MerkleHashAlgorithm a, InUniverse u t) => IsMerkleLogEntry a u (Word16BeMerkleLogEntry (t :: u))
   where
     type Tag (Word16BeMerkleLogEntry t) = t
     toMerkleNode = InputNode . fromWordBE . _getWord16BeLogEntry
@@ -809,7 +817,7 @@ newtype Word32BeMerkleLogEntry (t :: u) = Word32BeMerkleLogEntry
     { _getWord32BeLogEntry :: Word32 }
 
 instance
-    InUniverse u t => IsMerkleLogEntry u (Word32BeMerkleLogEntry (t :: u))
+    (MerkleHashAlgorithm a, InUniverse u t) => IsMerkleLogEntry a u (Word32BeMerkleLogEntry (t :: u))
   where
     type Tag (Word32BeMerkleLogEntry t) = t
     toMerkleNode = InputNode . fromWordBE . _getWord32BeLogEntry
@@ -825,7 +833,7 @@ newtype Word64BeMerkleLogEntry (t :: u) = Word64BeMerkleLogEntry
     { _getWord64BeLogEntry :: Word64 }
 
 instance
-    InUniverse u t => IsMerkleLogEntry u (Word64BeMerkleLogEntry (t :: u))
+    (MerkleHashAlgorithm a, InUniverse u t) => IsMerkleLogEntry a u (Word64BeMerkleLogEntry (t :: u))
   where
     type Tag (Word64BeMerkleLogEntry t) = t
     toMerkleNode = InputNode . fromWordBE . _getWord64BeLogEntry

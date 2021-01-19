@@ -61,7 +61,7 @@ import Chainweb.Miner.Config
 import Chainweb.Miner.Coordinator
 import Chainweb.Miner.Miners
 import Chainweb.Miner.Pact (Miner(..), minerId)
-import Chainweb.Payload (PayloadData(..), payloadWithOutputsToPayloadData)
+import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
 import Chainweb.Sync.WebBlockHeaderStore
 import Chainweb.Time (Micros, Time(..), getCurrentTimeIntegral)
