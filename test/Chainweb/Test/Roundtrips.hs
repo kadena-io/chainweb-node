@@ -42,7 +42,9 @@ import Chainweb.MerkleUniverse
 import Chainweb.Payload
 import Chainweb.PowHash
 import Chainweb.RestAPI.NetworkID
-import Chainweb.Test.Orphans.Internal ()
+import Chainweb.SPV.EventProof
+import Chainweb.SPV.PayloadProof
+import Chainweb.Test.Orphans.Internal (EventPactValue(..))
 import Chainweb.Test.Utils
 import Chainweb.Time
 import Chainweb.Utils
@@ -79,6 +81,8 @@ encodeDecodeTests = testGroup "Encode-Decode roundtrips"
         $ prop_encodeDecode decodeMerkleLogHash (encodeMerkleLogHash @_ @ChainwebMerkleHashAlgorithm)
     , testProperty "BlockHash"
         $ prop_encodeDecode decodeBlockHash (encodeBlockHash @_ @ChainwebMerkleHashAlgorithm)
+    , testProperty "BlockHash_ Keccak_256"
+        $ prop_encodeDecode decodeBlockHash (encodeBlockHash @_ @Keccak_256)
     , testProperty "BlockHeight"
         $ prop_encodeDecode decodeBlockHeight encodeBlockHeight
     , testProperty "CutHeight"
@@ -99,26 +103,59 @@ encodeDecodeTests = testGroup "Encode-Decode roundtrips"
     , testProperty "BlockHeader"
         $ prop_encodeDecode decodeBlockHeader encodeBlockHeader
     , testProperty "Nonce"
-       $ prop_encodeDecode decodeNonce encodeNonce
-   , testProperty "Time"
-       $ prop_encodeDecode decodeTime encodeTime
-   , testProperty "TimeSpan"
-       $ prop_encodeDecode decodeTimeSpan encodeTimeSpan
+        $ prop_encodeDecode decodeNonce encodeNonce
+    , testProperty "Time"
+        $ prop_encodeDecode decodeTime encodeTime
+    , testProperty "TimeSpan"
+        $ prop_encodeDecode decodeTimeSpan encodeTimeSpan
 
-    , testProperty "BlockPayloadHash"
-        $ prop_encodeDecode decodeBlockPayloadHash (encodeBlockPayloadHash @_ @ChainwebMerkleHashAlgorithm)
-    , testProperty "BlockTransactionsHash"
-        $ prop_encodeDecode decodeBlockTransactionsHash (encodeBlockTransactionsHash @_ @ChainwebMerkleHashAlgorithm)
-    , testProperty "BlockTransactionsHash"
-        $ prop_encodeDecode decodeBlockTransactionsHash (encodeBlockTransactionsHash @_ @ChainwebMerkleHashAlgorithm)
+    , testGroup "ChainwebMerkleHashAlgorithm"
+        [ testProperty "BlockPayloadHash"
+            $ prop_encodeDecode decodeBlockPayloadHash (encodeBlockPayloadHash @_ @ChainwebMerkleHashAlgorithm)
+        , testProperty "BlockTransactionsHash"
+            $ prop_encodeDecode decodeBlockTransactionsHash (encodeBlockTransactionsHash @_ @ChainwebMerkleHashAlgorithm)
+        , testProperty "BlockTransactionsHash"
+            $ prop_encodeDecode decodeBlockTransactionsHash (encodeBlockTransactionsHash @_ @ChainwebMerkleHashAlgorithm)
+        , testProperty "BlockEventsHash"
+            $ prop_encodeDecode decodeBlockEventsHash (encodeBlockEventsHash @_ @ChainwebMerkleHashAlgorithm)
+        ]
 
-    , testProperty "BlockPayloadHash"
-        $ prop_encodeDecode decodeBlockPayloadHash (encodeBlockPayloadHash @_ @Keccak_256)
-    , testProperty "BlockTransactionsHash"
-        $ prop_encodeDecode decodeBlockTransactionsHash (encodeBlockTransactionsHash @_ @Keccak_256)
-    , testProperty "BlockTransactionsHash"
-        $ prop_encodeDecode decodeBlockTransactionsHash (encodeBlockTransactionsHash @_ @Keccak_256)
+    , testGroup "Keccak_256"
+        [ testProperty "BlockPayloadHash"
+            $ prop_encodeDecode decodeBlockPayloadHash (encodeBlockPayloadHash @_ @Keccak_256)
+        , testProperty "BlockTransactionsHash"
+            $ prop_encodeDecode decodeBlockTransactionsHash (encodeBlockTransactionsHash @_ @Keccak_256)
+        , testProperty "BlockTransactionsHash"
+            $ prop_encodeDecode decodeBlockTransactionsHash (encodeBlockTransactionsHash @_ @Keccak_256)
+        , testProperty "BlockEventsHash"
+            $ prop_encodeDecode decodeBlockEventsHash (encodeBlockEventsHash @_ @Keccak_256)
+        ]
 
+    -- SPV
+    , testGroup "SPV"
+        [ testProperty "Int256 LE"
+            $ prop_encodeDecode getInt256Le putInt256Le
+        , testProperty "Int256 BE"
+            $ prop_encodeDecode getInt256Be putInt256Be
+        , testProperty "Int256"
+            $ prop_encodeDecode decodeInt256 encodeInt256
+        , testProperty "Bytes"
+            $ prop_encodeDecode decodeBytes encodeBytes
+        , testProperty "String"
+            $ prop_encodeDecode decodeString encodeString
+        , testProperty "Array[Int256]"
+            $ prop_encodeDecode (decodeArray decodeInt256) (`encodeArray` encodeInt256)
+        , testProperty "Array[Bytes]"
+            $ prop_encodeDecode (decodeArray decodeBytes) (`encodeArray` encodeBytes)
+        , testProperty "PactEvent"
+            $ prop_encodeDecode decodePactEvent encodePactEvent
+        , testProperty "PactParam"
+            $ prop_encodeDecode (EventPactValue <$> decodeParam) (encodeParam . getEventPactValue)
+        , testProperty "OutputEvents"
+            $ prop_encodeDecode decodeOutputEvents encodeOutputEvents
+        ]
+
+    -- Mining
     , testProperty "SolvedWork"
         $ prop_encodeDecode decodeSolvedWork encodeSolvedWork
 
@@ -149,9 +186,11 @@ jsonTestCases f =
     , testProperty "HashDifficulty" $ f @HashDifficulty
     , testProperty "HashTarget" $ f @HashTarget
     , testProperty "MerkleLogHash" $ f @(MerkleLogHash ChainwebMerkleHashAlgorithm)
+    , testProperty "MerkleLogHash Keccak_256" $ f @(MerkleLogHash Keccak_256)
     , testProperty "PowHash" $ f @PowHash
     , testProperty "PowHashNat" $ f @PowHashNat
     , testProperty "BlockHash" $ f @BlockHash
+    , testProperty "BlockHash_ Keccak_256" $ f @(BlockHash_ Keccak_256)
     , testProperty "BlockHashRecord" $ f @BlockHashRecord
     , testProperty "BlockHeader" $ f @BlockHeader
     , testProperty "BlockWeight" $ f @BlockWeight
@@ -167,23 +206,46 @@ jsonTestCases f =
     , testProperty "PeerInfo" $ f @PeerInfo
     , testProperty "NetworkId" $ f @NetworkId
     , testProperty "ChainDatabaseGcConfig" $ f @ChainDatabaseGcConfig
+    , testProperty "MerkleRootType" $ f @MerkleRootType
 
     -- Chainweb.Payload
-    , testProperty "BlockPayloadHash" $ f @BlockPayloadHash
-    , testProperty "BlockTransactionsHash" $ f @BlockTransactionsHash
-    , testProperty "BlockOutputsHash" $ f @BlockOutputsHash
-    , testProperty "Transaction" $ f @Transaction
-    , testProperty "TransactionOutput" $ f @TransactionOutput
-    , testProperty "PayloadData" $ f @PayloadData
-    , testProperty "BlockTransactions" $ f @BlockTransactions
-    , testProperty "MinerData" $ f @MinerData
-    , testProperty "BlockPayload" $ f @BlockPayload
-    , testProperty "CoinbaseOutput" $ f @CoinbaseOutput
-    , testProperty "BlockOutputs" $ f @BlockOutputs
-    , testProperty "TransactionTree" $ f @TransactionTree
-    , testProperty "OutputTree" $ f @OutputTree
-    , testProperty "PayloadData" $ f @PayloadData
-    , testProperty "PayloadWithOutputs" $ f @PayloadWithOutputs
+    , testGroup "Payload types"
+        [ testProperty "Transaction" $ f @Transaction
+        , testProperty "MinerData" $ f @MinerData
+        , testProperty "CoinbaseOutput" $ f @CoinbaseOutput
+        , testProperty "TransactionOutput" $ f @TransactionOutput
+        , testGroup "ChainwebMerkleHashAlgorithm"
+            [ testProperty "BlockPayloadHash" $ f @BlockPayloadHash
+            , testProperty "BlockTransactionsHash" $ f @BlockTransactionsHash
+            , testProperty "BlockOutputsHash" $ f @BlockOutputsHash
+            , testProperty "PayloadData" $ f @PayloadData
+            , testProperty "BlockTransactions" $ f @BlockTransactions
+            , testProperty "BlockPayload" $ f @BlockPayload
+            , testProperty "BlockOutputs" $ f @BlockOutputs
+            , testProperty "TransactionTree" $ f @TransactionTree
+            , testProperty "OutputTree" $ f @OutputTree
+            , testProperty "PayloadData" $ f @PayloadData
+            , testProperty "PayloadWithOutputs" $ f @PayloadWithOutputs
+            , testProperty "PayloadOutputProof" $ f @(PayloadProof ChainwebMerkleHashAlgorithm)
+            , testProperty "BlockEventsHash" $ f @(BlockEventsHash_ ChainwebMerkleHashAlgorithm)
+            ]
+
+        , testGroup "Keccak_256"
+            [ testProperty "BlockPayloadHash" $ f @(BlockPayloadHash_ Keccak_256)
+            , testProperty "BlockTransactionsHash" $ f @(BlockTransactionsHash_ Keccak_256)
+            , testProperty "BlockOutputsHash" $ f @(BlockOutputsHash_ Keccak_256)
+            , testProperty "PayloadData" $ f @(PayloadData_ Keccak_256)
+            , testProperty "BlockTransactions" $ f @(BlockTransactions_ Keccak_256)
+            , testProperty "BlockPayload" $ f @(BlockPayload_ Keccak_256)
+            , testProperty "BlockOutputs" $ f @(BlockOutputs_ Keccak_256)
+            , testProperty "TransactionTree" $ f @(TransactionTree_ Keccak_256)
+            , testProperty "OutputTree" $ f @(OutputTree_ Keccak_256)
+            , testProperty "PayloadData" $ f @(PayloadData_ Keccak_256)
+            , testProperty "PayloadWithOutputs" $ f @(PayloadWithOutputs_ Keccak_256)
+            , testProperty "PayloadOutputProof" $ f @(PayloadProof Keccak_256)
+            , testProperty "BlockEventsHash" $ f @(BlockEventsHash_ Keccak_256)
+            ]
+        ]
     ]
 
 jsonRoundtripTests :: TestTree
@@ -276,4 +338,5 @@ hasTextRepresentationTests = testGroup "HasTextRepresentation roundtrips"
     , testProperty "Transaction" $ prop_iso' @_ @Transaction fromText toText
     , testProperty "TransactionOutput" $ prop_iso' @_ @TransactionOutput fromText toText
     , testProperty "ChainDatabaseGcConfig" $ prop_iso' @_ @ChainDatabaseGcConfig fromText toText
+    , testProperty "MerkleRootType" $ prop_iso' @_ @MerkleRootType fromText toText
     ]

@@ -93,7 +93,7 @@ import Chainweb.Miner.Coordinator (MiningStats)
 import Chainweb.Pact.RestAPI.Server (PactCmdLog(..))
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
-import Chainweb.Utils
+import Chainweb.Utils hiding (label)
 import Chainweb.Utils.RequestLog
 import Chainweb.Version
 

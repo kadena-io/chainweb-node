@@ -217,6 +217,9 @@ library
         , Chainweb.Rosetta.Utils
         , Chainweb.SPV
         , Chainweb.SPV.CreateProof
+        , Chainweb.SPV.EventProof
+        , Chainweb.SPV.OutputProof
+        , Chainweb.SPV.PayloadProof
         , Chainweb.SPV.VerifyProof
         , Chainweb.SPV.RestAPI
         , Chainweb.SPV.RestAPI.Server
@@ -457,6 +460,7 @@ test-suite chainweb-tests
         Chainweb.Test.Mempool.Sync
         Chainweb.Test.Misc
         Chainweb.Test.Orphans.Internal
+        Chainweb.Test.Orphans.Pact
         Chainweb.Test.Orphans.Time
         Chainweb.Test.Pact.PactInProcApi
         Chainweb.Test.P2P.Peer.BootstrapConfig
@@ -478,6 +482,7 @@ test-suite chainweb-tests
         Chainweb.Test.Rosetta.RestAPI
         Chainweb.Test.Roundtrips
         Chainweb.Test.SPV
+        Chainweb.Test.SPV.EventProof
         Chainweb.Test.Store.CAS
         Chainweb.Test.Store.CAS.FS
         Chainweb.Test.Sync.WebBlockHeaderStore
@@ -643,6 +648,7 @@ executable cwtool
         Chainweb.Test.HostAddress
         Chainweb.Test.MultiNode
         Chainweb.Test.Orphans.Internal
+        Chainweb.Test.Orphans.Pact
         Chainweb.Test.Orphans.Time
         Chainweb.Test.P2P.Peer.BootstrapConfig
         Chainweb.Test.Utils

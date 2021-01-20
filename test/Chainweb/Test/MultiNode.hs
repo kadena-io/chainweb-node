@@ -86,7 +86,7 @@ import Chainweb.Miner.Pact
 import Chainweb.Test.P2P.Peer.BootstrapConfig
 import Chainweb.Test.Utils
 import Chainweb.Time (Seconds(..))
-import Chainweb.Utils
+import Chainweb.Utils  hiding (label)
 import Chainweb.Version
 import Chainweb.Version.Utils
 import Chainweb.WebBlockHeaderDB

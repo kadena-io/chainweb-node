@@ -74,6 +74,7 @@ module Chainweb.Utils
 , runPut
 , runGetEither
 , eof
+, MonadGetExtra(..)
 
 -- ** Codecs
 , Codec(..)
@@ -241,13 +242,14 @@ import qualified Data.HashSet as HS
 import Data.Monoid (Endo)
 import Data.Proxy
 import Data.Serialize.Get (Get)
+import qualified Data.Serialize.Get as Get
 import Data.Serialize.Put (Put)
 import Data.String (IsString(..))
-import Data.Time
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
 import qualified Data.Text.Lazy as TL
 import Data.These (These(..))
+import Data.Time
 import Data.Tuple.Strict
 import qualified Data.Vector as V
 import Data.Word
@@ -464,6 +466,14 @@ runPut = runPutS
 eof :: Get ()
 eof = unlessM isEmpty $ fail "pending bytes in input"
 {-# INLINE eof #-}
+
+class MonadGet m => MonadGetExtra m where
+    label :: String -> m a -> m a
+    isolate :: Int -> m a -> m a
+
+instance MonadGetExtra Get where
+    label = Get.label
+    isolate = Get.isolate
 
 -- -------------------------------------------------------------------------- --
 -- ** Text
@@ -739,12 +749,14 @@ jsonReader = eitherReader $ eitherDecode' . BL8.pack
 --
 newtype Expected a = Expected { getExpected :: a }
     deriving (Show, Eq, Ord, Generic, Functor)
+    deriving newtype (NFData)
 
 -- | A newtype wrapper for tagger values as "actual" outcomes of some
 -- computation.
 --
 newtype Actual a = Actual { getActual :: a }
     deriving (Show, Eq, Ord, Generic, Functor)
+    deriving newtype (NFData)
 
 -- | A textual message that describes the 'Expected' and the 'Actual' outcome of
 -- some computation.

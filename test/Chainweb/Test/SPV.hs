@@ -1,9 +1,11 @@
 {-# LANGUAGE AllowAmbiguousTypes #-}
+{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TupleSections #-}
+{-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 
 -- |
@@ -26,6 +28,8 @@ import Control.Lens (view, (^?!))
 import Control.Monad.Catch
 import Control.Monad.IO.Class
 
+import Crypto.Hash.Algorithms
+
 import Data.Aeson
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Lazy as BL
@@ -34,7 +38,9 @@ import Data.Foldable
 import Data.Functor.Of
 import qualified Data.List as L
 import Data.LogMessage
-import qualified Data.Vector.Unboxed as V
+import Data.MerkleLog
+import qualified Data.Vector as V
+import qualified Data.Vector.Unboxed as VU
 
 import Numeric.Natural
 
@@ -47,25 +53,31 @@ import qualified Streaming.Prelude as S
 import Test.QuickCheck
 import Test.Tasty
 import Test.Tasty.HUnit
+import Test.Tasty.QuickCheck
 
 -- internal modules
 
 import Chainweb.BlockHeader
 import Chainweb.ChainId
+import Chainweb.Crypto.MerkleLog
 import Chainweb.Cut
 import Chainweb.CutDB
 import Chainweb.Graph
 import Chainweb.Mempool.Mempool (MockTx)
+import Chainweb.MerkleUniverse
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
 import Chainweb.SPV
 import Chainweb.SPV.CreateProof
+import Chainweb.SPV.OutputProof
+import Chainweb.SPV.PayloadProof
 import Chainweb.SPV.RestAPI.Client
 import Chainweb.SPV.VerifyProof
 import Chainweb.Test.CutDB
+import Chainweb.Test.Orphans.Internal
 import Chainweb.Test.Utils
 import Chainweb.TreeDB
-import Chainweb.Utils
+import Chainweb.Utils hiding ((==>))
 import Chainweb.Version
 
 import Data.CAS.RocksDB
@@ -82,6 +94,7 @@ tests rdb = testGroup "SPV tests"
     , testCaseStepsN "SPV transaction output proof" 10 (spvTransactionOutputRoundtripTest rdb version)
     , apiTests rdb version
     , testCaseSteps "SPV transaction proof test" (spvTest rdb version)
+    , properties
     ]
   where
     version = Test petersonChainGraph
@@ -116,6 +129,80 @@ targetChain c srcBlock = do
         = _blockHeight srcBlock <= chainHeight trgChain - distance trgChain
 
     distance x = len $ shortestPath (_chainId srcBlock) x graph
+
+-- -------------------------------------------------------------------------- --
+-- QuickCheck PayloadOutput tests
+
+properties :: TestTree
+properties = testGroup "merkle proof properties"
+    [ testGroup "ChainwebMerklehashAlgorithm"
+        [ testProperty "prop_merkleProof_run" $ prop_merkleProof_run @ChainwebMerkleHashAlgorithm
+        , testProperty "prop_outputProof_run" $ prop_outputProof_run @ChainwebMerkleHashAlgorithm
+        , testProperty "prop_outputProof_run2" $ prop_outputProof_run2 @ChainwebMerkleHashAlgorithm
+        , testProperty "prop_outputProof_subject" $ prop_outputProof_subject @ChainwebMerkleHashAlgorithm
+        , testProperty "prop_outputProof_valid" $ prop_outputProof_valid
+        ]
+    , testGroup "ChainwebMerklehashAlgorithm"
+        [ testProperty "prop_merkleProof_run" $ prop_merkleProof_run @Keccak_256
+        , testProperty "prop_outputProof_run" $ prop_outputProof_run @Keccak_256
+        , testProperty "prop_outputProof_run2" $ prop_outputProof_run2 @Keccak_256
+        , testProperty "prop_outputProof_subject" $ prop_outputProof_subject @Keccak_256
+        ]
+    ]
+
+prop_merkleProof_run :: MerkleHashAlgorithm a => MerkleProof a -> Bool
+prop_merkleProof_run p = case runMerkleProof p of !_ -> True
+
+prop_outputProof_run
+    :: MerkleHashAlgorithm a
+    => PayloadProof a
+    -> Bool
+prop_outputProof_run p =
+    case runMerkleProof (_payloadProofBlob p) of !_ -> True
+
+prop_outputProof_run2
+    :: forall a
+    . MerkleHashAlgorithm a
+    => PayloadProof a
+    -> Property
+prop_outputProof_run2 p = case runOutputProof p of
+  Left e -> counterexample ("failed to validate proof: " <> show e) False
+  Right (!_, !_) -> property True
+
+prop_outputProof_subject
+    :: forall a
+    . MerkleHashAlgorithm a
+    => BlockHeader
+    -> Property
+prop_outputProof_subject hdr = forAll arbitraryPayloadWithStructuredOutputs go
+  where
+    go (ks, p) = s > 0 ==>
+        forAll (choose (0, s-1)) $ \idx ->
+            case runOutputProof $ mkTestOutputProof @a p hdr (ks V.! idx) of
+            Left e -> counterexample ("failed to validate proof: " <> show e) False
+            Right (!_, !subject) ->
+                subject === snd (_payloadWithOutputsTransactions p V.! idx)
+      where
+        s = V.length (_payloadWithOutputsTransactions p)
+
+-- | This test compares the root from running the proof with the hash of the
+-- input payload. Because 'mkTestPayloadOutputProof' accepts only values of type
+-- @PayloadWithOutputs_ ChainwebMerkleHashAlgorithm@ as input, this test only
+-- works with proofs that use 'ChainwebMerkleHashAlgorithm'.
+--
+prop_outputProof_valid :: BlockHeader -> Property
+prop_outputProof_valid hdr = forAll arbitraryPayloadWithStructuredOutputs go
+  where
+    go (ks, p) = s > 0 ==>
+        forAll (choose (0, s-1)) $ \idx ->
+            case runOutputProof $ mkTestOutputProof p hdr (ks V.! idx) of
+            Left e -> counterexample ("failed to validate proof: " <> show e) False
+            Right (!rootHash, !subject) ->
+                subject === snd (_payloadWithOutputsTransactions p V.! idx)
+                .&.
+                rootHash === _payloadWithOutputsPayloadHash p
+      where
+        s = V.length (_payloadWithOutputsTransactions p)
 
 -- -------------------------------------------------------------------------- --
 -- Comprehensive SPV test for transaction proofs
@@ -250,8 +337,8 @@ spvTest rdb v step = do
     -- distance and transation size)
     --
     regress r
-        | [proofSize, blockSize, _heightDiff, chainDist, txSize] <- V.fromList <$> L.transpose r
-            = olsRegress [V.map (logBase 2) blockSize, chainDist, txSize] proofSize
+        | [proofSize, blockSize, _heightDiff, chainDist, txSize] <- VU.fromList <$> L.transpose r
+            = olsRegress [VU.map (logBase 2) blockSize, chainDist, txSize] proofSize
         | otherwise = error "Chainweb.Test.SPV.spvTest.regress: fail to match regressor list. This is a bug in the test code."
 
     -- regression model for @createTransactionOutputProof'@. Proof size depends

@@ -40,7 +40,7 @@ import Prelude hiding (lookup)
 import Chainweb.BlockHeader
 import Chainweb.BlockHeight
 import Chainweb.ChainId
-import Chainweb.Utils
+import Chainweb.Utils hiding (label)
 
 -- -------------------------------------------------------------------------- --
 -- Exceptions

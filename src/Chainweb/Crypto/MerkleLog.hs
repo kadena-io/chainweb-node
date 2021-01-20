@@ -110,6 +110,7 @@ module Chainweb.Crypto.MerkleLog
   MerkleUniverse(..)
 , tagVal
 , MerkleHashAlgorithm
+, MerkleHashAlgorithmName(..)
 
 -- * Merkle Log Entries
 , IsMerkleLogEntry(..)
@@ -167,7 +168,6 @@ import Control.Monad.Catch
 import Crypto.Hash.Algorithms
 
 import qualified Data.ByteArray as BA
-import Data.Bytes.Get
 import Data.Bytes.Put
 import qualified Data.ByteString as B
 import Data.Coerce
@@ -297,6 +297,17 @@ tagVal = fromIntegral $ natVal (Proxy @(MerkleTagVal u t))
 -- Hash Algorithms
 
 type MerkleHashAlgorithm = HashAlgorithm
+
+class MerkleHashAlgorithmName a where
+    merkleHashAlgorithmName :: T.Text
+
+instance MerkleHashAlgorithmName SHA512t_256 where
+    merkleHashAlgorithmName = "SHA512t_256"
+    {-# INLINE merkleHashAlgorithmName #-}
+
+instance MerkleHashAlgorithmName Keccak_256 where
+    merkleHashAlgorithmName = "Keccak_256"
+    {-# INLINE merkleHashAlgorithmName #-}
 
 -- -------------------------------------------------------------------------- --
 -- Merkle Log Entries
@@ -734,7 +745,7 @@ encodeMerkleInputNode encode = InputNode . runPutS . encode
 
 decodeMerkleInputNode
     :: MonadThrow m
-    => (forall n . MonadGet n => n b)
+    => (forall n . MonadGetExtra n => n b)
     -> MerkleNodeType a B.ByteString
     -> m b
 decodeMerkleInputNode decode (InputNode bytes) = runGet decode bytes
