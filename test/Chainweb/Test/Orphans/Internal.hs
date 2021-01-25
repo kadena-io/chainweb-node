@@ -1,8 +1,10 @@
+{-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TypeApplications #-}
 
@@ -24,6 +26,9 @@ module Chainweb.Test.Orphans.Internal
 , arbitraryBlockHeaderVersionHeight
 , arbitraryBlockHeaderVersionHeightChain
 , arbitraryBlockHashRecordVersionHeightChain
+, arbitraryMerkleTree
+, arbitraryPayloadMerkleTree
+, arbitraryHeaderMerkleTree
 ) where
 
 import Control.Applicative
@@ -32,6 +37,7 @@ import qualified Data.ByteString as B
 import qualified Data.ByteString.Short as BS
 import Data.Foldable
 import qualified Data.HashMap.Strict as HM
+import Data.MerkleLog
 
 import Test.QuickCheck.Arbitrary
 import Test.QuickCheck.Exception (discard)
@@ -253,7 +259,7 @@ instance Arbitrary SolvedWork where
 -- -------------------------------------------------------------------------- --
 -- Payload
 
-instance Arbitrary BlockPayloadHash where
+instance MerkleHashAlgorithm a => Arbitrary (BlockPayloadHash_ a) where
     arbitrary = BlockPayloadHash <$> arbitrary
 
 instance Arbitrary Transaction where
@@ -262,10 +268,10 @@ instance Arbitrary Transaction where
 instance Arbitrary TransactionOutput where
     arbitrary = TransactionOutput <$> arbitraryBytesSized
 
-instance Arbitrary BlockTransactionsHash where
+instance MerkleHashAlgorithm a => Arbitrary (BlockTransactionsHash_ a) where
     arbitrary = BlockTransactionsHash <$> arbitrary
 
-instance Arbitrary BlockOutputsHash where
+instance MerkleHashAlgorithm a => Arbitrary (BlockOutputsHash_ a) where
     arbitrary = BlockOutputsHash <$> arbitrary
 
 instance Arbitrary MinerData where
@@ -274,20 +280,56 @@ instance Arbitrary MinerData where
 instance Arbitrary CoinbaseOutput where
     arbitrary = CoinbaseOutput <$> arbitraryBytesSized
 
-instance Arbitrary BlockTransactions where
+instance MerkleHashAlgorithm a => Arbitrary (BlockTransactions_ a) where
     arbitrary = snd <$> (newBlockTransactions <$> arbitrary <*> arbitrary)
 
-instance Arbitrary BlockOutputs where
+instance MerkleHashAlgorithm a => Arbitrary (BlockOutputs_ a) where
     arbitrary = snd <$> (newBlockOutputs <$> arbitrary <*> arbitrary)
 
-instance Arbitrary BlockPayload where
+instance MerkleHashAlgorithm a => Arbitrary (BlockPayload_ a) where
     arbitrary = blockPayload <$> arbitrary <*> arbitrary
 
-instance Arbitrary PayloadData where
+instance MerkleHashAlgorithm a => Arbitrary (PayloadData_ a) where
     arbitrary = newPayloadData <$> arbitrary <*> arbitrary
 
-instance Arbitrary PayloadWithOutputs where
+instance MerkleHashAlgorithm a => Arbitrary (PayloadWithOutputs_ a) where
     arbitrary = newPayloadWithOutputs <$> arbitrary <*> arbitrary <*> arbitrary
+
+instance MerkleHashAlgorithm a => Arbitrary (TransactionTree_ a) where
+    arbitrary = fst <$> (newBlockTransactions <$> arbitrary <*> arbitrary)
+
+instance MerkleHashAlgorithm a => Arbitrary (OutputTree_ a) where
+    arbitrary = fst <$> (newBlockOutputs <$> arbitrary <*> arbitrary)
+
+-- -------------------------------------------------------------------------- --
+-- Merkle Logs and SPV
+
+instance Arbitrary (MerkleTree ChainwebMerkleHashAlgorithm) where
+    arbitrary = oneof
+        [ arbitraryPayloadMerkleTree
+        , arbitraryMerkleTree @_ @BlockHeader
+        ]
+
+arbitraryHeaderMerkleTree :: Gen (MerkleTree ChainwebMerkleHashAlgorithm)
+arbitraryHeaderMerkleTree = arbitraryMerkleTree @_ @BlockHeader
+
+arbitraryPayloadMerkleTree
+    :: forall a
+    . MerkleHashAlgorithm a
+    => Gen (MerkleTree a)
+arbitraryPayloadMerkleTree = oneof
+    [ arbitraryMerkleTree @a @(BlockTransactions_ a)
+    , arbitraryMerkleTree @a @(BlockOutputs_ a)
+    , arbitraryMerkleTree @a @(BlockPayload_ a)
+    ]
+
+arbitraryMerkleTree
+    :: forall a b
+    . MerkleHashAlgorithm a
+    => Arbitrary b
+    => HasMerkleLog a ChainwebHashTag b
+    => Gen (MerkleTree a)
+arbitraryMerkleTree = _merkleLogTree <$> (toLog @a <$> arbitrary @b)
 
 -- -------------------------------------------------------------------------- --
 -- Misc

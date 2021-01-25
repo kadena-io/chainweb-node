@@ -85,11 +85,10 @@ createTransactionProof
     -> Int
         -- ^ The index of the transaction in the block
     -> IO (TransactionProof SHA512t_256)
-createTransactionProof cutDb tcid scid bh i =
+createTransactionProof cutDb =
   createTransactionProof_
     (view cutDbWebBlockHeaderDb cutDb)
     (view cutDbPayloadCas cutDb)
-    tcid scid bh i
 
 -- | Version without CutDb dependency
 --
@@ -184,11 +183,10 @@ createTransactionOutputProof
     -> Int
         -- ^ The index of the transaction in the block
     -> IO (TransactionOutputProof SHA512t_256)
-createTransactionOutputProof cutDb tcid scid bh i =
+createTransactionOutputProof cutDb =
   createTransactionOutputProof_
     (view cutDbWebBlockHeaderDb cutDb)
     (view cutDbPayloadCas cutDb)
-    tcid scid bh i
 
 
 -- | Version without CutDb dependency

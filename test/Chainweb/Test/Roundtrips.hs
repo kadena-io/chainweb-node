@@ -14,16 +14,17 @@ module Chainweb.Test.Roundtrips
 ( tests
 ) where
 
+import Crypto.Hash.Algorithms
+
 import Data.Aeson
 import qualified Data.ByteString.Lazy as BL
 import qualified Data.HashMap.Strict as HM
 import qualified Data.Text as T
 
 import Test.QuickCheck
+import Test.QuickCheck.Instances ()
 import Test.Tasty
 import Test.Tasty.QuickCheck
-
-import Test.QuickCheck.Instances ()
 
 -- internal modules
 
@@ -111,6 +112,13 @@ encodeDecodeTests = testGroup "Encode-Decode roundtrips"
     , testProperty "BlockTransactionsHash"
         $ prop_encodeDecode decodeBlockTransactionsHash (encodeBlockTransactionsHash @_ @ChainwebMerkleHashAlgorithm)
 
+    , testProperty "BlockPayloadHash"
+        $ prop_encodeDecode decodeBlockPayloadHash (encodeBlockPayloadHash @_ @Keccak_256)
+    , testProperty "BlockTransactionsHash"
+        $ prop_encodeDecode decodeBlockTransactionsHash (encodeBlockTransactionsHash @_ @Keccak_256)
+    , testProperty "BlockTransactionsHash"
+        $ prop_encodeDecode decodeBlockTransactionsHash (encodeBlockTransactionsHash @_ @Keccak_256)
+
     , testProperty "SolvedWork"
         $ prop_encodeDecode decodeSolvedWork encodeSolvedWork
 
@@ -160,6 +168,7 @@ jsonTestCases f =
     , testProperty "NetworkId" $ f @NetworkId
     , testProperty "ChainDatabaseGcConfig" $ f @ChainDatabaseGcConfig
 
+    -- Chainweb.Payload
     , testProperty "BlockPayloadHash" $ f @BlockPayloadHash
     , testProperty "BlockTransactionsHash" $ f @BlockTransactionsHash
     , testProperty "BlockOutputsHash" $ f @BlockOutputsHash
@@ -168,6 +177,13 @@ jsonTestCases f =
     , testProperty "PayloadData" $ f @PayloadData
     , testProperty "BlockTransactions" $ f @BlockTransactions
     , testProperty "MinerData" $ f @MinerData
+    , testProperty "BlockPayload" $ f @BlockPayload
+    , testProperty "CoinbaseOutput" $ f @CoinbaseOutput
+    , testProperty "BlockOutputs" $ f @BlockOutputs
+    , testProperty "TransactionTree" $ f @TransactionTree
+    , testProperty "OutputTree" $ f @OutputTree
+    , testProperty "PayloadData" $ f @PayloadData
+    , testProperty "PayloadWithOutputs" $ f @PayloadWithOutputs
     ]
 
 jsonRoundtripTests :: TestTree

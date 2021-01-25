@@ -135,7 +135,7 @@ spvTest rdb v step = do
             -- for each ancestor ah of h
             & flip S.for (\h -> ancestors (cutDb ^?! cutDbBlockHeaderDb h) (_blockHash h))
             -- for each transaction in ah
-            & flip S.for (\h -> getPayloads cutDb h)
+            & flip S.for (getPayloads cutDb)
             -- for each target chain c
             & flip S.for (\(a,b,c,d) -> S.each $ (a,b,c,d,) <$> toList (chainIds cutDb))
             -- Create and verify transaction output proof

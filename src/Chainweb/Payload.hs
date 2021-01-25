@@ -582,7 +582,7 @@ data BlockOutputs_ a = BlockOutputs
     , _blockCoinbaseOutput :: !CoinbaseOutput
         -- ^ Output of coinbase transaction.
     }
-    deriving (Show)
+    deriving (Show, Eq)
 
 instance MerkleHashAlgorithm a => ToJSON (BlockOutputs_ a) where
     toJSON o = object
@@ -643,7 +643,7 @@ data TransactionTree_ a = TransactionTree
 
     , _transactionTree :: !(MerkleTree a)
     }
-    deriving (Show)
+    deriving (Show, Eq)
 
 instance IsCasValue (TransactionTree_ a) where
     type CasKeyType (TransactionTree_ a) = BlockTransactionsHash_ a
@@ -690,7 +690,7 @@ data OutputTree_ a = OutputTree
 
     , _outputTree :: !(MerkleTree a)
     }
-    deriving (Show)
+    deriving (Show, Eq)
 
 instance IsCasValue (OutputTree_ a) where
     type CasKeyType (OutputTree_ a) = BlockOutputsHash_ a
@@ -937,7 +937,7 @@ data PayloadWithOutputs_ a = PayloadWithOutputs
     , _payloadWithOutputsTransactionsHash :: !(BlockTransactionsHash_ a)
     , _payloadWithOutputsOutputsHash :: !(BlockOutputsHash_ a)
     }
-    deriving (Show, Generic)
+    deriving (Eq, Show, Generic)
     deriving anyclass (NFData)
 
 instance IsCasValue (PayloadWithOutputs_ a) where
