@@ -125,7 +125,8 @@ module Chainweb.Crypto.MerkleLog
 , MkLogType
 , merkleLog
 , newMerkleLog
-, HasHeader(..)
+, HasHeader
+, HasHeader_(..)
 , body
 , headerSize
 , bodySize
@@ -188,6 +189,7 @@ import System.IO.Unsafe
 
 -- internal modules
 
+import Data.Singletons
 import Chainweb.Utils
 
 -- -------------------------------------------------------------------------- --
@@ -530,26 +532,32 @@ newMerkleLog entries = MerkleLog
 -- * check that the header value is unique (requires traversing the list until
 --   then end after a value is found)
 --
-class HasHeader c b where
-    type HeaderPos c b :: Nat
+class Index c (Hdr b) ~ i => HasHeader_ a u c b i | i b -> c where
+    type Hdr b :: [Type]
     header :: b -> c
     headerPos :: Int
+    headerDict :: b -> Dict (IsMerkleLogEntry a u c) c
 
-instance HasHeader c (MerkleLog a u (c ': t) s) where
-    type HeaderPos c (MerkleLog a u (c ': t) s) = 0
+instance HasHeader_ a u c (MerkleLog a u (c ': t) s) 'Z where
+    type Hdr (MerkleLog a u (c ': t) s) = (c ': t)
     header (MerkleLog _ (c :+: _) _) = c
     headerPos = 0
+    headerDict (MerkleLog _ (c :+: _) _) = Dict c
 
 -- TODO:
 --
 -- * recurse only on entries
 --
-instance {-# INCOHERENT #-}
-    HasHeader c (MerkleLog a u t s) => HasHeader c (MerkleLog a u (x ': t) s)
+instance
+    (HasHeader_ a u c (MerkleLog a u t s) i, 'S i ~ Index c (x ': t))
+    => HasHeader_ a u c (MerkleLog a u (x ': t) s) ('S i)
   where
-    type HeaderPos c (MerkleLog a u (x ': t) s) = 0
-    header (MerkleLog x (_ :+: t) y) = header (MerkleLog @a x t y)
-    headerPos = succ $ headerPos @c @(MerkleLog a u t s)
+    type Hdr (MerkleLog a u (x ': t) s) = (x ': t)
+    header (MerkleLog x (_ :+: t) y) = header @a @u (MerkleLog @a x t y)
+    headerPos = succ $ headerPos @a @u @c @(MerkleLog a u t s)
+    headerDict (MerkleLog x (_ :+: t) y) = headerDict @a @u (MerkleLog @a x t y)
+
+type HasHeader a u c b = HasHeader_ a u c b (Index c (Hdr b))
 
 -- | Get the body sequence of a Merkle log.
 --
@@ -602,8 +610,7 @@ computeMerkleLogRoot = merkleRoot . _merkleLogTree . toLog @a
 headerProof
     :: forall c a u b m
     . MonadThrow m
-    => HasHeader c (MkLogType a u b)
-    => IsMerkleLogEntry a u c
+    => HasHeader a u c (MkLogType a u b)
     => HasMerkleLog a u b
     => b
     -> m (MerkleProof a)
@@ -618,16 +625,16 @@ headerProof = uncurry3 merkleProof . headerTree @c @a
 --
 headerTree
     :: forall c a u b
-    . HasHeader c (MkLogType a u b)
-    => IsMerkleLogEntry a u c
+    . HasHeader a u c (MkLogType a u b)
     => HasMerkleLog a u b
     => b
     -> (MerkleNodeType a B.ByteString, Int, MerkleTree a)
 headerTree b = (node, p, _merkleLogTree @a mlog)
   where
     mlog = toLog @a b
-    p = headerPos @c @(MkLogType a u b)
-    node = toMerkleNodeTagged @a $ header @c mlog
+    p = headerPos @a @u @c @(MkLogType a u b)
+    node = case headerDict @a @u @c mlog of
+        Dict hdr -> toMerkleNodeTagged @a hdr
 
 -- | Create the parameters for creating nested inclusion proofs with the
 -- 'merkleProof_' of the merkle-log package.
@@ -637,14 +644,14 @@ headerTree b = (node, p, _merkleLogTree @a mlog)
 --
 headerTree_
     :: forall c a u b
-    . HasHeader c (MkLogType a u b)
+    . HasHeader a u c (MkLogType a u b)
     => HasMerkleLog a u b
     => b
     -> (Int, MerkleTree a)
 headerTree_ b = (p, _merkleLogTree @a mlog)
   where
     mlog = toLog @a b
-    p = headerPos @c @(MkLogType a u b)
+    p = headerPos @a @u @c @(MkLogType a u b)
 
 -- | Create an inclusion proof for a value in the body of a Merkle log.
 --
