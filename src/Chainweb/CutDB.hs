@@ -106,7 +106,6 @@ import Data.Maybe
 import Data.Monoid
 import Data.Ord
 import qualified Data.Text as T
-import Data.These
 import Data.Tuple.Strict
 import qualified Data.Vector as V
 

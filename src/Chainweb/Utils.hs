@@ -184,6 +184,9 @@ module Chainweb.Utils
 , _T2
 , _T3
 
+-- * These
+, These(..)
+
 -- * Approximate thread delays
 , approximateThreadDelay
 
@@ -221,6 +224,7 @@ import Control.Monad.Reader as Reader
 import Data.Aeson.Text (encodeToLazyText)
 import qualified Data.Aeson.Types as Aeson
 import qualified Data.Attoparsec.Text as A
+import Data.Bifoldable
 import Data.Bifunctor
 import Data.Bits
 import Data.Bool (bool)
@@ -243,11 +247,10 @@ import Data.Proxy
 import Data.Serialize.Get (Get)
 import Data.Serialize.Put (Put)
 import Data.String (IsString(..))
-import Data.Time
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
 import qualified Data.Text.Lazy as TL
-import Data.These (These(..))
+import Data.Time
 import Data.Tuple.Strict
 import qualified Data.Vector as V
 import Data.Word
@@ -298,6 +301,44 @@ giga = 10 ^ (9 :: Int)
 tera = 10 ^ (12 :: Int)
 peta = 10 ^ (15 :: Int)
 exa = 10 ^ (18 :: Int)
+
+-- -------------------------------------------------------------------------- --
+-- These
+
+-- | There are two packages on Hackage that define this type. "these" is used by
+-- dependencies of chainweb, but it's bloated and we do not want to use it.
+-- "these-skinny" is small but the module name conflicts with the former, which
+-- creates trouble when using ghci.
+--
+-- Since we only use the type and the constructors but nothing else from those
+-- package we just define our own version here.
+--
+data These a b = This a | That b | These a b
+    deriving (Eq, Ord, Read, Show, Generic, Hashable, NFData, Functor, Foldable, Traversable)
+
+these :: (a -> c) -> (b -> c) -> (a -> b -> c) -> These a b -> c
+these l _ _ (This a) = l a
+these _ r _ (That x) = r x
+these _ _ lr (These a x) = lr a x
+{-# INLINE these #-}
+
+instance Bifunctor These where
+    bimap f _ (This  a  ) = This (f a)
+    bimap _ g (That    x) = That (g x)
+    bimap f g (These a x) = These (f a) (g x)
+    first f = bimap f id
+    second f = bimap id f
+    {-# INLINE bimap #-}
+    {-# INLINE first #-}
+    {-# INLINE second #-}
+
+instance Bifoldable These where
+    bifold = these id id mappend
+    bifoldr f g z = these (`f` z) (`g` z) (\x y -> x `f` (y `g` z))
+    bifoldl f g z = these (z `f`) (z `g`) (\x y -> (z `f` x) `g` y)
+    {-# INLINE bifold #-}
+    {-# INLINE bifoldr #-}
+    {-# INLINE bifoldl #-}
 
 -- -------------------------------------------------------------------------- --
 -- Misc

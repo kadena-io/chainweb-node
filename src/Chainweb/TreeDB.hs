@@ -95,7 +95,6 @@ import qualified Data.List.NonEmpty as NE
 import Data.Maybe (fromMaybe)
 import Data.Semigroup
 import qualified Data.Text as T
-import Data.These
 import Data.Typeable
 import Data.Vector (Vector)
 import qualified Data.Vector as V
@@ -954,7 +953,7 @@ getBranchIncreasing db e r inner
         Branch l0 a0 : bs@(Branch l1 _ : _)
             -- active branches are sorted by length in decreasing order. If the first branch
             -- is longer than the second branch it is also longer than all other branches.
-            -- That means that its entries at the lowest ranks are unique for their rank and 
+            -- That means that its entries at the lowest ranks are unique for their rank and
             -- can be yielded to the result stream.
             --
             -- Invariant: `length l1 >= 1` and, thus, length keep >= 1`

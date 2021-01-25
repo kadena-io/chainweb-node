@@ -109,7 +109,6 @@ import Data.Maybe (catMaybes, fromMaybe)
 import Data.Monoid
 import Data.Ord
 import qualified Data.Text as T
-import Data.These
 
 import GHC.Generics (Generic)
 import GHC.Stack
