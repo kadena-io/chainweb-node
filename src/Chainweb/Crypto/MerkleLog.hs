@@ -549,7 +549,9 @@ instance HasHeader_ a u c (MerkleLog a u (c ': t) s) 'Z where
 -- * recurse only on entries
 --
 instance
-    (HasHeader_ a u c (MerkleLog a u t s) i, 'S i ~ Index c (x ': t))
+    ( HasHeader_ a u c (MerkleLog a u t s) i
+    , 'S i ~ Index c (x ': t) -- this effectively asserts that c and x are different
+    )
     => HasHeader_ a u c (MerkleLog a u (x ': t) s) ('S i)
   where
     type Hdr (MerkleLog a u (x ': t) s) = (x ': t)

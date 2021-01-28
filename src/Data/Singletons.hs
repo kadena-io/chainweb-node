@@ -225,7 +225,7 @@ data N = Z | S N
 
 data instance Sing (n :: N) where
     SZ :: Sing 'Z
-    SN :: Sing i -> Sing ('S i)
+    SS :: Sing i -> Sing ('S i)
 
 deriving instance Show (Sing (n :: N))
 deriving instance Eq (Sing (n :: N))
@@ -234,16 +234,16 @@ type SZ = Sing 'Z
 type SN i = Sing ('S i)
 
 instance SingI 'Z where sing = SZ
-instance SingI i => SingI ('S i) where sing = SN sing
+instance SingI i => SingI ('S i) where sing = SS sing
 
 instance SingKind N where
     type Demote N = N
     fromSing SZ = Z
-    fromSing (SN i) = S (fromSing i)
+    fromSing (SS i) = S (fromSing i)
 
     toSing Z = SomeSing SZ
     toSing (S i) = case toSing i of
-        SomeSing n -> SomeSing (SN n)
+        SomeSing n -> SomeSing (SS n)
 
 natToN :: Natural -> N
 natToN 0 = Z
