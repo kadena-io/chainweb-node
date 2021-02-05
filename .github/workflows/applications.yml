@@ -152,8 +152,6 @@ jobs:
         cat >> cabal.project.local <<EOF
         allow-newer:
           pact:*
-          tocken-bucket:*
-          servant-swagger:*
         constraints:
           base16-bytestring <1.0
     - uses: actions/cache@v2
