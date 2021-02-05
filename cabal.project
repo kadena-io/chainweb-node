@@ -31,10 +31,15 @@ source-repository-package
 source-repository-package
     type: git
     location: https://github.com/kadena-io/kadena-ethereum-bridge.git
-    tag: 9838d1266b9ee43c88af6c01cd819e0c96b685e6
+    tag: ca31bab8dfa0b0b5e0be98ea6a4736cf898ffa7e
 
 package vault
     documentation: false
 
 package pact
     ghc-options: -Wwarn
+
+-- cf. https://github.com/snoyberg/http-client/pull/454
+constraints: http-client>=0.7.5
+allow-newer: servant-client:http-client
+
