@@ -134,18 +134,18 @@ peerServerSettings peer
 -- Allocate Socket
 
 withPeerSocket :: P2pConfiguration -> ((P2pConfiguration, Socket) -> IO a) -> IO a
-withPeerSocket conf act
-    = bracket (allocateSocket port interface) deallocateSocket $ \(p, s) ->
+withPeerSocket conf act = withSocket port interface $ \(p, s) ->
         act (set (p2pConfigPeer . peerConfigPort) p conf, s)
   where
     port = _peerConfigPort $ _p2pConfigPeer conf
     interface = _peerConfigInterface $ _p2pConfigPeer conf
 
+
 -- -------------------------------------------------------------------------- --
 -- Run PeerDb for a Chainweb Version
 
 startPeerDb_ :: ChainwebVersion -> P2pConfiguration -> IO PeerDb
-startPeerDb_ v conf = startPeerDb nids conf
+startPeerDb_ v = startPeerDb nids
   where
     nids = HS.singleton CutNetwork
         `HS.union` HS.map MempoolNetwork cids
