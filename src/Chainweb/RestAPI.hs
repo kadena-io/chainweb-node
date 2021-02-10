@@ -31,6 +31,8 @@ module Chainweb.RestAPI
 
 -- * Chainweb API
 , someChainwebApi
+, someChainwebPeerApi
+, someChainwebServiceApi
 , prettyShowChainwebApi
 , apiVersion
 , prettyApiVersion
@@ -38,6 +40,11 @@ module Chainweb.RestAPI
 -- * Swagger
 , prettyChainwebSwagger
 , chainwebSwagger
+, chainwebPeerSwagger
+, chainwebServiceSwagger
+, someSwaggerServer
+, somePeerSwaggerServer
+, someServiceSwaggerServer
 
 -- * Component Triggers
 , HeaderStream(..)
@@ -51,6 +58,11 @@ module Chainweb.RestAPI
 , serveChainwebSocket
 , serveChainwebSocketTls
 , Port
+
+-- * Service API Server
+, someServiceApiServer
+, serviceApiApplication
+, serveServiceApiSocket
 
 -- * Chainweb API Client
 
@@ -133,31 +145,33 @@ import P2P.Node.RestAPI.Server
 -- | Datatype for collectively passing all storage backends to
 -- functions that run a chainweb server.
 --
-data ChainwebServerDbs t logger cas = ChainwebServerDbs
+data ChainwebServerDbs t cas = ChainwebServerDbs
     { _chainwebServerCutDb :: !(Maybe (CutDb cas))
     , _chainwebServerBlockHeaderDbs :: ![(ChainId, BlockHeaderDb)]
     , _chainwebServerMempools :: ![(ChainId, MempoolBackend t)]
     , _chainwebServerPayloadDbs :: ![(ChainId, PayloadDb cas)]
     , _chainwebServerPeerDbs :: ![(NetworkId, PeerDb)]
-    , _chainwebServerPactDbs :: ![(ChainId, PactAPI.PactServerData logger cas)]
     }
     deriving (Generic)
 
-emptyChainwebServerDbs :: ChainwebServerDbs t logger cas
+emptyChainwebServerDbs :: ChainwebServerDbs t cas
 emptyChainwebServerDbs = ChainwebServerDbs
     { _chainwebServerCutDb = Nothing
     , _chainwebServerBlockHeaderDbs = []
     , _chainwebServerMempools = []
     , _chainwebServerPayloadDbs = []
     , _chainwebServerPeerDbs = []
-    , _chainwebServerPactDbs = []
     }
 
 -- -------------------------------------------------------------------------- --
 -- Chainweb API
 
+-- | All APIs. This includes the service and the peer APIs. This is only used
+-- for documentation / swagger purposes.
+--
 someChainwebApi :: ChainwebVersion -> [NetworkId] -> SomeApi
-someChainwebApi v cs = someSwaggerApi
+someChainwebApi v cs
+    = someSwaggerApi
     <> someHealthCheckApi
     <> someNodeInfoApi
     <> someCutApi v
@@ -181,6 +195,30 @@ prettyShowChainwebApi :: ChainwebVersion -> [NetworkId] -> T.Text
 prettyShowChainwebApi v cs = case someChainwebApi v cs of
     SomeApi a -> layout a
 
+-- | All Service API endpoints
+--
+someChainwebServiceApi :: ChainwebVersion -> [NetworkId] -> SomeApi
+someChainwebServiceApi v cs
+    = someSwaggerApi
+    <> someHealthCheckApi
+    <> someNodeInfoApi
+    <> PactAPI.somePactServiceApis v chains
+    <> someMiningApi v
+    <> someHeaderStreamApi v
+  where
+    chains = selectChainIds cs
+
+-- | All Peer API endpoints
+--
+someChainwebPeerApi :: ChainwebVersion -> [NetworkId] -> SomeApi
+someChainwebPeerApi v cs
+    = someCutApi v
+    <> someBlockHeaderDbApis v chains
+    <> somePayloadApis v chains
+    <> someP2pApis v cs
+  where
+    chains = selectChainIds cs
+
 -- -------------------------------------------------------------------------- --
 -- Swagger
 --
@@ -198,12 +236,34 @@ someSwaggerServer :: ChainwebVersion -> [NetworkId] -> SomeServer
 someSwaggerServer v cs = SomeServer (Proxy @SwaggerApi)
     $ return (chainwebSwagger v cs)
 
+somePeerSwaggerServer :: ChainwebVersion -> [NetworkId] -> SomeServer
+somePeerSwaggerServer v cs = SomeServer (Proxy @SwaggerApi)
+    $ return (chainwebPeerSwagger v cs)
+
+someServiceSwaggerServer :: ChainwebVersion -> [NetworkId] -> SomeServer
+someServiceSwaggerServer v cs = SomeServer (Proxy @SwaggerApi)
+    $ return (chainwebServiceSwagger v cs)
+
 chainwebSwagger :: ChainwebVersion -> [NetworkId] -> Swagger
 chainwebSwagger v cs = case someChainwebApi v cs of
     SomeApi a -> toSwagger a
         & info.title   .~ "Chainweb"
         & info.version .~ prettyApiVersion
         & info.description ?~ "Chainweb/" <> sshow v <> " API"
+
+chainwebPeerSwagger :: ChainwebVersion -> [NetworkId] -> Swagger
+chainwebPeerSwagger v cs = case someChainwebPeerApi v cs of
+    SomeApi a -> toSwagger a
+        & info.title   .~ "Chainweb Peer API"
+        & info.version .~ prettyApiVersion
+        & info.description ?~ "Chainweb/" <> sshow v <> "Peer  API"
+
+chainwebServiceSwagger :: ChainwebVersion -> [NetworkId] -> Swagger
+chainwebServiceSwagger v cs = case someChainwebServiceApi v cs of
+    SomeApi a -> toSwagger a
+        & info.title   .~ "Chainweb Service API"
+        & info.version .~ prettyApiVersion
+        & info.description ?~ "Chainweb/" <> sshow v <> "Service  API"
 
 prettyChainwebSwagger :: ChainwebVersion -> [NetworkId] -> T.Text
 prettyChainwebSwagger v cs = T.decodeUtf8 . BL.toStrict . encodePretty
@@ -217,61 +277,7 @@ newtype Rosetta = Rosetta Bool
 newtype HeaderStream = HeaderStream Bool
 
 -- -------------------------------------------------------------------------- --
--- Chainweb Server
-
-someChainwebServer
-    :: Show t
-    => PayloadCasLookup cas
-    => Logger logger
-    => ChainwebVersion
-    -> ChainwebServerDbs t logger cas
-    -> Maybe (MiningCoordination logger cas)
-    -> HeaderStream
-    -> Rosetta
-    -> SomeServer
-someChainwebServer v dbs mr (HeaderStream hs) (Rosetta r) =
-    someSwaggerServer v (fst <$> peers)
-        <> someHealthCheckServer
-        <> maybe mempty (someNodeInfoServer v) cuts
-        <> maybe mempty (someCutServer v cutPeerDb) cuts
-        <> maybe mempty (someSpvServers v) cuts
-        <> somePayloadServers v payloads
-        <> someBlockHeaderDbServers v blocks
-        <> Mempool.someMempoolServers v mempools
-        <> someP2pServers v peers
-        <> PactAPI.somePactServers v pacts
-        <> maybe mempty (Mining.someMiningServer v) mr
-        <> maybe mempty (someHeaderStreamServer v) (bool Nothing cuts hs)
-        <> maybe mempty (bool mempty (someRosettaServer v payloads concreteMs cutPeerDb concreteCr) r) cuts
-        -- TODO: not sure if passing the correct PeerDb here
-        -- TODO: simplify number of resources passing to rosetta
-  where
-    payloads = _chainwebServerPayloadDbs dbs
-    blocks = _chainwebServerBlockHeaderDbs dbs
-    pacts = _chainwebServerPactDbs dbs
-    cuts = _chainwebServerCutDb dbs
-    peers = _chainwebServerPeerDbs dbs
-    mempools = _chainwebServerMempools dbs
-    concreteMs = map (second (_chainResMempool . snd)) pacts
-    concreteCr = map (second snd) pacts
-    cutPeerDb = fromJuste $ lookup CutNetwork peers
-
-chainwebApplication
-    :: Show t
-    => PayloadCasLookup cas
-    => Logger logger
-    => ChainwebVersion
-    -> ChainwebServerDbs t logger cas
-    -> Maybe (MiningCoordination logger cas)
-    -> HeaderStream
-    -> Rosetta
-    -> Application
-chainwebApplication v dbs mr hs r
-    = chainwebTime
-    . chainwebNodeVersion
-    . chainwebCors
-    . someServerApplication
-    $ someChainwebServer v dbs mr hs r
+-- Middlewares
 
 -- Simple cors with actually simpleHeaders which includes content-type.
 chainwebCors :: Middleware
@@ -292,63 +298,85 @@ chainwebNodeVersion app req resp = app req $ \res ->
         ((:) chainwebNodeVersionHeader)
         res
 
+-- -------------------------------------------------------------------------- --
+-- Chainweb Peer Server
+
+someChainwebServer
+    :: Show t
+    => PayloadCasLookup cas
+    => ChainwebVersion
+    -> ChainwebServerDbs t cas
+    -> SomeServer
+someChainwebServer v dbs =
+    somePeerSwaggerServer v (fst <$> peers)
+        <> maybe mempty (someCutServer v cutPeerDb) cuts
+        <> maybe mempty (someSpvServers v) cuts
+        <> somePayloadServers v payloads
+        <> someBlockHeaderDbServers v blocks
+        <> Mempool.someMempoolServers v mempools
+        <> someP2pServers v peers
+  where
+    payloads = _chainwebServerPayloadDbs dbs
+    blocks = _chainwebServerBlockHeaderDbs dbs
+    cuts = _chainwebServerCutDb dbs
+    peers = _chainwebServerPeerDbs dbs
+    mempools = _chainwebServerMempools dbs
+    cutPeerDb = fromJuste $ lookup CutNetwork peers
+
+chainwebApplication
+    :: Show t
+    => PayloadCasLookup cas
+    => ChainwebVersion
+    -> ChainwebServerDbs t cas
+    -> Application
+chainwebApplication v dbs
+    = chainwebTime
+    . chainwebNodeVersion
+    . chainwebCors
+    . someServerApplication
+    $ someChainwebServer v dbs
+
 serveChainwebOnPort
     :: Show t
     => PayloadCasLookup cas
-    => Logger logger
     => Port
     -> ChainwebVersion
-    -> ChainwebServerDbs t logger cas
-    -> Maybe (MiningCoordination logger cas)
-    -> HeaderStream
-    -> Rosetta
+    -> ChainwebServerDbs t cas
     -> IO ()
-serveChainwebOnPort p v dbs mr hs r = run (int p) $ chainwebApplication v dbs mr hs r
+serveChainwebOnPort p v dbs = run (int p) $ chainwebApplication v dbs
 
 serveChainweb
     :: Show t
     => PayloadCasLookup cas
-    => Logger logger
     => Settings
     -> ChainwebVersion
-    -> ChainwebServerDbs t logger cas
-    -> Maybe (MiningCoordination logger cas)
-    -> HeaderStream
-    -> Rosetta
+    -> ChainwebServerDbs t cas
     -> IO ()
-serveChainweb s v dbs mr hs r = runSettings s $ chainwebApplication v dbs mr hs r
+serveChainweb s v dbs = runSettings s $ chainwebApplication v dbs
 
 serveChainwebSocket
     :: Show t
     => PayloadCasLookup cas
-    => Logger logger
     => Settings
     -> Socket
     -> ChainwebVersion
-    -> ChainwebServerDbs t logger cas
-    -> Maybe (MiningCoordination logger cas)
-    -> HeaderStream
-    -> Rosetta
+    -> ChainwebServerDbs t cas
     -> IO ()
-serveChainwebSocket s sock v dbs mr hs r =
-    runSettingsSocket s sock $ chainwebApplication v dbs mr hs r
+serveChainwebSocket s sock v dbs =
+    runSettingsSocket s sock $ chainwebApplication v dbs
 
 serveChainwebSocketTls
     :: Show t
     => PayloadCasLookup cas
-    => Logger logger
     => Settings
     -> X509CertChainPem
     -> X509KeyPem
     -> Socket
     -> ChainwebVersion
-    -> ChainwebServerDbs t logger cas
-    -> Maybe (MiningCoordination logger cas)
-    -> HeaderStream
-    -> Rosetta
+    -> ChainwebServerDbs t cas
     -> Middleware
     -> IO ()
-serveChainwebSocketTls settings certChain key sock v dbs mr hs r m =
+serveChainwebSocketTls settings certChain key sock v dbs m =
     runTLSSocket tlsSettings settings sock $ m app
   where
     tlsSettings :: TLSSettings
@@ -356,4 +384,72 @@ serveChainwebSocketTls settings certChain key sock v dbs mr hs r m =
         { tlsSessionManagerConfig = Just TLS.defaultConfig }
 
     app :: Application
-    app = chainwebApplication v dbs mr hs r
+    app = chainwebApplication v dbs
+
+-- -------------------------------------------------------------------------- --
+-- Service API Server
+
+someServiceApiServer
+    :: Show t
+    => PayloadCasLookup cas
+    => Logger logger
+    => ChainwebVersion
+    -> ChainwebServerDbs t cas
+    -> [(ChainId, PactAPI.PactServerData logger cas)]
+    -> Maybe (MiningCoordination logger cas)
+    -> HeaderStream
+    -> Rosetta
+    -> SomeServer
+someServiceApiServer v dbs pacts mr (HeaderStream hs) (Rosetta r) =
+    someServiceSwaggerServer v (fst <$> peers)
+        <> someHealthCheckServer
+        <> maybe mempty (someNodeInfoServer v) cuts
+        <> PactAPI.somePactServers v pacts
+        <> maybe mempty (Mining.someMiningServer v) mr
+        <> maybe mempty (someHeaderStreamServer v) (bool Nothing cuts hs)
+        <> maybe mempty (bool mempty (someRosettaServer v payloads concreteMs cutPeerDb concreteCr) r) cuts
+            -- TODO: not sure if passing the correct PeerDb here
+            -- TODO: simplify number of resources passing to rosetta
+  where
+    cuts = _chainwebServerCutDb dbs
+    peers = _chainwebServerPeerDbs dbs
+    concreteMs = map (second (_chainResMempool . snd)) pacts
+    concreteCr = map (second snd) pacts
+    cutPeerDb = fromJuste $ lookup CutNetwork peers
+    payloads = _chainwebServerPayloadDbs dbs
+
+serviceApiApplication
+    :: Show t
+    => PayloadCasLookup cas
+    => Logger logger
+    => ChainwebVersion
+    -> ChainwebServerDbs t cas
+    -> [(ChainId, PactAPI.PactServerData logger cas)]
+    -> Maybe (MiningCoordination logger cas)
+    -> HeaderStream
+    -> Rosetta
+    -> Application
+serviceApiApplication v dbs pacts mr hs r
+    = chainwebTime
+    . chainwebNodeVersion
+    . chainwebCors
+    . someServerApplication
+    $ someServiceApiServer v dbs pacts mr hs r
+
+serveServiceApiSocket
+    :: Show t
+    => PayloadCasLookup cas
+    => Logger logger
+    => Settings
+    -> Socket
+    -> ChainwebVersion
+    -> ChainwebServerDbs t cas
+    -> [(ChainId, PactAPI.PactServerData logger cas)]
+    -> Maybe (MiningCoordination logger cas)
+    -> HeaderStream
+    -> Rosetta
+    -> Middleware
+    -> IO ()
+serveServiceApiSocket s sock v dbs pacts mr hs r m =
+    runSettingsSocket s sock $ m $ serviceApiApplication v dbs pacts mr hs r
+
