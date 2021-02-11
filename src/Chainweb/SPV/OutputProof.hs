@@ -54,6 +54,7 @@ import Chainweb.Crypto.MerkleLog
 import Chainweb.MerkleUniverse
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
+import Chainweb.SPV
 import Chainweb.SPV.PayloadProof
 import Chainweb.Utils
 
@@ -148,25 +149,33 @@ outputMerkleProof p = findTxIdx p >=> outputMerkleProofByIdx p
 -- | Creates a witness that a transaction is included in a chain of a chainweb
 -- at the given target header.
 --
+-- TODO: add support for cross chain proofs
+--
 createOutputProof_
-    :: forall a h
+    :: forall a
     . MerkleHashAlgorithm a
     => BlockHeader
         -- ^ the target header of the proof
-    -> PayloadWithOutputs_ h
+    -> PayloadWithOutputs
     -> RequestKey
         -- ^ The index of the transaction in the block
     -> IO (PayloadProof a)
-createOutputProof_ hdr payload reqKey = do
-    proof <- outputMerkleProof @a payload reqKey
-    return PayloadProof
-        { _payloadProofChainId = _blockChainId hdr
-        , _payloadProofHeight = _blockHeight hdr
-        , _payloadProofHash = _blockHash hdr
-        , _payloadProofReqKey = reqKey
-        , _payloadProofRootType = RootBlockPayload
-        , _payloadProofBlob = proof
-        }
+createOutputProof_ hdr payload reqKey
+    | _payloadWithOutputsPayloadHash payload /= _blockPayloadHash hdr =
+        throwM $ SpvExceptionInconsistentPayloadData
+            { _spvExceptionMsg = "The stored payload hash doesn't match the the db index"
+            , _spvExceptionMsgPayloadHash = _blockPayloadHash hdr
+            }
+    | otherwise = do
+        proof <- outputMerkleProof @a payload reqKey
+        return PayloadProof
+            { _payloadProofChainId = _blockChainId hdr
+            , _payloadProofHeight = _blockHeight hdr
+            , _payloadProofHash = _blockHash hdr
+            , _payloadProofReqKey = reqKey
+            , _payloadProofRootType = RootBlockPayload
+            , _payloadProofBlob = proof
+            }
 
 -- | Creates a witness that a transaction is included in a chain of a chainweb
 -- at the given target header.
@@ -174,7 +183,7 @@ createOutputProof_ hdr payload reqKey = do
 createOutputProof
     :: BlockHeader
         -- ^ the target header of the proof
-    -> PayloadWithOutputs_ h
+    -> PayloadWithOutputs
     -> RequestKey
         -- ^ The index of the transaction in the block
     -> IO (PayloadProof ChainwebMerkleHashAlgorithm)
@@ -186,7 +195,7 @@ createOutputProof = createOutputProof_
 createOutputProofKeccak256
     :: BlockHeader
         -- ^ the target header of the proof
-    -> PayloadWithOutputs_ h
+    -> PayloadWithOutputs
     -> RequestKey
         -- ^ The index of the transaction in the block
     -> IO (PayloadProof Keccak_256)

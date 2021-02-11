@@ -95,6 +95,7 @@ import Data.Bytes.Put
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Base16 as B16
 import Data.CAS
+import Data.Decimal
 import Data.Foldable
 import Data.Hashable
 import Data.MerkleLog hiding (Actual, Expected)
@@ -103,10 +104,13 @@ import qualified Data.Text.Encoding as T
 import qualified Data.Vector as V
 import Data.Word
 
+import Debug.Trace
+
 import GHC.Generics
 
 import Pact.Types.Command
 import Pact.Types.PactValue
+import Pact.Types.Pretty
 import Pact.Types.Runtime
 
 -- internal modules
@@ -254,6 +258,13 @@ encodeInt256 i = putWord8 0x1 >> putInt256Le i
 encodeString :: MonadPut m => T.Text -> m ()
 encodeString n = encodeBytes $ T.encodeUtf8 n
 
+encodeDecimal :: MonadPut m => Decimal -> m ()
+encodeDecimal d = case int256 i of
+    Left _ -> throw $ IntegerOutOfBoundsException i
+    Right x -> putWord8 0x2 >> putInt256Le x
+  where
+    i = round @Decimal @Integer $ d * 10^18
+
 -- | This throws a pure exception of type 'PactEventEncodingException', if the
 -- size of the input array is too big.
 --
@@ -274,7 +285,15 @@ encodeHash = encodeBytes . unHash
 encodeParam :: MonadPut m => PactValue -> m ()
 encodeParam (PLiteral (LString t)) = encodeString t
 encodeParam (PLiteral (LInteger i)) = encodeInteger i
+encodeParam (PLiteral (LDecimal i)) = encodeDecimal $ i
+encodeParam (PModRef n) = encodeModRef n
+encodeParam e = putWord8 0x4
 encodeParam e = throw $ UnsupportedPactValueException e
+
+encodeModRef :: MonadPut m => ModRef -> m ()
+encodeModRef n = do
+    putWord8 0x3
+    encodeString (renderCompactText n)
 
 -- -------------------------------------------------------------------------- --
 -- Pact Event Decoding
@@ -323,7 +342,10 @@ decodeParam :: MonadGetExtra m => m PactValue
 decodeParam = label "decodeParam" $ lookAhead getWord8 >>= \case
     0x0 -> label "LString" $ PLiteral . LString <$> decodeString
     0x1 -> label "LInteger" $ PLiteral . LInteger <$> decodeInteger
+    0x2 -> label "LDecimal" $ PLiteral . LDecimal <$> decodeDecimal
     e -> fail $ "decodeParam: unexpected parameter with type tag " <> show e
+  where
+    decodeDecimal = error "TODO"
 
 decodeModule :: MonadGetExtra m => m ModuleName
 decodeModule = label "decodeModule" $ do

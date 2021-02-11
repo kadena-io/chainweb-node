@@ -4,6 +4,7 @@
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE GADTs #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
@@ -27,6 +28,9 @@ module Chainweb.SPV.PayloadProof
   PayloadProof(..)
 , runPayloadProof
 
+-- ** Some Payload Proof
+, SomePayloadProof(..)
+
 -- * Utils
 , RequestKeyNotFoundException(..)
 ) where
@@ -36,8 +40,11 @@ import Control.DeepSeq
 import Control.Monad
 import Control.Monad.Catch
 
+import Crypto.Hash.Algorithms
+
 import Data.Aeson
 import Data.MerkleLog
+import qualified Data.Text as T
 
 import GHC.Generics
 
@@ -65,13 +72,24 @@ instance Exception RequestKeyNotFoundException
 -- -------------------------------------------------------------------------- --
 -- PayloadProof
 
+-- | API encoding for SPV proofs. This is a new format. The SPV proofs defined
+-- in "Chainweb.SPV" still use a legacy format that contains only a subset of
+-- the properties.
+--
 data PayloadProof a = PayloadProof
     { _payloadProofChainId :: !ChainId
+        -- ^ The target chain of the proof, i.e. the chain of the root.
     , _payloadProofHeight :: !BlockHeight
+        -- ^ the height of the block that contains the subject.
     , _payloadProofHash :: !BlockHash
+        -- ^ The block hash of the subject.
     , _payloadProofReqKey :: !RequestKey
+        -- ^ The request key of the transaction that contains the subject.
     , _payloadProofRootType :: !MerkleRootType
+        -- ^ The type of the Merle root.
     , _payloadProofBlob :: !(MerkleProof a)
+        -- ^ The Merkle proof blob which coaintains both, the proof object and
+        -- the proof subject.
     }
     deriving (Show, Eq, Generic)
 
@@ -128,6 +146,25 @@ instance (MerkleHashAlgorithm a, MerkleHashAlgorithmName a) => FromJSON (Payload
 
         parseBinary p t = either (fail . show) return $
             p =<< decodeB64UrlNoPaddingText t
+
+-- -------------------------------------------------------------------------- --
+-- Some Payload Proof
+
+data SomePayloadProof where
+    SomePayloadProof :: (MerkleHashAlgorithm a, MerkleHashAlgorithmName a) => !(PayloadProof a) -> SomePayloadProof
+
+instance ToJSON SomePayloadProof where
+    toJSON (SomePayloadProof p) = toJSON p
+
+instance FromJSON SomePayloadProof where
+    parseJSON v = withObject "SomePayloadProof" (\o -> o .: "algorithm" >>= pick) v
+      where
+        pick a
+            | a == merkleHashAlgorithmName @ChainwebMerkleHashAlgorithm =
+                SomePayloadProof @ChainwebMerkleHashAlgorithm <$> parseJSON v
+            | a == merkleHashAlgorithmName @Keccak_256 =
+                SomePayloadProof @Keccak_256 <$> parseJSON v
+            | otherwise = fail $ "unsupported Merkle hash algorithm: " <> T.unpack a
 
 -- -------------------------------------------------------------------------- --
 -- Proof Validation

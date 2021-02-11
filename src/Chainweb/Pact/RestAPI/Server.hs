@@ -79,14 +79,6 @@ import System.LogLevel
 
 -- internal modules
 
-import Pact.Types.API
-import qualified Pact.Types.ChainId as Pact
-import Pact.Types.Command
-import Pact.Types.Hash (Hash(..))
-import qualified Pact.Types.Hash as Pact
-import Pact.Types.PactError (PactError(..), PactErrorType(..))
-import Pact.Types.Pretty (pretty)
-
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
 import Chainweb.BlockHeight
@@ -98,8 +90,10 @@ import qualified Chainweb.CutDB as CutDB
 import Chainweb.Logger
 import Chainweb.Mempool.Mempool
     (InsertError(..), InsertType(..), MempoolBackend(..), TransactionHash(..))
+import Chainweb.MerkleUniverse
 import Chainweb.Pact.RestAPI
 import Chainweb.Pact.RestAPI.EthSpv
+import Chainweb.Pact.RestAPI.SPV
 import Chainweb.Pact.Service.Types
 import Chainweb.Pact.SPV
 import Chainweb.Payload
@@ -108,11 +102,20 @@ import Chainweb.RestAPI.Orphans ()
 import Chainweb.RestAPI.Utils
 import Chainweb.SPV (SpvException(..))
 import Chainweb.SPV.CreateProof
+import Chainweb.SPV.PayloadProof
 import Chainweb.Transaction (ChainwebTransaction, mkPayloadWithText)
 import qualified Chainweb.TreeDB as TreeDB
 import Chainweb.Utils
 import Chainweb.Version
 import Chainweb.WebPactExecutionService
+
+import Pact.Types.API
+import qualified Pact.Types.ChainId as Pact
+import Pact.Types.Command
+import Pact.Types.Hash (Hash(..))
+import qualified Pact.Types.Hash as Pact
+import Pact.Types.PactError (PactError(..), PactErrorType(..))
+import Pact.Types.Pretty (pretty)
 
 ------------------------------------------------------------------------------
 type PactServerData logger cas =
@@ -156,6 +159,7 @@ pactServer (cut, chain) =
     pactApiHandlers
         :<|> pactSpvHandler
         :<|> ethSpvHandler
+        :<|> pactSpv2Handler
   where
     cid = FromSing (SChainId :: Sing c)
     mempool = _chainResMempool chain
@@ -167,7 +171,8 @@ pactServer (cut, chain) =
       :<|> listenHandler logger cut cid chain
       :<|> localHandler logger cut cid chain
 
-    pactSpvHandler = spvHandler logger cut cid chain
+    pactSpvHandler = spvHandler logger (_cutResCutDb cut) cid
+    pactSpv2Handler = spv2Handler logger (_cutResCutDb cut) cid
 
 
 somePactServer :: SomePactServerData -> SomeServer
@@ -323,21 +328,18 @@ spvHandler
       , PayloadCasLookup cas
       )
     => l
-    -> CutResources l cas
-        -- ^ cut resources contain the cut, payload, and
-        -- block db
+    -> CutDB.CutDb cas
+        -- ^ CutDb handle, contains cut, payload, and block db
     -> ChainId
         -- ^ the chain id of the source chain id used in the
         -- execution of a cross-chain-transfer.
-    -> ChainResources l
-        -- ^ chain resources contain a pact service
     -> SpvRequest
         -- ^ Contains the (pact) chain id of the target chain id used in the
         -- 'target-chain' field of a cross-chain-transfer.
         -- Also contains the request key of of the cross-chain transfer
         -- tx request.
     -> Handler TransactionOutputProofB64
-spvHandler l cutR cid chainR (SpvRequest rk (Pact.ChainId ptid)) = do
+spvHandler l cdb cid (SpvRequest rk (Pact.ChainId ptid)) = do
     validateRequestKey rk
 
     liftIO $! logg (sshow ph)
@@ -366,10 +368,9 @@ spvHandler l cutR cid chainR (SpvRequest rk (Pact.ChainId ptid)) = do
 
     return $! b64 p
   where
-    pe = _chainResPact chainR
+    pe = _webPactExecutionService $ view CutDB.cutDbPactService cdb
     ph = Pact.fromUntypedHash $ unRequestKey rk
-    cdb = _cutResCutDb cutR
-    bdb = _chainResBlockHeaderDb chainR
+    bdb = cdb ^?! (CutDB.cutDbBlockHeaderDb cid)
     pdb = view CutDB.cutDbPayloadCas cdb
     b64 = TransactionOutputProofB64
       . encodeB64UrlNoPaddingText
@@ -384,6 +385,66 @@ spvHandler l cutR cid chainR (SpvRequest rk (Pact.ChainId ptid)) = do
     spvErrOf = BSL8.fromStrict
       . encodeUtf8
       . _spvExceptionMsg
+
+spv2Handler
+    :: forall cas l
+    . ( Logger l
+      , PayloadCasLookup cas
+      )
+    => l
+    -> CutDB.CutDb cas
+        -- ^ CutDb contains the cut, payload, and block db
+    -> ChainId
+        -- ^ ChainId of the target
+    -> Spv2Request
+        -- ^ Contains the (pact) chain id of the target chain id used in the
+        -- 'target-chain' field of a cross-chain-transfer.
+        -- Also contains the request key of of the cross-chain transfer
+        -- tx request.
+    -> Handler SomePayloadProof
+spv2Handler l cdb cid r = case _spvSubjectIdType sid of
+    SpvSubjectResult
+        |  _spv2ReqAlgorithm r /= SpvSHA512t_256 -> error "TODO: unsupported"
+        | otherwise -> error "TODO" -- createOutputProof
+    SpvSubjectEvents
+        | cid /= _spvSubjectIdChain sid -> error "TODO: unsupported"
+        | otherwise -> eventsProof
+  where
+
+    eventsProof = do
+        validateRequestKey rk
+        liftIO $! logg (sshow ph)
+        T2 bhe _bha <- liftIO (_pactLookup pe (NoRewind cid) (pure ph)) >>= \case
+            Left e ->
+                toErr $ "Internal error: transaction hash lookup failed: " <> sshow e
+            Right v -> case v ^?! _head of
+                Nothing -> toErr $ "Transaction hash not found: " <> sshow ph
+                Just t -> return t
+        error "TODO"
+
+    sid = _spv2ReqSubjectIdentifier r
+
+    -- ...
+    rk = _spvSubjectIdReqKey sid
+    pe = _webPactExecutionService $ view CutDB.cutDbPactService cdb
+    ph = Pact.fromUntypedHash $ unRequestKey rk
+    bdb = cdb ^?! (CutDB.cutDbBlockHeaderDb cid)
+    pdb = view CutDB.cutDbPayloadCas cdb
+    -- b64 = TransactionOutputProofB64
+    --   . encodeB64UrlNoPaddingText
+    --   . BSL8.toStrict
+    --   . Aeson.encode
+
+    logg = logFunctionJson (setComponent "spv-handler" l) Info
+      . PactCmdLogSpv
+
+    toErr e = throwError $ err400 { errBody = e }
+
+    spvErrOf = BSL8.fromStrict
+      . encodeUtf8
+      . _spvExceptionMsg
+
+
 
 ethSpvHandler
     :: EthSpvRequest

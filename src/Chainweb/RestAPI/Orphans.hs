@@ -50,6 +50,8 @@ import qualified Data.UUID as V4
 
 import Numeric.Natural
 
+import Pact.Types.Command
+
 import Servant.API
 
 -- internal modules
@@ -66,12 +68,15 @@ import Chainweb.Difficulty
 import Chainweb.Graph
 import Chainweb.HostAddress
 import Chainweb.MerkleLogHash (MerkleLogHash, merkleLogHashBytesCount)
+import Chainweb.MerkleUniverse
 import Chainweb.Miner.Core (ChainBytes, HeaderBytes, WorkBytes)
 import Chainweb.Miner.Pact (Miner, defaultMiner)
-import Chainweb.Pact.Service.Types
 import Chainweb.Pact.RestAPI.EthSpv
+import Chainweb.Pact.RestAPI.SPV
+import Chainweb.Pact.Service.Types
 import Chainweb.Payload
 import Chainweb.SPV
+import Chainweb.SPV.PayloadProof
 import Chainweb.Time (Micros, Time, TimeSpan)
 import Chainweb.TreeDB
 import Chainweb.Utils
@@ -457,10 +462,42 @@ deriving instance ToSchema a => ToSchema (TimeSpan a)
 deriving instance ToSchema SpvRequest
 deriving instance ToSchema EthSpvResponse
 
+deriving instance ToSchema SpvAlgorithm
+deriving instance ToSchema SpvSubjectType
+deriving instance ToSchema SpvSubjectIdentifier
+deriving instance ToSchema Spv2Request
+deriving instance ToSchema MerkleRootType
+
+instance ToSchema (PayloadProof a) where
+    declareNamedSchema _ = return $
+        NamedSchema (Just "PayloadProof") $ mempty
+            & description ?~ "SPV Payload Proof"
+            & type_ ?~ SwaggerObject
+            & properties .~
+                [ ("chain", Inline $ toSchema $ Proxy @ChainId)
+                , ("blockHeight", Inline $ toSchema $ Proxy @BlockHeight)
+                , ("blockHash", Inline $ toSchema $ Proxy @BlockHash)
+                , ("requestKey", Inline $ toSchema $ Proxy @RequestKey)
+                , ("algorithm", Inline $ toSchema $ Proxy @SpvAlgorithm)
+                , ("rootType", Inline $ toSchema $ Proxy @MerkleRootType)
+                , ("object", Inline proofObjectSchema)
+                , ("subject", Inline proofSubjectSchema)
+                ]
+      where
+        proofObjectSchema = mempty
+            & description ?~ "base64UrlWithoutPadding encoded binary proof blob"
+
+        proofSubjectSchema = mempty
+            & description ?~ "base64UrlWithoutPadding encoded binary proof subject blob"
+
+instance ToSchema SomePayloadProof where
+    declareNamedSchema _ = declareNamedSchema
+        $ Proxy @(PayloadProof ChainwebMerkleHashAlgorithm)
+
 instance ToSchema EthSpvRequest where
     declareNamedSchema _ = return $
-        NamedSchema (Just "EthSpvRequet") $ mempty
-            & description ?~ "TODO"
+        NamedSchema (Just "EthSpvRequest") $ mempty
+            & description ?~ "Ethereum receipt proof for usage with Pact"
             & type_ ?~ SwaggerObject
             & properties .~
                 [ ("transactionHash", Inline transactionHashSchema)

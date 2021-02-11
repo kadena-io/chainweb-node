@@ -453,7 +453,7 @@ crumbsToChain db srcCid trgHeader
        -> [(Int, BlockHeader)]
        -> IO (BlockHeader, [(Int, BlockHeader)])
     go !cur [] !acc = return (cur, acc)
-    go !cur (!h:t) !acc = do
+    go !cur ((!h):t) !acc = do
         adjpHdr <- lookupAdjacentParentHeader db cur h
         unless (_blockHeight adjpHdr >= 0) $ throwM
             $ InternalInvariantViolation
