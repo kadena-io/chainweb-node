@@ -48,6 +48,11 @@ module Chainweb.Chainweb
 , defaultTransactionIndexConfig
 , pTransactionIndexConfig
 
+-- * Service API Configuration
+, ServiceApiConfig(..)
+, serviceApiConfigPort
+, serviceApiConfigInterface
+
 -- * GC Configuration
 , ChainDatabaseGcConfig(..)
 , chainDatabaseGcToText
@@ -65,6 +70,7 @@ module Chainweb.Chainweb
 , configThrottling
 , configReorgLimit
 , configRosetta
+, configServiceApi
 , defaultChainwebConfiguration
 , pChainwebConfiguration
 , validateChainwebConfiguration
@@ -86,6 +92,7 @@ module Chainweb.Chainweb
 , chainwebPutPeerThrottler
 , chainwebLocalThrottler
 , chainwebConfig
+, chainwebServiceSocket
 
 -- ** Mempool integration
 , ChainwebTransaction
@@ -146,7 +153,7 @@ import GHC.Generics hiding (from)
 import qualified Network.HTTP.Client as HTTP
 import Network.Socket (Socket)
 import Network.Wai
-import Network.Wai.Handler.Warp
+import Network.Wai.Handler.Warp hiding (Port)
 import Network.Wai.Middleware.Throttle
 
 import Numeric.Natural (Natural)
@@ -361,6 +368,50 @@ pCutConfig = id
     -- cutInitialCutHeightLimit isn't supported on the command line
 
 -- -------------------------------------------------------------------------- --
+-- Service API Configuration
+
+data ServiceApiConfig = ServiceApiConfig
+    { _serviceApiConfigPort :: !Chainweb.RestAPI.Port
+        -- ^ The public host address for service APIs.
+        -- A port number of 0 means that a free port is assigned by the system.
+        --
+        -- The default is 1917
+
+    , _serviceApiConfigInterface :: !HostPreference
+        -- ^ The network interface that the service APIs are bound to. Default is to
+        -- bind to all available interfaces ('*').
+    }
+    deriving (Show, Eq, Generic)
+
+makeLenses ''ServiceApiConfig
+
+defaultServiceApiConfig :: ServiceApiConfig
+defaultServiceApiConfig = ServiceApiConfig
+    { _serviceApiConfigPort = 1848
+    , _serviceApiConfigInterface = "*"
+    }
+
+instance ToJSON ServiceApiConfig where
+    toJSON o = object
+        [ "port" .= _serviceApiConfigPort o
+        , "interface" .= hostPreferenceToText (_serviceApiConfigInterface o)
+        ]
+
+instance FromJSON (ServiceApiConfig -> ServiceApiConfig) where
+    parseJSON = withObject "ServiceApiConfig" $ \o -> id
+        <$< serviceApiConfigPort ..: "port" % o
+        <*< setProperty serviceApiConfigInterface "interface" (parseJsonFromText "interface") o
+
+pServiceApi :: MParser ServiceApiConfig
+pServiceApi = id
+    <$< serviceApiConfigPort .:: pPort service
+    <*< serviceApiConfigInterface .:: textOption
+        % prefixLong service "interface"
+        <> suffixHelp service "interface that the service Rest API binds to (see HostPreference documentation for details)"
+  where
+    service = Just "service"
+
+-- -------------------------------------------------------------------------- --
 -- Chainweb Configuration
 
 data ChainwebConfiguration = ChainwebConfiguration
@@ -382,6 +433,7 @@ data ChainwebConfiguration = ChainwebConfiguration
         -- ^ Re-validate payload hashes during replay.
     , _configAllowReadsInLocal :: !Bool
     , _configRosetta :: !Bool
+    , _configServiceApi :: !ServiceApiConfig
     } deriving (Show, Eq, Generic)
 
 makeLenses ''ChainwebConfiguration
@@ -416,6 +468,7 @@ defaultChainwebConfiguration v = ChainwebConfiguration
     , _configValidateHashesOnReplay = False
     , _configAllowReadsInLocal = False
     , _configRosetta = False
+    , _configServiceApi = defaultServiceApiConfig
     }
 
 instance ToJSON ChainwebConfiguration where
@@ -435,6 +488,7 @@ instance ToJSON ChainwebConfiguration where
         , "validateHashesOnReplay" .= _configValidateHashesOnReplay o
         , "allowReadsInLocal" .= _configAllowReadsInLocal o
         , "rosetta" .= _configRosetta o
+        , "serviceApi" .= _configServiceApi o
         ]
 
 instance FromJSON (ChainwebConfiguration -> ChainwebConfiguration) where
@@ -455,6 +509,7 @@ instance FromJSON (ChainwebConfiguration -> ChainwebConfiguration) where
         <*< configValidateHashesOnReplay ..: "validateHashesOnReplay" % o
         <*< configAllowReadsInLocal ..: "allowReadsInLocal" % o
         <*< configRosetta ..: "rosetta" % o
+        <*< configServiceApi %.: "serviceApi" % o
 
 pChainwebConfiguration :: MParser ChainwebConfiguration
 pChainwebConfiguration = id
@@ -474,7 +529,7 @@ pChainwebConfiguration = id
     <*< configReintroTxs .:: enableDisableFlag
         % long "tx-reintro"
         <> help "whether to enable transaction reintroduction from losing forks"
-    <*< configP2p %:: pP2pConfiguration Nothing
+    <*< configP2p %:: pP2pConfiguration
     <*< configTransactionIndex %::
         pEnableConfig "transaction-index" pTransactionIndexConfig
     <*< configMempoolP2p %::
@@ -500,6 +555,7 @@ pChainwebConfiguration = id
         % long "rosetta"
         <> help "Enable the Rosetta endpoints."
     <*< configCuts %:: pCutConfig
+    <*< configServiceApi %:: pServiceApi
 
 -- -------------------------------------------------------------------------- --
 -- Chainweb Resources
@@ -520,6 +576,7 @@ data Chainweb logger cas = Chainweb
     , _chainwebPutPeerThrottler :: !(Throttle Address)
     , _chainwebLocalThrottler :: !(Throttle Address)
     , _chainwebConfig :: !ChainwebConfiguration
+    , _chainwebServiceSocket :: !(Port, Socket)
     }
 
 makeLenses ''Chainweb
@@ -531,7 +588,7 @@ instance HasChainwebVersion (Chainweb logger cas) where
     _chainwebVersion = _chainwebVersion . _chainwebCutResources
     {-# INLINE _chainwebVersion #-}
 
--- Intializes all local chainweb components but doesn't start any networking.
+-- Intializes all service API chainweb components but doesn't start any networking.
 --
 withChainweb
     :: Logger logger
@@ -545,21 +602,31 @@ withChainweb
     -> IO a
 withChainweb c logger rocksDb pactDbDir resetDb inner =
     withPeerResources v (view configP2p conf) logger $ \logger' peer ->
-        withChainwebInternal
-            (set configP2p (_peerResConfig peer) conf)
-            logger'
-            peer
-            rocksDb
-            pactDbDir
-            resetDb
-            inner
+        withSocket serviceApiPort serviceApiHost $ \serviceSock -> do
+            let conf' = conf
+                    & set configP2p (_peerResConfig peer)
+                    & set (configServiceApi . serviceApiConfigPort) (fst serviceSock)
+            withChainwebInternal
+                conf'
+                logger'
+                peer
+                serviceSock
+                rocksDb
+                pactDbDir
+                resetDb
+                inner
   where
+    serviceApiPort = _serviceApiConfigPort $ _configServiceApi c
+    serviceApiHost = _serviceApiConfigInterface $ _configServiceApi c
+
     v = _chainwebVersion c
+
 
     -- Here we inject the hard-coded bootstrap peer infos for the configured
     -- chainweb version into the configuration.
-    conf | _p2pConfigIgnoreBootstrapNodes (_configP2p c) = c
-         | otherwise = configP2p . p2pConfigKnownPeers <>~ bootstrapPeerInfos v $ c
+    conf
+        | _p2pConfigIgnoreBootstrapNodes (_configP2p c) = c
+        | otherwise = configP2p . p2pConfigKnownPeers <>~ bootstrapPeerInfos v $ c
 
 -- TODO: The type InMempoolConfig contains parameters that should be
 -- configurable as well as parameters that are determined by the chainweb
@@ -630,7 +697,7 @@ validatingMempoolConfig cid v gl mv = Mempool.InMemConfig
            | ver /= Just v -> Left Mempool.InsertErrorMetadataMismatch
            | otherwise     -> Right tx
 
--- Intializes all local chainweb components but doesn't start any networking.
+-- Intializes all service chainweb components but doesn't start any networking.
 --
 withChainwebInternal
     :: forall logger a
@@ -638,12 +705,13 @@ withChainwebInternal
     => ChainwebConfiguration
     -> logger
     -> PeerResources logger
+    -> (Port, Socket)
     -> RocksDb
     -> FilePath
     -> Bool
     -> (forall cas' . PayloadCasLookup cas' => Chainweb logger cas' -> IO a)
     -> IO a
-withChainwebInternal conf logger peer rocksDb pactDbDir resetDb inner = do
+withChainwebInternal conf logger peer serviceSock rocksDb pactDbDir resetDb inner = do
 
     initializePayloadDb v payloadDb
 
@@ -770,6 +838,7 @@ withChainwebInternal conf logger peer rocksDb pactDbDir resetDb inner = do
                             , _chainwebPutPeerThrottler = putPeerThrottler
                             , _chainwebLocalThrottler = localThrottler
                             , _chainwebConfig = conf
+                            , _chainwebServiceSocket = serviceSock
                             }
 
     withPactData
@@ -879,17 +948,22 @@ runChainweb
     -> IO ()
 runChainweb cw = do
     logg Info "start chainweb node"
-    concurrently_
+    runConcurrently $ ()
         -- 1. Start serving Rest API
-        (serve
-            $ httpLog
-            . throttle (_chainwebPutPeerThrottler cw)
-            . throttle (_chainwebMiningThrottler cw)
-            . throttle (_chainwebLocalThrottler cw)
-            . throttle (_chainwebThrottler cw)
-        )
+        <$ Concurrently (serve
+                $ httpLog
+                . throttle (_chainwebPutPeerThrottler cw)
+                . throttle (_chainwebThrottler cw)
+            )
         -- 2. Start Clients (with a delay of 500ms)
-        (threadDelay 500000 >> clients)
+        <* Concurrently (threadDelay 500000 >> clients)
+        -- 3. Start serving local API
+        <* Concurrently (threadDelay 500000 >> serveServiceApi
+                ( serviceHttpLog
+                . throttle (_chainwebMiningThrottler cw)
+                . throttle (_chainwebLocalThrottler cw)
+                )
+            )
   where
     clients :: IO ()
     clients = do
@@ -934,6 +1008,8 @@ runChainweb cw = do
     pactDbsToServe :: [(ChainId, PactServerData logger cas)]
     pactDbsToServe = _chainwebPactData cw
 
+    -- Public Server
+
     serverSettings :: Settings
     serverSettings = setOnException
         (\r e -> when (defaultShouldDisplayException e) (logg Warn $ loggServerError r e))
@@ -952,19 +1028,49 @@ runChainweb cw = do
             , _chainwebServerMempools = mempoolsToServe
             , _chainwebServerPayloadDbs = payloadDbsToServe
             , _chainwebServerPeerDbs = (CutNetwork, cutPeerDb) : chainP2pToServe <> memP2pToServe
-            , _chainwebServerPactDbs = pactDbsToServe
             }
-        (_chainwebCoordinator cw)
-        (HeaderStream . _configHeaderStream $ _chainwebConfig cw)
-        (Rosetta . _configRosetta $ _chainwebConfig cw)
-
-    -- HTTP Request Logger
 
     httpLog :: Middleware
     httpLog = requestResponseLogger $ setComponent "http" (_chainwebLogger cw)
 
     loggServerError (Just r) e = "HTTP server error: " <> sshow e <> ". Request: " <> sshow r
     loggServerError Nothing e = "HTTP server error: " <> sshow e
+
+    -- Service API Server
+
+    serviceApiServerSettings :: Port -> HostPreference -> Settings
+    serviceApiServerSettings port interface = defaultSettings
+        & setPort (int port)
+        & setHost interface
+        & setOnException
+            (\r e -> when (defaultShouldDisplayException e) (logg Warn $ loggServiceApiServerError r e))
+
+    serviceApiHost = _serviceApiConfigInterface $ _configServiceApi $ _chainwebConfig cw
+
+    serveServiceApi :: Middleware -> IO ()
+    serveServiceApi = serveServiceApiSocket
+        (serviceApiServerSettings (fst $ _chainwebServiceSocket cw) serviceApiHost)
+        (snd $ _chainwebServiceSocket cw)
+        (_chainwebVersion cw)
+        ChainwebServerDbs
+            { _chainwebServerCutDb = Just cutDb
+            , _chainwebServerBlockHeaderDbs = chainDbsToServe
+            , _chainwebServerMempools = mempoolsToServe
+            , _chainwebServerPayloadDbs = payloadDbsToServe
+            , _chainwebServerPeerDbs = (CutNetwork, cutPeerDb) : chainP2pToServe <> memP2pToServe
+            }
+        pactDbsToServe
+        (_chainwebCoordinator cw)
+        (HeaderStream . _configHeaderStream $ _chainwebConfig cw)
+        (Rosetta . _configRosetta $ _chainwebConfig cw)
+
+    serviceHttpLog :: Middleware
+    serviceHttpLog = requestResponseLogger $ setComponent "http[service-api]" (_chainwebLogger cw)
+
+    loggServiceApiServerError (Just r) e = "HTTP service API server error: " <> sshow e <> ". Request: " <> sshow r
+    loggServiceApiServerError Nothing e = "HTTP service API server error: " <> sshow e
+
+    -- HTTP Request Logger
 
     -- Cut DB and Miner
 
@@ -1008,3 +1114,4 @@ runChainweb cw = do
         enabled conf = do
             logg Info "Mempool p2p sync enabled"
             return $ map (runMempoolSyncClient mgr conf) chainVals
+

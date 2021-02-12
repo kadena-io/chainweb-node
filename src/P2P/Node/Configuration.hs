@@ -35,15 +35,12 @@ import Configuration.Utils
 
 import Control.Lens hiding ((.=))
 
-import qualified Data.Text as T
-
 import GHC.Generics (Generic)
 
 import Numeric.Natural
 
 -- Internal imports
 
-import Chainweb.RestAPI.NetworkID
 import Chainweb.Time
 import Chainweb.Utils hiding (check)
 
@@ -134,9 +131,9 @@ instance FromJSON P2pConfiguration where
         <*> o .: "ignoreBootstrapNodes"
         <*> o .: "private"
 
-pP2pConfiguration :: Maybe NetworkId -> MParser P2pConfiguration
-pP2pConfiguration networkId = id
-    <$< p2pConfigPeer %:: pPeerConfig (T.unpack . toText <$> networkId)
+pP2pConfiguration :: MParser P2pConfiguration
+pP2pConfiguration = id
+    <$< p2pConfigPeer %:: pPeerConfig (Just "p2p")
     <*< p2pConfigMaxSessionCount .:: option auto
         % prefixLong net "p2p-max-session-count"
         <> suffixHelp net "maximum number of sessions that are active at any time"
@@ -155,7 +152,7 @@ pP2pConfiguration networkId = id
         % prefixLong net "private"
         <> help ("when enabled this node becomes private and communicates only with the initially configured known peers")
   where
-    net = T.unpack . networkIdToText <$> networkId
+    net = Nothing
 
     pKnownPeerInfo = textOption
         % prefixLong net "known-peer-info"
