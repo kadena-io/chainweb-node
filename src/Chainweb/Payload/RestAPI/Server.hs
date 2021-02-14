@@ -62,7 +62,7 @@ import Data.CAS
 -- | The maximum number of items that are returned in a batch
 --
 payloadBatchLimit :: Int
-payloadBatchLimit = 1000
+payloadBatchLimit = 100
 
 err404Msg :: ToJSON msg  => msg -> ServerError
 err404Msg msg = err404 { errBody = encode msg }
