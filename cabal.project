@@ -46,6 +46,10 @@ allow-newer: pact:*
 allow-newer: rosetta:*
 allow-newer: swagger2:*
 
+-- required by pact
+constraints:
+    base16-bytestring <1
+
 -- cf. https://github.com/snoyberg/http-client/pull/454
 constraints: http-client>=0.7.5
 allow-newer: servant-client:http-client
