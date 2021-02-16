@@ -19,6 +19,11 @@ proj = kpkgs.rp.project ({ pkgs, hackGet, ... }: with pkgs.haskell.lib;
     overrides = self: super: {
       chainweb = enableCabalFlag (
         justStaticExecutables (enableDWARFDebugging (convertCabalTestsAndBenchmarksToExecutables super.chainweb))) "use_systemd";
+      configuration-tools = dontBenchmark (dontCheck (self.callHackageDirect {
+        pkg = "configuration-tools";
+        ver = "0.6.0";
+        sha256 = "0ia2bhy35qv1xgbqrx0jalxznj8zgg97y0zkp8cnr1r3pq5adbcd";
+       } {}));
       cuckoo = dontBenchmark (dontCheck (self.callHackageDirect {
         pkg = "cuckoo";
         ver = "0.2.1";
