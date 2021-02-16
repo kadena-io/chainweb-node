@@ -6,6 +6,9 @@ package chainweb
 package aeson
     flags: +cffi
 
+package cryptonite
+    flags: +support_pclmuldq
+
 debug-info: True
 
 source-repository-package
@@ -38,6 +41,14 @@ package vault
 
 package pact
     ghc-options: -Wwarn
+
+allow-newer: pact:*
+allow-newer: rosetta:*
+allow-newer: swagger2:*
+
+-- required by pact
+constraints:
+    base16-bytestring <1
 
 -- cf. https://github.com/snoyberg/http-client/pull/454
 constraints: http-client>=0.7.5
