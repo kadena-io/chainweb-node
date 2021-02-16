@@ -46,9 +46,17 @@ Breaking changes:
     the new variants instead which are prefixed with the respective API as
     described above.
 
+New features:
+
+*   New command line option `--print-config-as=[full|minimal|diff]`. `full`
+    prints a complete configuration file with all options; `minimal` prints a
+    file that includes only those options that differ from the default values;
+    `diff` prints the difference between the default configuration and the
+    actual configuration (#1193)
+*   Add payload batch APIs (#1192)
+
 Miscellaneous changes:
 
-*   Add payload batch APIs (#1192)
 *   Use TLS session manager (#1173)
 *   Upgrade to a new version 0.7.5 of the http-client library (#1191)
 *   Build TLS with pclmulqdq support switched on (#1193)
