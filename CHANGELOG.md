@@ -1,5 +1,66 @@
 # `chainweb-node` Changelog
 
+## 2.5 (21-01-17)
+
+This version replaces all previous versions. Any prior version will stop working
+on **2021-02-25T00:00:00Z**. Node administrators must upgrade to this version
+before that date.
+
+This version will stop working on **2021-03-25T00:00:00Z**.
+
+If chainweb-node-2.5 is started with existing configuration files, the P2P
+API remains unchanged. The service API endpoints will be available via HTTP on
+port 1848. Please read the description below for details about this change.
+
+Breaking changes:
+
+*   Publish service APIs on separate HTTP port (#1063)
+
+    The API of the chainweb-node is split into two separate sub-APIs which are
+    served on two different ports:
+
+    *   **P2P API**: this API includes all endpoint that are used in the P2P
+        inter-node communication. It is exported using HTTPS and must be
+        available on a publicly reachable port.
+
+        The command line option for the this APIs are prefixed with `p2p`:
+
+        `--p2p-host`, `--p2p-port`, `--p2p-interface`, and the respective
+        certificate related options.
+
+        The respective properties in in the configuration file are unchanged.
+
+    *   **Service API**: this API includes all endpoints that are not directly
+        used for P2P inter-node communication. These include the `pact`, `rosetta`,
+        `mining`, `header-stream`, `info`, and `health-check` endpoints. This
+        API is exported as plain HTTP and can thus be easily used along with a
+        reverse proxy. There is no need to make this API publicly available.
+
+        This API is configured with the configuration options `--service-port`
+        (default 1848) and `--service-interface` (default '*'). The respective
+        properties in the configuration file are `chainweb.serviceApi.port` and
+        `chainweb.serviceApi.interface`.
+
+    IMPORTANT: The previously used options `--hostname`, `--port`,
+    `--interface`, and the related certificate options got removed. Please, use
+    the new variants instead which are prefixed with the respective API as
+    described above.
+
+New features:
+
+*   New command line option `--print-config-as=[full|minimal|diff]`. `full`
+    prints a complete configuration file with all options; `minimal` prints a
+    file that includes only those options that differ from the default values;
+    `diff` prints the difference between the default configuration and the
+    actual configuration (#1193)
+*   Add payload batch APIs (#1192)
+
+Miscellaneous changes:
+
+*   Use TLS session manager (#1173)
+*   Upgrade to a new version 0.7.5 of the http-client library (#1191)
+*   Build TLS with pclmulqdq support switched on (#1193)
+
 ## 2.4 (2021-01-11)
 
 This version replaces all previous versions. Any prior version will stop working
