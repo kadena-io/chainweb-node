@@ -1,6 +1,6 @@
 # `chainweb-node` Changelog
 
-## 2.5 (21-01-17)
+## 2.5 (2021-02-17)
 
 This version replaces all previous versions. Any prior version will stop working
 on **2021-02-25T00:00:00Z**. Node administrators must upgrade to this version
