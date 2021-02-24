@@ -1,9 +1,6 @@
-{-# LANGUAGE DataKinds #-}
-{-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE TypeOperators #-}
 
 module RunNodes ( main, runNodesOpts ) where
 
@@ -18,12 +15,14 @@ import Control.Exception
 import qualified Data.Text as T
 import Data.Word
 
-import Formatting
-
 import Options.Applicative
 
 import System.Directory (executable, getPermissions)
 import System.Process (callProcess)
+
+-- internal modules
+
+import Chainweb.Utils
 
 ---
 
@@ -72,11 +71,12 @@ runNode nid mconf (Env e ns v _ ps) = callProcess e (T.unpack <$> ops)
   where
     ops :: [T.Text]
     ops = [ "--hostname=127.0.0.1"
-          , sformat ("--node-id=" % int) nid
-          , sformat ("--test-miners=" % int) ns
-          , sformat ("--chainweb-version=" % stext) $ chainwebVersionToText v
-          , "--interface=127.0.0.1" ]
-          <> maybe [] (\c -> [sformat ("--config-file=" % string) c]) mconf
+          , "--node-id=" <> sshow nid
+          , "--test-miners=" <> sshow ns
+          , "--chainweb-version=" <> chainwebVersionToText v
+          , "--interface=127.0.0.1"
+          ]
+          <> maybe [] (\c -> ["--config-file=" <> T.pack c]) mconf
           <> ps
           <> [ "+RTS", "-T" ]
 

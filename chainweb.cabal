@@ -691,7 +691,6 @@ executable cwtool
         , exceptions >= 0.8
         , extra >= 1.6
         , file-embed >= 0.0
-        , formatting >= 6.3
         , http-client >= 0.5
         , http-client-tls >=0.3
         , http-types >= 0.12
