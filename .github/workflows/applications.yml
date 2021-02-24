@@ -161,7 +161,7 @@ jobs:
           ~/.cabal/packages
           ~/.cabal/store
           dist-newstyle
-        key: ${{ matrix.os }}-${{ matrix.ghc }}-3-cabal
+        key: ${{ matrix.os }}-${{ matrix.ghc }}-4-cabal
 
     # Build
     - name: Update package database
