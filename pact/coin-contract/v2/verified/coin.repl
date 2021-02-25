@@ -1,0 +1,8 @@
+(begin-tx)
+(load "../fungible-v2.pact")
+(load "coin.pact")
+(commit-tx)
+
+(verify 'coin)
+
+1
