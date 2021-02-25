@@ -13,9 +13,9 @@
 (env-gas 0) (env-gaslog)
 (load "coin.pact")
 (env-gaslog)
-(expect
-  "Gas cost of loading coin contract"
-  3301 (env-gas))
+;(expect
+;  "Gas cost of loading coin contract"
+;  3301 (env-gas))
 
 (create-table coin.coin-table)
 (create-table coin.allocation-table)

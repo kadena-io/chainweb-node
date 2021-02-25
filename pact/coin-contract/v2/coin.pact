@@ -14,6 +14,9 @@
         (and
           (>= (length account) 3)
           (<= (length account) 256)))
+
+      (defproperty enforce-custody (account:string)
+        (row-enforced coin-table 'guard account))
     ]
 
   (implements fungible-v2)
@@ -168,6 +171,7 @@
 
     @model [ (property (> total 0.0))
              (property (valid-account sender))
+             (property (enforce-custody sender))
            ]
 
     (validate-account sender)
@@ -175,8 +179,8 @@
     (enforce-unit total)
     (enforce (> total 0.0) "gas supply must be a positive quantity")
 
-    (require-capability (GAS))
     (with-capability (DEBIT sender)
+      (require-capability (GAS))
       (debit sender total))
     )
 
@@ -254,6 +258,7 @@
     )
 
   (defun rotate:string (account:string new-guard:guard)
+    @model [ (property (enforce-custody account)) ]
     (with-capability (ROTATE account)
       (with-read coin-table account
         { "guard" := old-guard }
@@ -275,7 +280,9 @@
              (property (> amount 0.0))
              (property (valid-account sender))
              (property (valid-account receiver))
-             (property (!= sender receiver)) ]
+             (property (!= sender receiver))
+             (property (enforce-custody sender))
+             ]
 
     (enforce (!= sender receiver)
       "sender cannot be the receiver of a transfer")
@@ -303,7 +310,9 @@
       receiver-guard:guard
       amount:decimal )
 
-    @model [ (property conserves-mass) ]
+    @model [ (property conserves-mass)
+             (property (enforce-custody sender))
+           ]
 
     (enforce (!= sender receiver)
       "sender cannot be the receiver of a transfer")
