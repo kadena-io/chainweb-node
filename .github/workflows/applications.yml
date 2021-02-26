@@ -57,7 +57,7 @@ jobs:
           "ghc": ["8.8.4", "8.10.4"],
           "cabal": ["3.4.0.0"],
           "os": ["ubuntu-18.04", "ubuntu-20.04", "macOS-latest"],
-          "cabalcache": ["true"],
+          "cabalcache": ["true"]
         }
         EOF
         )"
