@@ -248,6 +248,7 @@ data ThrottlingConfig = ThrottlingConfig
         -- the same node more often than at most few times peer minute.
         --
         -- Default is 1 per second
+        --
     , _throttlingLocalRate :: !Double
     }
     deriving stock (Eq, Show)

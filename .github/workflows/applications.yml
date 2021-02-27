@@ -54,15 +54,10 @@ jobs:
       run: |
         MATRIX="$(jq -c '.' <<EOF
         {
-          "ghc": ["8.6.5", "8.8.4", "8.10.3"],
-          "cabal": ["3.2.0.0"],
-          "os": ["ubuntu-16.04", "ubuntu-18.04", "ubuntu-20.04", "macOS-latest"],
-          "cabalcache": ["true"],
-          "exclude": [
-            { "os": "macOS-latest", "ghc": "8.6.5" },
-            { "os": "ubuntu-16.04", "ghc": "8.6.5" },
-            { "os": "ubuntu-20.04", "ghc": "8.6.5" }
-          ]
+          "ghc": ["8.8.4", "8.10.4"],
+          "cabal": ["3.4.0.0"],
+          "os": ["ubuntu-18.04", "ubuntu-20.04", "macOS-latest"],
+          "cabalcache": ["true"]
         }
         EOF
         )"
@@ -146,14 +141,6 @@ jobs:
           documentation: False
           optimization: ${{ needs.config.outputs.opt-level }}
         EOF
-    - name: Append cabal.project.local for GHC-8.10
-      if: contains(matrix.ghc, '8.10')
-      run : |
-        cat >> cabal.project.local <<EOF
-        allow-newer:
-          pact:*
-        constraints:
-          base16-bytestring <1.0
     - uses: actions/cache@v2
       name: Cache dist-newstyle
       with:
@@ -187,7 +174,7 @@ jobs:
       run: cabal build exe:chainweb-node test:chainweb-tests exe:cwtool chainweb:bench:bench
 
     # Checks
-    - name: Check that working directly tree is clean
+    - name: Check that working directory tree is clean
       run: |
         if ! git diff --exit-code; then
           echo "Git working tree is not clean. The build changed some file that is checked into git." 1>&2
@@ -493,7 +480,7 @@ jobs:
       matrix:
         # TODO when adding more than one build, use a different package name or
         # different tags
-        ghcVersion: ["8.10.3"]
+        ghcVersion: ["8.10.4"]
         ubuntuVersion: ["20.04"]
     env:
       GHC_VERSION: ${{ matrix.ghcVersion }}
