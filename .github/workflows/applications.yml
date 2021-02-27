@@ -480,7 +480,7 @@ jobs:
       matrix:
         # TODO when adding more than one build, use a different package name or
         # different tags
-        ghcVersion: ["8.10.3"]
+        ghcVersion: ["8.10.4"]
         ubuntuVersion: ["20.04"]
     env:
       GHC_VERSION: ${{ matrix.ghcVersion }}
