@@ -194,6 +194,10 @@ instance IsMerkleLogEntry ChainwebHashTag BlockPayloadHash where
     {-# INLINE toMerkleNode #-}
     {-# INLINE fromMerkleNode #-}
 
+instance HasTextRepresentation BlockPayloadHash where
+    toText (BlockPayloadHash h) = toText h
+    fromText = fmap BlockPayloadHash . fromText
+
 -- -------------------------------------------------------------------------- --
 -- Transaction
 

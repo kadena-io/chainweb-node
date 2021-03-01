@@ -261,4 +261,5 @@ hasTextRepresentationTests = testGroup "HasTextRepresentation roundtrips"
     , testProperty "TransactionOutput" $ prop_iso' @_ @TransactionOutput fromText toText
     , testProperty "ChainDatabaseGcConfig" $ prop_iso' @_ @ChainDatabaseGcConfig fromText toText
     , testProperty "ChainValue BlockHash" $ prop_iso' @_ @(ChainValue BlockHash) fromText toText
+    , testProperty "BlockPayloadHash" $ prop_iso' @_ @BlockPayloadHash fromText toText
     ]
