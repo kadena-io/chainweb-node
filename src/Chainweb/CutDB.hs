@@ -464,7 +464,7 @@ processCuts conf logFun headerStore payloadStore cutHashesStore queue cutVar = q
     & S.filterM (fmap not . isOld)
     & S.filterM (fmap not . isCurrent)
     & S.chain (\c -> loggc Debug c "fetch all prerequesites")
-    & S.mapM (cutHashesToBlockHeaderMap conf logFun headerStore payloadStore)
+    & S.mapM (\h -> cutHashesToBlockHeaderMap conf logFun headerStore payloadStore h =<< readTVarIO cutVar)
     & S.chain (either
         (\(T2 hsid c) -> loggc Warn hsid $ "failed to get prerequesites for some blocks. Missing: " <> encodeToText c)
         (\c -> loggc Debug c "got all prerequesites")
@@ -648,15 +648,17 @@ cutHashesToBlockHeaderMap
     -> WebBlockHeaderStore
     -> WebBlockPayloadStore cas
     -> CutHashes
-    -> IO (Either (T2 CutId (HM.HashMap ChainId BlockHash)) (HM.HashMap ChainId BlockHeader))
+    -> Cut
+        -- ^ current Cut
+    -> IO (Either (T2 CutId (HM.HashMap ChainId (BlockHeight, BlockHash))) (HM.HashMap ChainId BlockHeader))
         -- ^ The 'Left' value holds missing hashes, the 'Right' value holds
         -- a 'Cut'.
-cutHashesToBlockHeaderMap conf logfun headerStore payloadStore hs =
-    timeout (_cutDbParamsFetchTimeout conf) go >>= \case
+cutHashesToBlockHeaderMap conf logfun headerStore payloadStore hs curCut =
+    timeout (_cutDbParamsFetchTimeout conf) go >>= \case -- FIXME make the timeout dependent on the expected depth
         Nothing -> do
             logfun Warn
                 $ "Timeout while processing cut "
-                    <> (cutIdToTextShort hsid)
+                    <> cutIdToTextShort hsid
                     <> " at height " <> sshow (_cutHashesHeight hs)
                     <> maybe " from unknown origin" (\p -> " from origin " <> toText p) origin
             return $! Left $! T2 hsid mempty
@@ -672,7 +674,6 @@ cutHashesToBlockHeaderMap conf logfun headerStore payloadStore hs =
             casInsertBatch hdrs $ V.fromList $ HM.elems $ _cutHashesHeaders hs
 
             (headers :> missing) <- S.each (HM.toList $ _cutHashes hs)
-                & S.map (fmap snd)
                 & S.mapM (tryGetBlockHeader hdrs plds)
                 & S.partitionEithers
                 & S.fold_ (\x (cid, h) -> HM.insert cid h x) mempty id
@@ -684,8 +685,9 @@ cutHashesToBlockHeaderMap conf logfun headerStore payloadStore hs =
     origin = _cutOrigin hs
     priority = Priority (- int (_cutHashesHeight hs))
 
-    tryGetBlockHeader hdrs plds cv@(cid, _) =
-        (Right <$> mapM (getBlockHeader headerStore payloadStore hdrs plds cid priority origin) cv)
+    tryGetBlockHeader hdrs plds cv@(cid, _) = do
+        curHdr <- lookupCutM cid curCut
+        (Right <$> mapM (\h -> getBlockHeader headerStore payloadStore hdrs plds cid priority origin h curHdr) cv)
             `catch` \case
                 (TreeDbKeyNotFound{} :: TreeDbException BlockHeaderDb) ->
                     return (Left cv)
