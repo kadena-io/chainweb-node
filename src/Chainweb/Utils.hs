@@ -65,6 +65,7 @@ module Chainweb.Utils
 , alignWithV
 , (&)
 , IxedGet(..)
+, catMaybesVector
 
 -- * Encoding and Serialization
 , EncodingException(..)
@@ -237,16 +238,19 @@ import Data.Functor.Of
 import Data.Hashable
 import qualified Data.HashMap.Strict as HM
 import qualified Data.HashSet as HS
+#if !MIN_VERSION_vector(0,12,2)
+import Data.Maybe (catMaybes)
+#endif
 import Data.Monoid (Endo)
 import Data.Proxy
 import Data.Serialize.Get (Get)
 import Data.Serialize.Put (Put)
 import Data.String (IsString(..))
-import Data.Time
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
 import qualified Data.Text.Lazy as TL
 import Data.These (These(..))
+import Data.Time
 import Data.Tuple.Strict
 import qualified Data.Vector as V
 import Data.Word
@@ -399,6 +403,15 @@ alignWithV f a b = V.zipWith (\a' -> f . These a') a b <> case (V.length a,V.len
   (la,lb) | la == lb -> mempty
           | la > lb -> V.map (f . This) $ V.drop lb a
           | otherwise -> V.map (f . That) $ V.drop la b
+
+-- | Backward compatibility for 'V.catMaybes'
+--
+catMaybesVector :: V.Vector (Maybe a) -> V.Vector a
+#if MIN_VERSION_vector(0,12,2)
+catMaybesVector = V.catMaybes
+#else
+catMaybesVector = V.fromList . catMaybes . V.toList
+#endif
 
 -- -------------------------------------------------------------------------- --
 -- * Read only Ixed

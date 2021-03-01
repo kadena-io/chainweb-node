@@ -1,4 +1,3 @@
-{-# LANGUAGE CPP #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE ExistentialQuantification #-}
 {-# LANGUAGE LambdaCase #-}
@@ -32,9 +31,6 @@ import Control.Monad.Trans.Maybe
 
 import Data.Aeson
 import Data.Function
-#if ! MIN_VERSION_vector(0,12,2)
-import qualified Data.Maybe as M
-#endif
 import Data.Proxy
 import qualified Data.Text.IO as T
 import qualified Data.Vector as V
@@ -52,6 +48,7 @@ import Chainweb.Payload.PayloadStore
 import Chainweb.Payload.RestAPI
 import Chainweb.RestAPI.Orphans ()
 import Chainweb.RestAPI.Utils
+import Chainweb.Utils (catMaybesVector)
 import Chainweb.Version
 
 import Data.CAS
@@ -66,13 +63,6 @@ payloadBatchLimit = 100
 
 err404Msg :: ToJSON msg  => msg -> ServerError
 err404Msg msg = err404 { errBody = encode msg }
-
-catMaybes :: V.Vector (Maybe a) -> V.Vector a
-#if MIN_VERSION_vector(0,12,2)
-catMaybes = V.catMaybes
-#else
-catMaybes = V.fromList . M.catMaybes . V.toList
-#endif
 
 -- -------------------------------------------------------------------------- --
 -- GET Payload Handler
@@ -111,12 +101,12 @@ payloadBatchHandler
     -> [BlockPayloadHash]
     -> Handler [PayloadData]
 payloadBatchHandler db ks = liftIO $ do
-    payloads <- catMaybes
+    payloads <- catMaybesVector
         <$> casLookupBatch payloadsDb (V.fromList $ take payloadBatchLimit ks)
     txs <- V.zipWith (\a b -> payloadData <$> a <*> pure b)
         <$> casLookupBatch txsDb (_blockPayloadTransactionsHash <$> payloads)
         <*> pure payloads
-    return $ V.toList $ catMaybes txs
+    return $ V.toList $ catMaybesVector txs
   where
     payloadsDb = _transactionDbBlockPayloads $ _transactionDb db
     txsDb = _transactionDbBlockTransactions $ _transactionDb db
@@ -149,7 +139,7 @@ outputsBatchHandler
     -> [BlockPayloadHash]
     -> Handler [PayloadWithOutputs]
 outputsBatchHandler db ks = liftIO
-    $ fmap (V.toList . catMaybes)
+    $ fmap (V.toList . catMaybesVector)
     $ casLookupBatch db
     $ V.fromList ks
 
