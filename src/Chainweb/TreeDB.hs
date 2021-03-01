@@ -499,6 +499,8 @@ chainBranchEntries db k l mir mar@(Just (MaxRank (Max m))) lower upper f = do
 -- in @upper@ and not predecessors of any node in @lower@. Entries are returned
 -- in descending order.
 --
+-- For remote databases it is more efficient to call 'branchEntries' instead.
+--
 getBranch
     :: forall db
     . TreeDb db
@@ -842,7 +844,7 @@ seekAncestor db h r
         a <- S.toList_ & entries db Nothing (Just 2) (Just $ int r) (Just $ int r)
         case a of
             [] -> throwM $ TreeDbAncestorMissing @db h (int r)
-                $ "No entry at this rank in the database"
+                "No entry at this rank in the database"
             [x] -> return $ Just x
             _ -> fastRoute2 1
 
@@ -885,7 +887,7 @@ seekAncestor db h r
             mempty (HS.singleton $ UpperBound $ key h)
         case a of
             Nothing -> throwM $ TreeDbAncestorMissing @db h (int r)
-                $ "branch traversal yields no result"
+                "branch traversal yields no result"
             x -> return x
 
 -- | @getBranchIncreasing db e r@ returns a stream of acestors of e sorted by
@@ -954,7 +956,7 @@ getBranchIncreasing db e r inner
         Branch l0 a0 : bs@(Branch l1 _ : _)
             -- active branches are sorted by length in decreasing order. If the first branch
             -- is longer than the second branch it is also longer than all other branches.
-            -- That means that its entries at the lowest ranks are unique for their rank and 
+            -- That means that its entries at the lowest ranks are unique for their rank and
             -- can be yielded to the result stream.
             --
             -- Invariant: `length l1 >= 1` and, thus, length keep >= 1`
