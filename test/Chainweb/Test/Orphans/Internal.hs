@@ -47,6 +47,7 @@ import Chainweb.BlockHeader
 import Chainweb.BlockHeight
 import Chainweb.BlockWeight
 import Chainweb.ChainId
+import Chainweb.ChainValue
 import Chainweb.Chainweb
 import Chainweb.Crypto.MerkleLog
 import Chainweb.Cut.Create
@@ -104,6 +105,9 @@ instance Arbitrary ChainwebVersion where
 instance Arbitrary MerkleLogHash where
     arbitrary = unsafeMerkleLogHash . B.pack
         <$> vector (int merkleLogHashBytesCount)
+
+instance Arbitrary a => Arbitrary (ChainValue a) where
+    arbitrary = ChainValue <$> arbitrary <*> arbitrary
 
 -- -------------------------------------------------------------------------- --
 -- POW

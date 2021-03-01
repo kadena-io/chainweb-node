@@ -33,6 +33,7 @@ import Chainweb.BlockHeight
 import Chainweb.BlockWeight
 import Chainweb.ChainId
 import Chainweb.Chainweb
+import Chainweb.ChainValue
 import Chainweb.Cut.Create
 import Chainweb.Difficulty
 import Chainweb.HostAddress
@@ -259,4 +260,5 @@ hasTextRepresentationTests = testGroup "HasTextRepresentation roundtrips"
     , testProperty "Transaction" $ prop_iso' @_ @Transaction fromText toText
     , testProperty "TransactionOutput" $ prop_iso' @_ @TransactionOutput fromText toText
     , testProperty "ChainDatabaseGcConfig" $ prop_iso' @_ @ChainDatabaseGcConfig fromText toText
+    , testProperty "ChainValue BlockHash" $ prop_iso' @_ @(ChainValue BlockHash) fromText toText
     ]
