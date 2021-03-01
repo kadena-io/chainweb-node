@@ -16,7 +16,7 @@
 # >        --p2p-port=1789 \
 # >        --database-directory=/db
 #
-# RocksDB
+# RocksDB:
 #
 # For Haskell cabal builds the shared library must be installed, even if
 # static linking is requested.
