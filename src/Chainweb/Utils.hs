@@ -135,7 +135,7 @@ module Chainweb.Utils
 , suffixHelp
 , textReader
 , textOption
-, jsonOption
+, jsonOption -- rexport from Configuration.Utils
 
 -- * Configuration to Enable/Disable Components
 
@@ -232,7 +232,6 @@ import qualified Data.ByteString as B
 import qualified Data.ByteString.Base64 as B64
 import qualified Data.ByteString.Base64.URL as B64U
 import qualified Data.ByteString.Lazy as BL
-import qualified Data.ByteString.Lazy.Char8 as BL8
 import qualified Data.ByteString.Unsafe as B
 import Data.Foldable
 import Data.Functor.Of
@@ -734,12 +733,6 @@ textReader = eitherReader $ first show . fromText . T.pack
 --
 textOption :: HasTextRepresentation a => Mod OptionFields a -> O.Parser a
 textOption = option textReader
-
-jsonOption :: FromJSON a => Mod OptionFields a -> O.Parser a
-jsonOption = option jsonReader
-
-jsonReader :: FromJSON a => ReadM a
-jsonReader = eitherReader $ eitherDecode' . BL8.pack
 
 -- -------------------------------------------------------------------------- --
 -- Error Handling

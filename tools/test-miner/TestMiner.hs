@@ -1,4 +1,5 @@
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE CPP #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 -- | Test external mining code (to check that it produces correct nonce / etc).
@@ -63,9 +64,15 @@ checkMinerOutput nonceB targetBytes blockBytes0 = do
     hashBytes = SB.fromShort $ powHashBytes $ powHash Testnet04 blockBytes
 
 makeBlock :: IO ByteString
+#if MIN_VERSION_mwc_random(0,15,0)
+makeBlock = MWC.withSystemRandomST $ \gen -> do
+    blockW8 <- replicateM 320 $ MWC.uniform gen
+    return $! B8.pack blockW8
+#else
 makeBlock = MWC.withSystemRandom $ \gen -> do
     blockW8 <- replicateM 320 $ MWC.uniform gen
     (return $! B8.pack blockW8) :: IO ByteString
+#endif
 
 genOneBlockAndTest
     :: Int                      -- ^ num target hash zeroes

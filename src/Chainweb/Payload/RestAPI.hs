@@ -25,9 +25,17 @@ module Chainweb.Payload.RestAPI
 , PayloadGetApi
 , payloadGetApi
 
--- * Payload GET API
+-- * Payload batch POST API
+, PayloadPostApi
+, payloadPostApi
+
+-- * Outputs GET API
 , OutputsGetApi
 , outputsGetApi
+
+-- * Outputs batch POST API
+, OutputsPostApi
+, outputsPostApi
 
 -- * Payload API
 , PayloadApi
@@ -88,6 +96,28 @@ payloadGetApi
 payloadGetApi = Proxy
 
 -- -------------------------------------------------------------------------- --
+-- Payload POST API
+
+-- | @POST \/chainweb\/\<ApiVersion\>\/\<InstanceId\>\/chain\/\<ChainId\>\/payload\/batch@
+--
+-- The query may return any number (including none) of the requested payload
+-- data. Results are returned in any order.
+--
+type PayloadPostApi_
+    = "payload"
+    :> "batch"
+    :> ReqBody '[JSON] [BlockPayloadHash]
+    :> Post '[JSON] [PayloadData]
+
+type PayloadPostApi (v :: ChainwebVersionT) (c :: ChainIdT)
+    = 'ChainwebEndpoint v :> ChainEndpoint c :> PayloadPostApi_
+
+payloadPostApi
+    :: forall (v :: ChainwebVersionT) (c :: ChainIdT)
+    . Proxy (PayloadPostApi v c)
+payloadPostApi = Proxy
+
+-- -------------------------------------------------------------------------- --
 -- Outputs GET API
 
 -- | @GET \/chainweb\/\<ApiVersion\>\/\<InstanceId\>\/chain\/\<ChainId\>\/payload\/\<BlockPayloadHash\>/outputs@
@@ -107,9 +137,36 @@ outputsGetApi
 outputsGetApi = Proxy
 
 -- -------------------------------------------------------------------------- --
+-- Outputs POST API
+
+-- | @POST \/chainweb\/\<ApiVersion\>\/\<InstanceId\>\/chain\/\<ChainId\>\/payload\/outputs\/batch@
+--
+-- The query may return any number (including none) of the requested payload
+-- data. Results are returned in any order.
+--
+type OutputsPostApi_
+    = "payload"
+    :> "outputs"
+    :> "batch"
+    :> ReqBody '[JSON] [BlockPayloadHash]
+    :> Post '[JSON] [PayloadWithOutputs]
+
+type OutputsPostApi (v :: ChainwebVersionT) (c :: ChainIdT)
+    = 'ChainwebEndpoint v :> ChainEndpoint c :> OutputsPostApi_
+
+outputsPostApi
+    :: forall (v :: ChainwebVersionT) (c :: ChainIdT)
+    . Proxy (OutputsPostApi v c)
+outputsPostApi = Proxy
+
+-- -------------------------------------------------------------------------- --
 -- Payload API
 
-type PayloadApi v c = PayloadGetApi v c :<|> OutputsGetApi v c
+type PayloadApi v c
+    = PayloadGetApi v c
+    :<|> OutputsGetApi v c
+    :<|> PayloadPostApi v c
+    :<|> OutputsPostApi v c
 
 payloadApi
     :: forall (v :: ChainwebVersionT) (c :: ChainIdT)

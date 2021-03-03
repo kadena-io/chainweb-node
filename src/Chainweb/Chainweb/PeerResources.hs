@@ -48,7 +48,7 @@ import qualified Data.HashSet as HS
 import Data.IxSet.Typed (getEQ, getOne)
 
 import qualified Network.HTTP.Client as HTTP
-import Network.Socket (Socket, close)
+import Network.Socket (Socket)
 import Network.Wai.Handler.Warp (Settings, defaultSettings, setHost, setPort)
 
 import Prelude hiding (log)
@@ -110,7 +110,7 @@ withPeerResources
     -> logger
     -> (logger -> PeerResources logger -> IO a)
     -> IO a
-withPeerResources v conf logger inner = withSocket conf $ \(conf', sock) -> do
+withPeerResources v conf logger inner = withPeerSocket conf $ \(conf', sock) -> do
     peer <- unsafeCreatePeer $ _p2pConfigPeer conf'
     let pinf = _peerInfo peer
     let logger' = addLabel ("host", toText $ view peerInfoHostname pinf) $
@@ -133,25 +133,19 @@ peerServerSettings peer
 -- -------------------------------------------------------------------------- --
 -- Allocate Socket
 
-allocateSocket :: P2pConfiguration -> IO (P2pConfiguration, Socket)
-allocateSocket conf = do
-    (!p, !sock) <- bindPortTcp
-        (_peerConfigPort $ _p2pConfigPeer conf)
-        (_peerConfigInterface $ _p2pConfigPeer conf)
-    let !conf' = set (p2pConfigPeer . peerConfigPort) p conf
-    return (conf', sock)
+withPeerSocket :: P2pConfiguration -> ((P2pConfiguration, Socket) -> IO a) -> IO a
+withPeerSocket conf act = withSocket port interface $ \(p, s) ->
+        act (set (p2pConfigPeer . peerConfigPort) p conf, s)
+  where
+    port = _peerConfigPort $ _p2pConfigPeer conf
+    interface = _peerConfigInterface $ _p2pConfigPeer conf
 
-deallocateSocket :: (P2pConfiguration, Socket) -> IO ()
-deallocateSocket (_, sock) = close sock
-
-withSocket :: P2pConfiguration -> ((P2pConfiguration, Socket) -> IO a) -> IO a
-withSocket conf = bracket (allocateSocket conf) deallocateSocket
 
 -- -------------------------------------------------------------------------- --
 -- Run PeerDb for a Chainweb Version
 
 startPeerDb_ :: ChainwebVersion -> P2pConfiguration -> IO PeerDb
-startPeerDb_ v conf = startPeerDb nids conf
+startPeerDb_ v = startPeerDb nids
   where
     nids = HS.singleton CutNetwork
         `HS.union` HS.map MempoolNetwork cids
