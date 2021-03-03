@@ -38,9 +38,6 @@ module Chainweb.BlockHeaderDB.Internal
 -- * Insertion
 , insertBlockHeaderDb
 , unsafeInsertBlockHeaderDb
-
--- * Misc
-, seekTreeDb
 ) where
 
 import Control.Arrow
