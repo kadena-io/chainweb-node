@@ -15,9 +15,6 @@ module Chainweb.BlockHeaderDB
 , initBlockHeaderDb
 , closeBlockHeaderDb
 , withBlockHeaderDb
-
--- * internal
-, seekTreeDb
 ) where
 
 -- internal imports
