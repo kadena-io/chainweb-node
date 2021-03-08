@@ -47,7 +47,6 @@ import Chainweb.ChainId
 import Chainweb.RestAPI.Orphans ()
 import Chainweb.RestAPI.Utils
 import Chainweb.SPV
-import Chainweb.SPV.PayloadProof
 import Chainweb.Version
 
 -- -------------------------------------------------------------------------- --
