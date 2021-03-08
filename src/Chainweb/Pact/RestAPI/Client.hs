@@ -16,6 +16,8 @@
 module Chainweb.Pact.RestAPI.Client
 ( pactSpvApiClient_
 , pactSpvApiClient
+, pactSpv2ApiClient_
+, pactSpv2ApiClient
 , ethSpvApiClient_
 , ethSpvApiClient
 , pactPollApiClient_
@@ -44,7 +46,6 @@ import Chainweb.Pact.RestAPI
 import Chainweb.Pact.RestAPI.EthSpv
 import Chainweb.Pact.RestAPI.SPV
 import Chainweb.Pact.Service.Types
-import Chainweb.Pact.SPV
 import Chainweb.SPV.PayloadProof
 import Chainweb.Version
 

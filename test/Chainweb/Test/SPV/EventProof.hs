@@ -32,7 +32,6 @@ import Test.Tasty.QuickCheck
 
 -- internal modules
 
-import Chainweb.BlockHeader
 import Chainweb.Crypto.MerkleLog
 import Chainweb.MerkleUniverse
 import Chainweb.Payload
