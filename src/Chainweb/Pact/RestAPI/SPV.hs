@@ -111,6 +111,6 @@ instance ToJSON Spv2Request where
 instance FromJSON Spv2Request where
     parseJSON = withObject "Spv2Request" $ \o -> Spv2Request
         <$> o .: "subjectIdentifier"
-        <*> o .: "minimalProofDepth"
+        <*> o .:? "minimalProofDepth" .!= Nothing
         <*> o .: "algorithm"
 
