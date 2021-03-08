@@ -27,7 +27,7 @@ jobs:
           path: ~/.stack
           key: ${{ runner.os }}-stack884-${{ hashFiles('stack.yaml') }}
           restore-keys: |
-            ${{ runner.os }}-stack884-
+            ${{ runner.os }}-0-stack884-
 
       - name: Build
         run: "stack test --fast --no-terminal --system-ghc"
