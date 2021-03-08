@@ -296,8 +296,14 @@ setInactive node = writeTVar (_p2pNodeActive node) False
 -- | Global Manager for checking reachability of new Peers
 --
 newPeerManager :: IORef HTTP.Manager
-newPeerManager = unsafePerformIO
-    $ unsafeManager 2000000 {- 1 second -} >>= newIORef
+newPeerManager = unsafePerformIO $ do
+    mgr <- unsafeManagerWithSettings
+        $ setManagerRequestTimeout 2000000 {- 2 seconds -}
+        . \s -> s
+            { HTTP.managerIdleConnectionCount = 30
+            , HTTP.managerConnCount = 5
+            }
+    newIORef mgr
 {-# NOINLINE newPeerManager #-}
 
 getNewPeerManager :: IO HTTP.Manager
@@ -356,7 +362,7 @@ guardPeerDb v nid peerDb pinf = do
 
     -- Currently we are using 'getNewPeerManager' which doesn't validate
     -- certificates. We could be more strict and check that the certificate
-    -- matches the fingerprint of the new peer @pinf@.
+    -- matches the fingerprint of the new peer @pinfo@.
     --
     canConnect = do
         mgr <- getNewPeerManager
