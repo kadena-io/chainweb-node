@@ -65,6 +65,7 @@ module Chainweb.Utils
 , alignWithV
 , (&)
 , IxedGet(..)
+, minusOrNull
 
 -- * Encoding and Serialization
 , EncodingException(..)
@@ -401,6 +402,14 @@ alignWithV f a b = V.zipWith (\a' -> f . These a') a b <> case (V.length a,V.len
   (la,lb) | la == lb -> mempty
           | la > lb -> V.map (f . This) $ V.drop lb a
           | otherwise -> V.map (f . That) $ V.drop la b
+
+-- | Substraction that returns 0 when the second argument is larger than the
+-- first. This can be in particular usefull when substracting 'Natural' numbers.
+-- The operator '-' would throw an 'Underflow' exception in this situation.
+--
+minusOrNull :: Ord a => Num a => a -> a -> a
+minusOrNull a b = a - min a b
+{-# INLINE minusOrNull #-}
 
 -- -------------------------------------------------------------------------- --
 -- * Read only Ixed
