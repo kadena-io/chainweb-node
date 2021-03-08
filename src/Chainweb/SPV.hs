@@ -1,3 +1,5 @@
+{-# LANGUAGE DeriveAnyClass #-}
+{-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE OverloadedStrings #-}
@@ -22,6 +24,7 @@ module Chainweb.SPV
 ) where
 
 import Control.Applicative
+import Control.DeepSeq
 import Control.Lens (Getter, to)
 import Control.Monad
 import Control.Monad.Catch
@@ -30,8 +33,12 @@ import Crypto.Hash.Algorithms
 
 import Data.Aeson
 import qualified Data.Aeson.Types as Aeson
-import Data.MerkleLog
+import Data.MerkleLog hiding (Expected, Actual)
 import qualified Data.Text as T
+
+import GHC.Generics (Generic)
+
+import Numeric.Natural
 
 import Prelude hiding (lookup)
 
@@ -60,7 +67,12 @@ data SpvException
     | SpvExceptionVerificationFailed
         { _spvExceptionMsg :: !T.Text
         }
-    deriving (Show)
+    | SpvExceptionInsufficientProofDepth
+        { _spvExceptionMsg :: !T.Text
+        , _spvExceptionExpectedDepth :: !(Expected Natural)
+        , _spvExceptionActualDepth :: !(Actual Natural)
+        }
+    deriving (Show, Eq, Ord, Generic, NFData)
 
 instance Exception SpvException
 
