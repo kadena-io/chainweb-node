@@ -343,7 +343,7 @@ localHandler logger pact cmd = do
     logg = logFunctionJson (setComponent "local-handler" logger)
 
 -- -------------------------------------------------------------------------- --
--- Legacy SPV Handler
+-- Cross Chain SPV Handler
 
 spvHandler
     :: forall cas l

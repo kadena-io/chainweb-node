@@ -139,17 +139,8 @@ pactSpvApi = Proxy
 -- -------------------------------------------------------------------------- --
 -- GET Pact SPV Proof
 
---  | Parameters
---
---  * pact chain, is the chain of the root of the proof (target chain)
---
---  * subject:
---      * type
---      * chain
---      * request key
---
---  * depth (of root)
---  * algorithm
+--  | The chain endpoint is the target chain of the proof, i.e. the chain where
+--  the root of the proof is located.
 --
 type PactSpv2Api_
     = "pact"

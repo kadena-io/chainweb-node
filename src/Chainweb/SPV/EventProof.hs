@@ -267,7 +267,7 @@ encodeDecimal d = case int256 i of
     Left _ -> throw $ IntegerOutOfBoundsException i
     Right x -> putWord8 0x2 >> putInt256Le x
   where
-    i = round @Decimal @Integer $ d * 10^18
+    i = round @Decimal @Integer $ d * 10^(18 :: Int)
 
 -- | This throws a pure exception of type 'PactEventEncodingException', if the
 -- size of the input array is too big.
