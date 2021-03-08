@@ -44,18 +44,23 @@ import qualified Data.Vector as V
 
 import GHC.Stack
 
+import Numeric.Natural
+
 import Pact.Types.Command
 import Pact.Types.Runtime hiding (ChainId)
 
 -- internal modules
 
+import Chainweb.BlockHash
 import Chainweb.BlockHeader
+import Chainweb.BlockHeaderDB
 import Chainweb.Crypto.MerkleLog
 import Chainweb.MerkleUniverse
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
 import Chainweb.SPV
 import Chainweb.SPV.PayloadProof
+import Chainweb.TreeDB
 import Chainweb.Utils
 
 -- -------------------------------------------------------------------------- --
@@ -154,36 +159,22 @@ outputMerkleProof p = findTxIdx p >=> outputMerkleProofByIdx p
 createOutputProof_
     :: forall a
     . MerkleHashAlgorithm a
-    => BlockHeader
-        -- ^ the target header of the proof
-    -> PayloadWithOutputs
+    => PayloadWithOutputs
     -> RequestKey
         -- ^ The index of the transaction in the block
     -> IO (PayloadProof a)
-createOutputProof_ hdr payload reqKey
-    | _payloadWithOutputsPayloadHash payload /= _blockPayloadHash hdr =
-        throwM $ SpvExceptionInconsistentPayloadData
-            { _spvExceptionMsg = "The stored payload hash doesn't match the the db index"
-            , _spvExceptionMsgPayloadHash = _blockPayloadHash hdr
-            }
-    | otherwise = do
-        proof <- outputMerkleProof @a payload reqKey
-        return PayloadProof
-            { _payloadProofChainId = _blockChainId hdr
-            , _payloadProofHeight = _blockHeight hdr
-            , _payloadProofHash = _blockHash hdr
-            , _payloadProofReqKey = reqKey
-            , _payloadProofRootType = RootBlockPayload
-            , _payloadProofBlob = proof
-            }
+createOutputProof_ payload reqKey = do
+    proof <- outputMerkleProof @a payload reqKey
+    return PayloadProof
+        { _payloadProofRootType = RootBlockPayload
+        , _payloadProofBlob = proof
+        }
 
 -- | Creates a witness that a transaction is included in a chain of a chainweb
 -- at the given target header.
 --
 createOutputProof
-    :: BlockHeader
-        -- ^ the target header of the proof
-    -> PayloadWithOutputs
+    :: PayloadWithOutputs
     -> RequestKey
         -- ^ The index of the transaction in the block
     -> IO (PayloadProof ChainwebMerkleHashAlgorithm)
@@ -193,9 +184,7 @@ createOutputProof = createOutputProof_
 -- at the given target header. The proof uses Keccak_256 as Merkle hash function.
 --
 createOutputProofKeccak256
-    :: BlockHeader
-        -- ^ the target header of the proof
-    -> PayloadWithOutputs
+    :: PayloadWithOutputs
     -> RequestKey
         -- ^ The index of the transaction in the block
     -> IO (PayloadProof Keccak_256)
@@ -208,26 +197,47 @@ createOutputProofDb_
     :: forall a cas
     . MerkleHashAlgorithm a
     => PayloadCasLookup cas
-    => PayloadDb cas
-    -> BlockHeader
+    => BlockHeaderDb
+    -> PayloadDb cas
+    -> Natural
+        -- ^ minimum depth of the target header in the block chain. The current
+        -- header of the chain has depth 0.
+    -> BlockHash
         -- ^ the target header of the proof
     -> RequestKey
-        -- ^ The index of the transaction in the block
+        -- ^ RequestKey of the transaction
     -> IO (PayloadProof a)
-createOutputProofDb_ payloadDb hdr reqKey = do
+createOutputProofDb_ headerDb payloadDb d h reqKey = do
+    hdr <- casLookupM headerDb h
     p <- casLookupM payloadDb (_blockPayloadHash hdr)
-    createOutputProof_ @a hdr p reqKey
+    unless (_payloadWithOutputsPayloadHash p /= _blockPayloadHash hdr) $
+        throwM $ SpvExceptionInconsistentPayloadData
+            { _spvExceptionMsg = "The stored payload hash doesn't match the the db index"
+            , _spvExceptionMsgPayloadHash = _blockPayloadHash hdr
+            }
+    curRank <- maxRank headerDb
+    unless (int (_blockHeight hdr) + d <= curRank) $
+        throwM $ SpvExceptionInsufficientProofDepth
+            { _spvExceptionMsg = "Insufficient depth of root header for SPV proof"
+            , _spvExceptionExpectedDepth = Expected d
+            , _spvExceptionActualDepth = Actual $ curRank `minusOrNull` int (_blockHeight hdr)
+            }
+    createOutputProof_ @a p reqKey
 
 -- | Creates a witness that a transaction is included in a chain of a chainweb
 -- at the given target header.
 --
 createOutputProofDb
     :: PayloadCasLookup cas
-    => PayloadDb cas
-    -> BlockHeader
+    => BlockHeaderDb
+    -> PayloadDb cas
+    -> Natural
+        -- ^ minimum depth of the target header in the block chain. The current
+        -- header of the chain has depth 0.
+    -> BlockHash
         -- ^ the target header of the proof
     -> RequestKey
-        -- ^ The index of the transaction in the block
+        -- ^ RequestKey of the transaction
     -> IO (PayloadProof ChainwebMerkleHashAlgorithm)
 createOutputProofDb = createOutputProofDb_
 
@@ -236,11 +246,15 @@ createOutputProofDb = createOutputProofDb_
 --
 createOutputProofDbKeccak256
     :: PayloadCasLookup cas
-    => PayloadDb cas
-    -> BlockHeader
+    => BlockHeaderDb
+    -> PayloadDb cas
+    -> Natural
+        -- ^ minimum depth of the target header in the block chain. The current
+        -- header of the chain has depth 0.
+    -> BlockHash
         -- ^ the target header of the proof
     -> RequestKey
-        -- ^ The index of the transaction in the block
+        -- ^ RequestKey of the transaction
     -> IO (PayloadProof Keccak_256)
 createOutputProofDbKeccak256 = createOutputProofDb_
 

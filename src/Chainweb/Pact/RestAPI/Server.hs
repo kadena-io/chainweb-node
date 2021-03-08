@@ -89,10 +89,10 @@ import Chainweb.Chainweb.ChainResources
 import Chainweb.Chainweb.CutResources
 import Chainweb.Cut
 import qualified Chainweb.CutDB as CutDB
+import Chainweb.Graph
 import Chainweb.Logger
 import Chainweb.Mempool.Mempool
     (InsertError(..), InsertType(..), MempoolBackend(..), TransactionHash(..))
-import Chainweb.MerkleUniverse
 import Chainweb.Pact.RestAPI
 import Chainweb.Pact.RestAPI.EthSpv
 import Chainweb.Pact.RestAPI.SPV
@@ -104,6 +104,8 @@ import Chainweb.RestAPI.Orphans ()
 import Chainweb.RestAPI.Utils
 import Chainweb.SPV (SpvException(..))
 import Chainweb.SPV.CreateProof
+import Chainweb.SPV.EventProof
+import Chainweb.SPV.OutputProof
 import Chainweb.SPV.PayloadProof
 import Chainweb.Transaction (ChainwebTransaction, mkPayloadWithText)
 import qualified Chainweb.TreeDB as TreeDB
@@ -119,7 +121,8 @@ import qualified Pact.Types.Hash as Pact
 import Pact.Types.PactError (PactError(..), PactErrorType(..))
 import Pact.Types.Pretty (pretty)
 
-------------------------------------------------------------------------------
+-- -------------------------------------------------------------------------- --
+
 type PactServerData logger cas =
     (CutResources logger cas, ChainResources logger)
 
@@ -200,6 +203,9 @@ data PactCmdLog
   | PactCmdLogSpv Text
   deriving (Show, Generic, ToJSON, NFData)
 
+-- -------------------------------------------------------------------------- --
+-- Send Handler
+
 sendHandler
     :: Logger logger
     => logger
@@ -233,6 +239,8 @@ sendHandler logger mempool (SubmitBatch cmds) = Handler $ do
                           , ": "
                           , show insErr
                           ]
+-- -------------------------------------------------------------------------- --
+-- Poll Handler
 
 pollHandler
     :: HasCallStack
@@ -256,6 +264,9 @@ pollHandler logger cdb cid pact mem (Poll request) = do
     pdb = view CutDB.cutDbPayloadCas cdb
     bdb = fromJuste $ preview (CutDB.cutDbBlockHeaderDb cid) cdb
     logg = logFunctionJson (setComponent "poll-handler" logger)
+
+-- -------------------------------------------------------------------------- --
+-- Listen Handler
 
 listenHandler
     :: PayloadCasLookup cas
@@ -308,6 +319,9 @@ listenHandler logger cdb cid pact mem (ListenerRequest key) = do
     -- TODO: make configurable
     defaultTimeout = 120 * 1000000 -- two minutes
 
+-- -------------------------------------------------------------------------- --
+-- Local Handler
+
 localHandler
     :: Logger logger
     => logger
@@ -328,6 +342,8 @@ localHandler logger pact cmd = do
   where
     logg = logFunctionJson (setComponent "local-handler" logger)
 
+-- -------------------------------------------------------------------------- --
+-- Legacy SPV Handler
 
 spvHandler
     :: forall cas l
@@ -393,6 +409,9 @@ spvHandler l cdb cid (SpvRequest rk (Pact.ChainId ptid)) = do
       . encodeUtf8
       . _spvExceptionMsg
 
+-- -------------------------------------------------------------------------- --
+-- SPV2 Handler
+
 spv2Handler
     :: forall cas l
     . ( Logger l
@@ -411,23 +430,29 @@ spv2Handler
     -> Handler SomePayloadProof
 spv2Handler l cdb cid r = case _spvSubjectIdType sid of
     SpvSubjectResult
-        |  _spv2ReqAlgorithm r /= SpvSHA512t_256 -> error "TODO: unsupported"
-        | otherwise -> error "TODO" -- createOutputProof
+        |  _spv2ReqAlgorithm r /= SpvSHA512t_256 ->
+            toErr $ "Algorithm " <> sshow r <> " is not supported with SPV result proofs."
+        | otherwise -> proof createOutputProofDb
     SpvSubjectEvents
-        | cid /= _spvSubjectIdChain sid -> error "TODO: unsupported"
-        | otherwise -> eventsProof
+        | cid /= _spvSubjectIdChain sid ->
+            toErr "Cross chain SPV proofs for are not supported for Pact events"
+        | otherwise -> proof createEventsProofDb
   where
-
-    eventsProof = do
+    proof f = SomePayloadProof <$> do
         validateRequestKey rk
         liftIO $! logg (sshow ph)
-        T2 bhe _bha <- liftIO (_pactLookup pe (NoRewind cid) (pure ph)) >>= \case
+        T2 bhe bha <- liftIO (_pactLookup pe (NoRewind cid) (pure ph)) >>= \case
             Left e ->
                 toErr $ "Internal error: transaction hash lookup failed: " <> sshow e
             Right v -> case v ^?! _head of
                 Nothing -> toErr $ "Transaction hash not found: " <> sshow ph
                 Just t -> return t
-        error "TODO"
+
+        let confDepth = diameter (chainGraphAt_ cdb bhe)
+
+        liftIO (tryAllSynchronous $ f bdb pdb confDepth bha rk) >>= \case
+            Left e -> toErr $ "SPV proof creation failed:" <> sshow e
+            Right q -> return q
 
     sid = _spv2ReqSubjectIdentifier r
 
@@ -436,19 +461,14 @@ spv2Handler l cdb cid r = case _spvSubjectIdType sid of
     ph = Pact.fromUntypedHash $ unRequestKey rk
     bdb = fromJuste $ preview (CutDB.cutDbBlockHeaderDb cid) cdb
     pdb = view CutDB.cutDbPayloadCas cdb
-    -- b64 = TransactionOutputProofB64
-    --   . encodeB64UrlNoPaddingText
-    --   . BSL8.toStrict
-    --   . Aeson.encode
 
     logg = logFunctionJson (setComponent "spv-handler" l) Info
       . PactCmdLogSpv
 
     toErr e = throwError $ err400 { errBody = e }
 
-    spvErrOf = BSL8.fromStrict
-      . encodeUtf8
-      . _spvExceptionMsg
+-- -------------------------------------------------------------------------- --
+-- Eth SPV Handler
 
 ethSpvHandler
     :: EthSpvRequest
@@ -499,6 +519,7 @@ ethSpvHandler req = do
     toErr e = throwError $ err400 { errBody = e }
 
 -- --------------------------------------------------------------------------- --
+-- Poll Helper
 
 internalPoll
     :: PayloadCasLookup cas
@@ -578,6 +599,9 @@ internalPoll pdb bhdb mempool pactEx cut requestKeys0 = do
        , "blockHash" .= _blockHash bh
        , "prevBlockHash" .= _blockParent bh
        ])
+
+-- -------------------------------------------------------------------------- --
+-- Misc Utils
 
 toPactTx :: Transaction -> Maybe (Command Text)
 toPactTx (Transaction b) = decodeStrict' b

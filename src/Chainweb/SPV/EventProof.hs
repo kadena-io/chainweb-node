@@ -104,9 +104,9 @@ import qualified Data.Text.Encoding as T
 import qualified Data.Vector as V
 import Data.Word
 
-import Debug.Trace
-
 import GHC.Generics
+
+import Numeric.Natural
 
 import Pact.Types.Command
 import Pact.Types.PactValue
@@ -115,12 +115,16 @@ import Pact.Types.Runtime
 
 -- internal modules
 
+import Chainweb.BlockHash
 import Chainweb.BlockHeader
+import Chainweb.BlockHeaderDB
 import Chainweb.MerkleLogHash
 import Chainweb.MerkleUniverse
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
+import Chainweb.SPV
 import Chainweb.SPV.PayloadProof
+import Chainweb.TreeDB hiding (entries, root)
 import Chainweb.Utils
 
 -- -------------------------------------------------------------------------- --
@@ -285,9 +289,8 @@ encodeHash = encodeBytes . unHash
 encodeParam :: MonadPut m => PactValue -> m ()
 encodeParam (PLiteral (LString t)) = encodeString t
 encodeParam (PLiteral (LInteger i)) = encodeInteger i
-encodeParam (PLiteral (LDecimal i)) = encodeDecimal $ i
+encodeParam (PLiteral (LDecimal i)) = encodeDecimal i
 encodeParam (PModRef n) = encodeModRef n
-encodeParam e = putWord8 0x4
 encodeParam e = throw $ UnsupportedPactValueException e
 
 encodeModRef :: MonadPut m => ModRef -> m ()
@@ -508,62 +511,75 @@ eventsMerkleProof p reqKey = do
 createEventsProof_
     :: forall a
     . MerkleHashAlgorithm a
-    => BlockHeader
-        -- ^ the target header of the proof
-    -> PayloadWithOutputs
+    => PayloadWithOutputs
     -> RequestKey
         -- ^ RequestKey of the transaction
     -> IO (PayloadProof a)
-createEventsProof_ hdr payload reqKey = do
+createEventsProof_ payload reqKey = do
     proof <- eventsMerkleProof @a payload reqKey
     return PayloadProof
-        { _payloadProofChainId = _blockChainId hdr
-        , _payloadProofHeight = _blockHeight hdr
-        , _payloadProofHash = _blockHash hdr
-        , _payloadProofReqKey = reqKey
-        , _payloadProofRootType = RootBlockEvents
+        { _payloadProofRootType = RootBlockEvents
         , _payloadProofBlob = proof
         }
 
 createEventsProof
-    :: BlockHeader
-        -- ^ the target header of the proof
-    -> PayloadWithOutputs
+    :: PayloadWithOutputs
     -> RequestKey
         -- ^ RequestKey of the transaction
     -> IO (PayloadProof ChainwebMerkleHashAlgorithm)
 createEventsProof = createEventsProof_
 
 createEventsProofKeccak256
-    :: BlockHeader
-        -- ^ the target header of the proof
-    -> PayloadWithOutputs
+    :: PayloadWithOutputs
     -> RequestKey
         -- ^ RequestKey of the transaction
     -> IO (PayloadProof Keccak_256)
 createEventsProofKeccak256 = createEventsProof_
 
 -- -------------------------------------------------------------------------- --
--- Create Events Proof using Payload Db
+-- Create Events Proof using Payload Db and check header depth
+
+-- TODO: add a parameter for a minimum depth of the proof
 
 createEventsProofDb_
     :: forall a cas
     . MerkleHashAlgorithm a
     => PayloadCasLookup cas
-    => PayloadDb cas
-    -> BlockHeader
+    => BlockHeaderDb
+    -> PayloadDb cas
+    -> Natural
+        -- ^ minimum depth of the target header in the block chain. The current
+        -- header of the chain has depth 0.
+    -> BlockHash
         -- ^ the target header of the proof
     -> RequestKey
         -- ^ RequestKey of the transaction
     -> IO (PayloadProof a)
-createEventsProofDb_ payloadDb hdr reqKey = do
+createEventsProofDb_ headerDb payloadDb d h reqKey = do
+    hdr <- casLookupM headerDb h
     p <- casLookupM payloadDb (_blockPayloadHash hdr)
-    createEventsProof_ hdr p reqKey
+    unless (_payloadWithOutputsPayloadHash p /= _blockPayloadHash hdr) $
+        throwM $ SpvExceptionInconsistentPayloadData
+            { _spvExceptionMsg = "The stored payload hash doesn't match the the db index"
+            , _spvExceptionMsgPayloadHash = _blockPayloadHash hdr
+            }
+    curRank <- maxRank headerDb
+    unless (int (_blockHeight hdr) + d <= curRank) $
+        throwM $ SpvExceptionInsufficientProofDepth
+            { _spvExceptionMsg = "Insufficient depth of root header for SPV proof"
+            , _spvExceptionExpectedDepth = Expected d
+            , _spvExceptionActualDepth = Actual $ curRank `minusOrNull` int (_blockHeight hdr)
+            }
+    createEventsProof_ p reqKey
 
 createEventsProofDb
     :: PayloadCasLookup cas
-    => PayloadDb cas
-    -> BlockHeader
+    => BlockHeaderDb
+    -> PayloadDb cas
+    -> Natural
+        -- ^ minimum depth of the target header in the block chain. The current
+        -- header of the chain has depth 0.
+    -> BlockHash
         -- ^ the target header of the proof
     -> RequestKey
         -- ^ RequestKey of the transaction
@@ -572,8 +588,12 @@ createEventsProofDb = createEventsProofDb_
 
 createEventsProofDbKeccak256
     :: PayloadCasLookup cas
-    => PayloadDb cas
-    -> BlockHeader
+    => BlockHeaderDb
+    -> PayloadDb cas
+    -> Natural
+        -- ^ minimum depth of the target header in the block chain. The current
+        -- header of the chain has depth 0.
+    -> BlockHash
         -- ^ the target header of the proof
     -> RequestKey
         -- ^ RequestKey of the transaction

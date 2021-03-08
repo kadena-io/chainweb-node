@@ -58,13 +58,11 @@ module Chainweb.Test.Orphans.Internal
 ) where
 
 import Control.Applicative
-import Control.Lens (set)
 import Control.Monad
 import Control.Monad.Catch
 
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Short as BS
-import Data.CAS
 import Data.Foldable
 import qualified Data.HashMap.Strict as HM
 import Data.Kind
@@ -107,7 +105,6 @@ import Chainweb.Graph
 import Chainweb.MerkleLogHash
 import Chainweb.MerkleUniverse
 import Chainweb.Payload
-import Chainweb.Payload.PayloadStore.InMemory
 import Chainweb.PowHash
 import Chainweb.RestAPI.NetworkID
 import Chainweb.SPV.EventProof
@@ -592,8 +589,7 @@ arbitraryOutputProof
 arbitraryOutputProof = do
     (ks, p) <- genPayload
     k <- elements $ V.toList ks
-    hdr <- arbitrary @BlockHeader
-    return $ mkTestOutputProof p hdr k
+    return $ mkTestOutputProof p k
   where
     -- this uses the default chainweb hash
     genPayload = suchThat arbitraryPayloadWithStructuredOutputs $ \(_, p) ->
@@ -604,15 +600,9 @@ mkTestOutputProof
     . MerkleHashAlgorithm a
     => HasCallStack
     => PayloadWithOutputs
-    -> BlockHeader
     -> RequestKey
     -> PayloadProof a
-mkTestOutputProof p h reqKey = unsafePerformIO $ do
-    cas <- newPayloadDb
-    casInsert cas p
-    createOutputProofDb_ @a cas hdr reqKey
-  where
-    hdr = set blockPayloadHash (_payloadWithOutputsPayloadHash p) h
+mkTestOutputProof p reqKey = unsafePerformIO $ createOutputProof_ @a p reqKey
 
 instance MerkleHashAlgorithm a => Arbitrary (PayloadProof a) where
     arbitrary = arbitraryOutputProof
@@ -633,15 +623,9 @@ mkTestEventsProof
     . MerkleHashAlgorithm a
     => HasCallStack
     => PayloadWithOutputs
-    -> BlockHeader
     -> RequestKey
     -> PayloadProof a
-mkTestEventsProof p h reqKey = unsafePerformIO $ do
-    cas <- newPayloadDb
-    casInsert cas p
-    createEventsProofDb_ @a cas hdr reqKey
-  where
-    hdr = set blockPayloadHash (_payloadWithOutputsPayloadHash p) h
+mkTestEventsProof p reqKey = unsafePerformIO $ createEventsProof_ @a p reqKey
 
 arbitraryEventsProof
     :: forall a
@@ -650,8 +634,7 @@ arbitraryEventsProof
 arbitraryEventsProof = do
     (ks, p) <- genPayload
     k <- elements $ V.toList ks
-    hdr <- arbitrary @BlockHeader
-    return $ mkTestEventsProof p hdr k
+    return $ mkTestEventsProof p k
   where
     -- this uses the default chainweb hash
     genPayload = suchThat arbitraryPayloadWithStructuredOutputs $ \(_, p) ->

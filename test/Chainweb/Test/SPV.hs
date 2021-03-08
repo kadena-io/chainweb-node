@@ -172,13 +172,12 @@ prop_outputProof_run2 p = case runOutputProof p of
 prop_outputProof_subject
     :: forall a
     . MerkleHashAlgorithm a
-    => BlockHeader
-    -> Property
-prop_outputProof_subject hdr = forAll arbitraryPayloadWithStructuredOutputs go
+    => Property
+prop_outputProof_subject = forAll arbitraryPayloadWithStructuredOutputs go
   where
     go (ks, p) = s > 0 ==>
         forAll (choose (0, s-1)) $ \idx ->
-            case runOutputProof $ mkTestOutputProof @a p hdr (ks V.! idx) of
+            case runOutputProof $ mkTestOutputProof @a p (ks V.! idx) of
             Left e -> counterexample ("failed to validate proof: " <> show e) False
             Right (!_, !subject) ->
                 subject === snd (_payloadWithOutputsTransactions p V.! idx)
@@ -190,12 +189,12 @@ prop_outputProof_subject hdr = forAll arbitraryPayloadWithStructuredOutputs go
 -- @PayloadWithOutputs_ ChainwebMerkleHashAlgorithm@ as input, this test only
 -- works with proofs that use 'ChainwebMerkleHashAlgorithm'.
 --
-prop_outputProof_valid :: BlockHeader -> Property
-prop_outputProof_valid hdr = forAll arbitraryPayloadWithStructuredOutputs go
+prop_outputProof_valid :: Property
+prop_outputProof_valid = forAll arbitraryPayloadWithStructuredOutputs go
   where
     go (ks, p) = s > 0 ==>
         forAll (choose (0, s-1)) $ \idx ->
-            case runOutputProof $ mkTestOutputProof p hdr (ks V.! idx) of
+            case runOutputProof $ mkTestOutputProof p (ks V.! idx) of
             Left e -> counterexample ("failed to validate proof: " <> show e) False
             Right (!rootHash, !subject) ->
                 subject === snd (_payloadWithOutputsTransactions p V.! idx)

@@ -136,9 +136,8 @@ fail_eventsProof_run2 = once $ expectFailure $ forAll (arbitraryEventsProof @a) 
 prop_eventsProof_subject
     :: forall a
     . MerkleHashAlgorithm a
-    => BlockHeader
-    -> Property
-prop_eventsProof_subject hdr = forAll arbitraryPayloadWithStructuredOutputs go
+    => Property
+prop_eventsProof_subject = forAll arbitraryPayloadWithStructuredOutputs go
   where
     go (ks, p) = s > 0 ==>
         forAll (choose (0, s-1)) $ \idx -> case run (ks V.! idx) of
@@ -148,16 +147,15 @@ prop_eventsProof_subject hdr = forAll arbitraryPayloadWithStructuredOutputs go
       where
         s = V.length (_payloadWithOutputsTransactions p)
         run reqKey = do
-            (!_, !subject) <- runEventsProof (mkTestEventsProof @a p hdr reqKey)
+            (!_, !subject) <- runEventsProof (mkTestEventsProof @a p reqKey)
             events <- getBlockEvents @_ @a p
             return (subject, events)
 
 prop_eventsProof_valid
     :: forall a
     . MerkleHashAlgorithm a
-    => BlockHeader
-    -> Property
-prop_eventsProof_valid hdr = forAll arbitraryPayloadWithStructuredOutputs go
+    => Property
+prop_eventsProof_valid = forAll arbitraryPayloadWithStructuredOutputs go
   where
     go (ks, p) = s > 0 ==>
         forAll (choose (0, s-1)) $ \idx -> case run (ks V.! idx) of
@@ -167,6 +165,6 @@ prop_eventsProof_valid hdr = forAll arbitraryPayloadWithStructuredOutputs go
       where
         s = V.length (_payloadWithOutputsTransactions p)
         run reqKey = do
-            (!rootHash, !subject) <- runEventsProof (mkTestEventsProof @a p hdr reqKey)
+            (!rootHash, !subject) <- runEventsProof (mkTestEventsProof @a p reqKey)
             events <- getBlockEvents @_ @a p
             return (rootHash, subject, events)

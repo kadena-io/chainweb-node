@@ -1,5 +1,6 @@
 {-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE FlexibleContexts #-}
@@ -52,13 +53,10 @@ import Pact.Types.Command
 
 -- internal modules
 
-import Chainweb.BlockHash
-import Chainweb.BlockHeight
 import Chainweb.Crypto.MerkleLog
 import Chainweb.MerkleLogHash
 import Chainweb.MerkleUniverse
 import Chainweb.Utils
-import Chainweb.Version
 
 -- -------------------------------------------------------------------------- --
 -- Utils
@@ -72,34 +70,26 @@ instance Exception RequestKeyNotFoundException
 -- -------------------------------------------------------------------------- --
 -- PayloadProof
 
--- | API encoding for SPV proofs. This is a new format. The SPV proofs defined
--- in "Chainweb.SPV" still use a legacy format that contains only a subset of
--- the properties.
+-- | API encoding for SPV proofs.
+--
+-- The proof only contains information that is authenticated. Any addititional
+-- information about the root or the subject of the proof must be obtained from
+-- a trusted source.
+--
+-- This is a new format. The SPV proofs defined in "Chainweb.SPV" still use a
+-- legacy format.
 --
 data PayloadProof a = PayloadProof
-    { _payloadProofChainId :: !ChainId
-        -- ^ The target chain of the proof, i.e. the chain of the root.
-    , _payloadProofHeight :: !BlockHeight
-        -- ^ the height of the block that contains the subject.
-    , _payloadProofHash :: !BlockHash
-        -- ^ The block hash of the subject.
-    , _payloadProofReqKey :: !RequestKey
-        -- ^ The request key of the transaction that contains the subject.
-    , _payloadProofRootType :: !MerkleRootType
+    { _payloadProofRootType :: !MerkleRootType
         -- ^ The type of the Merle root.
     , _payloadProofBlob :: !(MerkleProof a)
         -- ^ The Merkle proof blob which coaintains both, the proof object and
         -- the proof subject.
-    }
-    deriving (Show, Eq, Generic)
+    } deriving (Show, Eq, Generic, NFData)
 
 instance MerkleHashAlgorithmName a => ToJSON (PayloadProof a) where
     toJSON p = object
-        [ "chain" .= _payloadProofChainId p
-        , "blockHeight" .= _payloadProofHeight p
-        , "blockHash" .= _payloadProofHash p
-        , "requestKey" .= _payloadProofReqKey p
-        , "algorithm" .= merkleHashAlgorithmName @a
+        [ "algorithm" .= merkleHashAlgorithmName @a
         , "rootType" .= _payloadProofRootType p
         , "object" .= (obj . _merkleProofObject) blob
         , "subject" .= (subj . _getMerkleProofSubject . _merkleProofSubject) blob
@@ -117,11 +107,7 @@ instance MerkleHashAlgorithmName a => ToJSON (PayloadProof a) where
 
 instance (MerkleHashAlgorithm a, MerkleHashAlgorithmName a) => FromJSON (PayloadProof a) where
     parseJSON = withObject "PayloadProof" $ \o -> PayloadProof
-        <$> o .: "chain"
-        <*> o .: "blockHeight"
-        <*> o .: "blockHash"
-        <*> o .: "requestKey"
-        <* (assertJSON (merkleHashAlgorithmName @a) =<< o .: "algorithm")
+        <$ (assertJSON (merkleHashAlgorithmName @a) =<< o .: "algorithm")
         <*> o .: "rootType"
         <*> parse o
       where
