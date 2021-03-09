@@ -263,21 +263,6 @@ int256Hex x@(Int256 i)
 -- -------------------------------------------------------------------------- --
 -- Pact Event Encoding
 --
--- Values
---
--- * Bytes: 0x0 <> length <> bytes
--- * Int256: 0x1 <> LE towth complement
--- * Decimal: 0x2 <> LE towth complement . (* 10^18)
---
--- * Hash: as bytes
--- * String: as UTF-8 encoded bytes
--- *
---
--- Structures:
---
--- * Array: length <> encode elements
---
--- String:
 
 encodePactEvent :: MonadPut m => PactEvent -> m ()
 encodePactEvent e = do
