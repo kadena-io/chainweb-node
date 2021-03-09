@@ -46,6 +46,7 @@ import Chainweb.SPV.EventProof
 import Chainweb.SPV.PayloadProof
 import Chainweb.Test.Orphans.Internal (EventPactValue(..))
 import Chainweb.Test.Utils
+import Chainweb.Test.SPV.EventProof
 import Chainweb.Time
 import Chainweb.Utils
 import Chainweb.Version
@@ -137,20 +138,34 @@ encodeDecodeTests = testGroup "Encode-Decode roundtrips"
             $ prop_encodeDecode getInt256Le putInt256Le
         , testProperty "Int256 BE"
             $ prop_encodeDecode getInt256Be putInt256Be
-        , testProperty "Int256"
-            $ prop_encodeDecode decodeInt256 encodeInt256
         , testProperty "Bytes"
             $ prop_encodeDecode decodeBytes encodeBytes
         , testProperty "String"
             $ prop_encodeDecode decodeString encodeString
+        , testProperty "ModuleName"
+            $ prop_encodeDecode decodeModuleName encodeModuleName
+        -- FIXME limit to empty spec and info
+        , testProperty "ModRef"
+            $ prop_encodeDecode (PactEventModRef <$> decodeModRef) (encodeModRef . _getPactEventModRef)
+        , testProperty "Integer"
+            $ prop_encodeDecode decodeInteger encodeInteger
+        , testProperty "Decimal"
+            $ prop_encodeDecode (PactEventDecimal <$> decodeDecimal) (encodeDecimal . _getPactEventDecimal)
+        , testProperty "Hash"
+            $ prop_encodeDecode decodeHash encodeHash
         , testProperty "Array[Int256]"
-            $ prop_encodeDecode (decodeArray decodeInt256) (`encodeArray` encodeInt256)
+            $ prop_encodeDecode (decodeArray decodeInteger) (`encodeArray` encodeInteger)
         , testProperty "Array[Bytes]"
             $ prop_encodeDecode (decodeArray decodeBytes) (`encodeArray` encodeBytes)
+
+        -- FIXME "too few bytes"
         , testProperty "PactEvent"
             $ prop_encodeDecode decodePactEvent encodePactEvent
+        -- FIXME "pending bytes"
         , testProperty "PactParam"
             $ prop_encodeDecode (EventPactValue <$> decodeParam) (encodeParam . getEventPactValue)
+
+        -- FIXME "pending bytes"
         , testProperty "OutputEvents"
             $ prop_encodeDecode decodeOutputEvents encodeOutputEvents
         ]

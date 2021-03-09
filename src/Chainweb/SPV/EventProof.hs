@@ -21,12 +21,19 @@
 --
 module Chainweb.SPV.EventProof
 (
+-- * PactEncoding Exceptions
+  PactEventEncodingException(..)
+
+-- * Encoding Utils
+, isSupportedDecimal
+, integerToDecimal
+, decimalToInteger
+
 -- * Int256
-  Int256
+, Int256
 , int256
 , unsafeInt256
 , int256ToInteger
-, OutOfBoundsException(..)
 , putInt256Le
 , putInt256Be
 , getInt256Le
@@ -75,8 +82,16 @@ module Chainweb.SPV.EventProof
 , decodeString
 , encodeArray
 , decodeArray
-, encodeInt256
-, decodeInt256
+, encodeModuleName
+, decodeModuleName
+, encodeModRef
+, decodeModRef
+, encodeInteger
+, decodeInteger
+, encodeDecimal
+, decodeDecimal
+, encodeHash
+, decodeHash
 ) where
 
 import Chainweb.Crypto.MerkleLog
@@ -128,12 +143,37 @@ import Chainweb.TreeDB hiding (entries, root)
 import Chainweb.Utils
 
 -- -------------------------------------------------------------------------- --
---  Int256
+-- Pact Encoding Exceptions
 
-newtype OutOfBoundsException = OutOfBoundsException Integer
+data PactEventEncodingException
+    = ArrayTooBigException !Int
+    | ByteStringTooBigException !Int
+    | IntegerOutOfBoundsException !Integer
+    | DecimalOutOfBoundsException !Decimal
+    | UnsupportedPactValueException !PactValue
+    | UnsupportedModRefWithSpec !T.Text
+    | UnsupportedModRefWithInfo !T.Text
     deriving (Show, Eq, Ord, Generic)
+    deriving anyclass (NFData)
 
-instance Exception OutOfBoundsException
+instance Exception PactEventEncodingException
+
+-- -------------------------------------------------------------------------- --
+-- Encoding Utils
+
+isSupportedDecimal :: Decimal -> Bool
+isSupportedDecimal d = decimalPlaces d <= 18
+
+decimalToInteger :: MonadThrow m => Decimal -> m Integer
+decimalToInteger d
+    | decimalPlaces d > 18 = throwM $ DecimalOutOfBoundsException d
+    | otherwise = return $! decimalMantissa d * 10^(18 - decimalPlaces d)
+
+integerToDecimal :: Integer -> Decimal
+integerToDecimal i = Decimal { decimalPlaces = 18, decimalMantissa = i }
+
+-- -------------------------------------------------------------------------- --
+--  Int256
 
 newtype Int256 = Int256 Integer
     deriving (Show, Eq, Ord)
@@ -147,8 +187,8 @@ int256ToInteger (Int256 i) = i
 
 int256 :: MonadThrow m => Integer -> m Int256
 int256 i
-    | i > int256ToInteger maxBound = throwM $ OutOfBoundsException i
-    | i < int256ToInteger minBound = throwM $ OutOfBoundsException i
+    | i > int256ToInteger maxBound = throwM $ IntegerOutOfBoundsException i
+    | i < int256ToInteger minBound = throwM $ IntegerOutOfBoundsException i
     | otherwise = return $ Int256 i
 
 -- | Exposes the 'Int256' constructor without checking bounds.
@@ -221,23 +261,32 @@ int256Hex x@(Int256 i)
 
 -- -------------------------------------------------------------------------- --
 -- Pact Event Encoding
-
-data PactEventEncodingException
-    = ArrayTooBigException !Int
-    | ByteStringTooBigException !Int
-    | IntegerOutOfBoundsException !Integer
-    | UnsupportedPactValueException !PactValue
-    deriving (Show, Eq, Ord, Generic)
-    deriving anyclass (NFData)
-
-instance Exception PactEventEncodingException
+--
+-- Values
+--
+-- * Bytes: 0x0 <> length <> bytes
+-- * Int256: 0x1 <> LE towth complement
+-- * Decimal: 0x2 <> LE towth complement . (* 10^18)
+--
+-- * Hash: as bytes
+-- * String: as UTF-8 encoded bytes
+-- *
+--
+-- Structures:
+--
+-- * Array: length <> encode elements
+--
+-- String:
 
 encodePactEvent :: MonadPut m => PactEvent -> m ()
 encodePactEvent e = do
     encodeString $ _eventName e
-    encodeString $ asString $ _eventModule e
+    encodeModuleName $ _eventModule e
     encodeHash $ _mhHash $ _eventModuleHash e
     encodeArray (_eventParams e) encodeParam
+
+encodeModuleName :: MonadPut m => ModuleName -> m ()
+encodeModuleName = encodeString . asString
 
 -- | This throws a pure exception of type 'PactEventEncodingException', if the
 -- input bytestring is too long.
@@ -245,7 +294,7 @@ encodePactEvent e = do
 encodeBytes :: MonadPut m => B.ByteString -> m ()
 encodeBytes b
     | B.length b <= int (maxBound @Word32)
-        = putWord8 0x0 >> putWord32le (int $ B.length b) >> putByteString b
+        = putWord32le (int $ B.length b) >> putByteString b
     | otherwise = throw $ ByteStringTooBigException (B.length b)
 
 -- | This throws a pure exception of type 'PactEventEncodingException', if the
@@ -254,20 +303,23 @@ encodeBytes b
 encodeInteger :: MonadPut m => Integer -> m ()
 encodeInteger i = case int256 i of
     Left _ -> throw $ IntegerOutOfBoundsException i
-    Right x -> encodeInt256 x
-
-encodeInt256 :: MonadPut m => Int256 -> m ()
-encodeInt256 i = putWord8 0x1 >> putInt256Le i
+    Right x -> putInt256Le x
 
 encodeString :: MonadPut m => T.Text -> m ()
-encodeString n = encodeBytes $ T.encodeUtf8 n
+encodeString = encodeBytes . T.encodeUtf8
 
 encodeDecimal :: MonadPut m => Decimal -> m ()
-encodeDecimal d = case int256 i of
-    Left _ -> throw $ IntegerOutOfBoundsException i
-    Right x -> putWord8 0x2 >> putInt256Le x
-  where
-    i = round @Decimal @Integer $ d * 10^(18 :: Int)
+encodeDecimal d = encodeInteger $ case decimalToInteger d of
+    Left e -> throw e
+    Right x -> x
+
+encodeHash :: MonadPut m => Hash -> m ()
+encodeHash = encodeBytes . unHash
+
+encodeModRef :: MonadPut m => ModRef -> m ()
+encodeModRef n@(ModRef _ (Just _) _) = throw $ UnsupportedModRefWithSpec (renderCompactText n)
+encodeModRef n@(ModRef _  _ (Info (Just _))) = throw $ UnsupportedModRefWithInfo (renderCompactText n)
+encodeModRef n = encodeString $ renderCompactText n
 
 -- | This throws a pure exception of type 'PactEventEncodingException', if the
 -- size of the input array is too big.
@@ -283,28 +335,26 @@ encodeArray a f
     | length a > int (maxBound @Word32) = throw $ ArrayTooBigException (length a)
     | otherwise = putWord32le (int $ length a) >> traverse_ f a
 
-encodeHash :: MonadPut m => Hash -> m ()
-encodeHash = encodeBytes . unHash
-
 encodeParam :: MonadPut m => PactValue -> m ()
-encodeParam (PLiteral (LString t)) = encodeString t
-encodeParam (PLiteral (LInteger i)) = encodeInteger i
-encodeParam (PLiteral (LDecimal i)) = encodeDecimal i
-encodeParam (PModRef n) = encodeModRef n
+encodeParam (PLiteral (LString t)) = putWord8 0x0 >> encodeString t
+encodeParam (PLiteral (LInteger i)) = putWord8 0x1 >> encodeInteger i
+encodeParam (PLiteral (LDecimal i)) = putWord8 0x2 >> encodeDecimal i
+encodeParam (PModRef n) = putWord8 0x3 >> encodeModRef n
 encodeParam e = throw $ UnsupportedPactValueException e
-
-encodeModRef :: MonadPut m => ModRef -> m ()
-encodeModRef n = do
-    putWord8 0x3
-    encodeString (renderCompactText n)
 
 -- -------------------------------------------------------------------------- --
 -- Pact Event Decoding
 
+expect :: MonadGetExtra m => Word8 -> m ()
+expect c = label "expect" $ do
+    c' <- getWord8
+    unless (c == c') $
+        fail $ "decodeOutputEvents: failed to decode, expected " <> show c <> " but got " <> show c'
+
 decodePactEvent :: MonadGetExtra m => m PactEvent
 decodePactEvent = label "decodeEvent" $ do
     name <- decodeString
-    m <- decodeModule
+    m <- decodeModuleName
     mh <- ModuleHash <$> decodeHash
     params <- decodeArray decodeParam
     return $ PactEvent
@@ -325,39 +375,8 @@ decodeHash = label "decodeHash" $ Hash <$> decodeBytes
 
 decodeBytes :: MonadGetExtra m => m B.ByteString
 decodeBytes = label "decodeBytes" $ do
-    expect 0x0
     l <- getWord32le
     getBytes (int l)
-
-expect :: MonadGetExtra m => Word8 -> m ()
-expect c = label "expect" $ do
-    c' <- getWord8
-    unless (c == c') $
-        fail $ "decodeOutputEvents: failed to decode, expected " <> show c <> " but got " <> show c'
-
-decodeInt256 :: MonadGetExtra m => m Int256
-decodeInt256 = label "decodeInt256" $ expect 0x1 >> getInt256Le
-
-decodeInteger :: MonadGetExtra m => m Integer
-decodeInteger = label "decodeInteger" $ int256ToInteger <$> decodeInt256
-
-decodeParam :: MonadGetExtra m => m PactValue
-decodeParam = label "decodeParam" $ lookAhead getWord8 >>= \case
-    0x0 -> label "LString" $ PLiteral . LString <$> decodeString
-    0x1 -> label "LInteger" $ PLiteral . LInteger <$> decodeInteger
-    0x2 -> label "LDecimal" $ PLiteral . LDecimal <$> decodeDecimal
-    e -> fail $ "decodeParam: unexpected parameter with type tag " <> show e
-  where
-    decodeDecimal = error "TODO"
-
-decodeModule :: MonadGetExtra m => m ModuleName
-decodeModule = label "decodeModule" $ do
-    t <- decodeString
-    case T.split (== '.') t of
-        [] -> fail "empty module name"
-        [m] -> return $ ModuleName m Nothing
-        [n,m] -> return $ ModuleName m (Just $ NamespaceName n)
-        _ -> fail $ "illegal nested module name namespace: " <> show t
 
 decodeString :: MonadGetExtra m => m T.Text
 decodeString = label "decodeString" $ do
@@ -365,6 +384,33 @@ decodeString = label "decodeString" $ do
     case T.decodeUtf8' t of
         Left e -> fail $ "failed to decode UTF8 string: " <> show e
         Right x -> return x
+
+decodeInteger :: MonadGetExtra m => m Integer
+decodeInteger = label "decodeInteger" $ int256ToInteger
+    <$> label "getInt256" getInt256Le
+
+decodeDecimal :: MonadGetExtra m => m Decimal
+decodeDecimal = label "decodeDecimal" $ integerToDecimal <$> decodeInteger
+
+decodeParam :: MonadGetExtra m => m PactValue
+decodeParam = label "decodeParam" $ getWord8 >>= \case
+    0x0 -> label "LString" $ PLiteral . LString <$> decodeString
+    0x1 -> label "LInteger" $ PLiteral . LInteger <$> decodeInteger
+    0x2 -> label "LDecimal" $ PLiteral . LDecimal <$> decodeDecimal
+    0x3 -> label "PModRef" $ PModRef <$> decodeModRef
+    e -> fail $ "decodeParam: unexpected parameter with type tag " <> show e
+
+decodeModuleName :: MonadGetExtra m => m ModuleName
+decodeModuleName = label "decodeModuleName" $
+    decodeString >>= \t -> case parseModuleName t of
+        Left e -> fail e
+        Right m -> return m
+
+decodeModRef :: MonadGetExtra m => m ModRef
+decodeModRef = label "ModRef" $ ModRef
+    <$> decodeModuleName
+    <*> pure Nothing
+    <*> pure (Info Nothing)
 
 -- -------------------------------------------------------------------------- --
 -- Block Events Hash
@@ -538,8 +584,6 @@ createEventsProofKeccak256 = createEventsProof_
 
 -- -------------------------------------------------------------------------- --
 -- Create Events Proof using Payload Db and check header depth
-
--- TODO: add a parameter for a minimum depth of the proof
 
 createEventsProofDb_
     :: forall a cas

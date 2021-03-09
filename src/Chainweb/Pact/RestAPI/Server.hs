@@ -70,6 +70,8 @@ import Ethereum.RLP (putRlpByteString)
 import GHC.Generics
 import GHC.Stack
 
+import Numeric.Natural
+
 import Prelude hiding (init, lookup)
 
 import Servant
@@ -87,6 +89,7 @@ import Chainweb.BlockHeight
 import Chainweb.ChainId
 import Chainweb.Chainweb.ChainResources
 import Chainweb.Chainweb.CutResources
+import Chainweb.Crypto.MerkleLog
 import Chainweb.Cut
 import qualified Chainweb.CutDB as CutDB
 import Chainweb.Graph
@@ -436,8 +439,16 @@ spv2Handler l cdb cid r = case _spvSubjectIdType sid of
     SpvSubjectEvents
         | cid /= _spvSubjectIdChain sid ->
             toErr "Cross chain SPV proofs for are not supported for Pact events"
-        | otherwise -> proof createEventsProofDb
+        | otherwise -> case _spv2ReqAlgorithm r of
+            SpvSHA512t_256 -> proof createEventsProofDb
+            SpvKeccak_256 -> proof createEventsProofDbKeccak256
   where
+    proof
+        :: forall a
+        . MerkleHashAlgorithm a
+        => MerkleHashAlgorithmName a
+        => (BlockHeaderDb -> PayloadDb cas -> Natural -> BlockHash -> RequestKey -> IO (PayloadProof a))
+        -> Handler SomePayloadProof
     proof f = SomePayloadProof <$> do
         validateRequestKey rk
         liftIO $! logg (sshow ph)

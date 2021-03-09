@@ -16,6 +16,9 @@
 --
 module Chainweb.Test.SPV.EventProof
 ( properties
+, PactEventDecimal(..)
+, PactEventModRef(..)
+, isSupportedModRef
 ) where
 
 import Control.Monad.Catch
@@ -23,8 +26,12 @@ import Control.Monad.Catch
 import Crypto.Hash.Algorithms
 
 import Data.Bifunctor
+import Data.Decimal
 import Data.MerkleLog
 import qualified Data.Vector as V
+
+import Pact.Types.Info
+import Pact.Types.Term
 
 import Test.QuickCheck
 import Test.Tasty
@@ -52,8 +59,50 @@ properties = testGroup "Chainweb.Test.SPV.EventProof"
         , testProperty "int256_outOfBounds_maxBound" prop_int256_outOfBounds_maxBound
         , testProperty "int256_outOfBounds_minBound" prop_int256_outOfBounds_minBound
         ]
+    , testGroup "decimal"
+        [ testProperty "supportedDecimal" prop_supportedDecimal
+        , testProperty "decimal" prop_decimal
+        ]
     , proof_properties
     ]
+
+-- -------------------------------------------------------------------------- --
+-- Supported Decimals
+
+newtype PactEventDecimal = PactEventDecimal { _getPactEventDecimal :: Decimal }
+    deriving (Show, Eq, Ord)
+
+instance Arbitrary PactEventDecimal where
+    arbitrary = fmap PactEventDecimal $ Decimal
+        <$> choose (0, 18)
+        <*> arbitrary
+
+prop_supportedDecimal :: Decimal -> Property
+prop_supportedDecimal d
+    | isSupportedDecimal d = roundtripped === Right d
+    | otherwise = roundtripped === Left (DecimalOutOfBoundsException d)
+  where
+    Right roundtripped = try $ integerToDecimal <$> decimalToInteger d
+
+prop_decimal :: PactEventDecimal -> Property
+prop_decimal (PactEventDecimal d)
+    = (integerToDecimal <$> decimalToInteger d) === Just d
+
+-- -------------------------------------------------------------------------- --
+-- Pact Event ModRef
+
+newtype PactEventModRef = PactEventModRef { _getPactEventModRef :: ModRef }
+    deriving (Show, Eq, Ord)
+
+instance Arbitrary PactEventModRef where
+    arbitrary = fmap PactEventModRef $ ModRef
+        <$> arbitrary
+        <*> pure Nothing
+        <*> pure (Info Nothing)
+
+isSupportedModRef :: ModRef -> Bool
+isSupportedModRef (ModRef _ Nothing (Info Nothing)) = True
+isSupportedModRef _ = False
 
 -- -------------------------------------------------------------------------- --
 -- Int256
@@ -71,13 +120,13 @@ prop_int256 i = first show (int256 (int256ToInteger i)) === Right i
 
 prop_int256_outOfBounds_maxBound :: Property
 prop_int256_outOfBounds_maxBound =
-    first fromException (int256 x) === Left (Just (OutOfBoundsException x))
+    first fromException (int256 x) === Left (Just (IntegerOutOfBoundsException x))
   where
     x = int256ToInteger maxBound + 1
 
 prop_int256_outOfBounds_minBound :: Property
 prop_int256_outOfBounds_minBound =
-    first fromException (int256 x) === Left (Just (OutOfBoundsException x))
+    first fromException (int256 x) === Left (Just (IntegerOutOfBoundsException x))
   where
     x = int256ToInteger minBound - 1
 
