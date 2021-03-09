@@ -78,12 +78,14 @@ jobs:
             bash \
             cabal \
             g++ \
-            git
+            git \
+            z3
         COPY . /chainweb-node/
         WORKDIR /chainweb-node
         RUN cabal update
         RUN cabal build --only-dependencies
         RUN cabal build
+        RUN ./dist-newstyle/build/x86_64-linux/ghc-8.8.4/chainweb-2.5/build/chainweb-tests/chainweb-tests --hide-successes
         RUN cp ./dist-newstyle/build/x86_64-linux/ghc-8.8.4/chainweb-2.5/build/chainweb-node/chainweb-node .
         RUN strip -s chainweb-node
         RUN cabal freeze
@@ -107,6 +109,8 @@ jobs:
         images: ghcr.io/kadena-io/chainweb-node-scratch
         tag-sha: true
 
+    - name: Set up QEMU
+      uses: docker/setup-qemu-action@v1
     - name: Set up Docker Buildx
       uses: docker/setup-buildx-action@v1
 
