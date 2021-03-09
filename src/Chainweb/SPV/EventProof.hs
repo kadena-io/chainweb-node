@@ -92,6 +92,7 @@ module Chainweb.SPV.EventProof
 , decodeDecimal
 , encodeHash
 , decodeHash
+, expect
 ) where
 
 import Chainweb.Crypto.MerkleLog
