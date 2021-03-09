@@ -82,7 +82,9 @@ prop_supportedDecimal d
     | isSupportedDecimal d = roundtripped === Right d
     | otherwise = roundtripped === Left (DecimalOutOfBoundsException d)
   where
-    Right roundtripped = try $ integerToDecimal <$> decimalToInteger d
+    roundtripped = case try $ integerToDecimal <$> decimalToInteger d of
+        Left e -> error (show e)
+        Right x -> x
 
 prop_decimal :: PactEventDecimal -> Property
 prop_decimal (PactEventDecimal d)
