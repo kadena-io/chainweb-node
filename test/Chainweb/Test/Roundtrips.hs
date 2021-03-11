@@ -46,7 +46,7 @@ import Chainweb.SPV.EventProof
 import Chainweb.SPV.PayloadProof
 import Chainweb.Test.Orphans.Internal (EventPactValue(..))
 import Chainweb.Test.Utils
-import Chainweb.Test.SPV.EventProof
+import Chainweb.Test.SPV.EventProof hiding (tests)
 import Chainweb.Time
 import Chainweb.Utils
 import Chainweb.Version
