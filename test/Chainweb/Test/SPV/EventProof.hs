@@ -2,6 +2,7 @@
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE QuasiQuotes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 
@@ -15,26 +16,38 @@
 -- TODO
 --
 module Chainweb.Test.SPV.EventProof
-( properties
+(
+  tests
+
+-- * Properties
+, properties
 , PactEventDecimal(..)
 , PactEventModRef(..)
 , isSupportedModRef
+
+-- * Test Cases
+, testCases
 ) where
 
 import Control.Monad.Catch
 
 import Crypto.Hash.Algorithms
 
+import Data.Aeson
+import Data.Aeson.QQ.Simple
+import Data.Aeson.Types
 import Data.Bifunctor
 import Data.Decimal
 import Data.MerkleLog
+import qualified Data.Text as T
 import qualified Data.Vector as V
 
 import Pact.Types.Info
-import Pact.Types.Term
+import Pact.Types.Runtime hiding (fromText)
 
 import Test.QuickCheck
 import Test.Tasty
+import Test.Tasty.HUnit
 import Test.Tasty.QuickCheck
 
 -- internal modules
@@ -46,12 +59,22 @@ import Chainweb.SPV.EventProof
 import Chainweb.SPV.OutputProof
 import Chainweb.SPV.PayloadProof
 import Chainweb.Test.Orphans.Internal
+import Chainweb.Utils hiding ((==>))
+
+-- -------------------------------------------------------------------------- --
+-- Tests
+
+tests :: TestTree
+tests =  testGroup "Chainweb.Test.SPV.EventProof"
+    [ properties
+    , testCases
+    ]
 
 -- -------------------------------------------------------------------------- --
 -- Properties
 
 properties :: TestTree
-properties = testGroup "Chainweb.Test.SPV.EventProof"
+properties = testGroup "Properties"
     [ testGroup "int256"
         [ testProperty "int256_maxBound" prop_int256_maxBound
         , testProperty "int256_minBound" prop_int256_minBound
@@ -218,3 +241,57 @@ prop_eventsProof_valid = forAll arbitraryPayloadWithStructuredOutputs go
             (!rootHash, !subject) <- runEventsProof (mkTestEventsProof @a p reqKey)
             events <- getBlockEvents @_ @a p
             return (rootHash, subject, events)
+
+-- -------------------------------------------------------------------------- --
+-- Test Cases
+
+testCases :: TestTree
+testCases = testGroup "Test Cases"
+    [ test0
+    ]
+
+test0 :: TestTree
+test0 = testCase "eventProof_0" $ do
+    proof <- fromValue @_ @(PayloadProof Keccak_256) eventProof_0
+    (root, events) <- runEventsProof proof
+
+    -- Check proof properties
+    assertEqual "proof root equals expected value" expectedRoot root
+    assertEqual "proof subject has correct number of events" expectedEventCount
+        $ V.length (_outputEventsEvents events)
+    assertEqual "proof subject has correct requestKey" expectedReqKey
+        $ _outputEventsRequestKey events
+    assertEqual "event 0 has correct event name" expectedEventName
+        $ _eventName (_outputEventsEvents events V.! 0)
+    assertEqual "event 0 has correct module name" expectedEventModule
+        $ _eventModule (_outputEventsEvents events V.! 0)
+    assertEqual "event 0 has correct module hash" expectedEventModuleHash
+        $ _eventModuleHash (_outputEventsEvents events V.! 0)
+    assertEqual "event 0 has correct number of parameters" expectedParamsCount
+        $ length (_eventParams (_outputEventsEvents events V.! 0))
+  where
+    expectedRoot = fromJuste $ fromText "YjoxLRFXZcxOPRBX3cbDgvYiTriWSzfU4cxvtKDbjek"
+    expectedReqKey = fromJuste $ decode "\"QiX2nIzoq21HoA7Hiq2Rjkx5Nl7jD-l4nUGOjsz8aPA\""
+    expectedEventCount = 4
+    expectedEventName = "TRANSFER"
+    expectedEventModule = ModuleName "kpenny" (Just "kswap")
+    expectedEventModuleHash = fromJuste $ decode "\"2VPgtQUE8OoIVNgNPa_sLVmWXaYac1pZrLwd4t1YwUM\""
+    expectedParamsCount = 3
+
+fromValue :: MonadThrow m => FromJSON a => Value -> m a
+fromValue v = case parseEither parseJSON v of
+    Left e -> throwM $ JsonDecodeException (T.pack e)
+    Right x -> return x
+
+eventProof_0 :: Value
+eventProof_0 = [aesonQQ|
+    {
+      "subject": {
+        "input": "ADAgAAAAQiX2nIzoq21HoA7Hiq2Rjkx5Nl7jD-l4nUGOjsz8aPAEAAAACAAAAFRSQU5TRkVSDAAAAGtzd2FwLmtwZW5ueSAAAADZU-C1BQTw6ghU2A09r-wtWZZdphpzWlmsvB3i3VjBQwMAAAAAQAAAADZmNTJjZTBkMWRmYzJmNzNlY2M4ZjE2MmFkODE1ZWZjMmM5NzY2YWI3NmIxYTQ4YzlhNjc4ZDhjZDc5ZGQ0MDIAKwAAAFRvWXViX1ZoeldHdWVEWVVwODBnVmVWTnZiVGdoaDA4dU9kVUJtMDZkcFkCAABAe6XwY4GWCgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAIAAAAVFJBTlNGRVIJAAAAa3N3YXAueHl6IAAAAP3AV3e1ornnygmVlZcEYY61dPGffrku_zZpklQUCx75AwAAAABAAAAANmY1MmNlMGQxZGZjMmY3M2VjYzhmMTYyYWQ4MTVlZmMyYzk3NjZhYjc2YjFhNDhjOWE2NzhkOGNkNzlkZDQwMgArAAAAVG9ZdWJfVmh6V0d1ZURZVXA4MGdWZVZOdmJUZ2hoMDh1T2RVQm0wNmRwWQKAZ5fVFxAj49sAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQAAABNSU5UDAAAAGtzd2FwLnRva2VucyAAAAB6vJFqfTyW0fbYYSu1VSkKPDE8a-VkGeN67sH_V9xlJwMAAAAAFgAAAGtzd2FwLmtwZW5ueTprc3dhcC54eXoAQAAAADZmNTJjZTBkMWRmYzJmNzNlY2M4ZjE2MmFkODE1ZWZjMmM5NzY2YWI3NmIxYTQ4YzlhNjc4ZDhjZDc5ZGQ0MDICgOV-ibaj994DAwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAGAAAAVVBEQVRFDgAAAGtzd2FwLmV4Y2hhbmdlIAAAACvNLqkjDRI58v4xbqbQJN-YFuqwTim7Mq2x9LUm_ZJFAwAAAAAWAAAAa3N3YXAua3Blbm55Omtzd2FwLnh5egJw0jUOpI8jq0lWwksAAAAAAAAAAAAAAAAAAAAAAAAAAAKgAuLs2Q3nkQNZJQYAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+      },
+      "algorithm": "Keccak_256",
+      "object": "AAAAAAAAAAAAAAAA",
+      "rootType": "blockEvents"
+    }
+|]
+

@@ -127,7 +127,7 @@ import Numeric.Natural
 import Pact.Types.Command
 import Pact.Types.PactValue
 import Pact.Types.Pretty
-import Pact.Types.Runtime
+import Pact.Types.Runtime hiding (fromText)
 
 -- internal modules
 
@@ -262,7 +262,6 @@ int256Hex x@(Int256 i)
 
 -- -------------------------------------------------------------------------- --
 -- Pact Event Encoding
---
 
 encodePactEvent :: MonadPut m => PactEvent -> m ()
 encodePactEvent e = do
@@ -411,6 +410,10 @@ newtype BlockEventsHash_ a = BlockEventsHash (MerkleLogHash a)
     deriving anyclass (NFData)
     deriving newtype (BA.ByteArrayAccess)
     deriving newtype (Hashable, ToJSON, FromJSON)
+
+instance MerkleHashAlgorithm a => HasTextRepresentation (BlockEventsHash_ a) where
+    toText (BlockEventsHash h) = toText h
+    fromText t = BlockEventsHash <$> fromText t
 
 encodeBlockEventsHash :: MonadPut m => BlockEventsHash_ a -> m ()
 encodeBlockEventsHash (BlockEventsHash w) = encodeMerkleLogHash w
