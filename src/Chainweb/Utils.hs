@@ -190,6 +190,7 @@ module Chainweb.Utils
 -- * TLS Manager with connection timeout settings
 , manager
 , unsafeManager
+, unsafeManagerWithSettings
 , setManagerRequestTimeout
 
 -- * SockAddr from network package
@@ -1264,6 +1265,11 @@ manager micros = HTTP.newManager
 unsafeManager :: Int -> IO HTTP.Manager
 unsafeManager micros = HTTP.newTlsManagerWith
     $ setManagerRequestTimeout micros
+    $ HTTP.mkManagerSettings (HTTP.TLSSettingsSimple True True True) Nothing
+
+unsafeManagerWithSettings :: (HTTP.ManagerSettings -> HTTP.ManagerSettings) -> IO HTTP.Manager
+unsafeManagerWithSettings settings = HTTP.newTlsManagerWith
+    $ settings
     $ HTTP.mkManagerSettings (HTTP.TLSSettingsSimple True True True) Nothing
 
 setManagerRequestTimeout :: Int -> HTTP.ManagerSettings -> HTTP.ManagerSettings
