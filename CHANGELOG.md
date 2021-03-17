@@ -8,6 +8,14 @@ before that date.
 
 This version will stop working on **2021-05-06T00:00:00Z**.
 
+Changes:
+
+*   Increase default listen timeout to 3 minutes (#1208)
+*   Additional verification for coin contract (#1200)
+
+Additional changes support the build of fully statically linked binaries that
+can be used with Alpine Linux.
+
 ## 2.5 (2021-02-17)
 
 This version replaces all previous versions. Any prior version will stop working
