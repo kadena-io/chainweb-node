@@ -38,7 +38,7 @@ module Chainweb.NodeVersion
 ) where
 
 import Control.DeepSeq
-import Control.Lens
+import Control.Lens hiding ((.=))
 import Control.Monad
 import Control.Monad.Catch
 
@@ -188,10 +188,17 @@ remoteNodeInfoHostname :: Lens' RemoteNodeInfo Hostname
 remoteNodeInfoHostname = remoteNodeInfoAddr . hostAddressHost
 {-# INLINE remoteNodeInfoHostname #-}
 
+instance ToJSON RemoteNodeInfo where
+    toJSON x = object
+        [ "version" .= _remoteNodeInfoVersion x
+        , "timestamp" .= _remoteNodeInfoVersion x
+        , "hostaddress" .= _remoteNodeInfoAddr x
+        ]
+
 -- | Request NodeInfos from a remote chainweb node.
 --
 -- This function throws 'NodeInfoUnsupported' for remote chainweb nodes
--- with a node version smaller or equal 2.3.
+-- with a node version smaller or equal 2.5.
 --
 -- No retries are attempted in case of a failure.
 --
@@ -214,7 +221,7 @@ requestRemoteNodeInfo mgr ver addr maybeReq =
 -- | Obtain 'NodeInfo' of a remote Chainweb node from response headers.
 --
 -- This function throws 'NodeInfoUnsupported' for remote chainweb nodes
--- with a node version smaller or equal 2.3.1.
+-- with a node version smaller or equal 2.5.
 --
 -- No retries are attempted in case of a failure.
 --
@@ -230,7 +237,7 @@ getRemoteNodeInfo addr hdrs = do
         Just x -> hdrFromText x
 
     -- can be removed once all nodes run version 2.4 or larger
-    unless (vers >= NodeVersion [2,3,1]) $ throwM $ NodeInfoUnsupported addr vers
+    unless (vers >= NodeVersion [2,5]) $ throwM $ NodeInfoUnsupported addr vers
 
     RemoteNodeInfo vers
         <$> case lookup serverTimestampHeaderName hdrs of

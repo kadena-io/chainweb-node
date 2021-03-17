@@ -6,7 +6,7 @@ build:
 
 extra-deps:
   # --- Missing from Stackage --- #
-  - configuration-tools-0.5.0
+  - configuration-tools-0.6.0
   - digraph-0.2
   - fake-0.1.1.3
   - ixset-typed-0.5
@@ -19,7 +19,6 @@ extra-deps:
   - streaming-with-0.2.2.1
   - strict-tuple-0.1.3
   - tasty-json-0.1.0.0
-  - these-skinny-0.7.4
   - token-bucket-0.1.0.1
   - wai-middleware-throttle-0.3.0.1
   - yet-another-logger-0.4.0
@@ -45,3 +44,6 @@ extra-deps:
     commit: 07e7eb7596c7105aee42dbdb6edd10e3f23c0d7e
   - github: kadena-io/rosetta
     commit: 1d69bb4ec46c001f2b501121e6c93e83ac60162b
+  - github: kadena-io/kadena-ethereum-bridge
+    commit: 9838d1266b9ee43c88af6c01cd819e0c96b685e6
+

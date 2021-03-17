@@ -15,7 +15,9 @@
 --
 module Chainweb.Payload.RestAPI.Client
 ( payloadClient
+, payloadBatchClient
 , outputsClient
+, outputsBatchClient
 ) where
 
 import Control.Monad.Identity
@@ -55,6 +57,30 @@ payloadClient v c k = runIdentity $ do
     return $ payloadClient_ @v @c k
 
 -- -------------------------------------------------------------------------- --
+-- Post Payload Batch Client
+
+payloadBatchClient_
+    :: forall (v :: ChainwebVersionT) (c :: ChainIdT)
+    . KnownChainwebVersionSymbol v
+    => KnownChainIdSymbol c
+    => [BlockPayloadHash]
+    -> ClientM [PayloadData]
+payloadBatchClient_ = client (payloadPostApi @v @c)
+
+-- The query may return any number (including none) of the requested payload
+-- data. Results are returned in any order.
+--
+payloadBatchClient
+    :: ChainwebVersion
+    -> ChainId
+    -> [BlockPayloadHash]
+    -> ClientM [PayloadData]
+payloadBatchClient v c k = runIdentity $ do
+    SomeChainwebVersionT (_ :: Proxy v) <- return $ someChainwebVersionVal v
+    SomeChainIdT (_ :: Proxy c) <- return $ someChainIdVal c
+    return $ payloadBatchClient_ @v @c k
+
+-- -------------------------------------------------------------------------- --
 -- GET Outputs Client
 
 outputsClient_
@@ -74,3 +100,24 @@ outputsClient v c k = runIdentity $ do
     SomeChainwebVersionT (_ :: Proxy v) <- return $ someChainwebVersionVal v
     SomeChainIdT (_ :: Proxy c) <- return $ someChainIdVal c
     return $ outputsClient_ @v @c k
+
+-- -------------------------------------------------------------------------- --
+-- POST Outputs Batch Client
+
+outputsBatchClient_
+    :: forall (v :: ChainwebVersionT) (c :: ChainIdT)
+    . KnownChainwebVersionSymbol v
+    => KnownChainIdSymbol c
+    => [BlockPayloadHash]
+    -> ClientM [PayloadWithOutputs]
+outputsBatchClient_ = client (outputsPostApi @v @c)
+
+outputsBatchClient
+    :: ChainwebVersion
+    -> ChainId
+    -> [BlockPayloadHash]
+    -> ClientM [PayloadWithOutputs]
+outputsBatchClient v c k = runIdentity $ do
+    SomeChainwebVersionT (_ :: Proxy v) <- return $ someChainwebVersionVal v
+    SomeChainIdT (_ :: Proxy c) <- return $ someChainIdVal c
+    return $ outputsBatchClient_ @v @c k

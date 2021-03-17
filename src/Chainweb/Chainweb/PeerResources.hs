@@ -2,6 +2,8 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE PolyKinds #-}
 {-# LANGUAGE TemplateHaskell #-}
@@ -46,13 +48,17 @@ import Control.Monad
 import Control.Monad.Catch
 
 import qualified Data.ByteString.Char8 as B8
+import Data.Either
 import qualified Data.HashSet as HS
 import Data.IxSet.Typed (getEQ, getOne)
+import qualified Data.List as L
+import Data.Maybe
+import qualified Data.Text as T
 
 import GHC.Generics
 
 import qualified Network.HTTP.Client as HTTP
-import Network.Socket (Socket, close)
+import Network.Socket (Socket)
 import Network.Wai.Handler.Warp (Settings, defaultSettings, setHost, setPort)
 
 import Prelude hiding (log)
@@ -64,6 +70,7 @@ import System.LogLevel
 import Chainweb.Counter
 import Chainweb.HostAddress
 import Chainweb.Logger
+import Chainweb.NodeVersion
 import Chainweb.RestAPI.NetworkID
 import Chainweb.RestAPI.Utils
 import Chainweb.Utils
@@ -114,10 +121,10 @@ withPeerResources
     -> logger
     -> (logger -> PeerResources logger -> IO a)
     -> IO a
-withPeerResources v conf logger inner = withSocket conf $ \(conf', sock) -> do
+withPeerResources v conf logger inner = withPeerSocket conf $ \(conf', sock) -> do
     withPeerDb_ v conf' $ \peerDb -> do
         (!mgr, !counter) <- connectionManger peerDb
-        withHost conf' $ \conf'' -> do
+        withHost mgr v conf' logger $ \conf'' -> do
 
             peer <- unsafeCreatePeer $ _p2pConfigPeer conf''
 
@@ -144,58 +151,86 @@ peerServerSettings peer
 -- configured hostname is used and it is verified that it can be used by peers
 -- to connect to the node.
 --
--- TODO: add logging
+-- NOTE: This function raises an user error if it fails to detect the host of
+-- the node.
 --
-withHost :: P2pConfiguration -> (P2pConfiguration -> IO a) -> IO a
-withHost conf f
-    | anyIpv4 == _peerConfigHost (_p2pConfigPeer conf) = do
-        h <- getHost (_p2pConfigKnownPeers conf)
+-- TODO:
+-- - add logging
+-- - get all remote node infos
+-- - check reachablility
+-- - check connectivity
+-- - get remote peer addr
+-- - check remote peer addr
+--
+withHost
+    :: Logger logger
+    => HTTP.Manager
+    -> ChainwebVersion
+    -> P2pConfiguration
+    -> logger
+    -> (P2pConfiguration -> IO a)
+    -> IO a
+withHost mgr v conf logger f
+    | anyIpv4 == confHost = do
+        h <- getHost mgr v logger (_p2pConfigKnownPeers conf) >>= \case
+            Right x -> return x
+            Left e -> error $ "withHost failed: " <> T.unpack e
         f (set (p2pConfigPeer . peerConfigHost) h conf)
     | otherwise = do
-        h <- getHost (_p2pConfigKnownPeers conf)
+        getHost mgr v logger (_p2pConfigKnownPeers conf) >>= \case
+            Left e -> logFunctionText logger Warn
+                $ "Failed to verify configured host " <> toText confHost
+                <> ": " <> e
+            Right h
+                | h /= confHost -> logFunctionText logger Warn
+                    $ "Configured host " <> toText confHost
+                    <> " does not match the actual host "
+                    <> toText h <> " of the node. Expected"
+                | otherwise -> return ()
         f conf
+  where
+    confHost = _peerConfigHost (_p2pConfigPeer conf)
 
-getHost :: HTTP.Manager -> ChainwebVersion -> [PeerInfo] -> IO Hostname
-getHost mgr ver peers = do
-    nis <- forM peers tryAllSynchronous (requestRemoteNodeInfo mgr ver Nothing)
+getHost
+    :: Logger logger
+    => HTTP.Manager
+    -> ChainwebVersion
+    -> logger
+    -> [PeerInfo]
+    -> IO (Either T.Text Hostname)
+getHost mgr ver logger peers = do
+    nis <- forConcurrently peers $ \p ->
+        tryAllSynchronous (requestRemoteNodeInfo mgr ver (_peerAddr p) Nothing) >>= \case
+            Right x -> Just x <$ do
+                logFunctionText logger Info
+                    $ "got remote info for " <> toText (_peerAddr p)
+                    <> ": " <> encodeToText x
+            Left e -> Nothing <$ do
+                logFunctionText logger Warn
+                    $ "failed to get remote info for " <> toText (_peerAddr p)
+                    <> ": " <> sshow e
 
-    hostnames = L.nub $ L.sort $ view remoteNodeInfoHostname <$> nis
-
-    if
-        | length hostnames >= 1 = error "failed to identify a unique IP"
-        | length hostnames < 1 = error "failed to identify external IP address"
-        | otherwise = error "TODO"
-
-    return ()
-
-    -- get all remote node infos
-    -- - check reachablility
-    -- - check connectivity
-    -- - get remote peer addr
-    -- - check remote peer addr
+    let hostnames = L.nub $ L.sort $ view remoteNodeInfoHostname <$> catMaybes nis
+    return $! case hostnames of
+        [x] -> Right x
+        [] -> Left $! "failed to identify external IP address. Attempt to request IP address returned no result."
+        l -> Left $! "failed to identify external IP. Expected a unique IP address but got " <> sshow l
 
 -- -------------------------------------------------------------------------- --
 -- Allocate Socket
 
-allocateSocket :: P2pConfiguration -> IO (P2pConfiguration, Socket)
-allocateSocket conf = do
-    (!p, !sock) <- bindPortTcp
-        (_peerConfigPort $ _p2pConfigPeer conf)
-        (_peerConfigInterface $ _p2pConfigPeer conf)
-    let !conf' = set (p2pConfigPeer . peerConfigPort) p conf
-    return (conf', sock)
-
-deallocateSocket :: (P2pConfiguration, Socket) -> IO ()
-deallocateSocket (_, sock) = close sock
-
-withSocket :: P2pConfiguration -> ((P2pConfiguration, Socket) -> IO a) -> IO a
-withSocket conf = bracket (allocateSocket conf) deallocateSocket
+withPeerSocket :: P2pConfiguration -> ((P2pConfiguration, Socket) -> IO a) -> IO a
+withPeerSocket conf act = withSocket port interface $ \(p, s) ->
+        act (set (p2pConfigPeer . peerConfigPort) p conf, s)
+  where
+    port = _peerConfigPort $ _p2pConfigPeer conf
+    interface = _peerConfigInterface $ _p2pConfigPeer conf
 
 -- -------------------------------------------------------------------------- --
 -- Run PeerDb for a Chainweb Version
 
 startPeerDb_ :: ChainwebVersion -> P2pConfiguration -> IO PeerDb
-startPeerDb_ v conf = startPeerDb nids conf
+startPeerDb_ v = startPeerDb nids
   where
     nids = HS.singleton CutNetwork
         `HS.union` HS.map MempoolNetwork cids

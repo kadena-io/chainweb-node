@@ -111,6 +111,7 @@ module Chainweb.Test.Utils
 , genEnum
 
 -- * Multi-node testing utils
+, ChainwebNetwork(..)
 , withNodes
 , withNodes_
 , runTestNodes
@@ -193,7 +194,6 @@ import Chainweb.BlockWeight
 import Chainweb.ChainId
 import Chainweb.Chainweb
 import Chainweb.Chainweb.ChainResources
-import Chainweb.Chainweb.MinerResources (MiningCoordination)
 import Chainweb.Chainweb.PeerResources
 import Chainweb.Crypto.MerkleLog hiding (header)
 import Chainweb.CutDB
@@ -220,8 +220,8 @@ import Data.CAS.RocksDB
 
 import Network.X509.SelfSigned
 
-import qualified P2P.Node.PeerDB as P2P
 import P2P.Node.Configuration
+import qualified P2P.Node.PeerDB as P2P
 import P2P.Peer
 
 -- -------------------------------------------------------------------------- --
@@ -511,19 +511,18 @@ starBlockHeaderDbs n genDbs = do
 -- | Spawn a server that acts as a peer node for the purpose of querying / syncing.
 --
 withChainServer
-    :: forall t cas logger a
+    :: forall t cas a
     .  Show t
     => ToJSON t
     => FromJSON t
     => PayloadCasLookup cas
-    => Logger logger
-    => ChainwebServerDbs t logger cas
+    => ChainwebServerDbs t cas
     -> (ClientEnv -> IO a)
     -> IO a
 withChainServer dbs f = W.testWithApplication (pure app) work
   where
     app :: W.Application
-    app = chainwebApplication (Test singletonChainGraph) dbs Nothing (HeaderStream False) (Rosetta False)
+    app = chainwebApplication (Test singletonChainGraph) dbs
 
     work :: Int -> IO a
     work port = do
@@ -651,21 +650,14 @@ clientEnvWithChainwebTestServer
     => PayloadCasLookup cas
     => Bool
     -> ChainwebVersion
-    -> IO (ChainwebServerDbs t GenericLogger cas)
+    -> IO (ChainwebServerDbs t cas)
     -> (IO (TestClientEnv t cas) -> TestTree)
     -> TestTree
 clientEnvWithChainwebTestServer tls v dbsIO =
     withChainwebTestServer tls v mkApp mkEnv
   where
-    miningRes :: Maybe (MiningCoordination GenericLogger cas)
-    miningRes = Nothing
-
     mkApp :: IO W.Application
-    mkApp = chainwebApplication v
-        <$> dbsIO
-        <*> pure miningRes
-        <*> pure (HeaderStream False)
-        <*> pure (Rosetta False)
+    mkApp = chainwebApplication v <$> dbsIO
 
     mkEnv :: Int -> IO (TestClientEnv t cas)
     mkEnv port = do
@@ -947,6 +939,11 @@ matchTest pat = withArgs ["-p",pat]
 -- ------------------------------------------------------------------------ --
 -- Multi-node network utils
 
+data ChainwebNetwork = ChainwebNetwork
+    { _getClientEnv :: !ClientEnv
+    , _getServiceClientEnv :: !ClientEnv
+    }
+
 withNodes_
     :: Logger logger
     => logger
@@ -954,23 +951,24 @@ withNodes_
     -> B.ByteString
     -> RocksDb
     -> Natural
-    -> (IO ClientEnv -> TestTree)
+    -> (IO ChainwebNetwork -> TestTree)
     -> TestTree
 withNodes_ logger v label rdb n f = withResource start
     (cancel . fst)
-    (f . fmap snd)
+    (f . fmap (uncurry ChainwebNetwork . snd))
   where
-    start :: IO (Async (), ClientEnv)
+    start :: IO (Async (), (ClientEnv, ClientEnv))
     start = do
         peerInfoVar <- newEmptyMVar
         a <- async $ runTestNodes label rdb logger v n peerInfoVar
-        i <- readMVar peerInfoVar
-        cwEnv <- getClientEnv $ getCwBaseUrl $ _hostAddressPort $ _peerAddr i
-        return (a, cwEnv)
+        (i, servicePort) <- readMVar peerInfoVar
+        cwEnv <- getClientEnv $ getCwBaseUrl Https $ _hostAddressPort $ _peerAddr i
+        cwServiceEnv <- getClientEnv $ getCwBaseUrl Http servicePort
+        return (a, (cwEnv, cwServiceEnv))
 
-    getCwBaseUrl :: Port -> BaseUrl
-    getCwBaseUrl p = BaseUrl
-        { baseUrlScheme = Https
+    getCwBaseUrl :: Scheme -> Port -> BaseUrl
+    getCwBaseUrl prot p = BaseUrl
+        { baseUrlScheme = prot
         , baseUrlHost = "127.0.0.1"
         , baseUrlPort = fromIntegral p
         , baseUrlPath = ""
@@ -981,7 +979,7 @@ withNodes
     -> B.ByteString
     -> RocksDb
     -> Natural
-    -> (IO ClientEnv -> TestTree)
+    -> (IO ChainwebNetwork -> TestTree)
     -> TestTree
 withNodes = withNodes_ (genericLogger Warn print)
 
@@ -992,7 +990,7 @@ runTestNodes
     -> logger
     -> ChainwebVersion
     -> Natural
-    -> MVar PeerInfo
+    -> MVar (PeerInfo, Port)
     -> IO ()
 runTestNodes label rdb logger ver n portMVar =
     forConcurrently_ [0 .. int n - 1] $ \i -> do
@@ -1002,7 +1000,7 @@ runTestNodes label rdb logger ver n portMVar =
             | i == 0 ->
                 return $ bootstrapConfig baseConf
             | otherwise ->
-                setBootstrapPeerInfo <$> readMVar portMVar <*> pure baseConf
+                setBootstrapPeerInfo <$> (fst <$> readMVar portMVar) <*> pure baseConf
         node label rdb logger portMVar conf i
 
 node
@@ -1010,7 +1008,7 @@ node
     => B.ByteString
     -> RocksDb
     -> logger
-    -> MVar PeerInfo
+    -> MVar (PeerInfo, Port)
     -> ChainwebConfiguration
     -> Int
         -- ^ Unique Node Id. The node id 0 is used for the bootstrap node
@@ -1020,8 +1018,10 @@ node label rdb rawLogger peerInfoVar conf nid = do
     Extra.withTempDir $ \dir -> withChainweb conf logger rocksDb dir False $ \cw -> do
 
         -- If this is the bootstrap node we extract the port number and publish via an MVar.
-        when (nid == 0) $
-            putMVar peerInfoVar $! view (chainwebPeer . peerResPeer . peerInfo) cw
+        when (nid == 0) $ do
+            let bootStrapInfo = view (chainwebPeer . peerResPeer . peerInfo) cw
+                bootStrapPort = view (chainwebServiceSocket . _1) cw
+            putMVar peerInfoVar (bootStrapInfo, bootStrapPort)
 
         poisonDeadBeef cw
         runChainweb cw `finally` do
@@ -1056,6 +1056,8 @@ config ver n = defaultChainwebConfiguration ver
     & set (configTransactionIndex . enableConfigEnabled) True
     & set configBlockGasLimit 1_000_000
     & set configRosetta True
+    & set (configServiceApi . serviceApiConfigPort) 0
+    & set (configServiceApi . serviceApiConfigInterface) interface
   where
     miner = NodeMiningConfig
         { _nodeMiningEnabled = True

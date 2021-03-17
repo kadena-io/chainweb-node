@@ -370,7 +370,7 @@ pPeerConfig service = id
     <$< peerConfigAddr %:: pHostAddress service
     <*< peerConfigInterface .:: textOption
         % prefixLong service "interface"
-        <> suffixHelp service "interface that the Rest API binds to (see HostPreference documentation for details)"
+        <> suffixHelp service ("interface that the " <> fromMaybe "" service <> "  Rest API binds to (see HostPreference documentation for details)")
     <*< peerConfigCertificateChain .:: fmap Just % pX509CertChainPem service
     <*< peerConfigCertificateChainFile .:: fmap Just % fileOption
         % prefixLong service "certificate-chain-file"
