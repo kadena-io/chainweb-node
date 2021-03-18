@@ -102,8 +102,8 @@ jobs:
         RUN cabal update
         RUN cabal build --only-dependencies
         RUN cabal build
-        RUN ./dist-newstyle/build/x86_64-linux/ghc-8.8.4/chainweb-2.5/build/chainweb-tests/chainweb-tests --hide-successes
-        RUN cp ./dist-newstyle/build/x86_64-linux/ghc-8.8.4/chainweb-2.5/build/chainweb-node/chainweb-node .
+        RUN cabal run chainweb-tests -- --hide-successes
+        RUN cp ./dist-newstyle/build/x86_64-linux/ghc-8.8.4/chainweb-*/build/chainweb-node/chainweb-node .
         RUN strip -s chainweb-node
         RUN cabal freeze
 
