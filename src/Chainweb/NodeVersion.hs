@@ -191,7 +191,7 @@ remoteNodeInfoHostname = remoteNodeInfoAddr . hostAddressHost
 instance ToJSON RemoteNodeInfo where
     toJSON x = object
         [ "version" .= _remoteNodeInfoVersion x
-        , "timestamp" .= _remoteNodeInfoVersion x
+        , "timestamp" .= _remoteNodeInfoTimestamp x
         , "hostaddress" .= _remoteNodeInfoAddr x
         ]
 
