@@ -212,7 +212,7 @@ peerInfoToText pinf
 peerInfoFromText :: MonadThrow m => T.Text -> m PeerInfo
 peerInfoFromText = parseM $ PeerInfo <$> parsePeerId <*> parseAddr
   where
-    parsePeerId = Just <$> parseText (A.takeTill (== '@') <* "@") <|> pure Nothing
+    parsePeerId = optional $ parseText (A.takeTill (== '@') <* "@")
     parseAddr = parseText A.takeText
 
 peerInfoPort :: Lens' PeerInfo Port
@@ -254,6 +254,7 @@ peerInfoClientEnv mgr = mkClientEnv mgr . peerBaseUrl . _peerAddr
         (B8.unpack . hostnameBytes $ view hostAddressHost a)
         (int $ view hostAddressPort a)
         ""
+
 -- -------------------------------------------------------------------------- --
 -- Peer Configuration
 
@@ -417,7 +418,7 @@ getPeerCertificate conf = do
         (Nothing, _) -> do
             (!fp, !c, !k) <- generateSelfSignedCertificate @DefCertType 365 dn Nothing
             return (fp, X509CertChainPem c [], k)
-        (Just !c@(X509CertChainPem !a _), (Just !k)) ->
+        (Just c@(X509CertChainPem !a _), Just !k) ->
             return (unsafeFingerprintPem a, c, k)
         _ -> throwM $ ConfigurationException "missing certificate key in peer config"
   where

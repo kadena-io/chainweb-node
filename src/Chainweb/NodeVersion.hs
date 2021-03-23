@@ -152,7 +152,12 @@ cutReq ver addr = HTTP.defaultRequest
     , HTTP.secure = True
     , HTTP.host = hostnameBytes (_hostAddressHost addr)
     , HTTP.port = int (_hostAddressPort addr)
-    , HTTP.path = "/chainweb/0.0/" <> sshow ver <> "/cut"
+    , HTTP.path = T.encodeUtf8 $ T.intercalate "/"
+        [ "/chainweb"
+        , prettyApiVersion
+        , sshow ver
+        , "cut"
+        ]
     , HTTP.responseTimeout = HTTP.responseTimeoutMicro requestTimeoutMicros
     , HTTP.checkResponse = HTTP.throwErrorStatusCodes
     , HTTP.requestHeaders = [chainwebNodeVersionHeader]

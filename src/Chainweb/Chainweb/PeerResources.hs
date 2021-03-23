@@ -61,7 +61,11 @@ import qualified Network.HTTP.Client as HTTP
 import Network.Socket (Socket)
 import Network.Wai.Handler.Warp (Settings, defaultSettings, setHost, setPort)
 
+import Numeric.Natural
+
 import Prelude hiding (log)
+
+import Servant.Client
 
 import System.LogLevel
 
@@ -81,7 +85,16 @@ import Network.X509.SelfSigned
 import P2P.Node
 import P2P.Node.Configuration
 import P2P.Node.PeerDB
+import P2P.Node.RestAPI.Client
 import P2P.Peer
+
+-- -------------------------------------------------------------------------- --
+-- Exceptions
+
+data ReachabilityException = ReachabilityException !(Expected Natural) !(Actual Natural)
+    deriving (Show, Eq, Ord)
+
+instance Exception ReachabilityException
 
 -- -------------------------------------------------------------------------- --
 -- Allocate Peer Resources
@@ -135,8 +148,59 @@ withPeerResources v conf logger inner = withPeerSocket conf $ \(conf', sock) -> 
                         logger
                 mgrLogger = setComponent "connection-manager" logger'
 
-            withConnectionLogger mgrLogger counter $
+            withConnectionLogger mgrLogger counter $ do
+
+                -- check that this node is reachable:
+                let peers = _p2pConfigKnownPeers conf
+                checkReachability mgr v logger' peers
+                    (_peerInfo peer)
+                    (_p2pConfigBootstrapReachability conf'')
+
                 inner logger' (PeerResources conf'' peer sock peerDb mgr logger')
+
+checkReachability
+    :: Logger logger
+    => HTTP.Manager
+    -> ChainwebVersion
+    -> logger
+    -> [PeerInfo]
+    -> PeerInfo
+    -> Double
+    -> IO ()
+checkReachability mgr v logger peers pinf threshold = do
+    nis <- forConcurrently peers $ \p ->
+        tryAllSynchronous (run p) >>= \case
+            Right _ -> True <$ do
+                logg Info $ "reachable from " <> toText (_peerAddr p)
+            Left e -> False <$ do
+                logg Warn $ "failed to be reachabled from " <> toText (_peerAddr p)
+                    <> ": " <> sshow e
+
+    let c = length $ filter id nis
+        required = ceiling (int (length peers) * threshold)
+    if c < required
+      then do
+        logg Info $ "Only "
+            <> sshow c <> " out of "
+            <> sshow (length peers) <> " bootstrap peers are reachable."
+            <> "Required number of reachable bootstrap nodes: " <> sshow required
+        throwM $ ReachabilityException (Expected $ int required) (Actual $ int c)
+      else do
+        logg Info $ sshow c <> " out of "
+            <> sshow (length peers) <> " peers are reachable"
+    return ()
+  where
+    logg = logFunctionText logger
+
+    run peer = runClientM
+        (peerPutClient v CutNetwork pinf)
+        (peerInfoClientEnv mgr peer)
+
+-- peerPutClient
+--     :: ChainwebVersion
+--     -> NetworkId
+--     -> PeerInfo
+--     -> ClientM NoContent
 
 peerServerSettings :: Peer -> Settings
 peerServerSettings peer
@@ -153,14 +217,6 @@ peerServerSettings peer
 --
 -- NOTE: This function raises an user error if it fails to detect the host of
 -- the node.
---
--- TODO:
--- - add logging
--- - get all remote node infos
--- - check reachablility
--- - check connectivity
--- - get remote peer addr
--- - check remote peer addr
 --
 withHost
     :: Logger logger
@@ -203,11 +259,11 @@ getHost mgr ver logger peers = do
         tryAllSynchronous (requestRemoteNodeInfo mgr ver (_peerAddr p) Nothing) >>= \case
             Right x -> Just x <$ do
                 logFunctionText logger Info
-                    $ "got remote info for " <> toText (_peerAddr p)
+                    $ "got remote info from " <> toText (_peerAddr p)
                     <> ": " <> encodeToText x
             Left e -> Nothing <$ do
                 logFunctionText logger Warn
-                    $ "failed to get remote info for " <> toText (_peerAddr p)
+                    $ "failed to get remote info from " <> toText (_peerAddr p)
                     <> ": " <> sshow e
 
     let hostnames = L.nub $ L.sort $ view remoteNodeInfoHostname <$> catMaybes nis
@@ -309,7 +365,7 @@ withConnectionLogger
     -> IO a
     -> IO a
 withConnectionLogger logger counter inner =
-    withAsyncWithUnmask runLogClientConnections $ \_ -> inner
+    withAsyncWithUnmask runLogClientConnections $ const inner
   where
     logClientConnections = forever $ do
         approximateThreadDelay 60000000 {- 1 minute -}
