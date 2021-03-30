@@ -36,7 +36,7 @@ jobs:
     - name: Git revision infos
       id: git-info
       run: |
-        echo "::set-output name=git-sha-short::$(git rev-parse --short HEAD || true)"
+        echo "::set-output name=git-sha-short::${GITHUB_SHA:0:7}"
         echo "::set-output name=is-release::${{ contains(github.event_name, 'release') }}"
         echo "::set-output name=git-ref-short::${GITHUB_REF#refs/heads/}"
     - name: Set optimization level and binary stripping
@@ -54,7 +54,7 @@ jobs:
       run: |
         MATRIX="$(jq -c '.' <<EOF
         {
-          "ghc": ["8.6.5", "8.8.4", "8.10.2"],
+          "ghc": ["8.6.5", "8.8.4", "8.10.3"],
           "cabal": ["3.2.0.0"],
           "os": ["ubuntu-16.04", "ubuntu-18.04", "ubuntu-20.04", "macOS-latest"],
           "cabalcache": ["true"],
@@ -113,7 +113,7 @@ jobs:
     - name: Checkout repository
       uses: actions/checkout@v2
     - name: Install GHC and Cabal
-      uses: actions/setup-haskell@v1
+      uses: haskell/actions/setup@v1
       with:
          ghc-version: ${{ matrix.ghc }}
          cabal-version: ${{ matrix.cabal }}
@@ -152,8 +152,6 @@ jobs:
         cat >> cabal.project.local <<EOF
         allow-newer:
           pact:*
-          tocken-bucket:*
-          servant-swagger:*
         constraints:
           base16-bytestring <1.0
     - uses: actions/cache@v2
@@ -477,8 +475,108 @@ jobs:
           {
             "ref": "${{ github.ref }}",
             "sha": "${{ github.sha }}",
-            "ghc_version": '8.10.2',
+            "ghc_version": '8.10.3',
             "version": "${{ needs.config.outputs.git-short-ref }}",
             "os": "ubuntu-20.04"
             "chainweb_version": "mainnet01"
           }
+
+  # ########################################################################## #
+  # Build and publish docker image
+
+  docker-image:
+    name: Build and publish docker image
+    needs: [config, build]
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # TODO when adding more than one build, use a different package name or
+        # different tags
+        ghcVersion: ["8.10.3"]
+        ubuntuVersion: ["20.04"]
+    env:
+      GHC_VERSION: ${{ matrix.ghcVersion }}
+      UBUNTU_VERSION: ${{ matrix.ubuntuVersion }}
+
+    steps:
+    - name: Setup Enviornment
+      run: |
+        OS=ubuntu-${UBUNTU_VERSION}
+        COMPILER=ghc-${GHC_VERSION}
+        ARTIFACTS_NAME=chainweb-applications.${GHC_VERSION}.${OS}
+        ARTIFACTS_ARCHIVE=chainweb.${GHC_VERSION}.${OS}.${GITHUB_SHA:0:7}.tar.gz
+
+        echo "OS=$OS" >> $GITHUB_ENV
+        echo "COMPILER=$COMPILER" >> $GITHUB_ENV
+        echo "ARTIFACTS_NAME=$ARTIFACTS_NAME" >> $GITHUB_ENV
+        echo "ARTIFACTS_ARCHIVE=$ARTIFACTS_ARCHIVE" >> $GITHUB_ENV
+
+    - name: Get build artifacts
+      uses: actions/download-artifact@v2
+      with:
+        name: ${{ env.ARTIFACTS_NAME }}
+        path: .
+
+    - name: Extract and strip artifacts
+      run: |
+        tar -xzf "$ARTIFACTS_ARCHIVE"
+        strip chainweb/chainweb-node
+
+    - name: Create Dockerfile
+      run: |
+        cat > Dockerfile <<EOF
+        FROM ubuntu:${UBUNTU_VERSION}
+        LABEL ghc="${GHC_VERSION}"
+        LABEL ubuntu="${UBUNTU_VERSION}"
+        RUN apt-get update && apt-get install -y librocksdb-dev ca-certificates && rm -rf /var/lib/apt/lists/*
+        WORKDIR /chainweb
+        COPY chainweb/chainweb-node .
+        COPY chainweb/LICENSE .
+        COPY chainweb/README.md .
+        COPY chainweb/CHANGELOG.md .
+        COPY chainweb/chainweb.cabal .
+        COPY chainweb/cabal.project .
+        COPY chainweb/cabal.project.local .
+        COPY chainweb/cabal.project.freeze .
+        STOPSIGNAL SIGTERM
+        ENTRYPOINT /chainweb/chainweb-node
+        EOF
+
+    - name: Docker meta
+      id: docker_meta
+      uses: crazy-max/ghaction-docker-meta@v1
+      with:
+        images: ghcr.io/kadena-io/chainweb-node
+        tag-sha: true
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v1
+
+    - name: Cache Docker layers
+      uses: actions/cache@v2
+      with:
+        path: /tmp/.buildx-cache
+        key: ${{ runner.os }}-buildx-${{ github.sha }}
+        restore-keys: |
+          ${{ runner.os }}-buildx-
+
+    - name: Login to GitHub Container Registry
+      uses: docker/login-action@v1
+      with:
+        registry: ghcr.io
+        username: kadena-build
+        password: ${{ secrets.PKG_MANAGEMENT }}
+
+    - name: Build and push
+      id: docker_build
+      uses: docker/build-push-action@v2
+      with:
+        push: true
+        context: .
+        file: ./Dockerfile
+        tags: ${{ steps.docker_meta.outputs.tags }}
+        labels: ${{ steps.docker_meta.outputs.labels }}
+        cache-from: type=local,src=/tmp/.buildx-cache
+        cache-to: type=local,dest=/tmp/.buildx-cache
+

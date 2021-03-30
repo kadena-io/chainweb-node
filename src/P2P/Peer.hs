@@ -72,15 +72,16 @@ module P2P.Peer
 import Configuration.Utils hiding (Lens')
 
 import Control.DeepSeq
+import Control.Exception (evaluate)
 import Control.Lens hiding ((.=))
 import Control.Monad
 import Control.Monad.Catch
-import Control.Exception (evaluate)
 
 import qualified Data.Attoparsec.Text as A
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Char8 as B8
 import Data.Hashable
+import Data.Maybe
 import Data.Streaming.Network
 import Data.String
 import qualified Data.Text as T
@@ -341,7 +342,7 @@ pPeerConfig service = id
     <$< peerConfigAddr %:: pHostAddress service
     <*< peerConfigInterface .:: textOption
         % prefixLong service "interface"
-        <> suffixHelp service "interface that the Rest API binds to (see HostPreference documentation for details)"
+        <> suffixHelp service ("interface that the " <> fromMaybe "" service <> "  Rest API binds to (see HostPreference documentation for details)")
     <*< peerConfigCertificateChain .:: fmap Just % pX509CertChainPem service
     <*< peerConfigCertificateChainFile .:: fmap Just % fileOption
         % prefixLong service "certificate-chain-file"
