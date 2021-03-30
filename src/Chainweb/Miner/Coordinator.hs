@@ -62,7 +62,6 @@ import GHC.Generics (Generic)
 import GHC.Stack
 
 import System.LogLevel (LogLevel(..))
-import System.Random
 
 -- internal modules
 
@@ -130,6 +129,10 @@ data MiningCoordination logger cas = MiningCoordination
 newtype PrimedWork =
     PrimedWork (HM.HashMap MinerId (HM.HashMap ChainId (Maybe PayloadData)))
     deriving newtype (Semigroup, Monoid)
+
+resetPrimed :: MinerId -> ChainId -> PrimedWork -> PrimedWork
+resetPrimed mid cid (PrimedWork pw) = PrimedWork
+    $! HM.update (Just . HM.insert cid Nothing) mid pw
 
 -- | Data shared between the mining threads represented by `newWork` and
 -- `publish`.
@@ -215,11 +218,12 @@ chainChoice c choice = case choice of
 publish
     :: LogFunction
     -> CutDb cas
+    -> TVar PrimedWork
     -> MinerId
     -> PayloadData
     -> SolvedWork
     -> IO ()
-publish lf cdb miner pd s = do
+publish lf cdb pwVar miner pd s = do
     c <- _cut cdb
     now <- getCurrentTimeIntegral
     try (extend c pd s) >>= \case
@@ -227,32 +231,12 @@ publish lf cdb miner pd s = do
         -- Publish CutHashes to CutDb and log success
         Right (bh, Just ch) -> do
 
-            -- DEBUGGING
-            x <- rem 10000 . abs <$> randomIO @Int
-            lf @T.Text Warn $ "START DEBUG [" <> sshow x <> "]: " <> sshow (_blockChainId bh)
-            unless (_blockPayloadHash bh == _payloadDataPayloadHash pd) $ do
-                lf @T.Text Error "block does not match payload hash"
-                error "Chainweb.Miner.Coordinator.publish: block doesn't match payload hash"
-
-            let pact = _webPactExecutionService $ view cutDbPactService cdb
-            pd' <- _pactValidateBlock pact bh pd `catch` \e -> do
-                lf @T.Text Warn $ "VALIDATE BLOCK FAILED [" <> sshow x <> "]: " <> sshow (_blockChainId bh)
-                lf @T.Text Warn $ "_blockPayloadHash bh: " <> sshow (_blockPayloadHash bh)
-                lf @T.Text Warn $ "_payloadDataPayloadHash pd: " <> sshow (_payloadDataPayloadHash pd)
-                lf @T.Text Warn $ "_blockHeight bh: " <> sshow (_blockHeight bh)
-                throwM @_ @SomeException e
-
-            unless (_blockPayloadHash bh == _payloadWithOutputsPayloadHash pd') $ do
-                lf @T.Text Error "2: block does not match payload hash"
-                error "2: Chainweb.Miner.Coordinator.publish: block doesn't match payload hash"
-            lf @T.Text Warn $ "END DEBUG [" <> sshow x <> "]: " <> sshow (_blockChainId bh)
-
-            -- END DEBUG
-
+            -- reset the primed payload for this cut extension
+            atomically $ modifyTVar pwVar $ resetPrimed miner (_chainId bh)
             addCutHashes cdb ch
+
             let bytes = sum . fmap (BS.length . _transactionBytes) $
                         _payloadDataTransactions pd
-
             lf Info $ JsonLog $ NewMinedBlock
                 { _minedBlockHeader = ObjectEncoded bh
                 , _minedBlockTrans = int . V.length $ _payloadDataTransactions pd
@@ -352,5 +336,6 @@ solve mr solved@(SolvedWork hdr) = do
     lf = logFunction $ _coordLogger mr
 
     deleteKey = atomically . modifyTVar' tms . over _Unwrapped $ M.delete key
-    publishWork (T3 m pd _) = publish lf (_coordCutDb mr) (view minerId m) pd solved
+    publishWork (T3 m pd _) =
+        publish lf (_coordCutDb mr) (_coordPrimedWork mr) (view minerId m) pd solved
 

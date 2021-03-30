@@ -981,7 +981,7 @@ withNodes
     -> Natural
     -> (IO ChainwebNetwork -> TestTree)
     -> TestTree
-withNodes = withNodes_ (genericLogger Debug print)
+withNodes = withNodes_ (genericLogger Warn print)
 
 runTestNodes
     :: Logger logger
