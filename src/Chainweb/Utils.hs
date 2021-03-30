@@ -933,8 +933,8 @@ leadingZeros b =
 -- -------------------------------------------------------------------------- --
 -- Random ByteString
 --
--- 'getStdRandom' provides an generator that is stored in an 'IORef' and updated
--- via an optimistic atomci swap. 'atomicModifyIORef'' is implemented such that
+-- 'getStdRandom' provides a generator that is stored in an 'IORef' and updated
+-- via an optimistic atomic swap. 'atomicModifyIORef'' is implemented such that
 -- the swapped pointer is updated lazily, which minimizes the chance of retries
 -- and life locks.
 --
@@ -945,13 +945,15 @@ leadingZeros b =
 randomShortByteString :: MonadIO m => Natural -> m BS.ShortByteString
 randomShortByteString n
     -- don't split the generators for less than 64 words.
-    | n < 8 * 64 = getStdRandom $ genShortByteString (int n)
+    -- 512 = 8 * 64
+    | n < 512 = getStdRandom $ genShortByteString (int n)
     | otherwise = fst . genShortByteString (int n) <$> newStdGen
 
 randomByteString :: MonadIO m => Natural -> m B.ByteString
 randomByteString n
     -- don't split the generators for less than 64 words.
-    | n < 8 * 64 = getStdRandom $ genByteString (int n)
+    -- 512 = 8 * 64
+    | n < 512 = getStdRandom $ genByteString (int n)
     | otherwise = fst . genByteString (int n) <$> newStdGen
 
 -- -------------------------------------------------------------------------- --
