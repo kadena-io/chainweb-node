@@ -263,7 +263,7 @@ data PeerConfig = PeerConfig
         -- ^ The public host address of the peer.
         --
         -- A port number of 0 means that a free port is assigned by the system.
-        -- An IP address of 0.0.0.0 means that the node discovers it's
+        -- An IP address of 0.0.0.0 means that the node discovers its
         -- external IP address itself.
 
     , _peerConfigInterface :: !HostPreference
