@@ -55,6 +55,8 @@ module Chainweb.Utils
 , minimumsOf
 , minimumsByOf
 , leadingZeros
+, randomByteString
+, randomShortByteString
 , maxBy
 , minBy
 , allEqOn
@@ -232,6 +234,7 @@ import qualified Data.ByteString as B
 import qualified Data.ByteString.Base64 as B64
 import qualified Data.ByteString.Base64.URL as B64U
 import qualified Data.ByteString.Lazy as BL
+import qualified Data.ByteString.Short as BS
 import qualified Data.ByteString.Unsafe as B
 import Data.Foldable
 import Data.Functor.Of
@@ -243,11 +246,11 @@ import Data.Proxy
 import Data.Serialize.Get (Get)
 import Data.Serialize.Put (Put)
 import Data.String (IsString(..))
-import Data.Time
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
 import qualified Data.Text.Lazy as TL
 import Data.These (These(..))
+import Data.Time
 import Data.Tuple.Strict
 import qualified Data.Vector as V
 import Data.Word
@@ -273,7 +276,7 @@ import System.IO.Unsafe (unsafePerformIO)
 import System.LogLevel
 import System.Path (Absolute, Path, fragment, toAbsoluteFilePath, (</>))
 import System.Path.IO (getTemporaryDirectory)
-import System.Random (randomIO)
+import System.Random
 import qualified System.Random.MWC as Prob
 import qualified System.Random.MWC.Probability as Prob
 import System.Timeout
@@ -926,6 +929,30 @@ leadingZeros b =
         !out = int $! maybe (8 * l) f midx
     in out
 {-# INLINE leadingZeros #-}
+
+-- -------------------------------------------------------------------------- --
+-- Random ByteString
+--
+-- 'getStdRandom' provides an generator that is stored in an 'IORef' and updated
+-- via an optimistic atomci swap. 'atomicModifyIORef'' is implemented such that
+-- the swapped pointer is updated lazily, which minimizes the chance of retries
+-- and life locks.
+--
+-- However, use of the generator is still sequentialized. Thus, for long
+-- 'ByteString's it can be more efficient to split the generator to speed up
+-- concurrent access.
+
+randomShortByteString :: MonadIO m => Natural -> m BS.ShortByteString
+randomShortByteString n
+    -- don't split the generators for less than 64 words.
+    | n < 8 * 64 = getStdRandom $ genShortByteString (int n)
+    | otherwise = fst . genShortByteString (int n) <$> newStdGen
+
+randomByteString :: MonadIO m => Natural -> m B.ByteString
+randomByteString n
+    -- don't split the generators for less than 64 words.
+    | n < 8 * 64 = getStdRandom $ genByteString (int n)
+    | otherwise = fst . genByteString (int n) <$> newStdGen
 
 -- -------------------------------------------------------------------------- --
 -- Configuration wrapper to enable and disable components

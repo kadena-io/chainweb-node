@@ -44,7 +44,6 @@ import qualified Data.ByteArray as BA
 import Data.Bytes.Get
 import Data.Bytes.Put
 import qualified Data.ByteString as B
-import qualified Data.ByteString.Random as BR
 import qualified Data.ByteString.Short as SB
 import Data.Hashable hiding (hash)
 import Data.Proxy
@@ -52,8 +51,8 @@ import Data.Proxy
 import Foreign.Storable
 
 import GHC.Generics
-import GHC.TypeNats
 import GHC.Stack (HasCallStack)
+import GHC.TypeNats
 
 import Numeric.Natural
 
@@ -130,7 +129,7 @@ instance FromJSON PowHash where
 -- distributed, but not cryptographically safe.
 --
 randomPowHash :: MonadIO m => m PowHash
-randomPowHash = PowHash . SB.toShort <$> liftIO (BR.random powHashBytesCount)
+randomPowHash = PowHash <$> randomShortByteString powHashBytesCount
 
 -- -------------------------------------------------------------------------- --
 -- Cryptographic Hash

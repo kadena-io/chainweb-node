@@ -369,7 +369,6 @@ library
         , pem >=0.2
         , process >= 1.5
         , random >= 1.1
-        , random-bytestring >= 0.1
         , rosetta >= 1.0
         , safe-exceptions >= 0.1
         , scheduler >= 1.4
@@ -534,7 +533,6 @@ test-suite chainweb-tests
         , paths >= 0.2
         , quickcheck-instances >= 0.3
         , random >= 1.1
-        , random-bytestring >= 0.1
         , resource-pool >= 0.2
         , retry >= 0.7
         , rosetta >= 1.0
