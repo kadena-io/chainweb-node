@@ -51,6 +51,7 @@ import qualified System.Random.MWC as MWC
 
 -- internal modules
 
+import Chainweb.BlockHash
 import Chainweb.BlockHeader
 import Chainweb.ChainId
 import Chainweb.Chainweb.ChainResources
@@ -70,6 +71,7 @@ import Chainweb.Version
 import Chainweb.WebPactExecutionService (_webPactExecutionService)
 
 import Data.LogMessage (JsonLog(..), LogFunction)
+
 import Utils.Logging.Trace (trace)
 
 -- -------------------------------------------------------------------------- --
@@ -131,9 +133,11 @@ withMiningCoordination logger conf cdb inner
             atomically $ modifyTVar' tpw (silenceChain cid)
             -- Generate new payloads, one for each Miner we're managing --
             let !newParent = ParentHeader . fromJuste . HM.lookup cid $ _cutMap new
+                !newParentHash = _blockHash $ _parentHeader newParent
             payloads <- traverse (\m -> T2 m <$> getPayload newParent m) miners
             -- Update the cache in a single step --
-            atomically $ modifyTVar' tpw (\pw -> foldl' (updateCache cid) pw payloads)
+            atomically $ modifyTVar' tpw $ \pw ->
+                foldl' (updateCache cid newParentHash) pw payloads
             go new
 
     -- | Declare that a particular Chain is temporarily unavailable for new work
@@ -144,19 +148,20 @@ withMiningCoordination logger conf cdb inner
 
     updateCache
         :: ChainId
+        -> BlockHash
         -> PrimedWork
         -> T2 Miner PayloadData
         -> PrimedWork
-    updateCache cid (PrimedWork pw) (T2 (Miner mid _) payload) =
-        PrimedWork (pw & at mid . traverse . at cid ?~ Just payload)
+    updateCache cid !parent (PrimedWork pw) (T2 (Miner mid _) !payload) =
+        PrimedWork (pw & at mid . traverse . at cid ?~ Just (payload, parent))
 
     -- TODO: Should we initialize new chains, too, ahead of time?
     -- It seems that it's not needed and 'awaitNewCutByChainId' in 'primedWork'
     -- will take are of it.
     --
     initialPayloads :: Cut -> IO PrimedWork
-    initialPayloads cut =
-        PrimedWork . HM.fromList <$> traverse (\m -> (view minerId m,) <$> fromCut m pairs) miners
+    initialPayloads cut = PrimedWork . HM.fromList
+        <$> traverse (\m -> (view minerId m,) <$> fromCut m pairs) miners
       where
         pairs :: [T2 ChainId ParentHeader]
         pairs = fmap (uncurry T2) $ HM.toList $ ParentHeader <$> _cutMap cut
@@ -166,9 +171,11 @@ withMiningCoordination logger conf cdb inner
     fromCut
       :: Miner
       -> [T2 ChainId ParentHeader]
-      -> IO (HM.HashMap ChainId (Maybe PayloadData))
-    fromCut m cut =
-        HM.fromList <$> traverse (\(T2 cid bh) -> (cid,) . Just <$> getPayload bh m) cut
+      -> IO (HM.HashMap ChainId (Maybe (PayloadData, BlockHash)))
+    fromCut m cut = HM.fromList
+        <$> traverse
+            (\(T2 cid bh) -> (cid,) . Just . (, _blockHash (_parentHeader bh)) <$> getPayload bh m)
+            cut
 
     getPayload :: ParentHeader -> Miner -> IO PayloadData
     getPayload parent m = trace (logFunction logger)

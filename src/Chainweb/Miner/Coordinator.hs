@@ -66,6 +66,7 @@ import System.LogLevel (LogLevel(..))
 -- internal modules
 
 import Chainweb.BlockCreationTime
+import Chainweb.BlockHash
 import Chainweb.BlockHeader
 import Chainweb.Cut hiding (join)
 import Chainweb.Cut.Create
@@ -127,7 +128,7 @@ data MiningCoordination logger cas = MiningCoordination
 -- made as often as desired, without clogging the Pact queue.
 --
 newtype PrimedWork =
-    PrimedWork (HM.HashMap MinerId (HM.HashMap ChainId (Maybe PayloadData)))
+    PrimedWork (HM.HashMap MinerId (HM.HashMap ChainId (Maybe (PayloadData, BlockHash))))
     deriving newtype (Semigroup, Monoid)
 
 resetPrimed :: MinerId -> ChainId -> PrimedWork -> PrimedWork
@@ -192,10 +193,14 @@ newWork logFun choice eminer@(Miner mid _) hdb pact tpw c = do
         Nothing -> do
             logFun @T.Text Debug $ "newWork: chain " <> sshow cid <> " not mineable"
             newWork logFun (TriedLast cid) eminer hdb pact tpw c
-        Just (T2 payload extension) -> do
-            let !phash = _payloadDataPayloadHash payload
-            !wh <- newWorkHeader hdb extension phash
-            pure $ T2 wh payload
+        Just (T2 (payload, parent) extension)
+            | parent == _blockHash (_parentHeader (_cutExtensionParent extension)) -> do
+                let !phash = _payloadDataPayloadHash payload
+                !wh <- newWorkHeader hdb extension phash
+                pure $ T2 wh payload
+            | otherwise -> do
+                logFun @T.Text Info $ "newWork: chain " <> sshow cid <> " not mineable because of parent header mismatch"
+                newWork logFun (TriedLast cid) eminer hdb pact tpw c
 
 chainChoice :: Cut -> ChainChoice -> IO ChainId
 chainChoice c choice = case choice of
