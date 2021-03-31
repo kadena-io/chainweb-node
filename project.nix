@@ -35,6 +35,12 @@ proj = kpkgs.rp.project ({ pkgs, hackGet, ... }: with pkgs.haskell.lib;
         sha256 = "1mmhfp95wqg6i5gzap4b4g87zgbj46nnpir56hqah97igsbvis70";
       } {});
 
+      random = dontCheck (self.callHackageDirect {
+        pkg = "random";
+        ver = "1.2.0";
+        sha256 = "1mmhfp95wqg6i5gzap4b4g87zgbj46nnpir56hqah97igsbvis71";
+      } {});
+
       # TODO Replace with kpkgs bump after everything is ready
       pact = dontCheck (self.callCabal2nix "rosetta" (pkgs.fetchFromGitHub {
         owner = "kadena-io";
