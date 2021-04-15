@@ -115,7 +115,7 @@ withMiningCoordination logger conf cdb inner
     cids = HS.toList . chainIds $ _chainwebVersion cdb
 
     !miners = S.toList (_coordinationMiners coordConf)
-        <> [ _nodeMiner inNodeConf ]
+        <> [ _nodeMiner inNodeConf | _nodeMiningEnabled inNodeConf ]
 
     -- | THREAD: Keep a live-updated cache of Payloads for specific miners, such
     -- that when they request new work, the block can be instantly constructed
