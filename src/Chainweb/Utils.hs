@@ -449,6 +449,7 @@ data EncodingException where
     X509CertificateDecodeException :: T.Text -> EncodingException
     X509KeyDecodeException :: T.Text -> EncodingException
     deriving (Show, Eq, Ord, Generic)
+    deriving anyclass (NFData)
 
 instance Exception EncodingException
 
@@ -530,6 +531,23 @@ instance HasTextRepresentation Int where
     fromText = treadM
     {-# INLINE fromText #-}
 
+instance HasTextRepresentation Integer where
+    toText = sshow
+    {-# INLINE toText #-}
+    fromText = treadM
+    {-# INLINE fromText #-}
+
+instance HasTextRepresentation UTCTime where
+    toText = T.pack . formatTime defaultTimeLocale iso8601DateTimeFormat
+    {-# INLINE toText #-}
+
+    fromText d = case parseTimeM False defaultTimeLocale fmt (T.unpack d) of
+        Nothing -> throwM $ TextFormatException $ "failed to parse utc date " <> sshow d
+        Just x -> return x
+      where
+        fmt = iso8601DateTimeFormat
+    {-# INLINE fromText #-}
+
 -- | Decode a value from its textual representation.
 --
 eitherFromText
@@ -563,6 +581,10 @@ parseM p = either (throwM . TextFormatException . T.pack) return
 parseText :: HasTextRepresentation a => A.Parser T.Text -> A.Parser a
 parseText p = either (fail . sshow) return . fromText =<< p
 {-# INLINE parseText #-}
+
+iso8601DateTimeFormat :: String
+iso8601DateTimeFormat = iso8601DateFormat (Just "%H:%M:%SZ")
+{-# INLINE iso8601DateTimeFormat #-}
 
 -- -------------------------------------------------------------------------- --
 -- ** Base64
@@ -1374,4 +1396,4 @@ parseUtcTime d = case parseTimeM False defaultTimeLocale fmt d of
         $ "parseUtcTime: failed to parse utc date " <> sshow d
     Just x -> return x
   where
-    fmt = iso8601DateFormat (Just "%H:%M:%SZ")
+    fmt = iso8601DateTimeFormat

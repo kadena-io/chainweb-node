@@ -1,6 +1,7 @@
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DerivingStrategies #-}
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE LambdaCase #-}
@@ -28,12 +29,17 @@ module P2P.Node.Configuration
 , p2pConfigKnownPeers
 , p2pConfigIgnoreBootstrapNodes
 , defaultP2pConfiguration
+, validateP2pConfiguration
 , pP2pConfiguration
 ) where
 
 import Configuration.Utils
+import Configuration.Utils.Validation
 
 import Control.Lens hiding ((.=))
+import Control.Monad
+import Control.Monad.Except
+import Control.Monad.Writer
 
 import GHC.Generics (Generic)
 
@@ -77,6 +83,11 @@ data P2pConfiguration = P2pConfiguration
         -- initially configured known peers. Use this option with care, because
         -- it may result in networks that are not well connected with the
         -- overall consensus.
+
+    , _p2pConfigBootstrapReachability :: !Double
+        -- ^ the fraction of the bootstrap nodes that must be reachable and must
+        -- be able to reach this node on startup. Default value
+        -- is 0.5.
     }
     deriving (Show, Eq, Generic)
 
@@ -98,7 +109,34 @@ defaultP2pConfiguration = P2pConfiguration
 
     , _p2pConfigIgnoreBootstrapNodes = False
     , _p2pConfigPrivate = False
+    , _p2pConfigBootstrapReachability = 0.5
     }
+
+validateP2pConfiguration :: Applicative a => ConfigValidation P2pConfiguration a
+validateP2pConfiguration c = do
+    validatePeerConfig $ _p2pConfigPeer c
+
+    when (_p2pConfigIgnoreBootstrapNodes c && null (_p2pConfigKnownPeers c)) $ tell
+        $ pure "Default bootstrap nodes are ignored and no known peers are configured. This node won't be able to communicate with the network."
+
+    when (_p2pConfigPrivate c && null (_p2pConfigKnownPeers c)) $ tell
+        $ pure "This node is configured to communicate only with the default bootstrap nodes."
+
+    validateRange "sessionTimeout" (60 {- 1 min -}, 900 {- 15 min -}) (_p2pConfigSessionTimeout c)
+
+    when (_p2pConfigSessionTimeout c < 120) $ tell
+        $ pure "This node is configured with a p2p session timeout of less than 120. This causes network overhead for creating new sessions. A connection timeout between 180 and 600 seconds is recommended."
+
+    validateRange "maxSessionCount" (2, 30) (_p2pConfigMaxSessionCount c)
+
+    when (_p2pConfigMaxSessionCount c < 3) $ tell
+        $ pure "This node is configured to have a maximum session count of less than 5. This will limit the ability of this node to communicate with the rest of the network. A max session count between 5 and 15 is advised."
+
+    when (_p2pConfigMaxSessionCount c > 30) $ throwError
+        "This node is configured with a maximum session count of more than 30. This may put a high load on the network stack of the node and may cause connectivity problems. A max session count between 5 and 15 is advised."
+
+    when (_p2pConfigBootstrapReachability c > 1) $ throwError
+        "The bootstrap reachability factor must be a value between 0 and 1"
 
 instance ToJSON P2pConfiguration where
     toJSON o = object
@@ -109,6 +147,7 @@ instance ToJSON P2pConfiguration where
         , "peers" .= _p2pConfigKnownPeers o
         , "ignoreBootstrapNodes" .= _p2pConfigIgnoreBootstrapNodes o
         , "private" .= _p2pConfigPrivate o
+        , "bootstrapReachability" .= _p2pConfigBootstrapReachability o
         ]
 
 instance FromJSON (P2pConfiguration -> P2pConfiguration) where
@@ -120,6 +159,7 @@ instance FromJSON (P2pConfiguration -> P2pConfiguration) where
         <*< p2pConfigKnownPeers . from leftMonoidalUpdate %.: "peers" % o
         <*< p2pConfigIgnoreBootstrapNodes ..: "ignoreBootstrapNodes" % o
         <*< p2pConfigPrivate ..: "private" % o
+        <*< p2pConfigBootstrapReachability ..: "bootstrapReachability" % o
 
 instance FromJSON P2pConfiguration where
     parseJSON = withObject "P2pExampleConfig" $ \o -> P2pConfiguration
@@ -130,6 +170,7 @@ instance FromJSON P2pConfiguration where
         <*> o .: "peers"
         <*> o .: "ignoreBootstrapNodes"
         <*> o .: "private"
+        <*> o .: "bootstrapReachability"
 
 pP2pConfiguration :: MParser P2pConfiguration
 pP2pConfiguration = id
@@ -147,10 +188,14 @@ pP2pConfiguration = id
         (pure <$> pKnownPeerInfo)
     <*< p2pConfigIgnoreBootstrapNodes .:: enableDisableFlag
         % prefixLong net "ignore-bootstrap-nodes"
-        <> help ("when enabled the hard-coded bootstrap nodes for network are ignored")
+        <> help "when enabled the hard-coded bootstrap nodes for network are ignored"
     <*< p2pConfigPrivate .:: enableDisableFlag
         % prefixLong net "private"
-        <> help ("when enabled this node becomes private and communicates only with the initially configured known peers")
+        <> help "when enabled this node becomes private and communicates only with the initially configured known peers"
+    <*< p2pConfigBootstrapReachability .:: option auto
+        % prefixLong net "bootstrap-reachability"
+        <> help "the fraction of bootstrap nodes that must be reachable at startup"
+        <> metavar "[0,1]"
   where
     net = Nothing
 

@@ -89,7 +89,7 @@ import GHC.Generics (Generic)
 
 import Network.Socket
 import qualified Network.TLS.SessionManager as TLS
-import Network.Wai (Middleware, mapResponseHeaders)
+import Network.Wai (Middleware, mapResponseHeaders, remoteHost)
 import Network.Wai.Handler.Warp hiding (Port)
 import Network.Wai.Handler.WarpTLS (TLSSettings(..), runTLSSocket)
 import Network.Wai.Middleware.Cors
@@ -289,13 +289,17 @@ chainwebTime :: Middleware
 chainwebTime app req resp = app req $ \res -> do
     timestamp <- sec <$> getTime Realtime
     resp $ mapResponseHeaders
-        ((:) ("X-Server-Timestamp", sshow timestamp))
+        ((serverTimestampHeaderName, sshow timestamp) :)
         res
 
 chainwebNodeVersion :: Middleware
 chainwebNodeVersion app req resp = app req $ \res ->
+    resp $ mapResponseHeaders (chainwebNodeVersionHeader :) res
+
+chainwebPeerAddr :: Middleware
+chainwebPeerAddr app req resp = app req $ \res ->
     resp $ mapResponseHeaders
-        ((:) chainwebNodeVersionHeader)
+        ((peerAddrHeaderName, sshow (remoteHost req)) :)
         res
 
 -- -------------------------------------------------------------------------- --
@@ -331,6 +335,7 @@ chainwebApplication
     -> Application
 chainwebApplication v dbs
     = chainwebTime
+    . chainwebPeerAddr
     . chainwebNodeVersion
     . chainwebCors
     . someServerApplication

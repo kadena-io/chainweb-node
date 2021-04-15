@@ -320,7 +320,7 @@ listenHandler logger cdb cid pact mem (ListenerRequest key) = do
                      return cut
 
     -- TODO: make configurable
-    defaultTimeout = 120 * 1000000 -- two minutes
+    defaultTimeout = 180 * 1000000 -- two minutes
 
 -- -------------------------------------------------------------------------- --
 -- Local Handler
