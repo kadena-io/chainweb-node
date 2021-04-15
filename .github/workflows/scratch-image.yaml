@@ -31,10 +31,12 @@
 
 name: Distroless Docker Image
 on:
-  push:
-    branches:
-    - lars/scratch-build
   workflow_dispatch:
+    inputs:
+      baseImage:
+        description: 'The base image for the resulting docker image. Must be either "alpine" or "scratch"'
+        required: true
+        default: 'alpine'
 jobs:
   build-image:
     name: Build and publish docker image
@@ -42,6 +44,21 @@ jobs:
     strategy:
       fail-fast: false
     steps:
+    - name: validate inputs
+      run: |
+        case "${{ github.event.inputs.baseImage }}" in
+          alpine)
+            echo "::debug::Using 'alpine' base base image"
+            ;;
+          scratch)
+            echo "::debug::Using 'scratch' base base image"
+            ;;
+          *)
+            echo "::error::Unsupport base image input. Valid values are 'alpine' or 'scratch'"
+            exit 1
+            ;;
+        esac
+
     - name: Check out the repo
       uses: actions/checkout@v2
 
@@ -78,17 +95,19 @@ jobs:
             bash \
             cabal \
             g++ \
-            git
+            git \
+            z3
         COPY . /chainweb-node/
         WORKDIR /chainweb-node
         RUN cabal update
         RUN cabal build --only-dependencies
         RUN cabal build
-        RUN cp ./dist-newstyle/build/x86_64-linux/ghc-8.8.4/chainweb-2.5/build/chainweb-node/chainweb-node .
+        RUN cabal run chainweb-tests -- --hide-successes
+        RUN cp ./dist-newstyle/build/x86_64-linux/ghc-8.8.4/chainweb-*/build/chainweb-node/chainweb-node .
         RUN strip -s chainweb-node
         RUN cabal freeze
 
-        FROM scratch
+        FROM ${{ github.event.inputs.baseImage }}
         COPY --from=builder /etc/ssl/certs/ /etc/ssl/certs/
         COPY --from=builder /chainweb-node/chainweb-node /usr/bin/chainweb-node
         COPY --from=builder /chainweb-node/LICENSE /usr/local/share/chainweb/
@@ -104,9 +123,11 @@ jobs:
       id: docker_meta
       uses: crazy-max/ghaction-docker-meta@v1
       with:
-        images: ghcr.io/kadena-io/chainweb-node-scratch
+        images: ghcr.io/kadena-io/chainweb-node-${{ github.event.inputs.baseImage }}
         tag-sha: true
 
+    - name: Set up QEMU
+      uses: docker/setup-qemu-action@v1
     - name: Set up Docker Buildx
       uses: docker/setup-buildx-action@v1
 
