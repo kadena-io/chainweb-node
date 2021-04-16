@@ -56,6 +56,7 @@ module Chainweb.Version
 , enableModuleNameFix2
 , enablePactEvents
 , enableSPVBridge
+, pactGenerateEvents
 
 -- ** BlockHeader Validation Guards
 , slowEpochGuard
@@ -857,6 +858,14 @@ enableSPVBridge Testnet04 = (>= 820_000) -- 2021-01-14T17:12:02
 enableSPVBridge Development = (>= 130)
 enableSPVBridge (FastTimedCPM g) = const $ g == pairChainGraph || g == petersonChainGraph
 enableSPVBridge _ = const True
+
+-- | Generate events for gas, coinbase, crosschain
+pactGenerateEvents :: ChainwebVersion -> BlockHeight -> Bool
+pactGenerateEvents Mainnet01 = (>= 1_600_000) -- 2021-05-07T14:14:46
+pactGenerateEvents Testnet04 = (>= 1_140_000) -- 2021-05-06T13:47:27
+pactGenerateEvents Development = (>= 140)
+pactGenerateEvents (FastTimedCPM g) = const $ g == pairChainGraph || g == petersonChainGraph
+pactGenerateEvents _ = const True
 
 -- -------------------------------------------------------------------------- --
 -- Header Validation Guards

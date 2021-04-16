@@ -6,6 +6,7 @@
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE GADTs #-}
 
 -- |
 -- Module      :  Chainweb.Pact.TransactionExec
@@ -175,6 +176,9 @@ applyCmd v logger pdbenv miner gasModel txCtx spv cmdIn mcache0 =
     isModuleNameFix = enableModuleNameFix v currHeight
     isModuleNameFix2 = enableModuleNameFix2 v currHeight
     isPactBackCompatV16 = pactBackCompat_v16 v currHeight
+    genEvents = pactGenerateEvents v currHeight
+    gasEventMiner | genEvents = Just miner
+                  | otherwise = Nothing
 
     redeemAllGas r = do
       txGasUsed .= fromIntegral gasLimit
@@ -189,7 +193,7 @@ applyCmd v logger pdbenv miner gasModel txCtx spv cmdIn mcache0 =
       txGasModel .= gasModel
       txGasUsed .= initialGas
 
-      cr <- catchesPactError $! runPayload cmd managedNamespacePolicy
+      cr <- catchesPactError $! runPayload genEvents cmd managedNamespacePolicy
       case cr of
         Left e -> do
           r <- jsonErrorResult e "tx failure for request key when running cmd"
@@ -199,14 +203,19 @@ applyCmd v logger pdbenv miner gasModel txCtx spv cmdIn mcache0 =
     applyRedeem cr = do
       txGasModel .= (_geGasModel freeGasEnv)
 
-      r <- catchesPactError $! redeemGas cmd
+      r <- catchesPactError $! redeemGas gasEventMiner cmd
       case r of
         Left e ->
           -- redeem gas failure is fatal (block-failing) so miner doesn't lose coins
           fatal $ "tx failure for request key while redeeming gas: " <> sshow e
-        Right _ -> do
+        Right evM -> do
           logs <- use txLogs
-          return $! set crLogs (Just logs) cr
+          return
+            $! set crLogs (Just logs)
+            $! over crEvents (addEvent evM) cr
+
+    addEvent Nothing = id
+    addEvent (Just e) = (e:)
 
 applyGenesisCmd
     :: Logger
@@ -269,7 +278,7 @@ applyCoinbase
       -- ^ always enable precompilation
     -> ModuleCache
     -> IO (T2 (CommandResult [TxLog Value]) (Maybe ModuleCache))
-applyCoinbase v logger dbEnv (Miner mid mks) reward@(ParsedDecimal d) txCtx
+applyCoinbase v logger dbEnv (Miner mid@(MinerId mmid) mks) reward@(ParsedDecimal d) txCtx
   (EnforceCoinbaseFailure enfCBFailure) (CoinbaseUsePrecompiled enablePC) mc
   | fork1_3InEffect || enablePC = do
     let (cterm, cexec) = mkCoinbaseTerm mid mks reward
@@ -299,6 +308,9 @@ applyCoinbase v logger dbEnv (Miner mid mks) reward@(ParsedDecimal d) txCtx
         -- NOTE: it holds that @ _pdPrevBlockHash pd == encode _blockHash@
         -- NOTE: chash includes the /quoted/ text of the parent header.
 
+    cbEvent | pactGenerateEvents v bh = pure <$> generateTransferEvent "" mmid d
+            | otherwise = return []
+
     go interp cexec = evalTransactionM tenv txst $! do
       cr <- catchesPactError $!
         applyExec' interp cexec mempty chash managedNamespacePolicy
@@ -318,9 +330,11 @@ applyCoinbase v logger dbEnv (Miner mid mks) reward@(ParsedDecimal d) txCtx
           void $! applyTwentyChainUpgrade v cid bh
           logs <- use txLogs
 
+          genEvent <- cbEvent
+
           return $! T2
             (CommandResult rk (_erTxId er) (PactResult (Right (last $ _erOutput er)))
-              (_erGas er) (Just $ logs) (_erExec er) Nothing (_erEvents er))
+              (_erGas er) (Just $ logs) (_erExec er) Nothing (_erEvents er ++ genEvent))
             upgradedModuleCache
 
 
@@ -518,23 +532,50 @@ jsonErrorResult err msg = do
       gas (Just logs) Nothing Nothing []
 
 runPayload
-    :: Command (Payload PublicMeta ParsedCode)
+    :: Bool
+    -> Command (Payload PublicMeta ParsedCode)
     -> NamespacePolicy
     -> TransactionM p (CommandResult [TxLog Value])
-runPayload cmd nsp = do
+runPayload generateEvents cmd nsp = do
     g0 <- use txGasUsed
     interp <- gasInterpreter g0
 
     case payload of
       Exec pm ->
-        applyExec interp pm signers chash nsp
+        gen (detectXChain True) =<< applyExec interp pm signers chash nsp
       Continuation ym ->
-        applyContinuation interp ym signers chash nsp
+        gen (detectXChain False) =<< applyContinuation interp ym signers chash nsp
 
   where
     signers = _pSigners $ _cmdPayload cmd
     chash = toUntypedHash $ _cmdHash cmd
     payload = _pPayload $ _cmdPayload cmd
+
+    gen a | generateEvents = a
+          | otherwise = return
+
+    detectXChain send cr =
+      case preview (crContinuation . _Just . peContinuation) cr of
+        Just (PactContinuation (QName (QualifiedName mn n _)) args)
+          | mn == coinModule && n == "transfer-crosschain" ->
+            appendEv cr send args
+          | otherwise -> return cr
+        _ -> return cr
+
+    textAt i = preview (ix i . _PLiteral . _LString)
+    decAt i = preview (ix i . _PLiteral . _LDecimal)
+
+    appendEv cr send as =
+      case (textAt (if send then 0 else 1) as, decAt 4 as) of
+        (Just t,Just a) -> do
+          e <- generateTransferEvent
+            (if send then t else "")
+            (if (not send) then "" else t)
+            a
+          return $! over crEvents (++ [e]) cr
+        _ -> return cr
+
+
 
 -- | Run genesis transaction payloads with custom interpreter
 --
@@ -740,19 +781,26 @@ enrichedMsgBody cmd = case (_pPayload $ _cmdPayload cmd) of
 --
 -- see: 'pact/coin-contract/coin.pact#fund-tx'
 --
-redeemGas :: Command (Payload PublicMeta ParsedCode) -> TransactionM p ()
-redeemGas cmd = do
+redeemGas
+    :: Maybe Miner
+    -> Command (Payload PublicMeta ParsedCode)
+    -> TransactionM p (Maybe PactEvent)
+redeemGas miner cmd = do
     mcache <- use txCache
 
     gid <- use txGasId >>= \case
       Nothing -> fatal $! "redeemGas: no gas id in scope for gas refunds"
       Just g -> return g
 
-    fee <- gasSupplyOf <$> use txGasUsed <*> view txGasPrice
+    fee@(GasSupply (ParsedDecimal paid)) <- gasSupplyOf <$> use txGasUsed <*> view txGasPrice
 
     void $! applyContinuation (initState mcache) (redeemGasCmd fee gid)
       (_pSigners $ _cmdPayload cmd) (toUntypedHash $ _cmdHash cmd)
       managedNamespacePolicy
+
+    forM miner $! \(Miner (MinerId m) _) ->
+        generateTransferEvent m (view (cmdPayload . pMeta . pmSender) cmd) paid
+
 
   where
     initState mc = initStateInterpreter
@@ -761,6 +809,24 @@ redeemGas cmd = do
 
     redeemGasCmd fee (GasId pid) =
       ContMsg pid 1 False (object [ "fee" A..= fee ]) Nothing
+
+generateTransferEvent :: Text -> Text -> Decimal -> TransactionM p PactEvent
+generateTransferEvent sender receiver amount = do
+  mh <- getModuleHash
+  return $! PactEvent
+    { _eventName = "TRANSFER"
+    , _eventParams =
+      [ PLiteral $ LString sender
+      , PLiteral $ LString receiver
+      , PLiteral $ LDecimal amount ]
+    , _eventModule = coinModule
+    , _eventModuleHash = mh
+    }
+  where
+    getModuleHash = use txCache >>= \mc ->
+      return $! case preview (ix coinModule . _1 . mdModule . _MDModule . mHash) mc of
+        Nothing -> ModuleHash pactInitialHash
+        Just h -> h
 
 
 -- ---------------------------------------------------------------------------- --
@@ -881,10 +947,12 @@ managedNamespacePolicy = SmartNamespacePolicy False
 mkMagicCapSlot :: Text -> CapSlot UserCapability
 mkMagicCapSlot c = CapSlot CapCallStack cap []
   where
-    mn = ModuleName "coin" Nothing
-    fqn = QualifiedName mn c def
+    fqn = QualifiedName coinModule c def
     cap = SigCapability fqn []
 {-# INLINE mkMagicCapSlot #-}
+
+coinModule :: ModuleName
+coinModule = ModuleName "coin" Nothing
 
 -- | Build the 'ExecMsg' for some pact code fed to the function. The 'value'
 -- parameter is for any possible environmental data that needs to go into
