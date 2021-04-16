@@ -22,7 +22,29 @@ extra-deps:
   - token-bucket-0.1.0.1
   - wai-middleware-throttle-0.3.0.1
   - yet-another-logger-0.4.0
-  - cuckoo-0.2.0.1
+  - cuckoo-0.2.1
+  - random-1.2.0
+
+  # random 1.2
+  - splitmix-0.1.0.3
+  - uuid-1.3.14
+  - uuid-types-1.0.4
+  - QuickCheck-2.14.2
+
+  # QuickCheck
+  - servant-0.18.2
+  - servant-client-0.18.2
+  - servant-client-core-0.18.2
+  - servant-server-0.18.2
+  - servant-swagger-1.1.10
+  - swagger2-2.6
+  - quickcheck-instances-0.3.25.2
+
+  # quickcheck-instances
+  - data-fix-0.3.1
+  - strict-0.4.0.1
+  - these-1.1.1.1
+  - time-compat-1.9.5
 
   # --- Forced Downgrades --- #
   - network-3.1.0.1
