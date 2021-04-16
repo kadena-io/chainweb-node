@@ -26,7 +26,6 @@ module Chainweb.Pact.TransactionExec
 , applyExec'
 , applyContinuation
 , applyContinuation'
-, runPayload
 , readInitModules
 , enablePactEvents'
 
@@ -49,6 +48,7 @@ module Chainweb.Pact.TransactionExec
 
 ) where
 
+import Control.Concurrent
 import Control.DeepSeq
 import Control.Lens
 import Control.Monad.Catch
@@ -80,6 +80,7 @@ import Pact.Native.Capabilities (evalCap)
 import Pact.Parse (ParsedDecimal(..), parseExprs)
 import Pact.Runtime.Capabilities (popCapStack)
 import Pact.Runtime.Utils (lookupModule)
+import Pact.Types.Advice
 import Pact.Types.Capability
 import Pact.Types.Command
 import Pact.Types.Hash as Pact
@@ -541,26 +542,44 @@ runPayload generateEvents cmd nsp = do
     interp <- gasInterpreter g0
 
     case payload of
-      Exec pm ->
-        gen (detectXChain True) =<< applyExec interp pm signers chash nsp
-      Continuation ym ->
-        gen (detectXChain False) =<< applyContinuation interp ym signers chash nsp
+      Exec pm -> do
+        mv <- liftIO $ newMVar Nothing
+        r <- applyExec (detectRelease mv interp) pm signers chash nsp
+             >>= detectXChain True
+        liftIO $ readMVar mv >>= \mvr -> case mvr of
+          Nothing -> return r
+          Just as -> return $! generateRelease as r
+      Continuation ym -> applyContinuation interp ym signers chash nsp
+        >>= detectXChain False
 
   where
     signers = _pSigners $ _cmdPayload cmd
     chash = toUntypedHash $ _cmdHash cmd
     payload = _pPayload $ _cmdPayload cmd
 
-    gen a | generateEvents = a
-          | otherwise = return
+    detectRelease mv org@(Interpreter i)
+      | generateEvents = Interpreter $ \input -> do
+          locally eeAdvice (const (detectReleaseAdvice mv)) $ i input
+      | otherwise = org
 
-    detectXChain send cr =
-      case preview (crContinuation . _Just . peContinuation) cr of
-        Just (PactContinuation (QName (QualifiedName mn n _)) args)
-          | mn == coinModule && n == "transfer-crosschain" ->
-            appendEv cr send args
-          | otherwise -> return cr
-        _ -> return cr
+    detectReleaseAdvice mv = Advice $ \_i ctx act -> case ctx of
+      (AdviceUser
+       (Def "release-allocation" (ModuleName "coin" Nothing) _ _ _ _ _ _,as)) -> do
+        void $ liftIO $ swapMVar mv (Just as)
+        act
+      _ -> act
+
+    generateRelease as r = r
+
+    detectXChain send cr
+      | generateEvents =
+        case preview (crContinuation . _Just . peContinuation) cr of
+          Just (PactContinuation (QName (QualifiedName mn n _)) args)
+              | mn == coinModule && n == "transfer-crosschain" ->
+                appendEv cr send args
+              | otherwise -> return cr
+          _ -> return cr
+      | otherwise = return cr
 
     textAt i = preview (ix i . _PLiteral . _LString)
     decAt i = preview (ix i . _PLiteral . _LDecimal)
