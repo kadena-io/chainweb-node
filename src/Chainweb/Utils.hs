@@ -234,6 +234,9 @@ import qualified Data.ByteString as B
 import qualified Data.ByteString.Base64 as B64
 import qualified Data.ByteString.Base64.URL as B64U
 import qualified Data.ByteString.Lazy as BL
+#if !MIN_VERSION_random(1,2,0)
+import qualified Data.ByteString.Random as BR
+#endif
 import qualified Data.ByteString.Short as BS
 import qualified Data.ByteString.Unsafe as B
 import Data.Foldable
@@ -966,6 +969,7 @@ leadingZeros b =
 -- 'ByteString's it can be more efficient to split the generator to speed up
 -- concurrent access.
 
+#if MIN_VERSION_random(1,2,0)
 randomShortByteString :: MonadIO m => Natural -> m BS.ShortByteString
 randomShortByteString n
     -- don't split the generators for less than 64 words.
@@ -979,6 +983,13 @@ randomByteString n
     -- 512 = 8 * 64
     | n < 512 = getStdRandom $ genByteString (int n)
     | otherwise = fst . genByteString (int n) <$> newStdGen
+#else
+randomShortByteString :: MonadIO m => Natural -> m BS.ShortByteString
+randomShortByteString = fmap BS.toShort . randomByteString
+
+randomByteString :: MonadIO m => Natural -> m B.ByteString
+randomByteString = liftIO . BR.random
+#endif
 
 -- -------------------------------------------------------------------------- --
 -- Configuration wrapper to enable and disable components
