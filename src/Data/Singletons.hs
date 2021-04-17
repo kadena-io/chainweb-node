@@ -1,14 +1,18 @@
 {-# LANGUAGE AllowAmbiguousTypes #-}
+{-# LANGUAGE ConstraintKinds #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeFamilyDependencies #-}
 {-# LANGUAGE TypeInType #-}
+{-# LANGUAGE TypeOperators #-}
+{-# LANGUAGE UndecidableInstances #-}
 {-# LANGUAGE ViewPatterns #-}
 
 -- |
@@ -27,7 +31,7 @@
 --
 module Data.Singletons
 ( -- * Data family of singletons
-  Sing
+  Sing(..)
 , SingI(..)
 , pattern Sing
 
@@ -48,9 +52,28 @@ module Data.Singletons
 , withSingI
 , singThat
 , singByProxy
+
+-- * Constraint Dictionaries
+, Dict(..)
+
+-- * Typelevel Peaon Numbers
+, N(..)
+, type SZ
+, type SN
+, natToN
+, nToNat
+, someN
+
+-- * Tools for type level lists
+, type AtIndex
+, type Index
 ) where
 
 import Data.Kind
+
+import GHC.TypeLits
+
+import Numeric.Natural
 
 import Unsafe.Coerce
 
@@ -187,4 +210,70 @@ singThat p = withSing $ \x -> if p (fromSing x) then Just x else Nothing
 --
 singByProxy :: SingI a => proxy a -> Sing a
 singByProxy _ = sing
+
+-- -------------------------------------------------------------------------- --
+-- Constraint Dictionaries
+
+data Dict :: Constraint -> Type -> Type where
+    Dict :: c => a -> Dict c a
+
+-- -------------------------------------------------------------------------- --
+-- Type Level Peano Numbers
+
+data N = Z | S N
+    deriving (Show, Eq)
+
+data instance Sing (n :: N) where
+    SZ :: Sing 'Z
+    SS :: Sing i -> Sing ('S i)
+
+deriving instance Show (Sing (n :: N))
+deriving instance Eq (Sing (n :: N))
+
+type SZ = Sing 'Z
+type SN i = Sing ('S i)
+
+instance SingI 'Z where sing = SZ
+instance SingI i => SingI ('S i) where sing = SS sing
+
+instance SingKind N where
+    type Demote N = N
+    fromSing SZ = Z
+    fromSing (SS i) = S (fromSing i)
+
+    toSing Z = SomeSing SZ
+    toSing (S i) = case toSing i of
+        SomeSing n -> SomeSing (SS n)
+
+natToN :: Natural -> N
+natToN 0 = Z
+natToN i = S $ natToN (i - 1)
+
+nToNat :: N -> Natural
+nToNat Z = 0
+nToNat (S i) = 1 + nToNat i
+
+someN :: Natural -> SomeSing N
+someN = toSing . natToN
+
+-- -------------------------------------------------------------------------- --
+-- HList tools
+
+type family AtIndex (n :: N) (l :: [Type]) :: Type where
+    AtIndex 'Z (h ': _) = h
+    AtIndex ('S i) (_ ': t) = AtIndex i t
+    AtIndex n '[] = TypeError ('Text "Data.Singletons.AtIndex: AtIndex for type level list out of bound")
+
+type family Index (h :: Type) (l :: [Type]) :: N where
+    Index h (h ': _) = 'Z
+    Index h (_ ': t) = 'S (Index h t)
+    Index h '[] = TypeError
+        ( 'Text "Data.Singletons.Index: element of type "
+        ':<>: 'ShowType h
+        ':<>: 'Text " not found in list"
+        )
+
+-- data HList (l :: [Type]) where
+--     HNil :: HList '[]
+--     (:+:) :: h -> HList t -> HList (h ': t)
 

@@ -67,6 +67,7 @@ module Chainweb.Utils
 , alignWithV
 , (&)
 , IxedGet(..)
+, minusOrNull
 
 -- * Encoding and Serialization
 , EncodingException(..)
@@ -76,6 +77,7 @@ module Chainweb.Utils
 , runPut
 , runGetEither
 , eof
+, MonadGetExtra(..)
 
 -- ** Codecs
 , Codec(..)
@@ -247,6 +249,7 @@ import qualified Data.HashSet as HS
 import Data.Monoid (Endo)
 import Data.Proxy
 import Data.Serialize.Get (Get)
+import qualified Data.Serialize.Get as Get
 import Data.Serialize.Put (Put)
 import Data.String (IsString(..))
 import qualified Data.Text as T
@@ -407,6 +410,14 @@ alignWithV f a b = V.zipWith (\a' -> f . These a') a b <> case (V.length a,V.len
           | la > lb -> V.map (f . This) $ V.drop lb a
           | otherwise -> V.map (f . That) $ V.drop la b
 
+-- | Substraction that returns 0 when the second argument is larger than the
+-- first. This can be in particular usefull when substracting 'Natural' numbers.
+-- The operator '-' would throw an 'Underflow' exception in this situation.
+--
+minusOrNull :: Ord a => Num a => a -> a -> a
+minusOrNull a b = a - min a b
+{-# INLINE minusOrNull #-}
+
 -- -------------------------------------------------------------------------- --
 -- * Read only Ixed
 
@@ -471,6 +482,14 @@ runPut = runPutS
 eof :: Get ()
 eof = unlessM isEmpty $ fail "pending bytes in input"
 {-# INLINE eof #-}
+
+class MonadGet m => MonadGetExtra m where
+    label :: String -> m a -> m a
+    isolate :: Int -> m a -> m a
+
+instance MonadGetExtra Get where
+    label = Get.label
+    isolate = Get.isolate
 
 -- -------------------------------------------------------------------------- --
 -- ** Text

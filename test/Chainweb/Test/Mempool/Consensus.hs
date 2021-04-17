@@ -1,6 +1,7 @@
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 
 module Chainweb.Test.Mempool.Consensus
@@ -43,6 +44,7 @@ import Chainweb.Crypto.MerkleLog hiding (header)
 import Chainweb.Difficulty (targetToDifficulty)
 import Chainweb.Mempool.Consensus
 import Chainweb.Mempool.Mempool
+import Chainweb.MerkleUniverse
 import Chainweb.Payload
 import Chainweb.Test.Orphans.Time ()
 import Chainweb.Test.Utils
@@ -338,7 +340,7 @@ header' :: BlockHeader -> PropertyM IO BlockHeader
 header' h = do
     nonce <- Nonce <$> pick chooseAny
     return
-        . fromLog
+        . fromLog @ChainwebMerkleHashAlgorithm
         . newMerkleLog
         $ mkFeatureFlags
             :+: t'

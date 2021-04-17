@@ -2,6 +2,7 @@
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DerivingStrategies #-}
+{-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE TypeFamilies #-}
@@ -52,7 +53,7 @@ newtype BlockCreationTime = BlockCreationTime { _bct :: (Time Micros) }
     deriving anyclass (NFData)
     deriving newtype (ToJSON, FromJSON, Hashable, LeftTorsor)
 
-instance IsMerkleLogEntry ChainwebHashTag BlockCreationTime where
+instance MerkleHashAlgorithm a => IsMerkleLogEntry a ChainwebHashTag BlockCreationTime where
     type Tag BlockCreationTime = 'BlockCreationTimeTag
     toMerkleNode = encodeMerkleInputNode encodeBlockCreationTime
     fromMerkleNode = decodeMerkleInputNode decodeBlockCreationTime

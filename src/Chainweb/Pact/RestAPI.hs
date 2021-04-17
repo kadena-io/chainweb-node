@@ -1,6 +1,11 @@
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE DeriveAnyClass #-}
+{-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE GADTs #-}
 {-# LANGUAGE KindSignatures #-}
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeOperators #-}
 
@@ -34,6 +39,10 @@ module Chainweb.Pact.RestAPI
 , PactSpvApi
 , pactSpvApi
 
+-- * Pact Spv Api Version 2
+, PactSpv2Api
+, pactSpv2Api
+
 -- * Eth Spv Api
 , EthSpvApi
 , ethSpvApi
@@ -47,20 +56,19 @@ module Chainweb.Pact.RestAPI
 , somePactServiceApis
 ) where
 
+import Pact.Server.API as API
 
 import Servant
 
--- internal chainweb modules
+-- internal modules
 
 import Chainweb.ChainId
-import Chainweb.Pact.Service.Types
 import Chainweb.Pact.RestAPI.EthSpv
+import Chainweb.Pact.RestAPI.SPV
+import Chainweb.Pact.Service.Types
 import Chainweb.RestAPI.Utils
+import Chainweb.SPV.PayloadProof
 import Chainweb.Version
-
--- internal pact modules
-
-import Pact.Server.API as API
 
 -- -------------------------------------------------------------------------- --
 -- @GET /chainweb/<ApiVersion>/<ChainwebVersion>/chain/<ChainId>/pact/@
@@ -112,7 +120,7 @@ pactPollApi
 pactPollApi = Proxy
 
 -- -------------------------------------------------------------------------- --
--- GET Pact Spv Transaction Proof
+-- POST Pact Spv Transaction Proof
 
 type PactSpvApi_
     = "pact"
@@ -127,6 +135,26 @@ pactSpvApi
     :: forall (v :: ChainwebVersionT) (c :: ChainIdT)
     . Proxy (PactSpvApi v c)
 pactSpvApi = Proxy
+
+-- -------------------------------------------------------------------------- --
+-- GET Pact SPV Proof
+
+--  | The chain endpoint is the target chain of the proof, i.e. the chain where
+--  the root of the proof is located.
+--
+type PactSpv2Api_
+    = "pact"
+    :> "spv2"
+    :> ReqBody '[JSON] Spv2Request
+    :> Post '[JSON] SomePayloadProof
+
+type PactSpv2Api (v :: ChainwebVersionT) (c :: ChainIdT)
+    = 'ChainwebEndpoint v :> ChainEndpoint c :> PactSpv2Api_
+
+pactSpv2Api
+    :: forall (v :: ChainwebVersionT) (c :: ChainIdT)
+    . Proxy (PactSpv2Api v c)
+pactSpv2Api = Proxy
 
 -- -------------------------------------------------------------------------- --
 -- GET Eth Receipt SPV Proof
@@ -153,6 +181,7 @@ type PactServiceApi v c
     = PactApi v c
     :<|> PactSpvApi v c
     :<|> EthSpvApi v c
+    :<|> PactSpv2Api v c
 
 pactServiceApi
     :: forall (v :: ChainwebVersionT) (c :: ChainIdT)

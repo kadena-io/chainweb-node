@@ -52,7 +52,7 @@ import Chainweb.Test.RestAPI.Client_
 import Chainweb.Test.Utils
 import Chainweb.Test.Utils.BlockHeader
 import Chainweb.TreeDB
-import Chainweb.Utils
+import Chainweb.Utils hiding (label)
 import Chainweb.Utils.Paging
 import Chainweb.Version
 

@@ -63,7 +63,6 @@ import System.IO.Unsafe
 -- internal imports
 
 import Chainweb.Crypto.MerkleLog
-import Chainweb.MerkleUniverse
 import Chainweb.Utils
 
 -- -------------------------------------------------------------------------- --
@@ -79,80 +78,95 @@ merkleLogHashBytesCount :: Natural
 merkleLogHashBytesCount = natVal $ Proxy @MerkleLogHashBytesCount
 {-# INLINE merkleLogHashBytesCount #-}
 
-newtype MerkleLogHash = MerkleLogHash (MerkleRoot (HashAlg ChainwebHashTag))
+newtype MerkleLogHash a = MerkleLogHash (MerkleRoot a)
     deriving stock (Show, Eq, Ord, Generic)
     deriving newtype (BA.ByteArrayAccess)
     deriving anyclass (NFData)
 
 -- | Smart constructor
 --
-merkleLogHash :: MonadThrow m => B.ByteString -> m MerkleLogHash
+merkleLogHash
+    :: MonadThrow m
+    => MerkleHashAlgorithm a
+    => B.ByteString
+    -> m (MerkleLogHash a)
 merkleLogHash = fmap MerkleLogHash . decodeMerkleRoot
 {-# INLINE merkleLogHash #-}
 
-unsafeMerkleLogHash :: HasCallStack => B.ByteString -> MerkleLogHash
+unsafeMerkleLogHash
+    :: HasCallStack
+    => MerkleHashAlgorithm a
+    => B.ByteString
+    -> MerkleLogHash a
 unsafeMerkleLogHash = MerkleLogHash
     . either (error . displayException) id
     . decodeMerkleRoot
 {-# INLINE unsafeMerkleLogHash #-}
 
-encodeMerkleLogHash :: MonadPut m => MerkleLogHash -> m ()
+encodeMerkleLogHash :: MonadPut m => MerkleLogHash a -> m ()
 encodeMerkleLogHash (MerkleLogHash bytes) = putByteString $ encodeMerkleRoot bytes
 {-# INLINE encodeMerkleLogHash #-}
 
-decodeMerkleLogHash :: MonadGet m => m MerkleLogHash
+decodeMerkleLogHash
+    :: MerkleHashAlgorithm a
+    => MonadGet m
+    => m (MerkleLogHash a)
 decodeMerkleLogHash = unsafeMerkleLogHash <$> getBytes (int merkleLogHashBytesCount)
 {-# INLINE decodeMerkleLogHash #-}
 
-instance Hashable MerkleLogHash where
+instance Hashable (MerkleLogHash a) where
     hashWithSalt s = xor s
         . unsafePerformIO . flip BA.withByteArray (peek @Int)
     -- BlockHashes are already cryptographically strong hashes
     -- that include the chain id.
     {-# INLINE hashWithSalt #-}
 
-nullHashBytes :: MerkleLogHash
+nullHashBytes :: MerkleHashAlgorithm a => MerkleLogHash a
 nullHashBytes = unsafeMerkleLogHash $ B.replicate (int merkleLogHashBytesCount) 0x00
 {-# NOINLINE nullHashBytes #-}
 
-oneHashBytes :: MerkleLogHash
+oneHashBytes :: MerkleHashAlgorithm a => MerkleLogHash a
 oneHashBytes = unsafeMerkleLogHash $ B.replicate (int merkleLogHashBytesCount) 0xff
 {-# NOINLINE oneHashBytes #-}
 
 -- | This must be used only for testing. The result hash is uniformily
 -- distributed, but not cryptographically safe.
 --
-randomMerkleLogHash :: MonadIO m => m MerkleLogHash
+randomMerkleLogHash :: MerkleHashAlgorithm a => MonadIO m => m (MerkleLogHash a)
 randomMerkleLogHash = unsafeMerkleLogHash <$> randomByteString merkleLogHashBytesCount
 
-merkleLogHashToText :: MerkleLogHash -> T.Text
+merkleLogHashToText :: MerkleHashAlgorithm a => MerkleLogHash a -> T.Text
 merkleLogHashToText = encodeB64UrlNoPaddingText . runPutS . encodeMerkleLogHash
 {-# INLINE merkleLogHashToText #-}
 
-merkleLogHashFromText :: MonadThrow m => T.Text -> m MerkleLogHash
+merkleLogHashFromText
+    :: MerkleHashAlgorithm a
+    => MonadThrow m
+    => T.Text
+    -> m (MerkleLogHash a)
 merkleLogHashFromText t = either (throwM . TextFormatException . sshow) return
         $ runGet decodeMerkleLogHash =<< decodeB64UrlNoPaddingText t
 {-# INLINE merkleLogHashFromText #-}
 
-instance HasTextRepresentation MerkleLogHash where
+instance MerkleHashAlgorithm a => HasTextRepresentation (MerkleLogHash a) where
     toText = merkleLogHashToText
     {-# INLINE toText #-}
     fromText = merkleLogHashFromText
     {-# INLINE fromText #-}
 
-instance ToJSON MerkleLogHash where
+instance MerkleHashAlgorithm a => ToJSON (MerkleLogHash a) where
     toJSON = toJSON . toText
     {-# INLINE toJSON #-}
 
-instance ToJSONKey MerkleLogHash where
+instance MerkleHashAlgorithm a => ToJSONKey (MerkleLogHash a) where
     toJSONKey = toJSONKeyText toText
     {-# INLINE toJSONKey #-}
 
-instance FromJSON MerkleLogHash where
+instance MerkleHashAlgorithm a => FromJSON (MerkleLogHash a) where
     parseJSON = parseJsonFromText "MerkleLogHash"
     {-# INLINE parseJSON #-}
 
-instance FromJSONKey MerkleLogHash where
+instance MerkleHashAlgorithm a => FromJSONKey (MerkleLogHash a) where
     fromJSONKey = FromJSONKeyTextParser
         $ either fail return . eitherFromText
     {-# INLINE fromJSONKey #-}

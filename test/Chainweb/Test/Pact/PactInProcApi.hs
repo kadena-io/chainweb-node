@@ -62,7 +62,7 @@ import Chainweb.Test.Pact.Utils
 import Chainweb.Test.Utils
 import Chainweb.Time
 import Chainweb.Transaction
-import Chainweb.Utils
+import Chainweb.Utils hiding (label)
 import Chainweb.Version
 import Chainweb.Version.Utils
 
