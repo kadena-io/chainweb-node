@@ -87,7 +87,7 @@ newTestServer = mask_ $ do
 
     mkEnv :: Int -> IO ClientEnv
     mkEnv port = do
-        mgrSettings <- certificateCacheManagerSettings TlsInsecure Nothing
+        mgrSettings <- certificateCacheManagerSettings TlsInsecure
         mgr <- HTTP.newManager mgrSettings
         return $! mkClientEnv mgr $ BaseUrl Https host port ""
 

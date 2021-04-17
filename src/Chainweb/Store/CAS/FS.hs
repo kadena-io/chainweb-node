@@ -12,7 +12,6 @@ module Chainweb.Store.CAS.FS
 import Control.Concurrent (getNumCapabilities)
 import Control.Concurrent.FixedThreadPool (ThreadPool)
 import qualified Control.Concurrent.FixedThreadPool as TP
-import Control.Concurrent.MVar
 import Control.Exception
 import Control.Monad (unless)
 import Control.Monad.Trans.Except
@@ -20,17 +19,15 @@ import Data.Bytes.Put (runPutS)
 import qualified Data.ByteString.Base16 as B16
 import Data.ByteString.Char8 (ByteString)
 import qualified Data.ByteString.Char8 as B
-import qualified Data.ByteString.Random.MWC as MWCB
 import Data.Vector (Vector)
 import qualified Data.Vector as V
 import qualified System.Directory as Dir
 import System.Path (Absolute, Path, (</>))
 import qualified System.Path as Path
-import qualified System.Random.MWC as MWC
 ------------------------------------------------------------------------------
 import Chainweb.BlockHeader (BlockPayloadHash, encodeBlockPayloadHash)
 import Chainweb.Store.CAS
-import Chainweb.Utils (Codec(..), eatIOExceptions)
+import Chainweb.Utils (Codec(..), eatIOExceptions, randomByteString)
 ------------------------------------------------------------------------------
 
 -- TODO: use base64 instead? slower, but wastes fewer bytes for filenames
@@ -168,21 +165,15 @@ getBlockFilePath root h = fp
     fp = Path.toFilePath (parent </> Path.fromUnrootedFilePath fn)
 
 
-newMWC :: IO (MVar MWC.GenIO)
-newMWC = MWC.createSystemRandom >>= newMVar
-
-
 systemFsOps :: IO FsOps
 systemFsOps = do
-    mv <- newMWC
-    return $ FsOps Dir.doesFileExist mkAbsolute mkdir (writeAtomic mv) rmFile B.readFile
+    return $ FsOps Dir.doesFileExist mkAbsolute mkdir writeAtomic rmFile B.readFile
   where
     mkAbsolute = Path.makeAbsolute . Path.fromFilePath
     mkdir = Dir.createDirectoryIfMissing True
-    randomBytes mv = withMVar mv $ flip MWCB.randomGen 6
     rmFile = eatIOExceptions . Dir.removeFile
-    writeAtomic mv fp s = do
-        suffix <- (B.unpack . B16.encode) <$> randomBytes mv
+    writeAtomic fp s = do
+        suffix <- B.unpack . B16.encode <$> randomByteString 6
         let tmp = fp ++ ('.' : suffix)
         let write = B.writeFile tmp s >> Dir.renameFile tmp fp
         write `onException` rmFile tmp

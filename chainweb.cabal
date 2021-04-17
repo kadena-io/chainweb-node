@@ -68,12 +68,19 @@ flag debug
     description:
         Enable various debugging features
     default: False
-    manual:True
+    manual: True
 
 flag ghc-flags
     description: Enable ghc dumps of .ghc.flags and .ghc.version for tooling
     default: False
     manual: True
+
+flag random-1_2
+    description:
+        random package version >= 1.2 is available. This version is currently not
+        available for the nix builds.
+    default: True
+    manual: False
 
 common debugging-flags
     if flag(debug)
@@ -251,6 +258,7 @@ library
         , Numeric.Additive
         , Numeric.AffineSpace
 
+        , P2P.BootstrapNodes
         , P2P.Node
         , P2P.Node.Configuration
         , P2P.Node.PeerDB
@@ -367,8 +375,6 @@ library
         , pact >= 3.7
         , paths >= 0.2
         , pem >=0.2
-        , random >= 1.1
-        , random-bytestring >= 0.1
         , rosetta >= 1.0
         , safe-exceptions >= 0.1
         , scheduler >= 1.4
@@ -419,6 +425,14 @@ library
         build-tool-depends: hsinspect:hsinspect
         ghc-options: -fplugin GhcFlags.Plugin
         build-depends: ghcflags
+
+    if flag(random-1_2)
+        build-depends:
+            random >= 1.2
+    else
+        build-depends:
+              random >= 1.1
+            , random-bytestring >= 0.1
 
 -- -------------------------------------------------------------------------- --
 -- Chainweb Test suite
@@ -532,8 +546,6 @@ test-suite chainweb-tests
         , pact
         , paths >= 0.2
         , quickcheck-instances >= 0.3
-        , random >= 1.1
-        , random-bytestring >= 0.1
         , resource-pool >= 0.2
         , retry >= 0.7
         , rosetta >= 1.0
@@ -566,6 +578,14 @@ test-suite chainweb-tests
 
     if flag(ed25519)
         cpp-options: -DWITH_ED25519=1
+
+    if flag(random-1_2)
+        build-depends:
+            random >= 1.2
+    else
+        build-depends:
+              random >= 1.1
+            , random-bytestring >= 0.1
 
 -- -------------------------------------------------------------------------- --
 -- Chainweb Node Application

@@ -662,7 +662,7 @@ clientEnvWithChainwebTestServer tls v dbsIO =
     mkEnv :: Int -> IO (TestClientEnv t cas)
     mkEnv port = do
         mgrSettings <- if
-            | tls -> certificateCacheManagerSettings TlsInsecure Nothing
+            | tls -> certificateCacheManagerSettings TlsInsecure
             | otherwise -> return HTTP.defaultManagerSettings
         mgr <- HTTP.newManager mgrSettings
         dbs <- dbsIO
