@@ -160,6 +160,7 @@ applyCmd v logger pdbenv miner gasModel txCtx spv cmdIn mcache0 =
           ++ [ FlagPreserveModuleNameBug | not isModuleNameFix ]
           ++ [ FlagPreserveNsModuleInstallBug | not isModuleNameFix2 ]
           ++ enablePactEvents' txCtx
+          ++ enablePact40 txCtx
         )
 
     cenv = TransactionEnv Transactional pdbenv logger (ctxToPublicData txCtx) spv nid gasPrice
@@ -233,7 +234,7 @@ applyGenesisCmd logger dbEnv spv cmd =
         , _txGasPrice = 0.0
         , _txRequestKey = rk
         , _txGasLimit = 0
-        , _txExecutionConfig = def
+        , _txExecutionConfig = mkExecutionConfig [FlagDisablePact40]
         }
     txst = TransactionState
         { _txCache = mempty
@@ -285,7 +286,8 @@ applyCoinbase v logger dbEnv (Miner mid mks) reward@(ParsedDecimal d) txCtx
     ec = mkExecutionConfig $
       [ FlagDisableModuleInstall
       , FlagDisableHistoryInTransactionalMode ] ++
-      enablePactEvents' txCtx
+      enablePactEvents' txCtx ++
+      enablePact40 txCtx
     tenv = TransactionEnv Transactional dbEnv logger (ctxToPublicData txCtx) noSPVSupport
            Nothing 0.0 rk 0 ec
     txst = TransactionState mc mempty 0 Nothing (_geGasModel freeGasEnv)
@@ -429,11 +431,15 @@ applyUpgrades
   -> BlockHeight
   -> TransactionM p (Maybe ModuleCache)
 applyUpgrades v cid height
-     | coinV2Upgrade v cid height = go
+     | coinV2Upgrade v cid height = applyCoinV2
+     | pact4coin3Upgrade v height = applyCoinV3
      | otherwise = return Nothing
   where
     installCoinModuleAdmin = set (evalCapabilities . capModuleAdmin) $ S.singleton (ModuleName "coin" Nothing)
-    go = applyTxs (upgradeTransactions v cid)
+
+    applyCoinV2 = applyTxs (upgradeTransactions v cid)
+
+    applyCoinV3 = applyTxs (coinV3Transactions v)
 
     applyTxs txsIO = do
       infoLog "Applying upgrade!"
@@ -446,7 +452,7 @@ applyUpgrades v cid height
       -- init cache in the pact service state (_psInitCache).
       --
 
-      caches <- local (set txExecutionConfig def) $ mapM applyTx txs
+      caches <- local (set txExecutionConfig (mkExecutionConfig [FlagDisablePact40])) $ mapM applyTx txs
       return $ Just (HM.unions caches)
 
     interp = initStateInterpreter $ installCoinModuleAdmin $
@@ -603,6 +609,12 @@ enablePactEvents' :: TxContext -> [ExecutionFlag]
 enablePactEvents' tc
     | enablePactEvents (ctxVersion tc) (ctxCurrentBlockHeight tc) = []
     | otherwise = [FlagDisablePactEvents]
+
+
+enablePact40 :: TxContext -> [ExecutionFlag]
+enablePact40 tc
+    | pact4coin3Upgrade (ctxVersion tc) (ctxCurrentBlockHeight tc) = []
+    | otherwise = [FlagDisablePact40]
 
 -- | Execute a 'ContMsg' and return the command result and module cache
 --

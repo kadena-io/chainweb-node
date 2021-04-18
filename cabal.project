@@ -14,7 +14,7 @@ debug-info: True
 source-repository-package
     type: git
     location: https://github.com/kadena-io/pact.git
-    tag: a9c9b92e313a680574479ffda4700533f19d16d5
+    tag: 2699c0ba03c5711ce4d2bfc9fc3aae4e22eac057
 
 source-repository-package
     type: git
@@ -60,4 +60,3 @@ constraints: base64-bytestring <1.1
 -- cf. https://github.com/snoyberg/http-client/pull/454
 constraints: http-client>=0.7.5
 allow-newer: servant-client:http-client
-

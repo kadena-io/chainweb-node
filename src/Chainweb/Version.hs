@@ -56,6 +56,7 @@ module Chainweb.Version
 , enableModuleNameFix2
 , enablePactEvents
 , enableSPVBridge
+, pact4coin3Upgrade
 
 -- ** BlockHeader Validation Guards
 , slowEpochGuard
@@ -857,6 +858,14 @@ enableSPVBridge Testnet04 = (>= 820_000) -- 2021-01-14T17:12:02
 enableSPVBridge Development = (>= 130)
 enableSPVBridge (FastTimedCPM g) = const $ g == pairChainGraph || g == petersonChainGraph
 enableSPVBridge _ = const True
+
+-- | Pact 4 / coin v3 fork
+pact4coin3Upgrade :: ChainwebVersion -> BlockHeight -> Bool
+pact4coin3Upgrade Mainnet01 = (>= 1_600_000) -- 2021-05-07T14:14:46
+pact4coin3Upgrade Testnet04 = (>= 1_140_000) -- 2021-05-06T13:47:27
+pact4coin3Upgrade Development = (>= 250) -- greater than 20-chains
+-- pact4coin3Upgrade (FastTimedCPM g) = const $ g == pairChainGraph
+pact4coin3Upgrade _ = const False
 
 -- -------------------------------------------------------------------------- --
 -- Header Validation Guards

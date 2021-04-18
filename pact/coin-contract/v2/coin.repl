@@ -25,7 +25,7 @@
 
 (commit-tx)
 
-(verify 'coin) ;; TODO restore
+(verify 'coin)
 
 ;; Account creation and account details unit tests
 
@@ -530,9 +530,10 @@
     "success"))
 
 ; make sure chain-id is enforced in the yield
+; using Pact40 error messages
 (expect-failure
   "create side of cross-chain transfer fails yield on wrong chain"
-  "does not match (chain"
+  "yield provenance"
   (continue-pact 1 false (hash "burn-create")
     { "create-account": 'doug
     , "create-account-guard": (read-keyset 'doug)
