@@ -1,0 +1,83 @@
+(begin-tx)
+(load "xchain-v1.pact")
+(commit-tx)
+
+(env-data
+  { "coin-file": "../v3/coin-v3.pact"
+  , "coin-load-gas": 3419
+  })
+(load "../v2/coin.repl")
+
+;; ======================================================
+;; test transfer, gas events
+;; ======================================================
+
+(begin-tx)
+(env-events true)
+;; "keys2" is a weird key value but don't want to change original test
+(env-data {'k: ['keys2]})
+(env-sigs
+  [{ 'key: 'keys2,
+     'caps: [(coin.TRANSFER 'doug 'emily 0.001),(coin.GAS)]}])
+
+(coin.transfer 'doug 'emily 0.0001)
+(expect "transfer event"
+  [{"name": "coin.TRANSFER","params": ["doug" "emily" 0.0001]}]
+  (map (remove 'module-hash) (env-events true)))
+
+(coin.transfer-create 'doug 'emily (read-keyset 'k) 0.0002)
+(expect "transfer-create event"
+  [{"name": "coin.TRANSFER","params": ["doug" "emily" 0.0002]}]
+  (map (remove 'module-hash) (env-events true)))
+
+(test-capability (coin.GAS))
+(coin.fund-tx 'doug 'emily (read-keyset 'k) 0.0005)
+(env-data { 'fee: 0.0004 })
+(continue-pact 1)
+(expect "gas event"
+  [{"name": "coin.TRANSFER","params": ["doug" "emily" 0.0004]}]
+  (map (remove 'module-hash) (env-events true)))
+(rollback-tx)
+
+;; ======================================================
+;; test xchain
+;; ======================================================
+
+(begin-tx)
+(env-data {'k: ['keys2]})
+(env-keys ['keys2])
+(env-chain-data {'chain-id: "0"})
+
+(coin.transfer-crosschain 'emily 'doug (read-keyset 'k) "1" 0.00001)
+(expect "xchain send events"
+  [{"name": "coin.XCHAIN_SEND","params": ["emily" "doug" "1"]}
+   {"name": "coin.TRANSFER","params": ["emily" "" 0.00001]}]
+  (map (remove 'module-hash) (env-events true)))
+
+(env-chain-data {'chain-id: "1"})
+(continue-pact 1)
+(expect "xchain send events"
+   [{"name": "coin.TRANSFER","params": ["" "doug" 0.00001]}
+    {"name": "coin.XCHAIN_RECEIVE","params": ["emily" "0" "doug"]}]
+  (map (remove 'module-hash) (env-events true)))
+(rollback-tx)
+
+
+;; ======================================================
+;; test allocation release
+;; ======================================================
+
+(begin-tx)
+(test-capability (coin.GENESIS))
+(env-data {'alloc:['alloc]})
+(define-keyset 'alloc)
+(coin.create-allocation-account
+  "alloc" (time "2020-10-31T00:00:00Z") "alloc" 10.0)
+(env-sigs
+  [{'key: 'alloc, 'caps: [(coin.RELEASE_ALLOCATION 'alloc 10.0)]}])
+(coin.release-allocation "alloc")
+(expect "release-allocation events"
+   [{"name": "coin.RELEASE_ALLOCATION","params": ["alloc" 10.0]}
+    {"name": "coin.TRANSFER","params": ["" "alloc" 10.0]}]
+  (map (remove 'module-hash) (env-events true)))
+(rollback-tx)
