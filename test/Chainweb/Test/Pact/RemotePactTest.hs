@@ -560,11 +560,6 @@ caplistTest iot nio = testCaseSteps "caplist TRANSFER + FUND_TX test" $ \step ->
     tx0 = PactTransaction "(coin.transfer \"sender00\" \"sender01\" 100.0)" Nothing
 
 
-allocation00KeyPair :: SimpleKeyPair
-allocation00KeyPair =
-    ( "d82d0dcde9825505d86afb6dcc10411d6b67a429a79e21bda4bb119bf28ab871"
-    , "c63cd081b64ae9a7f8296f11c34ae08ba8e1f8c84df6209e5dee44fa04bcb9f5"
-    )
 
 allocation01KeyPair :: SimpleKeyPair
 allocation01KeyPair =

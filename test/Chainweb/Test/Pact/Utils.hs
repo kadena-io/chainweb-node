@@ -23,6 +23,7 @@ module Chainweb.Test.Pact.Utils
   SimpleKeyPair
 , sender00
 , sender01
+, allocation00KeyPair
 , testKeyPairs
 , mkKeySetData
 -- * 'PactValue' helpers
@@ -210,6 +211,13 @@ sender00 = ("368820f80c324bbc7c2b0610688a7da43e39f91d118732671cd9c7500ff43cca"
 sender01 :: SimpleKeyPair
 sender01 = ("6be2f485a7af75fedb4b7f153a903f7e6000ca4aa501179c91a2450b777bd2a7"
            ,"2beae45b29e850e6b1882ae245b0bab7d0689ebdd0cd777d4314d24d7024b4f7")
+
+
+allocation00KeyPair :: SimpleKeyPair
+allocation00KeyPair =
+    ( "d82d0dcde9825505d86afb6dcc10411d6b67a429a79e21bda4bb119bf28ab871"
+    , "c63cd081b64ae9a7f8296f11c34ae08ba8e1f8c84df6209e5dee44fa04bcb9f5"
+    )
 
 
 -- | Make trivial keyset data

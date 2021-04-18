@@ -278,28 +278,54 @@ pact4coin3UpgradeTest mpRefIO reqIO = testCase "pact4coin3UpgradeTest" $ do
 
   forM_ [(7::Int)..20] $ \h -> runBlock q bdb second (sshow h)
 
-  setMempool mpRefIO getCoinHash
-  pwo <- runBlock q bdb second "21"
-  tx21 <- txResult 0 pwo
-  cb21 <- cbResult pwo
+  setMempool mpRefIO getHashAndAlloc
+  pwo21 <- runBlock q bdb second "21"
   let v3Hash = "QEfJaAE_b6Fn3jWhvOHH8esk7dN9XAyIAkZ15YGZJM4"
+
+  cb21 <- cbResult pwo21
   cbEv <- mkTransferEvent "" "NoMiner" 2.304523 "coin" v3Hash
-  gasEv <- mkTransferEvent "sender00" "NoMiner" 0.0115 "coin" v3Hash
-  assertEqual "Hash of coin @ block 21" (pHash v3Hash) (_crResult tx21)
-  assertEqual "Events for tx @ block 6" [gasEv] (_crEvents tx21)
   assertEqual "Coinbase events @ block 6" [cbEv] (_crEvents cb21)
+
+  tx21_0 <- txResult 0 pwo21
+  gasEv0 <- mkTransferEvent "sender00" "NoMiner" 0.0115 "coin" v3Hash
+  assertEqual "Hash of coin @ block 21" (pHash v3Hash) (_crResult tx21_0)
+  assertEqual "Events for tx0 @ block 6" [gasEv0] (_crEvents tx21_0)
+
+  tx21_1 <- txResult 1 pwo21
+  gasEv1 <- mkTransferEvent "sender00" "NoMiner" 0.043 "coin" v3Hash
+  allocTfr <- mkTransferEvent "" "allocation00" 1000000.0 "coin" v3Hash
+  allocEv <- mkEvent "RELEASE_ALLOCATION" [pString "allocation00",pDecimal 1000000.0]
+             "coin" v3Hash
+  assertEqual "Events for tx1 @ block 6" [gasEv1,allocEv,allocTfr] (_crEvents tx21_1)
+
+
   setMempool mpRefIO mempty
 
   where
     getCoinHash = mempty {
       mpaGetBlock = \_ _ _ bh -> do
-          fmap V.singleton $ buildCwCmd
-            $ set cbSigners [mkSigner' sender00 []]
-            $ set cbChainId (_blockChainId bh)
-            $ set cbCreationTime (toTxCreationTime $ _bct $ _blockCreationTime bh)
-            $ mkCmd (sshow bh) -- nonce is block height, sufficiently unique
-            $ mkExec' "(at 'hash (describe-module 'coin))"
+          fmap V.singleton $ buildHashCmd bh
       }
+    getHashAndAlloc = mempty {
+      mpaGetBlock = \_ _ _ bh -> do
+          t0 <- buildHashCmd bh
+          t1 <- buildReleaseCommand bh
+          return $! V.fromList [t0,t1]
+      }
+
+    buildHashCmd bh = buildCwCmd
+        $ set cbSigners [mkSigner' sender00 []]
+        $ set cbChainId (_blockChainId bh)
+        $ set cbCreationTime (toTxCreationTime $ _bct $ _blockCreationTime bh)
+        $ mkCmd (sshow bh) -- nonce is block height, sufficiently unique
+        $ mkExec' "(at 'hash (describe-module 'coin))"
+
+    buildReleaseCommand bh = buildCwCmd
+        $ set cbSigners [mkSigner' sender00 [],mkSigner' allocation00KeyPair []]
+        $ set cbChainId (_blockChainId bh)
+        $ set cbCreationTime (toTxCreationTime $ _bct $ _blockCreationTime bh)
+        $ mkCmd (sshow bh) -- nonce is block height, sufficiently unique
+        $ mkExec' "(coin.release-allocation 'allocation00)"
 
     txResult i o = do
       case preview (ix i . _2) $ _payloadWithOutputsTransactions o of
