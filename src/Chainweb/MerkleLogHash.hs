@@ -45,7 +45,6 @@ import qualified Data.ByteArray as BA
 import Data.Bytes.Get
 import Data.Bytes.Put
 import qualified Data.ByteString as B
-import qualified Data.ByteString.Random as BR
 import Data.Hashable (Hashable(..))
 import Data.MerkleLog hiding (Expected, Actual)
 import Data.Proxy
@@ -124,7 +123,7 @@ oneHashBytes = unsafeMerkleLogHash $ B.replicate (int merkleLogHashBytesCount) 0
 -- distributed, but not cryptographically safe.
 --
 randomMerkleLogHash :: MonadIO m => m MerkleLogHash
-randomMerkleLogHash = unsafeMerkleLogHash <$> liftIO (BR.random merkleLogHashBytesCount)
+randomMerkleLogHash = unsafeMerkleLogHash <$> randomByteString merkleLogHashBytesCount
 
 merkleLogHashToText :: MerkleLogHash -> T.Text
 merkleLogHashToText = encodeB64UrlNoPaddingText . runPutS . encodeMerkleLogHash
