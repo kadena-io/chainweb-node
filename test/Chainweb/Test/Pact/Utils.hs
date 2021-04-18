@@ -30,6 +30,9 @@ module Chainweb.Test.Pact.Utils
 , pString
 , pDecimal
 , pBool
+-- * event helpers
+, mkEvent
+, mkTransferEvent
 -- * Capability helpers
 , mkCapability
 , mkTransferCap
@@ -140,12 +143,14 @@ import Pact.Types.Command
 import Pact.Types.Crypto
 import Pact.Types.Exp
 import Pact.Types.Gas
+import Pact.Types.Hash
 import Pact.Types.Logger
 import Pact.Types.Names
 import Pact.Types.PactValue
 import Pact.Types.RPC
-import Pact.Types.Runtime (PactId)
+import Pact.Types.Runtime (PactEvent(..))
 import Pact.Types.SPV
+import Pact.Types.Term
 import Pact.Types.SQLite
 import Pact.Types.Util (parseB16TextOnly)
 
@@ -231,7 +236,34 @@ pDecimal = PLiteral . LDecimal
 pBool :: Bool -> PactValue
 pBool = PLiteral . LBool
 
+mkEvent
+    :: MonadThrow m
+    => Text
+    -- ^ name
+    -> [PactValue]
+    -- ^ params
+    -> ModuleName
+    -> Text
+    -- ^ module hash
+    -> m PactEvent
+mkEvent n params m mh = do
+  mh' <- decodeB64UrlNoPaddingText mh
+  return $ PactEvent n params m (ModuleHash (Hash mh'))
 
+mkTransferEvent
+    :: MonadThrow m
+    => Text
+    -- ^ sender
+    -> Text
+    -- ^ receiver
+    -> Decimal
+    -- ^ amount
+    -> ModuleName
+    -> Text
+    -- ^ module hash
+    -> m PactEvent
+mkTransferEvent sender receiver amount m mh =
+  mkEvent "TRANSFER" [pString sender,pString receiver,pDecimal amount] m mh
 -- ----------------------------------------------------------------------- --
 -- Capability helpers
 

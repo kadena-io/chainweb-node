@@ -205,9 +205,9 @@ applyCmd v logger pdbenv miner gasModel txCtx spv cmdIn mcache0 =
         Left e ->
           -- redeem gas failure is fatal (block-failing) so miner doesn't lose coins
           fatal $ "tx failure for request key while redeeming gas: " <> sshow e
-        Right _ -> do
+        Right es -> do
           logs <- use txLogs
-          return $! set crLogs (Just logs) cr
+          return $! set crLogs (Just logs) $ over crEvents (es ++) cr
 
 applyGenesisCmd
     :: Logger
@@ -432,7 +432,7 @@ applyUpgrades
   -> TransactionM p (Maybe ModuleCache)
 applyUpgrades v cid height
      | coinV2Upgrade v cid height = applyCoinV2
-     | pact4coin3Upgrade v height = applyCoinV3
+     | pact4coin3Upgrade At v height = applyCoinV3
      | otherwise = return Nothing
   where
     installCoinModuleAdmin = set (evalCapabilities . capModuleAdmin) $ S.singleton (ModuleName "coin" Nothing)
@@ -613,7 +613,7 @@ enablePactEvents' tc
 
 enablePact40 :: TxContext -> [ExecutionFlag]
 enablePact40 tc
-    | pact4coin3Upgrade (ctxVersion tc) (ctxCurrentBlockHeight tc) = []
+    | pact4coin3Upgrade After (ctxVersion tc) (ctxCurrentBlockHeight tc) = []
     | otherwise = [FlagDisablePact40]
 
 -- | Execute a 'ContMsg' and return the command result and module cache
@@ -752,7 +752,7 @@ enrichedMsgBody cmd = case (_pPayload $ _cmdPayload cmd) of
 --
 -- see: 'pact/coin-contract/coin.pact#fund-tx'
 --
-redeemGas :: Command (Payload PublicMeta ParsedCode) -> TransactionM p ()
+redeemGas :: Command (Payload PublicMeta ParsedCode) -> TransactionM p [PactEvent]
 redeemGas cmd = do
     mcache <- use txCache
 
@@ -762,7 +762,7 @@ redeemGas cmd = do
 
     fee <- gasSupplyOf <$> use txGasUsed <*> view txGasPrice
 
-    void $! applyContinuation (initState mcache) (redeemGasCmd fee gid)
+    _crEvents <$> applyContinuation (initState mcache) (redeemGasCmd fee gid)
       (_pSigners $ _cmdPayload cmd) (toUntypedHash $ _cmdHash cmd)
       managedNamespacePolicy
 

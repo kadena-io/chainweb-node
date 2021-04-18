@@ -19,6 +19,8 @@
 
   (implements fungible-v2)
 
+  (bless "ut_J_ZNkoyaPUEJhiwVeWnkSQn9JT9sQCWKdjjVVrWo")
+
   ; --------------------------------------------------------------------------
   ; Schemas and Tables
 

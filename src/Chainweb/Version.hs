@@ -57,6 +57,7 @@ module Chainweb.Version
 , enablePactEvents
 , enableSPVBridge
 , pact4coin3Upgrade
+, AtOrAfter(..)
 
 -- ** BlockHeader Validation Guards
 , slowEpochGuard
@@ -848,7 +849,10 @@ enablePactEvents :: ChainwebVersion -> BlockHeight -> Bool
 enablePactEvents Mainnet01 bh = bh >= 1138000
 enablePactEvents Testnet04 bh = bh >= 660000
 enablePactEvents Development bh = bh >= 120
-enablePactEvents (FastTimedCPM g) _ = g == singletonChainGraph || g == pairChainGraph -- For testing events
+enablePactEvents (FastTimedCPM g) bh
+    | g == singletonChainGraph || g == pairChainGraph = True
+    | g == petersonChainGraph = bh > 20
+    | otherwise = False
 enablePactEvents _ bh = bh >= 2
 
 -- | Bridge support: ETH and event SPV.
@@ -859,13 +863,19 @@ enableSPVBridge Development = (>= 130)
 enableSPVBridge (FastTimedCPM g) = const $ g == pairChainGraph || g == petersonChainGraph
 enableSPVBridge _ = const True
 
+data AtOrAfter = At | After deriving (Eq,Show)
+
 -- | Pact 4 / coin v3 fork
-pact4coin3Upgrade :: ChainwebVersion -> BlockHeight -> Bool
-pact4coin3Upgrade Mainnet01 = (>= 1_600_000) -- 2021-05-07T14:14:46
-pact4coin3Upgrade Testnet04 = (>= 1_140_000) -- 2021-05-06T13:47:27
-pact4coin3Upgrade Development = (>= 250) -- greater than 20-chains
--- pact4coin3Upgrade (FastTimedCPM g) = const $ g == pairChainGraph
-pact4coin3Upgrade _ = const False
+pact4coin3Upgrade :: AtOrAfter -> ChainwebVersion -> BlockHeight -> Bool
+pact4coin3Upgrade aoa v h = case aoa of
+    At -> go (==) v h
+    After -> go (flip (>)) v h
+  where
+    go f Mainnet01 = f 1_600_000 -- 2021-05-07T14:14:46
+    go f Testnet04 = f 1_140_000 -- 2021-05-06T13:47:27
+    go f Development = f 250 -- greater than 20-chains
+    go f (FastTimedCPM g) | g == petersonChainGraph = f 20
+    go _f _ = const False
 
 -- -------------------------------------------------------------------------- --
 -- Header Validation Guards

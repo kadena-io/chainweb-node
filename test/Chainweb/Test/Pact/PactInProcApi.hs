@@ -3,6 +3,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE TypeApplications #-}
 
 -- |
 -- Module: Chainweb.Test.PactInProcApi
@@ -43,8 +44,10 @@ import Test.Tasty.HUnit
 
 import Pact.Parse
 import Pact.Types.ChainMeta
+import Pact.Types.Exp
 import Pact.Types.Command
 import Pact.Types.Hash
+import Pact.Types.PactValue
 import Pact.Types.Persistence
 
 import Chainweb.BlockCreationTime
@@ -91,6 +94,7 @@ tests rdb = ScheduledTest testName $ go
          , test Quiet $ badlistNewBlockTest
          , test Warn $ mempoolCreationTimeTest
          , test Warn $ moduleNameFork
+         , test Warn $ pact4coin3UpgradeTest
          ]
       where
         test logLevel f =
@@ -114,7 +118,7 @@ forSuccess msg mvio = (`catchAllSynchronous` handler) $ do
   where
     handler e = assertFailure $ msg ++ ": exception thrown: " ++ show e
 
-runBlock :: PactQueue -> TestBlockDb -> TimeSpan Micros -> String -> IO ()
+runBlock :: PactQueue -> TestBlockDb -> TimeSpan Micros -> String -> IO PayloadWithOutputs
 runBlock q bdb timeOffset msg = do
   ph <- getParentTestBlockDb bdb cid
   let blockTime = add timeOffset $ _bct $ _blockCreationTime ph
@@ -125,7 +129,7 @@ runBlock q bdb timeOffset msg = do
           | otherwise = emptyPayload
     addTestBlockDb bdb (Nonce 0) (\_ _ -> blockTime) c o
   nextH <- getParentTestBlockDb bdb cid
-  void $ forSuccess "newBlockAndValidate: validate" $
+  forSuccess "newBlockAndValidate: validate" $
        validateBlock nextH (payloadWithOutputsToPayloadData nb) q
 
 
@@ -233,16 +237,16 @@ newBlockRewindValidate mpRefIO reqIO = testCase "newBlockRewindValidate" $ do
   cut0 <- readMVar $ _bdbCut bdb -- genesis cut
 
   -- cut 1a
-  runBlock q bdb second "newBlockRewindValidate-1a"
+  void $ runBlock q bdb second "newBlockRewindValidate-1a"
   cut1a <- readMVar $ _bdbCut bdb
 
   -- rewind, cut 1b
   void $ swapMVar (_bdbCut bdb) cut0
-  runBlock q bdb second "newBlockRewindValidate-1b"
+  void $ runBlock q bdb second "newBlockRewindValidate-1b"
 
   -- rewind to cut 1a to trigger replay with chain data bug
   void $ swapMVar (_bdbCut bdb) cut1a
-  runBlock q bdb (secondsToTimeSpan 2) "newBlockRewindValidate-2"
+  void $ runBlock q bdb (secondsToTimeSpan 2) "newBlockRewindValidate-2"
 
   where
 
@@ -255,6 +259,56 @@ newBlockRewindValidate mpRefIO reqIO = testCase "newBlockRewindValidate" $ do
             $ mkCmd (sshow bh) -- nonce is block height, sufficiently unique
             $ mkExec' "(chain-data)"
       }
+
+pact4coin3UpgradeTest :: IO (IORef MemPoolAccess) -> IO (PactQueue,TestBlockDb) -> TestTree
+pact4coin3UpgradeTest mpRefIO reqIO = testCase "pact4coin3UpgradeTest" $ do
+
+  (q,bdb) <- reqIO
+
+  forM_ [(0::Int)..5] $ \h -> runBlock q bdb second (sshow h)
+
+  setMempool mpRefIO getCoinHash
+  pwo6 <- runBlock q bdb second "6"
+  tx6 <- txResult 0 pwo6
+  cb6 <- cbResult pwo6
+  assertEqual "Hash of coin @ block 6" (pHash "ut_J_ZNkoyaPUEJhiwVeWnkSQn9JT9sQCWKdjjVVrWo") (_crResult tx6)
+  assertEqual "Events for tx @ block 6" [] (_crEvents tx6)
+  assertEqual "Coinbase events @ block 6" [] (_crEvents cb6)
+  setMempool mpRefIO mempty
+
+  forM_ [(7::Int)..20] $ \h -> runBlock q bdb second (sshow h)
+
+  setMempool mpRefIO getCoinHash
+  pwo <- runBlock q bdb second "21"
+  tx21 <- txResult 0 pwo
+  cb21 <- cbResult pwo
+  let v3Hash = "QEfJaAE_b6Fn3jWhvOHH8esk7dN9XAyIAkZ15YGZJM4"
+  cbEv <- mkTransferEvent "" "NoMiner" 2.304523 "coin" v3Hash
+  gasEv <- mkTransferEvent "sender00" "NoMiner" 0.0115 "coin" v3Hash
+  assertEqual "Hash of coin @ block 21" (pHash v3Hash) (_crResult tx21)
+  assertEqual "Events for tx @ block 6" [gasEv] (_crEvents tx21)
+  assertEqual "Coinbase events @ block 6" [cbEv] (_crEvents cb21)
+  setMempool mpRefIO mempty
+
+  where
+    getCoinHash = mempty {
+      mpaGetBlock = \_ _ _ bh -> do
+          fmap V.singleton $ buildCwCmd
+            $ set cbSigners [mkSigner' sender00 []]
+            $ set cbChainId (_blockChainId bh)
+            $ set cbCreationTime (toTxCreationTime $ _bct $ _blockCreationTime bh)
+            $ mkCmd (sshow bh) -- nonce is block height, sufficiently unique
+            $ mkExec' "(at 'hash (describe-module 'coin))"
+      }
+
+    txResult i o = do
+      case preview (ix i . _2) $ _payloadWithOutputsTransactions o of
+        Nothing -> throwIO $ userError $ "no tx at " ++ show i
+        Just txo -> decodeStrictOrThrow @_ @(CommandResult Hash) (_transactionOutputBytes txo)
+
+    cbResult o = decodeStrictOrThrow @_ @(CommandResult Hash) (_coinbaseOutput $ _payloadWithOutputsCoinbase o)
+
+    pHash = PactResult . Right . PLiteral . LString
 
 moduleNameFork :: IO (IORef MemPoolAccess) -> IO (PactQueue,TestBlockDb) -> TestTree
 moduleNameFork mpRefIO reqIO = testCase "moduleNameFork" $ do
