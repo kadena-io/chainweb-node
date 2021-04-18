@@ -18,7 +18,6 @@
     ]
 
   (implements fungible-v2)
-  (implements xchain-v1)
 
   ; --------------------------------------------------------------------------
   ; Schemas and Tables
@@ -90,28 +89,6 @@
       (enforce (>= newbal 0.0)
         (format "TRANSFER exceeded for balance {}" [managed]))
       newbal)
-  )
-
-  ; xchain-v1 events
-
-  (defcap XCHAIN_SEND:bool
-    ( sender:string
-      recipient:string
-      recipient-chain:string )
-    @doc " Cross-chain send from SENDER \
-         \ to RECIPIENT on RECIPIENT_CHAIN. Not managed for \
-         \ backward compatibility, can be used for sig scoping."
-    @event true
-  )
-
-  (defcap XCHAIN_RECEIVE:bool
-    ( sender:string
-      sender-chain:string
-      recipient:string )
-    @doc " Notify of cross-chain receive continuation from SENDER \
-         \ to RECIPIENT on RECIPIENT_CHAIN. Pact ID of continuation \
-         \ is used to directly link transactions."
-    @event true
   )
 
   ; v3 capabilities
@@ -472,12 +449,11 @@
       ))
 
 
-  (defschema crosschain-schema-v3
+  (defschema crosschain-schema
     @doc "Schema for yielded value in cross-chain transfers"
     receiver:string
     receiver-guard:guard
-    amount:decimal
-    source-chain:string)
+    amount:decimal)
 
   (defpact transfer-crosschain:string
     ( sender:string
@@ -492,7 +468,6 @@
            ]
 
     (step
-      (with-capability (XCHAIN_SEND sender receiver target-chain)
       (with-capability (DEBIT sender)
 
         (validate-account sender)
@@ -513,28 +488,25 @@
         (emit-event (TRANSFER sender "" amount))
 
         (let
-          ((crosschain-details:object{crosschain-schema-v3}
+          ((crosschain-details:object{crosschain-schema}
             { "receiver" : receiver
             , "receiver-guard" : receiver-guard
             , "amount" : amount
-            , "source-chain": (at 'chain-id (chain-data))
             }))
           (yield crosschain-details target-chain)
-          ))))
+          )))
 
     (step
       (resume
         { "receiver" := receiver
         , "receiver-guard" := receiver-guard
         , "amount" := amount
-        , "source-chain" := source-chain
         }
         (emit-event (TRANSFER "" receiver amount))
         ;; step 2 - credit create account on target chain
-        (with-capability (XCHAIN_RECEIVE sender source-chain receiver)
         (with-capability (CREDIT receiver)
           (credit receiver receiver-guard amount))
-        )))
+        ))
     )
 
 

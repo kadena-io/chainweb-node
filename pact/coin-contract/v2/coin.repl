@@ -15,17 +15,17 @@
   (with-applied-env
     (load f)))
 (env-gaslog)
-;(expect
-;  "Gas cost of loading coin contract"
-;  (try 3301 (read-integer "coin-load-gas"))
-;  (env-gas))
+(expect
+  "Gas cost of loading coin contract"
+  (try 3301 (read-integer "coin-load-gas"))
+  (env-gas))
 
 (create-table coin.coin-table)
 (create-table coin.allocation-table)
 
 (commit-tx)
 
-;(verify 'coin) ;; TODO restore
+(verify 'coin) ;; TODO restore
 
 ;; Account creation and account details unit tests
 

@@ -1,10 +1,6 @@
-(begin-tx)
-(load "xchain-v1.pact")
-(commit-tx)
-
 (env-data
   { "coin-file": "../v3/coin-v3.pact"
-  , "coin-load-gas": 3419
+  , "coin-load-gas": 3413
   })
 (load "../v2/coin.repl")
 
@@ -50,15 +46,13 @@
 
 (coin.transfer-crosschain 'emily 'doug (read-keyset 'k) "1" 0.00001)
 (expect "xchain send events"
-  [{"name": "coin.XCHAIN_SEND","params": ["emily" "doug" "1"]}
-   {"name": "coin.TRANSFER","params": ["emily" "" 0.00001]}]
+  [{"name": "coin.TRANSFER","params": ["emily" "" 0.00001]}]
   (map (remove 'module-hash) (env-events true)))
 
 (env-chain-data {'chain-id: "1"})
 (continue-pact 1)
 (expect "xchain send events"
-   [{"name": "coin.TRANSFER","params": ["" "doug" 0.00001]}
-    {"name": "coin.XCHAIN_RECEIVE","params": ["emily" "0" "doug"]}]
+   [{"name": "coin.TRANSFER","params": ["" "doug" 0.00001]}]
   (map (remove 'module-hash) (env-events true)))
 (rollback-tx)
 
