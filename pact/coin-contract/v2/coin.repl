@@ -25,7 +25,7 @@
 
 (commit-tx)
 
-(verify 'coin)
+;(verify 'coin)
 
 ;; Account creation and account details unit tests
 

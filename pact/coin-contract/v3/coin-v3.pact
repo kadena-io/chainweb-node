@@ -243,6 +243,7 @@
     @model [ (property (valid-account account)) ]
 
     (validate-account account)
+    (enforce-chainweb-account account guard)
 
     (insert coin-table account
       { "balance" : 0.0
@@ -438,17 +439,31 @@
 
     (require-capability (CREDIT account))
     (with-default-read coin-table account
-      { "balance" : 0.0, "guard" : guard }
+      { "balance" : -1.0, "guard" : guard }
       { "balance" := balance, "guard" := retg }
       ; we don't want to overwrite an existing guard with the user-supplied one
       (enforce (= retg guard)
         "account guards do not match")
 
-      (write coin-table account
-        { "balance" : (+ balance amount)
-        , "guard"   : retg
-        })
+      (let ((is-new
+             (if (= balance -1.0)
+                 (enforce-chainweb-account account guard)
+               false)))
+
+        (write coin-table account
+          { "balance" : (if is-new amount (+ balance amount))
+          , "guard"   : retg
+          }))
       ))
+
+  (defun enforce-chainweb-account:bool (account:string guard:guard)
+    @doc "Enforce chainweb single-account naming protocol"
+    (if (and (= "k:" (take 2 account))
+             (= 66 (length account)))
+      (enforce (= (format "{}" [guard])
+                  (format "KeySet {keys: [{}],pred: keys-all}" [(drop 2 account)]))
+               "Single-key account name violation")
+      true))
 
 
   (defschema crosschain-schema

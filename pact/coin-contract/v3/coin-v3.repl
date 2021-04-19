@@ -75,3 +75,79 @@
     {"name": "coin.TRANSFER","params": ["" "alloc" 10.0]}]
   (map (remove 'module-hash) (env-events true)))
 (rollback-tx)
+
+;; ======================================================
+;; test chainweb single-key naming protocol
+;; ======================================================
+
+(begin-tx)
+(env-data
+  {'k: ["5b4c9fc5207fcf700a5fbcb48c261820149c8ecd52e005282ed9e3f5febcd1f4"]
+  ,'k2:
+   {'keys:["5b4c9fc5207fcf700a5fbcb48c261820149c8ecd52e005282ed9e3f5febcd1f4"]
+   ,'pred:"keys-any"}
+  })
+(env-sigs
+  [{'key:'keys2
+   ,'caps:
+    [(coin.TRANSFER 'emily
+      "k:5b4c9fc5207fcf700a5fbcb48c261820149c8ecd52e005282ed9e3f5febcd1f3"
+      0.02)
+    ,(coin.TRANSFER 'emily
+      "k:5b4c9fc5207fcf700a5fbcb48c261820149c8ecd52e005282ed9e3f5febcd1f4"
+      0.02)]}])
+(length "k:5b4c9fc5207fcf700a5fbcb48c261820149c8ecd52e005282ed9e3f5febcd1f3")
+(expect-failure
+  "single-key mismatch, create-account"
+  "Single-key account name violation"
+  (coin.create-account
+    "k:5b4c9fc5207fcf700a5fbcb48c261820149c8ecd52e005282ed9e3f5febcd1f3"
+    (read-keyset 'k)))
+(expect-failure
+  "single-key mismatch, transfer-create"
+  "Single-key account name violation"
+  (coin.transfer-create
+    'emily
+    "k:5b4c9fc5207fcf700a5fbcb48c261820149c8ecd52e005282ed9e3f5febcd1f3"
+    (read-keyset 'k)
+    0.02))
+(expect-failure
+  "single-key pred mismatch, create-account"
+  "Single-key account name violation"
+  (coin.create-account
+    "k:5b4c9fc5207fcf700a5fbcb48c261820149c8ecd52e005282ed9e3f5febcd1f4"
+    (read-keyset 'k2)))
+(expect-failure
+  "single-key pred mismatch, transfer-create"
+  "Single-key account name violation"
+  (coin.transfer-create
+    'emily
+    "k:5b4c9fc5207fcf700a5fbcb48c261820149c8ecd52e005282ed9e3f5febcd1f4"
+    (read-keyset 'k2)
+    0.02))
+(expect
+  "single-key success, create-account"
+  "Write succeeded"
+  (coin.create-account
+    "k:5b4c9fc5207fcf700a5fbcb48c261820149c8ecd52e005282ed9e3f5febcd1f4"
+    (read-keyset 'k)))
+(rollback-tx)
+(begin-tx)
+(env-data
+  {'k: ["5b4c9fc5207fcf700a5fbcb48c261820149c8ecd52e005282ed9e3f5febcd1f4"]})
+(env-sigs
+  [{'key:'keys2
+   ,'caps:
+    [(coin.TRANSFER 'emily
+      "k:5b4c9fc5207fcf700a5fbcb48c261820149c8ecd52e005282ed9e3f5febcd1f4"
+      0.02)]}])
+(expect
+  "single-key success, transfer-create"
+  "Write succeeded"
+  (coin.transfer-create
+    'emily
+    "k:5b4c9fc5207fcf700a5fbcb48c261820149c8ecd52e005282ed9e3f5febcd1f4"
+    (read-keyset 'k)
+    0.02))
+(rollback-tx)
+;;TODO cover crosschain
