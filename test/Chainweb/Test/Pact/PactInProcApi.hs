@@ -25,9 +25,11 @@ import Control.Lens hiding ((.=))
 import Control.Monad
 
 import Data.Aeson (object, (.=), Value(..))
+import Data.CAS (casLookupM)
 import Data.CAS.RocksDB
 import Data.Either (isRight)
 import qualified Data.ByteString.Lazy as BL
+import qualified Data.HashMap.Strict as HM
 import Data.IORef
 import qualified Data.Map.Strict as M
 import qualified Data.Text as T
@@ -54,12 +56,14 @@ import Chainweb.BlockCreationTime
 import Chainweb.BlockHeader
 import Chainweb.BlockHeader.Genesis
 import Chainweb.ChainId
+import Chainweb.Cut
 import Chainweb.Miner.Pact
 import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.Service.BlockValidation
 import Chainweb.Pact.Service.PactQueue (PactQueue)
 import Chainweb.Pact.Service.Types
 import Chainweb.Payload
+import Chainweb.Test.Cut
 import Chainweb.Test.Cut.TestBlockDb
 import Chainweb.Test.Pact.Utils
 import Chainweb.Test.Utils
@@ -68,6 +72,7 @@ import Chainweb.Transaction
 import Chainweb.Utils
 import Chainweb.Version
 import Chainweb.Version.Utils
+import Chainweb.WebPactExecutionService
 
 testVersion :: ChainwebVersion
 testVersion = FastTimedCPM peterson
@@ -94,13 +99,20 @@ tests rdb = ScheduledTest testName $ go
          , test Quiet $ badlistNewBlockTest
          , test Warn $ mempoolCreationTimeTest
          , test Warn $ moduleNameFork
-         , test Warn $ pact4coin3UpgradeTest
+         , multiChainTest "pact4coin3UpgradeTest" pact4coin3UpgradeTest
          ]
       where
         test logLevel f =
           withDelegateMempool $ \dm ->
           withPactTestBlockDb testVersion cid logLevel rdb (snd <$> dm) defaultPactServiceConfig $
           f (fst <$> dm)
+
+        multiChainTest tname f =
+          withDelegateMempool $ \dmpio -> testCase tname $
+            withTestBlockDb testVersion $ \bdb -> do
+              (iompa,mpa) <- dmpio
+              withWebPactExecutionService testVersion bdb mpa $ \pact ->
+                f bdb (return iompa) pact
         testHistLookup1 = getHistoricalLookupNoTxs "sender00"
           (assertSender00Bal 100000000 "check latest entry for sender00 after a no txs block")
         testHistLookup2 = getHistoricalLookupNoTxs "randomAccount"
@@ -260,19 +272,22 @@ newBlockRewindValidate mpRefIO reqIO = testCase "newBlockRewindValidate" $ do
             $ mkExec' "(chain-data)"
       }
 
-pact4coin3UpgradeTest :: IO (IORef MemPoolAccess) -> IO (PactQueue,TestBlockDb) -> TestTree
-pact4coin3UpgradeTest mpRefIO reqIO = testCase "pact4coin3UpgradeTest" $ do
 
-  (q,bdb) <- reqIO
+pact4coin3UpgradeTest :: TestBlockDb -> IO (IORef MemPoolAccess) -> WebPactExecutionService -> IO ()
+pact4coin3UpgradeTest bdb mpRefIO pact = do
 
-  forM_ [(0::Int)..5] $ \h -> runBlock q bdb second (sshow h)
+  forM_ [(0::Int)..5] $ \_i -> {- print _i >> -}  runCut'
 
   setMempool mpRefIO getBlock6
-  pwo6 <- runBlock q bdb second "6"
+
+  runCut'
+  pwo6 <- getPWO bdb cid
 
   tx6_0 <- txResult 0 pwo6
+
   assertEqual "Hash of coin @ block 6" (pHash "ut_J_ZNkoyaPUEJhiwVeWnkSQn9JT9sQCWKdjjVVrWo") (_crResult tx6_0)
   assertEqual "Events for tx 0 @ block 6" [] (_crEvents tx6_0)
+
 
   tx6_1 <- txResult 1 pwo6
   assertEqual "Events for tx 1 @ block 6" [] (_crEvents tx6_1)
@@ -282,10 +297,12 @@ pact4coin3UpgradeTest mpRefIO reqIO = testCase "pact4coin3UpgradeTest" $ do
   assertEqual "Coinbase events @ block 6" [] (_crEvents cb6)
 
   setMempool mpRefIO mempty
-  forM_ [(7::Int)..20] $ \h -> runBlock q bdb second (sshow h)
+  forM_ [(7::Int)..20] $ \_i -> {- print _i >> -} runCut'
+
 
   setMempool mpRefIO getBlock21
-  pwo21 <- runBlock q bdb second "21"
+  runCut'
+  pwo21 <- getPWO bdb cid
   let v3Hash = "QEfJaAE_b6Fn3jWhvOHH8esk7dN9XAyIAkZ15YGZJM4"
 
   cb21 <- cbResult pwo21
@@ -293,38 +310,56 @@ pact4coin3UpgradeTest mpRefIO reqIO = testCase "pact4coin3UpgradeTest" $ do
   assertEqual "Coinbase events @ block 21" [cbEv] (_crEvents cb21)
 
   tx21_0 <- txResult 0 pwo21
-  gasEv0 <- mkTransferEvent "sender00" "NoMiner" 0.0115 "coin" v3Hash
+  gasEv0 <- mkTransferEvent "sender00" "NoMiner" 0.0013 "coin" v3Hash
   assertEqual "Hash of coin @ block 21" (pHash v3Hash) (_crResult tx21_0)
   assertEqual "Events for tx0 @ block 21" [gasEv0] (_crEvents tx21_0)
 
   tx21_1 <- txResult 1 pwo21
-  gasEv1 <- mkTransferEvent "sender00" "NoMiner" 0.043 "coin" v3Hash
+  gasEv1 <- mkTransferEvent "sender00" "NoMiner" 0.0014 "coin" v3Hash
   allocTfr <- mkTransferEvent "" "allocation00" 1000000.0 "coin" v3Hash
   allocEv <- mkEvent "RELEASE_ALLOCATION" [pString "allocation00",pDecimal 1000000.0]
              "coin" v3Hash
   assertEqual "Events for tx1 @ block 21" [gasEv1,allocEv,allocTfr] (_crEvents tx21_1)
 
   tx21_2 <- txResult 2 pwo21
-  gasEv2 <- mkTransferEvent "sender00" "NoMiner" 0.0378 "coin" v3Hash
+  gasEv2 <- mkTransferEvent "sender00" "NoMiner" 0.0014 "coin" v3Hash
   sendTfr <- mkTransferEvent "sender00" "" 0.0123 "coin" v3Hash
   assertEqual "Events for tx2 @ block 21" [gasEv2,sendTfr] (_crEvents tx21_2)
 
 
-  setMempool mpRefIO mempty
+
+
 
   where
+
+    runCut' = runCut testVersion bdb pact (offsetBlockTime second) zeroNoncer
+
+    getPWO (TestBlockDb _ pdb cmv) chid = do
+      c <- readMVar cmv
+      h <- fromMaybeM (userError $ "chain lookup failed for " ++ show chid) $ HM.lookup chid (_cutMap c)
+      casLookupM pdb (_blockPayloadHash h)
+
     getBlock6 = mempty {
-      mpaGetBlock = \_ _ _ bh -> do
+      mpaGetBlock = \_ _ _ bh -> if _blockChainId bh == cid then do
           t0 <- buildHashCmd bh
           t1 <- buildXSend bh
           return $! V.fromList [t0,t1]
+          else return mempty
       }
+
+    chain0 = unsafeChainId 0
+
     getBlock21 = mempty {
-      mpaGetBlock = \_ _ _ bh -> do
-          t0 <- buildHashCmd bh
-          t1 <- buildReleaseCommand bh
-          t2 <- buildXSend bh
-          return $! V.fromList [t0,t1,t2]
+      mpaGetBlock = \_ _ _ bh ->
+        let go | _blockChainId bh == cid = do
+                   t0 <- buildHashCmd bh
+                   t1 <- buildReleaseCommand bh
+                   t2 <- buildXSend bh
+                   return $! V.fromList [t0,t1,t2]
+               | _blockChainId bh == chain0 = do
+                   V.singleton <$> buildXReceive bh
+               | otherwise = return mempty
+        in go
       }
 
     buildHashCmd bh = buildCwCmd
@@ -336,7 +371,17 @@ pact4coin3UpgradeTest mpRefIO reqIO = testCase "pact4coin3UpgradeTest" $ do
 
     buildXSend bh = buildCwCmd
         $ set cbSigners [mkSigner' sender00 []]
-        $ set cbChainId (unsafeChainId 0)
+        $ set cbChainId chain0
+        $ set cbCreationTime (toTxCreationTime $ _bct $ _blockCreationTime bh)
+        $ mkCmd (sshow bh)
+        $ mkExec
+          "(coin.transfer-crosschain 'sender00 'sender00 (read-keyset 'k) \"1\" 0.0123)" $
+          mkKeySetData "k" [sender00]
+
+    -- TODO this is a send for now
+    buildXReceive bh = buildCwCmd
+        $ set cbSigners [mkSigner' sender00 []]
+        $ set cbChainId chain0
         $ set cbCreationTime (toTxCreationTime $ _bct $ _blockCreationTime bh)
         $ mkCmd (sshow bh)
         $ mkExec
