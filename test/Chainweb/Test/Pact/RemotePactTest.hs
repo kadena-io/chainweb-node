@@ -22,7 +22,6 @@
 --
 module Chainweb.Test.Pact.RemotePactTest
 ( tests
-, tests_
 , withRequestKeys
 , polling
 , sending
@@ -124,8 +123,8 @@ gp = 0.1
 -- | Note: These tests are intermittently non-deterministic due to the way
 -- random chain sampling works with our test harnesses.
 --
-tests_ :: RocksDb -> ScheduledTest
-tests_ rdb = testGroupSch "Chainweb.Test.Pact.RemotePactTest"
+tests :: RocksDb -> ScheduledTest
+tests rdb = testGroupSch "Chainweb.Test.Pact.RemotePactTest"
     [ withNodes v "remotePactTest-" rdb nNodes $ \net ->
         withMVarResource 0 $ \iomvar ->
           withTime $ \iot ->
@@ -162,27 +161,6 @@ tests_ rdb = testGroupSch "Chainweb.Test.Pact.RemotePactTest"
               , after AllSucceed "local continuation test" $
                 pollBadKeyTest net
               ]
-    ]
-
-tests :: RocksDb -> ScheduledTest
-tests rdb = testGroupSch "Chainweb.Test.Pact.RemotePactTest"
-    [ withNodes v "remotePactTest-" rdb nNodes $ \net ->
-        withMVarResource 0 $ \iomvar ->
-          withTime $ \iot ->
-            testGroup "remote pact tests"
-              [ testCaseSteps "await network" $ \step ->
-                awaitNetworkHeight step net 20
-              , after AllSucceed "await network" $
-                withRequestKeys iot iomvar net $ responseGolden net
-              , after AllSucceed "await network" $
-                withRequestKeys iot iomvar net $ responseGolden net
-              , after AllSucceed "await network" $
-                withRequestKeys iot iomvar net $ responseGolden net
-              , after AllSucceed "await network" $
-                withRequestKeys iot iomvar net $ responseGolden net
-              , after AllSucceed "await network" $
-                withRequestKeys iot iomvar net $ responseGolden net
-            ]
     ]
 
 -- | Network initialization takes some time. Within my ghci session it took
