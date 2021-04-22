@@ -90,15 +90,11 @@ localTest lf v coord m cdb gen miners =
         wh <- work coord Nothing m
         let height = c ^?! ixg (_workHeaderChainId wh) . blockHeight
 
-        go height wh >>= solve coord
-        -- void $ awaitNewCut cdb c
-        void $ awaitNewCutByChainId cdb (_workHeaderChainId wh) c
-
-        -- race (awaitNewCutByChainId cdb (_workHeaderChainId wh) c) (go height wh) >>= \case
-        --     Left _ -> return ()
-        --     Right new -> do
-        --         solve coord new
-        --         void $ awaitNewCut cdb c
+        race (awaitNewCutByChainId cdb (_workHeaderChainId wh) c) (go height wh) >>= \case
+            Left _ -> return ()
+            Right new -> do
+                solve coord new
+                void $ awaitNewCut cdb c
   where
     meanBlockTime :: Double
     meanBlockTime = int $ _getBlockRate $ blockRate v
