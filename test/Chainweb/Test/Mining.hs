@@ -75,8 +75,8 @@ withTestCoordiantor rdb maybeConf a = do
                     a logger coord
                     putMVar var ()
     case x of
-        Left () -> return ()
-        Right () -> return ()
+        Left () -> logFunctionText logger Info "withTestCoordiantor: action finished"
+        Right () -> logFunctionText logger Info "withTestCoordiantor: coordinator service stopped"
 
   where
     v = Test pairChainGraph
