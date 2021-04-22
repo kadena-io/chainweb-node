@@ -239,7 +239,7 @@ data MinerResources logger cas = MinerResources
     , _minerResConfig :: !NodeMiningConfig
     , _minerResCoordination :: !(Maybe (MiningCoordination logger cas))
         -- ^ The primed work cache. This is Nothing when coordination is
-        -- disable. It is needed by the in-node test miner. The mempoolNoopMiner
+        -- disabled. It is needed by the in-node test miner. The mempoolNoopMiner
         -- does not use it.
     }
 
@@ -297,4 +297,3 @@ runMiner v mr
         localTest lf v coord (_nodeMiner conf) cdb gen (_nodeTestMiners conf)
 
     powMiner coord = localPOW lf v coord (_nodeMiner conf) cdb
-
