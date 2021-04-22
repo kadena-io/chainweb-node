@@ -102,9 +102,6 @@ module Chainweb.Chainweb
 , withChainweb
 , runChainweb
 
--- * Miner
-, runMiner
-
 -- * Throttler
 , mkGenericThrottler
 , mkMiningThrottler
@@ -820,8 +817,14 @@ withChainwebInternal conf logger peer serviceSock rocksDb pactDbDir resetDb inne
 
             withPactData cs cuts $ \pactData -> do
                 logg Info "start initializing miner resources"
-                withMiningCoordination mLogger (_miningCoordination mConf) mCutDb $ \mc ->
-                    withMinerResources mLogger (_miningInNode mConf) cs mCutDb $ \m -> do
+
+                withMiningCoordination mLogger mConf mCutDb $ \mc ->
+
+                    -- Miner resources are used by the test-miner when in-node
+                    -- mining is configured or by the mempool noop-miner (which
+                    -- keeps the mempool updated) in production setups.
+                    --
+                    withMinerResources mLogger (_miningInNode mConf) cs mCutDb mc $ \m -> do
                         logg Info "finished initializing miner resources"
                         let !haddr = _peerConfigAddr $ _p2pConfigPeer $ _configP2p conf
                         inner Chainweb

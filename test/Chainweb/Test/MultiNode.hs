@@ -140,6 +140,7 @@ multiConfig v n = defaultChainwebConfiguration v
         -- Use short sessions to cover session timeouts and setup logic in the
         -- test.
 
+    & set (configMining . miningCoordination . coordinationEnabled) True
     & set (configMining . miningInNode) miner
 
     & set configReintroTxs True

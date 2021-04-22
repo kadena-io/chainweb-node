@@ -1056,13 +1056,15 @@ config ver n = defaultChainwebConfiguration ver
     & set (configTransactionIndex . enableConfigEnabled) True
     & set configBlockGasLimit 1_000_000
     & set configRosetta True
+    & set (configMining . miningCoordination . coordinationEnabled) True
     & set (configServiceApi . serviceApiConfigPort) 0
     & set (configServiceApi . serviceApiConfigInterface) interface
   where
     miner = NodeMiningConfig
         { _nodeMiningEnabled = True
         , _nodeMiner = noMiner
-        , _nodeTestMiners = MinerCount n }
+        , _nodeTestMiners = MinerCount n
+        }
 
 bootstrapConfig :: ChainwebConfiguration -> ChainwebConfiguration
 bootstrapConfig conf = conf
