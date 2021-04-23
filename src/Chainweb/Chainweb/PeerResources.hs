@@ -148,6 +148,10 @@ withPeerResources v conf logger inner = withPeerSocket conf $ \(conf', sock) -> 
                         logger
                 mgrLogger = setComponent "connection-manager" logger'
 
+            -- make sure that the local peer itself isn't in the database that
+            -- we initialized from the configuration.
+            peerDbDelete_ peerDb True {- force deletion of sticky peers -} pinf
+
             withConnectionLogger mgrLogger counter $ do
 
                 -- check that this node is reachable:

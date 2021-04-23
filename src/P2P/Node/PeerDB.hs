@@ -53,6 +53,7 @@ module P2P.Node.PeerDB
 , peerDbInsertPeerInfoList_
 , peerDbInsertSet
 , peerDbDelete
+, peerDbDelete_
 , newEmptyPeerDb
 , makePeerDbPrivate
 , fromPeerEntryList
@@ -276,8 +277,14 @@ addPeerInfo nid pinf now = addPeerEntry $ (newPeerEntry nid pinf)
 -- | Delete a peer, identified by its host address, from the 'PeerSet'. The peer
 -- is delete for all network ids.
 --
-deletePeer :: PeerInfo -> PeerSet -> PeerSet
-deletePeer i s = case _peerEntrySticky <$> (getOne $ getEQ (_peerAddr i) s) of
+deletePeer
+    :: PeerInfo
+    -> Bool
+        -- ^ whether to force deletion of sticky peers (e.g. bootstrap peers)
+    -> PeerSet
+    -> PeerSet
+deletePeer i True s = deleteIx (_peerAddr i) s
+deletePeer i False s = case _peerEntrySticky <$> getOne (getEQ (_peerAddr i) s) of
     Just True -> s
     _ -> deleteIx (_peerAddr i) s
 
@@ -334,8 +341,21 @@ peerDbDelete (PeerDb _ lock var) i = withMVar lock
     . const
     . atomically
     . modifyTVar' var
-    $ deletePeer i
+    $ deletePeer i False
 {-# INLINE peerDbDelete #-}
+
+peerDbDelete_
+    :: PeerDb
+    -> Bool
+        -- ^ whether to force deletion of sticky peers (e.g. bootstrap peers)
+    -> PeerInfo
+    -> IO ()
+peerDbDelete_ (PeerDb _ lock var) forceSticky i = withMVar lock
+    . const
+    . atomically
+    . modifyTVar' var
+    $ deletePeer i forceSticky
+{-# INLINE peerDbDelete_ #-}
 
 -- | Delete peers that
 -- 1. not currently used, that
