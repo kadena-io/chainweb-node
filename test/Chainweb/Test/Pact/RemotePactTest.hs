@@ -22,7 +22,6 @@
 --
 module Chainweb.Test.Pact.RemotePactTest
 ( tests
-, withNodes
 , withRequestKeys
 , polling
 , sending
@@ -775,7 +774,7 @@ awaitCutHeight step cenv i = do
   where
     checkRetry s (Left e) = do
         step $ "awaiting cut of height " <> show i
-            <> ". No reslt from node: " <> show e
+            <> ". No result from node: " <> show e
             <> " [" <> show (view rsIterNumberL s) <> "]"
         return True
     checkRetry s (Right c)

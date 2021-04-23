@@ -55,6 +55,8 @@ module Chainweb.Utils
 , minimumsOf
 , minimumsByOf
 , leadingZeros
+, randomByteString
+, randomShortByteString
 , maxBy
 , minBy
 , allEqOn
@@ -234,6 +236,10 @@ import qualified Data.ByteString as B
 import qualified Data.ByteString.Base64 as B64
 import qualified Data.ByteString.Base64.URL as B64U
 import qualified Data.ByteString.Lazy as BL
+#if !MIN_VERSION_random(1,2,0)
+import qualified Data.ByteString.Random as BR
+#endif
+import qualified Data.ByteString.Short as BS
 import qualified Data.ByteString.Unsafe as B
 import Data.Foldable
 import Data.Functor.Of
@@ -276,7 +282,7 @@ import System.IO.Unsafe (unsafePerformIO)
 import System.LogLevel
 import System.Path (Absolute, Path, fragment, toAbsoluteFilePath, (</>))
 import System.Path.IO (getTemporaryDirectory)
-import System.Random (randomIO)
+import System.Random
 import qualified System.Random.MWC as Prob
 import qualified System.Random.MWC.Probability as Prob
 import System.Timeout
@@ -449,6 +455,7 @@ data EncodingException where
     X509CertificateDecodeException :: T.Text -> EncodingException
     X509KeyDecodeException :: T.Text -> EncodingException
     deriving (Show, Eq, Ord, Generic)
+    deriving anyclass (NFData)
 
 instance Exception EncodingException
 
@@ -530,6 +537,23 @@ instance HasTextRepresentation Int where
     fromText = treadM
     {-# INLINE fromText #-}
 
+instance HasTextRepresentation Integer where
+    toText = sshow
+    {-# INLINE toText #-}
+    fromText = treadM
+    {-# INLINE fromText #-}
+
+instance HasTextRepresentation UTCTime where
+    toText = T.pack . formatTime defaultTimeLocale iso8601DateTimeFormat
+    {-# INLINE toText #-}
+
+    fromText d = case parseTimeM False defaultTimeLocale fmt (T.unpack d) of
+        Nothing -> throwM $ TextFormatException $ "failed to parse utc date " <> sshow d
+        Just x -> return x
+      where
+        fmt = iso8601DateTimeFormat
+    {-# INLINE fromText #-}
+
 -- | Decode a value from its textual representation.
 --
 eitherFromText
@@ -563,6 +587,10 @@ parseM p = either (throwM . TextFormatException . T.pack) return
 parseText :: HasTextRepresentation a => A.Parser T.Text -> A.Parser a
 parseText p = either (fail . sshow) return . fromText =<< p
 {-# INLINE parseText #-}
+
+iso8601DateTimeFormat :: String
+iso8601DateTimeFormat = iso8601DateFormat (Just "%H:%M:%SZ")
+{-# INLINE iso8601DateTimeFormat #-}
 
 -- -------------------------------------------------------------------------- --
 -- ** Base64
@@ -947,6 +975,40 @@ leadingZeros b =
         !out = int $! maybe (8 * l) f midx
     in out
 {-# INLINE leadingZeros #-}
+
+-- -------------------------------------------------------------------------- --
+-- Random ByteString
+--
+-- 'getStdRandom' provides a generator that is stored in an 'IORef' and updated
+-- via an optimistic atomic swap. 'atomicModifyIORef'' is implemented such that
+-- the swapped pointer is updated lazily, which minimizes the chance of retries
+-- and life locks.
+--
+-- However, use of the generator is still sequentialized. Thus, for long
+-- 'ByteString's it can be more efficient to split the generator to speed up
+-- concurrent access.
+
+#if MIN_VERSION_random(1,2,0)
+randomShortByteString :: MonadIO m => Natural -> m BS.ShortByteString
+randomShortByteString n
+    -- don't split the generators for less than 64 words.
+    -- 512 = 8 * 64
+    | n < 512 = getStdRandom $ genShortByteString (int n)
+    | otherwise = fst . genShortByteString (int n) <$> newStdGen
+
+randomByteString :: MonadIO m => Natural -> m B.ByteString
+randomByteString n
+    -- don't split the generators for less than 64 words.
+    -- 512 = 8 * 64
+    | n < 512 = getStdRandom $ genByteString (int n)
+    | otherwise = fst . genByteString (int n) <$> newStdGen
+#else
+randomShortByteString :: MonadIO m => Natural -> m BS.ShortByteString
+randomShortByteString = fmap BS.toShort . randomByteString
+
+randomByteString :: MonadIO m => Natural -> m B.ByteString
+randomByteString = liftIO . BR.random
+#endif
 
 -- -------------------------------------------------------------------------- --
 -- Configuration wrapper to enable and disable components
@@ -1374,4 +1436,4 @@ parseUtcTime d = case parseTimeM False defaultTimeLocale fmt d of
         $ "parseUtcTime: failed to parse utc date " <> sshow d
     Just x -> return x
   where
-    fmt = iso8601DateFormat (Just "%H:%M:%SZ")
+    fmt = iso8601DateTimeFormat

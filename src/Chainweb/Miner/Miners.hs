@@ -1,6 +1,7 @@
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DerivingStrategies #-}
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE OverloadedStrings #-}
@@ -32,7 +33,6 @@ module Chainweb.Miner.Miners
 
 import Control.Concurrent (threadDelay)
 import Control.Concurrent.Async (race)
-import Control.Concurrent.STM.TVar (TVar)
 import Control.Lens
 import Control.Monad
 
@@ -40,7 +40,6 @@ import qualified Data.ByteString.Short as BS
 import Data.HashMap.Strict (HashMap)
 import qualified Data.HashMap.Strict as HashMap
 import Data.Proxy
-import Data.Tuple.Strict (T2(..))
 
 import Numeric.Natural (Natural)
 
@@ -54,6 +53,7 @@ import Chainweb.BlockHeight
 import Chainweb.ChainId
 import Chainweb.Cut.Create
 import Chainweb.CutDB
+import Chainweb.Logger
 import Chainweb.Mempool.Mempool
 import qualified Chainweb.Mempool.Mempool as Mempool
 import Chainweb.Miner.Config (MinerCount(..))
@@ -61,12 +61,9 @@ import Chainweb.Miner.Coordinator
 import Chainweb.Miner.Core
 import Chainweb.Miner.Pact
 import Chainweb.RestAPI.Orphans ()
-import Chainweb.Sync.WebBlockHeaderStore
 import Chainweb.Transaction
 import Chainweb.Utils
 import Chainweb.Version
-import Chainweb.WebBlockHeaderDB
-import Chainweb.WebPactExecutionService
 
 import Data.LogMessage (LogFunction)
 
@@ -78,36 +75,32 @@ import Data.LogMessage (LogFunction)
 -- This is not production POW, but only for testing.
 --
 localTest
-    :: LogFunction
+    :: Logger logger
+    => LogFunction
     -> ChainwebVersion
-    -> TVar PrimedWork
+    -> MiningCoordination logger cas
     -> Miner
     -> CutDb cas
     -> MWC.GenIO
     -> MinerCount
     -> IO ()
-localTest lf v tpw m cdb gen miners = runForever lf "Chainweb.Miner.Miners.localTest" loop
-  where
-    loop :: IO a
-    loop = do
+localTest lf v coord m cdb gen miners =
+    runForever lf "Chainweb.Miner.Miners.localTest" $ do
         c <- _cut cdb
-        T2 wh pd <- newWork lf Anything (Plebian m) hdb pact tpw c
+        wh <- work coord Nothing m
         let height = c ^?! ixg (_workHeaderChainId wh) . blockHeight
-        work height wh >>= publish lf cdb (view minerId m) pd
-        void $ awaitNewCut cdb c
-        loop
 
-    pact :: PactExecutionService
-    pact = _webPactExecutionService $ view cutDbPactService cdb
-
-    hdb :: WebBlockHeaderDb
-    hdb = view cutDbWebBlockHeaderDb cdb
-
+        race (awaitNewCutByChainId cdb (_workHeaderChainId wh) c) (go height wh) >>= \case
+            Left _ -> return ()
+            Right new -> do
+                solve coord new
+                void $ awaitNewCut cdb c
+  where
     meanBlockTime :: Double
     meanBlockTime = int $ _getBlockRate $ blockRate v
 
-    work :: BlockHeight -> WorkHeader -> IO SolvedWork
-    work height w = do
+    go :: BlockHeight -> WorkHeader -> IO SolvedWork
+    go height w = do
         MWC.geometric1 t gen >>= threadDelay
         runGet decodeSolvedWork $ BS.fromShort $ _workHeaderBytes w
       where
@@ -116,8 +109,6 @@ localTest lf v tpw m cdb gen miners = runForever lf "Chainweb.Miner.Miners.local
 
         graphOrder :: Natural
         graphOrder = order $ chainGraphAt v height
-
-
 
 -- | A miner that grabs new blocks from mempool and discards them. Mempool
 -- pruning happens during new-block time, so we need to ask for a new block
@@ -128,42 +119,30 @@ mempoolNoopMiner
     -> HashMap ChainId (MempoolBackend ChainwebTransaction)
     -> IO ()
 mempoolNoopMiner lf chainRes =
-    runForever lf "Chainweb.Miner.Miners.mempoolNoopMiner" loop
-  where
-    loop = do
+    runForever lf "Chainweb.Miner.Miners.mempoolNoopMiner" $ do
         mapM_ runOne $ HashMap.toList chainRes
         approximateThreadDelay 60_000_000 -- wake up once a minute
-
+  where
     runOne (_, cr) = Mempool.mempoolPrune cr
 
 -- | A single-threaded in-process Proof-of-Work mining loop.
 --
 localPOW
-    :: LogFunction
+    :: Logger logger
+    => LogFunction
     -> ChainwebVersion
-    -> TVar PrimedWork
+    -> MiningCoordination logger cas
     -> Miner
     -> CutDb cas
     -> IO ()
-localPOW lf v tpw m cdb = runForever lf "Chainweb.Miner.Miners.localPOW" loop
+localPOW lf v coord m cdb = runForever lf "Chainweb.Miner.Miners.localPOW" $ do
+    c <- _cut cdb
+    wh <- work coord Nothing m
+    race (awaitNewCutByChainId cdb (_workHeaderChainId wh) c) (go wh) >>= \case
+        Left _ -> return ()
+        Right new -> do
+            solve coord new
+            void $ awaitNewCut cdb c
   where
-    loop :: IO a
-    loop = do
-        c <- _cut cdb
-        T2 wh pd <- newWork lf Anything (Plebian m) hdb pact tpw c
-        race (awaitNewCutByChainId cdb (_workHeaderChainId wh) c) (work wh) >>= \case
-            Left _ -> loop
-            Right new -> do
-                publish lf cdb (view minerId m) pd new
-                void $ awaitNewCut cdb c
-                loop
-
-    pact :: PactExecutionService
-    pact = _webPactExecutionService $ view cutDbPactService cdb
-
-    hdb :: WebBlockHeaderDb
-    hdb = view cutDbWebBlockHeaderDb cdb
-
-    work :: WorkHeader -> IO SolvedWork
-    work wh = usePowHash v $ \(_ :: Proxy a) -> sfst <$> mine @a (Nonce 0) wh
-
+    go :: WorkHeader -> IO SolvedWork
+    go wh = usePowHash v $ \(_ :: Proxy a) -> sfst <$> mine @a (Nonce 0) wh

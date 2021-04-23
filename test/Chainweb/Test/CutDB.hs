@@ -110,8 +110,8 @@ withTestCutDb
         -- create blocks with a well-defined set of test transactions.
         --
     -> LogFunction
-    -> (forall cas . PayloadCasLookup cas => CutDb cas -> IO a)
         -- ^ a logg function (use @\_ _ -> return ()@ turn of logging)
+    -> (forall cas . PayloadCasLookup cas => CutDb cas -> IO a)
     -> IO a
 withTestCutDb rdb v n pactIO logfun f = do
     rocksDb <- testRocksDb "withTestCutDb" rdb

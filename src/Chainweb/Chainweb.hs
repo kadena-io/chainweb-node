@@ -102,9 +102,6 @@ module Chainweb.Chainweb
 , withChainweb
 , runChainweb
 
--- * Miner
-, runMiner
-
 -- * Throttler
 , mkGenericThrottler
 , mkMiningThrottler
@@ -449,6 +446,10 @@ instance HasChainwebVersion ChainwebConfiguration where
 validateChainwebConfiguration :: ConfigValidation ChainwebConfiguration []
 validateChainwebConfiguration c = do
     validateMinerConfig (_configMining c)
+    case _configChainwebVersion c of
+        Mainnet01 -> validateP2pConfiguration (_configP2p c)
+        Testnet04 -> validateP2pConfiguration (_configP2p c)
+        _ -> return ()
     unless (_configNodeIdDeprecated c == Null) $ tell
         [ "Usage NodeId is deprecated. This option will be removed in a future version of chainweb-node"
         , "The value of NodeId is ignored by chainweb-node. In particular the database path will not depend on it"
@@ -605,9 +606,9 @@ withChainweb
     -> (forall cas' . PayloadCasLookup cas' => Chainweb logger cas' -> IO a)
     -> IO a
 withChainweb c logger rocksDb pactDbDir resetDb inner =
-    withPeerResources v (view configP2p conf) logger $ \logger' peer ->
+    withPeerResources v (view configP2p confWithBootstraps) logger $ \logger' peer ->
         withSocket serviceApiPort serviceApiHost $ \serviceSock -> do
-            let conf' = conf
+            let conf' = confWithBootstraps
                     & set configP2p (_peerResConfig peer)
                     & set (configServiceApi . serviceApiConfigPort) (fst serviceSock)
             withChainwebInternal
@@ -628,7 +629,7 @@ withChainweb c logger rocksDb pactDbDir resetDb inner =
 
     -- Here we inject the hard-coded bootstrap peer infos for the configured
     -- chainweb version into the configuration.
-    conf
+    confWithBootstraps
         | _p2pConfigIgnoreBootstrapNodes (_configP2p c) = c
         | otherwise = configP2p . p2pConfigKnownPeers <>~ bootstrapPeerInfos v $ c
 
@@ -816,8 +817,14 @@ withChainwebInternal conf logger peer serviceSock rocksDb pactDbDir resetDb inne
 
             withPactData cs cuts $ \pactData -> do
                 logg Info "start initializing miner resources"
-                withMiningCoordination mLogger (_miningCoordination mConf) mCutDb $ \mc ->
-                    withMinerResources mLogger (_miningInNode mConf) cs mCutDb $ \m -> do
+
+                withMiningCoordination mLogger mConf mCutDb $ \mc ->
+
+                    -- Miner resources are used by the test-miner when in-node
+                    -- mining is configured or by the mempool noop-miner (which
+                    -- keeps the mempool updated) in production setups.
+                    --
+                    withMinerResources mLogger (_miningInNode mConf) cs mCutDb mc $ \m -> do
                         logg Info "finished initializing miner resources"
                         let !haddr = _peerConfigAddr $ _p2pConfigPeer $ _configP2p conf
                         inner Chainweb
