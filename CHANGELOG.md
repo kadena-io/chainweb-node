@@ -1,5 +1,36 @@
 # `chainweb-node` Changelog
 
+## 2.7 (2021-04-27)
+
+This version replaces all previous versions. Any prior version will stop working
+on **2021-05-06T00:00:00Z**. Node administrators must upgrade to this version
+before that date.
+
+This version will stop working on **2021-06-03T00:00:00Z**.
+
+Changes:
+
+*   Improve P2P networking configuration. (#1174)
+    *   Re-add builtin bootstrap nodes. This also means that default bootstrap
+        nodes will always be used as long as `--ignore-boostrap-nodes` (or the
+        respective configuration file setting) is not enabled.
+    *   Add `X-Peer-Addr` response header that allows nodes to auto-discover
+        their external network configuration.
+    *   Support nodes to auto-configure their hostname. This eliminates the need
+        to use a (centralized) third party service for that.
+    *   Validate P2P configuration on startup.
+    *   Validate peer configuration on startup.
+
+*   Remove deprecated mining coordination code. (#1177)
+    *   Removes support for public mining.
+    *   Fix two races that in the mining API that may have slightly increased
+        the number blocks that got orphaned before being included on the chain.
+
+*   New OpenAPI 3.0 specification of the chainweb-node API. The API
+    documentation is maintained in the git repository
+    https://github.com/kadena-io/chainweb-openapi. Is published at
+    https://api.chainweb.com/openapi.
+
 ## 2.6 (2021-03-18)
 
 This version replaces all previous versions. Any prior version will stop working
