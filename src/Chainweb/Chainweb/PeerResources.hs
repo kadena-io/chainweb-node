@@ -49,6 +49,7 @@ import Control.Monad.Catch
 
 import qualified Data.ByteString.Char8 as B8
 import Data.Either
+import Data.Foldable
 import qualified Data.HashSet as HS
 import Data.IxSet.Typed (getEQ, getOne)
 import qualified Data.List as L
@@ -148,9 +149,15 @@ withPeerResources v conf logger inner = withPeerSocket conf $ \(conf', sock) -> 
                         logger
                 mgrLogger = setComponent "connection-manager" logger'
 
+            logFunctionText logger Info $ "Local Peer Info: " <> encodeToText pinf
+
             -- make sure that the local peer itself isn't in the database that
             -- we initialized from the configuration.
             peerDbDelete_ peerDb True {- force deletion of sticky peers -} pinf
+
+            -- Log initial peer db
+            db <- peerDbSnapshot peerDb
+            logFunctionText logger Debug $ "Initial Peer DB: " <> encodeToText (toList db)
 
             withConnectionLogger mgrLogger counter $ do
 
