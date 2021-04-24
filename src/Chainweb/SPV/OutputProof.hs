@@ -220,7 +220,7 @@ createOutputProofDb_ headerDb payloadDb d h reqKey = do
         throwM $ SpvExceptionInsufficientProofDepth
             { _spvExceptionMsg = "Insufficient depth of root header for SPV proof"
             , _spvExceptionExpectedDepth = Expected d
-            , _spvExceptionActualDepth = Actual $ curRank `minusOrNull` int (_blockHeight hdr)
+            , _spvExceptionActualDepth = Actual $ curRank `minusOrZero` int (_blockHeight hdr)
             }
     createOutputProof_ @a p reqKey
 

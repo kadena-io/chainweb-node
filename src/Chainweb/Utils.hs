@@ -67,7 +67,7 @@ module Chainweb.Utils
 , alignWithV
 , (&)
 , IxedGet(..)
-, minusOrNull
+, minusOrZero
 
 -- * Encoding and Serialization
 , EncodingException(..)
@@ -414,9 +414,9 @@ alignWithV f a b = V.zipWith (\a' -> f . These a') a b <> case (V.length a,V.len
 -- first. This can be in particular usefull when substracting 'Natural' numbers.
 -- The operator '-' would throw an 'Underflow' exception in this situation.
 --
-minusOrNull :: Ord a => Num a => a -> a -> a
-minusOrNull a b = a - min a b
-{-# INLINE minusOrNull #-}
+minusOrZero :: Ord a => Num a => a -> a -> a
+minusOrZero a b = a - min a b
+{-# INLINE minusOrZero #-}
 
 -- -------------------------------------------------------------------------- --
 -- * Read only Ixed
