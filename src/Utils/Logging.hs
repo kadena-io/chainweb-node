@@ -585,7 +585,7 @@ withTextHandleBackend llabel mgr pkgScopes c inner = case _backendConfigHandle c
             BL8.hPutStrLn h . encode . JsonLogMessage . fmap logText
 {-# INLINEABLE withTextHandleBackend #-}
 
--- TODO: it may be more usefull to have a logger that logs all 'Right' messages
+-- TODO: it may be more useful to have a logger that logs all 'Right' messages
 
 -- -------------------------------------------------------------------------- --
 -- Elasticsearch Backend

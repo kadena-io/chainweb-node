@@ -411,7 +411,7 @@ alignWithV f a b = V.zipWith (\a' -> f . These a') a b <> case (V.length a,V.len
           | otherwise -> V.map (f . That) $ V.drop la b
 
 -- | Substraction that returns 0 when the second argument is larger than the
--- first. This can be in particular usefull when substracting 'Natural' numbers.
+-- first. This can be in particular useful when substracting 'Natural' numbers.
 -- The operator '-' would throw an 'Underflow' exception in this situation.
 --
 minusOrZero :: Ord a => Num a => a -> a -> a
