@@ -56,7 +56,7 @@ module Data.Singletons
 -- * Constraint Dictionaries
 , Dict(..)
 
--- * Typelevel Peaon Numbers
+-- * Typelevel Peano Numbers
 , N(..)
 , type SZ
 , type SN
@@ -272,4 +272,3 @@ type family Index (h :: Type) (l :: [Type]) :: N where
         ':<>: 'ShowType h
         ':<>: 'Text " not found in list"
         )
-
