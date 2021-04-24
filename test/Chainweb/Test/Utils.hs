@@ -212,7 +212,7 @@ import Chainweb.Test.P2P.Peer.BootstrapConfig
 import Chainweb.Test.Utils.BlockHeader
 import Chainweb.Time
 import Chainweb.TreeDB
-import Chainweb.Utils hiding (label)
+import Chainweb.Utils
 import Chainweb.Version
 import Chainweb.Version.Utils
 
@@ -953,14 +953,14 @@ withNodes_
     -> Natural
     -> (IO ChainwebNetwork -> TestTree)
     -> TestTree
-withNodes_ logger v label rdb n f = withResource start
+withNodes_ logger v testLabel rdb n f = withResource start
     (cancel . fst)
     (f . fmap (uncurry ChainwebNetwork . snd))
   where
     start :: IO (Async (), (ClientEnv, ClientEnv))
     start = do
         peerInfoVar <- newEmptyMVar
-        a <- async $ runTestNodes label rdb logger v n peerInfoVar
+        a <- async $ runTestNodes testLabel rdb logger v n peerInfoVar
         (i, servicePort) <- readMVar peerInfoVar
         cwEnv <- getClientEnv $ getCwBaseUrl Https $ _hostAddressPort $ _peerAddr i
         cwServiceEnv <- getClientEnv $ getCwBaseUrl Http servicePort
@@ -992,7 +992,7 @@ runTestNodes
     -> Natural
     -> MVar (PeerInfo, Port)
     -> IO ()
-runTestNodes label rdb logger ver n portMVar =
+runTestNodes testLabel rdb logger ver n portMVar =
     forConcurrently_ [0 .. int n - 1] $ \i -> do
         threadDelay (1000 * int i)
         let baseConf = config ver n
@@ -1001,7 +1001,7 @@ runTestNodes label rdb logger ver n portMVar =
                 return $ bootstrapConfig baseConf
             | otherwise ->
                 setBootstrapPeerInfo <$> (fst <$> readMVar portMVar) <*> pure baseConf
-        node label rdb logger portMVar conf i
+        node testLabel rdb logger portMVar conf i
 
 node
     :: Logger logger
@@ -1013,8 +1013,8 @@ node
     -> Int
         -- ^ Unique Node Id. The node id 0 is used for the bootstrap node
     -> IO ()
-node label rdb rawLogger peerInfoVar conf nid = do
-    rocksDb <- testRocksDb (label <> T.encodeUtf8 (toText nid)) rdb
+node testLabel rdb rawLogger peerInfoVar conf nid = do
+    rocksDb <- testRocksDb (testLabel <> T.encodeUtf8 (toText nid)) rdb
     Extra.withTempDir $ \dir -> withChainweb conf logger rocksDb dir False $ \cw -> do
 
         -- If this is the bootstrap node we extract the port number and publish via an MVar.

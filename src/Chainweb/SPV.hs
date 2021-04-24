@@ -47,7 +47,7 @@ import Prelude hiding (lookup)
 import Chainweb.BlockHeader
 import Chainweb.BlockHeight
 import Chainweb.ChainId
-import Chainweb.Utils hiding (label)
+import Chainweb.Utils
 
 -- -------------------------------------------------------------------------- --
 -- Exceptions
@@ -112,7 +112,7 @@ parseProof
     -> (ChainId -> MerkleProof SHA512t_256 -> a)
     -> Value
     -> Aeson.Parser a
-parseProof label mkProof = withObject label $ \o -> mkProof
+parseProof name mkProof = withObject name $ \o -> mkProof
     <$> o .: "chain"
     <*> parse o
     <* (assertJSON ("SHA512t_256" :: T.Text) =<< o .: "algorithm")

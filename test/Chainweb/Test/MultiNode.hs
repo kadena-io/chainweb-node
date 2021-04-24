@@ -86,7 +86,7 @@ import Chainweb.Miner.Pact
 import Chainweb.Test.P2P.Peer.BootstrapConfig
 import Chainweb.Test.Utils
 import Chainweb.Time (Seconds(..))
-import Chainweb.Utils  hiding (label)
+import Chainweb.Utils
 import Chainweb.Version
 import Chainweb.Version.Utils
 import Chainweb.WebBlockHeaderDB
@@ -293,7 +293,7 @@ test
     -> Natural
     -> Seconds
     -> TestTree
-test loglevel v n seconds = testCaseSteps label $ \f -> do
+test loglevel v n seconds = testCaseSteps name $ \f -> do
     let tastylog = f . T.unpack
 #if DEBUG_MULTINODE_TEST
     -- useful for debugging, requires import of Data.Text.IO.
@@ -338,7 +338,7 @@ test loglevel v n seconds = testCaseSteps label $ \f -> do
     l = lowerStats v seconds
     u = upperStats v seconds
 
-    label = "ConsensusNetwork (nodes: " <> show n <> ", seconds: " <> show seconds <> ")"
+    name = "ConsensusNetwork (nodes: " <> show n <> ", seconds: " <> show seconds <> ")"
 
     bc x = blockCountAtCutHeight v x - order (chainGraphAtCutHeight v x)
 
