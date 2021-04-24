@@ -38,6 +38,8 @@ module Chainweb.Miner.Coordinator
 -- ** Internal Functions
 , newWork
 , publish
+, removePrimed
+, removeOutdatedPrimed
 ) where
 
 import Control.Concurrent.STM (atomically)
@@ -135,6 +137,28 @@ resetPrimed :: MinerId -> ChainId -> PrimedWork -> PrimedWork
 resetPrimed mid cid (PrimedWork pw) = PrimedWork
     $! HM.update (Just . HM.insert cid Nothing) mid pw
 
+removePrimed
+    :: TVar PrimedWork
+    -> MinerId
+    -> ChainId
+    -> IO ()
+removePrimed pwVar mid cid =
+    atomically $ modifyTVar pwVar $ resetPrimed mid cid
+
+removeOutdatedPrimed
+    :: TVar PrimedWork
+    -> MinerId
+    -> ChainId
+    -> BlockPayloadHash
+    -> IO ()
+removeOutdatedPrimed pwVar mid cid phash = atomically $ do
+    PrimedWork pw <- readTVar pwVar
+    case join (HM.lookup mid pw >>= HM.lookup cid) of
+        Nothing -> return ()
+        Just (payload, _)
+            | _payloadDataPayloadHash payload == phash -> writeTVar pwVar $ resetPrimed mid cid (PrimedWork pw)
+            | otherwise -> return ()
+
 -- | Data shared between the mining threads represented by `newWork` and
 -- `publish`.
 --
@@ -175,7 +199,7 @@ newWork
     -> PactExecutionService
     -> TVar PrimedWork
     -> Cut
-    -> IO (T2 WorkHeader PayloadData)
+    -> IO (Maybe (T2 WorkHeader PayloadData))
 newWork logFun choice eminer@(Miner mid _) hdb pact tpw c = do
 
     -- Randomly pick a chain to mine on, unless the caller specified a specific
@@ -193,14 +217,27 @@ newWork logFun choice eminer@(Miner mid _) hdb pact tpw c = do
         Nothing -> do
             logFun @T.Text Debug $ "newWork: chain " <> sshow cid <> " not mineable"
             newWork logFun (TriedLast cid) eminer hdb pact tpw c
-        Just (T2 (payload, parent) extension)
-            | parent == _blockHash (_parentHeader (_cutExtensionParent extension)) -> do
+        Just (T2 (payload, primedParentHash) extension)
+            | primedParentHash == _blockHash (_parentHeader (_cutExtensionParent extension)) -> do
                 let !phash = _payloadDataPayloadHash payload
                 !wh <- newWorkHeader hdb extension phash
-                pure $ T2 wh payload
+                pure $ Just $ T2 wh payload
             | otherwise -> do
-                logFun @T.Text Info $ "newWork: chain " <> sshow cid <> " not mineable because of parent header mismatch"
-                newWork logFun (TriedLast cid) eminer hdb pact tpw c
+
+                -- The cut is too old or the primed work is outdated. Probably
+                -- the former because it the mining coordination background job
+                -- is updating the primed work cache regularly. We could try
+                -- another chain, but it's safer to just return 'Nothing' here
+                -- and retry with an updated cut.
+                --
+                let !extensionParent = _parentHeader (_cutExtensionParent extension)
+                logFun @T.Text Info
+                    $ "newWork: chain " <> sshow cid <> " not mineable because of parent header mismatch"
+                    <> ". Primed parent hash: " <> toText primedParentHash
+                    <> ". Extension parent: " <> toText (_blockHash extensionParent)
+                    <> ". Extension height: " <> sshow (_blockHeight extensionParent)
+
+                return Nothing
 
 chainChoice :: Cut -> ChainChoice -> IO ChainId
 chainChoice c choice = case choice of
@@ -237,7 +274,7 @@ publish lf cdb pwVar miner pd s = do
         Right (bh, Just ch) -> do
 
             -- reset the primed payload for this cut extension
-            atomically $ modifyTVar pwVar $ resetPrimed miner (_chainId bh)
+            removePrimed pwVar miner (_chainId bh)
             addCutHashes cdb ch
 
             let bytes = sum . fmap (BS.length . _transactionBytes) $
@@ -285,8 +322,7 @@ work
     -> Miner
     -> IO WorkHeader
 work mr mcid m = do
-    c <- _cut cdb
-    T2 wh pd <- newWork logf choice m hdb pact (_coordPrimedWork mr) c
+    T2 wh pd <- newWorkForCut
     now <- getCurrentTimeIntegral
     atomically
         . modifyTVar' (_coordState mr)
@@ -295,6 +331,19 @@ work mr mcid m = do
         $ T3 m pd now
     return wh
   where
+    -- There is no strict synchronization between the primed work cache and the
+    -- new work selection. There is a chance that work selection picks a primed
+    -- work that is out of sync with the current cut. In that case we just try
+    -- again with a new cut. In case the cut was good but the primed work was
+    -- outdated, chances are that in the next attempt we pick a different chain
+    -- with update work or that the primed work cache caught up in the meantime.
+    --
+    newWorkForCut = do
+        c' <- _cut cdb
+        newWork logf choice m hdb pact (_coordPrimedWork mr) c' >>= \case
+            Nothing -> newWorkForCut
+            Just x -> return x
+
     logf :: LogFunction
     logf = logFunction $ _coordLogger mr
 
