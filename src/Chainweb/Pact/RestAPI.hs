@@ -137,7 +137,7 @@ pactSpvApi
 pactSpvApi = Proxy
 
 -- -------------------------------------------------------------------------- --
--- GET Pact SPV Proof
+-- POST Query for Pact SPV Proof
 
 --  | The chain endpoint is the target chain of the proof, i.e. the chain where
 --  the root of the proof is located.
