@@ -273,7 +273,3 @@ type family Index (h :: Type) (l :: [Type]) :: N where
         ':<>: 'Text " not found in list"
         )
 
--- data HList (l :: [Type]) where
---     HNil :: HList '[]
---     (:+:) :: h -> HList t -> HList (h ': t)
-
