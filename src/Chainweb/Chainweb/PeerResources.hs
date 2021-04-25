@@ -151,14 +151,6 @@ withPeerResources v conf logger inner = withPeerSocket conf $ \(conf', sock) -> 
 
             logFunctionText logger Info $ "Local Peer Info: " <> encodeToText pinf
 
-            -- make sure that the local peer itself isn't in the database that
-            -- we initialized from the configuration.
-            peerDbDelete_ peerDb True {- force deletion of sticky peers -} pinf
-
-            -- Log initial peer db
-            db <- peerDbSnapshot peerDb
-            logFunctionText logger Debug $ "Initial Peer DB: " <> encodeToText (toList db)
-
             withConnectionLogger mgrLogger counter $ do
 
                 -- check that this node is reachable:

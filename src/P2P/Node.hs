@@ -317,6 +317,7 @@ data PeerValidationFailure
     = IsReservedHostAddress !PeerInfo
     | IsNotReachable !PeerInfo !T.Text
     | NodeVersionNotAccepted !PeerInfo !NodeVersion
+    | IsLocalPeerAddress !PeerInfo
     deriving (Show, Eq, Ord, Generic, NFData, ToJSON)
 
 instance Exception PeerValidationFailure where
@@ -326,12 +327,17 @@ instance Exception PeerValidationFailure where
         = "The peer info " <> T.unpack (showInfo p) <> " can't be reached: " <> T.unpack t
     displayException (NodeVersionNotAccepted p v)
         = "The peer info " <> T.unpack (showInfo p) <> " has a chainweb node version that is not acceptable: " <> T.unpack (toText v)
+    displayException (IsLocalPeerAddress p)
+        = "The peer info " <> T.unpack (showInfo p) <> " is the address of the local peer"
 
 -- | Removes candidate `PeerInfo` that are:
 --
---  * already known to us and considered good
---  * are trivially bad (localhost, our own current IP, etc.)
---  * are not reachable
+--  * equal to the local peer
+--  * trivially bad (localhost, our own current IP, etc.)
+--  * not reachable
+--  * have a node version that isn't accepted
+--
+--  Peers that are already known are accepted.
 --
 --  We may add more checks here in the future, like for instance, black listing
 --  or white listing.
@@ -347,6 +353,7 @@ guardPeerDb v nid peerDb pinf = do
     if
         | isKnown peers pinf -> return $ Right pinf
         | isReserved -> return $ Left $ IsReservedHostAddress pinf
+        | isMe -> return $ Left $ IsLocalPeerAddress pinf
         | otherwise -> canConnect >>= \case
             Left e -> return $ Left $ IsNotReachable pinf (sshow e)
             Right nodeVersion -> if isAcceptedVersion nodeVersion
@@ -367,6 +374,8 @@ guardPeerDb v nid peerDb pinf = do
     canConnect = do
         mgr <- getNewPeerManager
         getNodeVersion mgr v (_peerAddr pinf) (Just $ networkIdToText nid <> "/peer")
+
+    isMe = Just pinf == _peerDbLocalPeer peerDb
 
 isKnown :: PeerSet -> PeerInfo -> Bool
 isKnown peers pinf = not . IXS.null $ IXS.getEQ (_peerAddr pinf) peers
@@ -712,6 +721,10 @@ p2pCreateNode
     -> P2pSession
     -> IO P2pNode
 p2pCreateNode cv nid peer logfun db mgr doPeerSync session = do
+
+    -- set local peer (prefents it from being added to the peer database)
+    localDb <- peerDbSetLocalPeer myInfo db
+
     -- intialize P2P State
     sessionsVar <- newTVarIO mempty
     statsVar <- newTVarIO emptyP2pNodeStats
@@ -721,7 +734,7 @@ p2pCreateNode cv nid peer logfun db mgr doPeerSync session = do
                 { _p2pNodeNetworkId = nid
                 , _p2pNodeChainwebVersion = cv
                 , _p2pNodePeerInfo = myInfo
-                , _p2pNodePeerDb = db
+                , _p2pNodePeerDb = localDb
                 , _p2pNodeSessions = sessionsVar
                 , _p2pNodeManager = mgr
                 , _p2pNodeLogFunction = logfun
