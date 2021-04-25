@@ -721,10 +721,6 @@ p2pCreateNode
     -> P2pSession
     -> IO P2pNode
 p2pCreateNode cv nid peer logfun db mgr doPeerSync session = do
-
-    -- set local peer (prefents it from being added to the peer database)
-    localDb <- peerDbSetLocalPeer myInfo db
-
     -- intialize P2P State
     sessionsVar <- newTVarIO mempty
     statsVar <- newTVarIO emptyP2pNodeStats
@@ -734,7 +730,7 @@ p2pCreateNode cv nid peer logfun db mgr doPeerSync session = do
                 { _p2pNodeNetworkId = nid
                 , _p2pNodeChainwebVersion = cv
                 , _p2pNodePeerInfo = myInfo
-                , _p2pNodePeerDb = localDb
+                , _p2pNodePeerDb = db
                 , _p2pNodeSessions = sessionsVar
                 , _p2pNodeManager = mgr
                 , _p2pNodeLogFunction = logfun

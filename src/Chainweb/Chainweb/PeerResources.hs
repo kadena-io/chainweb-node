@@ -151,6 +151,9 @@ withPeerResources v conf logger inner = withPeerSocket conf $ \(conf', sock) -> 
 
             logFunctionText logger Info $ "Local Peer Info: " <> encodeToText pinf
 
+            -- set local peer (prevents it from being added to the peer database)
+            localDb <- peerDbSetLocalPeer pinf peerDb
+
             withConnectionLogger mgrLogger counter $ do
 
                 -- check that this node is reachable:
@@ -159,7 +162,7 @@ withPeerResources v conf logger inner = withPeerSocket conf $ \(conf', sock) -> 
                     (_peerInfo peer)
                     (_p2pConfigBootstrapReachability conf'')
 
-                inner logger' (PeerResources conf'' peer sock peerDb mgr logger')
+                inner logger' (PeerResources conf'' peer sock localDb mgr logger')
 
 checkReachability
     :: Logger logger
@@ -173,8 +176,9 @@ checkReachability
 checkReachability mgr v logger peers pinf threshold = do
     nis <- forConcurrently peers $ \p ->
         tryAllSynchronous (run p) >>= \case
-            Right _ -> True <$ do
+            Right x -> True <$ do
                 logg Info $ "reachable from " <> toText (_peerAddr p)
+                logg Info $ sshow x
             Left e -> False <$ do
                 logg Warn $ "failed to be reachabled from " <> toText (_peerAddr p)
                     <> ": " <> sshow e
@@ -183,7 +187,7 @@ checkReachability mgr v logger peers pinf threshold = do
         required = ceiling (int (length peers) * threshold)
     if c < required
       then do
-        logg Info $ "Only "
+        logg Warn $ "Only "
             <> sshow c <> " out of "
             <> sshow (length peers) <> " bootstrap peers are reachable."
             <> "Required number of reachable bootstrap nodes: " <> sshow required
@@ -198,12 +202,6 @@ checkReachability mgr v logger peers pinf threshold = do
     run peer = runClientM
         (peerPutClient v CutNetwork pinf)
         (peerInfoClientEnv mgr peer)
-
--- peerPutClient
---     :: ChainwebVersion
---     -> NetworkId
---     -> PeerInfo
---     -> ClientM NoContent
 
 peerServerSettings :: Peer -> Settings
 peerServerSettings peer

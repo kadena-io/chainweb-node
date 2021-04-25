@@ -142,6 +142,7 @@ import Data.Foldable
 import Data.Function (on)
 import qualified Data.HashMap.Strict as HM
 import Data.List (isPrefixOf, sortBy)
+import qualified Data.List as L
 import Data.Maybe
 import qualified Data.Text as T
 import Data.These (These(..))
@@ -626,12 +627,12 @@ withChainweb c logger rocksDb pactDbDir resetDb inner =
 
     v = _chainwebVersion c
 
-
     -- Here we inject the hard-coded bootstrap peer infos for the configured
     -- chainweb version into the configuration.
     confWithBootstraps
         | _p2pConfigIgnoreBootstrapNodes (_configP2p c) = c
-        | otherwise = configP2p . p2pConfigKnownPeers <>~ bootstrapPeerInfos v $ c
+        | otherwise = configP2p . p2pConfigKnownPeers
+            %~ (\x -> L.nub $ x <> bootstrapPeerInfos v) $ c
 
 -- TODO: The type InMempoolConfig contains parameters that should be
 -- configurable as well as parameters that are determined by the chainweb
@@ -759,7 +760,7 @@ withChainwebInternal conf logger peer serviceSock rocksDb pactDbDir resetDb inne
 
     pruningLogger :: T.Text -> logger
     pruningLogger l = addLabel ("sub-component", l)
-        $ setComponent ("database-pruning") logger
+        $ setComponent "database-pruning" logger
 
     cidsList :: [ChainId]
     cidsList = toList cids
@@ -870,7 +871,8 @@ withChainwebInternal conf logger peer serviceSock rocksDb pactDbDir resetDb inne
         { _cutDbParamsLogLevel = Info
         , _cutDbParamsTelemetryLevel = Info
         , _cutDbParamsUseOrigin = _cutIncludeOrigin cutConf
-        , _cutDbParamsInitialHeightLimit = _cutInitialCutHeightLimit $ cutConf }
+        , _cutDbParamsInitialHeightLimit = _cutInitialCutHeightLimit cutConf
+        }
       where
         cutConf = _configCuts conf
 
