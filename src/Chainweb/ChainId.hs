@@ -142,7 +142,7 @@ instance HasChainId a => HasChainId (Actual a) where
     _chainId = _chainId . getActual
     {-# INLINE _chainId #-}
 
-instance IsMerkleLogEntry ChainwebHashTag ChainId where
+instance MerkleHashAlgorithm a => IsMerkleLogEntry a ChainwebHashTag ChainId where
     type Tag ChainId = 'ChainIdTag
     toMerkleNode = encodeMerkleInputNode encodeChainId
     fromMerkleNode = decodeMerkleInputNode decodeChainId

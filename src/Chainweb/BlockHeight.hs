@@ -2,6 +2,7 @@
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DerivingStrategies #-}
+{-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -65,7 +66,7 @@ newtype BlockHeight = BlockHeight { _height :: Word64 }
         )
 instance Show BlockHeight where show (BlockHeight b) = show b
 
-instance IsMerkleLogEntry ChainwebHashTag BlockHeight where
+instance MerkleHashAlgorithm a => IsMerkleLogEntry a ChainwebHashTag BlockHeight where
     type Tag BlockHeight = 'BlockHeightTag
     toMerkleNode = encodeMerkleInputNode encodeBlockHeight
     fromMerkleNode = decodeMerkleInputNode decodeBlockHeight

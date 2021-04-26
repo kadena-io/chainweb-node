@@ -85,7 +85,7 @@ import Chainweb.Version
 --
 genesisParentBlockHash :: HasChainId p => ChainwebVersion -> p -> BlockHash
 genesisParentBlockHash v p = BlockHash $ MerkleLogHash
-    $ merkleRoot $ merkleTree @(HashAlg ChainwebHashTag)
+    $ merkleRoot $ merkleTree @ChainwebMerkleHashAlgorithm
         [ InputNode "CHAINWEB_GENESIS"
         , encodeMerkleInputNode encodeChainwebVersion v
         , encodeMerkleInputNode encodeChainId (_chainId p)
@@ -283,7 +283,8 @@ genesisBlockHeader'
     -> BlockCreationTime
     -> Nonce
     -> BlockHeader
-genesisBlockHeader' v p ct@(BlockCreationTime t) n = fromLog mlog
+genesisBlockHeader' v p ct@(BlockCreationTime t) n =
+    fromLog @ChainwebMerkleHashAlgorithm mlog
   where
     g = genesisGraph v p
     cid = _chainId p
