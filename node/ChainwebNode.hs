@@ -200,9 +200,9 @@ getDbBaseDir conf = case _nodeConfigDatabaseDirectory conf of
 -- to at most one restart every 10 seconds.
 --
 runMonitorLoop :: Logger logger => T.Text -> logger -> IO () -> IO ()
-runMonitorLoop label logger = runForeverThrottled
+runMonitorLoop actionLabel logger = runForeverThrottled
     (logFunction logger)
-    label
+    actionLabel
     10 -- 10 bursts in case of failure
     (10 * mega) -- allow restart every 10 seconds in case of failure
 
