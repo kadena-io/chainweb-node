@@ -23,8 +23,10 @@ Changes:
 
 *   Remove deprecated mining coordination code. (#1177)
     *   Removes support for public mining.
-    *   Fix two races that in the mining API that may have slightly increased
+    *   Fix two race conditions in the mining API that may have slightly increased
         the number blocks that got orphaned before being included on the chain.
+
+*   Internal infrastructure to support bridging KDA to other networks (#1210)
 
 *   New OpenAPI 3.0 specification of the chainweb-node API. The API
     documentation is maintained in the git repository
