@@ -36,7 +36,6 @@ module Chainweb.Miner.Coordinator
 , solve
 
 -- ** Internal Functions
-, newWork
 , publish
 ) where
 
@@ -134,14 +133,6 @@ newtype PrimedWork =
 resetPrimed :: MinerId -> ChainId -> PrimedWork -> PrimedWork
 resetPrimed mid cid (PrimedWork pw) = PrimedWork
     $! HM.update (Just . HM.insert cid Nothing) mid pw
-
-removePrimed
-    :: TVar PrimedWork
-    -> MinerId
-    -> ChainId
-    -> IO ()
-removePrimed pwVar mid cid =
-    atomically $ modifyTVar pwVar $ resetPrimed mid cid
 
 -- | Data shared between the mining threads represented by `newWork` and
 -- `publish`.
@@ -258,7 +249,7 @@ publish lf cdb pwVar miner pd s = do
         Right (bh, Just ch) -> do
 
             -- reset the primed payload for this cut extension
-            removePrimed pwVar miner (_chainId bh)
+            atomically $ modifyTVar pwVar $ resetPrimed miner (_chainId bh)
             addCutHashes cdb ch
 
             let bytes = sum . fmap (BS.length . _transactionBytes) $
