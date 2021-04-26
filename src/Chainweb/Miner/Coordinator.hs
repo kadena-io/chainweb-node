@@ -39,7 +39,6 @@ module Chainweb.Miner.Coordinator
 , newWork
 , publish
 , removePrimed
-, removeOutdatedPrimed
 ) where
 
 import Control.Concurrent.STM (atomically)
@@ -144,20 +143,6 @@ removePrimed
     -> IO ()
 removePrimed pwVar mid cid =
     atomically $ modifyTVar pwVar $ resetPrimed mid cid
-
-removeOutdatedPrimed
-    :: TVar PrimedWork
-    -> MinerId
-    -> ChainId
-    -> BlockPayloadHash
-    -> IO ()
-removeOutdatedPrimed pwVar mid cid phash = atomically $ do
-    PrimedWork pw <- readTVar pwVar
-    case join (HM.lookup mid pw >>= HM.lookup cid) of
-        Nothing -> return ()
-        Just (payload, _)
-            | _payloadDataPayloadHash payload == phash -> writeTVar pwVar $ resetPrimed mid cid (PrimedWork pw)
-            | otherwise -> return ()
 
 -- | Data shared between the mining threads represented by `newWork` and
 -- `publish`.
@@ -392,4 +377,3 @@ solve mr solved@(SolvedWork hdr) = do
     deleteKey = atomically . modifyTVar' tms . over _Unwrapped $ M.delete key
     publishWork (T3 m pd _) =
         publish lf (_coordCutDb mr) (_coordPrimedWork mr) (view minerId m) pd solved
-
