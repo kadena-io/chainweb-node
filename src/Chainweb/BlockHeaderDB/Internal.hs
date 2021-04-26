@@ -223,7 +223,6 @@ dbAddChecked db e = unlessM (casMember (_chainDbCas db) ek) dbAddCheckedInternal
                 unless (rank e == rank pe + 1)
                     $ throwM $ TreeDbInvalidRank @BlockHeaderDb e
                 add
-      where
 
     add = updateBatch
             [ RocksDbInsert (_chainDbCas db) (casKey rbh) rbh
@@ -293,12 +292,13 @@ instance TreeDb BlockHeaderDb where
     lookup db h = runMaybeT $ do
         -- lookup rank
         r <- MaybeT $ tableLookup (_chainDbRankTable db) h
-
-        -- lookup header
-        rh <- MaybeT $ casLookup (_chainDbCas db) $ RankedBlockHash r h
-
-        return $! _getRankedBlockHeader rh
+        MaybeT $ lookupRanked db (int r) h
     {-# INLINEABLE lookup #-}
+
+    lookupRanked db r h = runMaybeT $ do
+        rh <- MaybeT $ casLookup (_chainDbCas db) $ RankedBlockHash (int r) h
+        return $! _getRankedBlockHeader rh
+    {-# INLINEABLE lookupRanked #-}
 
     entries db k l mir mar f = withSeekTreeDb db k mir $ \it -> f $ do
         iterToValueStream it

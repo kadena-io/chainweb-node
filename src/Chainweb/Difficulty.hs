@@ -202,7 +202,7 @@ maxTarget = HashTarget $ PowHashNat maxTargetWord
 maxTargetWord :: Word256
 maxTargetWord = maxBound
 
-instance IsMerkleLogEntry ChainwebHashTag HashTarget where
+instance MerkleHashAlgorithm a => IsMerkleLogEntry a ChainwebHashTag HashTarget where
     type Tag HashTarget = 'HashTargetTag
     toMerkleNode = encodeMerkleInputNode encodeHashTarget
     fromMerkleNode = decodeMerkleInputNode decodeHashTarget

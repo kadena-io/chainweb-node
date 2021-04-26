@@ -4,10 +4,13 @@
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DerivingStrategies #-}
+{-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 
@@ -36,28 +39,38 @@ module Chainweb.Payload
 
 -- * Hashes
 
-, BlockPayloadHash(..)
+, BlockPayloadHash
+, BlockPayloadHash_(..)
 , encodeBlockPayloadHash
 , decodeBlockPayloadHash
-, BlockTransactionsHash(..)
+
+, BlockTransactionsHash
+, BlockTransactionsHash_(..)
 , encodeBlockTransactionsHash
 , decodeBlockTransactionsHash
-, BlockOutputsHash(..)
+
+, BlockOutputsHash
+, BlockOutputsHash_(..)
 , encodeBlockOutputsHash
 , decodeBlockOutputsHash
 
 -- * Authoritative Data
 
-, BlockPayload(..)
-, BlockTransactions(..)
+, BlockPayload
+, BlockPayload_(..)
+, BlockTransactions
+, BlockTransactions_(..)
 , verifyBlockPayload
 
 -- * Redundant Data / Caches
 
-, BlockOutputs(..)
-, TransactionTree(..)
+, BlockOutputs
+, BlockOutputs_(..)
+, TransactionTree
+, TransactionTree_(..)
 , verifyTransactionTree
-, OutputTree(..)
+, OutputTree
+, OutputTree_(..)
 , verifyOutputTree
 
 -- * Create Data
@@ -81,14 +94,16 @@ module Chainweb.Payload
 , newBlockPayload
 
 -- * API Payload Data
-, PayloadData(..)
+, PayloadData
+, PayloadData_(..)
 , payloadData
 , newPayloadData
 , PayloadDataCas
 , verifyPayloadData
 
 -- * All Payload Data in a Single Structure
-, PayloadWithOutputs(..)
+, PayloadWithOutputs
+, PayloadWithOutputs_(..)
 , payloadWithOutputs
 , newPayloadWithOutputs
 , payloadWithOutputsToBlockObjects
@@ -99,8 +114,6 @@ module Chainweb.Payload
 import Control.DeepSeq
 import Control.Monad ((<$!>))
 import Control.Monad.Catch
-
-import Crypto.Hash.Algorithms
 
 import Data.Aeson
 import qualified Data.Aeson.Types as A
@@ -130,20 +143,25 @@ import Data.CAS
 -- -------------------------------------------------------------------------- --
 -- Block Transactions Hash
 
-newtype BlockTransactionsHash = BlockTransactionsHash MerkleLogHash
+type BlockTransactionsHash = BlockTransactionsHash_ ChainwebMerkleHashAlgorithm
+
+newtype BlockTransactionsHash_ a = BlockTransactionsHash (MerkleLogHash a)
     deriving (Show, Eq, Ord, Generic)
     deriving anyclass (NFData)
     deriving newtype (BA.ByteArrayAccess)
     deriving newtype (Hashable, ToJSON, FromJSON)
 
-encodeBlockTransactionsHash :: MonadPut m => BlockTransactionsHash -> m ()
+encodeBlockTransactionsHash :: MonadPut m => BlockTransactionsHash_ a -> m ()
 encodeBlockTransactionsHash (BlockTransactionsHash w) = encodeMerkleLogHash w
 
-decodeBlockTransactionsHash :: MonadGet m => m BlockTransactionsHash
+decodeBlockTransactionsHash
+    :: MerkleHashAlgorithm a
+    => MonadGet m
+    => m (BlockTransactionsHash_ a)
 decodeBlockTransactionsHash = BlockTransactionsHash <$!> decodeMerkleLogHash
 
-instance IsMerkleLogEntry ChainwebHashTag BlockTransactionsHash where
-    type Tag BlockTransactionsHash = 'BlockTransactionsHashTag
+instance MerkleHashAlgorithm a => IsMerkleLogEntry a ChainwebHashTag (BlockTransactionsHash_ a) where
+    type Tag (BlockTransactionsHash_ a) = 'BlockTransactionsHashTag
     toMerkleNode = encodeMerkleTreeNode
     fromMerkleNode = decodeMerkleTreeNode
     {-# INLINE toMerkleNode #-}
@@ -152,20 +170,25 @@ instance IsMerkleLogEntry ChainwebHashTag BlockTransactionsHash where
 -- -------------------------------------------------------------------------- --
 -- Block Outputs Hash
 
-newtype BlockOutputsHash = BlockOutputsHash MerkleLogHash
+type BlockOutputsHash = BlockOutputsHash_ ChainwebMerkleHashAlgorithm
+
+newtype BlockOutputsHash_ a = BlockOutputsHash (MerkleLogHash a)
     deriving (Show, Eq, Ord, Generic)
     deriving anyclass (NFData)
     deriving newtype (BA.ByteArrayAccess)
     deriving newtype (Hashable, ToJSON, FromJSON)
 
-encodeBlockOutputsHash :: MonadPut m => BlockOutputsHash -> m ()
+encodeBlockOutputsHash :: MonadPut m => BlockOutputsHash_ a -> m ()
 encodeBlockOutputsHash (BlockOutputsHash w) = encodeMerkleLogHash w
 
-decodeBlockOutputsHash :: MonadGet m => m BlockOutputsHash
+decodeBlockOutputsHash
+    :: MerkleHashAlgorithm a
+    => MonadGet m
+    => m (BlockOutputsHash_ a)
 decodeBlockOutputsHash = BlockOutputsHash <$!> decodeMerkleLogHash
 
-instance IsMerkleLogEntry ChainwebHashTag BlockOutputsHash where
-    type Tag BlockOutputsHash = 'BlockOutputsHashTag
+instance MerkleHashAlgorithm a => IsMerkleLogEntry a ChainwebHashTag (BlockOutputsHash_ a) where
+    type Tag (BlockOutputsHash_ a) = 'BlockOutputsHashTag
     toMerkleNode = encodeMerkleTreeNode
     fromMerkleNode = decodeMerkleTreeNode
     {-# INLINE toMerkleNode #-}
@@ -174,21 +197,26 @@ instance IsMerkleLogEntry ChainwebHashTag BlockOutputsHash where
 -- -------------------------------------------------------------------------- --
 -- BlockPayloadHash
 
-newtype BlockPayloadHash = BlockPayloadHash MerkleLogHash
+type BlockPayloadHash = BlockPayloadHash_ ChainwebMerkleHashAlgorithm
+
+newtype BlockPayloadHash_ a = BlockPayloadHash (MerkleLogHash a)
     deriving (Show, Eq, Ord, Generic)
     deriving anyclass (NFData)
     deriving newtype (BA.ByteArrayAccess)
     deriving newtype (Hashable, ToJSON, FromJSON)
     deriving newtype (ToJSONKey, FromJSONKey)
 
-encodeBlockPayloadHash :: MonadPut m => BlockPayloadHash -> m ()
+encodeBlockPayloadHash :: MonadPut m => BlockPayloadHash_ a -> m ()
 encodeBlockPayloadHash (BlockPayloadHash w) = encodeMerkleLogHash w
 
-decodeBlockPayloadHash :: MonadGet m => m BlockPayloadHash
+decodeBlockPayloadHash
+    :: MerkleHashAlgorithm a
+    => MonadGet m
+    => m (BlockPayloadHash_ a)
 decodeBlockPayloadHash = BlockPayloadHash <$!> decodeMerkleLogHash
 
-instance IsMerkleLogEntry ChainwebHashTag BlockPayloadHash where
-    type Tag BlockPayloadHash = 'BlockPayloadHashTag
+instance MerkleHashAlgorithm a => IsMerkleLogEntry a ChainwebHashTag (BlockPayloadHash_ a) where
+    type Tag (BlockPayloadHash_ a) = 'BlockPayloadHashTag
     toMerkleNode = encodeMerkleTreeNode
     fromMerkleNode = decodeMerkleTreeNode
     {-# INLINE toMerkleNode #-}
@@ -219,7 +247,7 @@ instance FromJSON Transaction where
     parseJSON = parseJsonFromText "Transaction"
     {-# INLINE parseJSON #-}
 
-instance IsMerkleLogEntry ChainwebHashTag Transaction where
+instance MerkleHashAlgorithm a => IsMerkleLogEntry a ChainwebHashTag Transaction where
     type Tag Transaction = 'TransactionTag
     toMerkleNode = InputNode . _transactionBytes
     fromMerkleNode (InputNode bytes) = Right $ Transaction bytes
@@ -261,7 +289,7 @@ instance FromJSON TransactionOutput where
     parseJSON = parseJsonFromText "TransactionOutput"
     {-# INLINE parseJSON #-}
 
-instance IsMerkleLogEntry ChainwebHashTag TransactionOutput where
+instance MerkleHashAlgorithm a => IsMerkleLogEntry a ChainwebHashTag TransactionOutput where
     type Tag TransactionOutput = 'TransactionOutputTag
     toMerkleNode = InputNode . _transactionOutputBytes
     fromMerkleNode (InputNode bytes) = Right $ TransactionOutput bytes
@@ -285,6 +313,8 @@ instance HasTextRepresentation TransactionOutput where
 -- -------------------------------------------------------------------------- --
 -- Block Payloads
 
+type BlockPayload = BlockPayload_ ChainwebMerkleHashAlgorithm
+
 -- | The Payload of a block.
 --
 -- The transactions of a block at a given height in the chain are discovered by
@@ -304,41 +334,41 @@ instance HasTextRepresentation TransactionOutput where
 -- from the 'BlockHeader' chain and block transactions for a given block height
 -- are looked up by @_blockPayloadTransactionsHash . _blockPayloadPayloadHash@.
 --
-data BlockPayload = BlockPayload
-    { _blockPayloadPayloadHash :: !BlockPayloadHash
+data BlockPayload_ a = BlockPayload
+    { _blockPayloadPayloadHash :: !(BlockPayloadHash_ a)
         -- ^ Hash of '_blockPayloadTransactionsHash' and '_blockPayloadTransactionsHash'.
         -- Primary key of 'BlockPayloadStore'.
 
-    , _blockPayloadTransactionsHash :: !BlockTransactionsHash
+    , _blockPayloadTransactionsHash :: !(BlockTransactionsHash_ a)
         -- ^ Root of 'TransactionTree' of the block. Foreign key into
         -- 'BlockTransactionsStore' and 'TransactionTreeStore'.
 
-    , _blockPayloadOutputsHash :: !BlockOutputsHash
+    , _blockPayloadOutputsHash :: !(BlockOutputsHash_ a)
         -- ^ Root of 'OutputsTree' of the block. Foreign key into
         -- 'BlockOutputsStore' and 'OutputTreeStore'.
     }
     deriving (Show, Eq, Ord, Generic)
 
-instance ToJSON BlockPayload where
+instance MerkleHashAlgorithm a => ToJSON (BlockPayload_ a) where
     toJSON o = object
         [ "payloadHash" .= _blockPayloadPayloadHash o
         , "transactionsHash" .= _blockPayloadTransactionsHash o
         , "outputsHash" .= _blockPayloadOutputsHash o
         ]
 
-instance FromJSON BlockPayload where
+instance MerkleHashAlgorithm a => FromJSON (BlockPayload_ a) where
     parseJSON = withObject "BlockPayload" $ \o -> BlockPayload
         <$!> o .: "payloadHash"
         <*> o .: "transactionsHash"
         <*> o .: "outputsHash"
 
-instance IsCasValue BlockPayload where
-    type CasKeyType BlockPayload = BlockPayloadHash
+instance IsCasValue (BlockPayload_ a) where
+    type CasKeyType (BlockPayload_ a) = BlockPayloadHash_ a
     casKey = _blockPayloadPayloadHash
 
-instance HasMerkleLog ChainwebHashTag BlockPayload where
-    type MerkleLogHeader BlockPayload = '[BlockTransactionsHash, BlockOutputsHash]
-    type MerkleLogBody BlockPayload = Void
+instance MerkleHashAlgorithm a => HasMerkleLog a ChainwebHashTag (BlockPayload_ a) where
+    type MerkleLogHeader (BlockPayload_ a) = '[BlockTransactionsHash_ a, BlockOutputsHash_ a]
+    type MerkleLogBody (BlockPayload_ a) = Void
 
     toLog a = merkleLog root entries
       where
@@ -357,7 +387,7 @@ instance HasMerkleLog ChainwebHashTag BlockPayload where
 
 -- | Verify the consistency of the MerkleTree of a 'BlockPayload' value.
 --
-verifyBlockPayload :: BlockPayload -> Bool
+verifyBlockPayload :: MerkleHashAlgorithm a => BlockPayload_ a -> Bool
 verifyBlockPayload p
     = BlockPayloadHash (MerkleLogHash (computeMerkleLogRoot p)) == _blockPayloadPayloadHash p
 
@@ -381,7 +411,7 @@ instance FromJSON MinerData where
     parseJSON = parseJsonFromText "MinerData"
     {-# INLINE parseJSON #-}
 
-instance IsMerkleLogEntry ChainwebHashTag MinerData where
+instance MerkleHashAlgorithm a => IsMerkleLogEntry a ChainwebHashTag MinerData where
     type Tag MinerData = 'MinerDataTag
     toMerkleNode = InputNode . _minerData
     fromMerkleNode (InputNode bytes) = Right $ MinerData bytes
@@ -405,10 +435,12 @@ instance HasTextRepresentation MinerData where
 -- -------------------------------------------------------------------------- --
 -- Block Transactions
 
+type BlockTransactions = BlockTransactions_ ChainwebMerkleHashAlgorithm
+
 -- | The block transactions
 --
-data BlockTransactions = BlockTransactions
-    { _blockTransactionsHash :: !BlockTransactionsHash
+data BlockTransactions_ a = BlockTransactions
+    { _blockTransactionsHash :: !(BlockTransactionsHash_ a)
         -- ^ Root of 'TransactionTree' of the block. Primary key of
         -- 'BlockTransactionsStore'. Foreign key into 'TransactionTreeStore'.
 
@@ -420,26 +452,26 @@ data BlockTransactions = BlockTransactions
     }
     deriving (Show, Eq, Ord, Generic)
 
-instance ToJSON BlockTransactions where
+instance MerkleHashAlgorithm a => ToJSON (BlockTransactions_ a) where
     toJSON o = object
         [ "transactionHash" .= _blockTransactionsHash o
         , "transaction" .= _blockTransactions o
         , "minerData" .= _blockMinerData o
         ]
 
-instance FromJSON BlockTransactions where
+instance MerkleHashAlgorithm a => FromJSON (BlockTransactions_ a) where
     parseJSON = withObject "BlockTransactions" $ \o -> BlockTransactions
         <$!> o .: "transactionHash"
         <*> o .: "transaction"
         <*> o .: "minerData"
 
-instance IsCasValue BlockTransactions where
-    type CasKeyType BlockTransactions = BlockTransactionsHash
+instance IsCasValue (BlockTransactions_ a) where
+    type CasKeyType (BlockTransactions_ a) = BlockTransactionsHash_ a
     casKey = _blockTransactionsHash
 
-instance HasMerkleLog ChainwebHashTag BlockTransactions where
-    type MerkleLogHeader BlockTransactions = '[MinerData]
-    type MerkleLogBody BlockTransactions = Transaction
+instance MerkleHashAlgorithm a => HasMerkleLog a ChainwebHashTag (BlockTransactions_ a) where
+    type MerkleLogHeader (BlockTransactions_ a) = '[MinerData]
+    type MerkleLogBody (BlockTransactions_ a) = Transaction
 
     toLog a = merkleLog root entries
       where
@@ -454,7 +486,7 @@ instance HasMerkleLog ChainwebHashTag BlockTransactions where
       where
         (mi :+: MerkleLogBody txs) = _merkleLogEntries l
 
-type BlockTransactionsLog = MkLogType ChainwebHashTag BlockTransactions
+type BlockTransactionsLog a = MkLogType a ChainwebHashTag BlockTransactions
 
 -- | Verify the consistency of the MerkleTree of a 'BlockTransactions' value.
 --
@@ -489,7 +521,7 @@ instance FromJSON CoinbaseOutput where
     parseJSON = parseJsonFromText "CoinbaseOutput"
     {-# INLINE parseJSON #-}
 
-instance IsMerkleLogEntry ChainwebHashTag CoinbaseOutput where
+instance MerkleHashAlgorithm a => IsMerkleLogEntry a ChainwebHashTag CoinbaseOutput where
     type Tag CoinbaseOutput = 'CoinbaseOutputTag
     toMerkleNode = InputNode . _coinbaseOutput
     fromMerkleNode (InputNode bytes) = Right $ CoinbaseOutput bytes
@@ -531,13 +563,15 @@ instance HasTextRepresentation CoinbaseOutput where
 -- -------------------------------------------------------------------------- --
 -- Block Outputs
 
+type BlockOutputs = BlockOutputs_ ChainwebMerkleHashAlgorithm
+
 -- | All outputs of the transactions of a block.
 --
 -- NOTE: the block outputs are associated with the respective block in the
 -- 'BlockPayload' structure for the block.
 --
-data BlockOutputs = BlockOutputs
-    { _blockOutputsHash :: !BlockOutputsHash
+data BlockOutputs_ a = BlockOutputs
+    { _blockOutputsHash :: !(BlockOutputsHash_ a)
         -- ^ Root of 'OutputTree' of the block. Primary key of
         -- 'BlockOutputsStore'. Foreign key into 'OutputTreeStore'.
 
@@ -548,28 +582,28 @@ data BlockOutputs = BlockOutputs
     , _blockCoinbaseOutput :: !CoinbaseOutput
         -- ^ Output of coinbase transaction.
     }
-    deriving (Show)
+    deriving (Show, Eq)
 
-instance ToJSON BlockOutputs where
+instance MerkleHashAlgorithm a => ToJSON (BlockOutputs_ a) where
     toJSON o = object
         [ "outputsHash" .= _blockOutputsHash o
         , "outputs" .= _blockOutputs o
         , "coinbaseOutput" .= _blockCoinbaseOutput o
         ]
 
-instance FromJSON BlockOutputs where
+instance MerkleHashAlgorithm a => FromJSON (BlockOutputs_ a) where
     parseJSON = withObject "BlockOutputs" $ \o -> BlockOutputs
         <$!> o .: "outputsHash"
         <*> o .: "outputs"
         <*> o .: "coinbaseOutput"
 
-instance IsCasValue BlockOutputs where
-    type CasKeyType BlockOutputs = BlockOutputsHash
+instance IsCasValue (BlockOutputs_ a) where
+    type CasKeyType (BlockOutputs_ a) = BlockOutputsHash_ a
     casKey = _blockOutputsHash
 
-instance HasMerkleLog ChainwebHashTag BlockOutputs where
-    type MerkleLogHeader BlockOutputs = '[CoinbaseOutput]
-    type MerkleLogBody BlockOutputs = TransactionOutput
+instance MerkleHashAlgorithm a => HasMerkleLog a ChainwebHashTag (BlockOutputs_ a) where
+    type MerkleLogHeader (BlockOutputs_ a) = '[CoinbaseOutput]
+    type MerkleLogBody (BlockOutputs_ a) = TransactionOutput
 
     toLog a = merkleLog root entries
       where
@@ -584,7 +618,7 @@ instance HasMerkleLog ChainwebHashTag BlockOutputs where
       where
         (co :+: MerkleLogBody outs) = _merkleLogEntries l
 
-type BlockOutputsLog = MkLogType ChainwebHashTag BlockOutputs
+type BlockOutputsLog a = MkLogType a ChainwebHashTag BlockOutputs
 
 -- | Verify the consistency of the MerkleTree of a 'BlockOutputs' value.
 --
@@ -598,28 +632,30 @@ verifyBlockOutputs p
 -- -------------------------------------------------------------------------- --
 -- Transaction Merkle Tree
 
+type TransactionTree = TransactionTree_ ChainwebMerkleHashAlgorithm
+
 -- | Merkle tree for the transactions in a block.
 --
-data TransactionTree = TransactionTree
-    { _transactionTreeHash :: !BlockTransactionsHash
+data TransactionTree_ a = TransactionTree
+    { _transactionTreeHash :: !(BlockTransactionsHash_ a)
         -- ^ Root of '_transactionTree'. Primary key of 'TransactionTreeStore.
         -- Foreign key into 'BlockTransactionsStore'.
 
-    , _transactionTree :: !(MerkleTree SHA512t_256)
+    , _transactionTree :: !(MerkleTree a)
     }
-    deriving (Show)
+    deriving (Show, Eq)
 
-instance IsCasValue TransactionTree where
-    type CasKeyType TransactionTree = BlockTransactionsHash
+instance IsCasValue (TransactionTree_ a) where
+    type CasKeyType (TransactionTree_ a) = BlockTransactionsHash_ a
     casKey = _transactionTreeHash
 
-instance ToJSON TransactionTree where
+instance MerkleHashAlgorithm a => ToJSON (TransactionTree_ a) where
     toJSON o = object
         [ "hash" .= _transactionTreeHash o
         , "tree" .= merkleTreeToJson (_transactionTree o)
         ]
 
-instance FromJSON TransactionTree where
+instance MerkleHashAlgorithm a => FromJSON (TransactionTree_ a) where
     parseJSON = withObject "TransactionTree" $ \o -> TransactionTree
         <$!> o .: "hash"
         <*> (o .: "tree" >>= merkleTreeFromJson)
@@ -627,7 +663,7 @@ instance FromJSON TransactionTree where
 merkleTreeToJson :: MerkleTree a -> Value
 merkleTreeToJson = toJSON . encodeB64UrlNoPaddingText . encodeMerkleTree
 
-merkleTreeFromJson :: HashAlgorithm a => Value -> A.Parser (MerkleTree a)
+merkleTreeFromJson :: MerkleHashAlgorithm a => Value -> A.Parser (MerkleTree a)
 merkleTreeFromJson = withText "MerkleTree" $ \t -> either (fail . sshow) return
     $ decodeB64UrlNoPaddingText t >>= decodeMerkleTree
 
@@ -636,35 +672,37 @@ merkleTreeFromJson = withText "MerkleTree" $ \t -> either (fail . sshow) return
 -- This forces the MerkleTree which can be (somewhat) expensive for large input
 -- values.
 --
-verifyTransactionTree :: TransactionTree -> Bool
+verifyTransactionTree :: MerkleHashAlgorithm a => TransactionTree_ a -> Bool
 verifyTransactionTree p = _transactionTreeHash p
     == BlockTransactionsHash (MerkleLogHash $ merkleRoot $ _transactionTree p)
 
 -- -------------------------------------------------------------------------- --
 -- Output Merkle Tree
 
+type OutputTree = OutputTree_ ChainwebMerkleHashAlgorithm
+
 -- | Merkle Tree for transaction outputs of a block.
 --
-data OutputTree = OutputTree
-    { _outputTreeHash :: !BlockOutputsHash
+data OutputTree_ a = OutputTree
+    { _outputTreeHash :: !(BlockOutputsHash_ a)
         -- ^ Root of '_outputTree'. Primary key of 'OutputTreeStore. Foreign key
         -- into 'BlockOutputsStore'.
 
-    , _outputTree :: !(MerkleTree SHA512t_256)
+    , _outputTree :: !(MerkleTree a)
     }
-    deriving (Show)
+    deriving (Show, Eq)
 
-instance IsCasValue OutputTree where
-    type CasKeyType OutputTree = BlockOutputsHash
+instance IsCasValue (OutputTree_ a) where
+    type CasKeyType (OutputTree_ a) = BlockOutputsHash_ a
     casKey = _outputTreeHash
 
-instance ToJSON OutputTree where
+instance MerkleHashAlgorithm a => ToJSON (OutputTree_ a) where
     toJSON o = object
         [ "hash" .= _outputTreeHash o
         , "tree" .= merkleTreeToJson (_outputTree o)
         ]
 
-instance FromJSON OutputTree where
+instance MerkleHashAlgorithm a => FromJSON (OutputTree_ a) where
     parseJSON = withObject "OutputTree" $ \o -> OutputTree
         <$!> o .: "hash"
         <*> (o .: "tree" >>= merkleTreeFromJson)
@@ -674,7 +712,7 @@ instance FromJSON OutputTree where
 -- This forces the MerkleTree which can be (somewhat) expensive for large input
 -- values.
 --
-verifyOutputTree :: OutputTree -> Bool
+verifyOutputTree :: MerkleHashAlgorithm a => OutputTree_ a -> Bool
 verifyOutputTree p = _outputTreeHash p
     == BlockOutputsHash (MerkleLogHash $ merkleRoot $ _outputTree p)
 
@@ -684,13 +722,21 @@ verifyOutputTree p = _outputTreeHash p
 
 -- | This forces the 'MerkleTree' which can be an expensive operation.
 --
-newTransactionLog :: MinerData -> V.Vector Transaction -> BlockTransactionsLog
+newTransactionLog
+    :: MerkleHashAlgorithm a
+    => MinerData
+    -> V.Vector Transaction
+    -> BlockTransactionsLog a
 newTransactionLog md txs =
   newMerkleLog $ md :+: MerkleLogBody txs
 
 -- | This forces the 'MerkleTree' which can be an expensive operation.
 --
-newBlockTransactions :: MinerData -> V.Vector Transaction -> (TransactionTree, BlockTransactions)
+newBlockTransactions
+    :: MerkleHashAlgorithm a
+    => MinerData
+    -> V.Vector Transaction
+    -> (TransactionTree_ a, BlockTransactions_ a)
 newBlockTransactions mi txs = (tree, blockTxs)
   where
     mlog = newTransactionLog mi txs
@@ -710,9 +756,10 @@ newBlockTransactions mi txs = (tree, blockTxs)
 -- the '_merkleLogTree' will be instantiated lazily.
 --
 transactionLog
-    :: BlockTransactions
-    -> TransactionTree
-    -> BlockTransactionsLog
+    :: MerkleHashAlgorithm a
+    => BlockTransactions_ a
+    -> TransactionTree_ a
+    -> BlockTransactionsLog a
 transactionLog txs tree
     | _blockTransactionsHash txs == _transactionTreeHash tree
         = (toLog txs) { _merkleLogTree = _transactionTree tree }
@@ -720,12 +767,20 @@ transactionLog txs tree
 
 -- | This forces the 'MerkleTree' which can be an expensive operation.
 --
-newBlockOutputLog :: CoinbaseOutput -> V.Vector TransactionOutput -> BlockOutputsLog
+newBlockOutputLog
+    :: MerkleHashAlgorithm a
+    => CoinbaseOutput
+    -> V.Vector TransactionOutput
+    -> BlockOutputsLog a
 newBlockOutputLog co tos = newMerkleLog $ co :+: MerkleLogBody tos
 
 -- | This forces the 'MerkleTree' which can be an expensive operation.
 --
-newBlockOutputs :: CoinbaseOutput -> V.Vector TransactionOutput -> (OutputTree, BlockOutputs)
+newBlockOutputs
+    :: MerkleHashAlgorithm a
+    => CoinbaseOutput
+    -> V.Vector TransactionOutput
+    -> (OutputTree_ a, BlockOutputs_ a)
 newBlockOutputs co outs = (tree, blkOuts)
   where
     mlog = newBlockOutputLog co outs
@@ -743,9 +798,10 @@ newBlockOutputs co outs = (tree, blkOuts)
 -- '_merkleLogTree' will be instantiated lazily.
 --
 blockOutputLog
-    :: BlockOutputs
-    -> OutputTree
-    -> BlockOutputsLog
+    :: MerkleHashAlgorithm a
+    => BlockOutputs_ a
+    -> OutputTree_ a
+    -> BlockOutputsLog a
 blockOutputLog outs tree
     | _blockOutputsHash outs == _outputTreeHash tree
         = (toLog outs) { _merkleLogTree = _outputTree tree }
@@ -755,9 +811,14 @@ blockOutputLog outs tree
 --
 -- This doesn't force the Merkle trees of the input structures.
 --
-blockPayload :: BlockTransactions -> BlockOutputs -> BlockPayload
+blockPayload
+    :: forall a
+    . MerkleHashAlgorithm a
+    => BlockTransactions_ a
+    -> BlockOutputs_ a
+    -> BlockPayload_ a
 blockPayload txs outs
-    = fromLog $! newMerkleLog @ChainwebHashTag
+    = fromLog $! newMerkleLog @a @ChainwebHashTag
         $ _blockTransactionsHash txs
         :+: _blockOutputsHash outs
         :+: emptyBody
@@ -768,10 +829,11 @@ blockPayload txs outs
 -- '_blockPayloadPayloadHash' value can be trusted.
 --
 newBlockPayload
-    :: MinerData
+    :: MerkleHashAlgorithm a
+    => MinerData
     -> CoinbaseOutput
     -> V.Vector (Transaction, TransactionOutput)
-    -> BlockPayload
+    -> BlockPayload_ a
 newBlockPayload mi co s = blockPayload txs outs
   where
     (_, !txs) = newBlockTransactions mi (fst <$!> s)
@@ -780,22 +842,24 @@ newBlockPayload mi co s = blockPayload txs outs
 -- -------------------------------------------------------------------------- --
 -- Payload Data
 
+type PayloadData = PayloadData_ ChainwebMerkleHashAlgorithm
+
 -- | This contains all non-redundant payload data for a block. It doesn't
 -- contain any data that can be recomputed.
 --
 -- This data structure is used mainly to transfer payloads over the wire.
 --
-data PayloadData = PayloadData
+data PayloadData_ a = PayloadData
     { _payloadDataTransactions :: !(V.Vector Transaction)
     , _payloadDataMiner :: !MinerData
-    , _payloadDataPayloadHash :: !BlockPayloadHash
-    , _payloadDataTransactionsHash :: !BlockTransactionsHash
-    , _payloadDataOutputsHash :: !BlockOutputsHash
+    , _payloadDataPayloadHash :: !(BlockPayloadHash_ a)
+    , _payloadDataTransactionsHash :: !(BlockTransactionsHash_ a)
+    , _payloadDataOutputsHash :: !(BlockOutputsHash_ a)
     }
     deriving (Eq, Show, Generic)
     deriving anyclass (NFData)
 
-instance ToJSON PayloadData where
+instance MerkleHashAlgorithm a => ToJSON (PayloadData_ a) where
     toJSON o = object
         [ "transactions" .= _payloadDataTransactions o
         , "minerData" .= _payloadDataMiner o
@@ -804,7 +868,7 @@ instance ToJSON PayloadData where
         , "outputsHash" .= _payloadDataOutputsHash o
         ]
 
-instance FromJSON PayloadData where
+instance MerkleHashAlgorithm a => FromJSON (PayloadData_ a) where
     parseJSON = withObject "PayloadData" $ \o -> PayloadData
         <$!> o .: "transactions"
         <*> o .: "minerData"
@@ -812,12 +876,12 @@ instance FromJSON PayloadData where
         <*> o .: "transactionsHash"
         <*> o .: "outputsHash"
 
-instance IsCasValue PayloadData where
-    type CasKeyType PayloadData = BlockPayloadHash
+instance IsCasValue (PayloadData_ a) where
+    type CasKeyType (PayloadData_ a) = BlockPayloadHash_ a
     casKey = _payloadDataPayloadHash
     {-# INLINE casKey #-}
 
-payloadData :: BlockTransactions -> BlockPayload -> PayloadData
+payloadData :: BlockTransactions_ a -> BlockPayload_ a -> PayloadData_ a
 payloadData txs payload = PayloadData
     { _payloadDataTransactions = _blockTransactions txs
     , _payloadDataMiner = _blockMinerData txs
@@ -826,7 +890,11 @@ payloadData txs payload = PayloadData
     , _payloadDataOutputsHash = _blockPayloadOutputsHash payload
     }
 
-newPayloadData :: BlockTransactions -> BlockOutputs -> PayloadData
+newPayloadData
+    :: MerkleHashAlgorithm a
+    => BlockTransactions_ a
+    -> BlockOutputs_ a
+    -> PayloadData_ a
 newPayloadData txs outputs = payloadData txs $ blockPayload txs outputs
 
 type PayloadDataCas cas = CasConstraint cas PayloadData
@@ -839,19 +907,19 @@ type PayloadDataCas cas = CasConstraint cas PayloadData
 -- This forces the MerkleTree which can be (somewhat) expensive for large input
 -- values.
 --
-verifyPayloadData :: PayloadData -> Bool
+verifyPayloadData :: forall a . MerkleHashAlgorithm a => PayloadData_ a -> Bool
 verifyPayloadData p
     = _payloadDataTransactionsHash p == _blockTransactionsHash txs
     && _payloadDataPayloadHash p == _blockPayloadPayloadHash bp
   where
     -- forces the transactions Merkle Tree
-    txs :: BlockTransactions
-    txs = fromLog $ newTransactionLog
+    txs :: BlockTransactions_ a
+    txs = fromLog @a $ newTransactionLog
         (_payloadDataMiner p)
         (_payloadDataTransactions p)
 
     -- forces the BlockPayload Merkle Tree
-    bp = fromLog $ newMerkleLog
+    bp = fromLog @a $ newMerkleLog
         $ _payloadDataTransactionsHash p
         :+: _payloadDataOutputsHash p
         :+: emptyBody
@@ -859,19 +927,21 @@ verifyPayloadData p
 -- -------------------------------------------------------------------------- --
 -- All Payload Data in a Single Structure
 
-data PayloadWithOutputs = PayloadWithOutputs
+type PayloadWithOutputs = PayloadWithOutputs_ ChainwebMerkleHashAlgorithm
+
+data PayloadWithOutputs_ a = PayloadWithOutputs
     { _payloadWithOutputsTransactions :: !(V.Vector (Transaction, TransactionOutput))
     , _payloadWithOutputsMiner :: !MinerData
     , _payloadWithOutputsCoinbase :: !CoinbaseOutput
-    , _payloadWithOutputsPayloadHash :: !BlockPayloadHash
-    , _payloadWithOutputsTransactionsHash :: !BlockTransactionsHash
-    , _payloadWithOutputsOutputsHash :: !BlockOutputsHash
+    , _payloadWithOutputsPayloadHash :: !(BlockPayloadHash_ a)
+    , _payloadWithOutputsTransactionsHash :: !(BlockTransactionsHash_ a)
+    , _payloadWithOutputsOutputsHash :: !(BlockOutputsHash_ a)
     }
-    deriving (Show, Generic)
+    deriving (Eq, Show, Generic)
     deriving anyclass (NFData)
 
-instance IsCasValue PayloadWithOutputs where
-    type CasKeyType PayloadWithOutputs = BlockPayloadHash
+instance IsCasValue (PayloadWithOutputs_ a) where
+    type CasKeyType (PayloadWithOutputs_ a) = BlockPayloadHash_ a
     casKey = _payloadWithOutputsPayloadHash
     {-# INLINE casKey #-}
 
@@ -887,10 +957,10 @@ instance IsCasValue PayloadWithOutputs where
 --
 payloadWithOutputs
     :: HasCallStack
-    => PayloadData
+    => PayloadData_ a
     -> CoinbaseOutput
     -> V.Vector TransactionOutput
-    -> PayloadWithOutputs
+    -> PayloadWithOutputs_ a
 payloadWithOutputs d co outputs =
   if V.length (_payloadDataTransactions d) /= V.length outputs
     then let msg = concat [
@@ -912,10 +982,11 @@ payloadWithOutputs d co outputs =
            }
 
 newPayloadWithOutputs
-    :: MinerData
+    :: MerkleHashAlgorithm a
+    => MinerData
     -> CoinbaseOutput
     -> V.Vector (Transaction, TransactionOutput)
-    -> PayloadWithOutputs
+    -> PayloadWithOutputs_ a
 newPayloadWithOutputs mi co s = PayloadWithOutputs
     { _payloadWithOutputsTransactions = s
     , _payloadWithOutputsMiner = mi
@@ -927,7 +998,7 @@ newPayloadWithOutputs mi co s = PayloadWithOutputs
   where
     p = newBlockPayload mi co s
 
-instance ToJSON PayloadWithOutputs where
+instance MerkleHashAlgorithm a => ToJSON (PayloadWithOutputs_ a) where
     toJSON o = object
         [ "transactions" .= _payloadWithOutputsTransactions o
         , "minerData" .= _payloadWithOutputsMiner o
@@ -943,7 +1014,7 @@ instance ToJSON PayloadWithOutputs where
 -- Use 'newPayloadWithOutputs' and compare '_payloadWithOutputsPayloadHash' to
 -- verify consistency.
 --
-instance FromJSON PayloadWithOutputs where
+instance MerkleHashAlgorithm a => FromJSON (PayloadWithOutputs_ a) where
     parseJSON = withObject "PayloadWithOutputs" $ \o -> PayloadWithOutputs
         <$!> o .: "transactions"
         <*> o .: "minerData"
@@ -952,15 +1023,17 @@ instance FromJSON PayloadWithOutputs where
         <*> o .: "transactionsHash"
         <*> o .: "outputsHash"
 
-payloadWithOutputsToBlockObjects :: PayloadWithOutputs -> (BlockTransactions, BlockOutputs)
+payloadWithOutputsToBlockObjects
+    :: PayloadWithOutputs_ a
+    -> (BlockTransactions_ a, BlockOutputs_ a)
 payloadWithOutputsToBlockObjects PayloadWithOutputs {..} =
     ( BlockTransactions _payloadWithOutputsTransactionsHash ins _payloadWithOutputsMiner
     , BlockOutputs _payloadWithOutputsOutputsHash outs _payloadWithOutputsCoinbase
     )
   where
-    (ins,outs) = V.unzip $ _payloadWithOutputsTransactions
+    (ins,outs) = V.unzip _payloadWithOutputsTransactions
 
-payloadWithOutputsToPayloadData :: PayloadWithOutputs -> PayloadData
+payloadWithOutputsToPayloadData :: PayloadWithOutputs_ a -> PayloadData_ a
 payloadWithOutputsToPayloadData o = PayloadData
     { _payloadDataTransactions = fst <$!> _payloadWithOutputsTransactions o
     , _payloadDataMiner = _payloadWithOutputsMiner o
@@ -977,7 +1050,7 @@ payloadWithOutputsToPayloadData o = PayloadData
 -- This forces the MerkleTree which can be (somewhat) expensive for large input
 -- values.
 --
-verifyPayloadWithOutputs :: PayloadWithOutputs -> Bool
+verifyPayloadWithOutputs :: MerkleHashAlgorithm a => PayloadWithOutputs_ a -> Bool
 verifyPayloadWithOutputs p
     = _payloadWithOutputsPayloadHash p == _blockPayloadPayloadHash p'
   where
