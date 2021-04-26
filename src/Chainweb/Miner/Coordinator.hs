@@ -38,7 +38,6 @@ module Chainweb.Miner.Coordinator
 -- ** Internal Functions
 , newWork
 , publish
-, removePrimed
 ) where
 
 import Control.Concurrent.STM (atomically)
