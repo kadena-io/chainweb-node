@@ -62,6 +62,7 @@ import Chainweb.BlockHeader
 import Chainweb.BlockHeaderDB
 import Chainweb.BlockHeight
 import Chainweb.BlockWeight
+import Chainweb.Chainweb.Configuration
 import Chainweb.ChainId
 import Chainweb.Cut.CutHashes
 import Chainweb.Difficulty
@@ -556,3 +557,13 @@ instance ToSchema Miner where
                 , ("predicate", textSchema) ]
             & required .~ [ "account", "public-keys", "predicate" ]
             & example ?~ toJSON defaultMiner
+
+instance ToSchema ChainwebConfiguration where
+    declareNamedSchema _ = return
+        $ NamedSchema (Just "ChainwebConfiguration")
+        $ mempty
+            & title ?~ "Chainweb Configuration"
+            & description ?~ "Chainweb Configuration of the Node (without SSL certificate related information)"
+            & example ?~ toJSON (defaultChainwebConfiguration Mainnet01)
+
+

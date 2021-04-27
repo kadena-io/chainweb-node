@@ -193,6 +193,7 @@ import Chainweb.BlockWeight
 import Chainweb.ChainId
 import Chainweb.Chainweb
 import Chainweb.Chainweb.ChainResources
+import Chainweb.Chainweb.Configuration
 import Chainweb.Chainweb.PeerResources
 import Chainweb.Crypto.MerkleLog hiding (header)
 import Chainweb.CutDB
@@ -522,12 +523,14 @@ withChainServer
 withChainServer dbs f = W.testWithApplication (pure app) work
   where
     app :: W.Application
-    app = chainwebApplication (Test singletonChainGraph) dbs
+    app = chainwebApplication conf dbs
 
     work :: Int -> IO a
     work port = do
         mgr <- HTTP.newManager HTTP.defaultManagerSettings
         f $ mkClientEnv mgr (BaseUrl Http "localhost" port "")
+
+    conf = defaultChainwebConfiguration (Test singletonChainGraph)
 
 -- -------------------------------------------------------------------------- --
 -- Tasty TestTree Server and Client Environment
@@ -657,7 +660,7 @@ clientEnvWithChainwebTestServer tls v dbsIO =
     withChainwebTestServer tls v mkApp mkEnv
   where
     mkApp :: IO W.Application
-    mkApp = chainwebApplication v <$> dbsIO
+    mkApp = chainwebApplication (defaultChainwebConfiguration v) <$> dbsIO
 
     mkEnv :: Int -> IO (TestClientEnv t cas)
     mkEnv port = do

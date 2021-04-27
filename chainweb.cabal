@@ -162,6 +162,7 @@ library
         , Chainweb.ChainValue
         , Chainweb.Chainweb
         , Chainweb.Chainweb.ChainResources
+        , Chainweb.Chainweb.Configuration
         , Chainweb.Chainweb.CutResources
         , Chainweb.Chainweb.MinerResources
         , Chainweb.Chainweb.PeerResources
@@ -212,6 +213,7 @@ library
         , Chainweb.Payload.RestAPI.Client
         , Chainweb.PowHash
         , Chainweb.RestAPI
+        , Chainweb.RestAPI.Config
         , Chainweb.RestAPI.Health
         , Chainweb.RestAPI.NetworkID
         , Chainweb.RestAPI.NodeInfo

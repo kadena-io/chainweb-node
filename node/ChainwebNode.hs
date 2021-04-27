@@ -79,6 +79,7 @@ import System.LogLevel
 
 import Chainweb.BlockHeader
 import Chainweb.Chainweb
+import Chainweb.Chainweb.Configuration
 import Chainweb.Chainweb.CutResources
 import Chainweb.Counter
 import Chainweb.Cut.CutHashes

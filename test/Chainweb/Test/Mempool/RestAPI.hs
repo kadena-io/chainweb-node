@@ -16,6 +16,7 @@ import Test.Tasty
 
 -- internal modules
 
+import Chainweb.Chainweb.Configuration
 import Chainweb.Graph
 import qualified Chainweb.Mempool.InMem as InMem
 import Chainweb.Mempool.InMemTypes (InMemConfig(..))
@@ -83,7 +84,9 @@ newTestServer = mask_ $ do
     chain = someChainId version
 
     mkApp :: MempoolBackend MockTx -> Application
-    mkApp mp = chainwebApplication version (serverMempools [(chain, mp)])
+    mkApp mp = chainwebApplication conf (serverMempools [(chain, mp)])
+
+    conf = defaultChainwebConfiguration version
 
     mkEnv :: Int -> IO ClientEnv
     mkEnv port = do

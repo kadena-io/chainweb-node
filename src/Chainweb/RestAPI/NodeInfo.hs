@@ -71,7 +71,7 @@ nodeInfoHandler v (SomeCutDb ((CutDbT db) :: CutDbT cas v)) = do
     return $ NodeInfo
       { nodeVersion = v
       , nodeApiVersion = prettyApiVersion
-      , nodeChains = (T.pack . show <$> curChains)
+      , nodeChains = T.pack . show <$> curChains
       , nodeNumberOfChains = length curChains
       , nodeGraphHistory = graphs
       }
@@ -87,3 +87,4 @@ unpackGraphs v = gs
     gs = map (second graphAdjacencies) $ NE.toList $ chainwebGraphs v
     graphAdjacencies = map unChain . HashMap.toList . fmap HashSet.toList . G.adjacencySets . view chainGraphGraph
     unChain (a, bs) = (chainIdInt a, map chainIdInt bs)
+

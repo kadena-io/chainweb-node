@@ -108,6 +108,7 @@ import Chainweb.BlockHeaderDB.RestAPI.Client
 import Chainweb.BlockHeaderDB.RestAPI.Server
 import Chainweb.ChainId
 import Chainweb.Chainweb.ChainResources
+import Chainweb.Chainweb.Configuration
 import Chainweb.Chainweb.MinerResources (MiningCoordination)
 import Chainweb.CutDB
 import Chainweb.CutDB.RestAPI
@@ -123,6 +124,7 @@ import qualified Chainweb.Pact.RestAPI.Server as PactAPI
 import Chainweb.Payload.PayloadStore
 import Chainweb.Payload.RestAPI
 import Chainweb.Payload.RestAPI.Server
+import Chainweb.RestAPI.Config
 import Chainweb.RestAPI.Health
 import Chainweb.RestAPI.NetworkID
 import Chainweb.RestAPI.NodeInfo
@@ -169,7 +171,10 @@ emptyChainwebServerDbs = ChainwebServerDbs
 -- | All APIs. This includes the service and the peer APIs. This is only used
 -- for documentation / swagger purposes.
 --
-someChainwebApi :: ChainwebVersion -> [NetworkId] -> SomeApi
+someChainwebApi
+    :: ChainwebVersion
+    -> [NetworkId]
+    -> SomeApi
 someChainwebApi v cs
     = someSwaggerApi
     <> someHealthCheckApi
@@ -181,6 +186,7 @@ someChainwebApi v cs
     <> PactAPI.somePactServiceApis v chains
     <> someMiningApi v
     <> someHeaderStreamApi v
+    <> someGetConfigApi
   where
     chains = selectChainIds cs
 
@@ -216,6 +222,7 @@ someChainwebPeerApi v cs
     <> someBlockHeaderDbApis v chains
     <> somePayloadApis v chains
     <> someP2pApis v cs
+    <> someGetConfigApi
   where
     chains = selectChainIds cs
 
@@ -308,10 +315,10 @@ chainwebPeerAddr app req resp = app req $ \res ->
 someChainwebServer
     :: Show t
     => PayloadCasLookup cas
-    => ChainwebVersion
+    => ChainwebConfiguration
     -> ChainwebServerDbs t cas
     -> SomeServer
-someChainwebServer v dbs =
+someChainwebServer config dbs =
     somePeerSwaggerServer v (fst <$> peers)
         <> maybe mempty (someCutServer v cutPeerDb) cuts
         <> maybe mempty (someSpvServers v) cuts
@@ -319,6 +326,7 @@ someChainwebServer v dbs =
         <> someBlockHeaderDbServers v blocks
         <> Mempool.someMempoolServers v mempools
         <> someP2pServers v peers
+        <> someGetConfigServer config
   where
     payloads = _chainwebServerPayloadDbs dbs
     blocks = _chainwebServerBlockHeaderDbs dbs
@@ -326,49 +334,50 @@ someChainwebServer v dbs =
     peers = _chainwebServerPeerDbs dbs
     mempools = _chainwebServerMempools dbs
     cutPeerDb = fromJuste $ lookup CutNetwork peers
+    v = _configChainwebVersion config
 
 chainwebApplication
     :: Show t
     => PayloadCasLookup cas
-    => ChainwebVersion
+    => ChainwebConfiguration
     -> ChainwebServerDbs t cas
     -> Application
-chainwebApplication v dbs
+chainwebApplication config dbs
     = chainwebTime
     . chainwebPeerAddr
     . chainwebNodeVersion
     . chainwebCors
     . someServerApplication
-    $ someChainwebServer v dbs
+    $ someChainwebServer config dbs
 
 serveChainwebOnPort
     :: Show t
     => PayloadCasLookup cas
     => Port
-    -> ChainwebVersion
+    -> ChainwebConfiguration
     -> ChainwebServerDbs t cas
     -> IO ()
-serveChainwebOnPort p v dbs = run (int p) $ chainwebApplication v dbs
+serveChainwebOnPort p c dbs = run (int p) $ chainwebApplication c dbs
 
 serveChainweb
     :: Show t
     => PayloadCasLookup cas
     => Settings
-    -> ChainwebVersion
+    -> ChainwebConfiguration
     -> ChainwebServerDbs t cas
     -> IO ()
-serveChainweb s v dbs = runSettings s $ chainwebApplication v dbs
+serveChainweb s c dbs = runSettings s $ chainwebApplication c dbs
 
 serveChainwebSocket
     :: Show t
     => PayloadCasLookup cas
     => Settings
     -> Socket
-    -> ChainwebVersion
+    -> ChainwebConfiguration
     -> ChainwebServerDbs t cas
     -> IO ()
-serveChainwebSocket s sock v dbs =
-    runSettingsSocket s sock $ chainwebApplication v dbs
+serveChainwebSocket s sock c dbs =
+    runSettingsSocket s sock $ chainwebApplication c dbs
 
 serveChainwebSocketTls
     :: Show t
@@ -377,11 +386,11 @@ serveChainwebSocketTls
     -> X509CertChainPem
     -> X509KeyPem
     -> Socket
-    -> ChainwebVersion
+    -> ChainwebConfiguration
     -> ChainwebServerDbs t cas
     -> Middleware
     -> IO ()
-serveChainwebSocketTls settings certChain key sock v dbs m =
+serveChainwebSocketTls settings certChain key sock c dbs m =
     runTLSSocket tlsSettings settings sock $ m app
   where
     tlsSettings :: TLSSettings
@@ -389,7 +398,7 @@ serveChainwebSocketTls settings certChain key sock v dbs m =
         { tlsSessionManagerConfig = Just TLS.defaultConfig }
 
     app :: Application
-    app = chainwebApplication v dbs
+    app = chainwebApplication c dbs
 
 -- -------------------------------------------------------------------------- --
 -- Service API Server
