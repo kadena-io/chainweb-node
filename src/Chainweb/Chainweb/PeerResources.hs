@@ -176,9 +176,12 @@ checkReachability
 checkReachability mgr v logger peers pinf threshold = do
     nis <- forConcurrently peers $ \p ->
         tryAllSynchronous (run p) >>= \case
-            Right x -> True <$ do
+            Right (Right x) -> True <$ do
                 logg Info $ "reachable from " <> toText (_peerAddr p)
                 logg Info $ sshow x
+            Right (Left e) -> False <$ do
+                logg Warn $ "failed to be reachabled from " <> toText (_peerAddr p)
+                    <> ": " <> sshow e
             Left e -> False <$ do
                 logg Warn $ "failed to be reachabled from " <> toText (_peerAddr p)
                     <> ": " <> sshow e
