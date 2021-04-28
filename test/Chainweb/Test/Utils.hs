@@ -136,7 +136,6 @@ import Control.Monad.IO.Class
 
 import Data.Aeson (FromJSON, ToJSON)
 import Data.Bifunctor hiding (second)
-import Data.Bytes.Get
 import Data.Bytes.Put
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Lazy as BL
@@ -202,6 +201,7 @@ import Chainweb.Graph
 import Chainweb.HostAddress
 import Chainweb.Logger
 import Chainweb.Mempool.Mempool (MempoolBackend(..), TransactionHash(..))
+import Chainweb.MerkleUniverse
 import Chainweb.Miner.Config
 import Chainweb.Miner.Pact
 import Chainweb.Payload.PayloadStore
@@ -427,7 +427,7 @@ header :: BlockHeader -> Gen BlockHeader
 header p = do
     nonce <- Nonce <$> chooseAny
     return
-        . fromLog
+        . fromLog @ChainwebMerkleHashAlgorithm
         . newMerkleLog
         $ mkFeatureFlags
             :+: t'
@@ -750,7 +750,7 @@ prop_iso' d e a = Right a === first show (d (e a))
 prop_encodeDecode
     :: Eq a
     => Show a
-    => (forall m . MonadGet m => m a)
+    => (forall m . MonadGetExtra m => m a)
     -> (forall m . MonadPut m => a -> m ())
     -> a
     -> Property
@@ -762,7 +762,7 @@ prop_encodeDecode d e a
 prop_encodeDecodeRoundtrip
     :: Eq a
     => Show a
-    => (forall m . MonadGet m => m a)
+    => (forall m . MonadGetExtra m => m a)
     -> (forall m . MonadPut m => a -> m ())
     -> a
     -> Property
@@ -772,7 +772,7 @@ prop_encodeDecodeRoundtrip d e =
 prop_decode_failPending
     :: Eq a
     => Show a
-    => (forall m . MonadGet m => m a)
+    => (forall m . MonadGetExtra m => m a)
     -> (forall m . MonadPut m => a -> m ())
     -> a
     -> Property
@@ -783,7 +783,7 @@ prop_decode_failPending d e a = case runGetEither d (runPutS (e a) <> "a") of
 prop_decode_failMissing
     :: Eq a
     => Show a
-    => (forall m . MonadGet m => m a)
+    => (forall m . MonadGetExtra m => m a)
     -> (forall m . MonadPut m => a -> m ())
     -> a
     -> Property
@@ -953,14 +953,14 @@ withNodes_
     -> Natural
     -> (IO ChainwebNetwork -> TestTree)
     -> TestTree
-withNodes_ logger v label rdb n f = withResource start
+withNodes_ logger v testLabel rdb n f = withResource start
     (cancel . fst)
     (f . fmap (uncurry ChainwebNetwork . snd))
   where
     start :: IO (Async (), (ClientEnv, ClientEnv))
     start = do
         peerInfoVar <- newEmptyMVar
-        a <- async $ runTestNodes label rdb logger v n peerInfoVar
+        a <- async $ runTestNodes testLabel rdb logger v n peerInfoVar
         (i, servicePort) <- readMVar peerInfoVar
         cwEnv <- getClientEnv $ getCwBaseUrl Https $ _hostAddressPort $ _peerAddr i
         cwServiceEnv <- getClientEnv $ getCwBaseUrl Http servicePort
@@ -992,7 +992,7 @@ runTestNodes
     -> Natural
     -> MVar (PeerInfo, Port)
     -> IO ()
-runTestNodes label rdb logger ver n portMVar =
+runTestNodes testLabel rdb logger ver n portMVar =
     forConcurrently_ [0 .. int n - 1] $ \i -> do
         threadDelay (1000 * int i)
         let baseConf = config ver n
@@ -1001,7 +1001,7 @@ runTestNodes label rdb logger ver n portMVar =
                 return $ bootstrapConfig baseConf
             | otherwise ->
                 setBootstrapPeerInfo <$> (fst <$> readMVar portMVar) <*> pure baseConf
-        node label rdb logger portMVar conf i
+        node testLabel rdb logger portMVar conf i
 
 node
     :: Logger logger
@@ -1013,8 +1013,8 @@ node
     -> Int
         -- ^ Unique Node Id. The node id 0 is used for the bootstrap node
     -> IO ()
-node label rdb rawLogger peerInfoVar conf nid = do
-    rocksDb <- testRocksDb (label <> T.encodeUtf8 (toText nid)) rdb
+node testLabel rdb rawLogger peerInfoVar conf nid = do
+    rocksDb <- testRocksDb (testLabel <> T.encodeUtf8 (toText nid)) rdb
     Extra.withTempDir $ \dir -> withChainweb conf logger rocksDb dir False $ \cw -> do
 
         -- If this is the bootstrap node we extract the port number and publish via an MVar.

@@ -50,6 +50,7 @@ import qualified Chainweb.Test.Rosetta
 import qualified Chainweb.Test.Rosetta.RestAPI
 import qualified Chainweb.Test.Roundtrips
 import qualified Chainweb.Test.SPV
+import qualified Chainweb.Test.SPV.EventProof
 import qualified Chainweb.Test.Store.CAS.FS
 import qualified Chainweb.Test.Sync.WebBlockHeaderStore (properties)
 import qualified Chainweb.Test.TreeDB (properties)
@@ -118,8 +119,11 @@ suite rdb =
         , Chainweb.Test.Roundtrips.tests
         , Chainweb.Test.Rosetta.tests
         , Chainweb.Test.RestAPI.tests rdb
-        , Chainweb.Test.SPV.tests rdb
-        , Chainweb.Test.Pact.SPV.tests
+        , testGroup "SPV"
+            [ Chainweb.Test.SPV.tests rdb
+            , Chainweb.Test.Pact.SPV.tests
+            , Chainweb.Test.SPV.EventProof.properties
+            ]
         , Chainweb.Test.Mempool.InMem.tests
         , Chainweb.Test.Mempool.Sync.tests
         , Chainweb.Test.Mempool.RestAPI.tests

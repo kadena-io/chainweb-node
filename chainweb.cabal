@@ -226,6 +226,9 @@ library
         , Chainweb.Rosetta.Utils
         , Chainweb.SPV
         , Chainweb.SPV.CreateProof
+        , Chainweb.SPV.EventProof
+        , Chainweb.SPV.OutputProof
+        , Chainweb.SPV.PayloadProof
         , Chainweb.SPV.VerifyProof
         , Chainweb.SPV.RestAPI
         , Chainweb.SPV.RestAPI.Server
@@ -284,9 +287,10 @@ library
         , Chainweb.Pact.PactService.Checkpointer
         , Chainweb.Pact.PactService.ExecBlock
         , Chainweb.Pact.RestAPI
-        , Chainweb.Pact.RestAPI.EthSpv
-        , Chainweb.Pact.RestAPI.Server
         , Chainweb.Pact.RestAPI.Client
+        , Chainweb.Pact.RestAPI.EthSpv
+        , Chainweb.Pact.RestAPI.SPV
+        , Chainweb.Pact.RestAPI.Server
         , Chainweb.Pact.SPV
         , Chainweb.Pact.Service.BlockValidation
         , Chainweb.Pact.Service.PactInProcApi
@@ -467,6 +471,7 @@ test-suite chainweb-tests
         Chainweb.Test.Mempool.Sync
         Chainweb.Test.Misc
         Chainweb.Test.Orphans.Internal
+        Chainweb.Test.Orphans.Pact
         Chainweb.Test.Orphans.Time
         Chainweb.Test.Pact.PactInProcApi
         Chainweb.Test.P2P.Peer.BootstrapConfig
@@ -488,6 +493,7 @@ test-suite chainweb-tests
         Chainweb.Test.Rosetta.RestAPI
         Chainweb.Test.Roundtrips
         Chainweb.Test.SPV
+        Chainweb.Test.SPV.EventProof
         Chainweb.Test.Store.CAS
         Chainweb.Test.Store.CAS.FS
         Chainweb.Test.Sync.WebBlockHeaderStore
@@ -528,6 +534,7 @@ test-suite chainweb-tests
         , chainweb-storage >= 0.1
         , connection >=0.2
         , containers >= 0.5
+        , cryptonite >= 0.25
         , data-default >=0.7
         , data-dword >= 0.3
         , data-ordlist >= 0.4.7
@@ -542,6 +549,7 @@ test-suite chainweb-tests
         , lens >= 4.16
         , lens-aeson >= 1.1
         , loglevel >= 0.1
+        , merkle-log
         , mtl >= 2.2
         , network >= 2.6 && < 3.1.1 || >= 3.1.2
         , http-client-tls >=0.3
@@ -653,6 +661,7 @@ executable cwtool
         Chainweb.Test.HostAddress
         Chainweb.Test.MultiNode
         Chainweb.Test.Orphans.Internal
+        Chainweb.Test.Orphans.Pact
         Chainweb.Test.Orphans.Time
         Chainweb.Test.P2P.Peer.BootstrapConfig
         Chainweb.Test.Utils
@@ -706,6 +715,7 @@ executable cwtool
         , lens >= 4.16
         , loglevel >= 0.1
         , memory >=0.14
+        , merkle-log
         , mtl >= 2.2
         , network >= 2.6 && < 3.1.1 || >= 3.1.2
         , optparse-applicative >= 0.14

@@ -7,7 +7,7 @@ module Chainweb.Store.CAS
 ------------------------------------------------------------------------------
 import Data.Vector (Vector)
 ------------------------------------------------------------------------------
-import Chainweb.BlockHeader (BlockPayloadHash(..))
+import Chainweb.BlockHeader
 import Chainweb.Utils (Codec(..))
 ------------------------------------------------------------------------------
 

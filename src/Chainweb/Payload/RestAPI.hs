@@ -17,7 +17,7 @@
 module Chainweb.Payload.RestAPI
 (
 -- * Type indexed PayloadDb
-  PayloadDb_(..)
+  PayloadDb'(..)
 , SomePayloadDb(..)
 , somePayloadDbVal
 
@@ -65,17 +65,17 @@ import Chainweb.Version
 -- -------------------------------------------------------------------------- --
 -- Type indexed PayloadDb
 
-newtype PayloadDb_ cas (v :: ChainwebVersionT) (c :: ChainIdT) = PayloadDb_ (PayloadDb cas)
+newtype PayloadDb' cas (v :: ChainwebVersionT) (c :: ChainIdT) = PayloadDb' (PayloadDb cas)
 
 data SomePayloadDb cas = forall v c
     . (KnownChainwebVersionSymbol v, KnownChainIdSymbol c)
-    => SomePayloadDb (PayloadDb_ cas v c)
+    => SomePayloadDb (PayloadDb' cas v c)
 
 somePayloadDbVal :: forall cas . ChainwebVersion -> ChainId -> PayloadDb cas -> SomePayloadDb cas
 somePayloadDbVal v cid db = runIdentity $ do
     SomeChainwebVersionT (Proxy :: Proxy vt) <- return $ someChainwebVersionVal v
     SomeChainIdT (Proxy :: Proxy cidt) <- return $ someChainIdVal cid
-    return $! SomePayloadDb (PayloadDb_ @cas @vt @cidt db)
+    return $! SomePayloadDb (PayloadDb' @cas @vt @cidt db)
 
 -- -------------------------------------------------------------------------- --
 -- Payload GET API

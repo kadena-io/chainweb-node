@@ -399,7 +399,7 @@ nextGraphChangeByCutHeight v h
 -- -------------------------------------------------------------------------- --
 -- Expected Block Count, Block Heights, and Cut Heights
 
--- | This function is usefull for performance testing when calculating the
+-- | This function is useful for performance testing when calculating the
 -- expected number of mined blocks during a test on a given chain.
 --
 expectedBlockCountAfterSeconds
@@ -411,13 +411,13 @@ expectedBlockCountAfterSeconds
     -> Seconds
     -> Double
 expectedBlockCountAfterSeconds v cid s = max 0 (1 + (int s / int r) - int gh)
-    -- The `max 0` term is required for chains that were added during graph transitions 
+    -- The `max 0` term is required for chains that were added during graph transitions
     -- and thus have `genesisHeight > 0`
   where
     BlockRate r = blockRate (_chainwebVersion v)
     gh = genesisHeight (_chainwebVersion v) (_chainId cid)
 
--- | This function is usefull for performance testing when calculating the
+-- | This function is useful for performance testing when calculating the
 -- expected number of mined blocks during a test accross all chains.
 --
 -- The sum of count for all chains is multiplied by 0.4 to compensate for the
@@ -440,7 +440,7 @@ expectedGlobalBlockCountAfterSeconds v s = (* 0.4)
 
 -- | The expected BlockHeight after the given number of seconds has passed.
 --
--- This function is usefull for performance testing.
+-- This function is useful for performance testing.
 --
 expectedBlockHeightAfterSeconds
     :: HasCallStack
@@ -454,7 +454,7 @@ expectedBlockHeightAfterSeconds v s = (int s / int r)
 
 -- | The expected CutHeight after the given number of seconds has passed.
 --
--- This function is usefull for performance testing.
+-- This function is useful for performance testing.
 --
 expectedCutHeightAfterSeconds
     :: HasCallStack
