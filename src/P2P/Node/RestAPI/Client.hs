@@ -59,3 +59,4 @@ peerPutClient (FromSingChainwebVersion (SChainwebVersion :: Sing v)) = f
     f (FromSingNetworkId (SChainNetwork SChainId :: Sing n)) = client $ peerPutApi @v @n
     f (FromSingNetworkId (SMempoolNetwork SChainId :: Sing n)) = client $ peerPutApi @v @n
     f (FromSingNetworkId (SCutNetwork :: Sing n)) = client $ peerPutApi @v @n
+
