@@ -351,9 +351,9 @@ guardPeerDb
 guardPeerDb v nid peerDb pinf = do
     peers <- peerDbSnapshot peerDb
     if
+        | isMe -> return $ Left $ IsLocalPeerAddress pinf
         | isKnown peers pinf -> return $ Right pinf
         | isReserved -> return $ Left $ IsReservedHostAddress pinf
-        | isMe -> return $ Left $ IsLocalPeerAddress pinf
         | otherwise -> canConnect >>= \case
             Left e -> return $ Left $ IsNotReachable pinf (sshow e)
             Right nodeVersion -> if isAcceptedVersion nodeVersion
@@ -375,7 +375,10 @@ guardPeerDb v nid peerDb pinf = do
         mgr <- getNewPeerManager
         getNodeVersion mgr v (_peerAddr pinf) (Just $ networkIdToText nid <> "/peer")
 
-    isMe = Just pinf == _peerDbLocalPeer peerDb
+    -- Only compare the address because even for equal peer infos the peer
+    -- ID may be 'Nothing' for one peer and 'Just' some value for the other.
+    -- (We may consider changing the 'Eq' instance of 'PeerInfo'.)
+    isMe = Just (_peerAddr pinf) == (_peerAddr <$> _peerDbLocalPeer peerDb)
 
 isKnown :: PeerSet -> PeerInfo -> Bool
 isKnown peers pinf = not . IXS.null $ IXS.getEQ (_peerAddr pinf) peers
