@@ -140,8 +140,8 @@ multiConfig v n = defaultChainwebConfiguration v
         -- Use short sessions to cover session timeouts and setup logic in the
         -- test.
 
-    & set (configP2p . p2pConfigBootstrapReachability) 0.5
-        -- don't require half of the bootstraps to be reachable
+    & set (configP2p . p2pConfigBootstrapReachability) 0
+        -- disable reachability test, which is unreliable during testing
 
     & set (configMining . miningCoordination . coordinationEnabled) True
     & set (configMining . miningInNode) miner
