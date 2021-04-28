@@ -28,6 +28,7 @@ module P2P.Node.Configuration
 , p2pConfigSessionTimeout
 , p2pConfigKnownPeers
 , p2pConfigIgnoreBootstrapNodes
+, p2pConfigBootstrapReachability
 , defaultP2pConfiguration
 , validateP2pConfiguration
 , pP2pConfiguration

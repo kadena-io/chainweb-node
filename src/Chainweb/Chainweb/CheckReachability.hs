@@ -88,8 +88,10 @@ checkReachability
     -> Double
     -> IO ()
 checkReachability sock mgr v logger pdb peers peer threshold = do
-    withPeerDbServer $ do
-        nis <- forConcurrently peers $ \p ->
+    nis <- if null peers
+      then return []
+      else withPeerDbServer $ do
+        forConcurrently peers $ \p ->
             tryAllSynchronous (run p) >>= \case
                 Right (Right x) -> True <$ do
                     logg Info $ "reachable from " <> toText (_peerAddr p)
@@ -101,19 +103,19 @@ checkReachability sock mgr v logger pdb peers peer threshold = do
                     logg Warn $ "failed to be reachabled from " <> toText (_peerAddr p)
                         <> ": " <> sshow e
 
-        let c = length $ filter id nis
-            required = ceiling (int (length peers) * threshold)
-        if c < required
-          then do
-            logg Warn $ "Only "
-                <> sshow c <> " out of "
-                <> sshow (length peers) <> " bootstrap peers are reachable."
-                <> "Required number of reachable bootstrap nodes: " <> sshow required
-            throwM $ ReachabilityException (Expected $ int required) (Actual $ int c)
-          else do
-            logg Info $ sshow c <> " out of "
-                <> sshow (length peers) <> " peers are reachable"
-        return ()
+    let c = length $ filter id nis
+        required = ceiling (int (length peers) * threshold)
+    if c < required
+      then do
+        logg Error $ "Only "
+            <> sshow c <> " out of "
+            <> sshow (length peers) <> " bootstrap peers are reachable."
+            <> "Required number of reachable bootstrap nodes: " <> sshow required
+        throwM $ ReachabilityException (Expected $ int required) (Actual $ int c)
+      else do
+        logg Info $ sshow c <> " out of "
+            <> sshow (length peers) <> " peers are reachable"
+    return ()
   where
     pinf = _peerInfo peer
     logg = logFunctionText logger

@@ -49,6 +49,7 @@ import Control.Monad.Catch
 
 import qualified Data.ByteString.Char8 as B8
 import Data.Either
+import Data.Function
 import qualified Data.HashSet as HS
 import Data.IxSet.Typed (getEQ, getOne)
 import qualified Data.List as L
@@ -142,12 +143,14 @@ withPeerResources v conf logger inner = withPeerSocket conf $ \(conf', sock) -> 
             localDb <- peerDbSetLocalPeer pinf peerDb
 
             withConnectionLogger mgrLogger counter $ do
-
                 -- check that this node is reachable:
-                let peers = _p2pConfigKnownPeers conf
-                checkReachability sock mgr v logger' localDb peers
-                    peer
-                    (_p2pConfigBootstrapReachability conf'')
+                when (_p2pConfigBootstrapReachability conf > 0) $ do
+
+                    let peers = filter (((/=) `on` _peerAddr) pinf)
+                            $ _p2pConfigKnownPeers conf
+                    checkReachability sock mgr v logger' localDb peers
+                        peer
+                        (_p2pConfigBootstrapReachability conf'')
 
                 inner logger' (PeerResources conf'' peer sock localDb mgr logger')
 

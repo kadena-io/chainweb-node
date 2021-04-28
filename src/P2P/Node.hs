@@ -389,7 +389,7 @@ guardPeerDbOfNode
     -> IO (Maybe PeerInfo)
 guardPeerDbOfNode node pinf = go >>= \case
     Left e -> do
-        logg node Warn $ "failed to validate peer " <> showInfo pinf <> ": " <> T.pack (displayException e)
+        logg node Info $ "failed to validate peer " <> showInfo pinf <> ": " <> T.pack (displayException e)
         return Nothing
     Right x -> return (Just x)
   where
