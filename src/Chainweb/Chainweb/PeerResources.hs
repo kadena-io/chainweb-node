@@ -145,7 +145,7 @@ withPeerResources v conf logger inner = withPeerSocket conf $ \(conf', sock) -> 
 
                 -- check that this node is reachable:
                 let peers = _p2pConfigKnownPeers conf
-                checkReachability sock mgr v logger' peerDb peers
+                checkReachability sock mgr v logger' localDb peers
                     peer
                     (_p2pConfigBootstrapReachability conf'')
 
