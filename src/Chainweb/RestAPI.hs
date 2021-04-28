@@ -33,13 +33,6 @@ module Chainweb.RestAPI
 , ChainwebServerDbs(..)
 , emptyChainwebServerDbs
 
--- -- * Full Chainweb API (only used for generating swagger spec)
--- , someChainwebApi
--- , someChainwebPeerApi
--- , someChainwebServiceApi
--- , prettyShowChainwebApi
--- , apiVersion
--- , prettyApiVersion
 
 -- * Swagger
 , prettyChainwebSwagger
@@ -502,4 +495,3 @@ serveServiceApiSocket
     -> IO ()
 serveServiceApiSocket s sock v dbs pacts mr hs r m =
     runSettingsSocket s sock $ m $ serviceApiApplication v dbs pacts mr hs r
-
