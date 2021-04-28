@@ -1,5 +1,43 @@
 # `chainweb-node` Changelog
 
+## 2.7 (2021-04-29)
+
+This version replaces all previous versions. Any prior version will stop working
+on **2021-05-06T00:00:00Z**. Node administrators must upgrade to this version
+before that date.
+
+This version will stop working on **2021-06-17T00:00:00Z**.
+
+Changes:
+
+*   Improve P2P networking configuration. (#1174)
+    *   Re-add builtin bootstrap nodes. This also means that default bootstrap
+        nodes will always be used as long as `--ignore-boostrap-nodes` (or the
+        respective configuration file setting) is not enabled.
+    *   Add `X-Peer-Addr` response header that allows nodes to auto-discover
+        their external network configuration.
+    *   Enable chainweb-node to auto-configure the hostname. This eliminates the
+        need to use a (centralized) third party service for that.
+    *   Validate P2P configuration on startup.
+    *   Validate peer configuration on startup.
+    *   Check that a chainweb-node can connect with a configurable portion of
+        the known-peers and bootstrap nodes at startup. The portion can be
+        configured via the `--bootstrap-reachability` option or the
+        `chainweb.p2p.bootstrapReachability` setting. The value is a number
+        between 0 and 1. If it is 0 the reachability test is disabled.
+
+*   Remove deprecated mining coordination code. (#1177)
+    *   Removes support for public mining.
+    *   Fix two race conditions in the mining API that may have slightly increased
+        the number blocks that got orphaned before being included on the chain.
+
+*   Internal infrastructure to support bridging KDA to other networks (#1210)
+
+*   New OpenAPI 3.0 specification of the chainweb-node API. The API
+    documentation is maintained in the git repository
+    https://github.com/kadena-io/chainweb-openapi. Is published at
+    https://api.chainweb.com/openapi.
+
 ## 2.6 (2021-03-18)
 
 This version replaces all previous versions. Any prior version will stop working
