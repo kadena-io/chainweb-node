@@ -14,7 +14,7 @@
 {-# LANGUAGE TypeApplications #-}
 
 module Chainweb.Pact.RestAPI.Server
-( PactServerData
+( PactServerData(..)
 , PactServerData_
 , PactCmdLog(..)
 , SomePactServerData(..)
@@ -93,8 +93,6 @@ import Chainweb.BlockHeader
 import Chainweb.BlockHeaderDB
 import Chainweb.BlockHeight
 import Chainweb.ChainId
-import Chainweb.Chainweb.ChainResources
-import Chainweb.Chainweb.CutResources
 import Chainweb.Cut
 import qualified Chainweb.CutDB as CutDB
 import Chainweb.Logger
@@ -117,8 +115,12 @@ import Chainweb.Version
 import Chainweb.WebPactExecutionService
 
 ------------------------------------------------------------------------------
-type PactServerData logger cas =
-    (CutResources logger cas, ChainResources logger)
+data PactServerData logger cas = PactServerData
+    { _pactServerDataCutDb :: !(CutDB.CutDb cas)
+    , _pactServerDataMempool :: !(MempoolBackend ChainwebTransaction)
+    , _pactServerDataLogger :: !logger
+    , _pactServerDataPact :: !PactExecutionService
+    }
 
 newtype PactServerData_ (v :: ChainwebVersionT) (c :: ChainIdT) logger cas
     = PactServerData_ { _unPactServerData :: PactServerData logger cas }
@@ -154,16 +156,16 @@ pactServer
     => Logger logger
     => PactServerData logger cas
     -> Server (PactServiceApi v c)
-pactServer (cut, chain) =
+pactServer d =
     pactApiHandlers
         :<|> pactSpvHandler
         :<|> ethSpvHandler
   where
     cid = FromSing (SChainId :: Sing c)
-    mempool = _chainResMempool chain
-    logger = _chainResLogger chain
-    pact = _chainResPact chain
-    cdb = _cutResCutDb cut
+    mempool = _pactServerDataMempool d
+    logger = _pactServerDataLogger d
+    pact = _pactServerDataPact d
+    cdb = _pactServerDataCutDb d
 
     pactApiHandlers
       = sendHandler logger mempool
@@ -456,7 +458,7 @@ internalPoll pdb bhdb mempool pactEx cut requestKeys0 = do
     let results1 = V.zip requestKeysV results0
     let (present0, missing) = V.unstablePartition (isJust . snd) results1
     let present = V.map (second fromJuste) present0
-    lookedUp <- (catMaybes . V.toList) <$> mapM lookup present
+    lookedUp <- catMaybes . V.toList <$> mapM lookup present
     badlisted <- V.toList <$> checkBadList (V.map fst missing)
     let outputs = lookedUp ++ badlisted
     return $! HM.fromList outputs
@@ -480,7 +482,7 @@ internalPoll pdb bhdb mempool pactEx cut requestKeys0 = do
         (PayloadWithOutputs txsBs _ _ _ _ _) <- MaybeT $ casLookup pdb payloadHash
         !txs <- mapM fromTx txsBs
         case find matchingHash txs of
-            (Just (_cmd, (TransactionOutput output))) -> do
+            (Just (_cmd, TransactionOutput output)) -> do
                 out <- MaybeT $ return $! decodeStrict' output
                 when (_crReqKey out /= key) $
                     fail "internal error: Transaction output doesn't match its hash!"
