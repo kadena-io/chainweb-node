@@ -26,16 +26,13 @@
 --
 module Chainweb.RestAPI
 (
-  ChainwebServerDbs(..)
+-- * Utils
+  serveSocketTls
+
+-- * Chainweb Server DBs
+, ChainwebServerDbs(..)
 , emptyChainwebServerDbs
 
--- * Chainweb API
-, someChainwebApi
-, someChainwebPeerApi
-, someChainwebServiceApi
-, prettyShowChainwebApi
-, apiVersion
-, prettyApiVersion
 
 -- * Swagger
 , prettyChainwebSwagger
@@ -50,14 +47,16 @@ module Chainweb.RestAPI
 , HeaderStream(..)
 , Rosetta(..)
 
--- * Chainweb API Server
+-- * Chainweb P2P API Server
 , someChainwebServer
 , chainwebApplication
 , serveChainwebOnPort
 , serveChainweb
 , serveChainwebSocket
 , serveChainwebSocketTls
-, Port
+
+-- ** Only serve a Peer DB from the Chainweb P2P API
+, servePeerDbSocketTls
 
 -- * Service API Server
 , someServiceApiServer
@@ -107,7 +106,6 @@ import Chainweb.BlockHeaderDB.RestAPI
 import Chainweb.BlockHeaderDB.RestAPI.Client
 import Chainweb.BlockHeaderDB.RestAPI.Server
 import Chainweb.ChainId
-import Chainweb.Chainweb.ChainResources
 import Chainweb.Chainweb.Configuration
 import Chainweb.Chainweb.MinerResources (MiningCoordination)
 import Chainweb.CutDB
@@ -142,6 +140,24 @@ import P2P.Node.RestAPI.Client
 import P2P.Node.RestAPI.Server
 
 -- -------------------------------------------------------------------------- --
+-- Utils
+
+-- | TLS HTTP Server
+--
+serveSocketTls
+    :: Settings
+    -> X509CertChainPem
+    -> X509KeyPem
+    -> Socket
+    -> Application
+    -> IO ()
+serveSocketTls settings certChain key = runTLSSocket tlsSettings settings
+  where
+    tlsSettings :: TLSSettings
+    tlsSettings = (tlsServerChainSettings certChain key)
+        { tlsSessionManagerConfig = Just TLS.defaultConfig }
+
+-- -------------------------------------------------------------------------- --
 -- Chainweb Server Storage Backends
 
 -- | Datatype for collectively passing all storage backends to
@@ -166,7 +182,7 @@ emptyChainwebServerDbs = ChainwebServerDbs
     }
 
 -- -------------------------------------------------------------------------- --
--- Chainweb API
+-- Full Chainweb API
 
 -- | All APIs. This includes the service and the peer APIs. This is only used
 -- for documentation / swagger purposes.
@@ -196,10 +212,6 @@ selectChainIds = mapMaybe f
     f (ChainNetwork c) = Just c
     f (MempoolNetwork c) = Just c
     f CutNetwork = Nothing
-
-prettyShowChainwebApi :: ChainwebVersion -> [NetworkId] -> T.Text
-prettyShowChainwebApi v cs = case someChainwebApi v cs of
-    SomeApi a -> layout a
 
 -- | All Service API endpoints
 --
@@ -309,6 +321,19 @@ chainwebPeerAddr app req resp = app req $ \res ->
         ((peerAddrHeaderName, sshow (remoteHost req)) :)
         res
 
+chainwebP2pMiddlewares :: Middleware
+chainwebP2pMiddlewares
+    = chainwebTime
+    . chainwebPeerAddr
+    . chainwebNodeVersion
+    . chainwebCors
+
+chainwebServiceMiddlewares :: Middleware
+chainwebServiceMiddlewares
+    = chainwebTime
+    . chainwebNodeVersion
+    . chainwebCors
+
 -- -------------------------------------------------------------------------- --
 -- Chainweb Peer Server
 
@@ -336,6 +361,9 @@ someChainwebServer config dbs =
     cutPeerDb = fromJuste $ lookup CutNetwork peers
     v = _configChainwebVersion config
 
+-- -------------------------------------------------------------------------- --
+-- Chainweb P2P API Application
+
 chainwebApplication
     :: Show t
     => PayloadCasLookup cas
@@ -343,10 +371,7 @@ chainwebApplication
     -> ChainwebServerDbs t cas
     -> Application
 chainwebApplication config dbs
-    = chainwebTime
-    . chainwebPeerAddr
-    . chainwebNodeVersion
-    . chainwebCors
+    = chainwebP2pMiddlewares
     . someServerApplication
     $ someChainwebServer config dbs
 
@@ -391,17 +416,31 @@ serveChainwebSocketTls
     -> Middleware
     -> IO ()
 serveChainwebSocketTls settings certChain key sock c dbs m =
-    runTLSSocket tlsSettings settings sock $ m app
-  where
-    tlsSettings :: TLSSettings
-    tlsSettings = (tlsServerChainSettings certChain key)
-        { tlsSessionManagerConfig = Just TLS.defaultConfig }
-
-    app :: Application
-    app = chainwebApplication c dbs
+    serveSocketTls settings certChain key sock $ m
+        $ chainwebApplication c dbs
 
 -- -------------------------------------------------------------------------- --
--- Service API Server
+-- Run Chainweb P2P Server that serves a single PeerDb
+
+servePeerDbSocketTls
+    :: Settings
+    -> X509CertChainPem
+    -> X509KeyPem
+    -> Socket
+    -> ChainwebVersion
+    -> NetworkId
+    -> PeerDb
+    -> Middleware
+    -> IO ()
+servePeerDbSocketTls settings certChain key sock v nid pdb m =
+    serveSocketTls settings certChain key sock $ m
+        $ chainwebP2pMiddlewares
+        $ someServerApplication
+        $ someP2pServer
+        $ somePeerDbVal v nid pdb
+
+-- -------------------------------------------------------------------------- --
+-- Chainweb Service API Application
 
 someServiceApiServer
     :: Show t
@@ -421,14 +460,15 @@ someServiceApiServer v dbs pacts mr (HeaderStream hs) (Rosetta r) =
         <> PactAPI.somePactServers v pacts
         <> maybe mempty (Mining.someMiningServer v) mr
         <> maybe mempty (someHeaderStreamServer v) (bool Nothing cuts hs)
-        <> maybe mempty (bool mempty (someRosettaServer v payloads concreteMs cutPeerDb concreteCr) r) cuts
+        <> maybe mempty (bool mempty (someRosettaServer v payloads concreteMs cutPeerDb concretePacts) r) cuts
             -- TODO: not sure if passing the correct PeerDb here
+            -- TODO: why does Rosetta need a peer db at all?
             -- TODO: simplify number of resources passing to rosetta
   where
     cuts = _chainwebServerCutDb dbs
     peers = _chainwebServerPeerDbs dbs
-    concreteMs = map (second (_chainResMempool . snd)) pacts
-    concreteCr = map (second snd) pacts
+    concreteMs = second PactAPI._pactServerDataMempool <$> pacts
+    concretePacts = second PactAPI._pactServerDataPact <$> pacts
     cutPeerDb = fromJuste $ lookup CutNetwork peers
     payloads = _chainwebServerPayloadDbs dbs
 
@@ -444,9 +484,7 @@ serviceApiApplication
     -> Rosetta
     -> Application
 serviceApiApplication v dbs pacts mr hs r
-    = chainwebTime
-    . chainwebNodeVersion
-    . chainwebCors
+    = chainwebServiceMiddlewares
     . someServerApplication
     $ someServiceApiServer v dbs pacts mr hs r
 
@@ -466,4 +504,3 @@ serveServiceApiSocket
     -> IO ()
 serveServiceApiSocket s sock v dbs pacts mr hs r m =
     runSettingsSocket s sock $ m $ serviceApiApplication v dbs pacts mr hs r
-

@@ -49,6 +49,7 @@ import Control.Monad.Catch
 
 import qualified Data.ByteString.Char8 as B8
 import Data.Either
+import Data.Function
 import qualified Data.HashSet as HS
 import Data.IxSet.Typed (getEQ, getOne)
 import qualified Data.List as L
@@ -61,17 +62,14 @@ import qualified Network.HTTP.Client as HTTP
 import Network.Socket (Socket)
 import Network.Wai.Handler.Warp (Settings, defaultSettings, setHost, setPort)
 
-import Numeric.Natural
-
 import Prelude hiding (log)
-
-import Servant.Client
 
 import System.LogLevel
 
 -- internal modules
 
 import Chainweb.Counter
+import Chainweb.Chainweb.CheckReachability
 import Chainweb.HostAddress
 import Chainweb.Logger
 import Chainweb.NodeVersion
@@ -85,16 +83,7 @@ import Network.X509.SelfSigned
 import P2P.Node
 import P2P.Node.Configuration
 import P2P.Node.PeerDB
-import P2P.Node.RestAPI.Client
 import P2P.Peer
-
--- -------------------------------------------------------------------------- --
--- Exceptions
-
-data ReachabilityException = ReachabilityException !(Expected Natural) !(Actual Natural)
-    deriving (Show, Eq, Ord)
-
-instance Exception ReachabilityException
 
 -- -------------------------------------------------------------------------- --
 -- Allocate Peer Resources
@@ -148,59 +137,22 @@ withPeerResources v conf logger inner = withPeerSocket conf $ \(conf', sock) -> 
                         logger
                 mgrLogger = setComponent "connection-manager" logger'
 
+            logFunctionText logger Info $ "Local Peer Info: " <> encodeToText pinf
+
+            -- set local peer (prevents it from being added to the peer database)
+            localDb <- peerDbSetLocalPeer pinf peerDb
+
             withConnectionLogger mgrLogger counter $ do
-
                 -- check that this node is reachable:
-                let peers = _p2pConfigKnownPeers conf
-                checkReachability mgr v logger' peers
-                    (_peerInfo peer)
-                    (_p2pConfigBootstrapReachability conf'')
+                when (_p2pConfigBootstrapReachability conf > 0) $ do
 
-                inner logger' (PeerResources conf'' peer sock peerDb mgr logger')
+                    let peers = filter (((/=) `on` _peerAddr) pinf)
+                            $ _p2pConfigKnownPeers conf
+                    checkReachability sock mgr v logger' localDb peers
+                        peer
+                        (_p2pConfigBootstrapReachability conf'')
 
-checkReachability
-    :: Logger logger
-    => HTTP.Manager
-    -> ChainwebVersion
-    -> logger
-    -> [PeerInfo]
-    -> PeerInfo
-    -> Double
-    -> IO ()
-checkReachability mgr v logger peers pinf threshold = do
-    nis <- forConcurrently peers $ \p ->
-        tryAllSynchronous (run p) >>= \case
-            Right _ -> True <$ do
-                logg Info $ "reachable from " <> toText (_peerAddr p)
-            Left e -> False <$ do
-                logg Warn $ "failed to be reachabled from " <> toText (_peerAddr p)
-                    <> ": " <> sshow e
-
-    let c = length $ filter id nis
-        required = ceiling (int (length peers) * threshold)
-    if c < required
-      then do
-        logg Info $ "Only "
-            <> sshow c <> " out of "
-            <> sshow (length peers) <> " bootstrap peers are reachable."
-            <> "Required number of reachable bootstrap nodes: " <> sshow required
-        throwM $ ReachabilityException (Expected $ int required) (Actual $ int c)
-      else do
-        logg Info $ sshow c <> " out of "
-            <> sshow (length peers) <> " peers are reachable"
-    return ()
-  where
-    logg = logFunctionText logger
-
-    run peer = runClientM
-        (peerPutClient v CutNetwork pinf)
-        (peerInfoClientEnv mgr peer)
-
--- peerPutClient
---     :: ChainwebVersion
---     -> NetworkId
---     -> PeerInfo
---     -> ClientM NoContent
+                inner logger' (PeerResources conf'' peer sock localDb mgr logger')
 
 peerServerSettings :: Peer -> Settings
 peerServerSettings peer

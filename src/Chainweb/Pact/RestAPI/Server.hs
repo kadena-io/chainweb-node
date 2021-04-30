@@ -14,7 +14,7 @@
 {-# LANGUAGE TypeApplications #-}
 
 module Chainweb.Pact.RestAPI.Server
-( PactServerData
+( PactServerData(..)
 , PactServerData_
 , PactCmdLog(..)
 , SomePactServerData(..)
@@ -87,8 +87,6 @@ import Chainweb.BlockHeader
 import Chainweb.BlockHeaderDB
 import Chainweb.BlockHeight
 import Chainweb.ChainId
-import Chainweb.Chainweb.ChainResources
-import Chainweb.Chainweb.CutResources
 import Chainweb.Crypto.MerkleLog
 import Chainweb.Cut
 import qualified Chainweb.CutDB as CutDB
@@ -126,8 +124,12 @@ import Pact.Types.Pretty (pretty)
 
 -- -------------------------------------------------------------------------- --
 
-type PactServerData logger cas =
-    (CutResources logger cas, ChainResources logger)
+data PactServerData logger cas = PactServerData
+    { _pactServerDataCutDb :: !(CutDB.CutDb cas)
+    , _pactServerDataMempool :: !(MempoolBackend ChainwebTransaction)
+    , _pactServerDataLogger :: !logger
+    , _pactServerDataPact :: !PactExecutionService
+    }
 
 newtype PactServerData_ (v :: ChainwebVersionT) (c :: ChainIdT) logger cas
     = PactServerData_ { _unPactServerData :: PactServerData logger cas }
@@ -163,17 +165,17 @@ pactServer
     => Logger logger
     => PactServerData logger cas
     -> Server (PactServiceApi v c)
-pactServer (cut, chain) =
+pactServer d =
     pactApiHandlers
         :<|> pactSpvHandler
         :<|> ethSpvHandler
         :<|> pactSpv2Handler
   where
     cid = FromSing (SChainId :: Sing c)
-    mempool = _chainResMempool chain
-    logger = _chainResLogger chain
-    pact = _chainResPact chain
-    cdb = _cutResCutDb cut
+    mempool = _pactServerDataMempool d
+    logger = _pactServerDataLogger d
+    pact = _pactServerDataPact d
+    cdb = _pactServerDataCutDb d
 
     pactApiHandlers
       = sendHandler logger mempool

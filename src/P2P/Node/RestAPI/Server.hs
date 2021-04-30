@@ -193,3 +193,4 @@ serveP2pSocket
     -> [(NetworkId, PeerDb)]
     -> IO ()
 serveP2pSocket s sock v = runSettingsSocket s sock . someServerApplication . someP2pServers v
+

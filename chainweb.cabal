@@ -162,8 +162,10 @@ library
         , Chainweb.ChainValue
         , Chainweb.Chainweb
         , Chainweb.Chainweb.ChainResources
+        , Chainweb.Chainweb.CheckReachability
         , Chainweb.Chainweb.Configuration
         , Chainweb.Chainweb.CutResources
+        , Chainweb.Chainweb.MempoolSyncClient
         , Chainweb.Chainweb.MinerResources
         , Chainweb.Chainweb.PeerResources
         , Chainweb.Chainweb.PruneChainDatabase

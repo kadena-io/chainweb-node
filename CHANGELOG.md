@@ -1,6 +1,6 @@
 # `chainweb-node` Changelog
 
-## 2.7 (2021-04-27)
+## 2.7 (2021-04-29)
 
 This version replaces all previous versions. Any prior version will stop working
 on **2021-05-06T00:00:00Z**. Node administrators must upgrade to this version
@@ -16,10 +16,15 @@ Changes:
         respective configuration file setting) is not enabled.
     *   Add `X-Peer-Addr` response header that allows nodes to auto-discover
         their external network configuration.
-    *   Support nodes to auto-configure their hostname. This eliminates the need
-        to use a (centralized) third party service for that.
+    *   Enable chainweb-node to auto-configure the hostname. This eliminates the
+        need to use a (centralized) third party service for that.
     *   Validate P2P configuration on startup.
     *   Validate peer configuration on startup.
+    *   Check that a chainweb-node can connect with a configurable portion of
+        the known-peers and bootstrap nodes at startup. The portion can be
+        configured via the `--bootstrap-reachability` option or the
+        `chainweb.p2p.bootstrapReachability` setting. The value is a number
+        between 0 and 1. If it is 0 the reachability test is disabled.
 
 *   Remove deprecated mining coordination code. (#1177)
     *   Removes support for public mining.
