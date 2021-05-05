@@ -1,7 +1,7 @@
 cabal-version: 2.4
 
 name:         chainweb
-version:      2.6
+version:      2.7
 synopsis:     A Proof-of-Work Parallel-Chain Architecture for Massive Throughput
 description:  A Proof-of-Work Parallel-Chain Architecture for Massive Throughput.
 homepage:     https://github.com/kadena-io/chainweb
@@ -162,7 +162,9 @@ library
         , Chainweb.ChainValue
         , Chainweb.Chainweb
         , Chainweb.Chainweb.ChainResources
+        , Chainweb.Chainweb.CheckReachability
         , Chainweb.Chainweb.CutResources
+        , Chainweb.Chainweb.MempoolSyncClient
         , Chainweb.Chainweb.MinerResources
         , Chainweb.Chainweb.PeerResources
         , Chainweb.Chainweb.PruneChainDatabase
@@ -224,6 +226,9 @@ library
         , Chainweb.Rosetta.Utils
         , Chainweb.SPV
         , Chainweb.SPV.CreateProof
+        , Chainweb.SPV.EventProof
+        , Chainweb.SPV.OutputProof
+        , Chainweb.SPV.PayloadProof
         , Chainweb.SPV.VerifyProof
         , Chainweb.SPV.RestAPI
         , Chainweb.SPV.RestAPI.Server
@@ -282,9 +287,10 @@ library
         , Chainweb.Pact.PactService.Checkpointer
         , Chainweb.Pact.PactService.ExecBlock
         , Chainweb.Pact.RestAPI
-        , Chainweb.Pact.RestAPI.EthSpv
-        , Chainweb.Pact.RestAPI.Server
         , Chainweb.Pact.RestAPI.Client
+        , Chainweb.Pact.RestAPI.EthSpv
+        , Chainweb.Pact.RestAPI.SPV
+        , Chainweb.Pact.RestAPI.Server
         , Chainweb.Pact.SPV
         , Chainweb.Pact.Service.BlockValidation
         , Chainweb.Pact.Service.PactInProcApi
@@ -376,7 +382,6 @@ library
         , pact >= 4.0
         , paths >= 0.2
         , pem >=0.2
-        , process >= 1.5
         , rosetta >= 1.0
         , safe-exceptions >= 0.1
         , scheduler >= 1.4
@@ -467,6 +472,7 @@ test-suite chainweb-tests
         Chainweb.Test.Mempool.Sync
         Chainweb.Test.Misc
         Chainweb.Test.Orphans.Internal
+        Chainweb.Test.Orphans.Pact
         Chainweb.Test.Orphans.Time
         Chainweb.Test.Pact.PactInProcApi
         Chainweb.Test.P2P.Peer.BootstrapConfig
@@ -488,6 +494,7 @@ test-suite chainweb-tests
         Chainweb.Test.Rosetta.RestAPI
         Chainweb.Test.Roundtrips
         Chainweb.Test.SPV
+        Chainweb.Test.SPV.EventProof
         Chainweb.Test.Store.CAS
         Chainweb.Test.Store.CAS.FS
         Chainweb.Test.Sync.WebBlockHeaderStore
@@ -528,6 +535,7 @@ test-suite chainweb-tests
         , chainweb-storage >= 0.1
         , connection >=0.2
         , containers >= 0.5
+        , cryptonite >= 0.25
         , data-default >=0.7
         , data-dword >= 0.3
         , data-ordlist >= 0.4.7
@@ -542,6 +550,7 @@ test-suite chainweb-tests
         , lens >= 4.16
         , lens-aeson >= 1.1
         , loglevel >= 0.1
+        , merkle-log
         , mtl >= 2.2
         , network >= 2.6 && < 3.1.1 || >= 3.1.2
         , http-client-tls >=0.3
@@ -646,13 +655,14 @@ executable cwtool
         -threaded
         -rtsopts
         "-with-rtsopts=-N -H1G -A64M"
-    hs-source-dirs: tools/cwtool tools/ea tools/encode-decode tools/genconf tools/run-nodes tools/txstream tools/test-miner tools/header-dump tools/db-checksum tools/known-graphs node test
+    hs-source-dirs: tools/cwtool tools/ea tools/encode-decode tools/genconf tools/run-nodes tools/txstream tools/header-dump tools/db-checksum tools/known-graphs node test
     main-is: CwTool.hs
     other-modules:
         Allocations
         Chainweb.Test.HostAddress
         Chainweb.Test.MultiNode
         Chainweb.Test.Orphans.Internal
+        Chainweb.Test.Orphans.Pact
         Chainweb.Test.Orphans.Time
         Chainweb.Test.P2P.Peer.BootstrapConfig
         Chainweb.Test.Utils
@@ -668,7 +678,6 @@ executable cwtool
         P2P.Test.Orphans
         RunNodes
         SlowTests
-        TestMiner
         TxStream
 
     build-depends:
@@ -682,14 +691,12 @@ executable cwtool
         , lens-aeson >= 1.1
         , async >= 2.2
         , base >= 4.12 && < 5
-        , base16-bytestring >= 0.1
         , bytes >= 0.15
         , bytestring >= 0.10
         , cereal >= 0.5
         , case-insensitive >= 1.2
         , cassava >= 0.5.1
         , chainweb-storage >= 0.1
-        , clock >= 0.7
         , configuration-tools >= 0.6
         , connection >=0.2
         , containers >= 0.5
@@ -709,12 +716,11 @@ executable cwtool
         , lens >= 4.16
         , loglevel >= 0.1
         , memory >=0.14
+        , merkle-log
         , mtl >= 2.2
-        , mwc-random >= 0.14
         , network >= 2.6 && < 3.1.1 || >= 3.1.2
         , optparse-applicative >= 0.14
         , pact
-        , paths >= 0.2
         , process >= 1.5
         , quickcheck-instances >= 0.3
         , random >= 1.1

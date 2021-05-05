@@ -1,5 +1,8 @@
+{-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE EmptyCase #-}
+{-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE OverloadedStrings #-}
@@ -21,18 +24,39 @@
 --
 module Chainweb.MerkleUniverse
 ( ChainwebHashTag(..)
+, ChainwebMerkleHashAlgorithm
+
+-- * Merkle Root Types
+, MerkleRootType(..)
+, merkleRootTypeToText
+, merkleRootTypeFromText
+, MerkleRootMismatch(..)
 ) where
 
+import Control.DeepSeq
 import Control.Monad.Catch
 
 import Crypto.Hash.Algorithms
 
+import Data.Aeson
+import qualified Data.Text as T
 import Data.Void
+
+import GHC.Generics
+import GHC.Stack
 
 -- internal modules
 
 import Chainweb.Crypto.MerkleLog
+import Chainweb.Utils
 
+-- -------------------------------------------------------------------------- --
+-- Chainweb Merkle Hash Algorithm
+
+type ChainwebMerkleHashAlgorithm = SHA512t_256
+
+-- -------------------------------------------------------------------------- --
+-- Chainweb Merkle Universe
 
 data ChainwebHashTag
     = VoidTag
@@ -55,10 +79,15 @@ data ChainwebHashTag
     | CoinbaseOutputTag
     | EpochStartTimeTag
     | FeatureFlagsTag
+
+    -- Event Proofs
+    | OutputEventsTag
+    | BlockEventsHashTag
+    | RequestKeyTag
+    | PactEventTag
     deriving (Show, Eq)
 
 instance MerkleUniverse ChainwebHashTag where
-    type HashAlg ChainwebHashTag = SHA512t_256
     type MerkleTagVal ChainwebHashTag 'VoidTag = 0x0000
     type MerkleTagVal ChainwebHashTag 'MerkleRootTag = 0x0001
     type MerkleTagVal ChainwebHashTag 'ChainIdTag = 0x0002
@@ -80,8 +109,57 @@ instance MerkleUniverse ChainwebHashTag where
     type MerkleTagVal ChainwebHashTag 'EpochStartTimeTag = 0x0019
     type MerkleTagVal ChainwebHashTag 'BlockNonceTag = 0x00020
 
-instance IsMerkleLogEntry ChainwebHashTag Void where
+    -- Event Proofs
+    type MerkleTagVal ChainwebHashTag 'OutputEventsTag = 0x00030
+    type MerkleTagVal ChainwebHashTag 'BlockEventsHashTag = 0x00031
+    type MerkleTagVal ChainwebHashTag 'RequestKeyTag = 0x00032
+    type MerkleTagVal ChainwebHashTag 'PactEventTag = 0x00034
+
+instance HashAlgorithm a => IsMerkleLogEntry a ChainwebHashTag Void where
     type Tag Void = 'VoidTag
     toMerkleNode = \case
     fromMerkleNode _ = throwM
         $ MerkleLogDecodeException "can't deserialize value of type Void"
+
+-- -------------------------------------------------------------------------- --
+-- Merkle Root Types
+
+data MerkleRootType
+    = RootBlock
+    | RootBlockPayload
+    | RootBlockEvents
+    deriving (Show, Eq, Ord, Generic, NFData)
+
+merkleRootTypeToText :: HasCallStack => MerkleRootType -> T.Text
+merkleRootTypeToText RootBlock = "block"
+merkleRootTypeToText RootBlockPayload = "blockPayload"
+merkleRootTypeToText RootBlockEvents = "blockEvents"
+
+merkleRootTypeFromText :: MonadThrow m => T.Text -> m MerkleRootType
+merkleRootTypeFromText "block" = pure RootBlock
+merkleRootTypeFromText "blockPayload" = pure RootBlockPayload
+merkleRootTypeFromText "blockEvents" = pure RootBlockEvents
+merkleRootTypeFromText t = throwM . TextFormatException $ "Unknown merkle root type " <> t
+
+instance HasTextRepresentation MerkleRootType where
+    toText = merkleRootTypeToText
+    {-# INLINE toText #-}
+    fromText = merkleRootTypeFromText
+    {-# INLINE fromText #-}
+
+instance ToJSON MerkleRootType where
+    toJSON = toJSON . toText
+    {-# INLINE toJSON #-}
+
+instance FromJSON MerkleRootType where
+    parseJSON = parseJsonFromText "MerkleRootType"
+    {-# INLINE parseJSON #-}
+
+data MerkleRootMismatch = MerkleRootMismatch
+    { _merkleRootMismatchExpected :: !(Expected MerkleRootType)
+    , _merkleRootMismatchActual :: !(Actual MerkleRootType)
+    }
+    deriving (Show, Eq, Ord, Generic, NFData)
+
+instance Exception MerkleRootMismatch
+

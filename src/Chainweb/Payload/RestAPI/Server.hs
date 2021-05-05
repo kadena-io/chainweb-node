@@ -159,9 +159,9 @@ outputsBatchHandler db ks = liftIO
 payloadServer
     :: forall cas v (c :: ChainIdT)
     . PayloadCasLookup cas
-    => PayloadDb_ cas v c
+    => PayloadDb' cas v c
     -> Server (PayloadApi v c)
-payloadServer (PayloadDb_ db)
+payloadServer (PayloadDb' db)
     = payloadHandler @cas db
     :<|> outputsHandler @cas db
     :<|> payloadBatchHandler @cas db
@@ -175,7 +175,7 @@ payloadApp
     . PayloadCasLookup cas
     => KnownChainwebVersionSymbol v
     => KnownChainIdSymbol c
-    => PayloadDb_ cas v c
+    => PayloadDb' cas v c
     -> Application
 payloadApp db = serve (Proxy @(PayloadApi v c)) (payloadServer db)
 
@@ -183,7 +183,7 @@ payloadApiLayout
     :: forall cas v c
     . KnownChainwebVersionSymbol v
     => KnownChainIdSymbol c
-    => PayloadDb_ cas v c
+    => PayloadDb' cas v c
     -> IO ()
 payloadApiLayout _ = T.putStrLn $ layout (Proxy @(PayloadApi v c))
 
@@ -191,7 +191,7 @@ payloadApiLayout _ = T.putStrLn $ layout (Proxy @(PayloadApi v c))
 -- Multichain Server
 
 somePayloadServer :: PayloadCasLookup cas => SomePayloadDb cas -> SomeServer
-somePayloadServer (SomePayloadDb (db :: PayloadDb_ cas v c))
+somePayloadServer (SomePayloadDb (db :: PayloadDb' cas v c))
     = SomeServer (Proxy @(PayloadApi v c)) (payloadServer db)
 
 somePayloadServers

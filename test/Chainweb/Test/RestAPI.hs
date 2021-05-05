@@ -139,7 +139,7 @@ httpHeaderTests envIO cid =
             Nothing (BranchBounds mempty mempty)
         ]
       where
-        go label run = testCase label $ do
+        go name run = testCase name $ do
             BlockHeaderDbsTestClientEnv env _ version <- liftIO envIO
             res <- flip runClientM_ env $ modifyResponse checkHeader $
                 run version (genesisBlockHeader version cid)

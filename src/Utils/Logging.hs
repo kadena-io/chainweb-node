@@ -475,12 +475,12 @@ withBaseHandleBackend
     -> BackendConfig
     -> (BaseBackend -> IO b)
     -> IO b
-withBaseHandleBackend label mgr pkgScopes c inner = case _backendConfigHandle c of
+withBaseHandleBackend llabel mgr pkgScopes c inner = case _backendConfigHandle c of
     StdOut -> fdBackend stdout
     StdErr -> fdBackend stderr
     FileHandle f -> withFile f WriteMode fdBackend
     ElasticSearch f auth ->
-        withElasticsearchBackend mgr f auth (T.toLower label) pkgScopes esBackend
+        withElasticsearchBackend mgr f auth (T.toLower llabel) pkgScopes esBackend
   where
 
     fdBackend h = case _backendConfigFormat c of
@@ -492,7 +492,7 @@ withBaseHandleBackend label mgr pkgScopes c inner = case _backendConfigHandle c 
                 BL8.hPutStrLn h $ encode $ JsonLogMessage $ logText <$> msg
             Left msg -> do
                 unless (h == stderr) $ errFallback msg
-                BL8.hPutStrLn h $ encode $ JsonLogMessage $ msg
+                BL8.hPutStrLn h $ encode $ JsonLogMessage msg
 
     esBackend b = inner $ \case
         Right msg -> b $ logText <$> msg
@@ -500,7 +500,7 @@ withBaseHandleBackend label mgr pkgScopes c inner = case _backendConfigHandle c 
 
     errFallback msg = do
         colored <- useColor (_backendConfigColor c) stderr
-        L.handleBackend_ id stderr colored (Left $ msg)
+        L.handleBackend_ id stderr colored (Left msg)
 
 -- -------------------------------------------------------------------------- --
 -- Handle Backend For JSON Message
@@ -540,11 +540,11 @@ withJsonHandleBackend
     -> BackendConfig
     -> (Backend a -> IO b)
     -> IO b
-withJsonHandleBackend label mgr pkgScopes c inner = case _backendConfigHandle c of
+withJsonHandleBackend llabel mgr pkgScopes c inner = case _backendConfigHandle c of
     StdOut -> fdBackend stdout
     StdErr -> fdBackend stderr
     FileHandle f -> withFile f WriteMode fdBackend
-    ElasticSearch f auth -> withElasticsearchBackend mgr f auth (T.toLower label) pkgScopes inner
+    ElasticSearch f auth -> withElasticsearchBackend mgr f auth (T.toLower llabel) pkgScopes inner
   where
     fdBackend h = case _backendConfigFormat c of
         LogFormatText -> do
@@ -569,11 +569,11 @@ withTextHandleBackend
     -> BackendConfig
     -> (TextBackend -> IO a)
     -> IO a
-withTextHandleBackend label mgr pkgScopes c inner = case _backendConfigHandle c of
+withTextHandleBackend llabel mgr pkgScopes c inner = case _backendConfigHandle c of
     StdOut -> fdBackend stdout
     StdErr -> fdBackend stderr
     FileHandle f -> withFile f WriteMode $ \h -> fdBackend h
-    ElasticSearch f auth -> withElasticsearchBackend mgr f auth (T.toLower label) pkgScopes $ \b ->
+    ElasticSearch f auth -> withElasticsearchBackend mgr f auth (T.toLower llabel) pkgScopes $ \b ->
         inner (b . fmap logText)
   where
 
@@ -585,7 +585,7 @@ withTextHandleBackend label mgr pkgScopes c inner = case _backendConfigHandle c 
             BL8.hPutStrLn h . encode . JsonLogMessage . fmap logText
 {-# INLINEABLE withTextHandleBackend #-}
 
--- TODO: it may be more usefull to have a logger that logs all 'Right' messages
+-- TODO: it may be more useful to have a logger that logs all 'Right' messages
 
 -- -------------------------------------------------------------------------- --
 -- Elasticsearch Backend

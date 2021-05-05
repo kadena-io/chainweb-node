@@ -32,6 +32,7 @@ import qualified Chainweb.Test.Mempool.Consensus
 import qualified Chainweb.Test.Mempool.InMem
 import qualified Chainweb.Test.Mempool.RestAPI
 import qualified Chainweb.Test.Mempool.Sync
+import qualified Chainweb.Test.Mining (tests)
 import qualified Chainweb.Test.Misc
 import qualified Chainweb.Test.Pact.Checkpointer
 import qualified Chainweb.Test.Pact.ModuleCacheOnRestart
@@ -49,6 +50,7 @@ import qualified Chainweb.Test.Rosetta
 import qualified Chainweb.Test.Rosetta.RestAPI
 import qualified Chainweb.Test.Roundtrips
 import qualified Chainweb.Test.SPV
+import qualified Chainweb.Test.SPV.EventProof
 import qualified Chainweb.Test.Store.CAS.FS
 import qualified Chainweb.Test.Sync.WebBlockHeaderStore (properties)
 import qualified Chainweb.Test.TreeDB (properties)
@@ -117,11 +119,15 @@ suite rdb =
         , Chainweb.Test.Roundtrips.tests
         , Chainweb.Test.Rosetta.tests
         , Chainweb.Test.RestAPI.tests rdb
-        , Chainweb.Test.SPV.tests rdb
-        , Chainweb.Test.Pact.SPV.tests
+        , testGroup "SPV"
+            [ Chainweb.Test.SPV.tests rdb
+            , Chainweb.Test.Pact.SPV.tests
+            , Chainweb.Test.SPV.EventProof.properties
+            ]
         , Chainweb.Test.Mempool.InMem.tests
         , Chainweb.Test.Mempool.Sync.tests
         , Chainweb.Test.Mempool.RestAPI.tests
+        , Chainweb.Test.Mining.tests rdb
         , Chainweb.Test.Misc.tests
         , Chainweb.Test.BlockHeader.Genesis.tests
         , Chainweb.Test.BlockHeader.Validation.tests

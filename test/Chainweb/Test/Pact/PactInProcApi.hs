@@ -521,10 +521,10 @@ badlistNewBlockTest mpRefIO reqIO = testCase "badlist-new-block-test" $ do
 
 
 goldenNewBlock :: String -> MemPoolAccess -> IO (IORef MemPoolAccess) -> IO (PactQueue,TestBlockDb) -> TestTree
-goldenNewBlock label mp mpRefIO reqIO = golden label $ do
+goldenNewBlock name mp mpRefIO reqIO = golden name $ do
     (reqQ,_) <- reqIO
     setMempool mpRefIO mp
-    resp <- forSuccess ("goldenNewBlock:" ++ label) $
+    resp <- forSuccess ("goldenNewBlock:" ++ name) $
       newBlock noMiner (ParentHeader genesisHeader) reqQ
     -- ensure all golden txs succeed
     forM_ (_payloadWithOutputsTransactions resp) $ \(txIn,TransactionOutput out) -> do

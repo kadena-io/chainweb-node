@@ -53,8 +53,10 @@ module P2P.Node.PeerDB
 , peerDbInsertPeerInfoList_
 , peerDbInsertSet
 , peerDbDelete
+, peerDbDelete_
 , newEmptyPeerDb
 , makePeerDbPrivate
+, peerDbSetLocalPeer
 , fromPeerEntryList
 , fromPeerInfoList
 , prunePeerDb
@@ -170,7 +172,7 @@ data PeerEntry = PeerEntry
 makeLenses ''PeerEntry
 
 newPeerEntry :: NetworkId -> PeerInfo -> PeerEntry
-newPeerEntry nid i = newPeerEntry_ False nid i
+newPeerEntry = newPeerEntry_ False
 
 newPeerEntry_ :: Bool -> NetworkId -> PeerInfo -> PeerEntry
 newPeerEntry_ sticky nid i = PeerEntry i 0 (LastSuccess Nothing) (S.singleton nid) 0 sticky
@@ -276,8 +278,14 @@ addPeerInfo nid pinf now = addPeerEntry $ (newPeerEntry nid pinf)
 -- | Delete a peer, identified by its host address, from the 'PeerSet'. The peer
 -- is delete for all network ids.
 --
-deletePeer :: PeerInfo -> PeerSet -> PeerSet
-deletePeer i s = case _peerEntrySticky <$> (getOne $ getEQ (_peerAddr i) s) of
+deletePeer
+    :: PeerInfo
+    -> Bool
+        -- ^ whether to force deletion of sticky peers (e.g. bootstrap peers)
+    -> PeerSet
+    -> PeerSet
+deletePeer i True s = deleteIx (_peerAddr i) s
+deletePeer i False s = case _peerEntrySticky <$> getOne (getEQ (_peerAddr i) s) of
     Just True -> s
     _ -> deleteIx (_peerAddr i) s
 
@@ -289,25 +297,31 @@ insertPeerEntryList l m = foldl' (flip addPeerEntry) m l
 
 data PeerDb = PeerDb
     { _peerDbIsPrivate :: !Bool
+    , _peerDbLocalPeer :: !(Maybe PeerInfo)
     , _peerDbLock :: !(MVar ())
     , _peerDbPeerSet :: !(TVar PeerSet)
     }
     deriving (Eq, Generic)
 
+peerDbSetLocalPeer :: PeerInfo -> PeerDb -> IO PeerDb
+peerDbSetLocalPeer pinfo db = do
+    peerDbDelete_ db True {- force deletion of sticky peers -} pinfo
+    return db { _peerDbLocalPeer = Just pinfo }
+
 peerDbSnapshot :: PeerDb -> IO PeerSet
-peerDbSnapshot (PeerDb _ _ var) = readTVarIO var
+peerDbSnapshot (PeerDb _ _ _ var) = readTVarIO var
 {-# INLINE peerDbSnapshot #-}
 
 peerDbSnapshotSTM :: PeerDb -> STM PeerSet
-peerDbSnapshotSTM (PeerDb _ _ var) = readTVar var
+peerDbSnapshotSTM (PeerDb _ _ _ var) = readTVar var
 {-# INLINE peerDbSnapshotSTM #-}
 
 peerDbSize :: PeerDb -> IO Natural
-peerDbSize (PeerDb _ _ var) = int . size <$!> readTVarIO var
+peerDbSize (PeerDb _ _ _ var) = int . size <$!> readTVarIO var
 {-# INLINE peerDbSize #-}
 
 peerDbSizeSTM :: PeerDb -> STM Natural
-peerDbSizeSTM (PeerDb _ _ var) = int . size <$!> readTVar var
+peerDbSizeSTM (PeerDb _ _ _ var) = int . size <$!> readTVar var
 {-# INLINE peerDbSizeSTM #-}
 
 -- | Adds new 'PeerInfo' values for a given chain id.
@@ -317,8 +331,8 @@ peerDbSizeSTM (PeerDb _ _ var) = int . size <$!> readTVar var
 -- contention.
 --
 peerDbInsert :: PeerDb -> NetworkId -> PeerInfo -> IO ()
-peerDbInsert (PeerDb True _ _) _ _ = return ()
-peerDbInsert (PeerDb _ lock var) nid i = do
+peerDbInsert (PeerDb True _ _ _) _ _ = return ()
+peerDbInsert (PeerDb _ _ lock var) nid i = do
     now <- getCurrentTime
     withMVar lock
         . const
@@ -330,12 +344,25 @@ peerDbInsert (PeerDb _ lock var) nid i = do
 -- | Delete a peer, identified by its host address, from the peer database.
 --
 peerDbDelete :: PeerDb -> PeerInfo -> IO ()
-peerDbDelete (PeerDb _ lock var) i = withMVar lock
+peerDbDelete (PeerDb _ _ lock var) i = withMVar lock
     . const
     . atomically
     . modifyTVar' var
-    $ deletePeer i
+    $ deletePeer i False
 {-# INLINE peerDbDelete #-}
+
+peerDbDelete_
+    :: PeerDb
+    -> Bool
+        -- ^ whether to force deletion of sticky peers (e.g. bootstrap peers)
+    -> PeerInfo
+    -> IO ()
+peerDbDelete_ (PeerDb _ _ lock var) forceSticky i = withMVar lock
+    . const
+    . atomically
+    . modifyTVar' var
+    $ deletePeer i forceSticky
+{-# INLINE peerDbDelete_ #-}
 
 -- | Delete peers that
 -- 1. not currently used, that
@@ -343,21 +370,21 @@ peerDbDelete (PeerDb _ lock var) i = withMVar lock
 -- 3. have had more than 5 failed connection attempts.
 --
 prunePeerDb :: PeerDb -> IO ()
-prunePeerDb (PeerDb _ lock var) = do
+prunePeerDb (PeerDb _ _ lock var) = do
     withMVar lock $ \_ -> do
         now <- getCurrentTime
         let cutoff = Just $ addUTCTime ((-60) * 60 * 12) now
         atomically $ modifyTVar' var $ \s ->
-            (getGT (ActiveSessionCount 0) s)
+            getGT (ActiveSessionCount 0) s
             |||
-            (getLTE (SuccessiveFailures 5) s)
+            getLTE (SuccessiveFailures 5) s
             |||
-            (getGT (LastSuccess cutoff) s)
+            getGT (LastSuccess cutoff) s
             |||
-            (fromList $ filter _peerEntrySticky $ toList s)
+            fromList (filter _peerEntrySticky $ toList s)
 
 fromPeerEntryList :: [PeerEntry] -> IO PeerDb
-fromPeerEntryList peers = PeerDb False
+fromPeerEntryList peers = PeerDb False Nothing
     <$> newMVar ()
     <*> newTVarIO (fromList peers)
 
@@ -365,8 +392,8 @@ fromPeerInfoList :: NetworkId -> [PeerInfo] -> IO PeerDb
 fromPeerInfoList nid peers = fromPeerEntryList $ newPeerEntry nid <$> peers
 
 peerDbInsertList :: [PeerEntry] -> PeerDb -> IO ()
-peerDbInsertList _ (PeerDb True _ _) = return ()
-peerDbInsertList peers (PeerDb _ lock var) =
+peerDbInsertList _ (PeerDb True _ _ _) = return ()
+peerDbInsertList peers (PeerDb _ _ lock var) =
     withMVar lock
         . const
         . atomically
@@ -374,7 +401,7 @@ peerDbInsertList peers (PeerDb _ lock var) =
         $ insertPeerEntryList peers
 
 peerDbInsertPeerInfoList :: NetworkId -> [PeerInfo] -> PeerDb -> IO ()
-peerDbInsertPeerInfoList _ _ (PeerDb True _ _) = return ()
+peerDbInsertPeerInfoList _ _ (PeerDb True _ _ _) = return ()
 peerDbInsertPeerInfoList nid ps db = do
     now <- getCurrentTime
     peerDbInsertList (mkEntry now <$> ps) db
@@ -383,21 +410,21 @@ peerDbInsertPeerInfoList nid ps db = do
         & set peerEntryLastSuccess (LastSuccess (Just now))
 
 peerDbInsertPeerInfoList_ :: Bool -> NetworkId -> [PeerInfo] -> PeerDb -> IO ()
-peerDbInsertPeerInfoList_ _ _ _ (PeerDb True _ _) = return ()
+peerDbInsertPeerInfoList_ _ _ _ (PeerDb True _ _ _) = return ()
 peerDbInsertPeerInfoList_ sticky nid ps db = peerDbInsertList (newPeerEntry_ sticky nid <$> ps) db
 
 peerDbInsertSet :: S.Set PeerEntry -> PeerDb -> IO ()
-peerDbInsertSet _ (PeerDb True _ _) = return ()
+peerDbInsertSet _ (PeerDb True _ _ _) = return ()
 peerDbInsertSet s db = peerDbInsertList (F.toList s) db
 
 newEmptyPeerDb :: IO PeerDb
-newEmptyPeerDb = PeerDb False <$> newMVar () <*> newTVarIO mempty
+newEmptyPeerDb = PeerDb False Nothing <$> newMVar () <*> newTVarIO mempty
 
 makePeerDbPrivate :: PeerDb -> PeerDb
-makePeerDbPrivate (PeerDb _ lock var) = PeerDb True lock var
+makePeerDbPrivate (PeerDb _ localPeer lock var) = PeerDb True localPeer lock var
 
 updatePeerDb :: PeerDb -> HostAddress -> (PeerEntry -> PeerEntry) -> IO ()
-updatePeerDb (PeerDb _ lock var) a f
+updatePeerDb (PeerDb _ _ lock var) a f
     = withMVar lock . const . atomically . modifyTVar' var $ \s ->
         case getOne $ getEQ a s of
             Nothing -> s

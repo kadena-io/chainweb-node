@@ -301,7 +301,7 @@ instance ToJSON ChainwebVersion where
 instance FromJSON ChainwebVersion where
     parseJSON = parseJsonFromText "ChainwebVersion"
 
-instance IsMerkleLogEntry ChainwebHashTag ChainwebVersion where
+instance MerkleHashAlgorithm a => IsMerkleLogEntry a ChainwebHashTag ChainwebVersion where
     type Tag ChainwebVersion = 'ChainwebVersionTag
     toMerkleNode = encodeMerkleInputNode encodeChainwebVersion
     fromMerkleNode = decodeMerkleInputNode decodeChainwebVersion

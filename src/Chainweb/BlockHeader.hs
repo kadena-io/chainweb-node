@@ -38,7 +38,8 @@ module Chainweb.BlockHeader
 , ParentCreationTime(..)
 
 -- * Block Payload Hash
-, BlockPayloadHash(..)
+, BlockPayloadHash
+, BlockPayloadHash_(..)
 , encodeBlockPayloadHash
 , decodeBlockPayloadHash
 
@@ -165,7 +166,7 @@ newtype Nonce = Nonce Word64
     deriving anyclass (NFData)
     deriving newtype (Hashable,Enum)
 
-instance IsMerkleLogEntry ChainwebHashTag Nonce where
+instance MerkleHashAlgorithm a => IsMerkleLogEntry a ChainwebHashTag Nonce where
     type Tag Nonce = 'BlockNonceTag
     toMerkleNode = encodeMerkleInputNode encodeNonce
     fromMerkleNode = decodeMerkleInputNode decodeNonce
@@ -196,7 +197,7 @@ newtype EpochStartTime = EpochStartTime (Time Micros)
     deriving anyclass (NFData)
     deriving newtype (ToJSON, FromJSON, Hashable, LeftTorsor)
 
-instance IsMerkleLogEntry ChainwebHashTag EpochStartTime where
+instance MerkleHashAlgorithm a => IsMerkleLogEntry a ChainwebHashTag EpochStartTime where
     type Tag EpochStartTime = 'EpochStartTimeTag
     toMerkleNode = encodeMerkleInputNode encodeEpochStartTime
     fromMerkleNode = decodeMerkleInputNode decodeEpochStartTime
@@ -427,7 +428,7 @@ encodeFeatureFlags (FeatureFlags ff) = putWord64le ff
 decodeFeatureFlags :: MonadGet m => m FeatureFlags
 decodeFeatureFlags = FeatureFlags <$> getWord64le
 
-instance IsMerkleLogEntry ChainwebHashTag FeatureFlags where
+instance MerkleHashAlgorithm a => IsMerkleLogEntry a ChainwebHashTag FeatureFlags where
     type Tag FeatureFlags = 'FeatureFlagsTag
     toMerkleNode = encodeMerkleInputNode encodeFeatureFlags
     fromMerkleNode = decodeMerkleInputNode decodeFeatureFlags
@@ -614,7 +615,7 @@ instance Serialize BlockHeader where
     put = encodeBlockHeader
     get = decodeBlockHeader
 
-instance HasMerkleLog ChainwebHashTag BlockHeader where
+instance HasMerkleLog ChainwebMerkleHashAlgorithm ChainwebHashTag BlockHeader where
 
     -- /IMPORTANT/ a types must occur at most once in this list
     type MerkleLogHeader BlockHeader =
@@ -632,7 +633,7 @@ instance HasMerkleLog ChainwebHashTag BlockHeader where
         ]
     type MerkleLogBody BlockHeader = BlockHash
 
-    toLog bh = merkleLog root entries
+    toLog bh = merkleLog @ChainwebMerkleHashAlgorithm root entries
       where
         BlockHash (MerkleLogHash root) = _blockHash bh
         entries
@@ -759,7 +760,7 @@ decodeBlockHeaderWithoutHash = do
     a11 <- decodeEpochStartTime
     a12 <- decodeNonce
     return
-        $! fromLog
+        $! fromLog @ChainwebMerkleHashAlgorithm
         $ newMerkleLog
         $ a0
         :+: a1
@@ -947,19 +948,20 @@ newBlockHeader
     -> ParentHeader
         -- ^ parent block header
     -> BlockHeader
-newBlockHeader adj pay nonce t p@(ParentHeader b) = fromLog $ newMerkleLog
-    $ mkFeatureFlags
-    :+: t
-    :+: _blockHash b
-    :+: target
-    :+: pay
-    :+: cid
-    :+: _blockWeight b + BlockWeight (targetToDifficulty target)
-    :+: _blockHeight b + 1
-    :+: v
-    :+: epochStart p adj t
-    :+: nonce
-    :+: MerkleLogBody (blockHashRecordToVector adjHashes)
+newBlockHeader adj pay nonce t p@(ParentHeader b) =
+    fromLog @ChainwebMerkleHashAlgorithm $ newMerkleLog
+        $ mkFeatureFlags
+        :+: t
+        :+: _blockHash b
+        :+: target
+        :+: pay
+        :+: cid
+        :+: _blockWeight b + BlockWeight (targetToDifficulty target)
+        :+: _blockHeight b + 1
+        :+: v
+        :+: epochStart p adj t
+        :+: nonce
+        :+: MerkleLogBody (blockHashRecordToVector adjHashes)
   where
     cid = _chainId p
     v = _chainwebVersion p
