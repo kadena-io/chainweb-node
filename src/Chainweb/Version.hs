@@ -871,8 +871,8 @@ pact4coin3Upgrade aoa v h = case aoa of
     At -> go (==) v h
     After -> go (flip (>)) v h
   where
-    go f Mainnet01 = f 1_600_000 -- 2021-05-07T14:14:46
-    go f Testnet04 = f 1_140_000 -- 2021-05-06T13:47:27
+    go _f Mainnet01 = const False -- f 1_600_000 -- 2021-05-07T14:14:46
+    go _f Testnet04 = const False -- f 1_140_000 -- 2021-05-06T13:47:27
     go f Development = f 250 -- greater than 20-chains
     go f (FastTimedCPM g) | g == petersonChainGraph = f 20
     go _f _ = const False
