@@ -33,16 +33,6 @@ module Chainweb.RestAPI
 , ChainwebServerDbs(..)
 , emptyChainwebServerDbs
 
-
--- * Swagger
-, prettyChainwebSwagger
-, chainwebSwagger
-, chainwebPeerSwagger
-, chainwebServiceSwagger
-, someSwaggerServer
-, somePeerSwaggerServer
-, someServiceSwaggerServer
-
 -- * Component Triggers
 , HeaderStream(..)
 , Rosetta(..)
@@ -72,17 +62,8 @@ module Chainweb.RestAPI
 , module P2P.Node.RestAPI.Client
 ) where
 
-import Control.Lens
-
-import Data.Aeson.Encode.Pretty
 import Data.Bifunctor
 import Data.Bool (bool)
-import qualified Data.ByteString.Lazy as BL
-import Data.Maybe
-import Data.Proxy
-import Data.Swagger
-import qualified Data.Text as T
-import qualified Data.Text.Encoding as T
 
 import GHC.Generics (Generic)
 
@@ -93,33 +74,26 @@ import Network.Wai.Handler.Warp hiding (Port)
 import Network.Wai.Handler.WarpTLS (TLSSettings(..), runTLSSocket)
 import Network.Wai.Middleware.Cors
 
-import Servant.API
 import Servant.Server
-import Servant.Swagger
 
 import System.Clock
 
 -- internal modules
 
 import Chainweb.BlockHeaderDB
-import Chainweb.BlockHeaderDB.RestAPI
 import Chainweb.BlockHeaderDB.RestAPI.Client
 import Chainweb.BlockHeaderDB.RestAPI.Server
 import Chainweb.ChainId
 import Chainweb.Chainweb.MinerResources (MiningCoordination)
 import Chainweb.CutDB
-import Chainweb.CutDB.RestAPI
 import Chainweb.CutDB.RestAPI.Server
 import Chainweb.HostAddress
 import Chainweb.Logger (Logger)
 import Chainweb.Mempool.Mempool (MempoolBackend)
 import qualified Chainweb.Mempool.RestAPI.Server as Mempool
-import Chainweb.Miner.RestAPI (someMiningApi)
 import qualified Chainweb.Miner.RestAPI.Server as Mining
-import qualified Chainweb.Pact.RestAPI as PactAPI
 import qualified Chainweb.Pact.RestAPI.Server as PactAPI
 import Chainweb.Payload.PayloadStore
-import Chainweb.Payload.RestAPI
 import Chainweb.Payload.RestAPI.Server
 import Chainweb.RestAPI.Health
 import Chainweb.RestAPI.NetworkID
@@ -133,7 +107,6 @@ import Chainweb.Version
 import Network.X509.SelfSigned
 
 import P2P.Node.PeerDB
-import P2P.Node.RestAPI
 import P2P.Node.RestAPI.Client
 import P2P.Node.RestAPI.Server
 
@@ -178,108 +151,6 @@ emptyChainwebServerDbs = ChainwebServerDbs
     , _chainwebServerPayloadDbs = []
     , _chainwebServerPeerDbs = []
     }
-
--- -------------------------------------------------------------------------- --
--- Full Chainweb API
-
--- | All APIs. This includes the service and the peer APIs. This is only used
--- for documentation / swagger purposes.
---
-someChainwebApi :: ChainwebVersion -> [NetworkId] -> SomeApi
-someChainwebApi v cs
-    = someSwaggerApi
-    <> someHealthCheckApi
-    <> someNodeInfoApi
-    <> someCutApi v
-    <> someBlockHeaderDbApis v chains
-    <> somePayloadApis v chains
-    <> someP2pApis v cs
-    <> PactAPI.somePactServiceApis v chains
-    <> someMiningApi v
-    <> someHeaderStreamApi v
-  where
-    chains = selectChainIds cs
-
-selectChainIds :: [NetworkId] -> [ChainId]
-selectChainIds = mapMaybe f
-  where
-    f (ChainNetwork c) = Just c
-    f (MempoolNetwork c) = Just c
-    f CutNetwork = Nothing
-
--- | All Service API endpoints
---
-someChainwebServiceApi :: ChainwebVersion -> [NetworkId] -> SomeApi
-someChainwebServiceApi v cs
-    = someSwaggerApi
-    <> someHealthCheckApi
-    <> someNodeInfoApi
-    <> PactAPI.somePactServiceApis v chains
-    <> someMiningApi v
-    <> someHeaderStreamApi v
-  where
-    chains = selectChainIds cs
-
--- | All Peer API endpoints
---
-someChainwebPeerApi :: ChainwebVersion -> [NetworkId] -> SomeApi
-someChainwebPeerApi v cs
-    = someCutApi v
-    <> someBlockHeaderDbApis v chains
-    <> somePayloadApis v chains
-    <> someP2pApis v cs
-  where
-    chains = selectChainIds cs
-
--- -------------------------------------------------------------------------- --
--- Swagger
---
--- Note that with the current approach to constructing the API a single routing
--- table is generated that contains the routes for all chains. If the number of
--- chains is large the corresponding swagger file will be very large as well.
--- We should improve the swagger spec to be more structured.
-
-type SwaggerApi = "swagger.json" :> Get '[JSON] Swagger
-
-someSwaggerApi :: SomeApi
-someSwaggerApi = SomeApi $ Proxy @SwaggerApi
-
-someSwaggerServer :: ChainwebVersion -> [NetworkId] -> SomeServer
-someSwaggerServer v cs = SomeServer (Proxy @SwaggerApi)
-    $ return (chainwebSwagger v cs)
-
-somePeerSwaggerServer :: ChainwebVersion -> [NetworkId] -> SomeServer
-somePeerSwaggerServer v cs = SomeServer (Proxy @SwaggerApi)
-    $ return (chainwebPeerSwagger v cs)
-
-someServiceSwaggerServer :: ChainwebVersion -> [NetworkId] -> SomeServer
-someServiceSwaggerServer v cs = SomeServer (Proxy @SwaggerApi)
-    $ return (chainwebServiceSwagger v cs)
-
-chainwebSwagger :: ChainwebVersion -> [NetworkId] -> Swagger
-chainwebSwagger v cs = case someChainwebApi v cs of
-    SomeApi a -> toSwagger a
-        & info.title   .~ "Chainweb"
-        & info.version .~ prettyApiVersion
-        & info.description ?~ "Chainweb/" <> sshow v <> " API"
-
-chainwebPeerSwagger :: ChainwebVersion -> [NetworkId] -> Swagger
-chainwebPeerSwagger v cs = case someChainwebPeerApi v cs of
-    SomeApi a -> toSwagger a
-        & info.title   .~ "Chainweb Peer API"
-        & info.version .~ prettyApiVersion
-        & info.description ?~ "Chainweb/" <> sshow v <> "Peer  API"
-
-chainwebServiceSwagger :: ChainwebVersion -> [NetworkId] -> Swagger
-chainwebServiceSwagger v cs = case someChainwebServiceApi v cs of
-    SomeApi a -> toSwagger a
-        & info.title   .~ "Chainweb Service API"
-        & info.version .~ prettyApiVersion
-        & info.description ?~ "Chainweb/" <> sshow v <> "Service  API"
-
-prettyChainwebSwagger :: ChainwebVersion -> [NetworkId] -> T.Text
-prettyChainwebSwagger v cs = T.decodeUtf8 . BL.toStrict . encodePretty
-    $ chainwebSwagger v cs
 
 -- -------------------------------------------------------------------------- --
 -- Component Triggers
@@ -337,13 +208,12 @@ someChainwebServer
     -> ChainwebServerDbs t cas
     -> SomeServer
 someChainwebServer v dbs =
-    somePeerSwaggerServer v (fst <$> peers)
-        <> maybe mempty (someCutServer v cutPeerDb) cuts
-        <> maybe mempty (someSpvServers v) cuts
-        <> somePayloadServers v payloads
-        <> someBlockHeaderDbServers v blocks
-        <> Mempool.someMempoolServers v mempools
-        <> someP2pServers v peers
+    maybe mempty (someCutServer v cutPeerDb) cuts
+    <> maybe mempty (someSpvServers v) cuts
+    <> somePayloadServers v payloads
+    <> someBlockHeaderDbServers v blocks
+    <> Mempool.someMempoolServers v mempools
+    <> someP2pServers v peers
   where
     payloads = _chainwebServerPayloadDbs dbs
     blocks = _chainwebServerBlockHeaderDbs dbs
@@ -445,16 +315,15 @@ someServiceApiServer
     -> Rosetta
     -> SomeServer
 someServiceApiServer v dbs pacts mr (HeaderStream hs) (Rosetta r) =
-    someServiceSwaggerServer v (fst <$> peers)
-        <> someHealthCheckServer
-        <> maybe mempty (someNodeInfoServer v) cuts
-        <> PactAPI.somePactServers v pacts
-        <> maybe mempty (Mining.someMiningServer v) mr
-        <> maybe mempty (someHeaderStreamServer v) (bool Nothing cuts hs)
-        <> maybe mempty (bool mempty (someRosettaServer v payloads concreteMs cutPeerDb concretePacts) r) cuts
-            -- TODO: not sure if passing the correct PeerDb here
-            -- TODO: why does Rosetta need a peer db at all?
-            -- TODO: simplify number of resources passing to rosetta
+    someHealthCheckServer
+    <> maybe mempty (someNodeInfoServer v) cuts
+    <> PactAPI.somePactServers v pacts
+    <> maybe mempty (Mining.someMiningServer v) mr
+    <> maybe mempty (someHeaderStreamServer v) (bool Nothing cuts hs)
+    <> maybe mempty (bool mempty (someRosettaServer v payloads concreteMs cutPeerDb concretePacts) r) cuts
+        -- TODO: not sure if passing the correct PeerDb here
+        -- TODO: why does Rosetta need a peer db at all?
+        -- TODO: simplify number of resources passing to rosetta
   where
     cuts = _chainwebServerCutDb dbs
     peers = _chainwebServerPeerDbs dbs

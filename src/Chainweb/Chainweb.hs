@@ -134,7 +134,7 @@ import Control.Concurrent.MVar (MVar, readMVar)
 import Control.Error.Util (note)
 import Control.Lens hiding ((.=), (<.>))
 import Control.Monad
-import Control.Monad.Catch (MonadThrow, throwM)
+import Control.Monad.Catch (MonadThrow, fromException, throwM)
 import Control.Monad.Writer
 
 import Data.Bifunctor (second)
@@ -155,6 +155,7 @@ import qualified Network.HTTP.Client as HTTP
 import Network.Socket (Socket)
 import Network.Wai
 import Network.Wai.Handler.Warp hiding (Port)
+import Network.Wai.Handler.WarpTLS (WarpTLSException(InsecureConnectionDenied))
 import Network.Wai.Middleware.Throttle
 
 import Numeric.Natural (Natural)
@@ -1030,8 +1031,12 @@ runChainweb cw = do
 
     serverSettings :: Settings
     serverSettings = setOnException
-        (\r e -> when (defaultShouldDisplayException e) (logg Warn $ loggServerError r e))
+        (\r e -> when (shouldDisplayException e) (logg Warn $ loggServerError r e))
         $ peerServerSettings (_peerResPeer $ _chainwebPeer cw)
+      where
+        shouldDisplayException e
+            | Just InsecureConnectionDenied <- fromException e = False
+            | otherwise = defaultShouldDisplayException e
 
     serve :: Middleware -> IO ()
     serve = serveChainwebSocketTls
