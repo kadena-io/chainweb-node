@@ -84,6 +84,7 @@ import Chainweb.BlockHeaderDB
 import Chainweb.BlockHeaderDB.RestAPI.Client
 import Chainweb.BlockHeaderDB.RestAPI.Server
 import Chainweb.ChainId
+import Chainweb.Chainweb.Configuration
 import Chainweb.Chainweb.MinerResources (MiningCoordination)
 import Chainweb.CutDB
 import Chainweb.CutDB.RestAPI.Server
@@ -95,6 +96,7 @@ import qualified Chainweb.Miner.RestAPI.Server as Mining
 import qualified Chainweb.Pact.RestAPI.Server as PactAPI
 import Chainweb.Payload.PayloadStore
 import Chainweb.Payload.RestAPI.Server
+import Chainweb.RestAPI.Config
 import Chainweb.RestAPI.Health
 import Chainweb.RestAPI.NetworkID
 import Chainweb.RestAPI.NodeInfo
@@ -204,16 +206,17 @@ chainwebServiceMiddlewares
 someChainwebServer
     :: Show t
     => PayloadCasLookup cas
-    => ChainwebVersion
+    => ChainwebConfiguration
     -> ChainwebServerDbs t cas
     -> SomeServer
-someChainwebServer v dbs =
+someChainwebServer config dbs =
     maybe mempty (someCutServer v cutPeerDb) cuts
     <> maybe mempty (someSpvServers v) cuts
     <> somePayloadServers v payloads
     <> someBlockHeaderDbServers v blocks
     <> Mempool.someMempoolServers v mempools
     <> someP2pServers v peers
+    <> someGetConfigServer config
   where
     payloads = _chainwebServerPayloadDbs dbs
     blocks = _chainwebServerBlockHeaderDbs dbs
@@ -221,6 +224,7 @@ someChainwebServer v dbs =
     peers = _chainwebServerPeerDbs dbs
     mempools = _chainwebServerMempools dbs
     cutPeerDb = fromJuste $ lookup CutNetwork peers
+    v = _configChainwebVersion config
 
 -- -------------------------------------------------------------------------- --
 -- Chainweb P2P API Application
@@ -228,42 +232,42 @@ someChainwebServer v dbs =
 chainwebApplication
     :: Show t
     => PayloadCasLookup cas
-    => ChainwebVersion
+    => ChainwebConfiguration
     -> ChainwebServerDbs t cas
     -> Application
-chainwebApplication v dbs
+chainwebApplication config dbs
     = chainwebP2pMiddlewares
     . someServerApplication
-    $ someChainwebServer v dbs
+    $ someChainwebServer config dbs
 
 serveChainwebOnPort
     :: Show t
     => PayloadCasLookup cas
     => Port
-    -> ChainwebVersion
+    -> ChainwebConfiguration
     -> ChainwebServerDbs t cas
     -> IO ()
-serveChainwebOnPort p v dbs = run (int p) $ chainwebApplication v dbs
+serveChainwebOnPort p c dbs = run (int p) $ chainwebApplication c dbs
 
 serveChainweb
     :: Show t
     => PayloadCasLookup cas
     => Settings
-    -> ChainwebVersion
+    -> ChainwebConfiguration
     -> ChainwebServerDbs t cas
     -> IO ()
-serveChainweb s v dbs = runSettings s $ chainwebApplication v dbs
+serveChainweb s c dbs = runSettings s $ chainwebApplication c dbs
 
 serveChainwebSocket
     :: Show t
     => PayloadCasLookup cas
     => Settings
     -> Socket
-    -> ChainwebVersion
+    -> ChainwebConfiguration
     -> ChainwebServerDbs t cas
     -> IO ()
-serveChainwebSocket s sock v dbs =
-    runSettingsSocket s sock $ chainwebApplication v dbs
+serveChainwebSocket s sock c dbs =
+    runSettingsSocket s sock $ chainwebApplication c dbs
 
 serveChainwebSocketTls
     :: Show t
@@ -272,13 +276,13 @@ serveChainwebSocketTls
     -> X509CertChainPem
     -> X509KeyPem
     -> Socket
-    -> ChainwebVersion
+    -> ChainwebConfiguration
     -> ChainwebServerDbs t cas
     -> Middleware
     -> IO ()
-serveChainwebSocketTls settings certChain key sock v dbs m =
+serveChainwebSocketTls settings certChain key sock c dbs m =
     serveSocketTls settings certChain key sock $ m
-        $ chainwebApplication v dbs
+        $ chainwebApplication c dbs
 
 -- -------------------------------------------------------------------------- --
 -- Run Chainweb P2P Server that serves a single PeerDb

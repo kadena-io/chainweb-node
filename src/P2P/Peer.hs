@@ -45,7 +45,9 @@ module P2P.Peer
 , peerConfigAddr
 , peerConfigInterface
 , peerConfigCertificateChain
+, peerConfigCertificateChainFile
 , peerConfigKey
+, peerConfigKeyFile
 , defaultPeerConfig
 , validatePeerConfig
 , _peerConfigPort

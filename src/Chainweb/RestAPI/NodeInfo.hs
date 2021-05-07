@@ -83,3 +83,4 @@ unpackGraphs v = gs
     gs = map (second graphAdjacencies) $ NE.toList $ chainwebGraphs v
     graphAdjacencies = map unChain . HashMap.toList . fmap HashSet.toList . G.adjacencySets . view chainGraphGraph
     unChain (a, bs) = (chainIdInt a, map chainIdInt bs)
+

@@ -29,6 +29,7 @@ module Chainweb.Miner.Config
 , nodeMiner
 , nodeTestMiners
 , MinerCount(..)
+, invalidMiner
 ) where
 
 import Configuration.Utils
@@ -197,5 +198,6 @@ defaultNodeMining = NodeMiningConfig
     { _nodeMiningEnabled = False
     , _nodeMiner = invalidMiner
     , _nodeTestMiners = MinerCount 10 }
-  where
-    invalidMiner = Miner "" . MinerKeys $ mkKeySet [] "keys-all"
+
+invalidMiner :: Miner
+invalidMiner = Miner "" . MinerKeys $ mkKeySet [] "keys-all"

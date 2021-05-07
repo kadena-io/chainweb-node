@@ -34,6 +34,7 @@ import Chainweb.BlockHeight
 import Chainweb.BlockWeight
 import Chainweb.ChainId
 import Chainweb.Chainweb
+import Chainweb.Chainweb.Configuration
 import Chainweb.Cut.Create
 import Chainweb.Difficulty
 import Chainweb.HostAddress
@@ -222,6 +223,7 @@ jsonTestCases f =
     , testProperty "NetworkId" $ f @NetworkId
     , testProperty "ChainDatabaseGcConfig" $ f @ChainDatabaseGcConfig
     , testProperty "MerkleRootType" $ f @MerkleRootType
+    , testProperty "ChainwebConfiguration" $ f @ChainwebConfiguration
 
     -- Chainweb.Payload
     , testGroup "Payload types"
