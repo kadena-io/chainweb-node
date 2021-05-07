@@ -22,7 +22,6 @@ import qualified Data.HashSet as HashSet
 import qualified Data.List.NonEmpty as NE
 import Data.Text (Text)
 import qualified Data.Text as T
-import Data.Swagger.Schema
 
 import GHC.Generics
 
@@ -75,9 +74,6 @@ nodeInfoHandler v (SomeCutDb ((CutDbT db) :: CutDbT cas v)) = do
       , nodeNumberOfChains = length curChains
       , nodeGraphHistory = graphs
       }
-
-deriving instance ToSchema NodeInfo
-
 
 -- | Converts chainwebGraphs to a simpler structure that has invertible JSON
 -- instances.

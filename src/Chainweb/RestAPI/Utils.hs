@@ -117,7 +117,6 @@ import Network.Wai.Handler.Warp (HostPreference)
 import Servant.API
 import Servant.Client
 import Servant.Server
-import Servant.Swagger
 
 -- internal modules
 import Chainweb.ChainId
@@ -241,12 +240,6 @@ instance
         $ Proxy @(ChainwebEndpointApi c api)
 
 instance
-    (KnownChainwebVersionSymbol c, HasSwagger api)
-    => HasSwagger ('ChainwebEndpoint c :> api)
-  where
-    toSwagger _ = toSwagger (Proxy @(ChainwebEndpointApi c api))
-
-instance
     (KnownChainwebVersionSymbol v, HasClient m api)
     => HasClient m ('ChainwebEndpoint v :> api)
   where
@@ -324,25 +317,6 @@ instance
     hoistServerWithContext _ = hoistServerWithContext
         (Proxy @(NetworkEndpointApi 'CutNetworkT api))
 
--- HasSwagger
-
-instance
-    (KnownChainIdSymbol c, HasSwagger api)
-    => HasSwagger ('NetworkEndpoint ('ChainNetworkT c) :> api)
-  where
-    toSwagger _ = toSwagger (Proxy @(NetworkEndpointApi ('ChainNetworkT c) api))
-
-instance
-    (KnownChainIdSymbol c, HasSwagger api)
-    => HasSwagger ('NetworkEndpoint ('MempoolNetworkT c) :> api)
-  where
-    toSwagger _ = toSwagger (Proxy @(NetworkEndpointApi ('MempoolNetworkT c) api))
-
-instance
-    (HasSwagger api) => HasSwagger ('NetworkEndpoint 'CutNetworkT :> api)
-  where
-    toSwagger _ = toSwagger (Proxy @(NetworkEndpointApi 'CutNetworkT api))
-
 -- HasClient
 
 instance
@@ -419,7 +393,7 @@ instance (HasLink api) => HasLink ('NetworkEndpoint 'CutNetworkT :> api) where
 -- be passed around and be combined.
 
 data SomeApi = forall (a :: Type)
-    . (HasSwagger a, HasServer a '[], HasClient ClientM a) => SomeApi (Proxy a)
+    . (HasServer a '[], HasClient ClientM a) => SomeApi (Proxy a)
 
 instance Semigroup SomeApi where
     SomeApi (Proxy :: Proxy a) <> SomeApi (Proxy :: Proxy b)
@@ -433,7 +407,6 @@ someApi
     :: forall proxy (a :: Type)
     . HasServer a '[]
     => HasClient ClientM a
-    => HasSwagger a
     => proxy a
     -> SomeApi
 someApi _ = SomeApi (Proxy @a)
