@@ -708,7 +708,7 @@ encKey it k = prefix <> _codecEncode (_rocksDbTableKeyCodec it) k
 {-# INLINE encKey #-}
 
 decVal :: MonadThrow m => RocksDbTable k v -> B.ByteString -> m v
-decVal = _codecDecode . _rocksDbTableValueCodec
+decVal tbl = _codecDecode $ _rocksDbTableValueCodec tbl
 {-# INLINE decVal #-}
 
 -- -------------------------------------------------------------------------- --
@@ -725,7 +725,7 @@ encIterKey it k = prefix <> _codecEncode (_rocksDbTableIterKeyCodec it) k
 {-# INLINE encIterKey #-}
 
 decIterVal :: MonadThrow m => RocksDbTableIter k v -> B.ByteString -> m v
-decIterVal = _codecDecode . _rocksDbTableIterValueCodec
+decIterVal i = _codecDecode $ _rocksDbTableIterValueCodec i
 {-# INLINE decIterVal #-}
 
 checkIterKey :: RocksDbTableIter k v -> B.ByteString -> Bool
