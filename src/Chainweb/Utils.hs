@@ -434,7 +434,7 @@ class IxedGet a where
     ixg :: Index a -> Fold a (IxValue a)
 
     default ixg :: Ixed a => Index a -> Fold a (IxValue a)
-    ixg = ix
+    ixg i = ix i
     {-# INLINE ixg #-}
 
 -- -------------------------------------------------------------------------- --
