@@ -47,7 +47,6 @@ package pact
 
 allow-newer: pact:*
 allow-newer: rosetta:*
-allow-newer: swagger2:*
 
 -- required by pact
 -- these upper bounds are required in order to not break payload validation
