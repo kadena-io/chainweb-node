@@ -36,8 +36,6 @@ extra-deps:
   - servant-client-0.18.2
   - servant-client-core-0.18.2
   - servant-server-0.18.2
-  - servant-swagger-1.1.10
-  - swagger2-2.6
   - quickcheck-instances-0.3.25.2
 
   # quickcheck-instances
@@ -61,7 +59,7 @@ extra-deps:
 
   # --- Custom Pins --- #
   - github: kadena-io/pact
-    commit: a9c9b92e313a680574479ffda4700533f19d16d5
+    commit: 4dbb17d00a1f74b90a79c730f822fb2fd09e7489
   - github: kadena-io/chainweb-storage
     commit: 07e7eb7596c7105aee42dbdb6edd10e3f23c0d7e
   - github: kadena-io/rosetta
