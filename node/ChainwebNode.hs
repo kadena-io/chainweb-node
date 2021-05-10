@@ -1,4 +1,5 @@
 {-# LANGUAGE AllowAmbiguousTypes #-}
+{-# LANGUAGE CPP #-}
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DerivingStrategies #-}
@@ -279,12 +280,15 @@ runAmberdataBlockMonitor config logger db
 
 -- This instances are OK, since this is the "Main" module of an application
 --
+#if !MIN_VERSION_base(4,15,0)
 deriving instance Generic GCDetails
-deriving instance NFData GCDetails
-deriving instance ToJSON GCDetails
-
 deriving instance Generic RTSStats
+#endif
+
+deriving instance NFData GCDetails
 deriving instance NFData RTSStats
+
+deriving instance ToJSON GCDetails
 deriving instance ToJSON RTSStats
 
 runRtsMonitor :: Logger logger => logger -> IO ()
