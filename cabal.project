@@ -14,17 +14,12 @@ debug-info: True
 source-repository-package
     type: git
     location: https://github.com/kadena-io/pact.git
-    tag: 4dbb17d00a1f74b90a79c730f822fb2fd09e7489
-
-source-repository-package
-    type: git
-    location: https://github.com/kadena-io/thyme.git
-    tag: 5314711cf0e92c531cd49addcf9d9ffe466c2075
+    tag: 3806d113af49dfcad1c5f039d46efa2d2abdbead
 
 source-repository-package
     type: git
     location: https://github.com/kadena-io/chainweb-storage.git
-    tag: 07e7eb7596c7105aee42dbdb6edd10e3f23c0d7e
+    tag: a470be50c29afee4b98301e7d19e0da70c3fab0a
 
 source-repository-package
     type: git
