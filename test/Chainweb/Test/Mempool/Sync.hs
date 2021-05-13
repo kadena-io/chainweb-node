@@ -12,10 +12,8 @@ import Control.Monad (void, when)
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Trans.Except
 import Data.IORef
-import Data.List (intercalate)
 import Data.Set (Set)
 import qualified Data.Set as Set
-import qualified Data.Text as T
 import qualified Data.Vector as V
 import System.Timeout
 import Test.QuickCheck hiding ((.&.))
@@ -31,6 +29,7 @@ import Chainweb.Test.Mempool
 import Chainweb.Utils (Codec(..))
 import Chainweb.Version (ChainwebVersion(..))
 import P2P.Peer
+import P2P.Test.Orphans
 ------------------------------------------------------------------------------
 
 
@@ -59,14 +58,7 @@ tests = testGroup "Chainweb.Mempool.sync"
       pre (not (Set.null xss || Set.null yss || Set.null zss)
            && length ys < 10_000
            && length zs < 10_000)
-      let byte = chooseInt (1, 254)
-      h1 <- pick byte
-      h2 <- pick byte
-      h3 <- pick byte
-      port <- pick (chooseInt (1, 65534))
-      let peerIp = intercalate "." ["127", show h1, show h2, show h3]
-      let peerText = peerIp ++ ":" ++ show port
-      peer <- liftIO $ peerInfoFromText $ T.pack peerText
+      peer <- pick arbitraryPeerInfo
       return (peer, xss, yss, zss)
 
 txcfg :: TransactionConfig MockTx

@@ -39,7 +39,6 @@ module P2P.Peer
 , pPeerInfo
 , pPeerInfoCompact
 , peerInfoClientEnv
-, peerInfoFromText
 
 -- * Peer Configuration
 , PeerConfig(..)
