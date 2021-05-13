@@ -63,7 +63,9 @@ tests = testGroup "Chainweb.Mempool.sync"
       h1 <- pick byte
       h2 <- pick byte
       h3 <- pick byte
-      let peerText = intercalate "." ["127", show h1, show h2, show h3]
+      port <- pick (chooseInt (1, 65534))
+      let peerIp = intercalate "." ["127", show h1, show h2, show h3]
+      let peerText = peerIp ++ ":" ++ show port
       peer <- liftIO $ peerInfoFromText $ T.pack peerText
       return (peer, xss, yss, zss)
 
