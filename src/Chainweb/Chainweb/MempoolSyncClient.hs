@@ -44,9 +44,9 @@ import Chainweb.RestAPI.NetworkID
 import Chainweb.Utils
 import Chainweb.Version
 
+import P2P.Node
 import P2P.Node.Configuration
 import P2P.Session
-import P2P.Node
 
 import qualified Servant.Client as Sv
 
@@ -92,9 +92,9 @@ mempoolSyncP2pSession
     :: ChainResources logger
     -> Seconds
     -> P2pSession
-mempoolSyncP2pSession chain (Seconds pollInterval) logg0 env _ = do
+mempoolSyncP2pSession chain (Seconds pollInterval) logg0 env peerInfo = do
     logg Debug "mempool sync session starting"
-    Mempool.syncMempools' logg syncIntervalUs pool peerMempool
+    Mempool.syncMempools' logg peerInfo syncIntervalUs pool peerMempool
     logg Debug "mempool sync session finished"
     return True
   where

@@ -34,7 +34,7 @@ import Data.IORef
 import Data.List (sort, sortBy)
 import qualified Data.List.Ordered as OL
 import Data.Ord (Down(..))
-import Data.Tuple.Strict (T2(..))
+import Data.Tuple.Strict (T2(..), ssnd)
 import Data.Vector (Vector)
 import qualified Data.Vector as V
 import GHC.Stack
@@ -348,18 +348,20 @@ propHighWater (txs0, txs1) _ mempool = runExceptT $ do
     hw1 <- liftIO $ getPending (Just hw) $ \v -> modifyIORef' pendingOps (v:)
     allPending <- sort . V.toList . V.concat
                   <$> liftIO (readIORef pendingOps)
-    when (txdata /= allPending && snd hw1 /= (fromIntegral $ length txs0 + length txdata)) $
+    when (txdata /= allPending &&
+          hsnd hw1 /= (fromIntegral $ length txs0 + length txdata)) $
         let msg = concat [ "highwater failure"
                          , ", initial batch was ", show (length txs0)
                          , ", retreived ", show (length p0s)
-                         , ", with highwater ", show (snd hw)
+                         , ", with highwater ", show (hsnd hw)
                          , ". Second batch was ", show (length txdata)
-                         , " retreived ", show (length allPending)
-                         , ", with highwater ", show (snd hw1)
+                         , " retrieved ", show (length allPending)
+                         , ", with highwater ", show (hsnd hw1)
                          ]
         in fail msg
 
   where
+    hsnd = ssnd . _unHwMark
     txdata = sort $ map hash txs1
     hash = txHasher $ mempoolTxConfig mempool
     getPending = mempoolGetPendingTransactions mempool

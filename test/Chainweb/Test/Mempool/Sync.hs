@@ -12,8 +12,10 @@ import Control.Monad (void, when)
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Trans.Except
 import Data.IORef
+import Data.List (intercalate)
 import Data.Set (Set)
 import qualified Data.Set as Set
+import qualified Data.Text as T
 import qualified Data.Vector as V
 import System.Timeout
 import Test.QuickCheck hiding ((.&.))
@@ -28,6 +30,7 @@ import Chainweb.Test.Mempool
     (InsertCheck, MempoolWithFunc(..), lookupIsPending, mempoolProperty)
 import Chainweb.Utils (Codec(..))
 import Chainweb.Version (ChainwebVersion(..))
+import P2P.Peer
 ------------------------------------------------------------------------------
 
 
@@ -47,7 +50,7 @@ tests = testGroup "Chainweb.Mempool.sync"
         f <- readMVar mv
         f xs
 
-    gen :: PropertyM IO (Set MockTx, Set MockTx, Set MockTx)
+    gen :: PropertyM IO (PeerInfo, Set MockTx, Set MockTx, Set MockTx)
     gen = do
       (xs, ys, zs) <- pick arbitrary
       let xss = Set.fromList xs
@@ -56,7 +59,13 @@ tests = testGroup "Chainweb.Mempool.sync"
       pre (not (Set.null xss || Set.null yss || Set.null zss)
            && length ys < 10_000
            && length zs < 10_000)
-      return (xss, yss, zss)
+      let byte = chooseInt (1, 254)
+      h1 <- pick byte
+      h2 <- pick byte
+      h3 <- pick byte
+      let peerText = intercalate "." ["127", show h1, show h2, show h3]
+      peer <- liftIO $ peerInfoFromText $ T.pack peerText
+      return (peer, xss, yss, zss)
 
 txcfg :: TransactionConfig MockTx
 txcfg = TransactionConfig mockCodec hasher hashmeta mockGasPrice
@@ -70,11 +79,11 @@ testInMemCfg =
     InMemConfig txcfg mockBlockGasLimit 2048 Right (pure . V.map Right) (1024 * 10)
 
 propSync
-    :: (Set MockTx, Set MockTx , Set MockTx)
+    :: (PeerInfo, Set MockTx, Set MockTx , Set MockTx)
     -> InsertCheck
     -> MempoolBackend MockTx
     -> IO (Either String ())
-propSync (txs, missing, later) _ localMempool' =
+propSync (peer, txs, missing, later) _ localMempool' =
     withInMemoryMempool testInMemCfg (Test singletonChainGraph) $ \remoteMempool -> do
         mempoolInsert localMempool' CheckedInsert txsV
         mempoolInsert remoteMempool CheckedInsert txsV
@@ -90,8 +99,7 @@ propSync (txs, missing, later) _ localMempool' =
         localMempool <-
               timebomb nmissing onInitialSyncFinished =<<
               timebomb (nmissing + nlater) onFinalSyncFinished localMempool'
-        let syncThread = syncMempools noLog 10 localMempool remoteMempool
-
+        let syncThread = syncMempools noLog peer 10 localMempool remoteMempool
 
         -- expect remote to deliver transactions during sync.
         -- Timeout to guard against waiting forever

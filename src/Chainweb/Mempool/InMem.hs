@@ -591,13 +591,13 @@ getBlockInMem cfg lock txValidate bheight phash = do
 getPendingInMem :: InMemConfig t
                 -> ServerNonce
                 -> MVar (InMemoryMempoolData t)
-                -> Maybe (ServerNonce, MempoolTxId)
+                -> Maybe HighwaterMark
                 -> (Vector TransactionHash -> IO ())
-                -> IO (ServerNonce, MempoolTxId)
+                -> IO HighwaterMark
 getPendingInMem cfg nonce lock since callback = do
     (psq, !rlog) <- readLock
     maybe (sendAll psq) (sendSome psq rlog) since
-    return (nonce, _rlNext rlog)
+    return $! mkHighwaterMark nonce $! _rlNext rlog
 
   where
     sendAll psq = do
@@ -605,7 +605,7 @@ getPendingInMem cfg nonce lock since callback = do
         (dl, sz) <- foldlM go initState keys
         void $ sendChunk dl sz
 
-    sendSome psq rlog (rNonce, oHw) = do
+    sendSome psq rlog (HighwaterMark (T2 rNonce oHw)) = do
         if rNonce /= nonce
           then sendAll psq
           else sendSince psq rlog oHw

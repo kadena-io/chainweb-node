@@ -98,12 +98,12 @@ getPendingHandler mempool mbNonce mbHw = liftIO $ do
         <*> pure hw'
 
   where
-    hw :: Maybe (ServerNonce, MempoolTxId)
+    hw :: Maybe HighwaterMark
     hw = do
         -- check that both nonce and txid are supplied and stuff them into one maybe
         oldNonce <- mbNonce
         tx <- mbHw
-        return (oldNonce, tx)
+        return $! mkHighwaterMark oldNonce tx
 
 
 handleErrs :: NFData a => Handler a -> Handler a
