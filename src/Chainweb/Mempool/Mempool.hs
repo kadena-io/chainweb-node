@@ -67,6 +67,7 @@ module Chainweb.Mempool.Mempool
   , HighwaterMark(..)
   , InsertType(..)
   , InsertError(..)
+  , HopCount
 
   , chainwebTransactionConfig
   , mockCodec
@@ -79,14 +80,15 @@ module Chainweb.Mempool.Mempool
   , syncMempools
   , syncMempools'
   , mkHighwaterMark
+  , mAXIMUM_HOP_COUNT
   , GasLimit(..)
   ) where
 ------------------------------------------------------------------------------
 import Control.Concurrent.MVar
 import Control.DeepSeq (NFData)
 import Control.Exception
-import Control.Lens
-import Control.Monad (replicateM, unless)
+import Control.Lens hiding ((.=))
+import Control.Monad (replicateM, unless, (<$!>))
 
 import Crypto.Hash (hash)
 import Crypto.Hash.Algorithms (SHA512t_256)
@@ -111,6 +113,7 @@ import qualified Data.HashSet as HashSet
 import Data.Int (Int64)
 import Data.IORef
 import Data.List (unfoldr)
+import Data.Maybe (fromMaybe)
 import Data.Ord
 import Data.Text (Text)
 import qualified Data.Text as T
@@ -119,7 +122,7 @@ import Data.Typeable
 import Data.Vector (Vector)
 import qualified Data.Vector as V
 import qualified Data.Vector.Algorithms.Tim as TimSort
-import Data.Word (Word64)
+import Data.Word (Word, Word64)
 import GHC.Generics
 import Prelude hiding (log)
 import System.IO.Unsafe (unsafePerformIO)
@@ -145,23 +148,42 @@ import P2P.Peer (PeerInfo)
 
 ------------------------------------------------------------------------------
 data LookupResult t = Missing
-                    | Pending t
+                    | Pending { _lookupResultTx :: !t
+                              , _lookupResultHops :: !(Maybe Word) }
+
   deriving (Show, Generic)
-  deriving anyclass (ToJSON, FromJSON, NFData) -- TODO: a handwritten instance
+  deriving anyclass (NFData)
 
 instance Functor LookupResult where
     fmap _ Missing = Missing
-    fmap f (Pending x) = Pending $! f x
+    fmap f (Pending x h) = let !x' = f x in Pending x' h
 
 instance Foldable LookupResult where
     foldr f seed t = case t of
                        Missing -> seed
-                       (Pending x) -> f x seed
+                       (Pending x _) -> f x seed
 
 instance Traversable LookupResult where
     traverse f t = case t of
                      Missing -> pure Missing
-                     Pending x -> Pending <$> f x
+                     (Pending x h) -> Pending <$> f x <*> pure h
+
+instance (FromJSON t) => FromJSON (LookupResult t) where
+    parseJSON = withObject "LookupResult" $ \o -> do
+        tag <- o .: "tag"
+        if tag == ("Missing" :: Text)
+          then return Missing
+          else Pending <$!> o .: "contents"
+                       <*> o .:? "hops"
+
+instance (ToJSON t) => ToJSON (LookupResult t) where
+    toEncoding o =
+        pairs $ case o of
+                  Missing -> "tag" .= ("Missing" :: Text)
+                  Pending tx hops -> "tag" .= ("Pending" :: Text)
+                                     <> "contents" .= tx
+                                     <> case hops of Nothing -> mempty
+                                                     Just x -> "hops" .= x
 
 ------------------------------------------------------------------------------
 type MempoolPreBlockCheck t = BlockHeight -> BlockHash -> Vector t -> IO (Vector Bool)
@@ -308,6 +330,11 @@ instance Show InsertError
 
 instance Exception InsertError
 
+-- | Maximum hop count for regossip.
+mAXIMUM_HOP_COUNT :: Word
+mAXIMUM_HOP_COUNT = 6         -- TODO: config knob goes here
+type HopCount = Word
+
 ------------------------------------------------------------------------------
 -- | Mempool backend API. Here @t@ is the transaction payload type.
 data MempoolBackend t = MempoolBackend {
@@ -321,8 +348,11 @@ data MempoolBackend t = MempoolBackend {
 
     -- | Insert the given transactions into the mempool.
   , mempoolInsert :: InsertType      -- run pre-gossip check? Ignored at remote pools.
-                  -> Vector t
+                  -> Vector (t, HopCount)
                   -> IO ()
+
+    -- | Internal-only. Get hop counts for all of the given known transactions.
+  , mempoolGetHopCounts :: Vector TransactionHash -> IO (Vector (Maybe HopCount))
 
     -- | Perform the pre-insert check for the given transactions. Short-circuits
     -- on the first Transaction that fails.
@@ -371,6 +401,7 @@ noopMempool = do
     , mempoolLookup = noopLookup
     , mempoolInsert = noopInsert
     , mempoolInsertCheck = noopInsertCheck
+    , mempoolGetHopCounts = noopGetHopCounts
     , mempoolMarkValidated = noopMV
     , mempoolAddToBadList = noopAddToBadList
     , mempoolCheckBadList = noopCheckBadList
@@ -391,6 +422,7 @@ noopMempool = do
     noopMember v = return $ V.replicate (V.length v) False
     noopLookup v = return $ V.replicate (V.length v) Missing
     noopInsert = const $ const $ return ()
+    noopGetHopCounts v = return $ V.replicate (V.length v) Nothing
     noopInsertCheck _ = fail "unsupported"
     noopMV = const $ return ()
     noopAddToBadList = const $ return ()
@@ -508,10 +540,10 @@ syncMempools' log0 peer us localMempool remoteMempool = sync
                     then SyncState cnt chunks remoteHashes True
                     else SyncState newCnt (newMissing : chunks) remoteHashes' False
 
-    fromPending (Pending t) = t
+    fromPending (Pending t h) = (t, fromMaybe mAXIMUM_HOP_COUNT h)
     fromPending _ = error "impossible"
 
-    isPending (Pending _) = True
+    isPending (Pending _ _) = True
     isPending _ = False
 
     fetchMissing chunk = do

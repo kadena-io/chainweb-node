@@ -220,7 +220,8 @@ lookupInMem txcfg lock txs = do
     codec = txCodec txcfg
     fixup pe =
         let bs = _inmemPeBytes pe
-        in either (const Missing) Pending
+            hc = _inmemPeHopCount pe
+        in either (const Missing) (flip Pending (Just hc))
                $! codecDecode codec
                $! SB.fromShort bs
     lookupQ q txHash = fixup <$!> HashMap.lookup txHash q
@@ -416,7 +417,7 @@ insertInMem
     => InMemConfig t    -- ^ in-memory config
     -> MVar (InMemoryMempoolData t)  -- ^ in-memory state
     -> InsertType
-    -> Vector t  -- ^ new transactions
+    -> Vector (t, HopCount)  -- ^ new transactions
     -> IO ()
 insertInMem cfg lock runCheck txs0 = do
     txhashes <- insertCheck
@@ -434,10 +435,10 @@ insertInMem cfg lock runCheck txs0 = do
         modifyIORef' (_inmemRecentLog mdata) $
             recordRecentTransactions maxRecent newHashes
   where
-    insertCheck :: IO (Vector (T2 TransactionHash t))
+    insertCheck :: IO (Vector (T3 TransactionHash HopCount t))
     insertCheck = if runCheck == CheckedInsert
                   then insertCheckInMem' cfg lock txs0
-                  else return $! V.map (\tx -> T2 (hasher tx) tx) txs0
+                  else return $! V.map (\(tx, hc) -> T3 (hasher tx) hc tx) txs0
 
     txcfg = _inmemTxCfg cfg
     encodeTx = codecEncode (txCodec txcfg)

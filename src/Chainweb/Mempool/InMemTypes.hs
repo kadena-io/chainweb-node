@@ -52,6 +52,7 @@ data PendingEntry = PendingEntry
     , _inmemPeGasLimit :: !GasLimit
     , _inmemPeBytes :: !SB.ShortByteString
     , _inmemPeExpires :: !(Time Micros)
+    , _inmemPeHopCount :: !HopCount
     } deriving (Eq, Generic, Show, NFData)
 
 instance Ord PendingEntry where
