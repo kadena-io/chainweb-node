@@ -81,6 +81,7 @@ module Chainweb.Mempool.Mempool
   , GasLimit(..)
   ) where
 ------------------------------------------------------------------------------
+import Control.Concurrent.MVar
 import Control.DeepSeq (NFData)
 import Control.Exception
 import Control.Lens
@@ -100,24 +101,26 @@ import qualified Data.ByteString.Char8 as B
 import qualified Data.ByteString.Short as SB
 import Data.Decimal (Decimal, DecimalRaw(..))
 import Data.Foldable (traverse_)
+import Data.Function (on)
 import Data.Hashable (Hashable(hashWithSalt))
+import Data.HashMap.Strict (HashMap)
+import qualified Data.HashMap.Strict as HashMap
 import Data.HashSet (HashSet)
 import qualified Data.HashSet as HashSet
 import Data.Int (Int64)
 import Data.IORef
 import Data.List (unfoldr)
+import Data.Ord
 import Data.Text (Text)
 import qualified Data.Text as T
-import Data.Tuple.Strict (T2)
+import Data.Tuple.Strict (T2(..))
 import Data.Vector (Vector)
 import qualified Data.Vector as V
+import qualified Data.Vector.Algorithms.Tim as TimSort
 import Data.Word (Word64)
-
 import GHC.Generics
-
 import Prelude hiding (log)
-
-import System.LogLevel
+import System.IO.Unsafe (unsafePerformIO)
 
 -- internal modules
 
@@ -126,14 +129,17 @@ import Pact.Types.ChainMeta (TTLSeconds(..), TxCreationTime(..))
 import Pact.Types.Command
 import Pact.Types.Gas (GasLimit(..), GasPrice(..))
 import qualified Pact.Types.Hash as H
+import System.LogLevel
 
 import Chainweb.BlockHash
 import Chainweb.BlockHeight
-import Chainweb.Time (Micros(..), Time(..), TimeSpan(..))
+import Chainweb.Time
+    (Micros(..), Time(..), TimeSpan(..), getCurrentTimeIntegral)
 import qualified Chainweb.Time as Time
 import Chainweb.Transaction
 import Chainweb.Utils
 import Data.LogMessage (LogFunctionText)
+import P2P.Peer (PeerId)
 
 ------------------------------------------------------------------------------
 data LookupResult t = Missing
@@ -188,9 +194,72 @@ data TransactionConfig t = TransactionConfig {
 ------------------------------------------------------------------------------
 type MempoolTxId = Int64
 type ServerNonce = Int
-type HighwaterMark = (ServerNonce, MempoolTxId)
+type HighwaterMark = T2 ServerNonce MempoolTxId
 data InsertType = CheckedInsert | UncheckedInsert
   deriving (Show, Eq)
+
+data PeerSyncHistory = PeerSyncHistory {
+    _histOurMark :: HighwaterMark
+  , _histTheirMark :: HighwaterMark
+  , _histTime :: Time Micros
+}
+
+type SyncHistoryTable = HashMap PeerId PeerSyncHistory
+data SyncHistory = SyncHistory {
+    _histTable :: SyncHistoryTable
+  , _histOperationCount :: IORef Int
+}
+
+syncGlobalHistoryTable :: MVar SyncHistory
+syncGlobalHistoryTable = unsafePerformIO $ do
+    ref <- newIORef 0
+    newMVar $ SyncHistory mempty ref
+{-# NOINLINE syncGlobalHistoryTable #-}
+
+fetchGlobalSyncHistory :: PeerId -> IO (Maybe PeerSyncHistory)
+fetchGlobalSyncHistory peer = withMVar syncGlobalHistoryTable $ \tab -> do
+    let !hm = _histTable tab
+    return $ HashMap.lookup peer hm
+
+-- | How frequently to purge the peers table (in # of update operations).
+-- TODO: make configurable?
+syncGlobalHistoryPurgeCount :: Int
+syncGlobalHistoryPurgeCount = 10000
+
+-- | How many peers to remember? TODO: make configurable?
+syncGlobalPeerHistoryMemory :: Int
+syncGlobalPeerHistoryMemory = 2500
+
+purgeOldGlobalHistory :: SyncHistoryTable -> IO SyncHistoryTable
+purgeOldGlobalHistory tab = do
+    mvec <- V.unsafeThaw $ V.fromList $ HashMap.toList tab
+    TimSort.sortBy comparator mvec
+    v <- V.take syncGlobalPeerHistoryMemory <$> V.unsafeFreeze mvec
+    return $! HashMap.fromList $ V.toList v
+  where
+    -- reverse-comparison on time, i.e. newest-first
+    comparator = flip (compare `on` (_histTime  . snd))
+
+
+updateGlobalSyncHistory :: PeerId -> HighwaterMark -> HighwaterMark -> IO ()
+updateGlobalSyncHistory peer ourHwMark theirHwMark =
+    modifyMVar syncGlobalHistoryTable $ \ght -> do
+        let !countRef = _histOperationCount ght
+        !count <- readIORef countRef
+        -- update count; every K iterations we'll purge the table
+        tab <- if (count >= syncGlobalHistoryPurgeCount)
+                 then do
+                   writeIORef countRef 0
+                   purgeOldGlobalHistory $ _histTable ght
+                 else do
+                   writeIORef countRef $! count + 1
+                   return $! _histTable ght
+        !now <- getCurrentTimeIntegral
+        let !entry = PeerSyncHistory ourHwMark theirHwMark now
+        let !tab' = HashMap.insert peer entry tab
+        let !newGHT = SyncHistory tab' countRef
+        return (newGHT, ())
+
 
 data InsertError = InsertErrorDuplicate
                  | InsertErrorInvalidTime
@@ -308,7 +377,7 @@ noopMempool = do
     noopAddToBadList = const $ return ()
     noopCheckBadList v = return $ V.replicate (V.length v) False
     noopGetBlock _ _ _ = return V.empty
-    noopGetPending = const $ const $ return (0,0)
+    noopGetPending = const $ const $ return (T2 0 0)
     noopClear = return ()
 
 
