@@ -77,6 +77,12 @@ data InMemConfig t = InMemConfig {
     -- return false negatives (and a very small amount of false positives).
     --
     -- The set uses 16 bytes per entry.
+
+  , _inmemOnNewTransactions
+        :: V.Vector (T3 TransactionHash HopCount t)
+        -> IO ()
+    -- ^ A callback that is invoked when new transactions are accepted into the
+    -- mempool.
 }
 
 ------------------------------------------------------------------------------

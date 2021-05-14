@@ -42,7 +42,8 @@ tests = testGroup "Chainweb.Mempool.sync"
     wf :: (InsertCheck -> MempoolBackend MockTx -> IO a) -> IO a
     wf f = do
         mv <- newMVar (pure . V.map Right)
-        let cfg = InMemConfig txcfg mockBlockGasLimit 2048 Right (checkMv mv) (1024 * 10)
+        let cfg = InMemConfig txcfg mockBlockGasLimit 2048 Right (checkMv mv)
+                              (1024 * 10) (const $ return ())
         withInMemoryMempool cfg (Test singletonChainGraph) $ f mv
 
     checkMv :: MVar (t -> IO b) -> t -> IO b
@@ -72,6 +73,7 @@ txcfg = TransactionConfig mockCodec hasher hashmeta mockGasPrice
 testInMemCfg :: InMemConfig MockTx
 testInMemCfg =
     InMemConfig txcfg mockBlockGasLimit 2048 Right (pure . V.map Right) (1024 * 10)
+                (const $ return ())
 
 withHops :: Vector t -> Vector (t, HopCount)
 withHops v = v `V.zip` V.replicate (V.length v) 0

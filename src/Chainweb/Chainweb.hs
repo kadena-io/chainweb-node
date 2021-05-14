@@ -273,6 +273,7 @@ validatingMempoolConfig cid v gl mv = Mempool.InMemConfig
     , Mempool._inmemPreInsertPureChecks = preInsertSingle
     , Mempool._inmemPreInsertBatchChecks = preInsertBatch
     , Mempool._inmemCurrentTxsSize = currentTxsSize
+    , Mempool._inmemOnNewTransactions = const $ return ()
     }
   where
     txcfg = Mempool.chainwebTransactionConfig
