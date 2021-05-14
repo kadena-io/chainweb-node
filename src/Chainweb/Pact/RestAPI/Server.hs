@@ -29,7 +29,7 @@ import Control.Applicative
 import Control.Concurrent.STM (atomically, retry)
 import Control.Concurrent.STM.TVar
 import Control.DeepSeq
-import Control.Lens (set, view, preview, (^?!), _head)
+import Control.Lens (preview, set, view, (^?!), _head)
 import Control.Monad.Catch hiding (Handler)
 import Control.Monad.Reader
 import Control.Monad.State.Strict
@@ -224,7 +224,8 @@ sendHandler logger mempool (SubmitBatch cmds) = Handler $ do
            let txs = V.fromList $ NEL.toList enriched
            -- If any of the txs in the batch fail validation, we reject them all.
            liftIO (mempoolInsertCheck mempool txs) >>= checkResult
-           liftIO (mempoolInsert mempool UncheckedInsert txs)
+           let txsWithHops = V.zip txs $ V.replicate (V.length txs) 0
+           liftIO (mempoolInsert mempool UncheckedInsert txsWithHops)
            return $! RequestKeys $ NEL.map cmdToRequestKey enriched
        Left err -> failWith $ "Validation failed: " <> err
   where

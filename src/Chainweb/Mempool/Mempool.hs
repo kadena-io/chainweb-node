@@ -150,7 +150,6 @@ import P2P.Peer (PeerInfo)
 data LookupResult t = Missing
                     | Pending { _lookupResultTx :: !t
                               , _lookupResultHops :: !(Maybe Word) }
-
   deriving (Show, Generic)
   deriving anyclass (NFData)
 
@@ -351,9 +350,6 @@ data MempoolBackend t = MempoolBackend {
                   -> Vector (t, HopCount)
                   -> IO ()
 
-    -- | Internal-only. Get hop counts for all of the given known transactions.
-  , mempoolGetHopCounts :: Vector TransactionHash -> IO (Vector (Maybe HopCount))
-
     -- | Perform the pre-insert check for the given transactions. Short-circuits
     -- on the first Transaction that fails.
   , mempoolInsertCheck :: Vector t -> IO (Either (T2 TransactionHash InsertError) ())
@@ -401,7 +397,6 @@ noopMempool = do
     , mempoolLookup = noopLookup
     , mempoolInsert = noopInsert
     , mempoolInsertCheck = noopInsertCheck
-    , mempoolGetHopCounts = noopGetHopCounts
     , mempoolMarkValidated = noopMV
     , mempoolAddToBadList = noopAddToBadList
     , mempoolCheckBadList = noopCheckBadList
@@ -422,7 +417,6 @@ noopMempool = do
     noopMember v = return $ V.replicate (V.length v) False
     noopLookup v = return $ V.replicate (V.length v) Missing
     noopInsert = const $ const $ return ()
-    noopGetHopCounts v = return $ V.replicate (V.length v) Nothing
     noopInsertCheck _ = fail "unsupported"
     noopMV = const $ return ()
     noopAddToBadList = const $ return ()

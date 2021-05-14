@@ -14,6 +14,7 @@ import Control.Monad.Trans.Except
 import Data.IORef
 import Data.Set (Set)
 import qualified Data.Set as Set
+import Data.Vector (Vector)
 import qualified Data.Vector as V
 import System.Timeout
 import Test.QuickCheck hiding ((.&.))
@@ -72,6 +73,9 @@ testInMemCfg :: InMemConfig MockTx
 testInMemCfg =
     InMemConfig txcfg mockBlockGasLimit 2048 Right (pure . V.map Right) (1024 * 10)
 
+withHops :: Vector t -> Vector (t, HopCount)
+withHops v = v `V.zip` V.replicate (V.length v) 0
+
 propSync
     :: (PeerInfo, Set MockTx, Set MockTx , Set MockTx)
     -> InsertCheck
@@ -79,9 +83,9 @@ propSync
     -> IO (Either String ())
 propSync (peer, txs, missing, later) _ localMempool' =
     withInMemoryMempool testInMemCfg (Test singletonChainGraph) $ \remoteMempool -> do
-        mempoolInsert localMempool' CheckedInsert txsV
-        mempoolInsert remoteMempool CheckedInsert txsV
-        mempoolInsert remoteMempool CheckedInsert missingV
+        mempoolInsert localMempool' CheckedInsert txsVHops
+        mempoolInsert remoteMempool CheckedInsert txsVHops
+        mempoolInsert remoteMempool CheckedInsert missingVHops
 
         doneVar <- newEmptyMVar
         syncFinished <- newEmptyMVar
@@ -125,10 +129,12 @@ propSync (peer, txs, missing, later) _ localMempool' =
     hash = txHasher $ mempoolTxConfig localMempool'
     txsV = V.fromList $ Set.toList txs
     missingV = V.fromList $ Set.toList missing
+    txsVHops = withHops txsV
+    missingVHops = withHops missingV
     missingHashes = V.map hash missingV
 
-    laterV = V.fromList $ Set.toList later
-    laterHashes = V.map hash laterV
+    laterV = withHops (V.fromList $ Set.toList later)
+    laterHashes = V.map (hash . fst) laterV
 
 timebomb :: Int -> IO a -> MempoolBackend t -> IO (MempoolBackend t)
 timebomb k act mp = do

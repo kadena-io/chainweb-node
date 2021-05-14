@@ -239,9 +239,11 @@ constructionSubmitH v ms (ConstructionSubmitReq net tx) =
         cmd <- command tx ?? RosettaUnparsableTx
         validated <- hoistEither . first (const RosettaInvalidTx) $ validateCommand cmd
         mp <- lookup cid ms ?? RosettaInvalidChain
+        -- TODO: should this 0 be mAXIMUM_HOP_COUNT instead?
         let !vec = V.singleton validated
+        let !vecHops = vec `V.zip` V.singleton 0
         liftIO (mempoolInsertCheck mp vec) >>= hoistEither . first (const RosettaInvalidTx)
-        liftIO (mempoolInsert mp UncheckedInsert vec)
+        liftIO (mempoolInsert mp UncheckedInsert vecHops)
         let rk = requestKeyToB16Text $ cmdToRequestKey validated
         pure $ TransactionIdResp (TransactionId rk) Nothing
 
@@ -287,7 +289,7 @@ mempoolTransactionH v ms mtr = runExceptT work >>= either throwRosetta pure
 
     f :: LookupResult a -> Maybe MempoolTransactionResp
     f Missing = Nothing
-    f (Pending _) = Just $ MempoolTransactionResp tx Nothing
+    f (Pending _ _) = Just $ MempoolTransactionResp tx Nothing
       where
         tx = Transaction
           { _transaction_transactionId = TransactionId ti
