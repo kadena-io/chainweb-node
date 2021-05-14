@@ -12,14 +12,17 @@ import Control.Monad (void, when)
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Trans.Except
 import Data.IORef
+import Data.List (sort)
 import Data.Set (Set)
 import qualified Data.Set as Set
+import Data.Tuple.Strict
 import Data.Vector (Vector)
 import qualified Data.Vector as V
 import System.Timeout
 import Test.QuickCheck hiding ((.&.))
 import Test.QuickCheck.Monadic
 import Test.Tasty
+import Test.Tasty.HUnit
 ------------------------------------------------------------------------------
 import Chainweb.Graph (singletonChainGraph)
 import Chainweb.Mempool.InMem
@@ -83,10 +86,20 @@ propSync
     -> InsertCheck
     -> MempoolBackend MockTx
     -> IO (Either String ())
-propSync (peer, txs, missing, later) _ localMempool' =
-    withInMemoryMempool testInMemCfg (Test singletonChainGraph) $ \remoteMempool -> do
+propSync (peer, txs, missing, later) _ localMempool' = do
+    newTxs <- newMVar []
+    let onNew v = modifyMVar_ newTxs (return . (v:))
+    let mpcfg = testInMemCfg { _inmemOnNewTransactions = onNew }
+    withInMemoryMempool mpcfg (Test singletonChainGraph) $ \remoteMempool -> do
         mempoolInsert localMempool' CheckedInsert txsVHops
         mempoolInsert remoteMempool CheckedInsert txsVHops
+
+        -- test that the on-insert callback works.
+        testSet1 <- modifyMVar newTxs $ \xs -> return ([], V.concat xs)
+        let sortedTestSet1 = V.fromList (sort (map sfst $ V.toList testSet1))
+        let sortedTxsHashes = V.fromList (sort (V.toList txsHashes))
+        assertEqual "onNewTransactions callback works" sortedTxsHashes sortedTestSet1
+
         mempoolInsert remoteMempool CheckedInsert missingVHops
 
         doneVar <- newEmptyMVar
@@ -130,6 +143,7 @@ propSync (peer, txs, missing, later) _ localMempool' =
 
     hash = txHasher $ mempoolTxConfig localMempool'
     txsV = V.fromList $ Set.toList txs
+    txsHashes = V.map hash txsV
     missingV = V.fromList $ Set.toList missing
     txsVHops = withHops txsV
     missingVHops = withHops missingV

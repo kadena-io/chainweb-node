@@ -424,7 +424,7 @@ insertInMem
     -> IO ()
 insertInMem cfg lock runCheck txs0 = do
     txhashes <- insertCheck
-    withMVarMasked lock $ \mdata -> do
+    newTxs <- withMVarMasked lock $ \mdata -> do
         let countRef = _inmemCountPending mdata
         cnt <- readIORef countRef
         let txs = V.take (max 0 (maxNumPending - cnt)) txhashes
@@ -436,7 +436,11 @@ insertInMem cfg lock runCheck txs0 = do
         let !newHashes = V.fromList $ newHashesDL []
         writeIORef (_inmemPending mdata) $! force pending'
         modifyIORef' (_inmemRecentLog mdata) $
-            recordRecentTransactions maxRecent newHashes
+            recordRecentTransactions maxRecent $ V.map sfst newHashes
+        return newHashes
+    -- issue the callback outside the lock.
+    _inmemOnNewTransactions cfg newTxs
+
   where
     insertCheck :: IO (Vector (T3 TransactionHash HopCount t))
     insertCheck = if runCheck == CheckedInsert
@@ -454,7 +458,7 @@ insertInMem cfg lock runCheck txs0 = do
             !bytes = SB.toShort $! encodeTx tx
             !expTime = txMetaExpiryTime $ txMetadata txcfg tx
             !x = PendingEntry gp gl bytes expTime hops
-        in T2 (HashMap.insert txhash x pending) (soFar . (txhash:))
+        in T2 (HashMap.insert txhash x pending) (soFar . (T2 txhash tx :))
 
 
 ------------------------------------------------------------------------------

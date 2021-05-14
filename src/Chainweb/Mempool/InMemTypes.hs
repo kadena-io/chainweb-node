@@ -79,7 +79,7 @@ data InMemConfig t = InMemConfig {
     -- The set uses 16 bytes per entry.
 
   , _inmemOnNewTransactions
-        :: V.Vector (T3 TransactionHash HopCount t)
+        :: V.Vector (T2 TransactionHash t)
         -> IO ()
     -- ^ A callback that is invoked when new transactions are accepted into the
     -- mempool.
