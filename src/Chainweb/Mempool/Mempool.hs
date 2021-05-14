@@ -122,7 +122,7 @@ import Data.Typeable
 import Data.Vector (Vector)
 import qualified Data.Vector as V
 import qualified Data.Vector.Algorithms.Tim as TimSort
-import Data.Word (Word, Word64)
+import Data.Word
 import GHC.Generics
 import Prelude hiding (log)
 import System.IO.Unsafe (unsafePerformIO)

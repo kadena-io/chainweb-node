@@ -40,7 +40,6 @@ module Chainweb.Mempool.RestAPI
 import Data.Aeson
 import Data.Kind (Type)
 import Data.Text (Text)
-import Data.Word (Word)
 
 import GHC.Generics
 
