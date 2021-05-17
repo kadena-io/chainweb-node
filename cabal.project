@@ -60,3 +60,8 @@ constraints: base64-bytestring <1.1
 constraints: http-client>=0.7.5
 allow-newer: servant-client:http-client
 
+source-repository-package
+    type: git
+    location: https://github.com/larskuhtz/wai
+    subdir: warp-tls
+    tag: 1849ee363fb5c3955b5ded3c0e13a3906375f522
