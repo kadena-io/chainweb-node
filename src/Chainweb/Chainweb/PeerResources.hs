@@ -37,7 +37,7 @@ module Chainweb.Chainweb.PeerResources
 -- * Internal Utils
 , withSocket
 , withPeerDb
-, connectionManger
+, connectionManager
 ) where
 
 import Configuration.Utils hiding (Error, Lens')
@@ -125,7 +125,7 @@ withPeerResources
     -> IO a
 withPeerResources v conf logger inner = withPeerSocket conf $ \(conf', sock) -> do
     withPeerDb_ v conf' $ \peerDb -> do
-        (!mgr, !counter) <- connectionManger peerDb
+        (!mgr, !counter) <- connectionManager peerDb
         withHost mgr v conf' logger $ \conf'' -> do
 
             peer <- unsafeCreatePeer $ _p2pConfigPeer conf''
@@ -266,8 +266,8 @@ newManagerCounter = ManagerCounter
 
 -- Connection Manager
 --
-connectionManger :: PeerDb -> IO (HTTP.Manager, ManagerCounter)
-connectionManger peerDb = do
+connectionManager :: PeerDb -> IO (HTTP.Manager, ManagerCounter)
+connectionManager peerDb = do
     settings <- certificateCacheManagerSettings
         (TlsSecure True certCacheLookup)
 

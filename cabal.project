@@ -14,12 +14,7 @@ debug-info: True
 source-repository-package
     type: git
     location: https://github.com/kadena-io/pact.git
-    tag: 2699c0ba03c5711ce4d2bfc9fc3aae4e22eac057
-
-source-repository-package
-    type: git
-    location: https://github.com/kadena-io/thyme.git
-    tag: 5314711cf0e92c531cd49addcf9d9ffe466c2075
+    tag: 7748a3e704e6116af1fa06ed5ee624812e8cd641
 
 source-repository-package
     type: git
@@ -47,7 +42,6 @@ package pact
 
 allow-newer: pact:*
 allow-newer: rosetta:*
-allow-newer: swagger2:*
 
 -- required by pact
 -- these upper bounds are required in order to not break payload validation

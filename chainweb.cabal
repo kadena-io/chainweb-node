@@ -163,6 +163,7 @@ library
         , Chainweb.Chainweb
         , Chainweb.Chainweb.ChainResources
         , Chainweb.Chainweb.CheckReachability
+        , Chainweb.Chainweb.Configuration
         , Chainweb.Chainweb.CutResources
         , Chainweb.Chainweb.MempoolSyncClient
         , Chainweb.Chainweb.MinerResources
@@ -214,6 +215,7 @@ library
         , Chainweb.Payload.RestAPI.Client
         , Chainweb.PowHash
         , Chainweb.RestAPI
+        , Chainweb.RestAPI.Config
         , Chainweb.RestAPI.Health
         , Chainweb.RestAPI.NetworkID
         , Chainweb.RestAPI.NodeInfo

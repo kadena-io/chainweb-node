@@ -98,6 +98,7 @@ import Chainweb.BlockHeight
 import Chainweb.BlockWeight
 import Chainweb.ChainId
 import Chainweb.Chainweb
+import Chainweb.Chainweb.Configuration
 import Chainweb.Crypto.MerkleLog
 import Chainweb.Cut.Create
 import Chainweb.Difficulty
@@ -161,6 +162,11 @@ instance Arbitrary ChainwebVersion where
 instance MerkleHashAlgorithm a => Arbitrary (MerkleLogHash a) where
     arbitrary = unsafeMerkleLogHash . B.pack
         <$> vector (int merkleLogHashBytesCount)
+
+-- A somewhat boring instance. Mostly the default value.
+--
+instance Arbitrary ChainwebConfiguration where
+    arbitrary = defaultChainwebConfiguration <$> arbitrary
 
 -- -------------------------------------------------------------------------- --
 -- POW
