@@ -159,6 +159,7 @@ applyCmd v logger pdbenv miner gasModel txCtx spv cmdIn mcache0 =
       : ( [ FlagOldReadOnlyBehavior | isPactBackCompatV16 ]
           ++ [ FlagPreserveModuleNameBug | not isModuleNameFix ]
           ++ [ FlagPreserveNsModuleInstallBug | not isModuleNameFix2 ]
+          ++ [ FlagDisablePact40 | not isPactBackCompatV16 ] -- I don't think this is the right condition, but this is just a placeholder
           ++ enablePactEvents' txCtx
         )
 
