@@ -439,7 +439,7 @@ applyUpgrades v cid height
 
     applyCoinV2 = applyTxs (upgradeTransactions v cid)
 
-    applyCoinV3 = applyTxs (coinV3Transactions v)
+    applyCoinV3 = applyTxs coinV3Transactions
 
     applyTxs txsIO = do
       infoLog "Applying upgrade!"

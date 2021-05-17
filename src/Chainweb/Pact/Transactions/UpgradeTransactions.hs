@@ -60,5 +60,5 @@ twentyChainUpgradeTransactions Development cid = case chainIdInt @Int cid of
   c -> internalError $ "Invalid devnet chain id: " <> sshow c
 twentyChainUpgradeTransactions _ _ = return []
 
-coinV3Transactions :: ChainwebVersion -> IO [ChainwebTransaction]
-coinV3Transactions _ = CoinV3.transactions
+coinV3Transactions :: IO [ChainwebTransaction]
+coinV3Transactions = CoinV3.transactions
