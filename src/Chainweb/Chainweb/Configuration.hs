@@ -24,14 +24,6 @@ module Chainweb.Chainweb.Configuration
 , defaultTransactionIndexConfig
 , pTransactionIndexConfig
 
--- * Throttling Configuration
-, ThrottlingConfig(..)
-, throttlingRate
-, throttlingMiningRate
-, throttlingPeerRate
-, throttlingLocalRate
-, defaultThrottlingConfig
-
 -- * Cut Configuration
 , ChainDatabaseGcConfig(..)
 , chainDatabaseGcToText
@@ -61,7 +53,6 @@ module Chainweb.Chainweb.Configuration
 , configP2p
 , configTransactionIndex
 , configBlockGasLimit
-, configThrottling
 , configReorgLimit
 , configRosetta
 , configServiceApi
@@ -121,53 +112,6 @@ instance FromJSON (TransactionIndexConfig -> TransactionIndexConfig) where
 
 pTransactionIndexConfig :: MParser TransactionIndexConfig
 pTransactionIndexConfig = pure id
-
--- -------------------------------------------------------------------------- --
--- Throttling Configuration
-
-data ThrottlingConfig = ThrottlingConfig
-    { _throttlingRate :: !Double
-    , _throttlingMiningRate :: !Double
-        -- ^ The rate should be sufficient to make at least on call per cut. We
-        -- expect an cut to arrive every few seconds.
-        --
-        -- Default is 10 per second.
-    , _throttlingPeerRate :: !Double
-        -- ^ This should throttle aggressively. This endpoint does an expensive
-        -- check of the client. And we want to keep bad actors out of the
-        -- system. There should be no need for a client to call this endpoint on
-        -- the same node more often than at most few times peer minute.
-        --
-        -- Default is 1 per second
-        --
-    , _throttlingLocalRate :: !Double
-    }
-    deriving stock (Eq, Show)
-
-makeLenses ''ThrottlingConfig
-
-defaultThrottlingConfig :: ThrottlingConfig
-defaultThrottlingConfig = ThrottlingConfig
-    { _throttlingRate = 200 -- per second
-    , _throttlingMiningRate = 5 --  per second
-    , _throttlingPeerRate = 21 -- per second, one for each p2p network
-    , _throttlingLocalRate = 0.1  -- per 10 seconds
-    }
-
-instance ToJSON ThrottlingConfig where
-    toJSON o = object
-        [ "global" .= _throttlingRate o
-        , "mining" .= _throttlingMiningRate o
-        , "putPeer" .= _throttlingPeerRate o
-        , "local" .= _throttlingLocalRate o
-        ]
-
-instance FromJSON (ThrottlingConfig -> ThrottlingConfig) where
-    parseJSON = withObject "ThrottlingConfig" $ \o -> id
-        <$< throttlingRate ..: "global" % o
-        <*< throttlingMiningRate ..: "mining" % o
-        <*< throttlingPeerRate ..: "putPeer" % o
-        <*< throttlingLocalRate ..: "local" % o
 
 -- -------------------------------------------------------------------------- --
 -- Cut Coniguration
@@ -320,7 +264,6 @@ data ChainwebConfiguration = ChainwebConfiguration
     , _configReintroTxs :: !Bool
     , _configP2p :: !P2pConfiguration
     , _configTransactionIndex :: !(EnableConfig TransactionIndexConfig)
-    , _configThrottling :: !ThrottlingConfig
     , _configMempoolP2p :: !(EnableConfig MempoolP2pConfig)
     , _configBlockGasLimit :: !Mempool.GasLimit
     , _configPactQueueSize :: !Natural
@@ -360,7 +303,6 @@ defaultChainwebConfiguration v = ChainwebConfiguration
     , _configReintroTxs = True
     , _configP2p = defaultP2pConfiguration
     , _configTransactionIndex = defaultEnableConfig defaultTransactionIndexConfig
-    , _configThrottling = defaultThrottlingConfig
     , _configMempoolP2p = defaultEnableConfig defaultMempoolP2pConfig
     , _configBlockGasLimit = 150000
     , _configPactQueueSize = 2000
@@ -380,7 +322,6 @@ instance ToJSON ChainwebConfiguration where
         , "reintroTxs" .= _configReintroTxs o
         , "p2p" .= _configP2p o
         , "transactionIndex" .= _configTransactionIndex o
-        , "throttling" .= _configThrottling o
         , "mempoolP2p" .= _configMempoolP2p o
         , "gasLimitOfBlock" .= _configBlockGasLimit o
         , "pactQueueSize" .= _configPactQueueSize o
@@ -406,7 +347,6 @@ instance FromJSON (ChainwebConfiguration -> ChainwebConfiguration) where
         <*< configReintroTxs ..: "reintroTxs" % o
         <*< configP2p %.: "p2p" % o
         <*< configTransactionIndex %.: "transactionIndex" % o
-        <*< configThrottling %.: "throttling" % o
         <*< configMempoolP2p %.: "mempoolP2p" % o
         <*< configBlockGasLimit ..: "gasLimitOfBlock" % o
         <*< configPactQueueSize ..: "pactQueueSize" % o

@@ -153,9 +153,6 @@ multiConfig v n = defaultChainwebConfiguration v
     & set (configTransactionIndex . enableConfigEnabled) True
         -- enable transaction index
 
-    & set configThrottling throttling
-        -- throttling is effectively disabled to not slow down the test nodes
-
     & set (configServiceApi . serviceApiConfigPort) 0
     & set (configServiceApi . serviceApiConfigInterface) interface
   where
@@ -163,13 +160,6 @@ multiConfig v n = defaultChainwebConfiguration v
         { _nodeMiningEnabled = True
         , _nodeMiner = noMiner
         , _nodeTestMiners = MinerCount n
-        }
-
-    throttling = defaultThrottlingConfig
-        { _throttlingRate = 10_000 -- per second
-        , _throttlingMiningRate = 10_000 --  per second
-        , _throttlingPeerRate = 10_000 -- per second, one for each p2p network
-        , _throttlingLocalRate = 10_000  -- per 10 seconds
         }
 
 -- | Configure a bootstrap node

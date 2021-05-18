@@ -65,10 +65,6 @@ module Chainweb.Chainweb
 , chainwebPeer
 , chainwebPayloadDb
 , chainwebPactData
-, chainwebThrottler
-, chainwebMiningThrottler
-, chainwebPutPeerThrottler
-, chainwebLocalThrottler
 , chainwebConfig
 , chainwebServiceSocket
 
@@ -79,21 +75,6 @@ module Chainweb.Chainweb
 
 , withChainweb
 , runChainweb
-
--- * Throttler
-, mkGenericThrottler
-, mkMiningThrottler
-, mkPutPeerThrottler
-, mkLocalThrottler
-, checkPathPrefix
-, mkThrottler
-
-, ThrottlingConfig(..)
-, throttlingRate
-, throttlingLocalRate
-, throttlingMiningRate
-, throttlingPeerRate
-, defaultThrottlingConfig
 
 -- * Cut Config
 , CutConfig(..)
@@ -119,7 +100,7 @@ import Data.Bifunctor (second)
 import Data.Foldable
 import Data.Function (on)
 import qualified Data.HashMap.Strict as HM
-import Data.List (isPrefixOf, sortBy)
+import Data.List (sortBy)
 import qualified Data.List as L
 import Data.Maybe
 import qualified Data.Text as T
@@ -132,11 +113,9 @@ import Network.Socket (Socket)
 import Network.Wai
 import Network.Wai.Handler.Warp hiding (Port)
 import Network.Wai.Handler.WarpTLS (WarpTLSException(InsecureConnectionDenied))
-import Network.Wai.Middleware.Throttle
 
 import Prelude hiding (log)
 
-import System.Clock
 import System.LogLevel
 
 -- internal modules
@@ -198,10 +177,6 @@ data Chainweb logger cas = Chainweb
     , _chainwebPayloadDb :: !(PayloadDb cas)
     , _chainwebManager :: !HTTP.Manager
     , _chainwebPactData :: ![(ChainId, PactServerData logger cas)]
-    , _chainwebThrottler :: !(Throttle Address)
-    , _chainwebMiningThrottler :: !(Throttle Address)
-    , _chainwebPutPeerThrottler :: !(Throttle Address)
-    , _chainwebLocalThrottler :: !(Throttle Address)
     , _chainwebConfig :: !ChainwebConfiguration
     , _chainwebServiceSocket :: !(Port, Socket)
     }
@@ -424,14 +399,6 @@ withChainwebInternal conf logger peer serviceSock rocksDb pactDbDir resetDb inne
             let !mLogger = setComponent "miner" logger
                 !mConf = _configMining conf
                 !mCutDb = _cutResCutDb cuts
-                !throt  = _configThrottling conf
-
-            -- initialize throttler
-            throttler <- mkGenericThrottler $ _throttlingRate throt
-            miningThrottler <- mkMiningThrottler $ _throttlingMiningRate throt
-            putPeerThrottler <- mkPutPeerThrottler $ _throttlingPeerRate throt
-            localThrottler <- mkLocalThrottler $ _throttlingLocalRate throt
-            logg Info "initialized throttlers"
 
             -- synchronize pact dbs with latest cut before we start the server
             -- and clients and begin mining.
@@ -468,10 +435,6 @@ withChainwebInternal conf logger peer serviceSock rocksDb pactDbDir resetDb inne
                             , _chainwebPayloadDb = view cutDbPayloadCas $ _cutResCutDb cuts
                             , _chainwebManager = mgr
                             , _chainwebPactData = pactData
-                            , _chainwebThrottler = throttler
-                            , _chainwebMiningThrottler = miningThrottler
-                            , _chainwebPutPeerThrottler = putPeerThrottler
-                            , _chainwebLocalThrottler = localThrottler
                             , _chainwebConfig = conf
                             , _chainwebServiceSocket = serviceSock
                             }
@@ -535,48 +498,6 @@ withChainwebInternal conf logger peer serviceSock rocksDb pactDbDir resetDb inne
             logCr Info "pact db synchronized"
 
 -- -------------------------------------------------------------------------- --
--- Throttling
-
-mkGenericThrottler :: Double -> IO (Throttle Address)
-mkGenericThrottler rate = mkThrottler 5 rate (const True)
-
-mkMiningThrottler :: Double -> IO (Throttle Address)
-mkMiningThrottler rate = mkThrottler 5 rate (checkPathPrefix ["mining", "work"])
-
-mkPutPeerThrottler :: Double -> IO (Throttle Address)
-mkPutPeerThrottler rate = mkThrottler 5 rate $ \r ->
-    elem "peer" (pathInfo r) && requestMethod r == "PUT"
-
-mkLocalThrottler :: Double -> IO (Throttle Address)
-mkLocalThrottler rate = mkThrottler 5 rate (checkPathPrefix path)
-  where
-    path = ["pact", "api", "v1", "local"]
-
-checkPathPrefix
-    :: [T.Text]
-        -- ^ the base rate granted to users of the endpoing
-    -> Request
-    -> Bool
-checkPathPrefix endpoint r = endpoint `isPrefixOf` drop 3 (pathInfo r)
-
--- | The period is 1 second. Burst is 2*rate.
---
-mkThrottler
-    :: Double
-        -- ^ expiration of a stall bucket in seconds
-    -> Double
-        -- ^ the base rate granted to users of the endpoint (requests per second)
-    -> (Request -> Bool)
-        -- ^ Predicate to select requests that are throttled
-    -> IO (Throttle Address)
-mkThrottler e rate c = initThrottler (defaultThrottleSettings $ TimeSpec (ceiling e) 0) -- expiration
-    { throttleSettingsRate = rate -- number of allowed requests per period
-    , throttleSettingsPeriod = 1_000_000 -- 1 second
-    , throttleSettingsBurst = 2 * ceiling rate
-    , throttleSettingsIsThrottled = c
-    }
-
--- -------------------------------------------------------------------------- --
 -- Run Chainweb
 
 -- | Starts server and runs all network clients
@@ -591,20 +512,11 @@ runChainweb cw = do
     logg Info "start chainweb node"
     runConcurrently $ ()
         -- 1. Start serving Rest API
-        <$ Concurrently (serve
-                $ httpLog
-                . throttle (_chainwebPutPeerThrottler cw)
-                . throttle (_chainwebThrottler cw)
-            )
+        <$ Concurrently (serve httpLog)
         -- 2. Start Clients (with a delay of 500ms)
         <* Concurrently (threadDelay 500000 >> clients)
         -- 3. Start serving local API
-        <* Concurrently (threadDelay 500000 >> serveServiceApi
-                ( serviceHttpLog
-                . throttle (_chainwebMiningThrottler cw)
-                . throttle (_chainwebLocalThrottler cw)
-                )
-            )
+        <* Concurrently (threadDelay 500000 >> serveServiceApi serviceHttpLog)
   where
     clients :: IO ()
     clients = do
