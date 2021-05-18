@@ -53,16 +53,14 @@ extra-deps:
   - sbv-8.8
   - neat-interpolation-0.5.1.2
   - megaparsec-9.0.0
-  - github: kadena-io/thyme
-    commit: 6ee9fcb026ebdb49b810802a981d166680d867c9
+  - pact-time-0.2.0.0
 
   # --- Custom Pins --- #
   - github: kadena-io/pact
-    commit: 4dbb17d00a1f74b90a79c730f822fb2fd09e7489
+    commit: 7748a3e704e6116af1fa06ed5ee624812e8cd641
   - github: kadena-io/chainweb-storage
     commit: 07e7eb7596c7105aee42dbdb6edd10e3f23c0d7e
   - github: kadena-io/rosetta
     commit: 1d69bb4ec46c001f2b501121e6c93e83ac60162b
   - github: kadena-io/kadena-ethereum-bridge
     commit: 9838d1266b9ee43c88af6c01cd819e0c96b685e6
-

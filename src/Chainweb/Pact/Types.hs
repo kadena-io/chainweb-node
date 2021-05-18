@@ -118,7 +118,6 @@ module Chainweb.Pact.Types
   -- * miscellaneous
   , defaultOnFatalError
   , defaultReorgLimit
-  , mkExecutionConfig
   , defaultPactServiceConfig
   ) where
 
@@ -133,7 +132,6 @@ import Control.Monad.State.Strict
 import Data.Aeson hiding (Error)
 import Data.Default (def)
 import Data.HashMap.Strict (HashMap)
-import qualified Data.Set as S
 import Data.Text (pack, unpack, Text)
 import Data.Tuple.Strict (T2)
 import Data.Vector (Vector)
@@ -154,7 +152,7 @@ import Pact.Types.Gas
 import qualified Pact.Types.Logger as P
 import Pact.Types.Names
 import Pact.Types.Persistence (ExecutionMode, TxLog)
-import Pact.Types.Runtime (ExecutionConfig(..), ExecutionFlag(..), ModuleData)
+import Pact.Types.Runtime (ExecutionConfig(..), ModuleData)
 import Pact.Types.SPV
 import Pact.Types.Term (PactId(..), Ref)
 
@@ -186,9 +184,6 @@ data PactDbStatePersist = PactDbStatePersist
     , _pdbspPactDbState :: !PactDbState
     }
 makeLenses ''PactDbStatePersist
-
-mkExecutionConfig :: [ExecutionFlag] -> ExecutionConfig
-mkExecutionConfig = ExecutionConfig . S.fromList
 
 -- -------------------------------------------------------------------------- --
 -- Coinbase output utils
