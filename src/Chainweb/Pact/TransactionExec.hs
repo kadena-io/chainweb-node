@@ -28,8 +28,7 @@ module Chainweb.Pact.TransactionExec
 , runPayload
 , readInitModules
 , enablePactEvents'
-, disableNatives
-, nativesToDisable
+, disable40PactNatives
 
   -- * Gas Execution
 , buyGas
@@ -457,7 +456,7 @@ applyUpgrades v cid height
       -- init cache in the pact service state (_psInitCache).
       --
 
-      caches <- local (set txExecutionConfig (mkExecutionConfig [FlagDisablePact40])) $ mapM applyTx txs
+      caches <- local (set txExecutionConfig (mkExecutionConfig [])) $ mapM applyTx txs
       return $ Just (HM.unions caches)
 
     interp = initStateInterpreter $ disablePactNatives' v height $ installCoinModuleAdmin $
@@ -599,7 +598,11 @@ applyExec' interp (ExecMsg parsedCode execData) senderSigs hsh nsp
     | null (_pcExps parsedCode) = throwCmdEx "No expressions found"
     | otherwise = do
 
+      pactFlags <- asks _txExecutionConfig
+
       eenv <- mkEvalEnv nsp (MsgData execData Nothing hsh senderSigs)
+          <&> disable40PactNatives pactFlags
+
       er <- liftIO $! evalExec interp eenv parsedCode
 
       for_ (_erExec er) $ \pe -> debug
@@ -662,7 +665,12 @@ applyContinuation'
     -> NamespacePolicy
     -> TransactionM p EvalResult
 applyContinuation' interp cm@(ContMsg pid s rb d _) senderSigs hsh nsp = do
-    eenv <- mkEvalEnv nsp $ MsgData d pactStep hsh senderSigs
+
+    pactFlags <- asks _txExecutionConfig
+
+    eenv <- mkEvalEnv nsp (MsgData d pactStep hsh senderSigs)
+          <&> disable40PactNatives pactFlags
+
     er <- liftIO $! evalContinuation interp eenv cm
 
     setTxResultState er
@@ -865,14 +873,15 @@ txSizeAccelerationFee costPerByte = total
     power :: Integer = 7
 {-# INLINE txSizeAccelerationFee #-}
 
--- TODO: Make better docstring below? Also, should this be inlined?
 -- | Disable certain natives around pact 4 / coin v3 upgrade
 --
-disableNatives :: [Name] -> EvalState -> EvalState
-disableNatives names = over (evalRefs . rsLoaded) (HM.filterWithKey (\k -> const $ notElem k names))
-
-nativesToDisable :: [Name]
-nativesToDisable = ["enumerate", "distinct"] <&> \name -> Name (BareName name def)
+disable40PactNatives :: ExecutionConfig -> EvalEnv e -> EvalEnv e
+disable40PactNatives ec = if has (ecFlags . ix FlagDisablePact40) ec
+    then over (eeRefStore . rsNatives) (HM.filterWithKey (\k -> const $ notElem k bannedNatives))
+    else id
+  where
+    bannedNatives = ["enumerate", "distinct", "emit-event"] <&> \name -> Name (BareName name def)
+{-# INLINE disable40PactNatives #-}
 
 -- | Set the module cache of a pact 'EvalState'
 --
