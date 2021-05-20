@@ -436,14 +436,10 @@ attemptBuyGas miner (PactDbEnv' dbEnv) txs = do
 
         buyGasEnv <- createGasEnv db cmd gasPrice gasLimit
 
-        let pm = tx ^. to (payloadObj . P._cmdPayload) . P.pMeta
-
-        txCtx <- getTxContext pm
-
         cr <- liftIO
           $! P.catchesPactError
           $! execTransactionM buyGasEnv txst
-          $! buyGas txCtx False cmd miner
+          $! buyGas False cmd miner
 
         case cr of
             Left err -> return (T2 mcache (Left (InsertErrorBuyGas (T.pack $ show err))))

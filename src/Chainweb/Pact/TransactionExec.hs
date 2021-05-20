@@ -184,7 +184,7 @@ applyCmd v logger pdbenv miner gasModel txCtx spv cmdIn mcache0 =
       applyRedeem r
 
     applyBuyGas =
-      catchesPactError (buyGas txCtx isPactBackCompatV16 cmd miner) >>= \case
+      catchesPactError (buyGas isPactBackCompatV16 cmd miner) >>= \case
         Left e -> fatal $ "tx failure for requestKey when buying gas: " <> sshow e
         Right _ -> checkTooBigTx initialGas gasLimit applyPayload redeemAllGas
 
@@ -192,7 +192,7 @@ applyCmd v logger pdbenv miner gasModel txCtx spv cmdIn mcache0 =
       txGasModel .= gasModel
       txGasUsed .= initialGas
 
-      cr <- catchesPactError $! runPayload txCtx cmd managedNamespacePolicy
+      cr <- catchesPactError $! runPayload cmd managedNamespacePolicy
       case cr of
         Left e -> do
           r <- jsonErrorResult e "tx failure for request key when running cmd"
@@ -247,7 +247,6 @@ applyGenesisCmd logger dbEnv spv cmd =
         }
 
     interp = initStateInterpreter
-      $ disableNatives nativesToDisable
       $ initCapabilities [magic_GENESIS, magic_COINBASE]
 
     go = do
@@ -295,7 +294,7 @@ applyCoinbase v logger dbEnv (Miner mid mks) reward@(ParsedDecimal d) txCtx
     tenv = TransactionEnv Transactional dbEnv logger (ctxToPublicData txCtx) noSPVSupport
            Nothing 0.0 rk 0 ec
     txst = TransactionState mc mempty 0 Nothing (_geGasModel freeGasEnv)
-    initState = disablePactNatives txCtx $ setModuleCache mc $ initCapabilities [magic_COINBASE]
+    initState = setModuleCache mc $ initCapabilities [magic_COINBASE]
     rk = RequestKey chash
     parent = _tcParentHeader txCtx
 
@@ -362,7 +361,7 @@ applyLocal logger dbEnv gasModel txCtx spv cmdIn mc execConfig =
     gas0 = initialGasOf (_cmdPayload cmdIn)
 
     applyPayload m = do
-      interp <- gasInterpreter Nothing gas0
+      interp <- gasInterpreter gas0
       cr <- catchesPactError $! case m of
         Exec em ->
           applyExec interp em signers chash managedNamespacePolicy
@@ -459,7 +458,7 @@ applyUpgrades v cid height
       caches <- local (set txExecutionConfig (mkExecutionConfig [])) $ mapM applyTx txs
       return $ Just (HM.unions caches)
 
-    interp = initStateInterpreter $ disablePactNatives' v height $ installCoinModuleAdmin $
+    interp = initStateInterpreter $ installCoinModuleAdmin $
       initCapabilities [mkMagicCapSlot "REMEDIATE"]
 
     applyTx tx = do
@@ -528,13 +527,12 @@ jsonErrorResult err msg = do
       gas (Just logs) Nothing Nothing []
 
 runPayload
-    :: TxContext
-    -> Command (Payload PublicMeta ParsedCode)
+    :: Command (Payload PublicMeta ParsedCode)
     -> NamespacePolicy
     -> TransactionM p (CommandResult [TxLog Value])
-runPayload txCtx cmd nsp = do
+runPayload cmd nsp = do
     g0 <- use txGasUsed
-    interp <- gasInterpreter (Just txCtx) g0
+    interp <- gasInterpreter g0
 
     case payload of
       Exec pm ->
@@ -614,17 +612,6 @@ applyExec' interp (ExecMsg parsedCode execData) senderSigs hsh nsp
 
       return er
 
-disablePactNatives' :: ChainwebVersion -> BlockHeight -> EvalState -> EvalState
-disablePactNatives' v bh
-  | pact4coin3Upgrade After v bh = disableNatives nativesToDisable
-  | otherwise = id
-
-disablePactNatives :: TxContext -> EvalState -> EvalState
-disablePactNatives txCtx = disablePactNatives' version bh
-  where
-    version = ctxVersion txCtx
-    bh = ctxCurrentBlockHeight txCtx
-
 enablePactEvents' :: TxContext -> [ExecutionFlag]
 enablePactEvents' tc
     | enablePactEvents (ctxVersion tc) (ctxCurrentBlockHeight tc) = []
@@ -684,12 +671,12 @@ applyContinuation' interp cm@(ContMsg pid s rb d _) senderSigs hsh nsp = do
 --
 -- see: 'pact/coin-contract/coin.pact#fund-tx'
 --
-buyGas :: TxContext -> Bool -> Command (Payload PublicMeta ParsedCode) -> Miner -> TransactionM p ()
-buyGas txCtx isPactBackCompatV16 cmd (Miner mid mks) = go
+buyGas :: Bool -> Command (Payload PublicMeta ParsedCode) -> Miner -> TransactionM p ()
+buyGas isPactBackCompatV16 cmd (Miner mid mks) = go
   where
     sender = view (cmdPayload . pMeta . pmSender) cmd
 
-    initState mc = setModuleCache mc $ disablePactNatives txCtx $ initCapabilities [magic_GAS]
+    initState mc = setModuleCache mc $ initCapabilities [magic_GAS]
 
     run input = do
       (findPayer isPactBackCompatV16 cmd) >>= \r -> case r of
@@ -837,11 +824,10 @@ checkTooBigTx initialGas gasLimit next onFail
       onFail r
   | otherwise = next
 
-gasInterpreter :: Maybe TxContext -> Gas -> TransactionM db (Interpreter p)
-gasInterpreter mTxCtx g = do
+gasInterpreter :: Gas -> TransactionM db (Interpreter p)
+gasInterpreter g = do
     mc <- use txCache
     return $ initStateInterpreter
-        $ maybe id disablePactNatives mTxCtx
         $ set evalLogGas (Just [("GTxSize",g)]) -- enables gas logging
         $ set evalGas g
         $ setModuleCache mc def
