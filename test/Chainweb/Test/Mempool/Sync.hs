@@ -112,7 +112,8 @@ propSync (peer, txs, missing, later) _ localMempool' = do
         localMempool <-
               timebomb nmissing onInitialSyncFinished =<<
               timebomb (nmissing + nlater) onFinalSyncFinished localMempool'
-        let syncThread = syncMempools noLog peer 10 localMempool remoteMempool
+        syncHistory <- newMempoolSyncHistory
+        let syncThread = syncMempools noLog syncHistory peer 10 localMempool remoteMempool
 
         -- expect remote to deliver transactions during sync.
         -- Timeout to guard against waiting forever
