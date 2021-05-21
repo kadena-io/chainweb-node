@@ -106,7 +106,7 @@ getPendingHandler mempool mbNonce mbHw = liftIO $ do
     -- dlist serialize them latter on a second pass over the list.
     --
     ref <- newIORef mempty
-    !hw' <- mempoolGetPendingTransactions mempool hw $ \chunk ->
+    !hw' <- mempoolGetPendingTransactions mempool hw MempoolNonBlocking $ \chunk ->
         modifyIORef' ref (<> D.fromList (V.toList chunk))
             -- fromList is applied lazily, so the vector isn't traversed at this
             -- point.

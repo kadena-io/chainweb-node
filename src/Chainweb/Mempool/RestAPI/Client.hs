@@ -79,7 +79,7 @@ toMempool version chain txcfg env =
     lookup v = V.fromList <$> go (lookupClient txcfg version chain (V.toList v))
     insert _ v = void $ go (insertClient txcfg version chain (V.toList $ V.map fst v))
 
-    getPending hw cb = do
+    getPending hw _ cb = do
         runClientM (getPendingClient version chain hw) env >>= \case
             Left e -> throwIO e
             Right ptxs -> do

@@ -69,6 +69,7 @@ module Chainweb.Mempool.Mempool
   , TransactionHash(..)
   , TransactionMetadata(..)
   , ValidatedTransaction(..)
+  , MempoolBlockingType(..)
 
   , chainwebTestHashMeta
   , chainwebTestHasher
@@ -378,16 +379,20 @@ data MempoolBackend t = MempoolBackend {
     -- | given a previous high-water mark and a chunk callback function, loops
     -- through the pending candidate transactions and supplies the hashes to
     -- the callback in chunks. No ordering of hashes is presupposed. Returns
-    -- the remote high-water mark.
+    -- the current high-water mark.
   , mempoolGetPendingTransactions
-      :: Maybe HighwaterMark                -- previous high-water mark, if any
-      -> (Vector TransactionHash -> IO ())  -- chunk callback
-      -> IO HighwaterMark                   -- returns remote high water mark
+      :: Maybe HighwaterMark                -- ^ previous high-water mark, if any
+      -> MempoolBlockingType                -- ^ block waiting for new txs?
+      -> (Vector TransactionHash -> IO ())  -- ^ chunk callback
+      -> IO HighwaterMark                   -- returns new high water mark
 
   -- | A hook to clear the mempool. Intended only for the in-mem backend and
   -- only for testing.
   , mempoolClear :: IO ()
 }
+
+data MempoolBlockingType = MempoolBlocking | MempoolNonBlocking
+  deriving (Show, Eq, Ord)
 
 noopMempoolPreBlockCheck :: MempoolPreBlockCheck t
 noopMempoolPreBlockCheck _ _ v = return $! V.replicate (V.length v) True
@@ -425,7 +430,7 @@ noopMempool = do
     noopAddToBadList = const $ return ()
     noopCheckBadList v = return $ V.replicate (V.length v) False
     noopGetBlock _ _ _ = return V.empty
-    noopGetPending = const $ const $ return (mkHighwaterMark 0 0)
+    noopGetPending = const $ const $ const $ return (mkHighwaterMark 0 0)
     noopClear = return ()
 
 
@@ -582,8 +587,8 @@ syncMempools' log0 syncHistoryState peer us localMempool remoteMempool = sync
         -- Intialize and collect SyncState
         let emptySyncState = SyncState 0 [] HashSet.empty False
         syncState <- newIORef emptySyncState
-        remoteHw <- mempoolGetPendingTransactions remoteMempool oldRemoteHw $
-                    syncChunk syncState
+        remoteHw <- mempoolGetPendingTransactions remoteMempool oldRemoteHw
+                        MempoolNonBlocking $ syncChunk syncState
         (SyncState numMissingFromLocal missingChunks remoteHashes _) <-
             readIORef syncState
         -- immediately destroy ioref contents to assist GC
@@ -595,11 +600,12 @@ syncMempools' log0 syncHistoryState peer us localMempool remoteMempool = sync
     --
     push ourHw0 remoteHashes = do
         ref <- newIORef 0
-        ourHw <- mempoolGetPendingTransactions localMempool ourHw0 $ \chunk -> do
-            let chunk' = V.filter (not . flip HashSet.member remoteHashes) chunk
-            unless (V.null chunk') $ do
-                sendChunk chunk'
-                modifyIORef' ref (+ V.length chunk')
+        ourHw <- mempoolGetPendingTransactions localMempool ourHw0 MempoolNonBlocking $
+                 \chunk -> do
+                     let chunk' = V.filter (not . flip HashSet.member remoteHashes) chunk
+                     unless (V.null chunk') $ do
+                         sendChunk chunk'
+                         modifyIORef' ref (+ V.length chunk')
         numPushed <- readIORef ref
         return (numPushed, ourHw)
 

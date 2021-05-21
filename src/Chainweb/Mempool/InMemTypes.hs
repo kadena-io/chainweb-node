@@ -23,6 +23,7 @@ module Chainweb.Mempool.InMemTypes
 
 ------------------------------------------------------------------------------
 import Control.Concurrent.MVar (MVar)
+import Control.Concurrent.STM.TVar
 import Control.DeepSeq
 
 import Data.Aeson
@@ -108,11 +109,14 @@ data InMemoryMempoolData t = InMemoryMempoolData {
     -- possibly have to pay gas for it several times.
 
   , _inmemCurrentTxs :: !(IORef CurrentTxs)
-    -- ^ The set of non-expired transactions that have been addeded to a block.
-    -- Transactions are remove from the set of pending transactions when they
+    -- ^ The set of non-expired transactions that have been added to a block.
+    -- Transactions are removed from the set of pending transactions when they
     -- are added to a block. This set is used to prevent transactions from being
-    -- re-inserts when synchronizing with nodes that haven't yet validated the
+    -- re-inserted when synchronizing with nodes that haven't yet validated the
     -- block.
+
+  , _inmemHighwater :: TVar HighwaterMark
+    -- ^ Allows clients to efficiently wait for new data
 }
 
 ------------------------------------------------------------------------------

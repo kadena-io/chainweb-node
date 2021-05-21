@@ -88,6 +88,20 @@ runMempoolSyncClient mgr memP2pConfig peerRes chain = bracket create destroy go
     logg = logFunctionText syncLogger
     syncLogger = setComponent "mempool-sync" $ _chainResLogger chain
 
+
+_mempoolGossipP2pSession
+    :: ChainResources logger
+    -> P2pSession
+_mempoolGossipP2pSession _chain logg0 env _peerInfo = do
+    logg Debug "mempool gossip session starting"
+    _ <- fail "unimplemented"
+    logg Debug "mempool gossip session finished"
+    return True
+  where
+    remote = T.pack $ Sv.showBaseUrl $ Sv.baseUrl env
+    logg d m = logg0 d $ T.concat ["[mempool gossip@", remote, "]:", m]
+
+
 mempoolSyncP2pSession
     :: ChainResources logger
     -> Seconds
