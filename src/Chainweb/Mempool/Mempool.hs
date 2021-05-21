@@ -386,6 +386,9 @@ data MempoolBackend t = MempoolBackend {
       -> (Vector TransactionHash -> IO ())  -- ^ chunk callback
       -> IO HighwaterMark                   -- returns new high water mark
 
+    -- | Returns the current highwater mark.
+  , mempoolGetHighwaterMark :: IO HighwaterMark
+
   -- | A hook to clear the mempool. Intended only for the in-mem backend and
   -- only for testing.
   , mempoolClear :: IO ()
@@ -412,6 +415,7 @@ noopMempool = do
     , mempoolPrune = return ()
     , mempoolGetPendingTransactions = noopGetPending
     , mempoolClear = noopClear
+    , mempoolGetHighwaterMark = noopGetHw
     }
   where
     noopCodec = Codec (const "") (const $ Left "unimplemented")
@@ -432,6 +436,7 @@ noopMempool = do
     noopGetBlock _ _ _ = return V.empty
     noopGetPending = const $ const $ const $ return (mkHighwaterMark 0 0)
     noopClear = return ()
+    noopGetHw = return $ mkHighwaterMark 0 0
 
 
 ------------------------------------------------------------------------------

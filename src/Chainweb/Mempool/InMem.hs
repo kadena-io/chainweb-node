@@ -127,6 +127,7 @@ toMempoolBackend logger mempool = do
       , mempoolPrune = prune
       , mempoolGetPendingTransactions = getPending
       , mempoolClear = clear
+      , mempoolGetHighwaterMark = getHighwater
       }
   where
     cfg = _inmemCfg mempool
@@ -143,6 +144,7 @@ toMempoolBackend logger mempool = do
     checkBadList = checkBadListInMem lockMVar
     getBlock = getBlockInMem cfg lockMVar
     getPending = getPendingInMem cfg nonce lockMVar
+    getHighwater = getHighwaterInMem lockMVar
     prune = pruneInMem lockMVar
     clear = clearInMem nonce lockMVar
 
@@ -751,3 +753,10 @@ awaitNewHighwaterMark mv old = do
         hw <- readTVar tvar
         when (hw == old) retry
         return ()
+
+
+------------------------------------------------------------------------------
+getHighwaterInMem :: MVar (InMemoryMempoolData t) -> IO HighwaterMark
+getHighwaterInMem mv = do
+    tvar <- _inmemHighwater <$> readMVar mv
+    atomically $ readTVar tvar

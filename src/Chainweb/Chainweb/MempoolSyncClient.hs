@@ -23,7 +23,9 @@ import Control.Lens hiding ((.=), (<.>))
 import Control.Monad
 import Control.Monad.Catch
 
+import Data.IORef
 import qualified Data.Text as T
+import qualified Data.Vector as V
 
 import qualified Network.HTTP.Client as HTTP
 
@@ -90,14 +92,33 @@ runMempoolSyncClient mgr memP2pConfig peerRes chain = bracket create destroy go
 
 
 _mempoolGossipP2pSession
-    :: ChainResources logger
+    :: Mempool.HopCount           -- ^ only send txs with this many hops or fewer.
+    -> Mempool.MempoolBackend t   -- ^ our pool
+    -> Mempool.MempoolBackend t   -- ^ remote pool
     -> P2pSession
-_mempoolGossipP2pSession _chain logg0 env _peerInfo = do
+_mempoolGossipP2pSession maxHops pool peerMempool logg0 env _peerInfo = do
     logg Debug "mempool gossip session starting"
-    _ <- fail "unimplemented"
+    _ <- Mempool.mempoolGetHighwaterMark pool >>= go
     logg Debug "mempool gossip session finished"
     return True
   where
+    -- Loops forever, sending any new transactions sent to the mempool to the remote peer.
+    go hw = do
+        hashref <- newIORef []
+        newhw <- Mempool.mempoolGetPendingTransactions pool (Just hw) Mempool.MempoolBlocking $
+                 \chunk -> modifyIORef' hashref (chunk:)
+        hashes <- V.concat <$> readIORef hashref
+        results <- Mempool.mempoolLookup pool hashes
+        let txs = V.map (\(tx, hop) -> (tx, hop + 1)) $
+                  V.filter (\(_, hops) -> hops <= maxHops) $
+                  V.mapMaybe toResult results
+        Mempool.mempoolInsert peerMempool Mempool.CheckedInsert txs
+        go newhw
+
+    toResult Mempool.Missing = Nothing
+    toResult (Mempool.Pending t Nothing) = Just (t, Mempool.mAXIMUM_HOP_COUNT)
+    toResult (Mempool.Pending t (Just x)) = Just (t, x)
+
     remote = T.pack $ Sv.showBaseUrl $ Sv.baseUrl env
     logg d m = logg0 d $ T.concat ["[mempool gossip@", remote, "]:", m]
 

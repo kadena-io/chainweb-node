@@ -71,6 +71,7 @@ toMempool version chain txcfg env =
     , mempoolGetPendingTransactions = getPending
     , mempoolPrune = unsupported
     , mempoolClear = clear
+    , mempoolGetHighwaterMark = unsupported
     }
   where
     go m = runClientM m env >>= either throwIO return
