@@ -408,7 +408,7 @@ attemptBuyGas miner (PactDbEnv' dbEnv) txs = do
 
         pd <- getTxContext (publicMetaOf cmd)
         spv <- use psSpvSupport
-        let ec = mkExecutionConfig
+        let ec = P.mkExecutionConfig
               [ P.FlagDisableModuleInstall
               , P.FlagDisableHistoryInTransactionalMode ]
         return $! TransactionEnv P.Transactional db l (ctxToPublicData pd) spv nid gp rk gl ec
@@ -545,7 +545,7 @@ execLocal cmd = withDiscardedBatch $ do
     mc <- use psInitCache
     pd <- getTxContext (publicMetaOf $! payloadObj <$> cmd)
     spv <- use psSpvSupport
-    let execConfig = mkExecutionConfig $
+    let execConfig = P.mkExecutionConfig $
             [ P.FlagAllowReadInLocal | _psAllowReadsInLocal ] ++
             enablePactEvents' pd
         logger = P.newLogger _psLoggers "execLocal"
