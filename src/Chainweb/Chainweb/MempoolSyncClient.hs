@@ -94,7 +94,7 @@ mempoolSyncP2pSession
     -> P2pSession
 mempoolSyncP2pSession chain (Seconds pollInterval) logg0 env peerInfo = do
     logg Debug "mempool sync session starting"
-    Mempool.syncMempools' logg peerInfo syncIntervalUs pool peerMempool
+    Mempool.syncMempools' logg syncHistory peerInfo syncIntervalUs pool peerMempool
     logg Debug "mempool sync session finished"
     return True
   where
@@ -108,6 +108,7 @@ mempoolSyncP2pSession chain (Seconds pollInterval) logg0 env peerInfo = do
     logg d m = logg0 d $ T.concat ["[mempool sync@", remote, "]:", m]
 
     pool = _chainResMempool chain
+    syncHistory = _chainResMempoolSyncHistory chain
     txcfg = Mempool.mempoolTxConfig pool
     cid = _chainId chain
     v = _chainwebVersion chain
