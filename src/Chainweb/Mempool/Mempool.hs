@@ -53,33 +53,40 @@
 -- The mempool API is defined as a record-of-functions in 'MempoolBackend'.
 
 module Chainweb.Mempool.Mempool
-  ( MempoolBackend(..)
+  ( GasLimit(..)
+  , HashMeta(..)
+  , HighwaterMark(..)
+  , InsertError(..)
+  , InsertType(..)
+  , LookupResult(..)
+  , MempoolBackend(..)
   , MempoolPreBlockCheck
+  , MempoolTxId
+  , MockTx(..)
+  , ServerNonce
   , TransactionConfig(..)
   , TransactionHash(..)
   , TransactionMetadata(..)
-  , MempoolTxId
-  , HashMeta(..)
   , ValidatedTransaction(..)
-  , LookupResult(..)
-  , MockTx(..)
-  , ServerNonce
-  , HighwaterMark(..)
-  , InsertType(..)
-  , InsertError(..)
 
+  , chainwebTestHashMeta
+  , chainwebTestHasher
   , chainwebTransactionConfig
+  , mockBlockGasLimit
   , mockCodec
   , mockEncode
-  , mockBlockGasLimit
-  , chainwebTestHasher
-  , chainwebTestHashMeta
   , noopMempool
   , noopMempoolPreBlockCheck
+
+  -- ** Syncing types and primitives.
+  , MempoolSyncHistory_(..)
+  , MempoolSyncHistory
+  , MempoolSyncHistoryTable
+
+  , mkHighwaterMark
+  , newMempoolSyncHistory
   , syncMempools
   , syncMempools'
-  , mkHighwaterMark
-  , GasLimit(..)
   ) where
 ------------------------------------------------------------------------------
 import Control.Concurrent.MVar
@@ -122,7 +129,6 @@ import qualified Data.Vector.Algorithms.Tim as TimSort
 import Data.Word (Word64)
 import GHC.Generics
 import Prelude hiding (log)
-import System.IO.Unsafe (unsafePerformIO)
 
 -- internal modules
 
@@ -220,65 +226,62 @@ data PeerSyncHistory = PeerSyncHistory {
   , _histTime :: Time Micros
 }
 
-type SyncHistoryTable = HashMap PeerInfo PeerSyncHistory
-data SyncHistory = SyncHistory {
-    _histTable :: SyncHistoryTable
+type MempoolSyncHistoryTable = HashMap PeerInfo PeerSyncHistory
+data MempoolSyncHistory_ = MempoolSyncHistory_ {
+    _histTable :: MempoolSyncHistoryTable
   , _histOperationCount :: IORef Int
 }
+type MempoolSyncHistory = MVar MempoolSyncHistory_
 
-syncGlobalHistoryTable :: MVar SyncHistory
-syncGlobalHistoryTable = unsafePerformIO $ do
+newMempoolSyncHistory :: IO MempoolSyncHistory
+newMempoolSyncHistory = do
     ref <- newIORef 0
-    newMVar $ SyncHistory mempty ref
-{-# NOINLINE syncGlobalHistoryTable #-}
+    newMVar $ MempoolSyncHistory_ mempty ref
 
-fetchGlobalSyncHistory :: PeerInfo -> IO (Maybe PeerSyncHistory)
-fetchGlobalSyncHistory peer = withMVar syncGlobalHistoryTable $ \tab -> do
+fetchMempoolSyncHistory :: MempoolSyncHistory -> PeerInfo -> IO (Maybe PeerSyncHistory)
+fetchMempoolSyncHistory tabMV peer = withMVar tabMV $ \tab -> do
     let !hm = _histTable tab
     return $ HashMap.lookup peer hm
 
 -- | How frequently to purge the peers table (in # of update operations).
 -- TODO: make configurable?
-syncGlobalHistoryPurgeCount :: Int
-syncGlobalHistoryPurgeCount = 2047
+syncHistoryPurgeCount :: Int
+syncHistoryPurgeCount = 2047
 
 -- | How many peers to remember? Note that we may retain more peers than this
 -- in the local table since they are only cleared every
--- syncGlobalHistoryPurgeCount times a peer entry is updated.
-syncGlobalPeerHistoryMemory :: Int
-syncGlobalPeerHistoryMemory = 4096
+-- syncHistoryPurgeCount times a peer entry is updated.
+syncHistoryPeersToRemember :: Int
+syncHistoryPeersToRemember = 4096
 
-
-purgeOldGlobalHistory :: SyncHistoryTable -> IO SyncHistoryTable
-purgeOldGlobalHistory tab = do
+purgeOldSyncHistory :: MempoolSyncHistoryTable -> IO MempoolSyncHistoryTable
+purgeOldSyncHistory tab = do
     mvec <- V.unsafeThaw $ V.fromList $ HashMap.toList tab
     TimSort.sortBy comparator mvec
-    v <- V.take syncGlobalPeerHistoryMemory <$> V.unsafeFreeze mvec
+    v <- V.take syncHistoryPeersToRemember <$> V.unsafeFreeze mvec
     return $! HashMap.fromList $ V.toList v
   where
     -- reverse-comparison on time, i.e. newest-first
     comparator = flip (compare `on` (_histTime  . snd))
 
-
-updateGlobalSyncHistory :: PeerInfo -> HighwaterMark -> HighwaterMark -> IO ()
-updateGlobalSyncHistory peer ourHwMark theirHwMark =
-    modifyMVar syncGlobalHistoryTable $ \ght -> do
+updateSyncHistory :: MempoolSyncHistory -> PeerInfo -> HighwaterMark -> HighwaterMark -> IO ()
+updateSyncHistory mv peer ourHwMark theirHwMark =
+    modifyMVar mv $ \ght -> do
         let !countRef = _histOperationCount ght
         !count <- readIORef countRef
         -- update count; every K iterations we'll purge the table
-        tab <- if (count >= syncGlobalHistoryPurgeCount)
+        tab <- if (count >= syncHistoryPurgeCount)
                  then do
                    writeIORef countRef 0
-                   purgeOldGlobalHistory $ _histTable ght
+                   purgeOldSyncHistory $ _histTable ght
                  else do
                    writeIORef countRef $! count + 1
                    return $! _histTable ght
         !now <- getCurrentTimeIntegral
         let !entry = PeerSyncHistory ourHwMark theirHwMark now
         let !tab' = HashMap.insert peer entry tab
-        let !newGHT = SyncHistory tab' countRef
+        let !newGHT = MempoolSyncHistory_ tab' countRef
         return (newGHT, ())
-
 
 data InsertError = InsertErrorDuplicate
                  | InsertErrorInvalidTime
@@ -453,6 +456,7 @@ data SyncState = SyncState {
 syncMempools'
     :: Show t
     => LogFunctionText
+    -> MempoolSyncHistory
     -> PeerInfo
     -> Int
         -- ^ polling interval in microseconds
@@ -461,8 +465,7 @@ syncMempools'
     -> MempoolBackend t
         -- ^ remote mempool
     -> IO ()
-syncMempools' log0 peer us localMempool remoteMempool = sync
-
+syncMempools' log0 syncHistoryState peer us localMempool remoteMempool = sync
   where
     maxCnt = 5000
         -- don't pull more than this many new transactions from a single peer in
@@ -525,7 +528,7 @@ syncMempools' log0 peer us localMempool remoteMempool = sync
     sync = finally initialSync (deb "sync exiting")
 
     initialSync = do
-        mHistory <- fetchGlobalSyncHistory peer
+        mHistory <- fetchMempoolSyncHistory syncHistoryState peer
         let ourHwMark = fmap _histOurMark mHistory
         let theirHwMark = fmap _histOurMark mHistory
         goSync ourHwMark theirHwMark
@@ -542,7 +545,7 @@ syncMempools' log0 peer us localMempool remoteMempool = sync
         traverse_ fetchMissing missingChunks
         (numPushed, !localHw') <- push localHw remoteHashes
         deb $ "pushed " <> sshow numPushed <> " transactions to remote."
-        updateGlobalSyncHistory peer localHw' remoteHw'
+        updateSyncHistory syncHistoryState peer localHw' remoteHw'
 
         -- TODO: do we really need to loop here?
         approximateThreadDelay us
@@ -584,13 +587,14 @@ syncMempools' log0 peer us localMempool remoteMempool = sync
 syncMempools
     :: Show t
     => LogFunctionText
+    -> MempoolSyncHistory
     -> PeerInfo
     -> Int                  -- ^ polling interval in microseconds
     -> MempoolBackend t     -- ^ local mempool
     -> MempoolBackend t     -- ^ remote mempool
     -> IO ()
-syncMempools log peer us localMempool remoteMempool =
-    syncMempools' log peer us localMempool remoteMempool
+syncMempools log state peer us localMempool remoteMempool =
+    syncMempools' log state peer us localMempool remoteMempool
 
 ------------------------------------------------------------------------------
 -- | Raw/unencoded transaction hashes.

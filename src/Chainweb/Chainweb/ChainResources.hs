@@ -22,6 +22,7 @@ module Chainweb.Chainweb.ChainResources
 ( ChainResources(..)
 , chainResBlockHeaderDb
 , chainResMempool
+, chainResMempoolSyncHistory
 , chainResLogger
 , chainResPact
 , withChainResources
@@ -32,9 +33,7 @@ import Control.Lens hiding ((.=), (<.>))
 
 import Data.Maybe
 
-
 import Prelude hiding (log)
-
 
 -- internal modules
 
@@ -44,7 +43,8 @@ import Chainweb.Logger
 import qualified Chainweb.Mempool.Consensus as MPCon
 import qualified Chainweb.Mempool.InMem as Mempool
 import qualified Chainweb.Mempool.InMemTypes as Mempool
-import Chainweb.Mempool.Mempool (MempoolBackend)
+import Chainweb.Mempool.Mempool
+    (MempoolBackend, MempoolSyncHistory, newMempoolSyncHistory)
 import Chainweb.Pact.Service.PactInProcApi
 import Chainweb.Pact.Service.Types
 import Chainweb.Payload.PayloadStore
@@ -61,6 +61,7 @@ data ChainResources logger = ChainResources
     { _chainResBlockHeaderDb :: !BlockHeaderDb
     , _chainResLogger :: !logger
     , _chainResMempool :: !(MempoolBackend ChainwebTransaction)
+    , _chainResMempoolSyncHistory :: !MempoolSyncHistory
     , _chainResPact :: PactExecutionService
     }
 
@@ -96,6 +97,7 @@ withChainResources
       pexMv <- newEmptyMVar
       let mempoolCfg = mempoolCfg0 pexMv
       Mempool.withInMemoryMempool_ (setComponent "mempool" logger) mempoolCfg v $ \mempool -> do
+        syncHistory <- newMempoolSyncHistory
         mpc <- MPCon.mkMempoolConsensus mempool cdb $ Just payloadDb
         withPactService v cid (setComponent "pact" logger) mpc cdb
                         payloadDb pactDbDir pactConfig $ \requestQ -> do
@@ -107,6 +109,7 @@ withChainResources
                 { _chainResBlockHeaderDb = cdb
                 , _chainResLogger = logger
                 , _chainResMempool = mempool
+                , _chainResMempoolSyncHistory = syncHistory
                 , _chainResPact = pex
                 }
   where
