@@ -10,19 +10,22 @@
   "Gas cost of loading fungible contract"
   840 (env-gas))
 
-(env-gas 0) (env-gaslog)
-(load "coin.pact")
+(let ((f (try "coin.pact" (read-msg "coin-file"))))
+  (env-gas 0) (env-gaslog)
+  (with-applied-env
+    (load f)))
 (env-gaslog)
 (expect
   "Gas cost of loading coin contract"
-  3301 (env-gas))
+  (try 3301 (read-integer "coin-load-gas"))
+  (env-gas))
 
 (create-table coin.coin-table)
 (create-table coin.allocation-table)
 
 (commit-tx)
 
-(verify 'coin)
+;(verify 'coin)
 
 ;; Account creation and account details unit tests
 
@@ -527,9 +530,10 @@
     "success"))
 
 ; make sure chain-id is enforced in the yield
+; using Pact40 error messages
 (expect-failure
   "create side of cross-chain transfer fails yield on wrong chain"
-  "does not match (chain"
+  "yield provenance"
   (continue-pact 1 false (hash "burn-create")
     { "create-account": 'doug
     , "create-account-guard": (read-keyset 'doug)
@@ -542,11 +546,7 @@
 (expect
   "create side of cross-chain transfer succeeds"
   "Write succeeded"
-  (continue-pact 1 false (hash "burn-create")
-    { "receiver": 'doug
-    , "receiver-guard": (read-keyset 'doug)
-    , "amount": 1.0
-    }))
+  (continue-pact 1 false (hash "burn-create")))
 
 ; double spends are disallowed by construction
 (expect-failure

@@ -59,14 +59,13 @@ import Chainweb.Test.Utils
 import Chainweb.Transaction
 import Chainweb.Version (ChainwebVersion(..))
 import Chainweb.Version.Utils (someChainId)
-import Chainweb.Utils (sshow, tryAllSynchronous, decodeB64UrlNoPaddingText)
+import Chainweb.Utils (sshow, tryAllSynchronous)
 
 import Pact.Types.Command
 import Pact.Types.Hash
 import Pact.Types.PactValue
 import Pact.Types.Persistence
 import Pact.Types.Pretty
-import Pact.Types.Runtime (PactEvent(..),ModuleHash(..))
 
 testVersion :: ChainwebVersion
 testVersion = FastTimedCPM petersonChainGraph
@@ -243,13 +242,8 @@ testTfrGas = (V.singleton <$> tx,test)
     test (Right (TestResponse [(_,cr)] _)) = do
       checkPactResultSuccess "transfer succeeds" (_crResult cr) $ \pv ->
         assertEqual "transfer succeeds" (pString "Write succeeded") pv
-      mh <- decodeB64UrlNoPaddingText "_S6HOO3J8-dEusvtnjSF4025dAxKu6eFSIOZocQwimA"
-      assertEqual "event found"
-          [PactEvent "TRANSFER"
-            [pString "sender00",pString "sender01",pDecimal 1.0]
-            "coin"
-            (ModuleHash (Hash mh))]
-          (_crEvents cr)
+      e <- mkTransferEvent "sender00" "sender01" 1.0 "coin" "_S6HOO3J8-dEusvtnjSF4025dAxKu6eFSIOZocQwimA"
+      assertEqual "event found" [e] (_crEvents cr)
     test r = assertFailure $ "expected single test response: " ++ show r
 
 testBadSenderFails :: TxsTest

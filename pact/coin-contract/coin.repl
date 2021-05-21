@@ -520,6 +520,7 @@
     "success"))
 
 ; make sure chain-id is enforced in the yield
+(env-exec-config ['DisablePact40])
 (expect-failure
   "create side of cross-chain transfer fails yield on wrong chain"
   "does not match (chain"
