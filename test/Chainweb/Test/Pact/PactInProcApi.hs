@@ -53,6 +53,7 @@ import Pact.Types.Command
 import Pact.Types.Hash
 import Pact.Types.PactValue
 import Pact.Types.Persistence
+import Pact.Types.PactError
 import Pact.Types.SPV
 
 import Chainweb.BlockCreationTime
@@ -295,6 +296,12 @@ pact4coin3UpgradeTest bdb mpRefIO pact = do
   tx7_1 <- txResult 1 pwo7
   assertEqual "Events for tx 1 @ block 7" [] (_crEvents tx7_1)
 
+  tx7_2 <- txResult 2 pwo7
+  assertEqual
+    "Should not resolve enumerate pact native"
+    (Just "Cannot resolve enumerate")
+    (tx7_2 ^? crResult . to _pactResult . _Left . to peDoc)
+
   cb7 <- cbResult pwo7
   assertEqual "Coinbase events @ block 7" [] (_crEvents cb7)
 
@@ -337,6 +344,13 @@ pact4coin3UpgradeTest bdb mpRefIO pact = do
   sendTfr <- mkTransferEvent "sender00" "" 0.0123 "coin" v3Hash
   assertEqual "Events for tx2 @ block 22" [gasEv2,sendTfr] (_crEvents tx22_2)
 
+  tx22_3 <- txResult 3 pwo22
+  assertEqual
+    "Should resolve enumerate pact native"
+    (Just $ PList $ V.fromList $ PLiteral . LInteger <$> [1..10])
+    (tx22_3 ^? crResult . to _pactResult . _Right)
+
+
   -- test receive XChain events
   pwo22_0 <- getPWO bdb chain0
   txRcv <- txResult 0 pwo22_0
@@ -357,7 +371,8 @@ pact4coin3UpgradeTest bdb mpRefIO pact = do
       mpaGetBlock = \_ _ _ bh -> if _blockChainId bh == cid then do
           t0 <- buildHashCmd bh
           t1 <- buildXSend bh
-          return $! V.fromList [t0,t1]
+          t2 <- buildEnumerateCmd bh
+          return $! V.fromList [t0,t1,t2]
           else return mempty
       }
 
@@ -369,7 +384,8 @@ pact4coin3UpgradeTest bdb mpRefIO pact = do
                    t0 <- buildHashCmd bh
                    t1 <- buildReleaseCommand bh
                    t2 <- buildXSend bh
-                   return $! V.fromList [t0,t1,t2]
+                   t3 <- buildEnumerateCmd bh
+                   return $! V.fromList [t0,t1,t2,t3]
                | _blockChainId bh == chain0 = do
                    V.singleton <$> buildXReceive bh proof pid
                | otherwise = return mempty
@@ -382,6 +398,13 @@ pact4coin3UpgradeTest bdb mpRefIO pact = do
         $ set cbCreationTime (toTxCreationTime $ _bct $ _blockCreationTime bh)
         $ mkCmd (sshow bh)
         $ mkExec' "(at 'hash (describe-module 'coin))"
+
+    buildEnumerateCmd bh = buildCwCmd
+        $ set cbSigners [mkSigner' sender00 []]
+        $ set cbChainId (_blockChainId bh)
+        $ set cbCreationTime (toTxCreationTime $ _bct $ _blockCreationTime bh)
+        $ mkCmd (sshow bh)
+        $ mkExec' "(enumerate 1 10)"
 
     buildXSend bh = buildCwCmd
         $ set cbSigners [mkSigner' sender00 []]

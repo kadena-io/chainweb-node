@@ -28,7 +28,7 @@ module Chainweb.Pact.TransactionExec
 , runPayload
 , readInitModules
 , enablePactEvents'
-, disable40PactNatives
+, disablePact40Natives
 
   -- * Gas Execution
 , buyGas
@@ -599,7 +599,7 @@ applyExec' interp (ExecMsg parsedCode execData) senderSigs hsh nsp
       pactFlags <- asks _txExecutionConfig
 
       eenv <- mkEvalEnv nsp (MsgData execData Nothing hsh senderSigs)
-          <&> disable40PactNatives pactFlags
+          <&> disablePact40Natives pactFlags
 
       er <- liftIO $! evalExec interp eenv parsedCode
 
@@ -656,7 +656,7 @@ applyContinuation' interp cm@(ContMsg pid s rb d _) senderSigs hsh nsp = do
     pactFlags <- asks _txExecutionConfig
 
     eenv <- mkEvalEnv nsp (MsgData d pactStep hsh senderSigs)
-          <&> disable40PactNatives pactFlags
+          <&> disablePact40Natives pactFlags
 
     er <- liftIO $! evalContinuation interp eenv cm
 
@@ -861,13 +861,13 @@ txSizeAccelerationFee costPerByte = total
 
 -- | Disable certain natives around pact 4 / coin v3 upgrade
 --
-disable40PactNatives :: ExecutionConfig -> EvalEnv e -> EvalEnv e
-disable40PactNatives ec = if has (ecFlags . ix FlagDisablePact40) ec
+disablePact40Natives :: ExecutionConfig -> EvalEnv e -> EvalEnv e
+disablePact40Natives ec = if has (ecFlags . ix FlagDisablePact40) ec
     then over (eeRefStore . rsNatives) (HM.filterWithKey (\k -> const $ notElem k bannedNatives))
     else id
   where
     bannedNatives = ["enumerate", "distinct", "emit-event"] <&> \name -> Name (BareName name def)
-{-# INLINE disable40PactNatives #-}
+{-# INLINE disablePact40Natives #-}
 
 -- | Set the module cache of a pact 'EvalState'
 --
