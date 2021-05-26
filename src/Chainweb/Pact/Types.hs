@@ -95,7 +95,6 @@ module Chainweb.Pact.Types
   , psSpvSupport
   , getInitCache
   , updateInitCache
-  , updateInitCache'
 
     -- * Pact Service Monad
   , PactServiceM(..)
@@ -135,6 +134,7 @@ import Control.Monad.State.Strict
 import Data.Aeson hiding (Error,(.=))
 import Data.Default (def)
 import Data.HashMap.Strict (HashMap)
+import qualified Data.HashMap.Strict as HM
 import qualified Data.Map.Strict as M
 import Data.Text (pack, unpack, Text)
 import Data.Tuple.Strict (T2)
@@ -156,9 +156,9 @@ import Pact.Types.Gas
 import qualified Pact.Types.Logger as P
 import Pact.Types.Names
 import Pact.Types.Persistence (ExecutionMode, TxLog)
-import Pact.Types.Runtime (ExecutionConfig(..), ModuleData)
+import Pact.Types.Runtime (ExecutionConfig(..), ModuleData(..))
 import Pact.Types.SPV
-import Pact.Types.Term (PactId(..), Ref)
+import Pact.Types.Term
 
 -- internal chainweb modules
 
@@ -376,7 +376,7 @@ defaultOnFatalError lf pex t = do
 
 data PactServiceState = PactServiceState
     { _psStateValidated :: !(Maybe BlockHeader)
-    , _psInitCache :: ![(BlockHeight,ModuleCache)]
+    , _psInitCache :: !(M.Map BlockHeight ModuleCache)
     , _psParentHeader :: !ParentHeader
     , _psSpvSupport :: !SPVSupport
     }
@@ -384,22 +384,27 @@ makeLenses ''PactServiceState
 
 getInitCache :: PactServiceM cas ModuleCache
 getInitCache = get >>= \PactServiceState{..} ->
-    getCacheForHeight (_blockHeight $ _parentHeader _psParentHeader) _psInitCache
-  where
-    getCacheForHeight _ [] = return mempty
-    getCacheForHeight pbh ((bh,mc):rs)
-        | bh > pbh = return mc
-        | otherwise = getCacheForHeight pbh rs
-
-updateInitCache :: ModuleCache -> PactServiceM cas ()
-updateInitCache = updateInitCache' const
-
-updateInitCache' :: (ModuleCache -> ModuleCache -> ModuleCache) -> ModuleCache -> PactServiceM cas ()
-updateInitCache' f mc = get >>= \PactServiceState{..} -> do
-    psInitCache .=
-        reverse (M.toList (M.insertWith f (pbh _psParentHeader) mc (M.fromList _psInitCache)))
+    case M.lookupLT (pbh _psParentHeader) _psInitCache of
+      Just (_,mc) -> return mc
+      Nothing -> return mempty
   where
     pbh = _blockHeight . _parentHeader
+
+_debugMC :: Text -> PactServiceM cas ()
+_debugMC t = do
+  mc <- fmap (fmap instr) <$> use psInitCache
+  liftIO $ print (t,mc)
+  where
+    instr (ModuleData{..},_) = preview (_MDModule . mHash) _mdModule
+
+
+updateInitCache :: (BlockHeight -> BlockHeight) -> ModuleCache -> PactServiceM cas ()
+updateInitCache bf mc = get >>= \PactServiceState{..} -> do
+    let pbh = bf . _blockHeight . _parentHeader $ _psParentHeader
+    _debugMC ("updateInitCache: " <> sshow pbh)
+    psInitCache .= case M.lookupLE pbh _psInitCache of
+      Nothing -> M.singleton pbh mc
+      Just (_,before) -> M.insert pbh (HM.union mc before) _psInitCache
 
 
 -- | Pair parent header with transaction metadata.

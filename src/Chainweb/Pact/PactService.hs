@@ -228,7 +228,7 @@ initializeCoinContract _logger memPoolAccess v cid pwo = do
         PactServiceEnv{..} <- ask
         pd <- getTxContext def
         !mc <- liftIO $ readInitModules _psLogger pdbenv pd
-        updateInitCache mc
+        updateInitCache succ mc
         return $! Discard ()
 
 -- | Lookup a block header.

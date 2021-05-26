@@ -242,14 +242,6 @@ skipDebitGas :: RunGas
 skipDebitGas = return
 
 
-_debugMC :: Text -> PactServiceM cas ()
-_debugMC t = do
-  mc <- fmap (fmap (fmap instr)) <$> use psInitCache
-  liftIO $ print (t,mc)
-  where
-    instr (P.ModuleData{..},_) = preview (P._MDModule . P.mHash) _mdModule
-
-
 
 execTransactions
     :: Bool
@@ -293,9 +285,9 @@ runCoinbase False dbEnv miner enfCBFail usePrecomp mc = do
   where
 
     upgradeInitCache newCache = do
-      _debugMC "upgrade"
+      liftIO $ putStrLn "upgrade"
       logInfo "Updating init cache for upgrade"
-      updateInitCache newCache
+      updateInitCache succ newCache
 
 
 -- | Apply multiple Pact commands, incrementing the transaction Id for each.
@@ -340,7 +332,7 @@ applyPactCmd isGenesis dbEnv cmdIn miner mcache dl = do
                       mcache -}
 
     when isGenesis $
-      updateInitCache' HashMap.union mcache'
+      updateInitCache id mcache'
 
     unless isGenesis $ debugResult "applyPactCmd" result
 
