@@ -393,7 +393,7 @@ _debugMC t = do
 -- | Look up an init cache that is stored before the height of the current parent header.
 getInitCache :: PactServiceM cas ModuleCache
 getInitCache = get >>= \PactServiceState{..} ->
-    case M.lookupLT (pbh _psParentHeader) _psInitCache of
+    case M.lookupLE (pbh _psParentHeader) _psInitCache of
       Just (_,mc) -> return mc
       Nothing -> return mempty
   where
