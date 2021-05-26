@@ -382,13 +382,6 @@ data PactServiceState = PactServiceState
     }
 makeLenses ''PactServiceState
 
-getInitCache :: PactServiceM cas ModuleCache
-getInitCache = get >>= \PactServiceState{..} ->
-    case M.lookupLT (pbh _psParentHeader) _psInitCache of
-      Just (_,mc) -> return mc
-      Nothing -> return mempty
-  where
-    pbh = _blockHeight . _parentHeader
 
 _debugMC :: Text -> PactServiceM cas ()
 _debugMC t = do
@@ -397,7 +390,18 @@ _debugMC t = do
   where
     instr (ModuleData{..},_) = preview (_MDModule . mHash) _mdModule
 
+-- | Look up an init cache that is stored before the height of the current parent header.
+getInitCache :: PactServiceM cas ModuleCache
+getInitCache = get >>= \PactServiceState{..} ->
+    case M.lookupLT (pbh _psParentHeader) _psInitCache of
+      Just (_,mc) -> return mc
+      Nothing -> return mempty
+  where
+    pbh = _blockHeight . _parentHeader
 
+-- | Update init cache at adjusted parent header height (APHH), unioning contents with
+-- any cache found at or before APHH. APHH is modulated by first argument, in practice
+-- it is 'id' for genesis and 'succ' for thereafter.
 updateInitCache :: (BlockHeight -> BlockHeight) -> ModuleCache -> PactServiceM cas ()
 updateInitCache bf mc = get >>= \PactServiceState{..} -> do
     let pbh = bf . _blockHeight . _parentHeader $ _psParentHeader
