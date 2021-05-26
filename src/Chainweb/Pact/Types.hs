@@ -93,6 +93,9 @@ module Chainweb.Pact.Types
   , psInitCache
   , psParentHeader
   , psSpvSupport
+  , getInitCache
+  , updateInitCache
+  , updateInitCache'
 
     -- * Pact Service Monad
   , PactServiceM(..)
@@ -123,15 +126,16 @@ module Chainweb.Pact.Types
 
 import Control.DeepSeq
 import Control.Exception (asyncExceptionFromException, asyncExceptionToException, throw)
-import Control.Lens hiding ((.=))
+import Control.Lens
 import Control.Monad.Catch
 import Control.Monad.Reader
 import Control.Monad.State.Strict
 
 
-import Data.Aeson hiding (Error)
+import Data.Aeson hiding (Error,(.=))
 import Data.Default (def)
 import Data.HashMap.Strict (HashMap)
+import qualified Data.Map.Strict as M
 import Data.Text (pack, unpack, Text)
 import Data.Tuple.Strict (T2)
 import Data.Vector (Vector)
@@ -372,11 +376,30 @@ defaultOnFatalError lf pex t = do
 
 data PactServiceState = PactServiceState
     { _psStateValidated :: !(Maybe BlockHeader)
-    , _psInitCache :: !ModuleCache
+    , _psInitCache :: ![(BlockHeight,ModuleCache)]
     , _psParentHeader :: !ParentHeader
     , _psSpvSupport :: !SPVSupport
     }
 makeLenses ''PactServiceState
+
+getInitCache :: PactServiceM cas ModuleCache
+getInitCache = get >>= \PactServiceState{..} ->
+    getCacheForHeight (_blockHeight $ _parentHeader _psParentHeader) _psInitCache
+  where
+    getCacheForHeight _ [] = return mempty
+    getCacheForHeight pbh ((bh,mc):rs)
+        | bh > pbh = return mc
+        | otherwise = getCacheForHeight pbh rs
+
+updateInitCache :: ModuleCache -> PactServiceM cas ()
+updateInitCache = updateInitCache' const
+
+updateInitCache' :: (ModuleCache -> ModuleCache -> ModuleCache) -> ModuleCache -> PactServiceM cas ()
+updateInitCache' f mc = get >>= \PactServiceState{..} -> do
+    psInitCache .=
+        reverse (M.toList (M.insertWith f (pbh _psParentHeader) mc (M.fromList _psInitCache)))
+  where
+    pbh = _blockHeight . _parentHeader
 
 
 -- | Pair parent header with transaction metadata.

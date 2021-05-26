@@ -851,7 +851,7 @@ enablePactEvents Testnet04 bh = bh >= 660000
 enablePactEvents Development bh = bh >= 120
 enablePactEvents (FastTimedCPM g) bh
     | g == singletonChainGraph || g == pairChainGraph = True
-    | g == petersonChainGraph = bh > 20
+    | g == petersonChainGraph = bh > 10
     | otherwise = False
 enablePactEvents _ bh = bh >= 2
 

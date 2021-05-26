@@ -300,7 +300,7 @@ pact4coin3UpgradeTest bdb mpRefIO pact = do
 
   -- run past v3 upgrade, pact 4 switch
   setMempool mpRefIO mempty
-  forM_ [(8::Int)..21] $ \_i -> runCut'
+  forM_ [(8::Int)..21] $ \_i -> do print _i >> runCut'
 
   -- block 22
   -- get proof

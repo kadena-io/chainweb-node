@@ -46,7 +46,7 @@ import Data.DList (DList(..))
 import qualified Data.DList as DL
 import Data.Either
 import Data.Foldable (toList)
-import qualified Data.HashMap.Strict as HM
+import qualified Data.HashMap.Strict as HashMap
 import qualified Data.Map as Map
 import Data.String.Conv (toS)
 import Data.Text (Text)
@@ -241,6 +241,16 @@ checkCompile tx = case payload of
 skipDebitGas :: RunGas
 skipDebitGas = return
 
+
+_debugMC :: Text -> PactServiceM cas ()
+_debugMC t = do
+  mc <- fmap (fmap (fmap instr)) <$> use psInitCache
+  liftIO $ print (t,mc)
+  where
+    instr (P.ModuleData{..},_) = preview (P._MDModule . P.mHash) _mdModule
+
+
+
 execTransactions
     :: Bool
     -> Miner
@@ -250,7 +260,7 @@ execTransactions
     -> PactDbEnv'
     -> PactServiceM cas Transactions
 execTransactions isGenesis miner ctxs enfCBFail usePrecomp (PactDbEnv' pactdbenv) = do
-    mc <- use psInitCache
+    mc <- getInitCache
     coinOut <- runCoinbase isGenesis pactdbenv miner enfCBFail usePrecomp mc
     txOuts <- applyPactCmds isGenesis pactdbenv ctxs miner mc
     return $! Transactions (V.zip ctxs txOuts) coinOut
@@ -283,8 +293,9 @@ runCoinbase False dbEnv miner enfCBFail usePrecomp mc = do
   where
 
     upgradeInitCache newCache = do
+      _debugMC "upgrade"
       logInfo "Updating init cache for upgrade"
-      modify' $ over psInitCache (HM.union newCache)
+      updateInitCache newCache
 
 
 -- | Apply multiple Pact commands, incrementing the transaction Id for each.
@@ -329,7 +340,7 @@ applyPactCmd isGenesis dbEnv cmdIn miner mcache dl = do
                       mcache -}
 
     when isGenesis $
-      psInitCache <>= mcache'
+      updateInitCache' HashMap.union mcache'
 
     unless isGenesis $ debugResult "applyPactCmd" result
 
