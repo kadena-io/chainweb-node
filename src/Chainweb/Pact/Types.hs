@@ -399,8 +399,8 @@ getInitCache = get >>= \PactServiceState{..} ->
   where
     pbh = _blockHeight . _parentHeader
 
--- | Update init cache at adjusted parent header height (APHH), unioning contents with
--- any cache found at or before APHH. APHH is modulated by first argument, in practice
+-- | Update init cache at adjusted parent block height (APBH), unioning contents with
+-- any cache found at or before APBH. APBH is modulated by first argument, in practice
 -- it is 'id' for genesis and 'succ' for thereafter.
 updateInitCache :: (BlockHeight -> BlockHeight) -> ModuleCache -> PactServiceM cas ()
 updateInitCache bf mc = get >>= \PactServiceState{..} -> do
