@@ -46,7 +46,6 @@ import Data.DList (DList(..))
 import qualified Data.DList as DL
 import Data.Either
 import Data.Foldable (toList)
-import qualified Data.HashMap.Strict as HashMap
 import qualified Data.Map as Map
 import Data.String.Conv (toS)
 import Data.Text (Text)
