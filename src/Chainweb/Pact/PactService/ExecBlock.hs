@@ -284,7 +284,6 @@ runCoinbase False dbEnv miner enfCBFail usePrecomp mc = do
   where
 
     upgradeInitCache newCache = do
-      liftIO $ putStrLn "upgrade"
       logInfo "Updating init cache for upgrade"
       updateInitCache succ newCache
 

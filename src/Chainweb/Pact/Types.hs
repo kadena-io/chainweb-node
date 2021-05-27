@@ -410,7 +410,7 @@ getInitCache = get >>= \PactServiceState{..} ->
 updateInitCache :: (BlockHeight -> BlockHeight) -> ModuleCache -> PactServiceM cas ()
 updateInitCache bf mc = get >>= \PactServiceState{..} -> do
     let pbh = bf . _blockHeight . _parentHeader $ _psParentHeader
-    _debugMC ("updateInitCache: " <> sshow pbh)
+    -- _debugMC ("updateInitCache: " <> sshow pbh)
     psInitCache .= case M.lookupLE pbh _psInitCache of
       Nothing -> M.singleton pbh mc
       Just (_,before) -> M.insert pbh (HM.union mc before) _psInitCache

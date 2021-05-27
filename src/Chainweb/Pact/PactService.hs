@@ -458,7 +458,6 @@ execNewBlock
     -> Miner
     -> PactServiceM cas PayloadWithOutputs
 execNewBlock mpAccess parent miner = handle onTxFailure $ do
-    liftIO $ putStrLn "new"
     updateMempool
     withDiscardedBatch $ do
       newTrans <- withCheckpointerRewind newblockRewindLimit (Just parent) "preBlock" doPreBlock
@@ -573,7 +572,6 @@ execValidateBlock
     -> PactServiceM cas PayloadWithOutputs
 execValidateBlock memPoolAccess currHeader plData = do
     -- The parent block header must be available in the block header database
-    liftIO $ putStrLn "validate"
     target <- getTarget
     psEnv <- ask
     let reorgLimit = fromIntegral $ view psReorgLimit psEnv

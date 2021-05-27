@@ -301,7 +301,6 @@ pact4coin3UpgradeTest bdb mpRefIO pact = do
   -- run past v3 upgrade, pact 4 switch
   setMempool mpRefIO mempty
   cuts <- forM [(8::Int)..21] $ \_i -> do
-      print _i
       runCut'
       if _i == 18
           then fmap Just (readMVar $ _bdbCut bdb)
@@ -320,7 +319,7 @@ pact4coin3UpgradeTest bdb mpRefIO pact = do
   setMempool mpRefIO $ getBlock22 (Just proof) pid
   runCut'
   pwo22 <- getPWO bdb cid
-  let v3Hash = "QEfJaAE_b6Fn3jWhvOHH8esk7dN9XAyIAkZ15YGZJM4"
+  let v3Hash = "WmUXDy-9Jx9n0TGGbsW3E_alGaDfbX0jZsscI5HMM3E"
 
   cb22 <- cbResult pwo22
   cbEv <- mkTransferEvent "" "NoMiner" 2.304523 "coin" v3Hash
