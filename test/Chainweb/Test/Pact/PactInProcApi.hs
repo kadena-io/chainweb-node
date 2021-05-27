@@ -300,7 +300,14 @@ pact4coin3UpgradeTest bdb mpRefIO pact = do
 
   -- run past v3 upgrade, pact 4 switch
   setMempool mpRefIO mempty
-  forM_ [(8::Int)..21] $ \_i -> do print _i >> runCut'
+  cuts <- forM [(8::Int)..21] $ \_i -> do
+      print _i
+      runCut'
+      if _i == 18
+          then fmap Just (readMVar $ _bdbCut bdb)
+          else return Nothing
+
+  savedCut <- fromMaybeM (userError "A cut should exist here.") $ msum cuts
 
   -- block 22
   -- get proof
@@ -343,6 +350,11 @@ pact4coin3UpgradeTest bdb mpRefIO pact = do
   gasEvRcv <- mkTransferEvent "sender00" "NoMiner" 0.0014 "coin" v3Hash
   rcvTfr <- mkTransferEvent "" "sender00" 0.0123 "coin" v3Hash
   assertEqual "Events for txRcv" [gasEvRcv,rcvTfr] (_crEvents txRcv)
+
+  -- rewind to savedCut (cut 18)
+  void $ swapMVar (_bdbCut bdb) savedCut
+  forM_ [(18 :: Int) .. 21] $ const runCut'
+  runCut'
 
   where
 
