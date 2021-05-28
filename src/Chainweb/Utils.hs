@@ -543,6 +543,12 @@ instance HasTextRepresentation Integer where
     fromText = treadM
     {-# INLINE fromText #-}
 
+instance HasTextRepresentation Double where
+    toText = sshow
+    {-# INLINE toText #-}
+    fromText = treadM
+    {-# INLINE fromText #-}
+
 instance HasTextRepresentation UTCTime where
     toText = T.pack . formatTime defaultTimeLocale iso8601DateTimeFormat
     {-# INLINE toText #-}
