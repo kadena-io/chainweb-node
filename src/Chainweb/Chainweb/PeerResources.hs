@@ -179,13 +179,17 @@ withHost
     -> (P2pConfiguration -> IO a)
     -> IO a
 withHost mgr v conf logger f
+    | null peers = do
+        logFunctionText logger Warn
+            $ "Unable verify configured host " <> toText confHost <> ": No peers are available."
+        f (set (p2pConfigPeer . peerConfigHost) confHost conf)
     | anyIpv4 == confHost = do
-        h <- getHost mgr v logger (_p2pConfigKnownPeers conf) >>= \case
+        h <- getHost mgr v logger peers >>= \case
             Right x -> return x
             Left e -> error $ "withHost failed: " <> T.unpack e
         f (set (p2pConfigPeer . peerConfigHost) h conf)
     | otherwise = do
-        getHost mgr v logger (_p2pConfigKnownPeers conf) >>= \case
+        getHost mgr v logger peers >>= \case
             Left e -> logFunctionText logger Warn
                 $ "Failed to verify configured host " <> toText confHost
                 <> ": " <> e
@@ -198,6 +202,7 @@ withHost mgr v conf logger f
         f conf
   where
     confHost = _peerConfigHost (_p2pConfigPeer conf)
+    peers = _p2pConfigKnownPeers conf
 
 getHost
     :: Logger logger
