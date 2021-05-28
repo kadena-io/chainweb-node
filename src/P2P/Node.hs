@@ -364,7 +364,6 @@ guardPeerDb v nid peerDb pinf = do
     isReserved = case v of
         Mainnet01 -> isReservedHostAddress (_peerAddr pinf)
         Testnet04 -> isReservedHostAddress (_peerAddr pinf)
-        Development -> isReservedHostAddress (_peerAddr pinf)
         _ -> False
 
     -- Currently we are using 'getNewPeerManager' which doesn't validate
