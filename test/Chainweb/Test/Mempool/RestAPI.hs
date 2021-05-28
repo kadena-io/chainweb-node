@@ -58,7 +58,7 @@ newTestServer = mask_ $ do
     tid <- forkIOWithUnmask $ server inMemCfg inmemMv envMv
     inmem <- takeMVar inmemMv
     env <- takeMVar envMv
-    let remoteMp0 = MClient.toMempool version chain txcfg env
+    let remoteMp0 = MClient.toNonGossipingMempool version chain txcfg env
     -- allow remoteMp to call the local mempool's getBlock (for testing)
     let remoteMp = remoteMp0 { mempoolGetBlock = mempoolGetBlock inmem }
     return $! TestServer remoteMp inmem checkMv tid

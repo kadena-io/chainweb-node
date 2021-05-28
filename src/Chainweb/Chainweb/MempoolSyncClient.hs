@@ -104,10 +104,12 @@ mempoolP2pSession
 mempoolP2pSession mcfg chain pollInterval logg0 env peerInfo = do
     -- We'll gossip always, but we won't always sync. Run the gossip and sync
     -- sessions concurrently, and perform sync based on a dice roll.
-    Async.concurrently_ gossipSession syncSession
+
+    peerMempool <- MPC.toMempool v cid txcfg env
+    Async.concurrently_ (gossipSession peerMempool) (syncSession peerMempool)
     return True
   where
-    gossipSession = do
+    gossipSession peerMempool = do
         -- We won't propagate every transaction we receive; instead, we'll
         -- select a maximum gossip level based on an exponential distribution
         -- and only pass on transactions that came to us having fewer than that
@@ -116,12 +118,10 @@ mempoolP2pSession mcfg chain pollInterval logg0 env peerInfo = do
         maxHops <- getGossipLevel mcfg
         mempoolGossipP2pSession maxHops pool peerMempool logg0 env peerInfo
 
-    syncSession = shouldWeRunSync mcfg >>= flip when syncSession_
-    syncSession_ =
+    syncSession p = shouldWeRunSync mcfg >>= flip when (syncSession_ p)
+    syncSession_ peerMempool =
         void $ mempoolSyncP2pSession chain pollInterval pool peerMempool logg0 env peerInfo
 
-    -- TODO: remote version detection goes here
-    peerMempool = MPC.toMempool v cid txcfg env
     pool = _chainResMempool chain
     txcfg = Mempool.mempoolTxConfig pool
     cid = _chainId chain
