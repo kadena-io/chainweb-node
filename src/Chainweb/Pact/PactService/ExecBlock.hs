@@ -285,7 +285,7 @@ runCoinbase False dbEnv miner enfCBFail usePrecomp mc = do
 
     upgradeInitCache newCache = do
       logInfo "Updating init cache for upgrade"
-      updateInitCache succ newCache
+      updateInitCache newCache
 
 
 -- | Apply multiple Pact commands, incrementing the transaction Id for each.
@@ -330,7 +330,7 @@ applyPactCmd isGenesis dbEnv cmdIn miner mcache dl = do
                       mcache -}
 
     when isGenesis $
-      updateInitCache id mcache'
+      updateInitCache mcache'
 
     unless isGenesis $ debugResult "applyPactCmd" result
 

@@ -395,7 +395,7 @@ _debugMC t = do
   where
     instr (ModuleData{..},_) = preview (_MDModule . mHash) _mdModule
 
--- | Look up an init cache that is stored before the height of the current parent header.
+-- | Look up an init cache that is stored at or before the height of the current parent header.
 getInitCache :: PactServiceM cas ModuleCache
 getInitCache = get >>= \PactServiceState{..} ->
     case M.lookupLE (pbh _psParentHeader) _psInitCache of
@@ -404,13 +404,14 @@ getInitCache = get >>= \PactServiceState{..} ->
   where
     pbh = _blockHeight . _parentHeader
 
--- | Update init cache at adjusted parent block height (APBH), unioning contents with
--- any cache found at or before APBH. APBH is modulated by first argument, in practice
--- it is 'id' for genesis and 'succ' for thereafter.
-updateInitCache :: (BlockHeight -> BlockHeight) -> ModuleCache -> PactServiceM cas ()
-updateInitCache bf mc = get >>= \PactServiceState{..} -> do
-    let pbh = bf . _blockHeight . _parentHeader $ _psParentHeader
-    -- _debugMC ("updateInitCache: " <> sshow pbh)
+-- | Update init cache at adjusted parent block height (APBH).
+-- Contents are merged with cache found at or before APBH.
+-- APBH is 0 for genesis and (parent block height + 1) thereafter.
+updateInitCache :: ModuleCache -> PactServiceM cas ()
+updateInitCache mc = get >>= \PactServiceState{..} -> do
+    let bf 0 = 0
+        bf h = succ h
+        pbh = bf . _blockHeight . _parentHeader $ _psParentHeader
     psInitCache .= case M.lookupLE pbh _psInitCache of
       Nothing -> M.singleton pbh mc
       Just (_,before) -> M.insert pbh (HM.union mc before) _psInitCache
