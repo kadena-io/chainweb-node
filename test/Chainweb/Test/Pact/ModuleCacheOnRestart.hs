@@ -114,7 +114,7 @@ testCoinbase iobdb = (initPayloadState >> doCoinbase,snapshotCache)
 
 -- | Interfaces can't be upgraded, but modules can, so verify hash in that case.
 justModuleHashes :: ModuleInitCache -> HM.HashMap ModuleName (Maybe ModuleHash)
-justModuleHashes = upd. snd . last . M.toList where
+justModuleHashes = upd . snd . last . M.toList where
   upd = HM.map $ \v -> preview (_1 . mdModule . _MDModule . mHash) v
 
 genblock :: BlockHeader
