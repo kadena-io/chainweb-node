@@ -28,6 +28,7 @@ module Chainweb.Pact.TransactionExec
 , runPayload
 , readInitModules
 , enablePactEvents'
+, disablePact40Natives
 
   -- * Gas Execution
 , buyGas
@@ -50,6 +51,7 @@ module Chainweb.Pact.TransactionExec
 
 import Control.DeepSeq
 import Control.Lens
+import Control.Monad
 import Control.Monad.Catch
 import Control.Monad.Reader
 import Control.Monad.State.Strict
@@ -244,7 +246,8 @@ applyGenesisCmd logger dbEnv spv cmd =
         , _txGasModel = _geGasModel freeGasEnv
         }
 
-    interp = initStateInterpreter $ initCapabilities [magic_GENESIS, magic_COINBASE]
+    interp = initStateInterpreter
+      $ initCapabilities [magic_GENESIS, magic_COINBASE]
 
     go = do
       cr <- catchesPactError $! runGenesis cmd permissiveNamespacePolicy interp
@@ -452,7 +455,7 @@ applyUpgrades v cid height
       -- init cache in the pact service state (_psInitCache).
       --
 
-      caches <- local (set txExecutionConfig (mkExecutionConfig [FlagDisablePact40])) $ mapM applyTx txs
+      caches <- local (set txExecutionConfig (mkExecutionConfig [])) $ mapM applyTx txs
       return $ Just (HM.unions caches)
 
     interp = initStateInterpreter $ installCoinModuleAdmin $
@@ -593,7 +596,11 @@ applyExec' interp (ExecMsg parsedCode execData) senderSigs hsh nsp
     | null (_pcExps parsedCode) = throwCmdEx "No expressions found"
     | otherwise = do
 
+      pactFlags <- asks _txExecutionConfig
+
       eenv <- mkEvalEnv nsp (MsgData execData Nothing hsh senderSigs)
+          <&> disablePact40Natives pactFlags
+
       er <- liftIO $! evalExec interp eenv parsedCode
 
       for_ (_erExec er) $ \pe -> debug
@@ -645,7 +652,12 @@ applyContinuation'
     -> NamespacePolicy
     -> TransactionM p EvalResult
 applyContinuation' interp cm@(ContMsg pid s rb d _) senderSigs hsh nsp = do
-    eenv <- mkEvalEnv nsp $ MsgData d pactStep hsh senderSigs
+
+    pactFlags <- asks _txExecutionConfig
+
+    eenv <- mkEvalEnv nsp (MsgData d pactStep hsh senderSigs)
+          <&> disablePact40Natives pactFlags
+
     er <- liftIO $! evalContinuation interp eenv cm
 
     setTxResultState er
@@ -663,6 +675,7 @@ buyGas :: Bool -> Command (Payload PublicMeta ParsedCode) -> Miner -> Transactio
 buyGas isPactBackCompatV16 cmd (Miner mid mks) = go
   where
     sender = view (cmdPayload . pMeta . pmSender) cmd
+
     initState mc = setModuleCache mc $ initCapabilities [magic_GAS]
 
     run input = do
@@ -845,6 +858,16 @@ txSizeAccelerationFee costPerByte = total
     bytePenalty = 512
     power :: Integer = 7
 {-# INLINE txSizeAccelerationFee #-}
+
+-- | Disable certain natives around pact 4 / coin v3 upgrade
+--
+disablePact40Natives :: ExecutionConfig -> EvalEnv e -> EvalEnv e
+disablePact40Natives ec = if has (ecFlags . ix FlagDisablePact40) ec
+    then over (eeRefStore . rsNatives) (HM.filterWithKey (\k -> const $ notElem k bannedNatives))
+    else id
+  where
+    bannedNatives = ["enumerate", "distinct", "emit-event"] <&> \name -> Name (BareName name def)
+{-# INLINE disablePact40Natives #-}
 
 -- | Set the module cache of a pact 'EvalState'
 --
