@@ -326,7 +326,7 @@ pact4coin3UpgradeTest bdb mpRefIO pact = do
   setMempool mpRefIO $ getBlock22 (Just proof) pid
   runCut'
   pwo22 <- getPWO bdb cid
-  let v3Hash = "WmUXDy-9Jx9n0TGGbsW3E_alGaDfbX0jZsscI5HMM3E"
+  let v3Hash = "1os_sLAUYvBzspn5jjawtRpJWiH1WPfhyNraeVvSIwU"
 
   cb22 <- cbResult pwo22
   cbEv <- mkTransferEvent "" "NoMiner" 2.304523 "coin" v3Hash
