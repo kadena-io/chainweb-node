@@ -25,6 +25,8 @@ import Control.Lens hiding ((.=), (<.>))
 import Control.Monad
 import Control.Monad.Catch
 
+import Data.HashSet (HashSet)
+import qualified Data.HashSet as HashSet
 import Data.IORef
 import qualified Data.Text as T
 import qualified Data.Vector as V
@@ -106,21 +108,22 @@ mempoolP2pSession mcfg chain pollInterval logg0 env peerInfo = do
     -- sessions concurrently, and perform sync based on a dice roll.
 
     peerMempool <- MPC.toMempool v cid txcfg env
-    Async.concurrently_ (gossipSession peerMempool) (syncSession peerMempool)
+    remoteSet <- newMVar mempty
+    Async.concurrently_ (gossipSession peerMempool remoteSet) (syncSession peerMempool remoteSet)
     return True
   where
-    gossipSession peerMempool = do
+    gossipSession peerMempool remoteSet = do
         -- We won't propagate every transaction we receive; instead, we'll
         -- select a maximum gossip level based on an exponential distribution
         -- and only pass on transactions that came to us having fewer than that
         -- many hops. This biases the network towards low-latency sharing of
         -- new transactions.
         maxHops <- getGossipLevel mcfg
-        mempoolGossipP2pSession maxHops pool peerMempool logg0 env peerInfo
+        mempoolGossipP2pSession maxHops pool peerMempool remoteSet logg0 env peerInfo
 
-    syncSession p = shouldWeRunSync mcfg >>= flip when (syncSession_ p)
-    syncSession_ peerMempool =
-        void $ mempoolSyncP2pSession chain pollInterval pool peerMempool logg0 env peerInfo
+    syncSession p r = shouldWeRunSync mcfg >>= flip when (syncSession_ p r)
+    syncSession_ peerMempool remoteSet =
+        void $ mempoolSyncP2pSession chain pollInterval pool peerMempool remoteSet logg0 env peerInfo
 
     pool = _chainResMempool chain
     txcfg = Mempool.mempoolTxConfig pool
@@ -129,11 +132,12 @@ mempoolP2pSession mcfg chain pollInterval logg0 env peerInfo = do
 
 
 mempoolGossipP2pSession
-    :: Mempool.HopCount           -- ^ only send txs with this many hops or fewer.
-    -> Mempool.MempoolBackend t   -- ^ our pool
-    -> Mempool.MempoolBackend t   -- ^ remote pool
+    :: Mempool.HopCount                        -- ^ only send txs with this many hops or fewer.
+    -> Mempool.MempoolBackend t                -- ^ our pool
+    -> Mempool.MempoolBackend t                -- ^ remote pool
+    -> MVar (HashSet Mempool.TransactionHash)  -- ^ set of remote hashes
     -> P2pSession
-mempoolGossipP2pSession maxHops pool peerMempool logg0 env _peerInfo = do
+mempoolGossipP2pSession maxHops pool peerMempool remoteSet logg0 env _peerInfo = do
     logg Debug "mempool gossip session starting"
     void (Mempool.mempoolGetHighwaterMark pool >>= go) `finally`
         logg Debug "mempool gossip session finished"
@@ -145,17 +149,20 @@ mempoolGossipP2pSession maxHops pool peerMempool logg0 env _peerInfo = do
         newhw <- Mempool.mempoolGetPendingTransactions pool (Just hw) Mempool.MempoolBlocking $
                  \chunk -> modifyIORef' hashref (chunk:)
         hashes <- V.concat <$> readIORef hashref
-        results <- Mempool.mempoolLookup pool hashes
-        let txs = V.map (fmap (+1)) $
-                  V.filter (\(_, hops) -> hops <= maxHops) $
+        results0 <- Mempool.mempoolLookup pool hashes
+        let results = V.zip hashes results0
+        remoteHashes <- readMVar remoteSet
+        let txs = V.map (\(_, t, h) -> (t, h + 1)) $
+                  V.filter (\(txhash, _, hops) -> hops <= maxHops
+                               && not (HashSet.member txhash remoteHashes)) $
                   V.mapMaybe toResult results
         -- TODO: make sure we are using new gossip protocol
         Mempool.mempoolInsert peerMempool Mempool.CheckedInsert txs
         go newhw
 
-    toResult Mempool.Missing = Nothing
-    toResult (Mempool.Pending t Nothing) = Just (t, Mempool.mAXIMUM_HOP_COUNT)
-    toResult (Mempool.Pending t (Just x)) = Just (t, x)
+    toResult (_, Mempool.Missing) = Nothing
+    toResult (txhash, Mempool.Pending t Nothing) = Just (txhash, t, Mempool.mAXIMUM_HOP_COUNT)
+    toResult (txhash, Mempool.Pending t (Just x)) = Just (txhash, t, x)
 
     remote = T.pack $ Sv.showBaseUrl $ Sv.baseUrl env
     logg d m = logg0 d $ T.concat ["[mempool gossip@", remote, "]:", m]
@@ -164,12 +171,13 @@ mempoolSyncP2pSession
     :: Show t
     => ChainResources logger
     -> Seconds
-    -> Mempool.MempoolBackend t   -- ^ our pool
-    -> Mempool.MempoolBackend t   -- ^ remote pool
+    -> Mempool.MempoolBackend t                -- ^ our pool
+    -> Mempool.MempoolBackend t                -- ^ remote pool
+    -> MVar (HashSet Mempool.TransactionHash)  -- ^ set of remote hashes
     -> P2pSession
-mempoolSyncP2pSession chain (Seconds pollInterval) pool peerMempool logg0 env peerInfo = do
+mempoolSyncP2pSession chain (Seconds pollInterval) pool peerMempool remoteSet logg0 env peerInfo = do
     logg Debug "mempool sync session starting"
-    Mempool.syncMempools' logg syncHistory peerInfo syncIntervalUs pool peerMempool
+    Mempool.syncMempools' logg syncHistory peerInfo syncIntervalUs pool peerMempool remoteSet
     logg Debug "mempool sync session finished"
     return True
   where
