@@ -298,8 +298,8 @@ pact4coin3UpgradeTest bdb mpRefIO pact = do
 
   tx7_2 <- txResult 2 pwo7
   assertEqual
-    "Should not resolve enumerate pact native"
-    (Just "Cannot resolve enumerate")
+    "Should not resolve new pact natives"
+    (Just "Cannot resolve distinct")
     (tx7_2 ^? crResult . to _pactResult . _Left . to peDoc)
 
   cb7 <- cbResult pwo7
@@ -382,7 +382,7 @@ pact4coin3UpgradeTest bdb mpRefIO pact = do
       mpaGetBlock = \_ _ _ bh -> if _blockChainId bh == cid then do
           t0 <- buildHashCmd bh
           t1 <- buildXSend bh
-          t2 <- buildEnumerateCmd bh
+          t2 <- buildNewNativesCmd bh
           return $! V.fromList [t0,t1,t2]
           else return mempty
       }
@@ -395,7 +395,7 @@ pact4coin3UpgradeTest bdb mpRefIO pact = do
                    t0 <- buildHashCmd bh
                    t1 <- buildReleaseCommand bh
                    t2 <- buildXSend bh
-                   t3 <- buildEnumerateCmd bh
+                   t3 <- buildNewNativesCmd bh
                    return $! V.fromList [t0,t1,t2,t3]
                | _blockChainId bh == chain0 = do
                    V.singleton <$> buildXReceive bh proof pid
@@ -410,12 +410,20 @@ pact4coin3UpgradeTest bdb mpRefIO pact = do
         $ mkCmd (sshow bh)
         $ mkExec' "(at 'hash (describe-module 'coin))"
 
-    buildEnumerateCmd bh = buildCwCmd
+    buildNewNativesCmd bh = buildCwCmd
         $ set cbSigners [mkSigner' sender00 []]
         $ set cbChainId (_blockChainId bh)
         $ set cbCreationTime (toTxCreationTime $ _bct $ _blockCreationTime bh)
         $ mkCmd (sshow bh)
-        $ mkExec' "(enumerate 1 10)"
+        $ mkExec' (mconcat expressions)
+      where
+        expressions =
+          [
+            "(distinct [1 1 2 2 3 3])"
+          , "(concat [\"this\" \"is\" \"a\" \"test\"])"
+          , "(str-to-list \"test\")"
+          , "(enumerate 1 10)"
+          ]
 
     buildXSend bh = buildCwCmd
         $ set cbSigners [mkSigner' sender00 []]
