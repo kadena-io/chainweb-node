@@ -243,7 +243,7 @@
     @model [ (property (valid-account account)) ]
 
     (validate-account account)
-    (enforce-chainweb-account account guard)
+    (enforce-reserved account guard)
 
     (insert coin-table account
       { "balance" : 0.0
@@ -447,7 +447,7 @@
 
       (let ((is-new
              (if (= balance -1.0)
-                 (enforce-chainweb-account account guard)
+                 (enforce-reserved account guard)
                false)))
 
         (write coin-table account
@@ -456,14 +456,25 @@
           }))
       ))
 
-  (defun enforce-chainweb-account:bool (account:string guard:guard)
-    @doc "Enforce chainweb single-account naming protocol"
-    (if (and (= "k:" (take 2 account))
-             (= 66 (length account)))
-      (enforce (= (format "{}" [guard])
-                  (format "KeySet {keys: [{}],pred: keys-all}" [(drop 2 account)]))
-               "Single-key account name violation")
-      true))
+  (defun check-reserved:string (account:string)
+    " Checks ACCOUNT for reserved name and returns type if \
+    \ found or empty string. Reserved names start with a \
+    \ single char and colon, e.g. 'c:foo', which would return 'c' as type."
+    (let ((pfx (take 2 account)))
+      (if (= ":" (take -1 pfx)) (take 1 pfx) "")))
+
+  (defun enforce-reserved:bool (account:string guard:guard)
+    @doc "Enforce reserved account name protocols."
+    (let ((r (check-reserved account)))
+      (if (= "" r) true
+        (if (= "k" r)
+          (enforce
+            (= (format "{}" [guard])
+               (format "KeySet {keys: [{}],pred: keys-all}"
+                       [(drop 2 account)]))
+            "Single-key account protocol violation")
+          (enforce false
+            (format "Unrecognized reserved protocol: {}" [r]))))))
 
 
   (defschema crosschain-schema
