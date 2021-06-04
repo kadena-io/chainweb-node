@@ -28,11 +28,13 @@ import Data.Aeson (object, (.=), Value(..))
 import qualified Data.ByteString.Base64.URL as B64U
 import Data.CAS (casLookupM)
 import Data.CAS.RocksDB
+import Data.Default (def)
 import Data.Either (isRight)
 import qualified Data.ByteString.Lazy as BL
 import qualified Data.HashMap.Strict as HM
 import Data.IORef
 import qualified Data.Map.Strict as M
+import qualified Data.Set as S
 import qualified Data.Text as T
 import qualified Data.Vector as V
 import qualified Data.Yaml as Y
@@ -55,6 +57,7 @@ import Pact.Types.PactValue
 import Pact.Types.Persistence
 import Pact.Types.PactError
 import Pact.Types.SPV
+import Pact.Types.Term
 
 import Chainweb.BlockCreationTime
 import Chainweb.BlockHeader
@@ -348,7 +351,9 @@ pact4coin3UpgradeTest bdb mpRefIO pact = do
   tx22_2 <- txResult 2 pwo22
   gasEv2 <- mkTransferEvent "sender00" "NoMiner" 0.0014 "coin" v3Hash
   sendTfr <- mkTransferEvent "sender00" "" 0.0123 "coin" v3Hash
-  assertEqual "Events for tx2 @ block 22" [gasEv2,sendTfr] (_crEvents tx22_2)
+  let pguard = PGuard (GKeySet (KeySet {_ksKeys = S.fromList [PublicKey {_pubKey = "368820f80c324bbc7c2b0610688a7da43e39f91d118732671cd9c7500ff43cca"}], _ksPredFun = Name (BareName {_bnName = "keys-all", _bnInfo = def })}))
+  yieldEv <- mkEvent "X_YIELD" [pString "0", pString "coin.transfer-crosschain", pList [pString "sender00", pString "sender00", pguard, pString "0", pDecimal 0.0123]] "pact" v3Hash
+  assertEqual "Events for tx2 @ block 22" [gasEv2,sendTfr, yieldEv] (_crEvents tx22_2)
 
   tx22_3 <- txResult 3 pwo22
   assertEqual
