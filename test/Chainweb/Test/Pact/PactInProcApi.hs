@@ -28,11 +28,13 @@ import Data.Aeson (object, (.=), Value(..))
 import qualified Data.ByteString.Base64.URL as B64U
 import Data.CAS (casLookupM)
 import Data.CAS.RocksDB
+import Data.Default (def)
 import Data.Either (isRight)
 import qualified Data.ByteString.Lazy as BL
 import qualified Data.HashMap.Strict as HM
 import Data.IORef
 import qualified Data.Map.Strict as M
+import qualified Data.Set as S
 import qualified Data.Text as T
 import qualified Data.Vector as V
 import qualified Data.Yaml as Y
@@ -55,6 +57,7 @@ import Pact.Types.PactValue
 import Pact.Types.Persistence
 import Pact.Types.PactError
 import Pact.Types.SPV
+import Pact.Types.Term
 
 import Chainweb.BlockCreationTime
 import Chainweb.BlockHeader
@@ -298,8 +301,8 @@ pact4coin3UpgradeTest bdb mpRefIO pact = do
 
   tx7_2 <- txResult 2 pwo7
   assertEqual
-    "Should not resolve enumerate pact native"
-    (Just "Cannot resolve enumerate")
+    "Should not resolve new pact natives"
+    (Just "Cannot resolve distinct")
     (tx7_2 ^? crResult . to _pactResult . _Left . to peDoc)
 
   cb7 <- cbResult pwo7
@@ -348,7 +351,9 @@ pact4coin3UpgradeTest bdb mpRefIO pact = do
   tx22_2 <- txResult 2 pwo22
   gasEv2 <- mkTransferEvent "sender00" "NoMiner" 0.0014 "coin" v3Hash
   sendTfr <- mkTransferEvent "sender00" "" 0.0123 "coin" v3Hash
-  assertEqual "Events for tx2 @ block 22" [gasEv2,sendTfr] (_crEvents tx22_2)
+  let pguard = PGuard (GKeySet (KeySet {_ksKeys = S.fromList [PublicKey {_pubKey = "368820f80c324bbc7c2b0610688a7da43e39f91d118732671cd9c7500ff43cca"}], _ksPredFun = Name (BareName {_bnName = "keys-all", _bnInfo = def })}))
+  yieldEv <- mkEvent "X_YIELD" [pString "0", pString "coin.transfer-crosschain", pList [pString "sender00", pString "sender00", pguard, pString "0", pDecimal 0.0123]] "pact" v3Hash
+  assertEqual "Events for tx2 @ block 22" [gasEv2,sendTfr, yieldEv] (_crEvents tx22_2)
 
   tx22_3 <- txResult 3 pwo22
   assertEqual
@@ -382,7 +387,7 @@ pact4coin3UpgradeTest bdb mpRefIO pact = do
       mpaGetBlock = \_ _ _ bh -> if _blockChainId bh == cid then do
           t0 <- buildHashCmd bh
           t1 <- buildXSend bh
-          t2 <- buildEnumerateCmd bh
+          t2 <- buildNewNativesCmd bh
           return $! V.fromList [t0,t1,t2]
           else return mempty
       }
@@ -395,7 +400,7 @@ pact4coin3UpgradeTest bdb mpRefIO pact = do
                    t0 <- buildHashCmd bh
                    t1 <- buildReleaseCommand bh
                    t2 <- buildXSend bh
-                   t3 <- buildEnumerateCmd bh
+                   t3 <- buildNewNativesCmd bh
                    return $! V.fromList [t0,t1,t2,t3]
                | _blockChainId bh == chain0 = do
                    V.singleton <$> buildXReceive bh proof pid
@@ -410,12 +415,20 @@ pact4coin3UpgradeTest bdb mpRefIO pact = do
         $ mkCmd (sshow bh)
         $ mkExec' "(at 'hash (describe-module 'coin))"
 
-    buildEnumerateCmd bh = buildCwCmd
+    buildNewNativesCmd bh = buildCwCmd
         $ set cbSigners [mkSigner' sender00 []]
         $ set cbChainId (_blockChainId bh)
         $ set cbCreationTime (toTxCreationTime $ _bct $ _blockCreationTime bh)
         $ mkCmd (sshow bh)
-        $ mkExec' "(enumerate 1 10)"
+        $ mkExec' (mconcat expressions)
+      where
+        expressions =
+          [
+            "(distinct [1 1 2 2 3 3])"
+          , "(concat [\"this\" \"is\" \"a\" \"test\"])"
+          , "(str-to-list \"test\")"
+          , "(enumerate 1 10)"
+          ]
 
     buildXSend bh = buildCwCmd
         $ set cbSigners [mkSigner' sender00 []]
