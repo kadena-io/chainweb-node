@@ -866,7 +866,13 @@ disablePact40Natives ec = if has (ecFlags . ix FlagDisablePact40) ec
     then over (eeRefStore . rsNatives) (HM.filterWithKey (\k -> const $ notElem k bannedNatives))
     else id
   where
-    bannedNatives = ["enumerate", "distinct", "emit-event"] <&> \name -> Name (BareName name def)
+    bannedNatives =  bannedNatives' <&> \name -> Name (BareName name def)
+    bannedNatives' =
+      [ "enumerate"
+      , "distinct"
+      , "emit-event"
+      , "concat"
+      , "str-to-list"]
 {-# INLINE disablePact40Natives #-}
 
 -- | Set the module cache of a pact 'EvalState'
