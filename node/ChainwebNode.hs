@@ -492,7 +492,7 @@ pkgInfoScopes =
 -- -------------------------------------------------------------------------- --
 -- main
 
--- KILLSWITCH for version 2.7
+-- KILLSWITCH for version 2.8
 --
 killSwitchDate :: Maybe String
 killSwitchDate = Just "2021-08-19T00:00:00Z"
