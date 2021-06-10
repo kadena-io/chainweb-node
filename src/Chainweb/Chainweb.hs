@@ -591,7 +591,7 @@ runChainweb cw = do
     logg Info "start chainweb node"
     runConcurrently $ ()
         -- 1. Start serving Rest API
-        <$ Concurrently (serve
+        <$ Concurrently ((if tls then serve else servePlain)
                 $ httpLog
                 . throttle (_chainwebPutPeerThrottler cw)
                 . throttle (_chainwebThrottler cw)
@@ -606,6 +606,8 @@ runChainweb cw = do
                 )
             )
   where
+    tls = _p2pConfigTls $ _configP2p $ _chainwebConfig cw
+
     clients :: IO ()
     clients = do
         mpClients <- mempoolSyncClients
@@ -662,6 +664,20 @@ runChainweb cw = do
         serverSettings
         (_peerCertificateChain $ _peerResPeer $ _chainwebPeer cw)
         (_peerKey $ _peerResPeer $ _chainwebPeer cw)
+        (_peerResSocket $ _chainwebPeer cw)
+        (_chainwebConfig cw)
+        ChainwebServerDbs
+            { _chainwebServerCutDb = Just cutDb
+            , _chainwebServerBlockHeaderDbs = chainDbsToServe
+            , _chainwebServerMempools = mempoolsToServe
+            , _chainwebServerPayloadDbs = payloadDbsToServe
+            , _chainwebServerPeerDbs = (CutNetwork, cutPeerDb) : memP2pToServe
+            }
+
+    -- serve without tls
+    servePlain :: Middleware -> IO ()
+    servePlain = serveChainwebSocket
+        serverSettings
         (_peerResSocket $ _chainwebPeer cw)
         (_chainwebConfig cw)
         ChainwebServerDbs
