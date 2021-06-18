@@ -3,6 +3,7 @@
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DerivingStrategies #-}
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE NumericUnderscores #-}
@@ -101,7 +102,7 @@ import Servant.Client
 import System.IO.Unsafe
 import System.LogLevel
 import qualified System.Random as R
-import qualified System.Random.MWC as MWC
+import qualified System.Random.Stateful as R
 import qualified System.Random.MWC.Distributions as MWC
 import System.Timeout
 
@@ -289,6 +290,15 @@ randomR node range = do
     !gen <- readTVar (_p2pNodeRng node)
     let (!a, !gen') = R.randomR range gen
     a <$ writeTVar (_p2pNodeRng node) gen'
+
+randomExponential :: P2pNode -> Double -> STM Double
+randomExponential node expected = do
+    !gen <- readTVar (_p2pNodeRng node)
+    let (!a, !gen') = R.runSTGen gen $ MWC.exponential (1 / expected)
+    a <$ writeTVar (_p2pNodeRng node) gen'
+
+randomExponentialIO :: P2pNode -> Double -> IO Double
+randomExponentialIO node = atomically . randomExponential node
 
 setInactive :: P2pNode -> STM ()
 setInactive node = writeTVar (_p2pNodeActive node) False
@@ -588,7 +598,7 @@ newSession conf node = do
             let env = peerClientEnv node newPeerInfo
             (info, newSes) <- mask $ \restore -> do
                 now <- getCurrentTimeIntegral
-                t <- sessionTimeout $ secondsToTimeSpan $ _p2pConfigSessionTimeout conf
+                t <- sessionTimeout node $ secondsToTimeSpan $ _p2pConfigSessionTimeout conf
                 !newSes <- async $ restore $ timeout (int $ timeSpanToMicros t)
                     $ _p2pNodeClientSession node (loggFun node) env newPeerInfo
                 incrementActiveSessionCount peerDb newPeerInfo
@@ -612,10 +622,9 @@ newSession conf node = do
 -- as the input value gets smaller, because a minimum result of 5 seconds
 -- is implemented. Input values of less than 30s should be avoided.
 --
-sessionTimeout :: TimeSpan Int -> IO (TimeSpan Int)
-sessionTimeout expected = do
-    g <- MWC.createSystemRandom
-    x <- MWC.exponential (1 / us) g
+sessionTimeout :: P2pNode -> TimeSpan Int -> IO (TimeSpan Int)
+sessionTimeout node expected = do
+    x <- randomExponentialIO node (1 / us)
     return $! microsToTimeSpan $ round $ max lower $ min upper x
   where
     us = int $ timeSpanToMicros expected
