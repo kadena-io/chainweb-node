@@ -865,21 +865,30 @@ newtype ObjectEncoded a = ObjectEncoded { _objectEncoded :: a }
     deriving newtype (Eq, Ord, Hashable, NFData)
 
 instance ToJSON (ObjectEncoded BlockHeader) where
-    toJSON (ObjectEncoded b) = object
-        [ "nonce" .= _blockNonce b
-        , "creationTime" .= _blockCreationTime b
-        , "parent" .= _blockParent b
-        , "adjacents" .= _blockAdjacentHashes b
-        , "target" .= _blockTarget b
-        , "payloadHash" .= _blockPayloadHash b
-        , "chainId" .= _chainId b
-        , "weight" .= _blockWeight b
-        , "height" .= _blockHeight b
-        , "chainwebVersion" .= _blockChainwebVersion b
-        , "epochStart" .= _blockEpochStart b
-        , "featureFlags" .= _blockFlags b
-        , "hash" .= _blockHash b
-        ]
+    toJSON = object . blockHeaderProperties
+    toEncoding = pairs . mconcat . blockHeaderProperties
+    {-# INLINE toEncoding #-}
+    {-# INLINE toJSON #-}
+
+blockHeaderProperties :: KeyValue kv => ObjectEncoded BlockHeader -> [kv]
+blockHeaderProperties (ObjectEncoded b) =
+    [ "nonce" .= _blockNonce b
+    , "creationTime" .= _blockCreationTime b
+    , "parent" .= _blockParent b
+    , "adjacents" .= _blockAdjacentHashes b
+    , "target" .= _blockTarget b
+    , "payloadHash" .= _blockPayloadHash b
+    , "chainId" .= _chainId b
+    , "weight" .= _blockWeight b
+    , "height" .= _blockHeight b
+    , "chainwebVersion" .= _blockChainwebVersion b
+    , "epochStart" .= _blockEpochStart b
+    , "featureFlags" .= _blockFlags b
+    , "hash" .= _blockHash b
+    ]
+{-# INLINE blockHeaderProperties #-}
+{-# SPECIALIZE blockHeaderProperties :: ObjectEncoded BlockHeader -> [Series] #-}
+{-# SPECIALIZE blockHeaderProperties :: ObjectEncoded BlockHeader -> [Pair] #-}
 
 parseBlockHeaderObject :: Object -> Parser BlockHeader
 parseBlockHeaderObject o = BlockHeader
