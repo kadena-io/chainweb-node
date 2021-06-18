@@ -5,6 +5,7 @@
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE MultiWayIf #-}
+{-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -100,6 +101,8 @@ import Servant.Client
 import System.IO.Unsafe
 import System.LogLevel
 import qualified System.Random as R
+import qualified System.Random.MWC as MWC
+import qualified System.Random.MWC.Distributions as MWC
 import System.Timeout
 
 -- Internal imports
@@ -585,11 +588,8 @@ newSession conf node = do
             let env = peerClientEnv node newPeerInfo
             (info, newSes) <- mask $ \restore -> do
                 now <- getCurrentTimeIntegral
-                t <- R.randomRIO
-                    ( round (0.9 * timeoutMs)
-                    , round (1.1 * timeoutMs)
-                    )
-                !newSes <- async $ restore $ timeout t
+                t <- sessionTimeout $ secondsToTimeSpan $ _p2pConfigSessionTimeout conf
+                !newSes <- async $ restore $ timeout (int $ timeSpanToMicros t)
                     $ _p2pNodeClientSession node (loggFun node) env newPeerInfo
                 incrementActiveSessionCount peerDb newPeerInfo
                 !info <- atomically $ addSession node newPeerInfo newSes now
@@ -597,13 +597,30 @@ newSession conf node = do
             logg node Debug $ "Started peer session " <> showSessionId newPeerInfo newSes
             loggFun node Info $ JsonLog info
   where
-    TimeSpan timeoutMs = secondsToTimeSpan @Double (_p2pConfigSessionTimeout conf)
     peerDb = _p2pNodePeerDb node
 
     syncFromPeer_ pinfo
         | _p2pConfigPrivate conf = return True
         | _p2pNodeDoPeerSync node = syncFromPeer node pinfo
         | otherwise = return True
+
+-- | (Roughly) exponentially distributed timespans with the given expectation
+-- within the range of a a tenth of the expectation and ten times the
+-- expectation.
+--
+-- The expected value of the actual distribution gets increasinly imprecise
+-- as the input value gets smaller, because a minimum result of 5 seconds
+-- is implemented. Input values of less than 30s should be avoided.
+--
+sessionTimeout :: TimeSpan Int -> IO (TimeSpan Int)
+sessionTimeout expected = do
+    g <- MWC.createSystemRandom
+    x <- MWC.exponential (1 / us) g
+    return $! microsToTimeSpan $ round $ max lower $ min upper x
+  where
+    us = int $ timeSpanToMicros expected
+    lower = max 5_000_000 (us / 10) -- at least 5 seconds
+    upper = us * 10
 
 -- | Monitor and garbage collect sessions
 --
