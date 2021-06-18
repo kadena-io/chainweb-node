@@ -62,6 +62,8 @@ module Chainweb.RestAPI
 , module P2P.Node.RestAPI.Client
 ) where
 
+import Control.Monad (guard)
+
 import Data.Bifunctor
 import Data.Bool (bool)
 
@@ -115,6 +117,9 @@ import P2P.Node.RestAPI.Server
 -- -------------------------------------------------------------------------- --
 -- Utils
 
+enableTlsSessionCache :: Bool
+enableTlsSessionCache = True
+
 -- | TLS HTTP Server
 --
 serveSocketTls
@@ -128,7 +133,7 @@ serveSocketTls settings certChain key = runTLSSocket tlsSettings settings
   where
     tlsSettings :: TLSSettings
     tlsSettings = (tlsServerChainSettings certChain key)
-        { tlsSessionManagerConfig = Just TLS.defaultConfig }
+        { tlsSessionManagerConfig = TLS.defaultConfig <$ guard enableTlsSessionCache }
 
 -- -------------------------------------------------------------------------- --
 -- Chainweb Server Storage Backends
@@ -265,9 +270,10 @@ serveChainwebSocket
     -> Socket
     -> ChainwebConfiguration
     -> ChainwebServerDbs t cas
+    -> Middleware
     -> IO ()
-serveChainwebSocket s sock c dbs =
-    runSettingsSocket s sock $ chainwebApplication c dbs
+serveChainwebSocket settings sock c dbs m =
+    runSettingsSocket settings sock $ m $ chainwebApplication c dbs
 
 serveChainwebSocketTls
     :: Show t
