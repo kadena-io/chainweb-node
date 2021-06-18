@@ -18,7 +18,6 @@ import System.IO
 import System.Process
 
 -- chainweb imports
-import Chainweb.Chainweb
 import Chainweb.Chainweb.Configuration
 import Chainweb.HostAddress
 import Chainweb.Miner.Config
@@ -79,15 +78,6 @@ getConf = do
     hostMsg ip = "What is your publicly reachable domain name / IP address (default: " <> T.unpack ip <> ")?"
     portMsg = "Which port would you like to use (default: 443)?"
     mineCoordMsg = "Would you like to turn mining coordination (default: yes)?"
-
--- This was not exported by the Chainweb.Chainweb module
-defaultThrottlingConfig :: ThrottlingConfig
-defaultThrottlingConfig = ThrottlingConfig
-  { _throttlingRate = 50 -- per second
-  , _throttlingMiningRate = 2  -- per second
-  , _throttlingPeerRate = 11  -- per second, on for each p2p network
-  , _throttlingLocalRate = 0.1 -- per 10 seconds
-  }
 
 main :: IO ()
 main = do

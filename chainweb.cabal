@@ -415,7 +415,6 @@ library
         , wai-extra >= 3.0.28
         , vector >= 0.12
         , vector-algorithms >= 0.7
-        , wai-middleware-throttle >= 0.3
         , warp >= 3.3.6
         , warp-tls >= 3.2.10
         , x509 >=1.7
