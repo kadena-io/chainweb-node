@@ -223,6 +223,7 @@ getHost mgr ver logger peers = do
                     $ "failed to get remote info from " <> toText (_peerAddr p)
                     <> ": " <> sshow e
 
+    -- TODO: use quorum here? Fitler out local network addresses?
     let hostnames = L.nub $ L.sort $ view remoteNodeInfoHostname <$> catMaybes nis
     return $! case hostnames of
         [x] -> Right x
