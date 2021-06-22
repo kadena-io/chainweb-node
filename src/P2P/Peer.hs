@@ -313,7 +313,7 @@ peerConfigHost = peerConfigAddr . hostAddressHost
 
 defaultPeerConfig :: PeerConfig
 defaultPeerConfig = PeerConfig
-    { _peerConfigAddr = HostAddress localhost 0
+    { _peerConfigAddr = HostAddress anyIpv4 0
     , _peerConfigInterface = fromString "*"
     , _peerConfigCertificateChain = Nothing
     , _peerConfigCertificateChainFile = Nothing
@@ -324,7 +324,7 @@ defaultPeerConfig = PeerConfig
 validatePeerConfig :: Applicative a => ConfigValidation PeerConfig a
 validatePeerConfig c = do
     when (isReservedHostAddress (_peerConfigAddr c)) $ tell
-        $ pure "The configured hostname is a localhost name or from a reserved IP address range. Please use a public hostname or IP address."
+        $ pure "The configured hostname is a localhost name or from a reserved IP address range. Please use a public hostname or IP address, or '0.0.0.0' (automatic configuration)."
 
     when (_peerConfigInterface c == "localhost" || _peerConfigInterface c == "localnet") $ tell
         $ pure "The node is configured to listen only on a private network. Please use a public network as interface configuration, e.g. '*' or '0.0.0.0'"
