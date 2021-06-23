@@ -526,7 +526,7 @@ jobs:
       OS: ${{ matrix.os }}
       OPT_LEVEL: ${{ needs.config.outputs.opt-level }}
       DEBUG_INFO: ${{ needs.config.outputs.debug-info }}
-      PROFILING: ${{ nodes.config.outputs.profiling }}
+      PROFILING: ${{ needs.config.outputs.profiling }}
       GIT_SHA_SHORT: ${{ needs.config.outputs.git-sha-short }}
       COMPILER: ghc-${{ matrix.ghc }}
       ARTIFACTS_NAME: chainweb-applications.${{ matrix.ghc }}.${{ matrix.os }}
