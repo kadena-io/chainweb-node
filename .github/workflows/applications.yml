@@ -205,7 +205,7 @@ jobs:
           optimization: ${{ needs.config.outputs.opt-level }}
           benchmarks: True
           tests: True
-          ghc-options: -rtsopts ${{ (needs.config.outputs.eventlog = 'True') && '-eventlog' || '' }
+          ghc-options: -rtsopts ${{ (needs.config.outputs.eventlog == 'True') && '-eventlog' || '' }
         package pact
           documentation: False
           optimization: ${{ needs.config.outputs.opt-level }}
