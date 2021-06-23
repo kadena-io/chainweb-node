@@ -193,6 +193,8 @@ jobs:
     # Build
     - name: Update package database
       run: cabal update
+    - name: Display outdated packages
+      run: cabal outdated
     - name: Configure build
       run: |
         cabal build all --dry-run
