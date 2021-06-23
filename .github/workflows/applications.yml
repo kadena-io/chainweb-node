@@ -9,6 +9,9 @@ on:
       optimizationLevel:
         description: optimization level that is used to compile pact and chainweb-node
         default: '1'
+      profiling:
+        description: whether this is a profiling build
+        default: 'False'
   push:
     branches:
     - master
@@ -35,8 +38,9 @@ jobs:
       git-sha-short: ${{ steps.git-info.outputs.git-sha-short }}
       git-ref-short: ${{ steps.git-info.outputs.git-ref-short }}
       is-release: ${{ steps.git-info.outputs.is-release }}
-      debug-info: ${{ steps.compile-flags.outputs.debug-info }}
       opt-level: ${{ steps.compile-flags.outputs.opt-level }}
+      debug-info: ${{ steps.compile-flags.outputs.debug-info }}
+      profiling: ${{ steps.compile-flags.outputs.profiling }}
       tag-suffix: ${{ steps.compile-flags.outputs.tag-suffix }}
     steps:
     - name: Checkout repository
@@ -67,6 +71,15 @@ jobs:
           echo "building binaries without debug symbols"
           echo "::set-output name=debug-info::False"
         fi
+        PROFILING=${{ github.event.inputs.profiling }}
+        if [[ -n "$PROFILING" && "${PROFILING^^}" = "TRUE" ]] ; then
+          echo "building binaries with profling support"
+          echo "::set-output name=profiling::True"
+          TAG_SUFFIX+=-prof
+        else
+          echo "building binaries without profling support"
+          echo "::set-output name=profiling::False"
+        fi
         echo "::set-output name=tag-suffix::$TAG_SUFFIX"
     - name: Create matrix
       id: set-matrix
@@ -96,6 +109,7 @@ jobs:
         echo "config.outputs.is-release=${{ steps.git-info.outputs.is-release }}"
         echo "config.outputs.debug-info=${{ steps.compile-flags.outputs.debug-info }}"
         echo "config.outputs.opt-level=${{ steps.compile-flags.outputs.opt-level }}"
+        echo "config.outputs.profiling=${{ steps.compile-flags.outputs.profiling }}"
         echo "config.outputs.tag-suffix=${{ steps.compile-flags.outputs.tag-suffix }}"
         echo "config.outputs.matrix=${{ steps.set-matrix.outputs.matrix }}"
         echo "::endgroup::"
@@ -138,7 +152,6 @@ jobs:
 
     env:
       OPT_LEVEL: ${{ needs.config.outputs.opt-level }}
-      DEBUG_INFO: ${{ needs.config.outputs.debug-info }}
       ARTIFACTS_ARCHIVE: chainweb.${{ matrix.ghc }}.${{ matrix.os }}.${{ needs.config.outputs.git-sha-short }}${{ needs.config.outputs.tag-suffix }}.tar.gz
       ARTIFACTS_NAME: chainweb-applications.${{ matrix.ghc }}.${{ matrix.os }}
 
@@ -170,6 +183,7 @@ jobs:
         package *
           documentation: False
           debug-info: ${{ needs.config.outputs.debug-info }}
+          profiling: ${{ needs.config.outputs.profiling }}
           executable-stripping: True
           library-stripping: True
         package chainweb
@@ -497,6 +511,7 @@ jobs:
       OS: ${{ matrix.os }}
       OPT_LEVEL: ${{ needs.config.outputs.opt-level }}
       DEBUG_INFO: ${{ needs.config.outputs.debug-info }}
+      PROFILING: ${{ nodes.config.outputs.profiling }}
       GIT_SHA_SHORT: ${{ needs.config.outputs.git-sha-short }}
       COMPILER: ghc-${{ matrix.ghc }}
       ARTIFACTS_NAME: chainweb-applications.${{ matrix.ghc }}.${{ matrix.os }}
@@ -521,6 +536,7 @@ jobs:
         LABEL com.chainweb.docker.image.os="${OS}"
         LABEL com.chainweb.docker.image.optimization="$OPT_LEVEL"
         LABEL com.chainweb.docker.image.debug-info="$DEBUG_INFO"
+        LABEL com.chainweb.docker.image.profiling="$PROFILING"
         LABEL com.chainweb.docker.image.revision="$GIT_SHA_SHORT"
         RUN apt-get update && apt-get install -y librocksdb-dev ca-certificates && rm -rf /var/lib/apt/lists/*
         WORKDIR /chainweb
