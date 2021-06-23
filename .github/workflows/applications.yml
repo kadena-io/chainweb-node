@@ -12,6 +12,9 @@ on:
       profiling:
         description: whether this is a profiling build
         default: 'False'
+      eventlog:
+        description: whether to link against the eventlog emitting runtime
+        default: 'False'
   push:
     branches:
     - master
@@ -41,6 +44,7 @@ jobs:
       opt-level: ${{ steps.compile-flags.outputs.opt-level }}
       debug-info: ${{ steps.compile-flags.outputs.debug-info }}
       profiling: ${{ steps.compile-flags.outputs.profiling }}
+      eventlog: ${{ steps.compile-flags.outputs.eventlog }}
       tag-suffix: ${{ steps.compile-flags.outputs.tag-suffix }}
     steps:
     - name: Checkout repository
@@ -80,6 +84,15 @@ jobs:
           echo "building binaries without profling support"
           echo "::set-output name=profiling::False"
         fi
+        EVENTLOG=${{ github.event.inputs.eventlog }}
+        if [[ -n "$EVENTLOG" && "${EVENTLOG^^}" = "TRUE" ]] ; then
+          echo "linking binaries against eventlog emitting runtime"
+          echo "::set-output name=eventlog::True"
+          TAG_SUFFIX+=-eventlog
+        else
+          echo "building binaries without eventlog support"
+          echo "::set-output name=eventlog::False"
+        fi
         echo "::set-output name=tag-suffix::$TAG_SUFFIX"
     - name: Create matrix
       id: set-matrix
@@ -110,6 +123,7 @@ jobs:
         echo "config.outputs.debug-info=${{ steps.compile-flags.outputs.debug-info }}"
         echo "config.outputs.opt-level=${{ steps.compile-flags.outputs.opt-level }}"
         echo "config.outputs.profiling=${{ steps.compile-flags.outputs.profiling }}"
+        echo "config.outputs.eventlog=${{ steps.compile-flags.outputs.eventlog }}"
         echo "config.outputs.tag-suffix=${{ steps.compile-flags.outputs.tag-suffix }}"
         echo "config.outputs.matrix=${{ steps.set-matrix.outputs.matrix }}"
         echo "::endgroup::"
@@ -191,6 +205,7 @@ jobs:
           optimization: ${{ needs.config.outputs.opt-level }}
           benchmarks: True
           tests: True
+          ghc-options: -rtsopts ${{ (needs.config.outputs.eventlog = 'True') && '-eventlog' || '' }
         package pact
           documentation: False
           optimization: ${{ needs.config.outputs.opt-level }}
