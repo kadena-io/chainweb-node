@@ -100,31 +100,31 @@ jobs:
         MATRIX=
         if [[ "${{ steps.compile-flags.outputs.profiling }}" = "True" ]] ; then
           MATRIX="$(jq -c '.' <<EOF
-          {
-            "ghc": ["8.8.4", "8.10.5"],
-            "cabal": ["3.4.0.0"],
-            "os": ["ubuntu-18.04", "ubuntu-20.04", "macOS-latest"],
-            "cabalcache": ["true"],
-            "exclude": [
-              { "os": "macOS-latest", "ghc": "8.10.5" },
-              { "os": "ubuntu-18.04", "ghc": "8.8.4" },
-              { "os": "ubuntu-20.04", "ghc": "8.8.4" }
-            ],
-            "include": [ { "os": "macOS-latest", "ghc": "8.10.4", "cabal": "3.4.0.0", "cabalcache": "true" } ]
-          }
-          EOF
+        {
+          "ghc": ["8.8.4", "8.10.5"],
+          "cabal": ["3.4.0.0"],
+          "os": ["ubuntu-18.04", "ubuntu-20.04", "macOS-latest"],
+          "cabalcache": ["true"],
+          "exclude": [
+            { "os": "macOS-latest", "ghc": "8.10.5" },
+            { "os": "ubuntu-18.04", "ghc": "8.8.4" },
+            { "os": "ubuntu-20.04", "ghc": "8.8.4" }
+          ],
+          "include": [ { "os": "macOS-latest", "ghc": "8.10.4", "cabal": "3.4.0.0", "cabalcache": "true" } ]
+        }
+        EOF
           )"
         else
           MATRIX="$(jq -c '.' <<EOF
-          {
-            "ghc": ["8.8.4", "8.10.5"],
-            "cabal": ["3.4.0.0"],
-            "os": ["ubuntu-18.04", "ubuntu-20.04", "macOS-latest"],
-            "cabalcache": ["true"],
-            "exclude": [ { "os": "macOS-latest", "ghc": "8.10.5" } ],
-            "include": [ { "os": "macOS-latest", "ghc": "8.10.4", "cabal": "3.4.0.0", "cabalcache": "true" } ]
-          }
-          EOF
+        {
+          "ghc": ["8.8.4", "8.10.5"],
+          "cabal": ["3.4.0.0"],
+          "os": ["ubuntu-18.04", "ubuntu-20.04", "macOS-latest"],
+          "cabalcache": ["true"],
+          "exclude": [ { "os": "macOS-latest", "ghc": "8.10.5" } ],
+          "include": [ { "os": "macOS-latest", "ghc": "8.10.4", "cabal": "3.4.0.0", "cabalcache": "true" } ]
+        }
+        EOF
           )"
         fi
         echo "::set-output name=matrix::$( echo "$MATRIX" )"
