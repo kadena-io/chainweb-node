@@ -51,7 +51,7 @@ newThreadPool :: Int -> IO ThreadPool
 newThreadPool n = do
     chan <- atomically $ TBMChan.newTBMChan n
     mvars <- V.replicateM n newEmptyMVar
-    threads <- V.mapM (\m -> forkIOWithUnmask $ worker chan m) mvars
+    threads <- V.mapM (\m -> forkIOWithUnmask $ \u -> worker chan m u) mvars
     let joins = V.map takeMVar mvars
     return $! ThreadPool threads joins chan
 

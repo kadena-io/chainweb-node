@@ -55,7 +55,7 @@ newTestServer = mask_ $ do
     let inMemCfg = InMemConfig txcfg mockBlockGasLimit 2048 Right (checkMvFunc checkMv) (1024 * 10)
     inmemMv <- newEmptyMVar
     envMv <- newEmptyMVar
-    tid <- forkIOWithUnmask $ server inMemCfg inmemMv envMv
+    tid <- forkIOWithUnmask $ \u -> server inMemCfg inmemMv envMv u
     inmem <- takeMVar inmemMv
     env <- takeMVar envMv
     let remoteMp0 = MClient.toMempool version chain txcfg env
