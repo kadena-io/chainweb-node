@@ -63,6 +63,6 @@ extra-deps:
   - github: kadena-io/chainweb-storage
     commit: bf37c394de9a0c680a7a09bbfb82eb255519b3fb
   - github: kadena-io/rosetta
-    commit: 1d69bb4ec46c001f2b501121e6c93e83ac60162b
+    commit: 5db55e77e7f0ffe7670075708843fa03d179aaa5
   - github: kadena-io/kadena-ethereum-bridge
     commit: 10f21e96af1dce4f13e261be9dfad8c28cd299f7
