@@ -2,6 +2,7 @@ packages: chainweb.cabal
 
 package chainweb
     tests: True
+    benchmarks: True
 
 package aeson
     flags: +cffi
@@ -14,7 +15,7 @@ debug-info: True
 source-repository-package
     type: git
     location: https://github.com/kadena-io/pact.git
-    tag: 853d255202d590e133aed16ee8a117b55e9bc623
+    tag: ef4f089d50b5f0c19b2d6aaea80e6e2dccb0f153
 
 source-repository-package
     type: git
@@ -36,11 +37,9 @@ package vault
 
 package pact
     ghc-options: -Wwarn
-
     -- avoid conflict with cryptonite during linking
-    flags: +cryptonite-ed25519
+    flags: +cryptonite-ed25519 -build-tool
 
-allow-newer: pact:*
 allow-newer: rosetta:*
 
 -- required by pact

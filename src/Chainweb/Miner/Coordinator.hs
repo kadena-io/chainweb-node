@@ -9,6 +9,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 
@@ -24,6 +25,7 @@
 module Chainweb.Miner.Coordinator
 ( -- * Types
   MiningState(..)
+, miningState
 , MiningStats(..)
 , PrevTime(..)
 , ChainChoice(..)
@@ -42,14 +44,13 @@ module Chainweb.Miner.Coordinator
 import Control.Concurrent.STM (atomically)
 import Control.Concurrent.STM.TVar
 import Control.DeepSeq (NFData)
-import Control.Lens (over, view)
+import Control.Lens (makeLenses, over, view)
 import Control.Monad
 import Control.Monad.Catch
 
 import Data.Aeson (ToJSON)
 import Data.Bool (bool)
 import qualified Data.ByteString as BS
-import Data.Generics.Wrapped (_Unwrapped)
 import qualified Data.HashMap.Strict as HM
 import Data.IORef
 import qualified Data.Map.Strict as M
@@ -140,9 +141,11 @@ resetPrimed mid cid (PrimedWork pw) = PrimedWork
 -- The key is hash of the current block's payload.
 --
 newtype MiningState = MiningState
-    (M.Map BlockPayloadHash (T3 Miner PayloadData (Time Micros)))
+    { _miningState :: M.Map BlockPayloadHash (T3 Miner PayloadData (Time Micros)) }
     deriving stock (Generic)
     deriving newtype (Semigroup, Monoid)
+
+makeLenses ''MiningState
 
 -- | For logging during `MiningState` manipulation.
 --
@@ -258,7 +261,7 @@ publish lf cdb pwVar miner pd s = do
                 { _minedBlockHeader = ObjectEncoded bh
                 , _minedBlockTrans = int . V.length $ _payloadDataTransactions pd
                 , _minedBlockSize = int bytes
-                , _minedBlockMiner = view _Unwrapped miner
+                , _minedBlockMiner = _minerId miner
                 , _minedBlockDiscoveredAt = now
                 }
 
@@ -277,7 +280,7 @@ publish lf cdb pwVar miner pd s = do
         { _orphanedHeader = ObjectEncoded bh
         , _orphanedBestOnCut = ObjectEncoded p
         , _orphanedDiscoveredAt = now
-        , _orphanedMiner = view _Unwrapped miner
+        , _orphanedMiner = _minerId miner
         , _orphanedReason = msg
         }
 
@@ -301,7 +304,7 @@ work mr mcid m = do
     now <- getCurrentTimeIntegral
     atomically
         . modifyTVar' (_coordState mr)
-        . over _Unwrapped
+        . over miningState
         . M.insert (_payloadDataPayloadHash pd)
         $ T3 m pd now
     return wh
@@ -364,6 +367,6 @@ solve mr solved@(SolvedWork hdr) = do
     lf :: LogFunction
     lf = logFunction $ _coordLogger mr
 
-    deleteKey = atomically . modifyTVar' tms . over _Unwrapped $ M.delete key
+    deleteKey = atomically . modifyTVar' tms . over miningState $ M.delete key
     publishWork (T3 m pd _) =
         publish lf (_coordCutDb mr) (_coordPrimedWork mr) (view minerId m) pd solved
