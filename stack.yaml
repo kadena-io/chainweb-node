@@ -4,6 +4,10 @@ build:
   test-arguments:
     additional-args: ["--hide-successes", "--color", "never"]
 
+flags:
+  pact:
+    build-tool: false
+
 extra-deps:
   # --- Missing from Stackage --- #
   - configuration-tools-0.6.0
@@ -24,6 +28,8 @@ extra-deps:
   - yet-another-logger-0.4.0
   - cuckoo-0.2.1
   - random-1.2.0
+  - nothunks-0.1.2
+  - network-3.1.2.2
 
   # random 1.2
   - splitmix-0.1.0.3
@@ -44,23 +50,18 @@ extra-deps:
   - these-1.1.1.1
   - time-compat-1.9.5
 
-  # --- Forced Downgrades --- #
-  - network-3.1.0.1
-
   # --- Transitive Pact Dependencies --- #
   - direct-sqlite-2.3.26
   - ed25519-donna-0.1.1
   - prettyprinter-1.6.0
-  - sbv-8.8
-  - neat-interpolation-0.5.1.2
   - megaparsec-9.0.0
   - pact-time-0.2.0.0
 
   # --- Custom Pins --- #
   - github: kadena-io/pact
-    commit: 853d255202d590e133aed16ee8a117b55e9bc623
+    commit: ef4f089d50b5f0c19b2d6aaea80e6e2dccb0f153
   - github: kadena-io/chainweb-storage
-    commit: 07e7eb7596c7105aee42dbdb6edd10e3f23c0d7e
+    commit: bf37c394de9a0c680a7a09bbfb82eb255519b3fb
   - github: kadena-io/rosetta
     commit: 1d69bb4ec46c001f2b501121e6c93e83ac60162b
   - github: kadena-io/kadena-ethereum-bridge
