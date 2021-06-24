@@ -50,7 +50,6 @@ module HeaderDump
 , commandValue
 , commandWithOutputsValue
 , withChainDbs
-, withChainDbsConcurrent
 ) where
 
 import Configuration.Utils hiding (Lens)
@@ -86,7 +85,6 @@ import GHC.Generics hiding (to)
 
 import Numeric.Natural
 
-import qualified Streaming.Concurrent as S
 import qualified Streaming.Prelude as S
 
 import System.Directory
@@ -374,7 +372,7 @@ withBlockHeaders logger config inner = do
         initializePayloadDb v pdb
         liftIO $ logg Info "start traversing block headers"
         liftIO $ logg Info $ "header validation: " <> sshow (_configValidate config)
-        withChainDbsConcurrent rdb v cids (_configValidate config) start end $ inner pdb . void
+        withChainDbs rdb v cids (_configValidate config) start end $ inner pdb . void
   where
     logg :: LogFunctionText
     logg = logFunction logger
@@ -626,42 +624,52 @@ withChainDbs
     :: RocksDb
     -> ChainwebVersion
     -> [ChainId]
-    -> Maybe MinRank
-    -> Maybe MaxRank
-    -> (S.Stream (Of BlockHeader) IO () -> IO a)
-    -> IO a
-withChainDbs rdb v cids start end f = go cids mempty
-    where
-    go [] !s = f s
-    go (cid:t) !s = withBlockHeaderDb rdb v cid $ \cdb ->
-        entries cdb Nothing Nothing start end $ \x ->
-            go t (() <$ S.mergeOn _blockHeight s x)
-
-withChainDbsConcurrent
-    :: RocksDb
-    -> ChainwebVersion
-    -> [ChainId]
     -> Bool
         -- ^ whether to validate
     -> Maybe MinRank
     -> Maybe MaxRank
     -> (S.Stream (Of BlockHeader) IO () -> IO a)
     -> IO a
-withChainDbsConcurrent rdb v cids doValidation start end f = go cids mempty
+withChainDbs rdb v cids doValidation start end f = go cids mempty
   where
-
-    -- This is not a very efficient way to paralleize and merge the streams
-    --
     go [] !s = f s
     go (cid:t) !s = withBlockHeaderDb rdb v cid $ \cdb ->
         entries cdb Nothing Nothing start end $ \x ->
-            S.withBuffer buffer (S.writeStreamBasket x) $ \out ->
-                S.withStreamBasket out $ \y ->
-                    go t (() <$ S.mergeOn _blockHeight s (y & val))
-
-    buffer = S.bounded 4000
+            go t (() <$ S.mergeOn _blockHeight s (val $ () <$ x))
 
     val = if doValidation then validate else id
+
+-- Depends on streaming-concurrent and streaming-with which both seem
+-- unmaintained any more.
+--
+-- -- | Merges the block header streams from the given chains by height
+-- -- and runs the resulting merged stream.
+-- --
+-- withChainDbsConcurrent
+--     :: RocksDb
+--     -> ChainwebVersion
+--     -> [ChainId]
+--     -> Bool
+--         -- ^ whether to validate
+--     -> Maybe MinRank
+--     -> Maybe MaxRank
+--     -> (S.Stream (Of BlockHeader) IO () -> IO a)
+--     -> IO a
+-- withChainDbsConcurrent rdb v cids doValidation start end f = go cids mempty
+--   where
+--
+--     -- This is not a very efficient way to parallelize and merge the streams
+--     --
+--     go [] !s = f s
+--     go (cid:t) !s = withBlockHeaderDb rdb v cid $ \cdb ->
+--         entries cdb Nothing Nothing start end $ \x ->
+--             S.withBuffer buffer (S.writeStreamBasket x) $ \out ->
+--                 S.withStreamBasket out $ \y ->
+--                     go t (() <$ S.mergeOn _blockHeight s (y & val))
+--
+--     buffer = S.bounded 4000
+--
+--     val = if doValidation then validate else id
 
 #if REMOTE_DB
 -- -------------------------------------------------------------------------- --
