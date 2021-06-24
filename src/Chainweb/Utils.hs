@@ -276,7 +276,9 @@ import qualified Streaming.Prelude as S
 
 import System.IO.Unsafe (unsafePerformIO)
 import System.LogLevel
+#if MIN_VERSION_random(1,2,0)
 import System.Random
+#endif
 import qualified System.Random.MWC as Prob
 import qualified System.Random.MWC.Probability as Prob
 import System.Timeout
