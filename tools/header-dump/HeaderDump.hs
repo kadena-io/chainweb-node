@@ -639,38 +639,6 @@ withChainDbs rdb v cids doValidation start end f = go cids mempty
 
     val = if doValidation then validate else id
 
--- Depends on streaming-concurrent and streaming-with which both seem
--- unmaintained any more.
---
--- -- | Merges the block header streams from the given chains by height
--- -- and runs the resulting merged stream.
--- --
--- withChainDbsConcurrent
---     :: RocksDb
---     -> ChainwebVersion
---     -> [ChainId]
---     -> Bool
---         -- ^ whether to validate
---     -> Maybe MinRank
---     -> Maybe MaxRank
---     -> (S.Stream (Of BlockHeader) IO () -> IO a)
---     -> IO a
--- withChainDbsConcurrent rdb v cids doValidation start end f = go cids mempty
---   where
---
---     -- This is not a very efficient way to parallelize and merge the streams
---     --
---     go [] !s = f s
---     go (cid:t) !s = withBlockHeaderDb rdb v cid $ \cdb ->
---         entries cdb Nothing Nothing start end $ \x ->
---             S.withBuffer buffer (S.writeStreamBasket x) $ \out ->
---                 S.withStreamBasket out $ \y ->
---                     go t (() <$ S.mergeOn _blockHeight s (y & val))
---
---     buffer = S.bounded 4000
---
---     val = if doValidation then validate else id
-
 #if REMOTE_DB
 -- -------------------------------------------------------------------------- --
 -- Remote Databases
