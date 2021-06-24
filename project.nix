@@ -44,8 +44,8 @@ proj = kpkgs.rp.project ({ pkgs, hackGet, ... }: with pkgs.haskell.lib;
       pact = dontCheck (appendConfigureFlag (self.callCabal2nix "pact" (pkgs.fetchFromGitHub {
         owner = "kadena-io";
         repo = "pact";
-        rev = "f2eb2987fc304ccd2e05236798b5d3c4fd311484";
-        sha256 = "11v8f4vc1cxj02xvbmha2ys6ivy3gw9irbw2scjf96p5nsv12dww";
+        rev = "ef4f089d50b5f0c19b2d6aaea80e6e2dccb0f153";
+        sha256 = "09z6bznyyhy53y7z31c5gkhfsj9b6wsxiyvnf8ymqx0a0inkj07n";
       }) {}) "-f-build-tool");
 
       ethereum = dontCheck (self.callCabal2nix "ethereum" (pkgs.fetchFromGitHub {
