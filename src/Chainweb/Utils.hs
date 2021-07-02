@@ -163,9 +163,6 @@ module Chainweb.Utils
 , foldChunksM_
 , progress
 
--- * Filesystem
-, withTempDir
-
 -- * Type Level
 , symbolText
 -- * optics
@@ -216,7 +213,7 @@ import Control.Concurrent.MVar
 import Control.Concurrent.TokenBucket
 import Control.DeepSeq
 import Control.Exception
-    (IOException, SomeAsyncException(..), bracket, evaluate)
+    (IOException, SomeAsyncException(..), evaluate)
 import Control.Lens hiding ((.=))
 import Control.Monad
 import Control.Monad.Catch hiding (bracket)
@@ -277,12 +274,11 @@ import qualified Options.Applicative as O
 import qualified Streaming as S (concats, effect, inspect)
 import qualified Streaming.Prelude as S
 
-import System.Directory (removeDirectoryRecursive)
 import System.IO.Unsafe (unsafePerformIO)
 import System.LogLevel
-import System.Path (Absolute, Path, fragment, toAbsoluteFilePath, (</>))
-import System.Path.IO (getTemporaryDirectory)
+#if MIN_VERSION_random(1,2,0)
 import System.Random
+#endif
 import qualified System.Random.MWC as Prob
 import qualified System.Random.MWC.Probability as Prob
 import System.Timeout
@@ -434,7 +430,7 @@ class IxedGet a where
     ixg :: Index a -> Fold a (IxValue a)
 
     default ixg :: Ixed a => Index a -> Fold a (IxValue a)
-    ixg = ix
+    ixg i = ix i
     {-# INLINE ixg #-}
 
 -- -------------------------------------------------------------------------- --
@@ -1201,24 +1197,6 @@ data Codec t = Codec
     { codecEncode :: t -> ByteString
     , codecDecode :: ByteString -> Either String t
     }
-
--- | Perform an action over a random path under @/tmp@. Example path:
---
--- @
--- Path "/tmp/chainweb-git-store-test-8086816238120523704"
--- @
---
-withTempDir :: String -> (Path Absolute -> IO a) -> IO a
-withTempDir tag f = bracket create delete f
-  where
-    create :: IO (Path Absolute)
-    create = do
-        tmp <- getTemporaryDirectory
-        suff <- randomIO @Word64
-        pure $! tmp </> fragment (printf "chainweb-%s-%d" tag suff)
-
-    delete :: Path Absolute -> IO ()
-    delete = toAbsoluteFilePath >=> removeDirectoryRecursive
 
 -- -------------------------------------------------------------------------- --
 -- Typelevel

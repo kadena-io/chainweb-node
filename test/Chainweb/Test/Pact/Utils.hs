@@ -31,6 +31,7 @@ module Chainweb.Test.Pact.Utils
 , pString
 , pDecimal
 , pBool
+, pList
 -- * event helpers
 , mkEvent
 , mkTransferEvent
@@ -243,6 +244,9 @@ pDecimal = PLiteral . LDecimal
 -- | Make PactValue from boolean
 pBool :: Bool -> PactValue
 pBool = PLiteral . LBool
+
+pList :: [PactValue] -> PactValue
+pList = PList . V.fromList
 
 mkEvent
     :: MonadThrow m

@@ -1,5 +1,36 @@
 # `chainweb-node` Changelog
 
+## 2.8 (2021-06-05)
+
+This version replaces all previous versions. Any prior version will stop working
+on **2021-06-17T00:00:00Z**. Node administrators must upgrade to this version
+before that date.
+
+This version will stop working on **2021-08-19T00:00:00Z**.
+
+Changes:
+
+* `coin` v3 and Pact 4.0 upgrade (#1218, #1237, #1236, #1234)
+  * Emits `coin.TRANSFER` events for all balance changing operations.
+    Burns/creates/allocations are indicating using the _null account_ (`""`).
+    Miner rewards, gas payments, allocations, and cross-chain.
+  * Chainweb account protocols: reserves new account names with the format
+    `c:data` where `c` is a single-char protocol identifier and `data`
+    protocol-specified data.
+  * Introduces the Chainweb single-key protocol `k`
+    where `data` must match a single ED-25519 public key.
+  * Leverages Pact 4.0
+    * `X_YIELD` and `X_RESUME` event emission.
+    * `bless`es previous module hash so that in-progress cross-chain
+      transfers can succeed.
+  * Transactional module init cache. (#1236)
+
+* P2P API endpoint to get node config (#1226)
+
+* Bugfixes and cleanups (#1235, #1228, #1227, #1225)
+
+
+
 ## 2.7 (2021-04-29)
 
 This version replaces all previous versions. Any prior version will stop working

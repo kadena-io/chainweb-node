@@ -99,13 +99,13 @@
 (length "k:5b4c9fc5207fcf700a5fbcb48c261820149c8ecd52e005282ed9e3f5febcd1f3")
 (expect-failure
   "single-key mismatch, create-account"
-  "Single-key account name violation"
+  "Single-key account protocol violation"
   (coin.create-account
     "k:5b4c9fc5207fcf700a5fbcb48c261820149c8ecd52e005282ed9e3f5febcd1f3"
     (read-keyset 'k)))
 (expect-failure
   "single-key mismatch, transfer-create"
-  "Single-key account name violation"
+  "Single-key account protocol violation"
   (coin.transfer-create
     'emily
     "k:5b4c9fc5207fcf700a5fbcb48c261820149c8ecd52e005282ed9e3f5febcd1f3"
@@ -113,18 +113,26 @@
     0.02))
 (expect-failure
   "single-key pred mismatch, create-account"
-  "Single-key account name violation"
+  "Single-key account protocol violation"
   (coin.create-account
     "k:5b4c9fc5207fcf700a5fbcb48c261820149c8ecd52e005282ed9e3f5febcd1f4"
     (read-keyset 'k2)))
 (expect-failure
   "single-key pred mismatch, transfer-create"
-  "Single-key account name violation"
+  "Single-key account protocol violation"
   (coin.transfer-create
     'emily
     "k:5b4c9fc5207fcf700a5fbcb48c261820149c8ecd52e005282ed9e3f5febcd1f4"
     (read-keyset 'k2)
     0.02))
+
+(expect-failure
+  "bad protocol, create-account"
+  "Unrecognized reserved protocol: c"
+  (coin.create-account
+    "c:5b4c9fc5207fcf700a5fbcb48c261820149c8ecd52e005282ed9e3f5febcd1f4"
+    (read-keyset 'k2)))
+
 (expect
   "single-key success, create-account"
   "Write succeeded"

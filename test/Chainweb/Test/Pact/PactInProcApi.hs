@@ -28,11 +28,13 @@ import Data.Aeson (object, (.=), Value(..))
 import qualified Data.ByteString.Base64.URL as B64U
 import Data.CAS (casLookupM)
 import Data.CAS.RocksDB
+import Data.Default (def)
 import Data.Either (isRight)
 import qualified Data.ByteString.Lazy as BL
 import qualified Data.HashMap.Strict as HM
 import Data.IORef
 import qualified Data.Map.Strict as M
+import qualified Data.Set as S
 import qualified Data.Text as T
 import qualified Data.Vector as V
 import qualified Data.Yaml as Y
@@ -53,7 +55,9 @@ import Pact.Types.Command
 import Pact.Types.Hash
 import Pact.Types.PactValue
 import Pact.Types.Persistence
+import Pact.Types.PactError
 import Pact.Types.SPV
+import Pact.Types.Term
 
 import Chainweb.BlockCreationTime
 import Chainweb.BlockHeader
@@ -295,12 +299,24 @@ pact4coin3UpgradeTest bdb mpRefIO pact = do
   tx7_1 <- txResult 1 pwo7
   assertEqual "Events for tx 1 @ block 7" [] (_crEvents tx7_1)
 
+  tx7_2 <- txResult 2 pwo7
+  assertEqual
+    "Should not resolve new pact natives"
+    (Just "Cannot resolve distinct")
+    (tx7_2 ^? crResult . to _pactResult . _Left . to peDoc)
+
   cb7 <- cbResult pwo7
   assertEqual "Coinbase events @ block 7" [] (_crEvents cb7)
 
   -- run past v3 upgrade, pact 4 switch
   setMempool mpRefIO mempty
-  forM_ [(8::Int)..21] $ \_i -> runCut'
+  cuts <- forM [(8::Int)..21] $ \_i -> do
+      runCut'
+      if _i == 18
+          then fmap Just (readMVar $ _bdbCut bdb)
+          else return Nothing
+
+  savedCut <- fromMaybeM (userError "A cut should exist here.") $ msum cuts
 
   -- block 22
   -- get proof
@@ -313,7 +329,7 @@ pact4coin3UpgradeTest bdb mpRefIO pact = do
   setMempool mpRefIO $ getBlock22 (Just proof) pid
   runCut'
   pwo22 <- getPWO bdb cid
-  let v3Hash = "QEfJaAE_b6Fn3jWhvOHH8esk7dN9XAyIAkZ15YGZJM4"
+  let v3Hash = "1os_sLAUYvBzspn5jjawtRpJWiH1WPfhyNraeVvSIwU"
 
   cb22 <- cbResult pwo22
   cbEv <- mkTransferEvent "" "NoMiner" 2.304523 "coin" v3Hash
@@ -335,7 +351,16 @@ pact4coin3UpgradeTest bdb mpRefIO pact = do
   tx22_2 <- txResult 2 pwo22
   gasEv2 <- mkTransferEvent "sender00" "NoMiner" 0.0014 "coin" v3Hash
   sendTfr <- mkTransferEvent "sender00" "" 0.0123 "coin" v3Hash
-  assertEqual "Events for tx2 @ block 22" [gasEv2,sendTfr] (_crEvents tx22_2)
+  let pguard = PGuard (GKeySet (KeySet {_ksKeys = S.fromList [PublicKey {_pubKey = "368820f80c324bbc7c2b0610688a7da43e39f91d118732671cd9c7500ff43cca"}], _ksPredFun = Name (BareName {_bnName = "keys-all", _bnInfo = def })}))
+  yieldEv <- mkEvent "X_YIELD" [pString "0", pString "coin.transfer-crosschain", pList [pString "sender00", pString "sender00", pguard, pString "0", pDecimal 0.0123]] "pact" v3Hash
+  assertEqual "Events for tx2 @ block 22" [gasEv2,sendTfr, yieldEv] (_crEvents tx22_2)
+
+  tx22_3 <- txResult 3 pwo22
+  assertEqual
+    "Should resolve enumerate pact native"
+    (Just $ PList $ V.fromList $ PLiteral . LInteger <$> [1..10])
+    (tx22_3 ^? crResult . to _pactResult . _Right)
+
 
   -- test receive XChain events
   pwo22_0 <- getPWO bdb chain0
@@ -343,6 +368,11 @@ pact4coin3UpgradeTest bdb mpRefIO pact = do
   gasEvRcv <- mkTransferEvent "sender00" "NoMiner" 0.0014 "coin" v3Hash
   rcvTfr <- mkTransferEvent "" "sender00" 0.0123 "coin" v3Hash
   assertEqual "Events for txRcv" [gasEvRcv,rcvTfr] (_crEvents txRcv)
+
+  -- rewind to savedCut (cut 18)
+  void $ swapMVar (_bdbCut bdb) savedCut
+  forM_ [(18 :: Int) .. 21] $ const runCut'
+  runCut'
 
   where
 
@@ -357,7 +387,8 @@ pact4coin3UpgradeTest bdb mpRefIO pact = do
       mpaGetBlock = \_ _ _ bh -> if _blockChainId bh == cid then do
           t0 <- buildHashCmd bh
           t1 <- buildXSend bh
-          return $! V.fromList [t0,t1]
+          t2 <- buildNewNativesCmd bh
+          return $! V.fromList [t0,t1,t2]
           else return mempty
       }
 
@@ -369,7 +400,8 @@ pact4coin3UpgradeTest bdb mpRefIO pact = do
                    t0 <- buildHashCmd bh
                    t1 <- buildReleaseCommand bh
                    t2 <- buildXSend bh
-                   return $! V.fromList [t0,t1,t2]
+                   t3 <- buildNewNativesCmd bh
+                   return $! V.fromList [t0,t1,t2,t3]
                | _blockChainId bh == chain0 = do
                    V.singleton <$> buildXReceive bh proof pid
                | otherwise = return mempty
@@ -382,6 +414,21 @@ pact4coin3UpgradeTest bdb mpRefIO pact = do
         $ set cbCreationTime (toTxCreationTime $ _bct $ _blockCreationTime bh)
         $ mkCmd (sshow bh)
         $ mkExec' "(at 'hash (describe-module 'coin))"
+
+    buildNewNativesCmd bh = buildCwCmd
+        $ set cbSigners [mkSigner' sender00 []]
+        $ set cbChainId (_blockChainId bh)
+        $ set cbCreationTime (toTxCreationTime $ _bct $ _blockCreationTime bh)
+        $ mkCmd (sshow bh)
+        $ mkExec' (mconcat expressions)
+      where
+        expressions =
+          [
+            "(distinct [1 1 2 2 3 3])"
+          , "(concat [\"this\" \"is\" \"a\" \"test\"])"
+          , "(str-to-list \"test\")"
+          , "(enumerate 1 10)"
+          ]
 
     buildXSend bh = buildCwCmd
         $ set cbSigners [mkSigner' sender00 []]

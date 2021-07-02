@@ -223,6 +223,7 @@ getHost mgr ver logger peers = do
                     $ "failed to get remote info from " <> toText (_peerAddr p)
                     <> ": " <> sshow e
 
+    -- TODO: use quorum here? Fitler out local network addresses?
     let hostnames = L.nub $ L.sort $ view remoteNodeInfoHostname <$> catMaybes nis
     return $! case hostnames of
         [x] -> Right x
@@ -322,7 +323,7 @@ withConnectionLogger
     -> IO a
     -> IO a
 withConnectionLogger logger counter inner =
-    withAsyncWithUnmask runLogClientConnections $ const inner
+    withAsyncWithUnmask (\u -> runLogClientConnections u) $ const inner
   where
     logClientConnections = forever $ do
         approximateThreadDelay 60000000 {- 1 minute -}

@@ -41,19 +41,31 @@ proj = kpkgs.rp.project ({ pkgs, hackGet, ... }: with pkgs.haskell.lib;
       } {});
 
       # TODO Replace with kpkgs bump after everything is ready
-      pact = dontCheck (self.callCabal2nix "rosetta" (pkgs.fetchFromGitHub {
+      pact = dontCheck (appendConfigureFlag (self.callCabal2nix "pact" (pkgs.fetchFromGitHub {
         owner = "kadena-io";
         repo = "pact";
-        rev = "7748a3e704e6116af1fa06ed5ee624812e8cd641";
-        sha256 = "1f3vbjqw0ir8cvsylwpb18yh7qgnwsi5grxz8g663hxdwsrfl2vx";
-      }) {});
+        rev = "ef4f089d50b5f0c19b2d6aaea80e6e2dccb0f153";
+        sha256 = "09z6bznyyhy53y7z31c5gkhfsj9b6wsxiyvnf8ymqx0a0inkj07n";
+      }) {}) "-f-build-tool");
 
       ethereum = dontCheck (self.callCabal2nix "ethereum" (pkgs.fetchFromGitHub {
         owner = "kadena-io";
         repo = "kadena-ethereum-bridge";
-        rev = "9838d1266b9ee43c88af6c01cd819e0c96b685e6";
-        sha256 = "01kg3ir7105bd373g2b1kc9l5wv0pm0wjnw2cq46vciw1i9vbqcw";
+        rev = "10f21e96af1dce4f13e261be9dfad8c28cd299f7";
+        sha256 = "1vab2m67ign6x77k1sjfjmv9sbrrl5sl2pl07rw1fw8bjqnp5vqk";
       }) {});
+
+      chainweb-storage = dontCheck (self.callCabal2nix "chainweb-storage" (pkgs.fetchFromGitHub {
+        owner = "kadena-io";
+        repo = "chainweb-storage";
+        rev = "07e7eb7596c7105aee42dbdb6edd10e3f23c0d7e";
+        sha256 = "0piqlj9i858vmvmiis9i8k6cz7fh78zfaj47fsq5cs9v7zpj234z";
+      }) {});
+      nothunks = dontCheck (self.callHackageDirect {
+        pkg = "nothunks";
+        ver = "0.1.2";
+        sha256 = "1xj5xvy3x3vixkj84cwsjl3m06z2zfszbcpxbz1j1ca83ha2gb7i";
+      } {});
     };
 
     packages = {

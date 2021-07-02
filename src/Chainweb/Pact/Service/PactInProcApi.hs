@@ -130,7 +130,7 @@ pactMemPoolGetBlock mpc theLogger validate height hash _bHeader = do
     mempoolGetBlock (mpcMempool mpc) validate height hash
   where
    logFn :: Logger l => l -> LogFunctionText -- just for giving GHC some type hints
-   logFn = logFunction
+   logFn l = logFunction l
 
 
 pactProcessFork
