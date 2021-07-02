@@ -35,7 +35,6 @@ import Control.Concurrent.STM (atomically)
 import Control.Concurrent.STM.TVar
 import Control.Lens (at, over, view, (&), (?~))
 
-import Data.Generics.Wrapped (_Unwrapped)
 import Data.HashMap.Strict (HashMap)
 import qualified Data.HashMap.Strict as HM
 import qualified Data.HashSet as HS
@@ -65,12 +64,14 @@ import Chainweb.Miner.Pact (Miner(..), minerId)
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
 import Chainweb.Sync.WebBlockHeaderStore
-import Chainweb.Time (Micros, Time(..), getCurrentTimeIntegral)
+import Chainweb.Time (Micros, Time, minute, getCurrentTimeIntegral, scaleTimeSpan)
 import Chainweb.Utils (fromJuste, runForever, thd)
 import Chainweb.Version
 import Chainweb.WebPactExecutionService (_webPactExecutionService)
 
 import Data.LogMessage (JsonLog(..), LogFunction)
+
+import Numeric.AffineSpace
 
 import Utils.Logging.Trace (trace)
 
@@ -191,12 +192,12 @@ withMiningCoordination logger conf cdb inner
     prune :: TVar MiningState -> TVar PrimedWork -> IORef Int -> IORef Int -> IO ()
     prune t tpw c503 c403 = runForever (logFunction logger) "MinerResources.prune" $ do
         let !d = 30_000_000  -- 30 seconds
-        let !maxAge = 300_000_000  -- 5 minutes
+        let !maxAge = (5 :: Int) `scaleTimeSpan` minute -- 5 minutes
         threadDelay d
-        ago <- over (_Unwrapped . _Unwrapped) (subtract maxAge) <$> getCurrentTimeIntegral
+        ago <- (.-^ maxAge) <$> getCurrentTimeIntegral
         m@(MiningState ms) <- atomically $ do
             ms <- readTVar t
-            modifyTVar' t . over _Unwrapped $ M.filter (f ago)
+            modifyTVar' t . over miningState $ M.filter (f ago)
             pure ms
         count503 <- readIORef c503
         count403 <- readIORef c403

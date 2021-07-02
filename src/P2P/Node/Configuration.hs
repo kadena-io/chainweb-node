@@ -89,6 +89,15 @@ data P2pConfiguration = P2pConfiguration
         -- ^ the fraction of the bootstrap nodes that must be reachable and must
         -- be able to reach this node on startup. Default value
         -- is 0.5.
+
+    , _p2pConfigTls :: !Bool
+        -- ^ enable TLS. WARNING: is is an expert setting. Disabling this flag
+        -- requires a particular setup of a proxy server that terminates TLS. A
+        -- valid CA signed TLS certificate must be used by the proxy and also
+        -- provided in the chainweb-node configuration if flag is disabled.
+        --
+        -- The user must also ensure that the proxy sets a valid X-Peer-Addr
+        -- response header.
     }
     deriving (Show, Eq, Generic)
 
@@ -111,6 +120,7 @@ defaultP2pConfiguration = P2pConfiguration
     , _p2pConfigIgnoreBootstrapNodes = False
     , _p2pConfigPrivate = False
     , _p2pConfigBootstrapReachability = 0.5
+    , _p2pConfigTls = True
     }
 
 validateP2pConfiguration :: Applicative a => ConfigValidation P2pConfiguration a
@@ -140,7 +150,7 @@ validateP2pConfiguration c = do
         "The bootstrap reachability factor must be a value between 0 and 1"
 
 instance ToJSON P2pConfiguration where
-    toJSON o = object
+    toJSON o = object $
         [ "peer" .= _p2pConfigPeer o
         , "maxSessionCount" .= _p2pConfigMaxSessionCount o
         , "maxPeerCount" .= _p2pConfigMaxPeerCount o
@@ -150,6 +160,8 @@ instance ToJSON P2pConfiguration where
         , "private" .= _p2pConfigPrivate o
         , "bootstrapReachability" .= _p2pConfigBootstrapReachability o
         ]
+        -- hidden: Do not print the default value. Included only if explicitely set to False
+        <> [ "tls" .= _p2pConfigTls o | not (_p2pConfigTls o) ]
 
 instance FromJSON (P2pConfiguration -> P2pConfiguration) where
     parseJSON = withObject "P2pConfiguration" $ \o -> id
@@ -161,6 +173,7 @@ instance FromJSON (P2pConfiguration -> P2pConfiguration) where
         <*< p2pConfigIgnoreBootstrapNodes ..: "ignoreBootstrapNodes" % o
         <*< p2pConfigPrivate ..: "private" % o
         <*< p2pConfigBootstrapReachability ..: "bootstrapReachability" % o
+        <*< p2pConfigTls ..: "tls" % o
 
 instance FromJSON P2pConfiguration where
     parseJSON = withObject "P2pExampleConfig" $ \o -> P2pConfiguration
@@ -172,6 +185,7 @@ instance FromJSON P2pConfiguration where
         <*> o .: "ignoreBootstrapNodes"
         <*> o .: "private"
         <*> o .: "bootstrapReachability"
+        <*> o .:? "tls" .!= True
 
 pP2pConfiguration :: MParser P2pConfiguration
 pP2pConfiguration = id
@@ -197,6 +211,9 @@ pP2pConfiguration = id
         % prefixLong net "bootstrap-reachability"
         <> help "the fraction of bootstrap nodes that must be reachable at startup"
         <> metavar "[0,1]"
+    <*< p2pConfigTls .:: enableDisableFlag
+        % prefixLong net "tls"
+        <> internal -- hidden option, only for expert use
   where
     net = Nothing
 

@@ -51,7 +51,6 @@ import qualified Chainweb.Test.Rosetta.RestAPI
 import qualified Chainweb.Test.Roundtrips
 import qualified Chainweb.Test.SPV
 import qualified Chainweb.Test.SPV.EventProof
-import qualified Chainweb.Test.Store.CAS.FS
 import qualified Chainweb.Test.Sync.WebBlockHeaderStore (properties)
 import qualified Chainweb.Test.TreeDB (properties)
 import qualified Chainweb.Test.TreeDB.RemoteDB
@@ -115,7 +114,6 @@ suite rdb =
             , testProperties "Chainweb.Test.TreeDB" Chainweb.Test.TreeDB.properties
             ]
         , Chainweb.Test.Pact.TransactionTests.tests
-        , Chainweb.Test.Store.CAS.FS.tests
         , Chainweb.Test.Roundtrips.tests
         , Chainweb.Test.Rosetta.tests
         , Chainweb.Test.RestAPI.tests rdb
