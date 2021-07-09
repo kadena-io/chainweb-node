@@ -278,7 +278,7 @@ updateActiveCount node = do
 -- | Monomorphized LogFunction
 --
 logg :: P2pNode -> LogLevel -> T.Text -> IO ()
-logg = _p2pNodeLogFunction
+logg n = _p2pNodeLogFunction n
 
 loggFun :: P2pNode -> LogFunction
 loggFun = _p2pNodeLogFunction

@@ -323,7 +323,7 @@ withConnectionLogger
     -> IO a
     -> IO a
 withConnectionLogger logger counter inner =
-    withAsyncWithUnmask runLogClientConnections $ const inner
+    withAsyncWithUnmask (\u -> runLogClientConnections u) $ const inner
   where
     logClientConnections = forever $ do
         approximateThreadDelay 60000000 {- 1 minute -}
