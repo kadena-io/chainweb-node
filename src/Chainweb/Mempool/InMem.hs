@@ -6,6 +6,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 
 -- | A mock in-memory mempool backend that does not persist to disk.
@@ -19,7 +20,6 @@ module Chainweb.Mempool.InMem
   , makeInMemPool
   , newInMemMempoolData
 
-  , validateOne
   , txTTLCheck
   ) where
 
@@ -71,6 +71,8 @@ import Chainweb.Pact.Utils (maxTTL)
 import Chainweb.Time
 import Chainweb.Utils
 import Chainweb.Version (ChainwebVersion)
+
+import Numeric.AffineSpace
 
 ------------------------------------------------------------------------------
 compareOnGasPrice :: TransactionConfig t -> t -> t -> Ordering
@@ -290,6 +292,12 @@ maxNumPending = 10000
 -- | Validation: A short-circuiting variant of this check that fails outright at
 -- the first detection of any validation failure on any Transaction.
 --
+-- This function is used when a transaction is inserted into the mempool. It is
+-- NOT used when a new block is created. For the latter more strict validation
+-- methods are used. In particular TTL validation is uses the current time as
+-- reference in the former case and the creation time of the parent header in
+-- the latter case.
+--
 insertCheckInMem
     :: forall t
     .  NFData t
@@ -319,6 +327,12 @@ insertCheckInMem cfg lock txs
     hasher = txHasher (_inmemTxCfg cfg)
 
 -- | Validation: Confirm the validity of some single transaction @t@.
+--
+-- This function is only used during insert checks. TTL validation is done in
+-- the context of the current time (now).
+--
+-- This function is NOT used during the pre validation when creating a new
+-- block.
 --
 validateOne
     :: forall t a
@@ -376,15 +390,32 @@ validateOne cfg badmap curTxIdx now t h =
         | otherwise = Right ()
 
 -- | Check the TTL of a transaction.
+--
+-- This check is used when a TX is inserted into the mempool. The reference time
+-- for the check is the current time. The validation for inclusion into a block
+-- is the creation time of the parent block. Therefor success in this function
+-- doesn't guarantee succesfull validation in the context of a block.
+--
+-- Adds a grace period of 10 seconds for the tx creation time to account for
+-- clock shifts between client and server. Final validation also applies a grace
+-- period.
+--
 txTTLCheck :: TransactionConfig t -> Time Micros -> t -> Either InsertError ()
 txTTLCheck txcfg now t =
-    ebool_ InsertErrorInvalidTime (ct < now && now < et && ct < et)
+    ebool_ InsertErrorInvalidTime (ct < now .+^ gracePeriod && now < et && ct < et)
   where
     TransactionMetadata ct et = txMetadata txcfg t
+    gracePeriod = scaleTimeSpan @Int 10 second
 
 
 -- | Validation: Similar to `insertCheckInMem`, but does not short circuit.
 -- Instead, bad transactions are filtered out and the successful ones are kept.
+--
+-- This function is used when a transaction is inserted into the mempool. It is
+-- NOT used when a new block is created. For the latter more strict validation
+-- methods are used. In particular TTL validation is uses the current time as
+-- reference in the former case and the creation time of the parent header in
+-- the latter case.
 --
 insertCheckInMem'
     :: forall t
