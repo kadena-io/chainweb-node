@@ -327,7 +327,7 @@ secondsToTimeSpan (Seconds s) = scaleTimeSpan s second
 {-# INLINE secondsToTimeSpan #-}
 
 timeSpanToSeconds :: Integral a => TimeSpan a -> Seconds
-timeSpanToSeconds (TimeSpan us) = Seconds . int $ us `div` 1000000
+timeSpanToSeconds (TimeSpan us) = Seconds $! int $ us `div` 1000000
 {-# INLINE timeSpanToSeconds #-}
 
 secondsToText :: Seconds -> T.Text
@@ -360,7 +360,7 @@ microsToTimeSpan (Micros us) = scaleTimeSpan us microsecond
 {-# INLINE microsToTimeSpan #-}
 
 timeSpanToMicros :: Integral a => TimeSpan a -> Micros
-timeSpanToMicros (TimeSpan us) = Micros . int $ us
+timeSpanToMicros (TimeSpan us) = Micros $! int $ us
 {-# INLINE timeSpanToMicros #-}
 
 microsToText :: Micros -> T.Text
@@ -376,4 +376,3 @@ instance HasTextRepresentation Micros where
     {-# INLINE toText #-}
     fromText = microsFromText
     {-# INLINABLE fromText #-}
-
