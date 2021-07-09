@@ -377,10 +377,10 @@ validateOne cfg badmap curTxIdx now t h =
 
 -- | Check the TTL of a transaction.
 txTTLCheck :: TransactionConfig t -> Time Micros -> t -> Either InsertError ()
-txTTLCheck txcfg (Time (TimeSpan now)) t =
+txTTLCheck txcfg now t =
     ebool_ InsertErrorInvalidTime (ct < now && now < et && ct < et)
   where
-    TransactionMetadata (Time (TimeSpan ct)) (Time (TimeSpan et)) = txMetadata txcfg t
+    TransactionMetadata ct et = txMetadata txcfg t
 
 
 -- | Validation: Similar to `insertCheckInMem`, but does not short circuit.

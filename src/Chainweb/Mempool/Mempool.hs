@@ -314,12 +314,14 @@ noopMempool = do
 
 ------------------------------------------------------------------------------
 chainwebTransactionConfig :: TransactionConfig ChainwebTransaction
-chainwebTransactionConfig = TransactionConfig chainwebPayloadCodec
-    commandHash
-    chainwebTestHashMeta
-    getGasPrice
-    getGasLimit
-    txmeta
+chainwebTransactionConfig = TransactionConfig
+    { txCodec = chainwebPayloadCodec
+    , txHasher = commandHash
+    , txHashMeta = chainwebTestHashMeta
+    , txGasPrice = getGasPrice
+    , txGasLimit = getGasLimit
+    , txMetadata = txmeta
+    }
 
   where
     getGasPrice = gasPriceOf . fmap payloadObj
