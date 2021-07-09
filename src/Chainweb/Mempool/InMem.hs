@@ -391,14 +391,17 @@ validateOne cfg badmap curTxIdx now t h =
 
 -- | Check the TTL of a transaction.
 --
+-- A grace period of 10 seconds is applied for the tx creation time to account for
+-- clock shifts between client and server. While this can slightly increase the
+-- chance that the transaction is rejected later during validation, this is fine
+-- because this value is still much smaller than the grace period in the final
+-- validation where 95 seconds are allowed (cf.
+-- "Chainweb.Pact.Utils.lenientTimeSlop").
+--
 -- This check is used when a TX is inserted into the mempool. The reference time
 -- for the check is the current time. The validation for inclusion into a block
 -- is the creation time of the parent block. Therefor success in this function
 -- doesn't guarantee succesfull validation in the context of a block.
---
--- Adds a grace period of 10 seconds for the tx creation time to account for
--- clock shifts between client and server. Final validation also applies a grace
--- period.
 --
 txTTLCheck :: TransactionConfig t -> Time Micros -> t -> Either InsertError ()
 txTTLCheck txcfg now t =
@@ -406,7 +409,6 @@ txTTLCheck txcfg now t =
   where
     TransactionMetadata ct et = txMetadata txcfg t
     gracePeriod = scaleTimeSpan @Int 10 second
-
 
 -- | Validation: Similar to `insertCheckInMem`, but does not short circuit.
 -- Instead, bad transactions are filtered out and the successful ones are kept.
