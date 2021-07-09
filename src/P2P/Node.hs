@@ -87,9 +87,9 @@ import qualified Data.IxSet.Typed as IXS
 import qualified Data.Map.Strict as M
 import Data.Maybe
 import qualified Data.Text as T
-import Data.Tuple
 
 import GHC.Generics
+import GHC.Stack
 
 import qualified Network.HTTP.Client as HTTP
 
@@ -212,6 +212,7 @@ data P2pNode = P2pNode
     , _p2pNodeDoPeerSync :: !Bool
         -- ^ Synchronize peers at start of each session. Note, that this is
         -- expensive.
+    , _p2pNodeNewPeerLock :: !(MVar ())
     }
 
 instance HasChainwebVersion P2pNode where
@@ -286,6 +287,16 @@ randomR node range = do
     !gen <- readTVar (_p2pNodeRng node)
     let (!a, !gen') = R.randomR range gen
     a <$ writeTVar (_p2pNodeRng node) gen'
+
+exponential :: P2pNode -> Double -> STM Double
+exponential node rate = do
+    !x <- randomR node (0, 1)
+    return $! - log x / rate
+
+-- exponentialIO :: Double -> IO Double
+-- exponentialIO rate = do
+--     !x <- R.getStdRandom (R.randomR (0, 1))
+--     return $! - log x / rate
 
 setInactive :: P2pNode -> STM ()
 setInactive node = writeTVar (_p2pNodeActive node) False
@@ -475,93 +486,113 @@ syncFromPeer node info = do
 -- @O(_p2pConfigActivePeerCount conf)@
 --
 findNextPeer
-    :: P2pConfiguration
+    :: HasCallStack
+    => P2pConfiguration
     -> P2pNode
+    -> Int
     -> STM PeerEntry
-findNextPeer conf node = do
+findNextPeer conf node r = do
 
     -- check if this node is active. If not, don't create new sessions,
     -- but retry until it becomes active.
     --
     !active <- readTVar (_p2pNodeActive node)
     check active
+    loggg "active"
 
-    -- get all known peers and all active sessions
+    -- Retry if there are already enough sessions for this NetworkId
     --
-    peers <- peerDbSnapshotSTM peerDbVar
     !sessions <- readTVar sessionsVar
-    let peerCount = length peers
     let sessionCount = length sessions
+    check (int sessionCount < _p2pConfigMaxSessionCount conf)
 
-    -- Retry if there are already more active sessions than known peers.
+    loggg $ "max session count: " <> sshow (_p2pConfigMaxSessionCount conf)
+    loggg $ "session count: " <> sshow sessionCount
+
+    -- Get all peers for this NetworkId
+    -- (Assumes that the local peers is not in the peer db)
     --
-    check (sessionCount < peerCount)
+    peers <- IXS.getEQ (_p2pNodeNetworkId node) <$> peerDbSnapshotSTM peerDbVar
+    check (sessionCount < length peers)
+    loggg $ "peers count: " <> sshow (length peers)
 
-    -- Create a new sessions with a random peer for which there is no active
-    -- sessions:
-
-    let checkPeer (n :: PeerEntry) = do
-            let !pid = _peerId $ _peerEntryInfo n
-            -- can this check be moved out of the fold?
-            check (int sessionCount < _p2pConfigMaxSessionCount conf)
-            check (M.notMember (_peerEntryInfo n) sessions)
-            check (pid /= myPid)
-            return n
+    -- Get all peers for which there is no active session
+    --
+    let availablePeers = foldl'
+            (\s pid -> IXS.deleteIx (_peerAddr pid) s)
+            peers
+            $ M.keys sessions
+    check (not $ IXS.null availablePeers)
+    loggg $ "available peers count: " <> sshow (length availablePeers)
 
     -- Classify the peers by priority
     --
-    let base = IXS.getEQ (_p2pNodeNetworkId node) peers
 
-#if 0
-
-    -- random circular shift of a set
-    let shift i s = uncurry (++)
-            $ swap
-            $ splitAt (fromIntegral i)
-            $ toList
-            $ s
-
-        shiftR s = do
-            i <- randomR node (0, max 1 (IXS.size s) - 1)
-            return $! shift i s
-
-    -- TODO: how expensive is this? should be cache the classification?
+    -- Create Priority classes
     --
-    let p0 = IXS.getGT (ActiveSessionCount 0) $ IXS.getLTE (SuccessiveFailures 1) base
-        p1 = IXS.getEQ (ActiveSessionCount 0) $ IXS.getLTE (SuccessiveFailures 1) base
-        p2 = IXS.getGT (ActiveSessionCount 0) $ IXS.getGT (SuccessiveFailures 1) base
-        p3 = IXS.getEQ (ActiveSessionCount 0) $ IXS.getGT (SuccessiveFailures 1) base
-    searchSpace <- concat <$> traverse shiftR [p0, p1, p2, p3]
-    foldr (orElse . checkPeer) retry searchSpace
-
-#else
-
-    -- random circular shift of a set
-    let shift i s = uncurry (++)
-            $ swap
-            $ splitAt (fromIntegral i)
-            $ s
-
-        shiftR s = do
-            i <- randomR node (0, max 1 (length s) - 1)
-            return $! shift i s
-
+    -- p0: sessions > 0 && failures <= 1
+    -- p1: sessions == 0 && failures > 1
+    -- p2: sessions == 0 && failures > 2
+    -- p3: sessions == 0 && failures > 3
+    -- ...
+    --
+    -- TODO: check that this is lazy
+    --
     let p0 = toList
             $ IXS.getGT (ActiveSessionCount 0)
-            $ IXS.getLTE (SuccessiveFailures 1) base
-        p1 = fmap snd
+            $ IXS.getLTE (SuccessiveFailures 1) availablePeers
+        p1 = toList
+            $ IXS.getGT (ActiveSessionCount 0)
+            $ IXS.getGT (SuccessiveFailures 1) availablePeers
+        pr = fmap snd
             $ IXS.groupAscBy @SuccessiveFailures
             $ IXS.union
-                (IXS.getEQ (ActiveSessionCount 0) base)
-                (IXS.getGT (SuccessiveFailures 1) base)
-    searchSpace <- concat <$> traverse shiftR (p0: p1)
-    foldr (orElse . checkPeer) retry searchSpace
-#endif
+                (IXS.getEQ (ActiveSessionCount 0) availablePeers)
+                (IXS.getGT (SuccessiveFailures 1) availablePeers)
+        priorityClasses = filter (not . null) (p0 : p1 : pr)
 
+    loggg $ "priority class count: " <> sshow (length priorityClasses)
+
+    -- TODO: the use of RNG here is problematic, since threads
+    -- may race for it even though the value doesn't really matter
+    -- here. Can use use it unsafely here?
+    --
+    -- Is this actually true?
+
+    -- Pick priority class
+    c <- pickExp priorityClasses
+    loggg $ "picked class"
+
+    -- Pick element from priority class
+    mapM pickUniform c >>= \case
+        Just (Just x) -> do
+            loggg $ "picked peer: " <> sshow (toText $ fromJust $ _peerId $ _peerEntryInfo x)
+            return x
+        _ -> do
+            loggg "RETRY"
+            retry
   where
     peerDbVar = _p2pNodePeerDb node
     sessionsVar = _p2pNodeSessions node
-    myPid = _peerId $ _p2pNodePeerInfo node
+
+    pickUniform :: HasCallStack => [a] -> STM (Maybe a)
+    pickUniform [] = return Nothing
+    pickUniform l = (Just . (l !!)) <$> randomR node (0, length l - 1)
+
+    -- Randomly pick elements from a list with probability decaying
+    -- exponentially (with basis 2).
+    --
+    pickExp :: HasCallStack => [a] -> STM (Maybe a)
+    pickExp [] = return Nothing
+    pickExp l = Just . (l !!) . min (length l - 1) . floor <$> exponential node 1
+
+    -- Debug
+    nid = _p2pNodeNetworkId node
+    myid = toText $ fromJust $ _peerId $ _p2pNodePeerInfo node
+    loggg t = return $! unsafePerformIO
+        $ putStrLn
+        $ "[" <> sshow r <> "][" <> sshow myid <> "][" <> sshow nid <> "] "
+        <> t
 
 -- -------------------------------------------------------------------------- --
 -- Manage Sessions
@@ -570,7 +601,14 @@ findNextPeer conf node = do
 --
 newSession :: P2pConfiguration -> P2pNode -> IO ()
 newSession conf node = do
-    newPeer <- atomically $ findNextPeer conf node
+    newPeer <- withMVar (_p2pNodeNewPeerLock node) $ \() -> do
+        let myid = toText $ fromJust $ _peerId $ _p2pNodePeerInfo node
+            nid = _p2pNodeNetworkId node
+        r <- R.getStdRandom (R.randomR (10, 99))
+        putStrLn $ "[" <> sshow r <> "][" <> sshow myid <> "][" <> sshow nid <> "] START ===============>"
+        !x <- atomically $ findNextPeer conf node r
+        putStrLn $ "[" <> sshow r <> "][" <> sshow myid <> "][" <> sshow nid <> "] END <==============="
+        return x
     let newPeerInfo = _peerEntryInfo newPeer
     logg node Debug $ "Selected new peer " <> encodeToText newPeer
     syncFromPeer_ newPeerInfo >>= \case
@@ -723,11 +761,13 @@ p2pCreateNode
     -> P2pSession
     -> IO P2pNode
 p2pCreateNode cv nid peer logfun db mgr doPeerSync session = do
+    putStrLn $ "[" <> sshow (toText $ fromJust $ _peerId myInfo) <> "][" <> sshow nid <> "] CREATE NODE"
     -- intialize P2P State
     sessionsVar <- newTVarIO mempty
     statsVar <- newTVarIO emptyP2pNodeStats
     rngVar <- newTVarIO =<< R.newStdGen
     activeVar <- newTVarIO True
+    lock <- newMVar ()
     let !s = P2pNode
                 { _p2pNodeNetworkId = nid
                 , _p2pNodeChainwebVersion = cv
@@ -741,6 +781,7 @@ p2pCreateNode cv nid peer logfun db mgr doPeerSync session = do
                 , _p2pNodeRng = rngVar
                 , _p2pNodeActive = activeVar
                 , _p2pNodeDoPeerSync = doPeerSync
+                , _p2pNodeNewPeerLock = lock
                 }
 
     logfun @T.Text Info "created node"
