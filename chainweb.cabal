@@ -183,7 +183,6 @@ library
         , Chainweb.Graph
         , Chainweb.HostAddress
         , Chainweb.Logger
-        , Chainweb.Logging.Amberdata
         , Chainweb.Logging.Config
         , Chainweb.Logging.Miner
         , Chainweb.Mempool.Consensus
@@ -629,11 +628,9 @@ executable chainweb-node
         , lens >= 4.16
         , loglevel >= 0.1
         , managed >= 1.0
-        , mtl >= 2.2
         , streaming >= 0.2
         , text >= 1.2
         , time >= 1.8
-        , unordered-containers >= 0.2
         , yet-another-logger >= 0.4
 
     if !os(windows)
