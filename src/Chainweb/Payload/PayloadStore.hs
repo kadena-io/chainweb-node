@@ -153,6 +153,23 @@ type TransactionDbCas_ a cas =
     , CasConstraint cas (BlockTransactions_ a)
     )
 
+instance TransactionDbCasLookup_ a cas => HasCasLookup (TransactionDb_ a cas) where
+    type CasValueType (TransactionDb_ a cas) = PayloadData_ a
+
+    casLookup db k = runMaybeT $ do
+        pd <- MaybeT $ casLookup (_transactionDbBlockPayloads db) k
+        let txsHash = _blockPayloadTransactionsHash pd
+        let outsHash = _blockPayloadOutputsHash pd
+        txs <- MaybeT $ casLookup (_transactionDbBlockTransactions db) txsHash
+        return $ PayloadData
+            { _payloadDataTransactions = _blockTransactions txs
+            , _payloadDataMiner = _blockMinerData txs
+            , _payloadDataPayloadHash = k
+            , _payloadDataTransactionsHash = txsHash
+            , _payloadDataOutputsHash = outsHash
+            }
+    {-# INLINE casLookup #-}
+
 -- -------------------------------------------------------------------------- --
 -- Caches
 
