@@ -62,7 +62,7 @@ import Data.CAS
 -- | The maximum number of items that are returned in a batch
 --
 payloadBatchLimit :: Int
-payloadBatchLimit = 100
+payloadBatchLimit = 1000
 
 err404Msg :: ToJSON msg  => msg -> ServerError
 err404Msg msg = err404 { errBody = encode msg }
@@ -151,7 +151,8 @@ outputsBatchHandler
 outputsBatchHandler db ks = liftIO
     $ fmap (V.toList . catMaybes)
     $ casLookupBatch db
-    $ V.fromList ks
+    $ V.fromList
+    $ take payloadBatchLimit ks
 
 -- -------------------------------------------------------------------------- --
 -- Payload API Server
