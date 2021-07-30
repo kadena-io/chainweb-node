@@ -205,7 +205,7 @@ withMempoolRNG = withMVar mempoolGlobalRNG
 diceRoll :: Double              -- ^ threshold between [0,1]
          -> IO Bool
 diceRoll threshold = do
-    sample <- withMempoolRNG (RNG.uniformRM (0, 1))
+    sample <- withMempoolRNG (RNG.uniformR (0, 1))
     return $! sample <= threshold
 
 shouldWeRunSync :: MempoolP2pConfig -> IO Bool
