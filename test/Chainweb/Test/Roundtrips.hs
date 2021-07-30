@@ -19,6 +19,7 @@ import Crypto.Hash.Algorithms
 import Data.Aeson
 import qualified Data.ByteString.Lazy as BL
 import qualified Data.HashMap.Strict as HM
+import Data.Int
 import qualified Data.Text as T
 
 import Test.QuickCheck
@@ -68,6 +69,7 @@ tests = testGroup "roundtrip tests"
     , hasTextRepresentationTests
     , jsonRoundtripTests
     , jsonKeyRoundtripTests
+    , timeSpanTests
     ]
 
 -- -------------------------------------------------------------------------- --
@@ -196,6 +198,7 @@ jsonTestCases f =
     [ testProperty "Time Micros" $ f @(Time Micros)
     , testProperty "TimeSpan Micros" $ f @(TimeSpan Micros)
     , testProperty "Seconds" $ f @Seconds
+    , testProperty "Micros" $ f @Micros
     , testProperty "ChainId" $ f @ChainId
     , testProperty "ChainwebVersion" $ f @ChainwebVersion
     , testProperty "Nonce" $ f @Nonce
@@ -344,6 +347,7 @@ hasTextRepresentationTests = testGroup "HasTextRepresentation roundtrips"
     , testProperty "ChainId" $ prop_iso' @_ @ChainId fromText toText
     , testProperty "BlockHash" $ prop_iso' @_ @BlockHash fromText toText
     , testProperty "Seconds" $ prop_iso' @_ @Seconds fromText toText
+    , testProperty "Micros" $ prop_iso' @_ @Micros fromText toText
     , testProperty "Hostname" $ prop_iso' @_ @Hostname fromText toText
     , testProperty "Port" $ prop_iso' @_ @Port fromText toText
     , testProperty "HostAddress" $ prop_iso' @_ @HostAddress fromText toText
@@ -356,4 +360,22 @@ hasTextRepresentationTests = testGroup "HasTextRepresentation roundtrips"
     , testProperty "TransactionOutput" $ prop_iso' @_ @TransactionOutput fromText toText
     , testProperty "ChainDatabaseGcConfig" $ prop_iso' @_ @ChainDatabaseGcConfig fromText toText
     , testProperty "MerkleRootType" $ prop_iso' @_ @MerkleRootType fromText toText
+    ]
+
+-- -------------------------------------------------------------------------- --
+-- Time
+
+timeSpanTests :: TestTree
+timeSpanTests = testGroup "TimeSpan roundtrips"
+    [ testProperty "timeSpanToMicros Int" $ prop_iso @(TimeSpan Int) microsToTimeSpan timeSpanToMicros
+    , testProperty "timeSpanToMicros Int64" $ prop_iso @(TimeSpan Int64) microsToTimeSpan timeSpanToMicros
+    , testProperty "timeSpanToMicros Micros" $ prop_iso @(TimeSpan Micros) microsToTimeSpan timeSpanToMicros
+
+    , testProperty "microsToTimeSpan Int" $ prop_iso @_ @(TimeSpan Int) timeSpanToMicros microsToTimeSpan
+    , testProperty "microsToTimeSpan Int64" $ prop_iso @_ @(TimeSpan Int64) timeSpanToMicros microsToTimeSpan
+    , testProperty "microsToTimeSpan Micros" $ prop_iso @_ @(TimeSpan Micros) timeSpanToMicros microsToTimeSpan
+
+    , testProperty "secondsToTimeSpan Int" $ prop_iso @_ @(TimeSpan Int) timeSpanToSeconds secondsToTimeSpan
+    , testProperty "secondsToTimeSpan Int64" $ prop_iso @_ @(TimeSpan Int64) timeSpanToSeconds secondsToTimeSpan
+    , testProperty "secondsToTimeSpan Seconds" $ prop_iso @_ @(TimeSpan Micros) timeSpanToSeconds secondsToTimeSpan
     ]

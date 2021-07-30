@@ -27,7 +27,6 @@ module Chainweb.Logging.Config
 , logConfigBackend
 , logConfigTelemetryBackend
 , logConfigClusterId
-, logConfigAmberdataBackend
 , defaultLogConfig
 , validateLogConfig
 , pLogConfig
@@ -50,7 +49,6 @@ import System.Logger.Logger
 
 -- internal modules
 
-import Chainweb.Logging.Amberdata
 import Chainweb.Utils
 
 import Utils.Logging
@@ -80,7 +78,6 @@ data LogConfig = LogConfig
     { _logConfigLogger :: !LoggerConfig
     , _logConfigBackend :: !BackendConfig
     , _logConfigTelemetryBackend :: !(EnableConfig BackendConfig)
-    , _logConfigAmberdataBackend :: !(EnableConfig AmberdataConfig)
     , _logConfigClusterId :: !(Maybe ClusterId)
     , _logConfigFilter :: !LogFilter
     }
@@ -93,8 +90,6 @@ defaultLogConfig = LogConfig
     { _logConfigLogger = defaultLoggerConfig
     , _logConfigBackend = defaultBackendConfig
     , _logConfigTelemetryBackend = defaultEnableConfig defaultBackendConfig
-      -- Amberdata logging disabled by default
-    , _logConfigAmberdataBackend = EnableConfig False defaultAmberdataConfig
     , _logConfigClusterId = Nothing
     , _logConfigFilter = mempty
     }
@@ -104,7 +99,6 @@ validateLogConfig o = do
     validateLoggerConfig $ _logConfigLogger o
     validateBackendConfig $ _logConfigBackend o
     validateEnableConfig validateBackendConfig $ _logConfigTelemetryBackend o
-    validateEnableConfig validateAmberdataConfig $ _logConfigAmberdataBackend o
 
 instance ToJSON LogConfig where
     toJSON o = object
@@ -112,7 +106,6 @@ instance ToJSON LogConfig where
         , "backend" .= _logConfigBackend o
         , "telemetryBackend" .= _logConfigTelemetryBackend o
         , "clusterId" .= _logConfigClusterId o
-        -- hidden:  "amberdataBackend" .= _logConfigAmberdataBackend o
         , "filter" .= _logConfigFilter o
         ]
 
@@ -122,7 +115,6 @@ instance FromJSON (LogConfig -> LogConfig) where
         <*< logConfigBackend %.: "backend" % o
         <*< logConfigTelemetryBackend %.: "telemetryBackend" % o
         <*< logConfigClusterId ..: "clusterId" % o
-        <*< logConfigAmberdataBackend %.: "amberdataBackend" % o
         <*< logConfigFilter . fromLeftMonoidalUpdate %.: "filter" % o
 
 pLogConfig :: MParser LogConfig
