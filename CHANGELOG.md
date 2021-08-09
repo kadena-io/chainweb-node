@@ -1,5 +1,23 @@
 # `chainweb-node` Changelog
 
+## 2.9 (2021-08-12)
+
+This version replaces all previous versions. Any prior version will stop working
+on **2021-08-19T00:00:00Z**. Node administrators must upgrade to this version
+before that date.
+
+This version will stop working on **2021-09-30T00:00:00Z**.
+
+Changes:
+
+This is a maintenance release without breaking changes.
+
+*   Use `0.0.0.0` as default P2P host address, which enables auto-detection of
+    the IP address of the node. (#1245)
+*   Build and link Pact without CLI tools support. (#1246)
+*   Limit batch size of payload REST API requests 1000 items. (#1258)
+*   Removed several external dependencies from the code base.
+
 ## 2.8 (2021-06-05)
 
 This version replaces all previous versions. Any prior version will stop working
