@@ -6,7 +6,7 @@ This version replaces all previous versions. Any prior version will stop working
 on **2021-08-19T00:00:00Z**. Node administrators must upgrade to this version
 before that date.
 
-This version will stop working on **2021-09-30T00:00:00Z**.
+This version will stop working on **2021-10-14T00:00:00Z**.
 
 Changes:
 
