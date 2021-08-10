@@ -52,12 +52,10 @@ import Control.DeepSeq
 import Control.Exception
 import Control.Lens hiding ((.=))
 import Control.Monad
-import Control.Monad.Error.Class (throwError)
 import Control.Monad.Managed
 
 import Data.CAS
 import Data.CAS.RocksDB
-import qualified Data.HashSet as HS
 import qualified Data.Text as T
 import Data.Time
 import Data.Typeable
@@ -86,7 +84,6 @@ import Chainweb.Counter
 import Chainweb.Cut.CutHashes
 import Chainweb.CutDB
 import Chainweb.Logger
-import Chainweb.Logging.Amberdata
 import Chainweb.Logging.Config
 import Chainweb.Logging.Miner
 import Chainweb.Mempool.Consensus (ReintroducedTxsLog)
@@ -141,15 +138,7 @@ validateChainwebNodeConfiguration :: ConfigValidation ChainwebNodeConfiguration 
 validateChainwebNodeConfiguration o = do
     validateLogConfig $ _nodeConfigLog o
     validateChainwebConfiguration $ _nodeConfigChainweb o
-    mapM_ checkIfValidChain (getAmberdataChainId o)
     mapM_ (validateFilePath "databaseDirectory") (_nodeConfigDatabaseDirectory o)
-  where
-    chains = chainIds $ _nodeConfigChainweb o
-    checkIfValidChain cid
-      = unless (HS.member cid chains)
-        $ throwError $ "Invalid chain id provided: " <> toText cid
-    getAmberdataChainId = _amberdataChainId . _enableConfigConfig . _logConfigAmberdataBackend . _nodeConfigLog
-
 
 instance ToJSON ChainwebNodeConfiguration where
     toJSON o = object
@@ -262,20 +251,6 @@ runBlockUpdateMonitor logger db = L.withLoggerLabel ("component", "block-update-
         <*> pure True -- _blockUpdateOrphaned
         <*> ((0 -) <$> txCount bh) -- _blockUpdateTxCount
 
-runAmberdataBlockMonitor
-    :: PayloadCasLookup cas
-    => Logger logger
-    => EnableConfig AmberdataConfig
-    -> logger
-    -> CutDb cas
-    -> IO ()
-runAmberdataBlockMonitor config logger db
-    | _enableConfigEnabled config = L.withLoggerLabel ("component", "amberdata-block-monitor") logger $ \l ->
-        runMonitorLoop "Chainweb.Logging.amberdataBlockMonitor" l (amberdataBlockMonitor cid l db)
-    | otherwise = return ()
-  where
-    cid = _amberdataChainId $ _enableConfigConfig config
-
 -- type CutLog = HM.HashMap ChainId (ObjectEncoded BlockHeader)
 
 -- This instances are OK, since this is the "Main" module of an application
@@ -331,16 +306,12 @@ node conf logger = do
             [ runChainweb cw
               -- we should probably push 'onReady' deeper here but this should be ok
             , runCutMonitor (_chainwebLogger cw) (_cutResCutDb $ _chainwebCutResources cw)
-            , runAmberdataBlockMonitor (amberdataConfig conf) (_chainwebLogger cw) (_cutResCutDb $ _chainwebCutResources cw)
             , runQueueMonitor (_chainwebLogger cw) (_cutResCutDb $ _chainwebCutResources cw)
             , runRtsMonitor (_chainwebLogger cw)
             , runBlockUpdateMonitor (_chainwebLogger cw) (_cutResCutDb $ _chainwebCutResources cw)
             ]
   where
     cwConf = _nodeConfigChainweb conf
-    amberdataConfig = _logConfigAmberdataBackend . _nodeConfigLog
-
-
 
 withNodeLogger
     :: LogConfig
@@ -366,7 +337,6 @@ withNodeLogger logConfig v f = runManaged $ do
     counterBackend <- managed $ configureHandler
         (withJsonHandleBackend @CounterLog "connectioncounters" mgr pkgInfoScopes)
         teleLogConfig
-    newBlockAmberdataBackend <- managed $ mkAmberdataLogger mgr amberdataConfig
     endpointBackend <- managed
         $ mkTelemetryLogger @PactCmdLog mgr teleLogConfig
     newBlockBackend <- managed
@@ -395,7 +365,6 @@ withNodeLogger logConfig v f = runManaged $ do
             , logHandler p2pInfoBackend
             , logHandler rtsBackend
             , logHandler counterBackend
-            , logHandler newBlockAmberdataBackend
             , logHandler endpointBackend
             , logHandler newBlockBackend
             , logHandler orphanedBlockBackend
@@ -414,15 +383,6 @@ withNodeLogger logConfig v f = runManaged $ do
         $ logger
   where
     teleLogConfig = _logConfigTelemetryBackend logConfig
-    amberdataConfig = _logConfigAmberdataBackend logConfig
-
-mkAmberdataLogger
-    :: HTTP.Manager
-    -> EnableConfig AmberdataConfig
-    -> (Backend (JsonLog AmberdataBlock) -> IO b)
-    -> IO b
-mkAmberdataLogger mgr = configureHandler
-  $ withAmberDataBlocksBackend mgr
 
 mkTelemetryLogger
     :: forall a b

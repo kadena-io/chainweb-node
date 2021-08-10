@@ -10,7 +10,7 @@
 {-# LANGUAGE TypeFamilies #-}
 
 module Chainweb.Mempool.Consensus
-( chainwebTxsFromPWO
+( chainwebTxsFromPd
 , MempoolConsensus(..)
 , mkMempoolConsensus
 , processFork
@@ -22,6 +22,7 @@ module Chainweb.Mempool.Consensus
 ------------------------------------------------------------------------------
 import Control.DeepSeq
 import Control.Exception
+import Control.Lens (view)
 import Control.Monad
 
 import Data.Aeson
@@ -171,20 +172,20 @@ payloadLookup payloadStore bh =
     case payloadStore of
         Nothing -> return mempty
         Just s -> do
-            pwo <- casLookupM' s (_blockPayloadHash bh)
-            chainwebTxsFromPWO pwo
+            pd <- casLookupM' (view transactionDb s) (_blockPayloadHash bh)
+            chainwebTxsFromPd pd
   where
     casLookupM' s h = do
         x <- casLookup s h
         case x of
             Nothing -> throwIO $ PayloadNotFoundException h
-            Just pwo -> return pwo
+            Just pd -> return pd
 
 
 ------------------------------------------------------------------------------
-chainwebTxsFromPWO :: PayloadWithOutputs -> IO (HashSet (HashableTrans PayloadWithText))
-chainwebTxsFromPWO pwo = do
-    let transSeq = fst <$> _payloadWithOutputsTransactions pwo
+chainwebTxsFromPd :: PayloadData -> IO (HashSet (HashableTrans PayloadWithText))
+chainwebTxsFromPd pd = do
+    let transSeq = _payloadDataTransactions pd
     let bytes = _transactionBytes <$> transSeq
     let eithers = toCWTransaction <$> bytes
     -- Note: if any transactions fail to convert, the final validation hash will fail to match
