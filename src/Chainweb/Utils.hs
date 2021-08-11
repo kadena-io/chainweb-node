@@ -235,7 +235,6 @@ import Data.ByteString (ByteString)
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Base64 as B64
 import qualified Data.ByteString.Base64.URL as B64U
-import qualified Data.ByteString.Char8 as B8
 import qualified Data.ByteString.Lazy as BL
 #if !MIN_VERSION_random(1,2,0)
 import qualified Data.ByteString.Random as BR
@@ -746,7 +745,10 @@ newtype CsvDecimal = CsvDecimal { _csvDecimal :: Decimal }
     deriving newtype (Eq, Ord, Show, Read)
 
 instance CSV.FromField CsvDecimal where
-    parseField = either fail pure . readEither . B8.unpack
+    parseField s = do
+        cs <- either (fail . show) pure $ T.unpack <$> T.decodeUtf8' s
+        either fail pure $ readEither cs
+    {-# INLINE parseField #-}
 
 -- -------------------------------------------------------------------------- --
 -- Option Parsing
