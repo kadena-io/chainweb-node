@@ -111,6 +111,9 @@ module Chainweb.Utils
 , decodeFileStrictOrThrow'
 , parseJsonFromText
 
+-- ** Cassava (CSV)
+, CsvDecimal(..)
+
 -- * Error Handling
 , Expected(..)
 , Actual(..)
@@ -232,12 +235,15 @@ import Data.ByteString (ByteString)
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Base64 as B64
 import qualified Data.ByteString.Base64.URL as B64U
+import qualified Data.ByteString.Char8 as B8
 import qualified Data.ByteString.Lazy as BL
 #if !MIN_VERSION_random(1,2,0)
 import qualified Data.ByteString.Random as BR
 #endif
 import qualified Data.ByteString.Short as BS
 import qualified Data.ByteString.Unsafe as B
+import qualified Data.Csv as CSV
+import Data.Decimal
 import Data.Foldable
 import Data.Functor.Of
 import Data.Hashable
@@ -732,6 +738,15 @@ parseJsonFromText
     -> Value
     -> Aeson.Parser a
 parseJsonFromText l = withText l $! either fail return . eitherFromText
+
+-- -------------------------------------------------------------------------- --
+-- ** Cassava (CSV)
+
+newtype CsvDecimal = CsvDecimal { _csvDecimal :: Decimal }
+    deriving newtype (Eq, Ord, Show, Read)
+
+instance CSV.FromField CsvDecimal where
+    parseField = either fail pure . readEither . B8.unpack
 
 -- -------------------------------------------------------------------------- --
 -- Option Parsing
