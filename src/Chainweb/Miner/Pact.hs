@@ -43,6 +43,7 @@ import Control.Monad.Catch (MonadThrow)
 
 import Data.Aeson hiding (decode)
 import Data.ByteString (ByteString)
+import qualified Data.ByteString.Char8 as B8
 import qualified Data.ByteString.Lazy as BL
 import qualified Data.Csv as CSV
 import Data.Decimal (Decimal)
@@ -54,6 +55,8 @@ import Data.String (IsString(..))
 import Data.Text (Text)
 import qualified Data.Vector as V
 import Data.Word
+
+import Text.Read (readEither)
 
 -- internal modules
 
@@ -159,8 +162,14 @@ readRewards =
         <> sshow e
       Right vs -> MinerRewards $ M.fromList . V.toList . V.map formatRow $ vs
   where
-    formatRow :: (Word64, Double) -> (BlockHeight, Decimal)
-    formatRow (!a,!b) = (BlockHeight $ int a,  fromRational $ toRational b)
+    formatRow :: (Word64, CsvDecimal) -> (BlockHeight, Decimal)
+    formatRow (!a,!b) = (BlockHeight $ int a, _csvDecimal b)
+
+newtype CsvDecimal = CsvDecimal { _csvDecimal :: Decimal }
+    deriving newtype (Show, Read)
+
+instance CSV.FromField CsvDecimal where
+    parseField = either fail pure . readEither . B8.unpack
 
 -- | Read in the reward csv via TH for deployment purposes.
 --
