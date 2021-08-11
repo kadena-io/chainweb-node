@@ -81,10 +81,10 @@ debug = const $ return ()
 v :: ChainwebVersion
 v = FastTimedCPM petersonChainGraph
 
--- | Backoff up to a constant 250ms, limiting to ~40s
+-- | Backoff up to a constant 250ms, limiting to ~50s
 -- (actually saw a test have to wait > 22s)
 testRetryPolicy :: RetryPolicy
-testRetryPolicy = stepped <> limitRetries 150
+testRetryPolicy = stepped <> limitRetries 200
   where
     stepped = retryPolicy $ \rs -> case rsIterNumber rs of
       0 -> Just 20_000
@@ -228,9 +228,10 @@ polling
     -> IO PollResponses
 polling sid cenv rks pollingExpectation =
     recovering testRetryPolicy [h] $ \s -> do
+      let retryCount = view rsIterNumberL s
       debug
         $ "polling for requestkeys " <> show (toList rs)
-        <> " [" <> show (view rsIterNumberL s) <> "]"
+        <> " [" <> show retryCount <> "]"
 
       -- Run the poll cmd loop and check responses
       -- by making sure results are successful and request keys
@@ -241,7 +242,8 @@ polling sid cenv rks pollingExpectation =
         Right r@(PollResponses mp) ->
           if all (go mp) (toList rs)
           then return r
-          else throwM $ PollingFailure $ T.unpack $ "polling check failed: " <> encodeToText r
+          else throwM $ PollingFailure $ T.unpack
+            $ "polling check failed after " <> sshow retryCount <> " attempts: " <> encodeToText r
   where
     h _ = Handler $ \case
       PollingFailure _ -> return True
