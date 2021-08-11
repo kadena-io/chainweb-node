@@ -159,8 +159,8 @@ readRewards =
         <> sshow e
       Right vs -> MinerRewards $ M.fromList . V.toList . V.map formatRow $ vs
   where
-    formatRow :: (Word64, Double) -> (BlockHeight, Decimal)
-    formatRow (!a,!b) = (BlockHeight $ int a,  fromRational $ toRational b)
+    formatRow :: (Word64, CsvDecimal) -> (BlockHeight, Decimal)
+    formatRow (!a,!b) = (BlockHeight $ int a, _csvDecimal b)
 
 -- | Read in the reward csv via TH for deployment purposes.
 --
