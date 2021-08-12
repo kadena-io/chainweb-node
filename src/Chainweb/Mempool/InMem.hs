@@ -27,10 +27,12 @@ module Chainweb.Mempool.InMem
 import Control.Applicative ((<|>))
 import Control.Concurrent.Async
 import Control.Concurrent.MVar
+import Control.Concurrent.STM (atomically, retry)
+import Control.Concurrent.STM.TVar
 import Control.DeepSeq
 import Control.Error.Util (hush)
 import Control.Exception (bracket, evaluate, mask_, throw)
-import Control.Monad (void, (<$!>))
+import Control.Monad (void, when, (<$!>))
 
 import Data.Aeson
 import Data.Bifunctor (bimap)
@@ -86,7 +88,7 @@ makeInMemPool :: InMemConfig t
               -> IO (InMemoryMempool t)
 makeInMemPool cfg = mask_ $ do
     nonce <- randomIO
-    dataLock <- newInMemMempoolData >>= newMVar
+    dataLock <- newInMemMempoolData nonce >>= newMVar
     return $! InMemoryMempool cfg dataLock nonce
 
 destroyInMemPool :: InMemoryMempool t -> IO ()
@@ -94,13 +96,14 @@ destroyInMemPool = const $ return ()
 
 
 ------------------------------------------------------------------------------
-newInMemMempoolData :: IO (InMemoryMempoolData t)
-newInMemMempoolData =
+newInMemMempoolData :: ServerNonce -> IO (InMemoryMempoolData t)
+newInMemMempoolData nonce =
     InMemoryMempoolData <$!> newIORef 0
                         <*> newIORef mempty
                         <*> newIORef emptyRecentLog
                         <*> newIORef mempty
                         <*> newIORef newCurrentTxs
+                        <*> atomically (newTVar (mkHighwaterMark nonce 0))
 
 
 ------------------------------------------------------------------------------
@@ -124,6 +127,7 @@ toMempoolBackend logger mempool = do
       , mempoolPrune = prune
       , mempoolGetPendingTransactions = getPending
       , mempoolClear = clear
+      , mempoolGetHighwaterMark = getHighwater
       }
   where
     cfg = _inmemCfg mempool
@@ -133,15 +137,16 @@ toMempoolBackend logger mempool = do
     InMemConfig tcfg _ _ _ _ _ = cfg
     member = memberInMem lockMVar
     lookup = lookupInMem tcfg lockMVar
-    insert = insertInMem cfg lockMVar
+    insert = insertInMem cfg nonce lockMVar
     insertCheck = insertCheckInMem cfg lockMVar
     markValidated = markValidatedInMem logger tcfg lockMVar
     addToBadList = addToBadListInMem lockMVar
     checkBadList = checkBadListInMem lockMVar
     getBlock = getBlockInMem cfg lockMVar
     getPending = getPendingInMem cfg nonce lockMVar
+    getHighwater = getHighwaterInMem lockMVar
     prune = pruneInMem lockMVar
-    clear = clearInMem lockMVar
+    clear = clearInMem nonce lockMVar
 
 
 ------------------------------------------------------------------------------
@@ -418,11 +423,12 @@ insertInMem
     :: forall t
     .  NFData t
     => InMemConfig t    -- ^ in-memory config
+    -> ServerNonce
     -> MVar (InMemoryMempoolData t)  -- ^ in-memory state
     -> InsertType
     -> Vector (t, HopCount)  -- ^ new transactions
     -> IO ()
-insertInMem cfg lock runCheck txs0 = do
+insertInMem cfg nonce lock runCheck txs0 = do
     txhashes <- insertCheck
     withMVarMasked lock $ \mdata -> do
         let countRef = _inmemCountPending mdata
@@ -437,6 +443,9 @@ insertInMem cfg lock runCheck txs0 = do
         writeIORef (_inmemPending mdata) $! force pending'
         modifyIORef' (_inmemRecentLog mdata) $
             recordRecentTransactions maxRecent newHashes
+        rlog <- readIORef (_inmemRecentLog mdata)
+        let hw' = mkHighwaterMark nonce $! _rlNext rlog
+        atomically $ writeTVar (_inmemHighwater mdata) hw'
   where
     insertCheck :: IO (Vector (T3 TransactionHash HopCount t))
     insertCheck = if runCheck == CheckedInsert
@@ -598,14 +607,21 @@ getPendingInMem :: InMemConfig t
                 -> ServerNonce
                 -> MVar (InMemoryMempoolData t)
                 -> Maybe HighwaterMark
+                -> MempoolBlockingType
                 -> (Vector TransactionHash -> IO ())
                 -> IO HighwaterMark
-getPendingInMem cfg nonce lock since callback = do
+getPendingInMem cfg nonce lock since blocking callback = do
+    blockIfNecessary
     (psq, !rlog) <- readLock
     maybe (sendAll psq) (sendSome psq rlog) since
     return $! mkHighwaterMark nonce $! _rlNext rlog
 
   where
+    blockIfNecessary =
+        if blocking == MempoolBlocking
+          then maybe (return ()) (awaitNewHighwaterMark lock) since
+          else return ()
+
     sendAll psq = do
         let keys = HashMap.keys psq
         (dl, sz) <- foldlM go initState keys
@@ -646,8 +662,8 @@ getPendingInMem cfg nonce lock since callback = do
     sendChunk dl _ = callback $! V.fromList $ dl []
 
 ------------------------------------------------------------------------------
-clearInMem :: MVar (InMemoryMempoolData t) -> IO ()
-clearInMem lock = newInMemMempoolData >>= void . swapMVar lock
+clearInMem :: ServerNonce -> MVar (InMemoryMempoolData t) -> IO ()
+clearInMem nonce lock = newInMemMempoolData nonce >>= void . swapMVar lock
 
 ------------------------------------------------------------------------------
 emptyRecentLog :: RecentLog
@@ -726,3 +742,21 @@ pruneInternal mdata now = do
     -- keep transactions that expire in the future.
     flt pe = _inmemPeExpires pe > now
     pruneBadMap = HashMap.filter (> now)
+
+
+------------------------------------------------------------------------------
+awaitNewHighwaterMark
+    :: MVar (InMemoryMempoolData t) -> HighwaterMark -> IO ()
+awaitNewHighwaterMark mv old = do
+    tvar <- _inmemHighwater <$> readMVar mv
+    atomically $ do
+        hw <- readTVar tvar
+        when (hw == old) retry
+        return ()
+
+
+------------------------------------------------------------------------------
+getHighwaterInMem :: MVar (InMemoryMempoolData t) -> IO HighwaterMark
+getHighwaterInMem mv = do
+    tvar <- _inmemHighwater <$> readMVar mv
+    atomically $ readTVar tvar

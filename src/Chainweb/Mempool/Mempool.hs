@@ -69,6 +69,7 @@ module Chainweb.Mempool.Mempool
   , TransactionHash(..)
   , TransactionMetadata(..)
   , ValidatedTransaction(..)
+  , MempoolBlockingType(..)
 
   , chainwebTestHashMeta
   , chainwebTestHasher
@@ -378,16 +379,23 @@ data MempoolBackend t = MempoolBackend {
     -- | given a previous high-water mark and a chunk callback function, loops
     -- through the pending candidate transactions and supplies the hashes to
     -- the callback in chunks. No ordering of hashes is presupposed. Returns
-    -- the remote high-water mark.
+    -- the current high-water mark.
   , mempoolGetPendingTransactions
-      :: Maybe HighwaterMark                -- previous high-water mark, if any
-      -> (Vector TransactionHash -> IO ())  -- chunk callback
-      -> IO HighwaterMark                   -- returns remote high water mark
+      :: Maybe HighwaterMark                -- ^ previous high-water mark, if any
+      -> MempoolBlockingType                -- ^ block waiting for new txs?
+      -> (Vector TransactionHash -> IO ())  -- ^ chunk callback
+      -> IO HighwaterMark                   -- returns new high water mark
+
+    -- | Returns the current highwater mark.
+  , mempoolGetHighwaterMark :: IO HighwaterMark
 
   -- | A hook to clear the mempool. Intended only for the in-mem backend and
   -- only for testing.
   , mempoolClear :: IO ()
 }
+
+data MempoolBlockingType = MempoolBlocking | MempoolNonBlocking
+  deriving (Show, Eq, Ord)
 
 noopMempoolPreBlockCheck :: MempoolPreBlockCheck t
 noopMempoolPreBlockCheck _ _ v = return $! V.replicate (V.length v) True
@@ -407,6 +415,7 @@ noopMempool = do
     , mempoolPrune = return ()
     , mempoolGetPendingTransactions = noopGetPending
     , mempoolClear = noopClear
+    , mempoolGetHighwaterMark = noopGetHw
     }
   where
     noopCodec = Codec (const "") (const $ Left "unimplemented")
@@ -425,8 +434,9 @@ noopMempool = do
     noopAddToBadList = const $ return ()
     noopCheckBadList v = return $ V.replicate (V.length v) False
     noopGetBlock _ _ _ = return V.empty
-    noopGetPending = const $ const $ return (mkHighwaterMark 0 0)
+    noopGetPending = const $ const $ const $ return (mkHighwaterMark 0 0)
     noopClear = return ()
+    noopGetHw = return $ mkHighwaterMark 0 0
 
 
 ------------------------------------------------------------------------------
@@ -459,7 +469,6 @@ chainwebTransactionConfig = TransactionConfig chainwebPayloadCodec
 data SyncState = SyncState {
     _syncCount :: {-# UNPACK #-} !Int64
   , _syncMissing :: ![Vector TransactionHash]
-  , _syncPresent :: !(HashSet TransactionHash)
   , _syncTooMany :: !Bool
   }
 
@@ -490,8 +499,9 @@ syncMempools'
         -- ^ local mempool
     -> MempoolBackend t
         -- ^ remote mempool
+    -> MVar (HashSet TransactionHash)
     -> IO ()
-syncMempools' log0 syncHistoryState peer us localMempool remoteMempool = sync
+syncMempools' log0 syncHistoryState peer us localMempool remoteMempool remoteSet = sync
   where
     maxCnt = 5000
         -- don't pull more than this many new transactions from a single peer in
@@ -501,11 +511,11 @@ syncMempools' log0 syncHistoryState peer us localMempool remoteMempool = sync
 
     -- This function is called for each chunk of pending hashes in the the remote mempool.
     --
-    -- The 'SyncState' collects
-    -- * the total count of hashes that are missing from the local pool,
-    -- * chunks of hashes that are missing from the local pool,
-    -- * the set of hashes that is available locally but missing from the remote pool, and
-    -- * whether there are @tooMany@ missing hashes.
+    -- The 'SyncState' collects:
+    --
+    --   -  the total count of hashes that are missing from the local pool,
+    --   -  chunks of hashes that are missing from the local pool,
+    --   -  whether there are @tooMany@ missing hashes.
     --
     -- When we already collected @tooMany@ missing hashes we stop updating the sync state
     --
@@ -513,7 +523,7 @@ syncMempools' log0 syncHistoryState peer us localMempool remoteMempool = sync
     -- termination in case we got @tooMany@ missing hashes?
     --
     syncChunk syncState hashes = do
-        (SyncState cnt chunks remoteHashes tooMany) <- readIORef syncState
+        (SyncState cnt chunks tooMany) <- readIORef syncState
 
         -- If there are too many missing hashes we stop collecting
         --
@@ -524,8 +534,9 @@ syncMempools' log0 syncHistoryState peer us localMempool remoteMempool = sync
             let !newMissing = V.map snd $ V.filter (not . fst) res
             let !newMissingCnt = V.length newMissing
 
-            -- Collect set of all remote hashes
-            let !remoteHashes' = V.foldl' (flip HashSet.insert) remoteHashes hashes
+            -- Update set of all remote hashes
+            modifyMVar_ remoteSet $ \remoteHashes ->
+                return $! V.foldl' (flip HashSet.insert) remoteHashes hashes
 
             -- Count number of missing hashes and decide if there @tooMany@
             let !newCnt = cnt + fromIntegral newMissingCnt
@@ -534,8 +545,8 @@ syncMempools' log0 syncHistoryState peer us localMempool remoteMempool = sync
             -- Update the SyncState
             writeIORef syncState $!
                 if tooMany'
-                    then SyncState cnt chunks remoteHashes True
-                    else SyncState newCnt (newMissing : chunks) remoteHashes' False
+                    then SyncState cnt chunks True
+                    else SyncState newCnt (newMissing : chunks) False
 
     fromPending (Pending t h) = (t, fromMaybe mAXIMUM_HOP_COUNT h)
     fromPending _ = error "impossible"
@@ -561,7 +572,7 @@ syncMempools' log0 syncHistoryState peer us localMempool remoteMempool = sync
 
     goSync !localHw !remoteHw = do
         deb "Get new pending hashes from remote"
-        (numMissingFromLocal, missingChunks, remoteHashes, remoteHw') <-
+        (numMissingFromLocal, missingChunks, remoteHw') <-
             fetchSince remoteHw
         deb $ T.concat
             [ "sync: "
@@ -569,7 +580,7 @@ syncMempools' log0 syncHistoryState peer us localMempool remoteMempool = sync
             , " new remote hashes to fetch"
             ]
         traverse_ fetchMissing missingChunks
-        (numPushed, !localHw') <- push localHw remoteHashes
+        (numPushed, !localHw') <- push localHw
         deb $ "pushed " <> sshow numPushed <> " transactions to remote."
         updateSyncHistory syncHistoryState peer localHw' remoteHw'
 
@@ -580,26 +591,28 @@ syncMempools' log0 syncHistoryState peer us localMempool remoteMempool = sync
     -- get pending hashes from remote since the given (optional) high water mark
     fetchSince oldRemoteHw = do
         -- Intialize and collect SyncState
-        let emptySyncState = SyncState 0 [] HashSet.empty False
+        let emptySyncState = SyncState 0 [] False
         syncState <- newIORef emptySyncState
-        remoteHw <- mempoolGetPendingTransactions remoteMempool oldRemoteHw $
-                    syncChunk syncState
-        (SyncState numMissingFromLocal missingChunks remoteHashes _) <-
+        remoteHw <- mempoolGetPendingTransactions remoteMempool oldRemoteHw
+                        MempoolNonBlocking $ syncChunk syncState
+        (SyncState numMissingFromLocal missingChunks _) <-
             readIORef syncState
         -- immediately destroy ioref contents to assist GC
         writeIORef syncState emptySyncState
-        return (numMissingFromLocal, missingChunks, remoteHashes, remoteHw)
+        return (numMissingFromLocal, missingChunks, remoteHw)
 
     -- Push transactions that are available locally but are possibly missing
     -- to the remote pool.
     --
-    push ourHw0 remoteHashes = do
+    push ourHw0 = do
+        remoteHashes <- readMVar remoteSet
         ref <- newIORef 0
-        ourHw <- mempoolGetPendingTransactions localMempool ourHw0 $ \chunk -> do
-            let chunk' = V.filter (not . flip HashSet.member remoteHashes) chunk
-            unless (V.null chunk') $ do
-                sendChunk chunk'
-                modifyIORef' ref (+ V.length chunk')
+        ourHw <- mempoolGetPendingTransactions localMempool ourHw0 MempoolNonBlocking $
+                 \chunk -> do
+                     let chunk' = V.filter (not . flip HashSet.member remoteHashes) chunk
+                     unless (V.null chunk') $ do
+                         sendChunk chunk'
+                         modifyIORef' ref (+ V.length chunk')
         numPushed <- readIORef ref
         return (numPushed, ourHw)
 
@@ -615,12 +628,13 @@ syncMempools
     => LogFunctionText
     -> MempoolSyncHistory
     -> PeerInfo
-    -> Int                  -- ^ polling interval in microseconds
-    -> MempoolBackend t     -- ^ local mempool
-    -> MempoolBackend t     -- ^ remote mempool
+    -> Int                              -- ^ polling interval in microseconds
+    -> MempoolBackend t                 -- ^ local mempool
+    -> MempoolBackend t                 -- ^ remote mempool
+    -> MVar (HashSet TransactionHash)   -- ^ set of remote known hashes
     -> IO ()
-syncMempools log state peer us localMempool remoteMempool =
-    syncMempools' log state peer us localMempool remoteMempool
+syncMempools log state peer us localMempool remoteMempool remoteSet =
+    syncMempools' log state peer us localMempool remoteMempool remoteSet
 
 ------------------------------------------------------------------------------
 -- | Raw/unencoded transaction hashes.

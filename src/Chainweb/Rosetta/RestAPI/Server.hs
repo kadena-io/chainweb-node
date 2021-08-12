@@ -271,7 +271,7 @@ mempoolH v ms (NetworkReq net _) = work >>= \case
         r <- liftIO $ newIORef mempty
         -- TODO: This will need to be revisited once we can add
         -- pagination + streaming the mempool
-        void $! liftIO $ mempoolGetPendingTransactions mp Nothing $ \hs -> do
+        void $! liftIO $ mempoolGetPendingTransactions mp Nothing MempoolNonBlocking $ \hs -> do
           modifyIORef' r (<> hs)
 
         txs <- liftIO $! readIORef r

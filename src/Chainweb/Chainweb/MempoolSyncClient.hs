@@ -19,17 +19,26 @@ module Chainweb.Chainweb.MempoolSyncClient
 
 import Chainweb.Time
 
+import qualified Control.Concurrent.Async as Async
+import Control.Concurrent.MVar
 import Control.Lens hiding ((.=), (<.>))
 import Control.Monad
 import Control.Monad.Catch
 
+import Data.HashSet (HashSet)
+import qualified Data.HashSet as HashSet
+import Data.IORef
 import qualified Data.Text as T
+import qualified Data.Vector as V
 
 import qualified Network.HTTP.Client as HTTP
 
 import Prelude hiding (log)
 
+import System.IO.Unsafe
 import System.LogLevel
+import qualified System.Random.MWC as RNG
+import qualified System.Random.MWC.Distributions as RNG
 
 -- internal modules
 
@@ -69,7 +78,7 @@ runMempoolSyncClient mgr memP2pConfig peerRes chain = bracket create destroy go
     create = do
         logg Debug "starting mempool p2p sync"
         p2pCreateNode v netId peer (logFunction syncLogger) peerDb mgr True $
-            mempoolSyncP2pSession chain (_mempoolP2pConfigPollInterval memP2pConfig)
+            mempoolP2pSession memP2pConfig chain (_mempoolP2pConfigPollInterval memP2pConfig)
     go n = do
         -- Run P2P client node
         logg Debug "mempool sync p2p node initialized, starting session"
@@ -88,27 +97,126 @@ runMempoolSyncClient mgr memP2pConfig peerRes chain = bracket create destroy go
     logg = logFunctionText syncLogger
     syncLogger = setComponent "mempool-sync" $ _chainResLogger chain
 
-mempoolSyncP2pSession
-    :: ChainResources logger
+
+mempoolP2pSession
+    :: MempoolP2pConfig
+    -> ChainResources logger
     -> Seconds
     -> P2pSession
-mempoolSyncP2pSession chain (Seconds pollInterval) logg0 env peerInfo = do
+mempoolP2pSession mcfg chain pollInterval logg0 env peerInfo = do
+    -- We'll gossip always, but we won't always sync. Run the gossip and sync
+    -- sessions concurrently, and perform sync based on a dice roll.
+
+    peerMempool <- MPC.toMempool v cid txcfg env
+    remoteSet <- newMVar mempty
+    Async.concurrently_ (gossipSession peerMempool remoteSet) (syncSession peerMempool remoteSet)
+    return True
+  where
+    gossipSession peerMempool remoteSet = do
+        -- We won't propagate every transaction we receive; instead, we'll
+        -- select a maximum gossip level based on an exponential distribution
+        -- and only pass on transactions that came to us having fewer than that
+        -- many hops. This biases the network towards low-latency sharing of
+        -- new transactions.
+        maxHops <- getGossipLevel mcfg
+        mempoolGossipP2pSession maxHops pool peerMempool remoteSet logg0 env peerInfo
+
+    syncSession p r = shouldWeRunSync mcfg >>= flip when (syncSession_ p r)
+    syncSession_ peerMempool remoteSet =
+        void $ mempoolSyncP2pSession chain pollInterval pool peerMempool remoteSet logg0 env peerInfo
+
+    pool = _chainResMempool chain
+    txcfg = Mempool.mempoolTxConfig pool
+    cid = _chainId chain
+    v = _chainwebVersion chain
+
+
+mempoolGossipP2pSession
+    :: Mempool.HopCount                        -- ^ only send txs with this many hops or fewer.
+    -> Mempool.MempoolBackend t                -- ^ our pool
+    -> Mempool.MempoolBackend t                -- ^ remote pool
+    -> MVar (HashSet Mempool.TransactionHash)  -- ^ set of remote hashes
+    -> P2pSession
+mempoolGossipP2pSession maxHops pool peerMempool remoteSet logg0 env _peerInfo = do
+    logg Debug "mempool gossip session starting"
+    void (Mempool.mempoolGetHighwaterMark pool >>= go) `finally`
+        logg Debug "mempool gossip session finished"
+    return True
+  where
+    -- Loops forever, sending any new transactions sent to the mempool to the remote peer.
+    go hw = do
+        hashref <- newIORef []
+        newhw <- Mempool.mempoolGetPendingTransactions pool (Just hw) Mempool.MempoolBlocking $
+                 \chunk -> modifyIORef' hashref (chunk:)
+        hashes <- V.concat <$> readIORef hashref
+        results0 <- Mempool.mempoolLookup pool hashes
+        let results = V.zip hashes results0
+        remoteHashes <- readMVar remoteSet
+        let txs = V.map (\(_, t, h) -> (t, h + 1)) $
+                  V.filter (\(txhash, _, hops) -> hops <= maxHops
+                               && not (HashSet.member txhash remoteHashes)) $
+                  V.mapMaybe toResult results
+        -- TODO: make sure we are using new gossip protocol
+        Mempool.mempoolInsert peerMempool Mempool.CheckedInsert txs
+        go newhw
+
+    toResult (_, Mempool.Missing) = Nothing
+    toResult (txhash, Mempool.Pending t Nothing) = Just (txhash, t, Mempool.mAXIMUM_HOP_COUNT)
+    toResult (txhash, Mempool.Pending t (Just x)) = Just (txhash, t, x)
+
+    remote = T.pack $ Sv.showBaseUrl $ Sv.baseUrl env
+    logg d m = logg0 d $ T.concat ["[mempool gossip@", remote, "]:", m]
+
+mempoolSyncP2pSession
+    :: Show t
+    => ChainResources logger
+    -> Seconds
+    -> Mempool.MempoolBackend t                -- ^ our pool
+    -> Mempool.MempoolBackend t                -- ^ remote pool
+    -> MVar (HashSet Mempool.TransactionHash)  -- ^ set of remote hashes
+    -> P2pSession
+mempoolSyncP2pSession chain (Seconds pollInterval) pool peerMempool remoteSet logg0 env peerInfo = do
     logg Debug "mempool sync session starting"
-    Mempool.syncMempools' logg syncHistory peerInfo syncIntervalUs pool peerMempool
+    Mempool.syncMempools' logg syncHistory peerInfo syncIntervalUs pool peerMempool remoteSet
     logg Debug "mempool sync session finished"
     return True
   where
-    peerMempool = MPC.toMempool v cid txcfg env
-
-    -- FIXME Potentially dangerous down-cast.
+    -- FIXME: Potentially dangerous down-cast.
+    -- FIXME: multiplication by 500000 instead of 1000000
     syncIntervalUs :: Int
     syncIntervalUs = int pollInterval * 500000
 
     remote = T.pack $ Sv.showBaseUrl $ Sv.baseUrl env
     logg d m = logg0 d $ T.concat ["[mempool sync@", remote, "]:", m]
 
-    pool = _chainResMempool chain
     syncHistory = _chainResMempoolSyncHistory chain
-    txcfg = Mempool.mempoolTxConfig pool
-    cid = _chainId chain
-    v = _chainwebVersion chain
+
+
+------------------------------------------------------------------------------
+-- RNG helper functions
+
+mempoolGlobalRNG :: MVar RNG.GenIO
+mempoolGlobalRNG = unsafePerformIO (RNG.createSystemRandom >>= newMVar)
+{-# NOINLINE mempoolGlobalRNG #-}
+
+withMempoolRNG :: (RNG.GenIO -> IO a) -> IO a
+withMempoolRNG = withMVar mempoolGlobalRNG
+
+diceRoll :: Double              -- ^ threshold between [0,1]
+         -> IO Bool
+diceRoll threshold = do
+    sample <- withMempoolRNG (RNG.uniformR (0, 1))
+    return $! sample <= threshold
+
+shouldWeRunSync :: MempoolP2pConfig -> IO Bool
+shouldWeRunSync cfg = diceRoll thresh   -- FIXME: make configurable
+  where
+    thresh = view mempoolP2pConfigSyncProbability cfg
+
+getGossipLevel :: MempoolP2pConfig -> IO Mempool.HopCount
+getGossipLevel cfg = do
+    x <- withMempoolRNG (RNG.truncatedExp scale limits)
+    return $! max 0 (min (Mempool.mAXIMUM_HOP_COUNT - 1) (floor x))
+  where
+    scale = view mempoolP2pConfigGossipScaleFactor cfg
+    limits = (0, fromIntegral Mempool.mAXIMUM_HOP_COUNT)

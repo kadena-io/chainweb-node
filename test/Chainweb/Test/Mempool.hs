@@ -22,6 +22,8 @@ module Chainweb.Test.Mempool
   ) where
 
 import Control.Applicative
+import Control.Concurrent (threadDelay)
+import qualified Control.Concurrent.Async as Async
 import Control.Concurrent.MVar
 import Control.Exception (bracket)
 import Control.Monad (unless, void, when)
@@ -108,7 +110,13 @@ tests withMempool = remoteTests withMempool ++
                     map ($ withMempool) [
       mempoolProperty "getblock preblock check badlist" genTwoSets propBadlistPreblock
     , mempoolProperty "mempoolAddToBadList" (pick arbitrary) propAddToBadList
+    , mempoolProperty "getPending high water marks (blocking)" hwgen propHighWaterBlocking
     ]
+  where
+    hwgen = do
+      (xs, ys0) <- genTwoSets
+      let ys = take 1000 ys0     -- recency log only has so many entries
+      return (xs, ys)
 
 arbitraryDecimal :: Gen Decimal
 arbitraryDecimal = do
@@ -315,7 +323,7 @@ propGetPending
 propGetPending txs0 _ mempool = runExceptT $ do
     liftIO $ insert txs
     pendingOps <- liftIO $ newIORef []
-    void $ liftIO $ getPending Nothing $ \v -> modifyIORef' pendingOps (v:)
+    void $ liftIO $ getPending Nothing MempoolNonBlocking $ \v -> modifyIORef' pendingOps (v:)
     allPending <- sort . V.toList . V.concat
                   <$> liftIO (readIORef pendingOps)
 
@@ -342,18 +350,17 @@ propHighWater
 propHighWater (txs0, txs1) _ mempool = runExceptT $ do
     liftIO $ insert txs0
     pendingOps0 <- liftIO $ newIORef []
-    hw <- liftIO $ getPending Nothing $ \v -> modifyIORef' pendingOps0 (v:)
+    hw <- liftIO $ getPending Nothing MempoolNonBlocking $ \v -> modifyIORef' pendingOps0 (v:)
     p0s <- V.concat <$> (liftIO $ readIORef pendingOps0)
     liftIO $ insert txs1
     pendingOps <- liftIO $ newIORef []
-    hw1 <- liftIO $ getPending (Just hw) $ \v -> modifyIORef' pendingOps (v:)
-    allPending <- sort . V.toList . V.concat
-                  <$> liftIO (readIORef pendingOps)
+    hw1 <- liftIO $ getPending (Just hw) MempoolNonBlocking $ \v -> modifyIORef' pendingOps (v:)
+    allPending <- sort . V.toList . V.concat <$> liftIO (readIORef pendingOps)
     when (txdata /= allPending &&
           hsnd hw1 /= (fromIntegral $ length txs0 + length txdata)) $
         let msg = concat [ "highwater failure"
                          , ", initial batch was ", show (length txs0)
-                         , ", retreived ", show (length p0s)
+                         , ", retrieved ", show (length p0s)
                          , ", with highwater ", show (hsnd hw)
                          , ". Second batch was ", show (length txdata)
                          , " retrieved ", show (length allPending)
@@ -361,6 +368,43 @@ propHighWater (txs0, txs1) _ mempool = runExceptT $ do
                          ]
         in fail msg
 
+  where
+    hsnd = ssnd . _unHwMark
+    txdata = sort $ map hash txs1
+    hash = txHasher $ mempoolTxConfig mempool
+    getPending = mempoolGetPendingTransactions mempool
+    insert txs = mempoolInsert mempool CheckedInsert $ V.fromList $ map (,0) txs
+
+propHighWaterBlocking
+    :: ([MockTx], [MockTx])
+    -> InsertCheck
+    -> MempoolBackend MockTx
+    -> IO (Either String ())
+propHighWaterBlocking (txs0, txs1) _ mempool = runExceptT $ do
+    liftIO $ insert txs0
+    pendingOps0 <- liftIO $ newIORef []
+    hw <- liftIO $ getPending Nothing MempoolNonBlocking $ \v -> modifyIORef' pendingOps0 (v:)
+    p0s <- V.concat <$> (liftIO $ readIORef pendingOps0)
+    pendingOps <- liftIO $ newIORef []
+    let thread1 = do
+            getPending (Just hw) MempoolBlocking $ \v -> modifyIORef' pendingOps (v:)
+    let thread2 = do
+            threadDelay 20_000
+            insert txs1
+    (hw1, _) <- liftIO $ Async.concurrently thread1 thread2
+    liftIO $ insert txs1
+    allPending <- sort . V.toList . V.concat <$> liftIO (readIORef pendingOps)
+    when (txdata /= allPending &&
+          hsnd hw1 /= (fromIntegral $ length txs0 + length txdata)) $
+        let msg = concat [ "blocking highwater failure"
+                         , ", initial batch was ", show (length txs0)
+                         , ", retrieved ", show (length p0s)
+                         , ", with highwater ", show (hsnd hw)
+                         , ". Second batch was ", show (length txdata)
+                         , " retrieved ", show (length allPending)
+                         , ", with highwater ", show (hsnd hw1)
+                         ]
+        in fail msg
   where
     hsnd = ssnd . _unHwMark
     txdata = sort $ map hash txs1

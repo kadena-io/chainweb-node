@@ -1,3 +1,4 @@
+{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE FlexibleContexts #-}
@@ -12,16 +13,19 @@
 
 module Chainweb.Mempool.RestAPI.Client
   ( insertClient
+  , gossipClient
   , getPendingClient
   , memberClient
   , lookupClient
   , toMempool
+  , toNonGossipingMempool
+  , toGossipingMempool
   ) where
 
 ------------------------------------------------------------------------------
 
 import Control.DeepSeq
-import Control.Exception
+import Control.Exception hiding (handle)
 import Control.Monad
 import Control.Monad.Catch
 import Control.Monad.Identity
@@ -43,15 +47,36 @@ import Chainweb.Version
 
 ------------------------------------------------------------------------------
 
--- TODO: all of these operations need timeout support.
 toMempool
     :: (Show t, NFData t)
     => ChainwebVersion
     -> ChainId
     -> TransactionConfig t
     -> ClientEnv
+    -> IO (MempoolBackend t)
+toMempool version chain txcfg env = do
+    m <- handle handle404 tryInsert
+    maybe (return $! toNonGossipingMempool version chain txcfg env)
+          (const $ return backend)
+          m
+  where
+    backend = toGossipingMempool version chain txcfg env
+    tryInsert = Just <$> mempoolInsert backend CheckedInsert mempty
+
+    -- If the remote returns 404 then it doesn't support gossip -- we'll fall
+    -- back to the regular client.
+    handle404 (_ :: ClientError) = return Nothing
+
+
+-- TODO: all of these operations need timeout support?
+toNonGossipingMempool
+    :: (Show t, NFData t)
+    => ChainwebVersion
+    -> ChainId
+    -> TransactionConfig t
+    -> ClientEnv
     -> MempoolBackend t
-toMempool version chain txcfg env =
+toNonGossipingMempool version chain txcfg env =
     MempoolBackend
     { mempoolTxConfig = txcfg
     , mempoolMember = member
@@ -71,6 +96,7 @@ toMempool version chain txcfg env =
     , mempoolGetPendingTransactions = getPending
     , mempoolPrune = unsupported
     , mempoolClear = clear
+    , mempoolGetHighwaterMark = unsupported
     }
   where
     go m = runClientM m env >>= either throwIO return
@@ -79,7 +105,7 @@ toMempool version chain txcfg env =
     lookup v = V.fromList <$> go (lookupClient txcfg version chain (V.toList v))
     insert _ v = void $ go (insertClient txcfg version chain (V.toList $ V.map fst v))
 
-    getPending hw cb = do
+    getPending hw _ cb = do
         runClientM (getPendingClient version chain hw) env >>= \case
             Left e -> throwIO e
             Right ptxs -> do
@@ -89,6 +115,41 @@ toMempool version chain txcfg env =
     unsupported = fail "unsupported"
     clear = unsupported
 
+toGossipingMempool
+    :: (Show t, NFData t)
+    => ChainwebVersion
+    -> ChainId
+    -> TransactionConfig t
+    -> ClientEnv
+    -> MempoolBackend t
+toGossipingMempool version chain txcfg env =
+    let mp = toNonGossipingMempool version chain txcfg env
+    in mp { mempoolInsert = gossip }
+  where
+    go m = runClientM m env >>= either throwIO return
+    gossip _ v = void $ go (gossipClient txcfg version chain (V.toList v))
+
+gossipClient_
+    :: forall (v :: ChainwebVersionT) (c :: ChainIdT)
+    . (KnownChainwebVersionSymbol v, KnownChainIdSymbol c)
+    => TransactionGossipRequest
+    -> ClientM NoContent
+gossipClient_ = client (mempoolGossipApi @v @c)
+
+gossipClient
+    :: TransactionConfig t
+    -> ChainwebVersion
+    -> ChainId
+    -> [(t, HopCount)]
+    -> ClientM NoContent
+gossipClient txcfg v c k0 = runIdentity $ do
+    let input = TransactionGossipRequest $! map encodeOne k0
+    SomeChainwebVersionT (_ :: Proxy v) <- return $ someChainwebVersionVal v
+    SomeChainIdT (_ :: Proxy c) <- return $ someChainIdVal c
+    return $ gossipClient_ @v @c input
+  where
+    encodeOne (t, hops) = let !txt = T.decodeUtf8 $! codecEncode (txCodec txcfg) t
+                          in TransactionGossipData txt hops
 
 insertClient_
     :: forall (v :: ChainwebVersionT) (c :: ChainIdT)
