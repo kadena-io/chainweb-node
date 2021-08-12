@@ -53,34 +53,43 @@
 -- The mempool API is defined as a record-of-functions in 'MempoolBackend'.
 
 module Chainweb.Mempool.Mempool
-  ( MempoolBackend(..)
+  ( GasLimit(..)
+  , HashMeta(..)
+  , HighwaterMark(..)
+  , InsertError(..)
+  , InsertType(..)
+  , LookupResult(..)
+  , MempoolBackend(..)
   , MempoolPreBlockCheck
+  , MempoolTxId
+  , MockTx(..)
+  , ServerNonce
   , TransactionConfig(..)
   , TransactionHash(..)
   , TransactionMetadata(..)
-  , MempoolTxId
-  , HashMeta(..)
   , ValidatedTransaction(..)
-  , LookupResult(..)
-  , MockTx(..)
-  , ServerNonce
-  , HighwaterMark
-  , InsertType(..)
-  , InsertError(..)
 
+  , chainwebTestHashMeta
+  , chainwebTestHasher
   , chainwebTransactionConfig
+  , mockBlockGasLimit
   , mockCodec
   , mockEncode
-  , mockBlockGasLimit
-  , chainwebTestHasher
-  , chainwebTestHashMeta
   , noopMempool
   , noopMempoolPreBlockCheck
+
+  -- ** Syncing types and primitives.
+  , MempoolSyncHistory_(..)
+  , MempoolSyncHistory
+  , MempoolSyncHistoryTable
+
+  , mkHighwaterMark
+  , newMempoolSyncHistory
   , syncMempools
   , syncMempools'
-  , GasLimit(..)
   ) where
 ------------------------------------------------------------------------------
+import Control.Concurrent.MVar
 import Control.DeepSeq (NFData)
 import Control.Exception
 import Control.Lens
@@ -100,24 +109,26 @@ import qualified Data.ByteString.Char8 as B
 import qualified Data.ByteString.Short as SB
 import Data.Decimal (Decimal, DecimalRaw(..))
 import Data.Foldable (traverse_)
+import Data.Function (on)
 import Data.Hashable (Hashable(hashWithSalt))
+import Data.HashMap.Strict (HashMap)
+import qualified Data.HashMap.Strict as HashMap
 import Data.HashSet (HashSet)
 import qualified Data.HashSet as HashSet
 import Data.Int (Int64)
 import Data.IORef
 import Data.List (unfoldr)
+import Data.Ord
 import Data.Text (Text)
 import qualified Data.Text as T
-import Data.Tuple.Strict (T2)
+import Data.Tuple.Strict (T2(..))
+import Data.Typeable
 import Data.Vector (Vector)
 import qualified Data.Vector as V
+import qualified Data.Vector.Algorithms.Tim as TimSort
 import Data.Word (Word64)
-
 import GHC.Generics
-
 import Prelude hiding (log)
-
-import System.LogLevel
 
 -- internal modules
 
@@ -126,14 +137,17 @@ import Pact.Types.ChainMeta (TTLSeconds(..), TxCreationTime(..))
 import Pact.Types.Command
 import Pact.Types.Gas (GasLimit(..), GasPrice(..))
 import qualified Pact.Types.Hash as H
+import System.LogLevel
 
 import Chainweb.BlockHash
 import Chainweb.BlockHeight
-import Chainweb.Time (Micros(..), Time(..), TimeSpan(..))
+import Chainweb.Time
+    (Micros(..), Time(..), TimeSpan(..), getCurrentTimeIntegral)
 import qualified Chainweb.Time as Time
 import Chainweb.Transaction
 import Chainweb.Utils
 import Data.LogMessage (LogFunctionText)
+import P2P.Peer (PeerInfo)
 
 ------------------------------------------------------------------------------
 data LookupResult t = Missing
@@ -188,9 +202,86 @@ data TransactionConfig t = TransactionConfig {
 ------------------------------------------------------------------------------
 type MempoolTxId = Int64
 type ServerNonce = Int
-type HighwaterMark = (ServerNonce, MempoolTxId)
+newtype HighwaterMark = HighwaterMark { _unHwMark :: T2 ServerNonce MempoolTxId }
+  deriving (Show, Eq, Ord, Typeable, Generic)
+
+mkHighwaterMark :: ServerNonce -> MempoolTxId -> HighwaterMark
+mkHighwaterMark a b = HighwaterMark $! T2 a b
+
+instance FromJSON HighwaterMark where
+    parseJSON v = do
+        (a, b) <- parseJSON v
+        return $! mkHighwaterMark a b
+
+instance ToJSON HighwaterMark where
+    toEncoding (HighwaterMark (T2 a b)) = toEncoding (a, b)
+    toJSON (HighwaterMark (T2 a b)) = toJSON (a, b)
+
 data InsertType = CheckedInsert | UncheckedInsert
   deriving (Show, Eq)
+
+data PeerSyncHistory = PeerSyncHistory {
+    _histOurMark :: HighwaterMark
+  , _histTheirMark :: HighwaterMark
+  , _histTime :: Time Micros
+}
+
+type MempoolSyncHistoryTable = HashMap PeerInfo PeerSyncHistory
+data MempoolSyncHistory_ = MempoolSyncHistory_ {
+    _histTable :: MempoolSyncHistoryTable
+  , _histOperationCount :: IORef Int
+}
+type MempoolSyncHistory = MVar MempoolSyncHistory_
+
+newMempoolSyncHistory :: IO MempoolSyncHistory
+newMempoolSyncHistory = do
+    ref <- newIORef 0
+    newMVar $ MempoolSyncHistory_ mempty ref
+
+fetchMempoolSyncHistory :: MempoolSyncHistory -> PeerInfo -> IO (Maybe PeerSyncHistory)
+fetchMempoolSyncHistory tabMV peer = withMVar tabMV $ \tab -> do
+    let !hm = _histTable tab
+    return $ HashMap.lookup peer hm
+
+-- | How frequently to purge the peers table (in # of update operations).
+-- TODO: make configurable?
+syncHistoryPurgeCount :: Int
+syncHistoryPurgeCount = 2047
+
+-- | How many peers to remember? Note that we may retain more peers than this
+-- in the local table since they are only cleared every
+-- syncHistoryPurgeCount times a peer entry is updated.
+syncHistoryPeersToRemember :: Int
+syncHistoryPeersToRemember = 4096
+
+purgeOldSyncHistory :: MempoolSyncHistoryTable -> IO MempoolSyncHistoryTable
+purgeOldSyncHistory tab = do
+    mvec <- V.unsafeThaw $ V.fromList $ HashMap.toList tab
+    TimSort.sortBy comparator mvec
+    v <- V.take syncHistoryPeersToRemember <$> V.unsafeFreeze mvec
+    return $! HashMap.fromList $ V.toList v
+  where
+    -- reverse-comparison on time, i.e. newest-first
+    comparator = flip (compare `on` (_histTime  . snd))
+
+updateSyncHistory :: MempoolSyncHistory -> PeerInfo -> HighwaterMark -> HighwaterMark -> IO ()
+updateSyncHistory mv peer ourHwMark theirHwMark =
+    modifyMVar mv $ \ght -> do
+        let !countRef = _histOperationCount ght
+        !count <- readIORef countRef
+        -- update count; every K iterations we'll purge the table
+        tab <- if (count >= syncHistoryPurgeCount)
+                 then do
+                   writeIORef countRef 0
+                   purgeOldSyncHistory $ _histTable ght
+                 else do
+                   writeIORef countRef $! count + 1
+                   return $! _histTable ght
+        !now <- getCurrentTimeIntegral
+        let !entry = PeerSyncHistory ourHwMark theirHwMark now
+        let !tab' = HashMap.insert peer entry tab
+        let !newGHT = MempoolSyncHistory_ tab' countRef
+        return (newGHT, ())
 
 data InsertError = InsertErrorDuplicate
                  | InsertErrorInvalidTime
@@ -308,7 +399,7 @@ noopMempool = do
     noopAddToBadList = const $ return ()
     noopCheckBadList v = return $ V.replicate (V.length v) False
     noopGetBlock _ _ _ = return V.empty
-    noopGetPending = const $ const $ return (0,0)
+    noopGetPending = const $ const $ return (mkHighwaterMark 0 0)
     noopClear = return ()
 
 
@@ -348,13 +439,16 @@ data SyncState = SyncState {
 
 -- | Pulls any missing pending transactions from a remote mempool.
 --
--- The initial sync procedure:
+-- The sync procedure:
 --
---    1. get the list of pending transaction hashes from remote,
---    2. lookup any hashes that are missing, and insert them into local,
---    3. push any hashes remote is missing
+--   1. get the list of pending transactions from their side since the last
+--   time we synced (or all of them, on first contact)
 --
--- After initial sync, will loop subscribing to updates from remote.
+--   2. lookup any hashes that are missing, and insert them into local
+--
+--   3. get the list of transactions from our side since the last time we
+--   synced (or all of them, if never) and send them if we're not sure if
+--   remote has them.
 --
 -- Loops until killed, or until the underlying mempool connection throws an
 -- exception.
@@ -362,6 +456,8 @@ data SyncState = SyncState {
 syncMempools'
     :: Show t
     => LogFunctionText
+    -> MempoolSyncHistory
+    -> PeerInfo
     -> Int
         -- ^ polling interval in microseconds
     -> MempoolBackend t
@@ -369,12 +465,13 @@ syncMempools'
     -> MempoolBackend t
         -- ^ remote mempool
     -> IO ()
-syncMempools' log0 us localMempool remoteMempool = sync
-
+syncMempools' log0 syncHistoryState peer us localMempool remoteMempool = sync
   where
     maxCnt = 5000
         -- don't pull more than this many new transactions from a single peer in
         -- a session.
+        --
+        -- TODO: replace this with a token bucket scheme
 
     -- This function is called for each chunk of pending hashes in the the remote mempool.
     --
@@ -428,62 +525,51 @@ syncMempools' log0 us localMempool remoteMempool = sync
     deb :: Text -> IO ()
     deb = log0 Debug
 
-    sync = finally (initialSync >>= subsequentSync) (deb "sync exiting")
+    sync = finally initialSync (deb "sync exiting")
 
     initialSync = do
-        deb "Get full list of pending hashes from remote"
+        mHistory <- fetchMempoolSyncHistory syncHistoryState peer
+        let ourHwMark = fmap _histOurMark mHistory
+        let theirHwMark = fmap _histOurMark mHistory
+        goSync ourHwMark theirHwMark
 
-        (numMissingFromLocal, missingChunks, remoteHashes, remoteHw) <-
-            fetchSince Nothing
-
-        deb $ T.concat
-            [ sshow (HashSet.size remoteHashes)
-            , " hashes at remote ("
-            , sshow numMissingFromLocal
-            , " need to be fetched)"
-            ]
-
-        -- todo: should we do subsequent sync of pushed txs also?
-        (numPushed, _) <- do
-            -- Go fetch missing transactions from remote
-            traverse_ fetchMissing missingChunks
-
-            -- Push our missing txs to remote.
-            push remoteHashes
-
-        deb $ "pushed " <> sshow numPushed <> " new transactions to remote."
-        return remoteHw
-
-    subsequentSync !remoteHw = do
+    goSync !localHw !remoteHw = do
         deb "Get new pending hashes from remote"
-        (numMissingFromLocal, missingChunks, _, remoteHw') <-
-            fetchSince (Just remoteHw)
+        (numMissingFromLocal, missingChunks, remoteHashes, remoteHw') <-
+            fetchSince remoteHw
         deb $ T.concat
             [ "sync: "
             , sshow numMissingFromLocal
-            , " new remote hashes need to be fetched"
+            , " new remote hashes to fetch"
             ]
         traverse_ fetchMissing missingChunks
+        (numPushed, !localHw') <- push localHw remoteHashes
+        deb $ "pushed " <> sshow numPushed <> " transactions to remote."
+        updateSyncHistory syncHistoryState peer localHw' remoteHw'
+
+        -- TODO: do we really need to loop here?
         approximateThreadDelay us
-        subsequentSync remoteHw'
+        goSync (Just localHw') (Just remoteHw')
 
     -- get pending hashes from remote since the given (optional) high water mark
     fetchSince oldRemoteHw = do
         -- Intialize and collect SyncState
         let emptySyncState = SyncState 0 [] HashSet.empty False
         syncState <- newIORef emptySyncState
-        remoteHw <- mempoolGetPendingTransactions remoteMempool oldRemoteHw $ syncChunk syncState
-        (SyncState numMissingFromLocal missingChunks remoteHashes _) <- readIORef syncState
+        remoteHw <- mempoolGetPendingTransactions remoteMempool oldRemoteHw $
+                    syncChunk syncState
+        (SyncState numMissingFromLocal missingChunks remoteHashes _) <-
+            readIORef syncState
         -- immediately destroy ioref contents to assist GC
         writeIORef syncState emptySyncState
         return (numMissingFromLocal, missingChunks, remoteHashes, remoteHw)
 
-    -- Push transactions that are available locally but are missing from the
-    -- remote pool to the remote pool.
+    -- Push transactions that are available locally but are possibly missing
+    -- to the remote pool.
     --
-    push remoteHashes = do
+    push ourHw0 remoteHashes = do
         ref <- newIORef 0
-        ourHw <- mempoolGetPendingTransactions localMempool Nothing $ \chunk -> do
+        ourHw <- mempoolGetPendingTransactions localMempool ourHw0 $ \chunk -> do
             let chunk' = V.filter (not . flip HashSet.member remoteHashes) chunk
             unless (V.null chunk') $ do
                 sendChunk chunk'
@@ -501,12 +587,14 @@ syncMempools' log0 us localMempool remoteMempool = sync
 syncMempools
     :: Show t
     => LogFunctionText
+    -> MempoolSyncHistory
+    -> PeerInfo
     -> Int                  -- ^ polling interval in microseconds
     -> MempoolBackend t     -- ^ local mempool
     -> MempoolBackend t     -- ^ remote mempool
     -> IO ()
-syncMempools log us localMempool remoteMempool =
-    syncMempools' log us localMempool remoteMempool
+syncMempools log state peer us localMempool remoteMempool =
+    syncMempools' log state peer us localMempool remoteMempool
 
 ------------------------------------------------------------------------------
 -- | Raw/unencoded transaction hashes.

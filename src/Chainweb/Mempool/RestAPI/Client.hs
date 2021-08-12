@@ -162,11 +162,11 @@ getPendingClient_ = client (mempoolGetPendingApi @v @c)
 getPendingClient
   :: ChainwebVersion
   -> ChainId
-  -> Maybe (ServerNonce, MempoolTxId)
+  -> Maybe HighwaterMark
   -> ClientM PendingTransactions
 getPendingClient v c hw = runIdentity $ do
-    let nonce = fst <$> hw
-    let tx = snd <$> hw
+    let nonce = (sfst . _unHwMark) <$> hw
+    let tx = (ssnd . _unHwMark) <$> hw
     SomeChainwebVersionT (_ :: Proxy v) <- return $ someChainwebVersionVal v
     SomeChainIdT (_ :: Proxy c) <- return $ someChainIdVal c
     return $ getPendingClient_ @v @c nonce tx

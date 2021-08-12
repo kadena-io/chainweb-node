@@ -28,6 +28,8 @@ import Chainweb.Test.Mempool
     (InsertCheck, MempoolWithFunc(..), lookupIsPending, mempoolProperty)
 import Chainweb.Utils (Codec(..))
 import Chainweb.Version (ChainwebVersion(..))
+import P2P.Peer
+import P2P.Test.Orphans
 ------------------------------------------------------------------------------
 
 
@@ -47,7 +49,7 @@ tests = testGroup "Chainweb.Mempool.sync"
         f <- readMVar mv
         f xs
 
-    gen :: PropertyM IO (Set MockTx, Set MockTx, Set MockTx)
+    gen :: PropertyM IO (PeerInfo, Set MockTx, Set MockTx, Set MockTx)
     gen = do
       (xs, ys, zs) <- pick arbitrary
       let xss = Set.fromList xs
@@ -56,7 +58,8 @@ tests = testGroup "Chainweb.Mempool.sync"
       pre (not (Set.null xss || Set.null yss || Set.null zss)
            && length ys < 10_000
            && length zs < 10_000)
-      return (xss, yss, zss)
+      peer <- pick arbitraryPeerInfo
+      return (peer, xss, yss, zss)
 
 txcfg :: TransactionConfig MockTx
 txcfg = TransactionConfig mockCodec hasher hashmeta mockGasPrice
@@ -70,11 +73,11 @@ testInMemCfg =
     InMemConfig txcfg mockBlockGasLimit 2048 Right (pure . V.map Right) (1024 * 10)
 
 propSync
-    :: (Set MockTx, Set MockTx , Set MockTx)
+    :: (PeerInfo, Set MockTx, Set MockTx , Set MockTx)
     -> InsertCheck
     -> MempoolBackend MockTx
     -> IO (Either String ())
-propSync (txs, missing, later) _ localMempool' =
+propSync (peer, txs, missing, later) _ localMempool' =
     withInMemoryMempool testInMemCfg (Test singletonChainGraph) $ \remoteMempool -> do
         mempoolInsert localMempool' CheckedInsert txsV
         mempoolInsert remoteMempool CheckedInsert txsV
@@ -90,8 +93,8 @@ propSync (txs, missing, later) _ localMempool' =
         localMempool <-
               timebomb nmissing onInitialSyncFinished =<<
               timebomb (nmissing + nlater) onFinalSyncFinished localMempool'
-        let syncThread = syncMempools noLog 10 localMempool remoteMempool
-
+        syncHistory <- newMempoolSyncHistory
+        let syncThread = syncMempools noLog syncHistory peer 10 localMempool remoteMempool
 
         -- expect remote to deliver transactions during sync.
         -- Timeout to guard against waiting forever
