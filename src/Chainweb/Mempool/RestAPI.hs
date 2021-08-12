@@ -21,11 +21,15 @@ module Chainweb.Mempool.RestAPI
   , mempoolApi
   , PendingTransactions(..)
 
+  , TransactionGossipRequest(..)
+  , TransactionGossipData(..)
   , MempoolInsertApi
+  , MempoolGossipApi
   , MempoolMemberApi
   , MempoolLookupApi
   , MempoolGetPendingApi
   , mempoolInsertApi
+  , mempoolGossipApi
   , mempoolMemberApi
   , mempoolLookupApi
   , mempoolGetPendingApi
@@ -83,6 +87,35 @@ instance FromJSON PendingTransactions where
         <*> o .: "highwaterMark"
 
 ------------------------------------------------------------------------------
+-- transaction gossip
+data TransactionGossipData = TransactionGossipData
+    { _tgmTransaction :: Text
+    , _tgmHopCount :: Word
+    }
+    deriving (Show, Eq, Ord, Generic)
+
+instance ToJSON TransactionGossipData where
+    toEncoding o = pairs
+        $ "tx" .= _tgmTransaction o
+        <> "hops" .= _tgmHopCount o
+
+instance FromJSON TransactionGossipData where
+    parseJSON = withObject "TransactionGossipData" $ \o -> TransactionGossipData
+        <$> o .: "tx"
+        <*> o .: "hops"
+
+data TransactionGossipRequest = TransactionGossipRequest
+    { _tgdTransactions :: [TransactionGossipData] }
+    deriving (Show, Eq, Ord, Generic)
+
+instance ToJSON TransactionGossipRequest where
+    toEncoding o = pairs ("txs" .= _tgdTransactions o)
+
+instance FromJSON TransactionGossipRequest where
+    parseJSON = withObject "TransactionGossipRequest" $ \o -> TransactionGossipRequest
+        <$> o .: "txs"
+
+------------------------------------------------------------------------------
 -- servant sub-api
 
 mempoolApi
@@ -92,9 +125,16 @@ mempoolApi = Proxy
 
 type MempoolApi v c
     = MempoolInsertApi v c
+    :<|> MempoolGossipApi v c
     :<|> MempoolMemberApi v c
     :<|> MempoolLookupApi v c
     :<|> MempoolGetPendingApi v c
+
+type MempoolGossipApi v c = 'ChainwebEndpoint v
+    :> MempoolEndpoint c
+    :> "gossip"
+    :> ReqBody '[JSON] TransactionGossipRequest
+    :> Put '[JSON] NoContent
 
 type MempoolInsertApi v c = 'ChainwebEndpoint v
     :> MempoolEndpoint c
@@ -125,6 +165,11 @@ mempoolInsertApi
     :: forall (v :: ChainwebVersionT) (c :: ChainIdT)
     . Proxy (MempoolInsertApi v c)
 mempoolInsertApi = Proxy
+
+mempoolGossipApi
+    :: forall (v :: ChainwebVersionT) (c :: ChainIdT)
+    . Proxy (MempoolGossipApi v c)
+mempoolGossipApi = Proxy
 
 mempoolMemberApi
     :: forall (v :: ChainwebVersionT) (c :: ChainIdT)

@@ -52,6 +52,7 @@ data PendingEntry = PendingEntry
     , _inmemPeGasLimit :: !GasLimit
     , _inmemPeBytes :: !SB.ShortByteString
     , _inmemPeExpires :: !(Time Micros)
+    , _inmemPeHopCount :: !HopCount
     } deriving (Eq, Generic, Show, NFData)
 
 instance Ord PendingEntry where
@@ -68,7 +69,8 @@ data InMemConfig t = InMemConfig {
   , _inmemPreInsertPureChecks :: t -> Either InsertError t
   , _inmemPreInsertBatchChecks
         :: V.Vector (T2 TransactionHash t)
-        -> IO (V.Vector (Either (T2 TransactionHash InsertError) (T2 TransactionHash t)))
+        -> IO (V.Vector (Either (T2 TransactionHash InsertError)
+                                (T2 TransactionHash t)))
   , _inmemCurrentTxsSize :: !Natural
     -- ^ The number of active transactions in validated blocks that can be
     -- distinguished. If there are more txs than this number, checks can

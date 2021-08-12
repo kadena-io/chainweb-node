@@ -29,6 +29,7 @@ import Control.Monad.STM
 import qualified Data.ByteString.Short as SB
 import Data.IORef
 import Data.Vector (Vector)
+import qualified Data.Vector as V
 
 import qualified Pact.Types.Hash as Pact
 
@@ -44,9 +45,9 @@ import Chainweb.Mempool.Consensus
 import Chainweb.Mempool.Mempool
 import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.Backend.Utils
-import Chainweb.Pact.Service.Types
 import qualified Chainweb.Pact.PactService as PS
 import Chainweb.Pact.Service.PactQueue
+import Chainweb.Pact.Service.Types
 import Chainweb.Payload.PayloadStore
 import Chainweb.Transaction
 import Chainweb.Utils
@@ -144,7 +145,8 @@ pactProcessFork mpc theLogger bHeader = do
                            <> " transactions to reintroduce"
     -- No need to run pre-insert check here -- we know these are ok, and
     -- calling the pre-check would block here (it calls back into pact service)
-    mempoolInsert (mpcMempool mpc) UncheckedInsert reintroTxs
+    let v = reintroTxs `V.zip` V.replicate (V.length reintroTxs) 0
+    mempoolInsert (mpcMempool mpc) UncheckedInsert v
     mempoolMarkValidated (mpcMempool mpc) validatedTxs
 
   where

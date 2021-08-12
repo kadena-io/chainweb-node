@@ -18,6 +18,7 @@ import qualified Data.DList as D
 import Data.IORef
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
+import Data.Vector (Vector)
 import qualified Data.Vector as V
 import Servant
 
@@ -36,24 +37,42 @@ insertHandler
     . MempoolBackend t
     -> [T.Text]
     -> Handler NoContent
-insertHandler mempool txsT = handleErrs (NoContent <$ begin)
+insertHandler mempool txsT = do
+    let v = V.fromList $ map (\x -> (x, mAXIMUM_HOP_COUNT)) txsT
+    insertHandler' mempool v
+
+insertHandler'
+    :: forall t
+    . MempoolBackend t
+    -> Vector (T.Text, HopCount)
+    -> Handler NoContent
+insertHandler' mempool txsT = handleErrs (NoContent <$ begin)
   where
     txcfg = mempoolTxConfig mempool
 
     decode :: T.Text -> Either String t
     decode = codecDecode (txCodec txcfg) . T.encodeUtf8
 
-    go :: T.Text -> Handler t
-    go h = case decode h of
+    go :: (T.Text, HopCount) -> Handler (t, HopCount)
+    go (h, hops) = case decode h of
         Left e -> throwM . DecodeException $ T.pack e
-        Right t -> return t
+        Right t -> return (t, hops)
 
     begin :: Handler ()
-    begin = do
-        txs <- mapM go txsT
-        let txV = V.fromList txs
-        liftIO $ mempoolInsert mempool CheckedInsert txV
+    begin = mapM go txsT >>=
+            liftIO . mempoolInsert mempool CheckedInsert
 
+
+gossipHandler
+    :: forall t
+    . MempoolBackend t
+    -> TransactionGossipRequest
+    -> Handler NoContent
+gossipHandler mempool (TransactionGossipRequest txs) =
+    insertHandler' mempool txs'
+  where
+    txs' = V.fromList $ map toTx txs
+    toTx (TransactionGossipData tx hops) = (tx, hops)
 
 memberHandler :: Show t => MempoolBackend t -> [TransactionHash] -> Handler [Bool]
 memberHandler mempool txs = handleErrs (liftIO mem)
@@ -129,6 +148,7 @@ someMempoolServers v = mconcat
 mempoolServer :: Show t => ChainwebVersion -> Mempool_ v c t -> Server (MempoolApi v c)
 mempoolServer _v (Mempool_ mempool) =
     insertHandler mempool
+    :<|> gossipHandler mempool
     :<|> memberHandler mempool
     :<|> lookupHandler mempool
     :<|> getPendingHandler mempool
