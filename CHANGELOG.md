@@ -1,5 +1,17 @@
 # `chainweb-node` Changelog
 
+## 2.9.1 (2021-08-27)
+
+This is a bug fix release. It is recommended that node operators
+upgrade their nodes.
+
+This version is fully compatible with previous versions.
+
+Changes:
+
+*   Fix a bug that causes mempools to ignore new transactions after receiving
+    10000 transactions on a chain. (#1267)
+
 ## 2.9 (2021-08-12)
 
 This version replaces all previous versions. Any prior version will stop working
