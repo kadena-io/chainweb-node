@@ -70,6 +70,7 @@ import Chainweb.Mempool.Mempool
 import Chainweb.Pact.Utils (maxTTL)
 import Chainweb.Time
 import Chainweb.Utils
+import qualified Chainweb.Utils.HashMapWithSize as HMS
 import Chainweb.Version (ChainwebVersion)
 
 ------------------------------------------------------------------------------
@@ -96,7 +97,7 @@ destroyInMemPool = const $ return ()
 ------------------------------------------------------------------------------
 newInMemMempoolData :: IO (InMemoryMempoolData t)
 newInMemMempoolData =
-    InMemoryMempoolData <$!> newIORef mempty
+    InMemoryMempoolData <$!> newIORef HMS.empty
                         <*> newIORef emptyRecentLog
                         <*> newIORef mempty
                         <*> newIORef newCurrentTxs
@@ -202,7 +203,7 @@ memberInMem lock txs = do
     V.mapM (memberOne q) txs
 
   where
-    memberOne q txHash = return $! HashMap.member txHash q
+    memberOne q txHash = return $! HMS.member txHash q
 
 ------------------------------------------------------------------------------
 lookupInMem :: NFData t
@@ -222,7 +223,7 @@ lookupInMem txcfg lock txs = do
         in either (const Missing) Pending
                $! codecDecode codec
                $! SB.fromShort bs
-    lookupQ q txHash = fixup <$!> HashMap.lookup txHash q
+    lookupQ q txHash = fixup <$!> HMS.lookup txHash q
 
 
 ------------------------------------------------------------------------------
@@ -235,7 +236,7 @@ markValidatedInMem
     -> IO ()
 markValidatedInMem logger tcfg lock txs = withMVarMasked lock $ \mdata -> do
     modifyIORef' (_inmemPending mdata) $ \psq ->
-        foldl' (flip HashMap.delete) psq hashes
+        foldl' (flip HMS.delete) psq hashes
 
     -- This isn't atomic, which is fine. If something goes wrong we may end up
     -- with some false negatives, which means that the mempool would use more
@@ -261,7 +262,7 @@ addToBadListInMem :: MVar (InMemoryMempoolData t)
 addToBadListInMem lock tx = withMVarMasked lock $ \mdata -> do
     !pnd <- readIORef $ _inmemPending mdata
     !bad <- readIORef $ _inmemBadMap mdata
-    let !pnd' = HashMap.delete tx pnd
+    let !pnd' = HMS.delete tx pnd
     -- we don't have the expiry time here, so just use maxTTL
     now <- getCurrentTimeIntegral
     let (ParsedInteger mt) = maxTTL
@@ -421,7 +422,7 @@ insertInMem cfg lock runCheck txs0 = do
     txhashes <- insertCheck
     withMVarMasked lock $ \mdata -> do
         pending <- readIORef (_inmemPending mdata)
-        let cnt = HashMap.size pending
+        let cnt = HMS.size pending
         let txs = V.take (max 0 (maxNumPending - cnt)) txhashes
         let T2 pending' newHashesDL = V.foldl' insOne (T2 pending id) txs
         let !newHashes = V.fromList $ newHashesDL []
@@ -445,7 +446,7 @@ insertInMem cfg lock runCheck txs0 = do
             !bytes = SB.toShort $! encodeTx tx
             !expTime = txMetaExpiryTime $ txMetadata txcfg tx
             !x = PendingEntry gp gl bytes expTime
-        in T2 (HashMap.insert txhash x pending) (soFar . (txhash:))
+        in T2 (HMS.insert txhash x pending) (soFar . (txhash:))
 
 
 ------------------------------------------------------------------------------
@@ -487,12 +488,12 @@ getBlockInMem cfg lock txValidate bheight phash = do
                                (txGasLimit txcfg t)
                                b
                                (txMetaExpiryTime $ txMetadata txcfg t)
-        in HashMap.insert h pe m
+        in HMS.insert h pe m
 
     insBadMap !m !(h,(_,t)) = let endTime = txMetaExpiryTime (txMetadata txcfg t)
                               in HashMap.insert h endTime m
 
-    del !psq (h, _) = HashMap.delete h psq
+    del !psq (h, _) = HMS.delete h psq
 
     txcfg = _inmemTxCfg cfg
     codec = txCodec txcfg
@@ -539,7 +540,7 @@ getBlockInMem cfg lock txValidate bheight phash = do
         -> GasLimit
         -> IO [(TransactionHash, (SB.ShortByteString, t))]
     nextBatch !psq !remainingGas = do
-        let !pendingTxs0 = V.fromList $ HashMap.toList psq
+        let !pendingTxs0 = V.fromList $ HMS.toList psq
         mPendingTxs <- V.unsafeThaw pendingTxs0
         TimSort.sortBy (compare `on` snd) mPendingTxs
         !pendingTxs <- V.unsafeFreeze mPendingTxs
@@ -595,7 +596,7 @@ getPendingInMem cfg nonce lock since callback = do
 
   where
     sendAll psq = do
-        let keys = HashMap.keys psq
+        let keys = HMS.keys psq
         (dl, sz) <- foldlM go initState keys
         void $ sendChunk dl sz
 
@@ -609,7 +610,7 @@ getPendingInMem cfg nonce lock since callback = do
         case mbTxs of
           Nothing -> sendAll psq
           Just txs -> do
-              let isPending = flip HashMap.member psq
+              let isPending = flip HMS.member psq
               callback $! V.fromList $ filter isPending txs
 
     readLock = withMVar lock $ \mdata -> do
@@ -674,7 +675,7 @@ getRecentTxs maxNumRecent oldHw rlog
 getMempoolStats :: InMemoryMempool t -> IO MempoolStats
 getMempoolStats m = do
     withMVar (_inmemDataLock m) $ \d -> MempoolStats
-        <$!> (HashMap.size <$!> readIORef (_inmemPending d))
+        <$!> (HMS.size <$!> readIORef (_inmemPending d))
         <*> (length . _rlRecent <$!> readIORef (_inmemRecentLog d))
         <*> (HashMap.size <$!> readIORef (_inmemBadMap d))
         <*> (currentTxsSize <$!> readIORef (_inmemCurrentTxs d))
@@ -703,7 +704,7 @@ pruneInternal
 pruneInternal mdata now = do
     let pref = _inmemPending mdata
     !pending <- readIORef pref
-    !pending' <- evaluate $ force $ HashMap.filter flt pending
+    !pending' <- evaluate $ force $ HMS.filter flt pending
     writeIORef pref pending'
 
     let bref = _inmemBadMap mdata

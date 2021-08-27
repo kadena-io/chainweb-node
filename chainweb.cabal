@@ -242,6 +242,7 @@ library
         , Chainweb.TreeDB
         , Chainweb.TreeDB.RemoteDB
         , Chainweb.Utils
+        , Chainweb.Utils.HashMapWithSize
         , Chainweb.Utils.Paging
         , Chainweb.Utils.RequestLog
         , Chainweb.Version

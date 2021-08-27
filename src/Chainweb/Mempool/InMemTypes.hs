@@ -45,6 +45,7 @@ import Pact.Types.Gas (GasPrice(..))
 import Chainweb.Mempool.CurrentTxs
 import Chainweb.Mempool.Mempool
 import Chainweb.Time (Micros(..), Time(..))
+import Chainweb.Utils.HashMapWithSize (HashMapWithSize)
 
 ------------------------------------------------------------------------------
 data PendingEntry = PendingEntry
@@ -57,7 +58,7 @@ data PendingEntry = PendingEntry
 instance Ord PendingEntry where
     compare = compare `on` (Down . _inmemPeGasPrice)
 
-type PendingMap = HashMap TransactionHash PendingEntry
+type PendingMap = HashMapWithSize TransactionHash PendingEntry
 
 ------------------------------------------------------------------------------
 -- | Configuration for in-memory mempool.
