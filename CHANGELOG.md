@@ -2,7 +2,7 @@
 
 ## 2.9.1 (2021-08-27)
 
-This is a optional bug fix release. It is recommended that node operators
+This is a bug fix release. It is recommended that node operators
 upgrade their nodes.
 
 This version is fully compatible with previous versions.
