@@ -425,7 +425,7 @@ insertInMem cfg lock runCheck txs0 = do
         let txs = V.take (max 0 (maxNumPending - cnt)) txhashes
         let T2 pending' newHashesDL = V.foldl' insOne (T2 pending id) txs
         let !newHashes = V.fromList $ newHashesDL []
-        writeIORef (_inmemPending mdata) $! force pending' -- see comment above
+        writeIORef (_inmemPending mdata) $! force pending'
         modifyIORef' (_inmemRecentLog mdata) $
             recordRecentTransactions maxRecent newHashes
   where
