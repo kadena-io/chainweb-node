@@ -98,8 +98,7 @@ destroyInMemPool = const $ return ()
 ------------------------------------------------------------------------------
 newInMemMempoolData :: IO (InMemoryMempoolData t)
 newInMemMempoolData =
-    InMemoryMempoolData <$!> newIORef 0
-                        <*> newIORef mempty
+    InMemoryMempoolData <$!> newIORef mempty
                         <*> newIORef emptyRecentLog
                         <*> newIORef mempty
                         <*> newIORef newCurrentTxs
@@ -454,13 +453,9 @@ insertInMem
 insertInMem cfg lock runCheck txs0 = do
     txhashes <- insertCheck
     withMVarMasked lock $ \mdata -> do
-        let countRef = _inmemCountPending mdata
-        cnt <- readIORef countRef
-        let txs = V.take (max 0 (maxNumPending - cnt)) txhashes
-        let numTxs = V.length txs
-        let newCnt = cnt + numTxs
-        writeIORef countRef $! newCnt
         pending <- readIORef (_inmemPending mdata)
+        let cnt = HashMap.size pending
+        let txs = V.take (max 0 (maxNumPending - cnt)) txhashes
         let T2 pending' newHashesDL = V.foldl' insOne (T2 pending id) txs
         let !newHashes = V.fromList $ newHashesDL []
         writeIORef (_inmemPending mdata) $! force pending'
@@ -514,7 +509,6 @@ getBlockInMem cfg lock txValidate bheight phash = do
         -- expunged until they are mined and validated by consensus.
         let !psq'' = V.foldl' ins psq' out
         writeIORef (_inmemPending mdata) $! force psq''
-        writeIORef (_inmemCountPending mdata) $! HashMap.size psq''
         writeIORef (_inmemBadMap mdata) $! force badmap'
         mout <- V.unsafeThaw $ V.map (snd . snd) out
         TimSort.sortBy (compareOnGasPrice txcfg) mout

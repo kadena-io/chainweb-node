@@ -73,12 +73,12 @@ jobs:
       run: |
         MATRIX="$(jq -c '.' <<EOF
         {
-          "ghc": ["8.8.4", "8.10.5"],
+          "ghc": ["8.10.5", "9.0.1"],
           "cabal": ["3.4.0.0"],
           "os": ["ubuntu-18.04", "ubuntu-20.04", "macOS-latest"],
           "cabalcache": ["true"],
-          "exclude": [ { "os": "macOS-latest", "ghc": "8.10.5" } ],
-          "include": [ { "os": "macOS-latest", "ghc": "8.10.4", "cabal": "3.4.0.0", "cabalcache": "true" } ]
+          "include": [ { "os": "ubuntu-20.04", "ghc": "8.8.4", "cabal": "3.4.0.0", "cabalcache": "true" } ],
+          "exclude": [ { "os": "macOS-latest", "ghc": "8.10.5" } ]
         }
         EOF
         )"
@@ -180,6 +180,18 @@ jobs:
         package pact
           documentation: False
           optimization: ${{ needs.config.outputs.opt-level }}
+        EOF
+    - name: Create cabal.project.local
+      if: startsWith(matrix.ghc, '9')
+      run: |
+        cat >> cabal.project.local <<EOF
+        allow-newer: token-bucket:*
+        allow-newer: ixset-typed:*
+        allow-newer: hashable:*
+        source-repository-package
+            type: git
+            location: https://github.com/larskuhtz/ixset-typed
+            tag: 26e2a4397a49e731b5a8dcdfb08a64bae06081da
         EOF
     - uses: actions/cache@v2
       name: Cache dist-newstyle

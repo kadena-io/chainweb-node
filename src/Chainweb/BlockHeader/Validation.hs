@@ -103,6 +103,9 @@ import qualified Data.Text as T
 
 import GHC.Generics
 
+import System.Environment
+import System.IO.Unsafe
+
 -- internal modules
 
 import Chainweb.BlockCreationTime
@@ -672,10 +675,17 @@ validateInductiveWebStep s = concat
 -- Intrinsic BlockHeader properties
 -- -------------------------------------------------------------------------- --
 
+powDisabled :: Bool
+powDisabled = case unsafePerformIO $ lookupEnv "DISABLE_POW_VALIDATION" of
+  Nothing -> False
+  Just{} -> True
+{-# NOINLINE powDisabled #-}
+
 prop_block_pow :: BlockHeader -> Bool
 prop_block_pow b
     | isGenesisBlockHeader b = True
         -- Genesis block headers are not mined. So there's not need for POW
+    | _blockChainwebVersion b == Development && powDisabled = True
     | otherwise = checkTarget (_blockTarget b) (_blockPow b)
 
 prop_block_hash :: BlockHeader -> Bool
