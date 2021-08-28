@@ -90,17 +90,16 @@ type BadMap = HashMap TransactionHash (Time Micros)
 
 ------------------------------------------------------------------------------
 data InMemoryMempoolData t = InMemoryMempoolData {
-    _inmemPending :: !(IORef PendingMap)
-    -- ^ The set of pending transactions
+    _inmemPendingAndBadMaps :: !(IORef (T2 PendingMap BadMap))
+    -- ^ The set of pending transactions and the set of
+    -- non-expired transactions that failed during pact validation and are known
+    -- to be bad. Those must not be attempted again because the user would
+    -- possibly have to pay gas for it several times.
 
   , _inmemRecentLog :: !(IORef RecentLog)
     -- ^ The log of all recently added transactions. This is used to compute the
     -- highwater mark for synchronization with remote mempools.
 
-  , _inmemBadMap :: !(IORef BadMap)
-    -- ^ Non-expired transactions that failed during pact validation and are
-    -- known to be bad. Those must not be attempted again because the user would
-    -- possibly have to pay gas for it several times.
 
   , _inmemCurrentTxs :: !(IORef CurrentTxs)
     -- ^ The set of non-expired transactions that have been addeded to a block.

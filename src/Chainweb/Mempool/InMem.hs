@@ -96,9 +96,8 @@ destroyInMemPool = const $ return ()
 ------------------------------------------------------------------------------
 newInMemMempoolData :: IO (InMemoryMempoolData t)
 newInMemMempoolData =
-    InMemoryMempoolData <$!> newIORef mempty
+    InMemoryMempoolData <$!> newIORef (T2 mempty mempty)
                         <*> newIORef emptyRecentLog
-                        <*> newIORef mempty
                         <*> newIORef newCurrentTxs
 
 
@@ -198,7 +197,7 @@ memberInMem :: MVar (InMemoryMempoolData t)
             -> Vector TransactionHash
             -> IO (Vector Bool)
 memberInMem lock txs = do
-    q <- withMVarMasked lock (readIORef . _inmemPending)
+    (T2 q _) <- withMVarMasked lock (readIORef . _inmemPendingAndBadMaps)
     V.mapM (memberOne q) txs
 
   where
@@ -211,7 +210,7 @@ lookupInMem :: NFData t
             -> Vector TransactionHash
             -> IO (Vector (LookupResult t))
 lookupInMem txcfg lock txs = do
-    q <- withMVarMasked lock (readIORef . _inmemPending)
+    (T2 q _) <- withMVarMasked lock (readIORef . _inmemPendingAndBadMaps)
     v <- V.mapM (evaluate . force . fromJuste . lookupOne q) txs
     return $! v
   where
@@ -234,8 +233,8 @@ markValidatedInMem
     -> Vector t
     -> IO ()
 markValidatedInMem logger tcfg lock txs = withMVarMasked lock $ \mdata -> do
-    modifyIORef' (_inmemPending mdata) $ \psq ->
-        foldl' (flip HashMap.delete) psq hashes
+    modifyIORef' (_inmemPendingAndBadMaps mdata) $ \(T2 psq _bad) ->
+        (T2 (foldl' (flip HashMap.delete) psq hashes) _bad)
 
     -- This isn't atomic, which is fine. If something goes wrong we may end up
     -- with some false negatives, which means that the mempool would use more
@@ -259,16 +258,14 @@ addToBadListInMem :: MVar (InMemoryMempoolData t)
                   -> TransactionHash
                   -> IO ()
 addToBadListInMem lock tx = withMVarMasked lock $ \mdata -> do
-    !pnd <- readIORef $ _inmemPending mdata
-    !bad <- readIORef $ _inmemBadMap mdata
+    !(T2 pnd bad) <- readIORef $ _inmemPendingAndBadMaps mdata
     let !pnd' = HashMap.delete tx pnd
     -- we don't have the expiry time here, so just use maxTTL
     now <- getCurrentTimeIntegral
     let (ParsedInteger mt) = maxTTL
     let !endTime = add (secondsToTimeSpan $ fromIntegral mt) now
     let !bad' = HashMap.insert tx endTime bad
-    writeIORef (_inmemPending mdata) pnd'
-    writeIORef (_inmemBadMap mdata) bad'
+    writeIORef (_inmemPendingAndBadMaps mdata) (T2 pnd' bad')
 
 
 ------------------------------------------------------------------------------
@@ -277,7 +274,7 @@ checkBadListInMem
     -> Vector TransactionHash
     -> IO (Vector Bool)
 checkBadListInMem lock hashes = withMVarMasked lock $ \mdata -> do
-    !bad <- readIORef $ _inmemBadMap mdata
+    !(T2 _pending bad) <- readIORef $ _inmemPendingAndBadMaps mdata
     return $! V.map (`HashMap.member` bad) hashes
 
 
@@ -300,7 +297,7 @@ insertCheckInMem cfg lock txs
   | V.null txs = pure $ Right ()
   | otherwise = do
     now <- getCurrentTimeIntegral
-    badmap <- withMVarMasked lock $ readIORef . _inmemBadMap
+    (T2 _pending badmap) <- withMVarMasked lock $ readIORef . _inmemPendingAndBadMaps
     curTxIdx <- withMVarMasked lock $ readIORef . _inmemCurrentTxs
 
     -- We hash the tx here and pass it around around to avoid needing to repeat
@@ -396,7 +393,7 @@ insertCheckInMem' cfg lock txs
   | V.null txs = pure V.empty
   | otherwise = do
     now <- getCurrentTimeIntegral
-    badmap <- withMVarMasked lock $ readIORef . _inmemBadMap
+    (T2 _pending badmap) <- withMVarMasked lock $ readIORef . _inmemPendingAndBadMaps
     curTxIdx <- withMVarMasked lock $ readIORef . _inmemCurrentTxs
 
     let withHashes :: Vector (T2 TransactionHash t)
@@ -420,12 +417,12 @@ insertInMem
 insertInMem cfg lock runCheck txs0 = do
     txhashes <- insertCheck
     withMVarMasked lock $ \mdata -> do
-        pending <- readIORef (_inmemPending mdata)
+        (T2 pending _badmap) <- readIORef (_inmemPendingAndBadMaps mdata)
         let cnt = HashMap.size pending
         let txs = V.take (max 0 (maxNumPending - cnt)) txhashes
         let T2 pending' newHashesDL = V.foldl' insOne (T2 pending id) txs
         let !newHashes = V.fromList $ newHashesDL []
-        writeIORef (_inmemPending mdata) $! force pending'
+        writeIORef (_inmemPendingAndBadMaps mdata) $! force (T2 pending' _badmap)
         modifyIORef' (_inmemRecentLog mdata) $
             recordRecentTransactions maxRecent newHashes
   where
@@ -464,8 +461,7 @@ getBlockInMem cfg lock txValidate bheight phash = do
 
         -- drop any expired transactions.
         pruneInternal mdata now
-        !psq <- readIORef (_inmemPending mdata)
-        !badmap <- readIORef (_inmemBadMap mdata)
+        !(T2 psq badmap) <- readIORef (_inmemPendingAndBadMaps mdata)
         let size0 = _inmemTxBlockSizeLimit cfg
 
         -- get our batch of output transactions, along with a new pending map
@@ -475,8 +471,7 @@ getBlockInMem cfg lock txValidate bheight phash = do
         -- put the txs chosen for the block back into the map -- they don't get
         -- expunged until they are mined and validated by consensus.
         let !psq'' = V.foldl' ins psq' out
-        writeIORef (_inmemPending mdata) $! force psq''
-        writeIORef (_inmemBadMap mdata) $! force badmap'
+        writeIORef (_inmemPendingAndBadMaps mdata) $! force (T2 psq'' badmap')
         mout <- V.unsafeThaw $ V.map (snd . snd) out
         TimSort.sortBy (compareOnGasPrice txcfg) mout
         V.unsafeFreeze mout
@@ -613,7 +608,7 @@ getPendingInMem cfg nonce lock since callback = do
               callback $! V.fromList $ filter isPending txs
 
     readLock = withMVar lock $ \mdata -> do
-        !psq <- readIORef $ _inmemPending mdata
+        !(T2 psq _) <- readIORef $ _inmemPendingAndBadMaps mdata
         rlog <- readIORef $ _inmemRecentLog mdata
         return (psq, rlog)
 
@@ -674,9 +669,9 @@ getRecentTxs maxNumRecent oldHw rlog
 getMempoolStats :: InMemoryMempool t -> IO MempoolStats
 getMempoolStats m = do
     withMVar (_inmemDataLock m) $ \d -> MempoolStats
-        <$!> (HashMap.size <$!> readIORef (_inmemPending d))
+        <$!> (HashMap.size . sfst <$!> readIORef (_inmemPendingAndBadMaps d))
         <*> (length . _rlRecent <$!> readIORef (_inmemRecentLog d))
-        <*> (HashMap.size <$!> readIORef (_inmemBadMap d))
+        <*> (HashMap.size . ssnd <$!> readIORef (_inmemPendingAndBadMaps d))
         <*> (currentTxsSize <$!> readIORef (_inmemCurrentTxs d))
 
 ------------------------------------------------------------------------------
@@ -701,14 +696,12 @@ pruneInternal
     -> Time Micros
     -> IO ()
 pruneInternal mdata now = do
-    let pref = _inmemPending mdata
-    !pending <- readIORef pref
+    let pbref = _inmemPendingAndBadMaps mdata
+    !(T2 pending bad) <- readIORef pbref
     !pending' <- evaluate $ force $ HashMap.filter flt pending
-    writeIORef pref pending'
 
-    let bref = _inmemBadMap mdata
-    !badmap <- (force . pruneBadMap) <$!> readIORef bref
-    writeIORef bref badmap
+    !bad' <- evaluate $ force $ pruneBadMap bad
+    writeIORef pbref (T2 pending' bad')
 
   where
     -- keep transactions that expire in the future.
