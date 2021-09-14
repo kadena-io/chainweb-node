@@ -136,6 +136,11 @@ import GHC.TypeLits
 
 import Numeric.Natural
 
+import System.IO.Unsafe (unsafePerformIO)
+import System.Environment (lookupEnv)
+
+import Text.Read (readMaybe)
+
 -- internal modules
 
 import Chainweb.BlockHeight
@@ -641,7 +646,12 @@ blockRate FastTimedCPM{} = BlockRate 1
 -- 120 blocks per hour, 2,880 per day, 20,160 per week, 1,048,320 per year.
 blockRate Testnet04 = BlockRate 30
 blockRate Mainnet01 = BlockRate 30
-blockRate Development = BlockRate 30
+blockRate Development = BlockRate $ maybe 30 int customeDevnetRate
+
+customeDevnetRate :: Maybe Int
+customeDevnetRate =
+    readMaybe =<< unsafePerformIO (lookupEnv "DEVELOPMENT_BLOCK_RATE")
+{-# NOINLINE customeDevnetRate #-}
 
 -- | The number of blocks to be mined after a difficulty adjustment, before
 -- considering a further adjustment. Critical for the "epoch-based" adjustment
