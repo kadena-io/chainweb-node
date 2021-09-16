@@ -207,6 +207,10 @@ jobs:
       run: cabal update
     - name: Display outdated packages
       run: cabal outdated
+    - name: Check GHC version
+      run: |
+        ghc --version
+        cabal --version
     - name: Configure build
       run: |
         cabal build all --dry-run
