@@ -1,5 +1,17 @@
 # `chainweb-node` Changelog
 
+## 2.9.2 (2021-09-16)
+
+This is a bug fix release. It is recommended that node operators upgrade their
+nodes.
+
+This version is fully compatible with previous versions.
+
+Changes:
+
+*   Fix a bug where API requests return result pages with more than the upper
+    limit of items. (#1271)
+
 ## 2.9.1 (2021-08-27)
 
 This is a bug fix release. It is recommended that node operators
