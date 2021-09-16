@@ -73,12 +73,10 @@ jobs:
       run: |
         MATRIX="$(jq -c '.' <<EOF
         {
-          "ghc": ["8.10.5", "9.0.1"],
+          "ghc": ["8.10.7", "9.0.1"],
           "cabal": ["3.4.0.0"],
           "os": ["ubuntu-18.04", "ubuntu-20.04", "macOS-latest"],
-          "cabalcache": ["true"],
-          "include": [ { "os": "ubuntu-20.04", "ghc": "8.8.4", "cabal": "3.4.0.0", "cabalcache": "true" } ],
-          "exclude": [ { "os": "macOS-latest", "ghc": "8.10.5" } ]
+          "cabalcache": ["true"]
         }
         EOF
         )"
@@ -207,10 +205,6 @@ jobs:
       run: cabal update
     - name: Display outdated packages
       run: cabal outdated
-    - name: Check GHC version
-      run: |
-        ghc --version
-        cabal --version
     - name: Configure build
       run: |
         cabal build all --dry-run
