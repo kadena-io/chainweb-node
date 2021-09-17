@@ -1,5 +1,47 @@
 # `chainweb-node` Changelog
 
+## 2.9.2 (2021-09-16)
+
+This is a bug fix release. It is recommended that node operators upgrade their
+nodes.
+
+This version is fully compatible with previous versions.
+
+Changes:
+
+*   Fix a bug where API requests return result pages with more than the upper
+    limit of items. (#1271)
+
+## 2.9.1 (2021-08-27)
+
+This is a bug fix release. It is recommended that node operators
+upgrade their nodes.
+
+This version is fully compatible with previous versions.
+
+Changes:
+
+*   Fix a bug that causes mempools to ignore new transactions after receiving
+    10000 transactions on a chain. (#1267)
+
+## 2.9 (2021-08-12)
+
+This version replaces all previous versions. Any prior version will stop working
+on **2021-08-19T00:00:00Z**. Node administrators must upgrade to this version
+before that date.
+
+This version will stop working on **2021-10-14T00:00:00Z**.
+
+Changes:
+
+This is a maintenance release without breaking changes.
+
+*   Use `0.0.0.0` as default P2P host address, which enables auto-detection of
+    the IP address of the node. (#1245)
+*   Build and link Pact without CLI tools support. (#1246)
+*   Limit batch size of payload REST API requests 1000 items. (#1258)
+*   Removed several external dependencies from the code base.
+
 ## 2.8 (2021-06-05)
 
 This version replaces all previous versions. Any prior version will stop working
