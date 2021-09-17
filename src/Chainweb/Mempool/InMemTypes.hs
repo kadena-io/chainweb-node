@@ -92,10 +92,7 @@ type BadMap = HashMap TransactionHash (Time Micros)
 
 ------------------------------------------------------------------------------
 data InMemoryMempoolData t = InMemoryMempoolData {
-    _inmemCountPending :: !(IORef Int)
-    -- ^ The number of pending transactions
-
-  , _inmemPending :: !(IORef PendingMap)
+    _inmemPending :: !(IORef PendingMap)
     -- ^ The set of pending transactions
 
   , _inmemRecentLog :: !(IORef RecentLog)
