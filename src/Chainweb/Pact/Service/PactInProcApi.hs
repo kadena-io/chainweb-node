@@ -66,7 +66,7 @@ withPactService
     -> PayloadDb cas
     -> FilePath
     -> PactServiceConfig
-    -> (PactQueue -> IO a)
+    -> (PactQueues -> IO a)
     -> IO a
 withPactService ver cid logger mpc bhdb pdb pactDbDir config action =
     withSqliteDb cid logger pactDbDir (_pactResetDb config) $ \sqlenv ->
@@ -87,17 +87,25 @@ withPactService'
     -> PayloadDb cas
     -> SQLiteEnv
     -> PactServiceConfig
-    -> (PactQueue -> IO a)
+    -> (PactQueues -> IO a)
     -> IO a
 withPactService' ver cid logger memPoolAccess bhDb pdb sqlenv config action = do
-    reqQ <- atomically $ newTBQueue (_pactQueueSize config)
-    race (server reqQ) (client reqQ) >>= \case
+    reqQs <- atomically $ do
+       vbQueue <- newTBQueue (_pactQueueSize config) -- TODO: This should be a different size
+       nbQueue <- newTBQueue (_pactQueueSize config)
+       omQueue <- newTBQueue (_pactQueueSize config)
+       return PactQueues {
+            validateBlockQueue = vbQueue
+          , newBlockQueue = nbQueue
+          , otherMsgsQueue = omQueue
+          }
+    race (server reqQs) (client reqQs) >>= \case
         Left () -> error "pact service terminated unexpectedly"
         Right a -> return a
   where
-    client reqQ = action reqQ
-    server reqQ = runForever logg "pact-service"
-        $ PS.initPactService ver cid logger reqQ memPoolAccess bhDb pdb sqlenv config
+    client reqQs = action reqQs
+    server reqQs = runForever logg "pact-service"
+        $ PS.initPactService ver cid logger reqQs memPoolAccess bhDb pdb sqlenv config
     logg = logFunction logger
 
 pactMemPoolAccess

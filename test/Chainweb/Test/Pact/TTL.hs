@@ -221,7 +221,7 @@ doNewBlock ctxIO mempool parent nonce t = do
      ctx <- ctxIO
      unlessM (tryPutMVar (_ctxMempool ctx) mempool) $
         error "Test failure: mempool access is not empty. Some previous test step failed unexpectedly"
-     mv <- newBlock noMiner parent $ _ctxQueue ctx
+     mv <- newBlock noMiner parent $ newBlockQueue $ _ctxQueues ctx
      payload <- assertNotLeft =<< takeMVar mv
 
      let bh = newBlockHeader
@@ -247,7 +247,7 @@ doValidateBlock
     -> IO ()
 doValidateBlock ctxIO header payload = do
     ctx <- ctxIO
-    _mv' <- validateBlock header (payloadWithOutputsToPayloadData payload) $ _ctxQueue ctx
+    _mv' <- validateBlock header (payloadWithOutputsToPayloadData payload) $ validateBlockQueue $ _ctxQueues ctx
     addNewPayload (_ctxPdb ctx) payload
     unsafeInsertBlockHeaderDb (_ctxBdb ctx) header
     -- FIXME FIXME FIXME: do at least some checks?
@@ -271,7 +271,7 @@ assertDoPreBlockFailure action = try @_ @PactException action >>= \case
 
 data Ctx = Ctx
     { _ctxMempool :: !(MVar MemPoolAccess)
-    , _ctxQueue :: !PactQueue
+    , _ctxQueues :: !PactQueues
     , _ctxPdb :: !(PayloadDb RocksDbCas)
     , _ctxBdb :: !BlockHeaderDb
     }
@@ -284,10 +284,10 @@ withTestPact rdb test =
   withResource newEmptyMVar (const $ return ()) $ \mempoolVarIO ->
     withPactTestBlockDb testVer cid Quiet rdb (mempool mempoolVarIO) defaultPactServiceConfig $ \ios ->
       test $ do
-        (pq,bdb) <- ios
+        (pqs,bdb) <- ios
         mp <- mempoolVarIO
         bhdb <- getBlockHeaderDb cid bdb
-        return $ Ctx mp pq (_bdbPayloadDb bdb) bhdb
+        return $ Ctx mp pqs (_bdbPayloadDb bdb) bhdb
   where
     cid = someChainId testVer
     mempool mempoolVarIO = return $ mempty

@@ -647,7 +647,7 @@ withPactTestBlockDb
     -> RocksDb
     -> (IO MemPoolAccess)
     -> PactServiceConfig
-    -> (IO (PactQueue,TestBlockDb) -> TestTree)
+    -> (IO (PactQueues,TestBlockDb) -> TestTree)
     -> TestTree
 withPactTestBlockDb version cid logLevel rdb mempoolIO pactConfig f =
   withTemporaryDir $ \iodir ->
@@ -655,7 +655,15 @@ withPactTestBlockDb version cid logLevel rdb mempoolIO pactConfig f =
   withResource (startPact bdbio iodir) stopPact $ f . fmap (view _3)
   where
     startPact bdbio iodir = do
-        reqQ <- atomically $ newTBQueue 2000
+        reqQs <- atomically $ do
+            vbQueue <- newTBQueue 2000
+            nbQueue <- newTBQueue 2000
+            omQueue <- newTBQueue 2000
+            return PactQueues {
+                  validateBlockQueue = vbQueue
+                , newBlockQueue = nbQueue
+                , otherMsgsQueue = omQueue
+                }
         dir <- iodir
         bdb <- bdbio
         mempool <- mempoolIO
@@ -663,8 +671,8 @@ withPactTestBlockDb version cid logLevel rdb mempoolIO pactConfig f =
         let pdb = _bdbPayloadDb bdb
         sqlEnv <- startSqliteDb cid logger dir False
         a <- async $ runForever (\_ _ -> return ()) "Chainweb.Test.Pact.Utils.withPactTestBlockDb" $
-            initPactService version cid logger reqQ mempool bhdb pdb sqlEnv pactConfig
-        return (a, sqlEnv, (reqQ,bdb))
+            initPactService version cid logger reqQs mempool bhdb pdb sqlEnv pactConfig
+        return (a, sqlEnv, (reqQs,bdb))
 
     stopPact (a, sqlEnv, _) = cancel a >> stopSqliteDb sqlEnv
 

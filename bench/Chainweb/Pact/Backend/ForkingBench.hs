@@ -125,13 +125,13 @@ bench = C.bgroup "PactService" $
     , oneBlock False 100
     ]
   where
-    forkingBench mainLineBlocks pdb bhdb nonceCounter pactQueue _ =
+    forkingBench mainLineBlocks pdb bhdb nonceCounter pactQueues _ =
       C.bench "forkingBench"  $ C.whnfIO $ do
         let (T3 _ join1 _) = mainLineBlocks !! 5
             forkLength1 = 5
             forkLength2 = 5
-        void $ playLine pdb bhdb forkLength1 join1 pactQueue nonceCounter
-        void $ playLine pdb bhdb forkLength2 join1 pactQueue nonceCounter
+        void $ playLine pdb bhdb forkLength1 join1 pactQueues nonceCounter
+        void $ playLine pdb bhdb forkLength2 join1 pactQueues nonceCounter
 
     oneBlock validate txCount = withResources 1 Error go
       where
@@ -202,7 +202,7 @@ playLine
     -> BlockHeaderDb
     -> Word64
     -> BlockHeader
-    -> PactQueue
+    -> PactQueues
     -> IORef Word64
     -> IO [T3 ParentHeader BlockHeader PayloadWithOutputs]
 playLine  pdb bhdb trunkLength startingBlock rr =
@@ -228,12 +228,12 @@ mineBlock
     -> Nonce
     -> PayloadDb HashMapCas
     -> BlockHeaderDb
-    -> PactQueue
+    -> PactQueues
     -> IO (T3 ParentHeader BlockHeader PayloadWithOutputs)
 mineBlock parent nonce pdb bhdb r = do
 
      -- assemble block without nonce and timestamp
-     mv <- newBlock noMiner parent r
+     mv <- newBlock noMiner parent (newBlockQueue r)
 
      payload <- assertNotLeft =<< takeMVar mv
 
@@ -252,7 +252,7 @@ mineBlock parent nonce pdb bhdb r = do
 
      T2 (SolvedWork newHeader) _ <- usePowHash testVer $ \(_ :: Proxy a) -> mine @a (_blockNonce bh) work
 
-     mv' <- validateBlock (newHeader { _blockCreationTime = creationTime}) (payloadWithOutputsToPayloadData payload) r
+     mv' <- validateBlock (newHeader { _blockCreationTime = creationTime}) (payloadWithOutputsToPayloadData payload) (validateBlockQueue r)
 
      void $ assertNotLeft =<< takeMVar mv'
 
@@ -269,13 +269,13 @@ noMineBlock
     :: Bool
     -> ParentHeader
     -> Nonce
-    -> PactQueue
+    -> PactQueues
     -> IO (T3 ParentHeader BlockHeader PayloadWithOutputs)
 noMineBlock validate parent nonce r = do
 
      -- assemble block without nonce and timestamp
 
-     mv <- newBlock noMiner parent r
+     mv <- newBlock noMiner parent (newBlockQueue r)
 
      payload <- assertNotLeft =<< takeMVar mv
 
@@ -288,7 +288,7 @@ noMineBlock validate parent nonce r = do
               parent
 
      when validate $ do
-       mv' <- validateBlock bh (payloadWithOutputsToPayloadData payload) r
+       mv' <- validateBlock bh (payloadWithOutputsToPayloadData payload) (validateBlockQueue r)
 
        void $ assertNotLeft =<< takeMVar mv'
 
@@ -302,7 +302,7 @@ data Resources
     , payloadDb :: !(PayloadDb HashMapCas)
     , blockHeaderDb :: !BlockHeaderDb
     , tempDir :: !FilePath
-    , pactService :: !(Async (), PactQueue)
+    , pactService :: !(Async (), PactQueues)
     , mainTrunkBlocks :: ![T3 ParentHeader BlockHeader PayloadWithOutputs]
     , coinAccounts :: !(MVar (Map Account (NonEmpty SomeKeyPairCaps)))
     , nonceCounter :: !(IORef Word64)
@@ -315,7 +315,7 @@ type RunPactService =
   -> PayloadDb HashMapCas
   -> BlockHeaderDb
   -> IORef Word64
-  -> PactQueue
+  -> PactQueues
   -> IORef Int
   -> C.Benchmark
 
@@ -352,9 +352,17 @@ withResources trunkLength logLevel f = C.envWithCleanup create destroy unwrap
     logger = genericLogger logLevel T.putStrLn
 
     startPact version l bhdb pdb mempool sqlEnv = do
-        reqQ <- atomically $ newTBQueue pactQueueSize
-        a <- async $ initPactService version cid l reqQ mempool bhdb pdb sqlEnv defaultPactServiceConfig
-        return (a, reqQ)
+        reqsQ <- atomically $ do
+           vbQueue <- newTBQueue pactQueueSize
+           nbQueue <- newTBQueue pactQueueSize
+           omQueue <- newTBQueue pactQueueSize
+           return PactQueues {
+                validateBlockQueue = vbQueue
+              , newBlockQueue = nbQueue
+              , otherMsgsQueue = omQueue
+              }
+        a <- async $ initPactService version cid l reqsQ mempool bhdb pdb sqlEnv defaultPactServiceConfig
+        return (a, reqsQ)
 
     stopPact (a, _) = cancel a
 

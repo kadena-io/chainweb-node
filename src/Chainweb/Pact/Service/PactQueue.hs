@@ -11,6 +11,7 @@ module Chainweb.Pact.Service.PactQueue
     ( addRequest
     , getNextRequest
     , PactQueue
+    , PactQueues(..)
     ) where
 
 import Control.Concurrent.STM.TBQueue
@@ -20,6 +21,16 @@ import Chainweb.Pact.Service.Types
 
 -- | The type of the Pact Queue
 type PactQueue = TBQueue RequestMsg
+
+
+-- ACHTUNG: Make sure that only execValidateBlock msgs are found in the "validateBlockQueue" Queue
+-- ACHTUNG: Make sure that only execNewBlock msgs are found in the "newBlockQueue" Queue
+-- ACHTUNG: Make sure that neither execValidateBlock & execNewBlock msgs are found in the "otherMsgsQueue" Queue
+data PactQueues = PactQueues {
+     validateBlockQueue :: PactQueue
+   , newBlockQueue :: PactQueue
+   , otherMsgsQueue :: PactQueue
+ }
 
 -- | Add a request to the Pact execution queue
 addRequest :: PactQueue -> RequestMsg -> IO ()
