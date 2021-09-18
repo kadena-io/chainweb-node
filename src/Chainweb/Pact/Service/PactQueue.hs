@@ -14,6 +14,7 @@ module Chainweb.Pact.Service.PactQueue
     , PactQueues(..)
     ) where
 
+import Control.Applicative ((<|>))
 import Control.Concurrent.STM.TBQueue
 import Control.Monad.STM
 
@@ -37,5 +38,11 @@ addRequest :: PactQueue -> RequestMsg -> IO ()
 addRequest q msg = atomically $ writeTBQueue q msg
 
 -- | Get the next available request from the Pact execution queue
-getNextRequest :: PactQueue -> IO RequestMsg
-getNextRequest q = atomically $ readTBQueue q
+getNextRequest :: PactQueues -> IO RequestMsg
+getNextRequest qs = atomically $ do
+    vb <- tryReadTBQueue $ validateBlockQueue qs
+    nb <- tryReadTBQueue $ newBlockQueue qs
+    om <- tryReadTBQueue $ otherMsgsQueue qs
+    case vb <|> nb <|> om of
+      Nothing -> retry
+      Just msg -> return msg
