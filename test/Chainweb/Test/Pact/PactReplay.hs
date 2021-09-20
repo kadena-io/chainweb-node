@@ -189,7 +189,7 @@ serviceInitializationAfterFork mpio genesisBlock iop = do
     restartPact :: IO ()
     restartPact = do
         q <- fst <$> iop
-        addRequest (otherMsgsQueue q) CloseMsg
+        addRequest (_otherMsgsQueue q) CloseMsg
 
     pruneDbs = forM_ cids $ \c -> do
         dbs <- snd <$> iop
@@ -312,7 +312,7 @@ mineBlock ph nonce iop = timeout 5000000 go >>= \case
 
       -- assemble block without nonce and timestamp
       let r = fst <$> iop
-      mv <- r >>= newBlock noMiner ph . newBlockQueue
+      mv <- r >>= newBlock noMiner ph . _newBlockQueue
       payload <- assertNotLeft =<< takeMVar mv
 
       let bh = newBlockHeader
@@ -322,7 +322,7 @@ mineBlock ph nonce iop = timeout 5000000 go >>= \case
                creationTime
                ph
 
-      mv' <- r >>= validateBlock bh (payloadWithOutputsToPayloadData payload) . validateBlockQueue
+      mv' <- r >>= validateBlock bh (payloadWithOutputsToPayloadData payload) . _validateBlockQueue
       void $ assertNotLeft =<< takeMVar mv'
 
       bdb <- snd <$> iop

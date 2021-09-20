@@ -95,9 +95,9 @@ withPactService' ver cid logger memPoolAccess bhDb pdb sqlenv config action = do
        nbQueue <- newTBQueue (_pactQueueSize config)
        omQueue <- newTBQueue (_pactQueueSize config)
        return PactQueues {
-            validateBlockQueue = vbQueue
-          , newBlockQueue = nbQueue
-          , otherMsgsQueue = omQueue
+            _validateBlockQueue = vbQueue
+          , _newBlockQueue = nbQueue
+          , _otherMsgsQueue = omQueue
           }
     race (server reqQs) (client reqQs) >>= \case
         Left () -> error "pact service terminated unexpectedly"

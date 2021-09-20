@@ -148,26 +148,26 @@ mkPactExecutionService
     -> PactExecutionService
 mkPactExecutionService qs = PactExecutionService
     { _pactValidateBlock = \h pd -> do
-        mv <- validateBlock h pd (validateBlockQueue qs)
+        mv <- validateBlock h pd (_validateBlockQueue qs)
         r <- takeMVar mv
         case r of
           Right (!pdo) -> return pdo
           Left e -> throwM e
     , _pactNewBlock = \m h -> do
-        mv <- newBlock m h (newBlockQueue qs)
+        mv <- newBlock m h (_newBlockQueue qs)
         r <- takeMVar mv
         either throwM evaluate r
     , _pactLocal = \ct ->
-        local ct (otherMsgsQueue qs) >>= takeMVar
+        local ct (_otherMsgsQueue qs) >>= takeMVar
     , _pactLookup = \h txs ->
-        lookupPactTxs h txs (otherMsgsQueue qs) >>= takeMVar
+        lookupPactTxs h txs (_otherMsgsQueue qs) >>= takeMVar
     , _pactPreInsertCheck = \_ txs ->
-        pactPreInsertCheck txs (otherMsgsQueue qs) >>= takeMVar
+        pactPreInsertCheck txs (_otherMsgsQueue qs) >>= takeMVar
     , _pactBlockTxHistory = \h d ->
-        pactBlockTxHistory h d (otherMsgsQueue qs) >>= takeMVar
+        pactBlockTxHistory h d (_otherMsgsQueue qs) >>= takeMVar
     , _pactHistoricalLookup = \h d k ->
-        pactHistoricalLookup h d k (otherMsgsQueue qs) >>= takeMVar
-    , _pactSyncToBlock = \h -> pactSyncToBlock h (otherMsgsQueue qs) >>= takeMVar >>= \case
+        pactHistoricalLookup h d k (_otherMsgsQueue qs) >>= takeMVar
+    , _pactSyncToBlock = \h -> pactSyncToBlock h (_otherMsgsQueue qs) >>= takeMVar >>= \case
         Right () -> return ()
         Left e -> throwM e
     }

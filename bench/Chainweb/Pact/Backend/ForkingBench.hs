@@ -233,7 +233,7 @@ mineBlock
 mineBlock parent nonce pdb bhdb r = do
 
      -- assemble block without nonce and timestamp
-     mv <- newBlock noMiner parent (newBlockQueue r)
+     mv <- newBlock noMiner parent (_newBlockQueue r)
 
      payload <- assertNotLeft =<< takeMVar mv
 
@@ -252,7 +252,7 @@ mineBlock parent nonce pdb bhdb r = do
 
      T2 (SolvedWork newHeader) _ <- usePowHash testVer $ \(_ :: Proxy a) -> mine @a (_blockNonce bh) work
 
-     mv' <- validateBlock (newHeader { _blockCreationTime = creationTime}) (payloadWithOutputsToPayloadData payload) (validateBlockQueue r)
+     mv' <- validateBlock (newHeader { _blockCreationTime = creationTime}) (payloadWithOutputsToPayloadData payload) (_validateBlockQueue r)
 
      void $ assertNotLeft =<< takeMVar mv'
 
@@ -275,7 +275,7 @@ noMineBlock validate parent nonce r = do
 
      -- assemble block without nonce and timestamp
 
-     mv <- newBlock noMiner parent (newBlockQueue r)
+     mv <- newBlock noMiner parent (_newBlockQueue r)
 
      payload <- assertNotLeft =<< takeMVar mv
 
@@ -288,7 +288,7 @@ noMineBlock validate parent nonce r = do
               parent
 
      when validate $ do
-       mv' <- validateBlock bh (payloadWithOutputsToPayloadData payload) (validateBlockQueue r)
+       mv' <- validateBlock bh (payloadWithOutputsToPayloadData payload) (_validateBlockQueue r)
 
        void $ assertNotLeft =<< takeMVar mv'
 
@@ -357,9 +357,9 @@ withResources trunkLength logLevel f = C.envWithCleanup create destroy unwrap
            nbQueue <- newTBQueue pactQueueSize
            omQueue <- newTBQueue pactQueueSize
            return PactQueues {
-                validateBlockQueue = vbQueue
-              , newBlockQueue = nbQueue
-              , otherMsgsQueue = omQueue
+                _validateBlockQueue = vbQueue
+              , _newBlockQueue = nbQueue
+              , _otherMsgsQueue = omQueue
               }
         a <- async $ initPactService version cid l reqsQ mempool bhdb pdb sqlEnv defaultPactServiceConfig
         return (a, reqsQ)

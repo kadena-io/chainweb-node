@@ -660,9 +660,9 @@ withPactTestBlockDb version cid logLevel rdb mempoolIO pactConfig f =
             nbQueue <- newTBQueue 2000
             omQueue <- newTBQueue 2000
             return PactQueues {
-                  validateBlockQueue = vbQueue
-                , newBlockQueue = nbQueue
-                , otherMsgsQueue = omQueue
+                  _validateBlockQueue = vbQueue
+                , _newBlockQueue = nbQueue
+                , _otherMsgsQueue = omQueue
                 }
         dir <- iodir
         bdb <- bdbio

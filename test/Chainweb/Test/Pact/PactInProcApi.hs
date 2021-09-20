@@ -143,14 +143,14 @@ runBlock qs bdb timeOffset msg = do
   ph <- getParentTestBlockDb bdb cid
   let blockTime = add timeOffset $ _bct $ _blockCreationTime ph
   nb <- forSuccess (msg <> ": newblock") $
-        newBlock noMiner (ParentHeader ph) (newBlockQueue qs)
+        newBlock noMiner (ParentHeader ph) (_newBlockQueue qs)
   forM_ (chainIds testVersion) $ \c -> do
     let o | c == cid = nb
           | otherwise = emptyPayload
     addTestBlockDb bdb (Nonce 0) (\_ _ -> blockTime) c o
   nextH <- getParentTestBlockDb bdb cid
   forSuccess "newBlockAndValidate: validate" $
-       validateBlock nextH (payloadWithOutputsToPayloadData nb) (validateBlockQueue qs)
+       validateBlock nextH (payloadWithOutputsToPayloadData nb) (_validateBlockQueue qs)
 
 
 newBlockAndValidate :: IO (IORef MemPoolAccess) -> IO (PactQueues,TestBlockDb) -> TestTree
@@ -166,7 +166,7 @@ getHistory refIO reqsIO = testCase "getHistory" $ do
   setMempool refIO goldenMemPool
   void $ runBlock qs bdb second "getHistory"
   h <- getParentTestBlockDb bdb cid
-  mv <- pactBlockTxHistory h (Domain' (UserTables "coin_coin-table")) (otherMsgsQueue qs)
+  mv <- pactBlockTxHistory h (Domain' (UserTables "coin_coin-table")) (_otherMsgsQueue qs)
 
   (BlockTxHistory hist prevBals) <- forSuccess "getHistory" (return mv)
   -- just check first one here
@@ -213,7 +213,7 @@ getHistoricalLookupNoTxs key assertF refIO reqsIO = testCase msg $ do
   setMempool refIO mempty
   void $ runBlock qs bdb second msg
   h <- getParentTestBlockDb bdb cid
-  histLookup (otherMsgsQueue qs) h key >>= assertF
+  histLookup (_otherMsgsQueue qs) h key >>= assertF
   where msg = T.unpack $ "getHistoricalLookupNoTxs: " <> key
 
 getHistoricalLookupWithTxs
@@ -227,7 +227,7 @@ getHistoricalLookupWithTxs key assertF refIO reqsIO = testCase msg $ do
   setMempool refIO goldenMemPool
   void $ runBlock qs bdb second msg
   h <- getParentTestBlockDb bdb cid
-  histLookup (otherMsgsQueue qs) h key >>= assertF
+  histLookup (_otherMsgsQueue qs) h key >>= assertF
   where msg = T.unpack $ "getHistoricalLookupWithTxs: " <> key
 
 
@@ -517,7 +517,7 @@ mempoolCreationTimeTest mpRefIO reqsIO = testCase "mempoolCreationTimeTest" $ do
   -- do pre-insert check with transaction at start + 15s
   tx <- makeTx "tx-now" (add s15 start)
   void $ forSuccess "mempoolCreationTimeTest: pre-insert tx" $
-    pactPreInsertCheck (V.singleton tx) (otherMsgsQueue qs)
+    pactPreInsertCheck (V.singleton tx) (_otherMsgsQueue qs)
 
   setMempool mpRefIO $ mp tx
   -- b2 will be made at start + 30s
@@ -555,7 +555,7 @@ badlistNewBlockTest mpRefIO reqsIO = testCase "badlist-new-block-test" $ do
     $ mkCmd "badListMPA"
     $ mkExec' "(+ 1 2)"
   setMempool mpRefIO (badlistMPA badTx badHashRef)
-  newBlock noMiner (ParentHeader genesisHeader) (newBlockQueue reqQs)
+  newBlock noMiner (ParentHeader genesisHeader) (_newBlockQueue reqQs)
     >>= readMVar
     >>= expectFailureContaining "badlistNewBlockTest:newBlock" "Insufficient funds"
   badHash <- readIORef badHashRef
@@ -572,7 +572,7 @@ goldenNewBlock name mp mpRefIO reqsIO = golden name $ do
     (reqQs,_) <- reqsIO
     setMempool mpRefIO mp
     resp <- forSuccess ("goldenNewBlock:" ++ name) $
-      newBlock noMiner (ParentHeader genesisHeader) (newBlockQueue reqQs)
+      newBlock noMiner (ParentHeader genesisHeader) (_newBlockQueue reqQs)
     -- ensure all golden txs succeed
     forM_ (_payloadWithOutputsTransactions resp) $ \(txIn,TransactionOutput out) -> do
       cr :: CommandResult Hash <- decodeStrictOrThrow out
