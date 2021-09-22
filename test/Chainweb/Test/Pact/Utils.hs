@@ -102,6 +102,7 @@ module Chainweb.Test.Pact.Utils
 ) where
 
 import Control.Arrow ((&&&))
+import Control.Applicative ((<|>))
 import Control.Concurrent.Async
 import Control.Concurrent.MVar
 import Control.Concurrent.STM
@@ -647,22 +648,31 @@ withPactTestBlockDb
     -> RocksDb
     -> (IO MemPoolAccess)
     -> PactServiceConfig
-    -> (IO (PactQueues,TestBlockDb) -> TestTree)
+    -> (IO (PactQueueAccess,TestBlockDb) -> TestTree)
     -> TestTree
 withPactTestBlockDb version cid logLevel rdb mempoolIO pactConfig f =
   withTemporaryDir $ \iodir ->
   withTestBlockDbTest version rdb $ \bdbio ->
   withResource (startPact bdbio iodir) stopPact $ f . fmap (view _3)
   where
+    addRequest' q msg = atomically $ writeTBQueue q msg
     startPact bdbio iodir = do
-        reqQs <- atomically $ do
+        pqa <- atomically $ do
             vbQueue <- newTBQueue 2000
             nbQueue <- newTBQueue 2000
             omQueue <- newTBQueue 2000
-            return PactQueues {
-                  _validateBlockQueue = vbQueue
-                , _newBlockQueue = nbQueue
-                , _otherMsgsQueue = omQueue
+            return PactQueueAccess {
+              addRequest = \reqMsg -> case reqMsg of
+                  ValidateBlockMsg {} -> addRequest' vbQueue reqMsg
+                  NewBlockMsg {} -> addRequest' nbQueue reqMsg
+                  _ -> addRequest' omQueue reqMsg
+              , getNextRequest = atomically $ do
+                  vb <- tryReadTBQueue vbQueue
+                  nb <- tryReadTBQueue nbQueue
+                  om <- tryReadTBQueue omQueue
+                  case vb <|> nb <|> om of
+                    Nothing -> retry
+                    Just msg -> return msg
                 }
         dir <- iodir
         bdb <- bdbio
@@ -671,8 +681,8 @@ withPactTestBlockDb version cid logLevel rdb mempoolIO pactConfig f =
         let pdb = _bdbPayloadDb bdb
         sqlEnv <- startSqliteDb cid logger dir False
         a <- async $ runForever (\_ _ -> return ()) "Chainweb.Test.Pact.Utils.withPactTestBlockDb" $
-            initPactService version cid logger reqQs mempool bhdb pdb sqlEnv pactConfig
-        return (a, sqlEnv, (reqQs,bdb))
+            initPactService version cid logger pqa mempool bhdb pdb sqlEnv pactConfig
+        return (a, sqlEnv, (pqa,bdb))
 
     stopPact (a, sqlEnv, _) = cancel a >> stopSqliteDb sqlEnv
 

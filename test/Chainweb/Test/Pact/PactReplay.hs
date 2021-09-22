@@ -91,7 +91,7 @@ tests rdb =
 
 onRestart
     :: IO (IORef MemPoolAccess)
-    -> IO (PactQueues,TestBlockDb)
+    -> IO (PactQueueAccess,TestBlockDb)
     -> (String -> IO ())
     -> Assertion
 onRestart mpio iop step = do
@@ -160,7 +160,7 @@ dupegenMemPoolAccess = mempty
 serviceInitializationAfterFork
     :: IO (IORef MemPoolAccess)
     -> BlockHeader
-    -> IO (PactQueues,TestBlockDb)
+    -> IO (PactQueueAccess,TestBlockDb)
     -> Assertion
 serviceInitializationAfterFork mpio genesisBlock iop = do
     setMempool mpio testMemPoolAccess
@@ -188,8 +188,8 @@ serviceInitializationAfterFork mpio genesisBlock iop = do
 
     restartPact :: IO ()
     restartPact = do
-        q <- fst <$> iop
-        addRequest (_otherMsgsQueue q) CloseMsg
+        pqa <- fst <$> iop
+        addRequest pqa CloseMsg
 
     pruneDbs = forM_ cids $ \c -> do
         dbs <- snd <$> iop
@@ -202,7 +202,7 @@ serviceInitializationAfterFork mpio genesisBlock iop = do
 firstPlayThrough
     :: IO (IORef MemPoolAccess)
     -> BlockHeader
-    -> IO (PactQueues,TestBlockDb)
+    -> IO (PactQueueAccess,TestBlockDb)
     -> Assertion
 firstPlayThrough mpio genesisBlock iop = do
     setMempool mpio testMemPoolAccess
@@ -228,7 +228,7 @@ firstPlayThrough mpio genesisBlock iop = do
 testDupes
   :: IO (IORef MemPoolAccess)
   -> BlockHeader
-  -> IO (PactQueues,TestBlockDb)
+  -> IO (PactQueueAccess,TestBlockDb)
   -> Assertion
 testDupes mpio genesisBlock iop = do
     setMempool mpio dupegenMemPoolAccess
@@ -259,7 +259,7 @@ testDupes mpio genesisBlock iop = do
 testDeepForkLimit
   :: IO (IORef MemPoolAccess)
   -> Word64
-  -> IO (PactQueues,TestBlockDb)
+  -> IO (PactQueueAccess,TestBlockDb)
   -> (String -> IO ())
   -> Assertion
 testDeepForkLimit mpio deepForkLimit iop step = do
@@ -302,7 +302,7 @@ testDeepForkLimit mpio deepForkLimit iop step = do
 mineBlock
     :: ParentHeader
     -> Nonce
-    -> IO (PactQueues,TestBlockDb)
+    -> IO (PactQueueAccess,TestBlockDb)
     -> IO (T3 ParentHeader BlockHeader PayloadWithOutputs)
 mineBlock ph nonce iop = timeout 5000000 go >>= \case
     Nothing -> error "PactReplay.mineBlock: Test timeout. Most likely a test case caused a pact service failure that wasn't caught, and the test was blocked while waiting for the result"
@@ -312,7 +312,7 @@ mineBlock ph nonce iop = timeout 5000000 go >>= \case
 
       -- assemble block without nonce and timestamp
       let r = fst <$> iop
-      mv <- r >>= newBlock noMiner ph . _newBlockQueue
+      mv <- r >>= newBlock noMiner ph
       payload <- assertNotLeft =<< takeMVar mv
 
       let bh = newBlockHeader
@@ -322,7 +322,7 @@ mineBlock ph nonce iop = timeout 5000000 go >>= \case
                creationTime
                ph
 
-      mv' <- r >>= validateBlock bh (payloadWithOutputsToPayloadData payload) . _validateBlockQueue
+      mv' <- r >>= validateBlock bh (payloadWithOutputsToPayloadData payload)
       void $ assertNotLeft =<< takeMVar mv'
 
       bdb <- snd <$> iop

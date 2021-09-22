@@ -144,30 +144,30 @@ mkWebPactExecutionService hm = WebPactExecutionService $ PactExecutionService
 
 
 mkPactExecutionService
-    :: PactQueues
+    :: PactQueueAccess
     -> PactExecutionService
-mkPactExecutionService qs = PactExecutionService
+mkPactExecutionService pqa = PactExecutionService
     { _pactValidateBlock = \h pd -> do
-        mv <- validateBlock h pd (_validateBlockQueue qs)
+        mv <- validateBlock h pd pqa
         r <- takeMVar mv
         case r of
           Right (!pdo) -> return pdo
           Left e -> throwM e
     , _pactNewBlock = \m h -> do
-        mv <- newBlock m h (_newBlockQueue qs)
+        mv <- newBlock m h pqa
         r <- takeMVar mv
         either throwM evaluate r
     , _pactLocal = \ct ->
-        local ct (_otherMsgsQueue qs) >>= takeMVar
+        local ct pqa >>= takeMVar
     , _pactLookup = \h txs ->
-        lookupPactTxs h txs (_otherMsgsQueue qs) >>= takeMVar
+        lookupPactTxs h txs pqa >>= takeMVar
     , _pactPreInsertCheck = \_ txs ->
-        pactPreInsertCheck txs (_otherMsgsQueue qs) >>= takeMVar
+        pactPreInsertCheck txs pqa >>= takeMVar
     , _pactBlockTxHistory = \h d ->
-        pactBlockTxHistory h d (_otherMsgsQueue qs) >>= takeMVar
+        pactBlockTxHistory h d pqa >>= takeMVar
     , _pactHistoricalLookup = \h d k ->
-        pactHistoricalLookup h d k (_otherMsgsQueue qs) >>= takeMVar
-    , _pactSyncToBlock = \h -> pactSyncToBlock h (_otherMsgsQueue qs) >>= takeMVar >>= \case
+        pactHistoricalLookup h d k pqa >>= takeMVar
+    , _pactSyncToBlock = \h -> pactSyncToBlock h pqa >>= takeMVar >>= \case
         Right () -> return ()
         Left e -> throwM e
     }

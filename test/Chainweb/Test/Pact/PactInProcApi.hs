@@ -67,7 +67,7 @@ import Chainweb.Cut
 import Chainweb.Miner.Pact
 import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.Service.BlockValidation
-import Chainweb.Pact.Service.PactQueue (PactQueue, PactQueues(..))
+import Chainweb.Pact.Service.PactQueue (PactQueueAccess(..))
 import Chainweb.Pact.Service.Types
 import Chainweb.Payload
 import Chainweb.SPV.CreateProof
@@ -138,35 +138,35 @@ forSuccess msg mvio = (`catchAllSynchronous` handler) $ do
   where
     handler e = assertFailure $ msg ++ ": exception thrown: " ++ show e
 
-runBlock :: PactQueues -> TestBlockDb -> TimeSpan Micros -> String -> IO PayloadWithOutputs
-runBlock qs bdb timeOffset msg = do
+runBlock :: PactQueueAccess -> TestBlockDb -> TimeSpan Micros -> String -> IO PayloadWithOutputs
+runBlock pqa bdb timeOffset msg = do
   ph <- getParentTestBlockDb bdb cid
   let blockTime = add timeOffset $ _bct $ _blockCreationTime ph
   nb <- forSuccess (msg <> ": newblock") $
-        newBlock noMiner (ParentHeader ph) (_newBlockQueue qs)
+        newBlock noMiner (ParentHeader ph) pqa
   forM_ (chainIds testVersion) $ \c -> do
     let o | c == cid = nb
           | otherwise = emptyPayload
     addTestBlockDb bdb (Nonce 0) (\_ _ -> blockTime) c o
   nextH <- getParentTestBlockDb bdb cid
   forSuccess "newBlockAndValidate: validate" $
-       validateBlock nextH (payloadWithOutputsToPayloadData nb) (_validateBlockQueue qs)
+       validateBlock nextH (payloadWithOutputsToPayloadData nb) pqa
 
 
-newBlockAndValidate :: IO (IORef MemPoolAccess) -> IO (PactQueues,TestBlockDb) -> TestTree
+newBlockAndValidate :: IO (IORef MemPoolAccess) -> IO (PactQueueAccess,TestBlockDb) -> TestTree
 newBlockAndValidate refIO reqsIO = testCase "newBlockAndValidate" $ do
-  (qs,bdb) <- reqsIO
+  (pqa,bdb) <- reqsIO
   setMempool refIO goldenMemPool
-  void $ runBlock qs bdb second "newBlockAndValidate"
+  void $ runBlock pqa bdb second "newBlockAndValidate"
 
 
-getHistory :: IO (IORef MemPoolAccess) -> IO (PactQueues,TestBlockDb) -> TestTree
+getHistory :: IO (IORef MemPoolAccess) -> IO (PactQueueAccess,TestBlockDb) -> TestTree
 getHistory refIO reqsIO = testCase "getHistory" $ do
-  (qs,bdb) <- reqsIO
+  (pqa,bdb) <- reqsIO
   setMempool refIO goldenMemPool
-  void $ runBlock qs bdb second "getHistory"
+  void $ runBlock pqa bdb second "getHistory"
   h <- getParentTestBlockDb bdb cid
-  mv <- pactBlockTxHistory h (Domain' (UserTables "coin_coin-table")) (_otherMsgsQueue qs)
+  mv <- pactBlockTxHistory h (Domain' (UserTables "coin_coin-table")) pqa
 
   (BlockTxHistory hist prevBals) <- forSuccess "getHistory" (return mv)
   -- just check first one here
@@ -206,34 +206,34 @@ getHistoricalLookupNoTxs
     :: T.Text
     -> (Maybe (TxLog Value) -> IO ())
     -> IO (IORef MemPoolAccess)
-    -> IO (PactQueues,TestBlockDb)
+    -> IO (PactQueueAccess,TestBlockDb)
     -> TestTree
 getHistoricalLookupNoTxs key assertF refIO reqsIO = testCase msg $ do
-  (qs,bdb) <- reqsIO
+  (pqa,bdb) <- reqsIO
   setMempool refIO mempty
-  void $ runBlock qs bdb second msg
+  void $ runBlock pqa bdb second msg
   h <- getParentTestBlockDb bdb cid
-  histLookup (_otherMsgsQueue qs) h key >>= assertF
+  histLookup pqa h key >>= assertF
   where msg = T.unpack $ "getHistoricalLookupNoTxs: " <> key
 
 getHistoricalLookupWithTxs
     :: T.Text
     -> (Maybe (TxLog Value) -> IO ())
     -> IO (IORef MemPoolAccess)
-    -> IO (PactQueues,TestBlockDb)
+    -> IO (PactQueueAccess,TestBlockDb)
     -> TestTree
 getHistoricalLookupWithTxs key assertF refIO reqsIO = testCase msg $ do
-  (qs,bdb) <- reqsIO
+  (pqa,bdb) <- reqsIO
   setMempool refIO goldenMemPool
-  void $ runBlock qs bdb second msg
+  void $ runBlock pqa bdb second msg
   h <- getParentTestBlockDb bdb cid
-  histLookup (_otherMsgsQueue qs) h key >>= assertF
+  histLookup pqa h key >>= assertF
   where msg = T.unpack $ "getHistoricalLookupWithTxs: " <> key
 
 
-histLookup :: PactQueue -> BlockHeader -> T.Text -> IO (Maybe (TxLog Value))
-histLookup q bh k = do
-  mv <- pactHistoricalLookup bh (Domain' (UserTables "coin_coin-table")) (RowKey k) q
+histLookup :: PactQueueAccess -> BlockHeader -> T.Text -> IO (Maybe (TxLog Value))
+histLookup pqa bh k = do
+  mv <- pactHistoricalLookup bh (Domain' (UserTables "coin_coin-table")) (RowKey k) pqa
   forSuccess "histLookup" (return mv)
 
 assertSender00Bal :: Rational -> String -> Maybe (TxLog Value) -> Assertion
@@ -250,23 +250,23 @@ assertSender00Bal bal msg hist =
         ])))
     hist
 
-newBlockRewindValidate :: IO (IORef MemPoolAccess) -> IO (PactQueues,TestBlockDb) -> TestTree
+newBlockRewindValidate :: IO (IORef MemPoolAccess) -> IO (PactQueueAccess,TestBlockDb) -> TestTree
 newBlockRewindValidate mpRefIO reqsIO = testCase "newBlockRewindValidate" $ do
-  (qs,bdb) <- reqsIO
+  (pqa,bdb) <- reqsIO
   setMempool mpRefIO chainDataMemPool
   cut0 <- readMVar $ _bdbCut bdb -- genesis cut
 
   -- cut 1a
-  void $ runBlock qs bdb second "newBlockRewindValidate-1a"
+  void $ runBlock pqa bdb second "newBlockRewindValidate-1a"
   cut1a <- readMVar $ _bdbCut bdb
 
   -- rewind, cut 1b
   void $ swapMVar (_bdbCut bdb) cut0
-  void $ runBlock qs bdb second "newBlockRewindValidate-1b"
+  void $ runBlock pqa bdb second "newBlockRewindValidate-1b"
 
   -- rewind to cut 1a to trigger replay with chain data bug
   void $ swapMVar (_bdbCut bdb) cut1a
-  void $ runBlock qs bdb (secondsToTimeSpan 2) "newBlockRewindValidate-2"
+  void $ runBlock pqa bdb (secondsToTimeSpan 2) "newBlockRewindValidate-2"
 
   where
 
@@ -462,24 +462,24 @@ pact4coin3UpgradeTest bdb mpRefIO pact = do
 
     pHash = PactResult . Right . PLiteral . LString
 
-moduleNameFork :: IO (IORef MemPoolAccess) -> IO (PactQueues,TestBlockDb) -> TestTree
+moduleNameFork :: IO (IORef MemPoolAccess) -> IO (PactQueueAccess,TestBlockDb) -> TestTree
 moduleNameFork mpRefIO reqsIO = testCase "moduleNameFork" $ do
 
-  (qs,bdb) <- reqsIO
+  (pqa,bdb) <- reqsIO
 
   -- install in free in block 1
   setMempool mpRefIO (moduleNameMempool "free" "test")
-  void $ runBlock qs bdb second "moduleNameFork-1"
+  void $ runBlock pqa bdb second "moduleNameFork-1"
 
   -- install in user in block 2
   setMempool mpRefIO (moduleNameMempool "user" "test")
-  void $ runBlock qs bdb second "moduleNameFork-1"
+  void $ runBlock pqa bdb second "moduleNameFork-1"
 
   -- do something else post-fork
   setMempool mpRefIO (moduleNameMempool "free" "test2")
-  void $ runBlock qs bdb second "moduleNameFork-1"
+  void $ runBlock pqa bdb second "moduleNameFork-1"
   setMempool mpRefIO (moduleNameMempool "user" "test2")
-  void $ runBlock qs bdb second "moduleNameFork-1"
+  void $ runBlock pqa bdb second "moduleNameFork-1"
 
   -- TODO this test doesn't actually validate, I turn on Debug and make sure it
   -- goes well.
@@ -502,26 +502,26 @@ moduleNameMempool ns mn = mempty
           mkExec' code
 
 
-mempoolCreationTimeTest :: IO (IORef MemPoolAccess) -> IO (PactQueues,TestBlockDb) -> TestTree
+mempoolCreationTimeTest :: IO (IORef MemPoolAccess) -> IO (PactQueueAccess,TestBlockDb) -> TestTree
 mempoolCreationTimeTest mpRefIO reqsIO = testCase "mempoolCreationTimeTest" $ do
 
-  (qs,bdb) <- reqsIO
+  (pqa,bdb) <- reqsIO
 
   let start@(Time startSpan) :: Time Micros = Time (TimeSpan (Micros 100_000_000))
       s30 = scaleTimeSpan (30 :: Int) second
       s15 = scaleTimeSpan (15 :: Int) second
   -- b1 block time is start
-  void $ runBlock qs bdb startSpan "mempoolCreationTimeTest-1"
+  void $ runBlock pqa bdb startSpan "mempoolCreationTimeTest-1"
 
 
   -- do pre-insert check with transaction at start + 15s
   tx <- makeTx "tx-now" (add s15 start)
   void $ forSuccess "mempoolCreationTimeTest: pre-insert tx" $
-    pactPreInsertCheck (V.singleton tx) (_otherMsgsQueue qs)
+    pactPreInsertCheck (V.singleton tx) pqa
 
   setMempool mpRefIO $ mp tx
   -- b2 will be made at start + 30s
-  void $ runBlock qs bdb s30 "mempoolCreationTimeTest-2"
+  void $ runBlock pqa bdb s30 "mempoolCreationTimeTest-2"
 
   where
 
@@ -543,9 +543,9 @@ mempoolCreationTimeTest mpRefIO reqsIO = testCase "mempoolCreationTimeTest" $ do
       return txs
 
 
-badlistNewBlockTest :: IO (IORef MemPoolAccess) -> IO (PactQueues,TestBlockDb) -> TestTree
+badlistNewBlockTest :: IO (IORef MemPoolAccess) -> IO (PactQueueAccess,TestBlockDb) -> TestTree
 badlistNewBlockTest mpRefIO reqsIO = testCase "badlist-new-block-test" $ do
-  (reqQs,_) <- reqsIO
+  (pqa,_) <- reqsIO
   badHashRef <- newIORef $ fromUntypedHash pactInitialHash
   badTx <- buildCwCmd
     $ set cbSigners [mkSigner' sender00 []]
@@ -555,7 +555,7 @@ badlistNewBlockTest mpRefIO reqsIO = testCase "badlist-new-block-test" $ do
     $ mkCmd "badListMPA"
     $ mkExec' "(+ 1 2)"
   setMempool mpRefIO (badlistMPA badTx badHashRef)
-  newBlock noMiner (ParentHeader genesisHeader) (_newBlockQueue reqQs)
+  newBlock noMiner (ParentHeader genesisHeader) pqa
     >>= readMVar
     >>= expectFailureContaining "badlistNewBlockTest:newBlock" "Insufficient funds"
   badHash <- readIORef badHashRef
@@ -567,12 +567,12 @@ badlistNewBlockTest mpRefIO reqsIO = testCase "badlist-new-block-test" $ do
       }
 
 
-goldenNewBlock :: String -> MemPoolAccess -> IO (IORef MemPoolAccess) -> IO (PactQueues,TestBlockDb) -> TestTree
+goldenNewBlock :: String -> MemPoolAccess -> IO (IORef MemPoolAccess) -> IO (PactQueueAccess,TestBlockDb) -> TestTree
 goldenNewBlock name mp mpRefIO reqsIO = golden name $ do
-    (reqQs,_) <- reqsIO
+    (pqa,_) <- reqsIO
     setMempool mpRefIO mp
     resp <- forSuccess ("goldenNewBlock:" ++ name) $
-      newBlock noMiner (ParentHeader genesisHeader) (_newBlockQueue reqQs)
+      newBlock noMiner (ParentHeader genesisHeader) pqa
     -- ensure all golden txs succeed
     forM_ (_payloadWithOutputsTransactions resp) $ \(txIn,TransactionOutput out) -> do
       cr :: CommandResult Hash <- decodeStrictOrThrow out

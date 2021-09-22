@@ -221,7 +221,7 @@ doNewBlock ctxIO mempool parent nonce t = do
      ctx <- ctxIO
      unlessM (tryPutMVar (_ctxMempool ctx) mempool) $
         error "Test failure: mempool access is not empty. Some previous test step failed unexpectedly"
-     mv <- newBlock noMiner parent $ _newBlockQueue $ _ctxQueues ctx
+     mv <- newBlock noMiner parent $ _ctxQueueAccess ctx
      payload <- assertNotLeft =<< takeMVar mv
 
      let bh = newBlockHeader
@@ -247,7 +247,7 @@ doValidateBlock
     -> IO ()
 doValidateBlock ctxIO header payload = do
     ctx <- ctxIO
-    _mv' <- validateBlock header (payloadWithOutputsToPayloadData payload) $ _validateBlockQueue $ _ctxQueues ctx
+    _mv' <- validateBlock header (payloadWithOutputsToPayloadData payload) $ _ctxQueueAccess ctx
     addNewPayload (_ctxPdb ctx) payload
     unsafeInsertBlockHeaderDb (_ctxBdb ctx) header
     -- FIXME FIXME FIXME: do at least some checks?
@@ -271,7 +271,7 @@ assertDoPreBlockFailure action = try @_ @PactException action >>= \case
 
 data Ctx = Ctx
     { _ctxMempool :: !(MVar MemPoolAccess)
-    , _ctxQueues :: !PactQueues
+    , _ctxQueueAccess :: !PactQueueAccess
     , _ctxPdb :: !(PayloadDb RocksDbCas)
     , _ctxBdb :: !BlockHeaderDb
     }

@@ -22,6 +22,7 @@ module Chainweb.Pact.Service.PactInProcApi
     , withPactService'
     ) where
 
+import Control.Applicative ((<|>))
 import Control.Concurrent.Async
 import Control.Concurrent.STM.TBQueue
 import Control.Monad.STM
@@ -66,7 +67,7 @@ withPactService
     -> PayloadDb cas
     -> FilePath
     -> PactServiceConfig
-    -> (PactQueues -> IO a)
+    -> (PactQueueAccess -> IO a)
     -> IO a
 withPactService ver cid logger mpc bhdb pdb pactDbDir config action =
     withSqliteDb cid logger pactDbDir (_pactResetDb config) $ \sqlenv ->
@@ -87,25 +88,34 @@ withPactService'
     -> PayloadDb cas
     -> SQLiteEnv
     -> PactServiceConfig
-    -> (PactQueues -> IO a)
+    -> (PactQueueAccess -> IO a)
     -> IO a
 withPactService' ver cid logger memPoolAccess bhDb pdb sqlenv config action = do
-    reqQs <- atomically $ do
+    pqaAccess <- atomically $ do
        vbQueue <- newTBQueue (_pactQueueSize config) -- TODO: This should be a different size
        nbQueue <- newTBQueue (_pactQueueSize config)
        omQueue <- newTBQueue (_pactQueueSize config)
-       return PactQueues {
-            _validateBlockQueue = vbQueue
-          , _newBlockQueue = nbQueue
-          , _otherMsgsQueue = omQueue
+       return PactQueueAccess {
+            addRequest = \reqMsg -> case reqMsg of
+                ValidateBlockMsg {} -> addRequest' vbQueue reqMsg
+                NewBlockMsg {} -> addRequest' nbQueue reqMsg
+                _ -> addRequest' omQueue reqMsg
+            , getNextRequest = atomically $ do
+                vb <- tryReadTBQueue vbQueue
+                nb <- tryReadTBQueue nbQueue
+                om <- tryReadTBQueue omQueue
+                case vb <|> nb <|> om of
+                  Nothing -> retry
+                  Just msg -> return msg
           }
-    race (server reqQs) (client reqQs) >>= \case
+    race (server pqaAccess) (client pqaAccess) >>= \case
         Left () -> error "pact service terminated unexpectedly"
         Right a -> return a
   where
-    client reqQs = action reqQs
-    server reqQs = runForever logg "pact-service"
-        $ PS.initPactService ver cid logger reqQs memPoolAccess bhDb pdb sqlenv config
+    addRequest' q msg = atomically $ writeTBQueue q msg
+    client pqaAccess = action pqaAccess
+    server pqaAccess = runForever logg "pact-service"
+        $ PS.initPactService ver cid logger pqaAccess memPoolAccess bhDb pdb sqlenv config
     logg = logFunction logger
 
 pactMemPoolAccess

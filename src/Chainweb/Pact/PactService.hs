@@ -81,7 +81,7 @@ import Chainweb.Pact.Backend.RelationalCheckpointer (initRelationalCheckpointer)
 import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.PactService.ExecBlock
 import Chainweb.Pact.PactService.Checkpointer
-import Chainweb.Pact.Service.PactQueue (PactQueues(..), getNextRequest)
+import Chainweb.Pact.Service.PactQueue (PactQueueAccess(..))
 import Chainweb.Pact.Service.Types
 import Chainweb.Pact.TransactionExec
 import Chainweb.Pact.Types
@@ -101,17 +101,17 @@ initPactService
     => ChainwebVersion
     -> ChainId
     -> logger
-    -> PactQueues
+    -> PactQueueAccess
     -> MemPoolAccess
     -> BlockHeaderDb
     -> PayloadDb cas
     -> SQLiteEnv
     -> PactServiceConfig
     -> IO ()
-initPactService ver cid chainwebLogger reqQs mempoolAccess bhDb pdb sqlenv config =
+initPactService ver cid chainwebLogger pqa mempoolAccess bhDb pdb sqlenv config =
     void $ initPactService' ver cid chainwebLogger bhDb pdb sqlenv config $ do
         initialPayloadState chainwebLogger mempoolAccess ver cid
-        serviceRequests (logFunction chainwebLogger) mempoolAccess reqQs
+        serviceRequests (logFunction chainwebLogger) mempoolAccess pqa
 
 initPactService'
     :: Logger logger
@@ -259,15 +259,15 @@ serviceRequests
     :: PayloadCasLookup cas
     => LogFunction
     -> MemPoolAccess
-    -> PactQueues
+    -> PactQueueAccess
     -> PactServiceM cas ()
-serviceRequests logFn memPoolAccess reqQs = do
+serviceRequests logFn memPoolAccess pqa = do
     logInfo "Starting service"
     go `finally` logInfo "Stopping service"
   where
     go = do
         logDebug "serviceRequests: wait"
-        msg <- liftIO $ getNextRequest reqQs
+        msg <- liftIO $ getNextRequest pqa
         logDebug $ "serviceRequests: " <> sshow msg
         case msg of
             CloseMsg -> return ()

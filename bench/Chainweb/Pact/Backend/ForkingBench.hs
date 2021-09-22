@@ -15,6 +15,7 @@
 
 module Chainweb.Pact.Backend.ForkingBench ( bench ) where
 
+import Control.Applicative ((<|>))
 import Control.Concurrent.Async
 import Control.Concurrent.MVar
 import Control.Concurrent.STM.TBQueue
@@ -94,6 +95,7 @@ import Chainweb.Pact.Backend.Utils
 import Chainweb.Pact.PactService
 import Chainweb.Pact.Service.BlockValidation
 import Chainweb.Pact.Service.PactQueue
+import Chainweb.Pact.Service.Types
 import Chainweb.Pact.Types
 import Chainweb.Pact.Utils (toTxCreationTime)
 import Chainweb.Payload
@@ -202,7 +204,7 @@ playLine
     -> BlockHeaderDb
     -> Word64
     -> BlockHeader
-    -> PactQueues
+    -> PactQueueAccess
     -> IORef Word64
     -> IO [T3 ParentHeader BlockHeader PayloadWithOutputs]
 playLine  pdb bhdb trunkLength startingBlock rr =
@@ -228,12 +230,12 @@ mineBlock
     -> Nonce
     -> PayloadDb HashMapCas
     -> BlockHeaderDb
-    -> PactQueues
+    -> PactQueueAccess
     -> IO (T3 ParentHeader BlockHeader PayloadWithOutputs)
 mineBlock parent nonce pdb bhdb r = do
 
      -- assemble block without nonce and timestamp
-     mv <- newBlock noMiner parent (_newBlockQueue r)
+     mv <- newBlock noMiner parent r
 
      payload <- assertNotLeft =<< takeMVar mv
 
@@ -252,7 +254,7 @@ mineBlock parent nonce pdb bhdb r = do
 
      T2 (SolvedWork newHeader) _ <- usePowHash testVer $ \(_ :: Proxy a) -> mine @a (_blockNonce bh) work
 
-     mv' <- validateBlock (newHeader { _blockCreationTime = creationTime}) (payloadWithOutputsToPayloadData payload) (_validateBlockQueue r)
+     mv' <- validateBlock (newHeader { _blockCreationTime = creationTime}) (payloadWithOutputsToPayloadData payload) r
 
      void $ assertNotLeft =<< takeMVar mv'
 
@@ -269,13 +271,13 @@ noMineBlock
     :: Bool
     -> ParentHeader
     -> Nonce
-    -> PactQueues
+    -> PactQueueAccess
     -> IO (T3 ParentHeader BlockHeader PayloadWithOutputs)
 noMineBlock validate parent nonce r = do
 
      -- assemble block without nonce and timestamp
 
-     mv <- newBlock noMiner parent (_newBlockQueue r)
+     mv <- newBlock noMiner parent r
 
      payload <- assertNotLeft =<< takeMVar mv
 
@@ -288,7 +290,7 @@ noMineBlock validate parent nonce r = do
               parent
 
      when validate $ do
-       mv' <- validateBlock bh (payloadWithOutputsToPayloadData payload) (_validateBlockQueue r)
+       mv' <- validateBlock bh (payloadWithOutputsToPayloadData payload) r
 
        void $ assertNotLeft =<< takeMVar mv'
 
@@ -302,7 +304,7 @@ data Resources
     , payloadDb :: !(PayloadDb HashMapCas)
     , blockHeaderDb :: !BlockHeaderDb
     , tempDir :: !FilePath
-    , pactService :: !(Async (), PactQueues)
+    , pactService :: !(Async (), PactQueueAccess)
     , mainTrunkBlocks :: ![T3 ParentHeader BlockHeader PayloadWithOutputs]
     , coinAccounts :: !(MVar (Map Account (NonEmpty SomeKeyPairCaps)))
     , nonceCounter :: !(IORef Word64)
@@ -315,7 +317,7 @@ type RunPactService =
   -> PayloadDb HashMapCas
   -> BlockHeaderDb
   -> IORef Word64
-  -> PactQueues
+  -> PactQueueAccess
   -> IORef Int
   -> C.Benchmark
 
@@ -351,18 +353,29 @@ withResources trunkLength logLevel f = C.envWithCleanup create destroy unwrap
 
     logger = genericLogger logLevel T.putStrLn
 
+
+    addRequest' q msg = atomically $ writeTBQueue q msg
+
     startPact version l bhdb pdb mempool sqlEnv = do
-        reqsQ <- atomically $ do
+        pqa <- atomically $ do
            vbQueue <- newTBQueue pactQueueSize
            nbQueue <- newTBQueue pactQueueSize
            omQueue <- newTBQueue pactQueueSize
-           return PactQueues {
-                _validateBlockQueue = vbQueue
-              , _newBlockQueue = nbQueue
-              , _otherMsgsQueue = omQueue
+           return PactQueueAccess {
+             addRequest = \reqMsg -> case reqMsg of
+                 ValidateBlockMsg {} -> addRequest' vbQueue reqMsg
+                 NewBlockMsg {} -> addRequest' vbQueue reqMsg
+                 _ -> addRequest' omQueue reqMsg
+             , getNextRequest = atomically $ do
+                 vb <- tryReadTBQueue vbQueue
+                 nb <- tryReadTBQueue nbQueue
+                 om <- tryReadTBQueue omQueue
+                 case vb <|> nb <|> om of
+                   Nothing -> retry
+                   Just msg -> return msg
               }
-        a <- async $ initPactService version cid l reqsQ mempool bhdb pdb sqlEnv defaultPactServiceConfig
-        return (a, reqsQ)
+        a <- async $ initPactService version cid l pqa mempool bhdb pdb sqlEnv defaultPactServiceConfig
+        return (a, pqa)
 
     stopPact (a, _) = cancel a
 
