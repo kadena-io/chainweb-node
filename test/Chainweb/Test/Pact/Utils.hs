@@ -102,7 +102,6 @@ module Chainweb.Test.Pact.Utils
 ) where
 
 import Control.Arrow ((&&&))
-import Control.Applicative ((<|>))
 import Control.Concurrent.Async
 import Control.Concurrent.MVar
 import Control.Concurrent.STM
@@ -655,25 +654,8 @@ withPactTestBlockDb version cid logLevel rdb mempoolIO pactConfig f =
   withTestBlockDbTest version rdb $ \bdbio ->
   withResource (startPact bdbio iodir) stopPact $ f . fmap (view _3)
   where
-    addRequest' q msg = atomically $ writeTBQueue q msg
     startPact bdbio iodir = do
-        pqa <- atomically $ do
-            vbQueue <- newTBQueue 2000
-            nbQueue <- newTBQueue 2000
-            omQueue <- newTBQueue 2000
-            return PactQueueAccess {
-              addRequest = \reqMsg -> case reqMsg of
-                  ValidateBlockMsg {} -> addRequest' vbQueue reqMsg
-                  NewBlockMsg {} -> addRequest' nbQueue reqMsg
-                  _ -> addRequest' omQueue reqMsg
-              , getNextRequest = atomically $ do
-                  vb <- tryReadTBQueue vbQueue
-                  nb <- tryReadTBQueue nbQueue
-                  om <- tryReadTBQueue omQueue
-                  case vb <|> nb <|> om of
-                    Nothing -> retry
-                    Just msg -> return msg
-                }
+        pqa <- atomically $ newPactQueueAccess 2000
         dir <- iodir
         bdb <- bdbio
         mempool <- mempoolIO
