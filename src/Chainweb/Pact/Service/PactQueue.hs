@@ -9,10 +9,10 @@
 -- Pact execution service queue for Chainweb
 
 module Chainweb.Pact.Service.PactQueue
-    ( addRequest
-    , getNextRequest
-    , newPactQueue
-    , PactQueue
+    (
+      newPactQueue
+    , PactQueue(..)
+    , PactQueueAccess(..)
     ) where
 
 import Control.Applicative
@@ -22,36 +22,37 @@ import Numeric.Natural
 
 import Chainweb.Pact.Service.Types
 
--- | The type of the Pact Queue
--- type PactQueue = TBQueue RequestMsg
+class PactQueueAccess queue where
+  -- | Add a request to the Pact execution queue
+  addRequest :: queue -> RequestMsg -> IO ()
+  -- | Get the next available request from the Pact execution queue
+  getNextRequest :: queue -> IO RequestMsg
+
 data PactQueue = PactQueue
   {
-    _pactQueueValidateBlock :: !(TBQueue RequestMsg)
-  , _pactQueueNewBlock :: !(TBQueue RequestMsg)
-  , _pactQueueOtherMsg :: !(TBQueue RequestMsg)
+    validateBlockQueue :: TBQueue RequestMsg
+  , newBlockQueue :: TBQueue RequestMsg
+  , otherMsgsQueue :: TBQueue RequestMsg
   }
 
 newPactQueue :: Natural -> STM PactQueue
 newPactQueue sz = do
-  _pactQueueValidateBlock <- newTBQueue sz
-  _pactQueueNewBlock <- newTBQueue sz
-  _pactQueueOtherMsg <- newTBQueue sz
-  return PactQueue {..}
+    validateBlockQueue <- newTBQueue sz
+    newBlockQueue <- newTBQueue sz
+    otherMsgsQueue <- newTBQueue sz
+    return PactQueue {..}
 
--- | Add a request to the Pact execution queue
-addRequest :: PactQueue -> RequestMsg -> IO ()
-addRequest q msg = atomically $
-  case msg of
-    ValidateBlockMsg {} -> writeTBQueue (_pactQueueValidateBlock q) msg
-    NewBlockMsg {} -> writeTBQueue (_pactQueueNewBlock q) msg
-    _ -> writeTBQueue (_pactQueueOtherMsg q) msg
+instance PactQueueAccess PactQueue where
+  addRequest PactQueue{..} msg = atomically $
+    case msg of
+      ValidateBlockMsg {} -> writeTBQueue validateBlockQueue msg
+      NewBlockMsg {} -> writeTBQueue newBlockQueue msg
+      _ -> writeTBQueue otherMsgsQueue msg
 
--- | Get the next available request from the Pact execution queue
-getNextRequest :: PactQueue -> IO RequestMsg
-getNextRequest q = atomically $ do
-  v <- tryReadTBQueue (_pactQueueValidateBlock q)
-  b <- tryReadTBQueue (_pactQueueNewBlock q)
-  o <- tryReadTBQueue (_pactQueueOtherMsg q)
-  case v <|> o <|> b of
-    Nothing -> retry
-    Just msg -> return msg
+  getNextRequest PactQueue{..} = atomically $ do
+    v <- tryReadTBQueue validateBlockQueue
+    b <- tryReadTBQueue newBlockQueue
+    o <- tryReadTBQueue otherMsgsQueue
+    case v <|> o <|> b of
+      Nothing -> retry
+      Just msg -> return msg

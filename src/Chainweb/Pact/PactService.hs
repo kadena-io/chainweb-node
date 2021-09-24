@@ -81,7 +81,7 @@ import Chainweb.Pact.Backend.RelationalCheckpointer (initRelationalCheckpointer)
 import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.PactService.ExecBlock
 import Chainweb.Pact.PactService.Checkpointer
-import Chainweb.Pact.Service.PactQueue (PactQueue, getNextRequest)
+import Chainweb.Pact.Service.PactQueue (PactQueue, PactQueueAccess(..))
 import Chainweb.Pact.Service.Types
 import Chainweb.Pact.TransactionExec
 import Chainweb.Pact.Types
@@ -257,9 +257,10 @@ lookupBlockHeader bhash ctx = do
 -- | Loop forever, serving Pact execution requests and reponses from the queues
 serviceRequests
     :: PayloadCasLookup cas
+    => PactQueueAccess queue
     => LogFunction
     -> MemPoolAccess
-    -> PactQueue
+    -> queue
     -> PactServiceM cas ()
 serviceRequests logFn memPoolAccess reqQ = do
     logInfo "Starting service"
