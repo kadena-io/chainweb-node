@@ -53,6 +53,6 @@ instance PactQueueAccess PactQueue where
     v <- tryReadTBQueue validateBlockQueue
     b <- tryReadTBQueue newBlockQueue
     o <- tryReadTBQueue otherMsgsQueue
-    case v <|> o <|> b of
+    case v <|> b <|> o of
       Nothing -> retry
       Just msg -> return msg
