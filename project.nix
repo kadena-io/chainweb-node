@@ -26,9 +26,14 @@ proj = kpkgs.rp.project ({ pkgs, hackGet, ... }: with pkgs.haskell.lib;
        } {}));
       cuckoo = dontBenchmark (dontCheck (self.callHackageDirect {
         pkg = "cuckoo";
-        ver = "0.2.1";
-        sha256 = "1dsac9qc90aagcgvznzfjd4wl8wgxhq1m8f5h556ys72nkm1ablx";
+        ver = "0.3.0";
+        sha256 = "172km2552ipi9fqjmd16b4jmqw5a1414976p6xf8bxc83shxp97p";
        } {}));
+      hashes = dontCheck (self.callHackageDirect {
+        pkg = "hashes";
+        ver = "0.1.0.1";
+        sha256 = "09n2k0vwwlzjy8ax5dlq3743qkcsd21gwfibqfjmqirv30lgb5b5";
+      } {});
       quickcheck-classes-base = dontCheck (self.callHackageDirect {
         pkg = "quickcheck-classes-base";
         ver = "0.6.0.0";

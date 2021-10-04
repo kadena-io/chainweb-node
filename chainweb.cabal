@@ -346,7 +346,7 @@ library
         , connection >=0.2
         , containers >= 0.5
         , cryptonite >= 0.25
-        , cuckoo >= 0.2
+        , cuckoo >= 0.3
         , data-default >=0.7
         , data-dword >= 0.3
         , deepseq >= 1.4

@@ -107,6 +107,7 @@ import Numeric.Natural
 
 import qualified Streaming.Prelude as S
 
+import System.IO.Unsafe
 import System.LogLevel
 import System.Random
 
@@ -460,8 +461,10 @@ newtype GcHash a = GcHash a
     deriving newtype (Show, ToJSON)
 
 instance BA.ByteArrayAccess a => CuckooFilterHash (GcHash a) where
-    cuckooHash (Salt s) (GcHash a) = fnv1a_bytes s $ BA.takeView a 8
-    cuckooFingerprint (Salt s) (GcHash a) = sip_bytes s $ BA.takeView a 8
+    cuckooHash (Salt s) (GcHash a) = unsafeDupablePerformIO $
+        BA.withByteArray a $ \ptr -> return (saltedFnv1aPtr s ptr 8)
+    cuckooFingerprint (Salt s) (GcHash a) = unsafeDupablePerformIO $
+        BA.withByteArray a $ \ptr -> return (saltedSipHashPtr s ptr 8)
     {-# INLINE cuckooHash #-}
     {-# INLINE cuckooFingerprint #-}
 
