@@ -462,9 +462,9 @@ newtype GcHash a = GcHash a
 
 instance BA.ByteArrayAccess a => CuckooFilterHash (GcHash a) where
     cuckooHash (Salt s) (GcHash a) = unsafeDupablePerformIO $
-        BA.withByteArray a $ \ptr -> return (saltedFnv1aPtr s ptr 8)
+        saltedFnv1aByteString s (B.take 8 $ BA.convert a)
     cuckooFingerprint (Salt s) (GcHash a) = unsafeDupablePerformIO $
-        BA.withByteArray a $ \ptr -> return (saltedSipHashPtr s ptr 8)
+        saltedSipHashByteString s (B.take 8 $ BA.convert a)
     {-# INLINE cuckooHash #-}
     {-# INLINE cuckooFingerprint #-}
 
