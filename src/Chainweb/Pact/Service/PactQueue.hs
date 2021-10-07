@@ -1,3 +1,4 @@
+{-# LANGUAGE LambdaCase      #-}
 {-# LANGUAGE RecordWildCards #-}
 -- |
 -- Module: Chainweb.Pact.Service.PactQueue
@@ -17,6 +18,7 @@ module Chainweb.Pact.Service.PactQueue
 
 import Control.Applicative
 import Control.Concurrent.STM.TBQueue
+import Control.Monad ((>=>))
 import Control.Monad.STM
 import Numeric.Natural
 
@@ -48,10 +50,11 @@ addRequest q msg = atomically $
 
 -- | Get the next available request from the Pact execution queue
 getNextRequest :: PactQueue -> IO RequestMsg
-getNextRequest q = atomically $ do
-  v <- tryReadTBQueue (_pactQueueValidateBlock q)
-  b <- tryReadTBQueue (_pactQueueNewBlock q)
-  o <- tryReadTBQueue (_pactQueueOtherMsg q)
-  case v <|> o <|> b of
-    Nothing -> retry
-    Just msg -> return msg
+getNextRequest q = atomically $
+    tryReadTBQueueOrRetry (_pactQueueValidateBlock q)
+    <|> tryReadTBQueueOrRetry (_pactQueueNewBlock q)
+    <|> tryReadTBQueueOrRetry (_pactQueueOtherMsg q)
+  where
+    tryReadTBQueueOrRetry = tryReadTBQueue >=> \case
+      Nothing -> retry
+      Just msg -> return msg
