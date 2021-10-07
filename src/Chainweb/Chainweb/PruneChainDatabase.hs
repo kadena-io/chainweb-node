@@ -460,6 +460,10 @@ sweepOutputs logg db marked = do
 newtype GcHash a = GcHash a
     deriving newtype (Show, ToJSON)
 
+-- Use of unsafeDupablePerformIO is fine here, since hashes are deterministic.
+-- The only side effect is temporal memory allocation which is safe to use with
+-- unsafeDupablePerformIO.
+--
 instance BA.ByteArrayAccess a => CuckooFilterHash (GcHash a) where
     cuckooHash (Salt s) (GcHash a) = unsafeDupablePerformIO $
         saltedFnv1aByteString s (B.take 8 $ BA.convert a)
