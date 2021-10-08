@@ -26,7 +26,7 @@ extra-deps:
   - token-bucket-0.1.0.1
   - wai-middleware-throttle-0.3.0.1
   - yet-another-logger-0.4.0
-  - cuckoo-0.2.2
+  - cuckoo-0.3.0
   - random-1.2.0
   - nothunks-0.1.2
   - network-3.1.2.2
