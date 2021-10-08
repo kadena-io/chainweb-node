@@ -96,6 +96,7 @@ import Control.Monad.Catch
 
 import Data.Aeson hiding (Error)
 import qualified Data.ByteArray as BA
+import qualified Data.ByteString as B
 import Data.CAS
 import Data.CAS.RocksDB
 import Data.Cuckoo
@@ -436,7 +437,7 @@ sweepOutputs
     -> Filter BlockOutputsHash
     -> IO ()
 sweepOutputs logg db marked = do
-    logg Info $ "Sweeping BlockOutputss"
+    logg Info "Sweeping BlockOutputss"
     c1 <- withTableIter table $ S.sum_ @_ @Int . S.mapM go . iterToKeyStream
     logg Info $ "Swept " <> sshow c1 <> " block output hashes"
   where
@@ -460,8 +461,10 @@ newtype GcHash a = GcHash a
     deriving newtype (Show, ToJSON)
 
 instance BA.ByteArrayAccess a => CuckooFilterHash (GcHash a) where
-    cuckooHash (Salt s) (GcHash a) = fnv1a_bytes s $ BA.takeView a 8
-    cuckooFingerprint (Salt s) (GcHash a) = sip_bytes s $ BA.takeView a 8
+    cuckooHash (Salt s) (GcHash a) =
+        saltedFnv1aByteString s (B.take 8 $ BA.convert a)
+    cuckooFingerprint (Salt s) (GcHash a) =
+        saltedSipHashByteString s (B.take 8 $ BA.convert a)
     {-# INLINE cuckooHash #-}
     {-# INLINE cuckooFingerprint #-}
 
