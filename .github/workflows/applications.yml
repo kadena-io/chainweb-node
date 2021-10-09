@@ -314,7 +314,7 @@ jobs:
         os: ${{ matrix.os }}
         ghc: ${{ matrix.ghc }}
     - name: Run slow tests
-      timeout-minutes: 3
+      timeout-minutes: 5
       run: |
           ulimit -n 10000
           cwtool slow-tests
@@ -384,7 +384,7 @@ jobs:
         os: ${{ matrix.os }}
         ghc: ${{ matrix.ghc }}
     - name: Validate Headers
-      timeout-minutes: 3
+      timeout-minutes: 6
       uses: larskuhtz/chainweb-history-validation/.github/actions/validate-headers@master
       with:
         chainweb_version: development
@@ -419,7 +419,7 @@ jobs:
         os: ${{ matrix.os }}
         ghc: ${{ matrix.ghc }}
     - name: Validate Pact History
-      timeout-minutes: 3
+      timeout-minutes: 6
       uses: larskuhtz/chainweb-history-validation/.github/actions/validate-headers@master
       with:
         chainweb_version: development
