@@ -201,6 +201,10 @@ jobs:
         key: ${{ matrix.os }}-${{ matrix.ghc }}-4-cabal
 
     # Build
+    - name: Delete Freeze file
+      # we generate and archive a new freeze file during the build
+      # (TODO: setup a workflow that uses the existing freeze file)
+      run: rm cabal.project.freeze
     - name: Update package database
       run: cabal update
     - name: Display outdated packages
@@ -228,17 +232,25 @@ jobs:
     # Checks
     - name: Check that working directory tree is clean
       run: |
+        # the freeze file has likely has changed
+        mv cabal.project.freeze cabal.project.freeze.backup
+        git checkout -- cabal.project.freeze || true
         if ! git diff --exit-code; then
           echo "Git working tree is not clean. The build changed some file that is checked into git." 1>&2
           exit 1
         fi
+        mv cabal.project.freeze.backup cabal.project.freeze
     - name: Run ea and verify consistency of genesis headers
       run: |
         cabal run cwtool -- ea
+        # the freeze file has likely has changed
+        mv cabal.project.freeze cabal.project.freeze.backup
+        git checkout -- cabal.project.freeze || true
         if ! git diff --exit-code; then
           echo "Inconsistent genesis headers detected. Did you forget to run ea?" 1>&2
           exit 1
         fi
+        mv cabal.project.freeze.backup cabal.project.freeze
 
     # Archive Artifacts
     - name: Prepare artifacts
@@ -302,7 +314,7 @@ jobs:
         os: ${{ matrix.os }}
         ghc: ${{ matrix.ghc }}
     - name: Run slow tests
-      timeout-minutes: 3
+      timeout-minutes: 5
       run: |
           ulimit -n 10000
           cwtool slow-tests
@@ -372,7 +384,7 @@ jobs:
         os: ${{ matrix.os }}
         ghc: ${{ matrix.ghc }}
     - name: Validate Headers
-      timeout-minutes: 3
+      timeout-minutes: 6
       uses: larskuhtz/chainweb-history-validation/.github/actions/validate-headers@master
       with:
         chainweb_version: development
@@ -407,7 +419,7 @@ jobs:
         os: ${{ matrix.os }}
         ghc: ${{ matrix.ghc }}
     - name: Validate Pact History
-      timeout-minutes: 3
+      timeout-minutes: 6
       uses: larskuhtz/chainweb-history-validation/.github/actions/validate-headers@master
       with:
         chainweb_version: development
