@@ -42,11 +42,12 @@ newPactQueue sz = do
 
 -- | Add a request to the Pact execution queue
 addRequest :: PactQueue -> RequestMsg -> IO ()
-addRequest q msg = atomically $
-  case msg of
-    ValidateBlockMsg {} -> writeTBQueue (_pactQueueValidateBlock q) msg
-    NewBlockMsg {} -> writeTBQueue (_pactQueueNewBlock q) msg
-    _ -> writeTBQueue (_pactQueueOtherMsg q) msg
+addRequest q msg =  atomically $ writeTBQueue priority msg
+  where
+    priority = case msg of
+      ValidateBlockMsg {} -> _pactQueueValidateBlock q
+      NewBlockMsg {} -> _pactQueueNewBlock q
+      _ -> _pactQueueOtherMsg q
 
 -- | Get the next available request from the Pact execution queue
 getNextRequest :: PactQueue -> IO RequestMsg
