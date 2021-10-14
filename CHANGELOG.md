@@ -1,5 +1,15 @@
 # `chainweb-node` Changelog
 
+## 2.10 (2021-10-07)
+
+This version replaces all previous versions. Any prior version will stop working
+on **2021-10-14T00:00:00Z**. Node administrators must upgrade to this version
+before that date.
+
+This version will stop working on **2021-11-18T00:00:00Z**.
+
+There are no changes in this version.
+
 ## 2.9.2 (2021-09-16)
 
 This is a bug fix release. It is recommended that node operators upgrade their
