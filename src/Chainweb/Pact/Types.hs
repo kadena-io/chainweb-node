@@ -359,6 +359,7 @@ defaultPactServiceConfig = PactServiceConfig
       , _pactQueueSize = 1000
       , _pactResetDb = True
       , _pactAllowReadsInLocal = False
+      , _pactMinGasPrice = 0
       }
 
 
