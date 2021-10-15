@@ -210,7 +210,7 @@ instance Show InsertError
     show InsertErrorDuplicate = "Transaction already exists on chain"
     show InsertErrorInvalidTime = "Transaction time is invalid or TTL is expired"
     show (InsertErrorOversized (GasLimit l)) = "Transaction gas limit exceeds block gas limit (" <> show l <> ")"
-    show (InsertErrorUndersized (GasPrice p)) = "Transaction gas price falls below minimum gas price (" <> show p <> ")"
+    show (InsertErrorUndersized (GasPrice p)) = "Transaction gas price is below minimum gas price (" <> show p <> ")"
     show InsertErrorBadlisted =
         "Transaction is badlisted because it previously failed to validate."
     show InsertErrorMetadataMismatch =

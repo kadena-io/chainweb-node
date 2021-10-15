@@ -361,7 +361,7 @@ withChainwebInternal conf logger peer serviceSock rocksDb pactDbDir resetDb inne
     concurrentWith
         -- initialize chains concurrently
         (\cid x -> do
-            let mcfg = validatingMempoolConfig cid v (_configBlockGasLimit conf) (_configBlockMinGasPrice conf)
+            let mcfg = validatingMempoolConfig cid v (_configBlockGasLimit conf) (_configMinGasPrice conf)
             withChainResources
                 v
                 cid
