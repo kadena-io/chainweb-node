@@ -79,6 +79,7 @@ module Chainweb.Mempool.Mempool
   , syncMempools
   , syncMempools'
   , GasLimit(..)
+  , GasPrice(..)
   ) where
 ------------------------------------------------------------------------------
 import Control.DeepSeq (NFData)
@@ -195,6 +196,7 @@ data InsertType = CheckedInsert | UncheckedInsert
 data InsertError = InsertErrorDuplicate
                  | InsertErrorInvalidTime
                  | InsertErrorOversized GasLimit
+                 | InsertErrorUndersized GasPrice
                  | InsertErrorBadlisted
                  | InsertErrorMetadataMismatch
                  | InsertErrorTransactionsDisabled
@@ -208,6 +210,7 @@ instance Show InsertError
     show InsertErrorDuplicate = "Transaction already exists on chain"
     show InsertErrorInvalidTime = "Transaction time is invalid or TTL is expired"
     show (InsertErrorOversized (GasLimit l)) = "Transaction gas limit exceeds block gas limit (" <> show l <> ")"
+    show (InsertErrorUndersized (GasPrice p)) = "Transaction gas price falls below minimum gas price (" <> show p <> ")"
     show InsertErrorBadlisted =
         "Transaction is badlisted because it previously failed to validate."
     show InsertErrorMetadataMismatch =

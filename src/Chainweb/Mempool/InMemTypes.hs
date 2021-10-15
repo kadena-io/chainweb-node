@@ -64,6 +64,7 @@ type PendingMap = HashMap TransactionHash PendingEntry
 data InMemConfig t = InMemConfig {
     _inmemTxCfg :: {-# UNPACK #-} !(TransactionConfig t)
   , _inmemTxBlockSizeLimit :: !GasLimit
+  , _inmemTxMinGasPrice :: !GasPrice
   , _inmemMaxRecentItems :: {-# UNPACK #-} !Int
   , _inmemPreInsertPureChecks :: t -> Either InsertError t
   , _inmemPreInsertBatchChecks
