@@ -352,7 +352,7 @@ validateOne cfg badmap curTxIdx now t h =
 
     -- prop_tx_gas_min
     gasPriceMinCheck :: Either InsertError ()
-    gasPriceMinCheck = ebool_ (InsertErrorUndersized minGasPrice) (getPrice t <= minGasPrice)
+    gasPriceMinCheck = ebool_ (InsertErrorUndersized minGasPrice) (getPrice t >= minGasPrice)
       where
         minGasPrice = _inmemTxMinGasPrice cfg
         getPrice = txGasPrice txcfg
