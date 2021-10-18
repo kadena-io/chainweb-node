@@ -469,6 +469,7 @@ testPactCtxSQLite v cid bhdb pdb sqlenv conf = do
         , _psPdb = pdb
         , _psBlockHeaderDb = bhdb
         , _psGasModel = constGasModel 0
+        , _psMinGasPrice = 0
         , _psMinerRewards = rs
         , _psReorgLimit = fromIntegral $ _pactReorgLimit conf
         , _psOnFatalError = defaultOnFatalError mempty
