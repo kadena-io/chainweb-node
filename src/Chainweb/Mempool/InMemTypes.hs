@@ -38,7 +38,7 @@ import GHC.Generics
 
 import Numeric.Natural
 
-import Pact.Types.Gas (GasPrice(..))
+import Pact.Types.Gas ()
 
 -- internal imports
 
