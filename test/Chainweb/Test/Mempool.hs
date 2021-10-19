@@ -49,7 +49,6 @@ import Test.Tasty.QuickCheck hiding ((.&.))
 -- internal modules
 
 import Pact.Parse (ParsedDecimal(..))
-import Pact.Types.Gas (GasPrice(..))
 
 import Chainweb.BlockHash
 import Chainweb.Mempool.Mempool

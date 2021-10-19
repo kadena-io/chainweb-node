@@ -52,7 +52,6 @@ import qualified Data.Vector as V
 import qualified Data.Vector.Algorithms.Tim as TimSort
 
 import Pact.Parse
-import Pact.Types.Gas ()
 
 import Prelude hiding (init, lookup, pred)
 

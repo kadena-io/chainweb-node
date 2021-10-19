@@ -38,8 +38,6 @@ import GHC.Generics
 
 import Numeric.Natural
 
-import Pact.Types.Gas ()
-
 -- internal imports
 
 import Chainweb.Mempool.CurrentTxs
