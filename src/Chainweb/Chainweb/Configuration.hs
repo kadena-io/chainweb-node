@@ -386,6 +386,7 @@ instance ToJSON ChainwebConfiguration where
         , "throttling" .= _configThrottling o
         , "mempoolP2p" .= _configMempoolP2p o
         , "gasLimitOfBlock" .= _configBlockGasLimit o
+        , "minGasPrice" .= _configMinGasPrice o
         , "pactQueueSize" .= _configPactQueueSize o
         , "reorgLimit" .= _configReorgLimit o
         , "validateHashesOnReplay" .= _configValidateHashesOnReplay o
