@@ -480,25 +480,21 @@ execNewBlock mpAccess parent miner = handle onTxFailure $ do
       cp <- getCheckpointer
       psEnv <- ask
       psState <- get
-      let checkMinGas :: ValidateTxs -> PactServiceM cas Bool
-          checkMinGas = fmap V.and . V.mapM checkGasTx
-            where
-              checkGasTx :: Either InsertError ChainwebTransaction -> PactServiceM cas Bool
-              checkGasTx (Left {}) = return True
-              checkGasTx (Right tx) = do
+      let checkMinGas :: Vector ChainwebTransaction -> PactServiceM cas (Vector ChainwebTransaction)
+          checkMinGas = V.filterM $ \tx -> do
                 minGasPrice <- asks _psMinGasPrice
                 let cmd = payloadObj <$> tx
                     gasPrice = gasPriceOf cmd
-                return $ gasPrice >= minGasPrice
+                    check = gasPrice >= minGasPrice
+                unless check $ liftIO $ mpaBadlistTx mpAccess (P.hash $ P.unHash $ P.unRequestKey $ P.cmdToRequestKey tx)
+                return check
       let runDebitGas :: RunGas
-          runDebitGas txs = evalPactServiceM psState psEnv $ do
-                minGasCheck <- checkMinGas txs
-                if minGasCheck
-                  then runGas
-                  else return mempty
+          runDebitGas txs = evalPactServiceM psState psEnv runGas
             where
               runGas = attemptBuyGas miner pdbenv txs
-          validate bhi _bha txs = do
+          validate bhi _bha txs0 = do
+
+            txs <- evalPactServiceM psState psEnv $ checkMinGas txs0
 
             let parentTime = ParentCreationTime $ _blockCreationTime $ _parentHeader parent
             results <- do
