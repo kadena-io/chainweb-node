@@ -317,7 +317,8 @@ insertCheckInMem cfg lock txs
     hasher = txHasher (_inmemTxCfg cfg)
 
 -- | Validation: Confirm the validity of some single transaction @t@.
---
+-- Note that this function is not called during block validation. This
+-- merely exists to validate a transaction entering the mempool.
 validateOne
     :: forall t a
     .  NFData t
