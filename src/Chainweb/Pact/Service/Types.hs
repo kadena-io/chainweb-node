@@ -45,7 +45,7 @@ import Pact.Types.Persistence
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
 import Chainweb.BlockHeight
-import Chainweb.Mempool.Mempool (GasPrice, InsertError(..))
+import Chainweb.Mempool.Mempool (InsertError(..))
 import Chainweb.Miner.Pact
 import Chainweb.Payload
 import Chainweb.Transaction
@@ -66,8 +66,6 @@ data PactServiceConfig = PactServiceConfig
     -- ^ max size of pact internal queue.
   , _pactResetDb :: !Bool
     -- ^ blow away pact dbs
-  , _pactMinGasPrice :: !GasPrice
-    -- ^ min gas price allowed for each transaction
   } deriving (Eq,Show)
 
 

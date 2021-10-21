@@ -137,7 +137,6 @@ initPactService' ver cid chainwebLogger bhDb pdb sqlenv config act = do
                 , _psPdb = pdb
                 , _psBlockHeaderDb = bhDb
                 , _psGasModel = gasModel
-                , _psMinGasPrice = _pactMinGasPrice config
                 , _psMinerRewards = rs
                 , _psReorgLimit = fromIntegral $ _pactReorgLimit config
                 , _psOnFatalError = defaultOnFatalError (logFunctionText chainwebLogger)
@@ -480,22 +479,11 @@ execNewBlock mpAccess parent miner = handle onTxFailure $ do
       cp <- getCheckpointer
       psEnv <- ask
       psState <- get
-      let checkMinGas :: GasPrice -> Vector ChainwebTransaction -> IO (Vector ChainwebTransaction)
-          checkMinGas minGasPrice txs0 = case V.partition separate txs0 of
-              (goods, bads) -> do
-                mapM_ (mpaBadlistTx mpAccess . P.hash . P.unHash . P.unRequestKey . P.cmdToRequestKey) bads
-                return goods
-            where
-              separate tx =
-                  let gasPrice = gasPriceOf (payloadObj <$> tx)
-                  in gasPrice >= minGasPrice
       let runDebitGas :: RunGas
           runDebitGas txs = evalPactServiceM psState psEnv runGas
             where
               runGas = attemptBuyGas miner pdbenv txs
-          validate bhi _bha txs0 = do
-
-            txs <- checkMinGas (_psMinGasPrice psEnv) txs0
+          validate bhi _bha txs = do
 
             let parentTime = ParentCreationTime $ _blockCreationTime $ _parentHeader parent
             results <- do
