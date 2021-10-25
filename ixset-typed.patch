@@ -1,0 +1,17 @@
+diff --git a/src/Data/IxSet/Typed.hs b/src/Data/IxSet/Typed.hs
+index 75be66d..7dab23d 100644
+--- a/src/Data/IxSet/Typed.hs
++++ b/src/Data/IxSet/Typed.hs
+@@ -610,9 +610,9 @@ inferIxSet ixset typeName calName entryPoints
+                      return $ [i, ixType']  -- ++ d
+            _ -> error "IxSet.inferIxSet calInfo unexpected match"
+ 
+-tyVarBndrToName :: TyVarBndr -> Name
+-tyVarBndrToName (PlainTV nm) = nm
+-tyVarBndrToName (KindedTV nm _) = nm
++tyVarBndrToName :: TyVarBndr flag -> Name
++tyVarBndrToName (PlainTV nm _) = nm
++tyVarBndrToName (KindedTV nm _ _) = nm
+ 
+ -- | Generically traverses the argument to find all occurences of
+ -- values of type @b@ and returns them as a list.

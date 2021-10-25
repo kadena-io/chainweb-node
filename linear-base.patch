@@ -1,0 +1,16 @@
+diff --git a/Setup.hs b/Setup.hs
+index c0bc21b..29f71e4 100644
+--- a/Setup.hs
++++ b/Setup.hs
+@@ -1,6 +1,8 @@
+-module Main where
++-- module Main where
+ 
+-import Distribution.Extra.Doctest (defaultMainWithDoctests)
++-- import Distribution.Extra.Doctest (defaultMainWithDoctests)
++import Distribution.Simple
+ 
+ main :: IO ()
+-main = defaultMainWithDoctests "doctests"
++main = defaultMain
++--main = defaultMainWithDoctests "doctests"

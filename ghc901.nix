@@ -94,8 +94,8 @@ pkgs.haskell.packages.${compiler}.developPackage {
       chainweb-storage = dontCheck (self.callCabal2nix "chainweb-storage" (pkgs.fetchFromGitHub {
         owner = "kadena-io";
         repo = "chainweb-storage";
-        rev = "07e7eb7596c7105aee42dbdb6edd10e3f23c0d7e";
-        sha256 = "0piqlj9i858vmvmiis9i8k6cz7fh78zfaj47fsq5cs9v7zpj234z";
+        rev = "bf37c394de9a0c680a7a09bbfb82eb255519b3fb";
+        sha256 = "179v7x653hia8j18nqqlmwkbbwv708bqi8cwkan9msa90p8f0pqh";
       }) {});
       nothunks = dontCheck (self.callHackageDirect {
         pkg = "nothunks";
@@ -177,13 +177,21 @@ pkgs.haskell.packages.${compiler}.developPackage {
 
       hashable = doJailbreak super.hashable;
 
-      ixset-typed = doJailbreak super.ixset-typed;
+      ixset-typed = doJailbreak (
+        super.ixset-typed.overrideAttrs (oldAttrs: {patches = [./ixset-typed.patch];})
+      );
 
-      # generic-lens-core = self.callHackageDirect {
-      #   pkg = "generic-lens-core";
-      #   ver = "2.2.0.0";
-      #   sha256 = "0y3ncd8zxx9v4nmfpj90xrk9yygcxr95f4p2rdq46dq20rgnxgch";
-      # } {};
+      generic-lens-core = doJailbreak (self.callHackageDirect {
+        pkg = "generic-lens-core";
+        ver = "2.2.0.0";
+        sha256 = "0y3ncd8zxx9v4nmfpj90xrk9yygcxr95f4p2rdq46dq20rgnxgch";
+      } {});
+
+      one-liner = doJailbreak (self.callHackageDirect {
+        pkg = "one-liner";
+        ver = "2.0";
+        sha256 = "0d5dinmfqvicgas9262019xnk2gqa9bi2i3zdgvyf6fx9k6c40dv";
+      } {});
 
       memory = self.callHackageDirect {
         pkg = "memory";
@@ -195,20 +203,38 @@ pkgs.haskell.packages.${compiler}.developPackage {
 
       strict-tuple = doJailbreak super.strict-tuple;
 
-      uuid = self.callHackageDirect {
+      rebase = doJailbreak super.rebase;
+
+      uuid = doJailbreak (self.callHackageDirect {
         pkg = "uuid";
         ver = "1.3.10";
         sha256 = "0aah52jr0khq1xcx1sykwfrinfcxkl3dblvsd7h27c4h4y2gw1xa";
-      } {};
+      } {});
 
-      integer-gmp = doJailbreak super.integer-gmp_1_0_3_0;
+      generic-lens = dontCheck (self.callHackageDirect {
+        pkg = "generic-lens";
+        ver = "2.2.0.0";
+        sha256 = "0l41qvalm8sjmm473anxa9rxq11dbk40nd67i5chvz7sqd0xyl8h";
+      } {});
 
-      generic-lens = doJailbreak super.generic-lens;
+      linear-base = super.linear-base.overrideAttrs (oldAttrs: { patches = [./linear-base.patch]; });
 
-      ghc-prim = self.callHackageDirect {
-        pkg = "ghc-prim";
-        ver = "0.7.0";
-        sha256 = "17249709gmmp2mjscb8hh08kqazm06gsjg8ac3p45c69sv1ghlh4";
+      indexed-traversable-instances = dontCheck super.indexed-traversable-instances;
+
+      merkle-log = doJailbreak super.merkle-log;
+
+      text-short = dontCheck super.text-short;
+
+      lens = dontCheck super.lens;
+
+      mono-traversable = dontCheck super.mono-traversable;
+
+      retry = dontCheck super.retry;
+
+      cryptonite = self.callHackageDirect{
+        pkg = "cryptonite";
+        ver = "0.29";
+        sha256 = "1zkw80a6iw8ih33355cfffbyg2md1cn7pcpwnnvr34p0xsykxdrl";
       } {};
 
 
@@ -225,6 +251,13 @@ pkgs.haskell.packages.${compiler}.developPackage {
     #     rev = "c22d391c046ef075a6c771d05c612505ec2cd0c3";
     #     sha256 = "0phar79fky4yzv4hq28py18i4iw779gp5n327xx76mrj7yj87id3";
     #   };
+    # linear-base = pkgs.fetchFromGitHub
+    #     { owner = "tweag";
+    #       repo = "linear-base";
+    #       rev = "c66d2c4f99433f4d7e1ee07f06956057450ec492";
+    #       sha256 = "0191qjm6jprvsfkd68f0ph94c53gdv777r2z38ihsxp9dqjwccg5";
+    #     };
+
   };
   modifier = drv: pkgs.haskell.lib.overrideCabal drv (attrs: {
     buildTools = (attrs.buildTools or []) ++ [
