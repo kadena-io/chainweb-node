@@ -267,7 +267,7 @@ serviceRequests logFn memPoolAccess reqQ = do
   where
     go = do
         logDebug "serviceRequests: wait"
-        msg <- liftIO $ getNextRequest reqQ
+        msg <- liftIO $ getNextRequest logFn reqQ
         logDebug $ "serviceRequests: " <> sshow msg
         case msg of
             CloseMsg -> return ()

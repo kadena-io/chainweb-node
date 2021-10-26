@@ -1,5 +1,7 @@
-{-# LANGUAGE LambdaCase      #-}
-{-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE LambdaCase        #-}
+{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE RankNTypes        #-}
+{-# LANGUAGE RecordWildCards   #-}
 -- |
 -- Module: Chainweb.Pact.Service.PactQueue
 -- Copyright: Copyright © 2018 Kadena LLC.
@@ -20,17 +22,22 @@ import Control.Applicative
 import Control.Concurrent.STM.TBQueue
 import Control.Monad ((>=>))
 import Control.Monad.STM
+import Data.Tuple.Strict
 import Numeric.Natural
+import System.LogLevel
 
+import Data.LogMessage
 import Chainweb.Pact.Service.Types
+import Chainweb.Time
+import Chainweb.Utils
 
 -- | The type of the Pact Queue
 -- type PactQueue = TBQueue RequestMsg
 data PactQueue = PactQueue
   {
-    _pactQueueValidateBlock :: !(TBQueue RequestMsg)
-  , _pactQueueNewBlock :: !(TBQueue RequestMsg)
-  , _pactQueueOtherMsg :: !(TBQueue RequestMsg)
+    _pactQueueValidateBlock :: !(TBQueue (T2 RequestMsg (Time Micros)))
+  , _pactQueueNewBlock :: !(TBQueue (T2 RequestMsg (Time Micros)))
+  , _pactQueueOtherMsg :: !(TBQueue (T2 RequestMsg (Time Micros)))
   }
 
 newPactQueue :: Natural -> STM PactQueue
@@ -42,7 +49,9 @@ newPactQueue sz = do
 
 -- | Add a request to the Pact execution queue
 addRequest :: PactQueue -> RequestMsg -> IO ()
-addRequest q msg =  atomically $ writeTBQueue priority msg
+addRequest q msg =  do
+  entranceTime <- getCurrentTimeIntegral
+  atomically $ writeTBQueue priority (T2 msg entranceTime)
   where
     priority = case msg of
       ValidateBlockMsg {} -> _pactQueueValidateBlock q
@@ -50,11 +59,19 @@ addRequest q msg =  atomically $ writeTBQueue priority msg
       _ -> _pactQueueOtherMsg q
 
 -- | Get the next available request from the Pact execution queue
-getNextRequest :: PactQueue -> IO RequestMsg
-getNextRequest q = atomically $
+getNextRequest :: LogFunctionText -> PactQueue -> IO RequestMsg
+getNextRequest logger q = do
+  (T2 req entranceTime) <- atomically $
     tryReadTBQueueOrRetry (_pactQueueValidateBlock q)
     <|> tryReadTBQueueOrRetry (_pactQueueNewBlock q)
     <|> tryReadTBQueueOrRetry (_pactQueueOtherMsg q)
+  exitTime <- getCurrentTimeIntegral
+  let requestTime = exitTime `diff` entranceTime
+  case req of
+    ValidateBlockMsg {} -> logger Warn ("PactQueue: ValidateBlockMsg took " <> sshow requestTime <> " microseconds.")
+    NewBlockMsg {} -> logger Warn ("PactQueue: NewBlockMsg took " <> sshow requestTime <> " microseconds.")
+    _ -> logger Warn ("PactQueue: OtherMsg took " <> sshow requestTime <> " microseconds.")
+  return req
   where
     tryReadTBQueueOrRetry = tryReadTBQueue >=> \case
       Nothing -> retry
