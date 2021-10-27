@@ -49,7 +49,6 @@ import qualified Data.Vector as V
 import Data.Word
 import qualified Data.Yaml as Y
 
-import GHC.Conc hiding (withMVar)
 import GHC.Generics hiding (from, to)
 
 import System.Directory
@@ -351,7 +350,7 @@ withResources trunkLength logLevel f = C.envWithCleanup create destroy unwrap
     logger = genericLogger logLevel T.putStrLn
 
     startPact version l bhdb pdb mempool sqlEnv = do
-        reqQ <- atomically $ newPactQueue pactQueueSize
+        reqQ <- newPactQueue pactQueueSize
         a <- async $ initPactService version cid l reqQ mempool bhdb pdb sqlEnv defaultPactServiceConfig
         return (a, reqQ)
 

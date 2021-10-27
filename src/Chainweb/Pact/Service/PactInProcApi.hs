@@ -3,6 +3,7 @@
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -23,7 +24,6 @@ module Chainweb.Pact.Service.PactInProcApi
     ) where
 
 import Control.Concurrent.Async
-import Control.Monad.STM
 
 import qualified Data.ByteString.Short as SB
 import Data.IORef
@@ -89,7 +89,8 @@ withPactService'
     -> (PactQueue -> IO a)
     -> IO a
 withPactService' ver cid logger memPoolAccess bhDb pdb sqlenv config action = do
-    reqQ <- atomically $ newPactQueue (_pactQueueSize config)
+    reqQ <- newPactQueue (_pactQueueSize config)
+    runPactServiceQueueMonitor logger reqQ
     race (server reqQ) (client reqQ) >>= \case
         Left () -> error "pact service terminated unexpectedly"
         Right a -> return a
@@ -98,6 +99,25 @@ withPactService' ver cid logger memPoolAccess bhDb pdb sqlenv config action = do
     server reqQ = runForever logg "pact-service"
         $ PS.initPactService ver cid logger reqQ memPoolAccess bhDb pdb sqlenv config
     logg = logFunction logger
+
+runPactServiceQueueMonitor :: Logger logger => logger ->  PactQueue -> IO ()
+runPactServiceQueueMonitor l pq = do
+  let lf = logFunction l
+  logFunctionText l Info "Initialized PactQueue"
+  runForeverThrottled lf "Chainweb.Pact.Service.PactInProcApi.runPactServiceQueueMonitor" 10 (10 * mega) $ do
+        validateblock_stats <- getValidateBlockMsgPactQueueCounters pq
+        newblock_stats <- getNewBlockMsgPactQueueCounters pq
+        other_stats <- getOtherMsgPactQueueCounters pq
+        logFunctionText l Debug "got validateBlock stats"
+        logFunctionJson l Info validateblock_stats
+        logFunctionText l Debug "logged validateBlock stats"
+        logFunctionText l Debug "got newBlock stats"
+        logFunctionJson l Info newblock_stats
+        logFunctionText l Debug "logged newBlock stats"
+        logFunctionText l Debug "got otherMsg stats"
+        logFunctionJson l Info other_stats
+        logFunctionText l Debug "logged otherMsg stats"
+        approximateThreadDelay 60_000_000 {- 1 minute -}
 
 pactMemPoolAccess
     :: Logger logger
