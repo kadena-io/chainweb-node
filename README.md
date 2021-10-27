@@ -272,7 +272,7 @@ When running the chainweb-node binary, you can indicate your hostname and port n
 $ chainweb-node --config-file <path-to-config-file> --hostname <public-ip> --port <port> --log-level <desired-log-level>
 ```
 
-Once you're node is running, go through the following checks to verify that you have a healthy node:
+Once your node is running, go through the following checks to verify that you have a healthy node:
 * run the command in your terminal:  
 ```
 $ curl -sk "https://<public-ip>:<port>/chainweb/0.0/mainnet01/cut"
