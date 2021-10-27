@@ -3,12 +3,33 @@ packages: chainweb.cabal
 package chainweb
     tests: True
     benchmarks: True
+    extra-include-dirs:
+      /opt/local/include
+      /usr/local/opt/openssl/include
+    extra-lib-dirs:
+      /opt/local/lib
+      /usr/local/opt/openssl/lib/
 
 package aeson
     flags: +cffi
 
 package cryptonite
     flags: +support_pclmuldq
+
+package ethereum
+    extra-include-dirs:
+      /opt/local/include
+      /usr/local/opt/openssl/include
+    extra-lib-dirs:
+      /opt/local/lib
+      /usr/local/opt/openssl/lib/
+package hashes
+    extra-include-dirs:
+      /opt/local/include
+      /usr/local/opt/openssl/include
+    extra-lib-dirs:
+      /opt/local/lib
+      /usr/local/opt/openssl/lib/
 
 debug-info: True
 
