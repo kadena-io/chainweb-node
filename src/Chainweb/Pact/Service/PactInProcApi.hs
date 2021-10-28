@@ -105,9 +105,7 @@ runPactServiceQueueMonitor l pq = do
   let lf = logFunction l
   logFunctionText l Info "Initialized PactQueue"
   runForeverThrottled lf "Chainweb.Pact.Service.PactInProcApi.runPactServiceQueueMonitor" 10 (10 * mega) $ do
-        validateblock_stats <- getValidateBlockMsgPactQueueCounters pq
-        newblock_stats <- getNewBlockMsgPactQueueCounters pq
-        other_stats <- getOtherMsgPactQueueCounters pq
+        (validateblock_stats, newblock_stats, other_stats) <- getPactQueueStats pq
         logFunctionText l Debug "got validateBlock stats"
         logFunctionJson l Info validateblock_stats
         logFunctionText l Debug "logged validateBlock stats"
@@ -117,6 +115,7 @@ runPactServiceQueueMonitor l pq = do
         logFunctionText l Debug "got otherMsg stats"
         logFunctionJson l Info other_stats
         logFunctionText l Debug "logged otherMsg stats"
+        resetPactQueueStats pq
         approximateThreadDelay 60_000_000 {- 1 minute -}
 
 pactMemPoolAccess
