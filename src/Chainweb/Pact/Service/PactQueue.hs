@@ -102,13 +102,11 @@ getNextRequest q = do
     <|> tryReadTBQueueOrRetry (_pactQueueOtherMsg q)
   exitTime <- getCurrentTimeIntegral
   let requestTime = exitTime `diff` entranceTime
-  case req of
-    ValidateBlockMsg {} ->
-      updatePactQueueStats (_pactQueuePactQueueValidateBlockMsgStats q) requestTime
-    NewBlockMsg {} ->
-      updatePactQueueStats (_pactQueuePactQueueNewBlockMsgStats q) requestTime
-    _ ->
-      updatePactQueueStats (_pactQueuePactQueueOtherMsgStats q) requestTime
+      stats = case req of
+        ValidateBlockMsg {} -> _pactQueuePactQueueValidateBlockMsgStats q
+        NewBlockMsg {} -> _pactQueuePactQueueNewBlockMsgStats q
+        _ -> _pactQueuePactQueueOtherMsgStats q
+  updatePactQueueStats stats requestTime
   return req
   where
     tryReadTBQueueOrRetry = tryReadTBQueue >=> \case
