@@ -547,7 +547,8 @@ execLocal cmd = withDiscardedBatch $ do
     spv <- use psSpvSupport
     let execConfig = P.mkExecutionConfig $
             [ P.FlagAllowReadInLocal | _psAllowReadsInLocal ] ++
-            enablePactEvents' pd
+            enablePactEvents' pd ++
+            enforceKeysetFormats' pd
         logger = P.newLogger _psLoggers "execLocal"
     withCurrentCheckpointer "execLocal" $ \(PactDbEnv' pdbenv) -> do
         r <- liftIO $
