@@ -90,8 +90,7 @@ withPactService'
     -> IO a
 withPactService' ver cid logger memPoolAccess bhDb pdb sqlenv config action = do
     reqQ <- newPactQueue (_pactQueueSize config)
-    runPactServiceQueueMonitor logger reqQ
-    race (server reqQ) (client reqQ) >>= \case
+    race (concurrently_ (monitor reqQ) (server reqQ)) (client reqQ) >>= \case
         Left () -> error "pact service terminated unexpectedly"
         Right a -> return a
   where
@@ -99,6 +98,7 @@ withPactService' ver cid logger memPoolAccess bhDb pdb sqlenv config action = do
     server reqQ = runForever logg "pact-service"
         $ PS.initPactService ver cid logger reqQ memPoolAccess bhDb pdb sqlenv config
     logg = logFunction logger
+    monitor = runPactServiceQueueMonitor logger
 
 runPactServiceQueueMonitor :: Logger logger => logger ->  PactQueue -> IO ()
 runPactServiceQueueMonitor l pq = do
