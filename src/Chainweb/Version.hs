@@ -57,6 +57,7 @@ module Chainweb.Version
 , enablePactEvents
 , enableSPVBridge
 , pact4coin3Upgrade
+, enforceKeysetFormats
 , AtOrAfter(..)
 
 -- ** BlockHeader Validation Guards
@@ -886,6 +887,12 @@ pact4coin3Upgrade aoa v h = case aoa of
     go f Development = f 80
     go f (FastTimedCPM g) | g == petersonChainGraph = f 20
     go _f _ = const False
+
+enforceKeysetFormats :: ChainwebVersion -> BlockHeight -> Bool
+enforceKeysetFormats Mainnet01 = (>= 2_162_000) -- 2021-11-18T20:06:55
+enforceKeysetFormats Testnet04 = (>= 1_701_000) -- 2021-11-18T17:54:36
+enforceKeysetFormats Development = (>= 100)
+enforceKeysetFormats _ = const True
 
 -- -------------------------------------------------------------------------- --
 -- Header Validation Guards
