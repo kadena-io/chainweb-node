@@ -1,10 +1,8 @@
 {-# LANGUAGE DeriveGeneric             #-}
 {-# LANGUAGE DeriveAnyClass            #-}
 {-# LANGUAGE DerivingStrategies        #-}
-{-# LANGUAGE ExistentialQuantification #-}
 {-# LANGUAGE LambdaCase                #-}
 {-# LANGUAGE OverloadedStrings         #-}
-{-# LANGUAGE RankNTypes                #-}
 {-# LANGUAGE RecordWildCards           #-}
 {-# LANGUAGE ViewPatterns              #-}
 -- |
@@ -141,8 +139,9 @@ instance ToJSON PactQueueCounters where
       , "avg"   .= avg
       ]
     where
-      avg :: Double
-      avg = fromIntegral _pactQueueCountersSum / fromIntegral _pactQueueCountersCount
+      avg :: Maybe Double
+      avg = if _pactQueueCountersCount == 0 then Nothing
+        else Just $ fromIntegral _pactQueueCountersSum / fromIntegral _pactQueueCountersCount
 
 updatePactQueueStats :: PactQueueStats -> TimeSpan Micros -> IO ()
 updatePactQueueStats stats (timeSpanToMicros -> timespan) = do
@@ -156,7 +155,6 @@ updatePactQueueStats stats (timeSpanToMicros -> timespan) = do
       }
       , ())
 
-
 resetPactQueueStats :: PactQueue -> IO ()
 resetPactQueueStats q = do
   resetPactQueueStats' (_pactQueuePactQueueValidateBlockMsgStats q)
@@ -166,9 +164,21 @@ resetPactQueueStats q = do
 resetPactQueueStats' :: PactQueueStats -> IO ()
 resetPactQueueStats' stats = atomicModifyIORef' (_pactQueueStatsCounters stats) (const (PactQueueCounters 0 0 0 0, ()))
 
+getPactQueueStats :: PactQueue -> IO (Value, Value, Value)
+getPactQueueStats = getPactQueueStats' >=> \case
+    (vstats',nbstats',ostats') -> do
+      let
+        vstats  = withObject' (toJSON vstats') ("msg_type" .= ("validate" :: T.Text))
+        nbstats = withObject' (toJSON nbstats') ("msg_type" .= ("newblock" :: T.Text))
+        ostats  = withObject' (toJSON ostats') ("msg_type" .= ("other" :: T.Text))
+      return (vstats, nbstats, ostats)
+  where
+    withObject' v o' = case v of
+      Object o -> Object $ o' <> o
+      _ -> error "getPactQueueStats: impossible"
 
-getPactQueueStats :: PactQueue -> IO (PactQueueCounters, PactQueueCounters, PactQueueCounters)
-getPactQueueStats q = (,,)
+getPactQueueStats' :: PactQueue -> IO (PactQueueCounters, PactQueueCounters, PactQueueCounters)
+getPactQueueStats' q = (,,)
   <$> getValidateBlockMsgPactQueueCounters q
   <*> getNewBlockMsgPactQueueCounters q
   <*> getOtherMsgPactQueueCounters q

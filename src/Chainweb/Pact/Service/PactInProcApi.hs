@@ -98,7 +98,7 @@ withPactService' ver cid logger memPoolAccess bhDb pdb sqlenv config action = do
     server reqQ = runForever logg "pact-service"
         $ PS.initPactService ver cid logger reqQ memPoolAccess bhDb pdb sqlenv config
     logg = logFunction logger
-    monitor = runPactServiceQueueMonitor logger
+    monitor = runPactServiceQueueMonitor $ addLabel ("sub-component", "PactQueue") logger
 
 runPactServiceQueueMonitor :: Logger logger => logger ->  PactQueue -> IO ()
 runPactServiceQueueMonitor l pq = do
