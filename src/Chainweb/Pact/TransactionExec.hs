@@ -28,6 +28,7 @@ module Chainweb.Pact.TransactionExec
 , runPayload
 , readInitModules
 , enablePactEvents'
+, enforceKeysetFormats'
 , disablePact40Natives
 
   -- * Gas Execution
@@ -163,6 +164,7 @@ applyCmd v logger pdbenv miner gasModel txCtx spv cmdIn mcache0 =
           ++ [ FlagPreserveNsModuleInstallBug | not isModuleNameFix2 ]
           ++ enablePactEvents' txCtx
           ++ enablePact40 txCtx
+          ++ enforceKeysetFormats' txCtx
         )
 
     cenv = TransactionEnv Transactional pdbenv logger (ctxToPublicData txCtx) spv nid gasPrice
@@ -616,6 +618,11 @@ enablePactEvents' :: TxContext -> [ExecutionFlag]
 enablePactEvents' tc
     | enablePactEvents (ctxVersion tc) (ctxCurrentBlockHeight tc) = []
     | otherwise = [FlagDisablePactEvents]
+
+enforceKeysetFormats' :: TxContext -> [ExecutionFlag]
+enforceKeysetFormats' tc
+    | enforceKeysetFormats (ctxVersion tc) (ctxCurrentBlockHeight tc) = [FlagEnforceKeyFormats]
+    | otherwise = []
 
 
 enablePact40 :: TxContext -> [ExecutionFlag]
