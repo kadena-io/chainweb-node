@@ -49,6 +49,15 @@ data PactQueue = PactQueue
   , _pactQueuePactQueueOtherMsgStats :: !PactQueueStats
   }
 
+initPactQueueCounters :: PactQueueCounters
+initPactQueueCounters = PactQueueCounters
+    {
+      _pactQueueCountersCount = 0
+    , _pactQueueCountersSum = 0
+    , _pactQueueCountersMin = maxBound
+    , _pactQueueCountersMax = 0
+    }
+
 newPactQueue :: Natural -> IO PactQueue
 newPactQueue sz = do
   (_pactQueueValidateBlock, _pactQueueNewBlock, _pactQueueOtherMsg) <-
@@ -58,21 +67,21 @@ newPactQueue sz = do
       o <- newTBQueue sz
       return (v,n,o)
   _pactQueuePactQueueValidateBlockMsgStats <- do
-      counters <- newIORef $ PactQueueCounters 0 0 0 0
+      counters <- newIORef initPactQueueCounters
       return PactQueueStats
         {
           _pactQueueStatsQueueName = "ValidateBlockMsg"
         , _pactQueueStatsCounters = counters
         }
   _pactQueuePactQueueNewBlockMsgStats <- do
-      counters <- newIORef $ PactQueueCounters 0 0 0 0
+      counters <- newIORef initPactQueueCounters
       return PactQueueStats
         {
           _pactQueueStatsQueueName = "NewBlockMsg"
         , _pactQueueStatsCounters = counters
         }
   _pactQueuePactQueueOtherMsgStats <- do
-      counters <- newIORef $ PactQueueCounters 0 0 0 0
+      counters <- newIORef initPactQueueCounters
       return PactQueueStats
         {
           _pactQueueStatsQueueName = "OtherMsg"
@@ -162,7 +171,7 @@ resetPactQueueStats q = do
   resetPactQueueStats' (_pactQueuePactQueueOtherMsgStats q)
 
 resetPactQueueStats' :: PactQueueStats -> IO ()
-resetPactQueueStats' stats = atomicModifyIORef' (_pactQueueStatsCounters stats) (const (PactQueueCounters 0 0 0 0, ()))
+resetPactQueueStats' stats = atomicModifyIORef' (_pactQueueStatsCounters stats) (const (initPactQueueCounters, ()))
 
 getPactQueueStats :: PactQueue -> IO (Value, Value, Value)
 getPactQueueStats = getPactQueueStats' >=> \case
