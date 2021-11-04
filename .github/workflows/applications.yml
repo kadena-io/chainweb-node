@@ -145,7 +145,7 @@ jobs:
     - name: Checkout repository
       uses: actions/checkout@v2
     - name: Install GHC and Cabal
-      uses: haskell/actions/setup@v1.2.2
+      uses: larskuhtz/actions/setup@e0f107055073590682bc5264b8da5c2b6af39a65
       with:
          ghc-version: ${{ matrix.ghc }}
          cabal-version: ${{ matrix.cabal }}
@@ -191,7 +191,7 @@ jobs:
             location: https://github.com/larskuhtz/ixset-typed
             tag: 26e2a4397a49e731b5a8dcdfb08a64bae06081da
         EOF
-    - uses: actions/cache@v2
+    - uses: pat-s/always-upload-cache@v2.1.5
       name: Cache dist-newstyle
       with:
         path: |
