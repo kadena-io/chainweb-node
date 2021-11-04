@@ -61,6 +61,7 @@ module Chainweb.Chainweb.Configuration
 , configP2p
 , configTransactionIndex
 , configBlockGasLimit
+, configMinGasPrice
 , configThrottling
 , configReorgLimit
 , configRosetta
@@ -323,6 +324,7 @@ data ChainwebConfiguration = ChainwebConfiguration
     , _configThrottling :: !ThrottlingConfig
     , _configMempoolP2p :: !(EnableConfig MempoolP2pConfig)
     , _configBlockGasLimit :: !Mempool.GasLimit
+    , _configMinGasPrice :: !Mempool.GasPrice
     , _configPactQueueSize :: !Natural
     , _configReorgLimit :: !Natural
     , _configValidateHashesOnReplay :: !Bool
@@ -363,6 +365,7 @@ defaultChainwebConfiguration v = ChainwebConfiguration
     , _configThrottling = defaultThrottlingConfig
     , _configMempoolP2p = defaultEnableConfig defaultMempoolP2pConfig
     , _configBlockGasLimit = 150000
+    , _configMinGasPrice = 1e-10
     , _configPactQueueSize = 2000
     , _configReorgLimit = int defaultReorgLimit
     , _configValidateHashesOnReplay = False
@@ -383,6 +386,7 @@ instance ToJSON ChainwebConfiguration where
         , "throttling" .= _configThrottling o
         , "mempoolP2p" .= _configMempoolP2p o
         , "gasLimitOfBlock" .= _configBlockGasLimit o
+        , "minGasPrice" .= _configMinGasPrice o
         , "pactQueueSize" .= _configPactQueueSize o
         , "reorgLimit" .= _configReorgLimit o
         , "validateHashesOnReplay" .= _configValidateHashesOnReplay o
@@ -409,6 +413,7 @@ instance FromJSON (ChainwebConfiguration -> ChainwebConfiguration) where
         <*< configThrottling %.: "throttling" % o
         <*< configMempoolP2p %.: "mempoolP2p" % o
         <*< configBlockGasLimit ..: "gasLimitOfBlock" % o
+        <*< configMinGasPrice ..: "minGasPrice" % o
         <*< configPactQueueSize ..: "pactQueueSize" % o
         <*< configReorgLimit ..: "reorgLimit" % o
         <*< configValidateHashesOnReplay ..: "validateHashesOnReplay" % o
@@ -442,6 +447,9 @@ pChainwebConfiguration = id
     <*< configBlockGasLimit .:: jsonOption
         % long "block-gas-limit"
         <> help "the sum of all transaction gas fees in a block must not exceed this number"
+    <*< configMinGasPrice .:: jsonOption
+        % long "min-gas-price"
+        <> help "the gas price of an individual transaction in a block must not be beneath this number"
     <*< configPactQueueSize .:: jsonOption
         % long "pact-queue-size"
         <> help "max size of pact internal queue"

@@ -53,8 +53,6 @@ import Chainweb.Time
 
 import Data.LogMessage
 
-import Pact.Types.Gas
-
 ----------------------------------------------------------------------------------------------------
 tests :: BlockHeaderDb -> BlockHeader -> ScheduledTest
 tests db h0 = testGroupSch "mempool-consensus-quickcheck-tests"

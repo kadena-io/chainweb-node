@@ -264,11 +264,13 @@ validatingMempoolConfig
     :: ChainId
     -> ChainwebVersion
     -> Mempool.GasLimit
+    -> Mempool.GasPrice
     -> MVar PactExecutionService
     -> Mempool.InMemConfig ChainwebTransaction
-validatingMempoolConfig cid v gl mv = Mempool.InMemConfig
+validatingMempoolConfig cid v gl gp mv = Mempool.InMemConfig
     { Mempool._inmemTxCfg = txcfg
     , Mempool._inmemTxBlockSizeLimit = gl
+    , Mempool._inmemTxMinGasPrice = gp
     , Mempool._inmemMaxRecentItems = maxRecentLog
     , Mempool._inmemPreInsertPureChecks = preInsertSingle
     , Mempool._inmemPreInsertBatchChecks = preInsertBatch
@@ -359,7 +361,7 @@ withChainwebInternal conf logger peer serviceSock rocksDb pactDbDir resetDb inne
     concurrentWith
         -- initialize chains concurrently
         (\cid x -> do
-            let mcfg = validatingMempoolConfig cid v (_configBlockGasLimit conf)
+            let mcfg = validatingMempoolConfig cid v (_configBlockGasLimit conf) (_configMinGasPrice conf)
             withChainResources
                 v
                 cid
