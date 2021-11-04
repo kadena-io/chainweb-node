@@ -396,32 +396,32 @@ mkTelemetryLogger mgr = configureHandler
     $ withJsonHandleBackend @(JsonLog a) (sshow $ typeRep $ Proxy @a) mgr pkgInfoScopes
 
 -- -------------------------------------------------------------------------- --
--- Kill Switch
+-- Service Date
 
-newtype KillSwitch = KillSwitch T.Text
+newtype ServiceDate = ServiceDate T.Text
 
-instance Show KillSwitch where
-    show (KillSwitch t) = "kill switch triggered: " <> T.unpack t
+instance Show ServiceDate where
+    show (ServiceDate t) = "kill switch triggered: " <> T.unpack t
 
-instance Exception KillSwitch where
+instance Exception ServiceDate where
     fromException = asyncExceptionFromException
     toException = asyncExceptionToException
 
-withKillSwitch
+withServiceDate
     :: (LogLevel -> T.Text -> IO ())
     -> Maybe UTCTime
     -> IO a
     -> IO a
-withKillSwitch _ Nothing inner = inner
-withKillSwitch lf (Just t) inner = race timer inner >>= \case
+withServiceDate _ Nothing inner = inner
+withServiceDate lf (Just t) inner = race timer inner >>= \case
     Left () -> error "Kill switch thread terminated unexpectedly"
     Right a -> return a
   where
-    timer = runForever lf "KillSwitch" $ do
+    timer = runForever lf "ServiceDate" $ do
         now <- getCurrentTime
         when (now >= t) $ do
             lf Error killMessage
-            throw $ KillSwitch killMessage
+            throw $ ServiceDate killMessage
 
         let w = diffUTCTime t now
         let micros = round $ w * 1_000_000
@@ -456,10 +456,10 @@ pkgInfoScopes =
 -- -------------------------------------------------------------------------- --
 -- main
 
--- KILLSWITCH for version 2.10
+-- SERVICE DATE for version 2.11
 --
-killSwitchDate :: Maybe String
-killSwitchDate = Just "2021-11-18T00:00:00Z"
+serviceDate :: Maybe String
+serviceDate = Just "2022-01-13T00:00:00Z"
 
 mainInfo :: ProgramInfo ChainwebNodeConfiguration
 mainInfo = programInfoValidate
@@ -475,8 +475,8 @@ main = do
         let v = _configChainwebVersion $ _nodeConfigChainweb conf
         hSetBuffering stderr LineBuffering
         withNodeLogger (_nodeConfigLog conf) v $ \logger -> do
-            kt <- mapM (parseTimeM False defaultTimeLocale timeFormat) killSwitchDate
-            withKillSwitch (logFunctionText logger) kt $
+            kt <- mapM (parseTimeM False defaultTimeLocale timeFormat) serviceDate
+            withServiceDate (logFunctionText logger) kt $
                 node conf logger
   where
     timeFormat = iso8601DateFormat (Just "%H:%M:%SZ")
