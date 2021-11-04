@@ -4,6 +4,7 @@
 {-# LANGUAGE LambdaCase                #-}
 {-# LANGUAGE OverloadedStrings         #-}
 {-# LANGUAGE RecordWildCards           #-}
+{-# LANGUAGE ScopedTypeVariables       #-}
 {-# LANGUAGE ViewPatterns              #-}
 -- |
 -- Module: Chainweb.Pact.Service.PactQueue
@@ -176,10 +177,11 @@ resetPactQueueStats' stats = atomicModifyIORef' (_pactQueueStatsCounters stats) 
 getPactQueueStats :: PactQueue -> IO (Value, Value, Value)
 getPactQueueStats = getPactQueueStats' >=> \case
     (vstats',nbstats',ostats') -> do
+      Time timestamp  <- getCurrentTimeIntegral @Micros
       let
-        vstats  = withObject' (toJSON vstats') ("msg_type" .= ("validate" :: T.Text))
-        nbstats = withObject' (toJSON nbstats') ("msg_type" .= ("newblock" :: T.Text))
-        ostats  = withObject' (toJSON ostats') ("msg_type" .= ("other" :: T.Text))
+        vstats  = withObject' (toJSON vstats') ("msg_type" .= ("validate" :: T.Text) <> "timestamp" .= timestamp)
+        nbstats = withObject' (toJSON nbstats') ("msg_type" .= ("newblock" :: T.Text) <> "timestamp" .= timestamp)
+        ostats  = withObject' (toJSON ostats') ("msg_type" .= ("other" :: T.Text) <> "timestamp" .= timestamp)
       return (vstats, nbstats, ostats)
   where
     withObject' v o' = case v of
