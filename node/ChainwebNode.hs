@@ -401,7 +401,7 @@ mkTelemetryLogger mgr = configureHandler
 newtype ServiceDate = ServiceDate T.Text
 
 instance Show ServiceDate where
-    show (ServiceDate t) = "kill switch triggered: " <> T.unpack t
+    show (ServiceDate t) = "Service interval end: " <> T.unpack t
 
 instance Exception ServiceDate where
     fromException = asyncExceptionFromException
@@ -414,14 +414,14 @@ withServiceDate
     -> IO a
 withServiceDate _ Nothing inner = inner
 withServiceDate lf (Just t) inner = race timer inner >>= \case
-    Left () -> error "Kill switch thread terminated unexpectedly"
+    Left () -> error "Service date thread terminated unexpectedly"
     Right a -> return a
   where
     timer = runForever lf "ServiceDate" $ do
         now <- getCurrentTime
         when (now >= t) $ do
-            lf Error killMessage
-            throw $ ServiceDate killMessage
+            lf Error shutdownMessage
+            throw $ ServiceDate shutdownMessage
 
         let w = diffUTCTime t now
         let micros = round $ w * 1_000_000
@@ -434,8 +434,8 @@ withServiceDate lf (Just t) inner = race timer inner >>= \case
         , " Please upgrade to a new version before that date."
         ]
 
-    killMessage :: T.Text
-    killMessage = T.concat
+    shutdownMessage :: T.Text
+    shutdownMessage = T.concat
         [ "Shutting down. This version of chainweb was only valid until" <> sshow t <> "."
         , " Please upgrade to a new version."
         ]
