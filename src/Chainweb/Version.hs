@@ -892,7 +892,7 @@ enforceKeysetFormats :: ChainwebVersion -> BlockHeight -> Bool
 enforceKeysetFormats Mainnet01 = (>= 2_162_000) -- 2021-11-18T20:06:55
 enforceKeysetFormats Testnet04 = (>= 1_701_000) -- 2021-11-18T17:54:36
 enforceKeysetFormats Development = (>= 100)
-enforceKeysetFormats _ = const True
+enforceKeysetFormats _ = (>= 10)
 
 -- -------------------------------------------------------------------------- --
 -- Header Validation Guards
