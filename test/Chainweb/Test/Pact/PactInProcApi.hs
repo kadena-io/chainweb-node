@@ -305,6 +305,13 @@ pact4coin3UpgradeTest bdb mpRefIO pact = do
     (Just "Cannot resolve distinct")
     (tx7_2 ^? crResult . to _pactResult . _Left . to peDoc)
 
+  tx7_3 <- txResult 3 pwo7
+  assertEqual
+    "Should allow bad keys"
+    Nothing
+    (tx7_3 ^? crResult . to _pactResult . _Left . to peDoc)
+
+
   cb7 <- cbResult pwo7
   assertEqual "Coinbase events @ block 7" [] (_crEvents cb7)
 
@@ -361,6 +368,12 @@ pact4coin3UpgradeTest bdb mpRefIO pact = do
     (Just $ PList $ V.fromList $ PLiteral . LInteger <$> [1..10])
     (tx22_3 ^? crResult . to _pactResult . _Right)
 
+  tx22_4 <- txResult 4 pwo22
+  assertEqual
+    "Should not allow bad keys"
+    (Just "Invalid keyset")
+    (tx22_4 ^? crResult . to _pactResult . _Left . to peDoc)
+
 
   -- test receive XChain events
   pwo22_0 <- getPWO bdb chain0
@@ -388,7 +401,8 @@ pact4coin3UpgradeTest bdb mpRefIO pact = do
           t0 <- buildHashCmd bh
           t1 <- buildXSend bh
           t2 <- buildNewNativesCmd bh
-          return $! V.fromList [t0,t1,t2]
+          t3 <- badKeyset bh
+          return $! V.fromList [t0,t1,t2,t3]
           else return mempty
       }
 
@@ -401,7 +415,8 @@ pact4coin3UpgradeTest bdb mpRefIO pact = do
                    t1 <- buildReleaseCommand bh
                    t2 <- buildXSend bh
                    t3 <- buildNewNativesCmd bh
-                   return $! V.fromList [t0,t1,t2,t3]
+                   t4 <- badKeyset bh
+                   return $! V.fromList [t0,t1,t2,t3,t4]
                | _blockChainId bh == chain0 = do
                    V.singleton <$> buildXReceive bh proof pid
                | otherwise = return mempty
@@ -414,6 +429,13 @@ pact4coin3UpgradeTest bdb mpRefIO pact = do
         $ set cbCreationTime (toTxCreationTime $ _bct $ _blockCreationTime bh)
         $ mkCmd (sshow bh)
         $ mkExec' "(at 'hash (describe-module 'coin))"
+
+    badKeyset bh = buildCwCmd
+        $ set cbSigners [mkSigner' sender00 []]
+        $ set cbChainId (_blockChainId bh)
+        $ set cbCreationTime (toTxCreationTime $ _bct $ _blockCreationTime bh)
+        $ mkCmd (sshow bh)
+        $ mkExec "(read-keyset 'ks)" $ object ["ks" .= ["badkey"::T.Text]]
 
     buildNewNativesCmd bh = buildCwCmd
         $ set cbSigners [mkSigner' sender00 []]
