@@ -23,7 +23,7 @@ For additional information, press, and development inquires, please refer to the
 
 - [Kadena Docs Site](#docs)
 - [Installing Chainweb](#installing-chainweb)
-- [Bootstrap Nodes](#bootstrap-nodes)  
+- [Bootstrap Nodes](#bootstrap-nodes)
 - [Configuring, running, and monitoring the health of a Chainweb Node](#configuring-running-and-monitoring-the-health-of-a-chainweb-node)
 - [Mining for a Chainweb Network](#mine-for-a-chainweb-network)
 - [Chainweb Design](#chainweb-design)
@@ -81,11 +81,11 @@ Chainweb-node binaries for ubuntu-16.04, ubuntu-18.04, and MacOSX can be found
 Download the archive for your system and extract the binaries and place them
 into a directory from where they can be executed.
 
-At this point, you are ready to [run a Chainweb node](#running-a-chainweb-node)
+At this point, you are ready to [run a Chainweb node](#configuring-running-and-monitoring-the-health-of-a-chainweb-node)
 
 ### Docker
 
-A docker image is available at from
+A docker image is available from
 [here](https://hub.docker.com/r/kadena/chainweb-node) and can be used with
 the following commands:
 
@@ -188,7 +188,7 @@ cabal v2-install
 ## Bootstrap Nodes
 
 Bootstrap nodes are used by chainweb-nodes on startup in order to discover other
-nodes in the network. A least one of the bootstrap nodes must be trusted.
+nodes in the network. At least one of the bootstrap nodes must be trusted.
 
 Chainweb node operators can configure additional bootstrap nodes by using the
 `--known-peer-info` command line option or in a configuration file. It is also
@@ -197,7 +197,7 @@ possible to ignore the builtin bootstrap nodes by using the
 setting.
 
 Bootstrap nodes must have public DNS names and a corresponding TLS certificate
-that is issued by an widely accepted CA (a minimum requirement is acceptance by
+that is issued by a widely accepted CA (a minimum requirement is acceptance by
 the OpenSSL library).
 
 Operators of bootstrap nodes are expected be committed to guarantee long-term
@@ -265,7 +265,7 @@ The following outlines how you can check that your `chainweb-node` is healthy
 
 `chainweb-node` should be running from the public IP address and a port that is open to the other chainweb nodes.
 
-If you're behind a NAT, it is **VERY IMPORTANT** that your network allows external nodes to connect to the node you are running. If you provide us with your ip address and port number in our [Discord mining channel](https://discord.io/kadena), we can verify whether your node is reachable to the rest of the network.
+If you're behind a NAT, it is **VERY IMPORTANT** that your network allows external nodes to connect to the node you are running. If you provide us with your ip address and port number in our [Discord mining channel](https://discord.io/kadena), we can verify whether your node is reachable by the rest of the network.
 
 When running the chainweb-node binary, you can indicate your hostname and port number directly in the config-file, or you can set it via command line flags like such:
 ```
@@ -273,7 +273,7 @@ $ chainweb-node --config-file <path-to-config-file> --hostname <public-ip> --por
 ```
 
 Once your node is running, go through the following checks to verify that you have a healthy node:
-* run the command in your terminal:  
+* run the command in your terminal:
 ```
 $ curl -sk "https://<public-ip>:<port>/chainweb/0.0/mainnet01/cut"
 ```
