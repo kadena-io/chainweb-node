@@ -119,7 +119,10 @@ doReadRow d k = forModuleNameFix $ \mnFix ->
         -- resolution concerns
         Modules -> lookupWithKey (convModuleName mnFix k)
         Namespaces -> lookupWithKey (convNamespaceName k)
-        (UserTables _) -> lookupWithKey (convRowKey k)
+        (UserTables _) -> do
+          r <- lookupWithKey (convRowKey k)
+          when (k == "k") $ liftIO $ print ("doReadRow"::Text,k,r)
+          return r
         Pacts -> lookupWithKey (convPactId k)
   where
     tableName = domainTableName d
@@ -277,6 +280,7 @@ writeUser wt d k row = gets _bsTxId >>= go
     ttn = toTableName tn
 
     go txid = do
+        when (k == "k") $ liftIO $ print ("writeUser"::Text,k,row)
         m <- checkInsertIsOK wt d k
         row' <- case m of
                     Nothing -> ins

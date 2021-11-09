@@ -311,6 +311,21 @@ pact4coin3UpgradeTest bdb mpRefIO pact = do
     Nothing
     (tx7_3 ^? crResult . to _pactResult . _Left . to peDoc)
 
+  tx7_4 <- txResult 4 pwo7
+  assertEqual
+    "Iface installed"
+    Nothing
+    (tx7_4 ^? crResult . to _pactResult . _Left . to peDoc)
+
+
+
+  tx7_5 <- txResult 5 pwo7
+  assertEqual
+    "Modref test"
+    Nothing
+    (tx7_5 ^? crResult . to _pactResult . _Left . to peDoc)
+
+
 
   cb7 <- cbResult pwo7
   assertEqual "Coinbase events @ block 7" [] (_crEvents cb7)
@@ -375,6 +390,7 @@ pact4coin3UpgradeTest bdb mpRefIO pact = do
     (tx22_4 ^? crResult . to _pactResult . _Left . to peDoc)
 
 
+
   -- test receive XChain events
   pwo22_0 <- getPWO bdb chain0
   txRcv <- txResult 0 pwo22_0
@@ -402,7 +418,10 @@ pact4coin3UpgradeTest bdb mpRefIO pact = do
           t1 <- buildXSend bh
           t2 <- buildNewNativesCmd bh
           t3 <- badKeyset bh
-          return $! V.fromList [t0,t1,t2,t3]
+          t4 <- modref1 bh
+          t5 <- modref2 bh
+
+          return $! V.fromList [t0,t1,t2,t3,t4,t5]
           else return mempty
       }
 
@@ -416,6 +435,7 @@ pact4coin3UpgradeTest bdb mpRefIO pact = do
                    t2 <- buildXSend bh
                    t3 <- buildNewNativesCmd bh
                    t4 <- badKeyset bh
+
                    return $! V.fromList [t0,t1,t2,t3,t4]
                | _blockChainId bh == chain0 = do
                    V.singleton <$> buildXReceive bh proof pid
@@ -436,6 +456,38 @@ pact4coin3UpgradeTest bdb mpRefIO pact = do
         $ set cbCreationTime (toTxCreationTime $ _bct $ _blockCreationTime bh)
         $ mkCmd (sshow bh)
         $ mkExec "(read-keyset 'ks)" $ object ["ks" .= ["badkey"::T.Text]]
+
+    modref1 bh = buildCwCmd
+        $ set cbSigners [mkSigner' sender00 []]
+        $ set cbChainId (_blockChainId bh)
+        $ set cbCreationTime (toTxCreationTime $ _bct $ _blockCreationTime bh)
+        $ mkCmd (sshow bh)
+        $ mkExec'
+        " (namespace 'user) \
+        \ (interface iface \
+        \   (defun f:bool ())) \
+        \ (module mr G (defcap G () 1) \
+        \   (defschema s mr:module{iface} c:module{fungible-v2}) \
+        \   (deftable t:{s}) \
+        \   (implements iface) \
+        \   (defun f:bool () \
+        \     (let* ((r (read t 'k)) \
+        \            (m:module{iface} (at 'mr r)) \
+        \            (c:module{fungible-v2} (at 'c r)) \
+        \          ) \
+        \       (c::precision) \
+        \       (m::f))) \
+        \   (defun ins (m:module{iface}) (insert t 'k { 'mr: m, 'c: coin }))) \
+        \ (create-table t) \
+        \ (ins mr)"
+
+    modref2 bh = buildCwCmd
+        $ set cbSigners [mkSigner' sender00 []]
+        $ set cbChainId (_blockChainId bh)
+        $ set cbCreationTime (toTxCreationTime $ _bct $ _blockCreationTime bh)
+        $ mkCmd (sshow bh)
+        $ mkExec' "(user.mr.f)"
+
 
     buildNewNativesCmd bh = buildCwCmd
         $ set cbSigners [mkSigner' sender00 []]
