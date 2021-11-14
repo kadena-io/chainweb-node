@@ -66,9 +66,7 @@ module Chainweb.Chainweb
 , chainwebPayloadDb
 , chainwebPactData
 , chainwebThrottler
-, chainwebMiningThrottler
 , chainwebPutPeerThrottler
-, chainwebLocalThrottler
 , chainwebConfig
 , chainwebServiceSocket
 
@@ -82,9 +80,7 @@ module Chainweb.Chainweb
 
 -- * Throttler
 , mkGenericThrottler
-, mkMiningThrottler
 , mkPutPeerThrottler
-, mkLocalThrottler
 , checkPathPrefix
 , mkThrottler
 
@@ -199,9 +195,7 @@ data Chainweb logger cas = Chainweb
     , _chainwebManager :: !HTTP.Manager
     , _chainwebPactData :: ![(ChainId, PactServerData logger cas)]
     , _chainwebThrottler :: !(Throttle Address)
-    , _chainwebMiningThrottler :: !(Throttle Address)
     , _chainwebPutPeerThrottler :: !(Throttle Address)
-    , _chainwebLocalThrottler :: !(Throttle Address)
     , _chainwebConfig :: !ChainwebConfiguration
     , _chainwebServiceSocket :: !(Port, Socket)
     }
@@ -430,9 +424,7 @@ withChainwebInternal conf logger peer serviceSock rocksDb pactDbDir resetDb inne
 
             -- initialize throttler
             throttler <- mkGenericThrottler $ _throttlingRate throt
-            miningThrottler <- mkMiningThrottler $ _throttlingMiningRate throt
             putPeerThrottler <- mkPutPeerThrottler $ _throttlingPeerRate throt
-            localThrottler <- mkLocalThrottler $ _throttlingLocalRate throt
             logg Info "initialized throttlers"
 
             -- synchronize pact dbs with latest cut before we start the server
@@ -471,9 +463,7 @@ withChainwebInternal conf logger peer serviceSock rocksDb pactDbDir resetDb inne
                             , _chainwebManager = mgr
                             , _chainwebPactData = pactData
                             , _chainwebThrottler = throttler
-                            , _chainwebMiningThrottler = miningThrottler
                             , _chainwebPutPeerThrottler = putPeerThrottler
-                            , _chainwebLocalThrottler = localThrottler
                             , _chainwebConfig = conf
                             , _chainwebServiceSocket = serviceSock
                             }
@@ -542,17 +532,9 @@ withChainwebInternal conf logger peer serviceSock rocksDb pactDbDir resetDb inne
 mkGenericThrottler :: Double -> IO (Throttle Address)
 mkGenericThrottler rate = mkThrottler 5 rate (const True)
 
-mkMiningThrottler :: Double -> IO (Throttle Address)
-mkMiningThrottler rate = mkThrottler 5 rate (checkPathPrefix ["mining", "work"])
-
 mkPutPeerThrottler :: Double -> IO (Throttle Address)
 mkPutPeerThrottler rate = mkThrottler 5 rate $ \r ->
     elem "peer" (pathInfo r) && requestMethod r == "PUT"
-
-mkLocalThrottler :: Double -> IO (Throttle Address)
-mkLocalThrottler rate = mkThrottler 5 rate (checkPathPrefix path)
-  where
-    path = ["pact", "api", "v1", "local"]
 
 checkPathPrefix
     :: [T.Text]
@@ -601,12 +583,7 @@ runChainweb cw = do
         -- 2. Start Clients (with a delay of 500ms)
         <* Concurrently (threadDelay 500000 >> clients)
         -- 3. Start serving local API
-        <* Concurrently (threadDelay 500000 >> serveServiceApi
-                ( serviceHttpLog
-                . throttle (_chainwebMiningThrottler cw)
-                . throttle (_chainwebLocalThrottler cw)
-                )
-            )
+        <* Concurrently (threadDelay 500000 >> serveServiceApi serviceHttpLog)
   where
     tls = _p2pConfigTls $ _configP2p $ _chainwebConfig cw
 
@@ -691,7 +668,7 @@ runChainweb cw = do
             }
 
     httpLog :: Middleware
-    httpLog = requestResponseLogger $ setComponent "http" (_chainwebLogger cw)
+    httpLog = requestResponseLogger $ setComponent "http:p2p-api" (_chainwebLogger cw)
 
     loggServerError (Just r) e = "HTTP server error: " <> sshow e <> ". Request: " <> sshow r
     loggServerError Nothing e = "HTTP server error: " <> sshow e
@@ -725,7 +702,7 @@ runChainweb cw = do
         (Rosetta . _configRosetta $ _chainwebConfig cw)
 
     serviceHttpLog :: Middleware
-    serviceHttpLog = requestResponseLogger $ setComponent "http[service-api]" (_chainwebLogger cw)
+    serviceHttpLog = requestResponseLogger $ setComponent "http:service-api" (_chainwebLogger cw)
 
     loggServiceApiServerError (Just r) e = "HTTP service API server error: " <> sshow e <> ". Request: " <> sshow r
     loggServiceApiServerError Nothing e = "HTTP service API server error: " <> sshow e
