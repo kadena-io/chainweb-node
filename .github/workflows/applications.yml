@@ -73,7 +73,7 @@ jobs:
       run: |
         MATRIX="$(jq -c '.' <<EOF
         {
-          "ghc": ["8.10.7", "9.0"],
+          "ghc": ["8.10.7", "9.0.1"],
           "cabal": ["3.6"],
           "os": ["ubuntu-18.04", "ubuntu-20.04"],
           "cabalcache": ["true"]
