@@ -26,9 +26,14 @@ proj = kpkgs.rp.project ({ pkgs, hackGet, ... }: with pkgs.haskell.lib;
        } {}));
       cuckoo = dontBenchmark (dontCheck (self.callHackageDirect {
         pkg = "cuckoo";
-        ver = "0.2.1";
-        sha256 = "1dsac9qc90aagcgvznzfjd4wl8wgxhq1m8f5h556ys72nkm1ablx";
+        ver = "0.3.0";
+        sha256 = "172km2552ipi9fqjmd16b4jmqw5a1414976p6xf8bxc83shxp97p";
        } {}));
+      hashes = dontCheck (self.callHackageDirect {
+        pkg = "hashes";
+        ver = "0.1.0.1";
+        sha256 = "09n2k0vwwlzjy8ax5dlq3743qkcsd21gwfibqfjmqirv30lgb5b5";
+      } {});
       quickcheck-classes-base = dontCheck (self.callHackageDirect {
         pkg = "quickcheck-classes-base";
         ver = "0.6.0.0";
@@ -44,8 +49,8 @@ proj = kpkgs.rp.project ({ pkgs, hackGet, ... }: with pkgs.haskell.lib;
       pact = dontCheck (appendConfigureFlag (self.callCabal2nix "pact" (pkgs.fetchFromGitHub {
         owner = "kadena-io";
         repo = "pact";
-        rev = "ef4f089d50b5f0c19b2d6aaea80e6e2dccb0f153";
-        sha256 = "09z6bznyyhy53y7z31c5gkhfsj9b6wsxiyvnf8ymqx0a0inkj07n";
+        rev = "dfc2d208af13fe0469776cd375f48b322e23971b";
+        sha256 = "1zm5s58i7xgwm1b0c9zz5rzb7pdk7hfnpk4ncacahky7s6sv4xfp";
       }) {}) "-f-build-tool");
 
       ethereum = dontCheck (self.callCabal2nix "ethereum" (pkgs.fetchFromGitHub {

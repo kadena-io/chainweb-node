@@ -655,7 +655,7 @@ withPactTestBlockDb version cid logLevel rdb mempoolIO pactConfig f =
   withResource (startPact bdbio iodir) stopPact $ f . fmap (view _3)
   where
     startPact bdbio iodir = do
-        reqQ <- atomically $ newTBQueue 2000
+        reqQ <- atomically $ newPactQueue 2000
         dir <- iodir
         bdb <- bdbio
         mempool <- mempoolIO

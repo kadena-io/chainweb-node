@@ -52,7 +52,6 @@ import qualified Data.Vector as V
 import qualified Data.Vector.Algorithms.Tim as TimSort
 
 import Pact.Parse
-import Pact.Types.Gas (GasPrice(..))
 
 import Prelude hiding (init, lookup, pred)
 
@@ -131,7 +130,7 @@ toMempoolBackend logger mempool = do
     nonce = _inmemNonce mempool
     lockMVar = _inmemDataLock mempool
 
-    InMemConfig tcfg _ _ _ _ _ = cfg
+    InMemConfig tcfg _ _ _ _ _ _ = cfg
     member = memberInMem lockMVar
     lookup = lookupInMem tcfg lockMVar
     insert = insertInMem cfg lockMVar
@@ -346,6 +345,7 @@ validateOne
 validateOne cfg badmap curTxIdx now t h =
     sizeOK
     >> gasPriceRoundingCheck
+    >> gasPriceMinCheck
     >> ttlCheck
     >> notDuplicate
     >> notInBadMap
@@ -362,6 +362,13 @@ validateOne cfg badmap curTxIdx now t h =
       where
         getSize = txGasLimit txcfg
         maxSize = _inmemTxBlockSizeLimit cfg
+
+    -- prop_tx_gas_min
+    gasPriceMinCheck :: Either InsertError ()
+    gasPriceMinCheck = ebool_ (InsertErrorUndersized (getPrice t) minGasPrice) (getPrice t >= minGasPrice)
+      where
+        minGasPrice = _inmemTxMinGasPrice cfg
+        getPrice = txGasPrice txcfg
 
     -- prop_tx_gas_rounding
     gasPriceRoundingCheck :: Either InsertError ()

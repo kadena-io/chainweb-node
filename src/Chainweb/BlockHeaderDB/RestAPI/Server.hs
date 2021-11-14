@@ -145,7 +145,7 @@ branchHashesHandler db limit next minr maxr bounds = do
             (_branchBoundsUpper checkedBounds)
         $ finiteStreamToPage id effectiveLimit . void
   where
-    effectiveLimit = limit <|> Just defaultKeyLimit
+    effectiveLimit = min defaultKeyLimit <$> (limit <|> Just defaultKeyLimit)
 
 -- | Query Branch Headers of the database.
 --
@@ -170,7 +170,7 @@ branchHeadersHandler db limit next minr maxr bounds = do
             (_branchBoundsUpper checkedBounds)
         $ finiteStreamToPage key effectiveLimit . void
   where
-    effectiveLimit = limit <|> Just defaultKeyLimit
+    effectiveLimit = min defaultEntryLimit <$> (limit <|> Just defaultEntryLimit)
 
 -- | Every `TreeDb` key within a given range.
 --
@@ -192,7 +192,7 @@ hashesHandler db limit next minr maxr = do
         $ finitePrefixOfInfiniteStreamToPage id effectiveLimit
         . void
   where
-    effectiveLimit = limit <|> Just defaultKeyLimit
+    effectiveLimit = min defaultKeyLimit <$> (limit <|> Just defaultKeyLimit)
 
 -- | Every `TreeDb` entry within a given range.
 --
@@ -213,7 +213,7 @@ headersHandler db limit next minr maxr = do
         $ entries db nextChecked (succ <$> effectiveLimit) minr maxr
         $ finitePrefixOfInfiniteStreamToPage key effectiveLimit . void
   where
-    effectiveLimit = limit <|> Just defaultEntryLimit
+    effectiveLimit = min defaultEntryLimit <$> (limit <|> Just defaultEntryLimit)
 
 -- | Query a single 'BlockHeader' by its 'BlockHash'
 --
