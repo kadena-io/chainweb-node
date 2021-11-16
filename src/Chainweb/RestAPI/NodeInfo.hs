@@ -63,7 +63,7 @@ nodeInfoHandler :: ChainwebVersion -> SomeCutDb cas -> Server NodeInfoApi
 nodeInfoHandler v (SomeCutDb ((CutDbT db) :: CutDbT cas v)) = do
     curCut <- liftIO $ _cut db
     let ch = cutToCutHashes Nothing curCut
-        curHeight = maximum $ map fst $ HashMap.elems $ _cutHashes ch
+        curHeight = maximum $ map _bhwhHeight $ HashMap.elems $ _cutHashes ch
         graphs = unpackGraphs v
         curGraph = head $ dropWhile (\(h,_) -> h > curHeight) graphs
         curChains = map fst $ snd curGraph

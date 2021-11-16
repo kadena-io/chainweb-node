@@ -360,14 +360,23 @@ data HeaderUpdate = HeaderUpdate
     { _huHeader :: !(ObjectEncoded BlockHeader)
     , _huTxCount :: !Int
     , _huPowHash :: !Text
-    , _huTarget :: !Text }
+    , _huTarget :: !Text
+    }
+
+headerUpdateProperties :: KeyValue kv => HeaderUpdate -> [kv]
+headerUpdateProperties o =
+    [ "header"  .= _huHeader o
+    , "txCount" .= _huTxCount o
+    , "powHash" .= _huPowHash o
+    , "target"  .= _huTarget o
+    ]
+{-# INLINE headerUpdateProperties #-}
 
 instance ToJSON HeaderUpdate where
-    toJSON o = object
-        [ "header"  .= _huHeader o
-        , "txCount" .= _huTxCount o
-        , "powHash" .= _huPowHash o
-        , "target"  .= _huTarget o ]
+    toJSON = object . headerUpdateProperties
+    toEncoding = pairs . mconcat . headerUpdateProperties
+    {-# INLINE toJSON #-}
+    {-# INLINE toEncoding #-}
 
 type HeaderStreamApi_ = "header" :> "updates" :> Raw
 

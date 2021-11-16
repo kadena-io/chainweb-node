@@ -184,6 +184,9 @@ decodeNonce = Nonce <$> getWord64le
 
 instance ToJSON Nonce where
     toJSON (Nonce i) = toJSON $ show i
+    toEncoding (Nonce i) = toEncoding $ show i
+    {-# INLINE toJSON #-}
+    {-# INLINE toEncoding #-}
 
 instance FromJSON Nonce where
     parseJSON = withText "Nonce"
@@ -797,6 +800,9 @@ decodeBlockHeader = BlockHeader
 
 instance ToJSON BlockHeader where
     toJSON = toJSON .  encodeB64UrlNoPaddingText . runPutS . encodeBlockHeader
+    toEncoding = toEncoding .  encodeB64UrlNoPaddingText . runPutS . encodeBlockHeader
+    {-# INLINE toJSON #-}
+    {-# INLINE toEncoding #-}
 
 instance FromJSON BlockHeader where
     parseJSON = withText "BlockHeader" $ \t ->
@@ -864,22 +870,32 @@ newtype ObjectEncoded a = ObjectEncoded { _objectEncoded :: a }
     deriving (Show, Generic)
     deriving newtype (Eq, Ord, Hashable, NFData)
 
+blockHeaderProperties
+    :: KeyValue kv
+    => ObjectEncoded BlockHeader
+    -> [kv]
+blockHeaderProperties (ObjectEncoded b) =
+    [ "nonce" .= _blockNonce b
+    , "creationTime" .= _blockCreationTime b
+    , "parent" .= _blockParent b
+    , "adjacents" .= _blockAdjacentHashes b
+    , "target" .= _blockTarget b
+    , "payloadHash" .= _blockPayloadHash b
+    , "chainId" .= _chainId b
+    , "weight" .= _blockWeight b
+    , "height" .= _blockHeight b
+    , "chainwebVersion" .= _blockChainwebVersion b
+    , "epochStart" .= _blockEpochStart b
+    , "featureFlags" .= _blockFlags b
+    , "hash" .= _blockHash b
+    ]
+{-# INLINE blockHeaderProperties #-}
+
 instance ToJSON (ObjectEncoded BlockHeader) where
-    toJSON (ObjectEncoded b) = object
-        [ "nonce" .= _blockNonce b
-        , "creationTime" .= _blockCreationTime b
-        , "parent" .= _blockParent b
-        , "adjacents" .= _blockAdjacentHashes b
-        , "target" .= _blockTarget b
-        , "payloadHash" .= _blockPayloadHash b
-        , "chainId" .= _chainId b
-        , "weight" .= _blockWeight b
-        , "height" .= _blockHeight b
-        , "chainwebVersion" .= _blockChainwebVersion b
-        , "epochStart" .= _blockEpochStart b
-        , "featureFlags" .= _blockFlags b
-        , "hash" .= _blockHash b
-        ]
+    toJSON = object . blockHeaderProperties
+    toEncoding = pairs . mconcat . blockHeaderProperties
+    {-# INLINE toJSON #-}
+    {-# INLINE toEncoding #-}
 
 parseBlockHeaderObject :: Object -> Parser BlockHeader
 parseBlockHeaderObject o = BlockHeader

@@ -148,7 +148,9 @@ decodePowHashNatBe = PowHashNat <$!> decodeWordBe
 
 instance ToJSON PowHashNat where
     toJSON = toJSON . encodeB64UrlNoPaddingText . runPutS . encodePowHashNat
+    toEncoding = toEncoding . encodeB64UrlNoPaddingText . runPutS . encodePowHashNat
     {-# INLINE toJSON #-}
+    {-# INLINE toEncoding #-}
 
 instance FromJSON PowHashNat where
     parseJSON = withText "PowHashNat" $ either (fail . show) return

@@ -241,7 +241,9 @@ instance Show Transaction where
 
 instance ToJSON Transaction where
     toJSON = toJSON . encodeB64UrlNoPaddingText . _transactionBytes
+    toEncoding = toEncoding . encodeB64UrlNoPaddingText . _transactionBytes
     {-# INLINE toJSON #-}
+    {-# INLINE toEncoding #-}
 
 instance FromJSON Transaction where
     parseJSON = parseJsonFromText "Transaction"
@@ -283,7 +285,9 @@ newtype TransactionOutput = TransactionOutput
 
 instance ToJSON TransactionOutput where
     toJSON = toJSON . encodeB64UrlNoPaddingText . _transactionOutputBytes
+    toEncoding = toEncoding . encodeB64UrlNoPaddingText . _transactionOutputBytes
     {-# INLINE toJSON #-}
+    {-# INLINE toEncoding #-}
 
 instance FromJSON TransactionOutput where
     parseJSON = parseJsonFromText "TransactionOutput"
@@ -405,6 +409,7 @@ instance Show MinerData where
 
 instance ToJSON MinerData where
     toJSON = toJSON . encodeB64UrlNoPaddingText . _minerData
+    toEncoding = toEncoding . encodeB64UrlNoPaddingText . _minerData
     {-# INLINE toJSON #-}
 
 instance FromJSON MinerData where
@@ -452,12 +457,23 @@ data BlockTransactions_ a = BlockTransactions
     }
     deriving (Show, Eq, Ord, Generic)
 
+blockTransactionsProperties
+    :: MerkleHashAlgorithm a
+    => A.KeyValue kv
+    => BlockTransactions_ a
+    -> [kv]
+blockTransactionsProperties o =
+    [ "transactionHash" .= _blockTransactionsHash o
+    , "transaction" .= _blockTransactions o
+    , "minerData" .= _blockMinerData o
+    ]
+{-# INLINE blockTransactionsProperties #-}
+
 instance MerkleHashAlgorithm a => ToJSON (BlockTransactions_ a) where
-    toJSON o = object
-        [ "transactionHash" .= _blockTransactionsHash o
-        , "transaction" .= _blockTransactions o
-        , "minerData" .= _blockMinerData o
-        ]
+    toJSON = object . blockTransactionsProperties
+    toEncoding = pairs . mconcat . blockTransactionsProperties
+    {-# INLINE toJSON #-}
+    {-# INLINE toEncoding #-}
 
 instance MerkleHashAlgorithm a => FromJSON (BlockTransactions_ a) where
     parseJSON = withObject "BlockTransactions" $ \o -> BlockTransactions
@@ -515,7 +531,9 @@ instance Show CoinbaseOutput where
 
 instance ToJSON CoinbaseOutput where
     toJSON = toJSON . encodeB64UrlNoPaddingText . _coinbaseOutput
+    toEncoding = toEncoding . encodeB64UrlNoPaddingText . _coinbaseOutput
     {-# INLINE toJSON #-}
+    {-# INLINE toEncoding #-}
 
 instance FromJSON CoinbaseOutput where
     parseJSON = parseJsonFromText "CoinbaseOutput"
@@ -584,12 +602,23 @@ data BlockOutputs_ a = BlockOutputs
     }
     deriving (Show, Eq)
 
+blockOutputsProperties
+    :: MerkleHashAlgorithm a
+    => A.KeyValue kv
+    => BlockOutputs_ a
+    -> [kv]
+blockOutputsProperties o =
+    [ "outputsHash" .= _blockOutputsHash o
+    , "outputs" .= _blockOutputs o
+    , "coinbaseOutput" .= _blockCoinbaseOutput o
+    ]
+{-# INLINE blockOutputsProperties #-}
+
 instance MerkleHashAlgorithm a => ToJSON (BlockOutputs_ a) where
-    toJSON o = object
-        [ "outputsHash" .= _blockOutputsHash o
-        , "outputs" .= _blockOutputs o
-        , "coinbaseOutput" .= _blockCoinbaseOutput o
-        ]
+    toJSON = object . blockOutputsProperties
+    toEncoding = pairs . mconcat . blockOutputsProperties
+    {-# INLINE toJSON #-}
+    {-# INLINE toEncoding #-}
 
 instance MerkleHashAlgorithm a => FromJSON (BlockOutputs_ a) where
     parseJSON = withObject "BlockOutputs" $ \o -> BlockOutputs
@@ -649,11 +678,22 @@ instance IsCasValue (TransactionTree_ a) where
     type CasKeyType (TransactionTree_ a) = BlockTransactionsHash_ a
     casKey = _transactionTreeHash
 
+transactionTreeProperties
+    :: MerkleHashAlgorithm a
+    => A.KeyValue kv
+    => TransactionTree_ a
+    -> [kv]
+transactionTreeProperties o =
+    [ "hash" .= _transactionTreeHash o
+    , "tree" .= merkleTreeToJson (_transactionTree o)
+    ]
+{-# INLINE transactionTreeProperties #-}
+
 instance MerkleHashAlgorithm a => ToJSON (TransactionTree_ a) where
-    toJSON o = object
-        [ "hash" .= _transactionTreeHash o
-        , "tree" .= merkleTreeToJson (_transactionTree o)
-        ]
+    toJSON = object . transactionTreeProperties
+    toEncoding = pairs . mconcat . transactionTreeProperties
+    {-# INLINE toJSON #-}
+    {-# INLINE toEncoding #-}
 
 instance MerkleHashAlgorithm a => FromJSON (TransactionTree_ a) where
     parseJSON = withObject "TransactionTree" $ \o -> TransactionTree
@@ -696,11 +736,22 @@ instance IsCasValue (OutputTree_ a) where
     type CasKeyType (OutputTree_ a) = BlockOutputsHash_ a
     casKey = _outputTreeHash
 
+outputTreeProperties
+    :: MerkleHashAlgorithm a
+    => A.KeyValue kv
+    => OutputTree_ a
+    -> [kv]
+outputTreeProperties o =
+    [ "hash" .= _outputTreeHash o
+    , "tree" .= merkleTreeToJson (_outputTree o)
+    ]
+{-# INLINE outputTreeProperties #-}
+
 instance MerkleHashAlgorithm a => ToJSON (OutputTree_ a) where
-    toJSON o = object
-        [ "hash" .= _outputTreeHash o
-        , "tree" .= merkleTreeToJson (_outputTree o)
-        ]
+    toJSON = object . outputTreeProperties
+    toEncoding = pairs . mconcat . outputTreeProperties
+    {-# INLINE toJSON #-}
+    {-# INLINE toEncoding #-}
 
 instance MerkleHashAlgorithm a => FromJSON (OutputTree_ a) where
     parseJSON = withObject "OutputTree" $ \o -> OutputTree
@@ -859,14 +910,25 @@ data PayloadData_ a = PayloadData
     deriving (Eq, Show, Generic)
     deriving anyclass (NFData)
 
+payloadDataProperties
+    :: MerkleHashAlgorithm a
+    => A.KeyValue kv
+    => PayloadData_ a
+    -> [kv]
+payloadDataProperties o =
+    [ "transactions" .= _payloadDataTransactions o
+    , "minerData" .= _payloadDataMiner o
+    , "payloadHash" .= _payloadDataPayloadHash o
+    , "transactionsHash" .= _payloadDataTransactionsHash o
+    , "outputsHash" .= _payloadDataOutputsHash o
+    ]
+{-# INLINE payloadDataProperties #-}
+
 instance MerkleHashAlgorithm a => ToJSON (PayloadData_ a) where
-    toJSON o = object
-        [ "transactions" .= _payloadDataTransactions o
-        , "minerData" .= _payloadDataMiner o
-        , "payloadHash" .= _payloadDataPayloadHash o
-        , "transactionsHash" .= _payloadDataTransactionsHash o
-        , "outputsHash" .= _payloadDataOutputsHash o
-        ]
+    toJSON = object . payloadDataProperties
+    toEncoding = pairs . mconcat . payloadDataProperties
+    {-# INLINE toJSON #-}
+    {-# INLINE toEncoding #-}
 
 instance MerkleHashAlgorithm a => FromJSON (PayloadData_ a) where
     parseJSON = withObject "PayloadData" $ \o -> PayloadData
@@ -998,15 +1060,26 @@ newPayloadWithOutputs mi co s = PayloadWithOutputs
   where
     p = newBlockPayload mi co s
 
+payloadWithOutputsProperties
+    :: MerkleHashAlgorithm a
+    => A.KeyValue kv
+    => PayloadWithOutputs_ a
+    -> [kv]
+payloadWithOutputsProperties o =
+    [ "transactions" .= _payloadWithOutputsTransactions o
+    , "minerData" .= _payloadWithOutputsMiner o
+    , "coinbase" .= _payloadWithOutputsCoinbase o
+    , "payloadHash" .= _payloadWithOutputsPayloadHash o
+    , "transactionsHash" .= _payloadWithOutputsTransactionsHash o
+    , "outputsHash" .= _payloadWithOutputsOutputsHash o
+    ]
+{-# INLINE payloadWithOutputsProperties #-}
+
 instance MerkleHashAlgorithm a => ToJSON (PayloadWithOutputs_ a) where
-    toJSON o = object
-        [ "transactions" .= _payloadWithOutputsTransactions o
-        , "minerData" .= _payloadWithOutputsMiner o
-        , "coinbase" .= _payloadWithOutputsCoinbase o
-        , "payloadHash" .= _payloadWithOutputsPayloadHash o
-        , "transactionsHash" .= _payloadWithOutputsTransactionsHash o
-        , "outputsHash" .= _payloadWithOutputsOutputsHash o
-        ]
+    toJSON = object . payloadWithOutputsProperties
+    toEncoding = pairs . mconcat . payloadWithOutputsProperties
+    {-# INLINE toJSON #-}
+    {-# INLINE toEncoding #-}
 
 -- | This instance trusts the content of the JSON structure. It doesn't
 -- guarantee that the result is consistent (it doesn't rebuild the Merkle tree).

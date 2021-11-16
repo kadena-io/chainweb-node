@@ -156,7 +156,9 @@ instance MerkleHashAlgorithm a => HasTextRepresentation (MerkleLogHash a) where
 
 instance MerkleHashAlgorithm a => ToJSON (MerkleLogHash a) where
     toJSON = toJSON . toText
+    toEncoding = toEncoding . toText
     {-# INLINE toJSON #-}
+    {-# INLINE toEncoding #-}
 
 instance MerkleHashAlgorithm a => ToJSONKey (MerkleLogHash a) where
     toJSONKey = toJSONKeyText toText

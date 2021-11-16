@@ -778,7 +778,7 @@ awaitCutHeight step cenv i = do
             step
                 $ "awaiting cut of height " <> show i
                 <> ". Current cut height: " <> show (_cutHashesHeight c)
-                <> ". Current block heights: " <> show (fst <$> _cutHashes c)
+                <> ". Current block heights: " <> show (_bhwhHeight <$> _cutHashes c)
                 <> " [" <> show (view rsIterNumberL s) <> "]"
             return True
 
