@@ -322,7 +322,7 @@ pact4coin3UpgradeTest bdb mpRefIO pact = do
   tx7_5 <- txResult 5 pwo7
   assertEqual
     "Modref test"
-    Nothing
+    (Just "Detected recursive call: user.mr.f")
     (tx7_5 ^? crResult . to _pactResult . _Left . to peDoc)
 
 

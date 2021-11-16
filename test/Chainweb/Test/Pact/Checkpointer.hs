@@ -162,7 +162,7 @@ checkpointerTest name cenvIO = testCaseSteps name $ \next -> do
         next "Step 1 : new block workflow (restore -> discard), genesis"
         blockenvGenesis0 <- _cpRestore cp Nothing
         void $ runExec cenv blockenvGenesis0 (Just $ ksData "1") $ defModule "1"
-        runExec cenv blockenvGenesis0 Nothing "(m1.readTbl)" >>= \EvalResult{..} -> Right _erOutput @?= traverse toPactValue [tIntList [1]]
+        runExec cenv blockenvGenesis0 Nothing "(m1.readTbl)" >>= \EvalResult{..} -> Right _erOutput @?= traverse (toPactValue @Name) [tIntList [1]]
         _cpDiscard cp
 
     -----------------------------------------------------------
@@ -173,7 +173,7 @@ checkpointerTest name cenvIO = testCaseSteps name $ \next -> do
     blockenvGenesis1 <- _cpRestore cp Nothing
     void $ runExec cenv blockenvGenesis1 (Just $ ksData "1") $ defModule "1"
     runExec cenv blockenvGenesis1 Nothing "(m1.readTbl)"
-      >>=  \EvalResult{..} -> Right _erOutput @?= traverse toPactValue [tIntList [1]]
+      >>=  \EvalResult{..} -> Right _erOutput @?= traverse (toPactValue @Name) [tIntList [1]]
     _cpSave cp hash00
 
     ------------------------------------------------------------------
@@ -187,7 +187,7 @@ checkpointerTest name cenvIO = testCaseSteps name $ \next -> do
     let pactId = "DldRwCblQ7Loqy6wYJnaodHl30d3j3eH-qtFzfEv46g"
         pactCheckStep = preview (_Just . peStep) . _erExec
     void $ runExec cenv blockenv00 Nothing "(m1.insertTbl 'b 2)"
-    runExec cenv blockenv00 Nothing "(m1.readTbl)" >>= \EvalResult{..} -> Right _erOutput @?= traverse toPactValue [tIntList [1,2]]
+    runExec cenv blockenv00 Nothing "(m1.readTbl)" >>= \EvalResult{..} -> Right _erOutput @?= traverse (toPactValue @Name) [tIntList [1,2]]
     runExec cenv blockenv00 Nothing "(m1.dopact 'pactA)" >>= ((Just 0 @=?) . pactCheckStep)
     _cpDiscard cp
 
@@ -200,7 +200,7 @@ checkpointerTest name cenvIO = testCaseSteps name $ \next -> do
     blockenv01 <- _cpRestore cp (Just (BlockHeight 1, hash00))
     void $ runExec cenv blockenv01 Nothing "(m1.insertTbl 'b 2)"
     runExec cenv blockenv01 Nothing "(m1.readTbl)"
-      >>= \EvalResult{..} -> Right _erOutput @?= traverse toPactValue [tIntList [1,2]]
+      >>= \EvalResult{..} -> Right _erOutput @?= traverse (toPactValue @Name) [tIntList [1,2]]
     runExec cenv blockenv01 Nothing "(m1.dopact 'pactA)"
       >>= ((Just 0 @=?) . pactCheckStep)
     _cpSave cp hash01
@@ -217,7 +217,7 @@ checkpointerTest name cenvIO = testCaseSteps name $ \next -> do
     blockenv02 <- _cpRestore cp (Just (BlockHeight 2, hash01))
     void $ runExec cenv blockenv02 (Just $ ksData "2") $ defModule "2"
     runExec cenv blockenv02 Nothing "(m2.readTbl)"
-      >>= \EvalResult{..} -> Right _erOutput @?= traverse toPactValue [tIntList [1]]
+      >>= \EvalResult{..} -> Right _erOutput @?= traverse (toPactValue @Name) [tIntList [1]]
     runCont cenv blockenv02 pactId 1
       >>= ((Just 1 @=?) . pactCheckStep)
     _cpSave cp hash02
@@ -230,7 +230,7 @@ checkpointerTest name cenvIO = testCaseSteps name $ \next -> do
     blockenv03 <- _cpRestore cp (Just (BlockHeight 3, hash02))
     void $ runExec cenv blockenv03 Nothing "(m2.insertTbl 'b 2)"
     runExec cenv blockenv03 Nothing "(m2.readTbl)"
-      >>= \EvalResult{..} -> Right _erOutput @?= traverse toPactValue [tIntList [1,2]]
+      >>= \EvalResult{..} -> Right _erOutput @?= traverse (toPactValue @Name) [tIntList [1,2]]
     _cpDiscard cp
 
     ------------------------------------------------------------------
@@ -243,7 +243,7 @@ checkpointerTest name cenvIO = testCaseSteps name $ \next -> do
     -- insert here would fail if new block 03 had not been discarded
     void $ runExec cenv blockenv13 Nothing "(m2.insertTbl 'b 2)"
     runExec cenv blockenv13 Nothing "(m2.readTbl)"
-      >>= \EvalResult{..} -> Right _erOutput @?= traverse toPactValue [tIntList [1,2]]
+      >>= \EvalResult{..} -> Right _erOutput @?= traverse (toPactValue @Name) [tIntList [1,2]]
     _cpSave cp hash03
 
     ------------------------------------------------------------------
@@ -257,7 +257,7 @@ checkpointerTest name cenvIO = testCaseSteps name $ \next -> do
     hash02Fork <- BlockHash <$> merkleLogHash "0000000000000000000000000000002b"
     blockenv02Fork <- _cpRestore cp (Just (BlockHeight 2, hash01))
     void $ runExec cenv blockenv02Fork (Just $ ksData "2") $ defModule "2"
-    runExec cenv blockenv02Fork Nothing "(m2.readTbl)" >>= \EvalResult{..} -> Right _erOutput @?= traverse toPactValue [tIntList [1]]
+    runExec cenv blockenv02Fork Nothing "(m2.readTbl)" >>= \EvalResult{..} -> Right _erOutput @?= traverse (toPactValue @Name) [tIntList [1]]
     -- this would fail if not a fork
     runCont cenv blockenv02Fork pactId 1 >>= ((Just 1 @=?) . pactCheckStep)
     _cpSave cp hash02Fork
@@ -267,7 +267,7 @@ checkpointerTest name cenvIO = testCaseSteps name $ \next -> do
     blockenv23 <- _cpRestore cp (Just (BlockHeight 3, hash02Fork))
     -- updating key previously written at blockheight 1 (the "restore point")
     void $ runExec cenv blockenv23 Nothing "(m1.updateTbl 'b 3)"
-    runExec cenv blockenv23 Nothing "(m1.readTbl)" >>= \EvalResult{..} -> Right _erOutput @?= traverse toPactValue [tIntList [1,3]]
+    runExec cenv blockenv23 Nothing "(m1.readTbl)" >>= \EvalResult{..} -> Right _erOutput @?= traverse (toPactValue @Name) [tIntList [1,3]]
     _cpDiscard cp
 
     let updatemsgB = "step 9: test update row: validate block 03"
@@ -276,7 +276,7 @@ checkpointerTest name cenvIO = testCaseSteps name $ \next -> do
     blockenv33 <- _cpRestore cp (Just (BlockHeight 3, hash02Fork))
     -- updating key previously written at blockheight 1 (the "restore point")
     void $ runExec cenv blockenv33 Nothing "(m1.updateTbl 'b 3)"
-    runExec cenv blockenv33 Nothing "(m1.readTbl)" >>= \EvalResult{..} -> Right _erOutput @?= traverse toPactValue [tIntList [1,3]]
+    runExec cenv blockenv33 Nothing "(m1.readTbl)" >>= \EvalResult{..} -> Right _erOutput @?= traverse (toPactValue @Name) [tIntList [1,3]]
     _cpSave cp hash13
 
     next "mini-regression test for dropping user tables (part 1) empty block"
@@ -288,14 +288,14 @@ checkpointerTest name cenvIO = testCaseSteps name $ \next -> do
     hash05 <- BlockHash <$> merkleLogHash "0000000000000000000000000000005a"
     blockenv05 <- _cpRestore cp (Just (BlockHeight 5, hash04))
     void $ runExec cenv blockenv05 (Just $ ksData "5") $ defModule "5"
-    runExec cenv blockenv05 Nothing "(m5.readTbl)" >>= \EvalResult{..} -> Right _erOutput @?= traverse toPactValue [tIntList [1]]
+    runExec cenv blockenv05 Nothing "(m5.readTbl)" >>= \EvalResult{..} -> Right _erOutput @?= traverse (toPactValue @Name) [tIntList [1]]
     _cpSave cp hash05
 
     next "mini-regression test for dropping user tables (part 3) (reload the offending table)"
     hash05Fork  <- BlockHash <$> merkleLogHash "0000000000000000000000000000005b"
     blockenv05Fork <- _cpRestore cp (Just (BlockHeight 5, hash04))
     void $ runExec cenv blockenv05Fork (Just $ ksData "5") $ defModule "5"
-    runExec cenv blockenv05Fork Nothing "(m5.readTbl)" >>= \EvalResult{..} -> Right _erOutput @?= traverse toPactValue [tIntList [1]]
+    runExec cenv blockenv05Fork Nothing "(m5.readTbl)" >>= \EvalResult{..} -> Right _erOutput @?= traverse (toPactValue @Name) [tIntList [1]]
     _cpSave cp hash05Fork
 
     next "mini-regression test for dropping user tables (part 4) fork on the empty block"
@@ -311,7 +311,7 @@ checkpointerTest name cenvIO = testCaseSteps name $ \next -> do
     hash15 <- BlockHash <$> merkleLogHash "0000000000000000000000000000005c"
     blockEnv06 <- _cpRestore cp (Just (BlockHeight 5, hash14))
     void $ runExec cenv blockEnv06 (Just $ ksData "6") $ defModule "6"
-    runExec cenv blockEnv06 Nothing "(m6.readTbl)" >>= \EvalResult{..} -> Right _erOutput @?= traverse toPactValue [tIntList [1]]
+    runExec cenv blockEnv06 Nothing "(m6.readTbl)" >>= \EvalResult{..} -> Right _erOutput @?= traverse (toPactValue @Name) [tIntList [1]]
     _cpSave cp hash15
 
     next "2nd mini-regression test for debugging updates (part 3) step 1 of insert value then update twice"
@@ -333,7 +333,7 @@ checkpointerTest name cenvIO = testCaseSteps name $ \next -> do
     -- void $ runExec cenv blockEnv09 Nothing "(let ((written (at 'col (read m6.tbl 'a [\"col\"])))) (enforce (= written 1) \"key a\"))"
     -- void $ runExec cenv blockEnv09 Nothing "(let ((written (at 'col (read m6.tbl 'b [\"col\"])))) (enforce (= written 4) \"key b\"))"
     -- FOR DEBUGGING/INSPECTING VALUES AT SPECIFIC KEYS
-    runExec cenv blockEnv09 Nothing "(m6.readTbl)" >>= \EvalResult{..} -> Right _erOutput @?= traverse toPactValue [tIntList [1,4]]
+    runExec cenv blockEnv09 Nothing "(m6.readTbl)" >>= \EvalResult{..} -> Right _erOutput @?= traverse (toPactValue @Name) [tIntList [1,4]]
     _cpSave cp hash08
 
     next "Don't create the same table twice in the same block"
