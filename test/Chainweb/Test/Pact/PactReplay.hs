@@ -304,7 +304,7 @@ mineBlock
     -> Nonce
     -> IO (PactQueue,TestBlockDb)
     -> IO (T3 ParentHeader BlockHeader PayloadWithOutputs)
-mineBlock ph nonce iop = timeout 5000000 go >>= \case
+mineBlock ph nonce iop = timeout 10000000 go >>= \case
     Nothing -> error "PactReplay.mineBlock: Test timeout. Most likely a test case caused a pact service failure that wasn't caught, and the test was blocked while waiting for the result"
     Just x -> return x
   where
