@@ -16,7 +16,6 @@ let gitignoreSrc = import (pkgs.fetchFromGitHub {
       sha256 = "04n9chlpbifgc5pa3zx6ff3rji9am6msrbn1z3x1iinjz2xjfp4p";
     }) {};
     nix-thunk = import ./dep/nix-thunk {};
-
 in
 pkgs.haskell.packages.${compiler}.developPackage {
   name = "chainweb";
