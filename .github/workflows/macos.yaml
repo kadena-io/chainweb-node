@@ -96,6 +96,11 @@ jobs:
     - name: Build chainweb applications
       run: cabal build exe:chainweb-node test:chainweb-tests exe:cwtool chainweb:bench:bench
 
+    - name: Run Tests
+      run: |
+        ulimit -n 10000
+        cabal run tests -- --hide-successes
+
     # Checks
     - name: Check that working directory tree is clean
       run: |
@@ -118,11 +123,3 @@ jobs:
           exit 1
         fi
         mv cabal.project.freeze.backup cabal.project.freeze
-    - name: Run Tests
-      run: |
-        # the freeze file has likely has changed
-        mv cabal.project.freeze cabal.project.freeze.backup
-        git checkout -- cabal.project.freeze || true
-          ulimit -n 10000
-          cabal run tests -- --hide-successes
-
