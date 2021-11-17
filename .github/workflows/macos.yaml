@@ -119,7 +119,6 @@ jobs:
         fi
         mv cabal.project.freeze.backup cabal.project.freeze
     - name: Run Tests
-      timeout-minutes: 10
       run: |
         # the freeze file has likely has changed
         mv cabal.project.freeze cabal.project.freeze.backup
