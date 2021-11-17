@@ -157,10 +157,6 @@ pkgs.haskell.packages.${compiler}.developPackage {
 
   };
   source-overrides = {
-    # Use a specific hackage version using callHackage. Only works if the
-    # version you want is in the version of all-cabal-hashes that you have.
-    # bytestring = "0.10.8.1";
-
     chainweb-storage = nix-thunk.thunkSource ./dep/chainweb-storage;
     pact = nix-thunk.thunkSource ./dep/pact;
   };
