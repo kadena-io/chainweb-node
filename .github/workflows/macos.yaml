@@ -1,4 +1,4 @@
-name: Build and publish application binaries
+name: Build with MacOS
 
 on:
   workflow_dispatch:
@@ -12,10 +12,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        ghc": ["8.10.7", "9.0"]
-        cabal": ["3.6"]
-        os": ["macOS-latest"]
-        cabalcache": ["true"]
+        ghc: ["8.10.7", "9.0"]
+        cabal: ["3.6"]
+        os: ["macOS-latest"]
+        cabalcache: ["true"]
 
     steps:
     # Setup
