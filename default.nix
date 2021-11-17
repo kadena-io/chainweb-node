@@ -100,12 +100,6 @@ pkgs.haskell.packages.${compiler}.developPackage {
         sha256 = "1whnbdzcfng6zknsvwgk4cxhjdvwak7yxwykwkh2mlv9ykz8b6iw";
       } {};
 
-      wai-logger = self.callHackageDirect {
-        pkg = "wai-logger";
-        ver = "2.3.5";
-        sha256 = "1iv6q7kpa9irjyjv9238pfqqzn7w92ccich5h8xbmv3r8qxwmvld";
-      } {};
-
       http2 = self.callHackageDirect {
         pkg = "http2";
         ver = "2.0.3";
@@ -124,6 +118,12 @@ pkgs.haskell.packages.${compiler}.developPackage {
         ver = "0.2.7";
         sha256 = "10yhjjkzp0ichf9ijiadliafriwh96f194c2g02anvz451capm6i";
       } {});
+
+      wai-logger = self.callHackageDirect {
+        pkg = "wai-logger";
+        ver = "2.3.5";
+        sha256 = "1iv6q7kpa9irjyjv9238pfqqzn7w92ccich5h8xbmv3r8qxwmvld";
+      } {};
 
       wai-middleware-throttle = dontCheck (self.callHackageDirect {
         pkg = "wai-middleware-throttle";
