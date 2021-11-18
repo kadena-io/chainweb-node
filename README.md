@@ -75,6 +75,15 @@ brew install rocksdb
 
 ### Installing Chainweb-node
 
+Minimal recommended hardware requirements for nodes are:
+
+* 2 CPU cores
+* 4 GB of RAM
+* 100 GB SSD or fast HDD
+* Public IP address
+
+If the node is also used as API server for Pact or mining, rosetta, chainweb-data: 4 CPU cores and 8GB of RAM.
+
 Chainweb-node binaries for ubuntu-16.04, ubuntu-18.04, and MacOSX can be found
 [here](https://github.com/kadena-io/chainweb-node/releases).
 
@@ -105,7 +114,7 @@ repository](https://hub.docker.com/r/kadena/chainweb-node).
 ### Building from Source
 
 *IMPORTANT NODE: We recommend the use of officially released chainweb-node
-binaries, which can be found in the
+binaries or docker images, which can be found in the
 [release section of this
 repository](https://github.com/kadena-io/chainweb-node/releases).
 If you decide to build your own binaries, please make sure to only use
@@ -116,73 +125,44 @@ master branch in the Kadena mainnet.*
 
 Chainweb is a [Haskell](https://www.haskell.org/) project. After cloning the
 code with git from this GitHub repository the chainweb-node application can be
-built in several ways.
-
-#### Building with Nix
-
-The fastest way to build and run chainweb is to use the Nix package manager
-which has binary caching capabilities that allow you to download pre-built
-binaries for everything needed by Chainweb. For detailed instructions see [our
-wiki](https://github.com/kadena-io/pact/wiki/Building-Kadena-Projects).
-
-
-When the build is finished, you can run chainweb with the following command:
-
-```bash
-./result/ghc/chainweb/bin/chainweb-node
-```
-
-#### Building with Stack
-
-In order to build with stack you need `stack >= 1.9`, which can be obtain via
--   Mac (Homebrew): `brew install haskell-stack`
--   General [Linux / Mac](https://docs.haskellstack.org/en/stable/README/)
-
-(You may also need to install `zlib`, `openssl`, and `sqlite`.)
-
-Stack is a Haskell build tool that manages compiler and dependency versions for
-you. It's easy to install and use.
-
-To build a `chainweb-node` binary:
-
-```bash
-stack build
-```
-
-This will compile a runnable version of `chainweb-node`, which you can run via:
-
-```bash
-stack exec -- chainweb-node
-```
-
-Alternatively, `stack install` will install the binary to `~/.local/bin/`, which
-you may need to add to your path. Then, you can call `chainweb-node` as-is.
+built as follows.
 
 #### Building with Cabal
 
-In order to build with `cabal` you have to install `ghc >= 8.4` (Haskell compiler)
-and `cabal >= 2.4` (Haskell build-tool)
+In order to build with `cabal` you have to install `ghc-8.10.7` (Haskell compiler)
+and `cabal >= 3.0` (Haskell build-tool)
+
 *   [Linux / Mac](https://www.haskell.org/ghcup/)
 
-(You may also need to install `zlib`, `openssl`, and `sqlite`.)
-
-Cabal is the original build tool for Haskell. You will need a version of GHC
-installed on your machine to use it.
+You may also need to install `zlib`, `openssl`, `rocksdb`, and `sqlite`.
 
 To build a `chainweb-node` binary:
 
 ```bash
 # Only necessary if you haven't done this recently.
-cabal v2-update
+cabal update
 
 # Build the project.
-cabal v2-build
+cabal build
 ```
 
 To install a runnable binary to `~/.cabal/bin/`:
 
 ```bash
-cabal v2-install
+cabal install
+```
+
+#### Building with Nix
+
+Another way to build and run chainweb is to use the Nix package manager which
+has binary caching capabilities that allow you to download pre-built binaries
+for everything needed by Chainweb. For detailed instructions see [our
+    wiki](https://github.com/kadena-io/pact/wiki/Building-Kadena-Projects).
+
+When the build is finished, you can run chainweb with the following command:
+
+```bash
+./result/ghc/chainweb/bin/chainweb-node
 ```
 
 ## Bootstrap Nodes
