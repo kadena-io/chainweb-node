@@ -76,8 +76,10 @@ newtype JsonSockAddr = JsonSockAddr SockAddr
     deriving newtype (Show, Eq, Ord, NFData)
 
 instance ToJSON JsonSockAddr where
-    toJSON (JsonSockAddr s) = sockAddrJson s
+    toJSON (JsonSockAddr s) = object $ sockAddrJson s
+    toEncoding (JsonSockAddr s) = pairs . mconcat $ sockAddrJson s
     {-# INLINE toJSON #-}
+    {-# INLINE toEncoding #-}
 
 data RequestLog = RequestLog
     { _requestLogVersion :: !T.Text
@@ -99,6 +101,11 @@ instance ToJSON RequestLog where
     toJSON = genericToJSON defaultOptions
         { fieldLabelModifier = over _head toLower . drop 11
         }
+    toEncoding = genericToEncoding defaultOptions
+        { fieldLabelModifier = over _head toLower . drop 11
+        }
+    {-# INLINE toJSON #-}
+    {-# INLINE toEncoding #-}
 
 -- | INVARIANT: this result of this function must not retain pointers to
 -- the original request data that came over the wire.
@@ -140,6 +147,11 @@ instance ToJSON RequestResponseLog where
     toJSON = genericToJSON defaultOptions
         { fieldLabelModifier = over _head toLower . drop 19
         }
+    toEncoding = genericToEncoding defaultOptions
+        { fieldLabelModifier = over _head toLower . drop 19
+        }
+    {-# INLINE toJSON #-}
+    {-# INLINE toEncoding #-}
 
 logRequestResponse :: RequestLog -> Response -> Int -> RequestResponseLog
 logRequestResponse reqLog res d = RequestResponseLog

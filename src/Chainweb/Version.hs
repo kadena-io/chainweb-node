@@ -302,10 +302,13 @@ decodeChainwebVersion = fromChainwebVersionId <$> getWord32le
 
 instance ToJSON ChainwebVersion where
     toJSON = toJSON . toText
+    toEncoding = toEncoding . toText
     {-# INLINE toJSON #-}
+    {-# INLINE toEncoding #-}
 
 instance FromJSON ChainwebVersion where
     parseJSON = parseJsonFromText "ChainwebVersion"
+    {-# INLINE parseJSON #-}
 
 instance MerkleHashAlgorithm a => IsMerkleLogEntry a ChainwebHashTag ChainwebVersion where
     type Tag ChainwebVersion = 'ChainwebVersionTag

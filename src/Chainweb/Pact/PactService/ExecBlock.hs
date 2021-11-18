@@ -388,10 +388,19 @@ minerReward v (MinerRewards rs) bh =
 
 
 data CRLogPair = CRLogPair P.Hash [P.TxLog A.Value]
+
+crLogPairProperties :: A.KeyValue kv => CRLogPair -> [kv]
+crLogPairProperties (CRLogPair h logs) =
+  [ "hash" A..= h
+  , "rawLogs" A..= logs
+  ]
+{-# INLINE crLogPairProperties #-}
+
 instance A.ToJSON CRLogPair where
-  toJSON (CRLogPair h logs) = A.object
-    [ "hash" A..= h
-    , "rawLogs" A..= logs ]
+  toJSON = A.object . crLogPairProperties
+  toEncoding = A.pairs . mconcat . crLogPairProperties
+  {-# INLINE toJSON #-}
+  {-# INLINE toEncoding #-}
 
 validateHashes
     :: BlockHeader

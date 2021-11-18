@@ -1051,16 +1051,24 @@ defaultEnableConfig a = EnableConfig
     , _enableConfigConfig = a
     }
 
+enableConfigProperties :: ToJSON a => KeyValue kv => EnableConfig a -> [kv]
+enableConfigProperties o =
+    [ "enabled" .= _enableConfigEnabled o
+    , "configuration" .= _enableConfigConfig o
+    ]
+{-# INLINE enableConfigProperties #-}
+
 instance ToJSON a => ToJSON (EnableConfig a) where
-    toJSON o = object
-        [ "enabled" .= _enableConfigEnabled o
-        , "configuration" .= _enableConfigConfig o
-        ]
+    toJSON = object . enableConfigProperties
+    toEncoding = pairs . mconcat . enableConfigProperties
+    {-# INLINE toJSON #-}
+    {-# INLINE toEncoding #-}
 
 instance FromJSON (a -> a) => FromJSON (EnableConfig a -> EnableConfig a) where
     parseJSON = withObject "EnableConfig" $ \o -> id
         <$< enableConfigEnabled ..: "enabled" % o
         <*< enableConfigConfig %.: "configuration" % o
+    {-# INLINE parseJSON #-}
 
 validateEnableConfig :: ConfigValidation a l -> ConfigValidation (EnableConfig a) l
 validateEnableConfig v c = when (_enableConfigEnabled c) $ v (_enableConfigConfig c)
@@ -1371,22 +1379,22 @@ setManagerRequestTimeout micros settings = settings
 -- -------------------------------------------------------------------------- --
 -- SockAddr from network package
 
-sockAddrJson :: SockAddr -> Value
-sockAddrJson (SockAddrInet p i) = object
+sockAddrJson :: KeyValue kv => SockAddr -> [kv]
+sockAddrJson (SockAddrInet p i) =
     [ "ipv4" .= showIpv4 i
     , "port" .= fromIntegral @PortNumber @Int p
     ]
-sockAddrJson (SockAddrInet6 p f i s) = object
+sockAddrJson (SockAddrInet6 p f i s) =
     [ "ipv6" .= show i
     , "port" .= fromIntegral @PortNumber @Int p
     , "flowInfo" .= f
     , "scopeId" .= s
     ]
-sockAddrJson (SockAddrUnix s) = object
+sockAddrJson (SockAddrUnix s) =
     [ "pipe" .= s
     ]
 #if !MIN_VERSION_network(3,0,0)
-sockAddrJson (SockAddrCan i) = object
+sockAddrJson (SockAddrCan i) =
     [ "can" .= i
     ]
 #endif

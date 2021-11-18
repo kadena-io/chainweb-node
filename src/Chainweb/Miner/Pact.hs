@@ -86,15 +86,24 @@ data Miner = Miner !MinerId !MinerKeys
     deriving stock (Eq, Ord, Show, Generic)
     deriving anyclass (NFData)
 
+-- IMPORTANT: the order of the properties here is significant!
+--
+minerProperties :: KeyValue kv => Miner -> [kv]
+minerProperties (Miner (MinerId m) (MinerKeys ks)) =
+    [ "account" .= m
+    , "predicate" .= _ksPredFun ks
+    , "public-keys" .= _ksKeys ks
+    ]
+{-# INLINE minerProperties #-}
+
 -- NOTE: These JSON instances are used (among other things) to embed Miner data
 -- into the Genesis Payloads. If these change, the payloads become unreadable!
 --
 instance ToJSON Miner where
-    toJSON (Miner (MinerId m) (MinerKeys ks)) = object
-        [ "account" .= m
-        , "public-keys" .= _ksKeys ks
-        , "predicate" .= _ksPredFun ks
-        ]
+    toJSON = object . minerProperties
+    toEncoding = pairs . mconcat . minerProperties
+    {-# INLINE toJSON #-}
+    {-# INLINE toEncoding #-}
 
 instance FromJSON Miner where
     parseJSON = withObject "Miner" $ \o -> Miner

@@ -32,6 +32,7 @@ import Control.Monad.Catch
 import Crypto.Hash.Algorithms
 
 import Data.Aeson
+import Data.Aeson.Encoding
 import qualified Data.Aeson.Types as Aeson
 import Data.MerkleLog hiding (Expected, Actual)
 import qualified Data.Text as T
@@ -107,6 +108,26 @@ proofToJson cid p = object
         [ "input" .= encodeB64UrlNoPaddingText bytes
         ]
 
+proofToEncoding
+    :: ChainId
+        -- ^ The target chain of the proof, i.e. the chain of the root.
+    -> MerkleProof SHA512t_256
+        -- ^ The Merkle proof blob which coaintains both, the proof object and
+        -- the proof subject.
+    -> Encoding
+proofToEncoding cid p = pairs
+    $ "chain" .= cid
+    <> "object" .= obj (_merkleProofObject p)
+    <> pair "subject" ((subj . _getMerkleProofSubject . _merkleProofSubject) p)
+    <> "algorithm" .= ("SHA512t_256" :: T.Text)
+  where
+    obj = encodeB64UrlNoPaddingText . encodeMerkleProofObject
+
+    subj (TreeNode h) = pairs
+        $ "tree" .= encodeB64UrlNoPaddingText (encodeMerkleRoot h)
+    subj (InputNode bytes) = pairs
+        $ "input" .= encodeB64UrlNoPaddingText bytes
+
 parseProof
     :: String
     -> (ChainId -> MerkleProof SHA512t_256 -> a)
@@ -156,9 +177,13 @@ data TransactionProof a = TransactionProof
 
 instance ToJSON (TransactionProof SHA512t_256) where
     toJSON (TransactionProof cid p) = proofToJson cid p
+    toEncoding (TransactionProof cid p) = proofToEncoding cid p
+    {-# INLINE toJSON #-}
+    {-# INLINE toEncoding #-}
 
 instance FromJSON (TransactionProof SHA512t_256) where
     parseJSON = parseProof "TransactionProof" TransactionProof
+    {-# INLINE parseJSON #-}
 
 -- | Getter into the chain id of a 'TransactionProof'
 --
@@ -182,9 +207,13 @@ data TransactionOutputProof a = TransactionOutputProof
 
 instance ToJSON (TransactionOutputProof SHA512t_256) where
     toJSON (TransactionOutputProof cid p) = proofToJson cid p
+    toEncoding (TransactionOutputProof cid p) = proofToEncoding cid p
+    {-# INLINE toJSON #-}
+    {-# INLINE toEncoding #-}
 
 instance FromJSON (TransactionOutputProof SHA512t_256) where
     parseJSON = parseProof "TransactionOutputProof" TransactionOutputProof
+    {-# INLINE parseJSON #-}
 
 -- | Getter into the chain id of a 'TransactionOutputProof'
 --

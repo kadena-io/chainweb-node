@@ -44,6 +44,7 @@ import Control.Monad.Catch
 import Crypto.Hash.Algorithms
 
 import Data.Aeson
+import Data.Aeson.Encoding
 import Data.MerkleLog
 import qualified Data.Text as T
 
@@ -104,6 +105,22 @@ instance MerkleHashAlgorithmName a => ToJSON (PayloadProof a) where
         subj (InputNode bytes) = object
             [ "input" .= encodeB64UrlNoPaddingText bytes
             ]
+    {-# INLINE toJSON #-}
+
+    toEncoding p = pairs
+        $ "algorithm" .= merkleHashAlgorithmName @a
+        <> "rootType" .= _payloadProofRootType p
+        <> "object" .= (obj . _merkleProofObject) blob
+        <> pair "subject" (subj . _getMerkleProofSubject . _merkleProofSubject $ blob)
+      where
+        blob = _payloadProofBlob p
+        obj = encodeB64UrlNoPaddingText . encodeMerkleProofObject
+
+        subj (TreeNode h) = pairs
+            $ "tree" .= encodeB64UrlNoPaddingText (encodeMerkleRoot h)
+        subj (InputNode bytes) = pairs
+            $ "input" .= encodeB64UrlNoPaddingText bytes
+    {-# INLINE toEncoding #-}
 
 instance (MerkleHashAlgorithm a, MerkleHashAlgorithmName a) => FromJSON (PayloadProof a) where
     parseJSON = withObject "PayloadProof" $ \o -> PayloadProof
@@ -141,6 +158,9 @@ data SomePayloadProof where
 
 instance ToJSON SomePayloadProof where
     toJSON (SomePayloadProof p) = toJSON p
+    toEncoding (SomePayloadProof p) = toEncoding p
+    {-# INLINE toJSON #-}
+    {-# INLINE toEncoding #-}
 
 instance FromJSON SomePayloadProof where
     parseJSON v = withObject "SomePayloadProof" (\o -> o .: "algorithm" >>= pick) v
@@ -151,6 +171,7 @@ instance FromJSON SomePayloadProof where
             | a == merkleHashAlgorithmName @Keccak_256 =
                 SomePayloadProof @Keccak_256 <$> parseJSON v
             | otherwise = fail $ "unsupported Merkle hash algorithm: " <> T.unpack a
+    {-# INLINE parseJSON #-}
 
 -- -------------------------------------------------------------------------- --
 -- Proof Validation
