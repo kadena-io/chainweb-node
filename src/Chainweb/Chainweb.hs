@@ -650,7 +650,7 @@ runChainweb cw = do
     pactDbsToServe :: [(ChainId, PactServerData logger cas)]
     pactDbsToServe = _chainwebPactData cw
 
-    -- Public Server
+    -- P2P Server
 
     serverSettings :: Settings
     serverSettings = setOnException
