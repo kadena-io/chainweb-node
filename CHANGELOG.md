@@ -14,7 +14,7 @@ Changes:
      new block requests priority over requests from the service APIs and the
      mempool. It makes nodes more resilient under load. (#1280)
 
-*    Upgrade Pact version to 4.1.1. (#1286)
+*    Upgrade Pact version to 4.1.2. (#1286, #1287)
 
 *    Enforce keyset formats. (#1287)
 
