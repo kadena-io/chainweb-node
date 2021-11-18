@@ -75,6 +75,15 @@ brew install rocksdb
 
 ### Installing Chainweb-node
 
+Minimal recommended hardware requirements for nodes are:
+
+* 2 CPU cores
+* 4 GB of RAM
+* 100 GB SSD or fast HDD
+* Public IP address
+
+If the node is also used as API server for Pact or mining, rosetta, chainweb-data: 4 CPU cores and 8GB of RAM.
+
 Chainweb-node binaries for ubuntu-16.04, ubuntu-18.04, and MacOSX can be found
 [here](https://github.com/kadena-io/chainweb-node/releases).
 
