@@ -10,10 +10,6 @@ on:
         description: optimization level that is used to compile pact and chainweb-node
         default: '1'
   push:
-    branches:
-    - master
-    - ci/*
-    - release-candidate/*
 
 env:
   AWS_ACCESS_KEY_ID: ${{ secrets.kadena_cabal_cache_aws_access_key_id }}
@@ -74,8 +70,8 @@ jobs:
         MATRIX="$(jq -c '.' <<EOF
         {
           "ghc": ["8.10.7", "9.0.1"],
-          "cabal": ["3.4.0.0"],
-          "os": ["ubuntu-18.04", "ubuntu-20.04", "macOS-latest"],
+          "cabal": ["3.6"],
+          "os": ["ubuntu-18.04", "ubuntu-20.04"],
           "cabalcache": ["true"]
         }
         EOF
@@ -145,7 +141,7 @@ jobs:
     - name: Checkout repository
       uses: actions/checkout@v2
     - name: Install GHC and Cabal
-      uses: larskuhtz/actions/setup@e0f107055073590682bc5264b8da5c2b6af39a65
+      uses: haskell/actions/setup@v1.2.7
       with:
          ghc-version: ${{ matrix.ghc }}
          cabal-version: ${{ matrix.cabal }}
@@ -156,12 +152,6 @@ jobs:
     - name: Install non-Haskell dependencies (ubuntu)
       if: contains(matrix.os, 'ubuntu')
       run: sudo apt-get install -y librocksdb-dev z3
-    - name: Install non-Haskell dependencies (macOS)
-      if: contains(matrix.os, 'mac')
-      run: |
-        brew update && brew install rocksdb z3 gnu-tar || true
-        # work around bug in macOS and github actions cache (cf. https://github.com/actions/cache/issues/403)
-        echo PATH="/usr/local/opt/gnu-tar/libexec/gnubin:$PATH" >> $GITHUB_ENV
     - name: Create cabal.project.local
       run: |
         cat > cabal.project.local <<EOF
@@ -203,7 +193,6 @@ jobs:
     # Build
     - name: Delete Freeze file
       # we generate and archive a new freeze file during the build
-      # (TODO: setup a workflow that uses the existing freeze file)
       run: rm cabal.project.freeze
     - name: Update package database
       run: cabal update
@@ -456,13 +445,7 @@ jobs:
       timeout-minutes: 10
       run: |
           ulimit -n 10000
-          ulimit -a
-          env
-          if [[ "${{ runner.os }}" = "macOS" ]] ; then
-            chainweb-tests --hide-successes --results-json test-results.json --pattern='! ( /RemotePactTest/ || /PactInProcApi/ || /PactReplay/ || /Rosetta.RestAPI/ )'
-          else
-            chainweb-tests --hide-successes --results-json test-results.json
-          fi
+          chainweb-tests --hide-successes --results-json test-results.json
 
     # Publish test results to S3
     - name: Upload test results
