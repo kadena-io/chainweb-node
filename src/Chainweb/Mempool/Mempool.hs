@@ -3,6 +3,7 @@
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
@@ -84,7 +85,7 @@ module Chainweb.Mempool.Mempool
 ------------------------------------------------------------------------------
 import Control.DeepSeq (NFData)
 import Control.Exception
-import Control.Lens
+import Control.Lens hiding ((.=))
 import Control.Monad (replicateM, unless)
 
 import Crypto.Hash (hash)
@@ -140,7 +141,25 @@ import Data.LogMessage (LogFunctionText)
 data LookupResult t = Missing
                     | Pending t
   deriving (Show, Generic)
-  deriving anyclass (ToJSON, FromJSON, NFData) -- TODO: a handwritten instance
+  deriving anyclass (NFData)
+
+-- This instance is a bit strange. It's for backward compatibility.
+--
+instance ToJSON t => ToJSON (LookupResult t) where
+    toJSON Missing = object [ "tag" .= ("Missing" :: String) ]
+    toJSON (Pending t) = object [ "tag" .= ("Pending" :: String), "contents" .= t ]
+    {-# INLINE toJSON #-}
+
+    toEncoding Missing = pairs $ "tag" .= ("Missing" :: String)
+    toEncoding (Pending t) = pairs $ "tag" .= ("Pending" :: String) <> "contents" .= t
+    {-# INLINE toEncoding #-}
+
+instance FromJSON t => FromJSON (LookupResult t) where
+    parseJSON = withObject "LookupResult" $ \o -> o .: "tag" >>= \case
+        "Missing" -> return Missing
+        "Pending" -> Pending <$> o .: "contents"
+        t -> fail $ "Unrecognized lookup result tag: " <> t
+    {-# INLINE parseJSON #-}
 
 instance Functor LookupResult where
     fmap _ Missing = Missing

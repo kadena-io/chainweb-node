@@ -97,6 +97,7 @@ module Chainweb.Utils
 , decodeB64Text
 , encodeB64UrlText
 , decodeB64UrlText
+, encodeB64UrlNoPadding
 , encodeB64UrlNoPaddingText
 , decodeB64UrlNoPaddingText
 
@@ -650,6 +651,10 @@ decodeB64UrlNoPaddingText = fromEitherM
 encodeB64UrlNoPaddingText :: B.ByteString -> T.Text
 encodeB64UrlNoPaddingText = T.dropWhileEnd (== '=') . T.decodeUtf8 . B64U.encode
 {-# INLINE encodeB64UrlNoPaddingText #-}
+
+encodeB64UrlNoPadding :: B.ByteString -> B.ByteString
+encodeB64UrlNoPadding = B.dropWhileEnd (== 61) . B64U.encode
+{-# INLINE encodeB64UrlNoPadding #-}
 
 -- -------------------------------------------------------------------------- --
 -- ** JSON

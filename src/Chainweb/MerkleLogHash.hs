@@ -136,7 +136,7 @@ randomMerkleLogHash :: MerkleHashAlgorithm a => MonadIO m => m (MerkleLogHash a)
 randomMerkleLogHash = unsafeMerkleLogHash <$> randomByteString merkleLogHashBytesCount
 
 merkleLogHashToText :: MerkleHashAlgorithm a => MerkleLogHash a -> T.Text
-merkleLogHashToText = encodeB64UrlNoPaddingText . runPutS . encodeMerkleLogHash
+merkleLogHashToText (MerkleLogHash bytes) = encodeB64UrlNoPaddingText (encodeMerkleRoot bytes)
 {-# INLINE merkleLogHashToText #-}
 
 merkleLogHashFromText
