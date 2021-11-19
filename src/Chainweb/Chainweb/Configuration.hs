@@ -332,6 +332,8 @@ data ChainwebConfiguration = ChainwebConfiguration
     , _configAllowReadsInLocal :: !Bool
     , _configRosetta :: !Bool
     , _configServiceApi :: !ServiceApiConfig
+    , _configOnlySyncPact :: !Bool
+        -- ^ exit after synchronizing pact dbs to the latest cut
     } deriving (Show, Eq, Generic)
 
 makeLenses ''ChainwebConfiguration
@@ -372,6 +374,7 @@ defaultChainwebConfiguration v = ChainwebConfiguration
     , _configAllowReadsInLocal = False
     , _configRosetta = False
     , _configServiceApi = defaultServiceApiConfig
+    , _configOnlySyncPact = False
     }
 
 instance ToJSON ChainwebConfiguration where
@@ -393,6 +396,7 @@ instance ToJSON ChainwebConfiguration where
         , "allowReadsInLocal" .= _configAllowReadsInLocal o
         , "rosetta" .= _configRosetta o
         , "serviceApi" .= _configServiceApi o
+        , "onlySyncPact" .= _configOnlySyncPact o
         ]
 
 instance FromJSON ChainwebConfiguration where
@@ -420,6 +424,7 @@ instance FromJSON (ChainwebConfiguration -> ChainwebConfiguration) where
         <*< configAllowReadsInLocal ..: "allowReadsInLocal" % o
         <*< configRosetta ..: "rosetta" % o
         <*< configServiceApi %.: "serviceApi" % o
+        <*< configOnlySyncPact ..: "onlySyncPact" % o
 
 pChainwebConfiguration :: MParser ChainwebConfiguration
 pChainwebConfiguration = id
@@ -469,4 +474,7 @@ pChainwebConfiguration = id
         <> help "Enable the Rosetta endpoints."
     <*< configCuts %:: pCutConfig
     <*< configServiceApi %:: pServiceApiConfig
+    <*< configOnlySyncPact .:: boolOption_
+        % long "only-sync-pact"
+        <> help "Terminate after synchronizing the pact databases to the latest cut"
 
