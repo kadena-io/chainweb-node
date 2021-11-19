@@ -48,6 +48,8 @@ import GHC.Generics (Generic)
 
 import Numeric.Natural (Natural)
 
+import Options.Applicative
+
 import Pact.Types.Term (mkKeySet, PublicKey(..))
 
 -- internal modules
@@ -104,7 +106,9 @@ instance FromJSON (MiningConfig -> MiningConfig) where
         <*< miningInNode %.: "nodeMining" % o
 
 pMiningConfig :: MParser MiningConfig
-pMiningConfig = miningCoordination %:: pCoordinationConfig
+pMiningConfig = id
+    <$< miningCoordination %:: pCoordinationConfig
+    <*< miningInNode %:: pNodeMiningConfig
 
 defaultMining :: MiningConfig
 defaultMining = MiningConfig
@@ -179,7 +183,7 @@ pCoordinationConfig = id
     <$< coordinationEnabled .:: enableDisableFlag
         % long "mining-coordination"
         <> help "whether to enable the mining coordination API"
-    <*< coordinationMiners %:: pLeftMonoidalUpdate pMinerSet
+    <*< coordinationMiners %:: pLeftMonoidalUpdate (S.singleton <$> pMiner "")
     <*< coordinationLimit .:: jsonOption
         % long "mining-request-limit"
         <> help "Number of /mining/work requests that can be made within a 5min period"
@@ -189,15 +193,15 @@ pCoordinationConfig = id
     <*< coordinationUpdateStreamTimeout .:: jsonOption
         % long "mining-update-stream-timeout"
         <> help "duration that an update stream is kept open in seconds"
+
+pMiner :: String -> Parser Miner
+pMiner prefix = pkToMiner <$> pPk
   where
     pkToMiner pk = Miner
         (MinerId $ "k:" <> T.decodeUtf8 (_pubKey pk))
         (MinerKeys $ mkKeySet [pk] "keys-all")
-
-    pMinerSet = S.singleton . pkToMiner <$> pPk
-
-    pPk = jsonOption
-        % long "mining-public-key"
+    pPk = strOption
+        % long (prefix <> "mining-public-key")
         <> help "public key of a miner in hex decimal encoding. The account name is the public key prefix by 'k:'. (This option can be provided multiple times.)"
 
 -- -------------------------------------------------------------------------- --
@@ -233,6 +237,13 @@ instance FromJSON (NodeMiningConfig -> NodeMiningConfig) where
         <$< nodeMiningEnabled ..: "enabled" % o
         <*< nodeMiner ..: "miner" % o
         <*< nodeTestMiners ..: "testMiners" % o
+
+pNodeMiningConfig :: MParser NodeMiningConfig
+pNodeMiningConfig = id
+    <$< nodeMiningEnabled .:: enableDisableFlag
+        % long "node-mining"
+        <> help "ONLY FOR TESTING NETWORKS: whether to enable in node mining"
+    <*< nodeMiner .:: pMiner "node-"
 
 defaultNodeMining :: NodeMiningConfig
 defaultNodeMining = NodeMiningConfig
