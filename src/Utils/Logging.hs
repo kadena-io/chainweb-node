@@ -383,20 +383,6 @@ instance FromJSON LogFilter where
         <*> o .:? "default-rate" .!= Probability 1
     {-# INLINE parseJSON #-}
 
--- logFilterHandle_ :: LogFilter -> LogHandler
--- logFilterHandle_ sf = maybeLogHandler $ \msg -> do
---     let msgLevel = L._logMsgLevel msg
---         apply l = case l `List.lookup` _logFilterRules sf of
---             Just level -> Just (All $ level >= msgLevel)
---             Nothing -> Nothing
---     case mconcat $ apply <$> L._logMsgScope msg of
---         Nothing
---             | _logFilterDefaultLevel sf >= msgLevel -> return (Just msg)
---             | otherwise -> return Nothing
---         Just (All True) -> return (Just msg)
---         Just (All False) -> return Nothing
--- {-# INLINEABLE logFilterHandle_ #-}
-
 logRuleRng :: IORef Prob.Seed
 logRuleRng = unsafePerformIO (Prob.createSystemSeed >>= newIORef)
 {-# NOINLINE logRuleRng #-}
@@ -404,11 +390,12 @@ logRuleRng = unsafePerformIO (Prob.createSystemSeed >>= newIORef)
 logRuleToss :: Probability -> IO Bool
 logRuleToss (Probability p) = do
     -- This is isn't thread-safe in a conventional way at all. But
-    -- we don't care about non-deterministic results do to races as
+    -- we don't care about non-deterministic results due to races as
     -- long as the results are sufficiently random on each individual thread.
+    -- Results can, but don't have to, correlate between threads.
     rng <- Prob.restore =<< readIORef logRuleRng
     r <- Prob.bernoulli p rng
-    _ <- Prob.save rng
+    Prob.save rng >>= atomicWriteIORef logRuleRng
     return r
 {-# INLINE logRuleToss #-}
 
