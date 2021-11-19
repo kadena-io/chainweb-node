@@ -469,4 +469,5 @@ pChainwebConfiguration = id
         <> help "Enable the Rosetta endpoints."
     <*< configCuts %:: pCutConfig
     <*< configServiceApi %:: pServiceApiConfig
+    <*< configMining %:: pMiningConfig
 

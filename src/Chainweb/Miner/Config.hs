@@ -17,10 +17,12 @@
 module Chainweb.Miner.Config
 ( MiningConfig(..)
 , defaultMining
+, pMiningConfig
 , miningCoordination
 , miningInNode
 , validateMinerConfig
 , CoordinationConfig(..)
+, pCoordinationConfig
 , coordinationEnabled
 , coordinationMiners
 , NodeMiningConfig(..)
@@ -40,16 +42,17 @@ import Control.Monad.Except (throwError)
 import Control.Monad.Writer (tell)
 
 import qualified Data.Set as S
+import qualified Data.Text.Encoding as T
 
 import GHC.Generics (Generic)
 
 import Numeric.Natural (Natural)
 
-import Pact.Types.Term (mkKeySet)
+import Pact.Types.Term (mkKeySet, PublicKey(..))
 
 -- internal modules
 
-import Chainweb.Miner.Pact (Miner(..), MinerKeys(..), minerId)
+import Chainweb.Miner.Pact (Miner(..), MinerKeys(..), MinerId(..), minerId)
 import Chainweb.Time (Seconds)
 
 ---
@@ -59,6 +62,9 @@ import Chainweb.Time (Seconds)
 newtype MinerCount = MinerCount { _minerCount :: Natural }
     deriving stock (Eq, Ord, Show)
     deriving newtype (FromJSON)
+
+-- -------------------------------------------------------------------------- --
+-- Mining Config
 
 validateMinerConfig :: ConfigValidation MiningConfig []
 validateMinerConfig c = do
@@ -97,10 +103,16 @@ instance FromJSON (MiningConfig -> MiningConfig) where
         <$< miningCoordination %.: "coordination" % o
         <*< miningInNode %.: "nodeMining" % o
 
+pMiningConfig :: MParser MiningConfig
+pMiningConfig = miningCoordination %:: pCoordinationConfig
+
 defaultMining :: MiningConfig
 defaultMining = MiningConfig
     { _miningCoordination = defaultCoordination
     , _miningInNode = defaultNodeMining }
+
+-- -------------------------------------------------------------------------- --
+-- Mining Coordination Config
 
 -- | Configuration for Mining Coordination.
 data CoordinationConfig = CoordinationConfig
@@ -149,7 +161,7 @@ instance FromJSON (CoordinationConfig -> CoordinationConfig) where
     parseJSON = withObject "CoordinationConfig" $ \o -> id
         <$< coordinationEnabled ..: "enabled" % o
         <*< coordinationLimit ..: "limit" % o
-        <*< coordinationMiners ..: "miners" % o
+        <*< coordinationMiners .fromLeftMonoidalUpdate %.: "miners" % o
         <*< coordinationUpdateStreamLimit ..: "updateStreamLimit" % o
         <*< coordinationUpdateStreamTimeout ..: "updateStreamTimeout" % o
 
@@ -161,6 +173,35 @@ defaultCoordination = CoordinationConfig
     , _coordinationUpdateStreamLimit = 2000
     , _coordinationUpdateStreamTimeout = 240
     }
+
+pCoordinationConfig :: MParser CoordinationConfig
+pCoordinationConfig = id
+    <$< coordinationEnabled .:: enableDisableFlag
+        % long "mining-coordination"
+        <> help "whether to enable the mining coordination API"
+    <*< coordinationMiners %:: pLeftMonoidalUpdate pMinerSet
+    <*< coordinationLimit .:: jsonOption
+        % long "mining-request-limit"
+        <> help "Number of /mining/work requests that can be made within a 5min period"
+    <*< coordinationUpdateStreamLimit .:: jsonOption
+        % long "mining-update-stream-limit"
+        <> help "maximum number of concurrent update streams that is supported"
+    <*< coordinationUpdateStreamTimeout .:: jsonOption
+        % long "mining-update-stream-timeout"
+        <> help "duration that an update stream is kept open in seconds"
+  where
+    pkToMiner pk = Miner
+        (MinerId $ "k:" <> T.decodeUtf8 (_pubKey pk))
+        (MinerKeys $ mkKeySet [pk] "keys-all")
+
+    pMinerSet = S.singleton . pkToMiner <$> pPk
+
+    pPk = jsonOption
+        % long "mining-public-key"
+        <> help "public key of a miner in hex decimal encoding. The account name is the public key prefix by 'k:'. (This option can be provided multiple times.)"
+
+-- -------------------------------------------------------------------------- --
+-- Node Mining Config
 
 data NodeMiningConfig = NodeMiningConfig
     { _nodeMiningEnabled :: !Bool
@@ -201,3 +242,4 @@ defaultNodeMining = NodeMiningConfig
 
 invalidMiner :: Miner
 invalidMiner = Miner "" . MinerKeys $ mkKeySet [] "keys-all"
+
