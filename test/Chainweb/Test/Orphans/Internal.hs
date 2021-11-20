@@ -713,10 +713,7 @@ mkTestOutputProof
 mkTestOutputProof p reqKey = unsafePerformIO $ createOutputProof_ @a p reqKey
 
 instance MerkleHashAlgorithm a => Arbitrary (PayloadProof a) where
-    arbitrary = oneof
-        [ arbitraryOutputProof
-        , arbitraryEventsProof
-        ]
+    arbitrary = arbitraryOutputProof
 
 -- | This creates proof over payloads that contain arbitrary bytestrings.
 --
