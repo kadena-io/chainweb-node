@@ -11,6 +11,7 @@
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TupleSections #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
@@ -51,6 +52,8 @@ import qualified Data.Text as T
 import GHC.Generics
 
 import Pact.Types.Command
+
+import Unsafe.Coerce
 
 -- internal modules
 
@@ -155,6 +158,15 @@ instance (MerkleHashAlgorithm a, MerkleHashAlgorithmName a) => FromJSON (Payload
 
 data SomePayloadProof where
     SomePayloadProof :: (MerkleHashAlgorithm a, MerkleHashAlgorithmName a) => !(PayloadProof a) -> SomePayloadProof
+
+deriving instance Show SomePayloadProof
+
+instance Eq SomePayloadProof where
+    (SomePayloadProof (a :: PayloadProof aalg)) == (SomePayloadProof (b :: PayloadProof balg))
+        | merkleHashAlgorithmName @aalg == merkleHashAlgorithmName @balg =
+            unsafeCoerce b == a
+        | otherwise = False
+
 
 instance ToJSON SomePayloadProof where
     toJSON (SomePayloadProof p) = toJSON p

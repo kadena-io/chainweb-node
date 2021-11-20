@@ -54,7 +54,7 @@ data NodeInfo = NodeInfo
   , nodeGraphHistory :: [(BlockHeight, [(Int, [Int])])]
   -- ^ List of chain graphs and the block height they took effect. Sorted
   -- descending by height so the current chain graph is at the beginning.
-  } deriving (Generic)
+  } deriving (Show, Eq, Generic)
 
 instance ToJSON NodeInfo
 instance FromJSON NodeInfo

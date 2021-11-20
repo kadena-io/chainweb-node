@@ -362,6 +362,7 @@ data HeaderUpdate = HeaderUpdate
     , _huPowHash :: !Text
     , _huTarget :: !Text
     }
+    deriving (Show, Eq)
 
 headerUpdateProperties :: KeyValue kv => HeaderUpdate -> [kv]
 headerUpdateProperties o =
@@ -377,6 +378,14 @@ instance ToJSON HeaderUpdate where
     toEncoding = pairs . mconcat . headerUpdateProperties
     {-# INLINE toJSON #-}
     {-# INLINE toEncoding #-}
+
+instance FromJSON HeaderUpdate where
+    parseJSON = withObject "HeaderUpdate" $ \o -> HeaderUpdate
+        <$> o .: "header"
+        <*> o .: "txCount"
+        <*> o .: "powHash"
+        <*> o .: "target"
+    {-# INLINE parseJSON #-}
 
 type HeaderStreamApi_ = "header" :> "updates" :> Raw
 

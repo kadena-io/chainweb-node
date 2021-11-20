@@ -457,7 +457,7 @@ peerProperties :: KeyValue kv => Peer -> [kv]
 peerProperties p =
     [ "info" .= _peerInfo p
     , "interface" .= hostPreferenceToText (_peerInterface p)
-    , "certifcateChain" .= _peerCertificateChain p
+    , "certificateChain" .= _peerCertificateChain p
     , "key" .= _peerKey p
     ]
 {-# INLINE peerProperties #-}
@@ -472,7 +472,7 @@ instance FromJSON Peer where
     parseJSON = withObject "Peer" $ \o -> Peer
         <$> o .: "info"
         <*> (parseJsonFromText "interface" =<< o .: "interface")
-        <*> o .: "certificate"
+        <*> o .: "certificateChain"
         <*> o .: "key"
     {-# INLINE parseJSON #-}
 
