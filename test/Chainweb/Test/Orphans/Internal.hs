@@ -127,6 +127,7 @@ import Chainweb.Payload
 import Chainweb.PowHash
 import Chainweb.RestAPI.NetworkID
 import Chainweb.RestAPI.NodeInfo
+import Chainweb.RestAPI.Utils
 import Chainweb.SPV
 import Chainweb.SPV.EventProof
 import Chainweb.SPV.OutputProof
@@ -267,8 +268,19 @@ instance Arbitrary HostPreference where
         ]
 
 instance Arbitrary NodeInfo where
-    arbitrary = NodeInfo
-        <$> arbitrary <*> arbitrary <*> arbitrary <*> arbitrary <*> arbitrary
+    arbitrary = do
+        v <- arbitrary
+        curHeight <- arbitrary
+        let graphs = unpackGraphs v
+            curGraph = head $ dropWhile (\(h,_) -> h > curHeight) graphs
+            curChains = map fst $ snd curGraph
+        return $ NodeInfo
+            { nodeVersion = v
+            , nodeApiVersion = prettyApiVersion
+            , nodeChains = T.pack . show <$> curChains
+            , nodeNumberOfChains = length curChains
+            , nodeGraphHistory = graphs
+            }
 
 -- -------------------------------------------------------------------------- --
 -- Block Header
@@ -701,7 +713,10 @@ mkTestOutputProof
 mkTestOutputProof p reqKey = unsafePerformIO $ createOutputProof_ @a p reqKey
 
 instance MerkleHashAlgorithm a => Arbitrary (PayloadProof a) where
-    arbitrary = arbitraryOutputProof
+    arbitrary = oneof
+        [ arbitraryOutputProof
+        , arbitraryEventsProof
+        ]
 
 -- | This creates proof over payloads that contain arbitrary bytestrings.
 --
