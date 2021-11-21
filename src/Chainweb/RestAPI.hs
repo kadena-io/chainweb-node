@@ -335,8 +335,8 @@ someServiceApiServer v dbs pacts mr (HeaderStream hs) (Rosetta r) =
         -- TODO: why does Rosetta need a peer db at all?
         -- TODO: simplify number of resources passing to rosetta
 
-    -- Cut, Payload, and Headers endpoints
-    <> maybe mempty (someCutServer v cutPeerDb) cuts
+    -- GET Cut, Payload, and Headers endpoints
+    <> maybe mempty (someCutGetServer v) cuts
     <> somePayloadServers v payloads
     <> someBlockHeaderDbServers v blocks
   where
