@@ -64,8 +64,10 @@ import Control.Monad.Catch
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Short as BS
 import Data.Foldable
+import Data.Function
 import qualified Data.HashMap.Strict as HM
 import Data.Kind
+import qualified Data.List as L
 import Data.MerkleLog
 import Data.Type.Equality
 import qualified Data.Vector as V
@@ -561,7 +563,8 @@ hasHeader mlog = case go (sing @N @i) mlog of
 
 arbitraryPayloadWithStructuredOutputs :: Gen (V.Vector RequestKey, PayloadWithOutputs)
 arbitraryPayloadWithStructuredOutputs = resize 10 $ do
-    txs <- V.fromList <$> listOf ((,) <$> arbitrary @Transaction <*> genResult)
+    txs <- V.fromList . L.nubBy ((==) `on` _crReqKey . snd)
+        <$> listOf ((,) <$> arbitrary @Transaction <*> genResult)
     payloads <- newPayloadWithOutputs
         <$> arbitrary
         <*> arbitrary
