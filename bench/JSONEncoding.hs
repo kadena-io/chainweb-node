@@ -1,9 +1,13 @@
 {-# LANGUAGE DerivingVia #-}
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE StandaloneDeriving #-}
+{-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE TypeFamilies #-}
 
 -- |
 -- Module: JSONEncoding
@@ -17,8 +21,9 @@ module JSONEncoding
 ) where
 
 import Chainweb.BlockHeader.Genesis.Mainnet0Payload
+import Chainweb.Utils
 
-import Control.Lens
+import Control.Lens hiding ((.=))
 
 import Criterion.Main
 
@@ -37,6 +42,8 @@ import System.IO.Unsafe
 
 import Test.QuickCheck
 
+-- import Text.Printf
+
 -- internal modules
 
 import Chainweb.BlockHash
@@ -47,7 +54,6 @@ import Chainweb.MerkleLogHash
 import Chainweb.Payload
 import Chainweb.RestAPI.NodeInfo
 import Chainweb.Test.Orphans.Internal
-import Chainweb.Utils
 import Chainweb.Utils.Paging
 import Chainweb.Version
 
@@ -64,6 +70,15 @@ benchmarks = bgroup "JSONEncoding"
         , groupWithEncode "500" (payloadPage 500)
         , groupWithEncode "1000" (payloadPage 1000)
         , groupWithEncode "5000" (payloadPage 5000)
+        ]
+    , bgroup "via"
+        [ group "5" (myPayloadPage 5)
+        , group "10" (myPayloadPage 10)
+        , group "50" (myPayloadPage 50)
+        , group "100" (myPayloadPage 100)
+        , group "500" (myPayloadPage 500)
+        , group "1000" (myPayloadPage 1000)
+        , group "5000" (myPayloadPage 5000)
         ]
     , bgroup "header page"
         [ group "5" (headerPage 5)
@@ -164,13 +179,19 @@ headerPage n = unsafePerformIO $ generate $ arbitraryPage n
 {-# NOINLINE headerPage #-}
 
 objHeaderPage :: Natural -> Page BlockHash (ObjectEncoded BlockHeader)
-objHeaderPage n = pageItems %~ (fmap ObjectEncoded) $ unsafePerformIO
+objHeaderPage n = pageItems %~ fmap ObjectEncoded $ unsafePerformIO
     $ generate $ arbitraryPage n
 {-# NOINLINE objHeaderPage #-}
 
 payloadPage :: Natural -> Page BlockHash PayloadWithOutputs
 payloadPage n = unsafePerformIO $ generate $ arbitraryPage n
 {-# NOINLINE payloadPage #-}
+
+myPayloadPage :: Natural -> Page MyBlockHash MyPayload
+myPayloadPage n = pageItems %~ fmap MyPayload
+    $ pageNext %~ fmap MyBlockHash
+    $ unsafePerformIO $ generate $ arbitraryPage n
+{-# NOINLINE myPayloadPage #-}
 
 -- -------------------------------------------------------------------------- --
 -- Encoded Approach To JSON Encoding
@@ -299,3 +320,92 @@ instance (EncodeJSON a, EncodeJSON b) => EncodeJSON (Page a b) where
     {-# INLINE encodeJSON #-}
 
 deriving via (MerkleRoot a) instance EncodeJSON (BlockHash_ a)
+
+-- -------------------------------------------------------------------------- --
+-- Yet Another Approach
+
+newtype JsonObject a = JsonObject a
+newtype JsonValue b = JsonValue b
+
+class IsJsonObject a where
+    jsonProperties :: KeyValue kv => a -> [kv]
+
+class ToJSON (JsonType a) => IsJsonValue a where
+    type JsonType a
+    jsonValue :: a -> JsonType a
+
+instance IsJsonObject a => ToJSON (JsonObject a) where
+    toJSON (JsonObject a) = object $ jsonProperties a
+    toEncoding (JsonObject a) = pairs . mconcat $ jsonProperties a
+    {-# INLINE toJSON #-}
+    {-# INLINE toEncoding #-}
+
+instance IsJsonValue a => ToJSON (JsonValue a) where
+    toJSON (JsonValue a) = toJSON $ jsonValue a
+    toEncoding (JsonValue a) = toEncoding $ jsonValue a
+    {-# INLINE toJSON #-}
+    {-# INLINE toEncoding #-}
+
+{-
+-- | JSON Object Examples
+--
+data Example = Example { _exampleA :: Int, _exampleB :: T.Text }
+    deriving (ToJSON) via (JsonObject Example)
+
+instance IsJsonObject Example where
+    jsonProperties e = [ "a" .= _exampleA e, "b" .= _exampleB e ]
+    {-# INLINE jsonProperties #-}
+
+-- | JSON Text Example
+--
+newtype HexNum a = HexNum a
+
+deriving via (JsonValue (HexNum a)) instance (PrintfArg a, Integral a) => (ToJSON (HexNum a))
+
+instance PrintfArg a => IsJsonValue (HexNum a) where
+    type JsonType (HexNum a) = T.Text
+    jsonValue (HexNum n) = T.pack $ printf "%x" n
+-}
+
+-- -------------------------------------------------------------------------- --
+-- IsJsonObject Page
+
+newtype MyPage a b = MyPage (Page a b)
+    deriving (ToJSON) via (JsonObject (MyPage a b))
+
+instance (ToJSON a, ToJSON b) => IsJsonObject (MyPage a b) where
+    jsonProperties (MyPage p) =
+        [ "limit" .= _getLimit (_pageLimit p)
+        , "items" .= _pageItems p
+        , "next" .= _pageNext p
+        ]
+    {-# INLINE jsonProperties #-}
+
+newtype MyPayload = MyPayload PayloadWithOutputs
+    deriving (ToJSON) via (JsonObject MyPayload)
+
+instance IsJsonObject MyPayload where
+    jsonProperties (MyPayload o) =
+        [ "transactions" .= _payloadWithOutputsTransactions o
+        , "minerData" .= _payloadWithOutputsMiner o
+        , "coinbase" .= _payloadWithOutputsCoinbase o
+        , "payloadHash" .= _payloadWithOutputsPayloadHash o
+        , "transactionsHash" .= _payloadWithOutputsTransactionsHash o
+        , "outputsHash" .= _payloadWithOutputsOutputsHash o
+        ]
+    {-# INLINE jsonProperties #-}
+
+newtype MyBlockHash = MyBlockHash BlockHash
+    deriving (ToJSON) via (JsonValue MyBlockHash)
+
+instance HasTextRepresentation MyBlockHash where
+    toText (MyBlockHash a) = toText a
+    fromText = fmap MyBlockHash . fromText
+    {-# INLINE toText #-}
+    {-# INLINE fromText #-}
+
+instance IsJsonValue MyBlockHash where
+    type JsonType MyBlockHash = T.Text
+    jsonValue (MyBlockHash h) = encodeB64UrlNoPaddingText $ runPut $ encodeBlockHash h
+    {-# INLINE jsonValue #-}
+
