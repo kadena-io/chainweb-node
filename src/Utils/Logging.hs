@@ -383,9 +383,13 @@ instance FromJSON LogFilter where
         <*> o .:? "default-rate" .!= Probability 1
     {-# INLINE parseJSON #-}
 
+-- | Global RNG for use in filter rules.
+--
 logRuleRng :: IORef Prob.Seed
 logRuleRng = unsafePerformIO (Prob.createSystemSeed >>= newIORef)
 {-# NOINLINE logRuleRng #-}
+-- The NOINLINE pragma ensures that the argument to unsafePerformIO is evaluated
+-- only once.
 
 logRuleToss :: Probability -> IO Bool
 logRuleToss (Probability p) = do
