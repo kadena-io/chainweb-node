@@ -334,6 +334,11 @@ someServiceApiServer v dbs pacts mr (HeaderStream hs) (Rosetta r) =
         -- TODO: not sure if passing the correct PeerDb here
         -- TODO: why does Rosetta need a peer db at all?
         -- TODO: simplify number of resources passing to rosetta
+
+    -- GET Cut, Payload, and Headers endpoints
+    <> maybe mempty (someCutGetServer v) cuts
+    <> somePayloadServers v payloads
+    <> someBlockHeaderDbServers v blocks
   where
     cuts = _chainwebServerCutDb dbs
     peers = _chainwebServerPeerDbs dbs
@@ -341,6 +346,7 @@ someServiceApiServer v dbs pacts mr (HeaderStream hs) (Rosetta r) =
     concretePacts = second PactAPI._pactServerDataPact <$> pacts
     cutPeerDb = fromJuste $ lookup CutNetwork peers
     payloads = _chainwebServerPayloadDbs dbs
+    blocks = _chainwebServerBlockHeaderDbs dbs
 
 serviceApiApplication
     :: Show t

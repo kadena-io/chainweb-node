@@ -218,15 +218,16 @@ instance HasChainwebVersion (Chainweb logger cas) where
 -- Intializes all service API chainweb components but doesn't start any networking.
 --
 withChainweb
-    :: Logger logger
+    :: forall logger
+    . Logger logger
     => ChainwebConfiguration
     -> logger
     -> RocksDb
     -> FilePath
         -- ^ Pact database directory
     -> Bool
-    -> (forall cas' . PayloadCasLookup cas' => Chainweb logger cas' -> IO a)
-    -> IO a
+    -> (forall cas' . PayloadCasLookup cas' => Chainweb logger cas' -> IO ())
+    -> IO ()
 withChainweb c logger rocksDb pactDbDir resetDb inner =
     withPeerResources v (view configP2p confWithBootstraps) logger $ \logger' peer ->
         withSocket serviceApiPort serviceApiHost $ \serviceSock -> do
@@ -329,7 +330,7 @@ validatingMempoolConfig cid v gl gp mv = Mempool.InMemConfig
 -- Intializes all service chainweb components but doesn't start any networking.
 --
 withChainwebInternal
-    :: forall logger a
+    :: forall logger
     .  Logger logger
     => ChainwebConfiguration
     -> logger
@@ -338,8 +339,8 @@ withChainwebInternal
     -> RocksDb
     -> FilePath
     -> Bool
-    -> (forall cas' . PayloadCasLookup cas' => Chainweb logger cas' -> IO a)
-    -> IO a
+    -> (forall cas' . PayloadCasLookup cas' => Chainweb logger cas' -> IO ())
+    -> IO ()
 withChainwebInternal conf logger peer serviceSock rocksDb pactDbDir resetDb inner = do
 
     initializePayloadDb v payloadDb
@@ -411,7 +412,7 @@ withChainwebInternal conf logger peer serviceSock rocksDb pactDbDir resetDb inne
     -- Initialize global resources
     global
         :: HM.HashMap ChainId (ChainResources logger)
-        -> IO a
+        -> IO ()
     global cs = do
         let !webchain = mkWebBlockHeaderDb v (HM.map _chainResBlockHeaderDb cs)
             !pact = mkWebPactExecutionService (HM.map _chainResPact cs)
@@ -447,36 +448,37 @@ withChainwebInternal conf logger peer serviceSock rocksDb pactDbDir resetDb inne
             synchronizePactDb cs mCutDb
             logg Info "finished synchronizing Pact DBs"
 
-            withPactData cs cuts $ \pactData -> do
-                logg Info "start initializing miner resources"
+            unless (_configOnlySyncPact conf) $
+                withPactData cs cuts $ \pactData -> do
+                    logg Info "start initializing miner resources"
 
-                withMiningCoordination mLogger mConf mCutDb $ \mc ->
+                    withMiningCoordination mLogger mConf mCutDb $ \mc ->
 
-                    -- Miner resources are used by the test-miner when in-node
-                    -- mining is configured or by the mempool noop-miner (which
-                    -- keeps the mempool updated) in production setups.
-                    --
-                    withMinerResources mLogger (_miningInNode mConf) cs mCutDb mc $ \m -> do
-                        logg Info "finished initializing miner resources"
-                        let !haddr = _peerConfigAddr $ _p2pConfigPeer $ _configP2p conf
-                        inner Chainweb
-                            { _chainwebHostAddress = haddr
-                            , _chainwebChains = cs
-                            , _chainwebCutResources = cuts
-                            , _chainwebMiner = m
-                            , _chainwebCoordinator = mc
-                            , _chainwebLogger = logger
-                            , _chainwebPeer = peer
-                            , _chainwebPayloadDb = view cutDbPayloadCas $ _cutResCutDb cuts
-                            , _chainwebManager = mgr
-                            , _chainwebPactData = pactData
-                            , _chainwebThrottler = throttler
-                            , _chainwebMiningThrottler = miningThrottler
-                            , _chainwebPutPeerThrottler = putPeerThrottler
-                            , _chainwebLocalThrottler = localThrottler
-                            , _chainwebConfig = conf
-                            , _chainwebServiceSocket = serviceSock
-                            }
+                        -- Miner resources are used by the test-miner when in-node
+                        -- mining is configured or by the mempool noop-miner (which
+                        -- keeps the mempool updated) in production setups.
+                        --
+                        withMinerResources mLogger (_miningInNode mConf) cs mCutDb mc $ \m -> do
+                            logg Info "finished initializing miner resources"
+                            let !haddr = _peerConfigAddr $ _p2pConfigPeer $ _configP2p conf
+                            inner Chainweb
+                                { _chainwebHostAddress = haddr
+                                , _chainwebChains = cs
+                                , _chainwebCutResources = cuts
+                                , _chainwebMiner = m
+                                , _chainwebCoordinator = mc
+                                , _chainwebLogger = logger
+                                , _chainwebPeer = peer
+                                , _chainwebPayloadDb = view cutDbPayloadCas $ _cutResCutDb cuts
+                                , _chainwebManager = mgr
+                                , _chainwebPactData = pactData
+                                , _chainwebThrottler = throttler
+                                , _chainwebMiningThrottler = miningThrottler
+                                , _chainwebPutPeerThrottler = putPeerThrottler
+                                , _chainwebLocalThrottler = localThrottler
+                                , _chainwebConfig = conf
+                                , _chainwebServiceSocket = serviceSock
+                                }
 
     withPactData
         :: HM.HashMap ChainId (ChainResources logger)
@@ -650,7 +652,7 @@ runChainweb cw = do
     pactDbsToServe :: [(ChainId, PactServerData logger cas)]
     pactDbsToServe = _chainwebPactData cw
 
-    -- Public Server
+    -- P2P Server
 
     serverSettings :: Settings
     serverSettings = setOnException
