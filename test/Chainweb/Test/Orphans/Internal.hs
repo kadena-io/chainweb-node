@@ -57,6 +57,9 @@ module Chainweb.Test.Orphans.Internal
 , mkTestEventsProof
 , arbitraryEventsProof
 , EventPactValue(..)
+
+-- ** Misc
+, arbitraryPage
 ) where
 
 import Control.Applicative
@@ -790,6 +793,11 @@ instance Arbitrary a => Arbitrary (NextItem a) where
 
 instance (Arbitrary a, Arbitrary b) => Arbitrary (Page a b) where
     arbitrary = Page <$> arbitrary <*> arbitrary <*> arbitrary
+
+arbitraryPage :: Arbitrary a => Arbitrary b => Natural -> Gen (Page a b)
+arbitraryPage n = Page (Limit n)
+    <$> vector (int n)
+    <*> arbitrary
 
 -- -------------------------------------------------------------------------- --
 -- Mining Config
