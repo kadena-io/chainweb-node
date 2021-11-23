@@ -128,6 +128,10 @@ import P2P.Node.Configuration
 import P2P.Node.PeerDB
 import P2P.Test.Orphans ()
 
+import System.Logger.Types
+
+import Utils.Logging
+
 -- -------------------------------------------------------------------------- --
 -- Utils
 
@@ -716,3 +720,18 @@ newtype EventPactValue = EventPactValue { getEventPactValue :: PactValue }
 
 instance Arbitrary EventPactValue where
     arbitrary = EventPactValue <$> arbitraryEventPactValue
+
+-- -------------------------------------------------------------------------- --
+-- Utils.Logging
+
+instance Arbitrary Probability where
+    arbitrary = Probability <$> choose (0, 1)
+
+instance Arbitrary LogLevel where
+    arbitrary = elements [Quiet, Error, Warn, Info, Debug]
+
+instance Arbitrary LogFilterRule where
+    arbitrary = LogFilterRule <$> arbitrary <*> arbitrary <*> arbitrary
+
+instance Arbitrary LogFilter where
+    arbitrary = LogFilter <$> arbitrary <*> arbitrary <*> arbitrary
