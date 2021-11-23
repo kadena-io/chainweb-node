@@ -474,7 +474,7 @@ pChainwebConfiguration = id
         <> help "Enable the Rosetta endpoints."
     <*< configCuts %:: pCutConfig
     <*< configServiceApi %:: pServiceApiConfig
+    <*< configMining %:: pMiningConfig
     <*< configOnlySyncPact .:: boolOption_
         % long "only-sync-pact"
         <> help "Terminate after synchronizing the pact databases to the latest cut"
-
