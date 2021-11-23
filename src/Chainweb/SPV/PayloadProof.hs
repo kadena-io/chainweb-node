@@ -45,15 +45,13 @@ import Control.Monad.Catch
 import Crypto.Hash.Algorithms
 
 import Data.Aeson
-import Data.Aeson.Encoding
+import qualified Data.ByteString as B
 import Data.MerkleLog
 import qualified Data.Text as T
 
 import GHC.Generics
 
 import Pact.Types.Command
-
-import Unsafe.Coerce
 
 -- internal modules
 
@@ -70,6 +68,25 @@ newtype RequestKeyNotFoundException = RequestKeyNotFoundException RequestKey
     deriving newtype (NFData)
 
 instance Exception RequestKeyNotFoundException
+
+-- | Internal helper type of holding the ToJSON dictionary for the
+-- proof subject encoding.
+--
+newtype JsonProofSubject a = JsonProofSubject (MerkleNodeType a B.ByteString)
+
+jsonProofSubjectProperties :: KeyValue kv => JsonProofSubject a -> [kv]
+jsonProofSubjectProperties (JsonProofSubject (TreeNode h)) =
+    [ "tree" .= encodeB64UrlNoPaddingText (encodeMerkleRoot h)
+    ]
+jsonProofSubjectProperties (JsonProofSubject (InputNode bytes)) =
+    [ "input" .= encodeB64UrlNoPaddingText bytes
+    ]
+
+instance ToJSON (JsonProofSubject a) where
+    toJSON = object . jsonProofSubjectProperties
+    toEncoding = pairs . mconcat . jsonProofSubjectProperties
+    {-# INLINE toJSON #-}
+    {-# INLINE toEncoding #-}
 
 -- -------------------------------------------------------------------------- --
 -- PayloadProof
@@ -91,38 +108,27 @@ data PayloadProof a = PayloadProof
         -- the proof subject.
     } deriving (Show, Eq, Generic, NFData)
 
+payloadProofProperties
+    :: forall a kv
+    . MerkleHashAlgorithmName a
+    => KeyValue kv
+    => PayloadProof a
+    -> [kv]
+payloadProofProperties p =
+    [ "rootType" .= _payloadProofRootType p
+    , "object" .= (obj . _merkleProofObject) blob
+    , "subject" .= JsonProofSubject (_getMerkleProofSubject $ _merkleProofSubject blob)
+    , "algorithm" .= merkleHashAlgorithmName @a
+    ]
+  where
+    blob = _payloadProofBlob p
+    obj = encodeB64UrlNoPaddingText . encodeMerkleProofObject
+{-# INLINE payloadProofProperties #-}
+
 instance MerkleHashAlgorithmName a => ToJSON (PayloadProof a) where
-    toJSON p = object
-        [ "algorithm" .= merkleHashAlgorithmName @a
-        , "rootType" .= _payloadProofRootType p
-        , "object" .= (obj . _merkleProofObject) blob
-        , "subject" .= (subj . _getMerkleProofSubject . _merkleProofSubject) blob
-        ]
-      where
-        blob = _payloadProofBlob p
-        obj = encodeB64UrlNoPaddingText . encodeMerkleProofObject
-
-        subj (TreeNode h) = object
-            [ "tree" .= encodeB64UrlNoPaddingText (encodeMerkleRoot h)
-            ]
-        subj (InputNode bytes) = object
-            [ "input" .= encodeB64UrlNoPaddingText bytes
-            ]
+    toJSON = object . payloadProofProperties
+    toEncoding = pairs . mconcat . payloadProofProperties
     {-# INLINE toJSON #-}
-
-    toEncoding p = pairs
-        $ "algorithm" .= merkleHashAlgorithmName @a
-        <> "rootType" .= _payloadProofRootType p
-        <> "object" .= (obj . _merkleProofObject) blob
-        <> pair "subject" (subj . _getMerkleProofSubject . _merkleProofSubject $ blob)
-      where
-        blob = _payloadProofBlob p
-        obj = encodeB64UrlNoPaddingText . encodeMerkleProofObject
-
-        subj (TreeNode h) = pairs
-            $ "tree" .= encodeB64UrlNoPaddingText (encodeMerkleRoot h)
-        subj (InputNode bytes) = pairs
-            $ "input" .= encodeB64UrlNoPaddingText bytes
     {-# INLINE toEncoding #-}
 
 instance (MerkleHashAlgorithm a, MerkleHashAlgorithmName a) => FromJSON (PayloadProof a) where
@@ -160,13 +166,6 @@ data SomePayloadProof where
     SomePayloadProof :: (MerkleHashAlgorithm a, MerkleHashAlgorithmName a) => !(PayloadProof a) -> SomePayloadProof
 
 deriving instance Show SomePayloadProof
-
-instance Eq SomePayloadProof where
-    (SomePayloadProof (a :: PayloadProof aalg)) == (SomePayloadProof (b :: PayloadProof balg))
-        | merkleHashAlgorithmName @aalg == merkleHashAlgorithmName @balg =
-            unsafeCoerce b == a
-        | otherwise = False
-
 
 instance ToJSON SomePayloadProof where
     toJSON (SomePayloadProof p) = toJSON p

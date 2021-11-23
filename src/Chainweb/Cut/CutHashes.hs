@@ -307,48 +307,32 @@ instance Ord CutHashes where
     compare = compare `on` (_cutHashesWeight &&& _cutHashesId)
     {-# INLINE compare #-}
 
-instance ToJSON CutHashes where
-    toJSON c = object $
-        [ "hashes" .= _cutHashes c
-        , "origin" .= _cutOrigin c
-        , "weight" .= _cutHashesWeight c
-        , "height" .= _cutHashesHeight c
-        , "instance" .= _cutHashesChainwebVersion c
-        , "id" .= _cutHashesId c
-        ]
-        <> ifNotEmpty "headers" cutHashesHeaders
-        <> ifNotEmpty "payloads" cutHashesPayloads
-      where
-        ifNotEmpty
-            :: ToJSONKey k
-            => ToJSON v
-            => T.Text
-            -> Lens' CutHashes (HM.HashMap k v)
-            -> [(T.Text, Value)]
-        ifNotEmpty s l
-            | x <- view l c, not (HM.null x) = [ s .= x ]
-            | otherwise = mempty
-    {-# INLINE toJSON #-}
+cutHashesProperties :: forall kv . KeyValue kv => CutHashes -> [kv]
+cutHashesProperties c =
+    [ "hashes" .= _cutHashes c
+    , "origin" .= _cutOrigin c
+    , "weight" .= _cutHashesWeight c
+    , "height" .= _cutHashesHeight c
+    , "instance" .= _cutHashesChainwebVersion c
+    , "id" .= _cutHashesId c
+    ]
+    <> ifNotEmpty "headers" cutHashesHeaders
+    <> ifNotEmpty "payloads" cutHashesPayloads
+  where
+    ifNotEmpty
+        :: ToJSONKey k
+        => ToJSON v
+        => T.Text
+        -> Lens' CutHashes (HM.HashMap k v)
+        -> [kv]
+    ifNotEmpty s l
+        | x <- view l c, not (HM.null x) = [ s .= x ]
+        | otherwise = mempty
 
-    toEncoding c = pairs
-        $ "hashes" .= _cutHashes c
-        <> "origin" .= _cutOrigin c
-        <> "weight" .= _cutHashesWeight c
-        <> "height" .= _cutHashesHeight c
-        <> "instance" .= _cutHashesChainwebVersion c
-        <> "id" .= _cutHashesId c
-        <> ifNotEmpty "headers" cutHashesHeaders
-        <> ifNotEmpty "payloads" cutHashesPayloads
-      where
-        ifNotEmpty
-            :: ToJSONKey k
-            => ToJSON v
-            => T.Text
-            -> Lens' CutHashes (HM.HashMap k v)
-            -> Series
-        ifNotEmpty s l
-            | x <- view l c, not (HM.null x) = s .= x
-            | otherwise = mempty
+instance ToJSON CutHashes where
+    toJSON = object . cutHashesProperties
+    toEncoding = pairs . mconcat . cutHashesProperties
+    {-# INLINE toJSON #-}
     {-# INLINE toEncoding #-}
 
 instance FromJSON CutHashes where

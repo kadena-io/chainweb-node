@@ -45,10 +45,9 @@ module Chainweb.Utils.RequestLog
 ) where
 
 import Control.DeepSeq
-import Control.Lens
+import Control.Lens hiding ((.=))
 
 import Data.Aeson
-import Data.Char
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
 
@@ -97,13 +96,23 @@ data RequestLog = RequestLog
 
 makeLenses ''RequestLog
 
+requestLogProperties :: KeyValue kv => RequestLog -> [kv]
+requestLogProperties o =
+    [ "version" .= _requestLogVersion o
+    , "method" .= _requestLogMethod o
+    , "path" .= _requestLogPath o
+    , "isSecure" .= _requestLogIsSecure o
+    , "rawRemoteHost" .= _requestLogRawRemoteHost o
+    , "remoteHost" .= _requestLogRemoteHost o
+    , "queryString" .= _requestLogQueryString o
+    , "bodyLength" .= _requestLogBodyLength o
+    , "userAgent" .= _requestLogUserAgent o
+    ]
+{-# INLINE requestLogProperties #-}
+
 instance ToJSON RequestLog where
-    toJSON = genericToJSON defaultOptions
-        { fieldLabelModifier = over _head toLower . drop 11
-        }
-    toEncoding = genericToEncoding defaultOptions
-        { fieldLabelModifier = over _head toLower . drop 11
-        }
+    toJSON = object . requestLogProperties
+    toEncoding = pairs . mconcat . requestLogProperties
     {-# INLINE toJSON #-}
     {-# INLINE toEncoding #-}
 
@@ -143,13 +152,16 @@ data RequestResponseLog = RequestResponseLog
 
 makeLenses ''RequestResponseLog
 
+requestResponseLogProperties :: KeyValue kv => RequestResponseLog -> [kv]
+requestResponseLogProperties o =
+    [ "request" .= _requestResponseLogRequest o
+    , "status" .= _requestResponseLogStatus o
+    , "durationMicro" .= _requestResponseLogDurationMicro o
+    ]
+
 instance ToJSON RequestResponseLog where
-    toJSON = genericToJSON defaultOptions
-        { fieldLabelModifier = over _head toLower . drop 19
-        }
-    toEncoding = genericToEncoding defaultOptions
-        { fieldLabelModifier = over _head toLower . drop 19
-        }
+    toJSON = object . requestResponseLogProperties
+    toEncoding = pairs . mconcat . requestResponseLogProperties
     {-# INLINE toJSON #-}
     {-# INLINE toEncoding #-}
 

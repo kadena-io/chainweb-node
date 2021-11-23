@@ -889,6 +889,15 @@ instance Arbitrary SomePayloadProof where
         , SomePayloadProof <$> arbitrary @(PayloadProof Keccak_256)
         ]
 
+-- Equality for SomePayloadProof is only used for testing. Using 'unsafeCoerce'
+-- is a bit ugly, but efficient and doesn't require changing production code.
+--
+instance Eq SomePayloadProof where
+    (SomePayloadProof (a :: PayloadProof aalg)) == (SomePayloadProof (b :: PayloadProof balg))
+        | merkleHashAlgorithmName @aalg == merkleHashAlgorithmName @balg =
+            unsafeCoerce b == a
+        | otherwise = False
+
 -- -------------------------------------------------------------------------- --
 -- Miner
 
