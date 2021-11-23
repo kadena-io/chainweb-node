@@ -68,7 +68,7 @@ import Control.Monad.Catch
 
 import Crypto.Hash.Algorithms
 
-import Data.Aeson
+import Data.Aeson hiding (Error)
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Short as BS
 import Data.Foldable
@@ -87,6 +87,7 @@ import GHC.Stack
 
 import Numeric.Natural
 
+import Pact.Parse
 import Pact.Types.Command
 import Pact.Types.PactValue
 import Pact.Types.Runtime (PactEvent(..), Literal(..))
@@ -155,7 +156,9 @@ import P2P.Node.PeerDB
 import P2P.Peer
 import P2P.Test.Orphans ()
 
-import Pact.Parse
+import System.Logger.Types
+
+import Utils.Logging
 
 -- -------------------------------------------------------------------------- --
 -- Utils
@@ -945,3 +948,18 @@ instance Arbitrary MockTx where
 
 instance Arbitrary t => Arbitrary (ValidatedTransaction t) where
     arbitrary = ValidatedTransaction <$> arbitrary <*> arbitrary <*> arbitrary
+
+-- -------------------------------------------------------------------------- --
+-- Utils.Logging
+
+instance Arbitrary Probability where
+    arbitrary = Probability <$> choose (0, 1)
+
+instance Arbitrary LogLevel where
+    arbitrary = elements [Quiet, Error, Warn, Info, Debug]
+
+instance Arbitrary LogFilterRule where
+    arbitrary = LogFilterRule <$> arbitrary <*> arbitrary <*> arbitrary
+
+instance Arbitrary LogFilter where
+    arbitrary = LogFilter <$> arbitrary <*> arbitrary <*> arbitrary

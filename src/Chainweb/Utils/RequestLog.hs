@@ -34,6 +34,7 @@ module Chainweb.Utils.RequestLog
 , requestLogQueryString
 , requestLogBodyLength
 , requestLogUserAgent
+, requestLogHeaders
 , requestLogger
 
 -- * Request-Response Logging Middleware
@@ -48,6 +49,8 @@ import Control.DeepSeq
 import Control.Lens hiding ((.=))
 
 import Data.Aeson
+import qualified Data.CaseInsensitive as CI
+import qualified Data.HashMap.Strict as HM
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
 
@@ -90,6 +93,7 @@ data RequestLog = RequestLog
     , _requestLogQueryString :: !QueryText
     , _requestLogBodyLength :: !(Maybe Natural)
     , _requestLogUserAgent :: !(Maybe T.Text)
+    , _requestLogHeaders :: !(HM.HashMap T.Text T.Text)
     }
     deriving (Show, Eq, Ord, Generic)
     deriving anyclass (NFData)
@@ -107,6 +111,7 @@ requestLogProperties o =
     , "queryString" .= _requestLogQueryString o
     , "bodyLength" .= _requestLogBodyLength o
     , "userAgent" .= _requestLogUserAgent o
+    , "headers" .= _requestLogHeaders o
     ]
 {-# INLINE requestLogProperties #-}
 
@@ -132,6 +137,8 @@ logRequest req = RequestLog
         ChunkedBody -> Nothing
         KnownLength x -> Just $ int x
     , _requestLogUserAgent = T.decodeUtf8 <$> requestHeaderUserAgent req
+    , _requestLogHeaders = HM.fromList $
+        bimap (T.decodeUtf8 . CI.original) T.decodeUtf8 <$> (requestHeaders req)
     }
 
 requestLogger :: Logger l => l -> Middleware

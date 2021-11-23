@@ -80,6 +80,8 @@ import P2P.Node.Configuration
 import P2P.Peer
 import P2P.Test.Orphans ()
 
+import Utils.Logging
+
 -- -------------------------------------------------------------------------- --
 -- Roundrip Tests
 
@@ -252,6 +254,9 @@ jsonTestCases f =
     , testProperty "ChainDatabaseGcConfig" $ f @ChainDatabaseGcConfig
     , testProperty "MerkleRootType" $ f @MerkleRootType
     , testProperty "ChainwebConfiguration" $ f @ChainwebConfiguration
+    , testProperty "Probability" $ f @Probability
+    , testProperty "LogFilterRule" $ f @LogFilterRule
+    , testProperty "LogFilter" $ f @LogFilter
     , testProperty "BlockHashWithHeight" $ f @BlockHashWithHeight
     , testProperty "CutId" $ f @CutId
     , testProperty "CutHashes" $ f @CutHashes
