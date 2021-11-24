@@ -1,5 +1,35 @@
 # `chainweb-node` Changelog
 
+## 2.11.1 (2021-11-23)
+
+This is a miner feature release. It is compatible with version 2.11. Upgrading
+optional. Please, check the list of changes before upgrading.
+
+Changes:
+
+*   New command line options for configuring mining coordination. The options
+    `--enable-mining-coordination --mining-public-key=<PUBLIC_KEY>` enable the
+    mining API of a node and configure `k:<PUBLIC_KEY>` as the account that
+    receives mining rewards. (#1311)
+
+*   Include GET endpoints for cuts, headers, branches, and payloads
+    into the service API. (#1309)
+
+*   Add configuration for stopping the node after synchronizing the
+    Pact state to the chain database and before starting connecting to
+    the P2P network. This is useful to initializing the Pact database
+    for a new node or validating an existing database. (#1312)
+
+*   Remove rate limiting support for endpoints of the service API.
+    Rate limiting for the service API should be done by using an external
+    reverse proxy. (#1300)
+
+*   Log filter rules allow fine grained support for controlling
+    which messages are actually submitted. This version adds the ability to
+    specify for a filter rule a probability with which a log messages passes the
+    respective filter rule. This allows to emit only a certain percentage of
+    message of some kind to the backend. (#1300)
+
 ## 2.11 (2021-11-09)
 
 This version replaces all previous versions. Any prior version will stop working
