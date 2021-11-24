@@ -149,7 +149,9 @@ instance HasTextRepresentation MerkleRootType where
 
 instance ToJSON MerkleRootType where
     toJSON = toJSON . toText
+    toEncoding = toEncoding . toText
     {-# INLINE toJSON #-}
+    {-# INLINE toEncoding #-}
 
 instance FromJSON MerkleRootType where
     parseJSON = parseJsonFromText "MerkleRootType"

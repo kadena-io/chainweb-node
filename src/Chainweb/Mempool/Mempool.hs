@@ -3,6 +3,7 @@
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
@@ -84,7 +85,7 @@ module Chainweb.Mempool.Mempool
 ------------------------------------------------------------------------------
 import Control.DeepSeq (NFData)
 import Control.Exception
-import Control.Lens
+import Control.Lens hiding ((.=))
 import Control.Monad (replicateM, unless)
 
 import Crypto.Hash (hash)
@@ -139,8 +140,26 @@ import Data.LogMessage (LogFunctionText)
 ------------------------------------------------------------------------------
 data LookupResult t = Missing
                     | Pending t
-  deriving (Show, Generic)
-  deriving anyclass (ToJSON, FromJSON, NFData) -- TODO: a handwritten instance
+  deriving (Show, Generic, Eq)
+  deriving anyclass (NFData)
+
+-- This instance is a bit strange. It's for backward compatibility.
+--
+instance ToJSON t => ToJSON (LookupResult t) where
+    toJSON Missing = object [ "tag" .= ("Missing" :: String) ]
+    toJSON (Pending t) = object [ "tag" .= ("Pending" :: String), "contents" .= t ]
+    {-# INLINE toJSON #-}
+
+    toEncoding Missing = pairs $ "tag" .= ("Missing" :: String)
+    toEncoding (Pending t) = pairs $ "tag" .= ("Pending" :: String) <> "contents" .= t
+    {-# INLINE toEncoding #-}
+
+instance FromJSON t => FromJSON (LookupResult t) where
+    parseJSON = withObject "LookupResult" $ \o -> o .: "tag" >>= \case
+        "Missing" -> return Missing
+        "Pending" -> Pending <$> o .: "contents"
+        t -> fail $ "Unrecognized lookup result tag: " <> t
+    {-# INLINE parseJSON #-}
 
 instance Functor LookupResult where
     fmap _ Missing = Missing
@@ -549,8 +568,26 @@ data TransactionMetadata = TransactionMetadata {
     txMetaCreationTime :: {-# UNPACK #-} !(Time Micros)
   , txMetaExpiryTime :: {-# UNPACK #-} !(Time Micros)
   } deriving (Eq, Ord, Show, Generic)
-    deriving anyclass (FromJSON, ToJSON, NFData)
+    deriving anyclass (NFData)
 
+transactionMetadataProperties :: KeyValue kv => TransactionMetadata -> [kv]
+transactionMetadataProperties o =
+    [ "txMetaCreationTime" .= txMetaCreationTime o
+    , "txMetaExpiryTime" .= txMetaExpiryTime o
+    ]
+{-# INLINE transactionMetadataProperties #-}
+
+instance ToJSON TransactionMetadata where
+    toJSON = object . transactionMetadataProperties
+    toEncoding = pairs . mconcat . transactionMetadataProperties
+    {-# INLINE toJSON #-}
+    {-# INLINE toEncoding #-}
+
+instance FromJSON TransactionMetadata where
+    parseJSON = withObject "TransactionMetadata" $ \o -> TransactionMetadata
+        <$> o .: "txMetaCreationTime"
+        <*> o .: "txMetaExpiryTime"
+    {-# INLINE parseJSON #-}
 
 ------------------------------------------------------------------------------
 -- | Mempools will check these values match in APIs
@@ -571,9 +608,29 @@ data ValidatedTransaction t = ValidatedTransaction
     , validatedHash :: {-# UNPACK #-} !BlockHash
     , validatedTransaction :: !t
     }
-  deriving (Show, Generic)
-  deriving anyclass (ToJSON, FromJSON, NFData) -- TODO: a handwritten instance
+  deriving (Show, Eq, Generic)
+  deriving anyclass (NFData)
 
+validatedTransactionProperties :: ToJSON t => KeyValue kv => ValidatedTransaction t -> [kv]
+validatedTransactionProperties o =
+    [ "validatedHeight" .= validatedHeight o
+    , "validatedHash" .= validatedHash o
+    , "validatedTransaction" .= validatedTransaction o
+    ]
+{-# INLINE validatedTransactionProperties #-}
+
+instance ToJSON t => ToJSON (ValidatedTransaction t) where
+    toJSON = object . validatedTransactionProperties
+    toEncoding = pairs . mconcat . validatedTransactionProperties
+    {-# INLINE toJSON #-}
+    {-# INLINE toEncoding #-}
+
+instance FromJSON t => FromJSON (ValidatedTransaction t) where
+    parseJSON = withObject "ValidatedTransaction" $ \o -> ValidatedTransaction
+        <$> o .: "validatedHeight"
+        <*> o .: "validatedHash"
+        <*> o .: "validatedTransaction"
+    {-# INLINE parseJSON #-}
 
 ------------------------------------------------------------------------------
 -- | Mempool only cares about a few projected values from the transaction type
@@ -585,8 +642,30 @@ data MockTx = MockTx {
   , mockGasLimit :: !GasLimit
   , mockMeta :: {-# UNPACK #-} !TransactionMetadata
   } deriving (Eq, Ord, Show, Generic)
-    deriving anyclass (FromJSON, ToJSON, NFData)
+    deriving anyclass (NFData)
 
+mockTxProperties :: KeyValue kv => MockTx -> [kv]
+mockTxProperties o =
+    [ "mockNonce" .= mockNonce o
+    , "mockGasPrice" .= mockGasPrice o
+    , "mockGasLimit" .= mockGasLimit o
+    , "mockMeta" .= mockMeta o
+    ]
+{-# INLINE mockTxProperties #-}
+
+instance ToJSON MockTx where
+    toJSON = object . mockTxProperties
+    toEncoding = pairs . mconcat . mockTxProperties
+    {-# INLINE toJSON #-}
+    {-# INLINE toEncoding #-}
+
+instance FromJSON MockTx where
+    parseJSON = withObject "MockTx" $ \o -> MockTx
+        <$> o .: "mockNonce"
+        <*> o .: "mockGasPrice"
+        <*> o .: "mockGasLimit"
+        <*> o .: "mockMeta"
+    {-# INLINE parseJSON #-}
 
 mockBlockGasLimit :: GasLimit
 mockBlockGasLimit = 100_000_000

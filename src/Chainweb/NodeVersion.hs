@@ -77,7 +77,9 @@ instance HasTextRepresentation NodeVersion where
 
 instance ToJSON NodeVersion where
     toJSON = toJSON . toText
+    toEncoding = toEncoding . toText
     {-# INLINE toJSON #-}
+    {-# INLINE toEncoding #-}
 
 instance FromJSON NodeVersion where
     parseJSON = parseJsonFromText "NodeVersion"
@@ -193,12 +195,19 @@ remoteNodeInfoHostname :: Lens' RemoteNodeInfo Hostname
 remoteNodeInfoHostname = remoteNodeInfoAddr . hostAddressHost
 {-# INLINE remoteNodeInfoHostname #-}
 
+remoteNodeInfoProperties :: KeyValue kv => RemoteNodeInfo -> [kv]
+remoteNodeInfoProperties x =
+    [ "version" .= _remoteNodeInfoVersion x
+    , "timestamp" .= _remoteNodeInfoTimestamp x
+    , "hostaddress" .= _remoteNodeInfoAddr x
+    ]
+{-# INLINE remoteNodeInfoProperties #-}
+
 instance ToJSON RemoteNodeInfo where
-    toJSON x = object
-        [ "version" .= _remoteNodeInfoVersion x
-        , "timestamp" .= _remoteNodeInfoTimestamp x
-        , "hostaddress" .= _remoteNodeInfoAddr x
-        ]
+    toJSON = object . remoteNodeInfoProperties
+    toEncoding = pairs . mconcat . remoteNodeInfoProperties
+    {-# INLINE toJSON #-}
+    {-# INLINE toEncoding #-}
 
 -- | Request NodeInfos from a remote chainweb node.
 --

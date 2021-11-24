@@ -207,16 +207,24 @@ data SpvRequest = SpvRequest
     , _spvTargetChainId :: !Pact.ChainId
     } deriving (Eq, Show, Generic)
 
+spvRequestProperties :: KeyValue kv => SpvRequest -> [kv]
+spvRequestProperties r =
+  [ "requestKey" .= _spvRequestKey r
+  , "targetChainId" .= _spvTargetChainId r
+  ]
+{-# INLINE spvRequestProperties #-}
+
 instance ToJSON SpvRequest where
-  toJSON r = object
-    [ "requestKey" .= _spvRequestKey r
-    , "targetChainId" .= _spvTargetChainId r
-    ]
+  toJSON = object . spvRequestProperties
+  toEncoding = pairs . mconcat . spvRequestProperties
+  {-# INLINE toJSON #-}
+  {-# INLINE toEncoding #-}
 
 instance FromJSON SpvRequest where
   parseJSON = withObject "SpvRequest" $ \o -> SpvRequest
     <$> o .: "requestKey"
     <*> o .: "targetChainId"
+  {-# INLINE parseJSON #-}
 
 newtype TransactionOutputProofB64 = TransactionOutputProofB64 Text
     deriving stock (Eq, Show, Generic)
