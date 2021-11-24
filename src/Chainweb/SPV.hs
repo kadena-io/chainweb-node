@@ -2,7 +2,9 @@
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE GADTs #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeFamilies #-}
 
@@ -33,6 +35,7 @@ import Crypto.Hash.Algorithms
 
 import Data.Aeson
 import qualified Data.Aeson.Types as Aeson
+import qualified Data.ByteString as B
 import Data.MerkleLog hiding (Expected, Actual)
 import qualified Data.Text as T
 
@@ -84,28 +87,39 @@ instance Exception SpvException
 -- Newly added SPV API endpoints should use the new format. We keep using the
 -- legacy format for existing endpoints in order to not break existing clients.
 --
-proofToJson
-    :: ChainId
-        -- ^ The target chain of the proof, i.e. the chain of the root.
+proofProperties
+    :: forall kv
+    . KeyValue kv
+    => ChainId
     -> MerkleProof SHA512t_256
-        -- ^ The Merkle proof blob which coaintains both, the proof object and
-        -- the proof subject.
-    -> Value
-proofToJson cid p = object
+    -> [kv]
+proofProperties cid p =
     [ "chain" .= cid
     , "object" .= obj (_merkleProofObject p)
-    , "subject" .= (subj . _getMerkleProofSubject . _merkleProofSubject) p
+    , "subject" .= JsonProofSubject (_getMerkleProofSubject $ _merkleProofSubject p)
     , "algorithm" .= ("SHA512t_256" :: T.Text)
     ]
   where
     obj = encodeB64UrlNoPaddingText . encodeMerkleProofObject
 
-    subj (TreeNode h) = object
-        [ "tree" .= encodeB64UrlNoPaddingText (encodeMerkleRoot h)
-        ]
-    subj (InputNode bytes) = object
-        [ "input" .= encodeB64UrlNoPaddingText bytes
-        ]
+-- | Internal helper type of holding the ToJSON dictionary for the
+-- legacy proof subject encoding.
+--
+newtype JsonProofSubject = JsonProofSubject (MerkleNodeType SHA512t_256 B.ByteString)
+
+jsonProofSubjectProperties :: KeyValue kv => JsonProofSubject -> [kv]
+jsonProofSubjectProperties (JsonProofSubject (TreeNode h)) =
+    [ "tree" .= encodeB64UrlNoPaddingText (encodeMerkleRoot h)
+    ]
+jsonProofSubjectProperties (JsonProofSubject (InputNode bytes)) =
+    [ "input" .= encodeB64UrlNoPaddingText bytes
+    ]
+
+instance ToJSON JsonProofSubject where
+    toJSON = object . jsonProofSubjectProperties
+    toEncoding = pairs . mconcat . jsonProofSubjectProperties
+    {-# INLINE toJSON #-}
+    {-# INLINE toEncoding #-}
 
 parseProof
     :: String
@@ -155,10 +169,14 @@ data TransactionProof a = TransactionProof
     deriving (Show, Eq)
 
 instance ToJSON (TransactionProof SHA512t_256) where
-    toJSON (TransactionProof cid p) = proofToJson cid p
+    toJSON (TransactionProof cid p) = object $ proofProperties cid p
+    toEncoding (TransactionProof cid p) = pairs . mconcat $ proofProperties cid p
+    {-# INLINE toJSON #-}
+    {-# INLINE toEncoding #-}
 
 instance FromJSON (TransactionProof SHA512t_256) where
     parseJSON = parseProof "TransactionProof" TransactionProof
+    {-# INLINE parseJSON #-}
 
 -- | Getter into the chain id of a 'TransactionProof'
 --
@@ -181,10 +199,14 @@ data TransactionOutputProof a = TransactionOutputProof
     deriving (Show, Eq)
 
 instance ToJSON (TransactionOutputProof SHA512t_256) where
-    toJSON (TransactionOutputProof cid p) = proofToJson cid p
+    toJSON (TransactionOutputProof cid p) = object $ proofProperties cid p
+    toEncoding (TransactionOutputProof cid p) = pairs . mconcat $ proofProperties cid p
+    {-# INLINE toJSON #-}
+    {-# INLINE toEncoding #-}
 
 instance FromJSON (TransactionOutputProof SHA512t_256) where
     parseJSON = parseProof "TransactionOutputProof" TransactionOutputProof
+    {-# INLINE parseJSON #-}
 
 -- | Getter into the chain id of a 'TransactionOutputProof'
 --

@@ -136,7 +136,9 @@ decodeBlockHash = BlockHash <$!> decodeMerkleLogHash
 
 instance ToJSON (BlockHash_ a) where
     toJSON = toJSON . encodeB64UrlNoPaddingText . runPutS . encodeBlockHash
+    toEncoding = toEncoding . encodeB64UrlNoPaddingText . runPutS . encodeBlockHash
     {-# INLINE toJSON #-}
+    {-# INLINE toEncoding #-}
 
 instance MerkleHashAlgorithm a => FromJSON (BlockHash_ a) where
     parseJSON = withText "BlockHash" $ either (fail . show) return

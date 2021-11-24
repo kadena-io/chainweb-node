@@ -92,7 +92,7 @@ getHeaderByHeight
     -> BlockHeight
     -> IO BlockHeader
 getHeaderByHeight mgr v cid height = do
-    (curHeight, curHash) <- currentHash mgr v cid
+    BlockHashWithHeight curHeight curHash <- currentHash mgr v cid
     when (curHeight < height) $
         error $ "getHeaderByHeight: height " <> sshow height <> " is in the future. Current height " <> sshow curHeight
     page <- runQuery mgr v $ query curHash
@@ -112,7 +112,7 @@ currentHash
     => HTTP.Manager
     -> ChainwebVersion
     -> ChainId
-    -> IO (BlockHeight, BlockHash)
+    -> IO BlockHashWithHeight
 currentHash mgr v cid = do
     c <- runQuery mgr v $ cutGetClient v
     return $ c ^?! cutHashes . ix cid

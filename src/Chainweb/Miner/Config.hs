@@ -105,6 +105,11 @@ instance FromJSON (MiningConfig -> MiningConfig) where
         <$< miningCoordination %.: "coordination" % o
         <*< miningInNode %.: "nodeMining" % o
 
+instance FromJSON MiningConfig where
+    parseJSON v = do
+        f <- parseJSON v
+        return $ f defaultMining
+
 pMiningConfig :: MParser MiningConfig
 pMiningConfig = id
     <$< miningCoordination %:: pCoordinationConfig
@@ -230,13 +235,13 @@ nodeTestMiners = lens _nodeTestMiners (\m c -> m { _nodeTestMiners = c })
 instance ToJSON NodeMiningConfig where
     toJSON o = object
         [ "enabled" .= _nodeMiningEnabled o
-        , "miner" .= _nodeMiner o ]
+        , "miner" .= _nodeMiner o
+        ]
 
 instance FromJSON (NodeMiningConfig -> NodeMiningConfig) where
     parseJSON = withObject "NodeMiningConfig" $ \o -> id
         <$< nodeMiningEnabled ..: "enabled" % o
         <*< nodeMiner ..: "miner" % o
-        <*< nodeTestMiners ..: "testMiners" % o
 
 pNodeMiningConfig :: MParser NodeMiningConfig
 pNodeMiningConfig = id
@@ -249,7 +254,8 @@ defaultNodeMining :: NodeMiningConfig
 defaultNodeMining = NodeMiningConfig
     { _nodeMiningEnabled = False
     , _nodeMiner = invalidMiner
-    , _nodeTestMiners = MinerCount 10 }
+    , _nodeTestMiners = MinerCount 10
+    }
 
 invalidMiner :: Miner
 invalidMiner = Miner "" . MinerKeys $ mkKeySet [] "keys-all"

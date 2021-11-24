@@ -336,7 +336,7 @@ jobs:
         os: ${{ matrix.os }}
         ghc: ${{ matrix.ghc }}
     - name: Run all benchmarks
-      timeout-minutes: 6
+      timeout-minutes: 12
       run: bench --json $BENCH_FILE +RTS -N
     - name: Upload results
       run: |
