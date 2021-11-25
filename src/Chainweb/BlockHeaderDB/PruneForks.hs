@@ -189,8 +189,14 @@ pruneForks_ logg cdb mar mir callback = do
       else
         withReverseHeaderStream cdb (mar - 1) mir
             $ S.foldM_ go (return (pivots, int (_getMaxRank mar), 0)) (\(_,_,!n) -> evaluate n)
+            . progress 200000 reportProgress
 
   where
+    reportProgress i a = logg Info
+        $ "inspected " <> sshow i
+        <> " block headers. Current height "
+        <> sshow (_blockHeight a)
+
     go :: ([BlockHash], BlockHeight, Int) -> BlockHeader -> IO ([BlockHash], BlockHeight, Int)
     go ([], _, _) cur = throwM $ InternalInvariantViolation
         $ "PrunForks.pruneForks_: no pivots left at block " <> encodeToText (ObjectEncoded cur)
