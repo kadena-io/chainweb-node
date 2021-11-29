@@ -11,7 +11,7 @@
 
 let
     inherit (pkgs.haskell.lib) justStaticExecutables dontCheck;
-    chainwebDrv = import ./.;
+    chainwebDrv = import ./. {};
     chainwebStatic = justStaticExecutables
                      (if skipTests then dontCheck chainwebDrv else chainwebDrv);
 in
@@ -22,7 +22,7 @@ in
                 imageName = "alpine";
                 imageDigest = "sha256:a4d41fa0d6bb5b1194189bab4234b1f2abfabb4728bda295f5c53d89766aa046";
                 finalImageTag = "3.8";
-                sha256 = "17s0np13ygsc16ahx2zzyry60c03p48cq3skqvlwm6bhfshkwvv8";
+                sha256 = "02xr657lzqdydwnxxxpp09h5cc5yww4d4r5z0m2nr6qygshq6qbp";
                 os = "linux";
                 arch = "amd64";
             };
