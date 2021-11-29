@@ -1,9 +1,17 @@
-{ nixpkgs ? (import ./project.nix { system = "x86_64-linux"; }).rp.nixpkgs, skipTests ? true }:
+{ rev ? "7e9b0dff974c89e070da1ad85713ff3c20b0ca97"
+  , sha256 ? "1ckzhh24mgz6jd1xhfgx0i9mijk6xjqxwsshnvq789xsavrmsc36"
+  , pkgs ?
+  import (builtins.fetchTarball {
+      url = "https://github.com/NixOS/nixpkgs/archive/${rev}.tar.gz";
+      inherit sha256; }) {
+          config.allowBroken = false;
+          config.allowUnfree = true;
+      }
+  , skipTests ? true }:
 
 let
-    inherit (nixpkgs) pkgs;
-    inherit (nixpkgs.haskell.lib) justStaticExecutables dontCheck;
-    chainwebDrv = ( import ./. { system = "x86_64-linux"; } );
+    inherit (pkgs.haskell.lib) justStaticExecutables dontCheck;
+    chainwebDrv = import ./.;
     chainwebStatic = justStaticExecutables
                      (if skipTests then dontCheck chainwebDrv else chainwebDrv);
 in
