@@ -39,11 +39,18 @@ in
                 name = "chainweb-bootstrap-node";
                 tag = "latest";
                 fromImage = baseImage;
+                runAsRoot = ''
+                    #!${pkgs.runtimeShell}
+                    ${pkgs.dockerTools.shadowSetup}
+                    mkdir -p /chainweb
+                    ln -s /bin/chainweb-node /chainweb/chainweb-node
+                '';
                 config = {
                     Cmd = ["/bin/chainweb-node"
                            "--node-id=0"
                            "--config-file=/tmp/test-bootstrap-node.config"];
                     WorkingDir = "/home";
+                    Entrypoint = [ "/chainweb/chainweb-node" ];
                 };
             };
         }
