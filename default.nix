@@ -34,6 +34,7 @@ pkgs.haskell.packages.${compiler}.developPackage {
         ver = "0.15.0.2";
         sha256 = "1mpill3lwrrhlzq0ccs8wyzsqhy1a2hmva17qxpgsy2zzqxi1nx1";
        } {};
+      hashable = dontCheck super.hashable;
       random = dontCheck (self.callHackageDirect {
         pkg = "random";
         ver = "1.2.1";
