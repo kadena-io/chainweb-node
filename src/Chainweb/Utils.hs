@@ -1,6 +1,5 @@
 {-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE BangPatterns #-}
-{-# LANGUAGE CPP #-}
 {-# LANGUAGE DefaultSignatures #-}
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveFoldable #-}
@@ -168,8 +167,6 @@ module Chainweb.Utils
 
 -- * Type Level
 , symbolText
--- * optics
-, locally
 
 -- * Resource Management
 , concurrentWith
@@ -236,9 +233,6 @@ import qualified Data.ByteString as B
 import qualified Data.ByteString.Base64 as B64
 import qualified Data.ByteString.Base64.URL as B64U
 import qualified Data.ByteString.Lazy as BL
-#if !MIN_VERSION_random(1,2,0)
-import qualified Data.ByteString.Random as BR
-#endif
 import qualified Data.ByteString.Short as BS
 import qualified Data.ByteString.Unsafe as B
 import qualified Data.Csv as CSV
@@ -281,9 +275,7 @@ import qualified Streaming.Prelude as S
 
 import System.IO.Unsafe (unsafePerformIO)
 import System.LogLevel
-#if MIN_VERSION_random(1,2,0)
 import System.Random
-#endif
 import qualified System.Random.MWC as Prob
 import qualified System.Random.MWC.Probability as Prob
 import System.Timeout
@@ -1001,7 +993,6 @@ leadingZeros b =
 -- 'ByteString's it can be more efficient to split the generator to speed up
 -- concurrent access.
 
-#if MIN_VERSION_random(1,2,0)
 randomShortByteString :: MonadIO m => Natural -> m BS.ShortByteString
 randomShortByteString n
     -- don't split the generators for less than 64 words.
@@ -1015,13 +1006,6 @@ randomByteString n
     -- 512 = 8 * 64
     | n < 512 = getStdRandom $ genByteString (int n)
     | otherwise = fst . genByteString (int n) <$> newStdGen
-#else
-randomShortByteString :: MonadIO m => Natural -> m BS.ShortByteString
-randomShortByteString = fmap BS.toShort . randomByteString
-
-randomByteString :: MonadIO m => Natural -> m B.ByteString
-randomByteString = liftIO . BR.random
-#endif
 
 -- -------------------------------------------------------------------------- --
 -- Configuration wrapper to enable and disable components
@@ -1233,17 +1217,6 @@ symbolText :: forall s a . KnownSymbol s => IsString a => a
 symbolText = fromString $ symbolVal (Proxy @s)
 
 -- -------------------------------------------------------------------------- --
--- Optics
-
-#if ! MIN_VERSION_lens(4,17,1)
--- | Like 'local' for reader environments, but modifies the
--- target of a lens possibly deep in the environment
---
-locally :: MonadReader s m => ASetter s s a b -> (a -> b) -> m r -> m r
-locally l f = Reader.local (over l f)
-#endif
-
--- -------------------------------------------------------------------------- --
 -- Resource Management
 
 -- | Bracket style resource managment uses CPS style which only supports
@@ -1388,11 +1361,6 @@ sockAddrJson (SockAddrInet6 p f i s) =
 sockAddrJson (SockAddrUnix s) =
     [ "pipe" .= s
     ]
-#if !MIN_VERSION_network(3,0,0)
-sockAddrJson (SockAddrCan i) =
-    [ "can" .= i
-    ]
-#endif
 
 showIpv4 :: HostAddress -> T.Text
 showIpv4 ha = T.intercalate "." $ sshow <$> [a0,a1,a2,a3]
@@ -1404,14 +1372,6 @@ showIpv6 ha = T.intercalate ":"
     $ T.pack . printf "%x" <$> [a0,a1,a2,a3,a4,a5,a6,a7]
   where
     (a0,a1,a2,a3,a4,a5,a6,a7) = hostAddress6ToTuple ha
-
-#if !MIN_VERSION_network(3,0,0)
-instance NFData SockAddr where
-    rnf (SockAddrInet a b) = a `seq` b `seq` ()
-    rnf (SockAddrInet6 a b c d) = a `seq` b `seq` c `seq` d `seq` ()
-    rnf (SockAddrUnix a) = a `seq` ()
-    rnf (SockAddrCan a) = a `seq` ()
-#endif
 
 -- -------------------------------------------------------------------------- --
 -- Debugging Tools

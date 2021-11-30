@@ -1,4 +1,3 @@
-{-# LANGUAGE CPP #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE ExistentialQuantification #-}
 {-# LANGUAGE LambdaCase #-}
@@ -32,9 +31,6 @@ import Control.Monad.Trans.Maybe
 
 import Data.Aeson
 import Data.Function
-#if ! MIN_VERSION_vector(0,12,2)
-import qualified Data.Maybe as M
-#endif
 import Data.Proxy
 import qualified Data.Text.IO as T
 import qualified Data.Vector as V
@@ -68,11 +64,7 @@ err404Msg :: ToJSON msg  => msg -> ServerError
 err404Msg msg = err404 { errBody = encode msg }
 
 catMaybes :: V.Vector (Maybe a) -> V.Vector a
-#if MIN_VERSION_vector(0,12,2)
 catMaybes = V.catMaybes
-#else
-catMaybes = V.fromList . M.catMaybes . V.toList
-#endif
 
 -- -------------------------------------------------------------------------- --
 -- GET Payload Handler

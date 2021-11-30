@@ -1,4 +1,3 @@
-{-# LANGUAGE CPP #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE NumericUnderscores #-}
@@ -106,9 +105,6 @@ module Chainweb.Test.Utils
 , runSchedRocks
 , withArgs
 , matchTest
-
--- * Misc
-, genEnum
 
 -- * Multi-node testing utils
 , ChainwebNetwork(..)
@@ -224,16 +220,6 @@ import Network.X509.SelfSigned
 import P2P.Node.Configuration
 import qualified P2P.Node.PeerDB as P2P
 import P2P.Peer
-
--- -------------------------------------------------------------------------- --
--- Misc
-
-genEnum :: Enum a => (a, a) -> Gen a
-#if MIN_VERSION_QuickCheck(2,14,0)
-genEnum = chooseEnum
-#else
-genEnum (l, u) = toEnum <$> choose (fromEnum l, fromEnum u)
-#endif
 
 -- -------------------------------------------------------------------------- --
 -- Intialize Test BlockHeader DB
