@@ -98,7 +98,6 @@ import Chainweb.Cut
 import Chainweb.Cut.Create
 import Chainweb.Graph
 import Chainweb.Payload
-import Chainweb.Test.Utils (genEnum)
 import Chainweb.Test.Utils.BlockHeader
 import Chainweb.Time (Micros(..), Time, TimeSpan)
 import qualified Chainweb.Time as Time (second)
@@ -140,7 +139,7 @@ arbitraryBlockTimeOffset
     -> TimeSpan Micros
     -> T.Gen GenBlockTime
 arbitraryBlockTimeOffset lower upper = do
-    t <- genEnum (lower, upper)
+    t <- T.chooseEnum (lower, upper)
     return $ offsetBlockTime t
 
 -- | Solve Work. Doesn't check that the nonce and the time are valid.
@@ -278,7 +277,7 @@ arbitraryCut
     => ChainwebVersion
     -> T.Gen Cut
 arbitraryCut v = T.sized $ \s -> do
-    k <- genEnum (0,s)
+    k <- T.chooseEnum (0,s)
     fst <$> foldlM (\x _ -> genCut x) (genesis, initDb) [0..(k-1)]
   where
     genesis = genesisCut v
@@ -328,7 +327,7 @@ arbitraryWebChainCut_
         -- ^ A seed for the nonce which can used to enforce forks
     -> T.PropertyM IO Cut
 arbitraryWebChainCut_ wdb initialCut seed = do
-    k <- T.pick $ T.sized $ \s -> genEnum (0,s)
+    k <- T.pick $ T.sized $ \s -> T.chooseEnum (0,s)
     foldlM (\c _ -> genCut c) initialCut [0..(k-1)]
   where
     genCut c = do
