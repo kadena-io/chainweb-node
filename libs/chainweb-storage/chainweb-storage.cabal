@@ -35,7 +35,6 @@ library
         Data.CAS.Forgetful
         Data.CAS.HashMap
         Data.CAS.RocksDB
-        Data.CAS.RocksDB.Checkpoint
         Data.DedupStore
     build-depends:
         , base >=4.10 && <4.16
