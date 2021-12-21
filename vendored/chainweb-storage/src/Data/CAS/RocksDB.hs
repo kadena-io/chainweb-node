@@ -98,20 +98,33 @@ module Data.CAS.RocksDB
 -- * RocksDbCas
 , RocksDbCas(..)
 , newCas
+
+-- * RocksDB-specific tools
+, checkpointRocksDb
+, approxTableSizeRocksDb
 ) where
 
 import Control.Lens
+import Control.Monad
 import Control.Monad.Catch
 import Control.Monad.IO.Class
 
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Char8 as B8
+
 import Data.CAS
 import Data.String
 import qualified Data.Text as T
 import qualified Data.Vector as V
 
+import Foreign.C
+import Foreign.Marshal
+import Foreign.Ptr
+import Foreign.Storable
+
 import qualified Database.RocksDB.Base as R
+import qualified Database.RocksDB.C as C
+import qualified Database.RocksDB.Internal as R
 import qualified Database.RocksDB.Iterator as I
 
 import GHC.Generics (Generic)
@@ -756,4 +769,80 @@ decIterKey it k = case B.splitAt (B.length namespace) k of
   where
     namespace = _rocksDbTableIterNamespace it
 {-# INLINE decIterKey #-}
+
+data Checkpoint
+
+foreign import ccall unsafe "rocksdb\\c.h rocksdb_checkpoint_object_create" 
+  rocksdb_checkpoint_object_create :: C.RocksDBPtr -> Ptr CString -> IO (Ptr Checkpoint)
+
+foreign import ccall unsafe "rocksdb\\c.h rocksdb_checkpoint_create"
+  rocksdb_checkpoint_create :: Ptr Checkpoint -> CString -> CULong -> Ptr CString -> IO ()
+
+foreign import ccall unsafe "rocksdb\\c.h rocksdb_checkpoint_object_destroy"
+  rocksdb_checkpoint_object_destroy :: Ptr Checkpoint -> IO ()
+
+checked :: String -> Ptr CString -> IO a -> IO a
+checked whatWasIDoing errPtr act = do
+  r <- act
+  err <- peek errPtr
+  unless (err == nullPtr) $ do
+    errStr <- B.packCString err
+    let msg = unwords ["error while", whatWasIDoing <> ":", B8.unpack errStr]
+    free err
+    fail msg
+  return r
+
+-- to unconditionally flush the WAL log before making the checkpoint, set logSizeFlushThreshold to zero. 
+-- to *never* flush the WAL log, set logSizeFlushThreshold to maxBound :: CULong.
+checkpointRocksDb :: RocksDb -> CULong -> FilePath -> IO ()
+checkpointRocksDb RocksDb { _rocksDbHandle = R.DB dbPtr _ } logSizeFlushThreshold path = 
+    alloca (\errPtr -> do
+      poke errPtr (nullPtr :: CString)
+      let 
+          mkCheckpointObject = 
+            checked "creating checkpoint object" errPtr $ 
+              rocksdb_checkpoint_object_create dbPtr errPtr
+          mkCheckpoint cp =
+            withCString path (\path' -> 
+              checked "creating checkpoint" errPtr $ 
+                rocksdb_checkpoint_create cp path' logSizeFlushThreshold errPtr
+              )
+      bracket mkCheckpointObject rocksdb_checkpoint_object_destroy mkCheckpoint 
+    )
+
+foreign import ccall unsafe "rocksdb\\c.h rocksdb_approximate_sizes" 
+    rocksdb_approximate_sizes
+        :: C.RocksDBPtr 
+        -> {- input: number of key ranges -} CInt 
+        -> {- input: array of range start keys -} Ptr CString 
+        -> {- input: array of range start key lengths -} Ptr CSize 
+        -> {- input: array of range end keys -} Ptr CString 
+        -> {- input: array of range end key lengths -} Ptr CSize 
+        -> {- output: array of sizes -} Ptr CULong 
+        -> {- errptr -} Ptr CString 
+        -> IO ()
+
+approxTableSizeRocksDb :: RocksDb -> RocksDbTable k v -> IO (Maybe CULong)
+approxTableSizeRocksDb RocksDb { _rocksDbHandle = R.DB dbPtr _ } table = do
+    bounds <- withTableIter table $ \iter -> 
+        (,)
+            <$> (tableIterFirst iter *> R.iterKey (_rocksDbTableIter iter)) 
+            <*> (tableIterLast iter *> R.iterKey (_rocksDbTableIter iter))
+    forM (sequenceOf each bounds) $ \(minKey, maxKey) ->
+        alloca $ \rangeStartPtr ->
+        alloca $ \rangeStartLengthPtr ->
+        alloca $ \rangeEndPtr -> 
+        alloca $ \rangeEndLengthPtr -> 
+        alloca $ \sizePtr ->
+        alloca $ \errPtr -> 
+        B.useAsCStringLen minKey $ \(minKeyPtr, minKeyLen) ->
+        B.useAsCStringLen maxKey $ \(maxKeyPtr, maxKeyLen) -> do
+            poke rangeStartPtr minKeyPtr
+            poke rangeStartLengthPtr (fromIntegral minKeyLen :: CSize)
+            poke rangeEndPtr maxKeyPtr
+            poke rangeEndLengthPtr (fromIntegral maxKeyLen :: CSize)
+            poke errPtr (nullPtr :: CString)
+            checked "calculating approximate table size" errPtr $ 
+                rocksdb_approximate_sizes dbPtr 1 rangeStartPtr rangeStartLengthPtr rangeEndPtr rangeEndLengthPtr sizePtr errPtr
+            peek sizePtr
 
