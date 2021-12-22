@@ -68,8 +68,8 @@ import Text.Printf (printf)
 import Pact.Persist
 import Pact.PersistPactDb hiding (db)
 import Pact.Types.Logger
-import Pact.Types.PactValue
 import Pact.Types.Persistence
+import Pact.Types.RowData
 import Pact.Types.SQLite
 import Pact.Types.Term (ModuleName(..), ObjectMap(..), TableName(..))
 import Pact.Types.Util (AsString(..))
@@ -249,9 +249,9 @@ markTableMutation tablename blockheight db = do
 
 checkInsertIsOK
     :: WriteType
-    -> Domain RowKey (ObjectMap PactValue)
+    -> Domain RowKey RowData
     -> RowKey
-    -> BlockHandler SQLiteEnv (Maybe (ObjectMap PactValue))
+    -> BlockHandler SQLiteEnv (Maybe RowData)
 checkInsertIsOK wt d k = do
     olds <- doReadRow d k
     case (olds, wt) of
@@ -266,11 +266,11 @@ checkInsertIsOK wt d k = do
 
 writeUser
     :: WriteType
-    -> Domain RowKey (ObjectMap PactValue)
+    -> Domain RowKey RowData
     -> RowKey
-    -> ObjectMap PactValue
+    -> RowData
     -> BlockHandler SQLiteEnv ()
-writeUser wt d k row = gets _bsTxId >>= go
+writeUser wt d k rowdata@(RowData _ row) = gets _bsTxId >>= go
   where
     toTableName (Utf8 str) = TableName $ toS str
     tn = domainTableName d
@@ -284,14 +284,14 @@ writeUser wt d k row = gets _bsTxId >>= go
         recordTxLog ttn d k row'
 
       where
-        upd oldrow = do
-            let row' = ObjectMap (M.union (_objectMap row) (_objectMap oldrow))
+        upd (RowData oldV oldrow) = do
+            let row' = RowData oldV $ ObjectMap (M.union (_objectMap row) (_objectMap oldrow))
             recordPendingUpdate (Utf8 $! toS $ asString k) tn txid row'
             return row'
 
         ins = do
-            recordPendingUpdate (Utf8 $! toS $ asString k) tn txid row
-            return row
+            recordPendingUpdate (Utf8 $! toS $ asString k) tn txid rowdata
+            return rowdata
 
 doWriteRow
   :: (AsString k, ToJSON v)
