@@ -32,6 +32,7 @@ import Pact.Types.Command
 import qualified Pact.Types.Hash as H
 import Pact.Types.Logger (newLogger)
 import Pact.Types.PactValue
+import Pact.Types.RowData
 import Pact.Types.Runtime hiding (ChainId)
 import Pact.Types.SPV (noSPVSupport)
 import Pact.Types.SQLite
@@ -397,7 +398,7 @@ readRowUnitTest = simpleBlockEnvInit runUnitTest
   where
     writeRow' pactdb writeType conn i =
       _writeRow pactdb writeType (UserTables "user1") "key1"
-      (ObjectMap $ M.fromList [("f", (PLiteral (LInteger i)))]) conn
+      (RowData RDV1 (ObjectMap $ M.fromList [("f", (RDLiteral (LInteger i)))])) conn
     runUnitTest pactdb e schemaInit = do
       conn <- newMVar e
       void $ schemaInit conn
@@ -421,8 +422,8 @@ readRowUnitTest = simpleBlockEnvInit runUnitTest
       r <- _readRow pactdb usert "key1" conn
       case r of
         Nothing -> assertFailure "Unsuccessful write"
-        Just (ObjectMap m) -> case M.lookup "f" m of
-          Just l -> assertEquals "Unsuccesful write at field key \"f\"" l (PLiteral (LInteger 100))
+        Just (RowData _ (ObjectMap m)) -> case M.lookup "f" m of
+          Just l -> assertEquals "Unsuccesful write at field key \"f\"" l (RDLiteral (LInteger 100))
           Nothing -> assertFailure "Field not found"
 
 -- -------------------------------------------------------------------------- --
@@ -452,8 +453,8 @@ runRegression pactdb e schemaInit = do
     Just t1 <- begin pactdb conn
     let user1 = "user1"
         usert = UserTables user1
-        toPV :: ToTerm a => a -> PactValue
-        toPV = toPactValueLenient . toTerm'
+        toPV :: ToTerm a => a -> RowDataValue
+        toPV = pactValueToRowData . toPactValueLenient . toTerm'
     _createUserTable pactdb user1 "someModule" conn
     assertEquals' "output of commit2"
         [ TxLog "SYS:usertables" "user1" $
@@ -469,10 +470,10 @@ runRegression pactdb e schemaInit = do
     void $ begin pactdb conn
     {- the below line is commented out because we no longer support _getUserTableInfo -}
     -- assertEquals' "user table info correct" "someModule" $ _getUserTableInfo chainwebpactdb user1 conn
-    let row = ObjectMap $ M.fromList [("gah", PLiteral (LDecimal 123.454345))]
+    let row = RowData RDV1 $ ObjectMap $ M.fromList [("gah", RDLiteral (LDecimal 123.454345))]
     _writeRow pactdb Insert usert "key1" row conn
     assertEquals' "usert insert" (Just row) (_readRow pactdb usert "key1" conn)
-    let row' = ObjectMap $ M.fromList [("gah",toPV False),("fh",toPV (1 :: Int))]
+    let row' = RowData RDV1 $ ObjectMap $ M.fromList [("gah",toPV False),("fh",toPV (1 :: Int))]
     _writeRow pactdb Update usert "key1" row' conn
     assertEquals' "user update" (Just row') (_readRow pactdb usert "key1" conn)
     let ks = mkKeySet [PublicKey "skdjhfskj"] "predfun"
@@ -513,7 +514,7 @@ runRegression pactdb e schemaInit = do
     --   [TxLog "user1" "key1" row,
     --    TxLog "user1" "key1" row'] $
     --   _getTxLog chainwebpactdb usert (head tids) conn
-    assertEquals' "user txlogs" [TxLog "user1" "key1" (ObjectMap $ on M.union _objectMap row' row)] $
+    assertEquals' "user txlogs" [TxLog "user1" "key1" (RowData RDV1 (ObjectMap $ on M.union (_objectMap . _rdData) row' row))] $
         _getTxLog pactdb usert (head tids) conn
     _writeRow pactdb Insert usert "key2" row conn
     assertEquals' "user insert key2 pre-rollback" (Just row) (_readRow pactdb usert "key2" conn)
@@ -656,7 +657,7 @@ nativeLookup (NativeDefName n) = case HM.lookup (Name $ BareName n def) nativeDe
     Just (Direct t) -> Just t
     _ -> Nothing
 
-tIntList :: [Int] -> Term n
+tIntList :: [Int] -> Term Name
 tIntList = toTList (TyPrim TyInteger) def . map toTerm
 
 toTerm' :: ToTerm a => a -> Term Name
