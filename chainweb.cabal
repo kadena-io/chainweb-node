@@ -600,6 +600,7 @@ executable chainweb-node
     default-language: Haskell2010
     ghc-options:
         -threaded
+        -eventlog
         "-with-rtsopts=-N -H1G -A64M"
         -rtsopts
     hs-source-dirs: node
