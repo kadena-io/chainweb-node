@@ -173,6 +173,7 @@ pkgs.haskell.packages.${compiler}.developPackage {
   };
   modifier = drv: pkgs.haskell.lib.overrideCabal drv (attrs: {
     buildTools = (attrs.buildTools or []) ++ [
+      pkgs.git
       pkgs.zlib
       pkgs.haskell.packages.${compiler}.cabal-install
       pkgs.haskell.packages.${compiler}.ghcid
