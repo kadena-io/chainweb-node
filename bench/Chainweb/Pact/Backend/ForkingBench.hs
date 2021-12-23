@@ -17,7 +17,6 @@ module Chainweb.Pact.Backend.ForkingBench ( bench ) where
 
 import Control.Concurrent.Async
 import Control.Concurrent.MVar
-import Control.Concurrent.STM.TBQueue
 import Control.Lens hiding (elements, from, to, (.=))
 import Control.Monad
 import Control.Monad.Catch
@@ -352,7 +351,7 @@ withResources trunkLength logLevel f = C.envWithCleanup create destroy unwrap
     logger = genericLogger logLevel T.putStrLn
 
     startPact version l bhdb pdb mempool sqlEnv = do
-        reqQ <- atomically $ newTBQueue pactQueueSize
+        reqQ <- atomically $ newPactQueue pactQueueSize
         a <- async $ initPactService version cid l reqQ mempool bhdb pdb sqlEnv defaultPactServiceConfig
         return (a, reqQ)
 

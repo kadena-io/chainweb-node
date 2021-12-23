@@ -34,6 +34,7 @@ module Chainweb.Utils.RequestLog
 , requestLogQueryString
 , requestLogBodyLength
 , requestLogUserAgent
+, requestLogHeaders
 , requestLogger
 
 -- * Request-Response Logging Middleware
@@ -45,10 +46,11 @@ module Chainweb.Utils.RequestLog
 ) where
 
 import Control.DeepSeq
-import Control.Lens
+import Control.Lens hiding ((.=))
 
 import Data.Aeson
-import Data.Char
+import qualified Data.CaseInsensitive as CI
+import qualified Data.HashMap.Strict as HM
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
 
@@ -76,8 +78,10 @@ newtype JsonSockAddr = JsonSockAddr SockAddr
     deriving newtype (Show, Eq, Ord, NFData)
 
 instance ToJSON JsonSockAddr where
-    toJSON (JsonSockAddr s) = sockAddrJson s
+    toJSON (JsonSockAddr s) = object $ sockAddrJson s
+    toEncoding (JsonSockAddr s) = pairs . mconcat $ sockAddrJson s
     {-# INLINE toJSON #-}
+    {-# INLINE toEncoding #-}
 
 data RequestLog = RequestLog
     { _requestLogVersion :: !T.Text
@@ -89,16 +93,33 @@ data RequestLog = RequestLog
     , _requestLogQueryString :: !QueryText
     , _requestLogBodyLength :: !(Maybe Natural)
     , _requestLogUserAgent :: !(Maybe T.Text)
+    , _requestLogHeaders :: !(HM.HashMap T.Text T.Text)
     }
     deriving (Show, Eq, Ord, Generic)
     deriving anyclass (NFData)
 
 makeLenses ''RequestLog
 
+requestLogProperties :: KeyValue kv => RequestLog -> [kv]
+requestLogProperties o =
+    [ "version" .= _requestLogVersion o
+    , "method" .= _requestLogMethod o
+    , "path" .= _requestLogPath o
+    , "isSecure" .= _requestLogIsSecure o
+    , "rawRemoteHost" .= _requestLogRawRemoteHost o
+    , "remoteHost" .= _requestLogRemoteHost o
+    , "queryString" .= _requestLogQueryString o
+    , "bodyLength" .= _requestLogBodyLength o
+    , "userAgent" .= _requestLogUserAgent o
+    , "headers" .= _requestLogHeaders o
+    ]
+{-# INLINE requestLogProperties #-}
+
 instance ToJSON RequestLog where
-    toJSON = genericToJSON defaultOptions
-        { fieldLabelModifier = over _head toLower . drop 11
-        }
+    toJSON = object . requestLogProperties
+    toEncoding = pairs . mconcat . requestLogProperties
+    {-# INLINE toJSON #-}
+    {-# INLINE toEncoding #-}
 
 -- | INVARIANT: this result of this function must not retain pointers to
 -- the original request data that came over the wire.
@@ -116,6 +137,8 @@ logRequest req = RequestLog
         ChunkedBody -> Nothing
         KnownLength x -> Just $ int x
     , _requestLogUserAgent = T.decodeUtf8 <$> requestHeaderUserAgent req
+    , _requestLogHeaders = HM.fromList $
+        bimap (T.decodeUtf8 . CI.original) T.decodeUtf8 <$> (requestHeaders req)
     }
 
 requestLogger :: Logger l => l -> Middleware
@@ -136,10 +159,18 @@ data RequestResponseLog = RequestResponseLog
 
 makeLenses ''RequestResponseLog
 
+requestResponseLogProperties :: KeyValue kv => RequestResponseLog -> [kv]
+requestResponseLogProperties o =
+    [ "request" .= _requestResponseLogRequest o
+    , "status" .= _requestResponseLogStatus o
+    , "durationMicro" .= _requestResponseLogDurationMicro o
+    ]
+
 instance ToJSON RequestResponseLog where
-    toJSON = genericToJSON defaultOptions
-        { fieldLabelModifier = over _head toLower . drop 19
-        }
+    toJSON = object . requestResponseLogProperties
+    toEncoding = pairs . mconcat . requestResponseLogProperties
+    {-# INLINE toJSON #-}
+    {-# INLINE toEncoding #-}
 
 logRequestResponse :: RequestLog -> Response -> Int -> RequestResponseLog
 logRequestResponse reqLog res d = RequestResponseLog

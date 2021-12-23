@@ -9,6 +9,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 
@@ -24,27 +25,34 @@
 module Chainweb.Miner.Coordinator
 ( -- * Types
   MiningState(..)
+, miningState
 , MiningStats(..)
 , PrevTime(..)
 , ChainChoice(..)
 , PrimedWork(..)
-, MinerStatus(..), minerStatus
-  -- * Functions
-, newWork
+, MiningCoordination(..)
+, NoAsscociatedPayload(..)
+
+-- * Mining API Functions
+, work
+, solve
+
+-- ** Internal Functions
 , publish
 ) where
 
+import Control.Concurrent.STM (atomically)
 import Control.Concurrent.STM.TVar
 import Control.DeepSeq (NFData)
-import Control.Lens (view, (^?!))
+import Control.Lens (makeLenses, over, view)
 import Control.Monad
 import Control.Monad.Catch
 
 import Data.Aeson (ToJSON)
 import Data.Bool (bool)
 import qualified Data.ByteString as BS
-import Data.Generics.Wrapped (_Unwrapped)
 import qualified Data.HashMap.Strict as HM
+import Data.IORef
 import qualified Data.Map.Strict as M
 import qualified Data.Text as T
 import Data.Tuple.Strict (T2(..), T3(..))
@@ -58,13 +66,16 @@ import System.LogLevel (LogLevel(..))
 -- internal modules
 
 import Chainweb.BlockCreationTime
+import Chainweb.BlockHash
 import Chainweb.BlockHeader
 import Chainweb.Cut hiding (join)
 import Chainweb.Cut.Create
 import Chainweb.Cut.CutHashes
 import Chainweb.CutDB
+import Chainweb.Logger (Logger, logFunction)
 import Chainweb.Logging.Miner
-import Chainweb.Miner.Pact (Miner(..), MinerId(..))
+import Chainweb.Miner.Config
+import Chainweb.Miner.Pact (Miner(..), MinerId(..), minerId)
 import Chainweb.Payload
 import Chainweb.Sync.WebBlockHeaderStore
 import Chainweb.Time (Micros(..), Time(..), getCurrentTimeIntegral)
@@ -72,10 +83,9 @@ import Chainweb.Utils hiding (check)
 import Chainweb.Version
 import Chainweb.Version.Utils
 import Chainweb.WebBlockHeaderDB
+import Chainweb.WebPactExecutionService
 
 import Data.LogMessage (JsonLog(..), LogFunction)
-
-import Utils.Logging.Trace (trace)
 
 -- -------------------------------------------------------------------------- --
 -- Utils
@@ -97,14 +107,33 @@ lookupInCut c cid
         <> " Cut Hashes: " <> encodeToText (cutToCutHashes Nothing c) <> "."
 
 -- -------------------------------------------------------------------------- --
--- Miner
+-- MiningCoordination
+
+-- | For coordinating requests for work and mining solutions from remote Mining
+-- Clients.
+--
+data MiningCoordination logger cas = MiningCoordination
+    { _coordLogger :: !logger
+    , _coordCutDb :: !(CutDb cas)
+    , _coordState :: !(TVar MiningState)
+    , _coordLimit :: !Int
+    , _coord503s :: !(IORef Int)
+    , _coord403s :: !(IORef Int)
+    , _coordConf :: !CoordinationConfig
+    , _coordUpdateStreamCount :: !(IORef Int)
+    , _coordPrimedWork :: !(TVar PrimedWork)
+    }
 
 -- | Precached payloads for Private Miners. This allows new work requests to be
 -- made as often as desired, without clogging the Pact queue.
 --
 newtype PrimedWork =
-    PrimedWork (HM.HashMap MinerId (HM.HashMap ChainId (Maybe PayloadData)))
+    PrimedWork (HM.HashMap MinerId (HM.HashMap ChainId (Maybe (PayloadData, BlockHash))))
     deriving newtype (Semigroup, Monoid)
+
+resetPrimed :: MinerId -> ChainId -> PrimedWork -> PrimedWork
+resetPrimed mid cid (PrimedWork pw) = PrimedWork
+    $! HM.update (Just . HM.insert cid Nothing) mid pw
 
 -- | Data shared between the mining threads represented by `newWork` and
 -- `publish`.
@@ -112,9 +141,11 @@ newtype PrimedWork =
 -- The key is hash of the current block's payload.
 --
 newtype MiningState = MiningState
-    (M.Map BlockPayloadHash (T3 Miner PayloadData (Time Micros)))
+    { _miningState :: M.Map BlockPayloadHash (T3 Miner PayloadData (Time Micros)) }
     deriving stock (Generic)
     deriving newtype (Semigroup, Monoid)
+
+makeLenses ''MiningState
 
 -- | For logging during `MiningState` manipulation.
 --
@@ -134,29 +165,20 @@ newtype PrevTime = PrevTime BlockCreationTime
 
 data ChainChoice = Anything | TriedLast ChainId | Suggestion ChainId
 
--- | A `Miner`'s status. Will be `Primed` if defined in the nodes `miners` list.
--- This affects whether to serve the Miner primed payloads.
---
-data MinerStatus = Primed Miner | Plebian Miner
-
-minerStatus :: MinerStatus -> Miner
-minerStatus (Primed m) = m
-minerStatus (Plebian m) = m
-
 -- | Construct a new `BlockHeader` to mine on.
 --
 newWork
     :: LogFunction
     -> ChainChoice
-    -> MinerStatus
+    -> Miner
     -> WebBlockHeaderDb
         -- ^ this is used to lookup parent headers that are not in the cut
         -- itself.
     -> PactExecutionService
     -> TVar PrimedWork
     -> Cut
-    -> IO (T2 WorkHeader PayloadData)
-newWork logFun choice eminer hdb pact tpw c = do
+    -> IO (Maybe (T2 WorkHeader PayloadData))
+newWork logFun choice eminer@(Miner mid _) hdb pact tpw c = do
 
     -- Randomly pick a chain to mine on, unless the caller specified a specific
     -- one.
@@ -164,52 +186,36 @@ newWork logFun choice eminer hdb pact tpw c = do
     cid <- chainChoice c choice
     logFun @T.Text Debug $ "newWork: picked chain " <> sshow cid
 
-    mr <- case eminer of
-        Primed m -> primed m cid <$> readTVarIO tpw
-        Plebian m -> do
-            logFun @T.Text Debug
-                $ "newWork: call getCutExtension for chain "
-                <> sshow cid <> " on cut " <> cutIdToTextShort (_cutId c)
-            public m cid
+    PrimedWork pw <- readTVarIO tpw
+    let mr = T2
+            <$> join (HM.lookup mid pw >>= HM.lookup cid)
+            <*> getCutExtension c cid
+
     case mr of
         Nothing -> do
             logFun @T.Text Debug $ "newWork: chain " <> sshow cid <> " not mineable"
             newWork logFun (TriedLast cid) eminer hdb pact tpw c
-        Just (T2 payload extension) -> do
-            let !phash = _payloadDataPayloadHash payload
-            !wh <- newWorkHeader hdb extension phash
-            pure $ T2 wh payload
-  where
-    primed
-        :: Miner
-        -> ChainId
-        -> PrimedWork
-        -> Maybe (T2 PayloadData CutExtension)
-    primed (Miner mid _) cid (PrimedWork pw) = T2
-        <$> join (HM.lookup mid pw >>= HM.lookup cid)
-        <*> getCutExtension c cid
+        Just (T2 (payload, primedParentHash) extension)
+            | primedParentHash == _blockHash (_parentHeader (_cutExtensionParent extension)) -> do
+                let !phash = _payloadDataPayloadHash payload
+                !wh <- newWorkHeader hdb extension phash
+                pure $ Just $ T2 wh payload
+            | otherwise -> do
 
-    public
-        :: Miner
-        -> ChainId
-        -> IO (Maybe (T2 PayloadData CutExtension))
-    public miner cid = case getCutExtension c cid of
-        Nothing -> do
-            logFun @T.Text Debug
-                $ "newWork.public: failed to get adjacent parents."
-                <> " Parent: " <> encodeToText (ObjectEncoded $ c ^?! ixg cid)
-                <> " Cuthashes: " <> encodeToText (cutToCutHashes Nothing c)
-            pure Nothing
-        Just ext -> do
-            logFun @T.Text Debug
-                $ "newWork.public: got extension."
-                <> " Parent: " <> encodeToText (ObjectEncoded $ _parentHeader $ _cutExtensionParent ext)
-                <> " Adjacents: " <> encodeToText (_cutExtensionAdjacentHashes ext)
-                <> " Cuthashes: " <> encodeToText (cutToCutHashes Nothing (_cutExtensionCut ext))
-            -- This is an expensive call --
-            payload <- trace logFun "Chainweb.Miner.Coordinator.newWork.newBlock" () 1
-                (_pactNewBlock pact miner $ _cutExtensionParent ext)
-            pure . Just $ T2 (payloadWithOutputsToPayloadData payload) ext
+                -- The cut is too old or the primed work is outdated. Probably
+                -- the former because it the mining coordination background job
+                -- is updating the primed work cache regularly. We could try
+                -- another chain, but it's safer to just return 'Nothing' here
+                -- and retry with an updated cut.
+                --
+                let !extensionParent = _parentHeader (_cutExtensionParent extension)
+                logFun @T.Text Info
+                    $ "newWork: chain " <> sshow cid <> " not mineable because of parent header mismatch"
+                    <> ". Primed parent hash: " <> toText primedParentHash
+                    <> ". Extension parent: " <> toText (_blockHash extensionParent)
+                    <> ". Extension height: " <> sshow (_blockHeight extensionParent)
+
+                return Nothing
 
 chainChoice :: Cut -> ChainChoice -> IO ChainId
 chainChoice c choice = case choice of
@@ -232,26 +238,30 @@ chainChoice c choice = case choice of
 publish
     :: LogFunction
     -> CutDb cas
+    -> TVar PrimedWork
     -> MinerId
     -> PayloadData
     -> SolvedWork
     -> IO ()
-publish lf cdb miner pd s = do
+publish lf cdb pwVar miner pd s = do
     c <- _cut cdb
     now <- getCurrentTimeIntegral
     try (extend c pd s) >>= \case
 
         -- Publish CutHashes to CutDb and log success
         Right (bh, Just ch) -> do
+
+            -- reset the primed payload for this cut extension
+            atomically $ modifyTVar pwVar $ resetPrimed miner (_chainId bh)
             addCutHashes cdb ch
+
             let bytes = sum . fmap (BS.length . _transactionBytes) $
                         _payloadDataTransactions pd
-
             lf Info $ JsonLog $ NewMinedBlock
                 { _minedBlockHeader = ObjectEncoded bh
                 , _minedBlockTrans = int . V.length $ _payloadDataTransactions pd
                 , _minedBlockSize = int bytes
-                , _minedBlockMiner = view _Unwrapped miner
+                , _minedBlockMiner = _minerId miner
                 , _minedBlockDiscoveredAt = now
                 }
 
@@ -270,7 +280,93 @@ publish lf cdb miner pd s = do
         { _orphanedHeader = ObjectEncoded bh
         , _orphanedBestOnCut = ObjectEncoded p
         , _orphanedDiscoveredAt = now
-        , _orphanedMiner = view _Unwrapped miner
+        , _orphanedMiner = _minerId miner
         , _orphanedReason = msg
         }
 
+-- -------------------------------------------------------------------------- --
+-- Mining API
+
+-- | Get new work
+--
+-- This function does not check if the miner is authorized. If the miner doesn't
+-- yet exist in the primed work cache it is added.
+--
+work
+    :: forall l cas
+    .  Logger l
+    => MiningCoordination l cas
+    -> Maybe ChainId
+    -> Miner
+    -> IO WorkHeader
+work mr mcid m = do
+    T2 wh pd <- newWorkForCut
+    now <- getCurrentTimeIntegral
+    atomically
+        . modifyTVar' (_coordState mr)
+        . over miningState
+        . M.insert (_payloadDataPayloadHash pd)
+        $ T3 m pd now
+    return wh
+  where
+    -- There is no strict synchronization between the primed work cache and the
+    -- new work selection. There is a chance that work selection picks a primed
+    -- work that is out of sync with the current cut. In that case we just try
+    -- again with a new cut. In case the cut was good but the primed work was
+    -- outdated, chances are that in the next attempt we pick a different chain
+    -- with update work or that the primed work cache caught up in the meantime.
+    --
+    newWorkForCut = do
+        c' <- _cut cdb
+        newWork logf choice m hdb pact (_coordPrimedWork mr) c' >>= \case
+            Nothing -> newWorkForCut
+            Just x -> return x
+
+    logf :: LogFunction
+    logf = logFunction $ _coordLogger mr
+
+    hdb :: WebBlockHeaderDb
+    hdb = view cutDbWebBlockHeaderDb cdb
+
+    choice :: ChainChoice
+    choice = maybe Anything Suggestion mcid
+
+    cdb :: CutDb cas
+    cdb = _coordCutDb mr
+
+    pact :: PactExecutionService
+    pact = _webPactExecutionService $ view cutDbPactService cdb
+
+data NoAsscociatedPayload = NoAsscociatedPayload
+    deriving (Show, Eq)
+
+instance Exception NoAsscociatedPayload
+
+solve
+    :: forall l cas
+    . Logger l
+    => MiningCoordination l cas
+    -> SolvedWork
+    -> IO ()
+solve mr solved@(SolvedWork hdr) = do
+    -- Fail Early: If a `BlockHeader` comes in that isn't associated with any
+    -- Payload we know about, reject it.
+    --
+    MiningState ms <- readTVarIO tms
+    case M.lookup key ms of
+        Nothing -> throwM NoAsscociatedPayload
+        Just x -> publishWork x `finally` deleteKey
+            -- There is a race here, but we don't care if the same cut
+            -- is published twice. There is also the risk that an item
+            -- doesn't get deleted. Items get GCed on a regular basis by
+            -- the coordinator.
+  where
+    key = _blockPayloadHash hdr
+    tms = _coordState mr
+
+    lf :: LogFunction
+    lf = logFunction $ _coordLogger mr
+
+    deleteKey = atomically . modifyTVar' tms . over miningState $ M.delete key
+    publishWork (T3 m pd _) =
+        publish lf (_coordCutDb mr) (_coordPrimedWork mr) (view minerId m) pd solved

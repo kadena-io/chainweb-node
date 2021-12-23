@@ -148,7 +148,9 @@ decodePowHashNatBe = PowHashNat <$!> decodeWordBe
 
 instance ToJSON PowHashNat where
     toJSON = toJSON . encodeB64UrlNoPaddingText . runPutS . encodePowHashNat
+    toEncoding = toEncoding . encodeB64UrlNoPaddingText . runPutS . encodePowHashNat
     {-# INLINE toJSON #-}
+    {-# INLINE toEncoding #-}
 
 instance FromJSON PowHashNat where
     parseJSON = withText "PowHashNat" $ either (fail . show) return
@@ -202,7 +204,7 @@ maxTarget = HashTarget $ PowHashNat maxTargetWord
 maxTargetWord :: Word256
 maxTargetWord = maxBound
 
-instance IsMerkleLogEntry ChainwebHashTag HashTarget where
+instance MerkleHashAlgorithm a => IsMerkleLogEntry a ChainwebHashTag HashTarget where
     type Tag HashTarget = 'HashTargetTag
     toMerkleNode = encodeMerkleInputNode encodeHashTarget
     fromMerkleNode = decodeMerkleInputNode decodeHashTarget

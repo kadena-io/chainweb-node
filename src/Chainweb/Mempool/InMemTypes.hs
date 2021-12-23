@@ -38,8 +38,6 @@ import GHC.Generics
 
 import Numeric.Natural
 
-import Pact.Types.Gas (GasPrice(..))
-
 -- internal imports
 
 import Chainweb.Mempool.CurrentTxs
@@ -64,6 +62,7 @@ type PendingMap = HashMap TransactionHash PendingEntry
 data InMemConfig t = InMemConfig {
     _inmemTxCfg :: {-# UNPACK #-} !(TransactionConfig t)
   , _inmemTxBlockSizeLimit :: !GasLimit
+  , _inmemTxMinGasPrice :: !GasPrice
   , _inmemMaxRecentItems :: {-# UNPACK #-} !Int
   , _inmemPreInsertPureChecks :: t -> Either InsertError t
   , _inmemPreInsertBatchChecks
@@ -90,10 +89,7 @@ type BadMap = HashMap TransactionHash (Time Micros)
 
 ------------------------------------------------------------------------------
 data InMemoryMempoolData t = InMemoryMempoolData {
-    _inmemCountPending :: !(IORef Int)
-    -- ^ The number of pending transactions
-
-  , _inmemPending :: !(IORef PendingMap)
+    _inmemPending :: !(IORef PendingMap)
     -- ^ The set of pending transactions
 
   , _inmemRecentLog :: !(IORef RecentLog)

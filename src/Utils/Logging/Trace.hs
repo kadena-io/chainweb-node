@@ -55,13 +55,20 @@ data Trace = Trace
     }
     deriving (Show, Eq, Generic, NFData)
 
+traceProperties :: KeyValue kv => Trace -> [kv]
+traceProperties o =
+    [ "action" .= _traceAction o
+    , "param" .= _traceParam o
+    , "weight" .= _traceWeight o
+    , "time" .= _traceTime o
+    ]
+{-# INLINE traceProperties #-}
+
 instance ToJSON Trace where
-    toJSON o = object
-        [ "action" .= _traceAction o
-        , "param" .= _traceParam o
-        , "weight" .= _traceWeight o
-        , "time" .= _traceTime o
-        ]
+    toJSON = object . traceProperties
+    toEncoding = pairs . mconcat . traceProperties
+    {-# INLINE toJSON #-}
+    {-# INLINE toEncoding #-}
 
 trace
     :: MonadIO m

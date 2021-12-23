@@ -78,6 +78,7 @@ import Chainweb.BlockHeaderDB
 import Chainweb.BlockHeight
 import Chainweb.ChainId
 import Chainweb.ChainValue
+import Chainweb.Cut.CutHashes
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
 import Chainweb.Payload.RestAPI.Client
@@ -309,7 +310,7 @@ getBlockHeaderInternal
     -> candidatePayloadCas PayloadData
     -> Priority
     -> Maybe PeerInfo
-    -> ChainValue (BlockHeight, BlockHash)
+    -> ChainValue BlockHashWithHeight
         -- ^ The target hash that is queried
     -> BlockHeader
         -- ^ Current height. This is used to speculatively query additional
@@ -357,7 +358,7 @@ getBlockHeaderInternal headerStore payloadStore candidateHeaderCas candidatePayl
         -- prerequesite in the memo-table it is awaited, otherwise a new job is
         -- created.
         --
-        let isGenesisParentHash (ChainValue c (_, p)) = p == genesisParentBlockHash v c
+        let isGenesisParentHash (ChainValue c p) = _bhwhHash p == genesisParentBlockHash v c
             queryAdjacentParent p = Concurrently $ unless (isGenesisParentHash p) $ void $ do
                 logg Debug $ taskMsg k
                     $ "getBlockHeaderInternal.getPrerequisteHeader (adjacent) for " <> sshow h
@@ -377,7 +378,7 @@ getBlockHeaderInternal headerStore payloadStore candidateHeaderCas candidatePayl
             -- after payload validation when the header is finally added to the db.
             --
             queryParent hdr = Concurrently $ void $ do
-                let p = ChainValue (_blockChainId hdr) (max (_blockHeight hdr) 1 - 1, _blockParent hdr)
+                let p = ChainValue (_blockChainId hdr) (BlockHashWithHeight (max (_blockHeight hdr) 1 - 1) (_blockParent hdr))
                 logg Debug $ taskMsg k
                     $ "getBlockHeaderInternal.getPrerequisteHeader (parent) for " <> sshow h
                     <> ": " <> sshow p
@@ -460,8 +461,8 @@ getBlockHeaderInternal headerStore payloadStore candidateHeaderCas candidatePayl
 
   where
 
-    h = snd <$> hh
-    trgHeight = fst $ _chainValueValue hh
+    h = _bhwhHash <$> hh
+    trgHeight = _bhwhHeight $ _chainValueValue hh
 
     mgr = _webBlockHeaderStoreMgr headerStore
     cas = WebBlockHeaderCas $ _webBlockHeaderStoreCas headerStore
@@ -504,7 +505,7 @@ getBlockHeaderInternal headerStore payloadStore candidateHeaderCas candidatePayl
     rDb _ cid env = RemoteDb env (ALogFunction logfun) v cid
 
     adjParents hdr
-        = map (fmap (ph,))
+        = map (fmap (BlockHashWithHeight ph))
         . toList
         . imap ChainValue
         . _getBlockHashRecord
@@ -625,13 +626,13 @@ getBlockHeader
     -> ChainId
     -> Priority
     -> Maybe PeerInfo
-    -> (BlockHeight, BlockHash)
+    -> BlockHashWithHeight 
     -> BlockHeader
         -- ^ current Header
     -> IO BlockHeader
 getBlockHeader headerStore payloadStore candidateHeaderCas candidatePayloadCas cid priority maybeOrigin h curHdr
     = ((\(ChainValue _ b) -> b) <$> go)
-        `catch` \(TaskFailed _es) -> throwM $ TreeDbKeyNotFound @BlockHeaderDb (snd h)
+        `catch` \(TaskFailed _es) -> throwM $ TreeDbKeyNotFound @BlockHeaderDb (_bhwhHash h)
   where
     go = getBlockHeaderInternal
         headerStore

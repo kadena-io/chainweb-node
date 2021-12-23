@@ -23,6 +23,7 @@ module Chainweb.Test.Pact.Utils
   SimpleKeyPair
 , sender00
 , sender01
+, allocation00KeyPair
 , testKeyPairs
 , mkKeySetData
 -- * 'PactValue' helpers
@@ -30,6 +31,10 @@ module Chainweb.Test.Pact.Utils
 , pString
 , pDecimal
 , pBool
+, pList
+-- * event helpers
+, mkEvent
+, mkTransferEvent
 -- * Capability helpers
 , mkCapability
 , mkTransferCap
@@ -140,12 +145,14 @@ import Pact.Types.Command
 import Pact.Types.Crypto
 import Pact.Types.Exp
 import Pact.Types.Gas
+import Pact.Types.Hash
 import Pact.Types.Logger
 import Pact.Types.Names
 import Pact.Types.PactValue
 import Pact.Types.RPC
-import Pact.Types.Runtime (PactId)
+import Pact.Types.Runtime (PactEvent(..))
 import Pact.Types.SPV
+import Pact.Types.Term
 import Pact.Types.SQLite
 import Pact.Types.Util (parseB16TextOnly)
 
@@ -207,6 +214,13 @@ sender01 = ("6be2f485a7af75fedb4b7f153a903f7e6000ca4aa501179c91a2450b777bd2a7"
            ,"2beae45b29e850e6b1882ae245b0bab7d0689ebdd0cd777d4314d24d7024b4f7")
 
 
+allocation00KeyPair :: SimpleKeyPair
+allocation00KeyPair =
+    ( "d82d0dcde9825505d86afb6dcc10411d6b67a429a79e21bda4bb119bf28ab871"
+    , "c63cd081b64ae9a7f8296f11c34ae08ba8e1f8c84df6209e5dee44fa04bcb9f5"
+    )
+
+
 -- | Make trivial keyset data
 mkKeySetData :: Text  -> [SimpleKeyPair] -> Value
 mkKeySetData name keys = object [ name .= map fst keys ]
@@ -231,7 +245,37 @@ pDecimal = PLiteral . LDecimal
 pBool :: Bool -> PactValue
 pBool = PLiteral . LBool
 
+pList :: [PactValue] -> PactValue
+pList = PList . V.fromList
 
+mkEvent
+    :: MonadThrow m
+    => Text
+    -- ^ name
+    -> [PactValue]
+    -- ^ params
+    -> ModuleName
+    -> Text
+    -- ^ module hash
+    -> m PactEvent
+mkEvent n params m mh = do
+  mh' <- decodeB64UrlNoPaddingText mh
+  return $ PactEvent n params m (ModuleHash (Hash mh'))
+
+mkTransferEvent
+    :: MonadThrow m
+    => Text
+    -- ^ sender
+    -> Text
+    -- ^ receiver
+    -> Decimal
+    -- ^ amount
+    -> ModuleName
+    -> Text
+    -- ^ module hash
+    -> m PactEvent
+mkTransferEvent sender receiver amount m mh =
+  mkEvent "TRANSFER" [pString sender,pString receiver,pDecimal amount] m mh
 -- ----------------------------------------------------------------------- --
 -- Capability helpers
 
@@ -611,7 +655,7 @@ withPactTestBlockDb version cid logLevel rdb mempoolIO pactConfig f =
   withResource (startPact bdbio iodir) stopPact $ f . fmap (view _3)
   where
     startPact bdbio iodir = do
-        reqQ <- atomically $ newTBQueue 2000
+        reqQ <- atomically $ newPactQueue 2000
         dir <- iodir
         bdb <- bdbio
         mempool <- mempoolIO

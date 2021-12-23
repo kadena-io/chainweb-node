@@ -55,6 +55,8 @@ module Chainweb.Utils
 , minimumsOf
 , minimumsByOf
 , leadingZeros
+, randomByteString
+, randomShortByteString
 , maxBy
 , minBy
 , allEqOn
@@ -66,6 +68,7 @@ module Chainweb.Utils
 , (&)
 , IxedGet(..)
 , catMaybesVector
+, minusOrZero
 
 -- * Encoding and Serialization
 , EncodingException(..)
@@ -75,6 +78,7 @@ module Chainweb.Utils
 , runPut
 , runGetEither
 , eof
+, MonadGetExtra(..)
 
 -- ** Codecs
 , Codec(..)
@@ -107,6 +111,9 @@ module Chainweb.Utils
 , decodeStrictOrThrow'
 , decodeFileStrictOrThrow'
 , parseJsonFromText
+
+-- ** Cassava (CSV)
+, CsvDecimal(..)
 
 -- * Error Handling
 , Expected(..)
@@ -160,9 +167,6 @@ module Chainweb.Utils
 , foldChunksM_
 , progress
 
--- * Filesystem
-, withTempDir
-
 -- * Type Level
 , symbolText
 -- * optics
@@ -213,7 +217,7 @@ import Control.Concurrent.MVar
 import Control.Concurrent.TokenBucket
 import Control.DeepSeq
 import Control.Exception
-    (IOException, SomeAsyncException(..), bracket, evaluate)
+    (IOException, SomeAsyncException(..), evaluate)
 import Control.Lens hiding ((.=))
 import Control.Monad
 import Control.Monad.Catch hiding (bracket)
@@ -233,7 +237,13 @@ import qualified Data.ByteString as B
 import qualified Data.ByteString.Base64 as B64
 import qualified Data.ByteString.Base64.URL as B64U
 import qualified Data.ByteString.Lazy as BL
+#if !MIN_VERSION_random(1,2,0)
+import qualified Data.ByteString.Random as BR
+#endif
+import qualified Data.ByteString.Short as BS
 import qualified Data.ByteString.Unsafe as B
+import qualified Data.Csv as CSV
+import Data.Decimal
 import Data.Foldable
 import Data.Functor.Of
 import Data.Hashable
@@ -245,6 +255,7 @@ import Data.Maybe (catMaybes)
 import Data.Monoid (Endo)
 import Data.Proxy
 import Data.Serialize.Get (Get)
+import qualified Data.Serialize.Get as Get
 import Data.Serialize.Put (Put)
 import Data.String (IsString(..))
 import qualified Data.Text as T
@@ -272,12 +283,11 @@ import qualified Options.Applicative as O
 import qualified Streaming as S (concats, effect, inspect)
 import qualified Streaming.Prelude as S
 
-import System.Directory (removeDirectoryRecursive)
 import System.IO.Unsafe (unsafePerformIO)
 import System.LogLevel
-import System.Path (Absolute, Path, fragment, toAbsoluteFilePath, (</>))
-import System.Path.IO (getTemporaryDirectory)
-import System.Random (randomIO)
+#if MIN_VERSION_random(1,2,0)
+import System.Random
+#endif
 import qualified System.Random.MWC as Prob
 import qualified System.Random.MWC.Probability as Prob
 import System.Timeout
@@ -414,6 +424,14 @@ catMaybesVector = V.catMaybes
 catMaybesVector = V.fromList . catMaybes . V.toList
 #endif
 
+-- | Substraction that returns 0 when the second argument is larger than the
+-- first. This can be in particular useful when substracting 'Natural' numbers.
+-- The operator '-' would throw an 'Underflow' exception in this situation.
+--
+minusOrZero :: Ord a => Num a => a -> a -> a
+minusOrZero a b = a - min a b
+{-# INLINE minusOrZero #-}
+
 -- -------------------------------------------------------------------------- --
 -- * Read only Ixed
 
@@ -430,7 +448,7 @@ class IxedGet a where
     ixg :: Index a -> Fold a (IxValue a)
 
     default ixg :: Ixed a => Index a -> Fold a (IxValue a)
-    ixg = ix
+    ixg i = ix i
     {-# INLINE ixg #-}
 
 -- -------------------------------------------------------------------------- --
@@ -478,6 +496,14 @@ runPut = runPutS
 eof :: Get ()
 eof = unlessM isEmpty $ fail "pending bytes in input"
 {-# INLINE eof #-}
+
+class MonadGet m => MonadGetExtra m where
+    label :: String -> m a -> m a
+    isolate :: Int -> m a -> m a
+
+instance MonadGetExtra Get where
+    label = Get.label
+    isolate = Get.isolate
 
 -- -------------------------------------------------------------------------- --
 -- ** Text
@@ -726,6 +752,18 @@ parseJsonFromText
 parseJsonFromText l = withText l $! either fail return . eitherFromText
 
 -- -------------------------------------------------------------------------- --
+-- ** Cassava (CSV)
+
+newtype CsvDecimal = CsvDecimal { _csvDecimal :: Decimal }
+    deriving newtype (Eq, Ord, Show, Read)
+
+instance CSV.FromField CsvDecimal where
+    parseField s = do
+        cs <- either (fail . show) pure $ T.unpack <$> T.decodeUtf8' s
+        either fail pure $ readEither cs
+    {-# INLINE parseField #-}
+
+-- -------------------------------------------------------------------------- --
 -- Option Parsing
 
 -- | Type of parsers for simple compandline options.
@@ -965,6 +1003,40 @@ leadingZeros b =
 {-# INLINE leadingZeros #-}
 
 -- -------------------------------------------------------------------------- --
+-- Random ByteString
+--
+-- 'getStdRandom' provides a generator that is stored in an 'IORef' and updated
+-- via an optimistic atomic swap. 'atomicModifyIORef'' is implemented such that
+-- the swapped pointer is updated lazily, which minimizes the chance of retries
+-- and life locks.
+--
+-- However, use of the generator is still sequentialized. Thus, for long
+-- 'ByteString's it can be more efficient to split the generator to speed up
+-- concurrent access.
+
+#if MIN_VERSION_random(1,2,0)
+randomShortByteString :: MonadIO m => Natural -> m BS.ShortByteString
+randomShortByteString n
+    -- don't split the generators for less than 64 words.
+    -- 512 = 8 * 64
+    | n < 512 = getStdRandom $ genShortByteString (int n)
+    | otherwise = fst . genShortByteString (int n) <$> newStdGen
+
+randomByteString :: MonadIO m => Natural -> m B.ByteString
+randomByteString n
+    -- don't split the generators for less than 64 words.
+    -- 512 = 8 * 64
+    | n < 512 = getStdRandom $ genByteString (int n)
+    | otherwise = fst . genByteString (int n) <$> newStdGen
+#else
+randomShortByteString :: MonadIO m => Natural -> m BS.ShortByteString
+randomShortByteString = fmap BS.toShort . randomByteString
+
+randomByteString :: MonadIO m => Natural -> m B.ByteString
+randomByteString = liftIO . BR.random
+#endif
+
+-- -------------------------------------------------------------------------- --
 -- Configuration wrapper to enable and disable components
 
 -- | Configuration wrapper to enable and disable components
@@ -987,16 +1059,24 @@ defaultEnableConfig a = EnableConfig
     , _enableConfigConfig = a
     }
 
+enableConfigProperties :: ToJSON a => KeyValue kv => EnableConfig a -> [kv]
+enableConfigProperties o =
+    [ "enabled" .= _enableConfigEnabled o
+    , "configuration" .= _enableConfigConfig o
+    ]
+{-# INLINE enableConfigProperties #-}
+
 instance ToJSON a => ToJSON (EnableConfig a) where
-    toJSON o = object
-        [ "enabled" .= _enableConfigEnabled o
-        , "configuration" .= _enableConfigConfig o
-        ]
+    toJSON = object . enableConfigProperties
+    toEncoding = pairs . mconcat . enableConfigProperties
+    {-# INLINE toJSON #-}
+    {-# INLINE toEncoding #-}
 
 instance FromJSON (a -> a) => FromJSON (EnableConfig a -> EnableConfig a) where
     parseJSON = withObject "EnableConfig" $ \o -> id
         <$< enableConfigEnabled ..: "enabled" % o
         <*< enableConfigConfig %.: "configuration" % o
+    {-# INLINE parseJSON #-}
 
 validateEnableConfig :: ConfigValidation a l -> ConfigValidation (EnableConfig a) l
 validateEnableConfig v c = when (_enableConfigEnabled c) $ v (_enableConfigConfig c)
@@ -1156,24 +1236,6 @@ data Codec t = Codec
     , codecDecode :: ByteString -> Either String t
     }
 
--- | Perform an action over a random path under @/tmp@. Example path:
---
--- @
--- Path "/tmp/chainweb-git-store-test-8086816238120523704"
--- @
---
-withTempDir :: String -> (Path Absolute -> IO a) -> IO a
-withTempDir tag f = bracket create delete f
-  where
-    create :: IO (Path Absolute)
-    create = do
-        tmp <- getTemporaryDirectory
-        suff <- randomIO @Word64
-        pure $! tmp </> fragment (printf "chainweb-%s-%d" tag suff)
-
-    delete :: Path Absolute -> IO ()
-    delete = toAbsoluteFilePath >=> removeDirectoryRecursive
-
 -- -------------------------------------------------------------------------- --
 -- Typelevel
 
@@ -1325,22 +1387,22 @@ setManagerRequestTimeout micros settings = settings
 -- -------------------------------------------------------------------------- --
 -- SockAddr from network package
 
-sockAddrJson :: SockAddr -> Value
-sockAddrJson (SockAddrInet p i) = object
+sockAddrJson :: KeyValue kv => SockAddr -> [kv]
+sockAddrJson (SockAddrInet p i) =
     [ "ipv4" .= showIpv4 i
     , "port" .= fromIntegral @PortNumber @Int p
     ]
-sockAddrJson (SockAddrInet6 p f i s) = object
+sockAddrJson (SockAddrInet6 p f i s) =
     [ "ipv6" .= show i
     , "port" .= fromIntegral @PortNumber @Int p
     , "flowInfo" .= f
     , "scopeId" .= s
     ]
-sockAddrJson (SockAddrUnix s) = object
+sockAddrJson (SockAddrUnix s) =
     [ "pipe" .= s
     ]
 #if !MIN_VERSION_network(3,0,0)
-sockAddrJson (SockAddrCan i) = object
+sockAddrJson (SockAddrCan i) =
     [ "can" .= i
     ]
 #endif

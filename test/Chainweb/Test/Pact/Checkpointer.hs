@@ -40,10 +40,10 @@ import Test.Tasty
 import Test.Tasty.HUnit
 
 -- internal imports
-
-import Chainweb.BlockHash (BlockHash(..), nullBlockHash)
+import Chainweb.BlockHash
 import Chainweb.BlockHeight (BlockHeight(..))
 import Chainweb.MerkleLogHash (merkleLogHash)
+import Chainweb.MerkleUniverse
 import Chainweb.Pact.Backend.ChainwebPactDb
 import Chainweb.Pact.Backend.InMemoryCheckpointer (initInMemoryCheckpointEnv)
 import Chainweb.Pact.Backend.RelationalCheckpointer
@@ -53,10 +53,12 @@ import Chainweb.Pact.TransactionExec
     (applyContinuation', applyExec', buildExecParsedCode)
 import Chainweb.Pact.Types
 import Chainweb.Test.Pact.Utils
-import Chainweb.Test.Orphans.Internal ({- Arbitrary BlockHash -})
 import Chainweb.Test.Utils
 import Chainweb.Utils (catchAllSynchronous)
 import Chainweb.Version
+
+
+import Chainweb.Test.Orphans.Internal ({- Arbitrary BlockHash -})
 
 -- -------------------------------------------------------------------------- --
 -- Tests
@@ -123,14 +125,14 @@ keysetTest c = testCaseSteps "Keyset test" $ \next -> do
 
     next "next block (blockheight 1, version 0)"
     let bh01 = BlockHeight 1
-    _hash01 <- BlockHash <$> liftIO (merkleLogHash "0000000000000000000000000000001a")
+    _hash01 <- BlockHash <$> liftIO (merkleLogHash @_ @ChainwebMerkleHashAlgorithm "0000000000000000000000000000001a")
     blockenv01 <- _cpRestore _cpeCheckpointer (Just (bh01, hash00))
     addKeyset blockenv01 "k2" (mkKeySet [] ">=")
     _cpDiscard _cpeCheckpointer
 
     next "fork on blockheight = 1"
     let bh11 = BlockHeight 1
-    hash11 <- BlockHash <$> liftIO (merkleLogHash "0000000000000000000000000000001b")
+    hash11 <- BlockHash <$> liftIO (merkleLogHash @_ @ChainwebMerkleHashAlgorithm "0000000000000000000000000000001b")
     blockenv11 <- _cpRestore _cpeCheckpointer (Just (bh11, hash00))
     addKeyset blockenv11 "k1" (mkKeySet [] ">=")
     _cpSave _cpeCheckpointer hash11

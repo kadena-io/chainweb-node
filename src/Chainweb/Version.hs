@@ -56,6 +56,9 @@ module Chainweb.Version
 , enableModuleNameFix2
 , enablePactEvents
 , enableSPVBridge
+, pact4coin3Upgrade
+, enforceKeysetFormats
+, AtOrAfter(..)
 
 -- ** BlockHeader Validation Guards
 , slowEpochGuard
@@ -133,6 +136,11 @@ import GHC.Stack
 import GHC.TypeLits
 
 import Numeric.Natural
+
+import System.IO.Unsafe (unsafePerformIO)
+import System.Environment (lookupEnv)
+
+import Text.Read (readMaybe)
 
 -- internal modules
 
@@ -294,12 +302,15 @@ decodeChainwebVersion = fromChainwebVersionId <$> getWord32le
 
 instance ToJSON ChainwebVersion where
     toJSON = toJSON . toText
+    toEncoding = toEncoding . toText
     {-# INLINE toJSON #-}
+    {-# INLINE toEncoding #-}
 
 instance FromJSON ChainwebVersion where
     parseJSON = parseJsonFromText "ChainwebVersion"
+    {-# INLINE parseJSON #-}
 
-instance IsMerkleLogEntry ChainwebHashTag ChainwebVersion where
+instance MerkleHashAlgorithm a => IsMerkleLogEntry a ChainwebHashTag ChainwebVersion where
     type Tag ChainwebVersion = 'ChainwebVersionTag
     toMerkleNode = encodeMerkleInputNode encodeChainwebVersion
     fromMerkleNode = decodeMerkleInputNode decodeChainwebVersion
@@ -533,7 +544,7 @@ to20ChainsTestnet :: BlockHeight
 to20ChainsTestnet = 332_604 -- 2020-07-28 16:00:00
 
 to20ChainsDevelopment :: BlockHeight
-to20ChainsDevelopment = 210
+to20ChainsDevelopment = 60
 
 -- | Return the Graph History at a given block height in descending order.
 --
@@ -639,7 +650,12 @@ blockRate FastTimedCPM{} = BlockRate 1
 -- 120 blocks per hour, 2,880 per day, 20,160 per week, 1,048,320 per year.
 blockRate Testnet04 = BlockRate 30
 blockRate Mainnet01 = BlockRate 30
-blockRate Development = BlockRate 30
+blockRate Development = BlockRate $ maybe 30 int customeDevnetRate
+
+customeDevnetRate :: Maybe Int
+customeDevnetRate =
+    readMaybe =<< unsafePerformIO (lookupEnv "DEVELOPMENT_BLOCK_RATE")
+{-# NOINLINE customeDevnetRate #-}
 
 -- | The number of blocks to be mined after a difficulty adjustment, before
 -- considering a further adjustment. Critical for the "epoch-based" adjustment
@@ -846,17 +862,40 @@ enableModuleNameFix2 _ bh = bh >= 2
 enablePactEvents :: ChainwebVersion -> BlockHeight -> Bool
 enablePactEvents Mainnet01 bh = bh >= 1138000
 enablePactEvents Testnet04 bh = bh >= 660000
-enablePactEvents Development bh = bh >= 120
-enablePactEvents (FastTimedCPM g) _ = g == singletonChainGraph || g == pairChainGraph -- For testing events
+enablePactEvents Development bh = bh >= 40
+enablePactEvents (FastTimedCPM g) bh
+    | g == singletonChainGraph || g == pairChainGraph = True
+    | g == petersonChainGraph = bh > 10
+    | otherwise = False
 enablePactEvents _ bh = bh >= 2
 
 -- | Bridge support: ETH and event SPV.
 enableSPVBridge :: ChainwebVersion -> BlockHeight -> Bool
 enableSPVBridge Mainnet01 = (>= 1_275_000) -- 2021-01-14T16:35:58
 enableSPVBridge Testnet04 = (>= 820_000) -- 2021-01-14T17:12:02
-enableSPVBridge Development = (>= 130)
+enableSPVBridge Development = (>= 50)
 enableSPVBridge (FastTimedCPM g) = const $ g == pairChainGraph || g == petersonChainGraph
 enableSPVBridge _ = const True
+
+data AtOrAfter = At | After deriving (Eq,Show)
+
+-- | Pact 4 / coin v3 fork
+pact4coin3Upgrade :: AtOrAfter -> ChainwebVersion -> BlockHeight -> Bool
+pact4coin3Upgrade aoa v h = case aoa of
+    At -> go (==) v h
+    After -> go (flip (>)) v h
+  where
+    go f Mainnet01 = f 1_722_500 -- 2021-06-19T03:34:05
+    go f Testnet04 = f 1_261_000 -- 2021-06-17T15:54:14
+    go f Development = f 80
+    go f (FastTimedCPM g) | g == petersonChainGraph = f 20
+    go _f _ = const False
+
+enforceKeysetFormats :: ChainwebVersion -> BlockHeight -> Bool
+enforceKeysetFormats Mainnet01 = (>= 2_162_000) -- 2021-11-18T20:06:55
+enforceKeysetFormats Testnet04 = (>= 1_701_000) -- 2021-11-18T17:54:36
+enforceKeysetFormats Development = (>= 100)
+enforceKeysetFormats _ = (>= 10)
 
 -- -------------------------------------------------------------------------- --
 -- Header Validation Guards
@@ -932,5 +971,5 @@ skipFeatureFlagValidationGuard _ _ = False
 oldDaGuard :: ChainwebVersion -> BlockHeight -> Bool
 oldDaGuard Mainnet01 h = h < 771_414 -- ~ 2020-07-23 16:00:00
 oldDaGuard Testnet04 h = h < 318_204 -- ~ 2020-07-23 16:00:00
-oldDaGuard Development h = h + 30 < to20ChainsDevelopment -- 30 blocks before the transition
+oldDaGuard Development h = h < 13 -- after DA at 10
 oldDaGuard _ _ = False

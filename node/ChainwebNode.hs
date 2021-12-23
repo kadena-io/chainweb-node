@@ -1,4 +1,5 @@
 {-# LANGUAGE AllowAmbiguousTypes #-}
+{-# LANGUAGE CPP #-}
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DerivingStrategies #-}
@@ -51,12 +52,10 @@ import Control.DeepSeq
 import Control.Exception
 import Control.Lens hiding ((.=))
 import Control.Monad
-import Control.Monad.Error.Class (throwError)
 import Control.Monad.Managed
 
 import Data.CAS
 import Data.CAS.RocksDB
-import qualified Data.HashSet as HS
 import qualified Data.Text as T
 import Data.Time
 import Data.Typeable
@@ -79,12 +78,12 @@ import System.LogLevel
 
 import Chainweb.BlockHeader
 import Chainweb.Chainweb
+import Chainweb.Chainweb.Configuration
 import Chainweb.Chainweb.CutResources
 import Chainweb.Counter
 import Chainweb.Cut.CutHashes
 import Chainweb.CutDB
 import Chainweb.Logger
-import Chainweb.Logging.Amberdata
 import Chainweb.Logging.Config
 import Chainweb.Logging.Miner
 import Chainweb.Mempool.Consensus (ReintroducedTxsLog)
@@ -139,15 +138,7 @@ validateChainwebNodeConfiguration :: ConfigValidation ChainwebNodeConfiguration 
 validateChainwebNodeConfiguration o = do
     validateLogConfig $ _nodeConfigLog o
     validateChainwebConfiguration $ _nodeConfigChainweb o
-    mapM_ checkIfValidChain (getAmberdataChainId o)
     mapM_ (validateFilePath "databaseDirectory") (_nodeConfigDatabaseDirectory o)
-  where
-    chains = chainIds $ _nodeConfigChainweb o
-    checkIfValidChain cid
-      = unless (HS.member cid chains)
-        $ throwError $ "Invalid chain id provided: " <> toText cid
-    getAmberdataChainId = _amberdataChainId . _enableConfigConfig . _logConfigAmberdataBackend . _nodeConfigLog
-
 
 instance ToJSON ChainwebNodeConfiguration where
     toJSON o = object
@@ -200,9 +191,9 @@ getDbBaseDir conf = case _nodeConfigDatabaseDirectory conf of
 -- to at most one restart every 10 seconds.
 --
 runMonitorLoop :: Logger logger => T.Text -> logger -> IO () -> IO ()
-runMonitorLoop label logger = runForeverThrottled
+runMonitorLoop actionLabel logger = runForeverThrottled
     (logFunction logger)
-    label
+    actionLabel
     10 -- 10 bursts in case of failure
     (10 * mega) -- allow restart every 10 seconds in case of failure
 
@@ -260,30 +251,19 @@ runBlockUpdateMonitor logger db = L.withLoggerLabel ("component", "block-update-
         <*> pure True -- _blockUpdateOrphaned
         <*> ((0 -) <$> txCount bh) -- _blockUpdateTxCount
 
-runAmberdataBlockMonitor
-    :: PayloadCasLookup cas
-    => Logger logger
-    => EnableConfig AmberdataConfig
-    -> logger
-    -> CutDb cas
-    -> IO ()
-runAmberdataBlockMonitor config logger db
-    | _enableConfigEnabled config = L.withLoggerLabel ("component", "amberdata-block-monitor") logger $ \l ->
-        runMonitorLoop "Chainweb.Logging.amberdataBlockMonitor" l (amberdataBlockMonitor cid l db)
-    | otherwise = return ()
-  where
-    cid = _amberdataChainId $ _enableConfigConfig config
-
 -- type CutLog = HM.HashMap ChainId (ObjectEncoded BlockHeader)
 
 -- This instances are OK, since this is the "Main" module of an application
 --
+#if !MIN_VERSION_base(4,15,0)
 deriving instance Generic GCDetails
-deriving instance NFData GCDetails
-deriving instance ToJSON GCDetails
-
 deriving instance Generic RTSStats
+#endif
+
+deriving instance NFData GCDetails
 deriving instance NFData RTSStats
+
+deriving instance ToJSON GCDetails
 deriving instance ToJSON RTSStats
 
 runRtsMonitor :: Logger logger => logger -> IO ()
@@ -326,16 +306,12 @@ node conf logger = do
             [ runChainweb cw
               -- we should probably push 'onReady' deeper here but this should be ok
             , runCutMonitor (_chainwebLogger cw) (_cutResCutDb $ _chainwebCutResources cw)
-            , runAmberdataBlockMonitor (amberdataConfig conf) (_chainwebLogger cw) (_cutResCutDb $ _chainwebCutResources cw)
             , runQueueMonitor (_chainwebLogger cw) (_cutResCutDb $ _chainwebCutResources cw)
             , runRtsMonitor (_chainwebLogger cw)
             , runBlockUpdateMonitor (_chainwebLogger cw) (_cutResCutDb $ _chainwebCutResources cw)
             ]
   where
     cwConf = _nodeConfigChainweb conf
-    amberdataConfig = _logConfigAmberdataBackend . _nodeConfigLog
-
-
 
 withNodeLogger
     :: LogConfig
@@ -361,7 +337,6 @@ withNodeLogger logConfig v f = runManaged $ do
     counterBackend <- managed $ configureHandler
         (withJsonHandleBackend @CounterLog "connectioncounters" mgr pkgInfoScopes)
         teleLogConfig
-    newBlockAmberdataBackend <- managed $ mkAmberdataLogger mgr amberdataConfig
     endpointBackend <- managed
         $ mkTelemetryLogger @PactCmdLog mgr teleLogConfig
     newBlockBackend <- managed
@@ -390,7 +365,6 @@ withNodeLogger logConfig v f = runManaged $ do
             , logHandler p2pInfoBackend
             , logHandler rtsBackend
             , logHandler counterBackend
-            , logHandler newBlockAmberdataBackend
             , logHandler endpointBackend
             , logHandler newBlockBackend
             , logHandler orphanedBlockBackend
@@ -409,15 +383,6 @@ withNodeLogger logConfig v f = runManaged $ do
         $ logger
   where
     teleLogConfig = _logConfigTelemetryBackend logConfig
-    amberdataConfig = _logConfigAmberdataBackend logConfig
-
-mkAmberdataLogger
-    :: HTTP.Manager
-    -> EnableConfig AmberdataConfig
-    -> (Backend (JsonLog AmberdataBlock) -> IO b)
-    -> IO b
-mkAmberdataLogger mgr = configureHandler
-  $ withAmberDataBlocksBackend mgr
 
 mkTelemetryLogger
     :: forall a b
@@ -431,32 +396,32 @@ mkTelemetryLogger mgr = configureHandler
     $ withJsonHandleBackend @(JsonLog a) (sshow $ typeRep $ Proxy @a) mgr pkgInfoScopes
 
 -- -------------------------------------------------------------------------- --
--- Kill Switch
+-- Service Date
 
-newtype KillSwitch = KillSwitch T.Text
+newtype ServiceDate = ServiceDate T.Text
 
-instance Show KillSwitch where
-    show (KillSwitch t) = "kill switch triggered: " <> T.unpack t
+instance Show ServiceDate where
+    show (ServiceDate t) = "Service interval end: " <> T.unpack t
 
-instance Exception KillSwitch where
+instance Exception ServiceDate where
     fromException = asyncExceptionFromException
     toException = asyncExceptionToException
 
-withKillSwitch
+withServiceDate
     :: (LogLevel -> T.Text -> IO ())
     -> Maybe UTCTime
     -> IO a
     -> IO a
-withKillSwitch _ Nothing inner = inner
-withKillSwitch lf (Just t) inner = race timer inner >>= \case
-    Left () -> error "Kill switch thread terminated unexpectedly"
+withServiceDate _ Nothing inner = inner
+withServiceDate lf (Just t) inner = race timer inner >>= \case
+    Left () -> error "Service date thread terminated unexpectedly"
     Right a -> return a
   where
-    timer = runForever lf "KillSwitch" $ do
+    timer = runForever lf "ServiceDate" $ do
         now <- getCurrentTime
         when (now >= t) $ do
-            lf Error killMessage
-            throw $ KillSwitch killMessage
+            lf Error shutdownMessage
+            throw $ ServiceDate shutdownMessage
 
         let w = diffUTCTime t now
         let micros = round $ w * 1_000_000
@@ -469,8 +434,8 @@ withKillSwitch lf (Just t) inner = race timer inner >>= \case
         , " Please upgrade to a new version before that date."
         ]
 
-    killMessage :: T.Text
-    killMessage = T.concat
+    shutdownMessage :: T.Text
+    shutdownMessage = T.concat
         [ "Shutting down. This version of chainweb was only valid until" <> sshow t <> "."
         , " Please upgrade to a new version."
         ]
@@ -491,10 +456,10 @@ pkgInfoScopes =
 -- -------------------------------------------------------------------------- --
 -- main
 
--- KILLSWITCH for version 2.6
+-- SERVICE DATE for version 2.11
 --
-killSwitchDate :: Maybe String
-killSwitchDate = Just "2021-05-06T00:00:00Z"
+serviceDate :: Maybe String
+serviceDate = Just "2022-01-13T00:00:00Z"
 
 mainInfo :: ProgramInfo ChainwebNodeConfiguration
 mainInfo = programInfoValidate
@@ -510,8 +475,8 @@ main = do
         let v = _configChainwebVersion $ _nodeConfigChainweb conf
         hSetBuffering stderr LineBuffering
         withNodeLogger (_nodeConfigLog conf) v $ \logger -> do
-            kt <- mapM (parseTimeM False defaultTimeLocale timeFormat) killSwitchDate
-            withKillSwitch (logFunctionText logger) kt $
+            kt <- mapM (parseTimeM False defaultTimeLocale timeFormat) serviceDate
+            withServiceDate (logFunctionText logger) kt $
                 node conf logger
   where
     timeFormat = iso8601DateFormat (Just "%H:%M:%SZ")

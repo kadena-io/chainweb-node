@@ -2,11 +2,14 @@ name: Build and publish application binaries
 
 on:
   workflow_dispatch:
+    inputs:
+      debugInfo:
+         description: whether to create binaries with debugging info
+         default: 'False'
+      optimizationLevel:
+        description: optimization level that is used to compile pact and chainweb-node
+        default: '1'
   push:
-    branches:
-    - master
-    - ci/*
-    - release-candidate/*
 
 env:
   AWS_ACCESS_KEY_ID: ${{ secrets.kadena_cabal_cache_aws_access_key_id }}
@@ -28,8 +31,9 @@ jobs:
       git-sha-short: ${{ steps.git-info.outputs.git-sha-short }}
       git-ref-short: ${{ steps.git-info.outputs.git-ref-short }}
       is-release: ${{ steps.git-info.outputs.is-release }}
-      strip: ${{ steps.compile-flags.outputs.strip }}
+      debug-info: ${{ steps.compile-flags.outputs.debug-info }}
       opt-level: ${{ steps.compile-flags.outputs.opt-level }}
+      tag-suffix: ${{ steps.compile-flags.outputs.tag-suffix }}
     steps:
     - name: Checkout repository
       uses: actions/checkout@v2.3.2
@@ -39,39 +43,66 @@ jobs:
         echo "::set-output name=git-sha-short::${GITHUB_SHA:0:7}"
         echo "::set-output name=is-release::${{ contains(github.event_name, 'release') }}"
         echo "::set-output name=git-ref-short::${GITHUB_REF#refs/heads/}"
-    - name: Set optimization level and binary stripping
+    - name: Set optimization level and debugging info
       id: compile-flags
       run: |
-        if [[ "${{ steps.git-info.git-ref-short }}" = "master" || "${{ steps.git-info.git-ref-short }}" = "true" ]] ; then
-          echo "::set-output name=opt-level::2"
-          echo "::set-output name=strip::True"
+        TAG_SUFFIX=
+        OPT_LEVEL=${{ github.event.inputs.optimizationLevel }}
+        if [[ -n "$OPT_LEVEL" && "$OPT_LEVEL" != "1" ]] ; then
+          echo "::set-output name=opt-level::$OPT_LEVEL"
+          TAG_SUFFIX+=-opt$OPT_LEVEL
         else
           echo "::set-output name=opt-level::1"
-          echo "::set-output name=strip::False"
         fi
+        DEBUG_INFO=${{ github.event.inputs.debugInfo }}
+        if [[ -n "$DEBUG_INFO" && "${DEBUG_INFO^^}" = "TRUE" ]] ; then
+          echo "building binaries with debug symbols"
+          echo "::set-output name=debug-info::True"
+          TAG_SUFFIX+=-debug
+        else
+          echo "building binaries without debug symbols"
+          echo "::set-output name=debug-info::False"
+        fi
+        echo "::set-output name=tag-suffix::$TAG_SUFFIX"
     - name: Create matrix
       id: set-matrix
       run: |
         MATRIX="$(jq -c '.' <<EOF
         {
-          "ghc": ["8.8.4", "8.10.4"],
-          "cabal": ["3.4.0.0"],
-          "os": ["ubuntu-18.04", "ubuntu-20.04", "macOS-latest"],
+          "ghc": ["8.10.7", "9.0.1"],
+          "cabal": ["3.6"],
+          "os": ["ubuntu-18.04", "ubuntu-20.04"],
           "cabalcache": ["true"]
         }
         EOF
         )"
         echo "::set-output name=matrix::$( echo "$MATRIX" )"
+    - name: Log config
+      run: |
+        echo "::group::context"
+        echo "GITHUB_SHA=${GITHUB_SHA}"
+        echo "github.event_name=${{ github.event_name }}"
+        echo "GITHUB_REF=${GITHUB_REF}"
+        echo "::endgroup::"
+        echo "::group::config"
+        echo "config.outputs.git-sha-short=${{ steps.git-info.outputs.git-sha-short }}"
+        echo "config.outputs.git-ref-short=${{ steps.git-info.outputs.git-ref-short }}"
+        echo "config.outputs.is-release=${{ steps.git-info.outputs.is-release }}"
+        echo "config.outputs.debug-info=${{ steps.compile-flags.outputs.debug-info }}"
+        echo "config.outputs.opt-level=${{ steps.compile-flags.outputs.opt-level }}"
+        echo "config.outputs.tag-suffix=${{ steps.compile-flags.outputs.tag-suffix }}"
+        echo "config.outputs.matrix=${{ steps.set-matrix.outputs.matrix }}"
+        echo "::endgroup::"
 
   # ########################################################################## #
-  # Synchronize Development Database
+  # Download Development Database for Testing
   #
   # Uploading artifacts is slow, but downloading is fast.
   # For the development database that pays off. For the mainnet database
   # the upload would take > 20 min.
 
   sync-chain-db:
-    name: Synchronize chain database
+    name: Download test chain database
     runs-on: 'ubuntu-latest'
     strategy:
       fail-fast: false
@@ -89,7 +120,7 @@ jobs:
         path: db
 
   # ########################################################################## #
-  # Run Build and Upload Artifacts
+  # Build and Upload Artifacts
 
   build:
     name: Build
@@ -101,14 +132,16 @@ jobs:
 
     env:
       OPT_LEVEL: ${{ needs.config.outputs.opt-level }}
-      ARTIFACTS_ARCHIVE: chainweb.${{ matrix.ghc }}.${{ matrix.os }}.${{ needs.config.outputs.git-sha-short }}.tar.gz
+      DEBUG_INFO: ${{ needs.config.outputs.debug-info }}
+      ARTIFACTS_ARCHIVE: chainweb.${{ matrix.ghc }}.${{ matrix.os }}.${{ needs.config.outputs.git-sha-short }}${{ needs.config.outputs.tag-suffix }}.tar.gz
+      ARTIFACTS_NAME: chainweb-applications.${{ matrix.ghc }}.${{ matrix.os }}
 
     steps:
     # Setup
     - name: Checkout repository
       uses: actions/checkout@v2
     - name: Install GHC and Cabal
-      uses: haskell/actions/setup@v1
+      uses: haskell/actions/setup@v1.2.7
       with:
          ghc-version: ${{ matrix.ghc }}
          cabal-version: ${{ matrix.cabal }}
@@ -119,19 +152,14 @@ jobs:
     - name: Install non-Haskell dependencies (ubuntu)
       if: contains(matrix.os, 'ubuntu')
       run: sudo apt-get install -y librocksdb-dev z3
-    - name: Install non-Haskell dependencies (macOS)
-      if: contains(matrix.os, 'mac')
-      run: |
-        brew update && brew install rocksdb z3 gnu-tar || true
-        # work around bug in macOS and github actions cache (cf. https://github.com/actions/cache/issues/403)
-        echo PATH="/usr/local/opt/gnu-tar/libexec/gnubin:$PATH" >> $GITHUB_ENV
     - name: Create cabal.project.local
       run: |
         cat > cabal.project.local <<EOF
         package *
           documentation: False
-          executable-stripping: ${{ needs.config.outputs.strip }}
-          library-stripping: ${{ needs.config.outputs.strip }}
+          debug-info: ${{ needs.config.outputs.debug-info }}
+          executable-stripping: True
+          library-stripping: True
         package chainweb
           documentation: False
           optimization: ${{ needs.config.outputs.opt-level }}
@@ -141,7 +169,19 @@ jobs:
           documentation: False
           optimization: ${{ needs.config.outputs.opt-level }}
         EOF
-    - uses: actions/cache@v2
+    - name: Create cabal.project.local
+      if: startsWith(matrix.ghc, '9')
+      run: |
+        cat >> cabal.project.local <<EOF
+        allow-newer: token-bucket:*
+        allow-newer: ixset-typed:*
+        allow-newer: hashable:*
+        source-repository-package
+            type: git
+            location: https://github.com/larskuhtz/ixset-typed
+            tag: 26e2a4397a49e731b5a8dcdfb08a64bae06081da
+        EOF
+    - uses: pat-s/always-upload-cache@v2.1.5
       name: Cache dist-newstyle
       with:
         path: |
@@ -151,8 +191,13 @@ jobs:
         key: ${{ matrix.os }}-${{ matrix.ghc }}-4-cabal
 
     # Build
+    - name: Delete Freeze file
+      # we generate and archive a new freeze file during the build
+      run: rm cabal.project.freeze
     - name: Update package database
       run: cabal update
+    - name: Display outdated packages
+      run: cabal outdated
     - name: Configure build
       run: |
         cabal build all --dry-run
@@ -176,17 +221,25 @@ jobs:
     # Checks
     - name: Check that working directory tree is clean
       run: |
+        # the freeze file has likely has changed
+        mv cabal.project.freeze cabal.project.freeze.backup
+        git checkout -- cabal.project.freeze || true
         if ! git diff --exit-code; then
           echo "Git working tree is not clean. The build changed some file that is checked into git." 1>&2
           exit 1
         fi
+        mv cabal.project.freeze.backup cabal.project.freeze
     - name: Run ea and verify consistency of genesis headers
       run: |
         cabal run cwtool -- ea
+        # the freeze file has likely has changed
+        mv cabal.project.freeze cabal.project.freeze.backup
+        git checkout -- cabal.project.freeze || true
         if ! git diff --exit-code; then
           echo "Inconsistent genesis headers detected. Did you forget to run ea?" 1>&2
           exit 1
         fi
+        mv cabal.project.freeze.backup cabal.project.freeze
 
     # Archive Artifacts
     - name: Prepare artifacts
@@ -215,20 +268,13 @@ jobs:
         cp cabal.project.freeze artifacts/chainweb
     - name: Create artifacts archive
       run: |
-        echo ls ./artifacts
-        ls ./artifacts
-        echo ls ./artifacts/chainweb
-        ls ./artifacts/chainweb
         echo "tar -C ./artifacts/ -czf $ARTIFACTS_ARCHIVE chainweb"
         tar -C ./artifacts/ -czf "$ARTIFACTS_ARCHIVE" chainweb
-        echo ls ./artifacts
         ls ./artifacts
-        echo ls .
-        ls .
     - name: Safe artifacts
       uses: actions/upload-artifact@v2
       with:
-        name: chainweb-applications.${{ matrix.ghc }}.${{ matrix.os }}
+        name: ${{ env.ARTIFACTS_NAME }}
         path: ${{ env.ARTIFACTS_ARCHIVE }}
         if-no-files-found: error
 
@@ -239,6 +285,8 @@ jobs:
     name: Slow tests
     needs: [config, build]
     runs-on: ${{ matrix.os }}
+    env:
+      ARTIFACTS_NAME: chainweb-applications.${{ matrix.ghc }}.${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix: ${{ fromJson(needs.config.outputs.matrix) }}
@@ -247,7 +295,7 @@ jobs:
     - name: Download build artifacts
       uses: actions/download-artifact@v2
       with:
-        name: chainweb-applications.${{ matrix.ghc }}.${{ matrix.os }}
+        name: ${{ env.ARTIFACTS_NAME }}
         path: .
     - name: Install chainweb from artifacts
       uses: ./.github/actions/install-chainweb-from-artifacts
@@ -255,7 +303,7 @@ jobs:
         os: ${{ matrix.os }}
         ghc: ${{ matrix.ghc }}
     - name: Run slow tests
-      timeout-minutes: 3
+      timeout-minutes: 5
       run: |
           ulimit -n 10000
           cwtool slow-tests
@@ -274,12 +322,13 @@ jobs:
       BENCH_FILE: results.${{ github.run_id }}.${{ github.run_number }}.json
       BENCH_BUCKET: kadena-cabal-cache
       BENCH_FOLDER: chainweb-benchmark-results/${{ matrix.ghc }}/${{ matrix.os }}
+      ARTIFACTS_NAME: chainweb-applications.${{ matrix.ghc }}.${{ matrix.os }}
     steps:
     - uses: actions/checkout@v2
     - name: Download build artifacts
       uses: actions/download-artifact@v2
       with:
-        name: chainweb-applications.${{ matrix.ghc }}.${{ matrix.os }}
+        name: ${{ env.ARTIFACTS_NAME }}
         path: .
     - name: Install chainweb from artifacts
       uses: ./.github/actions/install-chainweb-from-artifacts
@@ -287,7 +336,7 @@ jobs:
         os: ${{ matrix.os }}
         ghc: ${{ matrix.ghc }}
     - name: Run all benchmarks
-      timeout-minutes: 6
+      timeout-minutes: 12
       run: bench --json $BENCH_FILE +RTS -N
     - name: Upload results
       run: |
@@ -304,6 +353,8 @@ jobs:
       fail-fast: false
       matrix: ${{ fromJson(needs.config.outputs.matrix) }}
     runs-on: ${{ matrix.os }}
+    env:
+      ARTIFACTS_NAME: chainweb-applications.${{ matrix.ghc }}.${{ matrix.os }}
     steps:
     - uses: actions/checkout@v2
     - name: Download chain database artifact
@@ -314,7 +365,7 @@ jobs:
     - name: Download build artifacts
       uses: actions/download-artifact@v2
       with:
-        name: chainweb-applications.${{ matrix.ghc }}.${{ matrix.os }}
+        name: ${{ env.ARTIFACTS_NAME }}
         path: .
     - name: Install chainweb from artifacts
       uses: ./.github/actions/install-chainweb-from-artifacts
@@ -322,7 +373,7 @@ jobs:
         os: ${{ matrix.os }}
         ghc: ${{ matrix.ghc }}
     - name: Validate Headers
-      timeout-minutes: 3
+      timeout-minutes: 6
       uses: larskuhtz/chainweb-history-validation/.github/actions/validate-headers@master
       with:
         chainweb_version: development
@@ -337,6 +388,8 @@ jobs:
       fail-fast: false
       matrix: ${{ fromJson(needs.config.outputs.matrix) }}
     runs-on: ${{ matrix.os }}
+    env:
+      ARTIFACTS_NAME: chainweb-applications.${{ matrix.ghc }}.${{ matrix.os }}
     steps:
     - uses: actions/checkout@v2
     - name: Download ${{ matrix.chainwebVersion }} chain database artifact
@@ -347,7 +400,7 @@ jobs:
     - name: Download build artifacts
       uses: actions/download-artifact@v2
       with:
-        name: chainweb-applications.${{ matrix.ghc }}.${{ matrix.os }}
+        name: ${{ env.ARTIFACTS_NAME }}
         path: .
     - name: Install chainweb from artifacts
       uses: ./.github/actions/install-chainweb-from-artifacts
@@ -355,7 +408,7 @@ jobs:
         os: ${{ matrix.os }}
         ghc: ${{ matrix.ghc }}
     - name: Validate Pact History
-      timeout-minutes: 3
+      timeout-minutes: 6
       uses: larskuhtz/chainweb-history-validation/.github/actions/validate-headers@master
       with:
         chainweb_version: development
@@ -374,12 +427,13 @@ jobs:
       TEST_RESULT_FILE: test-results.${{ github.run_id }}.${{ github.run_number }}.json
       TEST_RESULT_BUCKET: kadena-cabal-cache
       TEST_RESULT_FOLDER: chainweb-test-results/ghc-${{ matrix.ghc }}/${{ matrix.os }}
+      ARTIFACTS_NAME: chainweb-applications.${{ matrix.ghc }}.${{ matrix.os }}
     steps:
     - uses: actions/checkout@v2
     - name: Download build artifacts
       uses: actions/download-artifact@v2
       with:
-        name: chainweb-applications.${{ matrix.ghc }}.${{ matrix.os }}
+        name: ${{ env.ARTIFACTS_NAME }}
         path: .
     - name: Install chainweb from artifacts
       uses: ./.github/actions/install-chainweb-from-artifacts
@@ -391,13 +445,7 @@ jobs:
       timeout-minutes: 10
       run: |
           ulimit -n 10000
-          ulimit -a
-          env
-          if [[ "${{ runner.os }}" = "macOS" ]] ; then
-            chainweb-tests --hide-successes --results-json test-results.json --pattern='! ( /RemotePactTest/ || /PactInProcApi/ || /PactReplay/ || /Rosetta.RestAPI/ )'
-          else
-            chainweb-tests --hide-successes --results-json test-results.json
-          fi
+          chainweb-tests --hide-successes --results-json test-results.json
 
     # Publish test results to S3
     - name: Upload test results
@@ -424,49 +472,18 @@ jobs:
       fail-fast: false
       matrix: ${{ fromJson(needs.config.outputs.matrix) }}
     env:
-      ARTIFACTS_ARCHIVE: chainweb.${{ matrix.ghc }}.${{ matrix.os }}.${{ needs.config.outputs.git-sha-short }}.tar.gz
-      BRANCH_ARTIFACTS_ARCHIVE: chainweb.${{ matrix.ghc }}.${{ matrix.os }}.${{ needs.config.outputs.git-ref-short }}.tar.gz
+      ARTIFACTS_ARCHIVE: chainweb.${{ matrix.ghc }}.${{ matrix.os }}.${{ needs.config.outputs.git-sha-short }}${{ needs.config.outputs.tag-suffix }}.tar.gz
+      ARTIFACTS_NAME: chainweb-applications.${{ matrix.ghc }}.${{ matrix.os }}
     steps:
     - name: Download build artifacts
       uses: actions/download-artifact@v2
       with:
-        name: chainweb-applications.${{ matrix.ghc }}.${{ matrix.os }}
+        name: ${{ env.ARTIFACTS_NAME }}
         path: .
     - name: Publish applications to S3
       run: |
         aws s3 cp $ARTIFACTS_ARCHIVE s3://$S3_ARTIFACT_BUCKET/$S3_ARTIFACT_FOLDER/
         aws s3api put-object-acl --bucket $S3_ARTIFACT_BUCKET --key=$S3_ARTIFACT_FOLDER/$ARTIFACTS_ARCHIVE --acl public-read
-    - name: Publish applications to S3 for master builds
-      if: ${{ needs.config.output.git-short-ref == 'master' }}
-      run: |
-        aws s3 cp s3://$S3_ARTIFACT_BUCKET/$S3_ARTIFACT_FOLDER/$ARTIFACTS_ARCHIVE s3://$S3_ARTIFACT_BUCKET/$S3_ARTIFACT_FOLDER/$BRANCH_ARTIFACTS_ARCHIVE
-        aws s3api put-object-acl --bucket $S3_ARTIFACT_BUCKET --key=$S3_ARTIFACT_FOLDER/$BRANCH_ARTIFACTS_ARCHIVE --acl public-read
-
-  # ########################################################################## #
-  # Trigger mainnet history validation
-
-  request-mainnet-validation:
-    name: Request Mainnet history validation
-    needs: [config, publish]
-    runs-on: 'ubuntu-latest'
-
-    steps:
-    - name: trigger mainnet history validation
-      if: ${{ needs.config.outputs.git-short-ref == 'master' }}
-      uses: peter-evans/repository-dispatch@v1
-      with:
-        token: ${{ secrets.KADENA_BUILD_CI_TOKEN }}
-        repository: kadena-io/chainweb-node
-        event-type: request-mainnet-history-validation
-        client-payload: |
-          {
-            "ref": "${{ github.ref }}",
-            "sha": "${{ github.sha }}",
-            "ghc_version": '8.10.3',
-            "version": "${{ needs.config.outputs.git-short-ref }}",
-            "os": "ubuntu-20.04"
-            "chainweb_version": "mainnet01"
-          }
 
   # ########################################################################## #
   # Build and publish docker image
@@ -480,42 +497,38 @@ jobs:
       matrix:
         # TODO when adding more than one build, use a different package name or
         # different tags
-        ghcVersion: ["8.10.4"]
-        ubuntuVersion: ["20.04"]
+        ghc: ["8.10.7"]
+        os: ["ubuntu-20.04"]
     env:
-      GHC_VERSION: ${{ matrix.ghcVersion }}
-      UBUNTU_VERSION: ${{ matrix.ubuntuVersion }}
+      GHC_VERSION: ${{ matrix.ghc }}
+      OS: ${{ matrix.os }}
+      OPT_LEVEL: ${{ needs.config.outputs.opt-level }}
+      DEBUG_INFO: ${{ needs.config.outputs.debug-info }}
+      GIT_SHA_SHORT: ${{ needs.config.outputs.git-sha-short }}
+      COMPILER: ghc-${{ matrix.ghc }}
+      ARTIFACTS_NAME: chainweb-applications.${{ matrix.ghc }}.${{ matrix.os }}
+      ARTIFACTS_ARCHIVE: chainweb.${{ matrix.ghc }}.${{ matrix.os }}.${{ needs.config.outputs.git-sha-short }}${{ needs.config.outputs.tag-suffix }}.tar.gz
 
     steps:
-    - name: Setup Enviornment
-      run: |
-        OS=ubuntu-${UBUNTU_VERSION}
-        COMPILER=ghc-${GHC_VERSION}
-        ARTIFACTS_NAME=chainweb-applications.${GHC_VERSION}.${OS}
-        ARTIFACTS_ARCHIVE=chainweb.${GHC_VERSION}.${OS}.${GITHUB_SHA:0:7}.tar.gz
-
-        echo "OS=$OS" >> $GITHUB_ENV
-        echo "COMPILER=$COMPILER" >> $GITHUB_ENV
-        echo "ARTIFACTS_NAME=$ARTIFACTS_NAME" >> $GITHUB_ENV
-        echo "ARTIFACTS_ARCHIVE=$ARTIFACTS_ARCHIVE" >> $GITHUB_ENV
-
     - name: Get build artifacts
       uses: actions/download-artifact@v2
       with:
         name: ${{ env.ARTIFACTS_NAME }}
         path: .
 
-    - name: Extract and strip artifacts
+    - name: Extract artifacts
       run: |
         tar -xzf "$ARTIFACTS_ARCHIVE"
-        strip chainweb/chainweb-node
 
     - name: Create Dockerfile
       run: |
         cat > Dockerfile <<EOF
-        FROM ubuntu:${UBUNTU_VERSION}
-        LABEL ghc="${GHC_VERSION}"
-        LABEL ubuntu="${UBUNTU_VERSION}"
+        FROM ubuntu:${OS#ubuntu-}
+        LABEL com.chainweb.docker.image.compiler="$COMPILER"
+        LABEL com.chainweb.docker.image.os="${OS}"
+        LABEL com.chainweb.docker.image.optimization="$OPT_LEVEL"
+        LABEL com.chainweb.docker.image.debug-info="$DEBUG_INFO"
+        LABEL com.chainweb.docker.image.revision="$GIT_SHA_SHORT"
         RUN apt-get update && apt-get install -y librocksdb-dev ca-certificates && rm -rf /var/lib/apt/lists/*
         WORKDIR /chainweb
         COPY chainweb/chainweb-node .
@@ -531,11 +544,17 @@ jobs:
         EOF
 
     - name: Docker meta
-      id: docker_meta
-      uses: crazy-max/ghaction-docker-meta@v1
+      id: meta
+      uses: docker/metadata-action@v3
       with:
         images: ghcr.io/kadena-io/chainweb-node
-        tag-sha: true
+        flavor: |
+          suffix=${{ needs.config.outputs.tag-suffix }}
+        tags: |
+          type=sha
+          type=ref,event=branch
+          type=ref,event=tag
+          type=ref,event=pr
 
     - name: Set up Docker Buildx
       uses: docker/setup-buildx-action@v1
@@ -562,8 +581,8 @@ jobs:
         push: true
         context: .
         file: ./Dockerfile
-        tags: ${{ steps.docker_meta.outputs.tags }}
-        labels: ${{ steps.docker_meta.outputs.labels }}
+        tags: ${{ steps.meta.outputs.tags }}
+        labels: ${{ steps.meta.outputs.labels }}
         cache-from: type=local,src=/tmp/.buildx-cache
         cache-to: type=local,dest=/tmp/.buildx-cache
 

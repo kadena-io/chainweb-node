@@ -59,6 +59,7 @@ module Chainweb.TreeDB
 
 -- ** Lookups
 , lookupM
+, lookupRankedM
 , lookupStreamM
 
 -- * Misc Utils
@@ -240,6 +241,19 @@ class (Typeable db, TreeDbEntry (DbEntry db)) => TreeDb db where
         :: db
         -> DbKey db
         -> IO (Maybe (DbEntry db))
+
+    -- | Lookup a single entry by its key and rank. For some instances of
+    -- the lookup can be implemented more efficiently when the rank is know.
+    -- Otherwise the default implementation just ignores the rank parameter
+    -- falls back to 'lookup'.
+    --
+    lookupRanked
+        :: db
+        -> Natural
+        -> DbKey db
+        -> IO (Maybe (DbEntry db))
+    lookupRanked db _ = lookup db
+    {-# INLINEABLE lookupRanked #-}
 
     -- ---------------------------------------------------------------------- --
     -- * Keys and Entries
@@ -628,6 +642,19 @@ lookupM
 lookupM db k = lookup db k >>= \case
     Nothing -> throwM $ TreeDbKeyNotFound @db k
     (Just !x) -> return x
+{-# INLINEABLE lookupM #-}
+
+lookupRankedM
+    :: forall db
+    . TreeDb db
+    => db
+    -> Natural
+    -> DbKey db
+    -> IO (DbEntry db)
+lookupRankedM db r k = lookupRanked db r k >>= \case
+    Nothing -> throwM $ TreeDbKeyNotFound @db k
+    (Just !x) -> return x
+{-# INLINEABLE lookupRankedM #-}
 
 -- | Lookup all entries in a stream of database keys and return the stream
 -- of entries. Throws if an entry is missing.

@@ -335,10 +335,11 @@ withCutDb
     -> RocksDbCas CutHashes
     -> (forall cas' . PayloadCasLookup cas' => CutDb cas' -> IO a)
     -> IO a
-withCutDb config logfun headerStore payloadStore cutHashesStore
+withCutDb config logfun headerStore payloadStore cutHashesStore a
     = bracket
         (startCutDb config logfun headerStore payloadStore cutHashesStore)
         stopCutDb
+        a
 
 -- | Start a CutDB. This loads the initial cut from the database (falling back
 -- to the configured initial cut loading fails) and starts the cut validation
@@ -434,7 +435,7 @@ lookupCutHashes
     -> CutHashes
     -> IO (HM.HashMap ChainId BlockHeader)
 lookupCutHashes wbhdb hs =
-    flip itraverse (_cutHashes hs) $ \cid (_, h) ->
+    flip itraverse (_cutHashes hs) $ \cid (BlockHashWithHeight _ h) ->
         lookupWebBlockHeaderDb wbhdb cid h
 
 -- | This is at the heart of 'Chainweb' POW: Deciding the current "longest" cut
@@ -537,7 +538,7 @@ processCuts conf logFun headerStore payloadStore cutHashesStore queue cutVar = q
     --
     isOld x = do
         curHashes <- cutToCutHashes Nothing <$> readTVarIO cutVar
-        let r = all (>= (0 :: Int)) $ (HM.unionWith (-) `on` (fmap (int . fst) . _cutHashes)) curHashes x
+        let r = all (>= (0 :: Int)) $ (HM.unionWith (-) `on` (fmap (int . _bhwhHeight) . _cutHashes)) curHashes x
         when r $ loggc Debug x "skip old cut"
         return r
 
@@ -650,7 +651,7 @@ cutHashesToBlockHeaderMap
     -> CutHashes
     -> Cut
         -- ^ current Cut
-    -> IO (Either (T2 CutId (HM.HashMap ChainId (BlockHeight, BlockHash))) (HM.HashMap ChainId BlockHeader))
+    -> IO (Either (T2 CutId (HM.HashMap ChainId BlockHashWithHeight)) (HM.HashMap ChainId BlockHeader))
         -- ^ The 'Left' value holds missing hashes, the 'Right' value holds
         -- a 'Cut'.
 cutHashesToBlockHeaderMap conf logfun headerStore payloadStore hs curCut =

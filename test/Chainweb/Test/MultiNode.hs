@@ -75,6 +75,7 @@ import Chainweb.BlockHash
 import Chainweb.BlockHeader
 import Chainweb.BlockHeight
 import Chainweb.Chainweb
+import Chainweb.Chainweb.Configuration
 import Chainweb.Chainweb.CutResources
 import Chainweb.Chainweb.PeerResources
 import Chainweb.Cut
@@ -140,6 +141,10 @@ multiConfig v n = defaultChainwebConfiguration v
         -- Use short sessions to cover session timeouts and setup logic in the
         -- test.
 
+    & set (configP2p . p2pConfigBootstrapReachability) 0
+        -- disable reachability test, which is unreliable during testing
+
+    & set (configMining . miningCoordination . coordinationEnabled) True
     & set (configMining . miningInNode) miner
 
     & set configReintroTxs True
@@ -292,7 +297,7 @@ test
     -> Natural
     -> Seconds
     -> TestTree
-test loglevel v n seconds = testCaseSteps label $ \f -> do
+test loglevel v n seconds = testCaseSteps name $ \f -> do
     let tastylog = f . T.unpack
 #if DEBUG_MULTINODE_TEST
     -- useful for debugging, requires import of Data.Text.IO.
@@ -337,7 +342,7 @@ test loglevel v n seconds = testCaseSteps label $ \f -> do
     l = lowerStats v seconds
     u = upperStats v seconds
 
-    label = "ConsensusNetwork (nodes: " <> show n <> ", seconds: " <> show seconds <> ")"
+    name = "ConsensusNetwork (nodes: " <> show n <> ", seconds: " <> show seconds <> ")"
 
     bc x = blockCountAtCutHeight v x - order (chainGraphAtCutHeight v x)
 

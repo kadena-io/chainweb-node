@@ -97,7 +97,9 @@ unsafeNetworkIdFromText = fromJuste . networkIdFromText
 
 instance ToJSON NetworkId where
     toJSON = toJSON . networkIdToText
+    toEncoding = toEncoding . networkIdToText
     {-# INLINE toJSON #-}
+    {-# INLINE toEncoding #-}
 
 instance FromJSON NetworkId where
     parseJSON = parseJsonFromText "NetworkId"

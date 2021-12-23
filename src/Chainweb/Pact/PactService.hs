@@ -228,7 +228,7 @@ initializeCoinContract _logger memPoolAccess v cid pwo = do
         PactServiceEnv{..} <- ask
         pd <- getTxContext def
         !mc <- liftIO $ readInitModules _psLogger pdbenv pd
-        modify' $ set psInitCache mc
+        updateInitCache mc
         return $! Discard ()
 
 -- | Lookup a block header.
@@ -390,7 +390,7 @@ attemptBuyGas
     -> Vector (Either InsertError ChainwebTransaction)
     -> PactServiceM cas (Vector (Either InsertError ChainwebTransaction))
 attemptBuyGas miner (PactDbEnv' dbEnv) txs = do
-        mc <- use psInitCache
+        mc <- getInitCache
         V.fromList . toList . sfst <$> V.foldM f (T2 mempty mc) txs
   where
     f (T2 dl mcache) cmd = do
@@ -408,7 +408,7 @@ attemptBuyGas miner (PactDbEnv' dbEnv) txs = do
 
         pd <- getTxContext (publicMetaOf cmd)
         spv <- use psSpvSupport
-        let ec = mkExecutionConfig
+        let ec = P.mkExecutionConfig
               [ P.FlagDisableModuleInstall
               , P.FlagDisableHistoryInTransactionalMode ]
         return $! TransactionEnv P.Transactional db l (ctxToPublicData pd) spv nid gp rk gl ec
@@ -542,12 +542,13 @@ execLocal
     -> PactServiceM cas (P.CommandResult P.Hash)
 execLocal cmd = withDiscardedBatch $ do
     PactServiceEnv{..} <- ask
-    mc <- use psInitCache
+    mc <- getInitCache
     pd <- getTxContext (publicMetaOf $! payloadObj <$> cmd)
     spv <- use psSpvSupport
-    let execConfig = mkExecutionConfig $
+    let execConfig = P.mkExecutionConfig $
             [ P.FlagAllowReadInLocal | _psAllowReadsInLocal ] ++
-            enablePactEvents' pd
+            enablePactEvents' pd ++
+            enforceKeysetFormats' pd
         logger = P.newLogger _psLoggers "execLocal"
     withCurrentCheckpointer "execLocal" $ \(PactDbEnv' pdbenv) -> do
         r <- liftIO $

@@ -19,6 +19,7 @@ import System.Process
 
 -- chainweb imports
 import Chainweb.Chainweb
+import Chainweb.Chainweb.Configuration
 import Chainweb.HostAddress
 import Chainweb.Miner.Config
 import Chainweb.Version

@@ -23,7 +23,6 @@ module Chainweb.Pact.Service.PactInProcApi
     ) where
 
 import Control.Concurrent.Async
-import Control.Concurrent.STM.TBQueue
 import Control.Monad.STM
 
 import qualified Data.ByteString.Short as SB
@@ -90,7 +89,7 @@ withPactService'
     -> (PactQueue -> IO a)
     -> IO a
 withPactService' ver cid logger memPoolAccess bhDb pdb sqlenv config action = do
-    reqQ <- atomically $ newTBQueue (_pactQueueSize config)
+    reqQ <- atomically $ newPactQueue (_pactQueueSize config)
     race (server reqQ) (client reqQ) >>= \case
         Left () -> error "pact service terminated unexpectedly"
         Right a -> return a
@@ -129,7 +128,7 @@ pactMemPoolGetBlock mpc theLogger validate height hash _bHeader = do
     mempoolGetBlock (mpcMempool mpc) validate height hash
   where
    logFn :: Logger l => l -> LogFunctionText -- just for giving GHC some type hints
-   logFn = logFunction
+   logFn l = logFunction l
 
 
 pactProcessFork

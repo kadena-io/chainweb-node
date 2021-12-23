@@ -3,6 +3,7 @@
 module Chainweb.Pact.Transactions.UpgradeTransactions
 ( upgradeTransactions
 , twentyChainUpgradeTransactions
+, coinV3Transactions
 ) where
 
 import Chainweb.Version
@@ -23,6 +24,8 @@ import qualified Chainweb.Pact.Transactions.Mainnet9Transactions as MN9
 import qualified Chainweb.Pact.Transactions.MainnetKADTransactions as MNKAD
 import qualified Chainweb.Pact.Transactions.DevelopmentTransactions as Devnet
 import qualified Chainweb.Pact.Transactions.OtherTransactions as Other
+import qualified Chainweb.Pact.Transactions.CoinV3Transactions as CoinV3
+
 
 upgradeTransactions :: ChainwebVersion -> ChainId -> IO [ChainwebTransaction]
 upgradeTransactions Mainnet01 cid = case cidInt of
@@ -56,3 +59,6 @@ twentyChainUpgradeTransactions Development cid = case chainIdInt @Int cid of
   c | c >= 1, c <= 19 -> return []
   c -> internalError $ "Invalid devnet chain id: " <> sshow c
 twentyChainUpgradeTransactions _ _ = return []
+
+coinV3Transactions :: IO [ChainwebTransaction]
+coinV3Transactions = CoinV3.transactions

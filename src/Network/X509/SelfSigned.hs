@@ -471,7 +471,9 @@ instance HasTextRepresentation X509CertPem where
 
 instance ToJSON X509CertPem where
     toJSON = toJSON . toText
+    toEncoding = toEncoding . toText
     {-# INLINE toJSON #-}
+    {-# INLINE toEncoding #-}
 
 instance FromJSON X509CertPem where
     parseJSON = parseJsonFromText "X509CertPem"
@@ -548,7 +550,9 @@ instance HasTextRepresentation X509KeyPem where
 
 instance ToJSON X509KeyPem where
     toJSON = toJSON . toText
+    toEncoding = toEncoding . toText
     {-# INLINE toJSON #-}
+    {-# INLINE toEncoding #-}
 
 instance FromJSON X509KeyPem where
     parseJSON = parseJsonFromText "X509KeyPem"
@@ -808,7 +812,9 @@ instance HasTextRepresentation X509CertChainPem where
 
 instance ToJSON X509CertChainPem where
     toJSON = toJSON . toText
+    toEncoding = toEncoding . toText
     {-# INLINE toJSON #-}
+    {-# INLINE toEncoding #-}
 
 instance FromJSON X509CertChainPem where
     parseJSON = parseJsonFromText "X509CertChainPem"

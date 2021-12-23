@@ -48,32 +48,10 @@ module Chainweb.Chainweb
 , defaultTransactionIndexConfig
 , pTransactionIndexConfig
 
--- * Service API Configuration
-, ServiceApiConfig(..)
-, serviceApiConfigPort
-, serviceApiConfigInterface
-
 -- * GC Configuration
 , ChainDatabaseGcConfig(..)
 , chainDatabaseGcToText
 , chainDatabaseGcFromText
-
--- * Chainweb Configuration
-, ChainwebConfiguration(..)
-, configChainwebVersion
-, configMining
-, configHeaderStream
-, configReintroTxs
-, configP2p
-, configTransactionIndex
-, configBlockGasLimit
-, configThrottling
-, configReorgLimit
-, configRosetta
-, configServiceApi
-, defaultChainwebConfiguration
-, pChainwebConfiguration
-, validateChainwebConfiguration
 
 -- * Chainweb Resources
 , Chainweb(..)
@@ -88,9 +66,7 @@ module Chainweb.Chainweb
 , chainwebPayloadDb
 , chainwebPactData
 , chainwebThrottler
-, chainwebMiningThrottler
 , chainwebPutPeerThrottler
-, chainwebLocalThrottler
 , chainwebConfig
 , chainwebServiceSocket
 
@@ -102,14 +78,9 @@ module Chainweb.Chainweb
 , withChainweb
 , runChainweb
 
--- * Miner
-, runMiner
-
 -- * Throttler
 , mkGenericThrottler
-, mkMiningThrottler
 , mkPutPeerThrottler
-, mkLocalThrottler
 , checkPathPrefix
 , mkThrottler
 
@@ -137,7 +108,7 @@ import Control.Concurrent.MVar (MVar, readMVar)
 import Control.Error.Util (note)
 import Control.Lens hiding ((.=), (<.>))
 import Control.Monad
-import Control.Monad.Catch (MonadThrow, throwM)
+import Control.Monad.Catch (fromException, throwM)
 import Control.Monad.Writer
 
 import Data.Bifunctor (second)
@@ -145,21 +116,19 @@ import Data.Foldable
 import Data.Function (on)
 import qualified Data.HashMap.Strict as HM
 import Data.List (isPrefixOf, sortBy)
+import qualified Data.List as L
 import Data.Maybe
 import qualified Data.Text as T
 import Data.These (These(..))
 import Data.Tuple.Strict (T2(..))
 import qualified Data.Vector as V
 
-import GHC.Generics hiding (from)
-
 import qualified Network.HTTP.Client as HTTP
 import Network.Socket (Socket)
 import Network.Wai
 import Network.Wai.Handler.Warp hiding (Port)
+import Network.Wai.Handler.WarpTLS (WarpTLSException(InsecureConnectionDenied))
 import Network.Wai.Middleware.Throttle
-
-import Numeric.Natural (Natural)
 
 import Prelude hiding (log)
 
@@ -170,10 +139,11 @@ import System.LogLevel
 
 import Chainweb.BlockHeader
 import Chainweb.BlockHeaderDB (BlockHeaderDb)
-import Chainweb.BlockHeight
 import Chainweb.ChainId
 import Chainweb.Chainweb.ChainResources
+import Chainweb.Chainweb.Configuration
 import Chainweb.Chainweb.CutResources
+import Chainweb.Chainweb.MempoolSyncClient
 import Chainweb.Chainweb.MinerResources
 import Chainweb.Chainweb.PeerResources
 import Chainweb.Chainweb.PruneChainDatabase
@@ -185,9 +155,8 @@ import qualified Chainweb.Mempool.InMemTypes as Mempool
 import qualified Chainweb.Mempool.Mempool as Mempool
 import Chainweb.Mempool.P2pConfig
 import Chainweb.Miner.Config
-import Chainweb.Pact.RestAPI.Server (PactServerData)
+import Chainweb.Pact.RestAPI.Server (PactServerData(..))
 import Chainweb.Pact.Service.Types (PactServiceConfig(..))
-import Chainweb.Pact.Types (defaultReorgLimit)
 import Chainweb.Pact.Utils (fromPactChainId)
 import Chainweb.Payload.PayloadStore
 import Chainweb.Payload.PayloadStore.RocksDB
@@ -212,360 +181,6 @@ import qualified Pact.Types.ChainMeta as P
 import qualified Pact.Types.Command as P
 
 -- -------------------------------------------------------------------------- --
--- TransactionIndexConfig
-
-data TransactionIndexConfig = TransactionIndexConfig
-    deriving (Show, Eq, Generic)
-
-makeLenses ''TransactionIndexConfig
-
-defaultTransactionIndexConfig :: TransactionIndexConfig
-defaultTransactionIndexConfig = TransactionIndexConfig
-
-instance ToJSON TransactionIndexConfig where
-    toJSON _ = object []
-
-instance FromJSON (TransactionIndexConfig -> TransactionIndexConfig) where
-    parseJSON = withObject "TransactionIndexConfig" $ const (return id)
-
-pTransactionIndexConfig :: MParser TransactionIndexConfig
-pTransactionIndexConfig = pure id
-
--- -------------------------------------------------------------------------- --
--- Throttling Configuration
-
-data ThrottlingConfig = ThrottlingConfig
-    { _throttlingRate :: !Double
-    , _throttlingMiningRate :: !Double
-        -- ^ The rate should be sufficient to make at least on call per cut. We
-        -- expect an cut to arrive every few seconds.
-        --
-        -- Default is 10 per second.
-    , _throttlingPeerRate :: !Double
-        -- ^ This should throttle aggressively. This endpoint does an expensive
-        -- check of the client. And we want to keep bad actors out of the
-        -- system. There should be no need for a client to call this endpoint on
-        -- the same node more often than at most few times peer minute.
-        --
-        -- Default is 1 per second
-        --
-    , _throttlingLocalRate :: !Double
-    }
-    deriving stock (Eq, Show)
-
-makeLenses ''ThrottlingConfig
-
-defaultThrottlingConfig :: ThrottlingConfig
-defaultThrottlingConfig = ThrottlingConfig
-    { _throttlingRate = 200 -- per second
-    , _throttlingMiningRate = 5 --  per second
-    , _throttlingPeerRate = 21 -- per second, one for each p2p network
-    , _throttlingLocalRate = 0.1  -- per 10 seconds
-    }
-
-instance ToJSON ThrottlingConfig where
-    toJSON o = object
-        [ "global" .= _throttlingRate o
-        , "mining" .= _throttlingMiningRate o
-        , "putPeer" .= _throttlingPeerRate o
-        , "local" .= _throttlingLocalRate o
-        ]
-
-instance FromJSON (ThrottlingConfig -> ThrottlingConfig) where
-    parseJSON = withObject "ThrottlingConfig" $ \o -> id
-        <$< throttlingRate ..: "global" % o
-        <*< throttlingMiningRate ..: "mining" % o
-        <*< throttlingPeerRate ..: "putPeer" % o
-        <*< throttlingLocalRate ..: "local" % o
-
--- -------------------------------------------------------------------------- --
--- Cut Coniguration
-
-data ChainDatabaseGcConfig
-    = GcNone
-    | GcHeaders
-    | GcHeadersChecked
-    | GcFull
-    deriving (Show, Eq, Ord, Enum, Bounded, Generic)
-
-chainDatabaseGcToText :: ChainDatabaseGcConfig -> T.Text
-chainDatabaseGcToText GcNone = "none"
-chainDatabaseGcToText GcHeaders = "headers"
-chainDatabaseGcToText GcHeadersChecked = "headers-checked"
-chainDatabaseGcToText GcFull = "full"
-
-chainDatabaseGcFromText :: MonadThrow m => T.Text -> m ChainDatabaseGcConfig
-chainDatabaseGcFromText t = case T.toCaseFold t of
-    "none" -> return GcNone
-    "headers" -> return GcHeaders
-    "headers-checked" -> return GcHeadersChecked
-    "full" -> return GcFull
-    x -> throwM $ TextFormatException $ "unknown value for database pruning configuration: " <> sshow x
-
-instance HasTextRepresentation ChainDatabaseGcConfig where
-    toText = chainDatabaseGcToText
-    fromText = chainDatabaseGcFromText
-    {-# INLINE toText #-}
-    {-# INLINE fromText #-}
-
-instance ToJSON ChainDatabaseGcConfig where
-    toJSON = toJSON . chainDatabaseGcToText
-    {-# INLINE toJSON #-}
-
-instance FromJSON ChainDatabaseGcConfig where
-    parseJSON v = parseJsonFromText "ChainDatabaseGcConfig" v <|> legacy v
-      where
-        legacy = withBool "ChainDatabaseGcConfig" $ \case
-            True -> return GcHeaders
-            False -> return GcNone
-    {-# INLINE parseJSON #-}
-
-data CutConfig = CutConfig
-    { _cutIncludeOrigin :: !Bool
-    , _cutPruneChainDatabase :: !ChainDatabaseGcConfig
-    , _cutFetchTimeout :: !Int
-    , _cutInitialCutHeightLimit :: !(Maybe CutHeight)
-    } deriving (Eq, Show)
-
-makeLenses ''CutConfig
-
-instance ToJSON CutConfig where
-    toJSON o = object
-        [ "pruneChainDatabase" .= _cutPruneChainDatabase o
-        , "fetchTimeout" .= _cutFetchTimeout o
-        , "initialCutHeightLimit" .= _cutInitialCutHeightLimit o ]
-
-instance FromJSON (CutConfig -> CutConfig) where
-    parseJSON = withObject "CutConfig" $ \o -> id
-        <$< cutIncludeOrigin ..: "includeOrigin" % o
-        <*< cutPruneChainDatabase ..: "pruneChainDatabase" % o
-        <*< cutFetchTimeout ..: "fetchTimeout" % o
-        <*< cutInitialCutHeightLimit ..: "initialCutHeightLimit" % o
-
-defaultCutConfig :: CutConfig
-defaultCutConfig = CutConfig
-    { _cutIncludeOrigin = True
-    , _cutPruneChainDatabase = GcHeaders
-    , _cutFetchTimeout = 3_000_000
-    , _cutInitialCutHeightLimit = Nothing
-    }
-
-pCutConfig :: MParser CutConfig
-pCutConfig = id
-    <$< cutIncludeOrigin .:: boolOption_
-        % long "cut-include-origin"
-        <> hidden
-        <> internal
-        <> help "whether to include the origin when sending cuts"
-    <*< cutPruneChainDatabase .:: textOption
-        % long "prune-chain-database"
-        <> help
-            ( "How to prune the chain database on startup."
-            <> " Pruning headers takes about between 10s to 2min. "
-            <> " Pruning headers with full header validation (headers-checked) and full GC can take"
-            <> " a longer time (up to 10 minutes or more)."
-            )
-        <> metavar "none|headers|headers-checked|full"
-    <*< cutFetchTimeout .:: option auto
-        % long "cut-fetch-timeout"
-        <> help "The timeout for processing new cuts in microseconds"
-    -- cutInitialCutHeightLimit isn't supported on the command line
-
--- -------------------------------------------------------------------------- --
--- Service API Configuration
-
-data ServiceApiConfig = ServiceApiConfig
-    { _serviceApiConfigPort :: !Chainweb.RestAPI.Port
-        -- ^ The public host address for service APIs.
-        -- A port number of 0 means that a free port is assigned by the system.
-        --
-        -- The default is 1917
-
-    , _serviceApiConfigInterface :: !HostPreference
-        -- ^ The network interface that the service APIs are bound to. Default is to
-        -- bind to all available interfaces ('*').
-    }
-    deriving (Show, Eq, Generic)
-
-makeLenses ''ServiceApiConfig
-
-defaultServiceApiConfig :: ServiceApiConfig
-defaultServiceApiConfig = ServiceApiConfig
-    { _serviceApiConfigPort = 1848
-    , _serviceApiConfigInterface = "*"
-    }
-
-instance ToJSON ServiceApiConfig where
-    toJSON o = object
-        [ "port" .= _serviceApiConfigPort o
-        , "interface" .= hostPreferenceToText (_serviceApiConfigInterface o)
-        ]
-
-instance FromJSON (ServiceApiConfig -> ServiceApiConfig) where
-    parseJSON = withObject "ServiceApiConfig" $ \o -> id
-        <$< serviceApiConfigPort ..: "port" % o
-        <*< setProperty serviceApiConfigInterface "interface" (parseJsonFromText "interface") o
-
-pServiceApi :: MParser ServiceApiConfig
-pServiceApi = id
-    <$< serviceApiConfigPort .:: pPort service
-    <*< serviceApiConfigInterface .:: textOption
-        % prefixLong service "interface"
-        <> suffixHelp service "interface that the service Rest API binds to (see HostPreference documentation for details)"
-  where
-    service = Just "service"
-
--- -------------------------------------------------------------------------- --
--- Chainweb Configuration
-
-data ChainwebConfiguration = ChainwebConfiguration
-    { _configChainwebVersion :: !ChainwebVersion
-    , _configNodeIdDeprecated :: !Value
-        -- ^ Deprecated, won't show up in --print-config
-    , _configCuts :: !CutConfig
-    , _configMining :: !MiningConfig
-    , _configHeaderStream :: !Bool
-    , _configReintroTxs :: !Bool
-    , _configP2p :: !P2pConfiguration
-    , _configTransactionIndex :: !(EnableConfig TransactionIndexConfig)
-    , _configThrottling :: !ThrottlingConfig
-    , _configMempoolP2p :: !(EnableConfig MempoolP2pConfig)
-    , _configBlockGasLimit :: !Mempool.GasLimit
-    , _configPactQueueSize :: !Natural
-    , _configReorgLimit :: !Natural
-    , _configValidateHashesOnReplay :: !Bool
-        -- ^ Re-validate payload hashes during replay.
-    , _configAllowReadsInLocal :: !Bool
-    , _configRosetta :: !Bool
-    , _configServiceApi :: !ServiceApiConfig
-    } deriving (Show, Eq, Generic)
-
-makeLenses ''ChainwebConfiguration
-
-instance HasChainwebVersion ChainwebConfiguration where
-    _chainwebVersion = _configChainwebVersion
-    {-# INLINE _chainwebVersion #-}
-
-validateChainwebConfiguration :: ConfigValidation ChainwebConfiguration []
-validateChainwebConfiguration c = do
-    validateMinerConfig (_configMining c)
-    case _configChainwebVersion c of
-        Mainnet01 -> validateP2pConfiguration (_configP2p c)
-        Testnet04 -> validateP2pConfiguration (_configP2p c)
-        _ -> return ()
-    unless (_configNodeIdDeprecated c == Null) $ tell
-        [ "Usage NodeId is deprecated. This option will be removed in a future version of chainweb-node"
-        , "The value of NodeId is ignored by chainweb-node. In particular the database path will not depend on it"
-        ]
-
-defaultChainwebConfiguration :: ChainwebVersion -> ChainwebConfiguration
-defaultChainwebConfiguration v = ChainwebConfiguration
-    { _configChainwebVersion = v
-    , _configNodeIdDeprecated = Null
-    , _configCuts = defaultCutConfig
-    , _configMining = defaultMining
-    , _configHeaderStream = False
-    , _configReintroTxs = True
-    , _configP2p = defaultP2pConfiguration
-    , _configTransactionIndex = defaultEnableConfig defaultTransactionIndexConfig
-    , _configThrottling = defaultThrottlingConfig
-    , _configMempoolP2p = defaultEnableConfig defaultMempoolP2pConfig
-    , _configBlockGasLimit = 150000
-    , _configPactQueueSize = 2000
-    , _configReorgLimit = int defaultReorgLimit
-    , _configValidateHashesOnReplay = False
-    , _configAllowReadsInLocal = False
-    , _configRosetta = False
-    , _configServiceApi = defaultServiceApiConfig
-    }
-
-instance ToJSON ChainwebConfiguration where
-    toJSON o = object
-        [ "chainwebVersion" .= _configChainwebVersion o
-        , "cuts" .= _configCuts o
-        , "mining" .= _configMining o
-        , "headerStream" .= _configHeaderStream o
-        , "reintroTxs" .= _configReintroTxs o
-        , "p2p" .= _configP2p o
-        , "transactionIndex" .= _configTransactionIndex o
-        , "throttling" .= _configThrottling o
-        , "mempoolP2p" .= _configMempoolP2p o
-        , "gasLimitOfBlock" .= _configBlockGasLimit o
-        , "pactQueueSize" .= _configPactQueueSize o
-        , "reorgLimit" .= _configReorgLimit o
-        , "validateHashesOnReplay" .= _configValidateHashesOnReplay o
-        , "allowReadsInLocal" .= _configAllowReadsInLocal o
-        , "rosetta" .= _configRosetta o
-        , "serviceApi" .= _configServiceApi o
-        ]
-
-instance FromJSON (ChainwebConfiguration -> ChainwebConfiguration) where
-    parseJSON = withObject "ChainwebConfig" $ \o -> id
-        <$< configChainwebVersion ..: "chainwebVersion" % o
-        <*< configNodeIdDeprecated ..: "nodeId" % o
-        <*< configCuts %.: "cuts" % o
-        <*< configMining %.: "mining" % o
-        <*< configHeaderStream ..: "headerStream" % o
-        <*< configReintroTxs ..: "reintroTxs" % o
-        <*< configP2p %.: "p2p" % o
-        <*< configTransactionIndex %.: "transactionIndex" % o
-        <*< configThrottling %.: "throttling" % o
-        <*< configMempoolP2p %.: "mempoolP2p" % o
-        <*< configBlockGasLimit ..: "gasLimitOfBlock" % o
-        <*< configPactQueueSize ..: "pactQueueSize" % o
-        <*< configReorgLimit ..: "reorgLimit" % o
-        <*< configValidateHashesOnReplay ..: "validateHashesOnReplay" % o
-        <*< configAllowReadsInLocal ..: "allowReadsInLocal" % o
-        <*< configRosetta ..: "rosetta" % o
-        <*< configServiceApi %.: "serviceApi" % o
-
-pChainwebConfiguration :: MParser ChainwebConfiguration
-pChainwebConfiguration = id
-    <$< configChainwebVersion .:: textOption
-        % long "chainweb-version"
-        <> short 'v'
-        <> help "the chainweb version that this node is using"
-    <*< configNodeIdDeprecated .:: fmap (String . T.pack) . strOption
-        % hidden
-        <> internal
-        <> long "node-id"
-        <> short 'i'
-        <> help "DEPRECATED. The value is ignored"
-    <*< configHeaderStream .:: boolOption_
-        % long "header-stream"
-        <> help "whether to enable an endpoint for streaming block updates"
-    <*< configReintroTxs .:: enableDisableFlag
-        % long "tx-reintro"
-        <> help "whether to enable transaction reintroduction from losing forks"
-    <*< configP2p %:: pP2pConfiguration
-    <*< configTransactionIndex %::
-        pEnableConfig "transaction-index" pTransactionIndexConfig
-    <*< configMempoolP2p %::
-        pEnableConfig "mempool-p2p" pMempoolP2pConfig
-    <*< configBlockGasLimit .:: jsonOption
-        % long "block-gas-limit"
-        <> help "the sum of all transaction gas fees in a block must not exceed this number"
-    <*< configPactQueueSize .:: jsonOption
-        % long "pact-queue-size"
-        <> help "max size of pact internal queue"
-    <*< configReorgLimit .:: jsonOption
-        % long "reorg-limit"
-        <> help "Max allowed reorg depth.\
-                \ Consult https://github.com/kadena-io/chainweb-node/blob/master/docs/RecoveringFromDeepForks.md for\
-                \ more information. "
-    <*< configValidateHashesOnReplay .:: boolOption_
-        % long "validateHashesOnReplay"
-        <> help "Re-validate payload hashes during transaction replay."
-    <*< configAllowReadsInLocal .:: boolOption_
-        % long "allowReadsInLocal"
-        <> help "Enable direct database reads of smart contract tables in local queries."
-    <*< configRosetta .:: boolOption_
-        % long "rosetta"
-        <> help "Enable the Rosetta endpoints."
-    <*< configCuts %:: pCutConfig
-    <*< configServiceApi %:: pServiceApi
-
--- -------------------------------------------------------------------------- --
 -- Chainweb Resources
 
 data Chainweb logger cas = Chainweb
@@ -578,11 +193,9 @@ data Chainweb logger cas = Chainweb
     , _chainwebPeer :: !(PeerResources logger)
     , _chainwebPayloadDb :: !(PayloadDb cas)
     , _chainwebManager :: !HTTP.Manager
-    , _chainwebPactData :: [(ChainId, PactServerData logger cas)]
+    , _chainwebPactData :: ![(ChainId, PactServerData logger cas)]
     , _chainwebThrottler :: !(Throttle Address)
-    , _chainwebMiningThrottler :: !(Throttle Address)
     , _chainwebPutPeerThrottler :: !(Throttle Address)
-    , _chainwebLocalThrottler :: !(Throttle Address)
     , _chainwebConfig :: !ChainwebConfiguration
     , _chainwebServiceSocket :: !(Port, Socket)
     }
@@ -599,15 +212,16 @@ instance HasChainwebVersion (Chainweb logger cas) where
 -- Intializes all service API chainweb components but doesn't start any networking.
 --
 withChainweb
-    :: Logger logger
+    :: forall logger
+    . Logger logger
     => ChainwebConfiguration
     -> logger
     -> RocksDb
     -> FilePath
         -- ^ Pact database directory
     -> Bool
-    -> (forall cas' . PayloadCasLookup cas' => Chainweb logger cas' -> IO a)
-    -> IO a
+    -> (forall cas' . PayloadCasLookup cas' => Chainweb logger cas' -> IO ())
+    -> IO ()
 withChainweb c logger rocksDb pactDbDir resetDb inner =
     withPeerResources v (view configP2p confWithBootstraps) logger $ \logger' peer ->
         withSocket serviceApiPort serviceApiHost $ \serviceSock -> do
@@ -629,12 +243,12 @@ withChainweb c logger rocksDb pactDbDir resetDb inner =
 
     v = _chainwebVersion c
 
-
     -- Here we inject the hard-coded bootstrap peer infos for the configured
     -- chainweb version into the configuration.
     confWithBootstraps
         | _p2pConfigIgnoreBootstrapNodes (_configP2p c) = c
-        | otherwise = configP2p . p2pConfigKnownPeers <>~ bootstrapPeerInfos v $ c
+        | otherwise = configP2p . p2pConfigKnownPeers
+            %~ (\x -> L.nub $ x <> bootstrapPeerInfos v) $ c
 
 -- TODO: The type InMempoolConfig contains parameters that should be
 -- configurable as well as parameters that are determined by the chainweb
@@ -645,11 +259,13 @@ validatingMempoolConfig
     :: ChainId
     -> ChainwebVersion
     -> Mempool.GasLimit
+    -> Mempool.GasPrice
     -> MVar PactExecutionService
     -> Mempool.InMemConfig ChainwebTransaction
-validatingMempoolConfig cid v gl mv = Mempool.InMemConfig
+validatingMempoolConfig cid v gl gp mv = Mempool.InMemConfig
     { Mempool._inmemTxCfg = txcfg
     , Mempool._inmemTxBlockSizeLimit = gl
+    , Mempool._inmemTxMinGasPrice = gp
     , Mempool._inmemMaxRecentItems = maxRecentLog
     , Mempool._inmemPreInsertPureChecks = preInsertSingle
     , Mempool._inmemPreInsertBatchChecks = preInsertBatch
@@ -708,7 +324,7 @@ validatingMempoolConfig cid v gl mv = Mempool.InMemConfig
 -- Intializes all service chainweb components but doesn't start any networking.
 --
 withChainwebInternal
-    :: forall logger a
+    :: forall logger
     .  Logger logger
     => ChainwebConfiguration
     -> logger
@@ -717,8 +333,8 @@ withChainwebInternal
     -> RocksDb
     -> FilePath
     -> Bool
-    -> (forall cas' . PayloadCasLookup cas' => Chainweb logger cas' -> IO a)
-    -> IO a
+    -> (forall cas' . PayloadCasLookup cas' => Chainweb logger cas' -> IO ())
+    -> IO ()
 withChainwebInternal conf logger peer serviceSock rocksDb pactDbDir resetDb inner = do
 
     initializePayloadDb v payloadDb
@@ -740,9 +356,17 @@ withChainwebInternal conf logger peer serviceSock rocksDb pactDbDir resetDb inne
     concurrentWith
         -- initialize chains concurrently
         (\cid x -> do
-            let mcfg = validatingMempoolConfig cid v (_configBlockGasLimit conf)
-            withChainResources v cid rocksDb peer (chainLogger cid)
-                     mcfg payloadDb pactDbDir pactConfig x
+            let mcfg = validatingMempoolConfig cid v (_configBlockGasLimit conf) (_configMinGasPrice conf)
+            withChainResources
+                v
+                cid
+                rocksDb
+                (chainLogger cid)
+                mcfg
+                payloadDb
+                pactDbDir
+                pactConfig
+                x
         )
 
         -- initialize global resources after all chain resources are initialized
@@ -762,7 +386,7 @@ withChainwebInternal conf logger peer serviceSock rocksDb pactDbDir resetDb inne
 
     pruningLogger :: T.Text -> logger
     pruningLogger l = addLabel ("sub-component", l)
-        $ setComponent ("database-pruning") logger
+        $ setComponent "database-pruning" logger
 
     cidsList :: [ChainId]
     cidsList = toList cids
@@ -782,7 +406,7 @@ withChainwebInternal conf logger peer serviceSock rocksDb pactDbDir resetDb inne
     -- Initialize global resources
     global
         :: HM.HashMap ChainId (ChainResources logger)
-        -> IO a
+        -> IO ()
     global cs = do
         let !webchain = mkWebBlockHeaderDb v (HM.map _chainResBlockHeaderDb cs)
             !pact = mkWebPactExecutionService (HM.map _chainResPact cs)
@@ -801,9 +425,7 @@ withChainwebInternal conf logger peer serviceSock rocksDb pactDbDir resetDb inne
 
             -- initialize throttler
             throttler <- mkGenericThrottler $ _throttlingRate throt
-            miningThrottler <- mkMiningThrottler $ _throttlingMiningRate throt
             putPeerThrottler <- mkPutPeerThrottler $ _throttlingPeerRate throt
-            localThrottler <- mkLocalThrottler $ _throttlingLocalRate throt
             logg Info "initialized throttlers"
 
             -- synchronize pact dbs with latest cut before we start the server
@@ -818,42 +440,52 @@ withChainwebInternal conf logger peer serviceSock rocksDb pactDbDir resetDb inne
             synchronizePactDb cs mCutDb
             logg Info "finished synchronizing Pact DBs"
 
-            withPactData cs cuts $ \pactData -> do
-                logg Info "start initializing miner resources"
-                withMiningCoordination mLogger (_miningCoordination mConf) mCutDb $ \mc ->
-                    withMinerResources mLogger (_miningInNode mConf) cs mCutDb $ \m -> do
-                        logg Info "finished initializing miner resources"
-                        let !haddr = _peerConfigAddr $ _p2pConfigPeer $ _configP2p conf
-                        inner Chainweb
-                            { _chainwebHostAddress = haddr
-                            , _chainwebChains = cs
-                            , _chainwebCutResources = cuts
-                            , _chainwebMiner = m
-                            , _chainwebCoordinator = mc
-                            , _chainwebLogger = logger
-                            , _chainwebPeer = peer
-                            , _chainwebPayloadDb = view cutDbPayloadCas $ _cutResCutDb cuts
-                            , _chainwebManager = mgr
-                            , _chainwebPactData = pactData
-                            , _chainwebThrottler = throttler
-                            , _chainwebMiningThrottler = miningThrottler
-                            , _chainwebPutPeerThrottler = putPeerThrottler
-                            , _chainwebLocalThrottler = localThrottler
-                            , _chainwebConfig = conf
-                            , _chainwebServiceSocket = serviceSock
-                            }
+            unless (_configOnlySyncPact conf) $
+                withPactData cs cuts $ \pactData -> do
+                    logg Info "start initializing miner resources"
+
+                    withMiningCoordination mLogger mConf mCutDb $ \mc ->
+
+                        -- Miner resources are used by the test-miner when in-node
+                        -- mining is configured or by the mempool noop-miner (which
+                        -- keeps the mempool updated) in production setups.
+                        --
+                        withMinerResources mLogger (_miningInNode mConf) cs mCutDb mc $ \m -> do
+                            logg Info "finished initializing miner resources"
+                            let !haddr = _peerConfigAddr $ _p2pConfigPeer $ _configP2p conf
+                            inner Chainweb
+                                { _chainwebHostAddress = haddr
+                                , _chainwebChains = cs
+                                , _chainwebCutResources = cuts
+                                , _chainwebMiner = m
+                                , _chainwebCoordinator = mc
+                                , _chainwebLogger = logger
+                                , _chainwebPeer = peer
+                                , _chainwebPayloadDb = view cutDbPayloadCas $ _cutResCutDb cuts
+                                , _chainwebManager = mgr
+                                , _chainwebPactData = pactData
+                                , _chainwebThrottler = throttler
+                                , _chainwebPutPeerThrottler = putPeerThrottler
+                                , _chainwebConfig = conf
+                                , _chainwebServiceSocket = serviceSock
+                                }
 
     withPactData
         :: HM.HashMap ChainId (ChainResources logger)
         -> CutResources logger cas
-        -> ([(ChainId, (CutResources logger cas, ChainResources logger))] -> IO b)
+        -> ([(ChainId, PactServerData logger cas)] -> IO b)
         -> IO b
     withPactData cs cuts m
         | _enableConfigEnabled (_configTransactionIndex conf) = do
               -- TODO: delete this knob
               logg Info "Transaction index enabled"
               let l = sortBy (compare `on` fst) (HM.toList cs)
-              m $ map (\(c, cr) -> (c, (cuts, cr))) l
+              m $ l <&> fmap (\cr -> PactServerData
+                { _pactServerDataCutDb = _cutResCutDb cuts
+                , _pactServerDataMempool = _chainResMempool cr
+                , _pactServerDataLogger = _chainResLogger cr
+                , _pactServerDataPact = _chainResPact cr
+                })
         | otherwise = do
               logg Info "Transaction index disabled"
               m []
@@ -867,7 +499,8 @@ withChainwebInternal conf logger peer serviceSock rocksDb pactDbDir resetDb inne
         { _cutDbParamsLogLevel = Info
         , _cutDbParamsTelemetryLevel = Info
         , _cutDbParamsUseOrigin = _cutIncludeOrigin cutConf
-        , _cutDbParamsInitialHeightLimit = _cutInitialCutHeightLimit $ cutConf }
+        , _cutDbParamsInitialHeightLimit = _cutInitialCutHeightLimit cutConf
+        }
       where
         cutConf = _configCuts conf
 
@@ -901,17 +534,9 @@ withChainwebInternal conf logger peer serviceSock rocksDb pactDbDir resetDb inne
 mkGenericThrottler :: Double -> IO (Throttle Address)
 mkGenericThrottler rate = mkThrottler 5 rate (const True)
 
-mkMiningThrottler :: Double -> IO (Throttle Address)
-mkMiningThrottler rate = mkThrottler 5 rate (checkPathPrefix ["mining", "work"])
-
 mkPutPeerThrottler :: Double -> IO (Throttle Address)
 mkPutPeerThrottler rate = mkThrottler 5 rate $ \r ->
     elem "peer" (pathInfo r) && requestMethod r == "PUT"
-
-mkLocalThrottler :: Double -> IO (Throttle Address)
-mkLocalThrottler rate = mkThrottler 5 rate (checkPathPrefix path)
-  where
-    path = ["pact", "api", "v1", "local"]
 
 checkPathPrefix
     :: [T.Text]
@@ -952,7 +577,7 @@ runChainweb cw = do
     logg Info "start chainweb node"
     runConcurrently $ ()
         -- 1. Start serving Rest API
-        <$ Concurrently (serve
+        <$ Concurrently ((if tls then serve else servePlain)
                 $ httpLog
                 . throttle (_chainwebPutPeerThrottler cw)
                 . throttle (_chainwebThrottler cw)
@@ -960,13 +585,10 @@ runChainweb cw = do
         -- 2. Start Clients (with a delay of 500ms)
         <* Concurrently (threadDelay 500000 >> clients)
         -- 3. Start serving local API
-        <* Concurrently (threadDelay 500000 >> serveServiceApi
-                ( serviceHttpLog
-                . throttle (_chainwebMiningThrottler cw)
-                . throttle (_chainwebLocalThrottler cw)
-                )
-            )
+        <* Concurrently (threadDelay 500000 >> serveServiceApi serviceHttpLog)
   where
+    tls = _p2pConfigTls $ _configP2p $ _chainwebConfig cw
+
     clients :: IO ()
     clients = do
         mpClients <- mempoolSyncClients
@@ -996,13 +618,10 @@ runChainweb cw = do
     mempoolsToServe :: [(ChainId, Mempool.MempoolBackend ChainwebTransaction)]
     mempoolsToServe = proj _chainResMempool
 
-    chainP2pToServe :: [(NetworkId, PeerDb)]
-    chainP2pToServe =
-        bimap ChainNetwork (_peerResDb . _chainResPeer) <$> itoList (_chainwebChains cw)
+    peerDb = _peerResDb (_chainwebPeer cw)
 
     memP2pToServe :: [(NetworkId, PeerDb)]
-    memP2pToServe =
-        bimap MempoolNetwork (_peerResDb . _chainResPeer) <$> itoList (_chainwebChains cw)
+    memP2pToServe = (\(i, _) -> (MempoolNetwork i, peerDb)) <$> chains
 
     payloadDbsToServe :: [(ChainId, PayloadDb cas)]
     payloadDbsToServe = itoList (view chainwebPayloadDb cw <$ _chainwebChains cw)
@@ -1010,12 +629,16 @@ runChainweb cw = do
     pactDbsToServe :: [(ChainId, PactServerData logger cas)]
     pactDbsToServe = _chainwebPactData cw
 
-    -- Public Server
+    -- P2P Server
 
     serverSettings :: Settings
     serverSettings = setOnException
-        (\r e -> when (defaultShouldDisplayException e) (logg Warn $ loggServerError r e))
+        (\r e -> when (shouldDisplayException e) (logg Warn $ loggServerError r e))
         $ peerServerSettings (_peerResPeer $ _chainwebPeer cw)
+      where
+        shouldDisplayException e
+            | Just InsecureConnectionDenied <- fromException e = False
+            | otherwise = defaultShouldDisplayException e
 
     serve :: Middleware -> IO ()
     serve = serveChainwebSocketTls
@@ -1023,17 +646,31 @@ runChainweb cw = do
         (_peerCertificateChain $ _peerResPeer $ _chainwebPeer cw)
         (_peerKey $ _peerResPeer $ _chainwebPeer cw)
         (_peerResSocket $ _chainwebPeer cw)
-        (_chainwebVersion cw)
+        (_chainwebConfig cw)
         ChainwebServerDbs
             { _chainwebServerCutDb = Just cutDb
             , _chainwebServerBlockHeaderDbs = chainDbsToServe
             , _chainwebServerMempools = mempoolsToServe
             , _chainwebServerPayloadDbs = payloadDbsToServe
-            , _chainwebServerPeerDbs = (CutNetwork, cutPeerDb) : chainP2pToServe <> memP2pToServe
+            , _chainwebServerPeerDbs = (CutNetwork, cutPeerDb) : memP2pToServe
+            }
+
+    -- serve without tls
+    servePlain :: Middleware -> IO ()
+    servePlain = serveChainwebSocket
+        serverSettings
+        (_peerResSocket $ _chainwebPeer cw)
+        (_chainwebConfig cw)
+        ChainwebServerDbs
+            { _chainwebServerCutDb = Just cutDb
+            , _chainwebServerBlockHeaderDbs = chainDbsToServe
+            , _chainwebServerMempools = mempoolsToServe
+            , _chainwebServerPayloadDbs = payloadDbsToServe
+            , _chainwebServerPeerDbs = (CutNetwork, cutPeerDb) : memP2pToServe
             }
 
     httpLog :: Middleware
-    httpLog = requestResponseLogger $ setComponent "http" (_chainwebLogger cw)
+    httpLog = requestResponseLogger $ setComponent "http:p2p-api" (_chainwebLogger cw)
 
     loggServerError (Just r) e = "HTTP server error: " <> sshow e <> ". Request: " <> sshow r
     loggServerError Nothing e = "HTTP server error: " <> sshow e
@@ -1059,7 +696,7 @@ runChainweb cw = do
             , _chainwebServerBlockHeaderDbs = chainDbsToServe
             , _chainwebServerMempools = mempoolsToServe
             , _chainwebServerPayloadDbs = payloadDbsToServe
-            , _chainwebServerPeerDbs = (CutNetwork, cutPeerDb) : chainP2pToServe <> memP2pToServe
+            , _chainwebServerPeerDbs = (CutNetwork, cutPeerDb) : memP2pToServe
             }
         pactDbsToServe
         (_chainwebCoordinator cw)
@@ -1067,7 +704,7 @@ runChainweb cw = do
         (Rosetta . _configRosetta $ _chainwebConfig cw)
 
     serviceHttpLog :: Middleware
-    serviceHttpLog = requestResponseLogger $ setComponent "http[service-api]" (_chainwebLogger cw)
+    serviceHttpLog = requestResponseLogger $ setComponent "http:service-api" (_chainwebLogger cw)
 
     loggServiceApiServerError (Just r) e = "HTTP service API server error: " <> sshow e <> ". Request: " <> sshow r
     loggServiceApiServerError Nothing e = "HTTP service API server error: " <> sshow e
@@ -1115,5 +752,5 @@ runChainweb cw = do
             return []
         enabled conf = do
             logg Info "Mempool p2p sync enabled"
-            return $ map (runMempoolSyncClient mgr conf) chainVals
+            return $ map (runMempoolSyncClient mgr conf (_chainwebPeer cw)) chainVals
 

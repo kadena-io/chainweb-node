@@ -1,5 +1,186 @@
 # `chainweb-node` Changelog
 
+## 2.11.1 (2021-11-23)
+
+This is a miner feature release. It is compatible with version 2.11. Upgrading
+optional. Please, check the list of changes before upgrading.
+
+Changes:
+
+*   New command line options for configuring mining coordination. The options
+    `--enable-mining-coordination --mining-public-key=<PUBLIC_KEY>` enable the
+    mining API of a node and configure `k:<PUBLIC_KEY>` as the account that
+    receives mining rewards. (#1311)
+
+*   Include GET endpoints for cuts, headers, branches, and payloads
+    into the service API. (#1309)
+
+*   Add configuration for stopping the node after synchronizing the
+    Pact state to the chain database and before starting connecting to
+    the P2P network. This is useful to initializing the Pact database
+    for a new node or validating an existing database. (#1312)
+
+*   Remove rate limiting support for endpoints of the service API.
+    Rate limiting for the service API should be done by using an external
+    reverse proxy. (#1300)
+
+*   Log filter rules allow fine grained support for controlling
+    which messages are actually submitted. This version adds the ability to
+    specify for a filter rule a probability with which a log messages passes the
+    respective filter rule. This allows to emit only a certain percentage of
+    message of some kind to the backend. (#1300)
+
+## 2.11 (2021-11-09)
+
+This version replaces all previous versions. Any prior version will stop working
+on **2021-11-18T00:00:00Z**. Node administrators must upgrade to this version
+before that date.
+
+This version will stop working on **2022-01-13T00:00:00Z**.
+
+Changes:
+
+*    Add priorities to the pact services queue. This gives consensus and
+     new block requests priority over requests from the service APIs and the
+     mempool. It makes nodes more resilient under load. (#1280)
+
+*    Upgrade Pact version to 4.1.2. (#1286, #1287)
+
+*    Enforce keyset formats. (#1287)
+
+*    A new configuration option `chainweb.minGasPrice` (`--min-gas-price`) is
+     added that configures a minimum gas price for transactions. The mempool
+     will reject any transactions that doesn't pay at least this amount for
+     gas. This allows node operators to enforce mindful usage of resources
+     even when the majority of blocks isn't full. (#1282)
+
+     The default minimum gas limit is raised from 1e-12 to 1e-8.
+
+*    Chainweb node now depends on the OpenSSL library being installed on
+     the system. (Before it already depended on the OpenSSL root certificates
+     being available.)
+
+## 2.10 (2021-10-07)
+
+This version replaces all previous versions. Any prior version will stop working
+on **2021-10-14T00:00:00Z**. Node administrators must upgrade to this version
+before that date.
+
+This version will stop working on **2021-11-18T00:00:00Z**.
+
+There are no changes in this version.
+
+## 2.9.2 (2021-09-16)
+
+This is a bug fix release. It is recommended that node operators upgrade their
+nodes.
+
+This version is fully compatible with previous versions.
+
+Changes:
+
+*   Fix a bug where API requests return result pages with more than the upper
+    limit of items. (#1271)
+
+## 2.9.1 (2021-08-27)
+
+This is a bug fix release. It is recommended that node operators
+upgrade their nodes.
+
+This version is fully compatible with previous versions.
+
+Changes:
+
+*   Fix a bug that causes mempools to ignore new transactions after receiving
+    10000 transactions on a chain. (#1267)
+
+## 2.9 (2021-08-12)
+
+This version replaces all previous versions. Any prior version will stop working
+on **2021-08-19T00:00:00Z**. Node administrators must upgrade to this version
+before that date.
+
+This version will stop working on **2021-10-14T00:00:00Z**.
+
+Changes:
+
+This is a maintenance release without breaking changes.
+
+*   Use `0.0.0.0` as default P2P host address, which enables auto-detection of
+    the IP address of the node. (#1245)
+*   Build and link Pact without CLI tools support. (#1246)
+*   Limit batch size of payload REST API requests 1000 items. (#1258)
+*   Removed several external dependencies from the code base.
+
+## 2.8 (2021-06-05)
+
+This version replaces all previous versions. Any prior version will stop working
+on **2021-06-17T00:00:00Z**. Node administrators must upgrade to this version
+before that date.
+
+This version will stop working on **2021-08-19T00:00:00Z**.
+
+Changes:
+
+* `coin` v3 and Pact 4.0 upgrade (#1218, #1237, #1236, #1234)
+  * Emits `coin.TRANSFER` events for all balance changing operations.
+    Burns/creates/allocations are indicating using the _null account_ (`""`).
+    Miner rewards, gas payments, allocations, and cross-chain.
+  * Chainweb account protocols: reserves new account names with the format
+    `c:data` where `c` is a single-char protocol identifier and `data`
+    protocol-specified data.
+  * Introduces the Chainweb single-key protocol `k`
+    where `data` must match a single ED-25519 public key.
+  * Leverages Pact 4.0
+    * `X_YIELD` and `X_RESUME` event emission.
+    * `bless`es previous module hash so that in-progress cross-chain
+      transfers can succeed.
+  * Transactional module init cache. (#1236)
+
+* P2P API endpoint to get node config (#1226)
+
+* Bugfixes and cleanups (#1235, #1228, #1227, #1225)
+
+
+
+## 2.7 (2021-04-29)
+
+This version replaces all previous versions. Any prior version will stop working
+on **2021-05-06T00:00:00Z**. Node administrators must upgrade to this version
+before that date.
+
+This version will stop working on **2021-06-17T00:00:00Z**.
+
+Changes:
+
+*   Improve P2P networking configuration. (#1174)
+    *   Re-add builtin bootstrap nodes. This also means that default bootstrap
+        nodes will always be used as long as `--ignore-boostrap-nodes` (or the
+        respective configuration file setting) is not enabled.
+    *   Add `X-Peer-Addr` response header that allows nodes to auto-discover
+        their external network configuration.
+    *   Enable chainweb-node to auto-configure the hostname. This eliminates the
+        need to use a (centralized) third party service for that.
+    *   Validate P2P configuration on startup.
+    *   Validate peer configuration on startup.
+    *   Check that a chainweb-node can connect with a configurable portion of
+        the known-peers and bootstrap nodes at startup. The portion can be
+        configured via the `--bootstrap-reachability` option or the
+        `chainweb.p2p.bootstrapReachability` setting. The value is a number
+        between 0 and 1. If it is 0 the reachability test is disabled.
+
+*   Remove deprecated mining coordination code. (#1177)
+    *   Removes support for public mining.
+    *   Fix two race conditions in the mining API that may have slightly increased
+        the number blocks that got orphaned before being included on the chain.
+
+*   Internal infrastructure to support bridging KDA to other networks (#1210)
+
+*   New OpenAPI 3.0 specification of the chainweb-node API. The API
+    documentation is maintained in the git repository
+    https://github.com/kadena-io/chainweb-openapi. Is published at
+    https://api.chainweb.com/openapi.
+
 ## 2.6 (2021-03-18)
 
 This version replaces all previous versions. Any prior version will stop working

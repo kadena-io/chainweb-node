@@ -2,6 +2,13 @@ packages: chainweb.cabal
 
 package chainweb
     tests: True
+    benchmarks: True
+    extra-include-dirs:
+      /opt/local/include
+      /usr/local/opt/openssl/include
+    extra-lib-dirs:
+      /opt/local/lib
+      /usr/local/opt/openssl/lib/
 
 package aeson
     flags: +cffi
@@ -9,45 +16,50 @@ package aeson
 package cryptonite
     flags: +support_pclmuldq
 
+package ethereum
+    extra-include-dirs:
+      /opt/local/include
+      /usr/local/opt/openssl/include
+    extra-lib-dirs:
+      /opt/local/lib
+      /usr/local/opt/openssl/lib/
+package hashes
+    extra-include-dirs:
+      /opt/local/include
+      /usr/local/opt/openssl/include
+    extra-lib-dirs:
+      /opt/local/lib
+      /usr/local/opt/openssl/lib/
+
 debug-info: True
 
 source-repository-package
     type: git
     location: https://github.com/kadena-io/pact.git
-    tag: a9c9b92e313a680574479ffda4700533f19d16d5
-
-source-repository-package
-    type: git
-    location: https://github.com/kadena-io/thyme.git
-    tag: 5314711cf0e92c531cd49addcf9d9ffe466c2075
+    tag: dfc2d208af13fe0469776cd375f48b322e23971b
 
 source-repository-package
     type: git
     location: https://github.com/kadena-io/chainweb-storage.git
-    tag: 07e7eb7596c7105aee42dbdb6edd10e3f23c0d7e
+    tag: bf37c394de9a0c680a7a09bbfb82eb255519b3fb
 
 source-repository-package
     type: git
     location: https://github.com/kadena-io/rosetta.git
-    tag: 1d69bb4ec46c001f2b501121e6c93e83ac60162b
+    tag: 5db55e77e7f0ffe7670075708843fa03d179aaa5
 
 source-repository-package
     type: git
     location: https://github.com/kadena-io/kadena-ethereum-bridge.git
-    tag: ca31bab8dfa0b0b5e0be98ea6a4736cf898ffa7e
+    tag: 10f21e96af1dce4f13e261be9dfad8c28cd299f7
 
 package vault
     documentation: false
 
 package pact
     ghc-options: -Wwarn
-
     -- avoid conflict with cryptonite during linking
-    flags: +cryptonite-ed25519
-
-allow-newer: pact:*
-allow-newer: rosetta:*
-allow-newer: swagger2:*
+    flags: +cryptonite-ed25519 -build-tool
 
 -- required by pact
 -- these upper bounds are required in order to not break payload validation
@@ -55,9 +67,3 @@ constraints: base16-bytestring <1
 constraints: prettyprinter <1.6.1
 constraints: hashable <1.3.1
 constraints: base64-bytestring <1.1
-
-
--- cf. https://github.com/snoyberg/http-client/pull/454
-constraints: http-client>=0.7.5
-allow-newer: servant-client:http-client
-
