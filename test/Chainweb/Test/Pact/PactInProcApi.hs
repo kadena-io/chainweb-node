@@ -280,6 +280,208 @@ newBlockRewindValidate mpRefIO reqIO = testCase "newBlockRewindValidate" $ do
             $ mkExec' "(chain-data)"
       }
 
+_pact420UpgradeTest :: TestBlockDb -> IO (IORef MemPoolAccess) -> WebPactExecutionService -> IO ()
+_pact420UpgradeTest bdb mpRefIO pact = do
+
+  -- run past genesis, upgrades
+  forM_ [(1::Int)..3] $ \_i -> runCut'
+
+  -- run block 7
+  setMempool mpRefIO getBlock4
+  runCut'
+  pwo4 <- getPWO bdb cid
+
+  tx4_0 <- txResult 0 pwo4
+  assertEqual "Hash of coin @ block 4" (pHash "ut_J_ZNkoyaPUEJhiwVeWnkSQn9JT9sQCWKdjjVVrWo") (_crResult tx4_0)
+  assertEqual "Events for tx 0 @ block 4" [] (_crEvents tx4_0)
+
+  tx4_1 <- txResult 1 pwo4
+  assertEqual "Events for tx 1 @ block 4" [] (_crEvents tx4_1)
+
+  tx4_2 <- txResult 2 pwo4
+  assertEqual
+    "Should not resolve new pact natives"
+    (Just "Cannot resolve distinct")
+    (tx4_2 ^? crResult . to _pactResult . _Left . to peDoc)
+
+  tx4_3 <- txResult 3 pwo4
+  assertEqual
+    "Should allow bad keys"
+    Nothing
+    (tx4_3 ^? crResult . to _pactResult . _Left . to peDoc)
+
+
+  cb4 <- cbResult pwo4
+  assertEqual "Coinbase events @ block 4" [] (_crEvents cb4)
+
+  -- run past v3 upgrade, pact 4 switch
+  setMempool mpRefIO mempty
+  cuts <- forM [(8::Int)..21] $ \_i -> do
+      runCut'
+      if _i == 18
+          then fmap Just (readMVar $ _bdbCut bdb)
+          else return Nothing
+
+  savedCut <- fromMaybeM (userError "A cut should exist here.") $ msum cuts
+
+  -- block 22
+  -- get proof
+  proof <- ContProof . B64U.encode . encodeToByteString <$>
+      createTransactionOutputProof_ (_bdbWebBlockHeaderDb bdb) (_bdbPayloadDb bdb) chain0 cid 4 1
+  pid <- fromMaybeM (userError "no continuation") $
+    preview (crContinuation . _Just . pePactId) tx4_1
+
+  -- run block 22
+  setMempool mpRefIO $ getBlock22 (Just proof) pid
+  runCut'
+  pwo22 <- getPWO bdb cid
+  let v3Hash = "1os_sLAUYvBzspn5jjawtRpJWiH1WPfhyNraeVvSIwU"
+
+  cb22 <- cbResult pwo22
+  cbEv <- mkTransferEvent "" "NoMiner" 2.304523 "coin" v3Hash
+  assertEqual "Coinbase events @ block 22" [cbEv] (_crEvents cb22)
+
+  tx22_0 <- txResult 0 pwo22
+  gasEv0 <- mkTransferEvent "sender00" "NoMiner" 0.0013 "coin" v3Hash
+  assertEqual "Hash of coin @ block 22" (pHash v3Hash) (_crResult tx22_0)
+  assertEqual "Events for tx0 @ block 22" [gasEv0] (_crEvents tx22_0)
+
+  tx22_1 <- txResult 1 pwo22
+  gasEv1 <- mkTransferEvent "sender00" "NoMiner" 0.0014 "coin" v3Hash
+  allocTfr <- mkTransferEvent "" "allocation00" 1000000.0 "coin" v3Hash
+  allocEv <- mkEvent "RELEASE_ALLOCATION" [pString "allocation00",pDecimal 1000000.0]
+             "coin" v3Hash
+  assertEqual "Events for tx1 @ block 22" [gasEv1,allocEv,allocTfr] (_crEvents tx22_1)
+
+  -- test another sendXChain events
+  tx22_2 <- txResult 2 pwo22
+  gasEv2 <- mkTransferEvent "sender00" "NoMiner" 0.0014 "coin" v3Hash
+  sendTfr <- mkTransferEvent "sender00" "" 0.0123 "coin" v3Hash
+  let pguard = PGuard (GKeySet (KeySet {_ksKeys = S.fromList [PublicKey {_pubKey = "368820f80c324bbc7c2b0610688a7da43e39f91d118732671cd9c7500ff43cca"}], _ksPredFun = Name (BareName {_bnName = "keys-all", _bnInfo = def })}))
+  yieldEv <- mkEvent "X_YIELD" [pString "0", pString "coin.transfer-crosschain", pList [pString "sender00", pString "sender00", pguard, pString "0", pDecimal 0.0123]] "pact" v3Hash
+  assertEqual "Events for tx2 @ block 22" [gasEv2,sendTfr, yieldEv] (_crEvents tx22_2)
+
+  tx22_3 <- txResult 3 pwo22
+  assertEqual
+    "Should resolve enumerate pact native"
+    (Just $ PList $ V.fromList $ PLiteral . LInteger <$> [1..10])
+    (tx22_3 ^? crResult . to _pactResult . _Right)
+
+  tx22_4 <- txResult 4 pwo22
+  assertEqual
+    "Should not allow bad keys"
+    (Just "Invalid keyset")
+    (tx22_4 ^? crResult . to _pactResult . _Left . to peDoc)
+
+
+  -- test receive XChain events
+  pwo22_0 <- getPWO bdb chain0
+  txRcv <- txResult 0 pwo22_0
+  gasEvRcv <- mkTransferEvent "sender00" "NoMiner" 0.0014 "coin" v3Hash
+  rcvTfr <- mkTransferEvent "" "sender00" 0.0123 "coin" v3Hash
+  assertEqual "Events for txRcv" [gasEvRcv,rcvTfr] (_crEvents txRcv)
+
+  -- rewind to savedCut (cut 18)
+  void $ swapMVar (_bdbCut bdb) savedCut
+  forM_ [(18 :: Int) .. 21] $ const runCut'
+  runCut'
+
+  where
+
+    runCut' = runCut testVersion bdb pact (offsetBlockTime second) zeroNoncer
+
+    getPWO (TestBlockDb _ pdb cmv) chid = do
+      c <- readMVar cmv
+      h <- fromMaybeM (userError $ "chain lookup failed for " ++ show chid) $ HM.lookup chid (_cutMap c)
+      casLookupM pdb (_blockPayloadHash h)
+
+    getBlock4 = mempty {
+      mpaGetBlock = \_ _ _ bh -> if _blockChainId bh == cid then do
+          t0 <- buildHashCmd bh
+          t1 <- buildXSend bh
+          t2 <- buildNewNatives40Cmd bh
+          t3 <- badKeyset bh
+          return $! V.fromList [t0,t1,t2,t3]
+          else return mempty
+      }
+
+    chain0 = unsafeChainId 0
+
+    getBlock22 proof pid = mempty {
+      mpaGetBlock = \_ _ _ bh ->
+        let go | _blockChainId bh == cid = do
+                   t0 <- buildHashCmd bh
+                   t1 <- buildReleaseCommand bh
+                   t2 <- buildXSend bh
+                   t3 <- buildNewNatives40Cmd bh
+                   t4 <- badKeyset bh
+                   return $! V.fromList [t0,t1,t2,t3,t4]
+               | _blockChainId bh == chain0 = do
+                   V.singleton <$> buildXReceive bh proof pid
+               | otherwise = return mempty
+        in go
+      }
+
+    buildHashCmd bh = buildCwCmd
+        $ set cbSigners [mkSigner' sender00 []]
+        $ set cbChainId (_blockChainId bh)
+        $ set cbCreationTime (toTxCreationTime $ _bct $ _blockCreationTime bh)
+        $ mkCmd (sshow bh)
+        $ mkExec' "(at 'hash (describe-module 'coin))"
+
+    badKeyset bh = buildCwCmd
+        $ set cbSigners [mkSigner' sender00 []]
+        $ set cbChainId (_blockChainId bh)
+        $ set cbCreationTime (toTxCreationTime $ _bct $ _blockCreationTime bh)
+        $ mkCmd (sshow bh)
+        $ mkExec "(read-keyset 'ks)" $ object ["ks" .= ["badkey"::T.Text]]
+
+    buildNewNatives40Cmd bh = buildCwCmd
+        $ set cbSigners [mkSigner' sender00 []]
+        $ set cbChainId (_blockChainId bh)
+        $ set cbCreationTime (toTxCreationTime $ _bct $ _blockCreationTime bh)
+        $ mkCmd (sshow bh)
+        $ mkExec' (mconcat expressions)
+      where
+        expressions =
+          [
+            "(distinct [1 1 2 2 3 3])"
+          , "(concat [\"this\" \"is\" \"a\" \"test\"])"
+          , "(str-to-list \"test\")"
+          , "(enumerate 1 10)"
+          ]
+
+    buildXSend bh = buildCwCmd
+        $ set cbSigners [mkSigner' sender00 []]
+        $ set cbChainId (_blockChainId bh)
+        $ set cbCreationTime (toTxCreationTime $ _bct $ _blockCreationTime bh)
+        $ mkCmd (sshow bh)
+        $ mkExec
+          "(coin.transfer-crosschain 'sender00 'sender00 (read-keyset 'k) \"0\" 0.0123)" $
+          mkKeySetData "k" [sender00]
+
+    buildXReceive bh proof pid = buildCwCmd
+        $ set cbSigners [mkSigner' sender00 []]
+        $ set cbCreationTime (toTxCreationTime $ _bct $ _blockCreationTime bh)
+        $ set cbChainId chain0
+        $ mkCmd (sshow bh)
+        $ mkCont ((mkContMsg pid 1) { _cmProof = proof })
+
+    buildReleaseCommand bh = buildCwCmd
+        $ set cbSigners [mkSigner' sender00 [],mkSigner' allocation00KeyPair []]
+        $ set cbChainId (_blockChainId bh)
+        $ set cbCreationTime (toTxCreationTime $ _bct $ _blockCreationTime bh)
+        $ mkCmd (sshow bh)
+        $ mkExec' "(coin.release-allocation 'allocation00)"
+
+    txResult i o = do
+      case preview (ix i . _2) $ _payloadWithOutputsTransactions o of
+        Nothing -> throwIO $ userError $ "no tx at " ++ show i
+        Just txo -> decodeStrictOrThrow @_ @(CommandResult Hash) (_transactionOutputBytes txo)
+
+    cbResult o = decodeStrictOrThrow @_ @(CommandResult Hash) (_coinbaseOutput $ _payloadWithOutputsCoinbase o)
+
+    pHash = PactResult . Right . PLiteral . LString
 
 pact4coin3UpgradeTest :: TestBlockDb -> IO (IORef MemPoolAccess) -> WebPactExecutionService -> IO ()
 pact4coin3UpgradeTest bdb mpRefIO pact = do
@@ -400,7 +602,7 @@ pact4coin3UpgradeTest bdb mpRefIO pact = do
       mpaGetBlock = \_ _ _ bh -> if _blockChainId bh == cid then do
           t0 <- buildHashCmd bh
           t1 <- buildXSend bh
-          t2 <- buildNewNativesCmd bh
+          t2 <- buildNewNatives40Cmd bh
           t3 <- badKeyset bh
           return $! V.fromList [t0,t1,t2,t3]
           else return mempty
@@ -414,7 +616,7 @@ pact4coin3UpgradeTest bdb mpRefIO pact = do
                    t0 <- buildHashCmd bh
                    t1 <- buildReleaseCommand bh
                    t2 <- buildXSend bh
-                   t3 <- buildNewNativesCmd bh
+                   t3 <- buildNewNatives40Cmd bh
                    t4 <- badKeyset bh
                    return $! V.fromList [t0,t1,t2,t3,t4]
                | _blockChainId bh == chain0 = do
@@ -437,7 +639,7 @@ pact4coin3UpgradeTest bdb mpRefIO pact = do
         $ mkCmd (sshow bh)
         $ mkExec "(read-keyset 'ks)" $ object ["ks" .= ["badkey"::T.Text]]
 
-    buildNewNativesCmd bh = buildCwCmd
+    buildNewNatives40Cmd bh = buildCwCmd
         $ set cbSigners [mkSigner' sender00 []]
         $ set cbChainId (_blockChainId bh)
         $ set cbCreationTime (toTxCreationTime $ _bct $ _blockCreationTime bh)

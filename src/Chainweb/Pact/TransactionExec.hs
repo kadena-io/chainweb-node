@@ -164,6 +164,7 @@ applyCmd v logger pdbenv miner gasModel txCtx spv cmdIn mcache0 =
           ++ [ FlagPreserveNsModuleInstallBug | not isModuleNameFix2 ]
           ++ enablePactEvents' txCtx
           ++ enablePact40 txCtx
+          ++ enablePact420 txCtx
           ++ enforceKeysetFormats' txCtx
         )
 
@@ -292,7 +293,8 @@ applyCoinbase v logger dbEnv (Miner mid mks) reward@(ParsedDecimal d) txCtx
       [ FlagDisableModuleInstall
       , FlagDisableHistoryInTransactionalMode ] ++
       enablePactEvents' txCtx ++
-      enablePact40 txCtx
+      enablePact40 txCtx ++
+      enablePact420 txCtx
     tenv = TransactionEnv Transactional dbEnv logger (ctxToPublicData txCtx) noSPVSupport
            Nothing 0.0 rk 0 ec
     txst = TransactionState mc mempty 0 Nothing (_geGasModel freeGasEnv)
@@ -602,6 +604,7 @@ applyExec' interp (ExecMsg parsedCode execData) senderSigs hsh nsp
 
       eenv <- mkEvalEnv nsp (MsgData execData Nothing hsh senderSigs)
           <&> disablePact40Natives pactFlags
+          <&> disablePact420Natives pactFlags
 
       er <- liftIO $! evalExec interp eenv parsedCode
 
@@ -629,6 +632,12 @@ enablePact40 :: TxContext -> [ExecutionFlag]
 enablePact40 tc
     | pact4coin3Upgrade After (ctxVersion tc) (ctxCurrentBlockHeight tc) = []
     | otherwise = [FlagDisablePact40]
+
+enablePact420 :: TxContext -> [ExecutionFlag]
+enablePact420 tc
+    | pact420Upgrade After (ctxVersion tc) (ctxCurrentBlockHeight tc) = []
+    | otherwise = [FlagDisablePact420]
+
 
 -- | Execute a 'ContMsg' and return the command result and module cache
 --
@@ -664,6 +673,7 @@ applyContinuation' interp cm@(ContMsg pid s rb d _) senderSigs hsh nsp = do
 
     eenv <- mkEvalEnv nsp (MsgData d pactStep hsh senderSigs)
           <&> disablePact40Natives pactFlags
+          <&> disablePact420Natives pactFlags
 
     er <- liftIO $! evalContinuation interp eenv cm
 
@@ -881,6 +891,17 @@ disablePact40Natives ec = if has (ecFlags . ix FlagDisablePact40) ec
       , "concat"
       , "str-to-list"]
 {-# INLINE disablePact40Natives #-}
+
+-- | Disable certain natives around pact 4.2.0
+--
+disablePact420Natives :: ExecutionConfig -> EvalEnv e -> EvalEnv e
+disablePact420Natives ec = if has (ecFlags . ix FlagDisablePact420) ec
+    then over (eeRefStore . rsNatives) (HM.filterWithKey (\k -> const $ notElem k bannedNatives))
+    else id
+  where
+    bannedNatives =  bannedNatives' <&> \name -> Name (BareName name def)
+    bannedNatives' = [ "zip" , "fold-db"]
+{-# INLINE disablePact420Natives #-}
 
 -- | Set the module cache of a pact 'EvalState'
 --
