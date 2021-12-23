@@ -3,6 +3,7 @@
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE ViewPatterns #-}
 
 -- |
 -- Module: Chainweb.Test.TreeDB
@@ -20,10 +21,12 @@ module Chainweb.Test.TreeDB
 ) where
 
 import Control.Lens (each, from, over, to, (^.), (^..), view)
+import qualified Control.Monad.State as State
 
 import Data.Bool (bool)
 import Data.Foldable (foldlM, toList)
 import Data.Function
+import Data.Functor (void)
 import Data.Functor.Identity
 import qualified Data.HashSet as HS
 import Data.Maybe (isJust, isNothing)
@@ -291,10 +294,22 @@ prop_seekLimitStream_id l = actual === expected
     actual = runIdentity $ P.toList $ seekLimitStream id Nothing Nothing (P.each l)
     expected = l :> (len l, Eos True)
 
+prop_seekLimitStream_effect :: Natural -> Natural -> Natural -> Property
+prop_seekLimitStream_effect l off sz = off >= 1 && sz >= 1 ==>
+    State.execState actual [] === State.execState expected []
+  where
+    list = [x <$ State.modify (x:) | x <- [1..l]]
+    str = P.mapM id (P.each list) 
+    actual = void $ P.effects (seekLimitStream id (Just (Exclusive off)) (Just (Limit sz)) str)
+    -- this `+ 1` is unfortunately necessary to determine if we're at the end of the stream, 
+    -- and may in some cases lead to work duplication.
+    expected = sequence_ $ take (fromIntegral (off + sz + 1)) list
+
 properties :: [(String, Property)]
 properties =
     [ ("seekLimitStream_limit", property prop_seekLimitStream_limit)
     , ("seekLimitStream_id", property prop_seekLimitStream_id)
+    , ("seekLimitStream_effect", property prop_seekLimitStream_effect)
     ]
 
 -- -------------------------------------------------------------------------- --

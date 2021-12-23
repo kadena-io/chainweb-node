@@ -9,6 +9,7 @@
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TupleSections #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilyDependencies #-}
 {-# LANGUAGE UndecidableInstances #-}
@@ -588,19 +589,16 @@ limitStream
     => Maybe Limit
     -> S.Stream (Of a) m ()
     -> S.Stream (Of a) m (Natural, Eos)
-limitStream Nothing s = do
+limitStream Nothing = \s -> do
     limit' <- s & S.copy & S.length_
     return (int limit', Eos True)
-limitStream (Just limit) s = do
-    (limit' :> tailStream) <- s
-        & S.splitAt (int limit)
-        & S.copy
-        & S.length
-    -- FIXME this can be expensive for infinite/blocking streams. Skip this if
-    -- the underlying stream is known to be infinite.
-    --
-    !eos <- lift (atEos tailStream)
-    return (int limit', eos)
+limitStream (Just limit) = go 0
+    where
+    go !c s | c == int limit =
+        (c,) <$> lift (atEos s)
+    go !c s = lift (S.uncons s) >>= \case
+        Nothing -> return (c, Eos True)
+        Just (a, s') -> S.cons a (go (c + 1) s')
 
 seekStream
     :: Monad m
