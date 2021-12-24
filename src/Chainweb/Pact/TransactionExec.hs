@@ -239,7 +239,10 @@ applyGenesisCmd logger dbEnv spv cmd =
         , _txGasPrice = 0.0
         , _txRequestKey = rk
         , _txGasLimit = 0
-        , _txExecutionConfig = mkExecutionConfig [FlagDisablePact40]
+        , _txExecutionConfig = mkExecutionConfig
+          [ FlagDisablePact40
+          , FlagDisablePact420
+          ]
         }
     txst = TransactionState
         { _txCache = mempty
