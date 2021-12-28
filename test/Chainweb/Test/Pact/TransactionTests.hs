@@ -30,7 +30,6 @@ import Data.Function (on)
 import Data.List (intercalate)
 import Data.Text (Text,isInfixOf,unpack)
 import Data.Default
-import Data.Tuple.Strict (T2(..))
 
 -- internal pact modules
 

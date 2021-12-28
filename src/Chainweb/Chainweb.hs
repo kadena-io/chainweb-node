@@ -120,7 +120,6 @@ import qualified Data.List as L
 import Data.Maybe
 import qualified Data.Text as T
 import Data.These (These(..))
-import Data.Tuple.Strict (T2(..))
 import qualified Data.Vector as V
 
 import qualified Network.HTTP.Client as HTTP
