@@ -12,6 +12,7 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE TupleSections #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 
@@ -56,7 +57,9 @@ import Control.Monad.Managed
 
 import Data.CAS
 import Data.CAS.RocksDB
+import Data.Foldable
 import qualified Data.Text as T
+import qualified Data.Text.Encoding as T
 import Data.Time
 import Data.Typeable
 
@@ -291,6 +294,23 @@ runQueueMonitor logger cutDb = L.withLoggerLabel ("component", "queue-monitor") 
             logFunctionJson logger Info stats
             approximateThreadDelay 60_000_000 {- 1 minute -}
 
+runDatabaseMonitor :: Logger logger => logger -> RocksDb -> IO ()
+runDatabaseMonitor logger rocksDb = L.withLoggerLabel ("component", "database-monitor") logger go
+  where
+    go l = do
+        logFunctionText l Info "Initialized Database monitor"
+        runMonitorLoop "ChainwebNode.runDatabaseMonitor" l $ do
+            logFunctionText l Debug $ "logging database stats"
+            allTables <- withTableIter (tablesTable rocksDb) (S.toList_ . iterToKeyStream)
+            let
+                estimateSize ns =
+                    approxTableSizeRocksDb rocksDb (unregisteredNewTable rocksDb (Data.CAS.RocksDB.Codec id pure) (Data.CAS.RocksDB.Codec id pure) ns)
+                logTableSize ns = do
+                    sz <- estimateSize ns
+                    logFunctionJson logger Info (T.decodeUtf8 <$> ns, fromIntegral <$> sz :: Maybe Integer)
+            traverse_ logTableSize allTables
+            approximateThreadDelay 1_200_000_000 {- 20 minutes -}
+
 -- -------------------------------------------------------------------------- --
 -- Run Node
 
@@ -309,6 +329,7 @@ node conf logger = do
             , runQueueMonitor (_chainwebLogger cw) (_cutResCutDb $ _chainwebCutResources cw)
             , runRtsMonitor (_chainwebLogger cw)
             , runBlockUpdateMonitor (_chainwebLogger cw) (_cutResCutDb $ _chainwebCutResources cw)
+            , runDatabaseMonitor (_chainwebLogger cw) rocksDb
             ]
   where
     cwConf = _nodeConfigChainweb conf

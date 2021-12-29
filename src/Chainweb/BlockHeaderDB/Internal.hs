@@ -238,29 +238,31 @@ dbAddChecked db e = unlessM (casMember (_chainDbCas db) ek) dbAddCheckedInternal
 --
 initBlockHeaderDb :: Configuration -> IO BlockHeaderDb
 initBlockHeaderDb config = do
-    dbAddChecked db rootEntry
-    return db
-  where
-    rootEntry = _configRoot config
-    cid = _chainId rootEntry
-    cidNs = T.encodeUtf8 (toText cid)
-
-    headerTable = newTable
+    headerTable <- newTable
         (_configRocksDb config)
         (Codec (runPut . encodeRankedBlockHeader) (runGet decodeRankedBlockHeader))
         (Codec (runPut . encodeRankedBlockHash) (runGet decodeRankedBlockHash))
         ["BlockHeader", cidNs, "header"]
 
-    rankTable = newTable
+    rankTable <- newTable
         (_configRocksDb config)
         (Codec (runPut . encodeBlockHeight) (runGet decodeBlockHeight))
         (Codec (runPut . encodeBlockHash) (runGet decodeBlockHash))
         ["BlockHeader", cidNs, "rank"]
 
-    !db = BlockHeaderDb cid
-        (_chainwebVersion rootEntry)
-        headerTable
-        rankTable
+    let 
+        !db = BlockHeaderDb cid
+            (_chainwebVersion rootEntry)
+            headerTable
+            rankTable
+
+    dbAddChecked db rootEntry
+
+    return db
+  where
+    rootEntry = _configRoot config
+    cid = _chainId rootEntry
+    cidNs = T.encodeUtf8 (toText cid)
 
 -- | Close a database handle and release all resources
 --

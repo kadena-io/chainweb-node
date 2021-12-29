@@ -115,8 +115,8 @@ withTestCutDb
     -> IO a
 withTestCutDb rdb v n pactIO logfun f = do
     rocksDb <- testRocksDb "withTestCutDb" rdb
-    let payloadDb = newPayloadDb rocksDb
-        cutHashesDb = cutHashesTable rocksDb
+    payloadDb <- newPayloadDb rocksDb
+    cutHashesDb <- cutHashesTable rocksDb
     initializePayloadDb v payloadDb
     webDb <- initWebBlockHeaderDb rocksDb v
     mgr <- HTTP.newManager HTTP.defaultManagerSettings
@@ -270,8 +270,8 @@ startTestPayload
     -> IO (Async (), Async(), CutDb RocksDbCas)
 startTestPayload rdb v logfun n = do
     rocksDb <- testRocksDb "startTestPayload" rdb
-    let payloadDb = newPayloadDb rocksDb
-        cutHashesDb = cutHashesTable rocksDb
+    payloadDb <- newPayloadDb rocksDb
+    cutHashesDb <- cutHashesTable rocksDb
     initializePayloadDb v payloadDb
     webDb <- initWebBlockHeaderDb rocksDb v
     mgr <- HTTP.newManager HTTP.defaultManagerSettings

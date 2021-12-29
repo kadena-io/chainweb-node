@@ -368,7 +368,7 @@ withBlockHeaders logger config inner = do
     rocksDbDir <- getRocksDbDir
     logg Info $ "using database at: " <> T.pack rocksDbDir
     withRocksDb_ rocksDbDir $ \rdb -> do
-        let pdb = newPayloadDb rdb
+        pdb <- newPayloadDb rdb
         initializePayloadDb v pdb
         liftIO $ logg Info "start traversing block headers"
         liftIO $ logg Info $ "header validation: " <> sshow (_configValidate config)

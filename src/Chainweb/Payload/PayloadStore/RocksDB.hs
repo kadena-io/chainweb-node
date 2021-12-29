@@ -35,51 +35,51 @@ import Data.CAS.RocksDB
 -- -------------------------------------------------------------------------- --
 -- RocksDbCas
 
-newBlockPayloadStore :: RocksDb -> BlockPayloadStore RocksDbCas
-newBlockPayloadStore db = BlockPayloadStore $ newCas db
+newBlockPayloadStore :: RocksDb -> IO (BlockPayloadStore RocksDbCas)
+newBlockPayloadStore db = BlockPayloadStore <$> newCas db
     (Codec encodeToByteString decodeStrictOrThrow')
     (Codec (runPut . encodeBlockPayloadHash) (runGet decodeBlockPayloadHash))
     ["BlockPayload"]
 
-newBlockTransactionsStore :: RocksDb -> BlockTransactionsStore RocksDbCas
-newBlockTransactionsStore db = BlockTransactionsStore $ newCas db
+newBlockTransactionsStore :: RocksDb -> IO (BlockTransactionsStore RocksDbCas)
+newBlockTransactionsStore db = BlockTransactionsStore <$> newCas db
     (Codec encodeToByteString decodeStrictOrThrow')
     (Codec (runPut . encodeBlockTransactionsHash) (runGet decodeBlockTransactionsHash))
     ["BlockTransactions"]
 
-newTransactionDb :: RocksDb -> TransactionDb RocksDbCas
+newTransactionDb :: RocksDb -> IO (TransactionDb RocksDbCas)
 newTransactionDb db = TransactionDb
-    (newBlockTransactionsStore db)
-    (newBlockPayloadStore db)
+    <$> newBlockTransactionsStore db
+    <*> newBlockPayloadStore db
 
-newBlockOutputsStore :: RocksDb -> BlockOutputsStore RocksDbCas
-newBlockOutputsStore db = BlockOutputsStore $ newCas db
+newBlockOutputsStore :: RocksDb -> IO (BlockOutputsStore RocksDbCas)
+newBlockOutputsStore db = BlockOutputsStore <$> newCas db
     (Codec encodeToByteString decodeStrictOrThrow')
     (Codec (runPut . encodeBlockOutputsHash) (runGet decodeBlockOutputsHash))
     ["BlockOutputs"]
 
-newTransactionTreeStore :: RocksDb -> TransactionTreeStore RocksDbCas
-newTransactionTreeStore db = TransactionTreeStore $ newCas db
+newTransactionTreeStore :: RocksDb -> IO (TransactionTreeStore RocksDbCas)
+newTransactionTreeStore db = TransactionTreeStore <$> newCas db
     (Codec encodeToByteString decodeStrictOrThrow')
     (Codec (runPut . encodeBlockTransactionsHash) (runGet decodeBlockTransactionsHash))
     ["TransactionTree"]
 
-newOutputTreeStore :: RocksDb -> OutputTreeStore RocksDbCas
-newOutputTreeStore db = OutputTreeStore $ newCas db
+newOutputTreeStore :: RocksDb -> IO (OutputTreeStore RocksDbCas)
+newOutputTreeStore db = OutputTreeStore <$> newCas db
     (Codec encodeToByteString decodeStrictOrThrow')
     (Codec (runPut . encodeBlockOutputsHash) (runGet decodeBlockOutputsHash))
     ["OutputTree"]
 
-newPayloadCache :: RocksDb -> PayloadCache RocksDbCas
+newPayloadCache :: RocksDb -> IO (PayloadCache RocksDbCas)
 newPayloadCache db = PayloadCache
-    (newBlockOutputsStore db)
-    (newTransactionTreeStore db)
-    (newOutputTreeStore db)
+    <$> newBlockOutputsStore db
+    <*> newTransactionTreeStore db
+    <*> newOutputTreeStore db
 
-newPayloadDb :: RocksDb -> PayloadDb RocksDbCas
+newPayloadDb :: RocksDb -> IO (PayloadDb RocksDbCas)
 newPayloadDb db = PayloadDb
-    (newTransactionDb db)
-    (newPayloadCache db)
+    <$> newTransactionDb db
+    <*> newPayloadCache db
 
 openPayloadDb :: FilePath -> IO (PayloadDb RocksDbCas)
-openPayloadDb path = newPayloadDb <$> openRocksDb path
+openPayloadDb path = newPayloadDb =<< openRocksDb path

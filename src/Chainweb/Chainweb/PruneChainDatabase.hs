@@ -176,27 +176,27 @@ pruneAllChains
     -> IO ()
 pruneAllChains logger rdb v checks = do
     now <- getCurrentTimeIntegral
+    pdb <- newPayloadDb rdb
     wdb <- initWebBlockHeaderDb rdb v
-    forConcurrently_ (toList $ chainIds v) (pruneChain now wdb)
+    let
+        callback cdb d h = mapM_ (\c -> run c d h) checks
+          where
+            run CheckIntrinsic = checkIntrinsic now
+            run CheckInductive = checkInductive now cdb
+            run CheckPayloadsExist = checkPayloadsExist pdb
+            run CheckPayloads = checkPayloads pdb
+            run CheckFull = checkFull now wdb
+        pruneChain cid = do
+            let chainLogger = addLabel ("chain", toText cid) logger
+                chainLogg = logFunctionText chainLogger
+            cdb <- getWebBlockHeaderDb wdb cid
+            chainLogg Info "start pruning block header database"
+            x <- pruneForksLogg chainLogger cdb (1 + diam * 3) (callback cdb)
+            chainLogg Info $ "finished pruning block header database. Deleted " <> sshow x <> " block headers."
+    forConcurrently_ (toList $ chainIds v) pruneChain
   where
     diam = diameter $ chainGraphAt v (maxBound @BlockHeight)
-    pruneChain now wdb cid = do
-        let chainLogger = addLabel ("chain", toText cid) logger
-            chainLogg = logFunctionText chainLogger
-        cdb <- getWebBlockHeaderDb wdb cid
-        chainLogg Info "start pruning block header database"
-        x <- pruneForksLogg chainLogger cdb (1 + diam * 3) (callback now wdb cdb)
-        chainLogg Info $ "finished pruning block header database. Deleted " <> sshow x <> " block headers."
 
-    pdb = newPayloadDb rdb
-
-    callback now wdb cdb d h = mapM_ (\c -> run c d h) checks
-      where
-        run CheckIntrinsic = checkIntrinsic now
-        run CheckInductive = checkInductive now cdb
-        run CheckPayloadsExist = checkPayloadsExist pdb
-        run CheckPayloads = checkPayloads pdb
-        run CheckFull = checkFull now wdb
 
 -- -------------------------------------------------------------------------- --
 -- Fork Pruning callbacks
@@ -287,6 +287,7 @@ fullGc
     -> ChainwebVersion
     -> IO ()
 fullGc logger rdb v = do
+    db <- newPayloadDb rdb
     logg Info $ "Starting chain database garbage collection"
 
     -- 1. Concurrently prune chain dbs (TODO use a pool to limit concurrency)
@@ -310,8 +311,6 @@ fullGc logger rdb v = do
     logg = logFunctionText logger
     diam = diameter $ chainGraphAt v (maxBound @BlockHeight)
     depth = diam * 3
-
-    db = newPayloadDb rdb
 
     -- Prune a single chain and return the sets of marked payloads
     --

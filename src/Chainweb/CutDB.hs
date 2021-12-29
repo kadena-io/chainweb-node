@@ -209,7 +209,7 @@ farAheadThreshold = 200
 -- -------------------------------------------------------------------------- --
 -- CutHashes Table
 
-cutHashesTable :: RocksDb -> RocksDbCas CutHashes
+cutHashesTable :: RocksDb -> IO (RocksDbCas CutHashes)
 cutHashesTable rdb = newCas rdb valueCodec keyCodec ["CutHashes"]
   where
     keyCodec = Codec
