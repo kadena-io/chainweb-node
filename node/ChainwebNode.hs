@@ -56,6 +56,7 @@ import Control.Monad.Managed
 
 import Data.CAS
 import Data.CAS.RocksDB
+import Data.IORef
 import qualified Data.Text as T
 import Data.Time
 import Data.Typeable
@@ -70,6 +71,7 @@ import qualified Network.HTTP.Client.TLS as HTTPS
 import qualified Streaming.Prelude as S
 
 import System.Directory
+import System.FilePath
 import System.IO (BufferMode(LineBuffering), hSetBuffering, stderr)
 import qualified System.Logger as L
 import System.LogLevel
@@ -92,6 +94,7 @@ import Chainweb.Miner.Coordinator (MiningStats)
 import Chainweb.Pact.RestAPI.Server (PactCmdLog(..))
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
+import Chainweb.Time
 import Chainweb.Utils
 import Chainweb.Utils.RequestLog
 import Chainweb.Version
@@ -167,16 +170,19 @@ pChainwebNodeConfiguration = id
         <> help "Reset the chain databases for all chains on startup"
 
 getRocksDbDir :: HasCallStack => ChainwebNodeConfiguration -> IO FilePath
-getRocksDbDir conf = (<> "/rocksDb") <$> getDbBaseDir conf
+getRocksDbDir conf = (</> "rocksDb") <$> getDbBaseDir conf
+
+getRocksDbCheckpointDir :: HasCallStack => ChainwebNodeConfiguration -> IO FilePath
+getRocksDbCheckpointDir conf = (</> "rocksDbCheckpoints") <$> getDbBaseDir conf
 
 getPactDbDir :: HasCallStack => ChainwebNodeConfiguration -> IO FilePath
-getPactDbDir conf =  (<> "/sqlite") <$> getDbBaseDir conf
+getPactDbDir conf =  (</> "sqlite") <$> getDbBaseDir conf
 
 getDbBaseDir :: HasCallStack => ChainwebNodeConfiguration -> IO FilePath
 getDbBaseDir conf = case _nodeConfigDatabaseDirectory conf of
     Nothing -> getXdgDirectory XdgData
-        $ "chainweb-node/" <> sshow v <> "/0"
-    Just d -> return (d <> "/0")
+        $ "chainweb-node" </> sshow v </> "0"
+    Just d -> return (d </> "0")
   where
     v = _configChainwebVersion $ _nodeConfigChainweb conf
 
@@ -299,19 +305,31 @@ node conf logger = do
     dbBaseDir <- getDbBaseDir conf
     when (_nodeConfigResetChainDbs conf) $ removeDirectoryRecursive dbBaseDir
     rocksDbDir <- getRocksDbDir conf
+    rocksDbCheckpointDir <- getRocksDbCheckpointDir conf
     pactDbDir <- getPactDbDir conf
     withRocksDb rocksDbDir $ \rocksDb -> do
         logFunctionText logger Info $ "opened rocksdb in directory " <> sshow rocksDbDir
-        withChainweb cwConf logger rocksDb pactDbDir (_nodeConfigResetChainDbs conf) $ \cw -> mapConcurrently_ id
-            [ runChainweb cw
-              -- we should probably push 'onReady' deeper here but this should be ok
-            , runCutMonitor (_chainwebLogger cw) (_cutResCutDb $ _chainwebCutResources cw)
-            , runQueueMonitor (_chainwebLogger cw) (_cutResCutDb $ _chainwebCutResources cw)
-            , runRtsMonitor (_chainwebLogger cw)
-            , runBlockUpdateMonitor (_chainwebLogger cw) (_cutResCutDb $ _chainwebCutResources cw)
-            ]
+        bracket (newIORef (Just rocksDb)) (flip writeIORef Nothing) $ \ref -> do
+            installHandlerCross sigUSR1 (const $ makeCheckpoint rocksDbCheckpointDir ref)
+            withChainweb cwConf logger rocksDb pactDbDir (_nodeConfigResetChainDbs conf) $ \cw -> mapConcurrently_ id
+                [ runChainweb cw
+                  -- we should probably push 'onReady' deeper here but this should be ok
+                , runCutMonitor (_chainwebLogger cw) (_cutResCutDb $ _chainwebCutResources cw)
+                , runQueueMonitor (_chainwebLogger cw) (_cutResCutDb $ _chainwebCutResources cw)
+                , runRtsMonitor (_chainwebLogger cw)
+                , runBlockUpdateMonitor (_chainwebLogger cw) (_cutResCutDb $ _chainwebCutResources cw)
+                ]
   where
     cwConf = _nodeConfigChainweb conf
+
+makeCheckpoint :: FilePath -> IORef (Maybe RocksDb) -> IO ()
+makeCheckpoint checkpointDir rdbRef = 
+    readIORef rdbRef >>= \case
+        Nothing -> pure ()
+        -- 0 ~ never flush WAL log before checkpoint, to avoid making extra work
+        Just rdb -> do 
+            now <- getCurrentTimeIntegral @Integer
+            checkpointRocksDb rdb 0 (checkpointDir </> formatTimeMicros now)
 
 withNodeLogger
     :: LogConfig
@@ -470,7 +488,7 @@ mainInfo = programInfoValidate
 
 main :: IO ()
 main = do
-    installSignalHandlers
+    installFatalSignalHandlers [ sigHUP, sigTERM, sigXCPU, sigXFSZ ]
     runWithPkgInfoConfiguration mainInfo pkgInfo $ \conf -> do
         let v = _configChainwebVersion $ _nodeConfigChainweb conf
         hSetBuffering stderr LineBuffering
