@@ -377,10 +377,15 @@ pact420UpgradeTest bdb mpRefIO pact = do
   assertEqual "Events for tx2 @ block 22" [gasEv2,sendTfr, yieldEv] (_crEvents tx22_2)
 
   tx22_3 <- txResult 3 pwo22
-  print tx22_3
+  let m1 = PObject $ ObjectMap $ mempty
+        & M.insert (FieldKey "a") (PLiteral $ LInteger 1)
+        & M.insert (FieldKey "b") (PLiteral $ LInteger 1)
+      m2 = PObject $ ObjectMap $ mempty
+        & M.insert (FieldKey "a") (PLiteral $ LInteger 2)
+        & M.insert (FieldKey "b") (PLiteral $ LInteger 2)
   assertEqual
     "Should resolve fold-db pact native"
-    (Just $ PList mempty)
+    (Just $ PList $ V.fromList [m1,m2])
     (tx22_3 ^? crResult . to _pactResult . _Right)
 
   tx22_4 <- txResult 4 pwo22
@@ -474,10 +479,10 @@ pact420UpgradeTest bdb mpRefIO pact = do
           mconcat
             [
               "(create-table free.fdb.fdb-tbl)"
-            , "(insert free.fdb.fdb-tbl 'b {'a:2, 'b:2)"
-            , "(insert free.fdb.fdb-tbl 'd {'a:4, 'b:4)"
-            , "(insert free.fdb.fdb-tbl 'c {'a:3, 'b:3)"
-            , "(insert free.fdb.fdb-tbl 'a {'a:1, 'b:1)"
+            , "(insert free.fdb.fdb-tbl 'b {'a:2, 'b:2})"
+            , "(insert free.fdb.fdb-tbl 'd {'a:4, 'b:4})"
+            , "(insert free.fdb.fdb-tbl 'c {'a:3, 'b:3})"
+            , "(insert free.fdb.fdb-tbl 'a {'a:1, 'b:1})"
             ]
 
     buildNewNatives420FoldDbCmd bh = buildCwCmd
@@ -489,7 +494,8 @@ pact420UpgradeTest bdb mpRefIO pact = do
       where
         expressions =
           [
-            "(let* ((qry (lambda (k o) (<  k \"c\"))) (consume (lambda (k o) k))) (fold-db free.fdb.fdb-tbl (qry) (consume)))"
+            "(let* ((qry (lambda (k o) (<  k \"c\"))) (consume (lambda (k o) o))) (fold-db free.fdb.fdb-tbl (qry) (consume)))"
+          , ""
           ]
 
     buildNewNatives420ZipCmd bh = buildCwCmd
