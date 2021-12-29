@@ -73,7 +73,8 @@ import qualified Network.HTTP.Client.TLS as HTTPS
 import qualified Streaming.Prelude as S
 
 import System.Directory
-import System.IO (BufferMode(LineBuffering), hSetBuffering, stderr)
+import System.FilePath
+import System.IO
 import qualified System.Logger as L
 import System.LogLevel
 
@@ -294,22 +295,34 @@ runQueueMonitor logger cutDb = L.withLoggerLabel ("component", "queue-monitor") 
             logFunctionJson logger Info stats
             approximateThreadDelay 60_000_000 {- 1 minute -}
 
-runDatabaseMonitor :: Logger logger => logger -> RocksDb -> IO ()
-runDatabaseMonitor logger rocksDb = L.withLoggerLabel ("component", "database-monitor") logger go
+runDatabaseMonitor :: Logger logger => logger -> RocksDb -> FilePath -> IO ()
+runDatabaseMonitor logger rocksDb pactDbDir = L.withLoggerLabel ("component", "database-monitor") logger go
   where
     go l = do
         logFunctionText l Info "Initialized Database monitor"
         runMonitorLoop "ChainwebNode.runDatabaseMonitor" l $ do
             logFunctionText l Debug $ "logging database stats"
-            allTables <- withTableIter (tablesTable rocksDb) (S.toList_ . iterToKeyStream)
-            let
-                estimateSize ns =
-                    approxTableSizeRocksDb rocksDb (unregisteredNewTable rocksDb (Data.CAS.RocksDB.Codec id pure) (Data.CAS.RocksDB.Codec id pure) ns)
-                logTableSize ns = do
-                    sz <- estimateSize ns
-                    logFunctionJson logger Info (T.decodeUtf8 <$> ns, fromIntegral <$> sz :: Maybe Integer)
-            traverse_ logTableSize allTables
+            L.withLoggerLabel ("database", "rocksdb") l logRocksDbSize
+            L.withLoggerLabel ("database", "pactdb") l logPactDbSize
             approximateThreadDelay 1_200_000_000 {- 20 minutes -}
+      where 
+        logRocksDbSize rdbl = do
+            traverse_ logTableSize =<< withTableIter (tablesTable rocksDb) (S.toList_ . iterToKeyStream)
+          where
+            trivialCodec = Data.CAS.RocksDB.Codec id pure
+            logTableSize ns = do
+                -- FIXME: *I* know that approxTableSizeRocksDb doesn't care about the
+                -- codecs. But the code still fakes some.
+                let fakeTable = unregisteredNewTable rocksDb trivialCodec trivialCodec ns
+                sz <- approxTableSizeRocksDb rocksDb fakeTable
+                logFunctionJson rdbl Info (T.decodeUtf8 <$> ns, fromIntegral <$> sz :: Maybe Integer)
+        logPactDbSize pdbl = do
+            dbFiles <- (fmap.fmap) (pactDbDir </>) $ listDirectory pactDbDir
+            traverse_ logFileSize dbFiles
+          where
+            logFileSize fp = do
+                sz <- withFile fp ReadMode hFileSize
+                logFunctionJson pdbl Info (T.pack fp, sz)
 
 -- -------------------------------------------------------------------------- --
 -- Run Node
@@ -329,7 +342,7 @@ node conf logger = do
             , runQueueMonitor (_chainwebLogger cw) (_cutResCutDb $ _chainwebCutResources cw)
             , runRtsMonitor (_chainwebLogger cw)
             , runBlockUpdateMonitor (_chainwebLogger cw) (_cutResCutDb $ _chainwebCutResources cw)
-            , runDatabaseMonitor (_chainwebLogger cw) rocksDb
+            , runDatabaseMonitor (_chainwebLogger cw) rocksDb pactDbDir
             ]
   where
     cwConf = _nodeConfigChainweb conf
