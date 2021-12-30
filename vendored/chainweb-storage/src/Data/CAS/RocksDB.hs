@@ -288,7 +288,7 @@ instance NoThunks (Codec a) where
 data RocksDbTable k v = RocksDbTable
     { _rocksDbTableValueCodec :: !(Codec v)
     , _rocksDbTableKeyCodec :: !(Codec k)
-    , _rocksDbTableName :: !B.ByteString
+    , _rocksDbTableNamespace :: !B.ByteString
     , _rocksDbTableDb :: !R.DB
     }
 
@@ -321,7 +321,7 @@ newTable db valCodec keyCodec namespace
     | otherwise
         = RocksDbTable valCodec keyCodec ns (_rocksDbHandle db)
   where
-    ns = _rocksDbNamespace db <> "-" <> B.intercalate "/" namespace <> "$"
+    ns = _rocksDbNamespace db <> "-" <> B.intercalate "/" namespace
 {-# INLINE newTable #-}
 
 -- | @tableInsert db k v@ inserts the value @v@ at key @k@ in the rocks db table
@@ -438,7 +438,7 @@ createTableIter db = do
     !tit <- RocksDbTableIter
         (_rocksDbTableValueCodec db)
         (_rocksDbTableKeyCodec db)
-        (_rocksDbTableName db)
+        (_rocksDbTableNamespace db)
         <$> I.createIter (_rocksDbTableDb db) R.defaultReadOptions
     tableIterFirst tit
     return tit
@@ -482,14 +482,14 @@ tableIterSeek it = I.iterSeek (_rocksDbTableIter it) . encIterKey it
 --
 tableIterFirst :: MonadIO m => RocksDbTableIter k v -> m ()
 tableIterFirst it
-    = I.iterSeek (_rocksDbTableIter it) (_rocksDbTableIterNamespace it)
+    = I.iterSeek (_rocksDbTableIter it) $ namespaceFirst (_rocksDbTableIterNamespace it)
 {-# INLINE tableIterFirst #-}
 
 -- | Seek to the last value in a 'RocksDbTable'
 --
 tableIterLast :: MonadIO m => RocksDbTableIter k v -> m ()
 tableIterLast it = do
-    I.iterSeek (_rocksDbTableIter it) (namespaceLast it)
+    I.iterSeek (_rocksDbTableIter it) $ namespaceLast (_rocksDbTableIterNamespace it)
     I.iterPrev (_rocksDbTableIter it)
 {-# INLINE tableIterLast #-}
 
@@ -715,9 +715,9 @@ encVal = _codecEncode . _rocksDbTableValueCodec
 {-# INLINE encVal #-}
 
 encKey :: RocksDbTable k v -> k -> B.ByteString
-encKey it k = prefix <> _codecEncode (_rocksDbTableKeyCodec it) k
+encKey it k = namespaceFirst ns <> _codecEncode (_rocksDbTableKeyCodec it) k
   where
-    prefix = _rocksDbTableName it
+    ns = _rocksDbTableNamespace it
 {-# INLINE encKey #-}
 
 decVal :: MonadThrow m => RocksDbTable k v -> B.ByteString -> m v
@@ -727,14 +727,18 @@ decVal tbl = _codecDecode $ _rocksDbTableValueCodec tbl
 -- -------------------------------------------------------------------------- --
 -- Iter Utils
 
-namespaceLast :: RocksDbTableIter k v -> B.ByteString
-namespaceLast it = B.init (_rocksDbTableIterNamespace it) <> "%"
+namespaceFirst :: B.ByteString -> B.ByteString
+namespaceFirst ns = ns <> "$"
+{-# INLINE namespaceFirst #-}
+
+namespaceLast :: B.ByteString -> B.ByteString
+namespaceLast ns = ns <> "%"
 {-# INLINE namespaceLast #-}
 
 encIterKey :: RocksDbTableIter k v -> k -> B.ByteString
-encIterKey it k = prefix <> _codecEncode (_rocksDbTableIterKeyCodec it) k
+encIterKey it k = namespaceFirst ns <> _codecEncode (_rocksDbTableIterKeyCodec it) k
   where
-    prefix = _rocksDbTableIterNamespace it
+    ns = _rocksDbTableIterNamespace it
 {-# INLINE encIterKey #-}
 
 decIterVal :: MonadThrow m => RocksDbTableIter k v -> B.ByteString -> m v
@@ -752,22 +756,22 @@ checkIterKey it k = maybe False (const True) $ decIterKey it k
 -- iterators that point outside their respective namespace key range.
 --
 tryDecIterKey :: MonadThrow m => RocksDbTableIter k v -> B.ByteString -> m (Maybe k)
-tryDecIterKey it k = case B.splitAt (B.length namespace) k of
+tryDecIterKey it k = case B.splitAt (B.length prefix) k of
     (a, b)
-        | a /= namespace -> return Nothing
+        | a /= prefix -> return Nothing
         | otherwise -> Just <$> _codecDecode (_rocksDbTableIterKeyCodec it) b
   where
-    namespace = _rocksDbTableIterNamespace it
+    prefix = namespaceFirst $ _rocksDbTableIterNamespace it
 {-# INLINE tryDecIterKey #-}
 
 decIterKey :: MonadThrow m => RocksDbTableIter k v -> B.ByteString -> m k
-decIterKey it k = case B.splitAt (B.length namespace) k of
+decIterKey it k = case B.splitAt (B.length prefix) k of
     (a, b)
-        | a == namespace -> _codecDecode (_rocksDbTableIterKeyCodec it) b
+        | a == prefix -> _codecDecode (_rocksDbTableIterKeyCodec it) b
         | otherwise -> throwM
-            $ RocksDbTableIterInvalidKeyNamespace (Expected namespace) (Actual a)
+            $ RocksDbTableIterInvalidKeyNamespace (Expected $ _rocksDbTableIterNamespace it) (Actual a)
   where
-    namespace = _rocksDbTableIterNamespace it
+    prefix = namespaceFirst $ _rocksDbTableIterNamespace it
 {-# INLINE decIterKey #-}
 
 data Checkpoint
@@ -822,16 +826,14 @@ foreign import ccall unsafe "rocksdb\\c.h rocksdb_approximate_sizes"
 
 approxTableSizeRocksDb :: RocksDb -> RocksDbTable k v -> IO CULong
 approxTableSizeRocksDb RocksDb { _rocksDbHandle = R.DB dbPtr _ } table = do
-    (minKey, maxKey) <- withTableIter table $ \iter -> 
-        return (_rocksDbTableIterNamespace iter, namespaceLast iter)
     alloca $ \rangeStartPtr ->
         alloca $ \rangeStartLengthPtr ->
         alloca $ \rangeEndPtr -> 
         alloca $ \rangeEndLengthPtr -> 
         alloca $ \sizePtr ->
         alloca $ \errPtr -> 
-        B.useAsCStringLen minKey $ \(minKeyPtr, minKeyLen) ->
-        B.useAsCStringLen maxKey $ \(maxKeyPtr, maxKeyLen) -> do
+        B.useAsCStringLen (namespaceFirst $ _rocksDbTableNamespace table) $ \(minKeyPtr, minKeyLen) ->
+        B.useAsCStringLen (namespaceLast $ _rocksDbTableNamespace table) $ \(maxKeyPtr, maxKeyLen) -> do
             poke rangeStartPtr minKeyPtr
             poke rangeStartLengthPtr (fromIntegral minKeyLen :: CSize)
             poke rangeEndPtr maxKeyPtr
