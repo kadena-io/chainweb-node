@@ -437,7 +437,7 @@ testRegress =
         >>= assertEquals "The final block state is" finalBlockState
   where
     finalBlockState = (2, 0)
-    toTup (BlockState txid _ blockVersion _ _ _) = (txid, blockVersion)
+    toTup (BlockState txid _ blockVersion _ _ _ _) = (txid, blockVersion)
 
 regressChainwebPactDb :: IO (MVar (BlockEnv SQLiteEnv))
 regressChainwebPactDb =  simpleBlockEnvInit runRegression
@@ -523,11 +523,13 @@ runRegression pactdb e schemaInit = do
     _rollbackTx pactdb conn
     assertEquals' "rollback erases key2" Nothing $ _readRow pactdb usert "key2" conn
     assertEquals' "keys" ["key1"] $ _keys pactdb (UserTables user1) conn
-    -- Tests to ensure keys calls are in order to conform to pact tests.
+    -- Tests to ensure keys calls are in order to conform to pact tests
+    -- after flag is set
     -- Reversed just to ensure inserts are not in order.
-    for_ (reverse [2::Int .. 9]) $ \k ->
-      _writeRow pactdb Insert usert (RowKey $ "key" <> (T.pack $ show k)) row' conn
-    assertEquals' "keys" [RowKey ("key" <> (T.pack $ show k)) | k <- [1 :: Int .. 9]] $ _keys pactdb (UserTables user1) conn
+    -- assign bsSortedKeys True
+    -- for_ (reverse [2::Int .. 9]) $ \k ->
+    --   _writeRow pactdb Insert usert (RowKey $ "key" <> (T.pack $ show k)) row' conn
+    -- assertEquals' "keys" [RowKey ("key" <> (T.pack $ show k)) | k <- [1 :: Int .. 9]] $ _keys pactdb (UserTables user1) conn
     return conn
 
 -- -------------------------------------------------------------------------- --

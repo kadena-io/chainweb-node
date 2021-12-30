@@ -310,6 +310,7 @@ doKeys
     => Domain k v
     -> BlockHandler SQLiteEnv [k]
 doKeys d = do
+    msort <- uses bsSortedKeys (\c -> if c then sort else id)
     dbKeys <- getDbKeys
     pb <- use bsPendingBlock
     mptx <- use bsPendingTx
@@ -319,7 +320,7 @@ doKeys d = do
                   collect pb `DL.append` maybe DL.empty collect mptx
 
     let allKeys = map fromString $
-                  sort $
+                  msort $
                   HashSet.toList $
                   HashSet.fromList $
                   dbKeys ++ memKeys

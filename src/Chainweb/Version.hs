@@ -892,16 +892,12 @@ pact4coin3Upgrade aoa v h = case aoa of
     go f (FastTimedCPM g) | g == petersonChainGraph = f 15
     go _f _ = const False
 
-pact420Upgrade :: AtOrAfter -> ChainwebVersion -> BlockHeight -> Bool
-pact420Upgrade aoa v h = case aoa of
-    At -> go (==) v h
-    After -> go (flip (>)) v h
-  where
-    go f Mainnet01 = f 2_334_500 -- 2022-01-17T17:51:12
-    go f Testnet04 = f 1_862_000 -- 2022-01-13T16:11:10
-    go f Development = f 90
-    go f (FastTimedCPM g) | g == petersonChainGraph = f 16
-    go _f _ = const False
+pact420Upgrade :: ChainwebVersion -> BlockHeight -> Bool
+pact420Upgrade Mainnet01 = (>= 2_334_500) -- 2022-01-17T17:51:12
+pact420Upgrade Testnet04 = (>= 1_862_000) -- 2022-01-13T16:11:10
+pact420Upgrade Development = (>= 90)
+pact420Upgrade (FastTimedCPM g) | g == petersonChainGraph = (>= 17)
+pact420Upgrade _ = const False
 
 enforceKeysetFormats :: ChainwebVersion -> BlockHeight -> Bool
 enforceKeysetFormats Mainnet01 = (>= 2_162_000) -- 2021-11-18T20:06:55

@@ -638,7 +638,7 @@ enablePact40 tc
 
 enablePact420 :: TxContext -> [ExecutionFlag]
 enablePact420 tc
-    | pact420Upgrade After (ctxVersion tc) (ctxCurrentBlockHeight tc) = []
+    | pact420Upgrade (ctxVersion tc) (ctxCurrentBlockHeight tc) = []
     | otherwise = [FlagDisablePact420]
 
 
