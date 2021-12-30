@@ -75,7 +75,6 @@ import qualified Data.HashMap.Strict as HM
 import Data.Monoid
 import Data.Ord
 import qualified Data.Text as T
-import Data.Tuple.Strict (T2(..))
 
 import GHC.Generics (Generic)
 import GHC.Stack

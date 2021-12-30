@@ -17,7 +17,6 @@ import Control.Lens
 import Data.CAS.RocksDB
 import Data.IORef
 import qualified Data.Text as T
-import Data.Tuple.Strict (T3(..))
 import qualified Data.Vector as V
 import Data.Word
 
@@ -45,7 +44,7 @@ import Chainweb.Test.Pact.Utils
 import Chainweb.Test.Utils
 import Chainweb.Time
 import Chainweb.TreeDB
-import Chainweb.Utils (sshow, tryAllSynchronous, catchAllSynchronous)
+import Chainweb.Utils (sshow, tryAllSynchronous, catchAllSynchronous, T3(..))
 import Chainweb.Version
 import Chainweb.Version.Utils
 

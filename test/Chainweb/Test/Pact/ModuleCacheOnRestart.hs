@@ -16,7 +16,6 @@ import Data.CAS.RocksDB
 import qualified Data.HashMap.Strict as HM
 import qualified Data.Map.Strict as M
 import Data.List (intercalate)
-import Data.Tuple.Strict (T2(..))
 import qualified Data.Text.IO as T
 
 import Test.Tasty.HUnit
@@ -46,6 +45,7 @@ import Chainweb.Test.Cut
 import Chainweb.Test.Cut.TestBlockDb
 import Chainweb.Test.Utils
 import Chainweb.Test.Pact.Utils
+import Chainweb.Utils (T2(..))
 import Chainweb.Version
 import Chainweb.Version.Utils
 import Chainweb.WebBlockHeaderDB
