@@ -28,6 +28,7 @@ import Data.Aeson
 import Control.Applicative
 import Control.Concurrent.STM.TBQueue
 import Control.DeepSeq (NFData)
+import Control.Lens (each)
 import Control.Monad ((>=>))
 import Control.Monad.STM
 import Data.IORef
@@ -61,12 +62,7 @@ initPactQueueCounters = PactQueueCounters
 
 newPactQueue :: Natural -> IO PactQueue
 newPactQueue sz = do
-  (_pactQueueValidateBlock, _pactQueueNewBlock, _pactQueueOtherMsg) <-
-    atomically $ do
-      v <- newTBQueue sz
-      n <- newTBQueue sz
-      o <- newTBQueue sz
-      return (v,n,o)
+  (_pactQueueValidateBlock, _pactQueueNewBlock, _pactQueueOtherMsg) <- each newTBQueueIO (sz,sz,sz)
   _pactQueuePactQueueValidateBlockMsgStats <- do
       counters <- newIORef initPactQueueCounters
       return PactQueueStats
@@ -172,7 +168,7 @@ resetPactQueueStats q = do
   resetPactQueueStats' (_pactQueuePactQueueOtherMsgStats q)
 
 resetPactQueueStats' :: PactQueueStats -> IO ()
-resetPactQueueStats' stats = atomicModifyIORef' (_pactQueueStatsCounters stats) (const (initPactQueueCounters, ()))
+resetPactQueueStats' stats = atomicWriteIORef (_pactQueueStatsCounters stats) initPactQueueCounters
 
 getPactQueueStats :: PactQueue -> IO (Value, Value, Value)
 getPactQueueStats = getPactQueueStats' >=> \case
