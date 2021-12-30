@@ -31,7 +31,6 @@ import Data.Function (on)
 import Data.HashMap.Strict (HashMap)
 import Data.IORef (IORef)
 import Data.Ord
-import Data.Tuple.Strict
 import qualified Data.Vector as V
 
 import GHC.Generics
@@ -43,6 +42,7 @@ import Numeric.Natural
 import Chainweb.Mempool.CurrentTxs
 import Chainweb.Mempool.Mempool
 import Chainweb.Time (Micros(..), Time(..))
+import Chainweb.Utils (T2)
 
 ------------------------------------------------------------------------------
 data PendingEntry = PendingEntry

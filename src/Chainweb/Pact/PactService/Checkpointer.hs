@@ -81,7 +81,6 @@ import Data.Either
 import Data.IORef
 import Data.Text (Text)
 import qualified Data.Text as T
-import Data.Tuple.Strict
 
 import GHC.Stack
 
