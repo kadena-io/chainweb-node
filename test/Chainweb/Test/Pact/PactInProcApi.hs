@@ -317,13 +317,6 @@ pact420UpgradeTest bdb mpRefIO pact = do
     Nothing
     (tx4_4 ^? crResult . to _pactResult . _Left . to peDoc)
 
-
-  tx4_5 <- txResult 5 pwo4
-  assertEqual
-    "Should allow bad keys"
-    Nothing
-    (tx4_5 ^? crResult . to _pactResult . _Left . to peDoc)
-
   cb4 <- cbResult pwo4
   assertEqual "Coinbase events @ block 4" [] (_crEvents cb4)
 
@@ -394,13 +387,6 @@ pact420UpgradeTest bdb mpRefIO pact = do
     (Just $ PList $ V.fromList $ PLiteral . LInteger <$> [5,7,9])
     (tx22_4 ^? crResult . to _pactResult . _Right)
 
-  tx22_5 <- txResult 5 pwo22
-  assertEqual
-    "Should not allow bad keys"
-    (Just "Invalid keyset")
-    (tx22_5 ^? crResult . to _pactResult . _Left . to peDoc)
-
-
   -- test receive XChain events
   pwo22_0 <- getPWO bdb chain0
   txRcv <- txResult 0 pwo22_0
@@ -429,8 +415,7 @@ pact420UpgradeTest bdb mpRefIO pact = do
           t2 <- buildNewNatives420FoldDbCmd bh
           t3 <- buildNewNatives420ZipCmd bh
           t4 <- buildFdbCmd bh
-          t5 <- badKeyset bh
-          return $! V.fromList [t0,t1,t2,t3,t4,t5]
+          return $! V.fromList [t0,t1,t2,t3,t4]
           else return mempty
       }
 
@@ -444,8 +429,7 @@ pact420UpgradeTest bdb mpRefIO pact = do
                    t2 <- buildXSend bh
                    t3 <- buildNewNatives420FoldDbCmd bh
                    t4 <- buildNewNatives420ZipCmd bh
-                   t5 <- badKeyset bh
-                   return $! V.fromList [t0,t1,t2,t3,t4,t5]
+                   return $! V.fromList [t0,t1,t2,t3,t4]
                | _blockChainId bh == chain0 = do
                    V.singleton <$> buildXReceive bh proof pid
                | otherwise = return mempty
@@ -458,13 +442,6 @@ pact420UpgradeTest bdb mpRefIO pact = do
         $ set cbCreationTime (toTxCreationTime $ _bct $ _blockCreationTime bh)
         $ mkCmd (sshow bh)
         $ mkExec' "(at 'hash (describe-module 'coin))"
-
-    badKeyset bh = buildCwCmd
-        $ set cbSigners [mkSigner' sender00 []]
-        $ set cbChainId (_blockChainId bh)
-        $ set cbCreationTime (toTxCreationTime $ _bct $ _blockCreationTime bh)
-        $ mkCmd (sshow bh)
-        $ mkExec "(read-keyset 'ks)" $ object ["ks" .= ["badkey"::T.Text]]
 
     buildFdbCmd bh = buildCwCmd
         $ set cbSigners [mkSigner' sender00 []]
@@ -495,7 +472,6 @@ pact420UpgradeTest bdb mpRefIO pact = do
         expressions =
           [
             "(let* ((qry (lambda (k o) (<  k \"c\"))) (consume (lambda (k o) o))) (fold-db free.fdb.fdb-tbl (qry) (consume)))"
-          , ""
           ]
 
     buildNewNatives420ZipCmd bh = buildCwCmd
