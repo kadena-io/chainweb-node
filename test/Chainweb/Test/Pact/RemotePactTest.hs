@@ -594,10 +594,10 @@ allocationTest iot nio = testCaseSteps "genesis allocation tests" $ \step -> do
       rks0 <- liftIO $ sending sid cenv batch0
 
       testCaseStep "pollApiClient: polling for allocation key"
-      pr <- liftIO $ polling sid cenv rks0 ExpectPactResult
+      _ <- liftIO $ polling sid cenv rks0 ExpectPactResult
 
       testCaseStep "localApiClient: submit local account balance request"
-      liftIO $ localTestToRetry sid cenv (head (toList batch1)) (localAfterPollResponse pr)
+      liftIO $ localTestToRetry sid cenv (head (toList batch1)) (localAfterBlockHeight 16)
 
     case p of
       Left e -> assertFailure $ "test failure: " <> show e
@@ -668,6 +668,9 @@ allocationTest iot nio = testCaseSteps "genesis allocation tests" $ \step -> do
     localAfterPollResponse (PollResponses prs) cr =
         getBlockHeight cr > getBlockHeight (snd $ head $ HashMap.toList prs)
 
+    localAfterBlockHeight bh cr =
+      getBlockHeight cr > Just bh
+
     -- avoiding `scientific` dep here
     getBlockHeight :: CommandResult a -> Maybe Decimal
     getBlockHeight = preview (crMetaData . _Just . key "blockHeight" . _Number . to (fromRational . toRational))
@@ -702,7 +705,7 @@ allocationTest iot nio = testCaseSteps "genesis allocation tests" $ \step -> do
       $ ObjectMap
       $ M.fromList
         [ (FieldKey "account", PLiteral $ LString "allocation02")
-        , (FieldKey "balance", PLiteral $ LDecimal 1_099_995.13) -- 1k + 1mm - gas
+        , (FieldKey "balance", PLiteral $ LDecimal 1_099_995.05) -- 1k + 1mm - gas
         , (FieldKey "guard", PGuard $ GKeySetRef (KeySetName "allocation02"))
         ]
 
