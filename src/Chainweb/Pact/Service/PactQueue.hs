@@ -22,6 +22,7 @@ module Chainweb.Pact.Service.PactQueue
     , newPactQueue
     , resetPactQueueStats
     , PactQueue
+    , PactQueueStats(..)
     ) where
 
 import Data.Aeson
@@ -46,9 +47,9 @@ data PactQueue = PactQueue
     _pactQueueValidateBlock :: !(TBQueue (T2 RequestMsg (Time Micros)))
   , _pactQueueNewBlock :: !(TBQueue (T2 RequestMsg (Time Micros)))
   , _pactQueueOtherMsg :: !(TBQueue (T2 RequestMsg (Time Micros)))
-  , _pactQueuePactQueueValidateBlockMsgStats :: !PactQueueStats
-  , _pactQueuePactQueueNewBlockMsgStats :: !PactQueueStats
-  , _pactQueuePactQueueOtherMsgStats :: !PactQueueStats
+  , _pactQueuePactQueueValidateBlockMsgStats :: !PactQueueStats'
+  , _pactQueuePactQueueNewBlockMsgStats :: !PactQueueStats'
+  , _pactQueuePactQueueOtherMsgStats :: !PactQueueStats'
   }
 
 initPactQueueCounters :: PactQueueCounters
@@ -65,21 +66,21 @@ newPactQueue sz = do
   (_pactQueueValidateBlock, _pactQueueNewBlock, _pactQueueOtherMsg) <- each newTBQueueIO (sz,sz,sz)
   _pactQueuePactQueueValidateBlockMsgStats <- do
       counters <- newIORef initPactQueueCounters
-      return PactQueueStats
+      return PactQueueStats'
         {
           _pactQueueStatsQueueName = "ValidateBlockMsg"
         , _pactQueueStatsCounters = counters
         }
   _pactQueuePactQueueNewBlockMsgStats <- do
       counters <- newIORef initPactQueueCounters
-      return PactQueueStats
+      return PactQueueStats'
         {
           _pactQueueStatsQueueName = "NewBlockMsg"
         , _pactQueueStatsCounters = counters
         }
   _pactQueuePactQueueOtherMsgStats <- do
       counters <- newIORef initPactQueueCounters
-      return PactQueueStats
+      return PactQueueStats'
         {
           _pactQueueStatsQueueName = "OtherMsg"
         , _pactQueueStatsCounters = counters
@@ -118,11 +119,19 @@ getNextRequest q = do
       Just msg -> return msg
 
 
-data PactQueueStats = PactQueueStats
+data PactQueueStats' = PactQueueStats'
   {
     _pactQueueStatsQueueName :: !T.Text
   , _pactQueueStatsCounters  :: !(IORef PactQueueCounters)
   }
+
+data PactQueueStats = PactQueueStats
+  {
+     _validateblock :: Value
+  , _newblock :: Value
+  , _othermsg :: Value
+  } deriving (Generic, ToJSON, NFData)
+
 
 data PactQueueCounters = PactQueueCounters
   {
@@ -149,7 +158,7 @@ instance ToJSON PactQueueCounters where
       avg = if _pactQueueCountersCount == 0 then Nothing
         else Just $ fromIntegral _pactQueueCountersSum / fromIntegral _pactQueueCountersCount
 
-updatePactQueueStats :: PactQueueStats -> TimeSpan Micros -> IO ()
+updatePactQueueStats :: PactQueueStats' -> TimeSpan Micros -> IO ()
 updatePactQueueStats stats (timeSpanToMicros -> timespan) = do
     atomicModifyIORef' (_pactQueueStatsCounters stats) $ \ctrs ->
       (PactQueueCounters
@@ -167,10 +176,10 @@ resetPactQueueStats q = do
   resetPactQueueStats' (_pactQueuePactQueueNewBlockMsgStats q)
   resetPactQueueStats' (_pactQueuePactQueueOtherMsgStats q)
 
-resetPactQueueStats' :: PactQueueStats -> IO ()
+resetPactQueueStats' :: PactQueueStats' -> IO ()
 resetPactQueueStats' stats = atomicWriteIORef (_pactQueueStatsCounters stats) initPactQueueCounters
 
-getPactQueueStats :: PactQueue -> IO (Value, Value, Value)
+getPactQueueStats :: PactQueue -> IO PactQueueStats
 getPactQueueStats = getPactQueueStats' >=> \case
     (vstats',nbstats',ostats') -> do
       Time timestamp  <- getCurrentTimeIntegral @Micros
@@ -178,7 +187,11 @@ getPactQueueStats = getPactQueueStats' >=> \case
         vstats  = withObject' (toJSON vstats') ("msg_type" .= ("validate" :: T.Text) <> "timestamp" .= timestamp)
         nbstats = withObject' (toJSON nbstats') ("msg_type" .= ("newblock" :: T.Text) <> "timestamp" .= timestamp)
         ostats  = withObject' (toJSON ostats') ("msg_type" .= ("other" :: T.Text) <> "timestamp" .= timestamp)
-      return (vstats, nbstats, ostats)
+      return PactQueueStats {
+          _validateblock = vstats
+          , _newblock = nbstats
+          , _othermsg = ostats
+        }
   where
     withObject' v o' = case v of
       Object o -> Object $ o' <> o

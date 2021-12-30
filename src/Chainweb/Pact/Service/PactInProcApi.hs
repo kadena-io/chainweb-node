@@ -105,7 +105,7 @@ runPactServiceQueueMonitor l pq = do
   let lf = logFunction l
   logFunctionText l Info "Initialized PactQueue"
   runForeverThrottled lf "Chainweb.Pact.Service.PactInProcApi.runPactServiceQueueMonitor" 10 (10 * mega) $ do
-        (validateblock_stats, newblock_stats, other_stats) <- getPactQueueStats pq
+        PactQueueStats validateblock_stats newblock_stats other_stats <- getPactQueueStats pq
         logFunctionText l Debug "got validateBlock stats"
         logFunctionJson l Info validateblock_stats
         logFunctionText l Debug "logged validateBlock stats"
