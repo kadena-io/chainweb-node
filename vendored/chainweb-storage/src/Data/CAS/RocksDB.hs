@@ -773,42 +773,40 @@ decIterKey it k = case B.splitAt (B.length namespace) k of
 data Checkpoint
 
 foreign import ccall unsafe "rocksdb\\c.h rocksdb_checkpoint_object_create" 
-  rocksdb_checkpoint_object_create :: C.RocksDBPtr -> Ptr CString -> IO (Ptr Checkpoint)
+    rocksdb_checkpoint_object_create :: C.RocksDBPtr -> Ptr CString -> IO (Ptr Checkpoint)
 
 foreign import ccall unsafe "rocksdb\\c.h rocksdb_checkpoint_create"
-  rocksdb_checkpoint_create :: Ptr Checkpoint -> CString -> CULong -> Ptr CString -> IO ()
+    rocksdb_checkpoint_create :: Ptr Checkpoint -> CString -> CULong -> Ptr CString -> IO ()
 
 foreign import ccall unsafe "rocksdb\\c.h rocksdb_checkpoint_object_destroy"
-  rocksdb_checkpoint_object_destroy :: Ptr Checkpoint -> IO ()
+    rocksdb_checkpoint_object_destroy :: Ptr Checkpoint -> IO ()
 
-checked :: String -> Ptr CString -> IO a -> IO a
+checked :: HasCallStack => String -> Ptr CString -> IO a -> IO a
 checked whatWasIDoing errPtr act = do
-  r <- act
-  err <- peek errPtr
-  unless (err == nullPtr) $ do
-    errStr <- B.packCString err
-    let msg = unwords ["error while", whatWasIDoing <> ":", B8.unpack errStr]
-    free err
-    fail msg
-  return r
+    r <- act
+    err <- peek errPtr
+    unless (err == nullPtr) $ do
+        errStr <- B.packCString err
+        let msg = unwords ["Data.CAS.RocksDB.checked: error while", whatWasIDoing <> ":", B8.unpack errStr]
+        free err
+        error msg
+    return r
 
 -- to unconditionally flush the WAL log before making the checkpoint, set logSizeFlushThreshold to zero. 
 -- to *never* flush the WAL log, set logSizeFlushThreshold to maxBound :: CULong.
 checkpointRocksDb :: RocksDb -> CULong -> FilePath -> IO ()
 checkpointRocksDb RocksDb { _rocksDbHandle = R.DB dbPtr _ } logSizeFlushThreshold path = 
-    alloca (\errPtr -> do
-      poke errPtr (nullPtr :: CString)
-      let 
-          mkCheckpointObject = 
-            checked "creating checkpoint object" errPtr $ 
-              rocksdb_checkpoint_object_create dbPtr errPtr
-          mkCheckpoint cp =
-            withCString path (\path' -> 
-              checked "creating checkpoint" errPtr $ 
-                rocksdb_checkpoint_create cp path' logSizeFlushThreshold errPtr
-              )
-      bracket mkCheckpointObject rocksdb_checkpoint_object_destroy mkCheckpoint 
-    )
+    alloca $ \errPtr -> do
+        poke errPtr (nullPtr :: CString)
+        let 
+            mkCheckpointObject = 
+                checked "creating checkpoint object" errPtr $ 
+                    rocksdb_checkpoint_object_create dbPtr errPtr
+            mkCheckpoint cp =
+                withCString path $ \path' -> 
+                    checked "creating checkpoint" errPtr $ 
+                        rocksdb_checkpoint_create cp path' logSizeFlushThreshold errPtr
+        bracket mkCheckpointObject rocksdb_checkpoint_object_destroy mkCheckpoint 
 
 foreign import ccall unsafe "rocksdb\\c.h rocksdb_approximate_sizes" 
     rocksdb_approximate_sizes
@@ -822,14 +820,11 @@ foreign import ccall unsafe "rocksdb\\c.h rocksdb_approximate_sizes"
         -> {- errptr -} Ptr CString 
         -> IO ()
 
-approxTableSizeRocksDb :: RocksDb -> RocksDbTable k v -> IO (Maybe CULong)
+approxTableSizeRocksDb :: RocksDb -> RocksDbTable k v -> IO CULong
 approxTableSizeRocksDb RocksDb { _rocksDbHandle = R.DB dbPtr _ } table = do
-    bounds <- withTableIter table $ \iter -> 
-        (,)
-            <$> (tableIterFirst iter *> R.iterKey (_rocksDbTableIter iter)) 
-            <*> (tableIterLast iter *> R.iterKey (_rocksDbTableIter iter))
-    forM (sequenceOf each bounds) $ \(minKey, maxKey) ->
-        alloca $ \rangeStartPtr ->
+    (minKey, maxKey) <- withTableIter table $ \iter -> 
+        return (_rocksDbTableIterNamespace iter, namespaceLast iter)
+    alloca $ \rangeStartPtr ->
         alloca $ \rangeStartLengthPtr ->
         alloca $ \rangeEndPtr -> 
         alloca $ \rangeEndLengthPtr -> 
