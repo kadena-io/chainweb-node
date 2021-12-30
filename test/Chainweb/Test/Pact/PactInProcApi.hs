@@ -320,8 +320,6 @@ pact420UpgradeTest bdb mpRefIO pact = do
   cb4 <- cbResult pwo4
   assertEqual "Coinbase events @ block 4" [] (_crEvents cb4)
 
-  when True mempty
-
   -- run past v3 upgrade, pact 4 switch
   setMempool mpRefIO mempty
   cuts <- forM [(8::Int)..21] $ \_i -> do
