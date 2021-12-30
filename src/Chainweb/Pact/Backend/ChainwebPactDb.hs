@@ -42,6 +42,7 @@ import qualified Data.ByteString as BS
 import Data.ByteString.Lazy (fromStrict, toStrict)
 import qualified Data.DList as DL
 import Data.Foldable (toList)
+import Data.List(sort)
 import qualified Data.HashMap.Strict as HashMap
 import Data.HashSet (HashSet)
 import qualified Data.HashSet as HashSet
@@ -318,6 +319,7 @@ doKeys d = do
                   collect pb `DL.append` maybe DL.empty collect mptx
 
     let allKeys = map fromString $
+                  sort $
                   HashSet.toList $
                   HashSet.fromList $
                   dbKeys ++ memKeys
