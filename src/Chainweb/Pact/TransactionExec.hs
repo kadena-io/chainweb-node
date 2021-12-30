@@ -71,7 +71,6 @@ import Data.Maybe (isJust)
 import qualified Data.Set as S
 import Data.Text (Text)
 import qualified Data.Text as T
-import Data.Tuple.Strict (T2(..))
 
 -- internal Pact modules
 
@@ -103,7 +102,7 @@ import Chainweb.Pact.Templates
 import Chainweb.Pact.Transactions.UpgradeTransactions
 import Chainweb.Pact.Types hiding (logError)
 import Chainweb.Transaction
-import Chainweb.Utils (encodeToByteString, sshow, tryAllSynchronous)
+import Chainweb.Utils (encodeToByteString, sshow, tryAllSynchronous, T2(..))
 import Chainweb.Version as V
 
 

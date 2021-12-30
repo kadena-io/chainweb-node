@@ -55,7 +55,6 @@ import qualified Data.HashMap.Strict as HM
 import Data.IORef
 import qualified Data.Map.Strict as M
 import qualified Data.Text as T
-import Data.Tuple.Strict (T2(..), T3(..))
 import qualified Data.Vector as V
 
 import GHC.Generics (Generic)
