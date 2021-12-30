@@ -18,7 +18,6 @@ import Control.Monad.Reader
 import Data.Aeson (Value(..), object, toJSON, (.=))
 import Data.Default (def)
 import Data.Function
-import Data.Foldable(for_)
 import qualified Data.HashMap.Strict as HM
 import qualified Data.Map.Strict as M
 import Data.Text (Text)
