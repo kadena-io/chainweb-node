@@ -32,6 +32,14 @@ in
                 WorkingDir = "/home";
             };
         };
+        muslLocales = builtins.fetchurl {
+          url = "http://dl-cdn.alpinelinux.org/alpine/v3.13/community/x86_64/musl-locales-0_git20200319-r1.apk";
+          sha256 = "1nv6kb7mf56scxqxzw6wdxn01bmz753nd0m29sp4n13cvxycr7ff";
+        };
+        muslLocalesLang = builtins.fetchurl {
+          url = "http://dl-cdn.alpinelinux.org/alpine/v3.13/community/x86_64/musl-locales-lang-0_git20200319-r1.apk";
+          sha256 = "1ada07fyj0xa08jvlzf7pdfkf56m2kizfjv8pxn832xdsqbcj0jr";
+        };
     in
         {
             chainwebBaseImage = baseImage;
@@ -39,10 +47,12 @@ in
                 name = "chainweb-bootstrap-node";
                 tag = "latest";
                 fromImage = baseImage;
+                contents = [ pkgs.apk-tools ];
                 runAsRoot = ''
                     #!${pkgs.runtimeShell}
                     ${pkgs.dockerTools.shadowSetup}
                     mkdir -p /chainweb
+                    apk add --allow-untrusted ${muslLocales} ${muslLocalesLang}
                     ln -s /bin/chainweb-node /chainweb/chainweb-node
                 '';
                 config = {
@@ -51,6 +61,10 @@ in
                            "--config-file=/tmp/test-bootstrap-node.config"];
                     WorkingDir = "/home";
                     Entrypoint = [ "/chainweb/chainweb-node" ];
+                    Env = [
+                      "LANG=C.UTF-8"
+                      "LC_ALL=C.UTF-8"
+                    ];
                 };
             };
         }
