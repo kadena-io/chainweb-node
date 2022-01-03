@@ -36,7 +36,6 @@ import qualified Data.Set as S
 import Data.Serialize hiding (get)
 import Data.String.Conv
 import qualified Data.Text as T
-import Data.Tuple.Strict
 import qualified Data.Vector as V
 import qualified Data.Vector.Algorithms.Tim as TimSort
 

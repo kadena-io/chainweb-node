@@ -42,7 +42,6 @@ import Data.IORef (IORef, atomicWriteIORef, newIORef, readIORef)
 import Data.List (foldl')
 import qualified Data.Map.Strict as M
 import qualified Data.Set as S
-import Data.Tuple.Strict (T2(..), T3(..))
 import qualified Data.Vector as V
 
 import System.LogLevel (LogLevel(..))
@@ -65,7 +64,7 @@ import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
 import Chainweb.Sync.WebBlockHeaderStore
 import Chainweb.Time (Micros, Time, minute, getCurrentTimeIntegral, scaleTimeSpan)
-import Chainweb.Utils (fromJuste, runForever, thd)
+import Chainweb.Utils (fromJuste, runForever, thd, T2(..), T3(..))
 import Chainweb.Version
 import Chainweb.WebPactExecutionService (_webPactExecutionService)
 
