@@ -192,8 +192,6 @@ pruneForks_ logg cdb mar mir callback = do
             . progress 200000 reportProgress
 
   where
-    ver = _chainwebVersion cdb
-    cid = _chainId cdb
     reportProgress i a = logg Info
         $ "inspected " <> sshow i
         <> " block headers. Current height "
@@ -213,20 +211,6 @@ pruneForks_ logg cdb mar mir callback = do
                 <> ". Current pivots: " <> encodeToText pivots
                 <> ". Current header: " <> encodeToText (ObjectEncoded cur)
                 <> ". Previous height: " <> sshow prevHeight
-        | _blockChainwebVersion cur /= ver =
-            throwM $ InternalInvariantViolation
-                $ "PruneForks.pruneForks_: detected a corrupted database. A block header in the database did not match the chainweb version of the node"
-                <> ". Current pivots: " <> encodeToText pivots
-                <> ". Current header: " <> encodeToText (ObjectEncoded cur)
-                <> ". Previous height: " <> sshow prevHeight
-                <> ". Expected chainweb version: " <> sshow ver
-        | _blockChainId cur /= cid =
-            throwM $ InternalInvariantViolation
-                $ "PruneForks.pruneForks_: detected a corrupted database. A block header in the database did not have the expected chainId"
-                <> ". Current pivots: " <> encodeToText pivots
-                <> ". Current header: " <> encodeToText (ObjectEncoded cur)
-                <> ". Previous height: " <> sshow prevHeight
-                <> ". Expected chainId: " <> sshow cid
         | _blockHash cur `elem` pivots = do
             callback False cur
             let !pivots' = force $ L.nub $ _blockParent cur : L.delete (_blockHash cur) pivots
