@@ -1,5 +1,30 @@
 # `chainweb-node` Changelog
 
+## 2.12 (2022-01-07)
+
+This version replaces all previous versions. Any prior version will stop working
+on **2022-01-13T00:00:00Z**. Node administrators must upgrade to this version
+before that date.
+
+This version will stop working on **2022-02-24T00:00:00Z**.
+
+Changes:
+
+*   The default setting for pruning the chainweb database has been changed to 
+    "none" to reduce unnecessary work and speed up node start times. (#1332)
+
+*   Nodes will now take a snapshot of the chainweb database (RocksDB) if sent 
+    the SIGUSR1 signal. These snapshots can be used for backups and do not take
+    significant space until the database has diverged significantly from the 
+    snapshot. Also, SIGUSR2 no longer terminates the node. (#1328)
+
+*   Upgrade Pact version to 4.2.0. (#1323)
+
+*   Nodes will log their progress while pruning the database. (#1315)
+
+*   The Pact queue has been instrumented to log its utilization level and 
+    latency. (#1284)
+
 ## 2.11.1 (2021-11-23)
 
 This is a miner feature release. It is compatible with version 2.11. Upgrading
