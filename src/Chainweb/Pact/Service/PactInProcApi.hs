@@ -53,6 +53,8 @@ import Chainweb.Version (ChainwebVersion)
 
 import Data.LogMessage
 
+import GHC.Stack (HasCallStack)
+
 -- | Initialization for Pact (in process) Api
 withPactService
     :: PayloadCasLookup cas
@@ -78,6 +80,7 @@ withPactService ver cid logger mpc bhdb pdb pactDbDir config action =
 withPactService'
     :: PayloadCasLookup cas
     => Logger logger
+    => HasCallStack
     => ChainwebVersion
     -> ChainId
     -> logger
@@ -91,7 +94,7 @@ withPactService'
 withPactService' ver cid logger memPoolAccess bhDb pdb sqlenv config action = do
     reqQ <- newPactQueue (_pactQueueSize config)
     race (concurrently_ (monitor reqQ) (server reqQ)) (client reqQ) >>= \case
-        Left () -> error "pact service terminated unexpectedly"
+        Left () -> error "Chainweb.Pact.Service.PactInProcApi: pact service terminated unexpectedly"
         Right a -> return a
   where
     client reqQ = action reqQ
@@ -102,21 +105,16 @@ withPactService' ver cid logger memPoolAccess bhDb pdb sqlenv config action = do
 
 runPactServiceQueueMonitor :: Logger logger => logger ->  PactQueue -> IO ()
 runPactServiceQueueMonitor l pq = do
-  let lf = logFunction l
-  logFunctionText l Info "Initialized PactQueue"
-  runForeverThrottled lf "Chainweb.Pact.Service.PactInProcApi.runPactServiceQueueMonitor" 10 (10 * mega) $ do
-        PactQueueStats validateblock_stats newblock_stats other_stats <- getPactQueueStats pq
-        logFunctionText l Debug "got validateBlock stats"
-        logFunctionJson l Info validateblock_stats
-        logFunctionText l Debug "logged validateBlock stats"
-        logFunctionText l Debug "got newBlock stats"
-        logFunctionJson l Info newblock_stats
-        logFunctionText l Debug "logged newBlock stats"
-        logFunctionText l Debug "got otherMsg stats"
-        logFunctionJson l Info other_stats
-        logFunctionText l Debug "logged otherMsg stats"
-        resetPactQueueStats pq
-        approximateThreadDelay 60_000_000 {- 1 minute -}
+    let lf = logFunction l
+    logFunctionText l Info "Initialized PactQueueMonitor"
+    runForeverThrottled lf "Chainweb.Pact.Service.PactInProcApi.runPactServiceQueueMonitor" 10 (10 * mega) $ do
+            PactQueueStats validateblock_stats newblock_stats other_stats <- getPactQueueStats pq
+            logFunctionText l Debug "got latest set of stats from PactQueueMonitor"
+            logFunctionJson l Info validateblock_stats
+            logFunctionJson l Info newblock_stats
+            logFunctionJson l Info other_stats
+            resetPactQueueStats pq
+            approximateThreadDelay 60_000_000 {- 1 minute -}
 
 pactMemPoolAccess
     :: Logger logger
