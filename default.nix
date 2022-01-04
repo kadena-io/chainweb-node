@@ -123,7 +123,6 @@ pkgs.haskell.packages.${compiler}.developPackage {
         sha256 = "101fjg7jsa0mw57clpjwc2vgrdkrnn0vmf4xgagja21ynwwbl2b5";
       } {});
 
-
       wai = dontCheck (self.callHackageDirect {
         pkg = "wai";
         ver = "3.2.2.1";
