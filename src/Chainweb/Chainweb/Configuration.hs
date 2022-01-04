@@ -237,7 +237,7 @@ instance FromJSON (CutConfig -> CutConfig) where
 defaultCutConfig :: CutConfig
 defaultCutConfig = CutConfig
     { _cutIncludeOrigin = True
-    , _cutPruneChainDatabase = GcHeaders
+    , _cutPruneChainDatabase = GcNone
     , _cutFetchTimeout = 3_000_000
     , _cutInitialCutHeightLimit = Nothing
     }

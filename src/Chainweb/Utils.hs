@@ -176,7 +176,9 @@ module Chainweb.Utils
 , thd
 
 -- * Strict Tuples
-, sfst  -- TODO remove these
+, T2(..)
+, T3(..)
+, sfst
 , ssnd
 , scurry
 , suncurry
@@ -253,7 +255,6 @@ import qualified Data.Text.Encoding as T
 import qualified Data.Text.Lazy as TL
 import Data.These (These(..))
 import Data.Time
-import Data.Tuple.Strict
 import qualified Data.Vector as V
 import Data.Word
 
@@ -1155,7 +1156,7 @@ reverseStream = S.effect . S.fold_ (flip (:)) [] S.each
 --
 foldChunksM
     :: Monad m
-    => (forall b . t -> (S.Stream f m b) -> m (Of t b))
+    => (forall b . t -> S.Stream f m b -> m (Of t b))
     -> t
     -> S.Stream (S.Stream f m) m a
     -> m (Of t a)
@@ -1172,7 +1173,7 @@ foldChunksM f = go
 --
 foldChunksM_
     :: Monad m
-    => (forall b . t -> (S.Stream f m b) -> m (Of t b))
+    => (forall b . t -> S.Stream f m b -> m (Of t b))
     -> t
     -> S.Stream (S.Stream f m) m a
     -> m t
@@ -1275,6 +1276,36 @@ thd (_,_,c) = c
 
 -- -------------------------------------------------------------------------- --
 -- Strict Tuple
+
+data T2 a b = T2 !a !b
+    deriving (Show, Eq, Ord, Generic, NFData, Functor)
+
+instance Bifunctor T2 where
+    bimap f g (T2 a b) =  T2 (f a) (g b)
+    {-# INLINE bimap #-}
+
+data T3 a b c = T3 !a !b !c
+    deriving (Show, Eq, Ord, Generic, NFData, Functor)
+
+instance Bifunctor (T3 a) where
+    bimap f g (T3 a b c) =  T3 a (f b) (g c)
+    {-# INLINE bimap #-}
+
+sfst :: T2 a b -> a
+sfst (T2 a _) = a
+{-# INLINE sfst #-}
+
+ssnd :: T2 a b -> b
+ssnd (T2 _ b) = b
+{-# INLINE ssnd #-}
+
+scurry :: (T2 a b -> c) -> a -> b -> c
+scurry f a b = f (T2 a b)
+{-# INLINE scurry #-}
+
+suncurry :: (a -> b -> c) -> T2 a b -> c
+suncurry k (T2 a b) = k a b
+{-# INLINE suncurry #-}
 
 suncurry3 :: (a -> b -> c -> d) -> T3 a b c -> d
 suncurry3 k (T3 a b c) = k a b c

@@ -41,7 +41,6 @@ import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
 import qualified Data.Text.IO as TIO
 import Data.Traversable
-import Data.Tuple.Strict
 import qualified Data.Vector as V
 import qualified Data.Yaml as Yaml
 

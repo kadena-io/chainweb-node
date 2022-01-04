@@ -27,7 +27,6 @@ import Control.Monad.Catch
 import Data.Aeson
 import Data.Map (Map)
 import Data.Text (Text, pack, unpack)
-import Data.Tuple.Strict
 import Data.Vector (Vector)
 
 import GHC.Generics
@@ -49,7 +48,7 @@ import Chainweb.Mempool.Mempool (InsertError(..))
 import Chainweb.Miner.Pact
 import Chainweb.Payload
 import Chainweb.Transaction
-import Chainweb.Utils (encodeToText)
+import Chainweb.Utils (T2, encodeToText)
 import Chainweb.Version
 
 

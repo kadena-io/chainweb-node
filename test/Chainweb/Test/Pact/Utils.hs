@@ -104,7 +104,6 @@ module Chainweb.Test.Pact.Utils
 import Control.Arrow ((&&&))
 import Control.Concurrent.Async
 import Control.Concurrent.MVar
-import Control.Concurrent.STM
 import Control.Lens (view, _3, makeLenses)
 import Control.Monad
 import Control.Monad.Catch
@@ -122,7 +121,6 @@ import Data.Maybe
 import Data.Text (Text)
 import qualified Data.Text.Encoding as T
 import qualified Data.Text.IO as T
-import Data.Tuple.Strict
 import Data.String
 import qualified Data.Vector as V
 
@@ -655,7 +653,7 @@ withPactTestBlockDb version cid logLevel rdb mempoolIO pactConfig f =
   withResource (startPact bdbio iodir) stopPact $ f . fmap (view _3)
   where
     startPact bdbio iodir = do
-        reqQ <- atomically $ newPactQueue 2000
+        reqQ <- newPactQueue 2000
         dir <- iodir
         bdb <- bdbio
         mempool <- mempoolIO
