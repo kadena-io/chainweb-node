@@ -87,7 +87,6 @@ installHandlerCross s h =
     void $ installHandler s (Catch (h s)) Nothing
 #endif
 
-
 -- | Handle SIGTERM (and other signals) that are supposed to terminate the
 -- program. By default GHCs RTS only installs a handler for SIGINT (Ctrl-C).
 -- This function install handlers that that raise an exception on the main
