@@ -189,11 +189,17 @@ pruneForks_ logg cdb mar mir callback = do
       else
         withReverseHeaderStream cdb (mar - 1) mir
             $ S.foldM_ go (return (pivots, int (_getMaxRank mar), 0)) (\(_,_,!n) -> evaluate n)
+            . progress 200000 reportProgress
 
   where
+    reportProgress i a = logg Info
+        $ "inspected " <> sshow i
+        <> " block headers. Current height "
+        <> sshow (_blockHeight a)
+
     go :: ([BlockHash], BlockHeight, Int) -> BlockHeader -> IO ([BlockHash], BlockHeight, Int)
     go ([], _, _) cur = throwM $ InternalInvariantViolation
-        $ "PrunForks.pruneForks_: no pivots left at block " <> encodeToText (ObjectEncoded cur)
+        $ "PruneForks.pruneForks_: no pivots left at block " <> encodeToText (ObjectEncoded cur)
     go (!pivots, !prevHeight, !n) !cur
 
         -- This checks some structural consistency. It's not a comprehensive
@@ -201,7 +207,7 @@ pruneForks_ logg cdb mar mir callback = do
         -- callbacks that are offered in the module "Chainweb.Chainweb.PruneChainDatabase"
         | prevHeight /= curHeight && prevHeight /= curHeight + 1 =
             throwM $ InternalInvariantViolation
-                $ "PrunForks.pruneForks_: detected a corrupted database. Some block headers are missing"
+                $ "PruneForks.pruneForks_: detected a corrupted database. Some block headers are missing"
                 <> ". Current pivots: " <> encodeToText pivots
                 <> ". Current header: " <> encodeToText (ObjectEncoded cur)
                 <> ". Previous height: " <> sshow prevHeight
