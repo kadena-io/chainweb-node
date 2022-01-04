@@ -16,12 +16,15 @@ import Control.Lens hiding ((.=))
 import Control.Monad.Reader
 
 import Data.Aeson (Value(..), object, toJSON, (.=))
+import Data.ByteString (ByteString)
 import Data.Default (def)
 import Data.Function
 import qualified Data.HashMap.Strict as HM
 import qualified Data.Map.Strict as M
+import Data.String.Conv (toS)
 import Data.Text (Text)
 import qualified Data.Text as T
+import Data.Word
 
 import Pact.Gas
 import Pact.Interpreter (EvalResult(..), PactDbEnv(..), defaultInterpreter)
@@ -371,8 +374,47 @@ checkpointerTest name cenvIO = testCaseSteps name $ \next -> do
 
     _blockEnvFailure <- expectException $ _cpRestore cp (Just (BlockHeight 12, hash10))
 
+    next "Run empty blocks from height 11 to 16"
+
+    forM_ [10 .. 15] $ runEmptyBlock cp
+
+    next "Run block 17 with pact 4.2.0 changes"
+
+
+    hash16 <- BlockHash <$> merkleLogHash "0000000000000000000000000000016a"
+    -- _hash17 <- BlockHash <$> merkleLogHash "0000000000000000000000000000017a"
+    blockEnv17 <- _cpRestore cp (Just (BlockHeight 17, hash16))
+    void $ runExec cenv blockEnv17 (Just $ ksData "7") (defModule "7")
+    void $ runExec cenv blockEnv17 Nothing "(m7.insertTbl 'b 2)"
+    void $ runExec cenv blockEnv17 Nothing "(m7.insertTbl 'd 3)"
+    void $ runExec cenv blockEnv17 Nothing "(m7.insertTbl 'c 4)"
+    void $ runExec cenv blockEnv17 Nothing "(keys m7.tbl)" >>= \EvalResult{..} -> Right _erOutput @?= traverse toPactValue [tStringList $ T.words "a b c d"]
+    _cpDiscard cp
+
+    next "Rollback to block 16 and expect failure with pact 4.2.0 changes"
+
+    hash15' <- BlockHash <$> merkleLogHash "0000000000000000000000000000015a"
+    blockEnv16 <- _cpRestore cp (Just (BlockHeight 16, hash15'))
+    void $ runExec cenv blockEnv16 (Just $ ksData "7") (defModule "7")
+    void $ runExec cenv blockEnv16 Nothing "(m7.insertTbl 'b 2)"
+    void $ runExec cenv blockEnv16 Nothing "(m7.insertTbl 'd 3)"
+    void $ runExec cenv blockEnv16 Nothing "(m7.insertTbl 'c 4)"
+    expectException $ runExec cenv blockEnv16 Nothing "(keys m7.tbl)" >>= \EvalResult{..} -> Right _erOutput @?= traverse toPactValue [tStringList $ T.words "a b c d"]
+    _cpDiscard cp
+
     return ()
   where
+
+    runEmptyBlock :: Checkpointer -> Word64 -> IO ()
+    runEmptyBlock cp height = do
+      currentHash <- BlockHash <$> merkleLogHash (emptyBlockHash height)
+      nextHash <- BlockHash <$> merkleLogHash (emptyBlockHash $ height + 1)
+      _ <- _cpRestore cp (Just (BlockHeight $ succ height, currentHash))
+      _cpSave cp nextHash
+
+    emptyBlockHash :: Word64 -> ByteString
+    emptyBlockHash height = toS $ "00000000000000000000000000000" <> show height <> "a"
+
     h :: SomeException -> IO (Maybe String)
     h = const (return Nothing)
 
@@ -666,6 +708,9 @@ nativeLookup (NativeDefName n) = case HM.lookup (Name $ BareName n def) nativeDe
 
 tIntList :: [Int] -> Term Name
 tIntList = toTList (TyPrim TyInteger) def . map toTerm
+
+tStringList :: [Text] -> Term Name
+tStringList = toTList (TyPrim TyString) def . map toTerm
 
 toTerm' :: ToTerm a => a -> Term Name
 toTerm' = toTerm
