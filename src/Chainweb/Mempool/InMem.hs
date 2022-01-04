@@ -46,13 +46,11 @@ import Data.Ord
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
 import Data.Traversable (for)
-import Data.Tuple.Strict
 import Data.Vector (Vector)
 import qualified Data.Vector as V
 import qualified Data.Vector.Algorithms.Tim as TimSort
 
 import Pact.Parse
-import Pact.Types.Gas (GasPrice(..))
 
 import Prelude hiding (init, lookup, pred)
 
@@ -129,7 +127,7 @@ toMempoolBackend logger mempool = do
     nonce = _inmemNonce mempool
     lockMVar = _inmemDataLock mempool
 
-    InMemConfig tcfg _ _ _ _ _ = cfg
+    InMemConfig tcfg _ _ _ _ _ _ = cfg
     member = memberInMem lockMVar
     lookup = lookupInMem tcfg lockMVar
     insert = insertInMem cfg lockMVar
@@ -318,7 +316,8 @@ insertCheckInMem cfg lock txs
     hasher = txHasher (_inmemTxCfg cfg)
 
 -- | Validation: Confirm the validity of some single transaction @t@.
---
+-- Note that this function is not called during block validation. This
+-- merely exists to validate a transaction entering the mempool.
 validateOne
     :: forall t a
     .  NFData t
@@ -332,6 +331,7 @@ validateOne
 validateOne cfg badmap curTxIdx now t h =
     sizeOK
     >> gasPriceRoundingCheck
+    >> gasPriceMinCheck
     >> ttlCheck
     >> notDuplicate
     >> notInBadMap
@@ -348,6 +348,13 @@ validateOne cfg badmap curTxIdx now t h =
       where
         getSize = txGasLimit txcfg
         maxSize = _inmemTxBlockSizeLimit cfg
+
+    -- prop_tx_gas_min
+    gasPriceMinCheck :: Either InsertError ()
+    gasPriceMinCheck = ebool_ (InsertErrorUndersized (getPrice t) minGasPrice) (getPrice t >= minGasPrice)
+      where
+        minGasPrice = _inmemTxMinGasPrice cfg
+        getPrice = txGasPrice txcfg
 
     -- prop_tx_gas_rounding
     gasPriceRoundingCheck :: Either InsertError ()

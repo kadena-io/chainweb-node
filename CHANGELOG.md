@@ -1,5 +1,65 @@
 # `chainweb-node` Changelog
 
+## 2.11.1 (2021-11-23)
+
+This is a miner feature release. It is compatible with version 2.11. Upgrading
+optional. Please, check the list of changes before upgrading.
+
+Changes:
+
+*   New command line options for configuring mining coordination. The options
+    `--enable-mining-coordination --mining-public-key=<PUBLIC_KEY>` enable the
+    mining API of a node and configure `k:<PUBLIC_KEY>` as the account that
+    receives mining rewards. (#1311)
+
+*   Include GET endpoints for cuts, headers, branches, and payloads
+    into the service API. (#1309)
+
+*   Add configuration for stopping the node after synchronizing the
+    Pact state to the chain database and before starting connecting to
+    the P2P network. This is useful to initializing the Pact database
+    for a new node or validating an existing database. (#1312)
+
+*   Remove rate limiting support for endpoints of the service API.
+    Rate limiting for the service API should be done by using an external
+    reverse proxy. (#1300)
+
+*   Log filter rules allow fine grained support for controlling
+    which messages are actually submitted. This version adds the ability to
+    specify for a filter rule a probability with which a log messages passes the
+    respective filter rule. This allows to emit only a certain percentage of
+    message of some kind to the backend. (#1300)
+
+## 2.11 (2021-11-09)
+
+This version replaces all previous versions. Any prior version will stop working
+on **2021-11-18T00:00:00Z**. Node administrators must upgrade to this version
+before that date.
+
+This version will stop working on **2022-01-13T00:00:00Z**.
+
+Changes:
+
+*    Add priorities to the pact services queue. This gives consensus and
+     new block requests priority over requests from the service APIs and the
+     mempool. It makes nodes more resilient under load. (#1280)
+
+*    Upgrade Pact version to 4.1.2. (#1286, #1287)
+
+*    Enforce keyset formats. (#1287)
+
+*    A new configuration option `chainweb.minGasPrice` (`--min-gas-price`) is
+     added that configures a minimum gas price for transactions. The mempool
+     will reject any transactions that doesn't pay at least this amount for
+     gas. This allows node operators to enforce mindful usage of resources
+     even when the majority of blocks isn't full. (#1282)
+
+     The default minimum gas limit is raised from 1e-12 to 1e-8.
+
+*    Chainweb node now depends on the OpenSSL library being installed on
+     the system. (Before it already depended on the OpenSSL root certificates
+     being available.)
+
 ## 2.10 (2021-10-07)
 
 This version replaces all previous versions. Any prior version will stop working

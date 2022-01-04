@@ -302,10 +302,13 @@ decodeChainwebVersion = fromChainwebVersionId <$> getWord32le
 
 instance ToJSON ChainwebVersion where
     toJSON = toJSON . toText
+    toEncoding = toEncoding . toText
     {-# INLINE toJSON #-}
+    {-# INLINE toEncoding #-}
 
 instance FromJSON ChainwebVersion where
     parseJSON = parseJsonFromText "ChainwebVersion"
+    {-# INLINE parseJSON #-}
 
 instance MerkleHashAlgorithm a => IsMerkleLogEntry a ChainwebHashTag ChainwebVersion where
     type Tag ChainwebVersion = 'ChainwebVersionTag
@@ -892,7 +895,7 @@ enforceKeysetFormats :: ChainwebVersion -> BlockHeight -> Bool
 enforceKeysetFormats Mainnet01 = (>= 2_162_000) -- 2021-11-18T20:06:55
 enforceKeysetFormats Testnet04 = (>= 1_701_000) -- 2021-11-18T17:54:36
 enforceKeysetFormats Development = (>= 100)
-enforceKeysetFormats _ = const True
+enforceKeysetFormats _ = (>= 10)
 
 -- -------------------------------------------------------------------------- --
 -- Header Validation Guards

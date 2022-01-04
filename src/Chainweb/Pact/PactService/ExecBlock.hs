@@ -51,7 +51,6 @@ import Data.String.Conv (toS)
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
-import Data.Tuple.Strict (T2(..))
 import Data.Vector (Vector)
 import qualified Data.Vector as V
 
@@ -388,10 +387,19 @@ minerReward v (MinerRewards rs) bh =
 
 
 data CRLogPair = CRLogPair P.Hash [P.TxLog A.Value]
+
+crLogPairProperties :: A.KeyValue kv => CRLogPair -> [kv]
+crLogPairProperties (CRLogPair h logs) =
+  [ "hash" A..= h
+  , "rawLogs" A..= logs
+  ]
+{-# INLINE crLogPairProperties #-}
+
 instance A.ToJSON CRLogPair where
-  toJSON (CRLogPair h logs) = A.object
-    [ "hash" A..= h
-    , "rawLogs" A..= logs ]
+  toJSON = A.object . crLogPairProperties
+  toEncoding = A.pairs . mconcat . crLogPairProperties
+  {-# INLINE toJSON #-}
+  {-# INLINE toEncoding #-}
 
 validateHashes
     :: BlockHeader

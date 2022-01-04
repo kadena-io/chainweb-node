@@ -27,7 +27,6 @@ import Control.Monad.Catch
 import Data.Aeson
 import Data.Map (Map)
 import Data.Text (Text, pack, unpack)
-import Data.Tuple.Strict
 import Data.Vector (Vector)
 
 import GHC.Generics
@@ -49,7 +48,7 @@ import Chainweb.Mempool.Mempool (InsertError(..))
 import Chainweb.Miner.Pact
 import Chainweb.Payload
 import Chainweb.Transaction
-import Chainweb.Utils (encodeToText)
+import Chainweb.Utils (T2, encodeToText)
 import Chainweb.Version
 
 
@@ -207,16 +206,24 @@ data SpvRequest = SpvRequest
     , _spvTargetChainId :: !Pact.ChainId
     } deriving (Eq, Show, Generic)
 
+spvRequestProperties :: KeyValue kv => SpvRequest -> [kv]
+spvRequestProperties r =
+  [ "requestKey" .= _spvRequestKey r
+  , "targetChainId" .= _spvTargetChainId r
+  ]
+{-# INLINE spvRequestProperties #-}
+
 instance ToJSON SpvRequest where
-  toJSON r = object
-    [ "requestKey" .= _spvRequestKey r
-    , "targetChainId" .= _spvTargetChainId r
-    ]
+  toJSON = object . spvRequestProperties
+  toEncoding = pairs . mconcat . spvRequestProperties
+  {-# INLINE toJSON #-}
+  {-# INLINE toEncoding #-}
 
 instance FromJSON SpvRequest where
   parseJSON = withObject "SpvRequest" $ \o -> SpvRequest
     <$> o .: "requestKey"
     <*> o .: "targetChainId"
+  {-# INLINE parseJSON #-}
 
 newtype TransactionOutputProofB64 = TransactionOutputProofB64 Text
     deriving stock (Eq, Show, Generic)

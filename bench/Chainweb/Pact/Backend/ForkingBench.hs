@@ -44,7 +44,6 @@ import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Text.Encoding
 import qualified Data.Text.IO as T
-import Data.Tuple.Strict
 import qualified Data.Vector as V
 import Data.Word
 import qualified Data.Yaml as Y

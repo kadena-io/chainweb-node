@@ -17,6 +17,7 @@ import Control.Monad.Catch
 
 import Data.Aeson (Value)
 import qualified Data.HashMap.Strict as HM
+import Data.Vector (Vector)
 import qualified Data.Vector as V
 
 import GHC.Stack
@@ -35,9 +36,7 @@ import Chainweb.Pact.Service.PactQueue
 import Chainweb.Pact.Service.Types
 import Chainweb.Payload
 import Chainweb.Transaction
-
-import Data.Tuple.Strict
-import Data.Vector (Vector)
+import Chainweb.Utils (T2)
 
 import Pact.Types.Command
 import Pact.Types.Hash

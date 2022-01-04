@@ -37,7 +37,6 @@ import Control.Monad.Catch
 import Data.Foldable
 import Data.Function
 import qualified Data.HashMap.Strict as HM
-import Data.Tuple.Strict
 import qualified Data.Vector as V
 
 import GHC.Stack

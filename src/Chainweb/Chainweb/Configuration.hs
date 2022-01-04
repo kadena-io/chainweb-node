@@ -61,6 +61,7 @@ module Chainweb.Chainweb.Configuration
 , configP2p
 , configTransactionIndex
 , configBlockGasLimit
+, configMinGasPrice
 , configThrottling
 , configReorgLimit
 , configRosetta
@@ -323,6 +324,7 @@ data ChainwebConfiguration = ChainwebConfiguration
     , _configThrottling :: !ThrottlingConfig
     , _configMempoolP2p :: !(EnableConfig MempoolP2pConfig)
     , _configBlockGasLimit :: !Mempool.GasLimit
+    , _configMinGasPrice :: !Mempool.GasPrice
     , _configPactQueueSize :: !Natural
     , _configReorgLimit :: !Natural
     , _configValidateHashesOnReplay :: !Bool
@@ -330,6 +332,8 @@ data ChainwebConfiguration = ChainwebConfiguration
     , _configAllowReadsInLocal :: !Bool
     , _configRosetta :: !Bool
     , _configServiceApi :: !ServiceApiConfig
+    , _configOnlySyncPact :: !Bool
+        -- ^ exit after synchronizing pact dbs to the latest cut
     } deriving (Show, Eq, Generic)
 
 makeLenses ''ChainwebConfiguration
@@ -363,12 +367,14 @@ defaultChainwebConfiguration v = ChainwebConfiguration
     , _configThrottling = defaultThrottlingConfig
     , _configMempoolP2p = defaultEnableConfig defaultMempoolP2pConfig
     , _configBlockGasLimit = 150000
+    , _configMinGasPrice = 1e-8
     , _configPactQueueSize = 2000
     , _configReorgLimit = int defaultReorgLimit
     , _configValidateHashesOnReplay = False
     , _configAllowReadsInLocal = False
     , _configRosetta = False
     , _configServiceApi = defaultServiceApiConfig
+    , _configOnlySyncPact = False
     }
 
 instance ToJSON ChainwebConfiguration where
@@ -383,12 +389,14 @@ instance ToJSON ChainwebConfiguration where
         , "throttling" .= _configThrottling o
         , "mempoolP2p" .= _configMempoolP2p o
         , "gasLimitOfBlock" .= _configBlockGasLimit o
+        , "minGasPrice" .= _configMinGasPrice o
         , "pactQueueSize" .= _configPactQueueSize o
         , "reorgLimit" .= _configReorgLimit o
         , "validateHashesOnReplay" .= _configValidateHashesOnReplay o
         , "allowReadsInLocal" .= _configAllowReadsInLocal o
         , "rosetta" .= _configRosetta o
         , "serviceApi" .= _configServiceApi o
+        , "onlySyncPact" .= _configOnlySyncPact o
         ]
 
 instance FromJSON ChainwebConfiguration where
@@ -409,12 +417,14 @@ instance FromJSON (ChainwebConfiguration -> ChainwebConfiguration) where
         <*< configThrottling %.: "throttling" % o
         <*< configMempoolP2p %.: "mempoolP2p" % o
         <*< configBlockGasLimit ..: "gasLimitOfBlock" % o
+        <*< configMinGasPrice ..: "minGasPrice" % o
         <*< configPactQueueSize ..: "pactQueueSize" % o
         <*< configReorgLimit ..: "reorgLimit" % o
         <*< configValidateHashesOnReplay ..: "validateHashesOnReplay" % o
         <*< configAllowReadsInLocal ..: "allowReadsInLocal" % o
         <*< configRosetta ..: "rosetta" % o
         <*< configServiceApi %.: "serviceApi" % o
+        <*< configOnlySyncPact ..: "onlySyncPact" % o
 
 pChainwebConfiguration :: MParser ChainwebConfiguration
 pChainwebConfiguration = id
@@ -442,6 +452,9 @@ pChainwebConfiguration = id
     <*< configBlockGasLimit .:: jsonOption
         % long "block-gas-limit"
         <> help "the sum of all transaction gas fees in a block must not exceed this number"
+    <*< configMinGasPrice .:: jsonOption
+        % long "min-gas-price"
+        <> help "the gas price of an individual transaction in a block must not be beneath this number"
     <*< configPactQueueSize .:: jsonOption
         % long "pact-queue-size"
         <> help "max size of pact internal queue"
@@ -461,4 +474,7 @@ pChainwebConfiguration = id
         <> help "Enable the Rosetta endpoints."
     <*< configCuts %:: pCutConfig
     <*< configServiceApi %:: pServiceApiConfig
-
+    <*< configMining %:: pMiningConfig
+    <*< configOnlySyncPact .:: boolOption_
+        % long "only-sync-pact"
+        <> help "Terminate after synchronizing the pact databases to the latest cut"

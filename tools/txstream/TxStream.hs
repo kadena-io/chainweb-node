@@ -248,7 +248,7 @@ txStream config mgr logg = do
         hdb <- liftIO $ devNetDb config mgr logg
 
         c <- liftIO $ devNetCut config mgr
-        let h = snd $ _cutHashes c ^?! ix (_configChainId config)
+        let h = _bhwhHash $ _cutHashes c ^?! ix (_configChainId config)
 
         getBranch hdb mempty (HS.singleton (UpperBound h))
             & S.chain (logg @T.Text Debug . sshow)
@@ -303,7 +303,7 @@ txOutputsStream config mgr logg = do
         hdb <- liftIO $ devNetDb config mgr logg
 
         cut <- liftIO $ devNetCut config mgr
-        let h = snd $ _cutHashes cut ^?! ix (_configChainId config)
+        let h = _bhwhHash $ _cutHashes cut ^?! ix (_configChainId config)
 
         getBranch hdb mempty (HS.singleton (UpperBound h))
             & S.chain (logg @T.Text Debug . sshow)
