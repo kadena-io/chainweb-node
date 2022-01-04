@@ -29,6 +29,17 @@ pkgs.haskell.packages.${compiler}.developPackage {
         rev = "5db55e77e7f0ffe7670075708843fa03d179aaa5";
         sha256 = "06rgkq5qpqq0xj3mrxq4395p3jh2p34xy3a3vxz4xgjlj9fhy1ms";
       }) {};
+      mwc-random = self.callHackageDirect {
+        pkg = "mwc-random";
+        ver = "0.15.0.2";
+        sha256 = "1mpill3lwrrhlzq0ccs8wyzsqhy1a2hmva17qxpgsy2zzqxi1nx1";
+       } {};
+      hashable = dontCheck super.hashable;
+      random = dontCheck (self.callHackageDirect {
+        pkg = "random";
+        ver = "1.2.1";
+        sha256 = "1j146hacca6drd9fvziw8an6zawqllxll3cl9hbwmz0nbj9xa6kb";
+       } {});
       network = self.callHackageDirect {
         pkg = "network";
         ver = "3.1.2.2";
@@ -106,6 +117,11 @@ pkgs.haskell.packages.${compiler}.developPackage {
         sha256 = "14bqmxla0id956y37fpfx9v6crwxphbfxkl8v8annrs8ngfbhbr7";
       } {};
 
+      unordered-containers = dontCheck (self.callHackageDirect {
+        pkg = "unordered-containers";
+        ver = "0.2.15.0";
+        sha256 = "101fjg7jsa0mw57clpjwc2vgrdkrnn0vmf4xgagja21ynwwbl2b5";
+      } {});
 
       wai = dontCheck (self.callHackageDirect {
         pkg = "wai";

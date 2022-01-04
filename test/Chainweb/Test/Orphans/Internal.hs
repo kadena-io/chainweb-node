@@ -140,7 +140,6 @@ import Chainweb.SPV.OutputProof
 import Chainweb.SPV.PayloadProof
 import Chainweb.Test.Orphans.Pact
 import Chainweb.Test.Orphans.Time ()
-import Chainweb.Test.Utils (genEnum)
 import Chainweb.Time
 import Chainweb.Utils
 import Chainweb.Utils.Paging
@@ -359,7 +358,7 @@ arbitraryBlockHeaderVersionHeightChain
     -> Gen BlockHeader
 arbitraryBlockHeaderVersionHeightChain v h cid
     | isWebChain (chainGraphAt v h) cid = do
-        t <- genEnum (epoch, add (scaleTimeSpan @Int (365 * 200) day) epoch)
+        t <- chooseEnum (epoch, add (scaleTimeSpan @Int (365 * 200) day) epoch)
         fromLog @ChainwebMerkleHashAlgorithm . newMerkleLog <$> entries t
     | otherwise = discard
   where
@@ -373,7 +372,7 @@ arbitraryBlockHeaderVersionHeightChain v h cid
         $ liftA2 (:+:) arbitrary -- weight
         $ liftA2 (:+:) (pure h) -- height
         $ liftA2 (:+:) (pure v) -- version
-        $ liftA2 (:+:) (EpochStartTime <$> genEnum (toEnum 0, t)) -- epoch start
+        $ liftA2 (:+:) (EpochStartTime <$> chooseEnum (toEnum 0, t)) -- epoch start
         $ liftA2 (:+:) (Nonce <$> chooseAny) -- nonce
         $ fmap (MerkleLogBody . blockHashRecordToVector)
             (arbitraryBlockHashRecordVersionHeightChain v h cid) -- adjacents

@@ -1,5 +1,4 @@
 {-# LANGUAGE AllowAmbiguousTypes #-}
-{-# LANGUAGE CPP #-}
 {-# LANGUAGE DeriveFunctor #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE FlexibleContexts #-}
@@ -73,21 +72,12 @@ instance MonadReader ClientEnv ClientM_ where
     {-# INLINE local #-}
 
 instance RunClient ClientM_ where
-#if MIN_VERSION_servant_client_core(0,18,1)
     runRequestAcceptStatus s req = ClientM_ $ do
         e <- ask
         req' <- liftIO $ _modReq e req
         res <- lift (runRequestAcceptStatus s req')
         liftIO $ _modRes e res
     {-# INLINE runRequestAcceptStatus #-}
-#else
-    runRequest req = ClientM_ $ do
-        e <- ask
-        req' <- liftIO $ _modReq e req
-        res <- lift (runRequest req')
-        liftIO $ _modRes e res
-    {-# INLINE runRequest #-}
-#endif
 
     throwClientError = throwError
     {-# INLINE throwClientError #-}
