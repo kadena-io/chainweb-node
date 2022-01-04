@@ -146,14 +146,14 @@ keysetTest c = testCaseSteps "Keyset test" $ \next -> do
 
 testInMemory :: TestTree
 testInMemory = withInMemCheckpointerResource
-    $ checkpointerTest "In-memory Checkpointer"
+    $ checkpointerTest "In-memory Checkpointer" False
 
 testRelational :: TestTree
 testRelational = withRelationalCheckpointerResource $
-    checkpointerTest "Relational Checkpointer"
+    checkpointerTest "Relational Checkpointer" True
 
-checkpointerTest :: String -> IO CheckpointEnv -> TestTree
-checkpointerTest name cenvIO = testCaseSteps name $ \next -> do
+checkpointerTest :: String -> Bool -> IO CheckpointEnv -> TestTree
+checkpointerTest name relational cenvIO = testCaseSteps name $ \next -> do
     cenv <- cenvIO
     let cp = _cpeCheckpointer cenv
 
@@ -374,35 +374,36 @@ checkpointerTest name cenvIO = testCaseSteps name $ \next -> do
 
     _blockEnvFailure <- expectException $ _cpRestore cp (Just (BlockHeight 12, hash10))
 
-    next "Run empty blocks from height 11 to 16"
+    when relational $ do
 
-    forM_ [10 .. 15] $ runEmptyBlock cp
+        next "Run empty blocks from height 11 to 16"
 
-    next "Run block 17 with pact 4.2.0 changes"
+        forM_ [10 .. 15] $ runEmptyBlock cp
+
+        next "Run block 17 with pact 4.2.0 changes"
 
 
-    hash16 <- BlockHash <$> merkleLogHash "0000000000000000000000000000016a"
-    -- _hash17 <- BlockHash <$> merkleLogHash "0000000000000000000000000000017a"
-    blockEnv17 <- _cpRestore cp (Just (BlockHeight 17, hash16))
-    void $ runExec cenv blockEnv17 (Just $ ksData "7") (defModule "7")
-    void $ runExec cenv blockEnv17 Nothing "(m7.insertTbl 'b 2)"
-    void $ runExec cenv blockEnv17 Nothing "(m7.insertTbl 'd 3)"
-    void $ runExec cenv blockEnv17 Nothing "(m7.insertTbl 'c 4)"
-    void $ runExec cenv blockEnv17 Nothing "(keys m7.tbl)" >>= \EvalResult{..} -> Right _erOutput @?= traverse toPactValue [tStringList $ T.words "a b c d"]
-    _cpDiscard cp
+        hash16 <- BlockHash <$> merkleLogHash "0000000000000000000000000000016a"
+        -- _hash17 <- BlockHash <$> merkleLogHash "0000000000000000000000000000017a"
+        blockEnv17 <- _cpRestore cp (Just (BlockHeight 17, hash16))
+        void $ runExec cenv blockEnv17 (Just $ ksData "7") (defModule "7")
+        void $ runExec cenv blockEnv17 Nothing "(m7.insertTbl 'b 2)"
+        void $ runExec cenv blockEnv17 Nothing "(m7.insertTbl 'd 3)"
+        void $ runExec cenv blockEnv17 Nothing "(m7.insertTbl 'c 4)"
+        void $ runExec cenv blockEnv17 Nothing "(keys m7.tbl)" >>= \EvalResult{..} -> Right _erOutput @?= traverse toPactValue [tStringList $ T.words "a b c d"]
+        _cpDiscard cp
 
-    next "Rollback to block 16 and expect failure with pact 4.2.0 changes"
+        next "Rollback to block 16 and expect failure with pact 4.2.0 changes"
 
-    hash15' <- BlockHash <$> merkleLogHash "0000000000000000000000000000015a"
-    blockEnv16 <- _cpRestore cp (Just (BlockHeight 16, hash15'))
-    void $ runExec cenv blockEnv16 (Just $ ksData "7") (defModule "7")
-    void $ runExec cenv blockEnv16 Nothing "(m7.insertTbl 'b 2)"
-    void $ runExec cenv blockEnv16 Nothing "(m7.insertTbl 'd 3)"
-    void $ runExec cenv blockEnv16 Nothing "(m7.insertTbl 'c 4)"
-    expectException $ runExec cenv blockEnv16 Nothing "(keys m7.tbl)" >>= \EvalResult{..} -> Right _erOutput @?= traverse toPactValue [tStringList $ T.words "a b c d"]
-    _cpDiscard cp
+        hash15' <- BlockHash <$> merkleLogHash "0000000000000000000000000000015a"
+        blockEnv16 <- _cpRestore cp (Just (BlockHeight 16, hash15'))
+        void $ runExec cenv blockEnv16 (Just $ ksData "7") (defModule "7")
+        void $ runExec cenv blockEnv16 Nothing "(m7.insertTbl 'b 2)"
+        void $ runExec cenv blockEnv16 Nothing "(m7.insertTbl 'd 3)"
+        void $ runExec cenv blockEnv16 Nothing "(m7.insertTbl 'c 4)"
+        expectException $ runExec cenv blockEnv16 Nothing "(keys m7.tbl)" >>= \EvalResult{..} -> Right _erOutput @?= traverse toPactValue [tStringList $ T.words "a b c d"]
+        _cpDiscard cp
 
-    return ()
   where
 
     runEmptyBlock :: Checkpointer -> Word64 -> IO ()
