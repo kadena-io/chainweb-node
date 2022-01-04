@@ -33,11 +33,11 @@ import Control.Monad ((>=>))
 import Control.Monad.STM
 import Data.IORef
 import Data.Text (Text)
-import Data.Tuple.Strict
 import GHC.Generics
 import Numeric.Natural
 import Chainweb.Pact.Service.Types
 import Chainweb.Time
+import Chainweb.Utils
 
 -- | The type of the Pact Queue
 -- type PactQueue = TBQueue RequestMsg
