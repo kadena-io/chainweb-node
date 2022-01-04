@@ -220,7 +220,7 @@ pruneForks_ logg cdb mar mir callback = do
                 <> ". Current header: " <> encodeToText (ObjectEncoded cur)
                 <> ". Previous height: " <> sshow prevHeight
                 <> ". Expected chainweb version: " <> sshow ver
-        | _blockChainId  cur /= cid =
+        | _blockChainId cur /= cid =
             throwM $ InternalInvariantViolation
                 $ "PruneForks.pruneForks_: detected a corrupted database. A block header in the database did not have the expected chainId"
                 <> ". Current pivots: " <> encodeToText pivots
