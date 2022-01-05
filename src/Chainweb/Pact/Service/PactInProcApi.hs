@@ -3,6 +3,7 @@
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -23,7 +24,6 @@ module Chainweb.Pact.Service.PactInProcApi
     ) where
 
 import Control.Concurrent.Async
-import Control.Monad.STM
 
 import qualified Data.ByteString.Short as SB
 import Data.IORef
@@ -53,6 +53,8 @@ import Chainweb.Version (ChainwebVersion)
 
 import Data.LogMessage
 
+import GHC.Stack (HasCallStack)
+
 -- | Initialization for Pact (in process) Api
 withPactService
     :: PayloadCasLookup cas
@@ -78,6 +80,7 @@ withPactService ver cid logger mpc bhdb pdb pactDbDir config action =
 withPactService'
     :: PayloadCasLookup cas
     => Logger logger
+    => HasCallStack
     => ChainwebVersion
     -> ChainId
     -> logger
@@ -89,15 +92,29 @@ withPactService'
     -> (PactQueue -> IO a)
     -> IO a
 withPactService' ver cid logger memPoolAccess bhDb pdb sqlenv config action = do
-    reqQ <- atomically $ newPactQueue (_pactQueueSize config)
-    race (server reqQ) (client reqQ) >>= \case
-        Left () -> error "pact service terminated unexpectedly"
+    reqQ <- newPactQueue (_pactQueueSize config)
+    race (concurrently_ (monitor reqQ) (server reqQ)) (client reqQ) >>= \case
+        Left () -> error "Chainweb.Pact.Service.PactInProcApi: pact service terminated unexpectedly"
         Right a -> return a
   where
     client reqQ = action reqQ
     server reqQ = runForever logg "pact-service"
         $ PS.initPactService ver cid logger reqQ memPoolAccess bhDb pdb sqlenv config
     logg = logFunction logger
+    monitor = runPactServiceQueueMonitor $ addLabel ("sub-component", "PactQueue") logger
+
+runPactServiceQueueMonitor :: Logger logger => logger ->  PactQueue -> IO ()
+runPactServiceQueueMonitor l pq = do
+    let lf = logFunction l
+    logFunctionText l Info "Initialized PactQueueMonitor"
+    runForeverThrottled lf "Chainweb.Pact.Service.PactInProcApi.runPactServiceQueueMonitor" 10 (10 * mega) $ do
+            PactQueueStats validateblock_stats newblock_stats other_stats <- getPactQueueStats pq
+            logFunctionText l Debug "got latest set of stats from PactQueueMonitor"
+            logFunctionJson l Info validateblock_stats
+            logFunctionJson l Info newblock_stats
+            logFunctionJson l Info other_stats
+            resetPactQueueStats pq
+            approximateThreadDelay 60_000_000 {- 1 minute -}
 
 pactMemPoolAccess
     :: Logger logger
