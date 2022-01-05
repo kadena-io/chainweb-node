@@ -10,6 +10,8 @@ This version will stop working on **2022-02-24T00:00:00Z**.
 
 Changes:
 
+*   Upgrade Pact version to 4.2.0. (#1323)
+
 *   The default setting for pruning the chainweb database has been changed to 
     "none" to reduce unnecessary work and speed up node start times. (#1332)
 
@@ -17,8 +19,6 @@ Changes:
     the SIGUSR1 signal. These snapshots can be used for backups and do not take
     significant space until the database has diverged significantly from the 
     snapshot. Also, SIGUSR2 no longer terminates the node. (#1328)
-
-*   Upgrade Pact version to 4.2.0. (#1323)
 
 *   Nodes will log their progress while pruning the database. (#1315)
 
