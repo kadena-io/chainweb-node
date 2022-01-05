@@ -56,7 +56,6 @@ import Data.Singletons
 import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Text.Encoding
-import Data.Tuple.Strict
 import Data.Vector (Vector)
 import qualified Data.Vector as V
 

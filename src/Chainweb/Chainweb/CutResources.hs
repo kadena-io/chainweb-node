@@ -108,7 +108,7 @@ withCutResources cutDbParams peer logger rdb webchain payloadDb mgr pact f = do
     payloadStore <- newWebPayloadStore mgr pact payloadDb (logFunction logger)
 
     -- initialize cutHashes store
-    cutHashesStore <- cutHashesTable rdb
+    let cutHashesStore = cutHashesTable rdb
 
     withCutDb cutDbParams (logFunction logger) headerStore payloadStore cutHashesStore $ \cutDb ->
         f $ CutResources

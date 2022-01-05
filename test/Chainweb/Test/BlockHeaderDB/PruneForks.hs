@@ -72,7 +72,7 @@ withDbs rio inner = do
     x <- randomIO :: IO Int
     rdb <- rio >>= testRocksDb (sshow x)
 
-    pdb <- newPayloadDb rdb
+    let pdb = newPayloadDb rdb
     initializePayloadDb toyVersion pdb
     bracket
         (initBlockHeaderDb (Configuration h rdb))

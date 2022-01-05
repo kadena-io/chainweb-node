@@ -140,7 +140,6 @@ import Data.HashMap.Strict (HashMap)
 import qualified Data.HashMap.Strict as HM
 import qualified Data.Map.Strict as M
 import Data.Text (pack, unpack, Text)
-import Data.Tuple.Strict (T2)
 import Data.Vector (Vector)
 import Data.Word
 

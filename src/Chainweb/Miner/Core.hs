@@ -32,7 +32,6 @@ import qualified Data.ByteString.Char8 as B
 import qualified Data.ByteString.Short as BS
 import Data.IORef (newIORef, readIORef, writeIORef)
 import Data.Proxy (Proxy(..))
-import Data.Tuple.Strict (T2(..))
 import Data.Word (Word64, Word8)
 
 import Foreign.Marshal.Alloc (allocaBytes)

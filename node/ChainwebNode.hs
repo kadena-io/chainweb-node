@@ -57,10 +57,8 @@ import Control.Monad.Managed
 
 import Data.CAS
 import Data.CAS.RocksDB
-import Data.Foldable
 import Data.Text (Text)
 import qualified Data.Text as T
-import qualified Data.Text.Encoding as T
 import Data.Time
 import Data.Typeable
 
@@ -298,46 +296,28 @@ runQueueMonitor logger cutDb = L.withLoggerLabel ("component", "queue-monitor") 
 
 data DbStats = DbStats
     { dbStatsName :: !Text
-    , dbStatsType :: !Text
     , dbStatsSize :: !Integer
     } deriving (Generic, NFData, ToJSON)
 
-runDatabaseMonitor :: Logger logger => logger -> RocksDb -> FilePath -> IO ()
-runDatabaseMonitor logger rocksDb pactDbDir = L.withLoggerLabel ("component", "database-monitor") logger go
+runDatabaseMonitor :: Logger logger => logger -> FilePath -> FilePath -> IO ()
+runDatabaseMonitor logger rocksDbDir pactDbDir = L.withLoggerLabel ("component", "database-monitor") logger go
   where
     go l = do
         logFunctionText l Info "Initialized Database monitor"
         runMonitorLoop "ChainwebNode.runDatabaseMonitor" l $ do
             logFunctionText l Debug $ "logging database stats"
-            L.withLoggerLabel ("database", "rocksdb") l logRocksDbSize
-            L.withLoggerLabel ("database", "pactdb") l logPactDbSize
+            logFunctionJson l Info . DbStats "rocksDb" =<< sizeOf rocksDbDir
+            logFunctionJson l Info . DbStats "pactDb" =<< sizeOf pactDbDir
             approximateThreadDelay 1_200_000_000 {- 20 minutes -}
-      where 
-        logRocksDbSize rdbl = do
-            traverse_ logTableSize =<< withTableIter (tablesTable rocksDb) (S.toList_ . iterToKeyStream)
-          where
-            trivialCodec = Data.CAS.RocksDB.Codec id pure
-            logTableSize ns = do
-                -- FIXME: *I* know that approxTableSizeRocksDb doesn't care about the
-                -- codecs. But the code still fakes some.
-                let fakeTable = unregisteredNewTable rocksDb trivialCodec trivialCodec ns
-                sz <- approxTableSizeRocksDb rocksDb fakeTable
-                logFunctionJson rdbl Info DbStats 
-                    { dbStatsName = T.intercalate "/" (T.decodeUtf8 <$> ns)
-                    , dbStatsType = "rocksDb"
-                    , dbStatsSize = maybe (-1) fromIntegral sz 
-                    }
-        logPactDbSize pdbl = do
-            dbFiles <- (fmap.fmap) (pactDbDir </>) $ listDirectory pactDbDir
-            traverse_ logFileSize dbFiles
-          where
-            logFileSize fp = do
-                sz <- withFile fp ReadMode hFileSize
-                logFunctionJson pdbl Info DbStats 
-                    { dbStatsName = T.pack fp
-                    , dbStatsType = "pactDb" 
-                    , dbStatsSize = sz 
-                    }
+    sizeOf path = do
+        dir <- doesDirectoryExist path
+        file <- doesFileExist path
+        if dir then
+            fmap sum . traverse (sizeOf . (path </>)) =<< listDirectory path
+        else if file then
+            getFileSize path
+        else 
+            pure 0
 
 -- -------------------------------------------------------------------------- --
 -- Run Node
@@ -357,7 +337,7 @@ node conf logger = do
             , runQueueMonitor (_chainwebLogger cw) (_cutResCutDb $ _chainwebCutResources cw)
             , runRtsMonitor (_chainwebLogger cw)
             , runBlockUpdateMonitor (_chainwebLogger cw) (_cutResCutDb $ _chainwebCutResources cw)
-            , runDatabaseMonitor (_chainwebLogger cw) rocksDb pactDbDir
+            , runDatabaseMonitor (_chainwebLogger cw) rocksDbDir pactDbDir
             ]
   where
     cwConf = _nodeConfigChainweb conf

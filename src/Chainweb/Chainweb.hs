@@ -120,7 +120,6 @@ import qualified Data.List as L
 import Data.Maybe
 import qualified Data.Text as T
 import Data.These (These(..))
-import Data.Tuple.Strict (T2(..))
 import qualified Data.Vector as V
 
 import qualified Network.HTTP.Client as HTTP
@@ -337,7 +336,6 @@ withChainwebInternal
     -> IO ()
 withChainwebInternal conf logger peer serviceSock rocksDb pactDbDir resetDb inner = do
 
-    payloadDb <- newPayloadDb rocksDb
     initializePayloadDb v payloadDb
 
     -- Garbage Collection
@@ -373,7 +371,7 @@ withChainwebInternal conf logger peer serviceSock rocksDb pactDbDir resetDb inne
         -- initialize global resources after all chain resources are initialized
         (\cs -> do
             logg Info "finished initializing chain resources"
-            global payloadDb (HM.fromList $ zip cidsList cs)
+            global (HM.fromList $ zip cidsList cs)
         )
         cidsList
   where
@@ -392,6 +390,9 @@ withChainwebInternal conf logger peer serviceSock rocksDb pactDbDir resetDb inne
     cidsList :: [ChainId]
     cidsList = toList cids
 
+    payloadDb :: PayloadDb RocksDbCas
+    payloadDb = newPayloadDb rocksDb
+
     chainLogger :: ChainId -> logger
     chainLogger cid = addLabel ("chain", toText cid) logger
 
@@ -403,10 +404,9 @@ withChainwebInternal conf logger peer serviceSock rocksDb pactDbDir resetDb inne
 
     -- Initialize global resources
     global
-        :: PayloadDb RocksDbCas
-        -> HM.HashMap ChainId (ChainResources logger)
+        :: HM.HashMap ChainId (ChainResources logger)
         -> IO ()
-    global payloadDb cs = do
+    global cs = do
         let !webchain = mkWebBlockHeaderDb v (HM.map _chainResBlockHeaderDb cs)
             !pact = mkWebPactExecutionService (HM.map _chainResPact cs)
             !cutLogger = setComponent "cut" logger

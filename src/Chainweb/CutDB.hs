@@ -107,7 +107,6 @@ import Data.Monoid
 import Data.Ord
 import qualified Data.Text as T
 import Data.These
-import Data.Tuple.Strict
 import qualified Data.Vector as V
 
 import GHC.Generics hiding (to)
@@ -209,7 +208,7 @@ farAheadThreshold = 200
 -- -------------------------------------------------------------------------- --
 -- CutHashes Table
 
-cutHashesTable :: RocksDb -> IO (RocksDbCas CutHashes)
+cutHashesTable :: RocksDb -> RocksDbCas CutHashes
 cutHashesTable rdb = newCas rdb valueCodec keyCodec ["CutHashes"]
   where
     keyCodec = Codec

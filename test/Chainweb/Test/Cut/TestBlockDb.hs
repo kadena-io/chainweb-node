@@ -23,7 +23,6 @@ import Control.Concurrent.MVar
 import Control.Monad.Catch
 import Data.Bifunctor (first)
 import qualified Data.HashMap.Strict as HM
-import Data.Tuple.Strict (T2(..))
 
 import Chainweb.BlockHeader
 import Chainweb.BlockHeaderDB
@@ -59,7 +58,7 @@ mkTestBlockDb :: ChainwebVersion -> RocksDb -> IO TestBlockDb
 mkTestBlockDb cv rdb = do
     testRdb <- testRocksDb "mkTestBlockDb" rdb
     wdb <- initWebBlockHeaderDb testRdb cv
-    pdb <- newPayloadDb testRdb
+    let pdb = newPayloadDb testRdb
     initializePayloadDb cv pdb
     initCut <- newMVar $ genesisCut cv
     return $! TestBlockDb wdb pdb initCut

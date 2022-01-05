@@ -21,7 +21,6 @@ import qualified Data.HashMap.Strict as HMS
 import Data.HashSet (HashSet)
 import qualified Data.HashSet as HashSet
 import Data.Text (pack)
-import Data.Tuple.Strict
 
 import Pact.Interpreter
 import Pact.Persist.Pure
@@ -35,6 +34,7 @@ import Chainweb.BlockHash
 import Chainweb.BlockHeight
 import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.Service.Types (internalError)
+import Chainweb.Utils (T2(..))
 import Chainweb.Version
 
 data Store = Store
