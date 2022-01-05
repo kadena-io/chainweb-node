@@ -881,28 +881,22 @@ txSizeAccelerationFee costPerByte = total
 -- | Disable certain natives around pact 4 / coin v3 upgrade
 --
 disablePact40Natives :: ExecutionConfig -> EvalEnv e -> EvalEnv e
-disablePact40Natives ec = if has (ecFlags . ix FlagDisablePact40) ec
+disablePact40Natives =
+  disablePactNatives ["enumerate" , "distinct" , "emit-event" , "concat" , "str-to-list"] FlagDisablePact40
+{-# INLINE disablePact40Natives #-}
+
+disablePactNatives :: [Text] -> ExecutionFlag -> ExecutionConfig -> EvalEnv e -> EvalEnv e
+disablePactNatives natives flag ec = if has (ecFlags . ix flag) ec
     then over (eeRefStore . rsNatives) (\k -> foldl' (flip HM.delete) k bannedNatives)
     else id
   where
-    bannedNatives =  bannedNatives' <&> \name -> Name (BareName name def)
-    bannedNatives' =
-      [ "enumerate"
-      , "distinct"
-      , "emit-event"
-      , "concat"
-      , "str-to-list"]
-{-# INLINE disablePact40Natives #-}
+    bannedNatives = natives <&> \name -> Name (BareName name def)
+{-# INLINE disablePactNatives #-}
 
 -- | Disable certain natives around pact 4.2.0
 --
 disablePact420Natives :: ExecutionConfig -> EvalEnv e -> EvalEnv e
-disablePact420Natives ec = if has (ecFlags . ix FlagDisablePact420) ec
-    then over (eeRefStore . rsNatives) (\k -> foldl' (flip HM.delete) k bannedNatives)
-    else id
-  where
-    bannedNatives =  bannedNatives' <&> \name -> Name (BareName name def)
-    bannedNatives' = [ "zip" , "fold-db"]
+disablePact420Natives = disablePactNatives ["zip", "fold-db"] FlagDisablePact420
 {-# INLINE disablePact420Natives #-}
 
 -- | Set the module cache of a pact 'EvalState'
