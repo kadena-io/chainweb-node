@@ -276,11 +276,6 @@ testCoinbaseEnforceFailure = do
       , _blockCreationTime = BlockCreationTime [timeMicrosQQ| 2019-12-10T01:00:00.0 |]
       }
 
--- Todo: is this supposed to be running on pact420?
--- It seems as if serialization of the entry for sender07 is actually being
--- inserted as RowDataV1 and we (Ed & Jose) are not sure if
--- this should be running with pact420 disabled, in which case
--- the alternative lens at the bottom should not be there.
 testCoinbaseUpgradeDevnet :: V.ChainId -> BlockHeight -> Assertion
 testCoinbaseUpgradeDevnet cid upgradeHeight =
     testUpgradeScript "test/pact/coin-and-devaccts.repl" cid upgradeHeight test

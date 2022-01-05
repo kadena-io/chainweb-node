@@ -382,9 +382,7 @@ checkpointerTest name relational cenvIO = testCaseSteps name $ \next -> do
 
         next "Run block 17 with pact 4.2.0 changes"
 
-
         hash16 <- BlockHash <$> merkleLogHash "0000000000000000000000000000016a"
-        -- _hash17 <- BlockHash <$> merkleLogHash "0000000000000000000000000000017a"
         blockEnv17 <- _cpRestore cp (Just (BlockHeight 17, hash16))
         void $ runExec cenv blockEnv17 (Just $ ksData "7") (defModule "7")
         void $ runExec cenv blockEnv17 Nothing "(m7.insertTbl 'b 2)"
@@ -511,8 +509,6 @@ runRegression pactdb e schemaInit = do
         (commit pactdb conn)
 
     void $ begin pactdb conn
-    {- the below line is commented out because we no longer support _getUserTableInfo -}
-    -- assertEquals' "user table info correct" "someModule" $ _getUserTableInfo chainwebpactdb user1 conn
     let row = RowData RDV1 $ ObjectMap $ M.fromList [("gah", RDLiteral (LDecimal 123.454345))]
     _writeRow pactdb Insert usert "key1" row conn
     assertEquals' "usert insert" (Just row) (_readRow pactdb usert "key1" conn)
@@ -565,13 +561,6 @@ runRegression pactdb e schemaInit = do
     _rollbackTx pactdb conn
     assertEquals' "rollback erases key2" Nothing $ _readRow pactdb usert "key2" conn
     assertEquals' "keys" ["key1"] $ _keys pactdb (UserTables user1) conn
-    -- Tests to ensure keys calls are in order to conform to pact tests
-    -- after flag is set
-    -- Reversed just to ensure inserts are not in order.
-    -- assign bsSortedKeys True
-    -- for_ (reverse [2::Int .. 9]) $ \k ->
-    --   _writeRow pactdb Insert usert (RowKey $ "key" <> (T.pack $ show k)) row' conn
-    -- assertEquals' "keys" [RowKey ("key" <> (T.pack $ show k)) | k <- [1 :: Int .. 9]] $ _keys pactdb (UserTables user1) conn
     return conn
 
 -- -------------------------------------------------------------------------- --

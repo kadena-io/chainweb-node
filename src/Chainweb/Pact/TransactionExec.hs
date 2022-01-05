@@ -65,7 +65,7 @@ import qualified Data.ByteString as B
 import qualified Data.ByteString.Short as SB
 import Data.Decimal (Decimal, roundTo)
 import Data.Default (def)
-import Data.Foldable (for_, traverse_)
+import Data.Foldable (for_, traverse_, foldl')
 import qualified Data.HashMap.Strict as HM
 import Data.Maybe (isJust)
 import qualified Data.Set as S
@@ -882,7 +882,7 @@ txSizeAccelerationFee costPerByte = total
 --
 disablePact40Natives :: ExecutionConfig -> EvalEnv e -> EvalEnv e
 disablePact40Natives ec = if has (ecFlags . ix FlagDisablePact40) ec
-    then over (eeRefStore . rsNatives) (HM.filterWithKey (\k -> const $ notElem k bannedNatives))
+    then over (eeRefStore . rsNatives) (\k -> foldl' (flip HM.delete) k bannedNatives)
     else id
   where
     bannedNatives =  bannedNatives' <&> \name -> Name (BareName name def)
@@ -898,7 +898,7 @@ disablePact40Natives ec = if has (ecFlags . ix FlagDisablePact40) ec
 --
 disablePact420Natives :: ExecutionConfig -> EvalEnv e -> EvalEnv e
 disablePact420Natives ec = if has (ecFlags . ix FlagDisablePact420) ec
-    then over (eeRefStore . rsNatives) (HM.filterWithKey (\k -> const $ notElem k bannedNatives))
+    then over (eeRefStore . rsNatives) (\k -> foldl' (flip HM.delete) k bannedNatives)
     else id
   where
     bannedNatives =  bannedNatives' <&> \name -> Name (BareName name def)
