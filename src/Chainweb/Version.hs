@@ -896,7 +896,7 @@ pact420Upgrade :: ChainwebVersion -> BlockHeight -> Bool
 pact420Upgrade Mainnet01 = (>= 2_334_500) -- 2022-01-17T17:51:12
 pact420Upgrade Testnet04 = (>= 1_862_000) -- 2022-01-13T16:11:10
 pact420Upgrade Development = (>= 90)
-pact420Upgrade (FastTimedCPM g) | g == petersonChainGraph = (>= 10)
+pact420Upgrade (FastTimedCPM g) | g == petersonChainGraph = (>= 5)
 pact420Upgrade _ = const False
 
 enforceKeysetFormats :: ChainwebVersion -> BlockHeight -> Bool

@@ -373,26 +373,26 @@ checkpointerTest name relational cenvIO = testCaseSteps name $ \next -> do
 
     when relational $ do
 
-        next "Rewind to block 10"
+        next "Rewind to block 5"
 
-        next "Run block 10b with pact 4.2.0 changes"
+        next "Run block 5b with pact 4.2.0 changes"
 
-        blockEnv17 <- _cpRestore cp (Just (BlockHeight 10, hash09))
-        void $ runExec cenv blockEnv17 (Just $ ksData "7") (defModule "7")
-        void $ runExec cenv blockEnv17 Nothing "(m7.insertTbl 'b 2)"
-        void $ runExec cenv blockEnv17 Nothing "(m7.insertTbl 'd 3)"
-        void $ runExec cenv blockEnv17 Nothing "(m7.insertTbl 'c 4)"
-        void $ runExec cenv blockEnv17 Nothing "(keys m7.tbl)" >>= \EvalResult{..} -> Right _erOutput @?= traverse toPactValue [tStringList $ T.words "a b c d"]
+        blockEnv5b <- _cpRestore cp (Just (BlockHeight 5, hash14))
+        void $ runExec cenv blockEnv5b (Just $ ksData "7") (defModule "7")
+        void $ runExec cenv blockEnv5b Nothing "(m7.insertTbl 'b 2)"
+        void $ runExec cenv blockEnv5b Nothing "(m7.insertTbl 'd 3)"
+        void $ runExec cenv blockEnv5b Nothing "(m7.insertTbl 'c 4)"
+        void $ runExec cenv blockEnv5b Nothing "(keys m7.tbl)" >>= \EvalResult{..} -> Right _erOutput @?= traverse toPactValue [tStringList $ T.words "a b c d"]
         _cpDiscard cp
 
-        next "Rollback to block 9 and expect failure with pact 4.2.0 changes"
+        next "Rollback to block 4 and expect failure with pact 4.2.0 changes"
 
-        blockEnv16 <- _cpRestore cp (Just (BlockHeight 9, hash08))
-        void $ runExec cenv blockEnv16 (Just $ ksData "7") (defModule "7")
-        void $ runExec cenv blockEnv16 Nothing "(m7.insertTbl 'b 2)"
-        void $ runExec cenv blockEnv16 Nothing "(m7.insertTbl 'd 3)"
-        void $ runExec cenv blockEnv16 Nothing "(m7.insertTbl 'c 4)"
-        expectException $ runExec cenv blockEnv16 Nothing "(keys m7.tbl)" >>= \EvalResult{..} -> Right _erOutput @?= traverse toPactValue [tStringList $ T.words "a b c d"]
+        blockEnv4b <- _cpRestore cp (Just (BlockHeight 4, hash13))
+        void $ runExec cenv blockEnv4b (Just $ ksData "7") (defModule "7")
+        void $ runExec cenv blockEnv4b Nothing "(m7.insertTbl 'b 2)"
+        void $ runExec cenv blockEnv4b Nothing "(m7.insertTbl 'd 3)"
+        void $ runExec cenv blockEnv4b Nothing "(m7.insertTbl 'c 4)"
+        expectException $ runExec cenv blockEnv4b Nothing "(keys m7.tbl)" >>= \EvalResult{..} -> Right _erOutput @?= traverse toPactValue [tStringList $ T.words "a b c d"]
         _cpDiscard cp
 
   where

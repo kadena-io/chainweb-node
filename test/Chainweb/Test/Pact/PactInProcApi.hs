@@ -313,25 +313,15 @@ pact420UpgradeTest bdb mpRefIO pact = do
   cb4 <- cbResult pwo4
   assertEqual "Coinbase events @ block 4" [] (_crEvents cb4)
 
-  -- run past v3 upgrade, pact 4 switch
-  setMempool mpRefIO mempty
-  cuts <- forM [(8::Int)..12] $ \_i -> do
-      runCut'
-      if _i == 10
-          then fmap Just (readMVar $ _bdbCut bdb)
-          else return Nothing
-
-  savedCut <- fromMaybeM (userError "A cut should exist here.") $ msum cuts
-
-  -- run block 22
-  setMempool mpRefIO $ getBlock13
+  -- run block 5
+  setMempool mpRefIO $ getBlock5
   runCut'
-  pwo13 <- getPWO bdb cid
+  pwo5 <- getPWO bdb cid
 
-  cb13 <- cbResult pwo13
-  assertEqual "Coinbase events @ block 13" [] (_crEvents cb13)
+  cb5 <- cbResult pwo5
+  assertEqual "Coinbase events @ block 5" [] (_crEvents cb5)
 
-  tx13_0 <- txResult 0 pwo13
+  tx5_0 <- txResult 0 pwo5
   let m1 = PObject $ ObjectMap $ mempty
         & M.insert (FieldKey "a") (PLiteral $ LInteger 1)
         & M.insert (FieldKey "b") (PLiteral $ LInteger 1)
@@ -341,18 +331,13 @@ pact420UpgradeTest bdb mpRefIO pact = do
   assertEqual
     "Should resolve fold-db pact native"
     (Just $ PList $ V.fromList [m1,m2])
-    (tx13_0 ^? crResult . to _pactResult . _Right)
+    (tx5_0 ^? crResult . to _pactResult . _Right)
 
-  tx13_1 <- txResult 1 pwo13
+  tx5_1 <- txResult 1 pwo5
   assertEqual
     "Should resolve zip pact native"
     (Just $ PList $ V.fromList $ PLiteral . LInteger <$> [5,7,9])
-    (tx13_1 ^? crResult . to _pactResult . _Right)
-
-  -- rewind to savedCut (cut 18)
-  void $ swapMVar (_bdbCut bdb) savedCut
-  forM_ [(10 :: Int) .. 16] $ const runCut'
-  runCut'
+    (tx5_1 ^? crResult . to _pactResult . _Right)
 
   where
 
@@ -372,7 +357,7 @@ pact420UpgradeTest bdb mpRefIO pact = do
           else return mempty
       }
 
-    getBlock13 = mempty {
+    getBlock5 = mempty {
       mpaGetBlock = \_ _ _ bh ->
         let go | _blockChainId bh == cid = do
                    t0 <- buildNewNatives420FoldDbCmd bh
