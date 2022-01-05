@@ -600,6 +600,7 @@ executable chainweb-node
         , configuration-tools >= 0.6
         , deepseq >= 1.4
         , directory >= 1.3
+        , filepath >= 1.4
         , http-client >= 0.5
         , http-client-tls >=0.3
         , lens >= 4.17

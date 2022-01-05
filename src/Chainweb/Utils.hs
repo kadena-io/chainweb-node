@@ -1156,7 +1156,7 @@ reverseStream = S.effect . S.fold_ (flip (:)) [] S.each
 --
 foldChunksM
     :: Monad m
-    => (forall b . t -> (S.Stream f m b) -> m (Of t b))
+    => (forall b . t -> S.Stream f m b -> m (Of t b))
     -> t
     -> S.Stream (S.Stream f m) m a
     -> m (Of t a)
@@ -1173,7 +1173,7 @@ foldChunksM f = go
 --
 foldChunksM_
     :: Monad m
-    => (forall b . t -> (S.Stream f m b) -> m (Of t b))
+    => (forall b . t -> S.Stream f m b -> m (Of t b))
     -> t
     -> S.Stream (S.Stream f m) m a
     -> m t
