@@ -597,7 +597,7 @@ allocationTest iot nio = testCaseSteps "genesis allocation tests" $ \step -> do
       _ <- liftIO $ polling sid cenv rks0 ExpectPactResult
 
       testCaseStep "localApiClient: submit local account balance request"
-      liftIO $ localTestToRetry sid cenv (head (toList batch1)) (localAfterBlockHeight 16)
+      liftIO $ localTestToRetry sid cenv (head (toList batch1)) (localAfterBlockHeight 9)
 
     case p of
       Left e -> assertFailure $ "test failure: " <> show e

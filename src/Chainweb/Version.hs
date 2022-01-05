@@ -889,14 +889,14 @@ pact4coin3Upgrade aoa v h = case aoa of
     go f Mainnet01 = f 1_722_500 -- 2021-06-19T03:34:05
     go f Testnet04 = f 1_261_000 -- 2021-06-17T15:54:14
     go f Development = f 80
-    go f (FastTimedCPM g) | g == petersonChainGraph = f 15
+    go f (FastTimedCPM g) | g == petersonChainGraph = f 20
     go _f _ = const False
 
 pact420Upgrade :: ChainwebVersion -> BlockHeight -> Bool
 pact420Upgrade Mainnet01 = (>= 2_334_500) -- 2022-01-17T17:51:12
 pact420Upgrade Testnet04 = (>= 1_862_000) -- 2022-01-13T16:11:10
 pact420Upgrade Development = (>= 90)
-pact420Upgrade (FastTimedCPM g) | g == petersonChainGraph = (>= 17)
+pact420Upgrade (FastTimedCPM g) | g == petersonChainGraph = (>= 10)
 pact420Upgrade _ = const False
 
 enforceKeysetFormats :: ChainwebVersion -> BlockHeight -> Bool
