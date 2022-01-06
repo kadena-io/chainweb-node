@@ -323,8 +323,9 @@ node conf logger = do
 
 makeCheckpoint :: FilePath -> RocksDb -> IO ()
 makeCheckpoint checkpointDir rocksDb = do
-    Time (epochToNow :: TimeSpan Integer) <- getCurrentTimeIntegral 
-    -- 0 ~ never flush WAL log before checkpoint, to avoid making extra work 
+    createDirectoryIfMissing False checkpointDir
+    Time (epochToNow :: TimeSpan Integer) <- getCurrentTimeIntegral
+    -- 0 ~ never flush WAL log before checkpoint, to avoid making extra work
     checkpointRocksDb rocksDb maxBound (checkpointDir </> T.unpack (microsToText $ timeSpanToMicros epochToNow))
 
 withNodeLogger
