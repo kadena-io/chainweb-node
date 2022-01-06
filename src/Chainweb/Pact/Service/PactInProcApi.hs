@@ -108,11 +108,9 @@ runPactServiceQueueMonitor l pq = do
     let lf = logFunction l
     logFunctionText l Info "Initialized PactQueueMonitor"
     runForeverThrottled lf "Chainweb.Pact.Service.PactInProcApi.runPactServiceQueueMonitor" 10 (10 * mega) $ do
-            PactQueueStats validateblock_stats newblock_stats other_stats <- getPactQueueStats pq
+            queueStats <- getPactQueueStats pq
             logFunctionText l Debug "got latest set of stats from PactQueueMonitor"
-            logFunctionJson l Info validateblock_stats
-            logFunctionJson l Info newblock_stats
-            logFunctionJson l Info other_stats
+            logFunctionJson l Info queueStats
             resetPactQueueStats pq
             approximateThreadDelay 60_000_000 {- 1 minute -}
 
