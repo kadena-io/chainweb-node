@@ -108,6 +108,7 @@ tests rdb = ScheduledTest testName $ go
          , test Warn $ mempoolCreationTimeTest
          , test Warn $ moduleNameFork
          , multiChainTest "pact4coin3UpgradeTest" pact4coin3UpgradeTest
+         , multiChainTest "pact420UpgradeTest" pact420UpgradeTest
          ]
       where
         test logLevel f =
@@ -280,6 +281,141 @@ newBlockRewindValidate mpRefIO reqIO = testCase "newBlockRewindValidate" $ do
             $ mkExec' "(chain-data)"
       }
 
+pact420UpgradeTest :: TestBlockDb -> IO (IORef MemPoolAccess) -> WebPactExecutionService -> IO ()
+pact420UpgradeTest bdb mpRefIO pact = do
+
+  -- run past genesis, upgrades
+  forM_ [(1::Int)..3] $ \_i -> runCut'
+
+  -- run block 4
+  setMempool mpRefIO getBlock4
+  runCut'
+  pwo4 <- getPWO bdb cid
+
+  tx4_0 <- txResult 0 pwo4
+  assertEqual
+    "Should not resolve new pact natives"
+    (Just "Cannot resolve fold-db")
+    (tx4_0 ^? crResult . to _pactResult . _Left . to peDoc)
+
+  tx4_1 <- txResult 1 pwo4
+  assertEqual
+    "Should not resolve new pact natives"
+    (Just "Cannot resolve zip")
+    (tx4_1 ^? crResult . to _pactResult . _Left . to peDoc)
+
+  tx4_2 <- txResult 2 pwo4
+  assertEqual
+    "Load fdb module"
+    Nothing
+    (tx4_2 ^? crResult . to _pactResult . _Left . to peDoc)
+
+  cb4 <- cbResult pwo4
+  assertEqual "Coinbase events @ block 4" [] (_crEvents cb4)
+
+  -- run block 5
+  setMempool mpRefIO $ getBlock5
+  runCut'
+  pwo5 <- getPWO bdb cid
+
+  cb5 <- cbResult pwo5
+  assertEqual "Coinbase events @ block 5" [] (_crEvents cb5)
+
+  tx5_0 <- txResult 0 pwo5
+  let m1 = PObject $ ObjectMap $ mempty
+        & M.insert (FieldKey "a") (PLiteral $ LInteger 1)
+        & M.insert (FieldKey "b") (PLiteral $ LInteger 1)
+      m2 = PObject $ ObjectMap $ mempty
+        & M.insert (FieldKey "a") (PLiteral $ LInteger 2)
+        & M.insert (FieldKey "b") (PLiteral $ LInteger 2)
+  assertEqual
+    "Should resolve fold-db pact native"
+    (Just $ PList $ V.fromList [m1,m2])
+    (tx5_0 ^? crResult . to _pactResult . _Right)
+
+  tx5_1 <- txResult 1 pwo5
+  assertEqual
+    "Should resolve zip pact native"
+    (Just $ PList $ V.fromList $ PLiteral . LInteger <$> [5,7,9])
+    (tx5_1 ^? crResult . to _pactResult . _Right)
+
+  where
+
+    runCut' = runCut testVersion bdb pact (offsetBlockTime second) zeroNoncer
+
+    getPWO (TestBlockDb _ pdb cmv) chid = do
+      c <- readMVar cmv
+      h <- fromMaybeM (userError $ "chain lookup failed for " ++ show chid) $ HM.lookup chid (_cutMap c)
+      casLookupM pdb (_blockPayloadHash h)
+
+    getBlock4 = mempty {
+      mpaGetBlock = \_ _ _ bh -> if _blockChainId bh == cid then do
+          t0 <- buildNewNatives420FoldDbCmd bh
+          t1 <- buildNewNatives420ZipCmd bh
+          t2 <- buildFdbCmd bh
+          return $! V.fromList [t0,t1,t2]
+          else return mempty
+      }
+
+    getBlock5 = mempty {
+      mpaGetBlock = \_ _ _ bh ->
+        let go | _blockChainId bh == cid = do
+                   t0 <- buildNewNatives420FoldDbCmd bh
+                   t1 <- buildNewNatives420ZipCmd bh
+                   return $! V.fromList [t0,t1]
+               | otherwise = return mempty
+        in go
+      }
+
+    buildFdbCmd bh = buildCwCmd
+        $ set cbSigners [mkSigner' sender00 []]
+        $ set cbChainId (_blockChainId bh)
+        $ set cbCreationTime (toTxCreationTime $ _bct $ _blockCreationTime bh)
+        $ mkCmd (sshow bh)
+        $ mkExec' $ mconcat ["(namespace 'free)", moduleDeclaration, inserts]
+      where
+        moduleDeclaration =
+          "(module fdb G (defcap G () true) (defschema fdb-test a:integer b:integer) (deftable fdb-tbl:{fdb-test}))"
+        inserts =
+          mconcat
+            [
+              "(create-table free.fdb.fdb-tbl)"
+            , "(insert free.fdb.fdb-tbl 'b {'a:2, 'b:2})"
+            , "(insert free.fdb.fdb-tbl 'd {'a:4, 'b:4})"
+            , "(insert free.fdb.fdb-tbl 'c {'a:3, 'b:3})"
+            , "(insert free.fdb.fdb-tbl 'a {'a:1, 'b:1})"
+            ]
+
+    buildNewNatives420FoldDbCmd bh = buildCwCmd
+        $ set cbSigners [mkSigner' sender00 []]
+        $ set cbChainId (_blockChainId bh)
+        $ set cbCreationTime (toTxCreationTime $ _bct $ _blockCreationTime bh)
+        $ mkCmd (sshow bh)
+        $ mkExec' (mconcat expressions)
+      where
+        expressions =
+          [
+            "(let* ((qry (lambda (k o) (<  k \"c\"))) (consume (lambda (k o) o))) (fold-db free.fdb.fdb-tbl (qry) (consume)))"
+          ]
+
+    buildNewNatives420ZipCmd bh = buildCwCmd
+        $ set cbSigners [mkSigner' sender00 []]
+        $ set cbChainId (_blockChainId bh)
+        $ set cbCreationTime (toTxCreationTime $ _bct $ _blockCreationTime bh)
+        $ mkCmd (sshow bh)
+        $ mkExec' (mconcat expressions)
+      where
+        expressions =
+          [
+           "(zip (+) [1 2 3] [4 5 6])"
+          ]
+
+    txResult i o = do
+      case preview (ix i . _2) $ _payloadWithOutputsTransactions o of
+        Nothing -> throwIO $ userError $ "no tx at " ++ show i
+        Just txo -> decodeStrictOrThrow @_ @(CommandResult Hash) (_transactionOutputBytes txo)
+
+    cbResult o = decodeStrictOrThrow @_ @(CommandResult Hash) (_coinbaseOutput $ _payloadWithOutputsCoinbase o)
 
 pact4coin3UpgradeTest :: TestBlockDb -> IO (IORef MemPoolAccess) -> WebPactExecutionService -> IO ()
 pact4coin3UpgradeTest bdb mpRefIO pact = do
@@ -400,7 +536,7 @@ pact4coin3UpgradeTest bdb mpRefIO pact = do
       mpaGetBlock = \_ _ _ bh -> if _blockChainId bh == cid then do
           t0 <- buildHashCmd bh
           t1 <- buildXSend bh
-          t2 <- buildNewNativesCmd bh
+          t2 <- buildNewNatives40Cmd bh
           t3 <- badKeyset bh
           return $! V.fromList [t0,t1,t2,t3]
           else return mempty
@@ -414,7 +550,7 @@ pact4coin3UpgradeTest bdb mpRefIO pact = do
                    t0 <- buildHashCmd bh
                    t1 <- buildReleaseCommand bh
                    t2 <- buildXSend bh
-                   t3 <- buildNewNativesCmd bh
+                   t3 <- buildNewNatives40Cmd bh
                    t4 <- badKeyset bh
                    return $! V.fromList [t0,t1,t2,t3,t4]
                | _blockChainId bh == chain0 = do
@@ -437,7 +573,7 @@ pact4coin3UpgradeTest bdb mpRefIO pact = do
         $ mkCmd (sshow bh)
         $ mkExec "(read-keyset 'ks)" $ object ["ks" .= ["badkey"::T.Text]]
 
-    buildNewNativesCmd bh = buildCwCmd
+    buildNewNatives40Cmd bh = buildCwCmd
         $ set cbSigners [mkSigner' sender00 []]
         $ set cbChainId (_blockChainId bh)
         $ set cbCreationTime (toTxCreationTime $ _bct $ _blockCreationTime bh)

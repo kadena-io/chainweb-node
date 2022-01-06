@@ -57,6 +57,7 @@ module Chainweb.Version
 , enablePactEvents
 , enableSPVBridge
 , pact4coin3Upgrade
+, pact420Upgrade
 , enforceKeysetFormats
 , AtOrAfter(..)
 
@@ -890,6 +891,13 @@ pact4coin3Upgrade aoa v h = case aoa of
     go f Development = f 80
     go f (FastTimedCPM g) | g == petersonChainGraph = f 20
     go _f _ = const False
+
+pact420Upgrade :: ChainwebVersion -> BlockHeight -> Bool
+pact420Upgrade Mainnet01 = (>= 2_334_500) -- 2022-01-17T17:51:12
+pact420Upgrade Testnet04 = (>= 1_862_000) -- 2022-01-13T16:11:10
+pact420Upgrade Development = (>= 90)
+pact420Upgrade (FastTimedCPM g) | g == petersonChainGraph = (>= 5)
+pact420Upgrade _ = const False
 
 enforceKeysetFormats :: ChainwebVersion -> BlockHeight -> Bool
 enforceKeysetFormats Mainnet01 = (>= 2_162_000) -- 2021-11-18T20:06:55
