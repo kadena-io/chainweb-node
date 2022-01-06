@@ -65,7 +65,7 @@ import qualified Data.ByteString as B
 import qualified Data.ByteString.Short as SB
 import Data.Decimal (Decimal, roundTo)
 import Data.Default (def)
-import Data.Foldable (for_, traverse_)
+import Data.Foldable (for_, traverse_, foldl')
 import qualified Data.HashMap.Strict as HM
 import Data.Maybe (isJust)
 import qualified Data.Set as S
@@ -163,6 +163,7 @@ applyCmd v logger pdbenv miner gasModel txCtx spv cmdIn mcache0 =
           ++ [ FlagPreserveNsModuleInstallBug | not isModuleNameFix2 ]
           ++ enablePactEvents' txCtx
           ++ enablePact40 txCtx
+          ++ enablePact420 txCtx
           ++ enforceKeysetFormats' txCtx
         )
 
@@ -237,7 +238,10 @@ applyGenesisCmd logger dbEnv spv cmd =
         , _txGasPrice = 0.0
         , _txRequestKey = rk
         , _txGasLimit = 0
-        , _txExecutionConfig = mkExecutionConfig [FlagDisablePact40]
+        , _txExecutionConfig = mkExecutionConfig
+          [ FlagDisablePact40
+          , FlagDisablePact420
+          ]
         }
     txst = TransactionState
         { _txCache = mempty
@@ -291,7 +295,8 @@ applyCoinbase v logger dbEnv (Miner mid mks) reward@(ParsedDecimal d) txCtx
       [ FlagDisableModuleInstall
       , FlagDisableHistoryInTransactionalMode ] ++
       enablePactEvents' txCtx ++
-      enablePact40 txCtx
+      enablePact40 txCtx ++
+      enablePact420 txCtx
     tenv = TransactionEnv Transactional dbEnv logger (ctxToPublicData txCtx) noSPVSupport
            Nothing 0.0 rk 0 ec
     txst = TransactionState mc mempty 0 Nothing (_geGasModel freeGasEnv)
@@ -601,6 +606,7 @@ applyExec' interp (ExecMsg parsedCode execData) senderSigs hsh nsp
 
       eenv <- mkEvalEnv nsp (MsgData execData Nothing hsh senderSigs)
           <&> disablePact40Natives pactFlags
+          <&> disablePact420Natives pactFlags
 
       er <- liftIO $! evalExec interp eenv parsedCode
 
@@ -628,6 +634,12 @@ enablePact40 :: TxContext -> [ExecutionFlag]
 enablePact40 tc
     | pact4coin3Upgrade After (ctxVersion tc) (ctxCurrentBlockHeight tc) = []
     | otherwise = [FlagDisablePact40]
+
+enablePact420 :: TxContext -> [ExecutionFlag]
+enablePact420 tc
+    | pact420Upgrade (ctxVersion tc) (ctxCurrentBlockHeight tc) = []
+    | otherwise = [FlagDisablePact420]
+
 
 -- | Execute a 'ContMsg' and return the command result and module cache
 --
@@ -663,6 +675,7 @@ applyContinuation' interp cm@(ContMsg pid s rb d _) senderSigs hsh nsp = do
 
     eenv <- mkEvalEnv nsp (MsgData d pactStep hsh senderSigs)
           <&> disablePact40Natives pactFlags
+          <&> disablePact420Natives pactFlags
 
     er <- liftIO $! evalContinuation interp eenv cm
 
@@ -868,18 +881,23 @@ txSizeAccelerationFee costPerByte = total
 -- | Disable certain natives around pact 4 / coin v3 upgrade
 --
 disablePact40Natives :: ExecutionConfig -> EvalEnv e -> EvalEnv e
-disablePact40Natives ec = if has (ecFlags . ix FlagDisablePact40) ec
-    then over (eeRefStore . rsNatives) (HM.filterWithKey (\k -> const $ notElem k bannedNatives))
+disablePact40Natives =
+  disablePactNatives ["enumerate" , "distinct" , "emit-event" , "concat" , "str-to-list"] FlagDisablePact40
+{-# INLINE disablePact40Natives #-}
+
+disablePactNatives :: [Text] -> ExecutionFlag -> ExecutionConfig -> EvalEnv e -> EvalEnv e
+disablePactNatives natives flag ec = if has (ecFlags . ix flag) ec
+    then over (eeRefStore . rsNatives) (\k -> foldl' (flip HM.delete) k bannedNatives)
     else id
   where
-    bannedNatives =  bannedNatives' <&> \name -> Name (BareName name def)
-    bannedNatives' =
-      [ "enumerate"
-      , "distinct"
-      , "emit-event"
-      , "concat"
-      , "str-to-list"]
-{-# INLINE disablePact40Natives #-}
+    bannedNatives = natives <&> \name -> Name (BareName name def)
+{-# INLINE disablePactNatives #-}
+
+-- | Disable certain natives around pact 4.2.0
+--
+disablePact420Natives :: ExecutionConfig -> EvalEnv e -> EvalEnv e
+disablePact420Natives = disablePactNatives ["zip", "fold-db"] FlagDisablePact420
+{-# INLINE disablePact420Natives #-}
 
 -- | Set the module cache of a pact 'EvalState'
 --
