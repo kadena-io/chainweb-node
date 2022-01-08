@@ -1,5 +1,6 @@
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
@@ -130,6 +131,28 @@ data RequestMsg = NewBlockMsg !NewBlockReq
                 | SyncToBlockMsg !SyncToBlockReq
                 | CloseMsg
                 deriving (Show)
+
+requestMsgToType :: RequestMsg -> RequestMsgType
+requestMsgToType (NewBlockMsg _) = NewBlockMsgType
+requestMsgToType (ValidateBlockMsg _) = ValidateBlockMsgType
+requestMsgToType (LocalMsg _) = LocalMsgType
+requestMsgToType (LookupPactTxsMsg _) = LookupPactTxsMsgType
+requestMsgToType (PreInsertCheckMsg _) = PreInsertCheckMsgType
+requestMsgToType (BlockTxHistoryMsg _) = BlockTxHistoryMsgType
+requestMsgToType (HistoricalLookupMsg _) = HistoricalLookupMsgType
+requestMsgToType (SyncToBlockMsg _) = SyncToBlockMsgType
+requestMsgToType CloseMsg = CloseMsgType
+
+data RequestMsgType = NewBlockMsgType
+                    | ValidateBlockMsgType
+                    | LocalMsgType
+                    | LookupPactTxsMsgType
+                    | PreInsertCheckMsgType
+                    | BlockTxHistoryMsgType
+                    | HistoricalLookupMsgType
+                    | SyncToBlockMsgType
+                    | CloseMsgType
+                    deriving (Generic, Enum, NFData, ToJSON, ToJSONKey, Eq, Ord, Show)
 
 type PactExMVar t = MVar (Either PactException t)
 

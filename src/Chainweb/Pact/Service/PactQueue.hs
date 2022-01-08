@@ -4,6 +4,7 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE TupleSections #-}
 {-# LANGUAGE ViewPatterns #-}
 
 -- |
@@ -22,7 +23,7 @@ module Chainweb.Pact.Service.PactQueue
 , newPactQueue
 , resetPactQueueStats
 , PactQueue
-, PactQueueStats(..)
+, PactQueueStats2(..)
 ) where
 
 import Control.Applicative
@@ -33,6 +34,9 @@ import Control.Monad.STM
 
 import Data.Aeson
 import Data.IORef
+import Data.Map(Map)
+import qualified Data.Map as Map
+import Data.Semigroup (Max(..), Min(..), Sum(..))
 
 import GHC.Generics
 
@@ -54,9 +58,7 @@ data PactQueue = PactQueue
     { _pactQueueValidateBlock :: !(TBQueue (T2 RequestMsg (Time Micros)))
     , _pactQueueNewBlock :: !(TBQueue (T2 RequestMsg (Time Micros)))
     , _pactQueueOtherMsg :: !(TBQueue (T2 RequestMsg (Time Micros)))
-    , _pactQueuePactQueueValidateBlockMsgCounters :: !(IORef PactQueueCounters)
-    , _pactQueuePactQueueNewBlockMsgCounters :: !(IORef PactQueueCounters)
-    , _pactQueuePactQueueOtherMsgCounters :: !(IORef PactQueueCounters)
+    , _pactQueueCounters :: !(IORef (Map RequestMsgType PactQueueCounters))
     }
 
 initPactQueueCounters :: PactQueueCounters
@@ -72,9 +74,7 @@ newPactQueue sz = PactQueue
     <$> newTBQueueIO sz
     <*> newTBQueueIO sz
     <*> newTBQueueIO sz
-    <*> newIORef initPactQueueCounters
-    <*> newIORef initPactQueueCounters
-    <*> newIORef initPactQueueCounters
+    <*> newIORef Map.empty 
 
 -- | Add a request to the Pact execution queue
 --
@@ -93,31 +93,28 @@ addRequest q msg =  do
 getNextRequest :: PactQueue -> IO RequestMsg
 getNextRequest q = do
     T2 req entranceTime <- atomically
-        $ tryReadTBQueueOrRetry (_pactQueueValidateBlock q)
+            $ tryReadTBQueueOrRetry (_pactQueueValidateBlock q)
         <|> tryReadTBQueueOrRetry (_pactQueueNewBlock q)
         <|> tryReadTBQueueOrRetry (_pactQueueOtherMsg q)
     requestTime <- diff <$> getCurrentTimeIntegral <*> pure entranceTime
-    updatePactQueueCounters (counters req q) requestTime
+    atomicModifyIORef' (_pactQueueCounters q) ((,()) . Map.alter (Just . maybe initPactQueueCounters (updatePactQueueCounters (timeSpanToMicros requestTime))) (requestMsgToType req))
+    -- ctrs updatePactQueueCounters (requestMsgToType req) (counters req q) requestTime
     return req
   where
     tryReadTBQueueOrRetry = tryReadTBQueue >=> \case
         Nothing -> retry
         Just msg -> return msg
 
-    counters ValidateBlockMsg{} = _pactQueuePactQueueValidateBlockMsgCounters
-    counters NewBlockMsg{} = _pactQueuePactQueueNewBlockMsgCounters
-    counters _ = _pactQueuePactQueueOtherMsgCounters
-
 -- -------------------------------------------------------------------------- --
 -- Pact Queue Telemetry
 
--- | Counters for one Pact queue priority
+-- | Counters for one Pact queue message type
 --
 data PactQueueCounters = PactQueueCounters
     { _pactQueueCountersCount :: {-# UNPACK #-} !Int
-    , _pactQueueCountersSum :: {-# UNPACK #-} !Micros
-    , _pactQueueCountersMin :: {-# UNPACK #-} !Micros
-    , _pactQueueCountersMax :: {-# UNPACK #-} !Micros
+    , _pactQueueCountersSum :: {-# UNPACK #-} !(Sum Micros)
+    , _pactQueueCountersMin :: {-# UNPACK #-} !(Min Micros)
+    , _pactQueueCountersMax :: {-# UNPACK #-} !(Max Micros)
     }
     deriving (Show, Generic)
     deriving anyclass NFData
@@ -131,69 +128,58 @@ instance ToJSON PactQueueCounters where
 pactQueueCountersProperties :: KeyValue kv => PactQueueCounters -> [kv]
 pactQueueCountersProperties pqc =
     [ "count" .= _pactQueueCountersCount pqc
-    , "sum" .= _pactQueueCountersSum pqc
+    , "sum" .= getSum (_pactQueueCountersSum pqc)
     , "min" .= _pactQueueCountersMin pqc
     , "max" .= _pactQueueCountersMax pqc
     , "avg" .= avg
     ]
   where
     avg :: Maybe Double
-    avg = if _pactQueueCountersCount pqc == 0
+    avg = 
+        if _pactQueueCountersCount pqc == 0
         then Nothing
-        else Just $ fromIntegral (_pactQueueCountersSum pqc) / fromIntegral (_pactQueueCountersCount pqc)
+        else Just $ fromIntegral (getSum $ _pactQueueCountersSum pqc) / fromIntegral (_pactQueueCountersCount pqc)
 {-# INLINE pactQueueCountersProperties #-}
 
-updatePactQueueCounters :: IORef PactQueueCounters -> TimeSpan Micros -> IO ()
-updatePactQueueCounters countersRef (timeSpanToMicros -> timespan) = do
-    atomicModifyIORef' countersRef $ \ctrs ->
-        ( PactQueueCounters
-            { _pactQueueCountersCount = _pactQueueCountersCount ctrs + 1
-            , _pactQueueCountersSum = _pactQueueCountersSum ctrs + timespan
-            , _pactQueueCountersMin = _pactQueueCountersMin ctrs `min` timespan
-            , _pactQueueCountersMax = _pactQueueCountersMax ctrs `max` timespan
-            }
-        , ()
-        )
+updatePactQueueCounters :: Micros -> PactQueueCounters -> PactQueueCounters
+updatePactQueueCounters timespan counters = PactQueueCounters
+    { _pactQueueCountersCount = _pactQueueCountersCount counters + 1
+    , _pactQueueCountersSum = _pactQueueCountersSum counters <> Sum timespan
+    , _pactQueueCountersMin = _pactQueueCountersMin counters <> Min timespan
+    , _pactQueueCountersMax = _pactQueueCountersMax counters <> Max timespan
+    }
 
 -- | Statistics for all Pact queue priorities
 --
-data PactQueueStats = PactQueueStats
-    { _validateblock :: !PactQueueCounters
-    , _newblock :: !PactQueueCounters
-    , _othermsg :: !PactQueueCounters
+data PactQueueStats2 = PactQueueStats2
+    { _counters :: !(Map RequestMsgType PactQueueCounters)
     , _validateblockSize :: !Natural
     , _newblockSize :: !Natural
     , _othermsgSize :: !Natural
     }
     deriving (Generic, NFData)
 
-instance ToJSON PactQueueStats where
+instance ToJSON PactQueueStats2 where
     toJSON = object . pactQueueStatsProperties
     toEncoding = pairs . mconcat . pactQueueStatsProperties
     {-# INLINE toJSON #-}
     {-# INLINE toEncoding #-}
 
-pactQueueStatsProperties :: KeyValue kv => PactQueueStats -> [kv]
+pactQueueStatsProperties :: KeyValue kv => PactQueueStats2 -> [kv]
 pactQueueStatsProperties o =
-    [ "validate" .= _validateblock o
-    , "newblock" .= _newblock o
-    , "other" .= _othermsg o
+    [ "counters" .= _counters o
+    , "validateblockSize" .= _validateblockSize o
+    , "newblockSize" .= _newblockSize o
+    , "otherSize" .= _othermsgSize o
     ]
 {-# INLINE pactQueueStatsProperties #-}
 
 resetPactQueueStats :: PactQueue -> IO ()
-resetPactQueueStats q = do
-    reset (_pactQueuePactQueueValidateBlockMsgCounters q)
-    reset (_pactQueuePactQueueNewBlockMsgCounters q)
-    reset (_pactQueuePactQueueOtherMsgCounters q)
-  where
-    reset ref = atomicWriteIORef ref initPactQueueCounters
+resetPactQueueStats q = atomicWriteIORef (_pactQueueCounters q) Map.empty
 
-getPactQueueStats :: PactQueue -> IO PactQueueStats
-getPactQueueStats q = PactQueueStats
-    <$> readIORef (_pactQueuePactQueueValidateBlockMsgCounters q)
-    <*> readIORef (_pactQueuePactQueueNewBlockMsgCounters q)
-    <*> readIORef (_pactQueuePactQueueOtherMsgCounters q)
+getPactQueueStats :: PactQueue -> IO PactQueueStats2
+getPactQueueStats q = PactQueueStats2
+    <$> readIORef (_pactQueueCounters q)
     <*> atomically (lengthTBQueue (_pactQueueValidateBlock q))
     <*> atomically (lengthTBQueue (_pactQueueNewBlock q))
     <*> atomically (lengthTBQueue (_pactQueueOtherMsg q))

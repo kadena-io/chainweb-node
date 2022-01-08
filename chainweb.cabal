@@ -361,6 +361,7 @@ library
         , lens >= 4.17
         , loglevel >= 0.1
         , memory >=0.14
+        , MemoTrie >= 0.6
         , merkle-log
         , mmorph >= 1.1
         , monad-control >= 1.0
