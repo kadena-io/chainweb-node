@@ -34,8 +34,8 @@ import Control.Monad.STM
 
 import Data.Aeson
 import Data.IORef
-import Data.Map(Map)
-import qualified Data.Map as Map
+import Data.Map.Strict(Map)
+import qualified Data.Map.Strict as Map
 import Data.Semigroup (Max(..), Min(..), Sum(..))
 
 import GHC.Generics
@@ -98,7 +98,6 @@ getNextRequest q = do
         <|> tryReadTBQueueOrRetry (_pactQueueOtherMsg q)
     requestTime <- diff <$> getCurrentTimeIntegral <*> pure entranceTime
     atomicModifyIORef' (_pactQueueCounters q) ((,()) . Map.alter (Just . maybe initPactQueueCounters (updatePactQueueCounters (timeSpanToMicros requestTime))) (requestMsgToType req))
-    -- ctrs updatePactQueueCounters (requestMsgToType req) (counters req q) requestTime
     return req
   where
     tryReadTBQueueOrRetry = tryReadTBQueue >=> \case
