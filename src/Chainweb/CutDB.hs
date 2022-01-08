@@ -136,6 +136,7 @@ import Chainweb.Sync.WebBlockHeaderStore
 import Chainweb.TreeDB
 import Chainweb.Utils hiding (Codec, check)
 import Chainweb.Version
+import Chainweb.Version.Utils
 import Chainweb.WebBlockHeaderDB
 import Chainweb.WebPactExecutionService
 
@@ -322,6 +323,21 @@ awaitNewCutByChainIdStm cdb cid c = do
     when (b1 == b0) retry
     return c'
 
+blockHeightPruningThreshold :: BlockHeight
+blockHeightPruningThreshold = 5000
+
+pruneCuts
+    :: CutDb cas
+    -> IO ()
+pruneCuts cutDb = do
+    latestCutHeight <- _cutHeight <$> readTVarIO (_cutDbCut cutDb)
+    let avgBlockHeight = round $ avgBlockHeightAtCutHeight (_chainwebVersion cutDb) latestCutHeight
+    let pruneCutHeight = avgCutHeightAt (_chainwebVersion cutDb) $ avgBlockHeight - blockHeightPruningThreshold
+    minCutId <- cutIdFromText (T.pack $ replicate 43 '0')
+    unless (latestCutHeight < pruneCutHeight) $
+        deleteRangeRocksDb (_getRocksDbCas $ _cutDbStore cutDb)
+            ((0, 0, minCutId), (pruneCutHeight, 0, minCutId))
+
 cutDbQueueSize :: CutDb cas -> IO Natural
 cutDbQueueSize = pQueueSize . _cutDbQueue
 
@@ -365,16 +381,19 @@ startCutDb config logfun headerStore payloadStore cutHashesStore = mask_ $ do
     queue <- newEmptyPQueue
     cutAsync <- asyncWithUnmask $ \u -> u $ processor queue cutVar
     logg Info "CutDB started"
-    return $! CutDb
-        { _cutDbCut = cutVar
-        , _cutDbQueue = queue
-        , _cutDbAsync = cutAsync
-        , _cutDbLogFunction = logfun
-        , _cutDbHeaderStore = headerStore
-        , _cutDbPayloadStore = payloadStore
-        , _cutDbQueueSize = _cutDbParamsBufferSize config
-        , _cutDbStore = cutHashesStore
-        }
+    let
+        !db = CutDb
+            { _cutDbCut = cutVar
+            , _cutDbQueue = queue
+            , _cutDbAsync = cutAsync
+            , _cutDbLogFunction = logfun
+            , _cutDbHeaderStore = headerStore
+            , _cutDbPayloadStore = payloadStore
+            , _cutDbQueueSize = _cutDbParamsBufferSize config
+            , _cutDbStore = cutHashesStore
+            }
+    pruneCuts db
+    return db
   where
     logg = logfun @T.Text
     wbhdb = _webBlockHeaderStoreCas headerStore

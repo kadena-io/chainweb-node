@@ -40,8 +40,8 @@ source-repository-package
 
 source-repository-package
     type: git
-    location: https://github.com/kadena-io/chainweb-storage.git
-    tag: 1ee64539f9b6e27372caa14a1b4cbdf68736ed43
+    location: https://github.com/edmundnoble/chainweb-storage.git
+    tag: 59bfeb81f284d1738e6bef57a49a4c6c94f650e7
 
 source-repository-package
     type: git
