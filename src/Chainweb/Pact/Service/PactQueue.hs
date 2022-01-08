@@ -161,6 +161,9 @@ data PactQueueStats = PactQueueStats
     { _validateblock :: !PactQueueCounters
     , _newblock :: !PactQueueCounters
     , _othermsg :: !PactQueueCounters
+    , _validateblockSize :: !Natural
+    , _newblockSize :: !Natural
+    , _othermsgSize :: !Natural
     }
     deriving (Generic, NFData)
 
@@ -191,4 +194,7 @@ getPactQueueStats q = PactQueueStats
     <$> readIORef (_pactQueuePactQueueValidateBlockMsgCounters q)
     <*> readIORef (_pactQueuePactQueueNewBlockMsgCounters q)
     <*> readIORef (_pactQueuePactQueueOtherMsgCounters q)
+    <*> atomically (lengthTBQueue (_pactQueueValidateBlock q))
+    <*> atomically (lengthTBQueue (_pactQueueNewBlock q))
+    <*> atomically (lengthTBQueue (_pactQueueOtherMsg q))
 
