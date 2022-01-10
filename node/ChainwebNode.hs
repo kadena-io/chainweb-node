@@ -90,7 +90,7 @@ import Chainweb.Logging.Miner
 import Chainweb.Mempool.Consensus (ReintroducedTxsLog)
 import Chainweb.Mempool.InMemTypes (MempoolStats(..))
 import Chainweb.Miner.Coordinator (MiningStats)
-import Chainweb.Pact.Service.PactQueue (PactQueueStats2)
+import Chainweb.Pact.Service.PactQueue (PactQueueStats)
 import Chainweb.Pact.RestAPI.Server (PactCmdLog(..))
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
@@ -373,7 +373,7 @@ withNodeLogger logConfig v f = runManaged $ do
     blockUpdateBackend <- managed
         $ mkTelemetryLogger @BlockUpdate mgr teleLogConfig
     pactQueueStatsBackend <- managed
-        $ mkTelemetryLogger @PactQueueStats2 mgr teleLogConfig
+        $ mkTelemetryLogger @PactQueueStats mgr teleLogConfig
 
     logger <- managed
         $ L.withLogger (_logConfigLogger logConfig) $ logHandles
