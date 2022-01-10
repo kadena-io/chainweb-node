@@ -336,7 +336,7 @@ pruneCuts cutDb = do
     minCutId <- cutIdFromText (T.pack $ replicate 43 '0')
     unless (latestCutHeight < pruneCutHeight) $
         deleteRangeRocksDb (_getRocksDbCas $ _cutDbStore cutDb)
-            ((0, 0, minCutId), (pruneCutHeight, 0, minCutId))
+            (Nothing, Just (pruneCutHeight, 0, minCutId))
 
 cutDbQueueSize :: CutDb cas -> IO Natural
 cutDbQueueSize = pQueueSize . _cutDbQueue
@@ -393,6 +393,9 @@ startCutDb config logfun headerStore payloadStore cutHashesStore = mask_ $ do
             , _cutDbStore = cutHashesStore
             }
     pruneCuts db
+    -- we compact the entire cut hashes table on startup in case we just 
+    -- pruned a lot of cut hashes
+    compactRangeRocksDb (_getRocksDbCas cutHashesStore) (Nothing, Nothing)
     return db
   where
     logg = logfun @T.Text
