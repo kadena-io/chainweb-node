@@ -323,8 +323,15 @@ awaitNewCutByChainIdStm cdb cid c = do
     when (b1 == b0) retry
     return c'
 
-blockHeightPruningThreshold :: BlockHeight
-blockHeightPruningThreshold = 5000
+-- | How many block heights' worth of cuts should we keep around? 
+-- (how far back do we expect that a fork can happen)
+avgBlockHeightPruningDepth :: BlockHeight
+avgBlockHeightPruningDepth = 5000
+
+-- must be less than `blockHeightPruningDepth` or the CutHashes table 
+-- will always be empty.
+avgBlockHeightWritingThreshold :: BlockHeight
+avgBlockHeightWritingThreshold = 100
 
 pruneCuts
     :: CutDb cas
@@ -332,7 +339,7 @@ pruneCuts
 pruneCuts cutDb = do
     latestCutHeight <- _cutHeight <$> readTVarIO (_cutDbCut cutDb)
     let avgBlockHeight = round $ avgBlockHeightAtCutHeight (_chainwebVersion cutDb) latestCutHeight
-    let pruneCutHeight = avgCutHeightAt (_chainwebVersion cutDb) $ avgBlockHeight - blockHeightPruningThreshold
+    let pruneCutHeight = avgCutHeightAt (_chainwebVersion cutDb) $ avgBlockHeight - avgBlockHeightPruningDepth
     minCutId <- cutIdFromText (T.pack $ replicate 43 '0')
     unless (latestCutHeight < pruneCutHeight) $
         deleteRangeRocksDb (_getRocksDbCas $ _cutDbStore cutDb)
@@ -375,11 +382,14 @@ startCutDb
     -> IO (CutDb cas)
 startCutDb config logfun headerStore payloadStore cutHashesStore = mask_ $ do
     logg Debug "obtain initial cut"
-    cutVar <- newTVarIO =<< initialCut
+    initialCut <- readInitialCut
+    cutVar <- newTVarIO initialCut
+    lastWrittenAvgBlockHeightVar <- newTVarIO $ 
+        BlockHeight $ round $ avgBlockHeightAtCutHeight (_chainwebVersion headerStore) $ _cutHeight initialCut
     c <- readTVarIO cutVar
     logg Info $ "got initial cut: " <> sshow c
     queue <- newEmptyPQueue
-    cutAsync <- asyncWithUnmask $ \u -> u $ processor queue cutVar
+    cutAsync <- asyncWithUnmask $ \u -> u $ processor queue lastWrittenAvgBlockHeightVar cutVar
     logg Info "CutDB started"
     let
         !db = CutDb
@@ -402,9 +412,9 @@ startCutDb config logfun headerStore payloadStore cutHashesStore = mask_ $ do
     wbhdb = _webBlockHeaderStoreCas headerStore
     v = _chainwebVersion headerStore
 
-    processor :: PQueue (Down CutHashes) -> TVar Cut -> IO ()
-    processor queue cutVar = runForever logfun "CutDB" $
-        processCuts config logfun headerStore payloadStore cutHashesStore queue cutVar
+    processor :: PQueue (Down CutHashes) -> TVar BlockHeight -> TVar Cut -> IO ()
+    processor queue lastWrittenAvgBlockHeightVar cutVar = runForever logfun "CutDB" $
+        processCuts config logfun headerStore payloadStore cutHashesStore queue lastWrittenAvgBlockHeightVar cutVar
 
     -- TODO: The following code doesn't perform any validation of the cut.
     -- 'joinIntoHeavier_' may stil be slow on large dbs. Eventually, we should
@@ -415,7 +425,7 @@ startCutDb config logfun headerStore payloadStore cutHashesStore = mask_ $ do
     -- 3. exitence of dependencies
     -- 4. full validation
     --
-    initialCut = withTableIter (_getRocksDbCas cutHashesStore) $ \it -> do
+    readInitialCut = withTableIter (_getRocksDbCas cutHashesStore) $ \it -> do
         tableIterLast it
         go it
       where
@@ -477,9 +487,10 @@ processCuts
     -> WebBlockPayloadStore cas
     -> RocksDbCas CutHashes
     -> PQueue (Down CutHashes)
+    -> TVar BlockHeight
     -> TVar Cut
     -> IO ()
-processCuts conf logFun headerStore payloadStore cutHashesStore queue cutVar = queueToStream
+processCuts conf logFun headerStore payloadStore cutHashesStore queue lastWrittenAvgBlockHeightVar cutVar = queueToStream
     & S.chain (\c -> loggc Debug c "start processing")
     & S.filterM (fmap not . isVeryOld)
     & S.filterM (fmap not . farAhead)
@@ -501,7 +512,15 @@ processCuts conf logFun headerStore payloadStore cutHashesStore queue cutVar = q
         curCut <- readTVarIO cutVar
         !resultCut <- trace logFun "Chainweb.CutDB.processCuts._joinIntoHeavier" () 1
             $ joinIntoHeavier_ hdrStore (_cutMap curCut) newCut
-        casInsert cutHashesStore (cutToCutHashes Nothing resultCut)
+        lastWrittenAvgBlockHeight <- readTVarIO lastWrittenAvgBlockHeightVar
+        let 
+            curCutAvgBlockHeight = 
+                BlockHeight $ round $ avgBlockHeightAtCutHeight (_chainwebVersion headerStore) (_cutHeight curCut)
+            sinceLastWrite = 
+                curCutAvgBlockHeight - lastWrittenAvgBlockHeight 
+        when (sinceLastWrite > avgBlockHeightWritingThreshold) $ do
+            atomically $ writeTVar lastWrittenAvgBlockHeightVar curCutAvgBlockHeight
+            casInsert cutHashesStore (cutToCutHashes Nothing resultCut)
         atomically $ writeTVar cutVar resultCut
         loggc Info resultCut "published cut"
         )
