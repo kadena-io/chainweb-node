@@ -195,9 +195,10 @@ resetPactQueueStats q = do
         writeTVar (_pactQueueOtherMaxSize q) 0
 
 getPactQueueStats :: PactQueue -> IO PactQueueStats
-getPactQueueStats q = PactQueueStats
+getPactQueueStats q = do 
+    PactQueueStats
     <$> readIORef (_pactQueueCounters q)
-    <*> readTVarIO (_pactQueueValidateBlockMaxSize q)
-    <*> readTVarIO (_pactQueueNewBlockMaxSize q)
-    <*> readTVarIO (_pactQueueOtherMaxSize q)
+    <*> (max <$> readTVarIO (_pactQueueValidateBlockMaxSize q) <*> atomically (lengthTBQueue (_pactQueueValidateBlock q)))
+    <*> (max <$> readTVarIO (_pactQueueNewBlockMaxSize q) <*> atomically (lengthTBQueue (_pactQueueNewBlock q)))
+    <*> (max <$> readTVarIO (_pactQueueOtherMaxSize q) <*> atomically (lengthTBQueue (_pactQueueOtherMsg q)))
 
