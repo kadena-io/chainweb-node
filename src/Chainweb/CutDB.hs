@@ -328,21 +328,27 @@ awaitNewCutByChainIdStm cdb cid c = do
 avgBlockHeightPruningDepth :: BlockHeight
 avgBlockHeightPruningDepth = 5000
 
+-- | How often should we prune cuts?
+avgBlockHeightPruningThreshold :: BlockHeight
+avgBlockHeightPruningThreshold = 10000
+
 -- must be less than `blockHeightPruningDepth` or the CutHashes table 
 -- will always be empty.
 avgBlockHeightWritingThreshold :: BlockHeight
 avgBlockHeightWritingThreshold = 100
 
 pruneCuts
-    :: CutDb cas
+    :: ChainwebVersion
+    -> Cut
+    -> RocksDbCas CutHashes
     -> IO ()
-pruneCuts cutDb = do
-    latestCutHeight <- _cutHeight <$> readTVarIO (_cutDbCut cutDb)
-    let avgBlockHeight = round $ avgBlockHeightAtCutHeight (_chainwebVersion cutDb) latestCutHeight
-    let pruneCutHeight = avgCutHeightAt (_chainwebVersion cutDb) $ avgBlockHeight - avgBlockHeightPruningDepth
+pruneCuts v curCut cutHashesStore = do
+    let latestCutHeight = _cutHeight curCut
+    let avgBlockHeight = round $ avgBlockHeightAtCutHeight v latestCutHeight
+    let pruneCutHeight = avgCutHeightAt v $ avgBlockHeight - avgBlockHeightPruningDepth
     minCutId <- cutIdFromText (T.pack $ replicate 43 '0')
     unless (latestCutHeight < pruneCutHeight) $
-        deleteRangeRocksDb (_getRocksDbCas $ _cutDbStore cutDb)
+        deleteRangeRocksDb (_getRocksDbCas cutHashesStore)
             (Nothing, Just (pruneCutHeight, 0, minCutId))
 
 cutDbQueueSize :: CutDb cas -> IO Natural
@@ -400,7 +406,7 @@ startCutDb config logfun headerStore payloadStore cutHashesStore = mask_ $ do
             , _cutDbQueueSize = _cutDbParamsBufferSize config
             , _cutDbStore = cutHashesStore
             }
-    pruneCuts db
+    pruneCuts (_chainwebVersion headerStore) initialCut cutHashesStore
     -- we compact the entire cut hashes table on startup in case we just 
     -- pruned a lot of cut hashes
     compactRangeRocksDb (_getRocksDbCas cutHashesStore) (Nothing, Nothing)
@@ -488,9 +494,11 @@ processCuts
     -> TVar Cut
     -> IO ()
 processCuts conf logFun headerStore payloadStore cutHashesStore queue cutVar = do 
-    lastWrittenAvgBlockHeightVar <- 
-        newTVarIO . BlockHeight . round . avgBlockHeightAtCutHeight (_chainwebVersion headerStore) . _cutHeight 
-            =<< readTVarIO cutVar
+    currentAvgBlockHeight <- 
+        BlockHeight . round . avgBlockHeightAtCutHeight (_chainwebVersion headerStore) . _cutHeight 
+            <$> readTVarIO cutVar
+    lastWrittenAvgBlockHeightVar <- newTVarIO currentAvgBlockHeight 
+    lastPrunedAvgBlockHeightVar <- newTVarIO currentAvgBlockHeight
     queueToStream
         & S.chain (\c -> loggc Debug c "start processing")
         & S.filterM (fmap not . isVeryOld)
@@ -514,11 +522,16 @@ processCuts conf logFun headerStore payloadStore cutHashesStore queue cutVar = d
             !resultCut <- trace logFun "Chainweb.CutDB.processCuts._joinIntoHeavier" () 1
                 $ joinIntoHeavier_ hdrStore (_cutMap curCut) newCut
             lastWrittenAvgBlockHeight <- readTVarIO lastWrittenAvgBlockHeightVar
-            let 
+            lastPrunedAvgBlockHeight <- readTVarIO lastPrunedAvgBlockHeightVar
+            let
                 curCutAvgBlockHeight = 
                     BlockHeight $ round $ avgBlockHeightAtCutHeight (_chainwebVersion headerStore) (_cutHeight curCut)
                 sinceLastWrite = 
                     curCutAvgBlockHeight - lastWrittenAvgBlockHeight 
+                sinceLastPrune = 
+                    curCutAvgBlockHeight - lastPrunedAvgBlockHeight
+            when (sinceLastPrune > avgBlockHeightPruningThreshold) $ 
+                pruneCuts (_chainwebVersion headerStore) curCut cutHashesStore
             when (sinceLastWrite > avgBlockHeightWritingThreshold) $ do
                 atomically $ writeTVar lastWrittenAvgBlockHeightVar curCutAvgBlockHeight
                 casInsert cutHashesStore (cutToCutHashes Nothing resultCut)
