@@ -407,9 +407,6 @@ startCutDb config logfun headerStore payloadStore cutHashesStore = mask_ $ do
             , _cutDbStore = cutHashesStore
             }
     pruneCuts (_chainwebVersion headerStore) initialCut cutHashesStore
-    -- we compact the entire cut hashes table on startup in case we just 
-    -- pruned a lot of cut hashes
-    compactRangeRocksDb (_getRocksDbCas cutHashesStore) (Nothing, Nothing)
     return db
   where
     logg = logfun @T.Text
