@@ -26,14 +26,12 @@ module Chainweb.Pact.Service.PactQueue
 , PactQueueStats(..)
 ) where
 
-import Control.Applicative
 import Control.Concurrent.STM.TBQueue
-import Control.Concurrent.STM.TVar
 import Control.DeepSeq (NFData)
-import Control.Monad ((>=>))
 import Control.Monad.STM
 
 import Data.Aeson
+import Data.Foldable
 import Data.IORef
 import Data.Map.Strict(Map)
 import qualified Data.Map.Strict as Map
@@ -57,11 +55,8 @@ import Chainweb.Utils
 --
 data PactQueue = PactQueue
     { _pactQueueValidateBlock :: !(TBQueue (T2 RequestMsg (Time Micros)))
-    , _pactQueueValidateBlockMaxSize :: !(TVar Natural)
     , _pactQueueNewBlock :: !(TBQueue (T2 RequestMsg (Time Micros)))
-    , _pactQueueNewBlockMaxSize :: !(TVar Natural)
     , _pactQueueOtherMsg :: !(TBQueue (T2 RequestMsg (Time Micros)))
-    , _pactQueueOtherMaxSize :: !(TVar Natural)
     , _pactQueueCounters :: !(IORef (Map RequestMsgType PactQueueCounters))
     }
 
@@ -76,11 +71,8 @@ initPactQueueCounters = PactQueueCounters
 newPactQueue :: Natural -> IO PactQueue
 newPactQueue sz = PactQueue
     <$> newTBQueueIO sz
-    <*> newTVarIO 0
     <*> newTBQueueIO sz
-    <*> newTVarIO 0
     <*> newTBQueueIO sz
-    <*> newTVarIO 0
     <*> newIORef Map.empty 
 
 -- | Add a request to the Pact execution queue
@@ -99,23 +91,14 @@ addRequest q msg =  do
 --
 getNextRequest :: PactQueue -> IO RequestMsg
 getNextRequest q = do
-    validateSize <- atomically $ lengthTBQueue (_pactQueueValidateBlock q)
-    newBlockSize <- atomically $ lengthTBQueue (_pactQueueNewBlock q)
-    otherSize <- atomically $ lengthTBQueue (_pactQueueOtherMsg q)
-    T2 req entranceTime <- atomically
-            $ tryReadTBQueueOrRetry (_pactQueueValidateBlock q) 
-        <|> tryReadTBQueueOrRetry (_pactQueueNewBlock q)
-        <|> tryReadTBQueueOrRetry (_pactQueueOtherMsg q)
-    atomically $ modifyTVar (_pactQueueValidateBlockMaxSize q) (max validateSize)
-    atomically $ modifyTVar (_pactQueueNewBlockMaxSize q) (max newBlockSize)
-    atomically $ modifyTVar (_pactQueueOtherMaxSize q) (max otherSize)
+    T2 req entranceTime <- atomically $ asum
+        [ readTBQueue (_pactQueueValidateBlock q) 
+        , readTBQueue (_pactQueueNewBlock q)
+        , readTBQueue (_pactQueueOtherMsg q)
+        ]
     requestTime <- diff <$> getCurrentTimeIntegral <*> pure entranceTime
     atomicModifyIORef' (_pactQueueCounters q) ((,()) . Map.alter (Just . maybe initPactQueueCounters (updatePactQueueCounters (timeSpanToMicros requestTime))) (requestMsgToType req))
     return req
-  where
-    tryReadTBQueueOrRetry = tryReadTBQueue >=> \case
-        Nothing -> retry
-        Just msg -> return msg
 
 -- -------------------------------------------------------------------------- --
 -- Pact Queue Telemetry
@@ -163,11 +146,8 @@ updatePactQueueCounters timespan counters = PactQueueCounters
 
 -- | Statistics for all Pact queue priorities
 --
-data PactQueueStats = PactQueueStats
-    { _counters :: !(Map RequestMsgType PactQueueCounters)
-    , _validateblockMaxSize :: !Natural
-    , _newblockMaxSize :: !Natural
-    , _othermsgMaxSize :: !Natural
+newtype PactQueueStats = PactQueueStats
+    { _counters :: Map RequestMsgType PactQueueCounters
     }
     deriving (Generic, NFData)
 
@@ -180,25 +160,15 @@ instance ToJSON PactQueueStats where
 pactQueueStatsProperties :: KeyValue kv => PactQueueStats -> [kv]
 pactQueueStatsProperties o =
     [ "counters" .= _counters o
-    , "validateblockMaxSize" .= _validateblockMaxSize o
-    , "newblockMaxSize" .= _newblockMaxSize o
-    , "otherMaxSize" .= _othermsgMaxSize o
     ]
 {-# INLINE pactQueueStatsProperties #-}
 
 resetPactQueueStats :: PactQueue -> IO ()
 resetPactQueueStats q = do
     atomicWriteIORef (_pactQueueCounters q) Map.empty
-    atomically $ do 
-        writeTVar (_pactQueueValidateBlockMaxSize q) 0
-        writeTVar (_pactQueueNewBlockMaxSize q) 0
-        writeTVar (_pactQueueOtherMaxSize q) 0
 
 getPactQueueStats :: PactQueue -> IO PactQueueStats
 getPactQueueStats q = do 
     PactQueueStats
     <$> readIORef (_pactQueueCounters q)
-    <*> (max <$> readTVarIO (_pactQueueValidateBlockMaxSize q) <*> atomically (lengthTBQueue (_pactQueueValidateBlock q)))
-    <*> (max <$> readTVarIO (_pactQueueNewBlockMaxSize q) <*> atomically (lengthTBQueue (_pactQueueNewBlock q)))
-    <*> (max <$> readTVarIO (_pactQueueOtherMaxSize q) <*> atomically (lengthTBQueue (_pactQueueOtherMsg q)))
 

@@ -783,7 +783,7 @@ withElasticsearchBackend mgr esServer key ixName pkgScopes inner = do
         getNextAction timer = atomically $ isTimeout `orElse` fill
           where
             isTimeout = Nothing <$ (readTVar timer >>= check)
-            fill = tryReadTBQueue queue >>= maybe retry (return . Just)
+            fill = Just <$> readTBQueue queue 
 
         go 0 !batch _ = return (0, batch)
         go !remaining !batch !timer = getNextAction timer >>= \case
