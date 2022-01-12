@@ -351,8 +351,9 @@ node conf logger = do
 
 makeCheckpoint :: FilePath -> RocksDb -> IO ()
 makeCheckpoint checkpointDir rocksDb = do
-    Time (epochToNow :: TimeSpan Integer) <- getCurrentTimeIntegral 
-    -- 0 ~ never flush WAL log before checkpoint, to avoid making extra work 
+    createDirectoryIfMissing False checkpointDir
+    Time (epochToNow :: TimeSpan Integer) <- getCurrentTimeIntegral
+    -- 0 ~ never flush WAL log before checkpoint, to avoid making extra work
     checkpointRocksDb rocksDb maxBound (checkpointDir </> T.unpack (microsToText $ timeSpanToMicros epochToNow))
 
 withNodeLogger
@@ -504,10 +505,10 @@ pkgInfoScopes =
 -- -------------------------------------------------------------------------- --
 -- main
 
--- SERVICE DATE for version 2.11
+-- SERVICE DATE for version 2.12
 --
 serviceDate :: Maybe String
-serviceDate = Just "2022-01-13T00:00:00Z"
+serviceDate = Just "2022-02-24T00:00:00Z"
 
 mainInfo :: ProgramInfo ChainwebNodeConfiguration
 mainInfo = programInfoValidate
