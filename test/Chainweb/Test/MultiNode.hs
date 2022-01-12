@@ -150,9 +150,6 @@ multiConfig v n = defaultChainwebConfiguration v
     & set configReintroTxs True
         -- enable transaction re-introduction
 
-    & set (configTransactionIndex . enableConfigEnabled) True
-        -- enable transaction index
-
     & set configThrottling throttling
         -- throttling is effectively disabled to not slow down the test nodes
 
