@@ -14,6 +14,7 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE TupleSections #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE UndecidableInstances #-}
@@ -36,6 +37,7 @@ module Chainweb.CutDB
 , cutDbParamsTelemetryLevel
 , cutDbParamsUseOrigin
 , cutDbParamsInitialHeightLimit
+, cutDbParamsInitialBlockHeight
 , cutDbParamsFetchTimeout
 , defaultCutDbParams
 , farAheadThreshold
@@ -110,6 +112,7 @@ import Data.These
 import qualified Data.Vector as V
 
 import GHC.Generics hiding (to)
+import GHC.Stack
 
 import Numeric.Natural
 
@@ -136,6 +139,7 @@ import Chainweb.Sync.WebBlockHeaderStore
 import Chainweb.TreeDB
 import Chainweb.Utils hiding (Codec, check)
 import Chainweb.Version
+import Chainweb.Version.Utils
 import Chainweb.WebBlockHeaderDB
 import Chainweb.WebPactExecutionService
 
@@ -160,6 +164,7 @@ data CutDbParams = CutDbParams
     , _cutDbParamsUseOrigin :: !Bool
     , _cutDbParamsFetchTimeout :: !Int
     , _cutDbParamsInitialHeightLimit :: !(Maybe CutHeight)
+    , _cutDbParamsInitialBlockHeight :: !(Maybe BlockHeight)
     }
     deriving (Show, Eq, Ord, Generic)
 
@@ -175,6 +180,7 @@ defaultCutDbParams v ft = CutDbParams
     , _cutDbParamsUseOrigin = True
     , _cutDbParamsFetchTimeout = ft
     , _cutDbParamsInitialHeightLimit = Nothing
+    , _cutDbParamsInitialBlockHeight = Nothing
     }
   where
     g = _chainGraph (v, maxBound @BlockHeight)
@@ -351,6 +357,7 @@ withCutDb config logfun headerStore payloadStore cutHashesStore a
 --
 startCutDb
     :: PayloadCas cas
+    => HasCallStack
     => CutDbParams
     -> LogFunction
     -> WebBlockHeaderStore
@@ -359,8 +366,10 @@ startCutDb
     -> IO (CutDb cas)
 startCutDb config logfun headerStore payloadStore cutHashesStore = mask_ $ do
     logg Debug "obtain initial cut"
-    cutVar <- newTVarIO =<< initialCut
-    c <- readTVarIO cutVar
+    c <- case _cutDbParamsInitialBlockHeight config of
+      Nothing -> initialCut
+      Just h -> readCutForHeight h wbhdb
+    cutVar <- newTVarIO c
     logg Info $ "got initial cut: " <> sshow c
     queue <- newEmptyPQueue
     cutAsync <- asyncWithUnmask $ \u -> u $ processor queue cutVar
@@ -420,6 +429,10 @@ startCutDb config logfun headerStore payloadStore cutHashesStore = mask_ $ do
                             -- FIXME: this requires that the pact db is deleted because it
                             -- interfers with rewind limit. As a fix temporarily disable
                             -- rewind limit during initialization.
+    readCutForHeight h wbhdb' = do
+      unsafeMkCut v . HM.fromList <$> (flip traverse (HS.toList $ chainIdsAt v h) $ \cid -> do
+            db <- getWebBlockHeaderDb wbhdb' cid
+            (cid,) <$> entries db Nothing Nothing (Just $ MinRank $ fromIntegral $ _height h) (Just $ MaxRank $ fromIntegral $ _height h) (fmap fromJuste . S.head_))
 
 -- | Stop the cut validation pipeline.
 --

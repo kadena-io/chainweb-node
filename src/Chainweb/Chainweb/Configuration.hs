@@ -42,6 +42,7 @@ module Chainweb.Chainweb.Configuration
 , cutPruneChainDatabase
 , cutFetchTimeout
 , cutInitialCutHeightLimit
+, cutInitialBlockHeight
 , defaultCutConfig
 , pCutConfig
 
@@ -217,6 +218,7 @@ data CutConfig = CutConfig
     , _cutPruneChainDatabase :: !ChainDatabaseGcConfig
     , _cutFetchTimeout :: !Int
     , _cutInitialCutHeightLimit :: !(Maybe CutHeight)
+    , _cutInitialBlockHeight :: !(Maybe BlockHeight)
     } deriving (Eq, Show)
 
 makeLenses ''CutConfig
@@ -225,7 +227,8 @@ instance ToJSON CutConfig where
     toJSON o = object
         [ "pruneChainDatabase" .= _cutPruneChainDatabase o
         , "fetchTimeout" .= _cutFetchTimeout o
-        , "initialCutHeightLimit" .= _cutInitialCutHeightLimit o ]
+        , "initialCutHeightLimit" .= _cutInitialCutHeightLimit o
+        , "initialBlockHeight" .= _cutInitialBlockHeight o ]
 
 instance FromJSON (CutConfig -> CutConfig) where
     parseJSON = withObject "CutConfig" $ \o -> id
@@ -233,6 +236,7 @@ instance FromJSON (CutConfig -> CutConfig) where
         <*< cutPruneChainDatabase ..: "pruneChainDatabase" % o
         <*< cutFetchTimeout ..: "fetchTimeout" % o
         <*< cutInitialCutHeightLimit ..: "initialCutHeightLimit" % o
+        <*< cutInitialBlockHeight ..: "initialBlockHeight" % o
 
 defaultCutConfig :: CutConfig
 defaultCutConfig = CutConfig
@@ -240,6 +244,7 @@ defaultCutConfig = CutConfig
     , _cutPruneChainDatabase = GcNone
     , _cutFetchTimeout = 3_000_000
     , _cutInitialCutHeightLimit = Nothing
+    , _cutInitialBlockHeight = Nothing
     }
 
 pCutConfig :: MParser CutConfig
@@ -262,6 +267,7 @@ pCutConfig = id
         % long "cut-fetch-timeout"
         <> help "The timeout for processing new cuts in microseconds"
     -- cutInitialCutHeightLimit isn't supported on the command line
+    -- cutInitialBlockHeight isn't supported on the command line
 
 -- -------------------------------------------------------------------------- --
 -- Service API Configuration
