@@ -122,6 +122,7 @@ import qualified Streaming.Prelude as S
 
 import System.LogLevel
 import System.Timeout
+import System.Random.MWC
 
 -- internal modules
 
@@ -432,7 +433,13 @@ startCutDb config logfun headerStore payloadStore cutHashesStore = mask_ $ do
     readCutForHeight h wbhdb' = do
       unsafeMkCut v . HM.fromList <$> (flip traverse (HS.toList $ chainIdsAt v h) $ \cid -> do
             db <- getWebBlockHeaderDb wbhdb' cid
-            (cid,) <$> entries db Nothing Nothing (Just $ MinRank $ fromIntegral $ _height h) (Just $ MaxRank $ fromIntegral $ _height h) (fmap fromJuste . S.head_))
+            let randomStrElem s = do
+                  l <- S.length_ s
+                  i <- createSystemRandom >>= asGenIO (uniformR (0,l-1))
+                  s & S.drop i
+                    & S.head_
+                    & fmap fromJuste
+            (cid,) <$> entries db Nothing Nothing (Just $ MinRank $ fromIntegral $ _height h) (Just $ MaxRank $ fromIntegral $ _height h) randomStrElem)
 
 -- | Stop the cut validation pipeline.
 --
