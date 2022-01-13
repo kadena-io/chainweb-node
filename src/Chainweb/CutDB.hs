@@ -118,6 +118,7 @@ import Prelude hiding (lookup)
 import qualified Streaming.Prelude as S
 
 import System.LogLevel
+import qualified System.Random.MWC as Prob
 import System.Timeout
 
 -- internal modules
@@ -334,19 +335,21 @@ avgBlockHeightPruningThreshold = 10000
 
 -- must be less than `blockHeightPruningDepth` or the CutHashes table 
 -- will always be empty.
-avgBlockHeightWritingThreshold :: BlockHeight
-avgBlockHeightWritingThreshold = 100
+avgBlockHeightWritingGap :: BlockHeight
+avgBlockHeightWritingGap = 30
 
 pruneCuts
-    :: ChainwebVersion
+    :: LogFunction
+    -> ChainwebVersion
     -> Cut
     -> RocksDbCas CutHashes
     -> IO ()
-pruneCuts v curCut cutHashesStore = do
+pruneCuts logfun v curCut cutHashesStore = do
     let latestCutHeight = _cutHeight curCut
     let avgBlockHeight = round $ avgBlockHeightAtCutHeight v latestCutHeight
     let pruneCutHeight = avgCutHeightAt v $ avgBlockHeight - avgBlockHeightPruningDepth
     minCutId <- cutIdFromText (T.pack $ replicate 43 '0')
+    logfun @T.Text Info $ "pruning CutDB before cut height " <> T.pack (show pruneCutHeight)
     unless (latestCutHeight < pruneCutHeight) $
         deleteRangeRocksDb (_getRocksDbCas cutHashesStore)
             (Nothing, Just (pruneCutHeight, 0, minCutId))
@@ -406,7 +409,7 @@ startCutDb config logfun headerStore payloadStore cutHashesStore = mask_ $ do
             , _cutDbQueueSize = _cutDbParamsBufferSize config
             , _cutDbStore = cutHashesStore
             }
-    pruneCuts (_chainwebVersion headerStore) initialCut cutHashesStore
+    pruneCuts logfun (_chainwebVersion headerStore) initialCut cutHashesStore
     return db
   where
     logg = logfun @T.Text
@@ -457,7 +460,10 @@ startCutDb config logfun headerStore payloadStore cutHashesStore = mask_ $ do
 -- | Stop the cut validation pipeline.
 --
 stopCutDb :: CutDb cas -> IO ()
-stopCutDb db = cancel (_cutDbAsync db)
+stopCutDb db = do
+    currentCut <- readTVarIO (_cutDbCut db)
+    casInsert (_cutDbStore db) (cutToCutHashes Nothing currentCut)
+    cancel (_cutDbAsync db)
 
 -- | Lookup the BlockHeaders for a CutHashes structure. Throws an exception if
 -- the lookup for some BlockHash in the input CutHashes.
@@ -494,8 +500,10 @@ processCuts conf logFun headerStore payloadStore cutHashesStore queue cutVar = d
     currentAvgBlockHeight <- 
         BlockHeight . round . avgBlockHeightAtCutHeight (_chainwebVersion headerStore) . _cutHeight 
             <$> readTVarIO cutVar
-    lastWrittenAvgBlockHeightVar <- newTVarIO currentAvgBlockHeight 
     lastPrunedAvgBlockHeightVar <- newTVarIO currentAvgBlockHeight
+    writeDelayRng <- Prob.createSystemRandom 
+    let generateWriteGap = approximately avgBlockHeightWritingGap writeDelayRng
+    nextWriteAvgBlockHeightVar <- newTVarIO =<< generateWriteGap 
     queueToStream
         & S.chain (\c -> loggc Debug c "start processing")
         & S.filterM (fmap not . isVeryOld)
@@ -518,19 +526,15 @@ processCuts conf logFun headerStore payloadStore cutHashesStore queue cutVar = d
             curCut <- readTVarIO cutVar
             !resultCut <- trace logFun "Chainweb.CutDB.processCuts._joinIntoHeavier" () 1
                 $ joinIntoHeavier_ hdrStore (_cutMap curCut) newCut
-            lastWrittenAvgBlockHeight <- readTVarIO lastWrittenAvgBlockHeightVar
+            let curCutAvgBlockHeight = BlockHeight $ round $ avgBlockHeightAtCutHeight (_chainwebVersion headerStore) (_cutHeight curCut)
             lastPrunedAvgBlockHeight <- readTVarIO lastPrunedAvgBlockHeightVar
-            let
-                curCutAvgBlockHeight = 
-                    BlockHeight $ round $ avgBlockHeightAtCutHeight (_chainwebVersion headerStore) (_cutHeight curCut)
-                sinceLastWrite = 
-                    curCutAvgBlockHeight - lastWrittenAvgBlockHeight 
-                sinceLastPrune = 
-                    curCutAvgBlockHeight - lastPrunedAvgBlockHeight
+            let sinceLastPrune = curCutAvgBlockHeight - lastPrunedAvgBlockHeight
             when (sinceLastPrune > avgBlockHeightPruningThreshold) $ 
-                pruneCuts (_chainwebVersion headerStore) curCut cutHashesStore
-            when (sinceLastWrite > avgBlockHeightWritingThreshold) $ do
-                atomically $ writeTVar lastWrittenAvgBlockHeightVar curCutAvgBlockHeight
+                pruneCuts logFun (_chainwebVersion headerStore) curCut cutHashesStore
+            nextWriteAvgBlockHeight <- readTVarIO nextWriteAvgBlockHeightVar
+            when (curCutAvgBlockHeight > nextWriteAvgBlockHeight) $ do
+                writeGap <- generateWriteGap 
+                atomically $ writeTVar nextWriteAvgBlockHeightVar (curCutAvgBlockHeight + writeGap)
                 casInsert cutHashesStore (cutToCutHashes Nothing resultCut)
             atomically $ writeTVar cutVar resultCut
             loggc Info resultCut "published cut"

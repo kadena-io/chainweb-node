@@ -309,8 +309,6 @@ node conf logger = do
     pactDbDir <- getPactDbDir conf
     withRocksDb rocksDbDir $ \rocksDb -> do
         logFunctionText logger Info $ "opened rocksdb in directory " <> sshow rocksDbDir
-        compactRangeRocksDb (_getRocksDbCas $ cutHashesTable rocksDb) (Nothing, Nothing)
-        logFunctionText logger Info "rocksdb cut hashes table compacted"
         installHandlerCross sigUSR1 (const $ makeCheckpoint rocksDbCheckpointDir rocksDb)
         withChainweb cwConf logger rocksDb pactDbDir (_nodeConfigResetChainDbs conf) $ \cw -> mapConcurrently_ id
             [ runChainweb cw
