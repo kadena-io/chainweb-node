@@ -37,7 +37,7 @@ module Chainweb.CutDB
 , cutDbParamsTelemetryLevel
 , cutDbParamsUseOrigin
 , cutDbParamsInitialHeightLimit
-, cutDbParamsInitialBlockHeight
+, cutDbParamsResetToBlockHeight
 , cutDbParamsFetchTimeout
 , defaultCutDbParams
 , farAheadThreshold
@@ -122,7 +122,6 @@ import qualified Streaming.Prelude as S
 
 import System.LogLevel
 import System.Timeout
-import System.Random.MWC
 
 -- internal modules
 
@@ -165,7 +164,7 @@ data CutDbParams = CutDbParams
     , _cutDbParamsUseOrigin :: !Bool
     , _cutDbParamsFetchTimeout :: !Int
     , _cutDbParamsInitialHeightLimit :: !(Maybe CutHeight)
-    , _cutDbParamsInitialBlockHeight :: !(Maybe BlockHeight)
+    , _cutDbParamsResetToBlockHeight :: !(Maybe BlockHeight)
     }
     deriving (Show, Eq, Ord, Generic)
 
@@ -181,7 +180,7 @@ defaultCutDbParams v ft = CutDbParams
     , _cutDbParamsUseOrigin = True
     , _cutDbParamsFetchTimeout = ft
     , _cutDbParamsInitialHeightLimit = Nothing
-    , _cutDbParamsInitialBlockHeight = Nothing
+    , _cutDbParamsResetToBlockHeight = Nothing
     }
   where
     g = _chainGraph (v, maxBound @BlockHeight)
@@ -367,9 +366,10 @@ startCutDb
     -> IO (CutDb cas)
 startCutDb config logfun headerStore payloadStore cutHashesStore = mask_ $ do
     logg Debug "obtain initial cut"
-    c <- case _cutDbParamsInitialBlockHeight config of
-      Nothing -> initialCut
-      Just h -> readCutForHeight h wbhdb
+    initialCut <- readInitialCut
+    c <- case _cutDbParamsResetToBlockHeight config of
+      Nothing -> pure initialCut
+      Just h -> readCutForHeight h initialCut wbhdb
     cutVar <- newTVarIO c
     logg Info $ "got initial cut: " <> sshow c
     queue <- newEmptyPQueue
@@ -403,7 +403,7 @@ startCutDb config logfun headerStore payloadStore cutHashesStore = mask_ $ do
     -- 3. exitence of dependencies
     -- 4. full validation
     --
-    initialCut = withTableIter (_getRocksDbCas cutHashesStore) $ \it -> do
+    readInitialCut = withTableIter (_getRocksDbCas cutHashesStore) $ \it -> do
         tableIterLast it
         go it
       where
@@ -430,16 +430,21 @@ startCutDb config logfun headerStore payloadStore cutHashesStore = mask_ $ do
                             -- FIXME: this requires that the pact db is deleted because it
                             -- interfers with rewind limit. As a fix temporarily disable
                             -- rewind limit during initialization.
-    readCutForHeight h wbhdb' = do
-      unsafeMkCut v . HM.fromList <$> (flip traverse (HS.toList $ chainIdsAt v h) $ \cid -> do
+    readCutForHeight h lastCut wbhdb' = do
+        -- grab block headers at height `h` which are ancestors of the lastCut;
+        -- if lastCut is a valid cut, this ensures that the result is also 
+        -- a valid cut.
+        blockHeaders <- forM (HS.toList $ chainIdsAt v h) $ \cid -> do
             db <- getWebBlockHeaderDb wbhdb' cid
-            let randomStrElem s = do
-                  l <- S.length_ s
-                  i <- createSystemRandom >>= asGenIO (uniformR (0,l-1))
-                  s & S.drop i
-                    & S.head_
-                    & fmap fromJuste
-            (cid,) <$> entries db Nothing Nothing (Just $ MinRank $ fromIntegral $ _height h) (Just $ MaxRank $ fromIntegral $ _height h) randomStrElem)
+            let header = lastCut ^?! ixg cid 
+            (cid,) . fromJuste <$> seekAncestor db header (int h)
+        let pastCut = unsafeMkCut v $ HM.fromList $ blockHeaders
+        -- delete all cuts in the future.
+        deleteRangeRocksDb (_getRocksDbCas cutHashesStore) 
+            ( Just $ over _1 succ $ casKey (cutToCutHashes Nothing pastCut)
+            , Nothing
+            )
+        return pastCut
 
 -- | Stop the cut validation pipeline.
 --

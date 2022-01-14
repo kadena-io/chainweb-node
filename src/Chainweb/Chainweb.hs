@@ -499,7 +499,7 @@ withChainwebInternal conf logger peer serviceSock rocksDb pactDbDir resetDb inne
         , _cutDbParamsTelemetryLevel = Info
         , _cutDbParamsUseOrigin = _cutIncludeOrigin cutConf
         , _cutDbParamsInitialHeightLimit = _cutInitialCutHeightLimit cutConf
-        , _cutDbParamsInitialBlockHeight = _cutInitialBlockHeight cutConf
+        , _cutDbParamsResetToBlockHeight = _cutResetToBlockHeight cutConf
         }
       where
         cutConf = _configCuts conf
