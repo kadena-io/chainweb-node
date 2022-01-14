@@ -437,7 +437,13 @@ startCutDb config logfun headerStore payloadStore cutHashesStore = mask_ $ do
         blockHeaders <- forM (HS.toList $ chainIdsAt v h) $ \cid -> do
             db <- getWebBlockHeaderDb wbhdb' cid
             let header = lastCut ^?! ixg cid 
-            let err = minRank db >>= \mr -> error $ unwords [ "no ancestor block at rank", show h, "from block header", show header, "on chain", show cid, "- where minRank is", show mr ]
+            let err = error $ unwords 
+                    [ "no ancestor block at rank"
+                    , show h
+                    , "from block header"
+                    , show header
+                    , "on chain"
+                    , show cid ]
             !ancestor <- maybe err pure =<< seekAncestor db header (int h)
             return (cid, ancestor)
         let !pastCut = unsafeMkCut v $! HM.fromList blockHeaders
