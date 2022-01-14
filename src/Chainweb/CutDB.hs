@@ -437,8 +437,9 @@ startCutDb config logfun headerStore payloadStore cutHashesStore = mask_ $ do
         blockHeaders <- forM (HS.toList $ chainIdsAt v h) $ \cid -> do
             db <- getWebBlockHeaderDb wbhdb' cid
             let header = lastCut ^?! ixg cid 
-            (cid,) . fromJuste <$> seekAncestor db header (int h)
-        let pastCut = unsafeMkCut v $ HM.fromList $ blockHeaders
+            maybeAncestorBlock <- seekAncestor db header (int h)
+            return $ (cid,) <$> maybeAncestorBlock
+        let pastCut = unsafeMkCut v $ HM.fromList $ catMaybes blockHeaders
         -- delete all cuts in the future.
         deleteRangeRocksDb (_getRocksDbCas cutHashesStore) 
             ( Just $ over _1 succ $ casKey (cutToCutHashes Nothing pastCut)
