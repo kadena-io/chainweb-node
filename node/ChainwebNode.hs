@@ -1,4 +1,5 @@
 {-# LANGUAGE AllowAmbiguousTypes #-}
+{-# LANGUAGE CPP #-}
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DerivingStrategies #-}
@@ -51,13 +52,10 @@ import Control.DeepSeq
 import Control.Exception
 import Control.Lens hiding ((.=))
 import Control.Monad
-import Control.Monad.Error.Class (throwError)
 import Control.Monad.Managed
 
 import Data.CAS
 import Data.CAS.RocksDB
-import qualified Data.HashSet as HS
-import qualified Data.List as L
 import qualified Data.Text as T
 import Data.Time
 import Data.Typeable
@@ -72,6 +70,7 @@ import qualified Network.HTTP.Client.TLS as HTTPS
 import qualified Streaming.Prelude as S
 
 import System.Directory
+import System.FilePath
 import System.IO (BufferMode(LineBuffering), hSetBuffering, stderr)
 import qualified System.Logger as L
 import System.LogLevel
@@ -80,20 +79,22 @@ import System.LogLevel
 
 import Chainweb.BlockHeader
 import Chainweb.Chainweb
+import Chainweb.Chainweb.Configuration
 import Chainweb.Chainweb.CutResources
 import Chainweb.Counter
 import Chainweb.Cut.CutHashes
 import Chainweb.CutDB
 import Chainweb.Logger
-import Chainweb.Logging.Amberdata
 import Chainweb.Logging.Config
 import Chainweb.Logging.Miner
 import Chainweb.Mempool.Consensus (ReintroducedTxsLog)
 import Chainweb.Mempool.InMemTypes (MempoolStats(..))
 import Chainweb.Miner.Coordinator (MiningStats)
+import Chainweb.Pact.Service.PactQueue (PactQueueStats)
 import Chainweb.Pact.RestAPI.Server (PactCmdLog(..))
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
+import Chainweb.Time
 import Chainweb.Utils
 import Chainweb.Utils.RequestLog
 import Chainweb.Version
@@ -140,15 +141,7 @@ validateChainwebNodeConfiguration :: ConfigValidation ChainwebNodeConfiguration 
 validateChainwebNodeConfiguration o = do
     validateLogConfig $ _nodeConfigLog o
     validateChainwebConfiguration $ _nodeConfigChainweb o
-    mapM_ checkIfValidChain (getAmberdataChainId o)
     mapM_ (validateFilePath "databaseDirectory") (_nodeConfigDatabaseDirectory o)
-  where
-    chains = chainIds $ _nodeConfigChainweb o
-    checkIfValidChain cid
-      = unless (HS.member cid chains)
-        $ throwError $ "Invalid chain id provided: " <> toText cid
-    getAmberdataChainId = _amberdataChainId . _enableConfigConfig . _logConfigAmberdataBackend . _nodeConfigLog
-
 
 instance ToJSON ChainwebNodeConfiguration where
     toJSON o = object
@@ -177,16 +170,19 @@ pChainwebNodeConfiguration = id
         <> help "Reset the chain databases for all chains on startup"
 
 getRocksDbDir :: HasCallStack => ChainwebNodeConfiguration -> IO FilePath
-getRocksDbDir conf = (<> "/rocksDb") <$> getDbBaseDir conf
+getRocksDbDir conf = (</> "rocksDb") <$> getDbBaseDir conf
+
+getRocksDbCheckpointDir :: HasCallStack => ChainwebNodeConfiguration -> IO FilePath
+getRocksDbCheckpointDir conf = (</> "rocksDbCheckpoints") <$> getDbBaseDir conf
 
 getPactDbDir :: HasCallStack => ChainwebNodeConfiguration -> IO FilePath
-getPactDbDir conf =  (<> "/sqlite") <$> getDbBaseDir conf
+getPactDbDir conf =  (</> "sqlite") <$> getDbBaseDir conf
 
 getDbBaseDir :: HasCallStack => ChainwebNodeConfiguration -> IO FilePath
 getDbBaseDir conf = case _nodeConfigDatabaseDirectory conf of
     Nothing -> getXdgDirectory XdgData
-        $ "chainweb-node/" <> sshow v <> "/0"
-    Just d -> return (d <> "/0")
+        $ "chainweb-node" </> sshow v </> "0"
+    Just d -> return (d </> "0")
   where
     v = _configChainwebVersion $ _nodeConfigChainweb conf
 
@@ -201,9 +197,9 @@ getDbBaseDir conf = case _nodeConfigDatabaseDirectory conf of
 -- to at most one restart every 10 seconds.
 --
 runMonitorLoop :: Logger logger => T.Text -> logger -> IO () -> IO ()
-runMonitorLoop label logger = runForeverThrottled
+runMonitorLoop actionLabel logger = runForeverThrottled
     (logFunction logger)
-    label
+    actionLabel
     10 -- 10 bursts in case of failure
     (10 * mega) -- allow restart every 10 seconds in case of failure
 
@@ -261,30 +257,19 @@ runBlockUpdateMonitor logger db = L.withLoggerLabel ("component", "block-update-
         <*> pure True -- _blockUpdateOrphaned
         <*> ((0 -) <$> txCount bh) -- _blockUpdateTxCount
 
-runAmberdataBlockMonitor
-    :: PayloadCasLookup cas
-    => Logger logger
-    => EnableConfig AmberdataConfig
-    -> logger
-    -> CutDb cas
-    -> IO ()
-runAmberdataBlockMonitor config logger db
-    | _enableConfigEnabled config = L.withLoggerLabel ("component", "amberdata-block-monitor") logger $ \l ->
-        runMonitorLoop "Chainweb.Logging.amberdataBlockMonitor" l (amberdataBlockMonitor cid l db)
-    | otherwise = return ()
-  where
-    cid = _amberdataChainId $ _enableConfigConfig config
-
 -- type CutLog = HM.HashMap ChainId (ObjectEncoded BlockHeader)
 
 -- This instances are OK, since this is the "Main" module of an application
 --
+#if !MIN_VERSION_base(4,15,0)
 deriving instance Generic GCDetails
-deriving instance NFData GCDetails
-deriving instance ToJSON GCDetails
-
 deriving instance Generic RTSStats
+#endif
+
+deriving instance NFData GCDetails
 deriving instance NFData RTSStats
+
+deriving instance ToJSON GCDetails
 deriving instance ToJSON RTSStats
 
 runRtsMonitor :: Logger logger => logger -> IO ()
@@ -317,27 +302,31 @@ runQueueMonitor logger cutDb = L.withLoggerLabel ("component", "queue-monitor") 
 
 node :: HasCallStack => Logger logger => ChainwebNodeConfiguration -> logger -> IO ()
 node conf logger = do
-    migrateDbDirectory logger conf
     dbBaseDir <- getDbBaseDir conf
     when (_nodeConfigResetChainDbs conf) $ removeDirectoryRecursive dbBaseDir
     rocksDbDir <- getRocksDbDir conf
+    rocksDbCheckpointDir <- getRocksDbCheckpointDir conf
     pactDbDir <- getPactDbDir conf
     withRocksDb rocksDbDir $ \rocksDb -> do
         logFunctionText logger Info $ "opened rocksdb in directory " <> sshow rocksDbDir
+        installHandlerCross sigUSR1 (const $ makeCheckpoint rocksDbCheckpointDir rocksDb)
         withChainweb cwConf logger rocksDb pactDbDir (_nodeConfigResetChainDbs conf) $ \cw -> mapConcurrently_ id
             [ runChainweb cw
               -- we should probably push 'onReady' deeper here but this should be ok
             , runCutMonitor (_chainwebLogger cw) (_cutResCutDb $ _chainwebCutResources cw)
-            , runAmberdataBlockMonitor (amberdataConfig conf) (_chainwebLogger cw) (_cutResCutDb $ _chainwebCutResources cw)
             , runQueueMonitor (_chainwebLogger cw) (_cutResCutDb $ _chainwebCutResources cw)
             , runRtsMonitor (_chainwebLogger cw)
             , runBlockUpdateMonitor (_chainwebLogger cw) (_cutResCutDb $ _chainwebCutResources cw)
             ]
   where
     cwConf = _nodeConfigChainweb conf
-    amberdataConfig = _logConfigAmberdataBackend . _nodeConfigLog
 
-
+makeCheckpoint :: FilePath -> RocksDb -> IO ()
+makeCheckpoint checkpointDir rocksDb = do
+    createDirectoryIfMissing False checkpointDir
+    Time (epochToNow :: TimeSpan Integer) <- getCurrentTimeIntegral
+    -- 0 ~ never flush WAL log before checkpoint, to avoid making extra work
+    checkpointRocksDb rocksDb maxBound (checkpointDir </> T.unpack (microsToText $ timeSpanToMicros epochToNow))
 
 withNodeLogger
     :: LogConfig
@@ -363,7 +352,6 @@ withNodeLogger logConfig v f = runManaged $ do
     counterBackend <- managed $ configureHandler
         (withJsonHandleBackend @CounterLog "connectioncounters" mgr pkgInfoScopes)
         teleLogConfig
-    newBlockAmberdataBackend <- managed $ mkAmberdataLogger mgr amberdataConfig
     endpointBackend <- managed
         $ mkTelemetryLogger @PactCmdLog mgr teleLogConfig
     newBlockBackend <- managed
@@ -384,6 +372,8 @@ withNodeLogger logConfig v f = runManaged $ do
         $ mkTelemetryLogger @MempoolStats mgr teleLogConfig
     blockUpdateBackend <- managed
         $ mkTelemetryLogger @BlockUpdate mgr teleLogConfig
+    pactQueueStatsBackend <- managed
+        $ mkTelemetryLogger @PactQueueStats mgr teleLogConfig
 
     logger <- managed
         $ L.withLogger (_logConfigLogger logConfig) $ logHandles
@@ -392,7 +382,6 @@ withNodeLogger logConfig v f = runManaged $ do
             , logHandler p2pInfoBackend
             , logHandler rtsBackend
             , logHandler counterBackend
-            , logHandler newBlockAmberdataBackend
             , logHandler endpointBackend
             , logHandler newBlockBackend
             , logHandler orphanedBlockBackend
@@ -403,6 +392,7 @@ withNodeLogger logConfig v f = runManaged $ do
             , logHandler traceBackend
             , logHandler mempoolStatsBackend
             , logHandler blockUpdateBackend
+            , logHandler pactQueueStatsBackend
             ] baseBackend
 
     liftIO $ f
@@ -411,15 +401,6 @@ withNodeLogger logConfig v f = runManaged $ do
         $ logger
   where
     teleLogConfig = _logConfigTelemetryBackend logConfig
-    amberdataConfig = _logConfigAmberdataBackend logConfig
-
-mkAmberdataLogger
-    :: HTTP.Manager
-    -> EnableConfig AmberdataConfig
-    -> (Backend (JsonLog AmberdataBlock) -> IO b)
-    -> IO b
-mkAmberdataLogger mgr = configureHandler
-  $ withAmberDataBlocksBackend mgr
 
 mkTelemetryLogger
     :: forall a b
@@ -433,32 +414,32 @@ mkTelemetryLogger mgr = configureHandler
     $ withJsonHandleBackend @(JsonLog a) (sshow $ typeRep $ Proxy @a) mgr pkgInfoScopes
 
 -- -------------------------------------------------------------------------- --
--- Kill Switch
+-- Service Date
 
-newtype KillSwitch = KillSwitch T.Text
+newtype ServiceDate = ServiceDate T.Text
 
-instance Show KillSwitch where
-    show (KillSwitch t) = "kill switch triggered: " <> T.unpack t
+instance Show ServiceDate where
+    show (ServiceDate t) = "Service interval end: " <> T.unpack t
 
-instance Exception KillSwitch where
+instance Exception ServiceDate where
     fromException = asyncExceptionFromException
     toException = asyncExceptionToException
 
-withKillSwitch
+withServiceDate
     :: (LogLevel -> T.Text -> IO ())
     -> Maybe UTCTime
     -> IO a
     -> IO a
-withKillSwitch _ Nothing inner = inner
-withKillSwitch lf (Just t) inner = race timer inner >>= \case
-    Left () -> error "Kill switch thread terminated unexpectedly"
+withServiceDate _ Nothing inner = inner
+withServiceDate lf (Just t) inner = race timer inner >>= \case
+    Left () -> error "Service date thread terminated unexpectedly"
     Right a -> return a
   where
-    timer = runForever lf "KillSwitch" $ do
+    timer = runForever lf "ServiceDate" $ do
         now <- getCurrentTime
         when (now >= t) $ do
-            lf Error killMessage
-            throw $ KillSwitch killMessage
+            lf Error shutdownMessage
+            throw $ ServiceDate shutdownMessage
 
         let w = diffUTCTime t now
         let micros = round $ w * 1_000_000
@@ -471,8 +452,8 @@ withKillSwitch lf (Just t) inner = race timer inner >>= \case
         , " Please upgrade to a new version before that date."
         ]
 
-    killMessage :: T.Text
-    killMessage = T.concat
+    shutdownMessage :: T.Text
+    shutdownMessage = T.concat
         [ "Shutting down. This version of chainweb was only valid until" <> sshow t <> "."
         , " Please upgrade to a new version."
         ]
@@ -493,10 +474,10 @@ pkgInfoScopes =
 -- -------------------------------------------------------------------------- --
 -- main
 
--- KILLSWITCH for version 2.2
+-- SERVICE DATE for version 2.12
 --
-killSwitchDate :: Maybe String
-killSwitchDate = Just "2020-11-19T00:00:00Z"
+serviceDate :: Maybe String
+serviceDate = Just "2022-02-24T00:00:00Z"
 
 mainInfo :: ProgramInfo ChainwebNodeConfiguration
 mainInfo = programInfoValidate
@@ -507,159 +488,13 @@ mainInfo = programInfoValidate
 
 main :: IO ()
 main = do
-    installSignalHandlers
+    installFatalSignalHandlers [ sigHUP, sigTERM, sigXCPU, sigXFSZ ]
     runWithPkgInfoConfiguration mainInfo pkgInfo $ \conf -> do
         let v = _configChainwebVersion $ _nodeConfigChainweb conf
         hSetBuffering stderr LineBuffering
         withNodeLogger (_nodeConfigLog conf) v $ \logger -> do
-            kt <- mapM (parseTimeM False defaultTimeLocale timeFormat) killSwitchDate
-            withKillSwitch (logFunctionText logger) kt $
+            kt <- mapM (parseTimeM False defaultTimeLocale timeFormat) serviceDate
+            withServiceDate (logFunctionText logger) kt $
                 node conf logger
   where
     timeFormat = iso8601DateFormat (Just "%H:%M:%SZ")
-
--- -------------------------------------------------------------------------- --
--- Database Directory Migration
---
--- TODO: This code can be removed in chainweb-2.2.
---
--- Legacy default locations:
---
--- `$XDGDATA/chainweb-node/$CHAINWEB_VERSION/$NODEID/rocksDb`
--- `$XDGDATA/chainweb-node/$CHAINWEB_VERSION/$NODEID/sqlite`
---
--- New default locations:
---
--- `$XDGDATA/chainweb-node/$CHAINWEB_VERSION/0/rocksDb`
--- `$XDGDATA/chainweb-node/$CHAINWEB_VERSION/0/sqlite`
---
--- Legacy custom locations:
---
--- `${CUSTOM_PATH}`
--- `${CUSTOM_PATH}sqlite` # Note that there is no slash before `sqlite`
---
--- New custom locations:
---
--- `$CUSTOM_PATH/rocksDb`
--- `$CUSTOM_PATH/sqlite`
---
--- Migration scenarios:
---
--- 1. Custom location configured (and directory exists):
---
---    * Log warning
---    * `mkdir -p "$CUSTOM_PATH/rockDb"
---    * `mv "${CUSTOM_PATH}*" "$CUSTOM_PATH/rocksDb"
---    * `mv "${CUSTOM_PATH}slqite "$CUSTOM_PATH/sqlite"`
---    * fail if target directory already exists
---
--- 2. No custom location configured:
---
---    * Log warning if `$XDGDATA/chainweb-node/$CHAINWEB_VERSION/[1-9]*` exists
---
---
--- Migration code can be removed in the next version. We don't need to support
--- longer backwards compatibility, because in those situations it will be faster
--- and more convenient to start over with a fresh db.
---
-migrateDbDirectory
-    :: HasCallStack
-    => Logger logger
-    => logger
-    -> ChainwebNodeConfiguration
-    -> IO ()
-migrateDbDirectory logger config = case _nodeConfigDatabaseDirectory config of
-    Just custom -> do
-        let legacyCustomRocksDb = custom
-        newCustomRocksDb <- getRocksDbDir config
-
-        let legacyCustomPactDb = custom <> "sqlite"
-        newCustomPactDb <- getPactDbDir config
-
-        logg Warn
-            $ "Checking database directory layout for new chainweb version"
-            <> ". Legacy rocks db location: " <> T.pack legacyCustomRocksDb
-            <> ". New rocks db location: " <> T.pack newCustomRocksDb
-            <> ". Legacy sqlite db location: " <> T.pack legacyCustomPactDb
-            <> ". New sqlite db location: " <> T.pack newCustomPactDb
-        logg Warn
-            $ "If this operation fails it may be retried"
-            <> ". If it still fails the database may be corrupted and must be deleted and re-synchronized"
-
-        migrateDb "rocks" legacyCustomRocksDb newCustomRocksDb
-        migrateDb "sqlite" legacyCustomPactDb newCustomPactDb
-
-    Nothing -> do
-        defDir <- getXdgDirectory XdgData $ "chainweb-node/" <> sshow v
-        whenM (doesDirectoryExist defDir) $ do
-            dirs <- listDirectory defDir
-            forM_ (filter (/= defDir <> "/0") dirs) $ \i ->
-                logg Warn $ "ignoring existing database directory " <> T.pack (defDir <> "/" <> i)
-  where
-    logg = logFunctionText (setComponent "database-migration" logger)
-    v = _configChainwebVersion $ _nodeConfigChainweb config
-
-    -- There are many things that can go wrong in here. In particular we don't
-    -- check for permissions, mounts, hard links, etc. We also don't care about
-    -- races with other operating system threads.
-    --
-    -- However, the worst that can happen is that the database becomes corrupted
-    -- and must be resynchronized.
-    --
-    migrateDb db oldRaw newRaw = do
-        old <- canonicalizePath oldRaw
-        new <- canonicalizePath newRaw
-
-        oldExists <- doesDirectoryExist old
-        newExists <- doesDirectoryExist new
-        oldIsFile <- doesFileExist old
-        newIsFile <- doesFileExist new
-
-        let cpy f = copyFile (old <> "/" <> f) (new <> "/" <> f)
-            rm dir f = removeFile (dir <> "/" <> f)
-            ex dir f = doesFileExist (dir <> "/" <> f)
-
-        if
-            | oldIsFile -> do
-                logg Error
-                    $ "A file with the name of the legacy directory for the " <> db <> " database exists. Terminating chainweb node"
-                error $ "A file with the name of the legacy directory for the " <> T.unpack db <> " database exists"
-            | newIsFile -> do
-                logg Error
-                    $ "A file with the name of the new directory for " <> db <> " database exists. Terminating chainweb node"
-                error $ "A file with the name of the new directory for " <> T.unpack db <> " database exists"
-            | old == new -> logg Warn
-                $ "Legacy and new " <> db <> " directories are the the same. No action needed"
-            | not oldExists -> logg Warn
-                $ "Legacy " <> db <> " database directory doesn't exist. No action needed"
-            | newExists && (old `L.isPrefixOf` new) -> logg Warn
-                $ "New " <> db <> " database already exists. If an legacy database exists, it is ignored. No action needed"
-            | newExists -> logg Error
-                $ "Can't move legacy " <> db <> " database to new location because the database already exists"
-                <> ". Chainweb node will attempt to use the database at the new location"
-            | old `L.isPrefixOf` new -> do
-                logg Warn
-                    $ "moving " <> db <> " database files to new location in sub-directory"
-                    <> ". Legacy location: " <> T.pack old
-                    <> ". New location: " <> T.pack new
-
-                fileEntries <- filterM (ex old) =<< listDirectory old
-
-                -- This isn't bullet proof. If something goes wrong here, there's a chance for a
-                -- corrupted database.
-                (mask_ $ createDirectoryIfMissing True new >> mapM_ cpy fileEntries)
-                    `onException` do
-                        removeDirectoryRecursive new
-                        -- we know that the directory didn't exist before. So, this is safe.
-                        -- (modulo races with other operating system processes)
-                        logg Error $ "failed to create new " <> db <> " database directory " <> T.pack new
-                logg Info "done moving files. Cleaning up"
-                mapM_ (rm old) fileEntries
-                logg Info "done cleaning up"
-
-            | otherwise -> do
-                logg Warn
-                    $ "moving " <> db <> " database:"
-                    <> " Legacy location: " <> T.pack old
-                    <> ". New location: " <> T.pack new
-                renameDirectory old new

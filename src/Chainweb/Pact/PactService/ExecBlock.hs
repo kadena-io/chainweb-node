@@ -46,13 +46,11 @@ import Data.DList (DList(..))
 import qualified Data.DList as DL
 import Data.Either
 import Data.Foldable (toList)
-import qualified Data.HashMap.Strict as HM
 import qualified Data.Map as Map
 import Data.String.Conv (toS)
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
-import Data.Tuple.Strict (T2(..))
 import Data.Vector (Vector)
 import qualified Data.Vector as V
 
@@ -95,7 +93,7 @@ setParentHeader msg ph@(ParentHeader bh) = do
   logDebug $ "setParentHeader: " ++ msg ++ ": " ++ show (_blockHash bh,_blockHeight bh)
   modify' $ set psParentHeader ph
   bdb <- view psBlockHeaderDb
-  modify' $ set psSpvSupport $! pactSPV bdb (_blockHash bh)
+  modify' $ set psSpvSupport $! pactSPV bdb bh
 
 -- | Execute a block -- only called in validate either for replay or for validating current block.
 --
@@ -241,6 +239,8 @@ checkCompile tx = case payload of
 skipDebitGas :: RunGas
 skipDebitGas = return
 
+
+
 execTransactions
     :: Bool
     -> Miner
@@ -250,7 +250,7 @@ execTransactions
     -> PactDbEnv'
     -> PactServiceM cas Transactions
 execTransactions isGenesis miner ctxs enfCBFail usePrecomp (PactDbEnv' pactdbenv) = do
-    mc <- use psInitCache
+    mc <- getInitCache
     coinOut <- runCoinbase isGenesis pactdbenv miner enfCBFail usePrecomp mc
     txOuts <- applyPactCmds isGenesis pactdbenv ctxs miner mc
     return $! Transactions (V.zip ctxs txOuts) coinOut
@@ -265,7 +265,7 @@ runCoinbase
     -> PactServiceM cas (P.CommandResult [P.TxLog A.Value])
 runCoinbase True _ _ _ _ _ = return noCoinbase
 runCoinbase False dbEnv miner enfCBFail usePrecomp mc = do
-    logger <- view (psCheckpointEnv . cpeLogger)
+    logger <- view psLogger
     rs <- view psMinerRewards
     v <- view chainwebVersion
     pd <- getTxContext def
@@ -284,7 +284,7 @@ runCoinbase False dbEnv miner enfCBFail usePrecomp mc = do
 
     upgradeInitCache newCache = do
       logInfo "Updating init cache for upgrade"
-      modify' $ over psInitCache (HM.union newCache)
+      updateInitCache newCache
 
 
 -- | Apply multiple Pact commands, incrementing the transaction Id for each.
@@ -312,7 +312,7 @@ applyPactCmd
     -> DList (P.CommandResult [P.TxLog A.Value])
     -> PactServiceM cas (T2 (DList (P.CommandResult [P.TxLog A.Value])) ModuleCache)
 applyPactCmd isGenesis dbEnv cmdIn miner mcache dl = do
-    logger <- view (psCheckpointEnv . cpeLogger)
+    logger <- view psLogger
     gasModel <- view psGasModel
     v <- view psVersion
 
@@ -329,7 +329,7 @@ applyPactCmd isGenesis dbEnv cmdIn miner mcache dl = do
                       mcache -}
 
     when isGenesis $
-      psInitCache <>= mcache'
+      updateInitCache mcache'
 
     unless isGenesis $ debugResult "applyPactCmd" result
 
@@ -387,10 +387,19 @@ minerReward v (MinerRewards rs) bh =
 
 
 data CRLogPair = CRLogPair P.Hash [P.TxLog A.Value]
+
+crLogPairProperties :: A.KeyValue kv => CRLogPair -> [kv]
+crLogPairProperties (CRLogPair h logs) =
+  [ "hash" A..= h
+  , "rawLogs" A..= logs
+  ]
+{-# INLINE crLogPairProperties #-}
+
 instance A.ToJSON CRLogPair where
-  toJSON (CRLogPair h logs) = A.object
-    [ "hash" A..= h
-    , "rawLogs" A..= logs ]
+  toJSON = A.object . crLogPairProperties
+  toEncoding = A.pairs . mconcat . crLogPairProperties
+  {-# INLINE toJSON #-}
+  {-# INLINE toEncoding #-}
 
 validateHashes
     :: BlockHeader

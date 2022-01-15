@@ -85,11 +85,10 @@ createTransactionProof
     -> Int
         -- ^ The index of the transaction in the block
     -> IO (TransactionProof SHA512t_256)
-createTransactionProof cutDb tcid scid bh i =
+createTransactionProof cutDb =
   createTransactionProof_
     (view cutDbWebBlockHeaderDb cutDb)
     (view cutDbPayloadCas cutDb)
-    tcid scid bh i
 
 -- | Version without CutDb dependency
 --
@@ -147,7 +146,7 @@ transactionProofPrefix i db payload = do
     -- 1. TX proof
     Just outs <- casLookup cas $ _blockPayloadTransactionsHash payload
         -- TODO: use the transaction tree cache
-    let (!subj, pos, t) = bodyTree @ChainwebHashTag outs i
+    let (!subj, pos, t) = bodyTree @_ @ChainwebHashTag outs i
         -- FIXME use log
     let !tree = (pos, t)
         -- we blindly trust the ix
@@ -184,11 +183,10 @@ createTransactionOutputProof
     -> Int
         -- ^ The index of the transaction in the block
     -> IO (TransactionOutputProof SHA512t_256)
-createTransactionOutputProof cutDb tcid scid bh i =
+createTransactionOutputProof cutDb =
   createTransactionOutputProof_
     (view cutDbWebBlockHeaderDb cutDb)
     (view cutDbPayloadCas cutDb)
-    tcid scid bh i
 
 
 -- | Version without CutDb dependency
@@ -250,7 +248,7 @@ outputProofPrefix i db payload = do
     -- 1. TX proof
     Just outs <- casLookup cas $ _blockPayloadOutputsHash payload
         -- TODO: use the transaction tree cache
-    let (!subj, pos, t) = bodyTree @ChainwebHashTag outs i
+    let (!subj, pos, t) = bodyTree @_ @ChainwebHashTag outs i
         -- FIXME use log
     let tree = (pos, t)
         -- we blindly trust the ix
@@ -455,7 +453,7 @@ crumbsToChain db srcCid trgHeader
        -> [(Int, BlockHeader)]
        -> IO (BlockHeader, [(Int, BlockHeader)])
     go !cur [] !acc = return (cur, acc)
-    go !cur (!h:t) !acc = do
+    go !cur ((!h):t) !acc = do
         adjpHdr <- lookupAdjacentParentHeader db cur h
         unless (_blockHeight adjpHdr >= 0) $ throwM
             $ InternalInvariantViolation

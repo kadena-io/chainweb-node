@@ -16,7 +16,6 @@ import Control.Monad
 import Control.Monad.Catch
 
 import Data.CAS.RocksDB
-import Data.Tuple.Strict
 import qualified Data.Vector as V
 
 import Pact.Types.ChainMeta

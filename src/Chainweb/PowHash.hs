@@ -3,6 +3,7 @@
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DerivingStrategies #-}
+{-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -44,7 +45,6 @@ import qualified Data.ByteArray as BA
 import Data.Bytes.Get
 import Data.Bytes.Put
 import qualified Data.ByteString as B
-import qualified Data.ByteString.Random as BR
 import qualified Data.ByteString.Short as SB
 import Data.Hashable hiding (hash)
 import Data.Proxy
@@ -52,8 +52,8 @@ import Data.Proxy
 import Foreign.Storable
 
 import GHC.Generics
-import GHC.TypeNats
 import GHC.Stack (HasCallStack)
+import GHC.TypeNats
 
 import Numeric.Natural
 
@@ -89,7 +89,7 @@ unsafeMkPowHash :: HasCallStack => B.ByteString -> PowHash
 unsafeMkPowHash = fromJuste . runGet decodePowHash
 {-# INLINE unsafeMkPowHash #-}
 
-instance IsMerkleLogEntry ChainwebHashTag PowHash where
+instance MerkleHashAlgorithm a => IsMerkleLogEntry a ChainwebHashTag PowHash where
     type Tag PowHash = 'PowHashTag
     toMerkleNode = encodeMerkleInputNode encodePowHash
     fromMerkleNode = decodeMerkleInputNode decodePowHash
@@ -118,7 +118,9 @@ instance Hashable PowHash where
 
 instance ToJSON PowHash where
     toJSON = toJSON . encodeB64UrlNoPaddingText . runPutS . encodePowHash
+    toEncoding = toEncoding . encodeB64UrlNoPaddingText . runPutS . encodePowHash
     {-# INLINE toJSON #-}
+    {-# INLINE toEncoding #-}
 
 instance FromJSON PowHash where
     parseJSON = withText "PowHash" $ \t ->
@@ -130,7 +132,7 @@ instance FromJSON PowHash where
 -- distributed, but not cryptographically safe.
 --
 randomPowHash :: MonadIO m => m PowHash
-randomPowHash = PowHash . SB.toShort <$> liftIO (BR.random powHashBytesCount)
+randomPowHash = PowHash <$> randomShortByteString powHashBytesCount
 
 -- -------------------------------------------------------------------------- --
 -- Cryptographic Hash

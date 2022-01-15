@@ -11,7 +11,7 @@
 -- Install Signal Handlers for SIGTERM and other signals that cause an "normal"
 -- termination of the service.
 --
--- The implementation of 'installSignalHandlers' is copied from
+-- The implementation of 'installFatalSignalHandlers' is copied from
 -- <https://ro-che.info/articles/2014-07-30-bracket>.
 --
 -- The windows (mingw32_HOST_OS) implementation of install Handler is an
@@ -20,7 +20,9 @@
 --
 --
 module Utils.InstallSignalHandlers
-( installSignalHandlers
+( installFatalSignalHandlers
+, installHandlerCross
+, sigHUP, sigTERM, sigUSR1, sigUSR2, sigXCPU, sigXFSZ 
 ) where
 
 import Control.Concurrent
@@ -77,6 +79,14 @@ installHandler signal handler = do
 newtype SignalException = SignalException Signal deriving (Show, Eq, Generic)
 instance Exception SignalException
 
+installHandlerCross :: Signal -> (Signal -> IO ()) -> IO ()
+installHandlerCross s h = 
+#ifdef mingw32_HOST_OS
+    installHandler s h
+#else
+    void $ installHandler s (Catch (h s)) Nothing
+#endif
+
 -- | Handle SIGTERM (and other signals) that are supposed to terminate the
 -- program. By default GHCs RTS only installs a handler for SIGINT (Ctrl-C).
 -- This function install handlers that that raise an exception on the main
@@ -97,16 +107,12 @@ instance Exception SignalException
 -- just calling forkIO, won't be notified and terminate without executing
 -- termination logic.
 --
-installSignalHandlers :: IO ()
-installSignalHandlers = do
+installFatalSignalHandlers :: [Signal] -> IO ()
+installFatalSignalHandlers signals = do
   main_thread_id <- myThreadId
   weak_tid <- mkWeakThreadId main_thread_id
-  forM_ [ sigHUP, sigTERM, sigUSR1, sigUSR2, sigXCPU, sigXFSZ ] $ \sig ->
-#if mingw32_HOST_OS
-    installHandler sig (send_exception weak_tid)
-#else
-    installHandler sig (Catch $ send_exception weak_tid sig) Nothing
-#endif
+  forM_ signals $ \sig ->
+    installHandlerCross sig (send_exception weak_tid)
   where
     send_exception weak_tid sig = do
       m <- deRefWeak weak_tid

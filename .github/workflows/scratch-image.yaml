@@ -1,0 +1,162 @@
+# ############################################################################ #
+# NOTES
+#
+# Make sure to run this on a 64bit platform with a modern CPU!
+#
+# Usage Example:
+#
+# > docker run -ti --rm \
+# >    --ulimit nofile=10000:10000
+# >    -p 1789:1789 \
+# >    -v chainweb-db:/db \
+# >    -v "$(pwd)"/mainnet-config.yaml:/mainnet-config.yaml \
+# >    chainweb-alpine \
+# >        --config-file=/mainnet-config.yaml \
+# >        --p2p-hostname=79.201.246.220 \
+# >        --p2p-port=1789 \
+# >        --database-directory=/db
+#
+# RocksDB:
+#
+# For Haskell cabal builds the shared library must be installed, even if
+# static linking is requested.
+#
+# Include ALL dependent libraries in the `extra-libraries` field of the cabal
+# file, including `stdc++`.
+#
+# TODO:
+#
+# Avoid usage of custom rocksdb-haskell package by attempting trick to link all
+# of rocksds dependencies into a single library?
+
+name: Distroless Docker Image
+on:
+  workflow_dispatch:
+    inputs:
+      baseImage:
+        description: 'The base image for the resulting docker image. Must be either "alpine" or "scratch"'
+        required: true
+        default: 'alpine'
+jobs:
+  build-image:
+    name: Build and publish docker image
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+    steps:
+    - name: validate inputs
+      run: |
+        case "${{ github.event.inputs.baseImage }}" in
+          alpine)
+            echo "::debug::Using 'alpine' base base image"
+            ;;
+          scratch)
+            echo "::debug::Using 'scratch' base base image"
+            ;;
+          *)
+            echo "::error::Unsupport base image input. Valid values are 'alpine' or 'scratch'"
+            exit 1
+            ;;
+        esac
+
+    - name: Check out the repo
+      uses: actions/checkout@v2
+
+    - name: Create cabal.project.local
+      run: |
+        cat > cabal.project.local <<EOF
+        package pact
+            flags: +cryptonite-ed25519
+            optimization: 1
+        package chainweb
+            executable-stripping: True
+            executable-static: True
+            optimization: 1
+        source-repository-package
+            type: git
+            location: https://github.com/larskuhtz/rocksdb-haskell
+            tag: f3a79b338b630431cdd8b74b6c362e339ed8ff50
+        package rocksdb-haskell
+            extra-lib-dirs: /usr/local/lib
+            extra-include-dirs: /usr/local/include
+        EOF
+
+    - name: Create Dockerfile
+      run: |
+        cat > Dockerfile <<EOF
+        FROM ghcr.io/larskuhtz/rocksdb-alpine-static:sha-f2e315d AS builder
+        ARG REVISION=master
+        RUN apk update && apk add --no-cache \
+            ncurses-dev \
+            ncurses-static \
+            curl \
+            musl-dev \
+            zlib-dev \
+            zlib-static \
+            ghc-dev \
+            bash \
+            cabal \
+            g++ \
+            git \
+            z3
+        COPY . /chainweb-node/
+        WORKDIR /chainweb-node
+        RUN cabal update
+        RUN cabal build --only-dependencies
+        RUN cabal build
+        RUN cabal run chainweb-tests -- --hide-successes
+        RUN cp ./dist-newstyle/build/x86_64-linux/ghc-8.8.4/chainweb-*/build/chainweb-node/chainweb-node .
+        RUN strip -s chainweb-node
+        RUN cabal freeze
+
+        FROM ${{ github.event.inputs.baseImage }}
+        COPY --from=builder /etc/ssl/certs/ /etc/ssl/certs/
+        COPY --from=builder /chainweb-node/chainweb-node /usr/bin/chainweb-node
+        COPY --from=builder /chainweb-node/LICENSE /usr/local/share/chainweb/
+        COPY --from=builder /chainweb-node/README.md /usr/local/share/chainweb/
+        COPY --from=builder /chainweb-node/CHANGELOG.md /usr/local/share/chainweb/
+        COPY --from=builder /chainweb-node/chainweb.cabal /usr/local/share/chainweb/
+        COPY --from=builder /chainweb-node/cabal.project.freeze /usr/local/share/chainweb/
+        ENTRYPOINT ["/usr/bin/chainweb-node"]
+        CMD ["--help"]
+        EOF
+
+    - name: Docker meta
+      id: docker_meta
+      uses: crazy-max/ghaction-docker-meta@v1
+      with:
+        images: ghcr.io/kadena-io/chainweb-node-${{ github.event.inputs.baseImage }}
+        tag-sha: true
+
+    - name: Set up QEMU
+      uses: docker/setup-qemu-action@v1
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v1
+
+    - name: Cache Docker layers
+      uses: actions/cache@v2
+      with:
+        path: /tmp/.buildx-cache
+        key: ${{ runner.os }}-buildx-${{ github.sha }}
+        restore-keys: |
+          ${{ runner.os }}-buildx-
+
+    - name: Login to GitHub Container Registry
+      uses: docker/login-action@v1
+      with:
+        registry: ghcr.io
+        username: kadena-build
+        password: ${{ secrets.PKG_MANAGEMENT }}
+
+    - name: Build and push
+      id: docker_build
+      uses: docker/build-push-action@v2
+      with:
+        push: true
+        context: .
+        file: ./Dockerfile
+        tags: ${{ steps.docker_meta.outputs.tags }}
+        labels: ${{ steps.docker_meta.outputs.labels }}
+        cache-from: type=local,src=/tmp/.buildx-cache
+        cache-to: type=local,dest=/tmp/.buildx-cache
+

@@ -29,7 +29,12 @@ module Chainweb.Chainweb.MinerResources
   , withMiningCoordination
   ) where
 
-import Data.Generics.Wrapped (_Unwrapped)
+import Control.Concurrent (threadDelay)
+import Control.Concurrent.Async
+import Control.Concurrent.STM (atomically)
+import Control.Concurrent.STM.TVar
+import Control.Lens (at, over, view, (&), (?~))
+
 import Data.HashMap.Strict (HashMap)
 import qualified Data.HashMap.Strict as HM
 import qualified Data.HashSet as HS
@@ -37,20 +42,14 @@ import Data.IORef (IORef, atomicWriteIORef, newIORef, readIORef)
 import Data.List (foldl')
 import qualified Data.Map.Strict as M
 import qualified Data.Set as S
-import Data.Tuple.Strict (T2(..), T3(..))
 import qualified Data.Vector as V
-
-import Control.Concurrent (threadDelay)
-import Control.Concurrent.Async
-import Control.Concurrent.STM (atomically)
-import Control.Concurrent.STM.TVar
-import Control.Lens (at, over, view, (&), (?~))
 
 import System.LogLevel (LogLevel(..))
 import qualified System.Random.MWC as MWC
 
 -- internal modules
 
+import Chainweb.BlockHash
 import Chainweb.BlockHeader
 import Chainweb.ChainId
 import Chainweb.Chainweb.ChainResources
@@ -61,75 +60,69 @@ import Chainweb.Miner.Config
 import Chainweb.Miner.Coordinator
 import Chainweb.Miner.Miners
 import Chainweb.Miner.Pact (Miner(..), minerId)
-import Chainweb.Payload (PayloadData(..), payloadWithOutputsToPayloadData)
+import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
 import Chainweb.Sync.WebBlockHeaderStore
-import Chainweb.Time (Micros, Time(..), getCurrentTimeIntegral)
-import Chainweb.Utils (fromJuste, runForever, thd)
+import Chainweb.Time (Micros, Time, minute, getCurrentTimeIntegral, scaleTimeSpan)
+import Chainweb.Utils (fromJuste, runForever, thd, T2(..), T3(..))
 import Chainweb.Version
 import Chainweb.WebPactExecutionService (_webPactExecutionService)
 
 import Data.LogMessage (JsonLog(..), LogFunction)
+
+import Numeric.AffineSpace
+
 import Utils.Logging.Trace (trace)
 
 -- -------------------------------------------------------------------------- --
 -- Miner
 
--- | For coordinating requests for work and mining solutions from remote Mining
--- Clients.
---
-data MiningCoordination logger cas = MiningCoordination
-    { _coordLogger :: !logger
-    , _coordCutDb :: !(CutDb cas)
-    , _coordState :: !(TVar MiningState)
-    , _coordLimit :: !Int
-    , _coord503s :: !(IORef Int)
-    , _coord403s :: !(IORef Int)
-    , _coordConf :: !CoordinationConfig
-    , _coordUpdateStreamCount :: !(IORef Int)
-    , _coordPrimedWork :: !(TVar PrimedWork) }
-
 withMiningCoordination
     :: Logger logger
     => logger
-    -> CoordinationConfig
+    -> MiningConfig
     -> CutDb cas
     -> (Maybe (MiningCoordination logger cas) -> IO a)
     -> IO a
 withMiningCoordination logger conf cdb inner
-    | not (_coordinationEnabled conf) = inner Nothing
+    | not (_coordinationEnabled coordConf) = inner Nothing
     | otherwise = do
         cut <- _cut cdb
         t <- newTVarIO mempty
-        let !miners = S.toList $ _coordinationMiners conf
-        m <- initialPayloads cut miners >>= newTVarIO
+        m <- initialPayloads cut >>= newTVarIO
         c503 <- newIORef 0
         c403 <- newIORef 0
-        l <- newIORef (_coordinationUpdateStreamLimit conf)
+        l <- newIORef (_coordinationUpdateStreamLimit coordConf)
         fmap thd . runConcurrently $ (,,)
             <$> Concurrently (prune t m c503 c403)
-            <*> Concurrently (mapConcurrently_ (primeWork miners m cut) cids)
+            <*> Concurrently (mapConcurrently_ (primeWork m cut) cids)
             <*> Concurrently (inner . Just $ MiningCoordination
                 { _coordLogger = logger
                 , _coordCutDb = cdb
                 , _coordState = t
-                , _coordLimit = _coordinationReqLimit conf
+                , _coordLimit = _coordinationReqLimit coordConf
                 , _coord503s = c503
                 , _coord403s = c403
-                , _coordConf = conf
+                , _coordConf = coordConf
                 , _coordUpdateStreamCount = l
                 , _coordPrimedWork = m
                 })
   where
+    coordConf = _miningCoordination conf
+    inNodeConf = _miningInNode conf
+
     cids :: [ChainId]
     cids = HS.toList . chainIds $ _chainwebVersion cdb
+
+    !miners = S.toList (_coordinationMiners coordConf)
+        <> [ _nodeMiner inNodeConf | _nodeMiningEnabled inNodeConf ]
 
     -- | THREAD: Keep a live-updated cache of Payloads for specific miners, such
     -- that when they request new work, the block can be instantly constructed
     -- without interacting with the Pact Queue.
     --
-    primeWork :: [Miner] -> TVar PrimedWork -> Cut -> ChainId -> IO ()
-    primeWork miners tpw c cid = runForever (logFunction logger) "primeWork" $ go c
+    primeWork :: TVar PrimedWork -> Cut -> ChainId -> IO ()
+    primeWork tpw c cid = runForever (logFunction logger) "primeWork" $ go c
       where
         go :: Cut -> IO a
         go cut = do
@@ -140,9 +133,11 @@ withMiningCoordination logger conf cdb inner
             atomically $ modifyTVar' tpw (silenceChain cid)
             -- Generate new payloads, one for each Miner we're managing --
             let !newParent = ParentHeader . fromJuste . HM.lookup cid $ _cutMap new
+                !newParentHash = _blockHash $ _parentHeader newParent
             payloads <- traverse (\m -> T2 m <$> getPayload newParent m) miners
             -- Update the cache in a single step --
-            atomically $ modifyTVar' tpw (\pw -> foldl' (updateCache cid) pw payloads)
+            atomically $ modifyTVar' tpw $ \pw ->
+                foldl' (updateCache cid newParentHash) pw payloads
             go new
 
     -- | Declare that a particular Chain is temporarily unavailable for new work
@@ -153,19 +148,20 @@ withMiningCoordination logger conf cdb inner
 
     updateCache
         :: ChainId
+        -> BlockHash
         -> PrimedWork
         -> T2 Miner PayloadData
         -> PrimedWork
-    updateCache cid (PrimedWork pw) (T2 (Miner mid _) payload) =
-        PrimedWork (pw & at mid . traverse . at cid ?~ Just payload)
+    updateCache cid !parent (PrimedWork pw) (T2 (Miner mid _) !payload) =
+        PrimedWork (pw & at mid . traverse . at cid ?~ Just (payload, parent))
 
     -- TODO: Should we initialize new chains, too, ahead of time?
     -- It seems that it's not needed and 'awaitNewCutByChainId' in 'primedWork'
     -- will take are of it.
     --
-    initialPayloads :: Cut -> [Miner] -> IO PrimedWork
-    initialPayloads cut ms =
-        PrimedWork . HM.fromList <$> traverse (\m -> (view minerId m,) <$> fromCut m pairs) ms
+    initialPayloads :: Cut -> IO PrimedWork
+    initialPayloads cut = PrimedWork . HM.fromList
+        <$> traverse (\m -> (view minerId m,) <$> fromCut m pairs) miners
       where
         pairs :: [T2 ChainId ParentHeader]
         pairs = fmap (uncurry T2) $ HM.toList $ ParentHeader <$> _cutMap cut
@@ -175,9 +171,11 @@ withMiningCoordination logger conf cdb inner
     fromCut
       :: Miner
       -> [T2 ChainId ParentHeader]
-      -> IO (HM.HashMap ChainId (Maybe PayloadData))
-    fromCut m cut =
-        HM.fromList <$> traverse (\(T2 cid bh) -> (cid,) . Just <$> getPayload bh m) cut
+      -> IO (HM.HashMap ChainId (Maybe (PayloadData, BlockHash)))
+    fromCut m cut = HM.fromList
+        <$> traverse
+            (\(T2 cid bh) -> (cid,) . Just . (, _blockHash (_parentHeader bh)) <$> getPayload bh m)
+            cut
 
     getPayload :: ParentHeader -> Miner -> IO PayloadData
     getPayload parent m = trace (logFunction logger)
@@ -193,12 +191,12 @@ withMiningCoordination logger conf cdb inner
     prune :: TVar MiningState -> TVar PrimedWork -> IORef Int -> IORef Int -> IO ()
     prune t tpw c503 c403 = runForever (logFunction logger) "MinerResources.prune" $ do
         let !d = 30_000_000  -- 30 seconds
-        let !maxAge = 300_000_000  -- 5 minutes
+        let !maxAge = (5 :: Int) `scaleTimeSpan` minute -- 5 minutes
         threadDelay d
-        ago <- over (_Unwrapped . _Unwrapped) (subtract maxAge) <$> getCurrentTimeIntegral
+        ago <- (.-^ maxAge) <$> getCurrentTimeIntegral
         m@(MiningState ms) <- atomically $ do
             ms <- readTVar t
-            modifyTVar' t . over _Unwrapped $ M.filter (f ago)
+            modifyTVar' t . over miningState $ M.filter (f ago)
             pure ms
         count503 <- readIORef c503
         count403 <- readIORef c403
@@ -230,13 +228,19 @@ withMiningCoordination logger conf cdb inner
         g :: PayloadData -> Int
         g = V.length . _payloadDataTransactions
 
--- | For in-process CPU mining by a Chainweb Node.
+-- | Miner resources are used by the test-miner when in-node mining is
+-- configured or by the mempool noop-miner (which keeps the mempool updated) in
+-- production setups.
 --
 data MinerResources logger cas = MinerResources
     { _minerResLogger :: !logger
     , _minerResCutDb :: !(CutDb cas)
     , _minerChainResources :: HashMap ChainId (ChainResources logger)
     , _minerResConfig :: !NodeMiningConfig
+    , _minerResCoordination :: !(Maybe (MiningCoordination logger cas))
+        -- ^ The primed work cache. This is Nothing when coordination is
+        -- disabled. It is needed by the in-node test miner. The mempoolNoopMiner
+        -- does not use it.
     }
 
 withMinerResources
@@ -244,16 +248,22 @@ withMinerResources
     -> NodeMiningConfig
     -> HashMap ChainId (ChainResources logger)
     -> CutDb cas
+    -> Maybe (MiningCoordination logger cas)
     -> (Maybe (MinerResources logger cas) -> IO a)
     -> IO a
-withMinerResources logger conf chainRes cutDb inner =
-        inner . Just $ MinerResources
-            { _minerResLogger = logger
-            , _minerResCutDb = cutDb
-            , _minerChainResources = chainRes
-            , _minerResConfig = conf
-            }
+withMinerResources logger conf chainRes cutDb tpw inner =
+    inner . Just $ MinerResources
+        { _minerResLogger = logger
+        , _minerResCutDb = cutDb
+        , _minerChainResources = chainRes
+        , _minerResConfig = conf
+        , _minerResCoordination = tpw
+        }
 
+-- | This runs the internal in-node miner. It is only used during testing.
+--
+-- When mining coordination is disabled, this function exits with an error.
+--
 runMiner
     :: forall logger cas
     .  Logger logger
@@ -261,12 +271,14 @@ runMiner
     => ChainwebVersion
     -> MinerResources logger cas
     -> IO ()
-runMiner v mr =
-    if enabled
-        then case window v of
-                 Nothing -> testMiner
-                 Just _ -> powMiner
-        else mempoolNoopMiner lf (_chainResMempool <$> _minerChainResources mr)
+runMiner v mr
+    | enabled = case _minerResCoordination mr of
+        Nothing -> error
+            "Mining coordination must be enabled in order to use the in-node test miner"
+        Just coord -> case window v of
+            Nothing -> testMiner coord
+            Just _ -> powMiner coord
+    | otherwise = mempoolNoopMiner lf (_chainResMempool <$> _minerChainResources mr)
 
   where
     enabled = _nodeMiningEnabled $ _minerResConfig mr
@@ -280,13 +292,8 @@ runMiner v mr =
     lf :: LogFunction
     lf = logFunction $ _minerResLogger mr
 
-    testMiner :: IO ()
-    testMiner = do
+    testMiner coord = do
         gen <- MWC.createSystemRandom
-        tpw <- newTVarIO mempty
-        localTest lf v tpw (_nodeMiner conf) cdb gen (_nodeTestMiners conf)
+        localTest lf v coord (_nodeMiner conf) cdb gen (_nodeTestMiners conf)
 
-    powMiner :: IO ()
-    powMiner = do
-        tpw <- newTVarIO mempty
-        localPOW lf v tpw (_nodeMiner conf) cdb
+    powMiner coord = localPOW lf v coord (_nodeMiner conf) cdb

@@ -12,7 +12,6 @@
 --
 module Chainweb.Payload.PayloadStore.RocksDB
 ( newPayloadDb
-, openPayloadDb
 
 -- * Internal
 , newBlockPayloadStore
@@ -81,5 +80,3 @@ newPayloadDb db = PayloadDb
     (newTransactionDb db)
     (newPayloadCache db)
 
-openPayloadDb :: FilePath -> IO (PayloadDb RocksDbCas)
-openPayloadDb path = newPayloadDb <$> openRocksDb path

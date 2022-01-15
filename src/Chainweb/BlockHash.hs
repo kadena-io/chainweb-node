@@ -34,7 +34,8 @@
 module Chainweb.BlockHash
 (
 -- * BlockHash
-  BlockHash(..)
+  BlockHash
+, BlockHash_(..)
 , encodeBlockHash
 , decodeBlockHash
 , randomBlockHash
@@ -91,6 +92,8 @@ import Chainweb.Utils
 -- -------------------------------------------------------------------------- --
 -- BlockHash
 
+type BlockHash = BlockHash_ ChainwebMerkleHashAlgorithm
+
 -- |
 --
 -- Note:
@@ -101,73 +104,79 @@ import Chainweb.Utils
 --     it can't be recovered from the hash. Including it gives extra
 --     type safety across serialization roundtrips.
 --
-newtype BlockHash = BlockHash MerkleLogHash
+newtype BlockHash_ a = BlockHash (MerkleLogHash a)
     deriving stock (Eq, Ord, Generic)
     deriving anyclass (NFData)
 
-instance Show BlockHash where
+instance Show (BlockHash_ a) where
     show = T.unpack . encodeToText
 
-instance Hashable BlockHash where
+instance Hashable (BlockHash_ a) where
     hashWithSalt s (BlockHash bytes) = hashWithSalt s bytes
     {-# INLINE hashWithSalt #-}
 
-instance Serialize BlockHash where
+instance MerkleHashAlgorithm a => Serialize (BlockHash_ a) where
     put = encodeBlockHash
     get = decodeBlockHash
 
-instance IsMerkleLogEntry ChainwebHashTag BlockHash where
-    type Tag BlockHash = 'BlockHashTag
+instance MerkleHashAlgorithm a => IsMerkleLogEntry a ChainwebHashTag (BlockHash_ a) where
+    type Tag (BlockHash_ a) = 'BlockHashTag
     toMerkleNode = encodeMerkleTreeNode
     fromMerkleNode = decodeMerkleTreeNode
     {-# INLINE toMerkleNode #-}
     {-# INLINE fromMerkleNode #-}
 
-encodeBlockHash :: MonadPut m => BlockHash -> m ()
+encodeBlockHash :: MonadPut m => BlockHash_ a -> m ()
 encodeBlockHash (BlockHash bytes) = encodeMerkleLogHash bytes
 {-# INLINE encodeBlockHash #-}
 
-decodeBlockHash :: MonadGet m => m BlockHash
+decodeBlockHash :: MerkleHashAlgorithm a => MonadGet m => m (BlockHash_ a)
 decodeBlockHash = BlockHash <$!> decodeMerkleLogHash
 {-# INLINE decodeBlockHash #-}
 
-instance ToJSON BlockHash where
+instance ToJSON (BlockHash_ a) where
     toJSON = toJSON . encodeB64UrlNoPaddingText . runPutS . encodeBlockHash
+    toEncoding = toEncoding . encodeB64UrlNoPaddingText . runPutS . encodeBlockHash
     {-# INLINE toJSON #-}
+    {-# INLINE toEncoding #-}
 
-instance FromJSON BlockHash where
+instance MerkleHashAlgorithm a => FromJSON (BlockHash_ a) where
     parseJSON = withText "BlockHash" $ either (fail . show) return
         . (runGet decodeBlockHash <=< decodeB64UrlNoPaddingText)
     {-# INLINE parseJSON #-}
 
-instance ToJSONKey BlockHash where
+instance ToJSONKey (BlockHash_ a) where
     toJSONKey = toJSONKeyText
         $ encodeB64UrlNoPaddingText . runPutS . encodeBlockHash
     {-# INLINE toJSONKey #-}
 
-instance FromJSONKey BlockHash where
+instance MerkleHashAlgorithm a => FromJSONKey (BlockHash_ a) where
     fromJSONKey = FromJSONKeyTextParser $ either (fail . show) return
         . (runGet decodeBlockHash <=< decodeB64UrlNoPaddingText)
     {-# INLINE fromJSONKey #-}
 
-randomBlockHash :: MonadIO m => m BlockHash
+randomBlockHash :: MerkleHashAlgorithm a => MonadIO m => m (BlockHash_ a)
 randomBlockHash = BlockHash <$!> randomMerkleLogHash
 {-# INLINE randomBlockHash #-}
 
-nullBlockHash :: BlockHash
+nullBlockHash :: MerkleHashAlgorithm a => BlockHash_ a
 nullBlockHash = BlockHash nullHashBytes
 {-# INLINE nullBlockHash #-}
 
-blockHashToText :: BlockHash -> T.Text
+blockHashToText :: BlockHash_ a -> T.Text
 blockHashToText = encodeB64UrlNoPaddingText . runPutS . encodeBlockHash
 {-# INLINE blockHashToText #-}
 
-blockHashFromText :: MonadThrow m => T.Text -> m BlockHash
+blockHashFromText
+    :: MerkleHashAlgorithm a
+    =>  MonadThrow m
+    => T.Text
+    -> m (BlockHash_ a)
 blockHashFromText t = either (throwM . TextFormatException . sshow) return
     $ runGet decodeBlockHash =<< decodeB64UrlNoPaddingText t
 {-# INLINE blockHashFromText #-}
 
-instance HasTextRepresentation BlockHash where
+instance MerkleHashAlgorithm a => HasTextRepresentation (BlockHash_ a) where
     toText = blockHashToText
     {-# INLINE toText #-}
     fromText = blockHashFromText

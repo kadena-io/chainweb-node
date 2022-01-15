@@ -37,7 +37,6 @@ import Control.Monad.Catch
 import Data.Foldable
 import Data.Function
 import qualified Data.HashMap.Strict as HM
-import Data.Tuple.Strict
 import qualified Data.Vector as V
 
 import GHC.Stack
@@ -110,8 +109,8 @@ withTestCutDb
         -- create blocks with a well-defined set of test transactions.
         --
     -> LogFunction
-    -> (forall cas . PayloadCasLookup cas => CutDb cas -> IO a)
         -- ^ a logg function (use @\_ _ -> return ()@ turn of logging)
+    -> (forall cas . PayloadCasLookup cas => CutDb cas -> IO a)
     -> IO a
 withTestCutDb rdb v n pactIO logfun f = do
     rocksDb <- testRocksDb "withTestCutDb" rdb
@@ -481,6 +480,7 @@ fakePact = WebPactExecutionService $ PactExecutionService
   , _pactPreInsertCheck = \_ _ -> error "Unimplemented"
   , _pactBlockTxHistory = \_ _ -> error "Unimplemented"
   , _pactHistoricalLookup = \_ _ _ -> error "Unimplemented"
+  , _pactSyncToBlock = \_ -> error "Unimplemented"
   }
   where
     getFakeOutput (Transaction txBytes) = TransactionOutput txBytes

@@ -70,6 +70,9 @@ import Pact.Types.Pretty
 testVersion :: ChainwebVersion
 testVersion = FastTimedCPM petersonChainGraph
 
+testEventsVersion :: ChainwebVersion
+testEventsVersion = FastTimedCPM singletonChainGraph
+
 tests :: ScheduledTest
 tests = ScheduledTest label $
     withResource newPayloadDb killPdb $ \pdb ->
@@ -88,7 +91,7 @@ tests = ScheduledTest label $
         \ctx -> _schTest $ execTest ctx testReq4
     , withPactCtxSQLite testVersion (bhdbIO rocksIO) pdb defaultPactServiceConfig $
         \ctx -> _schTest $ execTest ctx testReq5
-    , withPactCtxSQLite testVersion (bhdbIO rocksIO) pdb defaultPactServiceConfig $
+    , withPactCtxSQLite testEventsVersion (bhdbIO rocksIO) pdb defaultPactServiceConfig $
         \ctx -> _schTest $ execTxsTest ctx "testTfrGas" testTfrGas
     , withPactCtxSQLite testVersion (bhdbIO rocksIO) pdb defaultPactServiceConfig $
         \ctx -> _schTest $ execTxsTest ctx "testGasPayer" testGasPayer
@@ -225,7 +228,7 @@ testTfrNoGasFails =
          $ mkExec' "(coin.transfer \"sender00\" \"sender01\" 1.0)"
 
 testTfrGas :: TxsTest
-testTfrGas = (V.singleton <$> tx,checkResultSuccess test)
+testTfrGas = (V.singleton <$> tx,test)
   where
     tx = buildCwCmd $ set cbSigners
          [ mkSigner' sender00
@@ -235,8 +238,13 @@ testTfrGas = (V.singleton <$> tx,checkResultSuccess test)
          ]
          $ mkCmd "testTfrGas"
          $ mkExec' "(coin.transfer \"sender00\" \"sender01\" 1.0)"
-    test [PactResult (Right pv)] = assertEqual "transfer succeeds" (pString "Write succeeded") pv
-    test r = assertFailure $ "Expected single result, got: " ++ show r
+    test (Left e) = assertFailure $ "Expected success, got " ++ show e
+    test (Right (TestResponse [(_,cr)] _)) = do
+      checkPactResultSuccess "transfer succeeds" (_crResult cr) $ \pv ->
+        assertEqual "transfer succeeds" (pString "Write succeeded") pv
+      e <- mkTransferEvent "sender00" "sender01" 1.0 "coin" "_S6HOO3J8-dEusvtnjSF4025dAxKu6eFSIOZocQwimA"
+      assertEqual "event found" [e] (_crEvents cr)
+    test r = assertFailure $ "expected single test response: " ++ show r
 
 testBadSenderFails :: TxsTest
 testBadSenderFails =
@@ -584,6 +592,7 @@ _showValidationFailure = do
         , _crLogs = Just [TxLog "Domain" "Key" (object [ "stuff" .= True ])]
         , _crContinuation = Nothing
         , _crMetaData = Nothing
+        , _crEvents = []
         }
       outs1 = Transactions
         { _transactionPairs = V.zip txs (V.singleton cr1)

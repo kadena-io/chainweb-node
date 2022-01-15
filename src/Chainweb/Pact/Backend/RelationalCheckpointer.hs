@@ -21,7 +21,7 @@ import Control.Lens
 import Control.Monad
 import Control.Monad.Catch
 import Control.Monad.IO.Class
-import Control.Monad.State (gets, modify')
+import Control.Monad.State (gets)
 
 import Data.ByteString (ByteString)
 import Data.Aeson hiding (encode,(.=))
@@ -36,7 +36,6 @@ import qualified Data.Set as S
 import Data.Serialize hiding (get)
 import Data.String.Conv
 import qualified Data.Text as T
-import Data.Tuple.Strict
 import qualified Data.Vector as V
 import qualified Data.Vector.Algorithms.Tim as TimSort
 
@@ -114,13 +113,15 @@ type Db = MVar (BlockEnv SQLiteEnv)
 doRestore :: ChainwebVersion -> ChainId -> Db -> Maybe (BlockHeight, ParentHash) -> IO PactDbEnv'
 doRestore v cid dbenv (Just (bh, hash)) = runBlockEnv dbenv $ do
     setModuleNameFix
+    setSortedKeys
     clearPendingTxState
     void $ withSavepoint PreBlock $ handlePossibleRewind v cid bh hash
     beginSavepoint Block
     return $! PactDbEnv' $! PactDbEnv chainwebPactDb dbenv
   where
     -- Module name fix follows the restore call to checkpointer.
-    setModuleNameFix = modify' $ set bsModuleNameFix $! enableModuleNameFix v bh
+    setModuleNameFix = bsModuleNameFix .= enableModuleNameFix v bh
+    setSortedKeys = bsSortedKeys .= pact420Upgrade v bh
 doRestore _ _ dbenv Nothing = runBlockEnv dbenv $ do
     clearPendingTxState
     withSavepoint DbTransaction $

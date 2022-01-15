@@ -27,7 +27,6 @@ import Control.Monad.Catch
 import Data.Aeson
 import Data.Map (Map)
 import Data.Text (Text, pack, unpack)
-import Data.Tuple.Strict
 import Data.Vector (Vector)
 
 import GHC.Generics
@@ -49,7 +48,7 @@ import Chainweb.Mempool.Mempool (InsertError(..))
 import Chainweb.Miner.Pact
 import Chainweb.Payload
 import Chainweb.Transaction
-import Chainweb.Utils (encodeToText)
+import Chainweb.Utils (T2, encodeToText)
 import Chainweb.Version
 
 
@@ -71,14 +70,14 @@ data PactServiceConfig = PactServiceConfig
 
 
 data PactException
-  = BlockValidationFailure Value
-  | PactInternalError Text
-  | PactTransactionExecError PactHash Text
-  | CoinbaseFailure Text
+  = BlockValidationFailure !Value
+  | PactInternalError !Text
+  | PactTransactionExecError !PactHash !Text
+  | CoinbaseFailure !Text
   | NoBlockValidatedYet
-  | TransactionValidationException [(PactHash, Text)]
-  | PactDuplicateTableError Text
-  | TransactionDecodeFailure Text
+  | TransactionValidationException ![(PactHash, Text)]
+  | PactDuplicateTableError !Text
+  | TransactionDecodeFailure !Text
   | RewindLimitExceeded
       { _rewindExceededLimit :: !Natural
           -- ^ Rewind limit
@@ -121,13 +120,14 @@ internalError = throwM . PactInternalError
 internalError' :: MonadThrow m => String -> m a
 internalError' = internalError . pack
 
-data RequestMsg = NewBlockMsg NewBlockReq
-                | ValidateBlockMsg ValidateBlockReq
-                | LocalMsg LocalReq
-                | LookupPactTxsMsg LookupPactTxsReq
-                | PreInsertCheckMsg PreInsertCheckReq
-                | BlockTxHistoryMsg BlockTxHistoryReq
-                | HistoricalLookupMsg HistoricalLookupReq
+data RequestMsg = NewBlockMsg !NewBlockReq
+                | ValidateBlockMsg !ValidateBlockReq
+                | LocalMsg !LocalReq
+                | LookupPactTxsMsg !LookupPactTxsReq
+                | PreInsertCheckMsg !PreInsertCheckReq
+                | BlockTxHistoryMsg !BlockTxHistoryReq
+                | HistoricalLookupMsg !HistoricalLookupReq
+                | SyncToBlockMsg !SyncToBlockReq
                 | CloseMsg
                 deriving (Show)
 
@@ -141,15 +141,15 @@ data NewBlockReq = NewBlockReq
 instance Show NewBlockReq where show NewBlockReq{..} = show (_newBlockHeader, _newMiner)
 
 data ValidateBlockReq = ValidateBlockReq
-    { _valBlockHeader :: BlockHeader
-    , _valPayloadData :: PayloadData
-    , _valResultVar :: PactExMVar PayloadWithOutputs
+    { _valBlockHeader :: !BlockHeader
+    , _valPayloadData :: !PayloadData
+    , _valResultVar :: !(PactExMVar PayloadWithOutputs)
     }
 instance Show ValidateBlockReq where show ValidateBlockReq{..} = show (_valBlockHeader, _valPayloadData)
 
 data LocalReq = LocalReq
-    { _localRequest :: ChainwebTransaction
-    , _localResultVar :: PactExMVar (CommandResult Hash)
+    { _localRequest :: !ChainwebTransaction
+    , _localResultVar :: !(PactExMVar (CommandResult Hash))
     }
 instance Show LocalReq where show LocalReq{..} = show _localRequest
 
@@ -195,21 +195,35 @@ instance Show HistoricalLookupReq where
   show (HistoricalLookupReq h d k _) =
     "HistoricalLookupReq@" ++ show h ++ ", " ++ show d ++ ", " ++ show k
 
+data SyncToBlockReq = SyncToBlockReq
+    { _syncToBlockHeader :: !BlockHeader
+    , _syncToResultVar :: !(PactExMVar ())
+    }
+instance Show SyncToBlockReq where show SyncToBlockReq{..} = show _syncToBlockHeader
+
 data SpvRequest = SpvRequest
-    { _spvRequestKey :: RequestKey
-    , _spvTargetChainId :: Pact.ChainId
+    { _spvRequestKey :: !RequestKey
+    , _spvTargetChainId :: !Pact.ChainId
     } deriving (Eq, Show, Generic)
 
+spvRequestProperties :: KeyValue kv => SpvRequest -> [kv]
+spvRequestProperties r =
+  [ "requestKey" .= _spvRequestKey r
+  , "targetChainId" .= _spvTargetChainId r
+  ]
+{-# INLINE spvRequestProperties #-}
+
 instance ToJSON SpvRequest where
-  toJSON (SpvRequest k tid) = object
-    [ "requestKey" .= k
-    , "targetChainId" .= tid
-    ]
+  toJSON = object . spvRequestProperties
+  toEncoding = pairs . mconcat . spvRequestProperties
+  {-# INLINE toJSON #-}
+  {-# INLINE toEncoding #-}
 
 instance FromJSON SpvRequest where
   parseJSON = withObject "SpvRequest" $ \o -> SpvRequest
     <$> o .: "requestKey"
     <*> o .: "targetChainId"
+  {-# INLINE parseJSON #-}
 
 newtype TransactionOutputProofB64 = TransactionOutputProofB64 Text
     deriving stock (Eq, Show, Generic)

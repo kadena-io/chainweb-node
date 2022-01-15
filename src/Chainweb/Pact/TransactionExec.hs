@@ -27,6 +27,9 @@ module Chainweb.Pact.TransactionExec
 , applyContinuation'
 , runPayload
 , readInitModules
+, enablePactEvents'
+, enforceKeysetFormats'
+, disablePact40Natives
 
   -- * Gas Execution
 , buyGas
@@ -49,6 +52,7 @@ module Chainweb.Pact.TransactionExec
 
 import Control.DeepSeq
 import Control.Lens
+import Control.Monad
 import Control.Monad.Catch
 import Control.Monad.Reader
 import Control.Monad.State.Strict
@@ -61,22 +65,22 @@ import qualified Data.ByteString as B
 import qualified Data.ByteString.Short as SB
 import Data.Decimal (Decimal, roundTo)
 import Data.Default (def)
-import Data.Foldable (for_, traverse_)
+import Data.Foldable (for_, traverse_, foldl')
 import qualified Data.HashMap.Strict as HM
 import Data.Maybe (isJust)
 import qualified Data.Set as S
 import Data.Text (Text)
 import qualified Data.Text as T
-import Data.Tuple.Strict (T2(..))
 
 -- internal Pact modules
 
-import Pact.Eval (eval, liftTerm, lookupModule)
+import Pact.Eval (eval, liftTerm)
 import Pact.Gas (freeGasEnv)
 import Pact.Interpreter
 import Pact.Native.Capabilities (evalCap)
 import Pact.Parse (ParsedDecimal(..), parseExprs)
 import Pact.Runtime.Capabilities (popCapStack)
+import Pact.Runtime.Utils (lookupModule)
 import Pact.Types.Capability
 import Pact.Types.Command
 import Pact.Types.Hash as Pact
@@ -98,7 +102,7 @@ import Chainweb.Pact.Templates
 import Chainweb.Pact.Transactions.UpgradeTransactions
 import Chainweb.Pact.Types hiding (logError)
 import Chainweb.Transaction
-import Chainweb.Utils (encodeToByteString, sshow, tryAllSynchronous)
+import Chainweb.Utils (encodeToByteString, sshow, tryAllSynchronous, T2(..))
 import Chainweb.Version as V
 
 
@@ -157,6 +161,10 @@ applyCmd v logger pdbenv miner gasModel txCtx spv cmdIn mcache0 =
       : ( [ FlagOldReadOnlyBehavior | isPactBackCompatV16 ]
           ++ [ FlagPreserveModuleNameBug | not isModuleNameFix ]
           ++ [ FlagPreserveNsModuleInstallBug | not isModuleNameFix2 ]
+          ++ enablePactEvents' txCtx
+          ++ enablePact40 txCtx
+          ++ enablePact420 txCtx
+          ++ enforceKeysetFormats' txCtx
         )
 
     cenv = TransactionEnv Transactional pdbenv logger (ctxToPublicData txCtx) spv nid gasPrice
@@ -201,9 +209,9 @@ applyCmd v logger pdbenv miner gasModel txCtx spv cmdIn mcache0 =
         Left e ->
           -- redeem gas failure is fatal (block-failing) so miner doesn't lose coins
           fatal $ "tx failure for request key while redeeming gas: " <> sshow e
-        Right _ -> do
+        Right es -> do
           logs <- use txLogs
-          return $! set crLogs (Just logs) cr
+          return $! set crLogs (Just logs) $ over crEvents (es ++) cr
 
 applyGenesisCmd
     :: Logger
@@ -230,7 +238,10 @@ applyGenesisCmd logger dbEnv spv cmd =
         , _txGasPrice = 0.0
         , _txRequestKey = rk
         , _txGasLimit = 0
-        , _txExecutionConfig = def
+        , _txExecutionConfig = mkExecutionConfig
+          [ FlagDisablePact40
+          , FlagDisablePact420
+          ]
         }
     txst = TransactionState
         { _txCache = mempty
@@ -240,7 +251,8 @@ applyGenesisCmd logger dbEnv spv cmd =
         , _txGasModel = _geGasModel freeGasEnv
         }
 
-    interp = initStateInterpreter $ initCapabilities [magic_GENESIS, magic_COINBASE]
+    interp = initStateInterpreter
+      $ initCapabilities [magic_GENESIS, magic_COINBASE]
 
     go = do
       cr <- catchesPactError $! runGenesis cmd permissiveNamespacePolicy interp
@@ -279,9 +291,12 @@ applyCoinbase v logger dbEnv (Miner mid mks) reward@(ParsedDecimal d) txCtx
   where
     fork1_3InEffect = vuln797Fix v cid bh
     throwCritical = fork1_3InEffect || enfCBFailure
-    ec = mkExecutionConfig
+    ec = mkExecutionConfig $
       [ FlagDisableModuleInstall
-      , FlagDisableHistoryInTransactionalMode ]
+      , FlagDisableHistoryInTransactionalMode ] ++
+      enablePactEvents' txCtx ++
+      enablePact40 txCtx ++
+      enablePact420 txCtx
     tenv = TransactionEnv Transactional dbEnv logger (ctxToPublicData txCtx) noSPVSupport
            Nothing 0.0 rk 0 ec
     txst = TransactionState mc mempty 0 Nothing (_geGasModel freeGasEnv)
@@ -316,7 +331,7 @@ applyCoinbase v logger dbEnv (Miner mid mks) reward@(ParsedDecimal d) txCtx
 
           return $! T2
             (CommandResult rk (_erTxId er) (PactResult (Right (last $ _erOutput er)))
-              (_erGas er) (Just $ logs) (_erExec er) Nothing)
+              (_erGas er) (Just $ logs) (_erExec er) Nothing (_erEvents er))
             upgradedModuleCache
 
 
@@ -425,31 +440,29 @@ applyUpgrades
   -> BlockHeight
   -> TransactionM p (Maybe ModuleCache)
 applyUpgrades v cid height
-     | coinV2Upgrade v cid height = go
+     | coinV2Upgrade v cid height = applyCoinV2
+     | pact4coin3Upgrade At v height = applyCoinV3
      | otherwise = return Nothing
   where
     installCoinModuleAdmin = set (evalCapabilities . capModuleAdmin) $ S.singleton (ModuleName "coin" Nothing)
-    go = applyTxs (upgradeTransactions v cid)
+
+    applyCoinV2 = applyTxs (upgradeTransactions v cid)
+
+    applyCoinV3 = applyTxs coinV3Transactions
 
     applyTxs txsIO = do
       infoLog "Applying upgrade!"
       txs <- map (fmap payloadObj) <$> liftIO txsIO
 
       --
-      -- Note (emily): the historical use of 'mapM_' here means that we are not
-      -- threading the updated module cache from tx to tx in our upgrades.
-      -- This means that the outputed module cache is the set of modules
-      -- loaded in the /last/ tx, and that result will go into the hash.
-      --
-      -- Whether this can be fixed in the future should be explored, but we've
-      -- already built fixes to address this problem that also affect the
-      -- hashes of later blocks.
+      -- In order to prime the module cache with all new modules for subsequent
+      -- blocks, the caches from each tx are collected and the union of all
+      -- those caches is returned. The calling code adds this new cache to the
+      -- init cache in the pact service state (_psInitCache).
       --
 
-      local (set txExecutionConfig def) $
-        mapM_ applyTx txs
-      mc <- use txCache
-      return $ Just mc
+      caches <- local (set txExecutionConfig (mkExecutionConfig [])) $ mapM applyTx txs
+      return $ Just (HM.unions caches)
 
     interp = initStateInterpreter $ installCoinModuleAdmin $
       initCapabilities [mkMagicCapSlot "REMEDIATE"]
@@ -458,11 +471,10 @@ applyUpgrades v cid height
       infoLog $ "Running upgrade tx " <> sshow (_cmdHash tx)
 
       tryAllSynchronous (runGenesis tx permissiveNamespacePolicy interp) >>= \case
-        Right _ -> return ()
+        Right _ -> use txCache
         Left e -> do
           logError $ "Upgrade transaction failed! " <> sshow e
-          void $ throwM e
-
+          throwM e
 
 applyTwentyChainUpgrade
     :: ChainwebVersion
@@ -518,7 +530,7 @@ jsonErrorResult err msg = do
       <> ": " <> show err
 
     return $! CommandResult rk Nothing (PactResult (Left err))
-      gas (Just logs) Nothing Nothing
+      gas (Just logs) Nothing Nothing []
 
 runPayload
     :: Command (Payload PublicMeta ParsedCode)
@@ -574,7 +586,7 @@ applyExec interp em senderSigs hsh nsp = do
     -- forcing it here for lazy errors. TODO NFData the Pacts
     lastResult <- return $!! last _erOutput
     return $! CommandResult rk _erTxId (PactResult (Right lastResult))
-      _erGas (Just logs) _erExec Nothing
+      _erGas (Just logs) _erExec Nothing _erEvents
 
 -- | Variation on 'applyExec' that returns 'EvalResult' as opposed to
 -- wrapping it up in a JSON result.
@@ -590,7 +602,12 @@ applyExec' interp (ExecMsg parsedCode execData) senderSigs hsh nsp
     | null (_pcExps parsedCode) = throwCmdEx "No expressions found"
     | otherwise = do
 
+      pactFlags <- asks _txExecutionConfig
+
       eenv <- mkEvalEnv nsp (MsgData execData Nothing hsh senderSigs)
+          <&> disablePact40Natives pactFlags
+          <&> disablePact420Natives pactFlags
+
       er <- liftIO $! evalExec interp eenv parsedCode
 
       for_ (_erExec er) $ \pe -> debug
@@ -601,6 +618,27 @@ applyExec' interp (ExecMsg parsedCode execData) senderSigs hsh nsp
       setTxResultState er
 
       return er
+
+enablePactEvents' :: TxContext -> [ExecutionFlag]
+enablePactEvents' tc
+    | enablePactEvents (ctxVersion tc) (ctxCurrentBlockHeight tc) = []
+    | otherwise = [FlagDisablePactEvents]
+
+enforceKeysetFormats' :: TxContext -> [ExecutionFlag]
+enforceKeysetFormats' tc
+    | enforceKeysetFormats (ctxVersion tc) (ctxCurrentBlockHeight tc) = [FlagEnforceKeyFormats]
+    | otherwise = []
+
+
+enablePact40 :: TxContext -> [ExecutionFlag]
+enablePact40 tc
+    | pact4coin3Upgrade After (ctxVersion tc) (ctxCurrentBlockHeight tc) = []
+    | otherwise = [FlagDisablePact40]
+
+enablePact420 :: TxContext -> [ExecutionFlag]
+enablePact420 tc
+    | pact420Upgrade (ctxVersion tc) (ctxCurrentBlockHeight tc) = []
+    | otherwise = [FlagDisablePact420]
 
 
 -- | Execute a 'ContMsg' and return the command result and module cache
@@ -619,7 +657,7 @@ applyContinuation interp cm senderSigs hsh nsp = do
     rk <- view txRequestKey
     -- last safe here because cont msg is guaranteed one exp
     return $! (CommandResult rk _erTxId (PactResult (Right (last _erOutput)))
-      _erGas (Just logs) _erExec Nothing)
+      _erGas (Just logs) _erExec Nothing) _erEvents
 
 -- | Execute a 'ContMsg' and return just eval result, not wrapped in a
 -- 'CommandResult' wrapper
@@ -632,7 +670,13 @@ applyContinuation'
     -> NamespacePolicy
     -> TransactionM p EvalResult
 applyContinuation' interp cm@(ContMsg pid s rb d _) senderSigs hsh nsp = do
-    eenv <- mkEvalEnv nsp $ MsgData d pactStep hsh senderSigs
+
+    pactFlags <- asks _txExecutionConfig
+
+    eenv <- mkEvalEnv nsp (MsgData d pactStep hsh senderSigs)
+          <&> disablePact40Natives pactFlags
+          <&> disablePact420Natives pactFlags
+
     er <- liftIO $! evalContinuation interp eenv cm
 
     setTxResultState er
@@ -650,6 +694,7 @@ buyGas :: Bool -> Command (Payload PublicMeta ParsedCode) -> Miner -> Transactio
 buyGas isPactBackCompatV16 cmd (Miner mid mks) = go
   where
     sender = view (cmdPayload . pMeta . pmSender) cmd
+
     initState mc = setModuleCache mc $ initCapabilities [magic_GAS]
 
     run input = do
@@ -739,7 +784,7 @@ enrichedMsgBody cmd = case (_pPayload $ _cmdPayload cmd) of
 --
 -- see: 'pact/coin-contract/coin.pact#fund-tx'
 --
-redeemGas :: Command (Payload PublicMeta ParsedCode) -> TransactionM p ()
+redeemGas :: Command (Payload PublicMeta ParsedCode) -> TransactionM p [PactEvent]
 redeemGas cmd = do
     mcache <- use txCache
 
@@ -749,7 +794,7 @@ redeemGas cmd = do
 
     fee <- gasSupplyOf <$> use txGasUsed <*> view txGasPrice
 
-    void $! applyContinuation (initState mcache) (redeemGasCmd fee gid)
+    _crEvents <$> applyContinuation (initState mcache) (redeemGasCmd fee gid)
       (_pSigners $ _cmdPayload cmd) (toUntypedHash $ _cmdHash cmd)
       managedNamespacePolicy
 
@@ -832,6 +877,27 @@ txSizeAccelerationFee costPerByte = total
     bytePenalty = 512
     power :: Integer = 7
 {-# INLINE txSizeAccelerationFee #-}
+
+-- | Disable certain natives around pact 4 / coin v3 upgrade
+--
+disablePact40Natives :: ExecutionConfig -> EvalEnv e -> EvalEnv e
+disablePact40Natives =
+  disablePactNatives ["enumerate" , "distinct" , "emit-event" , "concat" , "str-to-list"] FlagDisablePact40
+{-# INLINE disablePact40Natives #-}
+
+disablePactNatives :: [Text] -> ExecutionFlag -> ExecutionConfig -> EvalEnv e -> EvalEnv e
+disablePactNatives natives flag ec = if has (ecFlags . ix flag) ec
+    then over (eeRefStore . rsNatives) (\k -> foldl' (flip HM.delete) k bannedNatives)
+    else id
+  where
+    bannedNatives = natives <&> \name -> Name (BareName name def)
+{-# INLINE disablePactNatives #-}
+
+-- | Disable certain natives around pact 4.2.0
+--
+disablePact420Natives :: ExecutionConfig -> EvalEnv e -> EvalEnv e
+disablePact420Natives = disablePactNatives ["zip", "fold-db"] FlagDisablePact420
+{-# INLINE disablePact420Natives #-}
 
 -- | Set the module cache of a pact 'EvalState'
 --

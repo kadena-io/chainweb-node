@@ -14,8 +14,8 @@ import Control.Monad.IO.Class
 
 import Data.CAS.RocksDB
 import qualified Data.HashMap.Strict as HM
+import qualified Data.Map.Strict as M
 import Data.List (intercalate)
-import Data.Tuple.Strict (T2(..))
 import qualified Data.Text.IO as T
 
 import Test.Tasty.HUnit
@@ -45,6 +45,7 @@ import Chainweb.Test.Cut
 import Chainweb.Test.Cut.TestBlockDb
 import Chainweb.Test.Utils
 import Chainweb.Test.Pact.Utils
+import Chainweb.Utils (T2(..))
 import Chainweb.Version
 import Chainweb.Version.Utils
 import Chainweb.WebBlockHeaderDB
@@ -78,7 +79,7 @@ tests rdb =
 
 type CacheTest cas =
   (PactServiceM cas ()
-  ,IO (MVar ModuleCache) -> ModuleCache -> Assertion)
+  ,IO (MVar ModuleInitCache) -> ModuleInitCache -> Assertion)
 
 -- | Do genesis load, snapshot cache.
 testInitial :: PayloadCasLookup cas => CacheTest cas
@@ -112,8 +113,9 @@ testCoinbase iobdb = (initPayloadState >> doCoinbase,snapshotCache)
       void $ execValidateBlock mempty nextH (payloadWithOutputsToPayloadData pwo)
 
 -- | Interfaces can't be upgraded, but modules can, so verify hash in that case.
-justModuleHashes :: ModuleCache -> HM.HashMap ModuleName (Maybe ModuleHash)
-justModuleHashes = HM.map $ \v -> preview (_1 . mdModule . _MDModule . mHash) v
+justModuleHashes :: ModuleInitCache -> HM.HashMap ModuleName (Maybe ModuleHash)
+justModuleHashes = upd . snd . last . M.toList where
+  upd = HM.map $ \v -> preview (_1 . mdModule . _MDModule . mHash) v
 
 genblock :: BlockHeader
 genblock = genesisBlockHeader testVer testChainId
@@ -121,7 +123,7 @@ genblock = genesisBlockHeader testVer testChainId
 initPayloadState :: PayloadCasLookup cas => PactServiceM cas ()
 initPayloadState = initialPayloadState dummyLogger mempty testVer testChainId
 
-snapshotCache :: IO (MVar ModuleCache) -> ModuleCache -> IO ()
+snapshotCache :: IO (MVar ModuleInitCache) -> ModuleInitCache -> IO ()
 snapshotCache iomcache initCache = do
   mcache <- iomcache
   modifyMVar_ mcache (const (pure initCache))
@@ -130,7 +132,7 @@ snapshotCache iomcache initCache = do
 withPact'
     :: IO TestBlockDb
     -> IO FilePath
-    -> IO (MVar ModuleCache)
+    -> IO (MVar ModuleInitCache)
     -> CacheTest RocksDbCas
     -> (Assertion -> TestTree)
     -> TestTree

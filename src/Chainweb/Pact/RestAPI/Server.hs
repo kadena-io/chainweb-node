@@ -14,7 +14,7 @@
 {-# LANGUAGE TypeApplications #-}
 
 module Chainweb.Pact.RestAPI.Server
-( PactServerData
+( PactServerData(..)
 , PactServerData_
 , PactCmdLog(..)
 , SomePactServerData(..)
@@ -30,14 +30,14 @@ module Chainweb.Pact.RestAPI.Server
 , validateCommand
 ) where
 
-
 import Control.Applicative
 import Control.Concurrent.STM (atomically, retry)
 import Control.Concurrent.STM.TVar
 import Control.DeepSeq
-import Control.Lens (set, view, (^.), (^?!), _head)
+import Control.Lens (set, view, preview, (^?!), _head)
 import Control.Monad.Catch hiding (Handler)
 import Control.Monad.Reader
+import Control.Monad.State.Strict
 import Control.Monad.Trans.Except (ExceptT)
 import Control.Monad.Trans.Maybe
 
@@ -50,8 +50,10 @@ import qualified Data.ByteString.Short as SB
 import Data.CAS
 import Data.Default (def)
 import Data.Foldable
+import Data.Function
 import Data.HashMap.Strict (HashMap)
 import qualified Data.HashMap.Strict as HM
+import qualified Data.List as L
 import Data.List.NonEmpty (NonEmpty)
 import qualified Data.List.NonEmpty as NEL
 import Data.Maybe
@@ -59,19 +61,62 @@ import Data.Singletons
 import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Text.Encoding
-import Data.Tuple.Strict
 import Data.Vector (Vector)
 import qualified Data.Vector as V
 
+import Ethereum.Block
+import Ethereum.Header
+import Ethereum.Misc (bytes)
+import Ethereum.Receipt
+import Ethereum.Receipt.ReceiptProof
+import Ethereum.RLP (putRlpByteString)
+
 import GHC.Generics
+import GHC.Stack
+
+import Numeric.Natural
 
 import Prelude hiding (init, lookup)
 
 import Servant
 
+import qualified Streaming.Prelude as S
+
 import System.LogLevel
 
 -- internal modules
+
+import Chainweb.BlockHash
+import Chainweb.BlockHeader
+import Chainweb.BlockHeaderDB
+import Chainweb.BlockHeight
+import Chainweb.ChainId
+import Chainweb.Crypto.MerkleLog
+import Chainweb.Cut
+import qualified Chainweb.CutDB as CutDB
+import Chainweb.Graph
+import Chainweb.Logger
+import Chainweb.Mempool.Mempool
+    (InsertError(..), InsertType(..), MempoolBackend(..), TransactionHash(..))
+import Chainweb.Pact.RestAPI
+import Chainweb.Pact.RestAPI.EthSpv
+import Chainweb.Pact.RestAPI.SPV
+import Chainweb.Pact.Service.Types
+import Chainweb.Pact.SPV
+import Chainweb.Payload
+import Chainweb.Payload.PayloadStore
+import Chainweb.RestAPI.Orphans ()
+import Chainweb.RestAPI.Utils
+import Chainweb.SPV (SpvException(..))
+import Chainweb.SPV.CreateProof
+import Chainweb.SPV.EventProof
+import Chainweb.SPV.OutputProof
+import Chainweb.SPV.PayloadProof
+import Chainweb.Transaction (ChainwebTransaction, mkPayloadWithText)
+import qualified Chainweb.TreeDB as TreeDB
+import Chainweb.Utils
+import Chainweb.Version
+import Chainweb.WebPactExecutionService
 
 import Pact.Types.API
 import qualified Pact.Types.ChainId as Pact
@@ -81,35 +126,14 @@ import qualified Pact.Types.Hash as Pact
 import Pact.Types.PactError (PactError(..), PactErrorType(..))
 import Pact.Types.Pretty (pretty)
 
-import Chainweb.BlockHash
-import Chainweb.BlockHeader
-import Chainweb.BlockHeight
-import Chainweb.ChainId
-import Chainweb.Chainweb.ChainResources
-import Chainweb.Chainweb.CutResources
-import Chainweb.Cut
-import qualified Chainweb.CutDB as CutDB
-import Chainweb.Logger
-import Chainweb.Mempool.Mempool
-    (InsertError(..), InsertType(..), MempoolBackend(..), TransactionHash(..))
-import Chainweb.Pact.RestAPI
-import Chainweb.Pact.Service.Types
-import Chainweb.Pact.SPV
-import Chainweb.Payload
-import Chainweb.Payload.PayloadStore
-import Chainweb.RestAPI.Orphans ()
-import Chainweb.RestAPI.Utils
-import Chainweb.SPV (SpvException(..))
-import Chainweb.SPV.CreateProof
-import Chainweb.Transaction (ChainwebTransaction, mkPayloadWithText)
-import qualified Chainweb.TreeDB as TreeDB
-import Chainweb.Utils
-import Chainweb.Version
-import Chainweb.WebPactExecutionService
+-- -------------------------------------------------------------------------- --
 
-------------------------------------------------------------------------------
-type PactServerData logger cas =
-    (CutResources logger cas, ChainResources logger)
+data PactServerData logger cas = PactServerData
+    { _pactServerDataCutDb :: !(CutDB.CutDb cas)
+    , _pactServerDataMempool :: !(MempoolBackend ChainwebTransaction)
+    , _pactServerDataLogger :: !logger
+    , _pactServerDataPact :: !PactExecutionService
+    }
 
 newtype PactServerData_ (v :: ChainwebVersionT) (c :: ChainIdT) logger cas
     = PactServerData_ { _unPactServerData :: PactServerData logger cas }
@@ -145,21 +169,26 @@ pactServer
     => Logger logger
     => PactServerData logger cas
     -> Server (PactServiceApi v c)
-pactServer (cut, chain) =
-    pactApiHandlers :<|> pactSpvHandler
+pactServer d =
+    pactApiHandlers
+        :<|> pactSpvHandler
+        :<|> ethSpvHandler
+        :<|> pactSpv2Handler
   where
     cid = FromSing (SChainId :: Sing c)
-    mempool = _chainResMempool chain
-    logger = _chainResLogger chain
+    mempool = _pactServerDataMempool d
+    logger = _pactServerDataLogger d
+    pact = _pactServerDataPact d
+    cdb = _pactServerDataCutDb d
 
     pactApiHandlers
       = sendHandler logger mempool
-      :<|> pollHandler logger cut cid chain
-      :<|> listenHandler logger cut cid chain
-      :<|> localHandler logger cut cid chain
+      :<|> pollHandler logger cdb cid pact mempool
+      :<|> listenHandler logger cdb cid pact mempool
+      :<|> localHandler logger pact
 
-    pactSpvHandler = spvHandler logger cut cid chain
-
+    pactSpvHandler = spvHandler logger cdb cid
+    pactSpv2Handler = spv2Handler logger cdb cid
 
 somePactServer :: SomePactServerData -> SomeServer
 somePactServer (SomePactServerData (db :: PactServerData_ v c logger cas))
@@ -183,6 +212,8 @@ data PactCmdLog
   | PactCmdLogSpv Text
   deriving (Show, Generic, ToJSON, NFData)
 
+-- -------------------------------------------------------------------------- --
+-- Send Handler
 
 sendHandler
     :: Logger logger
@@ -217,41 +248,53 @@ sendHandler logger mempool (SubmitBatch cmds) = Handler $ do
                           , ": "
                           , show insErr
                           ]
+-- -------------------------------------------------------------------------- --
+-- Poll Handler
 
 pollHandler
-    :: PayloadCasLookup cas
+    :: HasCallStack
+    => PayloadCasLookup cas
     => Logger logger
     => logger
-    -> CutResources logger cas
+    -> CutDB.CutDb cas
     -> ChainId
-    -> ChainResources logger
+    -> PactExecutionService
+    -> MempoolBackend ChainwebTransaction
     -> Poll
     -> Handler PollResponses
-pollHandler logger cutR cid chain (Poll request) = do
+pollHandler logger cdb cid pact mem (Poll request) = do
     traverse_ validateRequestKey request
 
     liftIO $! logg Info $ PactCmdLogPoll $ fmap requestKeyToB16Text request
     -- get current best cut
-    cut <- liftIO $ CutDB._cut $ _cutResCutDb cutR
-    PollResponses <$!> liftIO (internalPoll cutR cid chain cut request)
+    cut <- liftIO $! CutDB._cut cdb
+    PollResponses <$!> liftIO (internalPoll pdb bdb mem pact cut request)
   where
+    pdb = view CutDB.cutDbPayloadCas cdb
+    bdb = fromJuste $ preview (CutDB.cutDbBlockHeaderDb cid) cdb
     logg = logFunctionJson (setComponent "poll-handler" logger)
+
+-- -------------------------------------------------------------------------- --
+-- Listen Handler
 
 listenHandler
     :: PayloadCasLookup cas
     => Logger logger
     => logger
-    -> CutResources logger cas
+    -> CutDB.CutDb cas
     -> ChainId
-    -> ChainResources logger
+    -> PactExecutionService
+    -> MempoolBackend ChainwebTransaction
     -> ListenerRequest
     -> Handler ListenResponse
-listenHandler logger cutR cid chain (ListenerRequest key) = do
+listenHandler logger cdb cid pact mem (ListenerRequest key) = do
     validateRequestKey key
 
     liftIO $ logg Info $ PactCmdLogListen $ requestKeyToB16Text key
     liftIO (registerDelay defaultTimeout >>= runListen)
   where
+    pdb = view CutDB.cutDbPayloadCas cdb
+    bdb = fromJuste $ preview (CutDB.cutDbBlockHeaderDb cid) cdb
     logg = logFunctionJson (setComponent "listen-handler" logger)
     runListen :: TVar Bool -> IO ListenResponse
     runListen timedOut = go Nothing
@@ -265,7 +308,7 @@ listenHandler logger cutR cid chain (ListenerRequest key) = do
 
         poll :: Cut -> IO ListenResponse
         poll cut = do
-            hm <- internalPoll cutR cid chain cut (pure key)
+            hm <- internalPoll pdb bdb mem pact cut (pure key)
             if HM.null hm
               then go (Just cut)
               else return $! ListenResponse $ snd $ head $ HM.toList hm
@@ -278,29 +321,29 @@ listenHandler logger cutR cid chain (ListenerRequest key) = do
              if t
                  then return Nothing
                  else Just <$> do
-                     !cut <- CutDB._cutStm $ _cutResCutDb cutR
+                     !cut <- CutDB._cutStm cdb
                      when (lastCut == Just cut) retry
                      return cut
 
     -- TODO: make configurable
-    defaultTimeout = 120 * 1000000 -- two minutes
+    defaultTimeout = 180 * 1000000 -- two minutes
 
--- TODO: reimplement local in terms of pact execution service
+-- -------------------------------------------------------------------------- --
+-- Local Handler
+
 localHandler
     :: Logger logger
     => logger
-    -> CutResources logger cas
-    -> ChainId
-    -> ChainResources logger
+    -> PactExecutionService
     -> Command Text
     -> Handler (CommandResult Hash)
-localHandler logger _ _ cr cmd = do
+localHandler logger pact cmd = do
     liftIO $ logg Info $ PactCmdLogLocal cmd
     cmd' <- case validateCommand cmd of
       (Right !c) -> return c
       Left err ->
         throwError $ err400 { errBody = "Validation failed: " <> BSL8.pack err }
-    r <- liftIO $ _pactLocal (_chainResPact cr) cmd'
+    r <- liftIO $ _pactLocal pact cmd'
     case r of
       Left err ->
         throwError $ err400 { errBody = "Execution failed: " <> BSL8.pack (show err) }
@@ -308,6 +351,8 @@ localHandler logger _ _ cr cmd = do
   where
     logg = logFunctionJson (setComponent "local-handler" logger)
 
+-- -------------------------------------------------------------------------- --
+-- Cross Chain SPV Handler
 
 spvHandler
     :: forall cas l
@@ -315,21 +360,18 @@ spvHandler
       , PayloadCasLookup cas
       )
     => l
-    -> CutResources l cas
-        -- ^ cut resources contain the cut, payload, and
-        -- block db
+    -> CutDB.CutDb cas
+        -- ^ cut db
     -> ChainId
         -- ^ the chain id of the source chain id used in the
         -- execution of a cross-chain-transfer.
-    -> ChainResources l
-        -- ^ chain resources contain a pact service
     -> SpvRequest
         -- ^ Contains the (pact) chain id of the target chain id used in the
         -- 'target-chain' field of a cross-chain-transfer.
         -- Also contains the request key of of the cross-chain transfer
         -- tx request.
     -> Handler TransactionOutputProofB64
-spvHandler l cutR cid chainR (SpvRequest rk (Pact.ChainId ptid)) = do
+spvHandler l cdb cid (SpvRequest rk (Pact.ChainId ptid)) = do
     validateRequestKey rk
 
     liftIO $! logg (sshow ph)
@@ -358,10 +400,9 @@ spvHandler l cutR cid chainR (SpvRequest rk (Pact.ChainId ptid)) = do
 
     return $! b64 p
   where
-    pe = _chainResPact chainR
+    pe = _webPactExecutionService $ view CutDB.cutDbPactService cdb
     ph = Pact.fromUntypedHash $ unRequestKey rk
-    cdb = _cutResCutDb cutR
-    bdb = _chainResBlockHeaderDb chainR
+    bdb = fromJuste $ preview (CutDB.cutDbBlockHeaderDb cid) cdb
     pdb = view CutDB.cutDbPayloadCas cdb
     b64 = TransactionOutputProofB64
       . encodeB64UrlNoPaddingText
@@ -377,17 +418,136 @@ spvHandler l cutR cid chainR (SpvRequest rk (Pact.ChainId ptid)) = do
       . encodeUtf8
       . _spvExceptionMsg
 
-------------------------------------------------------------------------------
+-- -------------------------------------------------------------------------- --
+-- SPV2 Handler
+
+spv2Handler
+    :: forall cas l
+    . ( Logger l
+      , PayloadCasLookup cas
+      )
+    => l
+    -> CutDB.CutDb cas
+        -- ^ CutDb contains the cut, payload, and block db
+    -> ChainId
+        -- ^ ChainId of the target
+    -> Spv2Request
+        -- ^ Contains the (pact) chain id of the target chain id used in the
+        -- 'target-chain' field of a cross-chain-transfer.
+        -- Also contains the request key of of the cross-chain transfer
+        -- tx request.
+    -> Handler SomePayloadProof
+spv2Handler l cdb cid r = case _spvSubjectIdType sid of
+    SpvSubjectResult
+        |  _spv2ReqAlgorithm r /= SpvSHA512t_256 ->
+            toErr $ "Algorithm " <> sshow r <> " is not supported with SPV result proofs."
+        | otherwise -> proof createOutputProofDb
+    SpvSubjectEvents
+        | cid /= _spvSubjectIdChain sid ->
+            toErr "Cross chain SPV proofs for are not supported for Pact events"
+        | otherwise -> case _spv2ReqAlgorithm r of
+            SpvSHA512t_256 -> proof createEventsProofDb
+            SpvKeccak_256 -> proof createEventsProofDbKeccak256
+  where
+    proof
+        :: forall a
+        . MerkleHashAlgorithm a
+        => MerkleHashAlgorithmName a
+        => (BlockHeaderDb -> PayloadDb cas -> Natural -> BlockHash -> RequestKey -> IO (PayloadProof a))
+        -> Handler SomePayloadProof
+    proof f = SomePayloadProof <$> do
+        validateRequestKey rk
+        liftIO $! logg (sshow ph)
+        T2 bhe bha <- liftIO (_pactLookup pe (NoRewind cid) (pure ph)) >>= \case
+            Left e ->
+                toErr $ "Internal error: transaction hash lookup failed: " <> sshow e
+            Right v -> case v ^?! _head of
+                Nothing -> toErr $ "Transaction hash not found: " <> sshow ph
+                Just t -> return t
+
+        let confDepth = fromMaybe (diameter (chainGraphAt_ cdb bhe)) $ _spv2ReqMinimalProofDepth r
+
+        liftIO (tryAllSynchronous $ f bdb pdb confDepth bha rk) >>= \case
+            Left e -> toErr $ "SPV proof creation failed:" <> sshow e
+            Right q -> return q
+
+    sid = _spv2ReqSubjectIdentifier r
+
+    rk = _spvSubjectIdReqKey sid
+    pe = _webPactExecutionService $ view CutDB.cutDbPactService cdb
+    ph = Pact.fromUntypedHash $ unRequestKey rk
+    bdb = fromJuste $ preview (CutDB.cutDbBlockHeaderDb cid) cdb
+    pdb = view CutDB.cutDbPayloadCas cdb
+
+    logg = logFunctionJson (setComponent "spv-handler" l) Info
+      . PactCmdLogSpv
+
+    toErr e = throwError $ err400 { errBody = e }
+
+-- -------------------------------------------------------------------------- --
+-- Eth SPV Handler
+
+ethSpvHandler
+    :: EthSpvRequest
+    -> Handler EthSpvResponse
+ethSpvHandler req = do
+
+    -- find block with transaction
+    (block, rest) <- case evalState start Nothing of
+        Left () -> toErr $ "the transaction " <> sshow tx <> " is not contained in any of the provided blocks"
+        Right x -> return x
+
+    -- select and order set of receipts in the block
+    --
+    -- How big can blocks be? Should we create an index instead?
+    --
+    rcs <- forM (_rpcBlockTransactions block) $ \t -> do
+        case L.find (\r -> _rpcReceiptTransactionHash r == t) receipts of
+            Nothing -> toErr $ "missing receipt for tx " <> sshow t
+            Just x -> return x
+
+    -- select and order set of extra headers and create proof
+    case rpcReceiptProof (_rpcBlockHeader block) (hdrs block rest) rcs (TransactionIndex 28) of
+        Left e -> toErr $ "failed to create proof: " <> sshow e
+        Right proof -> return $ EthSpvResponse $
+            encodeB64UrlNoPaddingText (putRlpByteString proof)
+
+  where
+    receipts = _ethSpvReqReceipts req
+    blocks = _ethSpvReqBlocks req
+    orderedBlocks = L.sortOn (_hdrNumber . _rpcBlockHeader) blocks
+    tx = _ethSpvReqTransactionHash req
+
+    start = S.each orderedBlocks
+        & S.dropWhile (notElem tx . _rpcBlockTransactions)
+        & S.next
+
+    -- filter sequence consecutive headers
+    hdrs block rest = flip evalState (Just $ _rpcBlockHash block) $ rest
+        & S.filterM (\b -> do
+            c <- get
+            if Just (bytes $ _hdrParentHash $ _rpcBlockHeader b) == (bytes <$> c)
+                then True <$ put (Just $ _rpcBlockHash b)
+                else return False
+        )
+        & S.map _rpcBlockHeader
+        & S.toList_
+
+    toErr e = throwError $ err400 { errBody = e }
+
+-- --------------------------------------------------------------------------- --
+-- Poll Helper
 
 internalPoll
     :: PayloadCasLookup cas
-    => CutResources logger cas
-    -> ChainId
-    -> ChainResources logger
+    => PayloadDb cas
+    -> BlockHeaderDb
+    -> MempoolBackend ChainwebTransaction
+    -> PactExecutionService
     -> Cut
     -> NonEmpty RequestKey
     -> IO (HashMap RequestKey (CommandResult Hash))
-internalPoll cutR cid chain cut requestKeys0 = do
+internalPoll pdb bhdb mempool pactEx cut requestKeys0 = do
     -- get leaf block header for our chain from current best cut
     chainLeaf <- lookupCutM cid cut
     results0 <- _pactLookup pactEx (DoRewind chainLeaf) requestKeys >>= either throwM return
@@ -396,17 +556,14 @@ internalPoll cutR cid chain cut requestKeys0 = do
     let results1 = V.zip requestKeysV results0
     let (present0, missing) = V.unstablePartition (isJust . snd) results1
     let present = V.map (second fromJuste) present0
-    lookedUp <- (catMaybes . V.toList) <$> mapM lookup present
+    lookedUp <- catMaybes . V.toList <$> mapM lookup present
     badlisted <- V.toList <$> checkBadList (V.map fst missing)
     let outputs = lookedUp ++ badlisted
     return $! HM.fromList outputs
   where
-    mempool = _chainResMempool chain
-    pactEx = view chainResPact chain
+    cid = _chainId bhdb
     !requestKeysV = V.fromList $ NEL.toList requestKeys0
     !requestKeys = V.map (Pact.fromUntypedHash . unRequestKey) requestKeysV
-    pdb = cutR ^. cutsCutDb . CutDB.cutDbPayloadCas
-    bhdb = _chainResBlockHeaderDb chain
 
     lookup
         :: (RequestKey, T2 BlockHeight BlockHash)
@@ -423,7 +580,7 @@ internalPoll cutR cid chain cut requestKeys0 = do
         (PayloadWithOutputs txsBs _ _ _ _ _) <- MaybeT $ casLookup pdb payloadHash
         !txs <- mapM fromTx txsBs
         case find matchingHash txs of
-            (Just (_cmd, (TransactionOutput output))) -> do
+            Just (_cmd, TransactionOutput output) -> do
                 out <- MaybeT $ return $! decodeStrict' output
                 when (_crReqKey out /= key) $
                     fail "internal error: Transaction output doesn't match its hash!"
@@ -448,7 +605,7 @@ internalPoll cutR cid chain cut requestKeys0 = do
         let res = PactResult (Left err)
             err = PactError TxFailure def [] doc
             doc = pretty (T.pack $ show InsertErrorBadlisted)
-            !cr = CommandResult rk Nothing res 0 Nothing Nothing Nothing
+            !cr = CommandResult rk Nothing res 0 Nothing Nothing Nothing []
         in (rk, cr)
 
     enrichCR :: BlockHeader -> CommandResult Hash -> MaybeT IO (CommandResult Hash)
@@ -459,6 +616,9 @@ internalPoll cutR cid chain cut requestKeys0 = do
        , "blockHash" .= _blockHash bh
        , "prevBlockHash" .= _blockParent bh
        ])
+
+-- -------------------------------------------------------------------------- --
+-- Misc Utils
 
 toPactTx :: Transaction -> Maybe (Command Text)
 toPactTx (Transaction b) = decodeStrict' b

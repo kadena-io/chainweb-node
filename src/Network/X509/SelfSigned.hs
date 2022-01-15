@@ -126,7 +126,6 @@ import Data.Hashable
 import Data.Hourglass (DateTime, durationHours, timeAdd)
 import qualified Data.List as L
 import qualified Data.List.NonEmpty as NE
-import Data.Maybe (maybeToList)
 import Data.PEM (PEM(..), pemParseBS, pemWriteBS)
 import Data.Proxy
 import Data.String (fromString)
@@ -472,7 +471,9 @@ instance HasTextRepresentation X509CertPem where
 
 instance ToJSON X509CertPem where
     toJSON = toJSON . toText
+    toEncoding = toEncoding . toText
     {-# INLINE toJSON #-}
+    {-# INLINE toEncoding #-}
 
 instance FromJSON X509CertPem where
     parseJSON = parseJsonFromText "X509CertPem"
@@ -549,7 +550,9 @@ instance HasTextRepresentation X509KeyPem where
 
 instance ToJSON X509KeyPem where
     toJSON = toJSON . toText
+    toEncoding = toEncoding . toText
     {-# INLINE toJSON #-}
+    {-# INLINE toEncoding #-}
 
 instance FromJSON X509KeyPem where
     parseJSON = parseJsonFromText "X509KeyPem"
@@ -667,9 +670,8 @@ data TlsPolicy
 --
 certificateCacheManagerSettings
     :: TlsPolicy
-    -> Maybe Credential
     -> IO ManagerSettings
-certificateCacheManagerSettings policy credential = do
+certificateCacheManagerSettings policy = do
     certstore <- getCertStore policy
     return $ mkManagerSettings
         (TLSSettings (settings certstore))
@@ -686,9 +688,7 @@ certificateCacheManagerSettings policy credential = do
         , clientShared = def
             { sharedCAStore = certstore
             , sharedValidationCache = validationCache policy
-            , sharedCredentials = Credentials $ maybeToList credential
             }
-
         }
 
     validationCache TlsInsecure = ValidationCache
@@ -812,7 +812,9 @@ instance HasTextRepresentation X509CertChainPem where
 
 instance ToJSON X509CertChainPem where
     toJSON = toJSON . toText
+    toEncoding = toEncoding . toText
     {-# INLINE toJSON #-}
+    {-# INLINE toEncoding #-}
 
 instance FromJSON X509CertChainPem where
     parseJSON = parseJsonFromText "X509CertChainPem"

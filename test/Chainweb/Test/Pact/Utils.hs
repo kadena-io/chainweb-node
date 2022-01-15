@@ -23,6 +23,7 @@ module Chainweb.Test.Pact.Utils
   SimpleKeyPair
 , sender00
 , sender01
+, allocation00KeyPair
 , testKeyPairs
 , mkKeySetData
 -- * 'PactValue' helpers
@@ -30,6 +31,10 @@ module Chainweb.Test.Pact.Utils
 , pString
 , pDecimal
 , pBool
+, pList
+-- * event helpers
+, mkEvent
+, mkTransferEvent
 -- * Capability helpers
 , mkCapability
 , mkTransferCap
@@ -99,7 +104,6 @@ module Chainweb.Test.Pact.Utils
 import Control.Arrow ((&&&))
 import Control.Concurrent.Async
 import Control.Concurrent.MVar
-import Control.Concurrent.STM
 import Control.Lens (view, _3, makeLenses)
 import Control.Monad
 import Control.Monad.Catch
@@ -117,7 +121,6 @@ import Data.Maybe
 import Data.Text (Text)
 import qualified Data.Text.Encoding as T
 import qualified Data.Text.IO as T
-import Data.Tuple.Strict
 import Data.String
 import qualified Data.Vector as V
 
@@ -140,12 +143,14 @@ import Pact.Types.Command
 import Pact.Types.Crypto
 import Pact.Types.Exp
 import Pact.Types.Gas
+import Pact.Types.Hash
 import Pact.Types.Logger
 import Pact.Types.Names
 import Pact.Types.PactValue
 import Pact.Types.RPC
-import Pact.Types.Runtime (PactId)
+import Pact.Types.Runtime (PactEvent(..))
 import Pact.Types.SPV
+import Pact.Types.Term
 import Pact.Types.SQLite
 import Pact.Types.Util (parseB16TextOnly)
 
@@ -207,6 +212,13 @@ sender01 = ("6be2f485a7af75fedb4b7f153a903f7e6000ca4aa501179c91a2450b777bd2a7"
            ,"2beae45b29e850e6b1882ae245b0bab7d0689ebdd0cd777d4314d24d7024b4f7")
 
 
+allocation00KeyPair :: SimpleKeyPair
+allocation00KeyPair =
+    ( "d82d0dcde9825505d86afb6dcc10411d6b67a429a79e21bda4bb119bf28ab871"
+    , "c63cd081b64ae9a7f8296f11c34ae08ba8e1f8c84df6209e5dee44fa04bcb9f5"
+    )
+
+
 -- | Make trivial keyset data
 mkKeySetData :: Text  -> [SimpleKeyPair] -> Value
 mkKeySetData name keys = object [ name .= map fst keys ]
@@ -231,7 +243,37 @@ pDecimal = PLiteral . LDecimal
 pBool :: Bool -> PactValue
 pBool = PLiteral . LBool
 
+pList :: [PactValue] -> PactValue
+pList = PList . V.fromList
 
+mkEvent
+    :: MonadThrow m
+    => Text
+    -- ^ name
+    -> [PactValue]
+    -- ^ params
+    -> ModuleName
+    -> Text
+    -- ^ module hash
+    -> m PactEvent
+mkEvent n params m mh = do
+  mh' <- decodeB64UrlNoPaddingText mh
+  return $ PactEvent n params m (ModuleHash (Hash mh'))
+
+mkTransferEvent
+    :: MonadThrow m
+    => Text
+    -- ^ sender
+    -> Text
+    -- ^ receiver
+    -> Decimal
+    -- ^ amount
+    -> ModuleName
+    -> Text
+    -- ^ module hash
+    -> m PactEvent
+mkTransferEvent sender receiver amount m mh =
+  mkEvent "TRANSFER" [pString sender,pString receiver,pDecimal amount] m mh
 -- ----------------------------------------------------------------------- --
 -- Capability helpers
 
@@ -407,7 +449,7 @@ testPactCtxSQLite
   -> PactServiceConfig
   -> IO (TestPactCtx cas,PactDbEnv')
 testPactCtxSQLite v cid bhdb pdb sqlenv conf = do
-    (dbSt,cpe) <- initRelationalCheckpointer' initialBlockState sqlenv logger v cid
+    (dbSt,cpe) <- initRelationalCheckpointer' initialBlockState sqlenv cpLogger v cid
     let rs = readRewards
         ph = ParentHeader $ genesisBlockHeader v cid
     !ctx <- TestPactCtx
@@ -418,7 +460,7 @@ testPactCtxSQLite v cid bhdb pdb sqlenv conf = do
   where
     initialBlockState = initBlockState $ Version.genesisHeight v cid
     loggers = pactTestLogger False -- toggle verbose pact test logging
-    logger = newLogger loggers $ LogName ("PactService" ++ show cid)
+    cpLogger = newLogger loggers $ LogName ("Checkpointer" ++ show cid)
     pactServiceEnv cpe rs = PactServiceEnv
         { _psMempoolAccess = Nothing
         , _psCheckpointEnv = cpe
@@ -433,6 +475,8 @@ testPactCtxSQLite v cid bhdb pdb sqlenv conf = do
         , _psAllowReadsInLocal = _pactAllowReadsInLocal conf
         , _psIsBatch = False
         , _psCheckpointerDepth = 0
+        , _psLogger = newLogger loggers $ LogName ("PactService" ++ show cid)
+        , _psLoggers = loggers
         }
 
 
@@ -472,6 +516,8 @@ withWebPactExecutionService v bdb mempoolAccess act =
               evalPactServiceM_ ctx $ Right <$> execBlockTxHistory h d
           , _pactHistoricalLookup = \h d k ->
               evalPactServiceM_ ctx $ Right <$> execHistoricalLookup h d k
+          , _pactSyncToBlock = \h ->
+              evalPactServiceM_ ctx $ execSyncToBlock h
           }
 
 
@@ -607,7 +653,7 @@ withPactTestBlockDb version cid logLevel rdb mempoolIO pactConfig f =
   withResource (startPact bdbio iodir) stopPact $ f . fmap (view _3)
   where
     startPact bdbio iodir = do
-        reqQ <- atomically $ newTBQueue 2000
+        reqQ <- newPactQueue 2000
         dir <- iodir
         bdb <- bdbio
         mempool <- mempoolIO

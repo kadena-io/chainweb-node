@@ -1,5 +1,313 @@
 # `chainweb-node` Changelog
 
+## 2.12 (2022-01-07)
+
+This version replaces all previous versions. Any prior version will stop working
+on **2022-01-13T00:00:00Z**. Node administrators must upgrade to this version
+before that date.
+
+This version will stop working on **2022-02-24T00:00:00Z**.
+
+Changes:
+
+*   Upgrade Pact version to 4.2.0. (#1323)
+
+*   The default setting for pruning the chainweb database has been changed to 
+    "none" to reduce unnecessary work and speed up node start times. (#1332)
+
+*   Nodes will now take a snapshot of the chainweb database (RocksDB) if sent 
+    the SIGUSR1 signal. These snapshots can be used for backups and do not take
+    significant space until the database has diverged significantly from the 
+    snapshot. Also, SIGUSR2 no longer terminates the node. (#1328)
+
+*   Nodes will log their progress while pruning the database. (#1315)
+
+*   The Pact queue has been instrumented to log its utilization level and 
+    latency. (#1284)
+
+## 2.11.1 (2021-11-23)
+
+This is a miner feature release. It is compatible with version 2.11. Upgrading
+optional. Please, check the list of changes before upgrading.
+
+Changes:
+
+*   New command line options for configuring mining coordination. The options
+    `--enable-mining-coordination --mining-public-key=<PUBLIC_KEY>` enable the
+    mining API of a node and configure `k:<PUBLIC_KEY>` as the account that
+    receives mining rewards. (#1311)
+
+*   Include GET endpoints for cuts, headers, branches, and payloads
+    into the service API. (#1309)
+
+*   Add configuration for stopping the node after synchronizing the
+    Pact state to the chain database and before starting connecting to
+    the P2P network. This is useful to initializing the Pact database
+    for a new node or validating an existing database. (#1312)
+
+*   Remove rate limiting support for endpoints of the service API.
+    Rate limiting for the service API should be done by using an external
+    reverse proxy. (#1300)
+
+*   Log filter rules allow fine grained support for controlling
+    which messages are actually submitted. This version adds the ability to
+    specify for a filter rule a probability with which a log messages passes the
+    respective filter rule. This allows to emit only a certain percentage of
+    message of some kind to the backend. (#1300)
+
+## 2.11 (2021-11-09)
+
+This version replaces all previous versions. Any prior version will stop working
+on **2021-11-18T00:00:00Z**. Node administrators must upgrade to this version
+before that date.
+
+This version will stop working on **2022-01-13T00:00:00Z**.
+
+Changes:
+
+*    Add priorities to the pact services queue. This gives consensus and
+     new block requests priority over requests from the service APIs and the
+     mempool. It makes nodes more resilient under load. (#1280)
+
+*    Upgrade Pact version to 4.1.2. (#1286, #1287)
+
+*    Enforce keyset formats. (#1287)
+
+*    A new configuration option `chainweb.minGasPrice` (`--min-gas-price`) is
+     added that configures a minimum gas price for transactions. The mempool
+     will reject any transactions that doesn't pay at least this amount for
+     gas. This allows node operators to enforce mindful usage of resources
+     even when the majority of blocks isn't full. (#1282)
+
+     The default minimum gas limit is raised from 1e-12 to 1e-8.
+
+*    Chainweb node now depends on the OpenSSL library being installed on
+     the system. (Before it already depended on the OpenSSL root certificates
+     being available.)
+
+## 2.10 (2021-10-07)
+
+This version replaces all previous versions. Any prior version will stop working
+on **2021-10-14T00:00:00Z**. Node administrators must upgrade to this version
+before that date.
+
+This version will stop working on **2021-11-18T00:00:00Z**.
+
+There are no changes in this version.
+
+## 2.9.2 (2021-09-16)
+
+This is a bug fix release. It is recommended that node operators upgrade their
+nodes.
+
+This version is fully compatible with previous versions.
+
+Changes:
+
+*   Fix a bug where API requests return result pages with more than the upper
+    limit of items. (#1271)
+
+## 2.9.1 (2021-08-27)
+
+This is a bug fix release. It is recommended that node operators
+upgrade their nodes.
+
+This version is fully compatible with previous versions.
+
+Changes:
+
+*   Fix a bug that causes mempools to ignore new transactions after receiving
+    10000 transactions on a chain. (#1267)
+
+## 2.9 (2021-08-12)
+
+This version replaces all previous versions. Any prior version will stop working
+on **2021-08-19T00:00:00Z**. Node administrators must upgrade to this version
+before that date.
+
+This version will stop working on **2021-10-14T00:00:00Z**.
+
+Changes:
+
+This is a maintenance release without breaking changes.
+
+*   Use `0.0.0.0` as default P2P host address, which enables auto-detection of
+    the IP address of the node. (#1245)
+*   Build and link Pact without CLI tools support. (#1246)
+*   Limit batch size of payload REST API requests 1000 items. (#1258)
+*   Removed several external dependencies from the code base.
+
+## 2.8 (2021-06-05)
+
+This version replaces all previous versions. Any prior version will stop working
+on **2021-06-17T00:00:00Z**. Node administrators must upgrade to this version
+before that date.
+
+This version will stop working on **2021-08-19T00:00:00Z**.
+
+Changes:
+
+* `coin` v3 and Pact 4.0 upgrade (#1218, #1237, #1236, #1234)
+  * Emits `coin.TRANSFER` events for all balance changing operations.
+    Burns/creates/allocations are indicating using the _null account_ (`""`).
+    Miner rewards, gas payments, allocations, and cross-chain.
+  * Chainweb account protocols: reserves new account names with the format
+    `c:data` where `c` is a single-char protocol identifier and `data`
+    protocol-specified data.
+  * Introduces the Chainweb single-key protocol `k`
+    where `data` must match a single ED-25519 public key.
+  * Leverages Pact 4.0
+    * `X_YIELD` and `X_RESUME` event emission.
+    * `bless`es previous module hash so that in-progress cross-chain
+      transfers can succeed.
+  * Transactional module init cache. (#1236)
+
+* P2P API endpoint to get node config (#1226)
+
+* Bugfixes and cleanups (#1235, #1228, #1227, #1225)
+
+
+
+## 2.7 (2021-04-29)
+
+This version replaces all previous versions. Any prior version will stop working
+on **2021-05-06T00:00:00Z**. Node administrators must upgrade to this version
+before that date.
+
+This version will stop working on **2021-06-17T00:00:00Z**.
+
+Changes:
+
+*   Improve P2P networking configuration. (#1174)
+    *   Re-add builtin bootstrap nodes. This also means that default bootstrap
+        nodes will always be used as long as `--ignore-boostrap-nodes` (or the
+        respective configuration file setting) is not enabled.
+    *   Add `X-Peer-Addr` response header that allows nodes to auto-discover
+        their external network configuration.
+    *   Enable chainweb-node to auto-configure the hostname. This eliminates the
+        need to use a (centralized) third party service for that.
+    *   Validate P2P configuration on startup.
+    *   Validate peer configuration on startup.
+    *   Check that a chainweb-node can connect with a configurable portion of
+        the known-peers and bootstrap nodes at startup. The portion can be
+        configured via the `--bootstrap-reachability` option or the
+        `chainweb.p2p.bootstrapReachability` setting. The value is a number
+        between 0 and 1. If it is 0 the reachability test is disabled.
+
+*   Remove deprecated mining coordination code. (#1177)
+    *   Removes support for public mining.
+    *   Fix two race conditions in the mining API that may have slightly increased
+        the number blocks that got orphaned before being included on the chain.
+
+*   Internal infrastructure to support bridging KDA to other networks (#1210)
+
+*   New OpenAPI 3.0 specification of the chainweb-node API. The API
+    documentation is maintained in the git repository
+    https://github.com/kadena-io/chainweb-openapi. Is published at
+    https://api.chainweb.com/openapi.
+
+## 2.6 (2021-03-18)
+
+This version replaces all previous versions. Any prior version will stop working
+on **2021-03-25T00:00:00Z**. Node administrators must upgrade to this version
+before that date.
+
+This version will stop working on **2021-05-06T00:00:00Z**.
+
+Changes:
+
+*   Increase default listen timeout to 3 minutes (#1208)
+*   Additional verification for coin contract (#1200)
+
+Additional changes support the build of fully statically linked binaries that
+can be used with Alpine Linux.
+
+## 2.5 (2021-02-17)
+
+This version replaces all previous versions. Any prior version will stop working
+on **2021-02-25T00:00:00Z**. Node administrators must upgrade to this version
+before that date.
+
+This version will stop working on **2021-03-25T00:00:00Z**.
+
+If chainweb-node-2.5 is started with existing configuration files, the P2P
+API remains unchanged. The service API endpoints will be available via HTTP on
+port 1848. Please read the description below for details about this change.
+
+Breaking changes:
+
+*   Publish service APIs on separate HTTP port (#1063)
+
+    The API of the chainweb-node is split into two separate sub-APIs which are
+    served on two different ports:
+
+    *   **P2P API**: this API includes all endpoint that are used in the P2P
+        inter-node communication. It is exported using HTTPS and must be
+        available on a publicly reachable port.
+
+        The command line option for the this APIs are prefixed with `p2p`:
+
+        `--p2p-host`, `--p2p-port`, `--p2p-interface`, and the respective
+        certificate related options.
+
+        The respective properties in in the configuration file are unchanged.
+
+    *   **Service API**: this API includes all endpoints that are not directly
+        used for P2P inter-node communication. These include the `pact`, `rosetta`,
+        `mining`, `header-stream`, `info`, and `health-check` endpoints. This
+        API is exported as plain HTTP and can thus be easily used along with a
+        reverse proxy. There is no need to make this API publicly available.
+
+        This API is configured with the configuration options `--service-port`
+        (default 1848) and `--service-interface` (default '*'). The respective
+        properties in the configuration file are `chainweb.serviceApi.port` and
+        `chainweb.serviceApi.interface`.
+
+    IMPORTANT: The previously used options `--hostname`, `--port`,
+    `--interface`, and the related certificate options got removed. Please, use
+    the new variants instead which are prefixed with the respective API as
+    described above.
+
+New features:
+
+*   New command line option `--print-config-as=[full|minimal|diff]`. `full`
+    prints a complete configuration file with all options; `minimal` prints a
+    file that includes only those options that differ from the default values;
+    `diff` prints the difference between the default configuration and the
+    actual configuration (#1193)
+*   Add payload batch APIs (#1192)
+
+Miscellaneous changes:
+
+*   Use TLS session manager (#1173)
+*   Upgrade to a new version 0.7.5 of the http-client library (#1191)
+*   Build TLS with pclmulqdq support switched on (#1193)
+
+## 2.4 (2021-01-11)
+
+This version replaces all previous versions. Any prior version will stop working
+on **2021-01-14T00:00:00Z**. Node administrators must upgrade to this version
+before that date.
+
+This version will stop working on **2021-02-25T00:00:00Z**.
+
+ *  Ethereum bridge support
+   *  add endpoint for creating eth-receipt-proofs (#1181)
+   *  ethereum receipt SPV (#1179)
+ *  Improve TXOUT SPV to include events (#1178)
+ *  Pact replay bug fix (#1172,#1169,#1168)
+
+## 2.3 (2020-11-11)
+
+This version replaces all previous versions. Any prior version will stop working
+on **2020-11-19T00:00:00Z**. Node administrators must upgrade to this version
+before that date.
+
+This version will stop working on **2021-01-14T00:00:00Z**.
+
+*   Support for Pact Events (#1157)
+*   **Upgrade to Pact 3.7.** This includes an API change to the `pact` endpoints for events. For further information see the [Pact readthedocs](https://pact-language.readthedocs.io/en/latest/pact-reference.html#events-1). (#1157,#1158)
+
 ## 2.2 (2020-10-08)
 
 This version replaces all previous versions. Any prior version will stop working
@@ -8,7 +316,7 @@ before that date.
 
 This version will stop working on **2020-11-19T00:00:00Z**.
 
-* Upgrade to Rosetta version 1.4.4 (#1149)
+*   Upgrade to Rosetta version 1.4.4 (#1149)
 
 *   Adjust the default API request rate limits to better match the expected
     networking loads for 20 chains. This reduces overhead due to HTTP responses

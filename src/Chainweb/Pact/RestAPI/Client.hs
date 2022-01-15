@@ -16,6 +16,10 @@
 module Chainweb.Pact.RestAPI.Client
 ( pactSpvApiClient_
 , pactSpvApiClient
+, pactSpv2ApiClient_
+, pactSpv2ApiClient
+, ethSpvApiClient_
+, ethSpvApiClient
 , pactPollApiClient_
 , pactPollApiClient
 , pactListenApiClient_
@@ -35,11 +39,14 @@ import Pact.Types.Hash
 
 import Servant.Client
 
--- internal chainweb modules
+-- internal modules
 
 import Chainweb.ChainId
 import Chainweb.Pact.RestAPI
+import Chainweb.Pact.RestAPI.EthSpv
+import Chainweb.Pact.RestAPI.SPV
 import Chainweb.Pact.Service.Types
+import Chainweb.SPV.PayloadProof
 import Chainweb.Version
 
 -- -------------------------------------------------------------------------- --
@@ -72,6 +79,55 @@ pactSpvApiClient
     (FromSingChainwebVersion (SChainwebVersion :: Sing v))
     (FromSingChainId (SChainId :: Sing c))
     = pactSpvApiClient_ @v @c
+
+-- -------------------------------------------------------------------------- --
+-- Pact ETH Spv Transaction Output Proof Client
+
+ethSpvApiClient_
+    :: forall (v :: ChainwebVersionT) (c :: ChainIdT)
+    . KnownChainwebVersionSymbol v
+    => KnownChainIdSymbol c
+    => EthSpvRequest
+    -> ClientM EthSpvResponse
+ethSpvApiClient_ = client (ethSpvApi @v @c)
+
+ethSpvApiClient
+    :: ChainwebVersion
+    -> ChainId
+        -- ^ chain to which the request is submitted. The resuting proof does
+        -- not depend on the chain and can be validated on any chain.
+    -> EthSpvRequest
+    -> ClientM EthSpvResponse
+ethSpvApiClient
+    (FromSingChainwebVersion (SChainwebVersion :: Sing v))
+    (FromSingChainId (SChainId :: Sing c))
+    = ethSpvApiClient_ @v @c
+
+-- -------------------------------------------------------------------------- --
+-- Pact ETH Spv Transaction Output Proof Client
+
+pactSpv2ApiClient_
+    :: forall (v :: ChainwebVersionT) (c :: ChainIdT)
+    . KnownChainwebVersionSymbol v
+    => KnownChainIdSymbol c
+    => Spv2Request
+        -- ^ Contains the chain id of the target chain id used in the
+        -- 'target-chain' field of a cross-chain-transfer.
+        -- Also contains the request key of of the cross-chain transfer
+        -- tx request.
+    -> ClientM SomePayloadProof
+pactSpv2ApiClient_ = client (pactSpv2Api @v @c)
+
+pactSpv2ApiClient
+    :: ChainwebVersion
+    -> ChainId
+        -- ^ the chain id of the target chain of the proof.
+    -> Spv2Request
+    -> ClientM SomePayloadProof
+pactSpv2ApiClient
+    (FromSingChainwebVersion (SChainwebVersion :: Sing v))
+    (FromSingChainId (SChainId :: Sing c))
+    = pactSpv2ApiClient_ @v @c
 
 -- -------------------------------------------------------------------------- --
 -- Pact local

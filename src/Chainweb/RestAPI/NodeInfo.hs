@@ -22,7 +22,6 @@ import qualified Data.HashSet as HashSet
 import qualified Data.List.NonEmpty as NE
 import Data.Text (Text)
 import qualified Data.Text as T
-import Data.Swagger.Schema
 
 import GHC.Generics
 
@@ -55,7 +54,7 @@ data NodeInfo = NodeInfo
   , nodeGraphHistory :: [(BlockHeight, [(Int, [Int])])]
   -- ^ List of chain graphs and the block height they took effect. Sorted
   -- descending by height so the current chain graph is at the beginning.
-  } deriving (Generic)
+  } deriving (Show, Eq, Generic)
 
 instance ToJSON NodeInfo
 instance FromJSON NodeInfo
@@ -64,20 +63,17 @@ nodeInfoHandler :: ChainwebVersion -> SomeCutDb cas -> Server NodeInfoApi
 nodeInfoHandler v (SomeCutDb ((CutDbT db) :: CutDbT cas v)) = do
     curCut <- liftIO $ _cut db
     let ch = cutToCutHashes Nothing curCut
-        curHeight = maximum $ map fst $ HashMap.elems $ _cutHashes ch
+        curHeight = maximum $ map _bhwhHeight $ HashMap.elems $ _cutHashes ch
         graphs = unpackGraphs v
         curGraph = head $ dropWhile (\(h,_) -> h > curHeight) graphs
         curChains = map fst $ snd curGraph
     return $ NodeInfo
       { nodeVersion = v
       , nodeApiVersion = prettyApiVersion
-      , nodeChains = (T.pack . show <$> curChains)
+      , nodeChains = T.pack . show <$> curChains
       , nodeNumberOfChains = length curChains
       , nodeGraphHistory = graphs
       }
-
-deriving instance ToSchema NodeInfo
-
 
 -- | Converts chainwebGraphs to a simpler structure that has invertible JSON
 -- instances.
@@ -87,3 +83,4 @@ unpackGraphs v = gs
     gs = map (second graphAdjacencies) $ NE.toList $ chainwebGraphs v
     graphAdjacencies = map unChain . HashMap.toList . fmap HashSet.toList . G.adjacencySets . view chainGraphGraph
     unChain (a, bs) = (chainIdInt a, map chainIdInt bs)
+

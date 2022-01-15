@@ -2,6 +2,7 @@
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DerivingStrategies #-}
+{-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -59,7 +60,7 @@ newtype BlockWeight = BlockWeight HashDifficulty
         , Num
         )
 
-instance IsMerkleLogEntry ChainwebHashTag BlockWeight where
+instance MerkleHashAlgorithm a => IsMerkleLogEntry a ChainwebHashTag BlockWeight where
     type Tag BlockWeight = 'BlockWeightTag
     toMerkleNode = encodeMerkleInputNode encodeBlockWeight
     fromMerkleNode = decodeMerkleInputNode decodeBlockWeight

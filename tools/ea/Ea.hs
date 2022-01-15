@@ -24,7 +24,12 @@
 --
 -- Eä means "to be" in Quenya, the ancient language of Tolkien's elves.
 --
-module Ea ( main, genTxModules, gen20ChainPayloads ) where
+module Ea
+  ( main
+  , genTxModules
+  , gen20ChainPayloads
+  , genCoinV3Payloads
+  ) where
 
 import Control.Lens (set)
 
@@ -36,7 +41,6 @@ import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
 import qualified Data.Text.IO as TIO
 import Data.Traversable
-import Data.Tuple.Strict
 import qualified Data.Vector as V
 import qualified Data.Yaml as Yaml
 
@@ -150,6 +154,9 @@ gen20ChainPayloads = traverse_ mk20ChainPayload [developmentKAD, mainnetKAD]
 
       printf ("Generating Genesis 20-chain payload for %s on " <> show_ cid <> "...\n") $ show v
       genPayloadModule' v (tag <> sshow cid) cwTxs
+
+genCoinV3Payloads :: IO ()
+genCoinV3Payloads = genTxModule "CoinV3" [coinContractV3]
 
 ---------------------
 -- Payload Generation

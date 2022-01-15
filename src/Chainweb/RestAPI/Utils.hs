@@ -1,4 +1,5 @@
 {-# LANGUAGE AllowAmbiguousTypes #-}
+{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE CPP #-}
 {-# LANGUAGE ConstraintKinds #-}
 {-# LANGUAGE DataKinds #-}
@@ -9,6 +10,7 @@
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE MagicHash #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE OverloadedLists #-}
 {-# LANGUAGE OverloadedStrings #-}
@@ -51,6 +53,14 @@ module Chainweb.RestAPI.Utils
 , chainwebNodeVersionHeaderValue
 , chainwebNodeVersionHeader
 
+-- * Server Timestamp Header
+, type ServerTimestampHeaderName
+, serverTimestampHeaderName
+
+-- * Peer Addr Header
+, type PeerAddrHeaderName
+, peerAddrHeaderName
+
 -- * Paging
 , type PageParams
 , type LimitParam
@@ -75,6 +85,10 @@ module Chainweb.RestAPI.Utils
 
 -- * Misc Utils
 , bindPortTcp
+, allocateSocket
+, deallocateSocket
+, withSocket
+
 -- ** Content Types for Clients
 , SupportedReqBodyContentType
 , SetReqBodyContentType
@@ -82,6 +96,8 @@ module Chainweb.RestAPI.Utils
 , SetRespBodyContentType
 
 ) where
+
+import Control.Monad.Catch (bracket)
 
 import Data.Aeson
 import qualified Data.CaseInsensitive as CI
@@ -101,7 +117,6 @@ import Network.Wai.Handler.Warp (HostPreference)
 import Servant.API
 import Servant.Client
 import Servant.Server
-import Servant.Swagger
 
 -- internal modules
 import Chainweb.ChainId
@@ -145,16 +160,34 @@ type ChainwebNodeVersionHeaderName = "X-Chainweb-Node-Version"
 type ChainwebNodeVersionHeaderValue = CURRENT_PACKAGE_VERSION
 
 chainwebNodeVersionHeaderName :: IsString a => CI.FoldCase a => CI.CI a
-chainwebNodeVersionHeaderName = fromString $ symbolVal $ Proxy @ChainwebNodeVersionHeaderName
+chainwebNodeVersionHeaderName = fromString $ symbolVal (Proxy @ChainwebNodeVersionHeaderName)
 {-# INLINE chainwebNodeVersionHeaderName #-}
 
 chainwebNodeVersionHeaderValue :: IsString a => a
-chainwebNodeVersionHeaderValue = fromString $ symbolVal $ Proxy @ChainwebNodeVersionHeaderValue
+chainwebNodeVersionHeaderValue = fromString $ symbolVal (Proxy @ChainwebNodeVersionHeaderValue)
 {-# INLINE chainwebNodeVersionHeaderValue #-}
 
 chainwebNodeVersionHeader :: HTTP.Header
 chainwebNodeVersionHeader = (chainwebNodeVersionHeaderName, chainwebNodeVersionHeaderValue)
 {-# INLINE chainwebNodeVersionHeader #-}
+
+-- -------------------------------------------------------------------------- --
+-- Peer Addr header
+
+type PeerAddrHeaderName = "X-Peer-Addr"
+
+peerAddrHeaderName :: IsString a => CI.FoldCase a => CI.CI a
+peerAddrHeaderName = fromString $ symbolVal (Proxy @PeerAddrHeaderName)
+{-# INLINE peerAddrHeaderName #-}
+
+-- -------------------------------------------------------------------------- --
+-- Server Timestamp header
+
+type ServerTimestampHeaderName = "X-Server-Timestamp"
+
+serverTimestampHeaderName :: IsString a => CI.FoldCase a => CI.CI a
+serverTimestampHeaderName = fromString $ symbolVal (Proxy @ServerTimestampHeaderName)
+{-# INLINE serverTimestampHeaderName #-}
 
 -- -------------------------------------------------------------------------- --
 -- Paging Utils
@@ -205,12 +238,6 @@ instance
 
     hoistServerWithContext _ = hoistServerWithContext
         $ Proxy @(ChainwebEndpointApi c api)
-
-instance
-    (KnownChainwebVersionSymbol c, HasSwagger api)
-    => HasSwagger ('ChainwebEndpoint c :> api)
-  where
-    toSwagger _ = toSwagger (Proxy @(ChainwebEndpointApi c api))
 
 instance
     (KnownChainwebVersionSymbol v, HasClient m api)
@@ -290,25 +317,6 @@ instance
     hoistServerWithContext _ = hoistServerWithContext
         (Proxy @(NetworkEndpointApi 'CutNetworkT api))
 
--- HasSwagger
-
-instance
-    (KnownChainIdSymbol c, HasSwagger api)
-    => HasSwagger ('NetworkEndpoint ('ChainNetworkT c) :> api)
-  where
-    toSwagger _ = toSwagger (Proxy @(NetworkEndpointApi ('ChainNetworkT c) api))
-
-instance
-    (KnownChainIdSymbol c, HasSwagger api)
-    => HasSwagger ('NetworkEndpoint ('MempoolNetworkT c) :> api)
-  where
-    toSwagger _ = toSwagger (Proxy @(NetworkEndpointApi ('MempoolNetworkT c) api))
-
-instance
-    (HasSwagger api) => HasSwagger ('NetworkEndpoint 'CutNetworkT :> api)
-  where
-    toSwagger _ = toSwagger (Proxy @(NetworkEndpointApi 'CutNetworkT api))
-
 -- HasClient
 
 instance
@@ -385,7 +393,7 @@ instance (HasLink api) => HasLink ('NetworkEndpoint 'CutNetworkT :> api) where
 -- be passed around and be combined.
 
 data SomeApi = forall (a :: Type)
-    . (HasSwagger a, HasServer a '[], HasClient ClientM a) => SomeApi (Proxy a)
+    . (HasServer a '[], HasClient ClientM a) => SomeApi (Proxy a)
 
 instance Semigroup SomeApi where
     SomeApi (Proxy :: Proxy a) <> SomeApi (Proxy :: Proxy b)
@@ -399,7 +407,6 @@ someApi
     :: forall proxy (a :: Type)
     . HasServer a '[]
     => HasClient ClientM a
-    => HasSwagger a
     => proxy a
     -> SomeApi
 someApi _ = SomeApi (Proxy @a)
@@ -479,3 +486,15 @@ bindPortTcp p interface = do
         return (int port, socket)
     N.listen sock (max 2048 N.maxListenQueue)
     return (port, sock)
+
+allocateSocket :: Port -> HostPreference -> IO (Port, N.Socket)
+allocateSocket port interface = do
+    (!p, !sock) <- bindPortTcp port interface
+    return (p, sock)
+
+deallocateSocket :: (Port, N.Socket) -> IO ()
+deallocateSocket (_, sock) = N.close sock
+
+withSocket :: Port -> HostPreference -> ((Port, N.Socket) -> IO a) -> IO a
+withSocket port interface = bracket (allocateSocket port interface) deallocateSocket
+
