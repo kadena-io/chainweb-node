@@ -357,7 +357,7 @@ networkOptionsH v (NetworkReq nid _) = runExceptT work >>= either throwRosetta p
       , _allow_historicalBalanceLookup = True }
 
     errExamples :: [RosettaError]
-    errExamples = map (\e -> rosettaError e Nothing) [minBound .. maxBound]
+    errExamples = map (`rosettaError` Nothing) [minBound .. maxBound]
 
     opStatuses :: [OperationStatus]
     opStatuses = map operationStatus [minBound .. maxBound]

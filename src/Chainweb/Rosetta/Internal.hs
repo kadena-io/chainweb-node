@@ -1,7 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeFamilies #-}
-{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE GADTs #-}
 
 -- |
@@ -157,8 +156,8 @@ getGenesisLog
     -> CommandResult Hash
     -> Transaction
 getGenesisLog logs cid cr =
-  case (_crTxId cr) of
-    Just tid -> case (M.lookup tid logs) of
+  case _crTxId cr of
+    Just tid -> case M.lookup tid logs of
       Just l -> rosettaTransaction cr cid $! makeOps tid l
       Nothing -> rosettaTransaction cr cid []  -- not a coin contract tx
     Nothing -> rosettaTransaction cr cid [] -- all genesis tx should have a txid
@@ -191,7 +190,7 @@ genesisTransaction
     -> Either RosettaFailure Transaction
 genesisTransaction logs cid rest target = do
   cr <- note RosettaTxIdNotFound $
-        V.find (\c -> (_crReqKey c) == target) rest
+        V.find (\c -> _crReqKey c == target) rest
   pure $ getGenesisLog logs cid cr
 
 
@@ -206,14 +205,14 @@ nonGenesisCoinbaseLog
     -> ChainId
     -> CoinbaseTx chainwebTx
     -> Either String (TxAccumulator Transaction)
-nonGenesisCoinbaseLog logs cid cr = case (getSomeTxId cr) of
+nonGenesisCoinbaseLog logs cid cr = case getSomeTxId cr of
   Nothing -> makeAcc logs []
   Just tid -> case logs of
     (coinbaseTid,coinbaseLog):restLogs
       | tid == coinbaseTid ->
         makeAcc restLogs
         (map (operation Successful CoinbaseReward tid) coinbaseLog)
-      | otherwise -> Left $ "First log's TxId does not match coinbase tx's TxId"
+      | otherwise -> Left "First log's TxId does not match coinbase tx's TxId"
     _ -> Left "Expected coinbase log: Received empty logs list"
 
   where
@@ -268,14 +267,14 @@ gasTransactionAcc
 gasTransactionAcc accTyp cid acc ctx = combine (_txAccumulator_logsLeft acc)
   where
     combine (fundLog:someLog:restLogs) =
-      case (getSomeTxId ctx) of
+      case getSomeTxId ctx of
         Nothing -> -- tx was unsuccessful
           makeAcc restLogs
             (makeOps FundTx fundLog)
             [] -- no transfer logs
             (makeOps GasPayment someLog)
         Just tid   -- tx was successful
-          | tid /= (txId someLog) -> -- if tx didn't touch coin table
+          | tid /= txId someLog -> -- if tx didn't touch coin table
             makeAcc restLogs
               (makeOps FundTx fundLog)
               [] -- no transfer logs
@@ -287,7 +286,7 @@ gasTransactionAcc accTyp cid acc ctx = combine (_txAccumulator_logsLeft acc)
                   (makeOps TransferOrCreateAcct someLog)
                   (makeOps GasPayment gasLog)
               l -> listErr "No gas logs found after transfer logs" l
-    combine (f:[]) = listErr "Only fund logs found" f
+    combine [f] = listErr "Only fund logs found" f
     combine [] = listErr "No logs found" ([] :: [(TxId, [AccountLog])])
 
     makeAcc restLogs fund transfer gas = pure $!
@@ -344,7 +343,7 @@ nonGenesisTransaction
     -- ^ Lookup target
     -> Either String (Maybe Transaction)
 nonGenesisTransaction logs cid initial rest target
-  | (getRequestKey initial == target) = do
+  | getRequestKey initial == target = do
       -- Looking for coinbase tx
       TxAccumulator _ initTx <- nonGenesisCoinbaseLog logsList cid initial
       pure $ Just initTx
@@ -362,10 +361,10 @@ nonGenesisTransaction logs cid initial rest target
 
     findTxAndLogs acc cr = do
       TxAccumulator logsLeft lastSeenTx <- shortCircuit (match acc cr)
-      if (getRequestKey cr == target)
+      if getRequestKey cr == target
         then Left $ Right lastSeenTx
           -- short-circuit if find target tx's logs
-        else pure $ (TxAccumulator logsLeft lastSeenTx)
+        else pure (TxAccumulator logsLeft lastSeenTx)
           -- continue matching other txs' logs until find target
 
     shortCircuit
@@ -403,7 +402,7 @@ remediationAcc
     -> (Command payload, TxId)
     -> TxAccumulator rosettaTx
 remediationAcc accTyp acc (remTx, remTid) =
-  case (_txAccumulator_logsLeft acc) of
+  case _txAccumulator_logsLeft acc of
     (logTid,logs):rest
       | logTid == remTid -> -- remediation touched coin table
         let ops = indexedOperations $!
@@ -482,7 +481,7 @@ singleRemediation logs cid coinbase remTxs txs rkTarget = do
   -- TODO: Make searching for tx and its logs more efficient.
   where
     isTargetTx rtx =
-      (rkToTransactionId rkTarget) == (_transaction_transactionId rtx)
+      rkToTransactionId rkTarget == _transaction_transactionId rtx
 
 --------------------------------------------------------------------------------
 -- Chainweb Helper Functions --
@@ -514,13 +513,13 @@ findBlockHeaderInCurrFork cutDb cid someHeight someHash = do
     (Just hi, Nothing) -> byHeight chainDb latestBlock hi
     (Just hi, Just hsh) -> do
       bh <- byHeight chainDb latestBlock hi
-      bhashExpected <- (blockHashFromText hsh) ?? RosettaUnparsableBlockHash
-      if (_blockHash bh == bhashExpected)
+      bhashExpected <- blockHashFromText hsh ?? RosettaUnparsableBlockHash
+      if _blockHash bh == bhashExpected
         then pure bh
         else throwError RosettaMismatchBlockHashHeight
     (Nothing, Just hsh) -> do
-      bhash <- (blockHashFromText hsh) ?? RosettaUnparsableBlockHash
-      somebh <- liftIO $ (casLookup chainDb bhash)
+      bhash <- blockHashFromText hsh ?? RosettaUnparsableBlockHash
+      somebh <- liftIO (casLookup chainDb bhash)
       bh <- somebh ?? RosettaBlockHashNotFound
       isInCurrFork <- liftIO $ memberOfHeader cutDb cid bhash latestBlock
       if isInCurrFork
@@ -543,7 +542,7 @@ getBlockOutputs payloadDb bh = do
   outputs <- someOut ?? RosettaPayloadNotFound
   txsOut <- decodeTxsOut outputs ?? RosettaUnparsableTxOut
   coinbaseOut <- decodeCoinbaseOut outputs ?? RosettaUnparsableTxOut
-  pure $ (coinbaseOut, txsOut)
+  pure (coinbaseOut, txsOut)
 
   where
     decodeCoinbaseOut :: PayloadWithOutputs -> Maybe (CommandResult Hash)
@@ -558,19 +557,19 @@ getTxLogs
     -> BlockHeader
     -> ExceptT RosettaFailure Handler (Map TxId [AccountLog])
 getTxLogs cr bh = do
-  someHist <- liftIO $ (_pactBlockTxHistory cr) bh d
-  (BlockTxHistory hist prevTxs) <- (hush someHist) ?? RosettaPactExceptionThrown
+  someHist <- liftIO $ _pactBlockTxHistory cr bh d
+  (BlockTxHistory hist prevTxs) <- hush someHist ?? RosettaPactExceptionThrown
   lastBalSeen <- hoistEither $ parsePrevTxs prevTxs
   histAcctRow <- hoistEither $ parseHist hist
   pure $ getBalanceDeltas histAcctRow lastBalSeen
   where
-    d = (Domain' (UserTables "coin_coin-table"))
+    d = Domain' (UserTables "coin_coin-table")
 
     parseHist
         :: Map TxId [TxLog Value]
         -> Either RosettaFailure (Map TxId [AccountRow])
     parseHist m
-      | (M.size parsed == M.size m) = pure $! parsed
+      | M.size parsed == M.size m = pure $! parsed
       | otherwise = throwError RosettaUnparsableTxLog
       where
         parsed = M.mapMaybe (mapM txLogToAccountRow) m
@@ -579,7 +578,7 @@ getTxLogs cr bh = do
         :: Map RowKey (TxLog Value)
         -> Either RosettaFailure (Map RowKey AccountRow)
     parsePrevTxs m
-      | (M.size parsed == M.size m) = pure $! parsed
+      | M.size parsed == M.size m = pure $! parsed
       | otherwise = throwError RosettaUnparsableTxLog
       where 
         parsed = M.mapMaybe txLogToAccountRow m
@@ -634,13 +633,13 @@ getHistoricalLookupBalance
     -> T.Text
     -> ExceptT RosettaFailure Handler Decimal
 getHistoricalLookupBalance cr bh k = do
-  someHist <- liftIO $ (_pactHistoricalLookup cr) bh d key
-  hist <- (hush someHist) ?? RosettaPactExceptionThrown
+  someHist <- liftIO $ _pactHistoricalLookup cr bh d key
+  hist <- hush someHist ?? RosettaPactExceptionThrown
   case hist of
     Nothing -> pure 0.0
     Just h -> do
-      (_,bal,_) <- (txLogToAccountRow h) ?? RosettaUnparsableTxLog
+      (_,bal,_) <- txLogToAccountRow h ?? RosettaUnparsableTxLog
       pure bal
   where
-    d = (Domain' (UserTables "coin_coin-table"))
+    d = Domain' (UserTables "coin_coin-table")
     key = RowKey k  -- TODO: How to sanitize this further

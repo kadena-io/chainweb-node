@@ -93,7 +93,7 @@ instance ToObject TransactionMetaData where
   toObject txMeta = HM.fromList (toPairs txMeta)
 
 transactionMetaData :: ChainId -> CommandResult a -> TransactionMetaData
-transactionMetaData cid cr = case (_crContinuation cr) of
+transactionMetaData cid cr = case _crContinuation cr of
   Nothing -> TransactionMetaData Nothing
   Just pe -> TransactionMetaData $ Just (toContMeta cid pe)
 
@@ -180,14 +180,14 @@ toContNextStep currChainId pe
   | isLastStep = Nothing
   -- TODO: Add check to see if curr step was rolled back.
   --       This would also mean a next step is not occuring.
-  | otherwise = case (P._peYield pe >>= P._yProvenance) of
+  | otherwise = case P._peYield pe >>= P._yProvenance of
       Nothing -> Just $ ContinuationNextStep $ chainIdToText currChainId
       -- ^ next step occurs in the same chain
       Just (P.Provenance nextChainId _) ->
       -- ^ next step is a cross-chain step
         Just $ ContinuationNextStep (P._chainId nextChainId)
   where
-    isLastStep = (succ $ P._peStep pe) == (P._peStepCount pe)
+    isLastStep = succ $ P._peStep pe == P._peStepCount pe
 
 --------------------------------------------------------------------------------
 -- Rosetta Helper Types --
@@ -240,7 +240,7 @@ data OperationType =
 --   Otherwise, fetch the parent header from the block.
 parentBlockId :: BlockHeader -> BlockId
 parentBlockId bh
-  | (bHeight == genesisHeight v cid) = blockId bh  -- genesis
+  | bHeight == genesisHeight v cid = blockId bh  -- genesis
   | otherwise = parent
   where
     bHeight = _blockHeight bh
@@ -339,7 +339,7 @@ weaveRelatedOperations relatedOps = map weave opsWithRelatedOpIds
     weave (op, newRelatedIds) =
       case newRelatedIds of
         [] -> op  -- no new related operations to add
-        l -> case (_operation_relatedOperations op) of
+        l -> case _operation_relatedOperations op of
           Nothing -> op  -- no previous related operations
             { _operation_relatedOperations = justSortRelated l }
           Just oldRelatedIds -> op
@@ -400,7 +400,7 @@ kdaToRosettaAmount k = Amount (sshow amount) currency Nothing
   where
     -- Value in atomic units represented as an arbitrary-sized signed integer.
     amount :: Integer
-    amount = floor $ k * (realToFrac ((10 :: Integer) ^ numDecimals))
+    amount = floor $ k * realToFrac ((10 :: Integer) ^ numDecimals)
 
     -- How to convert from atomic units to standard units
     numDecimals = 12 :: Word
@@ -449,9 +449,9 @@ rowDataToAccountLog (currKey, currBal, currGuard) prev = do
 -- | Parse TxLog Value into fungible asset account columns
 txLogToAccountRow :: P.TxLog Value -> Maybe AccountRow
 txLogToAccountRow (P.TxLog _ key (Object row)) = do
-  guard :: Value <- (HM.lookup "guard" row) >>= (hushResult . fromJSON)
-  (PLiteral (LDecimal bal)) <- (HM.lookup "balance" row) >>= (hushResult . fromJSON)
-  pure $! (key, bal, guard)
+  guard :: Value <- HM.lookup "guard" row >>= (hushResult . fromJSON)
+  (PLiteral (LDecimal bal)) <- HM.lookup "balance" row >>= (hushResult . fromJSON)
+  pure (key, bal, guard)
 txLogToAccountRow _ = Nothing
 
 hushResult :: Result a -> Maybe a

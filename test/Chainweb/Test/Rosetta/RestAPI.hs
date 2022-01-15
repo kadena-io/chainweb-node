@@ -78,6 +78,7 @@ cids = chainIds v ^.. folded . to chainIdInt . to (sshow @Int)
 
 nonceRef :: IORef Natural
 nonceRef = unsafePerformIO $ newIORef 0
+{-# NOINLINE nonceRef #-}
 
 defGasLimit, defGasPrice :: Decimal
 defGasLimit = realToFrac $ _cbGasLimit defaultCmd
@@ -87,7 +88,7 @@ defFundGas :: Decimal
 defFundGas = defGasLimit * defGasPrice
 
 gasCost :: Integer -> Decimal
-gasCost units = (realToFrac units) * defGasPrice
+gasCost units = realToFrac units * defGasPrice
 
 defMiningReward :: Decimal
 defMiningReward = 2.304523
@@ -219,7 +220,7 @@ blockTests testname tio envIo = testCaseSchSteps testname $ \step -> do
 
     step "fetch genesis block"
     (BlockResp (Just bl0) _) <- block cenv (req 0)
-    (_block_blockId $ bl0) @?= genesisId
+    _block_blockId bl0 @?= genesisId
 
     step "send transaction"
     prs <- transferOneAsync tio cenv (putMVar rkmv)
@@ -238,7 +239,7 @@ blockTests testname tio envIo = testCaseSchSteps testname $ \step -> do
       _blockResp_otherTransactions resp @?= Nothing
 
       let validateBlock someBlock = do
-            Just b <- pure $ someBlock
+            Just b <- pure someBlock
             _block_metadata b @?= Nothing
             _blockId_index (_block_blockId b) @?= bh
             _blockId_index (_block_parentBlockId b) @?= (bh - 1)
@@ -299,18 +300,18 @@ blockCoinV2RemediationTests _ envIo =
 
     step "validate block"
     _blockResp_otherTransactions resp @?= Nothing
-    Just b <- pure $ (_blockResp_block resp)
+    Just b <- pure $ _blockResp_block resp
     _block_metadata b @?= Nothing
     _blockId_index (_block_blockId b) @?= bhCoinV2Rem
     _blockId_index (_block_parentBlockId b) @?= (bhCoinV2Rem - 1)
 
-    case (_block_transactions b) of
+    case _block_transactions b of
       x:y:z:_ -> do
         step "check remediation transactions' request keys"
         -- TODO: are these unique across lifetime of blockchain/chains?
         [ycmd, zcmd] <- upgradeTransactions v cid
-        _transaction_transactionId y @?= (pactHashToTransactionId (_cmdHash ycmd))
-        _transaction_transactionId z @?= (pactHashToTransactionId (_cmdHash zcmd))
+        _transaction_transactionId y @?= pactHashToTransactionId (_cmdHash ycmd)
+        _transaction_transactionId z @?= pactHashToTransactionId (_cmdHash zcmd)
 
         step "check remediation transactions' operations"
         _transaction_operations y @?= [] -- didn't touch the coin table
@@ -337,17 +338,17 @@ block20ChainRemediationTests _ envIo =
 
     step "validate block"
     _blockResp_otherTransactions resp @?= Nothing
-    Just b <- pure $ (_blockResp_block resp)
+    Just b <- pure $ _blockResp_block resp
     _block_metadata b @?= Nothing
     _blockId_index (_block_blockId b) @?= bhChain20Rem
     _blockId_index (_block_parentBlockId b) @?= (bhChain20Rem - 1)
 
-    case (_block_transactions b) of
+    case _block_transactions b of
       x:y:_ -> do
         step "check remediation transactions' request keys"
         -- TODO: are these unique across lifetime of blockchain/chains?
         [ycmd] <- twentyChainUpgradeTransactions v cid
-        _transaction_transactionId y @?= (pactHashToTransactionId (_cmdHash ycmd))
+        _transaction_transactionId y @?= pactHashToTransactionId (_cmdHash ycmd)
 
         step "check remediation transactions' operations"
         case _transaction_operations x <> _transaction_operations y of
@@ -355,7 +356,7 @@ block20ChainRemediationTests _ envIo =
             validateOp 0 "CoinbaseReward" noMinerks Successful defMiningReward cbase
             validateOp 0 "TransferOrCreateAcct" e7f7ks Remediation (negate 100) remOp
       
-          _ -> assertFailure $ "total # of ops should be == 2: coinbase + remediation"
+          _ -> assertFailure "total # of ops should be == 2: coinbase + remediation"
 
       _ -> assertFailure $ "20 chain remediation block should have at least 2 transactions:"
            ++ " coinbase + 1 remediations"
@@ -422,7 +423,7 @@ networkListTests _ envIo =
          _networkId_blockchain n @=? "kadena"
          _networkId_network n @=? "fastTimedCPM-peterson"
          assertBool "chain id of subnetwork is valid"
-           $ maybe False (\a -> elem (_subNetworkId_network a) cids)
+           $ maybe False (\a -> elem _subNetworkId_network a cids)
            $ _networkId_subNetworkId n
   where
     req = MetadataReq Nothing
@@ -509,7 +510,7 @@ rosettaVersion = RosettaNodeVersion
     }
 
 rosettaFailures :: [RosettaError]
-rosettaFailures = map (\e -> rosettaError e Nothing) (enumFrom RosettaChainUnspecified)
+rosettaFailures = map (`rosettaError` Nothing) (enumFrom RosettaChainUnspecified)
 
 operationStatuses :: [OperationStatus]
 operationStatuses =
@@ -551,7 +552,7 @@ validateOp idx opType ks st bal o = do
   where
     balRosettaAmt = kdaToRosettaAmount bal
     acct = _testKeySet_name ks
-    _publicKeys = case (_testKeySet_key ks) of
+    _publicKeys = case _testKeySet_key ks of
       Nothing -> []
       Just k -> [fst k]
     _pred' = _testKeySet_pred ks
@@ -594,8 +595,7 @@ transferOneAsync tio cenv callback = do
     batch0 <- mkTransfer tio
     void $! callback (f batch0)
     rks <- sending cid cenv batch0
-    prs <- polling cid cenv rks ExpectPactResult
-    return prs
+    polling cid cenv rks ExpectPactResult
   where
     f (SubmitBatch cs) = RequestKeys (cmdToRequestKey <$> cs)
 
