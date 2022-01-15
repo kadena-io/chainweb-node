@@ -101,24 +101,30 @@ module Main
 ( main
 ) where
 
+import qualified Distribution.Compat.Graph as Graph
 import qualified Distribution.InstalledPackageInfo as I
 import Distribution.PackageDescription
+import Distribution.Pretty
 import Distribution.Simple
 import Distribution.Simple.BuildPaths
 import Distribution.Simple.LocalBuildInfo
 import Distribution.Simple.PackageIndex
 import Distribution.Simple.Setup
 import Distribution.Text
+import Distribution.Types.LocalBuildInfo
+import Distribution.Types.UnqualComponentName
+
+#if MIN_VERSION_Cabal(3,6,0)
+import Distribution.Utils.Path
+#endif
+
 #if MIN_VERSION_Cabal(3,2,0)
 import Distribution.Utils.ShortText
 #endif
-import qualified Distribution.Compat.Graph as Graph
--- import Distribution.Types.LocalBuildInfo
-import Distribution.Types.UnqualComponentName
-import Distribution.Pretty
 
 import System.Process
 
+import Control.Applicative
 import Control.Monad
 
 import qualified Data.ByteString as B
@@ -126,6 +132,7 @@ import Data.ByteString.Char8 (pack)
 import Data.Char (isSpace)
 import Data.List (intercalate)
 import Data.Maybe (fromMaybe)
+import Data.Monoid
 
 import System.Directory
     (canonicalizePath, createDirectoryIfMissing, doesDirectoryExist,
@@ -157,6 +164,9 @@ mkPkgInfoModules hooks = hooks
     { postConf = mkPkgInfoModulesPostConf (postConf hooks)
     }
 
+-- -------------------------------------------------------------------------- --
+-- Compat Implementations
+
 prettyLicense :: I.InstalledPackageInfo -> String
 prettyLicense = either prettyShow prettyShow . I.license
 
@@ -167,6 +177,9 @@ ft = fromShortText
 ft :: String -> String
 ft = id
 #endif
+
+-- -------------------------------------------------------------------------- --
+-- Cabal 2.0
 
 mkPkgInfoModulesPostConf
     :: (Args -> ConfigFlags -> PackageDescription -> LocalBuildInfo -> IO ())
@@ -229,19 +242,22 @@ trim = f . f
 -- -------------------------------------------------------------------------- --
 -- VCS
 
+#if defined (MIN_VERSION_Cabal) && MIN_VERSION_Cabal(3,4,0)
+getVCS :: IO (Maybe KnownRepoType)
+#else
 getVCS :: IO (Maybe RepoType)
+#endif
 getVCS = getCurrentDirectory >>= getVcsOfDir
-
-getVcsOfDir :: FilePath -> IO (Maybe RepoType)
-getVcsOfDir d = do
-    canonicDir <- canonicalizePath d
-    doesDirectoryExist (canonicDir </> ".hg") >>= \x0 -> if x0
-    then return (Just Mercurial)
-    else doesDirectoryExist (canonicDir </> ".git") >>= \x1 -> if x1
-        then return $ Just Git
-        else if isDrive canonicDir
-            then return Nothing
-            else getVcsOfDir (takeDirectory canonicDir)
+  where
+    getVcsOfDir d = do
+        canonicDir <- canonicalizePath d
+        doesDirectoryExist (canonicDir </> ".hg") >>= \x0 -> if x0
+        then return (Just Mercurial)
+        else doesDirectoryExist (canonicDir </> ".git") >>= \x1 -> if x1
+            then return $ Just Git
+            else if isDrive canonicDir
+                then return Nothing
+                else getVcsOfDir (takeDirectory canonicDir)
 
 -- | Returns tag, revision, and branch name.
 --
@@ -426,9 +442,15 @@ pkgInfoModule moduleName cName pkgDesc bInfo = do
 
 licenseFilesText :: PackageDescription -> IO B.ByteString
 licenseFilesText pkgDesc =
-    B.intercalate "\n------------------------------------------------------------\n" <$> mapM fileText
+    B.intercalate "\n------------------------------------------------------------\n" <$> mapM fileTextStr
         (licenseFiles pkgDesc)
   where
+#if MIN_VERSION_Cabal(3,6,0)
+    fileTextStr = fileText . getSymbolicPath
+#else
+    fileTextStr = fileText
+#endif
+
     fileText file = doesFileExist file >>= \x -> if x
         then B.readFile file
         else return ""

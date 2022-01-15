@@ -384,7 +384,9 @@ unsafeHostnameFromText = fromJuste . hostnameFromText
 
 instance ToJSON Hostname where
     toJSON = toJSON . hostnameToText
+    toEncoding = toEncoding. hostnameToText
     {-# INLINE toJSON #-}
+    {-# INLINE toEncoding #-}
 
 instance FromJSON Hostname where
     parseJSON = parseJsonFromText "Hostname"
@@ -460,12 +462,18 @@ instance HasTextRepresentation HostAddress where
     fromText = hostAddressFromText
     {-# INLINE fromText #-}
 
+hostAddressProperties :: KeyValue kv => HostAddress -> [kv]
+hostAddressProperties o =
+    [ "hostname" .= _hostAddressHost o
+    , "port" .= _hostAddressPort o
+    ]
+{-# INLINE hostAddressProperties #-}
+
 instance ToJSON HostAddress where
-    toJSON o = object
-        [ "hostname" .= _hostAddressHost o
-        , "port" .= _hostAddressPort o
-        ]
+    toJSON = object. hostAddressProperties
+    toEncoding = pairs . mconcat . hostAddressProperties
     {-# INLINE toJSON #-}
+    {-# INLINE toEncoding #-}
 
 instance FromJSON HostAddress where
     parseJSON = withObject "HostAddress" $ \o -> HostAddress

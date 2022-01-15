@@ -20,7 +20,7 @@ runs:
           sudo apt-get install -y librocksdb-dev z3
           ;;
         mac*)
-          brew install rocksdb z3
+          brew update && brew install rocksdb z3 || true
           ;;
         *)
           echo "::error::unsupported operating system ${{ inputs.os }}"
@@ -33,7 +33,7 @@ runs:
       shell: bash
       run: |
           tar -xzf $ARCHIVE_PATTERN
-          echo "::add-path::`pwd`/chainweb"
+          echo "`pwd`/chainweb" >> $GITHUB_PATH
     - name: test chainweb installation
       shell: bash
       run: chainweb-node --version

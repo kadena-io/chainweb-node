@@ -1,6 +1,5 @@
 {-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE BangPatterns #-}
-{-# LANGUAGE CPP #-}
 {-# LANGUAGE DefaultSignatures #-}
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveFoldable #-}
@@ -55,6 +54,8 @@ module Chainweb.Utils
 , minimumsOf
 , minimumsByOf
 , leadingZeros
+, randomByteString
+, randomShortByteString
 , maxBy
 , minBy
 , allEqOn
@@ -65,6 +66,7 @@ module Chainweb.Utils
 , alignWithV
 , (&)
 , IxedGet(..)
+, minusOrZero
 
 -- * Encoding and Serialization
 , EncodingException(..)
@@ -74,6 +76,7 @@ module Chainweb.Utils
 , runPut
 , runGetEither
 , eof
+, MonadGetExtra(..)
 
 -- ** Codecs
 , Codec(..)
@@ -107,6 +110,9 @@ module Chainweb.Utils
 , decodeFileStrictOrThrow'
 , parseJsonFromText
 
+-- ** Cassava (CSV)
+, CsvDecimal(..)
+
 -- * Error Handling
 , Expected(..)
 , Actual(..)
@@ -134,7 +140,7 @@ module Chainweb.Utils
 , suffixHelp
 , textReader
 , textOption
-, jsonOption
+, jsonOption -- rexport from Configuration.Utils
 
 -- * Configuration to Enable/Disable Components
 
@@ -155,14 +161,12 @@ module Chainweb.Utils
 , nub
 , timeoutStream
 , reverseStream
-
--- * Filesystem
-, withTempDir
+, foldChunksM
+, foldChunksM_
+, progress
 
 -- * Type Level
 , symbolText
--- * optics
-, locally
 
 -- * Resource Management
 , concurrentWith
@@ -172,7 +176,9 @@ module Chainweb.Utils
 , thd
 
 -- * Strict Tuples
-, sfst  -- TODO remove these
+, T2(..)
+, T3(..)
+, sfst
 , ssnd
 , scurry
 , suncurry
@@ -187,6 +193,7 @@ module Chainweb.Utils
 -- * TLS Manager with connection timeout settings
 , manager
 , unsafeManager
+, unsafeManagerWithSettings
 , setManagerRequestTimeout
 
 -- * SockAddr from network package
@@ -208,7 +215,7 @@ import Control.Concurrent.MVar
 import Control.Concurrent.TokenBucket
 import Control.DeepSeq
 import Control.Exception
-    (IOException, SomeAsyncException(..), bracket, evaluate)
+    (IOException, SomeAsyncException(..), evaluate)
 import Control.Lens hiding ((.=))
 import Control.Monad
 import Control.Monad.Catch hiding (bracket)
@@ -228,8 +235,10 @@ import qualified Data.ByteString as B
 import qualified Data.ByteString.Base64 as B64
 import qualified Data.ByteString.Base64.URL as B64U
 import qualified Data.ByteString.Lazy as BL
-import qualified Data.ByteString.Lazy.Char8 as BL8
+import qualified Data.ByteString.Short as BS
 import qualified Data.ByteString.Unsafe as B
+import qualified Data.Csv as CSV
+import Data.Decimal
 import Data.Foldable
 import Data.Functor.Of
 import Data.Hashable
@@ -238,14 +247,14 @@ import qualified Data.HashSet as HS
 import Data.Monoid (Endo)
 import Data.Proxy
 import Data.Serialize.Get (Get)
+import qualified Data.Serialize.Get as Get
 import Data.Serialize.Put (Put)
 import Data.String (IsString(..))
-import Data.Time
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
 import qualified Data.Text.Lazy as TL
 import Data.These (These(..))
-import Data.Tuple.Strict
+import Data.Time
 import qualified Data.Vector as V
 import Data.Word
 
@@ -262,15 +271,12 @@ import Numeric.Natural
 
 import qualified Options.Applicative as O
 
-import qualified Streaming as S (concats, effect)
+import qualified Streaming as S (concats, effect, inspect)
 import qualified Streaming.Prelude as S
 
-import System.Directory (removeDirectoryRecursive)
 import System.IO.Unsafe (unsafePerformIO)
 import System.LogLevel
-import System.Path (Absolute, Path, fragment, toAbsoluteFilePath, (</>))
-import System.Path.IO (getTemporaryDirectory)
-import System.Random (randomIO)
+import System.Random
 import qualified System.Random.MWC as Prob
 import qualified System.Random.MWC.Probability as Prob
 import System.Timeout
@@ -398,6 +404,14 @@ alignWithV f a b = V.zipWith (\a' -> f . These a') a b <> case (V.length a,V.len
           | la > lb -> V.map (f . This) $ V.drop lb a
           | otherwise -> V.map (f . That) $ V.drop la b
 
+-- | Substraction that returns 0 when the second argument is larger than the
+-- first. This can be in particular useful when substracting 'Natural' numbers.
+-- The operator '-' would throw an 'Underflow' exception in this situation.
+--
+minusOrZero :: Ord a => Num a => a -> a -> a
+minusOrZero a b = a - min a b
+{-# INLINE minusOrZero #-}
+
 -- -------------------------------------------------------------------------- --
 -- * Read only Ixed
 
@@ -414,7 +428,7 @@ class IxedGet a where
     ixg :: Index a -> Fold a (IxValue a)
 
     default ixg :: Ixed a => Index a -> Fold a (IxValue a)
-    ixg = ix
+    ixg i = ix i
     {-# INLINE ixg #-}
 
 -- -------------------------------------------------------------------------- --
@@ -435,6 +449,7 @@ data EncodingException where
     X509CertificateDecodeException :: T.Text -> EncodingException
     X509KeyDecodeException :: T.Text -> EncodingException
     deriving (Show, Eq, Ord, Generic)
+    deriving anyclass (NFData)
 
 instance Exception EncodingException
 
@@ -461,6 +476,14 @@ runPut = runPutS
 eof :: Get ()
 eof = unlessM isEmpty $ fail "pending bytes in input"
 {-# INLINE eof #-}
+
+class MonadGet m => MonadGetExtra m where
+    label :: String -> m a -> m a
+    isolate :: Int -> m a -> m a
+
+instance MonadGetExtra Get where
+    label = Get.label
+    isolate = Get.isolate
 
 -- -------------------------------------------------------------------------- --
 -- ** Text
@@ -508,6 +531,23 @@ instance HasTextRepresentation Int where
     fromText = treadM
     {-# INLINE fromText #-}
 
+instance HasTextRepresentation Integer where
+    toText = sshow
+    {-# INLINE toText #-}
+    fromText = treadM
+    {-# INLINE fromText #-}
+
+instance HasTextRepresentation UTCTime where
+    toText = T.pack . formatTime defaultTimeLocale iso8601DateTimeFormat
+    {-# INLINE toText #-}
+
+    fromText d = case parseTimeM False defaultTimeLocale fmt (T.unpack d) of
+        Nothing -> throwM $ TextFormatException $ "failed to parse utc date " <> sshow d
+        Just x -> return x
+      where
+        fmt = iso8601DateTimeFormat
+    {-# INLINE fromText #-}
+
 -- | Decode a value from its textual representation.
 --
 eitherFromText
@@ -541,6 +581,10 @@ parseM p = either (throwM . TextFormatException . T.pack) return
 parseText :: HasTextRepresentation a => A.Parser T.Text -> A.Parser a
 parseText p = either (fail . sshow) return . fromText =<< p
 {-# INLINE parseText #-}
+
+iso8601DateTimeFormat :: String
+iso8601DateTimeFormat = iso8601DateFormat (Just "%H:%M:%SZ")
+{-# INLINE iso8601DateTimeFormat #-}
 
 -- -------------------------------------------------------------------------- --
 -- ** Base64
@@ -688,6 +732,18 @@ parseJsonFromText
 parseJsonFromText l = withText l $! either fail return . eitherFromText
 
 -- -------------------------------------------------------------------------- --
+-- ** Cassava (CSV)
+
+newtype CsvDecimal = CsvDecimal { _csvDecimal :: Decimal }
+    deriving newtype (Eq, Ord, Show, Read)
+
+instance CSV.FromField CsvDecimal where
+    parseField s = do
+        cs <- either (fail . show) pure $ T.unpack <$> T.decodeUtf8' s
+        either fail pure $ readEither cs
+    {-# INLINE parseField #-}
+
+-- -------------------------------------------------------------------------- --
 -- Option Parsing
 
 -- | Type of parsers for simple compandline options.
@@ -722,12 +778,6 @@ textReader = eitherReader $ first show . fromText . T.pack
 textOption :: HasTextRepresentation a => Mod OptionFields a -> O.Parser a
 textOption = option textReader
 
-jsonOption :: FromJSON a => Mod OptionFields a -> O.Parser a
-jsonOption = option jsonReader
-
-jsonReader :: FromJSON a => ReadM a
-jsonReader = eitherReader $ eitherDecode' . BL8.pack
-
 -- -------------------------------------------------------------------------- --
 -- Error Handling
 
@@ -736,12 +786,14 @@ jsonReader = eitherReader $ eitherDecode' . BL8.pack
 --
 newtype Expected a = Expected { getExpected :: a }
     deriving (Show, Eq, Ord, Generic, Functor)
+    deriving newtype (NFData)
 
 -- | A newtype wrapper for tagger values as "actual" outcomes of some
 -- computation.
 --
 newtype Actual a = Actual { getActual :: a }
     deriving (Show, Eq, Ord, Generic, Functor)
+    deriving newtype (NFData)
 
 -- | A textual message that describes the 'Expected' and the 'Actual' outcome of
 -- some computation.
@@ -931,6 +983,32 @@ leadingZeros b =
 {-# INLINE leadingZeros #-}
 
 -- -------------------------------------------------------------------------- --
+-- Random ByteString
+--
+-- 'getStdRandom' provides a generator that is stored in an 'IORef' and updated
+-- via an optimistic atomic swap. 'atomicModifyIORef'' is implemented such that
+-- the swapped pointer is updated lazily, which minimizes the chance of retries
+-- and life locks.
+--
+-- However, use of the generator is still sequentialized. Thus, for long
+-- 'ByteString's it can be more efficient to split the generator to speed up
+-- concurrent access.
+
+randomShortByteString :: MonadIO m => Natural -> m BS.ShortByteString
+randomShortByteString n
+    -- don't split the generators for less than 64 words.
+    -- 512 = 8 * 64
+    | n < 512 = getStdRandom $ genShortByteString (int n)
+    | otherwise = fst . genShortByteString (int n) <$> newStdGen
+
+randomByteString :: MonadIO m => Natural -> m B.ByteString
+randomByteString n
+    -- don't split the generators for less than 64 words.
+    -- 512 = 8 * 64
+    | n < 512 = getStdRandom $ genByteString (int n)
+    | otherwise = fst . genByteString (int n) <$> newStdGen
+
+-- -------------------------------------------------------------------------- --
 -- Configuration wrapper to enable and disable components
 
 -- | Configuration wrapper to enable and disable components
@@ -953,16 +1031,24 @@ defaultEnableConfig a = EnableConfig
     , _enableConfigConfig = a
     }
 
+enableConfigProperties :: ToJSON a => KeyValue kv => EnableConfig a -> [kv]
+enableConfigProperties o =
+    [ "enabled" .= _enableConfigEnabled o
+    , "configuration" .= _enableConfigConfig o
+    ]
+{-# INLINE enableConfigProperties #-}
+
 instance ToJSON a => ToJSON (EnableConfig a) where
-    toJSON o = object
-        [ "enabled" .= _enableConfigEnabled o
-        , "configuration" .= _enableConfigConfig o
-        ]
+    toJSON = object . enableConfigProperties
+    toEncoding = pairs . mconcat . enableConfigProperties
+    {-# INLINE toJSON #-}
+    {-# INLINE toEncoding #-}
 
 instance FromJSON (a -> a) => FromJSON (EnableConfig a -> EnableConfig a) where
     parseJSON = withObject "EnableConfig" $ \o -> id
         <$< enableConfigEnabled ..: "enabled" % o
         <*< enableConfigConfig %.: "configuration" % o
+    {-# INLINE parseJSON #-}
 
 validateEnableConfig :: ConfigValidation a l -> ConfigValidation (EnableConfig a) l
 validateEnableConfig v c = when (_enableConfigEnabled c) $ v (_enableConfigConfig c)
@@ -1066,6 +1152,53 @@ streamToHashSet_ = fmap HS.fromList . S.toList_
 reverseStream :: Monad m => S.Stream (Of a) m () -> S.Stream (Of a) m ()
 reverseStream = S.effect . S.fold_ (flip (:)) [] S.each
 
+-- | Fold over a chunked stream
+--
+foldChunksM
+    :: Monad m
+    => (forall b . t -> S.Stream f m b -> m (Of t b))
+    -> t
+    -> S.Stream (S.Stream f m) m a
+    -> m (Of t a)
+foldChunksM f = go
+  where
+    go seed s = S.inspect s >>= \case
+        Left r -> return (seed S.:> r)
+        Right chunk -> do
+            (!seed' S.:> s') <- f seed chunk
+            go seed' s'
+{-# INLINE foldChunksM #-}
+
+-- | Fold over a chunked stream
+--
+foldChunksM_
+    :: Monad m
+    => (forall b . t -> S.Stream f m b -> m (Of t b))
+    -> t
+    -> S.Stream (S.Stream f m) m a
+    -> m t
+foldChunksM_ f seed = fmap (fst . S.lazily) . foldChunksM f seed
+{-# INLINE foldChunksM_ #-}
+
+-- | Progress reporting for long-running streams. I calls an action
+-- every @n@ streams items.
+--
+progress
+    :: Monad m
+    => Int
+        -- ^ How often to report progress
+    -> (Int -> a -> m ())
+        -- ^ progress callback
+    -> S.Stream (S.Of a) m r
+    -> S.Stream (S.Of a) m r
+progress n act s = s
+    & S.zip (S.enumFrom 1)
+    & S.mapM (\(!i, !a) -> a <$ when (i `rem` n == 0) (act i a))
+{-# INLINE progress #-}
+
+-- -------------------------------------------------------------------------- --
+-- Misc
+
 -- | A binary codec.
 --
 -- TODO: maybe use Put/Get ?
@@ -1075,24 +1208,6 @@ data Codec t = Codec
     , codecDecode :: ByteString -> Either String t
     }
 
--- | Perform an action over a random path under @/tmp@. Example path:
---
--- @
--- Path "/tmp/chainweb-git-store-test-8086816238120523704"
--- @
---
-withTempDir :: String -> (Path Absolute -> IO a) -> IO a
-withTempDir tag f = bracket create delete f
-  where
-    create :: IO (Path Absolute)
-    create = do
-        tmp <- getTemporaryDirectory
-        suff <- randomIO @Word64
-        pure $! tmp </> fragment (printf "chainweb-%s-%d" tag suff)
-
-    delete :: Path Absolute -> IO ()
-    delete = toAbsoluteFilePath >=> removeDirectoryRecursive
-
 -- -------------------------------------------------------------------------- --
 -- Typelevel
 
@@ -1101,17 +1216,6 @@ withTempDir tag f = bracket create delete f
 --
 symbolText :: forall s a . KnownSymbol s => IsString a => a
 symbolText = fromString $ symbolVal (Proxy @s)
-
--- -------------------------------------------------------------------------- --
--- Optics
-
-#if ! MIN_VERSION_lens(4,17,1)
--- | Like 'local' for reader environments, but modifies the
--- target of a lens possibly deep in the environment
---
-locally :: MonadReader s m => ASetter s s a b -> (a -> b) -> m r -> m r
-locally l f = Reader.local (over l f)
-#endif
 
 -- -------------------------------------------------------------------------- --
 -- Resource Management
@@ -1173,6 +1277,36 @@ thd (_,_,c) = c
 -- -------------------------------------------------------------------------- --
 -- Strict Tuple
 
+data T2 a b = T2 !a !b
+    deriving (Show, Eq, Ord, Generic, NFData, Functor)
+
+instance Bifunctor T2 where
+    bimap f g (T2 a b) =  T2 (f a) (g b)
+    {-# INLINE bimap #-}
+
+data T3 a b c = T3 !a !b !c
+    deriving (Show, Eq, Ord, Generic, NFData, Functor)
+
+instance Bifunctor (T3 a) where
+    bimap f g (T3 a b c) =  T3 a (f b) (g c)
+    {-# INLINE bimap #-}
+
+sfst :: T2 a b -> a
+sfst (T2 a _) = a
+{-# INLINE sfst #-}
+
+ssnd :: T2 a b -> b
+ssnd (T2 _ b) = b
+{-# INLINE ssnd #-}
+
+scurry :: (T2 a b -> c) -> a -> b -> c
+scurry f a b = f (T2 a b)
+{-# INLINE scurry #-}
+
+suncurry :: (a -> b -> c) -> T2 a b -> c
+suncurry k (T2 a b) = k a b
+{-# INLINE suncurry #-}
+
 suncurry3 :: (a -> b -> c -> d) -> T3 a b c -> d
 suncurry3 k (T3 a b c) = k a b c
 {-# INLINE suncurry3 #-}
@@ -1223,6 +1357,11 @@ unsafeManager micros = HTTP.newTlsManagerWith
     $ setManagerRequestTimeout micros
     $ HTTP.mkManagerSettings (HTTP.TLSSettingsSimple True True True) Nothing
 
+unsafeManagerWithSettings :: (HTTP.ManagerSettings -> HTTP.ManagerSettings) -> IO HTTP.Manager
+unsafeManagerWithSettings settings = HTTP.newTlsManagerWith
+    $ settings
+    $ HTTP.mkManagerSettings (HTTP.TLSSettingsSimple True True True) Nothing
+
 setManagerRequestTimeout :: Int -> HTTP.ManagerSettings -> HTTP.ManagerSettings
 setManagerRequestTimeout micros settings = settings
     { HTTP.managerResponseTimeout = HTTP.responseTimeoutMicro micros
@@ -1239,25 +1378,20 @@ setManagerRequestTimeout micros settings = settings
 -- -------------------------------------------------------------------------- --
 -- SockAddr from network package
 
-sockAddrJson :: SockAddr -> Value
-sockAddrJson (SockAddrInet p i) = object
+sockAddrJson :: KeyValue kv => SockAddr -> [kv]
+sockAddrJson (SockAddrInet p i) =
     [ "ipv4" .= showIpv4 i
     , "port" .= fromIntegral @PortNumber @Int p
     ]
-sockAddrJson (SockAddrInet6 p f i s) = object
+sockAddrJson (SockAddrInet6 p f i s) =
     [ "ipv6" .= show i
     , "port" .= fromIntegral @PortNumber @Int p
     , "flowInfo" .= f
     , "scopeId" .= s
     ]
-sockAddrJson (SockAddrUnix s) = object
+sockAddrJson (SockAddrUnix s) =
     [ "pipe" .= s
     ]
-#if !MIN_VERSION_network(3,0,0)
-sockAddrJson (SockAddrCan i) = object
-    [ "can" .= i
-    ]
-#endif
 
 showIpv4 :: HostAddress -> T.Text
 showIpv4 ha = T.intercalate "." $ sshow <$> [a0,a1,a2,a3]
@@ -1269,14 +1403,6 @@ showIpv6 ha = T.intercalate ":"
     $ T.pack . printf "%x" <$> [a0,a1,a2,a3,a4,a5,a6,a7]
   where
     (a0,a1,a2,a3,a4,a5,a6,a7) = hostAddress6ToTuple ha
-
-#if !MIN_VERSION_network(3,0,0)
-instance NFData SockAddr where
-    rnf (SockAddrInet a b) = a `seq` b `seq` ()
-    rnf (SockAddrInet6 a b c d) = a `seq` b `seq` c `seq` d `seq` ()
-    rnf (SockAddrUnix a) = a `seq` ()
-    rnf (SockAddrCan a) = a `seq` ()
-#endif
 
 -- -------------------------------------------------------------------------- --
 -- Debugging Tools
@@ -1304,4 +1430,4 @@ parseUtcTime d = case parseTimeM False defaultTimeLocale fmt d of
         $ "parseUtcTime: failed to parse utc date " <> sshow d
     Just x -> return x
   where
-    fmt = iso8601DateFormat (Just "%H:%M:%SZ")
+    fmt = iso8601DateTimeFormat

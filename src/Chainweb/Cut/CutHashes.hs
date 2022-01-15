@@ -40,6 +40,7 @@ module Chainweb.Cut.CutHashes
 , HasCutId(..)
 
 -- * CutHashes
+, BlockHashWithHeight(..)
 , CutHashes(..)
 , cutHashes
 , cutHashesChainwebVersion
@@ -57,7 +58,6 @@ module Chainweb.Cut.CutHashes
 , cutHashesMinHeight
 ) where
 
-import Control.Applicative
 import Control.Arrow
 import Control.DeepSeq
 import Control.Lens (Getter, Lens', makeLenses, to, view)
@@ -150,7 +150,9 @@ instance Hashable CutId where
 
 instance ToJSON CutId where
     toJSON = toJSON . toText
+    toEncoding = toEncoding . toText
     {-# INLINE toJSON #-}
+    {-# INLINE toEncoding #-}
 
 instance FromJSON CutId where
     parseJSON = parseJsonFromText "CutId"
@@ -218,6 +220,32 @@ instance HasCutId CutId where
 -- -------------------------------------------------------------------------- --
 -- Cut Hashes
 
+data BlockHashWithHeight = BlockHashWithHeight
+    { _bhwhHeight :: !BlockHeight
+    , _bhwhHash :: !BlockHash
+    }
+    deriving (Show, Eq, Ord, Generic)
+    deriving anyclass (NFData)
+
+blockHashWithHeightProperties :: KeyValue kv => BlockHashWithHeight -> [kv]
+blockHashWithHeightProperties o =
+    [ "height" .= _bhwhHeight o
+    , "hash" .= _bhwhHash o
+    ]
+{-# INLINE blockHashWithHeightProperties #-}
+
+instance ToJSON BlockHashWithHeight where
+    toJSON = object . blockHashWithHeightProperties
+    toEncoding = pairs . mconcat . blockHashWithHeightProperties
+    {-# INLINE toJSON #-}
+    {-# INLINE toEncoding #-}
+
+instance FromJSON BlockHashWithHeight where
+    parseJSON = withObject "HashWithHeight" $ \o -> BlockHashWithHeight
+        <$> o .: "height"
+        <*> o .: "hash"
+    {-# INLINE parseJSON #-}
+
 -- | This data structure is used to inform other components and chainweb nodes
 -- about new cuts along with some properties of the cut.
 --
@@ -228,7 +256,7 @@ instance HasCutId CutId where
 -- some of the block of the 'Cut'.
 --
 data CutHashes = CutHashes
-    { _cutHashes :: !(HM.HashMap ChainId (BlockHeight, BlockHash))
+    { _cutHashes :: !(HM.HashMap ChainId BlockHashWithHeight)
     , _cutOrigin :: !(Maybe PeerInfo)
         -- ^ 'Nothing' is used for locally mined Cuts
     , _cutHashesWeight :: !BlockWeight
@@ -248,7 +276,7 @@ makeLenses ''CutHashes
 -- | Complexity is linear in the number of chains
 --
 _cutHashesMaxHeight :: CutHashes -> BlockHeight
-_cutHashesMaxHeight = maximum . fmap fst . toList . _cutHashes
+_cutHashesMaxHeight = maximum . fmap _bhwhHeight . _cutHashes
 {-# INLINE _cutHashesMaxHeight #-}
 
 cutHashesMaxHeight :: Getter CutHashes BlockHeight
@@ -258,7 +286,7 @@ cutHashesMaxHeight = to _cutHashesMaxHeight
 -- | Complexity is linear in the number of chains
 --
 _cutHashesMinHeight :: CutHashes -> BlockHeight
-_cutHashesMinHeight = minimum . fmap fst . toList . _cutHashes
+_cutHashesMinHeight = minimum . fmap _bhwhHeight . _cutHashes
 {-# INLINE _cutHashesMinHeight #-}
 
 cutHashesMinHeight :: Getter CutHashes BlockHeight
@@ -279,58 +307,51 @@ instance Ord CutHashes where
     compare = compare `on` (_cutHashesWeight &&& _cutHashesId)
     {-# INLINE compare #-}
 
-instance ToJSON CutHashes where
-    toJSON c = object $
-        [ "hashes" .= (hashWithHeight <$> _cutHashes c)
-        , "origin" .= _cutOrigin c
-        , "weight" .= _cutHashesWeight c
-        , "height" .= _cutHashesHeight c
-        , "instance" .= _cutHashesChainwebVersion c
-        , "id" .= _cutHashesId c
-        ]
-        <> ifNotEmpty "headers" cutHashesHeaders
-        <> ifNotEmpty "payloads" cutHashesPayloads
-      where
-        hashWithHeight h = object
-            [ "height" .= fst h
-            , "hash" .= snd h
-            ]
+cutHashesProperties :: forall kv . KeyValue kv => CutHashes -> [kv]
+cutHashesProperties c =
+    [ "hashes" .= _cutHashes c
+    , "origin" .= _cutOrigin c
+    , "weight" .= _cutHashesWeight c
+    , "height" .= _cutHashesHeight c
+    , "instance" .= _cutHashesChainwebVersion c
+    , "id" .= _cutHashesId c
+    ]
+    <> ifNotEmpty "headers" cutHashesHeaders
+    <> ifNotEmpty "payloads" cutHashesPayloads
+  where
+    ifNotEmpty
+        :: ToJSONKey k
+        => ToJSON v
+        => T.Text
+        -> Lens' CutHashes (HM.HashMap k v)
+        -> [kv]
+    ifNotEmpty s l
+        | x <- view l c, not (HM.null x) = [ s .= x ]
+        | otherwise = mempty
 
-        ifNotEmpty
-            :: ToJSONKey k
-            => ToJSON v
-            => T.Text
-            -> Lens' CutHashes (HM.HashMap k v)
-            -> [(T.Text, Value)]
-        ifNotEmpty s l
-            | x <- view l c, not (HM.null x) = [ s .= x ]
-            | otherwise = mempty
+instance ToJSON CutHashes where
+    toJSON = object . cutHashesProperties
+    toEncoding = pairs . mconcat . cutHashesProperties
+    {-# INLINE toJSON #-}
+    {-# INLINE toEncoding #-}
 
 instance FromJSON CutHashes where
     parseJSON = withObject "CutHashes" $ \o -> CutHashes
-        <$> (o .: "hashes" >>= traverse hashWithHeight)
+        <$> o .: "hashes"
         <*> o .: "origin"
         <*> o .: "weight"
         <*> o .: "height"
         <*> o .: "instance"
-        <*> hashId o
+        <*> o .: "id"
         <*> o .:? "headers" .!= mempty
         <*> o .:? "payloads" .!= mempty
-      where
-        hashWithHeight = withObject "HashWithHeight" $ \o -> (,)
-            <$> o .: "height"
-            <*> o .: "hash"
-
-        -- Backward compat code
-        hashId o = (o .: "id")
-            <|> (_cutId @(HM.HashMap ChainId (BlockHeight, BlockHash)) <$> (o .: "hashes" >>= traverse hashWithHeight))
 
 -- | Compute a 'CutHashes' structure from a 'Cut'. The result doesn't include
 -- any block headers or payloads.
 --
 cutToCutHashes :: Maybe PeerInfo -> Cut -> CutHashes
 cutToCutHashes p c = CutHashes
-    { _cutHashes = (_blockHeight &&& _blockHash) <$> _cutMap c
+    { _cutHashes = (\x -> BlockHashWithHeight (_blockHeight x) (_blockHash x)) <$> _cutMap c
     , _cutOrigin = p
     , _cutHashesWeight = _cutWeight c
     , _cutHashesHeight = _cutHeight c

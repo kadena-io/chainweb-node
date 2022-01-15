@@ -103,7 +103,7 @@ tests rdb = testGroupSch "Chainweb.Test.Rosetta.RestAPI" go
     go = return $
       withNodes v "rosettaRemoteTests-" rdb nodes $ \envIo ->
       withTime $ \tio -> testGroup "Rosetta Api tests" $
-        schedule Sequential (tgroup tio envIo)
+        schedule Sequential (tgroup tio $ _getServiceClientEnv <$> envIo)
 
     -- Not supported:
     --
@@ -494,7 +494,7 @@ nid = NetworkId
     }
 
 genesisId :: BlockId
-genesisId = BlockId 0 "rdfJIktp_WL0oMr8Wr6lH49YkERAJ9MlFp0RPLMXPDE"
+genesisId = BlockId 0 "gl2bDgfL9ZRJCe0VkGZq8pfCl1PazbfYsSAZNHp8giI"
 
 rosettaVersion :: RosettaNodeVersion
 rosettaVersion = RosettaNodeVersion

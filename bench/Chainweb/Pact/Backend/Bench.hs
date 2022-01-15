@@ -25,8 +25,8 @@ import Pact.Interpreter (PactDbEnv(..), mkPactDbEnv)
 import Pact.PersistPactDb (DbEnv(..), initDbEnv, pactdb)
 import Pact.Types.Exp
 import Pact.Types.Logger
-import Pact.Types.PactValue
 import Pact.Types.Persistence
+import Pact.Types.RowData
 import Pact.Types.Term
 import Pact.Types.Util
 import qualified Pact.Interpreter as PI
@@ -204,8 +204,8 @@ die = throwM . userError
 
 setupUserTable
     :: PactDbEnv e
-    -> (Domain RowKey (ObjectMap PactValue) -> IO ())
-    -> IO (NoopNFData (Domain RowKey (ObjectMap PactValue)))
+    -> (Domain RowKey RowData -> IO ())
+    -> IO (NoopNFData (Domain RowKey RowData))
 setupUserTable db@(PactDbEnv pdb e) setupio = do
     let tn = "user1"
         ut = UserTables tn
@@ -219,14 +219,14 @@ writeRow
     :: AsString k
     => PactDbEnv e
     -> WriteType
-    -> Domain k (ObjectMap PactValue)
+    -> Domain k RowData
     -> FieldKey
     -> k
     -> Integer
     -> IO ()
 writeRow (PactDbEnv pdb e) writeType ut f k i =
     _writeRow pdb writeType ut k
-        (ObjectMap $ M.fromList [(f,(PLiteral (LInteger i)))]) e
+        (RowData RDV1 (ObjectMap $ M.fromList [(f,(RDLiteral (LInteger i)))])) e
 
 benchUserTable :: Int -> PactDbEnv e -> C.Benchmark
 benchUserTable transactionCount dbEnv = C.env (setup dbEnv) $ \ ~(ut) ->
@@ -245,7 +245,7 @@ benchUserTable transactionCount dbEnv = C.env (setup dbEnv) $ \ ~(ut) ->
 
 incIntegerAtKey
     :: PactDbEnv e
-    -> Domain RowKey (ObjectMap PactValue)
+    -> Domain RowKey RowData
     -> FieldKey
     -> RowKey
     -> Integer
@@ -255,9 +255,9 @@ incIntegerAtKey db@(PactDbEnv pdb e) ut f k z = do
     r <- _readRow pdb ut k e
     case r of
         Nothing -> die "no row read"
-        Just (ObjectMap m) -> case M.lookup f m of
+        Just (RowData _v (ObjectMap m)) -> case M.lookup f m of
             Nothing -> die "field not found"
-            Just (PLiteral (LInteger i)) -> do
+            Just (RDLiteral (LInteger i)) -> do
                 let j = i + z
                 writeRow db Update ut f k j
                 commit db
@@ -283,9 +283,9 @@ benchUserTableForKeys numSampleEvents dbEnv =
 
     unpack = \case
       Nothing -> die "no row read"
-      Just (ObjectMap m) -> case M.lookup f m of
+      Just (RowData _ (ObjectMap m)) -> case M.lookup f m of
         Nothing -> die "field not found"
-        Just (PLiteral (LInteger result)) -> return result
+        Just (RDLiteral (LInteger result)) -> return result
         Just _ -> die "field not integer"
 
 
@@ -349,9 +349,9 @@ cpBenchSampleKeys numSampleEvents cp =
 
     unpack = \case
       Nothing -> die "no row read"
-      Just (ObjectMap m) -> case M.lookup f m of
+      Just (RowData _v (ObjectMap m)) -> case M.lookup f m of
         Nothing -> die "field not found"
-        Just (PLiteral (LInteger result)) -> return result
+        Just (RDLiteral (LInteger result)) -> return result
         Just _ -> die "field not integer"
 
 

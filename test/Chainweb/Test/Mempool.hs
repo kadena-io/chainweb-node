@@ -34,7 +34,6 @@ import Data.IORef
 import Data.List (sort, sortBy)
 import qualified Data.List.Ordered as OL
 import Data.Ord (Down(..))
-import Data.Tuple.Strict (T2(..))
 import Data.Vector (Vector)
 import qualified Data.Vector as V
 import GHC.Stack
@@ -49,11 +48,11 @@ import Test.Tasty.QuickCheck hiding ((.&.))
 -- internal modules
 
 import Pact.Parse (ParsedDecimal(..))
-import Pact.Types.Gas (GasPrice(..))
 
 import Chainweb.BlockHash
 import Chainweb.Mempool.Mempool
 import qualified Chainweb.Time as Time
+import Chainweb.Utils (T2(..))
 
 ------------------------------------------------------------------------------
 -- | Several operations (reintroduce, validate, confirm) can only be performed

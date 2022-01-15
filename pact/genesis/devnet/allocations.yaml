@@ -1,7 +1,7 @@
 # Internal testnet allocations
 code: |-
   (coin.create-allocation-account "allocation00" (time "1900-10-15T18:00:00Z") "allocation00" 1000000.0)
-  (coin.create-allocation-account "allocation01" (time "2020-10-31T18:00:00Z") "allocation01" 1000000.0)
+  (coin.create-allocation-account "allocation01" (time "2100-10-31T18:00:00Z") "allocation01" 1000000.0)
   (coin.create-allocation-account "allocation02" (time "1900-10-31T18:00:00Z") "allocation02" 1000000.0)
   (coin.create-allocation-account "allocation-test01" (time "1900-10-31T18:00:00Z") "allocation-test01" 1000000.0)
   (coin.create-allocation-account "allocation-test02" (time "1900-10-31T18:00:00Z") "allocation-test02" 2000000.0)

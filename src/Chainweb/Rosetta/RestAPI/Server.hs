@@ -14,8 +14,9 @@
 -- Stability: experimental
 --
 --
-module Chainweb.Rosetta.RestAPI.Server where
-
+module Chainweb.Rosetta.RestAPI.Server
+( someRosettaServer
+) where
 
 import Control.Error.Util
 import Control.Monad (void, (<$!>))
@@ -45,7 +46,6 @@ import Servant.Server
 
 import Chainweb.BlockHeader (BlockHeader(..))
 import Chainweb.BlockHeader.Genesis (genesisBlockHeader)
-import Chainweb.Chainweb.ChainResources (ChainResources(..))
 import Chainweb.Cut (_cutMap)
 import Chainweb.CutDB
 import Chainweb.HostAddress
@@ -61,6 +61,7 @@ import Chainweb.Transaction (ChainwebTransaction)
 import Chainweb.Utils
 import Chainweb.Utils.Paging
 import Chainweb.Version
+import Chainweb.WebPactExecutionService
 
 import P2P.Node.PeerDB
 import P2P.Node.RestAPI.Server (peerGetHandler)
@@ -69,21 +70,21 @@ import P2P.Peer
 ---
 
 rosettaServer
-    :: forall cas a (v :: ChainwebVersionT)
+    :: forall cas (v :: ChainwebVersionT)
     . PayloadCasLookup cas
     => ChainwebVersion
     -> [(ChainId, PayloadDb cas)]
     -> [(ChainId, MempoolBackend ChainwebTransaction)]
     -> PeerDb
     -> CutDb cas
-    -> [(ChainId, ChainResources a)]
+    -> [(ChainId, PactExecutionService)]
     -> Server (RosettaApi v)
-rosettaServer v ps ms peerDb cutDb cr =
+rosettaServer v ps ms peerDb cutDb pacts =
     -- Account --
-    accountBalanceH v cutDb cr
+    accountBalanceH v cutDb pacts
     -- Blocks --
-    :<|> blockTransactionH v cutDb ps cr
-    :<|> blockH v cutDb ps cr
+    :<|> blockTransactionH v cutDb ps pacts
+    :<|> blockH v cutDb ps pacts
     -- Construction --
     :<|> constructionMetadataH v
     :<|> constructionSubmitH v ms
@@ -91,9 +92,9 @@ rosettaServer v ps ms peerDb cutDb cr =
     :<|> mempoolTransactionH v ms
     :<|> mempoolH v ms
     -- Network --
-    :<|> (networkListH v cutDb)
+    :<|> networkListH v cutDb
     :<|> networkOptionsH v
-    :<|> (networkStatusH v cutDb peerDb)
+    :<|> networkStatusH v cutDb peerDb
 
 someRosettaServer
     :: PayloadCasLookup cas
@@ -101,11 +102,11 @@ someRosettaServer
     -> [(ChainId, PayloadDb cas)]
     -> [(ChainId, MempoolBackend ChainwebTransaction)]
     -> PeerDb
-    -> [(ChainId, ChainResources a)]
+    -> [(ChainId, PactExecutionService)]
     -> CutDb cas
     -> SomeServer
-someRosettaServer v@(FromSingChainwebVersion (SChainwebVersion :: Sing vT)) ps ms pdb crs cdb =
-    SomeServer (Proxy @(RosettaApi vT)) $ rosettaServer v ps ms pdb cdb crs
+someRosettaServer v@(FromSingChainwebVersion (SChainwebVersion :: Sing vT)) ps ms pdb pacts cdb =
+    SomeServer (Proxy @(RosettaApi vT)) $ rosettaServer v ps ms pdb cdb pacts
 
 --------------------------------------------------------------------------------
 -- Account Handlers
@@ -113,11 +114,11 @@ someRosettaServer v@(FromSingChainwebVersion (SChainwebVersion :: Sing vT)) ps m
 accountBalanceH
     :: ChainwebVersion
     -> CutDb cas
-    -> [(ChainId, ChainResources a)]
+    -> [(ChainId, PactExecutionService)]
     -> AccountBalanceReq
     -> Handler AccountBalanceResp
 accountBalanceH _ _ _ (AccountBalanceReq _ (AccountId _ (Just _) _) _) = throwRosetta RosettaSubAcctUnsupported
-accountBalanceH v cutDb crs (AccountBalanceReq net (AccountId acct _ _) pbid) = do
+accountBalanceH v cutDb pacts (AccountBalanceReq net (AccountId acct _ _) pbid) = do
   runExceptT work >>= either throwRosetta pure
   where
     acctBalResp bid bal = AccountBalanceResp
@@ -130,10 +131,10 @@ accountBalanceH v cutDb crs (AccountBalanceReq net (AccountId acct _ _) pbid) = 
     work :: ExceptT RosettaFailure Handler AccountBalanceResp
     work = do
       cid <- validateNetwork v net
-      cr <- lookup cid crs ?? RosettaInvalidChain
+      pact <- lookup cid pacts ?? RosettaInvalidChain
       bh <- findBlockHeaderInCurrFork cutDb cid
         (get _partialBlockId_index pbid) (get _partialBlockId_hash pbid)
-      bal <- getHistoricalLookupBalance (_chainResPact cr) bh acct
+      bal <- getHistoricalLookupBalance pact bh acct
       pure $ acctBalResp (blockId bh) bal
       where
         get _ Nothing = Nothing
@@ -143,15 +144,15 @@ accountBalanceH v cutDb crs (AccountBalanceReq net (AccountId acct _ _) pbid) = 
 -- Block Handlers
 
 blockH
-    :: forall a cas
+    :: forall cas
     . PayloadCasLookup cas
     => ChainwebVersion
     -> CutDb cas
     -> [(ChainId, PayloadDb cas)]
-    -> [(ChainId, ChainResources a)]
+    -> [(ChainId, PactExecutionService)]
     -> BlockReq
     -> Handler BlockResp
-blockH v cutDb ps crs (BlockReq net (PartialBlockId bheight bhash)) =
+blockH v cutDb ps pacts (BlockReq net (PartialBlockId bheight bhash)) =
   runExceptT work >>= either throwRosetta pure
   where
     block :: BlockHeader -> [Transaction] -> Block
@@ -166,11 +167,11 @@ blockH v cutDb ps crs (BlockReq net (PartialBlockId bheight bhash)) =
     work :: ExceptT RosettaFailure Handler BlockResp
     work = do
       cid <- validateNetwork v net
-      cr <- lookup cid crs ?? RosettaInvalidChain
+      pact <- lookup cid pacts ?? RosettaInvalidChain
       payloadDb <- lookup cid ps ?? RosettaInvalidChain
       bh <- findBlockHeaderInCurrFork cutDb cid bheight bhash
       (coinbase, txs) <- getBlockOutputs payloadDb bh
-      logs <- getTxLogs (_chainResPact cr) bh
+      logs <- getTxLogs pact bh
       trans <- matchLogs FullLogs bh logs coinbase txs
       pure $ BlockResp
         { _blockResp_block = Just $ block bh trans
@@ -178,15 +179,15 @@ blockH v cutDb ps crs (BlockReq net (PartialBlockId bheight bhash)) =
         }
 
 blockTransactionH
-    :: forall a cas
+    :: forall cas
     . PayloadCasLookup cas
     => ChainwebVersion
     -> CutDb cas
     -> [(ChainId, PayloadDb cas)]
-    -> [(ChainId, ChainResources a)]
+    -> [(ChainId, PactExecutionService)]
     -> BlockTransactionReq
     -> Handler BlockTransactionResp
-blockTransactionH v cutDb ps crs (BlockTransactionReq net bid t) = do
+blockTransactionH v cutDb ps pacts (BlockTransactionReq net bid t) = do
   runExceptT work >>= either throwRosetta pure
   where
     BlockId bheight bhash = bid
@@ -195,12 +196,12 @@ blockTransactionH v cutDb ps crs (BlockTransactionReq net bid t) = do
     work :: ExceptT RosettaFailure Handler BlockTransactionResp
     work = do
       cid <- validateNetwork v net
-      cr <- lookup cid crs ?? RosettaInvalidChain
+      pact <- lookup cid pacts ?? RosettaInvalidChain
       payloadDb <- lookup cid ps ?? RosettaInvalidChain
       bh <- findBlockHeaderInCurrFork cutDb cid (Just bheight) (Just bhash)
-      rkTarget <- (hush $ fromText' rtid) ?? RosettaUnparsableTransactionId
+      rkTarget <- hush (fromText' rtid) ?? RosettaUnparsableTransactionId
       (coinbase, txs) <- getBlockOutputs payloadDb bh
-      logs <- getTxLogs (_chainResPact cr) bh
+      logs <- getTxLogs pact bh
       tran <- matchLogs (SingleLog rkTarget) bh logs coinbase txs
 
       pure $ BlockTransactionResp tran
@@ -296,7 +297,7 @@ mempoolTransactionH v ms mtr = runExceptT work >>= either throwRosetta pure
     work = do
         cid <- validateNetwork v net
         mp <- lookup cid ms ?? RosettaInvalidChain
-        th <- (hush $ fromText ti) ?? RosettaUnparsableTransactionId
+        th <- hush (fromText ti) ?? RosettaUnparsableTransactionId
         lrs <- liftIO . mempoolLookup mp $ V.singleton th
         (lrs V.!? 0 >>= f) ?? RosettaMempoolBadTx
 
@@ -313,7 +314,7 @@ networkListH v cutDb _ = runExceptT work >>= either throwRosetta pure
       -- the current cut.
       -- NOTE: This ensures only returning chains that are "active" at
       -- the current time.
-      let networkIds = map f $! sort $! (HM.keys (_cutMap c))
+      let networkIds = map f $! sort $! HM.keys (_cutMap c)
       pure $ NetworkListResp networkIds
 
     f :: ChainId -> NetworkId

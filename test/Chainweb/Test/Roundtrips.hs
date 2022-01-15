@@ -1,4 +1,5 @@
 {-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 
 -- |
@@ -14,42 +15,72 @@ module Chainweb.Test.Roundtrips
 ( tests
 ) where
 
+import Chainweb.Pact.RestAPI.SPV
+
+import Control.Monad.Catch
+
+import Crypto.Hash.Algorithms
+
 import Data.Aeson
+import Data.Aeson.Encoding
+import Data.Bifunctor
 import qualified Data.ByteString.Lazy as BL
 import qualified Data.HashMap.Strict as HM
+import Data.Int
 import qualified Data.Text as T
 
+import Pact.Parse
+
 import Test.QuickCheck
+import Test.QuickCheck.Instances ()
 import Test.Tasty
 import Test.Tasty.QuickCheck
-
-import Test.QuickCheck.Instances ()
 
 -- internal modules
 
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
+import Chainweb.BlockHeaderDB.RestAPI
 import Chainweb.BlockHeight
 import Chainweb.BlockWeight
 import Chainweb.ChainId
 import Chainweb.Chainweb
+import Chainweb.Chainweb.Configuration
 import Chainweb.Cut.Create
+import Chainweb.Cut.CutHashes
 import Chainweb.Difficulty
 import Chainweb.HostAddress
+import Chainweb.Mempool.Mempool
+import Chainweb.Mempool.RestAPI
 import Chainweb.MerkleLogHash
+import Chainweb.MerkleUniverse
+import Chainweb.Miner.Config
+import Chainweb.Miner.Pact
+import Chainweb.NodeVersion
+import Chainweb.Pact.Service.Types
 import Chainweb.Payload
 import Chainweb.PowHash
 import Chainweb.RestAPI.NetworkID
-import Chainweb.Test.Orphans.Internal ()
+import Chainweb.RestAPI.NodeInfo
+import Chainweb.SPV
+import Chainweb.SPV.EventProof
+import Chainweb.SPV.PayloadProof
+import Chainweb.Test.Orphans.Internal (EventPactValue(..))
+import Chainweb.Test.SPV.EventProof hiding (tests)
 import Chainweb.Test.Utils
 import Chainweb.Time
 import Chainweb.Utils
+import Chainweb.Utils.Paging
 import Chainweb.Version
+
+import Network.X509.SelfSigned
 
 import P2P.Node
 import P2P.Node.Configuration
 import P2P.Peer
 import P2P.Test.Orphans ()
+
+import Utils.Logging
 
 -- -------------------------------------------------------------------------- --
 -- Roundrip Tests
@@ -62,6 +93,7 @@ tests = testGroup "roundtrip tests"
     , hasTextRepresentationTests
     , jsonRoundtripTests
     , jsonKeyRoundtripTests
+    , timeSpanTests
     ]
 
 -- -------------------------------------------------------------------------- --
@@ -74,9 +106,11 @@ encodeDecodeTests = testGroup "Encode-Decode roundtrips"
     , testProperty "ChainId"
         $ prop_encodeDecode decodeChainId encodeChainId
     , testProperty "MerkleLogHash"
-        $ prop_encodeDecode decodeMerkleLogHash encodeMerkleLogHash
+        $ prop_encodeDecode decodeMerkleLogHash (encodeMerkleLogHash @_ @ChainwebMerkleHashAlgorithm)
     , testProperty "BlockHash"
-        $ prop_encodeDecode decodeBlockHash encodeBlockHash
+        $ prop_encodeDecode decodeBlockHash (encodeBlockHash @_ @ChainwebMerkleHashAlgorithm)
+    , testProperty "BlockHash_ Keccak_256"
+        $ prop_encodeDecode decodeBlockHash (encodeBlockHash @_ @Keccak_256)
     , testProperty "BlockHeight"
         $ prop_encodeDecode decodeBlockHeight encodeBlockHeight
     , testProperty "CutHeight"
@@ -97,19 +131,73 @@ encodeDecodeTests = testGroup "Encode-Decode roundtrips"
     , testProperty "BlockHeader"
         $ prop_encodeDecode decodeBlockHeader encodeBlockHeader
     , testProperty "Nonce"
-       $ prop_encodeDecode decodeNonce encodeNonce
-   , testProperty "Time"
-       $ prop_encodeDecode decodeTime encodeTime
-   , testProperty "TimeSpan"
-       $ prop_encodeDecode decodeTimeSpan encodeTimeSpan
+        $ prop_encodeDecode decodeNonce encodeNonce
+    , testProperty "Time"
+        $ prop_encodeDecode decodeTime encodeTime
+    , testProperty "TimeSpan"
+        $ prop_encodeDecode decodeTimeSpan encodeTimeSpan
 
-    , testProperty "BlockPayloadHash"
-        $ prop_encodeDecode decodeBlockPayloadHash encodeBlockPayloadHash
-    , testProperty "BlockTransactionsHash"
-        $ prop_encodeDecode decodeBlockTransactionsHash encodeBlockTransactionsHash
-    , testProperty "BlockTransactionsHash"
-        $ prop_encodeDecode decodeBlockTransactionsHash encodeBlockTransactionsHash
+    , testGroup "ChainwebMerkleHashAlgorithm"
+        [ testProperty "BlockPayloadHash"
+            $ prop_encodeDecode decodeBlockPayloadHash (encodeBlockPayloadHash @_ @ChainwebMerkleHashAlgorithm)
+        , testProperty "BlockTransactionsHash"
+            $ prop_encodeDecode decodeBlockTransactionsHash (encodeBlockTransactionsHash @_ @ChainwebMerkleHashAlgorithm)
+        , testProperty "BlockTransactionsHash"
+            $ prop_encodeDecode decodeBlockTransactionsHash (encodeBlockTransactionsHash @_ @ChainwebMerkleHashAlgorithm)
+        , testProperty "BlockEventsHash"
+            $ prop_encodeDecode decodeBlockEventsHash (encodeBlockEventsHash @_ @ChainwebMerkleHashAlgorithm)
+        ]
 
+    , testGroup "Keccak_256"
+        [ testProperty "BlockPayloadHash"
+            $ prop_encodeDecode decodeBlockPayloadHash (encodeBlockPayloadHash @_ @Keccak_256)
+        , testProperty "BlockTransactionsHash"
+            $ prop_encodeDecode decodeBlockTransactionsHash (encodeBlockTransactionsHash @_ @Keccak_256)
+        , testProperty "BlockTransactionsHash"
+            $ prop_encodeDecode decodeBlockTransactionsHash (encodeBlockTransactionsHash @_ @Keccak_256)
+        , testProperty "BlockEventsHash"
+            $ prop_encodeDecode decodeBlockEventsHash (encodeBlockEventsHash @_ @Keccak_256)
+        ]
+
+    -- SPV
+    , testGroup "SPV"
+        [ testProperty "Int256 LE"
+            $ prop_encodeDecode getInt256Le putInt256Le
+        , testProperty "Int256 BE"
+            $ prop_encodeDecode getInt256Be putInt256Be
+        , testProperty "Bytes"
+            $ prop_encodeDecode decodeBytes encodeBytes
+        , testProperty "String"
+            $ prop_encodeDecode decodeString encodeString
+        , testProperty "ModuleName"
+            $ prop_encodeDecode decodeModuleName encodeModuleName
+        -- FIXME limit to empty spec and info
+        , testProperty "ModRef"
+            $ prop_encodeDecode (PactEventModRef <$> decodeModRef) (encodeModRef . _getPactEventModRef)
+        , testProperty "Integer"
+            $ prop_encodeDecode decodeInteger encodeInteger
+        , testProperty "Decimal"
+            $ prop_encodeDecode (PactEventDecimal <$> decodeDecimal) (encodeDecimal . _getPactEventDecimal)
+        , testProperty "Hash"
+            $ prop_encodeDecode decodeHash encodeHash
+        , testProperty "Array[Int256]"
+            $ prop_encodeDecode (decodeArray decodeInteger) (`encodeArray` encodeInteger)
+        , testProperty "Array[Bytes]"
+            $ prop_encodeDecode (decodeArray decodeBytes) (`encodeArray` encodeBytes)
+
+        -- FIXME "too few bytes"
+        , testProperty "PactEvent"
+            $ prop_encodeDecode decodePactEvent encodePactEvent
+        -- FIXME "pending bytes"
+        , testProperty "PactParam"
+            $ prop_encodeDecode (EventPactValue <$> decodeParam) (encodeParam . getEventPactValue)
+
+        -- FIXME "pending bytes"
+        , testProperty "OutputEvents"
+            $ prop_encodeDecode decodeOutputEvents encodeOutputEvents
+        ]
+
+    -- Mining
     , testProperty "SolvedWork"
         $ prop_encodeDecode decodeSolvedWork encodeSolvedWork
 
@@ -134,17 +222,22 @@ jsonTestCases f =
     [ testProperty "Time Micros" $ f @(Time Micros)
     , testProperty "TimeSpan Micros" $ f @(TimeSpan Micros)
     , testProperty "Seconds" $ f @Seconds
+    , testProperty "Micros" $ f @Micros
     , testProperty "ChainId" $ f @ChainId
     , testProperty "ChainwebVersion" $ f @ChainwebVersion
     , testProperty "Nonce" $ f @Nonce
     , testProperty "HashDifficulty" $ f @HashDifficulty
     , testProperty "HashTarget" $ f @HashTarget
-    , testProperty "MerkleLogHash" $ f @MerkleLogHash
+    , testProperty "MerkleRootType" $ f @MerkleRootType
+    , testProperty "MerkleLogHash" $ f @(MerkleLogHash ChainwebMerkleHashAlgorithm)
+    , testProperty "MerkleLogHash Keccak_256" $ f @(MerkleLogHash Keccak_256)
     , testProperty "PowHash" $ f @PowHash
     , testProperty "PowHashNat" $ f @PowHashNat
     , testProperty "BlockHash" $ f @BlockHash
+    , testProperty "BlockHash_ Keccak_256" $ f @(BlockHash_ Keccak_256)
     , testProperty "BlockHashRecord" $ f @BlockHashRecord
     , testProperty "BlockHeader" $ f @BlockHeader
+    , testProperty "HeaderUpdate" $ f @HeaderUpdate
     , testProperty "BlockWeight" $ f @BlockWeight
     , testProperty "P2pNodeStats" $ f @P2pNodeStats
     , testProperty "P2pSessionResult" $ f @P2pSessionResult
@@ -156,18 +249,101 @@ jsonTestCases f =
     , testProperty "PeerConfig" $ f @PeerConfig
     , testProperty "PeerId" $ f @PeerId
     , testProperty "PeerInfo" $ f @PeerInfo
+    , testProperty "Peer" $ f @Peer
     , testProperty "NetworkId" $ f @NetworkId
     , testProperty "ChainDatabaseGcConfig" $ f @ChainDatabaseGcConfig
+    , testProperty "MerkleRootType" $ f @MerkleRootType
+    , testProperty "ChainwebConfiguration" $ f @ChainwebConfiguration
+    , testProperty "Probability" $ f @Probability
+    , testProperty "LogFilterRule" $ f @LogFilterRule
+    , testProperty "LogFilter" $ f @LogFilter
+    , testProperty "BlockHashWithHeight" $ f @BlockHashWithHeight
+    , testProperty "CutId" $ f @CutId
+    , testProperty "CutHashes" $ f @CutHashes
+    , testProperty "NodeVersion" $ f @NodeVersion
+    , testProperty "NodeInfo" $ f @NodeInfo
+    , testProperty "EnableConfig MiningConfig" $ f @(EnableConfig MiningConfig)
+    , testProperty "NextItem Int" $ f @(NextItem Int)
+    , testProperty "Page BlockHash BlockHeader" $ f @(Page BlockHash BlockHeader)
+    , testProperty "X509CertPem" $ f @X509CertPem
+    , testProperty "X509CertChainPem" $ f @X509CertChainPem
+    , testProperty "X509KeyPem" $ f @X509KeyPem
 
-    , testProperty "BlockPayloadHash" $ f @BlockPayloadHash
-    , testProperty "BlockTransactionsHash" $ f @BlockTransactionsHash
-    , testProperty "BlockOutputsHash" $ f @BlockOutputsHash
-    , testProperty "Transaction" $ f @Transaction
-    , testProperty "TransactionOutput" $ f @TransactionOutput
-    , testProperty "PayloadData" $ f @PayloadData
-    , testProperty "BlockTransactions" $ f @BlockTransactions
-    , testProperty "MinerData" $ f @MinerData
+    , testGroup "SPV"
+        [ testProperty "SpvAlgorithm" $ f @SpvAlgorithm
+        , testProperty "SpvSubjectType" $ f @SpvAlgorithm
+        , testProperty "SpvSubjectIdentifier" $ f @SpvSubjectIdentifier
+        , testProperty "SpvRequest" $ f @SpvRequest
+        , testProperty "Spv2Request" $ f @Spv2Request
+        , testProperty "TransactionProof" $ f @(TransactionProof ChainwebMerkleHashAlgorithm)
+        , testProperty "TransactionOutputProof" $ f @(TransactionOutputProof ChainwebMerkleHashAlgorithm)
+        , testProperty "PayloadProof" $ f @(PayloadProof ChainwebMerkleHashAlgorithm)
+        , testProperty "SomePayloadProof" $ f @(SomePayloadProof)
+        ]
+
+    , testGroup "Miner"
+        [ testProperty "MinerId" $ f @Miner
+        , testProperty "MinerKeys" $ f @Miner
+        , testProperty "Miner" $ f @Miner
+        ]
+
+    , testGroup "Mempool"
+        [ testProperty "TransactionHash" $ f @TransactionHash
+        , testProperty "PendingTransactions" $ f @PendingTransactions
+        , testProperty "LookupResult Text" $ f @(LookupResult T.Text)
+        , testProperty "TransactionMetadata" $ f @TransactionMetadata
+        , testProperty "ValidatedTransaction" $ f @(ValidatedTransaction T.Text)
+        , testProperty "MockTx" $ f @MockTx
+        , testProperty "GasLimit" $ f @GasLimit
+        , testProperty "GasPrice" $ f @GasPrice
+        , testProperty "ParsedDecimal" $ f @ParsedDecimal
+        , testProperty "ParsedInteger" $ f @ParsedInteger
+        ]
+
+    -- Chainweb.Payload
+    , testGroup "Payload types"
+        [ testProperty "Transaction" $ f @Transaction
+        , testProperty "MinerData" $ f @MinerData
+        , testProperty "CoinbaseOutput" $ f @CoinbaseOutput
+        , testProperty "TransactionOutput" $ f @TransactionOutput
+        , testGroup "ChainwebMerkleHashAlgorithm"
+            [ testProperty "BlockPayloadHash" $ f @BlockPayloadHash
+            , testProperty "BlockTransactionsHash" $ f @BlockTransactionsHash
+            , testProperty "BlockOutputsHash" $ f @BlockOutputsHash
+            , testProperty "PayloadData" $ f @PayloadData
+            , testProperty "BlockTransactions" $ f @BlockTransactions
+            , testProperty "BlockPayload" $ f @BlockPayload
+            , testProperty "BlockOutputs" $ f @BlockOutputs
+            , testProperty "TransactionTree" $ f @TransactionTree
+            , testProperty "OutputTree" $ f @OutputTree
+            , testProperty "PayloadData" $ f @PayloadData
+            , testProperty "PayloadWithOutputs" $ f @PayloadWithOutputs
+            , testProperty "PayloadOutputProof" $ f @(PayloadProof ChainwebMerkleHashAlgorithm)
+            , testProperty "BlockEventsHash" $ f @(BlockEventsHash_ ChainwebMerkleHashAlgorithm)
+            ]
+
+        , testGroup "Keccak_256"
+            [ testProperty "BlockPayloadHash" $ f @(BlockPayloadHash_ Keccak_256)
+            , testProperty "BlockTransactionsHash" $ f @(BlockTransactionsHash_ Keccak_256)
+            , testProperty "BlockOutputsHash" $ f @(BlockOutputsHash_ Keccak_256)
+            , testProperty "PayloadData" $ f @(PayloadData_ Keccak_256)
+            , testProperty "BlockTransactions" $ f @(BlockTransactions_ Keccak_256)
+            , testProperty "BlockPayload" $ f @(BlockPayload_ Keccak_256)
+            , testProperty "BlockOutputs" $ f @(BlockOutputs_ Keccak_256)
+            , testProperty "TransactionTree" $ f @(TransactionTree_ Keccak_256)
+            , testProperty "OutputTree" $ f @(OutputTree_ Keccak_256)
+            , testProperty "PayloadData" $ f @(PayloadData_ Keccak_256)
+            , testProperty "PayloadWithOutputs" $ f @(PayloadWithOutputs_ Keccak_256)
+            , testProperty "PayloadOutputProof" $ f @(PayloadProof Keccak_256)
+            , testProperty "BlockEventsHash" $ f @(BlockEventsHash_ Keccak_256)
+            ]
+        ]
     ]
+    -- Types with ToJSON but without FromJSON instance
+    -- * CRLogPair
+    -- * RemoteNodeInfo
+    -- * JsonSockAddr
+    -- * Trace
 
 jsonRoundtripTests :: TestTree
 jsonRoundtripTests = testGroup "JSON roundtrips"
@@ -179,6 +355,16 @@ jsonRoundtripTests = testGroup "JSON roundtrips"
         $ jsonTestCases (prop_iso' decodeStrictOrThrow (BL.toStrict . encode))
     , testGroup "decodeStrictOrThrow' . encode"
         $ jsonTestCases (prop_iso' decodeStrictOrThrow' (BL.toStrict . encode))
+    , testGroup "decodeOrThrow . encode . toJSON"
+        $ jsonTestCases (prop_iso' decodeOrThrow (encode . toJSON))
+    , testGroup "decodeOrThrow . encodingToLazyByteString . toEncoding"
+        $ jsonTestCases (prop_iso' decodeOrThrow (encodingToLazyByteString . toEncoding))
+    , testGroup "toEncoding - toJSON consistency"
+        $ jsonTestCases (\(x :: a) ->
+            (first show . decodeOrThrow @(Either SomeException) @a . encodingToLazyByteString . toEncoding $ x)
+            ===
+            (first show . decodeOrThrow @(Either SomeException) @a . encode . toJSON $ x)
+        )
     ]
 
 jsonKeyTestCases
@@ -248,6 +434,7 @@ hasTextRepresentationTests = testGroup "HasTextRepresentation roundtrips"
     , testProperty "ChainId" $ prop_iso' @_ @ChainId fromText toText
     , testProperty "BlockHash" $ prop_iso' @_ @BlockHash fromText toText
     , testProperty "Seconds" $ prop_iso' @_ @Seconds fromText toText
+    , testProperty "Micros" $ prop_iso' @_ @Micros fromText toText
     , testProperty "Hostname" $ prop_iso' @_ @Hostname fromText toText
     , testProperty "Port" $ prop_iso' @_ @Port fromText toText
     , testProperty "HostAddress" $ prop_iso' @_ @HostAddress fromText toText
@@ -259,4 +446,23 @@ hasTextRepresentationTests = testGroup "HasTextRepresentation roundtrips"
     , testProperty "Transaction" $ prop_iso' @_ @Transaction fromText toText
     , testProperty "TransactionOutput" $ prop_iso' @_ @TransactionOutput fromText toText
     , testProperty "ChainDatabaseGcConfig" $ prop_iso' @_ @ChainDatabaseGcConfig fromText toText
+    , testProperty "MerkleRootType" $ prop_iso' @_ @MerkleRootType fromText toText
+    ]
+
+-- -------------------------------------------------------------------------- --
+-- Time
+
+timeSpanTests :: TestTree
+timeSpanTests = testGroup "TimeSpan roundtrips"
+    [ testProperty "timeSpanToMicros Int" $ prop_iso @(TimeSpan Int) microsToTimeSpan timeSpanToMicros
+    , testProperty "timeSpanToMicros Int64" $ prop_iso @(TimeSpan Int64) microsToTimeSpan timeSpanToMicros
+    , testProperty "timeSpanToMicros Micros" $ prop_iso @(TimeSpan Micros) microsToTimeSpan timeSpanToMicros
+
+    , testProperty "microsToTimeSpan Int" $ prop_iso @_ @(TimeSpan Int) timeSpanToMicros microsToTimeSpan
+    , testProperty "microsToTimeSpan Int64" $ prop_iso @_ @(TimeSpan Int64) timeSpanToMicros microsToTimeSpan
+    , testProperty "microsToTimeSpan Micros" $ prop_iso @_ @(TimeSpan Micros) timeSpanToMicros microsToTimeSpan
+
+    , testProperty "secondsToTimeSpan Int" $ prop_iso @_ @(TimeSpan Int) timeSpanToSeconds secondsToTimeSpan
+    , testProperty "secondsToTimeSpan Int64" $ prop_iso @_ @(TimeSpan Int64) timeSpanToSeconds secondsToTimeSpan
+    , testProperty "secondsToTimeSpan Seconds" $ prop_iso @_ @(TimeSpan Micros) timeSpanToSeconds secondsToTimeSpan
     ]

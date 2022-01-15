@@ -17,7 +17,6 @@ module Chainweb.Pact.Backend.ForkingBench ( bench ) where
 
 import Control.Concurrent.Async
 import Control.Concurrent.MVar
-import Control.Concurrent.STM.TBQueue
 import Control.Lens hiding (elements, from, to, (.=))
 import Control.Monad
 import Control.Monad.Catch
@@ -45,12 +44,10 @@ import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Text.Encoding
 import qualified Data.Text.IO as T
-import Data.Tuple.Strict
 import qualified Data.Vector as V
 import Data.Word
 import qualified Data.Yaml as Y
 
-import GHC.Conc hiding (withMVar)
 import GHC.Generics hiding (from, to)
 
 import System.Directory
@@ -352,7 +349,7 @@ withResources trunkLength logLevel f = C.envWithCleanup create destroy unwrap
     logger = genericLogger logLevel T.putStrLn
 
     startPact version l bhdb pdb mempool sqlEnv = do
-        reqQ <- atomically $ newTBQueue pactQueueSize
+        reqQ <- newPactQueue pactQueueSize
         a <- async $ initPactService version cid l reqQ mempool bhdb pdb sqlEnv defaultPactServiceConfig
         return (a, reqQ)
 

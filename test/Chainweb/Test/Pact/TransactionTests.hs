@@ -19,6 +19,7 @@ module Chainweb.Test.Pact.TransactionTests ( tests ) where
 import Test.Tasty
 import Test.Tasty.HUnit
 
+import Control.Applicative((<|>))
 import Control.Concurrent (readMVar)
 import Control.Lens hiding ((.=))
 import Control.Monad
@@ -30,7 +31,6 @@ import Data.Function (on)
 import Data.List (intercalate)
 import Data.Text (Text,isInfixOf,unpack)
 import Data.Default
-import Data.Tuple.Strict (T2(..))
 
 -- internal pact modules
 
@@ -237,7 +237,7 @@ testCoinbase797DateFix = testCaseSteps "testCoinbase791Fix" $ \step -> do
             noSPVSupport Nothing 0.0 (RequestKey h) 0 def
           txst = TransactionState mempty mempty 0 Nothing (_geGasModel freeGasEnv)
 
-      CommandResult _ _ (PactResult pr) _ _ _ _ <- evalTransactionM tenv txst $!
+      CommandResult _ _ (PactResult pr) _ _ _ _ _ <- evalTransactionM tenv txst $!
         applyExec defaultInterpreter localCmd [] h permissiveNamespacePolicy
 
       testResult pr
@@ -276,7 +276,6 @@ testCoinbaseEnforceFailure = do
       , _blockCreationTime = BlockCreationTime [timeMicrosQQ| 2019-12-10T01:00:00.0 |]
       }
 
-
 testCoinbaseUpgradeDevnet :: V.ChainId -> BlockHeight -> Assertion
 testCoinbaseUpgradeDevnet cid upgradeHeight =
     testUpgradeScript "test/pact/coin-and-devaccts.repl" cid upgradeHeight test
@@ -284,7 +283,8 @@ testCoinbaseUpgradeDevnet cid upgradeHeight =
     test (T2 cr mcm) = case (_crLogs cr,mcm) of
       (_,Nothing) -> assertFailure "Expected module cache from successful upgrade"
       (Nothing,_) -> assertFailure "Expected logs from successful upgrade"
-      (Just logs,_) -> matchLogs (logResults logs) expectedResults
+      (Just logs,_) ->
+        matchLogs (logResults logs) expectedResults
 
     expectedResults =
       [ ("USER_coin_coin-table", "NoMiner", Just (Number 0.1))
@@ -345,7 +345,7 @@ testUpgradeScript script cid bh test = do
     p = parent bh cid
 
 matchLogs :: [(Text, Text, Maybe Value)] -> [(Text, Text, Maybe Value)] -> IO ()
-matchLogs actualResults expectedResults
+matchLogs expectedResults actualResults
     | length actualResults /= length expectedResults = void $
       assertFailure $ intercalate "\n" $
         [ "matchLogs: length mismatch "
@@ -373,5 +373,7 @@ logResults = fmap f
     f l =
       ( _txDomain l
       , _txKey l
-      , l ^? txValue . _Object . ix "balance"
+      -- This lens is because some of the transacctions happen post 420 fork
+      -- So the object representation changes due to the RowData type.
+      , l ^? txValue . _Object . ix "balance" <|> l ^? txValue . _Object . ix "$d" . _Object . ix "balance"
       )

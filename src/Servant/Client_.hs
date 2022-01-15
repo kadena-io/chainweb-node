@@ -72,12 +72,12 @@ instance MonadReader ClientEnv ClientM_ where
     {-# INLINE local #-}
 
 instance RunClient ClientM_ where
-    runRequest req = ClientM_ $ do
+    runRequestAcceptStatus s req = ClientM_ $ do
         e <- ask
         req' <- liftIO $ _modReq e req
-        res <- lift (runRequest req')
+        res <- lift (runRequestAcceptStatus s req')
         liftIO $ _modRes e res
-    {-# INLINE runRequest #-}
+    {-# INLINE runRequestAcceptStatus #-}
 
     throwClientError = throwError
     {-# INLINE throwClientError #-}

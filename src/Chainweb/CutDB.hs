@@ -107,7 +107,6 @@ import Data.Monoid
 import Data.Ord
 import qualified Data.Text as T
 import Data.These
-import Data.Tuple.Strict
 import qualified Data.Vector as V
 
 import GHC.Generics hiding (to)
@@ -335,10 +334,11 @@ withCutDb
     -> RocksDbCas CutHashes
     -> (forall cas' . PayloadCasLookup cas' => CutDb cas' -> IO a)
     -> IO a
-withCutDb config logfun headerStore payloadStore cutHashesStore
+withCutDb config logfun headerStore payloadStore cutHashesStore a
     = bracket
         (startCutDb config logfun headerStore payloadStore cutHashesStore)
         stopCutDb
+        a
 
 -- | Start a CutDB. This loads the initial cut from the database (falling back
 -- to the configured initial cut loading fails) and starts the cut validation
@@ -434,7 +434,7 @@ lookupCutHashes
     -> CutHashes
     -> IO (HM.HashMap ChainId BlockHeader)
 lookupCutHashes wbhdb hs =
-    flip itraverse (_cutHashes hs) $ \cid (_, h) ->
+    flip itraverse (_cutHashes hs) $ \cid (BlockHashWithHeight _ h) ->
         lookupWebBlockHeaderDb wbhdb cid h
 
 -- | This is at the heart of 'Chainweb' POW: Deciding the current "longest" cut
@@ -537,7 +537,7 @@ processCuts conf logFun headerStore payloadStore cutHashesStore queue cutVar = q
     --
     isOld x = do
         curHashes <- cutToCutHashes Nothing <$> readTVarIO cutVar
-        let r = all (>= (0 :: Int)) $ (HM.unionWith (-) `on` (fmap (int . fst) . _cutHashes)) curHashes x
+        let r = all (>= (0 :: Int)) $ (HM.unionWith (-) `on` (fmap (int . _bhwhHeight) . _cutHashes)) curHashes x
         when r $ loggc Debug x "skip old cut"
         return r
 
@@ -672,7 +672,7 @@ cutHashesToBlockHeaderMap conf logfun headerStore payloadStore hs =
             casInsertBatch hdrs $ V.fromList $ HM.elems $ _cutHashesHeaders hs
 
             (headers :> missing) <- S.each (HM.toList $ _cutHashes hs)
-                & S.map (fmap snd)
+                & S.map (fmap _bhwhHash)
                 & S.mapM (tryGetBlockHeader hdrs plds)
                 & S.partitionEithers
                 & S.fold_ (\x (cid, h) -> HM.insert cid h x) mempty id

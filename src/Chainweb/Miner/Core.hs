@@ -20,30 +20,18 @@ module Chainweb.Miner.Core
   , TargetBytes(..)
   , ChainBytes(..)
   , WorkBytes(..)
-  , MiningResult(..)
   , usePowHash
   , mine
-  , fastCheckTarget
-  , injectNonce
-  , callExternalMiner
   ) where
-
-import qualified Control.Concurrent.Async as Async
-import Control.Monad
-import Control.Monad.Trans
-import Control.Monad.Trans.Except
 
 import Crypto.Hash.Algorithms (Blake2s_256)
 import Crypto.Hash.IO
 
 import qualified Data.ByteArray as BA
-import qualified Data.ByteString.Base16 as B16
 import qualified Data.ByteString.Char8 as B
 import qualified Data.ByteString.Short as BS
-import Data.Char (isSpace)
 import Data.IORef (newIORef, readIORef, writeIORef)
 import Data.Proxy (Proxy(..))
-import Data.Tuple.Strict (T2(..))
 import Data.Word (Word64, Word8)
 
 import Foreign.Marshal.Alloc (allocaBytes)
@@ -51,11 +39,6 @@ import Foreign.Ptr (Ptr, castPtr)
 import Foreign.Storable (peekElemOff, pokeByteOff)
 
 import Servant.API
-
-import System.Exit
-import System.IO (hClose)
-import System.Path
-import qualified System.Process as P
 
 -- internal modules
 
@@ -125,7 +108,7 @@ mine orig@(Nonce o) work = do
                 -- inner mining loop
                 --
                 let go1 0 n = return (Just n)
-                    go1 !i !n@(Nonce nv) = do
+                    go1 !i n@(Nonce nv) = do
                         -- Compute POW hash for the nonce
                         injectNonce n buf
                         hash ctx buf pow
@@ -221,67 +204,3 @@ fastCheckTargetN n trgPtr powPtr = compare
     <*> peekElemOff powPtr n
 {-# INLINE fastCheckTargetN #-}
 
-data MiningResult = MiningResult
-  { _mrNonceBytes :: !B.ByteString
-  , _mrNumNoncesTried :: !Word64
-  , _mrEstimatedHashesPerSec :: !Word64
-  , _mrStderr :: B.ByteString
-  }
-
-callExternalMiner
-    :: Path Absolute            -- ^ miner path
-    -> [String]                 -- ^ miner extra args
-    -> Bool                     -- ^ save stderr?
-    -> B.ByteString             -- ^ target hash
-    -> B.ByteString             -- ^ block bytes
-    -> IO (Either String MiningResult)
-callExternalMiner minerPath0 minerArgs saveStderr target blockBytes = do
-    minerPath <- toAbsoluteFilePath minerPath0
-    let args = minerArgs ++ [targetHashStr]
-    P.withCreateProcess (createProcess minerPath args) go
-  where
-    createProcess minerPath args =
-        (P.proc minerPath args) {
-            P.std_in = P.CreatePipe,
-            P.std_out = P.CreatePipe,
-            P.std_err = P.CreatePipe
-            }
-    targetHashStr = B.unpack $ B16.encode target
-    go (Just hstdin) (Just hstdout) (Just hstderr) ph = do
-        B.hPut hstdin blockBytes
-        hClose hstdin
-        Async.withAsync (B.hGetContents hstdout) $ \stdoutThread ->
-          Async.withAsync (errThread hstderr) $ \stderrThread ->
-          runExceptT $ do
-            code <- liftIO $ P.waitForProcess ph
-            (outbytes, errbytes) <- liftIO ((,) <$> Async.wait stdoutThread
-                                                <*> Async.wait stderrThread)
-            if (code /= ExitSuccess)
-              then let msg = "Got error from miner. Stderr was: " ++ B.unpack errbytes
-                   in throwE msg
-              else do
-                let parts = B.splitWith isSpace outbytes
-                nonceB16 <- case parts of
-                              [] -> throwE ("expected nonce from miner, got: "
-                                            ++ B.unpack outbytes)
-                              (a:_) -> return a
-                let (numHashes, rate) =
-                      case parts of
-                        (_:a:b:_) -> (read (B.unpack a), read (B.unpack b))
-                        _ -> (0, 0)
-
-                -- reverse -- we want little-endian
-                let nonceBytes = B.reverse $ fst $ B16.decode nonceB16
-                when (B.length nonceBytes /= 8) $ throwE "process returned short nonce"
-                return $ MiningResult nonceBytes numHashes rate errbytes
-    go _ _ _ _ = fail "impossible: process is opened with CreatePipe in/out/err"
-
-    slurp h = act
-      where
-        act = do
-            b <- B.hGet h 4000
-            if B.null b then return "stderr not saved" else act
-
-    errThread = if saveStderr
-                  then B.hGetContents
-                  else slurp

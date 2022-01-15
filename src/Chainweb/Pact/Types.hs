@@ -72,6 +72,8 @@ module Chainweb.Pact.Types
   , psOnFatalError
   , psVersion
   , psValidateHashesOnReplay
+  , psLogger
+  , psLoggers
   , psAllowReadsInLocal
   , psIsBatch
   , psCheckpointerDepth
@@ -82,6 +84,7 @@ module Chainweb.Pact.Types
   , ctxToPublicData
   , ctxToPublicData'
   , ctxCurrentBlockHeight
+  , ctxVersion
   , getTxContext
 
     -- * Pact Service State
@@ -90,6 +93,11 @@ module Chainweb.Pact.Types
   , psInitCache
   , psParentHeader
   , psSpvSupport
+
+  -- * Module cache
+  , ModuleInitCache
+  , getInitCache
+  , updateInitCache
 
     -- * Pact Service Monad
   , PactServiceM(..)
@@ -100,6 +108,10 @@ module Chainweb.Pact.Types
     -- * Logging with Pact logger
 
   , pactLoggers
+  , logg_
+  , logInfo_
+  , logError_
+  , logDebug_
   , logg
   , logInfo
   , logError
@@ -111,24 +123,23 @@ module Chainweb.Pact.Types
   -- * miscellaneous
   , defaultOnFatalError
   , defaultReorgLimit
-  , mkExecutionConfig
   , defaultPactServiceConfig
   ) where
 
 import Control.DeepSeq
 import Control.Exception (asyncExceptionFromException, asyncExceptionToException, throw)
-import Control.Lens hiding ((.=))
+import Control.Lens
 import Control.Monad.Catch
 import Control.Monad.Reader
 import Control.Monad.State.Strict
 
 
-import Data.Aeson hiding (Error)
+import Data.Aeson hiding (Error,(.=))
 import Data.Default (def)
 import Data.HashMap.Strict (HashMap)
-import qualified Data.Set as S
+import qualified Data.HashMap.Strict as HM
+import qualified Data.Map.Strict as M
 import Data.Text (pack, unpack, Text)
-import Data.Tuple.Strict (T2)
 import Data.Vector (Vector)
 import Data.Word
 
@@ -147,9 +158,9 @@ import Pact.Types.Gas
 import qualified Pact.Types.Logger as P
 import Pact.Types.Names
 import Pact.Types.Persistence (ExecutionMode, TxLog)
-import Pact.Types.Runtime (ExecutionConfig(..), ExecutionFlag(..), ModuleData)
+import Pact.Types.Runtime (ExecutionConfig(..), ModuleData(..))
 import Pact.Types.SPV
-import Pact.Types.Term (PactId(..), Ref)
+import Pact.Types.Term
 
 -- internal chainweb modules
 
@@ -179,9 +190,6 @@ data PactDbStatePersist = PactDbStatePersist
     , _pdbspPactDbState :: !PactDbState
     }
 makeLenses ''PactDbStatePersist
-
-mkExecutionConfig :: [ExecutionFlag] -> ExecutionConfig
-mkExecutionConfig = ExecutionConfig . S.fromList
 
 -- -------------------------------------------------------------------------- --
 -- Coinbase output utils
@@ -311,6 +319,11 @@ data PactServiceEnv cas = PactServiceEnv
     , _psVersion :: ChainwebVersion
     , _psValidateHashesOnReplay :: !Bool
     , _psAllowReadsInLocal :: !Bool
+    , _psLogger :: !P.Logger
+    , _psLoggers :: !P.Loggers
+        -- ^ logger factory. A new logger can be created via
+        --
+        -- P.newLogger loggers (P.LogName "myLogger")
 
     -- The following two fields are used to enforce invariants for using the
     -- checkpointer. These would better be enforced on the type level. But that
@@ -363,13 +376,44 @@ defaultOnFatalError lf pex t = do
   where
     errMsg = pack (show pex) <> "\n" <> t
 
+type ModuleInitCache = M.Map BlockHeight ModuleCache
+
 data PactServiceState = PactServiceState
     { _psStateValidated :: !(Maybe BlockHeader)
-    , _psInitCache :: !ModuleCache
+    , _psInitCache :: !ModuleInitCache
     , _psParentHeader :: !ParentHeader
     , _psSpvSupport :: !SPVSupport
     }
 makeLenses ''PactServiceState
+
+
+_debugMC :: Text -> PactServiceM cas ()
+_debugMC t = do
+  mc <- fmap (fmap instr) <$> use psInitCache
+  liftIO $ print (t,mc)
+  where
+    instr (ModuleData{..},_) = preview (_MDModule . mHash) _mdModule
+
+-- | Look up an init cache that is stored at or before the height of the current parent header.
+getInitCache :: PactServiceM cas ModuleCache
+getInitCache = get >>= \PactServiceState{..} ->
+    case M.lookupLE (pbh _psParentHeader) _psInitCache of
+      Just (_,mc) -> return mc
+      Nothing -> return mempty
+  where
+    pbh = _blockHeight . _parentHeader
+
+-- | Update init cache at adjusted parent block height (APBH).
+-- Contents are merged with cache found at or before APBH.
+-- APBH is 0 for genesis and (parent block height + 1) thereafter.
+updateInitCache :: ModuleCache -> PactServiceM cas ()
+updateInitCache mc = get >>= \PactServiceState{..} -> do
+    let bf 0 = 0
+        bf h = succ h
+        pbh = bf . _blockHeight . _parentHeader $ _psParentHeader
+    psInitCache .= case M.lookupLE pbh _psInitCache of
+      Nothing -> M.singleton pbh mc
+      Just (_,before) -> M.insert pbh (HM.union mc before) _psInitCache
 
 
 -- | Pair parent header with transaction metadata.
@@ -425,6 +469,9 @@ ctxBlockHeader = _parentHeader . _tcParentHeader
 -- which influenced legacy switch checks as well.
 ctxCurrentBlockHeight :: TxContext -> BlockHeight
 ctxCurrentBlockHeight = succ . _blockHeight . ctxBlockHeader
+
+ctxVersion :: TxContext -> ChainwebVersion
+ctxVersion = _blockChainwebVersion . ctxBlockHeader
 
 -- | Assemble tx context from transaction metadata and parent header.
 getTxContext :: PublicMeta -> PactServiceM cas TxContext
@@ -482,7 +529,8 @@ execPactServiceM st env act
 getCheckpointer :: PactServiceM cas Checkpointer
 getCheckpointer = view (psCheckpointEnv . cpeCheckpointer)
 
-
+-- -------------------------------------------------------------------------- --
+-- Pact Logger
 
 pactLogLevel :: String -> LogLevel
 pactLogLevel "INFO" = Info
@@ -491,6 +539,8 @@ pactLogLevel "DEBUG" = Debug
 pactLogLevel "WARN" = Warn
 pactLogLevel _ = Info
 
+-- | Create Pact Loggers that use the the chainweb logging system as backend.
+--
 pactLoggers :: Logger logger => logger -> P.Loggers
 pactLoggers logger = P.Loggers $ P.mkLogger (error "ignored") fun def
   where
@@ -499,15 +549,32 @@ pactLoggers logger = P.Loggers $ P.mkLogger (error "ignored") fun def
         let namedLogger = addLabel ("logger", pack n) logger
         logFunctionText namedLogger (pactLogLevel cat) $ pack msg
 
+-- | Write log message
+--
+logg_ :: MonadIO m => P.Logger -> String -> String -> m ()
+logg_ logger level msg = liftIO $ P.logLog logger level msg
+
+-- | Write log message using the logger in Checkpointer environment
+
+logInfo_ :: MonadIO m => P.Logger -> String -> m ()
+logInfo_ l = logg_ l "INFO"
+
+logError_ :: MonadIO m => P.Logger -> String -> m ()
+logError_ l = logg_ l "ERROR"
+
+logDebug_ :: MonadIO m => P.Logger -> String -> m ()
+logDebug_ l = logg_ l "DEBUG"
+
+-- | Write log message using the logger in Checkpointer environment
+--
 logg :: String -> String -> PactServiceM cas ()
-logg level msg = view (psCheckpointEnv . cpeLogger)
-  >>= \l -> liftIO $ P.logLog l level msg
+logg level msg = view psLogger >>= \l -> logg_ l level msg
 
 logInfo :: String -> PactServiceM cas ()
-logInfo = logg "INFO"
+logInfo msg = view psLogger >>= \l -> logInfo_ l msg
 
 logError :: String -> PactServiceM cas ()
-logError = logg "ERROR"
+logError msg = view psLogger >>= \l -> logError_ l msg
 
 logDebug :: String -> PactServiceM cas ()
-logDebug = logg "DEBUG"
+logDebug msg = view psLogger >>= \l -> logDebug_ l msg

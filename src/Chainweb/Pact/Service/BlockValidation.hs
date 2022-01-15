@@ -20,13 +20,13 @@ module Chainweb.Pact.Service.BlockValidation
 , pactPreInsertCheck
 , pactBlockTxHistory
 , pactHistoricalLookup
+, pactSyncToBlock
 ) where
 
 
 import Control.Concurrent.MVar.Strict
 
 import Data.Aeson (Value)
-import Data.Tuple.Strict
 import Data.Vector (Vector)
 
 import Pact.Types.Command
@@ -42,6 +42,7 @@ import Chainweb.Pact.Service.PactQueue
 import Chainweb.Pact.Service.Types
 import Chainweb.Payload
 import Chainweb.Transaction
+import Chainweb.Utils (T2)
 
 
 newBlock :: Miner -> ParentHeader -> PactQueue ->
@@ -125,3 +126,16 @@ pactHistoricalLookup bh d k reqQ = do
   let !msg = HistoricalLookupMsg req
   addRequest reqQ msg
   return resultVar
+
+pactSyncToBlock
+    :: BlockHeader
+    -> PactQueue
+    -> IO (MVar (Either PactException ()))
+pactSyncToBlock bh reqQ = do
+    !resultVar <- newEmptyMVar
+    let !msg = SyncToBlockMsg SyncToBlockReq
+          { _syncToBlockHeader = bh
+          , _syncToResultVar = resultVar
+          }
+    addRequest reqQ msg
+    return resultVar
