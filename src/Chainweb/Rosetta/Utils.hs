@@ -1359,8 +1359,8 @@ stringRosettaError e msg = rosettaError e $ Just $
 --------------------------------------------------------------------------------
 
 maybePair :: (ToJSON a) => T.Text -> Maybe a -> (T.Text, Maybe Value)
-maybePair label Nothing = (label, Nothing)
-maybePair label (Just v) = (label, Just (toJSON v))
+maybePair name Nothing = (name, Nothing)
+maybePair name (Just v) = (name, Just (toJSON v))
 
 toPairOmitMaybe :: [Pair] -> [(T.Text, Maybe Value)] -> [Pair]
 toPairOmitMaybe defPairs li = allPairs

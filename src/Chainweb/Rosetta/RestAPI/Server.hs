@@ -25,7 +25,6 @@ import Control.Monad.Trans.Class
 import Control.Monad.Trans.Except
 import Data.Aeson
 import Data.IORef
-import Data.Tuple.Strict (T2(..))
 import Data.List (sort)
 import Data.Proxy (Proxy(..))
 
@@ -87,7 +86,7 @@ rosettaServer v ps ms peerDb cutDb pacts =
     -- Construction --
     :<|> constructionDeriveH v
     :<|> constructionPreprocessH v
-    :<|> constructionMetadataH v cutDb cr
+    :<|> constructionMetadataH v cutDb pacts
     :<|> constructionPayloadsH v
     :<|> constructionParseH v
     :<|> constructionCombineH
@@ -136,7 +135,7 @@ accountBalanceH v cutDb pacts (AccountBalanceReq net (AccountId acct _ _) pbid) 
     work :: ExceptT RosettaFailure Handler AccountBalanceResp
     work = do
       cid <- hoistEither $ validateNetwork v net
-      cr <- lookup cid pacts ?? RosettaInvalidChain
+      pact <- lookup cid pacts ?? RosettaInvalidChain
       bh <- findBlockHeaderInCurrFork cutDb cid
         (get _partialBlockId_index pbid) (get _partialBlockId_hash pbid)
       bal <- getHistoricalLookupBalance pact bh acct
@@ -172,7 +171,7 @@ blockH v cutDb ps pacts (BlockReq net (PartialBlockId bheight bhash)) =
     work :: ExceptT RosettaFailure Handler BlockResp
     work = do
       cid <- hoistEither $ validateNetwork v net
-      cr <- lookup cid pacts ?? RosettaInvalidChain
+      pact <- lookup cid pacts ?? RosettaInvalidChain
       payloadDb <- lookup cid ps ?? RosettaInvalidChain
       bh <- findBlockHeaderInCurrFork cutDb cid bheight bhash
       (coinbase, txs) <- getBlockOutputs payloadDb bh
@@ -201,7 +200,7 @@ blockTransactionH v cutDb ps pacts (BlockTransactionReq net bid t) = do
     work :: ExceptT RosettaFailure Handler BlockTransactionResp
     work = do
       cid <- hoistEither $ validateNetwork v net
-      cr <- lookup cid pacts ?? RosettaInvalidChain
+      pact <- lookup cid pacts ?? RosettaInvalidChain
       payloadDb <- lookup cid ps ?? RosettaInvalidChain
       bh <- findBlockHeaderInCurrFork cutDb cid (Just bheight) (Just bhash)
       rkTarget <- hush (fromText' rtid) ?? RosettaUnparsableTransactionId
@@ -262,10 +261,10 @@ constructionPreprocessH v req = do
 constructionMetadataH
     :: ChainwebVersion
     -> CutDb cas
-    -> [(ChainId, ChainResources a)]
+    -> [(ChainId, PactExecutionService)]
     -> ConstructionMetadataReq
     -> Handler ConstructionMetadataResp
-constructionMetadataH v cutDb crs (ConstructionMetadataReq net opts someKeys) =
+constructionMetadataH v cutDb pacts (ConstructionMetadataReq net opts someKeys) =
     runExceptT work >>= either throwRosettaError pure
   where
     
@@ -281,7 +280,7 @@ constructionMetadataH v cutDb crs (ConstructionMetadataReq net opts someKeys) =
       pubMeta <- liftIO $ toPublicMeta cid payer gLimit gPrice
       let nonce = toNonce someNonce pubMeta
 
-      expectedAccts <- toSignerAcctsMap tx payer v cid crs cutDb
+      expectedAccts <- toSignerAcctsMap tx payer v cid pacts cutDb
       signersAndAccts <- hoistEither $!
                          createSigners availableSigners expectedAccts
       

@@ -53,7 +53,6 @@ import Servant.Server
 
 import Chainweb.BlockHash
 import Chainweb.BlockHeader (BlockHeader(..))
-import Chainweb.Chainweb.ChainResources (ChainResources(..))
 import Chainweb.Cut
 import Chainweb.CutDB
 import Chainweb.Pact.Transactions.UpgradeTransactions
@@ -715,15 +714,15 @@ toSignerAcctsMap
     -> AccountId
     -> ChainwebVersion
     -> ChainId
-    -> [(ChainId, ChainResources a)]
+    -> [(ChainId, PactExecutionService)]
     -> CutDb cas
     -> ExceptT RosettaError Handler
        (HM.HashMap AccountName ([P.SigCapability], [T.Text]))
-toSignerAcctsMap txInfo payerAcct v cid crs cutDb = do
+toSignerAcctsMap txInfo payerAcct v cid pacts cutDb = do
   bhCurr <- rosettaErrorT Nothing $
             getLatestBlockHeader cutDb cid
   peCurr <- rosettaErrorT Nothing $
-            _chainResPact <$> lookup cid crs ?? RosettaInvalidChain
+            lookup cid pacts ?? RosettaInvalidChain
 
   -- GAS
   let payer = _accountId_address payerAcct
@@ -769,8 +768,8 @@ toSignerAcctsMap txInfo payerAcct v cid crs cutDb = do
                    readChainIdText v target ?? RosettaInvalidChain
       bhTarget <- rosettaErrorT Nothing $
                   getLatestBlockHeader cutDb cidTarget
-      peTarget <- rosettaErrorT Nothing $
-                  _chainResPact <$> lookup cidTarget crs ?? RosettaInvalidChain
+      peTarget <- rosettaErrorT Nothing $ 
+                  lookup cidTarget pacts ?? RosettaInvalidChain
       
       someActualFrom <- getOwnership peCurr bhCurr from
       someActualTo <- getOwnership peTarget bhTarget to
