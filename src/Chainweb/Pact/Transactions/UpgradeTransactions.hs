@@ -59,9 +59,13 @@ twentyChainUpgradeTransactions Development cid = case chainIdInt @Int cid of
   c | c >= 1, c <= 19 -> return []
   c -> internalError $ "Invalid devnet chain id: " <> sshow c
 twentyChainUpgradeTransactions (FastTimedCPM _) cid = case chainIdInt @Int cid of
-  0 -> MNKAD.transactions -- just remeds
-  c | c >= 1, c <= 19 -> return []
-  c -> internalError $ "Invalid devnet chain id: " <> sshow c
+  c | c == 0, c == 1, c == 2 -> return []
+  {-- NOTE: Remediations occur in Chain 3 instead of Chain 0 for this version. 
+            This allows for testing that Rosetta correctly handles remediation 
+            txs without breaking the SPV tests. --}
+  3 -> MNKAD.transactions -- just remeds
+  c | c <= 19 -> return []
+  c -> internalError $ "Invalid fasttimecpm chain id: " <> sshow c
 twentyChainUpgradeTransactions _ _ = return []
 
 coinV3Transactions :: IO [ChainwebTransaction]

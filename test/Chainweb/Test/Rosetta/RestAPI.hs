@@ -347,7 +347,7 @@ block20ChainRemediationTests _ envIo =
       x:y:_ -> do
         step "check remediation transactions' request keys"
         -- TODO: are these unique across lifetime of blockchain/chains?
-        [ycmd] <- twentyChainUpgradeTransactions v cid
+        [ycmd] <- twentyChainUpgradeTransactions v cidChain3
         _transaction_transactionId y @?= pactHashToTransactionId (_cmdHash ycmd)
 
         step "check remediation transactions' operations"
@@ -361,8 +361,16 @@ block20ChainRemediationTests _ envIo =
       _ -> assertFailure $ "20 chain remediation block should have at least 2 transactions:"
            ++ " coinbase + 1 remediations"
   where
+    {-- NOTE: FastTimedCPM 20 chain remediations occurs on chain 3 and block height 2.
+              See Chainweb.Pact.Transactions.UpgradeTransactions and Chainweb.Version. --}
+    cidChain3 = unsafeChainId 3
     bhChain20Rem = 2
-    req h = BlockReq nid $ PartialBlockId (Just h) Nothing
+    nidChain3 = NetworkId
+      { _networkId_blockchain = "kadena"
+      , _networkId_network = "fastTimedCPM-peterson"
+      , _networkId_subNetworkId = Just (SubNetworkId "3" Nothing)
+      }
+    req h = BlockReq nidChain3 $ PartialBlockId (Just h) Nothing
 
 -- | Rosetta construction submit endpoint tests (i.e. tx submission directly to mempool)
 --
@@ -423,7 +431,7 @@ networkListTests _ envIo =
          _networkId_blockchain n @=? "kadena"
          _networkId_network n @=? "fastTimedCPM-peterson"
          assertBool "chain id of subnetwork is valid"
-           $ maybe False (\a -> elem _subNetworkId_network a cids)
+           $ maybe False (\a -> _subNetworkId_network a `elem` cids)
            $ _networkId_subNetworkId n
   where
     req = MetadataReq Nothing
