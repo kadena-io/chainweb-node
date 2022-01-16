@@ -405,9 +405,9 @@ checkUniqueRosettaErrorCodes = case repeated of
   where
     repeated = foldM g S.empty errCodes
     g acc x =
-      if (S.member x acc)
-      then (Left x)
-      else (Right $ S.insert x acc)
+      if S.member x acc
+      then Left x
+      else Right $ S.insert x acc
     errCodes = map (_error_code . rosettaError') [minBound .. maxBound]
 
 --------------------------------------------------------------------------------

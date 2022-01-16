@@ -38,6 +38,7 @@ import qualified Pact.Parse as P
 import qualified Pact.Types.Crypto as P
 import qualified Pact.Types.SPV as P
 import qualified Data.Set as S
+import Data.Maybe
 
 
 import Numeric.Natural
@@ -479,11 +480,11 @@ opsToConstructionTx cid someXChain ops = do
     pactChainId = P.ChainId $ chainIdToText cid
 
     transfer (acct1, bal1, ks1) (acct2, bal2, ks2)
-      | (bal1 == 0 || bal2 == 0) = rerr RosettaInvalidOperations
+      | bal1 == 0 || bal2 == 0 = rerr RosettaInvalidOperations
                                    "transfer amounts: Cannot transfer zero amounts"
-      | (bal1 + bal2 /= 0.0) = rerr RosettaInvalidOperations
+      | bal1 + bal2 /= 0.0 = rerr RosettaInvalidOperations
                                "transfer amounts: Mass conversation not preserved"
-      | (acct1 == acct2) = rerr RosettaInvalidOperations
+      | acct1 == acct2 = rerr RosettaInvalidOperations
                            "Cannot transfer to the same account name"
       | bal1 < 0.0 = pure $ ConstructTransfer
         { _constructTransfer_from = acct1    -- bal1 is negative, so acct1 is debitor (from)
@@ -510,7 +511,7 @@ opsToConstructionTx cid someXChain ops = do
       case someXChain of
         Just (StartCrossChainTx to toGuard target) -> do
           when (target == pactChainId)
-            (rerr RosettaInvalidOperations $ "Source and target chainId must be different")
+            (rerr RosettaInvalidOperations "Source and target chainId must be different")
 
           let amt = abs bal
           
@@ -523,14 +524,14 @@ opsToConstructionTx cid someXChain ops = do
             , _constructStartCrossChain_targetChain = target
             }
 
-        _ -> rerr RosettaInvalidOperations $
+        _ -> rerr RosettaInvalidOperations
              "Expected `cross_chain_tx` field of type `start`"
 
     finishCrossChain credAcct bal ks =
       case someXChain of
         Just (FinishCrossChainTx src pid proof) -> do
           when (src == pactChainId)
-            (rerr RosettaInvalidOperations $ "Source and target chainId must be different")
+            (rerr RosettaInvalidOperations "Source and target chainId must be different")
 
           let amt = abs bal
           
@@ -543,7 +544,7 @@ opsToConstructionTx cid someXChain ops = do
             , _constructFinishCrossChain_proof = proof
             }
 
-        _ -> rerr RosettaInvalidOperations $
+        _ -> rerr RosettaInvalidOperations
              "Expected `cross_chain_tx` field of type `finish`"
 
 
@@ -565,7 +566,7 @@ getSuggestedFee tx someMaxFees someMult = do
       gasPrice = calcGasPrice someMaxPrice
       fee = kdaToRosettaAmount $! calcKDAFee gasLimit gasPrice
 
-  pure $! (gasLimit, gasPrice, fee)
+  pure (gasLimit, gasPrice, fee)
     
   where
     ------------
@@ -614,10 +615,10 @@ getSuggestedFee tx someMaxFees someMult = do
             (P.GasPrice $ P.ParsedDecimal minGasPrice)
     
     estimatedGasLimit = P.GasLimit $ P.ParsedInteger $! case tx of
-      ConstructTransfer _ _ _ _ _ -> defGasUnitsTransferCreate
-      ConstructAcctCreate _ _ -> defGasUnitsCreateAcct
-      ConstructStartCrossChain _ _ _ _ _ _ -> defGasUnitsStartCrossChain
-      ConstructFinishCrossChain _ _ _ _ _ _ -> defGasUnitsFinishCrossChain
+      ConstructTransfer {} -> defGasUnitsTransferCreate
+      ConstructAcctCreate {} -> defGasUnitsCreateAcct
+      ConstructStartCrossChain {} -> defGasUnitsStartCrossChain
+      ConstructFinishCrossChain {} -> defGasUnitsFinishCrossChain
 
     -- Calculate the maximum gas price possible give the max fee provided and the
     -- needed gas units for the specified transaction.
@@ -627,7 +628,7 @@ getSuggestedFee tx someMaxFees someMult = do
     calcMaxGasPrice gasLimit maxFee = fromIntegral maxGasPrice
       where
         P.GasLimit (P.ParsedInteger units) = gasLimit
-        maxGasPrice :: Integer = floor $ (maxFee / (fromInteger units))
+        maxGasPrice :: Integer = floor (maxFee / fromInteger units)
 
     -- Sanitize the fee multiplier provided by user.
     -- Since the multiplier will multiplied into the min gas price,
@@ -647,7 +648,7 @@ getSuggestedFee tx someMaxFees someMult = do
       case someMaxGasPrice of
         Nothing -> minGasPrice * mult  -- no max fee provided
         Just maxGasPrice
-          | ((minGasPrice * mult) > maxGasPrice) -> maxGasPrice
+          | (minGasPrice * mult) > maxGasPrice -> maxGasPrice
           | otherwise -> minGasPrice * mult
 
     calcKDAFee :: P.GasLimit -> P.GasPrice -> Decimal
@@ -655,7 +656,7 @@ getSuggestedFee tx someMaxFees someMult = do
       where
         P.GasLimit (P.ParsedInteger units) = gasLimit
         P.GasPrice (P.ParsedDecimal price) = gasPrice
-        fee = (fromIntegral units) * price
+        fee = fromIntegral units * price
   
 
 --------------------------------------------------------------------------------
@@ -701,8 +702,8 @@ toPactPubKeyAddr pk sk = do
 
 signerToAddr :: Signer -> Either RosettaError T.Text
 signerToAddr (Signer someScheme pk someAddr _) = do
-  let sk = maybe P.ED25519 id someScheme
-      addr = maybe pk id someAddr
+  let sk = fromMaybe P.ED25519 someScheme
+      addr = fromMaybe pk someAddr
   toPactPubKeyAddr addr sk
 
 
@@ -893,8 +894,7 @@ createSigningPayloads
     :: EnrichedCommand
     -> [(Signer, AccountId)]
     -> [RosettaSigningPayload]
-createSigningPayloads (EnrichedCommand cmd _ _) signers =
-  map f signers
+createSigningPayloads (EnrichedCommand cmd _ _) = map f
   where
     hashBase16 = P.toB16Text $! P.unHash $!
                  P.toUntypedHash $! _cmdHash cmd
@@ -973,10 +973,9 @@ matchSigs sigs signers = do
         -> Either RosettaError UserSig
     match m signer = do
       addr <- signerToAddr signer
-      sig <- note (stringRosettaError RosettaInvalidSignature $
-                  "Missing signature for public key=" ++ show (_siPubKey signer))
-             $ HM.lookup addr m
-      pure sig
+      note (stringRosettaError RosettaInvalidSignature
+            $ "Missing signature for public key=" ++ show (_siPubKey signer))
+            $ HM.lookup addr m
     
     sigAndAddr (RosettaSignature _ (RosettaPublicKey pk ct) sigTyp sig) = do
       _ <- toRosettaError RosettaInvalidSignature $! P.parseB16TextOnly sig
@@ -1201,7 +1200,7 @@ parseOp (Operation i _ typ stat someAcct someAmt _ someMeta) = do
   (OperationMetaData _ _ prevOwn currOwn) <- someMeta @?? "Missing metadata"
                                              >>= extractMetaData
   prevOwn @?= currOwn   -- ensure that the ownership wasn't rotated
-  ownership <- (hushResult $ fromJSON currOwn) @??
+  ownership <- hushResult (fromJSON currOwn) @??
                "Only Pact KeySet is supported for account ownership"
   
   pure (_accountId_address acct, amtDelta, ownership)
@@ -1247,7 +1246,7 @@ kdaToRosettaAmount k = Amount (sshow amount) defaultCurrency Nothing
   where
     -- Value in atomic units represented as an arbitrary-sized signed integer.
     amount :: Integer
-    amount = floor $ k * (realToFrac ((10 :: Integer) ^ defaultNumOfDecimals))
+    amount = floor $ k * realToFrac ((10 :: Integer) ^ defaultNumOfDecimals)
 
 parseAmount :: Amount -> Either RosettaError Decimal
 parseAmount a@(Amount txt (Currency _ numDecs _) _) = do
@@ -1255,8 +1254,7 @@ parseAmount a@(Amount txt (Currency _ numDecs _) _) = do
   P.ParsedInteger i <- f $ String txt
   pure $ Decimal (fromIntegral numDecs) i
   where
-    f =
-      (toRosettaError RosettaInvalidAmount) .  noteResult . fromJSON
+    f = toRosettaError RosettaInvalidAmount .  noteResult . fromJSON
 
 validateCurrency :: Currency -> Either RosettaError ()
 validateCurrency curr
@@ -1397,7 +1395,7 @@ parsePubKeys k v = do
 
 
 extractMetaData :: (FromJSON a) => Object -> Either RosettaError a
-extractMetaData = (toRosettaError RosettaUnparsableMetaData)
+extractMetaData = toRosettaError RosettaUnparsableMetaData
                   . noteResult . fromJSON . Object
 
 

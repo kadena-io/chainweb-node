@@ -271,7 +271,7 @@ constructionMetadataH v cutDb pacts (ConstructionMetadataReq net opts someKeys) 
     work :: ExceptT RosettaError Handler ConstructionMetadataResp
     work = do
       cid <- hoistEither $ annotate rosettaError' (validateNetwork v net)
-      availableSigners <- (someKeys ?? (rosettaError' RosettaMissingPublicKeys))
+      availableSigners <- someKeys ?? rosettaError' RosettaMissingPublicKeys
                           >>= hoistEither . toSignerMap
       meta <- hoistEither $ extractMetaData opts
       let PreprocessRespMetaData reqMeta tx fee gLimit gPrice = meta

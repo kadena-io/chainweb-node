@@ -440,9 +440,9 @@ constructionTransferTests _ envIo =
           , _startCrossChainTx_targetChain = targetChainText
           }
         res = P.PObject $ P.ObjectMap $ M.fromList
-              [ ("amount", (P.PLiteral $ P.LDecimal amt))
-              , ("receiver", (P.PLiteral $ P.LString toAcct))
-              , ("receiver-guard", (P.PGuard $ P.GKeySet toGuard)) ]
+              [ ("amount", P.PLiteral $ P.LDecimal amt)
+              , ("receiver", P.PLiteral $ P.LString toAcct)
+              , ("receiver-guard", P.PGuard $ P.GKeySet toGuard) ]
     pactId <- constructValidTx' ops srcChain xchain res
 
     step "--- FINISH CROSSCHAIN TRANSFER TO A NEW ACCOUNT ---"
@@ -512,7 +512,7 @@ constructValidTx expectOps chainId' payer xchain getKeys expectResult cenv step 
 
   step "feed preprocessed tx into metadata endpoint"
   let opts = preRespMetaObj
-      pubKeys = concat $ map toRosettaPk reqAccts
+      pubKeys = concatMap toRosettaPk reqAccts
       metaReq = ConstructionMetadataReq netId opts (Just pubKeys)
 
   (ConstructionMetadataResp payloadMeta _) <- constructionMetadata cenv metaReq
@@ -560,9 +560,9 @@ constructValidTx expectOps chainId' payer xchain getKeys expectResult cenv step 
   where
     isCorrectResult rk cr = do
       _crReqKey cr @?= rk
-      _crResult cr @?= (PactResult $ Right expectResult)
+      _crResult cr @?= PactResult (Right expectResult)
 
-    toRosettaPk (AccountId n _ _) = case (getKeys n) of
+    toRosettaPk (AccountId n _ _) = case getKeys n of
       Nothing -> []
       Just (pk,_) -> [ RosettaPublicKey pk CurveEdwards25519 ]
 
@@ -574,11 +574,9 @@ constructValidTx expectOps chainId' payer xchain getKeys expectResult cenv step 
       let akps = P.ApiKeyPair (P.PrivBS sk') (Just $ P.PubBS pk')
                  Nothing Nothing Nothing 
       [(kp,_)] <- P.mkKeyPairs [akps]
-      (Right (hsh :: P.PactHash)) <- pure $
-        fmap P.fromUntypedHash $
-        fmap P.Hash $
-        P.parseB16TextOnly $
-        _rosettaSigningPayload_hexBytes payload
+      (Right (hsh :: P.PactHash)) <- pure $ fmap 
+        (P.fromUntypedHash . P.Hash) 
+        (P.parseB16TextOnly $ _rosettaSigningPayload_hexBytes payload)
       sig <- P.signHash hsh kp
       
       pure $! RosettaSignature

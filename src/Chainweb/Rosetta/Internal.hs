@@ -642,12 +642,12 @@ getHistoricalLookupBalance'
     -> T.Text
     -> ExceptT RosettaFailure Handler (Maybe AccountRow)
 getHistoricalLookupBalance' cr bh k = do
-  someHist <- liftIO $ (_pactHistoricalLookup cr) bh d key
-  hist <- (hush someHist) ?? RosettaPactExceptionThrown
+  someHist <- liftIO $ _pactHistoricalLookup cr bh d key
+  hist <- hush someHist ?? RosettaPactExceptionThrown
   case hist of
     Nothing -> pure Nothing
     Just h -> do
-      row <- (txLogToAccountRow h) ?? RosettaUnparsableTxLog
+      row <- txLogToAccountRow h ?? RosettaUnparsableTxLog
       pure $ Just row
   where
     d = Domain' (UserTables "coin_coin-table")
@@ -669,8 +669,7 @@ rosettaErrorT
     :: Maybe String
     -> ExceptT RosettaFailure Handler a
     -> ExceptT RosettaError Handler a
-rosettaErrorT someMsg rfailureT =
-  mapExceptT f rfailureT
+rosettaErrorT someMsg = mapExceptT f
   where
     f :: Handler (Either RosettaFailure b)
       -> Handler (Either RosettaError b)
