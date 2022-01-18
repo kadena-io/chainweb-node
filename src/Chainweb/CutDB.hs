@@ -350,9 +350,11 @@ pruneCuts logfun v curCut cutHashesStore = do
     let pruneCutHeight = avgCutHeightAt v $ avgBlockHeight - avgBlockHeightPruningDepth
     minCutId <- cutIdFromText (T.pack $ replicate 43 '0')
     logfun @T.Text Info $ "pruning CutDB before cut height " <> T.pack (show pruneCutHeight)
-    unless (latestCutHeight < pruneCutHeight) $
+    unless (latestCutHeight <= pruneCutHeight) $ do
         deleteRangeRocksDb (_getRocksDbCas cutHashesStore)
             (Nothing, Just (pruneCutHeight, 0, minCutId))
+        compactRangeRocksDb (_getRocksDbCas cutHashesStore)
+            (Nothing, Nothing)
 
 cutDbQueueSize :: CutDb cas -> IO Natural
 cutDbQueueSize = pQueueSize . _cutDbQueue
