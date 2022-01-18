@@ -353,8 +353,10 @@ pruneCuts logfun v curCut cutHashesStore = do
     unless (latestCutHeight <= pruneCutHeight) $ do
         deleteRangeRocksDb (_getRocksDbCas cutHashesStore)
             (Nothing, Just (pruneCutHeight, 0, minCutId))
-        compactRangeRocksDb (_getRocksDbCas cutHashesStore)
-            (Nothing, Nothing)
+        -- waiting for this compaction to complete seems to break startup
+        void $ async $
+            compactRangeRocksDb (_getRocksDbCas cutHashesStore)
+                (Nothing, Nothing)
 
 cutDbQueueSize :: CutDb cas -> IO Natural
 cutDbQueueSize = pQueueSize . _cutDbQueue
