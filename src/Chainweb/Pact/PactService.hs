@@ -155,7 +155,7 @@ initPactService' ver cid chainwebLogger bhDb pdb sqlenv config act = do
         -- 'initalPayloadState.readContracts'. We therefore rewind to the latest
         -- avaliable header in the block header database.
         --
-        exitOnRewindLimitExceeded $ initializeLatestBlock
+        exitOnRewindLimitExceeded $ initializeLatestBlock (_pactUnlimitedInitialRewind config)
         act
   where
     initialBlockState = initBlockState $ genesisHeight ver cid
@@ -163,12 +163,12 @@ initPactService' ver cid chainwebLogger bhDb pdb sqlenv config act = do
     cplogger = P.newLogger loggers $ P.LogName "Checkpointer"
     pactLogger = P.newLogger loggers $ P.LogName "PactService"
 
-initializeLatestBlock :: PayloadCasLookup cas => PactServiceM cas ()
-initializeLatestBlock = findLatestValidBlock >>= \case
+initializeLatestBlock :: PayloadCasLookup cas => Bool -> PactServiceM cas ()
+initializeLatestBlock unlimitedRewind = findLatestValidBlock >>= \case
     Nothing -> return ()
     Just b -> withBatch $ rewindTo initialRewindLimit (Just $ ParentHeader b)
   where
-    initialRewindLimit = Just 1000
+    initialRewindLimit = 1000 <$ guard (not unlimitedRewind) 
 
 initialPayloadState
     :: Logger logger

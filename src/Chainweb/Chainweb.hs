@@ -381,6 +381,7 @@ withChainwebInternal conf logger peer serviceSock rocksDb pactDbDir resetDb inne
       , _pactQueueSize = _configPactQueueSize conf
       , _pactResetDb = resetDb
       , _pactAllowReadsInLocal = _configAllowReadsInLocal conf
+      , _pactUnlimitedInitialRewind = maybe False (const True) (_cutDbParamsResetTarget cutConfig)
       }
 
     pruningLogger :: T.Text -> logger
@@ -499,7 +500,7 @@ withChainwebInternal conf logger peer serviceSock rocksDb pactDbDir resetDb inne
         , _cutDbParamsTelemetryLevel = Info
         , _cutDbParamsUseOrigin = _cutIncludeOrigin cutConf
         , _cutDbParamsInitialHeightLimit = _cutInitialCutHeightLimit cutConf
-        , _cutDbParamsResetToBlockHeight = _cutResetToBlockHeight cutConf
+        , _cutDbParamsResetTarget = _cutResetTarget cutConf
         }
       where
         cutConf = _configCuts conf

@@ -65,8 +65,9 @@ data PactServiceConfig = PactServiceConfig
     -- ^ max size of pact internal queue.
   , _pactResetDb :: !Bool
     -- ^ blow away pact dbs
+  , _pactUnlimitedInitialRewind :: !Bool
+    -- ^ disable initial rewind limit
   } deriving (Eq,Show)
-
 
 
 data PactException

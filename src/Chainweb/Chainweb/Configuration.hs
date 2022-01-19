@@ -42,7 +42,7 @@ module Chainweb.Chainweb.Configuration
 , cutPruneChainDatabase
 , cutFetchTimeout
 , cutInitialCutHeightLimit
-, cutResetToBlockHeight
+, cutResetTarget
 , defaultCutConfig
 , pCutConfig
 
@@ -94,6 +94,7 @@ import Prelude hiding (log)
 -- internal modules
 
 import Chainweb.BlockHeight
+import Chainweb.Cut
 import Chainweb.HostAddress
 import qualified Chainweb.Mempool.Mempool as Mempool
 import Chainweb.Mempool.P2pConfig
@@ -218,7 +219,7 @@ data CutConfig = CutConfig
     , _cutPruneChainDatabase :: !ChainDatabaseGcConfig
     , _cutFetchTimeout :: !Int
     , _cutInitialCutHeightLimit :: !(Maybe CutHeight)
-    , _cutResetToBlockHeight :: !(Maybe BlockHeight)
+    , _cutResetTarget :: !(Maybe CutResetTarget)
     } deriving (Eq, Show)
 
 makeLenses ''CutConfig
@@ -229,7 +230,8 @@ instance ToJSON CutConfig where
         , "fetchTimeout" .= _cutFetchTimeout o
         , "includeOrigin" .= _cutIncludeOrigin o
         , "initialCutHeightLimit" .= _cutInitialCutHeightLimit o
-        , "resetToBlockHeight" .= _cutResetToBlockHeight o ]
+        , "resetTarget" .= _cutResetTarget o 
+        ]
 
 instance FromJSON (CutConfig -> CutConfig) where
     parseJSON = withObject "CutConfig" $ \o -> id
@@ -237,7 +239,7 @@ instance FromJSON (CutConfig -> CutConfig) where
         <*< cutPruneChainDatabase ..: "pruneChainDatabase" % o
         <*< cutFetchTimeout ..: "fetchTimeout" % o
         <*< cutInitialCutHeightLimit ..: "initialCutHeightLimit" % o
-        <*< cutResetToBlockHeight ..: "resetToBlockHeight" % o
+        <*< cutResetTarget ..: "resetTarget" % o
 
 defaultCutConfig :: CutConfig
 defaultCutConfig = CutConfig
@@ -245,7 +247,7 @@ defaultCutConfig = CutConfig
     , _cutPruneChainDatabase = GcNone
     , _cutFetchTimeout = 3_000_000
     , _cutInitialCutHeightLimit = Nothing
-    , _cutResetToBlockHeight = Nothing
+    , _cutResetTarget = Nothing
     }
 
 pCutConfig :: MParser CutConfig
@@ -268,7 +270,7 @@ pCutConfig = id
         % long "cut-fetch-timeout"
         <> help "The timeout for processing new cuts in microseconds"
     -- cutInitialCutHeightLimit isn't supported on the command line
-    -- cutResetToBlockHeight isn't supported on the command line
+    -- cutResetToCut isn't supported on the command line
 
 -- -------------------------------------------------------------------------- --
 -- Service API Configuration
