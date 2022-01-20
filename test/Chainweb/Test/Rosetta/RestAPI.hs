@@ -131,6 +131,7 @@ tests rdb = testGroupSch "Chainweb.Test.Rosetta.RestAPI" go
       , networkListTests
       , networkOptionsTests
       , networkStatusTests
+      , blockKAccountAfterPact420
       ]
 
 -- | Rosetta account balance endpoint tests
@@ -159,6 +160,28 @@ accountBalanceTests tio envIo =
 
       b1 @=? b0
       curr @=? kda
+
+-- | Test that /block endpoint does not return a 
+--   TxLog parse error after fork to Pact 420.
+--   This assumes that this test occurs after the
+--   fork blockheight.
+blockKAccountAfterPact420 :: RosettaTest
+blockKAccountAfterPact420 tio envIo =
+  testCaseSchSteps "Block k:Account After Pact 420 Test" $ \step -> do
+    cenv <- envIo
+    rkmv <- newEmptyMVar @RequestKeys
+
+    step "send transaction"
+    prs <- mkOneKCoinAccountAsync cid tio cenv (putMVar rkmv)
+    rk <- NEL.head . _rkRequestKeys <$> takeMVar rkmv
+    cmdMeta <- extractMetadata rk prs
+    bh <- cmdMeta ^?! mix "blockHeight"
+
+    step "check that block endpoint doesn't return TxLog parse error"
+    _ <- block cenv (req bh)
+    pure ()
+  where
+    req h = BlockReq nid $ PartialBlockId (Just h) Nothing
 
 -- | Rosetta block transaction endpoint tests
 --
@@ -590,6 +613,40 @@ mkTransfer tio = do
 
     modifyIORef' nonceRef (+1)
     return $ SubmitBatch (pure c)
+
+mkKCoinAccount :: ChainId -> IO (Time Micros) -> IO SubmitBatch
+mkKCoinAccount sid tio = do
+    let kAcct = "k:" <> fst sender00
+    t <- toTxCreationTime <$> tio
+    n <- readIORef nonceRef
+    c <- buildTextCmd
+      $ set cbSigners
+        [ mkSigner' sender00
+          [ mkGasCap ]
+        ]
+      $ set cbCreationTime t
+      $ set cbNetworkId (Just v)
+      $ set cbChainId sid
+      $ mkCmd ("nonce-transfer-" <> sshow t <> "-" <> sshow n)
+      $ mkExec ("(coin.create-account \"" <> kAcct <> "\" (read-keyset \"sender00\"))")
+      $ mkKeySetData "sender00" [sender00]
+
+    modifyIORef' nonceRef (+1)
+    return $ SubmitBatch (pure c)
+
+mkOneKCoinAccountAsync
+    :: ChainId
+    -> IO (Time Micros)
+    -> ClientEnv
+    -> (RequestKeys -> IO ())
+    -> IO PollResponses
+mkOneKCoinAccountAsync sid tio cenv callback = do
+    batch0 <- mkKCoinAccount sid tio
+    void $! callback (f batch0)
+    rks <- sending cid cenv batch0
+    polling cid cenv rks ExpectPactResult
+  where
+    f (SubmitBatch cs) = RequestKeys (cmdToRequestKey <$> cs)
 
 -- | Transfer one token from sender00 to sender01, applying some callback to
 -- the command batch before sending.

@@ -19,15 +19,16 @@ import Data.Word (Word64)
 import Text.Read (readMaybe)
 
 import qualified Data.HashMap.Strict as HM
+import qualified Data.Map.Strict as M
 import qualified Data.Memory.Endian as BA
 import qualified Data.Text as T
 import qualified Pact.Types.Runtime as P
+import qualified Pact.Types.RowData as P
 
 import Numeric.Natural
 
 import Pact.Types.Command
 import Pact.Types.Hash
-import Pact.Types.PactValue (PactValue(..))
 import Pact.Types.Exp (Literal(..))
 
 import Rosetta
@@ -448,11 +449,12 @@ rowDataToAccountLog (currKey, currBal, currGuard) prev = do
 
 -- | Parse TxLog Value into fungible asset account columns
 txLogToAccountRow :: P.TxLog Value -> Maybe AccountRow
-txLogToAccountRow (P.TxLog _ key (Object row)) = do
-  guard :: Value <- HM.lookup "guard" row >>= (hushResult . fromJSON)
-  (PLiteral (LDecimal bal)) <- HM.lookup "balance" row >>= (hushResult . fromJSON)
-  pure (key, bal, guard)
-txLogToAccountRow _ = Nothing
+txLogToAccountRow (P.TxLog _ key obj) = do
+  P.RowData _ (P.ObjectMap row) :: P.RowData <- (hushResult . fromJSON) obj
+  guard :: Value <- toJSON . P.rowDataToPactValue <$> M.lookup "guard" row
+  case M.lookup "balance" row of
+    Just (P.RDLiteral (LDecimal bal)) -> pure (key, bal, guard)
+    _ -> Nothing
 
 hushResult :: Result a -> Maybe a
 hushResult (Success w) = Just w
