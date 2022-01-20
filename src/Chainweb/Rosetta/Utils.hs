@@ -22,10 +22,11 @@ import Data.Hashable (Hashable(..))
 import Data.List (sortOn, inits)
 import Data.Word (Word64)
 import Text.Read (readMaybe)
-import Text.Printf
+import Text.Printf ( printf )
 
 import qualified Data.ByteString.Lazy as BSL
 import qualified Data.HashMap.Strict as HM
+import qualified Data.Map.Strict as M
 import qualified Data.Memory.Endian as BA
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
@@ -38,8 +39,8 @@ import qualified Pact.Parse as P
 import qualified Pact.Types.Crypto as P
 import qualified Pact.Types.SPV as P
 import qualified Data.Set as S
-import Data.Maybe
-
+import Data.Maybe ( fromMaybe )
+import qualified Pact.Types.RowData as P
 
 import Numeric.Natural
 
@@ -1435,11 +1436,12 @@ rowDataToAccountLog (currKey, currBal, currGuard) prev = do
 
 -- | Parse TxLog Value into fungible asset account columns
 txLogToAccountRow :: P.TxLog Value -> Maybe AccountRow
-txLogToAccountRow (P.TxLog _ key (Object row)) = do
-  guard :: Value <- HM.lookup "guard" row >>= (hushResult . fromJSON)
-  (PLiteral (LDecimal bal)) <- HM.lookup "balance" row >>= (hushResult . fromJSON)
-  pure (key, bal, guard)
-txLogToAccountRow _ = Nothing
+txLogToAccountRow (P.TxLog _ key obj) = do
+  P.RowData _ (P.ObjectMap row) :: P.RowData <- (hushResult . fromJSON) obj
+  guard :: Value <- toJSON . P.rowDataToPactValue <$> M.lookup "guard" row
+  case M.lookup "balance" row of
+    Just (P.RDLiteral (LDecimal bal)) -> pure (key, bal, guard)
+    _ -> Nothing
 
 hushResult :: Result a -> Maybe a
 hushResult (Success w) = Just w
