@@ -17,7 +17,7 @@ import Control.Error.Util
 import Data.Aeson
 import Data.Aeson.Types (Pair)
 import Data.Foldable (foldl')
-import Data.Decimal
+import Data.Decimal ( Decimal, DecimalRaw(Decimal) )
 import Data.Hashable (Hashable(..))
 import Data.List (sortOn, inits)
 import Data.Word (Word64)
@@ -42,7 +42,7 @@ import qualified Data.Set as S
 import Data.Maybe ( fromMaybe )
 import qualified Pact.Types.RowData as P
 
-import Numeric.Natural
+import Numeric.Natural ( Natural )
 
 import Pact.Types.Command
 import Pact.Types.PactValue (PactValue(..))
@@ -53,12 +53,12 @@ import Rosetta
 -- internal modules
 
 import Chainweb.BlockCreationTime (BlockCreationTime(..))
-import Chainweb.BlockHash
+import Chainweb.BlockHash ( blockHashToText )
 import Chainweb.BlockHeader (BlockHeader(..))
 import Chainweb.BlockHeight (BlockHeight(..))
 import Chainweb.Pact.Utils (toTxCreationTime)
 import Chainweb.Time
-import Chainweb.Utils
+import Chainweb.Utils ( sshow, int )
 import Chainweb.Version
 
 ---
@@ -579,7 +579,8 @@ getSuggestedFee tx someMaxFees someMult = do
     defGasUnitsStartCrossChain = 450
     defGasUnitsFinishCrossChain = 350
 
-    minGasPrice = Decimal 12 1
+    -- See Chainweb.Chainweb.Configuration for latest min gas
+    minGasPrice = Decimal 8 1
 
     -------------------
     -- Helper Functions
