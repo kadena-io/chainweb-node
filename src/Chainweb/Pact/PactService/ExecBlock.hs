@@ -196,7 +196,9 @@ validateChainwebTxs v cid cp txValidationTime bh txs doBuyGas
   where
     go = V.mapM validations initTxList >>= doBuyGas
 
-    validations t = runValid checkUnique t
+    validations t =
+      runValid checkUnique t
+      >>= runValid checkTx
       >>= runValid checkTimes
       >>= runValid (return . checkCompile)
 
@@ -212,6 +214,31 @@ validateChainwebTxs v cid cp txValidationTime bh txs doBuyGas
         | skipTxTimingValidation v bh = return $ Right t
         | timingsCheck txValidationTime $ fmap payloadObj t = return $ Right t
         | otherwise = return $ Left InsertErrorInvalidTime
+
+    checkTx :: ChainwebTransaction -> IO (Either InsertError ChainwebTransaction)
+    checkTx t
+        | doCheckTx v bh =
+            case P.verifyHash (P._cmdHash t) (SB.fromShort $ payloadBytes $ P._cmdPayload t) of
+              Left _ -> pure $ Left InsertErrorInvalidHash
+              Right _ -> case validateSigs t of
+                Left _ -> pure $ Left InsertErrorInvalidSigs
+                Right _ -> pure $ Right t
+        | otherwise = pure $ Right t
+
+    validateSigs :: ChainwebTransaction -> Either () ()
+    validateSigs t
+        | length signers /= length sigs = Left ()
+        | otherwise = case traverse validateSig $ zip signers sigs of
+            Left _ -> Left ()
+            Right _ -> Right ()
+      where
+        hsh = P._cmdHash t
+        sigs = P._cmdSigs t
+        signers = P._pSigners $ payloadObj $ P._cmdPayload t
+        validateSig (signer,sig)
+            | P.verifyUserSig hsh sig signer = Right ()
+            | otherwise = Left ()
+
 
     initTxList :: ValidateTxs
     initTxList = V.map Right txs

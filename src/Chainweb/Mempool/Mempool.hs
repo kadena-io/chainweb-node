@@ -223,6 +223,8 @@ data InsertError = InsertErrorDuplicate
                  | InsertErrorBuyGas Text
                  | InsertErrorCompilationFailed Text
                  | InsertErrorOther Text
+                 | InsertErrorInvalidHash
+                 | InsertErrorInvalidSigs
   deriving (Generic, Eq, NFData)
 
 instance Show InsertError
@@ -240,6 +242,8 @@ instance Show InsertError
     show (InsertErrorBuyGas msg) = "Attempt to buy gas failed with: " <> T.unpack msg
     show (InsertErrorCompilationFailed msg) = "Transaction compilation failed: " <> T.unpack msg
     show (InsertErrorOther m) = "insert error: " <> T.unpack m
+    show InsertErrorInvalidHash = "Invalid transaction hash"
+    show InsertErrorInvalidSigs = "Invalid transaction sigs"
 
 instance Exception InsertError
 

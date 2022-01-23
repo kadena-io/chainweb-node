@@ -474,7 +474,7 @@ safeCapitalize = maybe [] (uncurry (:) . bimap toUpper (Prelude.map toLower)) . 
 
 validateCommand :: Command Text -> Either String ChainwebTransaction
 validateCommand cmdText = case verifyCommand cmdBS of
-    ProcSucc cmd -> Right (mkPayloadWithText <$> cmd)
+    ProcSucc cmd -> Right (mkPayloadWithTextOld <$> cmd)
     ProcFail err -> Left err
   where
     cmdBS :: Command ByteString
