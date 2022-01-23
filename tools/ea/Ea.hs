@@ -63,7 +63,7 @@ import Chainweb.Pact.Utils (toTxCreationTime)
 import Chainweb.Payload.PayloadStore.InMemory
 import Chainweb.Time
 import Chainweb.Transaction
-    (ChainwebTransaction, chainwebPayloadCodec, mkPayloadWithText)
+    (ChainwebTransaction, chainwebPayloadCodec, mkPayloadWithTextOld)
 import Chainweb.Utils
 import Chainweb.Version (ChainwebVersion(..))
 import Chainweb.Version.Utils (someChainId)
@@ -227,7 +227,7 @@ mkChainwebTxs' rawTxs = do
       f@ProcFail{} -> fail (show f)
       ProcSucc c -> do
         let t = toTxCreationTime (Time (TimeSpan 0))
-        return $! mkPayloadWithText <$> (c & setTxTime t & setTTL (TTLSeconds $ 2 * 24 * 60 * 60))
+        return $! mkPayloadWithTextOld <$> (c & setTxTime t & setTTL (TTLSeconds $ 2 * 24 * 60 * 60))
   where
     setTxTime = set (cmdPayload . pMeta . pmCreationTime)
     setTTL = set (cmdPayload . pMeta . pmTTL)
