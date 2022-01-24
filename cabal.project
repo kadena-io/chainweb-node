@@ -41,7 +41,7 @@ source-repository-package
 source-repository-package
     type: git
     location: https://github.com/edmundnoble/chainweb-storage.git
-    tag: eb3c0477aa728526b18b4013560b88488bd49fd0
+    tag: 464f75e80e72f8051e4aa32f7072ceac6f493d86
 
 source-repository-package
     type: git
