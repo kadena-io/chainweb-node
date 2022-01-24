@@ -460,6 +460,7 @@ test-suite chainweb-tests
         Chainweb.Test.Pact.RewardsTest
         Chainweb.Test.Pact.PactExec
         Chainweb.Test.Pact.PactReplay
+        Chainweb.Test.Pact.PactService
         Chainweb.Test.Pact.RemotePactTest
         Chainweb.Test.Pact.SPV
         Chainweb.Test.Pact.TransactionTests

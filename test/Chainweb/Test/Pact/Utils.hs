@@ -72,6 +72,7 @@ module Chainweb.Test.Pact.Utils
 -- * Pact Service creation
 , withPactTestBlockDb
 , withWebPactExecutionService
+, withWebPactExecutionService'
 , withPactCtxSQLite
 , WithPactCtxSQLite
 -- * Other service creation
@@ -523,6 +524,45 @@ withWebPactExecutionService v bdb mempoolAccess act =
           , _pactSyncToBlock = \h ->
               evalPactServiceM_ ctx $ execSyncToBlock h
           }
+
+withWebPactExecutionService'
+  :: ChainwebVersion
+  -> TestBlockDb
+  -> MemPoolAccess
+  -> (WebPactExecutionService -> IO a)
+  -> [ChainId]
+  -> IO a
+withWebPactExecutionService' v bdb mempoolAccess act cids =
+  withDbs $ \sqlenvs -> do
+    pacts <- fmap (mkWebPactExecutionService . HM.fromList)
+           $ traverse mkPact
+           $ zip sqlenvs cids
+    act pacts
+  where
+    withDbs f = foldl' (\soFar _ -> withDb soFar) f cids []
+    withDb g envs =  withTempSQLiteConnection chainwebPragmas $ \s -> g (s : envs)
+    mkPact (sqlenv, c) = do
+        bhdb <- getBlockHeaderDb c bdb
+        (ctx,_) <- testPactCtxSQLite v c bhdb (_bdbPayloadDb bdb) sqlenv defaultPactServiceConfig
+        return $ (c,) $ PactExecutionService
+          { _pactNewBlock = \m p ->
+              evalPactServiceM_ ctx $ execNewBlock mempoolAccess p m
+          , _pactValidateBlock = \h d ->
+              evalPactServiceM_ ctx $ execValidateBlock mempoolAccess h d
+          , _pactLocal = \cmd ->
+              evalPactServiceM_ ctx $ Right <$> execLocal cmd
+          , _pactLookup = \rp hashes ->
+              evalPactServiceM_ ctx $ Right <$> execLookupPactTxs rp hashes
+          , _pactPreInsertCheck = \_ txs ->
+              evalPactServiceM_ ctx $ (Right . V.map (() <$)) <$> execPreInsertCheckReq txs
+          , _pactBlockTxHistory = \h d ->
+              evalPactServiceM_ ctx $ Right <$> execBlockTxHistory h d
+          , _pactHistoricalLookup = \h d k ->
+              evalPactServiceM_ ctx $ Right <$> execHistoricalLookup h d k
+          , _pactSyncToBlock = \h ->
+              evalPactServiceM_ ctx $ execSyncToBlock h
+          }
+
 
 
 -- | Noncer for 'runCut'
