@@ -19,13 +19,8 @@
 --
 module Chainweb.Chainweb.Configuration
 (
--- * Transaction Index Configuration
-  TransactionIndexConfig(..)
-, defaultTransactionIndexConfig
-, pTransactionIndexConfig
-
 -- * Throttling Configuration
-, ThrottlingConfig(..)
+  ThrottlingConfig(..)
 , throttlingRate
 , throttlingMiningRate
 , throttlingPeerRate
@@ -60,7 +55,6 @@ module Chainweb.Chainweb.Configuration
 , configHeaderStream
 , configReintroTxs
 , configP2p
-, configTransactionIndex
 , configBlockGasLimit
 , configMinGasPrice
 , configThrottling
@@ -104,26 +98,6 @@ import Chainweb.Utils
 import Chainweb.Version
 
 import P2P.Node.Configuration
-
--- -------------------------------------------------------------------------- --
--- TransactionIndexConfig
-
-data TransactionIndexConfig = TransactionIndexConfig
-    deriving (Show, Eq, Generic)
-
-makeLenses ''TransactionIndexConfig
-
-defaultTransactionIndexConfig :: TransactionIndexConfig
-defaultTransactionIndexConfig = TransactionIndexConfig
-
-instance ToJSON TransactionIndexConfig where
-    toJSON _ = object []
-
-instance FromJSON (TransactionIndexConfig -> TransactionIndexConfig) where
-    parseJSON = withObject "TransactionIndexConfig" $ const (return id)
-
-pTransactionIndexConfig :: MParser TransactionIndexConfig
-pTransactionIndexConfig = pure id
 
 -- -------------------------------------------------------------------------- --
 -- Throttling Configuration
@@ -322,14 +296,11 @@ pServiceApiConfig = id
 
 data ChainwebConfiguration = ChainwebConfiguration
     { _configChainwebVersion :: !ChainwebVersion
-    , _configNodeIdDeprecated :: !Value
-        -- ^ Deprecated, won't show up in --print-config
     , _configCuts :: !CutConfig
     , _configMining :: !MiningConfig
     , _configHeaderStream :: !Bool
     , _configReintroTxs :: !Bool
     , _configP2p :: !P2pConfiguration
-    , _configTransactionIndex :: !(EnableConfig TransactionIndexConfig)
     , _configThrottling :: !ThrottlingConfig
     , _configMempoolP2p :: !(EnableConfig MempoolP2pConfig)
     , _configBlockGasLimit :: !Mempool.GasLimit
@@ -358,21 +329,15 @@ validateChainwebConfiguration c = do
         Mainnet01 -> validateP2pConfiguration (_configP2p c)
         Testnet04 -> validateP2pConfiguration (_configP2p c)
         _ -> return ()
-    unless (_configNodeIdDeprecated c == Null) $ tell
-        [ "Usage NodeId is deprecated. This option will be removed in a future version of chainweb-node"
-        , "The value of NodeId is ignored by chainweb-node. In particular the database path will not depend on it"
-        ]
 
 defaultChainwebConfiguration :: ChainwebVersion -> ChainwebConfiguration
 defaultChainwebConfiguration v = ChainwebConfiguration
     { _configChainwebVersion = v
-    , _configNodeIdDeprecated = Null
     , _configCuts = defaultCutConfig
     , _configMining = defaultMining
     , _configHeaderStream = False
     , _configReintroTxs = True
     , _configP2p = defaultP2pConfiguration
-    , _configTransactionIndex = defaultEnableConfig defaultTransactionIndexConfig
     , _configThrottling = defaultThrottlingConfig
     , _configMempoolP2p = defaultEnableConfig defaultMempoolP2pConfig
     , _configBlockGasLimit = 150000
@@ -394,7 +359,6 @@ instance ToJSON ChainwebConfiguration where
         , "headerStream" .= _configHeaderStream o
         , "reintroTxs" .= _configReintroTxs o
         , "p2p" .= _configP2p o
-        , "transactionIndex" .= _configTransactionIndex o
         , "throttling" .= _configThrottling o
         , "mempoolP2p" .= _configMempoolP2p o
         , "gasLimitOfBlock" .= _configBlockGasLimit o
@@ -416,13 +380,11 @@ instance FromJSON ChainwebConfiguration where
 instance FromJSON (ChainwebConfiguration -> ChainwebConfiguration) where
     parseJSON = withObject "ChainwebConfig" $ \o -> id
         <$< configChainwebVersion ..: "chainwebVersion" % o
-        <*< configNodeIdDeprecated ..: "nodeId" % o
         <*< configCuts %.: "cuts" % o
         <*< configMining %.: "mining" % o
         <*< configHeaderStream ..: "headerStream" % o
         <*< configReintroTxs ..: "reintroTxs" % o
         <*< configP2p %.: "p2p" % o
-        <*< configTransactionIndex %.: "transactionIndex" % o
         <*< configThrottling %.: "throttling" % o
         <*< configMempoolP2p %.: "mempoolP2p" % o
         <*< configBlockGasLimit ..: "gasLimitOfBlock" % o
@@ -441,12 +403,6 @@ pChainwebConfiguration = id
         % long "chainweb-version"
         <> short 'v'
         <> help "the chainweb version that this node is using"
-    <*< configNodeIdDeprecated .:: fmap (String . T.pack) . strOption
-        % hidden
-        <> internal
-        <> long "node-id"
-        <> short 'i'
-        <> help "DEPRECATED. The value is ignored"
     <*< configHeaderStream .:: boolOption_
         % long "header-stream"
         <> help "whether to enable an endpoint for streaming block updates"
@@ -454,8 +410,6 @@ pChainwebConfiguration = id
         % long "tx-reintro"
         <> help "whether to enable transaction reintroduction from losing forks"
     <*< configP2p %:: pP2pConfiguration
-    <*< configTransactionIndex %::
-        pEnableConfig "transaction-index" pTransactionIndexConfig
     <*< configMempoolP2p %::
         pEnableConfig "mempool-p2p" pMempoolP2pConfig
     <*< configBlockGasLimit .:: jsonOption
@@ -487,3 +441,4 @@ pChainwebConfiguration = id
     <*< configOnlySyncPact .:: boolOption_
         % long "only-sync-pact"
         <> help "Terminate after synchronizing the pact databases to the latest cut"
+

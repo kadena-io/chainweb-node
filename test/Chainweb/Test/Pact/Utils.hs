@@ -8,6 +8,8 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TupleSections #-}
+{-# LANGUAGE TypeApplications #-}
+
 
 {-# OPTIONS_GHC -fno-warn-incomplete-uni-patterns #-}
 -- |
@@ -378,8 +380,10 @@ mkCmd nonce rpc = defaultCmd
 --
 buildCwCmd :: CmdBuilder -> IO ChainwebTransaction
 buildCwCmd cmd = buildRawCmd cmd >>= \c -> case verifyCommand c of
-    ProcSucc r -> return $ fmap mkPayloadWithText r
+    ProcSucc r -> return $ fmap (mkPayloadWithText c) r
     ProcFail e -> throwM $ userError $ "buildCmd failed: " ++ e
+
+
 
 -- | Build unparsed, unverified command
 --

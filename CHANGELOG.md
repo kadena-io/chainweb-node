@@ -1,5 +1,21 @@
 # `chainweb-node` Changelog
 
+## 2.12.1 (2022-01-22)
+
+This is a bug fix release. Upgrading is highly encouraged. In particular, if you experience issues with chainweb-node
+version 2.12, upgrading to version 2.12.1 will likely resolve those issues.
+
+To upgrade, pull the latest docker image or download the binary and restart the node.
+
+This version will expire on 2022-02-24T00:00:00Z.
+
+Changes:
+
+* Correct mempool tx persistence, check tx details in validate (#1348)
+
+* Remove deprecated configuration options (#1345)
+
+
 ## 2.12 (2022-01-07)
 
 This version replaces all previous versions. Any prior version will stop working
@@ -12,22 +28,22 @@ Changes:
 
 *   Upgrade Pact version to 4.2.0. (#1323)
 
-*   The default setting for pruning the chainweb database has been changed to 
+*   The default setting for pruning the chainweb database has been changed to
     "none" to reduce unnecessary work and speed up node start times. (#1332)
 
-*   Nodes will now take a snapshot of the chainweb database (RocksDB) if sent 
+*   Nodes will now take a snapshot of the chainweb database (RocksDB) if sent
     the SIGUSR1 signal. These snapshots can be used for backups and do not take
-    significant space until the database has diverged significantly from the 
+    significant space until the database has diverged significantly from the
     snapshot. Also, SIGUSR2 no longer terminates the node. (#1328)
 
 *   Nodes will log their progress while pruning the database. (#1315)
 
-*   The Pact queue has been instrumented to log its utilization level and 
+*   The Pact queue has been instrumented to log its utilization level and
     latency. (#1284)
 
 ## 2.11.1 (2021-11-23)
 
-This is a miner feature release. It is compatible with version 2.11. Upgrading
+This is a minor feature release. It is compatible with version 2.11. Upgrading
 optional. Please, check the list of changes before upgrading.
 
 Changes:

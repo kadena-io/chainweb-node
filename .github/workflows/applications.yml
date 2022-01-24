@@ -572,7 +572,7 @@ jobs:
       with:
         registry: ghcr.io
         username: kadena-build
-        password: ${{ secrets.PKG_MANAGEMENT }}
+        password: ${{ secrets.GITHUB_TOKEN }}
 
     - name: Build and push
       id: docker_build

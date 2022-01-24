@@ -18,6 +18,7 @@ module Chainweb.Transaction
   , timeToLiveOf
   , creationTimeOf
   , mkPayloadWithText
+  , mkPayloadWithTextOld
   , payloadBytes
   , payloadObj
   ) where
@@ -62,10 +63,15 @@ payloadObj :: PayloadWithText -> Payload PublicMeta ParsedCode
 payloadObj = _payloadObj
 
 
-mkPayloadWithText :: Payload PublicMeta ParsedCode -> PayloadWithText
-mkPayloadWithText p = PayloadWithText {
-    _payloadBytes =
-    SB.toShort $ BL.toStrict $ Aeson.encode $ fmap _pcCode p
+mkPayloadWithText :: Command ByteString -> Payload PublicMeta ParsedCode -> PayloadWithText
+mkPayloadWithText cmd p = PayloadWithText
+    { _payloadBytes = SB.toShort $ _cmdPayload cmd
+    , _payloadObj = p
+    }
+
+mkPayloadWithTextOld :: Payload PublicMeta ParsedCode -> PayloadWithText
+mkPayloadWithTextOld p = PayloadWithText
+    { _payloadBytes = SB.toShort $ BL.toStrict $ Aeson.encode $ fmap _pcCode p
     , _payloadObj = p
     }
 
