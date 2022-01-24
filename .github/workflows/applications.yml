@@ -69,7 +69,7 @@ jobs:
       run: |
         MATRIX="$(jq -c '.' <<EOF
         {
-          "ghc": ["8.10.7", "9.0.1"],
+          "ghc": ["8.10.7", "9.0.2"],
           "cabal": ["3.6"],
           "os": ["ubuntu-18.04", "ubuntu-20.04"],
           "cabalcache": ["true"]
@@ -572,7 +572,7 @@ jobs:
       with:
         registry: ghcr.io
         username: kadena-build
-        password: ${{ secrets.PKG_MANAGEMENT }}
+        password: ${{ secrets.GITHUB_TOKEN }}
 
     - name: Build and push
       id: docker_build

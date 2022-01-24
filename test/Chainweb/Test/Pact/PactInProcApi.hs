@@ -47,8 +47,6 @@ import Test.Tasty.HUnit
 
 -- internal modules
 
-import Pact.Parse
-import Pact.Types.ChainMeta
 import Pact.Types.Continuation
 import Pact.Types.Exp
 import Pact.Types.Command
@@ -76,7 +74,6 @@ import Chainweb.Test.Cut.TestBlockDb
 import Chainweb.Test.Pact.Utils
 import Chainweb.Test.Utils
 import Chainweb.Time
-import Chainweb.Transaction
 import Chainweb.Utils
 import Chainweb.Version
 import Chainweb.Version.Utils
@@ -748,7 +745,7 @@ goldenMemPool = mempty
     { mpaGetBlock = getTestBlock
     }
   where
-    getTestBlock validate bHeight bHash parent = do
+    getTestBlock validate bHeight bHash _parent = do
         moduleStr <- readFile' $ testPactFilesDir ++ "test1.pact"
         let txs =
               [ (T.pack moduleStr)
@@ -763,16 +760,7 @@ goldenMemPool = mempty
               , "(at 'chain-id (chain-data))"
               , "(at 'sender (chain-data))"
               ]
-        outtxs' <- mkTxs txs
-        -- the following is done post-hash which is lame but in
-        -- the goldens. TODO boldly overwrite goldens at some point of
-        -- great stability
-        let f = modifyPayloadWithText . set (pMeta . pmCreationTime)
-            g = modifyPayloadWithText . set (pMeta . pmTTL)
-            t = toTxCreationTime $ _bct $ _blockCreationTime parent
-        let outtxs = flip V.map outtxs' $ \tx ->
-                let ttl = TTLSeconds $ ParsedInteger $ 24 * 60 * 60
-                in fmap (g ttl . f t) tx
+        outtxs <- mkTxs txs
         oks <- validate bHeight bHash outtxs
         unless (V.and oks) $ fail $ mconcat
             [ "tx failed validation! input list: \n"
@@ -791,7 +779,3 @@ goldenMemPool = mempty
           mkCmd ("1" <> sshow n) $
           mkExec code $
           mkKeySetData "test-admin-keyset" [sender00]
-    modifyPayloadWithText f pwt = mkPayloadWithText newPayload
-      where
-        oldPayload = payloadObj pwt
-        newPayload = f oldPayload

@@ -1,7 +1,7 @@
 cabal-version: 2.4
 
 name:         chainweb
-version:      2.12
+version:      2.12.1
 synopsis:     A Proof-of-Work Parallel-Chain Architecture for Massive Throughput
 description:  A Proof-of-Work Parallel-Chain Architecture for Massive Throughput.
 homepage:     https://github.com/kadena-io/chainweb
@@ -15,7 +15,7 @@ category:     Blockchain, Currency, Bitcoin, Kadena
 build-type:   Custom
 
 tested-with:
-    GHC == 9.0.1
+    GHC == 9.0.2
     GHC == 8.10.7
 
 extra-source-files:
@@ -770,4 +770,3 @@ benchmark bench
         , streaming-commons >= 0.2
         , unordered-containers == 0.2.15.0
         , yet-another-logger >= 0.4
-
