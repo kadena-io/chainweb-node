@@ -112,7 +112,7 @@ import Chainweb.SPV.CreateProof
 import Chainweb.SPV.EventProof
 import Chainweb.SPV.OutputProof
 import Chainweb.SPV.PayloadProof
-import Chainweb.Transaction (ChainwebTransaction, mkPayloadWithText)
+import Chainweb.Transaction
 import qualified Chainweb.TreeDB as TreeDB
 import Chainweb.Utils
 import Chainweb.Version
@@ -625,11 +625,12 @@ toPactTx (Transaction b) = decodeStrict' b
 
 validateCommand :: Command Text -> Either String ChainwebTransaction
 validateCommand cmdText = case verifyCommand cmdBS of
-    ProcSucc cmd -> Right (mkPayloadWithText <$> cmd)
+    ProcSucc cmd -> Right (mkPayloadWithText cmdBS <$> cmd)
     ProcFail err -> Left err
   where
     cmdBS :: Command ByteString
     cmdBS = encodeUtf8 <$> cmdText
+
 
 -- | Validate the length of the request key's underlying hash.
 --
