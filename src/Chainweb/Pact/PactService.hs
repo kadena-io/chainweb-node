@@ -478,6 +478,7 @@ execNewBlock mpAccess parent miner = handle onTxFailure $ do
       cp <- getCheckpointer
       psEnv <- ask
       psState <- get
+      logger <- view psLogger
       let runDebitGas :: RunGas
           runDebitGas txs = evalPactServiceM psState psEnv runGas
             where
@@ -488,7 +489,7 @@ execNewBlock mpAccess parent miner = handle onTxFailure $ do
             results <- do
                 let v = _chainwebVersion psEnv
                     cid = _chainId psEnv
-                validateChainwebTxs v cid cp parentTime bhi txs runDebitGas
+                validateChainwebTxs logger v cid cp parentTime bhi txs runDebitGas
 
             V.forM results $ \case
                 Right _ -> return True
@@ -629,11 +630,12 @@ execPreInsertCheckReq txs = withDiscardedBatch $ do
     psState <- get
     let parentTime = ParentCreationTime $ _blockCreationTime $ _parentHeader parent
     cp <- getCheckpointer
+    logger <- view psLogger
     withCurrentCheckpointer "execPreInsertCheckReq" $ \pdb -> do
       let v = _chainwebVersion psEnv
           cid = _chainId psEnv
       liftIO $ fmap Discard $
-        validateChainwebTxs v cid cp parentTime currHeight txs (runGas pdb psState psEnv)
+        validateChainwebTxs logger v cid cp parentTime currHeight txs (runGas pdb psState psEnv)
   where
     runGas pdb pst penv ts =
         evalPactServiceM pst penv (attemptBuyGas noMiner pdb ts)
