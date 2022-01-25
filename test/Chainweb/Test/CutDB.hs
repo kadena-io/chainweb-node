@@ -95,15 +95,21 @@ tests rdb = testGroup "CutDB"
 testCutPruning :: RocksDb -> ChainwebVersion -> TestTree
 testCutPruning rdb v = testCase "cut pruning" $ do
     -- initialize cut DB and mine enough to trigger pruning
-    (cutHashesStore, ()) <- withTestCutDbWithoutPact rdb v (int $ avgCutHeightAt v 10_001) (\_ _ -> return ()) (const $ return ())
+    let alterPruningSettings = 
+            set cutDbParamsAvgBlockHeightPruningDepth 50 .
+            set cutDbParamsAvgBlockHeightPruningThreshold 100 .
+            set cutDbParamsAvgBlockHeightWritingGap 10
+        minedBlockHeight = 201
+    (cutHashesStore, ()) <- withTestCutDbWithoutPact rdb v alterPruningSettings (int $ avgCutHeightAt v minedBlockHeight) (\_ _ -> return ()) (const $ return ())
     -- peek inside the cut DB's store to find the oldest and newest cuts
     let table = _getRocksDbCas cutHashesStore
     Just (leastCutHeight, _, _) <- tableMinKey table
     Just (mostCutHeight, _, _) <- tableMaxKey table
-    -- we prune the older cuts
-    assertBool "oldest cuts are too old" (avgBlockHeightAtCutHeight v leastCutHeight >= 5001)
-    -- and keep the last one
-    avgBlockHeightAtCutHeight v mostCutHeight @?= 10_001
+    -- we must have pruned the older cuts, though we can't be too precise 
+    -- because of the rounding error introduced by `avgBlockHeight`
+    assertBool "oldest cuts are too old" (avgBlockHeightAtCutHeight v leastCutHeight >= 98)
+    -- we must keep the latest cut
+    avgBlockHeightAtCutHeight v mostCutHeight @?= 201
 
 -- -------------------------------------------------------------------------- --
 -- Create a random Cut DB with the respective Payload Store
@@ -124,6 +130,8 @@ withTestCutDb
     => RocksDb
     -> ChainwebVersion
         -- ^ the chainweb version
+    -> (CutDbParams -> CutDbParams)
+        -- ^ any alterations to the CutDB's configuration
     -> Int
         -- ^ number of blocks in the chainweb in addition to the genesis blocks
     -> (WebBlockHeaderDb -> PayloadDb RocksDbCas -> IO WebPactExecutionService)
@@ -139,7 +147,7 @@ withTestCutDb
         -- ^ a logg function (use @\_ _ -> return ()@ turn of logging)
     -> (forall cas . PayloadCasLookup cas => CutDb cas -> IO a)
     -> IO (RocksDbCas CutHashes, a)
-withTestCutDb rdb v n pactIO logfun f = do
+withTestCutDb rdb v conf n pactIO logfun f = do
     rocksDb <- testRocksDb "withTestCutDb" rdb
     let payloadDb = newPayloadDb rocksDb
         cutHashesDb = cutHashesTable rocksDb
@@ -149,7 +157,7 @@ withTestCutDb rdb v n pactIO logfun f = do
     pact <- pactIO webDb payloadDb
     withLocalWebBlockHeaderStore mgr webDb $ \headerStore ->
         withLocalPayloadStore mgr payloadDb pact $ \payloadStore ->
-            withCutDb (defaultCutDbParams v cutFetchTimeout) logfun headerStore payloadStore cutHashesDb $ \cutDb -> do
+            withCutDb (conf $ defaultCutDbParams v cutFetchTimeout) logfun headerStore payloadStore cutHashesDb $ \cutDb -> do
                 foldM_ (\c _ -> view _1 <$> mine defaultMiner pact cutDb c) (genesisCut v) [1..n]
                 (cutHashesDb,) <$> f cutDb
 
@@ -261,14 +269,16 @@ withTestCutDbWithoutPact
     => RocksDb
     -> ChainwebVersion
         -- ^ the chainweb version
+    -> (CutDbParams -> CutDbParams)
+        -- ^ any alterations to the CutDB's configuration
     -> Int
         -- ^ number of blocks in the chainweb in addition to the genesis blocks
     -> LogFunction
         -- ^ a logg function (use @\_ _ -> return ()@ turn of logging)
     -> (forall cas . PayloadCasLookup cas => CutDb cas -> IO a)
     -> IO (RocksDbCas CutHashes, a)
-withTestCutDbWithoutPact rdb v n =
-    withTestCutDb rdb v n (const $ const $ return fakePact)
+withTestCutDbWithoutPact rdb v conf n =
+    withTestCutDb rdb v conf n (const $ const $ return fakePact)
 
 -- | A version of withTestCutDb that can be used as a Tasty TestTree resource.
 --

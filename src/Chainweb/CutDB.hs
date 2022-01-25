@@ -37,6 +37,9 @@ module Chainweb.CutDB
 , cutDbParamsUseOrigin
 , cutDbParamsInitialHeightLimit
 , cutDbParamsFetchTimeout
+, cutDbParamsAvgBlockHeightPruningDepth
+, cutDbParamsAvgBlockHeightPruningThreshold
+, cutDbParamsAvgBlockHeightWritingGap
 , defaultCutDbParams
 , farAheadThreshold
 
@@ -163,6 +166,14 @@ data CutDbParams = CutDbParams
     , _cutDbParamsUseOrigin :: !Bool
     , _cutDbParamsFetchTimeout :: !Int
     , _cutDbParamsInitialHeightLimit :: !(Maybe CutHeight)
+    , _cutDbParamsAvgBlockHeightPruningDepth :: BlockHeight
+    -- ^ How many block heights' worth of cuts should we keep around? 
+    -- (how far back do we expect that a fork can happen)
+    , _cutDbParamsAvgBlockHeightPruningThreshold :: BlockHeight
+    -- ^ How often do we prune cuts?
+    , _cutDbParamsAvgBlockHeightWritingGap :: BlockHeight
+    -- ^ How often do we write cuts? must be less than 
+    -- `blockHeightPruningDepth` or the CutHashes table will always be empty.
     }
     deriving (Show, Eq, Ord, Generic)
 
@@ -178,6 +189,9 @@ defaultCutDbParams v ft = CutDbParams
     , _cutDbParamsUseOrigin = True
     , _cutDbParamsFetchTimeout = ft
     , _cutDbParamsInitialHeightLimit = Nothing
+    , _cutDbParamsAvgBlockHeightPruningDepth = 5000
+    , _cutDbParamsAvgBlockHeightPruningThreshold = 10000
+    , _cutDbParamsAvgBlockHeightWritingGap = 30
     }
   where
     g = _chainGraph (v, maxBound @BlockHeight)
@@ -325,30 +339,18 @@ awaitNewCutByChainIdStm cdb cid c = do
     when (b1 == b0) retry
     return c'
 
--- | How many block heights' worth of cuts should we keep around? 
--- (how far back do we expect that a fork can happen)
-avgBlockHeightPruningDepth :: BlockHeight
-avgBlockHeightPruningDepth = 5000
-
--- | How often should we prune cuts?
-avgBlockHeightPruningThreshold :: BlockHeight
-avgBlockHeightPruningThreshold = 10000
-
--- must be less than `blockHeightPruningDepth` or the CutHashes table 
--- will always be empty.
-avgBlockHeightWritingGap :: BlockHeight
-avgBlockHeightWritingGap = 30
-
 pruneCuts
     :: LogFunction
     -> ChainwebVersion
+    -> CutDbParams
     -> Cut
     -> RocksDbCas CutHashes
     -> IO ()
-pruneCuts logfun v curCut cutHashesStore = do
+pruneCuts logfun v conf curCut cutHashesStore = do
     let latestCutHeight = _cutHeight curCut
     let avgBlockHeight = round $ avgBlockHeightAtCutHeight v latestCutHeight
-    let pruneCutHeight = CutHeight $ int $ max 0 $ (int (avgCutHeightAt v avgBlockHeight) - int avgBlockHeightPruningDepth :: Integer)
+    let pruneCutHeight = CutHeight $ int $ max 0 $ 
+            (int (avgCutHeightAt v avgBlockHeight) - int (_cutDbParamsAvgBlockHeightPruningDepth conf) :: Integer)
     minCutId <- cutIdFromText (T.pack $ replicate 43 '0')
     logfun @T.Text Info $ "pruning CutDB before cut height " <> T.pack (show pruneCutHeight)
     deleteRangeRocksDb (_getRocksDbCas cutHashesStore)
@@ -413,7 +415,7 @@ startCutDb config logfun headerStore payloadStore cutHashesStore = mask_ $ do
             , _cutDbQueueSize = _cutDbParamsBufferSize config
             , _cutDbStore = cutHashesStore
             }
-    pruneCuts logfun (_chainwebVersion headerStore) initialCut cutHashesStore
+    pruneCuts logfun (_chainwebVersion headerStore) config initialCut cutHashesStore
     return db
   where
     logg = logfun @T.Text
@@ -506,7 +508,7 @@ processCuts conf logFun headerStore payloadStore cutHashesStore queue cutVar = d
             <$> readTVarIO cutVar
     lastPrunedAvgBlockHeightVar <- newTVarIO currentAvgBlockHeight
     writeDelayRng <- Prob.createSystemRandom 
-    let generateWriteGap = approximately avgBlockHeightWritingGap writeDelayRng
+    let generateWriteGap = approximately (_cutDbParamsAvgBlockHeightWritingGap conf) writeDelayRng
     nextWriteAvgBlockHeightVar <- newTVarIO =<< generateWriteGap 
     queueToStream
         & S.chain (\c -> loggc Debug c "start processing")
@@ -533,9 +535,9 @@ processCuts conf logFun headerStore payloadStore cutHashesStore queue cutVar = d
             let curCutAvgBlockHeight = BlockHeight $ round $ avgBlockHeightAtCutHeight (_chainwebVersion headerStore) (_cutHeight curCut)
             lastPrunedAvgBlockHeight <- readTVarIO lastPrunedAvgBlockHeightVar
             let sinceLastPrune = curCutAvgBlockHeight - lastPrunedAvgBlockHeight
-            when (sinceLastPrune > avgBlockHeightPruningThreshold) $ do
+            when (sinceLastPrune > _cutDbParamsAvgBlockHeightPruningThreshold conf) $ do
                 atomically $ writeTVar lastPrunedAvgBlockHeightVar curCutAvgBlockHeight
-                pruneCuts logFun (_chainwebVersion headerStore) curCut cutHashesStore
+                pruneCuts logFun (_chainwebVersion headerStore) conf curCut cutHashesStore
             nextWriteAvgBlockHeight <- readTVarIO nextWriteAvgBlockHeightVar
             when (curCutAvgBlockHeight > nextWriteAvgBlockHeight) $ do
                 writeGap <- generateWriteGap 
