@@ -60,6 +60,7 @@ module Chainweb.Version
 , pact420Upgrade
 , enforceKeysetFormats
 , AtOrAfter(..)
+, doCheckTx
 
 -- ** BlockHeader Validation Guards
 , slowEpochGuard
@@ -904,6 +905,13 @@ enforceKeysetFormats Mainnet01 = (>= 2_162_000) -- 2021-11-18T20:06:55
 enforceKeysetFormats Testnet04 = (>= 1_701_000) -- 2021-11-18T17:54:36
 enforceKeysetFormats Development = (>= 100)
 enforceKeysetFormats _ = (>= 10)
+
+doCheckTx :: ChainwebVersion -> BlockHeight -> Bool
+doCheckTx Mainnet01 = (>= 2_349_800) -- 2022-01-23T02:53:38
+doCheckTx Testnet04 = (>= 1_889_000) -- 2022-01-24T04:19:24
+doCheckTx Development = (>= 110)
+doCheckTx (FastTimedCPM g) | g == petersonChainGraph = (>= 7)
+doCheckTx _ = const False
 
 -- -------------------------------------------------------------------------- --
 -- Header Validation Guards
