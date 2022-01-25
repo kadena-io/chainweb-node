@@ -724,12 +724,12 @@ toSignerAcctsMap txInfo payerAcct v cid pacts cutDb = do
 
   -- GAS
   let payer = _accountId_address payerAcct
-  someGasOwn <- getOwnership peCurr bhCurr payer
-  gasOwn <- enforceAcctPresent payer someGasOwn
+  someGasOwner <- getOwnership peCurr bhCurr payer
+  gasOwner <- enforceAcctPresent payer someGasOwner
   let gasCaps = [ mkGasCap ]
       mapWithGas = HM.singleton
         (AccountName payer)
-        (gasCaps, gasOwn)
+        (gasCaps, gasOwner)
 
   -- TRANSACTION
   case txInfo of

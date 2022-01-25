@@ -411,8 +411,8 @@ constructionTransferTests :: RosettaTest
 constructionTransferTests _ envIo =
   testCaseSchSteps "Construction Flow Tests" $ \step -> do
     cenv <- envIo
-    let constructValidTx' ops cid' xchain res =
-          constructValidTx ops cid' "sender00" xchain getKeys res cenv step
+    let submitToConstructionAPI' ops cid' xchain res =
+          submitToConstructionAPI ops cid' "sender00" xchain getKeys res cenv step
 
     step "--- TRANSFER TO AN EXISTING ACCOUNT ---"
     void $ do
@@ -427,7 +427,7 @@ constructionTransferTests _ envIo =
           ops = [ mkOp fromAcct (negate amt) fromGuard 0
                 , mkOp toAcct amt toGuard 1 ]
           res = P.PLiteral $ P.LString "Write succeeded"
-      constructValidTx' ops srcChainId Nothing res
+      submitToConstructionAPI' ops srcChainId Nothing res
 
     step "--- TRANSFER TO A NEW ACCOUNT ---"
     void $ do
@@ -439,13 +439,13 @@ constructionTransferTests _ envIo =
           ops = [ mkOp fromAcct (negate amt) fromGuard 0
                 , mkOp toAcct amt toGuard 1 ]
           res = P.PLiteral $ P.LString "Write succeeded"
-      constructValidTx' ops cid Nothing res
+      submitToConstructionAPI' ops cid Nothing res
 
     step "--- CREATE A NEW ACCOUNT ---"
     void $ do
       let ops = [ mkOp "anotherNewAccount" 0.0 (ks sender01ks) 0 ]
           res = P.PLiteral $ P.LString "Write succeeded"
-      constructValidTx' ops cid Nothing res
+      submitToConstructionAPI' ops cid Nothing res
 
     step "--- START CROSSCHAIN TRANSFER TO NEW ACCOUNT ---"
     let srcChain = unsafeChainId 0
@@ -466,7 +466,7 @@ constructionTransferTests _ envIo =
               [ ("amount", P.PLiteral $ P.LDecimal amt)
               , ("receiver", P.PLiteral $ P.LString toAcct)
               , ("receiver-guard", P.PGuard $ P.GKeySet toGuard) ]
-    pactId <- constructValidTx' ops srcChain xchain res
+    pactId <- submitToConstructionAPI' ops srcChain xchain res
 
     step "--- FINISH CROSSCHAIN TRANSFER TO A NEW ACCOUNT ---"
     step "get spv proof"
@@ -514,7 +514,7 @@ constructionTransferTests _ envIo =
     getKeys "yetAnotherNewAccount" = Just sender00
     getKeys _ = Nothing
 
-constructValidTx
+submitToConstructionAPI
     :: [Operation]
     -> ChainId
     -> Text
@@ -524,7 +524,7 @@ constructValidTx
     -> ClientEnv
     -> (String -> IO ())
     -> IO RequestKey
-constructValidTx expectOps chainId' payer xchain getKeys expectResult cenv step = do
+submitToConstructionAPI expectOps chainId' payer xchain getKeys expectResult cenv step = do
   step "preprocess intended operations"
   let preMeta = PreprocessReqMetaData xchain (acct payer) Nothing
       preReq = ConstructionPreprocessReq netId expectOps (Just $! toObject preMeta)
@@ -556,7 +556,6 @@ constructValidTx expectOps chainId' payer xchain getKeys expectResult cenv step 
   step "parse signed tx"
   let parseReqSigned = ConstructionParseReq netId True signed
   _ <- constructionParse cenv parseReqSigned
-
 
   step "get hash (request key) of tx"
   let hshReq = ConstructionHashReq netId signed

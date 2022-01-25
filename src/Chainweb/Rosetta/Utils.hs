@@ -585,6 +585,7 @@ getSuggestedFee tx someMaxFees someMult = do
     -------------------
     -- Helper Functions
     -------------------
+    -- Assumption: Currency is in KDA
     parseMaxFees :: Maybe [Amount] -> Either RosettaError (Maybe Decimal)
     parseMaxFees Nothing = pure Nothing
     parseMaxFees (Just []) = pure Nothing
@@ -686,8 +687,9 @@ toPublicMeta cid acct gasLimit gasPrice = do
 
 
 toNonce :: Maybe T.Text -> P.PublicMeta -> T.Text
+toNonce (Just nonce) _ = nonce
 toNonce Nothing pm = sshow $! P._pmCreationTime pm
-toNonce (Just n) _ = n
+
 
 
 toPactPubKeyAddr
@@ -1393,7 +1395,7 @@ parsePubKeys k v = do
     P.GKeySet ks -> pure $ ksToPubKeys ks
     _ -> Left $ stringRosettaError RosettaInvalidAccountProvided $
          "Account=" ++ show k ++
-         ": Only support ownership of type UserGuard and KeySet"
+         ": Rosetta only supports ownership of type UserGuard and KeySet"
 
 
 extractMetaData :: (FromJSON a) => Object -> Either RosettaError a

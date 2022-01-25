@@ -239,23 +239,26 @@ constructionPreprocessH v req = do
     work = do
       cid <- annotate rosettaError' (validateNetwork v net)
       meta <- note (rosettaError' RosettaMissingMetaData) someMeta
-      parsedMeta <- extractMetaData meta
+      parsedMeta :: PreprocessReqMetaData <- extractMetaData meta
 
-      let PreprocessReqMetaData xchainMeta payer _ = parsedMeta
+      let PreprocessReqMetaData xchainMeta gasPayer _ = parsedMeta
 
       tx <- opsToConstructionTx cid xchainMeta ops
       (gasLimit, gasPrice, fee) <- getSuggestedFee tx someMaxFee someMult
 
-      let expectedAccts = map acctNameToAcctId $ neededAccounts tx payer
-          respMeta = toObject $! PreprocessRespMetaData
+      -- The accounts that need to sign the transaction
+      let expectedAccts = map acctNameToAcctId $ neededAccounts tx gasPayer
+
+      pure $! ConstructionPreprocessResp
+        { _constructionPreprocessResp_options = Just $! toObject $! PreprocessRespMetaData
             { _preprocessRespMetaData_reqMetaData = parsedMeta
             , _preprocessRespMetaData_tx = tx
             , _preprocessRespMetaData_suggestedFee = fee
             , _preprocessRespMetaData_gasLimit = gasLimit
             , _preprocessRespMetaData_gasPrice = gasPrice
             }
-
-      pure $ ConstructionPreprocessResp (Just $! respMeta) (Just $! expectedAccts)
+        , _constructionPreprocessResp_requiredPublicKeys = Just $! expectedAccts
+        }
 
 
 constructionMetadataH
@@ -273,7 +276,7 @@ constructionMetadataH v cutDb pacts (ConstructionMetadataReq net opts someKeys) 
       cid <- hoistEither $ annotate rosettaError' (validateNetwork v net)
       availableSigners <- someKeys ?? rosettaError' RosettaMissingPublicKeys
                           >>= hoistEither . toSignerMap
-      meta <- hoistEither $ extractMetaData opts
+      meta :: PreprocessRespMetaData <- hoistEither $ extractMetaData opts
       let PreprocessRespMetaData reqMeta tx fee gLimit gPrice = meta
           PreprocessReqMetaData _ payer someNonce = reqMeta
 
@@ -284,14 +287,15 @@ constructionMetadataH v cutDb pacts (ConstructionMetadataReq net opts someKeys) 
       signersAndAccts <- hoistEither $!
                          createSigners availableSigners expectedAccts
       
-      let payloadMeta = toObject $! PayloadsMetaData
+      pure $! ConstructionMetadataResp
+        { _constructionMetadataResp_metadata = toObject $! PayloadsMetaData
             { _payloadsMetaData_signers = signersAndAccts
             , _payloadsMetaData_nonce = nonce
             , _payloadsMetaData_publicMeta = pubMeta
             , _payloadsMetaData_tx = tx
             }
-      
-      pure $ ConstructionMetadataResp payloadMeta (Just [fee])
+        , _constructionMetadataResp_suggestedFee = Just [fee]
+        }
 
 
 constructionPayloadsH
@@ -306,10 +310,10 @@ constructionPayloadsH v req =
     work :: ExceptT RosettaError Handler ConstructionPayloadsResp
     work = do
       void $ hoistEither $ annotate rosettaError' (validateNetwork v net)
-      meta <- hoistEither $ note
+      meta :: PayloadsMetaData <- hoistEither $ note
               (rosettaError' RosettaMissingMetaData) someMeta >>=
               extractMetaData
-      unsigned <- liftIO $ createUnsignedCmd v meta
+      unsigned :: EnrichedCommand <- liftIO $ createUnsignedCmd v meta
       let encoded = enrichedCommandToText $! unsigned
           signingPayloads = createSigningPayloads unsigned
                             (_payloadsMetaData_signers meta)
