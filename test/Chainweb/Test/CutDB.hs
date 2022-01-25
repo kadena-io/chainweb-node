@@ -5,6 +5,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TupleSections #-}
 {-# LANGUAGE TypeFamilies #-}
 
 -- |
@@ -26,6 +27,7 @@ module Chainweb.Test.CutDB
 , randomTransaction
 , randomBlockHeader
 , fakePact
+, tests
 ) where
 
 import Control.Concurrent.Async
@@ -38,6 +40,7 @@ import Data.Foldable
 import Data.Function
 import qualified Data.HashMap.Strict as HM
 import qualified Data.Vector as V
+-- import qualified Data.Text as T
 
 import GHC.Stack
 
@@ -59,6 +62,7 @@ import Chainweb.Cut
 import Chainweb.Cut.CutHashes
 import Chainweb.Test.Cut
 import Chainweb.CutDB
+import Chainweb.Graph
 import Chainweb.Miner.Pact
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
@@ -66,10 +70,11 @@ import Chainweb.Payload.PayloadStore.RocksDB
 import Chainweb.Sync.WebBlockHeaderStore
 import Chainweb.Test.Orphans.Internal ()
 import Chainweb.Test.Sync.WebBlockHeaderStore
-import Chainweb.Test.Utils (testRocksDb)
+import Chainweb.Test.Utils 
 import Chainweb.Time
 import Chainweb.Utils
 import Chainweb.Version
+import Chainweb.Version.Utils
 import Chainweb.WebBlockHeaderDB
 import Chainweb.WebPactExecutionService
 
@@ -77,6 +82,28 @@ import Data.CAS
 import Data.CAS.RocksDB
 import Data.LogMessage
 import Data.TaskMap
+
+import Test.Tasty.HUnit
+
+tests :: RocksDb -> TestTree
+tests rdb = testGroup "CutDB"
+    [ testCutPruning rdb version
+    ]
+    where
+    version = Test petersonChainGraph
+
+testCutPruning :: RocksDb -> ChainwebVersion -> TestTree
+testCutPruning rdb v = testCase "cut pruning" $ do
+    -- initialize cut DB and mine enough to trigger pruning
+    (cutHashesStore, ()) <- withTestCutDbWithoutPact rdb v (int $ avgCutHeightAt v 10_001) (\_ _ -> return ()) (const $ return ())
+    -- peek inside the cut DB's store to find the oldest and newest cuts
+    let table = _getRocksDbCas cutHashesStore
+    Just (leastCutHeight, _, _) <- tableMinKey table
+    Just (mostCutHeight, _, _) <- tableMaxKey table
+    -- we prune the older cuts
+    assertBool "oldest cuts are too old" (avgBlockHeightAtCutHeight v leastCutHeight >= 5001)
+    -- and keep the last one
+    avgBlockHeightAtCutHeight v mostCutHeight @?= 10_001
 
 -- -------------------------------------------------------------------------- --
 -- Create a random Cut DB with the respective Payload Store
@@ -111,7 +138,7 @@ withTestCutDb
     -> LogFunction
         -- ^ a logg function (use @\_ _ -> return ()@ turn of logging)
     -> (forall cas . PayloadCasLookup cas => CutDb cas -> IO a)
-    -> IO a
+    -> IO (RocksDbCas CutHashes, a)
 withTestCutDb rdb v n pactIO logfun f = do
     rocksDb <- testRocksDb "withTestCutDb" rdb
     let payloadDb = newPayloadDb rocksDb
@@ -123,8 +150,8 @@ withTestCutDb rdb v n pactIO logfun f = do
     withLocalWebBlockHeaderStore mgr webDb $ \headerStore ->
         withLocalPayloadStore mgr payloadDb pact $ \payloadStore ->
             withCutDb (defaultCutDbParams v cutFetchTimeout) logfun headerStore payloadStore cutHashesDb $ \cutDb -> do
-                foldM_ (\c _ -> view _1 <$> mine defaultMiner pact cutDb c) (genesisCut v) [0..n]
-                f cutDb
+                foldM_ (\c _ -> view _1 <$> mine defaultMiner pact cutDb c) (genesisCut v) [1..n]
+                (cutHashesDb,) <$> f cutDb
 
 -- | Adds the requested number of new blocks to the given 'CutDb'.
 --
@@ -239,7 +266,7 @@ withTestCutDbWithoutPact
     -> LogFunction
         -- ^ a logg function (use @\_ _ -> return ()@ turn of logging)
     -> (forall cas . PayloadCasLookup cas => CutDb cas -> IO a)
-    -> IO a
+    -> IO (RocksDbCas CutHashes, a)
 withTestCutDbWithoutPact rdb v n =
     withTestCutDb rdb v n (const $ const $ return fakePact)
 

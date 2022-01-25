@@ -677,6 +677,7 @@ executable cwtool
         , exceptions >= 0.8
         , extra >= 1.6
         , file-embed >= 0.0
+        , hashable >= 1.3 && < 1.3.1
         , http-client >= 0.5
         , http-client-tls >=0.3
         , http-types >= 0.12
@@ -695,6 +696,7 @@ executable cwtool
         , safe-exceptions >= 0.1
         , servant-client >= 0.18.2
         , servant-client-core >= 0.18.2
+        , stm >= 2.4
         , streaming >= 0.2.2
         , streaming-commons >= 0.2
         , string-conv >= 0.1

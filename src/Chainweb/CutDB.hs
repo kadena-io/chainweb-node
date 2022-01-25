@@ -45,6 +45,7 @@ module Chainweb.CutDB
 
 -- * CutDb
 , CutDb
+, pruneCuts
 , cutDbWebBlockHeaderDb
 , cutDbBlockHeaderDb
 , cutDbPayloadCas
@@ -347,16 +348,15 @@ pruneCuts
 pruneCuts logfun v curCut cutHashesStore = do
     let latestCutHeight = _cutHeight curCut
     let avgBlockHeight = round $ avgBlockHeightAtCutHeight v latestCutHeight
-    let pruneCutHeight = avgCutHeightAt v $ avgBlockHeight - avgBlockHeightPruningDepth
+    let pruneCutHeight = CutHeight $ int $ max 0 $ (int (avgCutHeightAt v avgBlockHeight) - int avgBlockHeightPruningDepth :: Integer)
     minCutId <- cutIdFromText (T.pack $ replicate 43 '0')
     logfun @T.Text Info $ "pruning CutDB before cut height " <> T.pack (show pruneCutHeight)
-    unless (latestCutHeight <= pruneCutHeight) $ do
-        deleteRangeRocksDb (_getRocksDbCas cutHashesStore)
+    deleteRangeRocksDb (_getRocksDbCas cutHashesStore)
+        (Nothing, Just (pruneCutHeight, 0, minCutId))
+    -- compactRangeRocksDb waits for compaction to complete which takes a while
+    void $ async $
+        compactRangeRocksDb (_getRocksDbCas cutHashesStore)
             (Nothing, Just (pruneCutHeight, 0, minCutId))
-        -- waiting for this compaction to complete seems to break startup
-        void $ async $
-            compactRangeRocksDb (_getRocksDbCas cutHashesStore)
-                (Nothing, Just (pruneCutHeight, 0, minCutId))
 
 cutDbQueueSize :: CutDb cas -> IO Natural
 cutDbQueueSize = pQueueSize . _cutDbQueue
@@ -533,7 +533,8 @@ processCuts conf logFun headerStore payloadStore cutHashesStore queue cutVar = d
             let curCutAvgBlockHeight = BlockHeight $ round $ avgBlockHeightAtCutHeight (_chainwebVersion headerStore) (_cutHeight curCut)
             lastPrunedAvgBlockHeight <- readTVarIO lastPrunedAvgBlockHeightVar
             let sinceLastPrune = curCutAvgBlockHeight - lastPrunedAvgBlockHeight
-            when (sinceLastPrune > avgBlockHeightPruningThreshold) $ 
+            when (sinceLastPrune > avgBlockHeightPruningThreshold) $ do
+                atomically $ writeTVar lastPrunedAvgBlockHeightVar curCutAvgBlockHeight
                 pruneCuts logFun (_chainwebVersion headerStore) curCut cutHashesStore
             nextWriteAvgBlockHeight <- readTVarIO nextWriteAvgBlockHeightVar
             when (curCutAvgBlockHeight > nextWriteAvgBlockHeight) $ do
