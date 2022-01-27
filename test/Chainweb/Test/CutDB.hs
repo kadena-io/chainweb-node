@@ -85,32 +85,6 @@ import Data.TaskMap
 
 import Test.Tasty.HUnit
 
-tests :: RocksDb -> TestTree
-tests rdb = testGroup "CutDB"
-    [ testCutPruning rdb version
-    ]
-    where
-    version = Test petersonChainGraph
-
-testCutPruning :: RocksDb -> ChainwebVersion -> TestTree
-testCutPruning rdb v = testCase "cut pruning" $ do
-    -- initialize cut DB and mine enough to trigger pruning
-    let alterPruningSettings = 
-            set cutDbParamsAvgBlockHeightPruningDepth 50 .
-            set cutDbParamsAvgBlockHeightPruningThreshold 100 .
-            set cutDbParamsAvgBlockHeightWritingGap 10
-        minedBlockHeight = 201
-    (cutHashesStore, ()) <- withTestCutDbWithoutPact rdb v alterPruningSettings (int $ avgCutHeightAt v minedBlockHeight) (\_ _ -> return ()) (const $ return ())
-    -- peek inside the cut DB's store to find the oldest and newest cuts
-    let table = _getRocksDbCas cutHashesStore
-    Just (leastCutHeight, _, _) <- tableMinKey table
-    Just (mostCutHeight, _, _) <- tableMaxKey table
-    -- we must have pruned the older cuts, though we can't be too precise 
-    -- because of the rounding error introduced by `avgBlockHeight`
-    assertBool "oldest cuts are too old" (avgBlockHeightAtCutHeight v leastCutHeight >= 98)
-    -- we must keep the latest cut
-    avgBlockHeightAtCutHeight v mostCutHeight @?= 201
-
 -- -------------------------------------------------------------------------- --
 -- Create a random Cut DB with the respective Payload Store
 
@@ -523,3 +497,31 @@ fakePact = WebPactExecutionService $ PactExecutionService
     getFakeOutput (Transaction txBytes) = TransactionOutput txBytes
     coinbase = noCoinbaseOutput
     fakeMiner = MinerData "fakeMiner"
+
+tests :: RocksDb -> TestTree
+tests rdb = testGroup "CutDB"
+    [ testCutPruning rdb version
+    ]
+    where
+    version = Test petersonChainGraph
+
+testCutPruning :: RocksDb -> ChainwebVersion -> TestTree
+testCutPruning rdb v = testCase "cut pruning" $ do
+    let pruningThreshold = 100
+    -- initialize cut DB and mine enough to trigger pruning
+    let alterPruningSettings = 
+            set cutDbParamsAvgBlockHeightPruningDepth 50 .
+            set cutDbParamsAvgBlockHeightPruningThreshold pruningThreshold .
+            set cutDbParamsAvgBlockHeightWritingGap 10
+        minedBlockHeight = 201
+    (cutHashesStore, ()) <- withTestCutDbWithoutPact rdb v alterPruningSettings (int $ avgCutHeightAt v minedBlockHeight) (\_ _ -> return ()) (const $ return ())
+    -- peek inside the cut DB's store to find the oldest and newest cuts
+    let table = _getRocksDbCas cutHashesStore
+    Just (leastCutHeight, _, _) <- tableMinKey table
+    Just (mostCutHeight, _, _) <- tableMaxKey table
+    -- we must have pruned the older cuts
+    assertBool "oldest cuts are too old" 
+        (round (avgBlockHeightAtCutHeight v leastCutHeight) >= minedBlockHeight - pruningThreshold - int (degreeAt v minedBlockHeight) - 1)
+    -- we must keep the latest cut
+    avgBlockHeightAtCutHeight v mostCutHeight @?= 201
+
