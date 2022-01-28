@@ -689,9 +689,8 @@ neededAccounts
     -> [AccountName]
 neededAccounts txInfo payerAcct = S.toList $
   case txInfo of
-    ConstructTransfer from _ to _ _ ->
-      S.insert (AccountName to) $
-        S.insert (AccountName from) m
+    ConstructTransfer from _ _ _ _ ->
+      S.insert (AccountName from) m
     ConstructAcctCreate name _ ->
       S.insert (AccountName name) m
     ConstructStartCrossChain from _ to _ _ _ ->
@@ -745,11 +744,9 @@ toSignerAcctsMap txInfo payerAcct v cid pacts cutDb = do
       checkExpectedOwnership from expectedFrom someActualFrom
       checkExpectedOwnership to expectedTo someActualTo
 
-      let capsTo = []
-          capsFrom = [ mkTransferCap from to amt ]
+      let capsFrom = [ mkTransferCap from to amt ]
 
-      pure $ insertWith' to (capsTo, expectedTo) $
-        insertWith' from (capsFrom, expectedFrom) mapWithGas
+      pure $ insertWith' from (capsFrom, expectedFrom) mapWithGas
       
     ConstructAcctCreate name guard -> do
       let expected = ksToPubKeys guard

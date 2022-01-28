@@ -847,7 +847,11 @@ constructionTxToPactRPC txInfo =
           rdata = object
             [ guardName .= toGuard
             , amountName .= amt ]
-      in P.Exec $ P.ExecMsg (guardCheckCode <> code) rdata
+      -- NOTE: deleting guardCheck from transfer because it would force the tx to be signed by
+      -- both the sender and the receiver.
+      -- With k:accounts, we don't need the added protection that funds are going to the correct
+      -- guard.
+      in P.Exec $ P.ExecMsg code rdata
 
     ConstructStartCrossChain
       from _ to toGuard amt (P.ChainId targetChain) ->
