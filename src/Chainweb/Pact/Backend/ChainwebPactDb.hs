@@ -829,7 +829,7 @@ deleteHistory bh = do
 
 initSchema :: BlockHandler SQLiteEnv ()
 initSchema = do
-    withSavepoint DbTransaction $ do
+    withSavepoint InitSchema $ do
         createBlockHistoryTable
         createTableCreationTable
         createTableMutationTable

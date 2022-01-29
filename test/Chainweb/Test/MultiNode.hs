@@ -32,7 +32,7 @@
 -- The configuration defines a scaled down, accelerated chain that tries to
 -- similulate a full-scale chain in a miniaturized settings.
 --
-module Chainweb.Test.MultiNode ( test ) where
+module Chainweb.Test.MultiNode ( test, replayTest ) where
 
 #ifndef DEBUG_MULTINODE_TEST
 #define DEBUG_MULTINODE_TEST 0
@@ -52,6 +52,7 @@ import qualified Data.HashSet as HS
 import qualified Data.List as L
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
+import qualified Data.Text.IO as T
 #if DEBUG_MULTINODE_TEST
 import qualified Data.Text.IO as T
 #endif
@@ -235,12 +236,12 @@ runNodes
     :: LogLevel
     -> (T.Text -> IO ())
     -> MVar ConsensusState
-    -> ChainwebVersion
+    -> ChainwebConfiguration
     -> Natural
         -- ^ number of nodes
     -> RocksDb
     -> IO ()
-runNodes loglevel write stateVar v n rdb = do
+runNodes loglevel write stateVar baseConf n rdb = do
     -- NOTE: pact is enabled until we have a good way to disable it globally in
     -- "Chainweb.Chainweb".
     --
@@ -256,7 +257,6 @@ runNodes loglevel write stateVar v n rdb = do
     forConcurrently_ [0 .. int n - 1] $ \i -> do
         threadDelay (500_000 * int i)
 
-        let baseConf = multiConfig v n
         conf <- if
             | i == 0 ->
                 return $ multiBootstrapConfig baseConf
@@ -268,6 +268,7 @@ runNodes loglevel write stateVar v n rdb = do
 runNodesForSeconds
     :: LogLevel
         -- ^ Loglevel
+    -> ChainwebConfiguration
     -> ChainwebVersion
     -> Natural
         -- ^ Number of chainweb consensus nodes
@@ -277,13 +278,40 @@ runNodesForSeconds
         -- ^ logging backend callback
     -> RocksDb
     -> IO (Maybe Stats)
-runNodesForSeconds loglevel v n (Seconds seconds) write rdb = do
+runNodesForSeconds loglevel baseConf v n (Seconds seconds) write rdb = do
     stateVar <- newMVar $ emptyConsensusState v
     void $ timeout (int seconds * 1_000_000)
-        $ runNodes loglevel write stateVar v n rdb 
+        $ runNodes loglevel write stateVar baseConf n rdb 
 
     consensusState <- readMVar stateVar
     return (consensusStateSummary consensusState)
+
+replayTest
+    :: LogLevel
+    -> ChainwebVersion
+    -> Natural
+    -> Seconds
+    -> TestTree
+replayTest loglevel v n seconds = testCaseSteps name $ \step -> do
+    let tastylog = step . T.unpack
+    -- var <- newMVar (0 :: Int)
+    -- let logFun = tastylog
+        -- maxLogMsgs = 60
+        -- countedLog msg = modifyMVar_ var $ \c -> force (succ c) <$
+            -- when (c < maxLogMsgs) (logFun msg)
+    withTempRocksDb "replay-test" $ \rdb -> do
+        putStrLn "what"
+        tastylog "starting up..."
+        stats1 <- runNodesForSeconds loglevel (multiConfig v n) v n seconds (\_ -> return ()) rdb 
+        putStrLn "what2"
+        tastylog "shut down. restarting..."
+        stats2 <- runNodesForSeconds loglevel (multiConfig v n & set (configCuts . cutResetTarget) (Just (CutResetToBlockHeight 200))) v n (seconds * 10000) (T.putStrLn) rdb
+        putStrLn "what3"
+        tastylog "done."
+        print stats1
+        print stats2
+    where
+    name = "ConsensusNetwork (nodes: " <> show n <> ", seconds: " <> show seconds <> ") [replay]"
 
 -- -------------------------------------------------------------------------- --
 -- Test
@@ -310,7 +338,7 @@ test loglevel v n seconds = testCaseSteps name $ \f -> do
     let countedLog msg = modifyMVar_ var $ \c -> force (succ c) <$
             when (c < maxLogMsgs) (logFun msg)
     withTempRocksDb "multinode-tests" $ \rdb -> 
-        runNodesForSeconds loglevel v n seconds countedLog rdb >>= \case
+        runNodesForSeconds loglevel (multiConfig v n) v n seconds countedLog rdb >>= \case
             Nothing -> assertFailure "chainweb didn't make any progress"
             Just stats -> do
                 logsCount <- readMVar var
@@ -382,7 +410,7 @@ sampleConsensusState nid bhdb cutdb s = do
         }
 
 data Stats = Stats
-    { _statBlockCount :: !Natural
+        { _statBlockCount :: !Natural
     , _statMaxHeight :: !CutHeight
     , _statMinHeight :: !CutHeight
     , _statMedHeight :: !CutHeight
@@ -445,3 +473,4 @@ upperStats v seconds = Stats
   where
     ebc = expectedBlockCount v seconds
     ech = expectedCutHeightAfterSeconds v seconds
+

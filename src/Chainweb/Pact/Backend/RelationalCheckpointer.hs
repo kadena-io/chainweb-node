@@ -124,7 +124,7 @@ doRestore v cid dbenv (Just (bh, hash)) = runBlockEnv dbenv $ do
     setSortedKeys = bsSortedKeys .= pact420Upgrade v bh
 doRestore _ _ dbenv Nothing = runBlockEnv dbenv $ do
     clearPendingTxState
-    withSavepoint DbTransaction $
+    withSavepoint ResetCheckpointer $
       callDb "doRestoreInitial: resetting tables" $ \db -> do
         exec_ db "DELETE FROM BlockHistory;"
         exec_ db "DELETE FROM [SYS:KeySets];"

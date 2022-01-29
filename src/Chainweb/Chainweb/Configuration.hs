@@ -51,6 +51,7 @@ module Chainweb.Chainweb.Configuration
 -- * Chainweb Configuration
 , ChainwebConfiguration(..)
 , configChainwebVersion
+, configCuts
 , configMining
 , configHeaderStream
 , configReintroTxs
