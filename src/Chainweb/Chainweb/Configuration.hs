@@ -36,8 +36,7 @@ module Chainweb.Chainweb.Configuration
 , cutIncludeOrigin
 , cutPruneChainDatabase
 , cutFetchTimeout
-, cutInitialCutHeightLimit
-, cutResetTarget
+, cutInitialBlockHeightLimit
 , defaultCutConfig
 , pCutConfig
 
@@ -89,7 +88,6 @@ import Prelude hiding (log)
 -- internal modules
 
 import Chainweb.BlockHeight
-import Chainweb.Cut
 import Chainweb.HostAddress
 import qualified Chainweb.Mempool.Mempool as Mempool
 import Chainweb.Mempool.P2pConfig
@@ -193,8 +191,7 @@ data CutConfig = CutConfig
     { _cutIncludeOrigin :: !Bool
     , _cutPruneChainDatabase :: !ChainDatabaseGcConfig
     , _cutFetchTimeout :: !Int
-    , _cutInitialCutHeightLimit :: !(Maybe CutHeight)
-    , _cutResetTarget :: !(Maybe CutResetTarget)
+    , _cutInitialBlockHeightLimit :: !(Maybe BlockHeight)
     } deriving (Eq, Show)
 
 makeLenses ''CutConfig
@@ -204,8 +201,7 @@ instance ToJSON CutConfig where
         [ "pruneChainDatabase" .= _cutPruneChainDatabase o
         , "fetchTimeout" .= _cutFetchTimeout o
         , "includeOrigin" .= _cutIncludeOrigin o
-        , "initialCutHeightLimit" .= _cutInitialCutHeightLimit o
-        , "resetTarget" .= _cutResetTarget o 
+        , "initialBlockHeightLimit" .= _cutInitialBlockHeightLimit o
         ]
 
 instance FromJSON (CutConfig -> CutConfig) where
@@ -213,16 +209,14 @@ instance FromJSON (CutConfig -> CutConfig) where
         <$< cutIncludeOrigin ..: "includeOrigin" % o
         <*< cutPruneChainDatabase ..: "pruneChainDatabase" % o
         <*< cutFetchTimeout ..: "fetchTimeout" % o
-        <*< cutInitialCutHeightLimit ..: "initialCutHeightLimit" % o
-        <*< cutResetTarget ..: "resetTarget" % o
+        <*< cutInitialBlockHeightLimit ..: "initialBlockHeightLimit" % o
 
 defaultCutConfig :: CutConfig
 defaultCutConfig = CutConfig
     { _cutIncludeOrigin = True
     , _cutPruneChainDatabase = GcNone
     , _cutFetchTimeout = 3_000_000
-    , _cutInitialCutHeightLimit = Nothing
-    , _cutResetTarget = Nothing
+    , _cutInitialBlockHeightLimit = Nothing
     }
 
 pCutConfig :: MParser CutConfig
@@ -244,7 +238,7 @@ pCutConfig = id
     <*< cutFetchTimeout .:: option auto
         % long "cut-fetch-timeout"
         <> help "The timeout for processing new cuts in microseconds"
-    -- cutInitialCutHeightLimit isn't supported on the command line
+    -- cutInitialBlockHeightLimit isn't supported on the command line
     -- cutResetToCut isn't supported on the command line
 
 -- -------------------------------------------------------------------------- --

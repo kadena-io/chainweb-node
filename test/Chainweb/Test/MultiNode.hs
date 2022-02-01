@@ -52,7 +52,7 @@ import qualified Data.HashSet as HS
 import qualified Data.List as L
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
-import qualified Data.Text.IO as T
+-- import qualified Data.Text.IO as T
 #if DEBUG_MULTINODE_TEST
 import qualified Data.Text.IO as T
 #endif
@@ -305,11 +305,11 @@ replayTest loglevel v n seconds = testCaseSteps name $ \step -> do
         stats1 <- runNodesForSeconds loglevel (multiConfig v n) v n seconds (\_ -> return ()) rdb 
         putStrLn "what2"
         tastylog "shut down. restarting..."
-        stats2 <- runNodesForSeconds loglevel (multiConfig v n & set (configCuts . cutResetTarget) (Just (CutResetToBlockHeight 200))) v n (seconds * 10000) (T.putStrLn) rdb
+        -- stats2 <- runNodesForSeconds loglevel (multiConfig v n & set (configCuts . cutResetTarget) (Just (CutResetToBlockHeight 200))) v n (seconds * 10000) (T.putStrLn) rdb
         putStrLn "what3"
         tastylog "done."
         print stats1
-        print stats2
+        -- print stats2
     where
     name = "ConsensusNetwork (nodes: " <> show n <> ", seconds: " <> show seconds <> ") [replay]"
 

@@ -14,7 +14,6 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TemplateHaskell #-}
-{-# LANGUAGE TupleSections #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE UndecidableInstances #-}
@@ -27,18 +26,17 @@
 -- Stability: experimental
 --
 module Chainweb.CutDB
-( 
+(
 -- * CutConfig
-  CutResetTarget
-, CutDbParams(..)
-, cutDbParamsResetTarget
+  CutDbParams(..)
+, cutDbParamsInitialCut
+, cutDbParamsInitialCutFile
 , cutDbParamsBufferSize
 , cutDbParamsLogLevel
 , cutDbParamsTelemetryLevel
 , cutDbParamsUseOrigin
 , cutDbParamsInitialHeightLimit
 , cutDbParamsFetchTimeout
-, cutDbParamsInitialCut
 , defaultCutDbParams
 , farAheadThreshold
 
@@ -112,7 +110,6 @@ import Data.These
 import qualified Data.Vector as V
 
 import GHC.Generics hiding (to)
-import GHC.Stack
 
 import Numeric.Natural
 
@@ -157,13 +154,13 @@ import Utils.Logging.Trace
 
 data CutDbParams = CutDbParams
     { _cutDbParamsInitialCut :: !Cut
-    , _cutDbParamsResetTarget :: !(Maybe CutResetTarget)
+    , _cutDbParamsInitialCutFile :: !(Maybe FilePath)
     , _cutDbParamsBufferSize :: !Natural
     , _cutDbParamsLogLevel :: !LogLevel
     , _cutDbParamsTelemetryLevel :: !LogLevel
     , _cutDbParamsUseOrigin :: !Bool
     , _cutDbParamsFetchTimeout :: !Int
-    , _cutDbParamsInitialHeightLimit :: !(Maybe CutHeight)
+    , _cutDbParamsInitialHeightLimit :: !(Maybe BlockHeight)
     }
     deriving (Show, Eq, Ord, Generic)
 
@@ -172,7 +169,7 @@ makeLenses ''CutDbParams
 defaultCutDbParams :: ChainwebVersion -> Int -> CutDbParams
 defaultCutDbParams v ft = CutDbParams
     { _cutDbParamsInitialCut = genesisCut v
-    , _cutDbParamsResetTarget = Nothing
+    , _cutDbParamsInitialCutFile = Nothing
     , _cutDbParamsBufferSize = (order g ^ (2 :: Int)) * diameter g
     , _cutDbParamsLogLevel = Warn
     , _cutDbParamsTelemetryLevel = Warn
@@ -355,7 +352,6 @@ withCutDb config logfun headerStore payloadStore cutHashesStore a
 --
 startCutDb
     :: PayloadCas cas
-    => HasCallStack
     => CutDbParams
     -> LogFunction
     -> WebBlockHeaderStore
@@ -363,11 +359,10 @@ startCutDb
     -> RocksDbCas CutHashes
     -> IO (CutDb cas)
 startCutDb config logfun headerStore payloadStore cutHashesStore = mask_ $ do
-    logg Debug "obtain starting cut"
-    latestCut <- readLatestCut
-    startingCut <- chooseInitialCut latestCut 
-    cutVar <- newTVarIO startingCut
-    logg Info $ "got starting cut: " <> sshow startingCut
+    logg Debug "obtain initial cut"
+    cutVar <- newTVarIO =<< initialCut
+    c <- readTVarIO cutVar
+    logg Info $ "got initial cut: " <> sshow c
     queue <- newEmptyPQueue
     cutAsync <- asyncWithUnmask $ \u -> u $ processor queue cutVar
     logg Info "CutDB started"
@@ -399,7 +394,7 @@ startCutDb config logfun headerStore payloadStore cutHashesStore = mask_ $ do
     -- 3. exitence of dependencies
     -- 4. full validation
     --
-    readLatestCut = withTableIter (_getRocksDbCas cutHashesStore) $ \it -> do
+    initialCut = withTableIter (_getRocksDbCas cutHashesStore) $ \it -> do
         tableIterLast it
         go it
       where
@@ -422,38 +417,7 @@ startCutDb config logfun headerStore payloadStore cutHashesStore = mask_ $ do
                 Right hm -> unsafeMkCut v
                     <$> case _cutDbParamsInitialHeightLimit config of
                         Nothing -> return hm
-                        Just h -> limitCutHeaders wbhdb h hm
-                            -- FIXME: this requires that the pact db is deleted because it
-                            -- interfers with rewind limit. As a fix temporarily disable
-                            -- rewind limit during initialization.
-    chooseInitialCut latestCut = case _cutDbParamsResetTarget config of
-        Just (CutResetToBlockHeight h) -> do
-            -- grab block headers at height `h` which are ancestors of the latestCut;
-            -- if latestCut is a valid cut, this ensures that the result is also 
-            -- a valid cut.
-            blockHeaders <- forM (HS.toList $ chainIdsAt v h) $ \cid -> do
-                db <- getWebBlockHeaderDb wbhdb cid
-                let header = latestCut ^?! ixg cid 
-                let err = error $ unwords 
-                        [ "no ancestor block at rank"
-                        , show h
-                        , "from block header"
-                        , show header
-                        , "on chain"
-                        , show cid ]
-                !ancestor <- maybe err pure =<< seekAncestor db header (int h)
-                return (cid, ancestor)
-            let !pastCut = unsafeMkCut v $! HM.fromList blockHeaders
-            -- delete all cuts in the future.
-            deleteRangeRocksDb (_getRocksDbCas cutHashesStore) 
-                ( Just $ over _1 succ $ casKey (cutToCutHashes Nothing pastCut)
-                , Nothing
-                )
-            return pastCut
-        Just (CutResetToCutFile cutFilePath) -> 
-            evaluate . unsafeMkCut v =<< decodeFileStrictOrThrow' cutFilePath
-        Nothing ->
-            return latestCut
+                        Just h -> limitCutHeaders wbhdb (avgCutHeightAt v h) hm
 
 -- | Stop the cut validation pipeline.
 --

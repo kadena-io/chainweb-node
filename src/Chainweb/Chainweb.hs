@@ -91,7 +91,7 @@ module Chainweb.Chainweb
 , cutIncludeOrigin
 , cutPruneChainDatabase
 , cutFetchTimeout
-, cutInitialCutHeightLimit
+, cutInitialBlockHeightLimit
 , defaultCutConfig
 ) where
 
@@ -376,7 +376,9 @@ withChainwebInternal conf logger peer serviceSock rocksDb pactDbDir resetDb inne
       , _pactQueueSize = _configPactQueueSize conf
       , _pactResetDb = resetDb
       , _pactAllowReadsInLocal = _configAllowReadsInLocal conf
-      , _pactUnlimitedInitialRewind = maybe False (const True) (_cutDbParamsResetTarget cutConfig)
+      , _pactUnlimitedInitialRewind = 
+          isJust (_cutDbParamsInitialHeightLimit cutConfig) || 
+          isJust (_cutDbParamsInitialCutFile cutConfig)
       }
 
     pruningLogger :: T.Text -> logger
@@ -488,8 +490,7 @@ withChainwebInternal conf logger peer serviceSock rocksDb pactDbDir resetDb inne
         { _cutDbParamsLogLevel = Info
         , _cutDbParamsTelemetryLevel = Info
         , _cutDbParamsUseOrigin = _cutIncludeOrigin cutConf
-        , _cutDbParamsInitialHeightLimit = _cutInitialCutHeightLimit cutConf
-        , _cutDbParamsResetTarget = _cutResetTarget cutConf
+        , _cutDbParamsInitialHeightLimit = _cutInitialBlockHeightLimit cutConf
         }
       where
         cutConf = _configCuts conf
