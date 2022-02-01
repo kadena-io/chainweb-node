@@ -77,29 +77,29 @@ class ToObject a where
 
 
 data OperationMetaData = OperationMetaData
-  { _operationMetaData_txId :: !P.TxId
-  , _operationMetaData_totalBalance :: !Amount
-  , _operationMetaData_prevOwnership :: !Value
+  { --_operationMetaData_txId :: !P.TxId
+  --, _operationMetaData_totalBalance :: !Amount
+   _operationMetaData_prevOwnership :: !Value
   , _operationMetaData_currOwnership :: !Value --TODO: hack for rotation bug
   } deriving Show
 -- TODO: document
 instance ToObject OperationMetaData where
-  toPairs (OperationMetaData txId bal prevOwnership currOwnership) =
-    [ "tx-id" .= txId
-    , "total-balance" .= bal
-    , "prev-ownership" .= prevOwnership
+  toPairs (OperationMetaData prevOwnership currOwnership) =
+    [ --"tx-id" .= txId
+    --, "total-balance" .= bal
+     "prev-ownership" .= prevOwnership
     , "curr-ownership" .= currOwnership ]
   toObject opMeta = HM.fromList (toPairs opMeta)
 instance FromJSON OperationMetaData where
   parseJSON = withObject "OperationMetaData" $ \o -> do
-    txId <- o .: "tx-id"
-    bal <- o .: "total-balance"
+    --txId <- o .: "tx-id"
+    --bal <- o .: "total-balance"
     prevOwnership <- o .: "prev-ownership"
     currOwnership <- o .: "curr-ownership"
     pure OperationMetaData
-      { _operationMetaData_txId = txId
-      , _operationMetaData_totalBalance = bal
-      , _operationMetaData_prevOwnership = prevOwnership
+      { --_operationMetaData_txId = txId
+      --, _operationMetaData_totalBalance = bal
+      _operationMetaData_prevOwnership = prevOwnership
       , _operationMetaData_currOwnership = currOwnership
       }
 
@@ -1165,7 +1165,7 @@ operation
     -> Word64
     -> [OperationId]
     -> Operation
-operation ostatus otype txId acctLog idx related =
+operation ostatus otype _txId acctLog idx related =
   Operation
     { _operation_operationId = OperationId idx Nothing
     , _operation_relatedOperations = someRelatedOps
@@ -1182,10 +1182,10 @@ operation ostatus otype txId acctLog idx related =
       [] -> Nothing
       li -> Just li
     opMeta = Just $ toObject $ OperationMetaData
-      { _operationMetaData_txId = txId
-      , _operationMetaData_totalBalance =
-          kdaToRosettaAmount $ _accountLogBalanceTotal acctLog
-      , _operationMetaData_prevOwnership = _accountLogPrevGuard acctLog
+      { --_operationMetaData_txId = txId
+      --, _operationMetaData_totalBalance =
+      --    kdaToRosettaAmount $ _accountLogBalanceTotal acctLog
+       _operationMetaData_prevOwnership = _accountLogPrevGuard acctLog
       , _operationMetaData_currOwnership = _accountLogCurrGuard acctLog
       }
     accountId = AccountId
@@ -1205,7 +1205,7 @@ parseOp (Operation i _ typ stat someAcct someAmt _ someMeta) = do
   stat @?= "Successful"
   acct <- someAcct @?? "Missing AccountId"
   amtDelta <- someAmt @?? "Missing Amount" >>= parseAmount
-  (OperationMetaData _ _ prevOwn currOwn) <- someMeta @?? "Missing metadata"
+  (OperationMetaData prevOwn currOwn) <- someMeta @?? "Missing metadata"
                                              >>= extractMetaData
   prevOwn @?= currOwn   -- ensure that the ownership wasn't rotated
   ownership <- hushResult (fromJSON currOwn) @??
