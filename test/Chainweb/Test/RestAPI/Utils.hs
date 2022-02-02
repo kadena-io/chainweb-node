@@ -28,6 +28,7 @@ module Chainweb.Test.RestAPI.Utils
 , accountBalance
 , blockTransaction
 , block
+, constructionDerive
 , constructionPreprocess
 , constructionMetadata
 , constructionPayloads
@@ -340,6 +341,23 @@ block cenv req =
       BlockFailure _ -> return True
       _ -> return False
 
+constructionDerive
+    :: ClientEnv
+    -> ConstructionDeriveReq
+    -> IO ConstructionDeriveResp
+constructionDerive cenv req =
+  recovering testRetryPolicy [h] $ \s -> do
+    debug
+      $ "requesting derive preprocess for " <> (show req)
+      <> " [" <> show (view rsIterNumberL s) <> "]"
+
+    runClientM (rosettaConstructionDeriveApiClient v req) cenv >>= \case
+      Left e -> throwM $ ConstructionPreprocessFailure (show e)
+      Right t -> return t
+  where
+    h _ = Handler $ \case
+      ConstructionPreprocessFailure _ -> return True
+      _ -> return False
 
 constructionPreprocess
     :: ClientEnv

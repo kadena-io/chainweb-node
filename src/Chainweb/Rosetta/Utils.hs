@@ -58,7 +58,7 @@ import Chainweb.BlockHeader (BlockHeader(..))
 import Chainweb.BlockHeight (BlockHeight(..))
 import Chainweb.Pact.Utils (toTxCreationTime)
 import Chainweb.Time
-import Chainweb.Utils ( sshow, int )
+import Chainweb.Utils ( sshow, int, T2(..) )
 import Chainweb.Version
 
 ---
@@ -425,6 +425,17 @@ instance FromJSON ConstructionTx where
           , _constructFinishCrossChain_proof = proof
           }
 
+newtype DeriveRespMetaData = DeriveRespMetaData
+  { _deriveRespMetaData_ownership :: P.KeySet }
+instance ToObject DeriveRespMetaData where
+  toPairs (DeriveRespMetaData ownership) =
+    [ "ownership" .= ownership ]
+  toObject m = HM.fromList (toPairs m)
+instance FromJSON DeriveRespMetaData where
+  parseJSON = withObject "DeriveRespMetaData" $ \o -> do
+    ownership <- o .: "ownership"
+    return DeriveRespMetaData
+      { _deriveRespMetaData_ownership = ownership }
 
 data PreprocessRespMetaData = PreprocessRespMetaData
   { _preprocessRespMetaData_reqMetaData :: PreprocessReqMetaData
@@ -691,15 +702,18 @@ toNonce (Just nonce) _ = nonce
 toNonce Nothing pm = sshow $! P._pmCreationTime pm
 
 
-rosettaPubKeyTokAccount :: RosettaPublicKey -> Either RosettaError T.Text
+rosettaPubKeyTokAccount :: RosettaPublicKey -> Either RosettaError (T2 T.Text P.KeySet)
 rosettaPubKeyTokAccount (RosettaPublicKey pubKey curve) = do
+  -- Enforces that the public key is valid for the scheme provided
   scheme <- getScheme curve
+  _ <- toPactPubKeyAddr pubKey scheme
+
   -- TODO: How does k: accounts handle non-ED25519 public keys.
   -- Assumption: Pact public key address formatting returns the full
   -- public key.
-  addr <- toPactPubKeyAddr pubKey scheme
-  let kAccount = printf "k:%s" (T.unpack addr)
-  pure $! T.pack $! kAccount
+  let kAccount = printf "k:%s" pubKey
+      ownership = P.mkKeySet [P.PublicKey $ T.encodeUtf8 pubKey] "keys-all"
+  pure $! T2 (T.pack $! kAccount) ownership
 
 toPactPubKeyAddr
     :: T.Text
@@ -1309,7 +1323,6 @@ data RosettaFailure
     | RosettaTxIdNotFound
     | RosettaUnparsableTransactionId
     | RosettaInvalidAccountKey
-    | RosettaConstructionDeriveNotSupported
     | RosettaUnparsableMetaData
     | RosettaMissingMetaData
     | RosettaMissingPublicKeys
@@ -1350,7 +1363,6 @@ rosettaError RosettaUnparsableTxOut = RosettaError 19 "Transaction output not pa
 rosettaError RosettaTxIdNotFound = RosettaError 20 "Transaction Id not found in block" False
 rosettaError RosettaUnparsableTransactionId = RosettaError 21 "Transaction Id not parsable" False
 rosettaError RosettaInvalidAccountKey = RosettaError 22 "Invalid AccountId address" False
-rosettaError RosettaConstructionDeriveNotSupported = RosettaError 23 "/construction/derive not supported" False
 rosettaError RosettaUnparsableMetaData = RosettaError 24 "Unparsable metadata field" False
 rosettaError RosettaMissingMetaData = RosettaError 25 "Required metadata field is missing" False
 rosettaError RosettaMissingPublicKeys = RosettaError 26 "Required public_keys field is missing" False

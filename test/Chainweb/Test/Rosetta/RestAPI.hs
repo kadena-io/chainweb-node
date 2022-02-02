@@ -441,6 +441,27 @@ constructionTransferTests _ envIo =
           res = P.PLiteral $ P.LString "Write succeeded"
       submitToConstructionAPI' ops cid Nothing res
 
+    step "--- TRANSFER TO A k: ACCOUNT ---"
+    void $ do
+      let netId = nid
+            { _networkId_subNetworkId = Just (SubNetworkId (chainIdToText cid) Nothing) }
+      step "derive k:account name and ownership"
+      let rosettaPubKeySender01 = RosettaPublicKey (fst sender01) CurveEdwards25519
+          deriveReq = ConstructionDeriveReq netId rosettaPubKeySender01 Nothing
+      (ConstructionDeriveResp _ (Just derivedAcct) (Just derivedMeta)) <-
+        constructionDerive cenv deriveReq
+
+      Right (DeriveRespMetaData toGuardSender01) <- pure $ extractMetaData derivedMeta
+      let toAcct = _accountId_address $! derivedAcct
+          amt = 2.0
+          fromAcct = "sender01"
+          fromGuard = ks sender01ks
+          ops = [ mkOp fromAcct (negate amt) fromGuard 0
+                , mkOp toAcct amt toGuardSender01 1 ]
+          res = P.PLiteral $ P.LString "Write succeeded"
+
+      submitToConstructionAPI' ops cid Nothing res
+
     step "--- CREATE A NEW ACCOUNT ---"
     void $ do
       let ops = [ mkOp "anotherNewAccount" 0.0 (ks sender01ks) 0 ]
@@ -491,7 +512,7 @@ constructionTransferTests _ envIo =
       operation Successful
                 TransferOrCreateAcct
                 (P.TxId 0) -- dummy variable
-                (toAcctLog name 0.0 delta guard) -- total is dummy var
+                (toAcctLog name 0.0 delta guard) -- total (0.0) is dummy var
                 idx
                 []
 
@@ -576,6 +597,8 @@ submitToConstructionAPI expectOps chainId' payer xchain getKeys expectResult cen
   case HM.lookup rk prs of
     Nothing -> assertFailure $ "unable to find poll response for: " <> show rk
     Just cr -> isCorrectResult rk cr
+
+  -- TODO: Check that the intended ops are the ops that occurred
 
   pure rk
 

@@ -230,7 +230,8 @@ constructionDeriveH v req =
     work :: Either RosettaError ConstructionDeriveResp
     work = do
       _ <- annotate rosettaError' (validateNetwork v net)
-      kAccount <- rosettaPubKeyTokAccount rosettaPubKey
+      T2 kAccount ownership <- rosettaPubKeyTokAccount rosettaPubKey
+
       pure $! ConstructionDeriveResp
         { _constructionDeriveResp_address = Nothing
         , _constructionDeriveResp_accountIdentifier = Just $! AccountId
@@ -238,9 +239,8 @@ constructionDeriveH v req =
           , _accountId_subAccount = Nothing
           , _accountId_metadata = Nothing
           }
-        , _constructionDeriveResp_metadata = Nothing
+        , _constructionDeriveResp_metadata = Just $! toObject $! DeriveRespMetaData ownership
         }
-
 
 
 constructionPreprocessH
