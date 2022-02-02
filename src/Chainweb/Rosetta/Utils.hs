@@ -691,6 +691,15 @@ toNonce (Just nonce) _ = nonce
 toNonce Nothing pm = sshow $! P._pmCreationTime pm
 
 
+rosettaPubKeyTokAccount :: RosettaPublicKey -> Either RosettaError T.Text
+rosettaPubKeyTokAccount (RosettaPublicKey pubKey curve) = do
+  scheme <- getScheme curve
+  -- TODO: How does k: accounts handle non-ED25519 public keys.
+  -- Assumption: Pact public key address formatting returns the full
+  -- public key.
+  addr <- toPactPubKeyAddr pubKey scheme
+  let kAccount = printf "k:%s" (T.unpack addr)
+  pure $! T.pack $! kAccount
 
 toPactPubKeyAddr
     :: T.Text

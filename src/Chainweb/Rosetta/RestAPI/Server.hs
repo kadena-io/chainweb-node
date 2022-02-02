@@ -216,14 +216,31 @@ blockTransactionH v cutDb ps pacts (BlockTransactionReq net bid t) = do
 -- NOTE: all Construction API endpoints except /metadata and /submit must
 -- operate in "offline" mode.
 
+-- | For valid Ed25519 Public Key returns the k: address
+--   account.
 constructionDeriveH
     :: ChainwebVersion
     -> ConstructionDeriveReq
     -> Handler ConstructionDeriveResp
-constructionDeriveH _ _ =
-   -- NOTE: Blockchains that require an on-chain action to create
-   -- an account should not implement this method
-  throwRosetta RosettaConstructionDeriveNotSupported
+constructionDeriveH v req =
+  either throwRosettaError pure work
+  where
+    ConstructionDeriveReq net rosettaPubKey _ = req
+
+    work :: Either RosettaError ConstructionDeriveResp
+    work = do
+      _ <- annotate rosettaError' (validateNetwork v net)
+      kAccount <- rosettaPubKeyTokAccount rosettaPubKey
+      pure $! ConstructionDeriveResp
+        { _constructionDeriveResp_address = Nothing
+        , _constructionDeriveResp_accountIdentifier = Just $! AccountId
+          { _accountId_address = kAccount
+          , _accountId_subAccount = Nothing
+          , _accountId_metadata = Nothing
+          }
+        , _constructionDeriveResp_metadata = Nothing
+        }
+
 
 
 constructionPreprocessH
