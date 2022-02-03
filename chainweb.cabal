@@ -226,7 +226,6 @@ library
         , Chainweb.SPV.RestAPI
         , Chainweb.SPV.RestAPI.Server
         , Chainweb.SPV.RestAPI.Client
-        , Chainweb.Store.CAS
         , Chainweb.Sync.WebBlockHeaderStore
         , Chainweb.Time
         , Chainweb.Transaction
@@ -473,7 +472,6 @@ test-suite chainweb-tests
         Chainweb.Test.Roundtrips
         Chainweb.Test.SPV
         Chainweb.Test.SPV.EventProof
-        Chainweb.Test.Store.CAS
         Chainweb.Test.Sync.WebBlockHeaderStore
         Chainweb.Test.TreeDB
         Chainweb.Test.TreeDB.RemoteDB
