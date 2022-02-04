@@ -21,6 +21,7 @@ module Chainweb.Transaction
   , mkPayloadWithTextOld
   , payloadBytes
   , payloadObj
+  , parsePact
   ) where
 
 import Control.DeepSeq
@@ -44,6 +45,8 @@ import Pact.Types.Gas (GasLimit(..), GasPrice(..))
 import Pact.Types.Hash
 
 import Chainweb.Utils
+import Chainweb.Version
+import Chainweb.BlockHeight
 
 -- | A product type representing a `Payload PublicMeta ParsedCode` coupled with
 -- the Text that generated it, to make gossiping easier.
@@ -91,26 +94,38 @@ instance Hashable (HashableTrans PayloadWithText) where
     {-# INLINE hashWithSalt #-}
 
 -- | A codec for (Command PayloadWithText) transactions.
-chainwebPayloadCodec :: Codec (Command PayloadWithText)
-chainwebPayloadCodec = Codec enc dec
+chainwebPayloadCodec
+    :: Maybe (ChainwebVersion, BlockHeight)
+    -> Codec (Command PayloadWithText)
+chainwebPayloadCodec chainCtx = Codec enc dec
   where
     enc c = encodeToByteString $ fmap (decodeUtf8 . encodePayload) c
     dec bs = case Aeson.decodeStrict' bs of
-               Just cmd -> traverse (decodePayload . encodeUtf8) cmd
+               Just cmd -> traverse (decodePayload chainCtx . encodeUtf8) cmd
                Nothing -> Left "decode PayloadWithText failed"
 
 encodePayload :: PayloadWithText -> ByteString
 encodePayload = SB.fromShort . _payloadBytes
 
-decodePayload :: ByteString -> Either String PayloadWithText
-decodePayload bs = case Aeson.decodeStrict' bs of
+decodePayload
+    :: Maybe (ChainwebVersion, BlockHeight)
+    -> ByteString
+    -> Either String PayloadWithText
+decodePayload chainCtx bs = case Aeson.decodeStrict' bs of
     Just payload -> do
-        p <- traverse parsePact payload
+        p <- traverse (parsePact chainCtx) payload
         return $! PayloadWithText (SB.toShort bs) p
     Nothing -> Left "decoding Payload failed"
 
-parsePact :: Text -> Either String ParsedCode
-parsePact code = ParsedCode code <$> parseExprs code
+parsePact
+    :: Maybe (ChainwebVersion, BlockHeight)
+        -- ^ If the chain context is @Nothing@, latest parser version is used.
+    -> Text
+    -> Either String ParsedCode
+parsePact Nothing code = ParsedCode code <$> parseExprs code
+parsePact (Just (v, h)) code
+    | pactForceEof v h = ParsedCode code <$> parseExprs code
+    | otherwise = error "parsePact: TODO" -- ParsedCode code <$> parseExprsLenient code
 
 -- | Get the gas limit/supply of a public chain command payload
 gasLimitOf :: forall c. Command (Payload PublicMeta c) -> GasLimit

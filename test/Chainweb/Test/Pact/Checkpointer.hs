@@ -616,7 +616,7 @@ runSQLite' runTest sqlEnvIO = runTest $ do
 
 runExec :: CheckpointEnv -> PactDbEnv'-> Maybe Value -> Text -> IO EvalResult
 runExec cp (PactDbEnv' pactdbenv) eData eCode = do
-    execMsg <- buildExecParsedCode eData eCode
+    execMsg <- buildExecParsedCode Nothing {- use latest parser version -} eData eCode
     evalTransactionM cmdenv cmdst $
       applyExec' defaultInterpreter execMsg [] h' permissiveNamespacePolicy
   where

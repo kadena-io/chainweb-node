@@ -61,6 +61,7 @@ module Chainweb.Version
 , enforceKeysetFormats
 , AtOrAfter(..)
 , doCheckTxHash
+, pactForceEof
 
 -- ** BlockHeader Validation Guards
 , slowEpochGuard
@@ -912,6 +913,12 @@ doCheckTxHash Testnet04 = (>= 1_889_000) -- 2022-01-24T04:19:24
 doCheckTxHash Development = (>= 110)
 doCheckTxHash (FastTimedCPM g) | g == petersonChainGraph = (>= 7)
 doCheckTxHash _ = const True
+
+pactForceEof :: ChainwebVersion -> BlockHeight -> Bool
+pactForceEof Mainnet01 = (>= 2_447_358) -- 2022-02-26 00:00:18
+pactForceEof Testnet04 = (>= 1_977_816) -- 2022-02-25 00:00:18
+pactForceEof Development = (>= 12)
+pactForceEof _ = const True
 
 -- -------------------------------------------------------------------------- --
 -- Header Validation Guards

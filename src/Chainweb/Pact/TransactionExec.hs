@@ -78,7 +78,7 @@ import Pact.Eval (eval, liftTerm)
 import Pact.Gas (freeGasEnv)
 import Pact.Interpreter
 import Pact.Native.Capabilities (evalCap)
-import Pact.Parse (ParsedDecimal(..), parseExprs)
+import Pact.Parse (ParsedDecimal(..))
 import Pact.Runtime.Capabilities (popCapStack)
 import Pact.Runtime.Utils (lookupModule)
 import Pact.Types.Capability
@@ -392,6 +392,9 @@ readInitModules
 readInitModules logger dbEnv txCtx =
     evalTransactionM tenv txst go
   where
+    parent = _tcParentHeader txCtx
+    v = _chainwebVersion parent
+    h = _blockHeight (_parentHeader parent) + 1
     rk = RequestKey chash
     nid = Nothing
     chash = pactInitialHash
@@ -400,7 +403,7 @@ readInitModules logger dbEnv txCtx =
     txst = TransactionState mempty mempty 0 Nothing (_geGasModel freeGasEnv)
     interp = defaultInterpreter
     die msg = throwM $ PactInternalError $ "readInitModules: " <> msg
-    mkCmd = buildExecParsedCode Nothing
+    mkCmd = buildExecParsedCode (Just (v, h)) Nothing
     run msg cmd = do
       er <- catchesPactError $!
         applyExec' interp cmd [] chash permissiveNamespacePolicy
@@ -955,11 +958,15 @@ mkMagicCapSlot c = CapSlot CapCallStack cap []
 -- parameter is for any possible environmental data that needs to go into
 -- the 'ExecMsg'.
 --
-buildExecParsedCode :: Maybe Value -> Text -> IO (ExecMsg ParsedCode)
-buildExecParsedCode value code = maybe (go Null) go value
+buildExecParsedCode
+    :: Maybe (ChainwebVersion, BlockHeight)
+    -> Maybe Value
+    -> Text
+    -> IO (ExecMsg ParsedCode)
+buildExecParsedCode chainCtx value code = maybe (go Null) go value
   where
-    go v = case ParsedCode code <$> parseExprs code of
-      Right !t -> pure $! ExecMsg t v
+    go val = case parsePact chainCtx code of
+      Right !t -> pure $! ExecMsg t val
       -- if we can't construct coin contract calls, this should
       -- fail fast
       Left err -> internalError $ "buildExecParsedCode: parse failed: " <> T.pack err

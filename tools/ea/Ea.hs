@@ -267,7 +267,7 @@ genTxModule tag txFiles = do
 
   let encTxs = map quoteTx cwTxs
       quoteTx tx = "    \"" <> encTx tx <> "\""
-      encTx = encodeB64UrlNoPaddingText . codecEncode chainwebPayloadCodec
+      encTx = encodeB64UrlNoPaddingText . codecEncode (chainwebPayloadCodec Nothing)
       modl = T.unlines $ startTxModule tag <> [T.intercalate "\n    ,\n" encTxs] <> endTxModule
       fileName = "src/Chainweb/Pact/Transactions/" <> tag <> "Transactions.hs"
 
@@ -289,7 +289,7 @@ startTxModule tag =
     , "transactions :: IO [ChainwebTransaction]"
     , "transactions ="
     , "  let decodeTx t ="
-    , "        fromEitherM . (first (userError . show)) . codecDecode chainwebPayloadCodec =<< decodeB64UrlNoPaddingText t"
+    , "        fromEitherM . (first (userError . show)) . codecDecode (chainwebPayloadCodec Nothing) =<< decodeB64UrlNoPaddingText t"
     , "  in mapM decodeTx ["
     ]
 
