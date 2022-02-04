@@ -328,7 +328,6 @@ blockCoinV2RemediationTests _ envIo =
     case _block_transactions b of
       x:y:z:_ -> do
         step "check remediation transactions' request keys"
-        -- TODO: are these unique across lifetime of blockchain/chains?
         [ycmd, zcmd] <- upgradeTransactions v cid
         _transaction_transactionId y @?= pactHashToTransactionId (_cmdHash ycmd)
         _transaction_transactionId z @?= pactHashToTransactionId (_cmdHash zcmd)
@@ -366,7 +365,6 @@ block20ChainRemediationTests _ envIo =
     case _block_transactions b of
       x:y:_ -> do
         step "check remediation transactions' request keys"
-        -- TODO: are these unique across lifetime of blockchain/chains?
         [ycmd] <- twentyChainUpgradeTransactions v cidChain3
         _transaction_transactionId y @?= pactHashToTransactionId (_cmdHash ycmd)
 
