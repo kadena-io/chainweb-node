@@ -437,18 +437,19 @@ remediations
     :: Map TxId [AccountLog]
     -> ChainId
     -> CoinbaseTx (CommandResult Hash)
+    -- Remediation transactions.
+    -- NOTE: No CommandResult available for these.
     -> [Command payload]
-    -- ^ Remediation transactions.
-    -- ^ NOTE: No CommandResult available for these.
+    -- User transactions in the same block as remediations
     -> V.Vector (CommandResult Hash)
-    -- ^ User transactions in the same block as remediations
     -> Either String [Transaction]
 remediations logs cid coinbase remTxs txs = do
   TxAccumulator restLogs coinbaseTx <- nonGenesisCoinbaseLog logsList cid coinbase
   coinbaseTxId <- note "remediations: No TxId found for Coinbase" (_crTxId coinbase)
 
   let remWithTxIds = zip remTxs [(succ coinbaseTxId)..]
-      -- ^ Assumes that each remediation transaction gets its own TxId
+      -- Assumes that each remediation transaction gets its own TxId.
+      -- Assumes that TxIds are going to be sequential for each remediation.
       accWithCoinbase = TxAccumulator restLogs (DList.singleton coinbaseTx)
       accWithRems = foldl' matchRem accWithCoinbase remWithTxIds
 

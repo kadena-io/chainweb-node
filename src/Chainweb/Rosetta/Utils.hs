@@ -188,7 +188,7 @@ toContNextStep currChainId pe
       Just (P.Provenance nextChainId _) ->
         Just $ ContinuationNextStep (P._chainId nextChainId)
   where
-    isLastStep = succ $ P._peStep pe == P._peStepCount pe
+    isLastStep = (succ $ P._peStep pe) == (P._peStepCount pe)
 
 --------------------------------------------------------------------------------
 -- Rosetta Helper Types --
