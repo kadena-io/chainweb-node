@@ -2,7 +2,7 @@
 
 ## 2.12.2 (2022-02-04)
 
-This is a new feature release for the Rosetta API `1.0.0` ([#1135](https://github.com/kadena-io/chainweb-node/pull/1135)).
+This is a new feature and bug fix release for the `Chainweb Rosetta API 1.0.0` ([#1135](https://github.com/kadena-io/chainweb-node/pull/1135)).
 
 To upgrade, pull the latest docker image or download the binary and restart the node.
 
