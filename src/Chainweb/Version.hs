@@ -911,7 +911,7 @@ doCheckTxHash Mainnet01 = (>= 2_349_800) -- 2022-01-23T02:53:38
 doCheckTxHash Testnet04 = (>= 1_889_000) -- 2022-01-24T04:19:24
 doCheckTxHash Development = (>= 110)
 doCheckTxHash (FastTimedCPM g) | g == petersonChainGraph = (>= 7)
-doCheckTxHash _ = const False
+doCheckTxHash _ = const True
 
 -- -------------------------------------------------------------------------- --
 -- Header Validation Guards
