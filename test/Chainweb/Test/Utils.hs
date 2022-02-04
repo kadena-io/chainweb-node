@@ -1004,7 +1004,7 @@ node
     -> IO ()
 node testLabel rdb rawLogger peerInfoVar conf nid = do
     rocksDb <- testRocksDb (testLabel <> T.encodeUtf8 (toText nid)) rdb
-    Extra.withTempDir $ \dir -> withChainweb conf logger rocksDb dir False $ \cw -> do
+    Extra.withTempDir $ \dir -> withChainweb conf logger rocksDb checkpointDir dir False $ \cw -> do
 
         -- If this is the bootstrap node we extract the port number and publish via an MVar.
         when (nid == 0) $ do
@@ -1019,6 +1019,7 @@ node testLabel rdb rawLogger peerInfoVar conf nid = do
         return ()
   where
     logger = addLabel ("node", sshow nid) rawLogger
+    checkpointDir = error "no checkpoint directory in tests"
 
     poisonDeadBeef cw = mapM_ poison crs
       where

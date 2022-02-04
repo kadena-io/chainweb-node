@@ -64,6 +64,7 @@ module Chainweb.Chainweb
 , chainwebPutPeerThrottler
 , chainwebConfig
 , chainwebServiceSocket
+, chainwebMakeRocksDbCheckpoint
 
 -- ** Mempool integration
 , ChainwebTransaction
@@ -93,6 +94,9 @@ module Chainweb.Chainweb
 , cutFetchTimeout
 , cutInitialCutHeightLimit
 , defaultCutConfig
+
+--
+, MakeRocksDbCheckpoint(..)
 ) where
 
 import Configuration.Utils hiding (Error, Lens', disabled)
@@ -113,6 +117,7 @@ import qualified Data.HashMap.Strict as HM
 import Data.List (isPrefixOf, sortBy)
 import qualified Data.List as L
 import Data.Maybe
+import Data.Text(Text)
 import qualified Data.Text as T
 import Data.These (These(..))
 import qualified Data.Vector as V
@@ -127,6 +132,8 @@ import Network.Wai.Middleware.Throttle
 import Prelude hiding (log)
 
 import System.Clock
+import System.Directory
+import System.FilePath
 import System.LogLevel
 
 -- internal modules
@@ -156,6 +163,7 @@ import Chainweb.Payload.PayloadStore
 import Chainweb.Payload.PayloadStore.RocksDB
 import Chainweb.RestAPI
 import Chainweb.RestAPI.NetworkID
+import Chainweb.Time hiding (second)
 import Chainweb.Transaction
 import Chainweb.Utils
 import Chainweb.Utils.RequestLog
@@ -192,6 +200,7 @@ data Chainweb logger cas = Chainweb
     , _chainwebPutPeerThrottler :: !(Throttle Address)
     , _chainwebConfig :: !ChainwebConfiguration
     , _chainwebServiceSocket :: !(Port, Socket)
+    , _chainwebMakeRocksDbCheckpoint :: !(Maybe (IO Text))
     }
 
 makeLenses ''Chainweb
@@ -212,11 +221,12 @@ withChainweb
     -> logger
     -> RocksDb
     -> FilePath
+    -> FilePath
         -- ^ Pact database directory
     -> Bool
     -> (forall cas' . PayloadCasLookup cas' => Chainweb logger cas' -> IO ())
     -> IO ()
-withChainweb c logger rocksDb pactDbDir resetDb inner =
+withChainweb c logger rocksDb rocksDbCheckpointDir pactDbDir resetDb inner =
     withPeerResources v (view configP2p confWithBootstraps) logger $ \logger' peer ->
         withSocket serviceApiPort serviceApiHost $ \serviceSock -> do
             let conf' = confWithBootstraps
@@ -228,6 +238,7 @@ withChainweb c logger rocksDb pactDbDir resetDb inner =
                 peer
                 serviceSock
                 rocksDb
+                rocksDbCheckpointDir
                 pactDbDir
                 resetDb
                 inner
@@ -326,10 +337,11 @@ withChainwebInternal
     -> (Port, Socket)
     -> RocksDb
     -> FilePath
+    -> FilePath
     -> Bool
     -> (forall cas' . PayloadCasLookup cas' => Chainweb logger cas' -> IO ())
     -> IO ()
-withChainwebInternal conf logger peer serviceSock rocksDb pactDbDir resetDb inner = do
+withChainwebInternal conf logger peer serviceSock rocksDb rocksDbCheckpointDir pactDbDir resetDb inner = do
 
     initializePayloadDb v payloadDb
 
@@ -462,6 +474,7 @@ withChainwebInternal conf logger peer serviceSock rocksDb pactDbDir resetDb inne
                                 , _chainwebPutPeerThrottler = putPeerThrottler
                                 , _chainwebConfig = conf
                                 , _chainwebServiceSocket = serviceSock
+                                , _chainwebMakeRocksDbCheckpoint = maybeMakeCheckpoint
                                 }
 
     withPactData
@@ -515,6 +528,20 @@ withChainwebInternal conf logger peer serviceSock rocksDb pactDbDir resetDb inne
                 <> T.pack (show (h, hsh))
             void $ _pactSyncToBlock pact bh
             logCr Info "pact db synchronized"
+
+    makeCheckpoint :: IO Text
+    makeCheckpoint = do
+        createDirectoryIfMissing False rocksDbCheckpointDir
+        Time (epochToNow :: TimeSpan Integer) <- getCurrentTimeIntegral
+        let time = microsToText (timeSpanToMicros epochToNow)
+        -- maxBound ~ always flush WAL log before checkpoint, under the assumption
+        -- that it's not much work
+        checkpointRocksDb rocksDb maxBound (rocksDbCheckpointDir </> T.unpack time)
+        return time
+
+    maybeMakeCheckpoint :: Maybe (IO Text)
+    maybeMakeCheckpoint = 
+        makeCheckpoint <$ guard (_configCheckpoints conf)
 
 -- -------------------------------------------------------------------------- --
 -- Throttling
@@ -690,6 +717,7 @@ runChainweb cw = do
         (_chainwebCoordinator cw)
         (HeaderStream . _configHeaderStream $ _chainwebConfig cw)
         (Rosetta . _configRosetta $ _chainwebConfig cw)
+        (MakeRocksDbCheckpoint <$> _chainwebMakeRocksDbCheckpoint cw)
 
     serviceHttpLog :: Middleware
     serviceHttpLog = requestResponseLogger $ setComponent "http:service-api" (_chainwebLogger cw)

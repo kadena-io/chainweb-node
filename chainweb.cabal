@@ -207,6 +207,7 @@ library
         , Chainweb.PowHash
         , Chainweb.RestAPI
         , Chainweb.RestAPI.Config
+        , Chainweb.RestAPI.Checkpoint
         , Chainweb.RestAPI.Health
         , Chainweb.RestAPI.NetworkID
         , Chainweb.RestAPI.NodeInfo
@@ -349,6 +350,7 @@ library
         , ethereum >= 0.1
         , exceptions >= 0.8
         , file-embed >= 0.0
+        , filepath >= 1.4
         , hashable >= 1.3 && < 1.3.1
         , heaps >= 0.3
         , hourglass >=0.2

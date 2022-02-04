@@ -59,6 +59,7 @@ module Chainweb.Chainweb.Configuration
 , configThrottling
 , configReorgLimit
 , configRosetta
+, configCheckpoints
 , configServiceApi
 , defaultChainwebConfiguration
 , pChainwebConfiguration
@@ -240,6 +241,15 @@ pCutConfig = id
 -- -------------------------------------------------------------------------- --
 -- Service API Configuration
 
+data BackupConfig = NoBackups | EnableCheckpointApi
+    deriving (Show, Eq, Generic)
+instance HasTextRepresentation BackupConfig where
+    toText NoBackups = "no-backups"
+    toText EnableCheckpointApi = "enable-checkpoint-api"
+    fromText "no-backups" = return NoBackups
+    fromText "enable-checkpoint-api" = return EnableCheckpointApi
+    fromText x = throwM $ TextFormatException $ "unknown value for backup configuration: " <> sshow x
+
 data ServiceApiConfig = ServiceApiConfig
     { _serviceApiConfigPort :: !Port
         -- ^ The public host address for service APIs.
@@ -250,6 +260,7 @@ data ServiceApiConfig = ServiceApiConfig
     , _serviceApiConfigInterface :: !HostPreference
         -- ^ The network interface that the service APIs are bound to. Default is to
         -- bind to all available interfaces ('*').
+    , _serviceApiBackups :: !BackupConfig
     }
     deriving (Show, Eq, Generic)
 
@@ -259,18 +270,21 @@ defaultServiceApiConfig :: ServiceApiConfig
 defaultServiceApiConfig = ServiceApiConfig
     { _serviceApiConfigPort = 1848
     , _serviceApiConfigInterface = "*"
+    , _serviceApiBackups = NoBackups
     }
 
 instance ToJSON ServiceApiConfig where
     toJSON o = object
         [ "port" .= _serviceApiConfigPort o
         , "interface" .= hostPreferenceToText (_serviceApiConfigInterface o)
+        , "backups" .= toText (_serviceApiBackups o)
         ]
 
 instance FromJSON (ServiceApiConfig -> ServiceApiConfig) where
     parseJSON = withObject "ServiceApiConfig" $ \o -> id
         <$< serviceApiConfigPort ..: "port" % o
         <*< setProperty serviceApiConfigInterface "interface" (parseJsonFromText "interface") o
+        <*< setProperty serviceApiBackups "backups" (parseJsonFromText "backups") o
 
 pServiceApiConfig :: MParser ServiceApiConfig
 pServiceApiConfig = id
@@ -278,6 +292,7 @@ pServiceApiConfig = id
     <*< serviceApiConfigInterface .:: textOption
         % prefixLong service "interface"
         <> suffixHelp service "interface that the service Rest API binds to (see HostPreference documentation for details)"
+    -- serviceApiBackups isn't supported on the command line
   where
     service = Just "service"
 
@@ -302,6 +317,7 @@ data ChainwebConfiguration = ChainwebConfiguration
         -- ^ Re-validate payload hashes during replay.
     , _configAllowReadsInLocal :: !Bool
     , _configRosetta :: !Bool
+    , _configCheckpoints :: !Bool
     , _configServiceApi :: !ServiceApiConfig
     , _configOnlySyncPact :: !Bool
         -- ^ exit after synchronizing pact dbs to the latest cut
@@ -338,6 +354,7 @@ defaultChainwebConfiguration v = ChainwebConfiguration
     , _configValidateHashesOnReplay = False
     , _configAllowReadsInLocal = False
     , _configRosetta = False
+    , _configCheckpoints = False
     , _configServiceApi = defaultServiceApiConfig
     , _configOnlySyncPact = False
     }

@@ -309,8 +309,7 @@ node conf logger = do
     pactDbDir <- getPactDbDir conf
     withRocksDb rocksDbDir $ \rocksDb -> do
         logFunctionText logger Info $ "opened rocksdb in directory " <> sshow rocksDbDir
-        installHandlerCross sigUSR1 (const $ makeCheckpoint rocksDbCheckpointDir rocksDb)
-        withChainweb cwConf logger rocksDb pactDbDir (_nodeConfigResetChainDbs conf) $ \cw -> mapConcurrently_ id
+        withChainweb cwConf logger rocksDb rocksDbCheckpointDir pactDbDir (_nodeConfigResetChainDbs conf) $ \cw -> mapConcurrently_ id
             [ runChainweb cw
               -- we should probably push 'onReady' deeper here but this should be ok
             , runCutMonitor (_chainwebLogger cw) (_cutResCutDb $ _chainwebCutResources cw)
@@ -320,13 +319,6 @@ node conf logger = do
             ]
   where
     cwConf = _nodeConfigChainweb conf
-
-makeCheckpoint :: FilePath -> RocksDb -> IO ()
-makeCheckpoint checkpointDir rocksDb = do
-    createDirectoryIfMissing False checkpointDir
-    Time (epochToNow :: TimeSpan Integer) <- getCurrentTimeIntegral
-    -- 0 ~ never flush WAL log before checkpoint, to avoid making extra work
-    checkpointRocksDb rocksDb maxBound (checkpointDir </> T.unpack (microsToText $ timeSpanToMicros epochToNow))
 
 withNodeLogger
     :: LogConfig

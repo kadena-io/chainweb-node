@@ -202,7 +202,7 @@ multiNode
     -> IO ()
 multiNode loglevel write stateVar bootstrapPeerInfoVar conf rdb nid = do
     withSystemTempDirectory "multiNode-pact-db" $ \tmpDir ->
-        withChainweb conf logger nodeRocksDb (pactDbDir tmpDir) False $ \cw -> do
+        withChainweb conf logger nodeRocksDb checkpointDir (pactDbDir tmpDir) False $ \cw -> do
 
             -- If this is the bootstrap node we extract the port number and
             -- publish via an MVar.
@@ -214,6 +214,7 @@ multiNode loglevel write stateVar bootstrapPeerInfoVar conf rdb nid = do
                 sample cw
                 logFunctionText logger Info "shutdown node"
   where
+    checkpointDir = error "no checkpoint directory in tests"
     pactDbDir tmpDir = tmpDir <> "/" <> show nid
 
     logger :: GenericLogger
