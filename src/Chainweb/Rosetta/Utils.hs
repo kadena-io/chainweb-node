@@ -182,10 +182,10 @@ toContNextStep currChainId pe
   -- TODO: Add check to see if curr step was rolled back.
   --       This would also mean a next step is not occuring.
   | otherwise = case P._peYield pe >>= P._yProvenance of
+      -- next step occurs in the same chain
       Nothing -> Just $ ContinuationNextStep $ chainIdToText currChainId
-      -- ^ next step occurs in the same chain
+      -- next step is a cross-chain step
       Just (P.Provenance nextChainId _) ->
-      -- ^ next step is a cross-chain step
         Just $ ContinuationNextStep (P._chainId nextChainId)
   where
     isLastStep = succ $ P._peStep pe == P._peStepCount pe

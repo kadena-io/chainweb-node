@@ -343,9 +343,9 @@ networkOptionsH v (NetworkReq nid _) = runExceptT work >>= either throwRosetta p
       [ "node-api-version" .= prettyApiVersion
       , "chainweb-version" .= chainwebVersionToText v
       , "rosetta-chainweb-version" .= rosettaImplementationVersion
-      -- ^ The version of the rosetta implementation.
-      --   Meant to capture if something about the internal
-      --   implementation has changed.
+      -- The version of the rosetta implementation.
+      -- Meant to capture if something about the internal
+      -- implementation has changed.
       ]
 
     rosettaImplementationVersion = "1.0.0" :: T.Text

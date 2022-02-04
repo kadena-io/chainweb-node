@@ -1,8 +1,5 @@
-{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE CPP #-}
 {-# LANGUAGE ConstraintKinds #-}
-{-# LANGUAGE LambdaCase #-}
-{-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -269,7 +266,7 @@ blockTests testname tio envIo = testCaseSchSteps testname $ \step -> do
 
             case _block_transactions b of
               [x,r1,r2,y] -> do
-                -- ^ coin v2 remediation block.
+                -- coin v2 remediation block.
                 -- No coin table remediation for this version.
                 let ops = _transaction_operations x <> _transaction_operations r1 <>
                           _transaction_operations r2 <> _transaction_operations y
@@ -278,7 +275,7 @@ blockTests testname tio envIo = testCaseSchSteps testname $ \step -> do
                   _ -> assertFailure "should have 6 ops: coinbase + 5 for transfer tx"
 
               [x,r1,y] -> do
-                -- ^ 20 chain remediation block
+                -- 20 chain remediation block
                 let ops = _transaction_operations x <> _transaction_operations r1 <>
                           _transaction_operations y
                 case ops of
@@ -286,7 +283,7 @@ blockTests testname tio envIo = testCaseSchSteps testname $ \step -> do
                   _ -> assertFailure "should have 7 ops: coinbase + 20 chain rem + 5 for transfer tx"
 
               [x,y] -> do
-                -- ^ not a remediation block
+                -- not a remediation block
                 let ops = _transaction_operations x <> _transaction_operations y
                 case ops of
                   [a,b',c,d,e,f] -> validateTxs Nothing a b' c d e f
