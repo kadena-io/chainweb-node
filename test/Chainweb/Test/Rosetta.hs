@@ -2,6 +2,9 @@
 
 -- |
 -- Module: Chainweb.Test.Rosetta
+--
+-- Unit tests for Rosetta.
+--
 -- Copyright: Copyright © 2018 - 2020 Kadena LLC.
 -- License: MIT
 -- Maintainer: Linda Ortega <linda@kadena.io>
