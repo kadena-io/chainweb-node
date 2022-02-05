@@ -355,8 +355,8 @@ data ValidationFailureType
     | IncorrectEpoch
         -- ^ The epoch start time value of the block is incorrect. The epoch
         -- start time of the first block of an epoch equals the block creation
-        -- time of that block. For all other blocks the epoch start time equls
-        -- the epoch start time of the parent block.
+        -- time of the parent block. For all other blocks the epoch start time
+        -- equls the epoch start time of the parent block.
     | IncorrectGenesisParent
         -- ^ The block is a genesis block, but doesn't have its parent set to
         -- its own hash.
