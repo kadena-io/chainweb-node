@@ -38,7 +38,7 @@ import Data.Text.Encoding (decodeUtf8, encodeUtf8)
 
 import GHC.Generics (Generic)
 
-import Pact.Parse (parseExprs)
+import qualified Pact.Parse as P (parsePact, legacyParsePact)
 import Pact.Types.ChainMeta
 import Pact.Types.Command
 import Pact.Types.Gas (GasLimit(..), GasPrice(..))
@@ -122,10 +122,10 @@ parsePact
         -- ^ If the chain context is @Nothing@, latest parser version is used.
     -> Text
     -> Either String ParsedCode
-parsePact Nothing code = ParsedCode code <$> parseExprs code
+parsePact Nothing code = P.parsePact code
 parsePact (Just (v, h)) code
-    | pactForceEof v h = ParsedCode code <$> parseExprs code
-    | otherwise = error "parsePact: TODO" -- ParsedCode code <$> parseExprsLenient code
+    | pactForceEof v h = P.parsePact code
+    | otherwise = P.legacyParsePact code
 
 -- | Get the gas limit/supply of a public chain command payload
 gasLimitOf :: forall c. Command (Payload PublicMeta c) -> GasLimit
