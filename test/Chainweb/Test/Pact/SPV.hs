@@ -79,6 +79,7 @@ import Chainweb.BlockHeight
 import Chainweb.ChainId
 import Chainweb.Cut
 import Chainweb.Graph
+import Chainweb.Miner.Pact
 import Chainweb.Pact.Backend.Types
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
@@ -230,7 +231,7 @@ getCutOutputs (TestBlockDb _ pdb cmv) = do
 -- service to produce a new block, add it
 runCut' :: ChainwebVersion -> TestBlockDb -> WebPactExecutionService -> IO CutOutputs
 runCut' v bdb pact = do
-  runCut v bdb pact (offsetBlockTime second) zeroNoncer
+  runCut v bdb pact (offsetBlockTime second) zeroNoncer noMiner
   getCutOutputs bdb
 
 
