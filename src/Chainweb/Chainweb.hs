@@ -43,13 +43,8 @@
 --
 module Chainweb.Chainweb
 (
--- * Pact Configuration
-  TransactionIndexConfig(..)
-, defaultTransactionIndexConfig
-, pTransactionIndexConfig
-
 -- * GC Configuration
-, ChainDatabaseGcConfig(..)
+  ChainDatabaseGcConfig(..)
 , chainDatabaseGcToText
 , chainDatabaseGcFromText
 
@@ -474,20 +469,14 @@ withChainwebInternal conf logger peer serviceSock rocksDb pactDbDir resetDb inne
         -> CutResources logger cas
         -> ([(ChainId, PactServerData logger cas)] -> IO b)
         -> IO b
-    withPactData cs cuts m
-        | _enableConfigEnabled (_configTransactionIndex conf) = do
-              -- TODO: delete this knob
-              logg Info "Transaction index enabled"
-              let l = sortBy (compare `on` fst) (HM.toList cs)
-              m $ l <&> fmap (\cr -> PactServerData
-                { _pactServerDataCutDb = _cutResCutDb cuts
-                , _pactServerDataMempool = _chainResMempool cr
-                , _pactServerDataLogger = _chainResLogger cr
-                , _pactServerDataPact = _chainResPact cr
-                })
-        | otherwise = do
-              logg Info "Transaction index disabled"
-              m []
+    withPactData cs cuts m = do
+        let l = sortBy (compare `on` fst) (HM.toList cs)
+        m $ l <&> fmap (\cr -> PactServerData
+            { _pactServerDataCutDb = _cutResCutDb cuts
+            , _pactServerDataMempool = _chainResMempool cr
+            , _pactServerDataLogger = _chainResLogger cr
+            , _pactServerDataPact = _chainResPact cr
+            })
 
     v = _configChainwebVersion conf
     cids = chainIds v

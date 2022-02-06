@@ -65,6 +65,7 @@ import qualified Pact.Types.Command as P
 import Pact.Types.Exp (ParsedCode(..))
 import Pact.Types.ExpParser (mkTextInfo)
 import qualified Pact.Types.Hash as P
+import qualified Pact.Types.Logger as P
 import Pact.Types.RPC
 import qualified Pact.Types.Runtime as P
 import qualified Pact.Types.SPV as P
@@ -121,6 +122,7 @@ execBlock currHeader plData pdbenv = do
     miner <- decodeStrictOrThrow' (_minerData $ _payloadDataMiner plData)
     trans <- liftIO $ transactionsFromPayload plData
     cp <- getCheckpointer
+    logger <- view psLogger
 
     -- The reference time for tx timings validation.
     --
@@ -135,7 +137,7 @@ execBlock currHeader plData pdbenv = do
 
     -- prop_tx_ttl_validate
     valids <- liftIO $ V.zip trans <$>
-        validateChainwebTxs v cid cp txValidationTime
+        validateChainwebTxs logger v cid cp txValidationTime
             (_blockHeight currHeader) trans skipDebitGas
 
     case foldr handleValids [] valids of
@@ -179,7 +181,8 @@ execBlock currHeader plData pdbenv = do
 -- exist yet.
 --
 validateChainwebTxs
-    :: ChainwebVersion
+    :: P.Logger
+    -> ChainwebVersion
     -> ChainId
     -> Checkpointer
     -> ParentCreationTime
@@ -189,14 +192,17 @@ validateChainwebTxs
     -> Vector ChainwebTransaction
     -> RunGas
     -> IO ValidateTxs
-validateChainwebTxs v cid cp txValidationTime bh txs doBuyGas
+validateChainwebTxs logger v cid cp txValidationTime bh txs doBuyGas
   | bh == genesisHeight v cid = pure $! V.map Right txs
   | V.null txs = pure V.empty
   | otherwise = go
   where
     go = V.mapM validations initTxList >>= doBuyGas
 
-    validations t = runValid checkUnique t
+    validations t =
+      runValid checkUnique t
+      >>= runValid checkTxHash
+      >>= runValid checkTxSigs
       >>= runValid checkTimes
       >>= runValid (return . checkCompile)
 
@@ -212,6 +218,36 @@ validateChainwebTxs v cid cp txValidationTime bh txs doBuyGas
         | skipTxTimingValidation v bh = return $ Right t
         | timingsCheck txValidationTime $ fmap payloadObj t = return $ Right t
         | otherwise = return $ Left InsertErrorInvalidTime
+
+    checkTxHash :: ChainwebTransaction -> IO (Either InsertError ChainwebTransaction)
+    checkTxHash t =
+        case P.verifyHash (P._cmdHash t) (SB.fromShort $ payloadBytes $ P._cmdPayload t) of
+            Left _
+                | doCheckTxHash v bh -> return $ Left $ InsertErrorInvalidHash
+                | otherwise -> do
+                    P.logLog logger "INFO" $ "ignored legacy tx-hash failure"
+                    return $ Right t
+            Right _ -> pure $ Right t
+
+    checkTxSigs :: ChainwebTransaction -> IO (Either InsertError ChainwebTransaction)
+    checkTxSigs t = case validateSigs t of
+        Left _ -> return $ Left $ InsertErrorInvalidSigs
+        Right _ -> pure $ Right t
+
+    validateSigs :: ChainwebTransaction -> Either () ()
+    validateSigs t
+        | length signers /= length sigs = Left ()
+        | otherwise = case traverse validateSig $ zip signers sigs of
+            Left _ -> Left ()
+            Right _ -> Right ()
+      where
+        hsh = P._cmdHash t
+        sigs = P._cmdSigs t
+        signers = P._pSigners $ payloadObj $ P._cmdPayload t
+        validateSig (signer,sig)
+            | P.verifyUserSig hsh sig signer = Right ()
+            | otherwise = Left ()
+
 
     initTxList :: ValidateTxs
     initTxList = V.map Right txs

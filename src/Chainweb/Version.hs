@@ -60,6 +60,7 @@ module Chainweb.Version
 , pact420Upgrade
 , enforceKeysetFormats
 , AtOrAfter(..)
+, doCheckTxHash
 , chainweb213Pact
 
 -- ** BlockHeader Validation Guards
@@ -905,6 +906,13 @@ enforceKeysetFormats Mainnet01 = (>= 2_162_000) -- 2021-11-18T20:06:55
 enforceKeysetFormats Testnet04 = (>= 1_701_000) -- 2021-11-18T17:54:36
 enforceKeysetFormats Development = (>= 100)
 enforceKeysetFormats _ = (>= 10)
+
+doCheckTxHash :: ChainwebVersion -> BlockHeight -> Bool
+doCheckTxHash Mainnet01 = (>= 2_349_800) -- 2022-01-23T02:53:38
+doCheckTxHash Testnet04 = (>= 1_889_000) -- 2022-01-24T04:19:24
+doCheckTxHash Development = (>= 110)
+doCheckTxHash (FastTimedCPM g) | g == petersonChainGraph = (>= 7)
+doCheckTxHash _ = const False
 
 -- | Placeholder name for 2.13 Pact changes
 chainweb213Pact :: ChainwebVersion -> BlockHeight -> Bool

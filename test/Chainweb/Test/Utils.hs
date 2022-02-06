@@ -1042,7 +1042,6 @@ config ver n = defaultChainwebConfiguration ver
     & set (configP2p . p2pConfigSessionTimeout) 60
     & set (configMining . miningInNode) miner
     & set configReintroTxs True
-    & set (configTransactionIndex . enableConfigEnabled) True
     & set configBlockGasLimit 1_000_000
     & set configRosetta True
     & set (configMining . miningCoordination . coordinationEnabled) True

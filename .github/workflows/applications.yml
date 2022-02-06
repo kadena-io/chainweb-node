@@ -69,7 +69,7 @@ jobs:
       run: |
         MATRIX="$(jq -c '.' <<EOF
         {
-          "ghc": ["8.10.7", "9.0.1"],
+          "ghc": ["8.10.7", "9.0.2"],
           "cabal": ["3.6"],
           "os": ["ubuntu-18.04", "ubuntu-20.04"],
           "cabalcache": ["true"]
@@ -529,7 +529,8 @@ jobs:
         LABEL com.chainweb.docker.image.optimization="$OPT_LEVEL"
         LABEL com.chainweb.docker.image.debug-info="$DEBUG_INFO"
         LABEL com.chainweb.docker.image.revision="$GIT_SHA_SHORT"
-        RUN apt-get update && apt-get install -y librocksdb-dev ca-certificates && rm -rf /var/lib/apt/lists/*
+        RUN apt-get update && apt-get install -y librocksdb-dev ca-certificates locales && rm -rf /var/lib/apt/lists/* && locale-gen en_US.UTF-8 && update-locale LC_ALL=en_US.UTF-8 LANG=en_US.UTF-8
+        ENV LANG=en_US.UTF-8
         WORKDIR /chainweb
         COPY chainweb/chainweb-node .
         COPY chainweb/LICENSE .
@@ -572,7 +573,7 @@ jobs:
       with:
         registry: ghcr.io
         username: kadena-build
-        password: ${{ secrets.PKG_MANAGEMENT }}
+        password: ${{ secrets.GITHUB_TOKEN }}
 
     - name: Build and push
       id: docker_build
