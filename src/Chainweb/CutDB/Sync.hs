@@ -117,7 +117,7 @@ syncSession v useOrigin p db logg env pinf = do
         c <- getCut cenv limit
 
         let c' = set cutOrigin (Just pinf) c
-        logg @T.Text Info $ "received cut " <> encodeToText c'
+        logg @T.Text Debug $ "received cut " <> encodeToText c'
         addCutHashes db c'
 
     origin = if useOrigin then Just p else Nothing

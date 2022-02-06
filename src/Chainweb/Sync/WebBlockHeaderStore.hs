@@ -275,7 +275,7 @@ getBlockHeaderInternal
     -> IO (ChainValue BlockHeader)
 getBlockHeaderInternal headerStore payloadStore candidateHeaderCas candidatePayloadCas priority maybeOrigin h = do
     logg Debug $ "getBlockHeaderInternal: " <> sshow h
-    memoInsert cas memoMap h $ \k@(ChainValue cid k') -> do
+    bh <- memoInsert cas memoMap h $ \k@(ChainValue cid k') -> do
 
         -- query BlockHeader via
         --
@@ -409,6 +409,8 @@ getBlockHeaderInternal headerStore payloadStore candidateHeaderCas candidatePayl
 
         logg Debug $ taskMsg k $ "getBlockHeaderInternal return header " <> sshow h
         return $! chainValue header
+    logg Debug $ "getBlockHeaderInternal: got block header for " <> sshow h
+    return bh
 
   where
 

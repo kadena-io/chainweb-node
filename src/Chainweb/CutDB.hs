@@ -359,7 +359,7 @@ startCutDb
     -> RocksDbCas CutHashes
     -> IO (CutDb cas)
 startCutDb config logfun headerStore payloadStore cutHashesStore = mask_ $ do
-    logg Debug "obtain initial cut"
+    logg Info "obtain initial cut"
     cutVar <- newTVarIO =<< initialCut
     c <- readTVarIO cutVar
     logg Info $ "got initial cut: " <> sshow c
@@ -402,7 +402,7 @@ startCutDb config logfun headerStore payloadStore cutHashesStore = mask_ $ do
         -- or iterate in increasinly larger steps?
         go it = tableIterValue it >>= \case
             Nothing -> do
-                logg Debug "using intial cut from cut db configuration"
+                logg Info "using initial cut from cut db configuration"
                 return $! _cutDbParamsInitialCut config
             Just ch -> try (lookupCutHashes wbhdb ch) >>= \case
                 Left (e@(TreeDbKeyNotFound _) :: TreeDbException BlockHeaderDb) -> do
@@ -456,16 +456,16 @@ processCuts
     -> TVar Cut
     -> IO ()
 processCuts conf logFun headerStore payloadStore cutHashesStore queue cutVar = queueToStream
-    & S.chain (\c -> loggc Debug c "start processing")
+    & S.chain (\c -> loggc Info c "start processing")
     & S.filterM (fmap not . isVeryOld)
     & S.filterM (fmap not . farAhead)
     & S.filterM (fmap not . isOld)
     & S.filterM (fmap not . isCurrent)
-    & S.chain (\c -> loggc Debug c "fetch all prerequesites")
+    & S.chain (\c -> loggc Info c "fetch all prerequesites")
     & S.mapM (cutHashesToBlockHeaderMap conf logFun headerStore payloadStore)
     & S.chain (either
         (\(T2 hsid c) -> loggc Warn hsid $ "failed to get prerequesites for some blocks. Missing: " <> encodeToText c)
-        (\c -> loggc Debug c "got all prerequesites")
+        (\c -> loggc Info c "got all prerequesites")
         )
     & S.concat
         -- ignore left values for now
