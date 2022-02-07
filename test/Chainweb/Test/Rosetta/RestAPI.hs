@@ -1,8 +1,5 @@
-{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE CPP #-}
 {-# LANGUAGE ConstraintKinds #-}
-{-# LANGUAGE LambdaCase #-}
-{-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -277,7 +274,7 @@ blockTests testname tio envIo = testCaseSchSteps testname $ \step -> do
 
             case _block_transactions b of
               [x,r1,r2,y] -> do
-                -- ^ coin v2 remediation block.
+                -- coin v2 remediation block.
                 -- No coin table remediation for this version.
                 let ops = _transaction_operations x <> _transaction_operations r1 <>
                           _transaction_operations r2 <> _transaction_operations y
@@ -286,7 +283,7 @@ blockTests testname tio envIo = testCaseSchSteps testname $ \step -> do
                   _ -> assertFailure "should have 6 ops: coinbase + 5 for transfer tx"
 
               [x,r1,y] -> do
-                -- ^ 20 chain remediation block
+                -- 20 chain remediation block
                 let ops = _transaction_operations x <> _transaction_operations r1 <>
                           _transaction_operations y
                 case ops of
@@ -294,7 +291,7 @@ blockTests testname tio envIo = testCaseSchSteps testname $ \step -> do
                   _ -> assertFailure "should have 7 ops: coinbase + 20 chain rem + 5 for transfer tx"
 
               [x,y] -> do
-                -- ^ not a remediation block
+                -- not a remediation block
                 let ops = _transaction_operations x <> _transaction_operations y
                 case ops of
                   [a,b',c,d,e,f] -> validateTxs Nothing a b' c d e f
@@ -448,11 +445,11 @@ constructionTransferTests _ envIo =
       step "derive k:account name and ownership"
       let rosettaPubKeySender01 = RosettaPublicKey (fst sender01) CurveEdwards25519
           deriveReq = ConstructionDeriveReq netId rosettaPubKeySender01 Nothing
-      (ConstructionDeriveResp _ (Just derivedAcct) (Just derivedMeta)) <-
+      (ConstructionDeriveResp _ (Just (AccountId acctAddr _ (Just acctMeta))) _) <-
         constructionDerive cenv deriveReq
 
-      Right (DeriveRespMetaData toGuardSender01) <- pure $ extractMetaData derivedMeta
-      let toAcct = _accountId_address $! derivedAcct
+      Right (AccountIdMetaData toGuardSender01) <- pure $ extractMetaData acctMeta
+      let toAcct = acctAddr
           amt = 2.0
           fromAcct = "sender01"
           fromGuard = ks sender01ks

@@ -112,7 +112,12 @@ instance ToObject AccountIdMetaData where
   toPairs (AccountIdMetaData currOwnership) =
     [ "current-ownership" .= currOwnership ]
   toObject acctMeta = HM.fromList (toPairs acctMeta)
-
+instance FromJSON AccountIdMetaData where
+  parseJSON = withObject "AccountIdMetaData" $ \o -> do
+    currOwnership <- o .: "current-ownership"
+    pure AccountIdMetaData {
+      _accountIdMetaData_currOwnership = currOwnership
+    }
 
 newtype TransactionMetaData = TransactionMetaData
   { _transactionMetaData_multiStepTx :: Maybe ContinuationMetaData
@@ -213,9 +218,9 @@ toContNextStep currChainId pe
   --       This would also mean a next step is not occuring.
   | otherwise = case P._peYield pe >>= P._yProvenance of
       Nothing -> Just $ ContinuationNextStep $ chainIdToText currChainId
-      -- ^ next step occurs in the same chain
+      -- next step occurs in the same chain
       Just (P.Provenance nextChainId _) ->
-      -- ^ next step is a cross-chain step
+      -- next step is a cross-chain step
         Just $ ContinuationNextStep (P._chainId nextChainId)
   where
     isLastStep = succ $ P._peStep pe == P._peStepCount pe

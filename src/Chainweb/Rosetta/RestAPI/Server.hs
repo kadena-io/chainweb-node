@@ -237,9 +237,10 @@ constructionDeriveH v req =
         , _constructionDeriveResp_accountIdentifier = Just $! AccountId
           { _accountId_address = kAccount
           , _accountId_subAccount = Nothing
-          , _accountId_metadata = Nothing
+          , _accountId_metadata = Just $! toObject $! AccountIdMetaData
+            { _accountIdMetaData_currOwnership = toJSON $! ownership }
           }
-        , _constructionDeriveResp_metadata = Just $! toObject $! DeriveRespMetaData ownership
+        , _constructionDeriveResp_metadata = Nothing
         }
 
 
@@ -545,9 +546,9 @@ networkOptionsH v (NetworkReq nid _) = runExceptT work >>= either throwRosetta p
       [ "node-api-version" .= prettyApiVersion
       , "chainweb-version" .= chainwebVersionToText v
       , "rosetta-chainweb-version" .= rosettaImplementationVersion
-      -- ^ The version of the rosetta implementation.
-      --   Meant to capture if something about the internal
-      --   implementation has changed.
+      --  The version of the rosetta implementation.
+      --  Meant to capture if something about the internal
+      --  implementation has changed.
       ]
 
     rosettaImplementationVersion = "1.0.0" :: T.Text
