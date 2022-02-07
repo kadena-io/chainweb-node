@@ -110,11 +110,11 @@ newtype AccountIdMetaData = AccountIdMetaData
 -- TODO: document
 instance ToObject AccountIdMetaData where
   toPairs (AccountIdMetaData currOwnership) =
-    [ "current-ownership" .= currOwnership ]
+    [ "current_ownership" .= currOwnership ]
   toObject acctMeta = HM.fromList (toPairs acctMeta)
 instance FromJSON AccountIdMetaData where
   parseJSON = withObject "AccountIdMetaData" $ \o -> do
-    currOwnership <- o .: "current-ownership"
+    currOwnership <- o .: "current_ownership"
     pure AccountIdMetaData {
       _accountIdMetaData_currOwnership = currOwnership
     }
