@@ -129,6 +129,9 @@ tests rdb = testGroupSch "Chainweb.Test.Rosetta.RestAPI" go
       , networkOptionsTests
       , networkStatusTests
       , blockKAccountAfterPact420
+      , blockCoinV3RemediationTests
+      -- Note (linda): The order of the above tests matters.
+      -- So when adding new tests, add to the bottom of the list if possible.
       ]
 
 -- | Rosetta account balance endpoint tests
@@ -164,7 +167,7 @@ accountBalanceTests tio envIo =
 --   fork blockheight.
 blockKAccountAfterPact420 :: RosettaTest
 blockKAccountAfterPact420 tio envIo =
-  testCaseSchSteps "Block k:Account After Pact 420 Test" $ \step -> do
+  testCaseSchSteps "Block k Account After Pact 420 Test" $ \step -> do
     cenv <- envIo
     rkmv <- newEmptyMVar @RequestKeys
 
@@ -389,6 +392,41 @@ block20ChainRemediationTests _ envIo =
       , _networkId_subNetworkId = Just (SubNetworkId "3" Nothing)
       }
     req h = BlockReq nidChain3 $ PartialBlockId (Just h) Nothing
+
+blockCoinV3RemediationTests :: RosettaTest
+blockCoinV3RemediationTests _ envIo =
+  testCaseSchSteps "Block CoinV3 Remediation Tests" $ \step -> do
+    cenv <- envIo
+
+    step "fetch coin v3 remediation block"
+    resp <- block cenv (req bhCoinV3Rem)
+
+    step "validate block"
+    _blockResp_otherTransactions resp @?= Nothing
+    Just b <- pure $ _blockResp_block resp
+    _block_metadata b @?= Nothing
+    _blockId_index (_block_blockId b) @?= bhCoinV3Rem
+    _blockId_index (_block_parentBlockId b) @?= (bhCoinV3Rem - 1)
+
+    case _block_transactions b of
+      x:y:_ -> do
+        step "check remediation transactions' request keys"
+        [ycmd] <- coinV3Transactions
+        _transaction_transactionId y @?= pactHashToTransactionId (_cmdHash ycmd)
+
+        step "check remediation transactions' operations"
+        _transaction_operations y @?= [] -- didn't touch the coin table
+                                         -- NOTE: no remedition withdrawl happens in this version
+
+        step "check coinbase transaction"
+        [cbase] <- pure $ _transaction_operations x
+        validateOp 0 "CoinbaseReward" noMinerks Successful defMiningReward cbase
+
+      _ -> assertFailure $ "coin v3 remediation block should have at least 3 transactions:"
+           ++ " coinbase + 2 remediations"
+  where
+    bhCoinV3Rem = 20
+    req h = BlockReq nid $ PartialBlockId (Just h) Nothing
 
 -- | Rosetta construction submit endpoint tests (i.e. tx submission directly to mempool)
 --

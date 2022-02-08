@@ -111,8 +111,9 @@ matchLogs
     -> ExceptT RosettaFailure Handler tx
 matchLogs typ bh logs coinbase txs
   | bheight == genesisHeight v cid = matchGenesis
-  | coinV2Upgrade v cid bheight = matchRemediation upgradeTransactions
-  | to20ChainRebalance v cid bheight = matchRemediation twentyChainUpgradeTransactions
+  | coinV2Upgrade v cid bheight = matchRemediation (upgradeTransactions v cid)
+  | to20ChainRebalance v cid bheight = matchRemediation (twentyChainUpgradeTransactions v cid)
+  | pact4coin3Upgrade At v bheight = matchRemediation coinV3Transactions
   | otherwise = matchRest
   where
     bheight = _blockHeight bh
@@ -124,7 +125,7 @@ matchLogs typ bh logs coinbase txs
       SingleLog rk -> genesisTransaction logs cid txs rk
 
     matchRemediation getRemTxs = do
-      rems <- liftIO $ getRemTxs v cid
+      rems <- liftIO getRemTxs
       hoistEither $ case typ of
         FullLogs ->
           overwriteError RosettaMismatchTxLogs $!
