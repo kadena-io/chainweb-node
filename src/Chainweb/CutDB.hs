@@ -126,7 +126,7 @@ import Chainweb.BlockHash
 import Chainweb.BlockHeader
 import Chainweb.BlockHeight
 import Chainweb.BlockWeight
-import Chainweb.BlockHeaderDB
+import Chainweb.BlockHeaderDB.Internal
 import Chainweb.ChainId
 import Chainweb.Cut
 import Chainweb.Cut.CutHashes
@@ -360,7 +360,9 @@ startCutDb
     -> IO (CutDb cas)
 startCutDb config logfun headerStore payloadStore cutHashesStore = mask_ $ do
     logg Info "obtain initial cut"
-    cutVar <- newTVarIO =<< initialCut
+    initialCut <- getInitialCut
+    deleteRangeRocksDb (_getRocksDbCas cutHashesStore) (Just $ over _1 succ $ casKey $ cutToCutHashes Nothing initialCut, Nothing)
+    cutVar <- newTVarIO initialCut
     c <- readTVarIO cutVar
     logg Info $ "got initial cut: " <> sshow c
     queue <- newEmptyPQueue
@@ -394,7 +396,7 @@ startCutDb config logfun headerStore payloadStore cutHashesStore = mask_ $ do
     -- 3. exitence of dependencies
     -- 4. full validation
     --
-    initialCut = withTableIter (_getRocksDbCas cutHashesStore) $ \it -> do
+    getInitialCut = withTableIter (_getRocksDbCas cutHashesStore) $ \it -> do
         tableIterLast it
         go it
       where
@@ -417,7 +419,12 @@ startCutDb config logfun headerStore payloadStore cutHashesStore = mask_ $ do
                 Right hm -> unsafeMkCut v
                     <$> case _cutDbParamsInitialHeightLimit config of
                         Nothing -> return hm
-                        Just h -> limitCutHeaders wbhdb (avgCutHeightAt v h) hm
+                        Just h -> do
+                            let 
+                                cutHeightTarget =
+                                    avgCutHeightAt v h - CutHeight (int $ diameterAtCutHeight v (maxBound :: CutHeight))
+                            traverse_ (flip dbRemoveAbove h) $ (_webBlockHeaderStoreCas headerStore ^. webBlockHeaderDb)
+                            limitCutHeaders wbhdb cutHeightTarget hm
 
 -- | Stop the cut validation pipeline.
 --
