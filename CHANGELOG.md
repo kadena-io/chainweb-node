@@ -2,19 +2,19 @@
 
 ## 2.12.2 (2022-02-04)
 
-This is a new feature release for the Rosetta API `1.0.0` ([#1135](https://github.com/kadena-io/chainweb-node/pull/1135)).
+This is a new feature and bug fix release for the `Chainweb Rosetta API 1.0.0` ([#1135](https://github.com/kadena-io/chainweb-node/pull/1135)).
 
 To upgrade, pull the latest docker image or download the binary and restart the node.
 
- *Bug Fixes to Rosetta*
+ **[Rosetta] Bug Fixes**
   * After the fork to Pact 4.2.0, the rosetta /block and /account/balance endpoints returned `TxLogs not parsable`. This version fixes this.
 
- *Backwards Incompatibility*
+ **[Rosetta] Backwards Incompatibility**
   * Adds related transaction (continuations) information to the /block endpoints.
   * Adds related operation information to /block endpoints. Gas operations are now linked together, while coin-table operations are linked to each other in the order they appear.
   * Improved parsing of remediation logs for blocks containing coin v2 and 20 chain forking transactions. Previously, the logs in the coin v2 block were all grouped together into a single request key, but now it will show the different request keys of the remediation transactions.
 
- *Minor Improvments*
+ **[Rosetta] Minor Improvments**
   * Introduces the `rosettaImplementationVersion` value to denote changes in the internal implementation of the Rosetta API.
   * Adds internal metadata data types to facilitate documenting and expanding the metadatas used by the Rosetta endpoints.
 
