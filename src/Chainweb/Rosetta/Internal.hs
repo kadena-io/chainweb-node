@@ -450,6 +450,13 @@ remediations logs cid coinbase remTxs txs = do
   let remWithTxIds = zip remTxs [(succ coinbaseTxId)..]
       -- Assumes that each remediation transaction gets its own TxId.
       -- Assumes that TxIds are going to be sequential for each remediation.
+
+      -- Note (linda and emily): This assumption holds, since the remediation txs are
+      -- applied directly after coinbase at a particular height, as part of applyCoinbase.
+      -- We construct the blocks, hence, the txids are not random.
+      -- See for more details:
+      -- https://github.com/kadena-io/chainweb-node/blob/c0c300a64040390d603f1183eac126e3bbfebe8d/src/Chainweb/Pact/TransactionExec.hs#L328
+
       accWithCoinbase = TxAccumulator restLogs (DList.singleton coinbaseTx)
       accWithRems = foldl' matchRem accWithCoinbase remWithTxIds
 
