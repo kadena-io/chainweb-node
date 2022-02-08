@@ -188,6 +188,29 @@ blockKAccountAfterPact420 tio envIo =
   where
     req h = BlockReq nid $ PartialBlockId (Just h) Nothing
 
+-- | Test rotation of account ownership
+blockTransferAndRotate :: RosettaTest
+blockTransferAndRotate tio envIo =
+  testCaseSchSteps "Block k:Account After Pact 420 Test" $ \step -> do
+    let acctName = "test-acct"
+        prevOwner = sender00
+        currOwner = sender01
+
+    cenv <- envIo
+    rkmv <- newEmptyMVar @RequestKeys
+
+    step "send transaction"
+    prs <- mkTransferAndRotateAsync acctName prevOwner currOwner cid tio cenv (putMVar rkmv)
+    rk <- NEL.head . _rkRequestKeys <$> takeMVar rkmv
+    cmdMeta <- extractMetadata rk prs
+    bh <- cmdMeta ^?! mix "blockHeight"
+
+    step "check that block endpoint doesn't return TxLog parse error"
+    _ <- block cenv (req bh)
+    pure ()
+  where
+    req h = BlockReq nid $ PartialBlockId (Just h) Nothing
+
 -- | Rosetta block transaction endpoint tests
 --
 blockTransactionTests :: RosettaTest
@@ -197,7 +220,7 @@ blockTransactionTests tio envIo =
       rkmv <- newEmptyMVar @RequestKeys
 
       step "send 1.0 from sender00 to sender01 and extract block tx request"
-      prs <- transferOneAsync cid tio cenv (putMVar rkmv)
+      prs <- transferOneAsync "sender01" sender01 cid tio cenv (putMVar rkmv)
       req <- mkTxReq rkmv prs
 
       step "send in block tx request"
@@ -251,7 +274,7 @@ blockTests testname tio envIo = testCaseSchSteps testname $ \step -> do
     _block_blockId bl0 @?= genesisId
 
     step "send transaction"
-    prs <- transferOneAsync cid tio cenv (putMVar rkmv)
+    prs <- transferOneAsync "sender01" sender01 cid tio cenv (putMVar rkmv)
     rk <- NEL.head . _rkRequestKeys <$> takeMVar rkmv
     cmdMeta <- extractMetadata rk prs
     bh <- cmdMeta ^?! mix "blockHeight"
@@ -807,14 +830,19 @@ validateOp idx opType ks st bal o = do
 
 -- | Build a simple transfer from sender00 to sender01
 --
-mkTransfer :: ChainId -> IO (Time Micros) -> IO SubmitBatch
-mkTransfer sid tio = do
+mkTransfer 
+    :: Text 
+    -> SimpleKeyPair 
+    -> ChainId 
+    -> IO (Time Micros) 
+    -> IO SubmitBatch
+mkTransfer acctName acctOwnership sid tio = do
     t <- toTxCreationTime <$> tio
     n <- readIORef nonceRef
     c <- buildTextCmd
       $ set cbSigners
         [ mkSigner' sender00
-          [ mkTransferCap "sender00" "sender01" 1.0
+          [ mkTransferCap "sender00" acctName 1.0
           , mkGasCap
           ]
         ]
@@ -822,7 +850,8 @@ mkTransfer sid tio = do
       $ set cbNetworkId (Just v)
       $ set cbChainId sid 
       $ mkCmd ("nonce-transfer-" <> sshow t <> "-" <> sshow n)
-      $ mkExec' "(coin.transfer \"sender00\" \"sender01\" 1.0)"
+      $ mkExec ("(coin.transfer-create \"sender00\" \"" <> acctName <> "\" (read-keyset \"ks\") 1.0)")
+      $ mkKeySetData "ks" [acctOwnership]
 
     modifyIORef' nonceRef (+1)
     return $ SubmitBatch (pure c)
@@ -847,6 +876,36 @@ mkKCoinAccount sid tio = do
     modifyIORef' nonceRef (+1)
     return $ SubmitBatch (pure c)
 
+mkTransferAndRotate 
+    :: Text 
+    -> SimpleKeyPair 
+    -> SimpleKeyPair
+    -> ChainId 
+    -> IO (Time Micros) 
+    -> IO SubmitBatch
+mkTransferAndRotate acctName prevOwner currOwner sid tio = do
+    t <- toTxCreationTime <$> tio
+    n <- readIORef nonceRef
+    c <- buildTextCmd
+      $ set cbSigners
+        [ mkSigner' sender00
+          [ mkTransferCap "sender00" acctName 1.0
+          , mkGasCap
+          ],
+          mkSigner' prevOwner 
+            [ mkRotateCap acctName ]
+        ]
+      $ set cbCreationTime t
+      $ set cbNetworkId (Just v)
+      $ set cbChainId sid
+      $ mkCmd ("nonce-transfer-" <> sshow t <> "-" <> sshow n)
+      $ mkExec ("(coin.transfer \"sender00\" \"" <> acctName <> "\" 1.0)"
+            <> " (coin.rotate \"" <> acctName <> "\" (read-keyset \"rotate-ks\"))")
+      $ mkKeySetData "rotate-ks" [currOwner]
+
+    modifyIORef' nonceRef (+1)
+    return $ SubmitBatch (pure c)
+
 mkOneKCoinAccountAsync
     :: ChainId
     -> IO (Time Micros)
@@ -861,17 +920,36 @@ mkOneKCoinAccountAsync sid tio cenv callback = do
   where
     f (SubmitBatch cs) = RequestKeys (cmdToRequestKey <$> cs)
 
--- | Transfer one token from sender00 to sender01, applying some callback to
--- the command batch before sending.
---
-transferOneAsync
-    :: ChainId
+mkTransferAndRotateAsync
+    :: Text 
+    -> SimpleKeyPair 
+    -> SimpleKeyPair
+    -> ChainId
     -> IO (Time Micros)
     -> ClientEnv
     -> (RequestKeys -> IO ())
     -> IO PollResponses
-transferOneAsync sid tio cenv callback = do
-    batch0 <- mkTransfer sid tio
+mkTransferAndRotateAsync acctName prevOwner currOwner sid tio cenv callback = do
+    batch0 <- mkTransferAndRotate acctName prevOwner currOwner sid tio
+    void $! callback (f batch0)
+    rks <- sending cid cenv batch0
+    polling cid cenv rks ExpectPactResult
+  where
+    f (SubmitBatch cs) = RequestKeys (cmdToRequestKey <$> cs)
+
+-- | Transfer one token from sender00 to another account, applying some callback to
+-- the command batch before sending.
+--
+transferOneAsync
+    :: Text 
+    -> SimpleKeyPair 
+    -> ChainId
+    -> IO (Time Micros)
+    -> ClientEnv
+    -> (RequestKeys -> IO ())
+    -> IO PollResponses
+transferOneAsync acctName acctOwnership sid tio cenv callback = do
+    batch0 <- mkTransfer acctName acctOwnership sid tio
     void $! callback (f batch0)
     rks <- sending cid cenv batch0
     polling cid cenv rks ExpectPactResult
@@ -890,7 +968,7 @@ transferOneAsync_
     -> (RequestKeys -> IO ())
     -> IO ()
 transferOneAsync_ sid tio cenv callback
-    = void $! transferOneAsync sid tio cenv callback
+    = void $! transferOneAsync "sender01" sender01 sid tio cenv callback
 
 -- ------------------------------------------------------------------ --
 -- Utils

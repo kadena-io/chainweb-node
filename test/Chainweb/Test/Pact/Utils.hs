@@ -42,6 +42,7 @@ module Chainweb.Test.Pact.Utils
 , mkTransferCap
 , mkGasCap
 , mkCoinCap
+, mkRotateCap
 -- * Command builder
 , defaultCmd
 , mkCmd
@@ -293,6 +294,9 @@ mkTransferCap sender receiver amount = mkCoinCap "TRANSFER"
 
 mkGasCap :: SigCapability
 mkGasCap = mkCoinCap "GAS" []
+
+mkRotateCap :: Text -> SigCapability
+mkRotateCap acct = mkCoinCap "ROTATE" [ pString acct ]
 
 
 
