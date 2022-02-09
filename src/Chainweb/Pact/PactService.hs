@@ -30,6 +30,7 @@ module Chainweb.Pact.PactService
     , execBlockTxHistory
     , execHistoricalLookup
     , execSyncToBlock
+    , execBackup
     , initPactService
     , initPactService'
     , execNewGenesisBlock
@@ -315,6 +316,11 @@ serviceRequests logFn memPoolAccess reqQ = do
                     tryOne "syncToBlockBlock" _syncToResultVar $
                         execSyncToBlock _syncToBlockHeader
                 go
+            BackupMsg BackupReq {..} -> do
+                trace logFn "Chainweb.Pact.PactService.execBackup" _backupFilePath 1 $
+                    tryOne "execBackup" _backupResultVar $
+                        execBackup _backupFilePath
+                go
 
     toPactInternalError e = Left $ PactInternalError $ T.pack $ show e
 
@@ -560,6 +566,14 @@ execSyncToBlock
     => BlockHeader
     -> PactServiceM cas ()
 execSyncToBlock hdr = rewindToIncremental Nothing (Just $ ParentHeader hdr)
+
+execBackup 
+    :: PayloadCasLookup cas 
+    => FilePath
+    -> PactServiceM cas ()
+execBackup fp = do
+    cp <- getCheckpointer
+    liftIO $ _cpBackup cp fp
 
 -- | Validate a mined block. Execute the transactions in Pact again as
 -- validation. Note: The BlockHeader here is the header of the block being

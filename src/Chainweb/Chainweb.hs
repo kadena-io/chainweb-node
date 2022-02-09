@@ -64,7 +64,7 @@ module Chainweb.Chainweb
 , chainwebPutPeerThrottler
 , chainwebConfig
 , chainwebServiceSocket
-, chainwebMakeRocksDbCheckpoint
+, chainwebMakeBackup
 
 -- ** Mempool integration
 , ChainwebTransaction
@@ -95,8 +95,6 @@ module Chainweb.Chainweb
 , cutInitialCutHeightLimit
 , defaultCutConfig
 
---
-, MakeRocksDbCheckpoint(..)
 ) where
 
 import Configuration.Utils hiding (Error, Lens', disabled)
@@ -200,7 +198,7 @@ data Chainweb logger cas = Chainweb
     , _chainwebPutPeerThrottler :: !(Throttle Address)
     , _chainwebConfig :: !ChainwebConfiguration
     , _chainwebServiceSocket :: !(Port, Socket)
-    , _chainwebMakeRocksDbCheckpoint :: !(Maybe (IO Text))
+    , _chainwebMakeBackup :: !(Maybe (IO Text))
     }
 
 makeLenses ''Chainweb
@@ -226,7 +224,7 @@ withChainweb
     -> Bool
     -> (forall cas' . PayloadCasLookup cas' => Chainweb logger cas' -> IO ())
     -> IO ()
-withChainweb c logger rocksDb rocksDbCheckpointDir pactDbDir resetDb inner =
+withChainweb c logger rocksDb checkpointDir pactDbDir resetDb inner =
     withPeerResources v (view configP2p confWithBootstraps) logger $ \logger' peer ->
         withSocket serviceApiPort serviceApiHost $ \serviceSock -> do
             let conf' = confWithBootstraps
@@ -238,7 +236,7 @@ withChainweb c logger rocksDb rocksDbCheckpointDir pactDbDir resetDb inner =
                 peer
                 serviceSock
                 rocksDb
-                rocksDbCheckpointDir
+                checkpointDir
                 pactDbDir
                 resetDb
                 inner
@@ -341,7 +339,7 @@ withChainwebInternal
     -> Bool
     -> (forall cas' . PayloadCasLookup cas' => Chainweb logger cas' -> IO ())
     -> IO ()
-withChainwebInternal conf logger peer serviceSock rocksDb rocksDbCheckpointDir pactDbDir resetDb inner = do
+withChainwebInternal conf logger peer serviceSock rocksDb checkpointDir pactDbDir resetDb inner = do
 
     initializePayloadDb v payloadDb
 
@@ -474,7 +472,7 @@ withChainwebInternal conf logger peer serviceSock rocksDb rocksDbCheckpointDir p
                                 , _chainwebPutPeerThrottler = putPeerThrottler
                                 , _chainwebConfig = conf
                                 , _chainwebServiceSocket = serviceSock
-                                , _chainwebMakeRocksDbCheckpoint = maybeMakeCheckpoint
+                                , _chainwebMakeBackup = maybeMakeBackup cs
                                 }
 
     withPactData
@@ -529,19 +527,28 @@ withChainwebInternal conf logger peer serviceSock rocksDb rocksDbCheckpointDir p
             void $ _pactSyncToBlock pact bh
             logCr Info "pact db synchronized"
 
-    makeCheckpoint :: IO Text
-    makeCheckpoint = do
-        createDirectoryIfMissing False rocksDbCheckpointDir
+    makeBackup :: HM.HashMap ChainId (ChainResources logger) -> IO Text
+    makeBackup cs = do
+        createDirectoryIfMissing False checkpointDir
         Time (epochToNow :: TimeSpan Integer) <- getCurrentTimeIntegral
         let time = microsToText (timeSpanToMicros epochToNow)
         -- maxBound ~ always flush WAL log before checkpoint, under the assumption
         -- that it's not much work
-        checkpointRocksDb rocksDb maxBound (rocksDbCheckpointDir </> T.unpack time)
+        let thisCheckpoint = checkpointDir </> T.unpack time 
+        checkpointRocksDb rocksDb maxBound (thisCheckpoint </> "rocksDb")
+        for_ cs $ \cr ->  do
+            let logCr = logFunctionText
+                    $ addLabel ("component", "pact")
+                    $ addLabel ("sub-component", "backup")
+                    $ _chainResLogger cr
+            logCr Info $ "backing up pact database to " <> T.pack checkpointDir
+            void $ _pactBackup (_chainResPact cr) (thisCheckpoint </> "sqlite")
+            logCr Info $ "pact db backed up"
         return time
 
-    maybeMakeCheckpoint :: Maybe (IO Text)
-    maybeMakeCheckpoint = 
-        makeCheckpoint <$ guard (_configCheckpoints conf)
+    maybeMakeBackup :: HM.HashMap ChainId (ChainResources logger) -> Maybe (IO Text)
+    maybeMakeBackup cs = 
+        makeBackup cs <$ guard (_configCheckpoints conf)
 
 -- -------------------------------------------------------------------------- --
 -- Throttling
@@ -717,7 +724,7 @@ runChainweb cw = do
         (_chainwebCoordinator cw)
         (HeaderStream . _configHeaderStream $ _chainwebConfig cw)
         (Rosetta . _configRosetta $ _chainwebConfig cw)
-        (MakeRocksDbCheckpoint <$> _chainwebMakeRocksDbCheckpoint cw)
+        (MakeBackup <$> _chainwebMakeBackup cw)
 
     serviceHttpLog :: Middleware
     serviceHttpLog = requestResponseLogger $ setComponent "http:service-api" (_chainwebLogger cw)

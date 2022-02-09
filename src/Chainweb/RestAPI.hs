@@ -36,7 +36,7 @@ module Chainweb.RestAPI
 -- * Component Triggers
 , HeaderStream(..)
 , Rosetta(..)
-, MakeRocksDbCheckpoint(..)
+, MakeBackup(..)
 
 -- * Chainweb P2P API Server
 , someChainwebServer
@@ -100,7 +100,7 @@ import qualified Chainweb.Miner.RestAPI.Server as Mining
 import qualified Chainweb.Pact.RestAPI.Server as PactAPI
 import Chainweb.Payload.PayloadStore
 import Chainweb.Payload.RestAPI.Server
-import Chainweb.RestAPI.Checkpoint
+import Chainweb.RestAPI.Backup
 import Chainweb.RestAPI.Config
 import Chainweb.RestAPI.Health
 import Chainweb.RestAPI.NetworkID
@@ -169,8 +169,8 @@ newtype Rosetta = Rosetta Bool
 
 newtype HeaderStream = HeaderStream Bool
 
-newtype MakeRocksDbCheckpoint = MakeRocksDbCheckpoint 
-    { getMakeRocksDbCheckpoint :: IO Text 
+newtype MakeBackup = MakeBackup 
+    { getMakeBackup :: IO Text 
     }
 
 -- -------------------------------------------------------------------------- --
@@ -330,11 +330,11 @@ someServiceApiServer
     -> Maybe (MiningCoordination logger cas)
     -> HeaderStream
     -> Rosetta
-    -> Maybe MakeRocksDbCheckpoint
+    -> Maybe MakeBackup
     -> SomeServer
-someServiceApiServer v dbs pacts mr (HeaderStream hs) (Rosetta r) makeRocksDbCheckpoint =
+someServiceApiServer v dbs pacts mr (HeaderStream hs) (Rosetta r) makeBackup =
     someHealthCheckServer
-    <> maybe mempty (someCheckpointServer . getMakeRocksDbCheckpoint) makeRocksDbCheckpoint
+    <> maybe mempty (someBackupServer . getMakeBackup) makeBackup
     <> maybe mempty (someNodeInfoServer v) cuts
     <> PactAPI.somePactServers v pacts
     <> maybe mempty (Mining.someMiningServer v) mr
@@ -367,12 +367,12 @@ serviceApiApplication
     -> Maybe (MiningCoordination logger cas)
     -> HeaderStream
     -> Rosetta
-    -> Maybe MakeRocksDbCheckpoint
+    -> Maybe MakeBackup
     -> Application
-serviceApiApplication v dbs pacts mr hs r mkRdbCheckpoint
+serviceApiApplication v dbs pacts mr hs r mkBackup
     = chainwebServiceMiddlewares
     . someServerApplication
-    $ someServiceApiServer v dbs pacts mr hs r mkRdbCheckpoint
+    $ someServiceApiServer v dbs pacts mr hs r mkBackup
 
 serveServiceApiSocket
     :: Show t
@@ -386,8 +386,8 @@ serveServiceApiSocket
     -> Maybe (MiningCoordination logger cas)
     -> HeaderStream
     -> Rosetta
-    -> Maybe MakeRocksDbCheckpoint
+    -> Maybe MakeBackup
     -> Middleware
     -> IO ()
-serveServiceApiSocket s sock v dbs pacts mr hs r mkRdbCheckpoint m =
-    runSettingsSocket s sock $ m $ serviceApiApplication v dbs pacts mr hs r mkRdbCheckpoint
+serveServiceApiSocket s sock v dbs pacts mr hs r mkBackup m =
+    runSettingsSocket s sock $ m $ serviceApiApplication v dbs pacts mr hs r mkBackup

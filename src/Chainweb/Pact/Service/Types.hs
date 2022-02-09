@@ -128,6 +128,7 @@ data RequestMsg = NewBlockMsg !NewBlockReq
                 | BlockTxHistoryMsg !BlockTxHistoryReq
                 | HistoricalLookupMsg !HistoricalLookupReq
                 | SyncToBlockMsg !SyncToBlockReq
+                | BackupMsg !BackupReq
                 | CloseMsg
                 deriving (Show)
 
@@ -200,6 +201,12 @@ data SyncToBlockReq = SyncToBlockReq
     , _syncToResultVar :: !(PactExMVar ())
     }
 instance Show SyncToBlockReq where show SyncToBlockReq{..} = show _syncToBlockHeader
+
+data BackupReq = BackupReq 
+  { _backupFilePath :: !FilePath 
+  , _backupResultVar :: !(PactExMVar ())
+  }
+instance Show BackupReq where show BackupReq{..} = show _backupFilePath
 
 data SpvRequest = SpvRequest
     { _spvRequestKey :: !RequestKey

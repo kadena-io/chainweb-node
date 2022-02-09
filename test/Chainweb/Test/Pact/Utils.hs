@@ -522,6 +522,8 @@ withWebPactExecutionService v bdb mempoolAccess act =
               evalPactServiceM_ ctx $ Right <$> execHistoricalLookup h d k
           , _pactSyncToBlock = \h ->
               evalPactServiceM_ ctx $ execSyncToBlock h
+          , _pactBackup = \fp ->
+              evalPactServiceM_ ctx $ execBackup fp
           }
 
 

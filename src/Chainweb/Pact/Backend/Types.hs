@@ -312,6 +312,8 @@ data Checkpointer = Checkpointer
         forall k v . (FromJSON v) => BlockHeader -> Domain k v -> IO BlockTxHistory)
     , _cpGetHistoricalLookup :: !(
         forall k v . (FromJSON v) => BlockHeader -> Domain k v -> RowKey -> IO (Maybe (TxLog Value)))
+    , _cpBackup :: !(
+        FilePath -> IO ())
     }
 
 data CheckpointEnv = CheckpointEnv

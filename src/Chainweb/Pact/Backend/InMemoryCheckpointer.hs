@@ -83,6 +83,7 @@ initInMemoryCheckpointEnv loggers logger ver cid = do
                     , _cpLookupProcessedTx = doLookupSuccessful inmem
                     , _cpGetBlockHistory = \_ _ -> error "unimplemented"
                     , _cpGetHistoricalLookup = \_ _ _ -> error "unimplemented"
+                    , _cpBackup = \_ -> error "unimplemented"
                 }
             , _cpeLogger = logger
             })

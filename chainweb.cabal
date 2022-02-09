@@ -206,8 +206,8 @@ library
         , Chainweb.Payload.RestAPI.Client
         , Chainweb.PowHash
         , Chainweb.RestAPI
+        , Chainweb.RestAPI.Backup
         , Chainweb.RestAPI.Config
-        , Chainweb.RestAPI.Checkpoint
         , Chainweb.RestAPI.Health
         , Chainweb.RestAPI.NetworkID
         , Chainweb.RestAPI.NodeInfo

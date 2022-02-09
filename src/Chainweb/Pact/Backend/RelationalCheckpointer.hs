@@ -34,10 +34,13 @@ import qualified Data.HashMap.Strict as HashMap
 import qualified Data.List as List
 import qualified Data.Set as S
 import Data.Serialize hiding (get)
+import Data.String
 import Data.String.Conv
 import qualified Data.Text as T
 import qualified Data.Vector as V
 import qualified Data.Vector.Algorithms.Tim as TimSort
+
+import System.FilePath
 
 import Database.SQLite3.Direct
 
@@ -104,6 +107,7 @@ initRelationalCheckpointer' bstate sqlenv loggr v cid = do
               , _cpLookupProcessedTx = doLookupSuccessful db
               , _cpGetBlockHistory = doGetBlockHistory db
               , _cpGetHistoricalLookup = doGetHistoricalLookup db
+              , _cpBackup = doBackup db
               }
         , _cpeLogger = loggr
         })
@@ -369,3 +373,13 @@ doGetHistoricalLookup dbenv blockHeader d k = runBlockEnv dbenv $ do
         [[SText key, SBlob value]] -> Just <$> toTxLog d key value
         [] -> pure Nothing
         _ -> internalError $ "doGetHistoricalLookup: expected single-row result, got " <> sshow r
+
+doBackup
+  :: Db
+  -> FilePath
+  -> IO ()
+doBackup dbenv fp = runBlockEnv dbenv $ do
+  dbFileName <- takeFileName <$> view (bdbenvDb.sConfig.dbFile)
+  callDb "doBackup" $ \db -> do
+    void $ qry_ db ("VACUUM INTO " <> fromString (fp </> dbFileName)) [] 
+
