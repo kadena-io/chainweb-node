@@ -219,7 +219,9 @@ withChainweb
     -> logger
     -> RocksDb
     -> FilePath
+        -- ^ Directory where database snapshots are stored.
     -> FilePath
+        -- ^ directory where the pact database is stored
         -- ^ Pact database directory
     -> Bool
     -> (forall cas' . PayloadCasLookup cas' => Chainweb logger cas' -> IO ())
