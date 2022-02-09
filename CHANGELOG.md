@@ -13,6 +13,7 @@ To upgrade, pull the latest docker image or download the binary and restart the 
   * Adds related transaction (continuations) information to the /block endpoints.
   * Adds related operation information to /block endpoints. Gas operations are now linked together, while coin-table operations are linked to each other in the order they appear.
   * Improved parsing of remediation logs for blocks containing coin v2 and 20 chain forking transactions. Previously, the logs in the coin v2 block were all grouped together into a single request key, but now it will show the different request keys of the remediation transactions.
+  * Re-enabled metadatas. Rosetta testing tooling used to error out when submitting unstructured JSON. This bug has seen been fixed.
 
  **[Rosetta] Minor Improvments**
   * Introduces the `rosettaImplementationVersion` value to denote changes in the internal implementation of the Rosetta API.
