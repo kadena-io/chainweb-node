@@ -80,6 +80,8 @@ module Chainweb.CutDB
 -- * Queue Statistics
 , QueueStats(..)
 , getQueueStats
+-- * Debugging
+, switchToLatestCut
 ) where
 
 import Control.Applicative
@@ -341,6 +343,14 @@ withCutDb config logfun headerStore payloadStore cutHashesStore a
         stopCutDb
         a
 
+switchToLatestCut :: CutDb cas -> IO ()
+switchToLatestCut cdb = do
+    latestCut <- withTableIter (_getRocksDbCas $ _cutDbStore cdb) $ \it -> do
+        tableIterLast it
+        Just here <- tableIterValue it
+        unsafeMkCut (_chainwebVersion $ _cutDbHeaderStore cdb) <$> lookupCutHashes (_webBlockHeaderStoreCas $ _cutDbHeaderStore cdb) here
+    atomically $ writeTVar (_cutDbCut cdb) latestCut
+
 -- | Start a CutDB. This loads the initial cut from the database (falling back
 -- to the configured initial cut loading fails) and starts the cut validation
 -- pipeline.
@@ -361,7 +371,7 @@ startCutDb
 startCutDb config logfun headerStore payloadStore cutHashesStore = mask_ $ do
     logg Info "obtain initial cut"
     initialCut <- getInitialCut
-    deleteRangeRocksDb (_getRocksDbCas cutHashesStore) (Just $ over _1 succ $ casKey $ cutToCutHashes Nothing initialCut, Nothing)
+    -- deleteRangeRocksDb (_getRocksDbCas cutHashesStore) (Just $ over _1 succ $ casKey $ cutToCutHashes Nothing initialCut, Nothing)
     cutVar <- newTVarIO initialCut
     c <- readTVarIO cutVar
     logg Info $ "got initial cut: " <> sshow c
@@ -422,8 +432,9 @@ startCutDb config logfun headerStore payloadStore cutHashesStore = mask_ $ do
                         Just h -> do
                             let 
                                 cutHeightTarget =
-                                    avgCutHeightAt v h - CutHeight (int $ diameterAtCutHeight v (maxBound :: CutHeight))
-                            traverse_ (flip dbRemoveAbove h) $ (_webBlockHeaderStoreCas headerStore ^. webBlockHeaderDb)
+                                    avgCutHeightAt v h - 
+                                        CutHeight (int $ diameterAtCutHeight v (maxBound :: CutHeight) * chainCountAt v (maxBound :: BlockHeight)) 
+                            -- traverseOf_ (webBlockHeaderDb.traversed) (flip dbRemoveAbove h) (_webBlockHeaderStoreCas headerStore)
                             limitCutHeaders wbhdb cutHeightTarget hm
 
 -- | Stop the cut validation pipeline.

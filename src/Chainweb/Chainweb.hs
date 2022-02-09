@@ -436,6 +436,10 @@ withChainwebInternal conf logger peer serviceSock rocksDb pactDbDir resetDb inne
             logg Info "start synchronizing Pact DBs"
             synchronizePactDb cs mCutDb
             logg Info "finished synchronizing Pact DBs"
+            switchToLatestCut mCutDb
+            logg Info "start synchronizing Pact DBs again"
+            synchronizePactDb cs mCutDb
+            logg Info "finished synchronizing Pact DBs again"
 
             unless (_configOnlySyncPact conf) $
                 withPactData cs cuts $ \pactData -> do

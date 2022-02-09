@@ -52,7 +52,7 @@ import qualified Data.HashSet as HS
 import qualified Data.List as L
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
--- import qualified Data.Text.IO as T
+import qualified Data.Text.IO as T
 #if DEBUG_MULTINODE_TEST
 import qualified Data.Text.IO as T
 #endif
@@ -237,11 +237,12 @@ runNodes
     -> (T.Text -> IO ())
     -> MVar ConsensusState
     -> ChainwebConfiguration
+    -> ChainwebVersion
     -> Natural
         -- ^ number of nodes
     -> RocksDb
     -> IO ()
-runNodes loglevel write stateVar baseConf n rdb = do
+runNodes loglevel write stateVar baseConf v n rdb = do
     -- NOTE: pact is enabled until we have a good way to disable it globally in
     -- "Chainweb.Chainweb".
     --
@@ -259,7 +260,7 @@ runNodes loglevel write stateVar baseConf n rdb = do
 
         conf <- if
             | i == 0 ->
-                return $ multiBootstrapConfig baseConf
+                return $ multiBootstrapConfig (multiConfig v n)
             | otherwise ->
                 setBootstrapPeerInfo <$> readMVar bootstrapPortVar <*> pure baseConf
 
@@ -281,7 +282,7 @@ runNodesForSeconds
 runNodesForSeconds loglevel baseConf v n (Seconds seconds) write rdb = do
     stateVar <- newMVar $ emptyConsensusState v
     void $ timeout (int seconds * 1_000_000)
-        $ runNodes loglevel write stateVar baseConf n rdb 
+        $ runNodes loglevel write stateVar baseConf v n rdb 
 
     consensusState <- readMVar stateVar
     return (consensusStateSummary consensusState)
@@ -292,23 +293,19 @@ replayTest
     -> Natural
     -> Seconds
     -> TestTree
-replayTest loglevel v n seconds = testCaseSteps name $ \step -> do
+replayTest _ v n seconds = testCaseSteps name $ \step -> do
     let tastylog = step . T.unpack
     -- var <- newMVar (0 :: Int)
     -- let logFun = tastylog
         -- maxLogMsgs = 60
         -- countedLog msg = modifyMVar_ var $ \c -> force (succ c) <$
             -- when (c < maxLogMsgs) (logFun msg)
-    withTempRocksDb "replay-test" $ \rdb -> do
-        putStrLn "what"
-        tastylog "starting up..."
-        stats1 <- runNodesForSeconds loglevel (multiConfig v n) v n seconds (\_ -> return ()) rdb 
-        putStrLn "what2"
-        tastylog "shut down. restarting..."
-        -- stats2 <- runNodesForSeconds loglevel (multiConfig v n & set (configCuts . cutResetTarget) (Just (CutResetToBlockHeight 200))) v n (seconds * 10000) (T.putStrLn) rdb
-        putStrLn "what3"
+    withRocksDb "replay-test" $ \rdb -> do
+        tastylog "phase 1..."
+        -- print =<< runNodesForSeconds loglevel (multiConfig v n) v n 50 T.putStrLn rdb 
+        tastylog "phase 2..."
+        print =<< runNodesForSeconds Debug (multiConfig v n & set (configCuts . cutInitialBlockHeightLimit) (Just 200)) v n 1000 (T.putStrLn) rdb
         tastylog "done."
-        print stats1
         -- print stats2
     where
     name = "ConsensusNetwork (nodes: " <> show n <> ", seconds: " <> show seconds <> ") [replay]"
