@@ -61,6 +61,7 @@ module Chainweb.Version
 , enforceKeysetFormats
 , AtOrAfter(..)
 , doCheckTxHash
+, chainweb213Pact
 
 -- ** BlockHeader Validation Guards
 , slowEpochGuard
@@ -912,6 +913,15 @@ doCheckTxHash Testnet04 = (>= 1_889_000) -- 2022-01-24T04:19:24
 doCheckTxHash Development = (>= 110)
 doCheckTxHash (FastTimedCPM g) | g == petersonChainGraph = (>= 7)
 doCheckTxHash _ = const False
+
+-- | Omnibus pact changes for 2.13:
+-- | - miner keyset enforce
+chainweb213Pact :: ChainwebVersion -> BlockHeight -> Bool
+chainweb213Pact Mainnet01 = (>= 2_447_358) -- 2022-02-26 00:00:18
+chainweb213Pact Testnet04 = (>= 1_977_816) -- 2022-02-25 00:00:18
+chainweb213Pact Development = (>= 95)
+chainweb213Pact (FastTimedCPM g) | g == petersonChainGraph = (>= 5)
+chainweb213Pact _ = const False
 
 -- -------------------------------------------------------------------------- --
 -- Header Validation Guards
