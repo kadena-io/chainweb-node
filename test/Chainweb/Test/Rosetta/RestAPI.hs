@@ -19,7 +19,6 @@ import qualified Data.Aeson as A
 import Data.Decimal
 import Data.Functor (void)
 import qualified Data.HashMap.Strict as HM
-import qualified Data.Map.Strict as M
 import Data.IORef
 import qualified Data.List.NonEmpty as NEL
 import Data.Text (Text)
@@ -50,7 +49,6 @@ import qualified Pact.Types.PactValue as P
 import Chainweb.Graph
 import Chainweb.Pact.Utils (aeson)
 import Chainweb.Pact.Transactions.UpgradeTransactions
-import Chainweb.Pact.Service.Types
 import Chainweb.Rosetta.Utils
 import Chainweb.Test.Pact.Utils
 import Chainweb.Test.RestAPI.Utils
@@ -408,8 +406,8 @@ constructionTransferTests :: RosettaTest
 constructionTransferTests _ envIo =
   testCaseSchSteps "Construction Flow Tests" $ \step -> do
     cenv <- envIo
-    let submitToConstructionAPI' ops cid' xchain res =
-          submitToConstructionAPI ops cid' "sender00" xchain getKeys res cenv step
+    let submitToConstructionAPI' ops cid' res =
+          submitToConstructionAPI ops cid' "sender00" getKeys res cenv step
 
     step "--- TRANSFER TO AN EXISTING ACCOUNT ---"
     void $ do
@@ -424,7 +422,7 @@ constructionTransferTests _ envIo =
           ops = [ mkOp fromAcct (negate amt) fromGuard 0
                 , mkOp toAcct amt toGuard 1 ]
           res = P.PLiteral $ P.LString "Write succeeded"
-      submitToConstructionAPI' ops srcChainId Nothing res
+      submitToConstructionAPI' ops srcChainId res
 
     step "--- TRANSFER TO A NEW ACCOUNT ---"
     void $ do
@@ -436,7 +434,7 @@ constructionTransferTests _ envIo =
           ops = [ mkOp fromAcct (negate amt) fromGuard 0
                 , mkOp toAcct amt toGuard 1 ]
           res = P.PLiteral $ P.LString "Write succeeded"
-      submitToConstructionAPI' ops cid Nothing res
+      submitToConstructionAPI' ops cid res
 
     step "--- TRANSFER TO A k: ACCOUNT ---"
     void $ do
@@ -457,52 +455,7 @@ constructionTransferTests _ envIo =
                 , mkOp toAcct amt toGuardSender01 1 ]
           res = P.PLiteral $ P.LString "Write succeeded"
 
-      submitToConstructionAPI' ops cid Nothing res
-
-    step "--- CREATE A NEW ACCOUNT ---"
-    void $ do
-      let ops = [ mkOp "anotherNewAccount" 0.0 (ks sender01ks) 0 ]
-          res = P.PLiteral $ P.LString "Write succeeded"
-      submitToConstructionAPI' ops cid Nothing res
-
-    step "--- START CROSSCHAIN TRANSFER TO NEW ACCOUNT ---"
-    let srcChain = unsafeChainId 0
-        targetChain = unsafeChainId 1
-        amt = 2.0
-        fromAcct = "sender01"
-        fromGuard = ks sender01ks
-        toAcct = "yetAnotherNewAccount"
-        toGuard = ks sender00ks
-        ops = [ mkOp fromAcct (negate amt) fromGuard 0 ]
-        targetChainText = P.ChainId $ chainIdToText targetChain
-        xchain = Just $ StartCrossChainTx
-          { _startCrossChainTx_to = toAcct
-          , _startCrossChainTx_toGuard = toGuard
-          , _startCrossChainTx_targetChain = targetChainText
-          }
-        res = P.PObject $ P.ObjectMap $ M.fromList
-              [ ("amount", P.PLiteral $ P.LDecimal amt)
-              , ("receiver", P.PLiteral $ P.LString toAcct)
-              , ("receiver-guard", P.PGuard $ P.GKeySet toGuard) ]
-    pactId <- submitToConstructionAPI' ops srcChain xchain res
-
-    step "--- FINISH CROSSCHAIN TRANSFER TO A NEW ACCOUNT ---"
-    step "get spv proof"
-    let spvReq = SpvRequest pactId targetChainText
-    TransactionOutputProofB64 spvProof <- spv srcChain cenv spvReq
-
-    let _xchainEndOps = [ mkOp toAcct amt toGuard 0 ]
-        _xchainEnd = Just $ FinishCrossChainTx
-          { _finishCrossChainTx_sourceChain = P.ChainId $ chainIdToText srcChain
-          , _finishCrossChainTx_pactId = P.toPactId $ P.unRequestKey pactId
-          , _finishCrossChainTx_proof = spvProof
-          }
-        _xchainEndRes = P.PLiteral $ P.LString "Write succeeded"
-    pure ()
-    --void $ constructValidTx' _xchainEndOps targetChain _xchainEnd _xchainEndRes
-    -- TODO: This fails when validating the polling result because it can't
-    -- find the poll. This seems to be related to submiting a tx to a non-zero
-    -- chainId in this testing infrastructure.
+      submitToConstructionAPI' ops cid res
 
   where    
     mkOp name delta guard idx =
@@ -536,15 +489,14 @@ submitToConstructionAPI
     :: [Operation]
     -> ChainId
     -> Text
-    -> Maybe CrossChainTxMetaData
     -> (Text -> Maybe SimpleKeyPair)
     -> P.PactValue
     -> ClientEnv
     -> (String -> IO ())
     -> IO RequestKey
-submitToConstructionAPI expectOps chainId' payer xchain getKeys expectResult cenv step = do
+submitToConstructionAPI expectOps chainId' payer getKeys expectResult cenv step = do
   step "preprocess intended operations"
-  let preMeta = PreprocessReqMetaData xchain (acct payer) Nothing
+  let preMeta = PreprocessReqMetaData (acct payer) Nothing
       preReq = ConstructionPreprocessReq netId expectOps (Just $! toObject preMeta)
                Nothing Nothing
 

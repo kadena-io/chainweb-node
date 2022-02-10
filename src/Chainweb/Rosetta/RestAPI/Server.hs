@@ -255,13 +255,13 @@ constructionPreprocessH v req = do
     
     work :: Either RosettaError ConstructionPreprocessResp
     work = do
-      cid <- annotate rosettaError' (validateNetwork v net)
+      _ <- annotate rosettaError' (validateNetwork v net)
       meta <- note (rosettaError' RosettaMissingMetaData) someMeta
       parsedMeta :: PreprocessReqMetaData <- extractMetaData meta
 
-      let PreprocessReqMetaData xchainMeta gasPayer _ = parsedMeta
+      let PreprocessReqMetaData gasPayer _ = parsedMeta
 
-      tx <- opsToConstructionTx cid xchainMeta ops
+      tx <- opsToConstructionTx ops
       (gasLimit, gasPrice, fee) <- getSuggestedFee tx someMaxFee someMult
 
       -- The accounts that need to sign the transaction
@@ -296,12 +296,12 @@ constructionMetadataH v cutDb pacts (ConstructionMetadataReq net opts someKeys) 
                           >>= hoistEither . toSignerMap
       meta :: PreprocessRespMetaData <- hoistEither $ extractMetaData opts
       let PreprocessRespMetaData reqMeta tx fee gLimit gPrice = meta
-          PreprocessReqMetaData _ payer someNonce = reqMeta
+          PreprocessReqMetaData payer someNonce = reqMeta
 
       pubMeta <- liftIO $ toPublicMeta cid payer gLimit gPrice
       let nonce = toNonce someNonce pubMeta
 
-      expectedAccts <- toSignerAcctsMap tx payer v cid pacts cutDb
+      expectedAccts <- toSignerAcctsMap tx payer cid pacts cutDb
       signersAndAccts <- hoistEither $!
                          createSigners availableSigners expectedAccts
       

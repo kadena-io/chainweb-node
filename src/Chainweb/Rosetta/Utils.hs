@@ -37,7 +37,6 @@ import qualified Pact.Types.Command as P
 import qualified Pact.Types.Scheme as P
 import qualified Pact.Parse as P
 import qualified Pact.Types.Crypto as P
-import qualified Pact.Types.SPV as P
 import qualified Data.Set as S
 import Data.Maybe ( fromMaybe )
 import qualified Pact.Types.RowData as P
@@ -282,27 +281,23 @@ instance FromJSON CrossChainTxMetaData where
 
 
 data PreprocessReqMetaData = PreprocessReqMetaData
-  { _preprocessReqMetaData_crossChainTxMetaData :: !(Maybe CrossChainTxMetaData)
-  , _preprocessReqMetaData_gasPayer :: !AccountId
+  { _preprocessReqMetaData_gasPayer :: !AccountId
   , _preprocessReqMetaData_nonce :: !(Maybe T.Text)
   } deriving (Show, Eq)
 instance ToObject PreprocessReqMetaData where
-  toPairs (PreprocessReqMetaData someXChain payer someNonce) =
+  toPairs (PreprocessReqMetaData payer someNonce) =
     toPairOmitMaybe
     [ "gas_payer" .= payer ]
-    [ maybePair "cross_chain_tx" someXChain
-    , maybePair "nonce" someNonce ]
+    [ maybePair "nonce" someNonce ]
   toObject meta = HM.fromList (toPairs meta)
 instance ToJSON PreprocessReqMetaData where
   toJSON = object . toPairs
 instance FromJSON PreprocessReqMetaData where
   parseJSON = withObject "PreprocessReqMetaData" $ \o -> do
-    xchain <- o .:? "cross_chain_tx"
     payer <- o .: "gas_payer"
     nonce <- o .:? "nonce"
     return $ PreprocessReqMetaData
-      { _preprocessReqMetaData_crossChainTxMetaData = xchain
-      , _preprocessReqMetaData_gasPayer = payer
+      { _preprocessReqMetaData_gasPayer = payer
       , _preprocessReqMetaData_nonce = nonce
       }
 
@@ -318,26 +313,6 @@ data ConstructionTx =
       , _constructTransfer_toGuard :: !P.KeySet
       , _constructTransfer_amount :: !P.ParsedDecimal
       }
-  | ConstructAcctCreate
-      { _constructAcctCreate_acctName :: !T.Text
-      , _constructAcctCreate_acctGuard :: !P.KeySet
-      }
-  | ConstructStartCrossChain
-      { _constructStartCrossChain_from :: !T.Text
-      , _constructStartCrossChain_fromGuard :: !P.KeySet
-      , _constructStartCrossChain_to :: !T.Text
-      , _constructStartCrossChain_toGuard :: !P.KeySet
-      , _constructStartCrossChain_amount :: !P.ParsedDecimal
-      , _constructStartCrossChain_targetChain :: !P.ChainId
-      }
-  | ConstructFinishCrossChain
-      { _constructFinishCrossChain_to :: !T.Text
-      , _constructFinishCrossChain_toGuard :: !P.KeySet
-      , _constructFinishCrossChain_amount :: !P.ParsedDecimal
-      , _constructFinishCrossChain_pactId :: !P.PactId
-      , _constructFinishCrossChain_sourceChain :: !P.ChainId
-      , _constructFinishCrossChain_proof :: !T.Text
-      }
   deriving (Show, Eq)
 instance ToJSON ConstructionTx where
   toJSON (ConstructTransfer from fromGuard to toGuard amt) =
@@ -347,36 +322,11 @@ instance ToJSON ConstructionTx where
            , "receiver_account" .= to
            , "receiver_ownership" .= toGuard
            , "transfer_amount" .= amt ]
-  toJSON (ConstructAcctCreate name guard) =
-    object [ "tx_type" .= ("create_account" :: T.Text)
-           , "account_name" .= name
-           , "account_ownership" .= guard ]
-  toJSON (ConstructStartCrossChain from fromGuard to toGuard amt targetChain) =
-    object [ "tx_type" .= ("start_cross_chain" :: T.Text)
-           , "sender_account" .= from
-           , "sender_ownership" .= fromGuard
-           , "receiver_account" .= to
-           , "receiver_ownership" .= toGuard
-           , "transfer_amount" .= amt
-           , "target_chain" .= targetChain ]
-  toJSON (ConstructFinishCrossChain to toGuard amt pactId sourceChain proof) =
-    toJSONOmitMaybe
-    [ "tx_type" .= ("finish_cross_chain" :: T.Text)
-    , "receiver_account" .= to
-    , "receiver_ownership" .= toGuard
-    , "transfer_amount" .= amt
-    , "pact_id" .= pactId
-    , "source_chain" .= sourceChain
-    , "spv_proof" .= proof ]
-    []
 instance FromJSON ConstructionTx where
   parseJSON = withObject "ConstructionTx" $ \o -> do
     typ :: T.Text <- o .: "tx_type"
     case typ of
       "transfer" -> parseTransfer o
-      "create_account" -> parseAcctCreate o
-      "start_cross_chain" -> parseStartCrossChain o
-      "finish_cross_chain" -> parseFinishCrossChain o
       _ -> error $ "Invalid ConstructionTx 'tx_type' value: " ++ show typ
     where
       parseTransfer o = do
@@ -391,43 +341,6 @@ instance FromJSON ConstructionTx where
           , _constructTransfer_to = to
           , _constructTransfer_toGuard = toGuard
           , _constructTransfer_amount = amt
-          }
-      parseAcctCreate o = do
-        name <- o .: "account_name"
-        guard <- o .: "account_ownership"
-        return ConstructAcctCreate
-          { _constructAcctCreate_acctName = name
-          , _constructAcctCreate_acctGuard = guard
-          }
-      parseStartCrossChain o = do
-         from <- o .: "sender_account"
-         fromGuard <- o .: "sender_ownership"
-         to <- o .: "receiver_account"
-         toGuard <- o .: "receiver_ownership"
-         amt <- o .: "transfer_amount"
-         targetChain <- o .: "target_chain"
-         return ConstructStartCrossChain
-           { _constructStartCrossChain_from = from
-           , _constructStartCrossChain_fromGuard = fromGuard
-           , _constructStartCrossChain_to = to
-           , _constructStartCrossChain_toGuard = toGuard
-           , _constructStartCrossChain_amount = amt
-           , _constructStartCrossChain_targetChain = targetChain
-           }
-      parseFinishCrossChain o = do
-        to <- o .: "receiver_account"
-        toGuard <- o .: "receiver_ownership"
-        amt <- o .: "transfer_amount"
-        pactId <- o .: "pact_id"
-        sourceChain <- o .: "source_chain"
-        proof <- o .: "spv_proof"
-        return ConstructFinishCrossChain
-          { _constructFinishCrossChain_to = to
-          , _constructFinishCrossChain_toGuard = toGuard
-          , _constructFinishCrossChain_amount = amt
-          , _constructFinishCrossChain_pactId = pactId
-          , _constructFinishCrossChain_sourceChain = sourceChain
-          , _constructFinishCrossChain_proof = proof
           }
 
 newtype DeriveRespMetaData = DeriveRespMetaData
@@ -476,33 +389,31 @@ instance FromJSON PreprocessRespMetaData where
 -- | Parse list of Operations into feasible Pact transactions.
 -- NOTE: Expects that user-provided values are valid (i.e. ChainIds, AccountIds).
 opsToConstructionTx
-    :: ChainId
-    -> Maybe CrossChainTxMetaData
-    -> [Operation]
+    :: [Operation]
     -> Either RosettaError ConstructionTx
-opsToConstructionTx cid someXChain ops = do
+opsToConstructionTx ops = do
   ops' <- mapM parseOp ops
   case ops' of
-    [(acct, bal, ks)]
-      | bal == 0.0 -> createAcct acct ks
-      | bal < 0.0 -> startCrossChain acct bal ks -- debit, negative bal
-      | otherwise -> finishCrossChain acct bal ks -- credit, positive bal
-    [op1, op2] -> transfer op1 op2
     [] -> rerr RosettaInvalidOperations
             "Found empty list of Operations"
+    [op1, op2] -> transfer op1 op2
     _ -> rerr RosettaInvalidOperations
            "Expected at MOST two operations"
   where
     rerr f msg = Left $ stringRosettaError f msg
-    pactChainId = P.ChainId $ chainIdToText cid
 
     transfer (acct1, bal1, ks1) (acct2, bal2, ks2)
-      | bal1 == 0 || bal2 == 0 = rerr RosettaInvalidOperations
-                                   "transfer amounts: Cannot transfer zero amounts"
-      | bal1 + bal2 /= 0.0 = rerr RosettaInvalidOperations
-                               "transfer amounts: Mass conversation not preserved"
-      | acct1 == acct2 = rerr RosettaInvalidOperations
-                           "Cannot transfer to the same account name"
+      | acct1 == acct2 =
+        rerr RosettaInvalidOperations
+         "Cannot transfer to the same account name"
+      -- TODO: enforce accts are valid k accounts
+      -- TODO: enforce ks as valid for k accounts
+      | bal1 + bal2 /= 0.0 =
+        rerr RosettaInvalidOperations
+        "transfer amounts: Mass conversation not preserved"
+      | bal1 == 0 || bal2 == 0 =
+        rerr RosettaInvalidOperations
+        "transfer amounts: Cannot transfer zero amounts"
       | bal1 < 0.0 = pure $ ConstructTransfer
         { _constructTransfer_from = acct1    -- bal1 is negative, so acct1 is debitor (from)
         , _constructTransfer_fromGuard = ks1
@@ -518,58 +429,13 @@ opsToConstructionTx cid someXChain ops = do
         , _constructTransfer_amount = P.ParsedDecimal $ abs bal1
         }
 
-    createAcct acct ks =
-      pure ConstructAcctCreate
-        { _constructAcctCreate_acctName = acct
-        , _constructAcctCreate_acctGuard = ks
-        }
-
-    startCrossChain debAcct bal ks =
-      case someXChain of
-        Just (StartCrossChainTx to toGuard target) -> do
-          when (target == pactChainId)
-            (rerr RosettaInvalidOperations "Source and target chainId must be different")
-
-          let amt = abs bal
-          
-          pure ConstructStartCrossChain
-            { _constructStartCrossChain_from = debAcct
-            , _constructStartCrossChain_fromGuard = ks
-            , _constructStartCrossChain_to = to
-            , _constructStartCrossChain_toGuard = toGuard
-            , _constructStartCrossChain_amount = P.ParsedDecimal amt
-            , _constructStartCrossChain_targetChain = target
-            }
-
-        _ -> rerr RosettaInvalidOperations
-             "Expected `cross_chain_tx` field of type `start`"
-
-    finishCrossChain credAcct bal ks =
-      case someXChain of
-        Just (FinishCrossChainTx src pid proof) -> do
-          when (src == pactChainId)
-            (rerr RosettaInvalidOperations "Source and target chainId must be different")
-
-          let amt = abs bal
-          
-          pure ConstructFinishCrossChain
-            { _constructFinishCrossChain_to = credAcct
-            , _constructFinishCrossChain_toGuard = ks
-            , _constructFinishCrossChain_amount = P.ParsedDecimal amt
-            , _constructFinishCrossChain_pactId = pid
-            , _constructFinishCrossChain_sourceChain = src
-            , _constructFinishCrossChain_proof = proof
-            }
-
-        _ -> rerr RosettaInvalidOperations
-             "Expected `cross_chain_tx` field of type `finish`"
-
 
 -- | Calculate the suggested fee in KDA for the transaction to be performed.
 -- Some optional parameters might be specified, i.e. a max KDA fee and a fee multiplier.
 -- FORMULA: fee = gasLimit * (gasPrice * multiplier)
 -- NOTE: The multiplier will be absorbed into the gasPrice since assuming that
 --       the higher the gasPrice the more likely the transaction will be added to a block.
+-- Specifications: https://www.rosetta-api.org/docs/1.4.4/models/ConstructionPreprocessRequest.html
 getSuggestedFee
     :: ConstructionTx
     -> Maybe [Amount]
@@ -591,9 +457,6 @@ getSuggestedFee tx someMaxFees someMult = do
     ------------
     -- NOTE: GasLimit should never be greater than default block gas limit.
     defGasUnitsTransferCreate = 600
-    defGasUnitsCreateAcct = 250
-    defGasUnitsStartCrossChain = 450
-    defGasUnitsFinishCrossChain = 350
 
     -- See Chainweb.Chainweb.Configuration for latest min gas
     minGasPrice = Decimal 8 1
@@ -635,9 +498,6 @@ getSuggestedFee tx someMaxFees someMult = do
     
     estimatedGasLimit = P.GasLimit $ P.ParsedInteger $! case tx of
       ConstructTransfer {} -> defGasUnitsTransferCreate
-      ConstructAcctCreate {} -> defGasUnitsCreateAcct
-      ConstructStartCrossChain {} -> defGasUnitsStartCrossChain
-      ConstructFinishCrossChain {} -> defGasUnitsFinishCrossChain
 
     -- Calculate the maximum gas price possible give the max fee provided and the
     -- needed gas units for the specified transaction.
@@ -861,13 +721,6 @@ constructionTxToPactRPC
     -> P.PactRPC T.Text
 constructionTxToPactRPC txInfo =
   case txInfo of
-    ConstructAcctCreate acctName guard ->
-      let code = t $! printf
-            "(coin.create-account \"%s\" (read-keyset \"%s\"))"
-            (str acctName) guardName
-          rdata = object [ guardName .= guard ]
-      in P.Exec $ P.ExecMsg (guardCheckCode <> code) rdata
-
     ConstructTransfer from _ to toGuard amt ->
       let code = t $! printf
             "(coin.transfer-create \"%s\" \"%s\" (read-keyset \"%s\") (read-decimal \"%s\"))"
@@ -880,33 +733,11 @@ constructionTxToPactRPC txInfo =
       -- With k:accounts, we don't need the added protection that funds are going to the correct
       -- guard.
       in P.Exec $ P.ExecMsg code rdata
-
-    ConstructStartCrossChain
-      from _ to toGuard amt (P.ChainId targetChain) ->
-      let code = t $! printf
-            "(coin.transfer-crosschain \"%s\" \"%s\" (read-keyset \"%s\") \"%s\" (read-decimal \"%s\"))"
-            (str from) (str to) guardName (str targetChain) amountName
-          rdata = object
-            [ guardName .= toGuard
-            , amountName .= amt ]
-      in P.Exec $ P.ExecMsg (guardCheckCode <> code) rdata
-
-    ConstructFinishCrossChain _ _ _ pactId _ proof ->
-      P.Continuation $ P.ContMsg
-        { P._cmPactId = pactId
-        , P._cmStep = 1 -- the last step of `coin.transfer-crosschain`
-        , P._cmRollback = False
-        , P._cmData = Null
-        , P._cmProof = fmap (P.ContProof . T.encodeUtf8) (Just proof)
-        }
   where
     str = T.unpack
     t = T.pack
     amountName = "amount"
     guardName = "ks"
-    guardCheckCode = t $! printf
-                     "(enforce-keyset (read-keyset \"%s\"))\n"
-                     guardName
 
 
 -- | Creates an enriched Command that consists of an
@@ -951,16 +782,10 @@ createSigningPayloads (EnrichedCommand cmd _ _) = map f
 
 txToOps :: ConstructionTx -> [Operation]
 txToOps txInfo = case txInfo of
-  ConstructAcctCreate name guard ->
-    [ op name 0.0 guard 0 ]
   ConstructTransfer from fromGuard to toGuard (P.ParsedDecimal amt) ->
     [ op from (negate amt) fromGuard 0
     , op to amt toGuard 1
     ]
-  ConstructStartCrossChain from fromGuard _ _ (P.ParsedDecimal amt) _ ->
-    [ op from (negate amt) fromGuard 0 ]
-  ConstructFinishCrossChain to toGuard (P.ParsedDecimal amt) _ _ _ ->
-    [ op to amt toGuard 0 ]
   
   where
     op name delta guard idx =

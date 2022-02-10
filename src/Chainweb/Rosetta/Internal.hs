@@ -691,13 +691,6 @@ neededAccounts txInfo payerAcct = S.toList $
   case txInfo of
     ConstructTransfer from _ _ _ _ ->
       S.insert (AccountName from) m
-    ConstructAcctCreate name _ ->
-      S.insert (AccountName name) m
-    ConstructStartCrossChain from _ to _ _ _ ->
-      S.insert (AccountName to) $
-        S.insert (AccountName from) m
-    ConstructFinishCrossChain to _ _ _ _ _ ->
-      S.insert (AccountName to) m
   where
     m = S.singleton (AccountName $ _accountId_address payerAcct)
 
@@ -709,13 +702,12 @@ neededAccounts txInfo payerAcct = S.toList $
 toSignerAcctsMap
     :: ConstructionTx
     -> AccountId
-    -> ChainwebVersion
     -> ChainId
     -> [(ChainId, PactExecutionService)]
     -> CutDb cas
     -> ExceptT RosettaError Handler
        (HM.HashMap AccountName ([P.SigCapability], [T.Text]))
-toSignerAcctsMap txInfo payerAcct v cid pacts cutDb = do
+toSignerAcctsMap txInfo payerAcct cid pacts cutDb = do
   bhCurr <- rosettaErrorT Nothing $
             getLatestBlockHeader cutDb cid
   peCurr <- rosettaErrorT Nothing $
@@ -747,47 +739,6 @@ toSignerAcctsMap txInfo payerAcct v cid pacts cutDb = do
       let capsFrom = [ mkTransferCap from to amt ]
 
       pure $ insertWith' from (capsFrom, expectedFrom) mapWithGas
-      
-    ConstructAcctCreate name guard -> do
-      let expected = ksToPubKeys guard
-      someActual <- getOwnership peCurr bhCurr name
-      enforceAcctNotPresent name someActual
-      let caps = []
-      pure $ insertWith' name (caps, expected) mapWithGas
-
-    ConstructStartCrossChain from fromGuard to toGuard (P.ParsedDecimal _) (P.ChainId target) -> do
-      let expectedFrom = ksToPubKeys fromGuard
-          expectedTo = ksToPubKeys toGuard
-
-      cidTarget <- rosettaErrorT Nothing $
-                   readChainIdText v target ?? RosettaInvalidChain
-      bhTarget <- rosettaErrorT Nothing $
-                  getLatestBlockHeader cutDb cidTarget
-      peTarget <- rosettaErrorT Nothing $ 
-                  lookup cidTarget pacts ?? RosettaInvalidChain
-      
-      someActualFrom <- getOwnership peCurr bhCurr from
-      someActualTo <- getOwnership peTarget bhTarget to
-
-      _ <- enforceAcctPresent from someActualFrom
-      checkExpectedOwnership from expectedFrom someActualFrom
-      checkExpectedOwnership to expectedTo someActualTo
-
-      let capsTo = []
-          capsFrom = [ mkDebitCap from ]
-      
-      pure $ insertWith' to (capsTo, expectedTo) $
-        insertWith' from (capsFrom, expectedFrom) mapWithGas
-
-    ConstructFinishCrossChain to toGuard _ _ _ _ -> do
-      let expected = ksToPubKeys toGuard
-      someActual <- getOwnership peCurr bhCurr to
-      checkExpectedOwnership to expected someActual
-
-      let capsTo = []
-
-      pure $ insertWith' to (capsTo, expected) mapWithGas
-      
   where
     getOwnership cr bh k = do
       someRow <- rosettaErrorT Nothing $
@@ -832,10 +783,6 @@ toSignerAcctsMap txInfo payerAcct v cid pacts cutDb = do
 
     mkGasCap :: P.SigCapability
     mkGasCap = mkCoinCap "GAS" []
-
-    mkDebitCap :: T.Text -> P.SigCapability
-    mkDebitCap sender = mkCoinCap "DEBIT"
-      [ pString sender ]
 
     -- Make PactValue from text
     pString :: T.Text -> PactValue
