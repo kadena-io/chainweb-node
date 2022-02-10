@@ -36,7 +36,7 @@ debug-info: True
 source-repository-package
     type: git
     location: https://github.com/kadena-io/pact.git
-    tag: 0ea3e6f63a2f677520fa425fa5f01984a7345160
+    tag: 8a0c7ad51b3f4dae06cbcf413d8ee4871f4e6cbd
 
 source-repository-package
     type: git
@@ -59,7 +59,7 @@ package vault
 package pact
     ghc-options: -Wwarn
     -- avoid conflict with cryptonite during linking
-    flags: +cryptonite-ed25519 -build-tool
+    flags: +cryptonite-ed25519 -build-tool +no-advice
 
 -- required by pact
 -- these upper bounds are required in order to not break payload validation

@@ -920,7 +920,7 @@ chainweb213Pact :: ChainwebVersion -> BlockHeight -> Bool
 chainweb213Pact Mainnet01 = (>= 2_447_358) -- 2022-02-26 00:00:18
 chainweb213Pact Testnet04 = (>= 1_977_816) -- 2022-02-25 00:00:18
 chainweb213Pact Development = (>= 95)
-chainweb213Pact (FastTimedCPM g) | g == petersonChainGraph = (>= 5)
+chainweb213Pact (FastTimedCPM g) | g == petersonChainGraph = (>= 20)
 chainweb213Pact _ = const False
 
 -- -------------------------------------------------------------------------- --
