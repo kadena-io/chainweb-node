@@ -36,7 +36,7 @@ debug-info: True
 source-repository-package
     type: git
     location: https://github.com/kadena-io/pact.git
-    tag: 51f8d6eeca1a8cff11d2fda5446522a4148f785c
+    tag: 0ea3e6f63a2f677520fa425fa5f01984a7345160
 
 source-repository-package
     type: git

@@ -1,3 +1,4 @@
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE OverloadedStrings #-}
@@ -106,6 +107,7 @@ tests rdb = ScheduledTest testName $ go
          , test Warn $ moduleNameFork
          , multiChainTest "pact4coin3UpgradeTest" pact4coin3UpgradeTest
          , multiChainTest "pact420UpgradeTest" pact420UpgradeTest
+         , multiChainTest "minerKeysetTest" minerKeysetTest
          ]
       where
         test logLevel f =
@@ -278,6 +280,29 @@ newBlockRewindValidate mpRefIO reqIO = testCase "newBlockRewindValidate" $ do
             $ mkExec' "(chain-data)"
       }
 
+minerKeysetTest :: TestBlockDb -> IO (IORef MemPoolAccess) -> WebPactExecutionService -> IO ()
+minerKeysetTest bdb _mpRefIO pact = do
+
+  -- run past genesis, upgrades
+  forM_ [(1::Int)..3] $ \_i -> runCut' noMiner
+
+  -- run block 4
+  runCut' badMiner
+
+  -- run block 5 (fork for chainweb213)
+  r <- try $ runCut' badMiner
+  assertSatisfies "badMiner fails after fork" r $ \case
+    Left (CoinbaseFailure t) -> "Invalid miner key" `T.isInfixOf` t
+    _ -> False
+
+  where
+
+    runCut' = runCut testVersion bdb pact (offsetBlockTime second) zeroNoncer
+
+    badMiner = Miner (MinerId "miner") $ MinerKeys $ mkKeySet ["bad-bad-bad"] "keys-all"
+
+
+
 pact420UpgradeTest :: TestBlockDb -> IO (IORef MemPoolAccess) -> WebPactExecutionService -> IO ()
 pact420UpgradeTest bdb mpRefIO pact = do
 
@@ -338,12 +363,7 @@ pact420UpgradeTest bdb mpRefIO pact = do
 
   where
 
-    runCut' = runCut testVersion bdb pact (offsetBlockTime second) zeroNoncer
-
-    getPWO (TestBlockDb _ pdb cmv) chid = do
-      c <- readMVar cmv
-      h <- fromMaybeM (userError $ "chain lookup failed for " ++ show chid) $ HM.lookup chid (_cutMap c)
-      casLookupM pdb (_blockPayloadHash h)
+    runCut' = runCut testVersion bdb pact (offsetBlockTime second) zeroNoncer noMiner
 
     getBlock4 = mempty {
       mpaGetBlock = \_ _ _ bh -> if _blockChainId bh == cid then do
@@ -407,12 +427,6 @@ pact420UpgradeTest bdb mpRefIO pact = do
            "(zip (+) [1 2 3] [4 5 6])"
           ]
 
-    txResult i o = do
-      case preview (ix i . _2) $ _payloadWithOutputsTransactions o of
-        Nothing -> throwIO $ userError $ "no tx at " ++ show i
-        Just txo -> decodeStrictOrThrow @_ @(CommandResult Hash) (_transactionOutputBytes txo)
-
-    cbResult o = decodeStrictOrThrow @_ @(CommandResult Hash) (_coinbaseOutput $ _payloadWithOutputsCoinbase o)
 
 pact4coin3UpgradeTest :: TestBlockDb -> IO (IORef MemPoolAccess) -> WebPactExecutionService -> IO ()
 pact4coin3UpgradeTest bdb mpRefIO pact = do
@@ -522,12 +536,7 @@ pact4coin3UpgradeTest bdb mpRefIO pact = do
 
   where
 
-    runCut' = runCut testVersion bdb pact (offsetBlockTime second) zeroNoncer
-
-    getPWO (TestBlockDb _ pdb cmv) chid = do
-      c <- readMVar cmv
-      h <- fromMaybeM (userError $ "chain lookup failed for " ++ show chid) $ HM.lookup chid (_cutMap c)
-      casLookupM pdb (_blockPayloadHash h)
+    runCut' = runCut testVersion bdb pact (offsetBlockTime second) zeroNoncer noMiner
 
     getBlock7 = mempty {
       mpaGetBlock = \_ _ _ bh -> if _blockChainId bh == cid then do
@@ -608,14 +617,25 @@ pact4coin3UpgradeTest bdb mpRefIO pact = do
         $ mkCmd (sshow bh)
         $ mkExec' "(coin.release-allocation 'allocation00)"
 
-    txResult i o = do
-      case preview (ix i . _2) $ _payloadWithOutputsTransactions o of
-        Nothing -> throwIO $ userError $ "no tx at " ++ show i
-        Just txo -> decodeStrictOrThrow @_ @(CommandResult Hash) (_transactionOutputBytes txo)
-
-    cbResult o = decodeStrictOrThrow @_ @(CommandResult Hash) (_coinbaseOutput $ _payloadWithOutputsCoinbase o)
-
     pHash = PactResult . Right . PLiteral . LString
+
+-- | Get output on latest cut for chain
+getPWO :: TestBlockDb -> ChainId -> IO PayloadWithOutputs
+getPWO (TestBlockDb _ pdb cmv) chid = do
+  c <- readMVar cmv
+  h <- fromMaybeM (userError $ "chain lookup failed for " ++ show chid) $ HM.lookup chid (_cutMap c)
+  casLookupM pdb (_blockPayloadHash h)
+
+-- | Get tx at index from output
+txResult :: Int -> PayloadWithOutputs -> IO (CommandResult Hash)
+txResult i o = do
+  case preview (ix i . _2) $ _payloadWithOutputsTransactions o of
+    Nothing -> throwIO $ userError $ "no tx at " ++ show i
+    Just txo -> decodeStrictOrThrow @_ @(CommandResult Hash) (_transactionOutputBytes txo)
+
+-- | Get coinbase from output
+cbResult :: PayloadWithOutputs -> IO (CommandResult Hash)
+cbResult o = decodeStrictOrThrow @_ @(CommandResult Hash) (_coinbaseOutput $ _payloadWithOutputsCoinbase o)
 
 moduleNameFork :: IO (IORef MemPoolAccess) -> IO (PactQueue,TestBlockDb) -> TestTree
 moduleNameFork mpRefIO reqIO = testCase "moduleNameFork" $ do
