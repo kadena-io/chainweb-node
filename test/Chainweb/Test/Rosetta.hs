@@ -2,6 +2,9 @@
 
 -- |
 -- Module: Chainweb.Test.Rosetta
+--
+-- Unit tests for Rosetta.
+--
 -- Copyright: Copyright © 2018 - 2020 Kadena LLC.
 -- License: MIT
 -- Maintainer: Linda Ortega <linda@kadena.io>
@@ -45,16 +48,14 @@ import Chainweb.Version
 
 
 tests :: TestTree
-tests = testGroup "Chainweb.Test.Rosetta.Server"
-  [ testGroup "Unit Tests"
-    [ testCase "checkBalanceDeltas" checkBalanceDeltas
-    , testCase "matchNonGenesisBlockTransactionsToLogs" matchNonGenesisBlockTransactionsToLogs
-    , testCase "matchFailedCoinbaseBlockTransactionsToLogs" matchFailedCoinbaseBlockTransactionsToLogs
-    , testCase "matchNonGenesisSingleTransactionsToLogs" matchNonGenesisSingleTransactionsToLogs
-    , testCase "checkKDAToRosettaAmount" checkKDAToRosettaAmount
-    , testCase "checkValidateNetwork" checkValidateNetwork
-    , testCase "checkUniqueRosettaErrorCodes" checkUniqueRosettaErrorCodes
-    ]
+tests = testGroup "Chainweb.Test.Rosetta.UnitTests"
+  [ testCase "checkBalanceDeltas" checkBalanceDeltas
+  , testCase "matchNonGenesisBlockTransactionsToLogs" matchNonGenesisBlockTransactionsToLogs
+  , testCase "matchFailedCoinbaseBlockTransactionsToLogs" matchFailedCoinbaseBlockTransactionsToLogs
+  , testCase "matchNonGenesisSingleTransactionsToLogs" matchNonGenesisSingleTransactionsToLogs
+  , testCase "checkKDAToRosettaAmount" checkKDAToRosettaAmount
+  , testCase "checkValidateNetwork" checkValidateNetwork
+  , testCase "checkUniqueRosettaErrorCodes" checkUniqueRosettaErrorCodes
   ]
 
 
@@ -186,16 +187,16 @@ matchNonGenesisBlockTransactionsToLogs = do
         , _matchRosettaTx_requestKey = "ReqKey0"
         , _matchRosettaTx_result = TxSuccess (TxId 0)
         , _matchRosettaTx_operations =
-          [ mops (TxId 0) [ mop CoinbaseReward ] ]
+          [ mops (TxId 0) [ mop CoinbaseReward (opId 0) [] ] ]
         }
       , MatchRosettaTx
         { _matchRosettaTx_caseLabel = "Non-Coin Tx, Successful"
         , _matchRosettaTx_requestKey = "ReqKey1"
         , _matchRosettaTx_result = TxSuccess (TxId 2)
         , _matchRosettaTx_operations =
-          [ mops (TxId 1) [ mop FundTx ]
-          , mops (TxId 3) [ mop GasPayment
-                          , mop GasPayment ]
+          [ mops (TxId 1) [ mop FundTx (opId 0) [] ]
+          , mops (TxId 3) [ mop GasPayment (opId 1) [opId 0]
+                          , mop GasPayment (opId 2) [opId 0, opId 1] ]
           ]
         }
       , MatchRosettaTx
@@ -203,9 +204,9 @@ matchNonGenesisBlockTransactionsToLogs = do
         , _matchRosettaTx_requestKey = "ReqKey2"
         , _matchRosettaTx_result = TxSuccess (TxId 5)
         , _matchRosettaTx_operations =
-          [ mops (TxId 4) [ mop FundTx ]
-          , mops (TxId 6) [ mop GasPayment
-                          , mop GasPayment ]
+          [ mops (TxId 4) [ mop FundTx (opId 0) [] ]
+          , mops (TxId 6) [ mop GasPayment (opId 1) [opId 0]
+                          , mop GasPayment (opId 2) [opId 0, opId 1] ]
           ]
         }
       , MatchRosettaTx
@@ -213,11 +214,11 @@ matchNonGenesisBlockTransactionsToLogs = do
         , _matchRosettaTx_requestKey = "ReqKey3"
         , _matchRosettaTx_result = TxSuccess (TxId 8)
         , _matchRosettaTx_operations =
-          [ mops (TxId 7) [ mop FundTx ]
-          , mops (TxId 8) [ mop TransferOrCreateAcct
-                          , mop TransferOrCreateAcct ]
-          , mops (TxId 9) [ mop GasPayment
-                          , mop GasPayment ]
+          [ mops (TxId 7) [ mop FundTx (opId 0) [] ]
+          , mops (TxId 8) [ mop TransferOrCreateAcct (opId 1) []
+                          , mop TransferOrCreateAcct (opId 2) [opId 1] ]
+          , mops (TxId 9) [ mop GasPayment (opId 3) [opId 0]
+                          , mop GasPayment (opId 4) [opId 0, opId 3] ]
           ]
         }
       , MatchRosettaTx
@@ -225,8 +226,8 @@ matchNonGenesisBlockTransactionsToLogs = do
         , _matchRosettaTx_requestKey = "ReqKey4"
         , _matchRosettaTx_result = TxFailure
         , _matchRosettaTx_operations =
-          [ mops (TxId 10) [ mop FundTx ]
-          , mops (TxId 11) [ mop GasPayment ]
+          [ mops (TxId 10) [ mop FundTx (opId 0) []]
+          , mops (TxId 11) [ mop GasPayment (opId 1) [opId 0] ]
           ]
         }
       ]
@@ -247,9 +248,9 @@ matchFailedCoinbaseBlockTransactionsToLogs = do
         , _matchRosettaTx_requestKey = "ReqKey1"
         , _matchRosettaTx_result = TxSuccess (TxId 1)
         , _matchRosettaTx_operations =
-          [ mops (TxId 0) [ mop FundTx ]
-          , mops (TxId 2) [ mop GasPayment
-                          , mop GasPayment ]
+          [ mops (TxId 0) [ mop FundTx (opId 0) [] ]
+          , mops (TxId 2) [ mop GasPayment (opId 1) [opId 0]
+                          , mop GasPayment (opId 2) [opId 0, opId 1] ]
           ]
         }
       ]
@@ -269,7 +270,7 @@ matchNonGenesisSingleTransactionsToLogs = do
   where
     run :: T.Text -> Either String (Maybe Transaction)
     run trk = getActual cases f
-      where f logs initial rest = nonGenesisTransaction logs initial rest (textToRk trk)
+      where f logs cid initial rest = nonGenesisTransaction logs cid initial rest (textToRk trk)
 
     targets =
       [ "ReqKey1", "ReqKey0", "ReqKey3", "ReqKey2", "ReqKey4", "RandomReqKey"]
@@ -294,16 +295,16 @@ matchNonGenesisSingleTransactionsToLogs = do
         , _matchRosettaTx_requestKey = "ReqKey0"
         , _matchRosettaTx_result = TxSuccess (TxId 0)
         , _matchRosettaTx_operations =
-          [ mops (TxId 0) [ mop CoinbaseReward ] ]
+          [ mops (TxId 0) [ mop CoinbaseReward (opId 0) []] ]
         }
       , MatchRosettaTx
         { _matchRosettaTx_caseLabel = "Non-Coin Tx, Successful"
         , _matchRosettaTx_requestKey = "ReqKey1"
         , _matchRosettaTx_result = TxSuccess (TxId 2)
         , _matchRosettaTx_operations =
-          [ mops (TxId 1) [ mop FundTx ]
-          , mops (TxId 3) [ mop GasPayment
-                          , mop GasPayment ]
+          [ mops (TxId 1) [ mop FundTx (opId 0) [] ]
+          , mops (TxId 3) [ mop GasPayment (opId 1) [opId 0]
+                          , mop GasPayment (opId 2) [opId 0, opId 1] ]
           ]
         }
       , MatchRosettaTx
@@ -311,9 +312,9 @@ matchNonGenesisSingleTransactionsToLogs = do
         , _matchRosettaTx_requestKey = "ReqKey2"
         , _matchRosettaTx_result = TxSuccess (TxId 5)
         , _matchRosettaTx_operations =
-          [ mops (TxId 4) [ mop FundTx ]
-          , mops (TxId 6) [ mop GasPayment
-                          , mop GasPayment ]
+          [ mops (TxId 4) [ mop FundTx (opId 0) []]
+          , mops (TxId 6) [ mop GasPayment (opId 1) [opId 0]
+                          , mop GasPayment (opId 2) [opId 0, opId 1] ]
           ]
         }
       , MatchRosettaTx
@@ -321,11 +322,11 @@ matchNonGenesisSingleTransactionsToLogs = do
         , _matchRosettaTx_requestKey = "ReqKey3"
         , _matchRosettaTx_result = TxSuccess (TxId 8)
         , _matchRosettaTx_operations =
-          [ mops (TxId 7) [ mop FundTx ]
-          , mops (TxId 8) [ mop TransferOrCreateAcct
-                          , mop TransferOrCreateAcct ]
-          , mops (TxId 9) [ mop GasPayment
-                          , mop GasPayment ]
+          [ mops (TxId 7) [ mop FundTx (opId 0) [] ]
+          , mops (TxId 8) [ mop TransferOrCreateAcct (opId 1) []
+                          , mop TransferOrCreateAcct (opId 2) [opId 1] ]
+          , mops (TxId 9) [ mop GasPayment (opId 3) [opId 0]
+                          , mop GasPayment (opId 4) [opId 0, opId 3] ]
           ]
         }
       , MatchRosettaTx
@@ -333,8 +334,8 @@ matchNonGenesisSingleTransactionsToLogs = do
         , _matchRosettaTx_requestKey = "ReqKey4"
         , _matchRosettaTx_result = TxFailure
         , _matchRosettaTx_operations =
-          [ mops (TxId 10) [ mop FundTx ]
-          , mops (TxId 11) [ mop GasPayment ]
+          [ mops (TxId 10) [ mop FundTx (opId 0) [] ]
+          , mops (TxId 11) [ mop GasPayment (opId 1) [opId 0] ]
           ]
         }
       ]
@@ -408,9 +409,9 @@ checkUniqueRosettaErrorCodes = case repeated of
   where
     repeated = foldM g S.empty errCodes
     g acc x =
-      if (S.member x acc)
-      then (Left x)
-      else (Right $ S.insert x acc)
+      if S.member x acc
+      then Left x
+      else Right $ S.insert x acc
     rosettaError' err = rosettaError err Nothing
     errCodes = map (_error_code . rosettaError') [minBound .. maxBound]
 
@@ -427,6 +428,7 @@ instance PendingRosettaTx MockCommandResult where
 
 type MatchFunction tx =
      Map TxId [AccountLog]
+  -> ChainId
   -> CoinbaseTx MockCommandResult
   -> V.Vector MockCommandResult
   -> Either String tx
@@ -436,13 +438,19 @@ data TxResultType = TxSuccess TxId | TxFailure
 data MatchOperation = MatchOperation
   { _matchOperation_accountLog :: AccountLog
   , _matchOperation_expectedOpType :: OperationType
+  , _matchOperation_expectedOpIdx :: OperationId
+  , _matchOperation_expectedRelatedOpIds :: [OperationId]
   }
 
 -- | Helper function that provides a random AccountLog.
 --   This is helpful when testing tx-log matching don't
 --   care about the actual contents of AccountLog.
-mop :: OperationType -> MatchOperation
-mop otype = MatchOperation acctLog otype
+mop
+    :: OperationType
+    -> OperationId
+    -> [OperationId]
+    -> MatchOperation
+mop = MatchOperation acctLog
   where
     key = "someKey" -- dummy variable
     endingBal = 10.0 -- dummy variable
@@ -456,7 +464,7 @@ data MatchOperations = MatchOperations
   }
 
 mops :: TxId -> [MatchOperation] -> MatchOperations
-mops tid ops = MatchOperations tid ops
+mops = MatchOperations
 
 data MatchRosettaTx = MatchRosettaTx
   { _matchRosettaTx_caseLabel :: String
@@ -467,43 +475,47 @@ data MatchRosettaTx = MatchRosettaTx
 
 
 createMockCmdResults :: [MatchRosettaTx] -> [MockCommandResult]
-createMockCmdResults cases = map f cases
+createMockCmdResults = map f
   where
     f (MatchRosettaTx _ rk (TxSuccess tid) _) = MockCommandResult (Just tid, rk)
     f (MatchRosettaTx _ rk TxFailure _) = MockCommandResult (Nothing, rk)
 
 createLogsMap :: [MatchRosettaTx] -> Map TxId [AccountLog]
-createLogsMap cases = M.fromList $! concat $! map ((map f) . _matchRosettaTx_operations) cases
+createLogsMap cases = M.fromList $! concat $! map (map f . _matchRosettaTx_operations) cases
   where
     f (MatchOperations tid ops) = (tid, map _matchOperation_accountLog ops)
 
-createOperations :: [MatchOperations] -> [UnindexedOperation]
+createOperations :: [MatchOperations] -> [Operation]
 createOperations opsCases = concat $! map f opsCases
   where
     f (MatchOperations tid ops) = map (createOperation tid) ops
 
-    createOperation tid (MatchOperation acctLog otype) =
-      operation Successful otype tid acctLog
+    opIdx = _operationId_index
+
+    createOperation tid (MatchOperation acctLog otype oid related) =
+      operation Successful otype tid acctLog (opIdx oid) related
 
 createExpectedRosettaTx :: MatchRosettaTx -> (String, Transaction)
-createExpectedRosettaTx m = (msg, mockRosettaTx rk ops)
-      where
-        rk = _matchRosettaTx_requestKey m
-        msg = _matchRosettaTx_caseLabel m
-        ops = indexedOperations $! createOperations (_matchRosettaTx_operations m)
+createExpectedRosettaTx m = (msg, mockRosettaTx rk cid ops)
+  where
+    rk = _matchRosettaTx_requestKey m
+    msg = _matchRosettaTx_caseLabel m
+    ops = createOperations (_matchRosettaTx_operations m)
+    cid = unsafeChainId 0
 
 
 getActual :: [MatchRosettaTx] -> MatchFunction tx -> Either String tx
 getActual cases f =
-  case (createMockCmdResults cases) of
-    coinbaseResult:restResults -> f logs coinbaseResult (V.fromList $! restResults)
+  case createMockCmdResults cases of
+    coinbaseResult:restResults -> f logs cid coinbaseResult (V.fromList $! restResults)
     _ -> Left "Missing coinbase case"
   where
     logs = createLogsMap cases
+    cid = unsafeChainId 0
 
 testNonGenesisBlock :: String -> [MatchRosettaTx] -> Assertion
-testNonGenesisBlock msg cases =
-  case (getActual cases nonGenesisTransactions) of
+testNonGenesisBlock msg cases = do
+  case getActual cases nonGenesisTransactions of
     Left err -> assertFailure err
     Right actuals -> do
       assertEqual (adjust msg "list should be same length") (length actuals) (length expects)
@@ -522,7 +534,10 @@ mockGuard :: T.Text -> Value
 mockGuard key = toJSON (key <> "PublicKey")
 
 bd :: Decimal -> BalanceDelta
-bd d = BalanceDelta d
+bd = BalanceDelta
+
+opId :: Word64 -> OperationId
+opId i = OperationId i Nothing
 
 assertEqualAcctLog
     :: String
@@ -592,12 +607,12 @@ assertEqualMap msg liF m1 m2 = do
   where
     f tid e1 =
       let msg' = (msg ++ ": key=" ++ show tid)
-      in case (M.lookup tid m2) of
-           Nothing -> assertFailure $ (msg' ++ ": second map didn't have key")
+      in case M.lookup tid m2 of
+           Nothing -> assertFailure $ msg' ++ ": second map didn't have key"
            Just e2 -> assertEqualList msg' liF e1 e2
 
-mockRosettaTx :: T.Text -> [Operation] -> Transaction
-mockRosettaTx mrk ops =
+mockRosettaTx :: T.Text -> ChainId -> [Operation] -> Transaction
+mockRosettaTx mrk _ ops =
   Transaction
   { _transaction_transactionId = TransactionId mrk
   , _transaction_operations = ops

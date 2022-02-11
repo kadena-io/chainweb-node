@@ -55,7 +55,7 @@ module Chainweb.Test.Pact.Utils
 , ContMsg (..)
 , mkSigner
 , mkSigner'
-, CmdBuilder
+, CmdBuilder(..)
 , cbSigners
 , cbRPC
 , cbNonce
