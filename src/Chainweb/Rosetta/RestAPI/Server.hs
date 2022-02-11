@@ -172,7 +172,7 @@ blockH v cutDb ps pacts (BlockReq net (PartialBlockId bheight bhash)) =
       bh <- findBlockHeaderInCurrFork cutDb cid bheight bhash
       (coinbase, txs) <- getBlockOutputs payloadDb bh
       logs <- getTxLogs pact bh
-      trans <- hoistEither $ matchLogs FullLogs bh logs coinbase txs
+      trans <- matchLogs FullLogs bh logs coinbase txs
       pure $ BlockResp
         { _blockResp_block = Just $ block bh trans
         , _blockResp_otherTransactions = Nothing
@@ -187,7 +187,7 @@ blockTransactionH
     -> [(ChainId, PactExecutionService)]
     -> BlockTransactionReq
     -> Handler BlockTransactionResp
-blockTransactionH v cutDb ps pacts (BlockTransactionReq net bid t) =
+blockTransactionH v cutDb ps pacts (BlockTransactionReq net bid t) = do
   runExceptT work >>= either throwRosetta pure
   where
     BlockId bheight bhash = bid
@@ -202,9 +202,7 @@ blockTransactionH v cutDb ps pacts (BlockTransactionReq net bid t) =
       rkTarget <- hush (fromText' rtid) ?? RosettaUnparsableTransactionId
       (coinbase, txs) <- getBlockOutputs payloadDb bh
       logs <- getTxLogs pact bh
-
-      tran <- hoistEither $ matchLogs
-              (SingleLog rkTarget) bh logs coinbase txs
+      tran <- matchLogs (SingleLog rkTarget) bh logs coinbase txs
 
       pure $ BlockTransactionResp tran
 
@@ -343,7 +341,14 @@ networkOptionsH v (NetworkReq nid _) = runExceptT work >>= either throwRosetta p
     -- TODO: Document this meta data
     metaPairs =
       [ "node-api-version" .= prettyApiVersion
-      , "chainweb-version" .= chainwebVersionToText v ]
+      , "chainweb-version" .= chainwebVersionToText v
+      , "rosetta-chainweb-version" .= rosettaImplementationVersion
+      -- The version of the rosetta implementation.
+      -- Meant to capture if something about the internal
+      -- implementation has changed.
+      ]
+
+    rosettaImplementationVersion = "1.0.0" :: T.Text
 
     allow = Allow
       { _allow_operationStatuses = opStatuses
@@ -352,7 +357,7 @@ networkOptionsH v (NetworkReq nid _) = runExceptT work >>= either throwRosetta p
       , _allow_historicalBalanceLookup = True }
 
     errExamples :: [RosettaError]
-    errExamples = map (\e -> rosettaError e Nothing) [minBound .. maxBound]
+    errExamples = map (`rosettaError` Nothing) [minBound .. maxBound]
 
     opStatuses :: [OperationStatus]
     opStatuses = map operationStatus [minBound .. maxBound]
