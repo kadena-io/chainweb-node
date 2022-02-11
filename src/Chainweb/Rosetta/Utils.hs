@@ -735,7 +735,7 @@ constructionTxToPactRPC txInfo =
       -- guard.
       in P.Exec $ P.ExecMsg code rdata
   where
-    str = T.unpack
+    str = T.unpack . _accountId_address
     t = T.pack
     amountName = "amount"
     guardName = "ks"
@@ -784,8 +784,8 @@ createSigningPayloads (EnrichedCommand cmd _ _) = map f
 txToOps :: ConstructionTx -> [Operation]
 txToOps txInfo = case txInfo of
   ConstructTransfer from fromGuard to toGuard (P.ParsedDecimal amt) ->
-    [ op from (negate amt) fromGuard 0
-    , op to amt toGuard 1
+    [ op (_accountId_address from) (negate amt) fromGuard 0
+    , op (_accountId_address to) amt toGuard 1
     ]
   
   where
@@ -795,14 +795,12 @@ txToOps txInfo = case txInfo of
       where o = operation
                 Successful
                 TransferOrCreateAcct
-                (P.TxId 0) -- TOOD: dummy variable
-                (toAcctLog name 0.0 delta guard) -- TODO: total is dummy var
+                (toAcctLog name delta guard)
                 idx
                 []
       
-    toAcctLog name total delta guard = AccountLog
+    toAcctLog name delta guard = AccountLog
       { _accountLogKey = name
-      , _accountLogBalanceTotal = total
       , _accountLogBalanceDelta = BalanceDelta delta
       , _accountLogCurrGuard = toJSON guard
       , _accountLogPrevGuard = toJSON guard
@@ -861,7 +859,6 @@ newtype BalanceDelta = BalanceDelta { _balanceDelta :: Decimal }
   deriving (Show, Eq)
 data AccountLog = AccountLog
   { _accountLogKey :: !T.Text
-  , _accountLogBalanceTotal :: !Decimal
   , _accountLogBalanceDelta :: !BalanceDelta
   , _accountLogCurrGuard :: !Value
   , _accountLogPrevGuard :: !Value
@@ -1025,12 +1022,11 @@ weaveRelatedOperations relatedOps = map weave opsWithRelatedOpIds
 operation
     :: ChainwebOperationStatus
     -> OperationType
-    -> P.TxId
     -> AccountLog
     -> Word64
     -> [OperationId]
     -> Operation
-operation ostatus otype _txId acctLog idx related =
+operation ostatus otype acctLog idx related =
   Operation
     { _operation_operationId = OperationId idx Nothing
     , _operation_relatedOperations = someRelatedOps
@@ -1047,10 +1043,7 @@ operation ostatus otype _txId acctLog idx related =
       [] -> Nothing
       li -> Just li
     opMeta = Just $ toObject $ OperationMetaData
-      { --_operationMetaData_txId = txId
-      --, _operationMetaData_totalBalance =
-      --    kdaToRosettaAmount $ _accountLogBalanceTotal acctLog
-        _operationMetaData_prevOwnership = _accountLogPrevGuard acctLog
+      { _operationMetaData_prevOwnership = _accountLogPrevGuard acctLog
       , _operationMetaData_currOwnership = _accountLogCurrGuard acctLog
       }
 
@@ -1283,7 +1276,6 @@ rowDataToAccountLog (currKey, currBal, currGuard) prev = do
       -- First time seeing account
       AccountLog
         { _accountLogKey = currKey
-        , _accountLogBalanceTotal = currBal
         , _accountLogBalanceDelta = BalanceDelta currBal
         , _accountLogCurrGuard = currGuard
         , _accountLogPrevGuard = currGuard
@@ -1292,7 +1284,6 @@ rowDataToAccountLog (currKey, currBal, currGuard) prev = do
       -- Already seen this account
       AccountLog
         { _accountLogKey = currKey
-        , _accountLogBalanceTotal = currBal
         , _accountLogBalanceDelta = BalanceDelta (currBal - prevBal)
         , _accountLogCurrGuard = currGuard
         , _accountLogPrevGuard = prevGuard

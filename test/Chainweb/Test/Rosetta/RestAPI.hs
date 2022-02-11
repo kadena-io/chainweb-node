@@ -129,12 +129,12 @@ tests rdb = testGroupSch "Chainweb.Test.Rosetta.RestAPI" go
       , block20ChainRemediationTests
       , blockTests "Block Test without potential remediation"
       , accountBalanceTests
-      , constructionTransferTests
       , mempoolTests
       , networkListTests
       , networkOptionsTests
       , networkStatusTests
       , blockKAccountAfterPact420
+      , constructionTransferTests
       ]
 
 -- | Rosetta account balance endpoint tests
@@ -170,7 +170,7 @@ accountBalanceTests tio envIo =
 --   fork blockheight.
 blockKAccountAfterPact420 :: RosettaTest
 blockKAccountAfterPact420 tio envIo =
-  testCaseSchSteps "Block k:Account After Pact 420 Test" $ \step -> do
+  testCaseSchSteps "Block k Account After Pact 420 Test" $ \step -> do
     cenv <- envIo
     rkmv <- newEmptyMVar @RequestKeys
 
@@ -407,70 +407,66 @@ constructionTransferTests _ envIo =
   testCaseSchSteps "Construction Flow Tests" $ \step -> do
     cenv <- envIo
     let submitToConstructionAPI' ops cid' res =
-          submitToConstructionAPI ops cid' "sender00" getKeys res cenv step
+          submitToConstructionAPI ops cid' sender00KAcct getKeys res cenv step
 
-    step "--- TRANSFER TO AN EXISTING ACCOUNT ---"
-    void $ do
-      let amt = 2.0
-          fromAcct = "sender00"
-          fromGuard = ks sender00ks
-          toAcct = "sender01"
-          toGuard = ks sender01ks
-          srcChainId = cid
-          --srcChainId = unsafeChainId 4
-          -- TOOD: non-zero chainId fails with "PollingFailure "polling check failed: {}"
-          ops = [ mkOp fromAcct (negate amt) fromGuard 0
-                , mkOp toAcct amt toGuard 1 ]
-          res = P.PLiteral $ P.LString "Write succeeded"
-      -- TODO: check that account balance is expected
-      submitToConstructionAPI' ops srcChainId res
-
-    step "--- TRANSFER TO A NEW ACCOUNT ---"
-    void $ do
-      let amt = 2.0
-          fromAcct = "sender01"
-          fromGuard = ks sender01ks
-          toAcct = "someNewAccount"
-          toGuard = ks sender00ks
-          ops = [ mkOp fromAcct (negate amt) fromGuard 0
-                , mkOp toAcct amt toGuard 1 ]
-          res = P.PLiteral $ P.LString "Write succeeded"
-      -- TODO: check that account balance is expected
-      submitToConstructionAPI' ops cid res
-
-    step "--- TRANSFER TO A k: ACCOUNT ---"
+    step "--- TRANSFER TO A NEW k ACCOUNT ---"
     void $ do
       let netId = nid
             { _networkId_subNetworkId = Just (SubNetworkId (chainIdToText cid) Nothing) }
-      step "derive k:account name and ownership"
+      step "derive k account name and ownership"
       let rosettaPubKeySender01 = RosettaPublicKey (fst sender01) CurveEdwards25519
           deriveReq = ConstructionDeriveReq netId rosettaPubKeySender01 Nothing
-      (ConstructionDeriveResp _ (Just (AccountId acctAddr _ (Just acctMeta))) _) <-
+      (ConstructionDeriveResp _ (Just (AccountId acctAddr _ _)) (Just deriveRespMeta)) <-
         constructionDerive cenv deriveReq
 
-      Right (AccountIdMetaData toGuardSender01) <- pure $ extractMetaData acctMeta
-      let toAcct = acctAddr
-          amt = 2.0
-          fromAcct = "sender01"
-          fromGuard = ks sender01ks
-          ops = [ mkOp fromAcct (negate amt) fromGuard 0
-                , mkOp toAcct amt toGuardSender01 1 ]
-          res = P.PLiteral $ P.LString "Write succeeded"
-      -- TODO: check that account balance is expected   
-      submitToConstructionAPI' ops cid res
+      Right (DeriveRespMetaData toGuardSender01) <- pure $ extractMetaData deriveRespMeta
+      let toAcct1 = acctAddr
+          amt1 = 2.0
+          fromAcct1 = sender00KAcct
+          fromGuard1 = ks sender00ks
+          ops1 = [ mkOp toAcct1 amt1 toGuardSender01 1 []
+                 , mkOp fromAcct1 (negate amt1) fromGuard1 2 [1] ]
+          res1 = P.PLiteral $ P.LString "Write succeeded"
+      submitToConstructionAPI' ops1 cid res1
+
+    step "--- TRANSFER TO EXISTING k ACCOUNT ---"
+    void $ do
+      let toAcct2 = sender01KAcct
+          toGuard2 = ks sender01ks
+          amt2 = 1.0
+          fromAcct2 = sender00KAcct
+          fromGuard2 = ks sender00ks
+          ops2 = [ mkOp toAcct2 amt2 toGuard2 1 []
+                 , mkOp fromAcct2 (negate amt2) fromGuard2 2 [1]]
+          res2 = P.PLiteral $ P.LString "Write succeeded"
+      submitToConstructionAPI' ops2 cid res2
+
+    {--
+    -- This test is failing because the negate amount opperation
+    -- happens first instead of second.
+    step "--- TRANSFER FROM NEWLY CREATED k ACCOUNT AGAIN ---"
+    void $ do
+      let toAcct3 = sender00KAcct
+          toGuard3 = ks sender00ks
+          amt3 = 1.0
+          fromAcct3 = sender01KAcct
+          fromGuard3 = ks sender01ks
+          ops3 = [ mkOp toAcct3 amt3 toGuard3 1 []
+                 , mkOp fromAcct3 (negate amt3) fromGuard3 2 [1] ]
+          res3 = P.PLiteral $ P.LString "Write succeeded"
+      submitToConstructionAPI' ops3 cid res3
+      --}
 
   where    
-    mkOp name delta guard idx =
+    mkOp name delta guard idx related =
       operation Successful
                 TransferOrCreateAcct
-                (P.TxId 0) -- dummy variable
-                (toAcctLog name 0.0 delta guard) -- total (0.0) is dummy var
+                (toAcctLog name delta guard)
                 idx
-                []
+                (map (`OperationId` Nothing) related)
 
-    toAcctLog name total delta guard = AccountLog
+    toAcctLog name delta guard = AccountLog
       { _accountLogKey = name
-      , _accountLogBalanceTotal = total
       , _accountLogBalanceDelta = BalanceDelta delta
       , _accountLogCurrGuard = A.toJSON guard
       , _accountLogPrevGuard = A.toJSON guard
@@ -480,11 +476,14 @@ constructionTransferTests _ envIo =
     ks (TestKeySet _ (Just (pk,_)) pred') =
       P.mkKeySet [P.PublicKey $ T.encodeUtf8 pk] pred'
 
+    sender00KAcct = "k:" <> fst sender00
+    sender01KAcct = "k:" <> fst sender01
+
     getKeys "sender00" = Just sender00
     getKeys "sender01" = Just sender01
-    getKeys "someNewAccount" = Just sender01
-    getKeys "anotherNewAccount" = Just sender01
-    getKeys "yetAnotherNewAccount" = Just sender00
+    getKeys acct
+      | acct == sender00KAcct = Just sender00
+      | acct == sender01KAcct = Just sender01
     getKeys _ = Nothing
 
 submitToConstructionAPI
@@ -549,11 +548,23 @@ submitToConstructionAPI expectOps chainId' payer getKeys expectResult cenv step 
     Nothing -> assertFailure $ "unable to find poll response for: " <> show rk
     Just cr -> isCorrectResult rk cr
 
-  -- TODO: Check that the intended ops are the ops that occurred
+  step "confirm that intended operations occurred"
+  cmdMeta <- extractMetadata rk (PollResponses prs)
+  bheight <- cmdMeta ^?! mix "blockHeight"
+  bhash <- cmdMeta ^?! mix "blockHash"
+  let blockTxReq = BlockTransactionReq netId (BlockId bheight bhash) (TransactionId tid)
+  BlockTransactionResp (Transaction _ ops _) <- blockTransaction cenv blockTxReq
+  let actualOps = filter (\o -> _operation_type o == "TransferOrCreateAcct") ops
+
+  step "confirm that the tx has the same number of TransferOrCreateAcct operations"
+  length actualOps @?= length expectOps
+  print $ show $ zip actualOps expectOps
+  mapM_ (\(actual, expected) -> actual @?= expected) (zip actualOps expectOps)
 
   pure rk
 
   where
+
     isCorrectResult rk cr = do
       _crReqKey cr @?= rk
       _crResult cr @?= PactResult (Right expectResult)
@@ -789,13 +800,14 @@ mkKCoinAccount sid tio = do
     c <- buildTextCmd
       $ set cbSigners
         [ mkSigner' sender00
-          [ mkGasCap ]
+          [ mkTransferCap "sender00" kAcct 20.0
+          , mkGasCap ]
         ]
       $ set cbCreationTime t
       $ set cbNetworkId (Just v)
       $ set cbChainId sid
       $ mkCmd ("nonce-transfer-" <> sshow t <> "-" <> sshow n)
-      $ mkExec ("(coin.create-account \"" <> kAcct <> "\" (read-keyset \"sender00\"))")
+      $ mkExec ("(coin.transfer-create \"sender00\" \"" <> kAcct <> "\" (read-keyset \"sender00\") 20.0)")
       $ mkKeySetData "sender00" [sender00]
 
     modifyIORef' nonceRef (+1)

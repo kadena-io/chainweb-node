@@ -165,15 +165,15 @@ getGenesisLog
 getGenesisLog logs cid cr =
   case _crTxId cr of
     Just tid -> case M.lookup tid logs of
-      Just l -> rosettaTransaction cr cid $! makeOps tid l
+      Just l -> rosettaTransaction cr cid $! makeOps l
       Nothing -> rosettaTransaction cr cid []  -- not a coin contract tx
     Nothing -> rosettaTransaction cr cid [] -- all genesis tx should have a txid
   where
-    makeOps tid l = indexedOperations $!
+    makeOps l = indexedOperations $!
       UnindexedOperations
       { _unindexedOperation_fundOps = []
       , _unindexedOperation_transferOps =
-          map (operation Successful TransferOrCreateAcct tid) l
+          map (operation Successful TransferOrCreateAcct) l
       , _unindexedOperation_gasOps = []
       }
 
@@ -218,7 +218,7 @@ nonGenesisCoinbaseLog logs cid cr = case getSomeTxId cr of
     (coinbaseTid,coinbaseLog):restLogs
       | tid == coinbaseTid ->
         makeAcc restLogs
-        (map (operation Successful CoinbaseReward tid) coinbaseLog)
+        (map (operation Successful CoinbaseReward) coinbaseLog)
       | otherwise -> Left "First log's TxId does not match coinbase tx's TxId"
     _ -> Left "Expected coinbase log: Received empty logs list"
 
@@ -308,8 +308,8 @@ gasTransactionAcc accTyp cid acc ctx = combine (_txAccumulator_logsLeft acc)
 
     txId (tid,_) = tid
 
-    makeOps ot (tid, als) =
-      map (operation Successful ot tid) als
+    makeOps ot (_, als) =
+      map (operation Successful ot) als
 
     listErr expectedMsg logs = Left $
       expectedMsg ++ ": Received logs list " ++ show logs
@@ -415,7 +415,7 @@ remediationAcc accTyp acc (remTx, remTid) =
         let ops = indexedOperations $!
               UnindexedOperations
               { _unindexedOperation_fundOps = []
-              , _unindexedOperation_transferOps = makeOps (logTid, logs)
+              , _unindexedOperation_transferOps = makeOps logs
               , _unindexedOperation_gasOps = []
               }
             rosettaTx = rosettaTransactionFromCmd remTx $! ops
@@ -426,8 +426,8 @@ remediationAcc accTyp acc (remTx, remTid) =
   where
     makeAcc restLogs rosettaTx =
       accumulatorFunction accTyp acc restLogs rosettaTx
-    makeOps (tid, logs) =
-      map (operation Remediation TransferOrCreateAcct tid) logs
+    makeOps logs =
+      map (operation Remediation TransferOrCreateAcct) logs
 
 -- | Matches all transactions in a remediation block
 --   (including coinbase, remediations, and user transactions)
@@ -750,11 +750,11 @@ toSignerAcctsMap txInfo payerAcct cid pacts cutDb = do
         Just (_,_,g) -> hoistEither $ Just <$> parsePubKeys (_accountId_address k) g
 
     insertWith'
-        :: T.Text
+        :: AccountId
         -> ([P.SigCapability], [T.Text])
-        -> HM.HashMap AccountName ([P.SigCapability], [T.Text])
-        -> HM.HashMap AccountName ([P.SigCapability], [T.Text])
-    insertWith' name sigs m = HM.insertWith f (AccountName name) sigs m
+        -> HM.HashMap AccountId ([P.SigCapability], [T.Text])
+        -> HM.HashMap AccountId ([P.SigCapability], [T.Text])
+    insertWith' acct sigs m = HM.insertWith f acct sigs m
       where
         f (newSigs, _) (oldSigs, oldKeys) =
           (oldSigs <> newSigs, oldKeys) -- keys wouldn't change
@@ -776,12 +776,14 @@ toSignerAcctsMap txInfo payerAcct cid pacts cutDb = do
     mkCoinCap n = mkCapability "coin" n
 
     mkTransferCap
-        :: T.Text
-        -> T.Text
+        :: AccountId
+        -> AccountId
         -> Decimal
         -> P.SigCapability
     mkTransferCap sender receiver amount = mkCoinCap "TRANSFER"
-      [ pString sender, pString receiver, pDecimal amount ]
+      [ pString (_accountId_address sender), 
+        pString (_accountId_address receiver), 
+        pDecimal amount ]
 
     mkGasCap :: P.SigCapability
     mkGasCap = mkCoinCap "GAS" []
@@ -795,7 +797,7 @@ toSignerAcctsMap txInfo payerAcct cid pacts cutDb = do
     pDecimal = PLiteral . P.LDecimal
 
 enforceAcctPresent
-    :: T.Text
+    :: AccountId
     -> Maybe [T.Text]
     -> ExceptT RosettaError Handler [T.Text]
 enforceAcctPresent k actualOwnership =
@@ -807,7 +809,7 @@ enforceAcctPresent k actualOwnership =
       "Account=" ++ show k ++ " doesn't exists"
 
 checkExpectedOwnership
-    :: T.Text
+    :: AccountId
     -> [T.Text]
     -> Maybe [T.Text]
     -> ExceptT RosettaError Handler ()
@@ -823,10 +825,10 @@ checkExpectedOwnership acct expected (Just actual)
 
 -- | Maps a Pact Address (derived from PublicKey) to a
 --   function to create a Signer.
-toSignerMap
+rosettaPubKeysToSignerMap
     :: [RosettaPublicKey]
     -> Either RosettaError (HM.HashMap T.Text ([P.SigCapability] -> Signer))
-toSignerMap pubKeys = HM.fromList <$> mapM f pubKeys
+rosettaPubKeysToSignerMap pubKeys = HM.fromList <$> mapM f pubKeys
   where 
     f (RosettaPublicKey pk ct) = do
       sk <- getScheme ct
@@ -842,13 +844,13 @@ createSigners addrToSignerMap acctToCapMap =
   -- NOTE: There might be duplicates signers but that's okay
   concat <$> mapM f (HM.toList acctToCapMap)
   where
-
     f (acct, (caps, pubKeyAddrs)) =
       mapM (lookupSigner acct caps) pubKeyAddrs
 
+    lookupSigner :: AccountId -> [P.SigCapability] -> T.Text -> Either RosettaError (Signer, AccountId)
     lookupSigner acct caps pkAddr = do
       mkSigner <- toRosettaError RosettaMissingExpectedPublicKey $
                   note ("No Rosetta Public Key found for pact public key address="
                         ++ show pkAddr ++ " for AccountId=" ++ show acct)
                   (HM.lookup pkAddr addrToSignerMap)
-      pure (mkSigner caps, acctNameToAcctId acct)
+      pure (mkSigner caps, acct)

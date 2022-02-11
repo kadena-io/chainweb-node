@@ -216,7 +216,7 @@ blockTransactionH v cutDb ps pacts (BlockTransactionReq net bid t) = do
 -- NOTE: all Construction API endpoints except /metadata and /submit must
 -- operate in "offline" mode.
 
--- | Returns the k: account name that corresponds to valid Ed25519 public keys.
+-- | Given an ED25519 Public Key, returns the k: account name associated with it.
 constructionDeriveH
     :: ChainwebVersion
     -> ConstructionDeriveReq
@@ -237,7 +237,6 @@ constructionDeriveH v req =
           { _deriveRespMetaData_ownership = ownership }
         }
 
-
 constructionPreprocessH
     :: ChainwebVersion
     -> ConstructionPreprocessReq
@@ -254,7 +253,12 @@ constructionPreprocessH v req = do
       parsedMeta :: PreprocessReqMetaData <- extractMetaData meta
 
       let PreprocessReqMetaData gasPayer _ = parsedMeta
+
+      -- Maps the intended operations to an intermediary dats type
+      -- that will facilitate creating pact code later on in the workflow.
       tx <- opsToConstructionTx ops
+
+      -- The suggested cost of the transaction
       (gasLimit, gasPrice, fee) <- getSuggestedFee tx someMaxFee someMult
 
       -- The accounts that need to sign the transaction
@@ -286,7 +290,7 @@ constructionMetadataH v cutDb pacts (ConstructionMetadataReq net opts someKeys) 
     work = do
       cid <- hoistEither $ annotate rosettaError' (validateNetwork v net)
       availableSigners <- someKeys ?? rosettaError' RosettaMissingPublicKeys
-                          >>= hoistEither . toSignerMap
+                          >>= hoistEither . rosettaPubKeysToSignerMap
       meta :: PreprocessRespMetaData <- hoistEither $ extractMetaData opts
       let PreprocessRespMetaData reqMeta tx fee gLimit gPrice = meta
           PreprocessReqMetaData payer someNonce = reqMeta
@@ -403,7 +407,7 @@ constructionHashH (ConstructionHashReq _ signedTx) =
       pure $ TransactionIdResp (cmdToTransactionId cmd) Nothing
 
 
--- TODO: Submit tx using the /send endpoint instead
+-- Note (linda): This code simulates the logic of `sendHandler` closely.
 constructionSubmitH
     :: ChainwebVersion
     -> [(ChainId, MempoolBackend ChainwebTransaction)]

@@ -150,7 +150,7 @@ checkBalanceDeltas = do
     createCase key endingBal delta =
       let g = mockGuard key
           acctRow = (key, endingBal, g)
-          acctLog = AccountLog key endingBal delta g g
+          acctLog = AccountLog key delta g g
       in (acctRow, acctLog)
 
     cases
@@ -448,10 +448,9 @@ mop
 mop = MatchOperation acctLog
   where
     key = "someKey" -- dummy variable
-    endingBal = 10.0 -- dummy variable
     delta = bd $ negate 1.0 -- dummy variable
     g = mockGuard key
-    acctLog = AccountLog key endingBal delta g g
+    acctLog = AccountLog key delta g g
 
 data MatchOperations = MatchOperations
   { _matchOperations_txId :: TxId
@@ -483,12 +482,12 @@ createLogsMap cases = M.fromList $! concat $! map (map f . _matchRosettaTx_opera
 createOperations :: [MatchOperations] -> [Operation]
 createOperations opsCases = concat $! map f opsCases
   where
-    f (MatchOperations tid ops) = map (createOperation tid) ops
+    f (MatchOperations _ ops) = map createOperation ops
 
     opIdx = _operationId_index
 
-    createOperation tid (MatchOperation acctLog otype oid related) =
-      operation Successful otype tid acctLog (opIdx oid) related
+    createOperation (MatchOperation acctLog otype oid related) =
+      operation Successful otype acctLog (opIdx oid) related
 
 createExpectedRosettaTx :: MatchRosettaTx -> (String, Transaction)
 createExpectedRosettaTx m = (msg, mockRosettaTx rk cid ops)
@@ -540,13 +539,12 @@ assertEqualAcctLog
     -> Assertion
 assertEqualAcctLog msg (log1, log2) = do
   assertEqual (adjust msg "same key") key1 key2
-  assertEqual (adjust msg "same balanceTotal") bal1 bal2
   assertEqual (adjust msg "same balanceDelta") balDelta1 balDelta2
   assertEqual (adjust msg "same currGuard") currGuard1 currGuard2
   assertEqual (adjust msg "same prevGuard") prevGuard1 prevGuard2
   where
-    AccountLog key1 bal1 balDelta1 currGuard1 prevGuard1 = log1
-    AccountLog key2 bal2 balDelta2 currGuard2 prevGuard2 = log2
+    AccountLog key1 balDelta1 currGuard1 prevGuard1 = log1
+    AccountLog key2 balDelta2 currGuard2 prevGuard2 = log2
 
 assertSameOperation
     :: String
