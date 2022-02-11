@@ -216,8 +216,7 @@ blockTransactionH v cutDb ps pacts (BlockTransactionReq net bid t) = do
 -- NOTE: all Construction API endpoints except /metadata and /submit must
 -- operate in "offline" mode.
 
--- | For valid Ed25519 Public Key returns the k: address
---   account.
+-- | Returns the k: account name that corresponds to valid Ed25519 public keys.
 constructionDeriveH
     :: ChainwebVersion
     -> ConstructionDeriveReq
@@ -231,16 +230,11 @@ constructionDeriveH v req =
     work = do
       _ <- annotate rosettaError' (validateNetwork v net)
       T2 kAccount ownership <- rosettaPubKeyTokAccount rosettaPubKey
-
       pure $! ConstructionDeriveResp
         { _constructionDeriveResp_address = Nothing
-        , _constructionDeriveResp_accountIdentifier = Just $! AccountId
-          { _accountId_address = kAccount
-          , _accountId_subAccount = Nothing
-          , _accountId_metadata = Just $! toObject $! AccountIdMetaData
-            { _accountIdMetaData_currOwnership = toJSON $! ownership }
-          }
-        , _constructionDeriveResp_metadata = Nothing
+        , _constructionDeriveResp_accountIdentifier = Just $! accountId kAccount
+        , _constructionDeriveResp_metadata = Just $! toObject $! DeriveRespMetaData
+          { _deriveRespMetaData_ownership = ownership }
         }
 
 
@@ -260,12 +254,11 @@ constructionPreprocessH v req = do
       parsedMeta :: PreprocessReqMetaData <- extractMetaData meta
 
       let PreprocessReqMetaData gasPayer _ = parsedMeta
-
       tx <- opsToConstructionTx ops
       (gasLimit, gasPrice, fee) <- getSuggestedFee tx someMaxFee someMult
 
       -- The accounts that need to sign the transaction
-      let expectedAccts = map acctNameToAcctId $ neededAccounts tx gasPayer
+      let expectedAccts = neededAccounts tx gasPayer
 
       pure $! ConstructionPreprocessResp
         { _constructionPreprocessResp_options = Just $! toObject $! PreprocessRespMetaData

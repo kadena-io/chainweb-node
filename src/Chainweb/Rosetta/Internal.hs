@@ -38,6 +38,7 @@ import qualified Data.Set as S
 import qualified Pact.Types.Runtime as P
 import qualified Pact.Parse as P
 import qualified Pact.Types.Capability as P
+import qualified Pact.Types.Command as P
 
 import Pact.Types.Command
 import Pact.Types.Hash
@@ -686,13 +687,15 @@ rosettaErrorT someMsg = mapExceptT f
 neededAccounts
     :: ConstructionTx
     -> AccountId
-    -> [AccountName]
+    -> [AccountId]
 neededAccounts txInfo payerAcct = S.toList $
   case txInfo of
     ConstructTransfer from _ _ _ _ ->
-      S.insert (AccountName from) m
+      S.insert from m
   where
-    m = S.singleton (AccountName $ _accountId_address payerAcct)
+    -- Uses Sets to avoid repeating accounts
+    -- (i.e. the gas payer is the same as the transfer)
+    m = S.singleton payerAcct
 
 
 -- | Iterates through the `ConstructionTx` to determine
@@ -706,7 +709,7 @@ toSignerAcctsMap
     -> [(ChainId, PactExecutionService)]
     -> CutDb cas
     -> ExceptT RosettaError Handler
-       (HM.HashMap AccountName ([P.SigCapability], [T.Text]))
+       (HM.HashMap AccountId ([P.SigCapability], [T.Text]))
 toSignerAcctsMap txInfo payerAcct cid pacts cutDb = do
   bhCurr <- rosettaErrorT Nothing $
             getLatestBlockHeader cutDb cid
@@ -714,12 +717,11 @@ toSignerAcctsMap txInfo payerAcct cid pacts cutDb = do
             lookup cid pacts ?? RosettaInvalidChain
 
   -- GAS
-  let payer = _accountId_address payerAcct
-  someGasOwner <- getOwnership peCurr bhCurr payer
-  gasOwner <- enforceAcctPresent payer someGasOwner
+  someGasOwner <- getOwnership peCurr bhCurr payerAcct
+  gasOwner <- enforceAcctPresent payerAcct someGasOwner
   let gasCaps = [ mkGasCap ]
       mapWithGas = HM.singleton
-        (AccountName payer)
+        payerAcct
         (gasCaps, gasOwner)
 
   -- TRANSACTION
@@ -742,10 +744,10 @@ toSignerAcctsMap txInfo payerAcct cid pacts cutDb = do
   where
     getOwnership cr bh k = do
       someRow <- rosettaErrorT Nothing $
-        getHistoricalLookupBalance' cr bh k
+        getHistoricalLookupBalance' cr bh (_accountId_address k)
       case someRow of
         Nothing -> pure Nothing
-        Just (_,_,g) -> hoistEither $ Just <$> parsePubKeys k g
+        Just (_,_,g) -> hoistEither $ Just <$> parsePubKeys (_accountId_address k) g
 
     insertWith'
         :: T.Text
@@ -792,18 +794,6 @@ toSignerAcctsMap txInfo payerAcct cid pacts cutDb = do
     pDecimal :: Decimal -> PactValue
     pDecimal = PLiteral . P.LDecimal
 
-
-enforceAcctNotPresent
-    :: T.Text
-    -> Maybe [T.Text]
-    -> ExceptT RosettaError Handler ()
-enforceAcctNotPresent k actualOwnership =
-  case actualOwnership of
-    Nothing -> pure () -- key missing as expected
-    Just _ -> hoistEither $ Left $
-      stringRosettaError RosettaInvalidAccountProvided $
-      "Account=" ++ show k ++ " already exists"
-
 enforceAcctPresent
     :: T.Text
     -> Maybe [T.Text]
@@ -830,3 +820,35 @@ checkExpectedOwnership acct expected (Just actual)
       ++ show expected ++
       " doesn't match the account's actual public key addresses "
       ++ show actual
+
+-- | Maps a Pact Address (derived from PublicKey) to a
+--   function to create a Signer.
+toSignerMap
+    :: [RosettaPublicKey]
+    -> Either RosettaError (HM.HashMap T.Text ([P.SigCapability] -> Signer))
+toSignerMap pubKeys = HM.fromList <$> mapM f pubKeys
+  where 
+    f (RosettaPublicKey pk ct) = do
+      sk <- getScheme ct
+      addr <- toPactPubKeyAddr pk sk
+      let signerWithoutCap = P.Signer (Just sk) pk (Just addr)
+      pure (addr, signerWithoutCap)
+
+createSigners
+    :: HM.HashMap T.Text ([P.SigCapability] -> Signer)
+    -> HM.HashMap AccountId ([P.SigCapability], [T.Text])
+    -> Either RosettaError [(Signer, AccountId)]
+createSigners addrToSignerMap acctToCapMap =
+  -- NOTE: There might be duplicates signers but that's okay
+  concat <$> mapM f (HM.toList acctToCapMap)
+  where
+
+    f (acct, (caps, pubKeyAddrs)) =
+      mapM (lookupSigner acct caps) pubKeyAddrs
+
+    lookupSigner acct caps pkAddr = do
+      mkSigner <- toRosettaError RosettaMissingExpectedPublicKey $
+                  note ("No Rosetta Public Key found for pact public key address="
+                        ++ show pkAddr ++ " for AccountId=" ++ show acct)
+                  (HM.lookup pkAddr addrToSignerMap)
+      pure (mkSigner caps, acctNameToAcctId acct)

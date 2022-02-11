@@ -46,7 +46,7 @@ source-repository-package
 source-repository-package
     type: git
     location: https://github.com/kadena-io/rosetta.git
-    tag: 412d716cc4bff7966cfaac48eec308a4a6d299e0
+    tag: 9c5687eebc994114a8470e25570f2ddc4a24ce35
 
 source-repository-package
     type: git

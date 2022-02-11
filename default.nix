@@ -26,7 +26,7 @@ pkgs.haskell.packages.${compiler}.developPackage {
       rosetta = self.callCabal2nix "rosetta" (pkgs.fetchFromGitHub {
         owner = "kadena-io";
         repo = "rosetta";
-        rev = "412d716cc4bff7966cfaac48eec308a4a6d299e0";
+        rev = "9c5687eebc994114a8470e25570f2ddc4a24ce35";
         sha256 = "06rgkq5qpqq0xj3mrxq4395p3jh2p34xy3a3vxz4xgjlj9fhy1ms";
       }) {};
       mwc-random = self.callHackageDirect {

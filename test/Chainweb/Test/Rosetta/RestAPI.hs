@@ -422,6 +422,7 @@ constructionTransferTests _ envIo =
           ops = [ mkOp fromAcct (negate amt) fromGuard 0
                 , mkOp toAcct amt toGuard 1 ]
           res = P.PLiteral $ P.LString "Write succeeded"
+      -- TODO: check that account balance is expected
       submitToConstructionAPI' ops srcChainId res
 
     step "--- TRANSFER TO A NEW ACCOUNT ---"
@@ -434,6 +435,7 @@ constructionTransferTests _ envIo =
           ops = [ mkOp fromAcct (negate amt) fromGuard 0
                 , mkOp toAcct amt toGuard 1 ]
           res = P.PLiteral $ P.LString "Write succeeded"
+      -- TODO: check that account balance is expected
       submitToConstructionAPI' ops cid res
 
     step "--- TRANSFER TO A k: ACCOUNT ---"
@@ -454,7 +456,7 @@ constructionTransferTests _ envIo =
           ops = [ mkOp fromAcct (negate amt) fromGuard 0
                 , mkOp toAcct amt toGuardSender01 1 ]
           res = P.PLiteral $ P.LString "Write succeeded"
-
+      -- TODO: check that account balance is expected   
       submitToConstructionAPI' ops cid res
 
   where    

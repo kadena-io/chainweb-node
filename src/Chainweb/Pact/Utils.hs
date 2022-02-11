@@ -1,4 +1,6 @@
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE OverloadedStrings #-}
+
 -- |
 -- Module: Chainweb.Pact.Utils
 -- Copyright: Copyright © 2018 Kadena LLC.
@@ -20,9 +22,22 @@ module Chainweb.Pact.Utils
     , fromPactChainId
     , lenientTimeSlop
     , toTxCreationTime
+
+    -- * k:account helper functions
+    , validatePubKey
+    , validateKAccount
+    , extractPubKeyFromKAccount
+    , generateKAccountFromPubKey
+    , pubKeyToKAccountKeySet
+    , generateKeySetFromKAccount
+    , validateKAccountKeySet
     ) where
 
 import Data.Aeson
+import qualified Data.ByteString.Char8 as BSC
+import Data.Char ( isDigit, ord )
+import qualified Data.Text as T
+import qualified Data.Text.Encoding as T
 
 import Control.Concurrent.MVar
 import Control.Monad.Catch
@@ -30,8 +45,9 @@ import Control.Monad.Catch
 import Pact.Interpreter as P
 import Pact.Parse
 import qualified Pact.Types.ChainId as P
+import qualified Pact.Types.Term as P
 import Pact.Types.ChainMeta
-import Pact.Types.Command
+import Pact.Types.Command ( Payload, Command, ParsedCode )
 
 import Chainweb.BlockCreationTime
 import Chainweb.BlockHeader
@@ -110,3 +126,61 @@ lenientTimeSlop = 95
 toTxCreationTime :: Time Micros -> TxCreationTime
 toTxCreationTime (Time timespan) =
   TxCreationTime $ ParsedInteger $ fromIntegral $ timeSpanToSeconds timespan
+
+-- Note (linda):
+-- `ed25519Hex` and i`sHexDigitLower` are copied from:
+--  https://github.com/kadena-io/pact/blob/0ea3e6f63a2f677520fa425fa5f01984a7345160/src/Pact/Types/KeySet.hs
+-- (Feb 10, 2022) Once the latest version of Pact is merged in, these duplicate
+-- functions don't need to be used.
+
+-- | Current "Kadena" ED-25519 key format: 64-length hex.
+ed25519Hex :: P.PublicKey -> Bool
+ed25519Hex (P.PublicKey k) = BSC.length k == 64 && BSC.all isHexDigitLower k
+
+-- | Lower-case hex numbers.
+isHexDigitLower :: Char -> Bool
+isHexDigitLower c =
+  -- adapted from GHC.Unicode#isHexDigit
+  isDigit c || (fromIntegral (ord c - ord 'a')::Word) <= 5
+
+validatePubKey :: P.PublicKey -> Bool
+validatePubKey = ed25519Hex
+
+validateKAccount :: T.Text -> Bool
+validateKAccount acctName =
+  case T.take 2 acctName of
+    "k:" ->
+      let pubKey = P.PublicKey $ T.encodeUtf8 $ T.drop 2 acctName
+      in validatePubKey pubKey
+    _ -> False
+
+extractPubKeyFromKAccount :: T.Text -> Maybe P.PublicKey
+extractPubKeyFromKAccount kacct
+  | validateKAccount kacct =
+    Just $ P.PublicKey $ T.encodeUtf8 $ T.drop 2 kacct
+  | otherwise = Nothing
+
+generateKAccountFromPubKey :: P.PublicKey -> Maybe T.Text
+generateKAccountFromPubKey pubKey
+  | validatePubKey pubKey =
+    let pubKeyText = T.decodeUtf8 $ P._pubKey pubKey
+    in Just $ "k:" <> pubKeyText
+  | otherwise = Nothing
+
+-- Warning: Only use if already certain that PublicKey
+-- is valid.
+pubKeyToKAccountKeySet :: P.PublicKey -> P.KeySet
+pubKeyToKAccountKeySet pubKey = P.mkKeySet [pubKey] "keys-all"
+
+generateKeySetFromKAccount :: T.Text -> Maybe P.KeySet
+generateKeySetFromKAccount kacct = do
+  pubKey <- extractPubKeyFromKAccount kacct
+  pure $ pubKeyToKAccountKeySet pubKey
+
+validateKAccountKeySet :: T.Text -> P.KeySet -> Bool
+validateKAccountKeySet kacct actualKeySet =
+  case generateKeySetFromKAccount kacct of
+    Nothing -> False
+    Just expectedKeySet
+      | expectedKeySet == actualKeySet -> True
+      | otherwise -> False

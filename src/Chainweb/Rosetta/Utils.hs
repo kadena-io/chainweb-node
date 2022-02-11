@@ -32,7 +32,6 @@ import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
 import qualified Pact.Types.Runtime as P
 import qualified Pact.Types.RPC as P
-import qualified Pact.Types.Capability as P
 import qualified Pact.Types.Command as P
 import qualified Pact.Types.Scheme as P
 import qualified Pact.Parse as P
@@ -55,7 +54,7 @@ import Chainweb.BlockCreationTime (BlockCreationTime(..))
 import Chainweb.BlockHash ( blockHashToText )
 import Chainweb.BlockHeader (BlockHeader(..))
 import Chainweb.BlockHeight (BlockHeight(..))
-import Chainweb.Pact.Utils (toTxCreationTime)
+import Chainweb.Pact.Utils
 import Chainweb.Time
 import Chainweb.Utils ( sshow, int, T2(..) )
 import Chainweb.Version
@@ -296,6 +295,9 @@ instance FromJSON PreprocessReqMetaData where
   parseJSON = withObject "PreprocessReqMetaData" $ \o -> do
     payer <- o .: "gas_payer"
     nonce <- o .:? "nonce"
+    _ <- case rosettaAccountIdtoKAccount payer of
+      Left errMsg -> error $ show errMsg
+      Right _ -> pure ()
     return $ PreprocessReqMetaData
       { _preprocessReqMetaData_gasPayer = payer
       , _preprocessReqMetaData_nonce = nonce
@@ -307,9 +309,9 @@ instance FromJSON PreprocessReqMetaData where
 -- NOTE: Only KeySet guards are considered for simplicity.
 data ConstructionTx =
     ConstructTransfer
-      { _constructTransfer_from :: !T.Text
+      { _constructTransfer_from :: !AccountId
       , _constructTransfer_fromGuard :: !P.KeySet
-      , _constructTransfer_to :: !T.Text
+      , _constructTransfer_to :: !AccountId
       , _constructTransfer_toGuard :: !P.KeySet
       , _constructTransfer_amount :: !P.ParsedDecimal
       }
@@ -335,13 +337,69 @@ instance FromJSON ConstructionTx where
         to <- o .: "receiver_account"
         toGuard <- o .: "receiver_ownership"
         amt <- o .: "transfer_amount"
-        return $ ConstructTransfer
-          { _constructTransfer_from = from
-          , _constructTransfer_fromGuard = fromGuard
-          , _constructTransfer_to = to
-          , _constructTransfer_toGuard = toGuard
-          , _constructTransfer_amount = amt
-          }
+        let actualTx = ConstructTransfer
+              { _constructTransfer_from = from
+              , _constructTransfer_fromGuard = fromGuard
+              , _constructTransfer_to = to
+              , _constructTransfer_toGuard = toGuard
+              , _constructTransfer_amount = amt
+              }
+            from' = (from, negate amt, fromGuard)
+            to' = (to, amt, toGuard)
+        case transferTx from' to' of
+          Left errMsg -> error $ show errMsg
+          Right expectedTx
+            | expectedTx == actualTx -> pure actualTx
+            | otherwise -> error $
+              "Expected ConstructionTx: " <> show expectedTx <>
+              "/n but received: " <> show actualTx
+
+-- Constructs a Transfer ConstructionTx and
+-- performs balance and k:account checks.
+transferTx
+    :: (AccountId, P.ParsedDecimal, P.KeySet)
+    -> (AccountId, P.ParsedDecimal, P.KeySet) 
+    -> Either RosettaError ConstructionTx
+transferTx (acct1, bal1, ks1) (acct2, bal2, ks2)
+  | acct1 == acct2 =
+    rerr RosettaInvalidOperations
+         "Cannot transfer to the same account name"
+  -- Enforce accounts are valid k accounts
+  | not (validateKAccount $ _accountId_address acct1) =
+    rerr RosettaInvalidKAccount
+          (show acct1)
+  | not (validateKAccount $ _accountId_address acct2) =
+    rerr RosettaInvalidKAccount
+          (show acct2)
+  | not (validateKAccountKeySet (_accountId_address acct1) ks1) =
+    rerr RosettaInvalidKAccount $
+        "Invalid KeySet: " <> show ks1
+  | not (validateKAccountKeySet (_accountId_address acct2) ks2) =
+    rerr RosettaInvalidKAccount $
+        "Invalid KeySet: " <> show ks2
+  -- Perform balance checks
+  | bal1 + bal2 /= 0.0 =
+    rerr RosettaInvalidOperations
+        "transfer amounts: Mass conversation not preserved"
+  | bal1 == 0 || bal2 == 0 =
+    rerr RosettaInvalidOperations
+        "transfer amounts: Cannot transfer zero amounts"
+  | bal1 < 0.0 = pure $ ConstructTransfer
+    { _constructTransfer_from = acct1    -- bal1 is negative, so acct1 is debitor (from)
+    , _constructTransfer_fromGuard = ks1
+    , _constructTransfer_to = acct2      -- bal2 is positive, so acct2 is creditor (to)
+    , _constructTransfer_toGuard = ks2
+    , _constructTransfer_amount = abs bal1
+    }
+  | otherwise = pure $ ConstructTransfer
+    { _constructTransfer_from = acct2    -- bal2 is negative, so acct2 is debitor (from)
+    , _constructTransfer_fromGuard = ks2
+    , _constructTransfer_to = acct1      -- bal1 is positive, so acct1 is creditor (to)
+    , _constructTransfer_toGuard = ks1
+    , _constructTransfer_amount = abs bal1
+    }
+  where
+    rerr f msg = Left $ stringRosettaError f msg
 
 newtype DeriveRespMetaData = DeriveRespMetaData
   { _deriveRespMetaData_ownership :: P.KeySet }
@@ -387,7 +445,7 @@ instance FromJSON PreprocessRespMetaData where
 
 
 -- | Parse list of Operations into feasible Pact transactions.
--- NOTE: Expects that user-provided values are valid (i.e. ChainIds, AccountIds).
+-- NOTE: Expects that user-provided values are valid (i.e. AccountIds).
 opsToConstructionTx
     :: [Operation]
     -> Either RosettaError ConstructionTx
@@ -396,39 +454,11 @@ opsToConstructionTx ops = do
   case ops' of
     [] -> rerr RosettaInvalidOperations
             "Found empty list of Operations"
-    [op1, op2] -> transfer op1 op2
+    [op1, op2] -> transferTx op1 op2
     _ -> rerr RosettaInvalidOperations
            "Expected at MOST two operations"
   where
     rerr f msg = Left $ stringRosettaError f msg
-
-    transfer (acct1, bal1, ks1) (acct2, bal2, ks2)
-      | acct1 == acct2 =
-        rerr RosettaInvalidOperations
-         "Cannot transfer to the same account name"
-      -- TODO: enforce accts are valid k accounts
-      -- TODO: enforce ks as valid for k accounts
-      | bal1 + bal2 /= 0.0 =
-        rerr RosettaInvalidOperations
-        "transfer amounts: Mass conversation not preserved"
-      | bal1 == 0 || bal2 == 0 =
-        rerr RosettaInvalidOperations
-        "transfer amounts: Cannot transfer zero amounts"
-      | bal1 < 0.0 = pure $ ConstructTransfer
-        { _constructTransfer_from = acct1    -- bal1 is negative, so acct1 is debitor (from)
-        , _constructTransfer_fromGuard = ks1
-        , _constructTransfer_to = acct2      -- bal2 is positive, so acct2 is creditor (to)
-        , _constructTransfer_toGuard = ks2
-        , _constructTransfer_amount = P.ParsedDecimal $ abs bal1
-        }
-      | otherwise = pure $ ConstructTransfer
-        { _constructTransfer_from = acct2    -- bal2 is negative, so acct2 is debitor (from)
-        , _constructTransfer_fromGuard = ks2
-        , _constructTransfer_to = acct1      -- bal1 is positive, so acct1 is creditor (to)
-        , _constructTransfer_toGuard = ks1
-        , _constructTransfer_amount = P.ParsedDecimal $ abs bal1
-        }
-
 
 -- | Calculate the suggested fee in KDA for the transaction to be performed.
 -- Some optional parameters might be specified, i.e. a max KDA fee and a fee multiplier.
@@ -566,19 +596,23 @@ toNonce :: Maybe T.Text -> P.PublicMeta -> T.Text
 toNonce (Just nonce) _ = nonce
 toNonce Nothing pm = sshow $! P._pmCreationTime pm
 
+rosettaAccountIdtoKAccount :: AccountId -> Either RosettaError (T2 T.Text P.KeySet)
+rosettaAccountIdtoKAccount acct = do
+  let kAccount = _accountId_address acct
+  ownership <- toRosettaError RosettaInvalidKAccount $
+              note (show acct) $
+              generateKeySetFromKAccount kAccount
+  pure $! T2 kAccount ownership
 
 rosettaPubKeyTokAccount :: RosettaPublicKey -> Either RosettaError (T2 T.Text P.KeySet)
 rosettaPubKeyTokAccount (RosettaPublicKey pubKey curve) = do
-  -- Enforces that the public key is valid for the scheme provided
-  scheme <- getScheme curve
-  _ <- toPactPubKeyAddr pubKey scheme
-
-  -- TODO: How does k: accounts handle non-ED25519 public keys.
-  -- Assumption: Pact public key address formatting returns the full
-  -- public key.
-  let kAccount = printf "k:%s" pubKey
-      ownership = P.mkKeySet [P.PublicKey $ T.encodeUtf8 pubKey] "keys-all"
-  pure $! T2 (T.pack $! kAccount) ownership
+  _ <- getScheme curve -- enforce only valid schemes
+  let pubKeyPact = P.PublicKey $ T.encodeUtf8 pubKey
+  kAccount <- toRosettaError RosettaInvalidPublicKey $
+              note (show pubKey) $
+              generateKAccountFromPubKey pubKeyPact
+  let ownership = pubKeyToKAccountKeySet pubKeyPact
+  pure $! T2 kAccount ownership
 
 toPactPubKeyAddr
     :: T.Text
@@ -609,19 +643,6 @@ sigToScheme RosettaEd25519 = pure P.ED25519
 sigToScheme st = Left $ stringRosettaError RosettaInvalidSignature $
                  "Found unsupported SignatureType: " ++ show st
 
--- | Maps a Pact Address (derived from PublicKey) to a
---   function to create a Signer.
-toSignerMap
-    :: [RosettaPublicKey]
-    -> Either RosettaError (HM.HashMap T.Text ([P.SigCapability] -> Signer))
-toSignerMap pubKeys = HM.fromList <$> mapM f pubKeys
-  where 
-    f (RosettaPublicKey pk ct) = do
-      sk <- getScheme ct
-      addr <- toPactPubKeyAddr pk sk
-      let signerWithoutCap = P.Signer (Just sk) pk (Just addr)
-      pure (addr, signerWithoutCap)
-
 
 newtype AccountName = AccountName { _accountName :: T.Text }
   deriving (Show, Eq, Ord)
@@ -632,27 +653,7 @@ instance Hashable AccountName where
 -- TODO: If AccountId metadata changes to include the account guard,
 -- will need to ask for keyset here.
 acctNameToAcctId :: AccountName -> AccountId
-acctNameToAcctId (AccountName name) = AccountId name Nothing Nothing
-
-
-createSigners
-    :: HM.HashMap T.Text ([P.SigCapability] -> Signer)
-    -> HM.HashMap AccountName ([P.SigCapability], [T.Text])
-    -> Either RosettaError [(Signer, AccountId)]
-createSigners addrToSignerMap acctToCapMap =
-  -- NOTE: There might be duplicates signers but that's okay
-  concat <$> mapM f (HM.toList acctToCapMap)
-  where
-
-    f (acct, (caps, pubKeyAddrs)) =
-      mapM (lookupSigner acct caps) pubKeyAddrs
-
-    lookupSigner acct caps pkAddr = do
-      mkSigner <- toRosettaError RosettaMissingExpectedPublicKey $
-                  note ("No Rosetta Public Key found for pact public key address="
-                        ++ show pkAddr ++ " for AccountId=" ++ show acct)
-                  (HM.lookup pkAddr addrToSignerMap)
-      pure (mkSigner caps, acctNameToAcctId acct)
+acctNameToAcctId (AccountName name) = accountId name
 
 
 --------------------------------------------------------------------------------
@@ -944,6 +945,17 @@ pactHashToTransactionId hsh = TransactionId $ P.hashToText $ P.toUntypedHash hsh
 rkToTransactionId :: RequestKey -> TransactionId
 rkToTransactionId rk = TransactionId $ requestKeyToB16Text rk
 
+accountId :: T.Text -> AccountId
+accountId acctName = AccountId
+  { _accountId_address = acctName
+  , _accountId_subAccount = Nothing  -- assumes coin acct contract only
+  , _accountId_metadata = Nothing -- disabled due to ownership rotation bug
+  }
+  where
+    _accountIdMeta = Nothing
+      --Just $ toObject $ AccountIdMetaData
+      --{ _accountIdMetaData_currOwnership = ownership }
+
 operationStatus :: ChainwebOperationStatus -> OperationStatus
 operationStatus s@Successful =
   OperationStatus
@@ -1024,7 +1036,7 @@ operation ostatus otype _txId acctLog idx related =
     , _operation_relatedOperations = someRelatedOps
     , _operation_type = sshow otype
     , _operation_status = sshow ostatus
-    , _operation_account = Just accountId
+    , _operation_account = Just $ accountId (_accountLogKey acctLog)
     , _operation_amount = Just $ kdaToRosettaAmount $
                           _balanceDelta $ _accountLogBalanceDelta acctLog
     , _operation_coinChange = Nothing
@@ -1038,21 +1050,13 @@ operation ostatus otype _txId acctLog idx related =
       { --_operationMetaData_txId = txId
       --, _operationMetaData_totalBalance =
       --    kdaToRosettaAmount $ _accountLogBalanceTotal acctLog
-       _operationMetaData_prevOwnership = _accountLogPrevGuard acctLog
+        _operationMetaData_prevOwnership = _accountLogPrevGuard acctLog
       , _operationMetaData_currOwnership = _accountLogCurrGuard acctLog
-      }
-    accountId = AccountId
-      { _accountId_address = _accountLogKey acctLog
-      , _accountId_subAccount = Nothing  -- assumes coin acct contract only
-      , _accountId_metadata = Nothing -- disabled due to ownership rotation bug
-      }
-    _accountIdMeta = Just $ toObject $ AccountIdMetaData
-      { _accountIdMetaData_currOwnership = _accountLogCurrGuard acctLog
       }
 
 parseOp
     :: Operation
-    -> Either RosettaError (T.Text, Decimal, P.KeySet)
+    -> Either RosettaError (AccountId, P.ParsedDecimal, P.KeySet)
 parseOp (Operation i _ typ stat someAcct someAmt _ someMeta) = do
   typ @?= "TransferOrCreateAcct"
   stat @?= "Successful"
@@ -1064,7 +1068,7 @@ parseOp (Operation i _ typ stat someAcct someAmt _ someMeta) = do
   ownership <- hushResult (fromJSON currOwn) @??
                "Only Pact KeySet is supported for account ownership"
   
-  pure (_accountId_address acct, amtDelta, ownership)
+  pure (acct, P.ParsedDecimal amtDelta, ownership)
 
   where
     (@??) :: Maybe a -> String -> Either RosettaError a
@@ -1163,6 +1167,7 @@ data RosettaFailure
     | RosettaInvalidPublicKey
     | RosettaInvalidSignature
     | RosettaInvalidAccountProvided
+    | RosettaInvalidKAccount
     deriving (Show, Enum, Bounded, Eq)
 
 
@@ -1176,7 +1181,7 @@ rosettaError RosettaInvalidTx = RosettaError 4 "Invalid transaction" False
 rosettaError RosettaInvalidBlockchainName = RosettaError 5 "Invalid blockchain name" False
 rosettaError RosettaMismatchNetworkName = RosettaError 6 "Invalid Chainweb network name" False
 rosettaError RosettaPactExceptionThrown =
-  RosettaError 7 "A pact exception was thrown" False
+  RosettaError 7 "A pact exception was thrown" False  -- TODO if retry could succeed
 rosettaError RosettaExpectedBalDecimal = RosettaError 8 "Expected balance as a decimal" False
 rosettaError RosettaInvalidResultMetaData = RosettaError 9 "Invalid meta data field in command result" False
 rosettaError RosettaSubAcctUnsupported = RosettaError 10 "Sub account identifier is not supported" False
@@ -1203,6 +1208,7 @@ rosettaError RosettaInvalidOperations = RosettaError 30 "Invalid Operations list
 rosettaError RosettaInvalidPublicKey = RosettaError 31 "Invalid PublicKey" False
 rosettaError RosettaInvalidSignature = RosettaError 32 "Invalid Signature" False
 rosettaError RosettaInvalidAccountProvided = RosettaError 33 "Invalid Account was provided" False
+rosettaError RosettaInvalidKAccount = RosettaError 34 "Invalid k:Account" False
 
 rosettaError' :: RosettaFailure -> RosettaError
 rosettaError' f = rosettaError f Nothing
