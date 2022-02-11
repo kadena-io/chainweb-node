@@ -243,6 +243,7 @@ applyGenesisCmd logger dbEnv spv cmd =
         , _txExecutionConfig = mkExecutionConfig
           [ FlagDisablePact40
           , FlagDisablePact420
+          , FlagDisableInlineMemCheck
           ]
         }
     txst = TransactionState
