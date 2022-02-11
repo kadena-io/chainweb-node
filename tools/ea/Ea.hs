@@ -25,11 +25,7 @@
 -- Eä means "to be" in Quenya, the ancient language of Tolkien's elves.
 --
 module Ea
-  ( main
-  , genTxModules
-  , gen20ChainPayloads
-  , genCoinV3Payloads
-  ) where
+  ( main ) where
 
 import Control.Lens (set)
 
@@ -80,6 +76,9 @@ main = void $ do
     fastnet
     testnet
     mainnet
+    genTxModules
+    gen20ChainPayloads
+    genCoinV3Payloads
     putStrLn "Done."
   where
     devnet = mkPayloads
