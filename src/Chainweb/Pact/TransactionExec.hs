@@ -469,7 +469,7 @@ applyUpgrades v cid height
       -- init cache in the pact service state (_psInitCache).
       --
 
-      caches <- local (set txExecutionConfig (mkExecutionConfig [])) $ mapM applyTx txs
+      caches <- local (set txExecutionConfig (mkExecutionConfig [FlagDisableInlineMemCheck])) $ mapM applyTx txs
       return $ Just (HM.unions caches)
 
     interp = initStateInterpreter $ installCoinModuleAdmin $
