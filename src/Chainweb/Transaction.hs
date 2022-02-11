@@ -124,7 +124,7 @@ parsePact
     -> Either String ParsedCode
 parsePact Nothing code = P.parsePact code
 parsePact (Just (v, h)) code
-    | pactForceEof v h = P.parsePact code
+    | chainweb213Pact v h = P.parsePact code
     | otherwise = P.legacyParsePact code
 
 -- | Get the gas limit/supply of a public chain command payload
