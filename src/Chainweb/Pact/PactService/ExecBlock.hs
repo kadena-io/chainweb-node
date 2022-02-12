@@ -120,7 +120,7 @@ execBlock currHeader plData pdbenv = do
         error $ "Code invariant violation: execBlock must be called with withCheckpointer. Please report this as a bug."
 
     miner <- decodeStrictOrThrow' (_minerData $ _payloadDataMiner plData)
-    trans <- liftIO $ transactionsFromPayload plData
+    trans <- liftIO $ transactionsFromPayload (Just (v, _blockHeight currHeader)) plData
     cp <- getCheckpointer
     logger <- view psLogger
 
@@ -377,8 +377,11 @@ applyPactCmd isGenesis dbEnv cmdIn miner mcache dl = do
 toHashCommandResult :: P.CommandResult [P.TxLog A.Value] -> P.CommandResult P.Hash
 toHashCommandResult = over (P.crLogs . _Just) $ P.pactHash . encodeToByteString
 
-transactionsFromPayload :: PayloadData -> IO (Vector ChainwebTransaction)
-transactionsFromPayload plData = do
+transactionsFromPayload
+    :: Maybe (ChainwebVersion, BlockHeight)
+    -> PayloadData
+    -> IO (Vector ChainwebTransaction)
+transactionsFromPayload chainCtx plData = do
     vtrans <- fmap V.fromList $
               mapM toCWTransaction $
               toList (_payloadDataTransactions plData)
@@ -389,7 +392,7 @@ transactionsFromPayload plData = do
             <> T.intercalate ". " ls
     return $! V.fromList theRights
   where
-    toCWTransaction bs = evaluate (force (codecDecode chainwebPayloadCodec $
+    toCWTransaction bs = evaluate (force (codecDecode (chainwebPayloadCodec chainCtx) $
                                           _transactionBytes bs))
 
 debugResult :: A.ToJSON a => Text -> a -> PactServiceM cas ()

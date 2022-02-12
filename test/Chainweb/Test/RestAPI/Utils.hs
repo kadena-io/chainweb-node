@@ -123,7 +123,7 @@ local
 local sid cenv cmd =
     recovering testRetryPolicy [h] $ \s -> do
       debug
-        $ "requesting local cmd for " <> (take 19 $ show cmd)
+        $ "requesting local cmd for " <> take 19 (show cmd)
         <> " [" <> show (view rsIterNumberL s) <> "]"
 
       -- send a single spv request and return the result
@@ -283,7 +283,7 @@ accountBalance
 accountBalance cenv req =
     recovering testRetryPolicy [h] $ \s -> do
     debug
-      $ "requesting account balance for " <> (show req)
+      $ "requesting account balance for " <> show req
       <> " [" <> show (view rsIterNumberL s) <> "]"
 
     runClientM (rosettaAccountBalanceApiClient v req) cenv >>= \case
@@ -301,7 +301,7 @@ blockTransaction
 blockTransaction cenv req =
     recovering testRetryPolicy [h] $ \s -> do
     debug
-      $ "requesting block transaction for " <> (show req)
+      $ "requesting block transaction for " <> show req
       <> " [" <> show (view rsIterNumberL s) <> "]"
 
     runClientM (rosettaBlockTransactionApiClient v req) cenv >>= \case
@@ -319,7 +319,7 @@ block
 block cenv req =
     recovering testRetryPolicy [h] $ \s -> do
     debug
-      $ "requesting block for " <> (show req)
+      $ "requesting block for " <> show req
       <> " [" <> show (view rsIterNumberL s) <> "]"
 
     runClientM (rosettaBlockApiClient v req) cenv >>= \case
@@ -337,7 +337,7 @@ constructionMetadata
 constructionMetadata cenv req =
     recovering testRetryPolicy [h] $ \s -> do
     debug
-      $ "requesting construction metadata for " <> (show req)
+      $ "requesting construction metadata for " <> show req
       <> " [" <> show (view rsIterNumberL s) <> "]"
 
     runClientM (rosettaConstructionMetadataApiClient v req) cenv >>= \case
@@ -355,7 +355,7 @@ constructionSubmit
 constructionSubmit cenv req =
     recovering testRetryPolicy [h] $ \s -> do
     debug
-      $ "requesting construction submit for " <> (show req)
+      $ "requesting construction submit for " <> show req
       <> " [" <> show (view rsIterNumberL s) <> "]"
 
     runClientM (rosettaConstructionSubmitApiClient v req) cenv >>= \case
@@ -373,7 +373,7 @@ mempoolTransaction
 mempoolTransaction cenv req =
     recovering testRetryPolicy [h] $ \s -> do
     debug
-      $ "requesting mempool transaction for " <> (show req)
+      $ "requesting mempool transaction for " <> show req
       <> " [" <> show (view rsIterNumberL s) <> "]"
 
     runClientM (rosettaMempoolTransactionApiClient v req) cenv >>= \case
@@ -391,7 +391,7 @@ mempool
 mempool cenv req =
     recovering testRetryPolicy [h] $ \s -> do
     debug
-      $ "requesting mempool for " <> (show req)
+      $ "requesting mempool for " <> show req
       <> " [" <> show (view rsIterNumberL s) <> "]"
 
     runClientM (rosettaMempoolApiClient v req) cenv >>= \case
@@ -409,7 +409,7 @@ networkList
 networkList cenv req =
     recovering testRetryPolicy [h] $ \s -> do
     debug
-      $ "requesting network list for " <> (take 10 $ show req)
+      $ "requesting network list for " <> show req
       <> " [" <> show (view rsIterNumberL s) <> "]"
 
     runClientM (rosettaNetworkListApiClient v req) cenv >>= \case
@@ -427,7 +427,7 @@ networkOptions
 networkOptions cenv req =
     recovering testRetryPolicy [h] $ \s -> do
     debug
-      $ "requesting network options for " <> (take 10 $ show req)
+      $ "requesting network options for " <> show req
       <> " [" <> show (view rsIterNumberL s) <> "]"
 
     runClientM (rosettaNetworkOptionsApiClient v req) cenv >>= \case
@@ -445,7 +445,7 @@ networkStatus
 networkStatus cenv req =
     recovering testRetryPolicy [h] $ \s -> do
     debug
-      $ "requesting network status for " <> (take 10 $ show req)
+      $ "requesting network status for " <> show req
       <> " [" <> show (view rsIterNumberL s) <> "]"
 
     runClientM (rosettaNetworkStatusApiClient v req) cenv >>= \case

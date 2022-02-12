@@ -1,5 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeApplications #-}
 
 -- |
 -- Module: Chainweb.Rosetta.Utils
@@ -13,19 +14,21 @@ module Chainweb.Rosetta.Utils where
 
 import Data.Aeson
 import Data.Decimal
+import Data.List (sortOn, inits)
 import Data.Word (Word64)
-
+import Text.Read (readMaybe)
 
 import qualified Data.HashMap.Strict as HM
+import qualified Data.Map.Strict as M
 import qualified Data.Memory.Endian as BA
 import qualified Data.Text as T
+import qualified Pact.Types.Runtime as P
+import qualified Pact.Types.RowData as P
 
 import Numeric.Natural
 
 import Pact.Types.Command
 import Pact.Types.Hash
-import Pact.Types.Runtime (TxId(..), TxLog(..))
-import Pact.Types.PactValue (PactValue(..))
 import Pact.Types.Exp (Literal(..))
 
 import Rosetta
@@ -41,6 +44,153 @@ import Chainweb.Utils
 import Chainweb.Version
 
 ---
+
+
+--------------------------------------------------------------------------------
+-- Rosetta Metadata Types --
+--------------------------------------------------------------------------------
+
+-- | Helper typeclass for transforming Rosetta metadata into a
+--   JSON Object.
+-- NOTE: Rosetta types expect metadata to be `Object`
+class ToObject a where
+  toPairs :: a -> [(T.Text, Value)]
+  toObject :: a -> Object
+
+
+data OperationMetaData = OperationMetaData
+  { _operationMetaData_txId :: !P.TxId
+  , _operationMetaData_totalBalance :: !Amount
+  , _operationMetaData_prevOwnership :: !Value
+  , _operationMetaData_currOwnership :: !Value --TODO: hack for rotation bug
+  } deriving Show
+-- TODO: document
+instance ToObject OperationMetaData where
+  toPairs (OperationMetaData txId bal prevOwnership currOwnership) =
+    [ "tx-id" .= txId
+    , "total-balance" .= bal
+    , "prev-ownership" .= prevOwnership
+    , "curr-ownership" .= currOwnership ]
+  toObject opMeta = HM.fromList (toPairs opMeta)
+
+
+newtype AccountIdMetaData = AccountIdMetaData
+  { _accountIdMetaData_currOwnership :: Value }
+  deriving Show
+-- TODO: document
+instance ToObject AccountIdMetaData where
+  toPairs (AccountIdMetaData currOwnership) =
+    [ "current-ownership" .= currOwnership ]
+  toObject acctMeta = HM.fromList (toPairs acctMeta)
+
+
+newtype TransactionMetaData = TransactionMetaData
+  { _transactionMetaData_multiStepTx :: Maybe ContinuationMetaData
+  }
+instance ToObject TransactionMetaData where
+  toPairs (TransactionMetaData Nothing) = []
+  toPairs (TransactionMetaData (Just multi)) =
+    [ "multi-step-transaction" .= toObject multi ]
+  toObject txMeta = HM.fromList (toPairs txMeta)
+
+transactionMetaData :: ChainId -> CommandResult a -> TransactionMetaData
+transactionMetaData cid cr = case _crContinuation cr of
+  Nothing -> TransactionMetaData Nothing
+  Just pe -> TransactionMetaData $ Just (toContMeta cid pe)
+
+
+-- | Adds more transparency into continuation transactions.
+--
+data ContinuationMetaData = ContinuationMetaData
+  { _continuationMetaData_currStep :: !ContinuationCurrStep
+  -- ^ Information on the current step in the continuation.
+  , _continuationStep_nextStep :: !(Maybe ContinuationNextStep)
+  -- ^ Information on the next step in the continuation (if there is one).
+  , _continuationMetaData_pactIdReqKey :: !P.PactId
+  -- ^ The request key of the transaction that initiated this continuation.
+  -- TODO: Further work needs to be done to know WHICH chain this
+  --       initial transaction occurred in.
+  , _continuationMetaData_totalSteps :: !Int
+  -- ^ Total number of steps in the entire continuation.
+  } deriving Show
+-- TODO: document
+instance ToObject ContinuationMetaData where
+  toPairs (ContinuationMetaData curr next rk total) =
+    [ "current-step" .= toObject curr
+    , "first-step-request-key" .= rk
+    , "total-steps" .= total ]
+    <> omitNextIfMissing
+    where
+      omitNextIfMissing = case next of
+        Nothing -> []
+        Just ns -> [ "next-step" .= toObject ns ]
+  toObject contMeta = HM.fromList (toPairs contMeta)
+
+toContMeta :: ChainId -> P.PactExec -> ContinuationMetaData
+toContMeta cid pe = ContinuationMetaData
+  { _continuationMetaData_currStep = toContStep cid pe
+  , _continuationStep_nextStep = toContNextStep cid pe
+  , _continuationMetaData_pactIdReqKey = P._pePactId pe
+  , _continuationMetaData_totalSteps = P._peStepCount pe
+  }
+
+
+-- | Provides information on the step that was just executed.
+data ContinuationCurrStep = ContinuationCurrStep
+  { _continuationCurrStep_chainId :: !T.Text
+  -- ^ Chain id where step was executed
+  , _continuationCurrStep_stepId :: !Int
+  -- ^ Step that was executed or skipped
+  , _continuationCurrStep_rollbackAvailable :: Bool
+  -- ^ Track whether a current step allows for rollbacks
+  } deriving Show
+-- TODO: Add ability to detect if step was rolled back.
+-- TODO: document
+instance ToObject ContinuationCurrStep where
+  toPairs (ContinuationCurrStep cid step rollback) =
+    [ "chain-id" .= cid
+    , "step-id" .= step
+    , "rollback-available" .= rollback ]
+  toObject contCurrStep = HM.fromList (toPairs contCurrStep)
+
+toContStep :: ChainId -> P.PactExec -> ContinuationCurrStep
+toContStep cid pe = ContinuationCurrStep
+  { _continuationCurrStep_chainId = chainIdToText cid
+  , _continuationCurrStep_stepId = P._peStep pe
+  , _continuationCurrStep_rollbackAvailable = P._peStepHasRollback pe
+  }
+
+
+-- | Indicates if the next step of a continuation occurs in a
+--   different chain or in the same chain.
+newtype ContinuationNextStep = ContinuationNextStep
+  { _continuationNextStep_chainId :: T.Text
+  } deriving Show
+-- TODO: document
+instance ToObject ContinuationNextStep where
+  toPairs (ContinuationNextStep cid) = [ "target-chain-id" .= cid ]
+  toObject contNextStep = HM.fromList (toPairs contNextStep)
+
+-- | Determines if the continuation has a next step and, if so, provides
+--   the chain id of where this next step will need to occur.
+toContNextStep
+    :: ChainId
+    -> P.PactExec
+    -> Maybe ContinuationNextStep
+toContNextStep currChainId pe
+  | isLastStep = Nothing
+  -- TODO: Add check to see if curr step was rolled back.
+  --       This would also mean a next step is not occuring.
+  | otherwise = case P._peYield pe >>= P._yProvenance of
+      -- next step occurs in the same chain
+      Nothing -> Just $ ContinuationNextStep $ chainIdToText currChainId
+      -- next step is a cross-chain step
+      Just (P.Provenance nextChainId _) ->
+        Just $ ContinuationNextStep (P._chainId nextChainId)
+  where
+    nextStep = succ $ P._peStep pe
+    totalSteps = P._peStepCount pe
+    isLastStep = nextStep == totalSteps
 
 --------------------------------------------------------------------------------
 -- Rosetta Helper Types --
@@ -58,7 +208,21 @@ data AccountLog = AccountLog
   }
   deriving (Show, Eq)
 type AccountRow = (T.Text, Decimal, Value)
-type UnindexedOperation = (Word64 -> Operation)
+
+-- | An operation index and related operations can only be
+--   determined once all operations in a transaction are known.
+type UnindexedOperation =
+     Word64
+  -- ^ Operation index
+  -> [OperationId]
+  -- ^ Id of Related Operations
+  -> Operation
+
+data UnindexedOperations = UnindexedOperations
+  { _unindexedOperation_fundOps :: [UnindexedOperation]
+  , _unindexedOperation_transferOps :: [UnindexedOperation]
+  , _unindexedOperation_gasOps :: [UnindexedOperation]
+  }
 
 data ChainwebOperationStatus = Successful | Remediation
   deriving (Enum, Bounded, Show)
@@ -79,7 +243,7 @@ data OperationType =
 --   Otherwise, fetch the parent header from the block.
 parentBlockId :: BlockHeader -> BlockId
 parentBlockId bh
-  | (bHeight == genesisHeight v cid) = blockId bh  -- genesis
+  | bHeight == genesisHeight v cid = blockId bh  -- genesis
   | otherwise = parent
   where
     bHeight = _blockHeight bh
@@ -104,32 +268,19 @@ rosettaTransactionFromCmd cmd ops =
     , _transaction_metadata = Nothing
     }
 
-rosettaTransaction :: CommandResult a -> [Operation] -> Transaction
-rosettaTransaction cr ops =
+rosettaTransaction :: CommandResult a -> ChainId -> [Operation] -> Transaction
+rosettaTransaction cr cid ops =
   Transaction
     { _transaction_transactionId = rkToTransactionId (_crReqKey cr)
     , _transaction_operations = ops
-    , _transaction_metadata = txMeta
+    , _transaction_metadata = Just $ toObject (transactionMetaData cid cr)
     }
-  where
-    -- Include information on related transactions (i.e. continuations)
-    txMeta
-      | enableMetaData =
-          case _crContinuation cr of
-            Nothing -> Nothing
-            Just pe -> Just $ HM.fromList
-              [("related-transaction", toJSON pe)] -- TODO: document, make nicer?
-      | otherwise = Nothing
-
 
 pactHashToTransactionId :: PactHash -> TransactionId
 pactHashToTransactionId hsh = TransactionId $ hashToText $ toUntypedHash hsh
 
 rkToTransactionId :: RequestKey -> TransactionId
 rkToTransactionId rk = TransactionId $ requestKeyToB16Text rk
-
-indexedOperations :: [UnindexedOperation] -> [Operation]
-indexedOperations logs = zipWith (\f i -> f i) logs [(0 :: Word64)..]
 
 operationStatus :: ChainwebOperationStatus -> OperationStatus
 operationStatus s@Successful =
@@ -143,17 +294,72 @@ operationStatus s@Remediation =
     , _operationStatus_successful = True
     }
 
+-- | Flatten operations grouped by TxId into a single list of operations;
+--   give each operation a unique, numerical operation id based on its position
+--   in this new flattened list; and create DAG of related operations.
+indexedOperations :: UnindexedOperations -> [Operation]
+indexedOperations unIdxOps = fundOps <> transferOps <> gasOps
+  where
+    opIds = map _operation_operationId
+
+    createOps opsF begIdx defRelatedOpIds =
+      let ops = zipWith (\f i -> f i defRelatedOpIds) opsF [begIdx..]
+      in weaveRelatedOperations $! ops
+      -- connect operations to each other
+
+    fundUnIdxOps = _unindexedOperation_fundOps $! unIdxOps
+    fundOps = createOps fundUnIdxOps 0 []
+
+    transferIdx = fromIntegral $! length fundOps
+    transferUnIdxOps = _unindexedOperation_transferOps $! unIdxOps
+    transferOps = createOps transferUnIdxOps transferIdx []
+
+    gasIdx = transferIdx + (fromIntegral $! length transferOps)
+    gasUnIdxOps = _unindexedOperation_gasOps $! unIdxOps
+    gasOps = createOps gasUnIdxOps gasIdx (opIds $! fundOps)
+    -- connect gas operations to fund operations
+
+-- | Create a DAG of related operations.
+-- Algorithm:
+--   Given a list of operations that are related:
+--     For operation x at position i,
+--       Overwrite or append all operations ids at
+--         position 0th to ith (not inclusive) to operation x's
+--         related operations list.
+-- Example: list of operations to weave: [ 4: [], 5: [1], 6: [] ]
+--          weaved operations: [ 4: [], 5: [1, 4], 6: [4, 5] ]
+weaveRelatedOperations :: [Operation] -> [Operation]
+weaveRelatedOperations relatedOps = map weave opsWithRelatedOpIds
+  where
+    -- example: [1, 2, 3] -> [[], [1], [1,2], [1,2,3]]
+    opIdsDAG = inits $! map _operation_operationId relatedOps
+    -- example: [(op 1, []), (op 2, [1]), (op 3, [1,2])]
+    opsWithRelatedOpIds = zip relatedOps opIdsDAG
+
+    -- related operation ids must be in descending order.
+    justSortRelated r = Just $! sortOn _operationId_index r
+
+    weave (op, newRelatedIds) =
+      case newRelatedIds of
+        [] -> op  -- no new related operations to add
+        l -> case _operation_relatedOperations op of
+          Nothing -> op  -- no previous related operations
+            { _operation_relatedOperations = justSortRelated l }
+          Just oldRelatedIds -> op
+            { _operation_relatedOperations = justSortRelated $! (oldRelatedIds <> l) }
+
 operation
     :: ChainwebOperationStatus
     -> OperationType
-    -> TxId
+    -> P.TxId
     -> AccountLog
     -> Word64
+    -> [OperationId]
     -> Operation
-operation ostatus otype txid acctLog idx =
+operation ostatus otype txId acctLog idx related =
   Operation
     { _operation_operationId = OperationId idx Nothing
-    , _operation_relatedOperations = Nothing -- TODO: implement
+    , _operation_relatedOperations = someRelatedOps
     , _operation_type = sshow otype
     , _operation_status = sshow ostatus
     , _operation_account = Just accountId
@@ -163,25 +369,27 @@ operation ostatus otype txid acctLog idx =
     , _operation_metadata = opMeta
     }
   where
-    opMeta
-      | enableMetaData = Just $ HM.fromList
-        [ ("txId", toJSON txid)
-        , ("totalBalance", toJSON $ kdaToRosettaAmount $
-            _accountLogBalanceTotal acctLog)
-        , ("prevOwnership", _accountLogPrevGuard acctLog) ] -- TODO: document
-      | otherwise = Nothing
+    someRelatedOps = case related of
+      [] -> Nothing
+      li -> Just li
+    opMeta = Just $ toObject $ OperationMetaData
+      { _operationMetaData_txId = txId
+      , _operationMetaData_totalBalance =
+          kdaToRosettaAmount $ _accountLogBalanceTotal acctLog
+      , _operationMetaData_prevOwnership = _accountLogPrevGuard acctLog
+      , _operationMetaData_currOwnership = _accountLogCurrGuard acctLog
+      }
     accountId = AccountId
       { _accountId_address = _accountLogKey acctLog
       , _accountId_subAccount = Nothing  -- assumes coin acct contract only
-      , _accountId_metadata = accountIdMeta
+      , _accountId_metadata = Nothing -- disabled due to ownership rotation bug
       }
-    accountIdMeta
-      | enableMetaData = Just $ HM.fromList
-        [ ("currentOwnership", _accountLogCurrGuard acctLog) ]  -- TODO: document
-      | otherwise = Nothing
+    _accountIdMeta = Just $ toObject $ AccountIdMetaData
+      { _accountIdMetaData_currOwnership = _accountLogCurrGuard acctLog
+      }
 
 
--- Timestamp of the block in milliseconds since the Unix Epoch.
+-- | Timestamp of the block in milliseconds since the Unix Epoch.
 -- NOTE: Chainweb provides this timestamp in microseconds.
 rosettaTimestamp :: BlockHeader -> Word64
 rosettaTimestamp bh = BA.unLE . BA.toLE $ fromInteger msTime
@@ -195,7 +403,7 @@ kdaToRosettaAmount k = Amount (sshow amount) currency Nothing
   where
     -- Value in atomic units represented as an arbitrary-sized signed integer.
     amount :: Integer
-    amount = floor $ k * (realToFrac ((10 :: Integer) ^ numDecimals))
+    amount = floor $ k * realToFrac ((10 :: Integer) ^ numDecimals)
 
     -- How to convert from atomic units to standard units
     numDecimals = 12 :: Word
@@ -207,11 +415,13 @@ kdaToRosettaAmount k = Amount (sshow amount) currency Nothing
 -- Misc Helper Functions --
 --------------------------------------------------------------------------------
 
--- BUG: validator throws error when writing (some?) unstructured json to db.
--- Disable filling in metadata for now.
--- TODO: how to dynamically pass this? Would be useful to enable for tests at least.
-enableMetaData :: Bool
-enableMetaData = False
+-- | Guarantees that the `ChainId` given actually belongs to this
+-- `ChainwebVersion`. This doesn't guarantee that the chain is active.
+--
+readChainIdText :: ChainwebVersion -> T.Text -> Maybe ChainId
+readChainIdText v c = do
+  cid <- readMaybe @Word (T.unpack c)
+  mkChainId v maxBound cid
 
 -- TODO: document
 maxRosettaNodePeerLimit :: Natural
@@ -240,12 +450,13 @@ rowDataToAccountLog (currKey, currBal, currGuard) prev = do
         }
 
 -- | Parse TxLog Value into fungible asset account columns
-txLogToAccountRow :: TxLog Value -> Maybe AccountRow
-txLogToAccountRow (TxLog _ key (Object row)) = do
-  guard :: Value <- (HM.lookup "guard" row) >>= (hushResult . fromJSON)
-  (PLiteral (LDecimal bal)) <- (HM.lookup "balance" row) >>= (hushResult . fromJSON)
-  pure $! (key, bal, guard)
-txLogToAccountRow _ = Nothing
+txLogToAccountRow :: P.TxLog Value -> Maybe AccountRow
+txLogToAccountRow (P.TxLog _ key obj) = do
+  P.RowData _ (P.ObjectMap row) :: P.RowData <- (hushResult . fromJSON) obj
+  guard :: Value <- toJSON . P.rowDataToPactValue <$> M.lookup "guard" row
+  case M.lookup "balance" row of
+    Just (P.RDLiteral (LDecimal bal)) -> pure (key, bal, guard)
+    _ -> Nothing
 
 hushResult :: Result a -> Maybe a
 hushResult (Success w) = Just w
