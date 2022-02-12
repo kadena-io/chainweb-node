@@ -490,8 +490,7 @@ constructionTransferTests _ envIo =
                  , mkOp fromAcct3 (negate amt3) fromGuard3 2 [1] ]
           res3 = P.PLiteral $ P.LString "Write succeeded"
       submitToConstructionAPI' ops3 cid res3
-      --}
-
+    --}
   where    
     mkOp name delta guard idx related =
       operation Successful
@@ -593,7 +592,6 @@ submitToConstructionAPI expectOps chainId' payer getKeys expectResult cenv step 
 
   step "confirm that the tx has the same number of TransferOrCreateAcct operations"
   length actualOps @?= length expectOps
-  print $ show $ zip actualOps expectOps
   mapM_ (\(actual, expected) -> actual @?= expected) (zip actualOps expectOps)
 
   pure rk
