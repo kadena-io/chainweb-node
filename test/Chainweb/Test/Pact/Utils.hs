@@ -533,11 +533,18 @@ zeroNoncer = const (return $ Nonce 0)
 
 -- | Populate blocks for every chain of the current cut. Uses provided pact
 -- service to produce a new block, add it to dbs, etc.
-runCut :: ChainwebVersion -> TestBlockDb -> WebPactExecutionService -> GenBlockTime -> Noncer -> IO ()
-runCut v bdb pact genTime noncer =
+runCut
+    :: ChainwebVersion
+    -> TestBlockDb
+    -> WebPactExecutionService
+    -> GenBlockTime
+    -> Noncer
+    -> Miner
+    -> IO ()
+runCut v bdb pact genTime noncer miner =
   forM_ (chainIds v) $ \cid -> do
     ph <- ParentHeader <$> getParentTestBlockDb bdb cid
-    pout <- _webPactNewBlock pact noMiner ph
+    pout <- _webPactNewBlock pact miner ph
     n <- noncer cid
     addTestBlockDb bdb n genTime cid pout
     h <- getParentTestBlockDb bdb cid

@@ -2,6 +2,9 @@
 
 -- |
 -- Module: Chainweb.Test.Rosetta
+--
+-- Unit tests for Rosetta.
+--
 -- Copyright: Copyright © 2018 - 2020 Kadena LLC.
 -- License: MIT
 -- Maintainer: Linda Ortega <linda@kadena.io>
@@ -408,6 +411,7 @@ checkUniqueRosettaErrorCodes = case repeated of
       if S.member x acc
       then Left x
       else Right $ S.insert x acc
+
     errCodes = map (_error_code . rosettaError') [minBound .. maxBound]
 
 --------------------------------------------------------------------------------

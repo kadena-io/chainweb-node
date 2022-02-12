@@ -118,8 +118,9 @@ matchLogs
     -> ExceptT RosettaFailure Handler tx
 matchLogs typ bh logs coinbase txs
   | bheight == genesisHeight v cid = matchGenesis
-  | coinV2Upgrade v cid bheight = matchRemediation upgradeTransactions
-  | to20ChainRebalance v cid bheight = matchRemediation twentyChainUpgradeTransactions
+  | coinV2Upgrade v cid bheight = matchRemediation (upgradeTransactions v cid)
+  | to20ChainRebalance v cid bheight = matchRemediation (twentyChainUpgradeTransactions v cid)
+  | pact4coin3Upgrade At v bheight = matchRemediation coinV3Transactions
   | otherwise = matchRest
   where
     bheight = _blockHeight bh
@@ -131,7 +132,7 @@ matchLogs typ bh logs coinbase txs
       SingleLog rk -> genesisTransaction logs cid txs rk
 
     matchRemediation getRemTxs = do
-      rems <- liftIO $ getRemTxs v cid
+      rems <- liftIO getRemTxs
       hoistEither $ case typ of
         FullLogs ->
           overwriteError RosettaMismatchTxLogs $!
@@ -444,18 +445,26 @@ remediations
     :: Map TxId [AccountLog]
     -> ChainId
     -> CoinbaseTx (CommandResult Hash)
+    -- Remediation transactions.
+    -- NOTE: No CommandResult available for these.
     -> [Command payload]
-    -- ^ Remediation transactions.
-    -- ^ NOTE: No CommandResult available for these.
+    -- User transactions in the same block as remediations
     -> V.Vector (CommandResult Hash)
-    -- ^ User transactions in the same block as remediations
     -> Either String [Transaction]
 remediations logs cid coinbase remTxs txs = do
   TxAccumulator restLogs coinbaseTx <- nonGenesisCoinbaseLog logsList cid coinbase
   coinbaseTxId <- note "remediations: No TxId found for Coinbase" (_crTxId coinbase)
 
   let remWithTxIds = zip remTxs [(succ coinbaseTxId)..]
-      -- ^ Assumes that each remediation transaction gets its own TxId
+      -- Assumes that each remediation transaction gets its own TxId.
+      -- Assumes that TxIds are going to be sequential for each remediation.
+
+      -- Note (linda and emily): This assumption holds, since the remediation txs are
+      -- applied directly after coinbase at a particular height, as part of applyCoinbase.
+      -- We construct the blocks, hence, the txids are not random.
+      -- See for more details:
+      -- https://github.com/kadena-io/chainweb-node/blob/c0c300a64040390d603f1183eac126e3bbfebe8d/src/Chainweb/Pact/TransactionExec.hs#L328
+
       accWithCoinbase = TxAccumulator restLogs (DList.singleton coinbaseTx)
       accWithRems = foldl' matchRem accWithCoinbase remWithTxIds
 

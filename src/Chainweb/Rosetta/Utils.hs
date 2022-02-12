@@ -75,29 +75,21 @@ class ToObject a where
 
 
 data OperationMetaData = OperationMetaData
-  { --_operationMetaData_txId :: !P.TxId
-  --, _operationMetaData_totalBalance :: !Amount
-   _operationMetaData_prevOwnership :: !Value
+  { _operationMetaData_prevOwnership :: !Value
   , _operationMetaData_currOwnership :: !Value --TODO: hack for rotation bug
   } deriving Show
 -- TODO: document
 instance ToObject OperationMetaData where
   toPairs (OperationMetaData prevOwnership currOwnership) =
-    [ --"tx-id" .= txId
-    --, "total-balance" .= bal
-     "prev-ownership" .= prevOwnership
+    [ "prev-ownership" .= prevOwnership
     , "curr-ownership" .= currOwnership ]
   toObject opMeta = HM.fromList (toPairs opMeta)
 instance FromJSON OperationMetaData where
   parseJSON = withObject "OperationMetaData" $ \o -> do
-    --txId <- o .: "tx-id"
-    --bal <- o .: "total-balance"
     prevOwnership <- o .: "prev-ownership"
     currOwnership <- o .: "curr-ownership"
     pure OperationMetaData
-      { --_operationMetaData_txId = txId
-      --, _operationMetaData_totalBalance = bal
-      _operationMetaData_prevOwnership = prevOwnership
+      { _operationMetaData_prevOwnership = prevOwnership
       , _operationMetaData_currOwnership = currOwnership
       }
 
@@ -849,7 +841,6 @@ matchSigs sigs signers = do
       addr <- toPactPubKeyAddr pk pkScheme
       pure (addr, userSig)
 
-
 --------------------------------------------------------------------------------
 -- Rosetta Helper Types --
 --------------------------------------------------------------------------------
@@ -1255,7 +1246,6 @@ parsePubKeys k v = do
 extractMetaData :: (FromJSON a) => Object -> Either RosettaError a
 extractMetaData = toRosettaError RosettaUnparsableMetaData
                   . noteResult . fromJSON . Object
-
 
 -- | Guarantees that the `ChainId` given actually belongs to this
 -- `ChainwebVersion`. This doesn't guarantee that the chain is active.

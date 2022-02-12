@@ -78,12 +78,13 @@ import Pact.Eval (eval, liftTerm)
 import Pact.Gas (freeGasEnv)
 import Pact.Interpreter
 import Pact.Native.Capabilities (evalCap)
-import Pact.Parse (ParsedDecimal(..), parseExprs)
+import Pact.Parse (ParsedDecimal(..))
 import Pact.Runtime.Capabilities (popCapStack)
 import Pact.Runtime.Utils (lookupModule)
 import Pact.Types.Capability
 import Pact.Types.Command
 import Pact.Types.Hash as Pact
+import Pact.Types.KeySet
 import Pact.Types.Logger hiding (logError)
 import Pact.Types.PactValue
 import Pact.Types.Pretty
@@ -278,9 +279,12 @@ applyCoinbase
       -- ^ always enable precompilation
     -> ModuleCache
     -> IO (T2 (CommandResult [TxLog Value]) (Maybe ModuleCache))
-applyCoinbase v logger dbEnv (Miner mid mks) reward@(ParsedDecimal d) txCtx
+applyCoinbase v logger dbEnv (Miner mid mks@(MinerKeys mk)) reward@(ParsedDecimal d) txCtx
   (EnforceCoinbaseFailure enfCBFailure) (CoinbaseUsePrecompiled enablePC) mc
   | fork1_3InEffect || enablePC = do
+    when chainweb213Pact' $ enforceKeyFormats
+        (\k -> throwM $ CoinbaseFailure $ "Invalid miner key: " <> sshow k)
+        mk
     let (cterm, cexec) = mkCoinbaseTerm mid mks reward
         interp = Interpreter $ \_ -> do put initState; fmap pure (eval cterm)
     go interp cexec
@@ -289,6 +293,7 @@ applyCoinbase v logger dbEnv (Miner mid mks) reward@(ParsedDecimal d) txCtx
     let interp = initStateInterpreter initState
     go interp cexec
   where
+    chainweb213Pact' = chainweb213Pact v bh
     fork1_3InEffect = vuln797Fix v cid bh
     throwCritical = fork1_3InEffect || enfCBFailure
     ec = mkExecutionConfig $
@@ -327,6 +332,18 @@ applyCoinbase v logger dbEnv (Miner mid mks) reward@(ParsedDecimal d) txCtx
 
           upgradedModuleCache <- applyUpgrades v cid bh
           void $! applyTwentyChainUpgrade v cid bh
+
+          -- NOTE (linda): When adding new forking transactions that are injected
+          -- into a block's coinbase transaction, please add a corresponding case
+          -- in Rosetta's `matchLogs` function and follow the coinv3 pattern.
+          --
+          -- Otherwise, Rosetta tooling has no idea that these upgrade transactions
+          -- occurred.
+          -- This is especially important if the transaction changes an account's balance.
+          -- Rosetta tooling will error out if an account's balance changed and it
+          -- didn't see the transaction that caused the change.
+          --
+
           logs <- use txLogs
 
           return $! T2
@@ -392,6 +409,9 @@ readInitModules
 readInitModules logger dbEnv txCtx =
     evalTransactionM tenv txst go
   where
+    parent = _tcParentHeader txCtx
+    v = _chainwebVersion parent
+    h = _blockHeight (_parentHeader parent) + 1
     rk = RequestKey chash
     nid = Nothing
     chash = pactInitialHash
@@ -400,7 +420,7 @@ readInitModules logger dbEnv txCtx =
     txst = TransactionState mempty mempty 0 Nothing (_geGasModel freeGasEnv)
     interp = defaultInterpreter
     die msg = throwM $ PactInternalError $ "readInitModules: " <> msg
-    mkCmd = buildExecParsedCode Nothing
+    mkCmd = buildExecParsedCode (Just (v, h)) Nothing
     run msg cmd = do
       er <- catchesPactError $!
         applyExec' interp cmd [] chash permissiveNamespacePolicy
@@ -955,11 +975,15 @@ mkMagicCapSlot c = CapSlot CapCallStack cap []
 -- parameter is for any possible environmental data that needs to go into
 -- the 'ExecMsg'.
 --
-buildExecParsedCode :: Maybe Value -> Text -> IO (ExecMsg ParsedCode)
-buildExecParsedCode value code = maybe (go Null) go value
+buildExecParsedCode
+    :: Maybe (ChainwebVersion, BlockHeight)
+    -> Maybe Value
+    -> Text
+    -> IO (ExecMsg ParsedCode)
+buildExecParsedCode chainCtx value code = maybe (go Null) go value
   where
-    go v = case ParsedCode code <$> parseExprs code of
-      Right !t -> pure $! ExecMsg t v
+    go val = case parsePact chainCtx code of
+      Right !t -> pure $! ExecMsg t val
       -- if we can't construct coin contract calls, this should
       -- fail fast
       Left err -> internalError $ "buildExecParsedCode: parse failed: " <> T.pack err

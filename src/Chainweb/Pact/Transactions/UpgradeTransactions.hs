@@ -70,3 +70,14 @@ twentyChainUpgradeTransactions _ _ = return []
 
 coinV3Transactions :: IO [ChainwebTransaction]
 coinV3Transactions = CoinV3.transactions
+
+-- NOTE (linda): When adding new forking transactions that are injected
+-- into a block's coinbase transaction, please add a corresponding case
+-- in Rosetta's `matchLogs` function and follow the coinv3 pattern.
+--
+-- Otherwise, Rosetta tooling has no idea that these upgrade transactions
+-- occurred.
+-- This is especially important if the transaction changes an account's balance.
+-- Rosetta tooling will error out if an account's balance changed and it
+-- didn't see the transaction that caused the change.
+--

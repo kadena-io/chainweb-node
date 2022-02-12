@@ -163,11 +163,11 @@ fixedInjTest = case exec of
 
 
 buildExecWithData :: Assertion
-buildExecWithData = void $ buildExecParsedCode
+buildExecWithData = void $ buildExecParsedCode Nothing
   (Just $ object [ "data" .= (1 :: Int) ]) "(+ 1 1)"
 
 buildExecWithoutData :: Assertion
-buildExecWithoutData = void $ buildExecParsedCode Nothing "(+ 1 1)"
+buildExecWithoutData = void $ buildExecParsedCode Nothing Nothing "(+ 1 1)"
 
 badMinerId :: MinerId
 badMinerId = MinerId "alpha\" (read-keyset \"miner-keyset\") 9999999.99)(coin.coinbase \"alpha"
@@ -186,7 +186,7 @@ testCoinbase797DateFix = testCaseSteps "testCoinbase791Fix" $ \step -> do
 
     step "pre-fork code injection succeeds, no enforced precompile"
 
-    cmd <- buildExecParsedCode Nothing "(coin.get-balance \"tester01\")"
+    cmd <- buildExecParsedCode Nothing Nothing "(coin.get-balance \"tester01\")"
 
     doCoinbaseExploit pdb mc preForkHeight cmd False $ \case
       Left _ -> assertFailure "local call to get-balance failed"
@@ -197,7 +197,7 @@ testCoinbase797DateFix = testCaseSteps "testCoinbase791Fix" $ \step -> do
 
     step "post-fork code injection fails, no enforced precompile"
 
-    cmd' <- buildExecParsedCode Nothing
+    cmd' <- buildExecParsedCode Nothing Nothing
       "(coin.get-balance \"tester01\\\" (read-keyset \\\"miner-keyset\\\") 1000.0)(coin.coinbase \\\"tester01\")"
 
     doCoinbaseExploit pdb mc postForkHeight cmd' False $ \case
