@@ -292,7 +292,7 @@ pServiceApiConfig = id
 -- Backup configuration 
 
 data BackupApiConfig = BackupApiConfig 
-    { _backupApiDirectory :: FilePath
+    { _backupApiDirectory :: !FilePath
     }
     deriving (Show, Eq, Generic)
 

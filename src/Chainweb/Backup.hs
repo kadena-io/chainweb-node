@@ -36,12 +36,15 @@ data BackupEnv logger = BackupEnv
 
 makeBackup :: Logger logger => BackupEnv logger -> IO Text
 makeBackup env = do
-    createDirectoryIfMissing False (_backupDir env)
     Time (epochToNow :: TimeSpan Integer) <- getCurrentTimeIntegral
     let time = microsToText (timeSpanToMicros epochToNow)
     -- maxBound ~ always flush WAL log before checkpoint, under the assumption
     -- that it's not much work
     let thisBackup = _backupDir env </> T.unpack time 
+    createDirectoryIfMissing False (_backupDir env)
+    createDirectoryIfMissing False thisBackup
+    createDirectoryIfMissing False (thisBackup </> "rocksDb")
+    createDirectoryIfMissing False (thisBackup </> "sqlite")
     -- TODO: log rocksdb checkpoint making
     checkpointRocksDb (_backupRocksDb env) maxBound (thisBackup </> "rocksDb")
     for_ (_backupChainResources env) $ \cr ->  do
