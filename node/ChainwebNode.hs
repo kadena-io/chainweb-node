@@ -172,9 +172,6 @@ pChainwebNodeConfiguration = id
 getRocksDbDir :: HasCallStack => ChainwebNodeConfiguration -> IO FilePath
 getRocksDbDir conf = (</> "rocksDb") <$> getDbBaseDir conf
 
-getRocksDbCheckpointDir :: HasCallStack => ChainwebNodeConfiguration -> IO FilePath
-getRocksDbCheckpointDir conf = (</> "rocksDbCheckpoints") <$> getDbBaseDir conf
-
 getPactDbDir :: HasCallStack => ChainwebNodeConfiguration -> IO FilePath
 getPactDbDir conf =  (</> "sqlite") <$> getDbBaseDir conf
 
@@ -305,11 +302,10 @@ node conf logger = do
     dbBaseDir <- getDbBaseDir conf
     when (_nodeConfigResetChainDbs conf) $ removeDirectoryRecursive dbBaseDir
     rocksDbDir <- getRocksDbDir conf
-    rocksDbCheckpointDir <- getRocksDbCheckpointDir conf
     pactDbDir <- getPactDbDir conf
     withRocksDb rocksDbDir $ \rocksDb -> do
         logFunctionText logger Info $ "opened rocksdb in directory " <> sshow rocksDbDir
-        withChainweb cwConf logger rocksDb rocksDbCheckpointDir pactDbDir (_nodeConfigResetChainDbs conf) $ \cw -> mapConcurrently_ id
+        withChainweb cwConf logger rocksDb pactDbDir (_nodeConfigResetChainDbs conf) $ \cw -> mapConcurrently_ id
             [ runChainweb cw
               -- we should probably push 'onReady' deeper here but this should be ok
             , runCutMonitor (_chainwebLogger cw) (_cutResCutDb $ _chainwebCutResources cw)

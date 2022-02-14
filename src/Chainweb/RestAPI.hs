@@ -84,6 +84,7 @@ import System.Clock
 
 -- internal modules
 
+import Chainweb.Backup
 import Chainweb.BlockHeaderDB
 import Chainweb.BlockHeaderDB.RestAPI.Client
 import Chainweb.BlockHeaderDB.RestAPI.Server
@@ -330,11 +331,11 @@ someServiceApiServer
     -> Maybe (MiningCoordination logger cas)
     -> HeaderStream
     -> Rosetta
-    -> Maybe MakeBackup
+    -> Maybe (BackupEnv logger)
     -> SomeServer
-someServiceApiServer v dbs pacts mr (HeaderStream hs) (Rosetta r) makeBackup =
+someServiceApiServer v dbs pacts mr (HeaderStream hs) (Rosetta r) backupEnv =
     someHealthCheckServer
-    <> maybe mempty (someBackupServer . getMakeBackup) makeBackup
+    <> maybe mempty someBackupServer backupEnv
     <> maybe mempty (someNodeInfoServer v) cuts
     <> PactAPI.somePactServers v pacts
     <> maybe mempty (Mining.someMiningServer v) mr
@@ -367,12 +368,12 @@ serviceApiApplication
     -> Maybe (MiningCoordination logger cas)
     -> HeaderStream
     -> Rosetta
-    -> Maybe MakeBackup
+    -> Maybe (BackupEnv logger)
     -> Application
-serviceApiApplication v dbs pacts mr hs r mkBackup
+serviceApiApplication v dbs pacts mr hs r be
     = chainwebServiceMiddlewares
     . someServerApplication
-    $ someServiceApiServer v dbs pacts mr hs r mkBackup
+    $ someServiceApiServer v dbs pacts mr hs r be
 
 serveServiceApiSocket
     :: Show t
@@ -386,7 +387,7 @@ serveServiceApiSocket
     -> Maybe (MiningCoordination logger cas)
     -> HeaderStream
     -> Rosetta
-    -> Maybe MakeBackup
+    -> Maybe (BackupEnv logger)
     -> Middleware
     -> IO ()
 serveServiceApiSocket s sock v dbs pacts mr hs r mkBackup m =

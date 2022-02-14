@@ -47,6 +47,11 @@ module Chainweb.Chainweb.Configuration
 , defaultServiceApiConfig
 , pServiceApiConfig
 
+-- * Backup configuration
+, BackupApiConfig(..)
+, configBackupApi
+, BackupConfig(..)
+
 -- * Chainweb Configuration
 , ChainwebConfiguration(..)
 , configChainwebVersion
@@ -59,7 +64,7 @@ module Chainweb.Chainweb.Configuration
 , configThrottling
 , configReorgLimit
 , configRosetta
-, configCheckpoints
+, configBackup
 , configServiceApi
 , defaultChainwebConfiguration
 , pChainwebConfiguration
@@ -241,15 +246,6 @@ pCutConfig = id
 -- -------------------------------------------------------------------------- --
 -- Service API Configuration
 
-data BackupConfig = NoBackups | EnableCheckpointApi
-    deriving (Show, Eq, Generic)
-instance HasTextRepresentation BackupConfig where
-    toText NoBackups = "no-backups"
-    toText EnableCheckpointApi = "enable-checkpoint-api"
-    fromText "no-backups" = return NoBackups
-    fromText "enable-checkpoint-api" = return EnableCheckpointApi
-    fromText x = throwM $ TextFormatException $ "unknown value for backup configuration: " <> sshow x
-
 data ServiceApiConfig = ServiceApiConfig
     { _serviceApiConfigPort :: !Port
         -- ^ The public host address for service APIs.
@@ -260,7 +256,6 @@ data ServiceApiConfig = ServiceApiConfig
     , _serviceApiConfigInterface :: !HostPreference
         -- ^ The network interface that the service APIs are bound to. Default is to
         -- bind to all available interfaces ('*').
-    , _serviceApiBackups :: !BackupConfig
     }
     deriving (Show, Eq, Generic)
 
@@ -270,21 +265,18 @@ defaultServiceApiConfig :: ServiceApiConfig
 defaultServiceApiConfig = ServiceApiConfig
     { _serviceApiConfigPort = 1848
     , _serviceApiConfigInterface = "*"
-    , _serviceApiBackups = NoBackups
     }
 
 instance ToJSON ServiceApiConfig where
     toJSON o = object
         [ "port" .= _serviceApiConfigPort o
         , "interface" .= hostPreferenceToText (_serviceApiConfigInterface o)
-        , "backups" .= toText (_serviceApiBackups o)
         ]
 
 instance FromJSON (ServiceApiConfig -> ServiceApiConfig) where
     parseJSON = withObject "ServiceApiConfig" $ \o -> id
         <$< serviceApiConfigPort ..: "port" % o
         <*< setProperty serviceApiConfigInterface "interface" (parseJsonFromText "interface") o
-        <*< setProperty serviceApiBackups "backups" (parseJsonFromText "backups") o
 
 pServiceApiConfig :: MParser ServiceApiConfig
 pServiceApiConfig = id
@@ -296,6 +288,61 @@ pServiceApiConfig = id
   where
     service = Just "service"
 
+-- -------------------------------------------------------------------------- --
+-- Backup configuration 
+
+data BackupApiConfig = BackupApiConfig 
+    { _backupApiDirectory :: FilePath
+    }
+    deriving (Show, Eq, Generic)
+
+defaultBackupApiConfig :: BackupApiConfig
+defaultBackupApiConfig = BackupApiConfig 
+    { _backupApiDirectory = "backups"
+    }
+
+data BackupConfig = BackupConfig 
+    { _configBackupApi :: EnableConfig BackupApiConfig
+    }
+    deriving (Show, Eq, Generic)
+
+defaultBackupConfig :: BackupConfig
+defaultBackupConfig = BackupConfig 
+    { _configBackupApi = EnableConfig False defaultBackupApiConfig
+    }
+
+makeLenses ''BackupApiConfig
+makeLenses ''BackupConfig
+
+instance ToJSON BackupApiConfig where
+    toJSON cfg = object 
+        [ "directory" .= _backupApiDirectory cfg 
+        ]
+
+instance FromJSON (BackupApiConfig -> BackupApiConfig) where
+    parseJSON = withObject "BackupApiConfig" $ \o -> id
+        <$< backupApiDirectory ..: "directory" % o
+
+pBackupApiConfig :: MParser BackupApiConfig 
+pBackupApiConfig = id
+    <$< backupApiDirectory .:: textOption 
+        % prefixLong backupApi "directory"
+        <> suffixHelp backupApi "Directory in which backups will be placed when using the backup API endpoint"
+    where
+    backupApi = Just "backup-api"
+
+instance ToJSON BackupConfig where
+    toJSON cfg = object 
+        [ "api" .= _configBackupApi cfg
+        ]
+
+instance FromJSON (BackupConfig -> BackupConfig) where
+    parseJSON = withObject "BackupConfig" $ \o -> id
+        <$< configBackupApi %.: "api" % o
+
+pBackupConfig :: MParser BackupConfig 
+pBackupConfig = id
+    <$< configBackupApi %:: pEnableConfig "backup-api" pBackupApiConfig
 
 -- -------------------------------------------------------------------------- --
 -- Chainweb Configuration
@@ -317,7 +364,7 @@ data ChainwebConfiguration = ChainwebConfiguration
         -- ^ Re-validate payload hashes during replay.
     , _configAllowReadsInLocal :: !Bool
     , _configRosetta :: !Bool
-    , _configCheckpoints :: !Bool
+    , _configBackup :: !BackupConfig
     , _configServiceApi :: !ServiceApiConfig
     , _configOnlySyncPact :: !Bool
         -- ^ exit after synchronizing pact dbs to the latest cut
@@ -354,9 +401,9 @@ defaultChainwebConfiguration v = ChainwebConfiguration
     , _configValidateHashesOnReplay = False
     , _configAllowReadsInLocal = False
     , _configRosetta = False
-    , _configCheckpoints = False
     , _configServiceApi = defaultServiceApiConfig
     , _configOnlySyncPact = False
+    , _configBackup = defaultBackupConfig
     }
 
 instance ToJSON ChainwebConfiguration where
@@ -378,6 +425,7 @@ instance ToJSON ChainwebConfiguration where
         , "rosetta" .= _configRosetta o
         , "serviceApi" .= _configServiceApi o
         , "onlySyncPact" .= _configOnlySyncPact o
+        , "backup" .= _configBackup o
         ]
 
 instance FromJSON ChainwebConfiguration where
@@ -404,6 +452,7 @@ instance FromJSON (ChainwebConfiguration -> ChainwebConfiguration) where
         <*< configRosetta ..: "rosetta" % o
         <*< configServiceApi %.: "serviceApi" % o
         <*< configOnlySyncPact ..: "onlySyncPact" % o
+        <*< configBackup %.: "backup" % o
 
 pChainwebConfiguration :: MParser ChainwebConfiguration
 pChainwebConfiguration = id
@@ -449,4 +498,5 @@ pChainwebConfiguration = id
     <*< configOnlySyncPact .:: boolOption_
         % long "only-sync-pact"
         <> help "Terminate after synchronizing the pact databases to the latest cut"
+    <*< configBackup %:: pBackupConfig
 

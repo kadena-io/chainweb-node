@@ -1,5 +1,6 @@
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
@@ -20,6 +21,9 @@ import Data.Proxy
 import Data.Text (Text)
 import Servant
 
+import Chainweb.Backup
+import Chainweb.Logger
+
 import Chainweb.RestAPI.Utils
 
 type BackupApi = "make-backup" :> Get '[PlainText] Text
@@ -27,9 +31,9 @@ type BackupApi = "make-backup" :> Get '[PlainText] Text
 someBackupApi :: SomeApi
 someBackupApi = SomeApi (Proxy @BackupApi)
 
-someBackupServer :: IO Text -> SomeServer
-someBackupServer makeBackup = 
+someBackupServer :: Logger logger => BackupEnv logger -> SomeServer
+someBackupServer backupEnv = 
     SomeServer (Proxy @BackupApi) handler
   where
-    handler = liftIO makeBackup 
+    handler = liftIO (makeBackup backupEnv)
 
