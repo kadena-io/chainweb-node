@@ -548,7 +548,7 @@ networkOptionsH v (NetworkReq nid _) = runExceptT work >>= either throwRosetta p
       --  implementation has changed.
       ]
 
-    rosettaImplementationVersion = "1.0.0" :: T.Text
+    rosettaImplementationVersion = "2.0.0" :: T.Text
 
     allow = Allow
       { _allow_operationStatuses = opStatuses
