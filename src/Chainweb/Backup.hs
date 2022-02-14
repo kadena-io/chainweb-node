@@ -29,24 +29,27 @@ import Chainweb.Time
 import Chainweb.WebPactExecutionService(_pactBackup)
 
 data BackupEnv logger = BackupEnv
-  { _backupRocksDb :: RocksDb
-  , _backupDir :: FilePath
-  , _backupChainResources :: HashMap ChainId (ChainResources logger)
+  { _backupRocksDb :: !RocksDb
+  , _backupDir :: !FilePath
+  , _backupChainResources :: !(HashMap ChainId (ChainResources logger))
+  , _backupLogger :: !logger
   }
 
 makeBackup :: Logger logger => BackupEnv logger -> IO Text
 makeBackup env = do
     Time (epochToNow :: TimeSpan Integer) <- getCurrentTimeIntegral
     let time = microsToText (timeSpanToMicros epochToNow)
-    -- maxBound ~ always flush WAL log before checkpoint, under the assumption
-    -- that it's not much work
     let thisBackup = _backupDir env </> T.unpack time 
+    logFunctionText (_backupLogger env) Info ("making backup to " <> T.pack thisBackup)
     createDirectoryIfMissing False (_backupDir env)
     createDirectoryIfMissing False thisBackup
-    createDirectoryIfMissing False (thisBackup </> "rocksDb")
     createDirectoryIfMissing False (thisBackup </> "sqlite")
     -- TODO: log rocksdb checkpoint making
-    checkpointRocksDb (_backupRocksDb env) maxBound (thisBackup </> "rocksDb")
+    logFunctionText (_backupLogger env) Info ("making rocksdb checkpoint to " <> T.pack (thisBackup </> "rocksDb"))
+    -- 0 ~ never flush WAL log before checkpoint, under the assumption 
+    -- that it's not very helpful
+    checkpointRocksDb (_backupRocksDb env) 0 (thisBackup </> "rocksDb")
+    logFunctionText (_backupLogger env) Info "rocksdb checkpoint made"
     for_ (_backupChainResources env) $ \cr ->  do
         let logCr = logFunctionText
                 $ addLabel ("component", "pact")

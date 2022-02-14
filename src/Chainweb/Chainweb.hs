@@ -467,7 +467,7 @@ withChainwebInternal conf logger peer serviceSock rocksDb pactDbDir resetDb inne
                                 , _chainwebPutPeerThrottler = putPeerThrottler
                                 , _chainwebConfig = conf
                                 , _chainwebServiceSocket = serviceSock
-                                , _chainwebBackup = \backupDir -> BackupEnv rocksDb backupDir cs
+                                , _chainwebBackup = \backupDir -> BackupEnv rocksDb backupDir cs logger
                                 }
 
     withPactData
