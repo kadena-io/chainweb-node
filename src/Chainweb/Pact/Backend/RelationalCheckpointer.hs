@@ -381,5 +381,5 @@ doBackup
 doBackup dbenv fp = runBlockEnv dbenv $ do
   dbFileName <- takeFileName <$> view (bdbenvDb.sConfig.dbFile)
   callDb "doBackup" $ \db -> do
-    void $ qry_ db ("VACUUM INTO " <> fromString (fp </> dbFileName)) [] 
+    void $ qry_ db ("VACUUM main INTO '" <> fromString (fp </> dbFileName) <> "'") [] 
 
