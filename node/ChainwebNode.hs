@@ -305,6 +305,7 @@ node conf logger = do
     pactDbDir <- getPactDbDir conf
     withRocksDb rocksDbDir $ \rocksDb -> do
         logFunctionText logger Info $ "opened rocksdb in directory " <> sshow rocksDbDir
+        logFunctionText logger Info $ "backup config: " <> sshow (_configBackup cwConf)
         withChainweb cwConf logger rocksDb pactDbDir (_nodeConfigResetChainDbs conf) $ \cw -> mapConcurrently_ id
             [ runChainweb cw
               -- we should probably push 'onReady' deeper here but this should be ok
