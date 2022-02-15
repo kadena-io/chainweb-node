@@ -436,24 +436,24 @@ withChainwebInternal conf logger peer serviceSock rocksDb pactDbDir resetDb inne
             logg Info "start synchronizing Pact DBs"
             synchronizePactDb cs mCutDb
             logg Info "finished synchronizing Pact DBs"
-            switchToLatestCut mCutDb
-            logg Info "start synchronizing Pact DBs again"
-            synchronizePactDb cs mCutDb
-            logg Info "finished synchronizing Pact DBs again"
 
-            unless (_configOnlySyncPact conf) $
-                withPactData cs cuts $ \pactData -> do
-                    logg Info "start initializing miner resources"
+            withPactData cs cuts $ \pactData -> do
+                logg Info "start initializing miner resources"
 
-                    withMiningCoordination mLogger mConf mCutDb $ \mc ->
+                withMiningCoordination mLogger mConf mCutDb $ \mc ->
 
-                        -- Miner resources are used by the test-miner when in-node
-                        -- mining is configured or by the mempool noop-miner (which
-                        -- keeps the mempool updated) in production setups.
-                        --
-                        withMinerResources mLogger (_miningInNode mConf) cs mCutDb mc $ \m -> do
-                            logg Info "finished initializing miner resources"
-                            let !haddr = _peerConfigAddr $ _p2pConfigPeer $ _configP2p conf
+                    -- Miner resources are used by the test-miner when in-node
+                    -- mining is configured or by the mempool noop-miner (which
+                    -- keeps the mempool updated) in production setups.
+                    --
+                    withMinerResources mLogger (_miningInNode mConf) cs mCutDb mc $ \m -> do
+                        logg Info "finished initializing miner resources"
+                        let !haddr = _peerConfigAddr $ _p2pConfigPeer $ _configP2p conf
+                        switchToLatestCut mCutDb
+                        -- logg Info "start synchronizing Pact DBs again"
+                        -- synchronizePactDb cs mCutDb
+                        logg Info "finished synchronizing Pact DBs again"
+                        unless (_configOnlySyncPact conf) $
                             inner Chainweb
                                 { _chainwebHostAddress = haddr
                                 , _chainwebChains = cs
