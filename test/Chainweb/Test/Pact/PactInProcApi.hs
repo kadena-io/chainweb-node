@@ -284,7 +284,7 @@ minerKeysetTest :: TestBlockDb -> IO (IORef MemPoolAccess) -> WebPactExecutionSe
 minerKeysetTest bdb _mpRefIO pact = do
 
   -- run past genesis, upgrades
-  forM_ [(1::Int)..9] $ \_i -> runCut' noMiner
+  forM_ [(1::Int)..24] $ \_i -> runCut' noMiner
 
   -- run block 4
   runCut' badMiner
