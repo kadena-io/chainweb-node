@@ -662,6 +662,19 @@ enrichedCommandToText = T.decodeUtf8 . BSL.toStrict . encode
 textToEnrichedCommand :: T.Text -> Maybe EnrichedCommand
 textToEnrichedCommand = decodeStrict' . T.encodeUtf8
 
+transferCreateCode :: AccountId -> (AccountId, P.KeySet) -> P.ParsedDecimal -> (T.Text, Value)
+transferCreateCode from (to, toGuard) amt =
+  let code = T.pack $! printf
+            "(coin.transfer-create %s %s (read-keyset %s) (read-decimal %s))"
+            (acctTostr from) (acctTostr to) (show guardName) (show amountName)
+      rdata = object
+            [ guardName .= toGuard
+            , amountName .= amt ]
+  in (code, rdata)
+  where
+    acctTostr = show . T.unpack . _accountId_address
+    amountName :: T.Text = "amount"
+    guardName :: T.Text = "ks"
 
 constructionTxToPactRPC
     :: ConstructionTx
@@ -669,18 +682,8 @@ constructionTxToPactRPC
 constructionTxToPactRPC txInfo =
   case txInfo of
     ConstructTransfer from _ to toGuard amt ->
-      let code = t $! printf
-            "(coin.transfer-create \"%s\" \"%s\" (read-keyset \"%s\") (read-decimal \"%s\"))"
-            (str from) (str to) guardName amountName
-          rdata = object
-            [ guardName .= toGuard
-            , amountName .= amt ]
+      let (code, rdata) = transferCreateCode from (to, toGuard) amt
       in P.Exec $ P.ExecMsg code rdata
-  where
-    str = T.unpack . _accountId_address
-    t = T.pack
-    amountName = "amount"
-    guardName = "ks"
 
 
 -- | Creates an enriched Command that consists of an

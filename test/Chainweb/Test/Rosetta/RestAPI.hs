@@ -746,7 +746,7 @@ rosettaVersion = RosettaNodeVersion
     , _version_metadata = Just $ HM.fromList
       [ "node-api-version" A..= ("0.0" :: Text)
       , "chainweb-version" A..= ("fastTimedCPM-peterson" :: Text)
-      , "rosetta-chainweb-version" A..= ("1.0.0" :: Text)
+      , "rosetta-chainweb-version" A..= ("2.0.0" :: Text)
       ]
     }
 

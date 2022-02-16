@@ -42,6 +42,7 @@ import Chainweb.Rosetta.Internal
 import Chainweb.Rosetta.RestAPI
 import Chainweb.Rosetta.Utils
 import Chainweb.Version
+import qualified Pact.Types.KeySet as P
 
 ---
 
@@ -55,6 +56,7 @@ tests = testGroup "Chainweb.Test.Rosetta.UnitTests"
   , testCase "checkKDAToRosettaAmount" checkKDAToRosettaAmount
   , testCase "checkValidateNetwork" checkValidateNetwork
   , testCase "checkUniqueRosettaErrorCodes" checkUniqueRosettaErrorCodes
+  , testCase "checkTransferCodeInjection" checkTransferCodeInjection
   ]
 
 
@@ -413,6 +415,18 @@ checkUniqueRosettaErrorCodes = case repeated of
       else Right $ S.insert x acc
 
     errCodes = map (_error_code . rosettaError') [minBound .. maxBound]
+
+checkTransferCodeInjection :: Assertion
+checkTransferCodeInjection = do
+  assertEqual "Simple AccountIds"
+    ( fst $ transferCreateCode (accountId "hello") (accountId "world", dummyGuard) dummyAmt)
+    "(coin.transfer-create \"hello\" \"world\" (read-keyset \"ks\") (read-decimal \"amount\"))"
+  assertEqual "Simple AccountIds"
+    ( fst $ transferCreateCode (accountId "hello\")") (accountId "world", dummyGuard) dummyAmt)
+    "(coin.transfer-create \"hello\\\")\" \"world\" (read-keyset \"ks\") (read-decimal \"amount\"))"
+  where
+    dummyGuard = P.mkKeySet [] "any"
+    dummyAmt = 2.0
 
 --------------------------------------------------------------------------------
 -- Utils
