@@ -93,18 +93,17 @@ instance FromJSON OperationMetaData where
       , _operationMetaData_currOwnership = currOwnership
       }
 
-
+-- TODO: Not currently used because of ownership rotation bug.
 newtype AccountIdMetaData = AccountIdMetaData
   { _accountIdMetaData_currOwnership :: Value }
   deriving Show
--- TODO: document
 instance ToObject AccountIdMetaData where
   toPairs (AccountIdMetaData currOwnership) =
-    [ "current_ownership" .= currOwnership ]
+    [ "current-ownership" .= currOwnership ]
   toObject acctMeta = HM.fromList (toPairs acctMeta)
 instance FromJSON AccountIdMetaData where
   parseJSON = withObject "AccountIdMetaData" $ \o -> do
-    currOwnership <- o .: "current_ownership"
+    currOwnership <- o .: "current-ownership"
     pure AccountIdMetaData {
       _accountIdMetaData_currOwnership = currOwnership
     }
@@ -221,56 +220,6 @@ toContNextStep currChainId pe
 
 --------------------------------------------------------------------------------
 -- /preprocess
-
-data CrossChainTxMetaData =
-    StartCrossChainTx
-      { _startCrossChainTx_to :: !T.Text
-      , _startCrossChainTx_toGuard :: !P.KeySet
-      , _startCrossChainTx_targetChain :: !P.ChainId
-      }
-  | FinishCrossChainTx
-      { _finishCrossChainTx_sourceChain :: !P.ChainId
-      , _finishCrossChainTx_pactId :: !P.PactId
-      , _finishCrossChainTx_proof :: !T.Text
-      }
-  deriving (Show, Eq)
-instance ToJSON CrossChainTxMetaData where
-  toJSON (StartCrossChainTx toAcct toGuard targetChain) =
-    object [ "cross_chain_stage" .= ("start" :: T.Text)
-           , "receiver_account" .= toAcct
-           , "receiver_ownership" .= toGuard
-           , "target_chain" .= targetChain ]
-  toJSON (FinishCrossChainTx sourceChain pactId proof) =
-    object [ "cross_chain_stage" .= ("finish" :: T.Text)
-           , "source_chain" .= sourceChain
-           , "pact_id" .= pactId
-           , "proof" .= proof ]
-
-instance FromJSON CrossChainTxMetaData where
-  parseJSON = withObject "CrossChainTxMetaData" $ \o -> do
-    typ :: T.Text <- o .: "cross_chain_stage"
-    case typ of
-      "start" -> do
-        receiverAcct <- o .: "receiver_account"
-        receiverGuard <- o .: "receiver_ownership"
-        targetChain <- o .: "target_chain"
-        return $ StartCrossChainTx
-          { _startCrossChainTx_to = receiverAcct
-          , _startCrossChainTx_toGuard = receiverGuard
-          , _startCrossChainTx_targetChain = targetChain
-          }
-      "finish" -> do
-        sourceChain <- o .: "source_chain"
-        pactId <- o .: "pact_id"
-        proof <- o .: "proof"
-        return $ FinishCrossChainTx
-          { _finishCrossChainTx_sourceChain = sourceChain
-          , _finishCrossChainTx_pactId = pactId
-          , _finishCrossChainTx_proof = proof
-          }
-      _ -> error $ "Invalid CrossChainTxMetaData 'cross_chain_stage' value: " ++ show typ
-
-
 data PreprocessReqMetaData = PreprocessReqMetaData
   { _preprocessReqMetaData_gasPayer :: !AccountId
   , _preprocessReqMetaData_nonce :: !(Maybe T.Text)
@@ -726,10 +675,6 @@ constructionTxToPactRPC txInfo =
           rdata = object
             [ guardName .= toGuard
             , amountName .= amt ]
-      -- NOTE: deleting guardCheck from transfer because it would force the tx to be signed by
-      -- both the sender and the receiver.
-      -- With k:accounts, we don't need the added protection that funds are going to the correct
-      -- guard.
       in P.Exec $ P.ExecMsg code rdata
   where
     str = T.unpack . _accountId_address
@@ -946,8 +891,6 @@ accountId acctName = AccountId
   }
   where
     _accountIdMeta = Nothing
-      --Just $ toObject $ AccountIdMetaData
-      --{ _accountIdMetaData_currOwnership = ownership }
 
 operationStatus :: ChainwebOperationStatus -> OperationStatus
 operationStatus s@Successful =

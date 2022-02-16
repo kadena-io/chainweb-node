@@ -797,8 +797,7 @@ validateOp idx opType ks st bal o = do
       Nothing -> []
       Just k -> [fst k]
     _pred' = _testKeySet_pred ks
-    acctMeta = Nothing --Just $ _accountIdMetadata _publicKeys _pred'
-                       --for fixing ownership rotation bug
+    acctMeta = Nothing
 
 -- ------------------------------------------------------------------ --
 -- Test Pact Cmds
@@ -916,12 +915,6 @@ mix
     => Index m
     -> Fold m (IO a)
 mix i = ix i . to A.fromJSON . to (aeson assertFailure return)
-
-_accountIdMetadata :: [Text] -> Text -> A.Object
-_accountIdMetadata keys p = HM.fromList
-  [ "current-ownership" A..= A.object
-    [ "pred" A..= p
-    , "keys" A..= keys ]]
 
 
 -- ------------------------------------------------------------------ --
