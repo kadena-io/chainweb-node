@@ -22,6 +22,7 @@ import Control.Monad.Trans.Except
 import Data.Aeson (Value)
 import Data.Map (Map)
 import Data.List (foldl', find)
+import Data.Default (def)
 import Data.Decimal
 import Data.CAS
 import Data.Word (Word64)
@@ -32,11 +33,18 @@ import qualified Data.HashMap.Strict as HM
 import qualified Data.Map as M
 import qualified Data.Text as T
 import qualified Data.Vector as V
+import qualified Data.Set as S
+
+import qualified Pact.Types.Runtime as P
+import qualified Pact.Parse as P
+import qualified Pact.Types.Capability as P
+import qualified Pact.Types.Command as P
 
 import Pact.Types.Command
 import Pact.Types.Hash
 import Pact.Types.Runtime (TxId(..), Domain(..), TxLog(..))
 import Pact.Types.Persistence (RowKey(..))
+import Pact.Types.PactValue
 
 import Rosetta
 import Servant.Server
@@ -51,7 +59,6 @@ import Chainweb.Pact.Transactions.UpgradeTransactions
 import Chainweb.Pact.Service.Types (Domain'(..), BlockTxHistory(..))
 import Chainweb.Payload hiding (Transaction(..))
 import Chainweb.Payload.PayloadStore
-import Chainweb.Rosetta.RestAPI
 import Chainweb.Rosetta.Utils
 import Chainweb.TreeDB (seekAncestor)
 import Chainweb.Utils
@@ -159,15 +166,15 @@ getGenesisLog
 getGenesisLog logs cid cr =
   case _crTxId cr of
     Just tid -> case M.lookup tid logs of
-      Just l -> rosettaTransaction cr cid $! makeOps tid l
+      Just l -> rosettaTransaction cr cid $! makeOps l
       Nothing -> rosettaTransaction cr cid []  -- not a coin contract tx
     Nothing -> rosettaTransaction cr cid [] -- all genesis tx should have a txid
   where
-    makeOps tid l = indexedOperations $!
+    makeOps l = indexedOperations $!
       UnindexedOperations
       { _unindexedOperation_fundOps = []
       , _unindexedOperation_transferOps =
-          map (operation Successful TransferOrCreateAcct tid) l
+          map (operation Successful TransferOrCreateAcct) l
       , _unindexedOperation_gasOps = []
       }
 
@@ -212,7 +219,7 @@ nonGenesisCoinbaseLog logs cid cr = case getSomeTxId cr of
     (coinbaseTid,coinbaseLog):restLogs
       | tid == coinbaseTid ->
         makeAcc restLogs
-        (map (operation Successful CoinbaseReward tid) coinbaseLog)
+        (map (operation Successful CoinbaseReward) coinbaseLog)
       | otherwise -> Left "First log's TxId does not match coinbase tx's TxId"
     _ -> Left "Expected coinbase log: Received empty logs list"
 
@@ -302,8 +309,8 @@ gasTransactionAcc accTyp cid acc ctx = combine (_txAccumulator_logsLeft acc)
 
     txId (tid,_) = tid
 
-    makeOps ot (tid, als) =
-      map (operation Successful ot tid) als
+    makeOps ot (_, als) =
+      map (operation Successful ot) als
 
     listErr expectedMsg logs = Left $
       expectedMsg ++ ": Received logs list " ++ show logs
@@ -409,7 +416,7 @@ remediationAcc accTyp acc (remTx, remTid) =
         let ops = indexedOperations $!
               UnindexedOperations
               { _unindexedOperation_fundOps = []
-              , _unindexedOperation_transferOps = makeOps (logTid, logs)
+              , _unindexedOperation_transferOps = makeOps logs
               , _unindexedOperation_gasOps = []
               }
             rosettaTx = rosettaTransactionFromCmd remTx $! ops
@@ -420,8 +427,8 @@ remediationAcc accTyp acc (remTx, remTid) =
   where
     makeAcc restLogs rosettaTx =
       accumulatorFunction accTyp acc restLogs rosettaTx
-    makeOps (tid, logs) =
-      map (operation Remediation TransferOrCreateAcct tid) logs
+    makeOps logs =
+      map (operation Remediation TransferOrCreateAcct) logs
 
 -- | Matches all transactions in a remediation block
 --   (including coinbase, remediations, and user transactions)
@@ -636,19 +643,223 @@ getBalanceDeltas hist lastBalsSeenDef =
         acctLog = rowDataToAccountLog currRow prevRow
         lookupAndReplace _key new _old = new
 
+
+-- | Lookup the row value of a coin-contract key
+-- at a given block.
+getHistoricalLookupBalance'
+    :: PactExecutionService
+    -> BlockHeader
+    -> T.Text
+    -> ExceptT RosettaFailure Handler (Maybe AccountRow)
+getHistoricalLookupBalance' cr bh k = do
+  someHist <- liftIO $ _pactHistoricalLookup cr bh d key
+  hist <- hush someHist ?? RosettaPactExceptionThrown
+  case hist of
+    Nothing -> pure Nothing
+    Just h -> do
+      row <- txLogToAccountRow h ?? RosettaUnparsableTxLog
+      pure $ Just row
+  where
+    d = Domain' (UserTables "coin_coin-table")
+    key = RowKey k -- TODO: How to sanitize this further
+
 getHistoricalLookupBalance
     :: PactExecutionService
     -> BlockHeader
     -> T.Text
     -> ExceptT RosettaFailure Handler Decimal
 getHistoricalLookupBalance cr bh k = do
-  someHist <- liftIO $ _pactHistoricalLookup cr bh d key
-  hist <- hush someHist ?? RosettaPactExceptionThrown
-  case hist of
-    Nothing -> pure 0.0
-    Just h -> do
-      (_,bal,_) <- txLogToAccountRow h ?? RosettaUnparsableTxLog
-      pure bal
+  someRow <- getHistoricalLookupBalance' cr bh k
+  case someRow of
+    Nothing -> pure 0.0 -- key not present
+    Just (_,bal,_) -> pure bal
+
+
+rosettaErrorT
+    :: Maybe String
+    -> ExceptT RosettaFailure Handler a
+    -> ExceptT RosettaError Handler a
+rosettaErrorT someMsg = mapExceptT f
   where
-    d = Domain' (UserTables "coin_coin-table")
-    key = RowKey k  -- TODO: How to sanitize this further
+    f :: Handler (Either RosettaFailure b)
+      -> Handler (Either RosettaError b)
+    f run = do
+      eitherRes <- run
+      case eitherRes of
+        Left failure ->
+          case someMsg of
+            Nothing -> pure $ Left $ rosettaError' failure
+            Just msg -> pure $ Left $ stringRosettaError failure msg
+        Right r -> pure $ Right r
+
+
+neededAccounts
+    :: ConstructionTx
+    -> AccountId
+    -> [AccountId]
+neededAccounts txInfo payerAcct = S.toList $
+  case txInfo of
+    ConstructTransfer from _ _ _ _ ->
+      S.insert from m
+  where
+    -- Uses Sets to avoid repeating accounts
+    -- (i.e. the gas payer is the same as the transfer)
+    m = S.singleton payerAcct
+
+
+-- | Iterates through the `ConstructionTx` to determine
+-- the accounts needed for signing, determines their required
+-- capabilities, and queries the blockchain to determine the keys
+-- associated with said accounts.
+toSignerAcctsMap
+    :: ConstructionTx
+    -> AccountId
+    -> ChainId
+    -> [(ChainId, PactExecutionService)]
+    -> CutDb cas
+    -> ExceptT RosettaError Handler
+       (HM.HashMap AccountId ([P.SigCapability], [T.Text]))
+toSignerAcctsMap txInfo payerAcct cid pacts cutDb = do
+  bhCurr <- rosettaErrorT Nothing $
+            getLatestBlockHeader cutDb cid
+  peCurr <- rosettaErrorT Nothing $
+            lookup cid pacts ?? RosettaInvalidChain
+
+  -- GAS
+  someGasOwner <- getOwnership peCurr bhCurr payerAcct
+  gasOwner <- enforceAcctPresent payerAcct someGasOwner
+  let gasCaps = [ mkGasCap ]
+      mapWithGas = HM.singleton
+        payerAcct
+        (gasCaps, gasOwner)
+
+  -- TRANSACTION
+  case txInfo of
+    ConstructTransfer from fromGuard to toGuard (P.ParsedDecimal amt) -> do
+      let expectedFrom = ksToPubKeys fromGuard
+          -- `to` acount could be getting created
+          expectedTo = ksToPubKeys toGuard
+      
+      someActualFrom <- getOwnership peCurr bhCurr from
+      someActualTo <- getOwnership peCurr bhCurr to
+
+      _ <- enforceAcctPresent from someActualFrom
+      checkExpectedOwnership from expectedFrom someActualFrom
+      checkExpectedOwnership to expectedTo someActualTo
+
+      let capsFrom = [ mkTransferCap from to amt ]
+
+      pure $ insertWith' from (capsFrom, expectedFrom) mapWithGas
+  where
+    getOwnership cr bh k = do
+      someRow <- rosettaErrorT Nothing $
+        getHistoricalLookupBalance' cr bh (_accountId_address k)
+      case someRow of
+        Nothing -> pure Nothing
+        Just (_,_,g) -> hoistEither $ Just <$> parsePubKeys (_accountId_address k) g
+
+    insertWith'
+        :: AccountId
+        -> ([P.SigCapability], [T.Text])
+        -> HM.HashMap AccountId ([P.SigCapability], [T.Text])
+        -> HM.HashMap AccountId ([P.SigCapability], [T.Text])
+    insertWith' acct sigs m = HM.insertWith f acct sigs m
+      where
+        f (newSigs, _) (oldSigs, oldKeys) =
+          (oldSigs <> newSigs, oldKeys) -- keys wouldn't change
+
+    -- Cap smart constructor.
+    mkCapability
+        :: P.ModuleName
+        -> T.Text
+        -> [PactValue]
+        -> P.SigCapability
+    mkCapability mn cap args =
+      P.SigCapability (P.QualifiedName mn cap def) args
+
+    -- Convenience to make caps like TRANSFER, GAS etc.
+    mkCoinCap
+        :: T.Text
+        -> [PactValue]
+        -> P.SigCapability
+    mkCoinCap n = mkCapability "coin" n
+
+    mkTransferCap
+        :: AccountId
+        -> AccountId
+        -> Decimal
+        -> P.SigCapability
+    mkTransferCap sender receiver amount = mkCoinCap "TRANSFER"
+      [ pString (_accountId_address sender), 
+        pString (_accountId_address receiver), 
+        pDecimal amount ]
+
+    mkGasCap :: P.SigCapability
+    mkGasCap = mkCoinCap "GAS" []
+
+    -- Make PactValue from text
+    pString :: T.Text -> PactValue
+    pString = PLiteral . P.LString
+
+    -- Make PactValue from decimal
+    pDecimal :: Decimal -> PactValue
+    pDecimal = PLiteral . P.LDecimal
+
+enforceAcctPresent
+    :: AccountId
+    -> Maybe [T.Text]
+    -> ExceptT RosettaError Handler [T.Text]
+enforceAcctPresent k actualOwnership =
+  case actualOwnership of
+    Just pks -> pure pks
+    Nothing -> -- key missing (not expected)
+      hoistEither $ Left $
+      stringRosettaError RosettaInvalidAccountProvided $
+      "Account=" ++ show k ++ " doesn't exists"
+
+checkExpectedOwnership
+    :: AccountId
+    -> [T.Text]
+    -> Maybe [T.Text]
+    -> ExceptT RosettaError Handler ()
+checkExpectedOwnership _ _ Nothing = pure ()
+checkExpectedOwnership acct expected (Just actual)
+  | expected == actual = pure ()
+  | otherwise = hoistEither $ Left $
+      stringRosettaError RosettaInvalidAccountProvided $
+      "Account=" ++ show acct ++ ": Provided public key addresses "
+      ++ show expected ++
+      " doesn't match the account's actual public key addresses "
+      ++ show actual
+
+-- | Maps a Pact Address (derived from PublicKey) to a
+--   function to create a Signer.
+rosettaPubKeysToSignerMap
+    :: [RosettaPublicKey]
+    -> Either RosettaError (HM.HashMap T.Text ([P.SigCapability] -> Signer))
+rosettaPubKeysToSignerMap pubKeys = HM.fromList <$> mapM f pubKeys
+  where 
+    f (RosettaPublicKey pk ct) = do
+      sk <- getScheme ct
+      addr <- toPactPubKeyAddr pk sk
+      let signerWithoutCap = P.Signer (Just sk) pk (Just addr)
+      pure (addr, signerWithoutCap)
+
+createSigners
+    :: HM.HashMap T.Text ([P.SigCapability] -> Signer)
+    -> HM.HashMap AccountId ([P.SigCapability], [T.Text])
+    -> Either RosettaError [(Signer, AccountId)]
+createSigners addrToSignerMap acctToCapMap =
+  -- NOTE: There might be duplicates signers but that's okay
+  concat <$> mapM f (HM.toList acctToCapMap)
+  where
+    f (acct, (caps, pubKeyAddrs)) =
+      mapM (lookupSigner acct caps) pubKeyAddrs
+
+    lookupSigner :: AccountId -> [P.SigCapability] -> T.Text -> Either RosettaError (Signer, AccountId)
+    lookupSigner acct caps pkAddr = do
+      mkSigner <- toRosettaError RosettaMissingExpectedPublicKey $
+                  note ("No Rosetta Public Key found for pact public key address="
+                        ++ show pkAddr ++ " for AccountId=" ++ show acct)
+                  (HM.lookup pkAddr addrToSignerMap)
+      pure (mkSigner caps, acct)

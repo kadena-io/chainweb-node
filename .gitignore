@@ -48,3 +48,4 @@ standalonedbs/
 TAGS
 *.hie
 .DS_Store
+.vscode/*
