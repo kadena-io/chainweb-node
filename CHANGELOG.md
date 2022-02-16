@@ -6,7 +6,7 @@ This version replaces all previous versions. Any prior version will stop working
 on **2022-02-24T00:00:00Z**. Node administrators must upgrade to this version
 before that date.
 
-This version will stop working on **2022-04-07T00:00:00Z**.
+This version will stop working on **2022-04-21T00:00:00Z**.
 
 To upgrade, pull the latest docker image or download the binary and restart the node.
 
@@ -14,7 +14,7 @@ Changes:
 
 *   [Pact] Enforce miner keyset formats. (#1314)
 *   [Pact] Fix Pact parser to always consume all input. (#1358)
-*   [Pact] More accurate gas cost calculation for modules uploads. (TODO)
+*   [Pact] More accurate gas cost calculation for modules uploads. (#1361)
 
 *   [Rosetta] Chainweb Rosetta API 2.0.0 (#1145)
 
