@@ -476,9 +476,6 @@ constructionTransferTests _ envIo =
           res2 = P.PLiteral $ P.LString "Write succeeded"
       submitToConstructionAPI' ops2 cid res2
 
-    {--
-    -- This test is failing because the negate amount opperation
-    -- happens first instead of second.
     step "--- TRANSFER FROM NEWLY CREATED k ACCOUNT AGAIN ---"
     void $ do
       let toAcct3 = sender00KAcct
@@ -486,11 +483,14 @@ constructionTransferTests _ envIo =
           amt3 = 1.0
           fromAcct3 = sender01KAcct
           fromGuard3 = ks sender01ks
-          ops3 = [ mkOp toAcct3 amt3 toGuard3 1 []
-                 , mkOp fromAcct3 (negate amt3) fromGuard3 2 [1] ]
+          -- NOTE: In this case, the negate amount operation occurs first.
+          -- The Rosetta validation doesn't care about the exact operation order,
+          -- so this test shouldn't either.
+          ops3 = [ mkOp fromAcct3 (negate amt3) fromGuard3 1 []
+                  , mkOp toAcct3 amt3 toGuard3 2 [1]]
           res3 = P.PLiteral $ P.LString "Write succeeded"
       submitToConstructionAPI' ops3 cid res3
-    --}
+
   where    
     mkOp name delta guard idx related =
       operation Successful
