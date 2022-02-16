@@ -26,7 +26,9 @@ import Chainweb.Logger
 
 import Chainweb.RestAPI.Utils
 
-type BackupApi = "make-backup" :> Get '[PlainText] Text
+type BackupApi 
+  =    "make-backup" :> Get '[PlainText] Text
+  :<|> "backup-status" :> Get '[Text] 
 
 someBackupApi :: SomeApi
 someBackupApi = SomeApi (Proxy @BackupApi)
