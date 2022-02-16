@@ -1,5 +1,18 @@
 # `chainweb-node` Changelog
 
+## 2.12.3 (2022-02-04)
+
+This is a new feature release for the `Chainweb Rosetta API 2.0.0` ([#1145](https://github.com/kadena-io/chainweb-node/pull/1145)).
+
+To upgrade, pull the latest docker image or download the binary and restart the node.
+
+ **[Rosetta] New Features**
+  * Adds Construction API endpoints for Rosetta version 1.4.4 as defined here: https://www.rosetta-api.org/docs/1.4.4/ConstructionApi.html.
+    * As of this version, only allows transfer operations with k:accounts are supported.
+
+ **[Rosetta] Backwards Incompatibility**
+  * An Operation's metadata no longer returns the Operation's "tx-id" or its account's "total-balance". The Construction API declares intended Operations and looks for these operations in blocks. There is no way for the Construction API to know the "tx-id" and "total-balance" when creating the intended operations.
+
 ## 2.12.2 (2022-02-04)
 
 This is a new feature and bug fix release for the `Chainweb Rosetta API 1.0.0` ([#1135](https://github.com/kadena-io/chainweb-node/pull/1135)).
