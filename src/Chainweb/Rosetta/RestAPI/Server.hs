@@ -371,7 +371,6 @@ constructionParseH v (ConstructionParseReq net isSigned tx) =
           -- it was signed correctly with all of the account public
           -- keys needed.
           -- NOTE: Might contain repetitions.
-          -- TODO: Just return unique account ids.
       | otherwise = pure []
 
 
