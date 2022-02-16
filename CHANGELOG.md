@@ -1,6 +1,6 @@
 # `chainweb-node` Changelog
 
-## 2.12.3 (2022-02-04)
+## 2.12.3 (2022-02-13)
 
 This is a new feature release for the `Chainweb Rosetta API 2.0.0` ([#1145](https://github.com/kadena-io/chainweb-node/pull/1145)).
 
