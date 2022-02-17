@@ -16,26 +16,43 @@ module Chainweb.RestAPI.Backup
     , someBackupServer
     ) where
 
+import Control.Concurrent.Async
+import Control.Monad.Catch
 import Control.Monad.IO.Class
 import Data.Proxy
 import Data.Text (Text)
+import qualified Data.Text as T
 import Servant
 
-import Chainweb.Backup
+import qualified Chainweb.Backup as Backup
 import Chainweb.Logger
+import Chainweb.Time
 
 import Chainweb.RestAPI.Utils
 
 type BackupApi 
   =    "make-backup" :> Get '[PlainText] Text
-  :<|> "backup-status" :> Get '[Text] 
+  :<|> "check-backup" :> Capture "backup-name" FilePath :> Get '[PlainText] Backup.BackupStatus
 
 someBackupApi :: SomeApi
 someBackupApi = SomeApi (Proxy @BackupApi)
 
-someBackupServer :: Logger logger => BackupEnv logger -> SomeServer
+someBackupServer :: Logger logger => Backup.BackupEnv logger -> SomeServer
 someBackupServer backupEnv = 
     SomeServer (Proxy @BackupApi) handler
   where
-    handler = liftIO (makeBackup backupEnv)
+    noSuchBackup = err404 { errBody = "no such backup" }
+    makeBackup = liftIO $ do
+        nextBackupName <- getNextBackupName
+        _ <- async $ Backup.makeBackup backupEnv (T.unpack nextBackupName)
+        return nextBackupName
+    checkBackup backupName = liftIO $ do
+        status <- Backup.checkBackup backupEnv backupName
+        maybe (throwM noSuchBackup) pure status 
+    handler = makeBackup :<|> checkBackup
+
+getNextBackupName :: IO Text
+getNextBackupName = do
+    Time (epochToNow :: TimeSpan Integer) <- getCurrentTimeIntegral
+    return $ microsToText (timeSpanToMicros epochToNow)
 
