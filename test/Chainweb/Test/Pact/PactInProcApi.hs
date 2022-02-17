@@ -68,6 +68,7 @@ import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.Service.BlockValidation
 import Chainweb.Pact.Service.PactQueue (PactQueue)
 import Chainweb.Pact.Service.Types
+import Chainweb.Pact.PactService(officialGasModel)
 import Chainweb.Payload
 import Chainweb.SPV.CreateProof
 import Chainweb.Test.Cut
@@ -105,9 +106,10 @@ tests rdb = ScheduledTest testName $ go
          , test Quiet $ badlistNewBlockTest
          , test Warn $ mempoolCreationTimeTest
          , test Warn $ moduleNameFork
-         , multiChainTest "pact4coin3UpgradeTest" pact4coin3UpgradeTest
-         , multiChainTest "pact420UpgradeTest" pact420UpgradeTest
-         , multiChainTest "minerKeysetTest" minerKeysetTest
+         , multiChainTest freeGasModel "pact4coin3UpgradeTest" pact4coin3UpgradeTest
+         , multiChainTest freeGasModel "pact420UpgradeTest" pact420UpgradeTest
+         , multiChainTest freeGasModel "minerKeysetTest" minerKeysetTest
+         , multiChainTest officialGasModel "moduleCostUpdate" moduleCostUpdateTest
          ]
       where
         test logLevel f =
@@ -115,11 +117,11 @@ tests rdb = ScheduledTest testName $ go
           withPactTestBlockDb testVersion cid logLevel rdb (snd <$> dm) defaultPactServiceConfig $
           f (fst <$> dm)
 
-        multiChainTest tname f =
+        multiChainTest gasmodel tname f =
           withDelegateMempool $ \dmpio -> testCase tname $
             withTestBlockDb testVersion $ \bdb -> do
               (iompa,mpa) <- dmpio
-              withWebPactExecutionService testVersion bdb mpa $ \pact ->
+              withWebPactExecutionService testVersion bdb mpa gasmodel $ \pact ->
                 f bdb (return iompa) pact
         testHistLookup1 = getHistoricalLookupNoTxs "sender00"
           (assertSender00Bal 100000000 "check latest entry for sender00 after a no txs block")
@@ -284,7 +286,7 @@ minerKeysetTest :: TestBlockDb -> IO (IORef MemPoolAccess) -> WebPactExecutionSe
 minerKeysetTest bdb _mpRefIO pact = do
 
   -- run past genesis, upgrades
-  forM_ [(1::Int)..3] $ \_i -> runCut' noMiner
+  forM_ [(1::Int)..24] $ \_i -> runCut' noMiner
 
   -- run block 4
   runCut' badMiner
@@ -301,7 +303,53 @@ minerKeysetTest bdb _mpRefIO pact = do
 
     badMiner = Miner (MinerId "miner") $ MinerKeys $ mkKeySet ["bad-bad-bad"] "keys-all"
 
+moduleCostUpdateTest :: TestBlockDb -> IO (IORef MemPoolAccess) -> WebPactExecutionService -> IO ()
+moduleCostUpdateTest bdb mpRefIO pact = do
 
+  -- run past genesis, upgrades
+  forM_ [(1::Int)..24] $ \_i -> runCut'
+
+  -- run block 25
+  setMempool mpRefIO getBlock1
+  runCut'
+  pwo1 <- getPWO bdb cid
+  tx1 <- txResult 0 pwo1
+  assertEqual "Old gas cost" 56 (_crGas tx1)
+
+
+  -- run block 26
+  setMempool mpRefIO getBlock2
+  runCut'
+  pwo2 <- getPWO bdb cid
+  tx2 <- txResult 0 pwo2
+  assertEqual "New gas cost" 60065 (_crGas tx2)
+  where
+    getBlock1 = mempty {
+      mpaGetBlock = \_ _ _ bh -> if _blockChainId bh == cid then do
+          t0 <- buildModCmd1 bh
+          return $! V.fromList [t0]
+          else return mempty
+      }
+    getBlock2 = mempty {
+      mpaGetBlock = \_ _ _ bh -> if _blockChainId bh == cid then do
+          t0 <- buildModCmd2 bh
+          return $! V.fromList [t0]
+          else return mempty
+      }
+    buildModCmd1 bh = buildCwCmd
+        $ set cbSigners [mkSigner' sender00 []]
+        $ set cbChainId (_blockChainId bh)
+        $ set cbCreationTime (toTxCreationTime $ _bct $ _blockCreationTime bh)
+        $ mkCmd (sshow bh)
+        $ mkExec' $ mconcat ["(namespace 'free)", "(module mtest G (defcap G () true) (defun a () true))"]
+    buildModCmd2 bh = buildCwCmd
+        $ set cbSigners [mkSigner' sender00 []]
+        $ set cbChainId (_blockChainId bh)
+        $ set cbCreationTime (toTxCreationTime $ _bct $ _blockCreationTime bh)
+        $ set cbGasLimit 70000
+        $ mkCmd (sshow bh)
+        $ mkExec' $ mconcat ["(namespace 'free)", "(module mtest2 G (defcap G () true) (defun a () false))"]
+    runCut' = runCut testVersion bdb pact (offsetBlockTime second) zeroNoncer noMiner
 
 pact420UpgradeTest :: TestBlockDb -> IO (IORef MemPoolAccess) -> WebPactExecutionService -> IO ()
 pact420UpgradeTest bdb mpRefIO pact = do
