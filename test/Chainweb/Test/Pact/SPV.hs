@@ -262,7 +262,7 @@ roundtrip'
     -> IO (CutOutputs, CutOutputs)
 roundtrip' v sid0 tid0 burn create step = withTestBlockDb v $ \bdb -> do
   tg <- newMVar mempty
-  withWebPactExecutionService v bdb (chainToMPA' tg) $ \pact -> do
+  withWebPactExecutionService v bdb (chainToMPA' tg) freeGasModel $ \pact -> do
 
     sid <- mkChainId v maxBound sid0
     tid <- mkChainId v maxBound tid0

@@ -105,9 +105,9 @@ tests rdb = ScheduledTest testName $ go
          , test Quiet $ badlistNewBlockTest
          , test Warn $ mempoolCreationTimeTest
          , test Warn $ moduleNameFork
-         , multiChainTest "pact4coin3UpgradeTest" pact4coin3UpgradeTest
-         , multiChainTest "pact420UpgradeTest" pact420UpgradeTest
-         , multiChainTest "minerKeysetTest" minerKeysetTest
+         , multiChainTest freeGasModel "pact4coin3UpgradeTest" pact4coin3UpgradeTest
+         , multiChainTest freeGasModel "pact420UpgradeTest" pact420UpgradeTest
+         , multiChainTest freeGasModel "minerKeysetTest" minerKeysetTest
          ]
       where
         test logLevel f =
@@ -115,11 +115,11 @@ tests rdb = ScheduledTest testName $ go
           withPactTestBlockDb testVersion cid logLevel rdb (snd <$> dm) defaultPactServiceConfig $
           f (fst <$> dm)
 
-        multiChainTest tname f =
+        multiChainTest gasmodel tname f =
           withDelegateMempool $ \dmpio -> testCase tname $
             withTestBlockDb testVersion $ \bdb -> do
               (iompa,mpa) <- dmpio
-              withWebPactExecutionService testVersion bdb mpa $ \pact ->
+              withWebPactExecutionService testVersion bdb mpa gasmodel $ \pact ->
                 f bdb (return iompa) pact
         testHistLookup1 = getHistoricalLookupNoTxs "sender00"
           (assertSender00Bal 100000000 "check latest entry for sender00 after a no txs block")

@@ -77,6 +77,7 @@ module Chainweb.Test.Pact.Utils
 -- * Other service creation
 , initializeSQLite
 , freeSQLiteResource
+, freeGas
 , withTestBlockDbTest
 , defaultPactServiceConfig
 , withMVarResource
@@ -451,8 +452,9 @@ testPactCtxSQLite
   -> PayloadDb cas
   -> SQLiteEnv
   -> PactServiceConfig
+  -> GasModel
   -> IO (TestPactCtx cas,PactDbEnv')
-testPactCtxSQLite v cid bhdb pdb sqlenv conf = do
+testPactCtxSQLite v cid bhdb pdb sqlenv conf gasmodel = do
     (dbSt,cpe) <- initRelationalCheckpointer' initialBlockState sqlenv cpLogger v cid
     let rs = readRewards
         ph = ParentHeader $ genesisBlockHeader v cid
@@ -470,7 +472,7 @@ testPactCtxSQLite v cid bhdb pdb sqlenv conf = do
         , _psCheckpointEnv = cpe
         , _psPdb = pdb
         , _psBlockHeaderDb = bhdb
-        , _psGasModel = constGasModel 0
+        , _psGasModel = gasmodel
         , _psMinerRewards = rs
         , _psReorgLimit = fromIntegral $ _pactReorgLimit conf
         , _psOnFatalError = defaultOnFatalError mempty
@@ -483,15 +485,19 @@ testPactCtxSQLite v cid bhdb pdb sqlenv conf = do
         , _psLoggers = loggers
         }
 
+freeGasModel :: GasModel
+freeGasModel = constGasModel 0
+
 
 -- | A queue-less WebPactExecutionService (for all chains).
 withWebPactExecutionService
     :: ChainwebVersion
     -> TestBlockDb
     -> MemPoolAccess
+    -> GasModel
     -> (WebPactExecutionService -> IO a)
     -> IO a
-withWebPactExecutionService v bdb mempoolAccess act =
+withWebPactExecutionService v bdb mempoolAccess gasmodel act =
   withDbs $ \sqlenvs -> do
     pacts <- fmap (mkWebPactExecutionService . HM.fromList)
            $ traverse mkPact
@@ -504,7 +510,7 @@ withWebPactExecutionService v bdb mempoolAccess act =
     withDb g envs =  withTempSQLiteConnection chainwebPragmas $ \s -> g (s : envs)
     mkPact (sqlenv, c) = do
         bhdb <- getBlockHeaderDb c bdb
-        (ctx,_) <- testPactCtxSQLite v c bhdb (_bdbPayloadDb bdb) sqlenv defaultPactServiceConfig
+        (ctx,_) <- testPactCtxSQLite v c bhdb (_bdbPayloadDb bdb) sqlenv defaultPactServiceConfig gasmodel
         return $ (c,) $ PactExecutionService
           { _pactNewBlock = \m p ->
               evalPactServiceM_ ctx $ execNewBlock mempoolAccess p m
@@ -590,7 +596,7 @@ withPactCtxSQLite v bhdbIO pdbIO conf f =
         bhdb <- bhdbIO
         pdb <- pdbIO
         (_,s) <- ios
-        testPactCtxSQLite v cid bhdb pdb s conf
+        testPactCtxSQLite v cid bhdb pdb s conf freeGasModel
 
 toTxCreationTime :: Integral a => Time a -> TxCreationTime
 toTxCreationTime (Time timespan) = TxCreationTime $ fromIntegral $ timeSpanToSeconds timespan
