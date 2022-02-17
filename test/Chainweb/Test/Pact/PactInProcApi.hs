@@ -55,6 +55,7 @@ import Pact.Types.Hash
 import Pact.Types.PactValue
 import Pact.Types.Persistence
 import Pact.Types.PactError
+import Pact.Types.Pretty
 import Pact.Types.SPV
 import Pact.Types.Term
 
@@ -68,7 +69,7 @@ import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.Service.BlockValidation
 import Chainweb.Pact.Service.PactQueue (PactQueue)
 import Chainweb.Pact.Service.Types
-import Chainweb.Pact.PactService(officialGasModel)
+import Chainweb.Pact.PactService(getGasModel)
 import Chainweb.Payload
 import Chainweb.SPV.CreateProof
 import Chainweb.Test.Cut
@@ -109,7 +110,7 @@ tests rdb = ScheduledTest testName $ go
          , multiChainTest freeGasModel "pact4coin3UpgradeTest" pact4coin3UpgradeTest
          , multiChainTest freeGasModel "pact420UpgradeTest" pact420UpgradeTest
          , multiChainTest freeGasModel "minerKeysetTest" minerKeysetTest
-         , multiChainTest officialGasModel "moduleCostUpdate" moduleCostUpdateTest
+         , multiChainTest getGasModel "chainweb213Test" chainweb213Test
          ]
       where
         test logLevel f =
@@ -303,8 +304,14 @@ minerKeysetTest bdb _mpRefIO pact = do
 
     badMiner = Miner (MinerId "miner") $ MinerKeys $ mkKeySet ["bad-bad-bad"] "keys-all"
 
-moduleCostUpdateTest :: TestBlockDb -> IO (IORef MemPoolAccess) -> WebPactExecutionService -> IO ()
-moduleCostUpdateTest bdb mpRefIO pact = do
+assertTxFailure :: String -> T.Text -> CommandResult l -> Assertion
+assertTxFailure msg needle tx =
+  assertSatisfies msg (_crResult tx) $ \r -> case _pactResult r of
+    Left e -> needle `T.isInfixOf` renderCompactText' (peDoc e)
+    Right _ -> False
+
+chainweb213Test :: TestBlockDb -> IO (IORef MemPoolAccess) -> WebPactExecutionService -> IO ()
+chainweb213Test bdb mpRefIO pact = do
 
   -- run past genesis, upgrades
   forM_ [(1::Int)..24] $ \_i -> runCut'
@@ -313,29 +320,65 @@ moduleCostUpdateTest bdb mpRefIO pact = do
   setMempool mpRefIO getBlock1
   runCut'
   pwo1 <- getPWO bdb cid
-  tx1 <- txResult 0 pwo1
-  assertEqual "Old gas cost" 56 (_crGas tx1)
-
+  tx1_0 <- txResult 0 pwo1
+  assertEqual "Old gas cost" 56 (_crGas tx1_0)
+  tx1_1 <- txResult 1 pwo1
+  assertTxFailure "list failure 1_1" "Unknown primitive" tx1_1
+  tx1_2 <- txResult 2 pwo1
+  assertSatisfies "mod db installs" (_pactResult (_crResult tx1_2)) isRight
+  tx1_3 <- txResult 3 pwo1
+  assertEqual "fkeys gas cost 1" 205 (_crGas tx1_3)
+  tx1_4 <- txResult 4 pwo1
+  assertEqual "ffolddb gas cost 1" 206 (_crGas tx1_4)
+  tx1_5 <- txResult 5 pwo1
+  assertEqual "fselect gas cost 1" 206 (_crGas tx1_5)
 
   -- run block 26
   setMempool mpRefIO getBlock2
   runCut'
   pwo2 <- getPWO bdb cid
-  tx2 <- txResult 0 pwo2
-  assertEqual "New gas cost" 60065 (_crGas tx2)
+  tx2_0 <- txResult 0 pwo2
+  assertEqual "New gas cost" 60065 (_crGas tx2_0)
+  tx2_1 <- txResult 1 pwo2
+  assertTxFailure "list failure 2_1" "Gas limit" tx2_1
+  tx2_2 <- txResult 2 pwo2
+  assertEqual "fkeys gas cost 2" 40005 (_crGas tx2_2)
+  tx2_3 <- txResult 3 pwo2
+  assertEqual "ffolddb gas cost 2" 40006 (_crGas tx2_3)
+  tx2_4 <- txResult 4 pwo2
+  assertEqual "fselect gas cost 2" 40006 (_crGas tx2_4)
+
+
   where
+
     getBlock1 = mempty {
       mpaGetBlock = \_ _ _ bh -> if _blockChainId bh == cid then do
           t0 <- buildModCmd1 bh
-          return $! V.fromList [t0]
+          t1 <- buildSimpleCmd bh "(list 1 2 3)"
+          t2 <- buildDbMod bh
+          t3 <- buildSimpleCmd bh "(free.dbmod.fkeys)"
+          t4 <- buildSimpleCmd bh "(free.dbmod.ffolddb)"
+          t5 <- buildSimpleCmd bh "(free.dbmod.fselect)"
+          return $! V.fromList [t0,t1,t2,t3,t4,t5]
           else return mempty
       }
     getBlock2 = mempty {
       mpaGetBlock = \_ _ _ bh -> if _blockChainId bh == cid then do
           t0 <- buildModCmd2 bh
-          return $! V.fromList [t0]
+          t1 <- buildSimpleCmd bh "(list 1 2 3)"
+          t2 <- buildSimpleCmd bh "(free.dbmod.fkeys)"
+          t3 <- buildSimpleCmd bh "(free.dbmod.ffolddb)"
+          t4 <- buildSimpleCmd bh "(free.dbmod.fselect)"
+          return $! V.fromList [t0,t1,t2,t3,t4]
           else return mempty
       }
+    buildSimpleCmd bh code = buildCwCmd
+        $ set cbSigners [mkSigner' sender00 []]
+        $ set cbChainId (_blockChainId bh)
+        $ set cbCreationTime (toTxCreationTime $ _bct $ _blockCreationTime bh)
+        $ set cbGasLimit 50000
+        $ mkCmd code
+        $ mkExec' code
     buildModCmd1 bh = buildCwCmd
         $ set cbSigners [mkSigner' sender00 []]
         $ set cbChainId (_blockChainId bh)
@@ -349,6 +392,21 @@ moduleCostUpdateTest bdb mpRefIO pact = do
         $ set cbGasLimit 70000
         $ mkCmd (sshow bh)
         $ mkExec' $ mconcat ["(namespace 'free)", "(module mtest2 G (defcap G () true) (defun a () false))"]
+    buildDbMod bh = buildCwCmd
+        $ set cbSigners [mkSigner' sender00 []]
+        $ set cbChainId (_blockChainId bh)
+        $ set cbCreationTime (toTxCreationTime $ _bct $ _blockCreationTime bh)
+        $ set cbGasLimit 70000
+        $ mkCmd (sshow bh)
+        $ mkExec' $ mconcat
+        [ "(namespace 'free)"
+        , "(module dbmod G (defcap G () true)"
+        , "  (defschema sch i:integer) (deftable tbl:{sch})"
+        , "  (defun fkeys () (keys tbl))"
+        , "  (defun ffolddb () (fold-db tbl (lambda (a b) true) (constantly true)))"
+        , "  (defun fselect () (select tbl (constantly true))))"
+        , "(create-table tbl)"
+        ]
     runCut' = runCut testVersion bdb pact (offsetBlockTime second) zeroNoncer noMiner
 
 pact420UpgradeTest :: TestBlockDb -> IO (IORef MemPoolAccess) -> WebPactExecutionService -> IO ()
@@ -684,6 +742,7 @@ txResult i o = do
 -- | Get coinbase from output
 cbResult :: PayloadWithOutputs -> IO (CommandResult Hash)
 cbResult o = decodeStrictOrThrow @_ @(CommandResult Hash) (_coinbaseOutput $ _payloadWithOutputsCoinbase o)
+
 
 moduleNameFork :: IO (IORef MemPoolAccess) -> IO (PactQueue,TestBlockDb) -> TestTree
 moduleNameFork mpRefIO reqIO = testCase "moduleNameFork" $ do
