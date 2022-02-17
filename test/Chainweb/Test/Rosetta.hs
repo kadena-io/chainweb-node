@@ -16,7 +16,6 @@ module Chainweb.Test.Rosetta
   ) where
 
 import Control.Monad (foldM, void)
-import Control.Monad.Trans.Except
 import Data.Aeson
 import Data.Decimal
 import Data.Map (Map)
@@ -43,6 +42,7 @@ import Chainweb.Rosetta.Internal
 import Chainweb.Rosetta.RestAPI
 import Chainweb.Rosetta.Utils
 import Chainweb.Version
+import qualified Pact.Types.KeySet as P
 
 ---
 
@@ -56,6 +56,7 @@ tests = testGroup "Chainweb.Test.Rosetta.UnitTests"
   , testCase "checkKDAToRosettaAmount" checkKDAToRosettaAmount
   , testCase "checkValidateNetwork" checkValidateNetwork
   , testCase "checkUniqueRosettaErrorCodes" checkUniqueRosettaErrorCodes
+  , testCase "checkTransferCodeInjection" checkTransferCodeInjection
   ]
 
 
@@ -154,7 +155,7 @@ checkBalanceDeltas = do
     createCase key endingBal delta =
       let g = mockGuard key
           acctRow = (key, endingBal, g)
-          acctLog = AccountLog key endingBal delta g g
+          acctLog = AccountLog key delta g g
       in (acctRow, acctLog)
 
     cases
@@ -381,7 +382,7 @@ checkValidateNetwork = do
     (run invalidChainId) (Left RosettaInvalidChain)
   where
     run :: (ChainwebVersion, NetworkId) -> Either RosettaFailure T.Text
-    run (v,net) = runExceptT (validateNetwork v net) >>= either Left (pure . chainIdToText)
+    run (v,net) = either Left (pure . chainIdToText) (validateNetwork v net)
 
     validNetId = (Development, NetworkId
       { _networkId_blockchain = "kadena"
@@ -412,8 +413,20 @@ checkUniqueRosettaErrorCodes = case repeated of
       if S.member x acc
       then Left x
       else Right $ S.insert x acc
-    rosettaError' err = rosettaError err Nothing
+
     errCodes = map (_error_code . rosettaError') [minBound .. maxBound]
+
+checkTransferCodeInjection :: Assertion
+checkTransferCodeInjection = do
+  assertEqual "Simple AccountIds"
+    ( fst $ transferCreateCode (accountId "hello") (accountId "world", dummyGuard) dummyAmt)
+    "(coin.transfer-create \"hello\" \"world\" (read-keyset \"ks\") (read-decimal \"amount\"))"
+  assertEqual "Simple AccountIds"
+    ( fst $ transferCreateCode (accountId "hello\")") (accountId "world", dummyGuard) dummyAmt)
+    "(coin.transfer-create \"hello\\\")\" \"world\" (read-keyset \"ks\") (read-decimal \"amount\"))"
+  where
+    dummyGuard = P.mkKeySet [] "any"
+    dummyAmt = 2.0
 
 --------------------------------------------------------------------------------
 -- Utils
@@ -453,10 +466,9 @@ mop
 mop = MatchOperation acctLog
   where
     key = "someKey" -- dummy variable
-    endingBal = 10.0 -- dummy variable
     delta = bd $ negate 1.0 -- dummy variable
     g = mockGuard key
-    acctLog = AccountLog key endingBal delta g g
+    acctLog = AccountLog key delta g g
 
 data MatchOperations = MatchOperations
   { _matchOperations_txId :: TxId
@@ -488,12 +500,12 @@ createLogsMap cases = M.fromList $! concat $! map (map f . _matchRosettaTx_opera
 createOperations :: [MatchOperations] -> [Operation]
 createOperations opsCases = concat $! map f opsCases
   where
-    f (MatchOperations tid ops) = map (createOperation tid) ops
+    f (MatchOperations _ ops) = map createOperation ops
 
     opIdx = _operationId_index
 
-    createOperation tid (MatchOperation acctLog otype oid related) =
-      operation Successful otype tid acctLog (opIdx oid) related
+    createOperation (MatchOperation acctLog otype oid related) =
+      operation Successful otype acctLog (opIdx oid) related
 
 createExpectedRosettaTx :: MatchRosettaTx -> (String, Transaction)
 createExpectedRosettaTx m = (msg, mockRosettaTx rk cid ops)
@@ -545,13 +557,12 @@ assertEqualAcctLog
     -> Assertion
 assertEqualAcctLog msg (log1, log2) = do
   assertEqual (adjust msg "same key") key1 key2
-  assertEqual (adjust msg "same balanceTotal") bal1 bal2
   assertEqual (adjust msg "same balanceDelta") balDelta1 balDelta2
   assertEqual (adjust msg "same currGuard") currGuard1 currGuard2
   assertEqual (adjust msg "same prevGuard") prevGuard1 prevGuard2
   where
-    AccountLog key1 bal1 balDelta1 currGuard1 prevGuard1 = log1
-    AccountLog key2 bal2 balDelta2 currGuard2 prevGuard2 = log2
+    AccountLog key1 balDelta1 currGuard1 prevGuard1 = log1
+    AccountLog key2 balDelta2 currGuard2 prevGuard2 = log2
 
 assertSameOperation
     :: String
