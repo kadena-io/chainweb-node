@@ -33,6 +33,7 @@ module Chainweb.Pact.PactService
     , initPactService
     , initPactService'
     , execNewGenesisBlock
+    , officialGasModel
     ) where
 
 import Control.Concurrent.Async
