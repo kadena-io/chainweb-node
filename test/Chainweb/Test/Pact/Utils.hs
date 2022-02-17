@@ -490,7 +490,7 @@ freeGasModel = constGasModel 0
 
 
 -- | A queue-less WebPactExecutionService (for all chains).
-withWebPactExyecutionService
+withWebPactExecutionService
     :: ChainwebVersion
     -> TestBlockDb
     -> MemPoolAccess
