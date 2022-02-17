@@ -68,6 +68,7 @@ import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.Service.BlockValidation
 import Chainweb.Pact.Service.PactQueue (PactQueue)
 import Chainweb.Pact.Service.Types
+import Chainweb.Pact.PactService(officialGasModel)
 import Chainweb.Payload
 import Chainweb.SPV.CreateProof
 import Chainweb.Test.Cut
@@ -105,10 +106,10 @@ tests rdb = ScheduledTest testName $ go
          , test Quiet $ badlistNewBlockTest
          , test Warn $ mempoolCreationTimeTest
          , test Warn $ moduleNameFork
-         , multiChainTest "pact4coin3UpgradeTest" pact4coin3UpgradeTest
-         , multiChainTest "pact420UpgradeTest" pact420UpgradeTest
-         , multiChainTest "minerKeysetTest" minerKeysetTest
-         , multiChainTest "moduleCostUpdate" moduleCostUpdateTest
+         , multiChainTest freeGasModel "pact4coin3UpgradeTest" pact4coin3UpgradeTest
+         , multiChainTest freeGasModel "pact420UpgradeTest" pact420UpgradeTest
+         , multiChainTest freeGasModel "minerKeysetTest" minerKeysetTest
+         , multiChainTest officialGasModel "moduleCostUpdate" moduleCostUpdateTest
          ]
       where
         test logLevel f =
@@ -116,11 +117,11 @@ tests rdb = ScheduledTest testName $ go
           withPactTestBlockDb testVersion cid logLevel rdb (snd <$> dm) defaultPactServiceConfig $
           f (fst <$> dm)
 
-        multiChainTest tname f =
+        multiChainTest gasmodel tname f =
           withDelegateMempool $ \dmpio -> testCase tname $
             withTestBlockDb testVersion $ \bdb -> do
               (iompa,mpa) <- dmpio
-              withWebPactExecutionService testVersion bdb mpa $ \pact ->
+              withWebPactExecutionService testVersion bdb mpa gasmodel $ \pact ->
                 f bdb (return iompa) pact
         testHistLookup1 = getHistoricalLookupNoTxs "sender00"
           (assertSender00Bal 100000000 "check latest entry for sender00 after a no txs block")
@@ -313,8 +314,7 @@ moduleCostUpdateTest bdb mpRefIO pact = do
   runCut'
   pwo1 <- getPWO bdb cid
   tx1 <- txResult 0 pwo1
-  assertEqual "Old gas cost" 14 (_crGas tx1)
-  putStrLn (show tx1)
+  assertEqual "Old gas cost" 56 (_crGas tx1)
 
 
   -- run block 26
@@ -322,8 +322,7 @@ moduleCostUpdateTest bdb mpRefIO pact = do
   runCut'
   pwo2 <- getPWO bdb cid
   tx2 <- txResult 0 pwo2
-  assertEqual "New gas cost" 14 (_crGas tx2)
-  putStrLn (show tx2)
+  assertEqual "New gas cost" 60065 (_crGas tx2)
   where
     getBlock1 = mempty {
       mpaGetBlock = \_ _ _ bh -> if _blockChainId bh == cid then do
@@ -347,6 +346,7 @@ moduleCostUpdateTest bdb mpRefIO pact = do
         $ set cbSigners [mkSigner' sender00 []]
         $ set cbChainId (_blockChainId bh)
         $ set cbCreationTime (toTxCreationTime $ _bct $ _blockCreationTime bh)
+        $ set cbGasLimit 70000
         $ mkCmd (sshow bh)
         $ mkExec' $ mconcat ["(namespace 'free)", "(module mtest2 G (defcap G () true) (defun a () false))"]
     runCut' = runCut testVersion bdb pact (offsetBlockTime second) zeroNoncer noMiner
