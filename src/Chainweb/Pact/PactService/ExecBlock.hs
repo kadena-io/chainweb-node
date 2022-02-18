@@ -357,7 +357,7 @@ applyPactCmd isGenesis dbEnv cmdIn miner mcache dl = do
       else do
         pd <- getTxContext (publicMetaOf $ payloadObj <$> cmdIn)
         spv <- use psSpvSupport
-        liftIO $! applyCmd v logger dbEnv miner gasModel pd spv cmdIn mcache
+        liftIO $! applyCmd v logger dbEnv miner (gasModel pd) pd spv cmdIn mcache
         {- the following can be used instead of above to nerf transaction execution
         return $! T2 (P.CommandResult (P.cmdToRequestKey cmdIn) Nothing
                       (P.PactResult (Right (P.PLiteral (P.LInteger 1))))
