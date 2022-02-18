@@ -47,6 +47,7 @@ module Chainweb.Pact.TransactionExec
   -- * Utilities
 , buildExecParsedCode
 , mkMagicCapSlot
+, listErrMsg
 
 ) where
 
@@ -182,6 +183,12 @@ applyCmd v logger pdbenv miner gasModel txCtx spv cmdIn mcache0 =
     isModuleNameFix = enableModuleNameFix v currHeight
     isModuleNameFix2 = enableModuleNameFix2 v currHeight
     isPactBackCompatV16 = pactBackCompat_v16 v currHeight
+    chainweb213Pact' = chainweb213Pact (ctxVersion txCtx) (ctxCurrentBlockHeight txCtx)
+
+    toOldListErr pe = pe { peDoc = listErrMsg }
+    isOldListErr = \case
+      PactError EvalError _ _ doc -> "Unknown primitive" `T.isInfixOf` renderCompactText' doc
+      _ -> False
 
     redeemAllGas r = do
       txGasUsed .= fromIntegral gasLimit
@@ -198,9 +205,14 @@ applyCmd v logger pdbenv miner gasModel txCtx spv cmdIn mcache0 =
 
       cr <- catchesPactError $! runPayload cmd managedNamespacePolicy
       case cr of
-        Left e -> do
-          r <- jsonErrorResult e "tx failure for request key when running cmd"
-          redeemAllGas r
+        Left e
+          | chainweb213Pact' || not (isOldListErr e) -> do
+              r <- jsonErrorResult e "tx failure for request key when running cmd"
+              redeemAllGas r
+          | otherwise -> do
+              r <- jsonErrorResult (toOldListErr e) "tx failure for request key when running cmd"
+              redeemAllGas r
+        -- Left e ->
         Right r -> applyRedeem r
 
     applyRedeem cr = do
@@ -214,6 +226,10 @@ applyCmd v logger pdbenv miner gasModel txCtx spv cmdIn mcache0 =
         Right es -> do
           logs <- use txLogs
           return $! set crLogs (Just logs) $ over crEvents (es ++) cr
+
+listErrMsg :: Doc
+listErrMsg =
+    "Unknown primitive \"list\" in determining cost of GUnreduced\nCallStack (from HasCallStack):\n  error, called at src/Pact/Gas/Table.hs:209:22 in pact-4.2.0-fe223ad86f1795ba381192792f450820557e59c2926c747bf2aa6e398394bee6:Pact.Gas.Table"
 
 applyGenesisCmd
     :: Logger

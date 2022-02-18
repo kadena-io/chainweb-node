@@ -231,7 +231,12 @@ validateChainwebTxs logger v cid cp txValidationTime bh txs doBuyGas
 
     checkTxSigs :: ChainwebTransaction -> IO (Either InsertError ChainwebTransaction)
     checkTxSigs t = case validateSigs t of
-        Left _ -> return $ Left $ InsertErrorInvalidSigs
+        Left _
+            -- special case for old testnet history
+            | v == Testnet04 && not (doCheckTxHash v bh) -> do
+                P.logLog logger "INFO" $ "ignored legacy invalid signature"
+                return $ Right t
+            | otherwise -> return $ Left $ InsertErrorInvalidSigs
         Right _ -> pure $ Right t
 
     validateSigs :: ChainwebTransaction -> Either () ()
