@@ -212,6 +212,10 @@ jobs:
         key: ${{ matrix.os }}-${{ matrix.ghc }}-${{ hashFiles('cabal.*', '*.cabal', 'src/**', 'test/**') }}
         restore-keys: |
           ${{ matrix.os }}-${{ matrix.ghc }}-
+    - name: Reconfigure build after restoring cache
+      run: |
+        cabal build all --dry-run
+        cabal freeze
     - name: Sync from cabal cache
       if: matrix.cabalcache == 'true'
       uses: larskuhtz/cabal-cache-action@ecc751af6d31b3ed5a3b4aefdefd0ed6ef4cb414
