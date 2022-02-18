@@ -14,7 +14,7 @@ Changes:
 
 *   [Pact] Enforce miner keyset formats. (#1314)
 *   [Pact] Fix Pact parser to always consume all input. (#1358)
-*   [Pact] More accurate gas cost calculation for module uploads. (#1361)
+*   [Pact] Improve gas cost calculations. (#1361,#1369)
 
 *   [Rosetta] Chainweb Rosetta API 2.0.0 (#1145)
 
