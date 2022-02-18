@@ -190,6 +190,22 @@ jobs:
             tag: 26e2a4397a49e731b5a8dcdfb08a64bae06081da
         EOF
 
+
+    - name: Create date file for dist-newstyle cache key
+      run: |
+        date +%Y-%j > /tmp/cache-key
+    - uses: larskuhtz/always-upload-cache@3dc6e6c4eed0c594fbff7c4c2885c6106d1bfcf0
+      name: Cache dist-newstyle
+      with:
+        path: |
+          ~/.cabal/packages
+          ~/.cabal/store
+          dist-newstyle
+        key: ${{ matrix.os }}-${{ matrix.ghc }}-${{ hashFiles('cache-key') }}-${{ hashFiles('cabal.*', '*.cabal', 'src/**', 'test/**') }}
+        restore-keys: |
+          ${{ matrix.os }}-${{ matrix.ghc }}-${{ hashFiles('/tmp/cache-key') }}-
+          ${{ matrix.os }}-${{ matrix.ghc }}-
+
     # Build
     - name: Delete Freeze file
       # we generate and archive a new freeze file during the build
@@ -199,20 +215,6 @@ jobs:
     - name: Display outdated packages
       run: cabal outdated
     - name: Configure build
-      run: |
-        cabal build all --dry-run
-        cabal freeze
-    - uses: larskuhtz/always-upload-cache@3dc6e6c4eed0c594fbff7c4c2885c6106d1bfcf0
-      name: Cache dist-newstyle
-      with:
-        path: |
-          ~/.cabal/packages
-          ~/.cabal/store
-          dist-newstyle
-        key: ${{ matrix.os }}-${{ matrix.ghc }}-${{ hashFiles('cabal.*', '*.cabal', 'src/**', 'test/**') }}
-        restore-keys: |
-          ${{ matrix.os }}-${{ matrix.ghc }}-
-    - name: Reconfigure build after restoring cache
       run: |
         cabal build all --dry-run
         cabal freeze
