@@ -452,7 +452,7 @@ testPactCtxSQLite
   -> PayloadDb cas
   -> SQLiteEnv
   -> PactServiceConfig
-  -> GasModel
+  -> (TxContext -> GasModel)
   -> IO (TestPactCtx cas,PactDbEnv')
 testPactCtxSQLite v cid bhdb pdb sqlenv conf gasmodel = do
     (dbSt,cpe) <- initRelationalCheckpointer' initialBlockState sqlenv cpLogger v cid
@@ -485,8 +485,8 @@ testPactCtxSQLite v cid bhdb pdb sqlenv conf gasmodel = do
         , _psLoggers = loggers
         }
 
-freeGasModel :: GasModel
-freeGasModel = constGasModel 0
+freeGasModel :: TxContext -> GasModel
+freeGasModel = const $ constGasModel 0
 
 
 -- | A queue-less WebPactExecutionService (for all chains).
@@ -494,7 +494,7 @@ withWebPactExecutionService
     :: ChainwebVersion
     -> TestBlockDb
     -> MemPoolAccess
-    -> GasModel
+    -> (TxContext -> GasModel)
     -> (WebPactExecutionService -> IO a)
     -> IO a
 withWebPactExecutionService v bdb mempoolAccess gasmodel act =
