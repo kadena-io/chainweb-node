@@ -69,7 +69,8 @@ import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.Service.BlockValidation
 import Chainweb.Pact.Service.PactQueue (PactQueue)
 import Chainweb.Pact.Service.Types
-import Chainweb.Pact.PactService(getGasModel)
+import Chainweb.Pact.PactService (getGasModel)
+import Chainweb.Pact.TransactionExec (listErrMsg)
 import Chainweb.Payload
 import Chainweb.SPV.CreateProof
 import Chainweb.Test.Cut
@@ -306,7 +307,7 @@ minerKeysetTest bdb _mpRefIO pact = do
 
 assertTxFailure :: String -> T.Text -> CommandResult l -> Assertion
 assertTxFailure msg needle tx =
-  assertSatisfies msg (_crResult tx) $ \r -> case _pactResult r of
+  assertSatisfies msg (_pactResult $ _crResult tx) $ \case
     Left e -> needle `T.isInfixOf` renderCompactText' (peDoc e)
     Right _ -> False
 
@@ -323,7 +324,7 @@ chainweb213Test bdb mpRefIO pact = do
   tx1_0 <- txResult 0 pwo1
   assertEqual "Old gas cost" 56 (_crGas tx1_0)
   tx1_1 <- txResult 1 pwo1
-  assertTxFailure "list failure 1_1" "Unknown primitive" tx1_1
+  assertEqual "list failure 1_1" (Just listErrMsg) (preview (crResult . to _pactResult . _Left . to peDoc) tx1_1)
   tx1_2 <- txResult 2 pwo1
   assertSatisfies "mod db installs" (_pactResult (_crResult tx1_2)) isRight
   tx1_3 <- txResult 3 pwo1
@@ -350,7 +351,6 @@ chainweb213Test bdb mpRefIO pact = do
 
 
   where
-
     getBlock1 = mempty {
       mpaGetBlock = \_ _ _ bh -> if _blockChainId bh == cid then do
           t0 <- buildModCmd1 bh
