@@ -184,8 +184,7 @@ applyCmd v logger pdbenv miner gasModel txCtx spv cmdIn mcache0 =
     isPactBackCompatV16 = pactBackCompat_v16 v currHeight
     chainweb213Pact' = chainweb213Pact (ctxVersion txCtx) (ctxCurrentBlockHeight txCtx)
     listErrMsg =
-      "Unknown primitive \"list\" in determining cost of GUnreduced CallStack (from HasCallStack):"
-      <> "error, called at src/Pact/Gas/Table.hs:209:22 in pact-4.2.0-fe223ad86f1795ba381192792f450820557e59c2926c747bf2aa6e398394bee6:Pact.Gas.Table"
+      "Unknown primitive \"list\" in determining cost of GUnreduced CallStack (from HasCallStack): error, called at src/Pact/Gas/Table.hs:209:22 in pact-4.2.0-fe223ad86f1795ba381192792f450820557e59c2926c747bf2aa6e398394bee6:Pact.Gas.Table"
     toOldListErr pe = pe { peDoc = listErrMsg }
     isOldListErr = \case
       PactError EvalError _ _ doc -> "Unknown primitive" `T.isInfixOf` renderCompactText' doc
