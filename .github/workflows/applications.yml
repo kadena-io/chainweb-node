@@ -140,6 +140,14 @@ jobs:
     # Setup
     - name: Checkout repository
       uses: actions/checkout@v2
+      with:
+        fetch-depth: 0
+    - name: Set all tracked file modification times to the time of their last commit
+      run: |
+        rev=HEAD
+        for f in $(git ls-tree -r -t --full-name --name-only "$rev") ; do
+          touch -d $(git log --pretty=format:%cI -1 "$rev" -- "$f") "$f";
+        done
     - name: Install GHC and Cabal
       uses: haskell/actions/setup@v1.2.7
       with:
@@ -188,7 +196,9 @@ jobs:
           ~/.cabal/packages
           ~/.cabal/store
           dist-newstyle
-        key: ${{ matrix.os }}-${{ matrix.ghc }}-4-cabal
+        key: ${{ matrix.os }}-${{ matrix.ghc }}-${{ hashFiles('src/**', 'test/**') }}
+        restore-keys: |
+          ${{ matrix.os }}-${{ matrix.ghc }}-
 
     # Build
     - name: Delete Freeze file
