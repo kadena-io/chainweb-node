@@ -14,18 +14,18 @@ Changes:
 
 *   [Pact] Enforce miner keyset formats. (#1314)
 *   [Pact] Fix Pact parser to always consume all input. (#1358)
-*   [Pact] More accurate gas cost calculation for modules uploads. (#1361)
+*   [Pact] More accurate gas cost calculation for module uploads. (#1361)
 
 *   [Rosetta] Chainweb Rosetta API 2.0.0 (#1145)
 
     New Features
     *   Adds Construction API endpoints for Rosetta version 1.4.4 as defined
         here: https://www.rosetta-api.org/docs/1.4.4/ConstructionApi.html.
-    *   As of this version, only allows transfer operations with k:accounts are
+       *   For this version of the Rosetta Construction API , only transfer operations with k:accounts are
         supported.
 
     Backwards Incompatibility
-    *   An Operation's metadata no longer returns the Operation's "tx-id" or its
+    *   A Rosetta Operation's metadata no longer returns the Operation's "tx-id" or its
         account's "total-balance". The Construction API declares intended
         Operations and looks for these operations in blocks. There is no way for
         the Construction API to know the "tx-id" and "total-balance" when
