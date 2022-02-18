@@ -189,16 +189,6 @@ jobs:
             location: https://github.com/larskuhtz/ixset-typed
             tag: 26e2a4397a49e731b5a8dcdfb08a64bae06081da
         EOF
-    - uses: pat-s/always-upload-cache@v2.1.5
-      name: Cache dist-newstyle
-      with:
-        path: |
-          ~/.cabal/packages
-          ~/.cabal/store
-          dist-newstyle
-        key: ${{ matrix.os }}-${{ matrix.ghc }}-${{ hashFiles('src/**', 'test/**') }}
-        restore-keys: |
-          ${{ matrix.os }}-${{ matrix.ghc }}-
 
     # Build
     - name: Delete Freeze file
@@ -212,6 +202,16 @@ jobs:
       run: |
         cabal build all --dry-run
         cabal freeze
+    - uses: larskuhtz/always-upload-cache@3dc6e6c4eed0c594fbff7c4c2885c6106d1bfcf0
+      name: Cache dist-newstyle
+      with:
+        path: |
+          ~/.cabal/packages
+          ~/.cabal/store
+          dist-newstyle
+        key: ${{ matrix.os }}-${{ matrix.ghc }}-${{ hashFiles('cabal.*', '*.cabal', 'src/**', 'test/**') }}
+        restore-keys: |
+          ${{ matrix.os }}-${{ matrix.ghc }}-
     - name: Sync from cabal cache
       if: matrix.cabalcache == 'true'
       uses: larskuhtz/cabal-cache-action@ecc751af6d31b3ed5a3b4aefdefd0ed6ef4cb414
