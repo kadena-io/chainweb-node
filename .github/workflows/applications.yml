@@ -191,6 +191,7 @@ jobs:
         EOF
 
 
+    # dist cache
     - name: Create date file for dist-newstyle cache key
       run: |
         date +%Y-%j > /tmp/cache-key
@@ -198,7 +199,6 @@ jobs:
       name: Cache dist-newstyle
       with:
         path: |
-          ~/.cabal/packages
           ~/.cabal/store
           dist-newstyle
         key: ${{ matrix.os }}-${{ matrix.ghc }}-${{ hashFiles('cache-key') }}-${{ hashFiles('cabal.*', '*.cabal', 'src/**', 'test/**') }}
