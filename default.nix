@@ -27,7 +27,7 @@ pkgs.haskell.packages.${compiler}.developPackage {
         owner = "kadena-io";
         repo = "rosetta";
         rev = "6c8dd2eea1f6d0dba925646dbcb6e07feeccbfd5";
-        sha256 = "06rgkq5qpqq0xj3mrxq4395p3jh2p34xy3a3vxz4xgjlj9fhy1ms";
+        sha256 = "19pjy06xrx2siggzybcmly0qaq4ds3yzxcsvqwgs4qh9kkzh0kqh";
       }) {};
       mwc-random = self.callHackageDirect {
         pkg = "mwc-random";
