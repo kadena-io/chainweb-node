@@ -101,6 +101,7 @@ makeBackup env name = do
 checkBackup :: BackupEnv logger -> FilePath -> IO (Maybe BackupStatus)
 checkBackup env name = do
     let thisBackup = _backupDir env </> name
+    logFunctionText (_backupLogger env) Info $ "checking backup " <> name
     exists <- doesFileExist (thisBackup </> "status")
     if exists 
     then 
