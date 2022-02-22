@@ -1,4 +1,6 @@
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE OverloadedStrings #-}
+
 -- |
 -- Module: Chainweb.Pact.Utils
 -- Copyright: Copyright © 2018 Kadena LLC.
@@ -20,9 +22,20 @@ module Chainweb.Pact.Utils
     , fromPactChainId
     , lenientTimeSlop
     , toTxCreationTime
+
+    -- * k:account helper functions
+    , validatePubKey
+    , validateKAccount
+    , extractPubKeyFromKAccount
+    , generateKAccountFromPubKey
+    , pubKeyToKAccountKeySet
+    , generateKeySetFromKAccount
+    , validateKAccountKeySet
     ) where
 
 import Data.Aeson
+import qualified Data.Text as T
+import qualified Data.Text.Encoding as T
 
 import Control.Concurrent.MVar
 import Control.Monad.Catch
@@ -30,8 +43,10 @@ import Control.Monad.Catch
 import Pact.Interpreter as P
 import Pact.Parse
 import qualified Pact.Types.ChainId as P
+import qualified Pact.Types.Term as P
 import Pact.Types.ChainMeta
-import Pact.Types.Command
+import Pact.Types.Command ( Payload, Command, ParsedCode )
+import Pact.Types.KeySet (validateKeyFormat)
 
 import Chainweb.BlockCreationTime
 import Chainweb.BlockHeader
@@ -110,3 +125,46 @@ lenientTimeSlop = 95
 toTxCreationTime :: Time Micros -> TxCreationTime
 toTxCreationTime (Time timespan) =
   TxCreationTime $ ParsedInteger $ fromIntegral $ timeSpanToSeconds timespan
+
+
+validatePubKey :: P.PublicKey -> Bool
+validatePubKey = validateKeyFormat
+
+validateKAccount :: T.Text -> Bool
+validateKAccount acctName =
+  case T.take 2 acctName of
+    "k:" ->
+      let pubKey = P.PublicKey $ T.encodeUtf8 $ T.drop 2 acctName
+      in validateKeyFormat pubKey
+    _ -> False
+
+extractPubKeyFromKAccount :: T.Text -> Maybe P.PublicKey
+extractPubKeyFromKAccount kacct
+  | validateKAccount kacct =
+    Just $ P.PublicKey $ T.encodeUtf8 $ T.drop 2 kacct
+  | otherwise = Nothing
+
+generateKAccountFromPubKey :: P.PublicKey -> Maybe T.Text
+generateKAccountFromPubKey pubKey
+  | validatePubKey pubKey =
+    let pubKeyText = T.decodeUtf8 $ P._pubKey pubKey
+    in Just $ "k:" <> pubKeyText
+  | otherwise = Nothing
+
+-- Warning: Only use if already certain that PublicKey
+-- is valid.
+pubKeyToKAccountKeySet :: P.PublicKey -> P.KeySet
+pubKeyToKAccountKeySet pubKey = P.mkKeySet [pubKey] "keys-all"
+
+generateKeySetFromKAccount :: T.Text -> Maybe P.KeySet
+generateKeySetFromKAccount kacct = do
+  pubKey <- extractPubKeyFromKAccount kacct
+  pure $ pubKeyToKAccountKeySet pubKey
+
+validateKAccountKeySet :: T.Text -> P.KeySet -> Bool
+validateKAccountKeySet kacct actualKeySet =
+  case generateKeySetFromKAccount kacct of
+    Nothing -> False
+    Just expectedKeySet
+      | expectedKeySet == actualKeySet -> True
+      | otherwise -> False

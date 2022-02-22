@@ -79,6 +79,7 @@ import Chainweb.BlockHeight
 import Chainweb.ChainId
 import Chainweb.Cut
 import Chainweb.Graph
+import Chainweb.Miner.Pact
 import Chainweb.Pact.Backend.Types
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
@@ -230,7 +231,7 @@ getCutOutputs (TestBlockDb _ pdb cmv) = do
 -- service to produce a new block, add it
 runCut' :: ChainwebVersion -> TestBlockDb -> WebPactExecutionService -> IO CutOutputs
 runCut' v bdb pact = do
-  runCut v bdb pact (offsetBlockTime second) zeroNoncer
+  runCut v bdb pact (offsetBlockTime second) zeroNoncer noMiner
   getCutOutputs bdb
 
 
@@ -261,7 +262,7 @@ roundtrip'
     -> IO (CutOutputs, CutOutputs)
 roundtrip' v sid0 tid0 burn create step = withTestBlockDb v $ \bdb -> do
   tg <- newMVar mempty
-  withWebPactExecutionService v bdb (chainToMPA' tg) $ \pact -> do
+  withWebPactExecutionService v bdb (chainToMPA' tg) freeGasModel $ \pact -> do
 
     sid <- mkChainId v maxBound sid0
     tid <- mkChainId v maxBound tid0

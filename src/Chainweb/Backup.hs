@@ -98,10 +98,10 @@ makeBackup env name = do
             logCr Info $ "pact db backed up"
         T.writeFile (thisBackup </> "status") (toText BackupDone)
 
-checkBackup :: BackupEnv logger -> FilePath -> IO (Maybe BackupStatus)
+checkBackup :: Logger logger => BackupEnv logger -> FilePath -> IO (Maybe BackupStatus)
 checkBackup env name = do
     let thisBackup = _backupDir env </> name
-    logFunctionText (_backupLogger env) Info $ "checking backup " <> name
+    logFunctionText (_backupLogger env) Info $ "checking backup " <> T.pack name
     exists <- doesFileExist (thisBackup </> "status")
     if exists 
     then 

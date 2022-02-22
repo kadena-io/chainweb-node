@@ -20,6 +20,11 @@ module Chainweb.Pact.RestAPI.Server
 , SomePactServerData(..)
 , somePactServerData
 , pactServer
+, sendHandler
+, pollHandler
+, listenHandler
+, localHandler
+, spvHandler
 , somePactServer
 , somePactServers
 , validateCommand

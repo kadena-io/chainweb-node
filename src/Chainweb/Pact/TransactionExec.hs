@@ -47,6 +47,7 @@ module Chainweb.Pact.TransactionExec
   -- * Utilities
 , buildExecParsedCode
 , mkMagicCapSlot
+, listErrMsg
 
 ) where
 
@@ -78,12 +79,13 @@ import Pact.Eval (eval, liftTerm)
 import Pact.Gas (freeGasEnv)
 import Pact.Interpreter
 import Pact.Native.Capabilities (evalCap)
-import Pact.Parse (ParsedDecimal(..), parseExprs)
+import Pact.Parse (ParsedDecimal(..))
 import Pact.Runtime.Capabilities (popCapStack)
 import Pact.Runtime.Utils (lookupModule)
 import Pact.Types.Capability
 import Pact.Types.Command
 import Pact.Types.Hash as Pact
+import Pact.Types.KeySet
 import Pact.Types.Logger hiding (logError)
 import Pact.Types.PactValue
 import Pact.Types.Pretty
@@ -165,6 +167,7 @@ applyCmd v logger pdbenv miner gasModel txCtx spv cmdIn mcache0 =
           ++ enablePact40 txCtx
           ++ enablePact420 txCtx
           ++ enforceKeysetFormats' txCtx
+          ++ enablePactModuleMemcheck txCtx
         )
 
     cenv = TransactionEnv Transactional pdbenv logger (ctxToPublicData txCtx) spv nid gasPrice
@@ -180,6 +183,12 @@ applyCmd v logger pdbenv miner gasModel txCtx spv cmdIn mcache0 =
     isModuleNameFix = enableModuleNameFix v currHeight
     isModuleNameFix2 = enableModuleNameFix2 v currHeight
     isPactBackCompatV16 = pactBackCompat_v16 v currHeight
+    chainweb213Pact' = chainweb213Pact (ctxVersion txCtx) (ctxCurrentBlockHeight txCtx)
+
+    toOldListErr pe = pe { peDoc = listErrMsg }
+    isOldListErr = \case
+      PactError EvalError _ _ doc -> "Unknown primitive" `T.isInfixOf` renderCompactText' doc
+      _ -> False
 
     redeemAllGas r = do
       txGasUsed .= fromIntegral gasLimit
@@ -196,9 +205,14 @@ applyCmd v logger pdbenv miner gasModel txCtx spv cmdIn mcache0 =
 
       cr <- catchesPactError $! runPayload cmd managedNamespacePolicy
       case cr of
-        Left e -> do
-          r <- jsonErrorResult e "tx failure for request key when running cmd"
-          redeemAllGas r
+        Left e
+          | chainweb213Pact' || not (isOldListErr e) -> do
+              r <- jsonErrorResult e "tx failure for request key when running cmd"
+              redeemAllGas r
+          | otherwise -> do
+              r <- jsonErrorResult (toOldListErr e) "tx failure for request key when running cmd"
+              redeemAllGas r
+        -- Left e ->
         Right r -> applyRedeem r
 
     applyRedeem cr = do
@@ -212,6 +226,10 @@ applyCmd v logger pdbenv miner gasModel txCtx spv cmdIn mcache0 =
         Right es -> do
           logs <- use txLogs
           return $! set crLogs (Just logs) $ over crEvents (es ++) cr
+
+listErrMsg :: Doc
+listErrMsg =
+    "Unknown primitive \"list\" in determining cost of GUnreduced\nCallStack (from HasCallStack):\n  error, called at src/Pact/Gas/Table.hs:209:22 in pact-4.2.0-fe223ad86f1795ba381192792f450820557e59c2926c747bf2aa6e398394bee6:Pact.Gas.Table"
 
 applyGenesisCmd
     :: Logger
@@ -241,6 +259,7 @@ applyGenesisCmd logger dbEnv spv cmd =
         , _txExecutionConfig = mkExecutionConfig
           [ FlagDisablePact40
           , FlagDisablePact420
+          , FlagDisableInlineMemCheck
           ]
         }
     txst = TransactionState
@@ -278,9 +297,12 @@ applyCoinbase
       -- ^ always enable precompilation
     -> ModuleCache
     -> IO (T2 (CommandResult [TxLog Value]) (Maybe ModuleCache))
-applyCoinbase v logger dbEnv (Miner mid mks) reward@(ParsedDecimal d) txCtx
+applyCoinbase v logger dbEnv (Miner mid mks@(MinerKeys mk)) reward@(ParsedDecimal d) txCtx
   (EnforceCoinbaseFailure enfCBFailure) (CoinbaseUsePrecompiled enablePC) mc
   | fork1_3InEffect || enablePC = do
+    when chainweb213Pact' $ enforceKeyFormats
+        (\k -> throwM $ CoinbaseFailure $ "Invalid miner key: " <> sshow k)
+        mk
     let (cterm, cexec) = mkCoinbaseTerm mid mks reward
         interp = Interpreter $ \_ -> do put initState; fmap pure (eval cterm)
     go interp cexec
@@ -289,6 +311,7 @@ applyCoinbase v logger dbEnv (Miner mid mks) reward@(ParsedDecimal d) txCtx
     let interp = initStateInterpreter initState
     go interp cexec
   where
+    chainweb213Pact' = chainweb213Pact v bh
     fork1_3InEffect = vuln797Fix v cid bh
     throwCritical = fork1_3InEffect || enfCBFailure
     ec = mkExecutionConfig $
@@ -296,7 +319,8 @@ applyCoinbase v logger dbEnv (Miner mid mks) reward@(ParsedDecimal d) txCtx
       , FlagDisableHistoryInTransactionalMode ] ++
       enablePactEvents' txCtx ++
       enablePact40 txCtx ++
-      enablePact420 txCtx
+      enablePact420 txCtx ++
+      enablePactModuleMemcheck txCtx
     tenv = TransactionEnv Transactional dbEnv logger (ctxToPublicData txCtx) noSPVSupport
            Nothing 0.0 rk 0 ec
     txst = TransactionState mc mempty 0 Nothing (_geGasModel freeGasEnv)
@@ -327,6 +351,18 @@ applyCoinbase v logger dbEnv (Miner mid mks) reward@(ParsedDecimal d) txCtx
 
           upgradedModuleCache <- applyUpgrades v cid bh
           void $! applyTwentyChainUpgrade v cid bh
+
+          -- NOTE (linda): When adding new forking transactions that are injected
+          -- into a block's coinbase transaction, please add a corresponding case
+          -- in Rosetta's `matchLogs` function and follow the coinv3 pattern.
+          --
+          -- Otherwise, Rosetta tooling has no idea that these upgrade transactions
+          -- occurred.
+          -- This is especially important if the transaction changes an account's balance.
+          -- Rosetta tooling will error out if an account's balance changed and it
+          -- didn't see the transaction that caused the change.
+          --
+
           logs <- use txLogs
 
           return $! T2
@@ -392,6 +428,9 @@ readInitModules
 readInitModules logger dbEnv txCtx =
     evalTransactionM tenv txst go
   where
+    parent = _tcParentHeader txCtx
+    v = _chainwebVersion parent
+    h = _blockHeight (_parentHeader parent) + 1
     rk = RequestKey chash
     nid = Nothing
     chash = pactInitialHash
@@ -400,7 +439,7 @@ readInitModules logger dbEnv txCtx =
     txst = TransactionState mempty mempty 0 Nothing (_geGasModel freeGasEnv)
     interp = defaultInterpreter
     die msg = throwM $ PactInternalError $ "readInitModules: " <> msg
-    mkCmd = buildExecParsedCode Nothing
+    mkCmd = buildExecParsedCode (Just (v, h)) Nothing
     run msg cmd = do
       er <- catchesPactError $!
         applyExec' interp cmd [] chash permissiveNamespacePolicy
@@ -461,7 +500,7 @@ applyUpgrades v cid height
       -- init cache in the pact service state (_psInitCache).
       --
 
-      caches <- local (set txExecutionConfig (mkExecutionConfig [])) $ mapM applyTx txs
+      caches <- local (set txExecutionConfig (mkExecutionConfig [FlagDisableInlineMemCheck])) $ mapM applyTx txs
       return $ Just (HM.unions caches)
 
     interp = initStateInterpreter $ installCoinModuleAdmin $
@@ -639,6 +678,11 @@ enablePact420 :: TxContext -> [ExecutionFlag]
 enablePact420 tc
     | pact420Upgrade (ctxVersion tc) (ctxCurrentBlockHeight tc) = []
     | otherwise = [FlagDisablePact420]
+
+enablePactModuleMemcheck :: TxContext -> [ExecutionFlag]
+enablePactModuleMemcheck tc
+    | chainweb213Pact (ctxVersion tc) (ctxCurrentBlockHeight tc) = []
+    | otherwise = [FlagDisableInlineMemCheck]
 
 
 -- | Execute a 'ContMsg' and return the command result and module cache
@@ -955,11 +999,15 @@ mkMagicCapSlot c = CapSlot CapCallStack cap []
 -- parameter is for any possible environmental data that needs to go into
 -- the 'ExecMsg'.
 --
-buildExecParsedCode :: Maybe Value -> Text -> IO (ExecMsg ParsedCode)
-buildExecParsedCode value code = maybe (go Null) go value
+buildExecParsedCode
+    :: Maybe (ChainwebVersion, BlockHeight)
+    -> Maybe Value
+    -> Text
+    -> IO (ExecMsg ParsedCode)
+buildExecParsedCode chainCtx value code = maybe (go Null) go value
   where
-    go v = case ParsedCode code <$> parseExprs code of
-      Right !t -> pure $! ExecMsg t v
+    go val = case parsePact chainCtx code of
+      Right !t -> pure $! ExecMsg t val
       -- if we can't construct coin contract calls, this should
       -- fail fast
       Left err -> internalError $ "buildExecParsedCode: parse failed: " <> T.pack err

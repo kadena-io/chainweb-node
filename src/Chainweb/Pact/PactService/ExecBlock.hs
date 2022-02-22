@@ -120,7 +120,7 @@ execBlock currHeader plData pdbenv = do
         error $ "Code invariant violation: execBlock must be called with withCheckpointer. Please report this as a bug."
 
     miner <- decodeStrictOrThrow' (_minerData $ _payloadDataMiner plData)
-    trans <- liftIO $ transactionsFromPayload plData
+    trans <- liftIO $ transactionsFromPayload (Just (v, _blockHeight currHeader)) plData
     cp <- getCheckpointer
     logger <- view psLogger
 
@@ -231,7 +231,12 @@ validateChainwebTxs logger v cid cp txValidationTime bh txs doBuyGas
 
     checkTxSigs :: ChainwebTransaction -> IO (Either InsertError ChainwebTransaction)
     checkTxSigs t = case validateSigs t of
-        Left _ -> return $ Left $ InsertErrorInvalidSigs
+        Left _
+            -- special case for old testnet history
+            | v == Testnet04 && not (doCheckTxHash v bh) -> do
+                P.logLog logger "INFO" $ "ignored legacy invalid signature"
+                return $ Right t
+            | otherwise -> return $ Left $ InsertErrorInvalidSigs
         Right _ -> pure $ Right t
 
     validateSigs :: ChainwebTransaction -> Either () ()
@@ -357,7 +362,7 @@ applyPactCmd isGenesis dbEnv cmdIn miner mcache dl = do
       else do
         pd <- getTxContext (publicMetaOf $ payloadObj <$> cmdIn)
         spv <- use psSpvSupport
-        liftIO $! applyCmd v logger dbEnv miner gasModel pd spv cmdIn mcache
+        liftIO $! applyCmd v logger dbEnv miner (gasModel pd) pd spv cmdIn mcache
         {- the following can be used instead of above to nerf transaction execution
         return $! T2 (P.CommandResult (P.cmdToRequestKey cmdIn) Nothing
                       (P.PactResult (Right (P.PLiteral (P.LInteger 1))))
@@ -377,8 +382,11 @@ applyPactCmd isGenesis dbEnv cmdIn miner mcache dl = do
 toHashCommandResult :: P.CommandResult [P.TxLog A.Value] -> P.CommandResult P.Hash
 toHashCommandResult = over (P.crLogs . _Just) $ P.pactHash . encodeToByteString
 
-transactionsFromPayload :: PayloadData -> IO (Vector ChainwebTransaction)
-transactionsFromPayload plData = do
+transactionsFromPayload
+    :: Maybe (ChainwebVersion, BlockHeight)
+    -> PayloadData
+    -> IO (Vector ChainwebTransaction)
+transactionsFromPayload chainCtx plData = do
     vtrans <- fmap V.fromList $
               mapM toCWTransaction $
               toList (_payloadDataTransactions plData)
@@ -389,7 +397,7 @@ transactionsFromPayload plData = do
             <> T.intercalate ". " ls
     return $! V.fromList theRights
   where
-    toCWTransaction bs = evaluate (force (codecDecode chainwebPayloadCodec $
+    toCWTransaction bs = evaluate (force (codecDecode (chainwebPayloadCodec chainCtx) $
                                           _transactionBytes bs))
 
 debugResult :: A.ToJSON a => Text -> a -> PactServiceM cas ()
