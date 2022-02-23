@@ -53,7 +53,7 @@ instance HasTextRepresentation BackupStatus where
     toText BackupFailed = "backup-failed"
 
     fromText "backup-done" = return BackupDone
-    fromText "backup-in-progress" = return BackupDone
+    fromText "backup-in-progress" = return BackupInProgress
     fromText "backup-failed" = return BackupFailed
     fromText t = 
         throwM $ TextFormatException $ "HasTextRepresentation BackupStatus: invalid BackupStatus " <> sshow t
