@@ -1,11 +1,75 @@
 # `chainweb-node` Changelog
 
-## 2.12.1 (2022-01-22)
+## 2.13 (2022-02-18)
 
-This is a bug fix release. Upgrading is highly encouraged. In particular, if you experience issues with chainweb-node
-version 2.12, upgrading to version 2.12.1 will likely resolve those issues.
+This version replaces all previous versions. Any prior version will stop working
+on **2022-02-24T00:00:00Z**. Node administrators must upgrade to this version
+before that date.
+
+This version will stop working on **2022-04-21T00:00:00Z**.
 
 To upgrade, pull the latest docker image or download the binary and restart the node.
+
+Changes:
+
+*   [Pact] Enforce miner keyset formats. (#1314)
+*   [Pact] Fix Pact parser to always consume all input. (#1358)
+*   [Pact] Improve gas cost calculations. (#1361,#1369)
+
+*   [Rosetta] Chainweb Rosetta API 2.0.0 (#1145)
+
+    New Features
+    *   Adds Construction API endpoints for Rosetta version 1.4.4 as defined
+        here: https://www.rosetta-api.org/docs/1.4.4/ConstructionApi.html.
+       *   For this version of the Rosetta Construction API , only transfer operations with k:accounts are
+        supported.
+
+    Backwards Incompatibility
+    *   A Rosetta Operation's metadata no longer returns the Operation's "tx-id" or its
+        account's "total-balance". The Construction API declares intended
+        Operations and looks for these operations in blocks. There is no way for
+        the Construction API to know the "tx-id" and "total-balance" when
+        creating the intended operations.
+
+## 2.12.2 (2022-02-04)
+
+This is a new feature and bug fix release for the `Chainweb Rosetta API 1.0.0`
+([#1135](https://github.com/kadena-io/chainweb-node/pull/1135)).
+
+To upgrade, pull the latest docker image or download the binary and restart the
+node.
+
+[Rosetta] Bug Fixes
+*   After the fork to Pact 4.2.0, the rosetta /block and /account/balance
+*   endpoints returned `TxLogs not parsable`. This version fixes this.
+
+[Rosetta] Backwards Incompatibility
+*   Adds related transaction (continuations) information to the /block
+    endpoints.
+*   Adds related operation information to /block endpoints. Gas operations are
+    now linked together, while coin-table operations are linked to each other in
+    the order they appear.
+*   Improved parsing of remediation logs for blocks containing coin v2 and 20
+    chain forking transactions. Previously, the logs in the coin v2 block were
+    all grouped together into a single request key, but now it will show the
+    different request keys of the remediation transactions.
+*   Re-enabled metadatas. Rosetta testing tooling used to error out when
+    submitting unstructured JSON. This bug has seen been fixed.
+
+[Rosetta] Minor Improvments
+*   Introduces the `rosettaImplementationVersion` value to denote changes in the
+    internal implementation of the Rosetta API.
+*   Adds internal metadata data types to facilitate documenting and expanding
+    the metadatas used by the Rosetta endpoints.
+
+## 2.12.1 (2022-01-22)
+
+This is a bug fix release. Upgrading is highly encouraged. In particular, if you
+experience issues with chainweb-node version 2.12, upgrading to version 2.12.1
+will likely resolve those issues.
+
+To upgrade, pull the latest docker image or download the binary and restart the
+node.
 
 This version will expire on 2022-02-24T00:00:00Z.
 
@@ -14,7 +78,6 @@ Changes:
 * Correct mempool tx persistence, check tx details in validate (#1348)
 
 * Remove deprecated configuration options (#1345)
-
 
 ## 2.12 (2022-01-07)
 

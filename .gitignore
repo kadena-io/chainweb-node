@@ -48,3 +48,5 @@ standalonedbs/
 TAGS
 *.hie
 .DS_Store
+.vscode/*
+rosetta/logs/*

@@ -266,7 +266,10 @@ validatingMempoolConfig cid v gl gp mv = Mempool.InMemConfig
     , Mempool._inmemCurrentTxsSize = currentTxsSize
     }
   where
-    txcfg = Mempool.chainwebTransactionConfig
+    txcfg = Mempool.chainwebTransactionConfig Nothing
+        -- The mempool doesn't provide a chain context to the codec which means
+        -- that the latest version of the parser is used.
+
     maxRecentLog = 2048
 
     currentTxsSize = 1024 * 1024 -- ~16MB per mempool

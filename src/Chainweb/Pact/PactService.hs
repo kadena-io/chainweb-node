@@ -33,6 +33,7 @@ module Chainweb.Pact.PactService
     , initPactService
     , initPactService'
     , execNewGenesisBlock
+    , getGasModel
     ) where
 
 import Control.Concurrent.Async
@@ -49,6 +50,7 @@ import Data.Default (def)
 import qualified Data.DList as DL
 import Data.Either
 import Data.Foldable (toList)
+import qualified Data.Map.Strict as M
 import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Vector (Vector)
@@ -127,15 +129,13 @@ initPactService'
 initPactService' ver cid chainwebLogger bhDb pdb sqlenv config act = do
     checkpointEnv <- initRelationalCheckpointer initialBlockState sqlenv cplogger ver cid
     let !rs = readRewards
-        !gasModel = officialGasModel
-
         !initialParentHeader = ParentHeader $ genesisBlockHeader ver cid
         !pse = PactServiceEnv
                 { _psMempoolAccess = Nothing
                 , _psCheckpointEnv = checkpointEnv
                 , _psPdb = pdb
                 , _psBlockHeaderDb = bhDb
-                , _psGasModel = gasModel
+                , _psGasModel = getGasModel
                 , _psMinerRewards = rs
                 , _psReorgLimit = fromIntegral $ _pactReorgLimit config
                 , _psOnFatalError = defaultOnFatalError (logFunctionText chainwebLogger)
@@ -552,7 +552,7 @@ execLocal cmd = withDiscardedBatch $ do
         logger = P.newLogger _psLoggers "execLocal"
     withCurrentCheckpointer "execLocal" $ \(PactDbEnv' pdbenv) -> do
         r <- liftIO $
-          applyLocal logger pdbenv officialGasModel pd spv cmd mc execConfig
+          applyLocal logger pdbenv chainweb213GasModel pd spv cmd mc execConfig
         return $! Discard (toHashCommandResult r)
 
 execSyncToBlock
@@ -668,7 +668,30 @@ freeModuleLoadGasModel = modifiedGasModel
       _ -> fullRunFunction name ga
     modifiedGasModel = defGasModel { P.runGasModel = modifiedRunFunction }
 
--- | Gas Model used in /send and /local
---
-officialGasModel :: P.GasModel
-officialGasModel = freeModuleLoadGasModel
+chainweb213GasModel :: P.GasModel
+chainweb213GasModel = modifiedGasModel
+  where
+    defGasModel = tableGasModel gasConfig
+    unknownOperationPenalty = 1000000
+    multiRowOperation = 40000
+    gasConfig = defaultGasConfig { _gasCostConfig_primTable = updTable }
+    updTable = M.union upd defaultGasTable
+    upd = M.fromList
+      [("keys",    multiRowOperation)
+      ,("select",  multiRowOperation)
+      ,("fold-db", multiRowOperation)
+      ]
+    fullRunFunction = P.runGasModel defGasModel
+    modifiedRunFunction name ga = case ga of
+      P.GPostRead P.ReadModule {} -> 0
+      P.GUnreduced _ts -> case M.lookup name updTable of
+        Just g -> g
+        Nothing -> unknownOperationPenalty
+      _ -> fullRunFunction name ga
+    modifiedGasModel = defGasModel { P.runGasModel = modifiedRunFunction }
+
+
+getGasModel :: TxContext -> P.GasModel
+getGasModel ctx
+    | chainweb213Pact (ctxVersion ctx) (ctxCurrentBlockHeight ctx) = chainweb213GasModel
+    | otherwise = freeModuleLoadGasModel
