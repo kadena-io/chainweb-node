@@ -304,6 +304,17 @@ execTransactionM
 execTransactionM tenv txst act
     = execStateT (runReaderT (_unTransactionM act) tenv) txst
 
+
+
+-- | Pair parent header with transaction metadata.
+-- In cases where there is no transaction/Command, 'PublicMeta'
+-- default value is used.
+data TxContext = TxContext
+  { _tcParentHeader :: ParentHeader
+  , _tcPublicMeta :: PublicMeta
+  }
+
+
 -- -------------------------------------------------------------------- --
 -- Pact Service Monad
 
@@ -312,7 +323,7 @@ data PactServiceEnv cas = PactServiceEnv
     , _psCheckpointEnv :: !CheckpointEnv
     , _psPdb :: !(PayloadDb cas)
     , _psBlockHeaderDb :: !BlockHeaderDb
-    , _psGasModel :: !GasModel
+    , _psGasModel :: TxContext -> GasModel
     , _psMinerRewards :: !MinerRewards
     , _psReorgLimit :: {-# UNPACK #-} !Word64
     , _psOnFatalError :: forall a. PactException -> Text -> IO a
@@ -415,15 +426,6 @@ updateInitCache mc = get >>= \PactServiceState{..} -> do
     psInitCache .= case M.lookupLE pbh _psInitCache of
       Nothing -> M.singleton pbh mc
       Just (_,before) -> M.insert pbh (HM.union mc before) _psInitCache
-
-
--- | Pair parent header with transaction metadata.
--- In cases where there is no transaction/Command, 'PublicMeta'
--- default value is used.
-data TxContext = TxContext
-  { _tcParentHeader :: ParentHeader
-  , _tcPublicMeta :: PublicMeta
-  }
 
 -- | Convert context to datatype for Pact environment.
 --

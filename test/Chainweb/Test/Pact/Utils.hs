@@ -55,7 +55,7 @@ module Chainweb.Test.Pact.Utils
 , ContMsg (..)
 , mkSigner
 , mkSigner'
-, CmdBuilder
+, CmdBuilder(..)
 , cbSigners
 , cbRPC
 , cbNonce
@@ -77,6 +77,7 @@ module Chainweb.Test.Pact.Utils
 -- * Other service creation
 , initializeSQLite
 , freeSQLiteResource
+, freeGasModel
 , withTestBlockDbTest
 , defaultPactServiceConfig
 , withMVarResource
@@ -451,8 +452,9 @@ testPactCtxSQLite
   -> PayloadDb cas
   -> SQLiteEnv
   -> PactServiceConfig
+  -> (TxContext -> GasModel)
   -> IO (TestPactCtx cas,PactDbEnv')
-testPactCtxSQLite v cid bhdb pdb sqlenv conf = do
+testPactCtxSQLite v cid bhdb pdb sqlenv conf gasmodel = do
     (dbSt,cpe) <- initRelationalCheckpointer' initialBlockState sqlenv cpLogger v cid
     let rs = readRewards
         ph = ParentHeader $ genesisBlockHeader v cid
@@ -470,7 +472,7 @@ testPactCtxSQLite v cid bhdb pdb sqlenv conf = do
         , _psCheckpointEnv = cpe
         , _psPdb = pdb
         , _psBlockHeaderDb = bhdb
-        , _psGasModel = constGasModel 0
+        , _psGasModel = gasmodel
         , _psMinerRewards = rs
         , _psReorgLimit = fromIntegral $ _pactReorgLimit conf
         , _psOnFatalError = defaultOnFatalError mempty
@@ -483,15 +485,19 @@ testPactCtxSQLite v cid bhdb pdb sqlenv conf = do
         , _psLoggers = loggers
         }
 
+freeGasModel :: TxContext -> GasModel
+freeGasModel = const $ constGasModel 0
+
 
 -- | A queue-less WebPactExecutionService (for all chains).
 withWebPactExecutionService
     :: ChainwebVersion
     -> TestBlockDb
     -> MemPoolAccess
+    -> (TxContext -> GasModel)
     -> (WebPactExecutionService -> IO a)
     -> IO a
-withWebPactExecutionService v bdb mempoolAccess act =
+withWebPactExecutionService v bdb mempoolAccess gasmodel act =
   withDbs $ \sqlenvs -> do
     pacts <- fmap (mkWebPactExecutionService . HM.fromList)
            $ traverse mkPact
@@ -504,7 +510,7 @@ withWebPactExecutionService v bdb mempoolAccess act =
     withDb g envs =  withTempSQLiteConnection chainwebPragmas $ \s -> g (s : envs)
     mkPact (sqlenv, c) = do
         bhdb <- getBlockHeaderDb c bdb
-        (ctx,_) <- testPactCtxSQLite v c bhdb (_bdbPayloadDb bdb) sqlenv defaultPactServiceConfig
+        (ctx,_) <- testPactCtxSQLite v c bhdb (_bdbPayloadDb bdb) sqlenv defaultPactServiceConfig gasmodel
         return $ (c,) $ PactExecutionService
           { _pactNewBlock = \m p ->
               evalPactServiceM_ ctx $ execNewBlock mempoolAccess p m
@@ -533,11 +539,18 @@ zeroNoncer = const (return $ Nonce 0)
 
 -- | Populate blocks for every chain of the current cut. Uses provided pact
 -- service to produce a new block, add it to dbs, etc.
-runCut :: ChainwebVersion -> TestBlockDb -> WebPactExecutionService -> GenBlockTime -> Noncer -> IO ()
-runCut v bdb pact genTime noncer =
+runCut
+    :: ChainwebVersion
+    -> TestBlockDb
+    -> WebPactExecutionService
+    -> GenBlockTime
+    -> Noncer
+    -> Miner
+    -> IO ()
+runCut v bdb pact genTime noncer miner =
   forM_ (chainIds v) $ \cid -> do
     ph <- ParentHeader <$> getParentTestBlockDb bdb cid
-    pout <- _webPactNewBlock pact noMiner ph
+    pout <- _webPactNewBlock pact miner ph
     n <- noncer cid
     addTestBlockDb bdb n genTime cid pout
     h <- getParentTestBlockDb bdb cid
@@ -583,7 +596,7 @@ withPactCtxSQLite v bhdbIO pdbIO conf f =
         bhdb <- bhdbIO
         pdb <- pdbIO
         (_,s) <- ios
-        testPactCtxSQLite v cid bhdb pdb s conf
+        testPactCtxSQLite v cid bhdb pdb s conf freeGasModel
 
 toTxCreationTime :: Integral a => Time a -> TxCreationTime
 toTxCreationTime (Time timespan) = TxCreationTime $ fromIntegral $ timeSpanToSeconds timespan
