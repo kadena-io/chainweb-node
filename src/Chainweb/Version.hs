@@ -7,7 +7,6 @@
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
-{-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE PatternSynonyms #-}
@@ -62,6 +61,7 @@ module Chainweb.Version
 , AtOrAfter(..)
 , doCheckTxHash
 , chainweb213Pact
+, chainweb214Pact
 
 -- ** BlockHeader Validation Guards
 , slowEpochGuard
@@ -926,6 +926,19 @@ chainweb213Pact Testnet04 = (>= 1_974_556) -- 2022-02-25 00:00:00
 chainweb213Pact Development = (>= 95)
 chainweb213Pact (FastTimedCPM g) | g == petersonChainGraph = (> 25)
 chainweb213Pact _ = const True
+
+-- | Omnibus pact and coin contract changes for 2.14
+--
+-- - coin v4 upgrade
+--
+chainweb214Pact
+    :: AtOrAfter
+    -> ChainwebVersion
+    -> BlockHeight
+    -> Bool
+chainweb214Pact  aoa _v _h = case aoa of
+    At -> error "TODO"
+    After -> error "TODO"
 
 -- -------------------------------------------------------------------------- --
 -- Header Validation Guards
