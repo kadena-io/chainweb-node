@@ -4,7 +4,6 @@ module Chainweb.Pact.Transactions.UpgradeTransactions
 ( upgradeTransactions
 , twentyChainUpgradeTransactions
 , coinV3Transactions
-, coinV4Transactions
 ) where
 
 import Chainweb.Version
@@ -26,7 +25,7 @@ import qualified Chainweb.Pact.Transactions.MainnetKADTransactions as MNKAD
 import qualified Chainweb.Pact.Transactions.DevelopmentTransactions as Devnet
 import qualified Chainweb.Pact.Transactions.OtherTransactions as Other
 import qualified Chainweb.Pact.Transactions.CoinV3Transactions as CoinV3
-import qualified Chainweb.Pact.Transactions.CoinV4Transactions as CoinV4
+
 
 upgradeTransactions :: ChainwebVersion -> ChainId -> IO [ChainwebTransaction]
 upgradeTransactions Mainnet01 cid = case cidInt of
@@ -61,8 +60,8 @@ twentyChainUpgradeTransactions Development cid = case chainIdInt @Int cid of
   c -> internalError $ "Invalid devnet chain id: " <> sshow c
 twentyChainUpgradeTransactions (FastTimedCPM _) cid = case chainIdInt @Int cid of
   c | c == 0, c == 1, c == 2 -> return []
-  {-- NOTE: Remediations occur in Chain 3 instead of Chain 0 for this version.
-            This allows for testing that Rosetta correctly handles remediation
+  {-- NOTE: Remediations occur in Chain 3 instead of Chain 0 for this version. 
+            This allows for testing that Rosetta correctly handles remediation 
             txs without breaking the SPV tests. --}
   3 -> MNKAD.transactions -- just remeds
   c | c <= 19 -> return []
@@ -72,13 +71,9 @@ twentyChainUpgradeTransactions _ _ = return []
 coinV3Transactions :: IO [ChainwebTransaction]
 coinV3Transactions = CoinV3.transactions
 
-coinV4Transactions :: IO [ChainwebTransaction]
-coinV4Transactions = CoinV4.transactions
-
 -- NOTE (linda): When adding new forking transactions that are injected
 -- into a block's coinbase transaction, please add a corresponding case
--- in Rosetta's `matchLogs` (Chainweb.Rosetta.Internal.hs) function and
--- follow the coinv3 pattern.
+-- in Rosetta's `matchLogs` function and follow the coinv3 pattern.
 --
 -- Otherwise, Rosetta tooling has no idea that these upgrade transactions
 -- occurred.
