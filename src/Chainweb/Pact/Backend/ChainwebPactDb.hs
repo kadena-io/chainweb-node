@@ -758,7 +758,7 @@ handlePossibleRewind v cid bRestore hsh = do
         return $ fromIntegral txid
       where msg = "handlePossibleRewind: newChildBlock: error finding txid"
 
-    rewindBlock bh = do
+    rewindBlock bh = withSavepoint Rewind $ do
         assign bsBlockHeight bh
         endingtx <- getEndingTxId v cid bh
         tableMaintenanceRowsVersionedSystemTables endingtx
