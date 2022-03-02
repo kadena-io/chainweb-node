@@ -916,9 +916,7 @@ doCheckTxHash Development = (>= 110)
 doCheckTxHash (FastTimedCPM g) | g == petersonChainGraph = (>= 7)
 doCheckTxHash _ = const True
 
--- | Omnibus pact changes for 2.13:
--- - miner keyset enforce
--- - parser forces eof
+-- | Pact changes for Chainweb 2.13
 --
 chainweb213Pact :: ChainwebVersion -> BlockHeight -> Bool
 chainweb213Pact Mainnet01 = (>= 2_447_315) -- 2022-02-26 00:00:00
@@ -927,9 +925,7 @@ chainweb213Pact Development = (>= 95)
 chainweb213Pact (FastTimedCPM g) | g == petersonChainGraph = (> 25)
 chainweb213Pact _ = const True
 
--- | Omnibus pact and coin contract changes for 2.14
---
--- - coin v4 upgrade
+-- | Pact and coin contract changes for Chainweb 2.14
 --
 chainweb214Pact
     :: AtOrAfter
