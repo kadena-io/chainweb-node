@@ -1,6 +1,6 @@
 (env-data
   { "coin-file": "../v4/coin-v4.pact"
-  , "coin-load-gas": 3413
+  , "coin-load-gas": 3632
   })
 
 ;; Enable the table gas model
@@ -60,7 +60,7 @@
 (env-gaslog)
 (expect
   "Gas cost of coin contract account creation"
-  186 (env-gas))
+  200 (env-gas))
 
 (create-account 'doug (read-keyset 'doug))
 
@@ -405,7 +405,7 @@
 (env-gaslog)
 (expect
   "Gas cost of transfer"
-  484 (env-gas))
+  488 (env-gas))
 
 (expect-failure "emily->doug capability used up"
   "TRANSFER exceeded"
@@ -442,7 +442,7 @@
   (transfer-create 'doug 'will (read-keyset 'will) 1.0))
 (env-gaslog)
 (expect
-  "Gas cost of transfer-create" 468 (env-gas))
+  "Gas cost of transfer-create" 485 (env-gas))
 
 (expect
   "doug now has 0.4 coins"
@@ -922,13 +922,25 @@
 
 (coin.transfer-crosschain 'emily 'doug (read-keyset 'k) "1" 0.00001)
 (expect "xchain send events"
-  [{"name": "coin.TRANSFER","params": ["emily" "" 0.00001]}]
+  [ {"name": "coin.TRANSFER"
+    ,"params": ["emily" "" 0.00001]
+    }
+    { "name": "pact.X_YIELD"
+    , "params": ["1" "coin.transfer-crosschain" ["emily" "doug" (read-keyset 'k) "1" 0.00001]]
+    }
+  ]
   (map (remove 'module-hash) (env-events true)))
 
 (env-chain-data {'chain-id: "1"})
 (continue-pact 1)
 (expect "xchain send events"
-   [{"name": "coin.TRANSFER","params": ["" "doug" 0.00001]}]
+  [ {"name": "coin.TRANSFER"
+    ,"params": ["" "doug" 0.00001]
+    }
+    { "name": "pact.X_RESUME"
+    , "params": ["0" "coin.transfer-crosschain" ["emily" "doug" (read-keyset 'k) "1" 0.00001]]
+    }
+  ]
   (map (remove 'module-hash) (env-events true)))
 (rollback-tx)
 
