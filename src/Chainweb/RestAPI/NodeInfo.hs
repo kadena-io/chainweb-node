@@ -1,6 +1,7 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TypeApplications #-}
@@ -22,6 +23,8 @@ import qualified Data.HashSet as HashSet
 import qualified Data.List.NonEmpty as NE
 import Data.Text (Text)
 import qualified Data.Text as T
+import Network.HTTP.Types
+import Network.Wai
 
 import GHC.Generics
 
@@ -33,15 +36,29 @@ import Chainweb.CutDB
 import Chainweb.Graph
 import Chainweb.RestAPI.Utils
 import Chainweb.Version
+import Chainweb.Utils.HTTP
+
+nodeInfoApi :: Route (ChainwebVersion -> CutDb cas -> Application)
+nodeInfoApi =
+  choice "info" $ terminus [methodGet] $ \v cutDb req respond -> do
+    curCut <- liftIO $ _cut cutDb
+    let ch = cutToCutHashes Nothing curCut
+        curHeight = maximum $ map _bhwhHeight $ HashMap.elems $ _cutHashes ch
+        graphs = unpackGraphs v
+        curGraph = head $ dropWhile (\(h,_) -> h > curHeight) graphs
+        curChains = map fst $ snd curGraph
+    respond $ responseJSON status200 [] $ NodeInfo
+      { nodeVersion = v
+      , nodeApiVersion = prettyApiVersion
+      , nodeChains = T.pack . show <$> curChains
+      , nodeNumberOfChains = length curChains
+      , nodeGraphHistory = graphs
+      }
 
 type NodeInfoApi = "info" :> Get '[JSON] NodeInfo
 
 someNodeInfoApi :: SomeApi
 someNodeInfoApi = SomeApi (Proxy @NodeInfoApi)
-
-someNodeInfoServer :: ChainwebVersion -> CutDb cas -> SomeServer
-someNodeInfoServer v c =
-  SomeServer (Proxy @NodeInfoApi) (nodeInfoHandler v $ someCutDbVal v c)
 
 data NodeInfo = NodeInfo
   {
@@ -58,22 +75,6 @@ data NodeInfo = NodeInfo
 
 instance ToJSON NodeInfo
 instance FromJSON NodeInfo
-
-nodeInfoHandler :: ChainwebVersion -> SomeCutDb cas -> Server NodeInfoApi
-nodeInfoHandler v (SomeCutDb ((CutDbT db) :: CutDbT cas v)) = do
-    curCut <- liftIO $ _cut db
-    let ch = cutToCutHashes Nothing curCut
-        curHeight = maximum $ map _bhwhHeight $ HashMap.elems $ _cutHashes ch
-        graphs = unpackGraphs v
-        curGraph = head $ dropWhile (\(h,_) -> h > curHeight) graphs
-        curChains = map fst $ snd curGraph
-    return $ NodeInfo
-      { nodeVersion = v
-      , nodeApiVersion = prettyApiVersion
-      , nodeChains = T.pack . show <$> curChains
-      , nodeNumberOfChains = length curChains
-      , nodeGraphHistory = graphs
-      }
 
 -- | Converts chainwebGraphs to a simpler structure that has invertible JSON
 -- instances.

@@ -325,10 +325,10 @@ someServiceApiServer
     -> Rosetta
     -> SomeServer
 someServiceApiServer v dbs pacts mr (HeaderStream hs) (Rosetta r) =
-    someHealthCheckServer
-    <> maybe mempty (someNodeInfoServer v) cuts
-    <> PactAPI.somePactServers v pacts
-    <> maybe mempty (Mining.someMiningServer v) mr
+    -- someHealthCheckServer
+    -- maybe mempty (someNodeInfoServer v) cuts
+    -- TODO PactAPI.somePactServers v pacts
+    maybe mempty (Mining.someMiningServer v) mr
     <> maybe mempty (someHeaderStreamServer v) (bool Nothing cuts hs)
     <> maybe mempty (bool mempty (someRosettaServer v payloads concreteMs cutPeerDb concretePacts) r) cuts
         -- TODO: not sure if passing the correct PeerDb here
