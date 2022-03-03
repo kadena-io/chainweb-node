@@ -343,14 +343,12 @@ pruneCuts
     :: LogFunction
     -> ChainwebVersion
     -> CutDbParams
-    -> Cut
+    -> BlockHeight
     -> RocksDbCas CutHashes
     -> IO ()
-pruneCuts logfun v conf curCut cutHashesStore = do
-    let latestCutHeight = _cutHeight curCut
-    let avgBlockHeight = round $ avgBlockHeightAtCutHeight v latestCutHeight
+pruneCuts logfun v conf curAvgBlockHeight cutHashesStore = do
     let pruneCutHeight = CutHeight $ int $ max 0 
-            (int (avgCutHeightAt v avgBlockHeight) - int (_cutDbParamsAvgBlockHeightPruningDepth conf) :: Integer)
+            (int (avgCutHeightAt v curAvgBlockHeight) - int (_cutDbParamsAvgBlockHeightPruningDepth conf) :: Integer)
     logfun @T.Text Info $ "pruning CutDB before cut height " <> T.pack (show pruneCutHeight)
     deleteRangeRocksDb (_getRocksDbCas cutHashesStore)
         (Nothing, Just (pruneCutHeight, 0, maxBound :: CutId))
@@ -403,7 +401,7 @@ startCutDb config logfun headerStore payloadStore cutHashesStore = mask_ $ do
     queue <- newEmptyPQueue
     cutAsync <- asyncWithUnmask $ \u -> u $ processor queue cutVar
     logg Info "CutDB started"
-    pruneCuts logfun (_chainwebVersion headerStore) config initialCut cutHashesStore
+    pruneCuts logfun (_chainwebVersion headerStore) config (cutAvgBlockHeight v initialCut) cutHashesStore
     return CutDb
         { _cutDbCut = cutVar
         , _cutDbQueue = queue
@@ -479,6 +477,9 @@ lookupCutHashes wbhdb hs =
     flip itraverse (_cutHashes hs) $ \cid (BlockHashWithHeight _ h) ->
         lookupWebBlockHeaderDb wbhdb cid h
 
+cutAvgBlockHeight :: ChainwebVersion -> Cut -> BlockHeight
+cutAvgBlockHeight v = BlockHeight . round . avgBlockHeightAtCutHeight v . _cutHeight 
+
 -- | This is at the heart of 'Chainweb' POW: Deciding the current "longest" cut
 -- among the incoming candiates.
 --
@@ -500,10 +501,8 @@ processCuts
     -> TVar Cut
     -> IO ()
 processCuts conf logFun headerStore payloadStore cutHashesStore queue cutVar = do 
-    currentAvgBlockHeight <- 
-        BlockHeight . round . avgBlockHeightAtCutHeight v . _cutHeight 
-            <$> readTVarIO cutVar
-    lastPrunedAvgBlockHeightVar <- newTVarIO currentAvgBlockHeight
+    firstAvgBlockHeight <- cutAvgBlockHeight v <$> readTVarIO cutVar
+    lastPrunedAvgBlockHeightVar <- newTVarIO firstAvgBlockHeight
     writeDelayRng <- Prob.createSystemRandom 
     let generateWriteGap = approximately (_cutDbParamsAvgBlockHeightWritingGap conf) writeDelayRng
     nextWriteAvgBlockHeightVar <- newTVarIO =<< generateWriteGap 
@@ -529,12 +528,12 @@ processCuts conf logFun headerStore payloadStore cutHashesStore queue cutVar = d
             curCut <- readTVarIO cutVar
             !resultCut <- trace logFun "Chainweb.CutDB.processCuts._joinIntoHeavier" () 1
                 $ joinIntoHeavier_ hdrStore (_cutMap curCut) newCut
-            let curCutAvgBlockHeight = BlockHeight $ round $ avgBlockHeightAtCutHeight v (_cutHeight curCut)
+            let curCutAvgBlockHeight = cutAvgBlockHeight v curCut
             lastPrunedAvgBlockHeight <- readTVarIO lastPrunedAvgBlockHeightVar
             let sinceLastPrune = curCutAvgBlockHeight - lastPrunedAvgBlockHeight
             when (sinceLastPrune > _cutDbParamsAvgBlockHeightPruningThreshold conf) $ do
                 atomically $ writeTVar lastPrunedAvgBlockHeightVar curCutAvgBlockHeight
-                pruneCuts logFun v conf curCut cutHashesStore
+                pruneCuts logFun v conf curCutAvgBlockHeight cutHashesStore
             nextWriteAvgBlockHeight <- readTVarIO nextWriteAvgBlockHeightVar
             when (curCutAvgBlockHeight > nextWriteAvgBlockHeight) $ do
                 writeGap <- generateWriteGap 
