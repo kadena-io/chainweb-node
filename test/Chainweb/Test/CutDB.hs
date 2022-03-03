@@ -514,7 +514,9 @@ testCutPruning rdb v = testCase "cut pruning" $ do
             set cutDbParamsAvgBlockHeightPruningThreshold pruningThreshold .
             set cutDbParamsAvgBlockHeightWritingGap 10
         minedBlockHeight = 201
-    (cutHashesStore, ()) <- withTestCutDbWithoutPact rdb v alterPruningSettings (int $ avgCutHeightAt v minedBlockHeight) (\_ _ -> return ()) (const $ return ())
+    (cutHashesStore, ()) <- withTestCutDbWithoutPact rdb v alterPruningSettings (int $ avgCutHeightAt v minedBlockHeight) 
+        (\_ _ -> return ()) 
+        (const $ return ())
     -- peek inside the cut DB's store to find the oldest and newest cuts
     let table = _getRocksDbCas cutHashesStore
     Just (leastCutHeight, _, _) <- tableMinKey table
