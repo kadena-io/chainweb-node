@@ -507,12 +507,12 @@ tests rdb = testGroup "CutDB"
 
 testCutPruning :: RocksDb -> ChainwebVersion -> TestTree
 testCutPruning rdb v = testCase "cut pruning" $ do
-    let pruningThreshold = 100
+    let pruningFrequency = 50
     -- initialize cut DB and mine enough to trigger pruning
     let alterPruningSettings = 
             set cutDbParamsAvgBlockHeightPruningDepth 50 .
-            set cutDbParamsAvgBlockHeightPruningThreshold pruningThreshold .
-            set cutDbParamsAvgBlockHeightWritingGap 10
+            set cutDbParamsPruningFrequency pruningFrequency .
+            set cutDbParamsWritingFrequency 1
         minedBlockHeight = 201
     (cutHashesStore, ()) <- withTestCutDbWithoutPact rdb v alterPruningSettings (int $ avgCutHeightAt v minedBlockHeight) 
         (\_ _ -> return ()) 
@@ -523,7 +523,7 @@ testCutPruning rdb v = testCase "cut pruning" $ do
     Just (mostCutHeight, _, _) <- tableMaxKey table
     -- we must have pruned the older cuts
     assertBool "oldest cuts are too old" 
-        (round (avgBlockHeightAtCutHeight v leastCutHeight) >= minedBlockHeight - pruningThreshold - int (degreeAt v minedBlockHeight) - 1)
+        (round (avgBlockHeightAtCutHeight v leastCutHeight) >= minedBlockHeight - pruningFrequency - int (degreeAt v minedBlockHeight) - 1)
     -- we must keep the latest cut
     avgBlockHeightAtCutHeight v mostCutHeight @?= 201
 

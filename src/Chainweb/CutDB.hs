@@ -38,8 +38,8 @@ module Chainweb.CutDB
 , cutDbParamsInitialHeightLimit
 , cutDbParamsFetchTimeout
 , cutDbParamsAvgBlockHeightPruningDepth
-, cutDbParamsAvgBlockHeightPruningThreshold
-, cutDbParamsAvgBlockHeightWritingGap
+, cutDbParamsPruningFrequency
+, cutDbParamsWritingFrequency
 , defaultCutDbParams
 , farAheadThreshold
 
@@ -169,10 +169,10 @@ data CutDbParams = CutDbParams
     , _cutDbParamsAvgBlockHeightPruningDepth :: BlockHeight
     -- ^ How many block heights' worth of cuts should we keep around? 
     -- (how far back do we expect that a fork can happen)
-    , _cutDbParamsAvgBlockHeightPruningThreshold :: BlockHeight
-    -- ^ How often do we prune cuts?
-    , _cutDbParamsAvgBlockHeightWritingGap :: BlockHeight
-    -- ^ How often do we write cuts? must be less than 
+    , _cutDbParamsPruningFrequency :: BlockHeight
+    -- ^ How often do we prune cuts (approximately)?
+    , _cutDbParamsWritingFrequency :: BlockHeight
+    -- ^ How often do we write cuts (approximately)? should be much less than 
     -- `blockHeightPruningDepth` or the CutHashes table will always be empty.
     }
     deriving (Show, Eq, Ord, Generic)
@@ -190,8 +190,8 @@ defaultCutDbParams v ft = CutDbParams
     , _cutDbParamsFetchTimeout = ft
     , _cutDbParamsInitialHeightLimit = Nothing
     , _cutDbParamsAvgBlockHeightPruningDepth = 5000
-    , _cutDbParamsAvgBlockHeightPruningThreshold = 10000
-    , _cutDbParamsAvgBlockHeightWritingGap = 30
+    , _cutDbParamsPruningFrequency = 10000
+    , _cutDbParamsWritingFrequency = 30
     }
   where
     g = _chainGraph (v, maxBound @BlockHeight)
@@ -501,11 +501,7 @@ processCuts
     -> TVar Cut
     -> IO ()
 processCuts conf logFun headerStore payloadStore cutHashesStore queue cutVar = do 
-    firstAvgBlockHeight <- cutAvgBlockHeight v <$> readTVarIO cutVar
-    lastPrunedAvgBlockHeightVar <- newTVarIO firstAvgBlockHeight
-    writeDelayRng <- Prob.createSystemRandom 
-    let generateWriteGap = approximately (_cutDbParamsAvgBlockHeightWritingGap conf) writeDelayRng
-    nextWriteAvgBlockHeightVar <- newTVarIO =<< generateWriteGap 
+    rng <- Prob.createSystemRandom 
     queueToStream
         & S.chain (\c -> loggc Debug c "start processing")
         & S.filterM (fmap not . isVeryOld)
@@ -528,17 +524,8 @@ processCuts conf logFun headerStore payloadStore cutHashesStore queue cutVar = d
             curCut <- readTVarIO cutVar
             !resultCut <- trace logFun "Chainweb.CutDB.processCuts._joinIntoHeavier" () 1
                 $ joinIntoHeavier_ hdrStore (_cutMap curCut) newCut
-            let curCutAvgBlockHeight = cutAvgBlockHeight v curCut
-            lastPrunedAvgBlockHeight <- readTVarIO lastPrunedAvgBlockHeightVar
-            let sinceLastPrune = curCutAvgBlockHeight - lastPrunedAvgBlockHeight
-            when (sinceLastPrune > _cutDbParamsAvgBlockHeightPruningThreshold conf) $ do
-                atomically $ writeTVar lastPrunedAvgBlockHeightVar curCutAvgBlockHeight
-                pruneCuts logFun v conf curCutAvgBlockHeight cutHashesStore
-            nextWriteAvgBlockHeight <- readTVarIO nextWriteAvgBlockHeightVar
-            when (curCutAvgBlockHeight > nextWriteAvgBlockHeight) $ do
-                writeGap <- generateWriteGap 
-                atomically $ writeTVar nextWriteAvgBlockHeightVar (curCutAvgBlockHeight + writeGap)
-                casInsert cutHashesStore (cutToCutHashes Nothing resultCut)
+            maybePrune rng (cutAvgBlockHeight v curCut)
+            maybeWrite rng resultCut
             atomically $ writeTVar cutVar resultCut
             loggc Info resultCut "published cut"
             )
@@ -547,6 +534,17 @@ processCuts conf logFun headerStore payloadStore cutHashesStore queue cutVar = d
     loggc l c msg = logFun @T.Text l $  "cut " <> cutIdToTextShort (_cutId c) <> ": " <> msg
 
     v = _chainwebVersion headerStore
+
+    maybePrune rng curCutAvgBlockHeight = do
+        r :: Double <- Prob.uniform rng
+        when (r > 1 / int (int (_cutDbParamsPruningFrequency conf) * chainCountAt v maxBound)) $
+            pruneCuts logFun v conf curCutAvgBlockHeight cutHashesStore
+
+    maybeWrite rng newCut = do
+        r :: Double <- Prob.uniform rng
+        when (r > 1 / int (int (_cutDbParamsWritingFrequency conf) * chainCountAt v maxBound)) $ do
+            loggc Info newCut "writing cut"
+            casInsert cutHashesStore (cutToCutHashes Nothing newCut)
 
     hdrStore = _webBlockHeaderStoreCas headerStore
 
