@@ -403,19 +403,17 @@ startCutDb config logfun headerStore payloadStore cutHashesStore = mask_ $ do
     queue <- newEmptyPQueue
     cutAsync <- asyncWithUnmask $ \u -> u $ processor queue cutVar
     logg Info "CutDB started"
-    let
-        !db = CutDb
-            { _cutDbCut = cutVar
-            , _cutDbQueue = queue
-            , _cutDbAsync = cutAsync
-            , _cutDbLogFunction = logfun
-            , _cutDbHeaderStore = headerStore
-            , _cutDbPayloadStore = payloadStore
-            , _cutDbQueueSize = _cutDbParamsBufferSize config
-            , _cutDbStore = cutHashesStore
-            }
     pruneCuts logfun (_chainwebVersion headerStore) config initialCut cutHashesStore
-    return db
+    return CutDb
+        { _cutDbCut = cutVar
+        , _cutDbQueue = queue
+        , _cutDbAsync = cutAsync
+        , _cutDbLogFunction = logfun
+        , _cutDbHeaderStore = headerStore
+        , _cutDbPayloadStore = payloadStore
+        , _cutDbQueueSize = _cutDbParamsBufferSize config
+        , _cutDbStore = cutHashesStore
+        }
   where
     logg = logfun @T.Text
     wbhdb = _webBlockHeaderStoreCas headerStore
