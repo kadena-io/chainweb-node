@@ -501,7 +501,7 @@ processCuts
     -> IO ()
 processCuts conf logFun headerStore payloadStore cutHashesStore queue cutVar = do 
     currentAvgBlockHeight <- 
-        BlockHeight . round . avgBlockHeightAtCutHeight (_chainwebVersion headerStore) . _cutHeight 
+        BlockHeight . round . avgBlockHeightAtCutHeight v . _cutHeight 
             <$> readTVarIO cutVar
     lastPrunedAvgBlockHeightVar <- newTVarIO currentAvgBlockHeight
     writeDelayRng <- Prob.createSystemRandom 
@@ -529,12 +529,12 @@ processCuts conf logFun headerStore payloadStore cutHashesStore queue cutVar = d
             curCut <- readTVarIO cutVar
             !resultCut <- trace logFun "Chainweb.CutDB.processCuts._joinIntoHeavier" () 1
                 $ joinIntoHeavier_ hdrStore (_cutMap curCut) newCut
-            let curCutAvgBlockHeight = BlockHeight $ round $ avgBlockHeightAtCutHeight (_chainwebVersion headerStore) (_cutHeight curCut)
+            let curCutAvgBlockHeight = BlockHeight $ round $ avgBlockHeightAtCutHeight v (_cutHeight curCut)
             lastPrunedAvgBlockHeight <- readTVarIO lastPrunedAvgBlockHeightVar
             let sinceLastPrune = curCutAvgBlockHeight - lastPrunedAvgBlockHeight
             when (sinceLastPrune > _cutDbParamsAvgBlockHeightPruningThreshold conf) $ do
                 atomically $ writeTVar lastPrunedAvgBlockHeightVar curCutAvgBlockHeight
-                pruneCuts logFun (_chainwebVersion headerStore) conf curCut cutHashesStore
+                pruneCuts logFun v conf curCut cutHashesStore
             nextWriteAvgBlockHeight <- readTVarIO nextWriteAvgBlockHeightVar
             when (curCutAvgBlockHeight > nextWriteAvgBlockHeight) $ do
                 writeGap <- generateWriteGap 
@@ -546,6 +546,8 @@ processCuts conf logFun headerStore payloadStore cutHashesStore queue cutVar = d
   where
     loggc :: HasCutId c => LogLevel -> c -> T.Text -> IO ()
     loggc l c msg = logFun @T.Text l $  "cut " <> cutIdToTextShort (_cutId c) <> ": " <> msg
+
+    v = _chainwebVersion headerStore
 
     hdrStore = _webBlockHeaderStoreCas headerStore
 
