@@ -68,7 +68,7 @@ withTestCoordiantor
 withTestCoordiantor rdb maybeConf a = do
     var <- newEmptyMVar
     x <- race (takeMVar var) $ 
-        fmap snd $ withTestCutDb rdb v id 0 (\_ _ -> return fakePact) (logFunction logger) $ \cdb ->
+        withTestCutDb rdb v id 0 (\_ _ -> return fakePact) (logFunction logger) $ \_ cdb ->
             withMiningCoordination logger conf cdb $ \case
                 Nothing -> error "nonEmptyMiningAccount: Bug in the mining Code"
                 Just coord -> do

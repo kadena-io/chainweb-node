@@ -213,7 +213,7 @@ prop_outputProof_valid = forAll arbitraryPayloadWithStructuredOutputs go
 --
 spvTest :: RocksDb -> ChainwebVersion -> Step -> IO ()
 spvTest rdb v step = do
-    fmap snd $ withTestCutDbWithoutPact rdb v id 100 logg $ \cutDb -> do
+    withTestCutDbWithoutPact rdb v id 100 logg $ \_ cutDb -> do
         curCut <- _cutMap <$> _cut cutDb
 
         -- for each blockheader h in cut
@@ -355,7 +355,7 @@ spvTest rdb v step = do
 spvTransactionRoundtripTest :: RocksDb -> ChainwebVersion -> Step -> IO ()
 spvTransactionRoundtripTest rdb v step = do
     step "setup cut db"
-    fmap snd $ withTestCutDbWithoutPact rdb v id 100 (\_ _ -> return ()) $ \cutDb -> do
+    withTestCutDbWithoutPact rdb v id 100 (\_ _ -> return ()) $ \_ cutDb -> do
         step "pick random transaction"
         (h, txIx, tx, _) <- randomTransaction cutDb
 
@@ -390,7 +390,7 @@ spvTransactionRoundtripTest rdb v step = do
 spvTransactionOutputRoundtripTest :: RocksDb -> ChainwebVersion -> Step -> IO ()
 spvTransactionOutputRoundtripTest rdb v step = do
     step "setup cut db"
-    fmap snd $ withTestCutDbWithoutPact rdb v id 100 (\_ _ -> return ()) $ \cutDb -> do
+    withTestCutDbWithoutPact rdb v id 100 (\_ _ -> return ()) $ \_ cutDb -> do
 
         step "pick random transaction output"
         (h, outIx, _, out) <- randomTransaction cutDb

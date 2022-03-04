@@ -119,8 +119,8 @@ withTestCutDb
         --
     -> LogFunction
         -- ^ a logg function (use @\_ _ -> return ()@ turn of logging)
-    -> (forall cas . PayloadCasLookup cas => CutDb cas -> IO a)
-    -> IO (RocksDbCas CutHashes, a)
+    -> (forall cas . PayloadCasLookup cas => RocksDbCas CutHashes -> CutDb cas -> IO a)
+    -> IO a
 withTestCutDb rdb v conf n pactIO logfun f = do
     rocksDb <- testRocksDb "withTestCutDb" rdb
     let payloadDb = newPayloadDb rocksDb
@@ -133,7 +133,7 @@ withTestCutDb rdb v conf n pactIO logfun f = do
         withLocalPayloadStore mgr payloadDb pact $ \payloadStore ->
             withCutDb (conf $ defaultCutDbParams v cutFetchTimeout) logfun headerStore payloadStore cutHashesDb $ \cutDb -> do
                 foldM_ (\c _ -> view _1 <$> mine defaultMiner pact cutDb c) (genesisCut v) [1..n]
-                (cutHashesDb,) <$> f cutDb
+                f cutHashesDb cutDb
 
 -- | Adds the requested number of new blocks to the given 'CutDb'.
 --
@@ -249,8 +249,8 @@ withTestCutDbWithoutPact
         -- ^ number of blocks in the chainweb in addition to the genesis blocks
     -> LogFunction
         -- ^ a logg function (use @\_ _ -> return ()@ turn of logging)
-    -> (forall cas . PayloadCasLookup cas => CutDb cas -> IO a)
-    -> IO (RocksDbCas CutHashes, a)
+    -> (forall cas . PayloadCasLookup cas => RocksDbCas CutHashes -> CutDb cas -> IO a)
+    -> IO a
 withTestCutDbWithoutPact rdb v conf n =
     withTestCutDb rdb v conf n (const $ const $ return fakePact)
 
@@ -514,16 +514,17 @@ testCutPruning rdb v = testCase "cut pruning" $ do
             set cutDbParamsPruningFrequency pruningFrequency .
             set cutDbParamsWritingFrequency 1
         minedBlockHeight = 201
-    (cutHashesStore, ()) <- withTestCutDbWithoutPact rdb v alterPruningSettings (int $ avgCutHeightAt v minedBlockHeight) 
+    withTestCutDbWithoutPact rdb v alterPruningSettings 
+        (int $ avgCutHeightAt v minedBlockHeight) 
         (\_ _ -> return ()) 
-        (const $ return ())
-    -- peek inside the cut DB's store to find the oldest and newest cuts
-    let table = _getRocksDbCas cutHashesStore
-    Just (leastCutHeight, _, _) <- tableMinKey table
-    Just (mostCutHeight, _, _) <- tableMaxKey table
-    -- we must have pruned the older cuts
-    assertBool "oldest cuts are too old" 
-        (round (avgBlockHeightAtCutHeight v leastCutHeight) >= minedBlockHeight - pruningFrequency - int (degreeAt v minedBlockHeight) - 1)
-    -- we must keep the latest cut
-    avgBlockHeightAtCutHeight v mostCutHeight @?= 201
+        $ \cutHashesStore _ -> do
+            -- peek inside the cut DB's store to find the oldest and newest cuts
+            let table = _getRocksDbCas cutHashesStore
+            Just (leastCutHeight, _, _) <- tableMinKey table
+            Just (mostCutHeight, _, _) <- tableMaxKey table
+            -- we must have pruned the older cuts
+            assertBool "oldest cuts are too old" 
+                (round (avgBlockHeightAtCutHeight v leastCutHeight) >= minedBlockHeight - pruningFrequency - int (degreeAt v minedBlockHeight) - 1)
+            -- we must keep the latest cut
+            avgBlockHeightAtCutHeight v mostCutHeight @?= 201
 
