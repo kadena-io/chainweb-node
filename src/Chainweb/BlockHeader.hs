@@ -480,11 +480,11 @@ instance HasChainGraph ParentHeader where
 -- constructed 'BlockHeader' values must not be modified.
 --
 -- Some redundant, aggregated information is included in the block and the block
--- hash. This enables nodes to be checked inductively with respect to existing
+-- hash. This enables nodes to check blocks inductively with respect to existing
 -- blocks without recalculating the aggregated value from the genesis block
 -- onward.
 --
--- The POW hash is not include, since it can be derived from the Nonce and the
+-- The POW hash is not included, since it can be derived from the Nonce and the
 -- other fields of the 'BlockHeader'.
 --
 -- /IMPORTANT/: Fields in this record must have pairwise distinct types.
@@ -496,36 +496,37 @@ data BlockHeader :: Type where
             -- "feature flags".
 
         , _blockCreationTime :: {-# UNPACK #-} !BlockCreationTime
-            -- ^ the time when the block was creates as recorded by the miner
+            -- ^ The time when the block was creates as recorded by the miner
             -- of the block. The value must be strictly monotonically increasing
-            -- with in the chain of blocks. The smallest allowed increment is
-            -- 'smallestBlockTimeIncrement'. Nodes are supposed to ignore blocks
-            -- with values that are in the future and reconsider a block when its
-            -- value is in the past.
+            -- within the chain of blocks. Nodes must ignore blocks with values
+            -- that are in the future and reconsider a block when its value is
+            -- in the past. Nodes do not have to store blocks until they become
+            -- recent (but may do it).
             --
             -- The block creation time is used to determine the block difficulty for
             -- future blocks.
             --
-            -- Nodes are not supposed to consider the creation time when choosing
-            -- between two valid (this include that creation times must not be in
-            -- the future) forks.
+            -- Nodes are not supposed to consider the creation time when
+            -- choosing between two valid (this implies that creation time of a
+            -- block is not the future) forks.
             --
             -- This creates an incentive for nodes to maintain an accurate clock
-            -- with respect to a (unspecified) commonly accepted time source,
+            -- with respect to an (unspecified) commonly accepted time source,
             -- such as the public NTP network.
             --
             -- It is possible that a miner always chooses the smallest possible
             -- creation time value. It is not clear what advantage a miner would
-            -- gain from doing so, but attack models should consider and investigate
-            -- such behavior.
+            -- gain from doing so, but attack models should consider and
+            -- investigate such behavior.
             --
             -- On the other hand miners may choose to compute forks with creation
             -- time long in the future. By doing so, the difficulty on such a fork
             -- would decrease allowing the miner to compute very long chains very
             -- quickly. However, those chains would become valid only after a long
-            -- time passed. The algorithm for computing the difficulty must ensure
-            -- this strategy doesn't give an advantage to an attacker that would
-            -- increase the success probability for an attack.
+            -- time passed and would be of low PoW weight. The algorithm for
+            -- computing the difficulty must ensure this strategy doesn't give
+            -- an advantage to an attacker that would increase the success
+            -- probability for an attack.
 
         , _blockParent :: {-# UNPACK #-} !BlockHash
             -- ^ authoritative

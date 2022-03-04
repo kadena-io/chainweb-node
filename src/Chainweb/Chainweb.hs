@@ -124,6 +124,7 @@ import Network.Socket (Socket)
 import Network.Wai
 import Network.Wai.Handler.Warp hiding (Port)
 import Network.Wai.Handler.WarpTLS (WarpTLSException(InsecureConnectionDenied))
+import Network.Wai.Middleware.RequestSizeLimit
 import Network.Wai.Middleware.Throttle
 
 import Prelude hiding (log)
@@ -579,11 +580,13 @@ runChainweb cw = do
                 $ httpLog
                 . throttle (_chainwebPutPeerThrottler cw)
                 . throttle (_chainwebThrottler cw)
+                . requestSizeLimit
             )
         -- 2. Start Clients (with a delay of 500ms)
         <* Concurrently (threadDelay 500000 >> clients)
         -- 3. Start serving local API
-        <* Concurrently (threadDelay 500000 >> serveServiceApi serviceHttpLog)
+        <* Concurrently (threadDelay 500000 >> serveServiceApi (serviceHttpLog . requestSizeLimit))
+                
   where
     tls = _p2pConfigTls $ _configP2p $ _chainwebConfig cw
 
@@ -666,6 +669,9 @@ runChainweb cw = do
             , _chainwebServerPayloadDbs = payloadDbsToServe
             , _chainwebServerPeerDbs = (CutNetwork, cutPeerDb) : memP2pToServe
             }
+
+    requestSizeLimit :: Middleware
+    requestSizeLimit = requestSizeLimitMiddleware defaultRequestSizeLimitSettings
 
     httpLog :: Middleware
     httpLog = requestResponseLogger $ setComponent "http:p2p-api" (_chainwebLogger cw)
