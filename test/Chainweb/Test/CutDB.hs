@@ -502,7 +502,7 @@ tests :: RocksDb -> TestTree
 tests rdb = testGroup "CutDB"
     [ testCutPruning rdb version
     ]
-    where
+  where
     version = Test petersonChainGraph
 
 testCutPruning :: RocksDb -> ChainwebVersion -> TestTree
