@@ -8,15 +8,16 @@
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeOperators #-}
 
-module Chainweb.Backup 
+module Chainweb.Backup
     ( BackupEnv(..)
-    , BackupChainResources(..)
+    , BackupOptions(..)
     , BackupStatus(..)
     , makeBackup
     , checkBackup
     ) where
 
 import Control.Lens
+import Control.Monad
 import Control.Monad.Catch
 import Data.CAS.RocksDB
 import Data.Foldable
@@ -37,21 +38,20 @@ import Chainweb.Logger
 import Chainweb.Utils
 import Chainweb.WebPactExecutionService
 
+data BackupOptions = BackupOptions
+    { _backupIdentifier :: !FilePath
+    , _backupPact :: !Bool
+    }
+
 data BackupEnv logger = BackupEnv
   { _backupRocksDb :: !RocksDb
   , _backupDir :: !FilePath
-  , _backupChainResources :: !(HashMap ChainId (BackupChainResources logger))
+  , _backupPactService :: !WebPactExecutionService
   , _backupLogger :: !logger
   }
 
-data BackupStatus 
+data BackupStatus
     = BackupDone | BackupInProgress | BackupFailed
-
-data BackupChainResources logger
-    = BackupChainResources 
-    { _backupChainLogger :: !logger
-    , _backupChainPact :: !PactExecutionService 
-    }
 
 instance HasTextRepresentation BackupStatus where
     toText BackupDone = "backup-done"
@@ -61,7 +61,7 @@ instance HasTextRepresentation BackupStatus where
     fromText "backup-done" = return BackupDone
     fromText "backup-in-progress" = return BackupInProgress
     fromText "backup-failed" = return BackupFailed
-    fromText t = 
+    fromText t =
         throwM $ TextFormatException $ "HasTextRepresentation BackupStatus: invalid BackupStatus " <> sshow t
 
 instance MimeRender PlainText BackupStatus where
@@ -70,37 +70,35 @@ instance MimeRender PlainText BackupStatus where
 instance MimeUnrender PlainText BackupStatus where
     mimeUnrender = const (over _Left show . fromText . TL.toStrict . TL.decodeUtf8)
 
-makeBackup :: Logger logger => BackupEnv logger -> FilePath -> IO ()
-makeBackup env name = do
-    logFunctionText (_backupLogger env) Info ("making backup to " <> T.pack thisBackup)
+makeBackup :: Logger logger => BackupEnv logger -> BackupOptions -> IO ()
+makeBackup env options = do
+    logCr Info ("making backup to " <> T.pack thisBackup)
     createDirectoryIfMissing False (_backupDir env)
     createDirectoryIfMissing False thisBackup
     createDirectoryIfMissing False (thisBackup </> "sqlite")
-    -- we don't create the rocksDb checkpoint folder ourselves, 
+    -- we don't create the rocksDb checkpoint folder ourselves,
     -- RocksDB fails if it exists
     T.writeFile (thisBackup </> "status") (toText BackupInProgress)
-    result <- try doBackup 
+    result <- try doBackup
     case result of
         Left (ex :: SomeException) -> do
             T.writeFile (thisBackup </> "status") (toText BackupFailed)
-            logFunctionText (_backupLogger env) Error ("backup to " <> T.pack thisBackup <> " failed: " <> sshow ex)
+            logCr Error ("backup to " <> T.pack thisBackup <> " failed: " <> sshow ex)
             throwM ex
         Right () -> return ()
   where
-    thisBackup = _backupDir env </> name
+    logCr = logFunctionText (_backupLogger env)
+    thisBackup = _backupDir env </> _backupIdentifier options
+    pactService = _webPactExecutionService $ _backupPactService env
     doBackup = do
-        logFunctionText (_backupLogger env) Info ("making rocksdb checkpoint to " <> T.pack (thisBackup </> "rocksDb"))
-        -- maxBound ~ always flush WAL log before checkpoint, under the assumption 
+        logCr Info ("making rocksdb checkpoint to " <> T.pack (thisBackup </> "rocksDb"))
+        -- maxBound ~ always flush WAL log before checkpoint, under the assumption
         -- that it's not too time-consuming
         checkpointRocksDb (_backupRocksDb env) maxBound (thisBackup </> "rocksDb")
-        logFunctionText (_backupLogger env) Info "rocksdb checkpoint made"
-        for_ (_backupChainResources env) $ \cr ->  do
-            let logCr = logFunctionText
-                    $ addLabel ("component", "pact")
-                    $ addLabel ("sub-component", "backup")
-                    $ _backupChainLogger cr
-            logCr Info $ "backing up pact database to " <> T.pack thisBackup
-            void $ _pactBackup (_backupChainPact cr) (thisBackup </> "sqlite")
+        logCr Info "rocksdb checkpoint made"
+        when (_backupPact options) $ do
+            logCr Info $ "backing up pact databases" <> T.pack thisBackup
+            void $ _pactBackup pactService (thisBackup </> "sqlite")
             logCr Info $ "pact db backed up"
         T.writeFile (thisBackup </> "status") (toText BackupDone)
 
@@ -109,8 +107,8 @@ checkBackup env name = do
     let thisBackup = _backupDir env </> name
     logFunctionText (_backupLogger env) Info $ "checking backup " <> T.pack name
     exists <- doesFileExist (thisBackup </> "status")
-    if exists 
-    then 
+    if exists
+    then
         fmap Just . fromText =<< T.readFile (thisBackup </> "status")
-    else 
+    else
         return Nothing

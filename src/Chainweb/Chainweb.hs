@@ -411,7 +411,6 @@ withChainwebInternal conf logger peer serviceSock rocksDb pactDbDir resetDb inne
     global cs = do
         let !webchain = mkWebBlockHeaderDb v (HM.map _chainResBlockHeaderDb cs)
             !pact = mkWebPactExecutionService (HM.map _chainResPact cs)
-            !backupCs = HM.map (\c -> BackupChainResources (_chainResLogger c) (_chainResPact c)) cs
             !cutLogger = setComponent "cut" logger
             !mgr = _peerResManager peer
 
@@ -470,7 +469,7 @@ withChainwebInternal conf logger peer serviceSock rocksDb pactDbDir resetDb inne
                                 , _chainwebPutPeerThrottler = putPeerThrottler
                                 , _chainwebConfig = conf
                                 , _chainwebServiceSocket = serviceSock
-                                , _chainwebBackup = \backupDir -> BackupEnv rocksDb backupDir backupCs logger
+                                , _chainwebBackup = \backupDir -> BackupEnv rocksDb backupDir pact logger
                                 }
 
     withPactData

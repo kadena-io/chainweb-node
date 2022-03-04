@@ -31,7 +31,7 @@ import Chainweb.Time
 import Chainweb.RestAPI.Utils
 
 type BackupApi 
-  =    "make-backup" :> Post '[PlainText] Text
+  =    "make-backup" :> QueryFlag "backupPact" :> Post '[PlainText] Text
   :<|> "check-backup" :> Capture "backup-name" FilePath :> Get '[PlainText] Backup.BackupStatus
 
 someBackupApi :: SomeApi
@@ -42,17 +42,22 @@ someBackupServer backupEnv =
     SomeServer (Proxy @BackupApi) handler
   where
     noSuchBackup = err404 { errBody = "no such backup" }
-    makeBackup = liftIO $ do
-        nextBackupName <- getNextBackupName
-        _ <- async $ Backup.makeBackup backupEnv (T.unpack nextBackupName)
-        return nextBackupName
-    checkBackup backupName = liftIO $ do
-        status <- Backup.checkBackup backupEnv backupName
+    makeBackup backupPactFlag = liftIO $ do
+        nextBackupIdentifier <- getNextBackupIdentifier
+        let 
+            options = Backup.BackupOptions
+                { Backup._backupIdentifier = T.unpack nextBackupIdentifier
+                , Backup._backupPact = backupPactFlag
+                }
+        _ <- async $ Backup.makeBackup backupEnv options
+        return nextBackupIdentifier
+    checkBackup backupIdentifier = liftIO $ do
+        status <- Backup.checkBackup backupEnv backupIdentifier
         maybe (throwM noSuchBackup) pure status 
     handler = makeBackup :<|> checkBackup
 
-getNextBackupName :: IO Text
-getNextBackupName = do
+getNextBackupIdentifier :: IO Text
+getNextBackupIdentifier = do
     Time (epochToNow :: TimeSpan Integer) <- getCurrentTimeIntegral
     return $ microsToText (timeSpanToMicros epochToNow)
 
