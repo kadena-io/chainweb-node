@@ -10,6 +10,7 @@
 
 module Chainweb.Backup 
     ( BackupEnv(..)
+    , BackupChainResources(..)
     , BackupStatus(..)
     , makeBackup
     , checkBackup
@@ -32,20 +33,25 @@ import System.LogLevel
 import Servant
 
 import Chainweb.ChainId
-import Chainweb.Chainweb.ChainResources
 import Chainweb.Logger
 import Chainweb.Utils
-import Chainweb.WebPactExecutionService(_pactBackup)
+import Chainweb.WebPactExecutionService
 
 data BackupEnv logger = BackupEnv
   { _backupRocksDb :: !RocksDb
   , _backupDir :: !FilePath
-  , _backupChainResources :: !(HashMap ChainId (ChainResources logger))
+  , _backupChainResources :: !(HashMap ChainId (BackupChainResources logger))
   , _backupLogger :: !logger
   }
 
 data BackupStatus 
     = BackupDone | BackupInProgress | BackupFailed
+
+data BackupChainResources logger
+    = BackupChainResources 
+    { _backupChainLogger :: !logger
+    , _backupChainPact :: !PactExecutionService 
+    }
 
 instance HasTextRepresentation BackupStatus where
     toText BackupDone = "backup-done"
@@ -92,9 +98,9 @@ makeBackup env name = do
             let logCr = logFunctionText
                     $ addLabel ("component", "pact")
                     $ addLabel ("sub-component", "backup")
-                    $ _chainResLogger cr
+                    $ _backupChainLogger cr
             logCr Info $ "backing up pact database to " <> T.pack thisBackup
-            void $ _pactBackup (_chainResPact cr) (thisBackup </> "sqlite")
+            void $ _pactBackup (_backupChainPact cr) (thisBackup </> "sqlite")
             logCr Info $ "pact db backed up"
         T.writeFile (thisBackup </> "status") (toText BackupDone)
 
