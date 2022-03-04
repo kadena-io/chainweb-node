@@ -481,7 +481,6 @@ fakePact = WebPactExecutionService $ PactExecutionService
   , _pactBlockTxHistory = \_ _ -> error "Unimplemented"
   , _pactHistoricalLookup = \_ _ _ -> error "Unimplemented"
   , _pactSyncToBlock = \_ -> error "Unimplemented"
-  , _pactBackup = \_ -> error "Unimplemented"
   }
   where
     getFakeOutput (Transaction txBytes) = TransactionOutput txBytes

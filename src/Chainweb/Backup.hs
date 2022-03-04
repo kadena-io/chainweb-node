@@ -17,12 +17,13 @@ module Chainweb.Backup
     ) where
 
 import Control.Lens
+
+import Control.Concurrent.Async
 import Control.Monad
 import Control.Monad.Catch
 import Data.CAS.RocksDB
-import Data.Foldable
-import Data.Functor
-import Data.HashMap.Strict(HashMap)
+import Data.HashSet(HashSet)
+import Data.String
 import qualified Data.Text as T
 import qualified Data.Text.IO as T
 import qualified Data.Text.Lazy as TL
@@ -31,12 +32,14 @@ import System.Directory
 import System.FilePath
 import System.LogLevel
 
+import Pact.Types.SQLite
 import Servant
 
 import Chainweb.ChainId
 import Chainweb.Logger
+import Chainweb.Pact.Backend.Types
+import Chainweb.Pact.Backend.Utils(chainDbFileName, withSqliteDb)
 import Chainweb.Utils
-import Chainweb.WebPactExecutionService
 
 data BackupOptions = BackupOptions
     { _backupIdentifier :: !FilePath
@@ -46,7 +49,8 @@ data BackupOptions = BackupOptions
 data BackupEnv logger = BackupEnv
   { _backupRocksDb :: !RocksDb
   , _backupDir :: !FilePath
-  , _backupPactService :: !WebPactExecutionService
+  , _backupPactDbDir :: !FilePath
+  , _backupChainIds :: !(HashSet ChainId)
   , _backupLogger :: !logger
   }
 
@@ -89,7 +93,6 @@ makeBackup env options = do
   where
     logCr = logFunctionText (_backupLogger env)
     thisBackup = _backupDir env </> _backupIdentifier options
-    pactService = _webPactExecutionService $ _backupPactService env
     doBackup = do
         logCr Info ("making rocksdb checkpoint to " <> T.pack (thisBackup </> "rocksDb"))
         -- maxBound ~ always flush WAL log before checkpoint, under the assumption
@@ -98,8 +101,10 @@ makeBackup env options = do
         logCr Info "rocksdb checkpoint made"
         when (_backupPact options) $ do
             logCr Info $ "backing up pact databases" <> T.pack thisBackup
-            void $ _pactBackup pactService (thisBackup </> "sqlite")
-            logCr Info $ "pact db backed up"
+            forConcurrently_ (_backupChainIds env) $ \cid -> do
+                withSqliteDb cid (_backupLogger env) (_backupPactDbDir env) False $ \db ->
+                    void $ qry_ (_sConn db) ("VACUUM main INTO '" <> fromString (thisBackup </> "sqlite" </> chainDbFileName cid) <> "'") []
+            logCr Info $ "pact databases backed up"
         T.writeFile (thisBackup </> "status") (toText BackupDone)
 
 checkBackup :: Logger logger => BackupEnv logger -> FilePath -> IO (Maybe BackupStatus)

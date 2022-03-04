@@ -21,7 +21,6 @@ module Chainweb.Pact.Service.BlockValidation
 , pactBlockTxHistory
 , pactHistoricalLookup
 , pactSyncToBlock
-, pactBackup
 ) where
 
 
@@ -140,16 +139,3 @@ pactSyncToBlock bh reqQ = do
           }
     addRequest reqQ msg
     return resultVar
-
-pactBackup
-    :: FilePath
-    -> PactQueue
-    -> IO (MVar (Either PactException ()))
-pactBackup fp reqQ = do
-    resultVar <- newEmptyMVar
-    addRequest reqQ $! BackupMsg BackupReq
-        { _backupFilePath = fp 
-        , _backupResultVar = resultVar
-        }
-    return resultVar
-

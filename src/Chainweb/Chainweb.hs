@@ -469,7 +469,8 @@ withChainwebInternal conf logger peer serviceSock rocksDb pactDbDir resetDb inne
                                 , _chainwebPutPeerThrottler = putPeerThrottler
                                 , _chainwebConfig = conf
                                 , _chainwebServiceSocket = serviceSock
-                                , _chainwebBackup = \backupDir -> BackupEnv rocksDb backupDir pact logger
+                                , _chainwebBackup = \backupDir ->
+                                    BackupEnv rocksDb backupDir pactDbDir cids backupLogger
                                 }
 
     withPactData
@@ -488,6 +489,7 @@ withChainwebInternal conf logger peer serviceSock rocksDb pactDbDir resetDb inne
 
     v = _configChainwebVersion conf
     cids = chainIds v
+    backupLogger = addLabel ("component", "backup") logger
 
     -- FIXME: make this configurable
     cutConfig :: CutDbParams
@@ -702,7 +704,7 @@ runChainweb cw = do
 
     backupApiEnv =
         _chainwebBackup cw . _backupApiDirectory <$> enabledConfig (_configBackupApi $ _configBackup (_chainwebConfig cw))
-        
+
     serviceHttpLog :: Middleware
     serviceHttpLog = requestResponseLogger $ setComponent "http:service-api" (_chainwebLogger cw)
 
