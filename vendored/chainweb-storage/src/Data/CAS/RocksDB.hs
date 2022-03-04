@@ -17,6 +17,7 @@
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE ViewPatterns #-}
 {-# LANGUAGE UndecidableInstances #-}
 
 -- |
@@ -101,7 +102,8 @@ module Data.CAS.RocksDB
 
 -- * RocksDB-specific tools
 , checkpointRocksDb
-, approxTableSizeRocksDb
+, deleteRangeRocksDb
+, compactRangeRocksDb
 ) where
 
 import Control.Lens
@@ -109,18 +111,19 @@ import Control.Monad
 import Control.Monad.Catch
 import Control.Monad.IO.Class
 
+import Data.ByteString(ByteString)
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Char8 as B8
+import qualified Data.ByteString.Unsafe as BU
+import Data.Coerce
 
 import Data.CAS
 import Data.String
 import qualified Data.Text as T
 import qualified Data.Vector as V
 
+import Foreign
 import Foreign.C
-import Foreign.Marshal
-import Foreign.Ptr
-import Foreign.Storable
 
 import qualified Database.RocksDB.Base as R
 import qualified Database.RocksDB.C as C
@@ -190,6 +193,12 @@ instance NoThunks RocksDb where
 
 makeLenses ''RocksDb
 
+modernDefaultOptions :: R.Options
+modernDefaultOptions = R.defaultOptions 
+    { R.maxOpenFiles = -1
+    , R.writeBufferSize = 64 `shift` 20
+    }
+
 -- | Open a 'RocksDb' instance with the default namespace. If no rocks db exists
 -- at the provided directory path, a new database is created.
 --
@@ -199,7 +208,7 @@ openRocksDb path = do
     initializeRocksDb db
     return db
   where
-    opts = R.defaultOptions { R.createIfMissing = True }
+    opts = modernDefaultOptions { R.createIfMissing = True }
 
 -- | Each table key starts with @_rocksDbNamespace db <> "-"@. Here we insert a
 -- dummy key that is guaranteed to be appear after any other key in the
@@ -222,7 +231,7 @@ resetOpenRocksDb path = do
     initializeRocksDb db
     return db
   where
-    opts = R.defaultOptions { R.createIfMissing = True, R.errorIfExists = True }
+    opts = modernDefaultOptions { R.createIfMissing = True, R.errorIfExists = True }
 
 -- | Close a 'RocksDb' instance.
 --
@@ -251,7 +260,7 @@ withTempRocksDb template f = withSystemTempDirectory template $ \dir ->
 destroyRocksDb :: FilePath -> IO ()
 destroyRocksDb path = R.destroy path opts
   where
-    opts = R.defaultOptions { R.createIfMissing = False }
+    opts = modernDefaultOptions { R.createIfMissing = False }
 
 -- -------------------------------------------------------------------------- --
 -- RocksDb Table
@@ -341,7 +350,7 @@ tableInsert db k v = R.put
 --
 tableLookup :: RocksDbTable k v -> k -> IO (Maybe v)
 tableLookup db k = do
-    maybeBytes <- R.get (_rocksDbTableDb db) R.defaultReadOptions (encKey db k)
+    maybeBytes <- get (_rocksDbTableDb db) R.defaultReadOptions (encKey db k)
     traverse (decVal db) maybeBytes
 {-# INLINE tableLookup #-}
 
@@ -785,14 +794,15 @@ foreign import ccall unsafe "rocksdb\\c.h rocksdb_checkpoint_create"
 foreign import ccall unsafe "rocksdb\\c.h rocksdb_checkpoint_object_destroy"
     rocksdb_checkpoint_object_destroy :: Ptr Checkpoint -> IO ()
 
-checked :: HasCallStack => String -> Ptr CString -> IO a -> IO a
-checked whatWasIDoing errPtr act = do
-    r <- act
+checked :: HasCallStack => String -> (Ptr CString -> IO a) -> IO a
+checked whatWasIDoing act = alloca $ \errPtr -> do
+    poke errPtr (nullPtr :: CString)
+    r <- act errPtr
     err <- peek errPtr
     unless (err == nullPtr) $ do
         errStr <- B.packCString err
         let msg = unwords ["Data.CAS.RocksDB.checked: error while", whatWasIDoing <> ":", B8.unpack errStr]
-        free err
+        C.c_rocksdb_free err
         error msg
     return r
 
@@ -800,46 +810,84 @@ checked whatWasIDoing errPtr act = do
 -- to *never* flush the WAL log, set logSizeFlushThreshold to maxBound :: CULong.
 checkpointRocksDb :: RocksDb -> CULong -> FilePath -> IO ()
 checkpointRocksDb RocksDb { _rocksDbHandle = R.DB dbPtr _ } logSizeFlushThreshold path = 
-    alloca $ \errPtr -> do
-        poke errPtr (nullPtr :: CString)
-        let 
-            mkCheckpointObject = 
-                checked "creating checkpoint object" errPtr $ 
-                    rocksdb_checkpoint_object_create dbPtr errPtr
-            mkCheckpoint cp =
-                withCString path $ \path' -> 
-                    checked "creating checkpoint" errPtr $ 
-                        rocksdb_checkpoint_create cp path' logSizeFlushThreshold errPtr
-        bracket mkCheckpointObject rocksdb_checkpoint_object_destroy mkCheckpoint 
+    bracket mkCheckpointObject rocksdb_checkpoint_object_destroy mkCheckpoint 
+  where
+    mkCheckpointObject = 
+        checked "creating checkpoint object" $ 
+            rocksdb_checkpoint_object_create dbPtr 
+    mkCheckpoint cp =
+        withCString path $ \path' -> 
+            checked "creating checkpoint" $ 
+                rocksdb_checkpoint_create cp path' logSizeFlushThreshold 
 
-foreign import ccall unsafe "rocksdb\\c.h rocksdb_approximate_sizes" 
-    rocksdb_approximate_sizes
-        :: C.RocksDBPtr 
-        -> {- input: number of key ranges -} CInt 
-        -> {- input: array of range start keys -} Ptr CString 
-        -> {- input: array of range start key lengths -} Ptr CSize 
-        -> {- input: array of range end keys -} Ptr CString 
-        -> {- input: array of range end key lengths -} Ptr CSize 
-        -> {- output: array of sizes -} Ptr CULong 
-        -> {- errptr -} Ptr CString 
+foreign import ccall unsafe "cpp\\chainweb-rocksdb.h rocksdb_delete_range"
+    rocksdb_delete_range
+        :: C.RocksDBPtr
+        -> C.WriteOptionsPtr 
+        -> CString {- min key -}
+        -> CSize {- min key length -}
+        -> CString {- max key length -}
+        -> CSize {- max key length -}
+        -> Ptr CString {- output: errptr -}
         -> IO ()
 
-approxTableSizeRocksDb :: RocksDb -> RocksDbTable k v -> IO CULong
-approxTableSizeRocksDb RocksDb { _rocksDbHandle = R.DB dbPtr _ } table = do
-    alloca $ \rangeStartPtr ->
-        alloca $ \rangeStartLengthPtr ->
-        alloca $ \rangeEndPtr -> 
-        alloca $ \rangeEndLengthPtr -> 
-        alloca $ \sizePtr ->
-        alloca $ \errPtr -> 
-        B.useAsCStringLen (namespaceFirst $ _rocksDbTableNamespace table) $ \(minKeyPtr, minKeyLen) ->
-        B.useAsCStringLen (namespaceLast $ _rocksDbTableNamespace table) $ \(maxKeyPtr, maxKeyLen) -> do
-            poke rangeStartPtr minKeyPtr
-            poke rangeStartLengthPtr (fromIntegral minKeyLen :: CSize)
-            poke rangeEndPtr maxKeyPtr
-            poke rangeEndLengthPtr (fromIntegral maxKeyLen :: CSize)
-            poke errPtr (nullPtr :: CString)
-            checked "calculating approximate table size" errPtr $ 
-                rocksdb_approximate_sizes dbPtr 1 rangeStartPtr rangeStartLengthPtr rangeEndPtr rangeEndLengthPtr sizePtr errPtr
-            peek sizePtr
+validateRangeOrdered :: HasCallStack => RocksDbTable k v -> (Maybe k, Maybe k) -> (B.ByteString, B.ByteString)
+validateRangeOrdered table (Just (encKey table -> l), Just (encKey table -> u)) 
+    | l >= u =
+        error "Data.CAS.RocksDB.validateRangeOrdered: range bounds not ordered according to codec"
+    | otherwise = (l, u)
+validateRangeOrdered table (l, u) = 
+    ( maybe (namespaceFirst (_rocksDbTableNamespace table)) (encKey table) l
+    , maybe (namespaceLast (_rocksDbTableNamespace table)) (encKey table) u 
+    )
 
+-- | Batch delete a range of keys in a table. 
+-- Throws if the range of the *encoded keys* is not ordered (lower, upper).
+deleteRangeRocksDb :: HasCallStack => RocksDbTable k v -> (Maybe k, Maybe k) -> IO ()
+deleteRangeRocksDb table range = do
+    let !range' = validateRangeOrdered table range
+    let R.DB dbPtr _ = _rocksDbTableDb table
+    R.withCWriteOpts R.defaultWriteOptions $ \optsPtr ->
+        BU.unsafeUseAsCStringLen (fst range') $ \(minKeyPtr, minKeyLen) ->
+        BU.unsafeUseAsCStringLen (snd range') $ \(maxKeyPtr, maxKeyLen) ->
+        checked "Data.CAS.RocksDB.deleteRangeRocksDb" $ 
+            rocksdb_delete_range dbPtr optsPtr 
+                minKeyPtr (fromIntegral minKeyLen :: CSize) 
+                maxKeyPtr (fromIntegral maxKeyLen :: CSize)
+
+foreign import ccall safe "rocksdb\\c.h rocksdb_compact_range"
+    rocksdb_compact_range
+        :: C.RocksDBPtr
+        -> CString {- min key -}
+        -> CSize {- min key length -}
+        -> CString {- max key -}
+        -> CSize {- max key length -}
+        -> IO ()
+
+compactRangeRocksDb :: HasCallStack => RocksDbTable k v -> (Maybe k, Maybe k) -> IO ()
+compactRangeRocksDb table range = 
+    BU.unsafeUseAsCStringLen (fst range') $ \(minKeyPtr, minKeyLen) ->
+        BU.unsafeUseAsCStringLen (snd range') $ \(maxKeyPtr, maxKeyLen) ->
+        rocksdb_compact_range dbPtr 
+            minKeyPtr (fromIntegral minKeyLen :: CSize) 
+            maxKeyPtr (fromIntegral maxKeyLen :: CSize)
+  where
+    !range' = validateRangeOrdered table range
+    R.DB dbPtr _ = _rocksDbTableDb table
+
+-- | Read a value by key.
+-- One less copy than the version in rocksdb-haskell by using unsafePackCStringFinalizer.
+get :: MonadIO m => R.DB -> R.ReadOptions -> ByteString -> m (Maybe ByteString)
+get (R.DB db_ptr _) opts key = liftIO $ R.withCReadOpts opts $ \opts_ptr ->
+    BU.unsafeUseAsCStringLen key $ \(key_ptr, klen) ->
+    alloca $ \vlen_ptr -> do
+        val_ptr <- checked "Data.CAS.RocksDB.get" $
+            C.c_rocksdb_get db_ptr opts_ptr key_ptr (R.intToCSize klen) vlen_ptr
+        vlen <- peek vlen_ptr
+        if val_ptr == nullPtr
+            then return Nothing
+            else do
+                Just <$> BU.unsafePackCStringFinalizer 
+                    ((coerce :: Ptr CChar -> Ptr Word8) val_ptr) 
+                    (R.cSizeToInt vlen) 
+                    (C.c_rocksdb_free val_ptr)
