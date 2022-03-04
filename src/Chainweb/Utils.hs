@@ -51,9 +51,6 @@ module Chainweb.Utils
 , keySet
 , minimumsOf
 , minimumsByOf
-, leadingZeros
-, randomByteString
-, randomShortByteString
 , maxBy
 , minBy
 , allEqOn
@@ -225,7 +222,6 @@ import Data.Aeson.Text (encodeToLazyText)
 import qualified Data.Aeson.Types as Aeson
 import qualified Data.Attoparsec.Text as A
 import Data.Bifunctor
-import Data.Bits
 import Data.Bool (bool)
 import Data.Bytes.Get
 import Data.Bytes.Put
@@ -234,8 +230,6 @@ import qualified Data.ByteString as B
 import qualified Data.ByteString.Base64 as B64
 import qualified Data.ByteString.Base64.URL as B64U
 import qualified Data.ByteString.Lazy as BL
-import qualified Data.ByteString.Short as BS
-import qualified Data.ByteString.Unsafe as B
 import qualified Data.Csv as CSV
 import Data.Decimal
 import Data.Foldable
@@ -275,7 +269,6 @@ import qualified Streaming.Prelude as S
 
 import System.IO.Unsafe (unsafePerformIO)
 import System.LogLevel
-import System.Random
 import qualified System.Random.MWC as Prob
 import qualified System.Random.MWC.Probability as Prob
 import System.Timeout
@@ -965,47 +958,6 @@ runForeverThrottled logfun name burst rate a = mask $ \umask -> do
                 logfun Error $ name <> " failed: " <> sshow e <> ". Restarting ..."
             go
     void go `finally` logfun Info (name <> " stopped")
-
--- -------------------------------------------------------------------------- --
--- Count leading zero bits of a bytestring
-
--- | Count leading zero bits of a bytestring
---
-leadingZeros :: Integral int => B.ByteString -> int
-leadingZeros b =
-    let l = B.length b
-        midx = B.findIndex (/= 0x00) b
-        countInLastChar idx = countLeadingZeros $! B.unsafeIndex b (idx + 1)
-        f idx = 8 * idx + countInLastChar idx
-        !out = int $! maybe (8 * l) f midx
-    in out
-{-# INLINE leadingZeros #-}
-
--- -------------------------------------------------------------------------- --
--- Random ByteString
---
--- 'getStdRandom' provides a generator that is stored in an 'IORef' and updated
--- via an optimistic atomic swap. 'atomicModifyIORef'' is implemented such that
--- the swapped pointer is updated lazily, which minimizes the chance of retries
--- and life locks.
---
--- However, use of the generator is still sequentialized. Thus, for long
--- 'ByteString's it can be more efficient to split the generator to speed up
--- concurrent access.
-
-randomShortByteString :: MonadIO m => Natural -> m BS.ShortByteString
-randomShortByteString n
-    -- don't split the generators for less than 64 words.
-    -- 512 = 8 * 64
-    | n < 512 = getStdRandom $ genShortByteString (int n)
-    | otherwise = fst . genShortByteString (int n) <$> newStdGen
-
-randomByteString :: MonadIO m => Natural -> m B.ByteString
-randomByteString n
-    -- don't split the generators for less than 64 words.
-    -- 512 = 8 * 64
-    | n < 512 = getStdRandom $ genByteString (int n)
-    | otherwise = fst . genByteString (int n) <$> newStdGen
 
 -- -------------------------------------------------------------------------- --
 -- Configuration wrapper to enable and disable components
