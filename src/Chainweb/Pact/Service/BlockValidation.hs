@@ -147,11 +147,9 @@ pactBackup
     -> IO (MVar (Either PactException ()))
 pactBackup fp reqQ = do
     resultVar <- newEmptyMVar
-    let 
-        !msg = BackupMsg BackupReq
-            { _backupFilePath = fp 
-            , _backupResultVar = resultVar
-            }
-    addRequest reqQ msg
+    addRequest reqQ $! BackupMsg BackupReq
+        { _backupFilePath = fp 
+        , _backupResultVar = resultVar
+        }
     return resultVar
 
