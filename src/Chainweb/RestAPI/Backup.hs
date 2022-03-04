@@ -31,7 +31,7 @@ import Chainweb.Time
 import Chainweb.RestAPI.Utils
 
 type BackupApi 
-  =    "make-backup" :> Get '[PlainText] Text
+  =    "make-backup" :> Post '[PlainText] Text
   :<|> "check-backup" :> Capture "backup-name" FilePath :> Get '[PlainText] Backup.BackupStatus
 
 someBackupApi :: SomeApi

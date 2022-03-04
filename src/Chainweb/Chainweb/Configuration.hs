@@ -328,7 +328,7 @@ pBackupApiConfig = id
     <$< backupApiDirectory .:: textOption 
         % prefixLong backupApi "directory"
         <> suffixHelp backupApi "Directory in which backups will be placed when using the backup API endpoint"
-    where
+  where
     backupApi = Just "backup-api"
 
 instance ToJSON BackupConfig where

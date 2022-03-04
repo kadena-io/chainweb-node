@@ -80,7 +80,7 @@ makeBackup env name = do
             logFunctionText (_backupLogger env) Error ("backup to " <> T.pack thisBackup <> " failed: " <> sshow ex)
             throwM ex
         Right () -> return ()
-    where
+  where
     thisBackup = _backupDir env </> name
     doBackup = do
         logFunctionText (_backupLogger env) Info ("making rocksdb checkpoint to " <> T.pack (thisBackup </> "rocksDb"))
