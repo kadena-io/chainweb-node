@@ -70,7 +70,7 @@ import Chainweb.Payload.PayloadStore.RocksDB
 import Chainweb.Sync.WebBlockHeaderStore
 import Chainweb.Test.Orphans.Internal ()
 import Chainweb.Test.Sync.WebBlockHeaderStore
-import Chainweb.Test.Utils 
+import Chainweb.Test.Utils
 import Chainweb.Time
 import Chainweb.Utils
 import Chainweb.Version
@@ -502,29 +502,30 @@ tests :: RocksDb -> TestTree
 tests rdb = testGroup "CutDB"
     [ testCutPruning rdb version
     ]
-    where
+  where
     version = Test petersonChainGraph
 
 testCutPruning :: RocksDb -> ChainwebVersion -> TestTree
 testCutPruning rdb v = testCase "cut pruning" $ do
-    let pruningFrequency = 50
     -- initialize cut DB and mine enough to trigger pruning
-    let alterPruningSettings = 
-            set cutDbParamsAvgBlockHeightPruningDepth 50 .
-            set cutDbParamsPruningFrequency pruningFrequency .
-            set cutDbParamsWritingFrequency 1
-        minedBlockHeight = 201
-    withTestCutDbWithoutPact rdb v alterPruningSettings 
-        (int $ avgCutHeightAt v minedBlockHeight) 
-        (\_ _ -> return ()) 
+    withTestCutDbWithoutPact rdb v alterPruningSettings
+        (int $ avgCutHeightAt v minedBlockHeight)
+        (\_ _ -> return ())
         $ \cutHashesStore _ -> do
             -- peek inside the cut DB's store to find the oldest and newest cuts
             let table = _getRocksDbCas cutHashesStore
             Just (leastCutHeight, _, _) <- tableMinKey table
             Just (mostCutHeight, _, _) <- tableMaxKey table
             -- we must have pruned the older cuts
-            assertBool "oldest cuts are too old" 
+            assertBool "oldest cuts are too old"
                 (round (avgBlockHeightAtCutHeight v leastCutHeight) >= minedBlockHeight - pruningFrequency - int (degreeAt v minedBlockHeight) - 1)
             -- we must keep the latest cut
             avgBlockHeightAtCutHeight v mostCutHeight @?= 201
+  where
+    pruningFrequency = 50
+    alterPruningSettings =
+        set cutDbParamsAvgBlockHeightPruningDepth 50 .
+        set cutDbParamsPruningFrequency pruningFrequency .
+        set cutDbParamsWritingFrequency 1
+    minedBlockHeight = 201
 

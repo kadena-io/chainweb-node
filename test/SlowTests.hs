@@ -39,5 +39,4 @@ suite rdb = testGroup "ChainwebSlowTests"
     , testGroup "Network.X05.SelfSigned.Test"
         [ Network.X509.SelfSigned.Test.tests
         ]
-    , Chainweb.Test.CutDB.tests rdb
     ]
