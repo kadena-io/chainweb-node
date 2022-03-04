@@ -40,7 +40,6 @@ import Data.Foldable
 import Data.Function
 import qualified Data.HashMap.Strict as HM
 import qualified Data.Vector as V
--- import qualified Data.Text as T
 
 import GHC.Stack
 
