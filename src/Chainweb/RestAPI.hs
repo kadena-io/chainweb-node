@@ -94,7 +94,7 @@ import Chainweb.HostAddress
 import Chainweb.Logger (Logger)
 import Chainweb.Mempool.Mempool (MempoolBackend)
 import qualified Chainweb.Mempool.RestAPI.Server as Mempool
-import qualified Chainweb.Miner.RestAPI.Server as Mining
+import qualified Chainweb.Miner.RestAPI as Mining
 import qualified Chainweb.Pact.RestAPI.Server as PactAPI
 import Chainweb.Payload.PayloadStore
 import Chainweb.Payload.RestAPI.Server
@@ -328,16 +328,16 @@ someServiceApiServer v dbs pacts mr (HeaderStream hs) (Rosetta r) =
     -- someHealthCheckServer
     -- maybe mempty (someNodeInfoServer v) cuts
     -- TODO PactAPI.somePactServers v pacts
-    maybe mempty (Mining.someMiningServer v) mr
-    <> maybe mempty (someHeaderStreamServer v) (bool Nothing cuts hs)
-    <> maybe mempty (bool mempty (someRosettaServer v payloads concreteMs cutPeerDb concretePacts) r) cuts
+    -- maybe mempty (Mining.someMiningServer v) mr
+    -- maybe mempty (someHeaderStreamServer v) (bool Nothing cuts hs)
+    -- maybe mempty (bool mempty (someRosettaServer v payloads concreteMs cutPeerDb concretePacts) r) cuts
         -- TODO: not sure if passing the correct PeerDb here
         -- TODO: why does Rosetta need a peer db at all?
         -- TODO: simplify number of resources passing to rosetta
 
     -- GET Cut, Payload, and Headers endpoints
-    <> maybe mempty (someCutGetServer v) cuts
-    <> somePayloadServers v payloads
+    -- maybe mempty (someCutGetServer v) cuts
+    -- <> somePayloadServers v payloads
     <> someBlockHeaderDbServers v blocks
   where
     cuts = _chainwebServerCutDb dbs

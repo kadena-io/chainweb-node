@@ -194,8 +194,6 @@ library
         , Chainweb.Miner.Miners
         , Chainweb.Miner.Pact
         , Chainweb.Miner.RestAPI
-        , Chainweb.Miner.RestAPI.Client
-        , Chainweb.Miner.RestAPI.Server
         , Chainweb.NodeVersion
         , Chainweb.Payload
         , Chainweb.Payload.PayloadStore

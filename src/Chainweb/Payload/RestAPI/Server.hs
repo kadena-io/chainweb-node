@@ -26,17 +26,21 @@ module Chainweb.Payload.RestAPI.Server
 ) where
 
 import Control.Monad
+import Control.Monad.Catch
 import Control.Monad.IO.Class
 import Control.Monad.Trans.Maybe
 
 import Data.Aeson
 import Data.Function
+import Data.Foldable
 import Data.Proxy
 import qualified Data.Text.IO as T
 import qualified Data.Vector as V
 
 import Prelude hiding (lookup)
 
+import Network.HTTP.Types
+import Network.Wai
 import Servant
 
 -- internal modules
@@ -48,6 +52,7 @@ import Chainweb.Payload.PayloadStore
 import Chainweb.Payload.RestAPI
 import Chainweb.RestAPI.Orphans ()
 import Chainweb.RestAPI.Utils
+import Chainweb.Utils.HTTP
 import Chainweb.Version
 
 import Data.CAS
@@ -76,19 +81,19 @@ payloadHandler
     . PayloadCasLookup cas
     => PayloadDb cas
     -> BlockPayloadHash
-    -> Handler PayloadData
+    -> IO PayloadData
 payloadHandler db k = run >>= \case
-    Nothing -> throwError $ err404Msg $ object
+    Nothing -> throwM $ err404Msg $ object
         [ "reason" .= ("key not found" :: String)
         , "key" .= k
         ]
     Just e -> return e
   where
     run = runMaybeT $ do
-        payload <- MaybeT $ liftIO $ casLookup
+        payload <- MaybeT $ casLookup
             (_transactionDbBlockPayloads $ _transactionDb db)
             k
-        txs <- MaybeT $ liftIO $ casLookup
+        txs <- MaybeT $ casLookup
             (_transactionDbBlockTransactions $ _transactionDb db)
             (_blockPayloadTransactionsHash payload)
         return $ payloadData txs payload
@@ -101,8 +106,8 @@ payloadBatchHandler
     . PayloadCasLookup cas
     => PayloadDb cas
     -> [BlockPayloadHash]
-    -> Handler [PayloadData]
-payloadBatchHandler db ks = liftIO $ do
+    -> IO [PayloadData]
+payloadBatchHandler db ks = do
     payloads <- catMaybes
         <$> casLookupBatch payloadsDb (V.fromList $ take payloadBatchLimit ks)
     txs <- V.zipWith (\a b -> payloadData <$> a <*> pure b)
@@ -123,9 +128,9 @@ outputsHandler
     . PayloadCasLookup cas
     => PayloadDb cas
     -> BlockPayloadHash
-    -> Handler PayloadWithOutputs
-outputsHandler db k = liftIO (casLookup db k) >>= \case
-    Nothing -> throwError $ err404Msg $ object
+    -> IO PayloadWithOutputs
+outputsHandler db k = casLookup db k >>= \case
+    Nothing -> throwM $ err404Msg $ object
         [ "reason" .= ("key not found" :: String)
         , "key" .= k
         ]
@@ -139,12 +144,12 @@ outputsBatchHandler
     . PayloadCasLookup cas
     => PayloadDb cas
     -> [BlockPayloadHash]
-    -> Handler [PayloadWithOutputs]
-outputsBatchHandler db ks = liftIO
-    $ fmap (V.toList . catMaybes)
-    $ casLookupBatch db
-    $ V.fromList
-    $ take payloadBatchLimit ks
+    -> IO [PayloadWithOutputs]
+outputsBatchHandler db ks = 
+    fmap (V.toList . catMaybes)
+        $ casLookupBatch db
+        $ V.fromList
+        $ take payloadBatchLimit ks
 
 -- -------------------------------------------------------------------------- --
 -- Payload API Server
@@ -155,10 +160,10 @@ payloadServer
     => PayloadDb' cas v c
     -> Server (PayloadApi v c)
 payloadServer (PayloadDb' db)
-    = payloadHandler @cas db
-    :<|> outputsHandler @cas db
-    :<|> payloadBatchHandler @cas db
-    :<|> outputsBatchHandler @cas db
+    = liftIO . payloadHandler @cas db
+    :<|> liftIO . outputsHandler @cas db
+    :<|> liftIO . payloadBatchHandler @cas db
+    :<|> liftIO . outputsBatchHandler @cas db
 
 -- -------------------------------------------------------------------------- --
 -- Application for a single PayloadDb
@@ -179,6 +184,19 @@ payloadApiLayout
     => PayloadDb' cas v c
     -> IO ()
 payloadApiLayout _ = T.putStrLn $ layout (Proxy @(PayloadApi v c))
+
+newPayloadServer :: PayloadCasLookup cas => Route (PayloadDb cas -> Application)
+newPayloadServer = choice "payload" $ fold
+    [ choice "batch" $ 
+        terminus [methodGet] payloadBatchHandler 
+    , choice "outputs" $ 
+        choice "batch" $ 
+            terminus [methodPost] outputsBatchHandler
+    , capture $ fold
+        [ choice "outputs" $ terminus [methodGet] outputsHandler
+        , terminus [methodGet] payloadHandler
+        ]
+    ]
 
 -- -------------------------------------------------------------------------- --
 -- Multichain Server

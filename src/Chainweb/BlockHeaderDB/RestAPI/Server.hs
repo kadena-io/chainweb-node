@@ -27,6 +27,7 @@ module Chainweb.BlockHeaderDB.RestAPI.Server
 
 -- * Header Stream Server
 , someHeaderStreamServer
+, headerStreamServer
 ) where
 
 import Control.Applicative
@@ -48,6 +49,8 @@ import Data.Proxy
 import Data.Text.Encoding (decodeUtf8)
 import qualified Data.Text.IO as T
 
+import Network.HTTP.Types
+import qualified Network.Wai as Wai
 import Network.Wai.EventSource (ServerEvent(..), eventSourceAppIO)
 
 import Prelude hiding (lookup)
@@ -71,6 +74,7 @@ import Chainweb.PowHash (powHashBytes)
 import Chainweb.RestAPI.Orphans ()
 import Chainweb.RestAPI.Utils
 import Chainweb.TreeDB
+import Chainweb.Utils.HTTP
 import Chainweb.Utils.Paging
 import Chainweb.Version
 
@@ -276,19 +280,18 @@ someBlockHeaderDbServers v = mconcat
 -- -------------------------------------------------------------------------- --
 -- BlockHeader Event Stream
 
+headerStreamServer :: PayloadCasLookup cas => CutDb cas -> Route (ChainwebVersion -> Wai.Application)
+headerStreamServer db =
+    choice "header" $ 
+        choice "updates" $ 
+            terminus [methodGet] (const $ headerStreamHandler db)
+
 someHeaderStreamServer :: PayloadCasLookup cas => ChainwebVersion -> CutDb cas -> SomeServer
 someHeaderStreamServer (FromSingChainwebVersion (SChainwebVersion :: Sing v)) cdb =
-    SomeServer (Proxy @(HeaderStreamApi v)) $ headerStreamServer cdb
+    SomeServer (Proxy @(HeaderStreamApi v)) $ Tagged $ headerStreamHandler cdb
 
-headerStreamServer
-    :: forall cas (v :: ChainwebVersionT)
-    .  PayloadCasLookup cas
-    => CutDb cas
-    -> Server (HeaderStreamApi v)
-headerStreamServer cdb = headerStreamHandler cdb
-
-headerStreamHandler :: forall cas. PayloadCasLookup cas => CutDb cas -> Tagged Handler Application
-headerStreamHandler db = Tagged $ \req resp -> do
+headerStreamHandler :: forall cas. PayloadCasLookup cas => CutDb cas -> Wai.Application
+headerStreamHandler db = \req resp -> do
     streamRef <- newIORef $ SP.map f $ SP.mapM g $ SP.concat $ blockDiffStream db
     eventSourceAppIO (run streamRef) req resp
   where

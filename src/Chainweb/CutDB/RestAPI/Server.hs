@@ -39,7 +39,9 @@ import Data.IxSet.Typed
 import Data.Proxy
 import Data.Semigroup
 
+import Network.HTTP.Types
 import Network.Wai.Handler.Warp hiding (Port)
+import qualified Network.Wai as Wai
 
 import Servant.API
 import Servant.Server
@@ -54,6 +56,7 @@ import Chainweb.HostAddress
 import Chainweb.RestAPI.Utils
 import Chainweb.TreeDB (MaxRank(..))
 import Chainweb.Utils
+import Chainweb.Utils.HTTP
 import Chainweb.Version
 
 import P2P.Node.PeerDB
@@ -62,9 +65,9 @@ import P2P.Peer
 -- -------------------------------------------------------------------------- --
 -- Handlers
 
-cutGetHandler :: CutDb cas -> Maybe MaxRank -> Handler CutHashes
-cutGetHandler db Nothing = liftIO $ cutToCutHashes Nothing <$> _cut db
-cutGetHandler db (Just (MaxRank (Max mar))) = liftIO $ do
+cutGetHandler :: CutDb cas -> Maybe MaxRank -> IO CutHashes
+cutGetHandler db Nothing = cutToCutHashes Nothing <$> _cut db
+cutGetHandler db (Just (MaxRank (Max mar))) = do
     !c <- _cut db
     !c' <- limitCut (view cutDbWebBlockHeaderDb db) (int mar) c
     return $! cutToCutHashes Nothing c'
@@ -86,13 +89,19 @@ cutServer
     . PeerDb
     -> CutDbT cas v
     -> Server (CutApi v)
-cutServer pdb (CutDbT db) = cutGetHandler db :<|> cutPutHandler pdb db
+cutServer pdb (CutDbT db) = (liftIO . cutGetHandler db) :<|> cutPutHandler pdb db
 
 cutGetServer
     :: forall cas (v :: ChainwebVersionT)
     . CutDbT cas v
     -> Server (CutGetApi v)
-cutGetServer (CutDbT db) = cutGetHandler db
+cutGetServer (CutDbT db) = liftIO . cutGetHandler db
+
+cutGetApi :: CutDb cas -> Route (ChainwebVersion -> Wai.Application)
+cutGetApi cutDb = 
+    choice "cut" $ terminus [methodGet] $ const $ \req respond -> do
+        maxheight <- allParams req (queryParamMaybe "maxheight") 
+        respond . responseJSON status200 [] =<< cutGetHandler cutDb maxheight
 
 -- -------------------------------------------------------------------------- --
 -- Some Cut Server

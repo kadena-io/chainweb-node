@@ -28,7 +28,7 @@ import Network.Wai
 
 import GHC.Generics
 
-import Servant
+import Servant hiding (respond)
 
 import Chainweb.BlockHeight
 import Chainweb.Cut.CutHashes
@@ -38,9 +38,9 @@ import Chainweb.RestAPI.Utils
 import Chainweb.Version
 import Chainweb.Utils.HTTP
 
-nodeInfoApi :: Route (ChainwebVersion -> CutDb cas -> Application)
-nodeInfoApi =
-  choice "info" $ terminus [methodGet] $ \v cutDb req respond -> do
+nodeInfoApi :: CutDb cas -> Route (ChainwebVersion -> Application)
+nodeInfoApi cutDb =
+  choice "info" $ terminus [methodGet] $ \v _ respond -> do
     curCut <- liftIO $ _cut cutDb
     let ch = cutToCutHashes Nothing curCut
         curHeight = maximum $ map _bhwhHeight $ HashMap.elems $ _cutHashes ch
