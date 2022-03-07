@@ -20,7 +20,6 @@
 module Chainweb.Pact.Backend.Utils
   ( -- * General utils
     callDb
-  , checkNotInTx
   , open2
     -- * Savepoints
   , withSavepoint
@@ -74,7 +73,6 @@ import System.LogLevel
 
 -- pact
 
-import qualified Pact.Types.Logger as PactLogger
 import Pact.Types.Persistence
 import Pact.Types.SQLite
 import Pact.Types.Term
@@ -98,13 +96,6 @@ callDb callerName action = do
   case res of
     Left err -> internalError $ "callDb (" <> callerName <> "): " <> (pack $ show err)
     Right r -> return r
-
-checkNotInTx :: (MonadReader (BlockDbEnv SQLiteEnv) m, MonadIO m) => PactLogger.Logger -> m ()
-checkNotInTx logger = do
-  c <- view (bdbenvDb . sConn)
-  inTx <- not <$> liftIO (getAutoCommit c)
-  when inTx $ liftIO $ PactLogger.runLogIO logger $
-    PactLogger.logError "expected there to be no active sqlite transaction, but there is one." 
 
 withSavepoint
     :: SavepointName
@@ -221,7 +212,7 @@ chainwebPragmas :: [Pragma]
 chainwebPragmas =
   [ "synchronous = NORMAL"
   , "journal_mode = WAL"
-  -- , old: "locking_mode = EXCLUSIVE"
+  -- , "locking_mode = EXCLUSIVE"
   , "locking_mode = NORMAL"
   , "temp_store = MEMORY"
   , "auto_vacuum = NONE"
