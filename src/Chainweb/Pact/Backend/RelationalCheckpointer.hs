@@ -91,8 +91,8 @@ initRelationalCheckpointer' bstate sqlenv loggr v cid = do
         { _cpeCheckpointer =
             Checkpointer
             {
-                _cpRestore = doRestore v cid db
-              , _cpSave = doSave db
+                _cpRestore = doRestore loggr v cid db
+              , _cpSave = doSave loggr db
               , _cpDiscard = doDiscard db
               , _cpGetLatestBlock = doGetLatest db
               , _cpBeginCheckpointerBatch = doBeginBatch db
@@ -110,11 +110,12 @@ initRelationalCheckpointer' bstate sqlenv loggr v cid = do
 
 type Db = MVar (BlockEnv SQLiteEnv)
 
-doRestore :: ChainwebVersion -> ChainId -> Db -> Maybe (BlockHeight, ParentHash) -> IO PactDbEnv'
-doRestore v cid dbenv (Just (bh, hash)) = runBlockEnv dbenv $ do
+doRestore :: Logger -> ChainwebVersion -> ChainId -> Db -> Maybe (BlockHeight, ParentHash) -> IO PactDbEnv'
+doRestore logger v cid dbenv (Just (bh, hash)) = runBlockEnv dbenv $ do
     setModuleNameFix
     setSortedKeys
     clearPendingTxState
+    checkNotInTx logger
     void $ withSavepoint PreBlock $ handlePossibleRewind v cid bh hash
     beginSavepoint Block
     return $! PactDbEnv' $! PactDbEnv chainwebPactDb dbenv
@@ -122,8 +123,9 @@ doRestore v cid dbenv (Just (bh, hash)) = runBlockEnv dbenv $ do
     -- Module name fix follows the restore call to checkpointer.
     setModuleNameFix = bsModuleNameFix .= enableModuleNameFix v bh
     setSortedKeys = bsSortedKeys .= pact420Upgrade v bh
-doRestore _ _ dbenv Nothing = runBlockEnv dbenv $ do
+doRestore logger _ _ dbenv Nothing = runBlockEnv dbenv $ do
     clearPendingTxState
+    checkNotInTx logger
     withSavepoint DbTransaction $
       callDb "doRestoreInitial: resetting tables" $ \db -> do
         exec_ db "DELETE FROM BlockHistory;"
@@ -142,8 +144,8 @@ doRestore _ _ dbenv Nothing = runBlockEnv dbenv $ do
     assign bsTxId 0
     return $! PactDbEnv' $ PactDbEnv chainwebPactDb dbenv
 
-doSave :: Db -> BlockHash -> IO ()
-doSave dbenv hash = runBlockEnv dbenv $ do
+doSave :: Logger -> Db -> BlockHash -> IO ()
+doSave logger dbenv hash = runBlockEnv dbenv $ do
     height <- gets _bsBlockHeight
     runPending height
     nextTxId <- gets _bsTxId
@@ -152,6 +154,7 @@ doSave dbenv hash = runBlockEnv dbenv $ do
     -- FIXME: if any of the above fails with an exception the following isn't
     -- executed and a pending SAVEPOINT is left on the stack.
     commitSavepoint Block
+    checkNotInTx logger
     clearPendingTxState
   where
     runPending :: BlockHeight -> BlockHandler SQLiteEnv ()
