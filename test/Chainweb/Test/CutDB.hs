@@ -519,7 +519,7 @@ testCutPruning rdb v = testCase "cut pruning" $ do
             assertBool "oldest cuts are too old"
                 (round (avgBlockHeightAtCutHeight v leastCutHeight) >= minedBlockHeight - pruningFrequency - int (degreeAt v minedBlockHeight) - 1)
             -- we must keep the latest cut
-            avgBlockHeightAtCutHeight v mostCutHeight @?= 201
+            round (avgBlockHeightAtCutHeight v mostCutHeight) @?= (int minedBlockHeight :: Integer)
   where
     pruningFrequency = 50
     alterPruningSettings =
