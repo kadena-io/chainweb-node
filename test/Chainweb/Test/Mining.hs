@@ -43,7 +43,7 @@ import Chainweb.Logger
 import Chainweb.Miner.Config
 import Chainweb.Miner.Coordinator
 import Chainweb.Miner.Pact
-import Chainweb.Test.CutDB
+import Chainweb.Test.CutDB hiding (tests)
 import Chainweb.Version
 
 -- -------------------------------------------------------------------------- --
@@ -67,8 +67,8 @@ withTestCoordiantor
     -> IO ()
 withTestCoordiantor rdb maybeConf a = do
     var <- newEmptyMVar
-    x <- race (takeMVar var) $ do
-        withTestCutDb rdb v 0 (\_ _ -> return fakePact) (logFunction logger) $ \cdb ->
+    x <- race (takeMVar var) $ 
+        withTestCutDb rdb v id 0 (\_ _ -> return fakePact) (logFunction logger) $ \_ cdb ->
             withMiningCoordination logger conf cdb $ \case
                 Nothing -> error "nonEmptyMiningAccount: Bug in the mining Code"
                 Just coord -> do
