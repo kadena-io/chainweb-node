@@ -46,7 +46,6 @@ import Chainweb.BlockHeight (BlockHeight(..))
 import Chainweb.MerkleLogHash (merkleLogHash)
 import Chainweb.MerkleUniverse
 import Chainweb.Pact.Backend.ChainwebPactDb
-import Chainweb.Pact.Backend.InMemoryCheckpointer (initInMemoryCheckpointEnv)
 import Chainweb.Pact.Backend.RelationalCheckpointer
 import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.Backend.Utils
@@ -66,8 +65,7 @@ import Chainweb.Test.Orphans.Internal ({- Arbitrary BlockHash -})
 
 tests :: ScheduledTest
 tests = testGroupSch "Checkpointer"
-    [ testInMemory
-    , testRelational
+    [ testRelational
     , testKeyset
     , testModuleName
     , testCase "PactDb Regression" testRegress
@@ -140,10 +138,6 @@ keysetTest c = testCaseSteps "Keyset test" $ \next -> do
 
 -- -------------------------------------------------------------------------- --
 -- CheckPointer Test
-
-testInMemory :: TestTree
-testInMemory = withInMemCheckpointerResource
-    $ checkpointerTest "In-memory Checkpointer" False
 
 testRelational :: TestTree
 testRelational = withRelationalCheckpointerResource $
@@ -573,13 +567,6 @@ throwFail = throwIO . userError
 
 -- -------------------------------------------------------------------------- --
 -- Checkpointer Utils
-
-withInMemCheckpointerResource :: (IO CheckpointEnv -> TestTree) -> TestTree
-withInMemCheckpointerResource = withResource initInMem (const $ return ())
-  where
-    loggers = pactTestLogger False
-    logger = newLogger loggers "inMemCheckpointer"
-    initInMem = initInMemoryCheckpointEnv loggers logger testVer testChainId
 
 withRelationalCheckpointerResource :: (IO CheckpointEnv -> TestTree) -> TestTree
 withRelationalCheckpointerResource =

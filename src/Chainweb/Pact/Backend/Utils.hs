@@ -215,12 +215,19 @@ chainwebPragmas :: [Pragma]
 chainwebPragmas =
   [ "synchronous = NORMAL"
   , "journal_mode = WAL"
-  , "locking_mode = EXCLUSIVE"
+  , "locking_mode = NORMAL"
+  -- ^ changed from locking_mode = EXCLUSIVE to allow backups to run concurrently 
+  -- with Pact service operation. the effect of this change is twofold: 
+  --   - now file locks are grabbed at the beginning of each transaction; with 
+  --     EXCLUSIVE, file locks are never let go until the entire connection closes.
+  --     (see https://web.archive.org/web/20220222231602/https://sqlite.org/pragma.html#pragma_locking_mode)
+  --   - now we can query the database while another connection is open, 
+  --     taking full advantage of WAL mode.
+  --     (see https://web.archive.org/web/20220226212219/https://sqlite.org/wal.html#sometimes_queries_return_sqlite_busy_in_wal_mode)
   , "temp_store = MEMORY"
   , "auto_vacuum = NONE"
   , "page_size = 1024"
   ]
-
 
 
 execMulti :: Traversable t => Database -> Utf8 -> t [SType] -> IO ()
