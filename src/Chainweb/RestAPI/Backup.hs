@@ -37,7 +37,7 @@ import Chainweb.RestAPI.Utils
 import Chainweb.Version
 
 type BackupApi_
-  =    "make-backup" :> QueryFlag "backupPact" :> Post '[PlainText] Text
+  =    "make-backup" :> QueryFlag "backupPact" :> PostAccepted '[PlainText] Text
   :<|> "check-backup" :> Capture "backup-name" FilePath :> Get '[PlainText] Backup.BackupStatus
 
 type BackupApi (v :: ChainwebVersionT) = 'ChainwebEndpoint v :> Reassoc BackupApi_
