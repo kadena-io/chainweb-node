@@ -335,7 +335,7 @@ someServiceApiServer
     -> SomeServer
 someServiceApiServer v dbs pacts mr (HeaderStream hs) (Rosetta r) backupEnv =
     someHealthCheckServer
-    <> maybe mempty someBackupServer backupEnv
+    <> maybe mempty (someBackupServer v) backupEnv
     <> maybe mempty (someNodeInfoServer v) cuts
     <> PactAPI.somePactServers v pacts
     <> maybe mempty (Mining.someMiningServer v) mr
