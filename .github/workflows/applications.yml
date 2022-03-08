@@ -142,12 +142,16 @@ jobs:
       uses: actions/checkout@v2
       with:
         fetch-depth: 0
-    - name: Set all tracked file modification times to the time of their last commit
-      run: |
-        rev=HEAD
-        for f in $(git ls-tree -r -t --full-name --name-only "$rev") ; do
-          touch -d $(git log --pretty=format:%cI -1 "$rev" -- "$f") "$f";
-        done
+    # This only works if also the times of the cache are adjusted accordingly
+    # to the time of the commit for the respective revision. This can be done
+    # by adjusting the time of all files in the cache before the end of the task
+    #
+    # - name: Set all tracked file modification times to the time of their last commit
+    #   run: |
+    #     rev=HEAD
+    #     for f in $(git ls-tree -r -t --full-name --name-only "$rev") ; do
+    #       touch -d $(git log --pretty=format:%cI -1 "$rev" -- "$f") "$f";
+    #     done
     - name: Install GHC and Cabal
       uses: haskell/actions/setup@v1.2.7
       with:
