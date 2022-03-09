@@ -537,7 +537,7 @@ processCuts conf logFun headerStore payloadStore cutHashesStore queue cutVar = d
 
     maybePrune rng curCutAvgBlockHeight = do
         r :: Double <- Prob.uniform rng
-        when (r > 1 / int (int (_cutDbParamsPruningFrequency conf) * chainCountAt v maxBound)) $
+        when (r < 1 / int (int (_cutDbParamsPruningFrequency conf) * chainCountAt v maxBound)) $
             pruneCuts logFun v conf curCutAvgBlockHeight cutHashesStore
 
     maybeWrite rng newCut = do
