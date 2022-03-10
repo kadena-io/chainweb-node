@@ -499,14 +499,14 @@ fakePact = WebPactExecutionService $ PactExecutionService
 
 tests :: RocksDb -> TestTree
 tests rdb = testGroup "CutDB"
-    [ testCutPruning rdb version
+    [ testCutPruning rdb
     ]
   where
-    version = Test petersonChainGraph
 
-testCutPruning :: RocksDb -> ChainwebVersion -> TestTree
-testCutPruning rdb v = testCase "cut pruning" $ do
+testCutPruning :: RocksDb -> TestTree
+testCutPruning rdb = testCase "cut pruning" $ do
     -- initialize cut DB and mine enough to trigger pruning
+    let v = Test pairChainGraph
     withTestCutDbWithoutPact rdb v alterPruningSettings
         (int $ avgCutHeightAt v minedBlockHeight)
         (\_ _ -> return ())
@@ -517,14 +517,15 @@ testCutPruning rdb v = testCase "cut pruning" $ do
             Just (mostCutHeight, _, _) <- tableMaxKey table
             -- we must have pruned the older cuts
             assertBool "oldest cuts are too old"
-                (round (avgBlockHeightAtCutHeight v leastCutHeight) >= minedBlockHeight - pruningFrequency - int (degreeAt v minedBlockHeight) - 1)
+                (round (avgBlockHeightAtCutHeight v leastCutHeight) >=
+                    (10 :: Integer))
             -- we must keep the latest cut
-            avgBlockHeightAtCutHeight v mostCutHeight @?= 201
+            round (avgBlockHeightAtCutHeight v mostCutHeight) @?=
+                (int minedBlockHeight :: Integer)
   where
-    pruningFrequency = 50
     alterPruningSettings =
         set cutDbParamsAvgBlockHeightPruningDepth 50 .
-        set cutDbParamsPruningFrequency pruningFrequency .
+        set cutDbParamsPruningFrequency 1 .
         set cutDbParamsWritingFrequency 1
-    minedBlockHeight = 201
+    minedBlockHeight = 300
 
