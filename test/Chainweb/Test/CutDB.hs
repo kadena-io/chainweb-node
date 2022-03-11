@@ -515,13 +515,13 @@ testCutPruning rdb = testCase "cut pruning" $ do
             let table = _getRocksDbCas cutHashesStore
             Just (leastCutHeight, _, _) <- tableMinKey table
             Just (mostCutHeight, _, _) <- tableMaxKey table
+            let fuzz = 10 :: Integer
             -- we must have pruned the older cuts
-            assertBool "oldest cuts are too old"
-                (round (avgBlockHeightAtCutHeight v leastCutHeight) >=
-                    (10 :: Integer))
+            assertBool "oldest cuts are too old" $
+                round (avgBlockHeightAtCutHeight v leastCutHeight) >= fuzz
             -- we must keep the latest cut
-            round (avgBlockHeightAtCutHeight v mostCutHeight) @?=
-                (int minedBlockHeight :: Integer)
+            assertBool "newest cut is too old" $
+                round (avgBlockHeightAtCutHeight v mostCutHeight) >= int minedBlockHeight - fuzz
   where
     alterPruningSettings =
         set cutDbParamsAvgBlockHeightPruningDepth 50 .
