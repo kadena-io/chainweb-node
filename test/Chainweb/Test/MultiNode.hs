@@ -120,6 +120,7 @@ multiConfig
     -> ChainwebConfiguration
 multiConfig v n = defaultChainwebConfiguration v
     & set (configP2p . p2pConfigPeer . peerConfigHost) host
+    & set (configP2p . p2pConfigPeer . peerConfigPort) 0
     & set (configP2p . p2pConfigPeer . peerConfigInterface) interface
         -- Only listen on the loopback device. On Mac OS X this prevents the
         -- firewall dialog form poping up.
