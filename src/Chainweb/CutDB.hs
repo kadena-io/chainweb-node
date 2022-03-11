@@ -170,10 +170,12 @@ data CutDbParams = CutDbParams
     -- ^ How many block heights' worth of cuts should we keep around? 
     -- (how far back do we expect that a fork can happen)
     , _cutDbParamsPruningFrequency :: BlockHeight
-    -- ^ How often do we prune cuts (approximately)?
+    -- ^ After how many blocks do we prune cuts (on average)?
     , _cutDbParamsWritingFrequency :: BlockHeight
-    -- ^ How often do we write cuts (approximately)? should be much less than 
-    -- `blockHeightPruningDepth` or the CutHashes table will always be empty.
+    -- ^ After how many blocks do we write a cut (on average)? 
+    -- should be much less than `blockHeightPruningDepth` or the 
+    -- CutHashes table will always be empty.
+    -- 
     }
     deriving (Show, Eq, Ord, Generic)
 
