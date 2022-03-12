@@ -181,19 +181,6 @@ jobs:
           documentation: False
           optimization: ${{ needs.config.outputs.opt-level }}
         EOF
-    - name: Create cabal.project.local
-      if: startsWith(matrix.ghc, '9')
-      run: |
-        cat >> cabal.project.local <<EOF
-        allow-newer: token-bucket:*
-        allow-newer: ixset-typed:*
-        allow-newer: hashable:*
-        source-repository-package
-            type: git
-            location: https://github.com/larskuhtz/ixset-typed
-            tag: 26e2a4397a49e731b5a8dcdfb08a64bae06081da
-        EOF
-
 
     # dist cache
     - name: Create date file for dist-newstyle cache key
@@ -222,6 +209,9 @@ jobs:
       run: |
         cabal build all --dry-run
         cabal freeze
+    - name: Display Dependency Changes
+      run: |
+        diff -w <(git show HEAD:cabal.project.freeze) cabal.project.freeze || true
     - name: Sync from cabal cache
       if: matrix.cabalcache == 'true'
       uses: larskuhtz/cabal-cache-action@ecc751af6d31b3ed5a3b4aefdefd0ed6ef4cb414
