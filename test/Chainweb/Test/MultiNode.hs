@@ -202,18 +202,19 @@ multiNode
         -- ^ Unique node id. Node id 0 is used for the bootstrap node
     -> IO ()
 multiNode loglevel write stateVar bootstrapPeerInfoVar conf rdb nid = do
-    withSystemTempDirectory "multiNode-pact-db" $ \tmpDir ->
-        withChainweb conf logger nodeRocksDb (error "no backup directory") (pactDbDir tmpDir) False $ \cw -> do
+    withSystemTempDirectory "multiNode-backup-dir" $ \backupTmpDir ->
+        withSystemTempDirectory "multiNode-pact-db" $ \tmpDir ->
+            withChainweb conf logger nodeRocksDb (pactDbDir tmpDir) backupTmpDir False $ \cw -> do
 
-            -- If this is the bootstrap node we extract the port number and
-            -- publish via an MVar.
-            when (nid == 0) $ putMVar bootstrapPeerInfoVar
-                $ view (chainwebPeer . peerResPeer . peerInfo) cw
+                -- If this is the bootstrap node we extract the port number and
+                -- publish via an MVar.
+                when (nid == 0) $ putMVar bootstrapPeerInfoVar
+                    $ view (chainwebPeer . peerResPeer . peerInfo) cw
 
-            runChainweb cw `finally` do
-                logFunctionText logger Info "write sample data"
-                sample cw
-                logFunctionText logger Info "shutdown node"
+                runChainweb cw `finally` do
+                    logFunctionText logger Info "write sample data"
+                    sample cw
+                    logFunctionText logger Info "shutdown node"
   where
     pactDbDir tmpDir = tmpDir <> "/" <> show nid
 

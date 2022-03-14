@@ -77,10 +77,7 @@ instance MimeUnrender PlainText BackupStatus where
 makeBackup :: Logger logger => BackupEnv logger -> BackupOptions -> IO ()
 makeBackup env options = do
     logCr Info ("making backup to " <> T.pack thisBackup)
-    createDirectoryIfMissing False (_backupDir env)
-    createDirectoryIfMissing False thisBackup
-    createDirectoryIfMissing False (thisBackup </> "0")
-    createDirectoryIfMissing False (thisBackup </> "0" </> "sqlite")
+    createDirectoryIfMissing True (thisBackup </> "0" </> "sqlite")
     -- we don't create the rocksDb checkpoint folder ourselves,
     -- RocksDB fails if it exists
     T.writeFile (thisBackup </> "status") (toText BackupInProgress)

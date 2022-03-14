@@ -77,8 +77,10 @@ import Configuration.Utils hiding (Error, Lens', disabled)
 import Control.Lens hiding ((.=), (<.>))
 import Control.Monad
 import Control.Monad.Catch (MonadThrow, throwM)
+import Control.Monad.Except
 import Control.Monad.Writer
 
+import Data.Foldable
 import Data.Maybe
 import qualified Data.Text as T
 
@@ -89,6 +91,8 @@ import Network.Wai.Handler.Warp hiding (Port)
 import Numeric.Natural (Natural)
 
 import Prelude hiding (log)
+
+import System.Directory
 
 -- internal modules
 
@@ -340,7 +344,7 @@ pBackupConfig = id
     <*< configBackupDirectory .:: fmap Just % textOption
         % prefixLong backup "directory"
         <> suffixHelp backup "Directory in which backups will be placed when using the backup API endpoint"
-    where
+  where
     backup = Just "backup"
 
 -- -------------------------------------------------------------------------- --
@@ -378,10 +382,19 @@ instance HasChainwebVersion ChainwebConfiguration where
 validateChainwebConfiguration :: ConfigValidation ChainwebConfiguration []
 validateChainwebConfiguration c = do
     validateMinerConfig (_configMining c)
+    validateBackupConfig (_configBackup c)
     case _configChainwebVersion c of
         Mainnet01 -> validateP2pConfiguration (_configP2p c)
         Testnet04 -> validateP2pConfiguration (_configP2p c)
         _ -> return ()
+
+validateBackupConfig :: ConfigValidation BackupConfig []
+validateBackupConfig c =
+    for_ (_configBackupDirectory c) $ \dir -> do
+        liftIO $ createDirectoryIfMissing True dir
+        perms <- liftIO (getPermissions dir)
+        unless (writable perms) $
+            throwError $ "Backup directory " <> T.pack dir <> " is not writable"
 
 defaultChainwebConfiguration :: ChainwebVersion -> ChainwebConfiguration
 defaultChainwebConfiguration v = ChainwebConfiguration

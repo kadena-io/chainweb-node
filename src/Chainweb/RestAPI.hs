@@ -36,7 +36,6 @@ module Chainweb.RestAPI
 -- * Component Triggers
 , HeaderStream(..)
 , Rosetta(..)
-, MakeBackup(..)
 
 -- * Chainweb P2P API Server
 , someChainwebServer
@@ -67,7 +66,6 @@ import Control.Monad (guard)
 
 import Data.Bifunctor
 import Data.Bool (bool)
-import Data.Text (Text)
 
 import GHC.Generics (Generic)
 
@@ -169,10 +167,6 @@ emptyChainwebServerDbs = ChainwebServerDbs
 newtype Rosetta = Rosetta Bool
 
 newtype HeaderStream = HeaderStream Bool
-
-newtype MakeBackup = MakeBackup 
-    { getMakeBackup :: IO Text 
-    }
 
 -- -------------------------------------------------------------------------- --
 -- Middlewares
@@ -390,5 +384,5 @@ serveServiceApiSocket
     -> Maybe (BackupEnv logger)
     -> Middleware
     -> IO ()
-serveServiceApiSocket s sock v dbs pacts mr hs r mkBackup m =
-    runSettingsSocket s sock $ m $ serviceApiApplication v dbs pacts mr hs r mkBackup
+serveServiceApiSocket s sock v dbs pacts mr hs r be m =
+    runSettingsSocket s sock $ m $ serviceApiApplication v dbs pacts mr hs r be

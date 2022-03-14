@@ -1004,19 +1004,21 @@ node
     -> IO ()
 node testLabel rdb rawLogger peerInfoVar conf nid = do
     rocksDb <- testRocksDb (testLabel <> T.encodeUtf8 (toText nid)) rdb
-    Extra.withTempDir $ \dir -> withChainweb conf logger rocksDb (error "no backup directory") dir False $ \cw -> do
+    Extra.withTempDir $ \backupDir ->
+        Extra.withTempDir $ \dir ->
+            withChainweb conf logger rocksDb backupDir dir False $ \cw -> do
 
-        -- If this is the bootstrap node we extract the port number and publish via an MVar.
-        when (nid == 0) $ do
-            let bootStrapInfo = view (chainwebPeer . peerResPeer . peerInfo) cw
-                bootStrapPort = view (chainwebServiceSocket . _1) cw
-            putMVar peerInfoVar (bootStrapInfo, bootStrapPort)
+                -- If this is the bootstrap node we extract the port number and publish via an MVar.
+                when (nid == 0) $ do
+                    let bootStrapInfo = view (chainwebPeer . peerResPeer . peerInfo) cw
+                        bootStrapPort = view (chainwebServiceSocket . _1) cw
+                    putMVar peerInfoVar (bootStrapInfo, bootStrapPort)
 
-        poisonDeadBeef cw
-        runChainweb cw `finally` do
-            logFunctionText logger Info "write sample data"
-            logFunctionText logger Info "shutdown node"
-        return ()
+                poisonDeadBeef cw
+                runChainweb cw `finally` do
+                    logFunctionText logger Info "write sample data"
+                    logFunctionText logger Info "shutdown node"
+                return ()
   where
     logger = addLabel ("node", sshow nid) rawLogger
 
