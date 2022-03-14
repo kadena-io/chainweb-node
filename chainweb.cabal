@@ -539,7 +539,6 @@ test-suite chainweb-tests
         , scheduler >= 1.4
         , servant >= 0.18.2
         , servant-client >= 0.18.2
-        , servant-client-core >= 0.18.2
         , statistics >= 0.15
         , string-conv >= 0.1
         , stm
@@ -593,7 +592,6 @@ executable chainweb-node
           chainweb
 
         -- external
-        , aeson >= 1.4.3
         , async >= 2.2
         , base >= 4.12 && < 5
         , chainweb-storage >= 0.1
@@ -694,7 +692,6 @@ executable cwtool
         , rocksdb-haskell >= 1.0
         , safe-exceptions >= 0.1
         , servant-client >= 0.18.2
-        , servant-client-core >= 0.18.2
         , streaming >= 0.2.2
         , streaming-commons >= 0.2
         , string-conv >= 0.1
@@ -704,7 +701,6 @@ executable cwtool
         , tasty-quickcheck >= 0.9
         , temporary >= 1.3
         , text >= 1.2
-        , transformers >= 0.5
         , unordered-containers == 0.2.15.0
         , vector >= 0.12.2
         , wai >= 3.2
