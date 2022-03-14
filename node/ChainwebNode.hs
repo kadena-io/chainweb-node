@@ -170,10 +170,13 @@ pChainwebNodeConfiguration = id
         <> help "Reset the chain databases for all chains on startup"
 
 getRocksDbDir :: HasCallStack => ChainwebNodeConfiguration -> IO FilePath
-getRocksDbDir conf = (</> "rocksDb") <$> getDbBaseDir conf
+getRocksDbDir conf = (\base -> base </> "0" </> "rocksDb") <$> getDbBaseDir conf
 
 getPactDbDir :: HasCallStack => ChainwebNodeConfiguration -> IO FilePath
-getPactDbDir conf =  (</> "sqlite") <$> getDbBaseDir conf
+getPactDbDir conf =  (\base -> base </> "0" </> "sqlite")  <$> getDbBaseDir conf
+
+getBackupsDir :: HasCallStack => ChainwebNodeConfiguration -> IO FilePath
+getBackupsDir conf = (</> "backups") <$> getDbBaseDir conf
 
 getDbBaseDir :: HasCallStack => ChainwebNodeConfiguration -> IO FilePath
 getDbBaseDir conf = case _nodeConfigDatabaseDirectory conf of
@@ -182,7 +185,6 @@ getDbBaseDir conf = case _nodeConfigDatabaseDirectory conf of
     Just d -> return (d </> "0")
   where
     v = _configChainwebVersion $ _nodeConfigChainweb conf
-
 -- -------------------------------------------------------------------------- --
 -- Monitors
 
@@ -303,10 +305,11 @@ node conf logger = do
     when (_nodeConfigResetChainDbs conf) $ removeDirectoryRecursive dbBaseDir
     rocksDbDir <- getRocksDbDir conf
     pactDbDir <- getPactDbDir conf
+    dbBackupsDir <- getBackupsDir conf
     withRocksDb rocksDbDir $ \rocksDb -> do
         logFunctionText logger Info $ "opened rocksdb in directory " <> sshow rocksDbDir
         logFunctionText logger Info $ "backup config: " <> sshow (_configBackup cwConf)
-        withChainweb cwConf logger rocksDb pactDbDir (_nodeConfigResetChainDbs conf) $ \cw -> mapConcurrently_ id
+        withChainweb cwConf logger rocksDb pactDbDir dbBackupsDir (_nodeConfigResetChainDbs conf) $ \cw -> mapConcurrently_ id
             [ runChainweb cw
               -- we should probably push 'onReady' deeper here but this should be ok
             , runCutMonitor (_chainwebLogger cw) (_cutResCutDb $ _chainwebCutResources cw)

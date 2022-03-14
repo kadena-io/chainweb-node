@@ -196,7 +196,7 @@ data Chainweb logger cas = Chainweb
     , _chainwebPutPeerThrottler :: !(Throttle Address)
     , _chainwebConfig :: !ChainwebConfiguration
     , _chainwebServiceSocket :: !(Port, Socket)
-    , _chainwebBackup :: !(FilePath -> BackupEnv logger)
+    , _chainwebBackup :: !(BackupEnv logger)
     }
 
 makeLenses ''Chainweb
@@ -217,11 +217,11 @@ withChainweb
     -> logger
     -> RocksDb
     -> FilePath
-        -- ^ Pact database directory
+    -> FilePath
     -> Bool
     -> (forall cas' . PayloadCasLookup cas' => Chainweb logger cas' -> IO ())
     -> IO ()
-withChainweb c logger rocksDb pactDbDir resetDb inner =
+withChainweb c logger rocksDb pactDbDir backupDir resetDb inner =
     withPeerResources v (view configP2p confWithBootstraps) logger $ \logger' peer ->
         withSocket serviceApiPort serviceApiHost $ \serviceSock -> do
             let conf' = confWithBootstraps
@@ -234,6 +234,7 @@ withChainweb c logger rocksDb pactDbDir resetDb inner =
                 serviceSock
                 rocksDb
                 pactDbDir
+                backupDir
                 resetDb
                 inner
   where
@@ -334,10 +335,11 @@ withChainwebInternal
     -> (Port, Socket)
     -> RocksDb
     -> FilePath
+    -> FilePath
     -> Bool
     -> (forall cas' . PayloadCasLookup cas' => Chainweb logger cas' -> IO ())
     -> IO ()
-withChainwebInternal conf logger peer serviceSock rocksDb pactDbDir resetDb inner = do
+withChainwebInternal conf logger peer serviceSock rocksDb pactDbDir backupDir resetDb inner = do
 
     initializePayloadDb v payloadDb
 
@@ -470,8 +472,13 @@ withChainwebInternal conf logger peer serviceSock rocksDb pactDbDir resetDb inne
                                 , _chainwebPutPeerThrottler = putPeerThrottler
                                 , _chainwebConfig = conf
                                 , _chainwebServiceSocket = serviceSock
-                                , _chainwebBackup = \backupDir ->
-                                    BackupEnv rocksDb backupDir pactDbDir cids backupLogger
+                                , _chainwebBackup = BackupEnv
+                                    { _backupRocksDb = rocksDb
+                                    , _backupDir = backupDir
+                                    , _backupPactDbDir = pactDbDir
+                                    , _backupChainIds = cids
+                                    , _backupLogger = backupLogger
+                                    }
                                 }
 
     withPactData
@@ -586,7 +593,7 @@ runChainweb cw = do
         <* Concurrently (threadDelay 500000 >> clients)
         -- 3. Start serving local API
         <* Concurrently (threadDelay 500000 >> serveServiceApi (serviceHttpLog . requestSizeLimit))
-                
+
   where
     tls = _p2pConfigTls $ _configP2p $ _chainwebConfig cw
 
@@ -690,6 +697,8 @@ runChainweb cw = do
 
     serviceApiHost = _serviceApiConfigInterface $ _configServiceApi $ _chainwebConfig cw
 
+    backupApiEnabled = _enableConfigEnabled $ _configBackupApi $ _configBackup $ _chainwebConfig cw
+
     serveServiceApi :: Middleware -> IO ()
     serveServiceApi = serveServiceApiSocket
         (serviceApiServerSettings (fst $ _chainwebServiceSocket cw) serviceApiHost)
@@ -706,10 +715,7 @@ runChainweb cw = do
         (_chainwebCoordinator cw)
         (HeaderStream . _configHeaderStream $ _chainwebConfig cw)
         (Rosetta . _configRosetta $ _chainwebConfig cw)
-        backupApiEnv
-
-    backupApiEnv =
-        _chainwebBackup cw . _backupApiDirectory <$> enabledConfig (_configBackupApi $ _configBackup (_chainwebConfig cw))
+        (_chainwebBackup cw <$ guard backupApiEnabled)
 
     serviceHttpLog :: Middleware
     serviceHttpLog = requestResponseLogger $ setComponent "http:service-api" (_chainwebLogger cw)

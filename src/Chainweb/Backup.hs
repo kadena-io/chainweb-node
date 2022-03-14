@@ -79,33 +79,31 @@ makeBackup env options = do
     logCr Info ("making backup to " <> T.pack thisBackup)
     createDirectoryIfMissing False (_backupDir env)
     createDirectoryIfMissing False thisBackup
-    createDirectoryIfMissing False (thisBackup </> "sqlite")
+    createDirectoryIfMissing False (thisBackup </> "0")
+    createDirectoryIfMissing False (thisBackup </> "0" </> "sqlite")
     -- we don't create the rocksDb checkpoint folder ourselves,
     -- RocksDB fails if it exists
     T.writeFile (thisBackup </> "status") (toText BackupInProgress)
-    result <- try doBackup
-    case result of
-        Left (ex :: SomeException) -> do
-            T.writeFile (thisBackup </> "status") (toText BackupFailed)
-            logCr Error ("backup to " <> T.pack thisBackup <> " failed: " <> sshow ex)
-            throwM ex
-        Right () -> return ()
+    doBackup `catch` \(ex :: SomeException) -> do
+        T.writeFile (thisBackup </> "0" </> "status") (toText BackupFailed)
+        logCr Error ("backup to " <> T.pack thisBackup <> " failed: " <> sshow ex)
+        throwM ex
+    T.writeFile (thisBackup </> "status") (toText BackupDone)
   where
     logCr = logFunctionText (_backupLogger env)
     thisBackup = _backupDir env </> _backupIdentifier options
     doBackup = do
-        logCr Info ("making rocksdb checkpoint to " <> T.pack (thisBackup </> "rocksDb"))
+        logCr Info ("making rocksdb checkpoint to " <> T.pack (thisBackup </> "0" </> "rocksDb"))
         -- maxBound ~ always flush WAL log before checkpoint, under the assumption
         -- that it's not too time-consuming
-        checkpointRocksDb (_backupRocksDb env) maxBound (thisBackup </> "rocksDb")
+        checkpointRocksDb (_backupRocksDb env) maxBound (thisBackup </> "0" </> "rocksDb")
         logCr Info "rocksdb checkpoint made"
         when (_backupPact options) $ do
             logCr Info $ "backing up pact databases" <> T.pack thisBackup
             forConcurrently_ (_backupChainIds env) $ \cid -> do
                 withSqliteDb cid (_backupLogger env) (_backupPactDbDir env) False $ \db ->
-                    void $ qry_ (_sConn db) ("VACUUM main INTO '" <> fromString (thisBackup </> "sqlite" </> chainDbFileName cid) <> "'") []
+                    void $ qry_ (_sConn db) ("VACUUM main INTO '" <> fromString (thisBackup </> "0" </> "sqlite" </> chainDbFileName cid) <> "'") []
             logCr Info $ "pact databases backed up"
-        T.writeFile (thisBackup </> "status") (toText BackupDone)
 
 checkBackup :: Logger logger => BackupEnv logger -> FilePath -> IO (Maybe BackupStatus)
 checkBackup env name = do

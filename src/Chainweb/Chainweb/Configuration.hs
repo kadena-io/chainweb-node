@@ -289,60 +289,59 @@ pServiceApiConfig = id
     service = Just "service"
 
 -- -------------------------------------------------------------------------- --
--- Backup configuration 
+-- Backup configuration
 
-data BackupApiConfig = BackupApiConfig 
-    { _backupApiDirectory :: !FilePath
-    }
+data BackupApiConfig = BackupApiConfig
     deriving (Show, Eq, Generic)
 
 defaultBackupApiConfig :: BackupApiConfig
-defaultBackupApiConfig = BackupApiConfig 
-    { _backupApiDirectory = "backups"
-    }
+defaultBackupApiConfig = BackupApiConfig
 
-data BackupConfig = BackupConfig 
-    { _configBackupApi :: EnableConfig BackupApiConfig
+data BackupConfig = BackupConfig
+    { _configBackupApi :: !(EnableConfig BackupApiConfig)
+    , _configBackupDirectory :: !(Maybe FilePath)
+    -- ^ Should be a path in the same partition as the database directory to
+    --   avoid the slow path of the rocksdb checkpoint mechanism.
     }
     deriving (Show, Eq, Generic)
 
 defaultBackupConfig :: BackupConfig
-defaultBackupConfig = BackupConfig 
+defaultBackupConfig = BackupConfig
     { _configBackupApi = EnableConfig False defaultBackupApiConfig
+    , _configBackupDirectory = Nothing
     }
 
 makeLenses ''BackupApiConfig
 makeLenses ''BackupConfig
 
 instance ToJSON BackupApiConfig where
-    toJSON cfg = object 
-        [ "directory" .= _backupApiDirectory cfg 
-        ]
+    toJSON _cfg = toJSON $ object [ ]
 
 instance FromJSON (BackupApiConfig -> BackupApiConfig) where
-    parseJSON = withObject "BackupApiConfig" $ \o -> id
-        <$< backupApiDirectory ..: "directory" % o
+    parseJSON = withObject "BackupApiConfig" $ \_ -> return id
 
-pBackupApiConfig :: MParser BackupApiConfig 
-pBackupApiConfig = id
-    <$< backupApiDirectory .:: textOption 
-        % prefixLong backupApi "directory"
-        <> suffixHelp backupApi "Directory in which backups will be placed when using the backup API endpoint"
-  where
-    backupApi = Just "backup-api"
+pBackupApiConfig :: MParser BackupApiConfig
+pBackupApiConfig = pure id
 
 instance ToJSON BackupConfig where
-    toJSON cfg = object 
+    toJSON cfg = object
         [ "api" .= _configBackupApi cfg
+        , "directory" .= _configBackupDirectory cfg
         ]
 
 instance FromJSON (BackupConfig -> BackupConfig) where
     parseJSON = withObject "BackupConfig" $ \o -> id
         <$< configBackupApi %.: "api" % o
+        <*< configBackupDirectory ..: "directory" % o
 
-pBackupConfig :: MParser BackupConfig 
+pBackupConfig :: MParser BackupConfig
 pBackupConfig = id
     <$< configBackupApi %:: pEnableConfig "backup-api" pBackupApiConfig
+    <*< configBackupDirectory .:: fmap Just % textOption
+        % prefixLong backup "directory"
+        <> suffixHelp backup "Directory in which backups will be placed when using the backup API endpoint"
+    where
+    backup = Just "backup"
 
 -- -------------------------------------------------------------------------- --
 -- Chainweb Configuration
