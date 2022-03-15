@@ -7,3 +7,5 @@ extern ROCKSDB_LIBRARY_API void rocksdb_delete_range(rocksdb_t* db,
                           const char* start_key, size_t start_key_len,
                           const char* end_key, size_t end_key_len,
                           char** errptr);
+
+extern ROCKSDB_LIBRARY_API void rocksdb_readoptions_set_auto_prefix_mode(rocksdb_readoptions_t* options, bool auto_prefix_mode);

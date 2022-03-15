@@ -222,7 +222,7 @@ foreign import ccall unsafe "rocksdb\\c.h rocksdb_readoptions_set_iterate_upper_
     rocksdb_readoptions_set_iterate_upper_bound :: ReadOptionsPtr -> CString -> CSize -> IO ()
 
 setUpperBound :: ByteString -> ReadOptions
-setUpperBound upper = ReadOptions $ \opts_ptr -> do
+setUpperBound upper = ReadOptions $ \opts_ptr ->
     BU.unsafeUseAsCStringLen upper $ \(upperPtr, upperLen) ->
         rocksdb_readoptions_set_iterate_upper_bound opts_ptr upperPtr (fromIntegral upperLen)
 
@@ -230,6 +230,13 @@ foreign import ccall unsafe "rocksdb\\c.h rocksdb_readoptions_set_iterate_lower_
     rocksdb_readoptions_set_iterate_lower_bound :: ReadOptionsPtr -> CString -> CSize -> IO ()
 
 setLowerBound :: ByteString -> ReadOptions
-setLowerBound lower = ReadOptions $ \opts_ptr -> do
+setLowerBound lower = ReadOptions $ \opts_ptr ->
     BU.unsafeUseAsCStringLen lower $ \(lowerPtr, lowerLen) ->
         rocksdb_readoptions_set_iterate_lower_bound opts_ptr lowerPtr (fromIntegral lowerLen)
+
+foreign import ccall unsafe "cpp\\chainweb-rocksdb.h rocksdb_readoptions_set_auto_prefix_mode"
+    rocksdb_readoptions_set_auto_prefix_mode :: ReadOptionsPtr -> CBool -> IO ()
+
+setAutoPrefixMode :: Bool -> ReadOptions
+setAutoPrefixMode m = ReadOptions $ \opts_ptr ->
+    rocksdb_readoptions_set_auto_prefix_mode opts_ptr (boolToNum m)

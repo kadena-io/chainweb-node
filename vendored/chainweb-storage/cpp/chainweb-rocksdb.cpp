@@ -23,6 +23,7 @@ using rocksdb::DBOptions;
 using rocksdb::DbPath;
 using rocksdb::Env;
 using rocksdb::EnvOptions;
+using rocksdb::ReadOptions;
 using rocksdb::Slice;
 using rocksdb::SliceParts;
 using rocksdb::SliceTransform;
@@ -41,6 +42,7 @@ extern "C" {
 
 struct rocksdb_t                 { DB*               rep; };
 struct rocksdb_writeoptions_t    { WriteOptions      rep; };
+struct rocksdb_readoptions_t     { ReadOptions       rep; };
 
 static bool SaveError(char** errptr, const Status& s) {
   assert(errptr != nullptr);
@@ -66,6 +68,10 @@ void rocksdb_delete_range(rocksdb_t* db,
       SaveError(errptr, db->rep->DeleteRange(options->rep, nullptr,
                                          Slice(start_key, start_key_len),
                                          Slice(end_key, end_key_len)));
+}
+
+void rocksdb_readoptions_set_auto_prefix_mode(rocksdb_readoptions_t* options, bool auto_prefix_mode) {
+  options->rep.auto_prefix_mode = auto_prefix_mode;
 }
 
 }
