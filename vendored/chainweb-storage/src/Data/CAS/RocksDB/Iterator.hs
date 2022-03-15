@@ -3,15 +3,15 @@
 
 module Data.CAS.RocksDB.Iterator where
 
-import           Control.Exception            (bracket, finally, onException)
+import           Control.Exception            (bracket, onException)
 import           Control.Monad                (when)
 import           Control.Monad.IO.Class       (MonadIO (liftIO))
 import           Data.ByteString              (ByteString)
 import           Data.Maybe                   (catMaybes)
 import           Foreign
 import           Foreign.C.Error              (throwErrnoIfNull)
-import           Foreign.C.String             (CString, peekCString)
-import           Foreign.C.Types              (CSize)
+import           Foreign.C.String
+import           Foreign.C.Types
 
 import           Database.RocksDB.C
 import           Database.RocksDB.Internal hiding (mkCReadOpts, withCReadOpts)
@@ -217,3 +217,19 @@ setUseSnapshot snapshot = ReadOptions $ \opts_ptr ->
     snap_ptr = case snapshot of
         Just (Snapshot p) -> p
         Nothing -> nullPtr
+
+foreign import ccall unsafe "rocksdb\\c.h rocksdb_readoptions_set_iterate_upper_bound"
+    rocksdb_readoptions_set_iterate_upper_bound :: ReadOptionsPtr -> CString -> CSize -> IO ()
+
+setUpperBound :: ByteString -> ReadOptions
+setUpperBound upper = ReadOptions $ \opts_ptr -> do
+    BU.unsafeUseAsCStringLen upper $ \(upperPtr, upperLen) ->
+        rocksdb_readoptions_set_iterate_upper_bound opts_ptr upperPtr (fromIntegral upperLen)
+
+foreign import ccall unsafe "rocksdb\\c.h rocksdb_readoptions_set_iterate_lower_bound"
+    rocksdb_readoptions_set_iterate_lower_bound :: ReadOptionsPtr -> CString -> CSize -> IO ()
+
+setLowerBound :: ByteString -> ReadOptions
+setLowerBound lower = ReadOptions $ \opts_ptr -> do
+    BU.unsafeUseAsCStringLen lower $ \(lowerPtr, lowerLen) ->
+        rocksdb_readoptions_set_iterate_lower_bound opts_ptr lowerPtr (fromIntegral lowerLen)
