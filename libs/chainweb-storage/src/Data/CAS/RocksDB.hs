@@ -114,6 +114,7 @@ import qualified Data.ByteString as B
 import qualified Data.ByteString.Char8 as B8
 import qualified Data.ByteString.Unsafe as BU
 import Data.Coerce
+import Data.Foldable
 
 import Data.CAS
 import Data.String
@@ -442,9 +443,13 @@ instance NoThunks (RocksDbTableIter k v) where
 -- 'RocksDbTableIter'.
 --
 withTableIter :: RocksDbTable k v -> (RocksDbTableIter k v -> IO a) -> IO a
-withTableIter db k = I.withReadOptions mempty $ \opts_ptr ->
+withTableIter db k = I.withReadOptions readOptions $ \opts_ptr ->
     I.withIter (_rocksDbTableDb db) opts_ptr (k . makeTableIter)
   where
+    readOptions = fold
+        [ I.setLowerBound (namespaceFirst $ _rocksDbTableNamespace db)
+        , I.setUpperBound (namespaceLast $ _rocksDbTableNamespace db)
+        ]
     makeTableIter =
         RocksDbTableIter
             (_rocksDbTableValueCodec db)
