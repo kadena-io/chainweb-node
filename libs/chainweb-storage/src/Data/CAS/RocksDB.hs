@@ -64,8 +64,6 @@ module Data.CAS.RocksDB
 
 -- * Rocks DB Table Iterator
 , RocksDbTableIter
-, createTableIter
-, releaseTableIter
 , withTableIter
 , tableIterValid
 
@@ -128,7 +126,8 @@ import Foreign.C
 import qualified Database.RocksDB.Base as R
 import qualified Database.RocksDB.C as C
 import qualified Database.RocksDB.Internal as R
-import qualified Database.RocksDB.Iterator as I
+
+import qualified Data.CAS.RocksDB.Iterator as I
 
 import GHC.Generics (Generic)
 import GHC.Stack
@@ -194,7 +193,7 @@ instance NoThunks RocksDb where
 makeLenses ''RocksDb
 
 modernDefaultOptions :: R.Options
-modernDefaultOptions = R.defaultOptions 
+modernDefaultOptions = R.defaultOptions
     { R.maxOpenFiles = -1
     , R.writeBufferSize = 64 `shift` 20
     }
@@ -421,7 +420,7 @@ data RocksDbTableIter k v = RocksDbTableIter
     { _rocksDbTableIterValueCodec :: !(Codec v)
     , _rocksDbTableIterKeyCodec :: !(Codec k)
     , _rocksDbTableIterNamespace :: !B.ByteString
-    , _rocksDbTableIter :: !I.Iterator
+    , _rocksDbTableIter :: !C.IteratorPtr
     }
 
 instance NoThunks (RocksDbTableIter k v) where
@@ -435,31 +434,7 @@ instance NoThunks (RocksDbTableIter k v) where
     {-# INLINE wNoThunks #-}
     {-# INLINE showTypeOf #-}
 
--- | Creates a 'RocksDbTableIterator'. If the 'RocksDbTable' is not empty, the
--- iterator is pointing to the first key in the 'RocksDbTable' and is valid.
---
--- The returnd iterator must be released with 'releaseTableIter' when it is not
--- needed any more. Not doing so release in a data leak that retains database
--- snapshots.
---
-createTableIter :: RocksDbTable k v -> IO (RocksDbTableIter k v)
-createTableIter db = do
-    !tit <- RocksDbTableIter
-        (_rocksDbTableValueCodec db)
-        (_rocksDbTableKeyCodec db)
-        (_rocksDbTableNamespace db)
-        <$> I.createIter (_rocksDbTableDb db) R.defaultReadOptions
-    tableIterFirst tit
-    return tit
-{-# INLINE createTableIter #-}
-
--- | Releases an 'RocksDbTableIteror', freeing up it's resources.
---
-releaseTableIter :: RocksDbTableIter k v -> IO ()
-releaseTableIter = I.releaseIter . _rocksDbTableIter
-{-# INLINE releaseTableIter #-}
-
--- | Provide an computation with a 'RocksDbTableIteror' and release the iterator
+-- | Provide an computation with a 'RocksDbTableIterator' and release the iterator
 -- after after the computation has finished either by returning a result or
 -- throwing an exception.
 --
@@ -467,7 +442,14 @@ releaseTableIter = I.releaseIter . _rocksDbTableIter
 -- 'RocksDbTableIter'.
 --
 withTableIter :: RocksDbTable k v -> (RocksDbTableIter k v -> IO a) -> IO a
-withTableIter db = bracket (createTableIter db) releaseTableIter
+withTableIter db k = I.withReadOptions mempty $ \opts_ptr ->
+    I.withIter (_rocksDbTableDb db) opts_ptr (k . makeTableIter)
+  where
+    makeTableIter =
+        RocksDbTableIter
+            (_rocksDbTableValueCodec db)
+            (_rocksDbTableKeyCodec db)
+            (_rocksDbTableNamespace db)
 {-# INLINE withTableIter #-}
 
 -- | Checks if an 'RocksDbTableIterator' is valid.
@@ -475,7 +457,7 @@ withTableIter db = bracket (createTableIter db) releaseTableIter
 -- A valid iterator returns a value when 'tableIterEntry', 'tableIterValue', or
 -- 'tableIterKey' is called on it.
 --
-tableIterValid :: MonadIO m => RocksDbTableIter k v -> m Bool
+tableIterValid :: RocksDbTableIter k v -> IO Bool
 tableIterValid it = I.iterKey (_rocksDbTableIter it) >>= \case
     Nothing -> return False
     (Just !x) -> return $! checkIterKey it x
@@ -483,20 +465,20 @@ tableIterValid it = I.iterKey (_rocksDbTableIter it) >>= \case
 
 -- | Efficiently seek to a key in a 'RocksDbTableIterator' iteration.
 --
-tableIterSeek :: MonadIO m => RocksDbTableIter k v -> k -> m ()
+tableIterSeek :: RocksDbTableIter k v -> k -> IO ()
 tableIterSeek it = I.iterSeek (_rocksDbTableIter it) . encIterKey it
 {-# INLINE tableIterSeek #-}
 
 -- | Seek to the first key in a 'RocksDbTable'.
 --
-tableIterFirst :: MonadIO m => RocksDbTableIter k v -> m ()
+tableIterFirst :: RocksDbTableIter k v -> IO ()
 tableIterFirst it
     = I.iterSeek (_rocksDbTableIter it) $ namespaceFirst (_rocksDbTableIterNamespace it)
 {-# INLINE tableIterFirst #-}
 
 -- | Seek to the last value in a 'RocksDbTable'
 --
-tableIterLast :: MonadIO m => RocksDbTableIter k v -> m ()
+tableIterLast :: RocksDbTableIter k v -> IO ()
 tableIterLast it = do
     I.iterSeek (_rocksDbTableIter it) $ namespaceLast (_rocksDbTableIterNamespace it)
     I.iterPrev (_rocksDbTableIter it)
@@ -504,13 +486,13 @@ tableIterLast it = do
 
 -- | Move a 'RocksDbTableIter' to the next key in a 'RocksDbTable'.
 --
-tableIterNext :: MonadIO m => RocksDbTableIter k v -> m ()
+tableIterNext :: RocksDbTableIter k v -> IO ()
 tableIterNext = I.iterNext . _rocksDbTableIter
 {-# INLINE tableIterNext #-}
 
 -- | Move a 'RocksDbTableIter' to the previous key in a 'RocksDbTable'.
 --
-tableIterPrev :: MonadIO m => RocksDbTableIter k v -> m ()
+tableIterPrev :: RocksDbTableIter k v -> IO ()
 tableIterPrev = I.iterPrev . _rocksDbTableIter
 {-# INLINE tableIterPrev #-}
 
@@ -518,10 +500,8 @@ tableIterPrev = I.iterPrev . _rocksDbTableIter
 -- 'RocksDbTableIter'. Returns 'Nothing' if the iterator is invalid.
 --
 tableIterEntry
-    :: MonadIO m
-    => MonadThrow m
-    => RocksDbTableIter k v
-    -> m (Maybe (k, v))
+    :: RocksDbTableIter k v
+    -> IO (Maybe (k, v))
 tableIterEntry it = I.iterEntry (_rocksDbTableIter it) >>= \case
     Nothing -> return Nothing
     Just (k, v) -> do
@@ -536,10 +516,8 @@ tableIterEntry it = I.iterEntry (_rocksDbTableIter it) >>= \case
 -- 'Nothing' if the iterator is invalid.
 --
 tableIterValue
-    :: MonadIO m
-    => MonadThrow m
-    => RocksDbTableIter k v
-    -> m (Maybe v)
+    :: RocksDbTableIter k v
+    -> IO (Maybe v)
 tableIterValue it = fmap snd <$> tableIterEntry it
 {-# INLINE tableIterValue #-}
 
@@ -547,10 +525,8 @@ tableIterValue it = fmap snd <$> tableIterEntry it
 -- 'Nothing' if the iterator is invalid.
 --
 tableIterKey
-    :: MonadIO m
-    => MonadThrow m
-    => RocksDbTableIter k v
-    -> m (Maybe k)
+    :: RocksDbTableIter k v
+    -> IO (Maybe k)
 tableIterKey it = I.iterKey (_rocksDbTableIter it) >>= \case
     Nothing -> return Nothing
     Just k -> tryDecIterKey it k
@@ -563,10 +539,10 @@ tableIterKey it = I.iterKey (_rocksDbTableIter it) >>= \case
 -- error. Not releasing the iterator after the processing of the stream has
 -- finished results in a memory leak.
 --
-iterToEntryStream :: MonadIO m => RocksDbTableIter k v -> S.Stream (S.Of (k,v)) m ()
+iterToEntryStream :: RocksDbTableIter k v -> S.Stream (S.Of (k,v)) IO ()
 iterToEntryStream it = liftIO (tableIterEntry it) >>= \case
     Nothing -> return ()
-    Just x -> S.yield x >> tableIterNext it >> iterToEntryStream it
+    Just x -> S.yield x >> liftIO (tableIterNext it) >> iterToEntryStream it
 {-# INLINE iterToEntryStream #-}
 
 -- | Returns the stream of values of an 'RocksDbTableIter'.
@@ -576,10 +552,10 @@ iterToEntryStream it = liftIO (tableIterEntry it) >>= \case
 -- error. Not releasing the iterator after the processing of the stream has
 -- finished results in a memory leak.
 --
-iterToValueStream :: MonadIO m => RocksDbTableIter k v -> S.Stream (S.Of v) m ()
+iterToValueStream :: RocksDbTableIter k v -> S.Stream (S.Of v) IO ()
 iterToValueStream it = liftIO (tableIterValue it) >>= \case
     Nothing -> return ()
-    Just x -> S.yield x >> tableIterNext it >> iterToValueStream it
+    Just x -> S.yield x >> liftIO (tableIterNext it) >> iterToValueStream it
 {-# INLINE iterToValueStream #-}
 
 -- | Returns the stream of keys of an 'RocksDbTableIter'.
@@ -589,10 +565,10 @@ iterToValueStream it = liftIO (tableIterValue it) >>= \case
 -- error. Not releasing the iterator after the processing of the stream has
 -- finished results in a memory leak.
 --
-iterToKeyStream :: MonadIO m => RocksDbTableIter k v -> S.Stream (S.Of k) m ()
+iterToKeyStream :: RocksDbTableIter k v -> S.Stream (S.Of k) IO ()
 iterToKeyStream it = liftIO (tableIterKey it) >>= \case
     Nothing -> return ()
-    Just x -> S.yield x >> tableIterNext it >> iterToKeyStream it
+    Just x -> S.yield x >> liftIO (tableIterNext it) >> iterToKeyStream it
 {-# INLINE iterToKeyStream #-}
 
 -- Extremal Table Entries
@@ -785,7 +761,7 @@ decIterKey it k = case B.splitAt (B.length prefix) k of
 
 data Checkpoint
 
-foreign import ccall unsafe "rocksdb\\c.h rocksdb_checkpoint_object_create" 
+foreign import ccall unsafe "rocksdb\\c.h rocksdb_checkpoint_object_create"
     rocksdb_checkpoint_object_create :: C.RocksDBPtr -> Ptr CString -> IO (Ptr Checkpoint)
 
 foreign import ccall unsafe "rocksdb\\c.h rocksdb_checkpoint_create"
@@ -806,24 +782,24 @@ checked whatWasIDoing act = alloca $ \errPtr -> do
         error msg
     return r
 
--- to unconditionally flush the WAL log before making the checkpoint, set logSizeFlushThreshold to zero. 
+-- to unconditionally flush the WAL log before making the checkpoint, set logSizeFlushThreshold to zero.
 -- to *never* flush the WAL log, set logSizeFlushThreshold to maxBound :: CULong.
 checkpointRocksDb :: RocksDb -> CULong -> FilePath -> IO ()
-checkpointRocksDb RocksDb { _rocksDbHandle = R.DB dbPtr _ } logSizeFlushThreshold path = 
-    bracket mkCheckpointObject rocksdb_checkpoint_object_destroy mkCheckpoint 
+checkpointRocksDb RocksDb { _rocksDbHandle = R.DB dbPtr _ } logSizeFlushThreshold path =
+    bracket mkCheckpointObject rocksdb_checkpoint_object_destroy mkCheckpoint
   where
-    mkCheckpointObject = 
-        checked "creating checkpoint object" $ 
-            rocksdb_checkpoint_object_create dbPtr 
+    mkCheckpointObject =
+        checked "creating checkpoint object" $
+            rocksdb_checkpoint_object_create dbPtr
     mkCheckpoint cp =
-        withCString path $ \path' -> 
-            checked "creating checkpoint" $ 
-                rocksdb_checkpoint_create cp path' logSizeFlushThreshold 
+        withCString path $ \path' ->
+            checked "creating checkpoint" $
+                rocksdb_checkpoint_create cp path' logSizeFlushThreshold
 
 foreign import ccall unsafe "cpp\\chainweb-rocksdb.h rocksdb_delete_range"
     rocksdb_delete_range
         :: C.RocksDBPtr
-        -> C.WriteOptionsPtr 
+        -> C.WriteOptionsPtr
         -> CString {- min key -}
         -> CSize {- min key length -}
         -> CString {- max key length -}
@@ -832,16 +808,16 @@ foreign import ccall unsafe "cpp\\chainweb-rocksdb.h rocksdb_delete_range"
         -> IO ()
 
 validateRangeOrdered :: HasCallStack => RocksDbTable k v -> (Maybe k, Maybe k) -> (B.ByteString, B.ByteString)
-validateRangeOrdered table (Just (encKey table -> l), Just (encKey table -> u)) 
+validateRangeOrdered table (Just (encKey table -> l), Just (encKey table -> u))
     | l >= u =
         error "Data.CAS.RocksDB.validateRangeOrdered: range bounds not ordered according to codec"
     | otherwise = (l, u)
-validateRangeOrdered table (l, u) = 
+validateRangeOrdered table (l, u) =
     ( maybe (namespaceFirst (_rocksDbTableNamespace table)) (encKey table) l
-    , maybe (namespaceLast (_rocksDbTableNamespace table)) (encKey table) u 
+    , maybe (namespaceLast (_rocksDbTableNamespace table)) (encKey table) u
     )
 
--- | Batch delete a range of keys in a table. 
+-- | Batch delete a range of keys in a table.
 -- Throws if the range of the *encoded keys* is not ordered (lower, upper).
 deleteRangeRocksDb :: HasCallStack => RocksDbTable k v -> (Maybe k, Maybe k) -> IO ()
 deleteRangeRocksDb table range = do
@@ -850,9 +826,9 @@ deleteRangeRocksDb table range = do
     R.withCWriteOpts R.defaultWriteOptions $ \optsPtr ->
         BU.unsafeUseAsCStringLen (fst range') $ \(minKeyPtr, minKeyLen) ->
         BU.unsafeUseAsCStringLen (snd range') $ \(maxKeyPtr, maxKeyLen) ->
-        checked "Data.CAS.RocksDB.deleteRangeRocksDb" $ 
-            rocksdb_delete_range dbPtr optsPtr 
-                minKeyPtr (fromIntegral minKeyLen :: CSize) 
+        checked "Data.CAS.RocksDB.deleteRangeRocksDb" $
+            rocksdb_delete_range dbPtr optsPtr
+                minKeyPtr (fromIntegral minKeyLen :: CSize)
                 maxKeyPtr (fromIntegral maxKeyLen :: CSize)
 
 foreign import ccall safe "rocksdb\\c.h rocksdb_compact_range"
@@ -865,11 +841,11 @@ foreign import ccall safe "rocksdb\\c.h rocksdb_compact_range"
         -> IO ()
 
 compactRangeRocksDb :: HasCallStack => RocksDbTable k v -> (Maybe k, Maybe k) -> IO ()
-compactRangeRocksDb table range = 
+compactRangeRocksDb table range =
     BU.unsafeUseAsCStringLen (fst range') $ \(minKeyPtr, minKeyLen) ->
         BU.unsafeUseAsCStringLen (snd range') $ \(maxKeyPtr, maxKeyLen) ->
-        rocksdb_compact_range dbPtr 
-            minKeyPtr (fromIntegral minKeyLen :: CSize) 
+        rocksdb_compact_range dbPtr
+            minKeyPtr (fromIntegral minKeyLen :: CSize)
             maxKeyPtr (fromIntegral maxKeyLen :: CSize)
   where
     !range' = validateRangeOrdered table range
@@ -887,7 +863,7 @@ get (R.DB db_ptr _) opts key = liftIO $ R.withCReadOpts opts $ \opts_ptr ->
         if val_ptr == nullPtr
             then return Nothing
             else do
-                Just <$> BU.unsafePackCStringFinalizer 
-                    ((coerce :: Ptr CChar -> Ptr Word8) val_ptr) 
-                    (R.cSizeToInt vlen) 
+                Just <$> BU.unsafePackCStringFinalizer
+                    ((coerce :: Ptr CChar -> Ptr Word8) val_ptr)
+                    (R.cSizeToInt vlen)
                     (C.c_rocksdb_free val_ptr)
