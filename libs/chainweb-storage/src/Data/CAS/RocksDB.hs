@@ -449,6 +449,7 @@ withTableIter db k = I.withReadOptions readOptions $ \opts_ptr ->
     readOptions = fold
         [ I.setLowerBound (namespaceFirst $ _rocksDbTableNamespace db)
         , I.setUpperBound (namespaceLast $ _rocksDbTableNamespace db)
+        , I.setAutoPrefixMode True
         ]
     makeTableIter =
         RocksDbTableIter
