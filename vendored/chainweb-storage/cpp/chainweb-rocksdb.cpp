@@ -7,7 +7,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
-// The code not taken from the LevelDB and RocksDB authors is 
+// The code not taken from the LevelDB and RocksDB authors is
 // Copyright (c) 2022 Kadena.
 
 // copied from rocksdb/c.cc
