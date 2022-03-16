@@ -19,6 +19,7 @@
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE ViewPatterns #-}
 {-# LANGUAGE UndecidableInstances #-}
+{-# LANGUAGE RecordWildCards #-}
 
 -- |
 -- Module: Data.CAS.RocksDB
@@ -131,12 +132,15 @@ import qualified Database.RocksDB.Internal as R
 import qualified Data.CAS.RocksDB.Iterator as I
 
 import GHC.Generics (Generic)
+import qualified GHC.Foreign as GHC
+import qualified GHC.IO.Encoding as GHC
 import GHC.Stack
 
 import NoThunks.Class
 
 import qualified Streaming.Prelude as S
 
+import System.Directory
 import System.IO.Temp
 
 -- -------------------------------------------------------------------------- --
@@ -199,16 +203,29 @@ modernDefaultOptions = R.defaultOptions
     , R.writeBufferSize = 64 `shift` 20
     }
 
+foreign import ccall unsafe "cpp\\chainweb-rocksdb.h rocksdb_options_set_dollar_denoted"
+    rocksdb_options_set_dollar_denoted
+        :: C.OptionsPtr
+        -> IO ()
+
 -- | Open a 'RocksDb' instance with the default namespace. If no rocks db exists
 -- at the provided directory path, a new database is created.
 --
-openRocksDb :: FilePath -> IO RocksDb
-openRocksDb path = do
-    db <- RocksDb <$> R.open path opts <*> mempty
-    initializeRocksDb db
-    return db
-  where
-    opts = modernDefaultOptions { R.createIfMissing = True }
+openRocksDb :: FilePath -> R.Options -> IO RocksDb
+openRocksDb path opts = withOpts opts $ \opts'@(R.Options' opts_ptr _ _) -> do
+    GHC.setFileSystemEncoding GHC.utf8
+    createDirectoryIfMissing True path
+    rocksdb_options_set_dollar_denoted opts_ptr
+    db <- withFilePath path $ \path_ptr ->
+        liftM (`R.DB` opts')
+        $ R.throwIfErr "open"
+        $ C.c_rocksdb_open opts_ptr path_ptr
+    let rdb = RocksDb db mempty
+    initializeRocksDb rdb
+    return rdb
+
+withOpts :: R.Options -> (R.Options' -> IO a) -> IO a
+withOpts opts = bracket (R.mkOpts opts) R.freeOpts
 
 -- | Each table key starts with @_rocksDbNamespace db <> "-"@. Here we insert a
 -- dummy key that is guaranteed to be appear after any other key in the
@@ -241,15 +258,15 @@ closeRocksDb = R.close . _rocksDbHandle
 -- | Provide a computation with a 'RocksDb' instance. If no rocks db exists at
 -- the provided directory path, a new database is created.
 --
-withRocksDb :: FilePath -> (RocksDb -> IO a) -> IO a
-withRocksDb path = bracket (openRocksDb path) closeRocksDb
+withRocksDb :: FilePath -> R.Options -> (RocksDb -> IO a) -> IO a
+withRocksDb path opts = bracket (openRocksDb path opts) closeRocksDb
 
 -- | Provide a computation with a temporary 'RocksDb'. The database is deleted
 -- when the computation exits.
 --
 withTempRocksDb :: String -> (RocksDb -> IO a) -> IO a
 withTempRocksDb template f = withSystemTempDirectory template $ \dir ->
-    withRocksDb dir f
+    withRocksDb dir undefined f
 
 -- | Delete the RocksDb instance.
 --
@@ -873,3 +890,12 @@ get (R.DB db_ptr _) opts key = liftIO $ R.withCReadOpts opts $ \opts_ptr ->
                     ((coerce :: Ptr CChar -> Ptr Word8) val_ptr)
                     (R.cSizeToInt vlen)
                     (C.c_rocksdb_free val_ptr)
+
+-- | Marshal a 'FilePath' (Haskell string) into a `NUL` terminated C string using
+-- temporary storage.
+-- On Linux, UTF-8 is almost always the encoding used.
+-- When on Windows, UTF-8 can also be used, although the default for those devices is
+-- UTF-16. For a more detailed explanation, please refer to
+-- https://msdn.microsoft.com/en-us/library/windows/desktop/dd374081(v=vs.85).aspx.
+withFilePath :: FilePath -> (CString -> IO a) -> IO a
+withFilePath = GHC.withCString GHC.utf8
