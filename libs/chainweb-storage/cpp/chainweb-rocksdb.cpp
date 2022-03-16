@@ -19,6 +19,7 @@
 #include <unordered_set>
 #include <map>
 
+using rocksdb::Customizable;
 using rocksdb::DB;
 using rocksdb::DBOptions;
 using rocksdb::DbPath;
@@ -41,11 +42,32 @@ using std::unordered_set;
 using std::map;
 
 class TablePrefixTransform : public SliceTransform {
- private:
+ protected:
+  const char* NickName() const override { return kNickName(); }
+ public:
+
+  explicit TablePrefixTransform() { }
+  ~TablePrefixTransform() { }
 
   static const char* kClassName() { return "kadena.rocksdb.TablePrefix"; }
   static const char* kNickName() { return "table"; }
   const char* Name() const override { return kClassName(); }
+  std::string GetId() const override { return std::string(Name()); }
+  bool IsInstanceOf(const std::string& name) const override {
+    if (name.empty()) {
+      return false;
+    } else if (name == Name()) {
+      return true;
+    } else {
+      const char* nickname = NickName();
+      if (nickname != nullptr && name == nickname) {
+        return true;
+      } else {
+        return false;
+      }
+    }
+  }
+  const Customizable* Inner() const override { return nullptr; }
 
   Slice Transform(const Slice& src) const override {
     size_t prefix_end;
@@ -63,15 +85,15 @@ class TablePrefixTransform : public SliceTransform {
     }
   }
 
-  bool InDomain(const Slice& src) const override {
+  bool InDomain(const Slice&) const override {
     return true;
   }
 
-  bool InRange(const Slice& dst) const override {
+  bool InRange(const Slice&) const override {
     return true;
   }
 
-  bool FullLengthEnabled(size_t* len) const override {
+  bool FullLengthEnabled(size_t*) const override {
     return false;
   }
 
@@ -79,6 +101,12 @@ class TablePrefixTransform : public SliceTransform {
     return false;
   }
 };
+
+const SliceTransform* NewTablePrefixTransform() {
+  SliceTransform* p = reinterpret_cast<SliceTransform*>(malloc(sizeof(SliceTransform)));
+  *p = TablePrefixTransform();
+  return p;
+}
 
 extern "C" {
 
@@ -117,9 +145,8 @@ void rocksdb_readoptions_set_auto_prefix_mode(rocksdb_readoptions_t* options, bo
   options->rep.auto_prefix_mode = auto_prefix_mode;
 }
 
-void rocksdb_options_set_dollar_denoted(rocksdb_options_t* options) {
-  options->rep.prefix_extractor =
-    std::make_shared<TablePrefixTransform>(TablePrefixTransform());
+const void* rocksdb_options_table_prefix_extractor() {
+  return NewTablePrefixTransform();
 }
 
 }
