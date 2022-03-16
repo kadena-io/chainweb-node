@@ -13,6 +13,7 @@
 // copied from rocksdb/c.cc
 #include <stdlib.h>
 #include "rocksdb/db.h"
+#include "rocksdb/slice_transform.h"
 
 #include <vector>
 #include <unordered_set>
@@ -23,6 +24,7 @@ using rocksdb::DBOptions;
 using rocksdb::DbPath;
 using rocksdb::Env;
 using rocksdb::EnvOptions;
+using rocksdb::Options;
 using rocksdb::ReadOptions;
 using rocksdb::Slice;
 using rocksdb::SliceParts;
@@ -38,9 +40,50 @@ using std::vector;
 using std::unordered_set;
 using std::map;
 
+class TablePrefixTransform : public SliceTransform {
+ private:
+
+  static const char* kClassName() { return "kadena.rocksdb.TablePrefix"; }
+  static const char* kNickName() { return "table"; }
+  const char* Name() const override { return kClassName(); }
+
+  Slice Transform(const Slice& src) const override {
+    size_t prefix_end;
+    if ((prefix_end = std::string(src.data()).find("$")) != std::string::npos) {
+      return Slice(src.data(), prefix_end);
+    } else if ((prefix_end = std::string(src.data()).find("%")) != std::string::npos) {
+      return Slice(src.data(), prefix_end);
+    } else {
+      // we must return the entire string if there's no symbol because of the law:
+      // prefix(prefix(str)) == prefix(str)
+      // this prevents us from implementing a real InDomain, which will go badly
+      // (redundant prefix seeking)
+      // *if* we mix prefixed and nonprefixed keys in the same database
+      return src;
+    }
+  }
+
+  bool InDomain(const Slice& src) const override {
+    return true;
+  }
+
+  bool InRange(const Slice& dst) const override {
+    return true;
+  }
+
+  bool FullLengthEnabled(size_t* len) const override {
+    return false;
+  }
+
+  bool SameResultWhenAppended(const Slice& prefix) const override {
+    return false;
+  }
+};
+
 extern "C" {
 
 struct rocksdb_t                 { DB*               rep; };
+struct rocksdb_options_t         { Options           rep; };
 struct rocksdb_writeoptions_t    { WriteOptions      rep; };
 struct rocksdb_readoptions_t     { ReadOptions       rep; };
 
@@ -72,6 +115,11 @@ void rocksdb_delete_range(rocksdb_t* db,
 
 void rocksdb_readoptions_set_auto_prefix_mode(rocksdb_readoptions_t* options, bool auto_prefix_mode) {
   options->rep.auto_prefix_mode = auto_prefix_mode;
+}
+
+void rocksdb_options_set_dollar_denoted(rocksdb_options_t* options) {
+  options->rep.prefix_extractor =
+    std::make_shared<TablePrefixTransform>(TablePrefixTransform());
 }
 
 }
