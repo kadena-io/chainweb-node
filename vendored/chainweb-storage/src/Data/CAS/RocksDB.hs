@@ -203,10 +203,14 @@ modernDefaultOptions = R.defaultOptions
     , R.writeBufferSize = 64 `shift` 20
     }
 
-foreign import ccall unsafe "cpp\\chainweb-rocksdb.h rocksdb_options_set_dollar_denoted"
-    rocksdb_options_set_dollar_denoted
-        :: C.OptionsPtr
-        -> IO ()
+data PrefixExtractor
+
+foreign import ccall unsafe "rocksdb\\c.h rocksdb_options_set_prefix_extractor"
+    rocksdb_options_set_prefix_extractor :: C.OptionsPtr -> Ptr PrefixExtractor -> IO ()
+
+foreign import ccall unsafe "cpp\\chainweb-rocksdb.h rocksdb_options_table_prefix_extractor"
+    rocksdb_options_table_prefix_extractor
+        :: IO (Ptr PrefixExtractor)
 
 -- | Open a 'RocksDb' instance with the default namespace. If no rocks db exists
 -- at the provided directory path, a new database is created.
@@ -215,7 +219,7 @@ openRocksDb :: FilePath -> R.Options -> IO RocksDb
 openRocksDb path opts = withOpts opts $ \opts'@(R.Options' opts_ptr _ _) -> do
     GHC.setFileSystemEncoding GHC.utf8
     createDirectoryIfMissing True path
-    rocksdb_options_set_dollar_denoted opts_ptr
+    rocksdb_options_set_prefix_extractor opts_ptr =<< rocksdb_options_table_prefix_extractor
     db <- withFilePath path $ \path_ptr ->
         liftM (`R.DB` opts')
         $ R.throwIfErr "open"
