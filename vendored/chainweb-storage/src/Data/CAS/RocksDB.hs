@@ -50,6 +50,7 @@ module Data.CAS.RocksDB
 , withTempRocksDb
 , destroyRocksDb
 , resetOpenRocksDb
+, modernDefaultOptions
 
 -- * Rocks DB Table
 , Codec(..)
