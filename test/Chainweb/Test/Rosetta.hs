@@ -196,8 +196,9 @@ matchNonGenesisBlockTransactionsToLogs = do
         , _matchRosettaTx_result = TxSuccess (TxId 2)
         , _matchRosettaTx_operations =
           [ mops (TxId 1) [ mop FundTx (opId 0) [] ]
+          -- non-coin tx got the txid=2
           , mops (TxId 3) [ mop GasPayment (opId 1) [opId 0]
-                          , mop GasPayment (opId 2) [opId 0, opId 1] ]
+                          , mop GasPayment (opId 2) [opId 1] ]
           ]
         }
       , MatchRosettaTx
@@ -206,8 +207,9 @@ matchNonGenesisBlockTransactionsToLogs = do
         , _matchRosettaTx_result = TxSuccess (TxId 5)
         , _matchRosettaTx_operations =
           [ mops (TxId 4) [ mop FundTx (opId 0) [] ]
+          -- non-coin tx got the txid=5
           , mops (TxId 6) [ mop GasPayment (opId 1) [opId 0]
-                          , mop GasPayment (opId 2) [opId 0, opId 1] ]
+                          , mop GasPayment (opId 2) [opId 1] ]
           ]
         }
       , MatchRosettaTx
@@ -219,7 +221,7 @@ matchNonGenesisBlockTransactionsToLogs = do
           , mops (TxId 8) [ mop TransferOrCreateAcct (opId 1) []
                           , mop TransferOrCreateAcct (opId 2) [opId 1] ]
           , mops (TxId 9) [ mop GasPayment (opId 3) [opId 0]
-                          , mop GasPayment (opId 4) [opId 0, opId 3] ]
+                          , mop GasPayment (opId 4) [opId 3] ]
           ]
         }
       , MatchRosettaTx
@@ -229,6 +231,21 @@ matchNonGenesisBlockTransactionsToLogs = do
         , _matchRosettaTx_operations =
           [ mops (TxId 10) [ mop FundTx (opId 0) []]
           , mops (TxId 11) [ mop GasPayment (opId 1) [opId 0] ]
+          ]
+        }
+      ,  MatchRosettaTx
+        { _matchRosettaTx_caseLabel = "Multiple Coin Txs, Successful"
+        , _matchRosettaTx_requestKey = "ReqKey5"
+        , _matchRosettaTx_result = TxSuccess (TxId 13)
+        , _matchRosettaTx_operations =
+          [ mops (TxId 12) [ mop FundTx (opId 0) [] ]
+          , mops (TxId 13) [ mop TransferOrCreateAcct (opId 1) []
+                           , mop TransferOrCreateAcct (opId 2) [opId 1]
+                           , mop TransferOrCreateAcct (opId 3) [opId 2]
+                           , mop TransferOrCreateAcct (opId 4) [opId 3]
+                           ]
+          , mops (TxId 14) [ mop GasPayment (opId 5) [opId 0]
+                           , mop GasPayment (opId 6) [opId 5] ]
           ]
         }
       ]
@@ -251,7 +268,7 @@ matchFailedCoinbaseBlockTransactionsToLogs = do
         , _matchRosettaTx_operations =
           [ mops (TxId 0) [ mop FundTx (opId 0) [] ]
           , mops (TxId 2) [ mop GasPayment (opId 1) [opId 0]
-                          , mop GasPayment (opId 2) [opId 0, opId 1] ]
+                          , mop GasPayment (opId 2) [opId 1] ]
           ]
         }
       ]
@@ -305,7 +322,7 @@ matchNonGenesisSingleTransactionsToLogs = do
         , _matchRosettaTx_operations =
           [ mops (TxId 1) [ mop FundTx (opId 0) [] ]
           , mops (TxId 3) [ mop GasPayment (opId 1) [opId 0]
-                          , mop GasPayment (opId 2) [opId 0, opId 1] ]
+                          , mop GasPayment (opId 2) [opId 1] ]
           ]
         }
       , MatchRosettaTx
@@ -315,7 +332,7 @@ matchNonGenesisSingleTransactionsToLogs = do
         , _matchRosettaTx_operations =
           [ mops (TxId 4) [ mop FundTx (opId 0) []]
           , mops (TxId 6) [ mop GasPayment (opId 1) [opId 0]
-                          , mop GasPayment (opId 2) [opId 0, opId 1] ]
+                          , mop GasPayment (opId 2) [opId 1] ]
           ]
         }
       , MatchRosettaTx
@@ -327,7 +344,7 @@ matchNonGenesisSingleTransactionsToLogs = do
           , mops (TxId 8) [ mop TransferOrCreateAcct (opId 1) []
                           , mop TransferOrCreateAcct (opId 2) [opId 1] ]
           , mops (TxId 9) [ mop GasPayment (opId 3) [opId 0]
-                          , mop GasPayment (opId 4) [opId 0, opId 3] ]
+                          , mop GasPayment (opId 4) [opId 3] ]
           ]
         }
       , MatchRosettaTx

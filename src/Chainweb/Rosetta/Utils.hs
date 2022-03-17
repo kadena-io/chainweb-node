@@ -19,7 +19,7 @@ import Data.Aeson.Types (Pair)
 import Data.Foldable (foldl')
 import Data.Decimal ( Decimal, DecimalRaw(Decimal) )
 import Data.Hashable (Hashable(..))
-import Data.List (sortOn, inits)
+import Data.List (sortOn)
 import Data.Word (Word64)
 import Text.Read (readMaybe)
 import Text.Printf ( printf )
@@ -911,55 +911,69 @@ operationStatus s@Remediation =
 --   give each operation a unique, numerical operation id based on its position
 --   in this new flattened list; and create DAG of related operations.
 indexedOperations :: UnindexedOperations -> [Operation]
-indexedOperations unIdxOps = fundOps <> transferOps <> gasOps
+indexedOperations unIdxOps = allOpsSorted
   where
-    opIds = map _operation_operationId
+    -- Index operations but default to an empty list of related operations
+    indexOps :: [UnindexedOperation] -> Word64 -> [Operation]
+    indexOps opsWithoutId begId = zipWith (\f i -> f i []) opsWithoutId [begId..]
 
-    createOps opsF begIdx defRelatedOpIds =
-      let ops = zipWith (\f i -> f i defRelatedOpIds) opsF [begIdx..]
-      in weaveRelatedOperations $! ops
-      -- connect operations to each other
+    fundBegId = 0
+    fundOpsWithoutRelated =
+      indexOps
+      (_unindexedOperation_fundOps $! unIdxOps)
+      fundBegId
 
-    fundUnIdxOps = _unindexedOperation_fundOps $! unIdxOps
-    fundOps = createOps fundUnIdxOps 0 []
+    transferBegId = fromIntegral $! length fundOpsWithoutRelated
+    transferOpsWithoutRelated =
+      indexOps
+      (_unindexedOperation_transferOps $! unIdxOps)
+      transferBegId
 
-    transferIdx = fromIntegral $! length fundOps
-    transferUnIdxOps = _unindexedOperation_transferOps $! unIdxOps
-    transferOps = createOps transferUnIdxOps transferIdx []
+    gasBegId = transferBegId + (fromIntegral $! length transferOps)
+    gasOpsWithoutRelated =
+      indexOps
+      (_unindexedOperation_gasOps $! unIdxOps)
+      gasBegId
 
-    gasIdx = transferIdx + (fromIntegral $! length transferOps)
-    gasUnIdxOps = _unindexedOperation_gasOps $! unIdxOps
-    gasOps = createOps gasUnIdxOps gasIdx (opIds $! fundOps)
     -- connect gas operations to fund operations
+    fundAndGasOps = weaveRelatedOperations $! (fundOpsWithoutRelated <> gasOpsWithoutRelated)
+    transferOps = weaveRelatedOperations $! transferOpsWithoutRelated
+
+    -- sort operations so they appear in the order they occurred in the blockchain.
+    allOpsSorted :: [Operation] = sortOn (_operationId_index . _operation_operationId) $ fundAndGasOps <> transferOps
+
 
 -- | Create a DAG of related operations.
 -- Algorithm:
 --   Given a list of operations that are related:
 --     For operation x at position i,
---       Overwrite or append all operations ids at
---         position 0th to ith (not inclusive) to operation x's
---         related operations list.
--- Example: list of operations to weave: [ 4: [], 5: [1], 6: [] ]
---          weaved operations: [ 4: [], 5: [1, 4], 6: [4, 5] ]
+--       Overwrite or append the `relatedOperations` field with the
+--       operation id at position i - 1.
+--       The first operation doesn't have any related operations.
+-- Example: list of operations to relate: [ 4: [], 5: [1], 6: [] ]
+--          related operations: [ 4: [], 5: [1, 4], 6: [5] ]
+--
 weaveRelatedOperations :: [Operation] -> [Operation]
-weaveRelatedOperations relatedOps = map weave opsWithRelatedOpIds
+weaveRelatedOperations [] = []
+weaveRelatedOperations [op] = [op]
+weaveRelatedOperations (op1:restOps) = op1 : restOpsWithRelatedOpIds
   where
-    -- example: [1, 2, 3] -> [[], [1], [1,2], [1,2,3]]
-    opIdsDAG = inits $! map _operation_operationId relatedOps
-    -- example: [(op 1, []), (op 2, [1]), (op 3, [1,2])]
-    opsWithRelatedOpIds = zip relatedOps opIdsDAG
+    allOps = op1:restOps
+    allOpsLength = length allOps
+    -- Drops the last element since an operation is related to
+    -- the operation that appears before it.
+    -- example: [1, 2, 3] -> [1, 2]
+    opIdsToRelate = map (\o -> [_operation_operationId o]) $
+                    take (allOpsLength - 1) allOps
 
-    -- related operation ids must be in descending order.
-    justSortRelated r = Just $! sortOn _operationId_index r
+    restOpsWithRelatedOpIds = zipWith f restOps opIdsToRelate
 
-    weave (op, newRelatedIds) =
-      case newRelatedIds of
-        [] -> op  -- no new related operations to add
-        l -> case _operation_relatedOperations op of
-          Nothing -> op  -- no previous related operations
-            { _operation_relatedOperations = justSortRelated l }
-          Just oldRelatedIds -> op
-            { _operation_relatedOperations = justSortRelated $! (oldRelatedIds <> l) }
+    f :: Operation -> [OperationId] -> Operation
+    f op related = case _operation_relatedOperations op of
+      Nothing -> op
+        { _operation_relatedOperations = Just $! related }
+      Just oldRelated -> op
+        { _operation_relatedOperations = Just $! sortOn _operationId_index $! oldRelated <> related }
 
 operation
     :: ChainwebOperationStatus
