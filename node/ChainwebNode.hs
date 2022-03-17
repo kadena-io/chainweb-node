@@ -307,7 +307,7 @@ node conf logger = do
     rocksDbDir <- getRocksDbDir conf
     rocksDbCheckpointDir <- getRocksDbCheckpointDir conf
     pactDbDir <- getPactDbDir conf
-    withRocksDb rocksDbDir $ \rocksDb -> do
+    withRocksDb rocksDbDir modernDefaultOptions $ \rocksDb -> do
         logFunctionText logger Info $ "opened rocksdb in directory " <> sshow rocksDbDir
         installHandlerCross sigUSR1 (const $ makeCheckpoint rocksDbCheckpointDir rocksDb)
         withChainweb cwConf logger rocksDb pactDbDir (_nodeConfigResetChainDbs conf) $ \cw -> mapConcurrently_ id

@@ -58,7 +58,15 @@ source-repository-package
 source-repository-package
     type: git
     location: https://github.com/edmundnoble/chainweb-storage.git
-    tag: 99de86d5ecf7d7ebb1fbdb64ce3dbcad750f210f
+    tag: ca8d000a33db428cb9a3cf0f50bf24e8f6494815
+
+package chainweb-storage
+    extra-lib-dirs: /usr/local/lib
+    extra-include-dirs: /usr/local/include
+
+package rocksdb-haskell
+    extra-lib-dirs: /usr/local/lib
+    extra-include-dirs: /usr/local/include
 
 source-repository-package
     type: git

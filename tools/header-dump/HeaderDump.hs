@@ -303,7 +303,7 @@ withRocksDb_ path = bracket (openRocksDb_ path) closeRocksDb_
         initializeRocksDb_ db
         return db
 
-    opts = R.defaultOptions { R.createIfMissing = False }
+    opts = modernDefaultOptions { R.createIfMissing = False }
 
     initializeRocksDb_ :: RocksDb -> IO ()
     initializeRocksDb_ db = R.put

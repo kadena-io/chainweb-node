@@ -368,7 +368,7 @@ createRocksResource :: IO (FilePath, RocksDb)
 createRocksResource = do
     sysdir <- getCanonicalTemporaryDirectory
     dir <- createTempDirectory sysdir "chainweb-rocksdb-tmp"
-    rocks <- openRocksDb dir
+    rocks <- openRocksDb dir modernDefaultOptions
     return (dir, rocks)
 
 destroyRocksResource :: (FilePath, RocksDb) -> IO ()

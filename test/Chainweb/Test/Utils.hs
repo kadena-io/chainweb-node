@@ -261,7 +261,7 @@ withRocksResource m = withResource create destroy wrap
     create = do
       sysdir <- getCanonicalTemporaryDirectory
       dir <- createTempDirectory sysdir "chainweb-rocksdb-tmp"
-      rocks <- openRocksDb dir
+      rocks <- openRocksDb dir modernDefaultOptions
       return (dir, rocks)
     destroy (dir, rocks) = do
         closeRocksDb rocks
