@@ -202,6 +202,7 @@ modernDefaultOptions :: R.Options
 modernDefaultOptions = R.defaultOptions
     { R.maxOpenFiles = -1
     , R.writeBufferSize = 64 `shift` 20
+    , R.createIfMissing = True
     }
 
 data PrefixExtractor
@@ -253,7 +254,7 @@ resetOpenRocksDb path = do
     initializeRocksDb db
     return db
   where
-    opts = modernDefaultOptions { R.createIfMissing = True, R.errorIfExists = True }
+    opts = modernDefaultOptions { R.errorIfExists = True }
 
 -- | Close a 'RocksDb' instance.
 --
@@ -271,7 +272,7 @@ withRocksDb path opts = bracket (openRocksDb path opts) closeRocksDb
 --
 withTempRocksDb :: String -> (RocksDb -> IO a) -> IO a
 withTempRocksDb template f = withSystemTempDirectory template $ \dir ->
-    withRocksDb dir undefined f
+    withRocksDb dir modernDefaultOptions f
 
 -- | Delete the RocksDb instance.
 --
