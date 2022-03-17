@@ -31,7 +31,7 @@ library
     includes: cpp/chainweb-rocksdb.h
     install-includes: cpp/chainweb-rocksdb.h
     extra-libraries: rocksdb stdc++
-    cxx-options: -std=c++17
+    cxx-options: -std=c++17 -fno-rtti
     default-language: Haskell2010
     ghc-options:
         -Wall
