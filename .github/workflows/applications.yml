@@ -539,8 +539,11 @@ jobs:
         LABEL com.chainweb.docker.image.optimization="$OPT_LEVEL"
         LABEL com.chainweb.docker.image.debug-info="$DEBUG_INFO"
         LABEL com.chainweb.docker.image.revision="$GIT_SHA_SHORT"
-        RUN apt-get update && apt-get install -y librocksdb-dev ca-certificates locales && rm -rf /var/lib/apt/lists/* && locale-gen en_US.UTF-8 && update-locale LC_ALL=en_US.UTF-8 LANG=en_US.UTF-8
+        RUN apt-get update && apt-get install -y libgflags-dev ca-certificates locales && rm -rf /var/lib/apt/lists/* && locale-gen en_US.UTF-8 && update-locale LC_ALL=en_US.UTF-8 LANG=en_US.UTF-8
         ENV LANG=en_US.UTF-8
+        RUN wget https://github.com/facebook/rocksdb/archive/refs/tags/v6.29.3.tar.gz && tar -xzvf v6.29.3.tar.gz 
+        WORKDIR /rocksdb-6.29.3
+        RUN make -j4 shared_lib
         WORKDIR /chainweb
         COPY chainweb/chainweb-node .
         COPY chainweb/LICENSE .
@@ -550,6 +553,7 @@ jobs:
         COPY chainweb/cabal.project .
         COPY chainweb/cabal.project.local .
         COPY chainweb/cabal.project.freeze .
+        COPY rocksdb-6.29.3/librocksdb*.so .
         STOPSIGNAL SIGTERM
         ENTRYPOINT /chainweb/chainweb-node
         EOF
