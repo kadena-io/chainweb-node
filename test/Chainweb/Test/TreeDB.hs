@@ -139,7 +139,7 @@ reinsertion_prop
 reinsertion_prop f (SparseTree t0) = ioProperty . withTreeDb f t $ \db insert -> do
     insert db (toList t)
     l <- entries db Nothing Nothing Nothing Nothing P.length_
-    pure $ l == length t
+    return $ l === length t
   where
     t :: Tree (DbEntry db)
     t = fmap (^. from isoBH) t0

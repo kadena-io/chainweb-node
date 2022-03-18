@@ -15,6 +15,7 @@ env:
   AWS_ACCESS_KEY_ID: ${{ secrets.kadena_cabal_cache_aws_access_key_id }}
   AWS_SECRET_ACCESS_KEY: ${{ secrets.kadena_cabal_cache_aws_secret_access_key }}
   AWS_DEFAULT_REGION: us-east-1
+  LD_LIBRARY_PATH: /usr/local/lib
 
   S3_ARTIFACT_BUCKET: kadena-cabal-cache
   S3_ARTIFACT_FOLDER: chainweb-node
@@ -72,7 +73,7 @@ jobs:
           "ghc": ["8.10.7", "9.0.2"],
           "cabal": ["3.6"],
           "os": ["ubuntu-18.04", "ubuntu-20.04"],
-          "cabalcache": ["true"]
+          "cabalcache": ["false"]
         }
         EOF
         )"
@@ -163,7 +164,15 @@ jobs:
         cabal --version
     - name: Install non-Haskell dependencies (ubuntu)
       if: contains(matrix.os, 'ubuntu')
-      run: sudo apt-get install -y librocksdb-dev z3
+      run: sudo apt-get install -y libsnappy-dev libgflags-dev build-essential z3 wget
+    - name: Install rocksdb
+      run: |
+        wget https://github.com/facebook/rocksdb/archive/refs/tags/v6.29.3.tar.gz
+        tar -xzvf v6.29.3.tar.gz
+        cd rocksdb-6.29.3
+        sudo make -j4 install-shared
+        sudo ldconfig
+        cd ..
     - name: Create cabal.project.local
       run: |
         cat > cabal.project.local <<EOF
@@ -181,21 +190,6 @@ jobs:
           documentation: False
           optimization: ${{ needs.config.outputs.opt-level }}
         EOF
-
-    # dist cache
-    - name: Create date file for dist-newstyle cache key
-      run: |
-        date +%Y-%j > /tmp/cache-key
-    - uses: larskuhtz/always-upload-cache@3dc6e6c4eed0c594fbff7c4c2885c6106d1bfcf0
-      name: Cache dist-newstyle
-      with:
-        path: |
-          ~/.cabal/store
-          dist-newstyle
-        key: ${{ matrix.os }}-${{ matrix.ghc }}-${{ hashFiles('cache-key') }}-${{ hashFiles('cabal.*', '*.cabal', 'src/**', 'test/**') }}
-        restore-keys: |
-          ${{ matrix.os }}-${{ matrix.ghc }}-${{ hashFiles('/tmp/cache-key') }}-
-          ${{ matrix.os }}-${{ matrix.ghc }}-
 
     # Build
     - name: Delete Freeze file
@@ -222,11 +216,11 @@ jobs:
         aws_access_key_id: "${{ secrets.kadena_cabal_cache_aws_access_key_id }}"
         aws_secret_access_key: "${{ secrets.kadena_cabal_cache_aws_secret_access_key }}"
     - name: Install build dependencies
-      run: cabal build chainweb --only-dependencies
+      run: cabal build -j2 chainweb --only-dependencies
     - name: Build chainweb library
       run: cabal build lib:chainweb
     - name: Build chainweb applications
-      run: cabal build exe:chainweb-node test:chainweb-tests exe:cwtool chainweb:bench:bench
+      run: cabal build -j2 exe:chainweb-node test:chainweb-tests exe:cwtool chainweb:bench:bench
 
     # Checks
     - name: Check that working directory tree is clean
@@ -539,11 +533,11 @@ jobs:
         LABEL com.chainweb.docker.image.optimization="$OPT_LEVEL"
         LABEL com.chainweb.docker.image.debug-info="$DEBUG_INFO"
         LABEL com.chainweb.docker.image.revision="$GIT_SHA_SHORT"
-        RUN apt-get update && apt-get install -y libgflags-dev ca-certificates locales && rm -rf /var/lib/apt/lists/* && locale-gen en_US.UTF-8 && update-locale LC_ALL=en_US.UTF-8 LANG=en_US.UTF-8
+        RUN apt-get update && apt-get install -y libgflags-dev ca-certificates locales wget build-essential && rm -rf /var/lib/apt/lists/* && locale-gen en_US.UTF-8 && update-locale LC_ALL=en_US.UTF-8 LANG=en_US.UTF-8
         ENV LANG=en_US.UTF-8
-        RUN wget https://github.com/facebook/rocksdb/archive/refs/tags/v6.29.3.tar.gz && tar -xzvf v6.29.3.tar.gz 
         WORKDIR /rocksdb-6.29.3
-        RUN make -j4 shared_lib
+        RUN make -j4 install-shared
+        ENV LD_LIBRARY_PATH=/usr/local/lib
         WORKDIR /chainweb
         COPY chainweb/chainweb-node .
         COPY chainweb/LICENSE .

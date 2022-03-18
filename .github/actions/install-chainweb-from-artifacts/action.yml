@@ -17,7 +17,13 @@ runs:
       run: |
         case "${{ inputs.os }}" in
         ubuntu*)
-          sudo apt-get install -y librocksdb-dev z3
+          sudo apt-get install -y z3 build-essential libgflags-dev
+          wget https://github.com/facebook/rocksdb/archive/refs/tags/v6.29.3.tar.gz
+          tar -xzvf v6.29.3.tar.gz
+          cd rocksdb-6.29.3
+          sudo make -j4 install-shared
+          sudo ldconfig
+          cd ..
           ;;
         mac*)
           brew update && brew install rocksdb z3 || true
