@@ -19,7 +19,6 @@
 #include <unordered_set>
 #include <map>
 
-using rocksdb::Customizable;
 using rocksdb::DB;
 using rocksdb::DBOptions;
 using rocksdb::DbPath;
@@ -43,7 +42,6 @@ using std::map;
 
 class TablePrefixTransform : public SliceTransform {
  protected:
-  const char* NickName() const override { return kNickName(); }
  public:
 
   explicit TablePrefixTransform() { }
@@ -52,23 +50,6 @@ class TablePrefixTransform : public SliceTransform {
   static const char* kClassName() { return "kadena.rocksdb.TablePrefix"; }
   static const char* kNickName() { return "table"; }
   const char* Name() const override { return kClassName(); }
-  std::string GetId() const override { return std::string(Name()); }
-  bool IsInstanceOf(const std::string& name) const override {
-    if (name.empty()) {
-      return false;
-    } else if (name == Name()) {
-      return true;
-    } else {
-      const char* nickname = NickName();
-      if (nickname != nullptr && name == nickname) {
-        return true;
-      } else {
-        return false;
-      }
-    }
-  }
-  const Customizable* Inner() const override { return nullptr; }
-
   Slice Transform(const Slice& src) const override {
     size_t prefix_end;
     if ((prefix_end = std::string(src.data()).find("$")) != std::string::npos) {
@@ -103,9 +84,7 @@ class TablePrefixTransform : public SliceTransform {
 };
 
 const SliceTransform* NewTablePrefixTransform() {
-  SliceTransform* p = reinterpret_cast<SliceTransform*>(malloc(sizeof(SliceTransform)));
-  *p = TablePrefixTransform();
-  return p;
+  return new TablePrefixTransform();
 }
 
 extern "C" {

@@ -1,9 +1,13 @@
--- mostly from serokell/rocksdb-haskell
+-- | This code is mostly from serokell/rocksdb-haskell's Iterator module.
+--   The main difference is the way that options are handled. The original code
+--   didn't let me alter any options that didn't have bindings. It also had the
+--   ability to leak the underlying `ReadOptions` pointer.
 {-# language ScopedTypeVariables #-}
+{-# language RankNTypes #-}
 
 module Data.CAS.RocksDB.Iterator where
 
-import           Control.Exception            (bracket, onException)
+import           Control.Exception            (bracket)
 import           Control.Monad                (when)
 import           Control.Monad.IO.Class       (MonadIO (liftIO))
 import           Data.ByteString              (ByteString)
@@ -21,12 +25,14 @@ import qualified Data.ByteString              as BS
 import qualified Data.ByteString.Char8        as BC
 import qualified Data.ByteString.Unsafe       as BU
 
-newtype ReadOptions = ReadOptions { runReadOptions :: ReadOptionsPtr -> IO () }
+newtype ReadOptions = ReadOptions
+    { runReadOptions :: forall r. ReadOptionsPtr -> IO r -> IO r
+    }
 instance Monoid ReadOptions where
-    mempty = ReadOptions (\_ -> return ())
+    mempty = ReadOptions (\_ k -> k)
 instance Semigroup ReadOptions where
     ReadOptions r <> ReadOptions r' =
-        ReadOptions $ \ptr -> r ptr >> r' ptr
+        ReadOptions $ \ptr k -> r ptr (r' ptr k)
 
 createIter :: DB -> ReadOptionsPtr -> IO IteratorPtr
 createIter (DB db_ptr _) opts_ptr =
@@ -180,29 +186,28 @@ iterString iter_ptr f = do
 
 withReadOptions :: ReadOptions -> (ReadOptionsPtr -> IO a) -> IO a
 withReadOptions opts k = withCReadOpts $ \opts_ptr -> do
-    runReadOptions opts opts_ptr
-    k opts_ptr
+    runReadOptions opts opts_ptr (k opts_ptr)
 
 withCReadOpts :: (ReadOptionsPtr -> IO a) -> IO a
-withCReadOpts k = do
-    opts_ptr <- c_rocksdb_readoptions_create
-    flip onException (c_rocksdb_readoptions_destroy opts_ptr) (k opts_ptr)
+withCReadOpts = bracket c_rocksdb_readoptions_create c_rocksdb_readoptions_destroy
 
 -- | If true, all data read from underlying storage will be verified
 -- against corresponding checksuyms.
 --
 -- Default: True
 setVerifyChecksums :: Bool -> ReadOptions
-setVerifyChecksums b = ReadOptions $ \opts_ptr ->
+setVerifyChecksums b = ReadOptions $ \opts_ptr k -> do
     c_rocksdb_readoptions_set_verify_checksums opts_ptr (boolToNum b)
+    k
 
 -- | Should the data read for this iteration be cached in memory? Callers
 -- may with to set this field to false for bulk scans.
 --
 -- Default: True
 setFillCache :: Bool -> ReadOptions
-setFillCache b = ReadOptions $ \opts_ptr ->
+setFillCache b = ReadOptions $ \opts_ptr k -> do
     c_rocksdb_readoptions_set_fill_cache opts_ptr (boolToNum b)
+    k
 
 -- | If 'Just', read as of the supplied snapshot (which must belong to the
 -- DB that is being read and which must not have been released). If
@@ -211,8 +216,9 @@ setFillCache b = ReadOptions $ \opts_ptr ->
 --
 -- Default: Nothing
 setUseSnapshot :: Maybe Snapshot -> ReadOptions
-setUseSnapshot snapshot = ReadOptions $ \opts_ptr ->
+setUseSnapshot snapshot = ReadOptions $ \opts_ptr k -> do
     c_rocksdb_readoptions_set_snapshot opts_ptr snap_ptr
+    k
   where
     snap_ptr = case snapshot of
         Just (Snapshot p) -> p
@@ -222,21 +228,24 @@ foreign import ccall unsafe "rocksdb\\c.h rocksdb_readoptions_set_iterate_upper_
     rocksdb_readoptions_set_iterate_upper_bound :: ReadOptionsPtr -> CString -> CSize -> IO ()
 
 setUpperBound :: ByteString -> ReadOptions
-setUpperBound upper = ReadOptions $ \opts_ptr ->
-    BU.unsafeUseAsCStringLen upper $ \(upperPtr, upperLen) ->
+setUpperBound upper = ReadOptions $ \opts_ptr k ->
+    BU.unsafeUseAsCStringLen upper $ \(upperPtr, upperLen) -> do
         rocksdb_readoptions_set_iterate_upper_bound opts_ptr upperPtr (fromIntegral upperLen)
+        k
 
 foreign import ccall unsafe "rocksdb\\c.h rocksdb_readoptions_set_iterate_lower_bound"
     rocksdb_readoptions_set_iterate_lower_bound :: ReadOptionsPtr -> CString -> CSize -> IO ()
 
 setLowerBound :: ByteString -> ReadOptions
-setLowerBound lower = ReadOptions $ \opts_ptr ->
-    BU.unsafeUseAsCStringLen lower $ \(lowerPtr, lowerLen) ->
+setLowerBound lower = ReadOptions $ \opts_ptr k ->
+    BU.unsafeUseAsCStringLen lower $ \(lowerPtr, lowerLen) -> do
         rocksdb_readoptions_set_iterate_lower_bound opts_ptr lowerPtr (fromIntegral lowerLen)
+        k
 
 foreign import ccall unsafe "cpp\\chainweb-rocksdb.h rocksdb_readoptions_set_auto_prefix_mode"
     rocksdb_readoptions_set_auto_prefix_mode :: ReadOptionsPtr -> CBool -> IO ()
 
 setAutoPrefixMode :: Bool -> ReadOptions
-setAutoPrefixMode m = ReadOptions $ \opts_ptr ->
+setAutoPrefixMode m = ReadOptions $ \opts_ptr k -> do
     rocksdb_readoptions_set_auto_prefix_mode opts_ptr (boolToNum m)
+    k

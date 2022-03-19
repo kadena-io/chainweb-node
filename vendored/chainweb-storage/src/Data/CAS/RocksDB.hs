@@ -38,7 +38,7 @@
 -- type is content-addressable.
 --
 -- TODO: Abstract the 'RocksDbTable' API into a typeclass so that one can
--- provide alterantive implementations for it.
+-- provide alternative implementations for it.
 --
 module Data.CAS.RocksDB
 ( RocksDb(..)
@@ -86,6 +86,7 @@ module Data.CAS.RocksDB
 -- ** Streams
 , iterToEntryStream
 , iterToValueStream
+, iterToReverseValueStream
 , iterToKeyStream
 
 -- ** Extremal Table Entries
@@ -106,6 +107,7 @@ module Data.CAS.RocksDB
 , compactRangeRocksDb
 ) where
 
+import Control.Exception(evaluate)
 import Control.Lens
 import Control.Monad
 import Control.Monad.Catch
@@ -259,7 +261,7 @@ resetOpenRocksDb path = do
 -- | Close a 'RocksDb' instance.
 --
 closeRocksDb :: RocksDb -> IO ()
-closeRocksDb = R.close . _rocksDbHandle
+closeRocksDb (RocksDb (R.DB db_ptr _) _) = C.c_rocksdb_close db_ptr
 
 -- | Provide a computation with a 'RocksDb' instance. If no rocks db exists at
 -- the provided directory path, a new database is created.
@@ -300,16 +302,13 @@ destroyRocksDb path = R.destroy path opts
 data Codec a = Codec
     { _codecEncode :: !(a -> B.ByteString)
         -- ^ encode a value.
-    , _codecDecode :: !(forall m . MonadThrow m => B.ByteString -> m a)
+    , _codecDecode :: !(forall m. MonadThrow m => B.ByteString -> m a)
         -- ^ decode a value. Throws an exception of decoding fails.
     }
 
 instance NoThunks (Codec a) where
-    wNoThunks c (Codec a _) = allNoThunks
-        [ noThunks c a
-          -- _codecDecode is existentially quantified and the instance dictionary
-          -- reference is a thunk, even thought the field is strict
-        ]
+    -- NoThunks does not look inside of closures for captured thunks
+    wNoThunks _ _ = return Nothing
     showTypeOf _ = "Data.CAS.RocksDB.Codec"
     {-# INLINE wNoThunks #-}
     {-# INLINE showTypeOf #-}
@@ -467,7 +466,10 @@ instance NoThunks (RocksDbTableIter k v) where
 --
 withTableIter :: RocksDbTable k v -> (RocksDbTableIter k v -> IO a) -> IO a
 withTableIter db k = I.withReadOptions readOptions $ \opts_ptr ->
-    I.withIter (_rocksDbTableDb db) opts_ptr (k . makeTableIter)
+    I.withIter (_rocksDbTableDb db) opts_ptr $ \iter -> do
+        let tableIter = makeTableIter iter
+        tableIterFirst tableIter
+        k tableIter
   where
     readOptions = fold
         [ I.setLowerBound (namespaceFirst $ _rocksDbTableNamespace db)
@@ -487,9 +489,8 @@ withTableIter db k = I.withReadOptions readOptions $ \opts_ptr ->
 -- 'tableIterKey' is called on it.
 --
 tableIterValid :: RocksDbTableIter k v -> IO Bool
-tableIterValid it = I.iterKey (_rocksDbTableIter it) >>= \case
-    Nothing -> return False
-    (Just !x) -> return $! checkIterKey it x
+tableIterValid it =
+    I.iterValid (_rocksDbTableIter it)
 {-# INLINE tableIterValid #-}
 
 -- | Efficiently seek to a key in a 'RocksDbTableIterator' iteration.
@@ -501,16 +502,15 @@ tableIterSeek it = I.iterSeek (_rocksDbTableIter it) . encIterKey it
 -- | Seek to the first key in a 'RocksDbTable'.
 --
 tableIterFirst :: RocksDbTableIter k v -> IO ()
-tableIterFirst it
-    = I.iterSeek (_rocksDbTableIter it) $ namespaceFirst (_rocksDbTableIterNamespace it)
+tableIterFirst it =
+    I.iterFirst (_rocksDbTableIter it)
 {-# INLINE tableIterFirst #-}
 
 -- | Seek to the last value in a 'RocksDbTable'
 --
 tableIterLast :: RocksDbTableIter k v -> IO ()
-tableIterLast it = do
-    I.iterSeek (_rocksDbTableIter it) $ namespaceLast (_rocksDbTableIterNamespace it)
-    I.iterPrev (_rocksDbTableIter it)
+tableIterLast it =
+    I.iterLast (_rocksDbTableIter it)
 {-# INLINE tableIterLast #-}
 
 -- | Move a 'RocksDbTableIter' to the next key in a 'RocksDbTable'.
@@ -531,14 +531,14 @@ tableIterPrev = I.iterPrev . _rocksDbTableIter
 tableIterEntry
     :: RocksDbTableIter k v
     -> IO (Maybe (k, v))
-tableIterEntry it = I.iterEntry (_rocksDbTableIter it) >>= \case
-    Nothing -> return Nothing
-    Just (k, v) -> do
-        tryDecIterKey it k >>= \case
-            Nothing -> return Nothing
-            (Just !k') -> do
-                !v' <- decIterVal it v
-                return $! Just $! (k', v')
+tableIterEntry it =
+    I.iterEntry (_rocksDbTableIter it) >>= \case
+        Nothing -> return Nothing
+        Just (k, v) -> do
+            !k' <- decIterKey it k
+            !v' <- decIterVal it v
+            return $ Just (k', v')
+
 {-# INLINE tableIterEntry #-}
 
 -- | Returns the value at the current position of a 'RocksDbTableIter'. Returns
@@ -547,7 +547,9 @@ tableIterEntry it = I.iterEntry (_rocksDbTableIter it) >>= \case
 tableIterValue
     :: RocksDbTableIter k v
     -> IO (Maybe v)
-tableIterValue it = fmap snd <$> tableIterEntry it
+tableIterValue it = I.iterValue (_rocksDbTableIter it) >>= \case
+    Nothing -> return Nothing
+    Just v -> pure . Just =<< evaluate =<< decIterVal it v
 {-# INLINE tableIterValue #-}
 
 -- | Returns the key at the current position of a 'RocksDbTableIter'. Returns
@@ -558,7 +560,7 @@ tableIterKey
     -> IO (Maybe k)
 tableIterKey it = I.iterKey (_rocksDbTableIter it) >>= \case
     Nothing -> return Nothing
-    Just k -> tryDecIterKey it k
+    Just k -> pure . Just =<< evaluate =<< decIterKey it k
 {-# INLINE tableIterKey #-}
 
 -- | Returns the stream of key-value pairs of an 'RocksDbTableIter'.
@@ -569,9 +571,10 @@ tableIterKey it = I.iterKey (_rocksDbTableIter it) >>= \case
 -- finished results in a memory leak.
 --
 iterToEntryStream :: RocksDbTableIter k v -> S.Stream (S.Of (k,v)) IO ()
-iterToEntryStream it = liftIO (tableIterEntry it) >>= \case
-    Nothing -> return ()
-    Just x -> S.yield x >> liftIO (tableIterNext it) >> iterToEntryStream it
+iterToEntryStream it =
+    liftIO (tableIterEntry it) >>= \case
+        Nothing -> return ()
+        Just x -> S.yield x >> liftIO (tableIterNext it) >> iterToEntryStream it
 {-# INLINE iterToEntryStream #-}
 
 -- | Returns the stream of values of an 'RocksDbTableIter'.
@@ -581,11 +584,27 @@ iterToEntryStream it = liftIO (tableIterEntry it) >>= \case
 -- error. Not releasing the iterator after the processing of the stream has
 -- finished results in a memory leak.
 --
-iterToValueStream :: RocksDbTableIter k v -> S.Stream (S.Of v) IO ()
-iterToValueStream it = liftIO (tableIterValue it) >>= \case
-    Nothing -> return ()
-    Just x -> S.yield x >> liftIO (tableIterNext it) >> iterToValueStream it
+iterToValueStream :: Show k => RocksDbTableIter k v -> S.Stream (S.Of v) IO ()
+iterToValueStream it = do
+    liftIO (tableIterValue it) >>= \case
+        Nothing -> return ()
+        Just x -> S.yield x >> liftIO (tableIterNext it) >> iterToValueStream it
 {-# INLINE iterToValueStream #-}
+
+-- Returns the stream of key-value pairs of an 'RocksDbTableIter' in reverse
+-- order.
+--
+-- The iterator must be released after the stream is consumed. Releasing the
+-- iterator to early while the stream is still in use results in a runtime
+-- error. Not releasing the iterator after the processing of the stream has
+-- finished results in a memory leak.
+--
+iterToReverseValueStream :: RocksDbTableIter k v -> S.Stream (S.Of v) IO ()
+iterToReverseValueStream it =
+    liftIO (tableIterValue it) >>= \case
+        Nothing -> return ()
+        Just x -> S.yield x >> liftIO (tableIterPrev it) >> iterToReverseValueStream it
+{-# INLINE iterToReverseValueStream #-}
 
 -- | Returns the stream of keys of an 'RocksDbTableIter'.
 --
@@ -595,9 +614,10 @@ iterToValueStream it = liftIO (tableIterValue it) >>= \case
 -- finished results in a memory leak.
 --
 iterToKeyStream :: RocksDbTableIter k v -> S.Stream (S.Of k) IO ()
-iterToKeyStream it = liftIO (tableIterKey it) >>= \case
-    Nothing -> return ()
-    Just x -> S.yield x >> liftIO (tableIterNext it) >> iterToKeyStream it
+iterToKeyStream it =
+    liftIO (tableIterKey it) >>= \case
+        Nothing -> return ()
+        Just x -> S.yield x >> liftIO (tableIterNext it) >> iterToKeyStream it
 {-# INLINE iterToKeyStream #-}
 
 -- Extremal Table Entries
@@ -756,34 +776,12 @@ encIterKey it k = namespaceFirst ns <> _codecEncode (_rocksDbTableIterKeyCodec i
 {-# INLINE encIterKey #-}
 
 decIterVal :: MonadThrow m => RocksDbTableIter k v -> B.ByteString -> m v
-decIterVal i = _codecDecode $ _rocksDbTableIterValueCodec i
+decIterVal i bs = _codecDecode (_rocksDbTableIterValueCodec i) bs
 {-# INLINE decIterVal #-}
 
-checkIterKey :: RocksDbTableIter k v -> B.ByteString -> Bool
-checkIterKey it k = maybe False (const True) $ decIterKey it k
-{-# INLINE checkIterKey #-}
-
--- | Return 'Nothing' if the namespace doesn't match, and throws if the
--- key can't be decoded.
---
--- This function is useful because invalid iterators are represented as
--- iterators that point outside their respective namespace key range.
---
-tryDecIterKey :: MonadThrow m => RocksDbTableIter k v -> B.ByteString -> m (Maybe k)
-tryDecIterKey it k = case B.splitAt (B.length prefix) k of
-    (a, b)
-        | a /= prefix -> return Nothing
-        | otherwise -> Just <$> _codecDecode (_rocksDbTableIterKeyCodec it) b
-  where
-    prefix = namespaceFirst $ _rocksDbTableIterNamespace it
-{-# INLINE tryDecIterKey #-}
-
 decIterKey :: MonadThrow m => RocksDbTableIter k v -> B.ByteString -> m k
-decIterKey it k = case B.splitAt (B.length prefix) k of
-    (a, b)
-        | a == prefix -> _codecDecode (_rocksDbTableIterKeyCodec it) b
-        | otherwise -> throwM
-            $ RocksDbTableIterInvalidKeyNamespace (Expected $ _rocksDbTableIterNamespace it) (Actual a)
+decIterKey it k =
+    _codecDecode (_rocksDbTableIterKeyCodec it) (B.drop (B.length prefix) k)
   where
     prefix = namespaceFirst $ _rocksDbTableIterNamespace it
 {-# INLINE decIterKey #-}
