@@ -1,8 +1,3 @@
-(env-data
-  { "coin-file": "../v4/coin-v4.pact"
-  , "coin-load-gas": 3632
-  })
-
 ;; Enable the table gas model
 (env-exec-config ["DisableInlineMemCheck"])
 (env-gasmodel "table")
@@ -16,14 +11,11 @@
   "Gas cost of loading fungible contract"
   840 (env-gas))
 
-(let ((f (try "coin.pact" (read-msg "coin-file"))))
-  (env-gas 0) (env-gaslog)
-  (with-applied-env
-    (load f)))
+(load "coin-v4.pact")
 (env-gaslog)
 (expect
   "Gas cost of loading coin contract"
-  (try 3301 (read-integer "coin-load-gas"))
+  4472
   (env-gas))
 
 (create-table coin.coin-table)
