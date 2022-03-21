@@ -1,0 +1,10 @@
+(m.f)
+(module m G (defcap G () true) (defun f () (let ((a "a")) a)))
+)
+(module m G (defcap G () true) (defun f () (let (a "a") a))
+(module m G (defcap G () true))
+(module m (enforce "" true))
+(module m (enforce true ""))
+(module m true)
+let
+et

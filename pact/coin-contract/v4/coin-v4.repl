@@ -1,6 +1,6 @@
 (env-data
   { "coin-file": "../v4/coin-v4.pact"
-  , "coin-load-gas": 3632
+  , "coin-load-gas": 3661
   })
 
 ;; Enable the table gas model
@@ -14,7 +14,7 @@
 (env-gaslog)
 (expect
   "Gas cost of loading fungible contract"
-  840 (env-gas))
+  846 (env-gas))
 
 (let ((f (try "coin.pact" (read-msg "coin-file"))))
   (env-gas 0) (env-gaslog)
@@ -251,7 +251,7 @@
   "Keyset failure"
   (fund-tx 'emily 'doug (read-keyset 'doug) 1.0))
 
-(env-sigs [{"key": "keys1", "caps": [(TRANSFER "emily" "doug" 1.0)]}])
+(env-sigs [{"key": "keys1", "caps": [(TRANSFER "emily" "doug" 1.0 "0")]}])
 
 (expect-failure
   "fund-tx fails for no gas cap"
@@ -286,7 +286,7 @@
 
 (pact-state true)
 
-(env-sigs [{"key": "keys1", "caps": [(GAS),(TRANSFER "emily" "doug" 1.0)]}])
+(env-sigs [{"key": "keys1", "caps": [(GAS),(TRANSFER "emily" "doug" 1.0 "0")]}])
 
 (expect
   "fund-tx succeeds with gas cap and other cap"
@@ -390,14 +390,14 @@
 
 (expect-failure "can't install negative"
   "Positive amount"
-  (test-capability (coin.TRANSFER "emily" "doug" -1.0)))
+  (test-capability (coin.TRANSFER "emily" "doug" -1.0 "")))
 
 (expect-failure
   "Transfer fails without managed cap installed"
   "not installed"
   (transfer 'emily 'doug 1.0))
 
-(test-capability (coin.TRANSFER "emily" "doug" 1.0))
+(test-capability (coin.TRANSFER "emily" "doug" 1.0 ""))
 (env-gas 0) (env-gaslog)
 (expect
   "roundtrip 1.0 transfer succeeds" "Write succeeded"
@@ -405,7 +405,7 @@
 (env-gaslog)
 (expect
   "Gas cost of transfer"
-  488 (env-gas))
+  491 (env-gas))
 
 (expect-failure "emily->doug capability used up"
   "TRANSFER exceeded"
@@ -425,7 +425,7 @@
 (begin-tx)
 (use coin)
 
-(test-capability (coin.TRANSFER "emily" "doug" 1.0))
+(test-capability (coin.TRANSFER "emily" "doug" 1.0 ""))
 (expect-failure
   "emily now has insufficient funds and cannot transfer"
   "Insufficient funds"
@@ -435,14 +435,14 @@
   "row not found"
   (get-balance 'will))
 
-(test-capability (TRANSFER 'doug 'will 1.0))
+(test-capability (TRANSFER 'doug 'will 1.0 ""))
 (env-gas 0) (env-gaslog)
 (expect "transfer-create to new account succeeds"
   "Write succeeded"
   (transfer-create 'doug 'will (read-keyset 'will) 1.0))
 (env-gaslog)
 (expect
-  "Gas cost of transfer-create" 485 (env-gas))
+  "Gas cost of transfer-create" 488 (env-gas))
 
 (expect
   "doug now has 0.4 coins"
@@ -623,7 +623,7 @@
 
 (env-keys ["keys1", "keys2"])
 
-(test-capability (TRANSFER "emily" "doug" UNIT_GOOD))
+(test-capability (TRANSFER "emily" "doug" UNIT_GOOD "1"))
 ;; Transfer
 (expect
   "min transfer ok"
@@ -645,7 +645,7 @@
 (use coin)
 (use T)
 
-(test-capability (TRANSFER "emily" "doug" (* 2 UNIT_GOOD)))
+(test-capability (TRANSFER "emily" "doug" (* 2 UNIT_GOOD) "1"))
 (expect
   "min transfer-create ok"
   "Write succeeded"
@@ -890,16 +890,16 @@
 (env-data {'k: ['keys2]})
 (env-sigs
   [{ 'key: 'keys2,
-     'caps: [(coin.TRANSFER 'doug 'emily 0.001),(coin.GAS)]}])
+     'caps: [(coin.TRANSFER 'doug 'emily 0.001 "1"),(coin.GAS)]}])
 
 (coin.transfer 'doug 'emily 0.0001)
 (expect "transfer event"
-  [{"name": "coin.TRANSFER","params": ["doug" "emily" 0.0001]}]
+  [{"name": "coin.TRANSFER","params": ["doug" "emily" 0.0001 "1"]}]
   (map (remove 'module-hash) (env-events true)))
 
 (coin.transfer-create 'doug 'emily (read-keyset 'k) 0.0002)
 (expect "transfer-create event"
-  [{"name": "coin.TRANSFER","params": ["doug" "emily" 0.0002]}]
+  [{"name": "coin.TRANSFER","params": ["doug" "emily" 0.0002 "1"]}]
   (map (remove 'module-hash) (env-events true)))
 
 (test-capability (coin.GAS))
@@ -907,7 +907,7 @@
 (env-data { 'fee: 0.0004 })
 (continue-pact 1)
 (expect "gas event"
-  [{"name": "coin.TRANSFER","params": ["doug" "emily" 0.0004]}]
+  [{"name": "coin.TRANSFER","params": ["doug" "emily" 0.0004 "1"]}]
   (map (remove 'module-hash) (env-events true)))
 (rollback-tx)
 
@@ -923,7 +923,7 @@
 (coin.transfer-crosschain 'emily 'doug (read-keyset 'k) "1" 0.00001)
 (expect "xchain send events"
   [ {"name": "coin.TRANSFER"
-    ,"params": ["emily" "" 0.00001]
+    ,"params": ["emily" "" 0.00001 "0"]
     }
     { "name": "pact.X_YIELD"
     , "params": ["1" "coin.transfer-crosschain" ["emily" "doug" (read-keyset 'k) "1" 0.00001]]
@@ -935,7 +935,7 @@
 (continue-pact 1)
 (expect "xchain send events"
   [ {"name": "coin.TRANSFER"
-    ,"params": ["" "doug" 0.00001]
+    ,"params": ["" "doug" 0.00001 "1"]
     }
     { "name": "pact.X_RESUME"
     , "params": ["0" "coin.transfer-crosschain" ["emily" "doug" (read-keyset 'k) "1" 0.00001]]
@@ -960,7 +960,7 @@
 (coin.release-allocation "alloc")
 (expect "release-allocation events"
    [{"name": "coin.RELEASE_ALLOCATION","params": ["alloc" 10.0]}
-    {"name": "coin.TRANSFER","params": ["" "alloc" 10.0]}]
+    {"name": "coin.TRANSFER","params": ["" "alloc" 10.0 "1"]}]
   (map (remove 'module-hash) (env-events true)))
 (rollback-tx)
 
@@ -980,10 +980,12 @@
    ,'caps:
     [(coin.TRANSFER 'emily
       "k:5b4c9fc5207fcf700a5fbcb48c261820149c8ecd52e005282ed9e3f5febcd1f3"
-      0.02)
+      0.02
+      "1")
     ,(coin.TRANSFER 'emily
       "k:5b4c9fc5207fcf700a5fbcb48c261820149c8ecd52e005282ed9e3f5febcd1f4"
-      0.02)]}])
+      0.02
+      "1")]}])
 (length "k:5b4c9fc5207fcf700a5fbcb48c261820149c8ecd52e005282ed9e3f5febcd1f3")
 (expect-failure
   "single-key mismatch, create-account"
@@ -1036,7 +1038,8 @@
    ,'caps:
     [(coin.TRANSFER 'emily
       "k:5b4c9fc5207fcf700a5fbcb48c261820149c8ecd52e005282ed9e3f5febcd1f4"
-      0.02)]}])
+      0.02
+      "1")]}])
 (expect
   "single-key success, transfer-create"
   "Write succeeded"

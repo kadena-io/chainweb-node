@@ -73,6 +73,7 @@
     ( sender:string
       receiver:string
       amount:decimal
+      target-chain:string
     )
     @managed amount TRANSFER-mgr
     (enforce (!= sender receiver) "same sender and receiver")
@@ -156,6 +157,7 @@
       )
   )
 
+
   ; --------------------------------------------------------------------------
   ; Coin Contract
 
@@ -219,7 +221,7 @@
       (enforce (>= refund 0.0)
         "refund must be a non-negative quantity")
 
-      (emit-event (TRANSFER sender miner fee)) ;v3
+      (emit-event (TRANSFER sender miner fee (at 'chain-id (chain-data)))) ;v3
 
         ; directly update instead of credit
       (with-capability (CREDIT sender)
@@ -303,7 +305,7 @@
 
     (enforce-unit amount)
 
-    (with-capability (TRANSFER sender receiver amount)
+    (with-capability (TRANSFER sender receiver amount (at 'chain-id (chain-data)))
       (debit sender amount)
       (with-read coin-table receiver
         { "guard" := g }
@@ -331,7 +333,7 @@
 
     (enforce-unit amount)
 
-    (with-capability (TRANSFER sender receiver amount)
+    (with-capability (TRANSFER sender receiver amount (at 'chain-id (chain-data)))
       (debit sender amount)
       (credit receiver receiver-guard amount))
     )
@@ -348,7 +350,7 @@
     (enforce-unit amount)
 
     (require-capability (COINBASE))
-    (emit-event (TRANSFER "" account amount)) ;v3
+    (emit-event (TRANSFER "" account amount (at 'chain-id (chain-data)))) ;v3
     (with-capability (CREDIT account)
       (credit account account-guard amount))
     )
@@ -368,7 +370,7 @@
     (enforce-unit amount)
 
     (require-capability (REMEDIATE))
-    (emit-event (TRANSFER "" account amount)) ;v3
+    (emit-event (TRANSFER "" account amount (at 'chain-id (chain-data)))) ;v3
     (with-read coin-table account
       { "balance" := balance }
 
@@ -469,9 +471,7 @@
       (if (= "" r) true
         (if (= "k" r)
           (enforce
-            (= (format "{}" [guard])
-               (format "KeySet {keys: [{}],pred: keys-all}"
-                       [(drop 2 account)]))
+            (validate-principal guard account)
             "Single-key account protocol violation")
           (enforce false
             (format "Unrecognized reserved protocol: {}" [r]))))))
@@ -513,7 +513,7 @@
         ;; step 1 - debit delete-account on current chain
         (debit sender amount)
 
-        (emit-event (TRANSFER sender "" amount))
+        (emit-event (TRANSFER sender "" amount (at 'chain-id (chain-data))))
 
         (let
           ((crosschain-details:object{crosschain-schema}
@@ -530,7 +530,7 @@
         , "receiver-guard" := receiver-guard
         , "amount" := amount
         }
-        (emit-event (TRANSFER "" receiver amount))
+        (emit-event (TRANSFER "" receiver amount target-chain))
         ;; step 2 - credit create account on target chain
         (with-capability (CREDIT receiver)
           (credit receiver receiver-guard amount))
@@ -616,7 +616,7 @@
         (enforce-guard guard)
 
         (with-capability (CREDIT account)
-          (emit-event (TRANSFER "" account balance))
+          (emit-event (TRANSFER "" account balance (at 'chain-id (chain-data))))
           (credit account guard balance)
 
           (update allocation-table account

@@ -21,6 +21,7 @@
      ( sender:string
        receiver:string
        amount:decimal
+       target-chain:string
      )
      @doc " Managed capability sealing AMOUNT for transfer from SENDER to \
           \ RECEIVER. Permits any number of transfers up to AMOUNT."
