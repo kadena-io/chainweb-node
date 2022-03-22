@@ -535,8 +535,12 @@ jobs:
         LABEL com.chainweb.docker.image.revision="$GIT_SHA_SHORT"
         RUN apt-get update && apt-get install -y libgflags-dev libsnappy-dev ca-certificates locales wget build-essential && rm -rf /var/lib/apt/lists/* && locale-gen en_US.UTF-8 && update-locale LC_ALL=en_US.UTF-8 LANG=en_US.UTF-8
         ENV LANG=en_US.UTF-8
-        WORKDIR /rocksdb-6.29.3
-        RUN make -j4 install-shared
+        RUN \
+          wget https://github.com/facebook/rocksdb/archive/refs/tags/v6.29.3.tar.gz && \
+          tar -xzvf v6.29.3.tar.gz && \
+          cd rocksdb-6.29.3 && \
+          make -j4 install-shared && \
+          ldconfig
         ENV LD_LIBRARY_PATH=/usr/local/lib
         WORKDIR /chainweb
         COPY chainweb/chainweb-node .
@@ -547,7 +551,6 @@ jobs:
         COPY chainweb/cabal.project .
         COPY chainweb/cabal.project.local .
         COPY chainweb/cabal.project.freeze .
-        COPY rocksdb-6.29.3/librocksdb*.so .
         STOPSIGNAL SIGTERM
         ENTRYPOINT /chainweb/chainweb-node
         EOF
