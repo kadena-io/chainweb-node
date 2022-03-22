@@ -17,7 +17,7 @@ runs:
       run: |
         case "${{ inputs.os }}" in
         ubuntu*)
-          sudo apt-get install -y z3 build-essential libgflags-dev
+          sudo apt-get install -y z3 build-essential libsnappy-dev libgflags-dev
           wget https://github.com/facebook/rocksdb/archive/refs/tags/v6.29.3.tar.gz
           tar -xzvf v6.29.3.tar.gz
           cd rocksdb-6.29.3
