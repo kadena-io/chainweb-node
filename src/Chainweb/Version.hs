@@ -932,9 +932,13 @@ chainweb214Pact
     -> ChainwebVersion
     -> BlockHeight
     -> Bool
-chainweb214Pact  aoa _v _h = case aoa of
-    At -> error "TODO"
-    After -> error "TODO"
+chainweb214Pact  aoa v h = case aoa of
+    At -> go (==) v h
+    After -> go (flip (>)) v h
+  where
+    go f Mainnet01 = f 2605696 -- 2022-04-22 00:00:13
+    go f Testnet04 = f 2112766 -- 2022-04-14 00:00:43
+    go f _ = f 5
 
 -- -------------------------------------------------------------------------- --
 -- Header Validation Guards
