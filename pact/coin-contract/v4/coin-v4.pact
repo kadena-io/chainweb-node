@@ -469,9 +469,7 @@
       (if (= "" r) true
         (if (= "k" r)
           (enforce
-            (= (format "{}" [guard])
-               (format "KeySet {keys: [{}],pred: keys-all}"
-                       [(drop 2 account)]))
+            (validate-principal guard account)
             "Single-key account protocol violation")
           (enforce false
             (format "Unrecognized reserved protocol: {}" [r]))))))
