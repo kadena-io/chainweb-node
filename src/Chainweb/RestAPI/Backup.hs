@@ -7,7 +7,7 @@
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeOperators #-}
 
--- | An endpoint for making database backups. Also used to synchronize 
+-- | An endpoint for making database backups. Also used to synchronize
 -- databases between nodes.
 
 module Chainweb.RestAPI.Backup
@@ -64,13 +64,16 @@ someBackupServer (FromSingChainwebVersion (SChainwebVersion :: Sing vT)) backupE
             case current of
                 Nothing -> do
                     writeTVar globalCurrentBackup (Just nextBackupIdentifier)
-                    return $ doBackup backupPactFlag nextBackupIdentifier 
+                    return $ doBackup backupPactFlag nextBackupIdentifier
                 Just b -> do
-                    let logg = logFunctionText (Backup._backupLogger backupEnv) Info $ 
+                    let logg = logFunctionText (Backup._backupLogger backupEnv) Info $
                             "requested backup, but backup " <> b <> " is already in progress."
                     return $ b <$ logg
-    doBackup backupPactFlag nextBackupIdentifier = 
-        nextBackupIdentifier <$ async (Backup.makeBackup backupEnv options)
+    doBackup backupPactFlag nextBackupIdentifier = do
+        _ <- async $ do
+            Backup.makeBackup backupEnv options
+            atomically (writeTVar globalCurrentBackup Nothing)
+        return nextBackupIdentifier
       where
         options = Backup.BackupOptions
             { Backup._backupIdentifier = T.unpack nextBackupIdentifier
@@ -78,7 +81,7 @@ someBackupServer (FromSingChainwebVersion (SChainwebVersion :: Sing vT)) backupE
             }
     checkBackup backupIdentifier = liftIO $ do
         status <- Backup.checkBackup backupEnv backupIdentifier
-        maybe (throwM noSuchBackup) pure status 
+        maybe (throwM noSuchBackup) pure status
 
 getNextBackupIdentifier :: IO Text
 getNextBackupIdentifier = do
