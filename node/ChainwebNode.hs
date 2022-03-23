@@ -181,8 +181,8 @@ getBackupsDir conf = (</> "backups") <$> getDbBaseDir conf
 getDbBaseDir :: HasCallStack => ChainwebNodeConfiguration -> IO FilePath
 getDbBaseDir conf = case _nodeConfigDatabaseDirectory conf of
     Nothing -> getXdgDirectory XdgData
-        $ "chainweb-node" </> sshow v </> "0"
-    Just d -> return (d </> "0")
+        $ "chainweb-node" </> sshow v
+    Just d -> return d
   where
     v = _configChainwebVersion $ _nodeConfigChainweb conf
 -- -------------------------------------------------------------------------- --
