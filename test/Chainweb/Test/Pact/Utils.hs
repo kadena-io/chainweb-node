@@ -483,7 +483,10 @@ testPactCtxSQLite v cid bhdb pdb sqlenv conf gasmodel = do
         , _psCheckpointerDepth = 0
         , _psLogger = newLogger loggers $ LogName ("PactService" ++ show cid)
         , _psLoggers = loggers
+        , _psBlockGasLimit = _pactBlockGasLimit conf
         }
+
+
 
 freeGasModel :: TxContext -> GasModel
 freeGasModel = const $ constGasModel 0
@@ -608,7 +611,7 @@ withPayloadDb = withResource newPayloadDb mempty
 -- | 'MemPoolAccess' that delegates all calls to the contents of provided `IORef`.
 delegateMemPoolAccess :: IORef MemPoolAccess -> MemPoolAccess
 delegateMemPoolAccess r = MemPoolAccess
-  { mpaGetBlock = \a b c d -> call mpaGetBlock $ \f -> f a b c d
+  { mpaGetBlock = \a b c d e -> call mpaGetBlock $ \f -> f a b c d e
   , mpaSetLastHeader = \a -> call mpaSetLastHeader ($ a)
   , mpaProcessFork = \a -> call mpaProcessFork ($ a)
   , mpaBadlistTx = \a -> call mpaBadlistTx ($ a)

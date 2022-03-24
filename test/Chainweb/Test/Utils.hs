@@ -143,6 +143,7 @@ import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
 import Data.Tree
 import qualified Data.Tree.Lens as LT
+import qualified Data.Vector as V
 import Data.Word (Word64)
 
 import qualified Network.Connection as HTTP
@@ -1023,7 +1024,7 @@ node testLabel rdb rawLogger peerInfoVar conf nid = do
     poisonDeadBeef cw = mapM_ poison crs
       where
         crs = map snd $ HashMap.toList $ view chainwebChains cw
-        poison cr = mempoolAddToBadList (view chainResMempool cr) deadbeef
+        poison cr = mempoolAddToBadList (view chainResMempool cr) (V.singleton deadbeef)
 
 deadbeef :: TransactionHash
 deadbeef = TransactionHash "deadbeefdeadbeefdeadbeefdeadbeef"

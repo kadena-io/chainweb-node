@@ -1,3 +1,4 @@
+{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE NumericUnderscores #-}
@@ -64,6 +65,7 @@ import Chainweb.BlockHeader
 import Chainweb.BlockHeader.Genesis
 import Chainweb.ChainId
 import Chainweb.Cut
+import Chainweb.Mempool.Mempool
 import Chainweb.Miner.Pact
 import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.Service.BlockValidation
@@ -71,6 +73,7 @@ import Chainweb.Pact.Service.PactQueue (PactQueue)
 import Chainweb.Pact.Service.Types
 import Chainweb.Pact.PactService (getGasModel)
 import Chainweb.Pact.TransactionExec (listErrMsg)
+import Chainweb.Pact.Types
 import Chainweb.Payload
 import Chainweb.SPV.CreateProof
 import Chainweb.Test.Cut
@@ -160,14 +163,14 @@ runBlock q bdb timeOffset msg = do
 newBlockAndValidate :: IO (IORef MemPoolAccess) -> IO (PactQueue,TestBlockDb) -> TestTree
 newBlockAndValidate refIO reqIO = testCase "newBlockAndValidate" $ do
   (q,bdb) <- reqIO
-  setMempool refIO goldenMemPool
+  setOneShotMempool refIO goldenMemPool
   void $ runBlock q bdb second "newBlockAndValidate"
 
 
 getHistory :: IO (IORef MemPoolAccess) -> IO (PactQueue,TestBlockDb) -> TestTree
 getHistory refIO reqIO = testCase "getHistory" $ do
   (q,bdb) <- reqIO
-  setMempool refIO goldenMemPool
+  setOneShotMempool refIO goldenMemPool
   void $ runBlock q bdb second "getHistory"
   h <- getParentTestBlockDb bdb cid
   mv <- pactBlockTxHistory h (Domain' (UserTables "coin_coin-table")) q
@@ -214,7 +217,7 @@ getHistoricalLookupNoTxs
     -> TestTree
 getHistoricalLookupNoTxs key assertF refIO reqIO = testCase msg $ do
   (q,bdb) <- reqIO
-  setMempool refIO mempty
+  setOneShotMempool refIO mempty
   void $ runBlock q bdb second msg
   h <- getParentTestBlockDb bdb cid
   histLookup q h key >>= assertF
@@ -228,7 +231,7 @@ getHistoricalLookupWithTxs
     -> TestTree
 getHistoricalLookupWithTxs key assertF refIO reqIO = testCase msg $ do
   (q,bdb) <- reqIO
-  setMempool refIO goldenMemPool
+  setOneShotMempool refIO goldenMemPool
   void $ runBlock q bdb second msg
   h <- getParentTestBlockDb bdb cid
   histLookup q h key >>= assertF
@@ -257,7 +260,7 @@ assertSender00Bal bal msg hist =
 newBlockRewindValidate :: IO (IORef MemPoolAccess) -> IO (PactQueue,TestBlockDb) -> TestTree
 newBlockRewindValidate mpRefIO reqIO = testCase "newBlockRewindValidate" $ do
   (q,bdb) <- reqIO
-  setMempool mpRefIO chainDataMemPool
+  setOneShotMempool mpRefIO chainDataMemPool
   cut0 <- readMVar $ _bdbCut bdb -- genesis cut
 
   -- cut 1a
@@ -275,7 +278,7 @@ newBlockRewindValidate mpRefIO reqIO = testCase "newBlockRewindValidate" $ do
   where
 
     chainDataMemPool = mempty {
-      mpaGetBlock = \_ _ _ bh -> do
+      mpaGetBlock = \_ _ _ _ bh -> do
           fmap V.singleton $ buildCwCmd
             $ set cbSigners [mkSigner' sender00 []]
             $ set cbChainId (_blockChainId bh)
@@ -283,6 +286,18 @@ newBlockRewindValidate mpRefIO reqIO = testCase "newBlockRewindValidate" $ do
             $ mkCmd (sshow bh) -- nonce is block height, sufficiently unique
             $ mkExec' "(chain-data)"
       }
+
+setOneShotMempool :: IO (IORef MemPoolAccess) -> MemPoolAccess -> IO ()
+setOneShotMempool mpRefIO mp = do
+  oneShot <- newIORef False
+  setMempool mpRefIO $ MemPoolAccess
+    { mpaGetBlock = \g v i a e -> readIORef oneShot >>= \case
+        False -> writeIORef oneShot True >> mpaGetBlock mp g v i a e
+        True -> mempty
+    , mpaSetLastHeader = mpaSetLastHeader mp
+    , mpaProcessFork = mpaProcessFork mp
+    , mpaBadlistTx = mpaBadlistTx mp
+    }
 
 minerKeysetTest :: TestBlockDb -> IO (IORef MemPoolAccess) -> WebPactExecutionService -> IO ()
 minerKeysetTest bdb _mpRefIO pact = do
@@ -318,7 +333,7 @@ chainweb213Test bdb mpRefIO pact = do
   forM_ [(1::Int)..24] $ \_i -> runCut'
 
   -- run block 25
-  setMempool mpRefIO getBlock1
+  setOneShotMempool mpRefIO getBlock1
   runCut'
   pwo1 <- getPWO bdb cid
   tx1_0 <- txResult 0 pwo1
@@ -335,7 +350,7 @@ chainweb213Test bdb mpRefIO pact = do
   assertEqual "fselect gas cost 1" 206 (_crGas tx1_5)
 
   -- run block 26
-  setMempool mpRefIO getBlock2
+  setOneShotMempool mpRefIO getBlock2
   runCut'
   pwo2 <- getPWO bdb cid
   tx2_0 <- txResult 0 pwo2
@@ -352,7 +367,7 @@ chainweb213Test bdb mpRefIO pact = do
 
   where
     getBlock1 = mempty {
-      mpaGetBlock = \_ _ _ bh -> if _blockChainId bh == cid then do
+      mpaGetBlock = \_ _ _ _ bh -> if _blockChainId bh == cid then do
           t0 <- buildModCmd1 bh
           t1 <- buildSimpleCmd bh "(list 1 2 3)"
           t2 <- buildDbMod bh
@@ -363,7 +378,7 @@ chainweb213Test bdb mpRefIO pact = do
           else return mempty
       }
     getBlock2 = mempty {
-      mpaGetBlock = \_ _ _ bh -> if _blockChainId bh == cid then do
+      mpaGetBlock = \_ _ _ _ bh -> if _blockChainId bh == cid then do
           t0 <- buildModCmd2 bh
           t1 <- buildSimpleCmd bh "(list 1 2 3)"
           t2 <- buildSimpleCmd bh "(free.dbmod.fkeys)"
@@ -416,7 +431,7 @@ pact420UpgradeTest bdb mpRefIO pact = do
   forM_ [(1::Int)..3] $ \_i -> runCut'
 
   -- run block 4
-  setMempool mpRefIO getBlock4
+  setOneShotMempool mpRefIO getBlock4
   runCut'
   pwo4 <- getPWO bdb cid
 
@@ -442,7 +457,7 @@ pact420UpgradeTest bdb mpRefIO pact = do
   assertEqual "Coinbase events @ block 4" [] (_crEvents cb4)
 
   -- run block 5
-  setMempool mpRefIO $ getBlock5
+  setOneShotMempool mpRefIO $ getBlock5
   runCut'
   pwo5 <- getPWO bdb cid
 
@@ -472,7 +487,7 @@ pact420UpgradeTest bdb mpRefIO pact = do
     runCut' = runCut testVersion bdb pact (offsetBlockTime second) zeroNoncer noMiner
 
     getBlock4 = mempty {
-      mpaGetBlock = \_ _ _ bh -> if _blockChainId bh == cid then do
+      mpaGetBlock = \_ _ _ _ bh -> if _blockChainId bh == cid then do
           t0 <- buildNewNatives420FoldDbCmd bh
           t1 <- buildNewNatives420ZipCmd bh
           t2 <- buildFdbCmd bh
@@ -481,7 +496,7 @@ pact420UpgradeTest bdb mpRefIO pact = do
       }
 
     getBlock5 = mempty {
-      mpaGetBlock = \_ _ _ bh ->
+      mpaGetBlock = \_ _ _ _ bh ->
         let go | _blockChainId bh == cid = do
                    t0 <- buildNewNatives420FoldDbCmd bh
                    t1 <- buildNewNatives420ZipCmd bh
@@ -541,7 +556,7 @@ pact4coin3UpgradeTest bdb mpRefIO pact = do
   forM_ [(1::Int)..6] $ \_i -> runCut'
 
   -- run block 7
-  setMempool mpRefIO getBlock7
+  setOneShotMempool mpRefIO getBlock7
   runCut'
   pwo7 <- getPWO bdb cid
 
@@ -569,7 +584,7 @@ pact4coin3UpgradeTest bdb mpRefIO pact = do
   assertEqual "Coinbase events @ block 7" [] (_crEvents cb7)
 
   -- run past v3 upgrade, pact 4 switch
-  setMempool mpRefIO mempty
+  setOneShotMempool mpRefIO mempty
   cuts <- forM [(8::Int)..21] $ \_i -> do
       runCut'
       if _i == 18
@@ -586,7 +601,7 @@ pact4coin3UpgradeTest bdb mpRefIO pact = do
     preview (crContinuation . _Just . pePactId) tx7_1
 
   -- run block 22
-  setMempool mpRefIO $ getBlock22 (Just proof) pid
+  setOneShotMempool mpRefIO $ getBlock22 (Just proof) pid
   runCut'
   pwo22 <- getPWO bdb cid
   let v3Hash = "1os_sLAUYvBzspn5jjawtRpJWiH1WPfhyNraeVvSIwU"
@@ -645,7 +660,7 @@ pact4coin3UpgradeTest bdb mpRefIO pact = do
     runCut' = runCut testVersion bdb pact (offsetBlockTime second) zeroNoncer noMiner
 
     getBlock7 = mempty {
-      mpaGetBlock = \_ _ _ bh -> if _blockChainId bh == cid then do
+      mpaGetBlock = \_ _ _ _ bh -> if _blockChainId bh == cid then do
           t0 <- buildHashCmd bh
           t1 <- buildXSend bh
           t2 <- buildNewNatives40Cmd bh
@@ -657,7 +672,7 @@ pact4coin3UpgradeTest bdb mpRefIO pact = do
     chain0 = unsafeChainId 0
 
     getBlock22 proof pid = mempty {
-      mpaGetBlock = \_ _ _ bh ->
+      mpaGetBlock = \_ _ _ _ bh ->
         let go | _blockChainId bh == cid = do
                    t0 <- buildHashCmd bh
                    t1 <- buildReleaseCommand bh
@@ -750,17 +765,17 @@ moduleNameFork mpRefIO reqIO = testCase "moduleNameFork" $ do
   (q,bdb) <- reqIO
 
   -- install in free in block 1
-  setMempool mpRefIO (moduleNameMempool "free" "test")
+  setOneShotMempool mpRefIO (moduleNameMempool "free" "test")
   void $ runBlock q bdb second "moduleNameFork-1"
 
   -- install in user in block 2
-  setMempool mpRefIO (moduleNameMempool "user" "test")
+  setOneShotMempool mpRefIO (moduleNameMempool "user" "test")
   void $ runBlock q bdb second "moduleNameFork-1"
 
   -- do something else post-fork
-  setMempool mpRefIO (moduleNameMempool "free" "test2")
+  setOneShotMempool mpRefIO (moduleNameMempool "free" "test2")
   void $ runBlock q bdb second "moduleNameFork-1"
-  setMempool mpRefIO (moduleNameMempool "user" "test2")
+  setOneShotMempool mpRefIO (moduleNameMempool "user" "test2")
   void $ runBlock q bdb second "moduleNameFork-1"
 
   -- TODO this test doesn't actually validate, I turn on Debug and make sure it
@@ -771,7 +786,7 @@ moduleNameMempool ns mn = mempty
     { mpaGetBlock = getTestBlock
     }
   where
-    getTestBlock _ _ _ bh = do
+    getTestBlock _ _ _ _ bh = do
         let txs =
               [ "(namespace '" <> ns <> ") (module " <> mn <> " G (defcap G () (enforce false 'cannotupgrade)))"
               , ns <> "." <> mn <> ".G"
@@ -801,7 +816,7 @@ mempoolCreationTimeTest mpRefIO reqIO = testCase "mempoolCreationTimeTest" $ do
   void $ forSuccess "mempoolCreationTimeTest: pre-insert tx" $
     pactPreInsertCheck (V.singleton tx) q
 
-  setMempool mpRefIO $ mp tx
+  setOneShotMempool mpRefIO $ mp tx
   -- b2 will be made at start + 30s
   void $ runBlock q bdb s30 "mempoolCreationTimeTest-2"
 
@@ -815,7 +830,7 @@ mempoolCreationTimeTest mpRefIO reqIO = testCase "mempoolCreationTimeTest" $ do
         $ mkCmd (sshow t <> nonce)
         $ mkExec' "1"
     mp tx = mempty {
-      mpaGetBlock = \valid _ _ bh -> getBlock bh tx valid
+      mpaGetBlock = \_ valid _ _ bh -> getBlock bh tx valid
       }
 
     getBlock bh tx valid = do
@@ -826,9 +841,10 @@ mempoolCreationTimeTest mpRefIO reqIO = testCase "mempoolCreationTimeTest" $ do
 
 
 badlistNewBlockTest :: IO (IORef MemPoolAccess) -> IO (PactQueue,TestBlockDb) -> TestTree
-badlistNewBlockTest mpRefIO reqIO = testCase "badlist-new-block-test" $ do
+badlistNewBlockTest mpRefIO reqIO = testCase "badlistNewBlockTest" $ do
   (reqQ,_) <- reqIO
-  badHashRef <- newIORef $ fromUntypedHash pactInitialHash
+  let hashToTxHashList = V.singleton . requestKeyToTransactionHash . RequestKey . toUntypedHash @'Blake2b_256
+  badHashRef <- newIORef $ hashToTxHashList initialHash
   badTx <- buildCwCmd
     $ set cbSigners [mkSigner' sender00 []]
     -- this should exceed the account balance
@@ -836,23 +852,22 @@ badlistNewBlockTest mpRefIO reqIO = testCase "badlist-new-block-test" $ do
     $ set cbGasPrice 1_000_000_000_000_000
     $ mkCmd "badListMPA"
     $ mkExec' "(+ 1 2)"
-  setMempool mpRefIO (badlistMPA badTx badHashRef)
-  newBlock noMiner (ParentHeader genesisHeader) reqQ
-    >>= readMVar
-    >>= expectFailureContaining "badlistNewBlockTest:newBlock" "Insufficient funds"
+  setOneShotMempool mpRefIO (badlistMPA badTx badHashRef)
+  resp <- forSuccess "badlistNewBlockTest" $ newBlock noMiner (ParentHeader genesisHeader) reqQ
+  assertEqual "bad tx filtered from block" mempty (_payloadWithOutputsTransactions resp)
   badHash <- readIORef badHashRef
-  assertEqual "Badlist should have badtx hash" (_cmdHash badTx) badHash
+  assertEqual "Badlist should have badtx hash" (hashToTxHashList $ _cmdHash badTx) badHash
   where
     badlistMPA badTx badHashRef = mempty
-      { mpaGetBlock = \_ _ _ _ -> return $ V.singleton badTx
-      , mpaBadlistTx = writeIORef badHashRef
+      { mpaGetBlock = \_ _ _ _ _ -> return (V.singleton badTx)
+      , mpaBadlistTx = \v -> writeIORef badHashRef v
       }
 
 
 goldenNewBlock :: String -> MemPoolAccess -> IO (IORef MemPoolAccess) -> IO (PactQueue,TestBlockDb) -> TestTree
 goldenNewBlock name mp mpRefIO reqIO = golden name $ do
     (reqQ,_) <- reqIO
-    setMempool mpRefIO mp
+    setOneShotMempool mpRefIO mp
     resp <- forSuccess ("goldenNewBlock:" ++ name) $
       newBlock noMiner (ParentHeader genesisHeader) reqQ
     -- ensure all golden txs succeed
@@ -872,7 +887,7 @@ goldenMemPool = mempty
     { mpaGetBlock = getTestBlock
     }
   where
-    getTestBlock validate bHeight bHash _parent = do
+    getTestBlock _ validate bHeight bHash _parent = do
         moduleStr <- readFile' $ testPactFilesDir ++ "test1.pact"
         let txs =
               [ (T.pack moduleStr)

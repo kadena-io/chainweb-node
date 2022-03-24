@@ -129,6 +129,7 @@ module Chainweb.Pact.Types
   , defaultOnFatalError
   , defaultReorgLimit
   , defaultPactServiceConfig
+  , defaultBlockGasLimit
   ) where
 
 import Control.DeepSeq
@@ -375,9 +376,11 @@ defaultPactServiceConfig = PactServiceConfig
       , _pactQueueSize = 1000
       , _pactResetDb = True
       , _pactAllowReadsInLocal = False
-      , _pactBlockGasLimit = 10000
+      , _pactBlockGasLimit = defaultBlockGasLimit
       }
 
+defaultBlockGasLimit :: GasLimit
+defaultBlockGasLimit = 10000
 
 newtype ReorgLimitExceeded = ReorgLimitExceeded Text
 
