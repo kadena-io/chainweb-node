@@ -28,6 +28,9 @@ module Chainweb.Pact.Types
 
     -- * Misc helpers
   , Transactions(..)
+  , transactionCoinbase
+  , transactionPairs
+
   , GasSupply(..)
   , GasId(..)
   , EnforceCoinbaseFailure(..)
@@ -77,6 +80,8 @@ module Chainweb.Pact.Types
   , psAllowReadsInLocal
   , psIsBatch
   , psCheckpointerDepth
+  , psBlockGasLimit
+
   , getCheckpointer
 
     -- * TxContext
@@ -180,10 +185,11 @@ import Chainweb.Utils
 import Chainweb.Version
 
 
-data Transactions = Transactions
-    { _transactionPairs :: !(Vector (ChainwebTransaction, CommandResult [TxLog Value]))
+data Transactions r = Transactions
+    { _transactionPairs :: !(Vector (ChainwebTransaction, r))
     , _transactionCoinbase :: !(CommandResult [TxLog Value])
     } deriving (Eq, Show, Generic, NFData)
+makeLenses 'Transactions
 
 data PactDbStatePersist = PactDbStatePersist
     { _pdbspRestoreFile :: !(Maybe FilePath)
@@ -346,6 +352,7 @@ data PactServiceEnv cas = PactServiceEnv
         -- ^ True when within a `withBatch` or `withDiscardBatch` call.
     , _psCheckpointerDepth :: !Int
         -- ^ Number of nested checkpointer calls
+    , _psBlockGasLimit :: !GasLimit
     }
 makeLenses ''PactServiceEnv
 
@@ -360,6 +367,7 @@ instance HasChainId (PactServiceEnv c) where
 defaultReorgLimit :: Word64
 defaultReorgLimit = 480
 
+-- | NOTE this is only used for tests/benchmarks. DO NOT USE IN PROD
 defaultPactServiceConfig :: PactServiceConfig
 defaultPactServiceConfig = PactServiceConfig
       { _pactReorgLimit = fromIntegral $ defaultReorgLimit
@@ -367,6 +375,7 @@ defaultPactServiceConfig = PactServiceConfig
       , _pactQueueSize = 1000
       , _pactResetDb = True
       , _pactAllowReadsInLocal = False
+      , _pactBlockGasLimit = 10000
       }
 
 

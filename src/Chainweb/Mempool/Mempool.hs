@@ -81,6 +81,7 @@ module Chainweb.Mempool.Mempool
   , syncMempools'
   , GasLimit(..)
   , GasPrice(..)
+  , requestKeyToTransactionHash
   ) where
 ------------------------------------------------------------------------------
 import Control.DeepSeq (NFData)
@@ -272,7 +273,7 @@ data MempoolBackend t = MempoolBackend {
   , mempoolMarkValidated :: Vector t -> IO ()
 
     -- | Mark a transaction as bad.
-  , mempoolAddToBadList :: TransactionHash -> IO ()
+  , mempoolAddToBadList :: Vector TransactionHash -> IO ()
 
     -- | Returns 'True' if the transaction is badlisted.
   , mempoolCheckBadList :: Vector TransactionHash -> IO (Vector Bool)
@@ -281,7 +282,7 @@ data MempoolBackend t = MempoolBackend {
     -- for mining.
     --
   , mempoolGetBlock
-      :: MempoolPreBlockCheck t -> BlockHeight -> BlockHash -> IO (Vector t)
+      :: GasLimit -> MempoolPreBlockCheck t -> BlockHeight -> BlockHash -> IO (Vector t)
 
     -- | Discard any expired transactions.
   , mempoolPrune :: IO ()
@@ -335,7 +336,7 @@ noopMempool = do
     noopMV = const $ return ()
     noopAddToBadList = const $ return ()
     noopCheckBadList v = return $ V.replicate (V.length v) False
-    noopGetBlock _ _ _ = return V.empty
+    noopGetBlock _ _ _ _ = return V.empty
     noopGetPending = const $ const $ return (0,0)
     noopClear = return ()
 
@@ -568,6 +569,9 @@ instance FromJSON TransactionHash where
 instance HasTextRepresentation TransactionHash where
   toText (TransactionHash th) = encodeB64UrlNoPaddingText $ SB.fromShort th
   fromText = (TransactionHash . SB.toShort <$>) . decodeB64UrlNoPaddingText
+
+requestKeyToTransactionHash :: RequestKey -> TransactionHash
+requestKeyToTransactionHash = TransactionHash . SB.toShort . H.unHash . unRequestKey
 
 ------------------------------------------------------------------------------
 data TransactionMetadata = TransactionMetadata {

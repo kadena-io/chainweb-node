@@ -49,7 +49,7 @@ import qualified Data.Aeson as A
 import Data.Default (def)
 import qualified Data.DList as DL
 import Data.Either
-import Data.Foldable (toList)
+import Data.Foldable (toList,foldl')
 import qualified Data.Map.Strict as M
 import Data.Text (Text)
 import qualified Data.Text as T
@@ -146,6 +146,7 @@ initPactService' ver cid chainwebLogger bhDb pdb sqlenv config act = do
                 , _psCheckpointerDepth = 0
                 , _psLogger = pactLogger
                 , _psLoggers = loggers
+                , _psBlockGasLimit = _pactBlockGasLimit config
                 }
         !pst = PactServiceState Nothing mempty initialParentHeader P.noSPVSupport
     runPactServiceM pst pse $ do
@@ -444,8 +445,8 @@ attemptBuyGas miner (PactDbEnv' dbEnv) txs = do
             Left err -> return (T2 mcache (Left (InsertErrorBuyGas (T.pack $ show err))))
             Right t -> return (T2 (_txCache t) (Right tx))
 
-type ValidateTxs = Vector (Either InsertError ChainwebTransaction)
-type RunGas = ValidateTxs -> IO ValidateTxs
+-- type ValidateTxs = Vector (Either InsertError ChainwebTransaction)
+-- type RunGas = ValidateTxs -> IO ValidateTxs
 
 -- | Note: The BlockHeader param here is the PARENT HEADER of the new
 -- block-to-be
@@ -456,61 +457,95 @@ execNewBlock
     -> ParentHeader
     -> Miner
     -> PactServiceM cas PayloadWithOutputs
-execNewBlock mpAccess parent miner = handle onTxFailure $ do
+execNewBlock mpAccess parent miner = {- handle onTxFailure $ -} do
     updateMempool
     withDiscardedBatch $ do
-      newTrans <- withCheckpointerRewind newblockRewindLimit (Just parent) "preBlock" doPreBlock
-      withCheckpointerRewind (Just 0) (Just parent) "execNewBlock" (doNewBlock newTrans)
+      -- newTrans <- withCheckpointerRewind newblockRewindLimit (Just parent) "preBlock" doPreBlock
+      withCheckpointerRewind {- (Just 0) -} newblockRewindLimit (Just parent) "execNewBlock" doNewBlock
   where
-    onTxFailure e@(PactTransactionExecError rk _) = do
+    {- onTxFailure e@(PactTransactionExecError rk _) = do
         -- add the failing transaction to the mempool bad list, so it is not
         -- re-selected for mining.
         liftIO $ mpaBadlistTx mpAccess rk
         throwM e
     onTxFailure e = throwM e
+    -}
 
     -- This is intended to mitigate mining attempts during replay.
     -- In theory we shouldn't need to rewind much ever, but values
     -- less than this are failing in PactReplay test.
     newblockRewindLimit = Just 8
 
-    doPreBlock pdbenv = do
+    getBlockTxs gasLimit = do
       cp <- getCheckpointer
       psEnv <- ask
-      psState <- get
       logger <- view psLogger
-      let runDebitGas :: RunGas
-          runDebitGas txs = evalPactServiceM psState psEnv runGas
-            where
-              runGas = attemptBuyGas miner pdbenv txs
-          validate bhi _bha txs = do
+      let validate bhi _bha txs = do
 
             let parentTime = ParentCreationTime $ _blockCreationTime $ _parentHeader parent
             results <- do
                 let v = _chainwebVersion psEnv
                     cid = _chainId psEnv
-                validateChainwebTxs logger v cid cp parentTime bhi txs runDebitGas
+                validateChainwebTxs logger v cid cp parentTime bhi txs return
 
             V.forM results $ \case
                 Right _ -> return True
                 Left _e -> return False
 
-      liftIO $! fmap Discard $!
-        mpaGetBlock mpAccess validate (pHeight + 1) pHash (_parentHeader parent)
+      liftIO $! {- fmap Discard $! -}
+        mpaGetBlock mpAccess gasLimit validate (pHeight + 1) pHash (_parentHeader parent)
 
-    doNewBlock newTrans pdbenv = do
+    doNewBlock pdbenv = do
         logInfo $ "execNewBlock, about to get call processFork: "
                 <> " (parent height = " <> sshow pHeight <> ")"
                 <> " (parent hash = " <> sshow pHash <> ")"
 
+        gasLimit <- view psBlockGasLimit
+
+        newTrans <- getBlockTxs gasLimit
+
         -- NEW BLOCK COINBASE: Reject bad coinbase, always use precompilation
-        results <- execTransactions False miner newTrans
+        (Transactions pairs cb) <- execTransactions False miner newTrans
           (EnforceCoinbaseFailure True)
           (CoinbaseUsePrecompiled True)
           pdbenv
 
-        let !pwo = toPayloadWithOutputs miner results
+        (T3 _ successPairs failures) <-
+          refill pdbenv $! foldl' splitResults (T3 gasLimit mempty mempty) pairs
+
+        liftIO $ mpaBadlistTx mpAccess (V.map gasPurchaseFailureHash failures)
+
+        let !pwo = toPayloadWithOutputs miner (Transactions successPairs cb)
         return $! Discard pwo
+
+    refill pdbenv unchanged@(T3 gasLimit successPairs failures)
+      | gasLimit <= 0 = pure unchanged
+      | otherwise = do
+
+          newTrans <- getBlockTxs gasLimit
+
+          if V.null newTrans then pure unchanged else do
+
+            pairs <- execTransactionsOnly miner newTrans pdbenv
+
+            let r@(T3 gasRemaining newPairs newFails) =
+                  foldl' splitResults (T3 gasLimit successPairs failures) pairs
+
+            -- LOOP INVARIANT: gas must decrease OR only non-zero failures
+            if (gasRemaining < gasLimit) || (V.null newPairs && not (V.null newFails))
+                then
+                  refill pdbenv r
+                else do
+                  logError $ "New block refill invariant error, soldiering on: " ++
+                      show (gasRemaining,gasLimit,V.length newTrans
+                           ,V.length newPairs,V.length newFails)
+                  return r
+
+
+
+    splitResults (T3 g success fails) (t,r) = case r of
+      Right cr -> T3 (g - fromIntegral (P._crGas cr)) (V.snoc success (t,cr)) fails
+      Left f -> T3 g success $ V.snoc fails f
 
     pHeight = _blockHeight $ _parentHeader parent
     pHash = _blockHash $ _parentHeader parent
@@ -534,6 +569,7 @@ execNewGenesisBlock miner newTrans = withDiscardedBatch $
         results <- execTransactions True miner newTrans
                    (EnforceCoinbaseFailure True)
                    (CoinbaseUsePrecompiled False) pdbenv
+                   >>= throwOnGasFailure
         return $! Discard (toPayloadWithOutputs miner results)
 
 execLocal

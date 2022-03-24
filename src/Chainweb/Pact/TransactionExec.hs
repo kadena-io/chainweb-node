@@ -98,6 +98,7 @@ import Pact.Types.SPV
 
 import Chainweb.BlockHeader
 import Chainweb.BlockHeight
+import Chainweb.Mempool.Mempool (requestKeyToTransactionHash)
 import Chainweb.Miner.Pact
 import Chainweb.Pact.Service.Types
 import Chainweb.Pact.Templates
@@ -196,7 +197,8 @@ applyCmd v logger pdbenv miner gasModel txCtx spv cmdIn mcache0 =
 
     applyBuyGas =
       catchesPactError (buyGas isPactBackCompatV16 cmd miner) >>= \case
-        Left e -> fatal $ "tx failure for requestKey when buying gas: " <> sshow e
+        Left e -> view txRequestKey >>= \rk ->
+          throwM $ BuyGasFailure $ GasPurchaseFailure (requestKeyToTransactionHash rk) e
         Right _ -> checkTooBigTx initialGas gasLimit applyPayload redeemAllGas
 
     applyPayload = do
@@ -761,7 +763,9 @@ buyGas isPactBackCompatV16 cmd (Miner mid mks) = go
         (_pSigners $ _cmdPayload cmd) bgHash managedNamespacePolicy
 
       case _erExec result of
-        Nothing -> fatal "buyGas: Internal error - empty continuation"
+        Nothing ->
+          -- should never occur: would mean coin.fund-tx is not a pact
+          fatal "buyGas: Internal error - empty continuation"
         Just pe -> void $! txGasId .= (Just $! GasId (_pePactId pe))
 
 findPayer

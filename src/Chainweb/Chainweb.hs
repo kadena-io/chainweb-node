@@ -380,6 +380,7 @@ withChainwebInternal conf logger peer serviceSock rocksDb pactDbDir resetDb inne
       , _pactQueueSize = _configPactQueueSize conf
       , _pactResetDb = resetDb
       , _pactAllowReadsInLocal = _configAllowReadsInLocal conf
+      , _pactBlockGasLimit = _configBlockGasLimit conf
       }
 
     pruningLogger :: T.Text -> logger

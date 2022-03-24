@@ -25,11 +25,8 @@ module Chainweb.Pact.Service.PactInProcApi
 
 import Control.Concurrent.Async
 
-import qualified Data.ByteString.Short as SB
 import Data.IORef
 import Data.Vector (Vector)
-
-import qualified Pact.Types.Hash as Pact
 
 import System.LogLevel
 
@@ -123,24 +120,23 @@ pactMemPoolAccess mpc logger = MemPoolAccess
     { mpaGetBlock = pactMemPoolGetBlock mpc logger
     , mpaSetLastHeader = pactMempoolSetLastHeader mpc logger
     , mpaProcessFork = pactProcessFork mpc logger
-    , mpaBadlistTx = mempoolAddToBadList (mpcMempool mpc) . fromPactHash
+    , mpaBadlistTx = mempoolAddToBadList (mpcMempool mpc)
     }
-  where
-    fromPactHash (Pact.TypedHash h) = TransactionHash (SB.toShort h)
 
 pactMemPoolGetBlock
     :: Logger logger
     => MempoolConsensus
     -> logger
+    -> GasLimit
     -> (MempoolPreBlockCheck ChainwebTransaction
             -> BlockHeight
             -> BlockHash
             -> BlockHeader
             -> IO (Vector ChainwebTransaction))
-pactMemPoolGetBlock mpc theLogger validate height hash _bHeader = do
+pactMemPoolGetBlock mpc theLogger gasLimit validate height hash _bHeader = do
     logFn theLogger Info $! "pactMemPoolAccess - getting new block of transactions for "
         <> "height = " <> sshow height <> ", hash = " <> sshow hash
-    mempoolGetBlock (mpcMempool mpc) validate height hash
+    mempoolGetBlock (mpcMempool mpc) gasLimit validate height hash
   where
    logFn :: Logger l => l -> LogFunctionText -- just for giving GHC some type hints
    logFn l = logFunction l

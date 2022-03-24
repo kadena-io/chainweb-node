@@ -111,12 +111,13 @@ import qualified Pact.Types.Hash as P
 import Pact.Types.Logger (Logger(..), Logging(..))
 import Pact.Types.Persistence
 import Pact.Types.Runtime (TableName)
+import Pact.Types.Gas (GasLimit)
 
 -- internal modules
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
 import Chainweb.BlockHeight
-import Chainweb.Mempool.Mempool (MempoolPreBlockCheck)
+import Chainweb.Mempool.Mempool (MempoolPreBlockCheck,TransactionHash)
 import Chainweb.Pact.Service.Types
 import Chainweb.Transaction
 import Chainweb.Utils (T2)
@@ -327,14 +328,15 @@ newtype SQLiteFlag = SQLiteFlag { getFlag :: CInt }
 -- TODO: get rid of this shim, it's probably not necessary
 data MemPoolAccess = MemPoolAccess
   { mpaGetBlock
-        :: MempoolPreBlockCheck ChainwebTransaction
+        :: GasLimit
+        -> MempoolPreBlockCheck ChainwebTransaction
         -> BlockHeight
         -> BlockHash
         -> BlockHeader
         -> IO (Vector ChainwebTransaction)
   , mpaSetLastHeader :: BlockHeader -> IO ()
   , mpaProcessFork :: BlockHeader -> IO ()
-  , mpaBadlistTx :: P.PactHash -> IO ()
+  , mpaBadlistTx :: Vector TransactionHash -> IO ()
   }
 
 instance Semigroup MemPoolAccess where
