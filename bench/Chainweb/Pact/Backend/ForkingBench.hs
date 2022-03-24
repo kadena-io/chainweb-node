@@ -140,10 +140,15 @@ bench = C.bgroup "PactService" $
         name = "block-new" ++ (if validate then "-valid" else "") ++
                "[" ++ show txCount ++ "]"
 
-testMemPoolAccess :: IORef Int -> MVar (Map Account (NonEmpty SomeKeyPairCaps)) -> MemPoolAccess
-testMemPoolAccess txsPerBlock accounts = mempty
-    { mpaGetBlock = \validate bh hash header ->
-        getTestBlock accounts (_bct $ _blockCreationTime header) validate bh hash
+testMemPoolAccess :: IORef Int -> MVar (Map Account (NonEmpty SomeKeyPairCaps)) -> IO MemPoolAccess
+testMemPoolAccess txsPerBlock accounts = do
+  hs <- newIORef []
+  return $ mempty
+    { mpaGetBlock = \_g validate bh hash header -> do
+        hs' <- readIORef hs
+        if bh `elem` hs' then return mempty else do
+          writeIORef hs (bh:hs')
+          getTestBlock accounts (_bct $ _blockCreationTime header) validate bh hash
     }
   where
 
@@ -329,8 +334,9 @@ withResources trunkLength logLevel f = C.envWithCleanup create destroy unwrap
         nonceCounter <- newIORef 1
         txPerBlock <- newIORef 10
         sqlEnv <- startSqliteDb cid logger tempDir False
+        mp <- testMemPoolAccess txPerBlock coinAccounts
         pactService <-
-          startPact testVer logger blockHeaderDb payloadDb (testMemPoolAccess txPerBlock coinAccounts) sqlEnv
+          startPact testVer logger blockHeaderDb payloadDb mp sqlEnv
         mainTrunkBlocks <-
           playLine payloadDb blockHeaderDb trunkLength genesisBlock (snd pactService) nonceCounter
         return $ NoopNFData $ Resources {..}

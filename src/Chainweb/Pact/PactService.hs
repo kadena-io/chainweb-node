@@ -49,8 +49,9 @@ import qualified Data.Aeson as A
 import Data.Default (def)
 import qualified Data.DList as DL
 import Data.Either
-import Data.Foldable (toList,foldl')
+import Data.Foldable (toList)
 import qualified Data.Map.Strict as M
+import qualified Data.Set as S
 import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Vector (Vector)
@@ -448,6 +449,12 @@ attemptBuyGas miner (PactDbEnv' dbEnv) txs = do
 -- type ValidateTxs = Vector (Either InsertError ChainwebTransaction)
 -- type RunGas = ValidateTxs -> IO ValidateTxs
 
+data BlockFilling = BlockFilling
+    { _bfGasLimit :: GasLimit
+    , _bfSuccessPairs :: V.Vector (ChainwebTransaction,P.CommandResult [P.TxLog A.Value])
+    , _bfFailures :: V.Vector GasPurchaseFailure
+    , _bfRequestKeys :: S.Set TransactionHash }
+
 -- | Note: The BlockHeader param here is the PARENT HEADER of the new
 -- block-to-be
 --
@@ -510,42 +517,44 @@ execNewBlock mpAccess parent miner = {- handle onTxFailure $ -} do
           (CoinbaseUsePrecompiled True)
           pdbenv
 
-        (T3 _ successPairs failures) <-
-          refill pdbenv $! foldl' splitResults (T3 gasLimit mempty mempty) pairs
+        (BlockFilling _ successPairs failures _rks) <-
+          refill pdbenv =<< foldM splitResults (BlockFilling gasLimit mempty mempty mempty) pairs
 
         liftIO $ mpaBadlistTx mpAccess (V.map gasPurchaseFailureHash failures)
 
         let !pwo = toPayloadWithOutputs miner (Transactions successPairs cb)
         return $! Discard pwo
 
-    refill pdbenv unchanged@(T3 gasLimit successPairs failures)
-      | gasLimit <= 0 = pure unchanged
-      | otherwise = do
+    refill pdbenv unchanged@(BlockFilling gasLimit _ _ _)=
 
-          newTrans <- getBlockTxs gasLimit
+      if gasLimit <= 0 then pure unchanged else do
 
-          if V.null newTrans then pure unchanged else do
+        newTrans <- getBlockTxs gasLimit
+        if V.null newTrans then pure unchanged else do
 
-            pairs <- execTransactionsOnly miner newTrans pdbenv
+          pairs <- execTransactionsOnly miner newTrans pdbenv
 
-            let r@(T3 gasRemaining newPairs newFails) =
-                  foldl' splitResults (T3 gasLimit successPairs failures) pairs
+          r@(BlockFilling gasRemaining newPairs newFails _newRks) <-
+                foldM splitResults unchanged pairs
 
-            -- LOOP INVARIANT: gas must decrease OR only non-zero failures
-            if (gasRemaining < gasLimit) || (V.null newPairs && not (V.null newFails))
-                then
-                  refill pdbenv r
-                else do
-                  logError $ "New block refill invariant error, soldiering on: " ++
-                      show (gasRemaining,gasLimit,V.length newTrans
-                           ,V.length newPairs,V.length newFails)
-                  return r
+          -- LOOP INVARIANT: gas must decrease OR only non-zero failures
+          if (gasRemaining < gasLimit) || (V.null newPairs && not (V.null newFails))
+              then refill pdbenv r
+              else throwM $ MempoolFillFailure $ "Invariant failure: " <>
+                   sshow (gasRemaining,gasLimit,V.length newTrans
+                         ,V.length newPairs,V.length newFails)
 
 
 
-    splitResults (T3 g success fails) (t,r) = case r of
-      Right cr -> T3 (g - fromIntegral (P._crGas cr)) (V.snoc success (t,cr)) fails
-      Left f -> T3 g success $ V.snoc fails f
+    splitResults (BlockFilling g success fails rks) (t,r) = case r of
+      Right cr -> enforceUnique rks (requestKeyToTransactionHash $ P._crReqKey cr)
+        >>= return . BlockFilling (g - fromIntegral (P._crGas cr)) (V.snoc success (t,cr)) fails
+      Left f -> enforceUnique rks (gasPurchaseFailureHash f)
+        >>= return . BlockFilling g success (V.snoc fails f)
+
+    enforceUnique rks rk | S.member rk rks =
+      throwM $ MempoolFillFailure $ "Duplicate transaction: " <> sshow rk
+                         | otherwise = return $ S.insert rk rks
 
     pHeight = _blockHeight $ _parentHeader parent
     pHash = _blockHash $ _parentHeader parent

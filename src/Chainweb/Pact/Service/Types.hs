@@ -103,6 +103,7 @@ data PactException
       }
   | BlockHeaderLookupFailure Text
   | BuyGasFailure GasPurchaseFailure
+  | MempoolFillFailure Text
   deriving (Eq,Generic)
 
 instance Show PactException where

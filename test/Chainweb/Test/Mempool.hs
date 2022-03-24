@@ -201,7 +201,7 @@ propBadlistPreblock (txs, badTxs) _ mempool = runExceptT $ do
     liftIO (lookup badTxs) >>= V.mapM_ lookupIsPending
 
     -- once we call mempoolGetBlock, the bad txs should be badlisted
-    liftIO $ void $ mempoolGetBlock mempool preblockCheck 1 nullBlockHash
+    liftIO $ void $ mempoolGetBlock mempool mockBlockGasLimit preblockCheck 1 nullBlockHash
     liftIO (lookup txs) >>= V.mapM_ lookupIsPending
     liftIO (lookup badTxs) >>= V.mapM_ lookupIsMissing
     liftIO $ insert badTxs
@@ -231,7 +231,7 @@ propAddToBadList tx _ mempool = runExceptT $ do
     block <- getBlock
     when (block /= [tx]) $ fail "expected to get our tx back"
 
-    liftIO $ mempoolAddToBadList mempool $ hash tx
+    liftIO $ mempoolAddToBadList mempool $ V.singleton $ hash tx
     block' <- getBlock
     when (block' /= []) $ fail "expected to get an empty block"
     liftIO (lookup [tx]) >>= V.mapM_ lookupIsMissing
@@ -244,7 +244,7 @@ propAddToBadList tx _ mempool = runExceptT $ do
     insert v = mempoolInsert mempool CheckedInsert $ V.fromList v
     lookup = mempoolLookup mempool . V.fromList . map hash
     getBlock = liftIO
-      $ V.toList <$> mempoolGetBlock mempool noopMempoolPreBlockCheck 1 nullBlockHash
+      $ V.toList <$> mempoolGetBlock mempool mockBlockGasLimit noopMempoolPreBlockCheck 1 nullBlockHash
 
 -- TODO Does this need to be updated?
 propPreInsert
@@ -301,7 +301,7 @@ propTrivial txs _ mempool = runExceptT $ do
     insert v = mempoolInsert mempool CheckedInsert $ V.fromList v
     lookup = mempoolLookup mempool . V.fromList . map hash
 
-    getBlock = mempoolGetBlock mempool noopMempoolPreBlockCheck 0 nullBlockHash
+    getBlock = mempoolGetBlock mempool mockBlockGasLimit noopMempoolPreBlockCheck 0 nullBlockHash
     onFees x = (Down (mockGasPrice x))
 
 

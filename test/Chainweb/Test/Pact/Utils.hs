@@ -1,3 +1,4 @@
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE BangPatterns #-}
@@ -89,6 +90,7 @@ module Chainweb.Test.Pact.Utils
 , delegateMemPoolAccess
 , withDelegateMempool
 , setMempool
+, setOneShotMempool
 -- * Block formation
 , runCut
 , Noncer
@@ -634,6 +636,17 @@ withDelegateMempool = withResource start mempty
 -- | Set test mempool using IORef.
 setMempool :: IO (IORef MemPoolAccess) -> MemPoolAccess -> IO ()
 setMempool refIO mp = refIO >>= flip writeIORef mp
+
+-- | Set test mempool wrapped with a "one shot" 'mpaGetBlock' adapter.
+setOneShotMempool :: IO (IORef MemPoolAccess) -> MemPoolAccess -> IO ()
+setOneShotMempool mpRefIO mp = do
+  oneShot <- newIORef False
+  setMempool mpRefIO $ mp
+    { mpaGetBlock = \g v i a e -> readIORef oneShot >>= \case
+        False -> writeIORef oneShot True >> mpaGetBlock mp g v i a e
+        True -> mempty
+    }
+
 
 withBlockHeaderDb
     :: IO RocksDb

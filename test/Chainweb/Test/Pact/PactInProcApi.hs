@@ -287,18 +287,6 @@ newBlockRewindValidate mpRefIO reqIO = testCase "newBlockRewindValidate" $ do
             $ mkExec' "(chain-data)"
       }
 
-setOneShotMempool :: IO (IORef MemPoolAccess) -> MemPoolAccess -> IO ()
-setOneShotMempool mpRefIO mp = do
-  oneShot <- newIORef False
-  setMempool mpRefIO $ MemPoolAccess
-    { mpaGetBlock = \g v i a e -> readIORef oneShot >>= \case
-        False -> writeIORef oneShot True >> mpaGetBlock mp g v i a e
-        True -> mempty
-    , mpaSetLastHeader = mpaSetLastHeader mp
-    , mpaProcessFork = mpaProcessFork mp
-    , mpaBadlistTx = mpaBadlistTx mp
-    }
-
 minerKeysetTest :: TestBlockDb -> IO (IORef MemPoolAccess) -> WebPactExecutionService -> IO ()
 minerKeysetTest bdb _mpRefIO pact = do
 
@@ -336,32 +324,32 @@ chainweb213Test bdb mpRefIO pact = do
   setOneShotMempool mpRefIO getBlock1
   runCut'
   pwo1 <- getPWO bdb cid
-  tx1_0 <- txResult 0 pwo1
+  tx1_0 <- txResult "pwo1" 0 pwo1
   assertEqual "Old gas cost" 56 (_crGas tx1_0)
-  tx1_1 <- txResult 1 pwo1
+  tx1_1 <- txResult "pwo1" 1 pwo1
   assertEqual "list failure 1_1" (Just listErrMsg) (preview (crResult . to _pactResult . _Left . to peDoc) tx1_1)
-  tx1_2 <- txResult 2 pwo1
+  tx1_2 <- txResult "pwo1" 2 pwo1
   assertSatisfies "mod db installs" (_pactResult (_crResult tx1_2)) isRight
-  tx1_3 <- txResult 3 pwo1
+  tx1_3 <- txResult "pwo1" 3 pwo1
   assertEqual "fkeys gas cost 1" 205 (_crGas tx1_3)
-  tx1_4 <- txResult 4 pwo1
+  tx1_4 <- txResult "pwo1" 4 pwo1
   assertEqual "ffolddb gas cost 1" 206 (_crGas tx1_4)
-  tx1_5 <- txResult 5 pwo1
+  tx1_5 <- txResult "pwo1" 5 pwo1
   assertEqual "fselect gas cost 1" 206 (_crGas tx1_5)
 
   -- run block 26
   setOneShotMempool mpRefIO getBlock2
   runCut'
   pwo2 <- getPWO bdb cid
-  tx2_0 <- txResult 0 pwo2
+  tx2_0 <- txResult "pwo2" 0 pwo2
   assertEqual "New gas cost" 60065 (_crGas tx2_0)
-  tx2_1 <- txResult 1 pwo2
+  tx2_1 <- txResult "pwo2" 1 pwo2
   assertTxFailure "list failure 2_1" "Gas limit" tx2_1
-  tx2_2 <- txResult 2 pwo2
+  tx2_2 <- txResult "pwo2" 2 pwo2
   assertEqual "fkeys gas cost 2" 40005 (_crGas tx2_2)
-  tx2_3 <- txResult 3 pwo2
+  tx2_3 <- txResult "pwo2" 3 pwo2
   assertEqual "ffolddb gas cost 2" 40006 (_crGas tx2_3)
-  tx2_4 <- txResult 4 pwo2
+  tx2_4 <- txResult "pwo2" 4 pwo2
   assertEqual "fselect gas cost 2" 40006 (_crGas tx2_4)
 
 
@@ -435,19 +423,19 @@ pact420UpgradeTest bdb mpRefIO pact = do
   runCut'
   pwo4 <- getPWO bdb cid
 
-  tx4_0 <- txResult 0 pwo4
+  tx4_0 <- txResult "pwo4" 0 pwo4
   assertEqual
     "Should not resolve new pact natives"
     (Just "Cannot resolve fold-db")
     (tx4_0 ^? crResult . to _pactResult . _Left . to peDoc)
 
-  tx4_1 <- txResult 1 pwo4
+  tx4_1 <- txResult "pwo4" 1 pwo4
   assertEqual
     "Should not resolve new pact natives"
     (Just "Cannot resolve zip")
     (tx4_1 ^? crResult . to _pactResult . _Left . to peDoc)
 
-  tx4_2 <- txResult 2 pwo4
+  tx4_2 <- txResult "pwo4" 2 pwo4
   assertEqual
     "Load fdb module"
     Nothing
@@ -464,7 +452,7 @@ pact420UpgradeTest bdb mpRefIO pact = do
   cb5 <- cbResult pwo5
   assertEqual "Coinbase events @ block 5" [] (_crEvents cb5)
 
-  tx5_0 <- txResult 0 pwo5
+  tx5_0 <- txResult "pwo5" 0 pwo5
   let m1 = PObject $ ObjectMap $ mempty
         & M.insert (FieldKey "a") (PLiteral $ LInteger 1)
         & M.insert (FieldKey "b") (PLiteral $ LInteger 1)
@@ -476,7 +464,7 @@ pact420UpgradeTest bdb mpRefIO pact = do
     (Just $ PList $ V.fromList [m1,m2])
     (tx5_0 ^? crResult . to _pactResult . _Right)
 
-  tx5_1 <- txResult 1 pwo5
+  tx5_1 <- txResult "pwo5" 1 pwo5
   assertEqual
     "Should resolve zip pact native"
     (Just $ PList $ V.fromList $ PLiteral . LInteger <$> [5,7,9])
@@ -560,20 +548,20 @@ pact4coin3UpgradeTest bdb mpRefIO pact = do
   runCut'
   pwo7 <- getPWO bdb cid
 
-  tx7_0 <- txResult 0 pwo7
+  tx7_0 <- txResult "pwo7" 0 pwo7
   assertEqual "Hash of coin @ block 7" (pHash "ut_J_ZNkoyaPUEJhiwVeWnkSQn9JT9sQCWKdjjVVrWo") (_crResult tx7_0)
   assertEqual "Events for tx 0 @ block 7" [] (_crEvents tx7_0)
 
-  tx7_1 <- txResult 1 pwo7
+  tx7_1 <- txResult "pwo7" 1 pwo7
   assertEqual "Events for tx 1 @ block 7" [] (_crEvents tx7_1)
 
-  tx7_2 <- txResult 2 pwo7
+  tx7_2 <- txResult "pwo7" 2 pwo7
   assertEqual
     "Should not resolve new pact natives"
     (Just "Cannot resolve distinct")
     (tx7_2 ^? crResult . to _pactResult . _Left . to peDoc)
 
-  tx7_3 <- txResult 3 pwo7
+  tx7_3 <- txResult "pwo7" 3 pwo7
   assertEqual
     "Should allow bad keys"
     Nothing
@@ -601,7 +589,7 @@ pact4coin3UpgradeTest bdb mpRefIO pact = do
     preview (crContinuation . _Just . pePactId) tx7_1
 
   -- run block 22
-  setOneShotMempool mpRefIO $ getBlock22 (Just proof) pid
+  setMempool mpRefIO =<< getBlock22 (Just proof) pid
   runCut'
   pwo22 <- getPWO bdb cid
   let v3Hash = "1os_sLAUYvBzspn5jjawtRpJWiH1WPfhyNraeVvSIwU"
@@ -610,12 +598,12 @@ pact4coin3UpgradeTest bdb mpRefIO pact = do
   cbEv <- mkTransferEvent "" "NoMiner" 2.304523 "coin" v3Hash
   assertEqual "Coinbase events @ block 22" [cbEv] (_crEvents cb22)
 
-  tx22_0 <- txResult 0 pwo22
+  tx22_0 <- txResult "pwo22" 0 pwo22
   gasEv0 <- mkTransferEvent "sender00" "NoMiner" 0.0013 "coin" v3Hash
   assertEqual "Hash of coin @ block 22" (pHash v3Hash) (_crResult tx22_0)
   assertEqual "Events for tx0 @ block 22" [gasEv0] (_crEvents tx22_0)
 
-  tx22_1 <- txResult 1 pwo22
+  tx22_1 <- txResult "pwo22" 1 pwo22
   gasEv1 <- mkTransferEvent "sender00" "NoMiner" 0.0014 "coin" v3Hash
   allocTfr <- mkTransferEvent "" "allocation00" 1000000.0 "coin" v3Hash
   allocEv <- mkEvent "RELEASE_ALLOCATION" [pString "allocation00",pDecimal 1000000.0]
@@ -623,20 +611,20 @@ pact4coin3UpgradeTest bdb mpRefIO pact = do
   assertEqual "Events for tx1 @ block 22" [gasEv1,allocEv,allocTfr] (_crEvents tx22_1)
 
   -- test another sendXChain events
-  tx22_2 <- txResult 2 pwo22
+  tx22_2 <- txResult "pwo22" 2 pwo22
   gasEv2 <- mkTransferEvent "sender00" "NoMiner" 0.0014 "coin" v3Hash
   sendTfr <- mkTransferEvent "sender00" "" 0.0123 "coin" v3Hash
   let pguard = PGuard (GKeySet (KeySet {_ksKeys = S.fromList [PublicKey {_pubKey = "368820f80c324bbc7c2b0610688a7da43e39f91d118732671cd9c7500ff43cca"}], _ksPredFun = Name (BareName {_bnName = "keys-all", _bnInfo = def })}))
   yieldEv <- mkEvent "X_YIELD" [pString "0", pString "coin.transfer-crosschain", pList [pString "sender00", pString "sender00", pguard, pString "0", pDecimal 0.0123]] "pact" v3Hash
   assertEqual "Events for tx2 @ block 22" [gasEv2,sendTfr, yieldEv] (_crEvents tx22_2)
 
-  tx22_3 <- txResult 3 pwo22
+  tx22_3 <- txResult "pwo22" 3 pwo22
   assertEqual
     "Should resolve enumerate pact native"
     (Just $ PList $ V.fromList $ PLiteral . LInteger <$> [1..10])
     (tx22_3 ^? crResult . to _pactResult . _Right)
 
-  tx22_4 <- txResult 4 pwo22
+  tx22_4 <- txResult "pwo22" 4 pwo22
   assertEqual
     "Should not allow bad keys"
     (Just "Invalid keyset")
@@ -645,7 +633,7 @@ pact4coin3UpgradeTest bdb mpRefIO pact = do
 
   -- test receive XChain events
   pwo22_0 <- getPWO bdb chain0
-  txRcv <- txResult 0 pwo22_0
+  txRcv <- txResult "pwo22_0" 0 pwo22_0
   gasEvRcv <- mkTransferEvent "sender00" "NoMiner" 0.0014 "coin" v3Hash
   rcvTfr <- mkTransferEvent "" "sender00" 0.0123 "coin" v3Hash
   assertEqual "Events for txRcv" [gasEvRcv,rcvTfr] (_crEvents txRcv)
@@ -671,20 +659,28 @@ pact4coin3UpgradeTest bdb mpRefIO pact = do
 
     chain0 = unsafeChainId 0
 
-    getBlock22 proof pid = mempty {
-      mpaGetBlock = \_ _ _ _ bh ->
-        let go | _blockChainId bh == cid = do
-                   t0 <- buildHashCmd bh
-                   t1 <- buildReleaseCommand bh
-                   t2 <- buildXSend bh
-                   t3 <- buildNewNatives40Cmd bh
-                   t4 <- badKeyset bh
-                   return $! V.fromList [t0,t1,t2,t3,t4]
-               | _blockChainId bh == chain0 = do
-                   V.singleton <$> buildXReceive bh proof pid
-               | otherwise = return mempty
-        in go
-      }
+    getBlock22 proof pid = do
+      cids <- newIORef mempty
+      return $ mempty {
+        mpaGetBlock = \_ _ _ _ bh ->
+          let go | bid == cid = do
+                     t0 <- buildHashCmd bh
+                     t1 <- buildReleaseCommand bh
+                     t2 <- buildXSend bh
+                     t3 <- buildNewNatives40Cmd bh
+                     t4 <- badKeyset bh
+                     return $! V.fromList [t0,t1,t2,t3,t4]
+                 | _blockChainId bh == chain0 = do
+                     V.singleton <$> buildXReceive bh proof pid
+                 | otherwise = return mempty
+              enfChain f = do
+                cids' <- readIORef cids
+                if bid `elem` cids' then mempty else do
+                  writeIORef cids (bid:cids')
+                  f
+              bid = _blockChainId bh
+          in enfChain go
+        }
 
     buildHashCmd bh = buildCwCmd
         $ set cbSigners [mkSigner' sender00 []]
@@ -748,10 +744,10 @@ getPWO (TestBlockDb _ pdb cmv) chid = do
   casLookupM pdb (_blockPayloadHash h)
 
 -- | Get tx at index from output
-txResult :: Int -> PayloadWithOutputs -> IO (CommandResult Hash)
-txResult i o = do
+txResult :: String -> Int -> PayloadWithOutputs -> IO (CommandResult Hash)
+txResult msg i o = do
   case preview (ix i . _2) $ _payloadWithOutputsTransactions o of
-    Nothing -> throwIO $ userError $ "no tx at " ++ show i
+    Nothing -> throwIO $ userError $ msg ++ ": no tx at " ++ show i
     Just txo -> decodeStrictOrThrow @_ @(CommandResult Hash) (_transactionOutputBytes txo)
 
 -- | Get coinbase from output

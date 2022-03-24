@@ -176,7 +176,7 @@ modAt f = modAtTtl f defTtl
 
 modAtTtl :: (Time Micros -> Time Micros) -> Seconds -> MemPoolAccess
 modAtTtl f (Seconds t) = mempty
-    { mpaGetBlock = \validate bh hash ph -> do
+    { mpaGetBlock = \_ validate bh hash ph -> do
         let txTime = toTxCreationTime $ f $ _bct $ _blockCreationTime ph
             tt = TTLSeconds (int t)
         outtxs <- fmap V.singleton $ buildCwCmd
@@ -290,10 +290,10 @@ withTestPact rdb test =
   where
     cid = someChainId testVer
     mempool mempoolVarIO = return $ mempty
-        { mpaGetBlock = \val he h p ->
+        { mpaGetBlock = \g val he h p ->
             mempoolVarIO >>= tryTakeMVar >>= \case
                 Nothing -> mempty
-                Just mp -> mpaGetBlock mp val he h p
+                Just mp -> mpaGetBlock mp g val he h p
         }
 
 assertNotLeft :: (MonadThrow m, Exception e) => Either e a -> m a
