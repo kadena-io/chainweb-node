@@ -71,8 +71,8 @@ someBackupServer (FromSingChainwebVersion (SChainwebVersion :: Sing vT)) backupE
                     return $ b <$ logg
     doBackup backupPactFlag nextBackupIdentifier = do
         _ <- async $ do
-            Backup.makeBackup backupEnv options
-            atomically (writeTVar globalCurrentBackup Nothing)
+            Backup.makeBackup backupEnv options `finally`
+                atomically (writeTVar globalCurrentBackup Nothing)
         return nextBackupIdentifier
       where
         options = Backup.BackupOptions

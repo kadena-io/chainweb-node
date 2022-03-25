@@ -99,7 +99,10 @@ makeBackup env options = do
             logCr Info $ "backing up pact databases" <> T.pack thisBackup
             forConcurrently_ (_backupChainIds env) $ \cid -> do
                 withSqliteDb cid (_backupLogger env) (_backupPactDbDir env) False $ \db ->
-                    void $ qry_ (_sConn db) ("VACUUM main INTO '" <> fromString (thisBackup </> "0" </> "sqlite" </> chainDbFileName cid) <> "'") []
+                    void $ qry (_sConn db)
+                        ("VACUUM main INTO ?")
+                        [SText $ fromString (thisBackup </> "0" </> "sqlite" </> chainDbFileName cid)]
+                        []
             logCr Info $ "pact databases backed up"
 
 checkBackup :: Logger logger => BackupEnv logger -> FilePath -> IO (Maybe BackupStatus)
