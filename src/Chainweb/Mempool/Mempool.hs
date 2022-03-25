@@ -68,6 +68,7 @@ module Chainweb.Mempool.Mempool
   , HighwaterMark
   , InsertType(..)
   , InsertError(..)
+  , BlockFill(..)
 
   , chainwebTransactionConfig
   , mockCodec
@@ -109,6 +110,7 @@ import qualified Data.HashSet as HashSet
 import Data.Int (Int64)
 import Data.IORef
 import Data.List (unfoldr)
+import qualified Data.Set as S
 import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Vector (Vector)
@@ -249,6 +251,12 @@ instance Show InsertError
 
 instance Exception InsertError
 
+data BlockFill = BlockFill
+  { _bfGasLimit :: GasLimit
+  , _bfTxHashes :: S.Set TransactionHash
+  , _bfCount :: Word64
+  } deriving (Eq,Show)
+
 ------------------------------------------------------------------------------
 -- | Mempool backend API. Here @t@ is the transaction payload type.
 data MempoolBackend t = MempoolBackend {
@@ -282,7 +290,7 @@ data MempoolBackend t = MempoolBackend {
     -- for mining.
     --
   , mempoolGetBlock
-      :: GasLimit -> MempoolPreBlockCheck t -> BlockHeight -> BlockHash -> IO (Vector t)
+      :: BlockFill -> MempoolPreBlockCheck t -> BlockHeight -> BlockHash -> IO (Vector t)
 
     -- | Discard any expired transactions.
   , mempoolPrune :: IO ()
@@ -679,7 +687,6 @@ instance FromJSON MockTx where
 
 mockBlockGasLimit :: GasLimit
 mockBlockGasLimit = 100_000_000
-
 
 -- | A codec for transactions when sending them over the wire.
 mockCodec :: Codec MockTx

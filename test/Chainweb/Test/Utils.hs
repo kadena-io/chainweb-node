@@ -43,6 +43,8 @@ module Chainweb.Test.Utils
 , Growth(..)
 , tree
 , getArbitrary
+, mockBlockFill
+, BlockFill(..)
 
 -- * Test BlockHeaderDbs Configurations
 , singleton
@@ -198,7 +200,7 @@ import Chainweb.Difficulty (targetToDifficulty)
 import Chainweb.Graph
 import Chainweb.HostAddress
 import Chainweb.Logger
-import Chainweb.Mempool.Mempool (MempoolBackend(..), TransactionHash(..))
+import Chainweb.Mempool.Mempool (MempoolBackend(..), TransactionHash(..), BlockFill(..), mockBlockGasLimit)
 import Chainweb.MerkleUniverse
 import Chainweb.Miner.Config
 import Chainweb.Miner.Pact
@@ -303,6 +305,9 @@ toyBlockHeaderDb db cid = (g,) <$> testBlockHeaderDb db g
 withToyDB :: RocksDb -> ChainId -> (BlockHeader -> BlockHeaderDb -> IO a) -> IO a
 withToyDB db cid
     = bracket (toyBlockHeaderDb db cid) (closeBlockHeaderDb . snd) . uncurry
+
+mockBlockFill :: BlockFill
+mockBlockFill = BlockFill mockBlockGasLimit mempty 0
 
 -- -------------------------------------------------------------------------- --
 -- BlockHeaderDb Generation

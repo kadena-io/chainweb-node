@@ -127,16 +127,16 @@ pactMemPoolGetBlock
     :: Logger logger
     => MempoolConsensus
     -> logger
-    -> GasLimit
+    -> BlockFill
     -> (MempoolPreBlockCheck ChainwebTransaction
             -> BlockHeight
             -> BlockHash
             -> BlockHeader
             -> IO (Vector ChainwebTransaction))
-pactMemPoolGetBlock mpc theLogger gasLimit validate height hash _bHeader = do
+pactMemPoolGetBlock mpc theLogger bf validate height hash _bHeader = do
     logFn theLogger Info $! "pactMemPoolAccess - getting new block of transactions for "
         <> "height = " <> sshow height <> ", hash = " <> sshow hash
-    mempoolGetBlock (mpcMempool mpc) gasLimit validate height hash
+    mempoolGetBlock (mpcMempool mpc) bf validate height hash
   where
    logFn :: Logger l => l -> LogFunctionText -- just for giving GHC some type hints
    logFn l = logFunction l

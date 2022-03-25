@@ -450,10 +450,10 @@ attemptBuyGas miner (PactDbEnv' dbEnv) txs = do
 -- type RunGas = ValidateTxs -> IO ValidateTxs
 
 data BlockFilling = BlockFilling
-    { _bfGasLimit :: GasLimit
+    { _bfState :: BlockFill
     , _bfSuccessPairs :: V.Vector (ChainwebTransaction,P.CommandResult [P.TxLog A.Value])
     , _bfFailures :: V.Vector GasPurchaseFailure
-    , _bfRequestKeys :: S.Set TransactionHash }
+    }
 
 -- | Note: The BlockHeader param here is the PARENT HEADER of the new
 -- block-to-be
@@ -483,7 +483,7 @@ execNewBlock mpAccess parent miner = {- handle onTxFailure $ -} do
     -- less than this are failing in PactReplay test.
     newblockRewindLimit = Just 8
 
-    getBlockTxs gasLimit = do
+    getBlockTxs bfState = do
       cp <- getCheckpointer
       psEnv <- ask
       logger <- view psLogger
@@ -500,16 +500,16 @@ execNewBlock mpAccess parent miner = {- handle onTxFailure $ -} do
                 Left _e -> return False
 
       liftIO $! {- fmap Discard $! -}
-        mpaGetBlock mpAccess gasLimit validate (pHeight + 1) pHash (_parentHeader parent)
+        mpaGetBlock mpAccess bfState validate (pHeight + 1) pHash (_parentHeader parent)
 
     doNewBlock pdbenv = do
         logInfo $ "execNewBlock, about to get call processFork: "
                 <> " (parent height = " <> sshow pHeight <> ")"
                 <> " (parent hash = " <> sshow pHash <> ")"
 
-        gasLimit <- view psBlockGasLimit
+        initState <- (\g -> BlockFill g mempty 0) <$> view psBlockGasLimit
 
-        newTrans <- getBlockTxs gasLimit
+        newTrans <- getBlockTxs initState
 
         -- NEW BLOCK COINBASE: Reject bad coinbase, always use precompilation
         (Transactions pairs cb) <- execTransactions False miner newTrans
@@ -517,40 +517,41 @@ execNewBlock mpAccess parent miner = {- handle onTxFailure $ -} do
           (CoinbaseUsePrecompiled True)
           pdbenv
 
-        (BlockFilling _ successPairs failures _rks) <-
-          refill pdbenv =<< foldM splitResults (BlockFilling gasLimit mempty mempty mempty) pairs
+        (BlockFilling _ successPairs failures) <-
+          refill pdbenv =<< foldM splitResults (BlockFilling initState mempty mempty) pairs
 
         liftIO $ mpaBadlistTx mpAccess (V.map gasPurchaseFailureHash failures)
 
         let !pwo = toPayloadWithOutputs miner (Transactions successPairs cb)
         return $! Discard pwo
 
-    refill pdbenv unchanged@(BlockFilling gasLimit _ _ _)=
+    refill pdbenv unchanged@(BlockFilling bfState _ _)=
 
-      if gasLimit <= 0 then pure unchanged else do
+      if _bfGasLimit bfState <= 0 then pure unchanged else do
 
-        newTrans <- getBlockTxs gasLimit
+        newTrans <- getBlockTxs bfState
         if V.null newTrans then pure unchanged else do
 
           pairs <- execTransactionsOnly miner newTrans pdbenv
 
-          r@(BlockFilling gasRemaining newPairs newFails _newRks) <-
+          r@(BlockFilling newState newPairs newFails) <-
                 foldM splitResults unchanged pairs
 
           -- LOOP INVARIANT: gas must decrease OR only non-zero failures
-          if (gasRemaining < gasLimit) || (V.null newPairs && not (V.null newFails))
+          if (_bfGasLimit newState < _bfGasLimit bfState) || (V.null newPairs && not (V.null newFails))
               then refill pdbenv r
               else throwM $ MempoolFillFailure $ "Invariant failure: " <>
-                   sshow (gasRemaining,gasLimit,V.length newTrans
+                   sshow (bfState,newState,V.length newTrans
                          ,V.length newPairs,V.length newFails)
 
 
 
-    splitResults (BlockFilling g success fails rks) (t,r) = case r of
-      Right cr -> enforceUnique rks (requestKeyToTransactionHash $ P._crReqKey cr)
-        >>= return . BlockFilling (g - fromIntegral (P._crGas cr)) (V.snoc success (t,cr)) fails
-      Left f -> enforceUnique rks (gasPurchaseFailureHash f)
-        >>= return . BlockFilling g success (V.snoc fails f)
+    splitResults (BlockFilling (BlockFill g rks i) success fails) (t,r) = case r of
+      Right cr -> enforceUnique rks (requestKeyToTransactionHash $ P._crReqKey cr) >>= \rks' ->
+        return $ BlockFilling (BlockFill (g - fromIntegral (P._crGas cr)) rks' (succ i))
+          (V.snoc success (t,cr)) fails
+      Left f -> enforceUnique rks (gasPurchaseFailureHash f) >>= \rks' ->
+        return $ BlockFilling (BlockFill g rks' (succ i)) success (V.snoc fails f)
 
     enforceUnique rks rk | S.member rk rks =
       throwM $ MempoolFillFailure $ "Duplicate transaction: " <> sshow rk
