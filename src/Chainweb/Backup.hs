@@ -23,7 +23,6 @@ import Control.Monad
 import Control.Monad.Catch
 import Data.CAS.RocksDB
 import Data.HashSet(HashSet)
-import Data.String
 import qualified Data.Text as T
 import qualified Data.Text.IO as T
 import qualified Data.Text.Lazy as TL
@@ -33,12 +32,13 @@ import System.FilePath
 import System.LogLevel
 
 import Pact.Types.SQLite
+import Database.SQLite3.Direct(backupInit, backupStep, backupFinish)
 import Servant
 
 import Chainweb.ChainId
 import Chainweb.Logger
 import Chainweb.Pact.Backend.Types
-import Chainweb.Pact.Backend.Utils(chainDbFileName, withSqliteDb)
+import Chainweb.Pact.Backend.Utils(withSqliteDb)
 import Chainweb.Utils
 
 data BackupOptions = BackupOptions
@@ -98,11 +98,14 @@ makeBackup env options = do
         when (_backupPact options) $ do
             logCr Info $ "backing up pact databases" <> T.pack thisBackup
             forConcurrently_ (_backupChainIds env) $ \cid -> do
-                withSqliteDb cid (_backupLogger env) (_backupPactDbDir env) False $ \db ->
-                    void $ qry (_sConn db)
-                        ("VACUUM main INTO ?")
-                        [SText $ fromString (thisBackup </> "0" </> "sqlite" </> chainDbFileName cid)]
-                        []
+                withSqliteDb cid (_backupLogger env) (_backupPactDbDir env) False $ \sourceDb ->
+                    let destDbLoc = thisBackup </> "0" </> "sqlite"
+                    in withSqliteDb cid (_backupLogger env) destDbLoc False $ \destDb -> do
+                        backup <- either (dbError . show) pure =<<
+                            backupInit (_sConn destDb) "main" (_sConn sourceDb) "main"
+                        -- negative numbers mean "back up the entire database in one step"
+                        _ <- either (dbError . show) pure =<< backupStep backup (-1)
+                        either (dbError . show) pure =<< backupFinish backup
             logCr Info $ "pact databases backed up"
 
 checkBackup :: Logger logger => BackupEnv logger -> FilePath -> IO (Maybe BackupStatus)
