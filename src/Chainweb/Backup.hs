@@ -18,6 +18,7 @@ module Chainweb.Backup
 
 import Control.Lens
 
+import Control.Concurrent.Async
 import Control.Monad
 import Control.Monad.Catch
 import Data.CAS.RocksDB
@@ -96,7 +97,7 @@ makeBackup env options = do
         logCr Info "rocksdb checkpoint made"
         when (_backupPact options) $ do
             logCr Info $ "backing up pact databases" <> T.pack thisBackup
-            forM_ (_backupChainIds env) $ \cid -> do
+            forConcurrently_ (_backupChainIds env) $ \cid -> do
                 withSqliteDb cid (_backupLogger env) (_backupPactDbDir env) False $ \sourceDb ->
                     let destDbLoc = thisBackup </> "0" </> "sqlite"
                     in withSqliteDb cid (_backupLogger env) destDbLoc False $ \destDb -> do
