@@ -13,6 +13,7 @@ cabal-dev
 .cabal-sandbox/
 cabal.sandbox.config
 cabal.config
-.stack-work
+cabal.project.local
+dist-newstyle
 librocksdb.so
 *.liquid

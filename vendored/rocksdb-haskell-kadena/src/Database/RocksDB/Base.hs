@@ -71,7 +71,6 @@ module Database.RocksDB.Base
     , module Database.RocksDB.Iterator
     ) where
 
-import           Control.Applicative          ((<$>))
 import           Control.Exception            (bracket, bracketOnError, finally)
 import           Control.Monad                (liftM, when)
 

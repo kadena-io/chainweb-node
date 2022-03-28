@@ -34,7 +34,6 @@ module Database.RocksDB.Iterator
     , iterOpen
     ) where
 
-import           Control.Applicative          ((<$>), (<*>))
 import           Control.Exception            (bracket, finally, onException)
 import           Control.Monad                (when)
 import           Control.Monad.IO.Class       (MonadIO (liftIO))

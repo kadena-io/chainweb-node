@@ -44,7 +44,6 @@ module Database.RocksDB.Internal
     )
 where
 
-import           Control.Applicative    ((<$>))
 import           Control.Exception      (bracket, onException, throwIO)
 import           Control.Monad          (when)
 import           Data.ByteString        (ByteString)
