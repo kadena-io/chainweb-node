@@ -82,6 +82,7 @@ import System.Clock
 
 -- internal modules
 
+import Chainweb.Backup
 import Chainweb.BlockHeaderDB
 import Chainweb.BlockHeaderDB.RestAPI.Client
 import Chainweb.BlockHeaderDB.RestAPI.Server
@@ -98,6 +99,7 @@ import qualified Chainweb.Miner.RestAPI.Server as Mining
 import qualified Chainweb.Pact.RestAPI.Server as PactAPI
 import Chainweb.Payload.PayloadStore
 import Chainweb.Payload.RestAPI.Server
+import Chainweb.RestAPI.Backup
 import Chainweb.RestAPI.Config
 import Chainweb.RestAPI.Health
 import Chainweb.RestAPI.NetworkID
@@ -323,9 +325,11 @@ someServiceApiServer
     -> Maybe (MiningCoordination logger cas)
     -> HeaderStream
     -> Rosetta
+    -> Maybe (BackupEnv logger)
     -> SomeServer
-someServiceApiServer v dbs pacts mr (HeaderStream hs) (Rosetta r) =
+someServiceApiServer v dbs pacts mr (HeaderStream hs) (Rosetta r) backupEnv =
     someHealthCheckServer
+    <> maybe mempty (someBackupServer v) backupEnv
     <> maybe mempty (someNodeInfoServer v) cuts
     <> PactAPI.somePactServers v pacts
     <> maybe mempty (Mining.someMiningServer v) mr
@@ -358,11 +362,12 @@ serviceApiApplication
     -> Maybe (MiningCoordination logger cas)
     -> HeaderStream
     -> Rosetta
+    -> Maybe (BackupEnv logger)
     -> Application
-serviceApiApplication v dbs pacts mr hs r
+serviceApiApplication v dbs pacts mr hs r be
     = chainwebServiceMiddlewares
     . someServerApplication
-    $ someServiceApiServer v dbs pacts mr hs r
+    $ someServiceApiServer v dbs pacts mr hs r be
 
 serveServiceApiSocket
     :: Show t
@@ -376,7 +381,8 @@ serveServiceApiSocket
     -> Maybe (MiningCoordination logger cas)
     -> HeaderStream
     -> Rosetta
+    -> Maybe (BackupEnv logger)
     -> Middleware
     -> IO ()
-serveServiceApiSocket s sock v dbs pacts mr hs r m =
-    runSettingsSocket s sock $ m $ serviceApiApplication v dbs pacts mr hs r
+serveServiceApiSocket s sock v dbs pacts mr hs r be m =
+    runSettingsSocket s sock $ m $ serviceApiApplication v dbs pacts mr hs r be

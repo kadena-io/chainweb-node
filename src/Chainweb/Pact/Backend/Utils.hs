@@ -21,6 +21,7 @@ module Chainweb.Pact.Backend.Utils
   ( -- * General utils
     callDb
   , open2
+  , chainDbFileName
     -- * Savepoints
   , withSavepoint
   , beginSavepoint
@@ -60,6 +61,7 @@ import Control.Monad.Reader
 
 import Data.Bits
 import Data.ByteString hiding (pack,unpack)
+import Data.Foldable
 import Data.String
 import Data.String.Conv
 import Data.Text (Text, pack, unpack)
@@ -68,6 +70,7 @@ import Database.SQLite3.Direct as SQ3
 import Prelude hiding (log)
 
 import System.Directory
+import System.FilePath
 import System.IO.Temp
 import System.LogLevel
 
@@ -276,12 +279,15 @@ startSqliteDb cid logger dbDir doResetDb = do
   where
     textLog = logFunctionText logger
     resetDb = removeDirectoryRecursive dbDir
-    sqliteFile = mconcat
-        [ dbDir
-        , "/pact-v1-chain-"
-        , unpack (chainIdToText cid)
-        , ".sqlite"
-        ]
+    sqliteFile =
+        dbDir </> chainDbFileName cid
+
+chainDbFileName :: ChainId -> FilePath
+chainDbFileName cid = fold
+    [ "pact-v1-chain-"
+    , unpack (chainIdToText cid)
+    , ".sqlite"
+    ]
 
 stopSqliteDb :: SQLiteEnv -> IO ()
 stopSqliteDb = closeSQLiteConnection
