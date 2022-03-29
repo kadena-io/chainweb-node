@@ -55,7 +55,7 @@ jobs:
           ~/.cabal/packages
           ~/.cabal/store
           dist-newstyle
-        key: ${{ matrix.os }}-${{ matrix.ghc }}-5-cabal
+        key: ${{ matrix.os }}-${{ matrix.ghc }}-7-cabal
 
     # Build
     - name: Delete Freeze file
