@@ -1,7 +1,7 @@
 packages: chainweb-storage.cabal
-package rocksdb-haskell
-    extra-include-dirs: /usr/local/include
-    extra-lib-dirs: /usr/local/lib
-package chainweb-storage
-    extra-include-dirs: /usr/local/include
-    extra-lib-dirs: /usr/local/lib
+
+source-repository-package
+    type: git
+    location: https://github.com/kadena-io/rocksdb-haskell.git
+    tag: 2a1b8a505e569bb87a782369111deb71620f787e
+

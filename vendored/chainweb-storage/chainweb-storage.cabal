@@ -1,4 +1,4 @@
-cabal-version: 2.2
+cabal-version: 3.0
 name: chainweb-storage
 version: 0.1.0.0
 synopsis: Key Value Storage for Chainweb
@@ -30,7 +30,7 @@ library
     cxx-sources: cpp/chainweb-rocksdb.cpp
     includes: cpp/chainweb-rocksdb.h
     install-includes: cpp/chainweb-rocksdb.h
-    extra-libraries: rocksdb stdc++
+    extra-libraries: stdc++ snappy bz2
     cxx-options: -std=c++17 -fno-rtti
     default-language: Haskell2010
     ghc-options:
@@ -55,7 +55,7 @@ library
         , lens >=4.16
         , memory >=0.14
         , nothunks >= 0.1.0.0
-        , rocksdb-haskell >=1.0.1
+        , rocksdb-haskell-kadena >= 1.1.0
         , stm >=2.4
         , streaming >=0.2
         , temporary >=1.3
@@ -86,20 +86,4 @@ test-suite rocksdb-tests
         , lens >=4.16
         , nothunks >= 0.1.0.0
         , vector >=0.12
-
-executable dedup-profiling
-    hs-source-dirs: tools
-    default-language: Haskell2010
-    main-is: DedupStore.hs
-    ghc-options:
-        -Wall
-        -rtsopts
-    build-depends:
-        -- internal
-        , chainweb-storage
-
-        -- external
-        , base >=4.10 && <4.16
-        , bytestring >=0.10
-        , random-bytestring >= 0.1
 
