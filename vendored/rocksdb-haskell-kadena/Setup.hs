@@ -36,7 +36,6 @@ main = defaultMainWithHooks
                         componentBuildDir lbi clbi
                 withCurrentDirectory builddir $ do
                     runLBIProgram lbi tarProgram ["-xzf", rocksdb_tar]
-                    copyDirectoryRecursive minBound (rocksdb_srcdir </> "include") (toplevel </> "include")
                     -- TODO: do a recursive listing for the utilities/ folder's headers
                     runLBIProgram lbi makeProgram ["-C", rocksdb_srcdir, "-j4", "static_lib", "shared_lib"]
                     copyFile (rocksdb_srcdir </> "librocksdb.so.6.29.3") "librocksdb.so"
@@ -46,7 +45,7 @@ main = defaultMainWithHooks
                     copyFile (rocksdb_srcdir </> "librocksdb.so.6.29.3") "libCrocksdb.so"
                     copyFile (rocksdb_srcdir </> "librocksdb.a") "libCrocksdb.a"
                 includeFiles <-
-                    (fmap.fmap) ("rocksdb" </>) $
+                    (fmap.fmap) (("include" </>) . ("rocksdb" </>)) $
                         listDirectory ("include" </> "rocksdb")
                 -- remove directories
                 rocksdbIncludes <- fmap catMaybes $ forM includeFiles $ \file -> do
@@ -59,7 +58,6 @@ main = defaultMainWithHooks
                         ( Just
                             emptyBuildInfo
                             { extraLibs = extra_libs
-                            , includeDirs = ["include"]
                             , installIncludes = rocksdbIncludes
                             }
                         , []) $
