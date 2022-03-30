@@ -31,11 +31,12 @@ main = defaultMainWithHooks
                         -- getHSLibraryName (componentUnitId clbi) ++ "-rocksdb-6.29.3"
                 let
                     rocksdb_srcdir = "rocksdb-6.29.3"
-                    extra_libs = ["stdc++", "gflags", "snappy", "bz2"]
+                    extra_libs = ["stdc++", "gflags"]
                     builddir =
                         componentBuildDir lbi clbi
                 withCurrentDirectory builddir $ do
                     runLBIProgram lbi tarProgram ["-xzf", rocksdb_tar]
+                    copyDirectoryRecursive minBound (rocksdb_srcdir </> "include") (toplevel </> "include")
                     -- TODO: do a recursive listing for the utilities/ folder's headers
                     runLBIProgram lbi makeProgram ["-C", rocksdb_srcdir, "-j4", "static_lib", "shared_lib"]
                     copyFile (rocksdb_srcdir </> "librocksdb.so.6.29.3") "librocksdb.so"
@@ -44,27 +45,26 @@ main = defaultMainWithHooks
                     copyFile (rocksdb_srcdir </> "librocksdb.so.6.29.3") "librocksdb.so.6"
                     copyFile (rocksdb_srcdir </> "librocksdb.so.6.29.3") "libCrocksdb.so"
                     copyFile (rocksdb_srcdir </> "librocksdb.a") "libCrocksdb.a"
-                includeFiles <-
-                    (fmap.fmap) (("rocksdb" </>)) $
-                        listDirectory ("include" </> "rocksdb")
-                -- remove directories
-                rocksdbIncludes <- fmap catMaybes $ forM includeFiles $ \file -> do
-                    e <- doesFileExist ("include" </> file)
-                    print (file, e)
-                    return $ file <$ guard e
-                pure
-                    lbi
-                    { localPkgDescr =
-                        updatePackageDescription
-                        ( Just
-                            emptyBuildInfo
-                            { extraLibs = extra_libs
-                            , includeDirs = ["include"]
-                            , installIncludes = rocksdbIncludes
-                            }
-                        , []) $
-                        localPkgDescr lbi
-                    }
+                    includeFiles <-
+                        (fmap.fmap) ("rocksdb" </>) $
+                            listDirectory ("rocksdb-6.29.3" </> "include" </> "rocksdb")
+                    -- remove directories
+                    rocksdbIncludes <- fmap catMaybes $ forM includeFiles $ \file -> do
+                        e <- doesFileExist ("rocksdb-6.29.3" </> "include" </> file)
+                        return $ file <$ guard e
+                    pure
+                        lbi
+                        { localPkgDescr =
+                            updatePackageDescription
+                            ( Just
+                                emptyBuildInfo
+                                { extraLibs = extra_libs
+                                , includeDirs = ["rocksdb-6.29.3/include"]
+                                , installIncludes = rocksdbIncludes
+                                }
+                            , []) $
+                            localPkgDescr lbi
+                        }
         }
 
 runLBIProgram :: LocalBuildInfo -> Program -> [ProgArg] -> IO ()
