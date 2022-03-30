@@ -662,7 +662,7 @@ loadModule = do
     fn = "test/pact/simple.repl"
 
 nativeLookup :: NativeDefName -> Maybe (Term Name)
-nativeLookup (NativeDefName n) = case HM.lookup (Name $ BareName n def) nativeDefs of
+nativeLookup (NativeDefName n) = case HM.lookup n nativeDefs of
     Just (Direct t) -> Just t
     _ -> Nothing
 

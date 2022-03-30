@@ -62,6 +62,7 @@ module Chainweb.Version
 , AtOrAfter(..)
 , doCheckTxHash
 , chainweb213Pact
+, chainweb214Pact
 
 -- ** BlockHeader Validation Guards
 , slowEpochGuard
@@ -926,6 +927,24 @@ chainweb213Pact Testnet04 = (>= 1_974_556) -- 2022-02-25 00:00:00
 chainweb213Pact Development = (>= 95)
 chainweb213Pact (FastTimedCPM g) | g == petersonChainGraph = (> 25)
 chainweb213Pact _ = const True
+
+
+-- | Pact and coin contract changes for Chainweb 2.14
+--
+chainweb214Pact
+    :: AtOrAfter
+    -> ChainwebVersion
+    -> BlockHeight
+    -> Bool
+chainweb214Pact  aoa v h = case aoa of
+    At -> go (==) v h
+    After -> go (flip (>)) v h
+  where
+    go f Mainnet01 = f 2605696 -- 2022-04-22 00:00:13
+    go f Testnet04 = f 2112766 -- 2022-04-14 00:00:43
+    go f Development = f 100
+    go f (FastTimedCPM g) | g == petersonChainGraph = (f 27)
+    go f _ = f 5
 
 -- -------------------------------------------------------------------------- --
 -- Header Validation Guards
