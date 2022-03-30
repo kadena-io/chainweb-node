@@ -13,7 +13,7 @@ node.
 
 Changes:
 
-*   Restrict HTTP request body sizes for all P2P API endpoints to 2MB. (#1385)
+*   Restrict HTTP request body sizes for all API endpoints to 2MB. (#1385)
 *   Periodically prune old cuts from the RocksDb database and store current cuts
     less often. This saves up to 30% disk space. (#1342, #1388)
 *   Set default P2P port to 1789. (#1389)
