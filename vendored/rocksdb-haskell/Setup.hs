@@ -45,11 +45,12 @@ main = defaultMainWithHooks
                     copyFile (rocksdb_srcdir </> "librocksdb.so.6.29.3") "libCrocksdb.so"
                     copyFile (rocksdb_srcdir </> "librocksdb.a") "libCrocksdb.a"
                 includeFiles <-
-                    (fmap.fmap) (("include" </>) . ("rocksdb" </>)) $
+                    (fmap.fmap) (("rocksdb" </>)) $
                         listDirectory ("include" </> "rocksdb")
                 -- remove directories
                 rocksdbIncludes <- fmap catMaybes $ forM includeFiles $ \file -> do
-                    e <- doesFileExist file
+                    e <- doesFileExist ("include" </> file)
+                    print (file, e)
                     return $ file <$ guard e
                 pure
                     lbi
@@ -58,6 +59,7 @@ main = defaultMainWithHooks
                         ( Just
                             emptyBuildInfo
                             { extraLibs = extra_libs
+                            , includeDirs = ["include"]
                             , installIncludes = rocksdbIncludes
                             }
                         , []) $
