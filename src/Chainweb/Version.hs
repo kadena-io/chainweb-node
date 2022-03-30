@@ -938,7 +938,7 @@ chainweb214Pact  aoa v h = case aoa of
   where
     go f Mainnet01 = f 2605696 -- 2022-04-22 00:00:13
     go f Testnet04 = f 2112766 -- 2022-04-14 00:00:43
-    go f _ = f 5
+    go f _ = f 10
 
 -- -------------------------------------------------------------------------- --
 -- Header Validation Guards
