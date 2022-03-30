@@ -8,7 +8,6 @@ debug-info: True
 package chainweb
     tests: True
     benchmarks: True
-    ghc-options: -Wunused-packages
     extra-include-dirs:
       /opt/local/include
       /usr/local/opt/openssl/include
@@ -18,7 +17,6 @@ package chainweb
 
 package pact
     ghc-options: -Wwarn
-    ghc-options: -Wno-unused-packages
     -- avoid conflict with cryptonite during linking
     flags: +cryptonite-ed25519 -build-tool +no-advice
 
