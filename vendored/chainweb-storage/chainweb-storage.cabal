@@ -28,6 +28,7 @@ source-repository head
 library
     hs-source-dirs: src
     cxx-sources: cpp/chainweb-rocksdb.cpp
+    include-dirs: cpp
     includes: cpp/chainweb-rocksdb.h
     install-includes: cpp/chainweb-rocksdb.h
     extra-libraries: stdc++ snappy bz2
