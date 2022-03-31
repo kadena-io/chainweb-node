@@ -483,6 +483,7 @@ execNewBlock mpAccess parent miner = {- handle onTxFailure $ -} do
     -- less than this are failing in PactReplay test.
     newblockRewindLimit = Just 8
 
+    getBlockTxs :: BlockFill -> PactServiceM cas (Vector ChainwebTransaction)
     getBlockTxs bfState = do
       cp <- getCheckpointer
       psEnv <- ask
@@ -507,7 +508,11 @@ execNewBlock mpAccess parent miner = {- handle onTxFailure $ -} do
                 <> " (parent height = " <> sshow pHeight <> ")"
                 <> " (parent hash = " <> sshow pHash <> ")"
 
-        initState <- (\g -> BlockFill g mempty 0) <$> view psBlockGasLimit
+        blockGasLimit <- view psBlockGasLimit
+        let initState = BlockFill blockGasLimit mempty 0
+
+        -- Heuristic: limit fetches to count of 1000-gas txs in block.
+        let fetchLimit = fromIntegral $ blockGasLimit `div` 1000
 
         newTrans <- getBlockTxs initState
 
@@ -518,14 +523,18 @@ execNewBlock mpAccess parent miner = {- handle onTxFailure $ -} do
           pdbenv
 
         (BlockFilling _ successPairs failures) <-
-          refill pdbenv =<< foldM splitResults (BlockFilling initState mempty mempty) pairs
+          refill fetchLimit pdbenv =<< foldM splitResults (BlockFilling initState mempty mempty) pairs
 
         liftIO $ mpaBadlistTx mpAccess (V.map gasPurchaseFailureHash failures)
 
         let !pwo = toPayloadWithOutputs miner (Transactions successPairs cb)
         return $! Discard pwo
 
-    refill pdbenv unchanged@(BlockFilling bfState _ _)=
+    refill fetchLimit pdbenv unchanged@(BlockFilling bfState _ _) = do
+
+      -- LOOP INVARIANT: limit absolute recursion count
+      when (_bfCount bfState > fetchLimit) $
+        throwM $ MempoolFillFailure $ "Refill fetch limit exceeded (" <> sshow fetchLimit <> ")"
 
       if _bfGasLimit bfState <= 0 then pure unchanged else do
 
@@ -537,9 +546,15 @@ execNewBlock mpAccess parent miner = {- handle onTxFailure $ -} do
           r@(BlockFilling newState newPairs newFails) <-
                 foldM splitResults unchanged pairs
 
-          -- LOOP INVARIANT: gas must decrease OR only non-zero failures
-          if (_bfGasLimit newState < _bfGasLimit bfState) || (V.null newPairs && not (V.null newFails))
-              then refill pdbenv r
+          -- LOOP INVARIANT: gas must not increase
+          when (_bfGasLimit newState > _bfGasLimit bfState) $
+              throwM $ MempoolFillFailure $ "Gas must not increase: " <> sshow (bfState,newState)
+
+          -- LOOP INVARIANT: gas must decrease ...
+          if (_bfGasLimit newState < _bfGasLimit bfState)
+              -- ... OR only non-zero failures were returned.
+             || (V.null newPairs && not (V.null newFails))
+              then refill fetchLimit pdbenv r
               else throwM $ MempoolFillFailure $ "Invariant failure: " <>
                    sshow (bfState,newState,V.length newTrans
                          ,V.length newPairs,V.length newFails)
@@ -548,14 +563,17 @@ execNewBlock mpAccess parent miner = {- handle onTxFailure $ -} do
 
     splitResults (BlockFilling (BlockFill g rks i) success fails) (t,r) = case r of
       Right cr -> enforceUnique rks (requestKeyToTransactionHash $ P._crReqKey cr) >>= \rks' ->
+        -- Decrement actual gas used from block limit
         return $ BlockFilling (BlockFill (g - fromIntegral (P._crGas cr)) rks' (succ i))
           (V.snoc success (t,cr)) fails
       Left f -> enforceUnique rks (gasPurchaseFailureHash f) >>= \rks' ->
+        -- Gas buy failure adds failed request key to fail list only
         return $ BlockFilling (BlockFill g rks' (succ i)) success (V.snoc fails f)
 
-    enforceUnique rks rk | S.member rk rks =
-      throwM $ MempoolFillFailure $ "Duplicate transaction: " <> sshow rk
-                         | otherwise = return $ S.insert rk rks
+    enforceUnique rks rk
+      | S.member rk rks =
+        throwM $ MempoolFillFailure $ "Duplicate transaction: " <> sshow rk
+      | otherwise = return $ S.insert rk rks
 
     pHeight = _blockHeight $ _parentHeader parent
     pHash = _blockHash $ _parentHeader parent

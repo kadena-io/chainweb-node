@@ -251,10 +251,14 @@ instance Show InsertError
 
 instance Exception InsertError
 
+-- | Parameterizes Mempool get-block calls.
 data BlockFill = BlockFill
-  { _bfGasLimit :: GasLimit
-  , _bfTxHashes :: S.Set TransactionHash
-  , _bfCount :: Word64
+  { _bfGasLimit :: !GasLimit
+    -- ^ Fetch pending transactions up to this limit.
+  , _bfTxHashes :: !(S.Set TransactionHash)
+    -- ^ Fetch only transactions not in set.
+  , _bfCount :: {-# UNPACK #-} !Word64
+    -- ^ "Round count" of fetching for a given new block.
   } deriving (Eq,Show)
 
 ------------------------------------------------------------------------------
