@@ -17,16 +17,10 @@ runs:
       run: |
         case "${{ inputs.os }}" in
         ubuntu*)
-          sudo apt-get install -y z3 build-essential libsnappy-dev libgflags-dev
-          wget https://github.com/facebook/rocksdb/archive/refs/tags/v6.29.3.tar.gz
-          tar -xzvf v6.29.3.tar.gz
-          cd rocksdb-6.29.3
-          sudo make -j4 install-shared
-          sudo ldconfig
-          cd ..
+          sudo apt-get install -y z3 build-essential libsnappy-dev libgflags-dev libbz2-dev
           ;;
         mac*)
-          brew update && brew install rocksdb z3 || true
+          brew update && brew install snappy bzip2 z3 || true
           ;;
         *)
           echo "::error::unsupported operating system ${{ inputs.os }}"
