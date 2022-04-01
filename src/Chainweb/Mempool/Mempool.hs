@@ -9,6 +9,7 @@
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE TemplateHaskell #-}
 
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 
@@ -69,6 +70,9 @@ module Chainweb.Mempool.Mempool
   , InsertType(..)
   , InsertError(..)
   , BlockFill(..)
+  , bfGasLimit
+  , bfTxHashes
+  , bfCount
 
   , chainwebTransactionConfig
   , mockCodec
@@ -260,6 +264,7 @@ data BlockFill = BlockFill
   , _bfCount :: {-# UNPACK #-} !Word64
     -- ^ "Round count" of fetching for a given new block.
   } deriving (Eq,Show)
+
 
 ------------------------------------------------------------------------------
 -- | Mempool backend API. Here @t@ is the transaction payload type.
@@ -749,3 +754,6 @@ mockDecode s = do
     getGL = GasLimit . ParsedInteger . fromIntegral <$> getWord64le
     getI64 = fromIntegral <$> getWord64le
     getMeta = TransactionMetadata <$> Time.decodeTime <*> Time.decodeTime
+
+
+makeLenses ''BlockFill

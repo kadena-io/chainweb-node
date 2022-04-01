@@ -504,7 +504,7 @@ execNewBlock mpAccess parent miner = {- handle onTxFailure $ -} do
         mpaGetBlock mpAccess bfState validate (pHeight + 1) pHash (_parentHeader parent)
 
     doNewBlock pdbenv = do
-        logInfo $ "execNewBlock, about to get call processFork: "
+        logInfo $ "execNewBlock: "
                 <> " (parent height = " <> sshow pHeight <> ")"
                 <> " (parent hash = " <> sshow pHash <> ")"
 
@@ -532,6 +532,8 @@ execNewBlock mpAccess parent miner = {- handle onTxFailure $ -} do
 
     refill fetchLimit pdbenv unchanged@(BlockFilling bfState _ _) = do
 
+      logInfo $ describeBF unchanged
+
       -- LOOP INVARIANT: limit absolute recursion count
       when (_bfCount bfState > fetchLimit) $
         throwM $ MempoolFillFailure $ "Refill fetch limit exceeded (" <> sshow fetchLimit <> ")"
@@ -554,21 +556,26 @@ execNewBlock mpAccess parent miner = {- handle onTxFailure $ -} do
           if (_bfGasLimit newState < _bfGasLimit bfState)
               -- ... OR only non-zero failures were returned.
              || (V.null newPairs && not (V.null newFails))
-              then refill fetchLimit pdbenv r
+              then refill fetchLimit pdbenv (incCount r)
               else throwM $ MempoolFillFailure $ "Invariant failure: " <>
                    sshow (bfState,newState,V.length newTrans
                          ,V.length newPairs,V.length newFails)
 
+    incCount b = b { _bfState = over bfCount succ (_bfState b) }
+
+    describeBF (BlockFilling (BlockFill g _ c) good bad) =
+      "Block fill: count=" <> sshow c <> ", gaslimit=" <> sshow g <> ", good=" <>
+      sshow (length good) <> ", bad=" <> sshow (length bad)
 
 
     splitResults (BlockFilling (BlockFill g rks i) success fails) (t,r) = case r of
       Right cr -> enforceUnique rks (requestKeyToTransactionHash $ P._crReqKey cr) >>= \rks' ->
         -- Decrement actual gas used from block limit
-        return $ BlockFilling (BlockFill (g - fromIntegral (P._crGas cr)) rks' (succ i))
+        return $ BlockFilling (BlockFill (g - fromIntegral (P._crGas cr)) rks' i)
           (V.snoc success (t,cr)) fails
       Left f -> enforceUnique rks (gasPurchaseFailureHash f) >>= \rks' ->
         -- Gas buy failure adds failed request key to fail list only
-        return $ BlockFilling (BlockFill g rks' (succ i)) success (V.snoc fails f)
+        return $ BlockFilling (BlockFill g rks' i) success (V.snoc fails f)
 
     enforceUnique rks rk
       | S.member rk rks =
