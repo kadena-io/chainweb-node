@@ -1,10 +1,10 @@
-{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeApplications #-}
 
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 
@@ -29,12 +29,17 @@ module Chainweb.Pact.Backend.Utils
   , rollbackSavepoint
   , SavepointName(..)
   -- * SQLite conversions and assertions
+  , toUtf8
+  , fromUtf8
+  , toTextUtf8
+  , asStringUtf8
   , domainTableName
   , convKeySetName
   , convModuleName
   , convNamespaceName
   , convRowKey
   , convPactId
+  , convSavepointName
   , expectSingleRowCol
   , expectSingle
   , execMulti
@@ -60,11 +65,10 @@ import Control.Monad.State.Strict
 import Control.Monad.Reader
 
 import Data.Bits
-import Data.ByteString hiding (pack,unpack)
 import Data.Foldable
 import Data.String
-import Data.String.Conv
-import Data.Text (Text, pack, unpack)
+import qualified Data.Text as T
+import qualified Data.Text.Encoding as T
 import Database.SQLite3.Direct as SQ3
 
 import Prelude hiding (log)
@@ -91,13 +95,60 @@ import Chainweb.Pact.Service.Types
 import Chainweb.Version
 import Chainweb.Utils
 
+-- -------------------------------------------------------------------------- --
+-- Utf8 Encodings
 
-callDb :: (MonadCatch m, MonadReader (BlockDbEnv SQLiteEnv) m, MonadIO m) => Text -> (Database -> IO b) -> m b
+toUtf8 :: T.Text -> Utf8
+toUtf8 = Utf8 . T.encodeUtf8
+{-# INLINE toUtf8 #-}
+
+fromUtf8 :: Utf8 -> T.Text
+fromUtf8 (Utf8 bytes) = T.decodeUtf8 bytes
+{-# INLINE fromUtf8 #-}
+
+toTextUtf8 :: HasTextRepresentation a => a -> Utf8
+toTextUtf8 = toUtf8 . toText
+{-# INLINE toTextUtf8 #-}
+
+asStringUtf8 :: AsString a => a -> Utf8
+asStringUtf8 = toUtf8 . asString
+{-# INLINE asStringUtf8 #-}
+
+domainTableName :: Domain k v -> Utf8
+domainTableName = asStringUtf8
+
+convKeySetName :: KeySetName -> Utf8
+convKeySetName (KeySetName name) = toUtf8 name
+
+convModuleName
+  :: Bool
+     -- ^ whether to apply module name fix
+  -> ModuleName
+  -> Utf8
+convModuleName False (ModuleName name _) = toUtf8 name
+convModuleName True mn = asStringUtf8 mn
+
+convNamespaceName :: NamespaceName -> Utf8
+convNamespaceName (NamespaceName name) = toUtf8 name
+
+convRowKey :: RowKey -> Utf8
+convRowKey (RowKey name) = toUtf8 name
+
+convPactId :: PactId -> Utf8
+convPactId = toUtf8 . sshow
+
+convSavepointName :: SavepointName -> Utf8
+convSavepointName = toTextUtf8
+
+-- -------------------------------------------------------------------------- --
+--
+
+callDb :: (MonadCatch m, MonadReader (BlockDbEnv SQLiteEnv) m, MonadIO m) => T.Text -> (Database -> IO b) -> m b
 callDb callerName action = do
   c <- view (bdbenvDb . sConn)
   res <- tryAny $ liftIO $ action c
   case res of
-    Left err -> internalError $ "callDb (" <> callerName <> "): " <> (pack $ show err)
+    Left err -> internalError $ "callDb (" <> callerName <> "): " <> sshow err
     Right r -> return r
 
 withSavepoint
@@ -112,19 +163,19 @@ withSavepoint name action = mask $ \resetMask -> do
         r <- resetMask action `onException` rollbackSavepoint name
         commitSavepoint name
         liftIO $ evaluate r
-    throwErr s = internalError $ "withSavepoint (" <> asString name <> "): " <> pack s
-    handlers = [ Handler $ \(e :: PactException) -> throwErr (show e)
+    throwErr s = internalError $ "withSavepoint (" <> toText name <> "): " <> s
+    handlers = [ Handler $ \(e :: PactException) -> throwErr (sshow e)
                , Handler $ \(e :: AsyncException) -> throwM e
-               , Handler $ \(e :: SomeException) -> throwErr ("non-pact exception: " <> show e)
+               , Handler $ \(e :: SomeException) -> throwErr ("non-pact exception: " <> sshow e)
                ]
 
 beginSavepoint :: SavepointName -> BlockHandler SQLiteEnv ()
 beginSavepoint name =
-  callDb "beginSavepoint" $ \db -> exec_ db $ "SAVEPOINT [" <> toS (asString name) <> "];"
+  callDb "beginSavepoint" $ \db -> exec_ db $ "SAVEPOINT [" <> convSavepointName name <> "];"
 
 commitSavepoint :: SavepointName -> BlockHandler SQLiteEnv ()
 commitSavepoint name =
-  callDb "commitSavepoint" $ \db -> exec_ db $ "RELEASE SAVEPOINT [" <> toS (asString name) <> "];"
+  callDb "commitSavepoint" $ \db -> exec_ db $ "RELEASE SAVEPOINT [" <> convSavepointName name <> "];"
 
 -- | @rollbackSavepoint n@ rolls back all database updates since the most recent
 -- savepoint with the name @n@ and restarts the transaction.
@@ -138,43 +189,32 @@ commitSavepoint name =
 --
 rollbackSavepoint :: SavepointName -> BlockHandler SQLiteEnv ()
 rollbackSavepoint name =
-  callDb "rollbackSavepoint" $ \db -> exec_ db $ "ROLLBACK TRANSACTION TO SAVEPOINT [" <> toS (asString name) <> "];"
+  callDb "rollbackSavepoint" $ \db -> exec_ db $ "ROLLBACK TRANSACTION TO SAVEPOINT [" <> convSavepointName name <> "];"
 
 data SavepointName = BatchSavepoint | Block | DbTransaction |  PreBlock
-  deriving (Eq, Ord, Enum)
+  deriving (Eq, Ord, Enum, Bounded)
 
 instance Show SavepointName where
-  show BatchSavepoint = "batch"
-  show Block = "block"
-  show DbTransaction = "db-transaction"
-  show PreBlock = "preblock"
+    show = T.unpack . toText
 
-instance AsString SavepointName where
-  asString = Data.Text.pack . show
+instance HasTextRepresentation SavepointName where
+    toText BatchSavepoint = "batch"
+    toText Block = "block"
+    toText DbTransaction = "db-transaction"
+    toText PreBlock = "preblock"
+    {-# INLINE toText #-}
 
+    fromText "batch" = pure BatchSavepoint
+    fromText "block" = pure Block
+    fromText "db-transaction" = pure DbTransaction
+    fromText "preblock" = pure PreBlock
+    fromText t = throwM $ TextFormatException
+        $ "failed to decode SavepointName " <> t
+        <> ". Valid names are " <> T.intercalate ", " (toText @SavepointName <$> [minBound .. maxBound])
+    {-# INLINE fromText #-}
 
-domainTableName :: Domain k v -> Utf8
-domainTableName = Utf8 . toS . asString
-
-convKeySetName :: KeySetName -> Utf8
-convKeySetName (KeySetName name) = Utf8 $ toS name
-
-convModuleName
-  :: Bool
-     -- ^ whether to apply module name fix
-  -> ModuleName
-  -> Utf8
-convModuleName False (ModuleName name _) = Utf8 $ toS name
-convModuleName True mn = Utf8 $ toS $ asString mn
-
-convNamespaceName :: NamespaceName -> Utf8
-convNamespaceName (NamespaceName name) = Utf8 $ toS name
-
-convRowKey :: RowKey -> Utf8
-convRowKey (RowKey name) = Utf8 $ toS name
-
-convPactId :: PactId -> Utf8
-convPactId = Utf8 . toS . show
+-- instance AsString SavepointName where
+--   asString = toText
 
 expectSingleRowCol :: Show a => String -> [[a]] -> IO a
 expectSingleRowCol _ [[s]] = return s
@@ -192,43 +232,23 @@ expectSingle desc v =
   "Expected single-" <> asString (show desc) <> " result, got: " <>
   asString (show v)
 
-
-instance StringConv Text Utf8 where
-  strConv l = Utf8 . strConv l
-
-instance StringConv Utf8 Text where
-  strConv l (Utf8 bytestring) = strConv l bytestring
-
-instance StringConv ByteString Utf8 where
-  strConv l = Utf8 . strConv l
-
-instance StringConv Utf8 ByteString where
-  strConv l (Utf8 bytestring) = strConv l bytestring
-
-instance StringConv String Utf8 where
-  strConv l = Utf8 . strConv l
-
-instance StringConv Utf8 String where
-  strConv l (Utf8 bytestring) = strConv l bytestring
-
 chainwebPragmas :: [Pragma]
 chainwebPragmas =
   [ "synchronous = NORMAL"
   , "journal_mode = WAL"
   , "locking_mode = NORMAL"
-  -- ^ changed from locking_mode = EXCLUSIVE to allow backups to run concurrently 
-  -- with Pact service operation. the effect of this change is twofold: 
-  --   - now file locks are grabbed at the beginning of each transaction; with 
+  -- ^ changed from locking_mode = EXCLUSIVE to allow backups to run concurrently
+  -- with Pact service operation. the effect of this change is twofold:
+  --   - now file locks are grabbed at the beginning of each transaction; with
   --     EXCLUSIVE, file locks are never let go until the entire connection closes.
   --     (see https://web.archive.org/web/20220222231602/https://sqlite.org/pragma.html#pragma_locking_mode)
-  --   - now we can query the database while another connection is open, 
+  --   - now we can query the database while another connection is open,
   --     taking full advantage of WAL mode.
   --     (see https://web.archive.org/web/20220226212219/https://sqlite.org/wal.html#sometimes_queries_return_sqlite_busy_in_wal_mode)
   , "temp_store = MEMORY"
   , "auto_vacuum = NONE"
   , "page_size = 1024"
   ]
-
 
 execMulti :: Traversable t => Database -> Utf8 -> t [SType] -> IO ()
 execMulti db q rows = do
@@ -242,9 +262,6 @@ execMulti db q rows = do
   where
     checkError (Left e) = void $ fail $ "error during batch insert: " ++ show e
     checkError (Right _) = return ()
-
-
-
 
 withSqliteDb
     :: Logger logger
@@ -266,7 +283,7 @@ startSqliteDb
     -> Bool
     -> IO SQLiteEnv
 startSqliteDb cid logger dbDir doResetDb = do
-    when doResetDb $ resetDb
+    when doResetDb resetDb
     createDirectoryIfMissing True dbDir
     textLog Info $ mconcat
         [ "opened sqlitedb for "
@@ -274,7 +291,7 @@ startSqliteDb cid logger dbDir doResetDb = do
         , " in directory "
         , sshow dbDir
         ]
-    textLog Info $ "opening sqlitedb named " <> pack sqliteFile
+    textLog Info $ "opening sqlitedb named " <> T.pack sqliteFile
     openSQLiteConnection sqliteFile chainwebPragmas
   where
     textLog = logFunctionText logger
@@ -285,7 +302,7 @@ startSqliteDb cid logger dbDir doResetDb = do
 chainDbFileName :: ChainId -> FilePath
 chainDbFileName cid = fold
     [ "pact-v1-chain-"
-    , unpack (chainIdToText cid)
+    , T.unpack (chainIdToText cid)
     , ".sqlite"
     ]
 
@@ -299,7 +316,6 @@ withSQLiteConnection file ps todelete action =
     closer c = do
       closeSQLiteConnection c
       when todelete (removeFile file)
-
 
 openSQLiteConnection :: String -> [Pragma] -> IO SQLiteEnv
 openSQLiteConnection file ps = do
@@ -321,8 +337,6 @@ closeSQLiteConnection c = void $ close_v2 $ _sConn c
 withTempSQLiteConnection :: [Pragma] -> (SQLiteEnv -> IO c) -> IO c
 withTempSQLiteConnection ps action =
   withSystemTempFile "sqlite-tmp" (\file _ -> withSQLiteConnection file ps False action)
-
-
 
 open2 :: String -> IO (Either (Error, Utf8) Database)
 open2 file = open_v2 (fromString file) (collapseFlags [sqlite_open_readwrite , sqlite_open_create , sqlite_open_fullmutex]) Nothing
