@@ -1,5 +1,33 @@
 # `chainweb-node` Changelog
 
+## 2.13.1 (2022-04-01)
+
+This is a feature and bug-fix release. Upgrading is optional but recommended.
+
+Unlike mandatory service releases, optional releases can be rolled back in case
+of an issue with the release. Optional releases are therefore well suited for
+early integration and testing of new chainweb-node versions.
+
+To upgrade, pull the latest docker image or download the binary and restart the
+node.
+
+Changes:
+
+*   Restrict HTTP request body sizes for all API endpoints to 2MB. (#1385)
+*   Periodically prune old cuts from the RocksDb database and store current cuts
+    less often. This saves up to 30% disk space. (#1342, #1388)
+*   Set default P2P port to 1789. (#1389)
+*   Add the telemetry/logger type to log messages. (#1401)
+*   Add new optional endpoints `/make-backup` and `/check-backup` to the service
+    API. When enabled these endpoints can be used to trigger the creation of
+    backups of the chainweb-node databases. Further details can be found
+    in the [Chainweb API documentation](https://api.chainweb.com). (#1359, #1387)
+
+Bug fixes:
+
+*   Remove spurious warning when the hostname is configured as `0.0.0.0`. (#1389)
+*   Fix typo in list of reserved IP addresses. (#1398)
+
 ## 2.13 (2022-02-18)
 
 This version replaces all previous versions. Any prior version will stop working

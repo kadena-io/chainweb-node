@@ -678,7 +678,10 @@ runChainweb cw = do
             }
 
     requestSizeLimit :: Middleware
-    requestSizeLimit = requestSizeLimitMiddleware defaultRequestSizeLimitSettings
+    requestSizeLimit = requestSizeLimitMiddleware $
+        setMaxLengthForRequest (\_req -> pure $ Just $ 2 * 1024 * 1024) -- 2MB
+        defaultRequestSizeLimitSettings
+
 
     httpLog :: Middleware
     httpLog = requestResponseLogger $ setComponent "http:p2p-api" (_chainwebLogger cw)
