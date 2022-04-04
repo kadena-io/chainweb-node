@@ -5,10 +5,10 @@
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE LambdaCase #-}
-{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE TypeSynonymInstances #-}
 {-# LANGUAGE UndecidableInstances #-}
 
 -- |
@@ -73,11 +73,12 @@ import Control.Exception
 import Control.Lens
 import Control.Monad.Trans.Maybe
 
-import Data.Foldable
 import Data.Hashable
+import Data.Foldable
 import qualified Data.Vector as V
 
 import GHC.Generics
+
 
 -- internal modules
 
@@ -88,19 +89,6 @@ import Chainweb.Payload
 import Chainweb.Version
 
 import Data.CAS
-
--- -------------------------------------------------------------------------- --
--- Utils
-
--- Update all 'Just' values in the batch with the result of query
-updateBatch
-    :: Applicative f
-    => V.Vector (Maybe x)
-    -> (V.Vector x -> f (V.Vector (Maybe y)))
-    -> f (V.Vector (Maybe y))
-updateBatch batch query = do
-    let (idxs, keys) = V.unzip $ V.mapMaybe sequence $ V.imap (,) batch
-    V.update_ (V.replicate (V.length batch) Nothing) idxs <$> query keys
 
 -- -------------------------------------------------------------------------- --
 -- Exceptions
@@ -181,21 +169,6 @@ instance TransactionDbCasLookup_ a cas => HasCasLookup (TransactionDb_ a cas) wh
             , _payloadDataOutputsHash = outsHash
             }
     {-# INLINE casLookup #-}
-
-    casLookupBatch db ks = do
-        maybePayloads <- casLookupBatch (_transactionDbBlockPayloads db) ks
-        updateBatch maybePayloads $ \pds -> do
-            txs <- casLookupBatch (_transactionDbBlockTransactions db) (_blockPayloadTransactionsHash <$> pds)
-            return $ V.zipWith (\a b -> mkPayloadData a <$> b) pds txs
-      where
-        mkPayloadData pd txs = PayloadData
-            { _payloadDataTransactions = _blockTransactions txs
-            , _payloadDataMiner = _blockMinerData txs
-            , _payloadDataPayloadHash = _blockPayloadPayloadHash pd
-            , _payloadDataTransactionsHash = _blockPayloadTransactionsHash pd
-            , _payloadDataOutputsHash = _blockPayloadOutputsHash pd
-            }
-    {-# INLINE casLookupBatch #-}
 
 -- -------------------------------------------------------------------------- --
 -- Caches
@@ -373,15 +346,6 @@ instance PayloadCasLookup_ a cas => HasCasLookup (PayloadDb_ a cas) where
     {-# INLINE casLookup #-}
 
 
-    casLookupBatch db ks = do
-        maybePayloads <- casLookupBatch (_transactionDb db) ks
-        updateBatch maybePayloads $ \pds -> do
-            maybeOutputs <- casLookupBatch (_payloadCacheBlockOutputs $ _payloadCache db) (_payloadDataOutputsHash <$> pds)
-            return $ V.zipWith (\a b -> mkPayloadWithOutputs a <$> b) pds maybeOutputs
-      where
-        mkPayloadWithOutputs pd out = payloadWithOutputs pd (_blockCoinbaseOutput out) (_blockOutputs out)
-    {-# INLINE casLookupBatch #-}
-
 -- | Combine all Payload related stores into a single content addressed
 -- store. We want the invariant that if a key is present in the store also all
 -- of its dependencies are present. For that we must be careful about the order
@@ -405,4 +369,3 @@ instance (MerkleHashAlgorithm a, PayloadCas_ a cas) => IsCas (PayloadDb_ a cas) 
                     (_blockPayloadOutputsHash pd)
             Nothing -> return ()
     {-# INLINE casDelete #-}
-
