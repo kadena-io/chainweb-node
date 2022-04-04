@@ -20,7 +20,7 @@ runs:
           sudo apt-get install -y z3 build-essential libsnappy-dev libgflags-dev libbz2-dev
           ;;
         mac*)
-          brew update && brew install snappy bzip2 z3 || true
+          brew update && brew install gflags llvm snappy bzip2 z3 gnu-tar || true
           ;;
         *)
           echo "::error::unsupported operating system ${{ inputs.os }}"
