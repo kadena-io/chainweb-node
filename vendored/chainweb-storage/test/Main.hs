@@ -35,7 +35,7 @@ import NoThunks.Class
 
 import Text.Read
 
-import qualified Data.Vector as V
+import Data.Vector ({- IsList Vector #-})
 
 -- internal modules
 
@@ -88,8 +88,8 @@ assertEmptyTable t = do
 assertEntries :: HasCallStack => RocksDbTable Int Int -> [(Int, Int)] -> IO ()
 assertEntries t l_ = do
     assertNoThunks t
-    forM_ l $ \(k,v) -> assertIO (tableLookup t k) (Just v)
-    assertIO (tableLookupBatch t (V.fromList ks)) (Just <$> V.fromList vs)
+    forM_ l $ \(k,v) ->
+        assertIO (tableLookup t k) (Just v)
 
     assertIO (tableMinKey t) (firstOf (folded._1) l)
     assertIO (tableMinValue t) (firstOf (folded._2) l)
@@ -119,7 +119,6 @@ assertEntries t l_ = do
         assertIO (tableIterValid i) False
   where
     l = sort l_
-    (ks, vs) = unzip l
 
 tableTests :: HasCallStack => RocksDb -> B8.ByteString -> IO ()
 tableTests db tableName = do
@@ -250,7 +249,6 @@ casTests db tableName = do
     assertIO (casMember t $ casKey @Int 2) True
     assertIO (casLookup t $ casKey @Int 1) (Just 1)
     assertIO (casLookup t $ casKey @Int 2) (Just 2)
-    assertIO (casLookupBatch t [casKey @Int 1, casKey @Int 2]) [Just 1, Just 2]
 
     casDelete t $ casKey @Int 2
     assertCasEntries t [1]
@@ -258,7 +256,6 @@ casTests db tableName = do
     assertIO (casMember t $ casKey @Int 2) False
     assertIO (casLookup t $ casKey @Int 1) (Just 1)
     assertIO (casLookup t $ casKey @Int 2) Nothing
-    assertIO (casLookupBatch t [casKey @Int 1, casKey @Int 2]) [Just 1, Nothing]
 
     casInsert t 1
     assertCasEntries t [1]
