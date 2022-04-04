@@ -49,6 +49,7 @@ main = defaultMainWithHooks
                     copyFile (rocksdb_srcdir </> dllFile "librocksdb") (dllFile "librocksdb")
                     copyFile (rocksdb_srcdir </> dllFile "librocksdb") (dllFile "libCrocksdb")
                     copyFile (rocksdb_srcdir </> dllFile "librocksdb") (dllFile "librocksdb" <.> "6.29")
+                    copyFile (rocksdb_srcdir </> dllFile "librocksdb") (dllFile "librocksdb.6.29")
                     copyFile (rocksdb_srcdir </> staticLibFile "librocksdb") (staticLibFile "libCrocksdb")
                     includeFiles <-
                         (fmap.fmap) ("rocksdb" </>) $
