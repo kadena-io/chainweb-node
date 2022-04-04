@@ -14,6 +14,7 @@ import Distribution.Simple.Setup
 import Distribution.Simple.Utils
 import Distribution.Text
 import Distribution.Verbosity
+import GHC.Conc(getNumProcessors)
 import System.Directory
 import System.FilePath
 
@@ -39,12 +40,14 @@ main = defaultMainWithHooks
                     runLBIProgram lbi tarProgram ["-xzf", rocksdb_tar]
                     copyDirectoryRecursive minBound (rocksdb_srcdir </> "include") (toplevel </> "include")
                     -- TODO: do a recursive listing for the utilities/ folder's headers
-                    runLBIProgram lbi makeProgram ["-C", rocksdb_srcdir, "-j4", "static_lib", "shared_lib"]
+                    nprocs <- getNumProcessors
+                    runLBIProgram lbi makeProgram ["-C", rocksdb_srcdir, "-j" <> show nprocs, "static_lib", "shared_lib"]
                     let
                         plat = hostPlatform lbi
                         dllFile pat = pat <.> dllExtension plat
                         staticLibFile pat = pat <.> staticLibExtension plat
                     copyFile (rocksdb_srcdir </> dllFile "librocksdb") (dllFile "librocksdb")
+                    copyFile (rocksdb_srcdir </> dllFile "librocksdb") (dllFile "libCrocksdb")
                     copyFile (rocksdb_srcdir </> dllFile "librocksdb") (dllFile "librocksdb" <.> "6.29")
                     copyFile (rocksdb_srcdir </> staticLibFile "librocksdb") (staticLibFile "libCrocksdb")
                     includeFiles <-
