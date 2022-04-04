@@ -7,6 +7,7 @@ import Data.Maybe
 import qualified Data.Map as Map
 import Distribution.PackageDescription
 import Distribution.Simple
+import Distribution.Simple.BuildPaths
 import Distribution.Simple.LocalBuildInfo
 import Distribution.Simple.Program
 import Distribution.Simple.Setup
@@ -39,12 +40,13 @@ main = defaultMainWithHooks
                     copyDirectoryRecursive minBound (rocksdb_srcdir </> "include") (toplevel </> "include")
                     -- TODO: do a recursive listing for the utilities/ folder's headers
                     runLBIProgram lbi makeProgram ["-C", rocksdb_srcdir, "-j4", "static_lib", "shared_lib"]
-                    copyFile (rocksdb_srcdir </> "librocksdb.so.6.29.3") "librocksdb.so"
-                    copyFile (rocksdb_srcdir </> "librocksdb.so.6.29.3") "librocksdb.so.6.29.3"
-                    copyFile (rocksdb_srcdir </> "librocksdb.so.6.29.3") "librocksdb.so.6.29"
-                    copyFile (rocksdb_srcdir </> "librocksdb.so.6.29.3") "librocksdb.so.6"
-                    copyFile (rocksdb_srcdir </> "librocksdb.so.6.29.3") "libCrocksdb.so"
-                    copyFile (rocksdb_srcdir </> "librocksdb.a") "libCrocksdb.a"
+                    let
+                        plat = hostPlatform lbi
+                        dllFile pat = pat <.> dllExtension plat
+                        staticLibFile pat = pat <.> staticLibExtension plat
+                    copyFile (rocksdb_srcdir </> dllFile "librocksdb") (dllFile "librocksdb")
+                    copyFile (rocksdb_srcdir </> dllFile "librocksdb") (dllFile "librocksdb" <.> "6.29")
+                    copyFile (rocksdb_srcdir </> staticLibFile "librocksdb") (staticLibFile "libCrocksdb")
                     includeFiles <-
                         (fmap.fmap) ("rocksdb" </>) $
                             listDirectory ("rocksdb-6.29.3" </> "include" </> "rocksdb")
