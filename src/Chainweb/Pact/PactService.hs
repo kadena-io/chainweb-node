@@ -446,9 +446,6 @@ attemptBuyGas miner (PactDbEnv' dbEnv) txs = do
             Left err -> return (T2 mcache (Left (InsertErrorBuyGas (T.pack $ show err))))
             Right t -> return (T2 (_txCache t) (Right tx))
 
--- type ValidateTxs = Vector (Either InsertError ChainwebTransaction)
--- type RunGas = ValidateTxs -> IO ValidateTxs
-
 data BlockFilling = BlockFilling
     { _bfState :: BlockFill
     , _bfSuccessPairs :: V.Vector (ChainwebTransaction,P.CommandResult [P.TxLog A.Value])
@@ -467,16 +464,8 @@ execNewBlock
 execNewBlock mpAccess parent miner = {- handle onTxFailure $ -} do
     updateMempool
     withDiscardedBatch $ do
-      -- newTrans <- withCheckpointerRewind newblockRewindLimit (Just parent) "preBlock" doPreBlock
-      withCheckpointerRewind {- (Just 0) -} newblockRewindLimit (Just parent) "execNewBlock" doNewBlock
+      withCheckpointerRewind newblockRewindLimit (Just parent) "execNewBlock" doNewBlock
   where
-    {- onTxFailure e@(PactTransactionExecError rk _) = do
-        -- add the failing transaction to the mempool bad list, so it is not
-        -- re-selected for mining.
-        liftIO $ mpaBadlistTx mpAccess rk
-        throwM e
-    onTxFailure e = throwM e
-    -}
 
     -- This is intended to mitigate mining attempts during replay.
     -- In theory we shouldn't need to rewind much ever, but values
@@ -500,7 +489,7 @@ execNewBlock mpAccess parent miner = {- handle onTxFailure $ -} do
                 Right _ -> return True
                 Left _e -> return False
 
-      liftIO $! {- fmap Discard $! -}
+      liftIO $!
         mpaGetBlock mpAccess bfState validate (pHeight + 1) pHash (_parentHeader parent)
 
     doNewBlock pdbenv = do

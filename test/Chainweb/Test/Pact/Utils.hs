@@ -488,8 +488,6 @@ testPactCtxSQLite v cid bhdb pdb sqlenv conf gasmodel = do
         , _psBlockGasLimit = _pactBlockGasLimit conf
         }
 
-
-
 freeGasModel :: TxContext -> GasModel
 freeGasModel = const $ constGasModel 0
 

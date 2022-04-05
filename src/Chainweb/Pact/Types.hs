@@ -379,6 +379,9 @@ defaultPactServiceConfig = PactServiceConfig
       , _pactBlockGasLimit = defaultBlockGasLimit
       }
 
+-- | This default value is only relevant for testing. In a chainweb-node the @GasLimit@
+-- is initialized from the @_configBlockGasLimit@ value of @ChainwebConfiguration@.
+--
 defaultBlockGasLimit :: GasLimit
 defaultBlockGasLimit = 10000
 

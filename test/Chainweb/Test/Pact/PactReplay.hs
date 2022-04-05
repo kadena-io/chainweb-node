@@ -155,8 +155,6 @@ dupegenMemPoolAccess = do
           return outtxs
     }
 
-
-
 -- | This is a regression test for correct initialization of the checkpointer
 -- during pact service initialization.
 --
