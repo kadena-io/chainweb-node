@@ -1,4 +1,5 @@
 {-# language OverloadedStrings #-}
+{-# language ViewPatterns #-}
 {-# OPTIONS_GHC -Wall -Wno-deprecations #-}
 
 import Control.Monad
@@ -39,25 +40,34 @@ main = defaultMainWithHooks
                 withCurrentDirectory builddir $ do
                     runLBIProgram lbi tarProgram ["-xzf", rocksdb_tar]
                     copyDirectoryRecursive minBound (rocksdb_srcdir </> "include") (toplevel </> "include")
-                    -- TODO: do a recursive listing for the utilities/ folder's headers
-                    nprocs <- getNumProcessors
-                    runLBIProgram lbi makeProgram ["-C", rocksdb_srcdir, "-j" <> show nprocs, "static_lib", "shared_lib"]
-                    let
-                        plat = hostPlatform lbi
-                        dllFile pat = pat <.> dllExtension plat
-                        staticLibFile pat = pat <.> staticLibExtension plat
-                    copyFile (rocksdb_srcdir </> dllFile "librocksdb") (dllFile "librocksdb")
-                    copyFile (rocksdb_srcdir </> dllFile "librocksdb") (dllFile "libCrocksdb")
-                    copyFile (rocksdb_srcdir </> dllFile "librocksdb") (dllFile "librocksdb" <.> "6.29")
-                    copyFile (rocksdb_srcdir </> dllFile "librocksdb") (dllFile "librocksdb.6.29")
-                    copyFile (rocksdb_srcdir </> staticLibFile "librocksdb") (staticLibFile "libCrocksdb")
+                    {-
+                        nprocs <- getNumProcessors
+                        runLBIProgram lbi makeProgram ["-C", rocksdb_srcdir, "-j" <> show nprocs, "static_lib", "shared_lib"]
+                        let
+                            plat = hostPlatform lbi
+                            dllFile pat = pat <.> dllExtension plat
+                            staticLibFile pat = pat <.> staticLibExtension plat
+                        copyFile (rocksdb_srcdir </> dllFile "librocksdb") (dllFile "librocksdb")
+                        copyFile (rocksdb_srcdir </> dllFile "librocksdb") (dllFile "libCrocksdb")
+                        copyFile (rocksdb_srcdir </> dllFile "librocksdb") (dllFile "librocksdb" <.> "6.29")
+                        copyFile (rocksdb_srcdir </> dllFile "librocksdb") (dllFile "librocksdb.6.29")
+                        copyFile (rocksdb_srcdir </> staticLibFile "librocksdb") (staticLibFile "libCrocksdb")
+                    -}
                     includeFiles <-
-                        (fmap.fmap) ("rocksdb" </>) $
-                            listDirectory ("rocksdb-6.29.3" </> "include" </> "rocksdb")
+                        withCurrentDirectory (rocksdb_srcdir </> "include") $ listDirectoryRecursive "rocksdb"
+                    putStrLn $ "includes: " <> show includeFiles
+                    let
+                        srcDirs =
+                            [ "db", "cache", "env", "file", "hdfs", "logging"
+                            , "memory", "memtable", "monitoring", "options"
+                            , "port", "table", "tools", "util", "utilities"
+                            ]
+                    srcFiles <- withCurrentDirectory rocksdb_srcdir $ do
+                        fmap concat $ forM srcDirs $ \srcDir -> do
+                            copyDirectoryRecursive minBound srcDir (toplevel </> srcDir)
+                            listDirectoryRecursive srcDir
+                    putStrLn $ "src files: " <> show srcFiles
                     -- remove directories
-                    rocksdbIncludes <- fmap catMaybes $ forM includeFiles $ \file -> do
-                        e <- doesFileExist ("rocksdb-6.29.3" </> "include" </> file)
-                        return $ file <$ guard e
                     pure
                         lbi
                         { localPkgDescr =
@@ -66,12 +76,21 @@ main = defaultMainWithHooks
                                 emptyBuildInfo
                                 { extraLibs = extra_libs
                                 , includeDirs = ["rocksdb-6.29.3/include"]
-                                , installIncludes = rocksdbIncludes
+                                , installIncludes = includeFiles
+                                , cxxSources = srcFiles
                                 }
                             , []) $
                             localPkgDescr lbi
                         }
         }
+
+listDirectoryRecursive :: FilePath -> IO [FilePath]
+listDirectoryRecursive fp = do
+    contents <- listDirectory fp
+    isFile <- traverse (doesFileExist . (fp </>)) contents
+    let (fmap fst -> files, fmap fst -> dirs) = partition snd $ zip contents isFile
+    recs <- join <$> traverse (listDirectoryRecursive . (fp </>)) dirs
+    return $ (fp </>) <$> files ++ recs
 
 runLBIProgram :: LocalBuildInfo -> Program -> [ProgArg] -> IO ()
 runLBIProgram lbi prog =
