@@ -1,9 +1,10 @@
 {-# language OverloadedStrings #-}
+{-# language TupleSections #-}
+{-# language ViewPatterns #-}
 {-# OPTIONS_GHC -Wall -Wno-deprecations #-}
 
 import Control.Monad
 import Data.List
-import Data.Maybe
 import qualified Data.Map as Map
 import Distribution.PackageDescription
 import Distribution.Simple
@@ -12,6 +13,7 @@ import Distribution.Simple.LocalBuildInfo
 import Distribution.Simple.Program
 import Distribution.Simple.Setup
 import Distribution.Simple.Utils
+import Distribution.System
 import Distribution.Text
 import Distribution.Verbosity
 import GHC.Conc(getNumProcessors)
@@ -25,48 +27,66 @@ main = defaultMainWithHooks
         , confHook =
             \t f -> do
                 lbi <- confHook simpleUserHooks t f
-                toplevel <- getCurrentDirectory
-                let rocksdb_tar = toplevel </> "rocksdb-6.29.3.tar.gz"
-                let
-                    clbi = getComponentLocalBuildInfo lbi (CLibName LMainLibName)
-                    -- rocksdb_libname =
-                        -- getHSLibraryName (componentUnitId clbi) ++ "-rocksdb-6.29.3"
-                let
-                    rocksdb_srcdir = "rocksdb-6.29.3"
-                    extra_libs = ["stdc++", "gflags"]
-                    builddir =
-                        componentBuildDir lbi clbi
-                withCurrentDirectory builddir $ do
-                    runLBIProgram lbi tarProgram ["-xzf", rocksdb_tar]
-                    copyDirectoryRecursive minBound (rocksdb_srcdir </> "include") (toplevel </> "include")
-                    -- TODO: do a recursive listing for the utilities/ folder's headers
-                    nprocs <- getNumProcessors
-                    runLBIProgram lbi makeProgram ["-C", rocksdb_srcdir, "-j" <> show nprocs, "static_lib", "shared_lib"]
-                    let
-                        plat = hostPlatform lbi
-                        dllFile pat = pat <.> dllExtension plat
-                        staticLibFile pat = pat <.> staticLibExtension plat
-                    copyFile (rocksdb_srcdir </> dllFile "librocksdb") (dllFile "librocksdb")
-                    copyFile (rocksdb_srcdir </> dllFile "librocksdb") (dllFile "libCrocksdb")
-                    copyFile (rocksdb_srcdir </> dllFile "librocksdb") (dllFile "librocksdb" <.> "6.29")
-                    copyFile (rocksdb_srcdir </> staticLibFile "librocksdb") (staticLibFile "libCrocksdb")
-                    includeFiles <-
-                        withCurrentDirectory (rocksdb_srcdir </> "include") $ listDirectoryRecursive "rocksdb"
-                    putStrLn $ "includes: " <> show includeFiles
-                    pure
-                        lbi
-                        { localPkgDescr =
-                            updatePackageDescription
-                            ( Just
-                                emptyBuildInfo
-                                { extraLibs = extra_libs
-                                , includeDirs = ["rocksdb-6.29.3/include"]
-                                , installIncludes = includeFiles
-                                }
-                            , []) $
-                            localPkgDescr lbi
+                let plat = hostPlatform lbi
+                case plat of
+                    -- don't even try building rocksdb on mac, homebrew version is new enough
+                    Platform _ OSX -> pure lbi
+                        { localPkgDescr = flip updatePackageDescription (localPkgDescr lbi) $ (,[]) $ Just emptyBuildInfo
+                            { extraLibs = ["rocksdb"]
+                            , includes = ["rocksdb/c.h", "rocksdb/slice_transform.h", "rocksdb/db.h"]
+                            }
                         }
+                    _ -> do
+                        toplevel <- getCurrentDirectory
+                        let rocksdb_tar = toplevel </> "rocksdb-6.29.3.tar.gz"
+                        let
+                            clbi = getComponentLocalBuildInfo lbi (CLibName LMainLibName)
+                            -- rocksdb_libname =
+                                -- getHSLibraryName (componentUnitId clbi) ++ "-rocksdb-6.29.3"
+                        let
+                            rocksdb_srcdir = "rocksdb-6.29.3"
+                            extra_libs = ["stdc++", "gflags"]
+                            builddir =
+                                componentBuildDir lbi clbi
+                        withCurrentDirectory builddir $ do
+                            runLBIProgram lbi tarProgram ["-xzf", rocksdb_tar]
+                            copyDirectoryRecursive minBound (rocksdb_srcdir </> "include") (toplevel </> "include")
+                            -- TODO: do a recursive listing for the utilities/ folder's headers
+                            nprocs <- getNumProcessors
+                            let jobs = max 2 $ min 4 $ nprocs
+                            runLBIProgram lbi makeProgram ["-C", rocksdb_srcdir, "-j" <> show jobs, "static_lib", "shared_lib"]
+                            let
+                                dllFile pat = pat <.> dllExtension plat
+                                staticLibFile pat = pat <.> staticLibExtension plat
+                            copyFile (rocksdb_srcdir </> dllFile "librocksdb") (dllFile "librocksdb")
+                            copyFile (rocksdb_srcdir </> dllFile "librocksdb") (dllFile "libCrocksdb")
+                            copyFile (rocksdb_srcdir </> dllFile "librocksdb") (dllFile "librocksdb" <.> "6.29")
+                            copyFile (rocksdb_srcdir </> staticLibFile "librocksdb") (staticLibFile "libCrocksdb")
+                            includeFiles <-
+                                withCurrentDirectory (rocksdb_srcdir </> "include") $ listDirectoryRecursive "rocksdb"
+                            putStrLn $ "includes: " <> show includeFiles
+                            pure
+                                lbi
+                                { localPkgDescr =
+                                    updatePackageDescription
+                                    ( Just
+                                        emptyBuildInfo
+                                        { extraLibs = extra_libs
+                                        , includeDirs = ["rocksdb-6.29.3/include"]
+                                        , installIncludes = includeFiles
+                                        }
+                                    , []) $
+                                    localPkgDescr lbi
+                                }
         }
+
+listDirectoryRecursive :: FilePath -> IO [FilePath]
+listDirectoryRecursive fp = do
+    contents <- listDirectory fp
+    isFile <- traverse (doesFileExist . (fp </>)) contents
+    let (fmap fst -> files, fmap fst -> dirs) = partition snd $ zip contents isFile
+    recs <- join <$> traverse (listDirectoryRecursive . (fp </>)) dirs
+    return $ ((fp </>) <$> files) ++ recs
 
 runLBIProgram :: LocalBuildInfo -> Program -> [ProgArg] -> IO ()
 runLBIProgram lbi prog =
