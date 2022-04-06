@@ -243,7 +243,7 @@ markValidatedInMem logger tcfg lock txs = withMVarMasked lock $ \mdata -> do
     logg Info $ "mark " <> sshow (length (V.zip expiries hashes)) <> " txs as validated"
     x <- readIORef curTxIdxRef
     logg Info $ "previous current tx index size: " <> sshow (currentTxsSize x)
-    x' <- currentTxsInsertBatch x (V.zip expiries hashes)
+    !x' <- currentTxsInsertBatch x (V.zip expiries hashes)
     logg Info $ "new current tx index size: " <> sshow (currentTxsSize x')
     writeIORef curTxIdxRef x'
   where
@@ -430,7 +430,7 @@ insertInMem cfg lock runCheck txs0 = do
         pending <- readIORef (_inmemPending mdata)
         let cnt = HashMap.size pending
         let txs = V.take (max 0 (maxNumPending - cnt)) txhashes
-        let T2 pending' newHashesDL = V.foldl' insOne (T2 pending id) txs
+        let T2 !pending' !newHashesDL = V.foldl' insOne (T2 pending id) txs
         let !newHashes = V.fromList $ newHashesDL []
         writeIORef (_inmemPending mdata) $! force pending'
         modifyIORef' (_inmemRecentLog mdata) $
