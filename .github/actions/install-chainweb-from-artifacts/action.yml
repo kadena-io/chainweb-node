@@ -34,6 +34,7 @@ runs:
       run: |
           tar -xzf $ARCHIVE_PATTERN
           echo "`pwd`/chainweb" >> $GITHUB_PATH
+          sha256sum chainweb/chainweb-node
     - name: test chainweb installation
       shell: bash
       run: chainweb-node --version
