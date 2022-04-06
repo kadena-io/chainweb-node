@@ -371,7 +371,7 @@ defaultReorgLimit = 480
 -- | NOTE this is only used for tests/benchmarks. DO NOT USE IN PROD
 defaultPactServiceConfig :: PactServiceConfig
 defaultPactServiceConfig = PactServiceConfig
-      { _pactReorgLimit = fromIntegral $ defaultReorgLimit
+      { _pactReorgLimit = fromIntegral defaultReorgLimit
       , _pactRevalidate = True
       , _pactQueueSize = 1000
       , _pactResetDb = True

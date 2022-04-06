@@ -91,6 +91,7 @@ import Chainweb.Pact.Backend.Utils
 import Chainweb.Pact.PactService
 import Chainweb.Pact.Service.BlockValidation
 import Chainweb.Pact.Service.PactQueue
+import Chainweb.Pact.Service.Types
 import Chainweb.Pact.Types
 import Chainweb.Pact.Utils (toTxCreationTime)
 import Chainweb.Payload
@@ -357,6 +358,9 @@ withResources trunkLength logLevel f = C.envWithCleanup create destroy unwrap
     startPact version l bhdb pdb mempool sqlEnv = do
         reqQ <- newPactQueue pactQueueSize
         a <- async $ initPactService version cid l reqQ mempool bhdb pdb sqlEnv defaultPactServiceConfig
+            { _pactBlockGasLimit = 150000
+            }
+
         return (a, reqQ)
 
     stopPact (a, _) = cancel a
