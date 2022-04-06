@@ -74,6 +74,7 @@ main = defaultMainWithHooks
                                         { extraLibs = extra_libs
                                         , includeDirs = ["rocksdb-6.29.3/include"]
                                         , installIncludes = includeFiles
+                                        , extraBundledLibs = ["Crocksdb"]
                                         }
                                     , []) $
                                     localPkgDescr lbi
