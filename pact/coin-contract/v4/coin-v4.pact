@@ -465,14 +465,18 @@
 
   (defun enforce-reserved:bool (account:string guard:guard)
     @doc "Enforce reserved account name protocols."
-    (let ((r (check-reserved account)))
-      (if (= "" r) true
-        (if (= "k" r)
-          (enforce
-            (validate-principal guard account)
-            "Single-key account protocol violation")
-          (enforce false
-            (format "Unrecognized reserved protocol: {}" [r]))))))
+    (let ((valid (validate-principal guard account)))
+      (if valid
+        true
+        (let ((r (check-reserved account)))
+          (if (= r "")
+            true
+            (if (= r "k")
+               (enforce false
+                  "Single-key account protocol violation")
+               (enforce false
+                 (format "Reserved protocol guard violation: {}" [r]))
+               ))))))
 
 
   (defschema crosschain-schema
