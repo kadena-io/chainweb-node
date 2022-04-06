@@ -31,7 +31,6 @@ library
                   , Database.RocksDB.Internal
                   , Database.RocksDB.Iterator
                   , Database.RocksDB.Types
-  extra-bundled-libraries: Crocksdb
 
   default-language: Haskell2010
   other-extensions: CPP
