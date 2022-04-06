@@ -1,13 +1,9 @@
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
-{-# LANGUAGE LambdaCase #-}
-{-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
-{-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 
 -- |
@@ -41,6 +37,7 @@ import Control.Monad.Reader
 import Control.Monad.State.Strict
 
 import qualified Data.Aeson as A
+import qualified Data.ByteString.Lazy as BL
 import qualified Data.ByteString.Short as SB
 import Data.Decimal
 import Data.Default (def)
@@ -49,7 +46,6 @@ import qualified Data.DList as DL
 import Data.Either
 import Data.Foldable (toList)
 import qualified Data.Map as Map
-import Data.String.Conv (toS)
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
@@ -547,7 +543,7 @@ toTransactionBytes cwTrans =
 toOutputBytes :: P.CommandResult P.Hash -> TransactionOutput
 toOutputBytes cr =
     let outBytes = A.encode cr
-    in TransactionOutput { _transactionOutputBytes = toS outBytes }
+    in TransactionOutput { _transactionOutputBytes = BL.toStrict outBytes }
 
 toPayloadWithOutputs :: Miner -> Transactions (P.CommandResult [P.TxLog A.Value]) -> PayloadWithOutputs
 toPayloadWithOutputs mi ts =

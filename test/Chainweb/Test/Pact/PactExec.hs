@@ -5,7 +5,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TypeFamilies #-}
 
 -- |
@@ -29,7 +28,6 @@ import qualified Data.ByteString.Lazy.Char8 as BL
 import Data.CAS.RocksDB (RocksDb)
 import qualified Data.List as L
 import Data.String
-import Data.String.Conv (toS)
 import Data.Text (Text, pack)
 import qualified Data.Vector as V
 import qualified Data.Yaml as Y
@@ -569,7 +567,7 @@ checkSuccessOnly' msg f = testCaseSch msg $ f >>= \case
 fileCompareTxLogs :: String -> IO (TestResponse TestSource) -> ScheduledTest
 fileCompareTxLogs label respIO = goldenSch label $ do
     resp <- respIO
-    return $ toS $ Y.encode
+    return $ BL.fromStrict $ Y.encode
         $ coinbase (_trCoinBaseOutput resp)
         : (result <$> _trOutputs resp)
   where

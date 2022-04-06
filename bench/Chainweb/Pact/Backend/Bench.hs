@@ -12,8 +12,8 @@ import Control.Monad
 import Control.Monad.Catch
 import qualified Criterion.Main as C
 
-import Data.String.Conv
 import qualified Data.ByteString as B
+import qualified Data.ByteString.Char8 as B8
 import qualified Data.Map.Strict as M
 
 import System.IO.Extra
@@ -43,6 +43,7 @@ import Chainweb.Pact.Backend.RelationalCheckpointer
 import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.Backend.Utils
 import Chainweb.Utils.Bench
+import Chainweb.Utils (sshow)
 import Chainweb.Version
 
 v :: ChainwebVersion
@@ -152,7 +153,7 @@ cpBenchNoRewindOverBlock transactionCount cp = C.env (setup' cp) $ \ ~(ut) ->
       (bytestring,
        BlockHash $ unsafeMerkleLogHash $ B.pack $ B.zipWith (+) bytestring inc)
       where
-        inc = toS $ replicate 30 '\NUL' ++ ['\SOH', '\NUL']
+        inc = B8.replicate 30 '\NUL' <> "\SOH\NUL"
 
     go CheckpointEnv{..} mblock (NoopNFData ut) = do
         (blockheight, bytestring, hash) <- readMVar mblock
@@ -274,7 +275,7 @@ benchUserTableForKeys numSampleEvents dbEnv =
 
     setup db = setupUserTable db $ \ut ->
       forM_ [1 .. numberOfKeys] $ \i -> do
-          let rowkey = RowKey $ "k" <> toS (show i)
+          let rowkey = RowKey $ "k" <> sshow i
           writeRow db Insert ut f rowkey i
 
     f = "f"
@@ -291,7 +292,7 @@ benchUserTableForKeys numSampleEvents dbEnv =
 
     go db@(PactDbEnv pdb e) (NoopNFData ut) =
       forM_ [1 .. numSampleEvents] $ \_ -> do
-          let torowkey ind = RowKey $ "k" <> toS (show ind)
+          let torowkey ind = RowKey $ "k" <> sshow ind
           rowkeya <- torowkey <$> randomRIO (1,numberOfKeys)
           rowkeyb <- torowkey <$> randomRIO (1,numberOfKeys)
           a <- _readRow pdb ut rowkeya e >>= unpack
@@ -310,7 +311,7 @@ _cpBenchKeys numKeys cp =
         usertablename <- _cpRestore _cpeCheckpointer Nothing >>= \case
             PactDbEnv' db ->
               setupUserTable db $ \ut -> forM_ [1 .. numKeys] $ \i -> do
-                  let rowkey = RowKey $ "k" <> toS (show i)
+                  let rowkey = RowKey $ "k" <> sshow i
                   writeRow db Insert ut f rowkey (fromIntegral i)
 
         _cpSave _cpeCheckpointer hash01
@@ -327,7 +328,7 @@ _cpBenchKeys numKeys cp =
         void $ _cpSave _cpeCheckpointer hash02
       where
         transaction db numkey = do
-            let rowkey = RowKey $ "k" <> toS (show numkey)
+            let rowkey = RowKey $ "k" <> sshow numkey
             incIntegerAtKey db ut f rowkey 1
 
 cpBenchSampleKeys :: Int -> CheckpointEnv -> C.Benchmark
@@ -341,7 +342,7 @@ cpBenchSampleKeys numSampleEvents cp =
         usertablename <- _cpRestore _cpeCheckpointer Nothing >>= \case
             PactDbEnv' db ->
               setupUserTable db $ \ut -> forM_ [1 .. numberOfKeys] $ \i -> do
-                  let rowkey = RowKey $ "k" <> toS (show i)
+                  let rowkey = RowKey $ "k" <> sshow i
                   writeRow db Insert ut f rowkey i
 
         _cpSave _cpeCheckpointer hash01
@@ -364,7 +365,7 @@ cpBenchSampleKeys numSampleEvents cp =
         _cpRestore _cpeCheckpointer (Just (BlockHeight 1, hash01)) >>= \case
               PactDbEnv' db@(PactDbEnv pdb e) ->
                 forM_ [1 .. numSampleEvents] $ \_ -> do
-                    let torowkey ind = RowKey $ "k" <> toS (show ind)
+                    let torowkey ind = RowKey $ "k" <> sshow ind
                     rowkeya <- torowkey <$> randomRIO (1,numberOfKeys)
                     rowkeyb <- torowkey <$> randomRIO (1,numberOfKeys)
                     a <- _readRow pdb ut rowkeya e >>= unpack

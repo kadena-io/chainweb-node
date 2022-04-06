@@ -47,6 +47,11 @@ module Chainweb.Chainweb.Configuration
 , defaultServiceApiConfig
 , pServiceApiConfig
 
+-- * Backup configuration
+, BackupApiConfig(..)
+, configBackupApi
+, BackupConfig(..)
+
 -- * Chainweb Configuration
 , ChainwebConfiguration(..)
 , configChainwebVersion
@@ -59,6 +64,7 @@ module Chainweb.Chainweb.Configuration
 , configThrottling
 , configReorgLimit
 , configRosetta
+, configBackup
 , configServiceApi
 , defaultChainwebConfiguration
 , pChainwebConfiguration
@@ -71,8 +77,10 @@ import Configuration.Utils hiding (Error, Lens', disabled)
 import Control.Lens hiding ((.=), (<.>))
 import Control.Monad
 import Control.Monad.Catch (MonadThrow, throwM)
+import Control.Monad.Except
 import Control.Monad.Writer
 
+import Data.Foldable
 import Data.Maybe
 import qualified Data.Text as T
 
@@ -83,6 +91,8 @@ import Network.Wai.Handler.Warp hiding (Port)
 import Numeric.Natural (Natural)
 
 import Prelude hiding (log)
+
+import System.Directory
 
 -- internal modules
 
@@ -278,9 +288,64 @@ pServiceApiConfig = id
     <*< serviceApiConfigInterface .:: textOption
         % prefixLong service "interface"
         <> suffixHelp service "interface that the service Rest API binds to (see HostPreference documentation for details)"
+    -- serviceApiBackups isn't supported on the command line
   where
     service = Just "service"
 
+-- -------------------------------------------------------------------------- --
+-- Backup configuration
+
+data BackupApiConfig = BackupApiConfig
+    deriving (Show, Eq, Generic)
+
+defaultBackupApiConfig :: BackupApiConfig
+defaultBackupApiConfig = BackupApiConfig
+
+data BackupConfig = BackupConfig
+    { _configBackupApi :: !(EnableConfig BackupApiConfig)
+    , _configBackupDirectory :: !(Maybe FilePath)
+    -- ^ Should be a path in the same partition as the database directory to
+    --   avoid the slow path of the rocksdb checkpoint mechanism.
+    }
+    deriving (Show, Eq, Generic)
+
+defaultBackupConfig :: BackupConfig
+defaultBackupConfig = BackupConfig
+    { _configBackupApi = EnableConfig False defaultBackupApiConfig
+    , _configBackupDirectory = Nothing
+    }
+
+makeLenses ''BackupApiConfig
+makeLenses ''BackupConfig
+
+instance ToJSON BackupApiConfig where
+    toJSON _cfg = toJSON $ object [ ]
+
+instance FromJSON (BackupApiConfig -> BackupApiConfig) where
+    parseJSON = withObject "BackupApiConfig" $ \_ -> return id
+
+pBackupApiConfig :: MParser BackupApiConfig
+pBackupApiConfig = pure id
+
+instance ToJSON BackupConfig where
+    toJSON cfg = object
+        [ "api" .= _configBackupApi cfg
+        , "directory" .= _configBackupDirectory cfg
+        ]
+
+instance FromJSON (BackupConfig -> BackupConfig) where
+    parseJSON = withObject "BackupConfig" $ \o -> id
+        <$< configBackupApi %.: "api" % o
+        <*< configBackupDirectory ..: "directory" % o
+
+pBackupConfig :: MParser BackupConfig
+pBackupConfig = id
+    <$< configBackupApi %:: pEnableConfig "backup-api" pBackupApiConfig
+    <*< configBackupDirectory .:: fmap Just % textOption
+        % prefixLong backup "directory"
+        <> suffixHelp backup "Directory in which backups will be placed when using the backup API endpoint"
+  where
+    backup = Just "backup"
 
 -- -------------------------------------------------------------------------- --
 -- Chainweb Configuration
@@ -302,6 +367,7 @@ data ChainwebConfiguration = ChainwebConfiguration
         -- ^ Re-validate payload hashes during replay.
     , _configAllowReadsInLocal :: !Bool
     , _configRosetta :: !Bool
+    , _configBackup :: !BackupConfig
     , _configServiceApi :: !ServiceApiConfig
     , _configOnlySyncPact :: !Bool
         -- ^ exit after synchronizing pact dbs to the latest cut
@@ -316,10 +382,19 @@ instance HasChainwebVersion ChainwebConfiguration where
 validateChainwebConfiguration :: ConfigValidation ChainwebConfiguration []
 validateChainwebConfiguration c = do
     validateMinerConfig (_configMining c)
+    validateBackupConfig (_configBackup c)
     case _configChainwebVersion c of
         Mainnet01 -> validateP2pConfiguration (_configP2p c)
         Testnet04 -> validateP2pConfiguration (_configP2p c)
         _ -> return ()
+
+validateBackupConfig :: ConfigValidation BackupConfig []
+validateBackupConfig c =
+    for_ (_configBackupDirectory c) $ \dir -> do
+        liftIO $ createDirectoryIfMissing True dir
+        perms <- liftIO (getPermissions dir)
+        unless (writable perms) $
+            throwError $ "Backup directory " <> T.pack dir <> " is not writable"
 
 defaultChainwebConfiguration :: ChainwebVersion -> ChainwebConfiguration
 defaultChainwebConfiguration v = ChainwebConfiguration
@@ -340,6 +415,7 @@ defaultChainwebConfiguration v = ChainwebConfiguration
     , _configRosetta = False
     , _configServiceApi = defaultServiceApiConfig
     , _configOnlySyncPact = False
+    , _configBackup = defaultBackupConfig
     }
 
 instance ToJSON ChainwebConfiguration where
@@ -361,6 +437,7 @@ instance ToJSON ChainwebConfiguration where
         , "rosetta" .= _configRosetta o
         , "serviceApi" .= _configServiceApi o
         , "onlySyncPact" .= _configOnlySyncPact o
+        , "backup" .= _configBackup o
         ]
 
 instance FromJSON ChainwebConfiguration where
@@ -387,6 +464,7 @@ instance FromJSON (ChainwebConfiguration -> ChainwebConfiguration) where
         <*< configRosetta ..: "rosetta" % o
         <*< configServiceApi %.: "serviceApi" % o
         <*< configOnlySyncPact ..: "onlySyncPact" % o
+        <*< configBackup %.: "backup" % o
 
 pChainwebConfiguration :: MParser ChainwebConfiguration
 pChainwebConfiguration = id
@@ -432,4 +510,5 @@ pChainwebConfiguration = id
     <*< configOnlySyncPact .:: boolOption_
         % long "only-sync-pact"
         <> help "Terminate after synchronizing the pact databases to the latest cut"
+    <*< configBackup %:: pBackupConfig
 
