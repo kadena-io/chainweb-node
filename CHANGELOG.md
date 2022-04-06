@@ -1,5 +1,19 @@
 # `chainweb-node` Changelog
 
+## 2.14 (2022-04-11)
+
+This version replaces all previous versions. Any prior version will stop working
+on **2022-04-21T00:00:00Z**. Node administrators must upgrade to this version
+before that date.
+
+This version will stop working on **2022-06-16T00:00:00Z**.
+
+To upgrade, pull the latest docker image or download the binary and restart the node.
+
+Changes:
+
+*   Improve Mempool to fill blocks more efficiently (#1399)
+
 ## 2.13.1 (2022-04-01)
 
 This is a feature and bug-fix release. Upgrading is optional but recommended.
