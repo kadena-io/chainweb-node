@@ -45,7 +45,7 @@ main = defaultMainWithHooks
                                 -- getHSLibraryName (componentUnitId clbi) ++ "-rocksdb-6.29.3"
                         let
                             rocksdb_srcdir = "rocksdb-6.29.3"
-                            extra_libs = ["stdc++", "gflags"]
+                            extra_libs = ["stdc++", "gflags", "snappy", "bz2"]
                             builddir =
                                 componentBuildDir lbi clbi
                         withCurrentDirectory builddir $ do
