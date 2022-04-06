@@ -33,9 +33,11 @@ jobs:
     - name: Install non-Haskell dependencies (macOS)
       if: contains(matrix.os, 'mac')
       run: |
-        brew update && brew install llvm snappy bzip2 z3 gnu-tar rocksdb || true
+        brew update && brew install llvm z3 gnu-tar rocksdb || true
         # work around bug in macOS and github actions cache (cf. https://github.com/actions/cache/issues/403)
         echo PATH="/usr/local/opt/gnu-tar/libexec/gnubin:$PATH" >> $GITHUB_ENV
+        ls /usr/local/include/rocksdb
+        ls /usr/local/opt/rocksdb/include/rocksdb
     - name: Create cabal.project.local
       run: |
         cat > cabal.project.local <<EOF
