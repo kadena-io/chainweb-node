@@ -590,25 +590,26 @@ withBaseHandleBackend llabel mgr pkgScopes c inner = case _backendConfigHandle c
     ElasticSearch f auth ->
         withElasticsearchBackend mgr f auth (T.toLower llabel) pkgScopes esBackend
   where
+    addTypeScope = L.logMsgScope %~ (:) ("type", llabel)
 
     fdBackend h = case _backendConfigFormat c of
         LogFormatText -> do
             colored <- useColor (_backendConfigColor c) h
-            inner $ L.handleBackend_ logText h colored
+            inner $ L.handleBackend_ logText h colored . bimap addTypeScope addTypeScope
         LogFormatJson -> inner $ \case
             Right msg ->
-                BL8.hPutStrLn h $ encode $ JsonLogMessage $ logText <$> msg
+                BL8.hPutStrLn h $ encode $ JsonLogMessage $ logText <$> addTypeScope msg
             Left msg -> do
                 unless (h == stderr) $ errFallback msg
-                BL8.hPutStrLn h $ encode $ JsonLogMessage msg
+                BL8.hPutStrLn h $ encode $ JsonLogMessage $ addTypeScope msg
 
     esBackend b = inner $ \case
-        Right msg -> b $ logText <$> msg
-        Left msg -> errFallback msg >> b msg
+        Right msg -> b $ logText <$> addTypeScope msg
+        Left msg -> errFallback msg >> b (addTypeScope msg)
 
     errFallback msg = do
         colored <- useColor (_backendConfigColor c) stderr
-        L.handleBackend_ id stderr colored (Left msg)
+        L.handleBackend_ id stderr colored (Left $ addTypeScope msg)
 
 -- -------------------------------------------------------------------------- --
 -- Handle Backend For JSON Message
@@ -652,14 +653,16 @@ withJsonHandleBackend llabel mgr pkgScopes c inner = case _backendConfigHandle c
     StdOut -> fdBackend stdout
     StdErr -> fdBackend stderr
     FileHandle f -> withFile f WriteMode fdBackend
-    ElasticSearch f auth -> withElasticsearchBackend mgr f auth (T.toLower llabel) pkgScopes inner
+    ElasticSearch f auth -> withElasticsearchBackend mgr f auth (T.toLower llabel) pkgScopes $ \b ->
+        inner (b . addTypeScope)
   where
+    addTypeScope = L.logMsgScope %~ (:) ("type", llabel)
     fdBackend h = case _backendConfigFormat c of
         LogFormatText -> do
             colored <- useColor (_backendConfigColor c) h
-            inner $ L.handleBackend_ encodeToText h colored . Right
+            inner $ L.handleBackend_ encodeToText h colored . Right . addTypeScope
         LogFormatJson -> inner $
-            BL8.hPutStrLn h . encode . JsonLogMessage
+            BL8.hPutStrLn h . encode . JsonLogMessage . addTypeScope
 {-# INLINEABLE withJsonHandleBackend #-}
 
 -- -------------------------------------------------------------------------- --
@@ -682,15 +685,16 @@ withTextHandleBackend llabel mgr pkgScopes c inner = case _backendConfigHandle c
     StdErr -> fdBackend stderr
     FileHandle f -> withFile f WriteMode $ \h -> fdBackend h
     ElasticSearch f auth -> withElasticsearchBackend mgr f auth (T.toLower llabel) pkgScopes $ \b ->
-        inner (b . fmap logText)
+        inner (b . fmap logText . addTypeScope)
   where
+    addTypeScope = L.logMsgScope %~ (:) ("type", llabel)
 
     fdBackend h = case _backendConfigFormat c of
         LogFormatText -> do
             colored <- useColor (_backendConfigColor c) h
-            inner $ L.handleBackend_ logText h colored . Right
+            inner $ L.handleBackend_ logText h colored . Right . addTypeScope
         LogFormatJson -> inner $
-            BL8.hPutStrLn h . encode . JsonLogMessage . fmap logText
+            BL8.hPutStrLn h . encode . JsonLogMessage . fmap logText . addTypeScope
 {-# INLINEABLE withTextHandleBackend #-}
 
 -- TODO: it may be more useful to have a logger that logs all 'Right' messages
@@ -824,7 +828,7 @@ withElasticsearchBackend mgr esServer key ixName pkgScopes inner = do
         <> BB.char7 '\n'
 
     indexActionHeader :: Encoding
-    indexActionHeader = pairs $ pair "create" $ pairs $ mempty
+    indexActionHeader = pairs $ pair "create" $ pairs mempty
 
 -- -------------------------------------------------------------------------- --
 -- Event Source Backend for JSON messages

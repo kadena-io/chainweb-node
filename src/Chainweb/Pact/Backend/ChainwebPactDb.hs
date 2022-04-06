@@ -37,9 +37,9 @@ import Control.Monad.State.Strict
 import Control.Monad.Trans.Maybe
 
 import Data.Aeson hiding ((.=))
-import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
-import Data.ByteString.Lazy (fromStrict, toStrict)
+import qualified Data.ByteString.Char8 as B8
+import Data.ByteString.Lazy (fromStrict)
 import qualified Data.DList as DL
 import Data.Foldable (toList)
 import Data.List(sort)
@@ -51,7 +51,6 @@ import Data.Maybe
 import qualified Data.Serialize
 import qualified Data.Set as Set
 import Data.String
-import Data.String.Conv
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
 import qualified Data.Vector as V
@@ -83,6 +82,7 @@ import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.Backend.Utils
 import Chainweb.Pact.Service.Types (PactException(..), internalError)
 import Chainweb.Version (ChainwebVersion, ChainId, genesisHeight)
+import Chainweb.Utils (encodeToByteString)
 
 chainwebPactDb :: PactDb (BlockEnv SQLiteEnv)
 chainwebPactDb = PactDb
@@ -190,7 +190,7 @@ writeSys d k v = gets _bsTxId >>= go
           recordPendingUpdate (getKeyString mnFix k) tableName txid v
         recordTxLog (toTableName tableName) d k v
 
-    toTableName (Utf8 str) = TableName $ toS str
+    toTableName (Utf8 str) = TableName $ T.decodeUtf8 str
     tableName = domainTableName d
 
     getKeyString mnFix = case d of
@@ -209,7 +209,7 @@ recordPendingUpdate
     -> BlockHandler SQLiteEnv ()
 recordPendingUpdate (Utf8 key) (Utf8 tn) txid v = modifyPendingData modf
   where
-    !vs = toStrict (Data.Aeson.encode v)
+    !vs = encodeToByteString v
     delta = SQLiteRowDelta tn txid key vs
     deltaKey = SQLiteDeltaKey tn key
 
@@ -273,7 +273,7 @@ writeUser
     -> BlockHandler SQLiteEnv ()
 writeUser wt d k rowdata@(RowData _ row) = gets _bsTxId >>= go
   where
-    toTableName (Utf8 str) = TableName $ toS str
+    toTableName = TableName . fromUtf8
     tn = domainTableName d
     ttn = toTableName tn
 
@@ -287,11 +287,11 @@ writeUser wt d k rowdata@(RowData _ row) = gets _bsTxId >>= go
       where
         upd (RowData oldV oldrow) = do
             let row' = RowData oldV $ ObjectMap (M.union (_objectMap row) (_objectMap oldrow))
-            recordPendingUpdate (Utf8 $! toS $ asString k) tn txid row'
+            recordPendingUpdate (convRowKey k) tn txid row'
             return row'
 
         ins = do
-            recordPendingUpdate (Utf8 $! toS $ asString k) tn txid rowdata
+            recordPendingUpdate (convRowKey k) tn txid rowdata
             return rowdata
 
 doWriteRow
@@ -306,7 +306,7 @@ doWriteRow wt d k v = case d of
     _ -> writeSys d k v
 
 doKeys
-    :: (IsString k, AsString k)
+    :: (IsString k)
     => Domain k v
     -> BlockHandler SQLiteEnv [k]
 doKeys d = do
@@ -316,7 +316,7 @@ doKeys d = do
     mptx <- use bsPendingTx
 
     let memKeys = DL.toList $
-                  fmap (toS . _deltaRowKey) $
+                  fmap (B8.unpack . _deltaRowKey) $
                   collect pb `DL.append` maybe DL.empty collect mptx
 
     let allKeys = map fromString $
@@ -337,11 +337,11 @@ doKeys d = do
                                     <> tn <> "];") [RText]
                 forM ks $ \row -> do
                     case row of
-                        [SText (Utf8 k)] -> return $! toS k
+                        [SText k] -> return $! T.unpack $ fromUtf8 k
                         _ -> internalError "doKeys: The impossible happened."
 
     tn = domainTableName d
-    tnS = toS tn
+    tnS = let (Utf8 x) = tn in x
     collect p =
         let flt k _ = _dkTable k == tnS
         in DL.concat $ HashMap.elems $ HashMap.filterWithKey flt (_pendingWrites p)
@@ -375,9 +375,9 @@ doTxIds (TableName tn) _tid@(TxId tid) = do
                     [SInt tid'] -> return $ TxId (fromIntegral tid')
                     _ -> internalError "doTxIds: the impossible happened"
 
-    stmt = "SELECT DISTINCT txid FROM [" <> Utf8 (toS tn) <> "] WHERE txid > ?"
+    stmt = "SELECT DISTINCT txid FROM [" <> toUtf8 tn <> "] WHERE txid > ?"
 
-    tnS = toS tn
+    tnS = T.encodeUtf8 tn
     collect p =
         let flt k _ = _dkTable k == tnS
             txids = DL.toList $
@@ -548,17 +548,13 @@ doGetTxLog d txid = do
 
 
 toTxLog :: (MonadThrow m, FromJSON v, FromJSON l) =>
-           Domain k v -> Utf8 -> ByteString -> m (TxLog l)
+           Domain k v -> Utf8 -> BS.ByteString -> m (TxLog l)
 toTxLog d key value =
         case Data.Aeson.decodeStrict' value of
-            Nothing -> internalError $
+            Nothing -> internalError
               "toTxLog: Unexpected value, unable to deserialize log"
             Just v ->
-              return $! TxLog (toS $ unwrap $ domainTableName d) (toS $ unwrap key) v
-
-
-unwrap :: Utf8 -> BS.ByteString
-unwrap (Utf8 str) = str
+              return $! TxLog (asString d) (fromUtf8 key) v
 
 blockHistoryInsert :: BlockHeight -> BlockHash -> TxId -> BlockHandler SQLiteEnv ()
 blockHistoryInsert bh hsh t =
@@ -580,7 +576,7 @@ createTransactionIndexTable = callDb "createTransactionIndexTable" $ \db -> do
     exec_ db "CREATE INDEX IF NOT EXISTS \
              \ transactionIndexByBH ON TransactionIndex(blockheight)";
 
-indexPactTransaction :: ByteString -> BlockHandler SQLiteEnv ()
+indexPactTransaction :: BS.ByteString -> BlockHandler SQLiteEnv ()
 indexPactTransaction h = modify' $
     over (bsPendingBlock . pendingSuccessfulTxs) $! HashSet.insert h
 
@@ -840,7 +836,7 @@ initSchema = do
         create (domainTableName Pacts)
   where
     create tablename = do
-        log "DDL" $ "initSchema: "  ++ toS tablename
+        log "DDL" $ "initSchema: "  ++ (T.unpack . fromUtf8) tablename
         callDb "initSchema" $ createVersionedTable tablename
 
 getEndingTxId :: ChainwebVersion -> ChainId -> BlockHeight -> BlockHandler SQLiteEnv TxId
