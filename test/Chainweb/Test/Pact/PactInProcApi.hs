@@ -1,6 +1,5 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE LambdaCase #-}
-{-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -96,7 +95,7 @@ genesisHeader :: BlockHeader
 genesisHeader = genesisBlockHeader testVersion cid
 
 tests :: RocksDb -> ScheduledTest
-tests rdb = ScheduledTest testName $ go
+tests rdb = ScheduledTest testName go
   where
     testName = "Chainweb.Test.Pact.PactInProcApi"
     go = testGroup testName
@@ -117,9 +116,10 @@ tests rdb = ScheduledTest testName $ go
          , multiChainTest getGasModel "chainweb213Test" chainweb213Test
          ]
       where
+        pactConfig = defaultPactServiceConfig { _pactBlockGasLimit = 150_000 }
         test logLevel f =
           withDelegateMempool $ \dm ->
-          withPactTestBlockDb testVersion cid logLevel rdb (snd <$> dm) defaultPactServiceConfig $
+          withPactTestBlockDb testVersion cid logLevel rdb (snd <$> dm) pactConfig $
           f (fst <$> dm)
 
         multiChainTest gasmodel tname f =
@@ -129,7 +129,7 @@ tests rdb = ScheduledTest testName $ go
               withWebPactExecutionService testVersion bdb mpa gasmodel $ \pact ->
                 f bdb (return iompa) pact
         testHistLookup1 = getHistoricalLookupNoTxs "sender00"
-          (assertSender00Bal 100000000 "check latest entry for sender00 after a no txs block")
+          (assertSender00Bal 100_000_000 "check latest entry for sender00 after a no txs block")
         testHistLookup2 = getHistoricalLookupNoTxs "randomAccount"
           (assertEqual "Return Nothing if key absent after a no txs block" Nothing)
         testHistLookup3 = getHistoricalLookupWithTxs "sender00"
@@ -139,7 +139,7 @@ tests rdb = ScheduledTest testName $ go
 forSuccess :: NFData a => String -> IO (MVar (Either PactException a)) -> IO a
 forSuccess msg mvio = (`catchAllSynchronous` handler) $ do
   mv <- mvio
-  takeMVar mv >>= \r -> case r of
+  takeMVar mv >>= \case
     Left e -> assertFailure $ msg ++ ": got failure result: " ++ show e
     Right v -> return v
   where

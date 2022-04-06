@@ -111,7 +111,7 @@ _run :: [String] -> IO ()
 _run args = withArgs args $ C.defaultMain [bench]
 
 bench :: C.Benchmark
-bench = C.bgroup "PactService" $
+bench = C.bgroup "PactService"
     [ withResources 10 Quiet forkingBench
     , oneBlock True 1
     , oneBlock True 10
