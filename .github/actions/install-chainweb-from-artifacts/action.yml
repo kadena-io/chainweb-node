@@ -38,5 +38,6 @@ runs:
     - name: test chainweb installation
       shell: bash
       run: |
+          lscpu
           ldd chainweb/chainweb-node
           chainweb-node --version
