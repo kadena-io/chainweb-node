@@ -511,9 +511,12 @@ withWebPactExecutionService v bdb mempoolAccess gasmodel act =
   where
     withDbs f = foldl' (\soFar _ -> withDb soFar) f (chainIds v) []
     withDb g envs =  withTempSQLiteConnection chainwebPragmas $ \s -> g (s : envs)
+
+    pactConfig = defaultPactServiceConfig { _pactBlockGasLimit = 150_000 }
+
     mkPact (sqlenv, c) = do
         bhdb <- getBlockHeaderDb c bdb
-        (ctx,_) <- testPactCtxSQLite v c bhdb (_bdbPayloadDb bdb) sqlenv defaultPactServiceConfig gasmodel
+        (ctx,_) <- testPactCtxSQLite v c bhdb (_bdbPayloadDb bdb) sqlenv pactConfig gasmodel
         return $ (c,) $ PactExecutionService
           { _pactNewBlock = \m p ->
               evalPactServiceM_ ctx $ execNewBlock mempoolAccess p m
