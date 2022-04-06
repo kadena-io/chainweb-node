@@ -54,7 +54,12 @@ main = defaultMainWithHooks
                             -- TODO: do a recursive listing for the utilities/ folder's headers
                             nprocs <- getNumProcessors
                             let jobs = max 2 $ min 4 $ nprocs
-                            runLBIProgram lbi makeProgram ["-C", rocksdb_srcdir, "-j" <> show jobs, "static_lib", "shared_lib"]
+                            runLBIProgram lbi makeProgram
+                                [ "EXTRA_CFLAGS='-march=ivybridge'"
+                                , "EXTRA_CXXFLAGS='-march=ivybridge'"
+                                , "-C", rocksdb_srcdir, "-j" <> show jobs
+                                , "static_lib", "shared_lib"
+                                ]
                             let
                                 dllFile pat = pat <.> dllExtension plat
                                 staticLibFile pat = pat <.> staticLibExtension plat
@@ -64,7 +69,6 @@ main = defaultMainWithHooks
                             copyFile (rocksdb_srcdir </> staticLibFile "librocksdb") (staticLibFile "libCrocksdb")
                             includeFiles <-
                                 withCurrentDirectory (rocksdb_srcdir </> "include") $ listDirectoryRecursive "rocksdb"
-                            putStrLn $ "includes: " <> show includeFiles
                             pure
                                 lbi
                                 { localPkgDescr =
