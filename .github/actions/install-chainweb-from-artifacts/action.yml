@@ -37,4 +37,6 @@ runs:
           sha256sum chainweb/chainweb-node
     - name: test chainweb installation
       shell: bash
-      run: chainweb-node --version
+      run: |
+          ldd chainweb/chainweb-node
+          chainweb-node --version
