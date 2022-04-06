@@ -461,7 +461,7 @@ execNewBlock
     -> ParentHeader
     -> Miner
     -> PactServiceM cas PayloadWithOutputs
-execNewBlock mpAccess parent miner = {- handle onTxFailure $ -} do
+execNewBlock mpAccess parent miner = do
     updateMempool
     withDiscardedBatch $ do
       withCheckpointerRewind newblockRewindLimit (Just parent) "execNewBlock" doNewBlock
@@ -527,7 +527,10 @@ execNewBlock mpAccess parent miner = {- handle onTxFailure $ -} do
       when (_bfCount bfState > fetchLimit) $
         throwM $ MempoolFillFailure $ "Refill fetch limit exceeded (" <> sshow fetchLimit <> ")"
 
-      if _bfGasLimit bfState <= 0 then pure unchanged else do
+      when (_bfGasLimit bfState < 0) $
+          throwM $ MempoolFillFailure $ "Internal error, negative gas limit: " <> sshow bfState
+
+      if _bfGasLimit bfState == 0 then pure unchanged else do
 
         newTrans <- getBlockTxs bfState
         if V.null newTrans then pure unchanged else do
