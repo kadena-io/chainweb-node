@@ -41,10 +41,12 @@ package rocksdb-haskell
       /opt/local/include
       /usr/local/opt/gflags/include
       /usr/local/opt/rocksdb/include
+      /usr/local/include
     extra-lib-dirs:
       /opt/local/lib
       /usr/local/opt/gflags/lib
       /usr/local/opt/rocksdb/lib
+      /usr/local/lib
 
 package aeson
     flags: +cffi
