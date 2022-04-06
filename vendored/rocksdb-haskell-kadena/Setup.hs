@@ -33,7 +33,7 @@ main = defaultMainWithHooks
                     Platform _ OSX -> pure lbi
                         { localPkgDescr = flip updatePackageDescription (localPkgDescr lbi) $ (,[]) $ Just emptyBuildInfo
                             { extraLibs = ["rocksdb"]
-                            , includes = ["rocksdb/c.h", "rocksdb/slice_transform.h", "rocksdb/db.h"]
+                            -- , includes = ["rocksdb/c.h"]
                             }
                         }
                     _ -> do
