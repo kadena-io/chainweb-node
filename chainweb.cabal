@@ -1,7 +1,7 @@
 cabal-version: 2.4
 
 name:         chainweb
-version:      2.13
+version:      2.13.1
 synopsis:     A Proof-of-Work Parallel-Chain Architecture for Massive Throughput
 description:  A Proof-of-Work Parallel-Chain Architecture for Massive Throughput.
 homepage:     https://github.com/kadena-io/chainweb
@@ -350,7 +350,7 @@ library
         , exceptions >= 0.8
         , file-embed >= 0.0
         , filepath >= 1.4
-        , hashable >= 1.3 
+        , hashable >= 1.3
         , heaps >= 0.3
         , hourglass >=0.2
         , http-client >= 0.5
@@ -386,7 +386,6 @@ library
         , streaming >= 0.2
         , streaming-commons >= 0.2
         , strict-concurrency >= 0.2
-        , string-conv >= 0.1
         , template-haskell >= 2.14
         , temporary >= 1.3
         , text >= 1.2
@@ -540,7 +539,6 @@ test-suite chainweb-tests
         , servant >= 0.18.2
         , servant-client >= 0.18.2
         , statistics >= 0.15
-        , string-conv >= 0.1
         , stm
         , streaming >= 0.2.2
         , streaming-commons >= 0.2
@@ -694,7 +692,6 @@ executable cwtool
         , servant-client >= 0.18.2
         , streaming >= 0.2.2
         , streaming-commons >= 0.2
-        , string-conv >= 0.1
         , tasty >= 1.0
         , tasty-golden >= 2.3
         , tasty-hunit >= 0.9
@@ -753,7 +750,6 @@ benchmark bench
         , mtl >= 2.2
         , pact
         , random >= 1.2
-        , string-conv >= 0.1
         , temporary >= 1.3
         , text >= 1.2
         , vector >= 0.12.2

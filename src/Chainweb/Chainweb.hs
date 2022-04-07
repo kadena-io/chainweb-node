@@ -386,6 +386,7 @@ withChainwebInternal conf logger peer serviceSock rocksDb pactDbDir backupDir re
       , _pactQueueSize = _configPactQueueSize conf
       , _pactResetDb = resetDb
       , _pactAllowReadsInLocal = _configAllowReadsInLocal conf
+      , _pactBlockGasLimit = _configBlockGasLimit conf
       }
 
     pruningLogger :: T.Text -> logger
@@ -678,7 +679,10 @@ runChainweb cw = do
             }
 
     requestSizeLimit :: Middleware
-    requestSizeLimit = requestSizeLimitMiddleware defaultRequestSizeLimitSettings
+    requestSizeLimit = requestSizeLimitMiddleware $
+        setMaxLengthForRequest (\_req -> pure $ Just $ 2 * 1024 * 1024) -- 2MB
+        defaultRequestSizeLimitSettings
+
 
     httpLog :: Middleware
     httpLog = requestResponseLogger $ setComponent "http:p2p-api" (_chainwebLogger cw)
