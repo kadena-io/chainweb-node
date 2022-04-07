@@ -40,7 +40,7 @@ module Ea.Genesis
 , coinContractV4
 , fungibleAssetV1
 , fungibleAssetV2
-, fungibleXChain
+, fungibleXChainV1
 , gasPayer
 ) where
 
@@ -153,8 +153,8 @@ coinContractV4 = "pact/coin-contract/v4/load-coin-contract-v4.yaml"
 fungibleAssetV2 :: FilePath
 fungibleAssetV2 = "pact/coin-contract/v2/load-fungible-asset-v2.yaml"
 
-fungibleXChain :: FilePath
-fungibleXChain = "pact/coin-contract/v4/load-fungible-xchain.yaml"
+fungibleXChainV1 :: FilePath
+fungibleXChainV1 = "pact/coin-contract/v4/load-fungible-xchain-v1.yaml"
 
 -- ---------------------------------------------------------------------- --
 -- Devnet - Development

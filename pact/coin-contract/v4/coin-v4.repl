@@ -11,11 +11,18 @@
   "Gas cost of loading fungible contract"
   840 (env-gas))
 
+(env-gas 0) (env-gaslog)
+(load "fungible-xchain-v1.pact")
+(env-gaslog)
+(expect
+  "Gas cost of loading fungible-xchain contract"
+  171 (env-gas))
+
 (load "coin-v4.pact")
 (env-gaslog)
 (expect
   "Gas cost of loading coin contract"
-  4472
+  3948
   (env-gas))
 
 (create-table coin.coin-table)
@@ -509,6 +516,7 @@
 (env-hash (hash "burn-create"))
 (env-data {"doug": ["keys2"]})
 
+(test-capability (coin.TRANSFER-XCHAIN "emily" "doug" 0.0 "1"))
 (expect-failure
   "cross-chain transfers fail for trivial or negative quantities"
   "positive"
