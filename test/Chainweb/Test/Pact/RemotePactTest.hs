@@ -4,11 +4,9 @@
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE LambdaCase #-}
-{-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE TypeApplications #-}
 
 -- |
 -- Module: Chainweb.Test.RemotePactTest
@@ -49,7 +47,6 @@ import qualified Data.List as L
 import qualified Data.List.NonEmpty as NEL
 import qualified Data.Map.Strict as M
 import Data.Maybe
-import Data.String.Conv (toS)
 import Data.Text (Text)
 import qualified Data.Text as T
 
@@ -180,7 +177,7 @@ responseGolden networkIO rksIO = golden "remote-golden" $ do
     PollResponses theMap <- polling cid cenv rks ExpectPactResult
     let values = mapMaybe (\rk -> _crResult <$> HashMap.lookup rk theMap)
                           (NEL.toList $ _rkRequestKeys rks)
-    return $! toS $! foldMap A.encode values
+    return $! foldMap A.encode values
 
 localTest :: IO (Time Micros) -> IO ChainwebNetwork -> IO ()
 localTest iot nio = do
@@ -273,7 +270,7 @@ localChainDataTest iot nio = do
           assert' "gas-price" (PLiteral (LDecimal 0.1))
           assert' "sender" (PLiteral (LString "sender00"))
         where
-          assert' name value = assertEqual name (M.lookup  (FieldKey (toS name)) m) (Just value)
+          assert' name value = assertEqual name (M.lookup  (FieldKey (T.pack name)) m) (Just value)
     expectedResult _ = assertFailure "Didn't get back an object map!"
 
 pollingBadlistTest :: IO ChainwebNetwork -> TestTree

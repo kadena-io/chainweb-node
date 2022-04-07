@@ -177,9 +177,11 @@ jobs:
           optimization: ${{ needs.config.outputs.opt-level }}
           benchmarks: True
           tests: True
+          ghc-options: -Wno-unused-packages
         package pact
           documentation: False
           optimization: ${{ needs.config.outputs.opt-level }}
+          ghc-options: -Wno-unused-packages
         EOF
 
     # dist cache
@@ -192,10 +194,10 @@ jobs:
         path: |
           ~/.cabal/store
           dist-newstyle
-        key: ${{ matrix.os }}-${{ matrix.ghc }}-${{ hashFiles('cache-key') }}-${{ hashFiles('cabal.*', '*.cabal', 'src/**', 'test/**') }}
+        key: ${{ matrix.os }}-${{ matrix.ghc }}-0-${{ hashFiles('/tmp/cache-key') }}-${{ hashFiles('cabal.*', '*.cabal', 'src/**', 'test/**') }}
         restore-keys: |
-          ${{ matrix.os }}-${{ matrix.ghc }}-${{ hashFiles('/tmp/cache-key') }}-
-          ${{ matrix.os }}-${{ matrix.ghc }}-
+          ${{ matrix.os }}-${{ matrix.ghc }}-0-${{ hashFiles('/tmp/cache-key') }}-
+          ${{ matrix.os }}-${{ matrix.ghc }}-0-
 
     # Build
     - name: Delete Freeze file
