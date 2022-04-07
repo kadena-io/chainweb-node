@@ -43,6 +43,7 @@ import qualified Data.HashMap.Strict as HashMap
 import Data.IORef (modifyIORef', newIORef, readIORef, writeIORef)
 import Data.Maybe
 import Data.Ord
+import qualified Data.Set as S
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
 import Data.Traversable (for)
@@ -135,7 +136,7 @@ toMempoolBackend logger mempool = do
     markValidated = markValidatedInMem logger tcfg lockMVar
     addToBadList = addToBadListInMem lockMVar
     checkBadList = checkBadListInMem lockMVar
-    getBlock = getBlockInMem cfg lockMVar
+    getBlock = getBlockInMem logger cfg lockMVar
     getPending = getPendingInMem cfg nonce lockMVar
     prune = pruneInMem lockMVar
     clear = clearInMem lockMVar
@@ -254,17 +255,17 @@ markValidatedInMem logger tcfg lock txs = withMVarMasked lock $ \mdata -> do
 
 ------------------------------------------------------------------------------
 addToBadListInMem :: MVar (InMemoryMempoolData t)
-                  -> TransactionHash
+                  -> Vector TransactionHash
                   -> IO ()
-addToBadListInMem lock tx = withMVarMasked lock $ \mdata -> do
+addToBadListInMem lock txs = withMVarMasked lock $ \mdata -> do
     !pnd <- readIORef $ _inmemPending mdata
     !bad <- readIORef $ _inmemBadMap mdata
-    let !pnd' = HashMap.delete tx pnd
+    let !pnd' = foldl' (flip HashMap.delete) pnd txs
     -- we don't have the expiry time here, so just use maxTTL
     now <- getCurrentTimeIntegral
     let (ParsedInteger mt) = maxTTL
     let !endTime = add (secondsToTimeSpan $ fromIntegral mt) now
-    let !bad' = HashMap.insert tx endTime bad
+    let !bad' = foldl' (\h tx -> HashMap.insert tx endTime h) bad txs
     writeIORef (_inmemPending mdata) pnd'
     writeIORef (_inmemBadMap mdata) bad'
 
@@ -457,23 +458,26 @@ insertInMem cfg lock runCheck txs0 = do
 
 ------------------------------------------------------------------------------
 getBlockInMem
-    :: forall t .
-       NFData t
-    => InMemConfig t
+    :: forall t . NFData t
+    => forall l . Logger l
+    => l
+    -> InMemConfig t
     -> MVar (InMemoryMempoolData t)
+    -> BlockFill
     -> MempoolPreBlockCheck t
     -> BlockHeight
     -> BlockHash
     -> IO (Vector t)
-getBlockInMem cfg lock txValidate bheight phash = do
+getBlockInMem logg cfg lock (BlockFill gasLimit txHashes _)  txValidate bheight phash = do
+    logFunctionText logg Info $ "getBlockInMem: " <> sshow (gasLimit,bheight,phash)
     withMVar lock $ \mdata -> do
         now <- getCurrentTimeIntegral
 
         -- drop any expired transactions.
         pruneInternal mdata now
-        !psq <- readIORef (_inmemPending mdata)
+        !(T2 psq seen) <- filterSeen <$> readIORef (_inmemPending mdata)
         !badmap <- readIORef (_inmemBadMap mdata)
-        let size0 = _inmemTxBlockSizeLimit cfg
+        let size0 = gasLimit
 
         -- get our batch of output transactions, along with a new pending map
         -- and badmap
@@ -481,7 +485,7 @@ getBlockInMem cfg lock txValidate bheight phash = do
 
         -- put the txs chosen for the block back into the map -- they don't get
         -- expunged until they are mined and validated by consensus.
-        let !psq'' = V.foldl' ins psq' out
+        let !psq'' = V.foldl' ins (HashMap.union seen psq') out
         writeIORef (_inmemPending mdata) $! force psq''
         writeIORef (_inmemBadMap mdata) $! force badmap'
         mout <- V.unsafeThaw $ V.map (snd . snd) out
@@ -489,6 +493,12 @@ getBlockInMem cfg lock txValidate bheight phash = do
         V.unsafeFreeze mout
 
   where
+
+    filterSeen = (`HashMap.foldlWithKey'` (T2 mempty mempty)) $ \(T2 unseens seens) k v ->
+      if S.member k txHashes then (T2 unseens (HashMap.insert k v seens))
+      else (T2 (HashMap.insert k v unseens) seens)
+
+
     ins !m !(h,(b,t)) =
         let !pe = PendingEntry (txGasPrice txcfg t)
                                (txGasLimit txcfg t)
