@@ -244,7 +244,7 @@ markValidatedInMem logger tcfg lock txs = withMVarMasked lock $ \mdata -> do
     logg Info $ "mark " <> sshow (length (V.zip expiries hashes)) <> " txs as validated"
     x <- readIORef curTxIdxRef
     logg Info $ "previous current tx index size: " <> sshow (currentTxsSize x)
-    x' <- flip currentTxsInsertBatch (V.zip expiries hashes) x
+    !x' <- currentTxsInsertBatch x (V.zip expiries hashes)
     logg Info $ "new current tx index size: " <> sshow (currentTxsSize x')
     writeIORef curTxIdxRef x'
   where
@@ -431,7 +431,7 @@ insertInMem cfg lock runCheck txs0 = do
         pending <- readIORef (_inmemPending mdata)
         let cnt = HashMap.size pending
         let txs = V.take (max 0 (maxNumPending - cnt)) txhashes
-        let T2 pending' newHashesDL = V.foldl' insOne (T2 pending id) txs
+        let T2 !pending' !newHashesDL = V.foldl' insOne (T2 pending id) txs
         let !newHashes = V.fromList $ newHashesDL []
         writeIORef (_inmemPending mdata) $! force pending'
         modifyIORef' (_inmemRecentLog mdata) $
@@ -498,15 +498,14 @@ getBlockInMem logg cfg lock (BlockFill gasLimit txHashes _)  txValidate bheight 
       if S.member k txHashes then (T2 unseens (HashMap.insert k v seens))
       else (T2 (HashMap.insert k v unseens) seens)
 
-
-    ins !m !(h,(b,t)) =
+    ins !m (!h,(!b,!t)) =
         let !pe = PendingEntry (txGasPrice txcfg t)
                                (txGasLimit txcfg t)
                                b
                                (txMetaExpiryTime $ txMetadata txcfg t)
         in HashMap.insert h pe m
 
-    insBadMap !m !(h,(_,t)) = let endTime = txMetaExpiryTime (txMetadata txcfg t)
+    insBadMap !m (!h,(_,!t)) = let endTime = txMetaExpiryTime (txMetadata txcfg t)
                               in HashMap.insert h endTime m
 
     del !psq (h, _) = HashMap.delete h psq
