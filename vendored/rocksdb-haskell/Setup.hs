@@ -55,8 +55,8 @@ main = defaultMainWithHooks
                             nprocs <- getNumProcessors
                             let jobs = max 2 $ min 4 $ nprocs
                             runLBIProgram lbi makeProgram
-                                [ "EXTRA_CFLAGS='-march=ivybridge -DSNAPPY'"
-                                , "EXTRA_CXXFLAGS='-march=ivybridge -DSNAPPY'"
+                                [ "EXTRA_CFLAGS=\"-march=ivybridge -DSNAPPY\""
+                                , "EXTRA_CXXFLAGS=\"-march=ivybridge -DSNAPPY\""
                                 , "-C", rocksdb_srcdir, "-j" <> show jobs
                                 , "static_lib", "shared_lib"
                                 ]
