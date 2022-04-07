@@ -91,6 +91,7 @@ import Chainweb.Pact.Backend.Utils
 import Chainweb.Pact.PactService
 import Chainweb.Pact.Service.BlockValidation
 import Chainweb.Pact.Service.PactQueue
+import Chainweb.Pact.Service.Types
 import Chainweb.Pact.Types
 import Chainweb.Pact.Utils (toTxCreationTime)
 import Chainweb.Payload
@@ -110,7 +111,7 @@ _run :: [String] -> IO ()
 _run args = withArgs args $ C.defaultMain [bench]
 
 bench :: C.Benchmark
-bench = C.bgroup "PactService" $
+bench = C.bgroup "PactService"
     [ withResources 10 Quiet forkingBench
     , oneBlock True 1
     , oneBlock True 10
@@ -140,10 +141,15 @@ bench = C.bgroup "PactService" $
         name = "block-new" ++ (if validate then "-valid" else "") ++
                "[" ++ show txCount ++ "]"
 
-testMemPoolAccess :: IORef Int -> MVar (Map Account (NonEmpty SomeKeyPairCaps)) -> MemPoolAccess
-testMemPoolAccess txsPerBlock accounts = mempty
-    { mpaGetBlock = \validate bh hash header ->
-        getTestBlock accounts (_bct $ _blockCreationTime header) validate bh hash
+testMemPoolAccess :: IORef Int -> MVar (Map Account (NonEmpty SomeKeyPairCaps)) -> IO MemPoolAccess
+testMemPoolAccess txsPerBlock accounts = do
+  hs <- newIORef []
+  return $ mempty
+    { mpaGetBlock = \_g validate bh hash header -> do
+        hs' <- readIORef hs
+        if bh `elem` hs' then return mempty else do
+          writeIORef hs (bh:hs')
+          getTestBlock accounts (_bct $ _blockCreationTime header) validate bh hash
     }
   where
 
@@ -329,8 +335,9 @@ withResources trunkLength logLevel f = C.envWithCleanup create destroy unwrap
         nonceCounter <- newIORef 1
         txPerBlock <- newIORef 10
         sqlEnv <- startSqliteDb cid logger tempDir False
+        mp <- testMemPoolAccess txPerBlock coinAccounts
         pactService <-
-          startPact testVer logger blockHeaderDb payloadDb (testMemPoolAccess txPerBlock coinAccounts) sqlEnv
+          startPact testVer logger blockHeaderDb payloadDb mp sqlEnv
         mainTrunkBlocks <-
           playLine payloadDb blockHeaderDb trunkLength genesisBlock (snd pactService) nonceCounter
         return $ NoopNFData $ Resources {..}
@@ -351,6 +358,9 @@ withResources trunkLength logLevel f = C.envWithCleanup create destroy unwrap
     startPact version l bhdb pdb mempool sqlEnv = do
         reqQ <- newPactQueue pactQueueSize
         a <- async $ initPactService version cid l reqQ mempool bhdb pdb sqlEnv defaultPactServiceConfig
+            { _pactBlockGasLimit = 150000
+            }
+
         return (a, reqQ)
 
     stopPact (a, _) = cancel a

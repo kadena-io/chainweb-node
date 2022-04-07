@@ -97,7 +97,7 @@ import qualified Chainweb.CutDB as CutDB
 import Chainweb.Graph
 import Chainweb.Logger
 import Chainweb.Mempool.Mempool
-    (InsertError(..), InsertType(..), MempoolBackend(..), TransactionHash(..))
+    (InsertError(..), InsertType(..), MempoolBackend(..), TransactionHash(..), requestKeyToTransactionHash)
 import Chainweb.Pact.RestAPI
 import Chainweb.Pact.RestAPI.EthSpv
 import Chainweb.Pact.RestAPI.SPV
@@ -593,8 +593,7 @@ internalPoll pdb bhdb mempool pactEx cut requestKeys0 = do
 
     checkBadList :: Vector RequestKey -> IO (Vector (RequestKey, CommandResult Hash))
     checkBadList rkeys = do
-        let thash = TransactionHash . SB.toShort . unHash . unRequestKey
-        let !hashes = V.map thash rkeys
+        let !hashes = V.map requestKeyToTransactionHash rkeys
         out <- mempoolCheckBadList mempool hashes
         let bad = V.map (RequestKey . Hash . SB.fromShort . unTransactionHash . fst) $
                   V.filter snd $ V.zip hashes out
