@@ -59,22 +59,16 @@ main = defaultMainWithHooks
                                 jobs = max 2 $ min 4 $ nprocs
                             runLBIProgram lbi makeProgram
                                 [ "-C", rocksdb_srcdir, "-j" <> show jobs
+                                , "shared_lib"
+                                ]
+                            copyFile (rocksdb_srcdir </> dllFile "librocksdb") (dllFile "librocksdb")
+                            copyFile (rocksdb_srcdir </> dllFile "librocksdb") (dllFile "libCrocksdb")
+                            copyFile (rocksdb_srcdir </> dllFile "librocksdb") (dllFile "librocksdb" <.> "6.29")
+                            runLBIProgram lbi makeProgram
+                                [ "-C", rocksdb_srcdir, "-j" <> show jobs
                                 , "static_lib"
                                 ]
                             copyFile (rocksdb_srcdir </> staticLibFile "librocksdb") (staticLibFile "libCrocksdb")
-                            runLBIProgram lbi makeProgram
-                                [ "-C", rocksdb_srcdir, "clean"
-                                ]
-                            writeFile (dllFile "librocksdb") ""
-                            writeFile (dllFile "libCrocksdb") ""
-                            writeFile (dllFile "librocksdb" <.> "6.29") ""
-                            -- runLBIProgram lbi makeProgram
-                                -- [ "-C", rocksdb_srcdir, "-j" <> show jobs
-                                -- , "shared_lib"
-                                -- ]
-                            -- copyFile (rocksdb_srcdir </> dllFile "librocksdb") (dllFile "librocksdb")
-                            -- copyFile (rocksdb_srcdir </> dllFile "librocksdb") (dllFile "libCrocksdb")
-                            -- copyFile (rocksdb_srcdir </> dllFile "librocksdb") (dllFile "librocksdb" <.> "6.29")
                             includeFiles <-
                                 withCurrentDirectory (rocksdb_srcdir </> "include") $ listDirectoryRecursive "rocksdb"
                             pure
