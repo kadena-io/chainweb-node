@@ -21,7 +21,10 @@
 <<<<<<< HEAD
   (implements fungible-xchain-v1)
 
+  ;; coin-v2
   (bless "ut_J_ZNkoyaPUEJhiwVeWnkSQn9JT9sQCWKdjjVVrWo")
+
+  ;; coin v3
   (bless "1os_sLAUYvBzspn5jjawtRpJWiH1WPfhyNraeVvSIwU")
 =======
 
@@ -109,7 +112,7 @@
 
     @managed amount TRANSFER-XCHAIN-mgr
     (enforce-unit amount)
-    (enforce (> amount 0.0) "Positive amount")
+    (enforce (> amount 0.0) "Cross-chain transfers requir a positive amount")
   )
 
   (defun TRANSFER-XCHAIN-mgr:decimal

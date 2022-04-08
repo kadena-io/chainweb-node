@@ -516,7 +516,10 @@
 (env-hash (hash "burn-create"))
 (env-data {"doug": ["keys2"]})
 
-(test-capability (coin.TRANSFER-XCHAIN "emily" "doug" 0.0 "1"))
+; N.B.: this cap is managed via requested <= managed, and so zero or
+; negative quantities may pass the cap and continue failing as normal
+(test-capability (coin.TRANSFER-XCHAIN "emily" "doug" 1.0 "1"))
+
 (expect-failure
   "cross-chain transfers fail for trivial or negative quantities"
   "positive"
@@ -658,6 +661,7 @@
 
 ;;transfer-crosschain (step 0 only covered)
 
+(test-capability (TRANSFER-XCHAIN "emily" "doug" (* 2 UNIT_GOOD) "chain"))
 (expect
   "min transfer-crosschain step 1 succeeds"
   "success"
