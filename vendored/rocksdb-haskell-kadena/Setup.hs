@@ -55,14 +55,14 @@ main = defaultMainWithHooks
                             nprocs <- getNumProcessors
                             let jobs = max 2 $ min 4 $ nprocs
                             runLBIProgram lbi makeProgram
-                                [ "EXTRA_CFLAGS=-march=generic"
-                                , "EXTRA_CXXFLAGS=-march=generic"
+                                [ "EXTRA_CFLAGS=\"-march=generic -fPIC\""
+                                , "EXTRA_CXXFLAGS=\"-march=generic -fPIC\""
                                 , "-C", rocksdb_srcdir, "-j" <> show jobs
                                 , "static_lib"
                                 ]
                             runLBIProgram lbi makeProgram
-                                [ "EXTRA_CFLAGS=-march=generic"
-                                , "EXTRA_CXXFLAGS=-march=generic"
+                                [ "EXTRA_CFLAGS=\"-march=generic -fPIC\""
+                                , "EXTRA_CXXFLAGS=\"-march=generic -fPIC\""
                                 , "-C", rocksdb_srcdir, "-j" <> show jobs
                                 , "shared_lib"
                                 ]
