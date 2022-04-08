@@ -72,7 +72,7 @@ jobs:
           "ghc": ["8.10.7", "9.0.2"],
           "cabal": ["3.6"],
           "os": ["ubuntu-18.04", "ubuntu-20.04"],
-          "cabalcache": ["false"]
+          "cabalcache": ["true"]
         }
         EOF
         )"
@@ -185,6 +185,20 @@ jobs:
           ghc-options: -Wno-unused-packages
         EOF
 
+    # dist cache
+    - name: Create date file for dist-newstyle cache key
+      run: |
+        date +%Y-%j > /tmp/cache-key
+    - uses: larskuhtz/always-upload-cache@3dc6e6c4eed0c594fbff7c4c2885c6106d1bfcf0
+      name: Cache dist-newstyle
+      with:
+        path: |
+          ~/.cabal/store
+          dist-newstyle
+        key: ${{ matrix.os }}-${{ matrix.ghc }}-0-${{ hashFiles('/tmp/cache-key') }}-${{ hashFiles('cabal.*', '*.cabal', 'src/**', 'test/**') }}
+        restore-keys: |
+          ${{ matrix.os }}-${{ matrix.ghc }}-0-${{ hashFiles('/tmp/cache-key') }}-
+          ${{ matrix.os }}-${{ matrix.ghc }}-0-
 
     # Build
     - name: Delete Freeze file
@@ -201,6 +215,15 @@ jobs:
     - name: Display Dependency Changes
       run: |
         diff -w <(git show HEAD:cabal.project.freeze) cabal.project.freeze || true
+    - name: Sync from cabal cache
+      if: matrix.cabalcache == 'true'
+      uses: larskuhtz/cabal-cache-action@ecc751af6d31b3ed5a3b4aefdefd0ed6ef4cb414
+      with:
+        bucket: "kadena-cabal-cache"
+        region: "us-east-1"
+        folder: "${{ matrix.os }}"
+        aws_access_key_id: "${{ secrets.kadena_cabal_cache_aws_access_key_id }}"
+        aws_secret_access_key: "${{ secrets.kadena_cabal_cache_aws_secret_access_key }}"
     - name: Install build dependencies
       run: cabal build chainweb --only-dependencies
     - name: Build chainweb library
