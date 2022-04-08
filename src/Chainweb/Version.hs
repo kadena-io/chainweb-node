@@ -932,7 +932,7 @@ chainweb214Pact
     -> ChainwebVersion
     -> BlockHeight
     -> Bool
-chainweb214Pact  aoa v h = case aoa of
+chainweb214Pact aoa v h = case aoa of
     At -> go (==) v h
     After -> go (flip (>)) v h
   where
