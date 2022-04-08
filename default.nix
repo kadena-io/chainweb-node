@@ -149,8 +149,8 @@ pkgs.haskell.packages.${compiler}.developPackage {
 
       wai-extra = self.callHackageDirect {
         pkg = "wai-extra";
-        ver = "3.0.28";
-        sha256 = "1k470vbn2c852syj15m9xzfjnaraw6cyn35ajf2b67i01ghkshgw";
+        ver = "3.1.2";
+        sha256 = "1cha6hvb071bknw25va07vg1sr5bg44q8fwz0nwa1886j9d4yrr7";
       } {};
 
       wai-app-static = doJailbreak (dontCheck (self.callHackageDirect {

@@ -38,7 +38,6 @@ globalHealthStatus :: MVar HealthStatus
 globalHealthStatus = unsafePerformIO $! newMVar Healthy
 {-# NOINLINE globalHealthStatus #-}
 
-
 someHealthCheckServer :: SomeServer
 someHealthCheckServer = SomeServer (Proxy @HealthCheckApi) handler
   where
