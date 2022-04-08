@@ -72,7 +72,6 @@ module Chainweb.TreeDB
 , getBranchIncreasing
 
 -- * Membership Queries
-, onLongestBranch
 , ancestorOf
 , ancestorOfEntry
 ) where
@@ -1060,14 +1059,4 @@ ancestorOf
     -> IO Bool
 ancestorOf db h ctx = do
     th <- lookupM db ctx
-    ancestorOfEntry db h th
-
-onLongestBranch
-    :: forall db
-    . TreeDb db
-    => db
-    -> DbKey db
-    -> IO Bool
-onLongestBranch db h = do
-    th <- maxEntry db
     ancestorOfEntry db h th
