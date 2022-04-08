@@ -55,16 +55,12 @@ main = defaultMainWithHooks
                             nprocs <- getNumProcessors
                             let jobs = max 2 $ min 4 $ nprocs
                             runLBIProgram lbi makeProgram
-                                [ "EXTRA_CFLAGS=\"-march=generic -fPIC\""
-                                , "EXTRA_CXXFLAGS=\"-march=generic -fPIC\""
-                                , "-C", rocksdb_srcdir, "-j" <> show jobs
-                                , "static_lib"
+                                [ "-C", rocksdb_srcdir, "-j" <> show jobs
+                                , "shared_lib"
                                 ]
                             runLBIProgram lbi makeProgram
-                                [ "EXTRA_CFLAGS=\"-march=generic -fPIC\""
-                                , "EXTRA_CXXFLAGS=\"-march=generic -fPIC\""
-                                , "-C", rocksdb_srcdir, "-j" <> show jobs
-                                , "shared_lib"
+                                [ "-C", rocksdb_srcdir, "-j" <> show jobs
+                                , "static_lib"
                                 ]
                             let
                                 dllFile pat = pat <.> dllExtension plat
@@ -128,4 +124,7 @@ makeProgram = (simpleProgram "make")
         case words str of
             (_:_:ver:_) -> ver
             _ -> ""
+    , programPostConf = \_ p ->
+        -- build rocksdb without -march=native, to avoid processor feature mismatches (illegal instruction errors)
+        return p { programOverrideEnv = [("PORTABLE", Just "1")] }
     }
