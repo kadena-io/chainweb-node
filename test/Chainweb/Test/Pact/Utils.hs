@@ -1,3 +1,4 @@
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE BangPatterns #-}
@@ -89,6 +90,7 @@ module Chainweb.Test.Pact.Utils
 , delegateMemPoolAccess
 , withDelegateMempool
 , setMempool
+, setOneShotMempool
 -- * Block formation
 , runCut
 , Noncer
@@ -483,6 +485,7 @@ testPactCtxSQLite v cid bhdb pdb sqlenv conf gasmodel = do
         , _psCheckpointerDepth = 0
         , _psLogger = newLogger loggers $ LogName ("PactService" ++ show cid)
         , _psLoggers = loggers
+        , _psBlockGasLimit = _pactBlockGasLimit conf
         }
 
 freeGasModel :: TxContext -> GasModel
@@ -508,9 +511,14 @@ withWebPactExecutionService v bdb mempoolAccess gasmodel act =
   where
     withDbs f = foldl' (\soFar _ -> withDb soFar) f (chainIds v) []
     withDb g envs =  withTempSQLiteConnection chainwebPragmas $ \s -> g (s : envs)
+
+    -- This is way more than what is used in production, but during testing
+    -- we can be generous.
+    pactConfig = defaultPactServiceConfig { _pactBlockGasLimit = 1_000_000 }
+
     mkPact (sqlenv, c) = do
         bhdb <- getBlockHeaderDb c bdb
-        (ctx,_) <- testPactCtxSQLite v c bhdb (_bdbPayloadDb bdb) sqlenv defaultPactServiceConfig gasmodel
+        (ctx,_) <- testPactCtxSQLite v c bhdb (_bdbPayloadDb bdb) sqlenv pactConfig gasmodel
         return $ (c,) $ PactExecutionService
           { _pactNewBlock = \m p ->
               evalPactServiceM_ ctx $ execNewBlock mempoolAccess p m
@@ -608,7 +616,7 @@ withPayloadDb = withResource newPayloadDb mempty
 -- | 'MemPoolAccess' that delegates all calls to the contents of provided `IORef`.
 delegateMemPoolAccess :: IORef MemPoolAccess -> MemPoolAccess
 delegateMemPoolAccess r = MemPoolAccess
-  { mpaGetBlock = \a b c d -> call mpaGetBlock $ \f -> f a b c d
+  { mpaGetBlock = \a b c d e -> call mpaGetBlock $ \f -> f a b c d e
   , mpaSetLastHeader = \a -> call mpaSetLastHeader ($ a)
   , mpaProcessFork = \a -> call mpaProcessFork ($ a)
   , mpaBadlistTx = \a -> call mpaBadlistTx ($ a)
@@ -631,6 +639,17 @@ withDelegateMempool = withResource start mempty
 -- | Set test mempool using IORef.
 setMempool :: IO (IORef MemPoolAccess) -> MemPoolAccess -> IO ()
 setMempool refIO mp = refIO >>= flip writeIORef mp
+
+-- | Set test mempool wrapped with a "one shot" 'mpaGetBlock' adapter.
+setOneShotMempool :: IO (IORef MemPoolAccess) -> MemPoolAccess -> IO ()
+setOneShotMempool mpRefIO mp = do
+  oneShot <- newIORef False
+  setMempool mpRefIO $ mp
+    { mpaGetBlock = \g v i a e -> readIORef oneShot >>= \case
+        False -> writeIORef oneShot True >> mpaGetBlock mp g v i a e
+        True -> mempty
+    }
+
 
 withBlockHeaderDb
     :: IO RocksDb

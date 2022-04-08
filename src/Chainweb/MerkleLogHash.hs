@@ -31,12 +31,10 @@ module Chainweb.MerkleLogHash
 , decodeMerkleLogHash
 , nullHashBytes
 , oneHashBytes
-, randomMerkleLogHash
 ) where
 
 import Control.DeepSeq
 import Control.Monad.Catch (MonadThrow, displayException, throwM)
-import Control.Monad.IO.Class (MonadIO(..))
 
 import Data.Aeson (FromJSON(..), FromJSONKey(..), ToJSON(..), ToJSONKey(..))
 import Data.Aeson.Types (FromJSONKeyFunction(..), toJSONKeyText)
@@ -128,12 +126,6 @@ nullHashBytes = unsafeMerkleLogHash $ B.replicate (int merkleLogHashBytesCount) 
 oneHashBytes :: MerkleHashAlgorithm a => MerkleLogHash a
 oneHashBytes = unsafeMerkleLogHash $ B.replicate (int merkleLogHashBytesCount) 0xff
 {-# NOINLINE oneHashBytes #-}
-
--- | This must be used only for testing. The result hash is uniformily
--- distributed, but not cryptographically safe.
---
-randomMerkleLogHash :: MerkleHashAlgorithm a => MonadIO m => m (MerkleLogHash a)
-randomMerkleLogHash = unsafeMerkleLogHash <$> randomByteString merkleLogHashBytesCount
 
 merkleLogHashToText :: MerkleHashAlgorithm a => MerkleLogHash a -> T.Text
 merkleLogHashToText = encodeB64UrlNoPaddingText . runPutS . encodeMerkleLogHash

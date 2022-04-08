@@ -356,7 +356,7 @@ isReservedIp ip = isLocalIp ip || isPrivateIp ip || or
     , isMatchedTo ip $ makeAddrRange (toIPv4 [192,0,0,0]) 24
     , isMatchedTo ip $ makeAddrRange (toIPv4 [192,0,2,0]) 24
     , isMatchedTo ip $ makeAddrRange (toIPv4 [192,88,99,0]) 24
-    , isMatchedTo ip $ makeAddrRange (toIPv4 [192,18,0,0]) 15
+    , isMatchedTo ip $ makeAddrRange (toIPv4 [192,168,0,0]) 15
     , isMatchedTo ip $ makeAddrRange (toIPv4 [198,51,100,0]) 24
     , isMatchedTo ip $ makeAddrRange (toIPv4 [203,0,113,0]) 24
     , isMatchedTo ip $ makeAddrRange (toIPv4 [224,0,0,0]) 4
