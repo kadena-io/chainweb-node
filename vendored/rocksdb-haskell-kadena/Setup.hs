@@ -58,7 +58,13 @@ main = defaultMainWithHooks
                                 [ "EXTRA_CFLAGS=-march=generic"
                                 , "EXTRA_CXXFLAGS=-march=generic"
                                 , "-C", rocksdb_srcdir, "-j" <> show jobs
-                                , "static_lib", "shared_lib"
+                                , "static_lib"
+                                ]
+                            runLBIProgram lbi makeProgram
+                                [ "EXTRA_CFLAGS=-march=generic"
+                                , "EXTRA_CXXFLAGS=-march=generic"
+                                , "-C", rocksdb_srcdir, "-j" <> show jobs
+                                , "shared_lib"
                                 ]
                             let
                                 dllFile pat = pat <.> dllExtension plat
