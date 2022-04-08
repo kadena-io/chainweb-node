@@ -73,7 +73,7 @@ source-repository-package
 source-repository-package
     type: git
     location: https://github.com/kadena-io/rocksdb-haskell.git
-    tag: 6c2c9592f5d7a2240e43121aca7d00c78e2a39ee
+    tag: 0cb72f0f32f4283d5f8ed300a55f07d24ea3c1c2
 
 source-repository-package
     type: git
