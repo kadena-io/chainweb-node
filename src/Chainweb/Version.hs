@@ -936,11 +936,11 @@ chainweb214Pact aoa v h = case aoa of
     At -> go (==) v h
     After -> go (flip (>)) v h
   where
-    go f Mainnet01 = f 2605663 -- 2022-04-22T00:00:00Z
-    go f Testnet04 = f 2134331 -- 2022-04-21T12:00:00Z
+    go f Mainnet01 = f 2605696 -- 2022-04-22 00:00:13
+    go f Testnet04 = f 2112766 -- 2022-04-14 00:00:43
     go f Development = f 115
     go f (FastTimedCPM g) | g == petersonChainGraph = f 30
-    go f _ = f 5
+    go f _ = f 10
 
 -- -------------------------------------------------------------------------- --
 -- Header Validation Guards
