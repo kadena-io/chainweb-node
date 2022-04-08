@@ -65,13 +65,16 @@ main = defaultMainWithHooks
                             runLBIProgram lbi makeProgram
                                 [ "-C", rocksdb_srcdir, "clean"
                                 ]
-                            runLBIProgram lbi makeProgram
-                                [ "-C", rocksdb_srcdir, "-j" <> show jobs
-                                , "shared_lib"
-                                ]
-                            copyFile (rocksdb_srcdir </> dllFile "librocksdb") (dllFile "librocksdb")
-                            copyFile (rocksdb_srcdir </> dllFile "librocksdb") (dllFile "libCrocksdb")
-                            copyFile (rocksdb_srcdir </> dllFile "librocksdb") (dllFile "librocksdb" <.> "6.29")
+                            writeFile (dllFile "librocksdb") ""
+                            writeFile (dllFile "libCrocksdb") ""
+                            writeFile (dllFile "librocksdb" <.> "6.29") ""
+                            -- runLBIProgram lbi makeProgram
+                                -- [ "-C", rocksdb_srcdir, "-j" <> show jobs
+                                -- , "shared_lib"
+                                -- ]
+                            -- copyFile (rocksdb_srcdir </> dllFile "librocksdb") (dllFile "librocksdb")
+                            -- copyFile (rocksdb_srcdir </> dllFile "librocksdb") (dllFile "libCrocksdb")
+                            -- copyFile (rocksdb_srcdir </> dllFile "librocksdb") (dllFile "librocksdb" <.> "6.29")
                             includeFiles <-
                                 withCurrentDirectory (rocksdb_srcdir </> "include") $ listDirectoryRecursive "rocksdb"
                             pure
