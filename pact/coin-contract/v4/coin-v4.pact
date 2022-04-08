@@ -18,10 +18,15 @@
     ]
 
   (implements fungible-v2)
+<<<<<<< HEAD
   (implements fungible-xchain-v1)
 
   (bless "ut_J_ZNkoyaPUEJhiwVeWnkSQn9JT9sQCWKdjjVVrWo")
   (bless "1os_sLAUYvBzspn5jjawtRpJWiH1WPfhyNraeVvSIwU")
+=======
+
+  (bless "ut_J_ZNkoyaPUEJhiwVeWnkSQn9JT9sQCWKdjjVVrWo")
+>>>>>>> master
 
   ; --------------------------------------------------------------------------
   ; Schemas and Tables

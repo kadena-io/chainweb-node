@@ -900,7 +900,7 @@ pact420Upgrade Mainnet01 = (>= 2_334_500) -- 2022-01-17T17:51:12
 pact420Upgrade Testnet04 = (>= 1_862_000) -- 2022-01-13T16:11:10
 pact420Upgrade Development = (>= 90)
 pact420Upgrade (FastTimedCPM g) | g == petersonChainGraph = (>= 5)
-pact420Upgrade _ = const False
+pact420Upgrade _ = const True
 
 enforceKeysetFormats :: ChainwebVersion -> BlockHeight -> Bool
 enforceKeysetFormats Mainnet01 = (>= 2_162_000) -- 2021-11-18T20:06:55
@@ -932,12 +932,14 @@ chainweb214Pact
     -> ChainwebVersion
     -> BlockHeight
     -> Bool
-chainweb214Pact  aoa v h = case aoa of
+chainweb214Pact aoa v h = case aoa of
     At -> go (==) v h
     After -> go (flip (>)) v h
   where
-    go f Mainnet01 = f 2605696 -- 2022-04-22 00:00:13
-    go f Testnet04 = f 2112766 -- 2022-04-14 00:00:43
+    go f Mainnet01 = f 2605663 -- 2022-04-22T00:00:00Z
+    go f Testnet04 = f 2134331 -- 2022-04-21T12:00:00Z
+    go f Development = f 115
+    go f (FastTimedCPM g) | g == petersonChainGraph = f 30
     go f _ = f 5
 
 -- -------------------------------------------------------------------------- --
