@@ -73,12 +73,6 @@ v = Development
 coinReplV1 :: FilePath
 coinReplV1 = "pact/coin-contract/coin.repl"
 
--- coinReplV2 :: FilePath
--- coinReplV2 = "pact/coin-contract/v2/coin.repl"
-
--- coinReplV3 :: FilePath
--- coinReplV3 = "pact/coin-contract/v3/coin-v3.repl"
-
 coinReplV4 :: FilePath
 coinReplV4 = "pact/coin-contract/v4/coin-v4.repl"
 
@@ -101,9 +95,7 @@ tests = testGroup "Chainweb.Test.Pact.TransactionTests"
   , testGroup "Pact Code Unit Tests"
     [ testGroup "Coin Contract repl tests"
       [ testCase "v1" (ccReplTests coinReplV1)
-      -- commented out due to changes in gas model
-      -- , testCase "v2" (ccReplTests coinReplV2)
-      -- , testCase "v3" (ccReplTests coinReplV3)
+        -- v2 and v3 repl tests were consolidated in v4
       , testCase "v4" (ccReplTests coinReplV4)
       ]
     , testCase "Ns Repl Tests" (ccReplTests "pact/namespaces/ns.repl")
