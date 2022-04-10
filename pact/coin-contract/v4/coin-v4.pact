@@ -126,7 +126,6 @@
       amount:decimal
       source-chain:string
     )
-    @doc "Capability for tracking completed cross-chain transfers"
     @event true
   )
 

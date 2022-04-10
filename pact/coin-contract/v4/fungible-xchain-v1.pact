@@ -24,4 +24,14 @@
          \ such that a request for 1.0 amount on a 3.0 \
          \ managed quantity emits updated amount 2.0."
   )
+
+  (defcap TRANSFER-XCHAIN-RECD:bool
+    ( sender:string
+      receiver:string
+      amount:decimal
+      source-chain:string
+    )
+    @doc "Capability for tracking received cross-chain transfers"
+    @event
+  )
 )

@@ -16,13 +16,13 @@
 (env-gaslog)
 (expect
   "Gas cost of loading fungible-xchain contract"
-  171 (env-gas))
+  215 (env-gas))
 
 (load "coin-v4.pact")
 (env-gaslog)
 (expect
   "Gas cost of loading coin contract"
-  4037
+  4067
   (env-gas))
 
 (create-table coin.coin-table)
@@ -654,7 +654,7 @@
   "Write succeeded"
   (transfer-create 'emily 'doug (read-keyset 'doug) UNIT_GOOD))
 
- (expect-failure
+(expect-failure
    "bad transfer-create fails"
    "minimum precision"
    (transfer-create 'emily 'doug (read-keyset 'doug) UNIT_BAD))
