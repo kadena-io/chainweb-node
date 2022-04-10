@@ -15,7 +15,7 @@
 (env-gaslog)
 (expect
   "Gas cost of loading coin contract"
-  4472
+  4461
   (env-gas))
 
 (create-table coin.coin-table)
@@ -52,7 +52,7 @@
 (env-gaslog)
 (expect
   "Gas cost of coin contract account creation"
-  200 (env-gas))
+  202 (env-gas))
 
 (create-account 'doug (read-keyset 'doug))
 
@@ -434,7 +434,7 @@
   (transfer-create 'doug 'will (read-keyset 'will) 1.0))
 (env-gaslog)
 (expect
-  "Gas cost of transfer-create" 485 (env-gas))
+  "Gas cost of transfer-create" 487 (env-gas))
 
 (expect
   "doug now has 0.4 coins"
