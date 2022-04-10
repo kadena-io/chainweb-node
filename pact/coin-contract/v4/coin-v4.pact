@@ -18,7 +18,6 @@
     ]
 
   (implements fungible-v2)
-<<<<<<< HEAD
   (implements fungible-xchain-v1)
 
   ;; coin-v2
@@ -26,10 +25,6 @@
 
   ;; coin v3
   (bless "1os_sLAUYvBzspn5jjawtRpJWiH1WPfhyNraeVvSIwU")
-=======
-
-  (bless "ut_J_ZNkoyaPUEJhiwVeWnkSQn9JT9sQCWKdjjVVrWo")
->>>>>>> master
 
   ; --------------------------------------------------------------------------
   ; Schemas and Tables
@@ -112,7 +107,7 @@
 
     @managed amount TRANSFER-XCHAIN-mgr
     (enforce-unit amount)
-    (enforce (> amount 0.0) "Cross-chain transfers requir a positive amount")
+    (enforce (> amount 0.0) "Cross-chain transfers require a positive amount")
   )
 
   (defun TRANSFER-XCHAIN-mgr:decimal
@@ -122,7 +117,17 @@
 
     (enforce (>= managed requested)
       (format "TRANSFER-XCHAIN exceeded for balance {}" [managed]))
-    managed
+    0.0
+  )
+
+  (defcap TRANSFER-XCHAIN-RECD:bool
+    ( sender:string
+      receiver:string
+      amount:decimal
+      source-chain:string
+    )
+    @doc "Capability for tracking completed cross-chain transfers"
+    @event true
   )
 
   ; v3 capabilities
@@ -513,7 +518,8 @@
     @doc "Schema for yielded value in cross-chain transfers"
     receiver:string
     receiver-guard:guard
-    amount:decimal)
+    amount:decimal
+    source-chain:string)
 
   (defpact transfer-crosschain:string
     ( sender:string
@@ -546,13 +552,14 @@
 
           ;; step 1 - debit delete-account on current chain
           (debit sender amount)
-          (emit-event (TRANSFER-XCHAIN sender "" amount target-chain))
+          (emit-event (TRANSFER sender "" amount))
 
           (let
             ((crosschain-details:object{crosschain-schema}
               { "receiver" : receiver
               , "receiver-guard" : receiver-guard
               , "amount" : amount
+              , "source-chain" : (at 'chain-id (chain-data))
               }))
             (yield crosschain-details target-chain)
             ))))
@@ -562,8 +569,10 @@
         { "receiver" := receiver
         , "receiver-guard" := receiver-guard
         , "amount" := amount
+        , "source-chain" := source-chain
         }
-        (emit-event (TRANSFER-XCHAIN "" receiver amount target-chain))
+        (emit-event (TRANSFER "" receiver amount))
+        (emit-event (TRANSFER-XCHAIN-RECD sender receiver amount source-chain))
         ;; step 2 - credit create account on target chain
         (with-capability (CREDIT receiver)
           (credit receiver receiver-guard amount))
