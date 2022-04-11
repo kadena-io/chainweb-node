@@ -22,7 +22,7 @@
 (env-gaslog)
 (expect
   "Gas cost of loading coin contract"
-  4058
+  4048
   (env-gas))
 
 (create-table coin.coin-table)
@@ -59,7 +59,7 @@
 (env-gaslog)
 (expect
   "Gas cost of coin contract account creation"
-  200 (env-gas))
+  207 (env-gas))
 
 (create-account 'doug (read-keyset 'doug))
 
@@ -441,7 +441,7 @@
   (transfer-create 'doug 'will (read-keyset 'will) 1.0))
 (env-gaslog)
 (expect
-  "Gas cost of transfer-create" 485 (env-gas))
+  "Gas cost of transfer-create" 492 (env-gas))
 
 (expect
   "doug now has 0.4 coins"
@@ -994,6 +994,18 @@
   ,'k2:
    {'keys:["5b4c9fc5207fcf700a5fbcb48c261820149c8ecd52e005282ed9e3f5febcd1f4"]
    ,'pred:"keys-any"}
+  ,'multi:
+   { 'keys:
+       ["5b4c9fc5207fcf700a5fbcb48c261820149c8ecd52e005282ed9e3f5febcd1f4"
+        "732f3118c452e0eb741c7b9c168e2c99a37a277d50aa2526147440cbe334a9fd"
+       ]
+   ,'pred:"keys-any"}
+  ,'multi2:
+   { 'keys:
+       ["5b4c9fc5207fcf700a5fbcb48c261820149c8ecd52e005282ed9e3f5febcd1f4"
+        "732f3118c452e0eb741c7b9c168e2c99a37a277d50aa2526147440cbe334a9fd"
+       ]
+   ,'pred:"keys-all"}
   })
 (env-sigs
   [{'key:'keys2
@@ -1003,14 +1015,23 @@
       0.02)
     ,(coin.TRANSFER 'emily
       "k:5b4c9fc5207fcf700a5fbcb48c261820149c8ecd52e005282ed9e3f5febcd1f4"
-      0.02)]}])
+      0.02)
+    ,(coin.TRANSFER 'emily
+      "w:rMKJaEs5vWJ5q6828DZNXbl66AGJUrtSoyR011AGusA:keys-any"
+      0.02)
+    ,(coin.TRANSFER 'emily
+      "w:rMKJaEs5vWJ5q6828DZNXbl66AGJUrtSoyR011AGusA:keys-all"
+      0.02)]
+   }])
 (length "k:5b4c9fc5207fcf700a5fbcb48c261820149c8ecd52e005282ed9e3f5febcd1f3")
+
 (expect-failure
   "single-key mismatch, create-account"
   "Single-key account protocol violation"
   (coin.create-account
     "k:5b4c9fc5207fcf700a5fbcb48c261820149c8ecd52e005282ed9e3f5febcd1f3"
     (read-keyset 'k)))
+
 (expect-failure
   "single-key mismatch, transfer-create"
   "Single-key account protocol violation"
@@ -1019,12 +1040,14 @@
     "k:5b4c9fc5207fcf700a5fbcb48c261820149c8ecd52e005282ed9e3f5febcd1f3"
     (read-keyset 'k)
     0.02))
+
 (expect-failure
   "single-key pred mismatch, create-account"
   "Single-key account protocol violation"
   (coin.create-account
     "k:5b4c9fc5207fcf700a5fbcb48c261820149c8ecd52e005282ed9e3f5febcd1f4"
     (read-keyset 'k2)))
+
 (expect-failure
   "single-key pred mismatch, transfer-create"
   "Single-key account protocol violation"
@@ -1035,8 +1058,31 @@
     0.02))
 
 (expect-failure
+  "multi-sig hash mismatch, create-account"
+  "Reserved protocol guard violation: w"
+  (coin.create-account
+    "w:rMKJaEs5vWJ5q6828DZNXbl66AGJUrtSoyR011AGusB:keys-any"
+    (read-keyset 'multi)))
+
+(expect-failure
+  "multi-sig pred + hash mismatch, create-account"
+  "Reserved protocol guard violation: w"
+  (coin.create-account
+    "w:rMKJaEs5vWJ5q6828DZNXbl66AGJUrtSoyR011AGusA:keys-any"
+    (read-keyset 'multi2)))
+
+(expect-failure
+  "multi-sig pred mismatch, transfer-create"
+  "Reserved protocol guard violation: w"
+  (coin.transfer-create
+    'emily
+    "w:rMKJaEs5vWJ5q6828DZNXbl66AGJUrtSoyR011AGusA:keys-all"
+    (read-keyset 'multi)
+    0.02))
+
+(expect-failure
   "bad protocol, create-account"
-  "Unrecognized reserved protocol: c"
+  "Reserved protocol guard violation: c"
   (coin.create-account
     "c:5b4c9fc5207fcf700a5fbcb48c261820149c8ecd52e005282ed9e3f5febcd1f4"
     (read-keyset 'k2)))
@@ -1047,6 +1093,14 @@
   (coin.create-account
     "k:5b4c9fc5207fcf700a5fbcb48c261820149c8ecd52e005282ed9e3f5febcd1f4"
     (read-keyset 'k)))
+
+(expect
+  "multi-sig success, create-account"
+  "Write succeeded"
+  (coin.create-account
+    "w:rMKJaEs5vWJ5q6828DZNXbl66AGJUrtSoyR011AGusA:keys-any"
+    (read-keyset 'multi)))
+
 (rollback-tx)
 (begin-tx)
 (env-data
