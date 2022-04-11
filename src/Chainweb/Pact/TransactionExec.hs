@@ -651,6 +651,7 @@ applyExec' interp (ExecMsg parsedCode execData) senderSigs hsh nsp
       eenv <- mkEvalEnv nsp (MsgData execData Nothing hsh senderSigs)
           <&> disablePact40Natives pactFlags
           <&> disablePact420Natives pactFlags
+          <&> disablePact43Natives pactFlags
 
       er <- liftIO $! evalExec interp eenv parsedCode
 
@@ -729,6 +730,7 @@ applyContinuation' interp cm@(ContMsg pid s rb d _) senderSigs hsh nsp = do
     eenv <- mkEvalEnv nsp (MsgData d pactStep hsh senderSigs)
           <&> disablePact40Natives pactFlags
           <&> disablePact420Natives pactFlags
+          <&> disablePact43Natives pactFlags
 
     er <- liftIO $! evalContinuation interp eenv cm
 
@@ -953,6 +955,13 @@ disablePactNatives bannedNatives flag ec = if has (ecFlags . ix flag) ec
 disablePact420Natives :: ExecutionConfig -> EvalEnv e -> EvalEnv e
 disablePact420Natives = disablePactNatives ["zip", "fold-db"] FlagDisablePact420
 {-# INLINE disablePact420Natives #-}
+
+-- | Disable certain natives around pact 4.2.0
+--
+disablePact43Natives :: ExecutionConfig -> EvalEnv e -> EvalEnv e
+disablePact43Natives = disablePactNatives ["create-principal", "validate-principal"] FlagDisablePact43
+{-# INLINE disablePact420Natives #-}
+
 
 -- | Set the module cache of a pact 'EvalState'
 --
