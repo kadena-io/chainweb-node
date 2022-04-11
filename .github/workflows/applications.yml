@@ -159,7 +159,6 @@ jobs:
          cabal-version: ${{ matrix.cabal }}
     - name: Confirm GHC and Cabal installation
       run: |
-        lscpu
         ghc --version
         cabal --version
     - name: Install non-Haskell dependencies (ubuntu)

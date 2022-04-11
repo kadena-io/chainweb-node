@@ -119,6 +119,7 @@ module Chainweb.Utils
 , (???)
 , fromEitherM
 , InternalInvariantViolation(..)
+, eatIOExceptions
 
 -- ** Synchronous Exceptions
 , catchSynchronous
@@ -209,7 +210,8 @@ import Control.Concurrent.Async
 import Control.Concurrent.MVar
 import Control.Concurrent.TokenBucket
 import Control.DeepSeq
-import Control.Exception (SomeAsyncException(..))
+import Control.Exception
+    (IOException, SomeAsyncException(..), evaluate)
 import Control.Lens hiding ((.=))
 import Control.Monad
 import Control.Monad.Catch hiding (bracket)
@@ -250,7 +252,7 @@ import qualified Data.Vector as V
 import Data.Word
 
 import GHC.Generics
-import GHC.Stack
+import GHC.Stack (HasCallStack)
 import GHC.TypeLits (KnownSymbol, symbolVal)
 
 import qualified Network.Connection as HTTP
@@ -846,6 +848,15 @@ newtype InternalInvariantViolation = InternalInvariantViolation T.Text
     deriving (Show)
 
 instance Exception InternalInvariantViolation
+
+-- | Catch and strictly evaluate any 'IOException's.
+--
+-- This function should be used with great care because operation may silently
+-- fail without leaving a trace. This can hide issues in the code making them
+-- very difficult to debug.
+--
+eatIOExceptions :: IO () -> IO ()
+eatIOExceptions = handle $ \(e :: IOException) -> void $ evaluate e
 
 -- | Catch and handle exception that are not contained in 'SomeAsyncException'.
 --

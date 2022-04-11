@@ -20,7 +20,7 @@ runs:
           sudo apt-get install -y z3 build-essential libsnappy-dev libgflags-dev libbz2-dev
           ;;
         mac*)
-          brew update && brew install --devel gflags rocksdb llvm snappy bzip2 z3 gnu-tar || true
+          brew update && brew install gflags rocksdb llvm snappy bzip2 z3 gnu-tar || true
           ;;
         *)
           echo "::error::unsupported operating system ${{ inputs.os }}"
@@ -34,10 +34,6 @@ runs:
       run: |
           tar -xzf $ARCHIVE_PATTERN
           echo "`pwd`/chainweb" >> $GITHUB_PATH
-          sha256sum chainweb/chainweb-node
     - name: test chainweb installation
       shell: bash
-      run: |
-          lscpu
-          ldd chainweb/chainweb-node
-          chainweb-node --version
+      run: chainweb-node --version
