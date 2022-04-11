@@ -27,40 +27,45 @@ main = defaultMainWithHooks
         , confHook =
             \t f -> do
                 lbi <- confHook simpleUserHooks t f
-                let plat = hostPlatform lbi
+                let
+                    plat = hostPlatform lbi
+                    dllFile pat = pat <.> dllExtension plat
+                    staticLibFile pat = pat <.> staticLibExtension plat
                 case plat of
                     -- don't even try building rocksdb on mac, homebrew version is new enough
                     Platform _ OSX -> pure lbi
                         { localPkgDescr = flip updatePackageDescription (localPkgDescr lbi) $ (,[]) $ Just emptyBuildInfo
                             { extraLibs = ["rocksdb"]
-                            -- , includes = ["rocksdb/c.h"]
                             }
                         }
                     _ -> do
                         toplevel <- getCurrentDirectory
-                        let rocksdb_tar = toplevel </> "rocksdb-6.29.3.tar.gz"
                         let
-                            clbi = getComponentLocalBuildInfo lbi (CLibName LMainLibName)
-                            -- rocksdb_libname =
-                                -- getHSLibraryName (componentUnitId clbi) ++ "-rocksdb-6.29.3"
-                        let
+                            -- rocksdb is included compressed so that it can be
+                            -- considered a "source file" by cabal
+                            rocksdb_tar = toplevel </> "rocksdb-6.29.3.tar.gz"
                             rocksdb_srcdir = "rocksdb-6.29.3"
                             extra_libs = ["stdc++", "gflags", "snappy", "bz2"]
-                            builddir =
-                                componentBuildDir lbi clbi
+                            clbi = getComponentLocalBuildInfo lbi (CLibName LMainLibName)
+                            builddir = componentBuildDir lbi clbi
+                        -- we unzip rocksdb into the build dir, so that it's
+                        -- properly cleaned up and not included by git
                         withCurrentDirectory builddir $ do
                             runLBIProgram lbi tarProgram ["-xzf", rocksdb_tar]
                             copyDirectoryRecursive minBound (rocksdb_srcdir </> "include") (toplevel </> "include")
-                            -- TODO: do a recursive listing for the utilities/ folder's headers
                             nprocs <- getNumProcessors
-                            let
-                                dllFile pat = pat <.> dllExtension plat
-                                staticLibFile pat = pat <.> staticLibExtension plat
-                                jobs = max 2 $ min 4 $ nprocs
+                            let jobs = max 2 $ min 4 $ nprocs
+                            -- we must build the shared library first.
+                            -- if we build static first, when we go to build
+                            -- the shared library, -fPIC will still be off,
+                            -- causing linker errors.
                             runLBIProgram lbi makeProgram
                                 [ "-C", rocksdb_srcdir, "-j" <> show jobs
                                 , "shared_lib"
                                 ]
+                            -- cabal's extra-bundled-libraries demands that we
+                            -- package librocksdb with all of these names, in both
+                            -- shared and static flavors.
                             copyFile (rocksdb_srcdir </> dllFile "librocksdb") (dllFile "librocksdb")
                             copyFile (rocksdb_srcdir </> dllFile "librocksdb") (dllFile "libCrocksdb")
                             copyFile (rocksdb_srcdir </> dllFile "librocksdb") (dllFile "librocksdb" <.> "6.29")
@@ -78,7 +83,7 @@ main = defaultMainWithHooks
                                     ( Just
                                         emptyBuildInfo
                                         { extraLibs = extra_libs
-                                        , includeDirs = ["rocksdb-6.29.3/include"]
+                                        , includeDirs = [rocksdb_srcdir </> "include"]
                                         , installIncludes = includeFiles
                                         , extraBundledLibs = ["Crocksdb"]
                                         }
@@ -125,6 +130,7 @@ makeProgram = (simpleProgram "make")
             (_:_:ver:_) -> ver
             _ -> ""
     , programPostConf = \_ p ->
-        -- build rocksdb without -march=native, to avoid processor feature mismatches (illegal instruction errors)
+        -- build rocksdb without -march=native, to avoid processor feature mismatches
+        -- (illegal instruction errors)
         return p { programOverrideEnv = [("PORTABLE", Just "1")] }
     }
