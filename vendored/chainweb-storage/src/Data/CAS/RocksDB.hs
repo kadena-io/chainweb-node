@@ -57,6 +57,7 @@ module Data.CAS.RocksDB
 , RocksDbTable
 , newTable
 , tableLookup
+, tableLookupBatch
 , tableInsert
 , tableDelete
 
@@ -376,6 +377,22 @@ tableLookup db k = do
     traverse (decVal db) maybeBytes
 {-# INLINE tableLookup #-}
 
+-- | @tableLookupBatch db ks@ returns for each @k@ in @ks@ 'Just' the value at
+-- key @k@ in the 'RocksDbTable' @db@ if it exists, or 'Nothing' if the @k@
+-- doesn't exist in the table.
+--
+tableLookupBatch
+    :: HasCallStack
+    => RocksDbTable k v
+    -> V.Vector k
+    -> IO (V.Vector (Maybe v))
+tableLookupBatch db ks = do
+    results <- multiGet (_rocksDbTableDb db) R.defaultReadOptions (V.map (encKey db) ks)
+    V.forM results $ \case
+        Left e -> error $ "Data.CAS.RocksDB.tableLookupBatch: " <> e
+        Right x -> traverse (decVal db) x
+{-# INLINE tableLookupBatch #-}
+
 -- | @tableDelete db k@ deletes the value at the key @k@ from the 'RocksDbTable'
 -- db. If the @k@ doesn't exist in @db@ this function does nothing.
 --
@@ -667,7 +684,10 @@ tableMinEntry = flip withTableIter $ \i -> tableIterFirst i *> tableIterEntry i
 instance (IsCasValue v, CasKeyType v ~ k) => HasCasLookup (RocksDbTable k v) where
     type CasValueType (RocksDbTable k v) = v
     casLookup = tableLookup
+    casLookupBatch = tableLookupBatch
+
     {-# INLINE casLookup #-}
+    {-# INLINE casLookupBatch #-}
 
 -- | For a 'IsCasValue' @v@ with 'CasKeyType v ~ k@,  a 'RocksDbTable k v' is an
 -- instance of 'IsCas'.
@@ -698,7 +718,10 @@ newtype RocksDbCas v = RocksDbCas { _getRocksDbCas :: RocksDbTable (CasKeyType v
 instance IsCasValue v => HasCasLookup (RocksDbCas v) where
     type CasValueType (RocksDbCas v) = v
     casLookup (RocksDbCas x) = casLookup x
+    casLookupBatch (RocksDbCas x) = casLookupBatch x
+
     {-# INLINE casLookup #-}
+    {-# INLINE casLookupBatch #-}
 
 instance IsCasValue v => IsCas (RocksDbCas v) where
     casInsert (RocksDbCas x) = casInsert x
@@ -903,3 +926,82 @@ get (R.DB db_ptr _) opts key = liftIO $ R.withCReadOpts opts $ \opts_ptr ->
 -- https://msdn.microsoft.com/en-us/library/windows/desktop/dd374081(v=vs.85).aspx.
 withFilePath :: FilePath -> (CString -> IO a) -> IO a
 withFilePath = GHC.withCString GHC.utf8
+
+-- -------------------------------------------------------------------------- --
+-- Multi Get
+
+multiGet
+    :: MonadIO m
+    => R.DB
+    -> R.ReadOptions
+    -> V.Vector ByteString
+    -> m (V.Vector (Either String (Maybe ByteString)))
+multiGet (R.DB db_ptr _) opts keys = liftIO $ R.withCReadOpts opts $ \opts_ptr ->
+    allocaArray len $ \keysArray ->
+    allocaArray len $ \keySizesArray ->
+    allocaArray len $ \valuesArray ->
+    allocaArray len $ \valueSizesArray ->
+    allocaArray len $ \errsArray ->
+        let go i (key : ks) =
+                BU.unsafeUseAsCStringLen key $ \(keyPtr, keyLen) -> do
+                    pokeElemOff keysArray i keyPtr
+                    pokeElemOff keySizesArray i (R.intToCSize keyLen)
+                    go (i + 1) ks
+
+            go _ [] = do
+                rocksdb_multi_get db_ptr opts_ptr (R.intToCSize len)
+                    keysArray keySizesArray
+                    valuesArray valueSizesArray
+                    errsArray
+                V.generateM len $ \i -> do
+                  valuePtr <- peekElemOff valuesArray i
+                  if valuePtr /= nullPtr
+                    then do
+                      valueLen <- R.cSizeToInt <$> peekElemOff valueSizesArray i
+                      r <- BU.unsafePackMallocCStringLen (valuePtr, valueLen)
+                      return $ Right $ Just r
+                    else do
+                      errPtr <- peekElemOff errsArray i
+                      if errPtr /= nullPtr
+                        then do
+                          err <- B8.unpack <$> BU.unsafePackMallocCString errPtr
+                          return $ Left err
+                        else
+                          return $ Right Nothing
+        in go 0 $ V.toList keys
+  where
+    len = V.length keys
+
+-- // if values_list[i] == NULL and errs[i] == NULL,
+-- // then we got status.IsNotFound(), which we will not return.
+-- // all errors except status status.ok() and status.IsNotFound() are returned.
+-- //
+-- // errs, values_list and values_list_sizes must be num_keys in length,
+-- // allocated by the caller.
+-- // errs is a list of strings as opposed to the conventional one error,
+-- // where errs[i] is the status for retrieval of keys_list[i].
+-- // each non-NULL errs entry is a malloc()ed, null terminated string.
+-- // each non-NULL values_list entry is a malloc()ed array, with
+-- // the length for each stored in values_list_sizes[i].
+-- extern ROCKSDB_LIBRARY_API void rocksdb_multi_get(
+--     rocksdb_t* db, const rocksdb_readoptions_t* options, size_t num_keys,
+--     const char* const* keys_list, const size_t* keys_list_sizes,
+--     char** values_list, size_t* values_list_sizes, char** errs);
+--
+foreign import ccall unsafe "rocksdb\\c.h rocksdb_multi_get"
+    rocksdb_multi_get
+        :: C.RocksDBPtr
+        -> C.ReadOptionsPtr
+        -> CSize
+            -- ^ num_key
+        -> Ptr (Ptr CChar)
+            -- ^ keys_list
+        -> Ptr CSize
+            -- ^ keys_list_sizes
+        -> Ptr (Ptr CChar)
+            -- ^ values_list
+        -> Ptr CSize
+            -- ^ values_list_sizes
+        -> Ptr CString
+            -- ^ errs
+        -> IO ()
