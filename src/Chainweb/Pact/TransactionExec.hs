@@ -792,7 +792,7 @@ findPayer isPactBackCompatV16 cmd = runMaybeT $ do
 
     gasPayerIface = ModuleName "gas-payer-v1" Nothing
 
-    lookupIfaceModRef (QualifiedName _ n _) (ModuleData (MDModule (Module {..})) refs)
+    lookupIfaceModRef (QualifiedName _ n _) (ModuleData (MDModule Module{..}) refs _)
       | gasPayerIface `elem` _mInterfaces = HM.lookup n refs
     lookupIfaceModRef _ _ = Nothing
 
@@ -937,11 +937,9 @@ disablePact40Natives =
 {-# INLINE disablePact40Natives #-}
 
 disablePactNatives :: [Text] -> ExecutionFlag -> ExecutionConfig -> EvalEnv e -> EvalEnv e
-disablePactNatives natives flag ec = if has (ecFlags . ix flag) ec
+disablePactNatives bannedNatives flag ec = if has (ecFlags . ix flag) ec
     then over (eeRefStore . rsNatives) (\k -> foldl' (flip HM.delete) k bannedNatives)
     else id
-  where
-    bannedNatives = natives <&> \name -> Name (BareName name def)
 {-# INLINE disablePactNatives #-}
 
 -- | Disable certain natives around pact 4.2.0
