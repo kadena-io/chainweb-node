@@ -735,4 +735,3 @@ tablecode = T.unlines
     , ""
     , "(create-table test-table)"
     ]
-

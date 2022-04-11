@@ -170,6 +170,7 @@ applyCmd v logger pdbenv miner gasModel txCtx spv cmdIn mcache0 =
           ++ enablePact43 txCtx
           ++ enforceKeysetFormats' txCtx
           ++ enablePactModuleMemcheck txCtx
+          ++ enablePact43 txCtx
         )
 
     cenv = TransactionEnv Transactional pdbenv logger (ctxToPublicData txCtx) spv nid gasPrice
@@ -801,7 +802,11 @@ findPayer isPactBackCompatV16 cmd = runMaybeT $ do
 
     gasPayerIface = ModuleName "gas-payer-v1" Nothing
 
+<<<<<<< HEAD
     lookupIfaceModRef (QualifiedName _ n _) (ModuleData (MDModule (Module {..})) refs _)
+=======
+    lookupIfaceModRef (QualifiedName _ n _) (ModuleData (MDModule Module{..}) refs _)
+>>>>>>> master
       | gasPayerIface `elem` _mInterfaces = HM.lookup n refs
     lookupIfaceModRef _ _ = Nothing
 
