@@ -962,7 +962,7 @@ disablePact420Natives = disablePactNatives ["zip", "fold-db"] FlagDisablePact420
 -- | Disable certain natives around pact 4.2.0
 --
 disablePact43Natives :: ExecutionConfig -> EvalEnv e -> EvalEnv e
-disablePact43Natives = disablePactNatives ["create-principal", "validate-principal"] FlagDisablePact43
+disablePact43Natives = disablePactNatives ["create-principal", "validate-principal", "continue"] FlagDisablePact43
 {-# INLINE disablePact43Natives #-}
 
 
