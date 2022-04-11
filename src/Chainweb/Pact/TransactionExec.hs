@@ -802,11 +802,7 @@ findPayer isPactBackCompatV16 cmd = runMaybeT $ do
 
     gasPayerIface = ModuleName "gas-payer-v1" Nothing
 
-<<<<<<< HEAD
-    lookupIfaceModRef (QualifiedName _ n _) (ModuleData (MDModule (Module {..})) refs _)
-=======
     lookupIfaceModRef (QualifiedName _ n _) (ModuleData (MDModule Module{..}) refs _)
->>>>>>> master
       | gasPayerIface `elem` _mInterfaces = HM.lookup n refs
     lookupIfaceModRef _ _ = Nothing
 
