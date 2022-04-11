@@ -30,7 +30,7 @@ library
     cxx-sources: cpp/chainweb-rocksdb.cpp
     include-dirs: cpp
     install-includes: cpp/chainweb-rocksdb.h
-    extra-libraries: stdc++ snappy bz2
+    extra-libraries: stdc++
     cxx-options: -std=c++17 -fno-rtti
     default-language: Haskell2010
     ghc-options:
