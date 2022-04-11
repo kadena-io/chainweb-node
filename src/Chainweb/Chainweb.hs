@@ -460,7 +460,6 @@ withChainwebInternal conf logger peer serviceSock rocksDb pactDbDir backupDir re
                     withMinerResources mLogger (_miningInNode mConf) cs mCutDb mc $ \m -> do
                         logg Info "finished initializing miner resources"
                         let !haddr = _peerConfigAddr $ _p2pConfigPeer $ _configP2p conf
-                        switchToLatestCut mCutDb
                         logg Info "start synchronizing Pact DBs again"
                         synchronizePactDb cs mCutDb
                         logg Info "finished synchronizing Pact DBs again"
