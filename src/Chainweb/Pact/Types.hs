@@ -28,6 +28,9 @@ module Chainweb.Pact.Types
 
     -- * Misc helpers
   , Transactions(..)
+  , transactionCoinbase
+  , transactionPairs
+
   , GasSupply(..)
   , GasId(..)
   , EnforceCoinbaseFailure(..)
@@ -77,6 +80,8 @@ module Chainweb.Pact.Types
   , psAllowReadsInLocal
   , psIsBatch
   , psCheckpointerDepth
+  , psBlockGasLimit
+
   , getCheckpointer
 
     -- * TxContext
@@ -124,6 +129,7 @@ module Chainweb.Pact.Types
   , defaultOnFatalError
   , defaultReorgLimit
   , defaultPactServiceConfig
+  , defaultBlockGasLimit
   ) where
 
 import Control.DeepSeq
@@ -180,10 +186,11 @@ import Chainweb.Utils
 import Chainweb.Version
 
 
-data Transactions = Transactions
-    { _transactionPairs :: !(Vector (ChainwebTransaction, CommandResult [TxLog Value]))
+data Transactions r = Transactions
+    { _transactionPairs :: !(Vector (ChainwebTransaction, r))
     , _transactionCoinbase :: !(CommandResult [TxLog Value])
     } deriving (Eq, Show, Generic, NFData)
+makeLenses 'Transactions
 
 data PactDbStatePersist = PactDbStatePersist
     { _pdbspRestoreFile :: !(Maybe FilePath)
@@ -346,6 +353,7 @@ data PactServiceEnv cas = PactServiceEnv
         -- ^ True when within a `withBatch` or `withDiscardBatch` call.
     , _psCheckpointerDepth :: !Int
         -- ^ Number of nested checkpointer calls
+    , _psBlockGasLimit :: !GasLimit
     }
 makeLenses ''PactServiceEnv
 
@@ -360,16 +368,23 @@ instance HasChainId (PactServiceEnv c) where
 defaultReorgLimit :: Word64
 defaultReorgLimit = 480
 
+-- | NOTE this is only used for tests/benchmarks. DO NOT USE IN PROD
 defaultPactServiceConfig :: PactServiceConfig
 defaultPactServiceConfig = PactServiceConfig
-      { _pactReorgLimit = fromIntegral $ defaultReorgLimit
+      { _pactReorgLimit = fromIntegral defaultReorgLimit
       , _pactRevalidate = True
       , _pactQueueSize = 10000
       , _pactResetDb = True
       , _pactAllowReadsInLocal = False
       , _pactUnlimitedInitialRewind = False
+      , _pactBlockGasLimit = defaultBlockGasLimit
       }
 
+-- | This default value is only relevant for testing. In a chainweb-node the @GasLimit@
+-- is initialized from the @_configBlockGasLimit@ value of @ChainwebConfiguration@.
+--
+defaultBlockGasLimit :: GasLimit
+defaultBlockGasLimit = 10000
 
 newtype ReorgLimitExceeded = ReorgLimitExceeded Text
 

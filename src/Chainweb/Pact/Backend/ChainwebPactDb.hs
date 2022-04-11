@@ -82,7 +82,12 @@ import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.Backend.Utils
 import Chainweb.Pact.Service.Types (PactException(..), internalError)
 import Chainweb.Version (ChainwebVersion, ChainId, genesisHeight)
-import Chainweb.Utils (encodeToByteString)
+import Chainweb.Utils (encodeToByteString, sshow)
+
+tbl :: HasCallStack => Utf8 -> Utf8
+tbl t@(Utf8 b)
+    | B8.elem ']' b =  error $ "Chainweb.Pact.Backend.ChainwebPactDb: Code invariant violation. Illegal SQL table name " <> sshow b <> ". Please report this as a bug."
+    | otherwise = "[" <> t <> "]"
 
 chainwebPactDb :: PactDb (BlockEnv SQLiteEnv)
 chainwebPactDb = PactDb
@@ -126,12 +131,8 @@ doReadRow d k = forModuleNameFix $ \mnFix ->
     tableName = domainTableName d
     (Utf8 tableNameBS) = tableName
 
-    queryStmt = mconcat [ "SELECT rowdata FROM ["
-                        , tableName
-                        , "]  WHERE rowkey = ? \
-                          \ ORDER BY txid DESC \
-                          \ LIMIT 1;"
-                        ]
+    queryStmt =
+        "SELECT rowdata FROM " <> tbl tableName <> " WHERE rowkey = ? ORDER BY txid DESC LIMIT 1;"
 
     lookupWithKey :: forall v . FromJSON v => Utf8 -> BlockHandler SQLiteEnv (Maybe v)
     lookupWithKey key = do
@@ -229,17 +230,14 @@ backendWriteUpdateBatch bh writesByTable db = mapM_ writeTable writesByTable
     prepRow (SQLiteRowDelta _ txid rowkey rowdata) =
         [ SText (Utf8 rowkey)
         , SInt (fromIntegral txid)
-        , SBlob rowdata ]
+        , SBlob rowdata
+        ]
 
     writeTable (tableName, writes) = do
         execMulti db q (V.toList $ V.map prepRow writes)
         markTableMutation tableName bh db
       where
-        q = mconcat
-          ["INSERT OR REPLACE INTO ["
-          , tableName
-          , "](rowkey,txid,rowdata) "
-          , "VALUES(?,?,?)"]
+        q = "INSERT OR REPLACE INTO " <> tbl tableName <> "(rowkey,txid,rowdata) VALUES(?,?,?)"
 
 
 markTableMutation :: Utf8 -> BlockHeight -> Database -> IO ()
@@ -333,8 +331,7 @@ doKeys d = do
             Nothing -> return mempty
             Just () -> do
                 ks <- callDb "doKeys" $ \db ->
-                          qry_ db  ("SELECT DISTINCT rowkey FROM ["
-                                    <> tn <> "];") [RText]
+                          qry_ db  ("SELECT DISTINCT rowkey FROM " <> tbl tn) [RText]
                 forM ks $ \row -> do
                     case row of
                         [SText k] -> return $! T.unpack $ fromUtf8 k
@@ -375,7 +372,7 @@ doTxIds (TableName tn) _tid@(TxId tid) = do
                     [SInt tid'] -> return $ TxId (fromIntegral tid')
                     _ -> internalError "doTxIds: the impossible happened"
 
-    stmt = "SELECT DISTINCT txid FROM [" <> toUtf8 tn <> "] WHERE txid > ?"
+    stmt = "SELECT DISTINCT txid FROM " <> tbl (toUtf8 tn) <> " WHERE txid > ?"
 
     tnS = T.encodeUtf8 tn
     collect p =
@@ -449,7 +446,7 @@ doRollback = modify'
     . set bsPendingTx Nothing
 
 doCommit :: BlockHandler SQLiteEnv [TxLog Value]
-doCommit = use bsMode >>= \mm -> case mm of
+doCommit = use bsMode >>= \case
     Nothing -> doRollback >> internalError "doCommit: Not in transaction"
     Just m -> do
         txrs <- if m == Transactional
@@ -488,7 +485,7 @@ clearPendingTxState = do
 
 doBegin :: ExecutionMode -> BlockHandler SQLiteEnv (Maybe TxId)
 doBegin m = do
-    use bsMode >>= \m' -> case m' of
+    use bsMode >>= \case
         Just {} -> do
             logError "beginTx: In transaction, rolling back"
             doRollback
@@ -534,17 +531,14 @@ doGetTxLog d txid = do
 
     readFromDb = do
         rows <- callDb "doGetTxLog" $ \db -> qry db stmt
-          [ SInt (fromIntegral txid) ]
+          [SInt (fromIntegral txid)]
           [RText, RBlob]
         forM rows $ \case
             [SText key, SBlob value] -> toTxLog d key value
             err -> internalError $
               "readHistoryResult: Expected single row with two columns as the \
               \result, got: " <> T.pack (show err)
-    stmt = mconcat [ "SELECT rowkey, rowdata FROM ["
-                   , tableName
-                   , "] WHERE txid = ?"
-                   ]
+    stmt = "SELECT rowkey, rowdata FROM " <> tbl tableName <> " WHERE txid = ?"
 
 
 toTxLog :: (MonadThrow m, FromJSON v, FromJSON l) =>
@@ -559,13 +553,14 @@ toTxLog d key value =
 blockHistoryInsert :: BlockHeight -> BlockHash -> TxId -> BlockHandler SQLiteEnv ()
 blockHistoryInsert bh hsh t =
     callDb "blockHistoryInsert" $ \db ->
-        exec' db stmt [ SInt (fromIntegral bh)
-                   , SBlob (Data.Serialize.encode hsh)
-                   , SInt (fromIntegral t) ]
+        exec' db stmt
+            [ SInt (fromIntegral bh)
+            , SBlob (Data.Serialize.encode hsh)
+            , SInt (fromIntegral t)
+            ]
   where
     stmt =
-      "INSERT INTO BlockHistory ('blockheight','hash','endingtxid') \
-            \ VALUES (?,?,?);"
+      "INSERT INTO BlockHistory ('blockheight','hash','endingtxid') VALUES (?,?,?);"
 
 createTransactionIndexTable :: BlockHandler SQLiteEnv ()
 createTransactionIndexTable = callDb "createTransactionIndexTable" $ \db -> do
@@ -641,20 +636,15 @@ createVersionedTable tablename db = do
     exec_ db createtablestmt
     exec_ db indexcreationstmt
   where
+    ixName = tablename <> "_ix"
     createtablestmt =
-      "CREATE TABLE IF NOT EXISTS["
-        <> tablename
-        <> "] (rowkey TEXT\
+      "CREATE TABLE IF NOT EXISTS " <> tbl tablename <> " \
+             \ (rowkey TEXT\
              \, txid UNSIGNED BIGINT NOT NULL\
              \, rowdata BLOB NOT NULL\
              \, UNIQUE (rowkey, txid));"
     indexcreationstmt =
-       mconcat
-           ["CREATE INDEX IF NOT EXISTS ["
-           , tablename
-           , "_ix] ON ["
-           , tablename
-           , "](txid DESC);"]
+        "CREATE INDEX IF NOT EXISTS " <> tbl ixName <> " ON " <> tbl tablename <> "(txid DESC);"
 
 -- | Rewind the checkpoint in the current BlockHistory to the requested block
 -- height and hash. This doesn't handle forks. The requested block hash must
@@ -706,8 +696,7 @@ handlePossibleRewind v cid bRestore hsh = do
         -- enforce invariant that the history has
         -- (B_restore-1,H_parent).
         resultCount <- callDb "handlePossibleRewind" $ \db -> do
-            qry db "SELECT COUNT(*) FROM BlockHistory WHERE \
-                   \blockheight = ? AND hash = ?;"
+            qry db "SELECT COUNT(*) FROM BlockHistory WHERE blockheight = ? AND hash = ?;"
                    [ SInt $! fromIntegral $ pred bRestore
                    , SBlob (Data.Serialize.encode hsh) ]
                    [RInt]
@@ -770,19 +759,17 @@ dropTablesAtRewind :: BlockHeight -> Database -> IO (HashSet BS.ByteString)
 dropTablesAtRewind bh db = do
     toDropTblNames <- qry db findTablesToDropStmt
                       [SInt (fromIntegral bh)] [RText]
-    tbls <- fmap (HashSet.fromList) . forM toDropTblNames $ \case
-        [SText tblname@(Utf8 tbl)] -> do
-            exec_ db $ "DROP TABLE [" <> tblname <> "];"
-            return tbl
+    tbls <- fmap HashSet.fromList . forM toDropTblNames $ \case
+        [SText tblname@(Utf8 tn)] -> do
+            exec_ db $ "DROP TABLE " <> tbl tblname
+            return tn
         _ -> internalError rewindmsg
     exec' db
         "DELETE FROM VersionedTableCreation WHERE createBlockheight >= ?"
         [SInt (fromIntegral bh)]
     return tbls
   where findTablesToDropStmt =
-          "SELECT tablename FROM\
-          \ VersionedTableCreation\
-          \ WHERE createBlockheight >= ?;"
+          "SELECT tablename FROM VersionedTableCreation WHERE createBlockheight >= ?;"
         rewindmsg =
           "rewindBlock:\
           \ dropTablesAtRewind: \
@@ -790,19 +777,18 @@ dropTablesAtRewind bh db = do
 
 vacuumTablesAtRewind :: BlockHeight -> TxId -> HashSet BS.ByteString -> Database -> IO ()
 vacuumTablesAtRewind bh endingtx droppedtbls db = do
-    let processMutatedTables ms = fmap (HashSet.fromList) . forM ms $ \case
-          [SText (Utf8 tbl)] -> return tbl
+    let processMutatedTables ms = fmap HashSet.fromList . forM ms $ \case
+          [SText (Utf8 tn)] -> return tn
           _ -> internalError "rewindBlock: vacuumTablesAtRewind: Couldn't resolve the name \
                              \of the table to possibly vacuum."
     mutatedTables <- qry db
-        "SELECT DISTINCT tablename\
-        \ FROM VersionedTableMutation WHERE blockheight >= ?;"
+        "SELECT DISTINCT tablename FROM VersionedTableMutation WHERE blockheight >= ?;"
       [SInt (fromIntegral bh)]
       [RText]
       >>= processMutatedTables
     let toVacuumTblNames = HashSet.difference mutatedTables droppedtbls
     forM_ toVacuumTblNames $ \tblname ->
-        exec' db (mconcat ["DELETE FROM [", Utf8 tblname, "] WHERE txid >= ?"])
+        exec' db ("DELETE FROM " <> tbl (Utf8 tblname) <> " WHERE txid >= ?")
               [SInt $! fromIntegral endingtx]
     exec' db "DELETE FROM VersionedTableMutation WHERE blockheight >= ?;"
           [SInt (fromIntegral bh)]

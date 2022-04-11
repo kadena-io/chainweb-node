@@ -98,6 +98,7 @@ import Pact.Types.SPV
 
 import Chainweb.BlockHeader
 import Chainweb.BlockHeight
+import Chainweb.Mempool.Mempool (requestKeyToTransactionHash)
 import Chainweb.Miner.Pact
 import Chainweb.Pact.Service.Types
 import Chainweb.Pact.Templates
@@ -196,7 +197,8 @@ applyCmd v logger pdbenv miner gasModel txCtx spv cmdIn mcache0 =
 
     applyBuyGas =
       catchesPactError (buyGas isPactBackCompatV16 cmd miner) >>= \case
-        Left e -> fatal $ "tx failure for requestKey when buying gas: " <> sshow e
+        Left e -> view txRequestKey >>= \rk ->
+          throwM $ BuyGasFailure $ GasPurchaseFailure (requestKeyToTransactionHash rk) e
         Right _ -> checkTooBigTx initialGas gasLimit applyPayload redeemAllGas
 
     applyPayload = do
@@ -481,6 +483,7 @@ applyUpgrades
 applyUpgrades v cid height
      | coinV2Upgrade v cid height = applyCoinV2
      | pact4coin3Upgrade At v height = applyCoinV3
+     | chainweb214Pact At v height = applyCoinV4
      | otherwise = return Nothing
   where
     installCoinModuleAdmin = set (evalCapabilities . capModuleAdmin) $ S.singleton (ModuleName "coin" Nothing)
@@ -488,6 +491,8 @@ applyUpgrades v cid height
     applyCoinV2 = applyTxs (upgradeTransactions v cid)
 
     applyCoinV3 = applyTxs coinV3Transactions
+
+    applyCoinV4 = applyTxs coinV4Transactions
 
     applyTxs txsIO = do
       infoLog "Applying upgrade!"
@@ -761,7 +766,9 @@ buyGas isPactBackCompatV16 cmd (Miner mid mks) = go
         (_pSigners $ _cmdPayload cmd) bgHash managedNamespacePolicy
 
       case _erExec result of
-        Nothing -> fatal "buyGas: Internal error - empty continuation"
+        Nothing ->
+          -- should never occur: would mean coin.fund-tx is not a pact
+          fatal "buyGas: Internal error - empty continuation"
         Just pe -> void $! txGasId .= (Just $! GasId (_pePactId pe))
 
 findPayer

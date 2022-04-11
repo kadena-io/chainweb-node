@@ -386,9 +386,10 @@ withChainwebInternal conf logger peer serviceSock rocksDb pactDbDir backupDir re
       , _pactQueueSize = _configPactQueueSize conf
       , _pactResetDb = resetDb
       , _pactAllowReadsInLocal = _configAllowReadsInLocal conf
-      , _pactUnlimitedInitialRewind = 
-          isJust (_cutDbParamsInitialHeightLimit cutConfig) || 
+      , _pactUnlimitedInitialRewind =
+          isJust (_cutDbParamsInitialHeightLimit cutConfig) ||
           isJust (_cutDbParamsInitialCutFile cutConfig)
+      , _pactBlockGasLimit = _configBlockGasLimit conf
       }
 
     pruningLogger :: T.Text -> logger
