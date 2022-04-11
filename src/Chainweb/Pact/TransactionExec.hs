@@ -949,8 +949,6 @@ disablePactNatives :: [Text] -> ExecutionFlag -> ExecutionConfig -> EvalEnv e ->
 disablePactNatives bannedNatives flag ec = if has (ecFlags . ix flag) ec
     then over (eeRefStore . rsNatives) (\k -> foldl' (flip HM.delete) k bannedNatives)
     else id
-  -- where
-    -- bannedNatives = natives <&> \name -> Name (BareName name def)
 {-# INLINE disablePactNatives #-}
 
 -- | Disable certain natives around pact 4.2.0

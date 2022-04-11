@@ -114,7 +114,7 @@ tests rdb = ScheduledTest testName go
          , multiChainTest freeGasModel "pact420UpgradeTest" pact420UpgradeTest
          , multiChainTest freeGasModel "minerKeysetTest" minerKeysetTest
          , multiChainTest getGasModel "chainweb213Test" chainweb213Test
-         , multiChainTest getGasModel "chainweb214Test" chainweb214Test
+         , multiChainTest getGasModel "pact43UpgradeTest" pact43UpgradeTest
          ]
       where
         pactConfig = defaultPactServiceConfig { _pactBlockGasLimit = 150_000 }
@@ -413,8 +413,8 @@ chainweb213Test bdb mpRefIO pact = do
         ]
     runCut' = runCut testVersion bdb pact (offsetBlockTime second) zeroNoncer noMiner
 
-chainweb214Test :: TestBlockDb -> IO (IORef MemPoolAccess) -> WebPactExecutionService -> IO ()
-chainweb214Test bdb mpRefIO pact = do
+pact43UpgradeTest :: TestBlockDb -> IO (IORef MemPoolAccess) -> WebPactExecutionService -> IO ()
+pact43UpgradeTest bdb mpRefIO pact = do
 
   -- run past genesis, upgrades
   forM_ [(1::Int)..28] $ \_i -> runCut'
