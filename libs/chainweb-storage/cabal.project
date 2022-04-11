@@ -3,5 +3,5 @@ packages: chainweb-storage.cabal
 source-repository-package
     type: git
     location: https://github.com/kadena-io/rocksdb-haskell.git
-    tag: 978da133c4214a17c41887ac3dcfc810cdcfb30e
+    tag: 6456b713c288858a3e2b4ef9378484e2981e636b
 
