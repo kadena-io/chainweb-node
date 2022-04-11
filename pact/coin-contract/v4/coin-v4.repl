@@ -596,11 +596,16 @@
 
 (begin-tx)
 
-(use coin)
 (module T G
   (defcap G () true)
   (defconst UNIT_BAD 0.0000000000001)
   (defconst UNIT_GOOD 0.000000000001))
+
+(commit-tx)
+(begin-tx)
+
+(use coin)
+(use T)
 
 (expect
   "valid unit"
@@ -643,6 +648,7 @@
   (transfer-create 'emily 'doug (read-keyset 'doug) UNIT_GOOD))
 (commit-tx)
 (begin-tx)
+
 (use coin)
 (use T)
 
@@ -667,8 +673,13 @@
     (transfer-crosschain 'emily 'doug (read-keyset 'doug) "chain" UNIT_GOOD)
     s))
 
-(pact-state true)
+(commit-tx)
+(begin-tx)
 
+(use coin)
+(use T)
+
+(test-capability (TRANSFER-XCHAIN "emily" "doug" (* 2 UNIT_GOOD) "chain"))
 (expect-failure
   "bad transfer-crosschain fails"
   "minimum precision"
