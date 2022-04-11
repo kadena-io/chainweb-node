@@ -7,7 +7,6 @@
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
-{-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE PatternSynonyms #-}
@@ -901,7 +900,7 @@ pact420Upgrade Mainnet01 = (>= 2_334_500) -- 2022-01-17T17:51:12
 pact420Upgrade Testnet04 = (>= 1_862_000) -- 2022-01-13T16:11:10
 pact420Upgrade Development = (>= 90)
 pact420Upgrade (FastTimedCPM g) | g == petersonChainGraph = (>= 5)
-pact420Upgrade _ = const False
+pact420Upgrade _ = const True
 
 enforceKeysetFormats :: ChainwebVersion -> BlockHeight -> Bool
 enforceKeysetFormats Mainnet01 = (>= 2_162_000) -- 2021-11-18T20:06:55
@@ -917,9 +916,7 @@ doCheckTxHash Development = (>= 110)
 doCheckTxHash (FastTimedCPM g) | g == petersonChainGraph = (>= 7)
 doCheckTxHash _ = const True
 
--- | Omnibus pact changes for 2.13:
--- - miner keyset enforce
--- - parser forces eof
+-- | Pact changes for Chainweb 2.13
 --
 chainweb213Pact :: ChainwebVersion -> BlockHeight -> Bool
 chainweb213Pact Mainnet01 = (>= 2_447_315) -- 2022-02-26 00:00:00

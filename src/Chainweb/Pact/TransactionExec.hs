@@ -486,6 +486,7 @@ applyUpgrades
 applyUpgrades v cid height
      | coinV2Upgrade v cid height = applyCoinV2
      | pact4coin3Upgrade At v height = applyCoinV3
+     | chainweb214Pact At v height = applyCoinV4
      | otherwise = return Nothing
   where
     installCoinModuleAdmin = set (evalCapabilities . capModuleAdmin) $ S.singleton (ModuleName "coin" Nothing)
@@ -493,6 +494,8 @@ applyUpgrades v cid height
     applyCoinV2 = applyTxs (upgradeTransactions v cid)
 
     applyCoinV3 = applyTxs coinV3Transactions
+
+    applyCoinV4 = applyTxs coinV4Transactions
 
     applyTxs txsIO = do
       infoLog "Applying upgrade!"
@@ -960,7 +963,7 @@ disablePact420Natives = disablePactNatives ["zip", "fold-db"] FlagDisablePact420
 --
 disablePact43Natives :: ExecutionConfig -> EvalEnv e -> EvalEnv e
 disablePact43Natives = disablePactNatives ["create-principal", "validate-principal"] FlagDisablePact43
-{-# INLINE disablePact420Natives #-}
+{-# INLINE disablePact43Natives #-}
 
 
 -- | Set the module cache of a pact 'EvalState'

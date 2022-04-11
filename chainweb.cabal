@@ -291,6 +291,7 @@ library
         , Chainweb.Pact.Templates
         , Chainweb.Pact.TransactionExec
         , Chainweb.Pact.Transactions.CoinV3Transactions
+        , Chainweb.Pact.Transactions.CoinV4Transactions
         , Chainweb.Pact.Transactions.DevelopmentTransactions
         , Chainweb.Pact.Transactions.Mainnet0Transactions
         , Chainweb.Pact.Transactions.Mainnet1Transactions

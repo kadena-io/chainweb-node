@@ -121,6 +121,7 @@ matchLogs typ bh logs coinbase txs
   | coinV2Upgrade v cid bheight = matchRemediation (upgradeTransactions v cid)
   | to20ChainRebalance v cid bheight = matchRemediation (twentyChainUpgradeTransactions v cid)
   | pact4coin3Upgrade At v bheight = matchRemediation coinV3Transactions
+  | chainweb214Pact At v bheight = matchRemediation coinV4Transactions
   | otherwise = matchRest
   where
     bheight = _blockHeight bh
@@ -596,7 +597,7 @@ getTxLogs cr bh = do
     parsePrevTxs m
       | M.size parsed == M.size m = pure $! parsed
       | otherwise = throwError RosettaUnparsableTxLog
-      where 
+      where
         parsed = M.mapMaybe txLogToAccountRow m
 
 getBalanceDeltas
@@ -739,7 +740,7 @@ toSignerAcctsMap txInfo payerAcct cid pacts cutDb = do
       let expectedFrom = ksToPubKeys fromGuard
           -- `to` acount could be getting created
           expectedTo = ksToPubKeys toGuard
-      
+
       someActualFrom <- getOwnership peCurr bhCurr from
       someActualTo <- getOwnership peCurr bhCurr to
 
@@ -790,8 +791,8 @@ toSignerAcctsMap txInfo payerAcct cid pacts cutDb = do
         -> Decimal
         -> P.SigCapability
     mkTransferCap sender receiver amount = mkCoinCap "TRANSFER"
-      [ pString (_accountId_address sender), 
-        pString (_accountId_address receiver), 
+      [ pString (_accountId_address sender),
+        pString (_accountId_address receiver),
         pDecimal amount ]
 
     mkGasCap :: P.SigCapability
@@ -838,7 +839,7 @@ rosettaPubKeysToSignerMap
     :: [RosettaPublicKey]
     -> Either RosettaError (HM.HashMap T.Text ([P.SigCapability] -> Signer))
 rosettaPubKeysToSignerMap pubKeys = HM.fromList <$> mapM f pubKeys
-  where 
+  where
     f (RosettaPublicKey pk ct) = do
       sk <- getScheme ct
       addr <- toPactPubKeyAddr pk sk
