@@ -224,7 +224,9 @@ openRocksDb :: FilePath -> R.Options -> IO RocksDb
 openRocksDb path opts = withOpts opts $ \opts'@(R.Options' opts_ptr _ _) -> do
     GHC.setFileSystemEncoding GHC.utf8
     createDirectoryIfMissing True path
-    rocksdb_options_set_prefix_extractor opts_ptr =<< rocksdb_options_table_prefix_extractor
+    -- required to use prefix seek
+    rocksdb_options_set_prefix_extractor opts_ptr =<<
+        rocksdb_options_table_prefix_extractor
     db <- withFilePath path $ \path_ptr ->
         liftM (`R.DB` opts')
         $ R.throwIfErr "open"
@@ -491,6 +493,8 @@ withTableIter db k = I.withReadOptions readOptions $ \opts_ptr ->
     readOptions = fold
         [ I.setLowerBound (namespaceFirst $ _rocksDbTableNamespace db)
         , I.setUpperBound (namespaceLast $ _rocksDbTableNamespace db)
+        -- TODO: this setting tells rocksdb to use prefix seek *when it can*.
+        -- the question remains: is it actually being used?
         , I.setAutoPrefixMode True
         ]
     makeTableIter =
