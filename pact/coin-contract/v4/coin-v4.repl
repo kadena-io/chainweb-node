@@ -16,13 +16,13 @@
 (env-gaslog)
 (expect
   "Gas cost of loading fungible-xchain contract"
-  215 (env-gas))
+  206 (env-gas))
 
 (load "coin-v4.pact")
 (env-gaslog)
 (expect
   "Gas cost of loading coin contract"
-  4067
+  4058
   (env-gas))
 
 (create-table coin.coin-table)

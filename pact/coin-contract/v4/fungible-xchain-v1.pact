@@ -20,9 +20,8 @@
     ( managed:decimal
       requested:decimal
     )
-    @doc " Manages TRANSFER-XCHAIN AMOUNT linearly, \
-         \ such that a request for 1.0 amount on a 3.0 \
-         \ managed quantity emits updated amount 2.0."
+    @doc " Allows TRANSFER-XCHAIN AMOUNT to be less than or \
+         \ equal managed quantity as a one-shot, returning 0.0."
   )
 
   (defcap TRANSFER-XCHAIN-RECD:bool
@@ -31,7 +30,7 @@
       amount:decimal
       source-chain:string
     )
-    @doc "Capability for tracking received cross-chain transfers"
+    @doc "Event emitted on receipt of cross-chain transfer."
     @event
   )
 )
