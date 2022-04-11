@@ -38,7 +38,6 @@ module Chainweb.BlockHash
 , BlockHash_(..)
 , encodeBlockHash
 , decodeBlockHash
-, randomBlockHash
 , nullBlockHash
 , blockHashToText
 , blockHashFromText
@@ -60,7 +59,6 @@ import Control.DeepSeq
 import Control.Lens
 import Control.Monad
 import Control.Monad.Catch (MonadThrow, throwM)
-import Control.Monad.IO.Class (MonadIO(..))
 
 import Data.Aeson
     (FromJSON(..), FromJSONKey(..), ToJSON(..), ToJSONKey(..), withText)
@@ -154,10 +152,6 @@ instance MerkleHashAlgorithm a => FromJSONKey (BlockHash_ a) where
     fromJSONKey = FromJSONKeyTextParser $ either (fail . show) return
         . (runGet decodeBlockHash <=< decodeB64UrlNoPaddingText)
     {-# INLINE fromJSONKey #-}
-
-randomBlockHash :: MerkleHashAlgorithm a => MonadIO m => m (BlockHash_ a)
-randomBlockHash = BlockHash <$!> randomMerkleLogHash
-{-# INLINE randomBlockHash #-}
 
 nullBlockHash :: MerkleHashAlgorithm a => BlockHash_ a
 nullBlockHash = BlockHash nullHashBytes

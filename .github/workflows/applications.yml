@@ -142,12 +142,16 @@ jobs:
       uses: actions/checkout@v2
       with:
         fetch-depth: 0
-    - name: Set all tracked file modification times to the time of their last commit
-      run: |
-        rev=HEAD
-        for f in $(git ls-tree -r -t --full-name --name-only "$rev") ; do
-          touch -d $(git log --pretty=format:%cI -1 "$rev" -- "$f") "$f";
-        done
+    # This only works if also the times of the cache are adjusted accordingly
+    # to the time of the commit for the respective revision. This can be done
+    # by adjusting the time of all files in the cache before the end of the task
+    #
+    # - name: Set all tracked file modification times to the time of their last commit
+    #   run: |
+    #     rev=HEAD
+    #     for f in $(git ls-tree -r -t --full-name --name-only "$rev") ; do
+    #       touch -d $(git log --pretty=format:%cI -1 "$rev" -- "$f") "$f";
+    #     done
     - name: Install GHC and Cabal
       uses: haskell/actions/setup@v1.2.7
       with:
@@ -173,23 +177,12 @@ jobs:
           optimization: ${{ needs.config.outputs.opt-level }}
           benchmarks: True
           tests: True
+          ghc-options: -Wno-unused-packages
         package pact
           documentation: False
           optimization: ${{ needs.config.outputs.opt-level }}
+          ghc-options: -Wno-unused-packages
         EOF
-    - name: Create cabal.project.local
-      if: startsWith(matrix.ghc, '9')
-      run: |
-        cat >> cabal.project.local <<EOF
-        allow-newer: token-bucket:*
-        allow-newer: ixset-typed:*
-        allow-newer: hashable:*
-        source-repository-package
-            type: git
-            location: https://github.com/larskuhtz/ixset-typed
-            tag: 26e2a4397a49e731b5a8dcdfb08a64bae06081da
-        EOF
-
 
     # dist cache
     - name: Create date file for dist-newstyle cache key
@@ -201,10 +194,10 @@ jobs:
         path: |
           ~/.cabal/store
           dist-newstyle
-        key: ${{ matrix.os }}-${{ matrix.ghc }}-${{ hashFiles('cache-key') }}-${{ hashFiles('cabal.*', '*.cabal', 'src/**', 'test/**') }}
+        key: ${{ matrix.os }}-${{ matrix.ghc }}-0-${{ hashFiles('/tmp/cache-key') }}-${{ hashFiles('cabal.*', '*.cabal', 'src/**', 'test/**') }}
         restore-keys: |
-          ${{ matrix.os }}-${{ matrix.ghc }}-${{ hashFiles('/tmp/cache-key') }}-
-          ${{ matrix.os }}-${{ matrix.ghc }}-
+          ${{ matrix.os }}-${{ matrix.ghc }}-0-${{ hashFiles('/tmp/cache-key') }}-
+          ${{ matrix.os }}-${{ matrix.ghc }}-0-
 
     # Build
     - name: Delete Freeze file
@@ -218,6 +211,9 @@ jobs:
       run: |
         cabal build all --dry-run
         cabal freeze
+    - name: Display Dependency Changes
+      run: |
+        diff -w <(git show HEAD:cabal.project.freeze) cabal.project.freeze || true
     - name: Sync from cabal cache
       if: matrix.cabalcache == 'true'
       uses: larskuhtz/cabal-cache-action@ecc751af6d31b3ed5a3b4aefdefd0ed6ef4cb414

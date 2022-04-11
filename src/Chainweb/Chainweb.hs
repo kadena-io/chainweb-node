@@ -64,6 +64,7 @@ module Chainweb.Chainweb
 , chainwebPutPeerThrottler
 , chainwebConfig
 , chainwebServiceSocket
+, chainwebBackup
 
 -- ** Mempool integration
 , ChainwebTransaction
@@ -93,6 +94,7 @@ module Chainweb.Chainweb
 , cutFetchTimeout
 , cutInitialBlockHeightLimit
 , defaultCutConfig
+
 ) where
 
 import Configuration.Utils hiding (Error, Lens', disabled)
@@ -122,6 +124,7 @@ import Network.Socket (Socket)
 import Network.Wai
 import Network.Wai.Handler.Warp hiding (Port)
 import Network.Wai.Handler.WarpTLS (WarpTLSException(InsecureConnectionDenied))
+import Network.Wai.Middleware.RequestSizeLimit
 import Network.Wai.Middleware.Throttle
 
 import Prelude hiding (log)
@@ -131,6 +134,7 @@ import System.LogLevel
 
 -- internal modules
 
+import Chainweb.Backup
 import Chainweb.BlockHeader
 import Chainweb.BlockHeaderDB (BlockHeaderDb)
 import Chainweb.ChainId
@@ -192,6 +196,7 @@ data Chainweb logger cas = Chainweb
     , _chainwebPutPeerThrottler :: !(Throttle Address)
     , _chainwebConfig :: !ChainwebConfiguration
     , _chainwebServiceSocket :: !(Port, Socket)
+    , _chainwebBackup :: !(BackupEnv logger)
     }
 
 makeLenses ''Chainweb
@@ -212,11 +217,11 @@ withChainweb
     -> logger
     -> RocksDb
     -> FilePath
-        -- ^ Pact database directory
+    -> FilePath
     -> Bool
     -> (forall cas' . PayloadCasLookup cas' => Chainweb logger cas' -> IO ())
     -> IO ()
-withChainweb c logger rocksDb pactDbDir resetDb inner =
+withChainweb c logger rocksDb pactDbDir backupDir resetDb inner =
     withPeerResources v (view configP2p confWithBootstraps) logger $ \logger' peer ->
         withSocket serviceApiPort serviceApiHost $ \serviceSock -> do
             let conf' = confWithBootstraps
@@ -229,6 +234,7 @@ withChainweb c logger rocksDb pactDbDir resetDb inner =
                 serviceSock
                 rocksDb
                 pactDbDir
+                backupDir
                 resetDb
                 inner
   where
@@ -329,10 +335,11 @@ withChainwebInternal
     -> (Port, Socket)
     -> RocksDb
     -> FilePath
+    -> FilePath
     -> Bool
     -> (forall cas' . PayloadCasLookup cas' => Chainweb logger cas' -> IO ())
     -> IO ()
-withChainwebInternal conf logger peer serviceSock rocksDb pactDbDir resetDb inner = do
+withChainwebInternal conf logger peer serviceSock rocksDb pactDbDir backupDir resetDb inner = do
 
     initializePayloadDb v payloadDb
 
@@ -472,6 +479,13 @@ withChainwebInternal conf logger peer serviceSock rocksDb pactDbDir resetDb inne
                                 , _chainwebPutPeerThrottler = putPeerThrottler
                                 , _chainwebConfig = conf
                                 , _chainwebServiceSocket = serviceSock
+                                , _chainwebBackup = BackupEnv
+                                    { _backupRocksDb = rocksDb
+                                    , _backupDir = backupDir
+                                    , _backupPactDbDir = pactDbDir
+                                    , _backupChainIds = cids
+                                    , _backupLogger = backupLogger
+                                    }
                                 }
 
     withPactData
@@ -490,6 +504,7 @@ withChainwebInternal conf logger peer serviceSock rocksDb pactDbDir resetDb inne
 
     v = _configChainwebVersion conf
     cids = chainIds v
+    backupLogger = addLabel ("component", "backup") logger
 
     -- FIXME: make this configurable
     cutConfig :: CutDbParams
@@ -579,11 +594,13 @@ runChainweb cw = do
                 $ httpLog
                 . throttle (_chainwebPutPeerThrottler cw)
                 . throttle (_chainwebThrottler cw)
+                . requestSizeLimit
             )
         -- 2. Start Clients (with a delay of 500ms)
         <* Concurrently (threadDelay 500000 >> clients)
         -- 3. Start serving local API
-        <* Concurrently (threadDelay 500000 >> serveServiceApi serviceHttpLog)
+        <* Concurrently (threadDelay 500000 >> serveServiceApi (serviceHttpLog . requestSizeLimit))
+
   where
     tls = _p2pConfigTls $ _configP2p $ _chainwebConfig cw
 
@@ -667,6 +684,12 @@ runChainweb cw = do
             , _chainwebServerPeerDbs = (CutNetwork, cutPeerDb) : memP2pToServe
             }
 
+    requestSizeLimit :: Middleware
+    requestSizeLimit = requestSizeLimitMiddleware $
+        setMaxLengthForRequest (\_req -> pure $ Just $ 2 * 1024 * 1024) -- 2MB
+        defaultRequestSizeLimitSettings
+
+
     httpLog :: Middleware
     httpLog = requestResponseLogger $ setComponent "http:p2p-api" (_chainwebLogger cw)
 
@@ -684,6 +707,8 @@ runChainweb cw = do
 
     serviceApiHost = _serviceApiConfigInterface $ _configServiceApi $ _chainwebConfig cw
 
+    backupApiEnabled = _enableConfigEnabled $ _configBackupApi $ _configBackup $ _chainwebConfig cw
+
     serveServiceApi :: Middleware -> IO ()
     serveServiceApi = serveServiceApiSocket
         (serviceApiServerSettings (fst $ _chainwebServiceSocket cw) serviceApiHost)
@@ -700,6 +725,7 @@ runChainweb cw = do
         (_chainwebCoordinator cw)
         (HeaderStream . _configHeaderStream $ _chainwebConfig cw)
         (Rosetta . _configRosetta $ _chainwebConfig cw)
+        (_chainwebBackup cw <$ guard backupApiEnabled)
 
     serviceHttpLog :: Middleware
     serviceHttpLog = requestResponseLogger $ setComponent "http:service-api" (_chainwebLogger cw)

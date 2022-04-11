@@ -28,13 +28,11 @@ module Chainweb.PowHash
 , powHashBytesCount
 , encodePowHash
 , decodePowHash
-, randomPowHash
 , powHash
 ) where
 
 import Control.DeepSeq
 import Control.Monad.Catch
-import Control.Monad.IO.Class
 
 import qualified Crypto.Hash as C (hash)
 import Crypto.Hash.Algorithms
@@ -127,12 +125,6 @@ instance FromJSON PowHash where
         either (fail . show) return
             $ runGet decodePowHash =<< decodeB64UrlNoPaddingText t
     {-# INLINE parseJSON #-}
-
--- | This must be used only for testing. The result hash is uniformily
--- distributed, but not cryptographically safe.
---
-randomPowHash :: MonadIO m => m PowHash
-randomPowHash = PowHash <$> randomShortByteString powHashBytesCount
 
 -- -------------------------------------------------------------------------- --
 -- Cryptographic Hash

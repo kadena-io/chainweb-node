@@ -37,6 +37,9 @@ module Chainweb.CutDB
 , cutDbParamsUseOrigin
 , cutDbParamsInitialHeightLimit
 , cutDbParamsFetchTimeout
+, cutDbParamsAvgBlockHeightPruningDepth
+, cutDbParamsPruningFrequency
+, cutDbParamsWritingFrequency
 , defaultCutDbParams
 , farAheadThreshold
 
@@ -45,6 +48,7 @@ module Chainweb.CutDB
 
 -- * CutDb
 , CutDb
+, pruneCuts
 , cutDbWebBlockHeaderDb
 , cutDbBlockHeaderDb
 , cutDbPayloadCas
@@ -120,6 +124,7 @@ import Prelude hiding (lookup)
 import qualified Streaming.Prelude as S
 
 import System.LogLevel
+import qualified System.Random.MWC as Prob
 import System.Timeout
 
 -- internal modules
@@ -163,6 +168,16 @@ data CutDbParams = CutDbParams
     , _cutDbParamsUseOrigin :: !Bool
     , _cutDbParamsFetchTimeout :: !Int
     , _cutDbParamsInitialHeightLimit :: !(Maybe BlockHeight)
+    , _cutDbParamsAvgBlockHeightPruningDepth :: BlockHeight
+    -- ^ How many block heights' worth of cuts should we keep around?
+    -- (how far back do we expect that a fork can happen)
+    , _cutDbParamsPruningFrequency :: BlockHeight
+    -- ^ After how many blocks do we prune cuts (on average)?
+    , _cutDbParamsWritingFrequency :: BlockHeight
+    -- ^ After how many blocks do we write a cut (on average)?
+    -- should be much less than `blockHeightPruningDepth` or the
+    -- CutHashes table will always be empty.
+    --
     }
     deriving (Show, Eq, Ord, Generic)
 
@@ -178,6 +193,9 @@ defaultCutDbParams v ft = CutDbParams
     , _cutDbParamsUseOrigin = True
     , _cutDbParamsFetchTimeout = ft
     , _cutDbParamsInitialHeightLimit = Nothing
+    , _cutDbParamsAvgBlockHeightPruningDepth = 5000
+    , _cutDbParamsPruningFrequency = 10000
+    , _cutDbParamsWritingFrequency = 30
     }
   where
     g = _chainGraph (v, maxBound @BlockHeight)
@@ -325,6 +343,24 @@ awaitNewCutByChainIdStm cdb cid c = do
     when (b1 == b0) retry
     return c'
 
+pruneCuts
+    :: LogFunction
+    -> ChainwebVersion
+    -> CutDbParams
+    -> BlockHeight
+    -> RocksDbCas CutHashes
+    -> IO ()
+pruneCuts logfun v conf curAvgBlockHeight cutHashesStore = do
+    let pruneCutHeight = CutHeight $ int $ max 0
+            (int (avgCutHeightAt v curAvgBlockHeight) - int (_cutDbParamsAvgBlockHeightPruningDepth conf) :: Integer)
+    logfun @T.Text Info $ "pruning CutDB before cut height " <> T.pack (show pruneCutHeight)
+    deleteRangeRocksDb (_getRocksDbCas cutHashesStore)
+        (Nothing, Just (pruneCutHeight, 0, maxBound :: CutId))
+    -- compactRangeRocksDb waits for compaction to complete which takes a while
+    void $ async $
+        compactRangeRocksDb (_getRocksDbCas cutHashesStore)
+            (Nothing, Just (pruneCutHeight, 0, maxBound :: CutId))
+
 cutDbQueueSize :: CutDb cas -> IO Natural
 cutDbQueueSize = pQueueSize . _cutDbQueue
 
@@ -370,7 +406,7 @@ startCutDb
     -> IO (CutDb cas)
 startCutDb config logfun headerStore payloadStore cutHashesStore = mask_ $ do
     logg Info "obtain initial cut"
-    initialCut <- getInitialCut
+    initialCut <- readInitialCut
     -- deleteRangeRocksDb (_getRocksDbCas cutHashesStore) (Just $ over _1 succ $ casKey $ cutToCutHashes Nothing initialCut, Nothing)
     cutVar <- newTVarIO initialCut
     c <- readTVarIO cutVar
@@ -378,7 +414,8 @@ startCutDb config logfun headerStore payloadStore cutHashesStore = mask_ $ do
     queue <- newEmptyPQueue
     cutAsync <- asyncWithUnmask $ \u -> u $ processor queue cutVar
     logg Info "CutDB started"
-    return $! CutDb
+    pruneCuts logfun (_chainwebVersion headerStore) config (cutAvgBlockHeight v initialCut) cutHashesStore
+    return CutDb
         { _cutDbCut = cutVar
         , _cutDbQueue = queue
         , _cutDbAsync = cutAsync
@@ -406,7 +443,7 @@ startCutDb config logfun headerStore payloadStore cutHashesStore = mask_ $ do
     -- 3. exitence of dependencies
     -- 4. full validation
     --
-    getInitialCut = withTableIter (_getRocksDbCas cutHashesStore) $ \it -> do
+    readInitialCut = withTableIter (_getRocksDbCas cutHashesStore) $ \it -> do
         tableIterLast it
         go it
       where
@@ -430,17 +467,20 @@ startCutDb config logfun headerStore payloadStore cutHashesStore = mask_ $ do
                     <$> case _cutDbParamsInitialHeightLimit config of
                         Nothing -> return hm
                         Just h -> do
-                            let 
+                            let
                                 cutHeightTarget =
-                                    avgCutHeightAt v h - 
-                                        CutHeight (int $ diameterAtCutHeight v (maxBound :: CutHeight) * chainCountAt v (maxBound :: BlockHeight)) 
+                                    avgCutHeightAt v h -
+                                        CutHeight (int $ diameterAtCutHeight v (maxBound :: CutHeight) * chainCountAt v (maxBound :: BlockHeight))
                             -- traverseOf_ (webBlockHeaderDb.traversed) (flip dbRemoveAbove h) (_webBlockHeaderStoreCas headerStore)
                             limitCutHeaders wbhdb cutHeightTarget hm
 
 -- | Stop the cut validation pipeline.
 --
 stopCutDb :: CutDb cas -> IO ()
-stopCutDb db = cancel (_cutDbAsync db)
+stopCutDb db = do
+    currentCut <- readTVarIO (_cutDbCut db)
+    casInsert (_cutDbStore db) (cutToCutHashes Nothing currentCut)
+    cancel (_cutDbAsync db)
 
 -- | Lookup the BlockHeaders for a CutHashes structure. Throws an exception if
 -- the lookup for some BlockHash in the input CutHashes.
@@ -452,6 +492,9 @@ lookupCutHashes
 lookupCutHashes wbhdb hs =
     flip itraverse (_cutHashes hs) $ \cid (BlockHashWithHeight _ h) ->
         lookupWebBlockHeaderDb wbhdb cid h
+
+cutAvgBlockHeight :: ChainwebVersion -> Cut -> BlockHeight
+cutAvgBlockHeight v = BlockHeight . round . avgBlockHeightAtCutHeight v . _cutHeight
 
 -- | This is at the heart of 'Chainweb' POW: Deciding the current "longest" cut
 -- among the incoming candiates.
@@ -473,35 +516,51 @@ processCuts
     -> PQueue (Down CutHashes)
     -> TVar Cut
     -> IO ()
-processCuts conf logFun headerStore payloadStore cutHashesStore queue cutVar = queueToStream
-    & S.chain (\c -> loggc Info c "start processing")
-    & S.filterM (fmap not . isVeryOld)
-    & S.filterM (fmap not . farAhead)
-    & S.filterM (fmap not . isOld)
-    & S.filterM (fmap not . isCurrent)
-    & S.chain (\c -> loggc Info c "fetch all prerequesites")
-    & S.mapM (cutHashesToBlockHeaderMap conf logFun headerStore payloadStore)
-    & S.chain (either
-        (\(T2 hsid c) -> loggc Warn hsid $ "failed to get prerequesites for some blocks. Missing: " <> encodeToText c)
-        (\c -> loggc Info c "got all prerequesites")
-        )
-    & S.concat
-        -- ignore left values for now
+processCuts conf logFun headerStore payloadStore cutHashesStore queue cutVar = do
+    rng <- Prob.createSystemRandom
+    queueToStream
+        & S.chain (\c -> loggc Info c "start processing")
+        & S.filterM (fmap not . isVeryOld)
+        & S.filterM (fmap not . farAhead)
+        & S.filterM (fmap not . isOld)
+        & S.filterM (fmap not . isCurrent)
+        & S.chain (\c -> loggc Info c "fetch all prerequesites")
+        & S.mapM (cutHashesToBlockHeaderMap conf logFun headerStore payloadStore)
+        & S.chain (either
+            (\(T2 hsid c) -> loggc Warn hsid $ "failed to get prerequesites for some blocks. Missing: " <> encodeToText c)
+            (\c -> loggc Info c "got all prerequesites")
+            )
+        & S.concat
+            -- ignore left values for now
 
-    -- using S.scanM would be slightly more efficient (one pointer dereference)
-    -- by keeping the value of cutVar in memory. We use the S.mapM variant with
-    -- an redundant 'readTVarIO' because it is eaiser to read.
-    & S.mapM_ (\newCut -> do
-        curCut <- readTVarIO cutVar
-        !resultCut <- trace logFun "Chainweb.CutDB.processCuts._joinIntoHeavier" () 1
-            $ joinIntoHeavier_ hdrStore (_cutMap curCut) newCut
-        casInsert cutHashesStore (cutToCutHashes Nothing resultCut)
-        atomically $ writeTVar cutVar resultCut
-        loggc Info resultCut "published cut"
-        )
+        -- using S.scanM would be slightly more efficient (one pointer dereference)
+        -- by keeping the value of cutVar in memory. We use the S.mapM variant with
+        -- an redundant 'readTVarIO' because it is eaiser to read.
+        & S.mapM_ (\newCut -> do
+            curCut <- readTVarIO cutVar
+            !resultCut <- trace logFun "Chainweb.CutDB.processCuts._joinIntoHeavier" () 1
+                $ joinIntoHeavier_ hdrStore (_cutMap curCut) newCut
+            maybePrune rng (cutAvgBlockHeight v curCut)
+            maybeWrite rng resultCut
+            atomically $ writeTVar cutVar resultCut
+            loggc Info resultCut "published cut"
+            )
   where
     loggc :: HasCutId c => LogLevel -> c -> T.Text -> IO ()
     loggc l c msg = logFun @T.Text l $  "cut " <> cutIdToTextShort (_cutId c) <> ": " <> msg
+
+    v = _chainwebVersion headerStore
+
+    maybePrune rng curCutAvgBlockHeight = do
+        r :: Double <- Prob.uniform rng
+        when (r < 1 / int (int (_cutDbParamsPruningFrequency conf) * chainCountAt v maxBound)) $
+            pruneCuts logFun v conf curCutAvgBlockHeight cutHashesStore
+
+    maybeWrite rng newCut = do
+        r :: Double <- Prob.uniform rng
+        when (r > 1 / int (int (_cutDbParamsWritingFrequency conf) * chainCountAt v maxBound)) $ do
+            loggc Info newCut "writing cut"
+            casInsert cutHashesStore (cutToCutHashes Nothing newCut)
 
     hdrStore = _webBlockHeaderStoreCas headerStore
 
