@@ -11,11 +11,18 @@
   "Gas cost of loading fungible contract"
   840 (env-gas))
 
+(env-gas 0) (env-gaslog)
+(load "fungible-xchain-v1.pact")
+(env-gaslog)
+(expect
+  "Gas cost of loading fungible-xchain contract"
+  206 (env-gas))
+
 (load "coin-v4.pact")
 (env-gaslog)
 (expect
   "Gas cost of loading coin contract"
-  4461
+  4048
   (env-gas))
 
 (create-table coin.coin-table)
@@ -509,6 +516,8 @@
 (env-hash (hash "burn-create"))
 (env-data {"doug": ["keys2"]})
 
+(test-capability (coin.TRANSFER-XCHAIN "emily" "doug" 1.0 "1"))
+
 (expect-failure
   "cross-chain transfers fail for trivial or negative quantities"
   "positive"
@@ -587,11 +596,16 @@
 
 (begin-tx)
 
-(use coin)
 (module T G
   (defcap G () true)
   (defconst UNIT_BAD 0.0000000000001)
   (defconst UNIT_GOOD 0.000000000001))
+
+(commit-tx)
+(begin-tx)
+
+(use coin)
+(use T)
 
 (expect
   "valid unit"
@@ -634,6 +648,7 @@
   (transfer-create 'emily 'doug (read-keyset 'doug) UNIT_GOOD))
 (commit-tx)
 (begin-tx)
+
 (use coin)
 (use T)
 
@@ -643,13 +658,14 @@
   "Write succeeded"
   (transfer-create 'emily 'doug (read-keyset 'doug) UNIT_GOOD))
 
- (expect-failure
+(expect-failure
    "bad transfer-create fails"
    "minimum precision"
    (transfer-create 'emily 'doug (read-keyset 'doug) UNIT_BAD))
 
 ;;transfer-crosschain (step 0 only covered)
 
+(test-capability (TRANSFER-XCHAIN "emily" "doug" (* 2 UNIT_GOOD) "chain"))
 (expect
   "min transfer-crosschain step 1 succeeds"
   "success"
@@ -657,8 +673,13 @@
     (transfer-crosschain 'emily 'doug (read-keyset 'doug) "chain" UNIT_GOOD)
     s))
 
-(pact-state true)
+(commit-tx)
+(begin-tx)
 
+(use coin)
+(use T)
+
+(test-capability (TRANSFER-XCHAIN "emily" "doug" (* 2 UNIT_GOOD) "chain"))
 (expect-failure
   "bad transfer-crosschain fails"
   "minimum precision"
@@ -912,9 +933,13 @@
 (env-keys ['keys2])
 (env-chain-data {'chain-id: "0"})
 
+(test-capability (coin.TRANSFER-XCHAIN "emily" "doug" 0.00001 "1"))
 (coin.transfer-crosschain 'emily 'doug (read-keyset 'k) "1" 0.00001)
 (expect "xchain send events"
-  [ {"name": "coin.TRANSFER"
+  [ {"name": "coin.TRANSFER-XCHAIN"
+    ,"params": ["emily" "doug" 0.00001 "1"]
+    }
+    {"name": "coin.TRANSFER"
     ,"params": ["emily" "" 0.00001]
     }
     { "name": "pact.X_YIELD"
@@ -928,6 +953,9 @@
 (expect "xchain send events"
   [ {"name": "coin.TRANSFER"
     ,"params": ["" "doug" 0.00001]
+    }
+    {"name": "coin.TRANSFER-XCHAIN-RECD"
+    ,"params": ["emily" "doug" 0.00001 "0"]
     }
     { "name": "pact.X_RESUME"
     , "params": ["0" "coin.transfer-crosschain" ["emily" "doug" (read-keyset 'k) "1" 0.00001]]

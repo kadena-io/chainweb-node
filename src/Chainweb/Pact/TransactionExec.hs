@@ -169,6 +169,7 @@ applyCmd v logger pdbenv miner gasModel txCtx spv cmdIn mcache0 =
           ++ enablePact420 txCtx
           ++ enforceKeysetFormats' txCtx
           ++ enablePactModuleMemcheck txCtx
+          ++ enablePact43 txCtx
         )
 
     cenv = TransactionEnv Transactional pdbenv logger (ctxToPublicData txCtx) spv nid gasPrice
@@ -262,6 +263,7 @@ applyGenesisCmd logger dbEnv spv cmd =
           [ FlagDisablePact40
           , FlagDisablePact420
           , FlagDisableInlineMemCheck
+          , FlagDisablePact43
           ]
         }
     txst = TransactionState
@@ -322,7 +324,8 @@ applyCoinbase v logger dbEnv (Miner mid mks@(MinerKeys mk)) reward@(ParsedDecima
       enablePactEvents' txCtx ++
       enablePact40 txCtx ++
       enablePact420 txCtx ++
-      enablePactModuleMemcheck txCtx
+      enablePactModuleMemcheck txCtx ++
+      enablePact43 txCtx
     tenv = TransactionEnv Transactional dbEnv logger (ctxToPublicData txCtx) noSPVSupport
            Nothing 0.0 rk 0 ec
     txst = TransactionState mc mempty 0 Nothing (_geGasModel freeGasEnv)
@@ -504,8 +507,8 @@ applyUpgrades v cid height
       -- those caches is returned. The calling code adds this new cache to the
       -- init cache in the pact service state (_psInitCache).
       --
-
-      caches <- local (set txExecutionConfig (mkExecutionConfig [FlagDisableInlineMemCheck])) $ mapM applyTx txs
+      let execConfig = mkExecutionConfig [FlagDisableInlineMemCheck, FlagDisablePact43]
+      caches <- local (set txExecutionConfig execConfig) $ mapM applyTx txs
       return $ Just (HM.unions caches)
 
     interp = initStateInterpreter $ installCoinModuleAdmin $
@@ -651,6 +654,7 @@ applyExec' interp (ExecMsg parsedCode execData) senderSigs hsh nsp
       eenv <- mkEvalEnv nsp (MsgData execData Nothing hsh senderSigs)
           <&> disablePact40Natives pactFlags
           <&> disablePact420Natives pactFlags
+          <&> disablePact43Natives pactFlags
 
       er <- liftIO $! evalExec interp eenv parsedCode
 
@@ -689,6 +693,10 @@ enablePactModuleMemcheck tc
     | chainweb213Pact (ctxVersion tc) (ctxCurrentBlockHeight tc) = []
     | otherwise = [FlagDisableInlineMemCheck]
 
+enablePact43 :: TxContext -> [ExecutionFlag]
+enablePact43 tc
+    | chainweb214Pact After (ctxVersion tc) (ctxCurrentBlockHeight tc) = []
+    | otherwise = [FlagDisablePact43]
 
 -- | Execute a 'ContMsg' and return the command result and module cache
 --
@@ -725,6 +733,7 @@ applyContinuation' interp cm@(ContMsg pid s rb d _) senderSigs hsh nsp = do
     eenv <- mkEvalEnv nsp (MsgData d pactStep hsh senderSigs)
           <&> disablePact40Natives pactFlags
           <&> disablePact420Natives pactFlags
+          <&> disablePact43Natives pactFlags
 
     er <- liftIO $! evalContinuation interp eenv cm
 
@@ -947,6 +956,12 @@ disablePactNatives bannedNatives flag ec = if has (ecFlags . ix flag) ec
 disablePact420Natives :: ExecutionConfig -> EvalEnv e -> EvalEnv e
 disablePact420Natives = disablePactNatives ["zip", "fold-db"] FlagDisablePact420
 {-# INLINE disablePact420Natives #-}
+
+-- | Disable certain natives around pact 4.2.0
+--
+disablePact43Natives :: ExecutionConfig -> EvalEnv e -> EvalEnv e
+disablePact43Natives = disablePactNatives ["create-principal", "validate-principal"] FlagDisablePact43
+{-# INLINE disablePact43Natives #-}
 
 -- | Set the module cache of a pact 'EvalState'
 --
