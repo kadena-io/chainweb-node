@@ -51,7 +51,7 @@ package vault
 source-repository-package
     type: git
     location: https://github.com/kadena-io/pact.git
-    tag: 1c517a906b2b6d0c8a4cdb107ffbc00887a9ac62
+    tag: e29c5e8255bfdd74b624ca00a2d60becccad3405
 
 source-repository-package
     type: git
