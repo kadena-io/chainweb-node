@@ -449,6 +449,8 @@ pact43UpgradeTest bdb mpRefIO pact = do
     (Just "Cannot resolve continue")
     (tx30_2 ^? crResult . to _pactResult . _Left . to peDoc)
 
+  runCut'
+
   -- run block 31, post-fork
   setOneShotMempool mpRefIO getBlock3
   runCut'

@@ -356,15 +356,26 @@ mkSPVResult CommandResult{..} j =
       Error _ -> obj []
       Success p -> fromPactValue p
 
-    contField PactExec{..} = obj
-        [ ("step", toTerm _peStep)
-        , ("step-count", toTerm _peStepCount)
-        , ("yield", maybe empty yieldField _peYield)
-        , ("pact-id", toTerm _pePactId)
-        , ("cont",contField1 _peContinuation)
-        , ("step-has-rollback",toTerm _peStepHasRollback)
-        , ("executed",tStr $ maybe "" sshow _peExecuted)
-        ]
+    contField (PactExec stepCount yield executed step pactId pactCont rollback nested) = obj
+        ([ ("step", toTerm step)
+        , ("step-count", toTerm stepCount)
+        , ("yield", maybe empty yieldField yield)
+        , ("pact-id", toTerm pactId)
+        , ("cont",contField1 pactCont)
+        , ("step-has-rollback",toTerm rollback)
+        , ("executed",tStr $ maybe "" sshow executed)
+        ] ++ [ ("nested", obj $ map nestedField1 (M.toList nested)) | not (M.null nested) ])
+
+    nestedField1 (PactId k, NestedPactExec stepCount yield executed step pactId pactCont nested) =
+      (FieldKey k, obj
+        [ ("step", toTerm step)
+        , ("step-count", toTerm stepCount)
+        , ("yield", maybe empty yieldField yield)
+        , ("pact-id", toTerm pactId)
+        , ("cont",contField1 pactCont)
+        , ("executed",tStr $ maybe "" sshow executed)
+        , ("nested", obj $ map nestedField1 (M.toList nested))
+        ])
 
     contField1 PactContinuation {..} = obj
         [ ("name",tStr $ asString _pcDef)
