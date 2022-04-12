@@ -14,6 +14,24 @@ Changes:
 
 *   Improve Mempool to fill blocks more efficiently (#1399)
 
+*   Pact Changes (#1382, #1396, #1397, #1399, #1407, #1409,#1410, #1413):
+
+    *   Gas changes for integer and decimal operations.
+    *   `NaN` and `+/- Infinity` throw errors now.
+    *   Several other nonsensical arithmetic expressions and operations throw
+        errors now.
+    *   Support of nested Defpacts and native `continue`.
+    *   New natives `create-principal` and `validate-principal`
+    *   Add support for `k:` , `r:`, `m:`, `u:`, `p:`, and `w:` protocol
+        validation in `coin`.
+    *   Addition of `fungible-xchain-v1` interface, which provides a
+        `TRANSFER-XCHAIN` managed capability, as well as a
+        `TRANSFER-XCHAIN-RECD` event for general use.
+    *   Implement `fungible-xchain-v1` in `coin`.
+    *   Miscellaneous bug fixes
+    *   Various performance improvements, in particular for deeply nested
+        function calls.
+
 ## 2.13.1 (2022-04-01)
 
 This is a feature and bug-fix release. Upgrading is optional but recommended.
