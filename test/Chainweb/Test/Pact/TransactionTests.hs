@@ -70,8 +70,11 @@ import Chainweb.Test.Pact.Utils
 v :: ChainwebVersion
 v = Development
 
-coinRepl :: FilePath
-coinRepl = "pact/coin-contract/coin.repl"
+coinReplV1 :: FilePath
+coinReplV1 = "pact/coin-contract/coin.repl"
+
+coinReplV4 :: FilePath
+coinReplV4 = "pact/coin-contract/v4/coin-v4.repl"
 
 logger :: Logger
 #if DEBUG_TEST
@@ -90,7 +93,11 @@ tests = testGroup "Chainweb.Test.Pact.TransactionTests"
     , testCase "Build Exec without Data" buildExecWithoutData
     ]
   , testGroup "Pact Code Unit Tests"
-    [ testCase "Coin Contract Repl Tests" (ccReplTests coinRepl)
+    [ testGroup "Coin Contract repl tests"
+      [ testCase "v1" (ccReplTests coinReplV1)
+        -- v2 and v3 repl tests were consolidated in v4
+      , testCase "v4" (ccReplTests coinReplV4)
+      ]
     , testCase "Ns Repl Tests" (ccReplTests "pact/namespaces/ns.repl")
     , testCase "Payer Repl Tests" (ccReplTests "pact/gas-payer/gas-payer-v1.repl")
     ]
@@ -124,8 +131,8 @@ ccReplTests ccFile = do
 
     failCC i e = assertFailure $ renderInfo (_faInfo i) <> ": " <> unpack e
 
-loadCC :: IO (PactDbEnv LibState, ModuleCache)
-loadCC = loadScript coinRepl
+loadCC :: FilePath -> IO (PactDbEnv LibState, ModuleCache)
+loadCC = loadScript
 
 loadScript :: FilePath -> IO (PactDbEnv LibState, ModuleCache)
 loadScript fp = do
@@ -182,7 +189,7 @@ minerKeys0 = MinerKeys $ mkKeySet
 
 testCoinbase797DateFix :: TestTree
 testCoinbase797DateFix = testCaseSteps "testCoinbase791Fix" $ \step -> do
-    (pdb,mc) <- loadCC
+    (pdb,mc) <- loadCC coinReplV1
 
     step "pre-fork code injection succeeds, no enforced precompile"
 
@@ -259,7 +266,7 @@ testCoinbase797DateFix = testCaseSteps "testCoinbase791Fix" $ \step -> do
 
 testCoinbaseEnforceFailure :: Assertion
 testCoinbaseEnforceFailure = do
-    (pdb,mc) <- loadCC
+    (pdb,mc) <- loadCC coinReplV4
     r <- tryAllSynchronous $ applyCoinbase toyVersion logger pdb badMiner 0.1 (TxContext someParentHeader def)
       (EnforceCoinbaseFailure True) (CoinbaseUsePrecompiled False) mc
     case r of
