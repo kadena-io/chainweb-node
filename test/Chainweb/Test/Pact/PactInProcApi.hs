@@ -417,80 +417,94 @@ pact43UpgradeTest :: TestBlockDb -> IO (IORef MemPoolAccess) -> WebPactExecution
 pact43UpgradeTest bdb mpRefIO pact = do
 
   -- run past genesis, upgrades
-  forM_ [(1::Int)..28] $ \_i -> runCut'
+  forM_ [(1::Int)..27] $ \_i -> runCut'
 
-  -- run block 29, pre fork
+  -- run block 28, pre fork
   setOneShotMempool mpRefIO getBlock1
+  runCut'
+  pwo28 <- getPWO bdb cid
+  tx28_0 <- txResult "pwo28" 0 pwo28
+  assertEqual "Old gas cost" 120332 (_crGas tx28_0)
+
+  -- run block 28, pre fork
+  setOneShotMempool mpRefIO getBlock2
   runCut'
   pwo29 <- getPWO bdb cid
   tx29_0 <- txResult "pwo29" 0 pwo29
-  assertEqual "Old gas cost" 120332 (_crGas tx29_0)
+  assertEqual
+    "Should not resolve new pact native: continue"
+    (Just "Cannot resolve \"continue\"")
+    (tx29_0 ^? crResult . to _pactResult . _Left . to peDoc)
 
   -- run block 30, pre-fork
-  setOneShotMempool mpRefIO getBlock2
+  setOneShotMempool mpRefIO getBlock3
   runCut'
   pwo30 <- getPWO bdb cid
 
   tx30_0 <- txResult "pwo30" 0 pwo30
   assertEqual
-    "Should not resolve new pact natives"
+    "Should not resolve new pact native: create-principal"
     (Just "Cannot resolve create-principal")
     (tx30_0 ^? crResult . to _pactResult . _Left . to peDoc)
 
   tx30_1 <- txResult "pwo30" 1 pwo30
   assertEqual
-    "Should not resolve new pact natives"
+    "Should not resolve new pact natives: validate-principal"
     (Just "Cannot resolve validate-principal")
     (tx30_1 ^? crResult . to _pactResult . _Left . to peDoc)
 
-  tx30_2 <- txResult "pwo30" 2 pwo30
-  assertEqual
-    "Should not resolve new pact natives"
-    (Just "Cannot resolve continue")
-    (tx30_2 ^? crResult . to _pactResult . _Left . to peDoc)
-  runCut'
+  -- tx30_2 <- txResult "pwo30" 2 pwo30
+  -- assertEqual
+  --   "Should not resolve new pact natives"
+  --   (Just "Cannot resolve continue")
+  --   (tx30_2 ^? crResult . to _pactResult . _Left . to peDoc)
+  -- runCut'
 
   -- run block 31, post-fork
-  setOneShotMempool mpRefIO getBlock3
+  setOneShotMempool mpRefIO postForkBlock1
   runCut'
   pwo31 <- getPWO bdb cid
   tx31_0 <- txResult "pwo31" 0 pwo31
   assertEqual "Old gas cost" 120296 (_crGas tx31_0)
 
-  -- run block 32, post-fork
-  setOneShotMempool mpRefIO getBlock4
+  -- run block 31, post-fork
+  setOneShotMempool mpRefIO postForkBlock2
   runCut'
   pwo32 <- getPWO bdb cid
-  tx32_0 <- txResult "pwo32" 0 pwo32
+  tx32_0 <- txResult "pwo31" 0 pwo32
+  assertEqual
+    "Should resolve continue in a module defn"
+    (Just $ PLiteral (LString "Loaded module free.nestedMod, hash fDd0G7zvGar3ax2q0I0F9dISRq7Pjop5rUXOeokNIOU"))
+    (tx32_0 ^? crResult . to _pactResult . _Right)
+
+  -- run block 32, post-fork
+  setOneShotMempool mpRefIO postForkBlock3
+  runCut'
+  pwo33 <- getPWO bdb cid
+  tx33_0 <- txResult "pwo33" 0 pwo33
   -- Note: returns LDecimal because of toPactValueLenient in interpret
   assertEqual
     "Should resolve names properly post-fork"
     (Just $ PLiteral (LDecimal 11))
-    (tx32_0 ^? crResult . to _pactResult . _Right)
+    (tx33_0 ^? crResult . to _pactResult . _Right)
 
-  tx32_1 <- txResult "pwo32" 1 pwo32
+  tx33_1 <- txResult "pwo33" 1 pwo33
   assertEqual
     "Should resolve names properly post-fork"
     (Just $ PLiteral (LString "hello"))
-    (tx32_1 ^? crResult . to _pactResult . _Right)
+    (tx33_1 ^? crResult . to _pactResult . _Right)
 
-  tx32_2 <- txResult "pwo32" 2 pwo32
+  tx33_2 <- txResult "pwo33" 2 pwo33
   assertEqual
     "Should resolve create-principal properly post-fork"
     (Just $ PLiteral (LString "k:368820f80c324bbc7c2b0610688a7da43e39f91d118732671cd9c7500ff43cca"))
-    (tx32_2 ^? crResult . to _pactResult . _Right)
+    (tx33_2 ^? crResult . to _pactResult . _Right)
 
-  tx32_3 <- txResult "pwo32" 3 pwo32
+  tx33_3 <- txResult "pwo33" 3 pwo33
   assertEqual
     "Should resolve validate-principal properly post-fork"
     (Just $ PLiteral (LBool True))
-    (tx32_3 ^? crResult . to _pactResult . _Right)
-
-  tx32_4 <- txResult "pwo32" 4 pwo32
-  assertEqual
-    "Should resolve continue properly post-fork"
-    (Just "Invalid arguments, received [] for value:* -> *")
-    (tx32_4 ^? crResult . to _pactResult . _Left . to peDoc)
+    (tx33_3 ^? crResult . to _pactResult . _Right)
   where
     getBlock1 = mempty {
       mpaGetBlock = \_ _ _ _ bh -> if _blockChainId bh == cid then do
@@ -500,26 +514,36 @@ pact43UpgradeTest bdb mpRefIO pact = do
       }
     getBlock2 = mempty {
       mpaGetBlock = \_ _ _ _ bh -> if _blockChainId bh == cid then do
-          t1 <- buildSimpleCmd bh "(create-principal (read-keyset 'k))"
-          t2 <- buildSimpleCmd bh "(validate-principal (read-keyset 'k) \"k:368820f80c324bbc7c2b0610688a7da43e39f91d118732671cd9c7500ff43cca\")"
-          t3 <- buildSimpleCmd bh "(continue)"
-          return $! V.fromList [t1,t2,t3]
+          t0 <- buildModPact bh
+          return $! V.fromList [t0]
           else return mempty
       }
     getBlock3 = mempty {
+      mpaGetBlock = \_ _ _ _ bh -> if _blockChainId bh == cid then do
+          t1 <- buildSimpleCmd bh "(create-principal (read-keyset 'k))"
+          t2 <- buildSimpleCmd bh "(validate-principal (read-keyset 'k) \"k:368820f80c324bbc7c2b0610688a7da43e39f91d118732671cd9c7500ff43cca\")"
+          return $! V.fromList [t1,t2]
+          else return mempty
+      }
+    postForkBlock1 = mempty {
       mpaGetBlock = \_ _ _ _ bh -> if _blockChainId bh == cid then do
           t0 <- buildMod bh
           return $! V.fromList [t0]
           else return mempty
       }
-    getBlock4 = mempty {
+    postForkBlock2 = mempty {
+      mpaGetBlock = \_ _ _ _ bh -> if _blockChainId bh == cid then do
+          t0 <- buildModPact bh
+          return $! V.fromList [t0]
+          else return mempty
+      }
+    postForkBlock3 = mempty {
       mpaGetBlock = \_ _ _ _ bh -> if _blockChainId bh == cid then do
           t0 <- buildSimpleCmd bh "(free.modB.chain)"
           t1 <- buildSimpleCmd bh "(free.modB.get-test)"
           t2 <- buildSimpleCmd bh "(create-principal (read-keyset 'k))"
           t3 <- buildSimpleCmd bh "(validate-principal (read-keyset 'k) \"k:368820f80c324bbc7c2b0610688a7da43e39f91d118732671cd9c7500ff43cca\")"
-          t4 <- buildSimpleCmd bh "(continue)"
-          return $! V.fromList [t0,t1,t2,t3,t4]
+          return $! V.fromList [t0,t1,t2,t3]
           else return mempty
       }
     buildSimpleCmd bh code = buildCwCmd
@@ -530,26 +554,21 @@ pact43UpgradeTest bdb mpRefIO pact = do
         $ mkCmd code
         $ mkExec code
         $ mkKeySetData "k" [sender00]
-    -- buildModPact bh = buildCwCmd
-    --     $ set cbSigners [mkSigner' sender00 []]
-    --     $ set cbChainId (_blockChainId bh)
-    --     $ set cbCreationTime (toTxCreationTime $ _bct $ _blockCreationTime bh)
-    --     $ set cbGasLimit 150000
-    --     $ mkCmd (sshow bh)
-    --     $ mkExec (mconcat
-    --     [ "(namespace 'free)"
-    --     , "(module modA G"
-    --     , "  (defcap G () true)"
-    --     , "  (defconst test:string \"hi\")"
-    --     , ")"
-    --     , "(module modB G"
-    --     , "  (defcap G () true)"
-    --     , "  (defun chain:integer () (modA.func 10))"
-    --     , "  (defconst test:string \"hello\")"
-    --     , "  (defun get-test() test)"
-    --     , ")"
-    --     ])
-    --     $ mkKeySetData "k" [sender00]
+    buildModPact bh = buildCwCmd
+        $ set cbSigners [mkSigner' sender00 []]
+        $ set cbChainId (_blockChainId bh)
+        $ set cbCreationTime (toTxCreationTime $ _bct $ _blockCreationTime bh)
+        $ set cbGasLimit 70000
+        $ mkCmd (sshow bh)
+        $ mkExec (mconcat
+        [ "(namespace 'free)"
+        , "(module nestedMod G"
+        , "  (defcap G () true)"
+        , "  (defpact test:string () (step \"1\") (step \"2\") (step \"3\"))"
+        , "  (defpact test-nested:string () (step (test)) (step (continue (test))) (step (continue (test))))"
+        , ")"
+        ])
+        $ mkKeySetData "k" [sender00]
     buildMod bh = buildCwCmd
         $ set cbSigners [mkSigner' sender00 []]
         $ set cbChainId (_blockChainId bh)
