@@ -426,7 +426,7 @@ pact43UpgradeTest bdb mpRefIO pact = do
   tx28_0 <- txResult "pwo28" 0 pwo28
   assertEqual "Old gas cost" 120332 (_crGas tx28_0)
 
-  -- run block 28, pre fork
+  -- run block 29, pre fork
   setOneShotMempool mpRefIO getBlock2
   runCut'
   pwo29 <- getPWO bdb cid
@@ -452,13 +452,6 @@ pact43UpgradeTest bdb mpRefIO pact = do
     "Should not resolve new pact natives: validate-principal"
     (Just "Cannot resolve validate-principal")
     (tx30_1 ^? crResult . to _pactResult . _Left . to peDoc)
-
-  -- tx30_2 <- txResult "pwo30" 2 pwo30
-  -- assertEqual
-  --   "Should not resolve new pact natives"
-  --   (Just "Cannot resolve continue")
-  --   (tx30_2 ^? crResult . to _pactResult . _Left . to peDoc)
-  -- runCut'
 
   -- run block 31, post-fork
   setOneShotMempool mpRefIO postForkBlock1
