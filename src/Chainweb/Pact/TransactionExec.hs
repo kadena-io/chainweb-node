@@ -454,6 +454,7 @@ readInitModules logger dbEnv txCtx =
           [] -> die $ msg <> ": empty result"
           (o:_) -> return o
 
+
     go :: TransactionM p ModuleCache
     go = do
 
@@ -464,13 +465,21 @@ readInitModules logger dbEnv txCtx =
         (PLiteral (LBool b)) -> return b
         t -> die $ "got non-bool result from module read: " <> T.pack (showPretty t)
 
+      -- see if fungible-xchain-v1 is there
+      checkCmdx <- liftIO $ mkCmd "(contains \"fungible-xchain-v1\" (list-modules))"
+      checkFx <- run "check fungible-xchain-v1" checkCmdx
+      hasFx <- case checkFx of
+        (PLiteral (LBool b)) -> return b
+        t -> die $ "got non-bool result from module read: " <> T.pack (showPretty t)
+
       -- load modules by referencing members
       refModsCmd <- liftIO $ mkCmd $ T.intercalate " " $
         [ "coin.MINIMUM_PRECISION"
         , "ns.GUARD_SUCCESS"
         , "gas-payer-v1.GAS_PAYER"
         , "fungible-v1.account-details"] ++
-        [ "fungible-v2.account-details" | hasFv2 ]
+        [ "fungible-v2.account-details" | hasFv2 ] ++
+        [ "(let ((m:module{fungible-xchain-v1} coin)) 1)" | hasFx ]
       void $ run "load modules" refModsCmd
 
       -- return loaded cache
