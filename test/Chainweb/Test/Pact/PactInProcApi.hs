@@ -448,7 +448,6 @@ pact43UpgradeTest bdb mpRefIO pact = do
     "Should not resolve new pact natives"
     (Just "Cannot resolve continue")
     (tx30_2 ^? crResult . to _pactResult . _Left . to peDoc)
-
   runCut'
 
   -- run block 31, post-fork
@@ -487,11 +486,11 @@ pact43UpgradeTest bdb mpRefIO pact = do
     (Just $ PLiteral (LBool True))
     (tx32_3 ^? crResult . to _pactResult . _Right)
 
-  -- tx32_4 <- txResult "pwo32" 4 pwo32
-  -- assertEqual
-  --   "Should resolve continue properly post-fork"
-  --   (Just "Cannot resolve continue")
-  --   (tx32_4 ^? crResult . to _pactResult . _Left . to peDoc)
+  tx32_4 <- txResult "pwo32" 4 pwo32
+  assertEqual
+    "Should resolve continue properly post-fork"
+    (Just "Invalid arguments, received [] for value:* -> *")
+    (tx32_4 ^? crResult . to _pactResult . _Left . to peDoc)
   where
     getBlock1 = mempty {
       mpaGetBlock = \_ _ _ _ bh -> if _blockChainId bh == cid then do
@@ -531,6 +530,26 @@ pact43UpgradeTest bdb mpRefIO pact = do
         $ mkCmd code
         $ mkExec code
         $ mkKeySetData "k" [sender00]
+    -- buildModPact bh = buildCwCmd
+    --     $ set cbSigners [mkSigner' sender00 []]
+    --     $ set cbChainId (_blockChainId bh)
+    --     $ set cbCreationTime (toTxCreationTime $ _bct $ _blockCreationTime bh)
+    --     $ set cbGasLimit 150000
+    --     $ mkCmd (sshow bh)
+    --     $ mkExec (mconcat
+    --     [ "(namespace 'free)"
+    --     , "(module modA G"
+    --     , "  (defcap G () true)"
+    --     , "  (defconst test:string \"hi\")"
+    --     , ")"
+    --     , "(module modB G"
+    --     , "  (defcap G () true)"
+    --     , "  (defun chain:integer () (modA.func 10))"
+    --     , "  (defconst test:string \"hello\")"
+    --     , "  (defun get-test() test)"
+    --     , ")"
+    --     ])
+    --     $ mkKeySetData "k" [sender00]
     buildMod bh = buildCwCmd
         $ set cbSigners [mkSigner' sender00 []]
         $ set cbChainId (_blockChainId bh)

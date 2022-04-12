@@ -167,7 +167,6 @@ applyCmd v logger pdbenv miner gasModel txCtx spv cmdIn mcache0 =
           ++ enablePactEvents' txCtx
           ++ enablePact40 txCtx
           ++ enablePact420 txCtx
-          ++ enablePact43 txCtx
           ++ enforceKeysetFormats' txCtx
           ++ enablePactModuleMemcheck txCtx
           ++ enablePact43 txCtx
@@ -492,13 +491,13 @@ applyUpgrades v cid height
   where
     installCoinModuleAdmin = set (evalCapabilities . capModuleAdmin) $ S.singleton (ModuleName "coin" Nothing)
 
-    applyCoinV2 = applyTxs (upgradeTransactions v cid)
+    applyCoinV2 = applyTxs (upgradeTransactions v cid) [FlagDisableInlineMemCheck, FlagDisablePact43]
 
-    applyCoinV3 = applyTxs coinV3Transactions
+    applyCoinV3 = applyTxs coinV3Transactions [FlagDisableInlineMemCheck, FlagDisablePact43]
 
-    applyCoinV4 = applyTxs coinV4Transactions
+    applyCoinV4 = applyTxs coinV4Transactions []
 
-    applyTxs txsIO = do
+    applyTxs txsIO flags = do
       infoLog "Applying upgrade!"
       txs <- map (fmap payloadObj) <$> liftIO txsIO
 
@@ -508,7 +507,7 @@ applyUpgrades v cid height
       -- those caches is returned. The calling code adds this new cache to the
       -- init cache in the pact service state (_psInitCache).
       --
-      let execConfig = mkExecutionConfig [FlagDisableInlineMemCheck, FlagDisablePact43]
+      let execConfig = mkExecutionConfig flags
       caches <- local (set txExecutionConfig execConfig) $ mapM applyTx txs
       return $ Just (HM.unions caches)
 
@@ -964,14 +963,15 @@ disablePact43Natives :: ExecutionConfig -> EvalEnv e -> EvalEnv e
 disablePact43Natives = disablePactNatives ["create-principal", "validate-principal", "continue"] FlagDisablePact43
 {-# INLINE disablePact43Natives #-}
 
-
 -- | Set the module cache of a pact 'EvalState'
 --
 setModuleCache
   :: ModuleCache
   -> EvalState
   -> EvalState
-setModuleCache = set (evalRefs . rsLoadedModules)
+setModuleCache mcache es =
+  let allDeps = foldMap (allModuleExports . fst) mcache
+  in set (evalRefs . rsQualifiedDeps) allDeps $ set (evalRefs . rsLoadedModules) mcache $ es
 {-# INLINE setModuleCache #-}
 
 -- | Set tx result state
