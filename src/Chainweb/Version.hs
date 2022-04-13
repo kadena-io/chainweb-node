@@ -925,6 +925,7 @@ chainweb213Pact Development = (>= 95)
 chainweb213Pact (FastTimedCPM g) | g == petersonChainGraph = (> 25)
 chainweb213Pact _ = const True
 
+
 -- | Pact and coin contract changes for Chainweb 2.14
 --
 chainweb214Pact
