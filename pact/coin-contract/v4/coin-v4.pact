@@ -98,29 +98,30 @@
       newbal)
   )
 
-  (defcap TRANSFER-XCHAIN:bool
+  (defcap TRANSFER_XCHAIN:bool
     ( sender:string
       receiver:string
       amount:decimal
       target-chain:string
     )
 
-    @managed amount TRANSFER-XCHAIN-mgr
+    @managed amount TRANSFER_XCHAIN-mgr
     (enforce-unit amount)
     (enforce (> amount 0.0) "Cross-chain transfers require a positive amount")
+    (compose-capability (DEBIT sender))
   )
 
-  (defun TRANSFER-XCHAIN-mgr:decimal
+  (defun TRANSFER_XCHAIN-mgr:decimal
     ( managed:decimal
       requested:decimal
     )
 
     (enforce (>= managed requested)
-      (format "TRANSFER-XCHAIN exceeded for balance {}" [managed]))
+      (format "TRANSFER_XCHAIN exceeded for balance {}" [managed]))
     0.0
   )
 
-  (defcap TRANSFER-XCHAIN-RECD:bool
+  (defcap TRANSFER_XCHAIN_RECD:bool
     ( sender:string
       receiver:string
       amount:decimal
@@ -533,35 +534,34 @@
            ]
 
     (step
-      (with-capability (DEBIT sender)
-        (with-capability
-          (TRANSFER-XCHAIN sender receiver amount target-chain)
+      (with-capability
+        (TRANSFER_XCHAIN sender receiver amount target-chain)
 
-          (validate-account sender)
-          (validate-account receiver)
+        (validate-account sender)
+        (validate-account receiver)
 
-          (enforce (!= "" target-chain) "empty target-chain")
-          (enforce (!= (at 'chain-id (chain-data)) target-chain)
-            "cannot run cross-chain transfers to the same chain")
+        (enforce (!= "" target-chain) "empty target-chain")
+        (enforce (!= (at 'chain-id (chain-data)) target-chain)
+          "cannot run cross-chain transfers to the same chain")
 
-          (enforce (> amount 0.0)
-            "transfer quantity must be positive")
+        (enforce (> amount 0.0)
+          "transfer quantity must be positive")
 
-          (enforce-unit amount)
+        (enforce-unit amount)
 
-          ;; step 1 - debit delete-account on current chain
-          (debit sender amount)
-          (emit-event (TRANSFER sender "" amount))
+        ;; step 1 - debit delete-account on current chain
+        (debit sender amount)
+        (emit-event (TRANSFER sender "" amount))
 
-          (let
-            ((crosschain-details:object{crosschain-schema}
-              { "receiver" : receiver
-              , "receiver-guard" : receiver-guard
-              , "amount" : amount
-              , "source-chain" : (at 'chain-id (chain-data))
-              }))
-            (yield crosschain-details target-chain)
-            ))))
+        (let
+          ((crosschain-details:object{crosschain-schema}
+            { "receiver" : receiver
+            , "receiver-guard" : receiver-guard
+            , "amount" : amount
+            , "source-chain" : (at 'chain-id (chain-data))
+            }))
+          (yield crosschain-details target-chain)
+          )))
 
     (step
       (resume
@@ -571,7 +571,7 @@
         , "source-chain" := source-chain
         }
         (emit-event (TRANSFER "" receiver amount))
-        (emit-event (TRANSFER-XCHAIN-RECD sender receiver amount source-chain))
+        (emit-event (TRANSFER_XCHAIN_RECD sender receiver amount source-chain))
         ;; step 2 - credit create account on target chain
         (with-capability (CREDIT receiver)
           (credit receiver receiver-guard amount))

@@ -3,7 +3,7 @@
   " This interface offers a standard capability for cross-chain \
   \ transfers and associated events. "
 
-  (defcap TRANSFER-XCHAIN:bool
+  (defcap TRANSFER_XCHAIN:bool
     ( sender:string
       receiver:string
       amount:decimal
@@ -13,10 +13,10 @@
          \ from SENDER to RECEIVER on TARGET-CHAIN. Permits \
          \ any number of cross-chain transfers up to AMOUNT."
 
-    @managed amount TRANSFER-XCHAIN-mgr
+    @managed amount TRANSFER_XCHAIN-mgr
     )
 
-  (defun TRANSFER-XCHAIN-mgr:decimal
+  (defun TRANSFER_XCHAIN-mgr:decimal
     ( managed:decimal
       requested:decimal
     )
@@ -24,7 +24,7 @@
          \ equal managed quantity as a one-shot, returning 0.0."
   )
 
-  (defcap TRANSFER-XCHAIN-RECD:bool
+  (defcap TRANSFER_XCHAIN_RECD:bool
     ( sender:string
       receiver:string
       amount:decimal
