@@ -417,126 +417,91 @@ pact43UpgradeTest :: TestBlockDb -> IO (IORef MemPoolAccess) -> WebPactExecution
 pact43UpgradeTest bdb mpRefIO pact = do
 
   -- run past genesis, upgrades
-  forM_ [(1::Int)..27] $ \_i -> runCut'
+  forM_ [(1::Int)..29] $ \_i -> runCut'
 
-  -- run block 28, pre fork
-  setOneShotMempool mpRefIO getBlock1
+  -- run block 30, pre fork
+  setOneShotMempool mpRefIO preForkBlock30
   runCut'
-  pwo28 <- getPWO bdb cid
-  tx28_0 <- txResult "pwo28" 0 pwo28
-  assertEqual "Old gas cost" 120332 (_crGas tx28_0)
+  pwo30 <- getPWO bdb cid
+  tx30_0 <- txResult "pwo30" 0 pwo30
+  assertEqual "Old gas cost" 120332 (_crGas tx30_0)
 
   -- run block 29, pre fork
-  setOneShotMempool mpRefIO getBlock2
-  runCut'
-  pwo29 <- getPWO bdb cid
-  tx29_0 <- txResult "pwo29" 0 pwo29
+  tx30_1 <- txResult "pwo30" 1 pwo30
   assertEqual
     "Should not resolve new pact native: continue"
     (Just "Cannot resolve \"continue\"")
-    (tx29_0 ^? crResult . to _pactResult . _Left . to peDoc)
+    (tx30_1 ^? crResult . to _pactResult . _Left . to peDoc)
 
-  -- run block 30, pre-fork
-  setOneShotMempool mpRefIO getBlock3
-  runCut'
-  pwo30 <- getPWO bdb cid
-
-  tx30_0 <- txResult "pwo30" 0 pwo30
+  tx30_2 <- txResult "pwo30" 2 pwo30
   assertEqual
     "Should not resolve new pact native: create-principal"
     (Just "Cannot resolve create-principal")
-    (tx30_0 ^? crResult . to _pactResult . _Left . to peDoc)
+    (tx30_2 ^? crResult . to _pactResult . _Left . to peDoc)
 
-  tx30_1 <- txResult "pwo30" 1 pwo30
+  tx30_3 <- txResult "pwo30" 3 pwo30
   assertEqual
     "Should not resolve new pact natives: validate-principal"
     (Just "Cannot resolve validate-principal")
-    (tx30_1 ^? crResult . to _pactResult . _Left . to peDoc)
+    (tx30_3 ^? crResult . to _pactResult . _Left . to peDoc)
 
   -- run block 31, post-fork
-  setOneShotMempool mpRefIO postForkBlock1
+  setOneShotMempool mpRefIO postForkBlock31
   runCut'
   pwo31 <- getPWO bdb cid
   tx31_0 <- txResult "pwo31" 0 pwo31
   assertEqual "Old gas cost" 120296 (_crGas tx31_0)
 
-  -- run block 31, post-fork
-  setOneShotMempool mpRefIO postForkBlock2
-  runCut'
-  pwo32 <- getPWO bdb cid
-  tx32_0 <- txResult "pwo31" 0 pwo32
+  tx31_1 <- txResult "pwo31" 1 pwo31
   assertEqual
     "Should resolve continue in a module defn"
     (Just $ PLiteral (LString "Loaded module free.nestedMod, hash fDd0G7zvGar3ax2q0I0F9dISRq7Pjop5rUXOeokNIOU"))
-    (tx32_0 ^? crResult . to _pactResult . _Right)
+    (tx31_1 ^? crResult . to _pactResult . _Right)
 
-  -- run block 32, post-fork
-  setOneShotMempool mpRefIO postForkBlock3
-  runCut'
-  pwo33 <- getPWO bdb cid
-  tx33_0 <- txResult "pwo33" 0 pwo33
+  -- run block 31, post-fork
+  tx31_2 <- txResult "pwo31" 2 pwo31
   -- Note: returns LDecimal because of toPactValueLenient in interpret
   assertEqual
     "Should resolve names properly post-fork"
     (Just $ PLiteral (LDecimal 11))
-    (tx33_0 ^? crResult . to _pactResult . _Right)
+    (tx31_2 ^? crResult . to _pactResult . _Right)
 
-  tx33_1 <- txResult "pwo33" 1 pwo33
+  tx31_3 <- txResult "pwo31" 3 pwo31
   assertEqual
     "Should resolve names properly post-fork"
     (Just $ PLiteral (LString "hello"))
-    (tx33_1 ^? crResult . to _pactResult . _Right)
+    (tx31_3 ^? crResult . to _pactResult . _Right)
 
-  tx33_2 <- txResult "pwo33" 2 pwo33
+  tx31_4 <- txResult "pwo31" 4 pwo31
   assertEqual
     "Should resolve create-principal properly post-fork"
     (Just $ PLiteral (LString "k:368820f80c324bbc7c2b0610688a7da43e39f91d118732671cd9c7500ff43cca"))
-    (tx33_2 ^? crResult . to _pactResult . _Right)
+    (tx31_4 ^? crResult . to _pactResult . _Right)
 
-  tx33_3 <- txResult "pwo33" 3 pwo33
+  tx31_5 <- txResult "pwo31" 5 pwo31
   assertEqual
     "Should resolve validate-principal properly post-fork"
     (Just $ PLiteral (LBool True))
-    (tx33_3 ^? crResult . to _pactResult . _Right)
+    (tx31_5 ^? crResult . to _pactResult . _Right)
   where
-    getBlock1 = mempty {
+    preForkBlock30 = mempty {
       mpaGetBlock = \_ _ _ _ bh -> if _blockChainId bh == cid then do
           t0 <- buildMod bh
-          return $! V.fromList [t0]
-          else return mempty
-      }
-    getBlock2 = mempty {
-      mpaGetBlock = \_ _ _ _ bh -> if _blockChainId bh == cid then do
-          t0 <- buildModPact bh
-          return $! V.fromList [t0]
-          else return mempty
-      }
-    getBlock3 = mempty {
-      mpaGetBlock = \_ _ _ _ bh -> if _blockChainId bh == cid then do
-          t1 <- buildSimpleCmd bh "(create-principal (read-keyset 'k))"
-          t2 <- buildSimpleCmd bh "(validate-principal (read-keyset 'k) \"k:368820f80c324bbc7c2b0610688a7da43e39f91d118732671cd9c7500ff43cca\")"
-          return $! V.fromList [t1,t2]
-          else return mempty
-      }
-    postForkBlock1 = mempty {
-      mpaGetBlock = \_ _ _ _ bh -> if _blockChainId bh == cid then do
-          t0 <- buildMod bh
-          return $! V.fromList [t0]
-          else return mempty
-      }
-    postForkBlock2 = mempty {
-      mpaGetBlock = \_ _ _ _ bh -> if _blockChainId bh == cid then do
-          t0 <- buildModPact bh
-          return $! V.fromList [t0]
-          else return mempty
-      }
-    postForkBlock3 = mempty {
-      mpaGetBlock = \_ _ _ _ bh -> if _blockChainId bh == cid then do
-          t0 <- buildSimpleCmd bh "(free.modB.chain)"
-          t1 <- buildSimpleCmd bh "(free.modB.get-test)"
+          t1 <- buildModPact bh
           t2 <- buildSimpleCmd bh "(create-principal (read-keyset 'k))"
           t3 <- buildSimpleCmd bh "(validate-principal (read-keyset 'k) \"k:368820f80c324bbc7c2b0610688a7da43e39f91d118732671cd9c7500ff43cca\")"
-          return $! V.fromList [t0,t1,t2,t3]
+          return $! V.fromList [t0, t1, t2, t3]
+          else return mempty
+      }
+    postForkBlock31 = mempty {
+      mpaGetBlock = \_ _ _ _ bh -> if _blockChainId bh == cid then do
+          t0 <- buildMod bh
+          t1 <- buildModPact bh
+          t2 <- buildSimpleCmd bh "(free.modB.chain)"
+          t3 <- buildSimpleCmd bh "(free.modB.get-test)"
+          t4 <- buildSimpleCmd bh "(create-principal (read-keyset 'k))"
+          t5 <- buildSimpleCmd bh "(validate-principal (read-keyset 'k) \"k:368820f80c324bbc7c2b0610688a7da43e39f91d118732671cd9c7500ff43cca\")"
+          return $! V.fromList [t0,t1,t2,t3,t4,t5]
           else return mempty
       }
     buildSimpleCmd bh code = buildCwCmd
@@ -566,7 +531,7 @@ pact43UpgradeTest bdb mpRefIO pact = do
         $ set cbSigners [mkSigner' sender00 []]
         $ set cbChainId (_blockChainId bh)
         $ set cbCreationTime (toTxCreationTime $ _bct $ _blockCreationTime bh)
-        $ set cbGasLimit 150000
+        $ set cbGasLimit 130000
         $ mkCmd (sshow bh)
         $ mkExec (mconcat
         [ "(namespace 'free)"
