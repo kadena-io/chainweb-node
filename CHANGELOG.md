@@ -22,11 +22,10 @@ Changes:
         errors now.
     *   Support of nested Defpacts and native `continue`.
     *   New natives `create-principal` and `validate-principal`
-    *   Add support for `k:` , `r:`, `m:`, `u:`, `p:`, and `w:` protocol
-        validation in `coin`.
+    *   Add support for principals`r:`, `m:`, `u:`, `p:`, and `w:` in `coin`.
     *   Addition of `fungible-xchain-v1` interface, which provides a
         `TRANSFER-XCHAIN` managed capability, as well as a
-        `TRANSFER-XCHAIN-RECD` event for general use.
+        `TRANSFER-XCHAIN-RECD` event for recording crosschain transfer receipt.
     *   Implement `fungible-xchain-v1` in `coin`.
     *   Miscellaneous bug fixes
     *   Various performance improvements, in particular for deeply nested
