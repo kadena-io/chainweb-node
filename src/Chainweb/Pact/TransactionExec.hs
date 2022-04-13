@@ -454,6 +454,7 @@ readInitModules logger dbEnv txCtx =
           [] -> die $ msg <> ": empty result"
           (o:_) -> return o
 
+
     go :: TransactionM p ModuleCache
     go = do
 
@@ -464,13 +465,21 @@ readInitModules logger dbEnv txCtx =
         (PLiteral (LBool b)) -> return b
         t -> die $ "got non-bool result from module read: " <> T.pack (showPretty t)
 
+      -- see if fungible-xchain-v1 is there
+      checkCmdx <- liftIO $ mkCmd "(contains \"fungible-xchain-v1\" (list-modules))"
+      checkFx <- run "check fungible-xchain-v1" checkCmdx
+      hasFx <- case checkFx of
+        (PLiteral (LBool b)) -> return b
+        t -> die $ "got non-bool result from module read: " <> T.pack (showPretty t)
+
       -- load modules by referencing members
       refModsCmd <- liftIO $ mkCmd $ T.intercalate " " $
         [ "coin.MINIMUM_PRECISION"
         , "ns.GUARD_SUCCESS"
         , "gas-payer-v1.GAS_PAYER"
         , "fungible-v1.account-details"] ++
-        [ "fungible-v2.account-details" | hasFv2 ]
+        [ "fungible-v2.account-details" | hasFv2 ] ++
+        [ "(let ((m:module{fungible-xchain-v1} coin)) 1)" | hasFx ]
       void $ run "load modules" refModsCmd
 
       -- return loaded cache
@@ -491,13 +500,13 @@ applyUpgrades v cid height
   where
     installCoinModuleAdmin = set (evalCapabilities . capModuleAdmin) $ S.singleton (ModuleName "coin" Nothing)
 
-    applyCoinV2 = applyTxs (upgradeTransactions v cid)
+    applyCoinV2 = applyTxs (upgradeTransactions v cid) [FlagDisableInlineMemCheck, FlagDisablePact43]
 
-    applyCoinV3 = applyTxs coinV3Transactions
+    applyCoinV3 = applyTxs coinV3Transactions [FlagDisableInlineMemCheck, FlagDisablePact43]
 
-    applyCoinV4 = applyTxs coinV4Transactions
+    applyCoinV4 = applyTxs coinV4Transactions []
 
-    applyTxs txsIO = do
+    applyTxs txsIO flags = do
       infoLog "Applying upgrade!"
       txs <- map (fmap payloadObj) <$> liftIO txsIO
 
@@ -507,7 +516,7 @@ applyUpgrades v cid height
       -- those caches is returned. The calling code adds this new cache to the
       -- init cache in the pact service state (_psInitCache).
       --
-      let execConfig = mkExecutionConfig [FlagDisableInlineMemCheck, FlagDisablePact43]
+      let execConfig = mkExecutionConfig flags
       caches <- local (set txExecutionConfig execConfig) $ mapM applyTx txs
       return $ Just (HM.unions caches)
 
@@ -960,7 +969,7 @@ disablePact420Natives = disablePactNatives ["zip", "fold-db"] FlagDisablePact420
 -- | Disable certain natives around pact 4.2.0
 --
 disablePact43Natives :: ExecutionConfig -> EvalEnv e -> EvalEnv e
-disablePact43Natives = disablePactNatives ["create-principal", "validate-principal"] FlagDisablePact43
+disablePact43Natives = disablePactNatives ["create-principal", "validate-principal", "continue"] FlagDisablePact43
 {-# INLINE disablePact43Natives #-}
 
 -- | Set the module cache of a pact 'EvalState'
@@ -969,7 +978,9 @@ setModuleCache
   :: ModuleCache
   -> EvalState
   -> EvalState
-setModuleCache = set (evalRefs . rsLoadedModules)
+setModuleCache mcache es =
+  let allDeps = foldMap (allModuleExports . fst) mcache
+  in set (evalRefs . rsQualifiedDeps) allDeps $ set (evalRefs . rsLoadedModules) mcache $ es
 {-# INLINE setModuleCache #-}
 
 -- | Set tx result state

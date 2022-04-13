@@ -1,7 +1,7 @@
 ;; Enable the table gas model
 (env-exec-config ["DisableInlineMemCheck", "DisablePact43"])
 (env-gasmodel "table")
-(env-gaslimit 30000)
+(env-gaslimit 150000)
 
 (begin-tx)
 (env-gas 0) (env-gaslog)
@@ -10,19 +10,24 @@
 (expect
   "Gas cost of loading fungible contract"
   840 (env-gas))
+(commit-tx)
 
+(env-exec-config [])
+(env-gasmodel "table")
 (env-gas 0) (env-gaslog)
+(begin-tx)
 (load "fungible-xchain-v1.pact")
 (env-gaslog)
 (expect
   "Gas cost of loading fungible-xchain contract"
-  206 (env-gas))
-
+  60236 (env-gas))
+(commit-tx)
+(begin-tx)
 (load "coin-v4.pact")
 (env-gaslog)
 (expect
   "Gas cost of loading coin contract"
-  4048
+  66546
   (env-gas))
 
 (create-table coin.coin-table)
