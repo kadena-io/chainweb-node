@@ -185,6 +185,7 @@ getDbBaseDir conf = case _nodeConfigDatabaseDirectory conf of
     Just d -> return d
   where
     v = _configChainwebVersion $ _nodeConfigChainweb conf
+
 -- -------------------------------------------------------------------------- --
 -- Monitors
 
@@ -466,10 +467,10 @@ pkgInfoScopes =
 -- -------------------------------------------------------------------------- --
 -- main
 
--- SERVICE DATE for version 2.13
+-- SERVICE DATE for version 2.14
 --
 serviceDate :: Maybe String
-serviceDate = Just "2022-04-21T00:00:00Z"
+serviceDate = Just "2022-06-16T00:00:00Z"
 
 mainInfo :: ProgramInfo ChainwebNodeConfiguration
 mainInfo = programInfoValidate

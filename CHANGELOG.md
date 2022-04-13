@@ -1,5 +1,36 @@
 # `chainweb-node` Changelog
 
+## 2.14 (2022-04-11)
+
+This version replaces all previous versions. Any prior version will stop working
+on **2022-04-21T00:00:00Z**. Node administrators must upgrade to this version
+before that date.
+
+This version will stop working on **2022-06-16T00:00:00Z**.
+
+To upgrade, pull the latest docker image or download the binary and restart the node.
+
+Changes:
+
+*   Improve Mempool to fill blocks more efficiently (#1399)
+
+*   Pact Changes (#1382, #1396, #1397, #1399, #1407, #1409,#1410, #1413):
+
+    *   Gas changes for integer and decimal operations.
+    *   `NaN` and `+/- Infinity` throw errors now.
+    *   Several other nonsensical arithmetic expressions and operations throw
+        errors now.
+    *   Support of nested Defpacts and native `continue`.
+    *   New natives `create-principal` and `validate-principal`
+    *   Add support for principals`r:`, `m:`, `u:`, `p:`, and `w:` in `coin`.
+    *   Addition of `fungible-xchain-v1` interface, which provides a
+        `TRANSFER-XCHAIN` managed capability, as well as a
+        `TRANSFER-XCHAIN-RECD` event for recording crosschain transfer receipt.
+    *   Implement `fungible-xchain-v1` in `coin`.
+    *   Miscellaneous bug fixes
+    *   Various performance improvements, in particular for deeply nested
+        function calls.
+
 ## 2.13.1 (2022-04-01)
 
 This is a feature and bug-fix release. Upgrading is optional but recommended.
