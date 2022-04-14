@@ -24,7 +24,7 @@ Changes:
     *   New natives `create-principal` and `validate-principal`
     *   Add support for principals`r:`, `m:`, `u:`, `p:`, and `w:` in `coin`.
     *   Addition of `fungible-xchain-v1` interface, which provides a
-        `TRANSFER-XCHAIN` managed capability.
+        `TRANSFER_XCHAIN` managed capability.
     *   Implement `fungible-xchain-v1` in `coin`.
     *   Miscellaneous bug fixes
     *   Various performance improvements, in particular for deeply nested
