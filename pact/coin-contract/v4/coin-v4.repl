@@ -27,7 +27,7 @@
 (env-gaslog)
 (expect
   "Gas cost of loading coin contract"
-  66531
+  66494
   (env-gas))
 
 (create-table coin.coin-table)
@@ -970,9 +970,6 @@
 (expect "xchain send events"
   [ {"name": "coin.TRANSFER"
     ,"params": ["" "doug" 0.00001]
-    }
-    {"name": "coin.TRANSFER_XCHAIN_RECD"
-    ,"params": ["emily" "doug" 0.00001 "0"]
     }
     { "name": "pact.X_RESUME"
     , "params": ["0" "coin.transfer-crosschain" ["emily" "doug" (read-keyset 'k) "1" 0.00001]]
