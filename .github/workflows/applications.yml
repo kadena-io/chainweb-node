@@ -73,10 +73,14 @@ jobs:
           "cabal": ["3.6"],
           "os": ["ubuntu-18.04", "ubuntu-20.04"],
           "cabalcache": ["true"],
-          "exclude": {
-            "ghc": "9.0.2",
-            "os" : "ubuntu-20.04"
-          }
+          "exclude": [
+            { 
+              "ghc": "9.0.2",
+              "cabal": "3.6",
+              "os" : "ubuntu-20.04",
+              "cabalcache": "true"
+            }
+          ]
         }
         EOF
         )"
