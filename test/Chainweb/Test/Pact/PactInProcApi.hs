@@ -62,6 +62,7 @@ import Pact.Types.Term
 import Chainweb.BlockCreationTime
 import Chainweb.BlockHeader
 import Chainweb.BlockHeader.Genesis
+import Chainweb.BlockHeight
 import Chainweb.ChainId
 import Chainweb.Cut
 import Chainweb.Mempool.Mempool
@@ -80,6 +81,7 @@ import Chainweb.Test.Cut.TestBlockDb
 import Chainweb.Test.Pact.Utils
 import Chainweb.Test.Utils
 import Chainweb.Time
+import Chainweb.Transaction
 import Chainweb.Utils
 import Chainweb.Version
 import Chainweb.Version.Utils
@@ -114,6 +116,7 @@ tests rdb = ScheduledTest testName go
          , multiChainTest freeGasModel "pact420UpgradeTest" pact420UpgradeTest
          , multiChainTest freeGasModel "minerKeysetTest" minerKeysetTest
          , multiChainTest getGasModel "chainweb213Test" chainweb213Test
+         , multiChainTest getGasModel "pact43UpgradeTest" pact43UpgradeTest
          ]
       where
         pactConfig = defaultPactServiceConfig { _pactBlockGasLimit = 150_000 }
@@ -412,6 +415,168 @@ chainweb213Test bdb mpRefIO pact = do
         ]
     runCut' = runCut testVersion bdb pact (offsetBlockTime second) zeroNoncer noMiner
 
+pact43UpgradeTest :: TestBlockDb -> IO (IORef MemPoolAccess) -> WebPactExecutionService -> IO ()
+pact43UpgradeTest bdb mpRefIO pact = do
+
+  -- run past genesis, upgrades
+  forM_ [(1::Int)..29] $ \_i -> runCut'
+
+  -- run block 30, pre fork
+  setOneShotMempool mpRefIO preForkBlock30
+  runCut'
+  pwo30 <- getPWO bdb cid
+  tx30_0 <- txResult "pwo30" 0 pwo30
+  assertEqual "Old gas cost" 120332 (_crGas tx30_0)
+
+  -- run block 29, pre fork
+  tx30_1 <- txResult "pwo30" 1 pwo30
+  assertEqual
+    "Should not resolve new pact native: continue"
+    (Just "Cannot resolve \"continue\"")
+    (tx30_1 ^? crResult . to _pactResult . _Left . to peDoc)
+
+  tx30_2 <- txResult "pwo30" 2 pwo30
+  assertEqual
+    "Should not resolve new pact native: create-principal"
+    (Just "Cannot resolve create-principal")
+    (tx30_2 ^? crResult . to _pactResult . _Left . to peDoc)
+
+  tx30_3 <- txResult "pwo30" 3 pwo30
+  assertEqual
+    "Should not resolve new pact natives: validate-principal"
+    (Just "Cannot resolve validate-principal")
+    (tx30_3 ^? crResult . to _pactResult . _Left . to peDoc)
+
+  tx30_4 <- txResult "pwo30" 4 pwo30
+  assertSatisfies "tx30_4 success" (_pactResult $ _crResult tx30_4) isRight
+
+
+  -- run block 31, post-fork
+  setOneShotMempool mpRefIO postForkBlock31
+  runCut'
+  pwo31 <- getPWO bdb cid
+  tx31_0 <- txResult "pwo31" 0 pwo31
+  assertEqual "Old gas cost" 120296 (_crGas tx31_0)
+
+  tx31_1 <- txResult "pwo31" 1 pwo31
+  assertEqual
+    "Should resolve continue in a module defn"
+    (Just $ PLiteral (LString "Loaded module free.nestedMod, hash fDd0G7zvGar3ax2q0I0F9dISRq7Pjop5rUXOeokNIOU"))
+    (tx31_1 ^? crResult . to _pactResult . _Right)
+
+  -- run block 31, post-fork
+  tx31_2 <- txResult "pwo31" 2 pwo31
+  -- Note: returns LDecimal because of toPactValueLenient in interpret
+  assertEqual
+    "Should resolve names properly post-fork"
+    (Just $ PLiteral (LDecimal 11))
+    (tx31_2 ^? crResult . to _pactResult . _Right)
+
+  tx31_3 <- txResult "pwo31" 3 pwo31
+  assertEqual
+    "Should resolve names properly post-fork"
+    (Just $ PLiteral (LString "hello"))
+    (tx31_3 ^? crResult . to _pactResult . _Right)
+
+  tx31_4 <- txResult "pwo31" 4 pwo31
+  assertEqual
+    "Should resolve create-principal properly post-fork"
+    (Just $ PLiteral (LString "k:368820f80c324bbc7c2b0610688a7da43e39f91d118732671cd9c7500ff43cca"))
+    (tx31_4 ^? crResult . to _pactResult . _Right)
+
+  tx31_5 <- txResult "pwo31" 5 pwo31
+  assertEqual
+    "Should resolve validate-principal properly post-fork"
+    (Just $ PLiteral (LBool True))
+    (tx31_5 ^? crResult . to _pactResult . _Right)
+
+  setMempool mpRefIO mempty
+  runCut' -- 32
+  runCut' -- 33
+
+  xproof <- buildXProof bdb cid 30 4 tx30_4
+
+  setMempool mpRefIO =<< getOncePerChainMempool (postForkBlock34 xproof)
+  runCut'
+  pwo34 <- getPWO bdb chain0
+  tx34_0 <- txResult "pwo34" 0 pwo34
+  assertSatisfies "tx34_0 success" (_pactResult $ _crResult tx34_0) isRight
+
+  where
+    preForkBlock30 = mempty {
+      mpaGetBlock = \_ _ _ _ bh -> if _blockChainId bh == cid then do
+          t0 <- buildMod bh
+          t1 <- buildModPact bh
+          t2 <- buildSimpleCmd bh "(create-principal (read-keyset 'k))"
+          t3 <- buildSimpleCmd bh "(validate-principal (read-keyset 'k) \"k:368820f80c324bbc7c2b0610688a7da43e39f91d118732671cd9c7500ff43cca\")"
+          t4 <- buildXSend bh
+          return $! V.fromList [t0, t1, t2, t3, t4]
+          else return mempty
+      }
+    postForkBlock31 = mempty {
+      mpaGetBlock = \_ _ _ _ bh -> if _blockChainId bh == cid then do
+          t0 <- buildMod bh
+          t1 <- buildModPact bh
+          t2 <- buildSimpleCmd bh "(free.modB.chain)"
+          t3 <- buildSimpleCmd bh "(free.modB.get-test)"
+          t4 <- buildSimpleCmd bh "(create-principal (read-keyset 'k))"
+          t5 <- buildSimpleCmd bh "(validate-principal (read-keyset 'k) \"k:368820f80c324bbc7c2b0610688a7da43e39f91d118732671cd9c7500ff43cca\")"
+          return $! V.fromList [t0,t1,t2,t3,t4,t5]
+          else return mempty
+      }
+    postForkBlock34 xproof bh =
+      if _blockChainId bh == chain0 then do
+          t0 <- buildXReceive bh xproof
+          return $! V.fromList [t0]
+      else return mempty
+
+    buildSimpleCmd bh code = buildCwCmd
+        $ set cbSigners [mkSigner' sender00 []]
+        $ set cbChainId (_blockChainId bh)
+        $ set cbCreationTime (toTxCreationTime $ _bct $ _blockCreationTime bh)
+        $ set cbGasLimit 1000
+        $ mkCmd code
+        $ mkExec code
+        $ mkKeySetData "k" [sender00]
+    buildModPact bh = buildCwCmd
+        $ set cbSigners [mkSigner' sender00 []]
+        $ set cbChainId (_blockChainId bh)
+        $ set cbCreationTime (toTxCreationTime $ _bct $ _blockCreationTime bh)
+        $ set cbGasLimit 70000
+        $ mkCmd (sshow bh)
+        $ mkExec (mconcat
+        [ "(namespace 'free)"
+        , "(module nestedMod G"
+        , "  (defcap G () true)"
+        , "  (defpact test:string () (step \"1\") (step \"2\") (step \"3\"))"
+        , "  (defpact test-nested:string () (step (test)) (step (continue (test))) (step (continue (test))))"
+        , ")"
+        ])
+        $ mkKeySetData "k" [sender00]
+    buildMod bh = buildCwCmd
+        $ set cbSigners [mkSigner' sender00 []]
+        $ set cbChainId (_blockChainId bh)
+        $ set cbCreationTime (toTxCreationTime $ _bct $ _blockCreationTime bh)
+        $ set cbGasLimit 130000
+        $ mkCmd (sshow bh)
+        $ mkExec (mconcat
+        [ "(namespace 'free)"
+        , "(module modA G"
+        , "  (defcap G () true)"
+        , "  (defun func:integer (x:integer) (+ 1 x))"
+        , "  (defun func2:integer (x:integer) (+ (func x) (func x)))"
+        , "  (defconst test:string \"hi\")"
+        , ")"
+        , "(module modB G"
+        , "  (defcap G () true)"
+        , "  (defun chain:integer () (modA.func 10))"
+        , "  (defconst test:string \"hello\")"
+        , "  (defun get-test() test)"
+        , ")"
+        ])
+        $ mkKeySetData "k" [sender00]
+    runCut' = runCut testVersion bdb pact (offsetBlockTime second) zeroNoncer noMiner
+
 pact420UpgradeTest :: TestBlockDb -> IO (IORef MemPoolAccess) -> WebPactExecutionService -> IO ()
 pact420UpgradeTest bdb mpRefIO pact = do
 
@@ -583,13 +748,10 @@ pact4coin3UpgradeTest bdb mpRefIO pact = do
 
   -- block 22
   -- get proof
-  proof <- ContProof . B64U.encode . encodeToByteString <$>
-      createTransactionOutputProof_ (_bdbWebBlockHeaderDb bdb) (_bdbPayloadDb bdb) chain0 cid 7 1
-  pid <- fromMaybeM (userError "no continuation") $
-    preview (crContinuation . _Just . pePactId) tx7_1
+  xproof <- buildXProof bdb cid 7 1 tx7_1
 
   -- run block 22
-  setMempool mpRefIO =<< getBlock22 (Just proof) pid
+  setMempool mpRefIO =<< getOncePerChainMempool (getBlock22 xproof)
   runCut'
   pwo22 <- getPWO bdb cid
   let v3Hash = "1os_sLAUYvBzspn5jjawtRpJWiH1WPfhyNraeVvSIwU"
@@ -657,12 +819,7 @@ pact4coin3UpgradeTest bdb mpRefIO pact = do
           else return mempty
       }
 
-    chain0 = unsafeChainId 0
-
-    getBlock22 proof pid = do
-      cids <- newIORef mempty
-      return $ mempty {
-        mpaGetBlock = \_ _ _ _ bh ->
+    getBlock22 xproof bh =
           let go | bid == cid = do
                      t0 <- buildHashCmd bh
                      t1 <- buildReleaseCommand bh
@@ -671,16 +828,11 @@ pact4coin3UpgradeTest bdb mpRefIO pact = do
                      t4 <- badKeyset bh
                      return $! V.fromList [t0,t1,t2,t3,t4]
                  | _blockChainId bh == chain0 = do
-                     V.singleton <$> buildXReceive bh proof pid
+                     V.singleton <$> buildXReceive bh xproof
                  | otherwise = return mempty
-              enfChain f = do
-                cids' <- readIORef cids
-                if bid `elem` cids' then mempty else do
-                  writeIORef cids (bid:cids')
-                  f
               bid = _blockChainId bh
-          in enfChain go
-        }
+          in go
+
 
     buildHashCmd bh = buildCwCmd
         $ set cbSigners [mkSigner' sender00 []]
@@ -711,21 +863,6 @@ pact4coin3UpgradeTest bdb mpRefIO pact = do
           , "(enumerate 1 10)"
           ]
 
-    buildXSend bh = buildCwCmd
-        $ set cbSigners [mkSigner' sender00 []]
-        $ set cbChainId (_blockChainId bh)
-        $ set cbCreationTime (toTxCreationTime $ _bct $ _blockCreationTime bh)
-        $ mkCmd (sshow bh)
-        $ mkExec
-          "(coin.transfer-crosschain 'sender00 'sender00 (read-keyset 'k) \"0\" 0.0123)" $
-          mkKeySetData "k" [sender00]
-
-    buildXReceive bh proof pid = buildCwCmd
-        $ set cbSigners [mkSigner' sender00 []]
-        $ set cbCreationTime (toTxCreationTime $ _bct $ _blockCreationTime bh)
-        $ set cbChainId chain0
-        $ mkCmd (sshow bh)
-        $ mkCont ((mkContMsg pid 1) { _cmProof = proof })
 
     buildReleaseCommand bh = buildCwCmd
         $ set cbSigners [mkSigner' sender00 [],mkSigner' allocation00KeyPair []]
@@ -735,6 +872,60 @@ pact4coin3UpgradeTest bdb mpRefIO pact = do
         $ mkExec' "(coin.release-allocation 'allocation00)"
 
     pHash = PactResult . Right . PLiteral . LString
+
+buildXSend :: BlockHeader -> IO ChainwebTransaction
+buildXSend bh = buildCwCmd
+    $ set cbSigners [mkSigner' sender00 []]
+    $ set cbChainId (_blockChainId bh)
+    $ set cbCreationTime (toTxCreationTime $ _bct $ _blockCreationTime bh)
+    $ mkCmd (sshow bh)
+    $ mkExec
+      "(coin.transfer-crosschain 'sender00 'sender00 (read-keyset 'k) \"0\" 0.0123)" $
+      mkKeySetData "k" [sender00]
+
+chain0 :: ChainId
+chain0 = unsafeChainId 0
+
+buildXProof
+    :: TestBlockDb
+    -> ChainId
+    -> BlockHeight
+    -> Int
+    -> CommandResult l
+    -> IO (ContProof, PactId)
+buildXProof bdb scid bh i sendTx = do
+    proof <- ContProof . B64U.encode . encodeToByteString <$>
+      createTransactionOutputProof_ (_bdbWebBlockHeaderDb bdb) (_bdbPayloadDb bdb) chain0 scid bh i
+    pid <- fromMaybeM (userError "no continuation") $
+      preview (crContinuation . _Just . pePactId) sendTx
+    return (proof,pid)
+
+buildXReceive
+    :: BlockHeader
+    -> (ContProof, PactId)
+    -> IO ChainwebTransaction
+buildXReceive bh (proof,pid) = buildCwCmd
+    $ set cbSigners [mkSigner' sender00 []]
+    $ set cbCreationTime (toTxCreationTime $ _bct $ _blockCreationTime bh)
+    $ set cbChainId chain0
+    $ mkCmd (sshow bh)
+    $ mkCont ((mkContMsg pid 1) { _cmProof = Just proof })
+
+getOncePerChainMempool
+    :: (BlockHeader -> IO (V.Vector ChainwebTransaction))
+    -> IO MemPoolAccess
+getOncePerChainMempool mp = do
+  cids <- newIORef mempty
+  return $ mempty {
+    mpaGetBlock = \_ _ _ _ bh ->
+      let enfChain f = do
+            cids' <- readIORef cids
+            if bid `elem` cids' then mempty else do
+              writeIORef cids (bid:cids')
+              f bh
+          bid = _blockChainId bh
+      in enfChain mp
+    }
 
 -- | Get output on latest cut for chain
 getPWO :: TestBlockDb -> ChainId -> IO PayloadWithOutputs

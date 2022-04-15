@@ -1,7 +1,7 @@
 ;; Enable the table gas model
-(env-exec-config ["DisableInlineMemCheck"])
+(env-exec-config ["DisableInlineMemCheck", "DisablePact43"])
 (env-gasmodel "table")
-(env-gaslimit 30000)
+(env-gaslimit 150000)
 
 (begin-tx)
 (env-gas 0) (env-gaslog)
@@ -10,12 +10,24 @@
 (expect
   "Gas cost of loading fungible contract"
   840 (env-gas))
+(commit-tx)
 
+(env-exec-config [])
+(env-gasmodel "table")
+(env-gas 0) (env-gaslog)
+(begin-tx)
+(load "fungible-xchain-v1.pact")
+(env-gaslog)
+(expect
+  "Gas cost of loading fungible-xchain contract"
+  60236 (env-gas))
+(commit-tx)
+(begin-tx)
 (load "coin-v4.pact")
 (env-gaslog)
 (expect
   "Gas cost of loading coin contract"
-  4472
+  66494
   (env-gas))
 
 (create-table coin.coin-table)
@@ -52,7 +64,7 @@
 (env-gaslog)
 (expect
   "Gas cost of coin contract account creation"
-  200 (env-gas))
+  207 (env-gas))
 
 (create-account 'doug (read-keyset 'doug))
 
@@ -434,7 +446,7 @@
   (transfer-create 'doug 'will (read-keyset 'will) 1.0))
 (env-gaslog)
 (expect
-  "Gas cost of transfer-create" 485 (env-gas))
+  "Gas cost of transfer-create" 492 (env-gas))
 
 (expect
   "doug now has 0.4 coins"
@@ -508,6 +520,20 @@
 (env-chain-data { "chain-id" : "0" })
 (env-hash (hash "burn-create"))
 (env-data {"doug": ["keys2"]})
+;(test-capability (coin.TRANSFER_XCHAIN "emily" "doug" 1.0 "1"))
+(expect-failure
+  "cross-chain transfers fail without keys"
+  "Managed capability not installed"
+  (transfer-crosschain 'emily 'doug (read-keyset 'doug) "1" 0.0))
+
+(env-sigs [{ 'key: "other", 'caps: [(coin.TRANSFER_XCHAIN 'emily 'doug 1.0 "1")]}])
+
+(expect-failure
+  "cross-chain transfers fail wrong key"
+  "Keyset failure"
+  (transfer-crosschain 'emily 'doug (read-keyset 'doug) "1" 0.0))
+
+(env-sigs [{ 'key: "keys1", 'caps: [(coin.TRANSFER_XCHAIN 'emily 'doug 1.0 "1")]}])
 
 (expect-failure
   "cross-chain transfers fail for trivial or negative quantities"
@@ -587,11 +613,16 @@
 
 (begin-tx)
 
-(use coin)
 (module T G
   (defcap G () true)
   (defconst UNIT_BAD 0.0000000000001)
   (defconst UNIT_GOOD 0.000000000001))
+
+(commit-tx)
+(begin-tx)
+
+(use coin)
+(use T)
 
 (expect
   "valid unit"
@@ -634,6 +665,7 @@
   (transfer-create 'emily 'doug (read-keyset 'doug) UNIT_GOOD))
 (commit-tx)
 (begin-tx)
+
 (use coin)
 (use T)
 
@@ -643,13 +675,14 @@
   "Write succeeded"
   (transfer-create 'emily 'doug (read-keyset 'doug) UNIT_GOOD))
 
- (expect-failure
+(expect-failure
    "bad transfer-create fails"
    "minimum precision"
    (transfer-create 'emily 'doug (read-keyset 'doug) UNIT_BAD))
 
 ;;transfer-crosschain (step 0 only covered)
 
+(test-capability (TRANSFER_XCHAIN "emily" "doug" (* 2 UNIT_GOOD) "chain"))
 (expect
   "min transfer-crosschain step 1 succeeds"
   "success"
@@ -657,8 +690,13 @@
     (transfer-crosschain 'emily 'doug (read-keyset 'doug) "chain" UNIT_GOOD)
     s))
 
-(pact-state true)
+(commit-tx)
+(begin-tx)
 
+(use coin)
+(use T)
+
+(test-capability (TRANSFER_XCHAIN "emily" "doug" (* 2 UNIT_GOOD) "chain"))
 (expect-failure
   "bad transfer-crosschain fails"
   "minimum precision"
@@ -912,9 +950,13 @@
 (env-keys ['keys2])
 (env-chain-data {'chain-id: "0"})
 
+(test-capability (coin.TRANSFER_XCHAIN "emily" "doug" 0.00001 "1"))
 (coin.transfer-crosschain 'emily 'doug (read-keyset 'k) "1" 0.00001)
 (expect "xchain send events"
-  [ {"name": "coin.TRANSFER"
+  [ {"name": "coin.TRANSFER_XCHAIN"
+    ,"params": ["emily" "doug" 0.00001 "1"]
+    }
+    {"name": "coin.TRANSFER"
     ,"params": ["emily" "" 0.00001]
     }
     { "name": "pact.X_YIELD"
@@ -966,6 +1008,18 @@
   ,'k2:
    {'keys:["5b4c9fc5207fcf700a5fbcb48c261820149c8ecd52e005282ed9e3f5febcd1f4"]
    ,'pred:"keys-any"}
+  ,'multi:
+   { 'keys:
+       ["5b4c9fc5207fcf700a5fbcb48c261820149c8ecd52e005282ed9e3f5febcd1f4"
+        "732f3118c452e0eb741c7b9c168e2c99a37a277d50aa2526147440cbe334a9fd"
+       ]
+   ,'pred:"keys-any"}
+  ,'multi2:
+   { 'keys:
+       ["5b4c9fc5207fcf700a5fbcb48c261820149c8ecd52e005282ed9e3f5febcd1f4"
+        "732f3118c452e0eb741c7b9c168e2c99a37a277d50aa2526147440cbe334a9fd"
+       ]
+   ,'pred:"keys-all"}
   })
 (env-sigs
   [{'key:'keys2
@@ -975,14 +1029,23 @@
       0.02)
     ,(coin.TRANSFER 'emily
       "k:5b4c9fc5207fcf700a5fbcb48c261820149c8ecd52e005282ed9e3f5febcd1f4"
-      0.02)]}])
+      0.02)
+    ,(coin.TRANSFER 'emily
+      "w:rMKJaEs5vWJ5q6828DZNXbl66AGJUrtSoyR011AGusA:keys-any"
+      0.02)
+    ,(coin.TRANSFER 'emily
+      "w:rMKJaEs5vWJ5q6828DZNXbl66AGJUrtSoyR011AGusA:keys-all"
+      0.02)]
+   }])
 (length "k:5b4c9fc5207fcf700a5fbcb48c261820149c8ecd52e005282ed9e3f5febcd1f3")
+
 (expect-failure
   "single-key mismatch, create-account"
   "Single-key account protocol violation"
   (coin.create-account
     "k:5b4c9fc5207fcf700a5fbcb48c261820149c8ecd52e005282ed9e3f5febcd1f3"
     (read-keyset 'k)))
+
 (expect-failure
   "single-key mismatch, transfer-create"
   "Single-key account protocol violation"
@@ -991,12 +1054,14 @@
     "k:5b4c9fc5207fcf700a5fbcb48c261820149c8ecd52e005282ed9e3f5febcd1f3"
     (read-keyset 'k)
     0.02))
+
 (expect-failure
   "single-key pred mismatch, create-account"
   "Single-key account protocol violation"
   (coin.create-account
     "k:5b4c9fc5207fcf700a5fbcb48c261820149c8ecd52e005282ed9e3f5febcd1f4"
     (read-keyset 'k2)))
+
 (expect-failure
   "single-key pred mismatch, transfer-create"
   "Single-key account protocol violation"
@@ -1007,8 +1072,31 @@
     0.02))
 
 (expect-failure
+  "multi-sig hash mismatch, create-account"
+  "Reserved protocol guard violation: w"
+  (coin.create-account
+    "w:rMKJaEs5vWJ5q6828DZNXbl66AGJUrtSoyR011AGusB:keys-any"
+    (read-keyset 'multi)))
+
+(expect-failure
+  "multi-sig pred + hash mismatch, create-account"
+  "Reserved protocol guard violation: w"
+  (coin.create-account
+    "w:rMKJaEs5vWJ5q6828DZNXbl66AGJUrtSoyR011AGusA:keys-any"
+    (read-keyset 'multi2)))
+
+(expect-failure
+  "multi-sig pred mismatch, transfer-create"
+  "Reserved protocol guard violation: w"
+  (coin.transfer-create
+    'emily
+    "w:rMKJaEs5vWJ5q6828DZNXbl66AGJUrtSoyR011AGusA:keys-all"
+    (read-keyset 'multi)
+    0.02))
+
+(expect-failure
   "bad protocol, create-account"
-  "Unrecognized reserved protocol: c"
+  "Reserved protocol guard violation: c"
   (coin.create-account
     "c:5b4c9fc5207fcf700a5fbcb48c261820149c8ecd52e005282ed9e3f5febcd1f4"
     (read-keyset 'k2)))
@@ -1019,6 +1107,14 @@
   (coin.create-account
     "k:5b4c9fc5207fcf700a5fbcb48c261820149c8ecd52e005282ed9e3f5febcd1f4"
     (read-keyset 'k)))
+
+(expect
+  "multi-sig success, create-account"
+  "Write succeeded"
+  (coin.create-account
+    "w:rMKJaEs5vWJ5q6828DZNXbl66AGJUrtSoyR011AGusA:keys-any"
+    (read-keyset 'multi)))
+
 (rollback-tx)
 (begin-tx)
 (env-data

@@ -159,7 +159,11 @@ genCoinV3Payloads :: IO ()
 genCoinV3Payloads = genTxModule "CoinV3" [coinContractV3]
 
 genCoinV4Payloads :: IO ()
-genCoinV4Payloads = genTxModule "CoinV4" [coinContractV4]
+genCoinV4Payloads = genTxModule "CoinV4"
+  [ fungibleXChainV1
+  , coinContractV4
+  ]
+
 ---------------------
 -- Payload Generation
 ---------------------
