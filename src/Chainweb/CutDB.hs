@@ -167,15 +167,15 @@ data CutDbParams = CutDbParams
     , _cutDbParamsFetchTimeout :: !Int
     , _cutDbParamsInitialHeightLimit :: !(Maybe CutHeight)
     , _cutDbParamsAvgBlockHeightPruningDepth :: BlockHeight
-    -- ^ How many block heights' worth of cuts should we keep around? 
+    -- ^ How many block heights' worth of cuts should we keep around?
     -- (how far back do we expect that a fork can happen)
     , _cutDbParamsPruningFrequency :: BlockHeight
     -- ^ After how many blocks do we prune cuts (on average)?
     , _cutDbParamsWritingFrequency :: BlockHeight
-    -- ^ After how many blocks do we write a cut (on average)? 
-    -- should be much less than `blockHeightPruningDepth` or the 
+    -- ^ After how many blocks do we write a cut (on average)?
+    -- should be much less than `blockHeightPruningDepth` or the
     -- CutHashes table will always be empty.
-    -- 
+    --
     }
     deriving (Show, Eq, Ord, Generic)
 
@@ -349,7 +349,7 @@ pruneCuts
     -> RocksDbCas CutHashes
     -> IO ()
 pruneCuts logfun v conf curAvgBlockHeight cutHashesStore = do
-    let pruneCutHeight = CutHeight $ int $ max 0 
+    let pruneCutHeight = CutHeight $ int $ max 0
             (int (avgCutHeightAt v curAvgBlockHeight) - int (_cutDbParamsAvgBlockHeightPruningDepth conf) :: Integer)
     logfun @T.Text Info $ "pruning CutDB before cut height " <> T.pack (show pruneCutHeight)
     deleteRangeRocksDb (_getRocksDbCas cutHashesStore)
@@ -480,7 +480,7 @@ lookupCutHashes wbhdb hs =
         lookupWebBlockHeaderDb wbhdb cid h
 
 cutAvgBlockHeight :: ChainwebVersion -> Cut -> BlockHeight
-cutAvgBlockHeight v = BlockHeight . round . avgBlockHeightAtCutHeight v . _cutHeight 
+cutAvgBlockHeight v = BlockHeight . round . avgBlockHeightAtCutHeight v . _cutHeight
 
 -- | This is at the heart of 'Chainweb' POW: Deciding the current "longest" cut
 -- among the incoming candiates.
@@ -502,8 +502,8 @@ processCuts
     -> PQueue (Down CutHashes)
     -> TVar Cut
     -> IO ()
-processCuts conf logFun headerStore payloadStore cutHashesStore queue cutVar = do 
-    rng <- Prob.createSystemRandom 
+processCuts conf logFun headerStore payloadStore cutHashesStore queue cutVar = do
+    rng <- Prob.createSystemRandom
     queueToStream
         & S.chain (\c -> loggc Debug c "start processing")
         & S.filterM (fmap not . isVeryOld)
@@ -717,7 +717,7 @@ cutHashesToBlockHeaderMap conf logfun headerStore payloadStore hs =
         Nothing -> do
             logfun Warn
                 $ "Timeout while processing cut "
-                    <> (cutIdToTextShort hsid)
+                    <> cutIdToTextShort hsid
                     <> " at height " <> sshow (_cutHashesHeight hs)
                     <> maybe " from unknown origin" (\p -> " from origin " <> toText p) origin
             return $! Left $! T2 hsid mempty
