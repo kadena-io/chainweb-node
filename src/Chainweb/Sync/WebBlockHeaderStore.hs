@@ -37,7 +37,6 @@ module Chainweb.Sync.WebBlockHeaderStore
 , PactExecutionService(..)
 ) where
 
-import Control.Applicative
 import Control.Concurrent.Async
 import Control.Lens
 import Control.Monad
