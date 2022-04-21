@@ -328,7 +328,7 @@ cutToPayloadOutputs c pdb = do
 
 chainToMPA' :: MVar TransactionGenerator -> MemPoolAccess
 chainToMPA' f = mempty
-    { mpaGetBlock = \_pc hi ha he -> do
+    { mpaGetBlock = \_g _pc hi ha he -> do
         tg <- readMVar f
         tg (_blockChainId he) hi ha he
     }
@@ -484,7 +484,8 @@ createVerify bridge code mdata time (TestBlockDb wdb pdb _c) _pidv sid tid bhe =
                   mkExec
                     code
                     (object [("proof",q),("data",mdata)])
-                return $ Vector.singleton cmd
+                return (Vector.singleton cmd)
+                    `finally` writeIORef ref True
 
 -- | Generate a tx to run 'verify-spv' tests.
 --
@@ -508,7 +509,8 @@ createVerifyEth code time (TestBlockDb _wdb _pdb _c) _pidv _sid tid _bhe = do
                   mkExec
                     code
                     (object [("proof", toJSON q)])
-                return $ Vector.singleton cmd
+                return (Vector.singleton cmd)
+                    `finally` writeIORef ref True
 
 receiptProofTest :: Int -> IO ReceiptProof
 receiptProofTest i = do

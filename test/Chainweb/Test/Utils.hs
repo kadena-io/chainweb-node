@@ -43,6 +43,8 @@ module Chainweb.Test.Utils
 , Growth(..)
 , tree
 , getArbitrary
+, mockBlockFill
+, BlockFill(..)
 
 -- * Test BlockHeaderDbs Configurations
 , singleton
@@ -143,6 +145,7 @@ import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
 import Data.Tree
 import qualified Data.Tree.Lens as LT
+import qualified Data.Vector as V
 import Data.Word (Word64)
 
 import qualified Network.Connection as HTTP
@@ -197,7 +200,7 @@ import Chainweb.Difficulty (targetToDifficulty)
 import Chainweb.Graph
 import Chainweb.HostAddress
 import Chainweb.Logger
-import Chainweb.Mempool.Mempool (MempoolBackend(..), TransactionHash(..))
+import Chainweb.Mempool.Mempool (MempoolBackend(..), TransactionHash(..), BlockFill(..), mockBlockGasLimit)
 import Chainweb.MerkleUniverse
 import Chainweb.Miner.Config
 import Chainweb.Miner.Pact
@@ -302,6 +305,9 @@ toyBlockHeaderDb db cid = (g,) <$> testBlockHeaderDb db g
 withToyDB :: RocksDb -> ChainId -> (BlockHeader -> BlockHeaderDb -> IO a) -> IO a
 withToyDB db cid
     = bracket (toyBlockHeaderDb db cid) (closeBlockHeaderDb . snd) . uncurry
+
+mockBlockFill :: BlockFill
+mockBlockFill = BlockFill mockBlockGasLimit mempty 0
 
 -- -------------------------------------------------------------------------- --
 -- BlockHeaderDb Generation
@@ -1025,7 +1031,7 @@ node testLabel rdb rawLogger peerInfoVar conf nid = do
     poisonDeadBeef cw = mapM_ poison crs
       where
         crs = map snd $ HashMap.toList $ view chainwebChains cw
-        poison cr = mempoolAddToBadList (view chainResMempool cr) deadbeef
+        poison cr = mempoolAddToBadList (view chainResMempool cr) (V.singleton deadbeef)
 
 deadbeef :: TransactionHash
 deadbeef = TransactionHash "deadbeefdeadbeefdeadbeefdeadbeef"

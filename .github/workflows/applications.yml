@@ -72,7 +72,15 @@ jobs:
           "ghc": ["8.10.7", "9.0.2"],
           "cabal": ["3.6"],
           "os": ["ubuntu-18.04", "ubuntu-20.04"],
-          "cabalcache": ["true"]
+          "cabalcache": ["true"],
+          "exclude": [
+            { 
+              "ghc": "9.0.2",
+              "cabal": "3.6",
+              "os" : "ubuntu-20.04",
+              "cabalcache": "true"
+            }
+          ]
         }
         EOF
         )"
@@ -109,7 +117,7 @@ jobs:
       matrix:
         chainwebVersion: ['development']
     env:
-      DB_SNAPSHOT_URI: 's3://chainweb-chain-db/${{ matrix.chainwebVersion }}/rocksdb/'
+      DB_SNAPSHOT_URI: 's3://chainweb-chain-db/${{ matrix.chainwebVersion }}/pipeline-db/'
     steps:
     - name: Sync chain database from S3
       run: aws s3 sync "$DB_SNAPSHOT_URI" db/0/rocksDb --delete --exclude=LOCK
@@ -194,10 +202,10 @@ jobs:
         path: |
           ~/.cabal/store
           dist-newstyle
-        key: ${{ matrix.os }}-${{ matrix.ghc }}-0-${{ hashFiles('/tmp/cache-key') }}-${{ hashFiles('cabal.*', '*.cabal', 'src/**', 'test/**') }}
+        key: ${{ matrix.os }}-${{ matrix.ghc }}-2-${{ hashFiles('/tmp/cache-key') }}-${{ hashFiles('cabal.*', '*.cabal', 'src/**', 'test/**') }}
         restore-keys: |
-          ${{ matrix.os }}-${{ matrix.ghc }}-0-${{ hashFiles('/tmp/cache-key') }}-
-          ${{ matrix.os }}-${{ matrix.ghc }}-0-
+          ${{ matrix.os }}-${{ matrix.ghc }}-2-${{ hashFiles('/tmp/cache-key') }}-
+          ${{ matrix.os }}-${{ matrix.ghc }}-2-
 
     # Build
     - name: Delete Freeze file

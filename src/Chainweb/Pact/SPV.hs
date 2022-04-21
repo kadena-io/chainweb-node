@@ -356,14 +356,14 @@ mkSPVResult CommandResult{..} j =
       Error _ -> obj []
       Success p -> fromPactValue p
 
-    contField PactExec{..} = obj
-        [ ("step", toTerm _peStep)
-        , ("step-count", toTerm _peStepCount)
-        , ("yield", maybe empty yieldField _peYield)
-        , ("pact-id", toTerm _pePactId)
-        , ("cont",contField1 _peContinuation)
-        , ("step-has-rollback",toTerm _peStepHasRollback)
-        , ("executed",tStr $ maybe "" sshow _peExecuted)
+    contField (PactExec stepCount yield executed step pactId pactCont rollback _nested) = obj
+        [ ("step", toTerm step)
+        , ("step-count", toTerm stepCount)
+        , ("yield", maybe empty yieldField yield)
+        , ("pact-id", toTerm pactId)
+        , ("cont",contField1 pactCont)
+        , ("step-has-rollback",toTerm rollback)
+        , ("executed",tStr $ maybe "" sshow executed)
         ]
 
     contField1 PactContinuation {..} = obj

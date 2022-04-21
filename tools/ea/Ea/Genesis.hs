@@ -37,8 +37,10 @@ module Ea.Genesis
 , coinContractV2
 , coinContractV2Install
 , coinContractV3
+, coinContractV4
 , fungibleAssetV1
 , fungibleAssetV2
+, fungibleXChainV1
 , gasPayer
 ) where
 
@@ -145,8 +147,14 @@ coinContractV2Install = "pact/coin-contract/v2/coin-install.pact"
 coinContractV3 :: FilePath
 coinContractV3 = "pact/coin-contract/v3/load-coin-contract-v3.yaml"
 
+coinContractV4 :: FilePath
+coinContractV4 = "pact/coin-contract/v4/load-coin-contract-v4.yaml"
+
 fungibleAssetV2 :: FilePath
 fungibleAssetV2 = "pact/coin-contract/v2/load-fungible-asset-v2.yaml"
+
+fungibleXChainV1 :: FilePath
+fungibleXChainV1 = "pact/coin-contract/v4/load-fungible-xchain-v1.yaml"
 
 -- ---------------------------------------------------------------------- --
 -- Devnet - Development
