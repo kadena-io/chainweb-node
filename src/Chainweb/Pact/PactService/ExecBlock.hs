@@ -238,7 +238,7 @@ validateChainwebTxs logger v cid cp txValidationTime bh txs doBuyGas
             Left _
                 | doCheckTxHash v bh -> return $ Left $ InsertErrorInvalidHash
                 | otherwise -> do
-                    P.logLog logger "INFO" $ "ignored legacy tx-hash failure"
+                    P.logLog logger "DEBUG" "ignored legacy tx-hash failure"
                     return $ Right t
             Right _ -> pure $ Right t
 
@@ -247,7 +247,7 @@ validateChainwebTxs logger v cid cp txValidationTime bh txs doBuyGas
         Left _
             -- special case for old testnet history
             | v == Testnet04 && not (doCheckTxHash v bh) -> do
-                P.logLog logger "INFO" $ "ignored legacy invalid signature"
+                P.logLog logger "DEBUG" "ignored legacy invalid signature"
                 return $ Right t
             | otherwise -> return $ Left $ InsertErrorInvalidSigs
         Right _ -> pure $ Right t

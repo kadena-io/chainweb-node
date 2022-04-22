@@ -568,10 +568,8 @@
         { "receiver" := receiver
         , "receiver-guard" := receiver-guard
         , "amount" := amount
-        , "source-chain" := source-chain
         }
         (emit-event (TRANSFER "" receiver amount))
-        (emit-event (TRANSFER_XCHAIN_RECD sender receiver amount source-chain))
         ;; step 2 - credit create account on target chain
         (with-capability (CREDIT receiver)
           (credit receiver receiver-guard amount))
