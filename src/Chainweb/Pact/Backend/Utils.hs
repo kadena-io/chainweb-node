@@ -234,8 +234,8 @@ expectSingle desc v =
 
 chainwebPragmas :: [Pragma]
 chainwebPragmas =
-  [ "synchronous = NORMAL"
-  , "journal_mode = WAL"
+  [ "synchronous = OFF"
+  , "journal_mode = MEMORY"
   , "locking_mode = NORMAL"
       -- changed from locking_mode = EXCLUSIVE to allow backups to run concurrently
       -- with Pact service operation. the effect of this change is twofold:
@@ -248,6 +248,7 @@ chainwebPragmas =
   , "temp_store = MEMORY"
   , "auto_vacuum = NONE"
   , "page_size = 1024"
+  , "cache_size = -20480000"
   ]
 
 execMulti :: Traversable t => Database -> Utf8 -> t [SType] -> IO ()
