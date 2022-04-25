@@ -284,7 +284,7 @@ runNodesForSeconds
 runNodesForSeconds loglevel baseConf v n (Seconds seconds) write rdb = do
     stateVar <- newMVar $ emptyConsensusState v
     void $ timeout (int seconds * 1_000_000)
-        $ runNodes loglevel write stateVar baseConf v n rdb 
+        $ runNodes loglevel write stateVar baseConf v n rdb
 
     consensusState <- readMVar stateVar
     return (consensusStateSummary consensusState)
@@ -304,7 +304,7 @@ replayTest _ v n seconds = testCaseSteps name $ \step -> do
             -- when (c < maxLogMsgs) (logFun msg)
     withRocksDb "replay-test" $ \rdb -> do
         tastylog "phase 1..."
-        -- print =<< runNodesForSeconds loglevel (multiConfig v n) v n 50 T.putStrLn rdb 
+        -- print =<< runNodesForSeconds loglevel (multiConfig v n) v n 50 T.putStrLn rdb
         tastylog "phase 2..."
         print =<< runNodesForSeconds Debug (multiConfig v n & set (configCuts . cutInitialBlockHeightLimit) (Just 200)) v n 1000 (T.putStrLn) rdb
         tastylog "done."
@@ -336,7 +336,7 @@ test loglevel v n seconds = testCaseSteps name $ \f -> do
     var <- newMVar (0 :: Int)
     let countedLog msg = modifyMVar_ var $ \c -> force (succ c) <$
             when (c < maxLogMsgs) (logFun msg)
-    withTempRocksDb "multinode-tests" $ \rdb -> 
+    withTempRocksDb "multinode-tests" $ \rdb ->
         runNodesForSeconds loglevel (multiConfig v n) v n seconds countedLog rdb >>= \case
             Nothing -> assertFailure "chainweb didn't make any progress"
             Just stats -> do
@@ -409,7 +409,7 @@ sampleConsensusState nid bhdb cutdb s = do
         }
 
 data Stats = Stats
-        { _statBlockCount :: !Natural
+    { _statBlockCount :: !Natural
     , _statMaxHeight :: !CutHeight
     , _statMinHeight :: !CutHeight
     , _statMedHeight :: !CutHeight

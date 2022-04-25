@@ -448,19 +448,19 @@ withChainwebInternal conf logger peer serviceSock rocksDb pactDbDir backupDir re
             synchronizePactDb cs mCutDb
             logg Info "finished synchronizing Pact DBs"
 
-            withPactData cs cuts $ \pactData -> do
-                logg Info "start initializing miner resources"
+            unless (_configOnlySyncPact conf) $
+                withPactData cs cuts $ \pactData -> do
+                    logg Info "start initializing miner resources"
 
-                withMiningCoordination mLogger mConf mCutDb $ \mc ->
+                    withMiningCoordination mLogger mConf mCutDb $ \mc ->
 
-                    -- Miner resources are used by the test-miner when in-node
-                    -- mining is configured or by the mempool noop-miner (which
-                    -- keeps the mempool updated) in production setups.
-                    --
-                    withMinerResources mLogger (_miningInNode mConf) cs mCutDb mc $ \m -> do
-                        logg Info "finished initializing miner resources"
-                        let !haddr = _peerConfigAddr $ _p2pConfigPeer $ _configP2p conf
-                        unless (_configOnlySyncPact conf) $
+                        -- Miner resources are used by the test-miner when in-node
+                        -- mining is configured or by the mempool noop-miner (which
+                        -- keeps the mempool updated) in production setups.
+                        --
+                        withMinerResources mLogger (_miningInNode mConf) cs mCutDb mc $ \m -> do
+                            logg Info "finished initializing miner resources"
+                            let !haddr = _peerConfigAddr $ _p2pConfigPeer $ _configP2p conf
                             inner Chainweb
                                 { _chainwebHostAddress = haddr
                                 , _chainwebChains = cs
@@ -517,7 +517,7 @@ withChainwebInternal conf logger peer serviceSock rocksDb pactDbDir backupDir re
     synchronizePactDb :: HM.HashMap ChainId (ChainResources logger) -> CutDb cas -> IO ()
     synchronizePactDb cs cutDb = do
         currentCut <- _cut cutDb
-        traverse_ syncOne $ mergeCutResources $ _cutMap currentCut
+        mapConcurrently_ syncOne $ mergeCutResources $ _cutMap currentCut
       where
         mergeCutResources :: HM.HashMap ChainId b -> [(b, ChainResources logger)]
         mergeCutResources c =

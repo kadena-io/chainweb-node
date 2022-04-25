@@ -11,28 +11,14 @@ package chainweb
     extra-include-dirs:
       /opt/local/include
       /usr/local/opt/openssl/include
-      /usr/local/include
     extra-lib-dirs:
       /opt/local/lib
       /usr/local/opt/openssl/lib/
-      /usr/local/lib
 
 package pact
     ghc-options: -Wwarn
     -- avoid conflict with cryptonite during linking
     flags: +cryptonite-ed25519 -build-tool +no-advice
-
-package rocksdb-haskell
-    extra-include-dirs:
-      /usr/local/include
-    extra-lib-dirs:
-      /usr/local/lib
-
-package chainweb-storage
-    extra-include-dirs:
-      /usr/local/include
-    extra-lib-dirs:
-      /usr/local/lib
 
 package ethereum
     extra-include-dirs:

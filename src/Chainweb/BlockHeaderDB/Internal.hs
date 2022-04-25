@@ -38,8 +38,6 @@ module Chainweb.BlockHeaderDB.Internal
 -- * Insertion
 , insertBlockHeaderDb
 , unsafeInsertBlockHeaderDb
--- * Deletion
-, dbRemoveAbove
 ) where
 
 import Control.Arrow
@@ -232,16 +230,6 @@ dbAddChecked db e = unlessM (casMember (_chainDbCas db) ek) dbAddCheckedInternal
             ]
       where
         rbh = RankedBlockHeader e
-
--- Delete
-dbRemoveAbove :: BlockHeaderDb -> BlockHeight -> IO ()
-dbRemoveAbove db h = do
-    let firstRbh = RankedBlockHash (succ h) nullBlockHash
-    rankTableDeletes <- withTableIter (_chainDbCas db) $ \it -> do
-        tableIterSeek it firstRbh
-        iterToKeyStream it & S.map (RocksDbDelete (_chainDbRankTable db) . _rankedBlockHash) & S.toList_
-    updateBatch rankTableDeletes
-    deleteRangeRocksDb (_chainDbCas db) (Just firstRbh, Nothing)
 
 -- -------------------------------------------------------------------------- --
 -- Initialization

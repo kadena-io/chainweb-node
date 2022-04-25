@@ -242,8 +242,8 @@ unsafeMkCut v hdrs = Cut'
     , _cutChainwebVersion = v
     }
 
--- In some scenarios it's useful to reset a node's latest cut to some 
--- past cut, which we can specify either as the ancestor of the latest 
+-- In some scenarios it's useful to reset a node's latest cut to some
+-- past cut, which we can specify either as the ancestor of the latest
 -- cut at some block height or as the cut sitting in a file at the indicated path.
 data CutResetTarget
     = CutResetToBlockHeight !BlockHeight

@@ -191,7 +191,7 @@ rollbackSavepoint :: SavepointName -> BlockHandler SQLiteEnv ()
 rollbackSavepoint name =
   callDb "rollbackSavepoint" $ \db -> exec_ db $ "ROLLBACK TRANSACTION TO SAVEPOINT [" <> convSavepointName name <> "];"
 
-data SavepointName = BatchSavepoint | Block | DbTransaction | PreBlock
+data SavepointName = BatchSavepoint | Block | DbTransaction |  PreBlock
   deriving (Eq, Ord, Enum, Bounded)
 
 instance Show SavepointName where
@@ -234,8 +234,8 @@ expectSingle desc v =
 
 chainwebPragmas :: [Pragma]
 chainwebPragmas =
-  [ "synchronous = OFF"
-  , "journal_mode = MEMORY"
+  [ "synchronous = NORMAL"
+  , "journal_mode = WAL"
   , "locking_mode = NORMAL"
       -- changed from locking_mode = EXCLUSIVE to allow backups to run concurrently
       -- with Pact service operation. the effect of this change is twofold:
@@ -248,7 +248,6 @@ chainwebPragmas =
   , "temp_store = MEMORY"
   , "auto_vacuum = NONE"
   , "page_size = 1024"
-  , "cache_size = -20480000"
   ]
 
 execMulti :: Traversable t => Database -> Utf8 -> t [SType] -> IO ()
