@@ -5,7 +5,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TypeFamilies #-}
 
 -- |
@@ -29,7 +28,6 @@ import qualified Data.ByteString.Lazy.Char8 as BL
 import Data.CAS.RocksDB (RocksDb)
 import qualified Data.List as L
 import Data.String
-import Data.String.Conv (toS)
 import Data.Text (Text, pack)
 import qualified Data.Vector as V
 import qualified Data.Yaml as Y
@@ -489,8 +487,11 @@ execTest
 execTest runPact request = _trEval request $ do
     cmdStrs <- mapM getPactCode $ _trCmds request
     trans <- mkCmds cmdStrs
-    results <- runPact $ execTransactions False defaultMiner
-      trans (EnforceCoinbaseFailure True) (CoinbaseUsePrecompiled True)
+    results <- runPact $ \pde ->
+      execTransactions False defaultMiner
+        trans (EnforceCoinbaseFailure True) (CoinbaseUsePrecompiled True) pde
+        >>= throwOnGasFailure
+
     let outputs = V.toList $ snd <$> _transactionPairs results
     return $ TestResponse
         (zip (_trCmds request) (toHashCommandResult <$> outputs))
@@ -515,8 +516,10 @@ execTxsTest runPact name (trans',check) = testCaseSch name (go >>= check)
   where
     go = do
       trans <- trans'
-      results' <- tryAllSynchronous $ runPact $ execTransactions False defaultMiner trans
-        (EnforceCoinbaseFailure True) (CoinbaseUsePrecompiled True)
+      results' <- tryAllSynchronous $ runPact $ \pde ->
+        execTransactions False defaultMiner trans
+          (EnforceCoinbaseFailure True) (CoinbaseUsePrecompiled True) pde
+          >>= throwOnGasFailure
       case results' of
         Right results -> Right <$> do
           let outputs = V.toList $ snd <$> _transactionPairs results
@@ -564,7 +567,7 @@ checkSuccessOnly' msg f = testCaseSch msg $ f >>= \case
 fileCompareTxLogs :: String -> IO (TestResponse TestSource) -> ScheduledTest
 fileCompareTxLogs label respIO = goldenSch label $ do
     resp <- respIO
-    return $ toS $ Y.encode
+    return $ BL.fromStrict $ Y.encode
         $ coinbase (_trCoinBaseOutput resp)
         : (result <$> _trOutputs resp)
   where

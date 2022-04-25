@@ -10,7 +10,7 @@
         }
       ]
     , "gas": 5
-    , "logs": "oJkGFAj99kRU1Qo-Hydz-uY3acJ1je8QeSDtCLiCCDE"
+    , "logs": "0aw7N48LexZxuIDtmGf1-WLwmGndE3VkmFM50jxwFwo"
     , "meta": {}
     , "req-key": "0IEgLi4hZ7YMZ1yg1SOzfSHUEifH8gwTBdEC7MJ9BQQ"
     , "result": "Write succeeded"

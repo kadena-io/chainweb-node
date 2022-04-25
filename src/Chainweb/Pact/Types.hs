@@ -28,6 +28,9 @@ module Chainweb.Pact.Types
 
     -- * Misc helpers
   , Transactions(..)
+  , transactionCoinbase
+  , transactionPairs
+
   , GasSupply(..)
   , GasId(..)
   , EnforceCoinbaseFailure(..)
@@ -77,6 +80,8 @@ module Chainweb.Pact.Types
   , psAllowReadsInLocal
   , psIsBatch
   , psCheckpointerDepth
+  , psBlockGasLimit
+
   , getCheckpointer
 
     -- * TxContext
@@ -124,6 +129,7 @@ module Chainweb.Pact.Types
   , defaultOnFatalError
   , defaultReorgLimit
   , defaultPactServiceConfig
+  , defaultBlockGasLimit
   ) where
 
 import Control.DeepSeq
@@ -180,10 +186,11 @@ import Chainweb.Utils
 import Chainweb.Version
 
 
-data Transactions = Transactions
-    { _transactionPairs :: !(Vector (ChainwebTransaction, CommandResult [TxLog Value]))
+data Transactions r = Transactions
+    { _transactionPairs :: !(Vector (ChainwebTransaction, r))
     , _transactionCoinbase :: !(CommandResult [TxLog Value])
     } deriving (Eq, Show, Generic, NFData)
+makeLenses 'Transactions
 
 data PactDbStatePersist = PactDbStatePersist
     { _pdbspRestoreFile :: !(Maybe FilePath)
@@ -304,6 +311,17 @@ execTransactionM
 execTransactionM tenv txst act
     = execStateT (runReaderT (_unTransactionM act) tenv) txst
 
+
+
+-- | Pair parent header with transaction metadata.
+-- In cases where there is no transaction/Command, 'PublicMeta'
+-- default value is used.
+data TxContext = TxContext
+  { _tcParentHeader :: ParentHeader
+  , _tcPublicMeta :: PublicMeta
+  }
+
+
 -- -------------------------------------------------------------------- --
 -- Pact Service Monad
 
@@ -312,7 +330,7 @@ data PactServiceEnv cas = PactServiceEnv
     , _psCheckpointEnv :: !CheckpointEnv
     , _psPdb :: !(PayloadDb cas)
     , _psBlockHeaderDb :: !BlockHeaderDb
-    , _psGasModel :: !GasModel
+    , _psGasModel :: TxContext -> GasModel
     , _psMinerRewards :: !MinerRewards
     , _psReorgLimit :: {-# UNPACK #-} !Word64
     , _psOnFatalError :: forall a. PactException -> Text -> IO a
@@ -335,6 +353,7 @@ data PactServiceEnv cas = PactServiceEnv
         -- ^ True when within a `withBatch` or `withDiscardBatch` call.
     , _psCheckpointerDepth :: !Int
         -- ^ Number of nested checkpointer calls
+    , _psBlockGasLimit :: !GasLimit
     }
 makeLenses ''PactServiceEnv
 
@@ -349,15 +368,22 @@ instance HasChainId (PactServiceEnv c) where
 defaultReorgLimit :: Word64
 defaultReorgLimit = 480
 
+-- | NOTE this is only used for tests/benchmarks. DO NOT USE IN PROD
 defaultPactServiceConfig :: PactServiceConfig
 defaultPactServiceConfig = PactServiceConfig
-      { _pactReorgLimit = fromIntegral $ defaultReorgLimit
+      { _pactReorgLimit = fromIntegral defaultReorgLimit
       , _pactRevalidate = True
       , _pactQueueSize = 1000
       , _pactResetDb = True
       , _pactAllowReadsInLocal = False
+      , _pactBlockGasLimit = defaultBlockGasLimit
       }
 
+-- | This default value is only relevant for testing. In a chainweb-node the @GasLimit@
+-- is initialized from the @_configBlockGasLimit@ value of @ChainwebConfiguration@.
+--
+defaultBlockGasLimit :: GasLimit
+defaultBlockGasLimit = 10000
 
 newtype ReorgLimitExceeded = ReorgLimitExceeded Text
 
@@ -414,15 +440,6 @@ updateInitCache mc = get >>= \PactServiceState{..} -> do
     psInitCache .= case M.lookupLE pbh _psInitCache of
       Nothing -> M.singleton pbh mc
       Just (_,before) -> M.insert pbh (HM.union mc before) _psInitCache
-
-
--- | Pair parent header with transaction metadata.
--- In cases where there is no transaction/Command, 'PublicMeta'
--- default value is used.
-data TxContext = TxContext
-  { _tcParentHeader :: ParentHeader
-  , _tcPublicMeta :: PublicMeta
-  }
 
 -- | Convert context to datatype for Pact environment.
 --

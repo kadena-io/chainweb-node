@@ -172,19 +172,19 @@ pChainwebNodeConfiguration = id
         <> help "Reset the chain databases for all chains on startup"
 
 getRocksDbDir :: HasCallStack => ChainwebNodeConfiguration -> IO FilePath
-getRocksDbDir conf = (</> "rocksDb") <$> getDbBaseDir conf
-
-getRocksDbCheckpointDir :: HasCallStack => ChainwebNodeConfiguration -> IO FilePath
-getRocksDbCheckpointDir conf = (</> "rocksDbCheckpoints") <$> getDbBaseDir conf
+getRocksDbDir conf = (\base -> base </> "0" </> "rocksDb") <$> getDbBaseDir conf
 
 getPactDbDir :: HasCallStack => ChainwebNodeConfiguration -> IO FilePath
-getPactDbDir conf =  (</> "sqlite") <$> getDbBaseDir conf
+getPactDbDir conf =  (\base -> base </> "0" </> "sqlite")  <$> getDbBaseDir conf
+
+getBackupsDir :: HasCallStack => ChainwebNodeConfiguration -> IO FilePath
+getBackupsDir conf = (</> "backups") <$> getDbBaseDir conf
 
 getDbBaseDir :: HasCallStack => ChainwebNodeConfiguration -> IO FilePath
 getDbBaseDir conf = case _nodeConfigDatabaseDirectory conf of
     Nothing -> getXdgDirectory XdgData
-        $ "chainweb-node" </> sshow v </> "0"
-    Just d -> return (d </> "0")
+        $ "chainweb-node" </> sshow v
+    Just d -> return d
   where
     v = _configChainwebVersion $ _nodeConfigChainweb conf
 
@@ -332,12 +332,12 @@ node conf logger = do
     dbBaseDir <- getDbBaseDir conf
     when (_nodeConfigResetChainDbs conf) $ removeDirectoryRecursive dbBaseDir
     rocksDbDir <- getRocksDbDir conf
-    rocksDbCheckpointDir <- getRocksDbCheckpointDir conf
     pactDbDir <- getPactDbDir conf
+    dbBackupsDir <- getBackupsDir conf
     withRocksDb rocksDbDir $ \rocksDb -> do
         logFunctionText logger Info $ "opened rocksdb in directory " <> sshow rocksDbDir
-        installHandlerCross sigUSR1 (const $ makeCheckpoint rocksDbCheckpointDir rocksDb)
-        withChainweb cwConf logger rocksDb pactDbDir (_nodeConfigResetChainDbs conf) $ \cw -> mapConcurrently_ id
+        logFunctionText logger Info $ "backup config: " <> sshow (_configBackup cwConf)
+        withChainweb cwConf logger rocksDb pactDbDir dbBackupsDir (_nodeConfigResetChainDbs conf) $ \cw -> mapConcurrently_ id
             [ runChainweb cw
               -- we should probably push 'onReady' deeper here but this should be ok
             , runCutMonitor (_chainwebLogger cw) (_cutResCutDb $ _chainwebCutResources cw)
@@ -348,13 +348,6 @@ node conf logger = do
             ]
   where
     cwConf = _nodeConfigChainweb conf
-
-makeCheckpoint :: FilePath -> RocksDb -> IO ()
-makeCheckpoint checkpointDir rocksDb = do
-    createDirectoryIfMissing False checkpointDir
-    Time (epochToNow :: TimeSpan Integer) <- getCurrentTimeIntegral
-    -- 0 ~ never flush WAL log before checkpoint, to avoid making extra work
-    checkpointRocksDb rocksDb maxBound (checkpointDir </> T.unpack (microsToText $ timeSpanToMicros epochToNow))
 
 withNodeLogger
     :: LogConfig
@@ -505,10 +498,10 @@ pkgInfoScopes =
 -- -------------------------------------------------------------------------- --
 -- main
 
--- SERVICE DATE for version 2.12
+-- SERVICE DATE for version 2.14
 --
 serviceDate :: Maybe String
-serviceDate = Just "2022-02-24T00:00:00Z"
+serviceDate = Just "2022-06-16T00:00:00Z"
 
 mainInfo :: ProgramInfo ChainwebNodeConfiguration
 mainInfo = programInfoValidate

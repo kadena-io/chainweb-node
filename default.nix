@@ -26,8 +26,8 @@ pkgs.haskell.packages.${compiler}.developPackage {
       rosetta = self.callCabal2nix "rosetta" (pkgs.fetchFromGitHub {
         owner = "kadena-io";
         repo = "rosetta";
-        rev = "5db55e77e7f0ffe7670075708843fa03d179aaa5";
-        sha256 = "06rgkq5qpqq0xj3mrxq4395p3jh2p34xy3a3vxz4xgjlj9fhy1ms";
+        rev = "6c8dd2eea1f6d0dba925646dbcb6e07feeccbfd5";
+        sha256 = "19pjy06xrx2siggzybcmly0qaq4ds3yzxcsvqwgs4qh9kkzh0kqh";
       }) {};
       mwc-random = self.callHackageDirect {
         pkg = "mwc-random";
@@ -149,8 +149,8 @@ pkgs.haskell.packages.${compiler}.developPackage {
 
       wai-extra = self.callHackageDirect {
         pkg = "wai-extra";
-        ver = "3.0.28";
-        sha256 = "1k470vbn2c852syj15m9xzfjnaraw6cyn35ajf2b67i01ghkshgw";
+        ver = "3.1.2";
+        sha256 = "1cha6hvb071bknw25va07vg1sr5bg44q8fwz0nwa1886j9d4yrr7";
       } {};
 
       wai-app-static = doJailbreak (dontCheck (self.callHackageDirect {

@@ -18,8 +18,10 @@ module Chainweb.Transaction
   , timeToLiveOf
   , creationTimeOf
   , mkPayloadWithText
+  , mkPayloadWithTextOld
   , payloadBytes
   , payloadObj
+  , parsePact
   ) where
 
 import Control.DeepSeq
@@ -36,13 +38,15 @@ import Data.Text.Encoding (decodeUtf8, encodeUtf8)
 
 import GHC.Generics (Generic)
 
-import Pact.Parse (parseExprs)
+import qualified Pact.Parse as P (parsePact, legacyParsePact)
 import Pact.Types.ChainMeta
 import Pact.Types.Command
 import Pact.Types.Gas (GasLimit(..), GasPrice(..))
 import Pact.Types.Hash
 
 import Chainweb.Utils
+import Chainweb.Version
+import Chainweb.BlockHeight
 
 -- | A product type representing a `Payload PublicMeta ParsedCode` coupled with
 -- the Text that generated it, to make gossiping easier.
@@ -62,10 +66,15 @@ payloadObj :: PayloadWithText -> Payload PublicMeta ParsedCode
 payloadObj = _payloadObj
 
 
-mkPayloadWithText :: Payload PublicMeta ParsedCode -> PayloadWithText
-mkPayloadWithText p = PayloadWithText {
-    _payloadBytes =
-    SB.toShort $ BL.toStrict $ Aeson.encode $ fmap _pcCode p
+mkPayloadWithText :: Command ByteString -> Payload PublicMeta ParsedCode -> PayloadWithText
+mkPayloadWithText cmd p = PayloadWithText
+    { _payloadBytes = SB.toShort $ _cmdPayload cmd
+    , _payloadObj = p
+    }
+
+mkPayloadWithTextOld :: Payload PublicMeta ParsedCode -> PayloadWithText
+mkPayloadWithTextOld p = PayloadWithText
+    { _payloadBytes = SB.toShort $ BL.toStrict $ Aeson.encode $ fmap _pcCode p
     , _payloadObj = p
     }
 
@@ -85,26 +94,38 @@ instance Hashable (HashableTrans PayloadWithText) where
     {-# INLINE hashWithSalt #-}
 
 -- | A codec for (Command PayloadWithText) transactions.
-chainwebPayloadCodec :: Codec (Command PayloadWithText)
-chainwebPayloadCodec = Codec enc dec
+chainwebPayloadCodec
+    :: Maybe (ChainwebVersion, BlockHeight)
+    -> Codec (Command PayloadWithText)
+chainwebPayloadCodec chainCtx = Codec enc dec
   where
     enc c = encodeToByteString $ fmap (decodeUtf8 . encodePayload) c
     dec bs = case Aeson.decodeStrict' bs of
-               Just cmd -> traverse (decodePayload . encodeUtf8) cmd
+               Just cmd -> traverse (decodePayload chainCtx . encodeUtf8) cmd
                Nothing -> Left "decode PayloadWithText failed"
 
 encodePayload :: PayloadWithText -> ByteString
 encodePayload = SB.fromShort . _payloadBytes
 
-decodePayload :: ByteString -> Either String PayloadWithText
-decodePayload bs = case Aeson.decodeStrict' bs of
+decodePayload
+    :: Maybe (ChainwebVersion, BlockHeight)
+    -> ByteString
+    -> Either String PayloadWithText
+decodePayload chainCtx bs = case Aeson.decodeStrict' bs of
     Just payload -> do
-        p <- traverse parsePact payload
+        p <- traverse (parsePact chainCtx) payload
         return $! PayloadWithText (SB.toShort bs) p
     Nothing -> Left "decoding Payload failed"
 
-parsePact :: Text -> Either String ParsedCode
-parsePact code = ParsedCode code <$> parseExprs code
+parsePact
+    :: Maybe (ChainwebVersion, BlockHeight)
+        -- ^ If the chain context is @Nothing@, latest parser version is used.
+    -> Text
+    -> Either String ParsedCode
+parsePact Nothing code = P.parsePact code
+parsePact (Just (v, h)) code
+    | chainweb213Pact v h = P.parsePact code
+    | otherwise = P.legacyParsePact code
 
 -- | Get the gas limit/supply of a public chain command payload
 gasLimitOf :: forall c. Command (Payload PublicMeta c) -> GasLimit

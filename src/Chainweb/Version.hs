@@ -7,7 +7,6 @@
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
-{-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE PatternSynonyms #-}
@@ -60,6 +59,9 @@ module Chainweb.Version
 , pact420Upgrade
 , enforceKeysetFormats
 , AtOrAfter(..)
+, doCheckTxHash
+, chainweb213Pact
+, chainweb214Pact
 
 -- ** BlockHeader Validation Guards
 , slowEpochGuard
@@ -890,20 +892,56 @@ pact4coin3Upgrade aoa v h = case aoa of
     go f Testnet04 = f 1_261_000 -- 2021-06-17T15:54:14
     go f Development = f 80
     go f (FastTimedCPM g) | g == petersonChainGraph = f 20
-    go _f _ = const False
+    go f _ = f 4
+    -- lowering this number causes some tests in Test.Pact.SPV to fail
 
 pact420Upgrade :: ChainwebVersion -> BlockHeight -> Bool
 pact420Upgrade Mainnet01 = (>= 2_334_500) -- 2022-01-17T17:51:12
 pact420Upgrade Testnet04 = (>= 1_862_000) -- 2022-01-13T16:11:10
 pact420Upgrade Development = (>= 90)
 pact420Upgrade (FastTimedCPM g) | g == petersonChainGraph = (>= 5)
-pact420Upgrade _ = const False
+pact420Upgrade _ = const True
 
 enforceKeysetFormats :: ChainwebVersion -> BlockHeight -> Bool
 enforceKeysetFormats Mainnet01 = (>= 2_162_000) -- 2021-11-18T20:06:55
 enforceKeysetFormats Testnet04 = (>= 1_701_000) -- 2021-11-18T17:54:36
 enforceKeysetFormats Development = (>= 100)
-enforceKeysetFormats _ = (>= 10)
+enforceKeysetFormats (FastTimedCPM g) | g == petersonChainGraph = (>= 10)
+enforceKeysetFormats _ = const True
+
+doCheckTxHash :: ChainwebVersion -> BlockHeight -> Bool
+doCheckTxHash Mainnet01 = (>= 2_349_800) -- 2022-01-23T02:53:38
+doCheckTxHash Testnet04 = (>= 1_889_000) -- 2022-01-24T04:19:24
+doCheckTxHash Development = (>= 110)
+doCheckTxHash (FastTimedCPM g) | g == petersonChainGraph = (>= 7)
+doCheckTxHash _ = const True
+
+-- | Pact changes for Chainweb 2.13
+--
+chainweb213Pact :: ChainwebVersion -> BlockHeight -> Bool
+chainweb213Pact Mainnet01 = (>= 2_447_315) -- 2022-02-26 00:00:00
+chainweb213Pact Testnet04 = (>= 1_974_556) -- 2022-02-25 00:00:00
+chainweb213Pact Development = (>= 95)
+chainweb213Pact (FastTimedCPM g) | g == petersonChainGraph = (> 25)
+chainweb213Pact _ = const True
+
+
+-- | Pact and coin contract changes for Chainweb 2.14
+--
+chainweb214Pact
+    :: AtOrAfter
+    -> ChainwebVersion
+    -> BlockHeight
+    -> Bool
+chainweb214Pact aoa v h = case aoa of
+    At -> go (==) v h
+    After -> go (flip (>)) v h
+  where
+    go f Mainnet01 = f 2605663 -- 2022-04-22T00:00:00Z
+    go f Testnet04 = f 2134331 -- 2022-04-21T12:00:00Z
+    go f Development = f 115
+    go f (FastTimedCPM g) | g == petersonChainGraph = f 30
+    go f _ = f 5
 
 -- -------------------------------------------------------------------------- --
 -- Header Validation Guards
