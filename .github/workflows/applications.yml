@@ -72,7 +72,15 @@ jobs:
           "ghc": ["8.10.7", "9.0.2"],
           "cabal": ["3.6"],
           "os": ["ubuntu-18.04", "ubuntu-20.04"],
-          "cabalcache": ["true"]
+          "cabalcache": ["true"],
+          "exclude": [
+            { 
+              "ghc": "9.0.2",
+              "cabal": "3.6",
+              "os" : "ubuntu-20.04",
+              "cabalcache": "true"
+            }
+          ]
         }
         EOF
         )"
@@ -109,7 +117,7 @@ jobs:
       matrix:
         chainwebVersion: ['development']
     env:
-      DB_SNAPSHOT_URI: 's3://chainweb-chain-db/${{ matrix.chainwebVersion }}/rocksdb/'
+      DB_SNAPSHOT_URI: 's3://chainweb-chain-db/${{ matrix.chainwebVersion }}/pipeline-db/rocksDb'
     steps:
     - name: Sync chain database from S3
       run: aws s3 sync "$DB_SNAPSHOT_URI" db/0/rocksDb --delete --exclude=LOCK
@@ -140,6 +148,18 @@ jobs:
     # Setup
     - name: Checkout repository
       uses: actions/checkout@v2
+      with:
+        fetch-depth: 0
+    # This only works if also the times of the cache are adjusted accordingly
+    # to the time of the commit for the respective revision. This can be done
+    # by adjusting the time of all files in the cache before the end of the task
+    #
+    # - name: Set all tracked file modification times to the time of their last commit
+    #   run: |
+    #     rev=HEAD
+    #     for f in $(git ls-tree -r -t --full-name --name-only "$rev") ; do
+    #       touch -d $(git log --pretty=format:%cI -1 "$rev" -- "$f") "$f";
+    #     done
     - name: Install GHC and Cabal
       uses: haskell/actions/setup@v1.2.7
       with:
@@ -165,30 +185,27 @@ jobs:
           optimization: ${{ needs.config.outputs.opt-level }}
           benchmarks: True
           tests: True
+          ghc-options: -Wno-unused-packages
         package pact
           documentation: False
           optimization: ${{ needs.config.outputs.opt-level }}
+          ghc-options: -Wno-unused-packages
         EOF
-    - name: Create cabal.project.local
-      if: startsWith(matrix.ghc, '9')
+
+    # dist cache
+    - name: Create date file for dist-newstyle cache key
       run: |
-        cat >> cabal.project.local <<EOF
-        allow-newer: token-bucket:*
-        allow-newer: ixset-typed:*
-        allow-newer: hashable:*
-        source-repository-package
-            type: git
-            location: https://github.com/larskuhtz/ixset-typed
-            tag: 26e2a4397a49e731b5a8dcdfb08a64bae06081da
-        EOF
-    - uses: pat-s/always-upload-cache@v2.1.5
+        date +%Y-%j > /tmp/cache-key
+    - uses: larskuhtz/always-upload-cache@3dc6e6c4eed0c594fbff7c4c2885c6106d1bfcf0
       name: Cache dist-newstyle
       with:
         path: |
-          ~/.cabal/packages
           ~/.cabal/store
           dist-newstyle
-        key: ${{ matrix.os }}-${{ matrix.ghc }}-4-cabal
+        key: ${{ matrix.os }}-${{ matrix.ghc }}-2-${{ hashFiles('/tmp/cache-key') }}-${{ hashFiles('cabal.*', '*.cabal', 'src/**', 'test/**') }}
+        restore-keys: |
+          ${{ matrix.os }}-${{ matrix.ghc }}-2-${{ hashFiles('/tmp/cache-key') }}-
+          ${{ matrix.os }}-${{ matrix.ghc }}-2-
 
     # Build
     - name: Delete Freeze file
@@ -202,6 +219,9 @@ jobs:
       run: |
         cabal build all --dry-run
         cabal freeze
+    - name: Display Dependency Changes
+      run: |
+        diff -w <(git show HEAD:cabal.project.freeze) cabal.project.freeze || true
     - name: Sync from cabal cache
       if: matrix.cabalcache == 'true'
       uses: larskuhtz/cabal-cache-action@ecc751af6d31b3ed5a3b4aefdefd0ed6ef4cb414
@@ -529,7 +549,8 @@ jobs:
         LABEL com.chainweb.docker.image.optimization="$OPT_LEVEL"
         LABEL com.chainweb.docker.image.debug-info="$DEBUG_INFO"
         LABEL com.chainweb.docker.image.revision="$GIT_SHA_SHORT"
-        RUN apt-get update && apt-get install -y librocksdb-dev ca-certificates && rm -rf /var/lib/apt/lists/*
+        RUN apt-get update && apt-get install -y librocksdb-dev ca-certificates locales && rm -rf /var/lib/apt/lists/* && locale-gen en_US.UTF-8 && update-locale LC_ALL=en_US.UTF-8 LANG=en_US.UTF-8
+        ENV LANG=en_US.UTF-8
         WORKDIR /chainweb
         COPY chainweb/chainweb-node .
         COPY chainweb/LICENSE .
@@ -572,7 +593,7 @@ jobs:
       with:
         registry: ghcr.io
         username: kadena-build
-        password: ${{ secrets.PKG_MANAGEMENT }}
+        password: ${{ secrets.GITHUB_TOKEN }}
 
     - name: Build and push
       id: docker_build

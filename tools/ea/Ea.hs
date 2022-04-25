@@ -25,11 +25,7 @@
 -- Eä means "to be" in Quenya, the ancient language of Tolkien's elves.
 --
 module Ea
-  ( main
-  , genTxModules
-  , gen20ChainPayloads
-  , genCoinV3Payloads
-  ) where
+  ( main ) where
 
 import Control.Lens (set)
 
@@ -63,7 +59,7 @@ import Chainweb.Pact.Utils (toTxCreationTime)
 import Chainweb.Payload.PayloadStore.InMemory
 import Chainweb.Time
 import Chainweb.Transaction
-    (ChainwebTransaction, chainwebPayloadCodec, mkPayloadWithText)
+    (ChainwebTransaction, chainwebPayloadCodec, mkPayloadWithTextOld)
 import Chainweb.Utils
 import Chainweb.Version (ChainwebVersion(..))
 import Chainweb.Version.Utils (someChainId)
@@ -80,6 +76,10 @@ main = void $ do
     fastnet
     testnet
     mainnet
+    genTxModules
+    gen20ChainPayloads
+    genCoinV3Payloads
+    genCoinV4Payloads
     putStrLn "Done."
   where
     devnet = mkPayloads
@@ -158,6 +158,12 @@ gen20ChainPayloads = traverse_ mk20ChainPayload [developmentKAD, mainnetKAD]
 genCoinV3Payloads :: IO ()
 genCoinV3Payloads = genTxModule "CoinV3" [coinContractV3]
 
+genCoinV4Payloads :: IO ()
+genCoinV4Payloads = genTxModule "CoinV4"
+  [ fungibleXChainV1
+  , coinContractV4
+  ]
+
 ---------------------
 -- Payload Generation
 ---------------------
@@ -227,7 +233,7 @@ mkChainwebTxs' rawTxs = do
       f@ProcFail{} -> fail (show f)
       ProcSucc c -> do
         let t = toTxCreationTime (Time (TimeSpan 0))
-        return $! mkPayloadWithText <$> (c & setTxTime t & setTTL (TTLSeconds $ 2 * 24 * 60 * 60))
+        return $! mkPayloadWithTextOld <$> (c & setTxTime t & setTTL (TTLSeconds $ 2 * 24 * 60 * 60))
   where
     setTxTime = set (cmdPayload . pMeta . pmCreationTime)
     setTTL = set (cmdPayload . pMeta . pmTTL)
@@ -267,7 +273,7 @@ genTxModule tag txFiles = do
 
   let encTxs = map quoteTx cwTxs
       quoteTx tx = "    \"" <> encTx tx <> "\""
-      encTx = encodeB64UrlNoPaddingText . codecEncode chainwebPayloadCodec
+      encTx = encodeB64UrlNoPaddingText . codecEncode (chainwebPayloadCodec Nothing)
       modl = T.unlines $ startTxModule tag <> [T.intercalate "\n    ,\n" encTxs] <> endTxModule
       fileName = "src/Chainweb/Pact/Transactions/" <> tag <> "Transactions.hs"
 
@@ -289,7 +295,7 @@ startTxModule tag =
     , "transactions :: IO [ChainwebTransaction]"
     , "transactions ="
     , "  let decodeTx t ="
-    , "        fromEitherM . (first (userError . show)) . codecDecode chainwebPayloadCodec =<< decodeB64UrlNoPaddingText t"
+    , "        fromEitherM . (first (userError . show)) . codecDecode (chainwebPayloadCodec Nothing) =<< decodeB64UrlNoPaddingText t"
     , "  in mapM decodeTx ["
     ]
 

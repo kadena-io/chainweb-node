@@ -48,18 +48,6 @@ jobs:
         package pact
           documentation: False
         EOF
-    - name: Extend cabal.project.local for GHC-9
-      if: startsWith(matrix.ghc, '9')
-      run: |
-        cat >> cabal.project.local <<EOF
-        allow-newer: token-bucket:*
-        allow-newer: ixset-typed:*
-        allow-newer: hashable:*
-        source-repository-package
-            type: git
-            location: https://github.com/larskuhtz/ixset-typed
-            tag: 26e2a4397a49e731b5a8dcdfb08a64bae06081da
-        EOF
     - uses: pat-s/always-upload-cache@v2.1.5
       name: Cache dist-newstyle
       with:
@@ -67,7 +55,7 @@ jobs:
           ~/.cabal/packages
           ~/.cabal/store
           dist-newstyle
-        key: ${{ matrix.os }}-${{ matrix.ghc }}-4-cabal
+        key: ${{ matrix.os }}-${{ matrix.ghc }}-7-cabal
 
     # Build
     - name: Delete Freeze file

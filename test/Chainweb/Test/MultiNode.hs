@@ -120,6 +120,7 @@ multiConfig
     -> ChainwebConfiguration
 multiConfig v n = defaultChainwebConfiguration v
     & set (configP2p . p2pConfigPeer . peerConfigHost) host
+    & set (configP2p . p2pConfigPeer . peerConfigPort) 0
     & set (configP2p . p2pConfigPeer . peerConfigInterface) interface
         -- Only listen on the loopback device. On Mac OS X this prevents the
         -- firewall dialog form poping up.
@@ -149,9 +150,6 @@ multiConfig v n = defaultChainwebConfiguration v
 
     & set configReintroTxs True
         -- enable transaction re-introduction
-
-    & set (configTransactionIndex . enableConfigEnabled) True
-        -- enable transaction index
 
     & set configThrottling throttling
         -- throttling is effectively disabled to not slow down the test nodes
@@ -204,18 +202,19 @@ multiNode
         -- ^ Unique node id. Node id 0 is used for the bootstrap node
     -> IO ()
 multiNode loglevel write stateVar bootstrapPeerInfoVar conf rdb nid = do
-    withSystemTempDirectory "multiNode-pact-db" $ \tmpDir ->
-        withChainweb conf logger nodeRocksDb (pactDbDir tmpDir) False $ \cw -> do
+    withSystemTempDirectory "multiNode-backup-dir" $ \backupTmpDir ->
+        withSystemTempDirectory "multiNode-pact-db" $ \tmpDir ->
+            withChainweb conf logger nodeRocksDb (pactDbDir tmpDir) backupTmpDir False $ \cw -> do
 
-            -- If this is the bootstrap node we extract the port number and
-            -- publish via an MVar.
-            when (nid == 0) $ putMVar bootstrapPeerInfoVar
-                $ view (chainwebPeer . peerResPeer . peerInfo) cw
+                -- If this is the bootstrap node we extract the port number and
+                -- publish via an MVar.
+                when (nid == 0) $ putMVar bootstrapPeerInfoVar
+                    $ view (chainwebPeer . peerResPeer . peerInfo) cw
 
-            runChainweb cw `finally` do
-                logFunctionText logger Info "write sample data"
-                sample cw
-                logFunctionText logger Info "shutdown node"
+                runChainweb cw `finally` do
+                    logFunctionText logger Info "write sample data"
+                    sample cw
+                    logFunctionText logger Info "shutdown node"
   where
     pactDbDir tmpDir = tmpDir <> "/" <> show nid
 

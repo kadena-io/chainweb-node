@@ -20,6 +20,11 @@ module Chainweb.Pact.RestAPI.Server
 , SomePactServerData(..)
 , somePactServerData
 , pactServer
+, sendHandler
+, pollHandler
+, listenHandler
+, localHandler
+, spvHandler
 , somePactServer
 , somePactServers
 , validateCommand
@@ -92,7 +97,7 @@ import qualified Chainweb.CutDB as CutDB
 import Chainweb.Graph
 import Chainweb.Logger
 import Chainweb.Mempool.Mempool
-    (InsertError(..), InsertType(..), MempoolBackend(..), TransactionHash(..))
+    (InsertError(..), InsertType(..), MempoolBackend(..), TransactionHash(..), requestKeyToTransactionHash)
 import Chainweb.Pact.RestAPI
 import Chainweb.Pact.RestAPI.EthSpv
 import Chainweb.Pact.RestAPI.SPV
@@ -107,7 +112,7 @@ import Chainweb.SPV.CreateProof
 import Chainweb.SPV.EventProof
 import Chainweb.SPV.OutputProof
 import Chainweb.SPV.PayloadProof
-import Chainweb.Transaction (ChainwebTransaction, mkPayloadWithText)
+import Chainweb.Transaction
 import qualified Chainweb.TreeDB as TreeDB
 import Chainweb.Utils
 import Chainweb.Version
@@ -588,8 +593,7 @@ internalPoll pdb bhdb mempool pactEx cut requestKeys0 = do
 
     checkBadList :: Vector RequestKey -> IO (Vector (RequestKey, CommandResult Hash))
     checkBadList rkeys = do
-        let thash = TransactionHash . SB.toShort . unHash . unRequestKey
-        let !hashes = V.map thash rkeys
+        let !hashes = V.map requestKeyToTransactionHash rkeys
         out <- mempoolCheckBadList mempool hashes
         let bad = V.map (RequestKey . Hash . SB.fromShort . unTransactionHash . fst) $
                   V.filter snd $ V.zip hashes out
@@ -620,11 +624,12 @@ toPactTx (Transaction b) = decodeStrict' b
 
 validateCommand :: Command Text -> Either String ChainwebTransaction
 validateCommand cmdText = case verifyCommand cmdBS of
-    ProcSucc cmd -> Right (mkPayloadWithText <$> cmd)
+    ProcSucc cmd -> Right (mkPayloadWithText cmdBS <$> cmd)
     ProcFail err -> Left err
   where
     cmdBS :: Command ByteString
     cmdBS = encodeUtf8 <$> cmdText
+
 
 -- | Validate the length of the request key's underlying hash.
 --

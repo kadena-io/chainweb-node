@@ -37,6 +37,8 @@ import Numeric.Natural (Natural)
 
 import qualified Pact.Types.ChainId as Pact
 import Pact.Types.Command
+import Pact.Types.PactError
+import Pact.Types.Gas
 import Pact.Types.Hash
 import Pact.Types.Persistence
 
@@ -45,7 +47,7 @@ import Pact.Types.Persistence
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
 import Chainweb.BlockHeight
-import Chainweb.Mempool.Mempool (InsertError(..))
+import Chainweb.Mempool.Mempool (InsertError(..),TransactionHash)
 import Chainweb.Miner.Pact
 import Chainweb.Payload
 import Chainweb.Transaction
@@ -66,10 +68,21 @@ data PactServiceConfig = PactServiceConfig
     -- ^ max size of pact internal queue.
   , _pactResetDb :: !Bool
     -- ^ blow away pact dbs
+  , _pactBlockGasLimit :: !GasLimit
   } deriving (Eq,Show)
 
 
+data GasPurchaseFailure = GasPurchaseFailure TransactionHash PactError
+    deriving (Eq,Generic)
+instance ToJSON GasPurchaseFailure
+instance FromJSON GasPurchaseFailure
+instance Show GasPurchaseFailure where show = unpack . encodeToText
 
+gasPurchaseFailureHash :: GasPurchaseFailure -> TransactionHash
+gasPurchaseFailureHash (GasPurchaseFailure h _) = h
+
+-- | Exceptions thrown by PactService components that
+-- are _not_ recorded in blockchain record.
 data PactException
   = BlockValidationFailure !Value
   | PactInternalError !Text
@@ -90,6 +103,8 @@ data PactException
           -- ^ target header
       }
   | BlockHeaderLookupFailure Text
+  | BuyGasFailure GasPurchaseFailure
+  | MempoolFillFailure Text
   deriving (Eq,Generic)
 
 instance Show PactException where

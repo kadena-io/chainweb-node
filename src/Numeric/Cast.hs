@@ -1,6 +1,9 @@
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE CPP #-}
+
+#include "MachDeps.h"
 
 -- |
 -- Module: Numeric.Cast
@@ -65,16 +68,17 @@ instance NumCast Int32 Int64 where
     numCast = fromIntegral
     {-# INLINE numCast #-}
 
-
--- FIXME: check platform
+#if (WORD_SIZE_IN_BITS <= 64)
 instance NumCast Int Int64 where
     numCast = fromIntegral
     {-# INLINE numCast #-}
+#endif
 
+#if (WORD_SIZE_IN_BITS >= 64)
 instance NumCast Int64 Int where
     numCast = fromIntegral
     {-# INLINE numCast #-}
-
+#endif
 
 -- unsigned integral types
 
@@ -118,14 +122,17 @@ instance NumCast Word64 Natural where
     numCast = fromIntegral
     {-# INLINE numCast #-}
 
--- FIXME: check platform
+#if (WORD_SIZE_IN_BITS <= 64)
 instance NumCast Word Word64 where
     numCast = fromIntegral
     {-# INLINE numCast #-}
+#endif
 
+#if (WORD_SIZE_IN_BITS >= 64)
 instance NumCast Word64 Word where
     numCast = fromIntegral
     {-# INLINE numCast #-}
+#endif
 
 -- Fractional Types
 
@@ -159,3 +166,4 @@ instance (Integral a, Integral b, Bounded b) => MaybeNumCast a b where
     {-# INLINE maybeNumCast #-}
 
 -- TODO Floating numbers
+
