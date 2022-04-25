@@ -721,7 +721,7 @@ cutHashesToBlockHeaderMap conf logfun headerStore payloadStore hs =
         Nothing -> do
             logfun Warn
                 $ "Timeout while processing cut "
-                    <> (cutIdToTextShort hsid)
+                    <> cutIdToTextShort hsid
                     <> " at height " <> sshow (_cutHashesHeight hs)
                     <> maybe " from unknown origin" (\p -> " from origin " <> toText p) origin
             return $! Left $! T2 hsid mempty

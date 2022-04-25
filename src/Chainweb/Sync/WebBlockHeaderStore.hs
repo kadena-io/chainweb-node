@@ -1,9 +1,5 @@
 {-# LANGUAGE BangPatterns #-}
-{-# LANGUAGE DeriveAnyClass #-}
-{-# LANGUAGE DeriveFoldable #-}
-{-# LANGUAGE DeriveFunctor #-}
 {-# LANGUAGE DeriveGeneric #-}
-{-# LANGUAGE DeriveTraversable #-}
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
@@ -281,21 +277,21 @@ getBlockHeaderInternal headerStore payloadStore candidateHeaderCas candidatePayl
         --
         -- - header store,
         -- - candidates header cache,
+        -- - local database (we may have validated this header before)
         -- - cut origin, or
         -- - task queue of P2P network
         --
         (maybeOrigin', header) <- casLookup candidateHeaderCas k' >>= \case
             Just !x -> return (maybeOrigin, x)
             Nothing -> casLookup (_webBlockHeaderStoreCas headerStore) k >>= \case
-                Just (ChainValue _ !x) -> return (maybeOrigin, x)
-                Nothing ->
-                    pullOrigin k maybeOrigin >>= \case
-                        Nothing -> do
-                            t <- queryBlockHeaderTask k
-                            pQueueInsert queue t
-                            (ChainValue _ !x) <- awaitTask t
-                            return (Nothing, x)
-                        (Just !x) -> return (maybeOrigin, x)
+                Just (ChainValue _ !x) -> return (Nothing, x)
+                Nothing -> pullOrigin k maybeOrigin >>= \case
+                  Nothing -> do
+                      t <- queryBlockHeaderTask k
+                      pQueueInsert queue t
+                      (ChainValue _ !x) <- awaitTask t
+                      return (Nothing, x)
+                  Just !x -> return (maybeOrigin, x)
 
         -- Check that the chain id is correct. The candidate cas is indexed just
         -- by the block hash. So, if this fails it is most likely a bug in code
