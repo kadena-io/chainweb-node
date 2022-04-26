@@ -419,91 +419,91 @@ pact43UpgradeTest :: TestBlockDb -> IO (IORef MemPoolAccess) -> WebPactExecution
 pact43UpgradeTest bdb mpRefIO pact = do
 
   -- run past genesis, upgrades
-  forM_ [(1::Int)..28] $ \_i -> runCut'
+  forM_ [(1::Int)..29] $ \_i -> runCut'
 
-  -- run block 29, pre fork
-  setOneShotMempool mpRefIO preForkBlock29
-  runCut'
-  pwo29 <- getPWO bdb cid
-  tx29_0 <- txResult "pwo29" 0 pwo29
-  assertEqual "Old gas cost" 120332 (_crGas tx29_0)
-
-  -- run block 29, pre fork
-  tx29_1 <- txResult "pwo29" 1 pwo29
-  assertEqual
-    "Should not resolve new pact native: continue"
-    (Just "Cannot resolve \"continue\"")
-    (tx29_1 ^? crResult . to _pactResult . _Left . to peDoc)
-
-  tx29_2 <- txResult "pwo29" 2 pwo29
-  assertEqual
-    "Should not resolve new pact native: create-principal"
-    (Just "Cannot resolve create-principal")
-    (tx29_2 ^? crResult . to _pactResult . _Left . to peDoc)
-
-  tx29_3 <- txResult "pwo29" 3 pwo29
-  assertEqual
-    "Should not resolve new pact natives: validate-principal"
-    (Just "Cannot resolve validate-principal")
-    (tx29_3 ^? crResult . to _pactResult . _Left . to peDoc)
-
-  tx29_4 <- txResult "pwo29" 4 pwo29
-  assertSatisfies "tx29_4 success" (_pactResult $ _crResult tx29_4) isRight
-
-
-  -- run block 30, post-fork
-  setOneShotMempool mpRefIO postForkBlock30
+  -- run block 30, pre fork
+  setOneShotMempool mpRefIO preForkBlock30
   runCut'
   pwo30 <- getPWO bdb cid
   tx30_0 <- txResult "pwo30" 0 pwo30
-  assertEqual "Old gas cost" 120296 (_crGas tx30_0)
+  assertEqual "Old gas cost" 120332 (_crGas tx30_0)
 
+  -- run block 29, pre fork
   tx30_1 <- txResult "pwo30" 1 pwo30
+  assertEqual
+    "Should not resolve new pact native: continue"
+    (Just "Cannot resolve \"continue\"")
+    (tx30_1 ^? crResult . to _pactResult . _Left . to peDoc)
+
+  tx30_2 <- txResult "pwo30" 2 pwo30
+  assertEqual
+    "Should not resolve new pact native: create-principal"
+    (Just "Cannot resolve create-principal")
+    (tx30_2 ^? crResult . to _pactResult . _Left . to peDoc)
+
+  tx30_3 <- txResult "pwo30" 3 pwo30
+  assertEqual
+    "Should not resolve new pact natives: validate-principal"
+    (Just "Cannot resolve validate-principal")
+    (tx30_3 ^? crResult . to _pactResult . _Left . to peDoc)
+
+  tx30_4 <- txResult "pwo30" 4 pwo30
+  assertSatisfies "tx30_4 success" (_pactResult $ _crResult tx30_4) isRight
+
+
+  -- run block 31, post-fork
+  setOneShotMempool mpRefIO postForkBlock31
+  runCut'
+  pwo31 <- getPWO bdb cid
+  tx31_0 <- txResult "pwo31" 0 pwo31
+  assertEqual "Old gas cost" 120296 (_crGas tx31_0)
+
+  tx31_1 <- txResult "pwo31" 1 pwo31
   assertEqual
     "Should resolve continue in a module defn"
     (Just $ PLiteral (LString "Loaded module free.nestedMod, hash fDd0G7zvGar3ax2q0I0F9dISRq7Pjop5rUXOeokNIOU"))
-    (tx30_1 ^? crResult . to _pactResult . _Right)
+    (tx31_1 ^? crResult . to _pactResult . _Right)
 
-  -- run block 30, post-fork
-  tx30_2 <- txResult "pwo30" 2 pwo30
+  -- run block 31, post-fork
+  tx31_2 <- txResult "pwo31" 2 pwo31
   -- Note: returns LDecimal because of toPactValueLenient in interpret
   assertEqual
     "Should resolve names properly post-fork"
     (Just $ PLiteral (LDecimal 11))
-    (tx30_2 ^? crResult . to _pactResult . _Right)
+    (tx31_2 ^? crResult . to _pactResult . _Right)
 
-  tx30_3 <- txResult "pwo30" 3 pwo30
+  tx31_3 <- txResult "pwo31" 3 pwo31
   assertEqual
     "Should resolve names properly post-fork"
     (Just $ PLiteral (LString "hello"))
-    (tx30_3 ^? crResult . to _pactResult . _Right)
+    (tx31_3 ^? crResult . to _pactResult . _Right)
 
-  tx30_4 <- txResult "pwo30" 4 pwo30
+  tx31_4 <- txResult "pwo31" 4 pwo31
   assertEqual
     "Should resolve create-principal properly post-fork"
     (Just $ PLiteral (LString "k:368820f80c324bbc7c2b0610688a7da43e39f91d118732671cd9c7500ff43cca"))
-    (tx30_4 ^? crResult . to _pactResult . _Right)
+    (tx31_4 ^? crResult . to _pactResult . _Right)
 
-  tx30_5 <- txResult "pwo30" 5 pwo30
+  tx31_5 <- txResult "pwo31" 5 pwo31
   assertEqual
     "Should resolve validate-principal properly post-fork"
     (Just $ PLiteral (LBool True))
-    (tx30_5 ^? crResult . to _pactResult . _Right)
+    (tx31_5 ^? crResult . to _pactResult . _Right)
 
   setMempool mpRefIO mempty
-  runCut' -- 31
   runCut' -- 32
+  runCut' -- 33
 
-  xproof <- buildXProof bdb cid 29 4 tx29_4
+  xproof <- buildXProof bdb cid 30 4 tx30_4
 
-  setMempool mpRefIO =<< getOncePerChainMempool (postForkBlock33 xproof)
+  setMempool mpRefIO =<< getOncePerChainMempool (postForkBlock34 xproof)
   runCut'
-  pwo33 <- getPWO bdb chain0
-  tx33_0 <- txResult "pwo33" 0 pwo33
-  assertSatisfies "tx33_0 success" (_pactResult $ _crResult tx33_0) isRight
+  pwo34 <- getPWO bdb chain0
+  tx34_0 <- txResult "pwo34" 0 pwo34
+  assertSatisfies "tx34_0 success" (_pactResult $ _crResult tx34_0) isRight
 
   where
-    preForkBlock29 = mempty {
+    preForkBlock30 = mempty {
       mpaGetBlock = \_ _ _ _ bh -> if _blockChainId bh == cid then do
           t0 <- buildMod bh
           t1 <- buildModPact bh
@@ -513,7 +513,7 @@ pact43UpgradeTest bdb mpRefIO pact = do
           return $! V.fromList [t0, t1, t2, t3, t4]
           else return mempty
       }
-    postForkBlock30 = mempty {
+    postForkBlock31 = mempty {
       mpaGetBlock = \_ _ _ _ bh -> if _blockChainId bh == cid then do
           t0 <- buildMod bh
           t1 <- buildModPact bh
@@ -524,7 +524,7 @@ pact43UpgradeTest bdb mpRefIO pact = do
           return $! V.fromList [t0,t1,t2,t3,t4,t5]
           else return mempty
       }
-    postForkBlock33 xproof bh =
+    postForkBlock34 xproof bh =
       if _blockChainId bh == chain0 then do
           t0 <- buildXReceive bh xproof
           return $! V.fromList [t0]
