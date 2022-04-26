@@ -41,13 +41,11 @@ import Control.Concurrent.Async
 import Control.Lens
 import Control.Monad
 import Control.Monad.Catch
-import Control.Scheduler
 
 import Data.Foldable
 import Data.Hashable
 import qualified Data.Text as T
 
-import GHC.Exts(RealWorld)
 import GHC.Generics
 
 import qualified Network.HTTP.Client as HTTP
@@ -263,16 +261,15 @@ getBlockHeaderInternal
     :: PayloadCas payloadCas
     => PayloadDataCas candidatePayloadCas
     => BlockHeaderCas candidateHeaderCas
-    => Scheduler RealWorld (ChainValue BlockHeader)
-    -> WebBlockHeaderStore
+    => WebBlockHeaderStore
     -> WebBlockPayloadStore payloadCas
     -> candidateHeaderCas BlockHeader
     -> candidatePayloadCas PayloadData
     -> Priority
     -> Maybe PeerInfo
     -> ChainValue BlockHash
-    -> IO ()
-getBlockHeaderInternal sch headerStore payloadStore candidateHeaderCas candidatePayloadCas priority maybeOrigin h = scheduleWork sch $ do
+    -> IO (ChainValue BlockHeader)
+getBlockHeaderInternal headerStore payloadStore candidateHeaderCas candidatePayloadCas priority maybeOrigin h = do
     logg Debug $ "getBlockHeaderInternal: " <> sshow h
     bh <- memoInsert cas memoMap h $ \k@(ChainValue cid k') -> do
 
@@ -321,7 +318,6 @@ getBlockHeaderInternal sch headerStore payloadStore candidateHeaderCas candidate
                     $ "getBlockHeaderInternal.getPrerequisteHeader (adjacent) for " <> sshow h
                     <> ": " <> sshow p
                 getBlockHeaderInternal
-                    sch
                     headerStore
                     payloadStore
                     candidateHeaderCas
@@ -339,7 +335,6 @@ getBlockHeaderInternal sch headerStore payloadStore candidateHeaderCas candidate
                     $ "getBlockHeaderInternal.getPrerequisteHeader (parent) for " <> sshow h
                     <> ": " <> sshow p
                 void $ getBlockHeaderInternal
-                    sch
                     headerStore
                     payloadStore
                     candidateHeaderCas
@@ -535,14 +530,11 @@ getBlockHeader
     -> Maybe PeerInfo
     -> BlockHash
     -> IO BlockHeader
-getBlockHeader headerStore payloadStore candidateHeaderCas candidatePayloadCas cid priority maybeOrigin h = do
-    withScheduler_ (ParN 20) $ \sch ->
-        go sch
-            `catch` \(TaskFailed _es) -> throwM $ TreeDbKeyNotFound @BlockHeaderDb h
-    (\(ChainValue _ b) -> b) . fromJuste <$> casLookup (WebBlockHeaderCas $ _webBlockHeaderStoreCas headerStore) (ChainValue cid h)
+getBlockHeader headerStore payloadStore candidateHeaderCas candidatePayloadCas cid priority maybeOrigin h
+    = ((\(ChainValue _ b) -> b) <$> go)
+        `catch` \(TaskFailed _es) -> throwM $ TreeDbKeyNotFound @BlockHeaderDb h
   where
-    go sch = getBlockHeaderInternal
-        sch
+    go = getBlockHeaderInternal
         headerStore
         payloadStore
         candidateHeaderCas
