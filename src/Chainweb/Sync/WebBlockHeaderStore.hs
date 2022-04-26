@@ -37,7 +37,7 @@ module Chainweb.Sync.WebBlockHeaderStore
 , PactExecutionService(..)
 ) where
 
-import Control.Concurrent.Async
+import Control.Exception(evaluate)
 import Control.Lens
 import Control.Monad
 import Control.Monad.Catch
@@ -46,7 +46,9 @@ import Data.Foldable
 import Data.Hashable
 import qualified Data.Text as T
 
+import GHC.Conc(par)
 import GHC.Generics
+import System.IO.Unsafe
 
 import qualified Network.HTTP.Client as HTTP
 
@@ -313,7 +315,7 @@ getBlockHeaderInternal headerStore payloadStore candidateHeaderCas candidatePayl
         -- created.
         --
         let isGenesisParentHash p = _chainValueValue p == genesisParentBlockHash v p
-            queryAdjacentParent p = Concurrently $ unless (isGenesisParentHash p) $ void $ do
+            queryAdjacentParent p = unless (isGenesisParentHash p) $ void $ do
                 logg Debug $ taskMsg k
                     $ "getBlockHeaderInternal.getPrerequisteHeader (adjacent) for " <> sshow h
                     <> ": " <> sshow p
@@ -330,7 +332,7 @@ getBlockHeaderInternal headerStore payloadStore candidateHeaderCas candidatePayl
             -- header. There's another complete pass of block header validations
             -- after payload validation when the header is finally added to the db.
             --
-            queryParent p = Concurrently $ void $ do
+            queryParent p = void $ do
                 logg Debug $ taskMsg k
                     $ "getBlockHeaderInternal.getPrerequisteHeader (parent) for " <> sshow h
                     <> ": " <> sshow p
@@ -345,17 +347,21 @@ getBlockHeaderInternal headerStore payloadStore candidateHeaderCas candidatePayl
                 chainDb <- getWebBlockHeaderDb (_webBlockHeaderStoreCas headerStore) header
                 validateInductiveChainM (casLookup chainDb) header
 
-        p <- runConcurrently
+        p <- evaluate $
+            unsafePerformIO (queryParent (_blockParent <$> chainValue header)) `par`
+            unsafePerformIO (mconcat (queryAdjacentParent <$> adjParents header)) `par`
+            unsafePerformIO (getBlockPayload payloadStore candidatePayloadCas priority maybeOrigin' header)
+
             -- query payload
-            $ Concurrently
-                (getBlockPayload payloadStore candidatePayloadCas priority maybeOrigin' header)
+            -- $ Concurrently
+                -- (getBlockPayload payloadStore candidatePayloadCas priority maybeOrigin' header)
 
             -- query parent (recursively)
             --
-            <* queryParent (_blockParent <$> chainValue header)
+            -- <* queryParent (_blockParent <$> chainValue header)
 
             -- query adjacent parents (recursively)
-            <* mconcat (queryAdjacentParent <$> adjParents header)
+            -- <* mconcat (queryAdjacentParent <$> adjParents header)
 
             -- TODO Above recursive calls are potentially long running
             -- computations. In particular pact validation can take significant
