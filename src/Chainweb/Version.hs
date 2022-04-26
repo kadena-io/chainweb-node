@@ -935,7 +935,7 @@ chainweb214Pact
     -> Bool
 chainweb214Pact aoa v h = case aoa of
     At -> go (==) v h
-    After -> go (flip (>)) v h
+    After -> go (flip (>=)) v h
   where
     go f Mainnet01 = f 2605663 -- 2022-04-22T00:00:00Z
     go f Testnet04 = f 2134331 -- 2022-04-21T12:00:00Z
