@@ -293,24 +293,21 @@ replayTest
     :: LogLevel
     -> ChainwebVersion
     -> Natural
-    -> Seconds
     -> TestTree
-replayTest loglevel v n seconds = testCaseSteps name $ \step -> do
+replayTest loglevel v n = testCaseSteps name $ \step -> do
     let tastylog = step . T.unpack
-    -- var <- newMVar (0 :: Int)
-    -- let logFun = tastylog
-        -- maxLogMsgs = 60
-        -- countedLog msg = modifyMVar_ var $ \c -> force (succ c) <$
-            -- when (c < maxLogMsgs) (logFun msg)
     withRocksDb "replay-test" $ \rdb -> do
         tastylog "phase 1..."
-        print =<< runNodesForSeconds loglevel (multiConfig v n) v n 50 T.putStrLn rdb
-        tastylog "phase 2..."
-        print =<< runNodesForSeconds Debug (multiConfig v n & set (configCuts . cutInitialBlockHeightLimit) (Just 5)) v n 50 (T.putStrLn) rdb
+        Just stats1 <- runNodesForSeconds loglevel (multiConfig v n) v n 30 T.putStrLn rdb
+        tastylog $ sshow stats1
+        tastylog $ "phase 2... "
+        Just stats2 <- runNodesForSeconds loglevel (multiConfig v n & set (configCuts . cutInitialBlockHeightLimit) (Just 5)) v n 30 (T.putStrLn) rdb
+        tastylog $ sshow stats2
         tastylog "done."
-        -- print stats2
+        assertGe "maximum cut height before reset" (Actual $ _statMaxHeight stats1) (Expected $ 10)
+        assertLe "minimum cut height after reset" (Actual $ _statMinHeight stats2) (Expected $ _statMaxHeight stats1)
     where
-    name = "ConsensusNetwork (nodes: " <> show n <> ", seconds: " <> show seconds <> ") [replay]"
+    name = "ConsensusNetwork [replay]"
 
 -- -------------------------------------------------------------------------- --
 -- Test
