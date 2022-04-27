@@ -306,6 +306,7 @@ replayTest loglevel v n = testCaseSteps name $ \step -> do
         tastylog "done."
         assertGe "maximum cut height before reset" (Actual $ _statMaxHeight stats1) (Expected $ 10)
         assertLe "minimum cut height after reset" (Actual $ _statMinHeight stats2) (Expected $ _statMaxHeight stats1)
+        assertGe "maximum cut height after reset" (Actual $ _statMaxHeight stats2) (Expected $ _statMaxHeight stats1)
     where
     name = "ConsensusNetwork [replay]"
 
