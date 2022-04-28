@@ -282,28 +282,16 @@ getBlockHeaderInternal headerStore payloadStore candidateHeaderCas candidatePayl
         -- - task queue of P2P network
         --
         (maybeOrigin', header) <- casLookup candidateHeaderCas k' >>= \case
-            Just !x -> do
-                logg Info $ taskMsg k
-                    $ "getBlockHeaderInternal for " <> sshow h
-                    <> ": candidate header cache hit"
-                return (maybeOrigin, x)
+            Just !x -> return (maybeOrigin, x)
             Nothing -> casLookup (_webBlockHeaderStoreCas headerStore) k >>= \case
-                Just (ChainValue _ !x) -> do
-                    logg Info $ taskMsg k
-                        $ "getBlockHeaderInternal for " <> sshow h
-                        <> ": header store hit"
-                    return (Nothing, x)
-                Nothing -> do
-                    logg Info $ taskMsg k
-                        $ "getBlockHeaderInternal for " <> sshow h
-                        <> ": miss, pulling from remote"
-                    pullOrigin k maybeOrigin >>= \case
-                        Nothing -> do
-                            t <- queryBlockHeaderTask k
-                            pQueueInsert queue t
-                            (ChainValue _ !x) <- awaitTask t
-                            return (Nothing, x)
-                        Just !x -> return (maybeOrigin, x)
+                Just (ChainValue _ !x) -> return (Nothing, x)
+                Nothing -> pullOrigin k maybeOrigin >>= \case
+                  Nothing -> do
+                      t <- queryBlockHeaderTask k
+                      pQueueInsert queue t
+                      (ChainValue _ !x) <- awaitTask t
+                      return (Nothing, x)
+                  Just !x -> return (maybeOrigin, x)
 
         -- Check that the chain id is correct. The candidate cas is indexed just
         -- by the block hash. So, if this fails it is most likely a bug in code
