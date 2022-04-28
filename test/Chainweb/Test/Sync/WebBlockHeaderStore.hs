@@ -82,7 +82,7 @@ testAsyncFib n = do
 
     let fib 0 = tick t $ return $ Fib 0 1
         fib 1 = tick t $ return $ Fib 1 1
-        fib x = tick t $ memoInsert cas m x $ \k -> do
+        fib x = tick t $ memoInsert (\_ _-> pure ()) cas m x $ \k -> do
             r <- (+)
                 <$> (getFib <$> fib (k - 1))
                     -- FIXME: this is synchronous, so the second fetch is
