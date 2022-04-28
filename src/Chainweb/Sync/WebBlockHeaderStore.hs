@@ -146,29 +146,23 @@ instance HasChainwebVersion WebBlockHeaderStore where
 memoInsert
     :: IsCas a
     => Hashable (CasKeyType (CasValueType a))
-    => LogFunctionText
-    -> a
+    => a
     -> TaskMap (CasKeyType (CasValueType a)) (CasValueType a)
     -> CasKeyType (CasValueType a)
     -> (CasKeyType (CasValueType a) -> IO (CasValueType a))
     -> IO (CasValueType a)
-memoInsert logg cas m k a = casLookup cas k >>= \case
-    Nothing -> do
-        logg Info "memoInsert: cas miss"
-        memo m k $ \k' -> do
-            -- there is the chance of a race here. At this time some task may just
-            -- have finished updating the CAS with the key we are looking for. We
-            -- could solve this by doing a another CAS lookup here. But, depending
-            -- on the CAS, that could be expensive, too. For now we except a few
-            -- duplicate tasks due to races instead of adding an extra CAS lookup to
-            -- every task.
-            logg Info "memoInsert: memo miss"
-            !v <- a k'
-            casInsert cas v
-            return v
-    (Just !x) -> do
-        logg Info "memoInsert: hit"
-        return x
+memoInsert cas m k a = casLookup cas k >>= \case
+    Nothing -> memo m k $ \k' -> do
+        -- there is the chance of a race here. At this time some task may just
+        -- have finished updating the CAS with the key we are looking for. We
+        -- could solve this by doing a another CAS lookup here. But, depending
+        -- on the CAS, that could be expensive, too. For now we except a few
+        -- duplicate tasks due to races instead of adding an extra CAS lookup to
+        -- every task.
+        !v <- a k'
+        casInsert cas v
+        return v
+    (Just !x) -> return x
 
 -- | Query a payload either from the local store, or the origin, or P2P network.
 --
@@ -277,7 +271,7 @@ getBlockHeaderInternal
     -> IO (ChainValue BlockHeader)
 getBlockHeaderInternal headerStore payloadStore candidateHeaderCas candidatePayloadCas priority maybeOrigin h = do
     logg Debug $ "getBlockHeaderInternal: " <> sshow h
-    bh <- memoInsert logg cas memoMap h $ \k@(ChainValue cid k') -> do
+    bh <- memoInsert cas memoMap h $ \k@(ChainValue cid k') -> do
 
         -- query BlockHeader via
         --
