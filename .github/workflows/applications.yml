@@ -620,8 +620,8 @@ jobs:
       uses: aurelien-baudet/workflow-dispatch@93e95b157d791ae7f42aef8f8a0d3d723eba1c31
       with:
         workflow: Integration Tests on devnet chain
-        token: ${{ secrets.KADENA_BUILD_CI_TOKEN }}
-        inputs: '{ "chainweb_node_container_id" : "${{ needs.config.outputs.git-sha-short }}" }'
+        token: ${{ secrets.GITHUB_WORKFLOW_PAT_FOR_TEST }}
+        inputs: '{ "chainweb_node_container_id" : "sha-${{ needs.config.outputs.git-sha-short }}" }'
         repo: kadena-io/integration-tests
         display-workflow-run-url: true
         wait-for-completion: false # here you could make this pipeline wait them out
