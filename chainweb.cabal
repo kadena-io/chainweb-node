@@ -321,7 +321,6 @@ library
         , asn1-encoding >=0.9
         , asn1-types >=0.3
         , async >= 2.2
-        , async-pool >= 0.9.1
         , attoparsec >= 0.13
         , base >= 4.12 && < 5
         , base16-bytestring >= 0.1

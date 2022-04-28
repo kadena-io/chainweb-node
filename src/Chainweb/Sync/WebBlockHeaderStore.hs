@@ -37,7 +37,7 @@ module Chainweb.Sync.WebBlockHeaderStore
 , PactExecutionService(..)
 ) where
 
-import Control.Concurrent.Async.Pool hiding (Task)
+import Control.Concurrent.Async
 import Control.Lens
 import Control.Monad
 import Control.Monad.Catch
@@ -261,8 +261,7 @@ getBlockHeaderInternal
     :: PayloadCas payloadCas
     => PayloadDataCas candidatePayloadCas
     => BlockHeaderCas candidateHeaderCas
-    => TaskGroup
-    -> WebBlockHeaderStore
+    => WebBlockHeaderStore
     -> WebBlockPayloadStore payloadCas
     -> candidateHeaderCas BlockHeader
     -> candidatePayloadCas PayloadData
@@ -270,7 +269,7 @@ getBlockHeaderInternal
     -> Maybe PeerInfo
     -> ChainValue BlockHash
     -> IO (ChainValue BlockHeader)
-getBlockHeaderInternal g headerStore payloadStore candidateHeaderCas candidatePayloadCas priority maybeOrigin h = do
+getBlockHeaderInternal headerStore payloadStore candidateHeaderCas candidatePayloadCas priority maybeOrigin h = do
     logg Debug $ "getBlockHeaderInternal: " <> sshow h
     bh <- memoInsert cas memoMap h $ \k@(ChainValue cid k') -> do
 
@@ -314,12 +313,11 @@ getBlockHeaderInternal g headerStore payloadStore candidateHeaderCas candidatePa
         -- created.
         --
         let isGenesisParentHash p = _chainValueValue p == genesisParentBlockHash v p
-            queryAdjacentParent p = Concurrently $ \g' -> unless (isGenesisParentHash p) $ void $ do
+            queryAdjacentParent p = Concurrently $ unless (isGenesisParentHash p) $ void $ do
                 logg Debug $ taskMsg k
                     $ "getBlockHeaderInternal.getPrerequisteHeader (adjacent) for " <> sshow h
                     <> ": " <> sshow p
                 getBlockHeaderInternal
-                    g'
                     headerStore
                     payloadStore
                     candidateHeaderCas
@@ -332,12 +330,11 @@ getBlockHeaderInternal g headerStore payloadStore candidateHeaderCas candidatePa
             -- header. There's another complete pass of block header validations
             -- after payload validation when the header is finally added to the db.
             --
-            queryParent p = Concurrently $ \g' -> void $ do
+            queryParent p = Concurrently $ void $ do
                 logg Debug $ taskMsg k
                     $ "getBlockHeaderInternal.getPrerequisteHeader (parent) for " <> sshow h
                     <> ": " <> sshow p
                 void $ getBlockHeaderInternal
-                    g'
                     headerStore
                     payloadStore
                     candidateHeaderCas
@@ -348,17 +345,17 @@ getBlockHeaderInternal g headerStore payloadStore candidateHeaderCas candidatePa
                 chainDb <- getWebBlockHeaderDb (_webBlockHeaderStoreCas headerStore) header
                 validateInductiveChainM (casLookup chainDb) header
 
-        p <- flip runConcurrently g
+        p <- runConcurrently
             -- query payload
             $ Concurrently
-                (\_ -> getBlockPayload payloadStore candidatePayloadCas priority maybeOrigin' header)
+                (getBlockPayload payloadStore candidatePayloadCas priority maybeOrigin' header)
 
             -- query parent (recursively)
             --
             <* queryParent (_blockParent <$> chainValue header)
 
             -- query adjacent parents (recursively)
-            <* sequenceA_ (queryAdjacentParent <$> adjParents header)
+            <* mconcat (queryAdjacentParent <$> adjParents header)
 
             -- TODO Above recursive calls are potentially long running
             -- computations. In particular pact validation can take significant
@@ -534,12 +531,10 @@ getBlockHeader
     -> BlockHash
     -> IO BlockHeader
 getBlockHeader headerStore payloadStore candidateHeaderCas candidatePayloadCas cid priority maybeOrigin h
-    = withTaskGroup 20 $ \g ->
-        ((\(ChainValue _ b) -> b) <$> go g)
-            `catch` \(TaskFailed _es) -> throwM $ TreeDbKeyNotFound @BlockHeaderDb h
+    = ((\(ChainValue _ b) -> b) <$> go)
+        `catch` \(TaskFailed _es) -> throwM $ TreeDbKeyNotFound @BlockHeaderDb h
   where
-    go g = getBlockHeaderInternal
-        g
+    go = getBlockHeaderInternal
         headerStore
         payloadStore
         candidateHeaderCas
