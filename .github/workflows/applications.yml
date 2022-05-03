@@ -364,7 +364,7 @@ jobs:
         aws s3api put-object-acl --bucket $BENCH_BUCKET --key=$BENCH_FOLDER/$BENCH_FILE --acl public-read
 
   # ########################################################################## #
-  # Validate Devenet Database and Replay Pact History
+  # Validate Devnet Database and Replay Pact History
 
   validate-devnet-database:
     name: Validate Devnet Database Snapshot and Replay Pact History
