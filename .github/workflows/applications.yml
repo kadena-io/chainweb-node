@@ -364,45 +364,10 @@ jobs:
         aws s3api put-object-acl --bucket $BENCH_BUCKET --key=$BENCH_FOLDER/$BENCH_FILE --acl public-read
 
   # ########################################################################## #
-  # Validate Development headers
+  # Validate Devnet Database and Replay Pact History
 
-  validate-headers:
-    name: Validate headers
-    needs: [config, sync-chain-db, build]
-    strategy:
-      fail-fast: false
-      matrix: ${{ fromJson(needs.config.outputs.matrix) }}
-    runs-on: ${{ matrix.os }}
-    env:
-      ARTIFACTS_NAME: chainweb-applications.${{ matrix.ghc }}.${{ matrix.os }}
-    steps:
-    - uses: actions/checkout@v2
-    - name: Download chain database artifact
-      uses: actions/download-artifact@v2
-      with:
-        name: chain-db-development
-        path: db
-    - name: Download build artifacts
-      uses: actions/download-artifact@v2
-      with:
-        name: ${{ env.ARTIFACTS_NAME }}
-        path: .
-    - name: Install chainweb from artifacts
-      uses: ./.github/actions/install-chainweb-from-artifacts
-      with:
-        os: ${{ matrix.os }}
-        ghc: ${{ matrix.ghc }}
-    - name: Validate Headers
-      timeout-minutes: 6
-      uses: larskuhtz/chainweb-history-validation/.github/actions/validate-headers@master
-      with:
-        chainweb_version: development
-
-  # ########################################################################## #
-  # Validate Development pact history
-
-  validate-pact-history:
-    name: Validate pact history
+  validate-devnet-database:
+    name: Validate Devnet Database Snapshot and Replay Pact History
     needs: [config, sync-chain-db, build]
     strategy:
       fail-fast: false
@@ -427,11 +392,64 @@ jobs:
       with:
         os: ${{ matrix.os }}
         ghc: ${{ matrix.ghc }}
-    - name: Validate Pact History
+    - name: Write chainweb-node configuration
+      run: |
+        cat >> config.yaml <<EOF
+          databaseDirectory: "db"
+          chainweb:
+            onlySyncPact: true
+            chainwebVersion: development
+            validateHashesOnReplay: true
+            p2p:
+              peer:
+                interface: localhost
+                hostaddress:
+                  port: 4445
+              private: true
+              ignoreBootstrapNodes: true
+            transactionIndex:
+              enabled: false
+            mempoolP2p:
+              enabled: false
+            cuts:
+              pruneChainDatabase: headers-checked
+          logging:
+            telemetryBackend:
+              enabled: false
+              configuration:
+                color: 'true'
+            backend:
+              color: 'true'
+            filter:
+              rules:
+              - value: mempool
+                key: component
+                level: warn
+              - value: connection-manager
+                key: component
+                level: warn
+              - value: sync
+                key: sub-component
+                level: warn
+              - value: MempoolAccess
+                key: sub-component
+                level: warn
+              - value: PactService
+                key: logger
+                level: warn
+              - value: Checkpointer
+                key: logger
+                level: warn
+              default: info
+        EOF
+    - name: Validate database and replay pact transactions
       timeout-minutes: 6
-      uses: larskuhtz/chainweb-history-validation/.github/actions/validate-headers@master
-      with:
-        chainweb_version: development
+      env:
+        DISABLE_POW_VALIDATION: 1
+      run: |
+        chainweb-node +RTS -T -H1G -A64M -RTS \
+          --config-file=config.yaml \
+          --log-level=info
 
   # ########################################################################## #
   # Run Unit Tests
