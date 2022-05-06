@@ -97,7 +97,7 @@ err404Msg msg = ServerError
     { errHTTPCode = 404
     , errReasonPhrase = "Not Found"
     , errBody = encode msg
-    , errHeaders = []
+    , errHeaders = [("Content-Type", "application/json;charset=utf-8")]
     }
 
 -- | Confirm if keys comprising the given bounds exist within a `TreeDb`.

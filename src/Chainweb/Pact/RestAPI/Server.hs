@@ -233,7 +233,10 @@ sendHandler logger mempool (SubmitBatch cmds) = Handler $ do
        Left err -> failWith $ "Validation failed: " <> err
   where
     failWith :: String -> ExceptT ServerError IO a
-    failWith err = throwError $ err400 { errBody = BSL8.pack err }
+    failWith err = throwError $ err400
+        { errBody = BSL8.pack err
+        , errHeaders = [("Content-Type", "text/plain;charset=utf-8")]
+        }
 
     logg = logFunctionJson (setComponent "send-handler" logger)
 
@@ -342,11 +345,17 @@ localHandler logger pact cmd = do
     cmd' <- case validateCommand cmd of
       (Right !c) -> return c
       Left err ->
-        throwError $ err400 { errBody = "Validation failed: " <> BSL8.pack err }
+        throwError $ err400
+            { errBody = "Validation failed: " <> BSL8.pack err
+            , errHeaders = [("Content-Type", "text/plain;charset=utf-8")]
+            }
     r <- liftIO $ _pactLocal pact cmd'
     case r of
       Left err ->
-        throwError $ err400 { errBody = "Execution failed: " <> BSL8.pack (show err) }
+        throwError $ err400
+            { errBody = "Execution failed: " <> BSL8.pack (show err)
+            , errHeaders = [("Content-Type", "text/plain;charset=utf-8")]
+            }
       (Right !r') -> return r'
   where
     logg = logFunctionJson (setComponent "local-handler" logger)
@@ -412,7 +421,10 @@ spvHandler l cdb cid (SpvRequest rk (Pact.ChainId ptid)) = do
     logg = logFunctionJson (setComponent "spv-handler" l) Info
       . PactCmdLogSpv
 
-    toErr e = throwError $ err400 { errBody = e }
+    toErr e = throwError $ err400
+        { errBody = e
+        , errHeaders = [("Content-Type", "text/plain;charset=utf-8")]
+        }
 
     spvErrOf = BSL8.fromStrict
       . encodeUtf8
@@ -641,6 +653,7 @@ validateRequestKey (RequestKey h'@(Hash h))
         <> keyString
         <> " has incorrect hash of length "
         <> BSL8.pack (show keyLength)
+      , errHeaders = [("Content-Type", "text/plain;charset=utf-8")]
       }
   where
     keyString = BSL8.pack $ T.unpack $ Pact.hashToText h'

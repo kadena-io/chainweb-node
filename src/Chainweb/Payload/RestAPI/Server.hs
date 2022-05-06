@@ -61,7 +61,10 @@ payloadBatchLimit :: Int
 payloadBatchLimit = 1000
 
 err404Msg :: ToJSON msg  => msg -> ServerError
-err404Msg msg = err404 { errBody = encode msg }
+err404Msg msg = err404
+    { errBody = encode msg
+    , errHeaders = [("Content-Type", "application/json;charset=utf-8")]
+    }
 
 catMaybes :: V.Vector (Maybe a) -> V.Vector a
 catMaybes = V.catMaybes

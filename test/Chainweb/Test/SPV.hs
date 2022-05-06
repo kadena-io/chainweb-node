@@ -431,9 +431,9 @@ type TestClientEnv_ cas = TestClientEnv MockTx cas
 apiTests :: RocksDb -> ChainwebVersion -> TestTree
 apiTests rdb v = withTestPayloadResource rdb v 100 (\_ _ -> return ()) $ \dbIO ->
     testGroup "SPV API tests"
-        [ withPayloadServer False v dbIO (payloadDbs . view cutDbPayloadCas <$> dbIO) $ \env ->
+        [ withPayloadServer False False v dbIO (payloadDbs . view cutDbPayloadCas <$> dbIO) $ \env ->
             testCaseStepsN "spv api tests (without tls)" 10 (txApiTests env)
-        , withPayloadServer True v dbIO (payloadDbs . view cutDbPayloadCas <$> dbIO) $ \env ->
+        , withPayloadServer False True v dbIO (payloadDbs . view cutDbPayloadCas <$> dbIO) $ \env ->
             testCaseStepsN "spv api tests (with tls)" 10 (txApiTests env)
         ]
   where

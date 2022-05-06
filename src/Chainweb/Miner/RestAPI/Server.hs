@@ -77,13 +77,19 @@ workHandler mr mcid m@(Miner (MinerId mid) _) = do
     MiningState ms <- liftIO . readTVarIO $ _coordState mr
     when (M.size ms > _coordLimit mr) $ do
         liftIO $ atomicModifyIORef' (_coord503s mr) (\c -> (c + 1, ()))
-        throwError err503 { errBody = "Too many work requests" }
+        throwError err503
+            { errBody = "Too many work requests"
+            , errHeaders = [("Content-Type", "text/plain;charset=utf-8")]
+            }
     let !conf = _coordConf mr
         !primed = S.member m $ _coordinationMiners conf
     unless primed $ do
         liftIO $ atomicModifyIORef' (_coord403s mr) (\c -> (c + 1, ()))
         let midb = TL.encodeUtf8 $ TL.fromStrict mid
-        throwError err403 { errBody = "Unauthorized Miner: " <> midb }
+        throwError err403
+            { errBody = "Unauthorized Miner: " <> midb
+            , errHeaders = [("Content-Type", "text/plain;charset=utf-8")]
+            }
     wh <- liftIO $ work mr mcid m
     return $ WorkBytes $ runPut $ encodeWorkHeader wh
 
@@ -99,16 +105,28 @@ solvedHandler
 solvedHandler mr (HeaderBytes bytes) = do
     liftIO (try $ runGet decodeSolvedWork bytes) >>= \case
         Left (DecodeException e) ->
-            throwError err400 { errBody = "Decoding error: " <> toErrText e }
+            throwError err400
+                { errBody = "Decoding error: " <> toErrText e
+                , errHeaders = [("Content-Type", "text/plain;charset=utf-8")]
+                }
         Left _ ->
-            throwError err400 { errBody = "Unexpected encoding exception" }
+            throwError err400
+                { errBody = "Unexpected encoding exception"
+                , errHeaders = [("Content-Type", "text/plain;charset=utf-8")]
+                }
 
         Right solved -> do
             result <- liftIO $ catches (Right () <$ solve mr solved)
                 [ E.Handler $ \NoAsscociatedPayload ->
-                    return $ Left err404 { errBody = "No associated Payload" }
+                    return $ Left err404
+                        { errBody = "No associated Payload"
+                        , errHeaders = [("Content-Type", "text/plain;charset=utf-8")]
+                        }
                 , E.Handler $ \(InvalidSolvedHeader _ msg) ->
-                    return $ Left err400 { errBody = "Invalid solved work: " <> toErrText msg}
+                    return $ Left err400
+                        { errBody = "Invalid solved work: " <> toErrText msg
+                        , errHeaders = [("Content-Type", "text/plain;charset=utf-8")]
+                        }
                 ]
             case result of
                 Left e -> throwError e

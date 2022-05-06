@@ -126,7 +126,7 @@ module Chainweb.Test.Utils
 
 import Control.Concurrent
 import Control.Concurrent.Async
-import Control.Exception (bracket)
+import Control.Exception hiding (finally)
 import Control.Lens
 import Control.Monad
 import Control.Monad.Catch (MonadThrow, finally)
@@ -136,25 +136,31 @@ import Data.Aeson (FromJSON, ToJSON)
 import Data.Bifunctor hiding (second)
 import Data.Bytes.Put
 import qualified Data.ByteString as B
+import Data.ByteString.Builder(toLazyByteString)
 import qualified Data.ByteString.Lazy as BL
 import Data.CAS (casKey)
 import Data.Coerce (coerce)
 import Data.Foldable
+import Data.IORef
 import qualified Data.HashMap.Strict as HashMap
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
 import Data.Tree
 import qualified Data.Tree.Lens as LT
+import Data.Typeable
 import qualified Data.Vector as V
 import Data.Word (Word64)
+import qualified Data.Yaml as Yaml
 
 import qualified Network.Connection as HTTP
 import qualified Network.HTTP.Client as HTTP
 import qualified Network.HTTP.Client.TLS as HTTP
+import Network.HTTP.Types
 import Network.Socket (close)
 import qualified Network.Wai as W
 import qualified Network.Wai.Handler.Warp as W
 import Network.Wai.Handler.WarpTLS as W (runTLSSocket)
+import qualified Network.Wai.Middleware.Validation as WV
 
 import Numeric.Natural
 
@@ -177,6 +183,7 @@ import Test.Tasty.HUnit
 import Test.Tasty.QuickCheck (testProperty, property, discard, (.&&.))
 
 import Text.Printf (printf)
+import Text.Show.Pretty
 
 import Data.List (sortOn,isInfixOf)
 
@@ -601,20 +608,51 @@ withTestAppServer tls v appIO envIO userFunc = bracket start stop go
     go (_, _, env) = userFunc env
 
 
+data ValidationException = ValidationException
+    { vReq :: W.Request
+    , vResp :: Maybe (ResponseHeaders, Status, BL.ByteString)
+    , vErr :: WV.ValidationException
+    }
+    deriving (Show, Typeable)
+
+instance Exception ValidationException
+
+getResponseBody :: W.Response -> IO BL.ByteString
+getResponseBody res = do
+    let (_, _, withBody) = W.responseToStream res
+    withBody $ \streamingBody -> do
+        ref <- newIORef mempty
+        streamingBody
+            (\b -> atomicModifyIORef ref $ \acc -> (acc <> b, ()))
+            (pure ())
+        toLazyByteString <$> readIORef ref
+
 -- TODO: catch, wrap, and forward exceptions from chainwebApplication
 --
 withChainwebTestServer
     :: Bool
+    -> Bool
     -> ChainwebVersion
     -> IO W.Application
     -> (Int -> IO a)
     -> (IO a -> TestTree)
     -> TestTree
-withChainwebTestServer tls v appIO envIO test = withResource start stop $ \x ->
+withChainwebTestServer validateSpec tls v appIO envIO test = withResource start stop $ \x -> do
     test $ x >>= \(_, _, env) -> return env
   where
     start = do
-        app <- appIO
+        let
+            lg req resp err = do
+                b <- traverse getResponseBody resp
+                let
+                    resp' = do
+                        r <- resp
+                        b' <- b
+                        return (W.responseHeaders r, W.responseStatus r, b')
+                let ex = ValidationException req resp' err
+                error $ ppShow ex
+        mw <- WV.mkValidator (WV.Log lg) ("/chainweb/0.0/" <> T.encodeUtf8 (chainwebVersionToText v)) <$> Yaml.decodeFileThrow "/home/edmundnoble/kadena/chainweb-openapi/chainweb.openapi.yaml"
+        app <- (if validateSpec then mw else id) <$> appIO
         (port, sock) <- W.openFreePort
         readyVar <- newEmptyMVar
         server <- async $ do
@@ -644,12 +682,13 @@ clientEnvWithChainwebTestServer
     => FromJSON t
     => PayloadCasLookup cas
     => Bool
+    -> Bool
     -> ChainwebVersion
     -> IO (ChainwebServerDbs t cas)
     -> (IO (TestClientEnv t cas) -> TestTree)
     -> TestTree
-clientEnvWithChainwebTestServer tls v dbsIO =
-    withChainwebTestServer tls v mkApp mkEnv
+clientEnvWithChainwebTestServer validateSpec tls v dbsIO =
+    withChainwebTestServer validateSpec tls v mkApp mkEnv
   where
     mkApp :: IO W.Application
     mkApp = chainwebApplication (defaultChainwebConfiguration v) <$> dbsIO
@@ -676,11 +715,12 @@ withPeerDbsServer
     => ToJSON t
     => FromJSON t
     => Bool
+    -> Bool
     -> ChainwebVersion
     -> IO [(NetworkId, P2P.PeerDb)]
     -> (IO (TestClientEnv t cas) -> TestTree)
     -> TestTree
-withPeerDbsServer tls v peerDbsIO = clientEnvWithChainwebTestServer tls v $ do
+withPeerDbsServer validateSpec tls v peerDbsIO = clientEnvWithChainwebTestServer validateSpec tls v $ do
     peerDbs <- peerDbsIO
     return $ emptyChainwebServerDbs
         { _chainwebServerPeerDbs = peerDbs
@@ -692,13 +732,14 @@ withPayloadServer
     => ToJSON t
     => FromJSON t
     => Bool
+    -> Bool
     -> ChainwebVersion
     -> IO (CutDb cas)
     -> IO [(ChainId, PayloadDb cas)]
     -> (IO (TestClientEnv t cas) -> TestTree)
     -> TestTree
-withPayloadServer tls v cutDbIO payloadDbsIO =
-    clientEnvWithChainwebTestServer tls v $ do
+withPayloadServer validateSpec tls v cutDbIO payloadDbsIO =
+    clientEnvWithChainwebTestServer validateSpec tls v $ do
         payloadDbs <- payloadDbsIO
         cutDb <- cutDbIO
         return $ emptyChainwebServerDbs
@@ -712,13 +753,14 @@ withBlockHeaderDbsServer
     => ToJSON t
     => FromJSON t
     => Bool
+    -> Bool
     -> ChainwebVersion
     -> IO [(ChainId, BlockHeaderDb)]
     -> IO [(ChainId, MempoolBackend t)]
     -> (IO (TestClientEnv t cas) -> TestTree)
     -> TestTree
-withBlockHeaderDbsServer tls v chainDbsIO mempoolsIO =
-    clientEnvWithChainwebTestServer tls v $ do
+withBlockHeaderDbsServer validateSpec tls v chainDbsIO mempoolsIO =
+    clientEnvWithChainwebTestServer validateSpec tls v $ do
         chainDbs <- chainDbsIO
         mempools <- mempoolsIO
         return $ emptyChainwebServerDbs

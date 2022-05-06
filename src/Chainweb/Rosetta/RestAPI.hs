@@ -308,10 +308,16 @@ rosettaNetworkStatusApi = Proxy
 
 
 throwRosetta :: RosettaFailure -> Handler a
-throwRosetta e = throwError err500 { errBody = encode $ rosettaError e Nothing }
+throwRosetta e = throwError err500
+    { errBody = encode $ rosettaError e Nothing
+    , errHeaders = [("Content-Type", "application/json;charset=utf-8")]
+    }
 
 throwRosettaError :: RosettaError -> Handler a
-throwRosettaError e = throwError err500 { errBody = encode e }
+throwRosettaError e = throwError err500
+    { errBody = encode e
+    , errHeaders = [("Content-Type", "application/json;charset=utf-8")]
+    }
 
 -- | Every Rosetta request that requires a `NetworkId` also requires a
 -- `SubNetworkId`, at least in the case of Chainweb.
