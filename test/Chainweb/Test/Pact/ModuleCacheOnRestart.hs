@@ -136,7 +136,10 @@ testV4 iobdb rewindM = (go,snapshotCache)
   where
     go = do
       initPayloadState
+      void $ doNextCoinbase iobdb
       (header, pwo) <- doNextCoinbase iobdb
+      void $ doNextCoinbase iobdb
+      void $ doNextCoinbase iobdb
       rewind <- liftIO rewindM
       liftIO $ isEmptyMVar rewind >>= \case
         True -> do
@@ -170,6 +173,7 @@ rewindToBlock rewind = do
         else do
           (rewindHeader, pwo) <- liftIO $ readMVar rewind
           void $ execValidateBlock mempty rewindHeader (payloadWithOutputsToPayloadData pwo)
+          liftIO . print . _blockHeight . _parentHeader =<< use psParentHeader
 
 doNextCoinbase :: PayloadCasLookup cas => IO TestBlockDb -> PactServiceM cas (BlockHeader, PayloadWithOutputs)
 doNextCoinbase iobdb = do

@@ -391,7 +391,11 @@ attemptBuyGas
     -> Vector (Either InsertError ChainwebTransaction)
     -> PactServiceM cas (Vector (Either InsertError ChainwebTransaction))
 attemptBuyGas miner (PactDbEnv' dbEnv) txs = do
-        mc <- getInitCache
+        psLogger' <- asks _psLogger
+        pd <- getTxContext def
+        let isJust = foldr (const $ const True) False
+        validated <- gets (isJust . _psStateValidated)
+        mc <- getInitCache (if validated then readInitModules psLogger' dbEnv pd else mempty)
         V.fromList . toList . sfst <$> V.foldM f (T2 mempty mc) txs
   where
     f (T2 dl mcache) cmd = do
@@ -605,8 +609,8 @@ execLocal
     -> PactServiceM cas (P.CommandResult P.Hash)
 execLocal cmd = withDiscardedBatch $ do
     PactServiceEnv{..} <- ask
-    mc <- getInitCache
     pd <- getTxContext (publicMetaOf $! payloadObj <$> cmd)
+    mc <- getInitCache mempty
     spv <- use psSpvSupport
     let execConfig = P.mkExecutionConfig $
             [ P.FlagAllowReadInLocal | _psAllowReadsInLocal ] ++

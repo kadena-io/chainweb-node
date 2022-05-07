@@ -422,11 +422,11 @@ _debugMC t = do
     instr (ModuleData{..},_) = preview (_MDModule . mHash) _mdModule
 
 -- | Look up an init cache that is stored at or before the height of the current parent header.
-getInitCache :: PactServiceM cas ModuleCache
-getInitCache = get >>= \PactServiceState{..} ->
+getInitCache :: IO ModuleCache -> PactServiceM cas ModuleCache
+getInitCache loadInitModule = get >>= \PactServiceState{..} ->
     case M.lookupLE (pbh _psParentHeader) _psInitCache of
       Just (_,mc) -> return mc
-      Nothing -> return mempty
+      Nothing -> liftIO loadInitModule
   where
     pbh = _blockHeight . _parentHeader
 

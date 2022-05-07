@@ -46,6 +46,7 @@ import qualified Data.DList as DL
 import Data.Either
 import Data.Foldable (toList)
 import qualified Data.Map as Map
+import Data.Maybe (isJust)
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
@@ -296,7 +297,10 @@ execTransactions
     -> PactDbEnv'
     -> PactServiceM cas (Transactions (Either GasPurchaseFailure (P.CommandResult [P.TxLog A.Value])))
 execTransactions isGenesis miner ctxs enfCBFail usePrecomp (PactDbEnv' pactdbenv) = do
-    mc <- getInitCache
+    psLogger' <- asks _psLogger
+    pd <- getTxContext def
+    validated <- gets (isJust . _psStateValidated)
+    mc <- getInitCache (if validated then readInitModules psLogger' pactdbenv pd else mempty)
     coinOut <- runCoinbase isGenesis pactdbenv miner enfCBFail usePrecomp mc
     txOuts <- applyPactCmds isGenesis pactdbenv ctxs miner mc
     return $! Transactions (V.zip ctxs txOuts) coinOut
@@ -308,7 +312,10 @@ execTransactionsOnly
     -> PactServiceM cas
        (Vector (ChainwebTransaction, Either GasPurchaseFailure (P.CommandResult [P.TxLog A.Value])))
 execTransactionsOnly miner ctxs (PactDbEnv' pactdbenv) = do
-    mc <- getInitCache
+    psLogger' <- asks _psLogger
+    pd <- getTxContext def
+    validated <- gets (isJust . _psStateValidated)
+    mc <- getInitCache (if validated then readInitModules psLogger' pactdbenv pd else mempty)
     txOuts <- applyPactCmds False pactdbenv ctxs miner mc
     return $! (V.zip ctxs txOuts)
 
@@ -334,6 +341,7 @@ runCoinbase False dbEnv miner enfCBFail usePrecomp mc = do
     (T2 cr upgradedCacheM) <-
       liftIO $! applyCoinbase v logger dbEnv miner reward pd enfCBFail usePrecomp mc
     mapM_ upgradeInitCache upgradedCacheM
+
     debugResult "runCoinbase" cr
     return $! cr
 
