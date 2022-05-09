@@ -1,5 +1,6 @@
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TupleSections #-}
@@ -59,6 +60,7 @@ tests :: RocksDb -> ScheduledTest
 tests rdb =
       ScheduledTest label $
       withMVarResource mempty $ \iom ->
+      withEmptyMVarResource $ \rewindM ->
       withTestBlockDbTest testVer rdb $ \bdbio ->
       withTemporaryDir $ \dir ->
       testGroup label
@@ -76,9 +78,11 @@ tests rdb =
       , after AllSucceed "testV3" $
         withPact' bdbio dir iom testRestart (testCase "testRestart3")
       , after AllSucceed "testRestart3" $
-        withPact' bdbio dir iom (testV4 bdbio) (testCase "testV4")
+        withPact' bdbio dir iom (testV4 bdbio rewindM) (testCase "testV4")
       , after AllSucceed "testV4" $
         withPact' bdbio dir iom testRestart (testCase "testRestart4")
+      , after AllSucceed "testRestart4" $
+        withPact' bdbio dir iom (testRewindAfterFork bdbio rewindM) (testCase "testRewindAfterFork")
       ]
   where
     label = "Chainweb.Test.Pact.ModuleCacheOnRestart"
@@ -123,25 +127,64 @@ testV3 iobdb = (go,snapshotCache)
   where
     go = do
       initPayloadState
-      doNextCoinbase iobdb
-      doNextCoinbase iobdb
-      doNextCoinbase iobdb
+      void $ doNextCoinbase iobdb
+      void $ doNextCoinbase iobdb
+      void $ doNextCoinbase iobdb
 
-testV4 :: PayloadCasLookup cas => IO TestBlockDb -> CacheTest cas
-testV4 iobdb = (go,snapshotCache)
+testV4 :: PayloadCasLookup cas => IO TestBlockDb -> IO (MVar (BlockHeader, PayloadWithOutputs)) -> CacheTest cas
+testV4 iobdb rewindM = (go,snapshotCache)
   where
     go = do
       initPayloadState
-      doNextCoinbase iobdb
+      void $ doNextCoinbase iobdb
+      (header, pwo) <- doNextCoinbase iobdb
+      void $ doNextCoinbase iobdb
+      void $ doNextCoinbase iobdb
+      liftIO $ do
+        rewind <- rewindM
+        isEmptyMVar rewind >>= \case
+          True -> do
+            putMVar rewind (header, pwo)
+          False -> error "testV4: The contents of the rewind MVar are empty."
 
-doNextCoinbase :: PayloadCasLookup cas => IO TestBlockDb -> PactServiceM cas ()
+testRewindAfterFork :: PayloadCasLookup cas => IO TestBlockDb -> IO (MVar (BlockHeader, PayloadWithOutputs)) -> CacheTest cas
+testRewindAfterFork iobdb rewindM = (go, checkLoadedCache)
+  where
+    go = do
+      initPayloadState
+      void $ doNextCoinbase iobdb
+      void $ doNextCoinbase iobdb
+      liftIO rewindM >>= rewindToBlock
+    checkLoadedCache ioa initCache = do
+      a <- ioa >>= readMVar
+      let a' = justModuleHashes a
+          c' = justModuleHashes initCache
+          showCache = intercalate "\n" . map show . HM.toList
+          msg = "Module cache mismatch, found: \n" <>
+                showCache c' <>
+                "\nexpected: \n" <>
+                showCache a'
+      assertBool msg (a' == c')
+
+rewindToBlock :: PayloadCasLookup cas => MVar (BlockHeader, PayloadWithOutputs) -> PactServiceM cas ()
+rewindToBlock rewind = do
+  cond <- liftIO (isEmptyMVar rewind)
+  if cond
+    then error "rewindToBlock: The contents of the rewind MVar are empty."
+    else do
+      (rewindHeader, pwo) <- liftIO $ readMVar rewind
+      void $ execValidateBlock mempty rewindHeader (payloadWithOutputsToPayloadData pwo)
+      liftIO . print . _blockHeight . _parentHeader =<< use psParentHeader
+
+doNextCoinbase :: PayloadCasLookup cas => IO TestBlockDb -> PactServiceM cas (BlockHeader, PayloadWithOutputs)
 doNextCoinbase iobdb = do
       bdb <- liftIO $ iobdb
       prevH <- liftIO $ getParentTestBlockDb bdb testChainId
       pwo <- execNewBlock mempty (ParentHeader prevH) noMiner
       liftIO $ addTestBlockDb bdb (Nonce 0) (offsetBlockTime second) testChainId pwo
       nextH <- liftIO $ getParentTestBlockDb bdb testChainId
-      void $ execValidateBlock mempty nextH (payloadWithOutputsToPayloadData pwo)
+      valPWO <- execValidateBlock mempty nextH (payloadWithOutputsToPayloadData pwo)
+      return (nextH, valPWO)
 
 
 -- | Interfaces can't be upgraded, but modules can, so verify hash in that case.
