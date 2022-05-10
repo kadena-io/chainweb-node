@@ -9,6 +9,7 @@
 module Chainweb.Test.Pact.ModuleCacheOnRestart (tests) where
 
 import Control.Concurrent.MVar.Strict
+import Control.DeepSeq (NFData)
 import Control.Lens
 import Control.Monad
 import Control.Monad.IO.Class
@@ -61,6 +62,8 @@ tests rdb =
       ScheduledTest label $
       withMVarResource mempty $ \iom ->
       withEmptyMVarResource $ \rewindM ->
+      withEmptyMVarResource $ \rewindM2 ->
+      withEmptyMVarResource $ \cacheM ->
       withTestBlockDbTest testVer rdb $ \bdbio ->
       withTemporaryDir $ \dir ->
       testGroup label
@@ -78,11 +81,15 @@ tests rdb =
       , after AllSucceed "testV3" $
         withPact' bdbio dir iom testRestart (testCase "testRestart3")
       , after AllSucceed "testRestart3" $
-        withPact' bdbio dir iom (testV4 bdbio rewindM) (testCase "testV4")
+        withPact' bdbio dir iom (testV4 bdbio rewindM rewindM2 cacheM) (testCase "testV4")
       , after AllSucceed "testV4" $
         withPact' bdbio dir iom testRestart (testCase "testRestart4")
       , after AllSucceed "testRestart4" $
         withPact' bdbio dir iom (testRewindAfterFork bdbio rewindM) (testCase "testRewindAfterFork")
+      , after AllSucceed "testRewindAfterFork" $
+        withPact' bdbio dir iom testRestart (testCase "testRestart5")
+      , after AllSucceed "testRestart5" $
+        withPact' bdbio dir iom (testRewindAtFork bdbio rewindM2 cacheM) (testCase "testRewindAtFork")
       ]
   where
     label = "Chainweb.Test.Pact.ModuleCacheOnRestart"
@@ -131,21 +138,23 @@ testV3 iobdb = (go,snapshotCache)
       void $ doNextCoinbase iobdb
       void $ doNextCoinbase iobdb
 
-testV4 :: PayloadCasLookup cas => IO TestBlockDb -> IO (MVar (BlockHeader, PayloadWithOutputs)) -> CacheTest cas
-testV4 iobdb rewindM = (go,snapshotCache)
+testV4 :: PayloadCasLookup cas => IO TestBlockDb -> IO (MVar (BlockHeader, PayloadWithOutputs)) -> IO (MVar (BlockHeader, PayloadWithOutputs)) -> IO (MVar ModuleInitCache) -> CacheTest cas
+testV4 iobdb rewindM rewindM2 cacheM = (go,snapshotCache)
   where
     go = do
       initPayloadState
-      void $ doNextCoinbase iobdb
-      (header, pwo) <- doNextCoinbase iobdb -- just after the upgrade/fork point
-      void $ doNextCoinbase iobdb
-      void $ doNextCoinbase iobdb
-      liftIO $ do
+      -- at the upgrade/fork point
+      doNextCoinbase iobdb >>= \hpwo -> liftIO $ do
+        rewind2 <- rewindM2
+        quickPutMVar "testV4: The contents of the rewind2 MVar are already full." rewind2 hpwo
+      c <- use psInitCache
+      liftIO $ cacheM >>= \cache -> quickPutMVar "testV4: The contents of the cache MVar are full." cache c
+      -- just after the upgrade/fork point
+      doNextCoinbase iobdb >>= \hpwo -> liftIO $ do
         rewind <- rewindM
-        isEmptyMVar rewind >>= \case
-          True -> do
-            putMVar rewind (header, pwo)
-          False -> error "testV4: The contents of the rewind MVar are empty."
+        quickPutMVar "testV4: The contents of the rewind MVar are already full." rewind hpwo
+      void $ doNextCoinbase iobdb
+      void $ doNextCoinbase iobdb
 
 testRewindAfterFork :: PayloadCasLookup cas => IO TestBlockDb -> IO (MVar (BlockHeader, PayloadWithOutputs)) -> CacheTest cas
 testRewindAfterFork iobdb rewindM = (go, checkLoadedCache)
@@ -168,12 +177,33 @@ testRewindAfterFork iobdb rewindM = (go, checkLoadedCache)
 
 rewindToBlock :: PayloadCasLookup cas => MVar (BlockHeader, PayloadWithOutputs) -> PactServiceM cas ()
 rewindToBlock rewind = do
-  cond <- liftIO (isEmptyMVar rewind)
-  if cond
-    then error "rewindToBlock: The contents of the rewind MVar are empty."
-    else do
-      (rewindHeader, pwo) <- liftIO $ readMVar rewind
-      void $ execValidateBlock mempty rewindHeader (payloadWithOutputsToPayloadData pwo)
+    (rewindHeader, pwo) <- liftIO $ readMVar rewind
+    void $ execValidateBlock mempty rewindHeader (payloadWithOutputsToPayloadData pwo)
+
+quickPutMVar :: NFData a => String -> MVar a -> a -> IO ()
+quickPutMVar message m a = tryPutMVar m a >>= \case
+    True -> pure ()
+    False -> fail message
+
+testRewindAtFork :: PayloadCasLookup cas => IO TestBlockDb -> IO (MVar (BlockHeader, PayloadWithOutputs)) -> IO (MVar ModuleInitCache) -> CacheTest cas
+testRewindAtFork iobdb rewindM cacheM = (go, checkCache)
+  where
+    go = do
+      initPayloadState
+      void $ doNextCoinbase iobdb
+      void $ doNextCoinbase iobdb
+      liftIO rewindM >>= rewindToBlock
+    checkCache _ initCache = do
+      cache <- cacheM >>= readMVar
+      let a' = justModuleHashes cache
+          c' = justModuleHashes initCache
+          showCache = intercalate "\n" . map show . HM.toList
+          msg = "Module cache mismatch, found: \n" <>
+                showCache c' <>
+                "\nexpected: \n" <>
+                showCache a'
+      assertBool msg (a' == c')
+
 
 doNextCoinbase :: PayloadCasLookup cas => IO TestBlockDb -> PactServiceM cas (BlockHeader, PayloadWithOutputs)
 doNextCoinbase iobdb = do
