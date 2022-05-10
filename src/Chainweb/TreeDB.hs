@@ -93,7 +93,7 @@ import qualified Data.HashSet as HS
 import Data.Kind
 import qualified Data.List as L
 import qualified Data.List.NonEmpty as NE
-import Data.Maybe (fromMaybe)
+import Data.Maybe (fromMaybe, catMaybes)
 import Data.Semigroup
 import qualified Data.Text as T
 import Data.These
@@ -499,14 +499,14 @@ chainBranchEntries
 chainBranchEntries db k l mir Nothing lower upper f
     = defaultBranchEntries db k l mir Nothing lower upper f
 chainBranchEntries db k l mir mar@(Just (MaxRank (Max m))) lower upper f = do
-    upper' <- HS.fromList <$> traverse start (HS.toList upper)
+    upper' <- HS.fromList . catMaybes <$> traverse start (HS.toList upper)
     defaultBranchEntries db k l mir mar lower upper' f
   where
-    start b@(UpperBound u) = lookup db u >>= \case
-        Nothing -> return b
+    start (UpperBound u) = lookup db u >>= \case
+        Nothing -> return Nothing
         Just e -> seekAncestor db e m >>= \case
-            Nothing -> return b
-            Just x -> return $ UpperBound $! key x
+            Nothing -> return Nothing
+            Just x -> return $ Just (UpperBound $! key x)
 {-# INLINEABLE chainBranchEntries #-}
 
 -- | @getBranch db lower upper@ returns all nodes that are predecessors of nodes
@@ -869,7 +869,7 @@ seekAncestor db h r
         a <- S.toList_ & entries db Nothing (Just 2) (Just $ int r) (Just $ int r)
         case a of
             [] -> throwM $ TreeDbAncestorMissing @db h (int r)
-                $ "No entry at this rank in the database"
+                "No entry at this rank in the database"
             [x] -> return $ Just x
             _ -> fastRoute2 1
 
@@ -912,7 +912,7 @@ seekAncestor db h r
             mempty (HS.singleton $ UpperBound $ key h)
         case a of
             Nothing -> throwM $ TreeDbAncestorMissing @db h (int r)
-                $ "branch traversal yields no result"
+                "branch traversal yields no result"
             x -> return x
 
 -- | @getBranchIncreasing db e r@ returns a stream of acestors of e sorted by
