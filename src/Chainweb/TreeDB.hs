@@ -93,7 +93,7 @@ import qualified Data.HashSet as HS
 import Data.Kind
 import qualified Data.List as L
 import qualified Data.List.NonEmpty as NE
-import Data.Maybe (fromMaybe, catMaybes, isJust)
+import Data.Maybe (fromMaybe)
 import Data.Semigroup
 import qualified Data.Text as T
 import Data.These
