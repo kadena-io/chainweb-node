@@ -93,7 +93,7 @@ import qualified Data.HashSet as HS
 import Data.Kind
 import qualified Data.List as L
 import qualified Data.List.NonEmpty as NE
-import Data.Maybe (fromMaybe, catMaybes)
+import Data.Maybe (fromMaybe, catMaybes, isJust)
 import Data.Semigroup
 import qualified Data.Text as T
 import Data.These
@@ -499,14 +499,14 @@ chainBranchEntries
 chainBranchEntries db k l mir Nothing lower upper f
     = defaultBranchEntries db k l mir Nothing lower upper f
 chainBranchEntries db k l mir mar@(Just (MaxRank (Max m))) lower upper f = do
-    upper' <- HS.fromList . catMaybes <$> traverse start (HS.toList upper)
+    upper' <- foldMap start upper
     defaultBranchEntries db k l mir mar lower upper' f
   where
     start (UpperBound u) = lookup db u >>= \case
-        Nothing -> return Nothing
+        Nothing -> return mempty
         Just e -> seekAncestor db e m >>= \case
-            Nothing -> return Nothing
-            Just x -> return $ Just (UpperBound $! key x)
+            Nothing -> return mempty
+            Just x -> return $ HS.singleton (UpperBound $! key x)
 {-# INLINEABLE chainBranchEntries #-}
 
 -- | @getBranch db lower upper@ returns all nodes that are predecessors of nodes
