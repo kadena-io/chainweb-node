@@ -12,8 +12,8 @@ import Control.Monad
 import Control.Monad.Catch
 import qualified Criterion.Main as C
 
-import Data.String.Conv
 import qualified Data.ByteString as B
+import qualified Data.ByteString.Char8 as B8
 import qualified Data.Map.Strict as M
 
 import System.IO.Extra
@@ -25,8 +25,8 @@ import Pact.Interpreter (PactDbEnv(..), mkPactDbEnv)
 import Pact.PersistPactDb (DbEnv(..), initDbEnv, pactdb)
 import Pact.Types.Exp
 import Pact.Types.Logger
-import Pact.Types.PactValue
 import Pact.Types.Persistence
+import Pact.Types.RowData
 import Pact.Types.Term
 import Pact.Types.Util
 import qualified Pact.Interpreter as PI
@@ -43,6 +43,7 @@ import Chainweb.Pact.Backend.RelationalCheckpointer
 import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.Backend.Utils
 import Chainweb.Utils.Bench
+import Chainweb.Utils (sshow)
 import Chainweb.Version
 
 v :: ChainwebVersion
@@ -152,7 +153,7 @@ cpBenchNoRewindOverBlock transactionCount cp = C.env (setup' cp) $ \ ~(ut) ->
       (bytestring,
        BlockHash $ unsafeMerkleLogHash $ B.pack $ B.zipWith (+) bytestring inc)
       where
-        inc = toS $ replicate 30 '\NUL' ++ ['\SOH', '\NUL']
+        inc = B8.replicate 30 '\NUL' <> "\SOH\NUL"
 
     go CheckpointEnv{..} mblock (NoopNFData ut) = do
         (blockheight, bytestring, hash) <- readMVar mblock
@@ -204,8 +205,8 @@ die = throwM . userError
 
 setupUserTable
     :: PactDbEnv e
-    -> (Domain RowKey (ObjectMap PactValue) -> IO ())
-    -> IO (NoopNFData (Domain RowKey (ObjectMap PactValue)))
+    -> (Domain RowKey RowData -> IO ())
+    -> IO (NoopNFData (Domain RowKey RowData))
 setupUserTable db@(PactDbEnv pdb e) setupio = do
     let tn = "user1"
         ut = UserTables tn
@@ -219,14 +220,14 @@ writeRow
     :: AsString k
     => PactDbEnv e
     -> WriteType
-    -> Domain k (ObjectMap PactValue)
+    -> Domain k RowData
     -> FieldKey
     -> k
     -> Integer
     -> IO ()
 writeRow (PactDbEnv pdb e) writeType ut f k i =
     _writeRow pdb writeType ut k
-        (ObjectMap $ M.fromList [(f,(PLiteral (LInteger i)))]) e
+        (RowData RDV1 (ObjectMap $ M.fromList [(f,(RDLiteral (LInteger i)))])) e
 
 benchUserTable :: Int -> PactDbEnv e -> C.Benchmark
 benchUserTable transactionCount dbEnv = C.env (setup dbEnv) $ \ ~(ut) ->
@@ -245,7 +246,7 @@ benchUserTable transactionCount dbEnv = C.env (setup dbEnv) $ \ ~(ut) ->
 
 incIntegerAtKey
     :: PactDbEnv e
-    -> Domain RowKey (ObjectMap PactValue)
+    -> Domain RowKey RowData
     -> FieldKey
     -> RowKey
     -> Integer
@@ -255,9 +256,9 @@ incIntegerAtKey db@(PactDbEnv pdb e) ut f k z = do
     r <- _readRow pdb ut k e
     case r of
         Nothing -> die "no row read"
-        Just (ObjectMap m) -> case M.lookup f m of
+        Just (RowData _v (ObjectMap m)) -> case M.lookup f m of
             Nothing -> die "field not found"
-            Just (PLiteral (LInteger i)) -> do
+            Just (RDLiteral (LInteger i)) -> do
                 let j = i + z
                 writeRow db Update ut f k j
                 commit db
@@ -274,7 +275,7 @@ benchUserTableForKeys numSampleEvents dbEnv =
 
     setup db = setupUserTable db $ \ut ->
       forM_ [1 .. numberOfKeys] $ \i -> do
-          let rowkey = RowKey $ "k" <> toS (show i)
+          let rowkey = RowKey $ "k" <> sshow i
           writeRow db Insert ut f rowkey i
 
     f = "f"
@@ -283,15 +284,15 @@ benchUserTableForKeys numSampleEvents dbEnv =
 
     unpack = \case
       Nothing -> die "no row read"
-      Just (ObjectMap m) -> case M.lookup f m of
+      Just (RowData _ (ObjectMap m)) -> case M.lookup f m of
         Nothing -> die "field not found"
-        Just (PLiteral (LInteger result)) -> return result
+        Just (RDLiteral (LInteger result)) -> return result
         Just _ -> die "field not integer"
 
 
     go db@(PactDbEnv pdb e) (NoopNFData ut) =
       forM_ [1 .. numSampleEvents] $ \_ -> do
-          let torowkey ind = RowKey $ "k" <> toS (show ind)
+          let torowkey ind = RowKey $ "k" <> sshow ind
           rowkeya <- torowkey <$> randomRIO (1,numberOfKeys)
           rowkeyb <- torowkey <$> randomRIO (1,numberOfKeys)
           a <- _readRow pdb ut rowkeya e >>= unpack
@@ -310,7 +311,7 @@ _cpBenchKeys numKeys cp =
         usertablename <- _cpRestore _cpeCheckpointer Nothing >>= \case
             PactDbEnv' db ->
               setupUserTable db $ \ut -> forM_ [1 .. numKeys] $ \i -> do
-                  let rowkey = RowKey $ "k" <> toS (show i)
+                  let rowkey = RowKey $ "k" <> sshow i
                   writeRow db Insert ut f rowkey (fromIntegral i)
 
         _cpSave _cpeCheckpointer hash01
@@ -327,7 +328,7 @@ _cpBenchKeys numKeys cp =
         void $ _cpSave _cpeCheckpointer hash02
       where
         transaction db numkey = do
-            let rowkey = RowKey $ "k" <> toS (show numkey)
+            let rowkey = RowKey $ "k" <> sshow numkey
             incIntegerAtKey db ut f rowkey 1
 
 cpBenchSampleKeys :: Int -> CheckpointEnv -> C.Benchmark
@@ -341,7 +342,7 @@ cpBenchSampleKeys numSampleEvents cp =
         usertablename <- _cpRestore _cpeCheckpointer Nothing >>= \case
             PactDbEnv' db ->
               setupUserTable db $ \ut -> forM_ [1 .. numberOfKeys] $ \i -> do
-                  let rowkey = RowKey $ "k" <> toS (show i)
+                  let rowkey = RowKey $ "k" <> sshow i
                   writeRow db Insert ut f rowkey i
 
         _cpSave _cpeCheckpointer hash01
@@ -349,9 +350,9 @@ cpBenchSampleKeys numSampleEvents cp =
 
     unpack = \case
       Nothing -> die "no row read"
-      Just (ObjectMap m) -> case M.lookup f m of
+      Just (RowData _v (ObjectMap m)) -> case M.lookup f m of
         Nothing -> die "field not found"
-        Just (PLiteral (LInteger result)) -> return result
+        Just (RDLiteral (LInteger result)) -> return result
         Just _ -> die "field not integer"
 
 
@@ -364,7 +365,7 @@ cpBenchSampleKeys numSampleEvents cp =
         _cpRestore _cpeCheckpointer (Just (BlockHeight 1, hash01)) >>= \case
               PactDbEnv' db@(PactDbEnv pdb e) ->
                 forM_ [1 .. numSampleEvents] $ \_ -> do
-                    let torowkey ind = RowKey $ "k" <> toS (show ind)
+                    let torowkey ind = RowKey $ "k" <> sshow ind
                     rowkeya <- torowkey <$> randomRIO (1,numberOfKeys)
                     rowkeyb <- torowkey <$> randomRIO (1,numberOfKeys)
                     a <- _readRow pdb ut rowkeya e >>= unpack

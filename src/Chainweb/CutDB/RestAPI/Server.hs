@@ -22,9 +22,11 @@ module Chainweb.CutDB.RestAPI.Server
 
 -- * Cut Server
 , cutServer
+, cutGetServer
 
 -- * Some Cut Server
 , someCutServer
+, someCutGetServer
 
 -- * Run server
 , serveCutOnPort
@@ -86,6 +88,12 @@ cutServer
     -> Server (CutApi v)
 cutServer pdb (CutDbT db) = cutGetHandler db :<|> cutPutHandler pdb db
 
+cutGetServer
+    :: forall cas (v :: ChainwebVersionT)
+    . CutDbT cas v
+    -> Server (CutGetApi v)
+cutGetServer (CutDbT db) = cutGetHandler db
+
 -- -------------------------------------------------------------------------- --
 -- Some Cut Server
 
@@ -96,8 +104,17 @@ someCutServerT pdb (SomeCutDb (db :: CutDbT cas v)) =
 someCutServer :: ChainwebVersion -> PeerDb -> CutDb cas -> SomeServer
 someCutServer v pdb = someCutServerT pdb . someCutDbVal v
 
+someCutGetServerT :: SomeCutDb cas -> SomeServer
+someCutGetServerT (SomeCutDb (db :: CutDbT cas v)) =
+    SomeServer (Proxy @(CutGetApi v)) (cutGetServer db)
+
+someCutGetServer :: ChainwebVersion -> CutDb cas -> SomeServer
+someCutGetServer v = someCutGetServerT . someCutDbVal v
+
 -- -------------------------------------------------------------------------- --
 -- Run Server
 
 serveCutOnPort :: Port -> ChainwebVersion -> PeerDb -> CutDb cas -> IO ()
 serveCutOnPort p v pdb = run (int p) . someServerApplication . someCutServer v pdb
+
+

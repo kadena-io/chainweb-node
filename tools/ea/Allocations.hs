@@ -39,17 +39,15 @@ module Allocations
 import GHC.Generics
 
 import Data.ByteString (ByteString)
+import qualified Data.ByteString.Lazy as BL
 import qualified Data.Csv as CSV
 import Data.FileEmbed (embedFile)
 import qualified Data.Map.Strict as M
-import Data.String.Conv (toS)
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.IO as T
 import Data.Vector (Vector)
 import qualified Data.Vector as V
-
-import qualified Text.Printf as T
 
 import Chainweb.Utils
 
@@ -80,7 +78,7 @@ genTxs
     => (a -> b)
     -> ByteString
     -> Vector b
-genTxs f bs = case CSV.decode CSV.HasHeader (toS bs) of
+genTxs f bs = case CSV.decode CSV.HasHeader (BL.fromStrict bs) of
     Left e -> error
       $ "cannot construct genesis allocations: "
       <> sshow e
@@ -171,11 +169,11 @@ mkAllocationKeyTx (AllocationKeys n p k1 k2 k3) = AllocationKeyTx tx d
     ks = T.strip . sshow $ fmap T.strip [k1,k2,k3]
 
 data AllocationEntry = AllocationEntry
-    { _allocationName :: Text
-    , _allocationTime :: Text
-    , _allocationKeysetName :: Text
-    , _allocationAmount :: Double
-    , _allocationChain :: Text
+    { _allocationName :: !Text
+    , _allocationTime :: !Text
+    , _allocationKeysetName :: !Text
+    , _allocationAmount :: !CsvDecimal
+    , _allocationChain :: !Text
     } deriving (Eq, Ord, Show, Generic)
 
 instance CSV.FromRecord AllocationEntry
@@ -193,7 +191,7 @@ mkAllocationTx (AllocationEntry n t ksn a c) = AllocationTx tx c
       , "\"" <> T.strip n <> "\" "
       , "(time \"" <> T.strip t <> "\") "
       , "\"" <> T.strip ksn <> "\" "
-      , T.pack $ T.printf "%f" a -- unpack scientific notation
+      , T.pack (show a)
       , ")"
       ]
 

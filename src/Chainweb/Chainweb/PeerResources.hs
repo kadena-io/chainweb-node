@@ -1,7 +1,11 @@
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE PolyKinds #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeApplications #-}
 
@@ -33,7 +37,7 @@ module Chainweb.Chainweb.PeerResources
 -- * Internal Utils
 , withSocket
 , withPeerDb
-, withConnectionManger
+, connectionManager
 ) where
 
 import Configuration.Utils hiding (Error, Lens')
@@ -44,8 +48,15 @@ import Control.Monad
 import Control.Monad.Catch
 
 import qualified Data.ByteString.Char8 as B8
+import Data.Either
+import Data.Function
 import qualified Data.HashSet as HS
 import Data.IxSet.Typed (getEQ, getOne)
+import qualified Data.List as L
+import Data.Maybe
+import qualified Data.Text as T
+
+import GHC.Generics
 
 import qualified Network.HTTP.Client as HTTP
 import Network.Socket (Socket)
@@ -58,8 +69,10 @@ import System.LogLevel
 -- internal modules
 
 import Chainweb.Counter
+import Chainweb.Chainweb.CheckReachability
 import Chainweb.HostAddress
 import Chainweb.Logger
+import Chainweb.NodeVersion
 import Chainweb.RestAPI.NetworkID
 import Chainweb.RestAPI.Utils
 import Chainweb.Utils
@@ -111,24 +124,111 @@ withPeerResources
     -> (logger -> PeerResources logger -> IO a)
     -> IO a
 withPeerResources v conf logger inner = withPeerSocket conf $ \(conf', sock) -> do
-    peer <- unsafeCreatePeer $ _p2pConfigPeer conf'
-    let pinf = _peerInfo peer
-    let logger' = addLabel ("host", toText $ view peerInfoHostname pinf) $
-                  addLabel ("port", toText $ view peerInfoPort pinf) $
-                  addLabel ("peerId", maybe "" shortPeerId $ _peerId pinf)
-                  logger
-        mgrLogger = setComponent "connection-manager" logger'
     withPeerDb_ v conf' $ \peerDb -> do
-        let certChain = _peerCertificateChain peer
-            key = _peerKey peer
-        withConnectionManger mgrLogger certChain key peerDb $ \mgr -> do
-            inner logger' (PeerResources conf' peer sock peerDb mgr logger')
+        (!mgr, !counter) <- connectionManager peerDb
+        withHost mgr v conf' logger $ \conf'' -> do
+
+            peer <- unsafeCreatePeer $ _p2pConfigPeer conf''
+
+            let pinf = _peerInfo peer
+                logger' = addLabel ("host", toText $ view peerInfoHostname pinf) $
+                        addLabel ("port", toText $ view peerInfoPort pinf) $
+                        addLabel ("peerId", maybe "" shortPeerId $ _peerId pinf)
+                        logger
+                mgrLogger = setComponent "connection-manager" logger'
+
+            logFunctionText logger Info $ "Local Peer Info: " <> encodeToText pinf
+
+            -- set local peer (prevents it from being added to the peer database)
+            localDb <- peerDbSetLocalPeer pinf peerDb
+
+            withConnectionLogger mgrLogger counter $ do
+                -- check that this node is reachable:
+                when (_p2pConfigBootstrapReachability conf > 0) $ do
+
+                    let peers = filter (((/=) `on` _peerAddr) pinf)
+                            $ _p2pConfigKnownPeers conf
+                    checkReachability sock mgr v logger' localDb peers
+                        peer
+                        (_p2pConfigBootstrapReachability conf'')
+
+                inner logger' (PeerResources conf'' peer sock localDb mgr logger')
 
 peerServerSettings :: Peer -> Settings
 peerServerSettings peer
     = setPort (int . _hostAddressPort . _peerAddr $ _peerInfo peer)
     . setHost (_peerInterface peer)
     $ defaultSettings
+
+-- | Setup the local hostname.
+--
+-- If the configured hostname is "0.0.0.0" (i.e. 'anyIpv4'), the hostname is
+-- determined by making connections to known peer nodes. Otherwise, the
+-- configured hostname is used and it is verified that it can be used by peers
+-- to connect to the node.
+--
+-- NOTE: This function raises an user error if it fails to detect the host of
+-- the node.
+--
+withHost
+    :: Logger logger
+    => HTTP.Manager
+    -> ChainwebVersion
+    -> P2pConfiguration
+    -> logger
+    -> (P2pConfiguration -> IO a)
+    -> IO a
+withHost mgr v conf logger f
+    | null peers = do
+        logFunctionText logger Warn
+            $ "Unable verify configured host " <> toText confHost <> ": No peers are available."
+        f (set (p2pConfigPeer . peerConfigHost) confHost conf)
+    | anyIpv4 == confHost = do
+        h <- getHost mgr v logger peers >>= \case
+            Right x -> return x
+            Left e -> error $ "withHost failed: " <> T.unpack e
+        f (set (p2pConfigPeer . peerConfigHost) h conf)
+    | otherwise = do
+        getHost mgr v logger peers >>= \case
+            Left e -> logFunctionText logger Warn
+                $ "Failed to verify configured host " <> toText confHost
+                <> ": " <> e
+            Right h
+                | h /= confHost -> logFunctionText logger Warn
+                    $ "Configured host " <> toText confHost
+                    <> " does not match the actual host "
+                    <> toText h <> " of the node. Expected"
+                | otherwise -> return ()
+        f conf
+  where
+    confHost = _peerConfigHost (_p2pConfigPeer conf)
+    peers = _p2pConfigKnownPeers conf
+
+getHost
+    :: Logger logger
+    => HTTP.Manager
+    -> ChainwebVersion
+    -> logger
+    -> [PeerInfo]
+    -> IO (Either T.Text Hostname)
+getHost mgr ver logger peers = do
+    nis <- forConcurrently peers $ \p ->
+        tryAllSynchronous (requestRemoteNodeInfo mgr ver (_peerAddr p) Nothing) >>= \case
+            Right x -> Just x <$ do
+                logFunctionText logger Info
+                    $ "got remote info from " <> toText (_peerAddr p)
+                    <> ": " <> encodeToText x
+            Left e -> Nothing <$ do
+                logFunctionText logger Warn
+                    $ "failed to get remote info from " <> toText (_peerAddr p)
+                    <> ": " <> sshow e
+
+    -- TODO: use quorum here? Fitler out local network addresses?
+    let hostnames = L.nub $ L.sort $ view remoteNodeInfoHostname <$> catMaybes nis
+    return $! case hostnames of
+        [x] -> Right x
+        [] -> Left $! "failed to identify external IP address. Attempt to request IP address returned no result."
+        l -> Left $! "failed to identify external IP. Expected a unique IP address but got " <> sshow l
 
 -- -------------------------------------------------------------------------- --
 -- Allocate Socket
@@ -139,7 +239,6 @@ withPeerSocket conf act = withSocket port interface $ \(p, s) ->
   where
     port = _peerConfigPort $ _p2pConfigPeer conf
     interface = _peerConfigInterface $ _p2pConfigPeer conf
-
 
 -- -------------------------------------------------------------------------- --
 -- Run PeerDb for a Chainweb Version
@@ -158,21 +257,25 @@ withPeerDb_ v conf = bracket (startPeerDb_ v conf) (stopPeerDb conf)
 -- -------------------------------------------------------------------------- --
 -- Connection Manager
 
+data ManagerCounter = ManagerCounter
+    { _mgrCounterConnections :: !(Counter "connection-count")
+    , _mgrCounterRequests :: !(Counter "request-count")
+    -- , _mgrCounterUrls :: !CounterMap @"url-counts"
+    }
+    deriving (Eq, Generic)
+
+newManagerCounter :: IO ManagerCounter
+newManagerCounter = ManagerCounter
+    <$> newCounter
+    <*> newCounter
+    -- <*> newCounterMap
+
 -- Connection Manager
 --
-withConnectionManger
-    :: Logger logger
-    => logger
-    -> X509CertChainPem
-    -> X509KeyPem
-    -> PeerDb
-    -> (HTTP.Manager -> IO a)
-    -> IO a
-withConnectionManger logger certs key peerDb runInner = do
-    let cred = unsafeMakeCredential certs key
+connectionManager :: PeerDb -> IO (HTTP.Manager, ManagerCounter)
+connectionManager peerDb = do
     settings <- certificateCacheManagerSettings
         (TlsSecure True certCacheLookup)
-        (Just cred)
 
     let settings' = settings
             { HTTP.managerConnCount = 5
@@ -183,16 +286,14 @@ withConnectionManger logger certs key peerDb runInner = do
                 -- total number of connections to keep alive. 512 is the default
             }
 
-    connCountRef <- newCounter @"connection-count"
-    reqCountRef <- newCounter @"request-count"
-    -- urlStats <- newCounterMap @"url-counts"
+    counter <- newManagerCounter
     mgr <- HTTP.newManager settings'
         { HTTP.managerTlsConnection = do
             mk <- HTTP.managerTlsConnection settings'
-            return $ \a b c -> inc connCountRef >> mk a b c
+            return $ \a b c -> inc (_mgrCounterConnections counter) >> mk a b c
 
         , HTTP.managerModifyRequest = \req -> do
-            inc reqCountRef
+            inc (_mgrCounterRequests counter)
             -- incKey urlStats (sshow $ HTTP.getUri req)
             HTTP.managerModifyRequest settings req
                 { HTTP.responseTimeout = HTTP.responseTimeoutMicro 5000000
@@ -201,24 +302,7 @@ withConnectionManger logger certs key peerDb runInner = do
                     -- the manager is ignored)
                 }
         }
-
-    let logClientConnections = forever $ do
-            approximateThreadDelay 60000000 {- 1 minute -}
-            logFunctionCounter logger Info =<< sequence
-                [ roll connCountRef
-                , roll reqCountRef
-                -- , roll urlStats
-                ]
-
-    let runLogClientConnections umask = do
-            umask logClientConnections `catchAllSynchronous` \e -> do
-                logFunctionText logger Error ("Connection manager logger failed: " <> sshow e)
-            logFunctionText logger Info "Restarting connection manager logger"
-            runLogClientConnections umask
-
-
-    withAsyncWithUnmask runLogClientConnections $ \_ -> runInner mgr
-
+    return (mgr, counter)
   where
     certCacheLookup :: ServiceID -> IO (Maybe Fingerprint)
     certCacheLookup si = do
@@ -229,3 +313,29 @@ withConnectionManger logger certs key peerDb runInner = do
     serviceIdToHostAddress (h, p) = HostAddress
         <$!> readHostnameBytes (B8.pack h)
         <*> readPortBytes p
+
+-- | Connection Manager Logger
+--
+withConnectionLogger
+    :: Logger logger
+    => logger
+    -> ManagerCounter
+    -> IO a
+    -> IO a
+withConnectionLogger logger counter inner =
+    withAsyncWithUnmask (\u -> runLogClientConnections u) $ const inner
+  where
+    logClientConnections = forever $ do
+        approximateThreadDelay 60000000 {- 1 minute -}
+        logFunctionCounter logger Info =<< sequence
+            [ roll (_mgrCounterConnections counter)
+            , roll (_mgrCounterRequests counter)
+            -- , roll (_mgrCounterUrls counter)
+            ]
+
+    runLogClientConnections umask = do
+        umask logClientConnections `catchAllSynchronous` \e -> do
+            logFunctionText logger Error ("Connection manager logger failed: " <> sshow e)
+        logFunctionText logger Info "Restarting connection manager logger"
+        runLogClientConnections umask
+

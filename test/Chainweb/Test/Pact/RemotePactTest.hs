@@ -4,11 +4,9 @@
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE LambdaCase #-}
-{-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE TypeApplications #-}
 
 -- |
 -- Module: Chainweb.Test.RemotePactTest
@@ -22,7 +20,6 @@
 --
 module Chainweb.Test.Pact.RemotePactTest
 ( tests
-, withNodes
 , withRequestKeys
 , polling
 , sending
@@ -50,7 +47,6 @@ import qualified Data.List as L
 import qualified Data.List.NonEmpty as NEL
 import qualified Data.Map.Strict as M
 import Data.Maybe
-import Data.String.Conv (toS)
 import Data.Text (Text)
 import qualified Data.Text as T
 
@@ -181,7 +177,7 @@ responseGolden networkIO rksIO = golden "remote-golden" $ do
     PollResponses theMap <- polling cid cenv rks ExpectPactResult
     let values = mapMaybe (\rk -> _crResult <$> HashMap.lookup rk theMap)
                           (NEL.toList $ _rkRequestKeys rks)
-    return $! toS $! foldMap A.encode values
+    return $! foldMap A.encode values
 
 localTest :: IO (Time Micros) -> IO ChainwebNetwork -> IO ()
 localTest iot nio = do
@@ -274,7 +270,7 @@ localChainDataTest iot nio = do
           assert' "gas-price" (PLiteral (LDecimal 0.1))
           assert' "sender" (PLiteral (LString "sender00"))
         where
-          assert' name value = assertEqual name (M.lookup  (FieldKey (toS name)) m) (Just value)
+          assert' name value = assertEqual name (M.lookup  (FieldKey (T.pack name)) m) (Just value)
     expectedResult _ = assertFailure "Didn't get back an object map!"
 
 pollingBadlistTest :: IO ChainwebNetwork -> TestTree
@@ -560,11 +556,6 @@ caplistTest iot nio = testCaseSteps "caplist TRANSFER + FUND_TX test" $ \step ->
     tx0 = PactTransaction "(coin.transfer \"sender00\" \"sender01\" 100.0)" Nothing
 
 
-allocation00KeyPair :: SimpleKeyPair
-allocation00KeyPair =
-    ( "d82d0dcde9825505d86afb6dcc10411d6b67a429a79e21bda4bb119bf28ab871"
-    , "c63cd081b64ae9a7f8296f11c34ae08ba8e1f8c84df6209e5dee44fa04bcb9f5"
-    )
 
 allocation01KeyPair :: SimpleKeyPair
 allocation01KeyPair =
@@ -600,10 +591,10 @@ allocationTest iot nio = testCaseSteps "genesis allocation tests" $ \step -> do
       rks0 <- liftIO $ sending sid cenv batch0
 
       testCaseStep "pollApiClient: polling for allocation key"
-      pr <- liftIO $ polling sid cenv rks0 ExpectPactResult
+      _ <- liftIO $ polling sid cenv rks0 ExpectPactResult
 
       testCaseStep "localApiClient: submit local account balance request"
-      liftIO $ localTestToRetry sid cenv (head (toList batch1)) (localAfterPollResponse pr)
+      liftIO $ localTestToRetry sid cenv (head (toList batch1)) (localAfterBlockHeight 4)
 
     case p of
       Left e -> assertFailure $ "test failure: " <> show e
@@ -673,6 +664,9 @@ allocationTest iot nio = testCaseSteps "genesis allocation tests" $ \step -> do
 
     localAfterPollResponse (PollResponses prs) cr =
         getBlockHeight cr > getBlockHeight (snd $ head $ HashMap.toList prs)
+
+    localAfterBlockHeight bh cr =
+      getBlockHeight cr > Just bh
 
     -- avoiding `scientific` dep here
     getBlockHeight :: CommandResult a -> Maybe Decimal
@@ -775,7 +769,7 @@ awaitCutHeight step cenv i = do
   where
     checkRetry s (Left e) = do
         step $ "awaiting cut of height " <> show i
-            <> ". No reslt from node: " <> show e
+            <> ". No result from node: " <> show e
             <> " [" <> show (view rsIterNumberL s) <> "]"
         return True
     checkRetry s (Right c)
@@ -784,7 +778,7 @@ awaitCutHeight step cenv i = do
             step
                 $ "awaiting cut of height " <> show i
                 <> ". Current cut height: " <> show (_cutHashesHeight c)
-                <> ". Current block heights: " <> show (fst <$> _cutHashes c)
+                <> ". Current block heights: " <> show (_bhwhHeight <$> _cutHashes c)
                 <> " [" <> show (view rsIterNumberL s) <> "]"
             return True
 

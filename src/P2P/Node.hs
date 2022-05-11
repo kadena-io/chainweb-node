@@ -276,7 +276,7 @@ updateActiveCount node = do
 -- | Monomorphized LogFunction
 --
 logg :: P2pNode -> LogLevel -> T.Text -> IO ()
-logg = _p2pNodeLogFunction
+logg n = _p2pNodeLogFunction n
 
 loggFun :: P2pNode -> LogFunction
 loggFun = _p2pNodeLogFunction
@@ -296,8 +296,14 @@ setInactive node = writeTVar (_p2pNodeActive node) False
 -- | Global Manager for checking reachability of new Peers
 --
 newPeerManager :: IORef HTTP.Manager
-newPeerManager = unsafePerformIO
-    $ unsafeManager 2000000 {- 1 second -} >>= newIORef
+newPeerManager = unsafePerformIO $ do
+    mgr <- unsafeManagerWithSettings
+        $ setManagerRequestTimeout 2000000 {- 2 seconds -}
+        . \s -> s
+            { HTTP.managerIdleConnectionCount = 30
+            , HTTP.managerConnCount = 5
+            }
+    newIORef mgr
 {-# NOINLINE newPeerManager #-}
 
 getNewPeerManager :: IO HTTP.Manager
@@ -311,6 +317,7 @@ data PeerValidationFailure
     = IsReservedHostAddress !PeerInfo
     | IsNotReachable !PeerInfo !T.Text
     | NodeVersionNotAccepted !PeerInfo !NodeVersion
+    | IsLocalPeerAddress !PeerInfo
     deriving (Show, Eq, Ord, Generic, NFData, ToJSON)
 
 instance Exception PeerValidationFailure where
@@ -320,12 +327,17 @@ instance Exception PeerValidationFailure where
         = "The peer info " <> T.unpack (showInfo p) <> " can't be reached: " <> T.unpack t
     displayException (NodeVersionNotAccepted p v)
         = "The peer info " <> T.unpack (showInfo p) <> " has a chainweb node version that is not acceptable: " <> T.unpack (toText v)
+    displayException (IsLocalPeerAddress p)
+        = "The peer info " <> T.unpack (showInfo p) <> " is the address of the local peer"
 
 -- | Removes candidate `PeerInfo` that are:
 --
---  * already known to us and considered good
---  * are trivially bad (localhost, our own current IP, etc.)
---  * are not reachable
+--  * equal to the local peer
+--  * trivially bad (localhost, our own current IP, etc.)
+--  * not reachable
+--  * have a node version that isn't accepted
+--
+--  Peers that are already known are accepted.
 --
 --  We may add more checks here in the future, like for instance, black listing
 --  or white listing.
@@ -339,6 +351,7 @@ guardPeerDb
 guardPeerDb v nid peerDb pinf = do
     peers <- peerDbSnapshot peerDb
     if
+        | isMe -> return $ Left $ IsLocalPeerAddress pinf
         | isKnown peers pinf -> return $ Right pinf
         | isReserved -> return $ Left $ IsReservedHostAddress pinf
         | otherwise -> canConnect >>= \case
@@ -351,16 +364,20 @@ guardPeerDb v nid peerDb pinf = do
     isReserved = case v of
         Mainnet01 -> isReservedHostAddress (_peerAddr pinf)
         Testnet04 -> isReservedHostAddress (_peerAddr pinf)
-        Development -> isReservedHostAddress (_peerAddr pinf)
         _ -> False
 
     -- Currently we are using 'getNewPeerManager' which doesn't validate
     -- certificates. We could be more strict and check that the certificate
-    -- matches the fingerprint of the new peer @pinf@.
+    -- matches the fingerprint of the new peer @pinfo@.
     --
     canConnect = do
         mgr <- getNewPeerManager
         getNodeVersion mgr v (_peerAddr pinf) (Just $ networkIdToText nid <> "/peer")
+
+    -- Only compare the address because even for equal peer infos the peer
+    -- ID may be 'Nothing' for one peer and 'Just' some value for the other.
+    -- (We may consider changing the 'Eq' instance of 'PeerInfo'.)
+    isMe = Just (_peerAddr pinf) == (_peerAddr <$> _peerDbLocalPeer peerDb)
 
 isKnown :: PeerSet -> PeerInfo -> Bool
 isKnown peers pinf = not . IXS.null $ IXS.getEQ (_peerAddr pinf) peers
@@ -371,7 +388,7 @@ guardPeerDbOfNode
     -> IO (Maybe PeerInfo)
 guardPeerDbOfNode node pinf = go >>= \case
     Left e -> do
-        logg node Warn $ "failed to validate peer " <> showInfo pinf <> ": " <> T.pack (displayException e)
+        logg node Info $ "failed to validate peer " <> showInfo pinf <> ": " <> T.pack (displayException e)
         return Nothing
     Right x -> return (Just x)
   where

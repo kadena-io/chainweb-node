@@ -27,7 +27,6 @@ module Chainweb.Pact.Service.BlockValidation
 import Control.Concurrent.MVar.Strict
 
 import Data.Aeson (Value)
-import Data.Tuple.Strict
 import Data.Vector (Vector)
 
 import Pact.Types.Command
@@ -43,6 +42,7 @@ import Chainweb.Pact.Service.PactQueue
 import Chainweb.Pact.Service.Types
 import Chainweb.Payload
 import Chainweb.Transaction
+import Chainweb.Utils (T2)
 
 
 newBlock :: Miner -> ParentHeader -> PactQueue ->

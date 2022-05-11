@@ -75,6 +75,7 @@ import Chainweb.BlockHash
 import Chainweb.BlockHeader
 import Chainweb.BlockHeight
 import Chainweb.Chainweb
+import Chainweb.Chainweb.Configuration
 import Chainweb.Chainweb.CutResources
 import Chainweb.Chainweb.PeerResources
 import Chainweb.Cut
@@ -119,6 +120,7 @@ multiConfig
     -> ChainwebConfiguration
 multiConfig v n = defaultChainwebConfiguration v
     & set (configP2p . p2pConfigPeer . peerConfigHost) host
+    & set (configP2p . p2pConfigPeer . peerConfigPort) 0
     & set (configP2p . p2pConfigPeer . peerConfigInterface) interface
         -- Only listen on the loopback device. On Mac OS X this prevents the
         -- firewall dialog form poping up.
@@ -140,13 +142,14 @@ multiConfig v n = defaultChainwebConfiguration v
         -- Use short sessions to cover session timeouts and setup logic in the
         -- test.
 
+    & set (configP2p . p2pConfigBootstrapReachability) 0
+        -- disable reachability test, which is unreliable during testing
+
+    & set (configMining . miningCoordination . coordinationEnabled) True
     & set (configMining . miningInNode) miner
 
     & set configReintroTxs True
         -- enable transaction re-introduction
-
-    & set (configTransactionIndex . enableConfigEnabled) True
-        -- enable transaction index
 
     & set configThrottling throttling
         -- throttling is effectively disabled to not slow down the test nodes
@@ -199,18 +202,19 @@ multiNode
         -- ^ Unique node id. Node id 0 is used for the bootstrap node
     -> IO ()
 multiNode loglevel write stateVar bootstrapPeerInfoVar conf rdb nid = do
-    withSystemTempDirectory "multiNode-pact-db" $ \tmpDir ->
-        withChainweb conf logger nodeRocksDb (pactDbDir tmpDir) False $ \cw -> do
+    withSystemTempDirectory "multiNode-backup-dir" $ \backupTmpDir ->
+        withSystemTempDirectory "multiNode-pact-db" $ \tmpDir ->
+            withChainweb conf logger nodeRocksDb (pactDbDir tmpDir) backupTmpDir False $ \cw -> do
 
-            -- If this is the bootstrap node we extract the port number and
-            -- publish via an MVar.
-            when (nid == 0) $ putMVar bootstrapPeerInfoVar
-                $ view (chainwebPeer . peerResPeer . peerInfo) cw
+                -- If this is the bootstrap node we extract the port number and
+                -- publish via an MVar.
+                when (nid == 0) $ putMVar bootstrapPeerInfoVar
+                    $ view (chainwebPeer . peerResPeer . peerInfo) cw
 
-            runChainweb cw `finally` do
-                logFunctionText logger Info "write sample data"
-                sample cw
-                logFunctionText logger Info "shutdown node"
+                runChainweb cw `finally` do
+                    logFunctionText logger Info "write sample data"
+                    sample cw
+                    logFunctionText logger Info "shutdown node"
   where
     pactDbDir tmpDir = tmpDir <> "/" <> show nid
 
@@ -292,7 +296,7 @@ test
     -> Natural
     -> Seconds
     -> TestTree
-test loglevel v n seconds = testCaseSteps label $ \f -> do
+test loglevel v n seconds = testCaseSteps name $ \f -> do
     let tastylog = f . T.unpack
 #if DEBUG_MULTINODE_TEST
     -- useful for debugging, requires import of Data.Text.IO.
@@ -337,7 +341,7 @@ test loglevel v n seconds = testCaseSteps label $ \f -> do
     l = lowerStats v seconds
     u = upperStats v seconds
 
-    label = "ConsensusNetwork (nodes: " <> show n <> ", seconds: " <> show seconds <> ")"
+    name = "ConsensusNetwork (nodes: " <> show n <> ", seconds: " <> show seconds <> ")"
 
     bc x = blockCountAtCutHeight v x - order (chainGraphAtCutHeight v x)
 

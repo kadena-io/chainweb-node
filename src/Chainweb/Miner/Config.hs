@@ -17,20 +17,21 @@
 module Chainweb.Miner.Config
 ( MiningConfig(..)
 , defaultMining
+, pMiningConfig
 , miningCoordination
 , miningInNode
 , validateMinerConfig
 , CoordinationConfig(..)
+, pCoordinationConfig
 , coordinationEnabled
-, coordinationMode
 , coordinationMiners
-, CoordinationMode(..)
 , NodeMiningConfig(..)
 , defaultNodeMining
 , nodeMiningEnabled
 , nodeMiner
 , nodeTestMiners
 , MinerCount(..)
+, invalidMiner
 ) where
 
 import Configuration.Utils
@@ -38,18 +39,22 @@ import Configuration.Utils
 import Control.Lens (lens, view)
 import Control.Monad (when)
 import Control.Monad.Except (throwError)
+import Control.Monad.Writer (tell)
 
 import qualified Data.Set as S
+import qualified Data.Text.Encoding as T
 
 import GHC.Generics (Generic)
 
 import Numeric.Natural (Natural)
 
-import Pact.Types.Term (mkKeySet)
+import Options.Applicative
+
+import Pact.Types.Term (mkKeySet, PublicKey(..))
 
 -- internal modules
 
-import Chainweb.Miner.Pact (Miner(..), MinerKeys(..), minerId)
+import Chainweb.Miner.Pact (Miner(..), MinerKeys(..), MinerId(..), minerId)
 import Chainweb.Time (Seconds)
 
 ---
@@ -60,12 +65,22 @@ newtype MinerCount = MinerCount { _minerCount :: Natural }
     deriving stock (Eq, Ord, Show)
     deriving newtype (FromJSON)
 
-validateMinerConfig :: ConfigValidation MiningConfig l
-validateMinerConfig c =
+-- -------------------------------------------------------------------------- --
+-- Mining Config
+
+validateMinerConfig :: ConfigValidation MiningConfig []
+validateMinerConfig c = do
+    when (_nodeMiningEnabled nmc) $ tell
+        [ "In-node mining is enabled. This should only be used for testing"
+        , "In order to use in-node mining, mining-coordination must be enabled, too"
+        ]
+    when (_nodeMiningEnabled nmc && not (_coordinationEnabled cc))
+        $ throwError "In-node mining is enabled but mining coordination is disabled"
     when (_nodeMiningEnabled nmc && view minerId (_nodeMiner nmc) == "")
         $ throwError "In-node Mining is enabled but no miner id is configured"
   where
     nmc = _miningInNode c
+    cc = _miningCoordination c
 
 -- | Full configuration for Mining.
 --
@@ -90,22 +105,32 @@ instance FromJSON (MiningConfig -> MiningConfig) where
         <$< miningCoordination %.: "coordination" % o
         <*< miningInNode %.: "nodeMining" % o
 
+instance FromJSON MiningConfig where
+    parseJSON v = do
+        f <- parseJSON v
+        return $ f defaultMining
+
+pMiningConfig :: MParser MiningConfig
+pMiningConfig = id
+    <$< miningCoordination %:: pCoordinationConfig
+    <*< miningInNode %:: pNodeMiningConfig
+
 defaultMining :: MiningConfig
 defaultMining = MiningConfig
     { _miningCoordination = defaultCoordination
     , _miningInNode = defaultNodeMining }
+
+-- -------------------------------------------------------------------------- --
+-- Mining Coordination Config
 
 -- | Configuration for Mining Coordination.
 data CoordinationConfig = CoordinationConfig
     { _coordinationEnabled :: !Bool
       -- ^ Is mining coordination enabled? If not, the @/mining/@ won't even be
       -- present on the node.
-    , _coordinationMode :: !CoordinationMode
-      -- ^ `Public` or `Private`.
     , _coordinationMiners :: !(S.Set Miner)
-      -- ^ When the mode is set to `Private`, this field must contain at least
-      -- one `Miner` identity in order for work requests to be made.
-      -- Further, such miners are eligible for "Primed Coordination".
+      -- ^ This field must contain at least one `Miner` identity in order for
+      -- work requests to be made.
     , _coordinationReqLimit :: !Int
       -- ^ The number of @/mining/work/@ requests that can be made to this node
       -- in a 5 minute period.
@@ -120,9 +145,6 @@ coordinationEnabled = lens _coordinationEnabled (\m c -> m { _coordinationEnable
 
 coordinationLimit :: Lens' CoordinationConfig Int
 coordinationLimit = lens _coordinationReqLimit (\m c -> m { _coordinationReqLimit = c })
-
-coordinationMode :: Lens' CoordinationConfig CoordinationMode
-coordinationMode = lens _coordinationMode (\m c -> m { _coordinationMode = c })
 
 coordinationMiners :: Lens' CoordinationConfig (S.Set Miner)
 coordinationMiners = lens _coordinationMiners (\m c -> m { _coordinationMiners = c })
@@ -139,7 +161,6 @@ instance ToJSON CoordinationConfig where
     toJSON o = object
         [ "enabled" .= _coordinationEnabled o
         , "limit" .= _coordinationReqLimit o
-        , "mode" .= _coordinationMode o
         , "miners" .= _coordinationMiners o
         , "updateStreamLimit" .= _coordinationUpdateStreamLimit o
         , "updateStreamTimeout" .= _coordinationUpdateStreamTimeout o
@@ -149,34 +170,47 @@ instance FromJSON (CoordinationConfig -> CoordinationConfig) where
     parseJSON = withObject "CoordinationConfig" $ \o -> id
         <$< coordinationEnabled ..: "enabled" % o
         <*< coordinationLimit ..: "limit" % o
-        <*< coordinationMode ..: "mode" % o
-        <*< coordinationMiners ..: "miners" % o
+        <*< coordinationMiners .fromLeftMonoidalUpdate %.: "miners" % o
         <*< coordinationUpdateStreamLimit ..: "updateStreamLimit" % o
         <*< coordinationUpdateStreamTimeout ..: "updateStreamTimeout" % o
 
 defaultCoordination :: CoordinationConfig
 defaultCoordination = CoordinationConfig
     { _coordinationEnabled = False
-    , _coordinationMode = Private
     , _coordinationMiners = mempty
     , _coordinationReqLimit = 1200
     , _coordinationUpdateStreamLimit = 2000
     , _coordinationUpdateStreamTimeout = 240
     }
 
--- | When `Public`, anyone can make Mining work requests to this node.
--- When `Private`, only designated Miners can do so.
-data CoordinationMode = Public | Private
-    deriving stock (Eq, Show)
+pCoordinationConfig :: MParser CoordinationConfig
+pCoordinationConfig = id
+    <$< coordinationEnabled .:: enableDisableFlag
+        % long "mining-coordination"
+        <> help "whether to enable the mining coordination API"
+    <*< coordinationMiners %:: pLeftMonoidalUpdate (S.singleton <$> pMiner "")
+    <*< coordinationLimit .:: jsonOption
+        % long "mining-request-limit"
+        <> help "Number of /mining/work requests that can be made within a 5min period"
+    <*< coordinationUpdateStreamLimit .:: jsonOption
+        % long "mining-update-stream-limit"
+        <> help "maximum number of concurrent update streams that is supported"
+    <*< coordinationUpdateStreamTimeout .:: jsonOption
+        % long "mining-update-stream-timeout"
+        <> help "duration that an update stream is kept open in seconds"
 
-instance ToJSON CoordinationMode where
-    toJSON Public = "public"
-    toJSON Private = "private"
+pMiner :: String -> Parser Miner
+pMiner prefix = pkToMiner <$> pPk
+  where
+    pkToMiner pk = Miner
+        (MinerId $ "k:" <> T.decodeUtf8 (_pubKey pk))
+        (MinerKeys $ mkKeySet [pk] "keys-all")
+    pPk = strOption
+        % long (prefix <> "mining-public-key")
+        <> help "public key of a miner in hex decimal encoding. The account name is the public key prefix by 'k:'. (This option can be provided multiple times.)"
 
-instance FromJSON CoordinationMode where
-    parseJSON (String "private") = pure Private
-    parseJSON (String "public") = pure Public
-    parseJSON _ = fail "Failed to parse CoordinationMode. Expected 'private' or 'public'."
+-- -------------------------------------------------------------------------- --
+-- Node Mining Config
 
 data NodeMiningConfig = NodeMiningConfig
     { _nodeMiningEnabled :: !Bool
@@ -201,18 +235,28 @@ nodeTestMiners = lens _nodeTestMiners (\m c -> m { _nodeTestMiners = c })
 instance ToJSON NodeMiningConfig where
     toJSON o = object
         [ "enabled" .= _nodeMiningEnabled o
-        , "miner" .= _nodeMiner o ]
+        , "miner" .= _nodeMiner o
+        ]
 
 instance FromJSON (NodeMiningConfig -> NodeMiningConfig) where
     parseJSON = withObject "NodeMiningConfig" $ \o -> id
         <$< nodeMiningEnabled ..: "enabled" % o
         <*< nodeMiner ..: "miner" % o
-        <*< nodeTestMiners ..: "testMiners" % o
+
+pNodeMiningConfig :: MParser NodeMiningConfig
+pNodeMiningConfig = id
+    <$< nodeMiningEnabled .:: enableDisableFlag
+        % long "node-mining"
+        <> help "ONLY FOR TESTING NETWORKS: whether to enable in node mining"
+    <*< nodeMiner .:: pMiner "node-"
 
 defaultNodeMining :: NodeMiningConfig
 defaultNodeMining = NodeMiningConfig
     { _nodeMiningEnabled = False
     , _nodeMiner = invalidMiner
-    , _nodeTestMiners = MinerCount 10 }
-  where
-    invalidMiner = Miner "" . MinerKeys $ mkKeySet [] "keys-all"
+    , _nodeTestMiners = MinerCount 10
+    }
+
+invalidMiner :: Miner
+invalidMiner = Miner "" . MinerKeys $ mkKeySet [] "keys-all"
+

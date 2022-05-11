@@ -16,6 +16,7 @@ import Test.Tasty
 
 -- internal modules
 
+import Chainweb.Chainweb.Configuration
 import Chainweb.Graph
 import qualified Chainweb.Mempool.InMem as InMem
 import Chainweb.Mempool.InMemTypes (InMemConfig(..))
@@ -51,10 +52,10 @@ data TestServer = TestServer
 newTestServer :: IO TestServer
 newTestServer = mask_ $ do
     checkMv <- newMVar (pure . V.map Right)
-    let inMemCfg = InMemConfig txcfg mockBlockGasLimit 2048 Right (checkMvFunc checkMv) (1024 * 10)
+    let inMemCfg = InMemConfig txcfg mockBlockGasLimit 0 2048 Right (checkMvFunc checkMv) (1024 * 10)
     inmemMv <- newEmptyMVar
     envMv <- newEmptyMVar
-    tid <- forkIOWithUnmask $ server inMemCfg inmemMv envMv
+    tid <- forkIOWithUnmask $ \u -> server inMemCfg inmemMv envMv u
     inmem <- takeMVar inmemMv
     env <- takeMVar envMv
     let remoteMp0 = MClient.toMempool version chain txcfg env
@@ -83,11 +84,13 @@ newTestServer = mask_ $ do
     chain = someChainId version
 
     mkApp :: MempoolBackend MockTx -> Application
-    mkApp mp = chainwebApplication version (serverMempools [(chain, mp)])
+    mkApp mp = chainwebApplication conf (serverMempools [(chain, mp)])
+
+    conf = defaultChainwebConfiguration version
 
     mkEnv :: Int -> IO ClientEnv
     mkEnv port = do
-        mgrSettings <- certificateCacheManagerSettings TlsInsecure Nothing
+        mgrSettings <- certificateCacheManagerSettings TlsInsecure
         mgr <- HTTP.newManager mgrSettings
         return $! mkClientEnv mgr $ BaseUrl Https host port ""
 

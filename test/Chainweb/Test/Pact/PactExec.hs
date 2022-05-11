@@ -5,7 +5,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TypeFamilies #-}
 
 -- |
@@ -29,7 +28,6 @@ import qualified Data.ByteString.Lazy.Char8 as BL
 import Data.CAS.RocksDB (RocksDb)
 import qualified Data.List as L
 import Data.String
-import Data.String.Conv (toS)
 import Data.Text (Text, pack)
 import qualified Data.Vector as V
 import qualified Data.Yaml as Y
@@ -59,14 +57,13 @@ import Chainweb.Test.Utils
 import Chainweb.Transaction
 import Chainweb.Version (ChainwebVersion(..))
 import Chainweb.Version.Utils (someChainId)
-import Chainweb.Utils (sshow, tryAllSynchronous, decodeB64UrlNoPaddingText)
+import Chainweb.Utils (sshow, tryAllSynchronous)
 
 import Pact.Types.Command
 import Pact.Types.Hash
 import Pact.Types.PactValue
 import Pact.Types.Persistence
 import Pact.Types.Pretty
-import Pact.Types.Runtime (PactEvent(..),ModuleHash(..))
 
 testVersion :: ChainwebVersion
 testVersion = FastTimedCPM petersonChainGraph
@@ -243,13 +240,8 @@ testTfrGas = (V.singleton <$> tx,test)
     test (Right (TestResponse [(_,cr)] _)) = do
       checkPactResultSuccess "transfer succeeds" (_crResult cr) $ \pv ->
         assertEqual "transfer succeeds" (pString "Write succeeded") pv
-      mh <- decodeB64UrlNoPaddingText "_S6HOO3J8-dEusvtnjSF4025dAxKu6eFSIOZocQwimA"
-      assertEqual "event found"
-          [PactEvent "TRANSFER"
-            [pString "sender00",pString "sender01",pDecimal 1.0]
-            "coin"
-            (ModuleHash (Hash mh))]
-          (_crEvents cr)
+      e <- mkTransferEvent "sender00" "sender01" 1.0 "coin" "_S6HOO3J8-dEusvtnjSF4025dAxKu6eFSIOZocQwimA"
+      assertEqual "event found" [e] (_crEvents cr)
     test r = assertFailure $ "expected single test response: " ++ show r
 
 testBadSenderFails :: TxsTest
@@ -495,8 +487,11 @@ execTest
 execTest runPact request = _trEval request $ do
     cmdStrs <- mapM getPactCode $ _trCmds request
     trans <- mkCmds cmdStrs
-    results <- runPact $ execTransactions False defaultMiner
-      trans (EnforceCoinbaseFailure True) (CoinbaseUsePrecompiled True)
+    results <- runPact $ \pde ->
+      execTransactions False defaultMiner
+        trans (EnforceCoinbaseFailure True) (CoinbaseUsePrecompiled True) pde
+        >>= throwOnGasFailure
+
     let outputs = V.toList $ snd <$> _transactionPairs results
     return $ TestResponse
         (zip (_trCmds request) (toHashCommandResult <$> outputs))
@@ -521,8 +516,10 @@ execTxsTest runPact name (trans',check) = testCaseSch name (go >>= check)
   where
     go = do
       trans <- trans'
-      results' <- tryAllSynchronous $ runPact $ execTransactions False defaultMiner trans
-        (EnforceCoinbaseFailure True) (CoinbaseUsePrecompiled True)
+      results' <- tryAllSynchronous $ runPact $ \pde ->
+        execTransactions False defaultMiner trans
+          (EnforceCoinbaseFailure True) (CoinbaseUsePrecompiled True) pde
+          >>= throwOnGasFailure
       case results' of
         Right results -> Right <$> do
           let outputs = V.toList $ snd <$> _transactionPairs results
@@ -570,7 +567,7 @@ checkSuccessOnly' msg f = testCaseSch msg $ f >>= \case
 fileCompareTxLogs :: String -> IO (TestResponse TestSource) -> ScheduledTest
 fileCompareTxLogs label respIO = goldenSch label $ do
     resp <- respIO
-    return $ toS $ Y.encode
+    return $ BL.fromStrict $ Y.encode
         $ coinbase (_trCoinBaseOutput resp)
         : (result <$> _trOutputs resp)
   where

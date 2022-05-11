@@ -26,38 +26,27 @@
 --
 module Chainweb.RestAPI
 (
-  ChainwebServerDbs(..)
+-- * Utils
+  serveSocketTls
+
+-- * Chainweb Server DBs
+, ChainwebServerDbs(..)
 , emptyChainwebServerDbs
-
--- * Chainweb API
-, someChainwebApi
-, someChainwebPeerApi
-, someChainwebServiceApi
-, prettyShowChainwebApi
-, apiVersion
-, prettyApiVersion
-
--- * Swagger
-, prettyChainwebSwagger
-, chainwebSwagger
-, chainwebPeerSwagger
-, chainwebServiceSwagger
-, someSwaggerServer
-, somePeerSwaggerServer
-, someServiceSwaggerServer
 
 -- * Component Triggers
 , HeaderStream(..)
 , Rosetta(..)
 
--- * Chainweb API Server
+-- * Chainweb P2P API Server
 , someChainwebServer
 , chainwebApplication
 , serveChainwebOnPort
 , serveChainweb
 , serveChainwebSocket
 , serveChainwebSocketTls
-, Port
+
+-- ** Only serve a Peer DB from the Chainweb P2P API
+, servePeerDbSocketTls
 
 -- * Service API Server
 , someServiceApiServer
@@ -73,56 +62,45 @@ module Chainweb.RestAPI
 , module P2P.Node.RestAPI.Client
 ) where
 
-import Control.Lens
+import Control.Monad (guard)
 
-import Data.Aeson.Encode.Pretty
 import Data.Bifunctor
 import Data.Bool (bool)
-import qualified Data.ByteString.Lazy as BL
-import Data.Maybe
-import Data.Proxy
-import Data.Swagger
-import qualified Data.Text as T
-import qualified Data.Text.Encoding as T
 
 import GHC.Generics (Generic)
 
 import Network.Socket
 import qualified Network.TLS.SessionManager as TLS
-import Network.Wai (Middleware, mapResponseHeaders)
+import Network.Wai (Middleware, mapResponseHeaders, remoteHost)
 import Network.Wai.Handler.Warp hiding (Port)
 import Network.Wai.Handler.WarpTLS (TLSSettings(..), runTLSSocket)
 import Network.Wai.Middleware.Cors
 
-import Servant.API
 import Servant.Server
-import Servant.Swagger
 
 import System.Clock
 
 -- internal modules
 
+import Chainweb.Backup
 import Chainweb.BlockHeaderDB
-import Chainweb.BlockHeaderDB.RestAPI
 import Chainweb.BlockHeaderDB.RestAPI.Client
 import Chainweb.BlockHeaderDB.RestAPI.Server
 import Chainweb.ChainId
-import Chainweb.Chainweb.ChainResources
+import Chainweb.Chainweb.Configuration
 import Chainweb.Chainweb.MinerResources (MiningCoordination)
 import Chainweb.CutDB
-import Chainweb.CutDB.RestAPI
 import Chainweb.CutDB.RestAPI.Server
 import Chainweb.HostAddress
 import Chainweb.Logger (Logger)
 import Chainweb.Mempool.Mempool (MempoolBackend)
 import qualified Chainweb.Mempool.RestAPI.Server as Mempool
-import Chainweb.Miner.RestAPI (someMiningApi)
 import qualified Chainweb.Miner.RestAPI.Server as Mining
-import qualified Chainweb.Pact.RestAPI as PactAPI
 import qualified Chainweb.Pact.RestAPI.Server as PactAPI
 import Chainweb.Payload.PayloadStore
-import Chainweb.Payload.RestAPI
 import Chainweb.Payload.RestAPI.Server
+import Chainweb.RestAPI.Backup
+import Chainweb.RestAPI.Config
 import Chainweb.RestAPI.Health
 import Chainweb.RestAPI.NetworkID
 import Chainweb.RestAPI.NodeInfo
@@ -135,9 +113,29 @@ import Chainweb.Version
 import Network.X509.SelfSigned
 
 import P2P.Node.PeerDB
-import P2P.Node.RestAPI
 import P2P.Node.RestAPI.Client
 import P2P.Node.RestAPI.Server
+
+-- -------------------------------------------------------------------------- --
+-- Utils
+
+enableTlsSessionCache :: Bool
+enableTlsSessionCache = True
+
+-- | TLS HTTP Server
+--
+serveSocketTls
+    :: Settings
+    -> X509CertChainPem
+    -> X509KeyPem
+    -> Socket
+    -> Application
+    -> IO ()
+serveSocketTls settings certChain key = runTLSSocket tlsSettings settings
+  where
+    tlsSettings :: TLSSettings
+    tlsSettings = (tlsServerChainSettings certChain key)
+        { tlsSessionManagerConfig = TLS.defaultConfig <$ guard enableTlsSessionCache }
 
 -- -------------------------------------------------------------------------- --
 -- Chainweb Server Storage Backends
@@ -164,112 +162,6 @@ emptyChainwebServerDbs = ChainwebServerDbs
     }
 
 -- -------------------------------------------------------------------------- --
--- Chainweb API
-
--- | All APIs. This includes the service and the peer APIs. This is only used
--- for documentation / swagger purposes.
---
-someChainwebApi :: ChainwebVersion -> [NetworkId] -> SomeApi
-someChainwebApi v cs
-    = someSwaggerApi
-    <> someHealthCheckApi
-    <> someNodeInfoApi
-    <> someCutApi v
-    <> someBlockHeaderDbApis v chains
-    <> somePayloadApis v chains
-    <> someP2pApis v cs
-    <> PactAPI.somePactServiceApis v chains
-    <> someMiningApi v
-    <> someHeaderStreamApi v
-  where
-    chains = selectChainIds cs
-
-selectChainIds :: [NetworkId] -> [ChainId]
-selectChainIds = mapMaybe f
-  where
-    f (ChainNetwork c) = Just c
-    f (MempoolNetwork c) = Just c
-    f CutNetwork = Nothing
-
-prettyShowChainwebApi :: ChainwebVersion -> [NetworkId] -> T.Text
-prettyShowChainwebApi v cs = case someChainwebApi v cs of
-    SomeApi a -> layout a
-
--- | All Service API endpoints
---
-someChainwebServiceApi :: ChainwebVersion -> [NetworkId] -> SomeApi
-someChainwebServiceApi v cs
-    = someSwaggerApi
-    <> someHealthCheckApi
-    <> someNodeInfoApi
-    <> PactAPI.somePactServiceApis v chains
-    <> someMiningApi v
-    <> someHeaderStreamApi v
-  where
-    chains = selectChainIds cs
-
--- | All Peer API endpoints
---
-someChainwebPeerApi :: ChainwebVersion -> [NetworkId] -> SomeApi
-someChainwebPeerApi v cs
-    = someCutApi v
-    <> someBlockHeaderDbApis v chains
-    <> somePayloadApis v chains
-    <> someP2pApis v cs
-  where
-    chains = selectChainIds cs
-
--- -------------------------------------------------------------------------- --
--- Swagger
---
--- Note that with the current approach to constructing the API a single routing
--- table is generated that contains the routes for all chains. If the number of
--- chains is large the corresponding swagger file will be very large as well.
--- We should improve the swagger spec to be more structured.
-
-type SwaggerApi = "swagger.json" :> Get '[JSON] Swagger
-
-someSwaggerApi :: SomeApi
-someSwaggerApi = SomeApi $ Proxy @SwaggerApi
-
-someSwaggerServer :: ChainwebVersion -> [NetworkId] -> SomeServer
-someSwaggerServer v cs = SomeServer (Proxy @SwaggerApi)
-    $ return (chainwebSwagger v cs)
-
-somePeerSwaggerServer :: ChainwebVersion -> [NetworkId] -> SomeServer
-somePeerSwaggerServer v cs = SomeServer (Proxy @SwaggerApi)
-    $ return (chainwebPeerSwagger v cs)
-
-someServiceSwaggerServer :: ChainwebVersion -> [NetworkId] -> SomeServer
-someServiceSwaggerServer v cs = SomeServer (Proxy @SwaggerApi)
-    $ return (chainwebServiceSwagger v cs)
-
-chainwebSwagger :: ChainwebVersion -> [NetworkId] -> Swagger
-chainwebSwagger v cs = case someChainwebApi v cs of
-    SomeApi a -> toSwagger a
-        & info.title   .~ "Chainweb"
-        & info.version .~ prettyApiVersion
-        & info.description ?~ "Chainweb/" <> sshow v <> " API"
-
-chainwebPeerSwagger :: ChainwebVersion -> [NetworkId] -> Swagger
-chainwebPeerSwagger v cs = case someChainwebPeerApi v cs of
-    SomeApi a -> toSwagger a
-        & info.title   .~ "Chainweb Peer API"
-        & info.version .~ prettyApiVersion
-        & info.description ?~ "Chainweb/" <> sshow v <> "Peer  API"
-
-chainwebServiceSwagger :: ChainwebVersion -> [NetworkId] -> Swagger
-chainwebServiceSwagger v cs = case someChainwebServiceApi v cs of
-    SomeApi a -> toSwagger a
-        & info.title   .~ "Chainweb Service API"
-        & info.version .~ prettyApiVersion
-        & info.description ?~ "Chainweb/" <> sshow v <> "Service  API"
-
-prettyChainwebSwagger :: ChainwebVersion -> [NetworkId] -> T.Text
-prettyChainwebSwagger v cs = T.decodeUtf8 . BL.toStrict . encodePretty
-    $ chainwebSwagger v cs
-
--- -------------------------------------------------------------------------- --
 -- Component Triggers
 
 newtype Rosetta = Rosetta Bool
@@ -289,14 +181,31 @@ chainwebTime :: Middleware
 chainwebTime app req resp = app req $ \res -> do
     timestamp <- sec <$> getTime Realtime
     resp $ mapResponseHeaders
-        ((:) ("X-Server-Timestamp", sshow timestamp))
+        ((serverTimestampHeaderName, sshow timestamp) :)
         res
 
 chainwebNodeVersion :: Middleware
 chainwebNodeVersion app req resp = app req $ \res ->
+    resp $ mapResponseHeaders (chainwebNodeVersionHeader :) res
+
+chainwebPeerAddr :: Middleware
+chainwebPeerAddr app req resp = app req $ \res ->
     resp $ mapResponseHeaders
-        ((:) chainwebNodeVersionHeader)
+        ((peerAddrHeaderName, sshow (remoteHost req)) :)
         res
+
+chainwebP2pMiddlewares :: Middleware
+chainwebP2pMiddlewares
+    = chainwebTime
+    . chainwebPeerAddr
+    . chainwebNodeVersion
+    . chainwebCors
+
+chainwebServiceMiddlewares :: Middleware
+chainwebServiceMiddlewares
+    = chainwebTime
+    . chainwebNodeVersion
+    . chainwebCors
 
 -- -------------------------------------------------------------------------- --
 -- Chainweb Peer Server
@@ -304,17 +213,17 @@ chainwebNodeVersion app req resp = app req $ \res ->
 someChainwebServer
     :: Show t
     => PayloadCasLookup cas
-    => ChainwebVersion
+    => ChainwebConfiguration
     -> ChainwebServerDbs t cas
     -> SomeServer
-someChainwebServer v dbs =
-    somePeerSwaggerServer v (fst <$> peers)
-        <> maybe mempty (someCutServer v cutPeerDb) cuts
-        <> maybe mempty (someSpvServers v) cuts
-        <> somePayloadServers v payloads
-        <> someBlockHeaderDbServers v blocks
-        <> Mempool.someMempoolServers v mempools
-        <> someP2pServers v peers
+someChainwebServer config dbs =
+    maybe mempty (someCutServer v cutPeerDb) cuts
+    <> maybe mempty (someSpvServers v) cuts
+    <> somePayloadServers v payloads
+    <> someBlockHeaderDbServers v blocks
+    <> Mempool.someMempoolServers v mempools
+    <> someP2pServers v peers
+    <> someGetConfigServer config
   where
     payloads = _chainwebServerPayloadDbs dbs
     blocks = _chainwebServerBlockHeaderDbs dbs
@@ -322,48 +231,51 @@ someChainwebServer v dbs =
     peers = _chainwebServerPeerDbs dbs
     mempools = _chainwebServerMempools dbs
     cutPeerDb = fromJuste $ lookup CutNetwork peers
+    v = _configChainwebVersion config
+
+-- -------------------------------------------------------------------------- --
+-- Chainweb P2P API Application
 
 chainwebApplication
     :: Show t
     => PayloadCasLookup cas
-    => ChainwebVersion
+    => ChainwebConfiguration
     -> ChainwebServerDbs t cas
     -> Application
-chainwebApplication v dbs
-    = chainwebTime
-    . chainwebNodeVersion
-    . chainwebCors
+chainwebApplication config dbs
+    = chainwebP2pMiddlewares
     . someServerApplication
-    $ someChainwebServer v dbs
+    $ someChainwebServer config dbs
 
 serveChainwebOnPort
     :: Show t
     => PayloadCasLookup cas
     => Port
-    -> ChainwebVersion
+    -> ChainwebConfiguration
     -> ChainwebServerDbs t cas
     -> IO ()
-serveChainwebOnPort p v dbs = run (int p) $ chainwebApplication v dbs
+serveChainwebOnPort p c dbs = run (int p) $ chainwebApplication c dbs
 
 serveChainweb
     :: Show t
     => PayloadCasLookup cas
     => Settings
-    -> ChainwebVersion
+    -> ChainwebConfiguration
     -> ChainwebServerDbs t cas
     -> IO ()
-serveChainweb s v dbs = runSettings s $ chainwebApplication v dbs
+serveChainweb s c dbs = runSettings s $ chainwebApplication c dbs
 
 serveChainwebSocket
     :: Show t
     => PayloadCasLookup cas
     => Settings
     -> Socket
-    -> ChainwebVersion
+    -> ChainwebConfiguration
     -> ChainwebServerDbs t cas
+    -> Middleware
     -> IO ()
-serveChainwebSocket s sock v dbs =
-    runSettingsSocket s sock $ chainwebApplication v dbs
+serveChainwebSocket settings sock c dbs m =
+    runSettingsSocket settings sock $ m $ chainwebApplication c dbs
 
 serveChainwebSocketTls
     :: Show t
@@ -372,22 +284,36 @@ serveChainwebSocketTls
     -> X509CertChainPem
     -> X509KeyPem
     -> Socket
-    -> ChainwebVersion
+    -> ChainwebConfiguration
     -> ChainwebServerDbs t cas
     -> Middleware
     -> IO ()
-serveChainwebSocketTls settings certChain key sock v dbs m =
-    runTLSSocket tlsSettings settings sock $ m app
-  where
-    tlsSettings :: TLSSettings
-    tlsSettings = (tlsServerChainSettings certChain key)
-        { tlsSessionManagerConfig = Just TLS.defaultConfig }
-
-    app :: Application
-    app = chainwebApplication v dbs
+serveChainwebSocketTls settings certChain key sock c dbs m =
+    serveSocketTls settings certChain key sock $ m
+        $ chainwebApplication c dbs
 
 -- -------------------------------------------------------------------------- --
--- Service API Server
+-- Run Chainweb P2P Server that serves a single PeerDb
+
+servePeerDbSocketTls
+    :: Settings
+    -> X509CertChainPem
+    -> X509KeyPem
+    -> Socket
+    -> ChainwebVersion
+    -> NetworkId
+    -> PeerDb
+    -> Middleware
+    -> IO ()
+servePeerDbSocketTls settings certChain key sock v nid pdb m =
+    serveSocketTls settings certChain key sock $ m
+        $ chainwebP2pMiddlewares
+        $ someServerApplication
+        $ someP2pServer
+        $ somePeerDbVal v nid pdb
+
+-- -------------------------------------------------------------------------- --
+-- Chainweb Service API Application
 
 someServiceApiServer
     :: Show t
@@ -399,24 +325,32 @@ someServiceApiServer
     -> Maybe (MiningCoordination logger cas)
     -> HeaderStream
     -> Rosetta
+    -> Maybe (BackupEnv logger)
     -> SomeServer
-someServiceApiServer v dbs pacts mr (HeaderStream hs) (Rosetta r) =
-    someServiceSwaggerServer v (fst <$> peers)
-        <> someHealthCheckServer
-        <> maybe mempty (someNodeInfoServer v) cuts
-        <> PactAPI.somePactServers v pacts
-        <> maybe mempty (Mining.someMiningServer v) mr
-        <> maybe mempty (someHeaderStreamServer v) (bool Nothing cuts hs)
-        <> maybe mempty (bool mempty (someRosettaServer v payloads concreteMs cutPeerDb concreteCr) r) cuts
-            -- TODO: not sure if passing the correct PeerDb here
-            -- TODO: simplify number of resources passing to rosetta
+someServiceApiServer v dbs pacts mr (HeaderStream hs) (Rosetta r) backupEnv =
+    someHealthCheckServer
+    <> maybe mempty (someBackupServer v) backupEnv
+    <> maybe mempty (someNodeInfoServer v) cuts
+    <> PactAPI.somePactServers v pacts
+    <> maybe mempty (Mining.someMiningServer v) mr
+    <> maybe mempty (someHeaderStreamServer v) (bool Nothing cuts hs)
+    <> maybe mempty (bool mempty (someRosettaServer v payloads concreteMs cutPeerDb concretePacts) r) cuts
+        -- TODO: not sure if passing the correct PeerDb here
+        -- TODO: why does Rosetta need a peer db at all?
+        -- TODO: simplify number of resources passing to rosetta
+
+    -- GET Cut, Payload, and Headers endpoints
+    <> maybe mempty (someCutGetServer v) cuts
+    <> somePayloadServers v payloads
+    <> someBlockHeaderDbServers v blocks
   where
     cuts = _chainwebServerCutDb dbs
     peers = _chainwebServerPeerDbs dbs
-    concreteMs = map (second (_chainResMempool . snd)) pacts
-    concreteCr = map (second snd) pacts
+    concreteMs = second PactAPI._pactServerDataMempool <$> pacts
+    concretePacts = second PactAPI._pactServerDataPact <$> pacts
     cutPeerDb = fromJuste $ lookup CutNetwork peers
     payloads = _chainwebServerPayloadDbs dbs
+    blocks = _chainwebServerBlockHeaderDbs dbs
 
 serviceApiApplication
     :: Show t
@@ -428,13 +362,12 @@ serviceApiApplication
     -> Maybe (MiningCoordination logger cas)
     -> HeaderStream
     -> Rosetta
+    -> Maybe (BackupEnv logger)
     -> Application
-serviceApiApplication v dbs pacts mr hs r
-    = chainwebTime
-    . chainwebNodeVersion
-    . chainwebCors
+serviceApiApplication v dbs pacts mr hs r be
+    = chainwebServiceMiddlewares
     . someServerApplication
-    $ someServiceApiServer v dbs pacts mr hs r
+    $ someServiceApiServer v dbs pacts mr hs r be
 
 serveServiceApiSocket
     :: Show t
@@ -448,8 +381,8 @@ serveServiceApiSocket
     -> Maybe (MiningCoordination logger cas)
     -> HeaderStream
     -> Rosetta
+    -> Maybe (BackupEnv logger)
     -> Middleware
     -> IO ()
-serveServiceApiSocket s sock v dbs pacts mr hs r m =
-    runSettingsSocket s sock $ m $ serviceApiApplication v dbs pacts mr hs r
-
+serveServiceApiSocket s sock v dbs pacts mr hs r be m =
+    runSettingsSocket s sock $ m $ serviceApiApplication v dbs pacts mr hs r be

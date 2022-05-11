@@ -59,6 +59,7 @@ module Chainweb.TreeDB
 
 -- ** Lookups
 , lookupM
+, lookupRankedM
 , lookupStreamM
 
 -- * Misc Utils
@@ -194,8 +195,8 @@ instance
     => FromJSON (BranchBounds db)
   where
     parseJSON = withObject "BranchBounds" $ \o -> BranchBounds
-        <$> (HS.map LowerBound <$> o .: "lower")
-        <*> (HS.map UpperBound <$> o .: "upper")
+        <$> (HS.map LowerBound <$> (o .:? "lower" .!= mempty))
+        <*> (HS.map UpperBound <$> (o .:? "upper" .!= mempty))
 
 -- -------------------------------------------------------------------------- --
 -- * TreeDbEntry
@@ -240,6 +241,19 @@ class (Typeable db, TreeDbEntry (DbEntry db)) => TreeDb db where
         :: db
         -> DbKey db
         -> IO (Maybe (DbEntry db))
+
+    -- | Lookup a single entry by its key and rank. For some instances of
+    -- the lookup can be implemented more efficiently when the rank is know.
+    -- Otherwise the default implementation just ignores the rank parameter
+    -- falls back to 'lookup'.
+    --
+    lookupRanked
+        :: db
+        -> Natural
+        -> DbKey db
+        -> IO (Maybe (DbEntry db))
+    lookupRanked db _ = lookup db
+    {-# INLINEABLE lookupRanked #-}
 
     -- ---------------------------------------------------------------------- --
     -- * Keys and Entries
@@ -485,14 +499,14 @@ chainBranchEntries
 chainBranchEntries db k l mir Nothing lower upper f
     = defaultBranchEntries db k l mir Nothing lower upper f
 chainBranchEntries db k l mir mar@(Just (MaxRank (Max m))) lower upper f = do
-    upper' <- HS.fromList <$> traverse start (HS.toList upper)
+    upper' <- foldMap start upper
     defaultBranchEntries db k l mir mar lower upper' f
   where
-    start b@(UpperBound u) = lookup db u >>= \case
-        Nothing -> return b
+    start (UpperBound u) = lookup db u >>= \case
+        Nothing -> return mempty
         Just e -> seekAncestor db e m >>= \case
-            Nothing -> return b
-            Just x -> return $ UpperBound $! key x
+            Nothing -> return mempty
+            Just x -> return $ HS.singleton (UpperBound $! key x)
 {-# INLINEABLE chainBranchEntries #-}
 
 -- | @getBranch db lower upper@ returns all nodes that are predecessors of nodes
@@ -628,6 +642,19 @@ lookupM
 lookupM db k = lookup db k >>= \case
     Nothing -> throwM $ TreeDbKeyNotFound @db k
     (Just !x) -> return x
+{-# INLINEABLE lookupM #-}
+
+lookupRankedM
+    :: forall db
+    . TreeDb db
+    => db
+    -> Natural
+    -> DbKey db
+    -> IO (DbEntry db)
+lookupRankedM db r k = lookupRanked db r k >>= \case
+    Nothing -> throwM $ TreeDbKeyNotFound @db k
+    (Just !x) -> return x
+{-# INLINEABLE lookupRankedM #-}
 
 -- | Lookup all entries in a stream of database keys and return the stream
 -- of entries. Throws if an entry is missing.

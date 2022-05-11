@@ -1,3 +1,4 @@
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE BangPatterns #-}
@@ -8,6 +9,8 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TupleSections #-}
+{-# LANGUAGE TypeApplications #-}
+
 
 {-# OPTIONS_GHC -fno-warn-incomplete-uni-patterns #-}
 -- |
@@ -23,6 +26,7 @@ module Chainweb.Test.Pact.Utils
   SimpleKeyPair
 , sender00
 , sender01
+, allocation00KeyPair
 , testKeyPairs
 , mkKeySetData
 -- * 'PactValue' helpers
@@ -30,6 +34,10 @@ module Chainweb.Test.Pact.Utils
 , pString
 , pDecimal
 , pBool
+, pList
+-- * event helpers
+, mkEvent
+, mkTransferEvent
 -- * Capability helpers
 , mkCapability
 , mkTransferCap
@@ -48,7 +56,7 @@ module Chainweb.Test.Pact.Utils
 , ContMsg (..)
 , mkSigner
 , mkSigner'
-, CmdBuilder
+, CmdBuilder(..)
 , cbSigners
 , cbRPC
 , cbNonce
@@ -70,6 +78,7 @@ module Chainweb.Test.Pact.Utils
 -- * Other service creation
 , initializeSQLite
 , freeSQLiteResource
+, freeGasModel
 , withTestBlockDbTest
 , defaultPactServiceConfig
 , withMVarResource
@@ -81,6 +90,7 @@ module Chainweb.Test.Pact.Utils
 , delegateMemPoolAccess
 , withDelegateMempool
 , setMempool
+, setOneShotMempool
 -- * Block formation
 , runCut
 , Noncer
@@ -99,7 +109,6 @@ module Chainweb.Test.Pact.Utils
 import Control.Arrow ((&&&))
 import Control.Concurrent.Async
 import Control.Concurrent.MVar
-import Control.Concurrent.STM
 import Control.Lens (view, _3, makeLenses)
 import Control.Monad
 import Control.Monad.Catch
@@ -117,7 +126,6 @@ import Data.Maybe
 import Data.Text (Text)
 import qualified Data.Text.Encoding as T
 import qualified Data.Text.IO as T
-import Data.Tuple.Strict
 import Data.String
 import qualified Data.Vector as V
 
@@ -140,12 +148,14 @@ import Pact.Types.Command
 import Pact.Types.Crypto
 import Pact.Types.Exp
 import Pact.Types.Gas
+import Pact.Types.Hash
 import Pact.Types.Logger
 import Pact.Types.Names
 import Pact.Types.PactValue
 import Pact.Types.RPC
-import Pact.Types.Runtime (PactId)
+import Pact.Types.Runtime (PactEvent(..))
 import Pact.Types.SPV
+import Pact.Types.Term
 import Pact.Types.SQLite
 import Pact.Types.Util (parseB16TextOnly)
 
@@ -207,6 +217,13 @@ sender01 = ("6be2f485a7af75fedb4b7f153a903f7e6000ca4aa501179c91a2450b777bd2a7"
            ,"2beae45b29e850e6b1882ae245b0bab7d0689ebdd0cd777d4314d24d7024b4f7")
 
 
+allocation00KeyPair :: SimpleKeyPair
+allocation00KeyPair =
+    ( "d82d0dcde9825505d86afb6dcc10411d6b67a429a79e21bda4bb119bf28ab871"
+    , "c63cd081b64ae9a7f8296f11c34ae08ba8e1f8c84df6209e5dee44fa04bcb9f5"
+    )
+
+
 -- | Make trivial keyset data
 mkKeySetData :: Text  -> [SimpleKeyPair] -> Value
 mkKeySetData name keys = object [ name .= map fst keys ]
@@ -231,7 +248,37 @@ pDecimal = PLiteral . LDecimal
 pBool :: Bool -> PactValue
 pBool = PLiteral . LBool
 
+pList :: [PactValue] -> PactValue
+pList = PList . V.fromList
 
+mkEvent
+    :: MonadThrow m
+    => Text
+    -- ^ name
+    -> [PactValue]
+    -- ^ params
+    -> ModuleName
+    -> Text
+    -- ^ module hash
+    -> m PactEvent
+mkEvent n params m mh = do
+  mh' <- decodeB64UrlNoPaddingText mh
+  return $ PactEvent n params m (ModuleHash (Hash mh'))
+
+mkTransferEvent
+    :: MonadThrow m
+    => Text
+    -- ^ sender
+    -> Text
+    -- ^ receiver
+    -> Decimal
+    -- ^ amount
+    -> ModuleName
+    -> Text
+    -- ^ module hash
+    -> m PactEvent
+mkTransferEvent sender receiver amount m mh =
+  mkEvent "TRANSFER" [pString sender,pString receiver,pDecimal amount] m mh
 -- ----------------------------------------------------------------------- --
 -- Capability helpers
 
@@ -336,8 +383,10 @@ mkCmd nonce rpc = defaultCmd
 --
 buildCwCmd :: CmdBuilder -> IO ChainwebTransaction
 buildCwCmd cmd = buildRawCmd cmd >>= \c -> case verifyCommand c of
-    ProcSucc r -> return $ fmap mkPayloadWithText r
+    ProcSucc r -> return $ fmap (mkPayloadWithText c) r
     ProcFail e -> throwM $ userError $ "buildCmd failed: " ++ e
+
+
 
 -- | Build unparsed, unverified command
 --
@@ -405,8 +454,9 @@ testPactCtxSQLite
   -> PayloadDb cas
   -> SQLiteEnv
   -> PactServiceConfig
+  -> (TxContext -> GasModel)
   -> IO (TestPactCtx cas,PactDbEnv')
-testPactCtxSQLite v cid bhdb pdb sqlenv conf = do
+testPactCtxSQLite v cid bhdb pdb sqlenv conf gasmodel = do
     (dbSt,cpe) <- initRelationalCheckpointer' initialBlockState sqlenv cpLogger v cid
     let rs = readRewards
         ph = ParentHeader $ genesisBlockHeader v cid
@@ -424,7 +474,7 @@ testPactCtxSQLite v cid bhdb pdb sqlenv conf = do
         , _psCheckpointEnv = cpe
         , _psPdb = pdb
         , _psBlockHeaderDb = bhdb
-        , _psGasModel = constGasModel 0
+        , _psGasModel = gasmodel
         , _psMinerRewards = rs
         , _psReorgLimit = fromIntegral $ _pactReorgLimit conf
         , _psOnFatalError = defaultOnFatalError mempty
@@ -435,7 +485,11 @@ testPactCtxSQLite v cid bhdb pdb sqlenv conf = do
         , _psCheckpointerDepth = 0
         , _psLogger = newLogger loggers $ LogName ("PactService" ++ show cid)
         , _psLoggers = loggers
+        , _psBlockGasLimit = _pactBlockGasLimit conf
         }
+
+freeGasModel :: TxContext -> GasModel
+freeGasModel = const $ constGasModel 0
 
 
 -- | A queue-less WebPactExecutionService (for all chains).
@@ -443,9 +497,10 @@ withWebPactExecutionService
     :: ChainwebVersion
     -> TestBlockDb
     -> MemPoolAccess
+    -> (TxContext -> GasModel)
     -> (WebPactExecutionService -> IO a)
     -> IO a
-withWebPactExecutionService v bdb mempoolAccess act =
+withWebPactExecutionService v bdb mempoolAccess gasmodel act =
   withDbs $ \sqlenvs -> do
     pacts <- fmap (mkWebPactExecutionService . HM.fromList)
            $ traverse mkPact
@@ -456,9 +511,14 @@ withWebPactExecutionService v bdb mempoolAccess act =
   where
     withDbs f = foldl' (\soFar _ -> withDb soFar) f (chainIds v) []
     withDb g envs =  withTempSQLiteConnection chainwebPragmas $ \s -> g (s : envs)
+
+    -- This is way more than what is used in production, but during testing
+    -- we can be generous.
+    pactConfig = defaultPactServiceConfig { _pactBlockGasLimit = 1_000_000 }
+
     mkPact (sqlenv, c) = do
         bhdb <- getBlockHeaderDb c bdb
-        (ctx,_) <- testPactCtxSQLite v c bhdb (_bdbPayloadDb bdb) sqlenv defaultPactServiceConfig
+        (ctx,_) <- testPactCtxSQLite v c bhdb (_bdbPayloadDb bdb) sqlenv pactConfig gasmodel
         return $ (c,) $ PactExecutionService
           { _pactNewBlock = \m p ->
               evalPactServiceM_ ctx $ execNewBlock mempoolAccess p m
@@ -487,11 +547,18 @@ zeroNoncer = const (return $ Nonce 0)
 
 -- | Populate blocks for every chain of the current cut. Uses provided pact
 -- service to produce a new block, add it to dbs, etc.
-runCut :: ChainwebVersion -> TestBlockDb -> WebPactExecutionService -> GenBlockTime -> Noncer -> IO ()
-runCut v bdb pact genTime noncer =
+runCut
+    :: ChainwebVersion
+    -> TestBlockDb
+    -> WebPactExecutionService
+    -> GenBlockTime
+    -> Noncer
+    -> Miner
+    -> IO ()
+runCut v bdb pact genTime noncer miner =
   forM_ (chainIds v) $ \cid -> do
     ph <- ParentHeader <$> getParentTestBlockDb bdb cid
-    pout <- _webPactNewBlock pact noMiner ph
+    pout <- _webPactNewBlock pact miner ph
     n <- noncer cid
     addTestBlockDb bdb n genTime cid pout
     h <- getParentTestBlockDb bdb cid
@@ -537,7 +604,7 @@ withPactCtxSQLite v bhdbIO pdbIO conf f =
         bhdb <- bhdbIO
         pdb <- pdbIO
         (_,s) <- ios
-        testPactCtxSQLite v cid bhdb pdb s conf
+        testPactCtxSQLite v cid bhdb pdb s conf freeGasModel
 
 toTxCreationTime :: Integral a => Time a -> TxCreationTime
 toTxCreationTime (Time timespan) = TxCreationTime $ fromIntegral $ timeSpanToSeconds timespan
@@ -549,7 +616,7 @@ withPayloadDb = withResource newPayloadDb mempty
 -- | 'MemPoolAccess' that delegates all calls to the contents of provided `IORef`.
 delegateMemPoolAccess :: IORef MemPoolAccess -> MemPoolAccess
 delegateMemPoolAccess r = MemPoolAccess
-  { mpaGetBlock = \a b c d -> call mpaGetBlock $ \f -> f a b c d
+  { mpaGetBlock = \a b c d e -> call mpaGetBlock $ \f -> f a b c d e
   , mpaSetLastHeader = \a -> call mpaSetLastHeader ($ a)
   , mpaProcessFork = \a -> call mpaProcessFork ($ a)
   , mpaBadlistTx = \a -> call mpaBadlistTx ($ a)
@@ -572,6 +639,17 @@ withDelegateMempool = withResource start mempty
 -- | Set test mempool using IORef.
 setMempool :: IO (IORef MemPoolAccess) -> MemPoolAccess -> IO ()
 setMempool refIO mp = refIO >>= flip writeIORef mp
+
+-- | Set test mempool wrapped with a "one shot" 'mpaGetBlock' adapter.
+setOneShotMempool :: IO (IORef MemPoolAccess) -> MemPoolAccess -> IO ()
+setOneShotMempool mpRefIO mp = do
+  oneShot <- newIORef False
+  setMempool mpRefIO $ mp
+    { mpaGetBlock = \g v i a e -> readIORef oneShot >>= \case
+        False -> writeIORef oneShot True >> mpaGetBlock mp g v i a e
+        True -> mempty
+    }
+
 
 withBlockHeaderDb
     :: IO RocksDb
@@ -611,7 +689,7 @@ withPactTestBlockDb version cid logLevel rdb mempoolIO pactConfig f =
   withResource (startPact bdbio iodir) stopPact $ f . fmap (view _3)
   where
     startPact bdbio iodir = do
-        reqQ <- atomically $ newTBQueue 2000
+        reqQ <- newPactQueue 2000
         dir <- iodir
         bdb <- bdbio
         mempool <- mempoolIO

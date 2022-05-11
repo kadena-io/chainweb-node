@@ -1,0 +1,321 @@
+// Testing configuration for
+// transfer and create-account operations.
+
+request_funds(1){
+  find_account{
+    print_message("finding account");
+    currency = {"symbol":"KDA", "decimals":12};
+    random_account = find_balance({
+      "minimum_balance":{
+        "value": "0",
+        "currency": {{currency}}
+      },
+      "create_limit":1
+    });
+  },
+
+  // Create a separate scenario to request funds so that
+  // the address we are using to request funds does not
+  // get rolled back if funds do not yet exist.
+  request{
+    loaded_account = find_balance({
+      "account_identifier": {{random_account.account_identifier}},
+      "minimum_balance":{
+        "value": "1000000000000", // 1 KDA
+        "currency": {{currency}}
+      }
+    });
+  }
+}
+
+
+create_account(1){
+  create{
+    network = {
+	"network":"testnet04", 
+	"blockchain":"kadena",
+ 	"sub_network_identifier": {
+		"network": "0"
+	}
+    };
+    key = generate_key({"curve_type":"edwards25519"});
+
+    // Returns the account name in the format:
+    // k:<public_key>
+    account = derive({
+      "network_identifier": {{network}},
+      "public_key": {{key.public_key}}
+    });
+    ownership = {{account.metadata.ownership}};
+
+    // Associates an account with its Pact ownership
+    // (a key set with a predicate of "keys-all").
+    // Currently, we only support k: accounts, so
+    // this implementation assumes that this account
+    // is only owned by the public key used to derive
+    // the account name.
+    // This is used when constructing operations in transfer
+    // workflows.
+    set_blob({
+      "key":{{account.account_identifier}},
+      "value":{{account.metadata.ownership}}
+    });
+
+    save_account({
+      "account_identifier": {{account.account_identifier}},
+      "keypair": {{key}}
+    });
+  }
+}
+
+transfer(10){
+  transfer_dry_run{
+    transfer_dry_run.network = {
+	"network":"testnet04", 
+	"blockchain":"kadena",
+ 	"sub_network_identifier": {
+		"network": "0"
+	}
+    };
+    currency = {"symbol":"KDA", "decimals":12};
+    sender = find_balance({
+      "minimum_balance":{
+        "value": "100000000000", // 0.1 KDA
+        "currency": {{currency}}
+      }
+    });
+
+
+    // Set the recipient_amount as some value <= sender.balance-max_fee
+    max_fee = "6000000";
+    raw_available_amount = {{sender.balance.value}} - {{max_fee}};
+    raw_recipient_amount = random_number({"minimum": "1", "maximum": {{raw_available_amount}}});
+
+    // Find recipient and construct operations
+    raw_sender_amount = 0 - {{raw_recipient_amount}};
+    recipient = find_balance({
+      "not_account_identifier":[{{sender.account_identifier}}],
+      "minimum_balance":{
+        "value": "0",
+        "currency": {{currency}}
+      },
+      "create_limit": 100,
+      "create_probability": 50
+    });
+    transfer_dry_run.confirmation_depth = "1";
+    transfer_dry_run.dry_run = true;
+
+    senderOwnership = get_blob({
+      "key":{{sender.account_identifier}}
+    });
+    recipientOwnership = get_blob({
+      "key":{{recipient.account_identifier}}
+    });
+
+    // This operation's metadata indicates
+    // if an account's ownership changed
+    // during this operation.
+    // Even though Kadena supports keyset
+    // rotation, this implementation 
+    // assumes no rotation occurred.
+    senderOperationMetadata = {
+    	"prev-ownership": {{senderOwnership}},
+    	"curr-ownership": {{senderOwnership}}
+    }; 
+    recipientOperationMetadata = {
+    	"prev-ownership": {{recipientOwnership}},
+    	"curr-ownership": {{recipientOwnership}}
+    }; 
+
+    transfer_dry_run.operations = [
+      {
+        "operation_identifier":{"index":1},
+        "status": "Successful",
+        "type":"TransferOrCreateAcct",
+        "account":{{sender.account_identifier}},
+        "amount":{
+          "value":{{raw_sender_amount}},
+          "currency":{{currency}}
+        },
+	"metadata": {{senderOperationMetadata}}
+      },
+      {
+        "operation_identifier":{"index":2},
+        "status": "Successful",
+        "type":"TransferOrCreateAcct",
+        "account":{{recipient.account_identifier}},
+        "amount":{
+          "value":{{raw_recipient_amount}},
+          "currency":{{currency}}
+        },
+	"metadata": {{recipientOperationMetadata}}
+      }
+    ];
+    transfer_dry_run.preprocess_metadata = { "gas_payer": {{sender.account_identifier}} };
+  },
+
+  transfer{
+    // The suggested_fee is returned in the /construction/metadata
+    // response and saved to transfer_dry_run.suggested_fee.
+    suggested_fee = find_currency_amount({
+      "currency":{{currency}},
+      "amounts":{{transfer_dry_run.suggested_fee}}
+    });
+
+    available_amount = {{sender.balance.value}} - {{suggested_fee.value}};
+    recipient_amount = random_number({"minimum": "1", "maximum": {{available_amount}}});
+    sender_amount = 0 - {{recipient_amount}};
+
+    transfer.network = {{transfer_dry_run.network}};
+    transfer.confirmation_depth = {{transfer_dry_run.confirmation_depth}};
+
+    transfer.operations = [
+      {
+        "operation_identifier":{"index":1},
+        "status": "Successful",
+        "type":"TransferOrCreateAcct",
+        "account":{{sender.account_identifier}},
+        "amount":{
+          "value":{{sender_amount}},
+          "currency":{{currency}}
+        },
+	"metadata": {{senderOperationMetadata}}
+      },
+      {
+        "operation_identifier":{"index":2},
+        "status": "Successful",
+        "type":"TransferOrCreateAcct",
+        "account":{{recipient.account_identifier}},
+        "amount":{
+          "value":{{recipient_amount}},
+          "currency":{{currency}}
+        },
+	"metadata": {{recipientOperationMetadata}}
+      }
+    ];
+    transfer.preprocess_metadata = {{transfer_dry_run.preprocess_metadata}};
+  }
+}
+
+return_funds(10){
+  transfer_dry_run{
+    transfer_dry_run.network = {
+	"network":"testnet04", 
+	"blockchain":"kadena",
+ 	"sub_network_identifier": {
+		"network": "0"
+	}
+    };
+    currency = {"symbol":"KDA", "decimals":12};
+    raw_max_fee = "6000000";
+    raw_sender = find_balance({
+      "minimum_balance":{
+        "value": {{raw_max_fee}},
+        "currency": {{currency}}
+      }
+    });
+    
+    // Set the recipient_amount as some sender.balance-max_fee
+    raw_available_amount = {{raw_sender.balance.value}} - {{raw_max_fee}};
+    print_message({"available_amount":{{raw_available_amount}}});
+    raw_sender_amount = 0 - {{raw_available_amount}};
+
+    // Provide a static address as the recipient and construct operations
+    faucet = {"address":"k:9a51a7974d98ff6902db5edad14dc5e194df2dad29afe4efa0185132a667f6ad"};
+    faucetOperationMetadata = {
+    	"prev-ownership": {
+          "pred": "keys-all",
+          "keys": ["9a51a7974d98ff6902db5edad14dc5e194df2dad29afe4efa0185132a667f6ad"]},
+    	"curr-ownership": {
+          "pred": "keys-all",
+          "keys": ["9a51a7974d98ff6902db5edad14dc5e194df2dad29afe4efa0185132a667f6ad"]}
+    };
+
+    senderOwnership = get_blob({
+      "key":{{raw_sender.account_identifier}}
+    });
+    senderOperationMetadata = {
+    	"prev-ownership": {{senderOwnership}},
+    	"curr-ownership": {{senderOwnership}}
+    };
+
+    transfer_dry_run.confirmation_depth = "1";
+    transfer_dry_run.dry_run = true;
+
+    transfer_dry_run.operations = [
+      {
+        "operation_identifier":{"index":1},
+        "status": "Successful",
+        "type":"TransferOrCreateAcct",
+        "account":{{raw_sender.account_identifier}},
+        "amount":{
+          "value":{{raw_sender_amount}},
+          "currency":{{currency}}
+        },
+	"metadata": {{senderOperationMetadata}}
+      },
+      {
+        "operation_identifier":{"index":2},
+        "status": "Successful",
+        "type":"TransferOrCreateAcct",
+        "account":{{faucet}},
+        "amount":{
+          "value":{{raw_available_amount}},
+          "currency":{{currency}}
+        },
+	"metadata": {{faucetOperationMetadata}}
+      }
+    ];
+    transfer_dry_run.preprocess_metadata = { "gas_payer": {{raw_sender.account_identifier}} };
+  },
+
+  transfer{
+
+    // The suggested_fee is returned in the /construction/metadata
+    // response and saved to transfer_dry_run.suggested_fee.
+    suggested_fee = find_currency_amount({
+      "currency":{{currency}},
+      "amounts":{{transfer_dry_run.suggested_fee}}
+    });
+
+    sender = find_balance({
+      "minimum_balance":{
+        "value": {{suggested_fee.value}},
+        "currency": {{currency}}
+      }
+    });
+    
+    // Set the recipient_amount as some sender.balance-max_fee
+    available_amount = {{sender.balance.value}} - {{suggested_fee.value}};
+    sender_amount = 0 - {{available_amount}};
+
+    transfer.network = {{transfer_dry_run.network}};
+    transfer.confirmation_depth = {{transfer_dry_run.confirmation_depth}};
+
+    transfer.operations = [
+      {
+        "operation_identifier":{"index":1},
+        "status": "Successful",
+        "type":"TransferOrCreateAcct",
+        "account":{{sender.account_identifier}},
+        "amount":{
+          "value":{{sender_amount}},
+          "currency":{{currency}}
+        },
+	"metadata": {{senderOperationMetadata}}
+      },
+      {
+        "operation_identifier":{"index":2},
+        "status": "Successful",
+        "type":"TransferOrCreateAcct",
+        "account":{{faucet}},
+        "amount":{
+          "value":{{available_amount}},
+          "currency":{{currency}}
+        },
+	"metadata": {{faucetOperationMetadata}}
+      }
+    ];
+    transfer.preprocess_metadata = { "gas_payer": {{sender.account_identifier}} };
+  }
+}

@@ -33,6 +33,7 @@ module Chainweb.Pact.PactService
     , initPactService
     , initPactService'
     , execNewGenesisBlock
+    , getGasModel
     ) where
 
 import Control.Concurrent.Async
@@ -49,9 +50,10 @@ import Data.Default (def)
 import qualified Data.DList as DL
 import Data.Either
 import Data.Foldable (toList)
+import qualified Data.Map.Strict as M
+import qualified Data.Set as S
 import Data.Text (Text)
 import qualified Data.Text as T
-import Data.Tuple.Strict (T2(..))
 import Data.Vector (Vector)
 import qualified Data.Vector as V
 
@@ -128,15 +130,13 @@ initPactService'
 initPactService' ver cid chainwebLogger bhDb pdb sqlenv config act = do
     checkpointEnv <- initRelationalCheckpointer initialBlockState sqlenv cplogger ver cid
     let !rs = readRewards
-        !gasModel = officialGasModel
-
         !initialParentHeader = ParentHeader $ genesisBlockHeader ver cid
         !pse = PactServiceEnv
                 { _psMempoolAccess = Nothing
                 , _psCheckpointEnv = checkpointEnv
                 , _psPdb = pdb
                 , _psBlockHeaderDb = bhDb
-                , _psGasModel = gasModel
+                , _psGasModel = getGasModel
                 , _psMinerRewards = rs
                 , _psReorgLimit = fromIntegral $ _pactReorgLimit config
                 , _psOnFatalError = defaultOnFatalError (logFunctionText chainwebLogger)
@@ -147,6 +147,7 @@ initPactService' ver cid chainwebLogger bhDb pdb sqlenv config act = do
                 , _psCheckpointerDepth = 0
                 , _psLogger = pactLogger
                 , _psLoggers = loggers
+                , _psBlockGasLimit = _pactBlockGasLimit config
                 }
         !pst = PactServiceState Nothing mempty initialParentHeader P.noSPVSupport
     runPactServiceM pst pse $ do
@@ -228,7 +229,7 @@ initializeCoinContract _logger memPoolAccess v cid pwo = do
         PactServiceEnv{..} <- ask
         pd <- getTxContext def
         !mc <- liftIO $ readInitModules _psLogger pdbenv pd
-        modify' $ set psInitCache mc
+        updateInitCache mc
         return $! Discard ()
 
 -- | Lookup a block header.
@@ -390,7 +391,7 @@ attemptBuyGas
     -> Vector (Either InsertError ChainwebTransaction)
     -> PactServiceM cas (Vector (Either InsertError ChainwebTransaction))
 attemptBuyGas miner (PactDbEnv' dbEnv) txs = do
-        mc <- use psInitCache
+        mc <- getInitCache
         V.fromList . toList . sfst <$> V.foldM f (T2 mempty mc) txs
   where
     f (T2 dl mcache) cmd = do
@@ -408,7 +409,7 @@ attemptBuyGas miner (PactDbEnv' dbEnv) txs = do
 
         pd <- getTxContext (publicMetaOf cmd)
         spv <- use psSpvSupport
-        let ec = mkExecutionConfig
+        let ec = P.mkExecutionConfig
               [ P.FlagDisableModuleInstall
               , P.FlagDisableHistoryInTransactionalMode ]
         return $! TransactionEnv P.Transactional db l (ctxToPublicData pd) spv nid gp rk gl ec
@@ -445,8 +446,11 @@ attemptBuyGas miner (PactDbEnv' dbEnv) txs = do
             Left err -> return (T2 mcache (Left (InsertErrorBuyGas (T.pack $ show err))))
             Right t -> return (T2 (_txCache t) (Right tx))
 
-type ValidateTxs = Vector (Either InsertError ChainwebTransaction)
-type RunGas = ValidateTxs -> IO ValidateTxs
+data BlockFilling = BlockFilling
+    { _bfState :: BlockFill
+    , _bfSuccessPairs :: V.Vector (ChainwebTransaction,P.CommandResult [P.TxLog A.Value])
+    , _bfFailures :: V.Vector GasPurchaseFailure
+    }
 
 -- | Note: The BlockHeader param here is the PARENT HEADER of the new
 -- block-to-be
@@ -457,60 +461,118 @@ execNewBlock
     -> ParentHeader
     -> Miner
     -> PactServiceM cas PayloadWithOutputs
-execNewBlock mpAccess parent miner = handle onTxFailure $ do
+execNewBlock mpAccess parent miner = do
     updateMempool
     withDiscardedBatch $ do
-      newTrans <- withCheckpointerRewind newblockRewindLimit (Just parent) "preBlock" doPreBlock
-      withCheckpointerRewind (Just 0) (Just parent) "execNewBlock" (doNewBlock newTrans)
+      withCheckpointerRewind newblockRewindLimit (Just parent) "execNewBlock" doNewBlock
   where
-    onTxFailure e@(PactTransactionExecError rk _) = do
-        -- add the failing transaction to the mempool bad list, so it is not
-        -- re-selected for mining.
-        liftIO $ mpaBadlistTx mpAccess rk
-        throwM e
-    onTxFailure e = throwM e
 
     -- This is intended to mitigate mining attempts during replay.
     -- In theory we shouldn't need to rewind much ever, but values
     -- less than this are failing in PactReplay test.
     newblockRewindLimit = Just 8
 
-    doPreBlock pdbenv = do
+    getBlockTxs :: BlockFill -> PactServiceM cas (Vector ChainwebTransaction)
+    getBlockTxs bfState = do
       cp <- getCheckpointer
       psEnv <- ask
-      psState <- get
-      let runDebitGas :: RunGas
-          runDebitGas txs = evalPactServiceM psState psEnv runGas
-            where
-              runGas = attemptBuyGas miner pdbenv txs
-          validate bhi _bha txs = do
+      logger <- view psLogger
+      let validate bhi _bha txs = do
 
             let parentTime = ParentCreationTime $ _blockCreationTime $ _parentHeader parent
             results <- do
                 let v = _chainwebVersion psEnv
                     cid = _chainId psEnv
-                validateChainwebTxs v cid cp parentTime bhi txs runDebitGas
+                validateChainwebTxs logger v cid cp parentTime bhi txs return
 
             V.forM results $ \case
                 Right _ -> return True
                 Left _e -> return False
 
-      liftIO $! fmap Discard $!
-        mpaGetBlock mpAccess validate (pHeight + 1) pHash (_parentHeader parent)
+      liftIO $!
+        mpaGetBlock mpAccess bfState validate (pHeight + 1) pHash (_parentHeader parent)
 
-    doNewBlock newTrans pdbenv = do
-        logInfo $ "execNewBlock, about to get call processFork: "
+    doNewBlock pdbenv = do
+        logInfo $ "execNewBlock: "
                 <> " (parent height = " <> sshow pHeight <> ")"
                 <> " (parent hash = " <> sshow pHash <> ")"
 
+        blockGasLimit <- view psBlockGasLimit
+        let initState = BlockFill blockGasLimit mempty 0
+
+        -- Heuristic: limit fetches to count of 1000-gas txs in block.
+        let fetchLimit = fromIntegral $ blockGasLimit `div` 1000
+
+        newTrans <- getBlockTxs initState
+
         -- NEW BLOCK COINBASE: Reject bad coinbase, always use precompilation
-        results <- execTransactions False miner newTrans
+        (Transactions pairs cb) <- execTransactions False miner newTrans
           (EnforceCoinbaseFailure True)
           (CoinbaseUsePrecompiled True)
           pdbenv
 
-        let !pwo = toPayloadWithOutputs miner results
+        (BlockFilling _ successPairs failures) <-
+          refill fetchLimit pdbenv =<< foldM splitResults (BlockFilling initState mempty mempty) pairs
+
+        liftIO $ mpaBadlistTx mpAccess (V.map gasPurchaseFailureHash failures)
+
+        let !pwo = toPayloadWithOutputs miner (Transactions successPairs cb)
         return $! Discard pwo
+
+    refill fetchLimit pdbenv unchanged@(BlockFilling bfState _ _) = do
+
+      logInfo $ describeBF unchanged
+
+      -- LOOP INVARIANT: limit absolute recursion count
+      when (_bfCount bfState > fetchLimit) $
+        throwM $ MempoolFillFailure $ "Refill fetch limit exceeded (" <> sshow fetchLimit <> ")"
+
+      when (_bfGasLimit bfState < 0) $
+          throwM $ MempoolFillFailure $ "Internal error, negative gas limit: " <> sshow bfState
+
+      if _bfGasLimit bfState == 0 then pure unchanged else do
+
+        newTrans <- getBlockTxs bfState
+        if V.null newTrans then pure unchanged else do
+
+          pairs <- execTransactionsOnly miner newTrans pdbenv
+
+          r@(BlockFilling newState newPairs newFails) <-
+                foldM splitResults unchanged pairs
+
+          -- LOOP INVARIANT: gas must not increase
+          when (_bfGasLimit newState > _bfGasLimit bfState) $
+              throwM $ MempoolFillFailure $ "Gas must not increase: " <> sshow (bfState,newState)
+
+          -- LOOP INVARIANT: gas must decrease ...
+          if (_bfGasLimit newState < _bfGasLimit bfState)
+              -- ... OR only non-zero failures were returned.
+             || (V.null newPairs && not (V.null newFails))
+              then refill fetchLimit pdbenv (incCount r)
+              else throwM $ MempoolFillFailure $ "Invariant failure: " <>
+                   sshow (bfState,newState,V.length newTrans
+                         ,V.length newPairs,V.length newFails)
+
+    incCount b = b { _bfState = over bfCount succ (_bfState b) }
+
+    describeBF (BlockFilling (BlockFill g _ c) good bad) =
+      "Block fill: count=" <> sshow c <> ", gaslimit=" <> sshow g <> ", good=" <>
+      sshow (length good) <> ", bad=" <> sshow (length bad)
+
+
+    splitResults (BlockFilling (BlockFill g rks i) success fails) (t,r) = case r of
+      Right cr -> enforceUnique rks (requestKeyToTransactionHash $ P._crReqKey cr) >>= \rks' ->
+        -- Decrement actual gas used from block limit
+        return $ BlockFilling (BlockFill (g - fromIntegral (P._crGas cr)) rks' i)
+          (V.snoc success (t,cr)) fails
+      Left f -> enforceUnique rks (gasPurchaseFailureHash f) >>= \rks' ->
+        -- Gas buy failure adds failed request key to fail list only
+        return $ BlockFilling (BlockFill g rks' i) success (V.snoc fails f)
+
+    enforceUnique rks rk
+      | S.member rk rks =
+        throwM $ MempoolFillFailure $ "Duplicate transaction: " <> sshow rk
+      | otherwise = return $ S.insert rk rks
 
     pHeight = _blockHeight $ _parentHeader parent
     pHash = _blockHash $ _parentHeader parent
@@ -534,6 +596,7 @@ execNewGenesisBlock miner newTrans = withDiscardedBatch $
         results <- execTransactions True miner newTrans
                    (EnforceCoinbaseFailure True)
                    (CoinbaseUsePrecompiled False) pdbenv
+                   >>= throwOnGasFailure
         return $! Discard (toPayloadWithOutputs miner results)
 
 execLocal
@@ -542,16 +605,17 @@ execLocal
     -> PactServiceM cas (P.CommandResult P.Hash)
 execLocal cmd = withDiscardedBatch $ do
     PactServiceEnv{..} <- ask
-    mc <- use psInitCache
+    mc <- getInitCache
     pd <- getTxContext (publicMetaOf $! payloadObj <$> cmd)
     spv <- use psSpvSupport
-    let execConfig = mkExecutionConfig $
+    let execConfig = P.mkExecutionConfig $
             [ P.FlagAllowReadInLocal | _psAllowReadsInLocal ] ++
-            enablePactEvents' pd
+            enablePactEvents' pd ++
+            enforceKeysetFormats' pd
         logger = P.newLogger _psLoggers "execLocal"
     withCurrentCheckpointer "execLocal" $ \(PactDbEnv' pdbenv) -> do
         r <- liftIO $
-          applyLocal logger pdbenv officialGasModel pd spv cmd mc execConfig
+          applyLocal logger pdbenv chainweb213GasModel pd spv cmd mc execConfig
         return $! Discard (toHashCommandResult r)
 
 execSyncToBlock
@@ -629,11 +693,12 @@ execPreInsertCheckReq txs = withDiscardedBatch $ do
     psState <- get
     let parentTime = ParentCreationTime $ _blockCreationTime $ _parentHeader parent
     cp <- getCheckpointer
+    logger <- view psLogger
     withCurrentCheckpointer "execPreInsertCheckReq" $ \pdb -> do
       let v = _chainwebVersion psEnv
           cid = _chainId psEnv
       liftIO $ fmap Discard $
-        validateChainwebTxs v cid cp parentTime currHeight txs (runGas pdb psState psEnv)
+        validateChainwebTxs logger v cid cp parentTime currHeight txs (runGas pdb psState psEnv)
   where
     runGas pdb pst penv ts =
         evalPactServiceM pst penv (attemptBuyGas noMiner pdb ts)
@@ -666,7 +731,30 @@ freeModuleLoadGasModel = modifiedGasModel
       _ -> fullRunFunction name ga
     modifiedGasModel = defGasModel { P.runGasModel = modifiedRunFunction }
 
--- | Gas Model used in /send and /local
---
-officialGasModel :: P.GasModel
-officialGasModel = freeModuleLoadGasModel
+chainweb213GasModel :: P.GasModel
+chainweb213GasModel = modifiedGasModel
+  where
+    defGasModel = tableGasModel gasConfig
+    unknownOperationPenalty = 1000000
+    multiRowOperation = 40000
+    gasConfig = defaultGasConfig { _gasCostConfig_primTable = updTable }
+    updTable = M.union upd defaultGasTable
+    upd = M.fromList
+      [("keys",    multiRowOperation)
+      ,("select",  multiRowOperation)
+      ,("fold-db", multiRowOperation)
+      ]
+    fullRunFunction = P.runGasModel defGasModel
+    modifiedRunFunction name ga = case ga of
+      P.GPostRead P.ReadModule {} -> 0
+      P.GUnreduced _ts -> case M.lookup name updTable of
+        Just g -> g
+        Nothing -> unknownOperationPenalty
+      _ -> fullRunFunction name ga
+    modifiedGasModel = defGasModel { P.runGasModel = modifiedRunFunction }
+
+
+getGasModel :: TxContext -> P.GasModel
+getGasModel ctx
+    | chainweb213Pact (ctxVersion ctx) (ctxCurrentBlockHeight ctx) = chainweb213GasModel
+    | otherwise = freeModuleLoadGasModel

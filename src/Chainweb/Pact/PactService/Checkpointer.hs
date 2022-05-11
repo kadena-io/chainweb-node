@@ -81,7 +81,6 @@ import Data.Either
 import Data.IORef
 import Data.Text (Text)
 import qualified Data.Text as T
-import Data.Tuple.Strict
 
 import GHC.Stack
 
@@ -133,7 +132,7 @@ withPactState inner = bracket captureState releaseState $ \ref -> do
 exitOnRewindLimitExceeded :: PactServiceM cas a -> PactServiceM cas a
 exitOnRewindLimitExceeded = handle $ \case
     e@RewindLimitExceeded{} -> do
-        killFunction <- asks _psOnFatalError
+        killFunction <- asks (\x -> _psOnFatalError x)
         liftIO $ killFunction e (encodeToText $ msg e)
     e -> throwM e
   where

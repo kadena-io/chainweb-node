@@ -32,6 +32,7 @@ import Pact.Types.Command
 import qualified Pact.Types.Hash as H
 import Pact.Types.Logger (newLogger)
 import Pact.Types.PactValue
+import Pact.Types.RowData
 import Pact.Types.Runtime hiding (ChainId)
 import Pact.Types.SPV (noSPVSupport)
 import Pact.Types.SQLite
@@ -40,12 +41,11 @@ import Test.Tasty
 import Test.Tasty.HUnit
 
 -- internal imports
-
-import Chainweb.BlockHash (BlockHash(..), nullBlockHash)
+import Chainweb.BlockHash
 import Chainweb.BlockHeight (BlockHeight(..))
 import Chainweb.MerkleLogHash (merkleLogHash)
+import Chainweb.MerkleUniverse
 import Chainweb.Pact.Backend.ChainwebPactDb
-import Chainweb.Pact.Backend.InMemoryCheckpointer (initInMemoryCheckpointEnv)
 import Chainweb.Pact.Backend.RelationalCheckpointer
 import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.Backend.Utils
@@ -53,18 +53,19 @@ import Chainweb.Pact.TransactionExec
     (applyContinuation', applyExec', buildExecParsedCode)
 import Chainweb.Pact.Types
 import Chainweb.Test.Pact.Utils
-import Chainweb.Test.Orphans.Internal ({- Arbitrary BlockHash -})
 import Chainweb.Test.Utils
 import Chainweb.Utils (catchAllSynchronous)
 import Chainweb.Version
+
+
+import Chainweb.Test.Orphans.Internal ({- Arbitrary BlockHash -})
 
 -- -------------------------------------------------------------------------- --
 -- Tests
 
 tests :: ScheduledTest
 tests = testGroupSch "Checkpointer"
-    [ testInMemory
-    , testRelational
+    [ testRelational
     , testKeyset
     , testModuleName
     , testCase "PactDb Regression" testRegress
@@ -123,14 +124,14 @@ keysetTest c = testCaseSteps "Keyset test" $ \next -> do
 
     next "next block (blockheight 1, version 0)"
     let bh01 = BlockHeight 1
-    _hash01 <- BlockHash <$> liftIO (merkleLogHash "0000000000000000000000000000001a")
+    _hash01 <- BlockHash <$> liftIO (merkleLogHash @_ @ChainwebMerkleHashAlgorithm "0000000000000000000000000000001a")
     blockenv01 <- _cpRestore _cpeCheckpointer (Just (bh01, hash00))
     addKeyset blockenv01 "k2" (mkKeySet [] ">=")
     _cpDiscard _cpeCheckpointer
 
     next "fork on blockheight = 1"
     let bh11 = BlockHeight 1
-    hash11 <- BlockHash <$> liftIO (merkleLogHash "0000000000000000000000000000001b")
+    hash11 <- BlockHash <$> liftIO (merkleLogHash @_ @ChainwebMerkleHashAlgorithm "0000000000000000000000000000001b")
     blockenv11 <- _cpRestore _cpeCheckpointer (Just (bh11, hash00))
     addKeyset blockenv11 "k1" (mkKeySet [] ">=")
     _cpSave _cpeCheckpointer hash11
@@ -138,16 +139,12 @@ keysetTest c = testCaseSteps "Keyset test" $ \next -> do
 -- -------------------------------------------------------------------------- --
 -- CheckPointer Test
 
-testInMemory :: TestTree
-testInMemory = withInMemCheckpointerResource
-    $ checkpointerTest "In-memory Checkpointer"
-
 testRelational :: TestTree
 testRelational = withRelationalCheckpointerResource $
-    checkpointerTest "Relational Checkpointer"
+    checkpointerTest "Relational Checkpointer" True
 
-checkpointerTest :: String -> IO CheckpointEnv -> TestTree
-checkpointerTest name cenvIO = testCaseSteps name $ \next -> do
+checkpointerTest :: String -> Bool -> IO CheckpointEnv -> TestTree
+checkpointerTest name relational cenvIO = testCaseSteps name $ \next -> do
     cenv <- cenvIO
     let cp = _cpeCheckpointer cenv
 
@@ -368,8 +365,32 @@ checkpointerTest name cenvIO = testCaseSteps name $ \next -> do
 
     _blockEnvFailure <- expectException $ _cpRestore cp (Just (BlockHeight 12, hash10))
 
-    return ()
+    when relational $ do
+
+        next "Rewind to block 5"
+
+        next "Run block 5b with pact 4.2.0 changes"
+
+        blockEnv5b <- _cpRestore cp (Just (BlockHeight 5, hash14))
+        void $ runExec cenv blockEnv5b (Just $ ksData "7") (defModule "7")
+        void $ runExec cenv blockEnv5b Nothing "(m7.insertTbl 'b 2)"
+        void $ runExec cenv blockEnv5b Nothing "(m7.insertTbl 'd 3)"
+        void $ runExec cenv blockEnv5b Nothing "(m7.insertTbl 'c 4)"
+        void $ runExec cenv blockEnv5b Nothing "(keys m7.tbl)" >>= \EvalResult{..} -> Right _erOutput @?= traverse toPactValue [tStringList $ T.words "a b c d"]
+        _cpDiscard cp
+
+        next "Rollback to block 4 and expect failure with pact 4.2.0 changes"
+
+        blockEnv4b <- _cpRestore cp (Just (BlockHeight 4, hash13))
+        void $ runExec cenv blockEnv4b (Just $ ksData "7") (defModule "7")
+        void $ runExec cenv blockEnv4b Nothing "(m7.insertTbl 'b 2)"
+        void $ runExec cenv blockEnv4b Nothing "(m7.insertTbl 'd 3)"
+        void $ runExec cenv blockEnv4b Nothing "(m7.insertTbl 'c 4)"
+        expectException $ runExec cenv blockEnv4b Nothing "(keys m7.tbl)" >>= \EvalResult{..} -> Right _erOutput @?= traverse toPactValue [tStringList $ T.words "a b c d"]
+        _cpDiscard cp
+
   where
+
     h :: SomeException -> IO (Maybe String)
     h = const (return Nothing)
 
@@ -395,7 +416,7 @@ readRowUnitTest = simpleBlockEnvInit runUnitTest
   where
     writeRow' pactdb writeType conn i =
       _writeRow pactdb writeType (UserTables "user1") "key1"
-      (ObjectMap $ M.fromList [("f", (PLiteral (LInteger i)))]) conn
+      (RowData RDV1 (ObjectMap $ M.fromList [("f", (RDLiteral (LInteger i)))])) conn
     runUnitTest pactdb e schemaInit = do
       conn <- newMVar e
       void $ schemaInit conn
@@ -419,8 +440,8 @@ readRowUnitTest = simpleBlockEnvInit runUnitTest
       r <- _readRow pactdb usert "key1" conn
       case r of
         Nothing -> assertFailure "Unsuccessful write"
-        Just (ObjectMap m) -> case M.lookup "f" m of
-          Just l -> assertEquals "Unsuccesful write at field key \"f\"" l (PLiteral (LInteger 100))
+        Just (RowData _ (ObjectMap m)) -> case M.lookup "f" m of
+          Just l -> assertEquals "Unsuccesful write at field key \"f\"" l (RDLiteral (LInteger 100))
           Nothing -> assertFailure "Field not found"
 
 -- -------------------------------------------------------------------------- --
@@ -433,7 +454,7 @@ testRegress =
         >>= assertEquals "The final block state is" finalBlockState
   where
     finalBlockState = (2, 0)
-    toTup (BlockState txid _ blockVersion _ _ _) = (txid, blockVersion)
+    toTup (BlockState txid _ blockVersion _ _ _ _) = (txid, blockVersion)
 
 regressChainwebPactDb :: IO (MVar (BlockEnv SQLiteEnv))
 regressChainwebPactDb =  simpleBlockEnvInit runRegression
@@ -450,8 +471,8 @@ runRegression pactdb e schemaInit = do
     Just t1 <- begin pactdb conn
     let user1 = "user1"
         usert = UserTables user1
-        toPV :: ToTerm a => a -> PactValue
-        toPV = toPactValueLenient . toTerm'
+        toPV :: ToTerm a => a -> RowDataValue
+        toPV = pactValueToRowData . toPactValueLenient . toTerm'
     _createUserTable pactdb user1 "someModule" conn
     assertEquals' "output of commit2"
         [ TxLog "SYS:usertables" "user1" $
@@ -465,12 +486,10 @@ runRegression pactdb e schemaInit = do
         (commit pactdb conn)
 
     void $ begin pactdb conn
-    {- the below line is commented out because we no longer support _getUserTableInfo -}
-    -- assertEquals' "user table info correct" "someModule" $ _getUserTableInfo chainwebpactdb user1 conn
-    let row = ObjectMap $ M.fromList [("gah", PLiteral (LDecimal 123.454345))]
+    let row = RowData RDV1 $ ObjectMap $ M.fromList [("gah", RDLiteral (LDecimal 123.454345))]
     _writeRow pactdb Insert usert "key1" row conn
     assertEquals' "usert insert" (Just row) (_readRow pactdb usert "key1" conn)
-    let row' = ObjectMap $ M.fromList [("gah",toPV False),("fh",toPV (1 :: Int))]
+    let row' = RowData RDV1 $ ObjectMap $ M.fromList [("gah",toPV False),("fh",toPV (1 :: Int))]
     _writeRow pactdb Update usert "key1" row' conn
     assertEquals' "user update" (Just row') (_readRow pactdb usert "key1" conn)
     let ks = mkKeySet [PublicKey "skdjhfskj"] "predfun"
@@ -511,7 +530,7 @@ runRegression pactdb e schemaInit = do
     --   [TxLog "user1" "key1" row,
     --    TxLog "user1" "key1" row'] $
     --   _getTxLog chainwebpactdb usert (head tids) conn
-    assertEquals' "user txlogs" [TxLog "user1" "key1" (ObjectMap $ on M.union _objectMap row' row)] $
+    assertEquals' "user txlogs" [TxLog "user1" "key1" (RowData RDV1 (ObjectMap $ on M.union (_objectMap . _rdData) row' row))] $
         _getTxLog pactdb usert (head tids) conn
     _writeRow pactdb Insert usert "key2" row conn
     assertEquals' "user insert key2 pre-rollback" (Just row) (_readRow pactdb usert "key2" conn)
@@ -549,13 +568,6 @@ throwFail = throwIO . userError
 -- -------------------------------------------------------------------------- --
 -- Checkpointer Utils
 
-withInMemCheckpointerResource :: (IO CheckpointEnv -> TestTree) -> TestTree
-withInMemCheckpointerResource = withResource initInMem (const $ return ())
-  where
-    loggers = pactTestLogger False
-    logger = newLogger loggers "inMemCheckpointer"
-    initInMem = initInMemoryCheckpointEnv loggers logger testVer testChainId
-
 withRelationalCheckpointerResource :: (IO CheckpointEnv -> TestTree) -> TestTree
 withRelationalCheckpointerResource =
     withResource initializeSQLite freeSQLiteResource . runSQLite
@@ -591,7 +603,7 @@ runSQLite' runTest sqlEnvIO = runTest $ do
 
 runExec :: CheckpointEnv -> PactDbEnv'-> Maybe Value -> Text -> IO EvalResult
 runExec cp (PactDbEnv' pactdbenv) eData eCode = do
-    execMsg <- buildExecParsedCode eData eCode
+    execMsg <- buildExecParsedCode Nothing {- use latest parser version -} eData eCode
     evalTransactionM cmdenv cmdst $
       applyExec' defaultInterpreter execMsg [] h' permissiveNamespacePolicy
   where
@@ -650,12 +662,15 @@ loadModule = do
     fn = "test/pact/simple.repl"
 
 nativeLookup :: NativeDefName -> Maybe (Term Name)
-nativeLookup (NativeDefName n) = case HM.lookup (Name $ BareName n def) nativeDefs of
+nativeLookup (NativeDefName n) = case HM.lookup n nativeDefs of
     Just (Direct t) -> Just t
     _ -> Nothing
 
-tIntList :: [Int] -> Term n
+tIntList :: [Int] -> Term Name
 tIntList = toTList (TyPrim TyInteger) def . map toTerm
+
+tStringList :: [Text] -> Term Name
+tStringList = toTList (TyPrim TyString) def . map toTerm
 
 toTerm' :: ToTerm a => a -> Term Name
 toTerm' = toTerm
@@ -720,4 +735,3 @@ tablecode = T.unlines
     , ""
     , "(create-table test-table)"
     ]
-

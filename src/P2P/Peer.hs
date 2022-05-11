@@ -3,6 +3,7 @@
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DerivingStrategies #-}
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
@@ -44,8 +45,11 @@ module P2P.Peer
 , peerConfigAddr
 , peerConfigInterface
 , peerConfigCertificateChain
+, peerConfigCertificateChainFile
 , peerConfigKey
+, peerConfigKeyFile
 , defaultPeerConfig
+, validatePeerConfig
 , _peerConfigPort
 , peerConfigPort
 , _peerConfigHost
@@ -70,12 +74,14 @@ module P2P.Peer
 ) where
 
 import Configuration.Utils hiding (Lens')
+import Configuration.Utils.Validation
 
 import Control.DeepSeq
 import Control.Exception (evaluate)
 import Control.Lens hiding ((.=))
 import Control.Monad
 import Control.Monad.Catch
+import Control.Monad.Writer
 
 import qualified Data.Attoparsec.Text as A
 import qualified Data.ByteString as B
@@ -101,6 +107,8 @@ import Chainweb.Utils hiding (check)
 import Chainweb.Version
 
 import Network.X509.SelfSigned
+
+import P2P.BootstrapNodes
 
 -- -------------------------------------------------------------------------- --
 -- Peer Id
@@ -140,7 +148,9 @@ instance HasTextRepresentation PeerId where
 
 instance ToJSON PeerId where
     toJSON = toJSON . toText
+    toEncoding = toEncoding . toText
     {-# INLINE toJSON #-}
+    {-# INLINE toEncoding #-}
 
 instance FromJSON PeerId where
     parseJSON = parseJsonFromText "PeerId"
@@ -180,12 +190,18 @@ data PeerInfo = PeerInfo
 
 makeLenses ''PeerInfo
 
+peerInfoProperties :: KeyValue kv => PeerInfo -> [kv]
+peerInfoProperties a =
+    [ "id" .= _peerId a
+    , "address" .= _peerAddr a
+    ]
+{-# INLINE peerInfoProperties #-}
+
 instance ToJSON PeerInfo where
-    toJSON a = object
-        [ "id" .= _peerId a
-        , "address" .= _peerAddr a
-        ]
+    toJSON  = object . peerInfoProperties
+    toEncoding  = pairs . mconcat . peerInfoProperties
     {-# INLINE toJSON #-}
+    {-# INLINE toEncoding #-}
 
 instance FromJSON PeerInfo where
     parseJSON = withObject "PeerInfo" $ \o -> PeerInfo
@@ -206,7 +222,7 @@ peerInfoToText pinf
 peerInfoFromText :: MonadThrow m => T.Text -> m PeerInfo
 peerInfoFromText = parseM $ PeerInfo <$> parsePeerId <*> parseAddr
   where
-    parsePeerId = Just <$> parseText (A.takeTill (== '@') <* "@") <|> pure Nothing
+    parsePeerId = optional $ parseText (A.takeTill (== '@') <* "@")
     parseAddr = parseText A.takeText
 
 peerInfoPort :: Lens' PeerInfo Port
@@ -248,13 +264,17 @@ peerInfoClientEnv mgr = mkClientEnv mgr . peerBaseUrl . _peerAddr
         (B8.unpack . hostnameBytes $ view hostAddressHost a)
         (int $ view hostAddressPort a)
         ""
+
 -- -------------------------------------------------------------------------- --
 -- Peer Configuration
 
 data PeerConfig = PeerConfig
     { _peerConfigAddr :: !HostAddress
         -- ^ The public host address of the peer.
+        --
         -- A port number of 0 means that a free port is assigned by the system.
+        -- An IP address of 0.0.0.0 means that the node discovers its
+        -- external IP address itself.
 
     , _peerConfigInterface :: !HostPreference
         -- ^ The network interface that the peer binds to. Default is to
@@ -301,7 +321,7 @@ peerConfigHost = peerConfigAddr . hostAddressHost
 
 defaultPeerConfig :: PeerConfig
 defaultPeerConfig = PeerConfig
-    { _peerConfigAddr = HostAddress localhost 0
+    { _peerConfigAddr = HostAddress anyIpv4 1789
     , _peerConfigInterface = fromString "*"
     , _peerConfigCertificateChain = Nothing
     , _peerConfigCertificateChainFile = Nothing
@@ -309,15 +329,40 @@ defaultPeerConfig = PeerConfig
     , _peerConfigKeyFile = Nothing
     }
 
+validatePeerConfig :: Applicative a => ConfigValidation PeerConfig a
+validatePeerConfig c = do
+    when (_peerConfigHost c /= anyIpv4 && isReservedHostAddress (_peerConfigAddr c)) $ tell
+        $ pure "The configured hostname is a localhost name or from a reserved IP address range. Please use a public hostname or IP address, or '0.0.0.0' (automatic configuration)."
+
+    when (_peerConfigInterface c == "localhost" || _peerConfigInterface c == "localnet") $ tell
+        $ pure "The node is configured to listen only on a private network. Please use a public network as interface configuration, e.g. '*' or '0.0.0.0'"
+
+    mapM_ (validateFileReadable "certificateChainFile") (_peerConfigCertificateChainFile c)
+
+    mapM_ (validateFileReadable "certificateChainFile") (_peerConfigKeyFile c)
+
+    when (isJust (_peerConfigCertificateChainFile c) && isJust (_peerConfigCertificateChain c)) $
+        tell $ pure "The configuration provides both 'certificateChain' and 'certificateChainFile'. The 'certificateChain' setting will be used."
+
+    when (isJust (_peerConfigKeyFile c) && isJust (_peerConfigKey c)) $
+        tell $ pure "The configuration provides both 'key' and 'keyFile'. The 'key' setting will be used."
+
+peerConfigProperties :: KeyValue kv => PeerConfig -> [kv]
+peerConfigProperties o =
+    [ "hostaddress" .= _peerConfigAddr o
+    , "interface" .= hostPreferenceToText (_peerConfigInterface o)
+    , "certificateChain" .= _peerConfigCertificateChain o
+    , "certificateChainFile" .= _peerConfigCertificateChainFile o
+    , "key" .= _peerConfigKey o
+    , "keyFile" .= _peerConfigKeyFile o
+    ]
+{-# INLINE peerConfigProperties #-}
+
 instance ToJSON PeerConfig where
-    toJSON o = object
-        [ "hostaddress" .= _peerConfigAddr o
-        , "interface" .= hostPreferenceToText (_peerConfigInterface o)
-        , "certificateChain" .= _peerConfigCertificateChain o
-        , "certificateChainFile" .= _peerConfigCertificateChainFile o
-        , "key" .= _peerConfigKey o
-        , "keyFile" .= _peerConfigKeyFile o
-        ]
+    toJSON = object . peerConfigProperties
+    toEncoding = pairs . mconcat . peerConfigProperties
+    {-# INLINE toJSON #-}
+    {-# INLINE toEncoding #-}
 
 instance FromJSON PeerConfig where
     parseJSON = withObject "PeerConfig" $ \o -> PeerConfig
@@ -389,7 +434,7 @@ getPeerCertificate conf = do
         (Nothing, _) -> do
             (!fp, !c, !k) <- generateSelfSignedCertificate @DefCertType 365 dn Nothing
             return (fp, X509CertChainPem c [], k)
-        (Just !c@(X509CertChainPem !a _), (Just !k)) ->
+        (Just c@(X509CertChainPem !a _), Just !k) ->
             return (unsafeFingerprintPem a, c, k)
         _ -> throwM $ ConfigurationException "missing certificate key in peer config"
   where
@@ -408,20 +453,26 @@ unsafeCreatePeer conf = do
         , _peerKey = key
         }
 
+peerProperties :: KeyValue kv => Peer -> [kv]
+peerProperties p =
+    [ "info" .= _peerInfo p
+    , "interface" .= hostPreferenceToText (_peerInterface p)
+    , "certificateChain" .= _peerCertificateChain p
+    , "key" .= _peerKey p
+    ]
+{-# INLINE peerProperties #-}
+
 instance ToJSON Peer where
-    toJSON p = object
-        [ "info" .= _peerInfo p
-        , "interface" .= hostPreferenceToText (_peerInterface p)
-        , "certifcateChain" .= _peerCertificateChain p
-        , "key" .= _peerKey p
-        ]
+    toJSON = object . peerProperties
+    toEncoding = pairs. mconcat . peerProperties
     {-# INLINE toJSON #-}
+    {-# INLINE toEncoding #-}
 
 instance FromJSON Peer where
     parseJSON = withObject "Peer" $ \o -> Peer
         <$> o .: "info"
         <*> (parseJsonFromText "interface" =<< o .: "interface")
-        <*> o .: "certificate"
+        <*> o .: "certificateChain"
         <*> o .: "key"
     {-# INLINE parseJSON #-}
 
@@ -441,9 +492,9 @@ bootstrapPeerInfos TimedConsensus{} = [testBootstrapPeerInfos]
 bootstrapPeerInfos PowConsensus{} = [testBootstrapPeerInfos]
 bootstrapPeerInfos TimedCPM{} = [testBootstrapPeerInfos]
 bootstrapPeerInfos FastTimedCPM{} = [testBootstrapPeerInfos]
-bootstrapPeerInfos Development = productionBootstrapPeerInfo
-bootstrapPeerInfos Testnet04 = productionBootstrapPeerInfo
-bootstrapPeerInfos Mainnet01 = productionBootstrapPeerInfo
+bootstrapPeerInfos Development = []
+bootstrapPeerInfos Testnet04 = domainAddr2PeerInfo testnetBootstrapHosts
+bootstrapPeerInfos Mainnet01 = domainAddr2PeerInfo mainnetBootstrapHosts
 
 testBootstrapPeerInfos :: PeerInfo
 testBootstrapPeerInfos =
@@ -465,19 +516,7 @@ testBootstrapPeerInfos =
             }
         }
 
-productionBootstrapPeerInfo :: [PeerInfo]
-productionBootstrapPeerInfo = map f testnetBootstrapHosts
-  where
-    f hn = PeerInfo
-        { _peerId = Nothing
-        , _peerAddr = HostAddress
-            { _hostAddressHost = hn
-            , _hostAddressPort = 443
-            }
-        }
-
--- | Official TestNet bootstrap nodes.
+-- | Official testnet bootstrap nodes
 --
-testnetBootstrapHosts :: [Hostname]
-testnetBootstrapHosts = map unsafeHostnameFromText []
-
+domainAddr2PeerInfo :: [HostAddress] -> [PeerInfo]
+domainAddr2PeerInfo = fmap (PeerInfo Nothing)

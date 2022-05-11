@@ -28,6 +28,9 @@ module Chainweb.Pact.Types
 
     -- * Misc helpers
   , Transactions(..)
+  , transactionCoinbase
+  , transactionPairs
+
   , GasSupply(..)
   , GasId(..)
   , EnforceCoinbaseFailure(..)
@@ -77,6 +80,8 @@ module Chainweb.Pact.Types
   , psAllowReadsInLocal
   , psIsBatch
   , psCheckpointerDepth
+  , psBlockGasLimit
+
   , getCheckpointer
 
     -- * TxContext
@@ -93,6 +98,11 @@ module Chainweb.Pact.Types
   , psInitCache
   , psParentHeader
   , psSpvSupport
+
+  -- * Module cache
+  , ModuleInitCache
+  , getInitCache
+  , updateInitCache
 
     -- * Pact Service Monad
   , PactServiceM(..)
@@ -118,24 +128,24 @@ module Chainweb.Pact.Types
   -- * miscellaneous
   , defaultOnFatalError
   , defaultReorgLimit
-  , mkExecutionConfig
   , defaultPactServiceConfig
+  , defaultBlockGasLimit
   ) where
 
 import Control.DeepSeq
 import Control.Exception (asyncExceptionFromException, asyncExceptionToException, throw)
-import Control.Lens hiding ((.=))
+import Control.Lens
 import Control.Monad.Catch
 import Control.Monad.Reader
 import Control.Monad.State.Strict
 
 
-import Data.Aeson hiding (Error)
+import Data.Aeson hiding (Error,(.=))
 import Data.Default (def)
 import Data.HashMap.Strict (HashMap)
-import qualified Data.Set as S
+import qualified Data.HashMap.Strict as HM
+import qualified Data.Map.Strict as M
 import Data.Text (pack, unpack, Text)
-import Data.Tuple.Strict (T2)
 import Data.Vector (Vector)
 import Data.Word
 
@@ -154,9 +164,9 @@ import Pact.Types.Gas
 import qualified Pact.Types.Logger as P
 import Pact.Types.Names
 import Pact.Types.Persistence (ExecutionMode, TxLog)
-import Pact.Types.Runtime (ExecutionConfig(..), ExecutionFlag(..), ModuleData)
+import Pact.Types.Runtime (ExecutionConfig(..), ModuleData(..))
 import Pact.Types.SPV
-import Pact.Types.Term (PactId(..), Ref)
+import Pact.Types.Term
 
 -- internal chainweb modules
 
@@ -176,19 +186,17 @@ import Chainweb.Utils
 import Chainweb.Version
 
 
-data Transactions = Transactions
-    { _transactionPairs :: !(Vector (ChainwebTransaction, CommandResult [TxLog Value]))
+data Transactions r = Transactions
+    { _transactionPairs :: !(Vector (ChainwebTransaction, r))
     , _transactionCoinbase :: !(CommandResult [TxLog Value])
     } deriving (Eq, Show, Generic, NFData)
+makeLenses 'Transactions
 
 data PactDbStatePersist = PactDbStatePersist
     { _pdbspRestoreFile :: !(Maybe FilePath)
     , _pdbspPactDbState :: !PactDbState
     }
 makeLenses ''PactDbStatePersist
-
-mkExecutionConfig :: [ExecutionFlag] -> ExecutionConfig
-mkExecutionConfig = ExecutionConfig . S.fromList
 
 -- -------------------------------------------------------------------------- --
 -- Coinbase output utils
@@ -303,6 +311,17 @@ execTransactionM
 execTransactionM tenv txst act
     = execStateT (runReaderT (_unTransactionM act) tenv) txst
 
+
+
+-- | Pair parent header with transaction metadata.
+-- In cases where there is no transaction/Command, 'PublicMeta'
+-- default value is used.
+data TxContext = TxContext
+  { _tcParentHeader :: ParentHeader
+  , _tcPublicMeta :: PublicMeta
+  }
+
+
 -- -------------------------------------------------------------------- --
 -- Pact Service Monad
 
@@ -311,7 +330,7 @@ data PactServiceEnv cas = PactServiceEnv
     , _psCheckpointEnv :: !CheckpointEnv
     , _psPdb :: !(PayloadDb cas)
     , _psBlockHeaderDb :: !BlockHeaderDb
-    , _psGasModel :: !GasModel
+    , _psGasModel :: TxContext -> GasModel
     , _psMinerRewards :: !MinerRewards
     , _psReorgLimit :: {-# UNPACK #-} !Word64
     , _psOnFatalError :: forall a. PactException -> Text -> IO a
@@ -334,6 +353,7 @@ data PactServiceEnv cas = PactServiceEnv
         -- ^ True when within a `withBatch` or `withDiscardBatch` call.
     , _psCheckpointerDepth :: !Int
         -- ^ Number of nested checkpointer calls
+    , _psBlockGasLimit :: !GasLimit
     }
 makeLenses ''PactServiceEnv
 
@@ -348,15 +368,22 @@ instance HasChainId (PactServiceEnv c) where
 defaultReorgLimit :: Word64
 defaultReorgLimit = 480
 
+-- | NOTE this is only used for tests/benchmarks. DO NOT USE IN PROD
 defaultPactServiceConfig :: PactServiceConfig
 defaultPactServiceConfig = PactServiceConfig
-      { _pactReorgLimit = fromIntegral $ defaultReorgLimit
+      { _pactReorgLimit = fromIntegral defaultReorgLimit
       , _pactRevalidate = True
       , _pactQueueSize = 1000
       , _pactResetDb = True
       , _pactAllowReadsInLocal = False
+      , _pactBlockGasLimit = defaultBlockGasLimit
       }
 
+-- | This default value is only relevant for testing. In a chainweb-node the @GasLimit@
+-- is initialized from the @_configBlockGasLimit@ value of @ChainwebConfiguration@.
+--
+defaultBlockGasLimit :: GasLimit
+defaultBlockGasLimit = 10000
 
 newtype ReorgLimitExceeded = ReorgLimitExceeded Text
 
@@ -375,22 +402,44 @@ defaultOnFatalError lf pex t = do
   where
     errMsg = pack (show pex) <> "\n" <> t
 
+type ModuleInitCache = M.Map BlockHeight ModuleCache
+
 data PactServiceState = PactServiceState
     { _psStateValidated :: !(Maybe BlockHeader)
-    , _psInitCache :: !ModuleCache
+    , _psInitCache :: !ModuleInitCache
     , _psParentHeader :: !ParentHeader
     , _psSpvSupport :: !SPVSupport
     }
 makeLenses ''PactServiceState
 
 
--- | Pair parent header with transaction metadata.
--- In cases where there is no transaction/Command, 'PublicMeta'
--- default value is used.
-data TxContext = TxContext
-  { _tcParentHeader :: ParentHeader
-  , _tcPublicMeta :: PublicMeta
-  }
+_debugMC :: Text -> PactServiceM cas ()
+_debugMC t = do
+  mc <- fmap (fmap instr) <$> use psInitCache
+  liftIO $ print (t,mc)
+  where
+    instr (ModuleData{..},_) = preview (_MDModule . mHash) _mdModule
+
+-- | Look up an init cache that is stored at or before the height of the current parent header.
+getInitCache :: PactServiceM cas ModuleCache
+getInitCache = get >>= \PactServiceState{..} ->
+    case M.lookupLE (pbh _psParentHeader) _psInitCache of
+      Just (_,mc) -> return mc
+      Nothing -> return mempty
+  where
+    pbh = _blockHeight . _parentHeader
+
+-- | Update init cache at adjusted parent block height (APBH).
+-- Contents are merged with cache found at or before APBH.
+-- APBH is 0 for genesis and (parent block height + 1) thereafter.
+updateInitCache :: ModuleCache -> PactServiceM cas ()
+updateInitCache mc = get >>= \PactServiceState{..} -> do
+    let bf 0 = 0
+        bf h = succ h
+        pbh = bf . _blockHeight . _parentHeader $ _psParentHeader
+    psInitCache .= case M.lookupLE pbh _psInitCache of
+      Nothing -> M.singleton pbh mc
+      Just (_,before) -> M.insert pbh (HM.union mc before) _psInitCache
 
 -- | Convert context to datatype for Pact environment.
 --

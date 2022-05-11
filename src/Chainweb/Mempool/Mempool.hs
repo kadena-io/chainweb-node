@@ -3,11 +3,13 @@
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE TemplateHaskell #-}
 
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 
@@ -67,6 +69,10 @@ module Chainweb.Mempool.Mempool
   , HighwaterMark
   , InsertType(..)
   , InsertError(..)
+  , BlockFill(..)
+  , bfGasLimit
+  , bfTxHashes
+  , bfCount
 
   , chainwebTransactionConfig
   , mockCodec
@@ -79,11 +85,13 @@ module Chainweb.Mempool.Mempool
   , syncMempools
   , syncMempools'
   , GasLimit(..)
+  , GasPrice(..)
+  , requestKeyToTransactionHash
   ) where
 ------------------------------------------------------------------------------
 import Control.DeepSeq (NFData)
 import Control.Exception
-import Control.Lens
+import Control.Lens hiding ((.=))
 import Control.Monad (replicateM, unless)
 
 import Crypto.Hash (hash)
@@ -106,9 +114,9 @@ import qualified Data.HashSet as HashSet
 import Data.Int (Int64)
 import Data.IORef
 import Data.List (unfoldr)
+import qualified Data.Set as S
 import Data.Text (Text)
 import qualified Data.Text as T
-import Data.Tuple.Strict (T2)
 import Data.Vector (Vector)
 import qualified Data.Vector as V
 import Data.Word (Word64)
@@ -133,13 +141,32 @@ import Chainweb.Time (Micros(..), Time(..), TimeSpan(..))
 import qualified Chainweb.Time as Time
 import Chainweb.Transaction
 import Chainweb.Utils
+import Chainweb.Version (ChainwebVersion(..))
 import Data.LogMessage (LogFunctionText)
 
 ------------------------------------------------------------------------------
 data LookupResult t = Missing
                     | Pending t
-  deriving (Show, Generic)
-  deriving anyclass (ToJSON, FromJSON, NFData) -- TODO: a handwritten instance
+  deriving (Show, Generic, Eq)
+  deriving anyclass (NFData)
+
+-- This instance is a bit strange. It's for backward compatibility.
+--
+instance ToJSON t => ToJSON (LookupResult t) where
+    toJSON Missing = object [ "tag" .= ("Missing" :: String) ]
+    toJSON (Pending t) = object [ "tag" .= ("Pending" :: String), "contents" .= t ]
+    {-# INLINE toJSON #-}
+
+    toEncoding Missing = pairs $ "tag" .= ("Missing" :: String)
+    toEncoding (Pending t) = pairs $ "tag" .= ("Pending" :: String) <> "contents" .= t
+    {-# INLINE toEncoding #-}
+
+instance FromJSON t => FromJSON (LookupResult t) where
+    parseJSON = withObject "LookupResult" $ \o -> o .: "tag" >>= \case
+        "Missing" -> return Missing
+        "Pending" -> Pending <$> o .: "contents"
+        t -> fail $ "Unrecognized lookup result tag: " <> t
+    {-# INLINE parseJSON #-}
 
 instance Functor LookupResult where
     fmap _ Missing = Missing
@@ -195,12 +222,17 @@ data InsertType = CheckedInsert | UncheckedInsert
 data InsertError = InsertErrorDuplicate
                  | InsertErrorInvalidTime
                  | InsertErrorOversized GasLimit
+                 | InsertErrorUndersized
+                    GasPrice -- actual gas price
+                    GasPrice -- minimum gas price
                  | InsertErrorBadlisted
                  | InsertErrorMetadataMismatch
                  | InsertErrorTransactionsDisabled
                  | InsertErrorBuyGas Text
                  | InsertErrorCompilationFailed Text
                  | InsertErrorOther Text
+                 | InsertErrorInvalidHash
+                 | InsertErrorInvalidSigs
   deriving (Generic, Eq, NFData)
 
 instance Show InsertError
@@ -208,6 +240,7 @@ instance Show InsertError
     show InsertErrorDuplicate = "Transaction already exists on chain"
     show InsertErrorInvalidTime = "Transaction time is invalid or TTL is expired"
     show (InsertErrorOversized (GasLimit l)) = "Transaction gas limit exceeds block gas limit (" <> show l <> ")"
+    show (InsertErrorUndersized (GasPrice p) (GasPrice m)) = "Transaction gas price (" <> show p <> ") is below minimum gas price (" <> show m <> ")"
     show InsertErrorBadlisted =
         "Transaction is badlisted because it previously failed to validate."
     show InsertErrorMetadataMismatch =
@@ -217,8 +250,21 @@ instance Show InsertError
     show (InsertErrorBuyGas msg) = "Attempt to buy gas failed with: " <> T.unpack msg
     show (InsertErrorCompilationFailed msg) = "Transaction compilation failed: " <> T.unpack msg
     show (InsertErrorOther m) = "insert error: " <> T.unpack m
+    show InsertErrorInvalidHash = "Invalid transaction hash"
+    show InsertErrorInvalidSigs = "Invalid transaction sigs"
 
 instance Exception InsertError
+
+-- | Parameterizes Mempool get-block calls.
+data BlockFill = BlockFill
+  { _bfGasLimit :: !GasLimit
+    -- ^ Fetch pending transactions up to this limit.
+  , _bfTxHashes :: !(S.Set TransactionHash)
+    -- ^ Fetch only transactions not in set.
+  , _bfCount :: {-# UNPACK #-} !Word64
+    -- ^ "Round count" of fetching for a given new block.
+  } deriving (Eq,Show)
+
 
 ------------------------------------------------------------------------------
 -- | Mempool backend API. Here @t@ is the transaction payload type.
@@ -244,7 +290,7 @@ data MempoolBackend t = MempoolBackend {
   , mempoolMarkValidated :: Vector t -> IO ()
 
     -- | Mark a transaction as bad.
-  , mempoolAddToBadList :: TransactionHash -> IO ()
+  , mempoolAddToBadList :: Vector TransactionHash -> IO ()
 
     -- | Returns 'True' if the transaction is badlisted.
   , mempoolCheckBadList :: Vector TransactionHash -> IO (Vector Bool)
@@ -253,7 +299,7 @@ data MempoolBackend t = MempoolBackend {
     -- for mining.
     --
   , mempoolGetBlock
-      :: MempoolPreBlockCheck t -> BlockHeight -> BlockHash -> IO (Vector t)
+      :: BlockFill -> MempoolPreBlockCheck t -> BlockHeight -> BlockHash -> IO (Vector t)
 
     -- | Discard any expired transactions.
   , mempoolPrune :: IO ()
@@ -307,14 +353,16 @@ noopMempool = do
     noopMV = const $ return ()
     noopAddToBadList = const $ return ()
     noopCheckBadList v = return $ V.replicate (V.length v) False
-    noopGetBlock _ _ _ = return V.empty
+    noopGetBlock _ _ _ _ = return V.empty
     noopGetPending = const $ const $ return (0,0)
     noopClear = return ()
 
 
 ------------------------------------------------------------------------------
-chainwebTransactionConfig :: TransactionConfig ChainwebTransaction
-chainwebTransactionConfig = TransactionConfig chainwebPayloadCodec
+chainwebTransactionConfig
+    :: Maybe (ChainwebVersion, BlockHeight)
+    -> TransactionConfig ChainwebTransaction
+chainwebTransactionConfig chainCtx = TransactionConfig (chainwebPayloadCodec chainCtx)
     commandHash
     chainwebTestHashMeta
     getGasPrice
@@ -539,13 +587,34 @@ instance HasTextRepresentation TransactionHash where
   toText (TransactionHash th) = encodeB64UrlNoPaddingText $ SB.fromShort th
   fromText = (TransactionHash . SB.toShort <$>) . decodeB64UrlNoPaddingText
 
+requestKeyToTransactionHash :: RequestKey -> TransactionHash
+requestKeyToTransactionHash = TransactionHash . SB.toShort . H.unHash . unRequestKey
+
 ------------------------------------------------------------------------------
 data TransactionMetadata = TransactionMetadata {
     txMetaCreationTime :: {-# UNPACK #-} !(Time Micros)
   , txMetaExpiryTime :: {-# UNPACK #-} !(Time Micros)
   } deriving (Eq, Ord, Show, Generic)
-    deriving anyclass (FromJSON, ToJSON, NFData)
+    deriving anyclass (NFData)
 
+transactionMetadataProperties :: KeyValue kv => TransactionMetadata -> [kv]
+transactionMetadataProperties o =
+    [ "txMetaCreationTime" .= txMetaCreationTime o
+    , "txMetaExpiryTime" .= txMetaExpiryTime o
+    ]
+{-# INLINE transactionMetadataProperties #-}
+
+instance ToJSON TransactionMetadata where
+    toJSON = object . transactionMetadataProperties
+    toEncoding = pairs . mconcat . transactionMetadataProperties
+    {-# INLINE toJSON #-}
+    {-# INLINE toEncoding #-}
+
+instance FromJSON TransactionMetadata where
+    parseJSON = withObject "TransactionMetadata" $ \o -> TransactionMetadata
+        <$> o .: "txMetaCreationTime"
+        <*> o .: "txMetaExpiryTime"
+    {-# INLINE parseJSON #-}
 
 ------------------------------------------------------------------------------
 -- | Mempools will check these values match in APIs
@@ -566,9 +635,29 @@ data ValidatedTransaction t = ValidatedTransaction
     , validatedHash :: {-# UNPACK #-} !BlockHash
     , validatedTransaction :: !t
     }
-  deriving (Show, Generic)
-  deriving anyclass (ToJSON, FromJSON, NFData) -- TODO: a handwritten instance
+  deriving (Show, Eq, Generic)
+  deriving anyclass (NFData)
 
+validatedTransactionProperties :: ToJSON t => KeyValue kv => ValidatedTransaction t -> [kv]
+validatedTransactionProperties o =
+    [ "validatedHeight" .= validatedHeight o
+    , "validatedHash" .= validatedHash o
+    , "validatedTransaction" .= validatedTransaction o
+    ]
+{-# INLINE validatedTransactionProperties #-}
+
+instance ToJSON t => ToJSON (ValidatedTransaction t) where
+    toJSON = object . validatedTransactionProperties
+    toEncoding = pairs . mconcat . validatedTransactionProperties
+    {-# INLINE toJSON #-}
+    {-# INLINE toEncoding #-}
+
+instance FromJSON t => FromJSON (ValidatedTransaction t) where
+    parseJSON = withObject "ValidatedTransaction" $ \o -> ValidatedTransaction
+        <$> o .: "validatedHeight"
+        <*> o .: "validatedHash"
+        <*> o .: "validatedTransaction"
+    {-# INLINE parseJSON #-}
 
 ------------------------------------------------------------------------------
 -- | Mempool only cares about a few projected values from the transaction type
@@ -580,12 +669,33 @@ data MockTx = MockTx {
   , mockGasLimit :: !GasLimit
   , mockMeta :: {-# UNPACK #-} !TransactionMetadata
   } deriving (Eq, Ord, Show, Generic)
-    deriving anyclass (FromJSON, ToJSON, NFData)
+    deriving anyclass (NFData)
 
+mockTxProperties :: KeyValue kv => MockTx -> [kv]
+mockTxProperties o =
+    [ "mockNonce" .= mockNonce o
+    , "mockGasPrice" .= mockGasPrice o
+    , "mockGasLimit" .= mockGasLimit o
+    , "mockMeta" .= mockMeta o
+    ]
+{-# INLINE mockTxProperties #-}
+
+instance ToJSON MockTx where
+    toJSON = object . mockTxProperties
+    toEncoding = pairs . mconcat . mockTxProperties
+    {-# INLINE toJSON #-}
+    {-# INLINE toEncoding #-}
+
+instance FromJSON MockTx where
+    parseJSON = withObject "MockTx" $ \o -> MockTx
+        <$> o .: "mockNonce"
+        <*> o .: "mockGasPrice"
+        <*> o .: "mockGasLimit"
+        <*> o .: "mockMeta"
+    {-# INLINE parseJSON #-}
 
 mockBlockGasLimit :: GasLimit
 mockBlockGasLimit = 100_000_000
-
 
 -- | A codec for transactions when sending them over the wire.
 mockCodec :: Codec MockTx
@@ -644,3 +754,6 @@ mockDecode s = do
     getGL = GasLimit . ParsedInteger . fromIntegral <$> getWord64le
     getI64 = fromIntegral <$> getWord64le
     getMeta = TransactionMetadata <$> Time.decodeTime <*> Time.decodeTime
+
+
+makeLenses ''BlockFill

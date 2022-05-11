@@ -1,4 +1,5 @@
 {-# LANGUAGE AllowAmbiguousTypes #-}
+{-# LANGUAGE CPP #-}
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DerivingStrategies #-}
@@ -51,12 +52,10 @@ import Control.DeepSeq
 import Control.Exception
 import Control.Lens hiding ((.=))
 import Control.Monad
-import Control.Monad.Error.Class (throwError)
 import Control.Monad.Managed
 
 import Data.CAS
 import Data.CAS.RocksDB
-import qualified Data.HashSet as HS
 import qualified Data.Text as T
 import Data.Time
 import Data.Typeable
@@ -71,6 +70,7 @@ import qualified Network.HTTP.Client.TLS as HTTPS
 import qualified Streaming.Prelude as S
 
 import System.Directory
+import System.FilePath
 import System.IO (BufferMode(LineBuffering), hSetBuffering, stderr)
 import qualified System.Logger as L
 import System.LogLevel
@@ -79,20 +79,22 @@ import System.LogLevel
 
 import Chainweb.BlockHeader
 import Chainweb.Chainweb
+import Chainweb.Chainweb.Configuration
 import Chainweb.Chainweb.CutResources
 import Chainweb.Counter
 import Chainweb.Cut.CutHashes
 import Chainweb.CutDB
 import Chainweb.Logger
-import Chainweb.Logging.Amberdata
 import Chainweb.Logging.Config
 import Chainweb.Logging.Miner
 import Chainweb.Mempool.Consensus (ReintroducedTxsLog)
 import Chainweb.Mempool.InMemTypes (MempoolStats(..))
 import Chainweb.Miner.Coordinator (MiningStats)
+import Chainweb.Pact.Service.PactQueue (PactQueueStats)
 import Chainweb.Pact.RestAPI.Server (PactCmdLog(..))
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
+import Chainweb.Time
 import Chainweb.Utils
 import Chainweb.Utils.RequestLog
 import Chainweb.Version
@@ -139,15 +141,7 @@ validateChainwebNodeConfiguration :: ConfigValidation ChainwebNodeConfiguration 
 validateChainwebNodeConfiguration o = do
     validateLogConfig $ _nodeConfigLog o
     validateChainwebConfiguration $ _nodeConfigChainweb o
-    mapM_ checkIfValidChain (getAmberdataChainId o)
     mapM_ (validateFilePath "databaseDirectory") (_nodeConfigDatabaseDirectory o)
-  where
-    chains = chainIds $ _nodeConfigChainweb o
-    checkIfValidChain cid
-      = unless (HS.member cid chains)
-        $ throwError $ "Invalid chain id provided: " <> toText cid
-    getAmberdataChainId = _amberdataChainId . _enableConfigConfig . _logConfigAmberdataBackend . _nodeConfigLog
-
 
 instance ToJSON ChainwebNodeConfiguration where
     toJSON o = object
@@ -176,16 +170,19 @@ pChainwebNodeConfiguration = id
         <> help "Reset the chain databases for all chains on startup"
 
 getRocksDbDir :: HasCallStack => ChainwebNodeConfiguration -> IO FilePath
-getRocksDbDir conf = (<> "/rocksDb") <$> getDbBaseDir conf
+getRocksDbDir conf = (\base -> base </> "0" </> "rocksDb") <$> getDbBaseDir conf
 
 getPactDbDir :: HasCallStack => ChainwebNodeConfiguration -> IO FilePath
-getPactDbDir conf =  (<> "/sqlite") <$> getDbBaseDir conf
+getPactDbDir conf =  (\base -> base </> "0" </> "sqlite")  <$> getDbBaseDir conf
+
+getBackupsDir :: HasCallStack => ChainwebNodeConfiguration -> IO FilePath
+getBackupsDir conf = (</> "backups") <$> getDbBaseDir conf
 
 getDbBaseDir :: HasCallStack => ChainwebNodeConfiguration -> IO FilePath
 getDbBaseDir conf = case _nodeConfigDatabaseDirectory conf of
     Nothing -> getXdgDirectory XdgData
-        $ "chainweb-node/" <> sshow v <> "/0"
-    Just d -> return (d <> "/0")
+        $ "chainweb-node" </> sshow v
+    Just d -> return d
   where
     v = _configChainwebVersion $ _nodeConfigChainweb conf
 
@@ -200,9 +197,9 @@ getDbBaseDir conf = case _nodeConfigDatabaseDirectory conf of
 -- to at most one restart every 10 seconds.
 --
 runMonitorLoop :: Logger logger => T.Text -> logger -> IO () -> IO ()
-runMonitorLoop label logger = runForeverThrottled
+runMonitorLoop actionLabel logger = runForeverThrottled
     (logFunction logger)
-    label
+    actionLabel
     10 -- 10 bursts in case of failure
     (10 * mega) -- allow restart every 10 seconds in case of failure
 
@@ -260,30 +257,19 @@ runBlockUpdateMonitor logger db = L.withLoggerLabel ("component", "block-update-
         <*> pure True -- _blockUpdateOrphaned
         <*> ((0 -) <$> txCount bh) -- _blockUpdateTxCount
 
-runAmberdataBlockMonitor
-    :: PayloadCasLookup cas
-    => Logger logger
-    => EnableConfig AmberdataConfig
-    -> logger
-    -> CutDb cas
-    -> IO ()
-runAmberdataBlockMonitor config logger db
-    | _enableConfigEnabled config = L.withLoggerLabel ("component", "amberdata-block-monitor") logger $ \l ->
-        runMonitorLoop "Chainweb.Logging.amberdataBlockMonitor" l (amberdataBlockMonitor cid l db)
-    | otherwise = return ()
-  where
-    cid = _amberdataChainId $ _enableConfigConfig config
-
 -- type CutLog = HM.HashMap ChainId (ObjectEncoded BlockHeader)
 
 -- This instances are OK, since this is the "Main" module of an application
 --
+#if !MIN_VERSION_base(4,15,0)
 deriving instance Generic GCDetails
-deriving instance NFData GCDetails
-deriving instance ToJSON GCDetails
-
 deriving instance Generic RTSStats
+#endif
+
+deriving instance NFData GCDetails
 deriving instance NFData RTSStats
+
+deriving instance ToJSON GCDetails
 deriving instance ToJSON RTSStats
 
 runRtsMonitor :: Logger logger => logger -> IO ()
@@ -320,22 +306,20 @@ node conf logger = do
     when (_nodeConfigResetChainDbs conf) $ removeDirectoryRecursive dbBaseDir
     rocksDbDir <- getRocksDbDir conf
     pactDbDir <- getPactDbDir conf
+    dbBackupsDir <- getBackupsDir conf
     withRocksDb rocksDbDir $ \rocksDb -> do
         logFunctionText logger Info $ "opened rocksdb in directory " <> sshow rocksDbDir
-        withChainweb cwConf logger rocksDb pactDbDir (_nodeConfigResetChainDbs conf) $ \cw -> mapConcurrently_ id
+        logFunctionText logger Info $ "backup config: " <> sshow (_configBackup cwConf)
+        withChainweb cwConf logger rocksDb pactDbDir dbBackupsDir (_nodeConfigResetChainDbs conf) $ \cw -> mapConcurrently_ id
             [ runChainweb cw
               -- we should probably push 'onReady' deeper here but this should be ok
             , runCutMonitor (_chainwebLogger cw) (_cutResCutDb $ _chainwebCutResources cw)
-            , runAmberdataBlockMonitor (amberdataConfig conf) (_chainwebLogger cw) (_cutResCutDb $ _chainwebCutResources cw)
             , runQueueMonitor (_chainwebLogger cw) (_cutResCutDb $ _chainwebCutResources cw)
             , runRtsMonitor (_chainwebLogger cw)
             , runBlockUpdateMonitor (_chainwebLogger cw) (_cutResCutDb $ _chainwebCutResources cw)
             ]
   where
     cwConf = _nodeConfigChainweb conf
-    amberdataConfig = _logConfigAmberdataBackend . _nodeConfigLog
-
-
 
 withNodeLogger
     :: LogConfig
@@ -361,7 +345,6 @@ withNodeLogger logConfig v f = runManaged $ do
     counterBackend <- managed $ configureHandler
         (withJsonHandleBackend @CounterLog "connectioncounters" mgr pkgInfoScopes)
         teleLogConfig
-    newBlockAmberdataBackend <- managed $ mkAmberdataLogger mgr amberdataConfig
     endpointBackend <- managed
         $ mkTelemetryLogger @PactCmdLog mgr teleLogConfig
     newBlockBackend <- managed
@@ -382,6 +365,8 @@ withNodeLogger logConfig v f = runManaged $ do
         $ mkTelemetryLogger @MempoolStats mgr teleLogConfig
     blockUpdateBackend <- managed
         $ mkTelemetryLogger @BlockUpdate mgr teleLogConfig
+    pactQueueStatsBackend <- managed
+        $ mkTelemetryLogger @PactQueueStats mgr teleLogConfig
 
     logger <- managed
         $ L.withLogger (_logConfigLogger logConfig) $ logHandles
@@ -390,7 +375,6 @@ withNodeLogger logConfig v f = runManaged $ do
             , logHandler p2pInfoBackend
             , logHandler rtsBackend
             , logHandler counterBackend
-            , logHandler newBlockAmberdataBackend
             , logHandler endpointBackend
             , logHandler newBlockBackend
             , logHandler orphanedBlockBackend
@@ -401,6 +385,7 @@ withNodeLogger logConfig v f = runManaged $ do
             , logHandler traceBackend
             , logHandler mempoolStatsBackend
             , logHandler blockUpdateBackend
+            , logHandler pactQueueStatsBackend
             ] baseBackend
 
     liftIO $ f
@@ -409,15 +394,6 @@ withNodeLogger logConfig v f = runManaged $ do
         $ logger
   where
     teleLogConfig = _logConfigTelemetryBackend logConfig
-    amberdataConfig = _logConfigAmberdataBackend logConfig
-
-mkAmberdataLogger
-    :: HTTP.Manager
-    -> EnableConfig AmberdataConfig
-    -> (Backend (JsonLog AmberdataBlock) -> IO b)
-    -> IO b
-mkAmberdataLogger mgr = configureHandler
-  $ withAmberDataBlocksBackend mgr
 
 mkTelemetryLogger
     :: forall a b
@@ -431,32 +407,32 @@ mkTelemetryLogger mgr = configureHandler
     $ withJsonHandleBackend @(JsonLog a) (sshow $ typeRep $ Proxy @a) mgr pkgInfoScopes
 
 -- -------------------------------------------------------------------------- --
--- Kill Switch
+-- Service Date
 
-newtype KillSwitch = KillSwitch T.Text
+newtype ServiceDate = ServiceDate T.Text
 
-instance Show KillSwitch where
-    show (KillSwitch t) = "kill switch triggered: " <> T.unpack t
+instance Show ServiceDate where
+    show (ServiceDate t) = "Service interval end: " <> T.unpack t
 
-instance Exception KillSwitch where
+instance Exception ServiceDate where
     fromException = asyncExceptionFromException
     toException = asyncExceptionToException
 
-withKillSwitch
+withServiceDate
     :: (LogLevel -> T.Text -> IO ())
     -> Maybe UTCTime
     -> IO a
     -> IO a
-withKillSwitch _ Nothing inner = inner
-withKillSwitch lf (Just t) inner = race timer inner >>= \case
-    Left () -> error "Kill switch thread terminated unexpectedly"
+withServiceDate _ Nothing inner = inner
+withServiceDate lf (Just t) inner = race timer inner >>= \case
+    Left () -> error "Service date thread terminated unexpectedly"
     Right a -> return a
   where
-    timer = runForever lf "KillSwitch" $ do
+    timer = runForever lf "ServiceDate" $ do
         now <- getCurrentTime
         when (now >= t) $ do
-            lf Error killMessage
-            throw $ KillSwitch killMessage
+            lf Error shutdownMessage
+            throw $ ServiceDate shutdownMessage
 
         let w = diffUTCTime t now
         let micros = round $ w * 1_000_000
@@ -469,8 +445,8 @@ withKillSwitch lf (Just t) inner = race timer inner >>= \case
         , " Please upgrade to a new version before that date."
         ]
 
-    killMessage :: T.Text
-    killMessage = T.concat
+    shutdownMessage :: T.Text
+    shutdownMessage = T.concat
         [ "Shutting down. This version of chainweb was only valid until" <> sshow t <> "."
         , " Please upgrade to a new version."
         ]
@@ -491,10 +467,10 @@ pkgInfoScopes =
 -- -------------------------------------------------------------------------- --
 -- main
 
--- KILLSWITCH for version 2.5
+-- SERVICE DATE for version 2.14
 --
-killSwitchDate :: Maybe String
-killSwitchDate = Just "2021-03-25T00:00:00Z"
+serviceDate :: Maybe String
+serviceDate = Just "2022-06-16T00:00:00Z"
 
 mainInfo :: ProgramInfo ChainwebNodeConfiguration
 mainInfo = programInfoValidate
@@ -505,13 +481,13 @@ mainInfo = programInfoValidate
 
 main :: IO ()
 main = do
-    installSignalHandlers
+    installFatalSignalHandlers [ sigHUP, sigTERM, sigXCPU, sigXFSZ ]
     runWithPkgInfoConfiguration mainInfo pkgInfo $ \conf -> do
         let v = _configChainwebVersion $ _nodeConfigChainweb conf
         hSetBuffering stderr LineBuffering
         withNodeLogger (_nodeConfigLog conf) v $ \logger -> do
-            kt <- mapM (parseTimeM False defaultTimeLocale timeFormat) killSwitchDate
-            withKillSwitch (logFunctionText logger) kt $
+            kt <- mapM (parseTimeM False defaultTimeLocale timeFormat) serviceDate
+            withServiceDate (logFunctionText logger) kt $
                 node conf logger
   where
     timeFormat = iso8601DateFormat (Just "%H:%M:%SZ")

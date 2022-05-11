@@ -14,8 +14,8 @@ import Control.Monad.IO.Class
 
 import Data.CAS.RocksDB
 import qualified Data.HashMap.Strict as HM
+import qualified Data.Map.Strict as M
 import Data.List (intercalate)
-import Data.Tuple.Strict (T2(..))
 import qualified Data.Text.IO as T
 
 import Test.Tasty.HUnit
@@ -45,15 +45,15 @@ import Chainweb.Test.Cut
 import Chainweb.Test.Cut.TestBlockDb
 import Chainweb.Test.Utils
 import Chainweb.Test.Pact.Utils
+import Chainweb.Utils (T2(..))
 import Chainweb.Version
-import Chainweb.Version.Utils
 import Chainweb.WebBlockHeaderDB
 
 testVer :: ChainwebVersion
-testVer = FastTimedCPM peterson
+testVer = FastTimedCPM singleton
 
 testChainId :: ChainId
-testChainId = someChainId testVer
+testChainId = unsafeChainId 0
 
 tests :: RocksDb -> ScheduledTest
 tests rdb =
@@ -71,14 +71,21 @@ tests rdb =
         withPact' bdbio dir iom (testCoinbase bdbio) (testCase "testDoUpgrades")
       , after AllSucceed "testDoUpgrades" $
         withPact' bdbio dir iom testRestart (testCase "testRestart2")
-
+      , after AllSucceed "testRestart2" $
+        withPact' bdbio dir iom (testV3 bdbio) (testCase "testV3")
+      , after AllSucceed "testV3" $
+        withPact' bdbio dir iom testRestart (testCase "testRestart3")
+      , after AllSucceed "testRestart3" $
+        withPact' bdbio dir iom (testV4 bdbio) (testCase "testV4")
+      , after AllSucceed "testV4" $
+        withPact' bdbio dir iom testRestart (testCase "testRestart4")
       ]
   where
     label = "Chainweb.Test.Pact.ModuleCacheOnRestart"
 
 type CacheTest cas =
   (PactServiceM cas ()
-  ,IO (MVar ModuleCache) -> ModuleCache -> Assertion)
+  ,IO (MVar ModuleInitCache) -> ModuleInitCache -> Assertion)
 
 -- | Do genesis load, snapshot cache.
 testInitial :: PayloadCasLookup cas => CacheTest cas
@@ -111,9 +118,36 @@ testCoinbase iobdb = (initPayloadState >> doCoinbase,snapshotCache)
       nextH <- liftIO $ getParentTestBlockDb bdb testChainId
       void $ execValidateBlock mempty nextH (payloadWithOutputsToPayloadData pwo)
 
+testV3 :: PayloadCasLookup cas => IO TestBlockDb -> CacheTest cas
+testV3 iobdb = (go,snapshotCache)
+  where
+    go = do
+      initPayloadState
+      doNextCoinbase iobdb
+      doNextCoinbase iobdb
+      doNextCoinbase iobdb
+
+testV4 :: PayloadCasLookup cas => IO TestBlockDb -> CacheTest cas
+testV4 iobdb = (go,snapshotCache)
+  where
+    go = do
+      initPayloadState
+      doNextCoinbase iobdb
+
+doNextCoinbase :: PayloadCasLookup cas => IO TestBlockDb -> PactServiceM cas ()
+doNextCoinbase iobdb = do
+      bdb <- liftIO $ iobdb
+      prevH <- liftIO $ getParentTestBlockDb bdb testChainId
+      pwo <- execNewBlock mempty (ParentHeader prevH) noMiner
+      liftIO $ addTestBlockDb bdb (Nonce 0) (offsetBlockTime second) testChainId pwo
+      nextH <- liftIO $ getParentTestBlockDb bdb testChainId
+      void $ execValidateBlock mempty nextH (payloadWithOutputsToPayloadData pwo)
+
+
 -- | Interfaces can't be upgraded, but modules can, so verify hash in that case.
-justModuleHashes :: ModuleCache -> HM.HashMap ModuleName (Maybe ModuleHash)
-justModuleHashes = HM.map $ \v -> preview (_1 . mdModule . _MDModule . mHash) v
+justModuleHashes :: ModuleInitCache -> HM.HashMap ModuleName (Maybe ModuleHash)
+justModuleHashes = upd . snd . last . M.toList where
+  upd = HM.map $ \v -> preview (_1 . mdModule . _MDModule . mHash) v
 
 genblock :: BlockHeader
 genblock = genesisBlockHeader testVer testChainId
@@ -121,7 +155,7 @@ genblock = genesisBlockHeader testVer testChainId
 initPayloadState :: PayloadCasLookup cas => PactServiceM cas ()
 initPayloadState = initialPayloadState dummyLogger mempty testVer testChainId
 
-snapshotCache :: IO (MVar ModuleCache) -> ModuleCache -> IO ()
+snapshotCache :: IO (MVar ModuleInitCache) -> ModuleInitCache -> IO ()
 snapshotCache iomcache initCache = do
   mcache <- iomcache
   modifyMVar_ mcache (const (pure initCache))
@@ -130,7 +164,7 @@ snapshotCache iomcache initCache = do
 withPact'
     :: IO TestBlockDb
     -> IO FilePath
-    -> IO (MVar ModuleCache)
+    -> IO (MVar ModuleInitCache)
     -> CacheTest RocksDbCas
     -> (Assertion -> TestTree)
     -> TestTree

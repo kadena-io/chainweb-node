@@ -106,8 +106,8 @@ spvServer
     => CutDbT cas v
     -> Server (SpvApi v c)
 spvServer (CutDbT db)
-    = (spvGetTransactionProofHandler db tcid)
-    :<|> (spvGetTransactionOutputProofHandler db tcid)
+    = spvGetTransactionProofHandler db tcid
+    :<|> spvGetTransactionOutputProofHandler db tcid
   where
     tcid = fromSing (sing :: Sing c)
 

@@ -61,6 +61,7 @@ module Chainweb.Pact.Backend.Types
     , bsPendingBlock
     , bsPendingTx
     , bsModuleNameFix
+    , bsSortedKeys
     , BlockEnv(..)
     , benvBlockState
     , benvDb
@@ -95,7 +96,6 @@ import Data.Hashable (Hashable)
 import Data.HashMap.Strict (HashMap)
 import Data.HashSet (HashSet)
 import Data.Map.Strict (Map)
-import Data.Tuple.Strict
 import Data.Vector (Vector)
 
 import Database.SQLite3.Direct as SQ3
@@ -116,9 +116,10 @@ import Pact.Types.Runtime (TableName)
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
 import Chainweb.BlockHeight
-import Chainweb.Mempool.Mempool (MempoolPreBlockCheck)
+import Chainweb.Mempool.Mempool (MempoolPreBlockCheck,TransactionHash,BlockFill)
 import Chainweb.Pact.Service.Types
 import Chainweb.Transaction
+import Chainweb.Utils (T2)
 
 
 data Env' = forall a. Env' (PactDbEnv (DbEnv a))
@@ -220,6 +221,7 @@ data BlockState = BlockState
     , _bsPendingBlock :: !SQLitePendingData
     , _bsPendingTx :: !(Maybe SQLitePendingData)
     , _bsModuleNameFix :: Bool
+    , _bsSortedKeys :: Bool
     }
     deriving Show
 
@@ -234,6 +236,7 @@ initBlockState initialBlockHeight = BlockState
     , _bsPendingBlock = emptySQLitePendingData
     , _bsPendingTx = Nothing
     , _bsModuleNameFix = False
+    , _bsSortedKeys = False
     }
 
 makeLenses ''BlockState
@@ -324,14 +327,15 @@ newtype SQLiteFlag = SQLiteFlag { getFlag :: CInt }
 -- TODO: get rid of this shim, it's probably not necessary
 data MemPoolAccess = MemPoolAccess
   { mpaGetBlock
-        :: MempoolPreBlockCheck ChainwebTransaction
+        :: BlockFill
+        -> MempoolPreBlockCheck ChainwebTransaction
         -> BlockHeight
         -> BlockHash
         -> BlockHeader
         -> IO (Vector ChainwebTransaction)
   , mpaSetLastHeader :: BlockHeader -> IO ()
   , mpaProcessFork :: BlockHeader -> IO ()
-  , mpaBadlistTx :: P.PactHash -> IO ()
+  , mpaBadlistTx :: Vector TransactionHash -> IO ()
   }
 
 instance Semigroup MemPoolAccess where

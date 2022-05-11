@@ -6,11 +6,10 @@
 
 # Kadena Public Blockchain
 
-
 Kadena is a fast, secure, and scalable blockchain using the Chainweb consensus
 protocol. Chainweb is a braided, parallelized Proof Of Work consensus mechanism
-that improves throughput and scalability in executing transactions on the blockchain while maintaining the security and
-integrity found in Bitcoin.
+that improves throughput and scalability in executing transactions on the
+blockchain while maintaining the security and integrity found in Bitcoin.
 
 Read our [whitepapers](https://www.kadena.io/whitepapers):
 
@@ -23,7 +22,7 @@ For additional information, press, and development inquires, please refer to the
 
 - [Kadena Docs Site](#docs)
 - [Installing Chainweb](#installing-chainweb)
-- [Bootstrap Nodes](#bootstrap-nodes)  
+- [Bootstrap Nodes](#bootstrap-nodes)
 - [Configuring, running, and monitoring the health of a Chainweb Node](#configuring-running-and-monitoring-the-health-of-a-chainweb-node)
 - [Mining for a Chainweb Network](#mine-for-a-chainweb-network)
 - [Chainweb Design](#chainweb-design)
@@ -39,6 +38,8 @@ If you have additions or comments, please submit a pull request or raise an issu
 ## Installing Chainweb
 
 ### Installing dependencies
+
+If you are using a docker image, you can ignore the reset of this sub-section.
 
 **Apt-based Linux distributions**
 
@@ -75,17 +76,26 @@ brew install rocksdb
 
 ### Installing Chainweb-node
 
-Chainweb-node binaries for ubuntu-16.04, ubuntu-18.04, and MacOSX can be found
+Minimal recommended hardware requirements for nodes are:
+
+* 2 CPU cores
+* 4 GB of RAM
+* 100 GB SSD or fast HDD
+* Public IP address
+
+If the node is also used as API server for Pact or mining, rosetta, chainweb-data: 4 CPU cores and 8GB of RAM.
+
+Chainweb-node binaries for ubuntu-16.04, ubuntu-18.04 can be found
 [here](https://github.com/kadena-io/chainweb-node/releases).
 
 Download the archive for your system and extract the binaries and place them
 into a directory from where they can be executed.
 
-At this point, you are ready to [run a Chainweb node](#running-a-chainweb-node)
+At this point, you are ready to [run a Chainweb node](#configuring-running-and-monitoring-the-health-of-a-chainweb-node)
 
 ### Docker
 
-A docker image is available at from
+A docker image is available from
 [here](https://hub.docker.com/r/kadena/chainweb-node) and can be used with
 the following commands:
 
@@ -105,7 +115,7 @@ repository](https://hub.docker.com/r/kadena/chainweb-node).
 ### Building from Source
 
 *IMPORTANT NODE: We recommend the use of officially released chainweb-node
-binaries, which can be found in the
+binaries or docker images, which can be found in the
 [release section of this
 repository](https://github.com/kadena-io/chainweb-node/releases).
 If you decide to build your own binaries, please make sure to only use
@@ -116,15 +126,39 @@ master branch in the Kadena mainnet.*
 
 Chainweb is a [Haskell](https://www.haskell.org/) project. After cloning the
 code with git from this GitHub repository the chainweb-node application can be
-built in several ways.
+built as follows.
+
+#### Building with Cabal
+
+In order to build with `cabal` you have to install `ghc-8.10.7` (Haskell compiler)
+and `cabal >= 3.0` (Haskell build-tool)
+
+*   [Linux / Mac](https://www.haskell.org/ghcup/)
+
+You may also need to install `zlib`, `openssl`, `rocksdb`, and `sqlite`.
+
+To build a `chainweb-node` binary:
+
+```bash
+# Only necessary if you haven't done this recently.
+cabal update
+
+# Build the project.
+cabal build
+```
+
+To install a runnable binary to `~/.cabal/bin/`:
+
+```bash
+cabal install
+```
 
 #### Building with Nix
 
-The fastest way to build and run chainweb is to use the Nix package manager
-which has binary caching capabilities that allow you to download pre-built
-binaries for everything needed by Chainweb. For detailed instructions see [our
-wiki](https://github.com/kadena-io/pact/wiki/Building-Kadena-Projects).
-
+Another way to build and run chainweb is to use the Nix package manager which
+has binary caching capabilities that allow you to download pre-built binaries
+for everything needed by Chainweb. For detailed instructions see [our
+    wiki](https://github.com/kadena-io/pact/wiki/Building-Kadena-Projects).
 
 When the build is finished, you can run chainweb with the following command:
 
@@ -132,62 +166,29 @@ When the build is finished, you can run chainweb with the following command:
 ./result/ghc/chainweb/bin/chainweb-node
 ```
 
-#### Building with Stack
-
-In order to build with stack you need `stack >= 1.9`, which can be obtain via
--   Mac (Homebrew): `brew install haskell-stack`
--   General [Linux / Mac](https://docs.haskellstack.org/en/stable/README/)
-
-(You may also need to install `zlib`, `openssl`, and `sqlite`.)
-
-Stack is a Haskell build tool that manages compiler and dependency versions for
-you. It's easy to install and use.
-
-To build a `chainweb-node` binary:
-
-```bash
-stack build
-```
-
-This will compile a runnable version of `chainweb-node`, which you can run via:
-
-```bash
-stack exec -- chainweb-node
-```
-
-Alternatively, `stack install` will install the binary to `~/.local/bin/`, which
-you may need to add to your path. Then, you can call `chainweb-node` as-is.
-
-#### Building with Cabal
-
-In order to build with `cabal` you have to install `ghc >= 8.4` (Haskell compiler)
-and `cabal >= 2.4` (Haskell build-tool)
-*   [Linux / Mac](https://www.haskell.org/ghcup/)
-
-(You may also need to install `zlib`, `openssl`, and `sqlite`.)
-
-Cabal is the original build tool for Haskell. You will need a version of GHC
-installed on your machine to use it.
-
-To build a `chainweb-node` binary:
-
-```bash
-# Only necessary if you haven't done this recently.
-cabal v2-update
-
-# Build the project.
-cabal v2-build
-```
-
-To install a runnable binary to `~/.cabal/bin/`:
-
-```bash
-cabal v2-install
-```
-
 ## Bootstrap Nodes
 
-### Testnet Nodes
+Bootstrap nodes are used by chainweb-nodes on startup in order to discover other
+nodes in the network. At least one of the bootstrap nodes must be trusted.
+
+Chainweb node operators can configure additional bootstrap nodes by using the
+`--known-peer-info` command line option or in a configuration file. It is also
+possible to ignore the builtin bootstrap nodes by using the
+`--enable-ignore-bootstrap-nodes` option or the respective configuration file
+setting.
+
+Bootstrap nodes must have public DNS names and a corresponding TLS certificate
+that is issued by a widely accepted CA (a minimum requirement is acceptance by
+the OpenSSL library).
+
+Operators of bootstrap nodes are expected be committed to guarantee long-term
+availability of the nodes. The list of builtin bootstrap nodes should be kept
+up-to-date and concise for each chainweb-node release.
+
+If you like to have your node included as a bootstrap node please make a pull
+request that adds your node to [P2P.BootstrapNodes module](src/P2P/BootstrapNodes.hs).
+
+### Current Testnet Bootstrap Nodes
 
 - us1.testnet.chainweb.com
 - us2.testnet.chainweb.com
@@ -196,7 +197,7 @@ cabal v2-install
 - ap1.testnet.chainweb.com
 - ap2.testnet.chainweb.com
 
-### Mainnet Nodes
+### Current Mainnet Bootstrap Nodes
 
 All bootstrap nodes are running on port 443.
 
@@ -220,40 +221,81 @@ sensible, or otherwise have a simple way to refer to it. For running
 `chainweb-node` via docker, please see the instruction above in this document or
 visit our [docker repository](https://hub.docker.com/r/kadena/chainweb-node).
 
-To configure your node, please use our [minimal node
-configuration](./minimal-config.yaml). You need to update only one section,
-`hostaddress`:
+**Note:** Your needs to be reachable from the public internet. You will have to
+perform Port Forwarding if your machine is behind a router (by default port 1789
+is used by the node).
 
-```yaml
-hostaddress:
-  hostname: your-public-ip-or-domain
-  port: 443
-```
+**NOTE**: When you start chainweb-node for the first time it creates a new
+empty database and start to synchronize and catch up with other nodes in the
+Kadena network. This process takes a long time -- several days. It is much
+faster (depending on hardware one to a few hours) to just synchronize the chain
+database or get a snapshot of it and only rebuild the pact databases from the
+chain-database. Please, consult the documentation of the docker images for
+chainweb-node about details how to obtain an initial chain database.
 
-**Note:** You will have to perform Port Forwarding if your machine is behind a
-router.
-
-Then, to run your node:
+Run your node:
 
 ```bash
-chainweb-node --config-file=minimal-config.yaml
+chainweb-node
 ```
+
+The node will communicate with other nodes in a P2P network. By default it uses
+port 1789 for the P2P communication.
+
+Node services are exposed via the service API, by default on port 1848. The
+service API includes `/info`, `/health-check`, Pact endpoints, Rosetta
+endpoints, the mining API endpoints, GET endpoints for on-chain data (headers,
+payloads, cuts), and an HTTP event stream of block header updates. Some of these
+are disabled by default (e.g. mining API, Rosetta, and header updates).
+
+While the P2P endpoint must be directly available from the public internet, it
+is highly recommended to expose the service API only on a private network. When
+service API endpoints are made available publicly it is recommended to use a
+reverse proxy setup things like rate limiting, authentication, and CORS.
+
+### Configuration
+
+No particular configuration is needed for running Chainweb node on the Kadena
+mainnet.
+
+Use `chainweb-node --help` to show a help message that includes a brief
+description of all available command line options.
+
+A complete configuration file with the default settings can be created with
+
+```sh
+chainweb-node --print-config > config.yaml
+```
+
+This file can then be edited in order to change configuration values.
+
+Given a configuration file or a set of command line options it is possible to
+print out only those configuration values that are different from their
+respective default:
+
+```
+chainweb-node --config-file=config.yaml --some-command-line-options --print-config-as=minimal
+```
+
 
 ### Monitoring the health of a Chainweb Node
 
 The following outlines how you can check that your `chainweb-node` is healthy
 
-`chainweb-node` should be running from the public IP address and a port that is open to the other chainweb nodes.
+`chainweb-node` should be running from the public IP address and a port that is open to the other Chainweb nodes.
 
-If you're behind a NAT, it is **VERY IMPORTANT** that your network allows external nodes to connect to the node you are running. If you provide us with your ip address and port number in our [Discord mining channel](https://discord.io/kadena), we can verify whether your node is reachable to the rest of the network.
+If you're behind a NAT, it is **VERY IMPORTANT** that your network allows
+external nodes to connect to the node you are running.
 
-When running the chainweb-node binary, you can indicate your hostname and port number directly in the config-file, or you can set it via command line flags like such:
 ```
-$ chainweb-node --config-file <path-to-config-file> --hostname <public-ip> --port <port> --log-level <desired-log-level>
+$ chainweb-node --log-level <desired-log-level>
 ```
 
-Once you're node is running, go through the following checks to verify that you have a healthy node:
-* run the command in your terminal:  
+For production scenarios we recommend that you use log-level `warn` or `error`.
+For trouble shooting or improved monitoring you can also use `info`.
+
+Once your node is running, go through the following checks to verify that you have a healthy node:
+* run the command in your terminal:
 ```
 $ curl -sk "https://<public-ip>:<port>/chainweb/0.0/mainnet01/cut"
 ```
@@ -268,25 +310,21 @@ Usually, when a node is receiving and publishing cuts (i.e. block heights at eve
 The `/cut` endpoint will return the latest cut that your node has. It's possible that your node is falling behind, so make sure to compare its cut height with the cut heights of the bootstrap nodes. It's also possible that you are mining to a node that is catching up to the rest of the network. Before you start mining to a node, you SHOULD verify that this node has the most up-to-date cut.
 
 You can get the cut height of any node by running the following:
+
 ```
 $ curl -sk https://<bootstrap-node-url>/chainweb/0.0/mainnet01/cut | jq '.height'
 ```
 
-### Miscellaneous
-To find your public ip:
-```
-$ curl 'https://api.ipify.org?format=text'
-```
-
 ## Mine for a Chainweb Network
 
-Detailed mining instructions can be found in our [Mining Guide](https://github.com/kadena-io/chainweb-miner/blob/master/README.org).
+Detailed mining instructions can be found in the documentation of
+[chainweb-mining-client](https://github.com/kadena-io/chainweb-mining-client/)
 
 ## Chainweb Design
 
 ### Component Structure
 
-The chainweb package contains the following buildable components:
+The Chainweb package contains the following buildable components:
 
 *   `chainweb` library: It provides the implementation for the different
     components of a chainweb-node.
@@ -299,7 +337,7 @@ The chainweb package contains the following buildable components:
 *   `chainweb-tests`: A test suite for the Chainweb library and chainweb-node.
 
 *   `cwtool`: A collection of tools that are helpful for maintaining, testing,
-    and debugging chainweb.
+    and debugging Chainweb.
 
 *   `bench`: a collection of benchmarks
 

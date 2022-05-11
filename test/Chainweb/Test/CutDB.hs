@@ -5,6 +5,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TupleSections #-}
 {-# LANGUAGE TypeFamilies #-}
 
 -- |
@@ -26,6 +27,7 @@ module Chainweb.Test.CutDB
 , randomTransaction
 , randomBlockHeader
 , fakePact
+, tests
 ) where
 
 import Control.Concurrent.Async
@@ -37,7 +39,6 @@ import Control.Monad.Catch
 import Data.Foldable
 import Data.Function
 import qualified Data.HashMap.Strict as HM
-import Data.Tuple.Strict
 import qualified Data.Vector as V
 
 import GHC.Stack
@@ -60,6 +61,7 @@ import Chainweb.Cut
 import Chainweb.Cut.CutHashes
 import Chainweb.Test.Cut
 import Chainweb.CutDB
+import Chainweb.Graph
 import Chainweb.Miner.Pact
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
@@ -67,10 +69,11 @@ import Chainweb.Payload.PayloadStore.RocksDB
 import Chainweb.Sync.WebBlockHeaderStore
 import Chainweb.Test.Orphans.Internal ()
 import Chainweb.Test.Sync.WebBlockHeaderStore
-import Chainweb.Test.Utils (testRocksDb)
+import Chainweb.Test.Utils
 import Chainweb.Time
 import Chainweb.Utils
 import Chainweb.Version
+import Chainweb.Version.Utils
 import Chainweb.WebBlockHeaderDB
 import Chainweb.WebPactExecutionService
 
@@ -78,6 +81,8 @@ import Data.CAS
 import Data.CAS.RocksDB
 import Data.LogMessage
 import Data.TaskMap
+
+import Test.Tasty.HUnit
 
 -- -------------------------------------------------------------------------- --
 -- Create a random Cut DB with the respective Payload Store
@@ -98,6 +103,8 @@ withTestCutDb
     => RocksDb
     -> ChainwebVersion
         -- ^ the chainweb version
+    -> (CutDbParams -> CutDbParams)
+        -- ^ any alterations to the CutDB's configuration
     -> Int
         -- ^ number of blocks in the chainweb in addition to the genesis blocks
     -> (WebBlockHeaderDb -> PayloadDb RocksDbCas -> IO WebPactExecutionService)
@@ -110,10 +117,10 @@ withTestCutDb
         -- create blocks with a well-defined set of test transactions.
         --
     -> LogFunction
-    -> (forall cas . PayloadCasLookup cas => CutDb cas -> IO a)
         -- ^ a logg function (use @\_ _ -> return ()@ turn of logging)
+    -> (forall cas . PayloadCasLookup cas => RocksDbCas CutHashes -> CutDb cas -> IO a)
     -> IO a
-withTestCutDb rdb v n pactIO logfun f = do
+withTestCutDb rdb v conf n pactIO logfun f = do
     rocksDb <- testRocksDb "withTestCutDb" rdb
     let payloadDb = newPayloadDb rocksDb
         cutHashesDb = cutHashesTable rocksDb
@@ -123,9 +130,9 @@ withTestCutDb rdb v n pactIO logfun f = do
     pact <- pactIO webDb payloadDb
     withLocalWebBlockHeaderStore mgr webDb $ \headerStore ->
         withLocalPayloadStore mgr payloadDb pact $ \payloadStore ->
-            withCutDb (defaultCutDbParams v cutFetchTimeout) logfun headerStore payloadStore cutHashesDb $ \cutDb -> do
-                foldM_ (\c _ -> view _1 <$> mine defaultMiner pact cutDb c) (genesisCut v) [0..n]
-                f cutDb
+            withCutDb (conf $ defaultCutDbParams v cutFetchTimeout) logfun headerStore payloadStore cutHashesDb $ \cutDb -> do
+                foldM_ (\c _ -> view _1 <$> mine defaultMiner pact cutDb c) (genesisCut v) [1..n]
+                f cutHashesDb cutDb
 
 -- | Adds the requested number of new blocks to the given 'CutDb'.
 --
@@ -235,14 +242,16 @@ withTestCutDbWithoutPact
     => RocksDb
     -> ChainwebVersion
         -- ^ the chainweb version
+    -> (CutDbParams -> CutDbParams)
+        -- ^ any alterations to the CutDB's configuration
     -> Int
         -- ^ number of blocks in the chainweb in addition to the genesis blocks
     -> LogFunction
         -- ^ a logg function (use @\_ _ -> return ()@ turn of logging)
-    -> (forall cas . PayloadCasLookup cas => CutDb cas -> IO a)
+    -> (forall cas . PayloadCasLookup cas => RocksDbCas CutHashes -> CutDb cas -> IO a)
     -> IO a
-withTestCutDbWithoutPact rdb v n =
-    withTestCutDb rdb v n (const $ const $ return fakePact)
+withTestCutDbWithoutPact rdb v conf n =
+    withTestCutDb rdb v conf n (const $ const $ return fakePact)
 
 -- | A version of withTestCutDb that can be used as a Tasty TestTree resource.
 --
@@ -487,3 +496,36 @@ fakePact = WebPactExecutionService $ PactExecutionService
     getFakeOutput (Transaction txBytes) = TransactionOutput txBytes
     coinbase = noCoinbaseOutput
     fakeMiner = MinerData "fakeMiner"
+
+tests :: RocksDb -> TestTree
+tests rdb = testGroup "CutDB"
+    [ testCutPruning rdb
+    ]
+  where
+
+testCutPruning :: RocksDb -> TestTree
+testCutPruning rdb = testCase "cut pruning" $ do
+    -- initialize cut DB and mine enough to trigger pruning
+    let v = Test pairChainGraph
+    withTestCutDbWithoutPact rdb v alterPruningSettings
+        (int $ avgCutHeightAt v minedBlockHeight)
+        (\_ _ -> return ())
+        $ \cutHashesStore _ -> do
+            -- peek inside the cut DB's store to find the oldest and newest cuts
+            let table = _getRocksDbCas cutHashesStore
+            Just (leastCutHeight, _, _) <- tableMinKey table
+            Just (mostCutHeight, _, _) <- tableMaxKey table
+            let fuzz = 10 :: Integer
+            -- we must have pruned the older cuts
+            assertBool "oldest cuts are too old" $
+                round (avgBlockHeightAtCutHeight v leastCutHeight) >= fuzz
+            -- we must keep the latest cut
+            assertBool "newest cut is too old" $
+                round (avgBlockHeightAtCutHeight v mostCutHeight) >= int minedBlockHeight - fuzz
+  where
+    alterPruningSettings =
+        set cutDbParamsAvgBlockHeightPruningDepth 50 .
+        set cutDbParamsPruningFrequency 1 .
+        set cutDbParamsWritingFrequency 1
+    minedBlockHeight = 300
+

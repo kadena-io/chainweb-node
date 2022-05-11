@@ -21,7 +21,7 @@ import Control.Lens
 import Control.Monad
 import Control.Monad.Catch
 import Control.Monad.IO.Class
-import Control.Monad.State (gets, modify')
+import Control.Monad.State (gets)
 
 import Data.ByteString (ByteString)
 import Data.Aeson hiding (encode,(.=))
@@ -34,9 +34,8 @@ import qualified Data.HashMap.Strict as HashMap
 import qualified Data.List as List
 import qualified Data.Set as S
 import Data.Serialize hiding (get)
-import Data.String.Conv
 import qualified Data.Text as T
-import Data.Tuple.Strict
+import qualified Data.Text.Encoding as T
 import qualified Data.Vector as V
 import qualified Data.Vector.Algorithms.Tim as TimSort
 
@@ -85,7 +84,7 @@ initRelationalCheckpointer'
 initRelationalCheckpointer' bstate sqlenv loggr v cid = do
     let dbenv = BlockDbEnv sqlenv loggr
     db <- newMVar (BlockEnv dbenv bstate)
-    runBlockEnv db $ initSchema
+    runBlockEnv db initSchema
     return
       (PactDbEnv' (PactDbEnv chainwebPactDb db),
        CheckpointEnv
@@ -114,13 +113,15 @@ type Db = MVar (BlockEnv SQLiteEnv)
 doRestore :: ChainwebVersion -> ChainId -> Db -> Maybe (BlockHeight, ParentHash) -> IO PactDbEnv'
 doRestore v cid dbenv (Just (bh, hash)) = runBlockEnv dbenv $ do
     setModuleNameFix
+    setSortedKeys
     clearPendingTxState
     void $ withSavepoint PreBlock $ handlePossibleRewind v cid bh hash
     beginSavepoint Block
     return $! PactDbEnv' $! PactDbEnv chainwebPactDb dbenv
   where
     -- Module name fix follows the restore call to checkpointer.
-    setModuleNameFix = modify' $ set bsModuleNameFix $! enableModuleNameFix v bh
+    setModuleNameFix = bsModuleNameFix .= enableModuleNameFix v bh
+    setSortedKeys = bsSortedKeys .= pact420Upgrade v bh
 doRestore _ _ dbenv Nothing = runBlockEnv dbenv $ do
     clearPendingTxState
     withSavepoint DbTransaction $
@@ -326,7 +327,7 @@ doGetBlockHistory dbenv blockHeader d = runBlockEnv dbenv $ do
            [RBlob]
       case r of
         [] -> return Nothing
-        [[SBlob value]] -> Just . (RowKey $ toS sk,) <$> toTxLog d k value
+        [[SBlob value]] -> Just . (RowKey $ T.decodeUtf8 sk,) <$> toTxLog d k value
         _ -> internalError $ "queryPrev: expected 0 or 1 rows, got: " <> T.pack (show r)
 
 
@@ -334,7 +335,7 @@ getEndTxId :: Database -> BlockHeight -> BlockHash -> IO Int64
 getEndTxId db bhi bha = do
   r <- qry db
     "SELECT endingtxid FROM BlockHistory WHERE blockheight = ? and hash = ?;"
-    [SInt $ fromIntegral $ bhi, SBlob $ encode $ bha]
+    [SInt $ fromIntegral bhi, SBlob $ encode bha]
     [RInt]
   case r of
     [[SInt tid]] -> return tid
@@ -368,3 +369,4 @@ doGetHistoricalLookup dbenv blockHeader d k = runBlockEnv dbenv $ do
         [[SText key, SBlob value]] -> Just <$> toTxLog d key value
         [] -> pure Nothing
         _ -> internalError $ "doGetHistoricalLookup: expected single-row result, got " <> sshow r
+

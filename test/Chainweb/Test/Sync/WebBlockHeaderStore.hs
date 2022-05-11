@@ -93,7 +93,7 @@ testAsyncFib n = do
                 <*> (getFib <$> fib (k - 2))
             return $ Fib x r
 
-    !(Fib _ !r) <- run $ fib n
+    (Fib _ !r) <- run $ fib n
 
     gc
 
