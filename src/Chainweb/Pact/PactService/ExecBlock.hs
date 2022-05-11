@@ -142,6 +142,8 @@ execBlock currHeader plData pdbenv = do
       [] -> return ()
       errs -> throwM $ TransactionValidationException $ errs
 
+    logInitCache
+
     !results <- go miner trans >>= throwOnGasFailure
     modify' $ set psStateValidated $ Just currHeader
 
@@ -153,6 +155,12 @@ execBlock currHeader plData pdbenv = do
     return $! T2 miner results
 
   where
+
+    logInitCache = do
+      mc <- fmap (fmap instr) <$> use psInitCache
+      logDebug $ "execBlock: initCache: " <> sshow mc
+
+    instr (md,_) = preview (P._MDModule . P.mHash) $ P._mdModule md
 
     handleValids (tx,Left e) es = (P._cmdHash tx, sshow e):es
     handleValids _ es = es
@@ -230,7 +238,7 @@ validateChainwebTxs logger v cid cp txValidationTime bh txs doBuyGas
             Left _
                 | doCheckTxHash v bh -> return $ Left $ InsertErrorInvalidHash
                 | otherwise -> do
-                    P.logLog logger "INFO" $ "ignored legacy tx-hash failure"
+                    P.logLog logger "DEBUG" "ignored legacy tx-hash failure"
                     return $ Right t
             Right _ -> pure $ Right t
 
@@ -239,7 +247,7 @@ validateChainwebTxs logger v cid cp txValidationTime bh txs doBuyGas
         Left _
             -- special case for old testnet history
             | v == Testnet04 && not (doCheckTxHash v bh) -> do
-                P.logLog logger "INFO" $ "ignored legacy invalid signature"
+                P.logLog logger "DEBUG" "ignored legacy invalid signature"
                 return $ Right t
             | otherwise -> return $ Left $ InsertErrorInvalidSigs
         Right _ -> pure $ Right t

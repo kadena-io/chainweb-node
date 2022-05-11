@@ -1,9 +1,5 @@
 {-# LANGUAGE BangPatterns #-}
-{-# LANGUAGE DeriveAnyClass #-}
-{-# LANGUAGE DeriveFoldable #-}
-{-# LANGUAGE DeriveFunctor #-}
 {-# LANGUAGE DeriveGeneric #-}
-{-# LANGUAGE DeriveTraversable #-}
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
@@ -280,6 +276,7 @@ getBlockHeaderInternal headerStore payloadStore candidateHeaderCas candidatePayl
         -- query BlockHeader via
         --
         -- - candidates header cache,
+        -- - local database (we may have validated this header before)
         -- - cut origin, or
         -- - task queue of P2P network
         --
@@ -291,7 +288,7 @@ getBlockHeaderInternal headerStore payloadStore candidateHeaderCas candidatePayl
                     pQueueInsert queue t
                     (ChainValue _ !x) <- awaitTask t
                     return (Nothing, x)
-                (Just !x) -> return (maybeOrigin, x)
+                Just !x -> return (maybeOrigin, x)
 
         -- Check that the chain id is correct. The candidate cas is indexed just
         -- by the block hash. So, if this fails it is most likely a bug in code
