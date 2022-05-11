@@ -139,14 +139,14 @@ instance MimeRender OctetStream BlockHeader where
 -- the block header bytes. There a newtype wrapper that provides an alternative
 -- encoding with as an JSON object.
 --
--- The mime type @application/json;blockheader-encoding=object@ is used in
+-- The mime type @application/json;charset=utf-8;blockheader-encoding=object@ is used in
 -- the HTTP @accept@ header and HTTP @content-type header@ to indicate that
 -- block headers are encoded as JSON objects
 --
 data JsonBlockHeaderObject
 
 instance Accept JsonBlockHeaderObject where
-    contentType _ = "application" // "json" /: ("blockheader-encoding", "object")
+    contentType _ = "application" // "json" /: ("charset", "utf-8") /: ("blockheader-encoding", "object")
 
 instance MimeUnrender JsonBlockHeaderObject BlockHeader where
     mimeUnrender _ = second _objectEncoded . eitherDecode
