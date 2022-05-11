@@ -651,8 +651,15 @@ withChainwebTestServer validateSpec tls v appIO envIO test = withResource start 
                         return (W.responseHeaders r, W.responseStatus r, b')
                 let ex = ValidationException req resp' err
                 error $ ppShow ex
-        mw <- WV.mkValidator (WV.Log lg) ("/chainweb/0.0/" <> T.encodeUtf8 (chainwebVersionToText v)) <$> Yaml.decodeFileThrow "/home/edmundnoble/kadena/chainweb-openapi/chainweb.openapi.yaml"
-        app <- (if validateSpec then mw else id) <$> appIO
+        mw <-
+            if validateSpec
+            then do
+                mgr <- manager 2_000_000
+                let specUri = "https://raw.githubusercontent.com/kadena-io/chainweb-openapi/fixes/chainweb.openapi.yaml"
+                spec <- Yaml.decodeThrow . BL.toStrict . HTTP.responseBody =<< HTTP.httpLbs (HTTP.parseRequest_ specUri) mgr
+                return $ WV.mkValidator (WV.Log lg) ("/chainweb/0.0/" <> T.encodeUtf8 (chainwebVersionToText v)) spec
+            else pure id
+        app <- mw <$> appIO
         (port, sock) <- W.openFreePort
         readyVar <- newEmptyMVar
         server <- async $ do
