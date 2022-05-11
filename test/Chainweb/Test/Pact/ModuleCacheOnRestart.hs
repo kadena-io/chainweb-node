@@ -9,7 +9,6 @@
 module Chainweb.Test.Pact.ModuleCacheOnRestart (tests) where
 
 import Control.Concurrent.MVar.Strict
-import Control.DeepSeq (NFData)
 import Control.Lens
 import Control.Monad
 import Control.Monad.IO.Class
@@ -145,14 +144,14 @@ testV4 iobdb rewindM rewindM2 cacheM = (go,snapshotCache)
       initPayloadState
       -- at the upgrade/fork point
       doNextCoinbase iobdb >>= \hpwo -> liftIO $ do
-        rewind2 <- rewindM2
-        quickPutMVar "testV4: The contents of the rewind2 MVar are already full." rewind2 hpwo
+          rewind2 <- rewindM2
+          modifyMVar_ rewind2 $ const $ pure hpwo
       c <- use psInitCache
-      liftIO $ cacheM >>= \cache -> quickPutMVar "testV4: The contents of the cache MVar are full." cache c
+      liftIO $ cacheM >>= \cache -> modifyMVar_ cache $ const $ pure c
       -- just after the upgrade/fork point
       doNextCoinbase iobdb >>= \hpwo -> liftIO $ do
         rewind <- rewindM
-        quickPutMVar "testV4: The contents of the rewind MVar are already full." rewind hpwo
+        modifyMVar_ rewind $ const $ pure hpwo
       void $ doNextCoinbase iobdb
       void $ doNextCoinbase iobdb
 
@@ -179,11 +178,6 @@ rewindToBlock :: PayloadCasLookup cas => MVar (BlockHeader, PayloadWithOutputs) 
 rewindToBlock rewind = do
     (rewindHeader, pwo) <- liftIO $ readMVar rewind
     void $ execValidateBlock mempty rewindHeader (payloadWithOutputsToPayloadData pwo)
-
-quickPutMVar :: NFData a => String -> MVar a -> a -> IO ()
-quickPutMVar message m a = tryPutMVar m a >>= \case
-    True -> pure ()
-    False -> fail message
 
 testRewindAtFork :: PayloadCasLookup cas => IO TestBlockDb -> IO (MVar (BlockHeader, PayloadWithOutputs)) -> IO (MVar ModuleInitCache) -> CacheTest cas
 testRewindAtFork iobdb rewindM cacheM = (go, checkCache)
