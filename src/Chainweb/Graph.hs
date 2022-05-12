@@ -1,6 +1,5 @@
 {-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE ConstraintKinds #-}
-{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveFunctor #-}
 {-# LANGUAGE DeriveGeneric #-}
@@ -15,7 +14,6 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeInType #-}
-{-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE UndecidableInstances #-}
 {-# LANGUAGE UndecidableSuperClasses #-}
 
@@ -97,6 +95,7 @@ import qualified Data.HashSet as HS
 import Data.Kind (Type)
 
 import GHC.Generics hiding (to)
+import GHC.Stack
 
 import Numeric.Natural
 
@@ -120,16 +119,25 @@ data ChainGraphException :: Type where
     ChainNotInChainGraphException
         :: Expected (HS.HashSet ChainId)
         -> Actual ChainId
+        -> Maybe CallStack
         -> ChainGraphException
     AdjacentChainMismatch
         :: Expected (HS.HashSet ChainId)
         -> Actual (HS.HashSet ChainId)
+        -> Maybe CallStack
         -> ChainGraphException
     ChainNotAdjacentException
         :: Expected ChainId
         -> Actual (HS.HashSet ChainId)
+        -> Maybe CallStack
         -> ChainGraphException
-    deriving (Show, Eq, Generic)
+    deriving (Show, Generic)
+
+instance Eq ChainGraphException where
+    ChainNotInChainGraphException a0 b0 _ == ChainNotInChainGraphException a1 b1 _ = a0 == a1 && b0 == b1
+    AdjacentChainMismatch a0 b0 _ ==  AdjacentChainMismatch a1 b1 _ = a0 == a1 && b0 == b1
+    ChainNotAdjacentException a0 b0 _ == ChainNotAdjacentException a1 b1 _ = a0 == a1 && b0 == b1
+    _ == _ = False
 
 instance Exception ChainGraphException
 
@@ -287,11 +295,19 @@ graphChainIds = G.vertices . _chainGraphGraph
 -- | Given a 'ChainGraph' @g@, @checkWebChainId p@ checks that @p@ is a vertex
 -- in @g@.
 --
-checkWebChainId :: MonadThrow m => HasChainGraph g => HasChainId p => g -> p -> m ()
+checkWebChainId
+    :: HasCallStack
+    => MonadThrow m
+    => HasChainGraph g
+    => HasChainId p
+    => g
+    -> p
+    -> m ()
 checkWebChainId g p = unless (isWebChain g p)
     $ throwM $ ChainNotInChainGraphException
         (Expected (graphChainIds $ _chainGraph g))
         (Actual (_chainId p))
+        (Just callStack)
 
 -- | Returns whether the given chain is a vertex in the chain graph
 --
@@ -304,7 +320,8 @@ isWebChain g p = G.isVertex (_chainId p) (_chainGraphGraph $ _chainGraph g)
 -- expected set @as@.
 --
 checkAdjacentChainIds
-    :: MonadThrow m
+    :: HasCallStack
+    => MonadThrow m
     => HasChainGraph g
     => HasChainId cid
     => HasChainId adj
@@ -316,7 +333,7 @@ checkAdjacentChainIds
     -> m (HS.HashSet adj)
 checkAdjacentChainIds g cid expectedAdj = do
     checkWebChainId g cid
-    void $ check AdjacentChainMismatch
+    void $ check (\e a -> AdjacentChainMismatch e a $ Just callStack)
         (HS.map _chainId <$> expectedAdj)
         (Actual $ G.adjacents (_chainId cid) (_chainGraphGraph $ _chainGraph g))
     return $! getExpected expectedAdj

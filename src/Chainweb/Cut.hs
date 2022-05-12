@@ -210,7 +210,8 @@ cutMap :: Getter Cut (HM.HashMap ChainId BlockHeader)
 cutMap = cutHeaders
 
 lookupCutM
-    :: MonadThrow m
+    :: HasCallStack
+    => MonadThrow m
     => HasChainId cid
     => cid
     -> Cut
@@ -219,6 +220,7 @@ lookupCutM cid c = firstOf (ixg (_chainId cid)) c
     ??? ChainNotInChainGraphException
         (Expected $ chainIds c)
         (Actual (_chainId cid))
+        (Just callStack)
 
 _cutWeight :: Cut -> BlockWeight
 _cutWeight = sumOf $ cutHeaders . folded . blockWeight

@@ -114,6 +114,7 @@ import Data.These
 import qualified Data.Vector as V
 
 import GHC.Generics hiding (to)
+import GHC.Stack
 
 import Numeric.Natural
 
@@ -136,6 +137,7 @@ import Chainweb.ChainId
 import Chainweb.Cut
 import Chainweb.Cut.CutHashes
 import Chainweb.Graph
+import Chainweb.Payload (PayloadData)
 import Chainweb.Payload.PayloadStore
 import Chainweb.Sync.WebBlockHeaderStore
 import Chainweb.TreeDB
@@ -153,6 +155,7 @@ import qualified Data.TaskMap as TM
 import P2P.TaskQueue
 
 import Utils.Logging.Trace
+import Chainweb.BlockHeader.Genesis (genesisBlockHeader)
 
 -- -------------------------------------------------------------------------- --
 -- Cut DB Configuration
@@ -703,7 +706,8 @@ blockDiffStream :: MonadIO m => CutDb cas -> S.Stream (Of (Either BlockHeader Bl
 blockDiffStream db = cutStreamToHeaderDiffStream db $ cutStream db
 
 cutHashesToBlockHeaderMap
-    :: PayloadCas cas
+    :: forall cas
+    . PayloadCas cas
     => CutDbParams
     -> LogFunction
     -> WebBlockHeaderStore
@@ -747,13 +751,28 @@ cutHashesToBlockHeaderMap conf logfun headerStore payloadStore hs curCut =
     origin = _cutOrigin hs
     priority = Priority (- int (_cutHashesHeight hs))
 
-    tryGetBlockHeader hdrs plds cv@(cid, _) = do
-        curHdr <- lookupCutM cid curCut
+    v = _chainwebVersion headerStore
+
+    tryGetBlockHeader
+        :: HasCallStack
+        => HashMapCas BlockHeader
+        -> HashMapCas PayloadData
+        -> (ChainId, (BlockHeight, BlockHash))
+        -> IO (Either (ChainId, (BlockHeight, BlockHash)) (ChainId, BlockHeader))
+    tryGetBlockHeader hdrs plds cv@(cid, _) =
         (Right <$> mapM (\h -> getBlockHeader headerStore payloadStore hdrs plds cid priority origin h curHdr) cv)
             `catch` \case
                 (TreeDbKeyNotFound{} :: TreeDbException BlockHeaderDb) ->
                     return (Left cv)
                 e -> throwM e
+      where
+        -- This assumes that the only reason for lookupCutM to fail is that
+        -- the chain @cid@ doesn't yet exist in the current cut @curCut@
+        curHdr = case lookupCutM cid curCut of
+            -- this is somewhat expensive but only relevant during chaingraph
+            -- transitions
+            Nothing -> genesisBlockHeader v cid
+            Just h -> h
 
 -- -------------------------------------------------------------------------- --
 -- Membership Queries
