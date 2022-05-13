@@ -723,7 +723,6 @@ runChainweb cw = do
         (_chainwebBackup cw <$ guard backupApiEnabled)
         (_serviceApiPayloadBatchLimit . _configServiceApi $ _chainwebConfig cw)
 
-
     serviceHttpLog :: Middleware
     serviceHttpLog = requestResponseLogger $ setComponent "http:service-api" (_chainwebLogger cw)
 
