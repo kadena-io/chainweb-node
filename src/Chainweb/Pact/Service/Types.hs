@@ -68,6 +68,9 @@ data PactServiceConfig = PactServiceConfig
   , _pactResetDb :: !Bool
     -- ^ blow away pact dbs
   , _pactBlockGasLimit :: !GasLimit
+    -- ^ Pact service block gas limit
+  , _pactAllowDynamicRefill :: !Bool
+    -- ^ Enable dynamic block filling in pact service
   } deriving (Eq,Show)
 
 

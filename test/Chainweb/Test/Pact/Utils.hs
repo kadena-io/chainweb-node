@@ -486,6 +486,7 @@ testPactCtxSQLite v cid bhdb pdb sqlenv conf gasmodel = do
         , _psLogger = newLogger loggers $ LogName ("PactService" ++ show cid)
         , _psLoggers = loggers
         , _psBlockGasLimit = _pactBlockGasLimit conf
+        , _psAllowDynamicRefill = False
         }
 
 freeGasModel :: TxContext -> GasModel

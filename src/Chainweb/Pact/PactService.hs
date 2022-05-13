@@ -148,6 +148,7 @@ initPactService' ver cid chainwebLogger bhDb pdb sqlenv config act = do
                 , _psLogger = pactLogger
                 , _psLoggers = loggers
                 , _psBlockGasLimit = _pactBlockGasLimit config
+                , _psAllowDynamicRefill = _pactAllowDynamicRefill config
                 }
         !pst = PactServiceState Nothing mempty initialParentHeader P.noSPVSupport
     runPactServiceM pst pse $ do

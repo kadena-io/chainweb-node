@@ -81,6 +81,7 @@ module Chainweb.Pact.Types
   , psIsBatch
   , psCheckpointerDepth
   , psBlockGasLimit
+  , psAllowDynamicRefill
 
   , getCheckpointer
 
@@ -354,6 +355,7 @@ data PactServiceEnv cas = PactServiceEnv
     , _psCheckpointerDepth :: !Int
         -- ^ Number of nested checkpointer calls
     , _psBlockGasLimit :: !GasLimit
+    , _psAllowDynamicRefill :: !Bool
     }
 makeLenses ''PactServiceEnv
 
@@ -377,6 +379,7 @@ defaultPactServiceConfig = PactServiceConfig
       , _pactResetDb = True
       , _pactAllowReadsInLocal = False
       , _pactBlockGasLimit = defaultBlockGasLimit
+      , _pactAllowDynamicRefill = False
       }
 
 -- | This default value is only relevant for testing. In a chainweb-node the @GasLimit@

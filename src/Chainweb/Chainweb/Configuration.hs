@@ -382,6 +382,7 @@ data ChainwebConfiguration = ChainwebConfiguration
     , _configServiceApi :: !ServiceApiConfig
     , _configOnlySyncPact :: !Bool
         -- ^ exit after synchronizing pact dbs to the latest cut
+    , _configAllowDynamicRefill :: !Bool
     } deriving (Show, Eq, Generic)
 
 makeLenses ''ChainwebConfiguration
@@ -427,6 +428,7 @@ defaultChainwebConfiguration v = ChainwebConfiguration
     , _configServiceApi = defaultServiceApiConfig
     , _configOnlySyncPact = False
     , _configBackup = defaultBackupConfig
+    , _configAllowDynamicRefill = False
     }
 
 instance ToJSON ChainwebConfiguration where
@@ -449,6 +451,7 @@ instance ToJSON ChainwebConfiguration where
         , "serviceApi" .= _configServiceApi o
         , "onlySyncPact" .= _configOnlySyncPact o
         , "backup" .= _configBackup o
+        , "allowDynamicRefill" .= _configAllowDynamicRefill o
         ]
 
 instance FromJSON ChainwebConfiguration where
@@ -476,6 +479,7 @@ instance FromJSON (ChainwebConfiguration -> ChainwebConfiguration) where
         <*< configServiceApi %.: "serviceApi" % o
         <*< configOnlySyncPact ..: "onlySyncPact" % o
         <*< configBackup %.: "backup" % o
+        <*< configAllowDynamicRefill ..: "allowDynamicRefill" % o
 
 pChainwebConfiguration :: MParser ChainwebConfiguration
 pChainwebConfiguration = id
@@ -522,4 +526,6 @@ pChainwebConfiguration = id
         % long "only-sync-pact"
         <> help "Terminate after synchronizing the pact databases to the latest cut"
     <*< configBackup %:: pBackupConfig
-
+    <*< configAllowDynamicRefill .:: boolOption_
+        % long "allowDynamicRefill"
+        <> help "Enable dynamic block filling in pact service"

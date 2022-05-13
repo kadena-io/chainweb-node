@@ -387,6 +387,7 @@ withChainwebInternal conf logger peer serviceSock rocksDb pactDbDir backupDir re
       , _pactResetDb = resetDb
       , _pactAllowReadsInLocal = _configAllowReadsInLocal conf
       , _pactBlockGasLimit = _configBlockGasLimit conf
+      , _pactAllowDynamicRefill = _configAllowDynamicRefill conf
       }
 
     pruningLogger :: T.Text -> logger
@@ -722,6 +723,7 @@ runChainweb cw = do
         (_chainwebBackup cw <$ guard backupApiEnabled)
         (_serviceApiPayloadBatchLimit . _configServiceApi $ _chainwebConfig cw)
 
+
     serviceHttpLog :: Middleware
     serviceHttpLog = requestResponseLogger $ setComponent "http:service-api" (_chainwebLogger cw)
 
@@ -772,4 +774,3 @@ runChainweb cw = do
         enabled conf = do
             logg Info "Mempool p2p sync enabled"
             return $ map (runMempoolSyncClient mgr conf (_chainwebPeer cw)) chainVals
-
