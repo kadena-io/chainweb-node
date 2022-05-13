@@ -512,8 +512,12 @@ execNewBlock mpAccess parent miner = do
           (CoinbaseUsePrecompiled True)
           pdbenv
 
-        (BlockFilling _ successPairs failures) <-
-          refill fetchLimit pdbenv =<< foldM splitResults (BlockFilling initState mempty mempty) pairs
+        -- if dynamic block refills are enabled, refill the block recursively
+        -- to within the block gas limit, otherwise, take the first result.
+        initialSplit <- foldM splitResults (BlockFilling initState mempty mempty) pairs
+        (BlockFilling _ successPairs failures) <- view psAllowDynamicRefill >>= \case
+          False -> pure initialSplit
+          True -> refill fetchLimit pdbenv initialSplit
 
         liftIO $ mpaBadlistTx mpAccess (V.map gasPurchaseFailureHash failures)
 
