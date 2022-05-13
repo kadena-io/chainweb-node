@@ -47,14 +47,13 @@ import Chainweb.Test.Utils
 import Chainweb.Test.Pact.Utils
 import Chainweb.Utils (T2(..))
 import Chainweb.Version
-import Chainweb.Version.Utils
 import Chainweb.WebBlockHeaderDB
 
 testVer :: ChainwebVersion
-testVer = FastTimedCPM peterson
+testVer = FastTimedCPM singleton
 
 testChainId :: ChainId
-testChainId = someChainId testVer
+testChainId = unsafeChainId 0
 
 tests :: RocksDb -> ScheduledTest
 tests rdb =
@@ -72,7 +71,14 @@ tests rdb =
         withPact' bdbio dir iom (testCoinbase bdbio) (testCase "testDoUpgrades")
       , after AllSucceed "testDoUpgrades" $
         withPact' bdbio dir iom testRestart (testCase "testRestart2")
-
+      , after AllSucceed "testRestart2" $
+        withPact' bdbio dir iom (testV3 bdbio) (testCase "testV3")
+      , after AllSucceed "testV3" $
+        withPact' bdbio dir iom testRestart (testCase "testRestart3")
+      , after AllSucceed "testRestart3" $
+        withPact' bdbio dir iom (testV4 bdbio) (testCase "testV4")
+      , after AllSucceed "testV4" $
+        withPact' bdbio dir iom testRestart (testCase "testRestart4")
       ]
   where
     label = "Chainweb.Test.Pact.ModuleCacheOnRestart"
@@ -111,6 +117,32 @@ testCoinbase iobdb = (initPayloadState >> doCoinbase,snapshotCache)
       liftIO $ addTestBlockDb bdb (Nonce 0) (offsetBlockTime second) testChainId pwo
       nextH <- liftIO $ getParentTestBlockDb bdb testChainId
       void $ execValidateBlock mempty nextH (payloadWithOutputsToPayloadData pwo)
+
+testV3 :: PayloadCasLookup cas => IO TestBlockDb -> CacheTest cas
+testV3 iobdb = (go,snapshotCache)
+  where
+    go = do
+      initPayloadState
+      doNextCoinbase iobdb
+      doNextCoinbase iobdb
+      doNextCoinbase iobdb
+
+testV4 :: PayloadCasLookup cas => IO TestBlockDb -> CacheTest cas
+testV4 iobdb = (go,snapshotCache)
+  where
+    go = do
+      initPayloadState
+      doNextCoinbase iobdb
+
+doNextCoinbase :: PayloadCasLookup cas => IO TestBlockDb -> PactServiceM cas ()
+doNextCoinbase iobdb = do
+      bdb <- liftIO $ iobdb
+      prevH <- liftIO $ getParentTestBlockDb bdb testChainId
+      pwo <- execNewBlock mempty (ParentHeader prevH) noMiner
+      liftIO $ addTestBlockDb bdb (Nonce 0) (offsetBlockTime second) testChainId pwo
+      nextH <- liftIO $ getParentTestBlockDb bdb testChainId
+      void $ execValidateBlock mempty nextH (payloadWithOutputsToPayloadData pwo)
+
 
 -- | Interfaces can't be upgraded, but modules can, so verify hash in that case.
 justModuleHashes :: ModuleInitCache -> HM.HashMap ModuleName (Maybe ModuleHash)

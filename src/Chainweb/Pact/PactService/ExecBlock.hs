@@ -19,11 +19,13 @@ module Chainweb.Pact.PactService.ExecBlock
     ( setParentHeader
     , execBlock
     , execTransactions
+    , execTransactionsOnly
     , toHashCommandResult
     , minerReward
     , toPayloadWithOutputs
     , validateChainwebTxs
     , validateHashes
+    , throwOnGasFailure
     ) where
 
 import Control.DeepSeq
@@ -109,7 +111,7 @@ execBlock
         -- instead.
     -> PayloadData
     -> PactDbEnv'
-    -> PactServiceM cas (T2 Miner Transactions)
+    -> PactServiceM cas (T2 Miner (Transactions (P.CommandResult [P.TxLog A.Value])))
 execBlock currHeader plData pdbenv = do
 
     unlessM ((> 0) <$> asks _psCheckpointerDepth) $ do
@@ -140,7 +142,9 @@ execBlock currHeader plData pdbenv = do
       [] -> return ()
       errs -> throwM $ TransactionValidationException $ errs
 
-    !results <- go miner trans
+    logInitCache
+
+    !results <- go miner trans >>= throwOnGasFailure
     modify' $ set psStateValidated $ Just currHeader
 
     -- Validate hashes if requested
@@ -151,6 +155,12 @@ execBlock currHeader plData pdbenv = do
     return $! T2 miner results
 
   where
+
+    logInitCache = do
+      mc <- fmap (fmap instr) <$> use psInitCache
+      logDebug $ "execBlock: initCache: " <> sshow mc
+
+    instr (md,_) = preview (P._MDModule . P.mHash) $ P._mdModule md
 
     handleValids (tx,Left e) es = (P._cmdHash tx, sshow e):es
     handleValids _ es = es
@@ -170,6 +180,13 @@ execBlock currHeader plData pdbenv = do
         execTransactions False m txs
           (EnforceCoinbaseFailure False) (CoinbaseUsePrecompiled False) pdbenv
 
+throwOnGasFailure
+    :: Transactions (Either GasPurchaseFailure a)
+    -> PactServiceM cas (Transactions a)
+throwOnGasFailure = (transactionPairs . traverse . _2) throwGasFailure
+  where
+    throwGasFailure (Left e) = throwM $! BuyGasFailure e
+    throwGasFailure (Right r) = pure r
 
 -- | The principal validation logic for groups of Pact Transactions.
 --
@@ -221,7 +238,7 @@ validateChainwebTxs logger v cid cp txValidationTime bh txs doBuyGas
             Left _
                 | doCheckTxHash v bh -> return $ Left $ InsertErrorInvalidHash
                 | otherwise -> do
-                    P.logLog logger "INFO" $ "ignored legacy tx-hash failure"
+                    P.logLog logger "DEBUG" "ignored legacy tx-hash failure"
                     return $ Right t
             Right _ -> pure $ Right t
 
@@ -230,7 +247,7 @@ validateChainwebTxs logger v cid cp txValidationTime bh txs doBuyGas
         Left _
             -- special case for old testnet history
             | v == Testnet04 && not (doCheckTxHash v bh) -> do
-                P.logLog logger "INFO" $ "ignored legacy invalid signature"
+                P.logLog logger "DEBUG" "ignored legacy invalid signature"
                 return $ Right t
             | otherwise -> return $ Left $ InsertErrorInvalidSigs
         Right _ -> pure $ Right t
@@ -285,12 +302,23 @@ execTransactions
     -> EnforceCoinbaseFailure
     -> CoinbaseUsePrecompiled
     -> PactDbEnv'
-    -> PactServiceM cas Transactions
+    -> PactServiceM cas (Transactions (Either GasPurchaseFailure (P.CommandResult [P.TxLog A.Value])))
 execTransactions isGenesis miner ctxs enfCBFail usePrecomp (PactDbEnv' pactdbenv) = do
     mc <- getInitCache
     coinOut <- runCoinbase isGenesis pactdbenv miner enfCBFail usePrecomp mc
     txOuts <- applyPactCmds isGenesis pactdbenv ctxs miner mc
     return $! Transactions (V.zip ctxs txOuts) coinOut
+
+execTransactionsOnly
+    :: Miner
+    -> Vector ChainwebTransaction
+    -> PactDbEnv'
+    -> PactServiceM cas
+       (Vector (ChainwebTransaction, Either GasPurchaseFailure (P.CommandResult [P.TxLog A.Value])))
+execTransactionsOnly miner ctxs (PactDbEnv' pactdbenv) = do
+    mc <- getInitCache
+    txOuts <- applyPactCmds False pactdbenv ctxs miner mc
+    return $! (V.zip ctxs txOuts)
 
 runCoinbase
     :: Bool
@@ -333,7 +361,7 @@ applyPactCmds
     -> Vector ChainwebTransaction
     -> Miner
     -> ModuleCache
-    -> PactServiceM cas (Vector (P.CommandResult [P.TxLog A.Value]))
+    -> PactServiceM cas (Vector (Either GasPurchaseFailure (P.CommandResult [P.TxLog A.Value])))
 applyPactCmds isGenesis env cmds miner mc =
     V.fromList . toList . sfst <$> V.foldM f (T2 mempty mc) cmds
   where
@@ -346,34 +374,35 @@ applyPactCmd
     -> ChainwebTransaction
     -> Miner
     -> ModuleCache
-    -> DList (P.CommandResult [P.TxLog A.Value])
-    -> PactServiceM cas (T2 (DList (P.CommandResult [P.TxLog A.Value])) ModuleCache)
+    -> DList (Either GasPurchaseFailure (P.CommandResult [P.TxLog A.Value]))
+    -> PactServiceM cas
+       (T2 (DList (Either GasPurchaseFailure (P.CommandResult [P.TxLog A.Value]))) ModuleCache)
 applyPactCmd isGenesis dbEnv cmdIn miner mcache dl = do
     logger <- view psLogger
     gasModel <- view psGasModel
     v <- view psVersion
 
-    T2 result mcache' <- if isGenesis
-      then liftIO $! applyGenesisCmd logger dbEnv P.noSPVSupport (payloadObj <$> cmdIn)
-      else do
-        pd <- getTxContext (publicMetaOf $ payloadObj <$> cmdIn)
-        spv <- use psSpvSupport
-        liftIO $! applyCmd v logger dbEnv miner (gasModel pd) pd spv cmdIn mcache
-        {- the following can be used instead of above to nerf transaction execution
-        return $! T2 (P.CommandResult (P.cmdToRequestKey cmdIn) Nothing
-                      (P.PactResult (Right (P.PLiteral (P.LInteger 1))))
-                      0 Nothing Nothing Nothing)
-                      mcache -}
+    handle onBuyGasFailure $ do
+      T2 result mcache' <- if isGenesis
+        then liftIO $! applyGenesisCmd logger dbEnv P.noSPVSupport (payloadObj <$> cmdIn)
+        else do
+          pd <- getTxContext (publicMetaOf $ payloadObj <$> cmdIn)
+          spv <- use psSpvSupport
+          liftIO $! applyCmd v logger dbEnv miner (gasModel pd) pd spv cmdIn mcache
 
-    when isGenesis $
-      updateInitCache mcache'
+      when isGenesis $
+        updateInitCache mcache'
 
-    unless isGenesis $ debugResult "applyPactCmd" result
+      unless isGenesis $ debugResult "applyPactCmd" result
 
-    cp <- getCheckpointer
-    -- mark the tx as processed at the checkpointer.
-    liftIO $ _cpRegisterProcessedTx cp (P._cmdHash cmdIn)
-    pure $! T2 (DL.snoc dl result) mcache'
+      cp <- getCheckpointer
+      -- mark the tx as processed at the checkpointer.
+      liftIO $ _cpRegisterProcessedTx cp (P._cmdHash cmdIn)
+      pure $! T2 (DL.snoc dl (Right result)) mcache'
+
+  where
+    onBuyGasFailure (BuyGasFailure f) = pure $! T2 (DL.snoc dl (Left f)) mcache
+    onBuyGasFailure e = throwM e
 
 toHashCommandResult :: P.CommandResult [P.TxLog A.Value] -> P.CommandResult P.Hash
 toHashCommandResult = over (P.crLogs . _Just) $ P.pactHash . encodeToByteString
@@ -446,7 +475,7 @@ validateHashes
         -- ^ Current Header
     -> PayloadData
     -> Miner
-    -> Transactions
+    -> Transactions (P.CommandResult [P.TxLog A.Value])
     -> Either PactException PayloadWithOutputs
 validateHashes bHeader pData miner transactions =
     if newHash == prevHash
@@ -524,7 +553,7 @@ toOutputBytes cr =
     let outBytes = A.encode cr
     in TransactionOutput { _transactionOutputBytes = BL.toStrict outBytes }
 
-toPayloadWithOutputs :: Miner -> Transactions -> PayloadWithOutputs
+toPayloadWithOutputs :: Miner -> Transactions (P.CommandResult [P.TxLog A.Value]) -> PayloadWithOutputs
 toPayloadWithOutputs mi ts =
     let oldSeq = _transactionPairs ts
         trans = cmdBSToTx . fst <$> oldSeq

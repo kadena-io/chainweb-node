@@ -79,6 +79,7 @@ main = void $ do
     genTxModules
     gen20ChainPayloads
     genCoinV3Payloads
+    genCoinV4Payloads
     putStrLn "Done."
   where
     devnet = mkPayloads
@@ -156,6 +157,12 @@ gen20ChainPayloads = traverse_ mk20ChainPayload [developmentKAD, mainnetKAD]
 
 genCoinV3Payloads :: IO ()
 genCoinV3Payloads = genTxModule "CoinV3" [coinContractV3]
+
+genCoinV4Payloads :: IO ()
+genCoinV4Payloads = genTxModule "CoinV4"
+  [ fungibleXChainV1
+  , coinContractV4
+  ]
 
 ---------------------
 -- Payload Generation

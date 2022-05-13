@@ -386,6 +386,7 @@ withChainwebInternal conf logger peer serviceSock rocksDb pactDbDir backupDir re
       , _pactQueueSize = _configPactQueueSize conf
       , _pactResetDb = resetDb
       , _pactAllowReadsInLocal = _configAllowReadsInLocal conf
+      , _pactBlockGasLimit = _configBlockGasLimit conf
       }
 
     pruningLogger :: T.Text -> logger
@@ -719,6 +720,7 @@ runChainweb cw = do
         (HeaderStream . _configHeaderStream $ _chainwebConfig cw)
         (Rosetta . _configRosetta $ _chainwebConfig cw)
         (_chainwebBackup cw <$ guard backupApiEnabled)
+        (_serviceApiPayloadBatchLimit . _configServiceApi $ _chainwebConfig cw)
 
     serviceHttpLog :: Middleware
     serviceHttpLog = requestResponseLogger $ setComponent "http:service-api" (_chainwebLogger cw)
