@@ -1,5 +1,24 @@
 # `chainweb-node` Changelog
 
+## 2.14.1 (2022-05-16)
+
+This is a feature and bug-fix release. Upgrading is optional but recommended.
+
+Unlike mandatory service releases, optional releases can be rolled back in case
+of an issue with the release. Optional releases are therefore well suited for
+early integration and testing of new chainweb-node versions.
+
+To upgrade, pull the latest docker image or download the binary and restart the
+node.
+
+Changes:
+
+*   Improve performance of branch queries in some cases (#1431)
+*   Make upper and lower bounds in branch APIs optional (#1432)
+*   Make the payload API batch limit configurable on the service API.
+    Restrict the payload batch limit on the P2P API to 50 items. (#1433)
+*   More robust block refill logic (#1437)
+
 ## 2.14 (2022-04-11)
 
 This version replaces all previous versions. Any prior version will stop working
