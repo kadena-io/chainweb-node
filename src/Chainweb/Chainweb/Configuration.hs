@@ -260,6 +260,9 @@ data ServiceApiConfig = ServiceApiConfig
     , _serviceApiConfigInterface :: !HostPreference
         -- ^ The network interface that the service APIs are bound to. Default is to
         -- bind to all available interfaces ('*').
+    , _serviceApiConfigValidateSpec :: !Bool
+        -- ^ Validate requests and responses against the latest OpenAPI specification.
+        -- Disabled by default for performance reasons
     }
     deriving (Show, Eq, Generic)
 
@@ -269,18 +272,21 @@ defaultServiceApiConfig :: ServiceApiConfig
 defaultServiceApiConfig = ServiceApiConfig
     { _serviceApiConfigPort = 1848
     , _serviceApiConfigInterface = "*"
+    , _serviceApiConfigValidateSpec = False
     }
 
 instance ToJSON ServiceApiConfig where
     toJSON o = object
         [ "port" .= _serviceApiConfigPort o
         , "interface" .= hostPreferenceToText (_serviceApiConfigInterface o)
+        , "validateSpec" .= _serviceApiConfigValidateSpec o
         ]
 
 instance FromJSON (ServiceApiConfig -> ServiceApiConfig) where
     parseJSON = withObject "ServiceApiConfig" $ \o -> id
         <$< serviceApiConfigPort ..: "port" % o
         <*< setProperty serviceApiConfigInterface "interface" (parseJsonFromText "interface") o
+        <*< serviceApiConfigValidateSpec ..: "validateSpec" % o
 
 pServiceApiConfig :: MParser ServiceApiConfig
 pServiceApiConfig = id

@@ -109,6 +109,7 @@ import Control.Monad.Catch (fromException, throwM)
 import Control.Monad.Writer
 
 import Data.Bifunctor (second)
+import qualified Data.ByteString.Lazy as BL
 import Data.Foldable
 import Data.Function (on)
 import qualified Data.HashMap.Strict as HM
@@ -116,8 +117,10 @@ import Data.List (isPrefixOf, sortBy)
 import qualified Data.List as L
 import Data.Maybe
 import qualified Data.Text as T
+import qualified Data.Text.Encoding as T
 import Data.These (These(..))
 import qualified Data.Vector as V
+import qualified Data.Yaml as Yaml
 
 import qualified Network.HTTP.Client as HTTP
 import Network.Socket (Socket)
@@ -126,6 +129,7 @@ import Network.Wai.Handler.Warp hiding (Port)
 import Network.Wai.Handler.WarpTLS (WarpTLSException(InsecureConnectionDenied))
 import Network.Wai.Middleware.RequestSizeLimit
 import Network.Wai.Middleware.Throttle
+import qualified Network.Wai.Middleware.Validation as WV
 
 import Prelude hiding (log)
 
@@ -582,6 +586,7 @@ runChainweb
     -> IO ()
 runChainweb cw = do
     logg Info "start chainweb node"
+    vm <- mkValidationMiddleware
     runConcurrently $ ()
         -- 1. Start serving Rest API
         <$ Concurrently ((if tls then serve else servePlain)
@@ -596,6 +601,14 @@ runChainweb cw = do
         <* Concurrently (threadDelay 500000 >> serveServiceApi (serviceHttpLog . requestSizeLimit))
 
   where
+    logValidationFailure _ _ (WV.ValidationException ty err) =
+        logFunctionJson (_chainwebLogger cw) Warn $ "openapi error: " <>
+    mkValidationMiddleware = do
+        mgr <- manager 2_000_000
+        let specUri = "https://raw.githubusercontent.com/kadena-io/chainweb-openapi/fixes/chainweb.openapi.yaml"
+        spec <- Yaml.decodeThrow . BL.toStrict . HTTP.responseBody =<< HTTP.httpLbs (HTTP.parseRequest_ specUri) mgr
+        return $ WV.mkValidator (WV.Log logValidationFailure) ("/chainweb/0.0/" <> T.encodeUtf8 (chainwebVersionToText $ _chainwebVersion $ _chainwebConfig cw)) spec
+
     tls = _p2pConfigTls $ _configP2p $ _chainwebConfig cw
 
     clients :: IO ()
