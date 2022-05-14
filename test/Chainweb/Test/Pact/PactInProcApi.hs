@@ -1,3 +1,4 @@
+{-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE NumericUnderscores #-}
@@ -19,6 +20,7 @@ module Chainweb.Test.Pact.PactInProcApi
 ( tests
 ) where
 
+import Control.Arrow ((&&&))
 import Control.DeepSeq
 import Control.Concurrent.MVar
 import Control.Exception
@@ -56,6 +58,7 @@ import Pact.Types.PactValue
 import Pact.Types.Persistence
 import Pact.Types.PactError
 import Pact.Types.Pretty
+import Pact.Types.RPC
 import Pact.Types.SPV
 import Pact.Types.Term
 
@@ -112,6 +115,7 @@ tests rdb = ScheduledTest testName go
          , test Quiet $ badlistNewBlockTest
          , test Warn $ mempoolCreationTimeTest
          , test Warn $ moduleNameFork
+         , test Warn $ mempoolRefillTest
          , multiChainTest freeGasModel "pact4coin3UpgradeTest" pact4coin3UpgradeTest
          , multiChainTest freeGasModel "pact420UpgradeTest" pact420UpgradeTest
          , multiChainTest freeGasModel "minerKeysetTest" minerKeysetTest
@@ -944,6 +948,62 @@ txResult msg i o = do
 -- | Get coinbase from output
 cbResult :: PayloadWithOutputs -> IO (CommandResult Hash)
 cbResult o = decodeStrictOrThrow @_ @(CommandResult Hash) (_coinbaseOutput $ _payloadWithOutputsCoinbase o)
+
+mempoolRefillTest :: IO (IORef MemPoolAccess) -> IO (PactQueue,TestBlockDb) -> TestTree
+mempoolRefillTest mpRefIO reqIO = testCase "mempoolRefillTest" $ do
+
+  (q,bdb) <- reqIO
+  supply <- newMVar (0 :: Int)
+
+  mp supply [ ( 0, [goodTx, goodTx] ), ( 1, [badTx] ) ]
+  runBlock q bdb second "mempoolRefillTest-1" >>= checkCount 2
+
+  mp supply [ ( 0, [goodTx, goodTx] ), ( 1, [goodTx, badTx] ) ]
+  runBlock q bdb second "mempoolRefillTest-2" >>= checkCount 3
+
+  mp supply [ ( 0, [badTx, goodTx] ), ( 1, [goodTx, badTx] ) ]
+  runBlock q bdb second "mempoolRefillTest-3" >>= checkCount 2
+
+  mp supply [ ( 0, [badTx] ), ( 1, [goodTx, goodTx] ) ]
+  runBlock q bdb second "mempoolRefillTest-3" >>= checkCount 2
+
+  mp supply [ ( 0, [goodTx, goodTx] ), ( 1, [badTx, badTx] ) ]
+  runBlock q bdb second "mempoolRefillTest-3" >>= checkCount 2
+
+
+  where
+
+    checkCount n = assertEqual "tx return count" n . V.length . _payloadWithOutputsTransactions
+
+    mp supply txRefillMap = setMempool mpRefIO $ mempty {
+      mpaGetBlock = \BlockFill{..} _ _ _ bh -> case M.lookup _bfCount (M.fromList txRefillMap) of
+          Nothing -> return mempty
+          Just txs -> fmap V.fromList $ sequence $ map (next supply bh) txs
+      }
+
+
+    next supply bh f = do
+      i <- modifyMVar supply $ return . (succ &&& id)
+      f i bh
+
+    goodTx i bh = buildCwCmd
+        $ set cbSigners [mkSigner' sender00 []]
+        $ mkCmd' bh (sshow (i,bh))
+        $ mkExec' "(+ 1 2)"
+
+    badTx i bh = buildCwCmd
+        $ set cbSigners [mkSigner' sender00 []]
+        $ set cbSender "bad"
+        $ mkCmd' bh (sshow (i,bh))
+        $ mkExec' "(+ 1 2)"
+
+
+mkCmd' :: BlockHeader -> T.Text -> PactRPC T.Text -> CmdBuilder
+mkCmd' bh nonce =
+  set cbCreationTime (toTxCreationTime $ _bct $ _blockCreationTime bh)
+  . set cbChainId (_blockChainId bh)
+  . mkCmd nonce
+
 
 
 moduleNameFork :: IO (IORef MemPoolAccess) -> IO (PactQueue,TestBlockDb) -> TestTree
