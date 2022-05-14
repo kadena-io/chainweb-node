@@ -62,6 +62,7 @@ module Chainweb.Utils
 , (&)
 , IxedGet(..)
 , minusOrZero
+, once
 
 -- * Encoding and Serialization
 , EncodingException(..)
@@ -403,6 +404,11 @@ alignWithV f a b = V.zipWith (\a' -> f . These a') a b <> case (V.length a,V.len
 minusOrZero :: Ord a => Num a => a -> a -> a
 minusOrZero a b = a - min a b
 {-# INLINE minusOrZero #-}
+
+-- | Analogous to `unsafeInterleaveIO` but doesn't hide the effect behind evaluation.
+once :: IO a -> IO (IO a)
+once act = evaluate <$> unsafeInterleaveIO act
+{-# INLINE once #-}
 
 -- -------------------------------------------------------------------------- --
 -- * Read only Ixed

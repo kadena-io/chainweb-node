@@ -370,6 +370,7 @@ library
         , mwc-random >= 0.13
         , mwc-probability >= 2.0 && <2.4
         , network >= 3.1.2
+        , openapi3
         , optparse-applicative >= 0.14
         , pact >= 4.2.0.1
         , pem >=0.2
@@ -402,6 +403,7 @@ library
         , wai-app-static >= 3.1.6.3
         , wai-cors >= 0.2.7
         , wai-extra >= 3.0.28
+        , wai-middleware-validation
         , vector >= 0.12.2
         , vector-algorithms >= 0.7
         , wai-middleware-throttle >= 0.3
