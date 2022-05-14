@@ -586,14 +586,18 @@ runChainweb
     -> IO ()
 runChainweb cw = do
     logg Info "start chainweb node"
-    getSpec <- once fetchOpenApiSpec
+    getSpec <- interleaveIO fetchOpenApiSpec
     p2pValidationMiddleware <-
         if _p2pConfigValidateSpec (_configP2p $ _chainwebConfig cw)
-        then validationMiddleware <$> getSpec
+        then do
+            logg Warn $ "OpenAPI spec validation enabled on P2P API, make sure this is what you want"
+            validationMiddleware <$> getSpec
         else return id
     serviceApiValidationMiddleware <-
         if _serviceApiConfigValidateSpec (_configServiceApi $ _chainwebConfig cw)
-        then validationMiddleware <$> getSpec
+        then do
+            logg Warn $ "OpenAPI spec validation enabled on service API, make sure this is what you want"
+            validationMiddleware <$> getSpec
         else return id
     runConcurrently $ ()
         -- 1. Start serving Rest API
