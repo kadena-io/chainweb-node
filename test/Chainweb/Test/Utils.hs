@@ -143,6 +143,7 @@ import Data.Coerce (coerce)
 import Data.Foldable
 import Data.IORef
 import qualified Data.HashMap.Strict as HashMap
+import Data.OpenApi(OpenApi)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
 import Data.Tree
@@ -169,6 +170,7 @@ import Servant.Client (BaseUrl(..), ClientEnv, Scheme(..), mkClientEnv)
 import System.Directory
 import System.Environment (withArgs)
 import qualified System.IO.Extra as Extra
+import System.IO.Unsafe(unsafePerformIO)
 import System.IO.Temp
 import System.LogLevel
 import System.Random (randomIO)
@@ -627,6 +629,13 @@ getResponseBody res = do
             (pure ())
         toLazyByteString <$> readIORef ref
 
+{-# NOINLINE openApiSpec #-}
+openApiSpec :: OpenApi
+openApiSpec = unsafePerformIO $ do
+    mgr <- manager 10_000_000
+    let specUri = "https://raw.githubusercontent.com/kadena-io/chainweb-openapi/fixes/chainweb.openapi.yaml"
+    Yaml.decodeThrow . BL.toStrict . HTTP.responseBody =<< HTTP.httpLbs (HTTP.parseRequest_ specUri) mgr
+
 -- TODO: catch, wrap, and forward exceptions from chainwebApplication
 --
 withChainwebTestServer
@@ -651,14 +660,10 @@ withChainwebTestServer validateSpec tls v appIO envIO test = withResource start 
                         return (W.responseHeaders r, W.responseStatus r, b')
                 let ex = ValidationException req resp' err
                 error $ ppShow ex
-        mw <-
-            if validateSpec
-            then do
-                mgr <- manager 2_000_000
-                let specUri = "https://raw.githubusercontent.com/kadena-io/chainweb-openapi/fixes/chainweb.openapi.yaml"
-                spec <- Yaml.decodeThrow . BL.toStrict . HTTP.responseBody =<< HTTP.httpLbs (HTTP.parseRequest_ specUri) mgr
-                return $ WV.mkValidator (WV.Log lg) ("/chainweb/0.0/" <> T.encodeUtf8 (chainwebVersionToText v)) spec
-            else pure id
+            mw =
+                if validateSpec
+                then WV.mkValidator (WV.Log lg) ("/chainweb/0.0/" <> T.encodeUtf8 (chainwebVersionToText v)) openApiSpec
+                else id
         app <- mw <$> appIO
         (port, sock) <- W.openFreePort
         readyVar <- newEmptyMVar
