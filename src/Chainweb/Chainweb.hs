@@ -586,7 +586,19 @@ runChainweb
     -> IO ()
 runChainweb cw = do
     logg Info "start chainweb node"
-    vm <- mkValidationMiddleware
+    getSpec <- interleaveIO fetchOpenApiSpec
+    p2pValidationMiddleware <-
+        if _p2pConfigValidateSpec (_configP2p $ _chainwebConfig cw)
+        then do
+            logg Warn $ "OpenAPI spec validation enabled on P2P API, make sure this is what you want"
+            validationMiddleware <$> getSpec
+        else return id
+    serviceApiValidationMiddleware <-
+        if _serviceApiConfigValidateSpec (_configServiceApi $ _chainwebConfig cw)
+        then do
+            logg Warn $ "OpenAPI spec validation enabled on service API, make sure this is what you want"
+            validationMiddleware <$> getSpec
+        else return id
     runConcurrently $ ()
         -- 1. Start serving Rest API
         <$ Concurrently ((if tls then serve else servePlain)
@@ -594,20 +606,21 @@ runChainweb cw = do
                 . throttle (_chainwebPutPeerThrottler cw)
                 . throttle (_chainwebThrottler cw)
                 . requestSizeLimit
+                . p2pValidationMiddleware
             )
         -- 2. Start Clients (with a delay of 500ms)
         <* Concurrently (threadDelay 500000 >> clients)
         -- 3. Start serving local API
-        <* Concurrently (threadDelay 500000 >> serveServiceApi (serviceHttpLog . requestSizeLimit))
+        <* Concurrently (threadDelay 500000 >> serveServiceApi (serviceHttpLog . requestSizeLimit . serviceApiValidationMiddleware))
 
   where
-    logValidationFailure _ _ (WV.ValidationException ty err) =
-        logFunctionJson (_chainwebLogger cw) Warn $ "openapi error: " <>
-    mkValidationMiddleware = do
-        mgr <- manager 2_000_000
+    logValidationFailure _ _ err =
+        logg Warn $ "openapi error: " <> sshow err
+    fetchOpenApiSpec = do
         let specUri = "https://raw.githubusercontent.com/kadena-io/chainweb-openapi/fixes/chainweb.openapi.yaml"
-        spec <- Yaml.decodeThrow . BL.toStrict . HTTP.responseBody =<< HTTP.httpLbs (HTTP.parseRequest_ specUri) mgr
-        return $ WV.mkValidator (WV.Log logValidationFailure) ("/chainweb/0.0/" <> T.encodeUtf8 (chainwebVersionToText $ _chainwebVersion $ _chainwebConfig cw)) spec
+        Yaml.decodeThrow . BL.toStrict . HTTP.responseBody =<< HTTP.httpLbs (HTTP.parseRequest_ specUri) mgr
+    validationMiddleware spec =
+        WV.mkValidator (WV.Log logValidationFailure) ("/chainweb/0.0/" <> T.encodeUtf8 (chainwebVersionToText $ _chainwebVersion $ _chainwebConfig cw)) spec
 
     tls = _p2pConfigTls $ _configP2p $ _chainwebConfig cw
 
