@@ -586,7 +586,7 @@ runChainweb
     -> IO ()
 runChainweb cw = do
     logg Info "start chainweb node"
-    getSpec <- once fetchOpenApiSpec
+    getSpec <- interleaveIO fetchOpenApiSpec
     p2pValidationMiddleware <-
         if _p2pConfigValidateSpec (_configP2p $ _chainwebConfig cw)
         then do

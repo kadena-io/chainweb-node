@@ -230,6 +230,7 @@ instance Arbitrary P2pConfiguration where
         <$> arbitrary <*> arbitrary <*> arbitrary
         <*> arbitrary <*> arbitrary <*> arbitrary
         <*> arbitrary <*> arbitrary <*> arbitrary
+        <*> arbitrary
 
 instance Arbitrary PeerEntry where
     arbitrary = PeerEntry

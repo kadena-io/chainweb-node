@@ -62,7 +62,7 @@ module Chainweb.Utils
 , (&)
 , IxedGet(..)
 , minusOrZero
-, once
+, interleaveIO
 
 -- * Encoding and Serialization
 , EncodingException(..)
@@ -268,7 +268,7 @@ import qualified Options.Applicative as O
 import qualified Streaming as S (concats, effect, inspect)
 import qualified Streaming.Prelude as S
 
-import System.IO.Unsafe (unsafePerformIO)
+import System.IO.Unsafe (unsafeInterleaveIO, unsafePerformIO)
 import System.LogLevel
 import qualified System.Random.MWC as Prob
 import qualified System.Random.MWC.Probability as Prob
@@ -406,9 +406,9 @@ minusOrZero a b = a - min a b
 {-# INLINE minusOrZero #-}
 
 -- | Analogous to `unsafeInterleaveIO` but doesn't hide the effect behind evaluation.
-once :: IO a -> IO (IO a)
-once act = evaluate <$> unsafeInterleaveIO act
-{-# INLINE once #-}
+interleaveIO :: IO a -> IO (IO a)
+interleaveIO act = evaluate <$> unsafeInterleaveIO act
+{-# INLINE interleaveIO #-}
 
 -- -------------------------------------------------------------------------- --
 -- * Read only Ixed
