@@ -221,9 +221,9 @@ sensible, or otherwise have a simple way to refer to it. For running
 `chainweb-node` via docker, please see the instruction above in this document or
 visit our [docker repository](https://hub.docker.com/r/kadena/chainweb-node).
 
-**Note:** Your needs to be reachable from the public internet. You will have to
-perform Port Forwarding if your machine is behind a router (by default port 1789
-is used by the node).
+**Note:** Your node needs to be reachable from the public internet. You will
+have to perform Port Forwarding if your machine is behind a router (by default
+port 1789 is used by the node).
 
 **NOTE**: When you start chainweb-node for the first time it creates a new
 empty database and start to synchronize and catch up with other nodes in the
