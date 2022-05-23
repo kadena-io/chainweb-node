@@ -320,6 +320,8 @@ $ curl -sk https://<bootstrap-node-url>/chainweb/0.0/mainnet01/cut | jq '.height
 
 ## Mine for a Chainweb Network
 
+Successful mining on mainnet requires specialized hardware (ASIC). The setup for solo mining involves running a chainweb-node with a configuration that enables mining and a [chainweb-mining-client](https://github.com/kadena-io/chainweb-mining-client/) that connects to the mining API of a chainweb-node and provides a Stratum API for the mining hardware (ASIC). 
+
 Detailed instructions for setting up all the infrastructure needed to start
 mining using `docker compose` can be found in the documentation of [docker-compose-chainweb-node/mining-node](https://github.com/kadena-io/docker-compose-chainweb-node/tree/main/mining-node).
 
