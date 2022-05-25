@@ -614,8 +614,8 @@ runChainweb cw = do
         <* Concurrently (threadDelay 500000 >> serveServiceApi (serviceHttpLog . requestSizeLimit . serviceApiValidationMiddleware))
 
   where
-    logValidationFailure _ _ err =
-        logg Warn $ "openapi error: " <> sshow err
+    logValidationFailure (reqBody, req) resp err = do
+        logg Warn $ "openapi error: " <> sshow (err, req, reqBody, responseHeaders . snd <$> resp, responseStatus . snd <$> resp, fst <$> resp)
     fetchOpenApiSpec = do
         let specUri = "https://raw.githubusercontent.com/kadena-io/chainweb-openapi/fixes/chainweb.openapi.yaml"
         Yaml.decodeThrow . BL.toStrict . HTTP.responseBody =<< HTTP.httpLbs (HTTP.parseRequest_ specUri) mgr

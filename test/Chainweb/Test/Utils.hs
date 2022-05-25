@@ -8,6 +8,7 @@
 {-# LANGUAGE TupleSections #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE ViewPatterns #-}
 
 -- |
 -- Module: Chainweb.Test.Utils
@@ -651,7 +652,7 @@ withChainwebTestServer validateSpec tls v appIO envIO test = withResource start 
   where
     start = do
         let
-            lg req resp err = do
+            lg (_, req) (fmap snd -> resp) err = do
                 b <- traverse getResponseBody resp
                 let
                     resp' = do
