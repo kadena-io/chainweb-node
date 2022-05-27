@@ -16,18 +16,18 @@
 (env-gasmodel "table")
 (env-gas 0) (env-gaslog)
 (begin-tx)
-(load "fungible-xchain-v1.pact")
+(load "../v4/fungible-xchain-v1.pact")
 (env-gaslog)
 (expect
   "Gas cost of loading fungible-xchain contract"
   60236 (env-gas))
 (commit-tx)
 (begin-tx)
-(load "coin-v4.pact")
+(load "coin-v5.pact")
 (env-gaslog)
 (expect
   "Gas cost of loading coin contract"
-  66494
+  66628
   (env-gas))
 
 (create-table coin.coin-table)
@@ -956,6 +956,7 @@
   [ {"name": "coin.TRANSFER_XCHAIN"
     ,"params": ["emily" "doug" 0.00001 "1"]
     }
+
     {"name": "coin.TRANSFER"
     ,"params": ["emily" "" 0.00001]
     }
@@ -970,6 +971,9 @@
 (expect "xchain send events"
   [ {"name": "coin.TRANSFER"
     ,"params": ["" "doug" 0.00001]
+    }
+    {"name": "coin.TRANSFER_XCHAIN_RECD"
+    ,"params": ["" "doug" 0.00001 "0"]
     }
     { "name": "pact.X_RESUME"
     , "params": ["0" "coin.transfer-crosschain" ["emily" "doug" (read-keyset 'k) "1" 0.00001]]

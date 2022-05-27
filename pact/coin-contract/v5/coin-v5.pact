@@ -578,7 +578,7 @@
           "Current chain id does not match the specified target chain for cross-chain transfer")
 
         (emit-event (TRANSFER "" receiver amount))
-        (emit-event (TRANSFER_XCHAIN_RECD "" receiver amount source-chain-id))
+        (emit-event (TRANSFER_XCHAIN_RECD "" receiver amount source-chain))
 
         ;; step 2 - credit create account on target chain
         (with-capability (CREDIT receiver)
