@@ -137,7 +137,6 @@ import Data.Aeson (FromJSON, ToJSON)
 import Data.Bifunctor hiding (second)
 import Data.Bytes.Put
 import qualified Data.ByteString as B
-import Data.ByteString.Builder(toLazyByteString)
 import qualified Data.ByteString.Lazy as BL
 import Data.CAS (casKey)
 import Data.Coerce (coerce)
@@ -613,22 +612,12 @@ withTestAppServer tls v appIO envIO userFunc = bracket start stop go
 
 data ValidationException = ValidationException
     { vReq :: W.Request
-    , vResp :: Maybe (ResponseHeaders, Status, BL.ByteString)
+    , vResp :: (ResponseHeaders, Status, BL.ByteString)
     , vErr :: WV.ValidationException
     }
     deriving (Show, Typeable)
 
 instance Exception ValidationException
-
-getResponseBody :: W.Response -> IO BL.ByteString
-getResponseBody res = do
-    let (_, _, withBody) = W.responseToStream res
-    withBody $ \streamingBody -> do
-        ref <- newIORef mempty
-        streamingBody
-            (\b -> atomicModifyIORef ref $ \acc -> (acc <> b, ()))
-            (pure ())
-        toLazyByteString <$> readIORef ref
 
 {-# NOINLINE openApiSpec #-}
 openApiSpec :: OpenApi
@@ -651,19 +640,14 @@ withChainwebTestServer validateSpec tls v appIO envIO test = withResource start 
     test $ x >>= \(_, _, env) -> return env
   where
     start = do
+        coverageRef <- newIORef mempty
         let
-            lg (_, req) (fmap snd -> resp) err = do
-                b <- traverse getResponseBody resp
-                let
-                    resp' = do
-                        r <- resp
-                        b' <- b
-                        return (W.responseHeaders r, W.responseStatus r, b')
-                let ex = ValidationException req resp' err
+            lg (_, req) (respBody, resp) err = do
+                let ex = ValidationException req (W.responseHeaders resp, W.responseStatus resp, respBody) err
                 error $ ppShow ex
             mw =
                 if validateSpec
-                then WV.mkValidator (WV.Log lg) ("/chainweb/0.0/" <> T.encodeUtf8 (chainwebVersionToText v)) openApiSpec
+                then WV.mkValidator coverageRef (WV.Log lg (const (return ()))) ("/chainweb/0.0/" <> T.encodeUtf8 (chainwebVersionToText v)) openApiSpec
                 else id
         app <- mw <$> appIO
         (port, sock) <- W.openFreePort

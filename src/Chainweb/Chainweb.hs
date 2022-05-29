@@ -108,11 +108,11 @@ import Control.Monad
 import Control.Monad.Catch (fromException, throwM)
 import Control.Monad.Writer
 
-import Data.Bifunctor (second)
 import qualified Data.ByteString.Lazy as BL
 import Data.Foldable
 import Data.Function (on)
 import qualified Data.HashMap.Strict as HM
+import Data.IORef
 import Data.List (isPrefixOf, sortBy)
 import qualified Data.List as L
 import Data.Maybe
@@ -164,6 +164,7 @@ import Chainweb.Payload.PayloadStore
 import Chainweb.Payload.PayloadStore.RocksDB
 import Chainweb.RestAPI
 import Chainweb.RestAPI.NetworkID
+import Chainweb.Time
 import Chainweb.Transaction
 import Chainweb.Utils
 import Chainweb.Utils.RequestLog
@@ -586,18 +587,23 @@ runChainweb
     -> IO ()
 runChainweb cw = do
     logg Info "start chainweb node"
-    getSpec <- interleaveIO fetchOpenApiSpec
+    mkValidationMiddleware <- interleaveIO $ do
+        spec <- fetchOpenApiSpec
+        apiCoverageRef <- newIORef $ WV.initialCoverageMap spec
+        apiCoverageLogTimeRef <- newIORef =<< getCurrentTimeIntegral
+        return $
+            WV.mkValidator apiCoverageRef (WV.Log logValidationFailure (logApiCoverage apiCoverageLogTimeRef)) ("/chainweb/0.0/" <> T.encodeUtf8 (chainwebVersionToText $ _chainwebVersion $ _chainwebConfig cw)) spec
     p2pValidationMiddleware <-
         if _p2pConfigValidateSpec (_configP2p $ _chainwebConfig cw)
         then do
             logg Warn $ "OpenAPI spec validation enabled on P2P API, make sure this is what you want"
-            validationMiddleware <$> getSpec
+            mkValidationMiddleware
         else return id
     serviceApiValidationMiddleware <-
         if _serviceApiConfigValidateSpec (_configServiceApi $ _chainwebConfig cw)
         then do
             logg Warn $ "OpenAPI spec validation enabled on service API, make sure this is what you want"
-            validationMiddleware <$> getSpec
+            mkValidationMiddleware
         else return id
     runConcurrently $ ()
         -- 1. Start serving Rest API
@@ -614,13 +620,22 @@ runChainweb cw = do
         <* Concurrently (threadDelay 500000 >> serveServiceApi (serviceHttpLog . requestSizeLimit . serviceApiValidationMiddleware))
 
   where
-    logValidationFailure (reqBody, req) resp err = do
-        logg Warn $ "openapi error: " <> sshow (err, req, reqBody, responseHeaders . snd <$> resp, responseStatus . snd <$> resp, fst <$> resp)
+    logValidationFailure (reqBody, req) (respBody, resp) err = do
+        logg Warn $ "openapi error: " <> sshow (err, req, reqBody, responseHeaders resp, responseStatus resp, respBody)
+    logApiCoverage apiCoverageLogTimeRef apiCoverageMap = do
+        now :: Time Integer <- getCurrentTimeIntegral
+        then' <- atomicModifyIORef' apiCoverageLogTimeRef (\then' -> (now, then'))
+        if now `diff` then' >= scaleTimeSpan (5 :: Integer) minute
+        then
+            logFunctionJson (_chainwebLogger cw) Info $ object
+                [ "apiCoverageMap" .= toJSON apiCoverageMap
+                ]
+        else
+            writeIORef apiCoverageLogTimeRef then'
+
     fetchOpenApiSpec = do
         let specUri = "https://raw.githubusercontent.com/kadena-io/chainweb-openapi/fixes/chainweb.openapi.yaml"
         Yaml.decodeThrow . BL.toStrict . HTTP.responseBody =<< HTTP.httpLbs (HTTP.parseRequest_ specUri) mgr
-    validationMiddleware spec =
-        WV.mkValidator (WV.Log logValidationFailure) ("/chainweb/0.0/" <> T.encodeUtf8 (chainwebVersionToText $ _chainwebVersion $ _chainwebConfig cw)) spec
 
     tls = _p2pConfigTls $ _configP2p $ _chainwebConfig cw
 
@@ -645,7 +660,7 @@ runChainweb cw = do
 
     -- collect server resources
     proj :: forall a . (ChainResources logger -> a) -> [(ChainId, a)]
-    proj f = map (second f) chains
+    proj f = chains & mapped . _2 %~ f
 
     chainDbsToServe :: [(ChainId, BlockHeaderDb)]
     chainDbsToServe = proj _chainResBlockHeaderDb
