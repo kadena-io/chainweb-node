@@ -512,14 +512,15 @@ execNewBlock mpAccess parent miner = do
           pdbenv
 
         (BlockFilling _ successPairs failures) <-
-          refill fetchLimit pdbenv =<< foldM splitResults (BlockFilling initState mempty mempty) pairs
+          refill fetchLimit pdbenv =<<
+          foldM splitResults (incCount (BlockFilling initState mempty mempty)) pairs
 
         liftIO $ mpaBadlistTx mpAccess (V.map gasPurchaseFailureHash failures)
 
         let !pwo = toPayloadWithOutputs miner (Transactions successPairs cb)
         return $! Discard pwo
 
-    refill fetchLimit pdbenv unchanged@(BlockFilling bfState _ _) = do
+    refill fetchLimit pdbenv unchanged@(BlockFilling bfState oldPairs oldFails) = do
 
       logInfo $ describeBF unchanged
 
@@ -537,18 +538,21 @@ execNewBlock mpAccess parent miner = do
 
           pairs <- execTransactionsOnly miner newTrans pdbenv
 
-          r@(BlockFilling newState newPairs newFails) <-
+          newFill@(BlockFilling newState newPairs newFails) <-
                 foldM splitResults unchanged pairs
 
           -- LOOP INVARIANT: gas must not increase
           when (_bfGasLimit newState > _bfGasLimit bfState) $
               throwM $ MempoolFillFailure $ "Gas must not increase: " <> sshow (bfState,newState)
 
+          let newSuccessCount = V.length newPairs - V.length oldPairs
+              newFailCount = V.length newFails - V.length oldFails
+
           -- LOOP INVARIANT: gas must decrease ...
           if (_bfGasLimit newState < _bfGasLimit bfState)
               -- ... OR only non-zero failures were returned.
-             || (V.null newPairs && not (V.null newFails))
-              then refill fetchLimit pdbenv (incCount r)
+             || (newSuccessCount == 0  && newFailCount > 0)
+              then refill fetchLimit pdbenv (incCount newFill)
               else throwM $ MempoolFillFailure $ "Invariant failure: " <>
                    sshow (bfState,newState,V.length newTrans
                          ,V.length newPairs,V.length newFails)

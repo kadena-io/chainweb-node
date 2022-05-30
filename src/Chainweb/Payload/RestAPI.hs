@@ -1,5 +1,7 @@
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE ExistentialQuantification #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
@@ -16,8 +18,13 @@
 --
 module Chainweb.Payload.RestAPI
 (
+-- * Batch size limits
+  PayloadBatchLimit(..)
+, p2pPayloadBatchLimit
+, defaultServicePayloadBatchLimit
+
 -- * Type indexed PayloadDb
-  PayloadDb'(..)
+, PayloadDb'(..)
 , SomePayloadDb(..)
 , somePayloadDbVal
 
@@ -48,7 +55,10 @@ module Chainweb.Payload.RestAPI
 
 import Control.Monad.Identity
 
+import Data.Aeson
 import Data.Proxy
+
+import Numeric.Natural
 
 import Servant.API
 
@@ -61,6 +71,21 @@ import Chainweb.Payload.PayloadStore
 import Chainweb.RestAPI.Orphans ()
 import Chainweb.RestAPI.Utils
 import Chainweb.Version
+
+-- -------------------------------------------------------------------------- --
+-- Constants
+
+-- | The maximum number of items that are returned in a batch
+--
+newtype PayloadBatchLimit = PayloadBatchLimit Natural
+    deriving (Show, Eq)
+    deriving newtype (Ord, Enum, Num, Real, Integral, ToJSON, FromJSON)
+
+p2pPayloadBatchLimit :: PayloadBatchLimit
+p2pPayloadBatchLimit = 50
+
+defaultServicePayloadBatchLimit :: PayloadBatchLimit
+defaultServicePayloadBatchLimit = 1000
 
 -- -------------------------------------------------------------------------- --
 -- Type indexed PayloadDb
