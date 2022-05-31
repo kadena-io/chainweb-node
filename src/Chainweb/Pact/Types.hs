@@ -373,7 +373,7 @@ defaultPactServiceConfig :: PactServiceConfig
 defaultPactServiceConfig = PactServiceConfig
       { _pactReorgLimit = fromIntegral defaultReorgLimit
       , _pactRevalidate = True
-      , _pactQueueSize = 10000
+      , _pactQueueSize = 1000
       , _pactResetDb = True
       , _pactAllowReadsInLocal = False
       , _pactUnlimitedInitialRewind = False
