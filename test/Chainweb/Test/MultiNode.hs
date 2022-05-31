@@ -239,12 +239,11 @@ runNodes
     -> (T.Text -> IO ())
     -> MVar ConsensusState
     -> ChainwebConfiguration
-    -> ChainwebVersion
     -> Natural
         -- ^ number of nodes
     -> RocksDb
     -> IO ()
-runNodes loglevel write stateVar baseConf v n rdb = do
+runNodes loglevel write stateVar baseConf n rdb = do
     -- NOTE: pact is enabled until we have a good way to disable it globally in
     -- "Chainweb.Chainweb".
     --
@@ -262,7 +261,7 @@ runNodes loglevel write stateVar baseConf v n rdb = do
 
         conf <- if
             | i == 0 ->
-                return $ multiBootstrapConfig (multiConfig v n)
+                return $ multiBootstrapConfig baseConf
             | otherwise ->
                 setBootstrapPeerInfo <$> readMVar bootstrapPortVar <*> pure baseConf
 
@@ -284,7 +283,7 @@ runNodesForSeconds
 runNodesForSeconds loglevel baseConf v n (Seconds seconds) write rdb = do
     stateVar <- newMVar $ emptyConsensusState v
     void $ timeout (int seconds * 1_000_000)
-        $ runNodes loglevel write stateVar baseConf v n rdb
+        $ runNodes loglevel write stateVar baseConf n rdb
 
     consensusState <- readMVar stateVar
     return (consensusStateSummary consensusState)
@@ -296,9 +295,9 @@ replayTest
     -> TestTree
 replayTest loglevel v n = testCaseSteps name $ \step -> do
     let tastylog = step . T.unpack
-    withRocksDb "replay-test" $ \rdb -> do
+    withTempRocksDb "replay-test" $ \rdb -> do
         tastylog "phase 1..."
-        Just stats1 <- runNodesForSeconds loglevel (multiConfig v n) v n 30 T.putStrLn rdb
+        Just stats1 <- runNodesForSeconds loglevel (multiConfig v n) v n 60 T.putStrLn rdb
         tastylog $ sshow stats1
         tastylog $ "phase 2... "
         Just stats2 <- runNodesForSeconds loglevel (multiConfig v n & set (configCuts . cutInitialBlockHeightLimit) (Just 5)) v n 30 (T.putStrLn) rdb
@@ -306,7 +305,7 @@ replayTest loglevel v n = testCaseSteps name $ \step -> do
         tastylog "done."
         assertGe "maximum cut height before reset" (Actual $ _statMaxHeight stats1) (Expected $ 10)
         assertLe "minimum cut height after reset" (Actual $ _statMinHeight stats2) (Expected $ _statMaxHeight stats1)
-        assertGe "maximum cut height after reset" (Actual $ _statMaxHeight stats2) (Expected $ _statMaxHeight stats1)
+        assertGe "block count after reset" (Actual $ _statBlockCount stats2) (Expected $ _statBlockCount stats1)
     where
     name = "ConsensusNetwork [replay]"
 
