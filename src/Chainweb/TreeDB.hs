@@ -195,8 +195,8 @@ instance
     => FromJSON (BranchBounds db)
   where
     parseJSON = withObject "BranchBounds" $ \o -> BranchBounds
-        <$> (HS.map LowerBound <$> o .: "lower")
-        <*> (HS.map UpperBound <$> o .: "upper")
+        <$> (HS.map LowerBound <$> (o .:? "lower" .!= mempty))
+        <*> (HS.map UpperBound <$> (o .:? "upper" .!= mempty))
 
 -- -------------------------------------------------------------------------- --
 -- * TreeDbEntry
