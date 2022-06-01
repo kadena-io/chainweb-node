@@ -953,7 +953,7 @@ chainweb215Pact
     -> Bool
 chainweb215Pact aoa v h = case aoa of
     At -> go (==) v h
-    After -> go (flip (>)) v h
+    After -> go (<) v h
   where
     go _f Mainnet01 = error "TODO"
     go _f Testnet04 = error "TODO"
