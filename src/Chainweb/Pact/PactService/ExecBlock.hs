@@ -324,8 +324,6 @@ execTransactions isGenesis miner ctxs enfCBFail usePrecomp (PactDbEnv' pactdbenv
             return mc
         Just (_,mc) -> return mc
 
-
-
 execTransactionsOnly
     :: Miner
     -> Vector ChainwebTransaction
