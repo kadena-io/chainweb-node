@@ -102,6 +102,7 @@ import qualified Chainweb.Mempool.Mempool as Mempool
 import Chainweb.Mempool.P2pConfig
 import Chainweb.Miner.Config
 import Chainweb.Pact.Types (defaultReorgLimit)
+import Chainweb.Payload.RestAPI (PayloadBatchLimit(..), defaultServicePayloadBatchLimit)
 import Chainweb.Utils
 import Chainweb.Version
 
@@ -263,6 +264,10 @@ data ServiceApiConfig = ServiceApiConfig
     , _serviceApiConfigValidateSpec :: !Bool
         -- ^ Validate requests and responses against the latest OpenAPI specification.
         -- Disabled by default for performance reasons
+
+    , _serviceApiPayloadBatchLimit :: PayloadBatchLimit
+        -- ^ maximum size for payload batches on the service API. Default is
+        -- 'Chainweb.Payload.RestAPI.defaultServicePayloadBatchLimit'.
     }
     deriving (Show, Eq, Generic)
 
@@ -273,6 +278,7 @@ defaultServiceApiConfig = ServiceApiConfig
     { _serviceApiConfigPort = 1848
     , _serviceApiConfigInterface = "*"
     , _serviceApiConfigValidateSpec = False
+    , _serviceApiPayloadBatchLimit = defaultServicePayloadBatchLimit
     }
 
 instance ToJSON ServiceApiConfig where
@@ -280,6 +286,7 @@ instance ToJSON ServiceApiConfig where
         [ "port" .= _serviceApiConfigPort o
         , "interface" .= hostPreferenceToText (_serviceApiConfigInterface o)
         , "validateSpec" .= _serviceApiConfigValidateSpec o
+        , "payloadBatchLimit" .= _serviceApiPayloadBatchLimit o
         ]
 
 instance FromJSON (ServiceApiConfig -> ServiceApiConfig) where
@@ -287,6 +294,7 @@ instance FromJSON (ServiceApiConfig -> ServiceApiConfig) where
         <$< serviceApiConfigPort ..: "port" % o
         <*< setProperty serviceApiConfigInterface "interface" (parseJsonFromText "interface") o
         <*< serviceApiConfigValidateSpec ..: "validateSpec" % o
+        <*< serviceApiPayloadBatchLimit ..: "payloadBatchLimit" % o
 
 pServiceApiConfig :: MParser ServiceApiConfig
 pServiceApiConfig = id
@@ -295,6 +303,9 @@ pServiceApiConfig = id
         % prefixLong service "interface"
         <> suffixHelp service "interface that the service Rest API binds to (see HostPreference documentation for details)"
     -- serviceApiBackups isn't supported on the command line
+    <*< serviceApiPayloadBatchLimit .:: fmap PayloadBatchLimit . option auto
+        % prefixLong service "payload-batch-limit"
+        <> suffixHelp service "upper limit for the size of payload batches on the service API"
   where
     service = Just "service"
 

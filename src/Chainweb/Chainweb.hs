@@ -761,6 +761,7 @@ runChainweb cw = do
         (HeaderStream . _configHeaderStream $ _chainwebConfig cw)
         (Rosetta . _configRosetta $ _chainwebConfig cw)
         (_chainwebBackup cw <$ guard backupApiEnabled)
+        (_serviceApiPayloadBatchLimit . _configServiceApi $ _chainwebConfig cw)
 
     serviceHttpLog :: Middleware
     serviceHttpLog = requestResponseLogger $ setComponent "http:service-api" (_chainwebLogger cw)

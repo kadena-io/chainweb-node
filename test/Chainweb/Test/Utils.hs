@@ -123,6 +123,7 @@ module Chainweb.Test.Utils
 , interface
 , withTime
 , withMVarResource
+, withEmptyMVarResource
 ) where
 
 import Control.Concurrent
@@ -1135,3 +1136,6 @@ withMVarResource value = withResource (newMVar value) mempty
 
 withTime :: (IO (Time Micros) -> TestTree) -> TestTree
 withTime = withResource getCurrentTimeIntegral mempty
+
+withEmptyMVarResource :: (IO (MVar a) -> TestTree) -> TestTree
+withEmptyMVarResource = withResource newEmptyMVar mempty
