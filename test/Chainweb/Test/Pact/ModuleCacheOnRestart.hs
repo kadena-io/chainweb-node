@@ -63,8 +63,7 @@ testChainId = unsafeChainId 0
 type RewindPoint = (BlockHeader, PayloadWithOutputs)
 
 data RewindData = RewindData
-  {
-    afterV4 :: RewindPoint
+  { afterV4 :: RewindPoint
   , beforeV4 :: RewindPoint
   , v3Cache :: HM.HashMap ModuleName (Maybe ModuleHash)
   } deriving Generic
