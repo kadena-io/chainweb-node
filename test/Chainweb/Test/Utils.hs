@@ -613,7 +613,7 @@ withTestAppServer tls v appIO envIO userFunc = bracket start stop go
 data ValidationException = ValidationException
     { vReq :: W.Request
     , vResp :: (ResponseHeaders, Status, BL.ByteString)
-    , vErr :: WV.ValidationException
+    , vErr :: WV.TopLevelError
     }
     deriving (Show, Typeable)
 
