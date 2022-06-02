@@ -143,6 +143,7 @@ chainweb214Pact aoa v h = case aoa of
 
 ## Testing
 
+There are two main sites for testing coin upgrades and assessing fork compatibility across
 - PactInProcApi
   - Make sure v* is backcompatible across 2 forks so (see: pact4coin3UpgradeTest)
     - https://github.com/kadena-io/chainweb-node/pull/1416

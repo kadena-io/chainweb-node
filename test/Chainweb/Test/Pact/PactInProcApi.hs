@@ -121,6 +121,7 @@ tests rdb = ScheduledTest testName go
          , multiChainTest freeGasModel "minerKeysetTest" minerKeysetTest
          , multiChainTest getGasModel "chainweb213Test" chainweb213Test
          , multiChainTest getGasModel "pact43UpgradeTest" pact43UpgradeTest
+         , multiChainTest getGasModel "pact431UpgradeTest" pact431UpgradeTest
          ]
       where
         pactConfig = defaultPactServiceConfig { _pactBlockGasLimit = 150_000 }
@@ -577,6 +578,109 @@ pact43UpgradeTest bdb mpRefIO pact = do
         , "  (defconst test:string \"hello\")"
         , "  (defun get-test() test)"
         , ")"
+        ])
+        $ mkKeySetData "k" [sender00]
+    runCut' = runCut testVersion bdb pact (offsetBlockTime second) zeroNoncer noMiner
+
+pact431UpgradeTest :: TestBlockDb -> IO (IORef MemPoolAccess) -> WebPactExecutionService -> IO ()
+pact431UpgradeTest bdb mpRefIO pact = do
+
+  -- run past genesis, upgrades
+  forM_ [(1::Int)..34] $ \_i -> runCut'
+
+  -- run block 35, pre fork
+  setOneShotMempool mpRefIO blocc
+  runCut'
+  pwo35 <- getPWO bdb cid
+
+  tx35_0 <- txResult "pwo35" 0 pwo35
+  assertSatisfies "tx35_0 success" (_pactResult $ _crResult tx35_0) isRight
+
+  -- run block 29, pre fork
+  tx35_1 <- txResult "pwo35" 1 pwo35
+  assertEqual
+    "Should not resolve new pact native: continue"
+    (Just "Cannot resolve is-principal")
+    (tx35_1 ^? crResult . to _pactResult . _Left . to peDoc)
+
+  tx35_2 <- txResult "pwo35" 2 pwo35
+  assertEqual
+    "Should not resolve new pact native: create-principal"
+    (Just "Cannot resolve typeof-principal")
+    (tx35_2 ^? crResult . to _pactResult . _Left . to peDoc)
+
+  tx35_3 <- txResult "pwo35" 3 pwo35
+  assertSatisfies "tx30_3 success" (_pactResult $ _crResult tx35_3) isRight
+
+  tx35_4 <- txResult "pwo35" 4 pwo35
+  assertSatisfies "tx30_4 success" (_pactResult $ _crResult tx35_4) isRight
+
+  -- run block 36, post fork
+  setOneShotMempool mpRefIO blocc
+  runCut'
+  pwo36 <- getPWO bdb cid
+
+  tx36_0 <- txResult "pwo36" 0 pwo36
+  assertEqual
+    "Should fail to execute describe-module"
+    (Just "Operation only permitted in local execution mode")
+    (tx36_0 ^? crResult . to _pactResult . _Left . to peDoc)
+
+  tx36_1 <- txResult "pwo36" 1 pwo36
+  assertEqual
+    "Should resolve new pact native: is-principal"
+    (Just (PLiteral (LBool True)))
+    (tx36_1 ^? crResult . to _pactResult . _Right)
+
+  tx36_2 <- txResult "pwo36" 2 pwo36
+  assertEqual
+    "Should resolve new pact native: create-principal"
+    (Just (PLiteral (LString "k:")))
+    (tx36_2 ^? crResult . to _pactResult . _Right)
+
+  tx36_3 <- txResult "pwo36" 3 pwo36
+  assertEqual
+    "Should fail to execute enforce-pact-version"
+    (Just "Operation only permitted in local execution mode")
+    (tx36_3 ^? crResult . to _pactResult . _Left . to peDoc)
+
+  tx36_4 <- txResult "pwo36" 4 pwo36
+  assertEqual
+    "Should fail to execute pact-version"
+    (Just "Operation only permitted in local execution mode")
+    (tx36_4 ^? crResult . to _pactResult . _Left . to peDoc)
+  where
+    blocc = mempty {
+      mpaGetBlock = \_ _ _ _ bh -> if _blockChainId bh == cid then do
+          t0 <- buildMod bh
+          t1 <- buildSimpleCmd bh "(is-principal (create-principal (read-keyset 'k)))"
+          t2 <- buildSimpleCmd bh "(typeof-principal (create-principal (read-keyset 'k)))"
+          t3 <- buildSimpleCmd bh "(enforce-pact-version \"4.3\")"
+          t4 <- buildSimpleCmd bh "(pact-version)"
+          return $! V.fromList [t0, t1, t2, t3, t4]
+          else return mempty
+      }
+    buildSimpleCmd bh code = buildCwCmd
+        $ set cbSigners [mkSigner' sender00 []]
+        $ set cbChainId (_blockChainId bh)
+        $ set cbCreationTime (toTxCreationTime $ _bct $ _blockCreationTime bh)
+        $ set cbGasLimit 1000
+        $ mkCmd code
+        $ mkExec code
+        $ mkKeySetData "k" [sender00]
+    buildMod bh = buildCwCmd
+        $ set cbSigners [mkSigner' sender00 []]
+        $ set cbChainId (_blockChainId bh)
+        $ set cbCreationTime (toTxCreationTime $ _bct $ _blockCreationTime bh)
+        $ set cbGasLimit 100000
+        $ mkCmd (sshow bh)
+        $ mkExec (mconcat
+        [ "(namespace 'free)"
+        , "(module mod G"
+        , "  (defcap G () true)"
+        , "  (defun f () true)"
+        , ")"
+        , "(describe-module \"free.mod\")"
         ])
         $ mkKeySetData "k" [sender00]
     runCut' = runCut testVersion bdb pact (offsetBlockTime second) zeroNoncer noMiner
