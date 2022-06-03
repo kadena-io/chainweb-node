@@ -596,7 +596,6 @@ pact431UpgradeTest bdb mpRefIO pact = do
   tx35_0 <- txResult "pwo35" 0 pwo35
   assertSatisfies "tx35_0 success" (_pactResult $ _crResult tx35_0) isRight
 
-  -- run block 29, pre fork
   tx35_1 <- txResult "pwo35" 1 pwo35
   assertEqual
     "Should not resolve new pact native: continue"
@@ -610,10 +609,16 @@ pact431UpgradeTest bdb mpRefIO pact = do
     (tx35_2 ^? crResult . to _pactResult . _Left . to peDoc)
 
   tx35_3 <- txResult "pwo35" 3 pwo35
-  assertSatisfies "tx30_3 success" (_pactResult $ _crResult tx35_3) isRight
+  assertEqual
+    "Enforce pact version passes pre-fork"
+    (Just (PLiteral (LBool True)))
+    (tx35_3 ^? crResult . to _pactResult . _Right)
 
   tx35_4 <- txResult "pwo35" 4 pwo35
-  assertSatisfies "tx30_4 success" (_pactResult $ _crResult tx35_4) isRight
+  assertEqual
+    "Pact version is 4.2.1 for compat pre-fork"
+    (Just (PLiteral (LString "4.2.1")))
+    (tx35_4 ^? crResult . to _pactResult . _Right)
 
   -- run block 36, post fork
   setOneShotMempool mpRefIO blocc
@@ -655,7 +660,7 @@ pact431UpgradeTest bdb mpRefIO pact = do
           t0 <- buildMod bh
           t1 <- buildSimpleCmd bh "(is-principal (create-principal (read-keyset 'k)))"
           t2 <- buildSimpleCmd bh "(typeof-principal (create-principal (read-keyset 'k)))"
-          t3 <- buildSimpleCmd bh "(enforce-pact-version \"4.3\")"
+          t3 <- buildSimpleCmd bh "(enforce-pact-version \"4.2.1\")"
           t4 <- buildSimpleCmd bh "(pact-version)"
           return $! V.fromList [t0, t1, t2, t3, t4]
           else return mempty
