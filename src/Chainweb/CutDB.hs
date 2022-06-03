@@ -34,7 +34,6 @@ module Chainweb.CutDB
 , cutDbParamsBufferSize
 , cutDbParamsLogLevel
 , cutDbParamsTelemetryLevel
-, cutDbParamsUseOrigin
 , cutDbParamsInitialHeightLimit
 , cutDbParamsFetchTimeout
 , cutDbParamsAvgBlockHeightPruningDepth
@@ -163,7 +162,6 @@ data CutDbParams = CutDbParams
     , _cutDbParamsBufferSize :: !Natural
     , _cutDbParamsLogLevel :: !LogLevel
     , _cutDbParamsTelemetryLevel :: !LogLevel
-    , _cutDbParamsUseOrigin :: !Bool
     , _cutDbParamsFetchTimeout :: !Int
     , _cutDbParamsInitialHeightLimit :: !(Maybe BlockHeight)
     , _cutDbParamsAvgBlockHeightPruningDepth :: BlockHeight
@@ -188,7 +186,6 @@ defaultCutDbParams v ft = CutDbParams
     , _cutDbParamsBufferSize = (order g ^ (2 :: Int)) * diameter g
     , _cutDbParamsLogLevel = Warn
     , _cutDbParamsTelemetryLevel = Warn
-    , _cutDbParamsUseOrigin = True
     , _cutDbParamsFetchTimeout = ft
     , _cutDbParamsInitialHeightLimit = Nothing
     , _cutDbParamsAvgBlockHeightPruningDepth = 5000
@@ -397,8 +394,7 @@ startCutDb
 startCutDb config logfun headerStore payloadStore cutHashesStore = mask_ $ do
     logg Info "obtain initial cut"
     initialCut <- readInitialCut
-    -- TODO before merge: is this a good idea or not?
-    -- deleteRangeRocksDb (_getRocksDbCas cutHashesStore) (Just $ over _1 succ $ casKey $ cutToCutHashes Nothing initialCut, Nothing)
+    deleteRangeRocksDb (_getRocksDbCas cutHashesStore) (Just $ over _1 succ $ casKey $ cutToCutHashes Nothing initialCut, Nothing)
     cutVar <- newTVarIO initialCut
     c <- readTVarIO cutVar
     logg Info $ "got initial cut: " <> sshow c
@@ -459,7 +455,7 @@ startCutDb config logfun headerStore payloadStore cutHashesStore = mask_ $ do
                         Nothing -> return hm
                         Just h -> do
                             let
-                                cutHeightTarget =
+                                cutHeightTarget = min 0 $
                                     avgCutHeightAt v h -
                                         CutHeight (int $ diameterAtCutHeight v (maxBound :: CutHeight) * chainCountAt v (maxBound :: BlockHeight))
                             limitCutHeaders wbhdb cutHeightTarget hm
@@ -509,12 +505,12 @@ processCuts
 processCuts conf logFun headerStore payloadStore cutHashesStore queue cutVar = do
     rng <- Prob.createSystemRandom
     queueToStream
-        & S.chain (\c -> loggc Info c "start processing")
+        & S.chain (\c -> loggc Debug c "start processing")
         & S.filterM (fmap not . isVeryOld)
         & S.filterM (fmap not . farAhead)
         & S.filterM (fmap not . isOld)
         & S.filterM (fmap not . isCurrent)
-        & S.chain (\c -> loggc Info c "fetch all prerequesites")
+        & S.chain (\c -> loggc Debug c "fetch all prerequesites")
         & S.mapM (cutHashesToBlockHeaderMap conf logFun headerStore payloadStore)
         & S.chain (either
             (\(T2 hsid c) -> loggc Warn hsid $ "failed to get prerequesites for some blocks. Missing: " <> encodeToText c)

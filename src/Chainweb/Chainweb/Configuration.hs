@@ -33,7 +33,6 @@ module Chainweb.Chainweb.Configuration
 , chainDatabaseGcFromText
 
 , CutConfig(..)
-, cutIncludeOrigin
 , cutPruneChainDatabase
 , cutFetchTimeout
 , cutInitialBlockHeightLimit
@@ -199,8 +198,7 @@ instance FromJSON ChainDatabaseGcConfig where
     {-# INLINE parseJSON #-}
 
 data CutConfig = CutConfig
-    { _cutIncludeOrigin :: !Bool
-    , _cutPruneChainDatabase :: !ChainDatabaseGcConfig
+    { _cutPruneChainDatabase :: !ChainDatabaseGcConfig
     , _cutFetchTimeout :: !Int
     , _cutInitialBlockHeightLimit :: !(Maybe BlockHeight)
     } deriving (Eq, Show)
@@ -211,33 +209,25 @@ instance ToJSON CutConfig where
     toJSON o = object
         [ "pruneChainDatabase" .= _cutPruneChainDatabase o
         , "fetchTimeout" .= _cutFetchTimeout o
-        , "includeOrigin" .= _cutIncludeOrigin o
         , "initialBlockHeightLimit" .= _cutInitialBlockHeightLimit o
         ]
 
 instance FromJSON (CutConfig -> CutConfig) where
     parseJSON = withObject "CutConfig" $ \o -> id
-        <$< cutIncludeOrigin ..: "includeOrigin" % o
-        <*< cutPruneChainDatabase ..: "pruneChainDatabase" % o
+        <$< cutPruneChainDatabase ..: "pruneChainDatabase" % o
         <*< cutFetchTimeout ..: "fetchTimeout" % o
         <*< cutInitialBlockHeightLimit ..: "initialBlockHeightLimit" % o
 
 defaultCutConfig :: CutConfig
 defaultCutConfig = CutConfig
-    { _cutIncludeOrigin = True
-    , _cutPruneChainDatabase = GcNone
+    { _cutPruneChainDatabase = GcNone
     , _cutFetchTimeout = 3_000_000
     , _cutInitialBlockHeightLimit = Nothing
     }
 
 pCutConfig :: MParser CutConfig
 pCutConfig = id
-    <$< cutIncludeOrigin .:: boolOption_
-        % long "cut-include-origin"
-        <> hidden
-        <> internal
-        <> help "whether to include the origin when sending cuts"
-    <*< cutPruneChainDatabase .:: textOption
+    <$< cutPruneChainDatabase .:: textOption
         % long "prune-chain-database"
         <> help
             ( "How to prune the chain database on startup."

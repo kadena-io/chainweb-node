@@ -52,7 +52,6 @@ module Chainweb.Cut
 , limitCut
 , limitCutHeaders
 , unsafeMkCut
-, CutResetTarget(..)
 , chainHeights
 , meanChainHeight
 , maxChainHeight
@@ -99,7 +98,6 @@ import Control.Lens hiding ((:>), (.=))
 import Control.Monad hiding (join)
 import Control.Monad.Catch
 
-import Data.Aeson
 import Data.Bifoldable
 import Data.Foldable
 import Data.Function
@@ -241,35 +239,6 @@ unsafeMkCut v hdrs = Cut'
     { _cutHeaders = hdrs
     , _cutChainwebVersion = v
     }
-
--- In some scenarios it's useful to reset a node's latest cut to some
--- past cut, which we can specify either as the ancestor of the latest
--- cut at some block height or as the cut sitting in a file at the indicated path.
-data CutResetTarget
-    = CutResetToBlockHeight !BlockHeight
-    | CutResetToCutFile !FilePath
-    deriving (Show, Eq, Ord, Generic)
-    deriving anyclass (NFData)
-
-cutResetTargetProperties :: forall kv. KeyValue kv => CutResetTarget -> [kv]
-cutResetTargetProperties (CutResetToBlockHeight bh) =
-    [ "blockHeight" .= bh ]
-cutResetTargetProperties (CutResetToCutFile fp) =
-    [ "cutFile" .= fp ]
-{-# INLINE cutResetTargetProperties #-}
-
-instance ToJSON CutResetTarget where
-    toJSON = object . cutResetTargetProperties
-    toEncoding = pairs . mconcat . cutResetTargetProperties
-    {-# INLINE toJSON #-}
-    {-# INLINE toEncoding #-}
-
-instance FromJSON CutResetTarget where
-    parseJSON = withObject "CutResetTarget" $ \o -> asum
-        [ CutResetToBlockHeight <$> o .: "blockHeight"
-        , CutResetToCutFile <$> o .: "cutFile"
-        ]
-    {-# INLINE parseJSON #-}
 
 -- -------------------------------------------------------------------------- --
 -- Adjacents
