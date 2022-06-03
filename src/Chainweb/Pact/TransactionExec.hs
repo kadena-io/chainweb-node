@@ -170,6 +170,7 @@ applyCmd v logger pdbenv miner gasModel txCtx spv cmdIn mcache0 =
           ++ enforceKeysetFormats' txCtx
           ++ enablePactModuleMemcheck txCtx
           ++ enablePact43 txCtx
+          ++ enablePact431 txCtx
         )
 
     cenv = TransactionEnv Transactional pdbenv logger (ctxToPublicData txCtx) spv nid gasPrice
@@ -325,7 +326,8 @@ applyCoinbase v logger dbEnv (Miner mid mks@(MinerKeys mk)) reward@(ParsedDecima
       enablePact40 txCtx ++
       enablePact420 txCtx ++
       enablePactModuleMemcheck txCtx ++
-      enablePact43 txCtx
+      enablePact43 txCtx ++
+      enablePact431 txCtx
     tenv = TransactionEnv Transactional dbEnv logger (ctxToPublicData txCtx) noSPVSupport
            Nothing 0.0 rk 0 ec
     txst = TransactionState mc mempty 0 Nothing (_geGasModel freeGasEnv)
@@ -664,6 +666,7 @@ applyExec' interp (ExecMsg parsedCode execData) senderSigs hsh nsp
           <&> disablePact40Natives pactFlags
           <&> disablePact420Natives pactFlags
           <&> disablePact43Natives pactFlags
+          <&> disablePact431Natives pactFlags
 
       er <- liftIO $! evalExec interp eenv parsedCode
 
@@ -706,6 +709,12 @@ enablePact43 :: TxContext -> [ExecutionFlag]
 enablePact43 tc
     | chainweb214Pact After (ctxVersion tc) (ctxCurrentBlockHeight tc) = []
     | otherwise = [FlagDisablePact43]
+
+enablePact431 :: TxContext -> [ExecutionFlag]
+enablePact431 tc
+    | chainweb215Pact After (ctxVersion tc) (ctxCurrentBlockHeight tc) = []
+    | otherwise = [FlagDisablePact431]
+
 
 -- | Execute a 'ContMsg' and return the command result and module cache
 --
@@ -971,6 +980,10 @@ disablePact420Natives = disablePactNatives ["zip", "fold-db"] FlagDisablePact420
 disablePact43Natives :: ExecutionConfig -> EvalEnv e -> EvalEnv e
 disablePact43Natives = disablePactNatives ["create-principal", "validate-principal", "continue"] FlagDisablePact43
 {-# INLINE disablePact43Natives #-}
+
+disablePact431Natives :: ExecutionConfig -> EvalEnv e -> EvalEnv e
+disablePact431Natives = disablePactNatives ["is-principal", "typeof-principal"] FlagDisablePact431
+{-# INLINE disablePact431Natives #-}
 
 -- | Set the module cache of a pact 'EvalState'
 --
