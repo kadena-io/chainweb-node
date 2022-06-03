@@ -143,13 +143,23 @@ chainweb214Pact aoa v h = case aoa of
 
 ## Testing
 
-There are two main sites for testing coin upgrades and assessing fork compatibility across
-- PactInProcApi
-  - Make sure v* is backcompatible across 2 forks so (see: pact4coin3UpgradeTest)
-    - https://github.com/kadena-io/chainweb-node/pull/1416
-    - https://github.com/kadena-io/chainweb-node/pull/1413
+There are three main sites for testing coin upgrades and assessing fork compatibility: `PactInProcApi`, `ModuleCacheOnRestart`, and live DevNet testing.
 
+### Unit Tests
+
+The former tests Pact execution using an in-memory Chainweb instance, and the second tests for module caching compatibility across forks and upgrades. In general, if coin upgrades and/or new interfaces are added to the Pact Service cache, `ModuleCacheOnRestart` will need a test. However, if only coin upgrades are involved, it's possible that only `PactInProcApi` needs a test. Consider the following:
+
+- `PactInProcApi`:
+  - Make sure `coin-v*` is backcompatible across 2 forks so (see: pact4coin3UpgradeTest)
+    - See: https://github.com/kadena-io/chainweb-node/pull/1416
+    - See: https://github.com/kadena-io/chainweb-node/pull/1413
   - It should be the case that updates are backcompatible if users start from scratch
-  - Events need to be backcompatible
+  - Events need to be backcompatible as well, and requires a cross-fork test in order to establish backcompatibility
+    - See: https://github.com/kadena-io/chainweb-node/pull/1444
 
-- `test/Chainweb/Test/Pact/ModuleCacheOnRestart.hs`
+- `ModuleCacheOnRestart`:
+  - For examples of testing versioned module caches across forks, see: https://github.com/kadena-io/chainweb-node/pull/1433
+
+### Live Devnet
+
+It's good practice to assess outputs using a live chainweb instance. We have [devnet](https://github.com/kadena-io/devnet) for this purpose. Using Devnet, one may stand up a miner and chainweb node instance locally.
