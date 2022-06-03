@@ -162,4 +162,4 @@ The former tests Pact execution using an in-memory Chainweb instance, and the se
 
 ### Live Devnet
 
-It's good practice to assess outputs using a live chainweb instance. We have [devnet](https://github.com/kadena-io/devnet) for this purpose. Using Devnet, one may stand up a miner and chainweb node instance locally.
+It's good practice to assess outputs using a live chainweb instance. We have [devnet](https://github.com/kadena-io/devnet) for this purpose. Using Devnet, one may stand up a miner and chainweb node instance locally and test forks in a live environment. Instructions exist in the linked repository.
