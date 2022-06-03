@@ -271,10 +271,11 @@ getBlockHeaderInternal
     -> IO (ChainValue BlockHeader)
 getBlockHeaderInternal headerStore payloadStore candidateHeaderCas candidatePayloadCas priority maybeOrigin h = do
     logg Debug $ "getBlockHeaderInternal: " <> sshow h
-    memoInsert cas memoMap h $ \k@(ChainValue cid k') -> do
+    bh <- memoInsert cas memoMap h $ \k@(ChainValue cid k') -> do
 
         -- query BlockHeader via
         --
+        -- - header store,
         -- - candidates header cache,
         -- - local database (we may have validated this header before)
         -- - cut origin, or
@@ -406,6 +407,8 @@ getBlockHeaderInternal headerStore payloadStore candidateHeaderCas candidatePayl
 
         logg Debug $ taskMsg k $ "getBlockHeaderInternal return header " <> sshow h
         return $! chainValue header
+    logg Debug $ "getBlockHeaderInternal: got block header for " <> sshow h
+    return bh
 
   where
 
