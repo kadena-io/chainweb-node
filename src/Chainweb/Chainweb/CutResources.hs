@@ -117,7 +117,7 @@ withCutResources cutDbParams peer logger rdb webchain payloadDb mgr pact f = do
             , _cutResCutDb = cutDb
             , _cutResLogger = logger
             , _cutResCutSync = CutSyncResources
-                { _cutResSyncSession = C.syncSession v useOrigin (_peerInfo $ _peerResPeer peer) cutDb
+                { _cutResSyncSession = C.syncSession v (_peerInfo $ _peerResPeer peer) cutDb
                 , _cutResSyncLogger = addLabel ("sync", "cut") syncLogger
                 }
             , _cutResHeaderSync = CutSyncResources
@@ -132,7 +132,6 @@ withCutResources cutDbParams peer logger rdb webchain payloadDb mgr pact f = do
   where
     v = _chainwebVersion webchain
     syncLogger = addLabel ("sub-component", "sync") logger
-    useOrigin = _cutDbParamsUseOrigin cutDbParams
 
 -- | The networks that are used by the cut DB.
 --
