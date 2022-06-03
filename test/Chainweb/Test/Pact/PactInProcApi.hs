@@ -122,6 +122,7 @@ tests rdb = ScheduledTest testName go
          , multiChainTest getGasModel "chainweb213Test" chainweb213Test
          , multiChainTest getGasModel "pact43UpgradeTest" pact43UpgradeTest
          , multiChainTest getGasModel "pact431UpgradeTest" pact431UpgradeTest
+         , multiChainTest getGasModel "chainweb215Test" chainweb215Test
          ]
       where
         pactConfig = defaultPactServiceConfig { _pactBlockGasLimit = 150_000 }
@@ -582,6 +583,62 @@ pact43UpgradeTest bdb mpRefIO pact = do
         $ mkKeySetData "k" [sender00]
     runCut' = runCut testVersion bdb pact (offsetBlockTime second) zeroNoncer noMiner
 
+chainweb215Test :: TestBlockDb -> IO (IORef MemPoolAccess) -> WebPactExecutionService -> IO ()
+chainweb215Test bdb mpRefIO pact = do
+
+  -- run past genesis, upgrades
+  forM_ [(1::Int)..33] $ \_i -> runCut'
+
+  -- execute pre-fork xchain transfer (blocc0)
+  setOneShotMempool mpRefIO blocc0
+  runCut' -- 34
+  pwo34 <- getPWO bdb cid
+  tx34_0 <- txResult "pwo34_0" 0 pwo34
+  tx34_1 <- txResult "pwo34_1" 1 pwo34
+  assertSatisfies "tx34_0 success" (_pactResult $ _crResult tx34_0) isRight
+  assertSatisfies "tx34_1 success" (_pactResult $ _crResult tx34_1) isRight
+
+  putStrLn "HERE"
+  -- build proof of pre-fork xchain for tx34_0
+  setXProof =<< buildXProof bdb cid 34 0 tx34_0
+  runCut' -- 35
+  pwo35 <- getPWO bdb cid
+  tx35_0 <- txResult "pwo35" 0 pwo35
+  tev0 <- mkTransferEvent "" "sender00" 0.0123 "coin" v4Hash
+  assertSatisfies "tx35_0 success" (_pactResult $ _crResult tx35_0) isRight
+  assertEqual "Transfer events @ block 35" [tev0] $ _crEvents tx35_0
+
+  -- build proof of pre-fork xchain for tx34_1
+  setXProof =<< buildXProof bdb cid 34 1 tx34_1
+  runCut' -- 36
+  pwo36 <- getPWO bdb cid
+  tx36_1 <- txResult "pwo36" 1 pwo36
+  tev1 <- mkTransferEvent "" "sender00" 0.0123 "coin" v5Hash
+  assertSatisfies "tx36_1 success" (_pactResult $ _crResult tx36_1) isRight
+  assertEqual "Transfer events @ block 36" [tev1] $ _crEvents tx36_1
+
+  where
+    receiveXChain xproof bh
+      | _blockChainId bh == chain0 = do
+          t0 <- buildXReceive bh xproof
+          return $ V.singleton t0
+      | otherwise = return mempty
+
+    blocc0 = mempty {
+      mpaGetBlock = \_ _ _ _ bh -> if _blockChainId bh == cid then do
+          t0 <- buildXSend' "tx34_0" bh -- pre-fork send
+          t1 <- buildXSend' "tx34_1" bh -- cross-fork send
+          return $ V.fromList [t0,t1]
+          else return mempty
+      }
+
+    v4Hash = "BjZW0T2ac6qE_I5X8GE4fal6tTqjhLTC7my0ytQSxLU"
+    v5Hash = "c6DBYODikby6gqdgXV6zbarSU5tHZnO5vtyL599gpFE"
+
+    runCut' = runCut testVersion bdb pact (offsetBlockTime second) zeroNoncer noMiner
+    setXProof xproof =
+      setMempool mpRefIO =<< getOncePerChainMempool (receiveXChain xproof)
+
 pact431UpgradeTest :: TestBlockDb -> IO (IORef MemPoolAccess) -> WebPactExecutionService -> IO ()
 pact431UpgradeTest bdb mpRefIO pact = do
 
@@ -596,7 +653,6 @@ pact431UpgradeTest bdb mpRefIO pact = do
   tx35_0 <- txResult "pwo35" 0 pwo35
   assertSatisfies "tx35_0 success" (_pactResult $ _crResult tx35_0) isRight
 
-  -- run block 29, pre fork
   tx35_1 <- txResult "pwo35" 1 pwo35
   assertEqual
     "Should not resolve new pact native: continue"
@@ -610,10 +666,16 @@ pact431UpgradeTest bdb mpRefIO pact = do
     (tx35_2 ^? crResult . to _pactResult . _Left . to peDoc)
 
   tx35_3 <- txResult "pwo35" 3 pwo35
-  assertSatisfies "tx30_3 success" (_pactResult $ _crResult tx35_3) isRight
+  assertEqual
+    "Enforce pact version passes pre-fork"
+    (Just (PLiteral (LBool True)))
+    (tx35_3 ^? crResult . to _pactResult . _Right)
 
   tx35_4 <- txResult "pwo35" 4 pwo35
-  assertSatisfies "tx30_4 success" (_pactResult $ _crResult tx35_4) isRight
+  assertEqual
+    "Pact version is 4.2.1 for compat pre-fork"
+    (Just (PLiteral (LString "4.2.1")))
+    (tx35_4 ^? crResult . to _pactResult . _Right)
 
   -- run block 36, post fork
   setOneShotMempool mpRefIO blocc
@@ -655,7 +717,7 @@ pact431UpgradeTest bdb mpRefIO pact = do
           t0 <- buildMod bh
           t1 <- buildSimpleCmd bh "(is-principal (create-principal (read-keyset 'k)))"
           t2 <- buildSimpleCmd bh "(typeof-principal (create-principal (read-keyset 'k)))"
-          t3 <- buildSimpleCmd bh "(enforce-pact-version \"4.3\")"
+          t3 <- buildSimpleCmd bh "(enforce-pact-version \"4.2.1\")"
           t4 <- buildSimpleCmd bh "(pact-version)"
           return $! V.fromList [t0, t1, t2, t3, t4]
           else return mempty
@@ -982,11 +1044,14 @@ pact4coin3UpgradeTest bdb mpRefIO pact = do
     pHash = PactResult . Right . PLiteral . LString
 
 buildXSend :: BlockHeader -> IO ChainwebTransaction
-buildXSend bh = buildCwCmd
+buildXSend bh = buildXSend' (sshow bh) bh
+
+buildXSend' :: T.Text -> BlockHeader -> IO ChainwebTransaction
+buildXSend' nonce bh = buildCwCmd
     $ set cbSigners [mkSigner' sender00 []]
     $ set cbChainId (_blockChainId bh)
     $ set cbCreationTime (toTxCreationTime $ _bct $ _blockCreationTime bh)
-    $ mkCmd (sshow bh)
+    $ mkCmd nonce
     $ mkExec
       "(coin.transfer-crosschain 'sender00 'sender00 (read-keyset 'k) \"0\" 0.0123)" $
       mkKeySetData "k" [sender00]
