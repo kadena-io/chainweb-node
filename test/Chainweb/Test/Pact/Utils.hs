@@ -43,6 +43,7 @@ module Chainweb.Test.Pact.Utils
 , mkTransferCap
 , mkGasCap
 , mkCoinCap
+, mkXChainTransferCap
 -- * Command builder
 , defaultCmd
 , mkCmd
@@ -293,6 +294,14 @@ mkCoinCap n = mkCapability "coin" n
 mkTransferCap :: Text -> Text -> Decimal -> SigCapability
 mkTransferCap sender receiver amount = mkCoinCap "TRANSFER"
   [ pString sender, pString receiver, pDecimal amount ]
+
+mkXChainTransferCap :: Text -> Text -> Decimal -> Text -> SigCapability
+mkXChainTransferCap sender receiver amount cid = mkCoinCap "TRANSFER_XCHAIN"
+  [ pString sender
+  , pString receiver
+  , pDecimal amount
+  , pString cid
+  ]
 
 mkGasCap :: SigCapability
 mkGasCap = mkCoinCap "GAS" []
