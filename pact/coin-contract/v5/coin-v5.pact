@@ -157,6 +157,9 @@
   (defconst MAXIMUM_ACCOUNT_LENGTH 256
     "Maximum account name length admissible for coin accounts")
 
+  (defconst VALID_CHAIN_IDS (map (int-to-str 10) (enumerate 0 19))
+    "List of all valid Chainweb chain ids")
+
   ; --------------------------------------------------------------------------
   ; Utilities
 
@@ -552,6 +555,9 @@
 
         (enforce-unit amount)
 
+        (enforce (contains target-chain VALID_CHAIN_IDS)
+          "target chain is not a valid chainweb chain id")
+
         ;; step 1 - debit delete-account on current chain
         (debit sender amount)
         (emit-event (TRANSFER sender "" amount))
@@ -573,9 +579,6 @@
         , "amount" := amount
         , "source-chain" := source-chain
         }
-
-        (enforce (= target-chain (at 'chain-id (chain-data)))
-          "Current chain id does not match the specified target chain for cross-chain transfer")
 
         (emit-event (TRANSFER "" receiver amount))
         (emit-event (TRANSFER_XCHAIN_RECD "" receiver amount source-chain))
