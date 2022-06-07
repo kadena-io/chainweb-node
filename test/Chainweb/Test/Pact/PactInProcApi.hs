@@ -588,64 +588,54 @@ chainweb215Test :: TestBlockDb -> IO (IORef MemPoolAccess) -> WebPactExecutionSe
 chainweb215Test bdb mpRefIO pact = do
 
   -- run past genesis, upgrades
-  forM_ [(1::Int)..32] $ \_i -> runCut'
+  runCutN' 30 -- 1->30
 
   -- execute pre-fork xchain transfer (blocc0)
   setOneShotMempool mpRefIO blocc0
-  runCut' -- 33
-  pwo33 <- getPWO bdb cid
-  --print pwo33
-  tx33_0 <- txResult "pwo33_0" 0 pwo33
-  tx33_1 <- txResult "pwo33_1" 1 pwo33
-  assertSatisfies "tx33_0 success" (_pactResult $ _crResult tx33_0) isRight
-  assertSatisfies "tx33_1 success" (_pactResult $ _crResult tx33_1) isRight
+  runCut' -- 31
+  pwo31 <- getPWO bdb cid
+  tx31_0 <- txResult "pwo31_0" 0 pwo31
+  cbev0 <- mkTransferEvent "sender00" "NoMiner" 0.0416 "coin" v4Hash
+  txev0 <- mkTransferXChainEvent "sender00" "sender00" 0.0123 "coin" v4Hash "0"
+  tev0 <- mkTransferEvent "sender00" "" 0.0123 "coin" v4Hash
+  xev0 <- mkXYieldEvent "sender00" "sender00" 0.0123 sender00Ks "pact" v4Hash "0" "0"
+  assertEqual "Transfer events @ block 31" [cbev0, txev0, tev0, xev0] $ _crEvents tx31_0
+  assertSatisfies "tx31_0_0 success" (_pactResult $ _crResult tx31_0) isRight
 
-  -- build proof of pre-fork xchain for tx33_0
-  setMempool mpRefIO mempty
-  runCut' -- 34
-  runCut'
-  x <- buildXProof bdb cid 33 0 tx33_0
-  print x
-  setXProof x
-  runCut' -- 35
-  putStrLn "RETAERD"
-  pwo35 <- getPWO bdb cid
-  tx35_0 <- txResult "pwo35" 0 pwo35
-  tev0 <- mkTransferEvent "sender00" "sender00" 0.0123 "coin" v4Hash
-  assertSatisfies "tx35_0 success" (_pactResult $ _crResult tx35_0) isRight
-  assertEqual "Transfer events @ block 35" [tev0] $ _crEvents tx35_0
-
-  -- -- build proof of pre-fork xchain for tx34_1
-  -- runCut' -- 36
-  -- setXProof =<< buildXProof bdb cid 33 1 tx33_1
-  -- runCut' -- 37
-  -- pwo37 <- getPWO bdb cid
-  -- tx37_1 <- txResult "pwo37" 1 pwo37
-  -- tev1 <- mkTransferEvent "" "sender00" 0.0123 "coin" v5Hash
-  -- assertSatisfies "tx37_1 success" (_pactResult $ _crResult tx37_1) isRight
-  -- assertEqual "Transfer events @ block 37" [tev1] $ _crEvents tx37_1
-
+  -- run past v5 upgrade, build proof of pre-fork xchain for tx31_0
+  setOneShotMempool mpRefIO mempty
+  runCutN' 10 -- 32->41
+  setXProof =<< buildXProof bdb cid 31 0 tx31_0
+  runCut' -- 42
+  pwo42 <- getPWO bdb chain0
+  tx42_0 <- txResult "pwo42" 0 pwo42
+  cbev1 <- mkTransferEvent "sender00" "NoMiner" 0.0264 "coin" v5Hash
+  recdev1 <- mkTransferXChainRecdEvent "" "sender00" 0.0123 "coin" v5Hash "8"
+  tev1 <- mkTransferEvent "" "sender00" 0.0123 "coin" v5Hash
+  xev1 <- mkXResumeEvent "sender00" "sender00" 0.0123 sender00Ks "pact" v4Hash "8" "0"
+  assertEqual "Transfer events @ block 42" [cbev1, tev1, recdev1, xev1] $ _crEvents tx42_0
+  assertSatisfies "tx42_0 success" (_pactResult $ _crResult tx42_0) isRight
   where
     receiveXChain xproof bh
-      | _blockChainId bh == chain0 = do
-          t0 <- buildXReceive bh xproof
-          return $ V.singleton t0
+      | _blockChainId bh == chain0 =
+        V.singleton <$> buildXReceive bh xproof
       | otherwise = return mempty
 
     blocc0 = mempty {
       mpaGetBlock = \_ _ _ _ bh -> if _blockChainId bh == cid then do
           let xchainCap = mkXChainTransferCap "sender00" "sender00" 0.0123 "0"
               gasCap = mkGasCap
-          t0 <- buildXSend' "tx34_0" bh [gasCap, xchainCap] -- pre-fork send
-          t1 <- buildXSend' "tx34_1" bh [gasCap, xchainCap] -- cross-fork send
-          return $ V.fromList [t0,t1]
+          t0 <- buildXSend' "tx34_0" bh [gasCap, xchainCap] -- cross-fork send
+          return $ V.singleton t0
           else return mempty
       }
 
     v4Hash = "BjZW0T2ac6qE_I5X8GE4fal6tTqjhLTC7my0ytQSxLU"
-    -- v5Hash = "c6DBYODikby6gqdgXV6zbarSU5tHZnO5vtyL599gpFE"
+    v5Hash = "c6DBYODikby6gqdgXV6zbarSU5tHZnO5vtyL599gpFE"
 
     runCut' = runCut testVersion bdb pact (offsetBlockTime second) zeroNoncer noMiner
+    runCutN' n = forM_ [1::Int ..n] $ const runCut'
+
     setXProof xproof =
       setMempool mpRefIO =<< getOncePerChainMempool (receiveXChain xproof)
 

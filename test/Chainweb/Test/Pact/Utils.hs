@@ -26,6 +26,7 @@ module Chainweb.Test.Pact.Utils
   SimpleKeyPair
 , sender00
 , sender01
+, sender00Ks
 , allocation00KeyPair
 , testKeyPairs
 , mkKeySetData
@@ -35,9 +36,14 @@ module Chainweb.Test.Pact.Utils
 , pDecimal
 , pBool
 , pList
+, pKeySet
 -- * event helpers
 , mkEvent
 , mkTransferEvent
+, mkTransferXChainEvent
+, mkTransferXChainRecdEvent
+, mkXYieldEvent
+, mkXResumeEvent
 -- * Capability helpers
 , mkCapability
 , mkTransferCap
@@ -229,6 +235,10 @@ allocation00KeyPair =
 mkKeySetData :: Text  -> [SimpleKeyPair] -> Value
 mkKeySetData name keys = object [ name .= map fst keys ]
 
+sender00Ks :: KeySet
+sender00Ks = mkKeySet
+    ["368820f80c324bbc7c2b0610688a7da43e39f91d118732671cd9c7500ff43cca"]
+    "keys-all"
 
 -- ----------------------------------------------------------------------- --
 -- PactValue helpers
@@ -251,6 +261,9 @@ pBool = PLiteral . LBool
 
 pList :: [PactValue] -> PactValue
 pList = PList . V.fromList
+
+pKeySet :: KeySet -> PactValue
+pKeySet = PGuard . GKeySet
 
 mkEvent
     :: MonadThrow m
@@ -280,6 +293,121 @@ mkTransferEvent
     -> m PactEvent
 mkTransferEvent sender receiver amount m mh =
   mkEvent "TRANSFER" [pString sender,pString receiver,pDecimal amount] m mh
+
+mkTransferXChainEvent
+    :: MonadThrow m
+    => Text
+    -- ^ sender
+    -> Text
+    -- ^ receiver
+    -> Decimal
+    -- ^ amount
+    -> ModuleName
+    -> Text
+    -- ^ module hash
+    -> Text
+    -- ^ target chain id
+    -> m PactEvent
+mkTransferXChainEvent sender receiver amount m mh tid
+    = mkEvent "TRANSFER_XCHAIN" args m mh
+  where
+    args =
+      [ pString sender
+      , pString receiver
+      , pDecimal amount
+      , pString tid
+      ]
+
+mkTransferXChainRecdEvent
+    :: MonadThrow m
+    => Text
+    -- ^ sender
+    -> Text
+    -- ^ receiver
+    -> Decimal
+    -- ^ amount
+    -> ModuleName
+    -> Text
+    -- ^ module hash
+    -> Text
+    -- ^ source chain id
+    -> m PactEvent
+mkTransferXChainRecdEvent sender receiver amount m mh sid
+    = mkEvent "TRANSFER_XCHAIN_RECD" args m mh
+  where
+    args =
+      [ pString sender
+      , pString receiver
+      , pDecimal amount
+      , pString sid
+      ]
+
+mkXYieldEvent
+    :: MonadThrow m
+    => Text
+    -- ^ sender
+    -> Text
+    -- ^ receiver
+    -> Decimal
+    -- ^ amount
+    -> KeySet
+    -- ^ receiver guard
+    -> ModuleName
+    -> Text
+    -- ^ module hash
+    -> Text
+    -- ^ target chain id
+    -> Text
+    -- ^ source chain id
+    -> m PactEvent
+mkXYieldEvent sender receiver amount ks mn mh tid sid
+    = mkEvent "X_YIELD" args mn mh
+  where
+    args =
+      [ pString tid
+      , pString "coin.transfer-crosschain"
+      , pList
+        [ pString sender
+        , pString receiver
+        , pKeySet ks
+        , pString sid
+        , pDecimal amount
+        ]
+      ]
+
+mkXResumeEvent
+    :: MonadThrow m
+    => Text
+    -- ^ sender
+    -> Text
+    -- ^ receiver
+    -> Decimal
+    -- ^ amount
+    -> KeySet
+    -- ^ receiver guard
+    -> ModuleName
+    -> Text
+    -- ^ module hash
+    -> Text
+    -- ^ target chain id
+    -> Text
+    -- ^ source chain id
+    -> m PactEvent
+mkXResumeEvent sender receiver amount ks mn mh tid sid
+    = mkEvent "X_RESUME" args mn mh
+  where
+    args =
+      [ pString tid
+      , pString "coin.transfer-crosschain"
+      , pList
+        [ pString sender
+        , pString receiver
+        , pKeySet ks
+        , pString sid
+        , pDecimal amount
+        ]
+      ]
+
 -- ----------------------------------------------------------------------- --
 -- Capability helpers
 
