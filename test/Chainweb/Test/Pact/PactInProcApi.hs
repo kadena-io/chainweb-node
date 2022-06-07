@@ -633,7 +633,7 @@ chainweb215Test bdb mpRefIO pact = do
 
   -- rewind to saved cut 34
   void $ swapMVar (_bdbCut bdb) savedCut
-  forM_ [(18 :: Int) .. 21] $ const runCut'
+  forM_ [34::Int ..44] $ const runCut'
   runCut'
   where
     receiveXChain xproof bh
