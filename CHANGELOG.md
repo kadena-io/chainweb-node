@@ -8,13 +8,17 @@ before that date.
 
 This version will expire on **2022-09-01T00:00:00Z**.
 
-To upgrade, pull the latest docker image or download the binary and restart the node.
+To upgrade, pull the latest docker image or download the binary and restart the
+node.
 
 Changes:
 
-*   Upgrade to Pact 4.3.1. (#1448)
-*   Upgrade to Coin V5. (#1444)
-*   Support resetting a node to a lower block height at startup. (#1344)
+*   Upgrade to Pact 4.3.1. The release contains miscellaneous performance
+    improvements and bug fixes. (#1448)
+*   Upgrade to Coin V5. This adds the new `TRANSFER_XCHAIN_RECD` event that is
+    emitted when the funds of a cross-chain transfer are redeemed on the target
+    chain. (#1444)
+*   Support resetting chainweb-node to a lower block height at startup. (#1344)
 
 Bug Fixes:
 
