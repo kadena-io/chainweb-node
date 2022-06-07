@@ -498,6 +498,7 @@ applyUpgrades v cid height
      | coinV2Upgrade v cid height = applyCoinV2
      | pact4coin3Upgrade At v height = applyCoinV3
      | chainweb214Pact At v height = applyCoinV4
+     | chainweb215Pact At v height = applyCoinV5
      | otherwise = return Nothing
   where
     installCoinModuleAdmin = set (evalCapabilities . capModuleAdmin) $ S.singleton (ModuleName "coin" Nothing)
@@ -507,6 +508,7 @@ applyUpgrades v cid height
     applyCoinV3 = applyTxs coinV3Transactions [FlagDisableInlineMemCheck, FlagDisablePact43]
 
     applyCoinV4 = applyTxs coinV4Transactions []
+    applyCoinV5 = applyTxs coinV5Transactions []
 
     applyTxs txsIO flags = do
       infoLog "Applying upgrade!"

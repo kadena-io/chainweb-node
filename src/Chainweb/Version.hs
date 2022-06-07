@@ -944,6 +944,8 @@ chainweb214Pact aoa v h = case aoa of
     go f (FastTimedCPM g) | g == petersonChainGraph = f 30
     go f _ = f 5
 
+-- | Pact and coin contract changes for Chainweb 2.15
+--
 chainweb215Pact
     :: AtOrAfter
     -> ChainwebVersion
@@ -953,8 +955,8 @@ chainweb215Pact aoa v h = case aoa of
     At -> go (==) v h
     After -> go (<) v h
   where
-    go f Mainnet01 = f 2766637 --  2022-06-17 00:00:00+00:00
-    go f Testnet04 = f 2295440 --  2022-06-16 12:00:00+00:00
+    go f Mainnet01 = f 2766630 -- 2022-06-17T00:00:00+00:00
+    go f Testnet04 = f 2295437 -- 2022-06-16T12:00:00+00:00
     go f Development = f 120
     go f (FastTimedCPM g) | g == petersonChainGraph = f 35
     go f _ = f 10
