@@ -595,6 +595,13 @@ chainweb215Test bdb mpRefIO pact = do
   runCut' -- 31
   pwo31 <- getPWO bdb cid
   tx31_0 <- txResult "pwo31_0" 0 pwo31
+
+  -- check the tx succeeds and the following events occur:
+  -- - transfer (cb)
+  -- - xchain (since v4)
+  -- - transfer
+  -- - x_yield
+
   cbev0 <- mkTransferEvent "sender00" "NoMiner" 0.0416 "coin" v4Hash
   txev0 <- mkTransferXChainEvent "sender00" "sender00" 0.0123 "coin" v4Hash "0"
   tev0 <- mkTransferEvent "sender00" "" 0.0123 "coin" v4Hash
@@ -602,19 +609,32 @@ chainweb215Test bdb mpRefIO pact = do
   assertEqual "Transfer events @ block 31" [cbev0, txev0, tev0, xev0] $ _crEvents tx31_0
   assertSatisfies "tx31_0_0 success" (_pactResult $ _crResult tx31_0) isRight
 
-  -- run past v5 upgrade, build proof of pre-fork xchain for tx31_0
+  -- run past v5 upgrade, build proof of pre-fork xchain for tx31_0, save cut
   setOneShotMempool mpRefIO mempty
-  runCutN' 10 -- 32->41
+  cuts <- saveCutN' 32 41 34 -- 32->41, save 34
+  savedCut <- fromMaybeM (userError "A cut shouldExist here") $ msum cuts
   setXProof =<< buildXProof bdb cid 31 0 tx31_0
   runCut' -- 42
   pwo42 <- getPWO bdb chain0
   tx42_0 <- txResult "pwo42" 0 pwo42
+
+  -- check the redemption succeeds and the following events hold:
+  -- - transfer (cb)
+  -- - xchain_recd (since v5)
+  -- - transfer
+  -- - x_resume
+
   cbev1 <- mkTransferEvent "sender00" "NoMiner" 0.0264 "coin" v5Hash
   recdev1 <- mkTransferXChainRecdEvent "" "sender00" 0.0123 "coin" v5Hash "8"
   tev1 <- mkTransferEvent "" "sender00" 0.0123 "coin" v5Hash
   xev1 <- mkXResumeEvent "sender00" "sender00" 0.0123 sender00Ks "pact" v4Hash "8" "0"
   assertEqual "Transfer events @ block 42" [cbev1, tev1, recdev1, xev1] $ _crEvents tx42_0
   assertSatisfies "tx42_0 success" (_pactResult $ _crResult tx42_0) isRight
+
+  -- rewind to saved cut 34
+  void $ swapMVar (_bdbCut bdb) savedCut
+  forM_ [(18 :: Int) .. 21] $ const runCut'
+  runCut'
   where
     receiveXChain xproof bh
       | _blockChainId bh == chain0 =
@@ -635,6 +655,11 @@ chainweb215Test bdb mpRefIO pact = do
 
     runCut' = runCut testVersion bdb pact (offsetBlockTime second) zeroNoncer noMiner
     runCutN' n = forM_ [1::Int ..n] $ const runCut'
+    saveCutN' m n k = forM [m::Int .. n] $ \i -> do
+      runCut'
+      if i == k
+        then Just <$> readMVar (_bdbCut bdb)
+        else pure Nothing
 
     setXProof xproof =
       setMempool mpRefIO =<< getOncePerChainMempool (receiveXChain xproof)
