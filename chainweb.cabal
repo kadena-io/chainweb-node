@@ -1,7 +1,7 @@
 cabal-version: 3.0
 
 name:         chainweb
-version:      2.14
+version:      2.15
 synopsis:     A Proof-of-Work Parallel-Chain Architecture for Massive Throughput
 description:  A Proof-of-Work Parallel-Chain Architecture for Massive Throughput.
 homepage:     https://github.com/kadena-io/chainweb
@@ -46,15 +46,9 @@ extra-source-files:
     allocations/Testnet-Keysets.csv
     rewards/miner_rewards.csv
 
-data-files:
-    examples/static-html/index.html
-    examples/static-html/jquery-3.3.1.min.js
-    examples/static-html/vis.min.js
-    examples/static-html/vis.min.css
-
 source-repository head
     type: git
-    location: https://github.com/kadena-io/chainweb.git
+    location: https://github.com/kadena-io/chainweb-node.git
 
 flag ed25519
     description:
@@ -292,6 +286,7 @@ library
         , Chainweb.Pact.TransactionExec
         , Chainweb.Pact.Transactions.CoinV3Transactions
         , Chainweb.Pact.Transactions.CoinV4Transactions
+        , Chainweb.Pact.Transactions.CoinV5Transactions
         , Chainweb.Pact.Transactions.DevelopmentTransactions
         , Chainweb.Pact.Transactions.Mainnet0Transactions
         , Chainweb.Pact.Transactions.Mainnet1Transactions
@@ -533,7 +528,7 @@ test-suite chainweb-tests
         , pact
         , quickcheck-instances >= 0.3
         , random >= 1.2
-        , resource-pool >= 0.2
+        , resource-pool >= 0.3
         , retry >= 0.7
         , rosetta >= 1.0
         , scheduler >= 1.4
