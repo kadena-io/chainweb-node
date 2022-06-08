@@ -89,10 +89,9 @@ module Chainweb.Chainweb
 
 -- * Cut Config
 , CutConfig(..)
-, cutIncludeOrigin
 , cutPruneChainDatabase
 , cutFetchTimeout
-, cutInitialCutHeightLimit
+, cutInitialBlockHeightLimit
 , defaultCutConfig
 
 ) where
@@ -391,6 +390,9 @@ withChainwebInternal conf logger peer serviceSock rocksDb pactDbDir backupDir re
       , _pactQueueSize = _configPactQueueSize conf
       , _pactResetDb = resetDb
       , _pactAllowReadsInLocal = _configAllowReadsInLocal conf
+      , _pactUnlimitedInitialRewind =
+          isJust (_cutDbParamsInitialHeightLimit cutConfig) ||
+          isJust (_cutDbParamsInitialCutFile cutConfig)
       , _pactBlockGasLimit = _configBlockGasLimit conf
       }
 
@@ -510,8 +512,7 @@ withChainwebInternal conf logger peer serviceSock rocksDb pactDbDir backupDir re
     cutConfig = (defaultCutDbParams v $ _cutFetchTimeout cutConf)
         { _cutDbParamsLogLevel = Info
         , _cutDbParamsTelemetryLevel = Info
-        , _cutDbParamsUseOrigin = _cutIncludeOrigin cutConf
-        , _cutDbParamsInitialHeightLimit = _cutInitialCutHeightLimit cutConf
+        , _cutDbParamsInitialHeightLimit = _cutInitialBlockHeightLimit cutConf
         }
       where
         cutConf = _configCuts conf
