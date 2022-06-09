@@ -36,6 +36,18 @@ package hashes
       /opt/local/lib
       /usr/local/opt/openssl/lib/
 
+package rocksdb-haskell
+    extra-include-dirs:
+      /opt/local/include
+      /usr/local/opt/gflags/include
+      /usr/local/opt/rocksdb/include
+      /usr/local/include
+    extra-lib-dirs:
+      /opt/local/lib
+      /usr/local/opt/gflags/lib
+      /usr/local/opt/rocksdb/lib
+      /usr/local/lib
+
 package aeson
     flags: +cffi
 
@@ -56,7 +68,12 @@ source-repository-package
 source-repository-package
     type: git
     location: https://github.com/edmundnoble/chainweb-storage.git
-    tag: 3b5480a70ee0af0c558c39fde0ec5b21153a39ab
+    tag: 8f0433762643b5dc11f6de3e23f165cf2b3cf505
+
+source-repository-package
+    type: git
+    location: https://github.com/kadena-io/rocksdb-haskell.git
+    tag: 6456b713c288858a3e2b4ef9378484e2981e636b
 
 source-repository-package
     type: git

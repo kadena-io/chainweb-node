@@ -683,6 +683,7 @@ executable cwtool
         , process >= 1.5
         , quickcheck-instances >= 0.3
         , random >= 1.2
+        , rocksdb-haskell-kadena >= 1.1.0
         , safe-exceptions >= 0.1
         , servant-client >= 0.18.2
         , streaming >= 0.2.2
