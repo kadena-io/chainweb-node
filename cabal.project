@@ -94,3 +94,11 @@ constraints: base16-bytestring <1
 constraints: prettyprinter <1.6.1
 constraints: hashable <1.3.1
 constraints: base64-bytestring <1.1
+
+-- -------------------------------------------------------------------------- --
+-- direct-sqlite 2.3.27
+
+constraints: direct-sqlite >=2.3.27
+-- TODO remove once the bounds are upgraded in pact.
+allow-newer: pact:direct-sqlite
+
