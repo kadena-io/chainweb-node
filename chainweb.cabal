@@ -46,6 +46,9 @@ extra-source-files:
     allocations/Testnet-Keysets.csv
     rewards/miner_rewards.csv
 
+    -- c sources
+    c/shathree.c
+
 source-repository head
     type: git
     location: https://github.com/kadena-io/chainweb-node.git
@@ -112,6 +115,7 @@ library
         Paths_chainweb
     autogen-modules:
         Paths_chainweb
+    c-sources: c/shathree.c
     exposed-modules:
           Chainweb.Backup
         , Chainweb.BlockCreationTime
