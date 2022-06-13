@@ -16,7 +16,6 @@ import qualified Data.ByteString as B
 import qualified Data.ByteString.Char8 as B8
 import qualified Data.Map.Strict as M
 
-import System.IO.Extra
 import System.Random
 
 -- pact imports
@@ -73,23 +72,22 @@ pactSqliteWithBench
     -> C.Benchmark
 pactSqliteWithBench unsafe benchtorun =
     C.envWithCleanup setup teardown
-    $ \ ~(NoopNFData (e,_)) -> C.bgroup tname (benches e)
+    $ \ ~(NoopNFData e) -> C.bgroup tname (benches e)
   where
     tname = mconcat [ "pact-sqlite/"
                     , if unsafe then "unsafe" else "safe"
                     ]
     prags = if unsafe then PSQL.fastNoJournalPragmas else chainwebPragmas
     setup = do
-        (f,deleter) <- newTempFile
-        !sqliteEnv <- PSQL.initSQLite (PSQL.SQLiteConfig f prags) neverLog
+        let dbFile = "" {- temporary sqlite db -}
+        !sqliteEnv <- PSQL.initSQLite (PSQL.SQLiteConfig dbFile  prags) neverLog
         dbe <- mkPactDbEnv pactdb (initDbEnv neverLog PSQL.persister sqliteEnv)
         PI.initSchema dbe
-        return $ NoopNFData (dbe, deleter)
+        return $ NoopNFData dbe
 
-    teardown (NoopNFData (PactDbEnv _ e, deleter)) = do
+    teardown (NoopNFData (PactDbEnv _ e)) = do
         c <- readMVar e
         void $ PSQL.closeSQLite $ _db c
-        deleter
 
     benches :: PactDbEnv (DbEnv PSQL.SQLite)  -> [C.Benchmark]
     benches dbEnv =
@@ -99,8 +97,8 @@ pactSqliteWithBench unsafe benchtorun =
 
 cpWithBench :: (CheckpointEnv -> C.Benchmark) -> C.Benchmark
 cpWithBench torun =
-    C.envWithCleanup setup teardown $ \ ~(NoopNFData (_,e,_)) ->
-                                        C.bgroup name (benches e)
+    C.envWithCleanup setup teardown $ \ ~(NoopNFData (_,e)) ->
+        C.bgroup name (benches e)
   where
     name = "batchedCheckpointer"
     cid = unsafeChainId 0
@@ -108,16 +106,14 @@ cpWithBench torun =
     initialBlockState = initBlockState $ genesisHeight v cid
 
     setup = do
-        (f, deleter) <- newTempFile
-        !sqliteEnv <- openSQLiteConnection f chainwebPragmas
+        let dbFile = "" {- temporary SQLite db -}
+        !sqliteEnv <- openSQLiteConnection dbFile chainwebPragmas
         let nolog = newLogger neverLog ""
         !cenv <-
           initRelationalCheckpointer initialBlockState sqliteEnv nolog v cid
-        return $ NoopNFData (sqliteEnv, cenv, deleter)
+        return $ NoopNFData (sqliteEnv, cenv)
 
-    teardown (NoopNFData (sqliteEnv, _cenv, deleter)) = do
-        closeSQLiteConnection sqliteEnv
-        deleter
+    teardown (NoopNFData (sqliteEnv, _cenv)) = closeSQLiteConnection sqliteEnv
 
     benches :: CheckpointEnv -> [C.Benchmark]
     benches cpenv =
