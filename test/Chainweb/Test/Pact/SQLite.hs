@@ -16,6 +16,8 @@ module Chainweb.Test.Pact.SQLite
 import Control.Concurrent.MVar
 
 import qualified Data.ByteString as B
+import qualified Data.List as L
+import Data.String
 
 import Pact.Types.SQLite
 
@@ -36,7 +38,8 @@ import Chainweb.Test.Utils
 tests :: TestTree
 tests = withInMemSQLiteResource $ \dbIO ->
     withResource (dbIO >>= newMVar) mempty $ \dbVarIO ->
-        testGroup "SQLite Tests"
+        testGroup "SQL Tests"
+        [ testGroup "sha3"
             [ testGroup "ShortMsg"
                 [ testCase "224" $ runMsgTest dbVarIO 224 sha3_224ShortMsg
                 , testCase "256" $ runMsgTest dbVarIO 256 sha3_256ShortMsg
@@ -56,6 +59,27 @@ tests = withInMemSQLiteResource $ \dbIO ->
                 , testCase "512" $ runMonteTest dbVarIO 512 sha3_512Monte
                 ]
             ]
+        , testGroup "sha3var"
+            [ testGroup "ShortMsg"
+                [ testCase "224" $ runMsgTestVar dbVarIO 224 sha3_224ShortMsg
+                , testCase "256" $ runMsgTestVar dbVarIO 256 sha3_256ShortMsg
+                , testCase "384" $ runMsgTestVar dbVarIO 384 sha3_384ShortMsg
+                , testCase "512" $ runMsgTestVar dbVarIO 512 sha3_512ShortMsg
+                ]
+            , testGroup "LongMsg"
+                [ testCase "224" $ runMsgTestVar dbVarIO 224 sha3_224LongMsg
+                , testCase "256" $ runMsgTestVar dbVarIO 256 sha3_256LongMsg
+                , testCase "384" $ runMsgTestVar dbVarIO 384 sha3_384LongMsg
+                , testCase "512" $ runMsgTestVar dbVarIO 512 sha3_512LongMsg
+                ]
+            , testGroup "Monte"
+                [ testCase "224" $ runMonteTestVar dbVarIO 224 sha3_224Monte
+                , testCase "256" $ runMonteTestVar dbVarIO 256 sha3_256Monte
+                , testCase "384" $ runMonteTestVar dbVarIO 384 sha3_384Monte
+                , testCase "512" $ runMonteTestVar dbVarIO 512 sha3_512Monte
+                ]
+            ]
+        ]
 
 runMsgTest :: IO (MVar SQLiteEnv) -> Int -> MsgFile -> IO ()
 runMsgTest dbVarIO n f = do
@@ -76,4 +100,38 @@ sqliteSha3 db n arg = unsafePerformIO $ do
         [SBlob r] -> return r
         [x] -> error $ "unexpected return value: " <> show x
         a -> error $ "unexpected number of results: " <> show (length a)
+
+-- -------------------------------------------------------------------------- --
+-- sha3var
+
+runMsgTestVar :: IO (MVar SQLiteEnv) -> Int -> MsgFile -> IO ()
+runMsgTestVar dbVarIO n f = do
+    dbVar <- dbVarIO
+    withMVar dbVar $ \db -> do
+        msgAssert (\_ a b -> a @?= b) (sqliteSha3var db n [1,2,3]) f
+
+runMonteTestVar :: IO (MVar SQLiteEnv) -> Int -> MonteFile -> IO ()
+runMonteTestVar dbVarIO n f = do
+    dbVar <- dbVarIO
+    withMVar dbVar $ \db -> do
+        monteAssert (\_ a b -> a @?= b) (sqliteSha3var db n [1,2,3]) f
+
+sqliteSha3var :: SQLiteEnv -> Int -> [Int] -> B.ByteString -> B.ByteString
+sqliteSha3var db n argSplit arg =
+  unsafePerformIO $ do
+    rows <- qry (_sConn db) queryStr params [RBlob]
+    case head rows of
+        [SBlob r] -> return r
+        [x] -> error $ "unexpected return value: " <> show x
+        a -> error $ "unexpected number of results: " <> show (length a)
+  where
+    argN = length argSplit
+    argStr = fromString $ L.intercalate "," $ replicate (argN + 2) "?"
+
+    queryStr = "select sha3var(" <> argStr <> ")"
+
+    params = SInt (fromIntegral n) : go argSplit arg
+
+    go [] l = [SBlob l]
+    go (h:t) bs = let (a,b) = B.splitAt h bs in SBlob a : go t b
 

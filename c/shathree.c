@@ -527,6 +527,48 @@ static void sha3Func(
   sqlite3_result_blob(context, SHA3Final(&cx), iSize/8, SQLITE_TRANSIENT);
 }
 
+/*
+** Implementation of the sha3var(SIZE, X, ... ) function.
+**
+** Return a BLOB which is the SIZE-bit SHA3 hash of X.
+** If X (or any subsequent argument) is a BLOB, it is hashed as is.
+** For all other types of input, the respective argument is converted
+** into a UTF-8 string and the string is hashed without the trailing 0x00
+** terminator.
+*/
+static void sha3VarFunc(
+  sqlite3_context *context,
+  int argc,
+  sqlite3_value **argv
+){
+  SHA3Context cx;
+  int iSize;
+  int i;
+  int eType;
+  int nBytes;
+
+  // Select the digest size
+  iSize = sqlite3_value_int(argv[0]);
+  if( iSize!=224 && iSize!=256 && iSize!=384 && iSize!=512 ) {
+    sqlite3_result_error(context, "SHA3 size should be one of: 224 256 384 512", -1);
+    return;
+  }
+
+  SHA3Init(&cx, iSize);
+
+  for (i = 1; i < argc; ++i) {
+    eType = sqlite3_value_type(argv[i]);
+    nBytes = sqlite3_value_bytes(argv[i]);
+
+    if(eType == SQLITE_BLOB) {
+      SHA3Update(&cx, sqlite3_value_blob(argv[i]), nBytes);
+    } else {
+      SHA3Update(&cx, sqlite3_value_text(argv[i]), nBytes);
+    }
+  }
+  sqlite3_result_blob(context, SHA3Final(&cx), iSize/8, SQLITE_TRANSIENT);
+}
+
 /* Compute a string using sqlite3_vsnprintf() with a maximum length
 ** of 50 bytes and add it to the hash.
 */
@@ -693,20 +735,28 @@ int sqlite3_shathree_create_functions(
   sqlite3 *db
 ){
   int rc = SQLITE_OK;
-  rc = sqlite3_create_function(db, "sha3", -1, SQLITE_UTF8, 0, sha3Func, 0, 0);
-  rc = sqlite3_create_function(db, "sha3", 1,
+  rc = sqlite3_create_function(db, "sha3var", -1,
+                      SQLITE_UTF8 | SQLITE_INNOCUOUS | SQLITE_DETERMINISTIC,
+                      0, sha3VarFunc, 0, 0);
+
+  if (rc==SQLITE_OK ){
+      rc = sqlite3_create_function(db, "sha3", 1,
                       SQLITE_UTF8 | SQLITE_INNOCUOUS | SQLITE_DETERMINISTIC,
                       0, sha3Func, 0, 0);
+  }
+
   if( rc==SQLITE_OK ){
     rc = sqlite3_create_function(db, "sha3", 2,
                       SQLITE_UTF8 | SQLITE_INNOCUOUS | SQLITE_DETERMINISTIC,
                       0, sha3Func, 0, 0);
   }
+
   if( rc==SQLITE_OK ){
     rc = sqlite3_create_function(db, "sha3_query", 1,
                       SQLITE_UTF8 | SQLITE_DIRECTONLY,
                       0, sha3QueryFunc, 0, 0);
   }
+
   if( rc==SQLITE_OK ){
     rc = sqlite3_create_function(db, "sha3_query", 2,
                       SQLITE_UTF8 | SQLITE_DIRECTONLY,
