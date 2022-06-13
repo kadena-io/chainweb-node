@@ -40,8 +40,8 @@ import Chainweb.BlockHeader.Genesis
 import Chainweb.ChainId
 import Chainweb.Logger
 import Chainweb.Miner.Pact
+import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.PactService
-import Chainweb.Pact.Backend.Utils
 import Chainweb.Pact.Types
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
@@ -76,29 +76,28 @@ tests rdb =
       withMVarResource mempty $ \iom ->
       withEmptyMVarResource $ \rewindDataM ->
       withTestBlockDbTest testVer rdb $ \bdbio ->
-      withTemporaryDir $ \dir ->
+      withTempSQLiteResource $ \ioSqlEnv ->
       testGroup label
-      [
-        withPact' bdbio dir iom testInitial (testCase "testInitial")
+      [ testCase "testInitial" $ withPact' bdbio ioSqlEnv iom testInitial
       , after AllSucceed "testInitial" $
-        withPact' bdbio dir iom testRestart (testCase "testRestart1")
+        testCase "testRestart1" $ withPact' bdbio ioSqlEnv iom testRestart
       , after AllSucceed "testRestart1" $
         -- wow, Tasty thinks there's a "loop" if the following test is called "testCoinbase"!!
-        withPact' bdbio dir iom (testCoinbase bdbio) (testCase "testDoUpgrades")
+        testCase "testDoUpgrades" $ withPact' bdbio ioSqlEnv iom (testCoinbase bdbio)
       , after AllSucceed "testDoUpgrades" $
-        withPact' bdbio dir iom testRestart (testCase "testRestart2")
+        testCase "testRestart2" $ withPact' bdbio ioSqlEnv iom testRestart
       , after AllSucceed "testRestart2" $
-        withPact' bdbio dir iom (testV3 bdbio rewindDataM) (testCase "testV3")
+        testCase "testV3" $ withPact' bdbio ioSqlEnv iom (testV3 bdbio rewindDataM)
       , after AllSucceed "testV3" $
-        withPact' bdbio dir iom testRestart (testCase "testRestart3")
+        testCase "testRestart3"$ withPact' bdbio ioSqlEnv iom testRestart
       , after AllSucceed "testRestart3" $
-        withPact' bdbio dir iom (testV4 bdbio rewindDataM) (testCase "testV4")
+        testCase "testV4" $ withPact' bdbio ioSqlEnv iom (testV4 bdbio rewindDataM)
       , after AllSucceed "testV4" $
-        withPact' bdbio dir iom testRestart (testCase "testRestart4")
+        testCase "testRestart4" $ withPact' bdbio ioSqlEnv iom testRestart
       , after AllSucceed "testRestart4" $
-        withPact' bdbio dir iom (testRewindAfterFork bdbio rewindDataM) (testCase "testRewindAfterFork")
+        testCase "testRewindAfterFork" $ withPact' bdbio ioSqlEnv iom (testRewindAfterFork bdbio rewindDataM)
       , after AllSucceed "testRewindAfterFork" $
-        withPact' bdbio dir iom (testRewindBeforeFork bdbio rewindDataM) (testCase "testRewindBeforeFork")
+        testCase "testRewindBeforeFork" $ withPact' bdbio ioSqlEnv iom (testRewindBeforeFork bdbio rewindDataM)
       ]
   where
     label = "Chainweb.Test.Pact.ModuleCacheOnRestart"
@@ -211,7 +210,7 @@ rewindToBlock (rewindHeader, pwo) = void $ execValidateBlock mempty rewindHeader
 
 doNextCoinbase :: PayloadCasLookup cas => IO TestBlockDb -> PactServiceM cas (BlockHeader, PayloadWithOutputs)
 doNextCoinbase iobdb = do
-      bdb <- liftIO $ iobdb
+      bdb <- liftIO iobdb
       prevH <- liftIO $ getParentTestBlockDb bdb testChainId
       pwo <- execNewBlock mempty (ParentHeader prevH) noMiner
       liftIO $ addTestBlockDb bdb (Nonce 0) (offsetBlockTime second) testChainId pwo
@@ -237,28 +236,19 @@ snapshotCache iomcache initCache = do
   mcache <- iomcache
   modifyMVar_ mcache (const (pure initCache))
 
-
 withPact'
     :: IO TestBlockDb
-    -> IO FilePath
+    -> IO SQLiteEnv
     -> IO (MVar ModuleInitCache)
     -> CacheTest RocksDbCas
-    -> (Assertion -> TestTree)
-    -> TestTree
-withPact' bdbio iodir r ctest toTestTree =
-    withResource startPact stopPact go
+    -> Assertion
+withPact' bdbio ioSqlEnv r (ps, cacheTest) = do
+    bdb <- bdbio
+    bhdb <- getWebBlockHeaderDb (_bdbWebBlockHeaderDb bdb) testChainId
+    let pdb = _bdbPayloadDb bdb
+    sqlEnv <- ioSqlEnv
+    T2 _ pstate <- initPactService'
+        testVer testChainId logger bhdb pdb sqlEnv defaultPactServiceConfig ps
+    cacheTest r (_psInitCache pstate)
   where
-    go iof = toTestTree $ iof >>= \(_,f) -> f ctest
-    startPact = do
-        bdb <- bdbio
-        bhdb <- getWebBlockHeaderDb (_bdbWebBlockHeaderDb bdb) testChainId
-        let pdb = _bdbPayloadDb bdb
-        dir <- iodir
-        sqlEnv <- startSqliteDb testChainId logger dir False
-        return $ (sqlEnv,) $ \(ps,cacheTest) -> do
-            T2 _ pstate <- initPactService' testVer testChainId logger
-                           bhdb pdb sqlEnv defaultPactServiceConfig ps
-            cacheTest r (_psInitCache pstate)
-
-    stopPact (sqlEnv, _) = stopSqliteDb sqlEnv
     logger = genericLogger Quiet T.putStrLn
