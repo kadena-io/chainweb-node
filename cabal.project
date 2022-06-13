@@ -73,7 +73,7 @@ source-repository-package
 source-repository-package
     type: git
     location: https://github.com/larskuhtz/hs-sha-validation.git
-    tag: 0175d7eb3b5184c0e08beb37c8671860a27dff28
+    tag: 0542786e7e7b4b24a37243d7168f81800abe59f0
 
 -- Required for GHC-9:
 
