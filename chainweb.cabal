@@ -559,6 +559,7 @@ test-suite chainweb-tests
         , warp-tls >= 3.2.9
         , yaml >= 0.11
         , yet-another-logger >= 0.4
+        , sha-validation >=0.1
 
     if flag(ed25519)
         cpp-options: -DWITH_ED25519=1
