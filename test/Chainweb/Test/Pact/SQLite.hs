@@ -38,87 +38,79 @@ import Chainweb.Test.Utils
 tests :: TestTree
 tests = withInMemSQLiteResource $ \dbIO ->
     withResource (dbIO >>= newMVar) mempty $ \dbVarIO ->
-        testGroup "SQL Tests"
-        [ testGroup "sha3"
-            [ testGroup "ShortMsg"
-                [ testCase "224" $ runMsgTest dbVarIO 224 sha3_224ShortMsg
-                , testCase "256" $ runMsgTest dbVarIO 256 sha3_256ShortMsg
-                , testCase "384" $ runMsgTest dbVarIO 384 sha3_384ShortMsg
-                , testCase "512" $ runMsgTest dbVarIO 512 sha3_512ShortMsg
+        let run = runMsgTest dbVarIO []
+            runMonte = runMonteTest dbVarIO []
+
+            -- Split input
+            runVar = runMsgTest dbVarIO [1,2,17]
+            runMonteVar = runMonteTest dbVarIO [1,2,17]
+
+        in testGroup "SQL Tests"
+            [ testGroup "sha3 single argument"
+                [ testGroup "ShortMsg"
+                    [ testCase "-" $ run 0 sha3_256ShortMsg
+                    , testCase "224" $ run 224 sha3_224ShortMsg
+                    , testCase "256" $ run 256 sha3_256ShortMsg
+                    , testCase "384" $ run 384 sha3_384ShortMsg
+                    , testCase "512" $ run 512 sha3_512ShortMsg
+                    ]
+                , testGroup "LongMsg"
+                    [ testCase "-" $ run 0 sha3_256LongMsg
+                    , testCase "224" $ run 224 sha3_224LongMsg
+                    , testCase "256" $ run 256 sha3_256LongMsg
+                    , testCase "384" $ run 384 sha3_384LongMsg
+                    , testCase "512" $ run 512 sha3_512LongMsg
+                    ]
+                , testGroup "Monte"
+                    [ testCase "-" $ runMonte 0 sha3_256Monte
+                    , testCase "224" $ runMonte 224 sha3_224Monte
+                    , testCase "256" $ runMonte 256 sha3_256Monte
+                    , testCase "384" $ runMonte 384 sha3_384Monte
+                    , testCase "512" $ runMonte 512 sha3_512Monte
+                    ]
                 ]
-            , testGroup "LongMsg"
-                [ testCase "224" $ runMsgTest dbVarIO 224 sha3_224LongMsg
-                , testCase "256" $ runMsgTest dbVarIO 256 sha3_256LongMsg
-                , testCase "384" $ runMsgTest dbVarIO 384 sha3_384LongMsg
-                , testCase "512" $ runMsgTest dbVarIO 512 sha3_512LongMsg
-                ]
-            , testGroup "Monte"
-                [ testCase "224" $ runMonteTest dbVarIO 224 sha3_224Monte
-                , testCase "256" $ runMonteTest dbVarIO 256 sha3_256Monte
-                , testCase "384" $ runMonteTest dbVarIO 384 sha3_384Monte
-                , testCase "512" $ runMonteTest dbVarIO 512 sha3_512Monte
+            , testGroup "sha3 multiple arguments"
+                [ testGroup "ShortMsg"
+                    [ testCase "-" $ runVar 0 sha3_256ShortMsg
+                    , testCase "224" $ runVar 224 sha3_224ShortMsg
+                    , testCase "256" $ runVar 256 sha3_256ShortMsg
+                    , testCase "384" $ runVar 384 sha3_384ShortMsg
+                    , testCase "512" $ runVar 512 sha3_512ShortMsg
+                    ]
+                , testGroup "LongMsg"
+                    [ testCase "-" $ runVar 0 sha3_256LongMsg
+                    , testCase "224" $ runVar 224 sha3_224LongMsg
+                    , testCase "256" $ runVar 256 sha3_256LongMsg
+                    , testCase "384" $ runVar 384 sha3_384LongMsg
+                    , testCase "512" $ runVar 512 sha3_512LongMsg
+                    ]
+                , testGroup "Monte"
+                    [ testCase "-" $ runMonteVar 0 sha3_256Monte
+                    , testCase "224" $ runMonteVar 224 sha3_224Monte
+                    , testCase "256" $ runMonteVar 256 sha3_256Monte
+                    , testCase "384" $ runMonteVar 384 sha3_384Monte
+                    , testCase "512" $ runMonteVar 512 sha3_512Monte
+                    ]
                 ]
             ]
-        , testGroup "sha3var"
-            [ testGroup "ShortMsg"
-                [ testCase "224" $ runMsgTestVar dbVarIO 224 sha3_224ShortMsg
-                , testCase "256" $ runMsgTestVar dbVarIO 256 sha3_256ShortMsg
-                , testCase "384" $ runMsgTestVar dbVarIO 384 sha3_384ShortMsg
-                , testCase "512" $ runMsgTestVar dbVarIO 512 sha3_512ShortMsg
-                ]
-            , testGroup "LongMsg"
-                [ testCase "224" $ runMsgTestVar dbVarIO 224 sha3_224LongMsg
-                , testCase "256" $ runMsgTestVar dbVarIO 256 sha3_256LongMsg
-                , testCase "384" $ runMsgTestVar dbVarIO 384 sha3_384LongMsg
-                , testCase "512" $ runMsgTestVar dbVarIO 512 sha3_512LongMsg
-                ]
-            , testGroup "Monte"
-                [ testCase "224" $ runMonteTestVar dbVarIO 224 sha3_224Monte
-                , testCase "256" $ runMonteTestVar dbVarIO 256 sha3_256Monte
-                , testCase "384" $ runMonteTestVar dbVarIO 384 sha3_384Monte
-                , testCase "512" $ runMonteTestVar dbVarIO 512 sha3_512Monte
-                ]
-            ]
-        ]
 
-runMsgTest :: IO (MVar SQLiteEnv) -> Int -> MsgFile -> IO ()
-runMsgTest dbVarIO n f = do
+runMsgTest :: IO (MVar SQLiteEnv) -> [Int] -> Int -> MsgFile -> IO ()
+runMsgTest dbVarIO splitArg n f = do
     dbVar <- dbVarIO
     withMVar dbVar $ \db -> do
-        msgAssert (\_ a b -> a @?= b) (sqliteSha3 db n) f
+        msgAssert (\_ a b -> a @?= b) (sqliteSha3 db n splitArg) f
 
-runMonteTest :: IO (MVar SQLiteEnv) -> Int -> MonteFile -> IO ()
-runMonteTest dbVarIO n f = do
+runMonteTest :: IO (MVar SQLiteEnv) -> [Int] -> Int -> MonteFile -> IO ()
+runMonteTest dbVarIO splitArg n f = do
     dbVar <- dbVarIO
     withMVar dbVar $ \db -> do
-        monteAssert (\_ a b -> a @?= b) (sqliteSha3 db n) f
-
-sqliteSha3 :: SQLiteEnv -> Int -> B.ByteString -> B.ByteString
-sqliteSha3 db n arg = unsafePerformIO $ do
-    rows <- qry (_sConn db) "select sha3(?,?)" [SBlob arg, SInt (fromIntegral n)] [RBlob]
-    case head rows of
-        [SBlob r] -> return r
-        [x] -> error $ "unexpected return value: " <> show x
-        a -> error $ "unexpected number of results: " <> show (length a)
+        monteAssert (\_ a b -> a @?= b) (sqliteSha3 db n splitArg) f
 
 -- -------------------------------------------------------------------------- --
--- sha3var
+-- SHA3 Implementation
 
-runMsgTestVar :: IO (MVar SQLiteEnv) -> Int -> MsgFile -> IO ()
-runMsgTestVar dbVarIO n f = do
-    dbVar <- dbVarIO
-    withMVar dbVar $ \db -> do
-        msgAssert (\_ a b -> a @?= b) (sqliteSha3var db n [1,2,3]) f
-
-runMonteTestVar :: IO (MVar SQLiteEnv) -> Int -> MonteFile -> IO ()
-runMonteTestVar dbVarIO n f = do
-    dbVar <- dbVarIO
-    withMVar dbVar $ \db -> do
-        monteAssert (\_ a b -> a @?= b) (sqliteSha3var db n [1,2,3]) f
-
-sqliteSha3var :: SQLiteEnv -> Int -> [Int] -> B.ByteString -> B.ByteString
-sqliteSha3var db n argSplit arg =
-  unsafePerformIO $ do
+sqliteSha3 :: SQLiteEnv -> Int -> [Int] -> B.ByteString -> B.ByteString
+sqliteSha3 db n argSplit arg = unsafePerformIO $ do
     rows <- qry (_sConn db) queryStr params [RBlob]
     case head rows of
         [SBlob r] -> return r
@@ -126,12 +118,16 @@ sqliteSha3var db n argSplit arg =
         a -> error $ "unexpected number of results: " <> show (length a)
   where
     argN = length argSplit
-    argStr = fromString $ L.intercalate "," $ replicate (argN + 2) "?"
+    argStr = fromString $ L.intercalate "," $ replicate (argN + 1) "?"
 
-    queryStr = "select sha3var(" <> argStr <> ")"
+    queryStr = "select " <> sha n <> "(" <> argStr <> ")"
 
-    params = SInt (fromIntegral n) : go argSplit arg
+    params = go argSplit arg
 
     go [] l = [SBlob l]
     go (h:t) bs = let (a,b) = B.splitAt h bs in SBlob a : go t b
+
+sha :: IsString a => Monoid a => Int -> a
+sha 0 = "sha3"
+sha i = "sha3_" <> fromString (show i)
 
