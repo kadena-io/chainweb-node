@@ -122,6 +122,7 @@ testHashes = withTempSQLiteResource $ runSQLite' $ \resIO -> testCase "testHashe
 
     let hash01 = getArbitrary 1
         hash02 = getArbitrary 2
+        hash03 = getArbitrary 3
     void $ _cpRestore _cpeCheckpointer (Just (1, hash00))
     _cpSave _cpeCheckpointer hash01
     (PactDbEnv' (PactDbEnv pactdb mvar)) <- _cpRestore _cpeCheckpointer (Just (2, hash01))
@@ -147,11 +148,14 @@ testHashes = withTempSQLiteResource $ runSQLite' $ \resIO -> testCase "testHashe
       _writeRow pactdb Update (UserTables "tA") "B" rd2 mvar -- test update to same data collision
       _writeRow pactdb Insert (UserTables "tA") "C" rd1 mvar -- new insert
 
+    _cpSave _cpeCheckpointer hash02
+    void $ _cpRestore _cpeCheckpointer $ Just (3,hash02)
+
     withTx $ do
       _writeRow pactdb Update (UserTables "tA") "B" rd1 mvar -- test updated hash x2
       _writeRow pactdb Update (UserTables "tA") "C" rd2 mvar -- test updated hash
 
-    _cpSave _cpeCheckpointer hash02
+    _cpSave _cpeCheckpointer hash03
 
     let calcHash tbl rk txid hsh = qry _sConn
             ( "SELECT sha3_256('T',?1,'K',rowkey,'I',txid,'D',rowdata,'H',?4) FROM "
@@ -197,6 +201,9 @@ testHashes = withTempSQLiteResource $ runSQLite' $ \resIO -> testCase "testHashe
     compact (newLogger (pactTestLogger True) "compact") 2 _sConn
 
     qry_ _sConn "select * from VersionedTableChecksum" [RText,RInt,RBlob] >>= mapM_ print
+    qry_ _sConn "select rowkey,txid from tA" [RText,RInt] >>= mapM_ print
+
+    qry _sConn "select sha3_256(?1,?2,?3)" [hA_AA1,hA_B2,hC2] [RBlob] >>= mapM_ print
 
 --- -------------------------------------------------------------------------- --
 --- Key Set Test
