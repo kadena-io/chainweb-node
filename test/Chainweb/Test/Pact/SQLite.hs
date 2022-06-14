@@ -19,6 +19,7 @@ import Control.Concurrent.MVar
 import Control.Monad
 import Control.Monad.Trans.State
 
+import Data.Bifunctor
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Short as BS
 import Data.Coerce
@@ -100,9 +101,14 @@ tests = withInMemSQLiteResource $ \dbIO ->
                     , testCase "512" $ runMonteVar 512 sha3_512Monte
                     ]
                 ]
-            , testGroup "sha3 aggregation"
-                [ testCase "256" $ testAgg dbVarIO
+            , withAggTable dbVarIO 512 128 $ \tbl -> testGroup "sha3 aggregation"
+                [ testCase "-" $ testAgg 0 dbVarIO tbl
+                , testCase "224" $ testAgg 224 dbVarIO tbl
+                , testCase "256" $ testAgg 256 dbVarIO tbl
+                , testCase "384" $ testAgg 384 dbVarIO tbl
+                , testCase "512" $ testAgg 512 dbVarIO tbl
                 ]
+            , testCase "sha3 msgTable" $ msgTableTest dbVarIO
             ]
 
 runMsgTest :: IO (MVar SQLiteEnv) -> [Int] -> Int -> MsgFile -> IO ()
@@ -119,38 +125,86 @@ runMonteTest dbVarIO splitArg n f = do
 
 -- -------------------------------------------------------------------------- --
 -- Incremental use in a query:
---
--- TODO: import a monte file into a sqlite table
+
+msgTableTest :: IO (MVar SQLiteEnv) -> IO ()
+msgTableTest dbVarIO = do
+    msgTable dbVarIO "msgShort256" sha3_256ShortMsg
+    dbVar <- dbVarIO
+    withMVar dbVar $ \db -> do
+        rows <- qry_ (_sConn db) query [RInt]
+        h <- case rows of
+            [[SInt r]] -> return r
+            [[x]] -> error $ "unexpected return value: " <> show x
+            [a] -> error $ "unexpected number of result fields: " <> show (length a)
+            a -> error $ "unexpected number of result rows: " <> show (length a)
+        h @?= 0
+  where
+    query = "SELECT sum(sha3(substr(msg,1,len)) != md) FROM msgShort256;"
+
+
+msgTable :: IO (MVar SQLiteEnv) -> String -> MsgFile -> IO ()
+msgTable dbVarIO name msgFile = do
+    dbVar <- dbVarIO
+    withMVar dbVar $ \db -> do
+        exec_ (_sConn db) ("CREATE TABLE " <> tbl <> " (len INT, msg BLOB, md BLOB)")
+        forM_ (_msgVectors msgFile) $ \i -> do
+            let l = fromIntegral $ _msgLen i
+            exec'
+                (_sConn db)
+                ("INSERT INTO " <> tbl <> " VALUES (?, ?, ?)")
+                [SInt l, SBlob (_msgMsg i), SBlob (_msgMd i)]
+  where
+    tbl = fromString name
 
 -- -------------------------------------------------------------------------- --
 -- Aggregate functions
 --
--- split large input accross table rows
+-- split a large input accross table rows
 
-testAgg :: IO (MVar SQLiteEnv) -> IO ()
-testAgg dbVarIO = do
+withAggTable
+    :: IO (MVar SQLiteEnv)
+    -> Int
+    -> Int
+    -> (IO (String, [B.ByteString]) -> TestTree)
+    -> TestTree
+withAggTable dbVarIO rowCount chunkSize =
+    withResource createAggTable (const $ return ())
+  where
+    tbl = "bytesTbl"
+    createAggTable = do
+        dbVar <- dbVarIO
+        withMVar dbVar $ \db -> do
+            input <- getStdRandom $ runState $
+                replicateM rowCount $ state (genByteString chunkSize)
+            exec_ (_sConn db) ("CREATE TABLE " <> fromString tbl <> " (bytes BLOB)")
+            forM_ input $ \i ->
+                exec' (_sConn db) ("INSERT INTO " <> fromString tbl <> " VALUES(?)") [SBlob i]
+            return (tbl, input)
+
+testAgg :: Int -> IO (MVar SQLiteEnv) -> IO (String, [B.ByteString]) -> IO ()
+testAgg n dbVarIO tblIO = do
     dbVar <- dbVarIO
+    (tbl, input) <- first fromString <$> tblIO
     withMVar dbVar $ \db -> do
-        -- create tests data
-        input <- getStdRandom $ runState $ replicateM 512 $ state (genByteString 128)
-
-        -- create table
-        putStrLn "create table"
-        exec_ (_sConn db) "CREATE TABLE bytesTbl (bytes BLOB);"
-        putStrLn "insert data"
-        forM_ input $ \i ->
-            exec' (_sConn db) "INSERT INTO bytesTbl VALUES(?)" [SBlob i]
-
-        -- compute aggregated hash
-        putStrLn "compute hash"
-        rows <- qry_ (_sConn db) "SELECT sha3a(bytes) FROM bytesTbl;" [RBlob]
+        rows <- qry_ (_sConn db) ("SELECT " <> sha n <> "(bytes) FROM " <> tbl) [RBlob]
         h <- case rows of
             [[SBlob r]] -> return r
             [[x]] -> error $ "unexpected return value: " <> show x
             [a] -> error $ "unexpected number of result fields: " <> show (length a)
             a -> error $ "unexpected number of result rows: " <> show (length a)
 
-        h @?= hashToByteString (SHA3.hashByteString @SHA3.Sha3_256 (mconcat input))
+        h @?= hash n (mconcat input)
+  where
+    hash 0 = hashToByteString . SHA3.hashByteString @SHA3.Sha3_256
+    hash 224 = hashToByteString . SHA3.hashByteString @SHA3.Sha3_224
+    hash 256 = hashToByteString . SHA3.hashByteString @SHA3.Sha3_256
+    hash 384 = hashToByteString . SHA3.hashByteString @SHA3.Sha3_384
+    hash 512 = hashToByteString . SHA3.hashByteString @SHA3.Sha3_512
+    hash x = error $ "unsupported SHA3 digest size: " <> show x
+
+    sha :: IsString a => Monoid a => Int -> a
+    sha 0 = "sha3a"
+    sha i = "sha3a_" <> fromString (show i)
 
 hashToByteString :: SHA3.Hash a => Coercible a BS.ShortByteString => a -> B.ByteString
 hashToByteString = BS.fromShort . coerce
