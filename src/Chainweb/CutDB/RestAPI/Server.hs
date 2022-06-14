@@ -46,6 +46,9 @@ import qualified Network.Wai as Wai
 import Servant.API
 import Servant.Server
 
+import Web.DeepRoute
+import Web.DeepRoute.Wai
+
 -- internal modules
 
 import Chainweb.Cut
@@ -56,7 +59,6 @@ import Chainweb.HostAddress
 import Chainweb.RestAPI.Utils
 import Chainweb.TreeDB (MaxRank(..))
 import Chainweb.Utils
-import Chainweb.Utils.HTTP
 import Chainweb.Version
 
 import P2P.Node.PeerDB
@@ -98,9 +100,9 @@ cutGetServer
 cutGetServer (CutDbT db) = liftIO . cutGetHandler db
 
 cutGetApi :: CutDb cas -> Route (ChainwebVersion -> Wai.Application)
-cutGetApi cutDb = 
-    choice "cut" $ terminus [methodGet] $ const $ \req respond -> do
-        maxheight <- allParams req (queryParamMaybe "maxheight") 
+cutGetApi cutDb =
+    choice "cut" $ terminus methodGet "application/json" $ \_ req respond -> do
+        let maxheight = getParams req (queryParamMaybe "maxheight")
         respond . responseJSON status200 [] =<< cutGetHandler cutDb maxheight
 
 -- -------------------------------------------------------------------------- --

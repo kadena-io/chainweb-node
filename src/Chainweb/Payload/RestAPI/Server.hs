@@ -40,8 +40,12 @@ import qualified Data.Vector as V
 import Prelude hiding (lookup)
 
 import Network.HTTP.Types
+import Network.HTTP.Media
 import Network.Wai
 import Servant
+
+import Web.DeepRoute
+import Web.DeepRoute.Wai
 
 -- internal modules
 
@@ -52,7 +56,6 @@ import Chainweb.Payload.PayloadStore
 import Chainweb.Payload.RestAPI
 import Chainweb.RestAPI.Orphans ()
 import Chainweb.RestAPI.Utils
-import Chainweb.Utils.HTTP
 import Chainweb.Version
 
 import Data.CAS
@@ -145,7 +148,7 @@ outputsBatchHandler
     => PayloadDb cas
     -> [BlockPayloadHash]
     -> IO [PayloadWithOutputs]
-outputsBatchHandler db ks = 
+outputsBatchHandler db ks =
     fmap (V.toList . catMaybes)
         $ casLookupBatch db
         $ V.fromList
@@ -187,15 +190,16 @@ payloadApiLayout _ = T.putStrLn $ layout (Proxy @(PayloadApi v c))
 
 newPayloadServer :: PayloadCasLookup cas => Route (PayloadDb cas -> Application)
 newPayloadServer = choice "payload" $ fold
-    [ choice "batch" $ 
-        terminus [methodGet] payloadBatchHandler 
-    , choice "outputs" $ 
-        choice "batch" $ 
-            terminus [methodPost] outputsBatchHandler
-    , capture $ fold
-        [ choice "outputs" $ terminus [methodGet] outputsHandler
-        , terminus [methodGet] payloadHandler
-        ]
+    [ choice "batch" $
+        terminus methodGet "application/json" $ \pdb req resp -> do
+            resp . responseJSON ok200 [] . toJSON =<< payloadBatchHandler pdb =<< requestFromJSON req
+    -- , choice "outputs" $
+        -- choice "batch" $
+            -- terminus [methodPost] [("application/json", outputsBatchHandler)]
+    -- , capture $ fold
+        -- [ choice "outputs" $ terminus [methodGet] [("application/json", outputsHandler)]
+        -- , terminus [methodGet] [("application/json", payloadHandler)]
+        -- ]
     ]
 
 -- -------------------------------------------------------------------------- --

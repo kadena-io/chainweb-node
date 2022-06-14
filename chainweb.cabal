@@ -1,4 +1,4 @@
-cabal-version: 2.4
+cabal-version: 3.0
 
 name:         chainweb
 version:      2.13
@@ -339,6 +339,9 @@ library
         , data-default >=0.7
         , data-dword >= 0.3
         , deepseq >= 1.4
+        , deeproute
+        , deeproute:deeproute-wai
+        , deeproute:deeproute-client
         , digraph >= 0.2
         , direct-sqlite >= 2.3
         , directory >= 1.3

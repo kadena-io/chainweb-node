@@ -60,6 +60,9 @@ import Servant.Server
 
 import qualified Streaming.Prelude as SP
 
+import Web.DeepRoute
+import Web.DeepRoute.Wai
+
 -- internal modules
 
 import Chainweb.BlockHeader (BlockHeader(..), ObjectEncoded(..), _blockPow)
@@ -74,7 +77,6 @@ import Chainweb.PowHash (powHashBytes)
 import Chainweb.RestAPI.Orphans ()
 import Chainweb.RestAPI.Utils
 import Chainweb.TreeDB
-import Chainweb.Utils.HTTP
 import Chainweb.Utils.Paging
 import Chainweb.Version
 
@@ -282,8 +284,8 @@ someBlockHeaderDbServers v = mconcat
 
 headerStreamServer :: PayloadCasLookup cas => CutDb cas -> Route (ChainwebVersion -> Wai.Application)
 headerStreamServer db =
-    choice "header" $ 
-        choice "updates" $ 
+    choice "header" $
+        choice "updates" $
             terminus [methodGet] (const $ headerStreamHandler db)
 
 someHeaderStreamServer :: PayloadCasLookup cas => ChainwebVersion -> CutDb cas -> SomeServer

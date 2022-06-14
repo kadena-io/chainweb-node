@@ -35,14 +35,18 @@ import Data.Foldable
 import Data.IORef (IORef, atomicModifyIORef', newIORef, readIORef, writeIORef)
 import qualified Data.Map.Strict as M
 import qualified Data.Set as S
+import qualified Data.Text.Encoding as T
 import qualified Data.Text.Lazy as TL
 import qualified Data.Text.Lazy.Encoding as TL
 
 import Network.HTTP.Types
-import qualified Network.Wai as Wai 
+import qualified Network.Wai as Wai
 import Network.Wai.EventSource (ServerEvent(..), eventSourceAppIO)
 
 import System.Random
+
+import Web.DeepRoute
+import Web.DeepRoute.Wai
 
 -- internal modules
 
@@ -56,30 +60,29 @@ import Chainweb.Miner.Core
 import Chainweb.Miner.Pact
 import Chainweb.RestAPI.Utils (SomeServer(..))
 import Chainweb.Utils (EncodingException(..), runGetEitherL, runPutL)
-import Chainweb.Utils.HTTP
 import Chainweb.Version
 
 miningApi :: Logger l => MiningCoordination l cas -> Route Wai.Application
 miningApi mc = choice "mining" $ fold
-    [ choice "work" $ terminus [methodGet] (workHandler mc)
-    , choice "solved" $ terminus [methodPost] (solvedHandler mc)
-    , choice "updates" $ terminus [methodGet] (updatesHandler mc)
+    [ choice "work" $ terminus methodGet "application/octet-stream" (workHandler mc)
+    , choice "solved" $ terminus methodPost "text/plain" (solvedHandler mc)
+    , choice "updates" $ terminus methodGet "text/event-stream" (updatesHandler mc)
     ]
 
 workHandler :: Logger l => MiningCoordination l cas -> Wai.Application
 workHandler mr req respond = do
-    mcid <- allParams req (queryParamMaybe "chain")
+    let mcid = getParams req (queryParamMaybe "chain")
     m@(Miner (MinerId mid) _) <- requestFromJSON req
     MiningState ms <- readTVarIO $ _coordState mr
     when (M.size ms > _coordLimit mr) $ do
         atomicModifyIORef' (_coord503s mr) (\c -> (c + 1, ()))
-        errorWithStatus status503 "Too many work requests"
+        errorWithStatus status503 $ Just "Too many work requests"
     let conf = _coordConf mr
         primed = S.member m $ _coordinationMiners conf
     unless primed $ do
         liftIO $ atomicModifyIORef' (_coord403s mr) (\c -> (c + 1, ()))
-        let midb = TL.encodeUtf8 $ TL.fromStrict mid
-        errorWithStatus status403 $ "Unauthorized Miner: " <> midb
+        let midb = T.encodeUtf8 mid
+        errorWithStatus status403 $ Just $ "Unauthorized Miner: " <> midb
     wh <- liftIO $ work mr mcid m
     respond $ Wai.responseLBS status200 [] $ runPutL $ encodeWorkHeader wh
 
@@ -88,20 +91,18 @@ solvedHandler mr req respond = do
     bytes <- Wai.lazyRequestBody req
     case runGetEitherL decodeSolvedWork bytes of
         Left (DecodeException e) ->
-            errorWithStatus status400 $ "Decoding error: " <> toErrText e
+            errorWithStatus status400 $ Just $ "Decoding error: " <> T.encodeUtf8 e
 
         Right !solved -> do
             result <- liftIO $ catches (Right () <$ solve mr solved)
                 [ E.Handler $ \NoAssociatedPayload ->
-                    errorWithStatus status404 "No associated Payload"
+                    errorWithStatus status404 $ Just "No associated Payload"
                 , E.Handler $ \(InvalidSolvedHeader _ msg) ->
-                    errorWithStatus status400 $ "Invalid solved work: " <> toErrText msg
+                    errorWithStatus status400 $ Just $ "Invalid solved work: " <> T.encodeUtf8 msg
                 ]
             case result of
                 Left e -> throwError e
                 Right () -> respond $ Wai.responseLBS status200 [] ""
-  where
-    toErrText = TL.encodeUtf8 . TL.fromStrict
 
 -- -------------------------------------------------------------------------- --
 --  Updates Handler
@@ -110,8 +111,8 @@ updatesHandler :: Logger l => MiningCoordination l cas -> Wai.Application
 updatesHandler mr req respond = withLimit $ do
     cbytes <- Wai.lazyRequestBody req
     !cid <- case runGetEitherL decodeChainId cbytes of
-        Left (DecodeException e) -> 
-            errorWithStatus status400 $ "Decoding error: " <> toErrText e
+        Left (DecodeException e) ->
+            errorWithStatus status400 $ Just $ "Decoding error: " <> T.encodeUtf8 e
         Right cid -> return cid
     cv  <- _cut (_coordCutDb mr) >>= newIORef
 
@@ -124,7 +125,6 @@ updatesHandler mr req respond = withLimit $ do
 
     eventSourceAppIO (go timer cid cv) req respond
   where
-    toErrText = TL.encodeUtf8 . TL.fromStrict
     timeout = _coordinationUpdateStreamTimeout $ _coordConf mr
 
     -- | A nearly empty `ServerEvent` that signals the discovery of a new
@@ -156,8 +156,8 @@ updatesHandler mr req respond = withLimit $ do
     withLimit inner = bracket
         (atomicModifyIORef' count $ \x -> (x - 1, x - 1))
         (const $ atomicModifyIORef' count $ \x -> (x + 1, ()))
-        (\x -> 
-            if x <= 0 
-            then errorWithStatus status503 "No more update streams available currently. Retry later." 
+        (\x ->
+            if x <= 0
+            then errorWithStatus status503 $ Just "No more update streams available currently. Retry later."
             else inner
         )

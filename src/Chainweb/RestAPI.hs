@@ -338,7 +338,8 @@ someServiceApiServer v dbs pacts mr (HeaderStream hs) (Rosetta r) =
     -- GET Cut, Payload, and Headers endpoints
     -- maybe mempty (someCutGetServer v) cuts
     -- <> somePayloadServers v payloads
-    <> someBlockHeaderDbServers v blocks
+    -- <> someBlockHeaderDbServers v blocks
+    mempty
   where
     cuts = _chainwebServerCutDb dbs
     peers = _chainwebServerPeerDbs dbs
