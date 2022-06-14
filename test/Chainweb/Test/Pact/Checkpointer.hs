@@ -194,7 +194,7 @@ testHashes = withTempSQLiteResource $ runSQLite' $ \resIO -> testCase "testHashe
     hC3 <- checkHash "tA" "C" 3 hC2
     assertNotEquals "C 2->3 hash" hC3 hC2
 
-    compact (newLogger (pactTestLogger True) "compact") 100 _sConn
+    compact (newLogger (pactTestLogger True) "compact") 2 _sConn
 
     qry_ _sConn "select * from VersionedTableChecksum" [RText,RInt,RBlob] >>= mapM_ print
 

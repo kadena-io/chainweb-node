@@ -32,17 +32,18 @@ import Pact.Types.SQLite
 
 
 compact :: Logger -> BlockHeight -> Database -> IO ()
-compact log' blockheight db = do
+compact log' blockheight' db = do
 
 
-    initialize
+    txid <- initialize
 
     vtables <- collectVersionedTables
 
-    mapM_ computeTableHash vtables
+    mapM_ (computeTableHash txid) vtables
 
     return ()
   where
+    blockheight = SInt $ fromIntegral blockheight'
     initialize = do
       debug "initialize"
       exec_ db $ "CREATE TABLE IF NOT EXISTS VersionedTableChecksum " <>
@@ -52,25 +53,33 @@ compact log' blockheight db = do
           ", UNIQUE (tablename) );"
       exec_ db $ "DELETE FROM VersionedTableChecksum"
 
+      qry db "SELECT endingtxid FROM BlockHistory WHERE blockheight=?"
+         [blockheight] [RInt] >>= \r ->
+        case r of
+          [] -> internalError "initialize: invalid target block height"
+          [[SInt txid]] -> return txid
+          _ -> internalError "initialize: expected single-row int"
+
+
     collectVersionedTables = do
       debug "collectVersionedTables"
       rs <- qry db
           ("SELECT DISTINCT tablename FROM VersionedTableMutation " <>
            "WHERE blockheight <= ? ORDER BY tablename")
-          [SInt $ fromIntegral blockheight]
+          [blockheight]
           [RText]
       forM rs $ \r -> case r of
         [SText n] -> return n
         _ -> internalError "collectVersionedTables: expected text"
 
-    computeTableHash vtable = do
+    computeTableHash txid vtable = do
       debug $ "computeTableHash: " ++ show vtable
       let stmt = "INSERT INTO VersionedTableChecksum VALUES (?1, ?2, " <>
            "(SELECT sha3a_256(hash) FROM " <>
            " (SELECT hash FROM " <> tbl vtable <>
            "  t1 where txid=(select max(txid) from " <> tbl vtable <>
-           "  t2 where t2.rowkey=t1.rowkey and t2.txid<?2))))"
+           "  t2 where t2.rowkey=t1.rowkey and t2.txid<?3))))"
       exec' db stmt
-          [SText vtable,SInt $ fromIntegral blockheight]
+          [SText vtable,blockheight,SInt txid]
 
     debug = logDebug_ log'
