@@ -1,7 +1,48 @@
-Pact Database ("Checkpointer") Schema
+Pact Database ("Checkpointer") Schema and Overview
 ==========
 
-Schema documentation for Checkpointer Pact DB implementation in SQLite.
+Overview of Versioned Table Maintenance and Schema documentation for Checkpointer Pact DB implementation in SQLite.
+
+Checkpointer Operations
+===
+
+See table schemas below for tables referenced in this overview.
+
+## Restore/Rewind
+
+Restore positions the checkpointer to be able to accept a new block at a particular
+height. If this height is not exactly 1 higher than the highest block stored in
+the `BlockHistory` table, then a rewind occurs to delete any data after the rewind point.
+
+If no rewind occurs, there are no modifications to the database state for restore.
+
+The `TxId` counter is reset to the ending `TxId` for rewind height - 1 from `BlockHistory`.
+
+Rewind invokes the following db operations:
+
+ - Get ending `TxId` for rewind height - 1 from `BlockHistory`.
+ - Delete all rows from versioned system tables higher than ending tx id.
+ - Drop all tables in `VersionedTableCreation` at rewind height or higher.
+ - Delete all rows higher than ending tx id from versioned user tables in
+   `VersionedTableMutation` at rewind height or higher.
+ - Delete all rows from `VersionedTableCreation`, `VersionedTableMutation`,
+   `BlockHistory`, `TransactionIndex` at rewind height or higher.
+
+
+## Save
+
+Save reads the `TxId` counter and inserts a new row into `BlockHistory` with the
+current block height, block hash and `TxId` counter value.
+
+## Transaction execution
+
+During transaction execution the following db operations occur:
+
+ - Table creation inserts a row in `VersionedTableCreation` at the current block height.
+ - Writes to a table row inserts a row in `VersionedTableMutation` at the current block height.
+ - All writes record the txid at which they occurred.
+ - Transaction completion during block validation results in the transaction hash being recorded
+   at the current block height in `TransactionIndex`.
 
 
 Checkpointer System Tables
@@ -125,45 +166,3 @@ User tables are named incorporating the fully-qualified module name
 and the tablename in the format `$MODULE_$TABLE`. Thus the KDA coin
 ledger is stored as `coin_coin-table`, while a namespaced module `somens.foo`
 with a table `tbl` would be stored as `somens.foo_tbl`.
-
-
-Checkpointer Operations
-===
-
-This is an overview of how these tables are used in the major checkpointer operations.
-
-## Restore/Rewind
-
-Restore positions the checkpointer to be able to accept a new block at a particular
-height. If this height is not exactly 1 higher than the highest block stored in
-the `BlockHistory` table, then a rewind occurs to delete any data after the rewind point.
-
-If no rewind occurs, there are no modifications to the database state for restore.
-
-The `TxId` counter is reset to the ending `TxId` for rewind height - 1 from `BlockHistory`.
-
-Rewind invokes the following db operations:
-
- - Get ending `TxId` for rewind height - 1 from `BlockHistory`.
- - Delete all rows from versioned system tables higher than ending tx id.
- - Drop all tables in `VersionedTableCreation` at rewind height or higher.
- - Delete all rows higher than ending tx id from versioned user tables in
-   `VersionedTableMutation` at rewind height or higher.
- - Delete all rows from `VersionedTableCreation`, `VersionedTableMutation`,
-   `BlockHistory`, `TransactionIndex` at rewind height or higher.
-
-
-## Save
-
-Save reads the `TxId` counter and inserts a new row into `BlockHistory` with the
-current block height, block hash and `TxId` counter value.
-
-## Transaction execution
-
-During transaction execution the following db operations occur:
-
- - Table creation inserts a row in `VersionedTableCreation` at the current block height.
- - Writes to a table row inserts a row in `VersionedTableMutation` at the current block height.
- - All writes record the txid at which they occurred.
- - Transaction completion during block validation results in the transaction hash being recorded
-   at the current block height in `TransactionIndex`.
