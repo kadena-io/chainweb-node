@@ -464,6 +464,7 @@ test-suite chainweb-tests
         Chainweb.Test.Pact.SPV
         Chainweb.Test.Pact.TransactionTests
         Chainweb.Test.Pact.TTL
+        Chainweb.Test.Pact.SQLite
         Chainweb.Test.Pact.Utils
         Chainweb.Test.RestAPI
         Chainweb.Test.RestAPI.Client_
