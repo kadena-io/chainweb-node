@@ -495,7 +495,7 @@ static unsigned char *SHA3Final(SHA3Context *p){
  */
 
 /* ************************************************************************** */
-/* Implementation of SHA3 aggregate function
+/* Implementation of SHA3 aggregate functions
  *
  * Return a BLOB which is the SIZE-bit SHA3 hash of X.
  * If X (or any subsequent argument) is a BLOB, it is hashed as is.
@@ -548,6 +548,43 @@ static void sha3FinalFunc_384 (sqlite3_context *c) { sha3FinalFunc(384, c); }
 static void sha3FinalFunc_512 (sqlite3_context *c) { sha3FinalFunc(512, c); }
 
 /* ************************************************************************** */
+/* Implementation of SHA3 scalar functions.
+ *
+ * Return a BLOB which is the SIZE-bit SHA3 hash of X.
+ * If X (or any subsequent argument) is a BLOB, it is hashed as is.
+ * For all other types of input, the respective argument is converted
+ * into a UTF-8 string and the string is hashed without the trailing 0x00
+ * terminator.
+ */
+static void sha3Func (int iSize, sqlite3_context *ctx, int argc, sqlite3_value **argv)
+{
+  SHA3Context cx;
+  int i;
+  int eType;
+  int nBytes;
+
+  SHA3Init(&cx, iSize);
+
+  for (i = 0; i < argc; ++i) {
+    eType = sqlite3_value_type(argv[i]);
+    nBytes = sqlite3_value_bytes(argv[i]);
+
+    if (eType == SQLITE_BLOB) {
+      SHA3Update(&cx, sqlite3_value_blob(argv[i]), nBytes);
+    } else {
+      SHA3Update(&cx, sqlite3_value_text(argv[i]), nBytes);
+    }
+  }
+
+  sqlite3_result_blob(ctx, SHA3Final(&cx), iSize/8, SQLITE_TRANSIENT);
+}
+
+static void sha3Func_224 (sqlite3_context *c, int ac, sqlite3_value **av) { sha3Func(224, c, ac, av); }
+static void sha3Func_256 (sqlite3_context *c, int ac, sqlite3_value **av) { sha3Func(256, c, ac, av); }
+static void sha3Func_384 (sqlite3_context *c, int ac, sqlite3_value **av) { sha3Func(384, c, ac, av); }
+static void sha3Func_512 (sqlite3_context *c, int ac, sqlite3_value **av) { sha3Func(512, c, ac, av); }
+
+/* ************************************************************************** */
 /* Initialize all SHA3 functions
  */
 int sqlite3_shathree_create_functions(sqlite3 *db)
@@ -570,6 +607,23 @@ int sqlite3_shathree_create_functions(sqlite3 *db)
   }
   if (rc == SQLITE_OK) {
     rc = sqlite3_create_function(db, "sha3_512", -1, rep, 0, 0, sha3StepFunc_512, sha3FinalFunc_512);
+  }
+
+  /* Scalar Functions */
+  if (rc == SQLITE_OK) {
+    rc = sqlite3_create_function(db, "sha3", -1, rep , 0, sha3Func_256, 0, 0);
+  }
+  if (rc == SQLITE_OK) {
+    rc = sqlite3_create_function(db, "sha3_224", -1, rep , 0, sha3Func_224, 0, 0);
+  }
+  if (rc == SQLITE_OK) {
+    rc = sqlite3_create_function(db, "sha3_256", -1, rep , 0, sha3Func_256, 0, 0);
+  }
+  if (rc == SQLITE_OK) {
+    rc = sqlite3_create_function(db, "sha3_384", -1, rep , 0, sha3Func_384, 0, 0);
+  }
+  if (rc == SQLITE_OK) {
+    rc = sqlite3_create_function(db, "sha3_512", -1, rep , 0, sha3Func_512, 0, 0);
   }
 
   return rc;
