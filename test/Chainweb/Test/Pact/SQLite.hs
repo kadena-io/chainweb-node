@@ -1,4 +1,6 @@
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE TypeApplications #-}
 
 -- |
 -- Module: Chainweb.Test.Pact.SQLite
@@ -14,14 +16,20 @@ module Chainweb.Test.Pact.SQLite
 ) where
 
 import Control.Concurrent.MVar
+import Control.Monad
+import Control.Monad.Trans.State
 
 import qualified Data.ByteString as B
+import qualified Data.ByteString.Short as BS
+import Data.Coerce
+import qualified Data.Hash.SHA3 as SHA3
 import qualified Data.List as L
 import Data.String
 
 import Pact.Types.SQLite
 
 import System.IO.Unsafe
+import System.Random (genByteString, getStdRandom)
 
 import Test.Hash.SHA3
 import Test.Tasty
@@ -92,6 +100,9 @@ tests = withInMemSQLiteResource $ \dbIO ->
                     , testCase "512" $ runMonteVar 512 sha3_512Monte
                     ]
                 ]
+            , testGroup "sha3 aggregation"
+                [ testCase "256" $ testAgg dbVarIO
+                ]
             ]
 
 runMsgTest :: IO (MVar SQLiteEnv) -> [Int] -> Int -> MsgFile -> IO ()
@@ -107,15 +118,54 @@ runMonteTest dbVarIO splitArg n f = do
         monteAssert (\_ a b -> a @?= b) (sqliteSha3 db n splitArg) f
 
 -- -------------------------------------------------------------------------- --
+-- Incremental use in a query:
+--
+-- TODO: import a monte file into a sqlite table
+
+-- -------------------------------------------------------------------------- --
+-- Aggregate functions
+--
+-- split large input accross table rows
+
+testAgg :: IO (MVar SQLiteEnv) -> IO ()
+testAgg dbVarIO = do
+    dbVar <- dbVarIO
+    withMVar dbVar $ \db -> do
+        -- create tests data
+        input <- getStdRandom $ runState $ replicateM 512 $ state (genByteString 128)
+
+        -- create table
+        putStrLn "create table"
+        exec_ (_sConn db) "CREATE TABLE bytesTbl (bytes BLOB);"
+        putStrLn "insert data"
+        forM_ input $ \i ->
+            exec' (_sConn db) "INSERT INTO bytesTbl VALUES(?)" [SBlob i]
+
+        -- compute aggregated hash
+        putStrLn "compute hash"
+        rows <- qry_ (_sConn db) "SELECT sha3a(bytes) FROM bytesTbl;" [RBlob]
+        h <- case rows of
+            [[SBlob r]] -> return r
+            [[x]] -> error $ "unexpected return value: " <> show x
+            [a] -> error $ "unexpected number of result fields: " <> show (length a)
+            a -> error $ "unexpected number of result rows: " <> show (length a)
+
+        h @?= hashToByteString (SHA3.hashByteString @SHA3.Sha3_256 (mconcat input))
+
+hashToByteString :: SHA3.Hash a => Coercible a BS.ShortByteString => a -> B.ByteString
+hashToByteString = BS.fromShort . coerce
+
+-- -------------------------------------------------------------------------- --
 -- SHA3 Implementation
 
 sqliteSha3 :: SQLiteEnv -> Int -> [Int] -> B.ByteString -> B.ByteString
 sqliteSha3 db n argSplit arg = unsafePerformIO $ do
     rows <- qry (_sConn db) queryStr params [RBlob]
-    case head rows of
-        [SBlob r] -> return r
-        [x] -> error $ "unexpected return value: " <> show x
-        a -> error $ "unexpected number of results: " <> show (length a)
+    case rows of
+        [[SBlob r]] -> return r
+        [[x]] -> error $ "unexpected return value: " <> show x
+        [a] -> error $ "unexpected number of result fields: " <> show (length a)
+        a -> error $ "unexpected number of result rows: " <> show (length a)
   where
     argN = length argSplit
     argStr = fromString $ L.intercalate "," $ replicate (argN + 1) "?"
@@ -127,7 +177,7 @@ sqliteSha3 db n argSplit arg = unsafePerformIO $ do
     go [] l = [SBlob l]
     go (h:t) bs = let (a,b) = B.splitAt h bs in SBlob a : go t b
 
-sha :: IsString a => Monoid a => Int -> a
-sha 0 = "sha3"
-sha i = "sha3_" <> fromString (show i)
+    sha :: IsString a => Monoid a => Int -> a
+    sha 0 = "sha3"
+    sha i = "sha3_" <> fromString (show i)
 

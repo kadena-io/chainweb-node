@@ -594,19 +594,19 @@ int sqlite3_shathree_create_functions(sqlite3 *db)
 
   /* Aggregate Functions */
   if (rc == SQLITE_OK) {
-    rc = sqlite3_create_function(db, "sha3", -1, rep, 0, 0, sha3StepFunc_256, sha3FinalFunc_256);
+    rc = sqlite3_create_function(db, "sha3a", -1, rep, 0, 0, sha3StepFunc_256, sha3FinalFunc_256);
   }
   if (rc == SQLITE_OK) {
-    rc = sqlite3_create_function(db, "sha3_224", -1, rep, 0, 0, sha3StepFunc_224, sha3FinalFunc_224);
+    rc = sqlite3_create_function(db, "sha3a_224", -1, rep, 0, 0, sha3StepFunc_224, sha3FinalFunc_224);
   }
   if (rc == SQLITE_OK) {
-    rc = sqlite3_create_function(db, "sha3_256", -1, rep, 0, 0, sha3StepFunc_256, sha3FinalFunc_256);
+    rc = sqlite3_create_function(db, "sha3a_256", -1, rep, 0, 0, sha3StepFunc_256, sha3FinalFunc_256);
   }
   if (rc == SQLITE_OK) {
-    rc = sqlite3_create_function(db, "sha3_384", -1, rep, 0, 0, sha3StepFunc_384, sha3FinalFunc_384);
+    rc = sqlite3_create_function(db, "sha3a_384", -1, rep, 0, 0, sha3StepFunc_384, sha3FinalFunc_384);
   }
   if (rc == SQLITE_OK) {
-    rc = sqlite3_create_function(db, "sha3_512", -1, rep, 0, 0, sha3StepFunc_512, sha3FinalFunc_512);
+    rc = sqlite3_create_function(db, "sha3a_512", -1, rep, 0, 0, sha3StepFunc_512, sha3FinalFunc_512);
   }
 
   /* Scalar Functions */
