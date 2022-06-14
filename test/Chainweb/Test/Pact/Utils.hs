@@ -139,7 +139,7 @@ import qualified Data.Vector as V
 import GHC.Generics
 
 import System.Directory
-import System.IO.Extra
+import System.IO.Temp (createTempDirectory)
 import System.LogLevel
 
 import Test.Tasty
@@ -701,19 +701,16 @@ runCut v bdb pact genTime noncer miner =
     h <- getParentTestBlockDb bdb cid
     void $ _webPactValidateBlock pact h (payloadWithOutputsToPayloadData pout)
 
-initializeSQLite :: IO (IO (), SQLiteEnv)
-initializeSQLite = do
-      (file, del) <- newTempFile
-      e <- open2 file
-      case e of
-        Left (_err, _msg) ->
-          internalError "initializeSQLite: A connection could not be opened."
-        Right r ->  return (del, SQLiteEnv r (SQLiteConfig file chainwebPragmas))
+initializeSQLite :: IO SQLiteEnv
+initializeSQLite = open2 file >>= \case
+    Left (_err, _msg) ->
+        internalError "initializeSQLite: A connection could not be opened."
+    Right r ->  return (SQLiteEnv r (SQLiteConfig file chainwebPragmas))
+  where
+    file = "" {- temporary sqlitedb -}
 
-freeSQLiteResource :: (IO (), SQLiteEnv) -> IO ()
-freeSQLiteResource (del,sqlenv) = do
-  void $ close_v2 $ _sConn sqlenv
-  del
+freeSQLiteResource :: SQLiteEnv -> IO ()
+freeSQLiteResource sqlenv = void $ close_v2 $ _sConn sqlenv
 
 -- | Run in 'PactServiceM' with direct db access.
 type WithPactCtxSQLite cas = forall a . (PactDbEnv' -> PactServiceM cas a) -> IO a
@@ -731,16 +728,16 @@ withPactCtxSQLite v bhdbIO pdbIO conf f =
   withResource
     initializeSQLite
     freeSQLiteResource $ \io ->
-      withResource (start io) (destroy io) $ \ctxIO -> f $ \toPact -> do
+      withResource (start io) destroy $ \ctxIO -> f $ \toPact -> do
           (ctx, dbSt) <- ctxIO
           evalPactServiceM_ ctx (toPact dbSt)
   where
-    destroy = const (destroyTestPactCtx . fst)
+    destroy = destroyTestPactCtx . fst
     start ios = do
         let cid = someChainId v
         bhdb <- bhdbIO
         pdb <- pdbIO
-        (_,s) <- ios
+        s <- ios
         testPactCtxSQLite v cid bhdb pdb s conf freeGasModel
 
 toTxCreationTime :: Integral a => Time a -> TxCreationTime
@@ -801,13 +798,15 @@ withBlockHeaderDb iordb b = withResource start stop
     stop = closeBlockHeaderDb
 
 withTemporaryDir :: (IO FilePath -> TestTree) -> TestTree
-withTemporaryDir = withResource (fst <$> newTempDir) removeDirectoryRecursive
+withTemporaryDir = withResource
+    (getTemporaryDirectory >>= \d -> createTempDirectory d "test-pact")
+    removeDirectoryRecursive
 
 withTestBlockDbTest
-  :: ChainwebVersion
-  -> RocksDb
-  -> (IO TestBlockDb -> TestTree)
-  -> TestTree
+    :: ChainwebVersion
+    -> RocksDb
+    -> (IO TestBlockDb -> TestTree)
+    -> TestTree
 withTestBlockDbTest v rdb = withResource (mkTestBlockDb v rdb) mempty
 
 -- | Single-chain Pact via service queue.
