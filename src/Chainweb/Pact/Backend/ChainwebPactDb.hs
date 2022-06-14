@@ -225,7 +225,7 @@ recordPendingUpdate (Utf8 key) (Utf8 tn) txid v = modifyPendingData modf
 -- 'T{tablename}K{rowkey}I{txid}D{rowdata}H{prevhash}'
 -- where 'prevhash' is the 'hash' value for the same rowkey and
 -- prior txid, or NULL if no prior row exists.
--- NB: our custom 'sha3var' encodes NULL as an empty blob.
+-- NB: sha3 funs encode NULL as an empty blob.
 backendWriteUpdateBatch
     :: BlockHeight
     -> [(Utf8, V.Vector SQLiteRowDelta)]    -- ^ updates chunked on table name

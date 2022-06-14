@@ -170,7 +170,7 @@ testHashes = withTempSQLiteResource $ runSQLite' $ \resIO -> testCase "testHashe
             [[h'']] -> return h''
             _ -> assertFailure $ "expected single col/row:" ++ show (tbl,rk,txid,h)
 
-        -- sha3var treats NULL as empty string
+        -- sha3 funs treats NULL as empty string
         nullHash = SBlob mempty
 
         assertNotEquals msg v1 v2 = assertSatisfies msg v1 (/= v2)
