@@ -267,6 +267,7 @@ library
 
         -- pact
         , Chainweb.Pact.Backend.ChainwebPactDb
+        , Chainweb.Pact.Backend.Compaction
         , Chainweb.Pact.Backend.RelationalCheckpointer
         , Chainweb.Pact.Backend.SQLite.DirectV2
         , Chainweb.Pact.Backend.SQLite.V2

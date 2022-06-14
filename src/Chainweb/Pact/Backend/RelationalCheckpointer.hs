@@ -132,7 +132,7 @@ doRestore _ _ dbenv Nothing = runBlockEnv dbenv $ do
         exec_ db "DELETE FROM [SYS:Namespaces];"
         exec_ db "DELETE FROM [SYS:Pacts];"
         tblNames <- qry_ db "SELECT tablename FROM VersionedTableCreation;" [RText]
-        forM_ tblNames $ \tbl -> case tbl of
+        forM_ tblNames $ \tbl' -> case tbl' of
             [SText t] -> exec_ db ("DROP TABLE [" <> t <> "];")
             _ -> internalError "Something went wrong when resetting tables."
         exec_ db "DELETE FROM VersionedTableCreation;"
@@ -369,4 +369,3 @@ doGetHistoricalLookup dbenv blockHeader d k = runBlockEnv dbenv $ do
         [[SText key, SBlob value]] -> Just <$> toTxLog d key value
         [] -> pure Nothing
         _ -> internalError $ "doGetHistoricalLookup: expected single-row result, got " <> sshow r
-

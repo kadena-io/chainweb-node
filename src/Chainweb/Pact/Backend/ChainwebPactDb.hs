@@ -82,12 +82,7 @@ import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.Backend.Utils
 import Chainweb.Pact.Service.Types (PactException(..), internalError)
 import Chainweb.Version (ChainwebVersion, ChainId, genesisHeight)
-import Chainweb.Utils (encodeToByteString, sshow)
-
-tbl :: HasCallStack => Utf8 -> Utf8
-tbl t@(Utf8 b)
-    | B8.elem ']' b =  error $ "Chainweb.Pact.Backend.ChainwebPactDb: Code invariant violation. Illegal SQL table name " <> sshow b <> ". Please report this as a bug."
-    | otherwise = "[" <> t <> "]"
+import Chainweb.Utils (encodeToByteString)
 
 chainwebPactDb :: PactDb (BlockEnv SQLiteEnv)
 chainwebPactDb = PactDb

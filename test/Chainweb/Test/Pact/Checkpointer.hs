@@ -46,9 +46,10 @@ import Chainweb.BlockHeight (BlockHeight(..))
 import Chainweb.MerkleLogHash (merkleLogHash)
 import Chainweb.MerkleUniverse
 import Chainweb.Pact.Backend.ChainwebPactDb
+import Chainweb.Pact.Backend.Compaction
 import Chainweb.Pact.Backend.RelationalCheckpointer
 import Chainweb.Pact.Backend.Types
-import Chainweb.Pact.Backend.Utils
+import Chainweb.Pact.Backend.Utils hiding (tbl)
 import Chainweb.Pact.TransactionExec
     (applyContinuation', applyExec', buildExecParsedCode)
 import Chainweb.Pact.Types
@@ -193,10 +194,12 @@ testHashes = withTempSQLiteResource $ runSQLite' $ \resIO -> testCase "testHashe
     hC3 <- checkHash "tA" "C" 3 hC2
     assertNotEquals "C 2->3 hash" hC3 hC2
 
+    compact (newLogger (pactTestLogger True) "compact") 100 _sConn
 
--- -------------------------------------------------------------------------- --
--- Key Set Test
+    qry_ _sConn "select * from VersionedTableChecksum" [RText,RInt,RBlob] >>= mapM_ print
 
+--- -------------------------------------------------------------------------- --
+--- Key Set Test
 testKeyset :: TestTree
 testKeyset = withResource initializeSQLite freeSQLiteResource (runSQLite keysetTest)
 

@@ -44,6 +44,7 @@ module Chainweb.Pact.Backend.Utils
   , expectSingleRowCol
   , expectSingle
   , execMulti
+  , tbl
   -- * SQLite runners
   , withSqliteDb
   , startSqliteDb
@@ -67,11 +68,14 @@ import Control.Monad.State.Strict
 import Control.Monad.Reader
 
 import Data.Bits
+import qualified Data.ByteString.Char8 as B8
 import Data.Foldable
 import Data.String
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
 import Database.SQLite3.Direct as SQ3
+
+import GHC.Stack
 
 import Prelude hiding (log)
 
@@ -263,6 +267,11 @@ execMulti db q rows = do
   where
     checkError (Left e) = void $ fail $ "error during batch insert: " ++ show e
     checkError (Right _) = return ()
+
+tbl :: HasCallStack => Utf8 -> Utf8
+tbl t@(Utf8 b)
+    | B8.elem ']' b =  error $ "Chainweb.Pact.Backend.ChainwebPactDb: Code invariant violation. Illegal SQL table name " <> sshow b <> ". Please report this as a bug."
+    | otherwise = "[" <> t <> "]"
 
 withSqliteDb
     :: Logger logger
