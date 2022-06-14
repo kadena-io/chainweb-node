@@ -246,7 +246,7 @@ backendWriteUpdateBatch bh writesByTable db = mapM_ writeTable writesByTable
       where
         q = "INSERT OR REPLACE INTO " <> tbl tableName <>
             "(rowkey,txid,rowdata,hash) VALUES (?1,?2,?3," <>
-            "  sha3var(256,'T',?4,'K',?1,'I',?2,'D',?3,'H'," <>
+            "  sha3_256('T',?4,'K',?1,'I',?2,'D',?3,'H'," <>
             "    (select FIRST_VALUE(hash) OVER (order by txid) FROM " <> tbl tableName <>
             "       WHERE rowkey=?1 AND txid=?2 - 1)))"
 

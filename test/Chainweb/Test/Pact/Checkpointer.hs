@@ -153,7 +153,7 @@ testHashes = withTempSQLiteResource $ runSQLite' $ \resIO -> testCase "testHashe
     _cpSave _cpeCheckpointer hash02
 
     let calcHash tbl rk txid hsh = qry _sConn
-            ( "SELECT sha3var(256,'T',?1,'K',rowkey,'I',txid,'D',rowdata,'H',?4) FROM "
+            ( "SELECT sha3_256('T',?1,'K',rowkey,'I',txid,'D',rowdata,'H',?4) FROM "
               <> tbl <> " where rowkey=?2 and txid=?3" )
             [SText tbl,SText rk,SInt txid,hsh] [RBlob]
 
