@@ -41,9 +41,9 @@ import Test.Tasty.HUnit
 import Chainweb.Pact.Backend.Types
 import Chainweb.Test.Utils
 
--- TODO: we should consider submitting all queries for a file in a single sql statememt?
--- We could turn the file contents into a table and implement the checks in SQL
---
+-- -------------------------------------------------------------------------- --
+-- Tests
+
 tests :: TestTree
 tests = withInMemSQLiteResource $ \dbIO ->
     withResource (dbIO >>= newMVar) mempty $ \dbVarIO ->
@@ -108,8 +108,17 @@ tests = withInMemSQLiteResource $ \dbIO ->
                 , testCase "384" $ testAgg 384 dbVarIO tbl
                 , testCase "512" $ testAgg 512 dbVarIO tbl
                 ]
-            , testCase "sha3 msgTable" $ msgTableTest dbVarIO
+            , testGroup "sha3 msgTable"
+                [ testCase "-" $ msgTableTest dbVarIO 0 sha3_256ShortMsg
+                , testCase "224" $ msgTableTest dbVarIO 224 sha3_224ShortMsg
+                , testCase "256" $ msgTableTest dbVarIO 256 sha3_256ShortMsg
+                , testCase "384" $ msgTableTest dbVarIO 384 sha3_384ShortMsg
+                , testCase "512" $ msgTableTest dbVarIO 512 sha3_512ShortMsg
+                ]
             ]
+
+-- -------------------------------------------------------------------------- --
+--
 
 runMsgTest :: IO (MVar SQLiteEnv) -> [Int] -> Int -> MsgFile -> IO ()
 runMsgTest dbVarIO splitArg n f = do
@@ -126,11 +135,11 @@ runMonteTest dbVarIO splitArg n f = do
 -- -------------------------------------------------------------------------- --
 -- Incremental use in a query:
 
-msgTableTest :: IO (MVar SQLiteEnv) -> IO ()
-msgTableTest dbVarIO = do
-    msgTable dbVarIO "msgShort256" sha3_256ShortMsg
+msgTableTest :: IO (MVar SQLiteEnv) -> Int -> MsgFile -> IO ()
+msgTableTest dbVarIO n msgFile = do
     dbVar <- dbVarIO
     withMVar dbVar $ \db -> do
+        msgTable db name msgFile
         rows <- qry_ (_sConn db) query [RInt]
         h <- case rows of
             [[SInt r]] -> return r
@@ -138,21 +147,25 @@ msgTableTest dbVarIO = do
             [a] -> error $ "unexpected number of result fields: " <> show (length a)
             a -> error $ "unexpected number of result rows: " <> show (length a)
         h @?= 0
+        exec_ (_sConn db) ("DROP TABLE " <> fromString name)
   where
-    query = "SELECT sum(sha3(substr(msg,1,len)) != md) FROM msgShort256;"
+    query = "SELECT sum(" <> sha n <> "(substr(msg,1,len)) != md) FROM " <> fromString name
 
+    name = "msgTable_" <> show n
 
-msgTable :: IO (MVar SQLiteEnv) -> String -> MsgFile -> IO ()
-msgTable dbVarIO name msgFile = do
-    dbVar <- dbVarIO
-    withMVar dbVar $ \db -> do
-        exec_ (_sConn db) ("CREATE TABLE " <> tbl <> " (len INT, msg BLOB, md BLOB)")
-        forM_ (_msgVectors msgFile) $ \i -> do
-            let l = fromIntegral $ _msgLen i
-            exec'
-                (_sConn db)
-                ("INSERT INTO " <> tbl <> " VALUES (?, ?, ?)")
-                [SInt l, SBlob (_msgMsg i), SBlob (_msgMd i)]
+    sha :: IsString a => Monoid a => Int -> a
+    sha 0 = "sha3"
+    sha i = "sha3_" <> fromString (show i)
+
+msgTable :: SQLiteEnv -> String -> MsgFile -> IO ()
+msgTable db name msgFile = do
+    exec_ (_sConn db) ("CREATE TABLE " <> tbl <> " (len INT, msg BLOB, md BLOB)")
+    forM_ (_msgVectors msgFile) $ \i -> do
+        let l = fromIntegral $ _msgLen i
+        exec'
+            (_sConn db)
+            ("INSERT INTO " <> tbl <> " VALUES (?, ?, ?)")
+            [SInt l, SBlob (_msgMsg i), SBlob (_msgMd i)]
   where
     tbl = fromString name
 
