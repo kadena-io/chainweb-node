@@ -23,6 +23,7 @@ module Chainweb.CutDB.RestAPI.Server
 -- * Cut Server
 , cutServer
 , cutGetServer
+, newCutGetServer
 
 -- * Some Cut Server
 , someCutServer
@@ -99,8 +100,8 @@ cutGetServer
     -> Server (CutGetApi v)
 cutGetServer (CutDbT db) = liftIO . cutGetHandler db
 
-cutGetApi :: CutDb cas -> Route (ChainwebVersion -> Wai.Application)
-cutGetApi cutDb =
+newCutGetServer :: CutDb cas -> Route (ChainwebVersion -> Wai.Application)
+newCutGetServer cutDb =
     choice "cut" $ terminus methodGet "application/json" $ \_ req respond -> do
         let maxheight = getParams req (queryParamMaybe "maxheight")
         respond . responseJSON status200 [] =<< cutGetHandler cutDb maxheight

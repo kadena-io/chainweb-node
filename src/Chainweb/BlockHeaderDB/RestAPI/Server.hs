@@ -4,6 +4,7 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TupleSections #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 
@@ -20,6 +21,8 @@ module Chainweb.BlockHeaderDB.RestAPI.Server
 (
   someBlockHeaderDbServer
 , someBlockHeaderDbServers
+, newBlockHeaderDbServer
+, newBlockHeaderDbServers
 
 -- * Single Chain Server
 , blockHeaderDbApp
@@ -40,11 +43,14 @@ import Data.Aeson
 import Data.Binary.Builder (fromByteString, fromLazyByteString)
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Base16 as B16
+import Data.Bytes.Put
 import Data.ByteString.Short (fromShort)
 import Data.CAS (casLookupM)
 import Data.Foldable
 import Data.Functor.Of
 import Data.IORef
+import qualified Data.List as List
+import Data.Maybe
 import Data.Proxy
 import Data.Text.Encoding (decodeUtf8)
 import qualified Data.Text.IO as T
@@ -55,7 +61,7 @@ import Network.Wai.EventSource (ServerEvent(..), eventSourceAppIO)
 
 import Prelude hiding (lookup)
 
-import Servant.API
+import Servant.API hiding (QueryParam)
 import Servant.Server
 
 import qualified Streaming.Prelude as SP
@@ -65,7 +71,7 @@ import Web.DeepRoute.Wai
 
 -- internal modules
 
-import Chainweb.BlockHeader (BlockHeader(..), ObjectEncoded(..), _blockPow)
+import Chainweb.BlockHeader
 import Chainweb.BlockHeaderDB
 import Chainweb.BlockHeaderDB.RestAPI
 import Chainweb.ChainId
@@ -84,33 +90,23 @@ import Chainweb.Version
 -- Handler Tools
 
 checkKey
-    :: MonadError ServerError m
-    => MonadIO m
+    :: MonadIO m
     => TreeDb db
     => ToJSON (DbKey db)
     => db
     -> DbKey db
     -> m (DbKey db)
 checkKey !db !k = liftIO (lookup db k) >>= \case
-    Nothing -> throwError $ err404Msg $ object
+    Nothing -> jsonErrorWithStatus notFound404 $ object
         [ "reason" .= ("key not found" :: String)
         , "key" .= k
         ]
     Just _ -> pure k
 
-err404Msg :: ToJSON msg  => msg -> ServerError
-err404Msg msg = ServerError
-    { errHTTPCode = 404
-    , errReasonPhrase = "Not Found"
-    , errBody = encode msg
-    , errHeaders = []
-    }
-
 -- | Confirm if keys comprising the given bounds exist within a `TreeDb`.
 --
 checkBounds
-    :: MonadError ServerError m
-    => MonadIO m
+    :: MonadIO m
     => ToJSON (DbKey db)
     => TreeDb db
     => db
@@ -133,7 +129,7 @@ defaultEntryLimit = 360
 -- Cf. "Chainweb.BlockHeaderDB.RestAPI" for more details
 --
 branchHashesHandler
-    :: TreeDb db
+    :: (TreeDb db, MonadIO m)
     => ToJSON (DbKey db)
     => db
     -> Maybe Limit
@@ -141,7 +137,7 @@ branchHashesHandler
     -> Maybe MinRank
     -> Maybe MaxRank
     -> BranchBounds db
-    -> Handler (Page (NextItem (DbKey db)) (DbKey db))
+    -> m (Page (NextItem (DbKey db)) (DbKey db))
 branchHashesHandler db limit next minr maxr bounds = do
     nextChecked <- traverse (traverse $ checkKey db) next
     checkedBounds <- checkBounds db bounds
@@ -159,6 +155,7 @@ branchHashesHandler db limit next minr maxr bounds = do
 --
 branchHeadersHandler
     :: TreeDb db
+    => MonadIO m
     => ToJSON (DbKey db)
     => db
     -> Maybe Limit
@@ -166,7 +163,7 @@ branchHeadersHandler
     -> Maybe MinRank
     -> Maybe MaxRank
     -> BranchBounds db
-    -> Handler (Page (NextItem (DbKey db)) (DbEntry db))
+    -> m (Page (NextItem (DbKey db)) (DbEntry db))
 branchHeadersHandler db limit next minr maxr bounds = do
     nextChecked <- traverse (traverse $ checkKey db) next
     checkedBounds <- checkBounds db bounds
@@ -184,13 +181,14 @@ branchHeadersHandler db limit next minr maxr bounds = do
 --
 hashesHandler
     :: TreeDb db
+    => MonadIO m
     => ToJSON (DbKey db)
     => db
     -> Maybe Limit
     -> Maybe (NextItem (DbKey db))
     -> Maybe MinRank
     -> Maybe MaxRank
-    -> Handler (Page (NextItem (DbKey db)) (DbKey db))
+    -> m (Page (NextItem (DbKey db)) (DbKey db))
 hashesHandler db limit next minr maxr = do
     nextChecked <- traverse (traverse $ checkKey db) next
     liftIO
@@ -206,13 +204,14 @@ hashesHandler db limit next minr maxr = do
 --
 headersHandler
     :: TreeDb db
+    => MonadIO m
     => ToJSON (DbKey db)
     => db
     -> Maybe Limit
     -> Maybe (NextItem (DbKey db))
     -> Maybe MinRank
     -> Maybe MaxRank
-    -> Handler (Page (NextItem (DbKey db)) (DbEntry db))
+    -> m (Page (NextItem (DbKey db)) (DbEntry db))
 headersHandler db limit next minr maxr = do
     nextChecked <- traverse (traverse $ checkKey db) next
     liftIO
@@ -226,13 +225,14 @@ headersHandler db limit next minr maxr = do
 -- Cf. "Chainweb.BlockHeaderDB.RestAPI" for more details
 --
 headerHandler
-    :: ToJSON (DbKey db)
+    :: MonadIO m
+    => ToJSON (DbKey db)
     => TreeDb db
     => db
     -> DbKey db
-    -> Handler (DbEntry db)
+    -> m (DbEntry db)
 headerHandler db k = liftIO (lookup db k) >>= \case
-    Nothing -> throwError $ err404Msg $ object
+    Nothing -> jsonErrorWithStatus notFound404 $ object
         [ "reason" .= ("key not found" :: String)
         , "key" .= k
         ]
@@ -251,6 +251,75 @@ blockHeaderDbServer (BlockHeaderDb_ db)
 
 -- -------------------------------------------------------------------------- --
 -- Application for a single BlockHeaderDB
+
+newBlockHeaderDbServer
+    :: Route (BlockHeaderDb -> ChainwebVersion -> Application)
+newBlockHeaderDbServer = (const .) <$> fold
+    [ choice "hash" $ fold
+        [ choice "branch" $ terminus methodPost "application/json" $ \db req resp -> do
+            let
+                ((limit, next), (minheight, maxheight)) =
+                    getParams req $ (,) <$> pageParams <*> filterParams
+            resp . responseJSON ok200 [] =<< branchHashesHandler db limit next minheight maxheight =<< requestFromJSON req
+        , terminus methodGet "application/json" $ \db req resp -> do
+            let
+                ((limit, next), (minheight, maxheight)) =
+                    getParams req $ (,) <$> pageParams <*> filterParams
+            resp . responseJSON ok200 [] =<< hashesHandler db limit next minheight maxheight
+        ]
+    , choice "header" $ fold
+        [ choice "branch" $ terminus'
+            [ (methodPost, "application/json",) $ \db req resp -> do
+                let
+                    ((limit, next), (minheight, maxheight)) =
+                        getParams req $ (,) <$> pageParams <*> filterParams
+                resp . responseJSON ok200 [] =<< branchHeadersHandler db limit next minheight maxheight =<< requestFromJSON req
+            , (methodPost, "application/json'blockheader-encoding=object",) $ \db req resp -> do
+                let
+                    ((limit, next), (minheight, maxheight)) =
+                        getParams req $ (,) <$> pageParams <*> filterParams
+                resp . responseJSON ok200 [] . fmap ObjectEncoded =<< branchHeadersHandler db limit next minheight maxheight =<< requestFromJSON req
+            ]
+        , capture $ terminus'
+            [ (methodGet, "application/json",) $ \blockHash db req resp ->
+                resp . responseJSON ok200 [] =<< headerHandler db blockHash
+            , (methodGet, "application/json;blockheader-encoding=object",) $ \blockHash db req resp ->
+                resp . responseJSON ok200 [] . ObjectEncoded =<< headerHandler db blockHash
+            , (methodGet, "application/octet-stream",) $ \blockHash db req resp ->
+                resp . Wai.responseLBS ok200 [] . runPutL . encodeBlockHeader =<< headerHandler db blockHash
+            ]
+        , terminus'
+            [ (methodGet, "application/json",) $ \db req resp -> do
+                let
+                    ((limit, next), (minheight, maxheight)) =
+                        getParams req $ (,) <$> pageParams <*> filterParams
+                resp . responseJSON ok200 [] =<< headersHandler db limit next minheight maxheight
+            , (methodGet, "application/json;blockheader-encoding=object",) $ \db req resp -> do
+                let
+                    ((limit, next), (minheight, maxheight)) =
+                        getParams req $ (,) <$> pageParams <*> filterParams
+                resp . responseJSON ok200 [] . fmap ObjectEncoded =<< headersHandler db limit next minheight maxheight
+            ]
+        ]
+    ]
+    where
+    pageParams = (,) <$> limitParam <*> nextParam
+    limitParam :: QueryText -> Maybe Limit
+    limitParam = queryParamMaybe "limit"
+    nextParam :: FromHttpApiData k => QueryText -> Maybe k
+    nextParam = queryParamMaybe "next"
+    minHeightParam :: QueryText -> Maybe MinRank
+    minHeightParam = queryParamMaybe "minheight"
+    maxHeightParam :: QueryText -> Maybe MaxRank
+    maxHeightParam = queryParamMaybe "maxheight"
+    filterParams = (,) <$> minHeightParam <*> maxHeightParam
+
+newBlockHeaderDbServers :: [(ChainId, BlockHeaderDb)] -> Route (ChainId -> ChainwebVersion -> Application)
+newBlockHeaderDbServers blocks = fold
+    [ choice (chainIdToText cid) $
+        (\k ci v -> k (fromJust $ List.lookup ci blocks) v) <$> newBlockHeaderDbServer
+    | (cid, _) <- blocks
+    ]
 
 blockHeaderDbApp
     :: forall v c
@@ -286,7 +355,7 @@ headerStreamServer :: PayloadCasLookup cas => CutDb cas -> Route (ChainwebVersio
 headerStreamServer db =
     choice "header" $
         choice "updates" $
-            terminus [methodGet] (const $ headerStreamHandler db)
+            terminus methodGet "text/event-stream" $ \_ -> headerStreamHandler db
 
 someHeaderStreamServer :: PayloadCasLookup cas => ChainwebVersion -> CutDb cas -> SomeServer
 someHeaderStreamServer (FromSingChainwebVersion (SChainwebVersion :: Sing v)) cdb =

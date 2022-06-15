@@ -76,13 +76,13 @@ workHandler mr req respond = do
     MiningState ms <- readTVarIO $ _coordState mr
     when (M.size ms > _coordLimit mr) $ do
         atomicModifyIORef' (_coord503s mr) (\c -> (c + 1, ()))
-        errorWithStatus status503 $ Just "Too many work requests"
+        errorWithStatus status503 "Too many work requests"
     let conf = _coordConf mr
         primed = S.member m $ _coordinationMiners conf
     unless primed $ do
         liftIO $ atomicModifyIORef' (_coord403s mr) (\c -> (c + 1, ()))
         let midb = T.encodeUtf8 mid
-        errorWithStatus status403 $ Just $ "Unauthorized Miner: " <> midb
+        errorWithStatus status403 $ "Unauthorized Miner: " <> midb
     wh <- liftIO $ work mr mcid m
     respond $ Wai.responseLBS status200 [] $ runPutL $ encodeWorkHeader wh
 
@@ -91,14 +91,14 @@ solvedHandler mr req respond = do
     bytes <- Wai.lazyRequestBody req
     case runGetEitherL decodeSolvedWork bytes of
         Left (DecodeException e) ->
-            errorWithStatus status400 $ Just $ "Decoding error: " <> T.encodeUtf8 e
+            errorWithStatus status400 $ "Decoding error: " <> T.encodeUtf8 e
 
         Right !solved -> do
             result <- liftIO $ catches (Right () <$ solve mr solved)
                 [ E.Handler $ \NoAssociatedPayload ->
-                    errorWithStatus status404 $ Just "No associated Payload"
+                    errorWithStatus status404 "No associated Payload"
                 , E.Handler $ \(InvalidSolvedHeader _ msg) ->
-                    errorWithStatus status400 $ Just $ "Invalid solved work: " <> T.encodeUtf8 msg
+                    errorWithStatus status400 $ "Invalid solved work: " <> T.encodeUtf8 msg
                 ]
             case result of
                 Left e -> throwError e
@@ -112,7 +112,7 @@ updatesHandler mr req respond = withLimit $ do
     cbytes <- Wai.lazyRequestBody req
     !cid <- case runGetEitherL decodeChainId cbytes of
         Left (DecodeException e) ->
-            errorWithStatus status400 $ Just $ "Decoding error: " <> T.encodeUtf8 e
+            errorWithStatus status400 $ "Decoding error: " <> T.encodeUtf8 e
         Right cid -> return cid
     cv  <- _cut (_coordCutDb mr) >>= newIORef
 
@@ -158,6 +158,6 @@ updatesHandler mr req respond = withLimit $ do
         (const $ atomicModifyIORef' count $ \x -> (x + 1, ()))
         (\x ->
             if x <= 0
-            then errorWithStatus status503 $ Just "No more update streams available currently. Retry later."
+            then errorWithStatus status503 "No more update streams available currently. Retry later."
             else inner
         )

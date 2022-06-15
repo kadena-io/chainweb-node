@@ -66,6 +66,7 @@ import Control.Monad (guard)
 
 import Data.Bifunctor
 import Data.Bool (bool)
+import Data.Foldable
 
 import GHC.Generics (Generic)
 
@@ -79,6 +80,9 @@ import Network.Wai.Middleware.Cors
 import Servant.Server
 
 import System.Clock
+
+import Web.DeepRoute
+import Web.DeepRoute.Wai
 
 -- internal modules
 
@@ -360,10 +364,32 @@ serviceApiApplication
     -> HeaderStream
     -> Rosetta
     -> Application
-serviceApiApplication v dbs pacts mr hs r
+serviceApiApplication v dbs pacts mr (HeaderStream hs) (Rosetta r)
     = chainwebServiceMiddlewares
-    . someServerApplication
-    $ someServiceApiServer v dbs pacts mr hs r
+    $ routeWaiApp
+    $ fold
+    [ newHealthCheckServer
+    , maybe mempty (nodeInfoApi v) cuts
+    , maybe mempty Mining.miningApi mr
+    , fmap ($ v) $ fold
+        [ maybe mempty headerStreamServer (bool Nothing cuts hs)
+        -- , maybe mempty (bool mempty (someRosettaServer v payloads concreteMs cutPeerDb concretePacts) r) cuts
+        , maybe mempty newCutGetServer cuts
+        , choice "chain" $
+            capture $ fold
+                [ newPayloadServers payloads
+                , newBlockHeaderDbServers blocks
+                ]
+        ]
+    ]
+  where
+    cuts = _chainwebServerCutDb dbs
+    peers = _chainwebServerPeerDbs dbs
+    concreteMs = second PactAPI._pactServerDataMempool <$> pacts
+    concretePacts = second PactAPI._pactServerDataPact <$> pacts
+    cutPeerDb = fromJuste $ lookup CutNetwork peers
+    payloads = _chainwebServerPayloadDbs dbs
+    blocks = _chainwebServerBlockHeaderDbs dbs
 
 serveServiceApiSocket
     :: Show t

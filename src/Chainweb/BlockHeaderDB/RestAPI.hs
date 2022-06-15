@@ -190,6 +190,10 @@ type FilterParams = MinHeightParam :> MaxHeightParam
 
 type MinHeightParam = QueryParam "minheight" MinRank
 type MaxHeightParam = QueryParam "maxheight" MaxRank
+-- type PageParams k = LimitParam :> NextParam k
+
+-- type LimitParam = QueryParam "limit" Limit
+-- type NextParam k = QueryParam "next" k
 
 -- -------------------------------------------------------------------------- --
 type BranchHashesApi_
@@ -199,6 +203,32 @@ type BranchHashesApi_
     :> MaxHeightParam
     :> ReqBody '[JSON] (BranchBounds BlockHeaderDb)
     :> Post '[JSON] BlockHashPage
+-- -------------------------------------------------------------------------- --
+type HashesApi_
+    = "hash"
+    :> PageParams (NextItem BlockHash)
+    :> FilterParams
+    :> Get '[JSON] BlockHashPage
+
+-- -------------------------------------------------------------------------- --
+type BranchHeadersApi_
+    = "header" :> "branch"
+    :> PageParams (NextItem BlockHash)
+    :> MinHeightParam
+    :> MaxHeightParam
+    :> ReqBody '[JSON] (BranchBounds BlockHeaderDb)
+    :> Post '[JSON, JsonBlockHeaderObject] BlockHeaderPage
+-- -------------------------------------------------------------------------- --
+type HeaderApi_
+    = "header"
+    :> Capture "BlockHash" BlockHash
+    :> Get '[JSON, JsonBlockHeaderObject, OctetStream] BlockHeader
+-- -------------------------------------------------------------------------- --
+type HeadersApi_
+    = "header"
+    :> PageParams (NextItem BlockHash)
+    :> FilterParams
+    :> Get '[JSON, JsonBlockHeaderObject] BlockHeaderPage
 
 -- | @GET \/chainweb\/\<ApiVersion\>\/\<InstanceId\>\/chain\/\<ChainId\>\/hash\/branch@
 --
@@ -225,14 +255,6 @@ branchHashesApi
     . Proxy (BranchHashesApi v c)
 branchHashesApi = Proxy
 
--- -------------------------------------------------------------------------- --
-type BranchHeadersApi_
-    = "header" :> "branch"
-    :> PageParams (NextItem BlockHash)
-    :> MinHeightParam
-    :> MaxHeightParam
-    :> ReqBody '[JSON] (BranchBounds BlockHeaderDb)
-    :> Post '[JSON, JsonBlockHeaderObject] BlockHeaderPage
 
 -- | @GET \/chainweb\/\<ApiVersion\>\/\<InstanceId\>\/chain\/\<ChainId\>\/header\/branch@
 --
@@ -259,12 +281,6 @@ branchHeadersApi
     . Proxy (BranchHeadersApi v c)
 branchHeadersApi = Proxy
 
--- -------------------------------------------------------------------------- --
-type HashesApi_
-    = "hash"
-    :> PageParams (NextItem BlockHash)
-    :> FilterParams
-    :> Get '[JSON] BlockHashPage
 
 -- | @GET \/chainweb\/\<ApiVersion\>\/\<InstanceId\>\/chain\/\<ChainId\>\/hash@
 --
@@ -282,14 +298,6 @@ hashesApi
     :: forall (v :: ChainwebVersionT) (c :: ChainIdT)
     . Proxy (HashesApi v c)
 hashesApi = Proxy
-
--- -------------------------------------------------------------------------- --
-type HeadersApi_
-    = "header"
-    :> PageParams (NextItem BlockHash)
-    :> FilterParams
-    :> Get '[JSON, JsonBlockHeaderObject] BlockHeaderPage
-
 -- | @GET \/chainweb\/\<ApiVersion\>\/\<InstanceId\>\/chain\/\<ChainId\>\/header@
 --
 -- Returns block headers in the block header tree database in ascending order
@@ -307,11 +315,6 @@ headersApi
     . Proxy (HeadersApi v c)
 headersApi = Proxy
 
--- -------------------------------------------------------------------------- --
-type HeaderApi_
-    = "header"
-    :> Capture "BlockHash" BlockHash
-    :> Get '[JSON, JsonBlockHeaderObject, OctetStream] BlockHeader
 
 -- | @GET \/chainweb\/\<ApiVersion\>\/\<InstanceId\>\/chain\/\<ChainId\>\/header\/\<BlockHash\>@
 --

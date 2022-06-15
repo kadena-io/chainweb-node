@@ -40,9 +40,9 @@ import Chainweb.Graph
 import Chainweb.RestAPI.Utils
 import Chainweb.Version
 
-nodeInfoApi :: CutDb cas -> Route (ChainwebVersion -> Application)
-nodeInfoApi cutDb =
-  choice "info" $ terminus methodGet "application/json" $ \v _ respond -> do
+nodeInfoApi :: ChainwebVersion -> CutDb cas -> Route Application
+nodeInfoApi v cutDb =
+  choice "info" $ terminus methodGet "application/json" $ \_ respond -> do
     curCut <- liftIO $ _cut cutDb
     let ch = cutToCutHashes Nothing curCut
         curHeight = maximum $ map _bhwhHeight $ HashMap.elems $ _cutHashes ch

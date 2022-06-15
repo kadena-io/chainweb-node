@@ -17,7 +17,9 @@
 --
 module Chainweb.Payload.RestAPI.Server
 (
-  somePayloadServer
+  newPayloadServer
+, newPayloadServers
+, somePayloadServer
 , somePayloadServers
 
 -- * Single Chain Server
@@ -33,11 +35,12 @@ import Control.Monad.Trans.Maybe
 import Data.Aeson
 import Data.Function
 import Data.Foldable
+import Data.Maybe
 import Data.Proxy
 import qualified Data.Text.IO as T
 import qualified Data.Vector as V
 
-import Prelude hiding (lookup)
+import Prelude
 
 import Network.HTTP.Types
 import Network.HTTP.Media
@@ -70,9 +73,6 @@ payloadBatchLimit = 1000
 
 err404Msg :: ToJSON msg  => msg -> ServerError
 err404Msg msg = err404 { errBody = encode msg }
-
-catMaybes :: V.Vector (Maybe a) -> V.Vector a
-catMaybes = V.catMaybes
 
 -- -------------------------------------------------------------------------- --
 -- GET Payload Handler
@@ -111,12 +111,12 @@ payloadBatchHandler
     -> [BlockPayloadHash]
     -> IO [PayloadData]
 payloadBatchHandler db ks = do
-    payloads <- catMaybes
+    payloads <- V.catMaybes
         <$> casLookupBatch payloadsDb (V.fromList $ take payloadBatchLimit ks)
     txs <- V.zipWith (\a b -> payloadData <$> a <*> pure b)
         <$> casLookupBatch txsDb (_blockPayloadTransactionsHash <$> payloads)
         <*> pure payloads
-    return $ V.toList $ catMaybes txs
+    return $ V.toList $ V.catMaybes txs
   where
     payloadsDb = _transactionDbBlockPayloads $ _transactionDb db
     txsDb = _transactionDbBlockTransactions $ _transactionDb db
@@ -149,7 +149,7 @@ outputsBatchHandler
     -> [BlockPayloadHash]
     -> IO [PayloadWithOutputs]
 outputsBatchHandler db ks =
-    fmap (V.toList . catMaybes)
+    fmap (V.toList . V.catMaybes)
         $ casLookupBatch db
         $ V.fromList
         $ take payloadBatchLimit ks
@@ -188,18 +188,26 @@ payloadApiLayout
     -> IO ()
 payloadApiLayout _ = T.putStrLn $ layout (Proxy @(PayloadApi v c))
 
-newPayloadServer :: PayloadCasLookup cas => Route (PayloadDb cas -> Application)
+newPayloadServer :: PayloadCasLookup cas => Route (PayloadDb cas -> ChainwebVersion -> Application)
 newPayloadServer = choice "payload" $ fold
     [ choice "batch" $
-        terminus methodGet "application/json" $ \pdb req resp -> do
+        terminus methodGet "application/json" $ \pdb _ req resp ->
             resp . responseJSON ok200 [] . toJSON =<< payloadBatchHandler pdb =<< requestFromJSON req
-    -- , choice "outputs" $
-        -- choice "batch" $
-            -- terminus [methodPost] [("application/json", outputsBatchHandler)]
+    , choice "outputs" $
+        choice "batch" $
+            terminus methodPost "application/json" $ \pdb _ req resp ->
+            resp . responseJSON ok200 [] . toJSON =<< outputsBatchHandler pdb =<< requestFromJSON req
     -- , capture $ fold
         -- [ choice "outputs" $ terminus [methodGet] [("application/json", outputsHandler)]
         -- , terminus [methodGet] [("application/json", payloadHandler)]
         -- ]
+    ]
+
+newPayloadServers :: PayloadCasLookup cas => [(ChainId, PayloadDb cas)] -> Route (ChainId -> ChainwebVersion -> Application)
+newPayloadServers payloads = fold
+    [ choice (chainIdToText cid) $
+        (\k ci v -> k (fromJust $ lookup ci payloads) v) <$> newPayloadServer
+    | (cid, _) <- payloads
     ]
 
 -- -------------------------------------------------------------------------- --
