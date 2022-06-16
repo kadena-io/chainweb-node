@@ -682,12 +682,12 @@
 
 ;;transfer-crosschain (step 0 only covered)
 
-(test-capability (TRANSFER_XCHAIN "emily" "doug" (* 2 UNIT_GOOD) "chain"))
+(test-capability (TRANSFER_XCHAIN "emily" "doug" (* 2 UNIT_GOOD) "0"))
 (expect
   "min transfer-crosschain step 1 succeeds"
   "success"
   (let ((s "success"))
-    (transfer-crosschain 'emily 'doug (read-keyset 'doug) "chain" UNIT_GOOD)
+    (transfer-crosschain 'emily 'doug (read-keyset 'doug) "0" UNIT_GOOD)
     s))
 
 (commit-tx)
@@ -696,11 +696,11 @@
 (use coin)
 (use T)
 
-(test-capability (TRANSFER_XCHAIN "emily" "doug" (* 2 UNIT_GOOD) "chain"))
+(test-capability (TRANSFER_XCHAIN "emily" "doug" (* 2 UNIT_GOOD) "0"))
 (expect-failure
   "bad transfer-crosschain fails"
   "minimum precision"
-  (transfer-crosschain 'emily 'doug (read-keyset 'doug) "chain" UNIT_BAD))
+  (transfer-crosschain 'emily 'doug (read-keyset 'doug) "0" UNIT_BAD))
 
 ;;coinbase
 (test-capability (COINBASE))
