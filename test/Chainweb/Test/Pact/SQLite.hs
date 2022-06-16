@@ -41,9 +41,9 @@ import Test.Tasty.HUnit
 import Chainweb.Pact.Backend.Types
 import Chainweb.Test.Utils
 
--- TODO: we should consider submitting all queries for a file in a single sql statememt?
--- We could turn the file contents into a table and implement the checks in SQL
---
+-- -------------------------------------------------------------------------- --
+-- Tests
+
 tests :: TestTree
 tests = withInMemSQLiteResource $ \dbIO ->
     withResource (dbIO >>= newMVar) mempty $ \dbVarIO ->
@@ -108,8 +108,35 @@ tests = withInMemSQLiteResource $ \dbIO ->
                 , testCase "384" $ testAgg 384 dbVarIO tbl
                 , testCase "512" $ testAgg 512 dbVarIO tbl
                 ]
-            , testCase "sha3 msgTable" $ msgTableTest dbVarIO
+            , testGroup "sha3 msgTable"
+                [ testCase "-" $ msgTableTest dbVarIO 0 sha3_256ShortMsg
+                , testCase "224" $ msgTableTest dbVarIO 224 sha3_224ShortMsg
+                , testCase "256" $ msgTableTest dbVarIO 256 sha3_256ShortMsg
+                , testCase "384" $ msgTableTest dbVarIO 384 sha3_384ShortMsg
+                , testCase "512" $ msgTableTest dbVarIO 512 sha3_512ShortMsg
+                ]
+            , testGroup "sha3 monteTable"
+                [ testCase "-" $ monteTableTest dbVarIO 0 sha3_256Monte
+                , testCase "sha224" $ monteTableTest dbVarIO 224 sha3_224Monte
+                , testCase "sha256" $ monteTableTest dbVarIO 256 sha3_256Monte
+                , testCase "sha384" $ monteTableTest dbVarIO 384 sha3_384Monte
+                , testCase "sha512" $ monteTableTest dbVarIO 512 sha3_512Monte
+                ]
             ]
+
+-- -------------------------------------------------------------------------- --
+--
+
+sha :: IsString a => Monoid a => Int -> a
+sha 0 = "sha3"
+sha i = "sha3_" <> fromString (show i)
+
+shaa :: IsString a => Monoid a => Int -> a
+shaa 0 = "sha3a"
+shaa i = "sha3a_" <> fromString (show i)
+
+-- -------------------------------------------------------------------------- --
+--
 
 runMsgTest :: IO (MVar SQLiteEnv) -> [Int] -> Int -> MsgFile -> IO ()
 runMsgTest dbVarIO splitArg n f = do
@@ -124,13 +151,13 @@ runMonteTest dbVarIO splitArg n f = do
         monteAssert (\_ a b -> a @?= b) (sqliteSha3 db n splitArg) f
 
 -- -------------------------------------------------------------------------- --
--- Incremental use in a query:
+-- Repeated use in a query
 
-msgTableTest :: IO (MVar SQLiteEnv) -> IO ()
-msgTableTest dbVarIO = do
-    msgTable dbVarIO "msgShort256" sha3_256ShortMsg
+msgTableTest :: IO (MVar SQLiteEnv) -> Int -> MsgFile -> IO ()
+msgTableTest dbVarIO n msgFile = do
     dbVar <- dbVarIO
     withMVar dbVar $ \db -> do
+        msgTable db name msgFile
         rows <- qry_ (_sConn db) query [RInt]
         h <- case rows of
             [[SInt r]] -> return r
@@ -138,21 +165,68 @@ msgTableTest dbVarIO = do
             [a] -> error $ "unexpected number of result fields: " <> show (length a)
             a -> error $ "unexpected number of result rows: " <> show (length a)
         h @?= 0
+        exec_ (_sConn db) ("DROP TABLE " <> fromString name)
   where
-    query = "SELECT sum(sha3(substr(msg,1,len)) != md) FROM msgShort256;"
+    query = "SELECT sum(" <> sha n <> "(substr(msg,1,len)) != md) FROM " <> fromString name
+    name = "msgTable_" <> show n
 
+msgTable :: SQLiteEnv -> String -> MsgFile -> IO ()
+msgTable db name msgFile = do
+    exec_ (_sConn db) ("CREATE TABLE " <> tbl <> " (len INT, msg BLOB, md BLOB)")
+    forM_ (_msgVectors msgFile) $ \i -> do
+        let l = fromIntegral $ _msgLen i
+        exec'
+            (_sConn db)
+            ("INSERT INTO " <> tbl <> " VALUES (?, ?, ?)")
+            [SInt l, SBlob (_msgMsg i), SBlob (_msgMd i)]
+  where
+    tbl = fromString name
 
-msgTable :: IO (MVar SQLiteEnv) -> String -> MsgFile -> IO ()
-msgTable dbVarIO name msgFile = do
+-- -------------------------------------------------------------------------- --
+-- Repeated use in query for MonteFile
+
+monteTableTest :: IO (MVar SQLiteEnv) -> Int -> MonteFile -> IO ()
+monteTableTest dbVarIO n monteFile = do
     dbVar <- dbVarIO
-    withMVar dbVar $ \db -> do
-        exec_ (_sConn db) ("CREATE TABLE " <> tbl <> " (len INT, msg BLOB, md BLOB)")
-        forM_ (_msgVectors msgFile) $ \i -> do
-            let l = fromIntegral $ _msgLen i
-            exec'
-                (_sConn db)
-                ("INSERT INTO " <> tbl <> " VALUES (?, ?, ?)")
-                [SInt l, SBlob (_msgMsg i), SBlob (_msgMd i)]
+    withMVar dbVar $ \db ->
+        monteTableTest_ db n monteFile
+
+monteTableTest_ :: SQLiteEnv -> Int -> MonteFile -> IO ()
+monteTableTest_ db n monteFile = do
+        monteTable db monteTableName monteFile
+        let query = fromString $ unwords
+                [ "WITH RECURSIVE"
+                , "  tmp(c, m) AS ("
+                , "    SELECT 0, ? UNION ALL SELECT c + 1, " <> sha n <> "(m) FROM tmp"
+                , "    WHERE c <= 100000"
+                , "  ),"
+                , "  tmp2(count, md) AS ("
+                , "    SELECT c / 1000 - 1 AS count, m AS md FROM tmp"
+                , "    WHERE c % 1000 == 0 AND count >= 0"
+                , "  )"
+                , "SELECT"
+                , "  sum(tmp2.md != " <> monteTableName <> ".md)"
+                , "FROM tmp2"
+                , "LEFT JOIN " <> monteTableName
+                , "ON tmp2.count = " <> monteTableName <> ".count"
+                ]
+        rows <- qry (_sConn db) query [SBlob $ _monteSeed monteFile] [RInt]
+        case rows of
+            [[SInt r]] -> r @?= 0
+            [[x]] -> error $ "unexpected return value: " <> show x
+            [a] -> error $ "unexpected number of result fields: " <> show (length a)
+            a -> error $ "unexpected number of result rows: " <> show (length a)
+  where
+    monteTableName = "monteTable_" <> show n
+
+monteTable :: SQLiteEnv -> String -> MonteFile -> IO ()
+monteTable db name monteFile = do
+    exec_ (_sConn db) ("CREATE TABLE " <> tbl <> " (count INT, md BLOB)")
+    forM_ (_monteVectors monteFile) $ \i -> do
+        exec'
+            (_sConn db)
+            ("INSERT INTO " <> tbl <> " VALUES (?, ?)")
+            [SInt (fromIntegral $ _monteCount i), SBlob (_monteMd i)]
   where
     tbl = fromString name
 
@@ -186,7 +260,7 @@ testAgg n dbVarIO tblIO = do
     dbVar <- dbVarIO
     (tbl, input) <- first fromString <$> tblIO
     withMVar dbVar $ \db -> do
-        rows <- qry_ (_sConn db) ("SELECT " <> sha n <> "(bytes) FROM " <> tbl) [RBlob]
+        rows <- qry_ (_sConn db) ("SELECT " <> shaa n <> "(bytes) FROM " <> tbl) [RBlob]
         h <- case rows of
             [[SBlob r]] -> return r
             [[x]] -> error $ "unexpected return value: " <> show x
@@ -201,10 +275,6 @@ testAgg n dbVarIO tblIO = do
     hash 384 = hashToByteString . SHA3.hashByteString @SHA3.Sha3_384
     hash 512 = hashToByteString . SHA3.hashByteString @SHA3.Sha3_512
     hash x = error $ "unsupported SHA3 digest size: " <> show x
-
-    sha :: IsString a => Monoid a => Int -> a
-    sha 0 = "sha3a"
-    sha i = "sha3a_" <> fromString (show i)
 
 hashToByteString :: SHA3.Hash a => Coercible a BS.ShortByteString => a -> B.ByteString
 hashToByteString = BS.fromShort . coerce
@@ -230,8 +300,4 @@ sqliteSha3 db n argSplit arg = unsafePerformIO $ do
 
     go [] l = [SBlob l]
     go (h:t) bs = let (a,b) = B.splitAt h bs in SBlob a : go t b
-
-    sha :: IsString a => Monoid a => Int -> a
-    sha 0 = "sha3"
-    sha i = "sha3_" <> fromString (show i)
 

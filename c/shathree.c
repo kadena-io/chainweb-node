@@ -1,3 +1,9 @@
+/* Lines 7-497 of this file are copied from the SQLite source code and are
+ * subject to the respective copyright.
+ *
+ * Lines from 498 onward are copyright (c) 2022 Kadena LLC.
+ */
+
 /*
 ** 2017-03-08
 **
