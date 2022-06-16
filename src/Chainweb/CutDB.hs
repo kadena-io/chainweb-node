@@ -544,7 +544,7 @@ processCuts conf logFun headerStore payloadStore cutHashesStore queue cutVar = d
 
     maybeWrite rng newCut = do
         r :: Double <- Prob.uniform rng
-        when (r > 1 / int (int (_cutDbParamsWritingFrequency conf) * chainCountAt v maxBound)) $ do
+        when (r < 1 / int (int (_cutDbParamsWritingFrequency conf) * chainCountAt v maxBound)) $ do
             loggc Info newCut "writing cut"
             casInsert cutHashesStore (cutToCutHashes Nothing newCut)
 
