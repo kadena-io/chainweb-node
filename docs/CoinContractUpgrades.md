@@ -143,11 +143,11 @@ chainweb214Pact aoa v h = case aoa of
 
 ## Testing
 
-There are three main sites for testing coin upgrades and assessing fork compatibility: `PactInProcApi`, `ModuleCacheOnRestart`, and live DevNet testing.
+There are four main sites for testing coin upgrades and assessing fork compatibility: `TransactionTests`, `PactInProcApi`, `ModuleCacheOnRestart`, and live DevNet testing.
 
 ### Unit Tests
 
-The former tests Pact execution using an in-memory Chainweb instance, and the second tests for module caching compatibility across forks and upgrades. In general, if coin upgrades and/or new interfaces are added to the Pact Service cache, `ModuleCacheOnRestart` will need a test. However, if only coin upgrades are involved, it's possible that only `PactInProcApi` needs a test. Consider the following:
+The former tests the `coin-v*.repl` test and reports a boolean pass/fail if there are any failures in the repl script. The second tests Pact execution using an in-memory Chainweb instance, and the third tests for module caching compatibility across forks and upgrades. In general, if coin upgrades and/or new interfaces are added to the Pact Service cache, `ModuleCacheOnRestart` will need a test. However, if only coin upgrades are involved, it's possible that only `PactInProcApi` needs a test. Consider the following:
 
 - `PactInProcApi`:
   - Make sure `coin-v*` is backcompatible across 2 forks so (see: pact4coin3UpgradeTest)
