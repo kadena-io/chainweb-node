@@ -18,6 +18,7 @@ module Chainweb.Pact.Backend.Compaction
 
   where
 
+import Control.Exception
 import Control.Monad
 
 import Database.SQLite3.Direct
@@ -35,23 +36,32 @@ import Pact.Types.SQLite
 compact :: Logger -> BlockHeight -> Database -> IO ()
 compact log' blockheight' db = do
 
-
     txid <- initialize
 
     vtables <- collectVersionedTables
 
-    mapM_ (computeTableHash txid) vtables
+    withTx $ do
+      mapM_ (computeTableHash txid) vtables
+      computeGlobalHash
 
-    computeGlobalHash
+    withTx $ do
+      forM_ vtables $ \t -> do
+        compactTable t
+        verifyTable t
+      dropNewTables
+      compactSystemTables
 
-    forM_ vtables $ \t -> do
-      compactTable t
-      verifyTable t
-
-    return ()
   where
     blockheight = SInt $ fromIntegral blockheight'
     debug = logDebug_ log'
+
+    withTx a = do
+      exec_ db $ "BEGIN TRANSACTION"
+      catch (a >>= \r -> exec_ db "COMMIT TRANSACTION" >> return r) $
+          \e@SomeException {} -> do
+            exec_ db "ROLLBACK TRANSACTION"
+            throw e
+
 
     initialize = do
       debug "initialize"
@@ -140,3 +150,20 @@ compact log' blockheight' db = do
       case rs of
         [[SBlob prev],[SBlob curr]] | prev == curr -> return ()
         _ -> internalError $ "Table verification failed! " <> sshow (vtable,rs)
+
+    dropNewTables = do
+      debug "dropNewTables"
+      nts <- qry db "SELECT tablename FROM VersionedTableCreation WHERE createBlockheight > ?1"
+          [blockheight] [RText]
+      forM_ nts $ \nt ->
+        case nt of
+          [SText t] ->
+            exec_ db $ "DROP TABLE " <> tbl t
+          _ -> internalError "dropNewTables: Expected text tablename"
+    compactSystemTables = do
+      exec' db
+          ("DELETE FROM BlockHistory WHERE blockheight != ?1;" <>
+           "DELETE FROM VersionedTableMutation WHERE blockheight != ?1;" <>
+           "DELETE FROM TransactionIndex WHERE blockheight != ?1;" <>
+           "DELETE FROM VersionedTableCreation WHERE createBlockheight != ?1;")
+          [blockheight]
