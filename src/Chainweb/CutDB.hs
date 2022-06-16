@@ -450,15 +450,18 @@ startCutDb config logfun headerStore payloadStore cutHashesStore = mask_ $ do
                     tableIterPrev it
                     go it
                 Left e -> throwM e
-                Right hm -> unsafeMkCut v
-                    <$> case _cutDbParamsInitialHeightLimit config of
-                        Nothing -> return hm
-                        Just h -> do
-                            let
-                                cutHeightTarget = min 0 $
-                                    avgCutHeightAt v h -
-                                        CutHeight (int $ diameterAtCutHeight v (maxBound :: CutHeight) * chainCountAt v (maxBound :: BlockHeight))
-                            limitCutHeaders wbhdb cutHeightTarget hm
+                Right hm -> do
+                    limitedCut <- unsafeMkCut v
+                        <$> case _cutDbParamsInitialHeightLimit config of
+                            Nothing -> return hm
+                            Just h -> do
+                                let
+                                    cutHeightTarget = min 0 $
+                                        avgCutHeightAt v h -
+                                            CutHeight (int $ diameterAtCutHeight v (maxBound :: CutHeight) * chainCountAt v (maxBound :: BlockHeight))
+                                limitCutHeaders wbhdb cutHeightTarget hm
+                    casInsert cutHashesStore (cutToCutHashes Nothing limitedCut)
+                    return limitedCut
 
 -- | Stop the cut validation pipeline.
 --
