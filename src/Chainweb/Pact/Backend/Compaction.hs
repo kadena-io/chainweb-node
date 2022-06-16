@@ -26,6 +26,7 @@ import Chainweb.BlockHeight
 import Chainweb.Pact.Backend.Utils
 import Chainweb.Pact.Service.Types
 import Chainweb.Pact.Types
+import Chainweb.Utils
 
 import Pact.Types.Logger
 import Pact.Types.SQLite
@@ -41,9 +42,11 @@ compact log' blockheight' db = do
 
     mapM_ (computeTableHash txid) vtables
 
-    _globalHash <- computeGlobalHash
+    computeGlobalHash
 
-    mapM_ compactTable vtables
+    forM_ vtables $ \t -> do
+      compactTable t
+      verifyTable t
 
     return ()
   where
@@ -54,7 +57,7 @@ compact log' blockheight' db = do
       debug "initialize"
       exec_ db $
           "CREATE TABLE IF NOT EXISTS VersionedTableChecksum " <>
-          "( tablename TEXT NOT NULL " <>
+          "( tablename TEXT " <> -- NULL is global checksum
           ", blockheight UNSIGNED BIGINT NOT NULL " <>
           ", hash BLOB " <>
           ", UNIQUE (tablename) );"
@@ -62,12 +65,14 @@ compact log' blockheight' db = do
       exec_ db $ "DELETE FROM VersionedTableChecksum"
 
       exec_ db $
-          "CREATE TEMPORARY TABLE ActiveVersion " <>
+          "CREATE TABLE IF NOT EXISTS ActiveVersion " <>
           "( tablename TEXT NOT NULL " <>
           ", rowkey TEXT NOT NULL " <>
           ", vrowid INTEGER NOT NULL " <>
           ", hash BLOB " <>
           ", UNIQUE (tablename,rowkey) );"
+
+      exec_ db $ "DELETE FROM ActiveVersion"
 
       qry db "SELECT endingtxid FROM BlockHistory WHERE blockheight=?"
          [blockheight] [RInt] >>= \r ->
@@ -108,12 +113,11 @@ compact log' blockheight' db = do
 
     computeGlobalHash = do
       debug "computeGlobalHash"
-      qry_ db
-          "SELECT sha3a_256(hash) FROM VersionedTableChecksum ORDER BY tablename"
-          [RBlob] >>= \r ->
-        case r of
-          [[SBlob h]] -> return h
-          _ -> internalError "computeGlobalHash: expected blob"
+      exec' db
+          ("INSERT INTO VersionedTableChecksum VALUES (NULL,?1," <>
+           "(SELECT sha3a_256(hash) FROM VersionedTableChecksum " <>
+           " WHERE tablename IS NOT NULL ORDER BY tablename))")
+          [blockheight]
 
     compactTable vtable = do
       debug $ "compactTable: " ++ show vtable
@@ -122,3 +126,17 @@ compact log' blockheight' db = do
             " WHERE rowid NOT IN (SELECT t.rowid FROM " <> tbl vtable <>
             " t LEFT JOIN ActiveVersion v WHERE t.rowid = v.vrowid AND v.tablename=?1)"
       exec' db stmt [SText vtable]
+
+    verifyTable vtable = do
+      debug $ "verifyTable: " ++ show vtable
+      rs <- qry db
+          ("SELECT hash FROM VersionedTableChecksum WHERE tablename=?1 " <>
+           "UNION ALL " <>
+           "SELECT sha3a_256(hash) FROM (SELECT hash from " <> tbl vtable <>
+           " t1 WHERE txid=(select max(txid) from " <> tbl vtable <>
+           " t2 where t2.rowkey=t1.rowkey) GROUP BY rowkey)" )
+          [SText vtable]
+          [RBlob]
+      case rs of
+        [[SBlob prev],[SBlob curr]] | prev == curr -> return ()
+        _ -> internalError $ "Table verification failed! " <> sshow (vtable,rs)
