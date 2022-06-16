@@ -243,6 +243,12 @@ recordPendingUpdate (Utf8 key) (Utf8 tn) txid v = modifyPendingData modf
     upd = HashMap.insertWith const deltaKey (DL.singleton delta)
 
 
+-- | Write pending updates to versioned tables.
+-- Checksum is a SHA3 256-bit hash with the following format:
+-- 'T{tablename}K{rowkey}I{txid}D{rowdata}H{prevhash}'
+-- where 'prevhash' is the 'hash' value for the same rowkey and
+-- prior txid, or NULL if no prior row exists.
+-- NB: sha3 funs encode NULL as an empty blob.
 backendWriteUpdateBatch
     :: BlockHeight
     -> [(Utf8, V.Vector SQLiteRowDelta)]    -- ^ updates chunked on table name
@@ -250,17 +256,22 @@ backendWriteUpdateBatch
     -> IO ()
 backendWriteUpdateBatch bh writesByTable db = mapM_ writeTable writesByTable
   where
-    prepRow (SQLiteRowDelta _ txid rowkey rowdata) =
+    prepRow (SQLiteRowDelta tblName txid rowkey rowdata) =
         [ SText (Utf8 rowkey)
         , SInt (fromIntegral txid)
         , SBlob rowdata
+        , SText (Utf8 tblName)
         ]
 
     writeTable (tableName, writes) = do
         execMulti db q (V.toList $ V.map prepRow writes)
         markTableMutation tableName bh db
       where
-        q = "INSERT OR REPLACE INTO " <> tbl tableName <> "(rowkey,txid,rowdata) VALUES(?,?,?)"
+        q = "INSERT OR REPLACE INTO " <> tbl tableName <>
+            "(rowkey,txid,rowdata,hash) VALUES (?1,?2,?3," <>
+            "  sha3_256('T',?4,'K',?1,'I',?2,'D',?3,'H'," <>
+            "    (select FIRST_VALUE(hash) OVER (order by txid) FROM " <> tbl tableName <>
+            "       WHERE rowkey=?1 AND txid=?2 - 1)))"
 
 
 markTableMutation :: Utf8 -> BlockHeight -> Database -> IO ()
@@ -671,6 +682,7 @@ createVersionedTable tablename db = do
              \ (rowkey TEXT\
              \, txid UNSIGNED BIGINT NOT NULL\
              \, rowdata BLOB NOT NULL\
+             \, hash BLOB\
              \, UNIQUE (rowkey, txid));"
     indexcreationstmt =
         "CREATE INDEX IF NOT EXISTS " <> tbl ixName <> " ON " <> tbl tablename <> "(txid DESC);"
