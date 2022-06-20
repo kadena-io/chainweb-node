@@ -1,8 +1,8 @@
 {
   "owner": "kadena-io",
   "repo": "pact",
-  "branch": "master",
+  "branch": "johnw/update-direct-sqlite",
   "private": false,
-  "rev": "3081be0543631e8d68938ff7be21b5d6f49acfa3",
-  "sha256": "1aql3vqci56hc74mm49qxaiijs1brqmc6zwd49ml088kq22603s5"
+  "rev": "9331abeacac7fb6067c785c249422ddd4759da9d",
+  "sha256": "0pn0xbwm47fw0c7hixicingfz6x35f2z1xf1x6lnjc68g8h5m110"
 }
