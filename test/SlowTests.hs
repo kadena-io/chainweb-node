@@ -33,6 +33,7 @@ loglevel = Warn
 suite :: TestTree
 suite = testGroup "ChainwebSlowTests"
     [ Chainweb.Test.MultiNode.test loglevel (TimedConsensus petersonChainGraph twentyChainGraph) 10 120
+    , Chainweb.Test.MultiNode.replayTest loglevel (FastTimedCPM pairChainGraph) 6
     , testGroup "Network.X05.SelfSigned.Test"
         [ Network.X509.SelfSigned.Test.tests
         ]

@@ -1,5 +1,107 @@
 # `chainweb-node` Changelog
 
+## 2.15 (2022-06-09)
+
+This version replaces all previous versions. Any prior version will stop working
+on **2022-06-16T00:00:00Z**. Node administrators must upgrade to this version
+before that date.
+
+This version will expire on **2022-09-01T00:00:00Z**.
+
+To upgrade, pull the latest docker image or download the binary and restart the
+node.
+
+Changes:
+
+*   Upgrade to Pact 4.3.1. The release contains miscellaneous performance
+    improvements and bug fixes. (#1448)
+*   Upgrade to Coin V5. This adds the new `TRANSFER_XCHAIN_RECD` event that is
+    emitted when the funds of a cross-chain transfer are redeemed on the target
+    chain. (#1444)
+*   Support resetting chainweb-node to a lower block height at startup. (#1344)
+
+Bug Fixes:
+
+*   Fix a pact module cache issue that could occasionally result in corrupted
+    databases. (#1430)
+
+## 2.14.1 (2022-05-16)
+
+This is a feature and bug-fix release. Upgrading is optional but recommended.
+
+Unlike mandatory service releases, optional releases can be rolled back in case
+of an issue with the release. Optional releases are therefore well suited for
+early integration and testing of new chainweb-node versions.
+
+To upgrade, pull the latest docker image or download the binary and restart the
+node.
+
+Changes:
+
+*   Improve performance of branch queries in some cases (#1431)
+*   Make upper and lower bounds in branch APIs optional (#1432)
+*   Make the payload API batch limit configurable on the service API.
+    Restrict the payload batch limit on the P2P API to 50 items. (#1433)
+*   More robust block refill logic (#1437)
+
+## 2.14 (2022-04-11)
+
+This version replaces all previous versions. Any prior version will stop working
+on **2022-04-21T00:00:00Z**. Node administrators must upgrade to this version
+before that date.
+
+This version will stop working on **2022-06-16T00:00:00Z**.
+
+To upgrade, pull the latest docker image or download the binary and restart the node.
+
+Changes:
+
+*   Improve Mempool to fill blocks more efficiently (#1399)
+
+*   Pact Changes (#1382, #1396, #1397, #1399, #1407, #1409,#1410, #1413, #1414, #1417):
+
+    *   Gas changes for integer and decimal operations.
+    *   `NaN` and `+/- Infinity` throw errors now.
+    *   Several other nonsensical arithmetic expressions and operations throw
+        errors now.
+    *   Support of nested Defpacts and native `continue`.
+    *   New natives `create-principal` and `validate-principal`
+    *   Add support for principals`r:`, `m:`, `u:`, `p:`, and `w:` in `coin`.
+    *   Addition of `fungible-xchain-v1` interface, which provides a
+        `TRANSFER_XCHAIN` managed capability.
+    *   Implement `fungible-xchain-v1` in `coin`.
+    *   Miscellaneous bug fixes
+    *   Various performance improvements, in particular for deeply nested
+        function calls.
+
+## 2.13.1 (2022-04-01)
+
+This is a feature and bug-fix release. Upgrading is optional but recommended.
+
+Unlike mandatory service releases, optional releases can be rolled back in case
+of an issue with the release. Optional releases are therefore well suited for
+early integration and testing of new chainweb-node versions.
+
+To upgrade, pull the latest docker image or download the binary and restart the
+node.
+
+Changes:
+
+*   Restrict HTTP request body sizes for all API endpoints to 2MB. (#1385)
+*   Periodically prune old cuts from the RocksDb database and store current cuts
+    less often. This saves up to 30% disk space. (#1342, #1388)
+*   Set default P2P port to 1789. (#1389)
+*   Add the telemetry/logger type to log messages. (#1401)
+*   Add new optional endpoints `/make-backup` and `/check-backup` to the service
+    API. When enabled these endpoints can be used to trigger the creation of
+    backups of the chainweb-node databases. Further details can be found
+    in the [Chainweb API documentation](https://api.chainweb.com). (#1359, #1387)
+
+Bug fixes:
+
+*   Remove spurious warning when the hostname is configured as `0.0.0.0`. (#1389)
+*   Fix typo in list of reserved IP addresses. (#1398)
+
 ## 2.13 (2022-02-18)
 
 This version replaces all previous versions. Any prior version will stop working

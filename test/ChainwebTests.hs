@@ -27,6 +27,7 @@ import qualified Chainweb.Test.BlockHeader.Validation
 import qualified Chainweb.Test.BlockHeaderDB
 import qualified Chainweb.Test.BlockHeaderDB.PruneForks (tests)
 import qualified Chainweb.Test.Cut (properties)
+import qualified Chainweb.Test.CutDB
 import qualified Chainweb.Test.HostAddress (properties)
 import qualified Chainweb.Test.Mempool.Consensus
 import qualified Chainweb.Test.Mempool.InMem
@@ -42,6 +43,7 @@ import qualified Chainweb.Test.Pact.PactInProcApi
 import qualified Chainweb.Test.Pact.PactReplay
 import qualified Chainweb.Test.Pact.RemotePactTest
 import qualified Chainweb.Test.Pact.RewardsTest
+import qualified Chainweb.Test.Pact.SQLite
 import qualified Chainweb.Test.Pact.SPV
 import qualified Chainweb.Test.Pact.TransactionTests
 import qualified Chainweb.Test.Pact.TTL
@@ -113,6 +115,8 @@ suite rdb =
             , Chainweb.Test.BlockHeaderDB.PruneForks.tests
             , testProperties "Chainweb.Test.TreeDB" Chainweb.Test.TreeDB.properties
             ]
+        , Chainweb.Test.Pact.SQLite.tests
+        , Chainweb.Test.CutDB.tests rdb
         , Chainweb.Test.Pact.TransactionTests.tests
         , Chainweb.Test.Roundtrips.tests
         , Chainweb.Test.Rosetta.tests

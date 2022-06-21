@@ -48,18 +48,6 @@ jobs:
         package pact
           documentation: False
         EOF
-    - name: Extend cabal.project.local for GHC-9
-      if: startsWith(matrix.ghc, '9')
-      run: |
-        cat >> cabal.project.local <<EOF
-        allow-newer: token-bucket:*
-        allow-newer: ixset-typed:*
-        allow-newer: hashable:*
-        source-repository-package
-            type: git
-            location: https://github.com/larskuhtz/ixset-typed
-            tag: 26e2a4397a49e731b5a8dcdfb08a64bae06081da
-        EOF
     - uses: pat-s/always-upload-cache@v2.1.5
       name: Cache dist-newstyle
       with:
@@ -67,11 +55,11 @@ jobs:
           ~/.cabal/packages
           ~/.cabal/store
           dist-newstyle
-        key: ${{ matrix.os }}-${{ matrix.ghc }}-4-cabal
+        key: ${{ matrix.os }}-${{ matrix.ghc }}-7-cabal
 
     # Build
-    - name: Delete Freeze file
-      run: rm cabal.project.freeze
+    - name: Delete Freeze file if it exists
+      run: rm -f cabal.project.freeze
     - name: Update package database
       run: cabal update
     - name: Display outdated packages
@@ -104,7 +92,6 @@ jobs:
     # Checks
     - name: Check that working directory tree is clean
       run: |
-        # the freeze file has likely has changed
         mv cabal.project.freeze cabal.project.freeze.backup
         git checkout -- cabal.project.freeze || true
         if ! git diff --exit-code; then
@@ -115,7 +102,6 @@ jobs:
     - name: Run ea and verify consistency of genesis headers
       run: |
         cabal run cwtool -- ea
-        # the freeze file has likely changed
         mv cabal.project.freeze cabal.project.freeze.backup
         git checkout -- cabal.project.freeze || true
         if ! git diff --exit-code; then

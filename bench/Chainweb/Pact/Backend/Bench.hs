@@ -12,11 +12,10 @@ import Control.Monad
 import Control.Monad.Catch
 import qualified Criterion.Main as C
 
-import Data.String.Conv
 import qualified Data.ByteString as B
+import qualified Data.ByteString.Char8 as B8
 import qualified Data.Map.Strict as M
 
-import System.IO.Extra
 import System.Random
 
 -- pact imports
@@ -43,6 +42,7 @@ import Chainweb.Pact.Backend.RelationalCheckpointer
 import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.Backend.Utils
 import Chainweb.Utils.Bench
+import Chainweb.Utils (sshow)
 import Chainweb.Version
 
 v :: ChainwebVersion
@@ -72,23 +72,22 @@ pactSqliteWithBench
     -> C.Benchmark
 pactSqliteWithBench unsafe benchtorun =
     C.envWithCleanup setup teardown
-    $ \ ~(NoopNFData (e,_)) -> C.bgroup tname (benches e)
+    $ \ ~(NoopNFData e) -> C.bgroup tname (benches e)
   where
     tname = mconcat [ "pact-sqlite/"
                     , if unsafe then "unsafe" else "safe"
                     ]
     prags = if unsafe then PSQL.fastNoJournalPragmas else chainwebPragmas
     setup = do
-        (f,deleter) <- newTempFile
-        !sqliteEnv <- PSQL.initSQLite (PSQL.SQLiteConfig f prags) neverLog
+        let dbFile = "" {- temporary sqlite db -}
+        !sqliteEnv <- PSQL.initSQLite (PSQL.SQLiteConfig dbFile  prags) neverLog
         dbe <- mkPactDbEnv pactdb (initDbEnv neverLog PSQL.persister sqliteEnv)
         PI.initSchema dbe
-        return $ NoopNFData (dbe, deleter)
+        return $ NoopNFData dbe
 
-    teardown (NoopNFData (PactDbEnv _ e, deleter)) = do
+    teardown (NoopNFData (PactDbEnv _ e)) = do
         c <- readMVar e
         void $ PSQL.closeSQLite $ _db c
-        deleter
 
     benches :: PactDbEnv (DbEnv PSQL.SQLite)  -> [C.Benchmark]
     benches dbEnv =
@@ -98,8 +97,8 @@ pactSqliteWithBench unsafe benchtorun =
 
 cpWithBench :: (CheckpointEnv -> C.Benchmark) -> C.Benchmark
 cpWithBench torun =
-    C.envWithCleanup setup teardown $ \ ~(NoopNFData (_,e,_)) ->
-                                        C.bgroup name (benches e)
+    C.envWithCleanup setup teardown $ \ ~(NoopNFData (_,e)) ->
+        C.bgroup name (benches e)
   where
     name = "batchedCheckpointer"
     cid = unsafeChainId 0
@@ -107,16 +106,14 @@ cpWithBench torun =
     initialBlockState = initBlockState $ genesisHeight v cid
 
     setup = do
-        (f, deleter) <- newTempFile
-        !sqliteEnv <- openSQLiteConnection f chainwebPragmas
+        let dbFile = "" {- temporary SQLite db -}
+        !sqliteEnv <- openSQLiteConnection dbFile chainwebPragmas
         let nolog = newLogger neverLog ""
         !cenv <-
           initRelationalCheckpointer initialBlockState sqliteEnv nolog v cid
-        return $ NoopNFData (sqliteEnv, cenv, deleter)
+        return $ NoopNFData (sqliteEnv, cenv)
 
-    teardown (NoopNFData (sqliteEnv, _cenv, deleter)) = do
-        closeSQLiteConnection sqliteEnv
-        deleter
+    teardown (NoopNFData (sqliteEnv, _cenv)) = closeSQLiteConnection sqliteEnv
 
     benches :: CheckpointEnv -> [C.Benchmark]
     benches cpenv =
@@ -152,7 +149,7 @@ cpBenchNoRewindOverBlock transactionCount cp = C.env (setup' cp) $ \ ~(ut) ->
       (bytestring,
        BlockHash $ unsafeMerkleLogHash $ B.pack $ B.zipWith (+) bytestring inc)
       where
-        inc = toS $ replicate 30 '\NUL' ++ ['\SOH', '\NUL']
+        inc = B8.replicate 30 '\NUL' <> "\SOH\NUL"
 
     go CheckpointEnv{..} mblock (NoopNFData ut) = do
         (blockheight, bytestring, hash) <- readMVar mblock
@@ -274,7 +271,7 @@ benchUserTableForKeys numSampleEvents dbEnv =
 
     setup db = setupUserTable db $ \ut ->
       forM_ [1 .. numberOfKeys] $ \i -> do
-          let rowkey = RowKey $ "k" <> toS (show i)
+          let rowkey = RowKey $ "k" <> sshow i
           writeRow db Insert ut f rowkey i
 
     f = "f"
@@ -291,7 +288,7 @@ benchUserTableForKeys numSampleEvents dbEnv =
 
     go db@(PactDbEnv pdb e) (NoopNFData ut) =
       forM_ [1 .. numSampleEvents] $ \_ -> do
-          let torowkey ind = RowKey $ "k" <> toS (show ind)
+          let torowkey ind = RowKey $ "k" <> sshow ind
           rowkeya <- torowkey <$> randomRIO (1,numberOfKeys)
           rowkeyb <- torowkey <$> randomRIO (1,numberOfKeys)
           a <- _readRow pdb ut rowkeya e >>= unpack
@@ -310,7 +307,7 @@ _cpBenchKeys numKeys cp =
         usertablename <- _cpRestore _cpeCheckpointer Nothing >>= \case
             PactDbEnv' db ->
               setupUserTable db $ \ut -> forM_ [1 .. numKeys] $ \i -> do
-                  let rowkey = RowKey $ "k" <> toS (show i)
+                  let rowkey = RowKey $ "k" <> sshow i
                   writeRow db Insert ut f rowkey (fromIntegral i)
 
         _cpSave _cpeCheckpointer hash01
@@ -327,7 +324,7 @@ _cpBenchKeys numKeys cp =
         void $ _cpSave _cpeCheckpointer hash02
       where
         transaction db numkey = do
-            let rowkey = RowKey $ "k" <> toS (show numkey)
+            let rowkey = RowKey $ "k" <> sshow numkey
             incIntegerAtKey db ut f rowkey 1
 
 cpBenchSampleKeys :: Int -> CheckpointEnv -> C.Benchmark
@@ -341,7 +338,7 @@ cpBenchSampleKeys numSampleEvents cp =
         usertablename <- _cpRestore _cpeCheckpointer Nothing >>= \case
             PactDbEnv' db ->
               setupUserTable db $ \ut -> forM_ [1 .. numberOfKeys] $ \i -> do
-                  let rowkey = RowKey $ "k" <> toS (show i)
+                  let rowkey = RowKey $ "k" <> sshow i
                   writeRow db Insert ut f rowkey i
 
         _cpSave _cpeCheckpointer hash01
@@ -364,7 +361,7 @@ cpBenchSampleKeys numSampleEvents cp =
         _cpRestore _cpeCheckpointer (Just (BlockHeight 1, hash01)) >>= \case
               PactDbEnv' db@(PactDbEnv pdb e) ->
                 forM_ [1 .. numSampleEvents] $ \_ -> do
-                    let torowkey ind = RowKey $ "k" <> toS (show ind)
+                    let torowkey ind = RowKey $ "k" <> sshow ind
                     rowkeya <- torowkey <$> randomRIO (1,numberOfKeys)
                     rowkeyb <- torowkey <$> randomRIO (1,numberOfKeys)
                     a <- _readRow pdb ut rowkeya e >>= unpack

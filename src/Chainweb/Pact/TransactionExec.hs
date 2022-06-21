@@ -98,6 +98,7 @@ import Pact.Types.SPV
 
 import Chainweb.BlockHeader
 import Chainweb.BlockHeight
+import Chainweb.Mempool.Mempool (requestKeyToTransactionHash)
 import Chainweb.Miner.Pact
 import Chainweb.Pact.Service.Types
 import Chainweb.Pact.Templates
@@ -168,6 +169,8 @@ applyCmd v logger pdbenv miner gasModel txCtx spv cmdIn mcache0 =
           ++ enablePact420 txCtx
           ++ enforceKeysetFormats' txCtx
           ++ enablePactModuleMemcheck txCtx
+          ++ enablePact43 txCtx
+          ++ enablePact431 txCtx
         )
 
     cenv = TransactionEnv Transactional pdbenv logger (ctxToPublicData txCtx) spv nid gasPrice
@@ -196,7 +199,8 @@ applyCmd v logger pdbenv miner gasModel txCtx spv cmdIn mcache0 =
 
     applyBuyGas =
       catchesPactError (buyGas isPactBackCompatV16 cmd miner) >>= \case
-        Left e -> fatal $ "tx failure for requestKey when buying gas: " <> sshow e
+        Left e -> view txRequestKey >>= \rk ->
+          throwM $ BuyGasFailure $ GasPurchaseFailure (requestKeyToTransactionHash rk) e
         Right _ -> checkTooBigTx initialGas gasLimit applyPayload redeemAllGas
 
     applyPayload = do
@@ -260,6 +264,7 @@ applyGenesisCmd logger dbEnv spv cmd =
           [ FlagDisablePact40
           , FlagDisablePact420
           , FlagDisableInlineMemCheck
+          , FlagDisablePact43
           ]
         }
     txst = TransactionState
@@ -320,7 +325,9 @@ applyCoinbase v logger dbEnv (Miner mid mks@(MinerKeys mk)) reward@(ParsedDecima
       enablePactEvents' txCtx ++
       enablePact40 txCtx ++
       enablePact420 txCtx ++
-      enablePactModuleMemcheck txCtx
+      enablePactModuleMemcheck txCtx ++
+      enablePact43 txCtx ++
+      enablePact431 txCtx
     tenv = TransactionEnv Transactional dbEnv logger (ctxToPublicData txCtx) noSPVSupport
            Nothing 0.0 rk 0 ec
     txst = TransactionState mc mempty 0 Nothing (_geGasModel freeGasEnv)
@@ -449,6 +456,7 @@ readInitModules logger dbEnv txCtx =
           [] -> die $ msg <> ": empty result"
           (o:_) -> return o
 
+
     go :: TransactionM p ModuleCache
     go = do
 
@@ -459,13 +467,21 @@ readInitModules logger dbEnv txCtx =
         (PLiteral (LBool b)) -> return b
         t -> die $ "got non-bool result from module read: " <> T.pack (showPretty t)
 
+      -- see if fungible-xchain-v1 is there
+      checkCmdx <- liftIO $ mkCmd "(contains \"fungible-xchain-v1\" (list-modules))"
+      checkFx <- run "check fungible-xchain-v1" checkCmdx
+      hasFx <- case checkFx of
+        (PLiteral (LBool b)) -> return b
+        t -> die $ "got non-bool result from module read: " <> T.pack (showPretty t)
+
       -- load modules by referencing members
       refModsCmd <- liftIO $ mkCmd $ T.intercalate " " $
         [ "coin.MINIMUM_PRECISION"
         , "ns.GUARD_SUCCESS"
         , "gas-payer-v1.GAS_PAYER"
         , "fungible-v1.account-details"] ++
-        [ "fungible-v2.account-details" | hasFv2 ]
+        [ "fungible-v2.account-details" | hasFv2 ] ++
+        [ "(let ((m:module{fungible-xchain-v1} coin)) 1)" | hasFx ]
       void $ run "load modules" refModsCmd
 
       -- return loaded cache
@@ -481,15 +497,20 @@ applyUpgrades
 applyUpgrades v cid height
      | coinV2Upgrade v cid height = applyCoinV2
      | pact4coin3Upgrade At v height = applyCoinV3
+     | chainweb214Pact At v height = applyCoinV4
+     | chainweb215Pact At v height = applyCoinV5
      | otherwise = return Nothing
   where
     installCoinModuleAdmin = set (evalCapabilities . capModuleAdmin) $ S.singleton (ModuleName "coin" Nothing)
 
-    applyCoinV2 = applyTxs (upgradeTransactions v cid)
+    applyCoinV2 = applyTxs (upgradeTransactions v cid) [FlagDisableInlineMemCheck, FlagDisablePact43]
 
-    applyCoinV3 = applyTxs coinV3Transactions
+    applyCoinV3 = applyTxs coinV3Transactions [FlagDisableInlineMemCheck, FlagDisablePact43]
 
-    applyTxs txsIO = do
+    applyCoinV4 = applyTxs coinV4Transactions []
+    applyCoinV5 = applyTxs coinV5Transactions []
+
+    applyTxs txsIO flags = do
       infoLog "Applying upgrade!"
       txs <- map (fmap payloadObj) <$> liftIO txsIO
 
@@ -499,8 +520,8 @@ applyUpgrades v cid height
       -- those caches is returned. The calling code adds this new cache to the
       -- init cache in the pact service state (_psInitCache).
       --
-
-      caches <- local (set txExecutionConfig (mkExecutionConfig [FlagDisableInlineMemCheck])) $ mapM applyTx txs
+      let execConfig = mkExecutionConfig flags
+      caches <- local (set txExecutionConfig execConfig) $ mapM applyTx txs
       return $ Just (HM.unions caches)
 
     interp = initStateInterpreter $ installCoinModuleAdmin $
@@ -646,6 +667,8 @@ applyExec' interp (ExecMsg parsedCode execData) senderSigs hsh nsp
       eenv <- mkEvalEnv nsp (MsgData execData Nothing hsh senderSigs)
           <&> disablePact40Natives pactFlags
           <&> disablePact420Natives pactFlags
+          <&> disablePact43Natives pactFlags
+          <&> disablePact431Natives pactFlags
 
       er <- liftIO $! evalExec interp eenv parsedCode
 
@@ -684,6 +707,16 @@ enablePactModuleMemcheck tc
     | chainweb213Pact (ctxVersion tc) (ctxCurrentBlockHeight tc) = []
     | otherwise = [FlagDisableInlineMemCheck]
 
+enablePact43 :: TxContext -> [ExecutionFlag]
+enablePact43 tc
+    | chainweb214Pact After (ctxVersion tc) (ctxCurrentBlockHeight tc) = []
+    | otherwise = [FlagDisablePact43]
+
+enablePact431 :: TxContext -> [ExecutionFlag]
+enablePact431 tc
+    | chainweb215Pact After (ctxVersion tc) (ctxCurrentBlockHeight tc) = []
+    | otherwise = [FlagDisablePact431]
+
 
 -- | Execute a 'ContMsg' and return the command result and module cache
 --
@@ -720,6 +753,7 @@ applyContinuation' interp cm@(ContMsg pid s rb d _) senderSigs hsh nsp = do
     eenv <- mkEvalEnv nsp (MsgData d pactStep hsh senderSigs)
           <&> disablePact40Natives pactFlags
           <&> disablePact420Natives pactFlags
+          <&> disablePact43Natives pactFlags
 
     er <- liftIO $! evalContinuation interp eenv cm
 
@@ -761,7 +795,9 @@ buyGas isPactBackCompatV16 cmd (Miner mid mks) = go
         (_pSigners $ _cmdPayload cmd) bgHash managedNamespacePolicy
 
       case _erExec result of
-        Nothing -> fatal "buyGas: Internal error - empty continuation"
+        Nothing ->
+          -- should never occur: would mean coin.fund-tx is not a pact
+          fatal "buyGas: Internal error - empty continuation"
         Just pe -> void $! txGasId .= (Just $! GasId (_pePactId pe))
 
 findPayer
@@ -785,7 +821,7 @@ findPayer isPactBackCompatV16 cmd = runMaybeT $ do
 
     gasPayerIface = ModuleName "gas-payer-v1" Nothing
 
-    lookupIfaceModRef (QualifiedName _ n _) (ModuleData (MDModule (Module {..})) refs)
+    lookupIfaceModRef (QualifiedName _ n _) (ModuleData (MDModule Module{..}) refs _)
       | gasPayerIface `elem` _mInterfaces = HM.lookup n refs
     lookupIfaceModRef _ _ = Nothing
 
@@ -930,11 +966,9 @@ disablePact40Natives =
 {-# INLINE disablePact40Natives #-}
 
 disablePactNatives :: [Text] -> ExecutionFlag -> ExecutionConfig -> EvalEnv e -> EvalEnv e
-disablePactNatives natives flag ec = if has (ecFlags . ix flag) ec
+disablePactNatives bannedNatives flag ec = if has (ecFlags . ix flag) ec
     then over (eeRefStore . rsNatives) (\k -> foldl' (flip HM.delete) k bannedNatives)
     else id
-  where
-    bannedNatives = natives <&> \name -> Name (BareName name def)
 {-# INLINE disablePactNatives #-}
 
 -- | Disable certain natives around pact 4.2.0
@@ -943,13 +977,25 @@ disablePact420Natives :: ExecutionConfig -> EvalEnv e -> EvalEnv e
 disablePact420Natives = disablePactNatives ["zip", "fold-db"] FlagDisablePact420
 {-# INLINE disablePact420Natives #-}
 
+-- | Disable certain natives around pact 4.2.0
+--
+disablePact43Natives :: ExecutionConfig -> EvalEnv e -> EvalEnv e
+disablePact43Natives = disablePactNatives ["create-principal", "validate-principal", "continue"] FlagDisablePact43
+{-# INLINE disablePact43Natives #-}
+
+disablePact431Natives :: ExecutionConfig -> EvalEnv e -> EvalEnv e
+disablePact431Natives = disablePactNatives ["is-principal", "typeof-principal"] FlagDisablePact431
+{-# INLINE disablePact431Natives #-}
+
 -- | Set the module cache of a pact 'EvalState'
 --
 setModuleCache
   :: ModuleCache
   -> EvalState
   -> EvalState
-setModuleCache = set (evalRefs . rsLoadedModules)
+setModuleCache mcache es =
+  let allDeps = foldMap (allModuleExports . fst) mcache
+  in set (evalRefs . rsQualifiedDeps) allDeps $ set (evalRefs . rsLoadedModules) mcache $ es
 {-# INLINE setModuleCache #-}
 
 -- | Set tx result state

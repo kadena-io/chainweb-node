@@ -46,7 +46,6 @@ import Chainweb.BlockHeight (BlockHeight(..))
 import Chainweb.MerkleLogHash (merkleLogHash)
 import Chainweb.MerkleUniverse
 import Chainweb.Pact.Backend.ChainwebPactDb
-import Chainweb.Pact.Backend.InMemoryCheckpointer (initInMemoryCheckpointEnv)
 import Chainweb.Pact.Backend.RelationalCheckpointer
 import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.Backend.Utils
@@ -66,8 +65,7 @@ import Chainweb.Test.Orphans.Internal ({- Arbitrary BlockHash -})
 
 tests :: ScheduledTest
 tests = testGroupSch "Checkpointer"
-    [ testInMemory
-    , testRelational
+    [ testRelational
     , testKeyset
     , testModuleName
     , testCase "PactDb Regression" testRegress
@@ -78,7 +76,7 @@ tests = testGroupSch "Checkpointer"
 -- Module Name Test
 
 testModuleName :: TestTree
-testModuleName = withResource initializeSQLite freeSQLiteResource $
+testModuleName = withTempSQLiteResource $
     runSQLite' $ \resIO -> testCase "testModuleName" $ do
 
         (CheckpointEnv {..}, SQLiteEnv {..}) <- resIO
@@ -140,10 +138,6 @@ keysetTest c = testCaseSteps "Keyset test" $ \next -> do
 
 -- -------------------------------------------------------------------------- --
 -- CheckPointer Test
-
-testInMemory :: TestTree
-testInMemory = withInMemCheckpointerResource
-    $ checkpointerTest "In-memory Checkpointer" False
 
 testRelational :: TestTree
 testRelational = withRelationalCheckpointerResource $
@@ -574,13 +568,6 @@ throwFail = throwIO . userError
 -- -------------------------------------------------------------------------- --
 -- Checkpointer Utils
 
-withInMemCheckpointerResource :: (IO CheckpointEnv -> TestTree) -> TestTree
-withInMemCheckpointerResource = withResource initInMem (const $ return ())
-  where
-    loggers = pactTestLogger False
-    logger = newLogger loggers "inMemCheckpointer"
-    initInMem = initInMemoryCheckpointEnv loggers logger testVer testChainId
-
 withRelationalCheckpointerResource :: (IO CheckpointEnv -> TestTree) -> TestTree
 withRelationalCheckpointerResource =
     withResource initializeSQLite freeSQLiteResource . runSQLite
@@ -597,17 +584,17 @@ runTwice step action = do
   action
 
 runSQLite
-    :: (IO (CheckpointEnv) -> TestTree)
-    -> IO (IO (), SQLiteEnv)
+    :: (IO CheckpointEnv -> TestTree)
+    -> IO SQLiteEnv
     -> TestTree
 runSQLite f = runSQLite' (f . fmap fst)
 
 runSQLite'
     :: (IO (CheckpointEnv,SQLiteEnv) -> TestTree)
-    -> IO (IO (), SQLiteEnv)
+    -> IO SQLiteEnv
     -> TestTree
 runSQLite' runTest sqlEnvIO = runTest $ do
-    (_,sqlenv) <- sqlEnvIO
+    sqlenv <- sqlEnvIO
     cp <- initRelationalCheckpointer initialBlockState sqlenv logger testVer testChainId
     return (cp, sqlenv)
   where
@@ -675,7 +662,7 @@ loadModule = do
     fn = "test/pact/simple.repl"
 
 nativeLookup :: NativeDefName -> Maybe (Term Name)
-nativeLookup (NativeDefName n) = case HM.lookup (Name $ BareName n def) nativeDefs of
+nativeLookup (NativeDefName n) = case HM.lookup n nativeDefs of
     Just (Direct t) -> Just t
     _ -> Nothing
 
@@ -748,4 +735,3 @@ tablecode = T.unlines
     , ""
     , "(create-table test-table)"
     ]
-

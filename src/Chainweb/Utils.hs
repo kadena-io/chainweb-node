@@ -185,6 +185,7 @@ module Chainweb.Utils
 , _T3
 
 -- * Approximate thread delays
+, approximately
 , approximateThreadDelay
 
 -- * TLS Manager with connection timeout settings
@@ -1290,7 +1291,7 @@ _T3 = iso (\(T3 a b c) -> (a,b,c)) (\(a,b,c) -> T3 a b c)
 
 -- -------------------------------------------------------------------------- --
 -- Approximate thread delays
-approximately :: Int -> Prob.GenIO -> IO Int
+approximately :: Integral a => a -> Prob.GenIO -> IO a
 approximately k gen = max 0 <$!> sample
   where
     sample = (round . (/ 256.0) . head) <$!>

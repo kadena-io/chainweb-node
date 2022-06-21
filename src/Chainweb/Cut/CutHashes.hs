@@ -72,6 +72,7 @@ import Data.Bits
 import qualified Data.ByteArray as BA
 import Data.Bytes.Get
 import Data.Bytes.Put
+import qualified Data.ByteString as BS
 import qualified Data.ByteString.Short as SB
 import Data.Foldable
 import Data.Function
@@ -123,6 +124,10 @@ cutIdBytesCount = natVal $ Proxy @CutIdBytesCount
 newtype CutId = CutId SB.ShortByteString
     deriving (Eq, Ord, Generic)
     deriving anyclass (NFData)
+
+instance Bounded CutId where
+    minBound = CutId (SB.toShort $ BS.replicate (int cutIdBytesCount) 0)
+    maxBound = CutId (SB.toShort $ BS.replicate (int cutIdBytesCount) 255)
 
 instance Show CutId where
     show = T.unpack . cutIdToText

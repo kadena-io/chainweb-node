@@ -51,6 +51,7 @@ import qualified Data.DList as DL
 import Data.Either
 import Data.Foldable (toList)
 import qualified Data.Map.Strict as M
+import qualified Data.Set as S
 import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Vector (Vector)
@@ -146,6 +147,7 @@ initPactService' ver cid chainwebLogger bhDb pdb sqlenv config act = do
                 , _psCheckpointerDepth = 0
                 , _psLogger = pactLogger
                 , _psLoggers = loggers
+                , _psBlockGasLimit = _pactBlockGasLimit config
                 }
         !pst = PactServiceState Nothing mempty initialParentHeader P.noSPVSupport
     runPactServiceM pst pse $ do
@@ -155,7 +157,7 @@ initPactService' ver cid chainwebLogger bhDb pdb sqlenv config act = do
         -- 'initalPayloadState.readContracts'. We therefore rewind to the latest
         -- avaliable header in the block header database.
         --
-        exitOnRewindLimitExceeded $ initializeLatestBlock
+        exitOnRewindLimitExceeded $ initializeLatestBlock (_pactUnlimitedInitialRewind config)
         act
   where
     initialBlockState = initBlockState $ genesisHeight ver cid
@@ -163,12 +165,12 @@ initPactService' ver cid chainwebLogger bhDb pdb sqlenv config act = do
     cplogger = P.newLogger loggers $ P.LogName "Checkpointer"
     pactLogger = P.newLogger loggers $ P.LogName "PactService"
 
-initializeLatestBlock :: PayloadCasLookup cas => PactServiceM cas ()
-initializeLatestBlock = findLatestValidBlock >>= \case
+initializeLatestBlock :: PayloadCasLookup cas => Bool -> PactServiceM cas ()
+initializeLatestBlock unlimitedRewind = findLatestValidBlock >>= \case
     Nothing -> return ()
     Just b -> withBatch $ rewindTo initialRewindLimit (Just $ ParentHeader b)
   where
-    initialRewindLimit = Just 1000
+    initialRewindLimit = 1000 <$ guard (not unlimitedRewind) 
 
 initialPayloadState
     :: Logger logger
@@ -444,8 +446,11 @@ attemptBuyGas miner (PactDbEnv' dbEnv) txs = do
             Left err -> return (T2 mcache (Left (InsertErrorBuyGas (T.pack $ show err))))
             Right t -> return (T2 (_txCache t) (Right tx))
 
-type ValidateTxs = Vector (Either InsertError ChainwebTransaction)
-type RunGas = ValidateTxs -> IO ValidateTxs
+data BlockFilling = BlockFilling
+    { _bfState :: BlockFill
+    , _bfSuccessPairs :: V.Vector (ChainwebTransaction,P.CommandResult [P.TxLog A.Value])
+    , _bfFailures :: V.Vector GasPurchaseFailure
+    }
 
 -- | Note: The BlockHeader param here is the PARENT HEADER of the new
 -- block-to-be
@@ -456,61 +461,122 @@ execNewBlock
     -> ParentHeader
     -> Miner
     -> PactServiceM cas PayloadWithOutputs
-execNewBlock mpAccess parent miner = handle onTxFailure $ do
+execNewBlock mpAccess parent miner = do
     updateMempool
     withDiscardedBatch $ do
-      newTrans <- withCheckpointerRewind newblockRewindLimit (Just parent) "preBlock" doPreBlock
-      withCheckpointerRewind (Just 0) (Just parent) "execNewBlock" (doNewBlock newTrans)
+      withCheckpointerRewind newblockRewindLimit (Just parent) "execNewBlock" doNewBlock
   where
-    onTxFailure e@(PactTransactionExecError rk _) = do
-        -- add the failing transaction to the mempool bad list, so it is not
-        -- re-selected for mining.
-        liftIO $ mpaBadlistTx mpAccess rk
-        throwM e
-    onTxFailure e = throwM e
 
     -- This is intended to mitigate mining attempts during replay.
     -- In theory we shouldn't need to rewind much ever, but values
     -- less than this are failing in PactReplay test.
     newblockRewindLimit = Just 8
 
-    doPreBlock pdbenv = do
+    getBlockTxs :: BlockFill -> PactServiceM cas (Vector ChainwebTransaction)
+    getBlockTxs bfState = do
       cp <- getCheckpointer
       psEnv <- ask
-      psState <- get
       logger <- view psLogger
-      let runDebitGas :: RunGas
-          runDebitGas txs = evalPactServiceM psState psEnv runGas
-            where
-              runGas = attemptBuyGas miner pdbenv txs
-          validate bhi _bha txs = do
+      let validate bhi _bha txs = do
 
             let parentTime = ParentCreationTime $ _blockCreationTime $ _parentHeader parent
             results <- do
                 let v = _chainwebVersion psEnv
                     cid = _chainId psEnv
-                validateChainwebTxs logger v cid cp parentTime bhi txs runDebitGas
+                validateChainwebTxs logger v cid cp parentTime bhi txs return
 
             V.forM results $ \case
                 Right _ -> return True
                 Left _e -> return False
 
-      liftIO $! fmap Discard $!
-        mpaGetBlock mpAccess validate (pHeight + 1) pHash (_parentHeader parent)
+      liftIO $!
+        mpaGetBlock mpAccess bfState validate (pHeight + 1) pHash (_parentHeader parent)
 
-    doNewBlock newTrans pdbenv = do
-        logInfo $ "execNewBlock, about to get call processFork: "
+    doNewBlock pdbenv = do
+        logInfo $ "execNewBlock: "
                 <> " (parent height = " <> sshow pHeight <> ")"
                 <> " (parent hash = " <> sshow pHash <> ")"
 
+        blockGasLimit <- view psBlockGasLimit
+        let initState = BlockFill blockGasLimit mempty 0
+
+        -- Heuristic: limit fetches to count of 1000-gas txs in block.
+        let fetchLimit = fromIntegral $ blockGasLimit `div` 1000
+
+        newTrans <- getBlockTxs initState
+
         -- NEW BLOCK COINBASE: Reject bad coinbase, always use precompilation
-        results <- execTransactions False miner newTrans
+        (Transactions pairs cb) <- execTransactions False miner newTrans
           (EnforceCoinbaseFailure True)
           (CoinbaseUsePrecompiled True)
           pdbenv
 
-        let !pwo = toPayloadWithOutputs miner results
+        (BlockFilling _ successPairs failures) <-
+          refill fetchLimit pdbenv =<<
+          foldM splitResults (incCount (BlockFilling initState mempty mempty)) pairs
+
+        liftIO $ mpaBadlistTx mpAccess (V.map gasPurchaseFailureHash failures)
+
+        let !pwo = toPayloadWithOutputs miner (Transactions successPairs cb)
         return $! Discard pwo
+
+    refill fetchLimit pdbenv unchanged@(BlockFilling bfState oldPairs oldFails) = do
+
+      logInfo $ describeBF unchanged
+
+      -- LOOP INVARIANT: limit absolute recursion count
+      when (_bfCount bfState > fetchLimit) $
+        throwM $ MempoolFillFailure $ "Refill fetch limit exceeded (" <> sshow fetchLimit <> ")"
+
+      when (_bfGasLimit bfState < 0) $
+          throwM $ MempoolFillFailure $ "Internal error, negative gas limit: " <> sshow bfState
+
+      if _bfGasLimit bfState == 0 then pure unchanged else do
+
+        newTrans <- getBlockTxs bfState
+        if V.null newTrans then pure unchanged else do
+
+          pairs <- execTransactionsOnly miner newTrans pdbenv
+
+          newFill@(BlockFilling newState newPairs newFails) <-
+                foldM splitResults unchanged pairs
+
+          -- LOOP INVARIANT: gas must not increase
+          when (_bfGasLimit newState > _bfGasLimit bfState) $
+              throwM $ MempoolFillFailure $ "Gas must not increase: " <> sshow (bfState,newState)
+
+          let newSuccessCount = V.length newPairs - V.length oldPairs
+              newFailCount = V.length newFails - V.length oldFails
+
+          -- LOOP INVARIANT: gas must decrease ...
+          if (_bfGasLimit newState < _bfGasLimit bfState)
+              -- ... OR only non-zero failures were returned.
+             || (newSuccessCount == 0  && newFailCount > 0)
+              then refill fetchLimit pdbenv (incCount newFill)
+              else throwM $ MempoolFillFailure $ "Invariant failure: " <>
+                   sshow (bfState,newState,V.length newTrans
+                         ,V.length newPairs,V.length newFails)
+
+    incCount b = b { _bfState = over bfCount succ (_bfState b) }
+
+    describeBF (BlockFilling (BlockFill g _ c) good bad) =
+      "Block fill: count=" <> sshow c <> ", gaslimit=" <> sshow g <> ", good=" <>
+      sshow (length good) <> ", bad=" <> sshow (length bad)
+
+
+    splitResults (BlockFilling (BlockFill g rks i) success fails) (t,r) = case r of
+      Right cr -> enforceUnique rks (requestKeyToTransactionHash $ P._crReqKey cr) >>= \rks' ->
+        -- Decrement actual gas used from block limit
+        return $ BlockFilling (BlockFill (g - fromIntegral (P._crGas cr)) rks' i)
+          (V.snoc success (t,cr)) fails
+      Left f -> enforceUnique rks (gasPurchaseFailureHash f) >>= \rks' ->
+        -- Gas buy failure adds failed request key to fail list only
+        return $ BlockFilling (BlockFill g rks' i) success (V.snoc fails f)
+
+    enforceUnique rks rk
+      | S.member rk rks =
+        throwM $ MempoolFillFailure $ "Duplicate transaction: " <> sshow rk
+      | otherwise = return $ S.insert rk rks
 
     pHeight = _blockHeight $ _parentHeader parent
     pHash = _blockHash $ _parentHeader parent
@@ -534,6 +600,7 @@ execNewGenesisBlock miner newTrans = withDiscardedBatch $
         results <- execTransactions True miner newTrans
                    (EnforceCoinbaseFailure True)
                    (CoinbaseUsePrecompiled False) pdbenv
+                   >>= throwOnGasFailure
         return $! Discard (toPayloadWithOutputs miner results)
 
 execLocal

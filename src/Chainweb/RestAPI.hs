@@ -4,7 +4,6 @@
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE ViewPatterns #-}
@@ -89,6 +88,7 @@ import Web.HttpApiData
 
 -- internal modules
 
+import Chainweb.Backup
 import Chainweb.BlockHeaderDB
 import Chainweb.BlockHeaderDB.RestAPI.Client
 import Chainweb.BlockHeaderDB.RestAPI.Server
@@ -104,7 +104,9 @@ import qualified Chainweb.Mempool.RestAPI.Server as Mempool
 import qualified Chainweb.Miner.RestAPI as Mining
 import qualified Chainweb.Pact.RestAPI.Server as PactAPI
 import Chainweb.Payload.PayloadStore
+import Chainweb.Payload.RestAPI
 import Chainweb.Payload.RestAPI.Server
+import Chainweb.RestAPI.Backup
 import Chainweb.RestAPI.Config
 import Chainweb.RestAPI.Health
 import Chainweb.RestAPI.NetworkID
@@ -224,7 +226,7 @@ someChainwebServer
 someChainwebServer config dbs =
     maybe mempty (someCutServer v cutPeerDb) cuts
     <> maybe mempty (someSpvServers v) cuts
-    <> somePayloadServers v payloads
+    <> somePayloadServers v p2pPayloadBatchLimit payloads
     <> someBlockHeaderDbServers v blocks
     <> Mempool.someMempoolServers v mempools
     <> someP2pServers v peers
@@ -259,7 +261,7 @@ chainwebApplication config dbs
             , choice "chain" $
                 captureValidChainId v $ fold
                     [ choice "spv" $ choice "chain" $ captureValidChainId v $ maybe mempty newSpvServer cuts
-                    , choice "payload" $ (. lookupResource payloads) <$> newPayloadServer
+                    , choice "payload" $ (. lookupResource payloads) <$> newPayloadServer p2pPayloadBatchLimit
                     , (. lookupResource blocks) <$> newBlockHeaderDbServer
                     , choice "peer" $ p2pOn ChainNetwork
                     , choice "mempool" $ fold
@@ -356,13 +358,19 @@ serviceApiApplication
     -> Maybe (MiningCoordination logger cas)
     -> HeaderStream
     -> Rosetta
+    -> Maybe (BackupEnv logger)
+    -> PayloadBatchLimit
     -> Application
-serviceApiApplication v dbs pacts mr (HeaderStream hs) (Rosetta r)
+serviceApiApplication v dbs pacts mr (HeaderStream hs) (Rosetta r) backupEnv pbl
     = chainwebServiceMiddlewares
     $ \req resp -> routeWaiApp req resp
         (someServerApplication (fold
+            -- TODO: not sure if passing the correct PeerDb here
+            -- TODO: why does Rosetta need a peer db at all?
+            -- TODO: simplify number of resources passing to rosetta
             [ maybe mempty (bool mempty (someRosettaServer v payloads concreteMs cutPeerDb concretePacts) r) cuts
             , PactAPI.somePactServers v pacts
+            , maybe mempty (someBackupServer v) backupEnv
             ]) req resp)
         $ fold
         [ newHealthCheckServer
@@ -373,7 +381,7 @@ serviceApiApplication v dbs pacts mr (HeaderStream hs) (Rosetta r)
             , choice "cut" $ maybe mempty newCutGetServer cuts
             , choice "chain" $
                 captureValidChainId v $ fold
-                    [ choice "payload" $ (. lookupResource payloads) <$> newPayloadServer
+                    [ choice "payload" $ (. lookupResource payloads) <$> newPayloadServer pbl
                     , (. lookupResource blocks) <$> newBlockHeaderDbServer
                     ]
             ]
@@ -399,10 +407,12 @@ serveServiceApiSocket
     -> Maybe (MiningCoordination logger cas)
     -> HeaderStream
     -> Rosetta
+    -> Maybe (BackupEnv logger)
+    -> PayloadBatchLimit
     -> Middleware
     -> IO ()
-serveServiceApiSocket s sock v dbs pacts mr hs r m =
-    runSettingsSocket s sock $ m $ serviceApiApplication v dbs pacts mr hs r
+serveServiceApiSocket s sock v dbs pacts mr hs r be pbl m =
+    runSettingsSocket s sock $ m $ serviceApiApplication v dbs pacts mr hs r be pbl
 
 captureValidChainId :: HasChainwebVersion v => v -> Route (ChainId -> a) -> Route a
 captureValidChainId v = capture' $ \p -> do

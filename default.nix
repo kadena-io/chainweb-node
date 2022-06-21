@@ -34,6 +34,11 @@ pkgs.haskell.packages.${compiler}.developPackage {
         ver = "0.15.0.2";
         sha256 = "1mpill3lwrrhlzq0ccs8wyzsqhy1a2hmva17qxpgsy2zzqxi1nx1";
        } {};
+      resource-pool = self.callHackageDirect {
+        pkg = "resource-pool";
+        ver = "0.3.0.0";
+        sha256 = "0bpf868b6kq1g83s3sad26kfsawmpd3j0xpkyab8370lsq6zhcs1";
+      } {};
       hashable = dontCheck super.hashable;
       random = dontCheck (self.callHackageDirect {
         pkg = "random";
@@ -149,8 +154,8 @@ pkgs.haskell.packages.${compiler}.developPackage {
 
       wai-extra = self.callHackageDirect {
         pkg = "wai-extra";
-        ver = "3.0.28";
-        sha256 = "1k470vbn2c852syj15m9xzfjnaraw6cyn35ajf2b67i01ghkshgw";
+        ver = "3.1.2";
+        sha256 = "1cha6hvb071bknw25va07vg1sr5bg44q8fwz0nwa1886j9d4yrr7";
       } {};
 
       wai-app-static = doJailbreak (dontCheck (self.callHackageDirect {

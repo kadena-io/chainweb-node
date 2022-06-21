@@ -1,3 +1,4 @@
+{-# LANGUAGE CPP #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE NumericUnderscores #-}
@@ -20,12 +21,20 @@
 --
 module Chainweb.Test.Utils
 (
-  testRocksDb
+-- * Misc
+  readFile'
+
+-- * Test RocksDb
+, testRocksDb
 
 -- * Intialize Test BlockHeader DB
 , testBlockHeaderDb
 , withTestBlockHeaderDb
 , withBlockHeaderDbsResource
+
+-- * SQLite Database Test Resource
+, withTempSQLiteResource
+, withInMemSQLiteResource
 
 -- * Data Generation
 , toyBlockHeaderDb
@@ -43,6 +52,8 @@ module Chainweb.Test.Utils
 , Growth(..)
 , tree
 , getArbitrary
+, mockBlockFill
+, BlockFill(..)
 
 -- * Test BlockHeaderDbs Configurations
 , singleton
@@ -120,14 +131,17 @@ module Chainweb.Test.Utils
 , interface
 , withTime
 , withMVarResource
+, withEmptyMVarResource
 ) where
 
 import Control.Concurrent
 import Control.Concurrent.Async
-import Control.Exception (bracket)
+#if !MIN_VERSION_base(4,15,0)
+import Control.Exception (evaluate)
+#endif
 import Control.Lens
 import Control.Monad
-import Control.Monad.Catch (MonadThrow, finally)
+import Control.Monad.Catch (MonadThrow, finally, bracket)
 import Control.Monad.IO.Class
 
 import Data.Aeson (FromJSON, ToJSON)
@@ -143,6 +157,7 @@ import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
 import Data.Tree
 import qualified Data.Tree.Lens as LT
+import qualified Data.Vector as V
 import Data.Word (Word64)
 
 import qualified Network.Connection as HTTP
@@ -159,7 +174,7 @@ import Servant.Client (BaseUrl(..), ClientEnv, Scheme(..), mkClientEnv)
 
 import System.Directory
 import System.Environment (withArgs)
-import qualified System.IO.Extra as Extra
+import System.IO
 import System.IO.Temp
 import System.LogLevel
 import System.Random (randomIO)
@@ -197,10 +212,12 @@ import Chainweb.Difficulty (targetToDifficulty)
 import Chainweb.Graph
 import Chainweb.HostAddress
 import Chainweb.Logger
-import Chainweb.Mempool.Mempool (MempoolBackend(..), TransactionHash(..))
+import Chainweb.Mempool.Mempool (MempoolBackend(..), TransactionHash(..), BlockFill(..), mockBlockGasLimit)
 import Chainweb.MerkleUniverse
 import Chainweb.Miner.Config
 import Chainweb.Miner.Pact
+import Chainweb.Pact.Backend.Types (SQLiteEnv(..))
+import Chainweb.Pact.Backend.Utils (openSQLiteConnection, closeSQLiteConnection, chainwebPragmas)
 import Chainweb.Payload.PayloadStore
 import Chainweb.RestAPI
 import Chainweb.RestAPI.NetworkID
@@ -220,6 +237,18 @@ import Network.X509.SelfSigned
 import P2P.Node.Configuration
 import qualified P2P.Node.PeerDB as P2P
 import P2P.Peer
+
+-- -------------------------------------------------------------------------- --
+-- Misc
+
+#if !MIN_VERSION_base(4,15,0)
+-- | Guarantee that the
+readFile' :: FilePath -> IO String
+readFile' fp = withFile fp ReadMode $ \h -> do
+    s <- hGetContents h
+    void $ evaluate $ length s
+    return s
+#endif
 
 -- -------------------------------------------------------------------------- --
 -- Intialize Test BlockHeader DB
@@ -270,6 +299,26 @@ withRocksResource m = withResource create destroy wrap
           `catchAllSynchronous` (const $ return ())
     wrap ioact = let io' = snd <$> ioact in m io'
 
+-- -------------------------------------------------------------------------- --
+-- SQLite DB Test Resource
+
+-- | This function doesn't delete the database file after use.
+--
+-- You should use 'withTempSQLiteResource' or 'withInMemSQLiteResource' instead.
+--
+withSQLiteResource
+    :: String
+    -> (IO SQLiteEnv -> TestTree)
+    -> TestTree
+withSQLiteResource file = withResource
+    (openSQLiteConnection file chainwebPragmas)
+    closeSQLiteConnection
+
+withTempSQLiteResource :: (IO SQLiteEnv -> TestTree) -> TestTree
+withTempSQLiteResource = withSQLiteResource ""
+
+withInMemSQLiteResource :: (IO SQLiteEnv -> TestTree) -> TestTree
+withInMemSQLiteResource = withSQLiteResource ":memory:"
 
 -- -------------------------------------------------------------------------- --
 -- Toy Values
@@ -302,6 +351,9 @@ toyBlockHeaderDb db cid = (g,) <$> testBlockHeaderDb db g
 withToyDB :: RocksDb -> ChainId -> (BlockHeader -> BlockHeaderDb -> IO a) -> IO a
 withToyDB db cid
     = bracket (toyBlockHeaderDb db cid) (closeBlockHeaderDb . snd) . uncurry
+
+mockBlockFill :: BlockFill
+mockBlockFill = BlockFill mockBlockGasLimit mempty 0
 
 -- -------------------------------------------------------------------------- --
 -- BlockHeaderDb Generation
@@ -1004,26 +1056,28 @@ node
     -> IO ()
 node testLabel rdb rawLogger peerInfoVar conf nid = do
     rocksDb <- testRocksDb (testLabel <> T.encodeUtf8 (toText nid)) rdb
-    Extra.withTempDir $ \dir -> withChainweb conf logger rocksDb dir False $ \cw -> do
+    withSystemTempDirectory "test-backupdir" $ \backupDir ->
+        withSystemTempDirectory "test-rocksdb" $ \dir ->
+            withChainweb conf logger rocksDb backupDir dir False $ \cw -> do
 
-        -- If this is the bootstrap node we extract the port number and publish via an MVar.
-        when (nid == 0) $ do
-            let bootStrapInfo = view (chainwebPeer . peerResPeer . peerInfo) cw
-                bootStrapPort = view (chainwebServiceSocket . _1) cw
-            putMVar peerInfoVar (bootStrapInfo, bootStrapPort)
+                -- If this is the bootstrap node we extract the port number and publish via an MVar.
+                when (nid == 0) $ do
+                    let bootStrapInfo = view (chainwebPeer . peerResPeer . peerInfo) cw
+                        bootStrapPort = view (chainwebServiceSocket . _1) cw
+                    putMVar peerInfoVar (bootStrapInfo, bootStrapPort)
 
-        poisonDeadBeef cw
-        runChainweb cw `finally` do
-            logFunctionText logger Info "write sample data"
-            logFunctionText logger Info "shutdown node"
-        return ()
+                poisonDeadBeef cw
+                runChainweb cw `finally` do
+                    logFunctionText logger Info "write sample data"
+                    logFunctionText logger Info "shutdown node"
+                return ()
   where
     logger = addLabel ("node", sshow nid) rawLogger
 
     poisonDeadBeef cw = mapM_ poison crs
       where
         crs = map snd $ HashMap.toList $ view chainwebChains cw
-        poison cr = mempoolAddToBadList (view chainResMempool cr) deadbeef
+        poison cr = mempoolAddToBadList (view chainResMempool cr) (V.singleton deadbeef)
 
 deadbeef :: TransactionHash
 deadbeef = TransactionHash "deadbeefdeadbeefdeadbeefdeadbeef"
@@ -1088,3 +1142,6 @@ withMVarResource value = withResource (newMVar value) mempty
 
 withTime :: (IO (Time Micros) -> TestTree) -> TestTree
 withTime = withResource getCurrentTimeIntegral mempty
+
+withEmptyMVarResource :: (IO (MVar a) -> TestTree) -> TestTree
+withEmptyMVarResource = withResource newEmptyMVar mempty

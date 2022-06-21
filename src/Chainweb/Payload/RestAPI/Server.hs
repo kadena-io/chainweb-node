@@ -57,17 +57,13 @@ import Chainweb.Payload.PayloadStore
 import Chainweb.Payload.RestAPI
 import Chainweb.RestAPI.Orphans ()
 import Chainweb.RestAPI.Utils
+import Chainweb.Utils (int)
 import Chainweb.Version
 
 import Data.CAS
 
 -- -------------------------------------------------------------------------- --
 -- Utils
-
--- | The maximum number of items that are returned in a batch
---
-payloadBatchLimit :: Int
-payloadBatchLimit = 1000
 
 err404Msg :: ToJSON msg  => msg -> ServerError
 err404Msg msg = err404 { errBody = encode msg }
@@ -105,12 +101,13 @@ payloadHandler db k = run >>= \case
 payloadBatchHandler
     :: forall cas
     . PayloadCasLookup cas
-    => PayloadDb cas
+    => PayloadBatchLimit
+    -> PayloadDb cas
     -> [BlockPayloadHash]
     -> IO [PayloadData]
-payloadBatchHandler db ks = do
+payloadBatchHandler batchLimit db ks = do
     payloads <- V.catMaybes
-        <$> casLookupBatch payloadsDb (V.fromList $ take payloadBatchLimit ks)
+        <$> casLookupBatch payloadsDb (V.fromList $ take (int batchLimit) ks)
     txs <- V.zipWith (\a b -> payloadData <$> a <*> pure b)
         <$> casLookupBatch txsDb (_blockPayloadTransactionsHash <$> payloads)
         <*> pure payloads
@@ -143,14 +140,15 @@ outputsHandler db k = casLookup db k >>= \case
 outputsBatchHandler
     :: forall cas
     . PayloadCasLookup cas
-    => PayloadDb cas
+    => PayloadBatchLimit
+    -> PayloadDb cas
     -> [BlockPayloadHash]
     -> IO [PayloadWithOutputs]
-outputsBatchHandler db ks =
+outputsBatchHandler batchLimit db ks =
     fmap (V.toList . V.catMaybes)
         $ casLookupBatch db
         $ V.fromList
-        $ take payloadBatchLimit ks
+        $ take (int batchLimit) ks
 
 -- -------------------------------------------------------------------------- --
 -- Payload API Server
@@ -158,13 +156,14 @@ outputsBatchHandler db ks =
 payloadServer
     :: forall cas v (c :: ChainIdT)
     . PayloadCasLookup cas
-    => PayloadDb' cas v c
+    => PayloadBatchLimit
+    -> PayloadDb' cas v c
     -> Server (PayloadApi v c)
-payloadServer (PayloadDb' db)
+payloadServer batchLimit (PayloadDb' db)
     = liftIO . payloadHandler @cas db
     :<|> liftIO . outputsHandler @cas db
-    :<|> liftIO . payloadBatchHandler @cas db
-    :<|> liftIO . outputsBatchHandler @cas db
+    :<|> liftIO . payloadBatchHandler @cas batchLimit db
+    :<|> liftIO . outputsBatchHandler @cas batchLimit db
 
 -- -------------------------------------------------------------------------- --
 -- Application for a single PayloadDb
@@ -174,9 +173,10 @@ payloadApp
     . PayloadCasLookup cas
     => KnownChainwebVersionSymbol v
     => KnownChainIdSymbol c
-    => PayloadDb' cas v c
+    => PayloadBatchLimit
+    -> PayloadDb' cas v c
     -> Application
-payloadApp db = serve (Proxy @(PayloadApi v c)) (payloadServer db)
+payloadApp batchLimit db = serve (Proxy @(PayloadApi v c)) (payloadServer batchLimit db)
 
 payloadApiLayout
     :: forall cas v c
@@ -186,32 +186,39 @@ payloadApiLayout
     -> IO ()
 payloadApiLayout _ = T.putStrLn $ layout (Proxy @(PayloadApi v c))
 
-newPayloadServer :: PayloadCasLookup cas => Route (PayloadDb cas -> Application)
-newPayloadServer = fold
+newPayloadServer :: PayloadCasLookup cas => PayloadBatchLimit -> Route (PayloadDb cas -> Application)
+newPayloadServer batchLimit = fold
     [ choice "batch" $
         terminus methodGet "application/json" $ \pdb req resp ->
-            resp . responseJSON ok200 [] . toJSON =<< payloadBatchHandler pdb =<< requestFromJSON req
+            resp . responseJSON ok200 [] . toJSON =<< payloadBatchHandler batchLimit pdb =<< requestFromJSON req
     , choice "outputs" $
         choice "batch" $
             terminus methodPost "application/json" $ \pdb req resp ->
-            resp . responseJSON ok200 [] . toJSON =<< outputsBatchHandler pdb =<< requestFromJSON req
-    -- , capture $ fold
-        -- [ choice "outputs" $ terminus [methodGet] [("application/json", outputsHandler)]
-        -- , terminus [methodGet] [("application/json", payloadHandler)]
-        -- ]
+            resp . responseJSON ok200 [] . toJSON =<< outputsBatchHandler batchLimit pdb =<< requestFromJSON req
+    , capture $ fold
+        [ choice "outputs" $ terminus methodGet "application/json" $ \k pdb _ resp ->
+            resp . responseJSON ok200 [] . toJSON =<< outputsHandler pdb k
+        , terminus methodGet "application/json" $ \k pdb _ resp ->
+            resp . responseJSON ok200 [] . toJSON =<< payloadHandler pdb k
+        ]
     ]
 
 -- -------------------------------------------------------------------------- --
 -- Multichain Server
 
-somePayloadServer :: PayloadCasLookup cas => SomePayloadDb cas -> SomeServer
-somePayloadServer (SomePayloadDb (db :: PayloadDb' cas v c))
-    = SomeServer (Proxy @(PayloadApi v c)) (payloadServer db)
+somePayloadServer
+    :: PayloadCasLookup cas
+    => PayloadBatchLimit
+    -> SomePayloadDb cas
+    -> SomeServer
+somePayloadServer batchLimit (SomePayloadDb (db :: PayloadDb' cas v c))
+    = SomeServer (Proxy @(PayloadApi v c)) (payloadServer batchLimit db)
 
 somePayloadServers
     :: PayloadCasLookup cas
     => ChainwebVersion
+    -> PayloadBatchLimit
     -> [(ChainId, PayloadDb cas)]
     -> SomeServer
-somePayloadServers v
-    = mconcat . fmap (somePayloadServer . uncurry (somePayloadDbVal v))
+somePayloadServers v batchLimit
+    = mconcat . fmap (somePayloadServer batchLimit . uncurry (somePayloadDbVal v))
