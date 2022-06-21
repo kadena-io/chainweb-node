@@ -61,8 +61,8 @@ import Chainweb.Version
 miningApi :: Logger l => MiningCoordination l cas -> Route Wai.Application
 miningApi mc = choice "mining" $ fold
     [ choice "work" $ terminus methodGet "application/octet-stream" (workHandler mc)
-    , choice "solved" $ terminus methodPost "text/plain" (solvedHandler mc)
-    , choice "updates" $ terminus methodGet "text/event-stream" (updatesHandler mc)
+    , choice "solved" $ terminus methodPost "application/json" (solvedHandler mc)
+    , choice "updates" $ terminus methodGet "application/octet-stream" (updatesHandler mc)
     ]
 
 workHandler :: Logger l => MiningCoordination l cas -> Wai.Application
