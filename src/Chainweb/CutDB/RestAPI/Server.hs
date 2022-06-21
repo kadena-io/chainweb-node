@@ -116,7 +116,7 @@ newCutGetServer cutDb = terminus' [cutGetEndpoint cutDb]
 newCutServer :: PeerDb -> CutDb cas -> Route Wai.Application
 newCutServer peerDb cutDb = terminus'
     [ cutGetEndpoint cutDb
-    , (methodPut, "text/plain;charset=utf-8",) $ \req resp -> do
+    , (methodPut, "application/json",) $ \req resp -> do
         cutPutHandler peerDb cutDb =<< requestFromJSON req
         resp $ Wai.responseLBS noContent204 [] ""
     ]

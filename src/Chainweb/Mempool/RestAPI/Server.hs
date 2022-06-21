@@ -44,7 +44,7 @@ insertHandler
     . MempoolBackend t
     -> [T.Text]
     -> IO ()
-insertHandler mempool txsT = handleErrs (() <$ begin)
+insertHandler mempool txsT = handleErrs begin
   where
     txcfg = mempoolTxConfig mempool
 
@@ -134,11 +134,9 @@ someMempoolServers v = mconcat
 newMempoolServer :: Show t => Route (MempoolBackend t -> Application)
 newMempoolServer = fold
     [ choice "insert" $
-        terminus methodPut "text/plain;charset-utf-8" $ \mempool req resp -> do
-            putStrLn "inserting..."
+        terminus methodPut "application/json" $ \mempool req resp -> do
             insertHandler mempool =<< requestFromJSON req
-            putStrLn "inserted."
-            resp $ responseLBS noContent204 [] ""
+            resp $ responseLBS ok200 [] ""
     , choice "member" $
         terminus methodPost "application/json" $ \mempool req resp -> do
             resp . responseJSON ok200 [] =<< memberHandler mempool =<< requestFromJSON req
