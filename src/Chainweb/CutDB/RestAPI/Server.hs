@@ -3,6 +3,7 @@
 {-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TupleSections #-}
 {-# LANGUAGE TypeApplications #-}
 
 -- |
@@ -24,6 +25,7 @@ module Chainweb.CutDB.RestAPI.Server
 , cutServer
 , cutGetServer
 , newCutGetServer
+, newCutServer
 
 -- * Some Cut Server
 , someCutServer
@@ -40,6 +42,7 @@ import Data.IxSet.Typed
 import Data.Proxy
 import Data.Semigroup
 
+import Network.HTTP.Media
 import Network.HTTP.Types
 import Network.Wai.Handler.Warp hiding (Port)
 import qualified Network.Wai as Wai
@@ -75,14 +78,14 @@ cutGetHandler db (Just (MaxRank (Max mar))) = do
     !c' <- limitCut (view cutDbWebBlockHeaderDb db) (int mar) c
     return $! cutToCutHashes Nothing c'
 
-cutPutHandler :: PeerDb -> CutDb cas -> CutHashes -> Handler NoContent
+cutPutHandler :: PeerDb -> CutDb cas -> CutHashes -> IO ()
 cutPutHandler pdb db c = case _peerAddr <$> _cutOrigin c of
-    Nothing -> throwError $ err400 { errBody = "Cut is missing an origin entry" }
+    Nothing -> errorWithStatus badRequest400 "Cut is missing an origin entry"
     Just addr -> do
-        ps <- liftIO $ peerDbSnapshot pdb
+        ps <- peerDbSnapshot pdb
         case getOne (getEQ addr ps) of
-            Nothing -> throwError $ err401 { errBody = "Unknown peer" }
-            Just{} -> NoContent <$ liftIO (addCutHashes db c)
+            Nothing -> errorWithStatus unauthorized401 "Unknown peer"
+            Just{} -> addCutHashes db c
 
 -- -------------------------------------------------------------------------- --
 -- Cut API Server
@@ -92,7 +95,9 @@ cutServer
     . PeerDb
     -> CutDbT cas v
     -> Server (CutApi v)
-cutServer pdb (CutDbT db) = (liftIO . cutGetHandler db) :<|> cutPutHandler pdb db
+cutServer pdb (CutDbT db) =
+    (liftIO . cutGetHandler db)
+    :<|> (liftIO . fmap (const NoContent) . cutPutHandler pdb db)
 
 cutGetServer
     :: forall cas (v :: ChainwebVersionT)
@@ -100,11 +105,21 @@ cutGetServer
     -> Server (CutGetApi v)
 cutGetServer (CutDbT db) = liftIO . cutGetHandler db
 
-newCutGetServer :: CutDb cas -> Route (ChainwebVersion -> Wai.Application)
-newCutGetServer cutDb =
-    choice "cut" $ terminus methodGet "application/json" $ \_ req respond -> do
-        let maxheight = getParams req (queryParamMaybe "maxheight")
-        respond . responseJSON status200 [] =<< cutGetHandler cutDb maxheight
+cutGetEndpoint :: CutDb cas -> (Method, MediaType, Wai.Application)
+cutGetEndpoint cutDb = (methodGet, "application/json",) $ \req resp -> do
+    maxheight <- getParams req (queryParamMaybe "maxheight")
+    resp . responseJSON status200 [] =<< cutGetHandler cutDb maxheight
+
+newCutGetServer :: CutDb cas -> Route Wai.Application
+newCutGetServer cutDb = terminus' [cutGetEndpoint cutDb]
+
+newCutServer :: PeerDb -> CutDb cas -> Route Wai.Application
+newCutServer peerDb cutDb = terminus'
+    [ cutGetEndpoint cutDb
+    , (methodPut, "text/plain;charset=utf-8",) $ \req resp -> do
+        cutPutHandler peerDb cutDb =<< requestFromJSON req
+        resp $ Wai.responseLBS noContent204 [] ""
+    ]
 
 -- -------------------------------------------------------------------------- --
 -- Some Cut Server

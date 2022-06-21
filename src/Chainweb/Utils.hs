@@ -242,7 +242,7 @@ import qualified Data.HashSet as HS
 import Data.Monoid (Endo)
 import Data.Proxy
 import qualified Data.Serialize.Get as Serialize
-import qualified Data.Serialize.Put as Serialize 
+import qualified Data.Serialize.Put as Serialize
 import Data.String (IsString(..))
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
@@ -461,12 +461,12 @@ runGetEither g = first (DecodeException . T.pack) . runGetS (g <* eof)
 {-# INLINE runGetEither #-}
 
 -- | Decode a value from a 'BL.ByteString' and return either the result or a
--- 'DecodeException'.
+-- 'Text'.
 --
-runGetEitherL :: Binary.Get a -> BL.ByteString -> Either EncodingException a
-runGetEitherL g = 
+runGetEitherL :: Binary.Get a -> BL.ByteString -> Either T.Text a
+runGetEitherL g =
     over _Right (view _3) .
-    over _Left (DecodeException . T.pack . view _3) .
+    over _Left (T.pack . view _3) .
     Binary.runGetOrFail (g <* eof)
 {-# INLINE runGetEitherL #-}
 

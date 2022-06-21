@@ -36,8 +36,6 @@ import Data.IORef (IORef, atomicModifyIORef', newIORef, readIORef, writeIORef)
 import qualified Data.Map.Strict as M
 import qualified Data.Set as S
 import qualified Data.Text.Encoding as T
-import qualified Data.Text.Lazy as TL
-import qualified Data.Text.Lazy.Encoding as TL
 
 import Network.HTTP.Types
 import qualified Network.Wai as Wai
@@ -56,10 +54,8 @@ import Chainweb.CutDB (awaitNewCutByChainIdStm, _cut)
 import Chainweb.Logger (Logger)
 import Chainweb.Miner.Config
 import Chainweb.Miner.Coordinator
-import Chainweb.Miner.Core
 import Chainweb.Miner.Pact
-import Chainweb.RestAPI.Utils (SomeServer(..))
-import Chainweb.Utils (EncodingException(..), runGetEitherL, runPutL)
+import Chainweb.Utils (runGetEitherL, runPutL)
 import Chainweb.Version
 
 miningApi :: Logger l => MiningCoordination l cas -> Route Wai.Application
@@ -71,7 +67,7 @@ miningApi mc = choice "mining" $ fold
 
 workHandler :: Logger l => MiningCoordination l cas -> Wai.Application
 workHandler mr req respond = do
-    let mcid = getParams req (queryParamMaybe "chain")
+    mcid <- getParams req (queryParamMaybe "chain")
     m@(Miner (MinerId mid) _) <- requestFromJSON req
     MiningState ms <- readTVarIO $ _coordState mr
     when (M.size ms > _coordLimit mr) $ do
@@ -90,7 +86,7 @@ solvedHandler :: Logger l => MiningCoordination l cas -> Wai.Application
 solvedHandler mr req respond = do
     bytes <- Wai.lazyRequestBody req
     case runGetEitherL decodeSolvedWork bytes of
-        Left (DecodeException e) ->
+        Left e ->
             errorWithStatus status400 $ "Decoding error: " <> T.encodeUtf8 e
 
         Right !solved -> do
@@ -111,7 +107,7 @@ updatesHandler :: Logger l => MiningCoordination l cas -> Wai.Application
 updatesHandler mr req respond = withLimit $ do
     cbytes <- Wai.lazyRequestBody req
     !cid <- case runGetEitherL decodeChainId cbytes of
-        Left (DecodeException e) ->
+        Left e ->
             errorWithStatus status400 $ "Decoding error: " <> T.encodeUtf8 e
         Right cid -> return cid
     cv  <- _cut (_coordCutDb mr) >>= newIORef

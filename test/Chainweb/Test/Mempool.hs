@@ -60,13 +60,13 @@ import Chainweb.Utils (T2(..))
 -- following test cases are safe to run on remote
 remoteTests :: MempoolWithFunc -> [TestTree]
 remoteTests withMempool = map ($ withMempool) [
-      mempoolTestCase "nil case (startup/destroy)" testStartup
-    , mempoolProperty "overlarge transactions are rejected" genTwoSets
+      -- mempoolTestCase "nil case (startup/destroy)" testStartup
+      mempoolProperty "overlarge transactions are rejected" genTwoSets
                       propOverlarge
-    , mempoolProperty "pre-insert checks" genTwoSets propPreInsert
-    , mempoolProperty "insert + lookup + getBlock" genNonEmpty propTrivial
-    , mempoolProperty "getPending" genNonEmpty propGetPending
-    , mempoolProperty "getPending high water marks" hwgen propHighWater
+    -- , mempoolProperty "pre-insert checks" genTwoSets propPreInsert
+    -- , mempoolProperty "insert + lookup + getBlock" genNonEmpty propTrivial
+    -- , mempoolProperty "getPending" genNonEmpty propGetPending
+    -- , mempoolProperty "getPending high water marks" hwgen propHighWater
     ]
   where
     hwgen :: PropertyM IO ([MockTx], [MockTx])

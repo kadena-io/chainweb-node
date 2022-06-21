@@ -3,11 +3,13 @@
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE OverloadedStrings #-}
 
 module Chainweb.Mempool.RestAPI.Server
   ( mempoolServer
   , someMempoolServer
   , someMempoolServers
+  , newMempoolServer
   ) where
 
 ------------------------------------------------------------------------------
@@ -15,11 +17,17 @@ import Control.DeepSeq (NFData)
 import Control.Monad.Catch hiding (Handler)
 import Control.Monad.IO.Class
 import qualified Data.DList as D
+import Data.Foldable
 import Data.IORef
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
 import qualified Data.Vector as V
+import Network.Wai
 import Servant
+
+import Network.HTTP.Types
+import Web.DeepRoute
+import Web.DeepRoute.Wai
 
 ------------------------------------------------------------------------------
 import Chainweb.ChainId
@@ -35,39 +43,37 @@ insertHandler
     :: forall t
     . MempoolBackend t
     -> [T.Text]
-    -> Handler NoContent
-insertHandler mempool txsT = handleErrs (NoContent <$ begin)
+    -> IO ()
+insertHandler mempool txsT = handleErrs (() <$ begin)
   where
     txcfg = mempoolTxConfig mempool
 
     decode :: T.Text -> Either String t
     decode = codecDecode (txCodec txcfg) . T.encodeUtf8
 
-    go :: T.Text -> Handler t
+    go :: T.Text -> IO t
     go h = case decode h of
         Left e -> throwM . DecodeException $ T.pack e
         Right t -> return t
 
-    begin :: Handler ()
+    begin :: IO ()
     begin = do
         txs <- mapM go txsT
         let txV = V.fromList txs
         liftIO $ mempoolInsert mempool CheckedInsert txV
 
-
-memberHandler :: Show t => MempoolBackend t -> [TransactionHash] -> Handler [Bool]
-memberHandler mempool txs = handleErrs (liftIO mem)
+memberHandler :: Show t => MempoolBackend t -> [TransactionHash] -> IO [Bool]
+memberHandler mempool txs = handleErrs mem
   where
     txV = V.fromList txs
     mem = V.toList <$> mempoolMember mempool txV
-
 
 lookupHandler
     :: Show t
     => MempoolBackend t
     -> [TransactionHash]
-    -> Handler [LookupResult T.Text]
-lookupHandler mempool txs = handleErrs (liftIO look)
+    -> IO [LookupResult T.Text]
+lookupHandler mempool txs = handleErrs look
   where
     txV = V.fromList txs
     txcfg = mempoolTxConfig mempool
@@ -79,8 +85,8 @@ getPendingHandler
     => MempoolBackend t
     -> Maybe ServerNonce
     -> Maybe MempoolTxId
-    -> Handler PendingTransactions
-getPendingHandler mempool mbNonce mbHw = liftIO $ do
+    -> IO PendingTransactions
+getPendingHandler mempool mbNonce mbHw = do
 
     -- Ideally, this would serialize directly into the output buffer, but
     -- that's not how servant works. So we first collect the hashes into a
@@ -106,9 +112,9 @@ getPendingHandler mempool mbNonce mbHw = liftIO $ do
         return (oldNonce, tx)
 
 
-handleErrs :: NFData a => Handler a -> Handler a
+handleErrs :: NFData a => IO a -> IO a
 handleErrs = flip catchAllSynchronous $ \e ->
-    throwError $ err400 { errBody = sshow e }
+    errorWithStatus badRequest400 (sshow e)
 
 someMempoolServer
     :: (Show t)
@@ -125,10 +131,30 @@ someMempoolServers
 someMempoolServers v = mconcat
     . fmap (someMempoolServer v . uncurry (someMempoolVal v))
 
+newMempoolServer :: Show t => Route (MempoolBackend t -> Application)
+newMempoolServer = fold
+    [ choice "insert" $
+        terminus methodPut "text/plain;charset-utf-8" $ \mempool req resp -> do
+            putStrLn "inserting..."
+            insertHandler mempool =<< requestFromJSON req
+            putStrLn "inserted."
+            resp $ responseLBS noContent204 [] ""
+    , choice "member" $
+        terminus methodPost "application/json" $ \mempool req resp -> do
+            resp . responseJSON ok200 [] =<< memberHandler mempool =<< requestFromJSON req
+    , choice "lookup" $
+        terminus methodPost "application/json" $ \mempool req resp -> do
+            resp . responseJSON ok200 [] =<< lookupHandler mempool =<< requestFromJSON req
+    , choice "getPending" $
+        terminus methodPost "application/json" $ \mempool req resp -> do
+            (nonce, since) <- getParams req $
+                (,) <$> queryParamMaybe "nonce" <*> queryParamMaybe "since"
+            resp . responseJSON ok200 [] =<< getPendingHandler mempool nonce since
+    ]
 
 mempoolServer :: Show t => ChainwebVersion -> Mempool_ v c t -> Server (MempoolApi v c)
 mempoolServer _v (Mempool_ mempool) =
-    insertHandler mempool
-    :<|> memberHandler mempool
-    :<|> lookupHandler mempool
-    :<|> getPendingHandler mempool
+    ((NoContent <$) . liftIO . insertHandler mempool)
+    :<|> (liftIO . memberHandler mempool)
+    :<|> (liftIO . lookupHandler mempool)
+    :<|> ((liftIO .) . getPendingHandler mempool)

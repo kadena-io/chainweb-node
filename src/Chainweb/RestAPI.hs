@@ -7,6 +7,7 @@
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeOperators #-}
+{-# LANGUAGE ViewPatterns #-}
 
 #ifndef CURRENT_PACKAGE_VERSION
 #define CURRENT_PACKAGE_VERSION "UNKNOWN"
@@ -49,7 +50,6 @@ module Chainweb.RestAPI
 , servePeerDbSocketTls
 
 -- * Service API Server
-, someServiceApiServer
 , serviceApiApplication
 , serveServiceApiSocket
 
@@ -67,22 +67,25 @@ import Control.Monad (guard)
 import Data.Bifunctor
 import Data.Bool (bool)
 import Data.Foldable
+import Data.Maybe
+import qualified Data.HashSet as HS
 
 import GHC.Generics (Generic)
+import GHC.Stack
 
+import Network.HTTP.Types
 import Network.Socket
 import qualified Network.TLS.SessionManager as TLS
-import Network.Wai (Middleware, mapResponseHeaders, remoteHost)
+import Network.Wai
 import Network.Wai.Handler.Warp hiding (Port)
 import Network.Wai.Handler.WarpTLS (TLSSettings(..), runTLSSocket)
 import Network.Wai.Middleware.Cors
-
-import Servant.Server
 
 import System.Clock
 
 import Web.DeepRoute
 import Web.DeepRoute.Wai
+import Web.HttpApiData
 
 -- internal modules
 
@@ -246,8 +249,34 @@ chainwebApplication
     -> Application
 chainwebApplication config dbs
     = chainwebP2pMiddlewares
-    . someServerApplication
-    $ someChainwebServer config dbs
+    $ \req resp -> routeWaiApp req resp
+        (resp $ responseLBS notFound404 [] mempty)
+        $ choice "chainweb" $ choice "0.0" $ choice (chainwebVersionToText v) $ fold
+            [ choice "cut" $ fold
+                [ maybe mempty (newCutServer cutPeerDb) cuts
+                , choice "peer" $ ($ (cutPeerDb, CutNetwork)) <$> newP2pServer v
+                ]
+            , choice "chain" $
+                captureValidChainId v $ fold
+                    [ choice "spv" $ choice "chain" $ captureValidChainId v $ maybe mempty newSpvServer cuts
+                    , choice "payload" $ (. lookupResource payloads) <$> newPayloadServer
+                    , (. lookupResource blocks) <$> newBlockHeaderDbServer
+                    , choice "peer" $ p2pOn ChainNetwork
+                    , choice "mempool" $ fold
+                        [ (. lookupResource mempools) <$> Mempool.newMempoolServer
+                        , choice "peer" $ p2pOn MempoolNetwork
+                        ]
+                    ]
+            ]
+  where
+    p2pOn makeNetworkId = (\s (makeNetworkId -> nid) -> s (lookupResource peers nid, nid)) <$> newP2pServer v
+    payloads = _chainwebServerPayloadDbs dbs
+    blocks = _chainwebServerBlockHeaderDbs dbs
+    cuts = _chainwebServerCutDb dbs
+    peers = _chainwebServerPeerDbs dbs
+    mempools = _chainwebServerMempools dbs
+    cutPeerDb = fromJuste $ lookup CutNetwork peers
+    v = _configChainwebVersion config
 
 serveChainwebOnPort
     :: Show t
@@ -317,42 +346,6 @@ servePeerDbSocketTls settings certChain key sock v nid pdb m =
 -- -------------------------------------------------------------------------- --
 -- Chainweb Service API Application
 
-someServiceApiServer
-    :: Show t
-    => PayloadCasLookup cas
-    => Logger logger
-    => ChainwebVersion
-    -> ChainwebServerDbs t cas
-    -> [(ChainId, PactAPI.PactServerData logger cas)]
-    -> Maybe (MiningCoordination logger cas)
-    -> HeaderStream
-    -> Rosetta
-    -> SomeServer
-someServiceApiServer v dbs pacts mr (HeaderStream hs) (Rosetta r) =
-    -- someHealthCheckServer
-    -- maybe mempty (someNodeInfoServer v) cuts
-    -- TODO PactAPI.somePactServers v pacts
-    -- maybe mempty (Mining.someMiningServer v) mr
-    -- maybe mempty (someHeaderStreamServer v) (bool Nothing cuts hs)
-    -- maybe mempty (bool mempty (someRosettaServer v payloads concreteMs cutPeerDb concretePacts) r) cuts
-        -- TODO: not sure if passing the correct PeerDb here
-        -- TODO: why does Rosetta need a peer db at all?
-        -- TODO: simplify number of resources passing to rosetta
-
-    -- GET Cut, Payload, and Headers endpoints
-    -- maybe mempty (someCutGetServer v) cuts
-    -- <> somePayloadServers v payloads
-    -- <> someBlockHeaderDbServers v blocks
-    mempty
-  where
-    cuts = _chainwebServerCutDb dbs
-    peers = _chainwebServerPeerDbs dbs
-    concreteMs = second PactAPI._pactServerDataMempool <$> pacts
-    concretePacts = second PactAPI._pactServerDataPact <$> pacts
-    cutPeerDb = fromJuste $ lookup CutNetwork peers
-    payloads = _chainwebServerPayloadDbs dbs
-    blocks = _chainwebServerBlockHeaderDbs dbs
-
 serviceApiApplication
     :: Show t
     => PayloadCasLookup cas
@@ -366,22 +359,25 @@ serviceApiApplication
     -> Application
 serviceApiApplication v dbs pacts mr (HeaderStream hs) (Rosetta r)
     = chainwebServiceMiddlewares
-    $ routeWaiApp
-    $ fold
-    [ newHealthCheckServer
-    , maybe mempty (nodeInfoApi v) cuts
-    , maybe mempty Mining.miningApi mr
-    , fmap ($ v) $ fold
-        [ maybe mempty headerStreamServer (bool Nothing cuts hs)
-        -- , maybe mempty (bool mempty (someRosettaServer v payloads concreteMs cutPeerDb concretePacts) r) cuts
-        , maybe mempty newCutGetServer cuts
-        , choice "chain" $
-            capture $ fold
-                [ newPayloadServers payloads
-                , newBlockHeaderDbServers blocks
-                ]
+    $ \req resp -> routeWaiApp req resp
+        (someServerApplication (fold
+            [ maybe mempty (bool mempty (someRosettaServer v payloads concreteMs cutPeerDb concretePacts) r) cuts
+            , PactAPI.somePactServers v pacts
+            ]) req resp)
+        $ fold
+        [ newHealthCheckServer
+        , maybe mempty (nodeInfoApi v) cuts
+        , maybe mempty Mining.miningApi mr
+        , choice "chainweb" $ choice "0.0" $ choice (chainwebVersionToText v) $ fold
+            [ maybe mempty headerStreamServer (bool Nothing cuts hs)
+            , choice "cut" $ maybe mempty newCutGetServer cuts
+            , choice "chain" $
+                captureValidChainId v $ fold
+                    [ choice "payload" $ (. lookupResource payloads) <$> newPayloadServer
+                    , (. lookupResource blocks) <$> newBlockHeaderDbServer
+                    ]
+            ]
         ]
-    ]
   where
     cuts = _chainwebServerCutDb dbs
     peers = _chainwebServerPeerDbs dbs
@@ -407,3 +403,14 @@ serveServiceApiSocket
     -> IO ()
 serveServiceApiSocket s sock v dbs pacts mr hs r m =
     runSettingsSocket s sock $ m $ serviceApiApplication v dbs pacts mr hs r
+
+captureValidChainId :: HasChainwebVersion v => v -> Route (ChainId -> a) -> Route a
+captureValidChainId v = capture' $ \p -> do
+    cid <- parseUrlPieceMaybe p
+    guard (HS.member cid (chainIds v))
+    return cid
+
+lookupResource :: (HasCallStack, Eq a) => [(a, b)] -> a -> b
+lookupResource ress ident =
+    fromMaybe (error "internal error: failed to look up resource by identifier") $
+        lookup ident ress

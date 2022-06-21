@@ -45,10 +45,10 @@ globalHealthStatus = unsafePerformIO $! newMVar Healthy
 {-# NOINLINE globalHealthStatus #-}
 
 healthCheckHandler :: (MonadIO m, IsString s) => m s
-healthCheckHandler = do
-    h <- liftIO $ readMVar globalHealthStatus
-    return $ case h of
-        Healthy -> "Health check OK.\n"
+healthCheckHandler = liftIO $ do
+    h <- readMVar globalHealthStatus
+    case h of
+        Healthy -> return "Health check OK.\n"
         Unhealthy -> errorWithStatus serviceUnavailable503 ""
 
 someHealthCheckServer :: SomeServer

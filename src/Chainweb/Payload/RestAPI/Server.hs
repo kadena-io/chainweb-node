@@ -18,7 +18,6 @@
 module Chainweb.Payload.RestAPI.Server
 (
   newPayloadServer
-, newPayloadServers
 , somePayloadServer
 , somePayloadServers
 
@@ -43,7 +42,6 @@ import qualified Data.Vector as V
 import Prelude
 
 import Network.HTTP.Types
-import Network.HTTP.Media
 import Network.Wai
 import Servant
 
@@ -188,26 +186,19 @@ payloadApiLayout
     -> IO ()
 payloadApiLayout _ = T.putStrLn $ layout (Proxy @(PayloadApi v c))
 
-newPayloadServer :: PayloadCasLookup cas => Route (PayloadDb cas -> ChainwebVersion -> Application)
-newPayloadServer = choice "payload" $ fold
+newPayloadServer :: PayloadCasLookup cas => Route (PayloadDb cas -> Application)
+newPayloadServer = fold
     [ choice "batch" $
-        terminus methodGet "application/json" $ \pdb _ req resp ->
+        terminus methodGet "application/json" $ \pdb req resp ->
             resp . responseJSON ok200 [] . toJSON =<< payloadBatchHandler pdb =<< requestFromJSON req
     , choice "outputs" $
         choice "batch" $
-            terminus methodPost "application/json" $ \pdb _ req resp ->
+            terminus methodPost "application/json" $ \pdb req resp ->
             resp . responseJSON ok200 [] . toJSON =<< outputsBatchHandler pdb =<< requestFromJSON req
     -- , capture $ fold
         -- [ choice "outputs" $ terminus [methodGet] [("application/json", outputsHandler)]
         -- , terminus [methodGet] [("application/json", payloadHandler)]
         -- ]
-    ]
-
-newPayloadServers :: PayloadCasLookup cas => [(ChainId, PayloadDb cas)] -> Route (ChainId -> ChainwebVersion -> Application)
-newPayloadServers payloads = fold
-    [ choice (chainIdToText cid) $
-        (\k ci v -> k (fromJust $ lookup ci payloads) v) <$> newPayloadServer
-    | (cid, _) <- payloads
     ]
 
 -- -------------------------------------------------------------------------- --

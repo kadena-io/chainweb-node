@@ -22,7 +22,6 @@ module Chainweb.BlockHeaderDB.RestAPI.Server
   someBlockHeaderDbServer
 , someBlockHeaderDbServers
 , newBlockHeaderDbServer
-, newBlockHeaderDbServers
 
 -- * Single Chain Server
 , blockHeaderDbApp
@@ -36,7 +35,6 @@ module Chainweb.BlockHeaderDB.RestAPI.Server
 import Control.Applicative
 import Control.Lens hiding (children, (.=))
 import Control.Monad
-import Control.Monad.Except (MonadError(..))
 import Control.Monad.IO.Class
 
 import Data.Aeson
@@ -49,7 +47,6 @@ import Data.CAS (casLookupM)
 import Data.Foldable
 import Data.Functor.Of
 import Data.IORef
-import qualified Data.List as List
 import Data.Maybe
 import Data.Proxy
 import Data.Text.Encoding (decodeUtf8)
@@ -96,7 +93,7 @@ checkKey
     => db
     -> DbKey db
     -> m (DbKey db)
-checkKey !db !k = liftIO (lookup db k) >>= \case
+checkKey !db !k = liftIO $ lookup db k >>= \case
     Nothing -> jsonErrorWithStatus notFound404 $ object
         [ "reason" .= ("key not found" :: String)
         , "key" .= k
@@ -231,7 +228,7 @@ headerHandler
     => db
     -> DbKey db
     -> m (DbEntry db)
-headerHandler db k = liftIO (lookup db k) >>= \case
+headerHandler db k = liftIO $ lookup db k >>= \case
     Nothing -> jsonErrorWithStatus notFound404 $ object
         [ "reason" .= ("key not found" :: String)
         , "key" .= k
@@ -253,73 +250,56 @@ blockHeaderDbServer (BlockHeaderDb_ db)
 -- Application for a single BlockHeaderDB
 
 newBlockHeaderDbServer
-    :: Route (BlockHeaderDb -> ChainwebVersion -> Application)
-newBlockHeaderDbServer = (const .) <$> fold
+    :: Route (BlockHeaderDb -> Application)
+newBlockHeaderDbServer = fold
     [ choice "hash" $ fold
         [ choice "branch" $ terminus methodPost "application/json" $ \db req resp -> do
-            let
-                ((limit, next), (minheight, maxheight)) =
-                    getParams req $ (,) <$> pageParams <*> filterParams
+            ((limit, next), (minheight, maxheight)) <-
+                getParams req $ (,) <$> pageParams <*> filterParams
             resp . responseJSON ok200 [] =<< branchHashesHandler db limit next minheight maxheight =<< requestFromJSON req
         , terminus methodGet "application/json" $ \db req resp -> do
-            let
-                ((limit, next), (minheight, maxheight)) =
-                    getParams req $ (,) <$> pageParams <*> filterParams
+            ((limit, next), (minheight, maxheight)) <-
+                getParams req $ (,) <$> pageParams <*> filterParams
             resp . responseJSON ok200 [] =<< hashesHandler db limit next minheight maxheight
         ]
     , choice "header" $ fold
         [ choice "branch" $ terminus'
             [ (methodPost, "application/json",) $ \db req resp -> do
-                let
-                    ((limit, next), (minheight, maxheight)) =
-                        getParams req $ (,) <$> pageParams <*> filterParams
+                ((limit, next), (minheight, maxheight)) <-
+                    getParams req $ (,) <$> pageParams <*> filterParams
                 resp . responseJSON ok200 [] =<< branchHeadersHandler db limit next minheight maxheight =<< requestFromJSON req
             , (methodPost, "application/json'blockheader-encoding=object",) $ \db req resp -> do
-                let
-                    ((limit, next), (minheight, maxheight)) =
-                        getParams req $ (,) <$> pageParams <*> filterParams
+                ((limit, next), (minheight, maxheight)) <-
+                    getParams req $ (,) <$> pageParams <*> filterParams
                 resp . responseJSON ok200 [] . fmap ObjectEncoded =<< branchHeadersHandler db limit next minheight maxheight =<< requestFromJSON req
-            ]
-        , capture $ terminus'
-            [ (methodGet, "application/json",) $ \blockHash db req resp ->
-                resp . responseJSON ok200 [] =<< headerHandler db blockHash
-            , (methodGet, "application/json;blockheader-encoding=object",) $ \blockHash db req resp ->
-                resp . responseJSON ok200 [] . ObjectEncoded =<< headerHandler db blockHash
-            , (methodGet, "application/octet-stream",) $ \blockHash db req resp ->
-                resp . Wai.responseLBS ok200 [] . runPutL . encodeBlockHeader =<< headerHandler db blockHash
             ]
         , terminus'
             [ (methodGet, "application/json",) $ \db req resp -> do
-                let
-                    ((limit, next), (minheight, maxheight)) =
-                        getParams req $ (,) <$> pageParams <*> filterParams
+                ((limit, next), (minheight, maxheight)) <-
+                    getParams req $ (,) <$> pageParams <*> filterParams
                 resp . responseJSON ok200 [] =<< headersHandler db limit next minheight maxheight
             , (methodGet, "application/json;blockheader-encoding=object",) $ \db req resp -> do
-                let
-                    ((limit, next), (minheight, maxheight)) =
-                        getParams req $ (,) <$> pageParams <*> filterParams
+                ((limit, next), (minheight, maxheight)) <-
+                    getParams req $ (,) <$> pageParams <*> filterParams
                 resp . responseJSON ok200 [] . fmap ObjectEncoded =<< headersHandler db limit next minheight maxheight
+            ]
+        , capture $ terminus'
+            [ (methodGet, "application/json",) $ \bh db _ resp -> do
+                resp . responseJSON ok200 [] =<< headerHandler db bh
+            , (methodGet, "application/json;blockheader-encoding=object",) $ \bh db _ resp ->
+                resp . responseJSON ok200 [] . ObjectEncoded =<< headerHandler db bh
+            , (methodGet, "application/octet-stream",) $ \bh db _ resp ->
+                resp . Wai.responseLBS ok200 [] . runPutL . encodeBlockHeader =<< headerHandler db bh
             ]
         ]
     ]
     where
     pageParams = (,) <$> limitParam <*> nextParam
-    limitParam :: QueryText -> Maybe Limit
     limitParam = queryParamMaybe "limit"
-    nextParam :: FromHttpApiData k => QueryText -> Maybe k
     nextParam = queryParamMaybe "next"
-    minHeightParam :: QueryText -> Maybe MinRank
     minHeightParam = queryParamMaybe "minheight"
-    maxHeightParam :: QueryText -> Maybe MaxRank
     maxHeightParam = queryParamMaybe "maxheight"
     filterParams = (,) <$> minHeightParam <*> maxHeightParam
-
-newBlockHeaderDbServers :: [(ChainId, BlockHeaderDb)] -> Route (ChainId -> ChainwebVersion -> Application)
-newBlockHeaderDbServers blocks = fold
-    [ choice (chainIdToText cid) $
-        (\k ci v -> k (fromJust $ List.lookup ci blocks) v) <$> newBlockHeaderDbServer
-    | (cid, _) <- blocks
-    ]
 
 blockHeaderDbApp
     :: forall v c
@@ -351,11 +331,11 @@ someBlockHeaderDbServers v = mconcat
 -- -------------------------------------------------------------------------- --
 -- BlockHeader Event Stream
 
-headerStreamServer :: PayloadCasLookup cas => CutDb cas -> Route (ChainwebVersion -> Wai.Application)
+headerStreamServer :: PayloadCasLookup cas => CutDb cas -> Route Wai.Application
 headerStreamServer db =
     choice "header" $
         choice "updates" $
-            terminus methodGet "text/event-stream" $ \_ -> headerStreamHandler db
+            terminus methodGet "text/event-stream" $ headerStreamHandler db
 
 someHeaderStreamServer :: PayloadCasLookup cas => ChainwebVersion -> CutDb cas -> SomeServer
 someHeaderStreamServer (FromSingChainwebVersion (SChainwebVersion :: Sing v)) cdb =
