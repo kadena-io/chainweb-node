@@ -1,6 +1,7 @@
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
@@ -12,8 +13,7 @@
 
 module Chainweb.RestAPI.Backup
     ( BackupApi
-    , someBackupApi
-    , someBackupServer
+    , newBackupApi
     ) where
 
 import Control.Concurrent.Async
@@ -21,13 +21,19 @@ import Control.Concurrent.STM
 import Control.Monad
 import Control.Monad.Catch
 import Control.Monad.IO.Class
-import Data.Proxy
+import qualified Data.ByteString.Lazy as LBS
+import Data.Foldable
 import Data.Text (Text)
 import qualified Data.Text as T
+import qualified Data.Text.Encoding as T
+import Network.HTTP.Types
+import Network.Wai
 import System.IO.Unsafe
 import System.LogLevel
 
 import Servant
+import Web.DeepRoute
+import Web.DeepRoute.Wai
 
 import qualified Chainweb.Backup as Backup
 import Chainweb.Logger
@@ -35,6 +41,7 @@ import Chainweb.Time
 
 import Chainweb.RestAPI.Utils
 import Chainweb.Version
+import Chainweb.Utils
 
 type BackupApi_
   =    "make-backup" :> QueryFlag "backupPact" :> PostAccepted '[PlainText] Text
@@ -42,46 +49,54 @@ type BackupApi_
 
 type BackupApi (v :: ChainwebVersionT) = 'ChainwebEndpoint v :> Reassoc BackupApi_
 
-backupApi :: forall (v :: ChainwebVersionT). Proxy (BackupApi v)
-backupApi = Proxy
-
 globalCurrentBackup :: TVar (Maybe Text)
 globalCurrentBackup = unsafePerformIO $! newTVarIO Nothing
 {-# NOINLINE globalCurrentBackup #-}
 
-someBackupApi :: ChainwebVersion -> SomeApi
-someBackupApi (FromSingChainwebVersion (SChainwebVersion :: Sing v)) = SomeApi $ backupApi @v
-
-someBackupServer :: Logger logger => ChainwebVersion -> Backup.BackupEnv logger -> SomeServer
-someBackupServer (FromSingChainwebVersion (SChainwebVersion :: Sing vT)) backupEnv =
-    SomeServer (Proxy @(BackupApi vT)) $ makeBackup :<|> checkBackup
-  where
-    noSuchBackup = err404 { errBody = "no such backup" }
-    makeBackup backupPactFlag = liftIO $ do
-        nextBackupIdentifier <- getNextBackupIdentifier
-        join $ atomically $ do
-            current <- readTVar globalCurrentBackup
-            case current of
-                Nothing -> do
-                    writeTVar globalCurrentBackup (Just nextBackupIdentifier)
-                    return $ doBackup backupPactFlag nextBackupIdentifier
-                Just b -> do
-                    let logg = logFunctionText (Backup._backupLogger backupEnv) Info $
-                            "requested backup, but backup " <> b <> " is already in progress."
-                    return $ b <$ logg
-    doBackup backupPactFlag nextBackupIdentifier = do
+makeBackupHandler :: (MonadIO m, Logger logger) => Backup.BackupEnv logger -> Bool -> m Text
+makeBackupHandler backupEnv backupPactFlag = liftIO $ do
+    nextBackupIdentifier <- getNextBackupIdentifier
+    join $ atomically $ do
+        current <- readTVar globalCurrentBackup
+        case current of
+            Nothing -> do
+                writeTVar globalCurrentBackup (Just nextBackupIdentifier)
+                return $ doBackup nextBackupIdentifier
+            Just b -> do
+                let logg = logFunctionText (Backup._backupLogger backupEnv) Info $
+                        "requested backup, but backup " <> b <> " is already in progress."
+                return $ b <$ logg
+    where
+    doBackup nextBackupIdentifier = do
         _ <- async $ do
             Backup.makeBackup backupEnv options `finally`
                 atomically (writeTVar globalCurrentBackup Nothing)
         return nextBackupIdentifier
-      where
+        where
         options = Backup.BackupOptions
             { Backup._backupIdentifier = T.unpack nextBackupIdentifier
             , Backup._backupPact = backupPactFlag
             }
-    checkBackup backupIdentifier = liftIO $ do
-        status <- Backup.checkBackup backupEnv backupIdentifier
-        maybe (throwM noSuchBackup) pure status
+
+checkBackupHandler :: (MonadIO m, Logger logger) => Backup.BackupEnv logger -> FilePath -> m Backup.BackupStatus
+checkBackupHandler backupEnv backupIdentifier = liftIO $ do
+    status <- Backup.checkBackup backupEnv backupIdentifier
+    maybe noSuchBackup pure status
+
+noSuchBackup :: IO a
+noSuchBackup = errorWithStatus notFound404 "no such backup"
+
+newBackupApi :: Logger logger => Backup.BackupEnv logger -> Route Application
+newBackupApi backupEnv = fold
+    [ choice "make-backup" $ terminus methodPost "text/plain" $ \req resp -> do
+        backupPact <- getParams req (queryParamOptional "backup-pact") >>= \case
+            Nothing -> return False
+            Just QueryParamNoValue -> return True
+            Just (QueryParamValue (_ :: Text)) -> errorWithStatus badRequest400 "backupPact must not be set to a value, it should be empty if provided"
+        resp . responseLBS accepted202 [] . LBS.fromStrict . T.encodeUtf8 =<< makeBackupHandler backupEnv backupPact
+    , choice "check-backup" $ capture $ terminus methodGet "text/plain" $ \backupIdent _ resp -> do
+        resp . responseLBS ok200 [] . LBS.fromStrict . T.encodeUtf8 . toText =<< checkBackupHandler backupEnv backupIdent
+    ]
 
 getNextBackupIdentifier :: IO Text
 getNextBackupIdentifier = do

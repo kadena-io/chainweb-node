@@ -370,7 +370,6 @@ serviceApiApplication v dbs pacts mr (HeaderStream hs) (Rosetta r) backupEnv pbl
             -- TODO: simplify number of resources passing to rosetta
             [ maybe mempty (bool mempty (someRosettaServer v payloads concreteMs cutPeerDb concretePacts) r) cuts
             , PactAPI.somePactServers v pacts
-            , maybe mempty (someBackupServer v) backupEnv
             ]) req resp)
         $ fold
         [ newHealthCheckServer
@@ -378,6 +377,7 @@ serviceApiApplication v dbs pacts mr (HeaderStream hs) (Rosetta r) backupEnv pbl
         , maybe mempty Mining.miningApi mr
         , choice "chainweb" $ choice "0.0" $ choice (chainwebVersionToText v) $ fold
             [ maybe mempty headerStreamServer (bool Nothing cuts hs)
+            , choice "backup" $ maybe mempty newBackupApi backupEnv
             , choice "cut" $ maybe mempty newCutGetServer cuts
             , choice "chain" $
                 captureValidChainId v $ fold
