@@ -459,7 +459,7 @@ startCutDb config logfun headerStore payloadStore cutHashesStore = mask_ $ do
                             Nothing -> return hm
                             Just h -> do
                                 let
-                                    cutHeightTarget = min 0 $
+                                    cutHeightTarget = max 0 $
                                         avgCutHeightAt v h -
                                             CutHeight (int $ diameterAtCutHeight v (maxBound :: CutHeight) * chainCountAt v (maxBound :: BlockHeight))
                                 limitCutHeaders wbhdb cutHeightTarget hm
