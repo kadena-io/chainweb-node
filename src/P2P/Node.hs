@@ -510,7 +510,17 @@ findNextPeer conf node = do
 
     -- Classify the peers by priority
     --
-    let base = IXS.getEQ (_p2pNodeNetworkId node) peers
+    -- jww (2022-06-22): This call to IXS.getEQ is extremely expensive in
+    -- terms of GC'd memory. In less than 24 hours of operation the
+    -- chainweb-node process was passing 40 terabytes through the allocator,
+    -- and 80% of that was coming from this line of code (albeit, when the
+    -- value is forced a bit further down at the end of this function).
+    -- Although the other uses getEQ in this function are also very expensive,
+    -- just removing this one call drops memory consumption by at least 10x.
+    -- This should be considered just a hack until we do something more
+    -- principled, like using SQLite here instead of ixset-typed.
+    -- let base = {-# SCC "classifyPeers" #-} (IXS.getEQ (_p2pNodeNetworkId node) peers)
+    let base = peers
 
 #if 0
 
