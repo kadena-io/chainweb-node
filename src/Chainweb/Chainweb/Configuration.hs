@@ -300,6 +300,9 @@ pServiceApiConfig = id
     <*< serviceApiPayloadBatchLimit .:: fmap PayloadBatchLimit . option auto
         % prefixLong service "payload-batch-limit"
         <> suffixHelp service "upper limit for the size of payload batches on the service API"
+    <*< serviceApiConfigValidateSpec .:: enableDisableFlag
+        % prefixLong service "validateSpec"
+        <> internal -- hidden option, for expert use
   where
     service = Just "service"
 
