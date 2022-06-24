@@ -593,7 +593,8 @@ runChainweb cw = do
         apiCoverageRef <- newIORef $ WV.initialCoverageMap spec
         apiCoverageLogTimeRef <- newIORef =<< getCurrentTimeIntegral
         return $
-            WV.mkValidator apiCoverageRef (WV.Log logValidationFailure (logApiCoverage apiCoverageLogTimeRef)) ("/chainweb/0.0/" <> T.encodeUtf8 (chainwebVersionToText $ _chainwebVersion $ _chainwebConfig cw)) spec
+            WV.mkValidator apiCoverageRef (WV.Log logValidationFailure (logApiCoverage apiCoverageLogTimeRef))
+                [(T.encodeUtf8 $ "/chainweb/0.0/" <> chainwebVersionToText (_chainwebVersion (_chainwebConfig cw)), spec)]
     p2pValidationMiddleware <-
         if _p2pConfigValidateSpec (_configP2p $ _chainwebConfig cw)
         then do

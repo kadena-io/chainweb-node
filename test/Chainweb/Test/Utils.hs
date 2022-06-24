@@ -144,6 +144,7 @@ import Data.Coerce (coerce)
 import Data.Foldable
 import Data.IORef
 import qualified Data.HashMap.Strict as HashMap
+import qualified Data.Map as Map
 import Data.OpenApi(OpenApi)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
@@ -641,14 +642,14 @@ withChainwebTestServer validateSpec tls v appIO envIO test = withResource start 
     test $ x >>= \(_, _, env) -> return env
   where
     start = do
-        coverageRef <- newIORef mempty
+        coverageRef <- newIORef $ WV.CoverageMap Map.empty
         let
             lg (_, req) (respBody, resp) err = do
                 let ex = ValidationException req (W.responseHeaders resp, W.responseStatus resp, respBody) err
                 error $ ppShow ex
             mw =
                 if validateSpec
-                then WV.mkValidator coverageRef (WV.Log lg (const (return ()))) ("/chainweb/0.0/" <> T.encodeUtf8 (chainwebVersionToText v)) openApiSpec
+                then WV.mkValidator coverageRef (WV.Log lg (const (return ()))) $ [(T.encodeUtf8 $ "/chainweb/0.0/" <> chainwebVersionToText v, openApiSpec)]
                 else id
         app <- mw <$> appIO
         (port, sock) <- W.openFreePort
