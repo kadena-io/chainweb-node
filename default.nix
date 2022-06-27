@@ -67,13 +67,18 @@ pkgs.haskell.packages.${compiler}.developPackage {
        } {}));
       cuckoo = dontBenchmark (dontCheck (self.callHackageDirect {
         pkg = "cuckoo";
-        ver = "0.3.0";
-        sha256 = "172km2552ipi9fqjmd16b4jmqw5a1414976p6xf8bxc83shxp97p";
+        ver = "0.3.1";
+        sha256 = "1c546r7iq1naxdj7cfhr4b56zssddhi3mprnvgscqqwddqaylr83";
        } {}));
+      direct-sqlite = self.callHackageDirect {
+        pkg = "direct-sqlite";
+        ver = "2.3.27";
+        sha256 = "0w8wj3210h08qlws40qhidkscgsil3635zk83kdlj929rbd8khip";
+       } {};
       hashes = dontCheck (self.callHackageDirect {
         pkg = "hashes";
-        ver = "0.1.0.1";
-        sha256 = "09n2k0vwwlzjy8ax5dlq3743qkcsd21gwfibqfjmqirv30lgb5b5";
+        ver = "0.2.1.1";
+        sha256 = "0j75c1bfkj9kcp4pbmx755ygda398x95p6di1lqlb693qyiffz4z";
       } {});
       prettyprinter = dontCheck (self.callHackageDirect {
         pkg = "prettyprinter";
@@ -102,6 +107,7 @@ pkgs.haskell.packages.${compiler}.developPackage {
       }) {});
 
       chainweb-storage = dontCheck super.chainweb-storage;
+      servant = doJailbreak super.servant;
 
       nothunks = dontCheck (self.callHackageDirect {
         pkg = "nothunks";
@@ -121,6 +127,19 @@ pkgs.haskell.packages.${compiler}.developPackage {
         ver = "2.0.3";
         sha256 = "14bqmxla0id956y37fpfx9v6crwxphbfxkl8v8annrs8ngfbhbr7";
       } {};
+
+      attoparsec = self.callHackageDirect {
+        pkg = "attoparsec";
+        ver = "0.14.4";
+        sha256 = "0y9dph5axyvr1bfcvmz6qh50bjcp50m2ljra14960anc6g74a3c8";
+      } {};
+
+      sha-validation = self.callCabal2nix "sha-validation" (pkgs.fetchFromGitHub {
+        owner = "larskuhtz";
+        repo = "hs-sha-validation";
+        rev = "0542786e7e7b4b24a37243d7168f81800abe59f0";
+        sha256 = "1fp3m6jwzykpfkbwi447rylg9616ph1k0avrr0i73p1pippxzqpx";
+      }) {};
 
       unordered-containers = dontCheck (self.callHackageDirect {
         pkg = "unordered-containers";

@@ -52,7 +52,6 @@ import GHC.Generics hiding (from, to)
 
 import System.Directory
 import System.Environment
-import System.IO.Extra
 import System.IO.Temp
 import System.LogLevel
 import System.Random
@@ -300,11 +299,9 @@ noMineBlock validate parent nonce r = do
 
 data Resources
   = Resources
-    {
-      rocksDbAndDir :: !(FilePath, RocksDb)
+    { rocksDbAndDir :: !(FilePath, RocksDb)
     , payloadDb :: !(PayloadDb HashMapCas)
     , blockHeaderDb :: !BlockHeaderDb
-    , tempDir :: !FilePath
     , pactService :: !(Async (), PactQueue)
     , mainTrunkBlocks :: ![T3 ParentHeader BlockHeader PayloadWithOutputs]
     , coinAccounts :: !(MVar (Map Account (NonEmpty SomeKeyPairCaps)))
@@ -330,11 +327,10 @@ withResources trunkLength logLevel f = C.envWithCleanup create destroy unwrap
         rocksDbAndDir <- createRocksResource
         payloadDb <- createPayloadDb
         blockHeaderDb <- testBlockHeaderDb (snd rocksDbAndDir) genesisBlock
-        tempDir <- fst <$> newTempDir
         coinAccounts <- newMVar mempty
         nonceCounter <- newIORef 1
         txPerBlock <- newIORef 10
-        sqlEnv <- startSqliteDb cid logger tempDir False
+        sqlEnv <- openSQLiteConnection "" {- temporary SQLite db -} chainwebPragmas
         mp <- testMemPoolAccess txPerBlock coinAccounts
         pactService <-
           startPact testVer logger blockHeaderDb payloadDb mp sqlEnv
@@ -349,7 +345,7 @@ withResources trunkLength logLevel f = C.envWithCleanup create destroy unwrap
       destroyPayloadDb payloadDb
 
     unwrap ~(NoopNFData (Resources {..})) =
-      f mainTrunkBlocks payloadDb blockHeaderDb nonceCounter (snd $ pactService) txPerBlock
+      f mainTrunkBlocks payloadDb blockHeaderDb nonceCounter (snd pactService) txPerBlock
 
     pactQueueSize = 2000
 

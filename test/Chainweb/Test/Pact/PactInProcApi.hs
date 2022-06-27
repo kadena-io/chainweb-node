@@ -42,7 +42,6 @@ import qualified Data.Text as T
 import qualified Data.Vector as V
 import qualified Data.Yaml as Y
 
-import System.IO.Extra
 import System.LogLevel
 
 import Test.Tasty
