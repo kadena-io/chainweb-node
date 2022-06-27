@@ -45,6 +45,8 @@ module Chainweb.Version
 , window
 , headerSizeBytes
 , workSizeBytes
+-- ** Payload Validation Parameters
+, blockGasLimit
 -- ** Payload Validation Guards
 , vuln797Fix
 , coinV2Upgrade
@@ -750,6 +752,24 @@ workSizeBytes
     -> Natural
 workSizeBytes v h = headerSizeBytes v (unsafeChainId 0) h - 32
 {-# INLINE workSizeBytes #-}
+
+-- -------------------------------------------------------------------------- --
+-- Pact Validation Parameters
+
+-- | This the hard upper limit of the gas within a block. Blocks that use more
+-- gas are invalid and rejected. This limit is needed as a DOS protection.
+--
+-- Smaller limits can be configured for creating new blocks.
+--
+blockGasLimit
+    :: ChainwebVersion
+    -> ChainId
+    -> BlockHeight
+    -> Natural
+blockGasLimit Mainnet01 _ _ = 180000
+blockGasLimit Testnet04 _ _ = 180000
+blockGasLimit Development _ _ = 180000
+blockGasLimit _ _ _ = 180000
 
 -- -------------------------------------------------------------------------- --
 -- Pact Validation Guards
