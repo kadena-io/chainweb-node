@@ -565,7 +565,7 @@ jobs:
         LABEL com.chainweb.docker.image.optimization="$OPT_LEVEL"
         LABEL com.chainweb.docker.image.debug-info="$DEBUG_INFO"
         LABEL com.chainweb.docker.image.revision="$GIT_SHA_SHORT"
-        RUN apt-get update && apt-get install -y libgflags-dev libsnappy-dev z3 libbz2-dev ca-certificates locales && rm -rf /var/lib/apt/lists/* && locale-gen en_US.UTF-8 && update-locale LC_ALL=en_US.UTF-8 LANG=en_US.UTF-8
+        RUN apt-get update && apt-get install -y ca-certificates locales && rm -rf /var/lib/apt/lists/* && locale-gen en_US.UTF-8 && update-locale LC_ALL=en_US.UTF-8 LANG=en_US.UTF-8
         ENV LANG=en_US.UTF-8
         WORKDIR /chainweb
         COPY chainweb/chainweb-node .
