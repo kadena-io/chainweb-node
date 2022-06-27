@@ -139,6 +139,8 @@ import Control.Concurrent
 import Control.Concurrent.Async
 #if !MIN_VERSION_base(4,15,0)
 import Control.Exception (Exception, evaluate)
+#else
+import Control.Exception (Exception)
 #endif
 import Control.Lens
 import Control.Monad
