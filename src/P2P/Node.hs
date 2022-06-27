@@ -193,6 +193,8 @@ makeLenses ''P2pSessionInfo
 -- -------------------------------------------------------------------------- --
 -- P2P Node State
 
+type SessionsMap = M.Map PeerInfo (P2pSessionInfo, Async (Maybe Bool))
+
 -- | P2P Node State
 --
 data P2pNode = P2pNode
@@ -200,7 +202,7 @@ data P2pNode = P2pNode
     , _p2pNodeChainwebVersion :: !ChainwebVersion
     , _p2pNodePeerInfo :: !PeerInfo
     , _p2pNodePeerDb :: !PeerDb
-    , _p2pNodeSessions :: !(TVar (M.Map PeerInfo (P2pSessionInfo, Async (Maybe Bool))))
+    , _p2pNodeSessions :: !(TVar SessionsMap)
     , _p2pNodeManager :: !HTTP.Manager
     , _p2pNodeLogFunction :: !LogFunction
     , _p2pNodeStats :: !(TVar P2pNodeStats)
@@ -470,16 +472,11 @@ syncFromPeer node info = do
 -- -------------------------------------------------------------------------- --
 -- Sample Peer from PeerDb
 
--- | Sample next active peer. Blocks until a suitable peer is available
---
--- @O(_p2pConfigActivePeerCount conf)@
---
-findNextPeer
+getPeersAndSessions
     :: P2pConfiguration
     -> P2pNode
-    -> STM PeerEntry
-findNextPeer conf node = do
-
+    -> STM (PeerSet, SessionsMap)
+getPeersAndSessions conf node = do
     -- check if this node is active. If not, don't create new sessions,
     -- but retry until it becomes active.
     --
@@ -493,51 +490,49 @@ findNextPeer conf node = do
     let peerCount = length peers
     let sessionCount = length sessions
 
-    -- Retry if there are already more active sessions than known peers.
+    -- Retry if there are already more active sessions than known peers, or we
+    -- have reached the maximum session count.
     --
     check (sessionCount < peerCount)
+    check (int sessionCount < _p2pConfigMaxSessionCount conf)
 
-    -- Create a new sessions with a random peer for which there is no active
-    -- sessions:
+    pure (peers, sessions)
 
-    let checkPeer (n :: PeerEntry) = do
-            let !pid = _peerId $ _peerEntryInfo n
-            -- can this check be moved out of the fold?
-            check (int sessionCount < _p2pConfigMaxSessionCount conf)
-            check (M.notMember (_peerEntryInfo n) sessions)
-            check (pid /= myPid)
-            return n
+  where
+    peerDbVar = _p2pNodePeerDb node
+    sessionsVar = _p2pNodeSessions node
 
+getPopulation
+    :: P2pNode
+    -> PeerSet
+    -> [[PeerEntry]]
+getPopulation node peers =
     -- Classify the peers by priority
     --
     let base = IXS.getEQ (_p2pNodeNetworkId node) peers
 
-#if 0
+        p0 = toList
+            $ IXS.getGT (ActiveSessionCount 0)
+            $ IXS.getLTE (SuccessiveFailures 1) base
+        p1 = fmap snd
+            $ IXS.groupAscBy @SuccessiveFailures
+            $ IXS.union
+                (IXS.getEQ (ActiveSessionCount 0) base)
+                (IXS.getGT (SuccessiveFailures 1) base)
+    in p0 : p1
 
-    -- random circular shift of a set
-    let shift i s = uncurry (++)
-            $ swap
-            $ splitAt (fromIntegral i)
-            $ toList
-            $ s
-
-        shiftR s = do
-            i <- randomR node (0, max 1 (IXS.size s) - 1)
-            return $! shift i s
-
-    -- TODO: how expensive is this? should be cache the classification?
-    --
-    let p0 = IXS.getGT (ActiveSessionCount 0) $ IXS.getLTE (SuccessiveFailures 1) base
-        p1 = IXS.getEQ (ActiveSessionCount 0) $ IXS.getLTE (SuccessiveFailures 1) base
-        p2 = IXS.getGT (ActiveSessionCount 0) $ IXS.getGT (SuccessiveFailures 1) base
-        p3 = IXS.getEQ (ActiveSessionCount 0) $ IXS.getGT (SuccessiveFailures 1) base
-    searchSpace <- concat <$> traverse shiftR [p0, p1, p2, p3]
-    foldr (orElse . checkPeer) retry searchSpace
-
-#else
-
-    -- random circular shift of a set
-    let shift i s = uncurry (++)
+-- | Sample next active peer. Blocks until a suitable peer is available
+--
+-- @O(_p2pConfigActivePeerCount conf)@
+--
+findNextPeer
+    :: P2pNode
+    -> SessionsMap
+    -> [[PeerEntry]]
+    -> STM PeerEntry
+findNextPeer node sessions population =
+    let -- random circular shift of a set
+        shift i s = uncurry (++)
             $ swap
             $ splitAt (fromIntegral i)
             $ s
@@ -546,21 +541,18 @@ findNextPeer conf node = do
             i <- randomR node (0, max 1 (length s) - 1)
             return $! shift i s
 
-    let p0 = toList
-            $ IXS.getGT (ActiveSessionCount 0)
-            $ IXS.getLTE (SuccessiveFailures 1) base
-        p1 = fmap snd
-            $ IXS.groupAscBy @SuccessiveFailures
-            $ IXS.union
-                (IXS.getEQ (ActiveSessionCount 0) base)
-                (IXS.getGT (SuccessiveFailures 1) base)
-    searchSpace <- concat <$> traverse shiftR (p0: p1)
-    foldr (orElse . checkPeer) retry searchSpace
-#endif
+        -- Create a new sessions with a random peer for which there is no
+        -- active sessions:
+        checkPeer (n :: PeerEntry) =
+            M.notMember (_peerEntryInfo n) sessions &&
+            _peerId (_peerEntryInfo n) /= myPid in do
+
+    searchSpace <- concat <$> traverse shiftR population
+    case filter checkPeer searchSpace of
+      x : _ -> pure x
+      [] -> retry
 
   where
-    peerDbVar = _p2pNodePeerDb node
-    sessionsVar = _p2pNodeSessions node
     myPid = _peerId $ _p2pNodePeerInfo node
 
 -- -------------------------------------------------------------------------- --
@@ -568,9 +560,16 @@ findNextPeer conf node = do
 
 -- | TODO May loop forever. Add proper retry logic and logging
 --
-newSession :: P2pConfiguration -> P2pNode -> IO ()
-newSession conf node = do
-    newPeer <- atomically $ findNextPeer conf node
+newSession :: Maybe (PeerSet, SessionsMap, [[PeerEntry]]) -> P2pConfiguration -> P2pNode -> IO ()
+newSession menv conf node = do
+    (peers, sessions, population) <- do
+        (peers, sessions) <- atomically $ getPeersAndSessions conf node
+        let population = case menv of
+                Just (oldPeers, oldSessions, base)
+                    | peers == oldPeers && sessions == oldSessions -> base
+                _ -> getPopulation node peers
+        pure (peers, sessions, population)
+    newPeer <- atomically $ findNextPeer node sessions population
     let newPeerInfo = _peerEntryInfo newPeer
     logg node Debug $ "Selected new peer " <> encodeToText newPeer
     syncFromPeer_ newPeerInfo >>= \case
@@ -579,7 +578,7 @@ newSession conf node = do
                 -- FIXME there are better ways to prevent the node from spinning
                 -- if no suitable (non-failing node) is available.
                 -- cf. GitHub issue #117
-            newSession conf node
+            newSession (Just (peers, sessions, population)) conf node
         True -> do
             logg node Debug $ "Connected to new peer " <> showInfo newPeerInfo
             let env = peerClientEnv node newPeerInfo
@@ -754,7 +753,7 @@ p2pCreateNode cv nid peer logfun db mgr doPeerSync session = do
 p2pStartNode :: P2pConfiguration -> P2pNode -> IO ()
 p2pStartNode conf node = concurrently_
     (runForever (logg node) "P2P.Node.awaitSessions" $ awaitSessions node)
-    (runForever (logg node) "P2P.Node.newSessions" $ newSession conf node)
+    (runForever (logg node) "P2P.Node.newSessions" $ newSession Nothing conf node)
 
 p2pStopNode :: P2P.Node.P2pNode -> IO ()
 p2pStopNode node = do
