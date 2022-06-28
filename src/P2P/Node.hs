@@ -79,12 +79,15 @@ import Control.Scheduler (Comp(..), traverseConcurrently)
 
 import Data.Aeson hiding (Error)
 import Data.Foldable
+import Data.Function
 import Data.Hashable
 import qualified Data.HashSet as HS
 import Data.IORef
 import qualified Data.IxSet.Typed as IXS
+import qualified Data.List as L
 import qualified Data.Map.Strict as M
 import Data.Maybe
+import qualified Data.Set as S
 import qualified Data.Text as T
 import Data.Tuple
 
@@ -487,19 +490,15 @@ findNextPeer conf node = do
             i <- randomR node (0, max 1 (length s) - 1)
             return $ shift i s
 
-    let p0 = toList
-            $ IXS.getGT (ActiveSessionCount 0)
-            $ IXS.getLTE (SuccessiveFailures 1) candidates
-        p1 = fmap snd
-            $ IXS.groupAscBy @SuccessiveFailures
-            $ IXS.union
-                (IXS.getEQ (ActiveSessionCount 0) candidates)
-                (IXS.getGT (SuccessiveFailures 1) candidates)
+    let (p0, p1) = L.partition (\p -> _peerEntryActiveSessionCount p > 0 && _peerEntrySuccessiveFailures p <= 1) candidates
+        p2 = L.groupBy ((==) `on` _peerEntrySuccessiveFailures) p1
 
     -- note that @p0 : p1@ is guaranteed to be non-empty
-    head . concat <$> traverse shiftR (p0 : p1)
+    head . concat <$> traverse shiftR (p0 : p2)
 
   where
+
+    awaitCandidates :: IO [PeerEntry]
     awaitCandidates = atomically $ do
 
         -- check if this node is active. If not, don't create new sessions,
@@ -515,38 +514,47 @@ findNextPeer conf node = do
         let peerCount = length peers
         let sessionCount = length sessions
 
+        -- Check that there are peers
+        --
+        check (peerCount > 0)
+
         -- Retry if there are already more active sessions than known peers.
         --
         check (sessionCount < peerCount)
 
         -- Retry if there are more active sessions than the maximum number
         -- of sessions
+        --
         check (int sessionCount < _p2pConfigMaxSessionCount conf)
 
-        -- Get the set of available peers:
-        --
-        -- Once we get to this point the chances of failing and retrying are low.
+        let addrs = S.fromList (_peerAddr <$> M.keys sessions)
 
-        -- All peers that support the respective network
-        let b1 = IXS.getEQ (_p2pNodeNetworkId node) peers
+            -- peerList and candidates are supposed to be lazy. With the
+            -- transation we only check that the result is not empty, which
+            -- is expected to be much cheaper than forcing the full list.
+            --
+            peersList = IXS.toList peers
+            candidates = flip filter peersList $ \peer ->
+                let addr = _peerAddr (_peerEntryInfo peer)
+                in
+                    -- not the local peer
+                    myAddr /= addr &&
 
-        -- Retry if there are no peers available in the network
-        check $ not $ IXS.null b1
+                    -- no active session for this network
+                    S.notMember addr addrs &&
 
-        -- Remove all peers that have active sessions for this network. Also
-        -- remove the local peer
-        --
-        let b2 = IXS.deleteIx myAddr $
-                foldr IXS.deleteIx b1 (_peerAddr <$> M.keys sessions)
+                    -- networkId
+                    S.member netId (_peerEntryNetworkIds peer)
 
-        -- Retry if the set is empty
-        check $ not $ IXS.null b2
+        -- Retry if the set is empty (this only forces the head of the list)
+        check $ not $ null candidates
 
-        return b2
+        return candidates
 
     peerDbVar = _p2pNodePeerDb node
     sessionsVar = _p2pNodeSessions node
     myAddr = _peerAddr $ _p2pNodePeerInfo node
+    netId = _p2pNodeNetworkId node
 
 -- -------------------------------------------------------------------------- --
 -- Manage Sessions
