@@ -497,13 +497,15 @@ findNextPeer conf node = do
     --
     check (sessionCount < peerCount)
 
+    -- Retry if there are more active sessions than the maximum number
+    -- of sessions
+    check (int sessionCount < _p2pConfigMaxSessionCount conf)
+
     -- Create a new sessions with a random peer for which there is no active
     -- sessions:
 
     let checkPeer (n :: PeerEntry) = do
             let !pid = _peerId $ _peerEntryInfo n
-            -- can this check be moved out of the fold?
-            check (int sessionCount < _p2pConfigMaxSessionCount conf)
             check (M.notMember (_peerEntryInfo n) sessions)
             check (pid /= myPid)
             return n
@@ -537,14 +539,13 @@ findNextPeer conf node = do
 #else
 
     -- random circular shift of a set
-    let shift i s = uncurry (++)
-            $ swap
-            $ splitAt (fromIntegral i)
-            $ s
+    let shift i = uncurry (++)
+            . swap
+            . splitAt (fromIntegral i)
 
         shiftR s = do
             i <- randomR node (0, max 1 (length s) - 1)
-            return $! shift i s
+            return $ shift i s
 
     let p0 = toList
             $ IXS.getGT (ActiveSessionCount 0)
@@ -554,7 +555,7 @@ findNextPeer conf node = do
             $ IXS.union
                 (IXS.getEQ (ActiveSessionCount 0) base)
                 (IXS.getGT (SuccessiveFailures 1) base)
-    searchSpace <- concat <$> traverse shiftR (p0: p1)
+    searchSpace <- concat <$> traverse shiftR (p0 : p1)
     foldr (orElse . checkPeer) retry searchSpace
 #endif
 
