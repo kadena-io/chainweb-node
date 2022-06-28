@@ -491,6 +491,8 @@ findNextPeer conf node = do
             return $ shift i s
 
     let (p0, p1) = L.partition (\p -> _peerEntryActiveSessionCount p > 0 && _peerEntrySuccessiveFailures p <= 1) candidates
+
+        -- this ix expensive but lazy and only forced if p0 is empty
         p2 = L.groupBy ((==) `on` _peerEntrySuccessiveFailures) p1
 
     -- note that @p0 : p1@ is guaranteed to be non-empty
