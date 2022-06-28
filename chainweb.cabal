@@ -372,6 +372,7 @@ library
         , optparse-applicative >= 0.14
         , pact >= 4.2.0.1
         , pem >=0.2
+        , primitive >= 0.7.4.0
         , random >= 1.2
         , rosetta >= 1.0
         , safe-exceptions >= 0.1
