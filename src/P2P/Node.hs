@@ -204,7 +204,7 @@ data P2pNode = P2pNode
     , _p2pNodeLogFunction :: !LogFunction
     , _p2pNodeStats :: !(TVar P2pNodeStats)
     , _p2pNodeClientSession :: !P2pSession
-    , _p2pNodeRng :: !(TVar R.StdGen)
+    , _p2pNodeRng :: !(IORef R.StdGen)
     , _p2pNodeActive :: !(TVar Bool)
         -- ^ Wether this node is active. If this is 'False' no new sessions
         -- will be initialized.
@@ -280,11 +280,9 @@ logg n = _p2pNodeLogFunction n
 loggFun :: P2pNode -> LogFunction
 loggFun = _p2pNodeLogFunction
 
-randomR :: R.Random a => P2pNode -> (a, a) -> STM a
-randomR node range = do
-    !gen <- readTVar (_p2pNodeRng node)
-    let (!a, !gen') = R.randomR range gen
-    a <$ writeTVar (_p2pNodeRng node) gen'
+randomR :: R.Random a => P2pNode -> (a, a) -> IO a
+randomR node range =
+    atomicModifyIORef' (_p2pNodeRng node) $ swap . R.randomR range
 
 setInactive :: P2pNode -> STM ()
 setInactive node = writeTVar (_p2pNodeActive node) False
@@ -486,7 +484,7 @@ findNextPeer conf node = do
             . splitAt (fromIntegral i)
 
         shiftR s = do
-            i <- atomically $ randomR node (0, max 1 (length s) - 1)
+            i <- randomR node (0, max 1 (length s) - 1)
             return $ shift i s
 
     let p0 = toList
@@ -714,7 +712,7 @@ p2pCreateNode cv nid peer logfun db mgr doPeerSync session = do
     -- intialize P2P State
     sessionsVar <- newTVarIO mempty
     statsVar <- newTVarIO emptyP2pNodeStats
-    rngVar <- newTVarIO =<< R.newStdGen
+    rngVar <- newIORef =<< R.newStdGen
     activeVar <- newTVarIO True
     let !s = P2pNode
                 { _p2pNodeNetworkId = nid
