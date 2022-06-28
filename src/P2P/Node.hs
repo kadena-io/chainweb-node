@@ -1,5 +1,4 @@
 {-# LANGUAGE BangPatterns #-}
-{-# LANGUAGE CPP #-}
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DerivingStrategies #-}
@@ -477,66 +476,9 @@ syncFromPeer node info = do
 findNextPeer
     :: P2pConfiguration
     -> P2pNode
-    -> STM PeerEntry
+    -> IO PeerEntry
 findNextPeer conf node = do
-
-    -- check if this node is active. If not, don't create new sessions,
-    -- but retry until it becomes active.
-    --
-    !active <- readTVar (_p2pNodeActive node)
-    check active
-
-    -- get all known peers and all active sessions
-    --
-    peers <- peerDbSnapshotSTM peerDbVar
-    !sessions <- readTVar sessionsVar
-    let peerCount = length peers
-    let sessionCount = length sessions
-
-    -- Retry if there are already more active sessions than known peers.
-    --
-    check (sessionCount < peerCount)
-
-    -- Retry if there are more active sessions than the maximum number
-    -- of sessions
-    check (int sessionCount < _p2pConfigMaxSessionCount conf)
-
-    -- Create a new sessions with a random peer for which there is no active
-    -- sessions:
-
-    let checkPeer (n :: PeerEntry) = do
-            let !pid = _peerId $ _peerEntryInfo n
-            check (M.notMember (_peerEntryInfo n) sessions)
-            check (pid /= myPid)
-            return n
-
-    -- Classify the peers by priority
-    --
-    let base = IXS.getEQ (_p2pNodeNetworkId node) peers
-
-#if 0
-
-    -- random circular shift of a set
-    let shift i s = uncurry (++)
-            $ swap
-            $ splitAt (fromIntegral i)
-            $ toList
-            $ s
-
-        shiftR s = do
-            i <- randomR node (0, max 1 (IXS.size s) - 1)
-            return $! shift i s
-
-    -- TODO: how expensive is this? should be cache the classification?
-    --
-    let p0 = IXS.getGT (ActiveSessionCount 0) $ IXS.getLTE (SuccessiveFailures 1) base
-        p1 = IXS.getEQ (ActiveSessionCount 0) $ IXS.getLTE (SuccessiveFailures 1) base
-        p2 = IXS.getGT (ActiveSessionCount 0) $ IXS.getGT (SuccessiveFailures 1) base
-        p3 = IXS.getEQ (ActiveSessionCount 0) $ IXS.getGT (SuccessiveFailures 1) base
-    searchSpace <- concat <$> traverse shiftR [p0, p1, p2, p3]
-    foldr (orElse . checkPeer) retry searchSpace
-
-#else
+    candidates <- awaitCandidates
 
     -- random circular shift of a set
     let shift i = uncurry (++)
@@ -544,34 +486,79 @@ findNextPeer conf node = do
             . splitAt (fromIntegral i)
 
         shiftR s = do
-            i <- randomR node (0, max 1 (length s) - 1)
+            i <- atomically $ randomR node (0, max 1 (length s) - 1)
             return $ shift i s
 
     let p0 = toList
             $ IXS.getGT (ActiveSessionCount 0)
-            $ IXS.getLTE (SuccessiveFailures 1) base
+            $ IXS.getLTE (SuccessiveFailures 1) candidates
         p1 = fmap snd
             $ IXS.groupAscBy @SuccessiveFailures
             $ IXS.union
-                (IXS.getEQ (ActiveSessionCount 0) base)
-                (IXS.getGT (SuccessiveFailures 1) base)
-    searchSpace <- concat <$> traverse shiftR (p0 : p1)
-    foldr (orElse . checkPeer) retry searchSpace
-#endif
+                (IXS.getEQ (ActiveSessionCount 0) candidates)
+                (IXS.getGT (SuccessiveFailures 1) candidates)
+
+    -- note that @p0 : p1@ is guaranteed to be non-empty
+    head . concat <$> traverse shiftR (p0 : p1)
 
   where
+    awaitCandidates = atomically $ do
+
+        -- check if this node is active. If not, don't create new sessions,
+        -- but retry until it becomes active.
+        --
+        !active <- readTVar (_p2pNodeActive node)
+        check active
+
+        -- get all known peers and all active sessions
+        --
+        peers <- peerDbSnapshotSTM peerDbVar
+        !sessions <- readTVar sessionsVar
+        let peerCount = length peers
+        let sessionCount = length sessions
+
+        -- Retry if there are already more active sessions than known peers.
+        --
+        check (sessionCount < peerCount)
+
+        -- Retry if there are more active sessions than the maximum number
+        -- of sessions
+        check (int sessionCount < _p2pConfigMaxSessionCount conf)
+
+        -- Get the set of available peers:
+        --
+        -- Once we get to this point the chances of failing and retrying are low.
+
+        -- All peers that support the respective network
+        let b1 = IXS.getEQ (_p2pNodeNetworkId node) peers
+
+        -- Retry if there are no peers available in the network
+        check $ not $ IXS.null b1
+
+        -- Remove all peers that have active sessions for this network. Also
+        -- remove the local peer
+        --
+        let b2 = IXS.deleteIx myAddr $
+                foldr IXS.deleteIx b1 (_peerAddr <$> M.keys sessions)
+
+        -- Retry if the set is empty
+        check $ not $ IXS.null b2
+
+        return b2
+
     peerDbVar = _p2pNodePeerDb node
     sessionsVar = _p2pNodeSessions node
-    myPid = _peerId $ _p2pNodePeerInfo node
+    myAddr = _peerAddr $ _p2pNodePeerInfo node
 
 -- -------------------------------------------------------------------------- --
 -- Manage Sessions
 
--- | TODO May loop forever. Add proper retry logic and logging
+-- | This can loop forever if there are no peers available for the respective
+-- network.
 --
 newSession :: P2pConfiguration -> P2pNode -> IO ()
 newSession conf node = do
-    newPeer <- atomically $ findNextPeer conf node
+    newPeer <- findNextPeer conf node
     let newPeerInfo = _peerEntryInfo newPeer
     logg node Debug $ "Selected new peer " <> encodeToText newPeer
     syncFromPeer_ newPeerInfo >>= \case
