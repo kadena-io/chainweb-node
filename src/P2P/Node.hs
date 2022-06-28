@@ -78,7 +78,6 @@ import Control.Monad.STM
 import Control.Scheduler (Comp(..), traverseConcurrently)
 
 import Data.Aeson hiding (Error)
-import Data.Foldable
 import Data.Function
 import Data.Hashable
 import qualified Data.HashSet as HS
