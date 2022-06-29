@@ -357,7 +357,7 @@ jobs:
         ghc: ${{ matrix.ghc }}
     - name: Run all benchmarks
       timeout-minutes: 12
-      run: bench --json $BENCH_FILE +RTS -N
+      run: bench --json $BENCH_FILE +RTS -N -H4G -K512m -RTS
     - name: Upload results
       run: |
         aws s3 cp $BENCH_FILE s3://$BENCH_BUCKET/$BENCH_FOLDER/
