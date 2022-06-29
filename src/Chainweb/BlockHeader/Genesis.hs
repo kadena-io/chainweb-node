@@ -272,9 +272,19 @@ genesisBlockPayload Mainnet01 cid = case chainIdInt @Int cid of
 -- scope and identify chains only by their internal 'ChainId'.
 --
 genesisBlockHeader :: HasChainId p => ChainwebVersion -> p -> BlockHeader
-genesisBlockHeader v p = genesisBlockHeader' v p (genesisTime v (_chainId p)) (Nonce 0)
+genesisBlockHeader Mainnet01 p = fromJuste $ HM.lookup (_chainId p) genesisBlockHeadersMainnet01
+genesisBlockHeader Testnet04 p = fromJuste $ HM.lookup (_chainId p) genesisBlockHeadersTestnet04
+genesisBlockHeader Development p = fromJuste $ HM.lookup (_chainId p) genesisBlockHeadersDevelopment
+genesisBlockHeader v p = genesisBlockHeaderInternal v (_chainId p)
+
+genesisBlockHeaderInternal :: ChainwebVersion -> ChainId -> BlockHeader
+genesisBlockHeaderInternal v cid = genesisBlockHeader' v cid (genesisTime v cid) (Nonce 0)
 
 -- | Like `genesisBlockHeader`, but with slightly more control.
+--
+-- This call generates the block header from the definitions in
+-- "Chainweb.Version". It is a somewhat expensive call, since it involves
+-- building the Merkle tree.
 --
 genesisBlockHeader'
     :: HasChainId p
@@ -308,12 +318,21 @@ genesisBlockHeader' v p ct@(BlockCreationTime t) n =
 -- | This is an expensive call, try not to repeat it.
 --
 genesisBlockHeaders :: ChainwebVersion -> HM.HashMap ChainId BlockHeader
-genesisBlockHeaders v = HM.fromList
-    . fmap (id &&& genesisBlockHeader v)
+genesisBlockHeaders Mainnet01 = genesisBlockHeadersMainnet01
+genesisBlockHeaders Testnet04 = genesisBlockHeadersTestnet04
+genesisBlockHeaders Development = genesisBlockHeadersDevelopment
+genesisBlockHeaders v = genesisBlockHeaders' v
+
+-- | This is an expensive call, try not to repeat it.
+--
+genesisBlockHeaders' :: ChainwebVersion -> HM.HashMap ChainId BlockHeader
+genesisBlockHeaders' v = HM.fromList
+    . fmap (id &&& genesisBlockHeaderInternal v)
     . toList
     $ chainIds v
 
-
+-- | The set of genesis block headers as it exited at a particular block height
+--
 genesisBlockHeadersAtHeight
     :: ChainwebVersion
     -> BlockHeight
@@ -321,3 +340,17 @@ genesisBlockHeadersAtHeight
 genesisBlockHeadersAtHeight v h = HM.filter
     (\hdr -> _blockHeight hdr <= h)
     $ genesisBlockHeaders v
+
+-- -------------------------------------------------------------------------- --
+-- Memoize genesis headers for the production networks
+
+genesisBlockHeadersMainnet01 :: HM.HashMap ChainId BlockHeader
+genesisBlockHeadersMainnet01 = genesisBlockHeaders' Mainnet01
+{-# NOINLINE genesisBlockHeadersMainnet01 #-}
+genesisBlockHeadersTestnet04 :: HM.HashMap ChainId BlockHeader
+genesisBlockHeadersTestnet04 = genesisBlockHeaders' Testnet04
+{-# NOINLINE genesisBlockHeadersTestnet04 #-}
+genesisBlockHeadersDevelopment :: HM.HashMap ChainId BlockHeader
+genesisBlockHeadersDevelopment = genesisBlockHeaders' Development
+{-# NOINLINE genesisBlockHeadersDevelopment #-}
+
