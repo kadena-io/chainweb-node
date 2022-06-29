@@ -76,7 +76,7 @@ tests = testGroupSch "Checkpointer"
 -- Module Name Test
 
 testModuleName :: TestTree
-testModuleName = withResource initializeSQLite freeSQLiteResource $
+testModuleName = withTempSQLiteResource $
     runSQLite' $ \resIO -> testCase "testModuleName" $ do
 
         (CheckpointEnv {..}, SQLiteEnv {..}) <- resIO
@@ -584,17 +584,17 @@ runTwice step action = do
   action
 
 runSQLite
-    :: (IO (CheckpointEnv) -> TestTree)
-    -> IO (IO (), SQLiteEnv)
+    :: (IO CheckpointEnv -> TestTree)
+    -> IO SQLiteEnv
     -> TestTree
 runSQLite f = runSQLite' (f . fmap fst)
 
 runSQLite'
     :: (IO (CheckpointEnv,SQLiteEnv) -> TestTree)
-    -> IO (IO (), SQLiteEnv)
+    -> IO SQLiteEnv
     -> TestTree
 runSQLite' runTest sqlEnvIO = runTest $ do
-    (_,sqlenv) <- sqlEnvIO
+    sqlenv <- sqlEnvIO
     cp <- initRelationalCheckpointer initialBlockState sqlenv logger testVer testChainId
     return (cp, sqlenv)
   where

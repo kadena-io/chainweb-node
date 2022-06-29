@@ -34,7 +34,6 @@ module Chainweb.CutDB
 , cutDbParamsBufferSize
 , cutDbParamsLogLevel
 , cutDbParamsTelemetryLevel
-, cutDbParamsUseOrigin
 , cutDbParamsInitialHeightLimit
 , cutDbParamsFetchTimeout
 , cutDbParamsAvgBlockHeightPruningDepth
@@ -131,7 +130,7 @@ import Chainweb.BlockHash
 import Chainweb.BlockHeader
 import Chainweb.BlockHeight
 import Chainweb.BlockWeight
-import Chainweb.BlockHeaderDB
+import Chainweb.BlockHeaderDB.Internal
 import Chainweb.ChainId
 import Chainweb.Cut
 import Chainweb.Cut.CutHashes
@@ -163,9 +162,8 @@ data CutDbParams = CutDbParams
     , _cutDbParamsBufferSize :: !Natural
     , _cutDbParamsLogLevel :: !LogLevel
     , _cutDbParamsTelemetryLevel :: !LogLevel
-    , _cutDbParamsUseOrigin :: !Bool
     , _cutDbParamsFetchTimeout :: !Int
-    , _cutDbParamsInitialHeightLimit :: !(Maybe CutHeight)
+    , _cutDbParamsInitialHeightLimit :: !(Maybe BlockHeight)
     , _cutDbParamsAvgBlockHeightPruningDepth :: BlockHeight
     -- ^ How many block heights' worth of cuts should we keep around?
     -- (how far back do we expect that a fork can happen)
@@ -188,7 +186,6 @@ defaultCutDbParams v ft = CutDbParams
     , _cutDbParamsBufferSize = (order g ^ (2 :: Int)) * diameter g
     , _cutDbParamsLogLevel = Warn
     , _cutDbParamsTelemetryLevel = Warn
-    , _cutDbParamsUseOrigin = True
     , _cutDbParamsFetchTimeout = ft
     , _cutDbParamsInitialHeightLimit = Nothing
     , _cutDbParamsAvgBlockHeightPruningDepth = 5000
@@ -395,8 +392,9 @@ startCutDb
     -> RocksDbCas CutHashes
     -> IO (CutDb cas)
 startCutDb config logfun headerStore payloadStore cutHashesStore = mask_ $ do
-    logg Debug "obtain initial cut"
+    logg Info "obtain initial cut"
     initialCut <- readInitialCut
+    deleteRangeRocksDb (_getRocksDbCas cutHashesStore) (Just $ over _1 succ $ casKey $ cutToCutHashes Nothing initialCut, Nothing)
     cutVar <- newTVarIO initialCut
     c <- readTVarIO cutVar
     logg Info $ "got initial cut: " <> sshow c
@@ -440,7 +438,7 @@ startCutDb config logfun headerStore payloadStore cutHashesStore = mask_ $ do
         -- or iterate in increasinly larger steps?
         go it = tableIterValue it >>= \case
             Nothing -> do
-                logg Debug "using intial cut from cut db configuration"
+                logg Info "using initial cut from cut db configuration"
                 return $! _cutDbParamsInitialCut config
             Just ch -> try (lookupCutHashes wbhdb ch) >>= \case
                 Left (e@(TreeDbKeyNotFound _) :: TreeDbException BlockHeaderDb) -> do
@@ -452,13 +450,18 @@ startCutDb config logfun headerStore payloadStore cutHashesStore = mask_ $ do
                     tableIterPrev it
                     go it
                 Left e -> throwM e
-                Right hm -> unsafeMkCut v
-                    <$> case _cutDbParamsInitialHeightLimit config of
-                        Nothing -> return hm
-                        Just h -> limitCutHeaders wbhdb h hm
-                            -- FIXME: this requires that the pact db is deleted because it
-                            -- interfers with rewind limit. As a fix temporarily disable
-                            -- rewind limit during initialization.
+                Right hm -> do
+                    limitedCut <- unsafeMkCut v
+                        <$> case _cutDbParamsInitialHeightLimit config of
+                            Nothing -> return hm
+                            Just h -> do
+                                let
+                                    cutHeightTarget = max 0 $
+                                        avgCutHeightAt v h -
+                                            CutHeight (int $ diameterAtCutHeight v (maxBound :: CutHeight) * chainCountAt v (maxBound :: BlockHeight))
+                                limitCutHeaders wbhdb cutHeightTarget hm
+                    casInsert cutHashesStore (cutToCutHashes Nothing limitedCut)
+                    return limitedCut
 
 -- | Stop the cut validation pipeline.
 --
@@ -514,7 +517,7 @@ processCuts conf logFun headerStore payloadStore cutHashesStore queue cutVar = d
         & S.mapM (cutHashesToBlockHeaderMap conf logFun headerStore payloadStore)
         & S.chain (either
             (\(T2 hsid c) -> loggc Warn hsid $ "failed to get prerequesites for some blocks. Missing: " <> encodeToText c)
-            (\c -> loggc Debug c "got all prerequesites")
+            (\c -> loggc Info c "got all prerequesites")
             )
         & S.concat
             -- ignore left values for now
@@ -544,7 +547,7 @@ processCuts conf logFun headerStore payloadStore cutHashesStore queue cutVar = d
 
     maybeWrite rng newCut = do
         r :: Double <- Prob.uniform rng
-        when (r > 1 / int (int (_cutDbParamsWritingFrequency conf) * chainCountAt v maxBound)) $ do
+        when (r < 1 / int (int (_cutDbParamsWritingFrequency conf) * chainCountAt v maxBound)) $ do
             loggc Info newCut "writing cut"
             casInsert cutHashesStore (cutToCutHashes Nothing newCut)
 

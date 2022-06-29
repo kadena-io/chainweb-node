@@ -122,6 +122,7 @@ matchLogs typ bh logs coinbase txs
   | to20ChainRebalance v cid bheight = matchRemediation (twentyChainUpgradeTransactions v cid)
   | pact4coin3Upgrade At v bheight = matchRemediation coinV3Transactions
   | chainweb214Pact At v bheight = matchRemediation coinV4Transactions
+  | chainweb215Pact At v bheight = matchRemediation coinV5Transactions
   | otherwise = matchRest
   where
     bheight = _blockHeight bh
