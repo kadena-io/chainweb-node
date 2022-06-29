@@ -11,11 +11,8 @@
 -- Pact service for Chainweb
 
 module Chainweb.Pact.Utils
-    ( -- * persistence
-      toEnv'
-    , toEnvPersist'
-      -- * combinators
-    , aeson
+    ( -- * combinators
+      aeson
     -- * time-to-live related items
     , maxTTL
     , timingsCheck
@@ -37,10 +34,8 @@ import Data.Aeson
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
 
-import Control.Concurrent.MVar
 import Control.Monad.Catch
 
-import Pact.Interpreter as P
 import Pact.Parse
 import qualified Pact.Types.ChainId as P
 import qualified Pact.Types.Term as P
@@ -51,29 +46,11 @@ import Pact.Types.KeySet (validateKeyFormat)
 import Chainweb.BlockCreationTime
 import Chainweb.BlockHeader
 import Chainweb.ChainId
-import Chainweb.Pact.Backend.Types
 import Chainweb.Time
 import Chainweb.Transaction
 
 fromPactChainId :: MonadThrow m => P.ChainId -> m ChainId
 fromPactChainId (P.ChainId t) = chainIdFromText t
-
-toEnv' :: EnvPersist' -> IO Env'
-toEnv' (EnvPersist' ep') = do
-    let thePactDb = _pdepPactDb $! ep'
-    let theDbEnv = _pdepEnv $! ep'
-    env <- mkPactDbEnv thePactDb theDbEnv
-    return $! Env' env
-
-toEnvPersist' :: Env' -> IO EnvPersist'
-toEnvPersist' (Env' pactDbEnv) = do
-    let mVar = pdPactDbVar $! pactDbEnv -- :: MVar (P.DbEnv a)
-    !dbEnv <- readMVar $! mVar           -- :: P.DbEnv a
-    let pDbEnvPersist = PactDbEnvPersist
-          { _pdepPactDb = pdPactDb pactDbEnv -- :: P.PactDb (P.DbEnv a)
-          , _pdepEnv = dbEnv
-          }
-    return $! EnvPersist' pDbEnvPersist
 
 -- | This is the recursion principle of an 'Aeson' 'Result' of type 'a'.
 -- Similar to 'either', 'maybe', or 'bool' combinators
