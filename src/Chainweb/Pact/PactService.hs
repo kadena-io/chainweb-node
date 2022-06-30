@@ -170,7 +170,7 @@ initializeLatestBlock unlimitedRewind = findLatestValidBlock >>= \case
     Nothing -> return ()
     Just b -> withBatch $ rewindTo initialRewindLimit (Just $ ParentHeader b)
   where
-    initialRewindLimit = 1000 <$ guard (not unlimitedRewind) 
+    initialRewindLimit = 1000 <$ guard (not unlimitedRewind)
 
 initialPayloadState
     :: Logger logger
@@ -497,11 +497,11 @@ execNewBlock mpAccess parent miner = do
                 <> " (parent height = " <> sshow pHeight <> ")"
                 <> " (parent hash = " <> sshow pHash <> ")"
 
-        blockGasLimit <- view psBlockGasLimit
-        let initState = BlockFill blockGasLimit mempty 0
+        blockGasLim <- view psBlockGasLimit
+        let initState = BlockFill blockGasLim mempty 0
 
         -- Heuristic: limit fetches to count of 1000-gas txs in block.
-        let fetchLimit = fromIntegral $ blockGasLimit `div` 1000
+        let fetchLimit = fromIntegral $ blockGasLim `div` 1000
 
         newTrans <- getBlockTxs initState
 
