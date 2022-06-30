@@ -74,7 +74,7 @@ jobs:
           "os": ["ubuntu-18.04", "ubuntu-20.04"],
           "cabalcache": ["true"],
           "exclude": [
-            { 
+            {
               "ghc": "9.0.2",
               "cabal": "3.6",
               "os" : "ubuntu-20.04",
@@ -355,7 +355,7 @@ jobs:
         ghc: ${{ matrix.ghc }}
     - name: Run all benchmarks
       timeout-minutes: 12
-      run: bench --json $BENCH_FILE +RTS -N -H4G -K512m -RTS
+      run: bench --json $BENCH_FILE +RTS -H4G -K512m -RTS
     - name: Upload results
       run: |
         aws s3 cp $BENCH_FILE s3://$BENCH_BUCKET/$BENCH_FOLDER/
@@ -626,7 +626,7 @@ jobs:
   integration-tests:
     name: Run Integration Tests from remote repo
     needs: [ config, docker-image ]
-    runs-on: ubuntu-latest 
+    runs-on: ubuntu-latest
 
     env:
       GIT_SHA_SHORT: ${{ needs.config.outputs.git-sha-short }}
@@ -642,4 +642,3 @@ jobs:
         repo: kadena-io/integration-tests
         display-workflow-run-url: true
         wait-for-completion: false # here you could make this pipeline wait them out
-        
