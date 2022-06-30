@@ -1,3 +1,4 @@
+{-# LANGUAGE OverloadedStrings #-}
 module Main (main)
 where
 
@@ -10,15 +11,17 @@ where
 --
 import Criterion.Main
 
+import Data.CAS.RocksDB
+
 import qualified Chainweb.Pact.Backend.Bench as Checkpointer
 import qualified Chainweb.Pact.Backend.ForkingBench as ForkingBench
 import qualified JSONEncoding
 
 main :: IO ()
-main = do
+main = withTempRocksDb "benchmarks" $ \rdb -> do
   defaultMain
     [ Checkpointer.bench
-    , ForkingBench.bench
+    , ForkingBench.bench rdb
     , JSONEncoding.benchmarks
     ]
 
