@@ -354,7 +354,7 @@ withResources rdb trunkLength logLevel f = C.envWithCleanup create destroy unwra
 
         return (a, reqQ)
 
-    stopPact (a, _) = cancel a
+    stopPact (a, pq) = flushPactQueue pq >> cancel a
 
 
     chainwebBenchPragmas =

@@ -5,7 +5,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE ViewPatterns #-}
-
+{-# LANGUAGE TupleSections #-}
 -- |
 -- Module: Chainweb.Pact.Service.PactQueue
 -- Copyright: Copyright © 2022 Kadena LLC.
@@ -21,6 +21,7 @@ module Chainweb.Pact.Service.PactQueue
 , getPactQueueStats
 , newPactQueue
 , resetPactQueueStats
+, flushPactQueue
 , PactQueue
 , PactQueueStats(..)
 ) where
@@ -32,6 +33,7 @@ import Control.Monad ((>=>))
 import Control.Monad.STM
 
 import Data.Aeson
+import Data.Functor (void)
 import Data.IORef
 
 import GHC.Generics
@@ -75,6 +77,21 @@ newPactQueue sz = PactQueue
     <*> newIORef initPactQueueCounters
     <*> newIORef initPactQueueCounters
     <*> newIORef initPactQueueCounters
+
+flushPactQueue :: PactQueue -> IO ()
+flushPactQueue (PactQueue vb nb omsg vcnt ncnt ocnt) =
+    flushQueues >> flushIORefs
+  where
+    flushQueues = atomically $ do
+      void $ flushTBQueue vb
+      void $ flushTBQueue nb
+      void $ flushTBQueue omsg
+
+    flushIORefs = do
+      void $ atomicModifyIORef' vcnt (,())
+      void $ atomicModifyIORef' ncnt (,())
+      void $ atomicModifyIORef' ocnt (,())
+
 
 -- | Add a request to the Pact execution queue
 --
@@ -191,4 +208,3 @@ getPactQueueStats q = PactQueueStats
     <$> readIORef (_pactQueuePactQueueValidateBlockMsgCounters q)
     <*> readIORef (_pactQueuePactQueueNewBlockMsgCounters q)
     <*> readIORef (_pactQueuePactQueueOtherMsgCounters q)
-
