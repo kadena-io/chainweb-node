@@ -147,7 +147,7 @@ decodeCutId = CutId . SB.toShort <$!> getBytes (int cutIdBytesCount)
 
 instance Hashable CutId where
     hashWithSalt s (CutId bytes) = xor s
-        . unsafePerformIO
+        . unsafeDupablePerformIO
         $ BA.withByteArray (SB.fromShort bytes) (peek @Int)
     -- CutIds are already cryptographically strong hashes
     -- that include the chain id.
