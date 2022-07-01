@@ -50,9 +50,7 @@ import qualified Data.Yaml as Y
 
 import GHC.Generics hiding (from, to)
 
-import System.Directory
 import System.Environment
-import System.IO.Temp
 import System.LogLevel
 import System.Random
 
@@ -107,11 +105,12 @@ import Data.CAS.HashMap hiding (toList)
 import Data.CAS.RocksDB
 
 _run :: [String] -> IO ()
-_run args = withArgs args $ C.defaultMain [bench]
+_run args = withTempRocksDb "forkingbench" $ \rdb ->
+    withArgs args $ C.defaultMain [bench rdb]
 
-bench :: C.Benchmark
-bench = C.bgroup "PactService"
-    [ withResources 10 Quiet forkingBench
+bench :: RocksDb -> C.Benchmark
+bench rdb = C.bgroup "PactService"
+    [ withResources rdb 10 Quiet forkingBench
     , oneBlock True 1
     , oneBlock True 10
     , oneBlock True 50
@@ -130,7 +129,7 @@ bench = C.bgroup "PactService"
         void $ playLine pdb bhdb forkLength1 join1 pactQueue nonceCounter
         void $ playLine pdb bhdb forkLength2 join1 pactQueue nonceCounter
 
-    oneBlock validate txCount = withResources 1 Error go
+    oneBlock validate txCount = withResources rdb 1 Error go
       where
         go mainLineBlocks _pdb _bhdb _nonceCounter pactQueue txsPerBlock =
           C.bench name $ C.whnfIO $ do
@@ -299,8 +298,7 @@ noMineBlock validate parent nonce r = do
 
 data Resources
   = Resources
-    { rocksDbAndDir :: !(FilePath, RocksDb)
-    , payloadDb :: !(PayloadDb HashMapCas)
+    { payloadDb :: !(PayloadDb HashMapCas)
     , blockHeaderDb :: !BlockHeaderDb
     , pactService :: !(Async (), PactQueue)
     , mainTrunkBlocks :: ![T3 ParentHeader BlockHeader PayloadWithOutputs]
@@ -319,18 +317,17 @@ type RunPactService =
   -> IORef Int
   -> C.Benchmark
 
-withResources :: Word64 -> LogLevel -> RunPactService -> C.Benchmark
-withResources trunkLength logLevel f = C.envWithCleanup create destroy unwrap
+withResources :: RocksDb -> Word64 -> LogLevel -> RunPactService -> C.Benchmark
+withResources rdb trunkLength logLevel f = C.envWithCleanup create destroy unwrap
   where
 
     create = do
-        rocksDbAndDir <- createRocksResource
         payloadDb <- createPayloadDb
-        blockHeaderDb <- testBlockHeaderDb (snd rocksDbAndDir) genesisBlock
+        blockHeaderDb <- testBlockHeaderDb rdb genesisBlock
         coinAccounts <- newMVar mempty
         nonceCounter <- newIORef 1
         txPerBlock <- newIORef 10
-        sqlEnv <- openSQLiteConnection "" {- temporary SQLite db -} chainwebPragmas
+        sqlEnv <- openSQLiteConnection "" {- temporary SQLite db -} chainwebBenchPragmas
         mp <- testMemPoolAccess txPerBlock coinAccounts
         pactService <-
           startPact testVer logger blockHeaderDb payloadDb mp sqlEnv
@@ -341,8 +338,6 @@ withResources trunkLength logLevel f = C.envWithCleanup create destroy unwrap
     destroy (NoopNFData (Resources {..})) = do
       stopPact pactService
       stopSqliteDb sqlEnv
-      destroyRocksResource rocksDbAndDir
-      destroyPayloadDb payloadDb
 
     unwrap ~(NoopNFData (Resources {..})) =
       f mainTrunkBlocks payloadDb blockHeaderDb nonceCounter (snd pactService) txPerBlock
@@ -361,6 +356,17 @@ withResources trunkLength logLevel f = C.envWithCleanup create destroy unwrap
 
     stopPact (a, _) = cancel a
 
+
+    chainwebBenchPragmas =
+        [ "synchronous = NORMAL"
+        , "journal_mode = WAL"
+        , "locking_mode = EXCLUSIVE"
+            -- this is different from the prodcution database that uses @NORMAL@
+        , "temp_store = MEMORY"
+        , "auto_vacuum = NONE"
+        , "page_size = 1024"
+        ]
+
 cid :: ChainId
 cid = someChainId testVer
 
@@ -370,40 +376,31 @@ testVer = FastTimedCPM petersonChainGraph
 genesisBlock :: BlockHeader
 genesisBlock = genesisBlockHeader testVer cid
 
-createRocksResource :: IO (FilePath, RocksDb)
-createRocksResource = do
-    sysdir <- getCanonicalTemporaryDirectory
-    dir <- createTempDirectory sysdir "chainweb-rocksdb-tmp"
-    rocks <- openRocksDb dir
-    return (dir, rocks)
-
-destroyRocksResource :: (FilePath, RocksDb) -> IO ()
-destroyRocksResource (dir, rocks) =  do
-    closeRocksDb rocks
-    destroyRocksDb dir
-    doesDirectoryExist dir >>= flip when (removeDirectoryRecursive dir)
-
+-- | Creates an in-memory Payload database that is managed by the garbage
+-- collector.
+--
 createPayloadDb :: IO (PayloadDb HashMapCas)
 createPayloadDb = newPayloadDb
 
-destroyPayloadDb :: PayloadDb HashMapCas -> IO ()
-destroyPayloadDb = const $ return ()
-
+-- | This block header db is created on an isolated namespace within the
+-- given RocksDb. There's no need to clean this up. It will be deleted
+-- along with the RocksDb instance.
+--
 testBlockHeaderDb
     :: RocksDb
     -> BlockHeader
     -> IO BlockHeaderDb
 testBlockHeaderDb rdb h = do
-    rdb' <- testRocksDb "withTestBlockHeaderDb" rdb
-    initBlockHeaderDb (Configuration h rdb')
-
-testRocksDb
-    :: B.ByteString
-    -> RocksDb
-    -> IO RocksDb
-testRocksDb l = rocksDbNamespace (const prefix)
+    t <- testRocksDb "BlockHeaderDb" rdb
+    initBlockHeaderDb (Configuration h t)
   where
-    prefix = (<>) l . sshow <$> (randomIO @Word64)
+    -- Create an isolated rocksdb namespace within an existing rocksdb. This
+    -- avoid reinitialization of a physical rocksdb for each benchmark run.
+    --
+    testRocksDb :: B.ByteString -> RocksDb -> IO RocksDb
+    testRocksDb l = rocksDbNamespace (const prefix)
+      where
+        prefix = (<>) l . sshow <$> (randomIO @Word64)
 
 
 assertNotLeft :: (MonadThrow m, Exception e) => Either e a -> m a
