@@ -380,7 +380,7 @@ cid :: ChainId
 cid = someChainId testVer
 
 testVer :: ChainwebVersion
-testVer = FastTimedCPM petersonChainGraph
+testVer = FastTimedCPM singletonChainGraph
 
 assertNotLeft :: (MonadThrow m, Exception e) => Either e a -> m a
 assertNotLeft (Left l) = throwM l
