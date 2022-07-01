@@ -24,6 +24,8 @@ module Chainweb.Miner.Core
   , mine
   ) where
 
+import Control.Monad
+
 import Crypto.Hash.Algorithms (Blake2s_256)
 import Crypto.Hash.IO
 
@@ -35,7 +37,7 @@ import Data.Word (Word64, Word8)
 
 import Foreign.Marshal.Alloc (allocaBytes)
 import Foreign.Ptr (Ptr, castPtr)
-import Foreign.Storable (peekElemOff, pokeByteOff)
+import Foreign.Storable (peekElemOff, pokeByteOff, sizeOf)
 
 import Servant.API
 
@@ -85,6 +87,20 @@ usePowHash Development f = f $ Proxy @Blake2s_256
 usePowHash Testnet04 f = f $ Proxy @Blake2s_256
 usePowHash Mainnet01 f = f $ Proxy @Blake2s_256
 
+-- -------------------------------------------------------------------------- --
+-- CPU Mining
+--
+-- ONLY USE FOR TESTING. BE CAREFUL ABOUT ONLY USING IT WITH HEADERS OF IN THE
+-- CORRECT FORMAT.
+
+noncePosition :: Int
+noncePosition = 278
+{-# INLINE noncePosition #-}
+
+timestampPosition :: Int
+timestampPosition = 8
+{-# INLINE timestampPosition #-}
+
 -- | CPU POW mining for chainweb.
 --
 -- See <https://github.com/kadena-io/chainweb-node/wiki/Block-Header-Binary-Encoding>
@@ -97,6 +113,8 @@ mine
   -> WorkHeader
   -> IO SolvedWork
 mine orig work = do
+    when (bufSize < noncePosition + sizeOf (0 :: Word64)) $
+        error "Chainweb.Miner.Core.mine: Buffer is too small to receive the nonce"
     BA.withByteArray tbytes $ \trgPtr -> do
         !ctx <- hashMutableInit @a
         new <- BA.copy hbytes $ \buf ->
@@ -159,7 +177,7 @@ mine orig work = do
 -- See also: https://github.com/kadena-io/chainweb-node/wiki/Block-Header-Binary-Encoding
 --
 injectNonce :: Nonce -> Ptr Word8 -> IO ()
-injectNonce (Nonce n) buf = pokeByteOff buf 278 n
+injectNonce (Nonce n) buf = pokeByteOff buf noncePosition n
 {-# INLINE injectNonce #-}
 
 -- | Inject a timestamp value into mining work header.
@@ -172,7 +190,7 @@ injectNonce (Nonce n) buf = pokeByteOff buf 278 n
 -- See also: https://github.com/kadena-io/chainweb-node/wiki/Block-Header-Binary-Encoding
 --
 injectTime :: Time Micros -> Ptr Word8 -> IO ()
-injectTime t buf = pokeByteOff buf 8 $ encodeTimeToWord64 t
+injectTime t buf = pokeByteOff buf timestampPosition $ encodeTimeToWord64 t
 {-# INLINE injectTime #-}
 
 -- | `PowHashNat` interprets POW hashes as unsigned 256 bit integral numbers in
