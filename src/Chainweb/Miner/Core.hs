@@ -90,7 +90,7 @@ usePowHash Mainnet01 f = f $ Proxy @Blake2s_256
 -- -------------------------------------------------------------------------- --
 -- CPU Mining
 --
--- ONLY USE FOR TESTING. BE CAREFUL ABOUT ONLY USING IT WITH HEADERS OF IN THE
+-- ONLY USE FOR TESTING. BE CAREFUL ABOUT ONLY USING IT WITH HEADERS IN THE
 -- CORRECT FORMAT.
 
 noncePosition :: Int
