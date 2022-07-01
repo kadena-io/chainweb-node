@@ -676,7 +676,7 @@ validateInductiveWebStep s = concat
 -- -------------------------------------------------------------------------- --
 
 powDisabled :: Bool
-powDisabled = case unsafePerformIO $ lookupEnv "DISABLE_POW_VALIDATION" of
+powDisabled = case unsafeDupablePerformIO $ lookupEnv "DISABLE_POW_VALIDATION" of
   Nothing -> False
   Just{} -> True
 {-# NOINLINE powDisabled #-}
