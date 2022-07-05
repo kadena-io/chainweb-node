@@ -54,7 +54,6 @@ someGetConfigServer config = SomeServer (Proxy @GetConfigApi) $ return
     $ set (configP2p . p2pConfigPeer . peerConfigKeyFile) Nothing
 
     -- Miner Info
-    $ set (configMining . miningCoordination . coordinationMiners) mempty
     $ set (configMining . miningInNode . nodeMiner) invalidMiner
 
     -- Service API port

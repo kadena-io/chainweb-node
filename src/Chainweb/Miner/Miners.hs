@@ -59,7 +59,6 @@ import qualified Chainweb.Mempool.Mempool as Mempool
 import Chainweb.Miner.Config (MinerCount(..))
 import Chainweb.Miner.Coordinator
 import Chainweb.Miner.Core
-import Chainweb.Miner.Pact
 import Chainweb.RestAPI.Orphans ()
 import Chainweb.Transaction
 import Chainweb.Utils
@@ -79,15 +78,14 @@ localTest
     => LogFunction
     -> ChainwebVersion
     -> MiningCoordination logger cas
-    -> Miner
     -> CutDb cas
     -> MWC.GenIO
     -> MinerCount
     -> IO ()
-localTest lf v coord m cdb gen miners =
+localTest lf v coord cdb gen miners =
     runForever lf "Chainweb.Miner.Miners.localTest" $ do
         c <- _cut cdb
-        wh <- work coord Nothing m
+        wh <- work coord
         let height = c ^?! ixg (_workHeaderChainId wh) . blockHeight
 
         race (awaitNewCutByChainId cdb (_workHeaderChainId wh) c) (go height wh) >>= \case
@@ -132,12 +130,11 @@ localPOW
     => LogFunction
     -> ChainwebVersion
     -> MiningCoordination logger cas
-    -> Miner
     -> CutDb cas
     -> IO ()
-localPOW lf v coord m cdb = runForever lf "Chainweb.Miner.Miners.localPOW" $ do
+localPOW lf v coord cdb = runForever lf "Chainweb.Miner.Miners.localPOW" $ do
     c <- _cut cdb
-    wh <- work coord Nothing m
+    wh <- work coord
     race (awaitNewCutByChainId cdb (_workHeaderChainId wh) c) (go wh) >>= \case
         Left _ -> return ()
         Right new -> do

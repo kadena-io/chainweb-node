@@ -24,7 +24,6 @@ module Chainweb.Miner.Config
 , CoordinationConfig(..)
 , pCoordinationConfig
 , coordinationEnabled
-, coordinationMiners
 , NodeMiningConfig(..)
 , defaultNodeMining
 , nodeMiningEnabled
@@ -41,7 +40,6 @@ import Control.Monad (when)
 import Control.Monad.Except (throwError)
 import Control.Monad.Writer (tell)
 
-import qualified Data.Set as S
 import qualified Data.Text.Encoding as T
 
 import GHC.Generics (Generic)
@@ -128,9 +126,6 @@ data CoordinationConfig = CoordinationConfig
     { _coordinationEnabled :: !Bool
       -- ^ Is mining coordination enabled? If not, the @/mining/@ won't even be
       -- present on the node.
-    , _coordinationMiners :: !(S.Set Miner)
-      -- ^ This field must contain at least one `Miner` identity in order for
-      -- work requests to be made.
     , _coordinationReqLimit :: !Int
       -- ^ The number of @/mining/work/@ requests that can be made to this node
       -- in a 5 minute period.
@@ -146,9 +141,6 @@ coordinationEnabled = lens _coordinationEnabled (\m c -> m { _coordinationEnable
 coordinationLimit :: Lens' CoordinationConfig Int
 coordinationLimit = lens _coordinationReqLimit (\m c -> m { _coordinationReqLimit = c })
 
-coordinationMiners :: Lens' CoordinationConfig (S.Set Miner)
-coordinationMiners = lens _coordinationMiners (\m c -> m { _coordinationMiners = c })
-
 coordinationUpdateStreamLimit :: Lens' CoordinationConfig Int
 coordinationUpdateStreamLimit =
     lens _coordinationUpdateStreamLimit (\m c -> m { _coordinationUpdateStreamLimit = c })
@@ -161,7 +153,6 @@ instance ToJSON CoordinationConfig where
     toJSON o = object
         [ "enabled" .= _coordinationEnabled o
         , "limit" .= _coordinationReqLimit o
-        , "miners" .= _coordinationMiners o
         , "updateStreamLimit" .= _coordinationUpdateStreamLimit o
         , "updateStreamTimeout" .= _coordinationUpdateStreamTimeout o
         ]
@@ -170,14 +161,12 @@ instance FromJSON (CoordinationConfig -> CoordinationConfig) where
     parseJSON = withObject "CoordinationConfig" $ \o -> id
         <$< coordinationEnabled ..: "enabled" % o
         <*< coordinationLimit ..: "limit" % o
-        <*< coordinationMiners .fromLeftMonoidalUpdate %.: "miners" % o
         <*< coordinationUpdateStreamLimit ..: "updateStreamLimit" % o
         <*< coordinationUpdateStreamTimeout ..: "updateStreamTimeout" % o
 
 defaultCoordination :: CoordinationConfig
 defaultCoordination = CoordinationConfig
     { _coordinationEnabled = False
-    , _coordinationMiners = mempty
     , _coordinationReqLimit = 1200
     , _coordinationUpdateStreamLimit = 2000
     , _coordinationUpdateStreamTimeout = 240
@@ -188,7 +177,6 @@ pCoordinationConfig = id
     <$< coordinationEnabled .:: enableDisableFlag
         % long "mining-coordination"
         <> help "whether to enable the mining coordination API"
-    <*< coordinationMiners %:: pLeftMonoidalUpdate (S.singleton <$> pMiner "")
     <*< coordinationLimit .:: jsonOption
         % long "mining-request-limit"
         <> help "Number of /mining/work requests that can be made within a 5min period"

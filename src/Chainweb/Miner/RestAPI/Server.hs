@@ -36,7 +36,6 @@ import Data.Binary.Builder (fromByteString)
 import Data.IORef (IORef, atomicModifyIORef', newIORef, readIORef, writeIORef)
 import qualified Data.Map.Strict as M
 import Data.Proxy (Proxy(..))
-import qualified Data.Set as S
 import qualified Data.Text.Lazy as TL
 import qualified Data.Text.Lazy.Encoding as TL
 
@@ -70,21 +69,19 @@ import Chainweb.Version
 workHandler
     :: Logger l
     => MiningCoordination l cas
-    -> Maybe ChainId
-    -> Miner
     -> Handler WorkBytes
-workHandler mr mcid m@(Miner (MinerId mid) _) = do
+workHandler mr = do
+    let m@(Miner (MinerId mid) _) = _coordMiner mr
     MiningState ms <- liftIO . readTVarIO $ _coordState mr
     when (M.size ms > _coordLimit mr) $ do
         liftIO $ atomicModifyIORef' (_coord503s mr) (\c -> (c + 1, ()))
         throwError err503 { errBody = "Too many work requests" }
-    let !conf = _coordConf mr
-        !primed = S.member m $ _coordinationMiners conf
+    let !primed = m == _coordMiner mr
     unless primed $ do
         liftIO $ atomicModifyIORef' (_coord403s mr) (\c -> (c + 1, ()))
         let midb = TL.encodeUtf8 $ TL.fromStrict mid
         throwError err403 { errBody = "Unauthorized Miner: " <> midb }
-    wh <- liftIO $ work mr mcid m
+    wh <- liftIO $ work mr
     return $ WorkBytes $ runPut $ encodeWorkHeader wh
 
 -- -------------------------------------------------------------------------- --
@@ -105,7 +102,7 @@ solvedHandler mr (HeaderBytes bytes) = do
 
         Right solved -> do
             result <- liftIO $ catches (Right () <$ solve mr solved)
-                [ E.Handler $ \NoAsscociatedPayload ->
+                [ E.Handler $ \NoAssociatedPayload ->
                     return $ Left err404 { errBody = "No associated Payload" }
                 , E.Handler $ \(InvalidSolvedHeader _ msg) ->
                     return $ Left err400 { errBody = "Invalid solved work: " <> toErrText msg}

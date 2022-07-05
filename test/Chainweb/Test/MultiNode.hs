@@ -297,10 +297,10 @@ replayTest loglevel v n = testCaseSteps name $ \step -> do
     let tastylog = step . T.unpack
     withTempRocksDb "replay-test" $ \rdb -> do
         tastylog "phase 1..."
-        Just stats1 <- runNodesForSeconds loglevel (multiConfig v n) v n 60 T.putStrLn rdb
+        Just stats1 <- runNodesForSeconds loglevel (multiConfig v n) v n (Seconds 120) T.putStrLn rdb
         tastylog $ sshow stats1
         tastylog $ "phase 2... "
-        Just stats2 <- runNodesForSeconds loglevel (multiConfig v n & set (configCuts . cutInitialBlockHeightLimit) (Just 5)) v n 30 (T.putStrLn) rdb
+        Just stats2 <- runNodesForSeconds loglevel (multiConfig v n & set (configCuts . cutInitialBlockHeightLimit) (Just 5)) v n (Seconds 60) (T.putStrLn) rdb
         tastylog $ sshow stats2
         tastylog "done."
         assertGe "maximum cut height before reset" (Actual $ _statMaxHeight stats1) (Expected $ 10)
@@ -444,7 +444,7 @@ consensusStateSummary s
     medHeight = median $ HM.elems cutHeights
 
 expectedBlockCount :: ChainwebVersion -> Seconds -> Double
-expectedBlockCount v s = expectedGlobalBlockCountAfterSeconds v s
+expectedBlockCount v s = expectedGlobalBlockCountAfterSeconds v (max 0 (s - Seconds 20))
 
 lowerStats :: ChainwebVersion -> Seconds -> Stats
 lowerStats v seconds = Stats
