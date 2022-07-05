@@ -47,7 +47,6 @@ module Chainweb.Version
 , workSizeBytes
 -- ** Payload Validation Parameters
 , maxBlockGasLimit
-, checkBlockGasLimitHeight
 -- ** Payload Validation Guards
 , vuln797Fix
 , coinV2Upgrade
@@ -66,6 +65,7 @@ module Chainweb.Version
 , chainweb213Pact
 , chainweb214Pact
 , chainweb215Pact
+, chainweb216Pact
 
 -- ** BlockHeader Validation Guards
 , slowEpochGuard
@@ -776,11 +776,20 @@ maxBlockGasLimit Testnet04 _ _ = 180000
 maxBlockGasLimit Development _ _ = 180000
 maxBlockGasLimit _ _ _ = 180000
 
-checkBlockGasLimitHeight :: ChainwebVersion -> ChainId -> BlockHeight
-checkBlockGasLimitHeight Mainnet01 _ = 2988358
-checkBlockGasLimitHeight Testnet04 _ = 2516927
-checkBlockGasLimitHeight Development _ = 0
-checkBlockGasLimitHeight _ _ = 0
+chainweb216Pact
+    :: AtOrAfter
+    -> ChainwebVersion
+    -> BlockHeight
+    -> Bool
+chainweb216Pact aoa v h = case aoa of
+    At -> go (==) v h
+    After -> go (<) v h
+  where
+    go f Mainnet01 = f 2988358 -- 2022-09-02 00:00:00+00:00
+    go f Testnet04 = f 2516927 -- 2022-09-01 12:00:00+00:00
+    go f Development = f 170
+    go f (FastTimedCPM g) | g == petersonChainGraph = f 40
+    go f _ = f 12
 
 -- -------------------------------------------------------------------------- --
 -- Pact Validation Guards

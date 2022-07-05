@@ -146,9 +146,9 @@ execBlock currHeader plData pdbenv = do
     logInitCache
 
     !results :: Transactions (P.CommandResult [P.TxLog A.Value]) <- go miner trans >>= throwOnGasFailure
-    when (_blockHeight currHeader > checkBlockGasLimitHeight v (_blockChainId currHeader)) $ do
+    when (chainweb216Pact After v (_blockHeight currHeader)) $ do
       let blockGasUsed = foldMap P._crGas results
-      blockGasLimit <- view psBlockGasLimit
+      let blockGasLimit = maxBlockGasLimit v (_blockChainId currHeader) (_blockHeight currHeader)
       when (blockGasUsed > fromIntegral blockGasLimit) $
         throwM (BlockGasLimitExceeded blockGasUsed)
 
