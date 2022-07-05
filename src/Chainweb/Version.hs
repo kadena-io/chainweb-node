@@ -143,7 +143,7 @@ import GHC.TypeLits
 
 import Numeric.Natural
 
-import System.IO.Unsafe (unsafePerformIO)
+import System.IO.Unsafe (unsafeDupablePerformIO)
 import System.Environment (lookupEnv)
 
 import Text.Read (readMaybe)
@@ -660,7 +660,7 @@ blockRate Development = BlockRate $ maybe 30 int customeDevnetRate
 
 customeDevnetRate :: Maybe Int
 customeDevnetRate =
-    readMaybe =<< unsafePerformIO (lookupEnv "DEVELOPMENT_BLOCK_RATE")
+    readMaybe =<< unsafeDupablePerformIO (lookupEnv "DEVELOPMENT_BLOCK_RATE")
 {-# NOINLINE customeDevnetRate #-}
 
 -- | The number of blocks to be mined after a difficulty adjustment, before
