@@ -47,6 +47,7 @@ module Chainweb.Version
 , workSizeBytes
 -- ** Payload Validation Parameters
 , maxBlockGasLimit
+, checkBlockGasLimitHeight
 -- ** Payload Validation Guards
 , vuln797Fix
 , coinV2Upgrade
@@ -774,6 +775,12 @@ maxBlockGasLimit Mainnet01 _ _ = 180000
 maxBlockGasLimit Testnet04 _ _ = 180000
 maxBlockGasLimit Development _ _ = 180000
 maxBlockGasLimit _ _ _ = 180000
+
+checkBlockGasLimitHeight :: ChainwebVersion -> ChainId -> BlockHeight
+checkBlockGasLimitHeight Mainnet01 _ = 2988358
+checkBlockGasLimitHeight Testnet04 _ = 2516927
+checkBlockGasLimitHeight Development _ = 0
+checkBlockGasLimitHeight _ _ = 0
 
 -- -------------------------------------------------------------------------- --
 -- Pact Validation Guards

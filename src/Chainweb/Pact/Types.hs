@@ -192,6 +192,13 @@ data Transactions r = Transactions
     } deriving (Eq, Show, Generic, NFData)
 makeLenses 'Transactions
 
+instance Functor Transactions where
+  fmap = over traverse
+instance Foldable Transactions where
+  foldMap = foldMapOf traverse
+instance Traversable Transactions where
+  traverse = transactionPairs . traversed . _2
+
 data PactDbStatePersist = PactDbStatePersist
     { _pdbspRestoreFile :: !(Maybe FilePath)
     , _pdbspPactDbState :: !PactDbState

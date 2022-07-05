@@ -145,7 +145,13 @@ execBlock currHeader plData pdbenv = do
 
     logInitCache
 
-    !results <- go miner trans >>= throwOnGasFailure
+    !results :: Transactions (P.CommandResult [P.TxLog A.Value]) <- go miner trans >>= throwOnGasFailure
+    when (_blockHeight currHeader > checkBlockGasLimitHeight v (_blockChainId currHeader)) $ do
+      let blockGasUsed = foldMap P._crGas results
+      blockGasLimit <- view psBlockGasLimit
+      when (blockGasUsed > fromIntegral blockGasLimit) $
+        throwM (BlockGasLimitExceeded blockGasUsed)
+
     modify' $ set psStateValidated $ Just currHeader
 
     -- Validate hashes if requested

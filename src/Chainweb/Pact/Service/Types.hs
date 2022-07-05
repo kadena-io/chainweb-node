@@ -102,9 +102,10 @@ data PactException
       , _rewindExceededTarget :: !BlockHeader
           -- ^ target header
       }
-  | BlockHeaderLookupFailure Text
-  | BuyGasFailure GasPurchaseFailure
-  | MempoolFillFailure Text
+  | BlockHeaderLookupFailure !Text
+  | BuyGasFailure !GasPurchaseFailure
+  | MempoolFillFailure !Text
+  | BlockGasLimitExceeded !Gas
   deriving (Eq,Generic)
 
 instance Show PactException where
