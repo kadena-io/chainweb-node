@@ -31,7 +31,7 @@ module Chainweb.Chainweb.MinerResources
 
 import Control.Concurrent.Async
 import Control.Concurrent.STM.TVar
-import Control.Lens (at, view, (&), (?~))
+import Control.Lens
 
 import Data.HashMap.Strict (HashMap)
 import qualified Data.HashMap.Strict as HM
@@ -136,7 +136,7 @@ withMiningCoordination logger conf cdb inner
     -- requests while a new payload is being formed.
     --
     silenceChain :: ChainId -> PrimedWork -> PrimedWork
-    silenceChain cid (PrimedWork pw) = PrimedWork (pw & at cid ?~ Nothing)
+    silenceChain cid (PrimedWork pw) = PrimedWork (pw & at cid .~ Nothing)
 
     updateCache
         :: ChainId
@@ -145,7 +145,7 @@ withMiningCoordination logger conf cdb inner
         -> PayloadData
         -> PrimedWork
     updateCache cid !parent (PrimedWork pw) !payload =
-        PrimedWork (pw & at cid ?~ Just (payload, parent))
+        PrimedWork (pw & at cid .~ Just (T2 payload parent))
 
     -- TODO: Should we initialize new chains, too, ahead of time?
     -- It seems that it's not needed and 'awaitNewCutByChainId' in 'primedWork'
@@ -163,10 +163,10 @@ withMiningCoordination logger conf cdb inner
     fromCut
       :: Miner
       -> [T2 ChainId ParentHeader]
-      -> IO (HM.HashMap ChainId (Maybe (PayloadData, BlockHash)))
-    fromCut m cut = HM.fromList
+      -> IO (M.Map ChainId (T2 PayloadData BlockHash))
+    fromCut m cut = M.fromList
         <$> traverse
-            (\(T2 cid bh) -> (cid,) . Just . (, _blockHash (_parentHeader bh)) <$> getPayload bh m)
+            (\(T2 cid bh) -> (cid,) . (flip T2 $ _blockHash (_parentHeader bh)) <$> getPayload bh m)
             cut
 
     getPayload :: ParentHeader -> Miner -> IO PayloadData
@@ -192,7 +192,7 @@ withMiningCoordination logger conf cdb inner
             { _stats503s = count503
             , _stats403s = count403
             , _statsAvgTxs = avgTxs ms
-            , _statsPrimedSize = HM.size pw
+            , _statsPrimedSize = M.size pw
             }
 
     avgTxs :: MiningState -> Int

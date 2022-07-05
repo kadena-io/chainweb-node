@@ -46,13 +46,11 @@ import Control.Concurrent.STM (atomically)
 import Control.Concurrent.STM.TVar
 import Control.DeepSeq (NFData)
 import Control.Lens (makeLenses, over, view)
-import Control.Monad
 import Control.Monad.Catch
 
 import Data.Aeson (ToJSON)
 import Data.Bool (bool)
 import qualified Data.ByteString as BS
-import qualified Data.HashMap.Strict as HM
 import Data.IORef
 import qualified Data.Map.Strict as M
 import qualified Data.Text as T
@@ -129,12 +127,8 @@ data MiningCoordination logger cas = MiningCoordination
 -- made as often as desired, without clogging the Pact queue.
 --
 newtype PrimedWork =
-    PrimedWork (HM.HashMap ChainId (Maybe (PayloadData, BlockHash)))
+    PrimedWork (M.Map ChainId (T2 PayloadData BlockHash))
     deriving newtype (Semigroup, Monoid)
-
-resetPrimed :: ChainId -> PrimedWork -> PrimedWork
-resetPrimed cid (PrimedWork pw) = PrimedWork
-    $! HM.insert cid Nothing pw
 
 -- | Data shared between the mining threads represented by `newWork` and
 -- `publish`.
@@ -188,14 +182,14 @@ newWork logFun choice eminer hdb pact tpw c = do
 
     PrimedWork pw <- readIORef tpw
     let mr = T2
-            <$> join (HM.lookup cid pw)
+            <$> M.lookup cid pw
             <*> getCutExtension c cid
 
     case mr of
         Nothing -> do
             logFun @T.Text Debug $ "newWork: chain " <> sshow cid <> " not mineable"
             newWork logFun (TriedLast cid) eminer hdb pact tpw c
-        Just (T2 (payload, primedParentHash) extension)
+        Just (T2 (T2 payload primedParentHash) extension)
             | primedParentHash == _blockHash (_parentHeader (_cutExtensionParent extension)) -> do
                 let !phash = _payloadDataPayloadHash payload
                 !wh <- newWorkHeader hdb extension phash
@@ -251,7 +245,9 @@ publish lf cdb pwVar miner pd s = do
         Right (bh, Just ch) -> do
 
             -- reset the primed payload for this cut extension
-            atomicModifyIORef' pwVar ((,()) . resetPrimed (_chainId bh))
+            let resetPrimed (PrimedWork w) = PrimedWork $ M.delete (_chainId bh) w
+            atomicModifyIORef' pwVar ((,()) . resetPrimed)
+
             addCutHashes cdb ch
 
             let bytes = sum . fmap (BS.length . _transactionBytes) $
