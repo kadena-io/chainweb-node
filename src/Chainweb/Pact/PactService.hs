@@ -497,11 +497,11 @@ execNewBlock mpAccess parent miner = do
                 <> " (parent height = " <> sshow pHeight <> ")"
                 <> " (parent hash = " <> sshow pHash <> ")"
 
-        blockGasLim <- view psBlockGasLimit
-        let initState = BlockFill blockGasLim mempty 0
+        blockGasLimit <- view psBlockGasLimit
+        let initState = BlockFill blockGasLimit mempty 0
 
         -- Heuristic: limit fetches to count of 1000-gas txs in block.
-        let fetchLimit = fromIntegral $ blockGasLim `div` 1000
+        let fetchLimit = fromIntegral $ blockGasLimit `div` 1000
 
         newTrans <- getBlockTxs initState
 

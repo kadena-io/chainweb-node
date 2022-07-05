@@ -46,7 +46,7 @@ module Chainweb.Version
 , headerSizeBytes
 , workSizeBytes
 -- ** Payload Validation Parameters
-, blockGasLimit
+, maxBlockGasLimit
 -- ** Payload Validation Guards
 , vuln797Fix
 , coinV2Upgrade
@@ -761,15 +761,15 @@ workSizeBytes v h = headerSizeBytes v (unsafeChainId 0) h - 32
 --
 -- Smaller limits can be configured for creating new blocks.
 --
-blockGasLimit
+maxBlockGasLimit
     :: ChainwebVersion
     -> ChainId
     -> BlockHeight
     -> Natural
-blockGasLimit Mainnet01 _ _ = 180000
-blockGasLimit Testnet04 _ _ = 180000
-blockGasLimit Development _ _ = 180000
-blockGasLimit _ _ _ = 180000
+maxBlockGasLimit Mainnet01 _ _ = 180000
+maxBlockGasLimit Testnet04 _ _ = 180000
+maxBlockGasLimit Development _ _ = 180000
+maxBlockGasLimit _ _ _ = 180000
 
 -- -------------------------------------------------------------------------- --
 -- Pact Validation Guards
