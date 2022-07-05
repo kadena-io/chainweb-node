@@ -761,6 +761,10 @@ workSizeBytes v h = headerSizeBytes v (unsafeChainId 0) h - 32
 --
 -- Smaller limits can be configured for creating new blocks.
 --
+-- WARNING: this isn't yet enforced as block validation property. The current use of this ignores the
+-- block height and use the value only during new block creation. Future versions of chainweb-node
+-- will enforce this limit during block validation.
+--
 maxBlockGasLimit
     :: ChainwebVersion
     -> ChainId
