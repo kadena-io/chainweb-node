@@ -53,6 +53,7 @@ import Pact.Types.Continuation
 import Pact.Types.Exp
 import Pact.Types.Command
 import Pact.Types.Hash
+import Pact.Types.Info
 import Pact.Types.PactValue
 import Pact.Types.Persistence
 import Pact.Types.PactError
@@ -73,7 +74,8 @@ import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.Service.BlockValidation
 import Chainweb.Pact.Service.PactQueue (PactQueue)
 import Chainweb.Pact.Service.Types
-import Chainweb.Pact.PactService (getGasModel)
+import Chainweb.Pact.PactService
+import Chainweb.Pact.PactService.ExecBlock
 import Chainweb.Pact.TransactionExec (listErrMsg)
 import Chainweb.Pact.Types
 import Chainweb.Payload
@@ -104,18 +106,25 @@ tests rdb = ScheduledTest testName go
   where
     testName = "Chainweb.Test.Pact.PactInProcApi"
     go = testGroup testName
-         [ test Warn $ goldenNewBlock "new-block-0" goldenMemPool
-         , test Warn $ goldenNewBlock "empty-block-tests" mempty
-         , test Warn $ newBlockAndValidate
-         , test Warn $ newBlockRewindValidate
-         , test Quiet $ getHistory
-         , test Quiet $ testHistLookup1
-         , test Quiet $ testHistLookup2
-         , test Quiet $ testHistLookup3
-         , test Quiet $ badlistNewBlockTest
-         , test Warn $ mempoolCreationTimeTest
-         , test Warn $ moduleNameFork
-         , test Warn $ mempoolRefillTest
+         [ test id Warn $ goldenNewBlock "new-block-0" goldenMemPool
+         , test id Warn $ goldenNewBlock "empty-block-tests" mempty
+         , test id Warn $ newBlockAndValidate
+         , test id Warn $ newBlockRewindValidate
+         , test id Quiet $ getHistory
+         , test id Quiet $ testHistLookup1
+         , test id Quiet $ testHistLookup2
+         , test id Quiet $ testHistLookup3
+         , test id Quiet $ badlistNewBlockTest
+         , test id Warn $ mempoolCreationTimeTest
+         , test id Warn $ moduleNameFork
+         , test id Warn $ mempoolRefillTest
+         , test id Quiet $ blockGasLimitTest
+        --  , withDelegateMempool $ \dm ->
+        --     withPactTestBlockDb testVersion cid Warn rdb (snd <$> dm) pactConfig $ \qbdb ->
+        --       withDelegateMempool $ \dm2 ->
+        --         withPactTestBlockDb testVersion cid Warn rdb (snd <$> dm2) pactConfig { _pactBlockGasLimit = 1000 } $ \qbdb2 ->
+        --           blockGasLimitTest dm qbdb dm2 qbdb2
+        --  test (\pc -> pc { _pactBlockGasLimit = 1000 }) Warn $ blockGasLimitTest
          , multiChainTest freeGasModel "pact4coin3UpgradeTest" pact4coin3UpgradeTest
          , multiChainTest freeGasModel "pact420UpgradeTest" pact420UpgradeTest
          , multiChainTest freeGasModel "minerKeysetTest" minerKeysetTest
@@ -125,10 +134,10 @@ tests rdb = ScheduledTest testName go
          , multiChainTest getGasModel "chainweb215Test" chainweb215Test
          ]
       where
-        pactConfig = defaultPactServiceConfig { _pactBlockGasLimit = 150_000 }
-        test logLevel f =
+        pactConfig = defaultPactServiceConfig { _pactBlockGasLimit = 300_000 }
+        test alterCfg logLevel f =
           withDelegateMempool $ \dm ->
-          withPactTestBlockDb testVersion cid logLevel rdb (snd <$> dm) pactConfig $
+          withPactTestBlockDb testVersion cid logLevel rdb (snd <$> dm) (alterCfg pactConfig) $
           f (fst <$> dm)
 
         multiChainTest gasmodel tname f =
@@ -1199,6 +1208,26 @@ txResult msg i o = do
 -- | Get coinbase from output
 cbResult :: PayloadWithOutputs -> IO (CommandResult Hash)
 cbResult o = decodeStrictOrThrow @_ @(CommandResult Hash) (_coinbaseOutput $ _payloadWithOutputsCoinbase o)
+
+blockGasLimitTest :: IO (IORef MemPoolAccess) -> IO (PactQueue, TestBlockDb) -> TestTree
+blockGasLimitTest _ reqIO = testCase "blockGasLimitTest" $ do
+  (q,_) <- reqIO
+
+  -- txs that fail take all of the gas in the tx gas limit.  we set the tx gas
+  -- limit to be much higher than the maximum block gas limit and provoke an
+  -- error.
+  bigTx <- buildCwCmd $ set cbGasLimit 500_000_000 $ set cbSigners [mkSigner' sender00 []] $ mkCmd "cmd" $ mkExec' "TESTING"
+  let r = CommandResult (RequestKey (Hash "0")) Nothing (PactResult $ Left $ PactError EvalError (Pact.Types.Info.Info $ Nothing) [] mempty) 500_000 Nothing Nothing Nothing []
+  let block = Transactions (V.singleton (bigTx, r)) (CommandResult (RequestKey (Hash "h")) Nothing (PactResult $ Right $ PLiteral (LString "output")) 0 Nothing Nothing Nothing [])
+  let payload = toPayloadWithOutputs noMiner block
+  let bh = newBlockHeader
+            mempty
+            (_payloadWithOutputsPayloadHash payload)
+            (Nonce 0)
+            (BlockCreationTime $ Time $ TimeSpan 0)
+            (ParentHeader $ genesisBlockHeader testVersion cid)
+  validationResult <- validateBlock bh (payloadWithOutputsToPayloadData payload) q >>= takeMVar
+  assertEqual "validation result" validationResult (Left (BlockGasLimitExceeded 500_000_000))
 
 mempoolRefillTest :: IO (IORef MemPoolAccess) -> IO (PactQueue,TestBlockDb) -> TestTree
 mempoolRefillTest mpRefIO reqIO = testCase "mempoolRefillTest" $ do

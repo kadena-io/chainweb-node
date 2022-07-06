@@ -47,6 +47,7 @@ module Chainweb.Version
 , workSizeBytes
 -- ** Payload Validation Parameters
 , maxBlockGasLimit
+, checkMaxBlockGas
 -- ** Payload Validation Guards
 , vuln797Fix
 , coinV2Upgrade
@@ -762,9 +763,8 @@ workSizeBytes v h = headerSizeBytes v (unsafeChainId 0) h - 32
 --
 -- Smaller limits can be configured for creating new blocks.
 --
--- WARNING: this isn't yet enforced as block validation property. The current use of this ignores the
--- block height and use the value only during new block creation. Future versions of chainweb-node
--- will enforce this limit during block validation.
+-- WARNING: this is only enforced as a block validation property if
+-- @checkMaxBlockGas@ is True for the given ChainwebVersion and BlockHeight.
 --
 maxBlockGasLimit
     :: ChainwebVersion
@@ -774,22 +774,18 @@ maxBlockGasLimit
 maxBlockGasLimit Mainnet01 _ _ = 180000
 maxBlockGasLimit Testnet04 _ _ = 180000
 maxBlockGasLimit Development _ _ = 180000
-maxBlockGasLimit _ _ _ = 180000
+maxBlockGasLimit _ _ _ = 2_000000
 
-chainweb216Pact
-    :: AtOrAfter
-    -> ChainwebVersion
+-- | If True, check that the gas used by a block is less than the limit in block
+-- validation.
+checkMaxBlockGas
+    :: ChainwebVersion
     -> BlockHeight
     -> Bool
-chainweb216Pact aoa v h = case aoa of
-    At -> go (==) v h
-    After -> go (<) v h
-  where
-    go f Mainnet01 = f 2988358 -- 2022-09-02 00:00:00+00:00
-    go f Testnet04 = f 2516927 -- 2022-09-01 12:00:00+00:00
-    go f Development = f 170
-    go f (FastTimedCPM g) | g == petersonChainGraph = f 40
-    go f _ = f 12
+checkMaxBlockGas Mainnet01 bh = chainweb216Pact At Mainnet01 bh
+checkMaxBlockGas Testnet04 bh = chainweb216Pact At Testnet04 bh
+checkMaxBlockGas Development bh = chainweb216Pact At Development bh
+checkMaxBlockGas _ _ = True
 
 -- -------------------------------------------------------------------------- --
 -- Pact Validation Guards
@@ -1000,6 +996,23 @@ chainweb215Pact aoa v h = case aoa of
     go f Development = f 165
     go f (FastTimedCPM g) | g == petersonChainGraph = f 35
     go f _ = f 10
+
+-- | Pact and coin contract changes for Chainweb 2.15
+--
+chainweb216Pact
+    :: AtOrAfter
+    -> ChainwebVersion
+    -> BlockHeight
+    -> Bool
+chainweb216Pact aoa v h = case aoa of
+    At -> go (==) v h
+    After -> go (<) v h
+  where
+    go f Mainnet01 = f 2988358 -- 2022-09-02 00:00:00+00:00
+    go f Testnet04 = f 2516927 -- 2022-09-01 12:00:00+00:00
+    go f Development = f 170
+    go f (FastTimedCPM g) | g == petersonChainGraph = f 36
+    go f _ = f 16
 
 -- -------------------------------------------------------------------------- --
 -- Header Validation Guards

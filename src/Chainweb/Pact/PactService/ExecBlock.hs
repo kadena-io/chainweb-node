@@ -146,7 +146,7 @@ execBlock currHeader plData pdbenv = do
     logInitCache
 
     !results <- go miner trans >>= throwOnGasFailure
-    when (chainweb216Pact After v (_blockHeight currHeader)) $ do
+    when (checkMaxBlockGas v (_blockHeight currHeader)) $ do
       let blockGasUsed = foldMap P._crGas results
       let blockGasLimit = maxBlockGasLimit v (_blockChainId currHeader) (_blockHeight currHeader)
       when (blockGasUsed > fromIntegral blockGasLimit) $

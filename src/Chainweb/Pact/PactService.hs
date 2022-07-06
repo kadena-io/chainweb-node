@@ -346,6 +346,15 @@ serviceRequests logFn memPoolAccess reqQ = do
                 liftIO $ do
                     void $ tryPutMVar mvar $! toPactInternalError e
                     throwM e
+            , Handler $ \(e :: PactException) -> do
+                logError $ mconcat
+                    [ "Received exception running pact service ("
+                    , which
+                    , "): "
+                    , show e
+                    ]
+                liftIO $ do
+                    void $ tryPutMVar mvar $! Left e
             , Handler $ \(e :: SomeException) -> do
                 logError $ mconcat
                     [ "Received exception running pact service ("

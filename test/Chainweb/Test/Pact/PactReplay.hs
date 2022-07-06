@@ -69,8 +69,8 @@ tests rdb =
             (testCase "initial-playthrough" . firstPlayThrough mpio genblock)
         , after AllSucceed "initial-playthrough" $
             withPactTestBlockDb testVer cid Warn rdb mp (forkLimit 100_000)
-                (testCase "serivce-init-after-fork" . serviceInitializationAfterFork mpio genblock)
-        , after AllSucceed "serivce-init-after-fork" $
+                (testCase "service-init-after-fork" . serviceInitializationAfterFork mpio genblock)
+        , after AllSucceed "service-init-after-fork" $
             withPactTestBlockDb testVer cid Warn rdb mp (forkLimit 100_000)
                 (testCaseSteps "on-restart" . onRestart mpio)
         , after AllSucceed "on-restart" $

@@ -455,7 +455,10 @@ instance MerkleHashAlgorithm a => Arbitrary (BlockPayload_ a) where
     arbitrary = blockPayload <$> arbitrary <*> arbitrary
 
 instance MerkleHashAlgorithm a => Arbitrary (PayloadData_ a) where
-    arbitrary = newPayloadData <$> arbitrary <*> arbitrary
+    arbitrary = do
+        txs <- arbitrary
+        outputs <- arbitrary
+        pure $ payloadData txs $ blockPayload txs outputs
 
 instance MerkleHashAlgorithm a => Arbitrary (PayloadWithOutputs_ a) where
     arbitrary = newPayloadWithOutputs <$> arbitrary <*> arbitrary <*> arbitrary
