@@ -106,25 +106,19 @@ tests rdb = ScheduledTest testName go
   where
     testName = "Chainweb.Test.Pact.PactInProcApi"
     go = testGroup testName
-         [ test id Warn $ goldenNewBlock "new-block-0" goldenMemPool
-         , test id Warn $ goldenNewBlock "empty-block-tests" mempty
-         , test id Warn $ newBlockAndValidate
-         , test id Warn $ newBlockRewindValidate
-         , test id Quiet $ getHistory
-         , test id Quiet $ testHistLookup1
-         , test id Quiet $ testHistLookup2
-         , test id Quiet $ testHistLookup3
-         , test id Quiet $ badlistNewBlockTest
-         , test id Warn $ mempoolCreationTimeTest
-         , test id Warn $ moduleNameFork
-         , test id Warn $ mempoolRefillTest
-         , test id Quiet $ blockGasLimitTest
-        --  , withDelegateMempool $ \dm ->
-        --     withPactTestBlockDb testVersion cid Warn rdb (snd <$> dm) pactConfig $ \qbdb ->
-        --       withDelegateMempool $ \dm2 ->
-        --         withPactTestBlockDb testVersion cid Warn rdb (snd <$> dm2) pactConfig { _pactBlockGasLimit = 1000 } $ \qbdb2 ->
-        --           blockGasLimitTest dm qbdb dm2 qbdb2
-        --  test (\pc -> pc { _pactBlockGasLimit = 1000 }) Warn $ blockGasLimitTest
+         [ test Warn $ goldenNewBlock "new-block-0" goldenMemPool
+         , test Warn $ goldenNewBlock "empty-block-tests" mempty
+         , test Warn $ newBlockAndValidate
+         , test Warn $ newBlockRewindValidate
+         , test Quiet $ getHistory
+         , test Quiet $ testHistLookup1
+         , test Quiet $ testHistLookup2
+         , test Quiet $ testHistLookup3
+         , test Quiet $ badlistNewBlockTest
+         , test Warn $ mempoolCreationTimeTest
+         , test Warn $ moduleNameFork
+         , test Warn $ mempoolRefillTest
+         , test Quiet $ blockGasLimitTest
          , multiChainTest freeGasModel "pact4coin3UpgradeTest" pact4coin3UpgradeTest
          , multiChainTest freeGasModel "pact420UpgradeTest" pact420UpgradeTest
          , multiChainTest freeGasModel "minerKeysetTest" minerKeysetTest
@@ -134,10 +128,9 @@ tests rdb = ScheduledTest testName go
          , multiChainTest getGasModel "chainweb215Test" chainweb215Test
          ]
       where
-        pactConfig = defaultPactServiceConfig { _pactBlockGasLimit = 300_000 }
-        test alterCfg logLevel f =
+        test logLevel f =
           withDelegateMempool $ \dm ->
-          withPactTestBlockDb testVersion cid logLevel rdb (snd <$> dm) (alterCfg pactConfig) $
+          withPactTestBlockDb testVersion cid logLevel rdb (snd <$> dm) defaultPactServiceConfig $
           f (fst <$> dm)
 
         multiChainTest gasmodel tname f =
