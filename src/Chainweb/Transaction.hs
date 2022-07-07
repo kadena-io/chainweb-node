@@ -10,7 +10,7 @@
 module Chainweb.Transaction
   ( ChainwebTransaction
   , HashableTrans(..)
-  , PayloadWithText(..)
+  , PayloadWithText
   , chainwebPayloadCodec
   , encodePayload
   , decodePayload

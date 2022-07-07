@@ -238,7 +238,7 @@ validateChainwebTxs logger v cid cp txValidationTime bh txs doBuyGas
 
     checkTxHash :: ChainwebTransaction -> IO (Either InsertError ChainwebTransaction)
     checkTxHash t =
-        case P.verifyHash (P._cmdHash t) (SB.fromShort $ _payloadBytes $ P._cmdPayload t) of
+        case P.verifyHash (P._cmdHash t) (SB.fromShort $ payloadBytes $ P._cmdPayload t) of
             Left _
                 | doCheckTxHash v bh -> return $ Left $ InsertErrorInvalidHash
                 | otherwise -> do
@@ -576,7 +576,7 @@ toPayloadWithOutputs mi ts =
         cb = CoinbaseOutput $ encodeToByteString $ toHashCommandResult $ _transactionCoinbase ts
         blockTrans = snd $ newBlockTransactions miner trans
         cmdBSToTx = toTransactionBytes
-          . fmap (T.decodeUtf8 . SB.fromShort . _payloadBytes)
+          . fmap (T.decodeUtf8 . SB.fromShort . payloadBytes)
         blockOuts = snd $ newBlockOutputs cb transOuts
 
         blockPL = blockPayload blockTrans blockOuts
