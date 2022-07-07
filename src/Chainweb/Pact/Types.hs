@@ -194,10 +194,13 @@ makeLenses 'Transactions
 
 instance Functor Transactions where
   fmap = over traverse
+  {-# inline fmap #-}
 instance Foldable Transactions where
   foldMap = foldMapOf traverse
+  {-# inline foldMap #-}
 instance Traversable Transactions where
   traverse = transactionPairs . traversed . _2
+  {-# inline traverse #-}
 
 data PactDbStatePersist = PactDbStatePersist
     { _pdbspRestoreFile :: !(Maybe FilePath)

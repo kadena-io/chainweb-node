@@ -346,15 +346,6 @@ serviceRequests logFn memPoolAccess reqQ = do
                 liftIO $ do
                     void $ tryPutMVar mvar $! toPactInternalError e
                     throwM e
-            , Handler $ \(e :: PactException) -> do
-                logError $ mconcat
-                    [ "Received exception running pact service ("
-                    , which
-                    , "): "
-                    , show e
-                    ]
-                liftIO $ do
-                    void $ tryPutMVar mvar $! Left e
             , Handler $ \(e :: SomeException) -> do
                 logError $ mconcat
                     [ "Received exception running pact service ("
@@ -434,8 +425,8 @@ attemptBuyGas miner (PactDbEnv' dbEnv) txs = do
     runBuyGas _db mcache l@Left {} = return (T2 mcache l)
     runBuyGas db mcache (Right tx) = do
         let cmd = payloadObj <$> tx
-            gasPrice = gasPriceOf cmd
-            gasLimit = fromIntegral $ gasLimitOf cmd
+            gasPrice = cmd ^. cmdGasPrice
+            gasLimit = fromIntegral $ cmd ^. cmdGasLimit
             txst = TransactionState
                 { _txCache = mcache
                 , _txLogs = mempty
@@ -519,6 +510,7 @@ execNewBlock mpAccess parent miner = do
           (EnforceCoinbaseFailure True)
           (CoinbaseUsePrecompiled True)
           pdbenv
+          Nothing
 
         (BlockFilling _ successPairs failures) <-
           refill fetchLimit pdbenv =<<
@@ -608,7 +600,7 @@ execNewGenesisBlock miner newTrans = withDiscardedBatch $
         -- NEW GENESIS COINBASE: Reject bad coinbase, use date rule for precompilation
         results <- execTransactions True miner newTrans
                    (EnforceCoinbaseFailure True)
-                   (CoinbaseUsePrecompiled False) pdbenv
+                   (CoinbaseUsePrecompiled False) pdbenv Nothing
                    >>= throwOnGasFailure
         return $! Discard (toPayloadWithOutputs miner results)
 

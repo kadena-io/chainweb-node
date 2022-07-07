@@ -47,7 +47,6 @@ module Chainweb.Version
 , workSizeBytes
 -- ** Payload Validation Parameters
 , maxBlockGasLimit
-, checkMaxBlockGas
 -- ** Payload Validation Guards
 , vuln797Fix
 , coinV2Upgrade
@@ -126,6 +125,7 @@ module Chainweb.Version
 
 import Control.DeepSeq
 import Control.Lens
+import Control.Monad
 import Control.Monad.Catch
 
 import Data.Aeson hiding (pairs)
@@ -763,29 +763,15 @@ workSizeBytes v h = headerSizeBytes v (unsafeChainId 0) h - 32
 --
 -- Smaller limits can be configured for creating new blocks.
 --
--- WARNING: this is only enforced as a block validation property if
--- @checkMaxBlockGas@ is True for the given ChainwebVersion and BlockHeight.
---
 maxBlockGasLimit
     :: ChainwebVersion
     -> ChainId
     -> BlockHeight
-    -> Natural
-maxBlockGasLimit Mainnet01 _ _ = 180000
-maxBlockGasLimit Testnet04 _ _ = 180000
-maxBlockGasLimit Development _ _ = 180000
-maxBlockGasLimit _ _ _ = 2_000000
-
--- | If True, check that the gas used by a block is less than the limit in block
--- validation.
-checkMaxBlockGas
-    :: ChainwebVersion
-    -> BlockHeight
-    -> Bool
-checkMaxBlockGas Mainnet01 bh = chainweb216Pact At Mainnet01 bh
-checkMaxBlockGas Testnet04 bh = chainweb216Pact At Testnet04 bh
-checkMaxBlockGas Development bh = chainweb216Pact At Development bh
-checkMaxBlockGas _ _ = True
+    -> Maybe Natural
+maxBlockGasLimit Mainnet01 _ bh = 180000 <$ guard (chainweb216Pact At Mainnet01 bh)
+maxBlockGasLimit Testnet04 _ bh = 180000 <$ guard (chainweb216Pact At Testnet04 bh)
+maxBlockGasLimit Development _ _ = Just 180000
+maxBlockGasLimit _ _ _ = Just 2_000000
 
 -- -------------------------------------------------------------------------- --
 -- Pact Validation Guards

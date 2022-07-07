@@ -6,6 +6,7 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE ViewPatterns #-}
 
 -- |
 -- Module: Chainweb.Test.PactInProcApi
@@ -27,7 +28,7 @@ import Control.Exception
 import Control.Lens hiding ((.=))
 import Control.Monad
 
-import Data.Aeson (object, (.=), Value(..))
+import Data.Aeson (object, (.=), Value(..), decode)
 import qualified Data.ByteString.Base64.URL as B64U
 import Data.CAS (casLookupM)
 import Data.CAS.RocksDB
@@ -39,6 +40,7 @@ import Data.IORef
 import qualified Data.Map.Strict as M
 import qualified Data.Set as S
 import qualified Data.Text as T
+import qualified Data.Text.Encoding as T
 import qualified Data.Vector as V
 import qualified Data.Yaml as Y
 
@@ -1220,7 +1222,9 @@ blockGasLimitTest _ reqIO = testCase "blockGasLimitTest" $ do
             (BlockCreationTime $ Time $ TimeSpan 0)
             (ParentHeader $ genesisBlockHeader testVersion cid)
   validationResult <- validateBlock bh (payloadWithOutputsToPayloadData payload) q >>= takeMVar
-  assertEqual "validation result" validationResult (Left (BlockGasLimitExceeded 500_000_000))
+  case validationResult of
+    Left (PactInternalError (decode . BL.fromStrict . T.encodeUtf8 -> Just (BlockGasLimitExceeded _))) -> return ()
+    _ -> error $ "not a BlockGasLimitExceeded error: " <> sshow validationResult
 
 mempoolRefillTest :: IO (IORef MemPoolAccess) -> IO (PactQueue,TestBlockDb) -> TestTree
 mempoolRefillTest mpRefIO reqIO = testCase "mempoolRefillTest" $ do

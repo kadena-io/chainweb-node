@@ -97,7 +97,9 @@ module Chainweb.Payload
 , PayloadData
 , PayloadData_(..)
 , payloadData
+, newPayloadData
 , PayloadDataCas
+, verifyPayloadData
 
 -- * All Payload Data in a Single Structure
 , PayloadWithOutputs
@@ -950,7 +952,39 @@ payloadData txs payload = PayloadData
     , _payloadDataOutputsHash = _blockPayloadOutputsHash payload
     }
 
+newPayloadData
+    :: MerkleHashAlgorithm a
+    => BlockTransactions_ a
+    -> BlockOutputs_ a
+    -> PayloadData_ a
+newPayloadData txs outputs = payloadData txs $ blockPayload txs outputs
+
 type PayloadDataCas cas = CasConstraint cas PayloadData
+
+-- | Verify the consistency of the MerkleTree of a 'PayloadData' value.
+--
+-- This doesn't verify the MerkleTree for the outputs because those are not
+-- available in the 'PayloadData'.
+--
+-- This forces the MerkleTree which can be (somewhat) expensive for large input
+-- values.
+--
+verifyPayloadData :: forall a . MerkleHashAlgorithm a => PayloadData_ a -> Bool
+verifyPayloadData p
+    = _payloadDataTransactionsHash p == _blockTransactionsHash txs
+    && _payloadDataPayloadHash p == _blockPayloadPayloadHash bp
+  where
+    -- forces the transactions Merkle Tree
+    txs :: BlockTransactions_ a
+    txs = fromLog @a $ newTransactionLog
+        (_payloadDataMiner p)
+        (_payloadDataTransactions p)
+
+    -- forces the BlockPayload Merkle Tree
+    bp = fromLog @a $ newMerkleLog
+        $ _payloadDataTransactionsHash p
+        :+: _payloadDataOutputsHash p
+        :+: emptyBody
 
 -- -------------------------------------------------------------------------- --
 -- All Payload Data in a Single Structure
