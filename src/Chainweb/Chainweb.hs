@@ -703,6 +703,7 @@ runChainweb cw = do
         & setHost interface
         & setOnException
             (\r e -> when (defaultShouldDisplayException e) (logg Warn $ loggServiceApiServerError r e))
+        & setHTTP2Disabled
 
     serviceApiHost = _serviceApiConfigInterface $ _configServiceApi $ _chainwebConfig cw
 

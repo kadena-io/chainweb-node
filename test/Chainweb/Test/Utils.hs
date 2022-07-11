@@ -664,7 +664,7 @@ withChainwebTestServer tls v appIO envIO test = withResource start stop $ \x ->
         (port, sock) <- W.openFreePort
         readyVar <- newEmptyMVar
         server <- async $ do
-            let settings = W.setBeforeMainLoop (putMVar readyVar ()) W.defaultSettings
+            let settings = W.setBeforeMainLoop (putMVar readyVar ()) (W.setHTTP2Disabled W.defaultSettings)
             if
                 | tls -> do
                     let certBytes = bootstrapCertificate v

@@ -151,5 +151,6 @@ peerServerSettings :: Peer -> W.Settings
 peerServerSettings peer
     = W.setPort (int . _hostAddressPort . _peerAddr $ _peerInfo peer)
     . W.setHost (_peerInterface peer)
+    . W.setHTTP2Disabled
     $ W.defaultSettings
 

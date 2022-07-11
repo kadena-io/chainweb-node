@@ -60,7 +60,7 @@ import GHC.Generics
 
 import qualified Network.HTTP.Client as HTTP
 import Network.Socket (Socket)
-import Network.Wai.Handler.Warp (Settings, defaultSettings, setHost, setPort)
+import Network.Wai.Handler.Warp (Settings, defaultSettings, setHost, setHTTP2Disabled, setPort)
 
 import Prelude hiding (log)
 
@@ -158,6 +158,7 @@ peerServerSettings :: Peer -> Settings
 peerServerSettings peer
     = setPort (int . _hostAddressPort . _peerAddr $ _peerInfo peer)
     . setHost (_peerInterface peer)
+    . setHTTP2Disabled
     $ defaultSettings
 
 -- | Setup the local hostname.
