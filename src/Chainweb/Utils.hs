@@ -63,6 +63,7 @@ module Chainweb.Utils
 , IxedGet(..)
 , minusOrZero
 , interleaveIO
+, mutableVectorFromList
 
 -- * Encoding and Serialization
 , EncodingException(..)
@@ -217,6 +218,7 @@ import Control.Lens hiding ((.=))
 import Control.Monad
 import Control.Monad.Catch hiding (bracket)
 import Control.Monad.IO.Class
+import Control.Monad.Primitive
 import Control.Monad.Reader as Reader
 
 import Data.Aeson.Text (encodeToLazyText)
@@ -250,6 +252,7 @@ import qualified Data.Text.Lazy as TL
 import Data.These (These(..))
 import Data.Time
 import qualified Data.Vector as V
+import qualified Data.Vector.Mutable as MV
 import Data.Word
 
 import GHC.Generics
@@ -409,6 +412,17 @@ minusOrZero a b = a - min a b
 interleaveIO :: IO a -> IO (IO a)
 interleaveIO act = evaluate <$> unsafeInterleaveIO act
 {-# INLINE interleaveIO #-}
+
+-- | Equivalent to V.thaw . V.fromList but by inspection probably faster.
+mutableVectorFromList
+    :: PrimMonad m
+    => [a]
+    -> m (MV.MVector (PrimState m) a)
+mutableVectorFromList as = do
+    vec <- MV.unsafeNew (length as)
+    forM_ (zip [0..] as) $ uncurry (MV.unsafeWrite vec)
+    return vec
+{-# inline mutableVectorFromList #-}
 
 -- -------------------------------------------------------------------------- --
 -- * Read only Ixed
