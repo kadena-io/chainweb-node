@@ -107,6 +107,7 @@ import Control.Monad
 import Control.Monad.Catch (fromException, throwM)
 import Control.Monad.Writer
 
+import qualified Data.ByteString.Char8 as BS8
 import qualified Data.ByteString.Lazy as BL
 import Data.Foldable
 import Data.Function (on)
@@ -589,12 +590,15 @@ runChainweb
 runChainweb cw = do
     logg Info "start chainweb node"
     mkValidationMiddleware <- interleaveIO $ do
-        spec <- fetchOpenApiSpec
-        apiCoverageRef <- newIORef $ WV.initialCoverageMap spec
+        (chainwebSpec, pactSpec) <- fetchOpenApiSpecs
+        apiCoverageRef <- newIORef $ WV.initialCoverageMap [chainwebSpec, pactSpec]
         apiCoverageLogTimeRef <- newIORef =<< getCurrentTimeIntegral
         return $
-            WV.mkValidator apiCoverageRef (WV.Log logValidationFailure (logApiCoverage apiCoverageLogTimeRef))
-                [(T.encodeUtf8 $ "/chainweb/0.0/" <> chainwebVersionToText (_chainwebVersion (_chainwebConfig cw)), spec)]
+            WV.mkValidator apiCoverageRef (WV.Log logValidationFailure (logApiCoverage apiCoverageLogTimeRef)) $ \path -> asum
+                [ (,chainwebSpec) <$> BS8.stripPrefix (T.encodeUtf8 $ "/chainweb/0.0/" <> chainwebVersionToText (_chainwebVersion (_chainwebConfig cw))) path
+                , ((path,pactSpec) <$ guard ("pact" `BS8.isInfixOf` path))
+                , Just (path,chainwebSpec)
+                ]
     p2pValidationMiddleware <-
         if _p2pConfigValidateSpec (_configP2p $ _chainwebConfig cw)
         then do
@@ -635,9 +639,12 @@ runChainweb cw = do
         else
             writeIORef apiCoverageLogTimeRef then'
 
-    fetchOpenApiSpec = do
-        let specUri = "https://raw.githubusercontent.com/kadena-io/chainweb-openapi/fixes/chainweb.openapi.yaml"
-        Yaml.decodeThrow . BL.toStrict . HTTP.responseBody =<< HTTP.httpLbs (HTTP.parseRequest_ specUri) mgr
+    fetchOpenApiSpecs = do
+        let chainwebUri = "https://raw.githubusercontent.com/kadena-io/chainweb-openapi/fixes/chainweb.openapi.yaml"
+        chainwebSpec <- Yaml.decodeThrow . BL.toStrict . HTTP.responseBody =<< HTTP.httpLbs (HTTP.parseRequest_ chainwebUri) mgr
+        let pactUri = "https://raw.githubusercontent.com/kadena-io/chainweb-openapi/fixes/pact.openapi.yaml"
+        pactSpec <- Yaml.decodeThrow . BL.toStrict . HTTP.responseBody =<< HTTP.httpLbs (HTTP.parseRequest_ pactUri) mgr
+        return (chainwebSpec, pactSpec)
 
     tls = _p2pConfigTls $ _configP2p $ _chainwebConfig cw
 

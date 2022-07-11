@@ -151,6 +151,7 @@ import Data.Aeson (FromJSON, ToJSON)
 import Data.Bifunctor hiding (second)
 import Data.Bytes.Put
 import qualified Data.ByteString as B
+import qualified Data.ByteString.Char8 as B8
 import qualified Data.ByteString.Lazy as BL
 import Data.CAS (casKey)
 import Data.Coerce (coerce)
@@ -668,11 +669,18 @@ data ValidationException = ValidationException
 
 instance Exception ValidationException
 
-{-# NOINLINE openApiSpec #-}
-openApiSpec :: OpenApi
-openApiSpec = unsafePerformIO $ do
+{-# NOINLINE chainwebOpenApiSpec #-}
+chainwebOpenApiSpec :: OpenApi
+chainwebOpenApiSpec = unsafePerformIO $ do
     mgr <- manager 10_000_000
     let specUri = "https://raw.githubusercontent.com/kadena-io/chainweb-openapi/fixes/chainweb.openapi.yaml"
+    Yaml.decodeThrow . BL.toStrict . HTTP.responseBody =<< HTTP.httpLbs (HTTP.parseRequest_ specUri) mgr
+
+{-# NOINLINE pactOpenApiSpec #-}
+pactOpenApiSpec :: OpenApi
+pactOpenApiSpec = unsafePerformIO $ do
+    mgr <- manager 10_000_000
+    let specUri = "https://raw.githubusercontent.com/kadena-io/chainweb-openapi/fixes/pact.openapi.yaml"
     Yaml.decodeThrow . BL.toStrict . HTTP.responseBody =<< HTTP.httpLbs (HTTP.parseRequest_ specUri) mgr
 
 -- TODO: catch, wrap, and forward exceptions from chainwebApplication
@@ -694,9 +702,14 @@ withChainwebTestServer validateSpec tls v appIO envIO test = withResource start 
             lg (_, req) (respBody, resp) err = do
                 let ex = ValidationException req (W.responseHeaders resp, W.responseStatus resp, respBody) err
                 error $ ppShow ex
+            findPath path = asum
+                [ (,chainwebOpenApiSpec) <$> B8.stripPrefix (T.encodeUtf8 $ "/chainweb/0.0/" <> chainwebVersionToText v) path
+                , ((path,pactOpenApiSpec) <$ guard ("pact" `B8.isInfixOf` path))
+                , Just (path,chainwebOpenApiSpec)
+                ]
             mw =
                 if validateSpec
-                then WV.mkValidator coverageRef (WV.Log lg (const (return ()))) $ [(T.encodeUtf8 $ "/chainweb/0.0/" <> chainwebVersionToText v, openApiSpec)]
+                then WV.mkValidator coverageRef (WV.Log lg (const (return ()))) findPath
                 else id
         app <- mw <$> appIO
         (port, sock) <- W.openFreePort
