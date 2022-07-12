@@ -673,14 +673,14 @@ instance Exception ValidationException
 chainwebOpenApiSpec :: OpenApi
 chainwebOpenApiSpec = unsafePerformIO $ do
     mgr <- manager 10_000_000
-    let specUri = "https://raw.githubusercontent.com/kadena-io/chainweb-openapi/fixes/chainweb.openapi.yaml"
+    let specUri = "https://raw.githubusercontent.com/kadena-io/chainweb-openapi/validation-fixes-3/chainweb.openapi.yaml"
     Yaml.decodeThrow . BL.toStrict . HTTP.responseBody =<< HTTP.httpLbs (HTTP.parseRequest_ specUri) mgr
 
 {-# NOINLINE pactOpenApiSpec #-}
 pactOpenApiSpec :: OpenApi
 pactOpenApiSpec = unsafePerformIO $ do
     mgr <- manager 10_000_000
-    let specUri = "https://raw.githubusercontent.com/kadena-io/chainweb-openapi/fixes/pact.openapi.yaml"
+    let specUri = "https://raw.githubusercontent.com/kadena-io/chainweb-openapi/validation-fixes-3/pact.openapi.yaml"
     Yaml.decodeThrow . BL.toStrict . HTTP.responseBody =<< HTTP.httpLbs (HTTP.parseRequest_ specUri) mgr
 
 -- TODO: catch, wrap, and forward exceptions from chainwebApplication
@@ -698,6 +698,8 @@ withChainwebTestServer validateSpec tls v appIO envIO test = withResource start 
   where
     start = do
         coverageRef <- newIORef $ WV.CoverageMap Map.empty
+        _ <- evaluate chainwebOpenApiSpec
+        _ <- evaluate pactOpenApiSpec
         let
             lg (_, req) (respBody, resp) err = do
                 let ex = ValidationException req (W.responseHeaders resp, W.responseStatus resp, respBody) err

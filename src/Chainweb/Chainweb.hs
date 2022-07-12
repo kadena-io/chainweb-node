@@ -640,9 +640,9 @@ runChainweb cw = do
             writeIORef apiCoverageLogTimeRef then'
 
     fetchOpenApiSpecs = do
-        let chainwebUri = "https://raw.githubusercontent.com/kadena-io/chainweb-openapi/fixes/chainweb.openapi.yaml"
+        let chainwebUri = "https://raw.githubusercontent.com/kadena-io/chainweb-openapi/validation-fixes-3/chainweb.openapi.yaml"
         chainwebSpec <- Yaml.decodeThrow . BL.toStrict . HTTP.responseBody =<< HTTP.httpLbs (HTTP.parseRequest_ chainwebUri) mgr
-        let pactUri = "https://raw.githubusercontent.com/kadena-io/chainweb-openapi/fixes/pact.openapi.yaml"
+        let pactUri = "https://raw.githubusercontent.com/kadena-io/chainweb-openapi/validation-fixes-3/pact.openapi.yaml"
         pactSpec <- Yaml.decodeThrow . BL.toStrict . HTTP.responseBody =<< HTTP.httpLbs (HTTP.parseRequest_ pactUri) mgr
         return (chainwebSpec, pactSpec)
 
