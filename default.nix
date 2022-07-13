@@ -57,8 +57,12 @@ pkgs.haskell.packages.${compiler}.developPackage {
 
       pact = appendConfigureFlag super.pact "-f-build-tool";
 
-      hashable      = doJailbreak super.hashable;
-      rebase        = doJailbreak super.rebase;
+      autodocodec    = unmarkBroken super.autodocodec;
+      hashable       = doJailbreak super.hashable;
+      ixset-typed    = unmarkBroken super.ixset-typed;
+      rebase         = doJailbreak super.rebase;
+      token-bucket   = unmarkBroken super.token-bucket;
+      validity-aeson = unmarkBroken super.validity-aeson;
 
       # Cuckoo tests fail due to a missing symbol
       cuckoo        = dontCheck super.cuckoo;
