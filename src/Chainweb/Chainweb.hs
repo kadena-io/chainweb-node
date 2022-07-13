@@ -112,6 +112,7 @@ import qualified Data.ByteString.Lazy as BL
 import Data.Foldable
 import Data.Function (on)
 import qualified Data.HashMap.Strict as HM
+import qualified Data.HashSet as HS
 import Data.IORef
 import Data.List (isPrefixOf, sortBy)
 import qualified Data.List as L
@@ -595,8 +596,15 @@ runChainweb cw = do
         apiCoverageLogTimeRef <- newIORef =<< getCurrentTimeIntegral
         return $
             WV.mkValidator apiCoverageRef (WV.Log logValidationFailure (logApiCoverage apiCoverageLogTimeRef)) $ \path -> asum
-                [ (,chainwebSpec) <$> BS8.stripPrefix (T.encodeUtf8 $ "/chainweb/0.0/" <> chainwebVersionToText (_chainwebVersion (_chainwebConfig cw))) path
-                , ((path,pactSpec) <$ guard ("pact" `BS8.isInfixOf` path))
+                [ (,chainwebSpec) <$> BS8.stripPrefix (T.encodeUtf8 $ "/chainweb/0.0/" <> chainwebVersionToText (_chainwebVersion cw)) path
+                , case BS8.split '/' path of
+                    ("chainweb" : "0.0" : rawVersion : "chain" : rawChainId : "pact" : "api" : "v1" : rest) -> do
+                        reqVersion <- chainwebVersionFromText (T.decodeUtf8 rawVersion)
+                        guard (reqVersion == _chainwebVersion cw)
+                        reqChainId <- chainIdFromText (T.decodeUtf8 rawChainId)
+                        guard (HS.member reqChainId (chainIds (_chainwebVersion cw)))
+                        return (BS8.intercalate "/" rest, pactSpec)
+                    _ -> Nothing
                 , Just (path,chainwebSpec)
                 ]
     p2pValidationMiddleware <-

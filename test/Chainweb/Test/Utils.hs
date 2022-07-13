@@ -154,6 +154,7 @@ import Data.Coerce (coerce)
 import Data.Foldable
 import Data.IORef
 import qualified Data.HashMap.Strict as HashMap
+import qualified Data.HashSet as HashSet
 import qualified Data.Map as Map
 import Data.OpenApi(OpenApi)
 import qualified Data.Text as T
@@ -702,7 +703,14 @@ withChainwebTestServer validateSpec tls v appIO envIO test = withResource start 
                 error $ ppShow ex
             findPath path = asum
                 [ (,chainwebOpenApiSpec) <$> B8.stripPrefix (T.encodeUtf8 $ "/chainweb/0.0/" <> chainwebVersionToText v) path
-                , ((path,pactOpenApiSpec) <$ guard ("pact" `B8.isInfixOf` path))
+                , case B8.split '/' path of
+                    ("chainweb" : "0.0" : rawVersion : "chain" : rawChainId : "pact" : "api" : "v1" : rest) -> do
+                        reqVersion <- chainwebVersionFromText (T.decodeUtf8 rawVersion)
+                        guard (reqVersion == v)
+                        reqChainId <- chainIdFromText (T.decodeUtf8 rawChainId)
+                        guard (HashSet.member reqChainId (chainIds v))
+                        return (B8.intercalate "/" rest, pactOpenApiSpec)
+                    _ -> Nothing
                 , Just (path,chainwebOpenApiSpec)
                 ]
             mw =
