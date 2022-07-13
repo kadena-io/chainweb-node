@@ -600,15 +600,15 @@ runChainweb cw = do
         apiCoverageLogTimeRef <- newIORef =<< getCurrentTimeIntegral
         return $
             WV.mkValidator apiCoverageRef (WV.Log logValidationFailure (logApiCoverage apiCoverageLogTimeRef)) $ \path -> asum
-                [ (,chainwebSpec) <$> BS8.stripPrefix (T.encodeUtf8 $ "/chainweb/0.0/" <> chainwebVersionToText (_chainwebVersion cw)) path
-                , case BS8.split '/' path of
-                    ("chainweb" : "0.0" : rawVersion : "chain" : rawChainId : "pact" : "api" : "v1" : rest) -> do
+                [ case BS8.split '/' path of
+                    ("" : "chainweb" : "0.0" : rawVersion : "chain" : rawChainId : "pact" : "api" : "v1" : rest) -> do
                         reqVersion <- chainwebVersionFromText (T.decodeUtf8 rawVersion)
                         guard (reqVersion == _chainwebVersion cw)
                         reqChainId <- chainIdFromText (T.decodeUtf8 rawChainId)
                         guard (HS.member reqChainId (chainIds (_chainwebVersion cw)))
-                        return (BS8.intercalate "/" rest, pactSpec)
+                        return (BS8.intercalate "/" ("":rest), pactSpec)
                     _ -> Nothing
+                , (,chainwebSpec) <$> BS8.stripPrefix (T.encodeUtf8 $ "/chainweb/0.0/" <> chainwebVersionToText (_chainwebVersion cw)) path
                 , Just (path,chainwebSpec)
                 ]
     p2pValidationMiddleware <-

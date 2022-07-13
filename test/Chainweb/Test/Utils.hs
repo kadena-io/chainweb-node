@@ -702,15 +702,15 @@ withChainwebTestServer validateSpec tls v appIO envIO test = withResource start 
                 let ex = ValidationException req (W.responseHeaders resp, W.responseStatus resp, respBody) err
                 error $ ppShow ex
             findPath path = asum
-                [ (,chainwebOpenApiSpec) <$> B8.stripPrefix (T.encodeUtf8 $ "/chainweb/0.0/" <> chainwebVersionToText v) path
-                , case B8.split '/' path of
-                    ("chainweb" : "0.0" : rawVersion : "chain" : rawChainId : "pact" : "api" : "v1" : rest) -> do
+                [ case B8.split '/' path of
+                    ("" : "chainweb" : "0.0" : rawVersion : "chain" : rawChainId : "pact" : "api" : "v1" : rest) -> do
                         reqVersion <- chainwebVersionFromText (T.decodeUtf8 rawVersion)
                         guard (reqVersion == v)
                         reqChainId <- chainIdFromText (T.decodeUtf8 rawChainId)
                         guard (HashSet.member reqChainId (chainIds v))
-                        return (B8.intercalate "/" rest, pactOpenApiSpec)
+                        return (B8.intercalate "/" ("":rest), pactOpenApiSpec)
                     _ -> Nothing
+                , (,chainwebOpenApiSpec) <$> B8.stripPrefix (T.encodeUtf8 $ "/chainweb/0.0/" <> chainwebVersionToText v) path
                 , Just (path,chainwebOpenApiSpec)
                 ]
             mw =
