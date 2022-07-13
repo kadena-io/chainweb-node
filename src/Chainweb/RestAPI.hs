@@ -118,7 +118,7 @@ import P2P.Node.RestAPI.Server
 -- Utils
 
 enableTlsSessionCache :: Bool
-enableTlsSessionCache = True
+enableTlsSessionCache = False
 
 -- | TLS HTTP Server
 --
