@@ -648,14 +648,13 @@ runChainweb cw = do
         logg Warn $ "openapi error: " <> sshow (err, req, reqBody, responseHeaders resp, responseStatus resp, respBody)
     logApiCoverage apiCoverageLogTimeRef apiCoverageMap = do
         now :: Time Integer <- getCurrentTimeIntegral
-        then' <- atomicModifyIORef' apiCoverageLogTimeRef (\then' -> (now, then'))
-        if now `diff` then' >= scaleTimeSpan (5 :: Integer) minute
-        then
+        then' <- readIORef apiCoverageLogTimeRef
+        let beenFive = now `diff` then' >= scaleTimeSpan (5 :: Integer) minute
+        when beenFive $ do
+            writeIORef apiCoverageLogTimeRef now
             logFunctionJson (_chainwebLogger cw) Info $ object
                 [ "apiCoverageMap" .= toJSON apiCoverageMap
                 ]
-        else
-            writeIORef apiCoverageLogTimeRef then'
 
     fetchOpenApiSpecs = do
         let chainwebUri = "https://raw.githubusercontent.com/kadena-io/chainweb-openapi/validation-fixes-3/chainweb.openapi.yaml"
