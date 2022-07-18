@@ -50,13 +50,8 @@ package vault
 
 source-repository-package
     type: git
-    location: https://github.com/kadena-io/openapi3.git
-    tag: f237c7299d8bb607f6447da1965c47c6cc999c16
-
-source-repository-package
-    type: git
     location: https://github.com/edmundnoble/wai-middleware-validation.git
-    tag: e5ca9aee6b164ce77ea7351a57e437c451566345
+    tag: 82d329087e5c5cf43383bd6572cb684e79c343ee
 
 source-repository-package
     type: git

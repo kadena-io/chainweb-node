@@ -156,7 +156,6 @@ import Data.IORef
 import qualified Data.HashMap.Strict as HashMap
 import qualified Data.HashSet as HashSet
 import qualified Data.Map as Map
-import Data.OpenApi(OpenApi)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
 import Data.Tree
@@ -174,6 +173,7 @@ import Network.Socket (close)
 import qualified Network.Wai as W
 import qualified Network.Wai.Handler.Warp as W
 import Network.Wai.Handler.WarpTLS as W (runTLSSocket)
+import Network.Wai.Middleware.OpenApi(OpenApi)
 import qualified Network.Wai.Middleware.Validation as WV
 
 import Numeric.Natural
