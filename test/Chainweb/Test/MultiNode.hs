@@ -32,7 +32,7 @@
 -- The configuration defines a scaled down, accelerated chain that tries to
 -- similulate a full-scale chain in a miniaturized settings.
 --
-module Chainweb.Test.MultiNode ( test ) where
+module Chainweb.Test.MultiNode ( test, replayTest ) where
 
 #ifndef DEBUG_MULTINODE_TEST
 #define DEBUG_MULTINODE_TEST 0
@@ -52,6 +52,7 @@ import qualified Data.HashSet as HS
 import qualified Data.List as L
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
+import qualified Data.Text.IO as T
 #if DEBUG_MULTINODE_TEST
 import qualified Data.Text.IO as T
 #endif
@@ -237,40 +238,39 @@ runNodes
     :: LogLevel
     -> (T.Text -> IO ())
     -> MVar ConsensusState
-    -> ChainwebVersion
+    -> ChainwebConfiguration
     -> Natural
         -- ^ number of nodes
+    -> RocksDb
     -> IO ()
-runNodes loglevel write stateVar v n =
-    withTempRocksDb "multinode-tests" $ \rdb -> do
+runNodes loglevel write stateVar baseConf n rdb = do
+    -- NOTE: pact is enabled until we have a good way to disable it globally in
+    -- "Chainweb.Chainweb".
+    --
+    -- TODO: disable pact for these tests
+    --
 
-        -- NOTE: pact is enabled until we have a good way to disable it globally in
-        -- "Chainweb.Chainweb".
-        --
-        -- TODO: disable pact for these tests
-        --
+    bootstrapPortVar <- newEmptyMVar
+        -- this is a hack for testing: normally bootstrap node peer infos are
+        -- hardcoded. To avoid conflicts in concurrent test runs we extract an
+        -- OS assigned port from the bootstrap node during startup and inject it
+        -- into the configuration of the remaining nodes.
 
-        bootstrapPortVar <- newEmptyMVar
-            -- this is a hack for testing: normally bootstrap node peer infos are
-            -- hardcoded. To avoid conflicts in concurrent test runs we extract an
-            -- OS assigned port from the bootstrap node during startup and inject it
-            -- into the configuration of the remaining nodes.
+    forConcurrently_ [0 .. int n - 1] $ \i -> do
+        threadDelay (500_000 * int i)
 
-        forConcurrently_ [0 .. int n - 1] $ \i -> do
-            threadDelay (500_000 * int i)
+        conf <- if
+            | i == 0 ->
+                return $ multiBootstrapConfig baseConf
+            | otherwise ->
+                setBootstrapPeerInfo <$> readMVar bootstrapPortVar <*> pure baseConf
 
-            let baseConf = multiConfig v n
-            conf <- if
-                | i == 0 ->
-                    return $ multiBootstrapConfig baseConf
-                | otherwise ->
-                    setBootstrapPeerInfo <$> readMVar bootstrapPortVar <*> pure baseConf
-
-            multiNode loglevel write stateVar bootstrapPortVar conf rdb i
+        multiNode loglevel write stateVar bootstrapPortVar conf rdb i
 
 runNodesForSeconds
     :: LogLevel
         -- ^ Loglevel
+    -> ChainwebConfiguration
     -> ChainwebVersion
     -> Natural
         -- ^ Number of chainweb consensus nodes
@@ -278,14 +278,36 @@ runNodesForSeconds
         -- ^ test duration in seconds
     -> (T.Text -> IO ())
         -- ^ logging backend callback
+    -> RocksDb
     -> IO (Maybe Stats)
-runNodesForSeconds loglevel v n (Seconds seconds) write = do
+runNodesForSeconds loglevel baseConf v n (Seconds seconds) write rdb = do
     stateVar <- newMVar $ emptyConsensusState v
     void $ timeout (int seconds * 1_000_000)
-        $ runNodes loglevel write stateVar v n
+        $ runNodes loglevel write stateVar baseConf n rdb
 
     consensusState <- readMVar stateVar
     return (consensusStateSummary consensusState)
+
+replayTest
+    :: LogLevel
+    -> ChainwebVersion
+    -> Natural
+    -> TestTree
+replayTest loglevel v n = testCaseSteps name $ \step -> do
+    let tastylog = step . T.unpack
+    withTempRocksDb "replay-test" $ \rdb -> do
+        tastylog "phase 1..."
+        Just stats1 <- runNodesForSeconds loglevel (multiConfig v n) v n 60 T.putStrLn rdb
+        tastylog $ sshow stats1
+        tastylog $ "phase 2... "
+        Just stats2 <- runNodesForSeconds loglevel (multiConfig v n & set (configCuts . cutInitialBlockHeightLimit) (Just 5)) v n 30 (T.putStrLn) rdb
+        tastylog $ sshow stats2
+        tastylog "done."
+        assertGe "maximum cut height before reset" (Actual $ _statMaxHeight stats1) (Expected $ 10)
+        assertLe "minimum cut height after reset" (Actual $ _statMinHeight stats2) (Expected $ _statMaxHeight stats1)
+        assertGe "block count after reset" (Actual $ _statBlockCount stats2) (Expected $ _statBlockCount stats1)
+    where
+    name = "ConsensusNetwork [replay]"
 
 -- -------------------------------------------------------------------------- --
 -- Test
@@ -311,31 +333,31 @@ test loglevel v n seconds = testCaseSteps name $ \f -> do
     var <- newMVar (0 :: Int)
     let countedLog msg = modifyMVar_ var $ \c -> force (succ c) <$
             when (c < maxLogMsgs) (logFun msg)
+    withTempRocksDb "multinode-tests" $ \rdb ->
+        runNodesForSeconds loglevel (multiConfig v n) v n seconds countedLog rdb >>= \case
+            Nothing -> assertFailure "chainweb didn't make any progress"
+            Just stats -> do
+                logsCount <- readMVar var
+                tastylog $ "Number of logs: " <> sshow logsCount
+                tastylog $ "Expected BlockCount: " <> sshow (expectedBlockCount v seconds) -- 80 + 19.5 * 20
+                tastylog $ encodeToText stats
+                tastylog $ encodeToText $ object
+                    [ "maxEfficiency%" .= (realToFrac (bc $ _statMaxHeight stats) * (100 :: Double) / int (_statBlockCount stats))
+                    , "minEfficiency%" .= (realToFrac (bc $ _statMinHeight stats) * (100 :: Double) / int (_statBlockCount stats))
+                    , "medEfficiency%" .= (realToFrac (bc $ _statMedHeight stats) * (100 :: Double) / int (_statBlockCount stats))
+                    , "avgEfficiency%" .= (realToFrac (bc $ round (_statAvgHeight stats)) * (100 :: Double) / int (_statBlockCount stats))
+                    ]
 
-    runNodesForSeconds loglevel v n seconds countedLog >>= \case
-        Nothing -> assertFailure "chainweb didn't make any progress"
-        Just stats -> do
-            logsCount <- readMVar var
-            tastylog $ "Number of logs: " <> sshow logsCount
-            tastylog $ "Expected BlockCount: " <> sshow (expectedBlockCount v seconds) -- 80 + 19.5 * 20
-            tastylog $ encodeToText stats
-            tastylog $ encodeToText $ object
-                [ "maxEfficiency%" .= (realToFrac (bc $ _statMaxHeight stats) * (100 :: Double) / int (_statBlockCount stats))
-                , "minEfficiency%" .= (realToFrac (bc $ _statMinHeight stats) * (100 :: Double) / int (_statBlockCount stats))
-                , "medEfficiency%" .= (realToFrac (bc $ _statMedHeight stats) * (100 :: Double) / int (_statBlockCount stats))
-                , "avgEfficiency%" .= (realToFrac (bc $ round (_statAvgHeight stats)) * (100 :: Double) / int (_statBlockCount stats))
-                ]
+                (assertGe "number of blocks") (Actual $ _statBlockCount stats) (Expected $ _statBlockCount l)
+                (assertGe "maximum cut height") (Actual $ _statMaxHeight stats) (Expected $ _statMaxHeight l)
+                (assertGe "minimum cut height") (Actual $ _statMinHeight stats) (Expected $ _statMinHeight l)
+                (assertGe "median cut height") (Actual $ _statMedHeight stats) (Expected $ _statMedHeight l)
+                (assertGe "average cut height") (Actual $ _statAvgHeight stats) (Expected $ _statAvgHeight l)
 
-            (assertGe "number of blocks") (Actual $ _statBlockCount stats) (Expected $ _statBlockCount l)
-            (assertGe "maximum cut height") (Actual $ _statMaxHeight stats) (Expected $ _statMaxHeight l)
-            (assertGe "minimum cut height") (Actual $ _statMinHeight stats) (Expected $ _statMinHeight l)
-            (assertGe "median cut height") (Actual $ _statMedHeight stats) (Expected $ _statMedHeight l)
-            (assertGe "average cut height") (Actual $ _statAvgHeight stats) (Expected $ _statAvgHeight l)
-
-            (assertLe "maximum cut height") (Actual $ _statMaxHeight stats) (Expected $ _statMaxHeight u)
-            (assertLe "minimum cut height") (Actual $ _statMinHeight stats) (Expected $ _statMinHeight u)
-            (assertLe "median cut height") (Actual $ _statMedHeight stats) (Expected $ _statMedHeight u)
-            (assertLe "average cut height") (Actual $ _statAvgHeight stats) (Expected $ _statAvgHeight u)
+                (assertLe "maximum cut height") (Actual $ _statMaxHeight stats) (Expected $ _statMaxHeight u)
+                (assertLe "minimum cut height") (Actual $ _statMinHeight stats) (Expected $ _statMinHeight u)
+                (assertLe "median cut height") (Actual $ _statMedHeight stats) (Expected $ _statMedHeight u)
+                (assertLe "average cut height") (Actual $ _statAvgHeight stats) (Expected $ _statAvgHeight u)
 
   where
     l = lowerStats v seconds
@@ -447,3 +469,4 @@ upperStats v seconds = Stats
   where
     ebc = expectedBlockCount v seconds
     ech = expectedCutHeightAfterSeconds v seconds
+

@@ -77,14 +77,12 @@ catchupStepSize = 1000
 
 syncSession
     :: ChainwebVersion
-    -> Bool
-        -- ^ Whether to include the local peer as origin in outgoing cuts.
     -> PeerInfo
     -> CutDb cas
     -> P2pSession
-syncSession v useOrigin p db logg env pinf = do
+syncSession v p db logg env pinf = do
     race_
-        (S.mapM_ send $ S.map (cutToCutHashes origin) $ cutStream db)
+        (S.mapM_ send $ S.map (cutToCutHashes (Just p)) $ cutStream db)
         (forever $ receive >> approximateThreadDelay 2000000 {- 2 seconds -})
             -- Usually we rely on blocks being pushed to us, but every 2
             -- seconds we pull.
@@ -117,7 +115,5 @@ syncSession v useOrigin p db logg env pinf = do
         c <- getCut cenv limit
 
         let c' = set cutOrigin (Just pinf) c
-        logg @T.Text Info $ "received cut " <> encodeToText c'
+        logg @T.Text Debug $ "received cut " <> encodeToText c'
         addCutHashes db c'
-
-    origin = if useOrigin then Just p else Nothing

@@ -218,7 +218,7 @@ fromWordBE :: forall w b . BA.ByteArray b => ByteSwap w => w -> b
 fromWordBE w = BA.allocAndFreeze (sizeOf (undefined :: w)) $ \ptr -> poke ptr (BA.toBE w)
 
 unsafeToWordBE :: BA.ByteSwap w => BA.ByteArrayAccess b => b -> w
-unsafeToWordBE bytes = BA.fromBE . unsafePerformIO $ BA.withByteArray bytes peek
+unsafeToWordBE bytes = BA.fromBE . unsafeDupablePerformIO $ BA.withByteArray bytes peek
 
 toWordBE
     :: forall w b m

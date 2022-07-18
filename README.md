@@ -31,7 +31,7 @@ For additional information, press, and development inquires, please refer to the
 
 ## Docs
 
-The Kadena Docs site, which can be found [here](https://kadena-io.github.io/kadena-docs/) serves as a source of information about Kadena. You can find information about how to interact with the public chain, including how to get keys, view network activity, explore blocks, etc. [here](https://kadena-io.github.io/kadena-docs/Public-Chain-Docs/).
+The Kadena Docs site, which can be found [here](https://kadena-io.github.io/kadena-docs/) serves as a source of information about Kadena. You can find information about how to interact with the public chain, including how to get keys, view network activity, explore blocks, etc. [here](https://kadena-io.github.io/kadena-docs/Public-Chain-Docs).
 
 If you have additions or comments, please submit a pull request or raise an issue - the GitHub project can be found [here](https://github.com/kadena-io/kadena-docs)
 
@@ -221,9 +221,9 @@ sensible, or otherwise have a simple way to refer to it. For running
 `chainweb-node` via docker, please see the instruction above in this document or
 visit our [docker repository](https://hub.docker.com/r/kadena/chainweb-node).
 
-**Note:** Your needs to be reachable from the public internet. You will have to
-perform Port Forwarding if your machine is behind a router (by default port 1789
-is used by the node).
+**Note:** Your node needs to be reachable from the public internet. You will
+have to perform Port Forwarding if your machine is behind a router (by default
+port 1789 is used by the node).
 
 **NOTE**: When you start chainweb-node for the first time it creates a new
 empty database and start to synchronize and catch up with other nodes in the
@@ -268,6 +268,9 @@ chainweb-node --print-config > config.yaml
 ```
 
 This file can then be edited in order to change configuration values.
+
+The command `chainweb-node --help` also provides descriptions of these
+configuration values.
 
 Given a configuration file or a set of command line options it is possible to
 print out only those configuration values that are different from their
@@ -317,7 +320,14 @@ $ curl -sk https://<bootstrap-node-url>/chainweb/0.0/mainnet01/cut | jq '.height
 
 ## Mine for a Chainweb Network
 
-Detailed mining instructions can be found in the documentation of
+Successful mining on mainnet requires specialized hardware (ASIC). The setup for solo mining involves running a chainweb-node with a configuration that enables mining and a [chainweb-mining-client](https://github.com/kadena-io/chainweb-mining-client/) that connects to the mining API of a chainweb-node and provides a Stratum API for the mining hardware (ASIC). 
+
+Detailed instructions for setting up all the infrastructure needed to start
+mining using `docker compose` can be found in the documentation of [docker-compose-chainweb-node/mining-node](https://github.com/kadena-io/docker-compose-chainweb-node/tree/main/mining-node).
+
+For example, to set up a chainweb node for mining, see [this](https://github.com/kadena-io/docker-compose-chainweb-node/blob/main/mining-node/docker-compose.yaml#L126) section of the docker-compose file.
+
+Detailed mining client instructions can be found in the documentation of
 [chainweb-mining-client](https://github.com/kadena-io/chainweb-mining-client/)
 
 ## Chainweb Design
