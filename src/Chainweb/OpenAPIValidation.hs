@@ -5,7 +5,6 @@
 
 module Chainweb.OpenAPIValidation (mkValidationMiddleware) where
 
-import Control.Applicative
 import Control.Monad
 import Data.Aeson
 import qualified Data.ByteString.Char8 as BS8
@@ -14,7 +13,6 @@ import Data.Foldable
 import qualified Data.HashSet as HS
 import Data.IORef
 import Data.LogMessage (LogFunctionText)
-import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
 import qualified Data.Yaml as Yaml
 import qualified Network.HTTP.Client as HTTP
@@ -28,7 +26,7 @@ import Chainweb.Utils
 import Chainweb.Version
 
 mkValidationMiddleware :: Logger logger => logger -> ChainwebVersion -> HTTP.Manager -> IO Middleware
-mkValidationMiddleware log v mgr = do
+mkValidationMiddleware logger v mgr = do
     (chainwebSpec, pactSpec) <- fetchOpenApiSpecs
     apiCoverageRef <- newIORef $ WV.initialCoverageMap [chainwebSpec, pactSpec]
     apiCoverageLogTimeRef <- newIORef =<< getCurrentTimeIntegral
@@ -36,22 +34,21 @@ mkValidationMiddleware log v mgr = do
         WV.mkValidator apiCoverageRef (WV.Log logValidationFailure (logApiCoverage apiCoverageLogTimeRef)) $ \path -> asum
             [ case BS8.split '/' path of
                 ("" : "chainweb" : "0.0" : rawVersion : "chain" : rawChainId : "pact" : "api" : "v1" : rest) -> do
-                    reqVersion <- chainwebVersionFromText (T.decodeUtf8 rawVersion)
-                    guard (reqVersion == v)
-                    reqChainId <- chainIdFromText (T.decodeUtf8 rawChainId)
-                    guard (HS.member reqChainId (chainIds v))
-                    return (BS8.intercalate "/" ("":rest), pactSpec)
+                    findPact pactSpec rawVersion rawChainId rest
                 ("" : "chainweb" : "0.0" : rawVersion : "chain" : rawChainId : "pact" : rest) -> do
-                    reqVersion <- chainwebVersionFromText (T.decodeUtf8 rawVersion)
-                    guard (reqVersion == v)
-                    reqChainId <- chainIdFromText (T.decodeUtf8 rawChainId)
-                    guard (HS.member reqChainId (chainIds v))
-                    return (BS8.intercalate "/" ("":rest), pactSpec)
+                    findPact pactSpec rawVersion rawChainId rest
                 _ -> Nothing
             , (,chainwebSpec) <$> BS8.stripPrefix (T.encodeUtf8 $ "/chainweb/0.0/" <> chainwebVersionToText v) path
             , Just (path,chainwebSpec)
             ]
     where
+    findPact pactSpec rawVersion rawChainId rest = do
+        reqVersion <- chainwebVersionFromText (T.decodeUtf8 rawVersion)
+        guard (reqVersion == v)
+        reqChainId <- chainIdFromText (T.decodeUtf8 rawChainId)
+        guard (HS.member reqChainId (chainIds v))
+        return (BS8.intercalate "/" ("":rest), pactSpec)
+
     fetchOpenApiSpecs = do
         let chainwebUri = "https://raw.githubusercontent.com/kadena-io/chainweb-openapi/validation-fixes-3/chainweb.openapi.yaml"
         chainwebSpec <- Yaml.decodeThrow . BL.toStrict . HTTP.responseBody =<< HTTP.httpLbs (HTTP.parseRequest_ chainwebUri) mgr
@@ -66,8 +63,8 @@ mkValidationMiddleware log v mgr = do
         let beenFive = now `diff` then' >= scaleTimeSpan (5 :: Integer) minute
         when beenFive $ do
             writeIORef apiCoverageLogTimeRef now
-            logFunctionJson log Info $ object
+            logFunctionJson logger Info $ object
                 [ "apiCoverageMap" .= toJSON apiCoverageMap
                 ]
     logg :: LogFunctionText
-    logg = logFunctionText log
+    logg = logFunctionText logger
