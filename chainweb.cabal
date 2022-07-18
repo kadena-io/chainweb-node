@@ -196,6 +196,7 @@ library
         , Chainweb.Miner.RestAPI.Client
         , Chainweb.Miner.RestAPI.Server
         , Chainweb.NodeVersion
+        , Chainweb.OpenAPIValidation
         , Chainweb.Payload
         , Chainweb.Payload.PayloadStore
         , Chainweb.Payload.PayloadStore.InMemory

@@ -107,21 +107,15 @@ import Control.Monad
 import Control.Monad.Catch (fromException, throwM)
 import Control.Monad.Writer
 
-import qualified Data.ByteString.Char8 as BS8
-import qualified Data.ByteString.Lazy as BL
 import Data.Foldable
 import Data.Function (on)
 import qualified Data.HashMap.Strict as HM
-import qualified Data.HashSet as HS
-import Data.IORef
 import Data.List (isPrefixOf, sortBy)
 import qualified Data.List as L
 import Data.Maybe
 import qualified Data.Text as T
-import qualified Data.Text.Encoding as T
 import Data.These (These(..))
 import qualified Data.Vector as V
-import qualified Data.Yaml as Yaml
 
 import qualified Network.HTTP.Client as HTTP
 import Network.Socket (Socket)
@@ -130,7 +124,6 @@ import Network.Wai.Handler.Warp hiding (Port)
 import Network.Wai.Handler.WarpTLS (WarpTLSException(InsecureConnectionDenied))
 import Network.Wai.Middleware.RequestSizeLimit
 import Network.Wai.Middleware.Throttle
-import qualified Network.Wai.Middleware.Validation as WV
 
 import Prelude hiding (log)
 
@@ -158,6 +151,7 @@ import qualified Chainweb.Mempool.InMemTypes as Mempool
 import qualified Chainweb.Mempool.Mempool as Mempool
 import Chainweb.Mempool.P2pConfig
 import Chainweb.Miner.Config
+import qualified Chainweb.OpenAPIValidation as OpenAPIValidation
 import Chainweb.Pact.RestAPI.Server (PactServerData(..))
 import Chainweb.Pact.Service.Types (PactServiceConfig(..))
 import Chainweb.Pact.Utils (fromPactChainId)
@@ -165,7 +159,6 @@ import Chainweb.Payload.PayloadStore
 import Chainweb.Payload.PayloadStore.RocksDB
 import Chainweb.RestAPI
 import Chainweb.RestAPI.NetworkID
-import Chainweb.Time
 import Chainweb.Transaction
 import Chainweb.Utils
 import Chainweb.Utils.RequestLog
@@ -594,29 +587,8 @@ runChainweb
     -> IO ()
 runChainweb cw = do
     logg Info "start chainweb node"
-    mkValidationMiddleware <- interleaveIO $ do
-        (chainwebSpec, pactSpec) <- fetchOpenApiSpecs
-        apiCoverageRef <- newIORef $ WV.initialCoverageMap [chainwebSpec, pactSpec]
-        apiCoverageLogTimeRef <- newIORef =<< getCurrentTimeIntegral
-        return $
-            WV.mkValidator apiCoverageRef (WV.Log logValidationFailure (logApiCoverage apiCoverageLogTimeRef)) $ \path -> asum
-                [ case BS8.split '/' path of
-                    ("" : "chainweb" : "0.0" : rawVersion : "chain" : rawChainId : "pact" : "api" : "v1" : rest) -> do
-                        reqVersion <- chainwebVersionFromText (T.decodeUtf8 rawVersion)
-                        guard (reqVersion == _chainwebVersion cw)
-                        reqChainId <- chainIdFromText (T.decodeUtf8 rawChainId)
-                        guard (HS.member reqChainId (chainIds (_chainwebVersion cw)))
-                        return (BS8.intercalate "/" ("":rest), pactSpec)
-                    ("" : "chainweb" : "0.0" : rawVersion : "chain" : rawChainId : "pact" : rest) -> do
-                        reqVersion <- chainwebVersionFromText (T.decodeUtf8 rawVersion)
-                        guard (reqVersion == _chainwebVersion cw)
-                        reqChainId <- chainIdFromText (T.decodeUtf8 rawChainId)
-                        guard (HS.member reqChainId (chainIds (_chainwebVersion cw)))
-                        return (BS8.intercalate "/" ("":rest), pactSpec)
-                    _ -> Nothing
-                , (,chainwebSpec) <$> BS8.stripPrefix (T.encodeUtf8 $ "/chainweb/0.0/" <> chainwebVersionToText (_chainwebVersion cw)) path
-                , Just (path,chainwebSpec)
-                ]
+    mkValidationMiddleware <- interleaveIO $
+        OpenAPIValidation.mkValidationMiddleware (_chainwebLogger cw) (_chainwebVersion cw) (_chainwebManager cw)
     p2pValidationMiddleware <-
         if _p2pConfigValidateSpec (_configP2p $ _chainwebConfig cw)
         then do
@@ -644,24 +616,6 @@ runChainweb cw = do
         <* Concurrently (threadDelay 500000 >> serveServiceApi (serviceHttpLog . requestSizeLimit . serviceApiValidationMiddleware))
 
   where
-    logValidationFailure (reqBody, req) (respBody, resp) err = do
-        logg Warn $ "openapi error: " <> sshow (err, req, reqBody, responseHeaders resp, responseStatus resp, respBody)
-    logApiCoverage apiCoverageLogTimeRef apiCoverageMap = do
-        now :: Time Integer <- getCurrentTimeIntegral
-        then' <- readIORef apiCoverageLogTimeRef
-        let beenFive = now `diff` then' >= scaleTimeSpan (5 :: Integer) minute
-        when beenFive $ do
-            writeIORef apiCoverageLogTimeRef now
-            logFunctionJson (_chainwebLogger cw) Info $ object
-                [ "apiCoverageMap" .= toJSON apiCoverageMap
-                ]
-
-    fetchOpenApiSpecs = do
-        let chainwebUri = "https://raw.githubusercontent.com/kadena-io/chainweb-openapi/validation-fixes-3/chainweb.openapi.yaml"
-        chainwebSpec <- Yaml.decodeThrow . BL.toStrict . HTTP.responseBody =<< HTTP.httpLbs (HTTP.parseRequest_ chainwebUri) mgr
-        let pactUri = "https://raw.githubusercontent.com/kadena-io/chainweb-openapi/validation-fixes-3/pact.openapi.yaml"
-        pactSpec <- Yaml.decodeThrow . BL.toStrict . HTTP.responseBody =<< HTTP.httpLbs (HTTP.parseRequest_ pactUri) mgr
-        return (chainwebSpec, pactSpec)
 
     tls = _p2pConfigTls $ _configP2p $ _chainwebConfig cw
 
