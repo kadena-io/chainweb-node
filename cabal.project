@@ -51,7 +51,7 @@ package vault
 source-repository-package
     type: git
     location: https://github.com/edmundnoble/wai-middleware-validation.git
-    tag: 82d329087e5c5cf43383bd6572cb684e79c343ee
+    tag: 76f36f2b03345dc71c5a5a67a26acc94251fca83
 
 source-repository-package
     type: git
