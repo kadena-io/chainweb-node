@@ -133,9 +133,9 @@ serveSocketTls settings certChain key = runTLSSocket tlsSettings settings
   where
     tlsSettings :: TLSSettings
     tlsSettings = (tlsServerChainSettings certChain key)
-        { tlsSessionManagerConfig = sessionMangerConfig <$ guard enableTlsSessionCache }
+        { tlsSessionManagerConfig = sessionManagerConfig <$ guard enableTlsSessionCache }
 
-    sessionMangerConfig = TLS.defaultConfig
+    sessionManagerConfig = TLS.defaultConfig
         { TLS.ticketLifetime = 3600 -- 1h
         , TLS.pruningDelay = 600 -- 10min
         , TLS.dbMaxSize = 1000
