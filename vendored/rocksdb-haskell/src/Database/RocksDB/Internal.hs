@@ -22,7 +22,6 @@ module Database.RocksDB.Internal
     , freeFilterPolicy
     , freeOpts
     , freeCString
-    , mkCReadOpts
     , mkComparator
     , mkCompareFun
     , mkCreateFilterFun
@@ -32,7 +31,6 @@ module Database.RocksDB.Internal
 
     -- * combinators
     , withCWriteOpts
-    , withCReadOpts
 
     -- * Utilities
     , throwIfErr
@@ -211,27 +209,11 @@ freeFilterPolicy (FilterPolicy' ccffun ckmfun cdest cname cfp) = do
     freeHaskellFunPtr cdest
     freeHaskellFunPtr cname
 
-mkCReadOpts :: ReadOptions -> IO ReadOptionsPtr
-mkCReadOpts ReadOptions{..} = do
-    opts_ptr <- c_rocksdb_readoptions_create
-    flip onException (c_rocksdb_readoptions_destroy opts_ptr) $ do
-        c_rocksdb_readoptions_set_verify_checksums opts_ptr $ boolToNum verifyCheckSums
-        c_rocksdb_readoptions_set_fill_cache opts_ptr $ boolToNum fillCache
-
-        case useSnapshot of
-            Just (Snapshot snap_ptr) -> c_rocksdb_readoptions_set_snapshot opts_ptr snap_ptr
-            Nothing -> return ()
-
-    return opts_ptr
-
 freeCReadOpts :: ReadOptionsPtr -> IO ()
 freeCReadOpts = c_rocksdb_readoptions_destroy
 
 freeCString :: CString -> IO ()
 freeCString = c_rocksdb_free
-
-withCReadOpts :: ReadOptions -> (ReadOptionsPtr -> IO a) -> IO a
-withCReadOpts opts = bracket (mkCReadOpts opts) freeCReadOpts
 
 throwIfErr :: String -> (ErrPtr -> IO a) -> IO a
 throwIfErr s f = alloca $ \err_ptr -> do
