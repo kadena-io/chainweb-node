@@ -18,7 +18,7 @@ description:
     RocksDB is an embeddable persistent key-value store for fast storage. RocksDB can also be the foundation for a client-server database but our current focus is on embedded workloads.
     .
     RocksDB builds on LevelDB to be scalable to run on servers with many CPU cores, to efficiently use fast storage, to support IO-bound, in-memory and write-once workloads, and to be flexible to allow for innovation.
-extra-source-files:  README.md, AUTHORS, rocksdb-6.29.3.tar.gz
+extra-source-files:  README.md, AUTHORS, rocksdb-6.29.3.tar.gz, cpp/chainweb-rocksdb.h
 
 source-repository head
   type:     git
@@ -27,7 +27,7 @@ source-repository head
 library
   cxx-sources: cpp/chainweb-rocksdb.cpp
   include-dirs: cpp
-  install-includes: cpp/chainweb-rocksdb.h
+  install-includes: chainweb-rocksdb.h
   extra-libraries: stdc++
   cxx-options: -std=c++17 -fno-rtti
   exposed-modules:  Database.RocksDB
