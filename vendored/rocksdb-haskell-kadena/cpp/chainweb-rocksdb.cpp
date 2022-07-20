@@ -42,10 +42,10 @@ using std::map;
 
 class DelimitedPrefixTransform : public SliceTransform {
  protected:
-  std::vector<char> delims;
+  std::vector<char> *delims;
  public:
 
-  explicit DelimitedPrefixTransform(std::vector<char> _delims) : delims(_delims) { }
+  explicit DelimitedPrefixTransform(std::vector<char> *_delims) : delims(_delims) { }
   ~DelimitedPrefixTransform() { }
 
   static const char* kClassName() { return "rocksdb-haskell.DelimitedPrefix"; }
@@ -53,18 +53,17 @@ class DelimitedPrefixTransform : public SliceTransform {
   const char* Name() const override { return kClassName(); }
   Slice Transform(const Slice& src) const override {
     size_t prefix_end;
-    if ((prefix_end = std::string(src.data()).find("$")) != std::string::npos) {
-      return Slice(src.data(), prefix_end);
-    } else if ((prefix_end = std::string(src.data()).find("%")) != std::string::npos) {
-      return Slice(src.data(), prefix_end);
-    } else {
-      // we must return the entire string if there's no symbol because of the law:
-      // prefix(prefix(str)) == prefix(str)
-      // this prevents us from implementing a real InDomain, which will go badly
-      // (redundant prefix seeking)
-      // *if* we mix prefixed and nonprefixed keys in the same database
-      return src;
+    for (char c : *delims) {
+      if ((prefix_end = std::string(src.data()).find(c)) != std::string::npos) {
+        return Slice(src.data(), prefix_end);
+      }
     }
+    // we must return the entire string if there's no symbol because of the law:
+    // prefix(prefix(str)) == prefix(str)
+    // this prevents us from implementing a real InDomain, which will go badly
+    // (redundant prefix seeking)
+    // *if* we mix prefixed and nonprefixed keys in the same database
+    return src;
   }
 
   bool InDomain(const Slice&) const override {
@@ -85,10 +84,9 @@ class DelimitedPrefixTransform : public SliceTransform {
 };
 
 const SliceTransform* NewDelimitedPrefixTransform(char *delims, size_t delimsLen) {
-  std::vector<char> delimsVec;
-  delimsVec.resize(delimsLen);
+  std::vector<char> *delimsVec = new std::vector<char>(delimsLen);
   for (int i = 0; i < delimsLen; i++) {
-    delimsVec.push_back(delims[i]);
+    (*delimsVec)[i] = delims[i];
   }
   return new DelimitedPrefixTransform(delimsVec);
 }
