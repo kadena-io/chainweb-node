@@ -22,7 +22,6 @@ module Database.RocksDB.Base
     , Comparator (..)
     , Compression (..)
     , Options (..)
-    , ReadOptions (..)
     , Snapshot
     , WriteBatch
     , WriteOptions (..)
@@ -30,7 +29,6 @@ module Database.RocksDB.Base
 
     -- * Defaults
     , defaultOptions
-    , defaultReadOptions
     , defaultWriteOptions
 
     -- * Basic Database Manipulations
@@ -89,6 +87,7 @@ import           System.Directory             (createDirectoryIfMissing)
 import           Database.RocksDB.C
 import           Database.RocksDB.Internal
 import           Database.RocksDB.Iterator
+import           Database.RocksDB.ReadOptions
 import           Database.RocksDB.Types
 
 import qualified Data.ByteString              as BS
@@ -276,7 +275,7 @@ getBinary db ropts key = fmap bsToBinary <$> get db ropts (binaryToBS key)
 
 -- | Read a value by key.
 get :: MonadIO m => DB -> ReadOptions -> ByteString -> m (Maybe ByteString)
-get (DB db_ptr _) opts key = liftIO $ withCReadOpts opts $ \opts_ptr ->
+get (DB db_ptr _) opts key = liftIO $ withReadOptions opts $ \opts_ptr ->
     BU.unsafeUseAsCStringLen key $ \(key_ptr, klen) ->
     alloca                       $ \vlen_ptr -> do
         val_ptr <- throwIfErr "get" $
