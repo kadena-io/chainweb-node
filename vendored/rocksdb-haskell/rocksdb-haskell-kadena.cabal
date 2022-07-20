@@ -28,7 +28,7 @@ library
   cxx-sources: cpp/chainweb-rocksdb.cpp
   include-dirs: cpp
   install-includes: chainweb-rocksdb.h
-  extra-libraries: stdc++
+  extra-libraries: stdc++ snappy
   cxx-options: -std=c++17 -fno-rtti
   exposed-modules:  Database.RocksDB
                   , Database.RocksDB.Base
