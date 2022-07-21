@@ -77,8 +77,8 @@ library
 
   ghc-options:
     -Wall
-    -optl-static-libstdc++
-  ld-options: -static-libstdc++
+    -- -optl-static-libstdc++
+  -- ld-options: -static-libstdc++
 
   include-dirs:
     rocksdb-6.29.3
@@ -96,6 +96,7 @@ library
     lz4
     zstd
     tbb
+    stdc++
 
   -- These options are extracted from CXXFLAGS the RocksDB Makefile
   cxx-options:
@@ -486,10 +487,3 @@ test-suite rocksdb-tests
                      , QuickCheck
   default-language:    Haskell2010
 
-custom-setup
-  setup-depends:
-      base  >= 4.12
-    , Cabal >= 3.0.0.0
-    , containers
-    , directory
-    , filepath
