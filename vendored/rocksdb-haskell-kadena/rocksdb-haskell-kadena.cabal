@@ -108,7 +108,7 @@ library
     -Wshadow
     -Wunused-parameter
     -Werror
-    -std=c++11
+    -std=c++17
     -faligned-new
     -DHAVE_ALIGNED_NEW
     -DROCKSDB_PLATFORM_POSIX
