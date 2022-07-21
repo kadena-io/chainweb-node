@@ -78,14 +78,14 @@ class DelimitedPrefixTransform : public SliceTransform {
     return false;
   }
 
-  bool SameResultWhenAppended(const Slice& prefix) const override {
+  bool SameResultWhenAppended(const Slice&) const override {
     return false;
   }
 };
 
 const SliceTransform* NewDelimitedPrefixTransform(char *delims, size_t delimsLen) {
   std::vector<char> *delimsVec = new std::vector<char>(delimsLen);
-  for (int i = 0; i < delimsLen; i++) {
+  for (size_t i = 0; i < delimsLen; i++) {
     (*delimsVec)[i] = delims[i];
   }
   return new DelimitedPrefixTransform(delimsVec);
