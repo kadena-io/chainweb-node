@@ -95,7 +95,7 @@ library
     bz2
     lz4
     zstd
-    tbb
+    -- tbb
     stdc++
 
   -- These options are extracted from CXXFLAGS the RocksDB Makefile
@@ -120,7 +120,7 @@ library
     -DBZIP2
     -DLZ4
     -DZSTD
-    -DTBB
+    -- -DTBB
     -DROCKSDB_BACKTRACE
     -march=native
     -DHAVE_SSE42
@@ -475,7 +475,7 @@ test-suite rocksdb-tests
   type: exitcode-stdio-1.0
   hs-source-dirs: tests
   build-depends:       base >= 3 && < 5
-                     , rocksdb-haskell
+                     , rocksdb-haskell-kadena
                      , hspec >= 1.8
                      , process >= 1.1.0.2
                      , bytestring >= 0.10.4.0
