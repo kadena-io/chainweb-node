@@ -144,7 +144,6 @@ import qualified Streaming.Prelude as S
 
 import System.Directory
 import System.IO.Temp
-import System.IO.Unsafe
 
 -- -------------------------------------------------------------------------- --
 -- Utils
@@ -208,21 +207,15 @@ modernDefaultOptions = R.defaultOptions
     , R.createIfMissing = True
     }
 
-makePrefixExtractor :: IO (Ptr C.PrefixExtractor)
-makePrefixExtractor = B.useAsCStringLen "$%" $ \(delims, delimsLen) ->
-    C.rocksdb_options_table_prefix_extractor delims (fromIntegral delimsLen)
-
 -- | Open a 'RocksDb' instance with the default namespace. If no rocks db exists
 -- at the provided directory path, a new database is created.
 --
-openRocksDb :: FilePath -> R.Options -> IO RocksDb
-openRocksDb path opts = withOpts opts $ \opts'@(R.Options' opts_ptr _ _) -> do
+openRocksDb :: FilePath -> C.OptionsPtr -> IO RocksDb
+openRocksDb path opts_ptr = do
     GHC.setFileSystemEncoding GHC.utf8
     createDirectoryIfMissing True path
-    -- required to use prefix seek
-    C.rocksdb_options_set_prefix_extractor opts_ptr =<< makePrefixExtractor
     db <- withFilePath path $ \path_ptr ->
-        liftM (`R.DB` opts')
+        liftM R.DB
         $ R.throwIfErr "open"
         $ C.c_rocksdb_open opts_ptr path_ptr
     let rdb = RocksDb db mempty
@@ -230,7 +223,8 @@ openRocksDb path opts = withOpts opts $ \opts'@(R.Options' opts_ptr _ _) -> do
     return rdb
 
 withOpts :: R.Options -> (R.Options' -> IO a) -> IO a
-withOpts opts = bracket (R.mkOpts opts) R.freeOpts
+withOpts opts =
+    bracket (R.mkOpts opts) R.freeOpts
 
 -- | Each table key starts with @_rocksDbNamespace db <> "-"@. Here we insert a
 -- dummy key that is guaranteed to be appear after any other key in the
@@ -258,12 +252,12 @@ resetOpenRocksDb path = do
 -- | Close a 'RocksDb' instance.
 --
 closeRocksDb :: RocksDb -> IO ()
-closeRocksDb (RocksDb (R.DB db_ptr _) _) = C.c_rocksdb_close db_ptr
+closeRocksDb (RocksDb (R.DB db_ptr) _) = C.c_rocksdb_close db_ptr
 
 -- | Provide a computation with a 'RocksDb' instance. If no rocks db exists at
 -- the provided directory path, a new database is created.
 --
-withRocksDb :: FilePath -> R.Options -> (RocksDb -> IO a) -> IO a
+withRocksDb :: FilePath -> C.OptionsPtr -> (RocksDb -> IO a) -> IO a
 withRocksDb path opts = bracket (openRocksDb path opts) closeRocksDb
 
 -- | Provide a computation with a temporary 'RocksDb'. The database is deleted
@@ -271,7 +265,8 @@ withRocksDb path opts = bracket (openRocksDb path opts) closeRocksDb
 --
 withTempRocksDb :: String -> (RocksDb -> IO a) -> IO a
 withTempRocksDb template f = withSystemTempDirectory template $ \dir ->
-    withRocksDb dir modernDefaultOptions f
+    withOpts modernDefaultOptions $ \(R.Options' opts_ptr _ _ _) ->
+        withRocksDb dir opts_ptr f
 
 -- | Delete the RocksDb instance.
 --
@@ -822,7 +817,7 @@ checked whatWasIDoing act = alloca $ \errPtr -> do
 -- to unconditionally flush the WAL log before making the checkpoint, set logSizeFlushThreshold to zero.
 -- to *never* flush the WAL log, set logSizeFlushThreshold to maxBound :: CULong.
 checkpointRocksDb :: RocksDb -> CULong -> FilePath -> IO ()
-checkpointRocksDb RocksDb { _rocksDbHandle = R.DB dbPtr _ } logSizeFlushThreshold path =
+checkpointRocksDb RocksDb { _rocksDbHandle = R.DB dbPtr } logSizeFlushThreshold path =
     bracket mkCheckpointObject C.rocksdb_checkpoint_object_destroy mkCheckpoint
   where
     mkCheckpointObject =
@@ -848,7 +843,7 @@ validateRangeOrdered table (l, u) =
 deleteRangeRocksDb :: HasCallStack => RocksDbTable k v -> (Maybe k, Maybe k) -> IO ()
 deleteRangeRocksDb table range = do
     let !range' = validateRangeOrdered table range
-    let R.DB dbPtr _ = _rocksDbTableDb table
+    let R.DB dbPtr = _rocksDbTableDb table
     R.withCWriteOpts R.defaultWriteOptions $ \optsPtr ->
         BU.unsafeUseAsCStringLen (fst range') $ \(minKeyPtr, minKeyLen) ->
         BU.unsafeUseAsCStringLen (snd range') $ \(maxKeyPtr, maxKeyLen) ->
@@ -866,12 +861,12 @@ compactRangeRocksDb table range =
             maxKeyPtr (fromIntegral maxKeyLen :: CSize)
   where
     !range' = validateRangeOrdered table range
-    R.DB dbPtr _ = _rocksDbTableDb table
+    R.DB dbPtr = _rocksDbTableDb table
 
 -- | Read a value by key.
 -- One less copy than the version in rocksdb-haskell by using unsafePackCStringFinalizer.
 get :: MonadIO m => R.DB -> R.ReadOptions -> ByteString -> m (Maybe ByteString)
-get (R.DB db_ptr _) opts key = liftIO $ R.withReadOptions opts $ \opts_ptr ->
+get (R.DB db_ptr) opts key = liftIO $ R.withReadOptions opts $ \opts_ptr ->
     BU.unsafeUseAsCStringLen key $ \(key_ptr, klen) ->
     alloca $ \vlen_ptr -> do
         val_ptr <- checked "Data.CAS.RocksDB.get" $
@@ -903,7 +898,7 @@ multiGet
     -> R.ReadOptions
     -> V.Vector ByteString
     -> m (V.Vector (Either String (Maybe ByteString)))
-multiGet (R.DB db_ptr _) opts keys = liftIO $ R.withReadOptions opts $ \opts_ptr ->
+multiGet (R.DB db_ptr) opts keys = liftIO $ R.withReadOptions opts $ \opts_ptr ->
     allocaArray len $ \keysArray ->
     allocaArray len $ \keySizesArray ->
     allocaArray len $ \valuesArray ->
