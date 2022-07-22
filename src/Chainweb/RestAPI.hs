@@ -133,7 +133,13 @@ serveSocketTls settings certChain key = runTLSSocket tlsSettings settings
   where
     tlsSettings :: TLSSettings
     tlsSettings = (tlsServerChainSettings certChain key)
-        { tlsSessionManagerConfig = TLS.defaultConfig <$ guard enableTlsSessionCache }
+        { tlsSessionManagerConfig = sessionManagerConfig <$ guard enableTlsSessionCache }
+
+    sessionManagerConfig = TLS.defaultConfig
+        { TLS.ticketLifetime = 3600 -- 1h
+        , TLS.pruningDelay = 600 -- 10min
+        , TLS.dbMaxSize = 1000
+        }
 
 -- -------------------------------------------------------------------------- --
 -- Chainweb Server Storage Backends
