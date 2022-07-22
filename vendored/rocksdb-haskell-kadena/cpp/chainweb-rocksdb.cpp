@@ -132,4 +132,9 @@ const void* rocksdb_options_table_prefix_extractor(char *delims, size_t delimsLe
   return NewDelimitedPrefixTransform(delims, delimsLen);
 }
 
+void rocksdb_options_free_table_prefix_extractor(void* extractor) {
+  auto cast_extractor = reinterpret_cast<DelimitedPrefixTransform*>(extractor);
+  delete cast_extractor;
+}
+
 }

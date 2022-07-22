@@ -56,10 +56,8 @@ import qualified Data.ByteString        as BS
 
 
 -- | Database handle
-data DB = DB RocksDBPtr Options'
-
-instance Eq DB where
-    (DB pt1 _) == (DB pt2 _) = pt1 == pt2
+newtype DB = DB RocksDBPtr
+    deriving Eq
 
 -- | Internal representation of a 'Comparator'
 data Comparator' = Comparator' (FunPtr CompareFun)

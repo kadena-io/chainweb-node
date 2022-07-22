@@ -25,7 +25,7 @@ import qualified Data.ByteString.Char8        as BC
 import qualified Data.ByteString.Unsafe       as BU
 
 createIter :: DB -> ReadOptionsPtr -> IO IteratorPtr
-createIter (DB db_ptr _) opts_ptr =
+createIter (DB db_ptr) opts_ptr =
     throwErrnoIfNull "create_iterator" $ c_rocksdb_create_iterator db_ptr opts_ptr
 
 -- | Run an action with an 'IteratorPtr'
