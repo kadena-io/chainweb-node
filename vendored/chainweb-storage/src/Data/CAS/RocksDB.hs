@@ -208,9 +208,8 @@ modernDefaultOptions = R.defaultOptions
     , R.createIfMissing = True
     }
 
-{-# noinline prefix_extractor #-}
-prefix_extractor :: Ptr C.PrefixExtractor
-prefix_extractor = unsafePerformIO $ B.useAsCStringLen "$%" $ \(delims, delimsLen) ->
+makePrefixExtractor :: IO (Ptr C.PrefixExtractor)
+makePrefixExtractor = B.useAsCStringLen "$%" $ \(delims, delimsLen) ->
     C.rocksdb_options_table_prefix_extractor delims (fromIntegral delimsLen)
 
 -- | Open a 'RocksDb' instance with the default namespace. If no rocks db exists
@@ -221,7 +220,7 @@ openRocksDb path opts = withOpts opts $ \opts'@(R.Options' opts_ptr _ _) -> do
     GHC.setFileSystemEncoding GHC.utf8
     createDirectoryIfMissing True path
     -- required to use prefix seek
-    C.rocksdb_options_set_prefix_extractor opts_ptr prefix_extractor
+    C.rocksdb_options_set_prefix_extractor opts_ptr =<< makePrefixExtractor
     db <- withFilePath path $ \path_ptr ->
         liftM (`R.DB` opts')
         $ R.throwIfErr "open"
