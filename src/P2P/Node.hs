@@ -602,37 +602,49 @@ newSession conf node = do
 
 -- | Monitor and garbage collect sessions
 --
+-- There should only be a single instance of the function running per P2P
+-- node at any point in time.
+--
 awaitSessions :: P2pNode -> IO ()
 awaitSessions node = do
-    (pId, info, ses, result) <- atomically $ do
-        (!p, !i, !a, r) <- waitAnySession node
-        removeSession node p
-        !result <- case r of
-            Right Nothing -> P2pSessionTimeout <$ countTimeout node
-            Right (Just True) -> P2pSessionResultSuccess <$ countSuccess node
-            Right (Just False) -> P2pSessionResultFailure <$ countFailure node
-            Left e -> P2pSessionException (sshow e) <$ countException node
-        return (p, i, a, result)
+    (!pId, !info, !ses, !r) <- atomically $ waitAnySession node
+
+    -- There's only a single instance of the function running at the time. Hence,
+    -- we can exit the 'awaitAnySession' transaction and remove the session in a
+    -- separate transaction.
+    --
+    atomically $ removeSession node pId
 
     -- update peer db entry
     --
-    -- (Note that there is a chance of a race here, if the peer is used in
-    -- new session after the previous session is removed from the node and
-    -- before the following db updates are performed. The following updates are
+    -- Note that there is a chance of a race here, if the peer is used in new
+    -- session after the previous session is removed from the node and before
+    -- the following db updates are performed. The following updates are
     -- performed under an 'MVar' lock in IO to prevent starvation due to
-    -- contention. This comes at the cost of possibly inaccurate values for
-    -- the counters and times in the PeerEntry value.)
+    -- contention. This comes at the cost of possibly inaccurate values for the
+    -- counters and times in the PeerEntry value.
+    --
+    -- Similarly, we don't care about the P2pNode counters (which are updated in
+    -- via STM) being fully consistent. So there is no need to do this in the
+    -- same transaction with the update of the session map. By being a bit
+    -- lenient contention is reduced.
     --
     decrementActiveSessionCount peerDb pId
-    case result of
-        P2pSessionTimeout -> do
+    !result <- case r of
+        Right Nothing -> P2pSessionTimeout <$ do
             resetSuccessiveFailures peerDb pId
             updateLastSuccess peerDb pId
-        P2pSessionResultSuccess -> do
+            atomically (countTimeout node)
+        Right (Just True) -> P2pSessionResultSuccess <$ do
             resetSuccessiveFailures peerDb pId
             updateLastSuccess peerDb pId
-        P2pSessionResultFailure -> incrementSuccessiveFailures peerDb pId
-        P2pSessionException _ -> incrementSuccessiveFailures peerDb pId
+            atomically (countSuccess node)
+        Right (Just False) -> P2pSessionResultFailure <$ do
+            incrementSuccessiveFailures peerDb pId
+            atomically (countFailure node)
+        Left e -> P2pSessionException (sshow e) <$ do
+            incrementSuccessiveFailures peerDb pId
+            atomically (countException node)
 
     -- logging
 
