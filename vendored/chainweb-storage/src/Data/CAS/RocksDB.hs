@@ -144,7 +144,7 @@ import qualified Streaming.Prelude as S
 
 import System.Directory
 import System.IO.Temp
-import System.IO.Unsafe(unsafePerformIO)
+import System.IO.Unsafe
 
 -- -------------------------------------------------------------------------- --
 -- Utils
@@ -210,8 +210,8 @@ modernDefaultOptions = R.defaultOptions
 
 {-# noinline prefix_extractor #-}
 prefix_extractor :: Ptr C.PrefixExtractor
-prefix_extractor =
-    unsafePerformIO C.rocksdb_options_table_prefix_extractor
+prefix_extractor = unsafePerformIO $ B.useAsCStringLen "$%" $ \(delims, delimsLen) ->
+    C.rocksdb_options_table_prefix_extractor delims (fromIntegral delimsLen)
 
 -- | Open a 'RocksDb' instance with the default namespace. If no rocks db exists
 -- at the provided directory path, a new database is created.
