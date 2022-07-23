@@ -257,16 +257,17 @@ closeRocksDb (RocksDb (R.DB db_ptr) _) = C.c_rocksdb_close db_ptr
 -- | Provide a computation with a 'RocksDb' instance. If no rocks db exists at
 -- the provided directory path, a new database is created.
 --
-withRocksDb :: FilePath -> C.OptionsPtr -> (RocksDb -> IO a) -> IO a
-withRocksDb path opts = bracket (openRocksDb path opts) closeRocksDb
+withRocksDb :: FilePath -> R.Options -> (RocksDb -> IO a) -> IO a
+withRocksDb path opts act =
+    withOpts opts $ \(R.Options' opts_ptr _ _ _) ->
+        bracket (openRocksDb path opts_ptr) closeRocksDb act
 
 -- | Provide a computation with a temporary 'RocksDb'. The database is deleted
 -- when the computation exits.
 --
 withTempRocksDb :: String -> (RocksDb -> IO a) -> IO a
 withTempRocksDb template f = withSystemTempDirectory template $ \dir ->
-    withOpts modernDefaultOptions $ \(R.Options' opts_ptr _ _ _) ->
-        withRocksDb dir opts_ptr f
+    withRocksDb dir modernDefaultOptions f
 
 -- | Delete the RocksDb instance.
 --
