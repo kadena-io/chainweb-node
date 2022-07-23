@@ -105,12 +105,12 @@ mkOpts Options{..} = do
         $ boolToNum paranoidChecks
     c_rocksdb_options_set_write_buffer_size opts_ptr
         $ intToCSize writeBufferSize
-    prefix_extractor <- makePrefixExtractor
-    rocksdb_options_set_prefix_extractor opts_ptr prefix_extractor
+    -- prefix_extractor <- makePrefixExtractor
+    -- rocksdb_options_set_prefix_extractor opts_ptr prefix_extractor
 
     cmp   <- maybeSetCmp opts_ptr comparator
 
-    return (Options' opts_ptr Nothing cmp prefix_extractor)
+    return (Options' opts_ptr Nothing cmp nullPtr)
 
   where
     ccompression NoCompression =
@@ -134,8 +134,8 @@ freeOpts :: Options' -> IO ()
 freeOpts (Options' opts_ptr mcache_ptr mcmp_ptr prefix_extractor) =
     c_rocksdb_options_destroy opts_ptr `finally`
         maybe (return ()) c_rocksdb_cache_destroy mcache_ptr `finally`
-        maybe (return ()) freeComparator mcmp_ptr `finally`
-        freePrefixExtractor prefix_extractor
+        maybe (return ()) freeComparator mcmp_ptr -- `finally`
+        -- freePrefixExtractor prefix_extractor
 
 withCWriteOpts :: WriteOptions -> (WriteOptionsPtr -> IO a) -> IO a
 withCWriteOpts WriteOptions{..} = bracket mkCWriteOpts freeCWriteOpts
