@@ -1,4 +1,6 @@
 {-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE OverloadedStrings #-}
+
 -- |
 -- Module      : Database.RocksDB.Internal
 -- Copyright   : (c) 2012-2013 The leveldb-haskell Authors
@@ -42,7 +44,7 @@ module Database.RocksDB.Internal
     )
 where
 
-import           Control.Exception      (bracket, onException, throwIO)
+import           Control.Exception
 import           Control.Monad          (when)
 import           Data.ByteString        (ByteString)
 import           Foreign
@@ -77,8 +79,15 @@ data Options' = Options'
     { _optsPtr  :: !OptionsPtr
     , _cachePtr :: !(Maybe CachePtr)
     , _comp     :: !(Maybe Comparator')
+    , _prefixExtractor :: !(Ptr PrefixExtractor)
     }
 
+makePrefixExtractor :: IO (Ptr PrefixExtractor)
+makePrefixExtractor = BS.useAsCStringLen "$%" $ \(delims, delimsLen) ->
+    rocksdb_options_table_prefix_extractor delims (fromIntegral delimsLen)
+
+freePrefixExtractor :: Ptr PrefixExtractor -> IO ()
+freePrefixExtractor = rocksdb_options_free_table_prefix_extractor
 
 mkOpts :: Options -> IO Options'
 mkOpts Options{..} = do
@@ -96,10 +105,12 @@ mkOpts Options{..} = do
         $ boolToNum paranoidChecks
     c_rocksdb_options_set_write_buffer_size opts_ptr
         $ intToCSize writeBufferSize
+    prefix_extractor <- makePrefixExtractor
+    rocksdb_options_set_prefix_extractor opts_ptr prefix_extractor
 
     cmp   <- maybeSetCmp opts_ptr comparator
 
-    return (Options' opts_ptr Nothing cmp)
+    return (Options' opts_ptr Nothing cmp prefix_extractor)
 
   where
     ccompression NoCompression =
@@ -120,10 +131,11 @@ mkOpts Options{..} = do
         return cmp'
 
 freeOpts :: Options' -> IO ()
-freeOpts (Options' opts_ptr mcache_ptr mcmp_ptr ) = do
-    c_rocksdb_options_destroy opts_ptr
-    maybe (return ()) c_rocksdb_cache_destroy mcache_ptr
-    maybe (return ()) freeComparator mcmp_ptr
+freeOpts (Options' opts_ptr mcache_ptr mcmp_ptr prefix_extractor) =
+    c_rocksdb_options_destroy opts_ptr `finally`
+        maybe (return ()) c_rocksdb_cache_destroy mcache_ptr `finally`
+        maybe (return ()) freeComparator mcmp_ptr `finally`
+        freePrefixExtractor prefix_extractor
 
 withCWriteOpts :: WriteOptions -> (WriteOptionsPtr -> IO a) -> IO a
 withCWriteOpts WriteOptions{..} = bracket mkCWriteOpts freeCWriteOpts
