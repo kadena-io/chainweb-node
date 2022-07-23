@@ -105,8 +105,8 @@ mkOpts Options{..} = do
         $ boolToNum paranoidChecks
     c_rocksdb_options_set_write_buffer_size opts_ptr
         $ intToCSize writeBufferSize
-    -- prefix_extractor <- makePrefixExtractor
-    -- rocksdb_options_set_prefix_extractor opts_ptr prefix_extractor
+    prefix_extractor <- makePrefixExtractor
+    rocksdb_options_set_prefix_extractor opts_ptr prefix_extractor
 
     cmp   <- maybeSetCmp opts_ptr comparator
 
