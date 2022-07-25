@@ -55,6 +55,7 @@ import           Database.RocksDB.C
 import           Database.RocksDB.Types
 
 import qualified Data.ByteString        as BS
+import System.IO.Unsafe
 
 
 -- | Database handle
@@ -79,15 +80,8 @@ data Options' = Options'
     { _optsPtr  :: !OptionsPtr
     , _cachePtr :: !(Maybe CachePtr)
     , _comp     :: !(Maybe Comparator')
-    , _prefixExtractor :: !(Ptr PrefixExtractor)
+    , _unused     :: !(Ptr ())
     }
-
-makePrefixExtractor :: IO (Ptr PrefixExtractor)
-makePrefixExtractor = BS.useAsCStringLen "$%" $ \(delims, delimsLen) ->
-    rocksdb_options_table_prefix_extractor delims (fromIntegral delimsLen)
-
-freePrefixExtractor :: Ptr PrefixExtractor -> IO ()
-freePrefixExtractor = rocksdb_options_free_table_prefix_extractor
 
 mkOpts :: Options -> IO Options'
 mkOpts Options{..} = do
@@ -105,8 +99,7 @@ mkOpts Options{..} = do
         $ boolToNum paranoidChecks
     c_rocksdb_options_set_write_buffer_size opts_ptr
         $ intToCSize writeBufferSize
-    prefix_extractor <- makePrefixExtractor
-    rocksdb_options_set_prefix_extractor opts_ptr prefix_extractor
+    -- rocksdb_options_set_prefix_extractor opts_ptr rocksdb_options_table_prefix_extractor
 
     cmp   <- maybeSetCmp opts_ptr comparator
 
@@ -131,11 +124,10 @@ mkOpts Options{..} = do
         return cmp'
 
 freeOpts :: Options' -> IO ()
-freeOpts (Options' opts_ptr mcache_ptr mcmp_ptr prefix_extractor) =
+freeOpts (Options' opts_ptr mcache_ptr mcmp_ptr _) =
     c_rocksdb_options_destroy opts_ptr `finally`
         maybe (return ()) c_rocksdb_cache_destroy mcache_ptr `finally`
-        maybe (return ()) freeComparator mcmp_ptr -- `finally`
-        -- freePrefixExtractor prefix_extractor
+        maybe (return ()) freeComparator mcmp_ptr
 
 withCWriteOpts :: WriteOptions -> (WriteOptionsPtr -> IO a) -> IO a
 withCWriteOpts WriteOptions{..} = bracket mkCWriteOpts freeCWriteOpts
