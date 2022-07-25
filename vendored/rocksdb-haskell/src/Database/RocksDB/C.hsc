@@ -288,10 +288,7 @@ foreign import ccall unsafe "rocksdb\\c.h rocksdb_options_set_prefix_extractor"
     rocksdb_options_set_prefix_extractor :: OptionsPtr -> Ptr PrefixExtractor -> IO ()
 
 foreign import ccall unsafe "cpp\\chainweb-rocksdb.h rocksdb_options_table_prefix_extractor"
-    rocksdb_options_table_prefix_extractor :: Ptr CChar -> CSize -> IO (Ptr PrefixExtractor)
-
-foreign import ccall unsafe "cpp\\chainweb-rocksdb.h rocksdb_options_table_prefix_extractor"
-    rocksdb_options_free_table_prefix_extractor :: Ptr PrefixExtractor -> IO ()
+    rocksdb_options_table_prefix_extractor :: Ptr PrefixExtractor
 --
 -- Comparator
 --
