@@ -105,6 +105,7 @@ import Chainweb.Version.Utils
 
 import Data.CAS.HashMap hiding (toList)
 import Data.CAS.RocksDB
+import qualified Database.RocksDB.Internal as R
 
 _run :: [String] -> IO ()
 _run args = withArgs args $ C.defaultMain [bench]
@@ -299,7 +300,7 @@ noMineBlock validate parent nonce r = do
 
 data Resources
   = Resources
-    { rocksDbAndDir :: !(FilePath, RocksDb)
+    { rocksDbAndDirAndOpts :: !(FilePath, RocksDb, R.Options')
     , payloadDb :: !(PayloadDb HashMapCas)
     , blockHeaderDb :: !BlockHeaderDb
     , pactService :: !(Async (), PactQueue)
@@ -324,9 +325,9 @@ withResources trunkLength logLevel f = C.envWithCleanup create destroy unwrap
   where
 
     create = do
-        rocksDbAndDir <- createRocksResource
+        rocksDbAndDirAndOpts@(_, rocksDb, _) <- createRocksResource
         payloadDb <- createPayloadDb
-        blockHeaderDb <- testBlockHeaderDb (snd rocksDbAndDir) genesisBlock
+        blockHeaderDb <- testBlockHeaderDb rocksDb genesisBlock
         coinAccounts <- newMVar mempty
         nonceCounter <- newIORef 1
         txPerBlock <- newIORef 10
@@ -341,7 +342,7 @@ withResources trunkLength logLevel f = C.envWithCleanup create destroy unwrap
     destroy (NoopNFData (Resources {..})) = do
       stopPact pactService
       stopSqliteDb sqlEnv
-      destroyRocksResource rocksDbAndDir
+      destroyRocksResource rocksDbAndDirAndOpts
       destroyPayloadDb payloadDb
 
     unwrap ~(NoopNFData (Resources {..})) =
@@ -370,16 +371,18 @@ testVer = FastTimedCPM petersonChainGraph
 genesisBlock :: BlockHeader
 genesisBlock = genesisBlockHeader testVer cid
 
-createRocksResource :: IO (FilePath, RocksDb)
+createRocksResource :: IO (FilePath, RocksDb, R.Options')
 createRocksResource = do
     sysdir <- getCanonicalTemporaryDirectory
     dir <- createTempDirectory sysdir "chainweb-rocksdb-tmp"
-    rocks <- openRocksDb dir modernDefaultOptions
-    return (dir, rocks)
+    opts@(R.Options' opts_ptr _ _) <- R.mkOpts modernDefaultOptions
+    rocks <- openRocksDb dir opts_ptr
+    return (dir, rocks, opts)
 
-destroyRocksResource :: (FilePath, RocksDb) -> IO ()
-destroyRocksResource (dir, rocks) =  do
+destroyRocksResource :: (FilePath, RocksDb, R.Options') -> IO ()
+destroyRocksResource (dir, rocks, opts) = do
     closeRocksDb rocks
+    R.freeOpts opts
     destroyRocksDb dir
     doesDirectoryExist dir >>= flip when (removeDirectoryRecursive dir)
 
@@ -401,10 +404,9 @@ testRocksDb
     :: B.ByteString
     -> RocksDb
     -> IO RocksDb
-testRocksDb l = rocksDbNamespace (const prefix)
-  where
-    prefix = (<>) l . sshow <$> (randomIO @Word64)
-
+testRocksDb l r = do
+  prefix <- (<>) l . sshow <$> (randomIO @Word64)
+  return r { _rocksDbNamespace = prefix }
 
 assertNotLeft :: (MonadThrow m, Exception e) => Either e a -> m a
 assertNotLeft (Left l) = throwM l
