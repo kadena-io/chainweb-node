@@ -80,7 +80,6 @@ data Options' = Options'
     { _optsPtr  :: !OptionsPtr
     , _cachePtr :: !(Maybe CachePtr)
     , _comp     :: !(Maybe Comparator')
-    , _unused     :: !(Ptr ())
     }
 
 mkOpts :: Options -> IO Options'
@@ -99,11 +98,10 @@ mkOpts Options{..} = do
         $ boolToNum paranoidChecks
     c_rocksdb_options_set_write_buffer_size opts_ptr
         $ intToCSize writeBufferSize
-    -- rocksdb_options_set_prefix_extractor opts_ptr rocksdb_options_table_prefix_extractor
 
     cmp   <- maybeSetCmp opts_ptr comparator
 
-    return (Options' opts_ptr Nothing cmp nullPtr)
+    return (Options' opts_ptr Nothing cmp)
 
   where
     ccompression NoCompression =
@@ -124,7 +122,7 @@ mkOpts Options{..} = do
         return cmp'
 
 freeOpts :: Options' -> IO ()
-freeOpts (Options' opts_ptr mcache_ptr mcmp_ptr _) =
+freeOpts (Options' opts_ptr mcache_ptr mcmp_ptr) =
     c_rocksdb_options_destroy opts_ptr `finally`
         maybe (return ()) c_rocksdb_cache_destroy mcache_ptr `finally`
         maybe (return ()) freeComparator mcmp_ptr
