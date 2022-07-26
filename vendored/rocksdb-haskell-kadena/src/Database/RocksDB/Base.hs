@@ -158,7 +158,7 @@ open path opts = liftIO $ bracketOnError initialize finalize mkDB
             freeOpts opts'
             GHC.setFileSystemEncoding oldenc
 # endif
-        mkDB (Options' opts_ptr _ _ _, _) = do
+        mkDB (Options' opts_ptr _ _, _) = do
             when (createIfMissing opts) $
                 createDirectoryIfMissing True path
             withFilePath path $ \path_ptr ->
@@ -213,7 +213,7 @@ getProperty (DB db_ptr) p = liftIO $
 destroy :: MonadIO m => FilePath -> Options -> m ()
 destroy path opts = liftIO $ bracket (mkOpts opts) freeOpts destroy'
     where
-        destroy' (Options' opts_ptr _ _ _) =
+        destroy' (Options' opts_ptr _ _) =
             withFilePath path $ \path_ptr ->
                 throwIfErr "destroy" $ c_rocksdb_destroy_db opts_ptr path_ptr
 
@@ -221,7 +221,7 @@ destroy path opts = liftIO $ bracket (mkOpts opts) freeOpts destroy'
 repair :: MonadIO m => FilePath -> Options -> m ()
 repair path opts = liftIO $ bracket (mkOpts opts) freeOpts repair'
     where
-        repair' (Options' opts_ptr _ _ _) =
+        repair' (Options' opts_ptr _ _) =
             withFilePath path $ \path_ptr ->
                 throwIfErr "repair" $ c_rocksdb_repair_db opts_ptr path_ptr
 
