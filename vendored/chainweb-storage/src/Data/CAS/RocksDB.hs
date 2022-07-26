@@ -259,7 +259,7 @@ closeRocksDb (RocksDb (R.DB db_ptr) _) = C.c_rocksdb_close db_ptr
 --
 withRocksDb :: FilePath -> R.Options -> (RocksDb -> IO a) -> IO a
 withRocksDb path opts act =
-    withOpts opts $ \(R.Options' opts_ptr _ _ _) ->
+    withOpts opts $ \(R.Options' opts_ptr _ _) ->
         bracket (openRocksDb path opts_ptr) closeRocksDb act
 
 -- | Provide a computation with a temporary 'RocksDb'. The database is deleted
