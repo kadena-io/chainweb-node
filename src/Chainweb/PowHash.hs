@@ -38,10 +38,11 @@ import qualified Crypto.Hash as C (hash)
 import Crypto.Hash.Algorithms
 
 import Data.Aeson
+import Data.Binary
+import Data.Binary.Get
+import Data.Binary.Put
 import Data.Bits
 import qualified Data.ByteArray as BA
-import Data.Bytes.Get
-import Data.Bytes.Put
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Short as SB
 import Data.Hashable hiding (hash)
@@ -80,11 +81,11 @@ newtype PowHash = PowHash SB.ShortByteString
 -- | Smart constructor
 --
 mkPowHash :: MonadThrow m => B.ByteString -> m PowHash
-mkPowHash = runGet decodePowHash
+mkPowHash = runGetThrow decodePowHash
 {-# INLINE mkPowHash #-}
 
 unsafeMkPowHash :: HasCallStack => B.ByteString -> PowHash
-unsafeMkPowHash = fromJuste . runGet decodePowHash
+unsafeMkPowHash = either (error . show) id . mkPowHash
 {-# INLINE unsafeMkPowHash #-}
 
 instance MerkleHashAlgorithm a => IsMerkleLogEntry a ChainwebHashTag PowHash where
@@ -94,7 +95,7 @@ instance MerkleHashAlgorithm a => IsMerkleLogEntry a ChainwebHashTag PowHash whe
     {-# INLINE toMerkleNode #-}
     {-# INLINE fromMerkleNode #-}
 
-encodePowHash :: MonadPut m => PowHash -> m ()
+encodePowHash :: PowHash -> Put
 encodePowHash (PowHash w) = putByteString $ SB.fromShort w
 {-# INLINE encodePowHash #-}
 
@@ -102,8 +103,8 @@ powHashBytes :: PowHash -> SB.ShortByteString
 powHashBytes (PowHash bytes) = bytes
 {-# INLINE powHashBytes #-}
 
-decodePowHash :: MonadGet m => m PowHash
-decodePowHash = PowHash . SB.toShort <$> getBytes (int powHashBytesCount)
+decodePowHash :: Get PowHash
+decodePowHash = PowHash . SB.toShort <$> getByteString (int powHashBytesCount)
 {-# INLINE decodePowHash #-}
 
 instance Hashable PowHash where
@@ -123,7 +124,7 @@ instance ToJSON PowHash where
 instance FromJSON PowHash where
     parseJSON = withText "PowHash" $ \t ->
         either (fail . show) return
-            $ runGet decodePowHash =<< decodeB64UrlNoPaddingText t
+            $ runGetThrow decodePowHash =<< decodeB64UrlNoPaddingText t
     {-# INLINE parseJSON #-}
 
 -- -------------------------------------------------------------------------- --

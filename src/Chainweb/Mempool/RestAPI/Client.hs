@@ -29,6 +29,7 @@ import Data.Proxy
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
 import qualified Data.Vector as V
+import GHC.Exts (fromList)
 import Prelude hiding (lookup)
 import Servant.API
 import Servant.Client
@@ -144,7 +145,7 @@ lookupClient txcfg v c txs = do
     mapM (traverse go) cs
   where
     go h = case decode h of
-      Left e -> throwM . DecodeException $ T.pack e
+      Left e -> throwM . DecodeException (Ignored (fromList [])) $ T.pack e
       Right t -> return t
 
     decode = codecDecode (txCodec txcfg) . T.encodeUtf8

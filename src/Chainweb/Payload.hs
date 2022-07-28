@@ -118,11 +118,10 @@ import Control.Monad.Catch
 import Data.Aeson
 import qualified Data.Aeson.Types as A
 import qualified Data.ByteArray as BA
-import Data.Bytes.Get
-import Data.Bytes.Put
 import qualified Data.ByteString as B
 import Data.Hashable
 import Data.MerkleLog
+import Data.Binary
 import qualified Data.Text as T
 import qualified Data.Vector as V
 import Data.Void
@@ -151,13 +150,12 @@ newtype BlockTransactionsHash_ a = BlockTransactionsHash (MerkleLogHash a)
     deriving newtype (BA.ByteArrayAccess)
     deriving newtype (Hashable, ToJSON, FromJSON)
 
-encodeBlockTransactionsHash :: MonadPut m => BlockTransactionsHash_ a -> m ()
+encodeBlockTransactionsHash :: BlockTransactionsHash_ a -> Put
 encodeBlockTransactionsHash (BlockTransactionsHash w) = encodeMerkleLogHash w
 
 decodeBlockTransactionsHash
     :: MerkleHashAlgorithm a
-    => MonadGet m
-    => m (BlockTransactionsHash_ a)
+    => Get (BlockTransactionsHash_ a)
 decodeBlockTransactionsHash = BlockTransactionsHash <$!> decodeMerkleLogHash
 
 instance MerkleHashAlgorithm a => IsMerkleLogEntry a ChainwebHashTag (BlockTransactionsHash_ a) where
@@ -178,13 +176,12 @@ newtype BlockOutputsHash_ a = BlockOutputsHash (MerkleLogHash a)
     deriving newtype (BA.ByteArrayAccess)
     deriving newtype (Hashable, ToJSON, FromJSON)
 
-encodeBlockOutputsHash :: MonadPut m => BlockOutputsHash_ a -> m ()
+encodeBlockOutputsHash :: BlockOutputsHash_ a -> Put
 encodeBlockOutputsHash (BlockOutputsHash w) = encodeMerkleLogHash w
 
 decodeBlockOutputsHash
     :: MerkleHashAlgorithm a
-    => MonadGet m
-    => m (BlockOutputsHash_ a)
+    => Get (BlockOutputsHash_ a)
 decodeBlockOutputsHash = BlockOutputsHash <$!> decodeMerkleLogHash
 
 instance MerkleHashAlgorithm a => IsMerkleLogEntry a ChainwebHashTag (BlockOutputsHash_ a) where
@@ -206,13 +203,12 @@ newtype BlockPayloadHash_ a = BlockPayloadHash (MerkleLogHash a)
     deriving newtype (Hashable, ToJSON, FromJSON)
     deriving newtype (ToJSONKey, FromJSONKey)
 
-encodeBlockPayloadHash :: MonadPut m => BlockPayloadHash_ a -> m ()
+encodeBlockPayloadHash :: BlockPayloadHash_ a -> Put
 encodeBlockPayloadHash (BlockPayloadHash w) = encodeMerkleLogHash w
 
 decodeBlockPayloadHash
     :: MerkleHashAlgorithm a
-    => MonadGet m
-    => m (BlockPayloadHash_ a)
+    => Get (BlockPayloadHash_ a)
 decodeBlockPayloadHash = BlockPayloadHash <$!> decodeMerkleLogHash
 
 instance MerkleHashAlgorithm a => IsMerkleLogEntry a ChainwebHashTag (BlockPayloadHash_ a) where

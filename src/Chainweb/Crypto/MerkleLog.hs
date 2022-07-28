@@ -163,7 +163,6 @@ import Control.Monad.Catch
 import Crypto.Hash.Algorithms
 
 import qualified Data.ByteArray as BA
-import Data.Bytes.Put
 import qualified Data.ByteString as B
 import Data.Coerce
 import Data.Foldable
@@ -172,9 +171,9 @@ import Data.Memory.Endian
 import qualified Data.Memory.Endian as BA
 import Data.MerkleLog hiding (Expected, Actual)
 import Data.Proxy
+import Data.Binary hiding (decode, encode)
 import qualified Data.Text as T
 import qualified Data.Vector as V
-import Data.Word
 
 import Foreign.Storable
 
@@ -479,7 +478,7 @@ merkleLog root entries = MerkleLog
     }
 
 -- | /Internal:/ Create a representation Merkle nodes that are tagged with the
--- respedtive type from the Merkle universe.
+-- respective type from the Merkle universe.
 --
 toMerkleNodeTagged
     :: forall a u b
@@ -494,7 +493,7 @@ toMerkleNodeTagged b = case toMerkleNode @a @u @b b of
     tag :: Word16
     tag = tagVal @u @(Tag b)
 
--- | /Internal:/ Decode Merkle nodes that are tagged with the respedtive type
+-- | /Internal:/ Decode Merkle nodes that are tagged with the respective type
 -- from the Merkle universe.
 --
 fromMerkleNodeTagged
@@ -733,17 +732,17 @@ proofSubject p = fromMerkleNodeTagged @a subj
 -- Tools Defining Instances
 
 encodeMerkleInputNode
-    :: (forall m . MonadPut m => b -> m ())
+    :: (b -> Put)
     -> b
     -> MerkleNodeType a B.ByteString
 encodeMerkleInputNode encode = InputNode . runPutS . encode
 
 decodeMerkleInputNode
     :: MonadThrow m
-    => (forall n . MonadGetExtra n => n b)
+    => Get b
     -> MerkleNodeType a B.ByteString
     -> m b
-decodeMerkleInputNode decode (InputNode bytes) = runGet decode bytes
+decodeMerkleInputNode decode (InputNode bytes) = runGetThrow decode bytes
 decodeMerkleInputNode _ (TreeNode _) = throwM expectedInputNodeException
 
 encodeMerkleTreeNode :: Coercible a (MerkleRoot alg) => a -> MerkleNodeType alg x

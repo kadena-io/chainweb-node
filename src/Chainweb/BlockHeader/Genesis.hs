@@ -148,7 +148,7 @@ genesisBlockTarget _ _ = maxTarget
 --
 -- It holds that:
 --
--- prop> Just mainnet20InitialHashTarget == HashTarget . (4 *) <$> (runGet decodePowHashNat =<< decodeB64UrlNoPaddingText "DOordl9cgfs4ZTBdFnbjRW5th-hW-pL33DIAAAAAAAA")
+-- prop> Just mainnet20InitialHashTarget == HashTarget . (4 *) <$> (runGetThrow decodePowHashNat =<< decodeB64UrlNoPaddingText "DOordl9cgfs4ZTBdFnbjRW5th-hW-pL33DIAAAAAAAA")
 --
 mainnet20InitialHashTarget :: HashTarget
 mainnet20InitialHashTarget = HashTarget 0x000000000000cb73de4be95ba21db5b9178dd85974c194e3ee05717dd8afa830
@@ -187,7 +187,7 @@ mainnet20InitialHashTarget = HashTarget 0x000000000000cb73de4be95ba21db5b9178dd8
 --
 -- It holds that:
 --
--- prop> Just testnet20InitialHashTarget == HashTarget <$> (runGet decodePowHashNat =<< decodeB64UrlNoPaddingText "NZIklpW6xujSPrX3gyhXInfxxOS6JDjkW_GbGwAAAAA")
+-- prop> Just testnet20InitialHashTarget == HashTarget <$> (runGetThrow decodePowHashNat =<< decodeB64UrlNoPaddingText "NZIklpW6xujSPrX3gyhXInfxxOS6JDjkW_GbGwAAAAA")
 -- prop> _hashTarget testnet20InitialHashTarget `div` _hashTarget mainnet20InitialHashTarget == PowHashNat 8893
 -- prop> _hashTarget (genesisBlockTarget Development (unsafeChainId 10)) `div` _hashTarget testnet20InitialHashTarget == PowHashNat 38
 --

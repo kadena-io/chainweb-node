@@ -27,7 +27,7 @@ module Chainweb.Transaction
 import Control.DeepSeq
 
 import qualified Data.Aeson as Aeson
-import Data.Bytes.Get
+import Data.Binary.Get
 import Data.ByteString.Char8 (ByteString)
 import qualified Data.ByteString.Char8 as B
 import qualified Data.ByteString.Lazy as BL
@@ -89,7 +89,7 @@ instance Hashable (HashableTrans PayloadWithText) where
     hashWithSalt s (HashableTrans t) = hashWithSalt s hashCode
       where
         (TypedHash hc) = _cmdHash t
-        decHC = runGetS getWord64host
+        decHC = runGetEither getWord64host
         !hashCode = either error id $ decHC (B.take 8 hc)
     {-# INLINE hashWithSalt #-}
 

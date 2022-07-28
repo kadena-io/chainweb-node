@@ -26,13 +26,14 @@ module Chainweb.Miner.RestAPI.Server
 import Control.Concurrent.STM.TVar
     (TVar, readTVar, readTVarIO, registerDelay)
 import Control.Monad (when, unless)
-import Control.Monad.Catch (bracket, try, catches)
+import Control.Monad.Catch (bracket, catches)
 import qualified Control.Monad.Catch as E
 import Control.Monad.Except (throwError)
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.STM (atomically)
 
-import Data.Binary.Builder (fromByteString)
+import qualified Data.ByteString.Builder as Builder
+import qualified Data.ByteString.Lazy.Char8 as LB8
 import Data.IORef (IORef, atomicModifyIORef', newIORef, readIORef, writeIORef)
 import qualified Data.Map.Strict as M
 import Data.Proxy (Proxy(..))
@@ -61,7 +62,7 @@ import Chainweb.Miner.Core
 import Chainweb.Miner.Pact
 import Chainweb.Miner.RestAPI (MiningApi)
 import Chainweb.RestAPI.Utils (SomeServer(..))
-import Chainweb.Utils (EncodingException(..), runGet, runPut)
+import Chainweb.Utils (runGetEither, runGetThrow, runPutS)
 import Chainweb.Version
 
 -- -------------------------------------------------------------------------- --
@@ -85,7 +86,7 @@ workHandler mr mcid m@(Miner (MinerId mid) _) = do
         let midb = TL.encodeUtf8 $ TL.fromStrict mid
         throwError err403 { errBody = "Unauthorized Miner: " <> midb }
     wh <- liftIO $ work mr mcid m
-    return $ WorkBytes $ runPut $ encodeWorkHeader wh
+    return $ WorkBytes $ runPutS $ encodeWorkHeader wh
 
 -- -------------------------------------------------------------------------- --
 -- Solved Handler
@@ -96,12 +97,10 @@ solvedHandler
     => MiningCoordination l cas
     -> HeaderBytes
     -> Handler NoContent
-solvedHandler mr (HeaderBytes bytes) = do
-    liftIO (try $ runGet decodeSolvedWork bytes) >>= \case
-        Left (DecodeException e) ->
-            throwError err400 { errBody = "Decoding error: " <> toErrText e }
-        Left _ ->
-            throwError err400 { errBody = "Unexpected encoding exception" }
+solvedHandler mr (HeaderBytes bytes) =
+    case runGetEither decodeSolvedWork bytes of
+        Left e ->
+            throwError err400 { errBody = "Decoding error: " <> LB8.pack e }
 
         Right solved -> do
             result <- liftIO $ catches (Right () <$ solve mr solved)
@@ -125,7 +124,7 @@ updatesHandler
     -> ChainBytes
     -> Tagged Handler Application
 updatesHandler mr (ChainBytes cbytes) = Tagged $ \req resp -> withLimit resp $ do
-    cid <- runGet decodeChainId cbytes
+    cid <- runGetThrow decodeChainId cbytes
     cv  <- _cut (_coordCutDb mr) >>= newIORef
 
     -- An update stream is closed after @timeout@ seconds. We add some jitter to
@@ -144,7 +143,7 @@ updatesHandler mr (ChainBytes cbytes) = Tagged $ \req resp -> withLimit resp $ d
     -- to the caller.
     --
     f :: ServerEvent
-    f = ServerEvent (Just $ fromByteString "New Cut") Nothing []
+    f = ServerEvent (Just $ Builder.byteString "New Cut") Nothing []
 
     go :: TVar Bool -> ChainId -> IORef Cut -> IO ServerEvent
     go timer cid cv = do

@@ -48,11 +48,10 @@ import Control.Monad.Catch
 import Control.Monad.Trans.Maybe
 
 import Data.Aeson
-import Data.Bytes.Get
-import Data.Bytes.Put
 import Data.Function
 import Data.Hashable
 import Data.Maybe
+import Data.Binary
 import qualified Data.Text.Encoding as T
 
 import GHC.Generics
@@ -142,21 +141,21 @@ newtype BlockRank = BlockRank { _getBlockRank :: BlockHeight }
 -- -------------------------------------------------------------------------- --
 -- Internal
 
-encodeRankedBlockHeader :: MonadPut m => RankedBlockHeader -> m ()
+encodeRankedBlockHeader :: RankedBlockHeader -> Put
 encodeRankedBlockHeader = encodeBlockHeader . _getRankedBlockHeader
 {-# INLINE encodeRankedBlockHeader #-}
 
-decodeRankedBlockHeader :: MonadGet m => m RankedBlockHeader
+decodeRankedBlockHeader :: Get RankedBlockHeader
 decodeRankedBlockHeader = RankedBlockHeader <$!> decodeBlockHeader
 {-# INLINE decodeRankedBlockHeader #-}
 
-encodeRankedBlockHash :: MonadPut m => RankedBlockHash -> m ()
+encodeRankedBlockHash :: RankedBlockHash -> Put
 encodeRankedBlockHash (RankedBlockHash r bh) = do
     encodeBlockHeightBe r -- big endian encoding for lexicographical order
     encodeBlockHash bh
 {-# INLINE encodeRankedBlockHash #-}
 
-decodeRankedBlockHash :: MonadGet m => m RankedBlockHash
+decodeRankedBlockHash :: Get RankedBlockHash
 decodeRankedBlockHash = RankedBlockHash
     <$!> decodeBlockHeightBe
     <*> decodeBlockHash
@@ -247,14 +246,14 @@ initBlockHeaderDb config = do
 
     headerTable = newTable
         (_configRocksDb config)
-        (Codec (runPut . encodeRankedBlockHeader) (runGet decodeRankedBlockHeader))
-        (Codec (runPut . encodeRankedBlockHash) (runGet decodeRankedBlockHash))
+        (Codec (runPutS . encodeRankedBlockHeader) (runGetThrow decodeRankedBlockHeader))
+        (Codec (runPutS . encodeRankedBlockHash) (runGetThrow decodeRankedBlockHash))
         ["BlockHeader", cidNs, "header"]
 
     rankTable = newTable
         (_configRocksDb config)
-        (Codec (runPut . encodeBlockHeight) (runGet decodeBlockHeight))
-        (Codec (runPut . encodeBlockHash) (runGet decodeBlockHash))
+        (Codec (runPutS . encodeBlockHeight) (runGetThrow decodeBlockHeight))
+        (Codec (runPutS . encodeBlockHash) (runGetThrow decodeBlockHash))
         ["BlockHeader", cidNs, "rank"]
 
     !db = BlockHeaderDb cid

@@ -134,6 +134,7 @@ import qualified Data.Text.Encoding as T
 import Data.X509
 import Data.X509.Validation (Fingerprint(..), ServiceID, getFingerprint)
 
+import GHC.Exts (fromList)
 import GHC.Generics
 import GHC.Stack
 import GHC.TypeNats
@@ -772,7 +773,7 @@ pattern CertHeader = "-----BEGIN CERTIFICATE-----"
 
 takeCert :: MonadThrow m => [B8.ByteString] -> m ([B8.ByteString], [B8.ByteString])
 takeCert (CertHeader : t) = return $ first (CertHeader :) $ L.break (== CertHeader) t
-takeCert _ = throwM $ DecodeException "failed to decode X509 PEM certificate. Missing header."
+takeCert _ = throwM $ DecodeException (Ignored $ fromList []) "failed to decode X509 PEM certificate. Missing header."
 
 parseCerts :: MonadThrow m => B8.ByteString -> m [B8.ByteString]
 parseCerts bytes = go (B8.lines bytes)
@@ -784,7 +785,7 @@ parseCerts bytes = go (B8.lines bytes)
 
 parseCertChain :: MonadThrow m => B8.ByteString -> m X509CertChainPem
 parseCertChain bytes = parseCerts bytes >>= \case
-    [] -> throwM $ DecodeException "certificate must have at least one certificate"
+    [] -> throwM $ DecodeException (Ignored $ fromList []) "certificate must have at least one certificate"
     (h : t) -> return $ X509CertChainPem (X509CertPem h) (X509CertPem <$> t)
 
 data X509CertChainPem = X509CertChainPem X509CertPem ![X509CertPem]

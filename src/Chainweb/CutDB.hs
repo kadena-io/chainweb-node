@@ -228,8 +228,8 @@ cutHashesTable :: RocksDb -> RocksDbCas CutHashes
 cutHashesTable rdb = newCas rdb valueCodec keyCodec ["CutHashes"]
   where
     keyCodec = Codec
-        (\(a,b,c) -> runPut $ encodeCutHeightBe a >> encodeBlockWeightBe b >> encodeCutId c)
-        (runGet $ (,,) <$> decodeCutHeightBe <*> decodeBlockWeightBe <*> decodeCutId)
+        (\(a,b,c) -> runPutS $ encodeCutHeightBe a >> encodeBlockWeightBe b >> encodeCutId c)
+        (runGetThrow $ (,,) <$> decodeCutHeightBe <*> decodeBlockWeightBe <*> decodeCutId)
     valueCodec = Codec encodeToByteString decodeStrictOrThrow'
 
 -- -------------------------------------------------------------------------- --

@@ -98,10 +98,11 @@ import Crypto.Hash (hash)
 import Crypto.Hash.Algorithms (SHA512t_256)
 
 import Data.Aeson
+import Data.Binary
+import Data.Binary.Get
+import Data.Binary.Put
 import Data.Bits (bit, shiftL, shiftR, (.&.))
 import Data.ByteArray (convert)
-import Data.Bytes.Get
-import Data.Bytes.Put
 import qualified Data.ByteString.Base64.URL as B64
 import Data.ByteString.Char8 (ByteString)
 import qualified Data.ByteString.Char8 as B
@@ -119,7 +120,6 @@ import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Vector (Vector)
 import qualified Data.Vector as V
-import Data.Word (Word64)
 
 import GHC.Generics
 
@@ -572,7 +572,7 @@ instance Show TransactionHash where
 instance Hashable TransactionHash where
   hashWithSalt s (TransactionHash h) = hashWithSalt s (hashCode :: Int)
     where
-      hashCode = either error id $ runGetS (fromIntegral <$> getWord64host) (B.take 8 $ SB.fromShort h)
+      hashCode = either error id $ runGetEither (fromIntegral <$> getWord64host) (B.take 8 $ SB.fromShort h)
   {-# INLINE hashWithSalt #-}
 
 instance ToJSON TransactionHash where
@@ -713,7 +713,7 @@ mockEncode (MockTx nonce (GasPrice (ParsedDecimal price)) limit meta) =
     Time.encodeTime $ txMetaExpiryTime meta
 
 
-putDecimal :: MonadPut m => Decimal -> m ()
+putDecimal :: Decimal -> Put
 putDecimal (Decimal places mantissa) = do
     putWord8 places
     putWord8 $ if mantissa >= 0 then 0 else 1
@@ -729,7 +729,7 @@ putDecimal (Decimal places mantissa) = do
                               in Just (a, d')
 
 
-getDecimal :: MonadGet m => m Decimal
+getDecimal :: Get Decimal
 getDecimal = do
     !places <- getWord8
     !negative <- getWord8
@@ -748,7 +748,7 @@ getDecimal = do
 mockDecode :: ByteString -> Either String MockTx
 mockDecode s = do
     s' <- B64.decode s
-    runGetS (MockTx <$> getI64 <*> getPrice <*> getGL <*> getMeta) s'
+    either (Left . show) Right $ runGetThrow (MockTx <$> getI64 <*> getPrice <*> getGL <*> getMeta) s'
   where
     getPrice = GasPrice . ParsedDecimal <$> getDecimal
     getGL = GasLimit . ParsedInteger . fromIntegral <$> getWord64le

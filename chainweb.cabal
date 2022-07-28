@@ -325,12 +325,11 @@ library
         , base16-bytestring >= 0.1
         , base64-bytestring >= 1.0 && < 1.1
             -- due to change in error message that is inlined in pact
-        , binary >= 0.8
-        , bytes >= 0.15
+        -- "newer" versions of binary are actually older, at least until 0.10.
+        , binary == 0.8.9.0
         , bytestring >= 0.10
         , case-insensitive >= 1.2
         , cassava >= 0.5.1
-        , cereal >= 0.5
         , chainweb-storage >= 0.1
         , clock >= 0.7
         , configuration-tools >= 0.6
@@ -504,10 +503,10 @@ test-suite chainweb-tests
         , base >= 4.12 && < 5
         , base64-bytestring >= 1.0 && < 1.1
             -- due to change in error message that is inlined in pact
-        , bytes >= 0.15
+        -- "newer" versions of binary are actually older, at least until 0.10.
+        , binary == 0.8.9.0
         , bytestring >= 0.10
         , case-insensitive >= 1.2
-        , cereal >= 0.5
         , chainweb-storage >= 0.1
         , connection >=0.2
         , containers >= 0.5
@@ -656,9 +655,9 @@ executable cwtool
         , lens-aeson >= 1.1
         , async >= 2.2
         , base >= 4.12 && < 5
-        , bytes >= 0.15
+        -- "newer" versions of binary are actually older, at least until 0.10.
+        , binary == 0.8.9.0
         , bytestring >= 0.10
-        , cereal >= 0.5
         , case-insensitive >= 1.2
         , cassava >= 0.5.1
         , chainweb-storage >= 0.1
@@ -734,6 +733,8 @@ benchmark bench
         , aeson >= 1.4.3
         , async >= 2.2
         , base
+        -- "newer" versions of binary are actually older, at least until 0.10.
+        , binary == 0.8.9.0
         , bytestring >= 0.10
         , case-insensitive >= 1.2
         , chainweb

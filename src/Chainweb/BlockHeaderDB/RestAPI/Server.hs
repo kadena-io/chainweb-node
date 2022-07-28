@@ -36,7 +36,7 @@ import Control.Monad.Except (MonadError(..))
 import Control.Monad.IO.Class
 
 import Data.Aeson
-import Data.Binary.Builder (fromByteString, fromLazyByteString)
+import qualified Data.ByteString.Builder as Builder
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Base16 as B16
 import Data.ByteString.Short (fromShort)
@@ -310,5 +310,5 @@ headerStreamHandler db = Tagged $ \req resp -> do
             , _huTarget = showTargetHex $ _blockTarget bh }
 
     f :: HeaderUpdate -> ServerEvent
-    f hu = ServerEvent (Just $ fromByteString "BlockHeader") Nothing
-        [ fromLazyByteString . encode $ toJSON hu ]
+    f hu = ServerEvent (Just $ Builder.byteString "BlockHeader") Nothing
+        [ Builder.lazyByteString . encode $ toJSON hu ]

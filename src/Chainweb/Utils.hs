@@ -16,6 +16,7 @@
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TupleSections #-}
 {-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE TypeFamilies #-}
 
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 {-# OPTIONS_GHC -fno-warn-deprecations #-}
@@ -68,11 +69,14 @@ module Chainweb.Utils
 , EncodingException(..)
 
 -- ** Binary
-, runGet
-, runPut
+, Signed
+, Unsigned
+, signed
+, unsigned
+, runGetThrow
 , runGetEither
-, eof
-, MonadGetExtra(..)
+, runPutS
+, Ignored(..)
 
 -- ** Codecs
 , Codec(..)
@@ -224,9 +228,10 @@ import Data.Aeson.Text (encodeToLazyText)
 import qualified Data.Aeson.Types as Aeson
 import qualified Data.Attoparsec.Text as A
 import Data.Bifunctor
+import qualified Data.Binary as Binary
+import qualified Data.Binary.Get as Binary
+import qualified Data.Binary.Put as Binary
 import Data.Bool (bool)
-import Data.Bytes.Get
-import Data.Bytes.Put
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Base64 as B64
@@ -239,11 +244,10 @@ import Data.Functor.Of
 import Data.Hashable
 import qualified Data.HashMap.Strict as HM
 import qualified Data.HashSet as HS
+import Data.Int
+import Data.Kind
 import Data.Monoid (Endo)
 import Data.Proxy
-import Data.Serialize.Get (Get)
-import qualified Data.Serialize.Get as Get
-import Data.Serialize.Put (Put)
 import Data.String (IsString(..))
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
@@ -255,7 +259,7 @@ import qualified Data.Vector.Mutable as MV
 import Data.Word
 
 import GHC.Generics
-import GHC.Stack (HasCallStack)
+import GHC.Stack
 import GHC.TypeLits (KnownSymbol, symbolVal)
 
 import qualified Network.Connection as HTTP
@@ -447,7 +451,7 @@ class IxedGet a where
 --
 data EncodingException where
     EncodeException :: T.Text -> EncodingException
-    DecodeException :: T.Text -> EncodingException
+    DecodeException :: Ignored CallStack -> T.Text -> EncodingException
     Base64DecodeException :: T.Text -> EncodingException
     ItemCountDecodeException :: Expected Natural -> Actual Natural -> EncodingException
     TextFormatException :: T.Text -> EncodingException
@@ -457,39 +461,67 @@ data EncodingException where
     deriving (Show, Eq, Ord, Generic)
     deriving anyclass (NFData)
 
+newtype Ignored a = Ignored a
+instance Eq (Ignored a) where
+    _ == _ = True
+instance Ord (Ignored a) where
+    compare _ _ = EQ
+instance Show a => Show (Ignored a) where
+    show (Ignored a) = show a
+instance NFData a => NFData (Ignored a) where
+    rnf (Ignored a) = rnf a
+
 instance Exception EncodingException
+
+-- | The unsigned version of a signed integer type, for serialization purposes.
+type family Unsigned i :: Type
+
+type instance Unsigned Int = Word
+type instance Unsigned Int8 = Word8
+type instance Unsigned Int16 = Word16
+type instance Unsigned Int32 = Word32
+type instance Unsigned Int64 = Word64
+
+unsigned :: (Integral i, Num (Unsigned i)) => i -> Unsigned i
+unsigned = fromIntegral
+
+-- | The signed version of an unsigned integer type, for serialization purposes.
+type family Signed i :: Type
+type instance Signed Word   = Int
+type instance Signed Word8  = Int8
+type instance Signed Word16 = Int16
+type instance Signed Word32 = Int32
+type instance Signed Word64 = Int64
+
+signed :: (Integral i, Num (Signed i)) => i -> Signed i
+signed = fromIntegral
+
+instance MonadThrow Binary.Get where
+    throwM e = fail (show e)
 
 -- | Decode a value from a 'B.ByteString'. In case of a failure a
 -- 'DecodeException' is thrown.
 --
-runGet :: MonadThrow m => Get a -> B.ByteString -> m a
-runGet g = fromEitherM . runGetEither (g <* eof)
-{-# INLINE runGet #-}
+runGetThrow :: (HasCallStack, MonadThrow m) => Binary.Get a -> B.ByteString -> m a
+runGetThrow g = fromEitherM . first (DecodeException (Ignored callStack) . T.pack) . runGetEither g
+{-# INLINE runGetThrow #-}
 
 -- | Decode a value from a 'B.ByteString' and return either the result or a
 -- 'DecodeException'.
 --
-runGetEither :: Get a -> B.ByteString -> Either EncodingException a
-runGetEither g = first (DecodeException . T.pack) . runGetS (g <* eof)
+runGetEither :: Binary.Get a -> B.ByteString -> Either String a
+runGetEither g bs =
+    case Binary.runGetOrFail g (BL.fromStrict bs) of
+        Left (_, _, e) -> Left e
+        Right (s, _, r)
+            | BL.null s -> Right r
+            | otherwise -> Left "pending bytes in input"
 {-# INLINE runGetEither #-}
 
 -- | Encode a value into a 'B.ByteString'.
 --
-runPut :: Put -> B.ByteString
-runPut = runPutS
-{-# INLINE runPut #-}
-
-eof :: Get ()
-eof = unlessM isEmpty $ fail "pending bytes in input"
-{-# INLINE eof #-}
-
-class MonadGet m => MonadGetExtra m where
-    label :: String -> m a -> m a
-    isolate :: Int -> m a -> m a
-
-instance MonadGetExtra Get where
-    label = Get.label
-    isolate = Get.isolate
+runPutS :: Binary.Put -> B.ByteString
+runPutS = BL.toStrict . Binary.runPut
 
 -- -------------------------------------------------------------------------- --
 -- ** Text

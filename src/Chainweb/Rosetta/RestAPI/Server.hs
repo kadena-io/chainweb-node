@@ -245,7 +245,7 @@ constructionPreprocessH v req = do
     either throwRosettaError pure work
   where
     ConstructionPreprocessReq net ops someMeta someMaxFee someMult = req
-    
+
     work :: Either RosettaError ConstructionPreprocessResp
     work = do
       _ <- annotate rosettaError' (validateNetwork v net)
@@ -285,7 +285,7 @@ constructionMetadataH
 constructionMetadataH v cutDb pacts (ConstructionMetadataReq net opts someKeys) =
     runExceptT work >>= either throwRosettaError pure
   where
-    
+
     work :: ExceptT RosettaError Handler ConstructionMetadataResp
     work = do
       cid <- hoistEither $ annotate rosettaError' (validateNetwork v net)
@@ -301,7 +301,7 @@ constructionMetadataH v cutDb pacts (ConstructionMetadataReq net opts someKeys) 
       expectedAccts <- toSignerAcctsMap tx payer cid pacts cutDb
       signersAndAccts <- hoistEither $!
                          createSigners availableSigners expectedAccts
-      
+
       pure $! ConstructionMetadataResp
         { _constructionMetadataResp_metadata = toObject $! PayloadsMetaData
             { _payloadsMetaData_signers = signersAndAccts
@@ -328,9 +328,9 @@ constructionPayloadsH v req =
       meta :: PayloadsMetaData <- hoistEither $ note
               (rosettaError' RosettaMissingMetaData) someMeta >>=
               extractMetaData
-      unsigned :: EnrichedCommand <- liftIO $ createUnsignedCmd v meta
-      let encoded = enrichedCommandToText $! unsigned
-          signingPayloads = createSigningPayloads unsigned
+      unsignedCmd :: EnrichedCommand <- liftIO $ createUnsignedCmd v meta
+      let encoded = enrichedCommandToText $! unsignedCmd
+          signingPayloads = createSigningPayloads unsignedCmd
                             (_payloadsMetaData_signers meta)
 
       pure $ ConstructionPayloadsResp
@@ -424,7 +424,7 @@ constructionSubmitH v ms (ConstructionSubmitReq net tx) =
       $ "Validation failed for hash "
       ++ (show $! hsh) ++ ": "
       ++ show insErr
-    
+
     work :: ExceptT RosettaError Handler TransactionIdResp
     work = do
         cid <- hoistEither $ annotate rosettaError' (validateNetwork v net)

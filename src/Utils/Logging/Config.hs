@@ -58,6 +58,7 @@ import qualified Data.CaseInsensitive as CI
 import Data.String
 import qualified Data.Text as T
 
+import GHC.Exts
 import GHC.Generics
 
 import qualified Network.HTTP.Client as HTTP
@@ -145,7 +146,7 @@ handleConfigFromText x = case CI.mk x of
     e -> configFromTextErr e
   where
     configFromTextErr e =
-        throwM $ DecodeException $ "unexpected logger handle value: "
+        throwM $ DecodeException (Ignored $ fromList []) $ "unexpected logger handle value: "
         <> fromString (show e)
         <> ", expected \"stdout\", \"stderr\", \"file:<FILENAME>\", or \"es:[APIKEY]:<URL>\""
 

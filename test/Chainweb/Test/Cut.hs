@@ -145,12 +145,12 @@ arbitraryBlockTimeOffset lower upper = do
 --
 solveWork :: HasCallStack => WorkHeader -> Nonce -> Time Micros -> SolvedWork
 solveWork w n t =
-    case runGet decodeBlockHeaderWithoutHash $ BS.fromShort $ _workHeaderBytes w of
+    case runGetThrow decodeBlockHeaderWithoutHash $ BS.fromShort $ _workHeaderBytes w of
         Nothing -> error "Chainwb.Test.Cut.solveWork: Invalid work header bytes"
         Just hdr -> SolvedWork
             $ fromJuste
-            $ runGet decodeBlockHeaderWithoutHash
-            $ runPut
+            $ runGetThrow decodeBlockHeaderWithoutHash
+            $ runPutS
             $ encodeBlockHeaderWithoutHash
                 -- After injecting the nonce and the creation time will have to do a
                 -- serialization roundtrip to update the Merkle hash.

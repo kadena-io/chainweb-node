@@ -19,6 +19,7 @@ import Data.IORef
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
 import qualified Data.Vector as V
+import GHC.Exts (fromList)
 import Servant
 
 ------------------------------------------------------------------------------
@@ -45,7 +46,7 @@ insertHandler mempool txsT = handleErrs (NoContent <$ begin)
 
     go :: T.Text -> Handler t
     go h = case decode h of
-        Left e -> throwM . DecodeException $ T.pack e
+        Left e -> throwM . DecodeException (Ignored (fromList [])) $ T.pack e
         Right t -> return t
 
     begin :: Handler ()

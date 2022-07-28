@@ -37,9 +37,10 @@ import Control.Monad.State.Strict
 import Control.Monad.Trans.Maybe
 
 import Data.Aeson hiding ((.=))
+import qualified Data.Binary
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Char8 as B8
-import Data.ByteString.Lazy (fromStrict)
+import Data.ByteString.Lazy (fromStrict, toStrict)
 import qualified Data.DList as DL
 import Data.Foldable (toList)
 import Data.List(sort)
@@ -48,7 +49,6 @@ import Data.HashSet (HashSet)
 import qualified Data.HashSet as HashSet
 import qualified Data.Map.Strict as M
 import Data.Maybe
-import qualified Data.Serialize
 import qualified Data.Set as Set
 import Data.String
 import qualified Data.Text as T
@@ -555,7 +555,7 @@ blockHistoryInsert bh hsh t =
     callDb "blockHistoryInsert" $ \db ->
         exec' db stmt
             [ SInt (fromIntegral bh)
-            , SBlob (Data.Serialize.encode hsh)
+            , SBlob (toStrict $ Data.Binary.encode hsh)
             , SInt (fromIntegral t)
             ]
   where
@@ -698,7 +698,7 @@ handlePossibleRewind v cid bRestore hsh = do
         resultCount <- callDb "handlePossibleRewind" $ \db -> do
             qry db "SELECT COUNT(*) FROM BlockHistory WHERE blockheight = ? AND hash = ?;"
                    [ SInt $! fromIntegral $ pred bRestore
-                   , SBlob (Data.Serialize.encode hsh) ]
+                   , SBlob (toStrict $ Data.Binary.encode hsh) ]
                    [RInt]
                 >>= expectSingleRowCol "handlePossibleRewind: (historyInvariant):"
         when (resultCount /= SInt 1) $

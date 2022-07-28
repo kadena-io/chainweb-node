@@ -27,7 +27,7 @@ import Data.Int
 import Data.Map (Map)
 import qualified Data.Map as M
 import Data.Monoid
-import Data.Serialize
+import Data.Binary
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
 
@@ -325,8 +325,8 @@ mainInfo =
     defaultArgs
 
 deriving instance Generic SType
-deriving instance Serialize SType
+deriving instance Binary SType
 deriving instance Generic Utf8
-deriving instance Serialize Utf8
+deriving instance Binary Utf8
 
 deriving instance Read BlockHeight

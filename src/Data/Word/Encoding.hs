@@ -17,17 +17,17 @@ module Data.Word.Encoding
 ) where
 
 import Control.Monad ((<$!>))
-import Data.Bytes.Get
-import Data.Bytes.Put
 import Data.DoubleWord (Word128(..), Word256(..))
-import Data.Word
+import Data.Binary
+import Data.Binary.Get
+import Data.Binary.Put
 
 class WordEncoding w where
-    encodeWordLe :: MonadPut m => w -> m ()
-    decodeWordLe :: MonadGet m => m w
+    encodeWordLe :: w -> Put
+    decodeWordLe :: Get w
 
-    encodeWordBe :: MonadPut m => w -> m ()
-    decodeWordBe :: MonadGet m => m w
+    encodeWordBe :: w -> Put
+    decodeWordBe :: Get w
 
 instance WordEncoding Word8 where
     encodeWordLe = putWord8

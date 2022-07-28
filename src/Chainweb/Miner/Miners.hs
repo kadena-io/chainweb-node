@@ -102,7 +102,7 @@ localTest lf v coord m cdb gen miners =
     go :: BlockHeight -> WorkHeader -> IO SolvedWork
     go height w = do
         MWC.geometric1 t gen >>= threadDelay
-        runGet decodeSolvedWork $ BS.fromShort $ _workHeaderBytes w
+        runGetThrow decodeSolvedWork $ BS.fromShort $ _workHeaderBytes w
       where
         t :: Double
         t = int graphOrder / (int (_minerCount miners) * meanBlockTime * 1000000)

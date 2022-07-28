@@ -64,13 +64,13 @@ import Data.Aeson
     (FromJSON(..), FromJSONKey(..), ToJSON(..), ToJSONKey(..), withText)
 import Data.Aeson.Types (FromJSONKeyFunction(..), toJSONKeyText)
 import Data.Bifoldable
-import Data.Bytes.Get
-import Data.Bytes.Put
+import Data.Binary
+import Data.Binary.Get
+import Data.Binary.Put
 import Data.Foldable
 import Data.Hashable (Hashable(..))
 import qualified Data.HashMap.Strict as HM
 import qualified Data.List as L
-import Data.Serialize (Serialize(..))
 import qualified Data.Text as T
 import qualified Data.Vector as V
 
@@ -113,7 +113,7 @@ instance Hashable (BlockHash_ a) where
     hashWithSalt s (BlockHash bytes) = hashWithSalt s bytes
     {-# INLINE hashWithSalt #-}
 
-instance MerkleHashAlgorithm a => Serialize (BlockHash_ a) where
+instance MerkleHashAlgorithm a => Binary (BlockHash_ a) where
     put = encodeBlockHash
     get = decodeBlockHash
 
@@ -124,11 +124,11 @@ instance MerkleHashAlgorithm a => IsMerkleLogEntry a ChainwebHashTag (BlockHash_
     {-# INLINE toMerkleNode #-}
     {-# INLINE fromMerkleNode #-}
 
-encodeBlockHash :: MonadPut m => BlockHash_ a -> m ()
+encodeBlockHash :: BlockHash_ a -> Put
 encodeBlockHash (BlockHash bytes) = encodeMerkleLogHash bytes
 {-# INLINE encodeBlockHash #-}
 
-decodeBlockHash :: MerkleHashAlgorithm a => MonadGet m => m (BlockHash_ a)
+decodeBlockHash :: MerkleHashAlgorithm a => Get (BlockHash_ a)
 decodeBlockHash = BlockHash <$!> decodeMerkleLogHash
 {-# INLINE decodeBlockHash #-}
 
@@ -140,7 +140,7 @@ instance ToJSON (BlockHash_ a) where
 
 instance MerkleHashAlgorithm a => FromJSON (BlockHash_ a) where
     parseJSON = withText "BlockHash" $ either (fail . show) return
-        . (runGet decodeBlockHash <=< decodeB64UrlNoPaddingText)
+        . (runGetThrow decodeBlockHash <=< decodeB64UrlNoPaddingText)
     {-# INLINE parseJSON #-}
 
 instance ToJSONKey (BlockHash_ a) where
@@ -150,7 +150,7 @@ instance ToJSONKey (BlockHash_ a) where
 
 instance MerkleHashAlgorithm a => FromJSONKey (BlockHash_ a) where
     fromJSONKey = FromJSONKeyTextParser $ either (fail . show) return
-        . (runGet decodeBlockHash <=< decodeB64UrlNoPaddingText)
+        . (runGetThrow decodeBlockHash <=< decodeB64UrlNoPaddingText)
     {-# INLINE fromJSONKey #-}
 
 nullBlockHash :: MerkleHashAlgorithm a => BlockHash_ a
@@ -163,11 +163,11 @@ blockHashToText = encodeB64UrlNoPaddingText . runPutS . encodeBlockHash
 
 blockHashFromText
     :: MerkleHashAlgorithm a
-    =>  MonadThrow m
+    => MonadThrow m
     => T.Text
     -> m (BlockHash_ a)
 blockHashFromText t = either (throwM . TextFormatException . sshow) return
-    $ runGet decodeBlockHash =<< decodeB64UrlNoPaddingText t
+    $ runGetThrow decodeBlockHash =<< decodeB64UrlNoPaddingText t
 {-# INLINE blockHashFromText #-}
 
 instance MerkleHashAlgorithm a => HasTextRepresentation (BlockHash_ a) where
@@ -199,42 +199,35 @@ instance IxedGet BlockHashRecord
 instance Each BlockHashRecord BlockHashRecord BlockHash BlockHash where
     each f = fmap BlockHashRecord . each f . _getBlockHashRecord
 
-encodeBlockHashRecord :: MonadPut m => BlockHashRecord -> m ()
+encodeBlockHashRecord :: BlockHashRecord -> Put
 encodeBlockHashRecord (BlockHashRecord r) = do
     putWord16le (int $ length r)
     traverse_ (bimapM_ encodeChainId encodeBlockHash) $ L.sort $ HM.toList r
 
 decodeBlockHashWithChainId
-    :: MonadGet m
-    => m (ChainId, BlockHash)
+    :: Get (ChainId, BlockHash)
 decodeBlockHashWithChainId = (,) <$!> decodeChainId <*> decodeBlockHash
 
-decodeBlockHashRecord :: MonadGet m => m BlockHashRecord
-decodeBlockHashRecord = do
+decodeBlockHashRecord :: Get BlockHashRecord
+decodeBlockHashRecord = label "BlockHashRecord" $ do
     l <- getWord16le
     hashes <- replicateM (int l) decodeBlockHashWithChainId
     return $ BlockHashRecord $! HM.fromList hashes
 
 decodeBlockHashWithChainIdChecked
-    :: MonadGet m
-    => MonadThrow m
-    => HasChainId p
+    :: HasChainId p
     => Expected p
-    -> m (ChainId, BlockHash)
+    -> Get (ChainId, BlockHash)
 decodeBlockHashWithChainIdChecked p = (,)
     <$!> decodeChainIdChecked p
     <*> decodeBlockHash
 
--- to use this wrap the runGet into some MonadThrow.
---
 decodeBlockHashRecordChecked
-    :: MonadThrow m
-    => MonadGet m
-    => HasChainId p
+    :: HasChainId p
     => Expected [p]
-    -> m BlockHashRecord
+    -> Get BlockHashRecord
 decodeBlockHashRecordChecked ps = do
-    (l :: Natural) <- int <$!> getWord16le
+    l :: Natural <- int <$!> getWord16le
     void $ check ItemCountDecodeException (int . length <$> ps) (Actual l)
     hashes <- mapM decodeBlockHashWithChainIdChecked (Expected <$!> getExpected ps)
     return $! BlockHashRecord $! HM.fromList hashes

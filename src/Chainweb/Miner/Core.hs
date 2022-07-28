@@ -33,7 +33,7 @@ import qualified Data.ByteArray as BA
 import qualified Data.ByteString.Char8 as B
 import qualified Data.ByteString.Short as BS
 import Data.Proxy (Proxy(..))
-import Data.Word (Word64, Word8)
+import Data.Binary
 
 import Foreign.Marshal.Alloc (allocaBytes)
 import Foreign.Ptr (Ptr, castPtr)
@@ -150,9 +150,9 @@ mine orig work = do
                 -- Start outer mining loop
                 t <- getCurrentTimeIntegral
                 go0 100000 t orig
-        runGet decodeSolvedWork new
+        runGetThrow decodeSolvedWork new
   where
-    tbytes = runPut $ encodeHashTarget (_workHeaderTarget work)
+    tbytes = runPutS $ encodeHashTarget (_workHeaderTarget work)
     hbytes = BS.fromShort $ _workHeaderBytes work
 
     bufSize :: Int

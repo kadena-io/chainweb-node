@@ -31,8 +31,8 @@ import Data.Foldable
 import Data.List (sort)
 import qualified Data.List as L
 import Data.Ratio
-import Data.Serialize.Get (Get)
-import Data.Serialize.Put (Put)
+import Data.Binary.Get (Get)
+import Data.Binary.Put (Put)
 import qualified Data.Text as T
 
 import Test.QuickCheck
@@ -260,11 +260,11 @@ validationFailures =
       )
     -- NOTE: The magic numbers in the following tests are directly related to
     -- the constant set in `skipFeatureFlagValidationGuard`.
-    , ( hdr & testHeaderHdr . blockFlags .~ fromJuste (runGet decodeFeatureFlags badFlags)
+    , ( hdr & testHeaderHdr . blockFlags .~ fromJuste (runGetThrow decodeFeatureFlags badFlags)
             & testHeaderHdr . blockHeight .~ 530499
       , [IncorrectHash, IncorrectPow, IncorrectHeight]
       )
-    , ( hdr & testHeaderHdr . blockFlags .~ fromJuste (runGet decodeFeatureFlags badFlags)
+    , ( hdr & testHeaderHdr . blockFlags .~ fromJuste (runGetThrow decodeFeatureFlags badFlags)
             & testHeaderHdr . blockHeight .~ 530500
       , [IncorrectHash, IncorrectPow, InvalidFeatureFlags, IncorrectHeight]
       )
@@ -294,12 +294,12 @@ validationFailures =
     badFlags = B.pack [0,0,0,0,0,0,0,1]
 
     messByteString :: (a -> Put) -> Get a -> (B.ByteString -> B.ByteString) -> a -> a
-    messByteString enc dec f x = fromJuste $ runGet dec $ f $ runPut $ enc x
+    messByteString enc dec f x = fromJuste $ runGetThrow dec $ f $ runPutS $ enc x
 
     messWords :: (a -> Put) -> Get a -> (Word256 -> Word256) -> a -> a
     messWords enc dec f x = messByteString enc dec g x
       where
-        g bytes = runPut (encodeWordLe $ f $ fromJuste $ runGet decodeWordLe bytes)
+        g bytes = runPutS (encodeWordLe $ f $ fromJuste $ runGetThrow decodeWordLe bytes)
 
 -- -------------------------------------------------------------------------- --
 -- DA Validation

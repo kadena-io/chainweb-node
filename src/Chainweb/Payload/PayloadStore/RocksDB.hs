@@ -37,13 +37,13 @@ import Data.CAS.RocksDB
 newBlockPayloadStore :: RocksDb -> BlockPayloadStore RocksDbCas
 newBlockPayloadStore db = BlockPayloadStore $ newCas db
     (Codec encodeToByteString decodeStrictOrThrow')
-    (Codec (runPut . encodeBlockPayloadHash) (runGet decodeBlockPayloadHash))
+    (Codec (runPutS . encodeBlockPayloadHash) (runGetThrow decodeBlockPayloadHash))
     ["BlockPayload"]
 
 newBlockTransactionsStore :: RocksDb -> BlockTransactionsStore RocksDbCas
 newBlockTransactionsStore db = BlockTransactionsStore $ newCas db
     (Codec encodeToByteString decodeStrictOrThrow')
-    (Codec (runPut . encodeBlockTransactionsHash) (runGet decodeBlockTransactionsHash))
+    (Codec (runPutS . encodeBlockTransactionsHash) (runGetThrow decodeBlockTransactionsHash))
     ["BlockTransactions"]
 
 newTransactionDb :: RocksDb -> TransactionDb RocksDbCas
@@ -54,19 +54,19 @@ newTransactionDb db = TransactionDb
 newBlockOutputsStore :: RocksDb -> BlockOutputsStore RocksDbCas
 newBlockOutputsStore db = BlockOutputsStore $ newCas db
     (Codec encodeToByteString decodeStrictOrThrow')
-    (Codec (runPut . encodeBlockOutputsHash) (runGet decodeBlockOutputsHash))
+    (Codec (runPutS . encodeBlockOutputsHash) (runGetThrow decodeBlockOutputsHash))
     ["BlockOutputs"]
 
 newTransactionTreeStore :: RocksDb -> TransactionTreeStore RocksDbCas
 newTransactionTreeStore db = TransactionTreeStore $ newCas db
     (Codec encodeToByteString decodeStrictOrThrow')
-    (Codec (runPut . encodeBlockTransactionsHash) (runGet decodeBlockTransactionsHash))
+    (Codec (runPutS . encodeBlockTransactionsHash) (runGetThrow decodeBlockTransactionsHash))
     ["TransactionTree"]
 
 newOutputTreeStore :: RocksDb -> OutputTreeStore RocksDbCas
 newOutputTreeStore db = OutputTreeStore $ newCas db
     (Codec encodeToByteString decodeStrictOrThrow')
-    (Codec (runPut . encodeBlockOutputsHash) (runGet decodeBlockOutputsHash))
+    (Codec (runPutS . encodeBlockOutputsHash) (runGetThrow decodeBlockOutputsHash))
     ["OutputTree"]
 
 newPayloadCache :: RocksDb -> PayloadCache RocksDbCas

@@ -393,7 +393,7 @@ instance Arbitrary BlockHashWithHeight where
 instance Arbitrary CutId where
     arbitrary = do
         bs <- arbitraryBytes 32
-        case runGet decodeCutId bs of
+        case runGetThrow decodeCutId bs of
             Left e -> error $ "Arbitrary Instance for CutId: " <> show e
             Right x -> return x
 
@@ -415,7 +415,7 @@ instance Arbitrary WorkHeader where
         return $ WorkHeader
             { _workHeaderChainId = _chainId hdr
             , _workHeaderTarget = _blockTarget hdr
-            , _workHeaderBytes = BS.toShort $ runPut $ encodeBlockHeaderWithoutHash hdr
+            , _workHeaderBytes = BS.toShort $ runPutS $ encodeBlockHeaderWithoutHash hdr
             }
 
 instance Arbitrary SolvedWork where

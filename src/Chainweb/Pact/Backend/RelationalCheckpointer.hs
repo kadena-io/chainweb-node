@@ -24,6 +24,7 @@ import Control.Monad.IO.Class
 import Control.Monad.State (gets)
 
 import Data.ByteString (ByteString)
+import Data.ByteString.Lazy (fromStrict, toStrict)
 import Data.Aeson hiding (encode,(.=))
 import qualified Data.DList as DL
 import Data.Foldable (toList,foldl')
@@ -33,7 +34,7 @@ import Data.Maybe
 import qualified Data.HashMap.Strict as HashMap
 import qualified Data.List as List
 import qualified Data.Set as S
-import Data.Serialize hiding (get)
+import Data.Binary hiding (get)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
 import qualified Data.Vector as V
@@ -206,7 +207,7 @@ doGetLatest dbenv =
             \ ORDER BY blockheight DESC LIMIT 1"
 
     go [SInt hgt, SBlob blob] =
-        let hash = either error id $ Data.Serialize.decode blob
+        let hash = either error id $ Data.Binary.decode (fromStrict blob)
         in return (fromIntegral hgt, hash)
     go _ = fail "impossible"
 
@@ -232,7 +233,7 @@ doDiscardBatch db = runBlockEnv db $ do
 doLookupBlock :: Db -> (BlockHeight, BlockHash) -> IO Bool
 doLookupBlock dbenv (bheight, bhash) = runBlockEnv dbenv $ do
     r <- callDb "lookupBlock" $ \db ->
-         qry db qtext [SInt $ fromIntegral bheight, SBlob (encode bhash)]
+         qry db qtext [SInt $ fromIntegral bheight, SBlob (toStrict $ encode bhash)]
                       [RInt]
     liftIO (expectSingle "row" r) >>= \case
         [SInt n] -> return $! n /= 0
@@ -251,7 +252,7 @@ doGetBlockParent v cid dbenv (bh, hash)
           else runBlockEnv dbenv $ do
             r <- callDb "getBlockParent" $ \db -> qry db qtext [SInt (fromIntegral (pred bh))] [RBlob]
             case r of
-               [[SBlob blob]] -> either (internalError . T.pack) (return . return) $! Data.Serialize.decode blob
+               [[SBlob blob]] -> either (internalError . T.pack) (return . return) $! Data.Binary.decode (fromStrict blob)
                _ -> internalError "doGetBlockParent: output mismatch"
   where
     qtext = "SELECT hash FROM BlockHistory WHERE blockheight = ?"
@@ -274,7 +275,7 @@ doLookupSuccessful dbenv (TypedHash hash) = runBlockEnv dbenv $ do
             \TransactionIndex INNER JOIN BlockHistory \
             \USING (blockheight) WHERE txhash = ?;"
     go [SInt h, SBlob blob] = do
-        !hsh <- either fail return $ Data.Serialize.decode blob
+        !hsh <- either fail return $ Data.Binary.decode (fromStrict blob)
         return $! T2 (fromIntegral h) hsh
     go _ = fail "impossible"
 
@@ -335,7 +336,7 @@ getEndTxId :: Database -> BlockHeight -> BlockHash -> IO Int64
 getEndTxId db bhi bha = do
   r <- qry db
     "SELECT endingtxid FROM BlockHistory WHERE blockheight = ? and hash = ?;"
-    [SInt $ fromIntegral bhi, SBlob $ encode bha]
+    [SInt $ fromIntegral bhi, SBlob $ toStrict $ encode bha]
     [RInt]
   case r of
     [[SInt tid]] -> return tid

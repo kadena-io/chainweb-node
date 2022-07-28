@@ -40,12 +40,13 @@ import Data.Aeson (FromJSON(..), FromJSONKey(..), ToJSON(..), ToJSONKey(..))
 import Data.Aeson.Types (FromJSONKeyFunction(..), toJSONKeyText)
 import Data.Bits
 import qualified Data.ByteArray as BA
-import Data.Bytes.Get
-import Data.Bytes.Put
 import qualified Data.ByteString as B
 import Data.Hashable (Hashable(..))
 import Data.MerkleLog hiding (Expected, Actual)
 import Data.Proxy
+import Data.Binary
+import Data.Binary.Get
+import Data.Binary.Put
 import qualified Data.Text as T
 
 import Foreign.Storable
@@ -101,15 +102,14 @@ unsafeMerkleLogHash = MerkleLogHash
     . decodeMerkleRoot
 {-# INLINE unsafeMerkleLogHash #-}
 
-encodeMerkleLogHash :: MonadPut m => MerkleLogHash a -> m ()
+encodeMerkleLogHash :: MerkleLogHash a -> Put
 encodeMerkleLogHash (MerkleLogHash bytes) = putByteString $ encodeMerkleRoot bytes
 {-# INLINE encodeMerkleLogHash #-}
 
 decodeMerkleLogHash
     :: MerkleHashAlgorithm a
-    => MonadGet m
-    => m (MerkleLogHash a)
-decodeMerkleLogHash = unsafeMerkleLogHash <$> getBytes (int merkleLogHashBytesCount)
+    => Get (MerkleLogHash a)
+decodeMerkleLogHash = unsafeMerkleLogHash <$> getByteString (int merkleLogHashBytesCount)
 {-# INLINE decodeMerkleLogHash #-}
 
 instance Hashable (MerkleLogHash a) where
@@ -137,7 +137,7 @@ merkleLogHashFromText
     => T.Text
     -> m (MerkleLogHash a)
 merkleLogHashFromText t = either (throwM . TextFormatException . sshow) return
-        $ runGet decodeMerkleLogHash =<< decodeB64UrlNoPaddingText t
+        $ runGetThrow decodeMerkleLogHash =<< decodeB64UrlNoPaddingText t
 {-# INLINE merkleLogHashFromText #-}
 
 instance MerkleHashAlgorithm a => HasTextRepresentation (MerkleLogHash a) where
