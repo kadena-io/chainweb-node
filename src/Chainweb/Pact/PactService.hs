@@ -170,7 +170,7 @@ initializeLatestBlock unlimitedRewind = findLatestValidBlock >>= \case
     Nothing -> return ()
     Just b -> withBatch $ rewindTo initialRewindLimit (Just $ ParentHeader b)
   where
-    initialRewindLimit = 1000 <$ guard (not unlimitedRewind) 
+    initialRewindLimit = 1000 <$ guard (not unlimitedRewind)
 
 initialPayloadState
     :: Logger logger

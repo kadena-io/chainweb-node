@@ -182,7 +182,7 @@ newPeerEntry_ sticky nid i = PeerEntry i 0 (LastSuccess Nothing) (S.singleton ni
 
 pdNonce :: Int
 pdNonce = unsafePerformIO randomIO
-{-# NOINLINE  pdNonce #-}
+{-# NOINLINE pdNonce #-}
 
 newtype HostAddressIdx = HostAddressIdx Int
     deriving (Show, Eq, Ord, Generic)

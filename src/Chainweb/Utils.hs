@@ -62,6 +62,7 @@ module Chainweb.Utils
 , (&)
 , IxedGet(..)
 , minusOrZero
+, mutableVectorFromList
 
 -- * Encoding and Serialization
 , EncodingException(..)
@@ -216,6 +217,7 @@ import Control.Lens hiding ((.=))
 import Control.Monad
 import Control.Monad.Catch hiding (bracket)
 import Control.Monad.IO.Class
+import Control.Monad.Primitive
 import Control.Monad.Reader as Reader
 
 import Data.Aeson.Text (encodeToLazyText)
@@ -249,6 +251,7 @@ import qualified Data.Text.Lazy as TL
 import Data.These (These(..))
 import Data.Time
 import qualified Data.Vector as V
+import qualified Data.Vector.Mutable as MV
 import Data.Word
 
 import GHC.Generics
@@ -403,6 +406,17 @@ alignWithV f a b = V.zipWith (\a' -> f . These a') a b <> case (V.length a,V.len
 minusOrZero :: Ord a => Num a => a -> a -> a
 minusOrZero a b = a - min a b
 {-# INLINE minusOrZero #-}
+
+-- | Equivalent to V.thaw . V.fromList but by inspection probably faster.
+mutableVectorFromList
+    :: PrimMonad m
+    => [a]
+    -> m (MV.MVector (PrimState m) a)
+mutableVectorFromList as = do
+    vec <- MV.unsafeNew (length as)
+    forM_ (zip [0..] as) $ uncurry (MV.unsafeWrite vec)
+    return vec
+{-# inline mutableVectorFromList #-}
 
 -- -------------------------------------------------------------------------- --
 -- * Read only Ixed

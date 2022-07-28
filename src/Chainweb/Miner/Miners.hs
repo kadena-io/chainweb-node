@@ -145,4 +145,4 @@ localPOW lf v coord m cdb = runForever lf "Chainweb.Miner.Miners.localPOW" $ do
             void $ awaitNewCut cdb c
   where
     go :: WorkHeader -> IO SolvedWork
-    go wh = usePowHash v $ \(_ :: Proxy a) -> sfst <$> mine @a (Nonce 0) wh
+    go wh = usePowHash v $ \(_ :: Proxy a) -> mine @a (Nonce 0) wh

@@ -372,6 +372,7 @@ library
         , optparse-applicative >= 0.14
         , pact >= 4.2.0.1
         , pem >=0.2
+        , primitive >= 0.7.1.0
         , random >= 1.2
         , rosetta >= 1.0
         , safe-exceptions >= 0.1
@@ -387,7 +388,6 @@ library
         , streaming-commons >= 0.2
         , strict-concurrency >= 0.2
         , template-haskell >= 2.14
-        , temporary >= 1.3
         , text >= 1.2
         , trifecta >= 2.1
         , these >= 1.0
@@ -742,7 +742,6 @@ benchmark bench
         , containers >= 0.5
         , criterion
         , deepseq >= 1.4
-        , directory >= 1.3
         , exceptions >= 0.8
         , file-embed >= 0.0
         , lens >= 4.17
@@ -752,7 +751,6 @@ benchmark bench
         , pact
         , rocksdb-haskell-kadena
         , random >= 1.2
-        , temporary >= 1.3
         , text >= 1.2
         , vector >= 0.12.2
         , yaml >= 0.11

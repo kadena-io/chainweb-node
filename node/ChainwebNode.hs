@@ -240,12 +240,14 @@ runBlockUpdateMonitor logger db = L.withLoggerLabel ("component", "block-update-
             & S.mapM toUpdate
             & S.mapM_ (logFunctionJson l Info)
   where
-    payloadCas = view cutDbPayloadCas db
+    txsCas = view (cutDbPayloadCas . transactionDb . transactionDbBlockTransactions) db
+    payloadCas = view (cutDbPayloadCas . transactionDb . transactionDbBlockPayloads) db
 
     txCount :: BlockHeader -> IO Int
     txCount bh = do
-        x <- casLookupM payloadCas (_blockPayloadHash bh)
-        return $ length $ _payloadWithOutputsTransactions x
+        bp <- casLookupM payloadCas (_blockPayloadHash bh)
+        x <- casLookupM txsCas (_blockPayloadTransactionsHash bp)
+        return $ length $ _blockTransactions x
 
     toUpdate :: Either BlockHeader BlockHeader -> IO BlockUpdate
     toUpdate (Right bh) = BlockUpdate

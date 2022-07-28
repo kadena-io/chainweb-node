@@ -36,6 +36,16 @@ package hashes
       /opt/local/lib
       /usr/local/opt/openssl/lib/
 
+package rocksdb-haskell
+    extra-include-dirs:
+      /opt/local/include
+      /usr/local/opt/gflags/include
+      /usr/local/include
+    extra-lib-dirs:
+      /opt/local/lib
+      /usr/local/opt/gflags/lib
+      /usr/local/lib
+
 package aeson
     flags: +cffi
 
