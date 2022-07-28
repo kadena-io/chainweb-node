@@ -17,10 +17,10 @@ runs:
       run: |
         case "${{ inputs.os }}" in
         ubuntu*)
-          sudo apt-get install -y z3 build-essential libsnappy-dev libgflags-dev libbz2-dev
+          sudo apt-get install -y z3 build-essential 
           ;;
         mac*)
-          brew update && brew install gflags rocksdb llvm snappy bzip2 z3 gnu-tar || true
+          brew update && brew install gnu-tar || true
           ;;
         *)
           echo "::error::unsupported operating system ${{ inputs.os }}"
