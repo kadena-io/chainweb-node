@@ -503,6 +503,7 @@ test-suite chainweb-tests
         , async >= 2.2
         , base >= 4.12 && < 5
         , base64-bytestring >= 1.0 && < 1.1
+        , binary
             -- due to change in error message that is inlined in pact
         , bytes >= 0.15
         , bytestring >= 0.10

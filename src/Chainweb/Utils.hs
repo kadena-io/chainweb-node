@@ -223,10 +223,12 @@ import Control.Monad.Reader as Reader
 import Data.Aeson.Text (encodeToLazyText)
 import qualified Data.Aeson.Types as Aeson
 import qualified Data.Attoparsec.Text as A
+import qualified Data.Binary as Binary
+import qualified Data.Binary.Get as Binary
+import qualified Data.Binary.Put as Binary
 import Data.Bifunctor
 import Data.Bool (bool)
 import Data.Bytes.Get
-import Data.Bytes.Put
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Base64 as B64
@@ -243,7 +245,6 @@ import Data.Monoid (Endo)
 import Data.Proxy
 import Data.Serialize.Get (Get)
 import qualified Data.Serialize.Get as Get
-import Data.Serialize.Put (Put)
 import Data.String (IsString(..))
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
@@ -462,24 +463,24 @@ instance Exception EncodingException
 -- | Decode a value from a 'B.ByteString'. In case of a failure a
 -- 'DecodeException' is thrown.
 --
-runGet :: MonadThrow m => Get a -> B.ByteString -> m a
+runGet :: MonadThrow t => Binary.Get a -> B.ByteString -> t a
 runGet g = fromEitherM . runGetEither (g <* eof)
 {-# INLINE runGet #-}
 
 -- | Decode a value from a 'B.ByteString' and return either the result or a
 -- 'DecodeException'.
 --
-runGetEither :: Get a -> B.ByteString -> Either EncodingException a
-runGetEither g = first (DecodeException . T.pack) . runGetS (g <* eof)
+runGetEither :: Binary.Get a -> B.ByteString -> Either EncodingException a
+runGetEither g = first (DecodeException . T.pack) . over _Left (view _3) . over _Right (view _3) . Binary.runGetOrFail (g <* eof) . BL.fromStrict
 {-# INLINE runGetEither #-}
 
 -- | Encode a value into a 'B.ByteString'.
 --
-runPut :: Put -> B.ByteString
-runPut = runPutS
+runPut :: Binary.Put -> B.ByteString
+runPut = BL.toStrict . Binary.runPut
 {-# INLINE runPut #-}
 
-eof :: Get ()
+eof :: (MonadGetExtra m, MonadFail m) => m ()
 eof = unlessM isEmpty $ fail "pending bytes in input"
 {-# INLINE eof #-}
 
@@ -490,6 +491,10 @@ class MonadGet m => MonadGetExtra m where
 instance MonadGetExtra Get where
     label = Get.label
     isolate = Get.isolate
+
+instance MonadGetExtra Binary.Get where
+    label = Binary.label
+    isolate = Binary.isolate
 
 -- -------------------------------------------------------------------------- --
 -- ** Text
