@@ -172,7 +172,6 @@ import Numeric.Natural
 
 import Servant.Client (BaseUrl(..), ClientEnv, Scheme(..), mkClientEnv)
 
-import System.Directory
 import System.Environment (withArgs)
 import System.IO
 import System.IO.Temp
@@ -294,15 +293,10 @@ withRocksResource m = withResource create destroy wrap
       opts@(R.Options' opts_ptr _ _) <- R.mkOpts modernDefaultOptions
       rocks <- openRocksDb dir opts_ptr
       return (dir, rocks, opts)
-    destroy (dir, rocks, opts) = do
-        closeRocksDb rocks
-          `catchAllSynchronous` (const $ return ())
-        R.freeOpts opts
-          `catchAllSynchronous` (const $ return ())
-        destroyRocksDb dir
-          `catchAllSynchronous` (const $ return ())
-        removeDirectoryRecursive dir
-          `catchAllSynchronous` (const $ return ())
+    destroy (dir, rocks, opts) =
+        closeRocksDb rocks `finally`
+            R.freeOpts opts `finally`
+            destroyRocksDb dir
     wrap ioact = let io' = view _2 <$> ioact in m io'
 
 -- -------------------------------------------------------------------------- --

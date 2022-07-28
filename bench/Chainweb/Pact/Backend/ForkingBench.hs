@@ -98,7 +98,6 @@ import Chainweb.Version.Utils
 
 import Data.CAS.HashMap hiding (toList)
 import Data.CAS.RocksDB
-import qualified Database.RocksDB.Internal as R
 
 -- -------------------------------------------------------------------------- --
 -- For testing with GHCI
