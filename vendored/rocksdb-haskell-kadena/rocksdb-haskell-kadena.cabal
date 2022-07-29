@@ -95,7 +95,7 @@ library
     bz2
     lz4
     zstd
-    -- tbb
+    tbb
     stdc++
 
   -- These options are extracted from CXXFLAGS the RocksDB Makefile
@@ -120,12 +120,11 @@ library
     -DBZIP2
     -DLZ4
     -DZSTD
-    -- -DTBB
+    -DTBB
     -DROCKSDB_BACKTRACE
     -march=native
     -DHAVE_SSE42
     -DHAVE_PCLMUL
-    -DHAVE_AVX2
     -DHAVE_BMI
     -DHAVE_LZCNT
     -DHAVE_UINT128_EXTENSION
