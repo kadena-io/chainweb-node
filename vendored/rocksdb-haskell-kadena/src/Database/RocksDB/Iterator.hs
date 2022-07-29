@@ -5,7 +5,26 @@
 {-# language ScopedTypeVariables #-}
 {-# language RankNTypes #-}
 
-module Database.RocksDB.Iterator where
+module Database.RocksDB.Iterator
+    ( Iterator
+    , createIter
+    , withIter
+    , iterValid
+    , iterSeek
+    , iterFirst
+    , iterLast
+    , iterNext
+    , iterPrev
+    , iterKey
+    , iterValue
+    , iterEntry
+    , iterGetError
+    , mapIter
+    , iterItems
+    , iterKeys
+    , iterValues
+    )
+where
 
 import           Control.Exception            (bracket)
 import           Control.Monad                (when)
@@ -24,39 +43,41 @@ import qualified Data.ByteString              as BS
 import qualified Data.ByteString.Char8        as BC
 import qualified Data.ByteString.Unsafe       as BU
 
-createIter :: DB -> ReadOptionsPtr -> IO IteratorPtr
-createIter (DB db_ptr) opts_ptr =
+newtype Iterator = Iterator IteratorPtr
+
+createIter :: DB -> ReadOptionsPtr -> IO Iterator
+createIter (DB db_ptr) opts_ptr = fmap Iterator $
     throwErrnoIfNull "create_iterator" $ c_rocksdb_create_iterator db_ptr opts_ptr
 
 -- | Run an action with an 'IteratorPtr'
-withIter :: DB -> ReadOptionsPtr -> (IteratorPtr -> IO a) -> IO a
+withIter :: DB -> ReadOptionsPtr -> (Iterator -> IO a) -> IO a
 withIter db opts_ptr =
-    bracket (createIter db opts_ptr) c_rocksdb_iter_destroy
+    bracket (createIter db opts_ptr) (\(Iterator p) -> c_rocksdb_iter_destroy p)
 
 -- | An iterator is either positioned at a key/value pair, or not valid. This
 -- function returns /true/ iff the iterator is valid.
-iterValid :: IteratorPtr -> IO Bool
-iterValid iter_ptr = liftIO $ do
+iterValid :: Iterator -> IO Bool
+iterValid (Iterator iter_ptr) = liftIO $ do
     x <- c_rocksdb_iter_valid iter_ptr
     return (x /= 0)
 
 -- | Position at the first key in the source that is at or past target. The
 -- iterator is /valid/ after this call iff the source contains an entry that
 -- comes at or past target.
-iterSeek :: IteratorPtr -> ByteString -> IO ()
-iterSeek iter_ptr key = liftIO $
+iterSeek :: Iterator -> ByteString -> IO ()
+iterSeek (Iterator iter_ptr) key = liftIO $
     BU.unsafeUseAsCStringLen key $ \(key_ptr, klen) ->
         c_rocksdb_iter_seek iter_ptr key_ptr (intToCSize klen)
 
 -- | Position at the first key in the source. The iterator is /valid/ after this
 -- call iff the source is not empty.
-iterFirst :: IteratorPtr -> IO ()
-iterFirst iter_ptr = liftIO $ c_rocksdb_iter_seek_to_first iter_ptr
+iterFirst :: Iterator -> IO ()
+iterFirst (Iterator iter_ptr) = liftIO $ c_rocksdb_iter_seek_to_first iter_ptr
 
 -- | Position at the last key in the source. The iterator is /valid/ after this
 -- call iff the source is not empty.
-iterLast :: IteratorPtr -> IO ()
-iterLast iter_ptr = liftIO $ c_rocksdb_iter_seek_to_last iter_ptr
+iterLast :: Iterator -> IO ()
+iterLast (Iterator iter_ptr) = liftIO $ c_rocksdb_iter_seek_to_last iter_ptr
 
 -- | Moves to the next entry in the source. After this call, 'iterValid' is
 -- /true/ iff the iterator was not positioned at the last entry in the source.
@@ -64,8 +85,8 @@ iterLast iter_ptr = liftIO $ c_rocksdb_iter_seek_to_last iter_ptr
 -- If the iterator is not valid, this function does nothing. Note that this is a
 -- shortcoming of the C API: an 'iterPrev' might still be possible, but we can't
 -- determine if we're at the last or first entry.
-iterNext :: IteratorPtr -> IO ()
-iterNext iter_ptr = liftIO $ do
+iterNext :: Iterator -> IO ()
+iterNext (Iterator iter_ptr) = liftIO $ do
     valid <- c_rocksdb_iter_valid iter_ptr
     when (valid /= 0) $ c_rocksdb_iter_next iter_ptr
 
@@ -75,24 +96,26 @@ iterNext iter_ptr = liftIO $ do
 -- If the iterator is not valid, this function does nothing. Note that this is a
 -- shortcoming of the C API: an 'iterNext' might still be possible, but we can't
 -- determine if we're at the last or first entry.
-iterPrev :: IteratorPtr -> IO ()
-iterPrev iter_ptr = liftIO $ do
+iterPrev :: Iterator -> IO ()
+iterPrev (Iterator iter_ptr) = liftIO $ do
     valid <- c_rocksdb_iter_valid iter_ptr
     when (valid /= 0) $ c_rocksdb_iter_prev iter_ptr
 
 -- | Return the key for the current entry if the iterator is currently
 -- positioned at an entry, ie. 'iterValid'.
-iterKey :: IteratorPtr -> IO (Maybe ByteString)
-iterKey = liftIO . flip iterString c_rocksdb_iter_key
+iterKey :: Iterator -> IO (Maybe ByteString)
+iterKey (Iterator iter_ptr) = liftIO $
+    iterString iter_ptr c_rocksdb_iter_key
 
 -- | Return the value for the current entry if the iterator is currently
 -- positioned at an entry, ie. 'iterValid'.
-iterValue :: IteratorPtr -> IO (Maybe ByteString)
-iterValue = liftIO . flip iterString c_rocksdb_iter_value
+iterValue :: Iterator -> IO (Maybe ByteString)
+iterValue (Iterator iter_ptr) = liftIO $
+    iterString iter_ptr c_rocksdb_iter_value
 
 -- | Return the current entry as a pair, if the iterator is currently positioned
 -- at an entry, ie. 'iterValid'.
-iterEntry :: IteratorPtr -> IO (Maybe (ByteString, ByteString))
+iterEntry :: Iterator -> IO (Maybe (ByteString, ByteString))
 iterEntry iter = liftIO $ do
     mkey <- iterKey iter
     mval <- iterValue iter
@@ -101,8 +124,8 @@ iterEntry iter = liftIO $ do
 -- | Check for errors
 --
 -- Note that this captures somewhat severe errors such as a corrupted database.
-iterGetError :: IteratorPtr -> IO (Maybe ByteString)
-iterGetError iter_ptr = liftIO $
+iterGetError :: Iterator -> IO (Maybe ByteString)
+iterGetError (Iterator iter_ptr) = liftIO $
     alloca $ \err_ptr -> do
         poke err_ptr nullPtr
         c_rocksdb_iter_get_error iter_ptr err_ptr
@@ -121,8 +144,8 @@ iterGetError iter_ptr = liftIO $
 -- values into memory until the iterator is exhausted. This is most likely not
 -- what you want for large ranges. You may consider using conduits instead, for
 -- an example see: <https://gist.github.com/adc8ec348f03483446a5>
-mapIter :: (IteratorPtr -> IO a) -> IteratorPtr -> IO [a]
-mapIter f iter@iter_ptr = go []
+mapIter :: (Iterator -> IO a) -> Iterator -> IO [a]
+mapIter f iter@(Iterator iter_ptr) = go []
   where
     go acc = do
         valid <- liftIO $ c_rocksdb_iter_valid iter_ptr
@@ -137,21 +160,21 @@ mapIter f iter@iter_ptr = go []
 -- should be put in the right position prior to calling this with the iterator.
 --
 -- See strictness remarks on 'mapIter'.
-iterItems :: IteratorPtr -> IO [(ByteString, ByteString)]
+iterItems :: Iterator -> IO [(ByteString, ByteString)]
 iterItems iter = catMaybes <$> mapIter iterEntry iter
 
 -- | Return a list of key from an iterator. The iterator should be put
 -- in the right position prior to calling this with the iterator.
 --
 -- See strictness remarks on 'mapIter'
-iterKeys :: IteratorPtr -> IO [ByteString]
+iterKeys :: Iterator -> IO [ByteString]
 iterKeys iter = catMaybes <$> mapIter iterKey iter
 
 -- | Return a list of values from an iterator. The iterator should be put
 -- in the right position prior to calling this with the iterator.
 --
 -- See strictness remarks on 'mapIter'
-iterValues :: IteratorPtr -> IO [ByteString]
+iterValues :: Iterator -> IO [ByteString]
 iterValues iter = catMaybes <$> mapIter iterValue iter
 
 --
