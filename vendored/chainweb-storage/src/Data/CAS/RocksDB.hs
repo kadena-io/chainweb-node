@@ -452,7 +452,7 @@ data RocksDbTableIter k v = RocksDbTableIter
     { _rocksDbTableIterValueCodec :: !(Codec v)
     , _rocksDbTableIterKeyCodec :: !(Codec k)
     , _rocksDbTableIterNamespace :: !B.ByteString
-    , _rocksDbTableIter :: !C.IteratorPtr
+    , _rocksDbTableIter :: !I.Iterator
     }
 
 instance NoThunks (RocksDbTableIter k v) where
@@ -468,9 +468,10 @@ instance NoThunks (RocksDbTableIter k v) where
 
 -- | Provide an computation with a 'RocksDbTableIterator' and release the iterator
 -- after after the computation has finished either by returning a result or
--- throwing an exception.
+-- throwing an exception. If the 'RocksDbTable' input is not empty, the iterator
+-- will point to the first key in the 'RocksdbTable' when created.
 --
--- This is function provides the prefered way of creating and using a
+-- This is function provides the preferred way of creating and using a
 -- 'RocksDbTableIter'.
 --
 withTableIter :: RocksDbTable k v -> (RocksDbTableIter k v -> IO a) -> IO a
