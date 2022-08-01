@@ -49,7 +49,7 @@ library
         , lens >=4.16
         , memory >=0.14
         , nothunks >= 0.1.0.0
-        , rocksdb-haskell-kadena >= 1.1.0
+        , rocksdb-haskell-kadena >=1.1.0
         , stm >=2.4
         , streaming >=0.2
         , temporary >=1.3
