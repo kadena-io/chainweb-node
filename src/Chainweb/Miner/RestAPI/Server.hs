@@ -36,6 +36,7 @@ import Data.Binary.Builder (fromByteString)
 import Data.IORef (IORef, atomicModifyIORef', newIORef, readIORef, writeIORef)
 import qualified Data.Map.Strict as M
 import Data.Proxy (Proxy(..))
+import Data.Serialize.Put
 import qualified Data.Set as S
 import qualified Data.Text.Lazy as TL
 import qualified Data.Text.Lazy.Encoding as TL
@@ -61,7 +62,7 @@ import Chainweb.Miner.Core
 import Chainweb.Miner.Pact
 import Chainweb.Miner.RestAPI (MiningApi)
 import Chainweb.RestAPI.Utils (SomeServer(..))
-import Chainweb.Utils (EncodingException(..), runGet, runPut)
+import Chainweb.Utils (EncodingException(..), runGet)
 import Chainweb.Version
 
 -- -------------------------------------------------------------------------- --

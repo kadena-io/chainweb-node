@@ -16,7 +16,7 @@ module Data.Test.Word.Encoding
 ) where
 
 import Data.Bits
-import Data.Bytes.Put
+import Data.Serialize.Put
 import qualified Data.ByteString as B
 import Data.DoubleWord (Word128(..))
 
@@ -42,7 +42,7 @@ prop_bigEndian = all run [1 .. (finiteBitSize (undefined :: a) `div` 8 -  1)]
         $ length
         $ takeWhile (== 0x00)
         $ B.unpack
-        $ runPutS
+        $ runPut
         $ encodeWordBe
         $ maxBound @a `div` 2^(8*i)
 
@@ -60,7 +60,7 @@ prop_littleEndian = all run [1 .. (finiteBitSize (undefined :: a) `div` 8 - 1)]
         $ takeWhile (== 0x00)
         $ reverse
         $ B.unpack
-        $ runPutS
+        $ runPut
         $ encodeWordLe
         $ maxBound @a `div` 2^(8*i)
 

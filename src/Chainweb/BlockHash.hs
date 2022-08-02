@@ -64,8 +64,8 @@ import Data.Aeson
     (FromJSON(..), FromJSONKey(..), ToJSON(..), ToJSONKey(..), withText)
 import Data.Aeson.Types (FromJSONKeyFunction(..), toJSONKeyText)
 import Data.Bifoldable
-import Data.Bytes.Get
-import Data.Bytes.Put
+import Data.Serialize.Get hiding (runGet)
+import Data.Serialize.Put
 import Data.Foldable
 import Data.Hashable (Hashable(..))
 import qualified Data.HashMap.Strict as HM
@@ -124,17 +124,17 @@ instance MerkleHashAlgorithm a => IsMerkleLogEntry a ChainwebHashTag (BlockHash_
     {-# INLINE toMerkleNode #-}
     {-# INLINE fromMerkleNode #-}
 
-encodeBlockHash :: MonadPut m => BlockHash_ a -> m ()
+encodeBlockHash :: BlockHash_ a -> Put
 encodeBlockHash (BlockHash bytes) = encodeMerkleLogHash bytes
 {-# INLINE encodeBlockHash #-}
 
-decodeBlockHash :: MerkleHashAlgorithm a => MonadGet m => m (BlockHash_ a)
+decodeBlockHash :: MerkleHashAlgorithm a => Get (BlockHash_ a)
 decodeBlockHash = BlockHash <$!> decodeMerkleLogHash
 {-# INLINE decodeBlockHash #-}
 
 instance ToJSON (BlockHash_ a) where
-    toJSON = toJSON . encodeB64UrlNoPaddingText . runPutS . encodeBlockHash
-    toEncoding = toEncoding . encodeB64UrlNoPaddingText . runPutS . encodeBlockHash
+    toJSON = toJSON . encodeB64UrlNoPaddingText . runPut . encodeBlockHash
+    toEncoding = toEncoding . encodeB64UrlNoPaddingText . runPut . encodeBlockHash
     {-# INLINE toJSON #-}
     {-# INLINE toEncoding #-}
 
@@ -145,7 +145,7 @@ instance MerkleHashAlgorithm a => FromJSON (BlockHash_ a) where
 
 instance ToJSONKey (BlockHash_ a) where
     toJSONKey = toJSONKeyText
-        $ encodeB64UrlNoPaddingText . runPutS . encodeBlockHash
+        $ encodeB64UrlNoPaddingText . runPut . encodeBlockHash
     {-# INLINE toJSONKey #-}
 
 instance MerkleHashAlgorithm a => FromJSONKey (BlockHash_ a) where
@@ -158,7 +158,7 @@ nullBlockHash = BlockHash nullHashBytes
 {-# INLINE nullBlockHash #-}
 
 blockHashToText :: BlockHash_ a -> T.Text
-blockHashToText = encodeB64UrlNoPaddingText . runPutS . encodeBlockHash
+blockHashToText = encodeB64UrlNoPaddingText . runPut . encodeBlockHash
 {-# INLINE blockHashToText #-}
 
 blockHashFromText
@@ -199,28 +199,25 @@ instance IxedGet BlockHashRecord
 instance Each BlockHashRecord BlockHashRecord BlockHash BlockHash where
     each f = fmap BlockHashRecord . each f . _getBlockHashRecord
 
-encodeBlockHashRecord :: MonadPut m => BlockHashRecord -> m ()
+encodeBlockHashRecord :: BlockHashRecord -> Put
 encodeBlockHashRecord (BlockHashRecord r) = do
     putWord16le (int $ length r)
     traverse_ (bimapM_ encodeChainId encodeBlockHash) $ L.sort $ HM.toList r
 
 decodeBlockHashWithChainId
-    :: MonadGet m
-    => m (ChainId, BlockHash)
+    :: Get (ChainId, BlockHash)
 decodeBlockHashWithChainId = (,) <$!> decodeChainId <*> decodeBlockHash
 
-decodeBlockHashRecord :: MonadGet m => m BlockHashRecord
+decodeBlockHashRecord :: Get BlockHashRecord
 decodeBlockHashRecord = do
     l <- getWord16le
     hashes <- replicateM (int l) decodeBlockHashWithChainId
     return $ BlockHashRecord $! HM.fromList hashes
 
 decodeBlockHashWithChainIdChecked
-    :: MonadGet m
-    => MonadThrow m
-    => HasChainId p
+    :: HasChainId p
     => Expected p
-    -> m (ChainId, BlockHash)
+    -> Get (ChainId, BlockHash)
 decodeBlockHashWithChainIdChecked p = (,)
     <$!> decodeChainIdChecked p
     <*> decodeBlockHash
@@ -228,11 +225,9 @@ decodeBlockHashWithChainIdChecked p = (,)
 -- to use this wrap the runGet into some MonadThrow.
 --
 decodeBlockHashRecordChecked
-    :: MonadThrow m
-    => MonadGet m
-    => HasChainId p
+    :: HasChainId p
     => Expected [p]
-    -> m BlockHashRecord
+    -> Get BlockHashRecord
 decodeBlockHashRecordChecked ps = do
     (l :: Natural) <- int <$!> getWord16le
     void $ check ItemCountDecodeException (int . length <$> ps) (Actual l)

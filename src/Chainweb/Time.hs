@@ -98,14 +98,14 @@ import Control.Monad ((<$!>))
 import Control.Monad.Catch
 
 import Data.Aeson (FromJSON, ToJSON)
-import Data.Bytes.Get
-import Data.Bytes.Put
 import Data.Bytes.Signed
 import Data.Data
 import Data.Hashable (Hashable)
 import Data.Int
 import qualified Data.Memory.Endian as BA
 import Data.Ratio
+import Data.Serialize.Get
+import Data.Serialize.Put
 import qualified Data.Text as T
 import Data.Time
 import Data.Time.Clock.POSIX
@@ -140,7 +140,7 @@ newtype TimeSpan a = TimeSpan a
         , ToJSON, FromJSON
         )
 
-encodeTimeSpan :: MonadPut m => TimeSpan Micros -> m ()
+encodeTimeSpan :: TimeSpan Micros -> Put
 encodeTimeSpan (TimeSpan (Micros a)) = putWord64le $ unsigned a
 {-# INLINE encodeTimeSpan #-}
 
@@ -148,7 +148,7 @@ encodeTimeSpanToWord64 :: TimeSpan Micros -> Word64
 encodeTimeSpanToWord64 (TimeSpan (Micros a)) = BA.unLE . BA.toLE $ unsigned a
 {-# INLINE encodeTimeSpanToWord64 #-}
 
-decodeTimeSpan :: MonadGet m => m (TimeSpan Micros)
+decodeTimeSpan :: Get (TimeSpan Micros)
 decodeTimeSpan = TimeSpan . Micros . signed <$!> getWord64le
 {-# INLINE decodeTimeSpan #-}
 
@@ -245,7 +245,7 @@ getCurrentTimeIntegral = do
     t <- getPOSIXTime
     return $! Time $! TimeSpan $! round $ t * 1000000
 
-encodeTime :: MonadPut m => Time Micros -> m ()
+encodeTime :: Time Micros -> Put
 encodeTime (Time a) = encodeTimeSpan a
 {-# INLINE encodeTime #-}
 
@@ -253,7 +253,7 @@ encodeTimeToWord64 :: Time Micros -> Word64
 encodeTimeToWord64 (Time a) = encodeTimeSpanToWord64 a
 {-# INLINE encodeTimeToWord64 #-}
 
-decodeTime :: MonadGet m => m (Time Micros)
+decodeTime :: Get (Time Micros)
 decodeTime  = Time <$!> decodeTimeSpan
 {-# INLINE decodeTime #-}
 

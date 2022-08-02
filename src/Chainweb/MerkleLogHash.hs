@@ -40,8 +40,8 @@ import Data.Aeson (FromJSON(..), FromJSONKey(..), ToJSON(..), ToJSONKey(..))
 import Data.Aeson.Types (FromJSONKeyFunction(..), toJSONKeyText)
 import Data.Bits
 import qualified Data.ByteArray as BA
-import Data.Bytes.Get
-import Data.Bytes.Put
+import Data.Serialize.Get hiding (runGet)
+import Data.Serialize.Put
 import qualified Data.ByteString as B
 import Data.Hashable (Hashable(..))
 import Data.MerkleLog hiding (Expected, Actual)
@@ -101,14 +101,13 @@ unsafeMerkleLogHash = MerkleLogHash
     . decodeMerkleRoot
 {-# INLINE unsafeMerkleLogHash #-}
 
-encodeMerkleLogHash :: MonadPut m => MerkleLogHash a -> m ()
+encodeMerkleLogHash :: MerkleLogHash a -> Put
 encodeMerkleLogHash (MerkleLogHash bytes) = putByteString $ encodeMerkleRoot bytes
 {-# INLINE encodeMerkleLogHash #-}
 
 decodeMerkleLogHash
     :: MerkleHashAlgorithm a
-    => MonadGet m
-    => m (MerkleLogHash a)
+    => Get (MerkleLogHash a)
 decodeMerkleLogHash = unsafeMerkleLogHash <$> getBytes (int merkleLogHashBytesCount)
 {-# INLINE decodeMerkleLogHash #-}
 
@@ -128,7 +127,7 @@ oneHashBytes = unsafeMerkleLogHash $ B.replicate (int merkleLogHashBytesCount) 0
 {-# NOINLINE oneHashBytes #-}
 
 merkleLogHashToText :: MerkleHashAlgorithm a => MerkleLogHash a -> T.Text
-merkleLogHashToText = encodeB64UrlNoPaddingText . runPutS . encodeMerkleLogHash
+merkleLogHashToText = encodeB64UrlNoPaddingText . runPut . encodeMerkleLogHash
 {-# INLINE merkleLogHashToText #-}
 
 merkleLogHashFromText

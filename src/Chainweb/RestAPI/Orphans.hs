@@ -34,7 +34,7 @@ module Chainweb.RestAPI.Orphans () where
 import Control.Monad
 
 import Data.Bifunctor
-import Data.Bytes.Put
+import Data.Serialize.Put
 import Data.Proxy
 import Data.Semigroup (Max(..), Min(..))
 import qualified Data.Text as T
@@ -83,14 +83,14 @@ instance FromHttpApiData BlockHash where
         . (runGet decodeBlockHash <=< decodeB64UrlNoPaddingText)
 
 instance ToHttpApiData BlockHash where
-    toUrlPiece = encodeB64UrlNoPaddingText . runPutS . encodeBlockHash
+    toUrlPiece = encodeB64UrlNoPaddingText . runPut . encodeBlockHash
 
 instance FromHttpApiData BlockPayloadHash where
     parseUrlPiece = first sshow
         . (runGet decodeBlockPayloadHash <=< decodeB64UrlNoPaddingText)
 
 instance ToHttpApiData BlockPayloadHash where
-    toUrlPiece = encodeB64UrlNoPaddingText . runPutS . encodeBlockPayloadHash
+    toUrlPiece = encodeB64UrlNoPaddingText . runPut . encodeBlockPayloadHash
 
 instance FromHttpApiData ChainwebVersion where
     parseUrlPiece = first T.pack . eitherFromText

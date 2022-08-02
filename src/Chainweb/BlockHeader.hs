@@ -116,8 +116,8 @@ import Control.Monad.Catch
 
 import Data.Aeson
 import Data.Aeson.Types (Parser)
-import Data.Bytes.Get
-import Data.Bytes.Put
+import Data.Serialize.Get hiding (runGet)
+import Data.Serialize.Put
 import Data.Function (on)
 import Data.Hashable
 import qualified Data.HashMap.Strict as HM
@@ -173,13 +173,13 @@ instance MerkleHashAlgorithm a => IsMerkleLogEntry a ChainwebHashTag Nonce where
     {-# INLINE toMerkleNode #-}
     {-# INLINE fromMerkleNode #-}
 
-encodeNonce :: MonadPut m => Nonce -> m ()
+encodeNonce :: Nonce -> Put
 encodeNonce (Nonce n) = putWord64le n
 
 encodeNonceToWord64 :: Nonce -> Word64
 encodeNonceToWord64 (Nonce n) = BA.unLE $ BA.toLE n
 
-decodeNonce :: MonadGet m => m Nonce
+decodeNonce :: Get Nonce
 decodeNonce = Nonce <$> getWord64le
 
 instance ToJSON Nonce where
@@ -207,10 +207,10 @@ instance MerkleHashAlgorithm a => IsMerkleLogEntry a ChainwebHashTag EpochStartT
     {-# INLINE toMerkleNode #-}
     {-# INLINE fromMerkleNode #-}
 
-encodeEpochStartTime :: MonadPut m => EpochStartTime -> m ()
+encodeEpochStartTime :: EpochStartTime -> Put
 encodeEpochStartTime (EpochStartTime t) = encodeTime t
 
-decodeEpochStartTime :: MonadGet m => m EpochStartTime
+decodeEpochStartTime :: Get EpochStartTime
 decodeEpochStartTime = EpochStartTime <$> decodeTime
 
 -- | During the first epoch after genesis there are 10 extra difficulty
@@ -425,10 +425,10 @@ newtype FeatureFlags = FeatureFlags Word64
     deriving anyclass (NFData)
     deriving newtype (ToJSON, FromJSON)
 
-encodeFeatureFlags :: MonadPut m => FeatureFlags -> m ()
+encodeFeatureFlags :: FeatureFlags -> Put
 encodeFeatureFlags (FeatureFlags ff) = putWord64le ff
 
-decodeFeatureFlags :: MonadGet m => m FeatureFlags
+decodeFeatureFlags :: Get FeatureFlags
 decodeFeatureFlags = FeatureFlags <$> getWord64le
 
 instance MerkleHashAlgorithm a => IsMerkleLogEntry a ChainwebHashTag FeatureFlags where
@@ -689,9 +689,8 @@ instance HasMerkleLog ChainwebMerkleHashAlgorithm ChainwebHashTag BlockHeader wh
             | otherwise = chainGraphAt cwv (height - 1)
 
 encodeBlockHeaderWithoutHash
-    :: MonadPut m
-    => BlockHeader
-    -> m ()
+    :: BlockHeader
+    -> Put
 encodeBlockHeaderWithoutHash b = do
     encodeFeatureFlags (_blockFlags b)
     encodeBlockCreationTime (_blockCreationTime b)
@@ -707,9 +706,8 @@ encodeBlockHeaderWithoutHash b = do
     encodeNonce (_blockNonce b)
 
 encodeBlockHeader
-    :: MonadPut m
-    => BlockHeader
-    -> m ()
+    :: BlockHeader
+    -> Put
 encodeBlockHeader b = do
     encodeBlockHeaderWithoutHash b
     encodeBlockHash (_blockHash b)
@@ -720,9 +718,7 @@ encodeBlockHeader b = do
 -- 2. all adjacentParent match adjacents in graph
 --
 decodeBlockHeaderChecked
-    :: MonadThrow m
-    => MonadGet m
-    => m BlockHeader
+    :: Get BlockHeader
 decodeBlockHeaderChecked = do
     !bh <- decodeBlockHeader
     _ <- checkAdjacentChainIds bh bh (Expected $ _blockAdjacentChainIds bh)
@@ -735,11 +731,9 @@ decodeBlockHeaderChecked = do
 -- 3. chainId matches the expected chain id
 --
 decodeBlockHeaderCheckedChainId
-    :: MonadThrow m
-    => MonadGet m
-    => HasChainId p
+    :: HasChainId p
     => Expected p
-    -> m BlockHeader
+    -> Get BlockHeader
 decodeBlockHeaderCheckedChainId p = do
     !bh <- decodeBlockHeaderChecked
     _ <- checkChainId p (Actual (_chainId bh))
@@ -748,8 +742,7 @@ decodeBlockHeaderCheckedChainId p = do
 -- | Decode a BlockHeader and trust the result
 --
 decodeBlockHeaderWithoutHash
-    :: MonadGet m
-    => m BlockHeader
+    :: Get BlockHeader
 decodeBlockHeaderWithoutHash = do
     a0 <- decodeFeatureFlags
     a1 <- decodeBlockCreationTime
@@ -782,8 +775,7 @@ decodeBlockHeaderWithoutHash = do
 -- | Decode a BlockHeader and trust the result
 --
 decodeBlockHeader
-    :: MonadGet m
-    => m BlockHeader
+    :: Get BlockHeader
 decodeBlockHeader = BlockHeader
     <$> decodeFeatureFlags
     <*> decodeBlockCreationTime
@@ -800,8 +792,8 @@ decodeBlockHeader = BlockHeader
     <*> decodeBlockHash
 
 instance ToJSON BlockHeader where
-    toJSON = toJSON .  encodeB64UrlNoPaddingText . runPutS . encodeBlockHeader
-    toEncoding = toEncoding .  encodeB64UrlNoPaddingText . runPutS . encodeBlockHeader
+    toJSON = toJSON .  encodeB64UrlNoPaddingText . runPut . encodeBlockHeader
+    toEncoding = toEncoding .  encodeB64UrlNoPaddingText . runPut . encodeBlockHeader
     {-# INLINE toJSON #-}
     {-# INLINE toEncoding #-}
 
@@ -839,7 +831,7 @@ computeBlockHash h = BlockHash $ MerkleLogHash $ computeMerkleLogRoot h
 --
 _blockPow :: BlockHeader -> PowHash
 _blockPow h = powHash (_blockChainwebVersion h)
-    $ runPutS $ encodeBlockHeaderWithoutHash h
+    $ runPut $ encodeBlockHeaderWithoutHash h
 
 blockPow :: Getter BlockHeader PowHash
 blockPow = to _blockPow

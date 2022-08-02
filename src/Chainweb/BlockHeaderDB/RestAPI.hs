@@ -88,8 +88,7 @@ import Control.Monad.Identity
 
 import Data.Aeson
 import Data.Bifunctor
-import Data.Bytes.Get
-import Data.Bytes.Put
+import Data.Serialize.Put
 import qualified Data.ByteString.Lazy as BL
 import Data.Proxy
 import Data.Text (Text)
@@ -106,6 +105,7 @@ import Chainweb.ChainId
 import Chainweb.RestAPI.Orphans ()
 import Chainweb.RestAPI.Utils
 import Chainweb.TreeDB
+import Chainweb.Utils
 import Chainweb.Utils.Paging
 import Chainweb.Version
 
@@ -126,13 +126,13 @@ type BlockHeaderPage = Page (NextItem BlockHash) BlockHeader
 -- | Orphan instance to encode BlockHeaders as OctetStream
 --
 instance MimeUnrender OctetStream BlockHeader where
-    mimeUnrender _ = runGetS decodeBlockHeader . BL.toStrict
+    mimeUnrender _ = runGetEither decodeBlockHeader . BL.toStrict
     {-# INLINE mimeUnrender #-}
 
 -- | Orphan instance to encode BlockHeaders as OctetStream
 --
 instance MimeRender OctetStream BlockHeader where
-    mimeRender _ = runPutL . encodeBlockHeader
+    mimeRender _ = BL.fromStrict . runPut . encodeBlockHeader
     {-# INLINE mimeRender #-}
 
 -- | The default JSON instance of BlockHeader is an unpadded base64Url encoding of

@@ -77,6 +77,7 @@ import qualified Data.HashMap.Strict as HM
 import Data.Kind
 import qualified Data.List as L
 import Data.MerkleLog
+import Data.Serialize.Put
 import Data.Streaming.Network.Internal
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T

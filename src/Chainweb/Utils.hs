@@ -69,10 +69,9 @@ module Chainweb.Utils
 
 -- ** Binary
 , runGet
-, runPut
 , runGetEither
+, Serialize.runPut
 , eof
-, MonadGetExtra(..)
 
 -- ** Codecs
 , Codec(..)
@@ -223,12 +222,8 @@ import Control.Monad.Reader as Reader
 import Data.Aeson.Text (encodeToLazyText)
 import qualified Data.Aeson.Types as Aeson
 import qualified Data.Attoparsec.Text as A
-import qualified Data.Binary as Binary
-import qualified Data.Binary.Get as Binary
-import qualified Data.Binary.Put as Binary
 import Data.Bifunctor
 import Data.Bool (bool)
-import Data.Bytes.Get
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Base64 as B64
@@ -243,8 +238,7 @@ import qualified Data.HashMap.Strict as HM
 import qualified Data.HashSet as HS
 import Data.Monoid (Endo)
 import Data.Proxy
-import Data.Serialize.Get (Get)
-import qualified Data.Serialize.Get as Get
+import qualified Data.Serialize as Serialize
 import Data.String (IsString(..))
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
@@ -463,38 +457,23 @@ instance Exception EncodingException
 -- | Decode a value from a 'B.ByteString'. In case of a failure a
 -- 'DecodeException' is thrown.
 --
-runGet :: MonadThrow t => Binary.Get a -> B.ByteString -> t a
-runGet g = fromEitherM . runGetEither (g <* eof)
+runGet :: MonadThrow t => Serialize.Get a -> B.ByteString -> t a
+runGet g = fromEitherM . first (DecodeException . T.pack) . runGetEither (g <* eof)
 {-# INLINE runGet #-}
 
 -- | Decode a value from a 'B.ByteString' and return either the result or a
 -- 'DecodeException'.
 --
-runGetEither :: Binary.Get a -> B.ByteString -> Either EncodingException a
-runGetEither g = first (DecodeException . T.pack) . over _Left (view _3) . over _Right (view _3) . Binary.runGetOrFail (g <* eof) . BL.fromStrict
+runGetEither :: Serialize.Get a -> B.ByteString -> Either String a
+runGetEither g = Serialize.runGet (g <* eof)
 {-# INLINE runGetEither #-}
 
--- | Encode a value into a 'B.ByteString'.
---
-runPut :: Binary.Put -> B.ByteString
-runPut = BL.toStrict . Binary.runPut
-{-# INLINE runPut #-}
-
-eof :: (MonadGetExtra m, MonadFail m) => m ()
-eof = unlessM isEmpty $ fail "pending bytes in input"
+eof :: Serialize.Get ()
+eof = unlessM Serialize.isEmpty $ fail "pending bytes in input"
 {-# INLINE eof #-}
 
-class MonadGet m => MonadGetExtra m where
-    label :: String -> m a -> m a
-    isolate :: Int -> m a -> m a
-
-instance MonadGetExtra Get where
-    label = Get.label
-    isolate = Get.isolate
-
-instance MonadGetExtra Binary.Get where
-    label = Binary.label
-    isolate = Binary.isolate
+instance MonadThrow Serialize.Get where
+    throwM = fail . show
 
 -- -------------------------------------------------------------------------- --
 -- ** Text

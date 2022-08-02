@@ -18,6 +18,7 @@ module Chainweb.Test.Version
 import qualified Data.ByteString as B
 import Data.Foldable
 import qualified Data.List.NonEmpty as NE
+import Data.Serialize
 
 import Test.QuickCheck
 import Test.Tasty (testGroup, TestTree)

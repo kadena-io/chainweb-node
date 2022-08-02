@@ -14,7 +14,7 @@ module Chainweb.Test.Difficulty
 , prop_littleEndian
 ) where
 
-import Data.Bytes.Put
+import Data.Serialize.Put
 import qualified Data.ByteString as B
 
 import Test.QuickCheck (Property, property)
@@ -31,7 +31,7 @@ prop_littleEndian = all run [1..31]
         $ takeWhile (== 0x00)
         $ reverse
         $ B.unpack
-        $ runPutS
+        $ runPut
         $ encodePowHashNat (maxBound `div` 2^(8*i))
 
 properties :: [(String, Property)]

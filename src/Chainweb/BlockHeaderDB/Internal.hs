@@ -48,8 +48,8 @@ import Control.Monad.Catch
 import Control.Monad.Trans.Maybe
 
 import Data.Aeson
-import Data.Bytes.Get
-import Data.Bytes.Put
+import Data.Serialize.Get hiding (runGet)
+import Data.Serialize.Put
 import Data.Function
 import Data.Hashable
 import Data.Maybe
@@ -142,21 +142,21 @@ newtype BlockRank = BlockRank { _getBlockRank :: BlockHeight }
 -- -------------------------------------------------------------------------- --
 -- Internal
 
-encodeRankedBlockHeader :: MonadPut m => RankedBlockHeader -> m ()
+encodeRankedBlockHeader :: RankedBlockHeader -> Put
 encodeRankedBlockHeader = encodeBlockHeader . _getRankedBlockHeader
 {-# INLINE encodeRankedBlockHeader #-}
 
-decodeRankedBlockHeader :: MonadGet m => m RankedBlockHeader
+decodeRankedBlockHeader :: Get RankedBlockHeader
 decodeRankedBlockHeader = RankedBlockHeader <$!> decodeBlockHeader
 {-# INLINE decodeRankedBlockHeader #-}
 
-encodeRankedBlockHash :: MonadPut m => RankedBlockHash -> m ()
+encodeRankedBlockHash :: RankedBlockHash -> Put
 encodeRankedBlockHash (RankedBlockHash r bh) = do
     encodeBlockHeightBe r -- big endian encoding for lexicographical order
     encodeBlockHash bh
 {-# INLINE encodeRankedBlockHash #-}
 
-decodeRankedBlockHash :: MonadGet m => m RankedBlockHash
+decodeRankedBlockHash :: Get RankedBlockHash
 decodeRankedBlockHash = RankedBlockHash
     <$!> decodeBlockHeightBe
     <*> decodeBlockHash

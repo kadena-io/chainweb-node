@@ -128,8 +128,8 @@ import Control.Monad.Catch
 
 import Data.Aeson hiding (pairs)
 import Data.Bits
-import Data.Bytes.Get
-import Data.Bytes.Put
+import Data.Serialize.Get
+import Data.Serialize.Put
 import Data.Hashable
 import qualified Data.HashSet as HS
 import qualified Data.List.NonEmpty as NE
@@ -298,11 +298,11 @@ fromChainwebVersionId 0x00000005 = Mainnet01
 fromChainwebVersionId i = fromTestChainwebVersionId i
 {-# INLINABLE fromChainwebVersionId #-}
 
-encodeChainwebVersion :: MonadPut m => ChainwebVersion -> m ()
+encodeChainwebVersion :: ChainwebVersion -> Put
 encodeChainwebVersion = putWord32le . chainwebVersionId
 {-# INLINABLE encodeChainwebVersion #-}
 
-decodeChainwebVersion :: MonadGet m => m ChainwebVersion
+decodeChainwebVersion :: Get ChainwebVersion
 decodeChainwebVersion = fromChainwebVersionId <$> getWord32le
 {-# INLINABLE decodeChainwebVersion #-}
 

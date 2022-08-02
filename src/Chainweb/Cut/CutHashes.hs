@@ -70,8 +70,8 @@ import Crypto.Hash.Algorithms
 import Data.Aeson
 import Data.Bits
 import qualified Data.ByteArray as BA
-import Data.Bytes.Get
-import Data.Bytes.Put
+import Data.Serialize.Get hiding (runGet)
+import Data.Serialize.Put
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Short as SB
 import Data.Foldable
@@ -133,7 +133,7 @@ instance Show CutId where
     show = T.unpack . cutIdToText
     {-# INLINE show #-}
 
-encodeCutId :: MonadPut m => CutId -> m ()
+encodeCutId :: CutId -> Put
 encodeCutId (CutId w) = putByteString $ SB.fromShort w
 {-# INLINE encodeCutId #-}
 
@@ -141,7 +141,7 @@ cutIdBytes :: CutId -> SB.ShortByteString
 cutIdBytes (CutId bytes) = bytes
 {-# INLINE cutIdBytes #-}
 
-decodeCutId :: MonadGet m => m CutId
+decodeCutId :: Get CutId
 decodeCutId = CutId . SB.toShort <$!> getBytes (int cutIdBytesCount)
 {-# INLINE decodeCutId #-}
 
@@ -164,7 +164,7 @@ instance FromJSON CutId where
     {-# INLINE parseJSON #-}
 
 cutIdToText :: CutId -> T.Text
-cutIdToText = encodeB64UrlNoPaddingText . runPutS . encodeCutId
+cutIdToText = encodeB64UrlNoPaddingText . runPut . encodeCutId
 {-# INLINE cutIdToText #-}
 
 cutIdFromText :: MonadThrow m => T.Text -> m CutId
@@ -381,10 +381,10 @@ type CutHashesCas cas = CasConstraint cas CutHashes
 
 -- TODO
 --
--- encodeCutHashes :: MonadPut m => CutHashes -> m ()
+-- encodeCutHashes :: CutHashes -> Put
 -- encodeCutHashes = error "encodeCodeHashes: TODO"
 -- {-# INLINE encodeCutHashes #-}
 --
--- decodeCutHashes :: MonadGet m => m CutId
+-- decodeCutHashes :: Get CutId
 -- decodeCutHashes = error "decodeCutHashes: TODO"
 -- {-# INLINE decodeCutHashes #-}

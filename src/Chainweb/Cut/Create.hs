@@ -66,8 +66,8 @@ import Control.Lens
 import Control.Monad
 import Control.Monad.Catch
 
-import Data.Bytes.Get
-import Data.Bytes.Put
+import Data.Serialize.Get
+import Data.Serialize.Put
 import qualified Data.ByteString.Short as SB
 import qualified Data.HashMap.Strict as HM
 import qualified Data.HashSet as HS
@@ -253,7 +253,7 @@ data WorkHeader = WorkHeader
     deriving (Show, Eq, Ord, Generic)
     deriving anyclass (NFData)
 
-encodeWorkHeader :: MonadPut m => WorkHeader -> m ()
+encodeWorkHeader :: WorkHeader -> Put
 encodeWorkHeader wh = do
     encodeChainId $ _workHeaderChainId wh
     encodeHashTarget $ _workHeaderTarget wh
@@ -262,7 +262,7 @@ encodeWorkHeader wh = do
 -- FIXME: We really want this indepenent of the block height. For production
 -- chainweb version this is actually the case.
 --
-decodeWorkHeader :: MonadGet m => ChainwebVersion -> BlockHeight -> m WorkHeader
+decodeWorkHeader :: ChainwebVersion -> BlockHeight -> Get WorkHeader
 decodeWorkHeader ver h = WorkHeader
     <$> decodeChainId
     <*> decodeHashTarget
@@ -362,10 +362,10 @@ newtype SolvedWork = SolvedWork BlockHeader
     deriving (Show, Eq, Ord, Generic)
     deriving anyclass (NFData)
 
-encodeSolvedWork :: MonadPut m => SolvedWork -> m ()
+encodeSolvedWork :: SolvedWork -> Put
 encodeSolvedWork (SolvedWork hdr) = encodeBlockHeaderWithoutHash hdr
 
-decodeSolvedWork :: MonadGet m => m SolvedWork
+decodeSolvedWork :: Get SolvedWork
 decodeSolvedWork = SolvedWork <$> decodeBlockHeaderWithoutHash
 
 data InvalidSolvedHeader = InvalidSolvedHeader BlockHeader T.Text

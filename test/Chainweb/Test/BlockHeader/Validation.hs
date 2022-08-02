@@ -25,7 +25,6 @@ import Control.Lens hiding ((.=), elements)
 import Control.Monad.Catch
 
 import Data.Aeson
-import Data.Binary.Put (Put)
 import Data.Bits
 import qualified Data.ByteString as B
 import Data.DoubleWord
@@ -33,6 +32,8 @@ import Data.Foldable
 import Data.List (sort)
 import qualified Data.List as L
 import Data.Ratio
+import Data.Serialize.Get (Get)
+import Data.Serialize.Put (Put)
 import qualified Data.Text as T
 
 import Test.QuickCheck
@@ -293,10 +294,10 @@ validationFailures =
 
     badFlags = B.pack [0,0,0,0,0,0,0,1]
 
-    messByteString :: (a -> Put) -> (forall m. MonadGetExtra m => m a) -> (B.ByteString -> B.ByteString) -> a -> a
+    messByteString :: (a -> Put) -> (Get a) -> (B.ByteString -> B.ByteString) -> a -> a
     messByteString enc dec f x = fromJuste $ runGet dec $ f $ runPut $ enc x
 
-    messWords :: (a -> Put) -> (forall m. MonadGetExtra m => m a) -> (Word256 -> Word256) -> a -> a
+    messWords :: (a -> Put) -> (Get a) -> (Word256 -> Word256) -> a -> a
     messWords enc dec f x = messByteString enc dec g x
       where
         g bytes = runPut (encodeWordLe $ f $ fromJuste $ runGet decodeWordLe bytes)

@@ -163,7 +163,8 @@ import Control.Monad.Catch
 import Crypto.Hash.Algorithms
 
 import qualified Data.ByteArray as BA
-import Data.Bytes.Put
+import Data.Serialize.Get hiding (runGet)
+import Data.Serialize.Put
 import qualified Data.ByteString as B
 import Data.Coerce
 import Data.Foldable
@@ -733,14 +734,14 @@ proofSubject p = fromMerkleNodeTagged @a subj
 -- Tools Defining Instances
 
 encodeMerkleInputNode
-    :: (forall m . MonadPut m => b -> m ())
+    :: (b -> Put)
     -> b
     -> MerkleNodeType a B.ByteString
-encodeMerkleInputNode encode = InputNode . runPutS . encode
+encodeMerkleInputNode encode = InputNode . runPut . encode
 
 decodeMerkleInputNode
     :: MonadThrow m
-    => (forall n . MonadGetExtra n => n b)
+    => Get b
     -> MerkleNodeType a B.ByteString
     -> m b
 decodeMerkleInputNode decode (InputNode bytes) = runGet decode bytes

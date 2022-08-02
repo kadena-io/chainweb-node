@@ -108,6 +108,7 @@ import Data.LogMessage
 import Data.Maybe
 import Data.Monoid
 import Data.Ord
+import Data.Serialize.Put
 import qualified Data.Text as T
 import Data.These
 import qualified Data.Vector as V

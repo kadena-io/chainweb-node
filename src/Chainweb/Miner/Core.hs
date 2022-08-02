@@ -33,6 +33,7 @@ import qualified Data.ByteArray as BA
 import qualified Data.ByteString.Char8 as B
 import qualified Data.ByteString.Short as BS
 import Data.Proxy (Proxy(..))
+import Data.Serialize.Put
 import Data.Word (Word64, Word8)
 
 import Foreign.Marshal.Alloc (allocaBytes)

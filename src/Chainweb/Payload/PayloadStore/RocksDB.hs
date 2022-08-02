@@ -23,6 +23,8 @@ module Chainweb.Payload.PayloadStore.RocksDB
 , newPayloadCache
 ) where
 
+import Data.Serialize.Put
+
 -- internal modules
 
 import Chainweb.Payload
