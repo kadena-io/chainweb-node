@@ -116,15 +116,12 @@ import Control.Monad.Catch
 
 import Data.Aeson
 import Data.Aeson.Types (Parser)
-import Data.Bytes.Get
-import Data.Bytes.Put
 import Data.Function (on)
 import Data.Hashable
 import qualified Data.HashMap.Strict as HM
 import qualified Data.HashSet as HS
 import Data.Kind
 import qualified Data.Memory.Endian as BA
-import Data.Serialize (Serialize(..))
 import qualified Data.Text as T
 import Data.Word
 
@@ -147,6 +144,7 @@ import Chainweb.PowHash
 import Chainweb.Time
 import Chainweb.TreeDB (TreeDbEntry(..))
 import Chainweb.Utils
+import Chainweb.Utils.Serialization
 import Chainweb.Version
 
 import Data.CAS
@@ -173,13 +171,13 @@ instance MerkleHashAlgorithm a => IsMerkleLogEntry a ChainwebHashTag Nonce where
     {-# INLINE toMerkleNode #-}
     {-# INLINE fromMerkleNode #-}
 
-encodeNonce :: MonadPut m => Nonce -> m ()
+encodeNonce :: Nonce -> Put
 encodeNonce (Nonce n) = putWord64le n
 
 encodeNonceToWord64 :: Nonce -> Word64
 encodeNonceToWord64 (Nonce n) = BA.unLE $ BA.toLE n
 
-decodeNonce :: MonadGet m => m Nonce
+decodeNonce :: Get Nonce
 decodeNonce = Nonce <$> getWord64le
 
 instance ToJSON Nonce where
@@ -207,10 +205,10 @@ instance MerkleHashAlgorithm a => IsMerkleLogEntry a ChainwebHashTag EpochStartT
     {-# INLINE toMerkleNode #-}
     {-# INLINE fromMerkleNode #-}
 
-encodeEpochStartTime :: MonadPut m => EpochStartTime -> m ()
+encodeEpochStartTime :: EpochStartTime -> Put
 encodeEpochStartTime (EpochStartTime t) = encodeTime t
 
-decodeEpochStartTime :: MonadGet m => m EpochStartTime
+decodeEpochStartTime :: Get EpochStartTime
 decodeEpochStartTime = EpochStartTime <$> decodeTime
 
 -- | During the first epoch after genesis there are 10 extra difficulty
@@ -425,10 +423,10 @@ newtype FeatureFlags = FeatureFlags Word64
     deriving anyclass (NFData)
     deriving newtype (ToJSON, FromJSON)
 
-encodeFeatureFlags :: MonadPut m => FeatureFlags -> m ()
+encodeFeatureFlags :: FeatureFlags -> Put
 encodeFeatureFlags (FeatureFlags ff) = putWord64le ff
 
-decodeFeatureFlags :: MonadGet m => m FeatureFlags
+decodeFeatureFlags :: Get FeatureFlags
 decodeFeatureFlags = FeatureFlags <$> getWord64le
 
 instance MerkleHashAlgorithm a => IsMerkleLogEntry a ChainwebHashTag FeatureFlags where
@@ -615,10 +613,6 @@ type BlockHeaderCas cas = (CasConstraint cas BlockHeader)
 
 makeLenses ''BlockHeader
 
-instance Serialize BlockHeader where
-    put = encodeBlockHeader
-    get = decodeBlockHeader
-
 instance HasMerkleLog ChainwebMerkleHashAlgorithm ChainwebHashTag BlockHeader where
 
     -- /IMPORTANT/ a types must occur at most once in this list
@@ -688,10 +682,7 @@ instance HasMerkleLog ChainwebMerkleHashAlgorithm ChainwebHashTag BlockHeader wh
             | height == genesisHeight cwv cid = chainGraphAt cwv height
             | otherwise = chainGraphAt cwv (height - 1)
 
-encodeBlockHeaderWithoutHash
-    :: MonadPut m
-    => BlockHeader
-    -> m ()
+encodeBlockHeaderWithoutHash :: BlockHeader -> Put
 encodeBlockHeaderWithoutHash b = do
     encodeFeatureFlags (_blockFlags b)
     encodeBlockCreationTime (_blockCreationTime b)
@@ -706,10 +697,7 @@ encodeBlockHeaderWithoutHash b = do
     encodeEpochStartTime (_blockEpochStart b)
     encodeNonce (_blockNonce b)
 
-encodeBlockHeader
-    :: MonadPut m
-    => BlockHeader
-    -> m ()
+encodeBlockHeader :: BlockHeader -> Put
 encodeBlockHeader b = do
     encodeBlockHeaderWithoutHash b
     encodeBlockHash (_blockHash b)
@@ -719,10 +707,7 @@ encodeBlockHeader b = do
 -- 1. chain id is in graph
 -- 2. all adjacentParent match adjacents in graph
 --
-decodeBlockHeaderChecked
-    :: MonadThrow m
-    => MonadGet m
-    => m BlockHeader
+decodeBlockHeaderChecked :: Get BlockHeader
 decodeBlockHeaderChecked = do
     !bh <- decodeBlockHeader
     _ <- checkAdjacentChainIds bh bh (Expected $ _blockAdjacentChainIds bh)
@@ -735,11 +720,9 @@ decodeBlockHeaderChecked = do
 -- 3. chainId matches the expected chain id
 --
 decodeBlockHeaderCheckedChainId
-    :: MonadThrow m
-    => MonadGet m
-    => HasChainId p
+    :: HasChainId p
     => Expected p
-    -> m BlockHeader
+    -> Get BlockHeader
 decodeBlockHeaderCheckedChainId p = do
     !bh <- decodeBlockHeaderChecked
     _ <- checkChainId p (Actual (_chainId bh))
@@ -747,9 +730,7 @@ decodeBlockHeaderCheckedChainId p = do
 
 -- | Decode a BlockHeader and trust the result
 --
-decodeBlockHeaderWithoutHash
-    :: MonadGet m
-    => m BlockHeader
+decodeBlockHeaderWithoutHash :: Get BlockHeader
 decodeBlockHeaderWithoutHash = do
     a0 <- decodeFeatureFlags
     a1 <- decodeBlockCreationTime
@@ -781,9 +762,7 @@ decodeBlockHeaderWithoutHash = do
 
 -- | Decode a BlockHeader and trust the result
 --
-decodeBlockHeader
-    :: MonadGet m
-    => m BlockHeader
+decodeBlockHeader :: Get BlockHeader
 decodeBlockHeader = BlockHeader
     <$> decodeFeatureFlags
     <*> decodeBlockCreationTime
@@ -807,7 +786,7 @@ instance ToJSON BlockHeader where
 
 instance FromJSON BlockHeader where
     parseJSON = withText "BlockHeader" $ \t ->
-        case runGet decodeBlockHeader =<< decodeB64UrlNoPaddingText t of
+        case runGetS decodeBlockHeader =<< decodeB64UrlNoPaddingText t of
             Left (e :: SomeException) -> fail (sshow e)
             (Right !x) -> return x
 

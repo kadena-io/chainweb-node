@@ -28,6 +28,7 @@ module Chainweb.Payload.PayloadStore.RocksDB
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
 import Chainweb.Utils hiding (Codec)
+import Chainweb.Utils.Serialization
 
 import Data.CAS.RocksDB
 
@@ -37,13 +38,13 @@ import Data.CAS.RocksDB
 newBlockPayloadStore :: RocksDb -> BlockPayloadStore RocksDbCas
 newBlockPayloadStore db = BlockPayloadStore $ newCas db
     (Codec encodeToByteString decodeStrictOrThrow')
-    (Codec (runPut . encodeBlockPayloadHash) (runGet decodeBlockPayloadHash))
+    (Codec (runPutS . encodeBlockPayloadHash) (runGetS decodeBlockPayloadHash))
     ["BlockPayload"]
 
 newBlockTransactionsStore :: RocksDb -> BlockTransactionsStore RocksDbCas
 newBlockTransactionsStore db = BlockTransactionsStore $ newCas db
     (Codec encodeToByteString decodeStrictOrThrow')
-    (Codec (runPut . encodeBlockTransactionsHash) (runGet decodeBlockTransactionsHash))
+    (Codec (runPutS . encodeBlockTransactionsHash) (runGetS decodeBlockTransactionsHash))
     ["BlockTransactions"]
 
 newTransactionDb :: RocksDb -> TransactionDb RocksDbCas
@@ -54,19 +55,19 @@ newTransactionDb db = TransactionDb
 newBlockOutputsStore :: RocksDb -> BlockOutputsStore RocksDbCas
 newBlockOutputsStore db = BlockOutputsStore $ newCas db
     (Codec encodeToByteString decodeStrictOrThrow')
-    (Codec (runPut . encodeBlockOutputsHash) (runGet decodeBlockOutputsHash))
+    (Codec (runPutS . encodeBlockOutputsHash) (runGetS decodeBlockOutputsHash))
     ["BlockOutputs"]
 
 newTransactionTreeStore :: RocksDb -> TransactionTreeStore RocksDbCas
 newTransactionTreeStore db = TransactionTreeStore $ newCas db
     (Codec encodeToByteString decodeStrictOrThrow')
-    (Codec (runPut . encodeBlockTransactionsHash) (runGet decodeBlockTransactionsHash))
+    (Codec (runPutS . encodeBlockTransactionsHash) (runGetS decodeBlockTransactionsHash))
     ["TransactionTree"]
 
 newOutputTreeStore :: RocksDb -> OutputTreeStore RocksDbCas
 newOutputTreeStore db = OutputTreeStore $ newCas db
     (Codec encodeToByteString decodeStrictOrThrow')
-    (Codec (runPut . encodeBlockOutputsHash) (runGet decodeBlockOutputsHash))
+    (Codec (runPutS . encodeBlockOutputsHash) (runGetS decodeBlockOutputsHash))
     ["OutputTree"]
 
 newPayloadCache :: RocksDb -> PayloadCache RocksDbCas

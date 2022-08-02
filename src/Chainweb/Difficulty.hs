@@ -68,8 +68,6 @@ import Control.Monad
 import Data.Aeson
 import Data.Aeson.Types (toJSONKeyText)
 import Data.Bits
-import Data.Bytes.Get
-import Data.Bytes.Put
 import qualified Data.ByteString.Short as SB
 import Data.Coerce
 import Data.DoubleWord
@@ -88,9 +86,8 @@ import Chainweb.MerkleUniverse
 import Chainweb.PowHash
 import Chainweb.Time (Micros(..), Seconds, TimeSpan(..))
 import Chainweb.Utils
+import Chainweb.Utils.Serialization
 import Chainweb.Version
-
-import Data.Word.Encoding
 
 import Numeric.Additive
 
@@ -127,22 +124,22 @@ powHashNat = PowHashNat . powHashToWord256
 {-# INLINE powHashNat #-}
 
 powHashToWord256 :: (32 <= PowHashBytesCount) => PowHash -> Word256
-powHashToWord256 = either error id . runGetS decodeWordLe . SB.fromShort . powHashBytes
+powHashToWord256 = either error id . runGetEitherS decodeWordLe . SB.fromShort . powHashBytes
 {-# INLINE powHashToWord256 #-}
 
-encodePowHashNat :: MonadPut m => PowHashNat -> m ()
+encodePowHashNat :: PowHashNat -> Put
 encodePowHashNat (PowHashNat n) = encodeWordLe n
 {-# INLINE encodePowHashNat #-}
 
-decodePowHashNat :: MonadGet m => m PowHashNat
+decodePowHashNat :: Get PowHashNat
 decodePowHashNat = PowHashNat <$!> decodeWordLe
 {-# INLINE decodePowHashNat #-}
 
-encodePowHashNatBe :: MonadPut m => PowHashNat -> m ()
+encodePowHashNatBe :: PowHashNat -> Put
 encodePowHashNatBe (PowHashNat n) = encodeWordBe n
 {-# INLINE encodePowHashNatBe #-}
 
-decodePowHashNatBe :: MonadGet m => m PowHashNat
+decodePowHashNatBe :: Get PowHashNat
 decodePowHashNatBe = PowHashNat <$!> decodeWordBe
 {-# INLINE decodePowHashNatBe #-}
 
@@ -154,7 +151,7 @@ instance ToJSON PowHashNat where
 
 instance FromJSON PowHashNat where
     parseJSON = withText "PowHashNat" $ either (fail . show) return
-        . (runGet decodePowHashNat <=< decodeB64UrlNoPaddingText)
+        . (runGetS decodePowHashNat <=< decodeB64UrlNoPaddingText)
     {-# INLINE parseJSON #-}
 
 instance ToJSONKey PowHashNat where
@@ -164,7 +161,7 @@ instance ToJSONKey PowHashNat where
 
 instance FromJSONKey PowHashNat where
     fromJSONKey = FromJSONKeyTextParser $ either (fail . show) return
-        . (runGet decodePowHashNat <=< decodeB64UrlNoPaddingText)
+        . (runGetS decodePowHashNat <=< decodeB64UrlNoPaddingText)
     {-# INLINE fromJSONKey #-}
 
 -- -------------------------------------------------------------------------- --
@@ -218,11 +215,11 @@ checkTarget :: HashTarget -> PowHash -> Bool
 checkTarget (HashTarget target) h = powHashNat h <= target
 {-# INLINE checkTarget #-}
 
-encodeHashTarget :: MonadPut m => HashTarget -> m ()
+encodeHashTarget :: HashTarget -> Put
 encodeHashTarget = encodePowHashNat . coerce
 {-# INLINE encodeHashTarget #-}
 
-decodeHashTarget :: MonadGet m => m HashTarget
+decodeHashTarget :: Get HashTarget
 decodeHashTarget = HashTarget <$!> decodePowHashNat
 {-# INLINE decodeHashTarget #-}
 
@@ -246,19 +243,19 @@ newtype HashDifficulty = HashDifficulty PowHashNat
     deriving newtype (AdditiveSemigroup, AdditiveAbelianSemigroup)
     deriving newtype (Num, Integral, Real)
 
-encodeHashDifficulty :: MonadPut m => HashDifficulty -> m ()
+encodeHashDifficulty :: HashDifficulty -> Put
 encodeHashDifficulty (HashDifficulty x) = encodePowHashNat x
 {-# INLINE encodeHashDifficulty #-}
 
-decodeHashDifficulty :: MonadGet m => m HashDifficulty
+decodeHashDifficulty :: Get HashDifficulty
 decodeHashDifficulty = HashDifficulty <$!> decodePowHashNat
 {-# INLINE decodeHashDifficulty #-}
 
-encodeHashDifficultyBe :: MonadPut m => HashDifficulty -> m ()
+encodeHashDifficultyBe :: HashDifficulty -> Put
 encodeHashDifficultyBe (HashDifficulty x) = encodePowHashNatBe x
 {-# INLINE encodeHashDifficultyBe #-}
 
-decodeHashDifficultyBe :: MonadGet m => m HashDifficulty
+decodeHashDifficultyBe :: Get HashDifficulty
 decodeHashDifficultyBe = HashDifficulty <$!> decodePowHashNatBe
 {-# INLINE decodeHashDifficultyBe #-}
 
