@@ -8,6 +8,7 @@
       config.allowBroken = false;
       config.allowUnfree = true;
     }
+, returnShellEnv ? pkgs.lib.inNixShell
 }:
 let gitignoreSrc = import (pkgs.fetchFromGitHub {
       owner = "hercules-ci";
@@ -99,4 +100,6 @@ pkgs.haskell.packages.${compiler}.developPackage {
       pkgs.haskell.packages.${compiler}.cabal-install
     ];
   });
+
+  inherit returnShellEnv;
 }
