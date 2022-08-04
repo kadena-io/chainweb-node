@@ -17,15 +17,10 @@
 --
 module Chainweb.CutDB.RestAPI.Server
 (
--- * Handlers
-  cutGetHandler
-, cutPutHandler
 
 -- * Cut Server
-, cutServer
+  cutServer
 , cutGetServer
-, newCutGetServer
-, newCutServer
 
 -- * Some Cut Server
 , someCutServer
@@ -71,22 +66,6 @@ import P2P.Peer
 -- -------------------------------------------------------------------------- --
 -- Handlers
 
-cutGetHandler :: CutDb cas -> Maybe MaxRank -> IO CutHashes
-cutGetHandler db Nothing = cutToCutHashes Nothing <$> _cut db
-cutGetHandler db (Just (MaxRank (Max mar))) = do
-    !c <- _cut db
-    !c' <- limitCut (view cutDbWebBlockHeaderDb db) (int mar) c
-    return $! cutToCutHashes Nothing c'
-
-cutPutHandler :: PeerDb -> CutDb cas -> CutHashes -> IO ()
-cutPutHandler pdb db c = case _peerAddr <$> _cutOrigin c of
-    Nothing -> errorWithStatus badRequest400 "Cut is missing an origin entry"
-    Just addr -> do
-        ps <- peerDbSnapshot pdb
-        case getOne (getEQ addr ps) of
-            Nothing -> errorWithStatus unauthorized401 "Unknown peer"
-            Just{} -> addCutHashes db c
-
 -- -------------------------------------------------------------------------- --
 -- Cut API Server
 
@@ -104,22 +83,6 @@ cutGetServer
     . CutDbT cas v
     -> Server (CutGetApi v)
 cutGetServer (CutDbT db) = liftIO . cutGetHandler db
-
-cutGetEndpoint :: CutDb cas -> (Method, MediaType, Wai.Application)
-cutGetEndpoint cutDb = (methodGet, "application/json",) $ \req resp -> do
-    maxheight <- getParams req (queryParamMaybe "maxheight")
-    resp . responseJSON status200 [] =<< cutGetHandler cutDb maxheight
-
-newCutGetServer :: CutDb cas -> Route Wai.Application
-newCutGetServer cutDb = terminus' [cutGetEndpoint cutDb]
-
-newCutServer :: PeerDb -> CutDb cas -> Route Wai.Application
-newCutServer peerDb cutDb = terminus'
-    [ cutGetEndpoint cutDb
-    , (methodPut, "application/json",) $ \req resp -> do
-        cutPutHandler peerDb cutDb =<< requestFromJSON req
-        resp $ Wai.responseLBS noContent204 [] ""
-    ]
 
 -- -------------------------------------------------------------------------- --
 -- Some Cut Server

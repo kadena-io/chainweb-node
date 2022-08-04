@@ -3,6 +3,9 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeOperators #-}
+{-# LANGUAGE TupleSections #-}
+{-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE OverloadedStrings #-}
 
 -- |
 -- Module: Chainweb.CutDB.RestAPI
@@ -22,24 +25,57 @@ module Chainweb.CutDB.RestAPI
 , cutPutApi
 , CutApi
 , cutApi
+, newCutGetServer
+, newCutServer
 
 -- * Some Cut API
 , someCutApi
+-- * Handlers
+, cutGetHandler
+, cutPutHandler
+-- * Request factories
+, newCutGetClient
+, newCutPutClient
 ) where
 
+import Control.Lens
+import Data.Aeson
+import Data.IxSet.Typed
 import Data.Proxy
+import Data.Semigroup
+
+import qualified Network.HTTP.Client.Internal as Client
+import Network.HTTP.Media
+import Network.HTTP.Types
+import qualified Network.Wai as Wai
 
 import Servant
 
+import Web.DeepRoute hiding (QueryParam)
+import Web.DeepRoute.Client
+import Web.DeepRoute.Wai
+
 -- internal modules
 
+import Chainweb.Cut
+import Chainweb.Cut.CutHashes
+import Chainweb.CutDB
+import Chainweb.HostAddress
+import Chainweb.RestAPI.Utils
+import Chainweb.TreeDB (MaxRank(..))
+import Chainweb.Utils
+import Chainweb.Version
 import Chainweb.ChainId
 import Chainweb.Cut.CutHashes
+import Chainweb.CutDB
 import Chainweb.RestAPI.NetworkID
 import Chainweb.RestAPI.Orphans ()
 import Chainweb.RestAPI.Utils
 import Chainweb.TreeDB (MaxRank(..))
 import Chainweb.Version
+
+import P2P.Node.PeerDB
+import P2P.Peer
 
 -- -------------------------------------------------------------------------- --
 -- @GET /chainweb/<ApiVersion>/<ChainwebVersion>/cut@
@@ -86,3 +122,49 @@ cutApi = Proxy
 
 someCutApi :: ChainwebVersion -> SomeApi
 someCutApi (FromSingChainwebVersion (SChainwebVersion :: Sing v)) = SomeApi $ cutApi @v
+
+-- new stuff
+
+cutGetHandler :: CutDb cas -> Maybe MaxRank -> IO CutHashes
+cutGetHandler db Nothing = cutToCutHashes Nothing <$> _cut db
+cutGetHandler db (Just (MaxRank (Max mar))) = do
+    !c <- _cut db
+    !c' <- limitCut (view cutDbWebBlockHeaderDb db) (int mar) c
+    return $! cutToCutHashes Nothing c'
+
+cutPutHandler :: PeerDb -> CutDb cas -> CutHashes -> IO ()
+cutPutHandler pdb db c = case _peerAddr <$> _cutOrigin c of
+    Nothing -> errorWithStatus badRequest400 "Cut is missing an origin entry"
+    Just addr -> do
+        ps <- peerDbSnapshot pdb
+        case getOne (getEQ addr ps) of
+            Nothing -> errorWithStatus unauthorized401 "Unknown peer"
+            Just{} -> addCutHashes db c
+
+cutGetEndpoint :: CutDb cas -> (Method, MediaType, Wai.Application)
+cutGetEndpoint cutDb = (methodGet, "application/json",) $ \req resp -> do
+    maxheight <- getParams req (queryParamMaybe "maxheight")
+    resp . responseJSON status200 [] =<< cutGetHandler cutDb maxheight
+
+newCutGetClient :: (HasRouteRoot e, HasClientEnv e) => e -> MaxRank -> (Maybe CutHashes -> IO r) -> IO r
+newCutGetClient e maxheight = doJSONRequest (e ^. clientEnv) $
+    withMethod e methodGet &
+    requestQuery .~ [("maxheight", Just (toQueryParam maxheight))] &
+    requestHeaders .~ [("Accept", "application/json")]
+
+newCutGetServer :: CutDb cas -> Route Wai.Application
+newCutGetServer cutDb = terminus' [cutGetEndpoint cutDb]
+
+newCutServer :: PeerDb -> CutDb cas -> Route Wai.Application
+newCutServer peerDb cutDb = terminus'
+    [ cutGetEndpoint cutDb
+    , (methodPut, "application/json",) $ \req resp -> do
+        cutPutHandler peerDb cutDb =<< requestFromJSON req
+        resp $ Wai.responseLBS noContent204 [] ""
+    ]
+
+newCutPutClient :: (HasRouteRoot e, HasClientEnv e) => e -> CutHashes -> IO ()
+newCutPutClient e ch = doRequestForEffect (e ^. clientEnv) $
+    withMethod e methodPut &
+    requestBody .~ Client.RequestBodyLBS (encode ch) &
+    requestHeaders .~ [("Content-Type", "application/json")]

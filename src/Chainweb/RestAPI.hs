@@ -38,7 +38,6 @@ module Chainweb.RestAPI
 , Rosetta(..)
 
 -- * Chainweb P2P API Server
-, someChainwebServer
 , chainwebApplication
 , serveChainwebOnPort
 , serveChainweb
@@ -96,11 +95,11 @@ import Chainweb.ChainId
 import Chainweb.Chainweb.Configuration
 import Chainweb.Chainweb.MinerResources (MiningCoordination)
 import Chainweb.CutDB
-import Chainweb.CutDB.RestAPI.Server
+import Chainweb.CutDB.RestAPI
 import Chainweb.HostAddress
 import Chainweb.Logger (Logger)
 import Chainweb.Mempool.Mempool (MempoolBackend)
-import qualified Chainweb.Mempool.RestAPI.Server as Mempool
+import qualified Chainweb.Mempool.RestAPI as Mempool
 import qualified Chainweb.Miner.RestAPI as Mining
 import qualified Chainweb.Pact.RestAPI.Server as PactAPI
 import Chainweb.Payload.PayloadStore
@@ -213,32 +212,6 @@ chainwebServiceMiddlewares
     = chainwebTime
     . chainwebNodeVersion
     . chainwebCors
-
--- -------------------------------------------------------------------------- --
--- Chainweb Peer Server
-
-someChainwebServer
-    :: Show t
-    => PayloadCasLookup cas
-    => ChainwebConfiguration
-    -> ChainwebServerDbs t cas
-    -> SomeServer
-someChainwebServer config dbs =
-    maybe mempty (someCutServer v cutPeerDb) cuts
-    <> maybe mempty (someSpvServers v) cuts
-    <> somePayloadServers v p2pPayloadBatchLimit payloads
-    <> someBlockHeaderDbServers v blocks
-    <> Mempool.someMempoolServers v mempools
-    <> someP2pServers v peers
-    <> someGetConfigServer config
-  where
-    payloads = _chainwebServerPayloadDbs dbs
-    blocks = _chainwebServerBlockHeaderDbs dbs
-    cuts = _chainwebServerCutDb dbs
-    peers = _chainwebServerPeerDbs dbs
-    mempools = _chainwebServerMempools dbs
-    cutPeerDb = fromJuste $ lookup CutNetwork peers
-    v = _configChainwebVersion config
 
 -- -------------------------------------------------------------------------- --
 -- Chainweb P2P API Application
