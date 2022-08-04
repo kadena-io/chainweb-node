@@ -392,8 +392,18 @@ applyPactCmds isGenesis env cmds miner mc blockGas = do
       let
         onBuyGasFailure (BuyGasFailure f) = pure $! (Left f, T2 mcache blockGasRemaining)
         onBuyGasFailure e = throwM e
+        requestedTxGasLimit = (payloadObj <$> cmd) ^. P.cmdPayload . P.pMeta . P.pmGasLimit
+        -- notice that we add 1 to the remaining block gas here, to distinguish
+        -- the cases "tx used exactly as much gas remained in the block" and "tx
+        -- attempted to use more gas than remains in the block" while still not
+        -- letting it use significantly more gas than remains in the block.  for
+        -- example: tx has a tx gas limit of 10000. the block has 5000 remaining
+        -- gas.  the tx is applied with a tx gas limit of 5001. if it uses 5001,
+        -- that's illegal; if it uses 5000 or less, that's legal.
+        newTxGasLimit =
+          maybe id min (fromIntegral . (+ 1) <$> blockGasRemaining) requestedTxGasLimit
         gasLimitedCmd =
-          (payloadObj <$> cmd) & P.cmdPayload . P.pMeta . P.pmGasLimit %~ maybe id min (fromIntegral <$> blockGasRemaining)
+          (payloadObj <$> cmd) & P.cmdPayload . P.pMeta . P.pmGasLimit .~ newTxGasLimit
         initialGas = initialGasOf (P._cmdPayload cmd)
       handle onBuyGasFailure $ do
         T2 result mcache' <- if isGenesis
@@ -411,10 +421,16 @@ applyPactCmds isGenesis env cmds miner mc blockGas = do
 
         -- mark the tx as processed at the checkpointer.
         liftIO $ _cpRegisterProcessedTx cp (P._cmdHash cmd)
-        let blockGasRemaining' = (\g -> g - P._crGas result) <$> blockGasRemaining
-        case blockGasRemaining' of
+        case blockGasRemaining of
+          Just r ->
+            when (P._crGas result >= r + 1) $
+              -- this tx attempted to consume more gas than remains in the
+              -- block, so the block is invalid.  we don't know how much gas it
+              -- would've consumed, because we stop early, so we guess that it
+              -- needed its entire original gas limit.
+              throwM $ BlockGasLimitExceeded (r - fromIntegral requestedTxGasLimit)
           Nothing -> return ()
-          Just r -> when (r <= 0) $ throwM $ BlockGasLimitExceeded (fromJuste blockGas - r)
+        let blockGasRemaining' = (\g -> g - P._crGas result) <$> blockGasRemaining
         pure (Right result, T2 mcache' blockGasRemaining')
 
 toHashCommandResult :: P.CommandResult [P.TxLog A.Value] -> P.CommandResult P.Hash

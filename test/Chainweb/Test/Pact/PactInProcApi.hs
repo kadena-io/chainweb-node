@@ -1208,23 +1208,27 @@ blockGasLimitTest :: IO (IORef MemPoolAccess) -> IO (PactQueue, TestBlockDb) -> 
 blockGasLimitTest _ reqIO = testCase "blockGasLimitTest" $ do
   (q,_) <- reqIO
 
-  -- txs that fail take all of the gas in the tx gas limit.  we set the tx gas
-  -- limit to be much higher than the maximum block gas limit and provoke an
-  -- error.
-  bigTx <- buildCwCmd $ set cbGasLimit 500_000_000 $ set cbSigners [mkSigner' sender00 []] $ mkCmd "cmd" $ mkExec' "TESTING"
-  let r = CommandResult (RequestKey (Hash "0")) Nothing (PactResult $ Left $ PactError EvalError (Pact.Types.Info.Info $ Nothing) [] mempty) 500_000 Nothing Nothing Nothing []
-  let block = Transactions (V.singleton (bigTx, r)) (CommandResult (RequestKey (Hash "h")) Nothing (PactResult $ Right $ PLiteral (LString "output")) 0 Nothing Nothing Nothing [])
-  let payload = toPayloadWithOutputs noMiner block
-  let bh = newBlockHeader
-            mempty
-            (_payloadWithOutputsPayloadHash payload)
-            (Nonce 0)
-            (BlockCreationTime $ Time $ TimeSpan 0)
-            (ParentHeader $ genesisBlockHeader testVersion cid)
-  validationResult <- validateBlock bh (payloadWithOutputsToPayloadData payload) q >>= takeMVar
-  case validationResult of
+  let
+    useGas g = do
+      bigTx <- buildCwCmd $ set cbGasLimit g $ set cbSigners [mkSigner' sender00 []] $ mkCmd "cmd" $ mkExec' "TESTING"
+      let cr = CommandResult (RequestKey (Hash "0")) Nothing (PactResult $ Left $ PactError EvalError (Pact.Types.Info.Info $ Nothing) [] mempty) (fromIntegral g) Nothing Nothing Nothing []
+      let block = Transactions (V.singleton (bigTx, cr)) (CommandResult (RequestKey (Hash "h")) Nothing (PactResult $ Right $ PLiteral (LString "output")) 0 Nothing Nothing Nothing [])
+      let payload = toPayloadWithOutputs noMiner block
+      let bh = newBlockHeader
+                mempty
+                (_payloadWithOutputsPayloadHash payload)
+                (Nonce 0)
+                (BlockCreationTime $ Time $ TimeSpan 0)
+                (ParentHeader $ genesisBlockHeader testVersion cid)
+      validateBlock bh (payloadWithOutputsToPayloadData payload) q >>= takeMVar
+  -- we consume more than the maximum block gas limit and provoke an error.
+  useGas 2_000_001 >>= \case
     Left (PactInternalError (decode . BL.fromStrict . T.encodeUtf8 -> Just (BlockGasLimitExceeded _))) -> return ()
-    _ -> error $ "not a BlockGasLimitExceeded error: " <> sshow validationResult
+    r -> error $ "not a BlockGasLimitExceeded error: " <> sshow r
+  -- we consume exactly the maximum block gas limit and expect no such error.
+  useGas 2_000_000 >>= \case
+    Left (PactInternalError (decode . BL.fromStrict . T.encodeUtf8 -> Just (BlockGasLimitExceeded _))) -> error "consumed exactly block gas limit but errored"
+    _ -> return ()
 
 mempoolRefillTest :: IO (IORef MemPoolAccess) -> IO (PactQueue,TestBlockDb) -> TestTree
 mempoolRefillTest mpRefIO reqIO = testCase "mempoolRefillTest" $ do
