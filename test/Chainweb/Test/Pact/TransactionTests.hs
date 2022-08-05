@@ -76,6 +76,9 @@ coinReplV1 = "pact/coin-contract/coin.repl"
 coinReplV4 :: FilePath
 coinReplV4 = "pact/coin-contract/v4/coin-v4.repl"
 
+coinReplV5 :: FilePath
+coinReplV5 = "pact/coin-contract/v5/coin-v5.repl"
+
 logger :: Logger
 #if DEBUG_TEST
 logger = newLogger alwaysLog ""
@@ -97,6 +100,7 @@ tests = testGroup "Chainweb.Test.Pact.TransactionTests"
       [ testCase "v1" (ccReplTests coinReplV1)
         -- v2 and v3 repl tests were consolidated in v4
       , testCase "v4" (ccReplTests coinReplV4)
+      , testCase "v5" (ccReplTests coinReplV5)
       ]
     , testCase "Ns Repl Tests" (ccReplTests "pact/namespaces/ns.repl")
     , testCase "Payer Repl Tests" (ccReplTests "pact/gas-payer/gas-payer-v1.repl")

@@ -94,7 +94,7 @@ module Chainweb.Cut
 
 import Control.DeepSeq
 import Control.Exception hiding (catch)
-import Control.Lens hiding ((:>))
+import Control.Lens hiding ((:>), (.=))
 import Control.Monad hiding (join)
 import Control.Monad.Catch
 

@@ -33,10 +33,9 @@ module Chainweb.Chainweb.Configuration
 , chainDatabaseGcFromText
 
 , CutConfig(..)
-, cutIncludeOrigin
 , cutPruneChainDatabase
 , cutFetchTimeout
-, cutInitialCutHeightLimit
+, cutInitialBlockHeightLimit
 , defaultCutConfig
 , pCutConfig
 
@@ -55,6 +54,7 @@ module Chainweb.Chainweb.Configuration
 -- * Chainweb Configuration
 , ChainwebConfiguration(..)
 , configChainwebVersion
+, configCuts
 , configMining
 , configHeaderStream
 , configReintroTxs
@@ -102,6 +102,7 @@ import qualified Chainweb.Mempool.Mempool as Mempool
 import Chainweb.Mempool.P2pConfig
 import Chainweb.Miner.Config
 import Chainweb.Pact.Types (defaultReorgLimit)
+import Chainweb.Payload.RestAPI (PayloadBatchLimit(..), defaultServicePayloadBatchLimit)
 import Chainweb.Utils
 import Chainweb.Version
 
@@ -197,10 +198,9 @@ instance FromJSON ChainDatabaseGcConfig where
     {-# INLINE parseJSON #-}
 
 data CutConfig = CutConfig
-    { _cutIncludeOrigin :: !Bool
-    , _cutPruneChainDatabase :: !ChainDatabaseGcConfig
+    { _cutPruneChainDatabase :: !ChainDatabaseGcConfig
     , _cutFetchTimeout :: !Int
-    , _cutInitialCutHeightLimit :: !(Maybe CutHeight)
+    , _cutInitialBlockHeightLimit :: !(Maybe BlockHeight)
     } deriving (Eq, Show)
 
 makeLenses ''CutConfig
@@ -209,31 +209,25 @@ instance ToJSON CutConfig where
     toJSON o = object
         [ "pruneChainDatabase" .= _cutPruneChainDatabase o
         , "fetchTimeout" .= _cutFetchTimeout o
-        , "initialCutHeightLimit" .= _cutInitialCutHeightLimit o ]
+        , "initialBlockHeightLimit" .= _cutInitialBlockHeightLimit o
+        ]
 
 instance FromJSON (CutConfig -> CutConfig) where
     parseJSON = withObject "CutConfig" $ \o -> id
-        <$< cutIncludeOrigin ..: "includeOrigin" % o
-        <*< cutPruneChainDatabase ..: "pruneChainDatabase" % o
+        <$< cutPruneChainDatabase ..: "pruneChainDatabase" % o
         <*< cutFetchTimeout ..: "fetchTimeout" % o
-        <*< cutInitialCutHeightLimit ..: "initialCutHeightLimit" % o
+        <*< cutInitialBlockHeightLimit ..: "initialBlockHeightLimit" % o
 
 defaultCutConfig :: CutConfig
 defaultCutConfig = CutConfig
-    { _cutIncludeOrigin = True
-    , _cutPruneChainDatabase = GcNone
+    { _cutPruneChainDatabase = GcNone
     , _cutFetchTimeout = 3_000_000
-    , _cutInitialCutHeightLimit = Nothing
+    , _cutInitialBlockHeightLimit = Nothing
     }
 
 pCutConfig :: MParser CutConfig
 pCutConfig = id
-    <$< cutIncludeOrigin .:: boolOption_
-        % long "cut-include-origin"
-        <> hidden
-        <> internal
-        <> help "whether to include the origin when sending cuts"
-    <*< cutPruneChainDatabase .:: textOption
+    <$< cutPruneChainDatabase .:: textOption
         % long "prune-chain-database"
         <> help
             ( "How to prune the chain database on startup."
@@ -245,7 +239,8 @@ pCutConfig = id
     <*< cutFetchTimeout .:: option auto
         % long "cut-fetch-timeout"
         <> help "The timeout for processing new cuts in microseconds"
-    -- cutInitialCutHeightLimit isn't supported on the command line
+    -- cutInitialBlockHeightLimit isn't supported on the command line
+    -- cutResetToCut isn't supported on the command line
 
 -- -------------------------------------------------------------------------- --
 -- Service API Configuration
@@ -260,6 +255,10 @@ data ServiceApiConfig = ServiceApiConfig
     , _serviceApiConfigInterface :: !HostPreference
         -- ^ The network interface that the service APIs are bound to. Default is to
         -- bind to all available interfaces ('*').
+
+    , _serviceApiPayloadBatchLimit :: PayloadBatchLimit
+        -- ^ maximum size for payload batches on the service API. Default is
+        -- 'Chainweb.Payload.RestAPI.defaultServicePayloadBatchLimit'.
     }
     deriving (Show, Eq, Generic)
 
@@ -269,18 +268,21 @@ defaultServiceApiConfig :: ServiceApiConfig
 defaultServiceApiConfig = ServiceApiConfig
     { _serviceApiConfigPort = 1848
     , _serviceApiConfigInterface = "*"
+    , _serviceApiPayloadBatchLimit = defaultServicePayloadBatchLimit
     }
 
 instance ToJSON ServiceApiConfig where
     toJSON o = object
         [ "port" .= _serviceApiConfigPort o
         , "interface" .= hostPreferenceToText (_serviceApiConfigInterface o)
+        , "payloadBatchLimit" .= _serviceApiPayloadBatchLimit o
         ]
 
 instance FromJSON (ServiceApiConfig -> ServiceApiConfig) where
     parseJSON = withObject "ServiceApiConfig" $ \o -> id
         <$< serviceApiConfigPort ..: "port" % o
         <*< setProperty serviceApiConfigInterface "interface" (parseJsonFromText "interface") o
+        <*< serviceApiPayloadBatchLimit ..: "payloadBatchLimit" % o
 
 pServiceApiConfig :: MParser ServiceApiConfig
 pServiceApiConfig = id
@@ -289,6 +291,9 @@ pServiceApiConfig = id
         % prefixLong service "interface"
         <> suffixHelp service "interface that the service Rest API binds to (see HostPreference documentation for details)"
     -- serviceApiBackups isn't supported on the command line
+    <*< serviceApiPayloadBatchLimit .:: fmap PayloadBatchLimit . option auto
+        % prefixLong service "payload-batch-limit"
+        <> suffixHelp service "upper limit for the size of payload batches on the service API"
   where
     service = Just "service"
 

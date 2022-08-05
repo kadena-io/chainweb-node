@@ -1,6 +1,7 @@
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -51,6 +52,7 @@ module Chainweb.Pact.Backend.Utils
   , openSQLiteConnection
   , closeSQLiteConnection
   , withTempSQLiteConnection
+  , withInMemSQLiteConnection
   -- * SQLite Pragmas
   , chainwebPragmas
   ) where
@@ -75,7 +77,6 @@ import Prelude hiding (log)
 
 import System.Directory
 import System.FilePath
-import System.IO.Temp
 import System.LogLevel
 
 -- pact
@@ -251,17 +252,17 @@ chainwebPragmas =
   ]
 
 execMulti :: Traversable t => Database -> Utf8 -> t [SType] -> IO ()
-execMulti db q rows = do
-    stmt <- prepStmt db q
+execMulti db q rows = bracket (prepStmt db q) destroy $ \stmt -> do
     forM_ rows $ \row -> do
         reset stmt >>= checkError
         clearBindings stmt
         bindParams stmt row
         step stmt >>= checkError
-    finalize stmt >>= checkError
   where
     checkError (Left e) = void $ fail $ "error during batch insert: " ++ show e
     checkError (Right _) = return ()
+
+    destroy x = void (finalize x >>= checkError)
 
 withSqliteDb
     :: Logger logger
@@ -296,8 +297,7 @@ startSqliteDb cid logger dbDir doResetDb = do
   where
     textLog = logFunctionText logger
     resetDb = removeDirectoryRecursive dbDir
-    sqliteFile =
-        dbDir </> chainDbFileName cid
+    sqliteFile = dbDir </> chainDbFileName cid
 
 chainDbFileName :: ChainId -> FilePath
 chainDbFileName cid = fold
@@ -309,19 +309,12 @@ chainDbFileName cid = fold
 stopSqliteDb :: SQLiteEnv -> IO ()
 stopSqliteDb = closeSQLiteConnection
 
-withSQLiteConnection :: String -> [Pragma] -> Bool -> (SQLiteEnv -> IO c) -> IO c
-withSQLiteConnection file ps todelete action =
-  bracket (openSQLiteConnection file ps) closer action
-  where
-    closer c = do
-      closeSQLiteConnection c
-      when todelete (removeFile file)
+withSQLiteConnection :: String -> [Pragma] -> (SQLiteEnv -> IO c) -> IO c
+withSQLiteConnection file ps =
+    bracket (openSQLiteConnection file ps) closeSQLiteConnection
 
 openSQLiteConnection :: String -> [Pragma] -> IO SQLiteEnv
-openSQLiteConnection file ps = do
-  -- e <- open (fromString file) -- old way
-  e <- open2 file -- new way
-  case e of
+openSQLiteConnection file ps = open2 file >>= \case
     Left (err, msg) ->
       internalError $
       "withSQLiteConnection: Can't open db with "
@@ -334,13 +327,28 @@ openSQLiteConnection file ps = do
 closeSQLiteConnection :: SQLiteEnv -> IO ()
 closeSQLiteConnection c = void $ close_v2 $ _sConn c
 
+-- passing the empty string as filename causes sqlite to use a temporary file
+-- that is deleted when the connection is closed. In practice, unless the database becomes
+-- very large, the database will reside memory and no data will be written to disk.
+--
+-- Cf. https://www.sqlite.org/inmemorydb.html
+--
 withTempSQLiteConnection :: [Pragma] -> (SQLiteEnv -> IO c) -> IO c
-withTempSQLiteConnection ps action =
-  withSystemTempFile "sqlite-tmp" (\file _ -> withSQLiteConnection file ps False action)
+withTempSQLiteConnection = withSQLiteConnection ""
+
+-- Using the special file name @:memory:@ causes sqlite to create a temporary in-memory
+-- database.
+--
+-- Cf. https://www.sqlite.org/inmemorydb.html
+--
+withInMemSQLiteConnection :: [Pragma] -> (SQLiteEnv -> IO c) -> IO c
+withInMemSQLiteConnection = withSQLiteConnection ":memory:"
 
 open2 :: String -> IO (Either (Error, Utf8) Database)
-open2 file = open_v2 (fromString file) (collapseFlags [sqlite_open_readwrite , sqlite_open_create , sqlite_open_fullmutex]) Nothing
--- Nothing corresponds to the nullPtr
+open2 file = open_v2
+    (fromString file)
+    (collapseFlags [sqlite_open_readwrite , sqlite_open_create , sqlite_open_fullmutex])
+    Nothing -- Nothing corresponds to the nullPtr
 
 collapseFlags :: [SQLiteFlag] -> SQLiteFlag
 collapseFlags xs =

@@ -68,9 +68,10 @@ data PactServiceConfig = PactServiceConfig
     -- ^ max size of pact internal queue.
   , _pactResetDb :: !Bool
     -- ^ blow away pact dbs
+  , _pactUnlimitedInitialRewind :: !Bool
+    -- ^ disable initial rewind limit
   , _pactBlockGasLimit :: !GasLimit
   } deriving (Eq,Show)
-
 
 data GasPurchaseFailure = GasPurchaseFailure TransactionHash PactError
     deriving (Eq,Generic)

@@ -80,7 +80,7 @@ type TableContents = B.ByteString
 -- this will produce both the raw bytes for all of the tables concatenated
 -- together, and the raw bytes of each individual table (this is over a single chain)
 work :: Args -> IO (Builder, Map TableName TableContents)
-work args = withSQLiteConnection (_sqliteFile args) chainwebPragmas False (runReaderT go)
+work args = withSQLiteConnection (_sqliteFile args) chainwebPragmas (runReaderT go)
   where
     low = _startBlockHeight args
     high = case _endBlockHeight args of

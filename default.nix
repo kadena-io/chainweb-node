@@ -1,6 +1,6 @@
-{ compiler ? "ghc8104"
-, rev      ? "7e9b0dff974c89e070da1ad85713ff3c20b0ca97"
-, sha256   ? "1ckzhh24mgz6jd1xhfgx0i9mijk6xjqxwsshnvq789xsavrmsc36"
+{ compiler ? "ghc8107"
+, rev      ? "7a94fcdda304d143f9a40006c033d7e190311b54"
+, sha256   ? "0d643wp3l77hv2pmg2fi7vyxn4rwy0iyr8djcw1h5x72315ck9ik"
 , pkgs     ?
     import (builtins.fetchTarball {
       url    = "https://github.com/NixOS/nixpkgs/archive/${rev}.tar.gz";
@@ -8,6 +8,8 @@
       config.allowBroken = false;
       config.allowUnfree = true;
     }
+, returnShellEnv ? false
+, mkDerivation ? null
 }:
 let gitignoreSrc = import (pkgs.fetchFromGitHub {
       owner = "hercules-ci";
@@ -22,72 +24,19 @@ pkgs.haskell.packages.${compiler}.developPackage {
   root = gitignoreSrc.gitignoreSource ./.;
 
   overrides = self: super: with pkgs.haskell.lib; {
-      ap-normalize = dontCheck super.ap-normalize;
+      sha-validation = self.callCabal2nix "sha-validation" (pkgs.fetchFromGitHub {
+        owner = "larskuhtz";
+        repo = "hs-sha-validation";
+        rev = "0542786e7e7b4b24a37243d7168f81800abe59f0";
+        sha256 = "1fp3m6jwzykpfkbwi447rylg9616ph1k0avrr0i73p1pippxzqpx";
+      }) {};
+
       rosetta = self.callCabal2nix "rosetta" (pkgs.fetchFromGitHub {
         owner = "kadena-io";
         repo = "rosetta";
         rev = "6c8dd2eea1f6d0dba925646dbcb6e07feeccbfd5";
         sha256 = "19pjy06xrx2siggzybcmly0qaq4ds3yzxcsvqwgs4qh9kkzh0kqh";
       }) {};
-      mwc-random = self.callHackageDirect {
-        pkg = "mwc-random";
-        ver = "0.15.0.2";
-        sha256 = "1mpill3lwrrhlzq0ccs8wyzsqhy1a2hmva17qxpgsy2zzqxi1nx1";
-       } {};
-      hashable = dontCheck super.hashable;
-      random = dontCheck (self.callHackageDirect {
-        pkg = "random";
-        ver = "1.2.1";
-        sha256 = "1j146hacca6drd9fvziw8an6zawqllxll3cl9hbwmz0nbj9xa6kb";
-       } {});
-      network = self.callHackageDirect {
-        pkg = "network";
-        ver = "3.1.2.2";
-        sha256 = "1kqqclg48s7x4i2sfr5pvzry3jq59794zdmmydk7rr59vh1gbmh4";
-       } {};
-      base64-bytestring = dontBenchmark (dontCheck (self.callHackageDirect {
-        pkg = "base64-bytestring";
-        ver = "1.0.0.3";
-        sha256 = "1wx3zdx5amjyawqlfv2i3mishvvh4pkdk9nh7y8f4d38ykri2bx0";
-       } {}));
-      base16-bytestring = dontBenchmark (dontCheck (self.callHackageDirect {
-        pkg = "base16-bytestring";
-        ver = "0.1.1.7";
-        sha256 = "0sv4gvaz1hwllv7dpm8b8xkrpsi1bllgra2niiwpszpq14bzpail";
-       } {}));
-      configuration-tools = dontBenchmark (dontCheck (self.callHackageDirect {
-        pkg = "configuration-tools";
-        ver = "0.6.0";
-        sha256 = "0ia2bhy35qv1xgbqrx0jalxznj8zgg97y0zkp8cnr1r3pq5adbcd";
-       } {}));
-      cuckoo = dontBenchmark (dontCheck (self.callHackageDirect {
-        pkg = "cuckoo";
-        ver = "0.3.0";
-        sha256 = "172km2552ipi9fqjmd16b4jmqw5a1414976p6xf8bxc83shxp97p";
-       } {}));
-      hashes = dontCheck (self.callHackageDirect {
-        pkg = "hashes";
-        ver = "0.1.0.1";
-        sha256 = "09n2k0vwwlzjy8ax5dlq3743qkcsd21gwfibqfjmqirv30lgb5b5";
-      } {});
-      prettyprinter = dontCheck (self.callHackageDirect {
-        pkg = "prettyprinter";
-        ver = "1.6.0";
-        sha256 = "0f8wqaj3cv3yra938afqf62wrvq20yv9jd048miw5zrfavw824aa";
-      } {});
-
-      quickcheck-classes-base = dontCheck (self.callHackageDirect {
-        pkg = "quickcheck-classes-base";
-        ver = "0.6.0.0";
-        sha256 = "1mmhfp95wqg6i5gzap4b4g87zgbj46nnpir56hqah97igsbvis70";
-      } {});
-      pact-time = dontCheck (self.callHackageDirect {
-        pkg = "pact-time";
-        ver = "0.2.0.0";
-        sha256 = "1cfn74j6dr4279bil9k0n1wff074sdlz6g1haqyyy38wm5mdd7mr";
-      } {});
-
-      pact = dontCheck (appendConfigureFlag super.pact "-f-build-tool");
 
       ethereum = dontCheck (self.callCabal2nix "ethereum" (pkgs.fetchFromGitHub {
         owner = "kadena-io";
@@ -96,91 +45,62 @@ pkgs.haskell.packages.${compiler}.developPackage {
         sha256 = "1vab2m67ign6x77k1sjfjmv9sbrrl5sl2pl07rw1fw8bjqnp5vqk";
       }) {});
 
-      chainweb-storage = dontCheck super.chainweb-storage;
-
-      nothunks = dontCheck (self.callHackageDirect {
-        pkg = "nothunks";
-        ver = "0.1.2";
-        sha256 = "1xj5xvy3x3vixkj84cwsjl3m06z2zfszbcpxbz1j1ca83ha2gb7i";
-      } {});
-
-
-      fast-logger = self.callHackageDirect {
-        pkg = "fast-logger";
-        ver = "2.4.17";
-        sha256 = "1whnbdzcfng6zknsvwgk4cxhjdvwak7yxwykwkh2mlv9ykz8b6iw";
+      resource-pool = self.callHackageDirect {
+        pkg = "resource-pool";
+        ver = "0.3.0.0";
+        sha256 = "0bpf868b6kq1g83s3sad26kfsawmpd3j0xpkyab8370lsq6zhcs1";
       } {};
 
-      http2 = self.callHackageDirect {
-        pkg = "http2";
-        ver = "2.0.3";
-        sha256 = "14bqmxla0id956y37fpfx9v6crwxphbfxkl8v8annrs8ngfbhbr7";
+      direct-sqlite = self.callHackageDirect {
+        pkg = "direct-sqlite";
+        ver = "2.3.27";
+        sha256 = "0w8wj3210h08qlws40qhidkscgsil3635zk83kdlj929rbd8khip";
       } {};
 
-      unordered-containers = dontCheck (self.callHackageDirect {
-        pkg = "unordered-containers";
-        ver = "0.2.15.0";
-        sha256 = "101fjg7jsa0mw57clpjwc2vgrdkrnn0vmf4xgagja21ynwwbl2b5";
-      } {});
+      pact = appendConfigureFlag super.pact "-f-build-tool";
 
-      wai = dontCheck (self.callHackageDirect {
-        pkg = "wai";
-        ver = "3.2.2.1";
-        sha256 = "0msyixvsk37qsdn3idqxb4sab7bw4v9657nl4xzrwjdkihy411jf";
-      } {});
+      autodocodec    = unmarkBroken super.autodocodec;
+      hashable       = doJailbreak super.hashable;
+      ixset-typed    = unmarkBroken super.ixset-typed;
+      rebase         = doJailbreak super.rebase;
+      token-bucket   = unmarkBroken super.token-bucket;
+      validity-aeson = unmarkBroken super.validity-aeson;
 
-      wai-cors = dontCheck (self.callHackageDirect {
-        pkg = "wai-cors";
-        ver = "0.2.7";
-        sha256 = "10yhjjkzp0ichf9ijiadliafriwh96f194c2g02anvz451capm6i";
-      } {});
+      # Cuckoo tests fail due to a missing symbol
+      cuckoo        = dontCheck super.cuckoo;
 
-      wai-logger = self.callHackageDirect {
-        pkg = "wai-logger";
-        ver = "2.3.5";
-        sha256 = "1iv6q7kpa9irjyjv9238pfqqzn7w92ccich5h8xbmv3r8qxwmvld";
-      } {};
-
-      wai-middleware-throttle = dontCheck (self.callHackageDirect {
-        pkg = "wai-middleware-throttle";
-        ver = "0.3.0.1";
-        sha256 = "13pz31pl7bk51brc88jp0gffjx80w35kzzrv248w27d7dc8xc63x";
-      } {});
-
-      wai-extra = self.callHackageDirect {
-        pkg = "wai-extra";
-        ver = "3.1.2";
-        sha256 = "1cha6hvb071bknw25va07vg1sr5bg44q8fwz0nwa1886j9d4yrr7";
-      } {};
-
-      wai-app-static = doJailbreak (dontCheck (self.callHackageDirect {
-        pkg = "wai-app-static";
-        ver = "3.1.7.2";
-        sha256 = "184ql2k7b5i0y3b34kpcv0mxvzbhd1z5wa277z3nd67v48slax7a";
-      } {}));
-
-      warp = dontCheck (self.callHackageDirect {
-        pkg = "warp";
-        ver = "3.3.6";
-        sha256 = "044w7ajkqlwnrpzc4zaqy284ac9wsklyby946jgfpqyjbj87985x";
-      } {});
-
-      warp-tls = self.callHackageDirect {
-        pkg = "warp-tls";
-        ver = "3.2.10";
-        sha256 = "1zgr83zkb3q4qa03msfnncwxkmvk63gd8sqkbbd1cwhvjragn4mz";
-      } {};
-
+      # These tests pull in unnecessary dependencies
+      http2         = dontCheck super.http2;
+      prettyprinter = dontCheck super.prettyprinter;
+      aeson         = dontCheck super.aeson;
+      generic-data  = dontCheck super.generic-data;
   };
+
   source-overrides = {
     chainweb-storage = nix-thunk.thunkSource ./dep/chainweb-storage;
-    pact = nix-thunk.thunkSource ./dep/pact;
+    pact             = nix-thunk.thunkSource ./dep/pact;
+
+    OneTuple                    = "0.3";
+    aeson                       = "1.5.6.0";
+    ansi-terminal               = "0.11.3";
+    prettyprinter-ansi-terminal = "1.1.2";
+    time-compat                 = "1.9.5";
+    trifecta                    = "2.1.1";
+    unordered-containers        = "0.2.15.0";
+
+    # These are required in order to not break payload validation
+    base16-bytestring = "0.1.1.7";
+    prettyprinter     = "1.6.0";
+    hashable          = "1.3.0.0";
+    base64-bytestring = "1.0.0.3";
   };
+
   modifier = drv: pkgs.haskell.lib.overrideCabal drv (attrs: {
     buildTools = (attrs.buildTools or []) ++ [
       pkgs.zlib
       pkgs.haskell.packages.${compiler}.cabal-install
-      pkgs.haskell.packages.${compiler}.ghcid
     ];
   });
+
+  inherit returnShellEnv;
 }

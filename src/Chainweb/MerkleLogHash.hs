@@ -114,7 +114,7 @@ decodeMerkleLogHash = unsafeMerkleLogHash <$> getBytes (int merkleLogHashBytesCo
 
 instance Hashable (MerkleLogHash a) where
     hashWithSalt s = xor s
-        . unsafePerformIO . flip BA.withByteArray (peek @Int)
+        . unsafeDupablePerformIO . flip BA.withByteArray (peek @Int)
     -- BlockHashes are already cryptographically strong hashes
     -- that include the chain id.
     {-# INLINE hashWithSalt #-}

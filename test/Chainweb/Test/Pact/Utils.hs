@@ -26,6 +26,7 @@ module Chainweb.Test.Pact.Utils
   SimpleKeyPair
 , sender00
 , sender01
+, sender00Ks
 , allocation00KeyPair
 , testKeyPairs
 , mkKeySetData
@@ -35,14 +36,20 @@ module Chainweb.Test.Pact.Utils
 , pDecimal
 , pBool
 , pList
+, pKeySet
 -- * event helpers
 , mkEvent
 , mkTransferEvent
+, mkTransferXChainEvent
+, mkTransferXChainRecdEvent
+, mkXYieldEvent
+, mkXResumeEvent
 -- * Capability helpers
 , mkCapability
 , mkTransferCap
 , mkGasCap
 , mkCoinCap
+, mkXChainTransferCap
 -- * Command builder
 , defaultCmd
 , mkCmd
@@ -132,7 +139,7 @@ import qualified Data.Vector as V
 import GHC.Generics
 
 import System.Directory
-import System.IO.Extra
+import System.IO.Temp (createTempDirectory)
 import System.LogLevel
 
 import Test.Tasty
@@ -228,6 +235,10 @@ allocation00KeyPair =
 mkKeySetData :: Text  -> [SimpleKeyPair] -> Value
 mkKeySetData name keys = object [ name .= map fst keys ]
 
+sender00Ks :: KeySet
+sender00Ks = mkKeySet
+    ["368820f80c324bbc7c2b0610688a7da43e39f91d118732671cd9c7500ff43cca"]
+    "keys-all"
 
 -- ----------------------------------------------------------------------- --
 -- PactValue helpers
@@ -250,6 +261,9 @@ pBool = PLiteral . LBool
 
 pList :: [PactValue] -> PactValue
 pList = PList . V.fromList
+
+pKeySet :: KeySet -> PactValue
+pKeySet = PGuard . GKeySet
 
 mkEvent
     :: MonadThrow m
@@ -279,6 +293,121 @@ mkTransferEvent
     -> m PactEvent
 mkTransferEvent sender receiver amount m mh =
   mkEvent "TRANSFER" [pString sender,pString receiver,pDecimal amount] m mh
+
+mkTransferXChainEvent
+    :: MonadThrow m
+    => Text
+    -- ^ sender
+    -> Text
+    -- ^ receiver
+    -> Decimal
+    -- ^ amount
+    -> ModuleName
+    -> Text
+    -- ^ module hash
+    -> Text
+    -- ^ target chain id
+    -> m PactEvent
+mkTransferXChainEvent sender receiver amount m mh tid
+    = mkEvent "TRANSFER_XCHAIN" args m mh
+  where
+    args =
+      [ pString sender
+      , pString receiver
+      , pDecimal amount
+      , pString tid
+      ]
+
+mkTransferXChainRecdEvent
+    :: MonadThrow m
+    => Text
+    -- ^ sender
+    -> Text
+    -- ^ receiver
+    -> Decimal
+    -- ^ amount
+    -> ModuleName
+    -> Text
+    -- ^ module hash
+    -> Text
+    -- ^ source chain id
+    -> m PactEvent
+mkTransferXChainRecdEvent sender receiver amount m mh sid
+    = mkEvent "TRANSFER_XCHAIN_RECD" args m mh
+  where
+    args =
+      [ pString sender
+      , pString receiver
+      , pDecimal amount
+      , pString sid
+      ]
+
+mkXYieldEvent
+    :: MonadThrow m
+    => Text
+    -- ^ sender
+    -> Text
+    -- ^ receiver
+    -> Decimal
+    -- ^ amount
+    -> KeySet
+    -- ^ receiver guard
+    -> ModuleName
+    -> Text
+    -- ^ module hash
+    -> Text
+    -- ^ target chain id
+    -> Text
+    -- ^ source chain id
+    -> m PactEvent
+mkXYieldEvent sender receiver amount ks mn mh tid sid
+    = mkEvent "X_YIELD" args mn mh
+  where
+    args =
+      [ pString tid
+      , pString "coin.transfer-crosschain"
+      , pList
+        [ pString sender
+        , pString receiver
+        , pKeySet ks
+        , pString sid
+        , pDecimal amount
+        ]
+      ]
+
+mkXResumeEvent
+    :: MonadThrow m
+    => Text
+    -- ^ sender
+    -> Text
+    -- ^ receiver
+    -> Decimal
+    -- ^ amount
+    -> KeySet
+    -- ^ receiver guard
+    -> ModuleName
+    -> Text
+    -- ^ module hash
+    -> Text
+    -- ^ target chain id
+    -> Text
+    -- ^ source chain id
+    -> m PactEvent
+mkXResumeEvent sender receiver amount ks mn mh tid sid
+    = mkEvent "X_RESUME" args mn mh
+  where
+    args =
+      [ pString tid
+      , pString "coin.transfer-crosschain"
+      , pList
+        [ pString sender
+        , pString receiver
+        , pKeySet ks
+        , pString sid
+        , pDecimal amount
+        ]
+      ]
+
 -- ----------------------------------------------------------------------- --
 -- Capability helpers
 
@@ -293,6 +422,14 @@ mkCoinCap n = mkCapability "coin" n
 mkTransferCap :: Text -> Text -> Decimal -> SigCapability
 mkTransferCap sender receiver amount = mkCoinCap "TRANSFER"
   [ pString sender, pString receiver, pDecimal amount ]
+
+mkXChainTransferCap :: Text -> Text -> Decimal -> Text -> SigCapability
+mkXChainTransferCap sender receiver amount cid = mkCoinCap "TRANSFER_XCHAIN"
+  [ pString sender
+  , pString receiver
+  , pDecimal amount
+  , pString cid
+  ]
 
 mkGasCap :: SigCapability
 mkGasCap = mkCoinCap "GAS" []
@@ -564,19 +701,16 @@ runCut v bdb pact genTime noncer miner =
     h <- getParentTestBlockDb bdb cid
     void $ _webPactValidateBlock pact h (payloadWithOutputsToPayloadData pout)
 
-initializeSQLite :: IO (IO (), SQLiteEnv)
-initializeSQLite = do
-      (file, del) <- newTempFile
-      e <- open2 file
-      case e of
-        Left (_err, _msg) ->
-          internalError "initializeSQLite: A connection could not be opened."
-        Right r ->  return (del, SQLiteEnv r (SQLiteConfig file chainwebPragmas))
+initializeSQLite :: IO SQLiteEnv
+initializeSQLite = open2 file >>= \case
+    Left (_err, _msg) ->
+        internalError "initializeSQLite: A connection could not be opened."
+    Right r ->  return (SQLiteEnv r (SQLiteConfig file chainwebPragmas))
+  where
+    file = "" {- temporary sqlitedb -}
 
-freeSQLiteResource :: (IO (), SQLiteEnv) -> IO ()
-freeSQLiteResource (del,sqlenv) = do
-  void $ close_v2 $ _sConn sqlenv
-  del
+freeSQLiteResource :: SQLiteEnv -> IO ()
+freeSQLiteResource sqlenv = void $ close_v2 $ _sConn sqlenv
 
 -- | Run in 'PactServiceM' with direct db access.
 type WithPactCtxSQLite cas = forall a . (PactDbEnv' -> PactServiceM cas a) -> IO a
@@ -594,16 +728,16 @@ withPactCtxSQLite v bhdbIO pdbIO conf f =
   withResource
     initializeSQLite
     freeSQLiteResource $ \io ->
-      withResource (start io) (destroy io) $ \ctxIO -> f $ \toPact -> do
+      withResource (start io) destroy $ \ctxIO -> f $ \toPact -> do
           (ctx, dbSt) <- ctxIO
           evalPactServiceM_ ctx (toPact dbSt)
   where
-    destroy = const (destroyTestPactCtx . fst)
+    destroy = destroyTestPactCtx . fst
     start ios = do
         let cid = someChainId v
         bhdb <- bhdbIO
         pdb <- pdbIO
-        (_,s) <- ios
+        s <- ios
         testPactCtxSQLite v cid bhdb pdb s conf freeGasModel
 
 toTxCreationTime :: Integral a => Time a -> TxCreationTime
@@ -664,13 +798,15 @@ withBlockHeaderDb iordb b = withResource start stop
     stop = closeBlockHeaderDb
 
 withTemporaryDir :: (IO FilePath -> TestTree) -> TestTree
-withTemporaryDir = withResource (fst <$> newTempDir) removeDirectoryRecursive
+withTemporaryDir = withResource
+    (getTemporaryDirectory >>= \d -> createTempDirectory d "test-pact")
+    removeDirectoryRecursive
 
 withTestBlockDbTest
-  :: ChainwebVersion
-  -> RocksDb
-  -> (IO TestBlockDb -> TestTree)
-  -> TestTree
+    :: ChainwebVersion
+    -> RocksDb
+    -> (IO TestBlockDb -> TestTree)
+    -> TestTree
 withTestBlockDbTest v rdb = withResource (mkTestBlockDb v rdb) mempty
 
 -- | Single-chain Pact via service queue.

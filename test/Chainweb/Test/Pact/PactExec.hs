@@ -34,8 +34,6 @@ import qualified Data.Yaml as Y
 
 import GHC.Generics (Generic)
 
-import System.IO.Extra (readFile')
-
 import Test.Tasty
 import Test.Tasty.HUnit
 

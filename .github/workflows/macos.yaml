@@ -58,8 +58,8 @@ jobs:
         key: ${{ matrix.os }}-${{ matrix.ghc }}-7-cabal
 
     # Build
-    - name: Delete Freeze file
-      run: rm cabal.project.freeze
+    - name: Delete Freeze file if it exists
+      run: rm -f cabal.project.freeze
     - name: Update package database
       run: cabal update
     - name: Display outdated packages
@@ -92,7 +92,6 @@ jobs:
     # Checks
     - name: Check that working directory tree is clean
       run: |
-        # the freeze file has likely has changed
         mv cabal.project.freeze cabal.project.freeze.backup
         git checkout -- cabal.project.freeze || true
         if ! git diff --exit-code; then
@@ -103,7 +102,6 @@ jobs:
     - name: Run ea and verify consistency of genesis headers
       run: |
         cabal run cwtool -- ea
-        # the freeze file has likely changed
         mv cabal.project.freeze cabal.project.freeze.backup
         git checkout -- cabal.project.freeze || true
         if ! git diff --exit-code; then

@@ -108,7 +108,7 @@ decodePowHash = PowHash . SB.toShort <$> getBytes (int powHashBytesCount)
 
 instance Hashable PowHash where
     hashWithSalt s (PowHash bytes) = xor s
-        . unsafePerformIO
+        . unsafeDupablePerformIO
         $ BA.withByteArray (SB.fromShort bytes) (peek @Int)
     -- PowHashs are already cryptographically strong hashes
     -- that include the chain id.

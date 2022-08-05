@@ -3,6 +3,7 @@
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeFamilies #-}
 
@@ -142,6 +143,8 @@ execBlock currHeader plData pdbenv = do
       [] -> return ()
       errs -> throwM $ TransactionValidationException $ errs
 
+    logInitCache
+
     !results <- go miner trans >>= throwOnGasFailure
     modify' $ set psStateValidated $ Just currHeader
 
@@ -153,6 +156,12 @@ execBlock currHeader plData pdbenv = do
     return $! T2 miner results
 
   where
+
+    logInitCache = do
+      mc <- fmap (fmap instr) <$> use psInitCache
+      logDebug $ "execBlock: initCache: " <> sshow mc
+
+    instr (md,_) = preview (P._MDModule . P.mHash) $ P._mdModule md
 
     handleValids (tx,Left e) es = (P._cmdHash tx, sshow e):es
     handleValids _ es = es
@@ -296,10 +305,24 @@ execTransactions
     -> PactDbEnv'
     -> PactServiceM cas (Transactions (Either GasPurchaseFailure (P.CommandResult [P.TxLog A.Value])))
 execTransactions isGenesis miner ctxs enfCBFail usePrecomp (PactDbEnv' pactdbenv) = do
-    mc <- getInitCache
+    mc <- getCache
+
     coinOut <- runCoinbase isGenesis pactdbenv miner enfCBFail usePrecomp mc
     txOuts <- applyPactCmds isGenesis pactdbenv ctxs miner mc
     return $! Transactions (V.zip ctxs txOuts) coinOut
+  where
+    getCache = get >>= \PactServiceState{..} -> do
+      let pbh = _blockHeight . _parentHeader
+      case Map.lookupLE (pbh _psParentHeader) _psInitCache of
+        Nothing -> if isGenesis
+          then return mempty
+          else do
+            l <- asks _psLogger
+            pd <- getTxContext def
+            mc <- liftIO (readInitModules l pactdbenv pd)
+            updateInitCache mc
+            return mc
+        Just (_,mc) -> return mc
 
 execTransactionsOnly
     :: Miner

@@ -48,17 +48,13 @@ import Chainweb.Payload.PayloadStore
 import Chainweb.Payload.RestAPI
 import Chainweb.RestAPI.Orphans ()
 import Chainweb.RestAPI.Utils
+import Chainweb.Utils (int)
 import Chainweb.Version
 
 import Data.CAS
 
 -- -------------------------------------------------------------------------- --
 -- Utils
-
--- | The maximum number of items that are returned in a batch
---
-payloadBatchLimit :: Int
-payloadBatchLimit = 1000
 
 err404Msg :: ToJSON msg  => msg -> ServerError
 err404Msg msg = err404 { errBody = encode msg }
@@ -99,12 +95,13 @@ payloadHandler db k = run >>= \case
 payloadBatchHandler
     :: forall cas
     . PayloadCasLookup cas
-    => PayloadDb cas
+    => PayloadBatchLimit
+    -> PayloadDb cas
     -> [BlockPayloadHash]
     -> Handler [PayloadData]
-payloadBatchHandler db ks = liftIO $ do
+payloadBatchHandler batchLimit db ks = liftIO $ do
     payloads <- catMaybes
-        <$> casLookupBatch payloadsDb (V.fromList $ take payloadBatchLimit ks)
+        <$> casLookupBatch payloadsDb (V.fromList $ take (int batchLimit) ks)
     txs <- V.zipWith (\a b -> payloadData <$> a <*> pure b)
         <$> casLookupBatch txsDb (_blockPayloadTransactionsHash <$> payloads)
         <*> pure payloads
@@ -137,14 +134,15 @@ outputsHandler db k = liftIO (casLookup db k) >>= \case
 outputsBatchHandler
     :: forall cas
     . PayloadCasLookup cas
-    => PayloadDb cas
+    => PayloadBatchLimit
+    -> PayloadDb cas
     -> [BlockPayloadHash]
     -> Handler [PayloadWithOutputs]
-outputsBatchHandler db ks = liftIO
+outputsBatchHandler batchLimit db ks = liftIO
     $ fmap (V.toList . catMaybes)
     $ casLookupBatch db
     $ V.fromList
-    $ take payloadBatchLimit ks
+    $ take (int batchLimit) ks
 
 -- -------------------------------------------------------------------------- --
 -- Payload API Server
@@ -152,13 +150,14 @@ outputsBatchHandler db ks = liftIO
 payloadServer
     :: forall cas v (c :: ChainIdT)
     . PayloadCasLookup cas
-    => PayloadDb' cas v c
+    => PayloadBatchLimit
+    -> PayloadDb' cas v c
     -> Server (PayloadApi v c)
-payloadServer (PayloadDb' db)
+payloadServer batchLimit (PayloadDb' db)
     = payloadHandler @cas db
     :<|> outputsHandler @cas db
-    :<|> payloadBatchHandler @cas db
-    :<|> outputsBatchHandler @cas db
+    :<|> payloadBatchHandler @cas batchLimit db
+    :<|> outputsBatchHandler @cas batchLimit db
 
 -- -------------------------------------------------------------------------- --
 -- Application for a single PayloadDb
@@ -168,9 +167,10 @@ payloadApp
     . PayloadCasLookup cas
     => KnownChainwebVersionSymbol v
     => KnownChainIdSymbol c
-    => PayloadDb' cas v c
+    => PayloadBatchLimit
+    -> PayloadDb' cas v c
     -> Application
-payloadApp db = serve (Proxy @(PayloadApi v c)) (payloadServer db)
+payloadApp batchLimit db = serve (Proxy @(PayloadApi v c)) (payloadServer batchLimit db)
 
 payloadApiLayout
     :: forall cas v c
@@ -183,14 +183,19 @@ payloadApiLayout _ = T.putStrLn $ layout (Proxy @(PayloadApi v c))
 -- -------------------------------------------------------------------------- --
 -- Multichain Server
 
-somePayloadServer :: PayloadCasLookup cas => SomePayloadDb cas -> SomeServer
-somePayloadServer (SomePayloadDb (db :: PayloadDb' cas v c))
-    = SomeServer (Proxy @(PayloadApi v c)) (payloadServer db)
+somePayloadServer
+    :: PayloadCasLookup cas
+    => PayloadBatchLimit
+    -> SomePayloadDb cas
+    -> SomeServer
+somePayloadServer batchLimit (SomePayloadDb (db :: PayloadDb' cas v c))
+    = SomeServer (Proxy @(PayloadApi v c)) (payloadServer batchLimit db)
 
 somePayloadServers
     :: PayloadCasLookup cas
     => ChainwebVersion
+    -> PayloadBatchLimit
     -> [(ChainId, PayloadDb cas)]
     -> SomeServer
-somePayloadServers v
-    = mconcat . fmap (somePayloadServer . uncurry (somePayloadDbVal v))
+somePayloadServers v batchLimit
+    = mconcat . fmap (somePayloadServer batchLimit . uncurry (somePayloadDbVal v))

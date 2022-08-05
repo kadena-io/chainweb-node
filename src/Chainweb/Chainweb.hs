@@ -89,10 +89,9 @@ module Chainweb.Chainweb
 
 -- * Cut Config
 , CutConfig(..)
-, cutIncludeOrigin
 , cutPruneChainDatabase
 , cutFetchTimeout
-, cutInitialCutHeightLimit
+, cutInitialBlockHeightLimit
 , defaultCutConfig
 
 ) where
@@ -361,6 +360,10 @@ withChainwebInternal conf logger peer serviceSock rocksDb pactDbDir backupDir re
         -- initialize chains concurrently
         (\cid x -> do
             let mcfg = validatingMempoolConfig cid v (_configBlockGasLimit conf) (_configMinGasPrice conf)
+            -- NOTE: the gas limit may be set based on block height in future, so this approach may not be valid.
+            let maxGasLimit = fromIntegral $ maxBlockGasLimit v cid maxBound
+            when (_configBlockGasLimit conf > maxGasLimit) $
+                logg Warn "configured block gas limit is greater than the maximum for this chain; the maximum will be used instead"
             withChainResources
                 v
                 cid
@@ -369,7 +372,7 @@ withChainwebInternal conf logger peer serviceSock rocksDb pactDbDir backupDir re
                 mcfg
                 payloadDb
                 pactDbDir
-                pactConfig
+                (pactConfig maxGasLimit)
                 x
         )
 
@@ -380,13 +383,16 @@ withChainwebInternal conf logger peer serviceSock rocksDb pactDbDir backupDir re
         )
         cidsList
   where
-    pactConfig = PactServiceConfig
+    pactConfig maxGasLimit = PactServiceConfig
       { _pactReorgLimit = _configReorgLimit conf
       , _pactRevalidate = _configValidateHashesOnReplay conf
       , _pactQueueSize = _configPactQueueSize conf
       , _pactResetDb = resetDb
       , _pactAllowReadsInLocal = _configAllowReadsInLocal conf
-      , _pactBlockGasLimit = _configBlockGasLimit conf
+      , _pactUnlimitedInitialRewind =
+          isJust (_cutDbParamsInitialHeightLimit cutConfig) ||
+          isJust (_cutDbParamsInitialCutFile cutConfig)
+      , _pactBlockGasLimit = min (_configBlockGasLimit conf) maxGasLimit
       }
 
     pruningLogger :: T.Text -> logger
@@ -505,8 +511,7 @@ withChainwebInternal conf logger peer serviceSock rocksDb pactDbDir backupDir re
     cutConfig = (defaultCutDbParams v $ _cutFetchTimeout cutConf)
         { _cutDbParamsLogLevel = Info
         , _cutDbParamsTelemetryLevel = Info
-        , _cutDbParamsUseOrigin = _cutIncludeOrigin cutConf
-        , _cutDbParamsInitialHeightLimit = _cutInitialCutHeightLimit cutConf
+        , _cutDbParamsInitialHeightLimit = _cutInitialBlockHeightLimit cutConf
         }
       where
         cutConf = _configCuts conf
@@ -720,6 +725,7 @@ runChainweb cw = do
         (HeaderStream . _configHeaderStream $ _chainwebConfig cw)
         (Rosetta . _configRosetta $ _chainwebConfig cw)
         (_chainwebBackup cw <$ guard backupApiEnabled)
+        (_serviceApiPayloadBatchLimit . _configServiceApi $ _chainwebConfig cw)
 
     serviceHttpLog :: Middleware
     serviceHttpLog = requestResponseLogger $ setComponent "http:service-api" (_chainwebLogger cw)

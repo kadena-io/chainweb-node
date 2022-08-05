@@ -5,6 +5,7 @@ module Chainweb.Pact.Transactions.UpgradeTransactions
 , twentyChainUpgradeTransactions
 , coinV3Transactions
 , coinV4Transactions
+, coinV5Transactions
 ) where
 
 import Chainweb.Version
@@ -27,6 +28,7 @@ import qualified Chainweb.Pact.Transactions.DevelopmentTransactions as Devnet
 import qualified Chainweb.Pact.Transactions.OtherTransactions as Other
 import qualified Chainweb.Pact.Transactions.CoinV3Transactions as CoinV3
 import qualified Chainweb.Pact.Transactions.CoinV4Transactions as CoinV4
+import qualified Chainweb.Pact.Transactions.CoinV5Transactions as CoinV5
 
 upgradeTransactions :: ChainwebVersion -> ChainId -> IO [ChainwebTransaction]
 upgradeTransactions Mainnet01 cid = case cidInt of
@@ -74,6 +76,9 @@ coinV3Transactions = CoinV3.transactions
 
 coinV4Transactions :: IO [ChainwebTransaction]
 coinV4Transactions = CoinV4.transactions
+
+coinV5Transactions :: IO [ChainwebTransaction]
+coinV5Transactions = CoinV5.transactions
 
 -- NOTE (linda): When adding new forking transactions that are injected
 -- into a block's coinbase transaction, please add a corresponding case

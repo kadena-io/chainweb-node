@@ -2,11 +2,8 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE FlexibleContexts #-}
-{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
-{-# LANGUAGE TypeOperators #-}
 
 #ifndef CURRENT_PACKAGE_VERSION
 #define CURRENT_PACKAGE_VERSION "UNKNOWN"
@@ -98,6 +95,7 @@ import qualified Chainweb.Mempool.RestAPI.Server as Mempool
 import qualified Chainweb.Miner.RestAPI.Server as Mining
 import qualified Chainweb.Pact.RestAPI.Server as PactAPI
 import Chainweb.Payload.PayloadStore
+import Chainweb.Payload.RestAPI
 import Chainweb.Payload.RestAPI.Server
 import Chainweb.RestAPI.Backup
 import Chainweb.RestAPI.Config
@@ -135,7 +133,13 @@ serveSocketTls settings certChain key = runTLSSocket tlsSettings settings
   where
     tlsSettings :: TLSSettings
     tlsSettings = (tlsServerChainSettings certChain key)
-        { tlsSessionManagerConfig = TLS.defaultConfig <$ guard enableTlsSessionCache }
+        { tlsSessionManagerConfig = sessionManagerConfig <$ guard enableTlsSessionCache }
+
+    sessionManagerConfig = TLS.defaultConfig
+        { TLS.ticketLifetime = 3600 -- 1h
+        , TLS.pruningDelay = 600 -- 10min
+        , TLS.dbMaxSize = 1000
+        }
 
 -- -------------------------------------------------------------------------- --
 -- Chainweb Server Storage Backends
@@ -219,7 +223,7 @@ someChainwebServer
 someChainwebServer config dbs =
     maybe mempty (someCutServer v cutPeerDb) cuts
     <> maybe mempty (someSpvServers v) cuts
-    <> somePayloadServers v payloads
+    <> somePayloadServers v p2pPayloadBatchLimit payloads
     <> someBlockHeaderDbServers v blocks
     <> Mempool.someMempoolServers v mempools
     <> someP2pServers v peers
@@ -326,8 +330,9 @@ someServiceApiServer
     -> HeaderStream
     -> Rosetta
     -> Maybe (BackupEnv logger)
+    -> PayloadBatchLimit
     -> SomeServer
-someServiceApiServer v dbs pacts mr (HeaderStream hs) (Rosetta r) backupEnv =
+someServiceApiServer v dbs pacts mr (HeaderStream hs) (Rosetta r) backupEnv pbl =
     someHealthCheckServer
     <> maybe mempty (someBackupServer v) backupEnv
     <> maybe mempty (someNodeInfoServer v) cuts
@@ -341,7 +346,7 @@ someServiceApiServer v dbs pacts mr (HeaderStream hs) (Rosetta r) backupEnv =
 
     -- GET Cut, Payload, and Headers endpoints
     <> maybe mempty (someCutGetServer v) cuts
-    <> somePayloadServers v payloads
+    <> somePayloadServers v pbl payloads
     <> someBlockHeaderDbServers v blocks
   where
     cuts = _chainwebServerCutDb dbs
@@ -363,11 +368,12 @@ serviceApiApplication
     -> HeaderStream
     -> Rosetta
     -> Maybe (BackupEnv logger)
+    -> PayloadBatchLimit
     -> Application
-serviceApiApplication v dbs pacts mr hs r be
+serviceApiApplication v dbs pacts mr hs r be pbl
     = chainwebServiceMiddlewares
     . someServerApplication
-    $ someServiceApiServer v dbs pacts mr hs r be
+    $ someServiceApiServer v dbs pacts mr hs r be pbl
 
 serveServiceApiSocket
     :: Show t
@@ -382,7 +388,8 @@ serveServiceApiSocket
     -> HeaderStream
     -> Rosetta
     -> Maybe (BackupEnv logger)
+    -> PayloadBatchLimit
     -> Middleware
     -> IO ()
-serveServiceApiSocket s sock v dbs pacts mr hs r be m =
-    runSettingsSocket s sock $ m $ serviceApiApplication v dbs pacts mr hs r be
+serveServiceApiSocket s sock v dbs pacts mr hs r be pbl m =
+    runSettingsSocket s sock $ m $ serviceApiApplication v dbs pacts mr hs r be pbl

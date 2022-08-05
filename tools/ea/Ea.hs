@@ -80,6 +80,7 @@ main = void $ do
     gen20ChainPayloads
     genCoinV3Payloads
     genCoinV4Payloads
+    genCoinV5Payloads
     putStrLn "Done."
   where
     devnet = mkPayloads
@@ -162,6 +163,11 @@ genCoinV4Payloads :: IO ()
 genCoinV4Payloads = genTxModule "CoinV4"
   [ fungibleXChainV1
   , coinContractV4
+  ]
+
+genCoinV5Payloads :: IO ()
+genCoinV5Payloads = genTxModule "CoinV5"
+  [ coinContractV5
   ]
 
 ---------------------
