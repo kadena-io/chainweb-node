@@ -46,7 +46,7 @@ package vault
     documentation: false
 
 package yet-another-logger
-    flags: +tbmqueue
+    flags: -tbmqueue
 
 -- -------------------------------------------------------------------------- --
 -- Source Repository Packages
