@@ -146,7 +146,6 @@ import Control.Monad.IO.Class
 
 import Data.Aeson (FromJSON, ToJSON)
 import Data.Bifunctor hiding (second)
-import Data.Bytes.Put
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Lazy as BL
 import Data.CAS (casKey)
@@ -227,6 +226,7 @@ import Chainweb.Test.Utils.BlockHeader
 import Chainweb.Time
 import Chainweb.TreeDB
 import Chainweb.Utils
+import Chainweb.Utils.Serialization
 import Chainweb.Version
 import Chainweb.Version.Utils
 
@@ -791,8 +791,8 @@ prop_iso' d e a = Right a === first show (d (e a))
 prop_encodeDecode
     :: Eq a
     => Show a
-    => (forall m . MonadGetExtra m => m a)
-    -> (forall m . MonadPut m => a -> m ())
+    => Get a
+    -> (a -> Put)
     -> a
     -> Property
 prop_encodeDecode d e a
@@ -803,34 +803,34 @@ prop_encodeDecode d e a
 prop_encodeDecodeRoundtrip
     :: Eq a
     => Show a
-    => (forall m . MonadGetExtra m => m a)
-    -> (forall m . MonadPut m => a -> m ())
+    => Get a
+    -> (a -> Put)
     -> a
     -> Property
 prop_encodeDecodeRoundtrip d e =
-    prop_iso' (runGetEither d) (runPutS . e)
+    prop_iso' (runGetEitherS d) (runPutS . e)
 
 prop_decode_failPending
     :: Eq a
     => Show a
-    => (forall m . MonadGetExtra m => m a)
-    -> (forall m . MonadPut m => a -> m ())
+    => Get a
+    -> (a -> Put)
     -> a
     -> Property
-prop_decode_failPending d e a = case runGetEither d (runPutS (e a) <> "a") of
+prop_decode_failPending d e a = case runGetEitherS d (runPutS (e a) <> "a") of
     Left _ -> property True
     Right _ -> property False
 
 prop_decode_failMissing
     :: Eq a
     => Show a
-    => (forall m . MonadGetExtra m => m a)
-    -> (forall m . MonadPut m => a -> m ())
+    => Get a
+    -> (a -> Put)
     -> a
     -> Property
 prop_decode_failMissing d e a
     | B.null x = discard
-    | otherwise = case runGetEither d $ B.init x of
+    | otherwise = case runGetEitherS d $ B.init x of
         Left _ -> property True
         Right _ -> property False
   where

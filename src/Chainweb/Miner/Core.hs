@@ -48,6 +48,7 @@ import Chainweb.Cut.Create
 import Chainweb.Difficulty
 import Chainweb.Time hiding (second)
 import Chainweb.Utils
+import Chainweb.Utils.Serialization
 import Chainweb.Version (ChainwebVersion(..))
 
 ---
@@ -150,9 +151,9 @@ mine orig work = do
                 -- Start outer mining loop
                 t <- getCurrentTimeIntegral
                 go0 100000 t orig
-        runGet decodeSolvedWork new
+        runGetS decodeSolvedWork new
   where
-    tbytes = runPut $ encodeHashTarget (_workHeaderTarget work)
+    tbytes = runPutS $ encodeHashTarget (_workHeaderTarget work)
     hbytes = BS.fromShort $ _workHeaderBytes work
 
     bufSize :: Int
