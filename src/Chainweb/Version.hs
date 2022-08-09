@@ -65,6 +65,7 @@ module Chainweb.Version
 , chainweb213Pact
 , chainweb214Pact
 , chainweb215Pact
+, chainweb216Pact
 
 -- ** BlockHeader Validation Guards
 , slowEpochGuard
@@ -983,6 +984,23 @@ chainweb215Pact aoa v h = case aoa of
     go f Development = f 165
     go f (FastTimedCPM g) | g == petersonChainGraph = f 35
     go f _ = f 10
+
+-- | Pact and coin contract changes for Chainweb 2.15
+--
+chainweb216Pact
+    :: AtOrAfter
+    -> ChainwebVersion
+    -> BlockHeight
+    -> Bool
+chainweb216Pact aoa v h = case aoa of
+    At -> go (==) v h
+    After -> go (<) v h
+  where
+    go f Mainnet01 = f 2766650 -- TODO
+    go f Testnet04 = f 2295457 -- TODO
+    go f Development = f 185
+    go f (FastTimedCPM g) | g == petersonChainGraph = f 40
+    go f _ = f 20
 
 -- -------------------------------------------------------------------------- --
 -- Header Validation Guards

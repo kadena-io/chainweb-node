@@ -51,7 +51,7 @@ package vault
 source-repository-package
     type: git
     location: https://github.com/kadena-io/pact.git
-    tag: 3081be0543631e8d68938ff7be21b5d6f49acfa3
+    tag: 98dc6dbe9e917f26a238b2d4ac0f8ea90d65c5be
 
 source-repository-package
     type: git
@@ -107,4 +107,3 @@ constraints: base64-bytestring <1.1
 
 -- TODO remove once the bounds are upgraded in pact.
 allow-newer: pact:direct-sqlite
-

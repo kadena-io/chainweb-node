@@ -67,6 +67,7 @@ import qualified Data.ByteString.Short as SB
 import Data.Decimal (Decimal, roundTo)
 import Data.Default (def)
 import Data.Foldable (for_, traverse_, foldl')
+import Data.IORef (newIORef)
 import qualified Data.HashMap.Strict as HM
 import Data.Maybe (isJust)
 import qualified Data.Set as S
@@ -171,6 +172,7 @@ applyCmd v logger pdbenv miner gasModel txCtx spv cmdIn mcache0 =
           ++ enablePactModuleMemcheck txCtx
           ++ enablePact43 txCtx
           ++ enablePact431 txCtx
+          ++ enablePact44 txCtx
         )
 
     cenv = TransactionEnv Transactional pdbenv logger (ctxToPublicData txCtx) spv nid gasPrice
@@ -265,6 +267,7 @@ applyGenesisCmd logger dbEnv spv cmd =
           , FlagDisablePact420
           , FlagDisableInlineMemCheck
           , FlagDisablePact43
+          , FlagDisablePact44
           ]
         }
     txst = TransactionState
@@ -275,7 +278,7 @@ applyGenesisCmd logger dbEnv spv cmd =
         , _txGasModel = _geGasModel freeGasEnv
         }
 
-    interp = initStateInterpreter
+    interp = initStateInterpreter id
       $ initCapabilities [magic_GENESIS, magic_COINBASE]
 
     go = do
@@ -313,7 +316,7 @@ applyCoinbase v logger dbEnv (Miner mid mks@(MinerKeys mk)) reward@(ParsedDecima
     go interp cexec
   | otherwise = do
     cexec <- mkCoinbaseCmd mid mks reward
-    let interp = initStateInterpreter initState
+    let interp = initStateInterpreter id initState
     go interp cexec
   where
     chainweb213Pact' = chainweb213Pact v bh
@@ -327,7 +330,8 @@ applyCoinbase v logger dbEnv (Miner mid mks@(MinerKeys mk)) reward@(ParsedDecima
       enablePact420 txCtx ++
       enablePactModuleMemcheck txCtx ++
       enablePact43 txCtx ++
-      enablePact431 txCtx
+      enablePact431 txCtx ++
+      enablePact44 txCtx
     tenv = TransactionEnv Transactional dbEnv logger (ctxToPublicData txCtx) noSPVSupport
            Nothing 0.0 rk 0 ec
     txst = TransactionState mc mempty 0 Nothing (_geGasModel freeGasEnv)
@@ -524,8 +528,9 @@ applyUpgrades v cid height
       caches <- local (set txExecutionConfig execConfig) $ mapM applyTx txs
       return $ Just (HM.unions caches)
 
-    interp = initStateInterpreter $ installCoinModuleAdmin $
-      initCapabilities [mkMagicCapSlot "REMEDIATE"]
+    interp = initStateInterpreter id
+        $ installCoinModuleAdmin
+        $ initCapabilities [mkMagicCapSlot "REMEDIATE"]
 
     applyTx tx = do
       infoLog $ "Running upgrade tx " <> sshow (_cmdHash tx)
@@ -561,7 +566,7 @@ applyTwentyChainUpgrade v cid bh
     applyTx tx = do
       infoLog $ "Running 20-chain upgrade tx " <> sshow (_cmdHash tx)
 
-      let i = initStateInterpreter
+      let i = initStateInterpreter id
             $ initCapabilities [mkMagicCapSlot "REMEDIATE"]
 
       r <- tryAllSynchronous (runGenesis tx permissiveNamespacePolicy i)
@@ -717,6 +722,10 @@ enablePact431 tc
     | chainweb215Pact After (ctxVersion tc) (ctxCurrentBlockHeight tc) = []
     | otherwise = [FlagDisablePact431]
 
+enablePact44 :: TxContext -> [ExecutionFlag]
+enablePact44 tc
+    | chainweb216Pact After (ctxVersion tc) (ctxCurrentBlockHeight tc) = []
+    | otherwise = [FlagDisablePact44]
 
 -- | Execute a 'ContMsg' and return the command result and module cache
 --
@@ -879,7 +888,7 @@ redeemGas cmd = do
       managedNamespacePolicy
 
   where
-    initState mc = initStateInterpreter
+    initState mc = initStateInterpreter id
       $ setModuleCache mc
       $ initCapabilities [magic_GAS]
 
@@ -898,8 +907,8 @@ initCapabilities :: [CapSlot UserCapability] -> EvalState
 initCapabilities cs = set (evalCapabilities . capStack) cs def
 {-# INLINABLE initCapabilities #-}
 
-initStateInterpreter :: EvalState -> Interpreter p
-initStateInterpreter s = Interpreter $ (put s >>)
+initStateInterpreter :: (EvalEnv e -> EvalEnv e) -> EvalState -> Interpreter e
+initStateInterpreter k s = Interpreter $ \e -> local k (put s >> e)
 
 
 -- | Check whether the cost of running a tx is more than the allowed
@@ -926,10 +935,13 @@ checkTooBigTx initialGas gasLimit next onFail
 gasInterpreter :: Gas -> TransactionM db (Interpreter p)
 gasInterpreter g = do
     mc <- use txCache
-    return $ initStateInterpreter
-        $ set evalLogGas (Just [("GTxSize",g)]) -- enables gas logging
-        $ set evalGas g
-        $ setModuleCache mc def
+    ior <- liftIO $ newIORef g
+    let st = def
+          & evalLogGas ?~ [("GTxSize",g)] -- enables gas logging
+          & setModuleCache mc
+        ig = set eeGas ior
+    return $ initStateInterpreter ig st
+
 
 -- | Initial gas charged for transaction size
 --   ignoring the size of a continuation proof, if present
@@ -1019,8 +1031,7 @@ mkEvalEnv nsp msg = do
       <$> view (txGasLimit . to fromIntegral)
       <*> view txGasPrice
       <*> use txGasModel
-
-    return $ setupEvalEnv (_txDbEnv tenv) Nothing (_txMode tenv)
+    liftIO $ setupEvalEnv (_txDbEnv tenv) Nothing (_txMode tenv)
       msg initRefStore genv
       nsp (_txSpvSupport tenv) (_txPublicData tenv) (_txExecutionConfig tenv)
 
