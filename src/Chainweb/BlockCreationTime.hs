@@ -31,8 +31,6 @@ module Chainweb.BlockCreationTime
 import Control.DeepSeq
 
 import Data.Aeson
-import Data.Bytes.Get
-import Data.Bytes.Put
 import Data.Hashable
 
 import GHC.Generics
@@ -44,6 +42,7 @@ import Numeric.AffineSpace
 import Chainweb.Crypto.MerkleLog
 import Chainweb.MerkleUniverse
 import Chainweb.Time
+import Chainweb.Utils.Serialization
 
 -- -------------------------------------------------------------------------- --
 -- Block Creation Time
@@ -60,8 +59,8 @@ instance MerkleHashAlgorithm a => IsMerkleLogEntry a ChainwebHashTag BlockCreati
     {-# INLINE toMerkleNode #-}
     {-# INLINE fromMerkleNode #-}
 
-encodeBlockCreationTime :: MonadPut m => BlockCreationTime -> m ()
+encodeBlockCreationTime :: BlockCreationTime -> Put
 encodeBlockCreationTime (BlockCreationTime t) = encodeTime t
 
-decodeBlockCreationTime :: MonadGet m => m BlockCreationTime
+decodeBlockCreationTime :: Get BlockCreationTime
 decodeBlockCreationTime = BlockCreationTime <$> decodeTime

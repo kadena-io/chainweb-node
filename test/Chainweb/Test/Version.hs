@@ -32,6 +32,7 @@ import Chainweb.Graph
 import Chainweb.Test.Orphans.Internal
 import Chainweb.Test.Orphans.Internal ()
 import Chainweb.Utils
+import Chainweb.Utils.Serialization
 import Chainweb.Version
 
 tests :: TestTree
@@ -106,8 +107,8 @@ prop_headerBaseSizeBytes :: ChainwebVersion -> Property
 prop_headerBaseSizeBytes v = property $ do
     cid <- elements $ toList $ chainIds v
     let genHdr = genesisBlockHeader v cid
-        gen = runPut $ encodeBlockHeader genHdr
-        as = runPut $ encodeBlockHashRecord (_blockAdjacentHashes genHdr)
+        gen = runPutS $ encodeBlockHeader genHdr
+        as = runPutS $ encodeBlockHashRecord (_blockAdjacentHashes genHdr)
     return $ headerBaseSizeBytes v === int (B.length gen - B.length as)
 
 prop_headerSizes_sorted :: ChainwebVersion -> Property
@@ -126,7 +127,7 @@ prop_headerSizeBytes_gen :: ChainwebVersion -> Property
 prop_headerSizeBytes_gen v = property $ do
     cid <- elements $ toList $ chainIds v
     let hdr = genesisBlockHeader v cid
-        l = int $ B.length $ runPut $ encodeBlockHeader $ hdr
+        l = int $ B.length $ runPutS $ encodeBlockHeader $ hdr
     return
         $ counterexample ("chain: " <> sshow cid)
         $ headerSizeBytes v cid (_blockHeight hdr) === l
@@ -134,7 +135,7 @@ prop_headerSizeBytes_gen v = property $ do
 prop_headerSizeBytes :: ChainwebVersion -> Property
 prop_headerSizeBytes v = property $ do
     h <- arbitraryBlockHeaderVersion v
-    let l = int $ B.length $ runPut $ encodeBlockHeader h
+    let l = int $ B.length $ runPutS $ encodeBlockHeader h
     return
         $ counterexample ("header: " <> sshow h)
         $ headerSizeBytes (_chainwebVersion h) (_blockChainId h) (_blockHeight h) === l
@@ -145,7 +146,7 @@ prop_workSizeBytes v = property $ do
     if (_blockHeight h == genesisHeight v (_chainId h))
       then discard
       else do
-        let l = int $ B.length $ runPut $ encodeBlockHeaderWithoutHash h
+        let l = int $ B.length $ runPutS $ encodeBlockHeaderWithoutHash h
         return
             $ counterexample ("header: " <> sshow h)
             $ workSizeBytes (_chainwebVersion h) (_blockHeight h) === l

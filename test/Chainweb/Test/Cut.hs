@@ -101,6 +101,7 @@ import Chainweb.Test.Utils.BlockHeader
 import Chainweb.Time (Micros(..), Time, TimeSpan)
 import qualified Chainweb.Time as Time (second)
 import Chainweb.Utils
+import Chainweb.Utils.Serialization
 import Chainweb.Version
 import Chainweb.Version.Utils
 import Chainweb.WebBlockHeaderDB
@@ -145,12 +146,12 @@ arbitraryBlockTimeOffset lower upper = do
 --
 solveWork :: HasCallStack => WorkHeader -> Nonce -> Time Micros -> SolvedWork
 solveWork w n t =
-    case runGet decodeBlockHeaderWithoutHash $ BS.fromShort $ _workHeaderBytes w of
+    case runGetS decodeBlockHeaderWithoutHash $ BS.fromShort $ _workHeaderBytes w of
         Nothing -> error "Chainwb.Test.Cut.solveWork: Invalid work header bytes"
         Just hdr -> SolvedWork
             $ fromJuste
-            $ runGet decodeBlockHeaderWithoutHash
-            $ runPut
+            $ runGetS decodeBlockHeaderWithoutHash
+            $ runPutS
             $ encodeBlockHeaderWithoutHash
                 -- After injecting the nonce and the creation time will have to do a
                 -- serialization roundtrip to update the Merkle hash.

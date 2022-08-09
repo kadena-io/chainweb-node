@@ -8,7 +8,8 @@
       config.allowBroken = false;
       config.allowUnfree = true;
     }
-, returnShellEnv ? pkgs.lib.inNixShell
+, returnShellEnv ? false
+, mkDerivation ? null
 }:
 let gitignoreSrc = import (pkgs.fetchFromGitHub {
       owner = "hercules-ci";
