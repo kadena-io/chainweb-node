@@ -106,8 +106,6 @@ import Crypto.Hash.Algorithms
 
 import Data.Aeson
 import qualified Data.ByteArray as BA
-import Data.Bytes.Get
-import Data.Bytes.Put
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Base16 as B16
 import Data.CAS
@@ -142,6 +140,7 @@ import Chainweb.SPV
 import Chainweb.SPV.PayloadProof
 import Chainweb.TreeDB hiding (entries, root)
 import Chainweb.Utils
+import Chainweb.Utils.Serialization
 
 -- -------------------------------------------------------------------------- --
 -- Pact Encoding Exceptions
@@ -197,7 +196,7 @@ int256 i
 unsafeInt256 :: Integer -> Int256
 unsafeInt256 = Int256
 
-putInt256Le :: forall m . MonadPut m => Int256 -> m ()
+putInt256Le :: Int256 -> Put
 putInt256Le (Int256 i) = case compare i 0 of
     EQ -> replicateM_ 4 (putWord64le 0)
     GT -> go i
@@ -215,7 +214,7 @@ putInt256Le (Int256 i) = case compare i 0 of
         (a2, r2) = quotRem a1 m64
         (_, r3) = quotRem a2 m64
 
-putInt256Be :: forall m . MonadPut m => Int256 -> m ()
+putInt256Be :: Int256 -> Put
 putInt256Be (Int256 i) = case compare i 0 of
     EQ -> replicateM_ 4 (putWord64be 0)
     GT -> go i
@@ -233,7 +232,7 @@ putInt256Be (Int256 i) = case compare i 0 of
         (a2, r2) = quotRem a1 m64
         (_, r3) = quotRem a2 m64
 
-getInt256Le :: forall m . MonadGet m => m Int256
+getInt256Le :: Get Int256
 getInt256Le = do
     w0 <- int <$> getWord64le
     w1 <- int <$> getWord64le
@@ -244,7 +243,7 @@ getInt256Le = do
       then Int256 (- (2^(256::Int) - r))
       else Int256 r
 
-getInt256Be :: forall m . MonadGet m => m Int256
+getInt256Be :: Get Int256
 getInt256Be = do
     w3 <- int <$> getWord64le
     w2 <- int <$> getWord64le
@@ -257,26 +256,26 @@ getInt256Be = do
 
 int256Hex :: Int256 -> B.ByteString
 int256Hex x@(Int256 i)
-  | i >= 0 = "0x" <> B16.encode (runPut $ putInt256Be x)
+  | i >= 0 = "0x" <> B16.encode (runPutS $ putInt256Be x)
   | otherwise = "-" <> int256Hex (Int256 (-i))
 
 -- -------------------------------------------------------------------------- --
 -- Pact Event Encoding
 
-encodePactEvent :: MonadPut m => PactEvent -> m ()
+encodePactEvent :: PactEvent -> Put
 encodePactEvent e = do
     encodeString $ _eventName e
     encodeModuleName $ _eventModule e
     encodeHash $ _mhHash $ _eventModuleHash e
     encodeArray (_eventParams e) encodeParam
 
-encodeModuleName :: MonadPut m => ModuleName -> m ()
+encodeModuleName :: ModuleName -> Put
 encodeModuleName = encodeString . asString
 
 -- | This throws a pure exception of type 'PactEventEncodingException', if the
 -- input bytestring is too long.
 --
-encodeBytes :: MonadPut m => B.ByteString -> m ()
+encodeBytes :: B.ByteString -> Put
 encodeBytes b
     | B.length b <= int (maxBound @Word32)
         = putWord32le (int $ B.length b) >> putByteString b
@@ -285,23 +284,23 @@ encodeBytes b
 -- | This throws a pure exception of type 'PactEventEncodingException', if the
 -- input value is to big or too small.
 --
-encodeInteger :: MonadPut m => Integer -> m ()
+encodeInteger :: Integer -> Put
 encodeInteger i = case int256 i of
     Left _ -> throw $ IntegerOutOfBoundsException i
     Right x -> putInt256Le x
 
-encodeString :: MonadPut m => T.Text -> m ()
+encodeString :: T.Text -> Put
 encodeString = encodeBytes . T.encodeUtf8
 
-encodeDecimal :: MonadPut m => Decimal -> m ()
+encodeDecimal :: Decimal -> Put
 encodeDecimal d = encodeInteger $ case decimalToInteger d of
     Left e -> throw e
     Right x -> x
 
-encodeHash :: MonadPut m => Hash -> m ()
+encodeHash :: Hash -> Put
 encodeHash = encodeBytes . unHash
 
-encodeModRef :: MonadPut m => ModRef -> m ()
+encodeModRef :: ModRef -> Put
 encodeModRef n@(ModRef _ (Just _) _) = throw $ UnsupportedModRefWithSpec (renderCompactText n)
 encodeModRef n@(ModRef _  _ (Info (Just _))) = throw $ UnsupportedModRefWithInfo (renderCompactText n)
 encodeModRef n = encodeString $ renderCompactText n
@@ -310,17 +309,15 @@ encodeModRef n = encodeString $ renderCompactText n
 -- size of the input array is too big.
 --
 encodeArray
-    :: forall a f m
-    . MonadPut m
-    => Foldable f
+    :: Foldable f
     => f a
-    -> (a -> m ())
-    -> m ()
+    -> (a -> Put)
+    -> Put
 encodeArray a f
     | length a > int (maxBound @Word32) = throw $ ArrayTooBigException (length a)
     | otherwise = putWord32le (int $ length a) >> traverse_ f a
 
-encodeParam :: MonadPut m => PactValue -> m ()
+encodeParam :: PactValue -> Put
 encodeParam (PLiteral (LString t)) = putWord8 0x0 >> encodeString t
 encodeParam (PLiteral (LInteger i)) = putWord8 0x1 >> encodeInteger i
 encodeParam (PLiteral (LDecimal i)) = putWord8 0x2 >> encodeDecimal i
@@ -330,13 +327,13 @@ encodeParam e = throw $ UnsupportedPactValueException e
 -- -------------------------------------------------------------------------- --
 -- Pact Event Decoding
 
-expect :: MonadGetExtra m => Word8 -> m ()
+expect :: Word8 -> Get ()
 expect c = label "expect" $ do
     c' <- getWord8
     unless (c == c') $
         fail $ "decodeOutputEvents: failed to decode, expected " <> show c <> " but got " <> show c'
 
-decodePactEvent :: MonadGetExtra m => m PactEvent
+decodePactEvent :: Get PactEvent
 decodePactEvent = label "decodeEvent" $ do
     name <- decodeString
     m <- decodeModuleName
@@ -349,35 +346,35 @@ decodePactEvent = label "decodeEvent" $ do
         , _eventParams = params
         }
 
-decodeArray :: MonadGetExtra m => m a -> m [a]
+decodeArray :: Get a -> Get [a]
 decodeArray f = label "decodeArray" $ do
     l <- getWord32le
     label ("#" <> show l) $ forM [0 :: Int .. int l - 1] $ \i ->
         label ("[" <> show i <> "]") f
 
-decodeHash :: MonadGetExtra m => m Hash
+decodeHash :: Get Hash
 decodeHash = label "decodeHash" $ Hash <$> decodeBytes
 
-decodeBytes :: MonadGetExtra m => m B.ByteString
+decodeBytes :: Get B.ByteString
 decodeBytes = label "decodeBytes" $ do
     l <- getWord32le
-    getBytes (int l)
+    getByteString (int l)
 
-decodeString :: MonadGetExtra m => m T.Text
+decodeString :: Get T.Text
 decodeString = label "decodeString" $ do
     t <- decodeBytes
     case T.decodeUtf8' t of
         Left e -> fail $ "failed to decode UTF8 string: " <> show e
         Right x -> return x
 
-decodeInteger :: MonadGetExtra m => m Integer
+decodeInteger :: Get Integer
 decodeInteger = label "decodeInteger" $ int256ToInteger
     <$> label "getInt256" getInt256Le
 
-decodeDecimal :: MonadGetExtra m => m Decimal
+decodeDecimal :: Get Decimal
 decodeDecimal = label "decodeDecimal" $ integerToDecimal <$> decodeInteger
 
-decodeParam :: MonadGetExtra m => m PactValue
+decodeParam :: Get PactValue
 decodeParam = label "decodeParam" $ getWord8 >>= \case
     0x0 -> label "LString" $ PLiteral . LString <$> decodeString
     0x1 -> label "LInteger" $ PLiteral . LInteger <$> decodeInteger
@@ -385,13 +382,13 @@ decodeParam = label "decodeParam" $ getWord8 >>= \case
     0x3 -> label "PModRef" $ PModRef <$> decodeModRef
     e -> fail $ "decodeParam: unexpected parameter with type tag " <> show e
 
-decodeModuleName :: MonadGetExtra m => m ModuleName
+decodeModuleName :: Get ModuleName
 decodeModuleName = label "decodeModuleName" $
     decodeString >>= \t -> case parseModuleName t of
         Left e -> fail e
         Right m -> return m
 
-decodeModRef :: MonadGetExtra m => m ModRef
+decodeModRef :: Get ModRef
 decodeModRef = label "ModRef" $ ModRef
     <$> decodeModuleName
     <*> pure Nothing
@@ -415,13 +412,12 @@ instance MerkleHashAlgorithm a => HasTextRepresentation (BlockEventsHash_ a) whe
     toText (BlockEventsHash h) = toText h
     fromText t = BlockEventsHash <$> fromText t
 
-encodeBlockEventsHash :: MonadPut m => BlockEventsHash_ a -> m ()
+encodeBlockEventsHash :: BlockEventsHash_ a -> Put
 encodeBlockEventsHash (BlockEventsHash w) = encodeMerkleLogHash w
 
 decodeBlockEventsHash
     :: MerkleHashAlgorithm a
-    => MonadGet m
-    => m (BlockEventsHash_ a)
+    => Get (BlockEventsHash_ a)
 decodeBlockEventsHash = BlockEventsHash <$!> decodeMerkleLogHash
 
 instance MerkleHashAlgorithm a => IsMerkleLogEntry a ChainwebHashTag (BlockEventsHash_ a) where
@@ -448,12 +444,12 @@ data OutputEvents = OutputEvents
     }
     deriving (Show, Eq, Generic)
 
-encodeOutputEvents :: forall m . MonadPut m => OutputEvents -> m ()
+encodeOutputEvents :: OutputEvents -> Put
 encodeOutputEvents es = do
     encodeHash $ unRequestKey $ _outputEventsRequestKey es
     encodeArray (_outputEventsEvents es) encodePactEvent
 
-decodeOutputEvents :: forall m . MonadGetExtra m => m OutputEvents
+decodeOutputEvents :: Get OutputEvents
 decodeOutputEvents = label "OutputEvents" $ OutputEvents
     <$> (RequestKey <$> decodeHash)
     <*> (V.fromList <$> decodeArray decodePactEvent)
