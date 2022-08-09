@@ -2,6 +2,8 @@
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveFunctor #-}
+{-# LANGUAGE DeriveFoldable #-}
+{-# LANGUAGE DeriveTraversable #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
@@ -189,18 +191,8 @@ import Chainweb.Version
 data Transactions r = Transactions
     { _transactionPairs :: !(Vector (ChainwebTransaction, r))
     , _transactionCoinbase :: !(CommandResult [TxLog Value])
-    } deriving (Eq, Show, Generic, NFData)
+    } deriving (Functor, Foldable, Traversable, Eq, Show, Generic, NFData)
 makeLenses 'Transactions
-
-instance Functor Transactions where
-  fmap = over traverse
-  {-# inline fmap #-}
-instance Foldable Transactions where
-  foldMap = foldMapOf traverse
-  {-# inline foldMap #-}
-instance Traversable Transactions where
-  traverse = transactionPairs . traversed . _2
-  {-# inline traverse #-}
 
 data PactDbStatePersist = PactDbStatePersist
     { _pdbspRestoreFile :: !(Maybe FilePath)

@@ -7,6 +7,7 @@
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE ViewPatterns #-}
+{-# LANGUAGE PatternSynonyms #-}
 
 -- |
 -- Module: Chainweb.Test.PactInProcApi
@@ -1204,6 +1205,11 @@ txResult msg i o = do
 cbResult :: PayloadWithOutputs -> IO (CommandResult Hash)
 cbResult o = decodeStrictOrThrow @_ @(CommandResult Hash) (_coinbaseOutput $ _payloadWithOutputsCoinbase o)
 
+pattern BlockGasLimitError :: forall b. Either PactException b
+pattern BlockGasLimitError <-
+  Left (PactInternalError (decode . BL.fromStrict . T.encodeUtf8 -> Just (BlockGasLimitExceeded _)))
+
+-- this test relies on block gas errors being thrown before other Pact errors.
 blockGasLimitTest :: IO (IORef MemPoolAccess) -> IO (PactQueue, TestBlockDb) -> TestTree
 blockGasLimitTest _ reqIO = testCase "blockGasLimitTest" $ do
   (q,_) <- reqIO
@@ -1211,36 +1217,53 @@ blockGasLimitTest _ reqIO = testCase "blockGasLimitTest" $ do
   let
     useGas g = do
       bigTx <- buildCwCmd $ set cbGasLimit g $ set cbSigners [mkSigner' sender00 []] $ mkCmd "cmd" $ mkExec' "TESTING"
-      let cr = CommandResult (RequestKey (Hash "0")) Nothing (PactResult $ Left $ PactError EvalError (Pact.Types.Info.Info $ Nothing) [] mempty) (fromIntegral g) Nothing Nothing Nothing []
-      let block = Transactions (V.singleton (bigTx, cr)) (CommandResult (RequestKey (Hash "h")) Nothing (PactResult $ Right $ PLiteral (LString "output")) 0 Nothing Nothing Nothing [])
-      let payload = toPayloadWithOutputs noMiner block
-      let bh = newBlockHeader
-                mempty
-                (_payloadWithOutputsPayloadHash payload)
-                (Nonce 0)
-                (BlockCreationTime $ Time $ TimeSpan 0)
-                (ParentHeader $ genesisBlockHeader testVersion cid)
+      let
+        cr = CommandResult
+          (RequestKey (Hash "0")) Nothing
+          (PactResult $ Left $ PactError EvalError (Pact.Types.Info.Info $ Nothing) [] mempty)
+          (fromIntegral g) Nothing Nothing Nothing []
+        block = Transactions
+          (V.singleton (bigTx, cr))
+          (CommandResult (RequestKey (Hash "h")) Nothing
+            (PactResult $ Right $ PLiteral (LString "output")) 0 Nothing Nothing Nothing [])
+        payload = toPayloadWithOutputs noMiner block
+        bh = newBlockHeader
+          mempty
+          (_payloadWithOutputsPayloadHash payload)
+          (Nonce 0)
+          (BlockCreationTime $ Time $ TimeSpan 0)
+          (ParentHeader $ genesisBlockHeader testVersion cid)
       validateBlock bh (payloadWithOutputsToPayloadData payload) q >>= takeMVar
   -- we consume slightly more than the maximum block gas limit and provoke an error.
   useGas 2_000_001 >>= \case
-    Left (PactInternalError (decode . BL.fromStrict . T.encodeUtf8 -> Just (BlockGasLimitExceeded _))) -> return ()
-    r -> error $ "not a BlockGasLimitExceeded error: " <> sshow r
+    BlockGasLimitError ->
+      return ()
+    r ->
+      error $ "not a BlockGasLimitExceeded error: " <> sshow r
   -- we consume much more than the maximum block gas limit and expect an error.
   useGas 3_000_000 >>= \case
-    Left (PactInternalError (decode . BL.fromStrict . T.encodeUtf8 -> Just (BlockGasLimitExceeded _))) -> return ()
-    r -> error $ "not a BlockGasLimitExceeded error: " <> sshow r
+    BlockGasLimitError ->
+      return ()
+    r ->
+      error $ "not a BlockGasLimitExceeded error: " <> sshow r
   -- we consume exactly the maximum block gas limit and expect no such error.
   useGas 2_000_000 >>= \case
-    Left (PactInternalError (decode . BL.fromStrict . T.encodeUtf8 -> Just (BlockGasLimitExceeded _))) -> error "consumed exactly block gas limit but errored"
-    _ -> return ()
+    BlockGasLimitError ->
+      error "consumed exactly block gas limit but errored"
+    _ ->
+      return ()
   -- we consume much less than the maximum block gas limit and expect no such error.
   useGas 1_000_000 >>= \case
-    Left (PactInternalError (decode . BL.fromStrict . T.encodeUtf8 -> Just (BlockGasLimitExceeded _))) -> error "consumed much less than block gas limit but errored"
-    _ -> return ()
+    BlockGasLimitError ->
+      error "consumed much less than block gas limit but errored"
+    _ ->
+      return ()
   -- we consume zero gas and expect no such error.
   useGas 0 >>= \case
-    Left (PactInternalError (decode . BL.fromStrict . T.encodeUtf8 -> Just (BlockGasLimitExceeded _))) -> error "consumed no gas but errored"
-    _ -> return ()
+    BlockGasLimitError ->
+      error "consumed no gas but errored"
+    _ ->
+      return ()
 
 mempoolRefillTest :: IO (IORef MemPoolAccess) -> IO (PactQueue,TestBlockDb) -> TestTree
 mempoolRefillTest mpRefIO reqIO = testCase "mempoolRefillTest" $ do

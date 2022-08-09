@@ -179,8 +179,8 @@ applyCmd v logger pdbenv miner gasModel txCtx spv cmd initialGas mcache0 =
       requestKey (fromIntegral gasLimit) executionConfigNoHistory
 
     requestKey = cmdToRequestKey cmd
-    gasPrice = cmd ^. cmdGasPrice
-    gasLimit = cmd ^. cmdGasLimit
+    gasPrice = view cmdGasPrice cmd
+    gasLimit = view cmdGasLimit cmd
     nid = networkIdOf cmd
     currHeight = ctxCurrentBlockHeight txCtx
     isModuleNameFix = enableModuleNameFix v currHeight

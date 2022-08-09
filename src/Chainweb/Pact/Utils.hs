@@ -84,9 +84,9 @@ timingsCheck (ParentCreationTime (BlockCreationTime txValidationTime)) tx =
     && timeFromSeconds (txOriginationTime + ttl) > txValidationTime
     && ttl <= maxTTL
   where
-    TTLSeconds ttl = tx ^. cmdTimeToLive
+    TTLSeconds ttl = view cmdTimeToLive tx
     timeFromSeconds = Time . secondsToTimeSpan . Seconds . fromIntegral
-    TxCreationTime txOriginationTime = tx ^. cmdCreationTime
+    TxCreationTime txOriginationTime = view cmdCreationTime tx
     lenientTxValidationTime = add (scaleTimeSpan lenientTimeSlop second) txValidationTime
 
 -- | Validation "slop" to allow for a more lenient creation time check after

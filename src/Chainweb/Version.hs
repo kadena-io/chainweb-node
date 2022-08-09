@@ -762,6 +762,8 @@ workSizeBytes v h = headerSizeBytes v (unsafeChainId 0) h - 32
 --
 -- Smaller limits can be configured for creating new blocks.
 --
+-- Before the chainweb-node 2.16 fork, there was no maximum block gas limit.
+--
 maxBlockGasLimit
     :: ChainwebVersion
     -> ChainId
@@ -995,7 +997,7 @@ chainweb216Pact aoa v h = case aoa of
   where
     go f Mainnet01 = f 2988358 -- 2022-09-02 00:00:00+00:00
     go f Testnet04 = f 2516927 -- 2022-09-01 12:00:00+00:00
-    go f Development = f 170
+    go f Development = f 215
     go f (FastTimedCPM g) | g == petersonChainGraph = f 36
     go f _ = f 16
 
