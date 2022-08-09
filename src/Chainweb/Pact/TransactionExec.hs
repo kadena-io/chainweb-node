@@ -402,8 +402,8 @@ applyLocal logger dbEnv gasModel txCtx spv cmdIn mc execConfig =
     nid = networkIdOf cmd
     chash = toUntypedHash $ _cmdHash cmd
     signers = _pSigners $ _cmdPayload cmd
-    gasPrice = cmd ^. cmdGasPrice
-    gasLimit = cmd ^. cmdGasLimit
+    gasPrice = view cmdGasPrice cmd
+    gasLimit = view cmdGasLimit cmd
     tenv = TransactionEnv Local dbEnv logger (ctxToPublicData txCtx) spv nid gasPrice
            rk (fromIntegral gasLimit) execConfig
     txst = TransactionState mc mempty 0 Nothing gasModel

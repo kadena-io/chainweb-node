@@ -388,7 +388,10 @@ applyPactCmd
   -> P.PactDbEnv p
   -> Miner
   -> ChainwebTransaction
-  -> StateT (T2 ModuleCache (Maybe P.Gas)) (PactServiceM cas) (Either GasPurchaseFailure (P.CommandResult [P.TxLog A.Value]))
+  -> StateT 
+      (T2 ModuleCache (Maybe P.Gas)) 
+      (PactServiceM cas) 
+      (Either GasPurchaseFailure (P.CommandResult [P.TxLog A.Value]))
 applyPactCmd isGenesis env miner cmd = StateT $ \(T2 mcache blockGasRemaining) -> do
   logger <- view psLogger
   gasModel <- view psGasModel
