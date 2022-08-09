@@ -106,11 +106,11 @@ encodeDecodeTests = testGroup "Encode-Decode roundtrips"
     , testProperty "ChainId"
         $ prop_encodeDecode decodeChainId encodeChainId
     , testProperty "MerkleLogHash"
-        $ prop_encodeDecode decodeMerkleLogHash (encodeMerkleLogHash @_ @ChainwebMerkleHashAlgorithm)
+        $ prop_encodeDecode decodeMerkleLogHash (encodeMerkleLogHash @ChainwebMerkleHashAlgorithm)
     , testProperty "BlockHash"
-        $ prop_encodeDecode decodeBlockHash (encodeBlockHash @_ @ChainwebMerkleHashAlgorithm)
+        $ prop_encodeDecode decodeBlockHash (encodeBlockHash @ChainwebMerkleHashAlgorithm)
     , testProperty "BlockHash_ Keccak_256"
-        $ prop_encodeDecode decodeBlockHash (encodeBlockHash @_ @Keccak_256)
+        $ prop_encodeDecode decodeBlockHash (encodeBlockHash @Keccak_256)
     , testProperty "BlockHeight"
         $ prop_encodeDecode decodeBlockHeight encodeBlockHeight
     , testProperty "CutHeight"
@@ -139,24 +139,24 @@ encodeDecodeTests = testGroup "Encode-Decode roundtrips"
 
     , testGroup "ChainwebMerkleHashAlgorithm"
         [ testProperty "BlockPayloadHash"
-            $ prop_encodeDecode decodeBlockPayloadHash (encodeBlockPayloadHash @_ @ChainwebMerkleHashAlgorithm)
+            $ prop_encodeDecode decodeBlockPayloadHash (encodeBlockPayloadHash @ChainwebMerkleHashAlgorithm)
         , testProperty "BlockTransactionsHash"
-            $ prop_encodeDecode decodeBlockTransactionsHash (encodeBlockTransactionsHash @_ @ChainwebMerkleHashAlgorithm)
+            $ prop_encodeDecode decodeBlockTransactionsHash (encodeBlockTransactionsHash @ChainwebMerkleHashAlgorithm)
         , testProperty "BlockTransactionsHash"
-            $ prop_encodeDecode decodeBlockTransactionsHash (encodeBlockTransactionsHash @_ @ChainwebMerkleHashAlgorithm)
+            $ prop_encodeDecode decodeBlockTransactionsHash (encodeBlockTransactionsHash @ChainwebMerkleHashAlgorithm)
         , testProperty "BlockEventsHash"
-            $ prop_encodeDecode decodeBlockEventsHash (encodeBlockEventsHash @_ @ChainwebMerkleHashAlgorithm)
+            $ prop_encodeDecode decodeBlockEventsHash (encodeBlockEventsHash @ChainwebMerkleHashAlgorithm)
         ]
 
     , testGroup "Keccak_256"
         [ testProperty "BlockPayloadHash"
-            $ prop_encodeDecode decodeBlockPayloadHash (encodeBlockPayloadHash @_ @Keccak_256)
+            $ prop_encodeDecode decodeBlockPayloadHash (encodeBlockPayloadHash @Keccak_256)
         , testProperty "BlockTransactionsHash"
-            $ prop_encodeDecode decodeBlockTransactionsHash (encodeBlockTransactionsHash @_ @Keccak_256)
+            $ prop_encodeDecode decodeBlockTransactionsHash (encodeBlockTransactionsHash @Keccak_256)
         , testProperty "BlockTransactionsHash"
-            $ prop_encodeDecode decodeBlockTransactionsHash (encodeBlockTransactionsHash @_ @Keccak_256)
+            $ prop_encodeDecode decodeBlockTransactionsHash (encodeBlockTransactionsHash @Keccak_256)
         , testProperty "BlockEventsHash"
-            $ prop_encodeDecode decodeBlockEventsHash (encodeBlockEventsHash @_ @Keccak_256)
+            $ prop_encodeDecode decodeBlockEventsHash (encodeBlockEventsHash @Keccak_256)
         ]
 
     -- SPV

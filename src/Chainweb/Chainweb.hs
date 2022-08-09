@@ -360,6 +360,10 @@ withChainwebInternal conf logger peer serviceSock rocksDb pactDbDir backupDir re
         -- initialize chains concurrently
         (\cid x -> do
             let mcfg = validatingMempoolConfig cid v (_configBlockGasLimit conf) (_configMinGasPrice conf)
+            -- NOTE: the gas limit may be set based on block height in future, so this approach may not be valid.
+            let maxGasLimit = fromIntegral $ maxBlockGasLimit v cid maxBound
+            when (_configBlockGasLimit conf > maxGasLimit) $
+                logg Warn "configured block gas limit is greater than the maximum for this chain; the maximum will be used instead"
             withChainResources
                 v
                 cid
@@ -368,7 +372,7 @@ withChainwebInternal conf logger peer serviceSock rocksDb pactDbDir backupDir re
                 mcfg
                 payloadDb
                 pactDbDir
-                pactConfig
+                (pactConfig maxGasLimit)
                 x
         )
 
@@ -379,7 +383,7 @@ withChainwebInternal conf logger peer serviceSock rocksDb pactDbDir backupDir re
         )
         cidsList
   where
-    pactConfig = PactServiceConfig
+    pactConfig maxGasLimit = PactServiceConfig
       { _pactReorgLimit = _configReorgLimit conf
       , _pactRevalidate = _configValidateHashesOnReplay conf
       , _pactQueueSize = _configPactQueueSize conf
@@ -388,7 +392,7 @@ withChainwebInternal conf logger peer serviceSock rocksDb pactDbDir backupDir re
       , _pactUnlimitedInitialRewind =
           isJust (_cutDbParamsInitialHeightLimit cutConfig) ||
           isJust (_cutDbParamsInitialCutFile cutConfig)
-      , _pactBlockGasLimit = _configBlockGasLimit conf
+      , _pactBlockGasLimit = min (_configBlockGasLimit conf) maxGasLimit
       }
 
     pruningLogger :: T.Text -> logger
