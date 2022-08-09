@@ -1221,13 +1221,25 @@ blockGasLimitTest _ reqIO = testCase "blockGasLimitTest" $ do
                 (BlockCreationTime $ Time $ TimeSpan 0)
                 (ParentHeader $ genesisBlockHeader testVersion cid)
       validateBlock bh (payloadWithOutputsToPayloadData payload) q >>= takeMVar
-  -- we consume more than the maximum block gas limit and provoke an error.
+  -- we consume slightly more than the maximum block gas limit and provoke an error.
   useGas 2_000_001 >>= \case
+    Left (PactInternalError (decode . BL.fromStrict . T.encodeUtf8 -> Just (BlockGasLimitExceeded _))) -> return ()
+    r -> error $ "not a BlockGasLimitExceeded error: " <> sshow r
+  -- we consume much more than the maximum block gas limit and expect an error.
+  useGas 3_000_000 >>= \case
     Left (PactInternalError (decode . BL.fromStrict . T.encodeUtf8 -> Just (BlockGasLimitExceeded _))) -> return ()
     r -> error $ "not a BlockGasLimitExceeded error: " <> sshow r
   -- we consume exactly the maximum block gas limit and expect no such error.
   useGas 2_000_000 >>= \case
     Left (PactInternalError (decode . BL.fromStrict . T.encodeUtf8 -> Just (BlockGasLimitExceeded _))) -> error "consumed exactly block gas limit but errored"
+    _ -> return ()
+  -- we consume much less than the maximum block gas limit and expect no such error.
+  useGas 1_000_000 >>= \case
+    Left (PactInternalError (decode . BL.fromStrict . T.encodeUtf8 -> Just (BlockGasLimitExceeded _))) -> error "consumed much less than block gas limit but errored"
+    _ -> return ()
+  -- we consume zero gas and expect no such error.
+  useGas 0 >>= \case
+    Left (PactInternalError (decode . BL.fromStrict . T.encodeUtf8 -> Just (BlockGasLimitExceeded _))) -> error "consumed no gas but errored"
     _ -> return ()
 
 mempoolRefillTest :: IO (IORef MemPoolAccess) -> IO (PactQueue,TestBlockDb) -> TestTree

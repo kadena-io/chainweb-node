@@ -143,11 +143,7 @@ execBlock currHeader plData pdbenv = do
 
     logInitCache
 
-    let
-      blockGasLimit =
-        fromIntegral <$> maxBlockGasLimit v (_blockChainId currHeader) (_blockHeight currHeader)
-
-    !results <- go miner trans blockGasLimit >>= throwOnGasFailure
+    !results <- go miner trans >>= throwOnGasFailure
 
     modify' $ set psStateValidated $ Just currHeader
 
@@ -159,6 +155,8 @@ execBlock currHeader plData pdbenv = do
     return $! T2 miner results
 
   where
+    blockGasLimit =
+      fromIntegral <$> maxBlockGasLimit v (_blockChainId currHeader) (_blockHeight currHeader)
 
     logInitCache = do
       mc <- fmap (fmap instr) <$> use psInitCache
@@ -174,7 +172,7 @@ execBlock currHeader plData pdbenv = do
 
     isGenesisBlock = isGenesisBlockHeader currHeader
 
-    go m txs blockGasLimit = if isGenesisBlock
+    go m txs = if isGenesisBlock
       then do
         -- GENESIS VALIDATE COINBASE: Reject bad coinbase, use date rule for precompilation
         execTransactions True m txs
