@@ -388,28 +388,27 @@ applyPactCmd
   -> P.PactDbEnv p
   -> Miner
   -> ChainwebTransaction
-  -> StateT 
-      (T2 ModuleCache (Maybe P.Gas)) 
-      (PactServiceM cas) 
+  -> StateT
+      (T2 ModuleCache (Maybe P.Gas))
+      (PactServiceM cas)
       (Either GasPurchaseFailure (P.CommandResult [P.TxLog A.Value]))
-applyPactCmd isGenesis env miner cmd = StateT $ \(T2 mcache blockGasRemaining) -> do
+applyPactCmd isGenesis env miner cmd = StateT $ \(T2 mcache maybeBlockGasRemaining) -> do
   logger <- view psLogger
   gasModel <- view psGasModel
   v <- view psVersion
   let
-    onBuyGasFailure (BuyGasFailure f) = pure $! (Left f, T2 mcache blockGasRemaining)
+    onBuyGasFailure (BuyGasFailure f) = pure $! (Left f, T2 mcache maybeBlockGasRemaining)
     onBuyGasFailure e = throwM e
     requestedTxGasLimit = view cmdGasLimit (payloadObj <$> cmd)
-    -- notice that we add 1 to the remaining block gas here, to distinguish
-    -- the cases "tx used exactly as much gas remained in the block" and "tx
-    -- attempted to use more gas than remains in the block" while still not
-    -- letting it use significantly more gas than remains in the block.  for
-    -- example: tx has a tx gas limit of 10000. the block has 5000 remaining
-    -- gas.  the tx is applied with a tx gas limit of 5001. if it uses 5001,
-    -- that's illegal; if it uses 5000 or less, that's legal.
-    newTxGasLimit = case blockGasRemaining of
+    -- notice that we add 1 to the remaining block gas here, to distinguish the
+    -- cases "tx used exactly as much gas remained in the block" (which is fine)
+    -- and "tx attempted to use more gas than remains in the block" (which is
+    -- illegal). for example: tx has a tx gas limit of 10000. the block has 5000
+    -- remaining gas. therefore the tx is applied with a tx gas limit of 5001.
+    -- if it uses 5001, that's illegal; if it uses 5000 or less, that's legal.
+    newTxGasLimit = case maybeBlockGasRemaining of
       Nothing -> requestedTxGasLimit
-      Just blockGasLimit -> min (fromIntegral (succ blockGasLimit)) requestedTxGasLimit
+      Just blockGasRemaining -> min (fromIntegral (succ blockGasRemaining)) requestedTxGasLimit
     gasLimitedCmd =
       set cmdGasLimit newTxGasLimit (payloadObj <$> cmd)
     initialGas = initialGasOf (P._cmdPayload cmd)
@@ -429,17 +428,17 @@ applyPactCmd isGenesis env miner cmd = StateT $ \(T2 mcache blockGasRemaining) -
 
     -- mark the tx as processed at the checkpointer.
     liftIO $ _cpRegisterProcessedTx cp (P._cmdHash cmd)
-    case blockGasRemaining of
-      Just r ->
-        when (P._crGas result >= succ r) $
+    case maybeBlockGasRemaining of
+      Just blockGasRemaining ->
+        when (P._crGas result >= succ blockGasRemaining) $
           -- this tx attempted to consume more gas than remains in the
-          -- block, so the block is invalid.  we don't know how much gas it
+          -- block, so the block is invalid. we don't know how much gas it
           -- would've consumed, because we stop early, so we guess that it
           -- needed its entire original gas limit.
-          throwM $ BlockGasLimitExceeded (r - fromIntegral requestedTxGasLimit)
+          throwM $ BlockGasLimitExceeded (blockGasRemaining - fromIntegral requestedTxGasLimit)
       Nothing -> return ()
-    let blockGasRemaining' = (\g -> g - P._crGas result) <$> blockGasRemaining
-    pure (Right result, T2 mcache' blockGasRemaining')
+    let maybeBlockGasRemaining' = (\g -> g - P._crGas result) <$> maybeBlockGasRemaining
+    pure (Right result, T2 mcache' maybeBlockGasRemaining')
 
 toHashCommandResult :: P.CommandResult [P.TxLog A.Value] -> P.CommandResult P.Hash
 toHashCommandResult = over (P.crLogs . _Just) $ P.pactHash . encodeToByteString
