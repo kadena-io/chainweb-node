@@ -5,6 +5,7 @@
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE TemplateHaskell #-}
 
 module Chainweb.Transaction
   ( ChainwebTransaction
@@ -13,10 +14,10 @@ module Chainweb.Transaction
   , chainwebPayloadCodec
   , encodePayload
   , decodePayload
-  , gasLimitOf
-  , gasPriceOf
-  , timeToLiveOf
-  , creationTimeOf
+  , cmdGasLimit
+  , cmdGasPrice
+  , cmdTimeToLive
+  , cmdCreationTime
   , mkPayloadWithText
   , mkPayloadWithTextOld
   , payloadBytes
@@ -25,6 +26,7 @@ module Chainweb.Transaction
   ) where
 
 import Control.DeepSeq
+import Control.Lens
 
 import qualified Data.Aeson as Aeson
 import Data.ByteString.Char8 (ByteString)
@@ -127,20 +129,20 @@ parsePact (Just (v, h)) code
     | chainweb213Pact v h = P.parsePact code
     | otherwise = P.legacyParsePact code
 
--- | Get the gas limit/supply of a public chain command payload
-gasLimitOf :: forall c. Command (Payload PublicMeta c) -> GasLimit
-gasLimitOf = _pmGasLimit . _pMeta . _cmdPayload
-{-# INLINE gasLimitOf #-}
+-- | Access the gas limit/supply of a public chain command payload
+cmdGasLimit :: Lens' (Command (Payload PublicMeta c)) GasLimit
+cmdGasLimit = cmdPayload . pMeta . pmGasLimit
+{-# INLINE cmdGasLimit #-}
 
 -- | Get the gas price of a public chain command payload
-gasPriceOf :: forall c. Command (Payload PublicMeta c) -> GasPrice
-gasPriceOf = _pmGasPrice . _pMeta . _cmdPayload
-{-# INLINE gasPriceOf #-}
+cmdGasPrice :: Lens' (Command (Payload PublicMeta c)) GasPrice
+cmdGasPrice = cmdPayload . pMeta . pmGasPrice
+{-# INLINE cmdGasPrice #-}
 
-timeToLiveOf :: forall c . Command (Payload PublicMeta c) -> TTLSeconds
-timeToLiveOf = _pmTTL . _pMeta . _cmdPayload
-{-# INLINE timeToLiveOf #-}
+cmdTimeToLive :: Lens' (Command (Payload PublicMeta c)) TTLSeconds
+cmdTimeToLive = cmdPayload . pMeta . pmTTL
+{-# INLINE cmdTimeToLive #-}
 
-creationTimeOf :: forall c . Command (Payload PublicMeta c) -> TxCreationTime
-creationTimeOf = _pmCreationTime . _pMeta . _cmdPayload
-{-# INLINE creationTimeOf #-}
+cmdCreationTime :: Lens' (Command (Payload PublicMeta c)) TxCreationTime
+cmdCreationTime = cmdPayload . pMeta . pmCreationTime
+{-# INLINE cmdCreationTime #-}
