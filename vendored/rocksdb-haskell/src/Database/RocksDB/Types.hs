@@ -16,13 +16,11 @@ module Database.RocksDB.Types
     , FilterPolicy (..)
     , Options (..)
     , Property (..)
-    , ReadOptions (..)
     , Snapshot (..)
     , WriteBatch
     , WriteOptions (..)
 
     , defaultOptions
-    , defaultReadOptions
     , defaultWriteOptions
     )
 where
@@ -149,37 +147,6 @@ defaultWriteOptions = WriteOptions { sync = False }
 
 instance Default WriteOptions where
     def = defaultWriteOptions
-
--- | Options for read operations
-data ReadOptions = ReadOptions
-    { verifyCheckSums :: !Bool
-      -- ^ If true, all data read from underlying storage will be verified
-      -- against corresponding checksuyms.
-      --
-      -- Default: False
-    , fillCache       :: !Bool
-      -- ^ Should the data read for this iteration be cached in memory? Callers
-      -- may with to set this field to false for bulk scans.
-      --
-      -- Default: True
-    , useSnapshot     :: !(Maybe Snapshot)
-      -- ^ If 'Just', read as of the supplied snapshot (which must belong to the
-      -- DB that is being read and which must not have been released). If
-      -- 'Nothing', use an implicit snapshot of the state at the beginning of
-      -- this read operation.
-      --
-      -- Default: Nothing
-    } deriving (Eq)
-
-defaultReadOptions :: ReadOptions
-defaultReadOptions = ReadOptions
-    { verifyCheckSums = False
-    , fillCache       = True
-    , useSnapshot     = Nothing
-    }
-
-instance Default ReadOptions where
-    def = defaultReadOptions
 
 type WriteBatch = [BatchOp]
 
