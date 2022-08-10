@@ -1,3 +1,4 @@
+(env-exec-config ["DisablePact44", "PreserveNamespaceUpgrade"])
 (begin-tx)
 (env-data
  { 'ns-admin-keyset: ["admin"]
