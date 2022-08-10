@@ -6,6 +6,8 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE ViewPatterns #-}
+{-# LANGUAGE PatternSynonyms #-}
 
 -- |
 -- Module: Chainweb.Test.PactInProcApi
@@ -27,7 +29,7 @@ import Control.Exception
 import Control.Lens hiding ((.=))
 import Control.Monad
 
-import Data.Aeson (object, (.=), Value(..))
+import Data.Aeson (object, (.=), Value(..), decode)
 import qualified Data.ByteString.Base64.URL as B64U
 import Data.CAS (casLookupM)
 import Data.CAS.RocksDB
@@ -39,6 +41,7 @@ import Data.IORef
 import qualified Data.Map.Strict as M
 import qualified Data.Set as S
 import qualified Data.Text as T
+import qualified Data.Text.Encoding as T
 import qualified Data.Vector as V
 import qualified Data.Yaml as Y
 
@@ -53,6 +56,7 @@ import Pact.Types.Continuation
 import Pact.Types.Exp
 import Pact.Types.Command
 import Pact.Types.Hash
+import Pact.Types.Info
 import Pact.Types.PactValue
 import Pact.Types.Persistence
 import Pact.Types.PactError
@@ -73,7 +77,8 @@ import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.Service.BlockValidation
 import Chainweb.Pact.Service.PactQueue (PactQueue)
 import Chainweb.Pact.Service.Types
-import Chainweb.Pact.PactService (getGasModel)
+import Chainweb.Pact.PactService
+import Chainweb.Pact.PactService.ExecBlock
 import Chainweb.Pact.TransactionExec (listErrMsg)
 import Chainweb.Pact.Types
 import Chainweb.Payload
@@ -116,6 +121,7 @@ tests rdb = ScheduledTest testName go
          , test Warn $ mempoolCreationTimeTest
          , test Warn $ moduleNameFork
          , test Warn $ mempoolRefillTest
+         , test Quiet $ blockGasLimitTest
          , multiChainTest freeGasModel "pact4coin3UpgradeTest" pact4coin3UpgradeTest
          , multiChainTest freeGasModel "pact420UpgradeTest" pact420UpgradeTest
          , multiChainTest freeGasModel "minerKeysetTest" minerKeysetTest
@@ -125,10 +131,9 @@ tests rdb = ScheduledTest testName go
          , multiChainTest getGasModel "chainweb215Test" chainweb215Test
          ]
       where
-        pactConfig = defaultPactServiceConfig { _pactBlockGasLimit = 150_000 }
         test logLevel f =
           withDelegateMempool $ \dm ->
-          withPactTestBlockDb testVersion cid logLevel rdb (snd <$> dm) pactConfig $
+          withPactTestBlockDb testVersion cid logLevel rdb (snd <$> dm) defaultPactServiceConfig $
           f (fst <$> dm)
 
         multiChainTest gasmodel tname f =
@@ -1199,6 +1204,66 @@ txResult msg i o = do
 -- | Get coinbase from output
 cbResult :: PayloadWithOutputs -> IO (CommandResult Hash)
 cbResult o = decodeStrictOrThrow @_ @(CommandResult Hash) (_coinbaseOutput $ _payloadWithOutputsCoinbase o)
+
+pattern BlockGasLimitError :: forall b. Either PactException b
+pattern BlockGasLimitError <-
+  Left (PactInternalError (decode . BL.fromStrict . T.encodeUtf8 -> Just (BlockGasLimitExceeded _)))
+
+-- this test relies on block gas errors being thrown before other Pact errors.
+blockGasLimitTest :: IO (IORef MemPoolAccess) -> IO (PactQueue, TestBlockDb) -> TestTree
+blockGasLimitTest _ reqIO = testCase "blockGasLimitTest" $ do
+  (q,_) <- reqIO
+
+  let
+    useGas g = do
+      bigTx <- buildCwCmd $ set cbGasLimit g $ set cbSigners [mkSigner' sender00 []] $ mkCmd "cmd" $ mkExec' "TESTING"
+      let
+        cr = CommandResult
+          (RequestKey (Hash "0")) Nothing
+          (PactResult $ Left $ PactError EvalError (Pact.Types.Info.Info $ Nothing) [] mempty)
+          (fromIntegral g) Nothing Nothing Nothing []
+        block = Transactions
+          (V.singleton (bigTx, cr))
+          (CommandResult (RequestKey (Hash "h")) Nothing
+            (PactResult $ Right $ PLiteral (LString "output")) 0 Nothing Nothing Nothing [])
+        payload = toPayloadWithOutputs noMiner block
+        bh = newBlockHeader
+          mempty
+          (_payloadWithOutputsPayloadHash payload)
+          (Nonce 0)
+          (BlockCreationTime $ Time $ TimeSpan 0)
+          (ParentHeader $ genesisBlockHeader testVersion cid)
+      validateBlock bh (payloadWithOutputsToPayloadData payload) q >>= takeMVar
+  -- we consume slightly more than the maximum block gas limit and provoke an error.
+  useGas 2_000_001 >>= \case
+    BlockGasLimitError ->
+      return ()
+    r ->
+      error $ "not a BlockGasLimitExceeded error: " <> sshow r
+  -- we consume much more than the maximum block gas limit and expect an error.
+  useGas 3_000_000 >>= \case
+    BlockGasLimitError ->
+      return ()
+    r ->
+      error $ "not a BlockGasLimitExceeded error: " <> sshow r
+  -- we consume exactly the maximum block gas limit and expect no such error.
+  useGas 2_000_000 >>= \case
+    BlockGasLimitError ->
+      error "consumed exactly block gas limit but errored"
+    _ ->
+      return ()
+  -- we consume much less than the maximum block gas limit and expect no such error.
+  useGas 1_000_000 >>= \case
+    BlockGasLimitError ->
+      error "consumed much less than block gas limit but errored"
+    _ ->
+      return ()
+  -- we consume zero gas and expect no such error.
+  useGas 0 >>= \case
+    BlockGasLimitError ->
+      error "consumed no gas but errored"
+    _ ->
+      return ()
 
 mempoolRefillTest :: IO (IORef MemPoolAccess) -> IO (PactQueue,TestBlockDb) -> TestTree
 mempoolRefillTest mpRefIO reqIO = testCase "mempoolRefillTest" $ do
