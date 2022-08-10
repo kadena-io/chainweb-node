@@ -42,12 +42,12 @@ module Chainweb.Pact.TransactionExec
 , publicMetaOf
 , networkIdOf
 , gasSupplyOf
-, gasPriceOf
 
   -- * Utilities
 , buildExecParsedCode
 , mkMagicCapSlot
 , listErrMsg
+, initialGasOf
 
 ) where
 
@@ -149,12 +149,14 @@ applyCmd
       -- ^ tx metadata and parent header
     -> SPVSupport
       -- ^ SPV support (validates cont proofs)
-    -> Command PayloadWithText
+    -> Command (Payload PublicMeta ParsedCode)
       -- ^ command with payload to execute
+    -> Gas
+      -- ^ initial gas used
     -> ModuleCache
       -- ^ cached module state
     -> IO (T2 (CommandResult [TxLog Value]) ModuleCache)
-applyCmd v logger pdbenv miner gasModel txCtx spv cmdIn mcache0 =
+applyCmd v logger pdbenv miner gasModel txCtx spv cmd initialGas mcache0 =
     second _txCache <$!>
       runTransactionM cenv txst applyBuyGas
   where
@@ -178,11 +180,9 @@ applyCmd v logger pdbenv miner gasModel txCtx spv cmdIn mcache0 =
     cenv = TransactionEnv Transactional pdbenv logger (ctxToPublicData txCtx) spv nid gasPrice
       requestKey (fromIntegral gasLimit) executionConfigNoHistory
 
-    cmd = payloadObj <$> cmdIn
     requestKey = cmdToRequestKey cmd
-    gasPrice = gasPriceOf cmd
-    gasLimit = gasLimitOf cmd
-    initialGas = initialGasOf (_cmdPayload cmdIn)
+    gasPrice = view cmdGasPrice cmd
+    gasLimit = view cmdGasLimit cmd
     nid = networkIdOf cmd
     currHeight = ctxCurrentBlockHeight txCtx
     isModuleNameFix = enableModuleNameFix v currHeight
@@ -406,8 +406,8 @@ applyLocal logger dbEnv gasModel txCtx spv cmdIn mc execConfig =
     nid = networkIdOf cmd
     chash = toUntypedHash $ _cmdHash cmd
     signers = _pSigners $ _cmdPayload cmd
-    gasPrice = gasPriceOf cmd
-    gasLimit = gasLimitOf cmd
+    gasPrice = view cmdGasPrice cmd
+    gasLimit = view cmdGasLimit cmd
     tenv = TransactionEnv Local dbEnv logger (ctxToPublicData txCtx) spv nid gasPrice
            rk (fromIntegral gasLimit) execConfig
     txst = TransactionState mc mempty 0 Nothing gasModel
@@ -954,15 +954,15 @@ gasInterpreter g = do
 --   ignoring the size of a continuation proof, if present
 --
 initialGasOf :: PayloadWithText -> Gas
-initialGasOf cmd = gasFee
+initialGasOf payload = gasFee
   where
     feePerByte :: Rational = 0.01
 
     contProofSize =
-      case _pPayload (payloadObj cmd) of
+      case _pPayload (payloadObj payload) of
         Continuation (ContMsg _ _ _ _ (Just (ContProof p))) -> B.length p
         _ -> 0
-    txSize = SB.length (payloadBytes cmd) - contProofSize
+    txSize = SB.length (payloadBytes payload) - contProofSize
 
     costPerByte = fromIntegral txSize * feePerByte
     sizePenalty = txSizeAccelerationFee costPerByte
