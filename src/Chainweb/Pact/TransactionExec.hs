@@ -67,7 +67,7 @@ import qualified Data.ByteString.Short as SB
 import Data.Decimal (Decimal, roundTo)
 import Data.Default (def)
 import Data.Foldable (for_, traverse_, foldl')
-import Data.IORef (newIORef)
+import Data.IORef
 import qualified Data.HashMap.Strict as HM
 import Data.Maybe (isJust)
 import qualified Data.Set as S
@@ -278,7 +278,7 @@ applyGenesisCmd logger dbEnv spv cmd =
         , _txGasModel = _geGasModel freeGasEnv
         }
 
-    interp = initStateInterpreter id
+    interp = initStateInterpreter
       $ initCapabilities [magic_GENESIS, magic_COINBASE]
 
     go = do
@@ -316,7 +316,7 @@ applyCoinbase v logger dbEnv (Miner mid mks@(MinerKeys mk)) reward@(ParsedDecima
     go interp cexec
   | otherwise = do
     cexec <- mkCoinbaseCmd mid mks reward
-    let interp = initStateInterpreter id initState
+    let interp = initStateInterpreter initState
     go interp cexec
   where
     chainweb213Pact' = chainweb213Pact v bh
@@ -347,7 +347,7 @@ applyCoinbase v logger dbEnv (Miner mid mks@(MinerKeys mk)) reward@(ParsedDecima
 
     go interp cexec = evalTransactionM tenv txst $! do
       cr <- catchesPactError $!
-        applyExec' interp cexec mempty chash managedNamespacePolicy
+        applyExec' 0 interp cexec mempty chash managedNamespacePolicy
 
       case cr of
         Left e
@@ -417,9 +417,9 @@ applyLocal logger dbEnv gasModel txCtx spv cmdIn mc execConfig =
       interp <- gasInterpreter gas0
       cr <- catchesPactError $! case m of
         Exec em ->
-          applyExec interp em signers chash managedNamespacePolicy
+          applyExec gas0 interp em signers chash managedNamespacePolicy
         Continuation cm ->
-          applyContinuation interp cm signers chash managedNamespacePolicy
+          applyContinuation gas0 interp cm signers chash managedNamespacePolicy
 
       case cr of
         Left e -> jsonErrorResult e "applyLocal"
@@ -453,7 +453,7 @@ readInitModules logger dbEnv txCtx =
     mkCmd = buildExecParsedCode (Just (v, h)) Nothing
     run msg cmd = do
       er <- catchesPactError $!
-        applyExec' interp cmd [] chash permissiveNamespacePolicy
+        applyExec' 0 interp cmd [] chash permissiveNamespacePolicy
       case er of
         Left e -> die $ msg <> ": failed: " <> sshow e
         Right r -> case _erOutput r of
@@ -528,7 +528,7 @@ applyUpgrades v cid height
       caches <- local (set txExecutionConfig execConfig) $ mapM applyTx txs
       return $ Just (HM.unions caches)
 
-    interp = initStateInterpreter id
+    interp = initStateInterpreter
         $ installCoinModuleAdmin
         $ initCapabilities [mkMagicCapSlot "REMEDIATE"]
 
@@ -566,7 +566,7 @@ applyTwentyChainUpgrade v cid bh
     applyTx tx = do
       infoLog $ "Running 20-chain upgrade tx " <> sshow (_cmdHash tx)
 
-      let i = initStateInterpreter id
+      let i = initStateInterpreter
             $ initCapabilities [mkMagicCapSlot "REMEDIATE"]
 
       r <- tryAllSynchronous (runGenesis tx permissiveNamespacePolicy i)
@@ -607,9 +607,9 @@ runPayload cmd nsp = do
 
     case payload of
       Exec pm ->
-        applyExec interp pm signers chash nsp
+        applyExec g0 interp pm signers chash nsp
       Continuation ym ->
-        applyContinuation interp ym signers chash nsp
+        applyContinuation g0 interp ym signers chash nsp
 
   where
     signers = _pSigners $ _cmdPayload cmd
@@ -625,9 +625,9 @@ runGenesis
     -> TransactionM p (CommandResult [TxLog Value])
 runGenesis cmd nsp interp = case payload of
     Exec pm ->
-      applyExec interp pm signers chash nsp
+      applyExec 0 interp pm signers chash nsp
     Continuation ym ->
-      applyContinuation interp ym signers chash nsp
+      applyContinuation 0 interp ym signers chash nsp
   where
     signers = _pSigners $ _cmdPayload cmd
     chash = toUntypedHash $ _cmdHash cmd
@@ -636,14 +636,15 @@ runGenesis cmd nsp interp = case payload of
 -- | Execute an 'ExecMsg' and Return the result with module cache
 --
 applyExec
-    :: Interpreter p
+    :: Gas
+    -> Interpreter p
     -> ExecMsg ParsedCode
     -> [Signer]
     -> Hash
     -> NamespacePolicy
     -> TransactionM p (CommandResult [TxLog Value])
-applyExec interp em senderSigs hsh nsp = do
-    EvalResult{..} <- applyExec' interp em senderSigs hsh nsp
+applyExec initialGas interp em senderSigs hsh nsp = do
+    EvalResult{..} <- applyExec' initialGas interp em senderSigs hsh nsp
     debug $ "gas logs: " <> sshow _erLogGas
     logs <- use txLogs
     rk <- view txRequestKey
@@ -657,13 +658,14 @@ applyExec interp em senderSigs hsh nsp = do
 -- wrapping it up in a JSON result.
 --
 applyExec'
-    :: Interpreter p
+    :: Gas
+    -> Interpreter p
     -> ExecMsg ParsedCode
     -> [Signer]
     -> Hash
     -> NamespacePolicy
     -> TransactionM p EvalResult
-applyExec' interp (ExecMsg parsedCode execData) senderSigs hsh nsp
+applyExec' initialGas interp (ExecMsg parsedCode execData) senderSigs hsh nsp
     | null (_pcExps parsedCode) = throwCmdEx "No expressions found"
     | otherwise = do
 
@@ -674,6 +676,7 @@ applyExec' interp (ExecMsg parsedCode execData) senderSigs hsh nsp
           <&> disablePact420Natives pactFlags
           <&> disablePact43Natives pactFlags
           <&> disablePact431Natives pactFlags
+      setEnvGas initialGas eenv
 
       er <- liftIO $! evalExec interp eenv parsedCode
 
@@ -730,14 +733,15 @@ enablePact44 tc
 -- | Execute a 'ContMsg' and return the command result and module cache
 --
 applyContinuation
-    :: Interpreter p
+    :: Gas
+    -> Interpreter p
     -> ContMsg
     -> [Signer]
     -> Hash
     -> NamespacePolicy
     -> TransactionM p (CommandResult [TxLog Value])
-applyContinuation interp cm senderSigs hsh nsp = do
-    EvalResult{..} <- applyContinuation' interp cm senderSigs hsh nsp
+applyContinuation initialGas interp cm senderSigs hsh nsp = do
+    EvalResult{..} <- applyContinuation' initialGas interp cm senderSigs hsh nsp
     debug $ "gas logs: " <> sshow _erLogGas
     logs <- use txLogs
     rk <- view txRequestKey
@@ -745,17 +749,22 @@ applyContinuation interp cm senderSigs hsh nsp = do
     return $! (CommandResult rk _erTxId (PactResult (Right (last _erOutput)))
       _erGas (Just logs) _erExec Nothing) _erEvents
 
+
+setEnvGas ::  Gas -> EvalEnv e -> TransactionM p ()
+setEnvGas initialGas = liftIO . views eeGas (`writeIORef` initialGas)
+
 -- | Execute a 'ContMsg' and return just eval result, not wrapped in a
 -- 'CommandResult' wrapper
 --
 applyContinuation'
-    :: Interpreter p
+    :: Gas
+    -> Interpreter p
     -> ContMsg
     -> [Signer]
     -> Hash
     -> NamespacePolicy
     -> TransactionM p EvalResult
-applyContinuation' interp cm@(ContMsg pid s rb d _) senderSigs hsh nsp = do
+applyContinuation' initialGas interp cm@(ContMsg pid s rb d _) senderSigs hsh nsp = do
 
     pactFlags <- asks _txExecutionConfig
 
@@ -763,6 +772,7 @@ applyContinuation' interp cm@(ContMsg pid s rb d _) senderSigs hsh nsp = do
           <&> disablePact40Natives pactFlags
           <&> disablePact420Natives pactFlags
           <&> disablePact43Natives pactFlags
+    setEnvGas initialGas eenv
 
     er <- liftIO $! evalContinuation interp eenv cm
 
@@ -800,7 +810,7 @@ buyGas isPactBackCompatV16 cmd (Miner mid mks) = go
           interp mc = Interpreter $ \_input ->
             put (initState mc) >> run (pure <$> eval buyGasTerm)
 
-      result <- applyExec' (interp mcache) buyGasCmd
+      result <- applyExec' 0 (interp mcache) buyGasCmd
         (_pSigners $ _cmdPayload cmd) bgHash managedNamespacePolicy
 
       case _erExec result of
@@ -883,12 +893,12 @@ redeemGas cmd = do
 
     fee <- gasSupplyOf <$> use txGasUsed <*> view txGasPrice
 
-    _crEvents <$> applyContinuation (initState mcache) (redeemGasCmd fee gid)
+    _crEvents <$> applyContinuation 0 (initState mcache) (redeemGasCmd fee gid)
       (_pSigners $ _cmdPayload cmd) (toUntypedHash $ _cmdHash cmd)
       managedNamespacePolicy
 
   where
-    initState mc = initStateInterpreter id
+    initState mc = initStateInterpreter
       $ setModuleCache mc
       $ initCapabilities [magic_GAS]
 
@@ -907,8 +917,8 @@ initCapabilities :: [CapSlot UserCapability] -> EvalState
 initCapabilities cs = set (evalCapabilities . capStack) cs def
 {-# INLINABLE initCapabilities #-}
 
-initStateInterpreter :: (EvalEnv e -> EvalEnv e) -> EvalState -> Interpreter e
-initStateInterpreter k s = Interpreter $ \e -> local k (put s >> e)
+initStateInterpreter :: EvalState -> Interpreter e
+initStateInterpreter s = Interpreter (put s >>)
 
 
 -- | Check whether the cost of running a tx is more than the allowed
@@ -935,12 +945,9 @@ checkTooBigTx initialGas gasLimit next onFail
 gasInterpreter :: Gas -> TransactionM db (Interpreter p)
 gasInterpreter g = do
     mc <- use txCache
-    ior <- liftIO $ newIORef g
-    let st = def
-          & evalLogGas ?~ [("GTxSize",g)] -- enables gas logging
-          & setModuleCache mc
-        ig = set eeGas ior
-    return $ initStateInterpreter ig st
+    return $ initStateInterpreter
+        $ set evalLogGas (Just [("GTxSize",g)]) -- enables gas logging
+        $ setModuleCache mc def
 
 
 -- | Initial gas charged for transaction size

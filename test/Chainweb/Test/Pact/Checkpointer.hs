@@ -605,7 +605,7 @@ runExec :: CheckpointEnv -> PactDbEnv'-> Maybe Value -> Text -> IO EvalResult
 runExec cp (PactDbEnv' pactdbenv) eData eCode = do
     execMsg <- buildExecParsedCode Nothing {- use latest parser version -} eData eCode
     evalTransactionM cmdenv cmdst $
-      applyExec' defaultInterpreter execMsg [] h' permissiveNamespacePolicy
+      applyExec' 0 defaultInterpreter execMsg [] h' permissiveNamespacePolicy
   where
     h' = H.toUntypedHash (H.hash "" :: H.PactHash)
     cmdenv = TransactionEnv Transactional pactdbenv (_cpeLogger cp) def
@@ -615,7 +615,7 @@ runExec cp (PactDbEnv' pactdbenv) eData eCode = do
 runCont :: CheckpointEnv -> PactDbEnv' -> PactId -> Int -> IO EvalResult
 runCont cp (PactDbEnv' pactdbenv) pactId step = do
     evalTransactionM cmdenv cmdst $
-      applyContinuation' defaultInterpreter contMsg [] h' permissiveNamespacePolicy
+      applyContinuation' 0 defaultInterpreter contMsg [] h' permissiveNamespacePolicy
   where
     contMsg = ContMsg pactId step False Null Nothing
 
