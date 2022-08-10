@@ -369,10 +369,10 @@ chainwebTransactionConfig chainCtx = TransactionConfig (chainwebPayloadCodec cha
     txmeta
 
   where
-    getGasPrice = gasPriceOf . fmap payloadObj
-    getGasLimit = gasLimitOf . fmap payloadObj
-    getTimeToLive = timeToLiveOf . fmap payloadObj
-    getCreationTime = creationTimeOf . fmap payloadObj
+    getGasPrice = view cmdGasPrice . fmap payloadObj
+    getGasLimit = view cmdGasLimit . fmap payloadObj
+    getTimeToLive = view cmdTimeToLive . fmap payloadObj
+    getCreationTime = view cmdCreationTime . fmap payloadObj
     commandHash c = let (H.Hash !h) = H.toUntypedHash $ _cmdHash c
                     in TransactionHash $! SB.toShort $ h
     txmeta t =
