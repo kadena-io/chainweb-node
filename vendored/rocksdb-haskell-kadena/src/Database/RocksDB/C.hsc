@@ -31,6 +31,8 @@ data LSnapshot
 data LWriteBatch
 data LWriteOptions
 data LFilterPolicy
+data PrefixExtractor
+data Checkpoint
 
 type RocksDBPtr      = Ptr RocksDB
 type CachePtr        = Ptr LCache
@@ -83,6 +85,18 @@ foreign import ccall safe "rocksdb\\c.h rocksdb_delete"
                    -> ErrPtr
                    -> IO ()
 
+
+foreign import ccall unsafe "cpp\\chainweb-rocksdb.h rocksdb_delete_range"
+    rocksdb_delete_range
+        :: RocksDBPtr
+        -> WriteOptionsPtr
+        -> CString {- min key -}
+        -> CSize {- min key length -}
+        -> CString {- max key length -}
+        -> CSize {- max key length -}
+        -> Ptr CString {- output: errptr -}
+        -> IO ()
+
 foreign import ccall safe "rocksdb\\c.h rocksdb_write"
   c_rocksdb_write :: RocksDBPtr
                   -> WriteOptionsPtr
@@ -99,6 +113,40 @@ foreign import ccall safe "rocksdb\\c.h rocksdb_get"
                 -> Ptr CSize        -- ^ value length
                 -> ErrPtr
                 -> IO CString
+
+-- // if values_list[i] == NULL and errs[i] == NULL,
+-- // then we got status.IsNotFound(), which we will not return.
+-- // all errors except status status.ok() and status.IsNotFound() are returned.
+-- //
+-- // errs, values_list and values_list_sizes must be num_keys in length,
+-- // allocated by the caller.
+-- // errs is a list of strings as opposed to the conventional one error,
+-- // where errs[i] is the status for retrieval of keys_list[i].
+-- // each non-NULL errs entry is a malloc()ed, null terminated string.
+-- // each non-NULL values_list entry is a malloc()ed array, with
+-- // the length for each stored in values_list_sizes[i].
+-- extern ROCKSDB_LIBRARY_API void rocksdb_multi_get(
+--     rocksdb_t* db, const rocksdb_readoptions_t* options, size_t num_keys,
+--     const char* const* keys_list, const size_t* keys_list_sizes,
+--     char** values_list, size_t* values_list_sizes, char** errs);
+--
+foreign import ccall unsafe "rocksdb\\c.h rocksdb_multi_get"
+    rocksdb_multi_get
+        :: RocksDBPtr
+        -> ReadOptionsPtr
+        -> CSize
+            -- ^ num_key
+        -> Ptr (Ptr CChar)
+            -- ^ keys_list
+        -> Ptr CSize
+            -- ^ keys_list_sizes
+        -> Ptr (Ptr CChar)
+            -- ^ values_list
+        -> Ptr CSize
+            -- ^ values_list_sizes
+        -> Ptr CString
+            -- ^ errs
+        -> IO ()
 
 foreign import ccall safe "rocksdb\\c.h rocksdb_create_snapshot"
   c_rocksdb_create_snapshot :: RocksDBPtr -> IO SnapshotPtr
@@ -125,6 +173,14 @@ foreign import ccall safe "rocksdb\\c.h rocksdb_destroy_db"
 foreign import ccall safe "rocksdb\\c.h rocksdb_repair_db"
   c_rocksdb_repair_db :: OptionsPtr -> DBName -> ErrPtr -> IO ()
 
+foreign import ccall safe "rocksdb\\c.h rocksdb_compact_range"
+    rocksdb_compact_range
+        :: RocksDBPtr
+        -> CString {- min key -}
+        -> CSize {- min key length -}
+        -> CString {- max key -}
+        -> CSize {- max key length -}
+        -> IO ()
 
 --
 -- Iterator
@@ -228,7 +284,11 @@ foreign import ccall safe "rocksdb\\c.h rocksdb_options_set_max_open_files"
 foreign import ccall safe "rocksdb\\c.h rocksdb_options_set_compression"
   c_rocksdb_options_set_compression :: OptionsPtr -> CompressionOpt -> IO ()
 
+foreign import ccall unsafe "rocksdb\\c.h rocksdb_options_set_prefix_extractor"
+    rocksdb_options_set_prefix_extractor :: OptionsPtr -> Ptr PrefixExtractor -> IO ()
 
+foreign import ccall unsafe "cpp\\chainweb-rocksdb.h rocksdb_options_table_prefix_extractor"
+    rocksdb_options_table_prefix_extractor :: Ptr PrefixExtractor
 --
 -- Comparator
 --
@@ -314,6 +374,14 @@ foreign import ccall safe "rocksdb\\c.h rocksdb_readoptions_set_fill_cache"
 foreign import ccall safe "rocksdb\\c.h rocksdb_readoptions_set_snapshot"
   c_rocksdb_readoptions_set_snapshot :: ReadOptionsPtr -> SnapshotPtr -> IO ()
 
+foreign import ccall unsafe "rocksdb\\c.h rocksdb_readoptions_set_iterate_upper_bound"
+    rocksdb_readoptions_set_iterate_upper_bound :: ReadOptionsPtr -> CString -> CSize -> IO ()
+
+foreign import ccall unsafe "rocksdb\\c.h rocksdb_readoptions_set_iterate_lower_bound"
+    rocksdb_readoptions_set_iterate_lower_bound :: ReadOptionsPtr -> CString -> CSize -> IO ()
+
+foreign import ccall unsafe "cpp\\chainweb-rocksdb.h rocksdb_readoptions_set_auto_prefix_mode"
+    rocksdb_readoptions_set_auto_prefix_mode :: ReadOptionsPtr -> CBool -> IO ()
 
 --
 -- Write options
@@ -345,3 +413,16 @@ foreign import ccall safe "rocksdb\\c.h rocksdb_cache_destroy"
 
 foreign import ccall safe "rocksdb\\c.h rocksdb_free"
   c_rocksdb_free :: CString -> IO ()
+
+----------------------------------------------------------------------------
+-- Checkpoints
+----------------------------------------------------------------------------
+
+foreign import ccall unsafe "rocksdb\\c.h rocksdb_checkpoint_object_create"
+    rocksdb_checkpoint_object_create :: RocksDBPtr -> Ptr CString -> IO (Ptr Checkpoint)
+
+foreign import ccall unsafe "rocksdb\\c.h rocksdb_checkpoint_create"
+    rocksdb_checkpoint_create :: Ptr Checkpoint -> CString -> CULong -> Ptr CString -> IO ()
+
+foreign import ccall unsafe "rocksdb\\c.h rocksdb_checkpoint_object_destroy"
+    rocksdb_checkpoint_object_destroy :: Ptr Checkpoint -> IO ()

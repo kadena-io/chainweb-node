@@ -1,4 +1,6 @@
 {-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE OverloadedStrings #-}
+
 -- |
 -- Module      : Database.RocksDB.Internal
 -- Copyright   : (c) 2012-2013 The leveldb-haskell Authors
@@ -22,7 +24,6 @@ module Database.RocksDB.Internal
     , freeFilterPolicy
     , freeOpts
     , freeCString
-    , mkCReadOpts
     , mkComparator
     , mkCompareFun
     , mkCreateFilterFun
@@ -32,7 +33,6 @@ module Database.RocksDB.Internal
 
     -- * combinators
     , withCWriteOpts
-    , withCReadOpts
 
     -- * Utilities
     , throwIfErr
@@ -44,7 +44,7 @@ module Database.RocksDB.Internal
     )
 where
 
-import           Control.Exception      (bracket, onException, throwIO)
+import           Control.Exception
 import           Control.Monad          (when)
 import           Data.ByteString        (ByteString)
 import           Foreign
@@ -55,13 +55,12 @@ import           Database.RocksDB.C
 import           Database.RocksDB.Types
 
 import qualified Data.ByteString        as BS
+import System.IO.Unsafe
 
 
 -- | Database handle
-data DB = DB RocksDBPtr Options'
-
-instance Eq DB where
-    (DB pt1 _) == (DB pt2 _) = pt1 == pt2
+newtype DB = DB RocksDBPtr
+    deriving Eq
 
 -- | Internal representation of a 'Comparator'
 data Comparator' = Comparator' (FunPtr CompareFun)
@@ -82,7 +81,6 @@ data Options' = Options'
     , _cachePtr :: !(Maybe CachePtr)
     , _comp     :: !(Maybe Comparator')
     }
-
 
 mkOpts :: Options -> IO Options'
 mkOpts Options{..} = do
@@ -124,10 +122,10 @@ mkOpts Options{..} = do
         return cmp'
 
 freeOpts :: Options' -> IO ()
-freeOpts (Options' opts_ptr mcache_ptr mcmp_ptr ) = do
-    c_rocksdb_options_destroy opts_ptr
-    maybe (return ()) c_rocksdb_cache_destroy mcache_ptr
-    maybe (return ()) freeComparator mcmp_ptr
+freeOpts (Options' opts_ptr mcache_ptr mcmp_ptr) =
+    c_rocksdb_options_destroy opts_ptr `finally`
+        maybe (return ()) c_rocksdb_cache_destroy mcache_ptr `finally`
+        maybe (return ()) freeComparator mcmp_ptr
 
 withCWriteOpts :: WriteOptions -> (WriteOptionsPtr -> IO a) -> IO a
 withCWriteOpts WriteOptions{..} = bracket mkCWriteOpts freeCWriteOpts
@@ -211,27 +209,11 @@ freeFilterPolicy (FilterPolicy' ccffun ckmfun cdest cname cfp) = do
     freeHaskellFunPtr cdest
     freeHaskellFunPtr cname
 
-mkCReadOpts :: ReadOptions -> IO ReadOptionsPtr
-mkCReadOpts ReadOptions{..} = do
-    opts_ptr <- c_rocksdb_readoptions_create
-    flip onException (c_rocksdb_readoptions_destroy opts_ptr) $ do
-        c_rocksdb_readoptions_set_verify_checksums opts_ptr $ boolToNum verifyCheckSums
-        c_rocksdb_readoptions_set_fill_cache opts_ptr $ boolToNum fillCache
-
-        case useSnapshot of
-            Just (Snapshot snap_ptr) -> c_rocksdb_readoptions_set_snapshot opts_ptr snap_ptr
-            Nothing -> return ()
-
-    return opts_ptr
-
 freeCReadOpts :: ReadOptionsPtr -> IO ()
 freeCReadOpts = c_rocksdb_readoptions_destroy
 
 freeCString :: CString -> IO ()
 freeCString = c_rocksdb_free
-
-withCReadOpts :: ReadOptions -> (ReadOptionsPtr -> IO a) -> IO a
-withCReadOpts opts = bracket (mkCReadOpts opts) freeCReadOpts
 
 throwIfErr :: String -> (ErrPtr -> IO a) -> IO a
 throwIfErr s f = alloca $ \err_ptr -> do
