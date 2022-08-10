@@ -31,8 +31,6 @@ module Chainweb.BlockWeight
 import Control.DeepSeq
 
 import Data.Aeson
-import Data.Bytes.Get
-import Data.Bytes.Put
 import Data.Hashable
 
 import GHC.Generics (Generic)
@@ -42,6 +40,7 @@ import GHC.Generics (Generic)
 import Chainweb.Crypto.MerkleLog
 import Chainweb.Difficulty
 import Chainweb.MerkleUniverse
+import Chainweb.Utils.Serialization
 
 import Numeric.Additive
 
@@ -67,19 +66,19 @@ instance MerkleHashAlgorithm a => IsMerkleLogEntry a ChainwebHashTag BlockWeight
     {-# INLINE toMerkleNode #-}
     {-# INLINE fromMerkleNode #-}
 
-encodeBlockWeight :: MonadPut m => BlockWeight -> m ()
+encodeBlockWeight :: BlockWeight -> Put
 encodeBlockWeight (BlockWeight w) = encodeHashDifficulty w
 {-# INLINE encodeBlockWeight #-}
 
-decodeBlockWeight :: MonadGet m => m BlockWeight
+decodeBlockWeight :: Get BlockWeight
 decodeBlockWeight = BlockWeight <$> decodeHashDifficulty
 {-# INLINE decodeBlockWeight #-}
 
-encodeBlockWeightBe :: MonadPut m => BlockWeight -> m ()
+encodeBlockWeightBe :: BlockWeight -> Put
 encodeBlockWeightBe (BlockWeight w) = encodeHashDifficultyBe w
 {-# INLINE encodeBlockWeightBe #-}
 
-decodeBlockWeightBe :: MonadGet m => m BlockWeight
+decodeBlockWeightBe :: Get BlockWeight
 decodeBlockWeightBe = BlockWeight <$> decodeHashDifficultyBe
 {-# INLINE decodeBlockWeightBe #-}
 

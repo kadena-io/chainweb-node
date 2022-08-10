@@ -34,7 +34,6 @@ module Chainweb.RestAPI.Orphans () where
 import Control.Monad
 
 import Data.Bifunctor
-import Data.Bytes.Put
 import Data.Proxy
 import Data.Semigroup (Max(..), Min(..))
 import qualified Data.Text as T
@@ -52,6 +51,7 @@ import Chainweb.HostAddress
 import Chainweb.TreeDB
 import Chainweb.Utils
 import Chainweb.Utils.Paging
+import Chainweb.Utils.Serialization
 import Chainweb.Version
 
 import P2P.Peer
@@ -80,14 +80,14 @@ instance FromHttpApiData HostAddress where
 
 instance FromHttpApiData BlockHash where
     parseUrlPiece = first sshow
-        . (runGet decodeBlockHash <=< decodeB64UrlNoPaddingText)
+        . (runGetS decodeBlockHash <=< decodeB64UrlNoPaddingText)
 
 instance ToHttpApiData BlockHash where
     toUrlPiece = encodeB64UrlNoPaddingText . runPutS . encodeBlockHash
 
 instance FromHttpApiData BlockPayloadHash where
     parseUrlPiece = first sshow
-        . (runGet decodeBlockPayloadHash <=< decodeB64UrlNoPaddingText)
+        . (runGetS decodeBlockPayloadHash <=< decodeB64UrlNoPaddingText)
 
 instance ToHttpApiData BlockPayloadHash where
     toUrlPiece = encodeB64UrlNoPaddingText . runPutS . encodeBlockPayloadHash

@@ -139,6 +139,7 @@ import Chainweb.Payload.PayloadStore
 import Chainweb.Sync.WebBlockHeaderStore
 import Chainweb.TreeDB
 import Chainweb.Utils hiding (Codec, check)
+import Chainweb.Utils.Serialization
 import Chainweb.Version
 import Chainweb.Version.Utils
 import Chainweb.WebBlockHeaderDB
@@ -228,8 +229,8 @@ cutHashesTable :: RocksDb -> RocksDbCas CutHashes
 cutHashesTable rdb = newCas rdb valueCodec keyCodec ["CutHashes"]
   where
     keyCodec = Codec
-        (\(a,b,c) -> runPut $ encodeCutHeightBe a >> encodeBlockWeightBe b >> encodeCutId c)
-        (runGet $ (,,) <$> decodeCutHeightBe <*> decodeBlockWeightBe <*> decodeCutId)
+        (\(a,b,c) -> runPutS $ encodeCutHeightBe a >> encodeBlockWeightBe b >> encodeCutId c)
+        (runGetS $ (,,) <$> decodeCutHeightBe <*> decodeBlockWeightBe <*> decodeCutId)
     valueCodec = Codec encodeToByteString decodeStrictOrThrow'
 
 -- -------------------------------------------------------------------------- --

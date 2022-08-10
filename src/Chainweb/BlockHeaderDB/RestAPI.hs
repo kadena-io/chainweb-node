@@ -88,9 +88,6 @@ import Control.Monad.Identity
 
 import Data.Aeson
 import Data.Bifunctor
-import Data.Bytes.Get
-import Data.Bytes.Put
-import qualified Data.ByteString.Lazy as BL
 import Data.Proxy
 import Data.Text (Text)
 
@@ -107,6 +104,7 @@ import Chainweb.RestAPI.Orphans ()
 import Chainweb.RestAPI.Utils
 import Chainweb.TreeDB
 import Chainweb.Utils.Paging
+import Chainweb.Utils.Serialization hiding (Get)
 import Chainweb.Version
 
 -- -------------------------------------------------------------------------- --
@@ -126,7 +124,7 @@ type BlockHeaderPage = Page (NextItem BlockHash) BlockHeader
 -- | Orphan instance to encode BlockHeaders as OctetStream
 --
 instance MimeUnrender OctetStream BlockHeader where
-    mimeUnrender _ = runGetS decodeBlockHeader . BL.toStrict
+    mimeUnrender _ = runGetEitherL decodeBlockHeader
     {-# INLINE mimeUnrender #-}
 
 -- | Orphan instance to encode BlockHeaders as OctetStream
