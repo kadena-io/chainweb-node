@@ -54,7 +54,7 @@ package yet-another-logger
 source-repository-package
     type: git
     location: https://github.com/kadena-io/pact.git
-    tag: 98dc6dbe9e917f26a238b2d4ac0f8ea90d65c5be
+    tag: c07fa8a65f6c02acbf72ada94cb0b0a3741f6dc8
 
 source-repository-package
     type: git
@@ -110,3 +110,6 @@ constraints: base64-bytestring <1.1
 
 -- TODO remove once the bounds are upgraded in pact.
 allow-newer: pact:direct-sqlite
+
+-- warp-tls is broken with the newest warp...
+constraints: warp <3.3.22

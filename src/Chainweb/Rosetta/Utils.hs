@@ -299,7 +299,7 @@ instance FromJSON ConstructionTx where
 -- performs balance and k:account checks.
 transferTx
     :: (AccountId, P.ParsedDecimal, P.KeySet)
-    -> (AccountId, P.ParsedDecimal, P.KeySet) 
+    -> (AccountId, P.ParsedDecimal, P.KeySet)
     -> Either RosettaError ConstructionTx
 transferTx (acct1, bal1, ks1) (acct2, bal2, ks2)
   | acct1 == acct2 =
@@ -421,7 +421,7 @@ getSuggestedFee tx someMaxFees someMult = do
       fee = kdaToRosettaAmount $! calcKDAFee gasLimit gasPrice
 
   pure (gasLimit, gasPrice, fee)
-    
+
   where
     ------------
     -- Defaults
@@ -432,7 +432,7 @@ getSuggestedFee tx someMaxFees someMult = do
     -- - https://explorer.chainweb.com/testnet/tx/g8dxg1CAM3eZ5S-rk51N27N8-nKEW3Wg_cyk5moqmBg
     -- - https://explorer.chainweb.com/testnet/tx/IGVzaRkTHOSMIiHM7q8bPxrATW5b5SEhoCqE6tPkVFA
     -- - https://explorer.chainweb.com/testnet/tx/cK0B0XOkOlMDR32GloR0GQvjAWAJ9mvNPZwQDalPr6c
-    defGasUnitsTransferCreate = 700
+    defGasUnitsTransferCreate = 2500
 
     -- See Chainweb.Chainweb.Configuration for latest min gas
     minGasPrice = Decimal 8 1
@@ -471,7 +471,7 @@ getSuggestedFee tx someMaxFees someMult = do
         minFeeNeeded =
           calcKDAFee estimatedGasLimit
             (P.GasPrice $ P.ParsedDecimal minGasPrice)
-    
+
     estimatedGasLimit = P.GasLimit $ P.ParsedInteger $! case tx of
       ConstructTransfer {} -> defGasUnitsTransferCreate
 
@@ -512,7 +512,7 @@ getSuggestedFee tx someMaxFees someMult = do
         P.GasLimit (P.ParsedInteger units) = gasLimit
         P.GasPrice (P.ParsedDecimal price) = gasPrice
         fee = fromIntegral units * price
-  
+
 
 --------------------------------------------------------------------------------
 -- /metadata
@@ -711,7 +711,7 @@ createSigningPayloads (EnrichedCommand cmd _ _) = map f
   where
     hashBase16 = P.toB16Text $! P.unHash $!
                  P.toUntypedHash $! _cmdHash cmd
-    
+
     f (signer, acct) = RosettaSigningPayload
       { _rosettaSigningPayload_address = Nothing
       , _rosettaSigningPayload_accountIdentifier = Just acct
@@ -732,7 +732,7 @@ txToOps txInfo = case txInfo of
     [ op (_accountId_address from) (negate amt) fromGuard 0
     , op (_accountId_address to) amt toGuard 1
     ]
-  
+
   where
     op name delta guard idx =
       o { _operation_status = "" }
@@ -743,7 +743,7 @@ txToOps txInfo = case txInfo of
                 (toAcctLog name delta guard)
                 idx
                 []
-      
+
     toAcctLog name delta guard = AccountLog
       { _accountLogKey = name
       , _accountLogBalanceDelta = BalanceDelta delta
@@ -770,7 +770,7 @@ matchSigs
 matchSigs sigs signers = do
   sigMap <- HM.fromList <$> mapM sigAndAddr sigs
   mapM (match sigMap) signers
-  
+
   where
     match
         :: HM.HashMap T.Text UserSig
@@ -781,16 +781,16 @@ matchSigs sigs signers = do
       note (stringRosettaError RosettaInvalidSignature
             $ "Missing signature for public key=" ++ show (_siPubKey signer))
             $ HM.lookup addr m
-    
+
     sigAndAddr (RosettaSignature _ (RosettaPublicKey pk ct) sigTyp sig) = do
       _ <- toRosettaError RosettaInvalidSignature $! P.parseB16TextOnly sig
       sigScheme <- sigToScheme sigTyp
       pkScheme <- getScheme ct
       when (sigScheme /= pkScheme)
         (Left $ stringRosettaError RosettaInvalidSignature $
-         "Expected the same Signature and PublicKey type for Signature=" ++ show sig) 
+         "Expected the same Signature and PublicKey type for Signature=" ++ show sig)
 
-      let userSig = P.UserSig sig      
+      let userSig = P.UserSig sig
       addr <- toPactPubKeyAddr pk pkScheme
       pure (addr, userSig)
 
@@ -1002,7 +1002,7 @@ parseOp (Operation i _ typ stat someAcct someAmt _ someMeta) = do
   prevOwn @?= currOwn   -- ensure that the ownership wasn't rotated
   ownership <- hushResult (fromJSON currOwn) @??
                "Only Pact KeySet is supported for account ownership"
-  
+
   pure (acct, P.ParsedDecimal amtDelta, ownership)
 
   where
@@ -1011,7 +1011,7 @@ parseOp (Operation i _ typ stat someAcct someAmt _ someMeta) = do
       Left $ stringRosettaError RosettaInvalidOperation $
         "Operation id=" ++ show i ++ ": " ++ msg
     (Just a) @?? _ = pure a
-    
+
     (@?=)
         :: (Show a, Eq a) => a
         -> a
