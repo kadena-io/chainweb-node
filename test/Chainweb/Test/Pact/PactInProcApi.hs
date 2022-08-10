@@ -129,6 +129,7 @@ tests rdb = ScheduledTest testName go
          , multiChainTest getGasModel "pact43UpgradeTest" pact43UpgradeTest
          , multiChainTest getGasModel "pact431UpgradeTest" pact431UpgradeTest
          , multiChainTest getGasModel "chainweb215Test" chainweb215Test
+         , multiChainTest getGasModel "chainweb216Test" chainweb216Test
          ]
       where
         test logLevel f =
@@ -951,6 +952,24 @@ pact420UpgradeTest bdb mpRefIO pact = do
            "(zip (+) [1 2 3] [4 5 6])"
           ]
 
+chainweb216Test
+    :: TestBlockDb
+    -> IO (IORef MemPoolAccess)
+    -> WebPactExecutionService
+    -> IO ()
+chainweb216Test bdb mpRefIO pact = do
+  -- This test should handles for format and try as well as
+  -- keyset format changes and disallowances across fork boundaries.
+  --
+  -- Namely, to test keys properly, we should:
+  --
+  -- 1. Make sure keys defined before and after
+  --    fork boundaries pass enforcement.
+  --
+  -- 2. Keys defined after the fork are only
+  --    definable if a namespace is present.
+  --
+  pure ()
 
 pact4coin3UpgradeTest :: TestBlockDb -> IO (IORef MemPoolAccess) -> WebPactExecutionService -> IO ()
 pact4coin3UpgradeTest bdb mpRefIO pact = do
