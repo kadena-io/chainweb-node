@@ -45,6 +45,9 @@ package cryptonite
 package vault
     documentation: false
 
+package yet-another-logger
+    flags: -tbmqueue
+
 -- -------------------------------------------------------------------------- --
 -- Source Repository Packages
 
@@ -107,3 +110,4 @@ constraints: base64-bytestring <1.1
 
 -- TODO remove once the bounds are upgraded in pact.
 allow-newer: pact:direct-sqlite
+
