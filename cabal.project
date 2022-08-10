@@ -45,6 +45,9 @@ package cryptonite
 package vault
     documentation: false
 
+package yet-another-logger
+    flags: -tbmqueue
+
 -- -------------------------------------------------------------------------- --
 -- Source Repository Packages
 
