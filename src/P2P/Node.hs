@@ -91,6 +91,7 @@ import qualified Data.Text as T
 import Data.Tuple
 
 import GHC.Generics
+import GHC.Stack
 
 import qualified Network.HTTP.Client as HTTP
 
@@ -469,6 +470,16 @@ syncFromPeer node info = do
 -- -------------------------------------------------------------------------- --
 -- Sample Peer from PeerDb
 
+-- | Geometric distribution that counts the number of failures before success.
+--
+geometric :: HasCallStack => P2pNode -> Double -> IO Int
+geometric _ 1 = return 0
+geometric node p
+    | p > 0 && p < 1 = do
+        x <- randomR node (0,1)
+        return $! floor $ logBase (1 - p) x
+    | otherwise = error "P2P.Node.geometric: probability must be within (0,1]"
+
 -- | Sample next active peer. Blocks until a suitable peer is available
 --
 -- @O(_p2pConfigActivePeerCount conf)@
@@ -494,8 +505,23 @@ findNextPeer conf node = do
         -- this ix expensive but lazy and only forced if p0 is empty
         p2 = L.groupBy ((==) `on` _peerEntrySuccessiveFailures) p1
 
-    -- note that @p0 : p1@ is guaranteed to be non-empty
-    head . concat <$> traverse shiftR (p0 : p2)
+
+    -- Choose the category to pick from
+    --
+    -- In 95% of all cases are peer is selected from the highest priority, if possible.
+    -- This ensures that the overall network topology is sufficient random and
+    -- dynamic while also maintaining a reasonable level of connection sharing.
+    --
+    geometric node 0.95 >>= \case
+
+        -- Special case that avoids forcing of p2
+        0 | not (null p0) -> head <$> shiftR p0
+
+        -- general case that forces p2
+        n -> do
+            let n' = min (length (p0 : p2) - 1) n
+            -- note that @p0 : p2@ is guaranteed to be non-empty
+            head . concat <$> traverse shiftR (drop n' (p0 : p2))
 
   where
 
