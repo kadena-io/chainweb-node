@@ -1017,8 +1017,8 @@ chainweb216Test bdb mpRefIO pact = do
 
   tx54_3 <- txResult "pwo54" 3 pwo54
   assertEqual "Pass when defining a namespaced keyset post fork"
-    (Just "asdf")
-    (tx54_3 ^? crResult . to _pactResult . _Left . to peDoc)
+    (Just (PLiteral (LBool True)))
+    (tx54_3 ^? crResult . to _pactResult . _Right)
 
   tx54_4 <- txResult "pwo54" 4 pwo54
   assertEqual "Should work in enforcing a namespaced keyset created prefork"
@@ -1029,21 +1029,27 @@ chainweb216Test bdb mpRefIO pact = do
   assertEqual "Should work in enforcing a non-namespaced keyset created prefork"
     (Just (PLiteral (LBool True)))
     (tx54_5 ^? crResult . to _pactResult . _Right)
+
+  tx54_6 <- txResult "pwo54" 6 pwo54
+  assertEqual "Should fail in defining a keyset outside a namespace"
+    (Just "Cannot define keysets outside of a namespace")
+    (tx54_6 ^? crResult . to _pactResult . _Left . to peDoc)
   where
   runCut' = runCut testVersion bdb pact (offsetBlockTime second) zeroNoncer noMiner
   defineNonNamespacedPreFork = mconcat
-    [ "(namespace 'free)"
-    , "(define-keyset \'k123)"
+    [ "(define-keyset \'k123)"
     , "(enforce-guard (keyset-ref-guard \'k123))"
     ]
   defineNamespacedPreFork = mconcat
-    [ "(namespace 'free)"
-    , "(define-keyset \"free.k123\")"
+    [ "(define-keyset \"free.k123\")"
     , "(enforce-guard (keyset-ref-guard \"free.k123\"))"
     ]
-  defineNonNamespacedPostFork = mconcat
+  defineNonNamespacedPostFork1 = mconcat
     [ "(namespace 'free)"
     , "(define-keyset \'k456)"
+    ]
+  defineNonNamespacedPostFork2 = mconcat
+    [ "(define-keyset \'k456)"
     ]
   defineNamespacedPostFork = mconcat
     [ "(namespace 'free)"
@@ -1067,11 +1073,12 @@ chainweb216Test bdb mpRefIO pact = do
     mpaGetBlock = \_ _ _ _ bh -> if _blockChainId bh == cid then do
         t0 <- buildSimpleCmd bh formatGas
         t1 <- buildSimpleCmd bh tryGas
-        t2 <- buildSimpleCmd bh defineNonNamespacedPostFork
+        t2 <- buildSimpleCmd bh defineNonNamespacedPostFork1
         t3 <- buildSimpleCmd bh defineNamespacedPostFork
         t4 <- buildSimpleCmd bh enforceNamespacedFromPreFork
         t5 <- buildSimpleCmd bh enforceNonNamespacedFromPreFork
-        return $! V.fromList [t0,t1,t2,t3,t4,t5]
+        t6 <- buildSimpleCmd bh defineNonNamespacedPostFork2
+        return $! V.fromList [t0,t1,t2,t3,t4,t5, t6]
         else return mempty
     }
   buildSimpleCmd bh code = buildCwCmd
