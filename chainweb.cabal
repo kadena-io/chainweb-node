@@ -574,6 +574,7 @@ executable chainweb-node
         -threaded
         "-with-rtsopts=-N -H1G -A64M"
         -rtsopts
+        -fplugin=LateCCPlugin
     hs-source-dirs: node
     main-is: ChainwebNode.hs
     other-modules:
@@ -583,6 +584,7 @@ executable chainweb-node
     autogen-modules:
         Paths_chainweb
         PkgInfo
+    build-depends: late-cc-plugin
     build-depends:
         -- internal
           chainweb
