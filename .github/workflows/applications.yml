@@ -126,12 +126,23 @@ jobs:
           "cabal": ["3.6"],
           "os": ["ubuntu-18.04", "ubuntu-20.04"],
           "cabalcache": ["true"],
+          "use-freeze-file": ["false"],
           "exclude": [
             {
               "ghc": "9.0.2",
               "cabal": "3.6",
               "os" : "ubuntu-20.04",
-              "cabalcache": "true"
+              "cabalcache": "true",
+              "use-freeze-file": "false"
+            }
+          ],
+          "include": [
+            {
+              "ghc": "8.10.7",
+              "cabal": "3.6",
+              "os" : "ubuntu-20.04",
+              "cabalcache": "true",
+              "use-freeze-file": "true"
             }
           ]
         }
