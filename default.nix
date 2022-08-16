@@ -57,6 +57,13 @@ pkgs.haskell.packages.${compiler}.developPackage {
         sha256 = "0w8wj3210h08qlws40qhidkscgsil3635zk83kdlj929rbd8khip";
       } {};
 
+      yet-another-logger = self.callCabal2nix "yet-another-logger" (pkgs.fetchFromGitHub {
+        owner = "alephcloud";
+        repo = "hs-yet-another-logger";
+        rev = "54f17172a807beb2e5df1b490c982403befb2208";
+        sha256 = "0g7sbkzvnxamscyn4qrddk9apz0ygabzajyghqc5yw78x06s5lbz";
+      }) {};
+
       pact = appendConfigureFlag super.pact "-f-build-tool";
 
       autodocodec    = unmarkBroken super.autodocodec;
