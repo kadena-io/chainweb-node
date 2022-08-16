@@ -21,7 +21,6 @@ package pact
     ghc-options: -Wwarn
     profiling: True
     profiling-detail: none
-    -- ghc-options: -fplugin=LateCCPlugin
     -- avoid conflict with cryptonite during linking
     flags: +cryptonite-ed25519 -build-tool +no-advice
 
@@ -59,13 +58,13 @@ package yet-another-logger
 source-repository-package
   type: git
   tag: 467054da161a58887975c1a3a4b455c8112cf4f3
-  location: git@github.com:edmundnoble/late-cc-plugin.git
+  location: https://github.com/edmundnoble/late-cc-plugin.git
   subdir: late-cc-plugin
 
 source-repository-package
     type: git
     location: https://github.com/kadena-io/pact.git
-    tag: ae2b2e98bd12a1825403a5739323550a3d26bbf4
+    tag: 3f92ef43dab9d6b96a1ea8254132a5119d11cb3a
 
 source-repository-package
     type: git
