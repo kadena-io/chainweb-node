@@ -60,7 +60,7 @@
 
        (parsed-name (parse-name ns-name)))
 
-      (with-default-read registry parsed-name
+      (with-default-read registry ns-name
           { 'admin-guard : ns-admin
           , 'active : false }
           { 'admin-guard := ag
@@ -96,6 +96,9 @@
 
         (enforce (not (= "unsupported" parsed-name))
           "Unsupported principal guard protocol")
+
+        (enforce (validate-principal guard ns-name)
+          "Invalid principal namespace protocol")
 
         (write registry parsed-name
           { 'admin-guard: guard

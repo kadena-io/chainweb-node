@@ -96,8 +96,6 @@
    ["70c787fcfe6c6f4ec23d13c2e94682bc90952f7cec06c7dbac1c012b0b6678b9"]
  , 'multi : ["a", "b"]
  , 'ns-operate-keyset: ["operate"]
- , 'ns-genesis-keyset: { "keys": [], "pred": "="}
- , 'ns-admin-keyset: ["admin"]
  })
 
 (expect
@@ -117,9 +115,6 @@
    (read-keyset 'multi)
    true))
 
-(commit-tx)
-(begin-tx)
-
 ; write k: principal to registry
 (ns.write-registry
    (create-principal
@@ -132,6 +127,26 @@
    (create-principal (read-keyset 'multi))
    (read-keyset 'multi)
    true)
+
+(define-namespace
+  "k#70c787fcfe6c6f4ec23d13c2e94682bc90952f7cec06c7dbac1c012b0b6678b9"
+  (read-keyset "70c787fcfe6c6f4ec23d13c2e94682bc90952f7cec06c7dbac1c012b0b6678b9")
+  (read-keyset "70c787fcfe6c6f4ec23d13c2e94682bc90952f7cec06c7dbac1c012b0b6678b9"))
+
+(define-namespace
+  "w#9lped_9eJpCtMWt7n8KN2QzFyaN-YXrD7uFAPePPmlU#keys-all"
+  (read-keyset 'multi)
+  (read-keyset 'multi))
+
+(commit-tx)
+(begin-tx)
+
+(env-keys
+  [ "70c787fcfe6c6f4ec23d13c2e94682bc90952f7cec06c7dbac1c012b0b6678b9"
+  , "a"
+  , "b"
+  ]
+  )
 
 (namespace "k#70c787fcfe6c6f4ec23d13c2e94682bc90952f7cec06c7dbac1c012b0b6678b9")
 (module modK G
