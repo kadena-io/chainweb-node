@@ -67,6 +67,7 @@
   (defcap G () (enforce false "disabled"))
   (defun foo () 4))
 (commit-tx)
+(begin-tx)
 
 (expect "kadena.mod2 works" 4 (kadena.mod2.foo))
 
@@ -85,3 +86,72 @@
 (expect-failure
   "must be latin1 charset"
   (write-registry "emilyπ" GUARD_SUCCESS true))
+
+(commit-tx)
+(begin-tx)
+
+(env-exec-config [])
+(env-data
+ { "70c787fcfe6c6f4ec23d13c2e94682bc90952f7cec06c7dbac1c012b0b6678b9" :
+   ["70c787fcfe6c6f4ec23d13c2e94682bc90952f7cec06c7dbac1c012b0b6678b9"]
+ , 'multi : ["a", "b"]
+ , 'ns-operate-keyset: ["operate"]
+ , 'ns-genesis-keyset: { "keys": [], "pred": "="}
+ , 'ns-admin-keyset: ["admin"]
+ })
+
+(expect
+  "Principal namespace creation for k: accounts succeeds"
+  "Register entry written"
+  (ns.write-registry
+   (create-principal
+     (read-keyset "70c787fcfe6c6f4ec23d13c2e94682bc90952f7cec06c7dbac1c012b0b6678b9"))
+   (read-keyset "70c787fcfe6c6f4ec23d13c2e94682bc90952f7cec06c7dbac1c012b0b6678b9")
+   true))
+
+(expect
+  "Principal namespace creation for w: accounts succeeds"
+  "Register entry written"
+  (ns.write-registry
+   (create-principal (read-keyset 'multi))
+   (read-keyset 'multi)
+   true))
+
+(commit-tx)
+(begin-tx)
+
+; write k: principal to registry
+(ns.write-registry
+   (create-principal
+     (read-keyset "70c787fcfe6c6f4ec23d13c2e94682bc90952f7cec06c7dbac1c012b0b6678b9"))
+   (read-keyset "70c787fcfe6c6f4ec23d13c2e94682bc90952f7cec06c7dbac1c012b0b6678b9")
+   true)
+
+; write w: principal to registry
+(ns.write-registry
+   (create-principal (read-keyset 'multi))
+   (read-keyset 'multi)
+   true)
+
+(namespace "k#70c787fcfe6c6f4ec23d13c2e94682bc90952f7cec06c7dbac1c012b0b6678b9")
+(module modK G
+  (defcap G () true)
+  (defun f () 1))
+
+(namespace "w#9lped_9eJpCtMWt7n8KN2QzFyaN-YXrD7uFAPePPmlU#keys-all")
+(module modW G
+  (defcap G () true)
+  (defun f () 2))
+
+(commit-tx)
+(begin-tx)
+
+(expect
+  "k: principal namespaces work"
+  1
+  (k#70c787fcfe6c6f4ec23d13c2e94682bc90952f7cec06c7dbac1c012b0b6678b9.modK.f))
+
+(expect
+  "w: principal namespaces work"
+  2
+  (w#9lped_9eJpCtMWt7n8KN2QzFyaN-YXrD7uFAPePPmlU#keys-all.modW.f))

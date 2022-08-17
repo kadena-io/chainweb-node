@@ -38,32 +38,35 @@
     " Manages namespace install for Chainweb. Requires active row in registry \
     \ for NS-NAME with guard matching NS-ADMIN."
 
-    (let
+    (let*
       ((parse-name
          (lambda (n)
            (let
-             ((first-two (take 2 n)))
+             ((take-two (take 2 n))
+              (drop-two (drop 2 n)))
 
              (cond
-              ((= "k#" first-two)
-                (+ "k:" (drop 2 n)))
-              ((= "w#" first-two)
-                (+ "w:" (+ (take 43 (drop 2 n)) (+ ":" (drop 46 n)))))
+              ((= "k#" take-two)
+                (+ "k:" drop-two))
+              ((= "w#" take-two)
+                (+ "w:" (+ (take 43 drop-two) (+ ":" (drop 46 n)))))
               n))))
 
        (name-validation
          (lambda (n)
            (if (is-principal n)
              (validate-principal ns-admin n)
-             (validate-name n)))))
+             (validate-name n))))
 
-      (with-default-read registry ns-name
+       (parsed-name (parse-name ns-name)))
+
+      (with-default-read registry parsed-name
           { 'admin-guard : ns-admin
           , 'active : false }
           { 'admin-guard := ag
           , 'active := is-active }
 
-          (name-validation (parse-name ns-name))
+          (name-validation parsed-name)
           (enforce is-active "Inactive or unregistered namespace")
           (enforce (= ns-admin ag) "Admin guard must match guard in registry")
 
@@ -79,23 +82,28 @@
     \ Guarded by operate keyset. "
 
     (if (is-principal ns-name)
-      (let
-        ((parsed-name
+      (let*
+        ((drop-two (drop 2 ns-name))
+         (take-two (take 2 ns-name))
+
+         (parsed-name
            (cond
-             ((= "k:" (drop 2 ns-name))
-               (+ "k#" (drop 2 ns-name)))
-             ((= "w:" (drop 2 ns-name))
-               (+ "w#" (+ (take 43 (drop 2 ns-name)) (+ "#" (drop 46 ns-name)))))
+             ((= "k:" take-two)
+               (+ "k#" drop-two))
+             ((= "w:" take-two)
+               (+ "w#" (+ (take 43 drop-two) (+ "#" (drop 44 drop-two)))))
              "unsupported")))
 
-        (enforce (= "unsupported" parsed-name)
-          "Unsupported guard protocol")
+        (enforce (not (= "unsupported" parsed-name))
+          "Unsupported principal guard protocol")
 
         (write registry parsed-name
           { 'admin-guard: guard
           , 'active: active }))
 
        (with-capability (OPERATE)
+          (validate-name ns-name)
+
           (write registry ns-name
             { 'admin-guard : guard
             , 'active: active })))
