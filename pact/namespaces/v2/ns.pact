@@ -5,6 +5,9 @@
 (module ns GOVERNANCE
   "Administers definition of new namespaces in Chainweb."
 
+  ;; namespace v1 contract
+  (bless "AF2zCIWu31ATlsHOBrrhSramOa6iEO06kCbQGZmxCww")
+
   (defschema reg-entry
     admin-guard:guard
     active:bool)
