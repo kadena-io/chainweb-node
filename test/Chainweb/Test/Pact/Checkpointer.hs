@@ -152,10 +152,15 @@ checkpointerTest name relational cenvIO = testCaseSteps name $ \next -> do
     -- s01 : new block workflow (restore -> discard), genesis
     ------------------------------------------------------------------
 
-    let hash00 = nullBlockHash
+    let hash000 = nullBlockHash
+    next "Step 0: ovuvuevuvevue"
+    blockenvGenesis00 <- _cpRestore cp Nothing
+    void $ runExec cenv blockenvGenesis00 Nothing $ defFree
+    _cpSave cp hash000
+
     runTwice next $ do
         next "Step 1 : new block workflow (restore -> discard), genesis"
-        blockenvGenesis0 <- _cpRestore cp Nothing
+        blockenvGenesis0 <- _cpRestore cp (Just (BlockHeight 1, hash000))
         void $ runExec cenv blockenvGenesis0 (Just $ ksData "1") $ defModule "1"
         runExec cenv blockenvGenesis0 Nothing "(m1.readTbl)" >>= \EvalResult{..} -> Right _erOutput @?= traverse toPactValue [tIntList [1]]
         _cpDiscard cp
@@ -165,7 +170,8 @@ checkpointerTest name relational cenvIO = testCaseSteps name $ \next -> do
     -----------------------------------------------------------
 
     next "Step 2 : validate block workflow (restore -> save), genesis"
-    blockenvGenesis1 <- _cpRestore cp Nothing
+    hash00 <- BlockHash <$> liftIO (merkleLogHash "0000000000000000000000000000000a")
+    blockenvGenesis1 <- _cpRestore cp (Just (BlockHeight 1, hash000))
     void $ runExec cenv blockenvGenesis1 (Just $ ksData "1") $ defModule "1"
     runExec cenv blockenvGenesis1 Nothing "(m1.readTbl)"
       >>=  \EvalResult{..} -> Right _erOutput @?= traverse toPactValue [tIntList [1]]
@@ -176,14 +182,14 @@ checkpointerTest name relational cenvIO = testCaseSteps name $ \next -> do
     ------------------------------------------------------------------
 
     next "Step 3 : new block 00"
-    blockenv00 <- _cpRestore cp (Just (BlockHeight 1, hash00))
+    _blockenv00 <- _cpRestore cp (Just (BlockHeight 2, hash00))
     -- start a pact
     -- test is that exec comes back with proper step
     let pactId = "DldRwCblQ7Loqy6wYJnaodHl30d3j3eH-qtFzfEv46g"
         pactCheckStep = preview (_Just . peStep) . _erExec
-    void $ runExec cenv blockenv00 Nothing "(m1.insertTbl 'b 2)"
-    runExec cenv blockenv00 Nothing "(m1.readTbl)" >>= \EvalResult{..} -> Right _erOutput @?= traverse toPactValue [tIntList [1,2]]
-    runExec cenv blockenv00 Nothing "(m1.dopact 'pactA)" >>= ((Just 0 @=?) . pactCheckStep)
+    -- void $ runExec cenv blockenv00 Nothing "(m1.insertTbl 'b 2)"
+    -- runExec cenv blockenv00 Nothing "(m1.readTbl)" >>= \EvalResult{..} -> Right _erOutput @?= traverse toPactValue [tIntList [1,2]]
+    -- runExec cenv blockenv00 Nothing "(m1.dopact 'pactA)" >>= ((Just 0 @=?) . pactCheckStep)
     _cpDiscard cp
 
     ------------------------------------------------------------------
@@ -192,7 +198,7 @@ checkpointerTest name relational cenvIO = testCaseSteps name $ \next -> do
 
     next "Step 4: validate block 1"
     hash01 <- BlockHash <$> liftIO (merkleLogHash "0000000000000000000000000000001a")
-    blockenv01 <- _cpRestore cp (Just (BlockHeight 1, hash00))
+    blockenv01 <- _cpRestore cp (Just (BlockHeight 2, hash00))
     void $ runExec cenv blockenv01 Nothing "(m1.insertTbl 'b 2)"
     runExec cenv blockenv01 Nothing "(m1.readTbl)"
       >>= \EvalResult{..} -> Right _erOutput @?= traverse toPactValue [tIntList [1,2]]
@@ -675,13 +681,19 @@ tStringList = toTList (TyPrim TyString) def . map toTerm
 toTerm' :: ToTerm a => a -> Term Name
 toTerm' = toTerm
 
+defFree :: Text
+defFree = T.unlines
+  [ "(module ezfree G (defcap G () true) (defun ALLOW () true))"
+  , "(define-namespace 'free (create-user-guard (ALLOW)) (create-user-guard (ALLOW)))"
+  ]
+
 defModule :: Text -> Text
 defModule idx = T.unlines
     [ " ;;"
+    , "(namespace 'free)"
+    , "(define-keyset \"free.k" <> idx <> "\" (read-keyset 'k" <> idx <> "))"
     , ""
-    , "(define-keyset 'k" <> idx <> " (read-keyset 'k" <> idx <> "))"
-    , ""
-    , "(module m" <> idx <> " 'k" <> idx
+    , "(module m" <> idx <> " \"free.k" <> idx <> "\""
     , ""
     , "  (defschema sch col:integer)"
     , ""
