@@ -268,7 +268,6 @@ applyGenesisCmd logger dbEnv spv cmd =
           , FlagDisableInlineMemCheck
           , FlagDisablePact43
           , FlagDisablePact44
-          , FlagPreserveNamespaceUpgrade
           ]
         }
     txst = TransactionState
@@ -729,7 +728,7 @@ enablePact431 tc
 enablePact44 :: TxContext -> [ExecutionFlag]
 enablePact44 tc
     | chainweb216Pact After (ctxVersion tc) (ctxCurrentBlockHeight tc) = []
-    | otherwise = [FlagDisablePact44, FlagPreserveNamespaceUpgrade]
+    | otherwise = [FlagDisablePact44]
 
 -- | Execute a 'ContMsg' and return the command result and module cache
 --
