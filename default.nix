@@ -57,6 +57,12 @@ pkgs.haskell.packages.${compiler}.developPackage {
         sha256 = "0w8wj3210h08qlws40qhidkscgsil3635zk83kdlj929rbd8khip";
       } {};
 
+      yet-another-logger = self.callHackageDirect {
+        pkg = "yet-another-logger";
+        ver = "0.4.1";
+        sha256 = "1qb0ns764sb5az8z1dn7pflizi8ni8qivbhx79sj9kfaa68hyhsl";
+      } {};
+
       pact = appendConfigureFlag super.pact "-f-build-tool";
 
       autodocodec    = unmarkBroken super.autodocodec;
