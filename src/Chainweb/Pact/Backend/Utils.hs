@@ -119,7 +119,7 @@ domainTableName :: Domain k v -> Utf8
 domainTableName = asStringUtf8
 
 convKeySetName :: KeySetName -> Utf8
-convKeySetName (KeySetName name) = toUtf8 name
+convKeySetName = toUtf8 . asString
 
 convModuleName
   :: Bool
