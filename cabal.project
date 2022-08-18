@@ -110,6 +110,3 @@ constraints: base64-bytestring <1.1
 
 -- TODO remove once the bounds are upgraded in pact.
 allow-newer: pact:direct-sqlite
-
--- warp-tls is broken with the newest warp...
-constraints: warp <3.3.22

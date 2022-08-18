@@ -615,7 +615,6 @@ runExec cp (PactDbEnv' pactdbenv) eData eCode = do
     h' = H.toUntypedHash (H.hash "" :: H.PactHash)
     cmdenv = TransactionEnv Transactional pactdbenv (_cpeLogger cp) def
              noSPVSupport Nothing 0.0 (RequestKey h') 0 def
-             -- (mkExecutionConfig [FlagDisablePact44])
     cmdst = TransactionState mempty mempty 0 Nothing (_geGasModel freeGasEnv)
 
 runCont :: CheckpointEnv -> PactDbEnv' -> PactId -> Int -> IO EvalResult
