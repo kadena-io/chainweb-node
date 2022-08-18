@@ -111,7 +111,7 @@ getPendingData = do
     return $ ptx ++ [pb]
 
 forModuleNameFix :: (Bool -> BlockHandler e a) -> BlockHandler e a
-forModuleNameFix a = use bsModuleNameFix >>= a
+forModuleNameFix f = use bsModuleNameFix >>= f
 
 doReadRow
     :: (IsString k, FromJSON v)
