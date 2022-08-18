@@ -361,8 +361,8 @@ withChainwebInternal conf logger peer serviceSock rocksDb pactDbDir backupDir re
         (\cid x -> do
             let mcfg = validatingMempoolConfig cid v (_configBlockGasLimit conf) (_configMinGasPrice conf)
             -- NOTE: the gas limit may be set based on block height in future, so this approach may not be valid.
-            let maxGasLimit = fromIntegral $ maxBlockGasLimit v cid maxBound
-            when (_configBlockGasLimit conf > maxGasLimit) $
+            let maxGasLimit = fromIntegral <$> maxBlockGasLimit v cid maxBound
+            when (Just (_configBlockGasLimit conf) > maxGasLimit) $
                 logg Warn "configured block gas limit is greater than the maximum for this chain; the maximum will be used instead"
             withChainResources
                 v
@@ -392,7 +392,7 @@ withChainwebInternal conf logger peer serviceSock rocksDb pactDbDir backupDir re
       , _pactUnlimitedInitialRewind =
           isJust (_cutDbParamsInitialHeightLimit cutConfig) ||
           isJust (_cutDbParamsInitialCutFile cutConfig)
-      , _pactBlockGasLimit = min (_configBlockGasLimit conf) maxGasLimit
+      , _pactBlockGasLimit = maybe id min maxGasLimit (_configBlockGasLimit conf)
       }
 
     pruningLogger :: T.Text -> logger

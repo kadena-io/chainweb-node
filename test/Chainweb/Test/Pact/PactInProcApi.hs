@@ -6,6 +6,10 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE ViewPatterns #-}
+{-# LANGUAGE PatternSynonyms #-}
+{-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE DerivingVia #-}
 
 -- |
 -- Module: Chainweb.Test.PactInProcApi
@@ -27,7 +31,7 @@ import Control.Exception
 import Control.Lens hiding ((.=))
 import Control.Monad
 
-import Data.Aeson (object, (.=), Value(..))
+import Data.Aeson (object, (.=), Value(..), decode)
 import qualified Data.ByteString.Base64.URL as B64U
 import Data.CAS (casLookupM)
 import Data.CAS.RocksDB
@@ -39,6 +43,7 @@ import Data.IORef
 import qualified Data.Map.Strict as M
 import qualified Data.Set as S
 import qualified Data.Text as T
+import qualified Data.Text.Encoding as T
 import qualified Data.Vector as V
 import qualified Data.Yaml as Y
 
@@ -53,6 +58,7 @@ import Pact.Types.Continuation
 import Pact.Types.Exp
 import Pact.Types.Command
 import Pact.Types.Hash
+import Pact.Types.Info
 import Pact.Types.PactValue
 import Pact.Types.Persistence
 import Pact.Types.PactError
@@ -73,7 +79,8 @@ import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.Service.BlockValidation
 import Chainweb.Pact.Service.PactQueue (PactQueue)
 import Chainweb.Pact.Service.Types
-import Chainweb.Pact.PactService (getGasModel)
+import Chainweb.Pact.PactService
+import Chainweb.Pact.PactService.ExecBlock
 import Chainweb.Pact.TransactionExec (listErrMsg)
 import Chainweb.Pact.Types
 import Chainweb.Payload
@@ -116,6 +123,7 @@ tests rdb = ScheduledTest testName go
          , test Warn $ mempoolCreationTimeTest
          , test Warn $ moduleNameFork
          , test Warn $ mempoolRefillTest
+         , test Quiet $ blockGasLimitTest
          , multiChainTest freeGasModel "pact4coin3UpgradeTest" pact4coin3UpgradeTest
          , multiChainTest freeGasModel "pact420UpgradeTest" pact420UpgradeTest
          , multiChainTest freeGasModel "minerKeysetTest" minerKeysetTest
@@ -123,12 +131,12 @@ tests rdb = ScheduledTest testName go
          , multiChainTest getGasModel "pact43UpgradeTest" pact43UpgradeTest
          , multiChainTest getGasModel "pact431UpgradeTest" pact431UpgradeTest
          , multiChainTest getGasModel "chainweb215Test" chainweb215Test
+         , multiChainTest getGasModel "chainweb216Test" chainweb216Test
          ]
       where
-        pactConfig = defaultPactServiceConfig { _pactBlockGasLimit = 150_000 }
         test logLevel f =
           withDelegateMempool $ \dm ->
-          withPactTestBlockDb testVersion cid logLevel rdb (snd <$> dm) pactConfig $
+          withPactTestBlockDb testVersion cid logLevel rdb (snd <$> dm) defaultPactServiceConfig $
           f (fst <$> dm)
 
         multiChainTest gasmodel tname f =
@@ -946,6 +954,179 @@ pact420UpgradeTest bdb mpRefIO pact = do
            "(zip (+) [1 2 3] [4 5 6])"
           ]
 
+chainweb216Test
+    :: TestBlockDb
+    -> IO (IORef MemPoolAccess)
+    -> WebPactExecutionService
+    -> IO ()
+chainweb216Test bdb mpRefIO pact = do
+  -- This test should handles for format and try as well as
+  -- keyset format changes and disallowances across fork boundaries.
+  --
+  -- Namely, to test keys properly, we should:
+  --
+  -- 1. Make sure keys defined before and after
+  --    fork boundaries pass enforcement.
+  --
+  -- 2. Keys defined after the fork are only
+  --    definable if a namespace is present.
+  --
+
+  -- run past genesis, upgrades
+  forM_ [(1::Int)..52] $ const runCut'
+  setOneShotMempool mpRefIO preForkBlock
+  runCut'
+
+  pwo53 <- getPWO bdb cid
+  tx53_0 <- txResult "pwo53" 0 pwo53
+  assertEqual "Pre-fork format gas" 11
+    (tx53_0 ^. crGas)
+
+  tx53_1 <- txResult "pwo53" 1 pwo53
+  assertEqual "Pre-fork try" 9
+    (tx53_1 ^. crGas)
+
+  tx53_2 <- txResult "pwo53" 2 pwo53
+  assertEqual "Should pass when defining a non-namespaced keyset"
+    (Just (PLiteral (LBool True)))
+    (tx53_2 ^? crResult . to _pactResult . _Right)
+
+  tx53_3 <- txResult "pwo53" 3 pwo53
+  -- Note, keysets technically are not namespaced pre-fork, the new parser isn't applied
+  assertEqual "Should pass when defining a \"namespaced\" keyset pre fork"
+    (Just (PLiteral (LBool True)))
+    (tx53_3 ^? crResult . to _pactResult . _Right)
+
+
+  setOneShotMempool mpRefIO postForkBlock
+  runCut'
+
+  pwo54 <- getPWO bdb cid
+  tx54_0 <- txResult "pwo54" 0 pwo54
+  assertEqual "Post-fork format gas increase" 38
+    (tx54_0 ^. crGas)
+
+  tx54_1 <- txResult "pwo54" 1 pwo54
+  assertEqual "Post-fork try should charge a bit more gas" 10
+    (tx54_1 ^. crGas)
+
+  tx54_2 <- txResult "pwo54" 2 pwo54
+  assertEqual "Should fail when defining a non-namespaced keyset post fork"
+    (Just "incorrect keyset name format")
+    (tx54_2 ^? crResult . to _pactResult . _Left . to peDoc)
+
+  tx54_3 <- txResult "pwo54" 3 pwo54
+  assertEqual "Pass when defining a namespaced keyset post fork"
+    (Just (PLiteral (LBool True)))
+    (tx54_3 ^? crResult . to _pactResult . _Right)
+
+  tx54_4 <- txResult "pwo54" 4 pwo54
+  assertEqual "Should work in enforcing a namespaced keyset created prefork"
+    (Just (PLiteral (LBool True)))
+    (tx54_4 ^? crResult . to _pactResult . _Right)
+
+  tx54_5 <- txResult "pwo54" 5 pwo54
+  assertEqual "Should work in enforcing a non-namespaced keyset created prefork"
+    (Just (PLiteral (LBool True)))
+    (tx54_5 ^? crResult . to _pactResult . _Right)
+
+  tx54_6 <- txResult "pwo54" 6 pwo54
+  assertEqual "Should fail in defining a keyset outside a namespace"
+    (Just "Cannot define keysets outside of a namespace")
+    (tx54_6 ^? crResult . to _pactResult . _Left . to peDoc)
+
+  tx54_7 <- txResult "pwo54" 7 pwo54
+  assertEqual "Should succeed in deploying a module guarded by a namespaced keyset"
+    (Just (PLiteral (LString "Loaded module free.m1, hash nOHaU-gPtmZTj6ZA3VArh-r7LEiwVUMN_RLJeW2hNv0")))
+    (tx54_7 ^? crResult . to _pactResult . _Right)
+
+  setOneShotMempool mpRefIO postForkBlock2
+  runCut'
+  pwo55 <- getPWO bdb cid
+  tx55_0 <- txResult "pwo55" 0 pwo55
+  assertEqual "Should call a module with a namespaced keyset correctly"
+     (Just (PLiteral (LDecimal 1)))
+     (tx55_0 ^? crResult . to _pactResult . _Right)
+  where
+  runCut' = runCut testVersion bdb pact (offsetBlockTime second) zeroNoncer noMiner
+  defineNonNamespacedPreFork = mconcat
+    [ "(define-keyset \'k123)"
+    , "(enforce-guard (keyset-ref-guard \'k123))"
+    ]
+  defineNamespacedPreFork = mconcat
+    [ "(define-keyset \"free.k123\")"
+    , "(enforce-guard (keyset-ref-guard \"free.k123\"))"
+    ]
+  defineNonNamespacedPostFork1 = mconcat
+    [ "(namespace 'free)"
+    , "(define-keyset \'k456)"
+    ]
+  defineNonNamespacedPostFork2 = mconcat
+    [ "(define-keyset \'k456)"
+    ]
+  defineNamespacedPostFork = mconcat
+    [ "(namespace 'free)"
+    , "(define-keyset \"free.k456\")"
+    , "(enforce-guard (keyset-ref-guard \"free.k456\"))"
+    ]
+  defineModulePostFork = mconcat
+    [ "(namespace 'free)"
+    , "(module m1 \"free.k456\" (defun f () 1))"
+    ]
+  enforceNamespacedFromPreFork = "(enforce-guard (keyset-ref-guard \"free.k123\"))"
+  enforceNonNamespacedFromPreFork = "(enforce-guard (keyset-ref-guard \"k123\"))"
+  tryGas = "(try (+ 1 1) (enforce false \"abc\"))"
+  formatGas = "(format \"{}-{}\" [1234567, 890111213141516])"
+  preForkBlock = mempty {
+    mpaGetBlock = \_ _ _ _ bh -> if _blockChainId bh == cid then do
+        t0 <- buildSimpleCmd bh formatGas
+        t1 <- buildSimpleCmd bh tryGas
+        t2 <- buildSimpleCmd bh defineNonNamespacedPreFork
+        t3 <- buildSimpleCmd bh defineNamespacedPreFork
+        return $! V.fromList [t0,t1,t2,t3]
+        else return mempty
+    }
+  postForkBlock = mempty {
+    mpaGetBlock = \_ _ _ _ bh -> if _blockChainId bh == cid then do
+        t0 <- buildSimpleCmd bh formatGas
+        t1 <- buildSimpleCmd bh tryGas
+        t2 <- buildSimpleCmd bh defineNonNamespacedPostFork1
+        t3 <- buildSimpleCmd bh defineNamespacedPostFork
+        t4 <- buildSimpleCmd bh enforceNamespacedFromPreFork
+        t5 <- buildSimpleCmd bh enforceNonNamespacedFromPreFork
+        t6 <- buildSimpleCmd bh defineNonNamespacedPostFork2
+        t7 <- buildModCommand bh
+        return $! V.fromList [t0,t1,t2,t3,t4,t5,t6,t7]
+        else return mempty
+    }
+  postForkBlock2 = mempty {
+    mpaGetBlock = \_ _ _ _ bh -> if _blockChainId bh == cid then do
+        t0 <- buildSimpleCmd bh "(free.m1.f)"
+        return $! V.fromList [t0]
+        else return mempty
+    }
+
+  buildModCommand bh = buildCwCmd
+    $ set cbSigners [mkSigner' sender00 []]
+    $ set cbChainId (_blockChainId bh)
+    $ set cbCreationTime (toTxCreationTime $ _bct $ _blockCreationTime bh)
+    $ set cbGasLimit 70000
+    $ mkCmd defineModulePostFork
+    $ mkExec defineModulePostFork
+    $ object []
+
+  buildSimpleCmd bh code = buildCwCmd
+    $ set cbSigners [mkSigner' sender00 []]
+    $ set cbChainId (_blockChainId bh)
+    $ set cbCreationTime (toTxCreationTime $ _bct $ _blockCreationTime bh)
+    $ set cbGasLimit 10000
+    $ mkCmd code
+    $ mkExec code
+    $ object
+      [ "k123" .= map fst [sender00]
+      , "k456" .= map fst [sender00]
+      , "free.k123" .= map fst [sender00]
+      , "free.k456" .= map fst [sender00]]
 
 pact4coin3UpgradeTest :: TestBlockDb -> IO (IORef MemPoolAccess) -> WebPactExecutionService -> IO ()
 pact4coin3UpgradeTest bdb mpRefIO pact = do
@@ -1199,6 +1380,66 @@ txResult msg i o = do
 -- | Get coinbase from output
 cbResult :: PayloadWithOutputs -> IO (CommandResult Hash)
 cbResult o = decodeStrictOrThrow @_ @(CommandResult Hash) (_coinbaseOutput $ _payloadWithOutputsCoinbase o)
+
+pattern BlockGasLimitError :: forall b. Either PactException b
+pattern BlockGasLimitError <-
+  Left (PactInternalError (decode . BL.fromStrict . T.encodeUtf8 -> Just (BlockGasLimitExceeded _)))
+
+-- this test relies on block gas errors being thrown before other Pact errors.
+blockGasLimitTest :: IO (IORef MemPoolAccess) -> IO (PactQueue, TestBlockDb) -> TestTree
+blockGasLimitTest _ reqIO = testCase "blockGasLimitTest" $ do
+  (q,_) <- reqIO
+
+  let
+    useGas g = do
+      bigTx <- buildCwCmd $ set cbGasLimit g $ set cbSigners [mkSigner' sender00 []] $ mkCmd "cmd" $ mkExec' "TESTING"
+      let
+        cr = CommandResult
+          (RequestKey (Hash "0")) Nothing
+          (PactResult $ Left $ PactError EvalError (Pact.Types.Info.Info $ Nothing) [] mempty)
+          (fromIntegral g) Nothing Nothing Nothing []
+        block = Transactions
+          (V.singleton (bigTx, cr))
+          (CommandResult (RequestKey (Hash "h")) Nothing
+            (PactResult $ Right $ PLiteral (LString "output")) 0 Nothing Nothing Nothing [])
+        payload = toPayloadWithOutputs noMiner block
+        bh = newBlockHeader
+          mempty
+          (_payloadWithOutputsPayloadHash payload)
+          (Nonce 0)
+          (BlockCreationTime $ Time $ TimeSpan 0)
+          (ParentHeader $ genesisBlockHeader testVersion cid)
+      validateBlock bh (payloadWithOutputsToPayloadData payload) q >>= takeMVar
+  -- we consume slightly more than the maximum block gas limit and provoke an error.
+  useGas 2_000_001 >>= \case
+    BlockGasLimitError ->
+      return ()
+    r ->
+      error $ "not a BlockGasLimitExceeded error: " <> sshow r
+  -- we consume much more than the maximum block gas limit and expect an error.
+  useGas 3_000_000 >>= \case
+    BlockGasLimitError ->
+      return ()
+    r ->
+      error $ "not a BlockGasLimitExceeded error: " <> sshow r
+  -- we consume exactly the maximum block gas limit and expect no such error.
+  useGas 2_000_000 >>= \case
+    BlockGasLimitError ->
+      error "consumed exactly block gas limit but errored"
+    _ ->
+      return ()
+  -- we consume much less than the maximum block gas limit and expect no such error.
+  useGas 1_000_000 >>= \case
+    BlockGasLimitError ->
+      error "consumed much less than block gas limit but errored"
+    _ ->
+      return ()
+  -- we consume zero gas and expect no such error.
+  useGas 0 >>= \case
+    BlockGasLimitError ->
+      error "consumed no gas but errored"
+    _ ->
+      return ()
 
 mempoolRefillTest :: IO (IORef MemPoolAccess) -> IO (PactQueue,TestBlockDb) -> TestTree
 mempoolRefillTest mpRefIO reqIO = testCase "mempoolRefillTest" $ do

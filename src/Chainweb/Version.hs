@@ -65,6 +65,7 @@ module Chainweb.Version
 , chainweb213Pact
 , chainweb214Pact
 , chainweb215Pact
+, chainweb216Pact
 
 -- ** BlockHeader Validation Guards
 , slowEpochGuard
@@ -124,6 +125,7 @@ module Chainweb.Version
 
 import Control.DeepSeq
 import Control.Lens
+import Control.Monad
 import Control.Monad.Catch
 
 import Data.Aeson hiding (pairs)
@@ -760,19 +762,17 @@ workSizeBytes v h = headerSizeBytes v (unsafeChainId 0) h - 32
 --
 -- Smaller limits can be configured for creating new blocks.
 --
--- WARNING: this isn't yet enforced as block validation property. The current use of this ignores the
--- block height and use the value only during new block creation. Future versions of chainweb-node
--- will enforce this limit during block validation.
+-- Before the chainweb-node 2.16 fork, there was no maximum block gas limit.
 --
 maxBlockGasLimit
     :: ChainwebVersion
     -> ChainId
     -> BlockHeight
-    -> Natural
-maxBlockGasLimit Mainnet01 _ _ = 180000
-maxBlockGasLimit Testnet04 _ _ = 180000
-maxBlockGasLimit Development _ _ = 180000
-maxBlockGasLimit _ _ _ = 180000
+    -> Maybe Natural
+maxBlockGasLimit Mainnet01 _ bh = 180000 <$ guard (chainweb216Pact At Mainnet01 bh)
+maxBlockGasLimit Testnet04 _ bh = 180000 <$ guard (chainweb216Pact At Testnet04 bh)
+maxBlockGasLimit Development _ _ = Just 180000
+maxBlockGasLimit _ _ _ = Just 2_000000
 
 -- -------------------------------------------------------------------------- --
 -- Pact Validation Guards
@@ -983,6 +983,23 @@ chainweb215Pact aoa v h = case aoa of
     go f Development = f 165
     go f (FastTimedCPM g) | g == petersonChainGraph = f 35
     go f _ = f 10
+
+-- | Pact and coin contract changes for Chainweb 2.15
+--
+chainweb216Pact
+    :: AtOrAfter
+    -> ChainwebVersion
+    -> BlockHeight
+    -> Bool
+chainweb216Pact aoa v h = case aoa of
+    At -> go (==) v h
+    After -> go (<) v h
+  where
+    go f Mainnet01 = f 2988358 -- 2022-09-02 00:00:00+00:00
+    go f Testnet04 = f 2516927 -- 2022-09-01 12:00:00+00:00
+    go f Development = f 215
+    go f (FastTimedCPM g) | g == petersonChainGraph = f 53
+    go f _ = f 16
 
 -- -------------------------------------------------------------------------- --
 -- Header Validation Guards
