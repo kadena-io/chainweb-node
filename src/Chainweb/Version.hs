@@ -998,7 +998,7 @@ chainweb216Pact aoa v h = case aoa of
     go f Mainnet01 = f 2988358 -- 2022-09-02 00:00:00+00:00
     go f Testnet04 = f 2516927 -- 2022-09-01 12:00:00+00:00
     go f Development = f 215
-    go f (FastTimedCPM g) | g == petersonChainGraph = f 36
+    go f (FastTimedCPM g) | g == petersonChainGraph = f 53
     go f _ = f 16
 
 -- -------------------------------------------------------------------------- --
