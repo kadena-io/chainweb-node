@@ -1,5 +1,5 @@
 ;; Enable the table gas model
-(env-exec-config ["DisableInlineMemCheck", "DisablePact43"])
+(env-exec-config ["DisableInlineMemCheck", "DisablePact43", "DisablePact44"])
 (env-gasmodel "table")
 (env-gaslimit 30000)
 
@@ -521,7 +521,7 @@
     "success"))
 
 ; make sure chain-id is enforced in the yield
-(env-exec-config ['DisablePact40, 'DisableInlineMemCheck, 'DisablePact43])
+(env-exec-config ['DisablePact40, 'DisableInlineMemCheck, 'DisablePact43, "DisablePact44"])
 (expect-failure
   "create side of cross-chain transfer fails yield on wrong chain"
   "does not match (chain"

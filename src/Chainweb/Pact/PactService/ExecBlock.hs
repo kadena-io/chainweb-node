@@ -60,7 +60,7 @@ import qualified Pact.Interpreter as P
 import qualified Pact.Parse as P
 import qualified Pact.Types.Command as P
 import Pact.Types.Exp (ParsedCode(..))
-import Pact.Types.ExpParser (mkTextInfo)
+import Pact.Types.ExpParser (mkTextInfo, ParseEnv(..))
 import qualified Pact.Types.Hash as P
 import qualified Pact.Types.Logger as P
 import Pact.Types.RPC
@@ -219,7 +219,7 @@ validateChainwebTxs logger v cid cp txValidationTime bh txs doBuyGas
       >>= runValid checkTxHash
       >>= runValid checkTxSigs
       >>= runValid checkTimes
-      >>= runValid (return . checkCompile)
+      >>= runValid (return . checkCompile v bh)
 
     checkUnique :: ChainwebTransaction -> IO (Either InsertError ChainwebTransaction)
     checkUnique t = do
@@ -280,8 +280,12 @@ validateChainwebTxs logger v cid cp txValidationTime bh txs doBuyGas
 type ValidateTxs = Vector (Either InsertError ChainwebTransaction)
 type RunGas = ValidateTxs -> IO ValidateTxs
 
-checkCompile :: ChainwebTransaction -> Either InsertError ChainwebTransaction
-checkCompile tx = case payload of
+checkCompile
+  :: ChainwebVersion
+  -> BlockHeight
+  -> ChainwebTransaction
+  -> Either InsertError ChainwebTransaction
+checkCompile v bh tx = case payload of
   Exec (ExecMsg parsedCode _) ->
     case compileCode parsedCode of
       Left perr -> Left $ InsertErrorCompilationFailed (sshow perr)
@@ -290,7 +294,8 @@ checkCompile tx = case payload of
   where
     payload = P._pPayload $ payloadObj $ P._cmdPayload tx
     compileCode p =
-      compileExps (mkTextInfo (P._pcCode p)) (P._pcExps p)
+      let e = ParseEnv (chainweb216Pact After v bh)
+      in compileExps e (mkTextInfo (P._pcCode p)) (P._pcExps p)
 
 skipDebitGas :: RunGas
 skipDebitGas = return
