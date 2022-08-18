@@ -1035,6 +1035,11 @@ chainweb216Test bdb mpRefIO pact = do
     (Just "Cannot define keysets outside of a namespace")
     (tx54_6 ^? crResult . to _pactResult . _Left . to peDoc)
 
+  tx54_7 <- txResult "pwo54" 7 pwo54
+  assertEqual "Should succeed in deploying a module guarded by a namespaced keyset"
+    (Just (PLiteral (LString "Loaded module free.m1, hash nOHaU-gPtmZTj6ZA3VArh-r7LEiwVUMN_RLJeW2hNv0")))
+    (tx54_7 ^? crResult . to _pactResult . _Right)
+
   setOneShotMempool mpRefIO postForkBlock2
   runCut'
   pwo55 <- getPWO bdb cid
@@ -1090,7 +1095,7 @@ chainweb216Test bdb mpRefIO pact = do
         t4 <- buildSimpleCmd bh enforceNamespacedFromPreFork
         t5 <- buildSimpleCmd bh enforceNonNamespacedFromPreFork
         t6 <- buildSimpleCmd bh defineNonNamespacedPostFork2
-        t7 <- buildSimpleCmd bh defineModulePostFork
+        t7 <- buildModCommand bh
         return $! V.fromList [t0,t1,t2,t3,t4,t5,t6,t7]
         else return mempty
     }
@@ -1100,11 +1105,21 @@ chainweb216Test bdb mpRefIO pact = do
         return $! V.fromList [t0]
         else return mempty
     }
-  buildSimpleCmd bh code = buildCwCmd
+
+  buildModCommand bh = buildCwCmd
     $ set cbSigners [mkSigner' sender00 []]
     $ set cbChainId (_blockChainId bh)
     $ set cbCreationTime (toTxCreationTime $ _bct $ _blockCreationTime bh)
     $ set cbGasLimit 70000
+    $ mkCmd defineModulePostFork
+    $ mkExec defineModulePostFork
+    $ object []
+
+  buildSimpleCmd bh code = buildCwCmd
+    $ set cbSigners [mkSigner' sender00 []]
+    $ set cbChainId (_blockChainId bh)
+    $ set cbCreationTime (toTxCreationTime $ _bct $ _blockCreationTime bh)
+    $ set cbGasLimit 10000
     $ mkCmd code
     $ mkExec code
     $ object
