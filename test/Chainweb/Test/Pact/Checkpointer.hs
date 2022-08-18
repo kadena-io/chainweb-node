@@ -161,10 +161,9 @@ checkpointerTest name relational cenvIO = testCaseSteps name $ \next -> do
     -- s02 : validate block workflow (restore -> save), genesis
     -----------------------------------------------------------
 
-    -- let hash00 = nullBlockHash
+    let hash00 = nullBlockHash
     next "Step 2 : validate block workflow (restore -> save), genesis"
     blockenvGenesis1 <- _cpRestore cp Nothing
-    hash00 <- BlockHash <$> liftIO (merkleLogHash "0000000000000000000000000000000a")
     void $ runExec cenv blockenvGenesis1 (Just $ ksData "1") $ defModule "1"
     runExec cenv blockenvGenesis1 Nothing "(m1.readTbl)"
       >>=  \EvalResult{..} -> Right _erOutput @?= traverse toPactValue [tIntList [1]]
