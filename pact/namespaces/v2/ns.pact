@@ -1,7 +1,3 @@
-
-(define-keyset 'ns-admin-keyset (read-keyset 'ns-admin-keyset))
-(define-keyset 'ns-operate-keyset (read-keyset 'ns-genesis-keyset))
-
 (module ns GOVERNANCE
   "Administers definition of new namespaces in Chainweb."
 
@@ -120,20 +116,4 @@
       ( ns-name:string )
     (read registry ns-name))
 
-  )
-
-(create-table registry)
-
-(write-registry "kadena"
-  (keyset-ref-guard 'ns-operate-keyset) true)
-(write-registry "user" GUARD_FAILURE true)
-(write-registry "free" GUARD_FAILURE true)
-
-(define-namespace "kadena"
-  (keyset-ref-guard 'ns-operate-keyset)
-  (keyset-ref-guard 'ns-operate-keyset))
-
-(define-namespace "user" GUARD_SUCCESS GUARD_FAILURE)
-(define-namespace "free" GUARD_SUCCESS GUARD_FAILURE)
-;;rotate to real operate keyset
-(define-keyset 'ns-operate-keyset (read-keyset 'ns-operate-keyset))
+)
