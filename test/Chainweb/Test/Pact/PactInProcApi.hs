@@ -1034,6 +1034,19 @@ chainweb216Test bdb mpRefIO pact = do
   assertEqual "Should fail in defining a keyset outside a namespace"
     (Just "Cannot define keysets outside of a namespace")
     (tx54_6 ^? crResult . to _pactResult . _Left . to peDoc)
+
+  tx54_7 <- txResult "pwo54" 7 pwo54
+  assertEqual "Should succeed in deploying a module guarded by a namespaced keyset"
+    (Just (PLiteral (LString "Loaded module free.m1, hash nOHaU-gPtmZTj6ZA3VArh-r7LEiwVUMN_RLJeW2hNv0")))
+    (tx54_7 ^? crResult . to _pactResult . _Right)
+
+  setOneShotMempool mpRefIO postForkBlock2
+  runCut'
+  pwo55 <- getPWO bdb cid
+  tx55_0 <- txResult "pwo55" 0 pwo55
+  assertEqual "Should call a module with a namespaced keyset correctly"
+     (Just (PLiteral (LDecimal 1)))
+     (tx55_0 ^? crResult . to _pactResult . _Right)
   where
   runCut' = runCut testVersion bdb pact (offsetBlockTime second) zeroNoncer noMiner
   defineNonNamespacedPreFork = mconcat
@@ -1055,6 +1068,10 @@ chainweb216Test bdb mpRefIO pact = do
     [ "(namespace 'free)"
     , "(define-keyset \"free.k456\")"
     , "(enforce-guard (keyset-ref-guard \"free.k456\"))"
+    ]
+  defineModulePostFork = mconcat
+    [ "(namespace 'free)"
+    , "(module m1 \"free.k456\" (defun f () 1))"
     ]
   enforceNamespacedFromPreFork = "(enforce-guard (keyset-ref-guard \"free.k123\"))"
   enforceNonNamespacedFromPreFork = "(enforce-guard (keyset-ref-guard \"k123\"))"
@@ -1078,9 +1095,26 @@ chainweb216Test bdb mpRefIO pact = do
         t4 <- buildSimpleCmd bh enforceNamespacedFromPreFork
         t5 <- buildSimpleCmd bh enforceNonNamespacedFromPreFork
         t6 <- buildSimpleCmd bh defineNonNamespacedPostFork2
-        return $! V.fromList [t0,t1,t2,t3,t4,t5, t6]
+        t7 <- buildModCommand bh
+        return $! V.fromList [t0,t1,t2,t3,t4,t5,t6,t7]
         else return mempty
     }
+  postForkBlock2 = mempty {
+    mpaGetBlock = \_ _ _ _ bh -> if _blockChainId bh == cid then do
+        t0 <- buildSimpleCmd bh "(free.m1.f)"
+        return $! V.fromList [t0]
+        else return mempty
+    }
+
+  buildModCommand bh = buildCwCmd
+    $ set cbSigners [mkSigner' sender00 []]
+    $ set cbChainId (_blockChainId bh)
+    $ set cbCreationTime (toTxCreationTime $ _bct $ _blockCreationTime bh)
+    $ set cbGasLimit 70000
+    $ mkCmd defineModulePostFork
+    $ mkExec defineModulePostFork
+    $ object []
+
   buildSimpleCmd bh code = buildCwCmd
     $ set cbSigners [mkSigner' sender00 []]
     $ set cbChainId (_blockChainId bh)
