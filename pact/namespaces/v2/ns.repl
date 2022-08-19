@@ -95,7 +95,6 @@
  { "70c787fcfe6c6f4ec23d13c2e94682bc90952f7cec06c7dbac1c012b0b6678b9" :
    ["70c787fcfe6c6f4ec23d13c2e94682bc90952f7cec06c7dbac1c012b0b6678b9"]
  , 'multi : ["a", "b"]
- , 'ns-operate-keyset: ["operate"]
  })
 
 (expect
@@ -138,9 +137,20 @@
   (read-keyset 'multi)
   (read-keyset 'multi))
 
+;; only testing control flow here.
+(env-exec-config ['DisablePact44])
+(define-keyset 'multi)
+(expect-failure
+  "Non-k or w principals cannot create namespaces"
+  "Unsupported"
+  (ns.write-registry
+   (create-principal (keyset-ref-guard 'multi))
+   (read-keyset 'multi)
+   true))
+
 (commit-tx)
 (begin-tx)
-
+(env-exec-config [])
 (env-keys
   [ "70c787fcfe6c6f4ec23d13c2e94682bc90952f7cec06c7dbac1c012b0b6678b9"
   , "a"
