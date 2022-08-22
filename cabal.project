@@ -56,8 +56,6 @@ source-repository-package
     location: https://github.com/kadena-io/pact.git
     tag: 2c6c9896b95ff28a81a040cf6a1322fc8fd1d9ab
 
-constraints: entropy <0.4.1.9
-
 source-repository-package
     type: git
     location: https://github.com/kadena-io/chainweb-storage.git
@@ -112,3 +110,6 @@ constraints: base64-bytestring <1.1
 
 -- TODO remove once the bounds are upgraded in pact.
 allow-newer: pact:direct-sqlite
+
+-- TODO remove once entropy is fixed upstream
+constraints: entropy <0.4.1.9
