@@ -769,8 +769,8 @@ maxBlockGasLimit
     -> ChainId
     -> BlockHeight
     -> Maybe Natural
-maxBlockGasLimit Mainnet01 _ bh = 180000 <$ guard (chainweb216Pact At Mainnet01 bh)
-maxBlockGasLimit Testnet04 _ bh = 180000 <$ guard (chainweb216Pact At Testnet04 bh)
+maxBlockGasLimit Mainnet01 _ bh = 180000 <$ guard (chainweb216Pact After Mainnet01 bh)
+maxBlockGasLimit Testnet04 _ bh = 180000 <$ guard (chainweb216Pact After Testnet04 bh)
 maxBlockGasLimit Development _ _ = Just 180000
 maxBlockGasLimit _ _ _ = Just 2_000000
 
