@@ -1,5 +1,33 @@
 # `chainweb-node` Changelog
 
+## 2.16 (2022-08-23)
+
+This version replaces all previous versions. Any prior version will stop working
+on **2022-09-01T00:00:00Z**. Node administrators must upgrade to this version
+before that date.
+
+This version will expire on **2022-12-01T00:00:00Z**.
+
+To upgrade, pull the latest docker image or download the binary and restart the
+node.
+
+Changes:
+
+*   Implement principal namespaces.
+*   Upgrade to Pact 4.4. This release brings namespaced keysets, and new
+    zero-knowledge primitives.
+*   Improve performance during catchup.
+*   Improve P2P protocol performance.
+*   Improve TLS session management.
+*   Faster and safer binary serialization across the board.
+*   Use rocksdb-specific features to improve performance.
+*   rocksdb is now built alongside chainweb-node instead of using the system
+    rocksdb installation.
+
+Bug Fixes:
+
+*   Fix some potential race conditions in SQLite interface code. (#1477)
+
 ## 2.15 (2022-06-09)
 
 This version replaces all previous versions. Any prior version will stop working
