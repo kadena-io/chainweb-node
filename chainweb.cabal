@@ -446,6 +446,7 @@ test-suite chainweb-tests
         Chainweb.Test.Mempool.InMem
         Chainweb.Test.Mempool.RestAPI
         Chainweb.Test.Mempool.Sync
+        Chainweb.Test.Mining
         Chainweb.Test.Misc
         Chainweb.Test.Orphans.Internal
         Chainweb.Test.Orphans.Pact

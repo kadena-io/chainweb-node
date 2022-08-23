@@ -121,3 +121,5 @@ constraints: base64-bytestring <1.1
 -- TODO remove once the bounds are upgraded in pact.
 allow-newer: pact:direct-sqlite
 
+-- TODO remove once entropy is fixed upstream
+constraints: entropy <0.4.1.9
