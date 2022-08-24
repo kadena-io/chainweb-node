@@ -14,8 +14,7 @@ node.
 Changes:
 
 *   Implement principal namespaces.
-*   Upgrade to Pact 4.4. This release brings namespaced keysets, and new
-    zero-knowledge primitives.
+*   Upgrade to Pact 4.4. This release brings namespaced keysets. For further changes check the [Pact Changelog](https://github.com/kadena-io/pact/blob/master/CHANGELOG.md).
 *   Improve performance during catchup.
 *   Improve P2P protocol performance.
 *   Improve TLS session management.
