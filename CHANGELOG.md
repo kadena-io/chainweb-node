@@ -11,17 +11,13 @@ This version will expire on **2022-12-01T00:00:00Z**.
 To upgrade, pull the latest docker image or download the binary and restart the
 node.
 
-Changes:
+[Changes](https://github.com/kadena-io/chainweb-node/compare/2.15...2.16):
 
-*   Implement principal namespaces.
 *   Upgrade to Pact 4.4. This release brings namespaced keysets. For further changes check the [Pact Changelog](https://github.com/kadena-io/pact/blob/master/CHANGELOG.md).
-*   Improve performance during catchup.
-*   Improve P2P protocol performance.
-*   Improve TLS session management.
-*   Faster and safer binary serialization across the board.
-*   Use rocksdb-specific features to improve performance.
-*   rocksdb is now built alongside chainweb-node instead of using the system
-    rocksdb installation.
+*   Improve performance during catchup. (#1473, #1474, #1476)
+*   Improve P2P protocol performance. (#1502)
+*   Improve TLS session management. (#1489)
+*   Faster and safer binary serialization across the board. (#1494)
 
 Bug Fixes:
 

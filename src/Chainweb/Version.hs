@@ -995,7 +995,7 @@ chainweb216Pact aoa v h = case aoa of
     At -> go (==) v h
     After -> go (<) v h
   where
-    go f Mainnet01 = f 2988326 -- 2022-09-02 00:00:00+00:00
+    go f Mainnet01 = f 2988324 -- 2022-09-02 00:00:00+00:00
     go f Testnet04 = f 2516739 -- 2022-09-01 12:00:00+00:00
     go f Development = f 215
     go f (FastTimedCPM g) | g == petersonChainGraph = f 53
