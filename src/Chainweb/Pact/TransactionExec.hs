@@ -285,7 +285,7 @@ applyGenesisCmd logger dbEnv spv cmd =
       cr <- catchesPactError $! runGenesis cmd permissiveNamespacePolicy interp
       case cr of
         Left e -> fatal $ "Genesis command failed: " <> sshow e
-        Right r -> r <$ debug "successful genesis tx for request key"
+        Right r -> r <$ info "successful genesis tx for request key"
 
 applyCoinbase
     :: ChainwebVersion
@@ -354,7 +354,7 @@ applyCoinbase v logger dbEnv (Miner mid mks@(MinerKeys mk)) reward@(ParsedDecima
           | throwCritical -> throwM $ CoinbaseFailure $ sshow e
           | otherwise -> (`T2` Nothing) <$> jsonErrorResult e "coinbase tx failure"
         Right er -> do
-          debug
+          info
             $! "successful coinbase of "
             <> (T.take 18 $ sshow d)
             <> " to "
@@ -645,7 +645,7 @@ applyExec
     -> TransactionM p (CommandResult [TxLog Value])
 applyExec initialGas interp em senderSigs hsh nsp = do
     EvalResult{..} <- applyExec' initialGas interp em senderSigs hsh nsp
-    debug $ "gas logs: " <> sshow _erLogGas
+    info $ "gas logs: " <> sshow _erLogGas
     logs <- use txLogs
     rk <- view txRequestKey
     -- applyExec enforces non-empty expression set so `last` ok
@@ -680,7 +680,7 @@ applyExec' initialGas interp (ExecMsg parsedCode execData) senderSigs hsh nsp
 
       er <- liftIO $! evalExec interp eenv parsedCode
 
-      for_ (_erExec er) $ \pe -> debug
+      for_ (_erExec er) $ \pe -> info
         $ "applyExec: new pact added: "
         <> sshow (_pePactId pe, _peStep pe, _peYield pe, _peExecuted pe)
 
@@ -742,7 +742,7 @@ applyContinuation
     -> TransactionM p (CommandResult [TxLog Value])
 applyContinuation initialGas interp cm senderSigs hsh nsp = do
     EvalResult{..} <- applyContinuation' initialGas interp cm senderSigs hsh nsp
-    debug $ "gas logs: " <> sshow _erLogGas
+    info $ "gas logs: " <> sshow _erLogGas
     logs <- use txLogs
     rk <- view txRequestKey
     -- last safe here because cont msg is guaranteed one exp
@@ -1103,13 +1103,13 @@ toCoinUnit :: Decimal -> Decimal
 toCoinUnit = roundTo 12
 {-# INLINE toCoinUnit #-}
 
--- | Log request keys at DEBUG when successful
+-- | Log request keys at info when successful
 --
-debug :: Text -> TransactionM db ()
-debug s = do
+info :: Text -> TransactionM db ()
+info s = do
     l <- view txLogger
     rk <- view txRequestKey
-    liftIO $! logLog l "DEBUG" $! T.unpack s <> ": " <> show rk
+    liftIO $! logLog l "INFO" $! T.unpack s <> ": " <> show rk
 
 
 -- | Denotes fatal failure points in the tx exec process
