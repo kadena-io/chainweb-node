@@ -792,7 +792,9 @@ buyGas isPactBackCompatV16 cmd (Miner mid mks) = go
   where
     sender = view (cmdPayload . pMeta . pmSender) cmd
 
-    initState mc = setModuleCache mc $ initCapabilities [magic_GAS]
+    initState mc =
+      set evalLogGas (Just []) $
+        setModuleCache mc $ initCapabilities [magic_GAS]
 
     run input = do
       (findPayer isPactBackCompatV16 cmd) >>= \r -> case r of
@@ -900,6 +902,7 @@ redeemGas cmd = do
   where
     initState mc = initStateInterpreter
       $ setModuleCache mc
+      $ set evalLogGas (Just []) -- enables gas logging
       $ initCapabilities [magic_GAS]
 
     redeemGasCmd fee (GasId pid) =
