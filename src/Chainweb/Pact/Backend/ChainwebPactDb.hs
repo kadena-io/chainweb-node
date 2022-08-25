@@ -118,7 +118,7 @@ doReadRow
     => Domain k v
     -> k
     -> BlockHandler SQLiteEnv (Maybe v)
-doReadRow d k = forModuleNameFix $ \mnFix ->
+doReadRow d k = {-# SCC "doReadRow" #-} forModuleNameFix $ \mnFix ->
     case d of
         KeySets -> lookupWithKey (convKeySetName k)
         -- TODO: This is incomplete (the modules case), due to namespace
@@ -129,7 +129,7 @@ doReadRow d k = forModuleNameFix $ \mnFix ->
         Pacts -> lookupWithKey (convPactId k)
   where
     tableName = domainTableName d
-    (Utf8 tableNameBS) = tableName
+    Utf8 tableNameBS = tableName
 
     queryStmt =
         "SELECT rowdata FROM " <> tbl tableName <> " WHERE rowkey = ? ORDER BY txid DESC LIMIT 1;"
@@ -154,7 +154,7 @@ doReadRow d k = forModuleNameFix $ \mnFix ->
             then mzero
             -- we merge with (++) which should produce txids most-recent-first
             -- -- we care about the most recent update to this rowkey
-            else MaybeT $ return $! decode $ fromStrict $ DL.head ddata
+            else MaybeT $ return $! ({-# SCC "lookupInPendingData" #-} decode $ fromStrict $ DL.head ddata)
 
     lookupInDb :: forall v . FromJSON v => Utf8 -> MaybeT (BlockHandler SQLiteEnv) v
     lookupInDb rowkey = do
@@ -165,7 +165,7 @@ doReadRow d k = forModuleNameFix $ \mnFix ->
                        $ \db -> qry db queryStmt [SText rowkey] [RBlob]
         case result of
             [] -> mzero
-            [[SBlob a]] -> MaybeT $ return $! decode $ fromStrict a
+            [[SBlob a]] -> MaybeT $ return $! ({-# SCC "lookupInDb" #-} decode $ fromStrict a)
             err -> internalError $
                      "doReadRow: Expected (at most) a single result, but got: " <>
                      T.pack (show err)

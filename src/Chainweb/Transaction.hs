@@ -101,8 +101,8 @@ chainwebPayloadCodec
     -> Codec (Command PayloadWithText)
 chainwebPayloadCodec chainCtx = Codec enc dec
   where
-    enc c = encodeToByteString $ fmap (decodeUtf8 . encodePayload) c
-    dec bs = case Aeson.decodeStrict' bs of
+    enc c = {-# SCC "chainwebPayloadCodec.enc" #-} encodeToByteString $ fmap (decodeUtf8 . encodePayload) c
+    dec bs = {-# SCC "chainwebPayloadCodec.dec" #-} case Aeson.decodeStrict' bs of
                Just cmd -> traverse (decodePayload chainCtx . encodeUtf8) cmd
                Nothing -> Left "decode PayloadWithText failed"
 
@@ -113,7 +113,7 @@ decodePayload
     :: Maybe (ChainwebVersion, BlockHeight)
     -> ByteString
     -> Either String PayloadWithText
-decodePayload chainCtx bs = case Aeson.decodeStrict' bs of
+decodePayload chainCtx bs = {-# SCC "decodePayload" #-} case Aeson.decodeStrict' bs of
     Just payload -> do
         p <- traverse (parsePact chainCtx) payload
         return $! PayloadWithText (SB.toShort bs) p

@@ -133,7 +133,7 @@ instance ToJSON (BlockHash_ a) where
     {-# INLINE toEncoding #-}
 
 instance MerkleHashAlgorithm a => FromJSON (BlockHash_ a) where
-    parseJSON = withText "BlockHash" $ either (fail . show) return
+    parseJSON = {-# SCC "decodeBlockHash" #-} withText "BlockHash" $ either (fail . show) return
         . (runGetS decodeBlockHash <=< decodeB64UrlNoPaddingText)
     {-# INLINE parseJSON #-}
 

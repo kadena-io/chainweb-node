@@ -256,7 +256,7 @@ transactionToText = encodeB64UrlNoPaddingText . _transactionBytes
 {-# INLINE transactionToText #-}
 
 transactionFromText :: MonadThrow m => T.Text -> m Transaction
-transactionFromText t = either (throwM . TextFormatException . sshow) return
+transactionFromText t = {-# SCC transactionFromText #-} either (throwM . TextFormatException . sshow) return
     $ Transaction <$!> decodeB64UrlNoPaddingText t
 {-# INLINE transactionFromText #-}
 
@@ -472,10 +472,10 @@ instance MerkleHashAlgorithm a => ToJSON (BlockTransactions_ a) where
     {-# INLINE toEncoding #-}
 
 instance MerkleHashAlgorithm a => FromJSON (BlockTransactions_ a) where
-    parseJSON = withObject "BlockTransactions" $ \o -> BlockTransactions
+    parseJSON = withObject "BlockTransactions" $ \o -> ({-# SCC "decodeBlockTransactions" #-} BlockTransactions
         <$!> o .: "transactionHash"
         <*> o .: "transaction"
-        <*> o .: "minerData"
+        <*> o .: "minerData")
 
 instance IsCasValue (BlockTransactions_ a) where
     type CasKeyType (BlockTransactions_ a) = BlockTransactionsHash_ a

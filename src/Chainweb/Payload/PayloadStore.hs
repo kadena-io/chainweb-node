@@ -156,7 +156,7 @@ type TransactionDbCas_ a cas =
 instance TransactionDbCasLookup_ a cas => HasCasLookup (TransactionDb_ a cas) where
     type CasValueType (TransactionDb_ a cas) = PayloadData_ a
 
-    casLookup db k = runMaybeT $ do
+    casLookup db k = {-# SCC "TransactionDb.casLookup" #-} (runMaybeT $ do
         pd <- MaybeT $ casLookup (_transactionDbBlockPayloads db) k
         let txsHash = _blockPayloadTransactionsHash pd
         let outsHash = _blockPayloadOutputsHash pd
@@ -167,7 +167,7 @@ instance TransactionDbCasLookup_ a cas => HasCasLookup (TransactionDb_ a cas) wh
             , _payloadDataPayloadHash = k
             , _payloadDataTransactionsHash = txsHash
             , _payloadDataOutputsHash = outsHash
-            }
+            })
     {-# INLINE casLookup #-}
 
 -- -------------------------------------------------------------------------- --
@@ -288,12 +288,14 @@ addPayload
     -> BlockOutputs_ a
     -> OutputTree_ a
     -> IO ()
-addPayload db txs txTree outs outTree = do
-    casInsert (_transactionDbBlockPayloads $ _transactionDb db) payload
-    casInsert (_transactionDbBlockTransactions $ _transactionDb db) txs
-    casInsert (_payloadCacheBlockOutputs $ _payloadCache db) outs
-    casInsert (_payloadCacheTransactionTrees $ _payloadCache db) txTree
-    casInsert (_payloadCacheOutputTrees $ _payloadCache db) outTree
+addPayload db txs txTree outs outTree = {-# SCC "addPayload" #-}
+    (do
+        casInsert (_transactionDbBlockPayloads $ _transactionDb db) payload
+        casInsert (_transactionDbBlockTransactions $ _transactionDb db) txs
+        casInsert (_payloadCacheBlockOutputs $ _payloadCache db) outs
+        casInsert (_payloadCacheTransactionTrees $ _payloadCache db) txTree
+        casInsert (_payloadCacheOutputTrees $ _payloadCache db) outTree
+    )
   where
     payload = blockPayload txs outs
 
@@ -323,7 +325,7 @@ addNewPayload db s = addPayload db txs txTree outs outTree
 instance PayloadCasLookup_ a cas => HasCasLookup (PayloadDb_ a cas) where
     type CasValueType (PayloadDb_ a cas) = PayloadWithOutputs_ a
 
-    casLookup db k = runMaybeT $ do
+    casLookup db k = {-# SCC "payloadCasLookup" #-} runMaybeT $ do
         pd <- MaybeT $ casLookup
             (_transactionDbBlockPayloads $ _transactionDb db)
             k
