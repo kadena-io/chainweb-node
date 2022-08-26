@@ -951,10 +951,8 @@ chainweb213Pact (FastTimedCPM g) | g == petersonChainGraph = (> 25)
 chainweb213Pact _ = const True
 
 pact44NewPow :: ChainwebVersion -> BlockHeight -> Bool
-pact44NewPow Mainnet01 = (>= 2_447_315) -- 2022-02-26 00:00:00
-pact44NewPow Testnet04 = (>= 1_974_556) -- 2022-02-25 00:00:00
-pact44NewPow Development = (>= 95)
-pact44NewPow (FastTimedCPM g) | g == petersonChainGraph = (> 25)
+pact44NewPow Mainnet01 = (>= 2_965_885) -- Todo: add date
+pact44NewPow Testnet04 = (>= 2_500_369) -- Todo: add date
 pact44NewPow _ = const True
 
 -- | Pact and coin contract changes for Chainweb 2.14
