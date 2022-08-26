@@ -60,6 +60,7 @@ module Chainweb.Chainweb
 , chainwebPeer
 , chainwebPayloadDb
 , chainwebPactData
+, chainwebGlobalThrottler
 , chainwebThrottler
 , chainwebPutPeerThrottler
 , chainwebConfig
@@ -78,7 +79,8 @@ module Chainweb.Chainweb
 , mkGenericThrottler
 , mkPutPeerThrottler
 , checkPathPrefix
-, mkThrottler
+, mkAddrThrottler
+, mkUnitThrottler
 
 , ThrottlingConfig(..)
 , throttlingRate
@@ -119,6 +121,7 @@ import Data.These (These(..))
 import qualified Data.Vector as V
 
 import qualified Network.HTTP.Client as HTTP
+import Network.HTTP.Types.Status as HTTP
 import Network.Socket (Socket)
 import Network.Wai
 import Network.Wai.Handler.Warp hiding (Port)
@@ -191,6 +194,7 @@ data Chainweb logger cas = Chainweb
     , _chainwebPayloadDb :: !(PayloadDb cas)
     , _chainwebManager :: !HTTP.Manager
     , _chainwebPactData :: ![(ChainId, PactServerData logger cas)]
+    , _chainwebGlobalThrottler :: !(Throttle ())
     , _chainwebThrottler :: !(Throttle Address)
     , _chainwebPutPeerThrottler :: !(Throttle Address)
     , _chainwebConfig :: !ChainwebConfiguration
@@ -435,6 +439,7 @@ withChainwebInternal conf logger peer serviceSock rocksDb pactDbDir backupDir re
                 !throt  = _configThrottling conf
 
             -- initialize throttler
+            globalThrottler <- mkGlobalThrottler 1200
             throttler <- mkGenericThrottler $ _throttlingRate throt
             putPeerThrottler <- mkPutPeerThrottler $ _throttlingPeerRate throt
             logg Info "initialized throttlers"
@@ -475,6 +480,7 @@ withChainwebInternal conf logger peer serviceSock rocksDb pactDbDir backupDir re
                                 , _chainwebPayloadDb = view cutDbPayloadCas $ _cutResCutDb cuts
                                 , _chainwebManager = mgr
                                 , _chainwebPactData = pactData
+                                , _chainwebGlobalThrottler = globalThrottler
                                 , _chainwebThrottler = throttler
                                 , _chainwebPutPeerThrottler = putPeerThrottler
                                 , _chainwebConfig = conf
@@ -543,11 +549,18 @@ withChainwebInternal conf logger peer serviceSock rocksDb pactDbDir backupDir re
 -- -------------------------------------------------------------------------- --
 -- Throttling
 
-mkGenericThrottler :: Double -> IO (Throttle Address)
-mkGenericThrottler rate = mkThrottler 5 rate (const True)
+mkGlobalThrottler :: Double -> IO (Throttle ())
+mkGlobalThrottler rate = mkUnitThrottler 10 rate (const True)
 
+-- Bucket expiration is 10 seconds
+--
+mkGenericThrottler :: Double -> IO (Throttle Address)
+mkGenericThrottler rate = mkAddrThrottler 10 rate (const True)
+
+-- Bucket expiration is 10 seconds
+--
 mkPutPeerThrottler :: Double -> IO (Throttle Address)
-mkPutPeerThrottler rate = mkThrottler 5 rate $ \r ->
+mkPutPeerThrottler rate = mkAddrThrottler 10 rate $ \r ->
     elem "peer" (pathInfo r) && requestMethod r == "PUT"
 
 checkPathPrefix
@@ -559,7 +572,9 @@ checkPathPrefix endpoint r = endpoint `isPrefixOf` drop 3 (pathInfo r)
 
 -- | The period is 1 second. Burst is 2*rate.
 --
-mkThrottler
+-- Rejects requests with status 429.
+--
+mkAddrThrottler
     :: Double
         -- ^ expiration of a stall bucket in seconds
     -> Double
@@ -567,12 +582,39 @@ mkThrottler
     -> (Request -> Bool)
         -- ^ Predicate to select requests that are throttled
     -> IO (Throttle Address)
-mkThrottler e rate c = initThrottler (defaultThrottleSettings $ TimeSpec (ceiling e) 0) -- expiration
+mkAddrThrottler e rate c = initThrottler (defaultThrottleSettings $ TimeSpec (ceiling e) 0) -- expiration
     { throttleSettingsRate = rate -- number of allowed requests per period
     , throttleSettingsPeriod = 1_000_000 -- 1 second
     , throttleSettingsBurst = 2 * ceiling rate
     , throttleSettingsIsThrottled = c
     }
+
+-- | A throttler that limits that total number of requests from all clients.
+--
+-- The period is 1 second. Burst is 2*rate.
+--
+-- Rejects requests with status 503.
+--
+mkUnitThrottler
+    :: Double
+        -- ^ expiration of a stall bucket in seconds
+    -> Double
+        -- ^ the base rate granted to users of the endpoint (requests per second)
+    -> (Request -> Bool)
+        -- ^ Predicate to select requests that are throttled
+    -> IO (Throttle ())
+mkUnitThrottler e rate c = initCustomThrottler
+    (defaultThrottleSettings $ TimeSpec (ceiling e) 0) -- expiration
+        { throttleSettingsRate = rate -- number of allowed requests per period
+        , throttleSettingsPeriod = 1_000_000 -- 1 second
+        , throttleSettingsBurst = 2 * ceiling rate
+        , throttleSettingsIsThrottled = c
+        , throttleSettingsOnThrottled = const $
+            responseLBS HTTP.status503
+                [("Content-Type", "application/json")]
+                "{\"message\":\"Too many requests.\"}"
+        }
+    (\_ -> Right ()) -- key selection
 
 -- -------------------------------------------------------------------------- --
 -- Run Chainweb
@@ -593,6 +635,7 @@ runChainweb cw = do
                 $ httpLog
                 . throttle (_chainwebPutPeerThrottler cw)
                 . throttle (_chainwebThrottler cw)
+                . throttle (_chainwebGlobalThrottler cw)
                 . requestSizeLimit
             )
         -- 2. Start Clients (with a delay of 500ms)
