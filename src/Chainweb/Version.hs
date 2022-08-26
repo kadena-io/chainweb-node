@@ -66,6 +66,7 @@ module Chainweb.Version
 , chainweb214Pact
 , chainweb215Pact
 , chainweb216Pact
+, pact44NewPow
 
 -- ** BlockHeader Validation Guards
 , slowEpochGuard
@@ -949,6 +950,12 @@ chainweb213Pact Development = (>= 95)
 chainweb213Pact (FastTimedCPM g) | g == petersonChainGraph = (> 25)
 chainweb213Pact _ = const True
 
+pact44NewPow :: ChainwebVersion -> BlockHeight -> Bool
+pact44NewPow Mainnet01 = (>= 2_447_315) -- 2022-02-26 00:00:00
+pact44NewPow Testnet04 = (>= 1_974_556) -- 2022-02-25 00:00:00
+pact44NewPow Development = (>= 95)
+pact44NewPow (FastTimedCPM g) | g == petersonChainGraph = (> 25)
+pact44NewPow _ = const True
 
 -- | Pact and coin contract changes for Chainweb 2.14
 --
