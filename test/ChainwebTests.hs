@@ -67,6 +67,7 @@ import qualified Data.Test.PQueue (properties)
 import qualified Data.Test.Word.Encoding (properties)
 
 import qualified P2P.Test.TaskQueue (properties)
+import qualified P2P.Test.Node (properties)
 
 main :: IO ()
 main =
@@ -138,6 +139,7 @@ suite rdb =
         , testProperties "Chainweb.Test.HostAddress" Chainweb.Test.HostAddress.properties
         , testProperties "Chainweb.Test.Sync.WebBlockHeaderStore" Chainweb.Test.Sync.WebBlockHeaderStore.properties
         , testProperties "P2P.Test.TaskQueue" P2P.Test.TaskQueue.properties
+        , testProperties "P2P.Test.Node" P2P.Test.Node.properties
         , testProperties "Data.Test.PQueue" Data.Test.PQueue.properties
         , testProperties "Chainweb.Test.Difficulty" Chainweb.Test.Difficulty.properties
         , testProperties "Data.Test.Word.Encoding" Data.Test.Word.Encoding.properties

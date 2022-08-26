@@ -64,6 +64,9 @@ module P2P.Node
 , p2pStatsKnownPeerCount
 , p2pStatsActiveLast
 , p2pStatsActiveMax
+
+-- * Utils
+, geometric
 ) where
 
 import Control.Concurrent
@@ -78,6 +81,7 @@ import Control.Monad.STM
 import Control.Scheduler (Comp(..), traverseConcurrently)
 
 import Data.Aeson hiding (Error)
+import Data.Bifunctor
 import Data.Function
 import Data.Hashable
 import qualified Data.HashSet as HS
@@ -91,6 +95,7 @@ import qualified Data.Text as T
 import Data.Tuple
 
 import GHC.Generics
+import GHC.Stack
 
 import qualified Network.HTTP.Client as HTTP
 
@@ -282,9 +287,28 @@ logg n = _p2pNodeLogFunction n
 loggFun :: P2pNode -> LogFunction
 loggFun = _p2pNodeLogFunction
 
-randomR :: R.Random a => P2pNode -> (a, a) -> IO a
-randomR node range =
-    atomicModifyIORef' (_p2pNodeRng node) $ swap . R.randomR range
+nodeRandom :: R.Random a => P2pNode -> (R.StdGen -> (a, R.StdGen)) -> IO a
+nodeRandom node r = atomicModifyIORef' (_p2pNodeRng node) $ swap . r
+{-# INLINE nodeRandom #-}
+
+nodeRandomR :: R.Random a => P2pNode -> (a, a) -> IO a
+nodeRandomR node = nodeRandom node . R.randomR
+{-# INLINE nodeRandomR #-}
+
+-- | Geometric distribution that counts the number of failures before success.
+--
+-- The parameter is the the success probability of the underlying Bernoulli
+-- experiment.
+--
+geometric :: HasCallStack => R.RandomGen g => Double -> g -> (Int, g)
+geometric 1 g = (0, g)
+geometric p g
+    | p > 0 && p < 1 = first (floor . logBase (1 - p)) $ R.randomR (0,1) g
+    | otherwise = error "P2P.Node.geometric: probability must be within (0,1]"
+
+nodeGeometric :: HasCallStack => P2pNode -> Double -> IO Int
+nodeGeometric node = nodeRandom node . geometric
+{-# INLINE nodeGeometric #-}
 
 setInactive :: P2pNode -> STM ()
 setInactive node = writeTVar (_p2pNodeActive node) False
@@ -486,7 +510,7 @@ findNextPeer conf node = do
             . splitAt (fromIntegral i)
 
         shiftR s = do
-            i <- randomR node (0, max 1 (length s) - 1)
+            i <- nodeRandomR node (0, max 1 (length s) - 1)
             return $ shift i s
 
     let (p0, p1) = L.partition (\p -> _peerEntryActiveSessionCount p > 0 && _peerEntrySuccessiveFailures p <= 1) candidates
@@ -494,8 +518,23 @@ findNextPeer conf node = do
         -- this ix expensive but lazy and only forced if p0 is empty
         p2 = L.groupBy ((==) `on` _peerEntrySuccessiveFailures) p1
 
-    -- note that @p0 : p1@ is guaranteed to be non-empty
-    head . concat <$> traverse shiftR (p0 : p2)
+
+    -- Choose the category to pick from
+    --
+    -- In 95% of all cases are peer is selected from the highest priority, if possible.
+    -- This ensures that the overall network topology is sufficient random and
+    -- dynamic while also maintaining a reasonable level of connection sharing.
+    --
+    nodeGeometric node 0.95 >>= \case
+
+        -- Special case that avoids forcing of p2
+        0 | not (null p0) -> head <$> shiftR p0
+
+        -- general case that forces p2
+        n -> do
+            let n' = min (length (p0 : p2) - 1) n
+            -- note that @p0 : p2@ is guaranteed to be non-empty
+            head . concat <$> traverse shiftR (drop n' (p0 : p2))
 
   where
 
