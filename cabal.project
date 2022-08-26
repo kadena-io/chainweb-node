@@ -54,7 +54,7 @@ package yet-another-logger
 source-repository-package
     type: git
     location: https://github.com/kadena-io/pact.git
-    tag: c2fcb547e3293a38c3cd0fa428ca1e139d727630
+    tag: 5fe6c2a8dcb1f588b35019fe0c7df5e6a8804334
 
 source-repository-package
     type: git
@@ -110,3 +110,6 @@ constraints: base64-bytestring <1.1
 
 -- TODO remove once the bounds are upgraded in pact.
 allow-newer: pact:direct-sqlite
+
+-- TODO remove once entropy is fixed upstream
+constraints: entropy <0.4.1.9

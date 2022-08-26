@@ -469,10 +469,10 @@ pkgInfoScopes =
 -- -------------------------------------------------------------------------- --
 -- main
 
--- SERVICE DATE for version 2.15
+-- SERVICE DATE for version 2.16
 --
 serviceDate :: Maybe String
-serviceDate = Just "2022-09-01T00:00:00Z"
+serviceDate = Just "2022-12-01T00:00:00Z"
 
 mainInfo :: ProgramInfo ChainwebNodeConfiguration
 mainInfo = programInfoValidate
