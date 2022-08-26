@@ -1012,7 +1012,7 @@ chainweb216Test bdb mpRefIO pact = do
 
   tx54_2 <- txResult "pwo54" 2 pwo54
   assertEqual "Should fail when defining a non-namespaced keyset post fork"
-    (Just "incorrect keyset name format")
+    (Just "Mismatching keyset namespace")
     (tx54_2 ^? crResult . to _pactResult . _Left . to peDoc)
 
   tx54_3 <- txResult "pwo54" 3 pwo54
@@ -1032,13 +1032,23 @@ chainweb216Test bdb mpRefIO pact = do
 
   tx54_6 <- txResult "pwo54" 6 pwo54
   assertEqual "Should fail in defining a keyset outside a namespace"
-    (Just "Cannot define keysets outside of a namespace")
+    (Just "Cannot define a keyset outside of a namespace")
     (tx54_6 ^? crResult . to _pactResult . _Left . to peDoc)
 
   tx54_7 <- txResult "pwo54" 7 pwo54
   assertEqual "Should succeed in deploying a module guarded by a namespaced keyset"
     (Just (PLiteral (LString "Loaded module free.m1, hash nOHaU-gPtmZTj6ZA3VArh-r7LEiwVUMN_RLJeW2hNv0")))
     (tx54_7 ^? crResult . to _pactResult . _Right)
+
+  tx54_8 <- txResult "pwo54" 8 pwo54
+  assertEqual "Should succeed in rotating and enforcing a legacy keyset"
+    (Just (PLiteral (LBool True)))
+    (tx54_8 ^? crResult . to _pactResult . _Right)
+
+  tx54_9 <- txResult "pwo54" 9 pwo54
+  assertEqual "Should succeed in rotating and enforcing a namespaced keyset"
+    (Just (PLiteral (LBool True)))
+    (tx54_9 ^? crResult . to _pactResult . _Right)
 
   setOneShotMempool mpRefIO postForkBlock2
   runCut'
@@ -1069,6 +1079,16 @@ chainweb216Test bdb mpRefIO pact = do
     , "(define-keyset \"free.k456\")"
     , "(enforce-guard (keyset-ref-guard \"free.k456\"))"
     ]
+  rotateLegacyPostFork = mconcat
+    [ "(namespace 'free)"
+    , "(define-keyset \"k123\" (read-keyset 'k456))"
+    , "(enforce-guard (keyset-ref-guard \"k123\"))"
+    ]
+  rotateNamespacedPostFork = mconcat
+    [ "(namespace 'free)"
+    , "(define-keyset \"free.k123\" (read-keyset 'k456))"
+    , "(enforce-guard (keyset-ref-guard \"free.k123\"))"
+    ]
   defineModulePostFork = mconcat
     [ "(namespace 'free)"
     , "(module m1 \"free.k456\" (defun f () 1))"
@@ -1096,7 +1116,9 @@ chainweb216Test bdb mpRefIO pact = do
         t5 <- buildSimpleCmd bh enforceNonNamespacedFromPreFork
         t6 <- buildSimpleCmd bh defineNonNamespacedPostFork2
         t7 <- buildModCommand bh
-        return $! V.fromList [t0,t1,t2,t3,t4,t5,t6,t7]
+        t8 <- buildSimpleCmd bh rotateLegacyPostFork
+        t9 <- buildSimpleCmd bh rotateNamespacedPostFork
+        return $! V.fromList [t0,t1,t2,t3,t4,t5,t6,t7,t8,t9]
         else return mempty
     }
   postForkBlock2 = mempty {
