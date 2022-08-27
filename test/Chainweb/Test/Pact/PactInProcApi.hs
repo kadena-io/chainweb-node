@@ -1057,6 +1057,10 @@ chainweb216Test bdb mpRefIO pact = do
   assertEqual "Should call a module with a namespaced keyset correctly"
      (Just (PLiteral (LDecimal 1)))
      (tx55_0 ^? crResult . to _pactResult . _Right)
+  tx55_1 <- txResult "pwo55" 1 pwo55
+  assertEqual "musl exponentiation regression"
+     (Just (PLiteral (LDecimal 12020.67042599064370733685791492462158203125)))
+     (tx55_1 ^? crResult . to _pactResult . _Right)
   where
   runCut' = runCut testVersion bdb pact (offsetBlockTime second) zeroNoncer noMiner
   defineNonNamespacedPreFork = mconcat
@@ -1124,7 +1128,8 @@ chainweb216Test bdb mpRefIO pact = do
   postForkBlock2 = mempty {
     mpaGetBlock = \_ _ _ _ bh -> if _blockChainId bh == cid then do
         t0 <- buildSimpleCmd bh "(free.m1.f)"
-        return $! V.fromList [t0]
+        t1 <- buildSimpleCmd bh "(^ 15.034465284692086701747761395233132973944448512421004399685858401206740385711739229018307610943234609057822959334669087436253689423614206061665462283698768757790600552385430913941421707844383369633809803959413869974997415115322843838226312287673293352959835 3.466120406090666777582519661568003549307295836842780244500133445635634490670936927006970368136648330889718447039413255137656971927890831071689768359173260960739254160211017410322799793419223796996260056081828170546988461285168124170297427792046640116184356)"
+        return $! V.fromList [t0,t1]
         else return mempty
     }
 
