@@ -226,7 +226,7 @@ jobs:
         cabal --version
     - name: Install non-Haskell dependencies (ubuntu)
       if: contains(matrix.os, 'ubuntu')
-      run: sudo apt-get install -y librocksdb-dev z3
+      run: sudo apt-get install -y librocksdb-dev z3 libmpfr-dev
 
     # Project Configuration
     - name: Create cabal.project.local
