@@ -119,6 +119,7 @@ import Control.Concurrent.MVar
 import Control.Lens (view, _3, makeLenses)
 import Control.Monad
 import Control.Monad.Catch
+import Control.Monad.IO.Class
 
 import Data.Aeson (Value(..), object, (.=))
 import Data.ByteString (ByteString)
@@ -518,7 +519,7 @@ mkCmd nonce rpc = defaultCmd
 
 -- | Build parsed + verified Pact command
 --
-buildCwCmd :: CmdBuilder -> IO ChainwebTransaction
+buildCwCmd :: MonadThrow m => MonadIO m => CmdBuilder -> m ChainwebTransaction
 buildCwCmd cmd = buildRawCmd cmd >>= \c -> case verifyCommand c of
     ProcSucc r -> return $ fmap (mkPayloadWithText c) r
     ProcFail e -> throwM $ userError $ "buildCmd failed: " ++ e
@@ -532,11 +533,11 @@ buildTextCmd = fmap (fmap T.decodeUtf8) . buildRawCmd
 
 -- | Build a raw bytestring command
 --
-buildRawCmd :: CmdBuilder -> IO (Command ByteString)
+buildRawCmd :: MonadThrow m => MonadIO m => CmdBuilder -> m (Command ByteString)
 buildRawCmd CmdBuilder{..} = do
     akps <- mapM toApiKp _cbSigners
-    kps <- mkKeyPairs akps
-    mkCommand kps pm _cbNonce nid _cbRPC
+    kps <- liftIO $ mkKeyPairs akps
+    liftIO $ mkCommand kps pm _cbNonce nid _cbRPC
   where
     nid = fmap (P.NetworkId . sshow) _cbNetworkId
     cid = fromString $ show (chainIdInt _cbChainId :: Int)
@@ -771,13 +772,13 @@ withDelegateMempool = withResource start mempty
     start = (id &&& delegateMemPoolAccess) <$> newIORef mempty
 
 -- | Set test mempool using IORef.
-setMempool :: IO (IORef MemPoolAccess) -> MemPoolAccess -> IO ()
-setMempool refIO mp = refIO >>= flip writeIORef mp
+setMempool :: MonadIO m => IO (IORef MemPoolAccess) -> MemPoolAccess -> m ()
+setMempool refIO mp = liftIO (refIO >>= flip writeIORef mp)
 
 -- | Set test mempool wrapped with a "one shot" 'mpaGetBlock' adapter.
-setOneShotMempool :: IO (IORef MemPoolAccess) -> MemPoolAccess -> IO ()
+setOneShotMempool :: MonadIO m => IO (IORef MemPoolAccess) -> MemPoolAccess -> m ()
 setOneShotMempool mpRefIO mp = do
-  oneShot <- newIORef False
+  oneShot <- liftIO $ newIORef False
   setMempool mpRefIO $ mp
     { mpaGetBlock = \g v i a e -> readIORef oneShot >>= \case
         False -> writeIORef oneShot True >> mpaGetBlock mp g v i a e
