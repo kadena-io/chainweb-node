@@ -915,22 +915,17 @@ pact420UpgradeTest _mpRefIO = do
   assertEqual "Coinbase events @ block 4" [] (_crEvents cb4)
 
   -- run block 5
-  let m1 = PObject $ ObjectMap $ mempty
-        & M.insert (FieldKey "a") (pInteger 1)
-        & M.insert (FieldKey "b") (pInteger 1)
-      m2 = PObject $ ObjectMap $ mempty
-        & M.insert (FieldKey "a") (pInteger 2)
-        & M.insert (FieldKey "b") (pInteger 2)
 
   runBlockTest (blockForChain cid)
     [ PactTxTest buildNewNatives420FoldDbCmd $
       assertTxSuccess'
       "Should resolve fold-db pact native"
-      (PList $ V.fromList [m1,m2])
+      (pList [pObject [("a", pInteger 1),("b",pInteger 1)]
+             ,pObject [("a", pInteger 2),("b",pInteger 2)]])
     , PactTxTest buildNewNatives420ZipCmd $
       assertTxSuccess'
       "Should resolve zip pact native"
-      (PList $ V.fromList $ pInteger <$> [5,7,9])
+      (pList $ pInteger <$> [5,7,9])
     ]
 
   cb5 <- cbResult

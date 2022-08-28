@@ -37,6 +37,7 @@ module Chainweb.Test.Pact.Utils
 , pBool
 , pList
 , pKeySet
+, pObject
 -- * event helpers
 , mkEvent
 , mkTransferEvent
@@ -128,8 +129,9 @@ import Data.CAS.RocksDB
 import Data.Decimal
 import Data.Default (def)
 import Data.Foldable
-import Data.IORef
 import qualified Data.HashMap.Strict as HM
+import Data.IORef
+import qualified Data.Map.Strict as M
 import Data.Maybe
 import Data.Text (Text)
 import qualified Data.Text.Encoding as T
@@ -265,6 +267,9 @@ pList = PList . V.fromList
 
 pKeySet :: KeySet -> PactValue
 pKeySet = PGuard . GKeySet
+
+pObject :: [(FieldKey,PactValue)] -> PactValue
+pObject = PObject . ObjectMap . M.fromList
 
 mkEvent
     :: MonadThrow m
