@@ -1,16 +1,17 @@
-{-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE DerivingVia #-}
+{-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE PatternSynonyms #-}
+{-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TemplateHaskell #-}
-{-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE ViewPatterns #-}
-{-# LANGUAGE PatternSynonyms #-}
-{-# LANGUAGE FlexibleContexts #-}
-{-# LANGUAGE DerivingVia #-}
 
 -- |
 -- Module: Chainweb.Test.PactInProcApi
@@ -123,26 +124,59 @@ makeLenses ''MultiEnv
 type MultiM = ReaderT MultiEnv IO
 
 assertEqual
-    :: HasCallStack
-    => MonadIO m
-    => Eq a
-    => Show a
+    :: ( HasCallStack
+       , MonadIO m
+       , Eq a
+       , Show a )
     => String
     -> a
     -> a
     -> m ()
 assertEqual message intended actual = liftIO $ HU.assertEqual message intended actual
 
+
+
 runCut' :: MultiM ()
 runCut' = ask >>= \MultiEnv{..} ->
   liftIO $ runCut testVersion _menvBdb _menvPact (offsetBlockTime second) zeroNoncer _menvMiner
 
-type MultichainTest = IO (IORef MemPoolAccess)
-    -> MultiM ()
+type MultichainTest = IO (IORef MemPoolAccess) -> MultiM ()
+
+newtype PactMempool = PactMempool
+  { _pactMempool :: [BlockFill -> BlockHeader -> Maybe [CmdBuilder]] }
+  deriving (Semigroup,Monoid)
+
+setPactMempool :: PactMempool -> MultiM ()
+setPactMempool (PactMempool fs) = do
+  mpa <- view menvMpa
+  mpsRef <- liftIO $ newIORef fs
+  setMempool mpa $ mempty {
+    mpaGetBlock = \bf _ _ _ bh -> do
+        mps <- readIORef mpsRef
+        let runMps i = \case
+              [] -> return mempty
+              (mp:r) -> case mp bf bh of
+                Just v -> do
+                  writeIORef mpsRef (take i mps ++ r)
+                  V.fromList <$> mapM buildCwCmd v
+                Nothing -> runMps (succ i) r
+        runMps 0 mps
+    }
+
+oneChainMempool :: PactMempool -> MultiM ()
+oneChainMempool (PactMempool fs) = do
+  chid <- view menvChainId
+  setPactMempool $ PactMempool $ (`map` fs) $ \f ->
+    \bf bh -> if _blockChainId bh == chid then f bf bh else Nothing
+
 
 _unused :: MultiM ()
-_unused = do
-  void $ MultiEnv <$> view menvBdb <*> view menvPact <*> view menvMpa <*> view menvMiner <*> view menvChainId
+_unused = void $ view menvPact
+
+--data PactTxTest = PactTxTest
+--    { _ptxCmdBuilder :: BlockHeader -> CmdBuilder
+--    , _ptxTest :: CommandResult Hash -> Assertion
+--    }
 
 tests :: RocksDb -> ScheduledTest
 tests rdb = ScheduledTest testName go
@@ -723,13 +757,13 @@ assertTxFails i msg d = do
 
 
 pact431UpgradeTest :: MultichainTest
-pact431UpgradeTest mpRefIO = do
+pact431UpgradeTest _mpRefIO = do
 
   -- run past genesis, upgrades
   forM_ [(1::Int)..34] $ \_i -> runCut'
 
   -- run block 35, pre fork
-  setOneShotMempool mpRefIO blocc
+  oneChainMempool $ PactMempool $ pure $ blocc
   runCut'
 
   tx35_0 <- txResult 0
@@ -752,7 +786,7 @@ pact431UpgradeTest mpRefIO = do
     (pString "4.2.1")
 
   -- run block 36, post fork
-  setOneShotMempool mpRefIO blocc
+  oneChainMempool $ PactMempool $ pure $ blocc
   runCut'
 
   assertTxFails 0
@@ -776,25 +810,21 @@ pact431UpgradeTest mpRefIO = do
     "Operation only permitted in local execution mode"
 
   where
-    blocc = mempty {
-      mpaGetBlock = \_ _ _ _ bh -> if _blockChainId bh == cid then buildVector
-          [ buildMod bh
-          , buildSimpleCmd bh "(is-principal (create-principal (read-keyset 'k)))"
-          , buildSimpleCmd bh "(typeof-principal (create-principal (read-keyset 'k)))"
-          , buildSimpleCmd bh "(enforce-pact-version \"4.2.1\")"
-          , buildSimpleCmd bh "(pact-version)"
-          ]
-          else return mempty
-      }
-    buildSimpleCmd bh code = buildCwCmd
-        $ signSender00
+    blocc _ bh = pure
+        [ buildMod bh
+        , buildSimpleCmd bh "(is-principal (create-principal (read-keyset 'k)))"
+        , buildSimpleCmd bh "(typeof-principal (create-principal (read-keyset 'k)))"
+        , buildSimpleCmd bh "(enforce-pact-version \"4.2.1\")"
+        , buildSimpleCmd bh "(pact-version)" ]
+    buildSimpleCmd bh code =
+        signSender00
         $ setFromHeader bh
         $ set cbGasLimit 1000
         $ mkCmd code
         $ mkExec code
         $ mkKeySetData "k" [sender00]
-    buildMod bh = buildBasicCmd' bh (set cbGasLimit 100000)
-        $ mkExec (mconcat
+    buildMod bh = buildBasic' bh (set cbGasLimit 100000)
+      $ mkExec (mconcat
         [ "(namespace 'free)"
         , "(module mod G"
         , "  (defcap G () true)"
@@ -804,14 +834,15 @@ pact431UpgradeTest mpRefIO = do
         ])
         $ mkKeySetData "k" [sender00]
 
+
 pact420UpgradeTest :: MultichainTest
-pact420UpgradeTest mpRefIO = do
+pact420UpgradeTest _mpRefIO = do
 
   -- run past genesis, upgrades
   forM_ [(1::Int)..3] $ \_i -> runCut'
 
   -- run block 4
-  setOneShotMempool mpRefIO getBlock4
+  oneChainMempool $ PactMempool [getBlock4]
   runCut'
 
   assertTxFails 0
@@ -830,7 +861,7 @@ pact420UpgradeTest mpRefIO = do
   assertEqual "Coinbase events @ block 4" [] (_crEvents cb4)
 
   -- run block 5
-  setOneShotMempool mpRefIO $ getBlock5
+  oneChainMempool $ PactMempool [getBlock5]
   runCut'
 
   cb5 <- cbResult
@@ -853,26 +884,18 @@ pact420UpgradeTest mpRefIO = do
   where
 
 
-    getBlock4 = mempty {
-      mpaGetBlock = \_ _ _ _ bh -> if _blockChainId bh == cid then buildVector
-          [ buildNewNatives420FoldDbCmd bh
-          , buildNewNatives420ZipCmd bh
-          , buildFdbCmd bh
-          ]
-          else return mempty
-      }
+    getBlock4 _ bh = pure
+      [ buildNewNatives420FoldDbCmd bh
+      , buildNewNatives420ZipCmd bh
+      , buildFdbCmd bh
+      ]
 
-    getBlock5 = mempty {
-      mpaGetBlock = \_ _ _ _ bh ->
-        let go | _blockChainId bh == cid = buildVector
-                   [ buildNewNatives420FoldDbCmd bh
-                   , buildNewNatives420ZipCmd bh
-                   ]
-               | otherwise = return mempty
-        in go
-      }
+    getBlock5 _ bh = pure
+      [ buildNewNatives420FoldDbCmd bh
+      , buildNewNatives420ZipCmd bh
+      ]
 
-    buildFdbCmd bh = buildBasicCmd bh
+    buildFdbCmd bh = buildBasic bh
         $ mkExec' $ mconcat ["(namespace 'free)", moduleDeclaration, inserts]
       where
         moduleDeclaration =
@@ -887,12 +910,12 @@ pact420UpgradeTest mpRefIO = do
             , "(insert free.fdb.fdb-tbl 'a {'a:1, 'b:1})"
             ]
 
-    buildNewNatives420FoldDbCmd bh = buildBasicCmd bh
+    buildNewNatives420FoldDbCmd bh = buildBasic bh
         $ mkExec'
         "(let* ((qry (lambda (k o) (<  k \"c\"))) (consume (lambda (k o) o))) (fold-db free.fdb.fdb-tbl (qry) (consume)))"
 
 
-    buildNewNatives420ZipCmd bh = buildBasicCmd bh
+    buildNewNatives420ZipCmd bh = buildBasic bh
         $ mkExec' "(zip (+) [1 2 3] [4 5 6])"
 
 chainweb216Test :: MultichainTest
@@ -1289,6 +1312,23 @@ buildBasicCmd' bh s = liftIO . buildCwCmd
     . setFromHeader bh
     . s
     . mkCmd (sshow bh)
+
+buildBasic
+    :: BlockHeader
+    -> PactRPC T.Text
+    -> CmdBuilder
+buildBasic bh = buildBasic' bh id
+
+buildBasic'
+    :: BlockHeader
+    -> (CmdBuilder -> CmdBuilder)
+    -> PactRPC T.Text
+    -> CmdBuilder
+buildBasic' bh s =
+  signSender00
+  . setFromHeader bh
+  . s
+  . mkCmd (sshow bh)
 
 getOncePerChainMempool
     :: MonadIO m

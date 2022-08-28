@@ -519,7 +519,7 @@ mkCmd nonce rpc = defaultCmd
 
 -- | Build parsed + verified Pact command
 --
-buildCwCmd :: MonadThrow m => MonadIO m => CmdBuilder -> m ChainwebTransaction
+buildCwCmd :: (MonadThrow m, MonadIO m) => CmdBuilder -> m ChainwebTransaction
 buildCwCmd cmd = buildRawCmd cmd >>= \c -> case verifyCommand c of
     ProcSucc r -> return $ fmap (mkPayloadWithText c) r
     ProcFail e -> throwM $ userError $ "buildCmd failed: " ++ e
@@ -533,7 +533,7 @@ buildTextCmd = fmap (fmap T.decodeUtf8) . buildRawCmd
 
 -- | Build a raw bytestring command
 --
-buildRawCmd :: MonadThrow m => MonadIO m => CmdBuilder -> m (Command ByteString)
+buildRawCmd :: (MonadThrow m, MonadIO m) => CmdBuilder -> m (Command ByteString)
 buildRawCmd CmdBuilder{..} = do
     akps <- mapM toApiKp _cbSigners
     kps <- liftIO $ mkKeyPairs akps
