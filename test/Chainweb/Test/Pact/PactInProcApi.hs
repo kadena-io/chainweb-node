@@ -121,8 +121,71 @@ data MultiEnv = MultiEnv
 
 makeLenses ''MultiEnv
 
+_unused :: Lens' MultiEnv WebPactExecutionService
+_unused = menvPact
+
 type MultiM = ReaderT MultiEnv IO
 
+
+type MultichainTest = IO (IORef MemPoolAccess) -> MultiM ()
+
+data MempoolInput = MempoolInput
+    { _miBlockFill :: BlockFill
+    , _miBlockHeader :: BlockHeader }
+
+newtype MempoolCmdBuilder = MempoolCmdBuilder
+    { _mempoolCmdBuilder :: MempoolInput -> CmdBuilder
+    }
+
+-- | Block filler. A 'Nothing' result means "skip this filler".
+newtype MempoolBlock = MempoolBlock
+    { _mempoolBlock :: MempoolInput -> Maybe [MempoolCmdBuilder]
+    }
+
+-- | Mempool with an ordered list of fillers.
+newtype PactMempool = PactMempool
+  { _pactMempool :: [MempoolBlock] }
+  deriving (Semigroup,Monoid)
+
+-- | Sets mempool with block fillers. A matched filler
+-- (returning a 'Just' result) is executed and removed from the list.
+-- Fillers are tested in order.
+setPactMempool :: PactMempool -> MultiM ()
+setPactMempool (PactMempool fs) = do
+  mpa <- view menvMpa
+  mpsRef <- liftIO $ newIORef fs
+  setMempool mpa $ mempty {
+    mpaGetBlock = go mpsRef
+    }
+  where
+    go ref bf _ _ _ bh = do
+      mps <- readIORef ref
+      let mi = MempoolInput bf bh
+          runMps i = \case
+            [] -> return mempty
+            (mp:r) -> case _mempoolBlock mp mi of
+              Just bs -> do
+                writeIORef ref (take i mps ++ r)
+                fmap V.fromList $ forM bs $ \b ->
+                  buildCwCmd $ _mempoolCmdBuilder b mi
+              Nothing -> runMps (succ i) r
+      runMps 0 mps
+
+filterBlock :: (MempoolInput -> Bool) -> MempoolBlock -> MempoolBlock
+filterBlock f (MempoolBlock b) = MempoolBlock $ \mi ->
+  if f mi then b mi else Nothing
+
+blockForChain :: ChainId -> MempoolBlock -> MempoolBlock
+blockForChain chid = filterBlock $ \(MempoolInput _ bh) ->
+  _blockChainId bh == chid
+
+-- | Pair a builder with a test
+data PactTxTest = PactTxTest
+    { _pttBuilder :: MempoolCmdBuilder
+    , _pttTest :: CommandResult Hash -> Assertion
+    }
+
+-- | MonadIO friendly
 assertEqual
     :: ( HasCallStack
        , MonadIO m
@@ -135,48 +198,10 @@ assertEqual
 assertEqual message intended actual = liftIO $ HU.assertEqual message intended actual
 
 
-
 runCut' :: MultiM ()
 runCut' = ask >>= \MultiEnv{..} ->
   liftIO $ runCut testVersion _menvBdb _menvPact (offsetBlockTime second) zeroNoncer _menvMiner
 
-type MultichainTest = IO (IORef MemPoolAccess) -> MultiM ()
-
-newtype PactMempool = PactMempool
-  { _pactMempool :: [BlockFill -> BlockHeader -> Maybe [CmdBuilder]] }
-  deriving (Semigroup,Monoid)
-
-setPactMempool :: PactMempool -> MultiM ()
-setPactMempool (PactMempool fs) = do
-  mpa <- view menvMpa
-  mpsRef <- liftIO $ newIORef fs
-  setMempool mpa $ mempty {
-    mpaGetBlock = \bf _ _ _ bh -> do
-        mps <- readIORef mpsRef
-        let runMps i = \case
-              [] -> return mempty
-              (mp:r) -> case mp bf bh of
-                Just v -> do
-                  writeIORef mpsRef (take i mps ++ r)
-                  V.fromList <$> mapM buildCwCmd v
-                Nothing -> runMps (succ i) r
-        runMps 0 mps
-    }
-
-oneChainMempool :: PactMempool -> MultiM ()
-oneChainMempool (PactMempool fs) = do
-  chid <- view menvChainId
-  setPactMempool $ PactMempool $ (`map` fs) $ \f ->
-    \bf bh -> if _blockChainId bh == chid then f bf bh else Nothing
-
-
-_unused :: MultiM ()
-_unused = void $ view menvPact
-
---data PactTxTest = PactTxTest
---    { _ptxCmdBuilder :: BlockHeader -> CmdBuilder
---    , _ptxTest :: CommandResult Hash -> Assertion
---    }
 
 tests :: RocksDb -> ScheduledTest
 tests rdb = ScheduledTest testName go
@@ -746,12 +771,20 @@ rewindTo c = view menvBdb >>= \bdb -> void $ liftIO $ swapMVar (_bdbCut bdb) c
 assertTxSuccess :: Int -> String -> PactValue -> MultiM ()
 assertTxSuccess i msg r = do
   tx <- txResult i
+  assertTxSuccess' msg r tx
+
+assertTxSuccess' :: MonadIO m => String -> PactValue -> CommandResult Hash -> m ()
+assertTxSuccess' msg r tx = do
   assertEqual msg (Just r)
     (tx ^? crResult . to _pactResult . _Right)
 
 assertTxFails :: Int -> String -> Doc -> MultiM ()
 assertTxFails i msg d = do
   tx <- txResult i
+  assertTxFails' msg d tx
+
+assertTxFails' :: MonadIO m => String -> Doc -> CommandResult Hash -> m ()
+assertTxFails' msg d tx =
   assertEqual msg (Just d)
     (tx ^? crResult . to _pactResult . _Left . to peDoc)
 
@@ -763,7 +796,7 @@ pact431UpgradeTest _mpRefIO = do
   forM_ [(1::Int)..34] $ \_i -> runCut'
 
   -- run block 35, pre fork
-  oneChainMempool $ PactMempool $ pure $ blocc
+  setPactMempool $ PactMempool [blocc]
   runCut'
 
   tx35_0 <- txResult 0
@@ -786,7 +819,7 @@ pact431UpgradeTest _mpRefIO = do
     (pString "4.2.1")
 
   -- run block 36, post fork
-  oneChainMempool $ PactMempool $ pure $ blocc
+  setPactMempool $ PactMempool [blocc]
   runCut'
 
   assertTxFails 0
@@ -810,20 +843,20 @@ pact431UpgradeTest _mpRefIO = do
     "Operation only permitted in local execution mode"
 
   where
-    blocc _ bh = pure
-        [ buildMod bh
-        , buildSimpleCmd bh "(is-principal (create-principal (read-keyset 'k)))"
-        , buildSimpleCmd bh "(typeof-principal (create-principal (read-keyset 'k)))"
-        , buildSimpleCmd bh "(enforce-pact-version \"4.2.1\")"
-        , buildSimpleCmd bh "(pact-version)" ]
-    buildSimpleCmd bh code =
+    blocc = blockForChain cid $ MempoolBlock $ \_ -> pure
+        [ buildMod
+        , buildSimpleCmd "(is-principal (create-principal (read-keyset 'k)))"
+        , buildSimpleCmd "(typeof-principal (create-principal (read-keyset 'k)))"
+        , buildSimpleCmd "(enforce-pact-version \"4.2.1\")"
+        , buildSimpleCmd "(pact-version)" ]
+    buildSimpleCmd code = MempoolCmdBuilder $ \(MempoolInput _ bh) ->
         signSender00
         $ setFromHeader bh
         $ set cbGasLimit 1000
         $ mkCmd code
         $ mkExec code
         $ mkKeySetData "k" [sender00]
-    buildMod bh = buildBasic' bh (set cbGasLimit 100000)
+    buildMod = buildBasic' (set cbGasLimit 100000)
       $ mkExec (mconcat
         [ "(namespace 'free)"
         , "(module mod G"
@@ -834,68 +867,78 @@ pact431UpgradeTest _mpRefIO = do
         ])
         $ mkKeySetData "k" [sender00]
 
+-- | Run a single mempool block with tests for each tx.
+-- Limitations: can only run a single-chain, single-refill test for
+-- a given cut height.
+runBlockTest :: (MempoolBlock -> MempoolBlock) -> [PactTxTest] -> MultiM ()
+runBlockTest blockF pts = do
+  setPactMempool $ PactMempool $ pure $ blockF $ MempoolBlock $ \_ ->
+    pure $ map _pttBuilder pts
+  runCut'
+  crs <- txResults
+  zipWithM_ go pts (V.toList crs)
+  where
+    go (PactTxTest _ t) cr = liftIO $ t cr
+
+-- | Run cuts to block height.
+runTo :: BlockHeight -> MultiM ()
+runTo bhi = do
+  chid <- view menvChainId
+  bh <- getHeader chid
+  when (_blockHeight bh < bhi) $ do
+    runCut'
+    runTo bhi
 
 pact420UpgradeTest :: MultichainTest
 pact420UpgradeTest _mpRefIO = do
 
   -- run past genesis, upgrades
-  forM_ [(1::Int)..3] $ \_i -> runCut'
+  runTo 3
 
   -- run block 4
-  oneChainMempool $ PactMempool [getBlock4]
-  runCut'
-
-  assertTxFails 0
-    "Should not resolve new pact natives"
-    "Cannot resolve fold-db"
-
-  assertTxFails 1
-    "Should not resolve new pact natives"
-    "Cannot resolve zip"
-
-  assertTxSuccess 2
-    "Load fdb module"
-    (pString "Write succeeded")
+  runBlockTest (blockForChain cid)
+    [ PactTxTest buildNewNatives420FoldDbCmd $
+      assertTxFails'
+      "Should not resolve new pact natives"
+      "Cannot resolve fold-db"
+    , PactTxTest buildNewNatives420ZipCmd $
+      assertTxFails'
+      "Should not resolve new pact natives"
+      "Cannot resolve zip"
+    , PactTxTest buildFdbCmd $
+      assertTxSuccess'
+      "Load fdb module"
+      (pString "Write succeeded")
+    ]
 
   cb4 <- cbResult
   assertEqual "Coinbase events @ block 4" [] (_crEvents cb4)
 
   -- run block 5
-  oneChainMempool $ PactMempool [getBlock5]
-  runCut'
-
-  cb5 <- cbResult
-  assertEqual "Coinbase events @ block 5" [] (_crEvents cb5)
-
   let m1 = PObject $ ObjectMap $ mempty
         & M.insert (FieldKey "a") (pInteger 1)
         & M.insert (FieldKey "b") (pInteger 1)
       m2 = PObject $ ObjectMap $ mempty
         & M.insert (FieldKey "a") (pInteger 2)
         & M.insert (FieldKey "b") (pInteger 2)
-  assertTxSuccess 0
-    "Should resolve fold-db pact native"
-    (PList $ V.fromList [m1,m2])
 
-  assertTxSuccess 1
-    "Should resolve zip pact native"
-    (PList $ V.fromList $ pInteger <$> [5,7,9])
+  runBlockTest (blockForChain cid)
+    [ PactTxTest buildNewNatives420FoldDbCmd $
+      assertTxSuccess'
+      "Should resolve fold-db pact native"
+      (PList $ V.fromList [m1,m2])
+    , PactTxTest buildNewNatives420ZipCmd $
+      assertTxSuccess'
+      "Should resolve zip pact native"
+      (PList $ V.fromList $ pInteger <$> [5,7,9])
+    ]
+
+  cb5 <- cbResult
+  assertEqual "Coinbase events @ block 5" [] (_crEvents cb5)
 
   where
 
-
-    getBlock4 _ bh = pure
-      [ buildNewNatives420FoldDbCmd bh
-      , buildNewNatives420ZipCmd bh
-      , buildFdbCmd bh
-      ]
-
-    getBlock5 _ bh = pure
-      [ buildNewNatives420FoldDbCmd bh
-      , buildNewNatives420ZipCmd bh
-      ]
-
-    buildFdbCmd bh = buildBasic bh
+    buildFdbCmd = buildBasic
         $ mkExec' $ mconcat ["(namespace 'free)", moduleDeclaration, inserts]
       where
         moduleDeclaration =
@@ -910,12 +953,12 @@ pact420UpgradeTest _mpRefIO = do
             , "(insert free.fdb.fdb-tbl 'a {'a:1, 'b:1})"
             ]
 
-    buildNewNatives420FoldDbCmd bh = buildBasic bh
+    buildNewNatives420FoldDbCmd = buildBasic
         $ mkExec'
         "(let* ((qry (lambda (k o) (<  k \"c\"))) (consume (lambda (k o) o))) (fold-db free.fdb.fdb-tbl (qry) (consume)))"
 
 
-    buildNewNatives420ZipCmd bh = buildBasic bh
+    buildNewNatives420ZipCmd = buildBasic
         $ mkExec' "(zip (+) [1 2 3] [4 5 6])"
 
 chainweb216Test :: MultichainTest
@@ -1314,21 +1357,19 @@ buildBasicCmd' bh s = liftIO . buildCwCmd
     . mkCmd (sshow bh)
 
 buildBasic
-    :: BlockHeader
-    -> PactRPC T.Text
-    -> CmdBuilder
-buildBasic bh = buildBasic' bh id
+    :: PactRPC T.Text
+    -> MempoolCmdBuilder
+buildBasic = buildBasic' id
 
 buildBasic'
-    :: BlockHeader
-    -> (CmdBuilder -> CmdBuilder)
+    :: (CmdBuilder -> CmdBuilder)
     -> PactRPC T.Text
-    -> CmdBuilder
-buildBasic' bh s =
+    -> MempoolCmdBuilder
+buildBasic' s r = MempoolCmdBuilder $ \(MempoolInput _ bh) ->
   signSender00
-  . setFromHeader bh
-  . s
-  . mkCmd (sshow bh)
+  $ setFromHeader bh
+  $ s
+  $ mkCmd (sshow bh) r
 
 getOncePerChainMempool
     :: MonadIO m
@@ -1350,11 +1391,16 @@ getOncePerChainMempool mp = do
 -- | Get output on latest cut for chain
 getPWO :: ChainId -> MultiM (PayloadWithOutputs,BlockHeader)
 getPWO chid = do
-  (TestBlockDb _ pdb cmv) <- view menvBdb
-  c <- liftIO $ readMVar cmv
-  h <- fromMaybeM (userError $ "chain lookup failed for " ++ show chid) $ HM.lookup chid (_cutMap c)
+  (TestBlockDb _ pdb _) <- view menvBdb
+  h <- getHeader chid
   pwo <- liftIO $ casLookupM pdb (_blockPayloadHash h)
   return (pwo,h)
+
+getHeader :: ChainId -> MultiM BlockHeader
+getHeader chid = do
+  (TestBlockDb _ _ cmv) <- view menvBdb
+  c <- liftIO $ readMVar cmv
+  fromMaybeM (userError $ "chain lookup failed for " ++ show chid) $ HM.lookup chid (_cutMap c)
 
 -- | Get tx at index from output
 txResult :: Int -> MultiM (CommandResult Hash)
@@ -1366,6 +1412,13 @@ txResult i = do
       throwM $ userError $
       show (_blockHeight h) ++ ": no tx at " ++ show i
     Just txo -> decodeStrictOrThrow @_ @(CommandResult Hash) (_transactionOutputBytes txo)
+
+txResults :: MultiM (V.Vector (CommandResult Hash))
+txResults = do
+  chid <- view menvChainId
+  (o,_h) <- getPWO chid
+  forM (_payloadWithOutputsTransactions o) $ \(_,txo) ->
+    decodeStrictOrThrow @_ @(CommandResult Hash) (_transactionOutputBytes txo)
 
 -- | Get coinbase from output
 cbResult :: MultiM (CommandResult Hash)
