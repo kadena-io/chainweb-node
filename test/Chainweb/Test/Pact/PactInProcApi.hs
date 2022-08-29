@@ -400,7 +400,7 @@ minerKeysetTest :: MultichainTest
 minerKeysetTest _mpRefIO = do
 
   -- run past genesis, upgrades
-  forM_ [(1::Int)..24] $ \_i -> runCut'
+  runToHeight 24
 
   -- run block 4
   local (set menvMiner badMiner) $ do
@@ -416,82 +416,60 @@ minerKeysetTest _mpRefIO = do
 
     badMiner = Miner (MinerId "miner") $ MinerKeys $ mkKeySet ["bad-bad-bad"] "keys-all"
 
-assertTxFailure :: MonadIO m => String -> T.Text -> CommandResult l -> m ()
-assertTxFailure msg needle tx =
-  assertSatisfies msg (_pactResult $ _crResult tx) $ \case
-    Left e -> needle `T.isInfixOf` renderCompactText' (peDoc e)
-    Right _ -> False
-
 chainweb213Test :: MultichainTest
-chainweb213Test mpRefIO = do
+chainweb213Test _mpRefIO = do
 
   -- run past genesis, upgrades
-  forM_ [(1::Int)..24] $ \_i -> runCut'
+  runToHeight 24
 
   -- run block 25
-  setOneShotMempool mpRefIO getBlock1
-  runCut'
-  tx1_0 <- txResult 0
-  assertEqual "Old gas cost" 56 (_crGas tx1_0)
-  tx1_1 <- txResult 1
-  assertEqual "list failure 1_1" (Just listErrMsg) (preview (crResult . to _pactResult . _Left . to peDoc) tx1_1)
-  tx1_2 <- txResult 2
-  assertSatisfies "mod db installs" (_pactResult (_crResult tx1_2)) isRight
-  tx1_3 <- txResult 3
-  assertEqual "fkeys gas cost 1" 205 (_crGas tx1_3)
-  tx1_4 <- txResult 4
-  assertEqual "ffolddb gas cost 1" 206 (_crGas tx1_4)
-  tx1_5 <- txResult 5
-  assertEqual "fselect gas cost 1" 206 (_crGas tx1_5)
+  runBlockTest (blockForChain cid) $
+      [ PactTxTest buildModCmd1 $
+        assertTxGas "Old gas cost" 56
+      , PactTxTest (buildSimpleCmd' "(list 1 2 3)") $
+        assertTxFails' "list failure 1_1"
+        listErrMsg
+      , PactTxTest buildDbMod $
+        assertTxSuccess' "mod db installs" $
+        pString "TableCreated"
+      , PactTxTest (buildSimpleCmd' "(free.dbmod.fkeys)") $
+        assertTxGas "fkeys gas cost 1" 205
+      , PactTxTest (buildSimpleCmd' "(free.dbmod.ffolddb)") $
+        assertTxGas "ffolddb gas cost 1" 206
+      , PactTxTest (buildSimpleCmd' "(free.dbmod.fselect)") $
+        assertTxGas "fselect gas cost 1" 206
+      ]
+
 
   -- run block 26
-  setOneShotMempool mpRefIO getBlock2
-  runCut'
-  tx2_0 <- txResult 0
-  assertEqual "New gas cost" 60065 (_crGas tx2_0)
-  tx2_1 <- txResult 1
-  assertTxFailure "list failure 2_1" "Gas limit" tx2_1
-  tx2_2 <- txResult 2
-  assertEqual "fkeys gas cost 2" 40005 (_crGas tx2_2)
-  tx2_3 <- txResult 3
-  assertEqual "ffolddb gas cost 2" 40006 (_crGas tx2_3)
-  tx2_4 <- txResult 4
-  assertEqual "fselect gas cost 2" 40006 (_crGas tx2_4)
+  runBlockTest (blockForChain cid) $
+      [ PactTxTest buildModCmd2 $
+        assertTxGas "New gas cost" 60065
+      , PactTxTest (buildSimpleCmd' "(list 1 2 3)") $
+        assertTxFails' "list failure 2_1"
+        "Gas limit (50000) exceeded: 1000003"
+      , PactTxTest  (buildSimpleCmd' "(free.dbmod.fkeys)") $
+        assertTxGas "fkeys gas cost 2" 40005
+      , PactTxTest (buildSimpleCmd' "(free.dbmod.ffolddb)") $
+        assertTxGas "ffolddb gas cost 2" 40006
+      , PactTxTest (buildSimpleCmd' "(free.dbmod.fselect)") $
+        assertTxGas "fselect gas cost 2" 40006
+      ]
 
 
   where
-    getBlock1 = mempty {
-      mpaGetBlock = \_ _ _ _ bh -> if _blockChainId bh == cid then buildVector
-          [ buildModCmd1 bh
-          , buildSimpleCmd bh "(list 1 2 3)"
-          , buildDbMod bh
-          , buildSimpleCmd bh "(free.dbmod.fkeys)"
-          , buildSimpleCmd bh "(free.dbmod.ffolddb)"
-          , buildSimpleCmd bh "(free.dbmod.fselect)"
-          ]
-          else return mempty
-      }
-    getBlock2 = mempty {
-      mpaGetBlock = \_ _ _ _ bh -> if _blockChainId bh == cid then buildVector
-          [ buildModCmd2 bh
-          , buildSimpleCmd bh "(list 1 2 3)"
-          , buildSimpleCmd bh "(free.dbmod.fkeys)"
-          , buildSimpleCmd bh "(free.dbmod.ffolddb)"
-          , buildSimpleCmd bh "(free.dbmod.fselect)"
-          ]
-          else return mempty
-      }
-    buildSimpleCmd bh code = buildCwCmd
-        $ signSender00
+
+    buildSimpleCmd' code = MempoolCmdBuilder $ \(MempoolInput _ bh) ->
+        signSender00
         $ setFromHeader bh
         $ set cbGasLimit 50000
         $ mkCmd code
         $ mkExec' code
-    buildModCmd1 bh = buildBasicCmd bh
+    buildModCmd1 = buildBasic
         $ mkExec' $ mconcat ["(namespace 'free)", "(module mtest G (defcap G () true) (defun a () true))"]
-    buildModCmd2 bh = buildBasicCmd' bh (set cbGasLimit 70000)
+    buildModCmd2 = buildBasic' (set cbGasLimit 70000)
         $ mkExec' $ mconcat ["(namespace 'free)", "(module mtest2 G (defcap G () true) (defun a () false))"]
-    buildDbMod bh = buildBasicCmd' bh (set cbGasLimit 70000)
+    buildDbMod = buildBasic' (set cbGasLimit 70000)
         $ mkExec' $ mconcat
         [ "(namespace 'free)"
         , "(module dbmod G (defcap G () true)"
@@ -639,7 +617,7 @@ chainweb215Test :: MultichainTest
 chainweb215Test mpRefIO = do
 
   -- run past genesis, upgrades
-  runCutN' 30 -- 1->30
+  runToHeight 30 -- 1->30
 
   -- execute pre-fork xchain transfer (blocc0)
   setOneShotMempool mpRefIO blocc0
@@ -740,7 +718,6 @@ chainweb215Test mpRefIO = do
     v4Hash = "BjZW0T2ac6qE_I5X8GE4fal6tTqjhLTC7my0ytQSxLU"
     v5Hash = "rE7DU8jlQL9x_MPYuniZJf5ICBTAEHAIFQCB4blofP4"
 
-    runCutN' n = forM_ [1::Int ..n] $ const runCut'
     saveCutN' m n k = forM [m::Int .. n] $ \i -> do
       runCut'
       if i == k
@@ -768,6 +745,9 @@ currentCut = view menvBdb >>= liftIO . readMVar . _bdbCut
 rewindTo :: Cut -> MultiM ()
 rewindTo c = view menvBdb >>= \bdb -> void $ liftIO $ swapMVar (_bdbCut bdb) c
 
+assertTxGas :: MonadIO m => String -> Gas -> CommandResult Hash -> m ()
+assertTxGas msg g = assertEqual msg g . _crGas
+
 assertTxSuccess :: Int -> String -> PactValue -> MultiM ()
 assertTxSuccess i msg r = do
   tx <- txResult i
@@ -793,62 +773,56 @@ pact431UpgradeTest :: MultichainTest
 pact431UpgradeTest _mpRefIO = do
 
   -- run past genesis, upgrades
-  forM_ [(1::Int)..34] $ \_i -> runCut'
+  runToHeight 34
 
   -- run block 35, pre fork
-  setPactMempool $ PactMempool [blocc]
-  runCut'
-
-  tx35_0 <- txResult 0
-  assertSatisfies "tx35_0 success" (_pactResult $ _crResult tx35_0) isRight
-
-  assertTxFails 1
-    "Should not resolve new pact native: continue"
-    "Cannot resolve is-principal"
-
-  assertTxFails 2
-    "Should not resolve new pact native: create-principal"
-    "Cannot resolve typeof-principal"
-
-  assertTxSuccess 3
-    "Enforce pact version passes pre-fork"
-    (pBool True)
-
-  assertTxSuccess 4
-    "Pact version is 4.2.1 for compat pre-fork"
-    (pString "4.2.1")
+  runBlockTest (blockForChain cid)
+    [ PactTxTest describeModule $
+      assertTxSuccess' "describe-module legacy success"
+      $ pBool True
+    , PactTxTest isPrincipal $
+      assertTxFails' "Should not resolve new pact native: is-principal"
+      "Cannot resolve is-principal"
+    , PactTxTest typeOfPrincipal $
+      assertTxFails' "Should not resolve new pact native: typeof-principal"
+      "Cannot resolve typeof-principal"
+    , PactTxTest enforcePactVersion $
+      assertTxSuccess' "Enforce pact version passes pre-fork"
+      $ pBool True
+    , PactTxTest pactVersion $
+      assertTxSuccess' "Pact version is 4.2.1 for compat pre-fork"
+      $ pString "4.2.1"
+    ]
 
   -- run block 36, post fork
-  setPactMempool $ PactMempool [blocc]
-  runCut'
+  runBlockTest (blockForChain cid)
+    [ PactTxTest describeModule $
+      assertTxFails' "Should fail to execute describe-module"
+      "Operation only permitted in local execution mode"
+    , PactTxTest isPrincipal $
+      assertTxSuccess' "Should resolve new pact native: is-principal"
+      $ pBool True
+    , PactTxTest typeOfPrincipal $
+      assertTxSuccess' "Should resolve new pact native: typeof-principal"
+      $ pString "k:"
+    , PactTxTest enforcePactVersion $
+      assertTxFails' "Should fail to execute enforce-pact-version"
+      "Operation only permitted in local execution mode"
+    , PactTxTest pactVersion $
+      assertTxFails' "Should fail to execute pact-version"
+      "Operation only permitted in local execution mode"
+    ]
 
-  assertTxFails 0
-    "Should fail to execute describe-module"
-    "Operation only permitted in local execution mode"
-
-  assertTxSuccess 1
-    "Should resolve new pact native: is-principal"
-    (pBool True)
-
-  assertTxSuccess 2
-    "Should resolve new pact native: create-principal"
-    (pString "k:")
-
-  assertTxFails 3
-    "Should fail to execute enforce-pact-version"
-    "Operation only permitted in local execution mode"
-
-  assertTxFails 4
-    "Should fail to execute pact-version"
-    "Operation only permitted in local execution mode"
 
   where
-    blocc = blockForChain cid $ MempoolBlock $ \_ -> pure
-        [ buildMod
-        , buildSimpleCmd "(is-principal (create-principal (read-keyset 'k)))"
-        , buildSimpleCmd "(typeof-principal (create-principal (read-keyset 'k)))"
-        , buildSimpleCmd "(enforce-pact-version \"4.2.1\")"
-        , buildSimpleCmd "(pact-version)" ]
+    isPrincipal =
+      buildSimpleCmd "(is-principal (create-principal (read-keyset 'k)))"
+    typeOfPrincipal =
+      buildSimpleCmd "(typeof-principal (create-principal (read-keyset 'k)))"
+    enforcePactVersion =
+      buildSimpleCmd "(enforce-pact-version \"4.2.1\")"
+    pactVersion =
+      buildSimpleCmd "(pact-version)"
     buildSimpleCmd code = MempoolCmdBuilder $ \(MempoolInput _ bh) ->
         signSender00
         $ setFromHeader bh
@@ -856,14 +830,14 @@ pact431UpgradeTest _mpRefIO = do
         $ mkCmd code
         $ mkExec code
         $ mkKeySetData "k" [sender00]
-    buildMod = buildBasic' (set cbGasLimit 100000)
+    describeModule = buildBasic' (set cbGasLimit 100000)
       $ mkExec (mconcat
         [ "(namespace 'free)"
         , "(module mod G"
         , "  (defcap G () true)"
         , "  (defun f () true)"
         , ")"
-        , "(describe-module \"free.mod\")"
+        , "(describe-module \"free.mod\") true"
         ])
         $ mkKeySetData "k" [sender00]
 
@@ -881,19 +855,19 @@ runBlockTest blockF pts = do
     go (PactTxTest _ t) cr = liftIO $ t cr
 
 -- | Run cuts to block height.
-runTo :: BlockHeight -> MultiM ()
-runTo bhi = do
+runToHeight :: BlockHeight -> MultiM ()
+runToHeight bhi = do
   chid <- view menvChainId
   bh <- getHeader chid
   when (_blockHeight bh < bhi) $ do
     runCut'
-    runTo bhi
+    runToHeight bhi
 
 pact420UpgradeTest :: MultichainTest
 pact420UpgradeTest _mpRefIO = do
 
   -- run past genesis, upgrades
-  runTo 3
+  runToHeight 3
 
   -- run block 4
   runBlockTest (blockForChain cid)
@@ -911,25 +885,23 @@ pact420UpgradeTest _mpRefIO = do
       (pString "Write succeeded")
     ]
 
-  cb4 <- cbResult
-  assertEqual "Coinbase events @ block 4" [] (_crEvents cb4)
+  cbResult >>= assertEqual "Coinbase events @ block 4" [] . _crEvents
 
   -- run block 5
 
   runBlockTest (blockForChain cid)
     [ PactTxTest buildNewNatives420FoldDbCmd $
       assertTxSuccess'
-      "Should resolve fold-db pact native"
-      (pList [pObject [("a", pInteger 1),("b",pInteger 1)]
-             ,pObject [("a", pInteger 2),("b",pInteger 2)]])
+      "Should resolve fold-db pact native" $
+      pList [pObject [("a", pInteger 1),("b",pInteger 1)]
+            ,pObject [("a", pInteger 2),("b",pInteger 2)]]
     , PactTxTest buildNewNatives420ZipCmd $
       assertTxSuccess'
-      "Should resolve zip pact native"
-      (pList $ pInteger <$> [5,7,9])
+      "Should resolve zip pact native" $
+      pList $ pInteger <$> [5,7,9]
     ]
 
-  cb5 <- cbResult
-  assertEqual "Coinbase events @ block 5" [] (_crEvents cb5)
+  cbResult >>= assertEqual "Coinbase events @ block 5" [] . _crEvents
 
   where
 
