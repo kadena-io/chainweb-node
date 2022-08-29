@@ -175,6 +175,7 @@ applyCmd v logger pdbenv miner gasModel txCtx spv cmd initialGas mcache0 =
           ++ enablePact43 txCtx
           ++ enablePact431 txCtx
           ++ enablePact44 txCtx
+          ++ enableNewTrans txCtx
         )
 
     cenv = TransactionEnv Transactional pdbenv logger (ctxToPublicData txCtx) spv nid gasPrice
@@ -729,6 +730,11 @@ enablePact44 :: TxContext -> [ExecutionFlag]
 enablePact44 tc
     | chainweb216Pact After (ctxVersion tc) (ctxCurrentBlockHeight tc) = []
     | otherwise = [FlagDisablePact44]
+
+enableNewTrans :: TxContext -> [ExecutionFlag]
+enableNewTrans tc
+    | pact44NewTrans (ctxVersion tc) (ctxCurrentBlockHeight tc) = []
+    | otherwise = [FlagDisableNewTrans]
 
 -- | Execute a 'ContMsg' and return the command result and module cache
 --

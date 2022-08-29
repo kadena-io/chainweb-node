@@ -1,7 +1,7 @@
-cabal-version: 2.4
+cabal-version: 3.0
 
 name:         chainweb
-version:      2.15
+version:      2.16
 synopsis:     A Proof-of-Work Parallel-Chain Architecture for Massive Throughput
 description:  A Proof-of-Work Parallel-Chain Architecture for Massive Throughput.
 homepage:     https://github.com/kadena-io/chainweb
@@ -531,6 +531,7 @@ test-suite chainweb-tests
         , random >= 1.2
         , resource-pool >= 0.3
         , retry >= 0.7
+        , rocksdb-haskell-kadena >= 1.1.0
         , rosetta >= 1.0
         , scheduler >= 1.4
         , servant >= 0.18.2
@@ -686,7 +687,7 @@ executable cwtool
         , process >= 1.5
         , quickcheck-instances >= 0.3
         , random >= 1.2
-        , rocksdb-haskell >= 1.0
+        , rocksdb-haskell-kadena >= 1.1.0
         , safe-exceptions >= 0.1
         , servant-client >= 0.18.2
         , streaming >= 0.2.2
@@ -746,6 +747,7 @@ benchmark bench
         , merkle-log
         , mtl >= 2.2
         , pact
+        , rocksdb-haskell-kadena >= 1.1.0
         , random >= 1.2
         , text >= 1.2
         , vector >= 0.12.2

@@ -1,8 +1,8 @@
 {
   "owner": "kadena-io",
   "repo": "pact",
-  "branch": "master",
+  "branch": "johnw/musl",
   "private": false,
-  "rev": "c2fcb547e3293a38c3cd0fa428ca1e139d727630",
-  "sha256": "08zasfiwv2v7kknncb4x951rdcmarm7cl91445f75d4drcb1mm9j"
+  "rev": "d15d87d5b0375169264a9b97cacfe1e51a10ff6e",
+  "sha256": "0jwif9vkna4ysw5f552qi4z1z4lxkg0nyxz2h2wax9zx6jxq9ca3"
 }

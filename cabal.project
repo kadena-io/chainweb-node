@@ -64,12 +64,17 @@ source-repository-package
 source-repository-package
     type: git
     location: https://github.com/kadena-io/pact.git
-    tag: 21666c67a133ebb7a9b372c116b66887a0f671cc
+    tag: 77c0c578c7678d2904d7be0b06c49fa9264a7dc0
 
 source-repository-package
     type: git
-    location: https://github.com/kadena-io/chainweb-storage.git
-    tag: 5bfe043ab11512b6eb4d625deaee0a79edc595df
+    location: https://github.com/edmundnoble/chainweb-storage.git
+    tag: adc9f2c2ef16d0045327d02c7bb76b9094abe961
+
+source-repository-package
+    type: git
+    location: https://github.com/kadena-io/rocksdb-haskell.git
+    tag: 2f0bae730d137b7edee090c4014d891675933ba5
 
 source-repository-package
     type: git

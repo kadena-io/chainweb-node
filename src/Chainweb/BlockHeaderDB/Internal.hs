@@ -338,7 +338,8 @@ withSeekTreeDb
     -> Maybe MinRank
     -> (RocksDbTableIter RankedBlockHash RankedBlockHeader -> IO a)
     -> IO a
-withSeekTreeDb db k mir = bracket (seekTreeDb db k mir) releaseTableIter
+withSeekTreeDb db k mir kont =
+    withTableIter (_chainDbCas db) (\it -> seekTreeDb db k mir it >> kont it)
 {-# INLINE withSeekTreeDb #-}
 
 -- | If @k@ is not 'Nothing', @seekTreeDb d k mir@ seeks key @k@ in @db@. If the
@@ -357,9 +358,9 @@ seekTreeDb
     :: BlockHeaderDb
     -> Maybe (NextItem BlockHash)
     -> Maybe MinRank
-    -> IO (RocksDbTableIter RankedBlockHash RankedBlockHeader)
-seekTreeDb db k mir = do
-    !it <- createTableIter (_chainDbCas db)
+    -> RocksDbTableIter RankedBlockHash RankedBlockHeader
+    -> IO ()
+seekTreeDb db k mir it = do
     case k of
         Nothing -> case mir of
             Nothing -> return ()
@@ -386,11 +387,10 @@ seekTreeDb db k mir = do
             -- Check minimum rank. Return invalid iter if cursor is below
             -- minimum rank.
             tableIterKey it >>= \case
-                Just (RankedBlockHash r' _) | Just m <- mir, int r' < m -> invalidIter it
+                Just (RankedBlockHash r' _) | Just m <- mir, int r' < m -> invalidIter
                 _ -> return ()
-    return it
   where
-    invalidIter it = tableIterLast it >> tableIterNext it
+    invalidIter = tableIterLast it >> tableIterNext it
 
 -- -------------------------------------------------------------------------- --
 -- Insertions

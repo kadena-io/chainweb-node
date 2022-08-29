@@ -66,6 +66,7 @@ module Chainweb.Version
 , chainweb214Pact
 , chainweb215Pact
 , chainweb216Pact
+, pact44NewTrans
 
 -- ** BlockHeader Validation Guards
 , slowEpochGuard
@@ -769,8 +770,8 @@ maxBlockGasLimit
     -> ChainId
     -> BlockHeight
     -> Maybe Natural
-maxBlockGasLimit Mainnet01 _ bh = 180000 <$ guard (chainweb216Pact At Mainnet01 bh)
-maxBlockGasLimit Testnet04 _ bh = 180000 <$ guard (chainweb216Pact At Testnet04 bh)
+maxBlockGasLimit Mainnet01 _ bh = 180000 <$ guard (chainweb216Pact After Mainnet01 bh)
+maxBlockGasLimit Testnet04 _ bh = 180000 <$ guard (chainweb216Pact After Testnet04 bh)
 maxBlockGasLimit Development _ _ = Just 180000
 maxBlockGasLimit _ _ _ = Just 2_000000
 
@@ -949,6 +950,11 @@ chainweb213Pact Development = (>= 95)
 chainweb213Pact (FastTimedCPM g) | g == petersonChainGraph = (> 25)
 chainweb213Pact _ = const True
 
+-- | Fork for musl trans funs
+pact44NewTrans :: ChainwebVersion -> BlockHeight -> Bool
+pact44NewTrans Mainnet01 = (>= 2_965_885) -- Todo: add date
+pact44NewTrans Testnet04 = (>= 2_500_369) -- Todo: add date
+pact44NewTrans _ = const True
 
 -- | Pact and coin contract changes for Chainweb 2.14
 --
@@ -984,7 +990,7 @@ chainweb215Pact aoa v h = case aoa of
     go f (FastTimedCPM g) | g == petersonChainGraph = f 35
     go f _ = f 10
 
--- | Pact and coin contract changes for Chainweb 2.15
+-- | Pact and coin contract changes for Chainweb 2.16
 --
 chainweb216Pact
     :: AtOrAfter
@@ -995,8 +1001,8 @@ chainweb216Pact aoa v h = case aoa of
     At -> go (==) v h
     After -> go (<) v h
   where
-    go f Mainnet01 = f 2988358 -- 2022-09-02 00:00:00+00:00
-    go f Testnet04 = f 2516927 -- 2022-09-01 12:00:00+00:00
+    go f Mainnet01 = f 2988324 -- 2022-09-02 00:00:00+00:00
+    go f Testnet04 = f 2516739 -- 2022-09-01 12:00:00+00:00
     go f Development = f 215
     go f (FastTimedCPM g) | g == petersonChainGraph = f 53
     go f _ = f 16
