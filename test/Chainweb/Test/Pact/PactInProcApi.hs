@@ -68,6 +68,7 @@ import Pact.Types.PactValue
 import Pact.Types.Persistence
 import Pact.Types.PactError
 import Pact.Types.Pretty
+import Pact.Types.Runtime (PactEvent)
 import Pact.Types.RPC
 import Pact.Types.SPV
 import Pact.Types.Term
@@ -423,7 +424,7 @@ chainweb213Test _mpRefIO = do
   runToHeight 24
 
   -- run block 25
-  runBlockTest (blockForChain cid) $
+  runBlockTest
       [ PactTxTest buildModCmd1 $
         assertTxGas "Old gas cost" 56
       , PactTxTest (buildSimpleCmd' "(list 1 2 3)") $
@@ -442,7 +443,7 @@ chainweb213Test _mpRefIO = do
 
 
   -- run block 26
-  runBlockTest (blockForChain cid) $
+  runBlockTest
       [ PactTxTest buildModCmd2 $
         assertTxGas "New gas cost" 60065
       , PactTxTest (buildSimpleCmd' "(list 1 2 3)") $
@@ -483,110 +484,83 @@ chainweb213Test _mpRefIO = do
 buildVector :: MonadIO m => [m a] -> m (V.Vector a)
 buildVector as = V.fromList <$> sequence as
 
+resetMempool :: MultiM ()
+resetMempool = view menvMpa >>= \r -> setMempool r mempty
+
 pact43UpgradeTest :: MultichainTest
-pact43UpgradeTest mpRefIO = do
+pact43UpgradeTest _mpRefIO = do
 
   -- run past genesis, upgrades
-  forM_ [(1::Int)..29] $ \_i -> runCut'
+  runToHeight 29
 
-  -- run block 30, pre fork
-  setOneShotMempool mpRefIO preForkBlock30
-  runCut'
-  tx30_0 <- txResult 0
-  assertEqual "Old gas cost" 120332 (_crGas tx30_0)
-
-  -- run block 29, pre fork
-  assertTxFails 1
-    "Should not resolve new pact native: continue"
-    "Cannot resolve \"continue\""
-
-  assertTxFails 2
-    "Should not resolve new pact native: create-principal"
-    "Cannot resolve create-principal"
-
-  assertTxFails 3
-    "Should not resolve new pact natives: validate-principal"
-    "Cannot resolve validate-principal"
+  runBlockTest
+      [ PactTxTest buildMod $
+        assertTxGas "Old gas cost" 120332
+      , PactTxTest buildModPact $
+        assertTxFails'
+        "Should not resolve new pact native: continue"
+        "Cannot resolve \"continue\""
+      , PactTxTest (buildSimpleCmd "(create-principal (read-keyset 'k))") $
+        assertTxFails'
+        "Should not resolve new pact native: create-principal"
+        "Cannot resolve create-principal"
+      , PactTxTest (buildSimpleCmd "(validate-principal (read-keyset 'k) \"k:368820f80c324bbc7c2b0610688a7da43e39f91d118732671cd9c7500ff43cca\")") $
+        assertTxFails'
+        "Should not resolve new pact natives: validate-principal"
+        "Cannot resolve validate-principal"
+      , PactTxTest (buildXSend1 []) $
+        assertTxGas "xsend success" 378
+      ]
 
   tx30_4 <- txResult 4
-  assertSatisfies "tx30_4 success" (_pactResult $ _crResult tx30_4) isRight
 
 
-  -- run block 31, post-fork
-  setOneShotMempool mpRefIO postForkBlock31
-  runCut'
-  tx31_0 <- txResult 0
-  assertEqual "Old gas cost" 120296 (_crGas tx31_0)
+  runBlockTest
+      [ PactTxTest buildMod $
+        assertTxGas "Old gas cost" 120296
+      , PactTxTest buildModPact $
+        assertTxSuccess'
+        "Should resolve continue in a module defn"
+        (pString "Loaded module free.nestedMod, hash fDd0G7zvGar3ax2q0I0F9dISRq7Pjop5rUXOeokNIOU")
+      , PactTxTest (buildSimpleCmd "(free.modB.chain)") $
+        assertTxSuccess'
+        "Should resolve names properly post-fork"
+      -- Note: returns LDecimal because of toPactValueLenient in interpret
+        (pDecimal 11)
+      , PactTxTest (buildSimpleCmd "(free.modB.get-test)") $
+        assertTxSuccess'
+        "Should resolve names properly post-fork"
+        (pString "hello")
+      , PactTxTest (buildSimpleCmd "(create-principal (read-keyset 'k))") $
+        assertTxSuccess'
+        "Should resolve create-principal properly post-fork"
+        (pString "k:368820f80c324bbc7c2b0610688a7da43e39f91d118732671cd9c7500ff43cca")
+      , PactTxTest (buildSimpleCmd "(validate-principal (read-keyset 'k) \"k:368820f80c324bbc7c2b0610688a7da43e39f91d118732671cd9c7500ff43cca\")") $
+        assertTxSuccess'
+        "Should resolve validate-principal properly post-fork"
+        (pBool True)
+      ]
 
-  assertTxSuccess 1
-    "Should resolve continue in a module defn"
-    (pString "Loaded module free.nestedMod, hash fDd0G7zvGar3ax2q0I0F9dISRq7Pjop5rUXOeokNIOU")
-
-  -- run block 31, post-fork
-  -- Note: returns LDecimal because of toPactValueLenient in interpret
-  assertTxSuccess 2
-    "Should resolve names properly post-fork"
-    (pDecimal 11)
-
-  assertTxSuccess 3
-    "Should resolve names properly post-fork"
-    (pString "hello")
-
-  assertTxSuccess 4
-    "Should resolve create-principal properly post-fork"
-    (pString "k:368820f80c324bbc7c2b0610688a7da43e39f91d118732671cd9c7500ff43cca")
-
-  assertTxSuccess 5
-    "Should resolve validate-principal properly post-fork"
-    (pBool True)
-
-  setMempool mpRefIO mempty
-  runCut' -- 32
-  runCut' -- 33
+  resetMempool
+  runToHeight 33
 
   xproof <- buildXProof cid 30 4 tx30_4
 
-  setMempool mpRefIO =<< getOncePerChainMempool (postForkBlock34 xproof)
-  runCut'
-  tx34_0 <- withChain chain0 $ txResult 0
-  assertSatisfies "tx34_0 success" (_pactResult $ _crResult tx34_0) isRight
+  withChain chain0 $ runBlockTest
+      [ PactTxTest (buildXReceive' xproof) $
+        assertTxSuccess' "xreceive success" (pString "Write succeeded")
+      ]
 
   where
-    preForkBlock30 = mempty {
-      mpaGetBlock = \_ _ _ _ bh -> if _blockChainId bh == cid then buildVector
-          [ buildMod bh
-          , buildModPact bh
-          , buildSimpleCmd bh "(create-principal (read-keyset 'k))"
-          , buildSimpleCmd bh "(validate-principal (read-keyset 'k) \"k:368820f80c324bbc7c2b0610688a7da43e39f91d118732671cd9c7500ff43cca\")"
-          , buildXSend bh
-          ]
-          else return mempty
-      }
-    postForkBlock31 = mempty {
-      mpaGetBlock = \_ _ _ _ bh -> if _blockChainId bh == cid then buildVector
-          [ buildMod bh
-          , buildModPact bh
-          , buildSimpleCmd bh "(free.modB.chain)"
-          , buildSimpleCmd bh "(free.modB.get-test)"
-          , buildSimpleCmd bh "(create-principal (read-keyset 'k))"
-          , buildSimpleCmd bh "(validate-principal (read-keyset 'k) \"k:368820f80c324bbc7c2b0610688a7da43e39f91d118732671cd9c7500ff43cca\")"
-          ]
-          else return mempty
-      }
-    postForkBlock34 xproof bh =
-      if _blockChainId bh == chain0 then do
-          t0 <- buildXReceive bh xproof
-          return $! V.fromList [t0]
-      else return mempty
 
-    buildSimpleCmd bh code = buildCwCmd
-        $ signSender00
+    buildSimpleCmd code = MempoolCmdBuilder $ \(MempoolInput _ bh) ->
+        signSender00
         $ setFromHeader bh
         $ set cbGasLimit 1000
         $ mkCmd code
         $ mkExec code
         $ mkKeySetData "k" [sender00]
-    buildModPact bh = buildBasicCmd' bh (set cbGasLimit 70000)
+    buildModPact = buildBasic' (set cbGasLimit 70000)
         $ mkExec' (mconcat
         [ "(namespace 'free)"
         , "(module nestedMod G"
@@ -595,7 +569,7 @@ pact43UpgradeTest mpRefIO = do
         , "  (defpact test-nested:string () (step (test)) (step (continue (test))) (step (continue (test))))"
         , ")"
         ])
-    buildMod bh = buildBasicCmd' bh (set cbGasLimit 130000)
+    buildMod = buildBasic' (set cbGasLimit 130000)
         $ mkExec (mconcat
         [ "(namespace 'free)"
         , "(module modA G"
@@ -613,130 +587,100 @@ pact43UpgradeTest mpRefIO = do
         ])
         $ mkKeySetData "k" [sender00]
 
+
+
 chainweb215Test :: MultichainTest
-chainweb215Test mpRefIO = do
+chainweb215Test _mpRefIO = do
 
   -- run past genesis, upgrades
   runToHeight 30 -- 1->30
 
   -- execute pre-fork xchain transfer (blocc0)
-  setOneShotMempool mpRefIO blocc0
-  runCut' -- 31
-  tx31_0 <- txResult 0
-
-  -- check the tx succeeds and the following events occur:
-  -- - transfer (cb)
-  -- - xchain (since v4)
-  -- - transfer
-  -- - x_yield
-  evs0 <- mkSendEvents 0.0416 v4Hash
-  assertEqual "Transfer events @ block 31" evs0 $ _crEvents tx31_0
-  assertSatisfies "tx31_0 success" (_pactResult $ _crResult tx31_0) isRight
+  runBlockTest
+      [ PactTxTest xsend $ \cr -> do
+          evs <- mkSendEvents 0.0426 v4Hash
+          assertTxEvents "Transfer events @ block 31" evs cr
+      ]
+  send0 <- txResult 0
 
   -- run past v5 upgrade, build proof of pre-fork xchain for tx31_0, save cut
-  setOneShotMempool mpRefIO mempty
-  cuts <- saveCutN' 32 41 34 -- 32->41, save 34
-  savedCut <- fromMaybeM (userError "A cut shouldExist here") $ msum cuts
-  xproof <- buildXProof cid 31 0 tx31_0
-  setMempool mpRefIO =<< getOncePerChainMempool (blocc1 xproof)
-  runCut' -- 42
-  tx42_0 <- withChain chain0 $ txResult 0
+  resetMempool
+  runToHeight 34
+  savedCut <- currentCut
+  runToHeight 41
 
-  -- check the redemption succeeds and the following events hold:
-  -- - transfer (cb)
-  -- - xchain_recd (since v5)
-  -- - transfer
-  -- - x_resume
+  xproof <- buildXProof cid 31 0 send0
 
-  recdevs0 <- mkRecdEvents v5Hash v4Hash
-  assertEqual "Transfer events @ block 42" recdevs0 $ _crEvents tx42_0
-  assertSatisfies "tx42_0 success" (_pactResult $ _crResult tx42_0) isRight
+  let blockSend42 =
+        [ PactTxTest xsend $ \cr -> do
+            evs <- mkSendEvents 0.0429 v5Hash
+            assertTxEvents "Transfer events @ block 42 - post-fork send" evs cr
+        ]
+      blockRecv42 =
+        [ PactTxTest (buildXReceive' xproof) $ \cr -> do
+            evs <- mkRecdEvents v5Hash v4Hash
+            assertTxEvents "Transfer events @ block 42" evs cr
+        ]
 
-  tx42_1 <- txResult 0
-  evs1 <- mkSendEvents 0.0419 v5Hash
-  assertEqual "Transfer events @ block 42 - post-fork send" evs1 $ _crEvents tx42_1
-  assertSatisfies "tx42_1 success" (_pactResult $ _crResult tx42_1) isRight
+  setPactMempool $ PactMempool
+      [ testsToBlock cid blockSend42
+      , testsToBlock chain0 blockRecv42 ]
+  runCut'
+  withChain cid $ runBlockTests blockSend42
+  withChain chain0 $ runBlockTests blockRecv42
+
+  send1 <- withChain cid $ txResult 0
 
   currCut <- currentCut
 
-    -- rewind to saved cut 34
+    -- rewind to saved cut 43
   rewindTo savedCut
-  forM_ [34::Int ..42] $ const runCut'
-  runCut' -- 43
+  runToHeight 43
 
   -- resume on original cut
   rewindTo currCut
 
   -- run until post-fork xchain proof exists
-  setOneShotMempool mpRefIO mempty
-  cuts1 <- saveCutN' 43 52 50 -- 43->52
-  savedCut1 <- fromMaybeM (userError "A cut shouldExist here") $ msum cuts1
-  xproof1 <- buildXProof cid 42 0 tx42_1
-  setMempool mpRefIO =<< getOncePerChainMempool (blocc2 xproof1)
-  runCut' -- 53
-  tx53_0 <- withChain chain0 $ txResult 0
+  resetMempool
+  runToHeight 50
+  savedCut1 <- currentCut
+  runToHeight 52
 
-  -- check the redemption succeeds and the following events hold:
-  -- - transfer (cb)
-  -- - xchain_recd (since v5)
-  -- - transfer
-  -- - x_resume
+  xproof1 <- buildXProof cid 42 0 send1
 
-  recdevs1 <- mkRecdEvents v5Hash v5Hash
-  assertEqual "Transfer events @ block 53" recdevs1 $ _crEvents tx53_0
-  assertSatisfies "tx53_0 success" (_pactResult $ _crResult tx53_0) isRight
+  withChain chain0 $ runBlockTest
+    [ PactTxTest (buildXReceive' xproof1) $ \cr -> do
+        evs <- mkRecdEvents v5Hash v5Hash
+        assertTxEvents "Transfer events @ block 53" evs cr
+    ]
 
     -- rewind to saved cut 50
   rewindTo savedCut1
-  forM_ [50::Int ..52] $ const runCut'
-  runCut' -- 43
+  runToHeight 53
+
   where
-    blocc0 = mempty {
-      mpaGetBlock = \_ _ _ _ bh -> if _blockChainId bh == cid then do
-          let xchainCap = mkXChainTransferCap "sender00" "sender00" 0.0123 "0"
-              gasCap = mkGasCap
-          t0 <- buildXSend' "tx34_0" bh [gasCap, xchainCap] -- cross-fork send
-          return $ V.singleton t0
-          else return mempty
-      }
-
-    blocc1 xproof bh
-      | _blockChainId bh == cid = do
-          let xchainCap = mkXChainTransferCap "sender00" "sender00" 0.0123 "0"
-              gasCap = mkGasCap
-          t0 <- buildXSend' "tx45_0" bh [gasCap, xchainCap] -- cross-fork send
-          pure $ V.singleton t0
-      | _blockChainId bh == chain0 =
-          V.singleton <$> buildXReceive bh xproof
-      | otherwise = pure mempty
-
-    blocc2 xproof bh
-      | _blockChainId bh == chain0 =
-          V.singleton <$> buildXReceive bh xproof
-      | otherwise = pure mempty
+    xsend = buildXSend1
+        [ mkGasCap
+        , mkXChainTransferCap "sender00" "sender00" 0.0123 "0"
+        ]
 
     v4Hash = "BjZW0T2ac6qE_I5X8GE4fal6tTqjhLTC7my0ytQSxLU"
     v5Hash = "rE7DU8jlQL9x_MPYuniZJf5ICBTAEHAIFQCB4blofP4"
 
-    saveCutN' m n k = forM [m::Int .. n] $ \i -> do
-      runCut'
-      if i == k
-        then Just <$> currentCut
-        else pure Nothing
+    mkSendEvents cbCost h = sequence
+      [ mkTransferEvent "sender00" "NoMiner" cbCost "coin" h
+      , mkTransferXChainEvent "sender00" "sender00" 0.0123 "coin" h "0"
+      , mkTransferEvent "sender00" "" 0.0123 "coin" h
+      , mkXYieldEvent "sender00" "sender00" 0.0123 sender00Ks "pact" h "0" "0"
+      ]
 
-    mkSendEvents cbCost h = do
-      cbev0 <- mkTransferEvent "sender00" "NoMiner" cbCost "coin" h
-      txev0 <- mkTransferXChainEvent "sender00" "sender00" 0.0123 "coin" h "0"
-      tev0 <- mkTransferEvent "sender00" "" 0.0123 "coin" h
-      xev0 <- mkXYieldEvent "sender00" "sender00" 0.0123 sender00Ks "pact" h "0" "0"
-      pure [cbev0, txev0, tev0, xev0]
+    mkRecdEvents h h' = sequence
+      [ mkTransferEvent "sender00" "NoMiner" 0.0258 "coin" h
+      , mkTransferEvent "" "sender00" 0.0123 "coin" h
+      , mkTransferXChainRecdEvent "" "sender00" 0.0123 "coin" h "8"
+      , mkXResumeEvent "sender00" "sender00" 0.0123 sender00Ks "pact" h' "8" "0"
+      ]
 
-    mkRecdEvents h h' = do
-      cbev1 <- mkTransferEvent "sender00" "NoMiner" 0.0258 "coin" h
-      recdev1 <- mkTransferXChainRecdEvent "" "sender00" 0.0123 "coin" h "8"
-      tev1 <- mkTransferEvent "" "sender00" 0.0123 "coin" h
-      xev1 <- mkXResumeEvent "sender00" "sender00" 0.0123 sender00Ks "pact" h' "8" "0"
-      pure [cbev1, tev1, recdev1, xev1]
 
 
 currentCut :: MultiM Cut
@@ -745,25 +689,28 @@ currentCut = view menvBdb >>= liftIO . readMVar . _bdbCut
 rewindTo :: Cut -> MultiM ()
 rewindTo c = view menvBdb >>= \bdb -> void $ liftIO $ swapMVar (_bdbCut bdb) c
 
-assertTxGas :: MonadIO m => String -> Gas -> CommandResult Hash -> m ()
+assertTxEvents :: (HasCallStack, MonadIO m) => String -> [PactEvent] -> CommandResult Hash -> m ()
+assertTxEvents msg evs = assertEqual msg evs . _crEvents
+
+assertTxGas :: (HasCallStack, MonadIO m) => String -> Gas -> CommandResult Hash -> m ()
 assertTxGas msg g = assertEqual msg g . _crGas
 
-assertTxSuccess :: Int -> String -> PactValue -> MultiM ()
+assertTxSuccess :: HasCallStack => Int -> String -> PactValue -> MultiM ()
 assertTxSuccess i msg r = do
   tx <- txResult i
   assertTxSuccess' msg r tx
 
-assertTxSuccess' :: MonadIO m => String -> PactValue -> CommandResult Hash -> m ()
+assertTxSuccess' :: (HasCallStack, MonadIO m) => String -> PactValue -> CommandResult Hash -> m ()
 assertTxSuccess' msg r tx = do
   assertEqual msg (Just r)
     (tx ^? crResult . to _pactResult . _Right)
 
-assertTxFails :: Int -> String -> Doc -> MultiM ()
+assertTxFails :: HasCallStack => Int -> String -> Doc -> MultiM ()
 assertTxFails i msg d = do
   tx <- txResult i
   assertTxFails' msg d tx
 
-assertTxFails' :: MonadIO m => String -> Doc -> CommandResult Hash -> m ()
+assertTxFails' :: (HasCallStack, MonadIO m) => String -> Doc -> CommandResult Hash -> m ()
 assertTxFails' msg d tx =
   assertEqual msg (Just d)
     (tx ^? crResult . to _pactResult . _Left . to peDoc)
@@ -776,7 +723,7 @@ pact431UpgradeTest _mpRefIO = do
   runToHeight 34
 
   -- run block 35, pre fork
-  runBlockTest (blockForChain cid)
+  runBlockTest
     [ PactTxTest describeModule $
       assertTxSuccess' "describe-module legacy success"
       $ pBool True
@@ -795,7 +742,7 @@ pact431UpgradeTest _mpRefIO = do
     ]
 
   -- run block 36, post fork
-  runBlockTest (blockForChain cid)
+  runBlockTest
     [ PactTxTest describeModule $
       assertTxFails' "Should fail to execute describe-module"
       "Operation only permitted in local execution mode"
@@ -841,16 +788,25 @@ pact431UpgradeTest _mpRefIO = do
         ])
         $ mkKeySetData "k" [sender00]
 
--- | Run a single mempool block with tests for each tx.
+-- | Run a single mempool block on current chain with tests for each tx.
 -- Limitations: can only run a single-chain, single-refill test for
 -- a given cut height.
-runBlockTest :: (MempoolBlock -> MempoolBlock) -> [PactTxTest] -> MultiM ()
-runBlockTest blockF pts = do
-  setPactMempool $ PactMempool $ pure $ blockF $ MempoolBlock $ \_ ->
-    pure $ map _pttBuilder pts
+runBlockTest :: [PactTxTest] -> MultiM ()
+runBlockTest pts = do
+  chid <- view menvChainId
+  setPactMempool $ PactMempool [testsToBlock chid pts]
   runCut'
-  crs <- txResults
-  zipWithM_ go pts (V.toList crs)
+  runBlockTests pts
+
+-- | Convert tests to block for specified chain.
+testsToBlock :: ChainId -> [PactTxTest] -> MempoolBlock
+testsToBlock chid pts = blockForChain chid $ MempoolBlock $ \_ ->
+  pure $ map _pttBuilder pts
+
+-- | Run tests on current cut and chain.
+runBlockTests :: [PactTxTest] -> MultiM ()
+runBlockTests pts = do
+  txResults >>= zipWithM_ go pts . V.toList
   where
     go (PactTxTest _ t) cr = liftIO $ t cr
 
@@ -870,7 +826,7 @@ pact420UpgradeTest _mpRefIO = do
   runToHeight 3
 
   -- run block 4
-  runBlockTest (blockForChain cid)
+  runBlockTest
     [ PactTxTest buildNewNatives420FoldDbCmd $
       assertTxFails'
       "Should not resolve new pact natives"
@@ -889,7 +845,7 @@ pact420UpgradeTest _mpRefIO = do
 
   -- run block 5
 
-  runBlockTest (blockForChain cid)
+  runBlockTest
     [ PactTxTest buildNewNatives420FoldDbCmd $
       assertTxSuccess'
       "Should resolve fold-db pact native" $
@@ -929,7 +885,7 @@ pact420UpgradeTest _mpRefIO = do
         $ mkExec' "(zip (+) [1 2 3] [4 5 6])"
 
 chainweb216Test :: MultichainTest
-chainweb216Test mpRefIO = do
+chainweb216Test _mpRefIO = do
   -- This test should handles for format and try as well as
   -- keyset format changes and disallowances across fork boundaries.
   --
@@ -943,81 +899,74 @@ chainweb216Test mpRefIO = do
   --
 
   -- run past genesis, upgrades
-  forM_ [(1::Int)..52] $ const runCut'
-  setOneShotMempool mpRefIO preForkBlock
-  runCut'
+  runToHeight 52
 
-  tx53_0 <- txResult 0
-  assertEqual "Pre-fork format gas" 11
-    (tx53_0 ^. crGas)
+  runBlockTest
+      [ PactTxTest (buildSimpleCmd formatGas) $
+        assertTxGas "Pre-fork format gas" 11
+      , PactTxTest (buildSimpleCmd tryGas) $
+        assertTxGas "Pre-fork try" 9
+      , PactTxTest (buildSimpleCmd defineNonNamespacedPreFork) $
+        assertTxSuccess'
+        "Should pass when defining a non-namespaced keyset"
+        (pBool True)
+      , PactTxTest (buildSimpleCmd defineNamespacedPreFork) $
+      -- Note, keysets technically are not namespaced pre-fork, the new parser isn't applied
+        assertTxSuccess'
+        "Should pass when defining a \"namespaced\" keyset pre fork"
+        (pBool True)
+      ]
 
-  tx53_1 <- txResult 1
-  assertEqual "Pre-fork try" 9
-    (tx53_1 ^. crGas)
+  runBlockTest
+      [ PactTxTest (buildSimpleCmd formatGas) $
+        assertTxGas "Post-fork format gas increase" 38
+      , PactTxTest (buildSimpleCmd tryGas) $
+        assertTxGas "Post-fork try should charge a bit more gas" 10
+      , PactTxTest (buildSimpleCmd defineNonNamespacedPostFork1) $
+        assertTxFails'
+        "Should fail when defining a non-namespaced keyset post fork"
+        "Mismatching keyset namespace"
+      , PactTxTest (buildSimpleCmd defineNamespacedPostFork) $
+        assertTxSuccess'
+        "Pass when defining a namespaced keyset post fork"
+        (pBool True)
+      , PactTxTest (buildSimpleCmd enforceNamespacedFromPreFork) $
+        assertTxSuccess'
+        "Should work in enforcing a namespaced keyset created prefork"
+        (pBool True)
+      , PactTxTest (buildSimpleCmd enforceNonNamespacedFromPreFork) $
+        assertTxSuccess'
+        "Should work in enforcing a non-namespaced keyset created prefork"
+        (pBool True)
+      , PactTxTest (buildSimpleCmd defineNonNamespacedPostFork2) $
+        assertTxFails'
+        "Should fail in defining a keyset outside a namespace"
+        "Cannot define a keyset outside of a namespace"
+      , PactTxTest buildModCommand $
+        assertTxSuccess'
+        "Should succeed in deploying a module guarded by a namespaced keyset"
+        (pString "Loaded module free.m1, hash nOHaU-gPtmZTj6ZA3VArh-r7LEiwVUMN_RLJeW2hNv0")
+      , PactTxTest (buildSimpleCmd rotateLegacyPostFork) $
+        assertTxSuccess'
+        "Should succeed in rotating and enforcing a legacy keyset"
+        (pBool True)
+      , PactTxTest (buildSimpleCmd rotateNamespacedPostFork) $
+        assertTxSuccess'
+        "Should succeed in rotating and enforcing a namespaced keyset"
+        (pBool True)
+      ]
 
-  assertTxSuccess 2
-    "Should pass when defining a non-namespaced keyset"
-    (pBool True)
+  runBlockTest
+      [ PactTxTest (buildSimpleCmd "(free.m1.f)") $
+        assertTxSuccess'
+        "Should call a module with a namespaced keyset correctly"
+        (pDecimal 1)
+      , PactTxTest (buildSimpleCmd "(^ 15.034465284692086701747761395233132973944448512421004399685858401206740385711739229018307610943234609057822959334669087436253689423614206061665462283698768757790600552385430913941421707844383369633809803959413869974997415115322843838226312287673293352959835 3.466120406090666777582519661568003549307295836842780244500133445635634490670936927006970368136648330889718447039413255137656971927890831071689768359173260960739254160211017410322799793419223796996260056081828170546988461285168124170297427792046640116184356)") $
+        assertTxSuccess'
+        "musl exponentiation regression"
+        (pDecimal 12020.67042599064370733685791492462158203125)
+      ]
 
-  -- Note, keysets technically are not namespaced pre-fork, the new parser isn't applied
-  assertTxSuccess 3
-    "Should pass when defining a \"namespaced\" keyset pre fork"
-    (pBool True)
-
-
-  setOneShotMempool mpRefIO postForkBlock
-  runCut'
-
-  tx54_0 <- txResult 0
-  assertEqual "Post-fork format gas increase" 38
-    (tx54_0 ^. crGas)
-
-  tx54_1 <- txResult 1
-  assertEqual "Post-fork try should charge a bit more gas" 10
-    (tx54_1 ^. crGas)
-
-  assertTxFails 2
-    "Should fail when defining a non-namespaced keyset post fork"
-    "Mismatching keyset namespace"
-
-  assertTxSuccess 3
-    "Pass when defining a namespaced keyset post fork"
-    (pBool True)
-
-  assertTxSuccess 4
-    "Should work in enforcing a namespaced keyset created prefork"
-    (pBool True)
-
-  assertTxSuccess 5
-    "Should work in enforcing a non-namespaced keyset created prefork"
-    (pBool True)
-
-  assertTxFails 6
-    "Should fail in defining a keyset outside a namespace"
-    "Cannot define a keyset outside of a namespace"
-
-  assertTxSuccess 7
-    "Should succeed in deploying a module guarded by a namespaced keyset"
-    (pString "Loaded module free.m1, hash nOHaU-gPtmZTj6ZA3VArh-r7LEiwVUMN_RLJeW2hNv0")
-
-  assertTxSuccess 8
-    "Should succeed in rotating and enforcing a legacy keyset"
-    (pBool True)
-
-  assertTxSuccess 9
-    "Should succeed in rotating and enforcing a namespaced keyset"
-    (pBool True)
-
-  setOneShotMempool mpRefIO postForkBlock2
-  runCut'
-
-  assertTxSuccess 0
-    "Should call a module with a namespaced keyset correctly"
-    (pDecimal 1)
-
-  assertTxSuccess 1
-    "musl exponentiation regression"
-    (pDecimal 12020.67042599064370733685791492462158203125)
 
   where
   defineNonNamespacedPreFork = mconcat
@@ -1058,48 +1007,13 @@ chainweb216Test mpRefIO = do
   enforceNonNamespacedFromPreFork = "(enforce-guard (keyset-ref-guard \"k123\"))"
   tryGas = "(try (+ 1 1) (enforce false \"abc\"))"
   formatGas = "(format \"{}-{}\" [1234567, 890111213141516])"
-  preForkBlock = mempty {
-    mpaGetBlock = \_ _ _ _ bh -> if _blockChainId bh == cid then buildVector
-        [ buildSimpleCmd bh formatGas
-        , buildSimpleCmd bh tryGas
-        , buildSimpleCmd bh defineNonNamespacedPreFork
-        , buildSimpleCmd bh defineNamespacedPreFork
-        ]
-        else return mempty
-    }
-  postForkBlock = mempty {
-    mpaGetBlock = \_ _ _ _ bh -> if _blockChainId bh == cid then buildVector
-        [ buildSimpleCmd bh formatGas
-        , buildSimpleCmd bh tryGas
-        , buildSimpleCmd bh defineNonNamespacedPostFork1
-        , buildSimpleCmd bh defineNamespacedPostFork
-        , buildSimpleCmd bh enforceNamespacedFromPreFork
-        , buildSimpleCmd bh enforceNonNamespacedFromPreFork
-        , buildSimpleCmd bh defineNonNamespacedPostFork2
-        , buildModCommand bh
-        , buildSimpleCmd bh rotateLegacyPostFork
-        , buildSimpleCmd bh rotateNamespacedPostFork
-        ]
-        else return mempty
-    }
-  postForkBlock2 = mempty {
-    mpaGetBlock = \_ _ _ _ bh -> if _blockChainId bh == cid then do
-        t0 <- buildSimpleCmd bh "(free.m1.f)"
-        t1 <- buildSimpleCmd bh "(^ 15.034465284692086701747761395233132973944448512421004399685858401206740385711739229018307610943234609057822959334669087436253689423614206061665462283698768757790600552385430913941421707844383369633809803959413869974997415115322843838226312287673293352959835 3.466120406090666777582519661568003549307295836842780244500133445635634490670936927006970368136648330889718447039413255137656971927890831071689768359173260960739254160211017410322799793419223796996260056081828170546988461285168124170297427792046640116184356)"
-        return $! V.fromList [t0,t1]
-        else return mempty
-    }
 
-  buildModCommand bh = buildCwCmd
-    $ signSender00
-    $ setFromHeader bh
-    $ set cbGasLimit 70000
-    $ mkCmd defineModulePostFork
-    $ mkExec defineModulePostFork
-    $ object []
 
-  buildSimpleCmd bh code = buildCwCmd
-    $ signSender00
+  buildModCommand = buildBasic' (set cbGasLimit 70000)
+    $ mkExec' defineModulePostFork
+
+  buildSimpleCmd code = MempoolCmdBuilder $ \(MempoolInput _ bh) ->
+    signSender00
     $ setFromHeader bh
     $ set cbGasLimit 10000
     $ mkCmd code
@@ -1267,6 +1181,16 @@ buildXSend' nonce bh caps = buildCwCmd
       "(coin.transfer-crosschain 'sender00 'sender00 (read-keyset 'k) \"0\" 0.0123)" $
       mkKeySetData "k" [sender00]
 
+buildXSend1 :: [SigCapability] -> MempoolCmdBuilder
+buildXSend1 caps = MempoolCmdBuilder $ \(MempoolInput _ bh) ->
+  set cbSigners [mkSigner' sender00 caps]
+  $ setFromHeader bh
+  $ mkCmd (sshow bh)
+  $ mkExec
+    "(coin.transfer-crosschain 'sender00 'sender00 (read-keyset 'k) \"0\" 0.0123)" $
+    mkKeySetData "k" [sender00]
+
+
 chain0 :: ChainId
 chain0 = unsafeChainId 0
 
@@ -1295,6 +1219,12 @@ buildXReceive
     -> m ChainwebTransaction
 buildXReceive bh (proof,pid) = buildBasicCmd bh
     $ mkCont ((mkContMsg pid 1) { _cmProof = Just proof })
+
+buildXReceive'
+    :: (ContProof, PactId)
+    -> MempoolCmdBuilder
+buildXReceive' (proof,pid) = buildBasic $
+    mkCont ((mkContMsg pid 1) { _cmProof = Just proof })
 
 signSender00 :: CmdBuilder -> CmdBuilder
 signSender00 = set cbSigners [mkSigner' sender00 []]
