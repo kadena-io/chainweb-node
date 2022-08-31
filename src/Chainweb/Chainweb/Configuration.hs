@@ -384,6 +384,9 @@ data ChainwebConfiguration = ChainwebConfiguration
     , _configServiceApi :: !ServiceApiConfig
     , _configOnlySyncPact :: !Bool
         -- ^ exit after synchronizing pact dbs to the latest cut
+    , _configSyncPactChains :: ![ChainId]
+        -- ^ the only chains to be synchronized to the latest cut.
+        --   if unset, all chains will be synchronized.
     } deriving (Show, Eq, Generic)
 
 makeLenses ''ChainwebConfiguration
@@ -428,6 +431,7 @@ defaultChainwebConfiguration v = ChainwebConfiguration
     , _configRosetta = False
     , _configServiceApi = defaultServiceApiConfig
     , _configOnlySyncPact = False
+    , _configSyncPactChains = []
     , _configBackup = defaultBackupConfig
     }
 
@@ -450,6 +454,7 @@ instance ToJSON ChainwebConfiguration where
         , "rosetta" .= _configRosetta o
         , "serviceApi" .= _configServiceApi o
         , "onlySyncPact" .= _configOnlySyncPact o
+        , "syncPactChains" .= _configSyncPactChains o
         , "backup" .= _configBackup o
         ]
 
@@ -477,6 +482,7 @@ instance FromJSON (ChainwebConfiguration -> ChainwebConfiguration) where
         <*< configRosetta ..: "rosetta" % o
         <*< configServiceApi %.: "serviceApi" % o
         <*< configOnlySyncPact ..: "onlySyncPact" % o
+        <*< configSyncPactChains ..: "syncPactChains" % o
         <*< configBackup %.: "backup" % o
 
 pChainwebConfiguration :: MParser ChainwebConfiguration
@@ -523,5 +529,8 @@ pChainwebConfiguration = id
     <*< configOnlySyncPact .:: boolOption_
         % long "only-sync-pact"
         <> help "Terminate after synchronizing the pact databases to the latest cut"
+    <*< configSyncPactChains .:: jsonOption
+        % long "sync-pact-chains"
+        <> help "The only Pact databases to synchronize. If empty, all chains will be synchronized."
     <*< configBackup %:: pBackupConfig
 

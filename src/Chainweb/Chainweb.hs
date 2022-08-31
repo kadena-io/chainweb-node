@@ -448,15 +448,20 @@ withChainwebInternal conf logger peer serviceSock rocksDb pactDbDir backupDir re
             -- takes long (why would it?) we want this to happen before we go
             -- online.
             --
+            let
+                pactSyncChains =
+                    if _configOnlySyncPact conf && not (null $ _configSyncPactChains conf)
+                    then HM.filterWithKey (\k _ -> elem k (_configSyncPactChains conf)) cs
+                    else cs
             logg Info "start synchronizing Pact DBs to initial cut"
-            synchronizePactDb cs mCutDb
+            synchronizePactDb pactSyncChains mCutDb
             logg Info "finished synchronizing Pact DBs to initial cut"
 
             if _configOnlySyncPact conf
             then do
                 logg Info "start replaying Pact DBs to highest cut"
                 fastForwardCutDb mCutDb
-                synchronizePactDb cs mCutDb
+                synchronizePactDb pactSyncChains mCutDb
                 logg Info "finished replaying Pact DBs to highest cut"
             else do
                 withPactData cs cuts $ \pactData -> do
