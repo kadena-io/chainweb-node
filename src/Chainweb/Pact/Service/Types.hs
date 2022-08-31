@@ -70,6 +70,9 @@ data PactServiceConfig = PactServiceConfig
   , _pactUnlimitedInitialRewind :: !Bool
     -- ^ disable initial rewind limit
   , _pactBlockGasLimit :: !GasLimit
+    -- ^ the gas limit for new block creation, not for validation
+  , _pactLogGas :: !Bool
+    -- ^ whether to write transaction gas logs at INFO
   } deriving (Eq,Show)
 
 data GasPurchaseFailure = GasPurchaseFailure TransactionHash PactError

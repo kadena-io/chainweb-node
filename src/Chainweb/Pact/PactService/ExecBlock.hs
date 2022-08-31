@@ -325,6 +325,7 @@ execTransactions isGenesis miner ctxs enfCBFail usePrecomp (PactDbEnv' pactdbenv
           then return mempty
           else do
             l <- asks _psLogger
+            gl <- asks _psGasLogger
             pd <- getTxContext def
             mc <- liftIO (readInitModules l pactdbenv pd)
             updateInitCache mc
@@ -399,6 +400,7 @@ applyPactCmd
       (Either GasPurchaseFailure (P.CommandResult [P.TxLog A.Value]))
 applyPactCmd isGenesis env miner cmd = StateT $ \(T2 mcache maybeBlockGasRemaining) -> do
   logger <- view psLogger
+  gasLogger <- view psGasLogger
   gasModel <- view psGasModel
   v <- view psVersion
   let
@@ -423,7 +425,7 @@ applyPactCmd isGenesis env miner cmd = StateT $ \(T2 mcache maybeBlockGasRemaini
       else do
         pd <- getTxContext (publicMetaOf gasLimitedCmd)
         spv <- use psSpvSupport
-        liftIO $! applyCmd v logger env miner (gasModel pd) pd spv gasLimitedCmd initialGas mcache
+        liftIO $! applyCmd v logger gasLogger env miner (gasModel pd) pd spv gasLimitedCmd initialGas mcache
 
     if isGenesis
     then updateInitCache mcache'
