@@ -239,7 +239,8 @@ pCutConfig = id
     <*< cutFetchTimeout .:: option auto
         % long "cut-fetch-timeout"
         <> help "The timeout for processing new cuts in microseconds"
-    -- cutInitialBlockHeightLimit isn't supported on the command line
+    <*< cutInitialBlockHeightLimit .:: fmap (fmap BlockHeight) . option auto
+        % long "initial-block-height-limit"
     -- cutResetToCut isn't supported on the command line
 
 -- -------------------------------------------------------------------------- --

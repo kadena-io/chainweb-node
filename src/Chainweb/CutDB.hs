@@ -29,7 +29,6 @@ module Chainweb.CutDB
 (
 -- * CutConfig
   CutDbParams(..)
-, cutDbParamsInitialCut
 , cutDbParamsInitialCutFile
 , cutDbParamsBufferSize
 , cutDbParamsLogLevel
@@ -39,6 +38,7 @@ module Chainweb.CutDB
 , cutDbParamsAvgBlockHeightPruningDepth
 , cutDbParamsPruningFrequency
 , cutDbParamsWritingFrequency
+, cutDbParamsReadOnly
 , defaultCutDbParams
 , farAheadThreshold
 
@@ -63,6 +63,7 @@ module Chainweb.CutDB
 , addCutHashes
 , withCutDb
 , startCutDb
+, fastForwardCutDb
 , stopCutDb
 , cutDbQueueSize
 , blockStream
@@ -158,8 +159,7 @@ import Utils.Logging.Trace
 -- Cut DB Configuration
 
 data CutDbParams = CutDbParams
-    { _cutDbParamsInitialCut :: !Cut
-    , _cutDbParamsInitialCutFile :: !(Maybe FilePath)
+    { _cutDbParamsInitialCutFile :: !(Maybe FilePath)
     , _cutDbParamsBufferSize :: !Natural
     , _cutDbParamsLogLevel :: !LogLevel
     , _cutDbParamsTelemetryLevel :: !LogLevel
@@ -168,12 +168,15 @@ data CutDbParams = CutDbParams
     , _cutDbParamsAvgBlockHeightPruningDepth :: BlockHeight
     -- ^ How many block heights' worth of cuts should we keep around?
     -- (how far back do we expect that a fork can happen)
-    , _cutDbParamsPruningFrequency :: BlockHeight
+    , _cutDbParamsPruningFrequency :: !BlockHeight
     -- ^ After how many blocks do we prune cuts (on average)?
-    , _cutDbParamsWritingFrequency :: BlockHeight
+    , _cutDbParamsWritingFrequency :: !BlockHeight
     -- ^ After how many blocks do we write a cut (on average)?
     -- should be much less than `blockHeightPruningDepth` or the
     -- CutHashes table will always be empty.
+    , _cutDbParamsReadOnly :: !Bool
+    -- ^ Should the cut store be read-only?
+    -- Enabled during replay-only mode.
     --
     }
     deriving (Show, Eq, Ord, Generic)
@@ -182,8 +185,7 @@ makeLenses ''CutDbParams
 
 defaultCutDbParams :: ChainwebVersion -> Int -> CutDbParams
 defaultCutDbParams v ft = CutDbParams
-    { _cutDbParamsInitialCut = genesisCut v
-    , _cutDbParamsInitialCutFile = Nothing
+    { _cutDbParamsInitialCutFile = Nothing
     , _cutDbParamsBufferSize = (order g ^ (2 :: Int)) * diameter g
     , _cutDbParamsLogLevel = Warn
     , _cutDbParamsTelemetryLevel = Warn
@@ -192,6 +194,7 @@ defaultCutDbParams v ft = CutDbParams
     , _cutDbParamsAvgBlockHeightPruningDepth = 5000
     , _cutDbParamsPruningFrequency = 10000
     , _cutDbParamsWritingFrequency = 30
+    , _cutDbParamsReadOnly = False
     }
   where
     g = _chainGraph (v, maxBound @BlockHeight)
@@ -247,6 +250,7 @@ data CutDb cas = CutDb
     , _cutDbPayloadStore :: !(WebBlockPayloadStore cas)
     , _cutDbQueueSize :: !Natural
     , _cutDbStore :: !(RocksDbCas CutHashes)
+    , _cutDbReadOnly :: !Bool
     }
 
 instance HasChainwebVersion (CutDb cas) where
@@ -395,14 +399,18 @@ startCutDb
 startCutDb config logfun headerStore payloadStore cutHashesStore = mask_ $ do
     logg Info "obtain initial cut"
     initialCut <- readInitialCut
-    deleteRangeRocksDb (_getRocksDbCas cutHashesStore) (Just $ over _1 succ $ casKey $ cutToCutHashes Nothing initialCut, Nothing)
+    unless (_cutDbParamsReadOnly config) $
+        deleteRangeRocksDb
+            (_getRocksDbCas cutHashesStore)
+            (Just $ over _1 succ $ casKey $ cutToCutHashes Nothing initialCut, Nothing)
     cutVar <- newTVarIO initialCut
     c <- readTVarIO cutVar
     logg Info $ "got initial cut: " <> sshow c
     queue <- newEmptyPQueue
     cutAsync <- asyncWithUnmask $ \u -> u $ processor queue cutVar
     logg Info "CutDB started"
-    pruneCuts logfun (_chainwebVersion headerStore) config (cutAvgBlockHeight v initialCut) cutHashesStore
+    unless (_cutDbParamsReadOnly config) $
+        pruneCuts logfun (_chainwebVersion headerStore) config (cutAvgBlockHeight v initialCut) cutHashesStore
     return CutDb
         { _cutDbCut = cutVar
         , _cutDbQueue = queue
@@ -412,6 +420,7 @@ startCutDb config logfun headerStore payloadStore cutHashesStore = mask_ $ do
         , _cutDbPayloadStore = payloadStore
         , _cutDbQueueSize = _cutDbParamsBufferSize config
         , _cutDbStore = cutHashesStore
+        , _cutDbReadOnly = _cutDbParamsReadOnly config
         }
   where
     logg = logfun @T.Text
@@ -422,6 +431,22 @@ startCutDb config logfun headerStore payloadStore cutHashesStore = mask_ $ do
     processor queue cutVar = runForever logfun "CutDB" $
         processCuts config logfun headerStore payloadStore cutHashesStore queue cutVar
 
+    readInitialCut :: IO Cut
+    readInitialCut = do
+        unsafeMkCut v <$> do
+            hm <- readHighestCutHeaders v logfun wbhdb cutHashesStore
+            case _cutDbParamsInitialHeightLimit config of
+                Nothing -> return hm
+                Just h -> do
+                    let
+                        cutHeightTarget = max 0 $
+                            avgCutHeightAt v h - CutHeight (int $ diameterAtCutHeight v (maxBound :: CutHeight) * chainCountAt v (maxBound :: BlockHeight))
+                    limitedCutHeaders <- limitCutHeaders wbhdb cutHeightTarget hm
+                    let limitedCut = unsafeMkCut v limitedCutHeaders
+                    unless (_cutDbParamsReadOnly config) $
+                        casInsert cutHashesStore (cutToCutHashes Nothing limitedCut)
+                    return limitedCutHeaders
+
     -- TODO: The following code doesn't perform any validation of the cut.
     -- 'joinIntoHeavier_' may stil be slow on large dbs. Eventually, we should
     -- support different levels of validation:
@@ -431,45 +456,43 @@ startCutDb config logfun headerStore payloadStore cutHashesStore = mask_ $ do
     -- 3. exitence of dependencies
     -- 4. full validation
     --
-    readInitialCut = withTableIter (_getRocksDbCas cutHashesStore) $ \it -> do
-        tableIterLast it
-        go it
-      where
-        -- TODO: should we limit the search to a certain number of attempts
-        -- or iterate in increasinly larger steps?
-        go it = tableIterValue it >>= \case
-            Nothing -> do
-                logg Info "using initial cut from cut db configuration"
-                return $! _cutDbParamsInitialCut config
-            Just ch -> try (lookupCutHashes wbhdb ch) >>= \case
-                Left (e@(TreeDbKeyNotFound _) :: TreeDbException BlockHeaderDb) -> do
-                    logfun @T.Text Warn
-                        $ "Unable to load cut at height " <>  sshow (_cutHashesHeight ch)
-                        <> " from database."
-                        <> " Error: " <> sshow e <> "."
-                        <> " The database might be corrupted. Falling back to previous cut."
-                    tableIterPrev it
-                    go it
-                Left e -> throwM e
-                Right hm -> do
-                    limitedCut <- unsafeMkCut v
-                        <$> case _cutDbParamsInitialHeightLimit config of
-                            Nothing -> return hm
-                            Just h -> do
-                                let
-                                    cutHeightTarget = max 0 $
-                                        avgCutHeightAt v h -
-                                            CutHeight (int $ diameterAtCutHeight v (maxBound :: CutHeight) * chainCountAt v (maxBound :: BlockHeight))
-                                limitCutHeaders wbhdb cutHeightTarget hm
-                    casInsert cutHashesStore (cutToCutHashes Nothing limitedCut)
-                    return limitedCut
+readHighestCutHeaders :: ChainwebVersion -> LogFunction -> WebBlockHeaderDb -> RocksDbCas CutHashes -> IO (HM.HashMap ChainId BlockHeader)
+readHighestCutHeaders v logfun wbhdb cutHashesStore = withTableIter (_getRocksDbCas cutHashesStore) $ \it -> do
+    tableIterLast it
+    go it
+    where
+    logg = logfun @T.Text
+    -- TODO: should we limit the search to a certain number of attempts
+    -- or iterate in increasinly larger steps?
+    go it = tableIterValue it >>= \case
+        Nothing -> do
+            logg Warn "No initial cut found in database or configuration, falling back to genesis cut"
+            return $ view cutMap $ genesisCut v
+        Just ch -> try (lookupCutHashes wbhdb ch) >>= \case
+            Left (e@(TreeDbKeyNotFound _) :: TreeDbException BlockHeaderDb) -> do
+                logfun @T.Text Warn
+                    $ "Unable to load cut at height " <>  sshow (_cutHashesHeight ch)
+                    <> " from database."
+                    <> " Error: " <> sshow e <> "."
+                    <> " The database might be corrupted. Falling back to previous cut."
+                tableIterPrev it
+                go it
+            Left e -> throwM e
+            Right hm -> return hm
+
+fastForwardCutDb :: CutDb cas -> IO ()
+fastForwardCutDb cutDb = do
+    highestCutHeaders <- readHighestCutHeaders (_chainwebVersion cutDb) (_cutDbLogFunction cutDb) (_webBlockHeaderStoreCas $ _cutDbHeaderStore cutDb) (_cutDbStore cutDb)
+    let highestCut = unsafeMkCut (_chainwebVersion cutDb) highestCutHeaders
+    atomically $ writeTVar (_cutDbCut cutDb) highestCut
 
 -- | Stop the cut validation pipeline.
 --
 stopCutDb :: CutDb cas -> IO ()
 stopCutDb db = do
     currentCut <- readTVarIO (_cutDbCut db)
-    casInsert (_cutDbStore db) (cutToCutHashes Nothing currentCut)
+    unless (_cutDbReadOnly db) $
+        casInsert (_cutDbStore db) (cutToCutHashes Nothing currentCut)
     cancel (_cutDbAsync db)
 
 -- | Lookup the BlockHeaders for a CutHashes structure. Throws an exception if
@@ -530,8 +553,9 @@ processCuts conf logFun headerStore payloadStore cutHashesStore queue cutVar = d
             curCut <- readTVarIO cutVar
             !resultCut <- trace logFun "Chainweb.CutDB.processCuts._joinIntoHeavier" () 1
                 $ joinIntoHeavier_ hdrStore (_cutMap curCut) newCut
-            maybePrune rng (cutAvgBlockHeight v curCut)
-            maybeWrite rng resultCut
+            unless (_cutDbParamsReadOnly conf) $ do
+                maybePrune rng (cutAvgBlockHeight v curCut)
+                maybeWrite rng resultCut
             atomically $ writeTVar cutVar resultCut
             loggc Info resultCut "published cut"
             )

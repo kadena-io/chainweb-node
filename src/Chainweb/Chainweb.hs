@@ -447,11 +447,17 @@ withChainwebInternal conf logger peer serviceSock rocksDb pactDbDir backupDir re
             -- takes long (why would it?) we want this to happen before we go
             -- online.
             --
-            logg Info "start synchronizing Pact DBs"
+            logg Info "start synchronizing Pact DBs to initial cut"
             synchronizePactDb cs mCutDb
-            logg Info "finished synchronizing Pact DBs"
+            logg Info "finished synchronizing Pact DBs to initial cut"
 
-            unless (_configOnlySyncPact conf) $
+            if _configOnlySyncPact conf
+            then do
+                logg Info "start replaying Pact DBs to highest cut"
+                fastForwardCutDb mCutDb
+                synchronizePactDb cs mCutDb
+                logg Info "finished replaying Pact DBs to highest cut"
+            else do
                 withPactData cs cuts $ \pactData -> do
                     logg Info "start initializing miner resources"
 
@@ -512,6 +518,7 @@ withChainwebInternal conf logger peer serviceSock rocksDb pactDbDir backupDir re
         { _cutDbParamsLogLevel = Info
         , _cutDbParamsTelemetryLevel = Info
         , _cutDbParamsInitialHeightLimit = _cutInitialBlockHeightLimit cutConf
+        , _cutDbParamsReadOnly = _configOnlySyncPact conf
         }
       where
         cutConf = _configCuts conf
