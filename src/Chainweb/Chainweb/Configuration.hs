@@ -36,6 +36,7 @@ module Chainweb.Chainweb.Configuration
 , cutPruneChainDatabase
 , cutFetchTimeout
 , cutInitialBlockHeightLimit
+, cutFastForwardBlockHeightLimit
 , defaultCutConfig
 , pCutConfig
 
@@ -201,6 +202,7 @@ data CutConfig = CutConfig
     { _cutPruneChainDatabase :: !ChainDatabaseGcConfig
     , _cutFetchTimeout :: !Int
     , _cutInitialBlockHeightLimit :: !(Maybe BlockHeight)
+    , _cutFastForwardBlockHeightLimit :: !(Maybe BlockHeight)
     } deriving (Eq, Show)
 
 makeLenses ''CutConfig
@@ -210,6 +212,7 @@ instance ToJSON CutConfig where
         [ "pruneChainDatabase" .= _cutPruneChainDatabase o
         , "fetchTimeout" .= _cutFetchTimeout o
         , "initialBlockHeightLimit" .= _cutInitialBlockHeightLimit o
+        , "fastForwardBlockHeightLimit" .= _cutFastForwardBlockHeightLimit o
         ]
 
 instance FromJSON (CutConfig -> CutConfig) where
@@ -217,12 +220,14 @@ instance FromJSON (CutConfig -> CutConfig) where
         <$< cutPruneChainDatabase ..: "pruneChainDatabase" % o
         <*< cutFetchTimeout ..: "fetchTimeout" % o
         <*< cutInitialBlockHeightLimit ..: "initialBlockHeightLimit" % o
+        <*< cutFastForwardBlockHeightLimit ..: "fastForwardBlockHeightLimit" % o
 
 defaultCutConfig :: CutConfig
 defaultCutConfig = CutConfig
     { _cutPruneChainDatabase = GcNone
     , _cutFetchTimeout = 3_000_000
     , _cutInitialBlockHeightLimit = Nothing
+    , _cutFastForwardBlockHeightLimit = Nothing
     }
 
 pCutConfig :: MParser CutConfig
@@ -241,6 +246,8 @@ pCutConfig = id
         <> help "The timeout for processing new cuts in microseconds"
     <*< cutInitialBlockHeightLimit .:: fmap (fmap BlockHeight) . option auto
         % long "initial-block-height-limit"
+    <*< cutFastForwardBlockHeightLimit .:: fmap (fmap BlockHeight) . option auto
+        % long "fast-forward-block-height-limit"
     -- cutResetToCut isn't supported on the command line
 
 -- -------------------------------------------------------------------------- --

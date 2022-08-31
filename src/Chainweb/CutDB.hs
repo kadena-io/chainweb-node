@@ -33,6 +33,7 @@ module Chainweb.CutDB
 , cutDbParamsBufferSize
 , cutDbParamsLogLevel
 , cutDbParamsTelemetryLevel
+, cutDbParamsFastForwardHeightLimit
 , cutDbParamsInitialHeightLimit
 , cutDbParamsFetchTimeout
 , cutDbParamsAvgBlockHeightPruningDepth
@@ -165,6 +166,7 @@ data CutDbParams = CutDbParams
     , _cutDbParamsTelemetryLevel :: !LogLevel
     , _cutDbParamsFetchTimeout :: !Int
     , _cutDbParamsInitialHeightLimit :: !(Maybe BlockHeight)
+    , _cutDbParamsFastForwardHeightLimit :: !(Maybe BlockHeight)
     , _cutDbParamsAvgBlockHeightPruningDepth :: BlockHeight
     -- ^ How many block heights' worth of cuts should we keep around?
     -- (how far back do we expect that a fork can happen)
@@ -191,6 +193,7 @@ defaultCutDbParams v ft = CutDbParams
     , _cutDbParamsTelemetryLevel = Warn
     , _cutDbParamsFetchTimeout = ft
     , _cutDbParamsInitialHeightLimit = Nothing
+    , _cutDbParamsFastForwardHeightLimit = Nothing
     , _cutDbParamsAvgBlockHeightPruningDepth = 5000
     , _cutDbParamsPruningFrequency = 10000
     , _cutDbParamsWritingFrequency = 30
@@ -251,6 +254,7 @@ data CutDb cas = CutDb
     , _cutDbQueueSize :: !Natural
     , _cutDbStore :: !(RocksDbCas CutHashes)
     , _cutDbReadOnly :: !Bool
+    , _cutDbFastForwardHeightLimit :: !(Maybe BlockHeight)
     }
 
 instance HasChainwebVersion (CutDb cas) where
@@ -421,6 +425,7 @@ startCutDb config logfun headerStore payloadStore cutHashesStore = mask_ $ do
         , _cutDbQueueSize = _cutDbParamsBufferSize config
         , _cutDbStore = cutHashesStore
         , _cutDbReadOnly = _cutDbParamsReadOnly config
+        , _cutDbFastForwardHeightLimit = _cutDbParamsFastForwardHeightLimit config
         }
   where
     logg = logfun @T.Text
@@ -438,10 +443,7 @@ startCutDb config logfun headerStore payloadStore cutHashesStore = mask_ $ do
             case _cutDbParamsInitialHeightLimit config of
                 Nothing -> return hm
                 Just h -> do
-                    let
-                        cutHeightTarget = max 0 $
-                            avgCutHeightAt v h - CutHeight (int $ diameterAtCutHeight v (maxBound :: CutHeight) * chainCountAt v (maxBound :: BlockHeight))
-                    limitedCutHeaders <- limitCutHeaders wbhdb cutHeightTarget hm
+                    limitedCutHeaders <- limitCutHeaders wbhdb (max 0 $ avgCutHeightAt v h) hm
                     let limitedCut = unsafeMkCut v limitedCutHeaders
                     unless (_cutDbParamsReadOnly config) $
                         casInsert cutHashesStore (cutToCutHashes Nothing limitedCut)
@@ -482,9 +484,15 @@ readHighestCutHeaders v logfun wbhdb cutHashesStore = withTableIter (_getRocksDb
 
 fastForwardCutDb :: CutDb cas -> IO ()
 fastForwardCutDb cutDb = do
-    highestCutHeaders <- readHighestCutHeaders (_chainwebVersion cutDb) (_cutDbLogFunction cutDb) (_webBlockHeaderStoreCas $ _cutDbHeaderStore cutDb) (_cutDbStore cutDb)
-    let highestCut = unsafeMkCut (_chainwebVersion cutDb) highestCutHeaders
-    atomically $ writeTVar (_cutDbCut cutDb) highestCut
+    highestCutHeaders <-
+        readHighestCutHeaders v (_cutDbLogFunction cutDb) wbhdb (_cutDbStore cutDb)
+    limitedCutHeaders <-
+        limitCutHeaders wbhdb (max 0 $ avgCutHeightAt v (fromMaybe maxBound (_cutDbFastForwardHeightLimit cutDb))) highestCutHeaders
+    let limitedCut = unsafeMkCut (_chainwebVersion cutDb) limitedCutHeaders
+    atomically $ writeTVar (_cutDbCut cutDb) limitedCut
+    where
+    v = _chainwebVersion cutDb
+    wbhdb = _webBlockHeaderStoreCas $ _cutDbHeaderStore cutDb
 
 -- | Stop the cut validation pipeline.
 --
