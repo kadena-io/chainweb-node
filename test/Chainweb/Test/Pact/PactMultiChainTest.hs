@@ -5,7 +5,7 @@
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeApplications #-}
 
-module Chainweb.Test.Pact.PactInProcApi
+module Chainweb.Test.Pact.PactMultiChainTest
 ( tests
 ) where
 
@@ -107,7 +107,7 @@ data PactTxTest = PactTxTest
 tests :: ScheduledTest
 tests = ScheduledTest testName go
   where
-    testName = "Chainweb.Test.Pact.PactInProcApi"
+    testName = "Chainweb.Test.Pact.PactMultiChainTest"
     go = testGroup testName
          [ multiChainTest freeGasModel "pact4coin3UpgradeTest" pact4coin3UpgradeTest
          , multiChainTest freeGasModel "pact420UpgradeTest" pact420UpgradeTest

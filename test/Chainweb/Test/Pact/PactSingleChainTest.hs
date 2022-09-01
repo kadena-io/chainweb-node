@@ -13,7 +13,7 @@
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE ViewPatterns #-}
 
-module Chainweb.Test.Pact.PactSingleChainTests
+module Chainweb.Test.Pact.PactSingleChainTest
 ( tests
 ) where
 
@@ -84,7 +84,7 @@ genesisHeader = genesisBlockHeader testVersion cid
 tests :: RocksDb -> ScheduledTest
 tests rdb = ScheduledTest testName go
   where
-    testName = "Chainweb.Test.Pact.PactSingleChainTests"
+    testName = "Chainweb.Test.Pact.PactSingleChainTest"
     go = testGroup testName
          [ test Warn $ goldenNewBlock "new-block-0" goldenMemPool
          , test Warn $ goldenNewBlock "empty-block-tests" mempty
