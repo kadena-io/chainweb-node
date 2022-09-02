@@ -87,7 +87,7 @@ jobs:
     - name: Run Tests
       run: |
         ulimit -n 10000
-        cabal run tests -- -p "! /RemotePactTest/"
+        cabal run tests -- -p "! /RemotePactTest/ && ! /Rosetta/"
 
     # Checks
     - name: Check that working directory tree is clean
