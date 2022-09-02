@@ -55,6 +55,7 @@ jobs:
         EOF
     - uses: pat-s/always-upload-cache@v2.1.5
       name: Cache dist-newstyle
+      if: false
       with:
         path: |
           ~/.cabal/packages
