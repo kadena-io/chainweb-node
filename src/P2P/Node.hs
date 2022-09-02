@@ -410,6 +410,8 @@ guardPeerDbOfNode
     -> PeerInfo
     -> IO (Maybe PeerInfo)
 guardPeerDbOfNode node pinf = go >>= \case
+    Left (IsLocalPeerAddress _) ->
+        return Nothing
     Left e -> do
         logg node Info $ "failed to validate peer " <> showInfo pinf <> ": " <> T.pack (displayException e)
         return Nothing
