@@ -652,7 +652,6 @@ runChainweb cw = do
       where
         shouldDisplayException e
             | Just InsecureConnectionDenied <- fromException e = False
-            | Just ClientClosedConnectionPrematurely <- fromException e = False
             | otherwise = defaultShouldDisplayException e
 
     serve :: Middleware -> IO ()
