@@ -15,7 +15,7 @@ jobs:
         ghc: ["8.10.7", "9.0"]
         cabal: ["3.6"]
         os: ["macOS-latest"]
-        cabalcache: ["true"]
+        cabalcache: ["false"]
 
     steps:
     # Setup
