@@ -87,7 +87,7 @@ jobs:
     - name: Run Tests
       run: |
         ulimit -n 10000
-        cabal run tests -- --hide-successes
+        cabal run tests
 
     # Checks
     - name: Check that working directory tree is clean
