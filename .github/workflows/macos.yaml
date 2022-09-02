@@ -34,7 +34,6 @@ jobs:
       if: contains(matrix.os, 'mac')
       run: |
         brew update && brew install z3 gnu-tar || true
-        cd /tmp
         wget https://packages.macports.org/rocksdb/rocksdb-6.27.3_0.darwin_20.x86_64.tbz2
         bunzip2 rocksdb-6.27.3_0.darwin_20.x86_64.tbz2
         tar xf rocksdb-6.27.3_0.darwin_20.x86_64.tar
