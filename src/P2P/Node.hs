@@ -690,7 +690,7 @@ awaitSessions node = do
                 $ "session " <> showSessionId pId ses <> " failed with " <> sshow e
         _ -> return ()
 
-    logg node Info
+    logg node Debug
         $ "closed session " <> showSessionId pId ses
         <> if isSuccess result then " (success)" else " (failure)"
 
