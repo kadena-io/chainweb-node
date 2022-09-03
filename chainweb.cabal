@@ -451,7 +451,8 @@ test-suite chainweb-tests
         Chainweb.Test.Orphans.Internal
         Chainweb.Test.Orphans.Pact
         Chainweb.Test.Orphans.Time
-        Chainweb.Test.Pact.PactInProcApi
+        Chainweb.Test.Pact.PactMultiChainTest
+        Chainweb.Test.Pact.PactSingleChainTest
         Chainweb.Test.P2P.Peer.BootstrapConfig
         Chainweb.Test.Pact.Checkpointer
         Chainweb.Test.Pact.ModuleCacheOnRestart
