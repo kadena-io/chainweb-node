@@ -39,8 +39,8 @@ jobs:
         tar xf rocksdb-6.27.3_0.darwin_20.x86_64.tar
         cp opt/local/lib/librocksdb.* /usr/local/lib/
         cp -r opt/local/include/* /usr/local/include/
-        mkdir -p /opt/local/lib
-        cp opt/local/lib/librocksdb.* /opt/local/lib/
+        sudo mkdir -p /opt/local/lib
+        sudo cp opt/local/lib/librocksdb.* /opt/local/lib/
         # work around bug in macOS and github actions cache (cf. https://github.com/actions/cache/issues/403)
         echo PATH="/usr/local/opt/gnu-tar/libexec/gnubin:$PATH" >> $GITHUB_ENV
     - name: Create cabal.project.local
