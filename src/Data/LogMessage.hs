@@ -49,6 +49,7 @@ module Data.LogMessage
 
 -- * LogMessage types
 , JsonLog(..)
+, jsonLog
 , SomeJsonLog(..)
 , TextLog(..)
 , BinaryLog(..)
@@ -65,6 +66,8 @@ import Data.Proxy
 import Data.String
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
+import qualified Data.Text.Lazy as TL
+import qualified Data.Text.Lazy.Encoding as TL
 import Data.Typeable (Typeable, cast)
 
 import GHC.Generics
@@ -166,11 +169,14 @@ aNoLog = ALogFunction $ \_ _ -> return ()
 
 -- | A newtype wrapper for log messages types with a 'ToJSON' instance.
 --
-newtype JsonLog a = JsonLog a
+newtype JsonLog a = JsonLog T.Text
     deriving newtype (NFData, ToJSON, FromJSON)
 
+jsonLog :: (ToJSON a) => a -> JsonLog a
+jsonLog a = JsonLog (TL.toStrict $ TL.decodeUtf8 $ encode a)
+
 instance (Typeable a, NFData a, ToJSON a) => LogMessage (JsonLog a) where
-    logText (JsonLog a) = T.decodeUtf8 . BL.toStrict $ encode a
+    logText (JsonLog t) = t
     {-# INLINE logText #-}
 
 -- | A dynamically polymorphic wrapper for any log message type that has a

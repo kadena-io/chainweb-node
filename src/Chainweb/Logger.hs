@@ -35,10 +35,7 @@ module Chainweb.Logger
 ) where
 
 import Control.Lens
-import Data.Aeson(encode)
 import qualified Data.Text as T
-import qualified Data.Text.Lazy as TL
-import qualified Data.Text.Lazy.Encoding as TL
 import Data.Time
 
 import qualified System.Logger.Types as L
@@ -71,7 +68,7 @@ logFunctionJson
     :: Logger l
     => l
     -> LogFunctionJson a
-logFunctionJson logger level a = logFunction logger level $! TextLog . TL.toStrict . TL.decodeUtf8 . encode $ a
+logFunctionJson logger level a = logFunction logger level $! jsonLog a
 {-# INLINE logFunctionJson #-}
 
 -- -------------------------------------------------------------------------- --

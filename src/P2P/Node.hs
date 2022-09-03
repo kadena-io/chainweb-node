@@ -631,7 +631,7 @@ newSession conf node = do
                 !info <- atomically $ addSession node newPeerInfo newSes now
                 return (info, newSes)
             logg node Debug $ "Started peer session " <> showSessionId newPeerInfo newSes
-            loggFun node Info $ JsonLog info
+            loggFun node Info $ jsonLog info
   where
     TimeSpan timeoutMs = secondsToTimeSpan @Double (_p2pConfigSessionTimeout conf)
     peerDb = _p2pNodePeerDb node
@@ -682,7 +682,7 @@ awaitSessions node = do
             { _p2pSessionInfoEnd = Just now
             , _p2pSessionInfoResult = Just result
             }
-    loggFun node Info $ JsonLog finalInfo
+    loggFun node Info $ jsonLog finalInfo
 
     case result of
         P2pSessionException e ->
@@ -699,7 +699,7 @@ awaitSessions node = do
         updateActiveCount node
         readTVar (_p2pNodeStats node)
     when (_p2pStatsSessionCount stats `mod` 250 == 0)
-        $ loggFun node Info $ JsonLog stats
+        $ loggFun node Info $ jsonLog stats
 
   where
     peerDb = _p2pNodePeerDb node

@@ -54,7 +54,7 @@ import Chainweb.Utils
 import Chainweb.Version
 
 import Data.CAS
-import Data.LogMessage (JsonLog(..), LogFunction)
+import Data.LogMessage
 
 ------------------------------------------------------------------------------
 data MempoolConsensus = MempoolConsensus
@@ -163,7 +163,7 @@ processFork' logFun db newHeader lastHeaderM plLookup flt =
                                , newForkHeader = ObjectEncoded newHeader
                                , numReintroduced = V.length results
                                }
-            logFun @(JsonLog ReintroducedTxsLog) Info $ JsonLog reIntro
+            logFun @(JsonLog ReintroducedTxsLog) Info $ jsonLog reIntro
         return (results, deletes)
       where
         toSet !trans !header = HS.union trans <$!> plLookup header

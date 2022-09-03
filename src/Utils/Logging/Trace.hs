@@ -81,7 +81,7 @@ trace
     -> m a
 trace logg label param weight a = do
     (!r, t) <- stopWatch a
-    liftIO $ logg Info $ JsonLog $ Trace label
+    liftIO $ logg Info $ jsonLog $ Trace label
         (toJSON param)
         weight
         (fromIntegral $ toNanoSecs t `div` 1000)

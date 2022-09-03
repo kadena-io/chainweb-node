@@ -68,7 +68,7 @@ import Chainweb.Utils (fromJuste, runForever, thd, T2(..), T3(..))
 import Chainweb.Version
 import Chainweb.WebPactExecutionService (_webPactExecutionService)
 
-import Data.LogMessage (JsonLog(..), LogFunction)
+import Data.LogMessage
 
 import Numeric.AffineSpace
 
@@ -203,7 +203,7 @@ withMiningCoordination logger conf cdb inner
         PrimedWork pw <- readTVarIO tpw
         atomicWriteIORef c503 0
         atomicWriteIORef c403 0
-        logFunction logger Info . JsonLog $ MiningStats
+        logFunction logger Info . jsonLog $ MiningStats
             { _statsCacheSize = M.size ms
             , _stats503s = count503
             , _stats403s = count403

@@ -84,7 +84,7 @@ import Chainweb.Version.Utils
 import Chainweb.WebBlockHeaderDB
 import Chainweb.WebPactExecutionService
 
-import Data.LogMessage (JsonLog(..), LogFunction)
+import Data.LogMessage
 
 -- -------------------------------------------------------------------------- --
 -- Utils
@@ -256,7 +256,7 @@ publish lf cdb pwVar miner pd s = do
 
             let bytes = sum . fmap (BS.length . _transactionBytes) $
                         _payloadDataTransactions pd
-            lf Info $ JsonLog $ NewMinedBlock
+            lf Info $ jsonLog $ NewMinedBlock
                 { _minedBlockHeader = ObjectEncoded bh
                 , _minedBlockTrans = int . V.length $ _payloadDataTransactions pd
                 , _minedBlockSize = int bytes
@@ -275,7 +275,7 @@ publish lf cdb pwVar miner pd s = do
             lf Info $ orphandMsg now p bh msg
             throwM e
   where
-    orphandMsg now p bh msg = JsonLog OrphanedBlock
+    orphandMsg now p bh msg = jsonLog OrphanedBlock
         { _orphanedHeader = ObjectEncoded bh
         , _orphanedBestOnCut = ObjectEncoded p
         , _orphanedDiscoveredAt = now
