@@ -576,6 +576,7 @@ instance Hashable TransactionHash where
 
 instance ToJSON TransactionHash where
   toJSON (TransactionHash x) = toJSON $! encodeB64UrlNoPaddingText $ SB.fromShort x
+  toEncoding (TransactionHash x) = toEncoding $! encodeB64UrlNoPaddingText $ SB.fromShort x
 instance FromJSON TransactionHash where
   parseJSON = withText "TransactionHash" (either (fail . show) return . p)
     where

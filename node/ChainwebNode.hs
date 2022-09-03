@@ -271,8 +271,12 @@ deriving instance Generic RTSStats
 deriving instance NFData GCDetails
 deriving instance NFData RTSStats
 
-deriving instance ToJSON GCDetails
-deriving instance ToJSON RTSStats
+instance ToJSON GCDetails where
+    toJSON = genericToJSON defaultOptions
+    toEncoding = genericToEncoding defaultOptions
+instance ToJSON RTSStats where
+    toJSON = genericToJSON defaultOptions
+    toEncoding = genericToEncoding defaultOptions
 
 runRtsMonitor :: Logger logger => logger -> IO ()
 runRtsMonitor logger = L.withLoggerLabel ("component", "rts-monitor") logger go
