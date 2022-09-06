@@ -325,7 +325,6 @@ execTransactions isGenesis miner ctxs enfCBFail usePrecomp (PactDbEnv' pactdbenv
           then return mempty
           else do
             l <- asks _psLogger
-            gl <- asks _psGasLogger
             pd <- getTxContext def
             mc <- liftIO (readInitModules l pactdbenv pd)
             updateInitCache mc
