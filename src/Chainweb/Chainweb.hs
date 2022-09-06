@@ -533,13 +533,9 @@ withChainwebInternal conf logger peer serviceSock rocksDb pactDbDir backupDir re
     synchronizePactDb :: HM.HashMap ChainId (ChainResources logger) -> CutDb cas -> IO ()
     synchronizePactDb cs cutDb = do
         currentCut <- _cut cutDb
-        mapConcurrently_ syncOne $ mergeCutResources $ _cutMap currentCut
+        mapConcurrently_ syncOne $
+            HM.intersectionWith (,) (_cutMap currentCut) cs
       where
-        mergeCutResources :: HM.HashMap ChainId b -> [(b, ChainResources logger)]
-        mergeCutResources c =
-            let f cid bh = (bh, fromJuste $ HM.lookup cid cs)
-            in map snd $ HM.toList $ HM.mapWithKey f c
-
         syncOne :: (BlockHeader, ChainResources logger) -> IO ()
         syncOne (bh, cr) = do
             let pact = _chainResPact cr
