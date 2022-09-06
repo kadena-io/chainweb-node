@@ -493,7 +493,7 @@ pChainwebConfiguration = id
     <*< configBlockGasLimit .:: jsonOption
         % long "block-gas-limit"
         <> help "the sum of all transaction gas fees in a block must not exceed this number"
-    <*< configLogGas .:: option auto
+    <*< configLogGas .:: boolOption_
         % long "log-gas"
         <> help "log gas consumed by Pact commands"
     <*< configMinGasPrice .:: jsonOption
