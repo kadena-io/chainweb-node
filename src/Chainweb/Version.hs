@@ -952,7 +952,7 @@ chainweb213Pact _ = const True
 
 -- | Fork for musl trans funs
 pact44NewTrans :: ChainwebVersion -> BlockHeight -> Bool
-pact44NewTrans Mainnet01 = (>= 2_965_885) -- Todo: add date
+pact44NewTrans Mainnet01 = (>= 2_939_323) -- Todo: add date
 pact44NewTrans Testnet04 = (>= 2_500_369) -- Todo: add date
 pact44NewTrans _ = const True
 
