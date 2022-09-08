@@ -1,4 +1,4 @@
-codeFile: ../../namespaces/ns.pact
+codeFile: ../../namespaces/v1/ns.pact
 data:
   ns-admin-keyset:
     keys:
