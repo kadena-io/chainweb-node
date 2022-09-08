@@ -62,7 +62,6 @@
           { 'admin-guard := ag
           , 'active := is-active }
 
-          (validate-name ns-name)
           (enforce is-active "Inactive or unregistered namespace")
           (enforce (= ns-admin ag) "Admin guard must match guard in registry")
 
