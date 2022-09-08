@@ -32,11 +32,11 @@
         ns-admin:guard
         )
     " Manages namespace install for Chainweb. \
-    \ Supports principal namespaces (hashed principals of admin guard). \
+    \ Supports principal namespaces ('n' + hashed principal of admin guard). \
     \ Non-principal namespaces require active row in registry \
     \ for NS-NAME with guard matching NS-ADMIN."
 
-    (if (= (hash (create-principal ns-admin)) ns-name)
+    (if (= (+ "n" (hash (create-principal ns-admin))) ns-name)
 
       true ;; allow principal namespaces
 
