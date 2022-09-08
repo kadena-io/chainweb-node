@@ -146,6 +146,7 @@ initPactService' ver cid chainwebLogger bhDb pdb sqlenv config act = do
                 , _psIsBatch = False
                 , _psCheckpointerDepth = 0
                 , _psLogger = pactLogger
+                , _psGasLogger = gasLogger <$ guard (_pactLogGas config)
                 , _psLoggers = loggers
                 , _psBlockGasLimit = _pactBlockGasLimit config
                 }
@@ -164,6 +165,7 @@ initPactService' ver cid chainwebLogger bhDb pdb sqlenv config act = do
     loggers = pactLoggers chainwebLogger
     cplogger = P.newLogger loggers $ P.LogName "Checkpointer"
     pactLogger = P.newLogger loggers $ P.LogName "PactService"
+    gasLogger = P.newLogger loggers $ P.LogName "GasLogs"
 
 initializeLatestBlock :: PayloadCasLookup cas => Bool -> PactServiceM cas ()
 initializeLatestBlock unlimitedRewind = findLatestValidBlock >>= \case
@@ -412,7 +414,7 @@ attemptBuyGas miner (PactDbEnv' dbEnv) txs = do
         let ec = P.mkExecutionConfig
               [ P.FlagDisableModuleInstall
               , P.FlagDisableHistoryInTransactionalMode ]
-        return $! TransactionEnv P.Transactional db l (ctxToPublicData pd) spv nid gp rk gl ec
+        return $! TransactionEnv P.Transactional db l Nothing (ctxToPublicData pd) spv nid gp rk gl ec
       where
         !nid = networkIdOf cmd
         !rk = P.cmdToRequestKey cmd
@@ -620,7 +622,7 @@ execLocal cmd = withDiscardedBatch $ do
         logger = P.newLogger _psLoggers "execLocal"
     withCurrentCheckpointer "execLocal" $ \(PactDbEnv' pdbenv) -> do
         r <- liftIO $
-          applyLocal logger pdbenv chainweb213GasModel pd spv cmd mc execConfig
+          applyLocal logger _psGasLogger pdbenv chainweb213GasModel pd spv cmd mc execConfig
         return $! Discard (toHashCommandResult r)
 
 execSyncToBlock

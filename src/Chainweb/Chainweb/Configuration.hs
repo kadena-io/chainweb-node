@@ -365,6 +365,7 @@ data ChainwebConfiguration = ChainwebConfiguration
     , _configThrottling :: !ThrottlingConfig
     , _configMempoolP2p :: !(EnableConfig MempoolP2pConfig)
     , _configBlockGasLimit :: !Mempool.GasLimit
+    , _configLogGas :: !Bool
     , _configMinGasPrice :: !Mempool.GasPrice
     , _configPactQueueSize :: !Natural
     , _configReorgLimit :: !Natural
@@ -412,6 +413,7 @@ defaultChainwebConfiguration v = ChainwebConfiguration
     , _configThrottling = defaultThrottlingConfig
     , _configMempoolP2p = defaultEnableConfig defaultMempoolP2pConfig
     , _configBlockGasLimit = 150000
+    , _configLogGas = False
     , _configMinGasPrice = 1e-8
     , _configPactQueueSize = 2000
     , _configReorgLimit = int defaultReorgLimit
@@ -434,6 +436,7 @@ instance ToJSON ChainwebConfiguration where
         , "throttling" .= _configThrottling o
         , "mempoolP2p" .= _configMempoolP2p o
         , "gasLimitOfBlock" .= _configBlockGasLimit o
+        , "logGas" .= _configLogGas o
         , "minGasPrice" .= _configMinGasPrice o
         , "pactQueueSize" .= _configPactQueueSize o
         , "reorgLimit" .= _configReorgLimit o
@@ -461,6 +464,7 @@ instance FromJSON (ChainwebConfiguration -> ChainwebConfiguration) where
         <*< configThrottling %.: "throttling" % o
         <*< configMempoolP2p %.: "mempoolP2p" % o
         <*< configBlockGasLimit ..: "gasLimitOfBlock" % o
+        <*< configLogGas ..: "logGas" % o
         <*< configMinGasPrice ..: "minGasPrice" % o
         <*< configPactQueueSize ..: "pactQueueSize" % o
         <*< configReorgLimit ..: "reorgLimit" % o
@@ -489,6 +493,9 @@ pChainwebConfiguration = id
     <*< configBlockGasLimit .:: jsonOption
         % long "block-gas-limit"
         <> help "the sum of all transaction gas fees in a block must not exceed this number"
+    <*< configLogGas .:: boolOption_
+        % long "log-gas"
+        <> help "log gas consumed by Pact commands"
     <*< configMinGasPrice .:: jsonOption
         % long "min-gas-price"
         <> help "the gas price of an individual transaction in a block must not be beneath this number"
