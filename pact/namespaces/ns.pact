@@ -32,40 +32,24 @@
         ns-admin:guard
         )
     " Manages namespace install for Chainweb. \
-    \ Supports principal namespaces for k: and w: \
-    \ using # instead of :. \
+    \ Supports principal namespaces (hashed principals of admin guard). \
     \ Non-principal namespaces require active row in registry \
     \ for NS-NAME with guard matching NS-ADMIN."
 
-    (let*
-      ((parse-name
-         (lambda (n)
-           (let
-             ((take-two (take 2 n))
-              (drop-two (drop 2 n)))
+    (if (= (hash (create-principal ns-admin)) ns-name)
 
-             (cond
-              ((= "k#" take-two)
-                (+ "k:" drop-two))
-              ((= "w#" take-two)
-                (+ "w:" (+ (take 43 drop-two) (+ ":" (drop 46 n)))))
-              n))))
-       (parsed-name (parse-name ns-name)))
+      true ;; allow principal namespaces
 
-      (if (is-principal parsed-name)
+      (with-default-read registry ns-name       ;; otherwise enforce registry
+        { 'admin-guard : ns-admin
+        , 'active : false }
+        { 'admin-guard := ag
+        , 'active := is-active }
 
-        (validate-principal ns-admin parsed-name) ;; valid principal passes
+        (enforce is-active "Inactive or unregistered namespace")
+        (enforce (= ns-admin ag) "Admin guard must match guard in registry")
 
-        (with-default-read registry ns-name       ;; otherwise enforce registry
-          { 'admin-guard : ns-admin
-          , 'active : false }
-          { 'admin-guard := ag
-          , 'active := is-active }
-
-          (enforce is-active "Inactive or unregistered namespace")
-          (enforce (= ns-admin ag) "Admin guard must match guard in registry")
-
-          true))
+        true)
       ))
 
   (defun write-registry:string

@@ -100,20 +100,20 @@
 
 (expect-failure
   "Principal of other than admin keyset fails"
-  "not permitted"
+  "Inactive or unregistered namespace"
   (define-namespace
-   "k#70c787fcfe6c6f4ec23d13c2e94682bc90952f7cec06c7dbac1c012b0b6678b9"
+   "D8cqMpEfqKF_tj8I0be5VDdoYfBvb5ax_tFZMoHvXU4"
    (read-keyset 'single)
    (read-keyset 'multi))
 )
 
 (define-namespace
-  "k#70c787fcfe6c6f4ec23d13c2e94682bc90952f7cec06c7dbac1c012b0b6678b9"
+  "D8cqMpEfqKF_tj8I0be5VDdoYfBvb5ax_tFZMoHvXU4"
   (read-keyset 'single)
   (read-keyset 'single))
 
 (define-namespace
-  "w#9lped_9eJpCtMWt7n8KN2QzFyaN-YXrD7uFAPePPmlU#keys-all"
+  "dDxw31bRij5gA0Xvl_uDUOZMvrnkMscu-Ax-H0ocJFM"
   (read-keyset 'multi)
   (read-keyset 'multi))
 
@@ -124,13 +124,13 @@
   [ "70c787fcfe6c6f4ec23d13c2e94682bc90952f7cec06c7dbac1c012b0b6678b9" ])
 ;; rotate to multi/multi
 (define-namespace
-  "k#70c787fcfe6c6f4ec23d13c2e94682bc90952f7cec06c7dbac1c012b0b6678b9"
+  "D8cqMpEfqKF_tj8I0be5VDdoYfBvb5ax_tFZMoHvXU4"
   (read-keyset 'multi)
   (read-keyset 'multi))
 ;; rotate to multi/single
 (env-keys ["a","b"])
 (define-namespace
-  "k#70c787fcfe6c6f4ec23d13c2e94682bc90952f7cec06c7dbac1c012b0b6678b9"
+  "D8cqMpEfqKF_tj8I0be5VDdoYfBvb5ax_tFZMoHvXU4"
   (read-keyset 'multi)
   (read-keyset 'single))
 (rollback-tx)
@@ -145,12 +145,12 @@
   ]
   )
 
-(namespace "k#70c787fcfe6c6f4ec23d13c2e94682bc90952f7cec06c7dbac1c012b0b6678b9")
+(namespace "D8cqMpEfqKF_tj8I0be5VDdoYfBvb5ax_tFZMoHvXU4")
 (module modK G
   (defcap G () true)
   (defun f () 1))
 
-(namespace "w#9lped_9eJpCtMWt7n8KN2QzFyaN-YXrD7uFAPePPmlU#keys-all")
+(namespace "dDxw31bRij5gA0Xvl_uDUOZMvrnkMscu-Ax-H0ocJFM")
 (module modW G
   (defcap G () true)
   (defun f () 2))
@@ -161,9 +161,9 @@
 (expect
   "k: principal namespaces work"
   1
-  (k#70c787fcfe6c6f4ec23d13c2e94682bc90952f7cec06c7dbac1c012b0b6678b9.modK.f))
+  (D8cqMpEfqKF_tj8I0be5VDdoYfBvb5ax_tFZMoHvXU4.modK.f))
 
 (expect
   "w: principal namespaces work"
   2
-  (w#9lped_9eJpCtMWt7n8KN2QzFyaN-YXrD7uFAPePPmlU#keys-all.modW.f))
+  (dDxw31bRij5gA0Xvl_uDUOZMvrnkMscu-Ax-H0ocJFM.modW.f))
