@@ -69,7 +69,7 @@ import Data.Default (def)
 import Data.Foldable (for_, traverse_, foldl')
 import Data.IORef
 import qualified Data.HashMap.Strict as HM
-import Data.Maybe (isJust)
+import Data.Maybe
 import qualified Data.Set as S
 import Data.Text (Text)
 import qualified Data.Text as T
@@ -139,6 +139,8 @@ applyCmd
     :: ChainwebVersion
     -> Logger
       -- ^ Pact logger
+    -> Maybe Logger
+      -- ^ Pact gas logger
     -> PactDbEnv p
       -- ^ Pact db environment
     -> Miner
@@ -156,7 +158,7 @@ applyCmd
     -> ModuleCache
       -- ^ cached module state
     -> IO (T2 (CommandResult [TxLog Value]) ModuleCache)
-applyCmd v logger pdbenv miner gasModel txCtx spv cmd initialGas mcache0 =
+applyCmd v logger gasLogger pdbenv miner gasModel txCtx spv cmd initialGas mcache0 =
     second _txCache <$!>
       runTransactionM cenv txst applyBuyGas
   where
@@ -178,7 +180,7 @@ applyCmd v logger pdbenv miner gasModel txCtx spv cmd initialGas mcache0 =
           ++ enableNewTrans txCtx
         )
 
-    cenv = TransactionEnv Transactional pdbenv logger (ctxToPublicData txCtx) spv nid gasPrice
+    cenv = TransactionEnv Transactional pdbenv logger gasLogger (ctxToPublicData txCtx) spv nid gasPrice
       requestKey (fromIntegral gasLimit) executionConfigNoHistory
 
     requestKey = cmdToRequestKey cmd
@@ -257,6 +259,7 @@ applyGenesisCmd logger dbEnv spv cmd =
         { _txMode = Transactional
         , _txDbEnv = dbEnv
         , _txLogger = logger
+        , _txGasLogger = Nothing
         , _txPublicData = def
         , _txSpvSupport = spv
         , _txNetworkId = nid
@@ -333,7 +336,7 @@ applyCoinbase v logger dbEnv (Miner mid mks@(MinerKeys mk)) reward@(ParsedDecima
       enablePact43 txCtx ++
       enablePact431 txCtx ++
       enablePact44 txCtx
-    tenv = TransactionEnv Transactional dbEnv logger (ctxToPublicData txCtx) noSPVSupport
+    tenv = TransactionEnv Transactional dbEnv logger Nothing (ctxToPublicData txCtx) noSPVSupport
            Nothing 0.0 rk 0 ec
     txst = TransactionState mc mempty 0 Nothing (_geGasModel freeGasEnv)
     initState = setModuleCache mc $ initCapabilities [magic_COINBASE]
@@ -386,6 +389,8 @@ applyCoinbase v logger dbEnv (Miner mid mks@(MinerKeys mk)) reward@(ParsedDecima
 applyLocal
     :: Logger
       -- ^ Pact logger
+    -> Maybe Logger
+      -- ^ Pact gas logger
     -> PactDbEnv p
       -- ^ Pact db environment
     -> GasModel
@@ -399,7 +404,7 @@ applyLocal
     -> ModuleCache
     -> ExecutionConfig
     -> IO (CommandResult [TxLog Value])
-applyLocal logger dbEnv gasModel txCtx spv cmdIn mc execConfig =
+applyLocal logger gasLogger dbEnv gasModel txCtx spv cmdIn mc execConfig =
     evalTransactionM tenv txst go
   where
     cmd = payloadObj <$> cmdIn
@@ -409,7 +414,7 @@ applyLocal logger dbEnv gasModel txCtx spv cmdIn mc execConfig =
     signers = _pSigners $ _cmdPayload cmd
     gasPrice = view cmdGasPrice cmd
     gasLimit = view cmdGasLimit cmd
-    tenv = TransactionEnv Local dbEnv logger (ctxToPublicData txCtx) spv nid gasPrice
+    tenv = TransactionEnv Local dbEnv logger gasLogger (ctxToPublicData txCtx) spv nid gasPrice
            rk (fromIntegral gasLimit) execConfig
     txst = TransactionState mc mempty 0 Nothing gasModel
     gas0 = initialGasOf (_cmdPayload cmdIn)
@@ -446,7 +451,7 @@ readInitModules logger dbEnv txCtx =
     rk = RequestKey chash
     nid = Nothing
     chash = pactInitialHash
-    tenv = TransactionEnv Local dbEnv logger (ctxToPublicData txCtx) noSPVSupport nid 0.0
+    tenv = TransactionEnv Local dbEnv logger Nothing (ctxToPublicData txCtx) noSPVSupport nid 0.0
            rk 0 def
     txst = TransactionState mempty mempty 0 Nothing (_geGasModel freeGasEnv)
     interp = defaultInterpreter
@@ -646,7 +651,7 @@ applyExec
     -> TransactionM p (CommandResult [TxLog Value])
 applyExec initialGas interp em senderSigs hsh nsp = do
     EvalResult{..} <- applyExec' initialGas interp em senderSigs hsh nsp
-    debug $ "gas logs: " <> sshow _erLogGas
+    for_ _erLogGas $ \gl -> gasLog $ "gas logs: " <> sshow gl
     logs <- use txLogs
     rk <- view txRequestKey
     -- applyExec enforces non-empty expression set so `last` ok
@@ -748,7 +753,7 @@ applyContinuation
     -> TransactionM p (CommandResult [TxLog Value])
 applyContinuation initialGas interp cm senderSigs hsh nsp = do
     EvalResult{..} <- applyContinuation' initialGas interp cm senderSigs hsh nsp
-    debug $ "gas logs: " <> sshow _erLogGas
+    for_ _erLogGas $ \gl -> gasLog $ "gas logs: " <> sshow gl
     logs <- use txLogs
     rk <- view txRequestKey
     -- last safe here because cont msg is guaranteed one exp
@@ -951,8 +956,9 @@ checkTooBigTx initialGas gasLimit next onFail
 gasInterpreter :: Gas -> TransactionM db (Interpreter p)
 gasInterpreter g = do
     mc <- use txCache
+    logGas <- isJust <$> view txGasLogger
     return $ initStateInterpreter
-        $ set evalLogGas (Just [("GTxSize",g)]) -- enables gas logging
+        $ set evalLogGas (guard logGas >> Just [("GTxSize",g)]) -- enables gas logging
         $ setModuleCache mc def
 
 
@@ -1108,6 +1114,13 @@ gasSupplyOf gas (GasPrice (ParsedDecimal gp)) = GasSupply (ParsedDecimal gs)
 toCoinUnit :: Decimal -> Decimal
 toCoinUnit = roundTo 12
 {-# INLINE toCoinUnit #-}
+
+gasLog :: Text -> TransactionM db ()
+gasLog m = do
+  l <- view txGasLogger
+  rk <- view txRequestKey
+  for_ l $ \logger ->
+    liftIO $! logLog logger "INFO" $! T.unpack m <> ": " <> show rk
 
 -- | Log request keys at DEBUG when successful
 --

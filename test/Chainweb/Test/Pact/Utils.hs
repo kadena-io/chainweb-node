@@ -627,6 +627,7 @@ testPactCtxSQLite v cid bhdb pdb sqlenv conf gasmodel = do
         , _psIsBatch = False
         , _psCheckpointerDepth = 0
         , _psLogger = newLogger loggers $ LogName ("PactService" ++ show cid)
+        , _psGasLogger = Nothing
         , _psLoggers = loggers
         , _psBlockGasLimit = _pactBlockGasLimit conf
         }
