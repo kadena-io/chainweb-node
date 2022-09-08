@@ -1,9 +1,6 @@
 (module ns GOVERNANCE
   "Administers definition of new namespaces in Chainweb."
 
-  ;; namespace v1 contract
-  (bless "AF2zCIWu31ATlsHOBrrhSramOa6iEO06kCbQGZmxCww")
-
   (defschema reg-entry
     admin-guard:guard
     active:bool)
@@ -34,7 +31,10 @@
       ( ns-name:string
         ns-admin:guard
         )
-    " Manages namespace install for Chainweb. Requires active row in registry \
+    " Manages namespace install for Chainweb. \
+    \ Supports principal namespaces for k: and w: \
+    \ using # instead of :. \
+    \ Non-principal namespaces require active row in registry \
     \ for NS-NAME with guard matching NS-ADMIN."
 
     (let*
@@ -50,26 +50,23 @@
               ((= "w#" take-two)
                 (+ "w:" (+ (take 43 drop-two) (+ ":" (drop 46 n)))))
               n))))
-
-       (name-validation
-         (lambda (n)
-           (if (is-principal n)
-             (validate-principal ns-admin n)
-             (validate-name n))))
-
        (parsed-name (parse-name ns-name)))
 
-      (with-default-read registry ns-name
+      (if (is-principal parsed-name)
+
+        (validate-principal ns-admin parsed-name) ;; valid principal passes
+
+        (with-default-read registry ns-name       ;; otherwise enforce registry
           { 'admin-guard : ns-admin
           , 'active : false }
           { 'admin-guard := ag
           , 'active := is-active }
 
-          (name-validation parsed-name)
+          (validate-name ns-name)
           (enforce is-active "Inactive or unregistered namespace")
           (enforce (= ns-admin ag) "Admin guard must match guard in registry")
 
-          true)
+          true))
       ))
 
   (defun write-registry:string
@@ -80,37 +77,15 @@
     " Write entry with GUARD and ACTIVE into registry for NAME. \
     \ Guarded by operate keyset. "
 
-    (if (is-principal ns-name)
-      (let*
-        ((drop-two (drop 2 ns-name))
-         (take-two (take 2 ns-name))
+    (with-capability (OPERATE)
 
-         (parsed-name
-           (cond
-             ((= "k:" take-two)
-               (+ "k#" drop-two))
-             ((= "w:" take-two)
-               (+ "w#" (+ (take 43 drop-two) (+ "#" (drop 44 drop-two)))))
-             "unsupported")))
+      (validate-name ns-name)
 
-        (enforce (not (= "unsupported" parsed-name))
-          "Unsupported principal guard protocol")
+      (write registry ns-name
+        { 'admin-guard: guard
+        , 'active: active })
 
-        (enforce (validate-principal guard ns-name)
-          "Invalid principal namespace protocol")
-
-        (write registry parsed-name
-          { 'admin-guard: guard
-          , 'active: active }))
-
-       (with-capability (OPERATE)
-          (validate-name ns-name)
-
-          (write registry ns-name
-            { 'admin-guard : guard
-            , 'active: active })))
-
-        "Register entry written")
+      "Register entry written"))
 
   (defun query:object{reg-entry}
       ( ns-name:string )

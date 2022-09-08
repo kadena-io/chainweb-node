@@ -109,8 +109,8 @@ tests = testGroup "Chainweb.Test.Pact.TransactionTests"
       , testCase "v5" (ccReplTests coinReplV5)
       ]
     , testGroup "Namespace repl unit tests"
-      [ testCase "Ns v1 repl tests" $ ccReplTests nsReplV1
-      , testCase "Ns v2 repl tests" $ ccReplTests nsReplV2
+      [ testCase "Ns-v1 repl tests" $ ccReplTests nsReplV1
+      , testCase "Ns-v2 repl tests" $ ccReplTests nsReplV2
       ]
     , testCase "Payer Repl Tests" (ccReplTests "pact/gas-payer/gas-payer-v1.repl")
     ]
