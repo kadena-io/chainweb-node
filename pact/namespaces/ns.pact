@@ -1,9 +1,8 @@
-
-(define-keyset 'ns-admin-keyset (read-keyset 'ns-admin-keyset))
-(define-keyset 'ns-operate-keyset (read-keyset 'ns-genesis-keyset))
-
 (module ns GOVERNANCE
   "Administers definition of new namespaces in Chainweb."
+
+  ;; namespace v1 contract
+  (bless "AF2zCIWu31ATlsHOBrrhSramOa6iEO06kCbQGZmxCww")
 
   (defschema reg-entry
     admin-guard:guard
@@ -38,18 +37,40 @@
     " Manages namespace install for Chainweb. Requires active row in registry \
     \ for NS-NAME with guard matching NS-ADMIN."
 
-    (validate-name ns-name)
+    (let*
+      ((parse-name
+         (lambda (n)
+           (let
+             ((take-two (take 2 n))
+              (drop-two (drop 2 n)))
 
-    (with-default-read registry ns-name
-      { 'admin-guard : ns-admin
-      , 'active : false }
-      { 'admin-guard := ag
-      , 'active := is-active }
+             (cond
+              ((= "k#" take-two)
+                (+ "k:" drop-two))
+              ((= "w#" take-two)
+                (+ "w:" (+ (take 43 drop-two) (+ ":" (drop 46 n)))))
+              n))))
 
-        (enforce is-active "Inactive or unregistered namespace")
-        (enforce (= ns-admin ag) "Admin guard must match guard in registry")
+       (name-validation
+         (lambda (n)
+           (if (is-principal n)
+             (validate-principal ns-admin n)
+             (validate-name n))))
 
-        true))
+       (parsed-name (parse-name ns-name)))
+
+      (with-default-read registry ns-name
+          { 'admin-guard : ns-admin
+          , 'active : false }
+          { 'admin-guard := ag
+          , 'active := is-active }
+
+          (name-validation parsed-name)
+          (enforce is-active "Inactive or unregistered namespace")
+          (enforce (= ns-admin ag) "Admin guard must match guard in registry")
+
+          true)
+      ))
 
   (defun write-registry:string
       ( ns-name:string
@@ -59,34 +80,40 @@
     " Write entry with GUARD and ACTIVE into registry for NAME. \
     \ Guarded by operate keyset. "
 
-    (with-capability (OPERATE)
+    (if (is-principal ns-name)
+      (let*
+        ((drop-two (drop 2 ns-name))
+         (take-two (take 2 ns-name))
 
-      (validate-name ns-name)
+         (parsed-name
+           (cond
+             ((= "k:" take-two)
+               (+ "k#" drop-two))
+             ((= "w:" take-two)
+               (+ "w#" (+ (take 43 drop-two) (+ "#" (drop 44 drop-two)))))
+             "unsupported")))
 
-      (write registry ns-name
-        { 'admin-guard: guard
-        , 'active: active })
+        (enforce (not (= "unsupported" parsed-name))
+          "Unsupported principal guard protocol")
 
-      "Register entry written"))
+        (enforce (validate-principal guard ns-name)
+          "Invalid principal namespace protocol")
+
+        (write registry parsed-name
+          { 'admin-guard: guard
+          , 'active: active }))
+
+       (with-capability (OPERATE)
+          (validate-name ns-name)
+
+          (write registry ns-name
+            { 'admin-guard : guard
+            , 'active: active })))
+
+        "Register entry written")
 
   (defun query:object{reg-entry}
       ( ns-name:string )
     (read registry ns-name))
 
-  )
-
-(create-table registry)
-
-(write-registry "kadena"
-  (keyset-ref-guard 'ns-operate-keyset) true)
-(write-registry "user" GUARD_FAILURE true)
-(write-registry "free" GUARD_FAILURE true)
-
-(define-namespace "kadena"
-  (keyset-ref-guard 'ns-operate-keyset)
-  (keyset-ref-guard 'ns-operate-keyset))
-
-(define-namespace "user" GUARD_SUCCESS GUARD_FAILURE)
-(define-namespace "free" GUARD_SUCCESS GUARD_FAILURE)
-;;rotate to real operate keyset
-(define-keyset 'ns-operate-keyset (read-keyset 'ns-operate-keyset))
+)

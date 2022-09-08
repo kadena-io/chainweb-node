@@ -80,10 +80,10 @@ coinReplV5 :: FilePath
 coinReplV5 = "pact/coin-contract/v5/coin-v5.repl"
 
 nsReplV1 :: FilePath
-nsReplV1 = "pact/namespaces/ns.repl"
+nsReplV1 = "pact/namespaces/v1/ns.repl"
 
 nsReplV2 :: FilePath
-nsReplV2 = "pact/namespaces/v2/ns.repl"
+nsReplV2 = "pact/namespaces/ns.repl"
 
 logger :: Logger
 #if DEBUG_TEST

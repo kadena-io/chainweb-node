@@ -5,7 +5,26 @@
  , 'ns-operate-keyset: ["operate"]
  , 'ns-genesis-keyset: { "keys": [], "pred": "="} })
 
+
+(define-keyset 'ns-admin-keyset (read-keyset 'ns-admin-keyset))
+(define-keyset 'ns-operate-keyset (read-keyset 'ns-genesis-keyset))
+
 (load "ns.pact")
+(create-table registry)
+
+(write-registry "kadena"
+  (keyset-ref-guard 'ns-operate-keyset) true)
+(write-registry "user" GUARD_FAILURE true)
+(write-registry "free" GUARD_FAILURE true)
+
+(define-namespace "kadena"
+  (keyset-ref-guard 'ns-operate-keyset)
+  (keyset-ref-guard 'ns-operate-keyset))
+
+(define-namespace "user" GUARD_SUCCESS GUARD_FAILURE)
+(define-namespace "free" GUARD_SUCCESS GUARD_FAILURE)
+;;rotate to real operate keyset
+(define-keyset 'ns-operate-keyset (read-keyset 'ns-operate-keyset))
 (commit-tx)
 
 (env-namespace-policy false (ns.validate))
@@ -67,6 +86,7 @@
   (defcap G () (enforce false "disabled"))
   (defun foo () 4))
 (commit-tx)
+(begin-tx)
 
 (expect "kadena.mod2 works" 4 (kadena.mod2.foo))
 
@@ -85,3 +105,97 @@
 (expect-failure
   "must be latin1 charset"
   (write-registry "emilyπ" GUARD_SUCCESS true))
+
+(commit-tx)
+(begin-tx)
+
+(env-exec-config [])
+(env-data
+ { "70c787fcfe6c6f4ec23d13c2e94682bc90952f7cec06c7dbac1c012b0b6678b9" :
+   ["70c787fcfe6c6f4ec23d13c2e94682bc90952f7cec06c7dbac1c012b0b6678b9"]
+ , 'multi : ["a", "b"]
+ })
+
+(expect
+  "Principal namespace creation for k: accounts succeeds"
+  "Register entry written"
+  (ns.write-registry
+   (create-principal
+     (read-keyset "70c787fcfe6c6f4ec23d13c2e94682bc90952f7cec06c7dbac1c012b0b6678b9"))
+   (read-keyset "70c787fcfe6c6f4ec23d13c2e94682bc90952f7cec06c7dbac1c012b0b6678b9")
+   true))
+
+(expect
+  "Principal namespace creation for w: accounts succeeds"
+  "Register entry written"
+  (ns.write-registry
+   (create-principal (read-keyset 'multi))
+   (read-keyset 'multi)
+   true))
+
+; write k: principal to registry
+(ns.write-registry
+   (create-principal
+     (read-keyset "70c787fcfe6c6f4ec23d13c2e94682bc90952f7cec06c7dbac1c012b0b6678b9"))
+   (read-keyset "70c787fcfe6c6f4ec23d13c2e94682bc90952f7cec06c7dbac1c012b0b6678b9")
+   true)
+
+; write w: principal to registry
+(ns.write-registry
+   (create-principal (read-keyset 'multi))
+   (read-keyset 'multi)
+   true)
+
+(define-namespace
+  "k#70c787fcfe6c6f4ec23d13c2e94682bc90952f7cec06c7dbac1c012b0b6678b9"
+  (read-keyset "70c787fcfe6c6f4ec23d13c2e94682bc90952f7cec06c7dbac1c012b0b6678b9")
+  (read-keyset "70c787fcfe6c6f4ec23d13c2e94682bc90952f7cec06c7dbac1c012b0b6678b9"))
+
+(define-namespace
+  "w#9lped_9eJpCtMWt7n8KN2QzFyaN-YXrD7uFAPePPmlU#keys-all"
+  (read-keyset 'multi)
+  (read-keyset 'multi))
+
+;; only testing control flow here.
+(env-exec-config ['DisablePact44])
+(define-keyset 'multi)
+(expect-failure
+  "Non-k or w principals cannot create namespaces"
+  "Unsupported"
+  (ns.write-registry
+   (create-principal (keyset-ref-guard 'multi))
+   (read-keyset 'multi)
+   true))
+
+(commit-tx)
+(begin-tx)
+(env-exec-config [])
+(env-keys
+  [ "70c787fcfe6c6f4ec23d13c2e94682bc90952f7cec06c7dbac1c012b0b6678b9"
+  , "a"
+  , "b"
+  ]
+  )
+
+(namespace "k#70c787fcfe6c6f4ec23d13c2e94682bc90952f7cec06c7dbac1c012b0b6678b9")
+(module modK G
+  (defcap G () true)
+  (defun f () 1))
+
+(namespace "w#9lped_9eJpCtMWt7n8KN2QzFyaN-YXrD7uFAPePPmlU#keys-all")
+(module modW G
+  (defcap G () true)
+  (defun f () 2))
+
+(commit-tx)
+(begin-tx)
+
+(expect
+  "k: principal namespaces work"
+  1
+  (k#70c787fcfe6c6f4ec23d13c2e94682bc90952f7cec06c7dbac1c012b0b6678b9.modK.f))
+
+(expect
+  "w: principal namespaces work"
+  2
+  (w#9lped_9eJpCtMWt7n8KN2QzFyaN-YXrD7uFAPePPmlU#keys-all.modW.f))
