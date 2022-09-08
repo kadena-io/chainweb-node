@@ -394,6 +394,7 @@ withChainwebInternal conf logger peer serviceSock rocksDb pactDbDir backupDir re
           isJust (_cutDbParamsInitialHeightLimit cutConfig) ||
           isJust (_cutDbParamsInitialCutFile cutConfig)
       , _pactBlockGasLimit = maybe id min maxGasLimit (_configBlockGasLimit conf)
+      , _pactLogGas = _configLogGas conf
       }
 
     pruningLogger :: T.Text -> logger

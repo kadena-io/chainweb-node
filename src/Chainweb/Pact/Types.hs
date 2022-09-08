@@ -52,6 +52,7 @@ module Chainweb.Pact.Types
   , txMode
   , txDbEnv
   , txLogger
+  , txGasLogger
   , txPublicData
   , txSpvSupport
   , txNetworkId
@@ -78,6 +79,7 @@ module Chainweb.Pact.Types
   , psVersion
   , psValidateHashesOnReplay
   , psLogger
+  , psGasLogger
   , psLoggers
   , psAllowReadsInLocal
   , psIsBatch
@@ -242,6 +244,7 @@ data TransactionEnv db = TransactionEnv
     { _txMode :: !ExecutionMode
     , _txDbEnv :: PactDbEnv db
     , _txLogger :: !P.Logger
+    , _txGasLogger :: !(Maybe P.Logger)
     , _txPublicData :: !PublicData
     , _txSpvSupport :: !SPVSupport
     , _txNetworkId :: !(Maybe NetworkId)
@@ -340,6 +343,7 @@ data PactServiceEnv cas = PactServiceEnv
     , _psValidateHashesOnReplay :: !Bool
     , _psAllowReadsInLocal :: !Bool
     , _psLogger :: !P.Logger
+    , _psGasLogger :: !(Maybe P.Logger)
     , _psLoggers :: !P.Loggers
         -- ^ logger factory. A new logger can be created via
         --
@@ -380,6 +384,7 @@ defaultPactServiceConfig = PactServiceConfig
       , _pactAllowReadsInLocal = False
       , _pactUnlimitedInitialRewind = False
       , _pactBlockGasLimit = defaultBlockGasLimit
+      , _pactLogGas = False
       }
 
 -- | This default value is only relevant for testing. In a chainweb-node the @GasLimit@
