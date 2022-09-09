@@ -532,5 +532,6 @@ pChainwebConfiguration = id
     <*< configSyncPactChains .:: jsonOption
         % long "sync-pact-chains"
         <> help "The only Pact databases to synchronize. If empty, all chains will be synchronized."
+        <> metavar "JSON list of chain ids"
     <*< configBackup %:: pBackupConfig
 
