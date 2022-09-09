@@ -410,6 +410,8 @@ guardPeerDbOfNode
     -> PeerInfo
     -> IO (Maybe PeerInfo)
 guardPeerDbOfNode node pinf = go >>= \case
+    Left (IsLocalPeerAddress _) ->
+        return Nothing
     Left e -> do
         logg node Info $ "failed to validate peer " <> showInfo pinf <> ": " <> T.pack (displayException e)
         return Nothing
@@ -688,7 +690,7 @@ awaitSessions node = do
                 $ "session " <> showSessionId pId ses <> " failed with " <> sshow e
         _ -> return ()
 
-    logg node Info
+    logg node Debug
         $ "closed session " <> showSessionId pId ses
         <> if isSuccess result then " (success)" else " (failure)"
 

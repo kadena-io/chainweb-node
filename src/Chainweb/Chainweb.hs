@@ -122,7 +122,7 @@ import qualified Network.HTTP.Client as HTTP
 import Network.Socket (Socket)
 import Network.Wai
 import Network.Wai.Handler.Warp hiding (Port)
-import Network.Wai.Handler.WarpTLS (WarpTLSException(InsecureConnectionDenied))
+import Network.Wai.Handler.WarpTLS (WarpTLSException(..))
 import Network.Wai.Middleware.RequestSizeLimit
 import Network.Wai.Middleware.Throttle
 
@@ -144,6 +144,7 @@ import Chainweb.Chainweb.MempoolSyncClient
 import Chainweb.Chainweb.MinerResources
 import Chainweb.Chainweb.PeerResources
 import Chainweb.Chainweb.PruneChainDatabase
+import Chainweb.Counter
 import Chainweb.Cut
 import Chainweb.CutDB
 import Chainweb.HostAddress
@@ -588,18 +589,18 @@ runChainweb
     -> IO ()
 runChainweb cw = do
     logg Info "start chainweb node"
-    runConcurrently $ ()
+    concurrentlies_
         -- 1. Start serving Rest API
-        <$ Concurrently ((if tls then serve else servePlain)
-                $ httpLog
-                . throttle (_chainwebPutPeerThrottler cw)
-                . throttle (_chainwebThrottler cw)
-                . requestSizeLimit
-            )
+        [ (if tls then serve else servePlain)
+            $ httpLog
+            . throttle (_chainwebPutPeerThrottler cw)
+            . throttle (_chainwebThrottler cw)
+            . requestSizeLimit
         -- 2. Start Clients (with a delay of 500ms)
-        <* Concurrently (threadDelay 500000 >> clients)
+        , threadDelay 500000 >> clients
         -- 3. Start serving local API
-        <* Concurrently (threadDelay 500000 >> serveServiceApi (serviceHttpLog . requestSizeLimit))
+        , threadDelay 500000 >> serveServiceApi (serviceHttpLog . requestSizeLimit)
+        ]
 
   where
     tls = _p2pConfigTls $ _configP2p $ _chainwebConfig cw
@@ -607,11 +608,11 @@ runChainweb cw = do
     clients :: IO ()
     clients = do
         mpClients <- mempoolSyncClients
-        mapConcurrently_ id $ concat
-              [ miner
-              , cutNetworks mgr (_chainwebCutResources cw)
-              , mpClients
-              ]
+        concurrentlies_ $ concat
+            [ miner
+            , cutNetworks mgr (_chainwebCutResources cw)
+            , mpClients
+            ]
 
     logg :: LogFunctionText
     logg = logFunctionText $ _chainwebLogger cw
@@ -646,43 +647,63 @@ runChainweb cw = do
 
     -- P2P Server
 
-    serverSettings :: Settings
-    serverSettings = setOnException
-        (\r e -> when (shouldDisplayException e) (logg Warn $ loggServerError r e))
-        $ peerServerSettings (_peerResPeer $ _chainwebPeer cw)
-      where
-        shouldDisplayException e
-            | Just InsecureConnectionDenied <- fromException e = False
-            | otherwise = defaultShouldDisplayException e
+    serverSettings :: Counter "clientClosedConnections" -> Settings
+    serverSettings closedConnectionsCounter = setOnException
+        (\r e -> if
+            | Just InsecureConnectionDenied <- fromException e ->
+                return ()
+            | Just ClientClosedConnectionPrematurely <- fromException e ->
+                inc closedConnectionsCounter
+            | otherwise ->
+                when (defaultShouldDisplayException e) $
+                    logg Warn $ loggServerError r e
+        ) $ peerServerSettings (_peerResPeer $ _chainwebPeer cw)
+
+    monitorConnectionsClosedByClient :: Counter "clientClosedConnections" -> IO ()
+    monitorConnectionsClosedByClient clientClosedConnectionsCounter =
+        runForever logg "ConnectionClosedByClient.counter" $ do
+            approximateThreadDelay 60000000 {- 1 minute -}
+            logFunctionCounter (_chainwebLogger cw) Info . (:[]) =<<
+                roll clientClosedConnectionsCounter
 
     serve :: Middleware -> IO ()
-    serve = serveChainwebSocketTls
-        serverSettings
-        (_peerCertificateChain $ _peerResPeer $ _chainwebPeer cw)
-        (_peerKey $ _peerResPeer $ _chainwebPeer cw)
-        (_peerResSocket $ _chainwebPeer cw)
-        (_chainwebConfig cw)
-        ChainwebServerDbs
-            { _chainwebServerCutDb = Just cutDb
-            , _chainwebServerBlockHeaderDbs = chainDbsToServe
-            , _chainwebServerMempools = mempoolsToServe
-            , _chainwebServerPayloadDbs = payloadDbsToServe
-            , _chainwebServerPeerDbs = (CutNetwork, cutPeerDb) : memP2pToServe
-            }
+    serve mw = do
+        clientClosedConnectionsCounter <- newCounter
+        concurrently_
+            (serveChainwebSocketTls
+                (serverSettings clientClosedConnectionsCounter)
+                (_peerCertificateChain $ _peerResPeer $ _chainwebPeer cw)
+                (_peerKey $ _peerResPeer $ _chainwebPeer cw)
+                (_peerResSocket $ _chainwebPeer cw)
+                (_chainwebConfig cw)
+                ChainwebServerDbs
+                    { _chainwebServerCutDb = Just cutDb
+                    , _chainwebServerBlockHeaderDbs = chainDbsToServe
+                    , _chainwebServerMempools = mempoolsToServe
+                    , _chainwebServerPayloadDbs = payloadDbsToServe
+                    , _chainwebServerPeerDbs = (CutNetwork, cutPeerDb) : memP2pToServe
+                    }
+                mw)
+            (monitorConnectionsClosedByClient clientClosedConnectionsCounter)
 
     -- serve without tls
     servePlain :: Middleware -> IO ()
-    servePlain = serveChainwebSocket
-        serverSettings
-        (_peerResSocket $ _chainwebPeer cw)
-        (_chainwebConfig cw)
-        ChainwebServerDbs
-            { _chainwebServerCutDb = Just cutDb
-            , _chainwebServerBlockHeaderDbs = chainDbsToServe
-            , _chainwebServerMempools = mempoolsToServe
-            , _chainwebServerPayloadDbs = payloadDbsToServe
-            , _chainwebServerPeerDbs = (CutNetwork, cutPeerDb) : memP2pToServe
-            }
+    servePlain mw = do
+        clientClosedConnectionsCounter <- newCounter
+        concurrently_
+            (serveChainwebSocket
+                (serverSettings clientClosedConnectionsCounter)
+                (_peerResSocket $ _chainwebPeer cw)
+                (_chainwebConfig cw)
+                ChainwebServerDbs
+                    { _chainwebServerCutDb = Just cutDb
+                    , _chainwebServerBlockHeaderDbs = chainDbsToServe
+                    , _chainwebServerMempools = mempoolsToServe
+                    , _chainwebServerPayloadDbs = payloadDbsToServe
+                    , _chainwebServerPeerDbs = (CutNetwork, cutPeerDb) : memP2pToServe
+                    }
+                mw)
+            (monitorConnectionsClosedByClient clientClosedConnectionsCounter)
 
     requestSizeLimit :: Middleware
     requestSizeLimit = requestSizeLimitMiddleware $
