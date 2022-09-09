@@ -462,7 +462,7 @@ readHighestCutHeaders :: ChainwebVersion -> LogFunction -> WebBlockHeaderDb -> R
 readHighestCutHeaders v logfun wbhdb cutHashesStore = withTableIter (_getRocksDbCas cutHashesStore) $ \it -> do
     tableIterLast it
     go it
-    where
+  where
     logg = logfun @T.Text
     -- TODO: should we limit the search to a certain number of attempts
     -- or iterate in increasinly larger steps?
@@ -490,7 +490,7 @@ fastForwardCutDb cutDb = do
         limitCutHeaders wbhdb (max 0 $ avgCutHeightAt v (fromMaybe maxBound (_cutDbFastForwardHeightLimit cutDb))) highestCutHeaders
     let limitedCut = unsafeMkCut (_chainwebVersion cutDb) limitedCutHeaders
     atomically $ writeTVar (_cutDbCut cutDb) limitedCut
-    where
+  where
     v = _chainwebVersion cutDb
     wbhdb = _webBlockHeaderStoreCas $ _cutDbHeaderStore cutDb
 
