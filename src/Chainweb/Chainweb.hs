@@ -589,7 +589,7 @@ runChainweb
     -> IO ()
 runChainweb cw = do
     logg Info "start chainweb node"
-    foldr1 concurrently_
+    concurrentlies_
         -- 1. Start serving Rest API
         [ (if tls then serve else servePlain)
             $ httpLog
@@ -608,11 +608,11 @@ runChainweb cw = do
     clients :: IO ()
     clients = do
         mpClients <- mempoolSyncClients
-        foldr1 concurrently_ $ concat
-              [ miner
-              , cutNetworks mgr (_chainwebCutResources cw)
-              , mpClients
-              ]
+        concurrentlies_ $ concat
+            [ miner
+            , cutNetworks mgr (_chainwebCutResources cw)
+            , mpClients
+            ]
 
     logg :: LogFunctionText
     logg = logFunctionText $ _chainwebLogger cw
