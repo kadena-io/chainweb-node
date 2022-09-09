@@ -443,7 +443,7 @@ startCutDb config logfun headerStore payloadStore cutHashesStore = mask_ $ do
             case _cutDbParamsInitialHeightLimit config of
                 Nothing -> return hm
                 Just h -> do
-                    limitedCutHeaders <- limitCutHeaders wbhdb (max 0 $ avgCutHeightAt v h) hm
+                    limitedCutHeaders <- limitCutHeaders wbhdb h hm
                     let limitedCut = unsafeMkCut v limitedCutHeaders
                     unless (_cutDbParamsReadOnly config) $
                         casInsert cutHashesStore (cutToCutHashes Nothing limitedCut)
@@ -487,7 +487,7 @@ fastForwardCutDb cutDb = do
     highestCutHeaders <-
         readHighestCutHeaders v (_cutDbLogFunction cutDb) wbhdb (_cutDbStore cutDb)
     limitedCutHeaders <-
-        limitCutHeaders wbhdb (max 0 $ avgCutHeightAt v (fromMaybe maxBound (_cutDbFastForwardHeightLimit cutDb))) highestCutHeaders
+        limitCutHeaders wbhdb (fromMaybe maxBound (_cutDbFastForwardHeightLimit cutDb)) highestCutHeaders
     let limitedCut = unsafeMkCut (_chainwebVersion cutDb) limitedCutHeaders
     atomically $ writeTVar (_cutDbCut cutDb) limitedCut
   where
