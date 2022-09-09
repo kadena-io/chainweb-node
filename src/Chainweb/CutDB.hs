@@ -167,7 +167,7 @@ data CutDbParams = CutDbParams
     , _cutDbParamsFetchTimeout :: !Int
     , _cutDbParamsInitialHeightLimit :: !(Maybe BlockHeight)
     , _cutDbParamsFastForwardHeightLimit :: !(Maybe BlockHeight)
-    , _cutDbParamsAvgBlockHeightPruningDepth :: BlockHeight
+    , _cutDbParamsAvgBlockHeightPruningDepth :: !BlockHeight
     -- ^ How many block heights' worth of cuts should we keep around?
     -- (how far back do we expect that a fork can happen)
     , _cutDbParamsPruningFrequency :: !BlockHeight
