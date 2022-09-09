@@ -111,7 +111,6 @@ import Data.Bifunctor (second)
 import Data.Foldable
 import Data.Function (on)
 import qualified Data.HashMap.Strict as HM
-import Data.IORef
 import Data.List (isPrefixOf, sortBy)
 import qualified Data.List as L
 import Data.Maybe
@@ -145,6 +144,7 @@ import Chainweb.Chainweb.MempoolSyncClient
 import Chainweb.Chainweb.MinerResources
 import Chainweb.Chainweb.PeerResources
 import Chainweb.Chainweb.PruneChainDatabase
+import Chainweb.Counter
 import Chainweb.Cut
 import Chainweb.CutDB
 import Chainweb.HostAddress
@@ -647,32 +647,31 @@ runChainweb cw = do
 
     -- P2P Server
 
-    serverSettings :: IORef Int -> Settings
-    serverSettings closedConnectionsRef = setOnException
+    serverSettings :: Counter "clientClosedConnections" -> Settings
+    serverSettings closedConnectionsCounter = setOnException
         (\r e -> if
             | Just InsecureConnectionDenied <- fromException e ->
                 return ()
             | Just ClientClosedConnectionPrematurely <- fromException e ->
-                atomicModifyIORef' closedConnectionsRef (\n -> (n + 1, ()))
+                inc closedConnectionsCounter
             | otherwise ->
                 when (defaultShouldDisplayException e) $
                     logg Warn $ loggServerError r e
         ) $ peerServerSettings (_peerResPeer $ _chainwebPeer cw)
 
-    monitorConnectionsClosedByClient :: IORef Int -> IO ()
-    monitorConnectionsClosedByClient closedConnectionsRef =
+    monitorConnectionsClosedByClient :: Counter "clientClosedConnections" -> IO ()
+    monitorConnectionsClosedByClient clientClosedConnectionsCounter =
         runForever logg "ConnectionClosedByClient.counter" $ do
-            closedConnections <- atomicModifyIORef' closedConnectionsRef (\n -> (0, n))
-            when (closedConnections /= 0) $
-                logg Info $ "Clients closed connections prematurely " <> sshow closedConnections <> " times"
-            threadDelay (5 * 60 * 1_000_000)
+            approximateThreadDelay 60000000 {- 1 minute -}
+            logFunctionCounter (_chainwebLogger cw) Info . (:[]) =<<
+                roll clientClosedConnectionsCounter
 
     serve :: Middleware -> IO ()
     serve mw = do
-        closedConnectionsRef <- newIORef 0
+        clientClosedConnectionsCounter <- newCounter
         concurrently_
             (serveChainwebSocketTls
-                (serverSettings closedConnectionsRef)
+                (serverSettings clientClosedConnectionsCounter)
                 (_peerCertificateChain $ _peerResPeer $ _chainwebPeer cw)
                 (_peerKey $ _peerResPeer $ _chainwebPeer cw)
                 (_peerResSocket $ _chainwebPeer cw)
@@ -685,15 +684,15 @@ runChainweb cw = do
                     , _chainwebServerPeerDbs = (CutNetwork, cutPeerDb) : memP2pToServe
                     }
                 mw)
-            (monitorConnectionsClosedByClient closedConnectionsRef)
+            (monitorConnectionsClosedByClient clientClosedConnectionsCounter)
 
     -- serve without tls
     servePlain :: Middleware -> IO ()
     servePlain mw = do
-        closedConnectionsRef <- newIORef 0
+        clientClosedConnectionsCounter <- newCounter
         concurrently_
             (serveChainwebSocket
-                (serverSettings closedConnectionsRef)
+                (serverSettings clientClosedConnectionsCounter)
                 (_peerResSocket $ _chainwebPeer cw)
                 (_chainwebConfig cw)
                 ChainwebServerDbs
@@ -704,7 +703,7 @@ runChainweb cw = do
                     , _chainwebServerPeerDbs = (CutNetwork, cutPeerDb) : memP2pToServe
                     }
                 mw)
-            (monitorConnectionsClosedByClient closedConnectionsRef)
+            (monitorConnectionsClosedByClient clientClosedConnectionsCounter)
 
     requestSizeLimit :: Middleware
     requestSizeLimit = requestSizeLimitMiddleware $
