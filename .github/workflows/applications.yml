@@ -304,6 +304,7 @@ jobs:
 
     # Build
     - name: Delete Freeze file if it exists
+      if: matrix.use-freeze-file != 'true'
       # we generate and archive a new freeze file during the build
       run: rm -f cabal.project.freeze
     - name: Update package database
@@ -311,9 +312,10 @@ jobs:
     - name: Display outdated packages
       run: cabal outdated
     - name: Configure build
-      run: |
-        cabal build all --dry-run
-        cabal freeze
+      run: cabal build all --dry-run
+    - name: Generate new freeze file
+      if: matrix.use-freeze-file != 'true'
+      run: cabal freeze
     - name: Display Dependency Changes
       run: |
         diff -w <(git show HEAD:cabal.project.freeze) cabal.project.freeze || true
@@ -336,23 +338,17 @@ jobs:
     # Checks
     - name: Check that working directory tree is clean
       run: |
-        mv cabal.project.freeze cabal.project.freeze.backup
-        git checkout -- cabal.project.freeze || true
-        if ! git diff --exit-code; then
+        if ! git diff --exit-code -- :^cabal.project.freeze ; then
           echo "Git working tree is not clean. The build changed some file that is checked into git." 1>&2
           exit 1
         fi
-        mv cabal.project.freeze.backup cabal.project.freeze
     - name: Run ea and verify consistency of genesis headers
       run: |
         cabal run cwtool -- ea
-        mv cabal.project.freeze cabal.project.freeze.backup
-        git checkout -- cabal.project.freeze || true
-        if ! git diff --exit-code; then
+        if ! git diff --exit-code -- src/Chainweb/BlockHeader/Genesis/ src/Chainweb/Pact/Transactions/ ; then
           echo "Inconsistent genesis headers detected. Did you forget to run ea?" 1>&2
           exit 1
         fi
-        mv cabal.project.freeze.backup cabal.project.freeze
 
     # Archive Artifacts
     - name: Prepare artifacts
