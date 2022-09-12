@@ -14,11 +14,11 @@
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE StandaloneDeriving #-}
-{-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE ViewPatterns #-}
 {-# LANGUAGE UndecidableInstances #-}
+{-# LANGUAGE RecordWildCards #-}
 
 -- |
 -- Module: Data.CAS.RocksDB
@@ -37,24 +37,26 @@
 -- type is content-addressable.
 --
 -- TODO: Abstract the 'RocksDbTable' API into a typeclass so that one can
--- provide alterantive implementations for it.
+-- provide alternative implementations for it.
 --
 module Data.CAS.RocksDB
 ( RocksDb(..)
-, rocksDbHandle
-, rocksDbNamespace
+-- , rocksDbHandle
+-- , rocksDbNamespace
 , openRocksDb
 , closeRocksDb
 , withRocksDb
 , withTempRocksDb
 , destroyRocksDb
 , resetOpenRocksDb
+, modernDefaultOptions
 
 -- * Rocks DB Table
 , Codec(..)
 , RocksDbTable
 , newTable
 , tableLookup
+, tableLookupBatch
 , tableInsert
 , tableDelete
 
@@ -64,8 +66,6 @@ module Data.CAS.RocksDB
 
 -- * Rocks DB Table Iterator
 , RocksDbTableIter
-, createTableIter
-, releaseTableIter
 , withTableIter
 , tableIterValid
 
@@ -86,6 +86,7 @@ module Data.CAS.RocksDB
 -- ** Streams
 , iterToEntryStream
 , iterToValueStream
+, iterToReverseValueStream
 , iterToKeyStream
 
 -- ** Extremal Table Entries
@@ -106,7 +107,7 @@ module Data.CAS.RocksDB
 , compactRangeRocksDb
 ) where
 
-import Control.Lens
+import Control.Exception(evaluate)
 import Control.Monad
 import Control.Monad.Catch
 import Control.Monad.IO.Class
@@ -116,6 +117,7 @@ import qualified Data.ByteString as B
 import qualified Data.ByteString.Char8 as B8
 import qualified Data.ByteString.Unsafe as BU
 import Data.Coerce
+import Data.Foldable
 
 import Data.CAS
 import Data.String
@@ -126,17 +128,21 @@ import Foreign
 import Foreign.C
 
 import qualified Database.RocksDB.Base as R
+import qualified Database.RocksDB.ReadOptions as R
 import qualified Database.RocksDB.C as C
 import qualified Database.RocksDB.Internal as R
 import qualified Database.RocksDB.Iterator as I
 
 import GHC.Generics (Generic)
+import qualified GHC.Foreign as GHC
+import qualified GHC.IO.Encoding as GHC
 import GHC.Stack
 
 import NoThunks.Class
 
 import qualified Streaming.Prelude as S
 
+import System.Directory
 import System.IO.Temp
 
 -- -------------------------------------------------------------------------- --
@@ -191,24 +197,34 @@ instance NoThunks RocksDb where
     {-# INLINE wNoThunks #-}
     {-# INLINE showTypeOf #-}
 
-makeLenses ''RocksDb
+
+-- makeLenses ''RocksDb
 
 modernDefaultOptions :: R.Options
-modernDefaultOptions = R.defaultOptions 
+modernDefaultOptions = R.defaultOptions
     { R.maxOpenFiles = -1
     , R.writeBufferSize = 64 `shift` 20
+    , R.createIfMissing = True
     }
 
 -- | Open a 'RocksDb' instance with the default namespace. If no rocks db exists
 -- at the provided directory path, a new database is created.
 --
-openRocksDb :: FilePath -> IO RocksDb
-openRocksDb path = do
-    db <- RocksDb <$> R.open path opts <*> mempty
-    initializeRocksDb db
-    return db
-  where
-    opts = modernDefaultOptions { R.createIfMissing = True }
+openRocksDb :: FilePath -> C.OptionsPtr -> IO RocksDb
+openRocksDb path opts_ptr = do
+    GHC.setFileSystemEncoding GHC.utf8
+    createDirectoryIfMissing True path
+    db <- withFilePath path $ \path_ptr ->
+        liftM R.DB
+        $ R.throwIfErr "open"
+        $ C.c_rocksdb_open opts_ptr path_ptr
+    let rdb = RocksDb db mempty
+    initializeRocksDb rdb
+    return rdb
+
+withOpts :: R.Options -> (R.Options' -> IO a) -> IO a
+withOpts opts =
+    bracket (R.mkOpts opts) R.freeOpts
 
 -- | Each table key starts with @_rocksDbNamespace db <> "-"@. Here we insert a
 -- dummy key that is guaranteed to be appear after any other key in the
@@ -231,25 +247,27 @@ resetOpenRocksDb path = do
     initializeRocksDb db
     return db
   where
-    opts = modernDefaultOptions { R.createIfMissing = True, R.errorIfExists = True }
+    opts = modernDefaultOptions { R.errorIfExists = True }
 
 -- | Close a 'RocksDb' instance.
 --
 closeRocksDb :: RocksDb -> IO ()
-closeRocksDb = R.close . _rocksDbHandle
+closeRocksDb (RocksDb (R.DB db_ptr) _) = C.c_rocksdb_close db_ptr
 
 -- | Provide a computation with a 'RocksDb' instance. If no rocks db exists at
 -- the provided directory path, a new database is created.
 --
-withRocksDb :: FilePath -> (RocksDb -> IO a) -> IO a
-withRocksDb path = bracket (openRocksDb path) closeRocksDb
+withRocksDb :: FilePath -> R.Options -> (RocksDb -> IO a) -> IO a
+withRocksDb path opts act =
+    withOpts opts $ \(R.Options' opts_ptr _ _) ->
+        bracket (openRocksDb path opts_ptr) closeRocksDb act
 
 -- | Provide a computation with a temporary 'RocksDb'. The database is deleted
 -- when the computation exits.
 --
 withTempRocksDb :: String -> (RocksDb -> IO a) -> IO a
 withTempRocksDb template f = withSystemTempDirectory template $ \dir ->
-    withRocksDb dir f
+    withRocksDb dir modernDefaultOptions f
 
 -- | Delete the RocksDb instance.
 --
@@ -277,16 +295,13 @@ destroyRocksDb path = R.destroy path opts
 data Codec a = Codec
     { _codecEncode :: !(a -> B.ByteString)
         -- ^ encode a value.
-    , _codecDecode :: !(forall m . MonadThrow m => B.ByteString -> m a)
+    , _codecDecode :: !(forall m. MonadThrow m => B.ByteString -> m a)
         -- ^ decode a value. Throws an exception of decoding fails.
     }
 
 instance NoThunks (Codec a) where
-    wNoThunks c (Codec a _) = allNoThunks
-        [ noThunks c a
-          -- _codecDecode is existentially quantified and the instance dictionary
-          -- reference is a thunk, even thought the field is strict
-        ]
+    -- NoThunks does not look inside of closures for captured thunks
+    wNoThunks _ _ = return Nothing
     showTypeOf _ = "Data.CAS.RocksDB.Codec"
     {-# INLINE wNoThunks #-}
     {-# INLINE showTypeOf #-}
@@ -350,9 +365,25 @@ tableInsert db k v = R.put
 --
 tableLookup :: RocksDbTable k v -> k -> IO (Maybe v)
 tableLookup db k = do
-    maybeBytes <- get (_rocksDbTableDb db) R.defaultReadOptions (encKey db k)
+    maybeBytes <- get (_rocksDbTableDb db) mempty (encKey db k)
     traverse (decVal db) maybeBytes
 {-# INLINE tableLookup #-}
+
+-- | @tableLookupBatch db ks@ returns for each @k@ in @ks@ 'Just' the value at
+-- key @k@ in the 'RocksDbTable' @db@ if it exists, or 'Nothing' if the @k@
+-- doesn't exist in the table.
+--
+tableLookupBatch
+    :: HasCallStack
+    => RocksDbTable k v
+    -> V.Vector k
+    -> IO (V.Vector (Maybe v))
+tableLookupBatch db ks = do
+    results <- multiGet (_rocksDbTableDb db) mempty (V.map (encKey db) ks)
+    V.forM results $ \case
+        Left e -> error $ "Data.CAS.RocksDB.tableLookupBatch: " <> e
+        Right x -> traverse (decVal db) x
+{-# INLINE tableLookupBatch #-}
 
 -- | @tableDelete db k@ deletes the value at the key @k@ from the 'RocksDbTable'
 -- db. If the @k@ doesn't exist in @db@ this function does nothing.
@@ -435,39 +466,33 @@ instance NoThunks (RocksDbTableIter k v) where
     {-# INLINE wNoThunks #-}
     {-# INLINE showTypeOf #-}
 
--- | Creates a 'RocksDbTableIterator'. If the 'RocksDbTable' is not empty, the
--- iterator is pointing to the first key in the 'RocksDbTable' and is valid.
---
--- The returnd iterator must be released with 'releaseTableIter' when it is not
--- needed any more. Not doing so release in a data leak that retains database
--- snapshots.
---
-createTableIter :: RocksDbTable k v -> IO (RocksDbTableIter k v)
-createTableIter db = do
-    !tit <- RocksDbTableIter
-        (_rocksDbTableValueCodec db)
-        (_rocksDbTableKeyCodec db)
-        (_rocksDbTableNamespace db)
-        <$> I.createIter (_rocksDbTableDb db) R.defaultReadOptions
-    tableIterFirst tit
-    return tit
-{-# INLINE createTableIter #-}
-
--- | Releases an 'RocksDbTableIteror', freeing up it's resources.
---
-releaseTableIter :: RocksDbTableIter k v -> IO ()
-releaseTableIter = I.releaseIter . _rocksDbTableIter
-{-# INLINE releaseTableIter #-}
-
--- | Provide an computation with a 'RocksDbTableIteror' and release the iterator
+-- | Provide an computation with a 'RocksDbTableIterator' and release the iterator
 -- after after the computation has finished either by returning a result or
--- throwing an exception.
+-- throwing an exception. If the 'RocksDbTable' input is not empty, the iterator
+-- will point to the first key in the 'RocksdbTable' when created.
 --
--- This is function provides the prefered way of creating and using a
+-- This is function provides the preferred way of creating and using a
 -- 'RocksDbTableIter'.
 --
 withTableIter :: RocksDbTable k v -> (RocksDbTableIter k v -> IO a) -> IO a
-withTableIter db = bracket (createTableIter db) releaseTableIter
+withTableIter db k = R.withReadOptions readOptions $ \opts_ptr ->
+    I.withIter (_rocksDbTableDb db) opts_ptr $ \iter -> do
+        let tableIter = makeTableIter iter
+        tableIterFirst tableIter
+        k tableIter
+  where
+    readOptions = fold
+        [ R.setLowerBound (namespaceFirst $ _rocksDbTableNamespace db)
+        , R.setUpperBound (namespaceLast $ _rocksDbTableNamespace db)
+        -- TODO: this setting tells rocksdb to use prefix seek *when it can*.
+        -- the question remains: is it actually being used?
+        , R.setAutoPrefixMode True
+        ]
+    makeTableIter =
+        RocksDbTableIter
+            (_rocksDbTableValueCodec db)
+            (_rocksDbTableKeyCodec db)
+            (_rocksDbTableNamespace db)
 {-# INLINE withTableIter #-}
 
 -- | Checks if an 'RocksDbTableIterator' is valid.
@@ -475,42 +500,40 @@ withTableIter db = bracket (createTableIter db) releaseTableIter
 -- A valid iterator returns a value when 'tableIterEntry', 'tableIterValue', or
 -- 'tableIterKey' is called on it.
 --
-tableIterValid :: MonadIO m => RocksDbTableIter k v -> m Bool
-tableIterValid it = I.iterKey (_rocksDbTableIter it) >>= \case
-    Nothing -> return False
-    (Just !x) -> return $! checkIterKey it x
+tableIterValid :: RocksDbTableIter k v -> IO Bool
+tableIterValid it =
+    I.iterValid (_rocksDbTableIter it)
 {-# INLINE tableIterValid #-}
 
 -- | Efficiently seek to a key in a 'RocksDbTableIterator' iteration.
 --
-tableIterSeek :: MonadIO m => RocksDbTableIter k v -> k -> m ()
+tableIterSeek :: RocksDbTableIter k v -> k -> IO ()
 tableIterSeek it = I.iterSeek (_rocksDbTableIter it) . encIterKey it
 {-# INLINE tableIterSeek #-}
 
 -- | Seek to the first key in a 'RocksDbTable'.
 --
-tableIterFirst :: MonadIO m => RocksDbTableIter k v -> m ()
-tableIterFirst it
-    = I.iterSeek (_rocksDbTableIter it) $ namespaceFirst (_rocksDbTableIterNamespace it)
+tableIterFirst :: RocksDbTableIter k v -> IO ()
+tableIterFirst it =
+    I.iterFirst (_rocksDbTableIter it)
 {-# INLINE tableIterFirst #-}
 
 -- | Seek to the last value in a 'RocksDbTable'
 --
-tableIterLast :: MonadIO m => RocksDbTableIter k v -> m ()
-tableIterLast it = do
-    I.iterSeek (_rocksDbTableIter it) $ namespaceLast (_rocksDbTableIterNamespace it)
-    I.iterPrev (_rocksDbTableIter it)
+tableIterLast :: RocksDbTableIter k v -> IO ()
+tableIterLast it =
+    I.iterLast (_rocksDbTableIter it)
 {-# INLINE tableIterLast #-}
 
 -- | Move a 'RocksDbTableIter' to the next key in a 'RocksDbTable'.
 --
-tableIterNext :: MonadIO m => RocksDbTableIter k v -> m ()
+tableIterNext :: RocksDbTableIter k v -> IO ()
 tableIterNext = I.iterNext . _rocksDbTableIter
 {-# INLINE tableIterNext #-}
 
 -- | Move a 'RocksDbTableIter' to the previous key in a 'RocksDbTable'.
 --
-tableIterPrev :: MonadIO m => RocksDbTableIter k v -> m ()
+tableIterPrev :: RocksDbTableIter k v -> IO ()
 tableIterPrev = I.iterPrev . _rocksDbTableIter
 {-# INLINE tableIterPrev #-}
 
@@ -518,42 +541,38 @@ tableIterPrev = I.iterPrev . _rocksDbTableIter
 -- 'RocksDbTableIter'. Returns 'Nothing' if the iterator is invalid.
 --
 tableIterEntry
-    :: MonadIO m
-    => MonadThrow m
-    => RocksDbTableIter k v
-    -> m (Maybe (k, v))
-tableIterEntry it = I.iterEntry (_rocksDbTableIter it) >>= \case
-    Nothing -> return Nothing
-    Just (k, v) -> do
-        tryDecIterKey it k >>= \case
-            Nothing -> return Nothing
-            (Just !k') -> do
-                !v' <- decIterVal it v
-                return $! Just $! (k', v')
+    :: RocksDbTableIter k v
+    -> IO (Maybe (k, v))
+tableIterEntry it =
+    I.iterEntry (_rocksDbTableIter it) >>= \case
+        Nothing -> return Nothing
+        Just (k, v) -> do
+            !k' <- decIterKey it k
+            !v' <- decIterVal it v
+            return $ Just (k', v')
+
 {-# INLINE tableIterEntry #-}
 
 -- | Returns the value at the current position of a 'RocksDbTableIter'. Returns
 -- 'Nothing' if the iterator is invalid.
 --
 tableIterValue
-    :: MonadIO m
-    => MonadThrow m
-    => RocksDbTableIter k v
-    -> m (Maybe v)
-tableIterValue it = fmap snd <$> tableIterEntry it
+    :: RocksDbTableIter k v
+    -> IO (Maybe v)
+tableIterValue it = I.iterValue (_rocksDbTableIter it) >>= \case
+    Nothing -> return Nothing
+    Just v -> pure . Just =<< evaluate =<< decIterVal it v
 {-# INLINE tableIterValue #-}
 
 -- | Returns the key at the current position of a 'RocksDbTableIter'. Returns
 -- 'Nothing' if the iterator is invalid.
 --
 tableIterKey
-    :: MonadIO m
-    => MonadThrow m
-    => RocksDbTableIter k v
-    -> m (Maybe k)
+    :: RocksDbTableIter k v
+    -> IO (Maybe k)
 tableIterKey it = I.iterKey (_rocksDbTableIter it) >>= \case
     Nothing -> return Nothing
-    Just k -> tryDecIterKey it k
+    Just k -> pure . Just =<< evaluate =<< decIterKey it k
 {-# INLINE tableIterKey #-}
 
 -- | Returns the stream of key-value pairs of an 'RocksDbTableIter'.
@@ -563,10 +582,11 @@ tableIterKey it = I.iterKey (_rocksDbTableIter it) >>= \case
 -- error. Not releasing the iterator after the processing of the stream has
 -- finished results in a memory leak.
 --
-iterToEntryStream :: MonadIO m => RocksDbTableIter k v -> S.Stream (S.Of (k,v)) m ()
-iterToEntryStream it = liftIO (tableIterEntry it) >>= \case
-    Nothing -> return ()
-    Just x -> S.yield x >> tableIterNext it >> iterToEntryStream it
+iterToEntryStream :: RocksDbTableIter k v -> S.Stream (S.Of (k,v)) IO ()
+iterToEntryStream it =
+    liftIO (tableIterEntry it) >>= \case
+        Nothing -> return ()
+        Just x -> S.yield x >> liftIO (tableIterNext it) >> iterToEntryStream it
 {-# INLINE iterToEntryStream #-}
 
 -- | Returns the stream of values of an 'RocksDbTableIter'.
@@ -576,11 +596,27 @@ iterToEntryStream it = liftIO (tableIterEntry it) >>= \case
 -- error. Not releasing the iterator after the processing of the stream has
 -- finished results in a memory leak.
 --
-iterToValueStream :: MonadIO m => RocksDbTableIter k v -> S.Stream (S.Of v) m ()
-iterToValueStream it = liftIO (tableIterValue it) >>= \case
-    Nothing -> return ()
-    Just x -> S.yield x >> tableIterNext it >> iterToValueStream it
+iterToValueStream :: Show k => RocksDbTableIter k v -> S.Stream (S.Of v) IO ()
+iterToValueStream it = do
+    liftIO (tableIterValue it) >>= \case
+        Nothing -> return ()
+        Just x -> S.yield x >> liftIO (tableIterNext it) >> iterToValueStream it
 {-# INLINE iterToValueStream #-}
+
+-- Returns the stream of key-value pairs of an 'RocksDbTableIter' in reverse
+-- order.
+--
+-- The iterator must be released after the stream is consumed. Releasing the
+-- iterator to early while the stream is still in use results in a runtime
+-- error. Not releasing the iterator after the processing of the stream has
+-- finished results in a memory leak.
+--
+iterToReverseValueStream :: RocksDbTableIter k v -> S.Stream (S.Of v) IO ()
+iterToReverseValueStream it =
+    liftIO (tableIterValue it) >>= \case
+        Nothing -> return ()
+        Just x -> S.yield x >> liftIO (tableIterPrev it) >> iterToReverseValueStream it
+{-# INLINE iterToReverseValueStream #-}
 
 -- | Returns the stream of keys of an 'RocksDbTableIter'.
 --
@@ -589,10 +625,11 @@ iterToValueStream it = liftIO (tableIterValue it) >>= \case
 -- error. Not releasing the iterator after the processing of the stream has
 -- finished results in a memory leak.
 --
-iterToKeyStream :: MonadIO m => RocksDbTableIter k v -> S.Stream (S.Of k) m ()
-iterToKeyStream it = liftIO (tableIterKey it) >>= \case
-    Nothing -> return ()
-    Just x -> S.yield x >> tableIterNext it >> iterToKeyStream it
+iterToKeyStream :: RocksDbTableIter k v -> S.Stream (S.Of k) IO ()
+iterToKeyStream it =
+    liftIO (tableIterKey it) >>= \case
+        Nothing -> return ()
+        Just x -> S.yield x >> liftIO (tableIterNext it) >> iterToKeyStream it
 {-# INLINE iterToKeyStream #-}
 
 -- Extremal Table Entries
@@ -642,7 +679,10 @@ tableMinEntry = flip withTableIter $ \i -> tableIterFirst i *> tableIterEntry i
 instance (IsCasValue v, CasKeyType v ~ k) => HasCasLookup (RocksDbTable k v) where
     type CasValueType (RocksDbTable k v) = v
     casLookup = tableLookup
+    casLookupBatch = tableLookupBatch
+
     {-# INLINE casLookup #-}
+    {-# INLINE casLookupBatch #-}
 
 -- | For a 'IsCasValue' @v@ with 'CasKeyType v ~ k@,  a 'RocksDbTable k v' is an
 -- instance of 'IsCas'.
@@ -673,7 +713,10 @@ newtype RocksDbCas v = RocksDbCas { _getRocksDbCas :: RocksDbTable (CasKeyType v
 instance IsCasValue v => HasCasLookup (RocksDbCas v) where
     type CasValueType (RocksDbCas v) = v
     casLookup (RocksDbCas x) = casLookup x
+    casLookupBatch (RocksDbCas x) = casLookupBatch x
+
     {-# INLINE casLookup #-}
+    {-# INLINE casLookupBatch #-}
 
 instance IsCasValue v => IsCas (RocksDbCas v) where
     casInsert (RocksDbCas x) = casInsert x
@@ -751,48 +794,15 @@ encIterKey it k = namespaceFirst ns <> _codecEncode (_rocksDbTableIterKeyCodec i
 {-# INLINE encIterKey #-}
 
 decIterVal :: MonadThrow m => RocksDbTableIter k v -> B.ByteString -> m v
-decIterVal i = _codecDecode $ _rocksDbTableIterValueCodec i
+decIterVal i bs = _codecDecode (_rocksDbTableIterValueCodec i) bs
 {-# INLINE decIterVal #-}
 
-checkIterKey :: RocksDbTableIter k v -> B.ByteString -> Bool
-checkIterKey it k = maybe False (const True) $ decIterKey it k
-{-# INLINE checkIterKey #-}
-
--- | Return 'Nothing' if the namespace doesn't match, and throws if the
--- key can't be decoded.
---
--- This function is useful because invalid iterators are represented as
--- iterators that point outside their respective namespace key range.
---
-tryDecIterKey :: MonadThrow m => RocksDbTableIter k v -> B.ByteString -> m (Maybe k)
-tryDecIterKey it k = case B.splitAt (B.length prefix) k of
-    (a, b)
-        | a /= prefix -> return Nothing
-        | otherwise -> Just <$> _codecDecode (_rocksDbTableIterKeyCodec it) b
-  where
-    prefix = namespaceFirst $ _rocksDbTableIterNamespace it
-{-# INLINE tryDecIterKey #-}
-
 decIterKey :: MonadThrow m => RocksDbTableIter k v -> B.ByteString -> m k
-decIterKey it k = case B.splitAt (B.length prefix) k of
-    (a, b)
-        | a == prefix -> _codecDecode (_rocksDbTableIterKeyCodec it) b
-        | otherwise -> throwM
-            $ RocksDbTableIterInvalidKeyNamespace (Expected $ _rocksDbTableIterNamespace it) (Actual a)
+decIterKey it k =
+    _codecDecode (_rocksDbTableIterKeyCodec it) (B.drop (B.length prefix) k)
   where
     prefix = namespaceFirst $ _rocksDbTableIterNamespace it
 {-# INLINE decIterKey #-}
-
-data Checkpoint
-
-foreign import ccall unsafe "rocksdb\\c.h rocksdb_checkpoint_object_create" 
-    rocksdb_checkpoint_object_create :: C.RocksDBPtr -> Ptr CString -> IO (Ptr Checkpoint)
-
-foreign import ccall unsafe "rocksdb\\c.h rocksdb_checkpoint_create"
-    rocksdb_checkpoint_create :: Ptr Checkpoint -> CString -> CULong -> Ptr CString -> IO ()
-
-foreign import ccall unsafe "rocksdb\\c.h rocksdb_checkpoint_object_destroy"
-    rocksdb_checkpoint_object_destroy :: Ptr Checkpoint -> IO ()
 
 checked :: HasCallStack => String -> (Ptr CString -> IO a) -> IO a
 checked whatWasIDoing act = alloca $ \errPtr -> do
@@ -806,79 +816,59 @@ checked whatWasIDoing act = alloca $ \errPtr -> do
         error msg
     return r
 
--- to unconditionally flush the WAL log before making the checkpoint, set logSizeFlushThreshold to zero. 
+-- to unconditionally flush the WAL log before making the checkpoint, set logSizeFlushThreshold to zero.
 -- to *never* flush the WAL log, set logSizeFlushThreshold to maxBound :: CULong.
 checkpointRocksDb :: RocksDb -> CULong -> FilePath -> IO ()
-checkpointRocksDb RocksDb { _rocksDbHandle = R.DB dbPtr _ } logSizeFlushThreshold path = 
-    bracket mkCheckpointObject rocksdb_checkpoint_object_destroy mkCheckpoint 
+checkpointRocksDb RocksDb { _rocksDbHandle = R.DB dbPtr } logSizeFlushThreshold path =
+    bracket mkCheckpointObject C.rocksdb_checkpoint_object_destroy mkCheckpoint
   where
-    mkCheckpointObject = 
-        checked "creating checkpoint object" $ 
-            rocksdb_checkpoint_object_create dbPtr 
+    mkCheckpointObject =
+        checked "creating checkpoint object" $
+            C.rocksdb_checkpoint_object_create dbPtr
     mkCheckpoint cp =
-        withCString path $ \path' -> 
-            checked "creating checkpoint" $ 
-                rocksdb_checkpoint_create cp path' logSizeFlushThreshold 
-
-foreign import ccall unsafe "cpp\\chainweb-rocksdb.h rocksdb_delete_range"
-    rocksdb_delete_range
-        :: C.RocksDBPtr
-        -> C.WriteOptionsPtr 
-        -> CString {- min key -}
-        -> CSize {- min key length -}
-        -> CString {- max key length -}
-        -> CSize {- max key length -}
-        -> Ptr CString {- output: errptr -}
-        -> IO ()
+        withCString path $ \path' ->
+            checked "creating checkpoint" $
+                C.rocksdb_checkpoint_create cp path' logSizeFlushThreshold
 
 validateRangeOrdered :: HasCallStack => RocksDbTable k v -> (Maybe k, Maybe k) -> (B.ByteString, B.ByteString)
-validateRangeOrdered table (Just (encKey table -> l), Just (encKey table -> u)) 
+validateRangeOrdered table (Just (encKey table -> l), Just (encKey table -> u))
     | l >= u =
         error "Data.CAS.RocksDB.validateRangeOrdered: range bounds not ordered according to codec"
     | otherwise = (l, u)
-validateRangeOrdered table (l, u) = 
+validateRangeOrdered table (l, u) =
     ( maybe (namespaceFirst (_rocksDbTableNamespace table)) (encKey table) l
-    , maybe (namespaceLast (_rocksDbTableNamespace table)) (encKey table) u 
+    , maybe (namespaceLast (_rocksDbTableNamespace table)) (encKey table) u
     )
 
--- | Batch delete a range of keys in a table. 
+-- | Batch delete a range of keys in a table.
 -- Throws if the range of the *encoded keys* is not ordered (lower, upper).
 deleteRangeRocksDb :: HasCallStack => RocksDbTable k v -> (Maybe k, Maybe k) -> IO ()
 deleteRangeRocksDb table range = do
     let !range' = validateRangeOrdered table range
-    let R.DB dbPtr _ = _rocksDbTableDb table
+    let R.DB dbPtr = _rocksDbTableDb table
     R.withCWriteOpts R.defaultWriteOptions $ \optsPtr ->
         BU.unsafeUseAsCStringLen (fst range') $ \(minKeyPtr, minKeyLen) ->
         BU.unsafeUseAsCStringLen (snd range') $ \(maxKeyPtr, maxKeyLen) ->
-        checked "Data.CAS.RocksDB.deleteRangeRocksDb" $ 
-            rocksdb_delete_range dbPtr optsPtr 
-                minKeyPtr (fromIntegral minKeyLen :: CSize) 
+        checked "Data.CAS.RocksDB.deleteRangeRocksDb" $
+            C.rocksdb_delete_range dbPtr optsPtr
+                minKeyPtr (fromIntegral minKeyLen :: CSize)
                 maxKeyPtr (fromIntegral maxKeyLen :: CSize)
 
-foreign import ccall safe "rocksdb\\c.h rocksdb_compact_range"
-    rocksdb_compact_range
-        :: C.RocksDBPtr
-        -> CString {- min key -}
-        -> CSize {- min key length -}
-        -> CString {- max key -}
-        -> CSize {- max key length -}
-        -> IO ()
-
 compactRangeRocksDb :: HasCallStack => RocksDbTable k v -> (Maybe k, Maybe k) -> IO ()
-compactRangeRocksDb table range = 
+compactRangeRocksDb table range =
     BU.unsafeUseAsCStringLen (fst range') $ \(minKeyPtr, minKeyLen) ->
         BU.unsafeUseAsCStringLen (snd range') $ \(maxKeyPtr, maxKeyLen) ->
-        rocksdb_compact_range dbPtr 
-            minKeyPtr (fromIntegral minKeyLen :: CSize) 
+        C.rocksdb_compact_range dbPtr
+            minKeyPtr (fromIntegral minKeyLen :: CSize)
             maxKeyPtr (fromIntegral maxKeyLen :: CSize)
   where
     !range' = validateRangeOrdered table range
-    R.DB dbPtr _ = _rocksDbTableDb table
+    R.DB dbPtr = _rocksDbTableDb table
 
 -- | Read a value by key.
 -- One less copy than the version in rocksdb-haskell by using unsafePackCStringFinalizer.
 get :: MonadIO m => R.DB -> R.ReadOptions -> ByteString -> m (Maybe ByteString)
-get (R.DB db_ptr _) opts key = liftIO $ R.withCReadOpts opts $ \opts_ptr ->
+get (R.DB db_ptr) opts key = liftIO $ R.withReadOptions opts $ \opts_ptr ->
     BU.unsafeUseAsCStringLen key $ \(key_ptr, klen) ->
     alloca $ \vlen_ptr -> do
         val_ptr <- checked "Data.CAS.RocksDB.get" $
@@ -887,7 +877,61 @@ get (R.DB db_ptr _) opts key = liftIO $ R.withCReadOpts opts $ \opts_ptr ->
         if val_ptr == nullPtr
             then return Nothing
             else do
-                Just <$> BU.unsafePackCStringFinalizer 
-                    ((coerce :: Ptr CChar -> Ptr Word8) val_ptr) 
-                    (R.cSizeToInt vlen) 
+                Just <$> BU.unsafePackCStringFinalizer
+                    ((coerce :: Ptr CChar -> Ptr Word8) val_ptr)
+                    (R.cSizeToInt vlen)
                     (C.c_rocksdb_free val_ptr)
+
+-- | Marshal a 'FilePath' (Haskell string) into a `NUL` terminated C string using
+-- temporary storage.
+-- On Linux, UTF-8 is almost always the encoding used.
+-- When on Windows, UTF-8 can also be used, although the default for those devices is
+-- UTF-16. For a more detailed explanation, please refer to
+-- https://msdn.microsoft.com/en-us/library/windows/desktop/dd374081(v=vs.85).aspx.
+withFilePath :: FilePath -> (CString -> IO a) -> IO a
+withFilePath = GHC.withCString GHC.utf8
+
+-- -------------------------------------------------------------------------- --
+-- Multi Get
+
+multiGet
+    :: MonadIO m
+    => R.DB
+    -> R.ReadOptions
+    -> V.Vector ByteString
+    -> m (V.Vector (Either String (Maybe ByteString)))
+multiGet (R.DB db_ptr) opts keys = liftIO $ R.withReadOptions opts $ \opts_ptr ->
+    allocaArray len $ \keysArray ->
+    allocaArray len $ \keySizesArray ->
+    allocaArray len $ \valuesArray ->
+    allocaArray len $ \valueSizesArray ->
+    allocaArray len $ \errsArray ->
+        let go i (key : ks) =
+                BU.unsafeUseAsCStringLen key $ \(keyPtr, keyLen) -> do
+                    pokeElemOff keysArray i keyPtr
+                    pokeElemOff keySizesArray i (R.intToCSize keyLen)
+                    go (i + 1) ks
+
+            go _ [] = do
+                C.rocksdb_multi_get db_ptr opts_ptr (R.intToCSize len)
+                    keysArray keySizesArray
+                    valuesArray valueSizesArray
+                    errsArray
+                V.generateM len $ \i -> do
+                  valuePtr <- peekElemOff valuesArray i
+                  if valuePtr /= nullPtr
+                    then do
+                      valueLen <- R.cSizeToInt <$> peekElemOff valueSizesArray i
+                      r <- BU.unsafePackMallocCStringLen (valuePtr, valueLen)
+                      return $ Right $ Just r
+                    else do
+                      errPtr <- peekElemOff errsArray i
+                      if errPtr /= nullPtr
+                        then do
+                          err <- B8.unpack <$> BU.unsafePackMallocCString errPtr
+                          return $ Left err
+                        else
+                          return $ Right Nothing
+        in go 0 $ V.toList keys
+  where
+    len = V.length keys
