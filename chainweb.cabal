@@ -558,7 +558,7 @@ test-suite chainweb-tests
         , yaml >= 0.11
         , yet-another-logger >= 0.4.1
         , sha-validation >=0.1
-        , hashes >=0.2.1.1
+        , hashes >=0.2.2.0
 
     if flag(ed25519)
         cpp-options: -DWITH_ED25519=1
