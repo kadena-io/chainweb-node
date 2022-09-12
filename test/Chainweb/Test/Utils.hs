@@ -887,14 +887,15 @@ assertGe msg actual expected = assertBool msg_
 
 -- | Assert that predicate holds.
 assertSatisfies
-  :: Show a
+  :: MonadIO m
+  => Show a
   => String
   -> a
   -> (a -> Bool)
-  -> Assertion
+  -> m ()
 assertSatisfies msg value predf
-  | result = assertEqual msg True result
-  | otherwise = assertFailure $ msg ++ ": " ++ show value
+  | result = liftIO $ assertEqual msg True result
+  | otherwise = liftIO $ assertFailure $ msg ++ ": " ++ show value
   where result = predf value
 
 -- | Assert that string rep of value contains contents.

@@ -76,13 +76,6 @@ source-repository-package
     location: https://github.com/kadena-io/kadena-ethereum-bridge.git
     tag: 10f21e96af1dce4f13e261be9dfad8c28cd299f7
 
--- use for chainweb-tests
-
-source-repository-package
-    type: git
-    location: https://github.com/larskuhtz/hs-sha-validation.git
-    tag: 0542786e7e7b4b24a37243d7168f81800abe59f0
-
 -- Required for GHC-9:
 
 -- ixset-typed FIX (no PR yet)
