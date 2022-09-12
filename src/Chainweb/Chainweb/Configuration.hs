@@ -67,6 +67,8 @@ module Chainweb.Chainweb.Configuration
 , configRosetta
 , configBackup
 , configServiceApi
+, configOnlySyncPact
+, configSyncPactChains
 , defaultChainwebConfiguration
 , pChainwebConfiguration
 , validateChainwebConfiguration
