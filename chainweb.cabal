@@ -451,7 +451,8 @@ test-suite chainweb-tests
         Chainweb.Test.Orphans.Internal
         Chainweb.Test.Orphans.Pact
         Chainweb.Test.Orphans.Time
-        Chainweb.Test.Pact.PactInProcApi
+        Chainweb.Test.Pact.PactMultiChainTest
+        Chainweb.Test.Pact.PactSingleChainTest
         Chainweb.Test.P2P.Peer.BootstrapConfig
         Chainweb.Test.Pact.Checkpointer
         Chainweb.Test.Pact.ModuleCacheOnRestart
@@ -558,7 +559,7 @@ test-suite chainweb-tests
         , yaml >= 0.11
         , yet-another-logger >= 0.4.1
         , sha-validation >=0.1
-        , hashes >=0.2.1.1
+        , hashes >=0.2.2.0
 
     if flag(ed25519)
         cpp-options: -DWITH_ED25519=1
