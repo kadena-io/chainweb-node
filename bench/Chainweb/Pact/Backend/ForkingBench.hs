@@ -307,10 +307,9 @@ withResources rdb trunkLength logLevel f = C.envWithCleanup create destroy unwra
     --
     testBlockHeaderDb :: IO BlockHeaderDb
     testBlockHeaderDb = do
-        t <- rocksDbNamespace (const prefix) rdb
+        prefix <- ("BlockHeaderDb" <>) . sshow <$> (randomIO @Word64)
+        let t = rdb { _rocksDbNamespace = prefix }
         initBlockHeaderDb (Configuration genesisBlock t)
-      where
-        prefix = (<>) "BlockHeaderDb" . sshow <$> (randomIO @Word64)
 
 -- | Mempool Access
 --
