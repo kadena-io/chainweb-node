@@ -613,7 +613,7 @@ runExec cp (PactDbEnv' pactdbenv) eData eCode = do
       applyExec' 0 defaultInterpreter execMsg [] h' permissiveNamespacePolicy
   where
     h' = H.toUntypedHash (H.hash "" :: H.PactHash)
-    cmdenv = TransactionEnv Transactional pactdbenv (_cpeLogger cp) def
+    cmdenv = TransactionEnv Transactional pactdbenv (_cpeLogger cp) Nothing def
              noSPVSupport Nothing 0.0 (RequestKey h') 0 def
     cmdst = TransactionState mempty mempty 0 Nothing (_geGasModel freeGasEnv)
 
@@ -625,7 +625,7 @@ runCont cp (PactDbEnv' pactdbenv) pactId step = do
     contMsg = ContMsg pactId step False Null Nothing
 
     h' = H.toUntypedHash (H.hash "" :: H.PactHash)
-    cmdenv = TransactionEnv Transactional pactdbenv (_cpeLogger cp) def
+    cmdenv = TransactionEnv Transactional pactdbenv (_cpeLogger cp) Nothing def
              noSPVSupport Nothing 0.0 (RequestKey h') 0 def
     cmdst = TransactionState mempty mempty 0 Nothing (_geGasModel freeGasEnv)
 

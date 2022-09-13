@@ -172,7 +172,6 @@ import Numeric.Natural
 
 import Servant.Client (BaseUrl(..), ClientEnv, Scheme(..), mkClientEnv)
 
-import System.Directory
 import System.Environment (withArgs)
 import System.IO
 import System.IO.Temp
@@ -232,6 +231,7 @@ import Chainweb.Version
 import Chainweb.Version.Utils
 
 import Data.CAS.RocksDB
+import qualified Database.RocksDB.Internal as R
 
 import Network.X509.SelfSigned
 
@@ -281,9 +281,9 @@ testRocksDb
     :: B.ByteString
     -> RocksDb
     -> IO RocksDb
-testRocksDb l = rocksDbNamespace (const prefix)
-  where
-    prefix = (<>) l . sshow <$> (randomIO @Word64)
+testRocksDb l r = do
+  prefix <- (<>) l . sshow <$> (randomIO @Word64)
+  return r { _rocksDbNamespace = prefix }
 
 withRocksResource :: (IO RocksDb -> TestTree) -> TestTree
 withRocksResource m = withResource create destroy wrap
@@ -291,14 +291,14 @@ withRocksResource m = withResource create destroy wrap
     create = do
       sysdir <- getCanonicalTemporaryDirectory
       dir <- createTempDirectory sysdir "chainweb-rocksdb-tmp"
-      rocks <- openRocksDb dir
-      return (dir, rocks)
-    destroy (dir, rocks) = do
-        closeRocksDb rocks
-        destroyRocksDb dir
-        removeDirectoryRecursive dir
-          `catchAllSynchronous` (const $ return ())
-    wrap ioact = let io' = snd <$> ioact in m io'
+      opts@(R.Options' opts_ptr _ _) <- R.mkOpts modernDefaultOptions
+      rocks <- openRocksDb dir opts_ptr
+      return (dir, rocks, opts)
+    destroy (dir, rocks, opts) =
+        closeRocksDb rocks `finally`
+            R.freeOpts opts `finally`
+            destroyRocksDb dir
+    wrap ioact = let io' = view _2 <$> ioact in m io'
 
 -- -------------------------------------------------------------------------- --
 -- SQLite DB Test Resource

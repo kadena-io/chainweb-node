@@ -160,6 +160,8 @@ module Chainweb.Utils
 -- * Resource Management
 , concurrentWith
 , withLink
+, concurrentlies
+, concurrentlies_
 
 -- * Tuples
 , thd
@@ -1187,6 +1189,13 @@ withLink act = do
   link a
   return a
 
+-- | Like `sequence` for IO but concurrent
+concurrentlies :: forall a. [IO a] -> IO [a]
+concurrentlies = runConcurrently . traverse Concurrently
+
+-- | Like `sequence_` for IO but concurrent
+concurrentlies_ :: forall a. [IO a] -> IO ()
+concurrentlies_ = void . concurrentlies
 
 -- -------------------------------------------------------------------------- --
 -- Tuples

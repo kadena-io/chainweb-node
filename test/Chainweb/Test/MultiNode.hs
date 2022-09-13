@@ -238,7 +238,7 @@ multiNode loglevel write bootstrapPeerInfoVar conf rdb nid inner = do
     logger :: GenericLogger
     logger = addLabel ("node", toText nid) $ genericLogger loglevel write
 
-    nodeRocksDb = set rocksDbNamespace (T.encodeUtf8 $ toText nid) rdb
+    nodeRocksDb = rdb { _rocksDbNamespace = T.encodeUtf8 $ toText nid }
 
 -- -------------------------------------------------------------------------- --
 -- Run Nodes
