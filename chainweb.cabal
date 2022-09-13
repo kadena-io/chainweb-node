@@ -572,6 +572,7 @@ test-suite chainweb-tests
 --
 executable chainweb-node
     import: warning-flags, debugging-flags
+
     default-language: Haskell2010
     ghc-options:
         -threaded
@@ -582,6 +583,7 @@ executable chainweb-node
     other-modules:
         Paths_chainweb
         PkgInfo
+        Utils.CheckRLimits
         Utils.InstallSignalHandlers
     autogen-modules:
         Paths_chainweb
@@ -602,6 +604,7 @@ executable chainweb-node
         , http-client-tls >=0.3
         , lens >= 4.17
         , loglevel >= 0.1
+        , process >= 1.6
         , managed >= 1.0
         , streaming >= 0.2
         , text >= 1.2
