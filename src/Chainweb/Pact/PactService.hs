@@ -525,7 +525,7 @@ execNewBlock mpAccess parent miner = do
 
     refill fetchLimit pdbenv unchanged@(BlockFilling bfState oldPairs oldFails) = do
 
-      logInfo $ describeBF unchanged
+      logDebug $ describeBF unchanged
 
       -- LOOP INVARIANT: limit absolute recursion count
       when (_bfCount bfState > fetchLimit) $

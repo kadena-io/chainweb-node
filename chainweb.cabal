@@ -1,4 +1,4 @@
-cabal-version: 2.4
+cabal-version: 3.0
 
 name:         chainweb
 version:      2.16
@@ -532,6 +532,7 @@ test-suite chainweb-tests
         , random >= 1.2
         , resource-pool >= 0.3
         , retry >= 0.7
+        , rocksdb-haskell-kadena >= 1.1.0
         , rosetta >= 1.0
         , scheduler >= 1.4
         , servant >= 0.18.2
@@ -558,7 +559,7 @@ test-suite chainweb-tests
         , yaml >= 0.11
         , yet-another-logger >= 0.4.1
         , sha-validation >=0.1
-        , hashes >=0.2.1.1
+        , hashes >=0.2.2.0
 
     if flag(ed25519)
         cpp-options: -DWITH_ED25519=1
@@ -685,7 +686,7 @@ executable cwtool
         , process >= 1.5
         , quickcheck-instances >= 0.3
         , random >= 1.2
-        , rocksdb-haskell >= 1.0
+        , rocksdb-haskell-kadena >= 1.1.0
         , safe-exceptions >= 0.1
         , servant-client >= 0.18.2
         , streaming >= 0.2.2
@@ -745,6 +746,7 @@ benchmark bench
         , merkle-log
         , mtl >= 2.2
         , pact
+        , rocksdb-haskell-kadena >= 1.1.0
         , random >= 1.2
         , text >= 1.2
         , vector >= 0.12.2

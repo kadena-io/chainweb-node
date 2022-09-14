@@ -31,7 +31,6 @@ import Control.DeepSeq
 import Control.Exception (evaluate)
 import Control.Monad
 import Control.Monad.Catch
-import Control.Monad.IO.Class
 
 import Data.Function
 import qualified Data.List as L
@@ -250,19 +249,5 @@ withReverseHeaderStream db mar mir inner = withTableIter headerTbl $ \it -> do
         & S.takeWhile (\a -> int (_blockHeight a) >= mir)
   where
     headerTbl = _chainDbCas db
-
-    -- Returns the stream of key-value pairs of an 'RocksDbTableIter' in reverse
-    -- order.
-    --
-    -- The iterator must be released after the stream is consumed. Releasing the
-    -- iterator to early while the stream is still in use results in a runtime
-    -- error. Not releasing the iterator after the processing of the stream has
-    -- finished results in a memory leak.
-    --
-    iterToReverseValueStream :: RocksDbTableIter k v -> S.Stream (S.Of v) IO ()
-    iterToReverseValueStream it = liftIO (tableIterValue it) >>= \case
-        Nothing -> return ()
-        Just x -> S.yield x >> liftIO (tableIterPrev it) >> iterToReverseValueStream it
-    {-# INLINE iterToReverseValueStream #-}
 
 {-# INLINE withReverseHeaderStream #-}
