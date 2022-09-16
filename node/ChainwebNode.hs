@@ -315,7 +315,7 @@ node conf logger = do
         withChainweb cwConf logger rocksDb pactDbDir dbBackupsDir (_nodeConfigResetChainDbs conf) $ \case
             Replayed _ _ -> return ()
             StartedChainweb cw ->
-                concurrentlies
+                concurrentlies_
                     [ runChainweb cw
                     -- we should probably push 'onReady' deeper here but this should be ok
                     , runCutMonitor (_chainwebLogger cw) (_cutResCutDb $ _chainwebCutResources cw)
