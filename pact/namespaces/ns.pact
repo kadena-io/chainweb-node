@@ -27,16 +27,24 @@
     (enforce (is-charset CHARSET_LATIN1 name)
              "Name must be in latin1 charset"))
 
+  (defun create-principal-namespace:string
+      ( g:guard
+        )
+    " Format principal namespace as Pact hash (BLAKE2b256) of principal \
+    \ in hex truncated to 160 bits (40 characters), prepended with 'n'. "
+    (+ "n" (take 40 (int-to-str 16 (str-to-int 64 (hash g)))))
+  )
+
   (defun validate:bool
       ( ns-name:string
         ns-admin:guard
         )
     " Manages namespace install for Chainweb. \
-    \ Supports principal namespaces ('n' + hashed principal of admin guard). \
+    \ Allows principal namespaces. \
     \ Non-principal namespaces require active row in registry \
     \ for NS-NAME with guard matching NS-ADMIN."
 
-    (if (= (+ "n" (hash (create-principal ns-admin))) ns-name)
+    (if (= (create-principal-namespace ns-admin) ns-name)
 
       true ;; allow principal namespaces
 
