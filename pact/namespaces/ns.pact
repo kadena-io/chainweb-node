@@ -32,7 +32,7 @@
         )
     " Format principal namespace as Pact hash (BLAKE2b256) of principal \
     \ in hex truncated to 160 bits (40 characters), prepended with 'n'. "
-    (+ "n" (take 40 (int-to-str 16 (str-to-int 64 (hash g)))))
+    (+ "n_" (take 40 (int-to-str 16 (str-to-int 64 (hash g)))))
   )
 
   (defun validate:bool

@@ -100,30 +100,30 @@
 
 (expect
  "single principal ns"
- "nc1a583206e24450af26de41110042b019695db8c"
+ "n_c1a583206e24450af26de41110042b019695db8c"
  (ns.create-principal-namespace (read-keyset 'single)))
 
 (expect
  "multi principal ns"
- "n64bfdef1c668b167c87f7cf329454c572e284664"
+ "n_64bfdef1c668b167c87f7cf329454c572e284664"
  (ns.create-principal-namespace (read-keyset 'multi)))
 
 (expect-failure
   "Principal of other than admin keyset fails"
   "Inactive or unregistered namespace"
   (define-namespace
-   "nc1a583206e24450af26de41110042b019695db8c"
+   "n_c1a583206e24450af26de41110042b019695db8c"
    (read-keyset 'single)
    (read-keyset 'multi))
 )
 
 (define-namespace
-  "nc1a583206e24450af26de41110042b019695db8c"
+  "n_c1a583206e24450af26de41110042b019695db8c"
   (read-keyset 'single)
   (read-keyset 'single))
 
 (define-namespace
-  "n64bfdef1c668b167c87f7cf329454c572e284664"
+  "n_64bfdef1c668b167c87f7cf329454c572e284664"
   (read-keyset 'multi)
   (read-keyset 'multi))
 
@@ -134,13 +134,13 @@
   [ "70c787fcfe6c6f4ec23d13c2e94682bc90952f7cec06c7dbac1c012b0b6678b9" ])
 ;; rotate to multi/multi
 (define-namespace
-  "nc1a583206e24450af26de41110042b019695db8c"
+  "n_c1a583206e24450af26de41110042b019695db8c"
   (read-keyset 'multi)
   (read-keyset 'multi))
 ;; rotate to multi/single
 (env-keys ["a","b"])
 (define-namespace
-  "nc1a583206e24450af26de41110042b019695db8c"
+  "n_c1a583206e24450af26de41110042b019695db8c"
   (read-keyset 'multi)
   (read-keyset 'single))
 (rollback-tx)
@@ -155,12 +155,12 @@
   ]
   )
 
-(namespace "nc1a583206e24450af26de41110042b019695db8c")
+(namespace "n_c1a583206e24450af26de41110042b019695db8c")
 (module modK G
   (defcap G () true)
   (defun f () 1))
 
-(namespace "n64bfdef1c668b167c87f7cf329454c572e284664")
+(namespace "n_64bfdef1c668b167c87f7cf329454c572e284664")
 (module modW G
   (defcap G () true)
   (defun f () 2))
@@ -171,9 +171,9 @@
 (expect
   "k: principal namespaces work"
   1
-  (nc1a583206e24450af26de41110042b019695db8c.modK.f))
+  (n_c1a583206e24450af26de41110042b019695db8c.modK.f))
 
 (expect
   "w: principal namespaces work"
   2
-  (n64bfdef1c668b167c87f7cf329454c572e284664.modW.f))
+  (n_64bfdef1c668b167c87f7cf329454c572e284664.modW.f))
