@@ -5,6 +5,7 @@
  , 'ns-operate-keyset: ["operate"]
  , 'ns-genesis-keyset: { "keys": [], "pred": "="} })
 
+(load "v1/ns.pact")
 (load "ns.pact")
 (commit-tx)
 
@@ -67,6 +68,7 @@
   (defcap G () (enforce false "disabled"))
   (defun foo () 4))
 (commit-tx)
+(begin-tx)
 
 (expect "kadena.mod2 works" 4 (kadena.mod2.foo))
 
@@ -85,3 +87,93 @@
 (expect-failure
   "must be latin1 charset"
   (write-registry "emilyπ" GUARD_SUCCESS true))
+
+(commit-tx)
+(begin-tx)
+
+(env-exec-config [])
+(env-data
+ { 'single :
+   ["70c787fcfe6c6f4ec23d13c2e94682bc90952f7cec06c7dbac1c012b0b6678b9"]
+ , 'multi : ["a", "b"]
+ })
+
+(expect
+ "single principal ns"
+ "n_c1a583206e24450af26de41110042b019695db8c"
+ (ns.create-principal-namespace (read-keyset 'single)))
+
+(expect
+ "multi principal ns"
+ "n_64bfdef1c668b167c87f7cf329454c572e284664"
+ (ns.create-principal-namespace (read-keyset 'multi)))
+
+(expect-failure
+  "Principal of other than admin keyset fails"
+  "Inactive or unregistered namespace"
+  (define-namespace
+   "n_c1a583206e24450af26de41110042b019695db8c"
+   (read-keyset 'single)
+   (read-keyset 'multi))
+)
+
+(define-namespace
+  "n_c1a583206e24450af26de41110042b019695db8c"
+  (read-keyset 'single)
+  (read-keyset 'single))
+
+(define-namespace
+  "n_64bfdef1c668b167c87f7cf329454c572e284664"
+  (read-keyset 'multi)
+  (read-keyset 'multi))
+
+(commit-tx)
+
+(begin-tx "test rotation")
+(env-keys
+  [ "70c787fcfe6c6f4ec23d13c2e94682bc90952f7cec06c7dbac1c012b0b6678b9" ])
+;; rotate to multi/multi
+(define-namespace
+  "n_c1a583206e24450af26de41110042b019695db8c"
+  (read-keyset 'multi)
+  (read-keyset 'multi))
+;; rotate to multi/single
+(env-keys ["a","b"])
+(define-namespace
+  "n_c1a583206e24450af26de41110042b019695db8c"
+  (read-keyset 'multi)
+  (read-keyset 'single))
+(rollback-tx)
+
+
+(begin-tx)
+(env-exec-config [])
+(env-keys
+  [ "70c787fcfe6c6f4ec23d13c2e94682bc90952f7cec06c7dbac1c012b0b6678b9"
+  , "a"
+  , "b"
+  ]
+  )
+
+(namespace "n_c1a583206e24450af26de41110042b019695db8c")
+(module modK G
+  (defcap G () true)
+  (defun f () 1))
+
+(namespace "n_64bfdef1c668b167c87f7cf329454c572e284664")
+(module modW G
+  (defcap G () true)
+  (defun f () 2))
+
+(commit-tx)
+(begin-tx)
+
+(expect
+  "k: principal namespaces work"
+  1
+  (n_c1a583206e24450af26de41110042b019695db8c.modK.f))
+
+(expect
+  "w: principal namespaces work"
+  2
+  (n_64bfdef1c668b167c87f7cf329454c572e284664.modW.f))
