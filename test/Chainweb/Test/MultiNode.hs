@@ -229,7 +229,7 @@ multiNode loglevel write stateVar bootstrapPeerInfoVar conf rdb nid = do
             (view (chainwebCutResources . cutsCutDb) cw)
             state
 
-    nodeRocksDb = set rocksDbNamespace (T.encodeUtf8 $ toText nid) rdb
+    nodeRocksDb = rdb { _rocksDbNamespace = T.encodeUtf8 $ toText nid }
 
 -- -------------------------------------------------------------------------- --
 -- Run Nodes

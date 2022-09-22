@@ -17,10 +17,10 @@ runs:
       run: |
         case "${{ inputs.os }}" in
         ubuntu*)
-          sudo apt-get install -y librocksdb-dev z3
+          sudo apt-get install -y build-essential libgflags-dev libtbb-dev
           ;;
         mac*)
-          brew update && brew install rocksdb z3 || true
+          brew update && brew install gnu-tar || true
           ;;
         *)
           echo "::error::unsupported operating system ${{ inputs.os }}"
