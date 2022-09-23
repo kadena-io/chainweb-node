@@ -589,7 +589,7 @@ createEventsProofDb_
     -> IO (PayloadProof a)
 createEventsProofDb_ headerDb payloadDb d h reqKey = do
     hdr <- casLookupM headerDb h
-    p <- casLookupM payloadDb (_blockPayloadHash hdr)
+    (_, p) <- tableLookupM payloadDb (_blockPayloadHash hdr)
     unless (_payloadWithOutputsPayloadHash p == _blockPayloadHash hdr) $
         throwM $ SpvExceptionInconsistentPayloadData
             { _spvExceptionMsg = "The stored payload hash doesn't match the the db index"

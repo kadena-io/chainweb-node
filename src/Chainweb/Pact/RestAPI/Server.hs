@@ -116,8 +116,6 @@ import Chainweb.Utils
 import Chainweb.Version
 import Chainweb.WebPactExecutionService
 
-import Chainweb.Storage.Table
-
 import Pact.Types.API
 import qualified Pact.Types.ChainId as Pact
 import Pact.Types.Command
@@ -577,7 +575,7 @@ internalPoll pdb bhdb mempool pactEx cut requestKeys0 = do
         let matchingHash = (== pactHash) . _cmdHash . fst
         blockHeader <- liftIO $ TreeDB.lookupM bhdb bHash
         let payloadHash = _blockPayloadHash blockHeader
-        (PayloadWithOutputs txsBs _ _ _ _ _) <- MaybeT $ tableLookup pdb payloadHash
+        PayloadWithOutputs txsBs _ _ _ _ _ <- MaybeT $ lookupPayloadWithHeight pdb (_blockHeight blockHeader) payloadHash
         !txs <- mapM fromTx txsBs
         case find matchingHash txs of
             Just (_cmd, TransactionOutput output) -> do

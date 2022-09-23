@@ -174,9 +174,9 @@ memoInsert cas m k a = tableLookup cas k >>= \case
 --
 getBlockPayload
     :: CanReadablePayloadCas tbl
-    => Cas candidateCas PayloadData 
+    => Cas candidateCas PayloadData
     => WebBlockPayloadStore tbl
-    -> candidateCas 
+    -> candidateCas
     -> Priority
     -> Maybe PeerInfo
         -- ^ Peer from with the BlockPayloadHash originated, if available.
@@ -187,8 +187,8 @@ getBlockPayload s candidateStore priority maybeOrigin h = do
     logfun Debug $ "getBlockPayload: " <> sshow h
     tableLookup candidateStore payloadHash >>= \case
         Just !x -> return x
-        Nothing -> tableLookup cas payloadHash >>= \case
-            (Just !x) -> return $! payloadWithOutputsToPayloadData x
+        Nothing -> lookupPayloadWithHeight cas (_blockHeight h) payloadHash >>= \case
+            Just !x -> return $! payloadWithOutputsToPayloadData x
             Nothing -> memo memoMap payloadHash $ \k ->
                 pullOrigin k maybeOrigin >>= \case
                     Nothing -> do
@@ -265,8 +265,8 @@ getBlockHeaderInternal
     => PayloadDataCas candidatePayloadCas
     => WebBlockHeaderStore
     -> WebBlockPayloadStore tbl
-    -> candidateHeaderCas 
-    -> candidatePayloadCas 
+    -> candidateHeaderCas
+    -> candidatePayloadCas
     -> Priority
     -> Maybe PeerInfo
     -> ChainValue BlockHash
@@ -440,7 +440,7 @@ getBlockHeaderInternal headerStore payloadStore candidateHeaderCas candidatePayl
             (_blockHash hdr)
             (length (_payloadDataTransactions p))
             $ pact hdr p
-        casInsert (_webBlockPayloadStoreCas payloadStore) outs 
+        tableInsert (_webBlockPayloadStoreCas payloadStore) (casKey outs) (_blockHeight hdr, outs)
 
     queryBlockHeaderTask ck@(ChainValue cid k)
         = newTask (sshow ck) priority $ \l env -> chainValue <$> do
@@ -524,7 +524,7 @@ getBlockHeader
     => WebBlockHeaderStore
     -> WebBlockPayloadStore tbl
     -> candidateHeaderCas
-    -> candidatePayloadCas 
+    -> candidatePayloadCas
     -> ChainId
     -> Priority
     -> Maybe PeerInfo
@@ -553,7 +553,7 @@ instance (CasKeyType (ChainValue BlockHeader) ~ k) => ReadableTable WebBlockHead
     {-# INLINE tableLookup #-}
 
 instance (CasKeyType (ChainValue BlockHeader) ~ k) => Table WebBlockHeaderCas k (ChainValue BlockHeader) where
-    tableInsert (WebBlockHeaderCas db) _ (ChainValue _ h) 
+    tableInsert (WebBlockHeaderCas db) _ (ChainValue _ h)
         = insertWebBlockHeaderDb db h
     {-# INLINE tableInsert #-}
 

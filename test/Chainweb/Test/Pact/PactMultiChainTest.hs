@@ -51,6 +51,7 @@ import Chainweb.Pact.Service.Types
 import Chainweb.Pact.TransactionExec (listErrMsg)
 import Chainweb.Pact.Types (TxTimeout(..))
 import Chainweb.Payload
+import Chainweb.Payload.PayloadStore
 import Chainweb.SPV.CreateProof
 import Chainweb.Test.Cut
 import Chainweb.Test.Cut.TestBlockDb
@@ -61,8 +62,6 @@ import Chainweb.Utils
 import Chainweb.Version
 import Chainweb.Version.Utils
 import Chainweb.WebPactExecutionService
-
-import Chainweb.Storage.Table (casLookupM)
 
 testVersion :: ChainwebVersion
 testVersion = FastTimedCPM peterson
@@ -1052,7 +1051,7 @@ getPWO :: ChainId -> PactTestM (PayloadWithOutputs,BlockHeader)
 getPWO chid = do
   (TestBlockDb _ pdb _) <- view menvBdb
   h <- getHeader chid
-  pwo <- liftIO $ casLookupM pdb (_blockPayloadHash h)
+  Just pwo <- liftIO $ lookupPayloadWithHeight pdb (_blockHeight h) (_blockPayloadHash h)
   return (pwo,h)
 
 getHeader :: ChainId -> PactTestM BlockHeader

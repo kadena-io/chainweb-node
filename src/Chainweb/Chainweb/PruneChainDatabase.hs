@@ -216,7 +216,7 @@ instance Exception DatabaseCheckException
 --
 checkPayloads :: PayloadDb RocksDbTable -> Bool -> BlockHeader -> IO ()
 checkPayloads _ True _ = return ()
-checkPayloads pdb False h = tableLookup pdb (_blockPayloadHash h) >>= \case
+checkPayloads pdb False h = lookupPayloadWithHeight pdb (_blockHeight h) (_blockPayloadHash h) >>= \case
     Just p
         | verifyPayloadWithOutputs p -> return ()
         | otherwise -> throwM $ InconsistentPaylaod h p
@@ -231,7 +231,7 @@ checkPayloads pdb False h = tableLookup pdb (_blockPayloadHash h) >>= \case
 --
 checkPayloadsExist :: PayloadDb RocksDbTable -> Bool -> BlockHeader -> IO ()
 checkPayloadsExist _ True _ = return ()
-checkPayloadsExist pdb False h = unlessM (tableMember db $ _blockPayloadHash h) $
+checkPayloadsExist pdb False h = unlessM (tableMember db (_blockHeight h, _blockPayloadHash h)) $
     throwM $ MissingPayloadException h
   where
     db = _transactionDbBlockPayloads $ _transactionDb pdb
@@ -371,7 +371,7 @@ sweepPayloads
     -> [Filter BlockPayloadHash]
     -> IO (Filter BlockTransactionsHash, Filter BlockOutputsHash)
 sweepPayloads logg db markedPayloads = do
-    logg Info $ "Sweeping BlockPayloads"
+    logg Info "Sweeping BlockPayloads"
 
     -- create filter with sufficient capacity
     m <- sum <$> mapM itemCount markedPayloads
@@ -397,10 +397,8 @@ sweepPayloads logg db markedPayloads = do
         False -> 1 <$ deleteBlockPayload logg db x
 
     -- Extract RocksDB Tables from Payload Db
-    payloadsTable :: RocksDbTable BlockPayloadHash BlockPayload
-    payloadsTable = unCasify t
-      where
-        t = _transactionDbBlockPayloads $ _transactionDb db
+    payloadsTable :: RocksDbTable (BlockHeight, BlockPayloadHash) BlockPayload
+    payloadsTable = _transactionDbBlockPayloads $ _transactionDb db
 
 -- | Sweep Transations
 --
@@ -410,7 +408,7 @@ sweepTransactions
     -> Filter BlockTransactionsHash
     -> IO ()
 sweepTransactions logg db marked = do
-    logg Info $ "Sweeping BlockTransactions"
+    logg Info "Sweeping BlockTransactions"
     c1 <- withTableIterator table $ S.sum_ @_ @Int . S.mapM go . iterToKeyStream
     logg Info $ "Swept " <> sshow c1 <> " block transactions hashes"
   where
@@ -528,7 +526,8 @@ deleteBlockPayload
     -> IO ()
 deleteBlockPayload logg db p = do
     logg Debug $ "Delete PayloadHash for " <> encodeToText (_blockPayloadPayloadHash p)
-    tableDelete pdb (_blockPayloadPayloadHash p)
+    Just h <- tableLookup (_transactionDbBlockPayloadHeights $ _transactionDb db) (casKey p)
+    tableDelete pdb (h, _blockPayloadPayloadHash p)
   where
     pdb = _transactionDbBlockPayloads $ _transactionDb db
 

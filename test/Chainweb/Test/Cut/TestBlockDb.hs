@@ -26,6 +26,7 @@ import qualified Data.HashMap.Strict as HM
 
 import Chainweb.BlockHeader
 import Chainweb.BlockHeaderDB
+import Chainweb.BlockHeight
 import Chainweb.ChainId
 import Chainweb.Cut
 import Chainweb.Test.Utils (testRocksDb)
@@ -37,7 +38,6 @@ import Chainweb.Utils
 import Chainweb.Version
 import Chainweb.WebBlockHeaderDB
 
-import Chainweb.Storage.Table
 import Chainweb.Storage.Table.RocksDB
 
 data TestBlockDb = TestBlockDb
@@ -64,12 +64,12 @@ mkTestBlockDb cv rdb = do
     return $! TestBlockDb wdb pdb initCut
 
 -- | Add a block.
-addTestBlockDb :: TestBlockDb -> Nonce -> GenBlockTime -> ChainId -> PayloadWithOutputs -> IO ()
-addTestBlockDb (TestBlockDb wdb pdb cmv) n gbt cid outs = do
+addTestBlockDb :: TestBlockDb -> BlockHeight -> Nonce -> GenBlockTime -> ChainId -> PayloadWithOutputs -> IO ()
+addTestBlockDb (TestBlockDb wdb pdb cmv) bh n gbt cid outs = do
   c <- takeMVar cmv
   r <- testMine' wdb n gbt (_payloadWithOutputsPayloadHash outs) cid c
-  (T2 _ c') <- fromEitherM $ first (userError . show) $ r
-  casInsert pdb outs
+  (T2 _ c') <- fromEitherM $ first (userError . show) r
+  addNewPayload pdb bh outs
   putMVar cmv c'
 
 -- | Get header for chain on current cut.

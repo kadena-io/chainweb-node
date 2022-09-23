@@ -4,6 +4,7 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TupleSections #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 
@@ -26,6 +27,7 @@ module Chainweb.Payload.RestAPI.Server
 , payloadApiLayout
 ) where
 
+import Control.Lens hiding ((.=))
 import Control.Monad
 import Control.Monad.IO.Class
 import Control.Monad.Trans.Maybe
@@ -78,9 +80,12 @@ payloadHandler db k = run >>= \case
     Just e -> return e
   where
     run = runMaybeT $ do
+        h <- MaybeT $ liftIO $ tableLookup
+            (_transactionDbBlockPayloadHeights $ _transactionDb db)
+            k
         payload <- MaybeT $ liftIO $ tableLookup
             (_transactionDbBlockPayloads $ _transactionDb db)
-            k
+            (h, k)
         txs <- MaybeT $ liftIO $ tableLookup
             (_transactionDbBlockTransactions $ _transactionDb db)
             (_blockPayloadTransactionsHash payload)
@@ -96,14 +101,18 @@ payloadBatchHandler
     -> [BlockPayloadHash]
     -> Handler [PayloadData]
 payloadBatchHandler batchLimit db ks = liftIO $ do
-    payloads <- catMaybes
-        <$> tableLookupBatch payloadsDb (take (int batchLimit) ks)
+    heights <- mapMaybe (\(f, s) -> (,s) <$> f) <$>
+        tableLookupBatch' heightsDb (each . _1) (diag <$> take (int batchLimit) ks)
+    payloads <- catMaybes <$>
+        tableLookupBatch payloadsDb heights
     txs <- zipWith (\a b -> payloadData <$> a <*> pure b)
         <$> tableLookupBatch txsDb (_blockPayloadTransactionsHash <$> payloads)
         <*> pure payloads
     return $ catMaybes txs
   where
+    diag x = (x, x)
     payloadsDb = _transactionDbBlockPayloads $ _transactionDb db
+    heightsDb = _transactionDbBlockPayloadHeights $ _transactionDb db
     txsDb = _transactionDbBlockTransactions $ _transactionDb db
 
 -- -------------------------------------------------------------------------- --
@@ -116,7 +125,7 @@ outputsHandler
     => PayloadDb tbl
     -> BlockPayloadHash
     -> Handler PayloadWithOutputs
-outputsHandler db k = liftIO (tableLookup db k) >>= \case
+outputsHandler db k = liftIO (fmap snd <$> tableLookup db k) >>= \case
     Nothing -> throwError $ err404Msg $ object
         [ "reason" .= ("key not found" :: String)
         , "key" .= k
@@ -133,7 +142,7 @@ outputsBatchHandler
     -> [BlockPayloadHash]
     -> Handler [PayloadWithOutputs]
 outputsBatchHandler batchLimit db ks = liftIO
-    $ fmap catMaybes
+    $ fmap (mapMaybe (fmap snd))
     $ tableLookupBatch db
     $ take (int batchLimit) ks
 
@@ -141,7 +150,7 @@ outputsBatchHandler batchLimit db ks = liftIO
 -- Payload API Server
 
 payloadServer
-    :: forall tbl v c 
+    :: forall tbl v c
     . CanReadablePayloadCas tbl
     => PayloadBatchLimit
     -> PayloadDb' tbl v c

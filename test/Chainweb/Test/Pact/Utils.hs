@@ -702,10 +702,10 @@ runCut
     -> IO ()
 runCut v bdb pact genTime noncer miner =
   forM_ (chainIds v) $ \cid -> do
-    ph <- ParentHeader <$> getParentTestBlockDb bdb cid
-    pout <- _webPactNewBlock pact miner ph
+    ph <- getParentTestBlockDb bdb cid
+    pout <- _webPactNewBlock pact miner (ParentHeader ph)
     n <- noncer cid
-    addTestBlockDb bdb n genTime cid pout
+    addTestBlockDb bdb (succ $ _blockHeight ph) n genTime cid pout
     h <- getParentTestBlockDb bdb cid
     void $ _webPactValidateBlock pact h (payloadWithOutputsToPayloadData pout)
 

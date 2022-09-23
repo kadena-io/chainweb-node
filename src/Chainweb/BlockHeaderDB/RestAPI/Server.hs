@@ -73,8 +73,6 @@ import Chainweb.TreeDB
 import Chainweb.Utils.Paging
 import Chainweb.Version
 
-import Chainweb.Storage.Table 
-
 -- -------------------------------------------------------------------------- --
 -- Handler Tools
 
@@ -303,7 +301,7 @@ headerStreamHandler db = Tagged $ \req resp -> do
 
     g :: BlockHeader -> IO HeaderUpdate
     g bh = do
-        x <- casLookupM cas $ _blockPayloadHash bh
+        Just x <- lookupPayloadWithHeight cas (_blockHeight bh) $ _blockPayloadHash bh
         pure $ HeaderUpdate
             { _huHeader =  ObjectEncoded bh
             , _huTxCount = length $ _payloadWithOutputsTransactions x

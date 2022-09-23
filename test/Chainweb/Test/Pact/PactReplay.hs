@@ -332,7 +332,7 @@ mineBlock ph nonce iop = timeout 5000000 go >>= \case
 
       bdb <- snd <$> iop
       let pdb = _bdbPayloadDb bdb
-      addNewPayload pdb payload
+      addNewPayload pdb (succ $ _blockHeight $ _parentHeader ph) payload
 
       bhdb <- getBlockHeaderDb cid bdb
       unsafeInsertBlockHeaderDb bhdb bh

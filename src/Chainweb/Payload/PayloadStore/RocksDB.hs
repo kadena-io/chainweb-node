@@ -15,6 +15,7 @@ module Chainweb.Payload.PayloadStore.RocksDB
 
 -- * Internal
 , newBlockPayloadStore
+, newBlockPayloadHeightsStore
 , newBlockTransactionsStore
 , newTransactionDb
 , newBlockOutputsStore
@@ -25,6 +26,7 @@ module Chainweb.Payload.PayloadStore.RocksDB
 
 -- internal modules
 
+import Chainweb.BlockHeight
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
 import Chainweb.Utils hiding (Codec)
@@ -36,13 +38,19 @@ import Chainweb.Storage.Table.RocksDB
 -- -------------------------------------------------------------------------- --
 -- RocksDbCas
 
-newBlockPayloadStore :: RocksDb -> Casify RocksDbTable BlockPayload
-newBlockPayloadStore db = Casify $ newTable db
+newBlockPayloadStore :: RocksDb -> RocksDbTable (BlockHeight, BlockPayloadHash) BlockPayload
+newBlockPayloadStore db = newTable db
     (Codec encodeToByteString decodeStrictOrThrow')
-    (Codec (runPutS . encodeBlockPayloadHash) (runGetS decodeBlockPayloadHash))
-    ["BlockPayload"]
+    (Codec (\(bh, bp) -> runPutS (encodeBlockHeight bh >> encodeBlockPayloadHash bp)) (runGetS ((,) <$> decodeBlockHeight <*> decodeBlockPayloadHash)))
+    ["BlockPayload2"]
 
-newBlockTransactionsStore :: RocksDb -> Casify RocksDbTable BlockTransactions 
+newBlockPayloadHeightsStore :: RocksDb -> RocksDbTable BlockPayloadHash BlockHeight
+newBlockPayloadHeightsStore db = newTable db
+    (Codec (runPutS . encodeBlockHeight) (runGetS decodeBlockHeight))
+    (Codec (runPutS . encodeBlockPayloadHash) (runGetS decodeBlockPayloadHash))
+    ["BlockPayloadIndex"]
+
+newBlockTransactionsStore :: RocksDb -> Casify RocksDbTable BlockTransactions
 newBlockTransactionsStore db = Casify $ newTable db
     (Codec encodeToByteString decodeStrictOrThrow')
     (Codec (runPutS . encodeBlockTransactionsHash) (runGetS decodeBlockTransactionsHash))
@@ -52,6 +60,7 @@ newTransactionDb :: RocksDb -> TransactionDb RocksDbTable
 newTransactionDb db = TransactionDb
     (newBlockTransactionsStore db)
     (newBlockPayloadStore db)
+    (newBlockPayloadHeightsStore db)
 
 newBlockOutputsStore :: RocksDb -> BlockOutputsStore RocksDbTable
 newBlockOutputsStore db = Casify $ newTable db

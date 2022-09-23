@@ -133,7 +133,7 @@ runBlock q bdb timeOffset msg = do
   forM_ (chainIds testVersion) $ \c -> do
     let o | c == cid = nb
           | otherwise = emptyPayload
-    addTestBlockDb bdb (Nonce 0) (\_ _ -> blockTime) c o
+    addTestBlockDb bdb (succ $ _blockHeight ph) (Nonce 0) (\_ _ -> blockTime) c o
   nextH <- getParentTestBlockDb bdb cid
   forSuccess "newBlockAndValidate: validate" $
        validateBlock nextH (payloadWithOutputsToPayloadData nb) q

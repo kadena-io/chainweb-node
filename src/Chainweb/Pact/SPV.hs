@@ -6,6 +6,7 @@
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE ViewPatterns #-}
 
 -- |
 -- Module: Chainweb.Pact.PactService
@@ -301,10 +302,11 @@ getTxIdx bdb pdb bh th = do
       (Left !s) -> return $ Left s
       (Right !a) -> do
         -- get payload
-        payload <- _payloadWithOutputsTransactions <$> casLookupM pdb a
+        Just (_, payload) <- tableLookup pdb a
+        let payloadTxs = _payloadWithOutputsTransactions payload
 
         -- Find transaction index
-        r <- S.each payload
+        r <- S.each payloadTxs
           & S.map fst
           & S.mapM toTxHash
           & sindex (== th)

@@ -107,8 +107,6 @@ import Chainweb.Payload.PayloadStore
 import Chainweb.TreeDB (getBranchIncreasing, forkEntry, lookup, lookupM)
 import Chainweb.Utils hiding (check)
 
-import Chainweb.Storage.Table
-
 -- | Support lifting bracket style continuations in 'IO' into 'PactServiceM' by
 -- providing a function that allows unwrapping pact actions in IO while
 -- threading through the pact service state.
@@ -430,7 +428,7 @@ fastForward (target, block) =
     -- history, if needed.
     withCheckpointerWithoutRewind (Just target) "fastForward" $ \pdbenv -> do
         payloadDb <- asks _psPdb
-        payload <- liftIO $ tableLookup payloadDb bpHash >>= \case
+        payload <- liftIO $ lookupPayloadWithHeight payloadDb (_blockHeight block) bpHash >>= \case
             Nothing -> throwM $ PactInternalError
                 $ "Checkpointer.rewindTo.fastForward: lookup of payload failed"
                 <> ". BlockPayloadHash: " <> encodeToText bpHash
