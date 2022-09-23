@@ -15,6 +15,7 @@ module Chainweb.Payload.PayloadStore.RocksDB
 
 -- * Internal
 , newBlockPayloadStore
+, newBlockPayloadIndex
 , newBlockTransactionsStore
 , newTransactionDb
 , newBlockOutputsStore
@@ -25,6 +26,7 @@ module Chainweb.Payload.PayloadStore.RocksDB
 
 -- internal modules
 
+import Chainweb.BlockHeight
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
 import Chainweb.Utils hiding (Codec)
@@ -35,11 +37,17 @@ import Data.CAS.RocksDB
 -- -------------------------------------------------------------------------- --
 -- RocksDbCas
 
-newBlockPayloadStore :: RocksDb -> BlockPayloadStore RocksDbCas
-newBlockPayloadStore db = BlockPayloadStore $ newCas db
+newBlockPayloadStore :: RocksDb -> RocksDbTable (BlockHeight, BlockPayloadHash a) (BlockPayload a)
+newBlockPayloadStore db = newTable db
     (Codec encodeToByteString decodeStrictOrThrow')
+    (Codec (\(bh, bp) -> runPutS (encodeBlockHeight bh >> encodeBlockPayloadHash bp)) (runGetS ((,) <$> decodeBlockHeight <*> decodeBlockPayloadHash)))
+    ["BlockPayload2"]
+
+newBlockPayloadIndex :: RocksDb -> RocksDbTable (BlockPayloadHash a) BlockHeight
+newBlockPayloadIndex db = newTable db
+    (Codec (runPutS . encodeBlockHeight) (runGetS decodeBlockHeight))
     (Codec (runPutS . encodeBlockPayloadHash) (runGetS decodeBlockPayloadHash))
-    ["BlockPayload"]
+    ["BlockPayloadIndex"]
 
 newBlockTransactionsStore :: RocksDb -> BlockTransactionsStore RocksDbCas
 newBlockTransactionsStore db = BlockTransactionsStore $ newCas db

@@ -83,12 +83,14 @@ import GHC.Generics
 -- internal modules
 
 import Chainweb.BlockHeader.Genesis (genesisBlockPayload)
+import Chainweb.BlockHeight
 import Chainweb.Crypto.MerkleLog
 import Chainweb.MerkleUniverse
 import Chainweb.Payload
 import Chainweb.Version
 
 import Data.CAS
+import Data.CAS.RocksDB
 
 -- -------------------------------------------------------------------------- --
 -- Exceptions
@@ -132,11 +134,13 @@ data TransactionDb_ a cas = TransactionDb
         -- ^ The block transactions of the block chain. This data is strictly
         -- needed to rebuild the payload data.
 
-    , _transactionDbBlockPayloads :: !(BlockPayloadStore_ a cas)
+    , _transactionDbBlockPayloads :: !(RocksDbTable (BlockHeight, BlockPayloadHash_ a) (BlockPayload_ a))
         -- ^ While the content of this store can be computed from the block
         -- transactions, it is needed as an index into the block transaction
         -- store. If it would be lost one would have to recompute all of it in
         -- order to look up the data for a single transation.
+
+    , _transactionDbBlockPayloadIndex :: !(RocksDbTable (BlockPayloadHash_ a) BlockHeight)
     }
 
 makeLenses ''TransactionDb_
@@ -157,7 +161,8 @@ instance TransactionDbCasLookup_ a cas => HasCasLookup (TransactionDb_ a cas) wh
     type CasValueType (TransactionDb_ a cas) = PayloadData_ a
 
     casLookup db k = runMaybeT $ do
-        pd <- MaybeT $ casLookup (_transactionDbBlockPayloads db) k
+        h <- MaybeT $ tableLookup (_transactionDbBlockPayloadIndex db) k
+        pd <- MaybeT $ tableLookup (_transactionDbBlockPayloads db) (h, k)
         let txsHash = _blockPayloadTransactionsHash pd
         let outsHash = _blockPayloadOutputsHash pd
         txs <- MaybeT $ casLookup (_transactionDbBlockTransactions db) txsHash
@@ -272,7 +277,7 @@ initializePayloadDb
 initializePayloadDb v db = traverse_ initForChain $ chainIds v
   where
     initForChain cid =
-        addNewPayload db $ genesisBlockPayload v cid
+        addNewPayload db (genesisHeight v cid) $ genesisBlockPayload v cid
 
 -- -------------------------------------------------------------------------- --
 -- Insert new Payload
@@ -283,13 +288,14 @@ addPayload
     :: MerkleHashAlgorithm a
     => PayloadCas_ a cas
     => PayloadDb_ a cas
+    -> BlockHeight
     -> BlockTransactions_ a
     -> TransactionTree_ a
     -> BlockOutputs_ a
     -> OutputTree_ a
     -> IO ()
-addPayload db txs txTree outs outTree = do
-    casInsert (_transactionDbBlockPayloads $ _transactionDb db) payload
+addPayload db height txs txTree outs outTree = do
+    tableInsert (_transactionDbBlockPayloads $ _transactionDb db) (height, casKey payload) payload
     casInsert (_transactionDbBlockTransactions $ _transactionDb db) txs
     casInsert (_payloadCacheBlockOutputs $ _payloadCache db) outs
     casInsert (_payloadCacheTransactionTrees $ _payloadCache db) txTree
@@ -304,9 +310,10 @@ addNewPayload
     :: MerkleHashAlgorithm a
     => PayloadCas_ a cas
     => PayloadDb_ a cas
+    -> BlockHeight
     -> PayloadWithOutputs_ a
     -> IO ()
-addNewPayload db s = addPayload db txs txTree outs outTree
+addNewPayload db height s = addPayload db height txs txTree outs outTree
   where
     (bts, bos) = payloadWithOutputsToBlockObjects s
     (txTree, txs) = newBlockTransactions (_blockMinerData bts) (_blockTransactions bts)
@@ -321,12 +328,15 @@ addNewPayload db s = addPayload db txs txTree outs outTree
 -- of insertion and deletions.
 --
 instance PayloadCasLookup_ a cas => HasCasLookup (PayloadDb_ a cas) where
-    type CasValueType (PayloadDb_ a cas) = PayloadWithOutputs_ a
+    type CasValueType (PayloadDb_ a cas) = (BlockHeight, PayloadWithOutputs_ a)
 
     casLookup db k = runMaybeT $ do
-        pd <- MaybeT $ casLookup
-            (_transactionDbBlockPayloads $ _transactionDb db)
+        h <- MaybeT $ tableLookup
+            (_transactionDbBlockPayloadIndex $ _transactionDb db)
             k
+        pd <- MaybeT $ tableLookup
+            (_transactionDbBlockPayloads $ _transactionDb db)
+            (h, k)
         let txsHash = _blockPayloadTransactionsHash pd
         let outsHash = _blockPayloadOutputsHash pd
         txs <- MaybeT $ casLookup
@@ -335,14 +345,14 @@ instance PayloadCasLookup_ a cas => HasCasLookup (PayloadDb_ a cas) where
         outs <- MaybeT $ casLookup
             (_payloadCacheBlockOutputs $ _payloadCache db)
             outsHash
-        return $ PayloadWithOutputs
+        return $ (h, PayloadWithOutputs
             { _payloadWithOutputsTransactions = V.zip (_blockTransactions txs) (_blockOutputs outs)
             , _payloadWithOutputsMiner = _blockMinerData txs
             , _payloadWithOutputsCoinbase = _blockCoinbaseOutput outs
             , _payloadWithOutputsPayloadHash = k
             , _payloadWithOutputsTransactionsHash = txsHash
             , _payloadWithOutputsOutputsHash = outsHash
-            }
+            })
     {-# INLINE casLookup #-}
 
 
@@ -352,7 +362,9 @@ instance PayloadCasLookup_ a cas => HasCasLookup (PayloadDb_ a cas) where
 -- of insertion and deletions.
 --
 instance (MerkleHashAlgorithm a, PayloadCas_ a cas) => IsCas (PayloadDb_ a cas) where
-    casInsert = addNewPayload
+    casInsert db k = do
+        h <- MaybeT $ tableLookup
+        addNewPayload
     {-# INLINE casInsert #-}
 
     casDelete db k =
