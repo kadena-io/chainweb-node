@@ -47,11 +47,17 @@ pkgs.haskell.packages.${compiler}.developPackage {
           # date = "2022-08-10T09:03:56-04:00";
         }) {})
         (attrs: {
+          preConfigure = (attrs.preConfigure or "") +
+            pkgs.lib.optionalString pkgs.stdenv.isDarwin ''
+              perl -i -ne 'print unless /HAVE_SSE42/;' rocksdb-haskell-kadena.cabal
+            '';
           librarySystemDepends = (attrs.librarySystemDepends or []) ++ [
+            pkgs.rocksdb
             pkgs.snappy.dev
             pkgs.zlib.dev
             pkgs.zstd.dev
             pkgs.lz4.dev
+            pkgs.perl
           ];
         });
 
@@ -78,6 +84,12 @@ pkgs.haskell.packages.${compiler}.developPackage {
         pkg = "yet-another-logger";
         ver = "0.4.1";
         sha256 = "1qb0ns764sb5az8z1dn7pflizi8ni8qivbhx79sj9kfaa68hyhsl";
+      } {};
+
+      hashes = self.callHackageDirect {
+        pkg = "hashes";
+        ver = "0.2.2.0";
+        sha256 = "0l0jj2p1ngh9qz3b29s2w9sbby1y2sbqwib3a9k857mvjkadhbam";
       } {};
 
       pact = appendConfigureFlag super.pact "-f-build-tool";
