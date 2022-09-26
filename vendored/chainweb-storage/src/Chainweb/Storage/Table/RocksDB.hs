@@ -19,15 +19,17 @@
 {-# LANGUAGE ViewPatterns #-}
 {-# LANGUAGE UndecidableInstances #-}
 {-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE FunctionalDependencies #-}
+{-# LANGUAGE TypeSynonymInstances #-}
 
 -- |
--- Module: Data.CAS.RocksDB
+-- Module: Chainweb.Storage.Table.RocksDB
 -- Copyright: Copyright © 2019 Kadena LLC.
 -- License: MIT
 -- Maintainer: Lars Kuhtz <lars@kadena.io>
 -- Stability: experimental
 --
--- Persisted iey-value and and content-addressable-key-value stores with a
+-- Persisted key-value and and content-addressable-key-value stores with a
 -- RocksDB backend.
 --
 -- A 'RocksDbTable' provides a typed key-value store with an additional iterator
@@ -39,7 +41,7 @@
 -- TODO: Abstract the 'RocksDbTable' API into a typeclass so that one can
 -- provide alternative implementations for it.
 --
-module Data.CAS.RocksDB
+module Chainweb.Storage.Table.RocksDB
 ( RocksDb(..)
 -- , rocksDbHandle
 -- , rocksDbNamespace
@@ -119,7 +121,7 @@ import qualified Data.ByteString.Unsafe as BU
 import Data.Coerce
 import Data.Foldable
 
-import Data.CAS
+import Chainweb.Storage.Table
 import Data.String
 import qualified Data.Text as T
 import qualified Data.Vector as V
@@ -193,7 +195,7 @@ instance NoThunks RocksDb where
         [ noThunks ctx (InspectHeapNamed @"Data.RocksDB.Base.DB" a)
         , noThunks ctx b
         ]
-    showTypeOf _ = "Data.CAS.RocksDB.RocksDb"
+    showTypeOf _ = "Chainweb.Storage.Table.RocksDB.RocksDb"
     {-# INLINE wNoThunks #-}
     {-# INLINE showTypeOf #-}
 
@@ -302,7 +304,7 @@ data Codec a = Codec
 instance NoThunks (Codec a) where
     -- NoThunks does not look inside of closures for captured thunks
     wNoThunks _ _ = return Nothing
-    showTypeOf _ = "Data.CAS.RocksDB.Codec"
+    showTypeOf _ = "Chainweb.Storage.Table.RocksDB.Codec"
     {-# INLINE wNoThunks #-}
     {-# INLINE showTypeOf #-}
 
@@ -323,7 +325,7 @@ instance NoThunks (RocksDbTable k v) where
         , noThunks ctx c
         , noThunks ctx (InspectHeapNamed @"Data.RocksDB.Base.DB" d)
         ]
-    showTypeOf _ = "Data.CAS.RocksDB.RocksDbTable"
+    showTypeOf _ = "Chainweb.Storage.Table.RocksDB.RocksDbTable"
     {-# INLINE wNoThunks #-}
     {-# INLINE showTypeOf #-}
 
@@ -341,59 +343,13 @@ newTable
     -> RocksDbTable k v
 newTable db valCodec keyCodec namespace
     | any (B8.any (\x -> x `elem` ['$', '%', '/'])) namespace
-        = error $ "Data.CAS.RocksDb.newTable: invalid character in table namespace: " <> sshow namespace
+        = error $ "Chainweb.Storage.Table.RocksDb.newTable: invalid character in table namespace: " <> sshow namespace
     | otherwise
         = RocksDbTable valCodec keyCodec ns (_rocksDbHandle db)
   where
     ns = _rocksDbNamespace db <> "-" <> B.intercalate "/" namespace
 {-# INLINE newTable #-}
 
--- | @tableInsert db k v@ inserts the value @v@ at key @k@ in the rocks db table
--- @db@.
---
-tableInsert :: RocksDbTable k v -> k -> v -> IO ()
-tableInsert db k v = R.put
-    (_rocksDbTableDb db)
-    R.defaultWriteOptions
-    (encKey db k)
-    (encVal db v)
-{-# INLINE tableInsert #-}
-
--- | @tableLookup db k@ returns 'Just' the value at key @k@ in the
--- 'RocksDbTable' @db@ if it exists, or 'Nothing' if the @k@ doesn't exist in
--- the table.
---
-tableLookup :: RocksDbTable k v -> k -> IO (Maybe v)
-tableLookup db k = do
-    maybeBytes <- get (_rocksDbTableDb db) mempty (encKey db k)
-    traverse (decVal db) maybeBytes
-{-# INLINE tableLookup #-}
-
--- | @tableLookupBatch db ks@ returns for each @k@ in @ks@ 'Just' the value at
--- key @k@ in the 'RocksDbTable' @db@ if it exists, or 'Nothing' if the @k@
--- doesn't exist in the table.
---
-tableLookupBatch
-    :: HasCallStack
-    => RocksDbTable k v
-    -> V.Vector k
-    -> IO (V.Vector (Maybe v))
-tableLookupBatch db ks = do
-    results <- multiGet (_rocksDbTableDb db) mempty (V.map (encKey db) ks)
-    V.forM results $ \case
-        Left e -> error $ "Data.CAS.RocksDB.tableLookupBatch: " <> e
-        Right x -> traverse (decVal db) x
-{-# INLINE tableLookupBatch #-}
-
--- | @tableDelete db k@ deletes the value at the key @k@ from the 'RocksDbTable'
--- db. If the @k@ doesn't exist in @db@ this function does nothing.
---
-tableDelete :: RocksDbTable k v -> k -> IO ()
-tableDelete db k = R.delete
-    (_rocksDbTableDb db)
-    R.defaultWriteOptions
-    (encKey db k)
-{-# INLINE tableDelete #-}
 
 -- -------------------------------------------------------------------------- --
 -- Batches
@@ -429,7 +385,7 @@ updateBatch batch = R.write rdb R.defaultWriteOptions $ checkMkOp <$> batch
 
     checkMkOp o
         | rdb == rocksDbUpdateDb o = mkOp o
-        | otherwise = error "Data.CAS.RocksDB.updateBatch: all operations in a batch must be for the same RocksDB instance."
+        | otherwise = error "Chainweb.Storage.Table.RocksDB.updateBatch: all operations in a batch must be for the same RocksDB instance."
 
     mkOp (RocksDbDelete t k) = R.Del (encKey t k)
     mkOp (RocksDbInsert t k v) = R.Put (encKey t k) (encVal t v)
@@ -462,7 +418,7 @@ instance NoThunks (RocksDbTableIter k v) where
         , noThunks ctx c
         , noThunks ctx (InspectHeapNamed @"Data.RocksDB.Iterator.Iterator" d)
         ]
-    showTypeOf _ = "Data.CAS.RocksDB.RocksDbTableIterator"
+    showTypeOf _ = "Chainweb.Storage.Table.RocksDB.RocksDbTableIterator"
     {-# INLINE wNoThunks #-}
     {-# INLINE showTypeOf #-}
 
@@ -676,31 +632,47 @@ tableMinEntry = flip withTableIter $ \i -> tableIterFirst i *> tableIterEntry i
 -- | For a 'IsCasValue' @v@ with 'CasKeyType v ~ k@,  a 'RocksDbTable k v' is an
 -- instance of 'HasCasLookup'.
 --
-instance (IsCasValue v, CasKeyType v ~ k) => HasCasLookup (RocksDbTable k v) where
-    type CasValueType (RocksDbTable k v) = v
-    casLookup = tableLookup
-    casLookupBatch = tableLookupBatch
+instance ReadableTable (RocksDbTable k v) k v where
+    tableLookup k db = do
+        maybeBytes <- get (_rocksDbTableDb db) mempty (encKey db k)
+        traverse (decVal db) maybeBytes
+    {-# INLINE tableLookup #-}
 
-    {-# INLINE casLookup #-}
-    {-# INLINE casLookupBatch #-}
+    -- | @tableLookupBatch db ks@ returns for each @k@ in @ks@ 'Just' the value at
+    -- key @k@ in the 'RocksDbTable' @db@ if it exists, or 'Nothing' if the @k@
+    -- doesn't exist in the table.
+    --
+    tableLookupBatch ks db = do
+        results <- V.toList <$> multiGet (_rocksDbTableDb db) mempty (V.fromList $ map (encKey db) ks)
+        forM results $ \case
+            Left e -> error $ "Chainweb.Storage.Table.RocksDB.tableLookupBatch: " <> e
+            Right x -> traverse (decVal db) x
+    {-# INLINE tableLookupBatch #-}
 
 -- | For a 'IsCasValue' @v@ with 'CasKeyType v ~ k@,  a 'RocksDbTable k v' is an
 -- instance of 'IsCas'.
 --
-instance (IsCasValue v, CasKeyType v ~ k) => IsCas (RocksDbTable k v) where
-    casInsert db a = tableInsert db (casKey a) a
-    casDelete = tableDelete
+instance Table (RocksDbTable k v) k v where
+    tableInsert k v db = R.put
+        (_rocksDbTableDb db)
+        R.defaultWriteOptions
+        (encKey db k)
+        (encVal db v)
+    {-# INLINE tableInsert #-}
 
-    casInsertBatch db vs = updateBatch (mkOp <$> V.toList vs)
-      where
-        mkOp v = RocksDbInsert db (casKey v) v
+    tableDelete k db = R.delete
+        (_rocksDbTableDb db)
+        R.defaultWriteOptions
+        (encKey db k)
+    {-# INLINE tableDelete #-}
 
-    casDeleteBatch db vs = updateBatch (RocksDbDelete db <$> V.toList vs)
+    tableInsertBatch kvs db = 
+        updateBatch (uncurry (RocksDbInsert db) <$> kvs)
+    {-# INLINE tableInsertBatch #-}
 
-    {-# INLINE casInsert #-}
-    {-# INLINE casDelete #-}
-    {-# INLINE casInsertBatch #-}
-    {-# INLINE casDeleteBatch #-}
+    tableDeleteBatch ks db = 
+        updateBatch (RocksDbDelete db <$> ks)
+    {-# INLINE tableDeleteBatch #-}
 
 -- | A newtype wrapper that takes only a single type constructor. This useful in
 -- situations where a Higher Order type constructor for a CAS is required. A
@@ -710,24 +682,23 @@ instance (IsCasValue v, CasKeyType v ~ k) => IsCas (RocksDbTable k v) where
 newtype RocksDbCas v = RocksDbCas { _getRocksDbCas :: RocksDbTable (CasKeyType v) v }
     deriving newtype (NoThunks)
 
-instance IsCasValue v => HasCasLookup (RocksDbCas v) where
-    type CasValueType (RocksDbCas v) = v
-    casLookup (RocksDbCas x) = casLookup x
-    casLookupBatch (RocksDbCas x) = casLookupBatch x
+instance (k ~ CasKeyType v, IsCasValue v) => ReadableTable (RocksDbCas v) k v where
+    tableLookup k (RocksDbCas x) = tableLookup k x
+    tableLookupBatch ks (RocksDbCas x) = tableLookupBatch ks x
 
-    {-# INLINE casLookup #-}
-    {-# INLINE casLookupBatch #-}
+    {-# INLINE tableLookup #-}
+    {-# INLINE tableLookupBatch #-}
 
-instance IsCasValue v => IsCas (RocksDbCas v) where
-    casInsert (RocksDbCas x) = casInsert x
-    casDelete (RocksDbCas x) = casDelete x
-    casInsertBatch (RocksDbCas x) = casInsertBatch x
-    casDeleteBatch (RocksDbCas x) = casDeleteBatch x
+instance (k ~ CasKeyType v, IsCasValue v) => Table (RocksDbCas v) k v where
+    tableInsert k v (RocksDbCas x) = tableInsert k v x
+    tableDelete k (RocksDbCas x) = tableDelete k x
+    tableInsertBatch kvs (RocksDbCas x) = tableInsertBatch kvs x
+    tableDeleteBatch ks (RocksDbCas x) = tableDeleteBatch ks x
 
-    {-# INLINE casInsert #-}
-    {-# INLINE casDelete #-}
-    {-# INLINE casInsertBatch #-}
-    {-# INLINE casDeleteBatch #-}
+    {-# INLINE tableInsert #-}
+    {-# INLINE tableDelete #-}
+    {-# INLINE tableInsertBatch #-}
+    {-# INLINE tableDeleteBatch #-}
 
 -- | Create a new 'RocksDbCas'.
 --
@@ -752,7 +723,7 @@ data RocksDbException
 
 instance Exception RocksDbException where
     displayException (RocksDbTableIterInvalidKeyNamespace e a)
-        = T.unpack $ unexpectedMsg "Data.CAS.RocksDB: invalid table key" e a
+        = T.unpack $ unexpectedMsg "Chainweb.Storage.Table.RocksDB: invalid table key" e a
     {-# INLINE displayException #-}
 
 instance Show RocksDbException where
@@ -811,7 +782,7 @@ checked whatWasIDoing act = alloca $ \errPtr -> do
     err <- peek errPtr
     unless (err == nullPtr) $ do
         errStr <- B.packCString err
-        let msg = unwords ["Data.CAS.RocksDB.checked: error while", whatWasIDoing <> ":", B8.unpack errStr]
+        let msg = unwords ["Chainweb.Storage.Table.RocksDB.checked: error while", whatWasIDoing <> ":", B8.unpack errStr]
         C.c_rocksdb_free err
         error msg
     return r
@@ -833,7 +804,7 @@ checkpointRocksDb RocksDb { _rocksDbHandle = R.DB dbPtr } logSizeFlushThreshold 
 validateRangeOrdered :: HasCallStack => RocksDbTable k v -> (Maybe k, Maybe k) -> (B.ByteString, B.ByteString)
 validateRangeOrdered table (Just (encKey table -> l), Just (encKey table -> u))
     | l >= u =
-        error "Data.CAS.RocksDB.validateRangeOrdered: range bounds not ordered according to codec"
+        error "Chainweb.Storage.Table.RocksDB.validateRangeOrdered: range bounds not ordered according to codec"
     | otherwise = (l, u)
 validateRangeOrdered table (l, u) =
     ( maybe (namespaceFirst (_rocksDbTableNamespace table)) (encKey table) l
@@ -849,7 +820,7 @@ deleteRangeRocksDb table range = do
     R.withCWriteOpts R.defaultWriteOptions $ \optsPtr ->
         BU.unsafeUseAsCStringLen (fst range') $ \(minKeyPtr, minKeyLen) ->
         BU.unsafeUseAsCStringLen (snd range') $ \(maxKeyPtr, maxKeyLen) ->
-        checked "Data.CAS.RocksDB.deleteRangeRocksDb" $
+        checked "Chainweb.Storage.Table.RocksDB.deleteRangeRocksDb" $
             C.rocksdb_delete_range dbPtr optsPtr
                 minKeyPtr (fromIntegral minKeyLen :: CSize)
                 maxKeyPtr (fromIntegral maxKeyLen :: CSize)
@@ -871,7 +842,7 @@ get :: MonadIO m => R.DB -> R.ReadOptions -> ByteString -> m (Maybe ByteString)
 get (R.DB db_ptr) opts key = liftIO $ R.withReadOptions opts $ \opts_ptr ->
     BU.unsafeUseAsCStringLen key $ \(key_ptr, klen) ->
     alloca $ \vlen_ptr -> do
-        val_ptr <- checked "Data.CAS.RocksDB.get" $
+        val_ptr <- checked "Chainweb.Storage.Table.RocksDB.get" $
             C.c_rocksdb_get db_ptr opts_ptr key_ptr (R.intToCSize klen) vlen_ptr
         vlen <- peek vlen_ptr
         if val_ptr == nullPtr

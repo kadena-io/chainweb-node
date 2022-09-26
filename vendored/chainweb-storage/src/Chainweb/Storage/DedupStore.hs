@@ -8,9 +8,10 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE FlexibleContexts #-}
 
 -- |
--- Module: Data.DedupStore
+-- Module: Chainweb.Storage.DedupStore
 -- Copyright: Copyright © 2019 Kadena LLC.
 -- License: MIT
 -- Maintainer: Lars Kuhtz <lars@kadena.io>
@@ -18,7 +19,7 @@
 --
 -- A Deduplicated Key-Value Store
 --
-module Data.DedupStore
+module Chainweb.Storage.DedupStore
 (
 -- * Deduplicated Key-Value Store
   DedupStore(..)
@@ -46,7 +47,6 @@ import qualified Data.ByteString as B
 import qualified Data.ByteString.Builder as BB
 import qualified Data.ByteString.Lazy as BL
 import qualified Data.ByteString.Unsafe as BU
-import Data.CAS
 import Data.Hashable
 import Data.Int
 import qualified Data.List as L
@@ -64,7 +64,8 @@ import System.IO.Unsafe
 
 -- internal modules
 
-import Data.CAS.RocksDB
+import Chainweb.Storage.Table
+import Chainweb.Storage.Table.RocksDB
 
 -- -------------------------------------------------------------------------- --
 -- Utils
@@ -155,7 +156,7 @@ dedupInsert :: DedupStore k v -> k -> v -> IO ()
 dedupInsert store k v = do
     dedupKey <- dedupStore (_dedupChunks store)
         $ BL.fromStrict $ _codecEncode (_dedupValueCodec store) v
-    tableInsert (_dedupRoots store) k dedupKey
+    tableInsert k dedupKey (_dedupRoots store)
 {-# INLINE dedupInsert #-}
 
 -- | @dedupLookup db k@ returns 'Just' the value at key @k@ in the
@@ -164,7 +165,7 @@ dedupInsert store k v = do
 --
 dedupLookup :: DedupStore k v -> k -> IO (Maybe v)
 dedupLookup store k = do
-    tableLookup (_dedupRoots store) k >>= \case
+    tableLookup k (_dedupRoots store) >>= \case
         Nothing -> return Nothing
         Just dedupKey -> do
             dedupRestore (_dedupChunks store) dedupKey >>= \case
@@ -185,7 +186,7 @@ instance IsCasValue Chunk where
     type CasKeyType Chunk = DedupHash
     casKey (Chunk _ h _) = h
 
-type DedupCas cas = (IsCas cas, CasValueType cas ~ Chunk)
+type DedupCas cas = Cas cas Chunk
 
 -- | Store a sequence of bytes in a deduplicated content addressed store.
 -- Returns the hash of the bytes, that can be used to query the data from the
@@ -217,7 +218,7 @@ dedupStore' store = go0
   where
     go0 :: HasCallStack => BL.ByteString -> IO (Int, Int, DedupHash)
     go0 bytes = mapM (hashAndStore 0x0) (toChunks $ roll bytes) >>= \case
-        [] -> error "Data.DedupStore.dedupStore.go0: Data.ByteString.Lazy.toChunks must not return an empty list"
+        [] -> error "Chainweb.Storage.DedupStore.dedupStore.go0: Data.ByteString.Lazy.toChunks must not return an empty list"
         [x] -> return x
         l -> do
             (h, m, r) <- go1 (third3 <$> l)
@@ -225,7 +226,7 @@ dedupStore' store = go0
 
     go1 :: HasCallStack => [DedupHash] -> IO (Int, Int, DedupHash)
     go1 hashes = mapM (hashAndStore 0x1) (rollHashes hashes) >>= \case
-        [] -> error "Data.DedupStore.dedupStore.go1: Data.ByteString.Lazy.toChunks must not return an empty list"
+        [] -> error "Chainweb.Storage.DedupStore.dedupStore.go1: Data.ByteString.Lazy.toChunks must not return an empty list"
         [x] -> return x
         l -> do
             (h, m, r) <- go1 (third3 <$> l)
@@ -245,10 +246,10 @@ dedupStore' store = go0
     hashAndStore :: Word8 -> B.ByteString -> IO (Int, Int, DedupHash)
     hashAndStore tag c = do
         let h = DedupHash $ BA.convert $ C.hash @_ @DedupHashAlg (B.cons tag c)
-        (hit, miss) <- casMember store h >>= \x -> if x
+        (hit, miss) <- tableMember h store >>= \x -> if x
             then return (1, 0)
             else do
-                casInsert store (Chunk tag h c)
+                casInsert (Chunk tag h c) store 
                 return (0, 1)
         return (hit, miss, h)
     {-# INLINE hashAndStore #-}
@@ -275,7 +276,7 @@ dedupRestore
     -> DedupHash
     -> IO (Maybe BL.ByteString)
 dedupRestore store key = fmap BB.toLazyByteString <$> do
-    casLookup store key >>= \case
+    tableLookup key store >>= \case
         Nothing -> return Nothing
         Just (Chunk 0x0 _ b) -> return $ Just $ BB.byteString b
         Just (Chunk 0x1 _ b) -> Just <$> splitHashes b
@@ -283,7 +284,7 @@ dedupRestore store key = fmap BB.toLazyByteString <$> do
 
   where
     go h = do
-        casLookup store h >>= \case
+        tableLookup h store >>= \case
             Nothing -> throwM $ DedupStoreCorruptedData "Missing chunk from store"
             Just (Chunk 0x0 _ b) -> return (BB.byteString b)
             Just (Chunk 0x1 _ b) -> splitHashes b
