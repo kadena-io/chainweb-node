@@ -31,11 +31,11 @@ library
     ghc-options:
         -Wall
     exposed-modules:
-        Data.CAS
-        Data.CAS.Forgetful
-        Data.CAS.HashMap
-        Data.CAS.RocksDB
-        Data.DedupStore
+        Chainweb.Storage.Table
+        Chainweb.Storage.Table.Forgetful
+        Chainweb.Storage.Table.HashMap
+        Chainweb.Storage.Table.RocksDB
+        Chainweb.Storage.DedupStore
     build-depends:
         , base >=4.10 && <4.16
         , bytestring >=0.10
