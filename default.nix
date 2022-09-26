@@ -38,6 +38,23 @@ pkgs.haskell.packages.${compiler}.developPackage {
         sha256 = "19pjy06xrx2siggzybcmly0qaq4ds3yzxcsvqwgs4qh9kkzh0kqh";
       }) {};
 
+      rocksdb-haskell-kadena = overrideCabal
+        (self.callCabal2nix "rocksdb-haskell-kadena" (pkgs.fetchFromGitHub {
+          owner = "kadena-io";
+          repo = "rocksdb-haskell";
+          rev = "2161777750bf879856251289e551e8dc2cd512e2";
+          sha256 = "09cmjrhkjv6mccaaasb2lz1sjndha1df3wyygi7166axj0srw8ds";
+          # date = "2022-08-10T09:03:56-04:00";
+        }) {})
+        (attrs: {
+          librarySystemDepends = (attrs.librarySystemDepends or []) ++ [
+            pkgs.snappy.dev
+            pkgs.zlib.dev
+            pkgs.zstd.dev
+            pkgs.lz4.dev
+          ];
+        });
+
       ethereum = dontCheck (self.callCabal2nix "ethereum" (pkgs.fetchFromGitHub {
         owner = "kadena-io";
         repo = "kadena-ethereum-bridge";
