@@ -68,22 +68,6 @@ module Chainweb.Storage.Table.RocksDB
 
 -- * Rocks DB Table Iterator
 , RocksDbTableIter
-, withTableIter
-, tableIterValid
-
--- ** Seeking
-, tableIterSeek
-, tableIterFirst
-, tableIterLast
-
--- ** Advance Iterator
-, tableIterNext
-, tableIterPrev
-
--- ** Query Iterator
-, tableIterEntry
-, tableIterValue
-, tableIterKey
 
 -- ** Streams
 , iterToEntryStream
@@ -120,6 +104,7 @@ import qualified Data.ByteString.Char8 as B8
 import qualified Data.ByteString.Unsafe as BU
 import Data.Coerce
 import Data.Foldable
+import Data.Maybe
 
 import Chainweb.Storage.Table
 import Data.String
@@ -176,7 +161,6 @@ unexpectedMsg msg expected actual = msg
 --
 sshow :: Show a => IsString b => a -> b
 sshow = fromString . show
-{-# INLINE sshow #-}
 
 -- -------------------------------------------------------------------------- --
 -- RocksDb
@@ -196,8 +180,6 @@ instance NoThunks RocksDb where
         , noThunks ctx b
         ]
     showTypeOf _ = "Chainweb.Storage.Table.RocksDB.RocksDb"
-    {-# INLINE wNoThunks #-}
-    {-# INLINE showTypeOf #-}
 
 
 -- makeLenses ''RocksDb
@@ -305,8 +287,6 @@ instance NoThunks (Codec a) where
     -- NoThunks does not look inside of closures for captured thunks
     wNoThunks _ _ = return Nothing
     showTypeOf _ = "Chainweb.Storage.Table.RocksDB.Codec"
-    {-# INLINE wNoThunks #-}
-    {-# INLINE showTypeOf #-}
 
 -- | A logical table in a 'RocksDb'. Tables in a rocks db are have isolated key
 -- namespaces.
@@ -326,8 +306,6 @@ instance NoThunks (RocksDbTable k v) where
         , noThunks ctx (InspectHeapNamed @"Data.RocksDB.Base.DB" d)
         ]
     showTypeOf _ = "Chainweb.Storage.Table.RocksDB.RocksDbTable"
-    {-# INLINE wNoThunks #-}
-    {-# INLINE showTypeOf #-}
 
 -- | Create a new 'RocksDbTable' in the given 'RocksDb'.
 --
@@ -348,7 +326,6 @@ newTable db valCodec keyCodec namespace
         = RocksDbTable valCodec keyCodec ns (_rocksDbHandle db)
   where
     ns = _rocksDbNamespace db <> "-" <> B.intercalate "/" namespace
-{-# INLINE newTable #-}
 
 
 -- -------------------------------------------------------------------------- --
@@ -370,7 +347,6 @@ data RocksDbUpdate
 rocksDbUpdateDb :: RocksDbUpdate -> R.DB
 rocksDbUpdateDb (RocksDbDelete t _) = _rocksDbTableDb t
 rocksDbUpdateDb (RocksDbInsert t _ _) = _rocksDbTableDb t
-{-# INLINE rocksDbUpdateDb #-}
 
 -- | Atomically execute a batch of rocks db updates.
 --
@@ -402,7 +378,7 @@ updateBatch batch = R.write rdb R.defaultWriteOptions $ checkMkOp <$> batch
 -- periods of time. After usage it should be released in a timely manner.
 --
 -- The recommended way to created a 'RocksDbTableIter' is to use the function
--- `withTableIter`.
+-- `withTableIterator`.
 --
 data RocksDbTableIter k v = RocksDbTableIter
     { _rocksDbTableIterValueCodec :: !(Codec v)
@@ -419,117 +395,59 @@ instance NoThunks (RocksDbTableIter k v) where
         , noThunks ctx (InspectHeapNamed @"Data.RocksDB.Iterator.Iterator" d)
         ]
     showTypeOf _ = "Chainweb.Storage.Table.RocksDB.RocksDbTableIterator"
-    {-# INLINE wNoThunks #-}
-    {-# INLINE showTypeOf #-}
 
--- | Provide an computation with a 'RocksDbTableIterator' and release the iterator
--- after after the computation has finished either by returning a result or
--- throwing an exception. If the 'RocksDbTable' input is not empty, the iterator
--- will point to the first key in the 'RocksdbTable' when created.
---
--- This is function provides the preferred way of creating and using a
--- 'RocksDbTableIter'.
---
-withTableIter :: RocksDbTable k v -> (RocksDbTableIter k v -> IO a) -> IO a
-withTableIter db k = R.withReadOptions readOptions $ \opts_ptr ->
-    I.withIter (_rocksDbTableDb db) opts_ptr $ \iter -> do
-        let tableIter = makeTableIter iter
-        tableIterFirst tableIter
-        k tableIter
-  where
-    readOptions = fold
-        [ R.setLowerBound (namespaceFirst $ _rocksDbTableNamespace db)
-        , R.setUpperBound (namespaceLast $ _rocksDbTableNamespace db)
-        -- TODO: this setting tells rocksdb to use prefix seek *when it can*.
-        -- the question remains: is it actually being used?
-        , R.setAutoPrefixMode True
-        ]
-    makeTableIter =
-        RocksDbTableIter
-            (_rocksDbTableValueCodec db)
-            (_rocksDbTableKeyCodec db)
-            (_rocksDbTableNamespace db)
-{-# INLINE withTableIter #-}
+instance Iterator (RocksDbTableIter k v) k v where
+  iterValid it =
+      I.iterValid (_rocksDbTableIter it)
 
--- | Checks if an 'RocksDbTableIterator' is valid.
---
--- A valid iterator returns a value when 'tableIterEntry', 'tableIterValue', or
--- 'tableIterKey' is called on it.
---
-tableIterValid :: RocksDbTableIter k v -> IO Bool
-tableIterValid it =
-    I.iterValid (_rocksDbTableIter it)
-{-# INLINE tableIterValid #-}
+  iterSeek it = I.iterSeek (_rocksDbTableIter it) . encIterKey it
 
--- | Efficiently seek to a key in a 'RocksDbTableIterator' iteration.
---
-tableIterSeek :: RocksDbTableIter k v -> k -> IO ()
-tableIterSeek it = I.iterSeek (_rocksDbTableIter it) . encIterKey it
-{-# INLINE tableIterSeek #-}
+  iterFirst it =
+      I.iterFirst (_rocksDbTableIter it)
 
--- | Seek to the first key in a 'RocksDbTable'.
---
-tableIterFirst :: RocksDbTableIter k v -> IO ()
-tableIterFirst it =
-    I.iterFirst (_rocksDbTableIter it)
-{-# INLINE tableIterFirst #-}
+  iterLast it =
+      I.iterLast (_rocksDbTableIter it)
 
--- | Seek to the last value in a 'RocksDbTable'
---
-tableIterLast :: RocksDbTableIter k v -> IO ()
-tableIterLast it =
-    I.iterLast (_rocksDbTableIter it)
-{-# INLINE tableIterLast #-}
+  iterNext = I.iterNext . _rocksDbTableIter
 
--- | Move a 'RocksDbTableIter' to the next key in a 'RocksDbTable'.
---
-tableIterNext :: RocksDbTableIter k v -> IO ()
-tableIterNext = I.iterNext . _rocksDbTableIter
-{-# INLINE tableIterNext #-}
+  iterPrev = I.iterPrev . _rocksDbTableIter
 
--- | Move a 'RocksDbTableIter' to the previous key in a 'RocksDbTable'.
---
-tableIterPrev :: RocksDbTableIter k v -> IO ()
-tableIterPrev = I.iterPrev . _rocksDbTableIter
-{-# INLINE tableIterPrev #-}
+  iterEntry it =
+      I.iterEntry (_rocksDbTableIter it) >>= \case
+          Nothing -> return Nothing
+          Just (k, v) -> do
+              k' <- decIterKey it k
+              v' <- decIterVal it v
+              return $! Just $! Entry k' v'
 
--- | Returns the key and the value at the current position of a
--- 'RocksDbTableIter'. Returns 'Nothing' if the iterator is invalid.
---
-tableIterEntry
-    :: RocksDbTableIter k v
-    -> IO (Maybe (k, v))
-tableIterEntry it =
-    I.iterEntry (_rocksDbTableIter it) >>= \case
-        Nothing -> return Nothing
-        Just (k, v) -> do
-            !k' <- decIterKey it k
-            !v' <- decIterVal it v
-            return $ Just (k', v')
+  iterValue it = I.iterValue (_rocksDbTableIter it) >>= \case
+      Nothing -> return Nothing
+      Just v -> pure . Just =<< evaluate =<< decIterVal it v
 
-{-# INLINE tableIterEntry #-}
+  iterKey it = I.iterKey (_rocksDbTableIter it) >>= \case
+      Nothing -> return Nothing
+      Just k -> pure . Just =<< evaluate =<< decIterKey it k
 
--- | Returns the value at the current position of a 'RocksDbTableIter'. Returns
--- 'Nothing' if the iterator is invalid.
---
-tableIterValue
-    :: RocksDbTableIter k v
-    -> IO (Maybe v)
-tableIterValue it = I.iterValue (_rocksDbTableIter it) >>= \case
-    Nothing -> return Nothing
-    Just v -> pure . Just =<< evaluate =<< decIterVal it v
-{-# INLINE tableIterValue #-}
 
--- | Returns the key at the current position of a 'RocksDbTableIter'. Returns
--- 'Nothing' if the iterator is invalid.
---
-tableIterKey
-    :: RocksDbTableIter k v
-    -> IO (Maybe k)
-tableIterKey it = I.iterKey (_rocksDbTableIter it) >>= \case
-    Nothing -> return Nothing
-    Just k -> pure . Just =<< evaluate =<< decIterKey it k
-{-# INLINE tableIterKey #-}
+instance IterableTable (RocksDbTable k v) (RocksDbTableIter k v) k v where
+    withTableIterator db k = R.withReadOptions readOptions $ \opts_ptr ->
+        I.withIter (_rocksDbTableDb db) opts_ptr $ \iter -> do
+            let tableIter = makeTableIter iter
+            iterFirst tableIter
+            k tableIter
+      where
+        readOptions = fold
+            [ R.setLowerBound (namespaceFirst $ _rocksDbTableNamespace db)
+            , R.setUpperBound (namespaceLast $ _rocksDbTableNamespace db)
+            -- TODO: this setting tells rocksdb to use prefix seek *when it can*.
+            -- the question remains: is it actually being used?
+            , R.setAutoPrefixMode True
+            ]
+        makeTableIter =
+            RocksDbTableIter
+                (_rocksDbTableValueCodec db)
+                (_rocksDbTableKeyCodec db)
+                (_rocksDbTableNamespace db)
 
 -- | Returns the stream of key-value pairs of an 'RocksDbTableIter'.
 --
@@ -538,12 +456,11 @@ tableIterKey it = I.iterKey (_rocksDbTableIter it) >>= \case
 -- error. Not releasing the iterator after the processing of the stream has
 -- finished results in a memory leak.
 --
-iterToEntryStream :: RocksDbTableIter k v -> S.Stream (S.Of (k,v)) IO ()
+iterToEntryStream :: RocksDbTableIter k v -> S.Stream (S.Of (Entry k v)) IO ()
 iterToEntryStream it =
-    liftIO (tableIterEntry it) >>= \case
+    liftIO (iterEntry it) >>= \case
         Nothing -> return ()
-        Just x -> S.yield x >> liftIO (tableIterNext it) >> iterToEntryStream it
-{-# INLINE iterToEntryStream #-}
+        Just x -> S.yield x >> liftIO (iterNext it) >> iterToEntryStream it
 
 -- | Returns the stream of values of an 'RocksDbTableIter'.
 --
@@ -554,10 +471,9 @@ iterToEntryStream it =
 --
 iterToValueStream :: Show k => RocksDbTableIter k v -> S.Stream (S.Of v) IO ()
 iterToValueStream it = do
-    liftIO (tableIterValue it) >>= \case
+    liftIO (iterValue it) >>= \case
         Nothing -> return ()
-        Just x -> S.yield x >> liftIO (tableIterNext it) >> iterToValueStream it
-{-# INLINE iterToValueStream #-}
+        Just x -> S.yield x >> liftIO (iterNext it) >> iterToValueStream it
 
 -- Returns the stream of key-value pairs of an 'RocksDbTableIter' in reverse
 -- order.
@@ -569,10 +485,9 @@ iterToValueStream it = do
 --
 iterToReverseValueStream :: RocksDbTableIter k v -> S.Stream (S.Of v) IO ()
 iterToReverseValueStream it =
-    liftIO (tableIterValue it) >>= \case
+    liftIO (iterValue it) >>= \case
         Nothing -> return ()
-        Just x -> S.yield x >> liftIO (tableIterPrev it) >> iterToReverseValueStream it
-{-# INLINE iterToReverseValueStream #-}
+        Just x -> S.yield x >> liftIO (iterPrev it) >> iterToReverseValueStream it
 
 -- | Returns the stream of keys of an 'RocksDbTableIter'.
 --
@@ -583,48 +498,41 @@ iterToReverseValueStream it =
 --
 iterToKeyStream :: RocksDbTableIter k v -> S.Stream (S.Of k) IO ()
 iterToKeyStream it =
-    liftIO (tableIterKey it) >>= \case
+    liftIO (iterKey it) >>= \case
         Nothing -> return ()
-        Just x -> S.yield x >> liftIO (tableIterNext it) >> iterToKeyStream it
-{-# INLINE iterToKeyStream #-}
+        Just x -> S.yield x >> liftIO (iterNext it) >> iterToKeyStream it
 
 -- Extremal Table Entries
 
 -- | The maximum key in a 'RocksDbTable'.
 --
 tableMaxKey :: RocksDbTable k v -> IO (Maybe k)
-tableMaxKey = flip withTableIter $ \i -> tableIterLast i *> tableIterKey i
-{-# INLINE tableMaxKey #-}
+tableMaxKey = flip withTableIterator $ \i -> iterLast i *> iterKey i
 
 -- | The maximum value in a 'RocksDbTable'.
 --
 tableMaxValue :: RocksDbTable k v -> IO (Maybe v)
-tableMaxValue = flip withTableIter $ \i -> tableIterLast i *> tableIterValue i
-{-# INLINE tableMaxValue #-}
+tableMaxValue = flip withTableIterator $ \i -> iterLast i *> iterValue i
 
 -- | The maximum key-value in a 'RocksDbTable'.
 --
-tableMaxEntry :: RocksDbTable k v -> IO (Maybe (k, v))
-tableMaxEntry = flip withTableIter $ \i -> tableIterLast i *> tableIterEntry i
-{-# INLINE tableMaxEntry #-}
+tableMaxEntry :: RocksDbTable k v -> IO (Maybe (Entry k v))
+tableMaxEntry = flip withTableIterator $ \i -> iterLast i *> iterEntry i
 
 -- | The minimum key in a 'RocksDbTable'.
 --
 tableMinKey :: RocksDbTable k v -> IO (Maybe k)
-tableMinKey = flip withTableIter $ \i -> tableIterFirst i *> tableIterKey i
-{-# INLINE tableMinKey #-}
+tableMinKey = flip withTableIterator $ \i -> iterFirst i *> iterKey i
 
 -- | The minimum value in a 'RocksDbTable'.
 --
 tableMinValue :: RocksDbTable k v -> IO (Maybe v)
-tableMinValue = flip withTableIter $ \i -> tableIterFirst i *> tableIterValue i
-{-# INLINE tableMinValue #-}
+tableMinValue = flip withTableIterator $ \i -> iterFirst i *> iterValue i
 
 -- | The minimum key-value in a 'RocksDbTable'.
 --
-tableMinEntry :: RocksDbTable k v -> IO (Maybe (k, v))
-tableMinEntry = flip withTableIter $ \i -> tableIterFirst i *> tableIterEntry i
-{-# INLINE tableMinEntry #-}
+tableMinEntry :: RocksDbTable k v -> IO (Maybe (Entry k v))
+tableMinEntry = flip withTableIterator $ \i -> iterFirst i *> iterEntry i
 
 -- -------------------------------------------------------------------------- --
 -- CAS
@@ -636,7 +544,9 @@ instance ReadableTable (RocksDbTable k v) k v where
     tableLookup k db = do
         maybeBytes <- get (_rocksDbTableDb db) mempty (encKey db k)
         traverse (decVal db) maybeBytes
-    {-# INLINE tableLookup #-}
+
+    tableMember k db = 
+        isJust <$> get (_rocksDbTableDb db) mempty (encKey db k)
 
     -- | @tableLookupBatch db ks@ returns for each @k@ in @ks@ 'Just' the value at
     -- key @k@ in the 'RocksDbTable' @db@ if it exists, or 'Nothing' if the @k@
@@ -647,7 +557,6 @@ instance ReadableTable (RocksDbTable k v) k v where
         forM results $ \case
             Left e -> error $ "Chainweb.Storage.Table.RocksDB.tableLookupBatch: " <> e
             Right x -> traverse (decVal db) x
-    {-# INLINE tableLookupBatch #-}
 
 -- | For a 'IsCasValue' @v@ with 'CasKeyType v ~ k@,  a 'RocksDbTable k v' is an
 -- instance of 'IsCas'.
@@ -658,21 +567,17 @@ instance Table (RocksDbTable k v) k v where
         R.defaultWriteOptions
         (encKey db k)
         (encVal db v)
-    {-# INLINE tableInsert #-}
 
     tableDelete k db = R.delete
         (_rocksDbTableDb db)
         R.defaultWriteOptions
         (encKey db k)
-    {-# INLINE tableDelete #-}
 
     tableInsertBatch kvs db = 
         updateBatch (uncurry (RocksDbInsert db) <$> kvs)
-    {-# INLINE tableInsertBatch #-}
 
     tableDeleteBatch ks db = 
         updateBatch (RocksDbDelete db <$> ks)
-    {-# INLINE tableDeleteBatch #-}
 
 -- | A newtype wrapper that takes only a single type constructor. This useful in
 -- situations where a Higher Order type constructor for a CAS is required. A
@@ -685,20 +590,13 @@ newtype RocksDbCas v = RocksDbCas { _getRocksDbCas :: RocksDbTable (CasKeyType v
 instance (k ~ CasKeyType v, IsCasValue v) => ReadableTable (RocksDbCas v) k v where
     tableLookup k (RocksDbCas x) = tableLookup k x
     tableLookupBatch ks (RocksDbCas x) = tableLookupBatch ks x
-
-    {-# INLINE tableLookup #-}
-    {-# INLINE tableLookupBatch #-}
+    tableMember k (RocksDbCas x) = tableMember k x
 
 instance (k ~ CasKeyType v, IsCasValue v) => Table (RocksDbCas v) k v where
     tableInsert k v (RocksDbCas x) = tableInsert k v x
     tableDelete k (RocksDbCas x) = tableDelete k x
     tableInsertBatch kvs (RocksDbCas x) = tableInsertBatch kvs x
     tableDeleteBatch ks (RocksDbCas x) = tableDeleteBatch ks x
-
-    {-# INLINE tableInsert #-}
-    {-# INLINE tableDelete #-}
-    {-# INLINE tableInsertBatch #-}
-    {-# INLINE tableDeleteBatch #-}
 
 -- | Create a new 'RocksDbCas'.
 --
@@ -710,7 +608,6 @@ newCas
     -> [B.ByteString]
     -> RocksDbCas v
 newCas db vc kc n = RocksDbCas $ newTable db vc kc n
-{-# INLINE newCas #-}
 
 -- -------------------------------------------------------------------------- --
 -- Exceptions
@@ -724,56 +621,46 @@ data RocksDbException
 instance Exception RocksDbException where
     displayException (RocksDbTableIterInvalidKeyNamespace e a)
         = T.unpack $ unexpectedMsg "Chainweb.Storage.Table.RocksDB: invalid table key" e a
-    {-# INLINE displayException #-}
 
 instance Show RocksDbException where
     show = displayException
-    {-# INLINE show #-}
 
 -- -------------------------------------------------------------------------- --
 -- Table Utils
 
 encVal :: RocksDbTable k v -> v -> B.ByteString
 encVal = _codecEncode . _rocksDbTableValueCodec
-{-# INLINE encVal #-}
 
 encKey :: RocksDbTable k v -> k -> B.ByteString
 encKey it k = namespaceFirst ns <> _codecEncode (_rocksDbTableKeyCodec it) k
   where
     ns = _rocksDbTableNamespace it
-{-# INLINE encKey #-}
 
 decVal :: MonadThrow m => RocksDbTable k v -> B.ByteString -> m v
 decVal tbl = _codecDecode $ _rocksDbTableValueCodec tbl
-{-# INLINE decVal #-}
 
 -- -------------------------------------------------------------------------- --
 -- Iter Utils
 
 namespaceFirst :: B.ByteString -> B.ByteString
 namespaceFirst ns = ns <> "$"
-{-# INLINE namespaceFirst #-}
 
 namespaceLast :: B.ByteString -> B.ByteString
 namespaceLast ns = ns <> "%"
-{-# INLINE namespaceLast #-}
 
 encIterKey :: RocksDbTableIter k v -> k -> B.ByteString
 encIterKey it k = namespaceFirst ns <> _codecEncode (_rocksDbTableIterKeyCodec it) k
   where
     ns = _rocksDbTableIterNamespace it
-{-# INLINE encIterKey #-}
 
 decIterVal :: MonadThrow m => RocksDbTableIter k v -> B.ByteString -> m v
 decIterVal i bs = _codecDecode (_rocksDbTableIterValueCodec i) bs
-{-# INLINE decIterVal #-}
 
 decIterKey :: MonadThrow m => RocksDbTableIter k v -> B.ByteString -> m k
 decIterKey it k =
     _codecDecode (_rocksDbTableIterKeyCodec it) (B.drop (B.length prefix) k)
   where
     prefix = namespaceFirst $ _rocksDbTableIterNamespace it
-{-# INLINE decIterKey #-}
 
 checked :: HasCallStack => String -> (Ptr CString -> IO a) -> IO a
 checked whatWasIDoing act = alloca $ \errPtr -> do

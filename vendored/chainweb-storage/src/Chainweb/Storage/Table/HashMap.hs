@@ -39,15 +39,14 @@ data HashMapTable k v = HashMapTable !(TVar (HM.HashMap k v))
 
 instance Hashable k => ReadableTable (HashMapTable k v) k v where
     tableLookup k (HashMapTable var) = HM.lookup k <$!> readTVarIO var
-    {-# INLINE tableLookup #-}
+    tableMember k (HashMapTable var) = 
+        HM.member k <$> readTVarIO var
 
 instance Hashable k => Table (HashMapTable k v) k v where
-    tableInsert k v table@(HashMapTable var) =
+    tableInsert k v (HashMapTable var) =
         atomically $ modifyTVar' var (HM.insert k v)
-    tableDelete k table@(HashMapTable var) =
+    tableDelete k (HashMapTable var) =
         atomically $ modifyTVar' var (HM.delete k)
-    {-# INLINE tableInsert #-}
-    {-# INLINE tableDelete #-}
 
 -- | Create new empty CAS
 --
