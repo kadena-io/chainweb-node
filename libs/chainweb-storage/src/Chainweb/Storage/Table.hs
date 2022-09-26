@@ -24,15 +24,17 @@
 module Chainweb.Storage.Table
 ( IsCasValue(..)
 , ReadableTable(..)
-, ReadableCas(..)
+, ReadableCas
 , Table(..)
-, Cas(..)
+, Cas
 , casInsert
 , IterableTable(..)
-, IterableCas(..)
+, IterableCas
 , Entry(..)
 , Iterator(..)
+, CasIterator
 , tableLookupM
+, casLookupM
 , TableException(..)
 ) where
 
@@ -40,11 +42,8 @@ import Control.Exception (Exception, SomeException)
 import Control.Monad.Catch (throwM)
 
 import Data.Foldable
-import Data.Functor
-import Data.Kind
 import Data.Maybe
 import Data.Text (Text)
-import qualified Data.Vector as V
 
 import GHC.Generics
 import GHC.Stack
@@ -87,15 +86,15 @@ type Cas t v = Table t (CasKeyType v) v
 casInsert :: (IsCasValue v, Cas t v) => v -> t -> IO ()
 casInsert v t = tableInsert (casKey v) v t
 
-class (Table t k v, Iterator i k v) => IterableTable t i k v | t -> k v, i -> k v where
+class (Table t k v, Iterator i k v) => IterableTable t i k v | t -> k v, i -> k v, t -> i where
     -- the created iterator must be positioned at the start of the table.
-    tableCreateIterator :: t -> i
+    withTableIterator :: t -> (i -> IO a) -> IO a
 type IterableCas t v = IterableTable t (CasKeyType v) v
 
 data Entry k v = Entry !k !v
 
 class Iterator i k v | i -> k v where
-    iterSeek :: k -> i -> IO ()
+    iterSeek :: i -> k -> IO ()
     iterLast :: i -> IO ()
     iterFirst :: i -> IO ()
     iterNext :: i -> IO ()

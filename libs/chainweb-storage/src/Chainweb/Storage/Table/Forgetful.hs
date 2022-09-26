@@ -23,6 +23,7 @@ data ForgetfulTable k v = ForgetfulTable
 
 instance ReadableTable (ForgetfulTable k v) k v where
     tableLookup _ _ = return Nothing
+    tableMember _ _ = return False
     {-# INLINE tableLookup #-}
 
 instance Table (ForgetfulTable k v) k v where
