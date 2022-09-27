@@ -37,12 +37,12 @@ import Chainweb.Storage.Table
 --
 data HashMapTable k v = HashMapTable !(TVar (HM.HashMap k v))
 
-instance Hashable k => ReadableTable (HashMapTable k v) k v where
+instance (Hashable k, Eq k) => ReadableTable (HashMapTable k v) k v where
     tableLookup k (HashMapTable var) = HM.lookup k <$!> readTVarIO var
     tableMember k (HashMapTable var) = 
         HM.member k <$> readTVarIO var
 
-instance Hashable k => Table (HashMapTable k v) k v where
+instance (Hashable k, Eq k) => Table (HashMapTable k v) k v where
     tableInsert k v (HashMapTable var) =
         atomically $ modifyTVar' var (HM.insert k v)
     tableDelete k (HashMapTable var) =
@@ -50,7 +50,7 @@ instance Hashable k => Table (HashMapTable k v) k v where
 
 -- | Create new empty CAS
 --
-emptyTable :: Hashable k => IO (HashMapTable k v)
+emptyTable :: (Hashable k, Eq k) => IO (HashMapTable k v)
 emptyTable = HashMapTable <$> newTVarIO mempty
 
 -- | Return all entries of CAS as List
