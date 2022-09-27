@@ -3,24 +3,20 @@
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveFunctor #-}
 {-# LANGUAGE DeriveGeneric #-}
-{-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE DerivingVia #-}
 {-# LANGUAGE ExistentialQuantification #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
-{-# LANGUAGE ViewPatterns #-}
 {-# LANGUAGE UndecidableInstances #-}
-{-# LANGUAGE RecordWildCards #-}
-{-# LANGUAGE FunctionalDependencies #-}
-{-# LANGUAGE TypeSynonymInstances #-}
+{-# LANGUAGE ViewPatterns #-}
 
 -- |
 -- Module: Chainweb.Storage.Table.RocksDB
@@ -42,56 +38,56 @@
 -- provide alternative implementations for it.
 --
 module Chainweb.Storage.Table.RocksDB
-( RocksDb(..)
--- , rocksDbHandle
--- , rocksDbNamespace
-, openRocksDb
-, closeRocksDb
-, withRocksDb
-, withTempRocksDb
-, destroyRocksDb
-, resetOpenRocksDb
-, modernDefaultOptions
+  ( RocksDb(..)
+  -- , rocksDbHandle
+  -- , rocksDbNamespace
+  , openRocksDb
+  , closeRocksDb
+  , withRocksDb
+  , withTempRocksDb
+  , destroyRocksDb
+  , resetOpenRocksDb
+  , modernDefaultOptions
 
--- * Rocks DB Table
-, Codec(..)
-, RocksDbTable
-, newTable
-, tableLookup
-, tableLookupBatch
-, tableInsert
-, tableDelete
+  -- * Rocks DB Table
+  , Codec(..)
+  , RocksDbTable
+  , newTable
+  , tableLookup
+  , tableLookupBatch
+  , tableInsert
+  , tableDelete
 
--- * Batch Updates
-, RocksDbUpdate(..)
-, updateBatch
+  -- * Batch Updates
+  , RocksDbUpdate(..)
+  , updateBatch
 
--- * Rocks DB Table Iterator
-, RocksDbTableIter
+  -- * Rocks DB Table Iterator
+  , RocksDbTableIter
 
--- ** Streams
-, iterToEntryStream
-, iterToValueStream
-, iterToReverseValueStream
-, iterToKeyStream
+  -- ** Streams
+  , iterToEntryStream
+  , iterToValueStream
+  , iterToReverseValueStream
+  , iterToKeyStream
 
--- ** Extremal Table Entries
-, tableMaxKey
-, tableMaxValue
-, tableMaxEntry
-, tableMinKey
-, tableMinValue
-, tableMinEntry
+  -- ** Extremal Table Entries
+  , tableMaxKey
+  , tableMaxValue
+  , tableMaxEntry
+  , tableMinKey
+  , tableMinValue
+  , tableMinEntry
 
--- * RocksDbCas
-, RocksDbCas(..)
-, newCas
+  -- * RocksDbCas
+  , RocksDbCas(..)
+  , newCas
 
--- * RocksDB-specific tools
-, checkpointRocksDb
-, deleteRangeRocksDb
-, compactRangeRocksDb
-) where
+  -- * RocksDB-specific tools
+  , checkpointRocksDb
+  , deleteRangeRocksDb
+  , compactRangeRocksDb
+  ) where
 
 import Control.Exception(evaluate)
 import Control.Monad
@@ -199,7 +195,7 @@ openRocksDb path opts_ptr = do
     GHC.setFileSystemEncoding GHC.utf8
     createDirectoryIfMissing True path
     db <- withFilePath path $ \path_ptr ->
-        liftM R.DB
+        fmap R.DB
         $ R.throwIfErr "open"
         $ C.c_rocksdb_open opts_ptr path_ptr
     let rdb = RocksDb db mempty
@@ -422,12 +418,11 @@ instance Iterator (RocksDbTableIter k v) k v where
 
   iterValue it = I.iterValue (_rocksDbTableIter it) >>= \case
       Nothing -> return Nothing
-      Just v -> pure . Just =<< evaluate =<< decIterVal it v
+      Just v -> Just <$> (evaluate =<< decIterVal it v)
 
   iterKey it = I.iterKey (_rocksDbTableIter it) >>= \case
       Nothing -> return Nothing
-      Just k -> pure . Just =<< evaluate =<< decIterKey it k
-
+      Just k -> Just <$> (evaluate =<< decIterKey it k)
 
 instance IterableTable (RocksDbTable k v) (RocksDbTableIter k v) k v where
     withTableIterator db k = R.withReadOptions readOptions $ \opts_ptr ->
@@ -654,7 +649,7 @@ encIterKey it k = namespaceFirst ns <> _codecEncode (_rocksDbTableIterKeyCodec i
     ns = _rocksDbTableIterNamespace it
 
 decIterVal :: MonadThrow m => RocksDbTableIter k v -> B.ByteString -> m v
-decIterVal i bs = _codecDecode (_rocksDbTableIterValueCodec i) bs
+decIterVal i = _codecDecode (_rocksDbTableIterValueCodec i) 
 
 decIterKey :: MonadThrow m => RocksDbTableIter k v -> B.ByteString -> m k
 decIterKey it k =
