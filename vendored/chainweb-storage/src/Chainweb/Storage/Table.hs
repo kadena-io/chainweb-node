@@ -122,7 +122,7 @@ type CasIterator i v = Iterator i (CasKeyType v) v
 
 -- | Lookup a value by its key in a content-addressable store and throw an
 -- 'TableException' if the value doesn't exist in the store
-tableLookupM :: (HasCallStack, Table t k v) => k -> t -> IO v
+tableLookupM :: (HasCallStack, ReadableTable t k v) => k -> t -> IO v
 tableLookupM cas k =
     tableLookup cas k >>= \case
         Nothing ->
