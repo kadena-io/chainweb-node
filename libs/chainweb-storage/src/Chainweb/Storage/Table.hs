@@ -143,7 +143,7 @@ type CasIterator i v = Iterator i (CasKeyType v) v
 -- type synonym doesn't work in this situation because type synonyms must be
 -- fully applied.
 --
-newtype Casify t v = Casify (t (CasKeyType v) v)
+newtype Casify t v = Casify { unCasify :: t (CasKeyType v) v }
 instance forall t k v. (CasKeyType v ~ k, ReadableTable (t k v) k v) => ReadableTable (Casify t v) k v where
     tableLookup = coerce @(t k v -> k -> IO (Maybe v)) tableLookup
     tableLookupBatch = coerce @(t k v -> [k] -> IO [Maybe v]) tableLookupBatch
