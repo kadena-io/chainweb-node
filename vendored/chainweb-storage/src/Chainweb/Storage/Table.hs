@@ -2,11 +2,16 @@
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE FunctionalDependencies #-}
 {-# LANGUAGE GADTs #-}
+{-# LANGUAGE InstanceSigs #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE UndecidableInstances #-}
 
 -- |
 -- Module: Chainweb.Storage.Table
@@ -18,29 +23,31 @@
 --
 -- API for Key-Value Stores
 module Chainweb.Storage.Table
-  ( IsCasValue (..),
-    ReadableTable (..),
-    ReadableCas,
-    Table (..),
-    Cas,
-    casInsert,
-    casInsertBatch,
-    casDelete,
-    casDeleteBatch,
-    IterableTable (..),
-    IterableCas,
-    Entry (..),
-    Iterator (..),
-    CasIterator,
-    tableLookupM,
-    casLookupM,
-    TableException (..),
+  ( IsCasValue (..)
+  , ReadableTable (..)
+  , ReadableCas
+  , Table (..)
+  , Casify(..)
+  , Cas
+  , casInsert
+  , casInsertBatch
+  , casDelete
+  , casDeleteBatch
+  , IterableTable (..)
+  , IterableCas
+  , Entry (..)
+  , Iterator (..)
+  , CasIterator
+  , tableLookupM
+  , casLookupM
+  , TableException (..)
   )
 where
 
 import Control.Exception (Exception, SomeException)
 import Control.Monad.Catch (throwM)
 
+import Data.Coerce
 import Data.Foldable
 import Data.Maybe
 import Data.Text (Text)
@@ -83,6 +90,21 @@ class ReadableTable t k v => Table t k v | t -> k v where
 
 type Cas t v = Table t (CasKeyType v) v
 
+newtype Casify t v = Casify (t (CasKeyType v) v)
+instance forall t k v. (CasKeyType v ~ k, ReadableTable (t k v) k v) => ReadableTable (Casify t v) k v where
+  tableLookup = coerce @(k -> t k v -> IO (Maybe v)) tableLookup
+  tableLookupBatch = coerce @([k] -> t k v -> IO [Maybe v]) tableLookupBatch
+  tableMember = coerce @(k -> t k v -> IO Bool) tableMember
+instance forall t k v. (CasKeyType v ~ k, Table (t k v) k v) => Table (Casify t v) k v where
+  tableInsert = coerce @(k -> v -> t k v -> IO ()) tableInsert
+  tableInsertBatch = coerce @([(k, v)] -> t k v -> IO ()) tableInsertBatch
+  tableDelete = coerce @(k -> t k v -> IO ()) tableDelete
+  tableDeleteBatch = coerce @([k] -> t k v -> IO ()) tableDeleteBatch
+-- TODO: why is this Iterator superclass needed?
+instance forall t i k v. (CasKeyType v ~ k, IterableTable (t k v) i k v, Iterator i k v) => IterableTable (Casify t v) i k v where
+  withTableIterator :: forall a. Casify t v -> (i -> IO a) -> IO a
+  withTableIterator = coerce @(t k v -> (i -> IO a) -> IO a) withTableIterator
+
 casInsert :: (IsCasValue v, Cas t v) => v -> t -> IO ()
 casInsert v = tableInsert (casKey v) v
 
@@ -95,7 +117,7 @@ casDelete = tableDelete . casKey
 casDeleteBatch :: (IsCasValue v, Cas t v) => [v] -> t -> IO ()
 casDeleteBatch = tableDeleteBatch . fmap casKey
 
-class (Table t k v, Iterator i k v) => IterableTable t i k v | t -> k v, i -> k v, t -> i where
+class (Table t k v, Iterator i k v) => IterableTable t i k v | t -> i k v where
     -- the created iterator must be positioned at the start of the table.
     withTableIterator :: t -> (i -> IO a) -> IO a
 
