@@ -73,49 +73,50 @@ class Eq (CasKeyType v) => IsCasValue v where
 -- is either available or not available. There is no dispute about the value
 -- itself.
 class ReadableTable t k v | t -> k v where
-    tableLookup :: k -> t -> IO (Maybe v)
-    tableLookupBatch :: [k] -> t -> IO [Maybe v]
-    tableLookupBatch ks t = traverse (flip tableLookup t) ks
-    tableMember :: k -> t -> IO Bool
+    tableLookup :: t -> k -> IO (Maybe v)
+    tableLookupBatch :: t -> [k] -> IO [Maybe v]
+    tableLookupBatch t ks = traverse (tableLookup t) ks
+    tableMember :: t -> k -> IO Bool
+    tableMember t k = isJust <$> tableLookup t k
 
 type ReadableCas t v = ReadableTable t (CasKeyType v) v
 
 class ReadableTable t k v => Table t k v | t -> k v where
-    tableInsert :: k -> v -> t -> IO ()
-    tableInsertBatch :: [(k, v)] -> t -> IO ()
-    tableInsertBatch kvs t = traverse_ (flip (uncurry tableInsert) t) kvs
-    tableDelete :: k -> t -> IO ()
-    tableDeleteBatch :: [k] -> t -> IO ()
-    tableDeleteBatch ks t = traverse_ (flip tableDelete t) ks
+    tableInsert :: t -> k -> v -> IO ()
+    tableInsertBatch :: t -> [(k, v)] -> IO ()
+    tableInsertBatch t kvs = traverse_ (uncurry (tableInsert t)) kvs
+    tableDelete :: t -> k -> IO ()
+    tableDeleteBatch :: t -> [k] -> IO ()
+    tableDeleteBatch t ks = traverse_ (tableDelete t) ks
 
 type Cas t v = Table t (CasKeyType v) v
 
 newtype Casify t v = Casify (t (CasKeyType v) v)
 instance forall t k v. (CasKeyType v ~ k, ReadableTable (t k v) k v) => ReadableTable (Casify t v) k v where
-  tableLookup = coerce @(k -> t k v -> IO (Maybe v)) tableLookup
-  tableLookupBatch = coerce @([k] -> t k v -> IO [Maybe v]) tableLookupBatch
-  tableMember = coerce @(k -> t k v -> IO Bool) tableMember
+  tableLookup = coerce @(t k v -> k -> IO (Maybe v)) tableLookup
+  tableLookupBatch = coerce @(t k v -> [k] -> IO [Maybe v]) tableLookupBatch
+  tableMember = coerce @(t k v -> k -> IO Bool) tableMember
 instance forall t k v. (CasKeyType v ~ k, Table (t k v) k v) => Table (Casify t v) k v where
-  tableInsert = coerce @(k -> v -> t k v -> IO ()) tableInsert
-  tableInsertBatch = coerce @([(k, v)] -> t k v -> IO ()) tableInsertBatch
-  tableDelete = coerce @(k -> t k v -> IO ()) tableDelete
-  tableDeleteBatch = coerce @([k] -> t k v -> IO ()) tableDeleteBatch
+  tableInsert = coerce @(t k v -> k -> v -> IO ()) tableInsert
+  tableInsertBatch = coerce @(t k v -> [(k, v)] -> IO ()) tableInsertBatch
+  tableDelete = coerce @(t k v -> k -> IO ()) tableDelete
+  tableDeleteBatch = coerce @(t k v -> [k] -> IO ()) tableDeleteBatch
 -- TODO: why is this Iterator superclass needed?
 instance forall t i k v. (CasKeyType v ~ k, IterableTable (t k v) i k v, Iterator i k v) => IterableTable (Casify t v) i k v where
   withTableIterator :: forall a. Casify t v -> (i -> IO a) -> IO a
   withTableIterator = coerce @(t k v -> (i -> IO a) -> IO a) withTableIterator
 
-casInsert :: (IsCasValue v, Cas t v) => v -> t -> IO ()
-casInsert v = tableInsert (casKey v) v
+casInsert :: (IsCasValue v, Cas t v) => t -> v -> IO ()
+casInsert t v = tableInsert t (casKey v) v
 
-casInsertBatch :: (IsCasValue v, Cas t v) => [v] -> t -> IO ()
-casInsertBatch vs = tableInsertBatch [(casKey v, v) | v <- vs]
+casInsertBatch :: (IsCasValue v, Cas t v) => t -> [v] -> IO ()
+casInsertBatch t vs = tableInsertBatch t [(casKey v, v) | v <- vs]
 
-casDelete :: (IsCasValue v, Cas t v) => v -> t -> IO ()
-casDelete = tableDelete . casKey
+casDelete :: (IsCasValue v, Cas t v) => t -> v -> IO ()
+casDelete t = tableDelete t . casKey
 
-casDeleteBatch :: (IsCasValue v, Cas t v) => [v] -> t -> IO ()
-casDeleteBatch = tableDeleteBatch . fmap casKey
+casDeleteBatch :: (IsCasValue v, Cas t v) => t -> [v] -> IO ()
+casDeleteBatch t = tableDeleteBatch t . fmap casKey
 
 class (Table t k v, Iterator i k v) => IterableTable t i k v | t -> i k v where
     -- the created iterator must be positioned at the start of the table.
@@ -144,7 +145,7 @@ type CasIterator i v = Iterator i (CasKeyType v) v
 
 -- | Lookup a value by its key in a content-addressable store and throw an
 -- 'TableException' if the value doesn't exist in the store
-tableLookupM :: (HasCallStack, ReadableTable t k v) => k -> t -> IO v
+tableLookupM :: (HasCallStack, ReadableTable t k v) => t -> k -> IO v
 tableLookupM cas k =
     tableLookup cas k >>= \case
         Nothing ->
@@ -152,7 +153,7 @@ tableLookupM cas k =
                 "tableLookupM: lookup failed for table key"
         Just v -> return $! v
 
-casLookupM :: (HasCallStack, Cas t v) => CasKeyType v -> t -> IO v
+casLookupM :: (HasCallStack, Cas t v) => t -> CasKeyType v -> IO v
 casLookupM = tableLookupM
 
 -- | Exceptions that are thrown by instances of 'IsCas'.

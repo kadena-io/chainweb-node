@@ -35,17 +35,17 @@ import Chainweb.Storage.Table
 
 -- | An 'IsTable' implementation that is base on 'HM.HashMap'.
 --
-data HashMapTable k v = HashMapTable !(TVar (HM.HashMap k v))
+newtype HashMapTable k v = HashMapTable (TVar (HM.HashMap k v))
 
 instance (Hashable k, Eq k) => ReadableTable (HashMapTable k v) k v where
-    tableLookup k (HashMapTable var) = HM.lookup k <$!> readTVarIO var
-    tableMember k (HashMapTable var) = 
+    tableLookup (HashMapTable var) k  = HM.lookup k <$!> readTVarIO var
+    tableMember (HashMapTable var) k  = 
         HM.member k <$> readTVarIO var
 
 instance (Hashable k, Eq k) => Table (HashMapTable k v) k v where
-    tableInsert k v (HashMapTable var) =
+    tableInsert (HashMapTable var) k v =
         atomically $ modifyTVar' var (HM.insert k v)
-    tableDelete k (HashMapTable var) =
+    tableDelete (HashMapTable var) k =
         atomically $ modifyTVar' var (HM.delete k)
 
 -- | Create new empty CAS
