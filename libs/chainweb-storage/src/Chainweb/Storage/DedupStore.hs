@@ -156,7 +156,7 @@ dedupInsert :: DedupStore k v -> k -> v -> IO ()
 dedupInsert store k v = do
     dedupKey <- dedupStore (_dedupChunks store)
         $ BL.fromStrict $ _codecEncode (_dedupValueCodec store) v
-    tableInsert k dedupKey (_dedupRoots store)
+    tableInsert (_dedupRoots store) k dedupKey 
 {-# INLINE dedupInsert #-}
 
 -- | @dedupLookup db k@ returns 'Just' the value at key @k@ in the
@@ -165,7 +165,7 @@ dedupInsert store k v = do
 --
 dedupLookup :: DedupStore k v -> k -> IO (Maybe v)
 dedupLookup store k = do
-    tableLookup k (_dedupRoots store) >>= \case
+    tableLookup (_dedupRoots store) k >>= \case
         Nothing -> return Nothing
         Just dedupKey -> do
             dedupRestore (_dedupChunks store) dedupKey >>= \case
@@ -246,10 +246,10 @@ dedupStore' store = go0
     hashAndStore :: Word8 -> B.ByteString -> IO (Int, Int, DedupHash)
     hashAndStore tag c = do
         let h = DedupHash $ BA.convert $ C.hash @_ @DedupHashAlg (B.cons tag c)
-        (hit, miss) <- tableMember h store >>= \x -> if x
+        (hit, miss) <- tableMember store h >>= \x -> if x
             then return (1, 0)
             else do
-                casInsert (Chunk tag h c) store 
+                casInsert store (Chunk tag h c) 
                 return (0, 1)
         return (hit, miss, h)
     {-# INLINE hashAndStore #-}
@@ -276,7 +276,7 @@ dedupRestore
     -> DedupHash
     -> IO (Maybe BL.ByteString)
 dedupRestore store key = fmap BB.toLazyByteString <$> do
-    tableLookup key store >>= \case
+    tableLookup store key >>= \case
         Nothing -> return Nothing
         Just (Chunk 0x0 _ b) -> return $ Just $ BB.byteString b
         Just (Chunk 0x1 _ b) -> Just <$> splitHashes b
@@ -284,7 +284,7 @@ dedupRestore store key = fmap BB.toLazyByteString <$> do
 
   where
     go h = do
-        tableLookup h store >>= \case
+        tableLookup store h >>= \case
             Nothing -> throwM $ DedupStoreCorruptedData "Missing chunk from store"
             Just (Chunk 0x0 _ b) -> return (BB.byteString b)
             Just (Chunk 0x1 _ b) -> splitHashes b
@@ -311,7 +311,7 @@ roll :: BL.ByteString -> BL.ByteString
 roll z = BL.fromChunks $ go seed 0 z za ze
   where
     z' = BL.unpack z
-    za = (BL.unpack $ BL.replicate window 0) <> z'
+    za = BL.unpack (BL.replicate window 0) <> z'
     {-# SCC za #-}
     ze = z'
     {-# SCC ze #-}

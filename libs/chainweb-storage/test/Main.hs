@@ -95,14 +95,14 @@ intTable db tableName = newTable db intCodec intCodec [tableName]
 assertEmptyTable :: HasCallStack => RocksDbTable Int Int -> IO ()
 assertEmptyTable t = do
     assertNoThunks t
-    assertIO (tableLookup 1 t) Nothing
+    assertIO (tableLookup t 1) Nothing
     assertEntries t []
 
 assertEntries :: HasCallStack => RocksDbTable Int Int -> [(Int, Int)] -> IO ()
 assertEntries t l_ = do
     assertNoThunks t
-    forM_ l $ \(k, v) -> assertIO (tableLookup k t) (Just v)
-    assertIO (tableLookupBatch ks t) (Just <$> vs)
+    forM_ l $ \(k, v) -> assertIO (tableLookup t k) (Just v)
+    assertIO (tableLookupBatch t ks) (Just <$> vs)
 
     assertIO (tableMinKey t) (firstOf (folded . _1) l)
     assertIO (tableMinValue t) (firstOf (folded . _2) l)
@@ -138,19 +138,19 @@ tableTests db tableName = do
     assertNoThunks t
     assertEmptyTable t
 
-    tableInsert 1 8 t
+    tableInsert t 1 8 
     assertEntries t [(1, 8)]
 
-    tableInsert 2 9 t
+    tableInsert t 2 9 
     assertEntries t [(1, 8), (2, 9)]
 
-    tableDelete 1 t
+    tableDelete t 1 
     assertEntries t [(2, 9)]
 
-    tableInsert 2 8 t
+    tableInsert t 2 8 
     assertEntries t [(2, 8)]
 
-    tableDelete 2 t
+    tableDelete t 2 
     assertEmptyTable t
   where
     !t = intTable db tableName
@@ -205,37 +205,37 @@ casBatchTests :: HasCallStack => RocksDb -> B8.ByteString -> IO ()
 casBatchTests db tableName = do
     assertEmptyTable t
 
-    tableInsertBatch mempty t
+    tableInsertBatch t mempty 
     assertEmptyTable t
 
-    casInsertBatch [1] t
+    casInsertBatch t [1] 
     assertCasEntries t [1]
 
-    casInsertBatch [2] t
+    casInsertBatch t [2] 
     assertCasEntries t [1, 2]
 
-    casDeleteBatch [2] t
+    casDeleteBatch t [2] 
     assertCasEntries t [1]
 
-    casInsertBatch [1] t
+    casInsertBatch t [1] 
     assertCasEntries t [1]
 
-    casInsertBatch [2, 2, 2] t
+    casInsertBatch t [2, 2, 2] 
     assertCasEntries t [1, 2]
 
-    casInsertBatch [1, 2, 3, 4] t
+    casInsertBatch t [1, 2, 3, 4] 
     assertCasEntries t [1, 2, 3, 4]
 
-    casDeleteBatch [5] t
+    casDeleteBatch t [5] 
     assertCasEntries t [1, 2, 3, 4]
 
-    casDeleteBatch [1, 3, 1] t
+    casDeleteBatch t [1, 3, 1] 
     assertCasEntries t [2, 4]
 
-    casDeleteBatch [] t
+    casDeleteBatch t [] 
     assertCasEntries t [2, 4]
 
-    casDeleteBatch [2, 4] t
+    casDeleteBatch t [2, 4] 
     assertEmptyTable t
   where
     t = intTable db tableName
@@ -243,49 +243,49 @@ casBatchTests db tableName = do
 casTests :: HasCallStack => RocksDb -> B8.ByteString -> IO ()
 casTests db tableName = do
     assertEmptyTable t
-    assertIO (tableMember 1 t) False
-    assertIO (tableLookup 1 t) Nothing
+    assertIO (tableMember t 1) False
+    assertIO (tableLookup t 1) Nothing
 
-    casInsertBatch mempty t
+    casInsertBatch t mempty 
     assertEmptyTable t
 
-    casInsert 1 t
+    casInsert t 1 
     assertCasEntries t [1]
-    assertIO (tableMember (casKey @Int 1) t) True
-    assertIO (tableLookup (casKey @Int 1) t) (Just 1)
+    assertIO (tableMember t (casKey @Int 1)) True
+    assertIO (tableLookup t (casKey @Int 1)) (Just 1)
 
-    casInsert 2 t
+    casInsert t 2 
     assertCasEntries t [1, 2]
-    assertIO (tableMember (casKey @Int 1) t) True
-    assertIO (tableMember (casKey @Int 2) t) True
-    assertIO (tableLookup (casKey @Int 1) t) (Just 1)
-    assertIO (tableLookup (casKey @Int 2) t) (Just 2)
-    assertIO (tableLookupBatch [casKey @Int 1, casKey @Int 2] t) [Just 1, Just 2]
+    assertIO (tableMember t (casKey @Int 1)) True
+    assertIO (tableMember t (casKey @Int 2)) True
+    assertIO (tableLookup t (casKey @Int 1)) (Just 1)
+    assertIO (tableLookup t (casKey @Int 2)) (Just 2)
+    assertIO (tableLookupBatch t [casKey @Int 1, casKey @Int 2]) [Just 1, Just 2]
 
-    casDelete 2 t
+    casDelete t 2
     assertCasEntries t [1]
-    assertIO (tableMember (casKey @Int 1) t) True
-    assertIO (tableMember (casKey @Int 2) t) False
-    assertIO (tableLookup (casKey @Int 1) t) (Just 1)
-    assertIO (tableLookup (casKey @Int 2) t) Nothing
-    assertIO (tableLookupBatch [casKey @Int 1, casKey @Int 2] t) [Just 1, Nothing]
+    assertIO (tableMember t (casKey @Int 1)) True
+    assertIO (tableMember t (casKey @Int 2)) False
+    assertIO (tableLookup t (casKey @Int 1)) (Just 1)
+    assertIO (tableLookup t (casKey @Int 2)) Nothing
+    assertIO (tableLookupBatch t [casKey @Int 1, casKey @Int 2]) [Just 1, Nothing]
 
-    casInsert 1 t
+    casInsert t 1
     assertCasEntries t [1]
 
-    traverse_ @[] (`casInsert` t) [2, 2, 2]
+    traverse_ @[] (casInsert t) [2, 2, 2]
     assertCasEntries t [1, 2]
 
-    traverse_ @[] (`casInsert` t) [1, 2, 3, 4]
+    traverse_ @[] (casInsert t) [1, 2, 3, 4]
     assertCasEntries t [1, 2, 3, 4]
 
-    casDelete (casKey @Int 5) t
+    casDelete t (casKey @Int 5) 
     assertCasEntries t [1, 2, 3, 4]
 
-    traverse_ @[] (`casDelete` t) $ [1, 3, 1]
+    traverse_ @[] (casDelete t) [1, 3, 1]
     assertCasEntries t [2, 4]
 
-    traverse_ @[] (`casDelete` t) $ [2, 4]
+    traverse_ @[] (casDelete t) [2, 4]
     assertEmptyTable t
   where
     t = intTable db tableName
