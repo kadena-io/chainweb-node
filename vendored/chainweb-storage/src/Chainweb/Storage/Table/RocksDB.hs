@@ -536,18 +536,18 @@ tableMinEntry = flip withTableIterator $ \i -> iterFirst i *> iterEntry i
 -- instance of 'HasCasLookup'.
 --
 instance ReadableTable (RocksDbTable k v) k v where
-    tableLookup k db = do
+    tableLookup db k = do
         maybeBytes <- get (_rocksDbTableDb db) mempty (encKey db k)
         traverse (decVal db) maybeBytes
 
-    tableMember k db = 
+    tableMember db k = 
         isJust <$> get (_rocksDbTableDb db) mempty (encKey db k)
 
     -- | @tableLookupBatch db ks@ returns for each @k@ in @ks@ 'Just' the value at
     -- key @k@ in the 'RocksDbTable' @db@ if it exists, or 'Nothing' if the @k@
     -- doesn't exist in the table.
     --
-    tableLookupBatch ks db = do
+    tableLookupBatch db ks = do
         results <- V.toList <$> multiGet (_rocksDbTableDb db) mempty (V.fromList $ map (encKey db) ks)
         forM results $ \case
             Left e -> error $ "Chainweb.Storage.Table.RocksDB.tableLookupBatch: " <> e
@@ -557,21 +557,21 @@ instance ReadableTable (RocksDbTable k v) k v where
 -- instance of 'IsCas'.
 --
 instance Table (RocksDbTable k v) k v where
-    tableInsert k v db = R.put
+    tableInsert db k v = R.put
         (_rocksDbTableDb db)
         R.defaultWriteOptions
         (encKey db k)
         (encVal db v)
 
-    tableDelete k db = R.delete
+    tableDelete db k = R.delete
         (_rocksDbTableDb db)
         R.defaultWriteOptions
         (encKey db k)
 
-    tableInsertBatch kvs db = 
+    tableInsertBatch db kvs = 
         updateBatch (uncurry (RocksDbInsert db) <$> kvs)
 
-    tableDeleteBatch ks db = 
+    tableDeleteBatch db ks = 
         updateBatch (RocksDbDelete db <$> ks)
 
 -- | A newtype wrapper that takes only a single type constructor. This useful in
@@ -583,15 +583,15 @@ newtype RocksDbCas v = RocksDbCas { _getRocksDbCas :: RocksDbTable (CasKeyType v
     deriving newtype (NoThunks)
 
 instance (k ~ CasKeyType v, IsCasValue v) => ReadableTable (RocksDbCas v) k v where
-    tableLookup k (RocksDbCas x) = tableLookup k x
-    tableLookupBatch ks (RocksDbCas x) = tableLookupBatch ks x
-    tableMember k (RocksDbCas x) = tableMember k x
+    tableLookup (RocksDbCas x) k = tableLookup x k
+    tableLookupBatch (RocksDbCas x) ks = tableLookupBatch x ks
+    tableMember (RocksDbCas x) k = tableMember x k
 
 instance (k ~ CasKeyType v, IsCasValue v) => Table (RocksDbCas v) k v where
-    tableInsert k v (RocksDbCas x) = tableInsert k v x
-    tableDelete k (RocksDbCas x) = tableDelete k x
-    tableInsertBatch kvs (RocksDbCas x) = tableInsertBatch kvs x
-    tableDeleteBatch ks (RocksDbCas x) = tableDeleteBatch ks x
+    tableInsert (RocksDbCas x) k v = tableInsert x k v
+    tableDelete (RocksDbCas x) k = tableDelete x k
+    tableInsertBatch (RocksDbCas x) kvs = tableInsertBatch x kvs 
+    tableDeleteBatch (RocksDbCas x) ks = tableDeleteBatch x ks 
 
 -- | Create a new 'RocksDbCas'.
 --
@@ -610,7 +610,7 @@ newCas db vc kc n = RocksDbCas $ newTable db vc kc n
 -- | Excpeptions that can be thrown by functions in this module.
 --
 data RocksDbException
-    = RocksDbTableIterInvalidKeyNamespace (Expected B.ByteString) (Actual B.ByteString)
+    = RocksDbTableIterInvalidKeyNamespace !(Expected B.ByteString) !(Actual B.ByteString)
     deriving (Eq, Ord, Generic, NoThunks)
 
 instance Exception RocksDbException where
