@@ -48,7 +48,7 @@ pkgs.haskell.packages.${compiler}.developPackage {
         }) {})
         (attrs: {
           preConfigure = (attrs.preConfigure or "") +
-            pkgs.lib.optionalString (!stdenv.hostPlatform.sse4_2Support) ''
+            pkgs.lib.optionalString (!pkgs.stdenv.hostPlatform.sse4_2Support) ''
               perl -i -ne 'print unless /HAVE_SSE42/;' rocksdb-haskell-kadena.cabal
             '';
           librarySystemDepends = (attrs.librarySystemDepends or []) ++ [
