@@ -112,7 +112,7 @@ instance Exception DedupStoreException
 --
 data DedupStore k v = DedupStore
     { _dedupRoots :: !(RocksDbTable k DedupHash)
-    , _dedupChunks :: !(RocksDbCas Chunk)
+    , _dedupChunks :: !(Casify RocksDbTable Chunk)
     , _dedupValueCodec :: !(Codec v)
     }
 
@@ -127,7 +127,7 @@ newDedupStore
     -> DedupStore k v
 newDedupStore rdb vc kc n = DedupStore
     { _dedupRoots = newTable rdb dedupHashCodec kc (n <> ["roots"])
-    , _dedupChunks = newCas rdb dedupChunkCodec dedupHashCodec (n <> ["chunks"])
+    , _dedupChunks = Casify $ newTable rdb dedupChunkCodec dedupHashCodec (n <> ["chunks"])
     , _dedupValueCodec = vc
     }
   where

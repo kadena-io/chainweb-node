@@ -138,21 +138,25 @@ type Iterator1 i = forall k v. Iterator (i k v) k v
 
 type CasIterator i v = Iterator i (CasKeyType v) v
 
+-- | A newtype wrapper that takes only a single type constructor. This useful in
+-- situations where a Higher Order type constructor for a CAS is required. A
+-- type synonym doesn't work in this situation because type synonyms must be
+-- fully applied.
+--
 newtype Casify t v = Casify (t (CasKeyType v) v)
 instance forall t k v. (CasKeyType v ~ k, ReadableTable (t k v) k v) => ReadableTable (Casify t v) k v where
-  tableLookup = coerce @(t k v -> k -> IO (Maybe v)) tableLookup
-  tableLookupBatch = coerce @(t k v -> [k] -> IO [Maybe v]) tableLookupBatch
-  tableMember = coerce @(t k v -> k -> IO Bool) tableMember
+    tableLookup = coerce @(t k v -> k -> IO (Maybe v)) tableLookup
+    tableLookupBatch = coerce @(t k v -> [k] -> IO [Maybe v]) tableLookupBatch
+    tableMember = coerce @(t k v -> k -> IO Bool) tableMember
 instance forall t k v. (CasKeyType v ~ k, Table (t k v) k v) => Table (Casify t v) k v where
-  tableInsert = coerce @(t k v -> k -> v -> IO ()) tableInsert
-  tableInsertBatch = coerce @(t k v -> [(k, v)] -> IO ()) tableInsertBatch
-  tableDelete = coerce @(t k v -> k -> IO ()) tableDelete
-  tableDeleteBatch = coerce @(t k v -> [k] -> IO ()) tableDeleteBatch
+    tableInsert = coerce @(t k v -> k -> v -> IO ()) tableInsert
+    tableInsertBatch = coerce @(t k v -> [(k, v)] -> IO ()) tableInsertBatch
+    tableDelete = coerce @(t k v -> k -> IO ()) tableDelete
+    tableDeleteBatch = coerce @(t k v -> [k] -> IO ()) tableDeleteBatch
 -- TODO: why is this Iterator superclass needed?
 instance forall t i k v. (CasKeyType v ~ k, IterableTable (t k v) i k v, Iterator i k v) => IterableTable (Casify t v) i k v where
-  withTableIterator :: forall a. Casify t v -> (i -> IO a) -> IO a
-  withTableIterator = coerce @(t k v -> (i -> IO a) -> IO a) withTableIterator
-
+    withTableIterator :: forall a. Casify t v -> (i -> IO a) -> IO a
+    withTableIterator = coerce @(t k v -> (i -> IO a) -> IO a) withTableIterator
 
 -- | Lookup a value by its key in a content-addressable store and throw an
 -- 'TableException' if the value doesn't exist in the store
@@ -164,7 +168,7 @@ tableLookupM cas k =
                 "tableLookupM: lookup failed for table key"
         Just v -> return $! v
 
-casLookupM :: (HasCallStack, Cas t v) => t -> CasKeyType v -> IO v
+casLookupM :: (HasCallStack, ReadableCas t v) => t -> CasKeyType v -> IO v
 casLookupM = tableLookupM
 
 -- | Exceptions that are thrown by instances of 'IsCas'.

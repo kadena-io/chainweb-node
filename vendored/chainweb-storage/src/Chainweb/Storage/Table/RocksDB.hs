@@ -79,10 +79,6 @@ module Chainweb.Storage.Table.RocksDB
   , tableMinValue
   , tableMinEntry
 
-  -- * RocksDbCas
-  , RocksDbCas(..)
-  , newCas
-
   -- * RocksDB-specific tools
   , checkpointRocksDb
   , deleteRangeRocksDb
@@ -573,36 +569,6 @@ instance Table (RocksDbTable k v) k v where
 
     tableDeleteBatch db ks = 
         updateBatch (RocksDbDelete db <$> ks)
-
--- | A newtype wrapper that takes only a single type constructor. This useful in
--- situations where a Higher Order type constructor for a CAS is required. A
--- type synonym doesn't work in this situation because type synonyms must be
--- fully applied.
---
-newtype RocksDbCas v = RocksDbCas { _getRocksDbCas :: RocksDbTable (CasKeyType v) v }
-    deriving newtype (NoThunks)
-
-instance (k ~ CasKeyType v, IsCasValue v) => ReadableTable (RocksDbCas v) k v where
-    tableLookup (RocksDbCas x) k = tableLookup x k
-    tableLookupBatch (RocksDbCas x) ks = tableLookupBatch x ks
-    tableMember (RocksDbCas x) k = tableMember x k
-
-instance (k ~ CasKeyType v, IsCasValue v) => Table (RocksDbCas v) k v where
-    tableInsert (RocksDbCas x) k v = tableInsert x k v
-    tableDelete (RocksDbCas x) k = tableDelete x k
-    tableInsertBatch (RocksDbCas x) kvs = tableInsertBatch x kvs 
-    tableDeleteBatch (RocksDbCas x) ks = tableDeleteBatch x ks 
-
--- | Create a new 'RocksDbCas'.
---
-newCas
-    :: CasKeyType v ~ k
-    => RocksDb
-    -> Codec v
-    -> Codec k
-    -> [B.ByteString]
-    -> RocksDbCas v
-newCas db vc kc n = RocksDbCas $ newTable db vc kc n
 
 -- -------------------------------------------------------------------------- --
 -- Exceptions
