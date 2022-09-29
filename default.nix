@@ -7,6 +7,19 @@
       inherit sha256; }) {
       config.allowBroken = false;
       config.allowUnfree = true;
+      overlays = [
+        (self: super: {
+           tbb = super.tbb.overrideAttrs(attrs: {
+             patches = attrs.patches ++ [
+               (super.fetchurl {
+                 name = "aarch64-darwin.patch";
+                 url = "https://github.com/oneapi-src/oneTBB/pull/258/commits/86f6dcdc17a8f5ef2382faaef860cfa5243984fe.patch";
+                 sha256 = "sha256-JXqrFPCb3q1vfxk752tQu7HhApCB4YH2LoVnGRwmspk=";
+               })
+             ];
+           });
+         })
+      ];
     }
 , returnShellEnv ? false
 , mkDerivation ? null
@@ -50,14 +63,17 @@ pkgs.haskell.packages.${compiler}.developPackage {
           preConfigure = (attrs.preConfigure or "") +
             pkgs.lib.optionalString (!pkgs.stdenv.hostPlatform.sse4_2Support) ''
               perl -i -ne 'print unless /HAVE_SSE42/;' rocksdb-haskell-kadena.cabal
+            '' +
+            pkgs.lib.optionalString (pkgs.stdenv.hostPlatform.system == "aarch64-darwin") ''
+              patch -p1 < ${./rocksdb-arm64.patch}
             '';
           librarySystemDepends = (attrs.librarySystemDepends or []) ++ [
-            pkgs.rocksdb
             pkgs.snappy.dev
             pkgs.zlib.dev
             pkgs.zstd.dev
             pkgs.lz4.dev
             pkgs.perl
+            pkgs.patch
           ];
         });
 
@@ -88,8 +104,8 @@ pkgs.haskell.packages.${compiler}.developPackage {
 
       hashes = self.callHackageDirect {
         pkg = "hashes";
-        ver = "0.2.2.0";
-        sha256 = "0l0jj2p1ngh9qz3b29s2w9sbby1y2sbqwib3a9k857mvjkadhbam";
+        ver = "0.2.2.1";
+        sha256 = "1039smdvx03j52md2vv1lvkllm47rf0zi9bqmnh1lk1zhcv0sag3";
       } {};
 
       pact = appendConfigureFlag super.pact "-f-build-tool";
