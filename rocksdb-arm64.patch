@@ -1,0 +1,51 @@
+--- i/rocksdb-6.29.3/util/crc32c.cc
++++ w/rocksdb-6.29.3/util/crc32c.cc
+@@ -50,7 +50,7 @@
+ 
+ #endif
+ 
+-#if defined(HAVE_ARM64_CRC)
++#if defined(__linux__) && defined(HAVE_ARM64_CRC)
+ bool pmull_runtime_flag = false;
+ #endif
+ 
+@@ -499,7 +499,7 @@ static bool isAltiVec() {
+ }
+ #endif
+ 
+-#if defined(HAVE_ARM64_CRC)
++#if defined(__linux__) && defined(HAVE_ARM64_CRC)
+ uint32_t ExtendARMImpl(uint32_t crc, const char *buf, size_t size) {
+   return crc32c_arm64(crc, (const unsigned char *)buf, size);
+ }
+@@ -520,11 +520,14 @@ std::string IsFastCrc32Supported() {
+   arch = "PPC";
+ #endif
+ #elif defined(HAVE_ARM64_CRC)
++#if defined(__linux__)
+   if (crc32c_runtime_check()) {
+     has_fast_crc = true;
+     arch = "Arm64";
+     pmull_runtime_flag = crc32c_pmull_runtime_check();
+-  } else {
++  } else
++#endif
++  {
+     has_fast_crc = false;
+     arch = "Arm64";
+   }
+@@ -1253,10 +1256,13 @@ static inline Function Choose_Extend() {
+ #ifdef HAVE_POWER8
+   return isAltiVec() ? ExtendPPCImpl : ExtendImpl<Slow_CRC32>;
+ #elif defined(HAVE_ARM64_CRC)
++#if defined(__linux__)
+   if(crc32c_runtime_check()) {
+     pmull_runtime_flag = crc32c_pmull_runtime_check();
+     return ExtendARMImpl;
+-  } else {
++  } else
++#endif
++  {
+     return ExtendImpl<Slow_CRC32>;
+   }
+ #else
