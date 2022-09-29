@@ -177,3 +177,19 @@
   "w: principal namespaces work"
   2
   (n_64bfdef1c668b167c87f7cf329454c572e284664.modW.f))
+
+(commit-tx)
+(begin-tx)
+
+(env-data
+  { "n_c1a583206e24450af26de41110042b019695db8c.failure": ['k]
+  })
+
+(namespace "n_c1a583206e24450af26de41110042b019695db8c")
+(define-keyset "n_c1a583206e24450af26de41110042b019695db8c.failure")
+
+(expect-failure
+  "r: principal namespaces do not work"
+  "Unsupported guard protocol: r:"
+  (ns.create-principal-namespace
+    (keyset-ref-guard "n_c1a583206e24450af26de41110042b019695db8c.failure")))

@@ -31,8 +31,18 @@
       ( g:guard
         )
     " Format principal namespace as Pact hash (BLAKE2b256) of principal \
-    \ in hex truncated to 160 bits (40 characters), prepended with 'n_'. "
-    (+ "n_" (take 40 (int-to-str 16 (str-to-int 64 (hash g)))))
+    \ in hex truncated to 160 bits (40 characters), prepended with 'n_'.\
+    \ Only w: and k: account protocols are supported. "
+
+    (let
+      ((ty (typeof-principal (create-principal g))))
+
+      ;; only w: and k: currently supported
+      (if (or (= ty "k:") (= ty "w:"))
+        (+ "n_" (take 40 (int-to-str 16 (str-to-int 64 (hash g)))))
+        (enforce false
+          (format "Unsupported guard protocol: {}" [ty]))
+        ))
   )
 
   (defun validate:bool
