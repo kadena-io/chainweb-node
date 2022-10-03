@@ -16,7 +16,6 @@ import Control.Monad.Catch
 import Control.Monad.Reader
 import Data.Aeson (object, (.=))
 import qualified Data.ByteString.Base64.URL as B64U
-import Data.CAS (casLookupM)
 import qualified Data.HashMap.Strict as HM
 import Data.IORef
 import qualified Data.Text as T
@@ -60,6 +59,8 @@ import Chainweb.Utils
 import Chainweb.Version
 import Chainweb.Version.Utils
 import Chainweb.WebPactExecutionService
+
+import Chainweb.Storage.Table (casLookupM)
 
 testVersion :: ChainwebVersion
 testVersion = FastTimedCPM peterson

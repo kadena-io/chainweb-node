@@ -8,14 +8,14 @@ where
 -- License: MIT
 -- Maintainer: Lars Kuhtz <lars@kadena.io>
 -- Stability: experimental
---
-import Criterion.Main
 
-import Data.CAS.RocksDB
+import Criterion.Main
 
 import qualified Chainweb.Pact.Backend.Bench as Checkpointer
 import qualified Chainweb.Pact.Backend.ForkingBench as ForkingBench
 import qualified JSONEncoding
+
+import Chainweb.Storage.Table.RocksDB
 
 main :: IO ()
 main = withTempRocksDb "benchmarks" $ \rdb -> do

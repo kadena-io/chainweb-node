@@ -93,7 +93,7 @@ import Chainweb.Version
 import Chainweb.Version.Utils
 import Chainweb.WebBlockHeaderDB
 
-import Data.CAS.RocksDB
+import Chainweb.Storage.Table.RocksDB
 
 import P2P.Node.Configuration
 import P2P.Peer
@@ -392,7 +392,7 @@ sampleConsensusState
     :: Int
         -- ^ node Id
     -> WebBlockHeaderDb
-    -> CutDb cas
+    -> CutDb tbl
     -> ConsensusState
     -> IO ConsensusState
 sampleConsensusState nid bhdb cutdb s = do

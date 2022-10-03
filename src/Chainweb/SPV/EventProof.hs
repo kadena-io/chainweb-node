@@ -3,6 +3,7 @@
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DerivingStrategies #-}
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE LambdaCase #-}
@@ -108,7 +109,6 @@ import Data.Aeson
 import qualified Data.ByteArray as BA
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Base16 as B16
-import Data.CAS
 import Data.Decimal
 import Data.Foldable
 import Data.Hashable
@@ -141,6 +141,8 @@ import Chainweb.SPV.PayloadProof
 import Chainweb.TreeDB hiding (entries, root)
 import Chainweb.Utils
 import Chainweb.Utils.Serialization
+
+import Chainweb.Storage.Table
 
 -- -------------------------------------------------------------------------- --
 -- Pact Encoding Exceptions
@@ -571,11 +573,11 @@ createEventsProofKeccak256 = createEventsProof_
 -- Create Events Proof using Payload Db and check header depth
 
 createEventsProofDb_
-    :: forall a cas
+    :: forall a tbl
     . MerkleHashAlgorithm a
-    => PayloadCasLookup cas
+    => CanReadablePayloadCas tbl
     => BlockHeaderDb
-    -> PayloadDb cas
+    -> PayloadDb tbl
     -> Natural
         -- ^ minimum depth of the target header in the block chain. The current
         -- header of the chain has depth 0.
@@ -602,9 +604,9 @@ createEventsProofDb_ headerDb payloadDb d h reqKey = do
     createEventsProof_ p reqKey
 
 createEventsProofDb
-    :: PayloadCasLookup cas
+    :: CanReadablePayloadCas tbl
     => BlockHeaderDb
-    -> PayloadDb cas
+    -> PayloadDb tbl
     -> Natural
         -- ^ minimum depth of the target header in the block chain. The current
         -- header of the chain has depth 0.
@@ -616,9 +618,9 @@ createEventsProofDb
 createEventsProofDb = createEventsProofDb_
 
 createEventsProofDbKeccak256
-    :: PayloadCasLookup cas
+    :: CanReadablePayloadCas tbl
     => BlockHeaderDb
-    -> PayloadDb cas
+    -> PayloadDb tbl
     -> Natural
         -- ^ minimum depth of the target header in the block chain. The current
         -- header of the chain has depth 0.

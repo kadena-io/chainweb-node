@@ -96,8 +96,8 @@ import Chainweb.Utils.Bench
 import Chainweb.Version
 import Chainweb.Version.Utils
 
-import Data.CAS.HashMap hiding (toList)
-import Data.CAS.RocksDB
+import Chainweb.Storage.Table.HashMap hiding (toList)
+import Chainweb.Storage.Table.RocksDB
 
 -- -------------------------------------------------------------------------- --
 -- For testing with GHCI
@@ -152,7 +152,7 @@ bench rdb = C.bgroup "PactService"
 -- Benchmark Function
 
 playLine
-    :: PayloadDb HashMapCas
+    :: PayloadDb HashMapTable
     -> BlockHeaderDb
     -> Word64
     -> BlockHeader
@@ -180,7 +180,7 @@ playLine  pdb bhdb trunkLength startingBlock rr =
 mineBlock
     :: ParentHeader
     -> Nonce
-    -> PayloadDb HashMapCas
+    -> PayloadDb HashMapTable
     -> BlockHeaderDb
     -> PactQueue
     -> IO (T3 ParentHeader BlockHeader PayloadWithOutputs)
@@ -224,7 +224,7 @@ createBlock validate parent nonce pact = do
 
 data Resources
   = Resources
-    { payloadDb :: !(PayloadDb HashMapCas)
+    { payloadDb :: !(PayloadDb HashMapTable)
     , blockHeaderDb :: !BlockHeaderDb
     , pactService :: !(Async (), PactQueue)
     , mainTrunkBlocks :: ![T3 ParentHeader BlockHeader PayloadWithOutputs]
@@ -236,7 +236,7 @@ data Resources
 
 type RunPactService =
   [T3 ParentHeader BlockHeader PayloadWithOutputs]
-  -> PayloadDb HashMapCas
+  -> PayloadDb HashMapTable
   -> BlockHeaderDb
   -> IORef Word64
   -> PactQueue
@@ -298,7 +298,7 @@ withResources rdb trunkLength logLevel f = C.envWithCleanup create destroy unwra
     -- | Creates an in-memory Payload database that is managed by the garbage
     -- collector.
     --
-    createPayloadDb :: IO (PayloadDb HashMapCas)
+    createPayloadDb :: IO (PayloadDb HashMapTable)
     createPayloadDb = newPayloadDb
 
     -- | This block header db is created on an isolated namespace within the

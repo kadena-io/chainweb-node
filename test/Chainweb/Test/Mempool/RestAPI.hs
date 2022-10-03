@@ -30,7 +30,7 @@ import Chainweb.Utils (Codec(..))
 import Chainweb.Version
 import Chainweb.Version.Utils
 
-import Data.CAS.RocksDB
+import Chainweb.Storage.Table.RocksDB
 
 import Network.X509.SelfSigned
 
@@ -109,7 +109,7 @@ newPool = Pool.newPool Pool.PoolConfig
 
 serverMempools
     :: [(ChainId, MempoolBackend t)]
-    -> ChainwebServerDbs t RocksDbCas {- ununsed -}
+    -> ChainwebServerDbs t RocksDbTable {- ununsed -}
 serverMempools mempools = emptyChainwebServerDbs
     { _chainwebServerMempools = mempools
     }

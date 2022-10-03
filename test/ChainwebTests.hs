@@ -63,7 +63,8 @@ import Chainweb.Test.Utils
 import qualified Chainweb.Test.Version (tests)
 import qualified Chainweb.Test.Chainweb.Utils.Paging (properties)
 
-import Data.CAS.RocksDB
+import Chainweb.Storage.Table.RocksDB
+
 import qualified Data.Test.PQueue (properties)
 import qualified Data.Test.Word.Encoding (properties)
 

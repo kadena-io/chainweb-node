@@ -167,7 +167,8 @@ import Chainweb.Version
 import Chainweb.WebBlockHeaderDB
 import Chainweb.WebPactExecutionService
 
-import Data.CAS.RocksDB
+import Chainweb.Storage.Table.RocksDB
+
 import Data.LogMessage (LogFunctionText)
 
 import P2P.Node.Configuration
@@ -181,17 +182,17 @@ import qualified Pact.Types.Command as P
 -- -------------------------------------------------------------------------- --
 -- Chainweb Resources
 
-data Chainweb logger cas = Chainweb
+data Chainweb logger tbl = Chainweb
     { _chainwebHostAddress :: !HostAddress
     , _chainwebChains :: !(HM.HashMap ChainId (ChainResources logger))
-    , _chainwebCutResources :: !(CutResources logger cas)
-    , _chainwebMiner :: !(Maybe (MinerResources logger cas))
-    , _chainwebCoordinator :: !(Maybe (MiningCoordination logger cas))
+    , _chainwebCutResources :: !(CutResources logger tbl)
+    , _chainwebMiner :: !(Maybe (MinerResources logger tbl))
+    , _chainwebCoordinator :: !(Maybe (MiningCoordination logger tbl))
     , _chainwebLogger :: !logger
     , _chainwebPeer :: !(PeerResources logger)
-    , _chainwebPayloadDb :: !(PayloadDb cas)
+    , _chainwebPayloadDb :: !(PayloadDb tbl)
     , _chainwebManager :: !HTTP.Manager
-    , _chainwebPactData :: ![(ChainId, PactServerData logger cas)]
+    , _chainwebPactData :: ![(ChainId, PactServerData logger tbl)]
     , _chainwebThrottler :: !(Throttle Address)
     , _chainwebPutPeerThrottler :: !(Throttle Address)
     , _chainwebConfig :: !ChainwebConfiguration
@@ -201,10 +202,10 @@ data Chainweb logger cas = Chainweb
 
 makeLenses ''Chainweb
 
-chainwebSocket :: Getter (Chainweb logger cas) Socket
+chainwebSocket :: Getter (Chainweb logger t) Socket
 chainwebSocket = chainwebPeer . peerResSocket
 
-instance HasChainwebVersion (Chainweb logger cas) where
+instance HasChainwebVersion (Chainweb logger t) where
     _chainwebVersion = _chainwebVersion . _chainwebCutResources
     {-# INLINE _chainwebVersion #-}
 
@@ -219,7 +220,7 @@ withChainweb
     -> FilePath
     -> FilePath
     -> Bool
-    -> (forall cas' . PayloadCasLookup cas' => Chainweb logger cas' -> IO ())
+    -> (forall t' . CanReadablePayloadCas t' => Chainweb logger t' -> IO ())
     -> IO ()
 withChainweb c logger rocksDb pactDbDir backupDir resetDb inner =
     withPeerResources v (view configP2p confWithBootstraps) logger $ \logger' peer ->
@@ -337,7 +338,7 @@ withChainwebInternal
     -> FilePath
     -> FilePath
     -> Bool
-    -> (forall cas' . PayloadCasLookup cas' => Chainweb logger cas' -> IO ())
+    -> (forall t' . CanReadablePayloadCas t' => Chainweb logger t' -> IO ())
     -> IO ()
 withChainwebInternal conf logger peer serviceSock rocksDb pactDbDir backupDir resetDb inner = do
 
@@ -404,7 +405,7 @@ withChainwebInternal conf logger peer serviceSock rocksDb pactDbDir backupDir re
     cidsList :: [ChainId]
     cidsList = toList cids
 
-    payloadDb :: PayloadDb RocksDbCas
+    payloadDb :: PayloadDb RocksDbTable
     payloadDb = newPayloadDb rocksDb
 
     chainLogger :: ChainId -> logger
@@ -474,7 +475,7 @@ withChainwebInternal conf logger peer serviceSock rocksDb pactDbDir backupDir re
                                 , _chainwebCoordinator = mc
                                 , _chainwebLogger = logger
                                 , _chainwebPeer = peer
-                                , _chainwebPayloadDb = view cutDbPayloadCas $ _cutResCutDb cuts
+                                , _chainwebPayloadDb = view cutDbPayloadDb $ _cutResCutDb cuts
                                 , _chainwebManager = mgr
                                 , _chainwebPactData = pactData
                                 , _chainwebThrottler = throttler
@@ -492,8 +493,8 @@ withChainwebInternal conf logger peer serviceSock rocksDb pactDbDir backupDir re
 
     withPactData
         :: HM.HashMap ChainId (ChainResources logger)
-        -> CutResources logger cas
-        -> ([(ChainId, PactServerData logger cas)] -> IO b)
+        -> CutResources logger tbl
+        -> ([(ChainId, PactServerData logger tbl)] -> IO b)
         -> IO b
     withPactData cs cuts m = do
         let l = sortBy (compare `on` fst) (HM.toList cs)
@@ -518,7 +519,7 @@ withChainwebInternal conf logger peer serviceSock rocksDb pactDbDir backupDir re
       where
         cutConf = _configCuts conf
 
-    synchronizePactDb :: HM.HashMap ChainId (ChainResources logger) -> CutDb cas -> IO ()
+    synchronizePactDb :: HM.HashMap ChainId (ChainResources logger) -> CutDb tbl -> IO ()
     synchronizePactDb cs cutDb = do
         currentCut <- _cut cutDb
         mapConcurrently_ syncOne $ mergeCutResources $ _cutMap currentCut
@@ -582,10 +583,10 @@ mkThrottler e rate c = initThrottler (defaultThrottleSettings $ TimeSpec (ceilin
 -- | Starts server and runs all network clients
 --
 runChainweb
-    :: forall logger cas
+    :: forall logger tbl
     . Logger logger
-    => PayloadCasLookup cas
-    => Chainweb logger cas
+    => CanReadablePayloadCas tbl
+    => Chainweb logger tbl
     -> IO ()
 runChainweb cw = do
     logg Info "start chainweb node"
@@ -639,10 +640,10 @@ runChainweb cw = do
     memP2pToServe :: [(NetworkId, PeerDb)]
     memP2pToServe = (\(i, _) -> (MempoolNetwork i, peerDb)) <$> chains
 
-    payloadDbsToServe :: [(ChainId, PayloadDb cas)]
+    payloadDbsToServe :: [(ChainId, PayloadDb tbl)]
     payloadDbsToServe = itoList (view chainwebPayloadDb cw <$ _chainwebChains cw)
 
-    pactDbsToServe :: [(ChainId, PactServerData logger cas)]
+    pactDbsToServe :: [(ChainId, PactServerData logger tbl)]
     pactDbsToServe = _chainwebPactData cw
 
     -- P2P Server
@@ -759,7 +760,7 @@ runChainweb cw = do
 
     -- Cut DB and Miner
 
-    cutDb :: CutDb cas
+    cutDb :: CutDb tbl
     cutDb = _cutResCutDb $ _chainwebCutResources cw
 
     cutPeerDb :: PeerDb

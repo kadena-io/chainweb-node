@@ -8,7 +8,7 @@
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeFamilies #-}
-{-# LANGUAGE TypeOperators #-}
+
 -- |
 -- Module: Chainweb.Pact.Service.PactInProcApi
 -- Copyright: Copyright © 2018 Kadena LLC.
@@ -54,14 +54,14 @@ import GHC.Stack (HasCallStack)
 
 -- | Initialization for Pact (in process) Api
 withPactService
-    :: PayloadCasLookup cas
+    :: CanReadablePayloadCas tbl
     => Logger logger
     => ChainwebVersion
     -> ChainId
     -> logger
     -> MempoolConsensus
     -> BlockHeaderDb
-    -> PayloadDb cas
+    -> PayloadDb tbl
     -> FilePath
     -> PactServiceConfig
     -> (PactQueue -> IO a)
@@ -75,7 +75,7 @@ withPactService ver cid logger mpc bhdb pdb pactDbDir config action =
 -- | Alternate Initialization for Pact (in process) Api, only used directly in
 --   tests to provide memPool with test transactions
 withPactService'
-    :: PayloadCasLookup cas
+    :: CanReadablePayloadCas tbl
     => Logger logger
     => HasCallStack
     => ChainwebVersion
@@ -83,7 +83,7 @@ withPactService'
     -> logger
     -> MemPoolAccess
     -> BlockHeaderDb
-    -> PayloadDb cas
+    -> PayloadDb tbl
     -> SQLiteEnv
     -> PactServiceConfig
     -> (PactQueue -> IO a)

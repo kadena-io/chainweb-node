@@ -57,7 +57,7 @@ import Chainweb.Time (Time(..), Micros(..))
 import Chainweb.Utils
 import Chainweb.Version
 
-import Data.CAS.RocksDB
+import Chainweb.Storage.Table.RocksDB
 
 import Rosetta
 

@@ -60,7 +60,7 @@ runTransactionProof (TransactionProof _ p)
 -- fork of the target chain.
 --
 verifyTransactionProof
-    :: CutDb cas
+    :: CutDb tbl
     -> TransactionProof SHA512t_256
     -> IO Transaction
 verifyTransactionProof cutDb proof@(TransactionProof cid p) = do
@@ -78,7 +78,7 @@ verifyTransactionProof cutDb proof@(TransactionProof cid p) = do
 -- chain.
 --
 verifyTransactionProofAt
-    :: CutDb cas
+    :: CutDb tbl
     -> TransactionProof SHA512t_256
     -> BlockHash
     -> IO Transaction
@@ -123,7 +123,7 @@ runTransactionOutputProof (TransactionOutputProof _ p)
 -- fork of the target chain.
 --
 verifyTransactionOutputProof
-    :: CutDb cas
+    :: CutDb tbl
     -> TransactionOutputProof SHA512t_256
     -> IO TransactionOutput
 verifyTransactionOutputProof cutDb proof@(TransactionOutputProof cid p) = do
@@ -141,7 +141,7 @@ verifyTransactionOutputProof cutDb proof@(TransactionOutputProof cid p) = do
 -- chain.
 --
 verifyTransactionOutputProofAt
-    :: CutDb cas
+    :: CutDb tbl
     -> TransactionOutputProof SHA512t_256
     -> BlockHash
     -> IO TransactionOutput

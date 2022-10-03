@@ -5,6 +5,7 @@
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TemplateHaskell #-}
@@ -124,8 +125,6 @@ import Control.Monad.IO.Class
 
 import Data.Aeson (Value(..), object, (.=))
 import Data.ByteString (ByteString)
-import Data.CAS.HashMap hiding (toList)
-import Data.CAS.RocksDB
 import Data.Decimal
 import Data.Default (def)
 import Data.Foldable
@@ -203,6 +202,9 @@ import qualified Chainweb.Version as Version
 import Chainweb.Version.Utils (someChainId)
 import Chainweb.WebBlockHeaderDB
 import Chainweb.WebPactExecutionService
+
+import Chainweb.Storage.Table.HashMap hiding (toList)
+import Chainweb.Storage.Table.RocksDB
 
 -- ----------------------------------------------------------------------- --
 -- Keys
@@ -573,32 +575,32 @@ pactTestLogger showAll = initLoggers putStrLn f def
 
 -- | Test Pact Execution Context for running inside 'PactServiceM'.
 -- Only used internally.
-data TestPactCtx cas = TestPactCtx
+data TestPactCtx tbl = TestPactCtx
     { _testPactCtxState :: !(MVar PactServiceState)
-    , _testPactCtxEnv :: !(PactServiceEnv cas)
+    , _testPactCtxEnv :: !(PactServiceEnv tbl)
     }
 
 
-evalPactServiceM_ :: TestPactCtx cas -> PactServiceM cas a -> IO a
+evalPactServiceM_ :: TestPactCtx tbl -> PactServiceM tbl a -> IO a
 evalPactServiceM_ ctx pact = modifyMVar (_testPactCtxState ctx) $ \s -> do
     T2 a s' <- runPactServiceM s (_testPactCtxEnv ctx) pact
     return (s',a)
 
-destroyTestPactCtx :: TestPactCtx cas -> IO ()
+destroyTestPactCtx :: TestPactCtx tbl -> IO ()
 destroyTestPactCtx = void . takeMVar . _testPactCtxState
 
 -- | setup TestPactCtx, internal function.
 -- Use 'withPactCtxSQLite' in tests.
 testPactCtxSQLite
-  :: PayloadCasLookup cas
+  :: CanReadablePayloadCas tbl
   => ChainwebVersion
   -> Version.ChainId
   -> BlockHeaderDb
-  -> PayloadDb cas
+  -> PayloadDb tbl
   -> SQLiteEnv
   -> PactServiceConfig
   -> (TxContext -> GasModel)
-  -> IO (TestPactCtx cas,PactDbEnv')
+  -> IO (TestPactCtx tbl, PactDbEnv')
 testPactCtxSQLite v cid bhdb pdb sqlenv conf gasmodel = do
     (dbSt,cpe) <- initRelationalCheckpointer' initialBlockState sqlenv cpLogger v cid
     let rs = readRewards
@@ -720,16 +722,16 @@ freeSQLiteResource :: SQLiteEnv -> IO ()
 freeSQLiteResource sqlenv = void $ close_v2 $ _sConn sqlenv
 
 -- | Run in 'PactServiceM' with direct db access.
-type WithPactCtxSQLite cas = forall a . (PactDbEnv' -> PactServiceM cas a) -> IO a
+type WithPactCtxSQLite tbl = forall a . (PactDbEnv' -> PactServiceM tbl a) -> IO a
 
 -- | Used to run 'PactServiceM' functions directly on a database (ie not use checkpointer).
 withPactCtxSQLite
-  :: PayloadCasLookup cas
+  :: CanReadablePayloadCas tbl
   => ChainwebVersion
   -> IO BlockHeaderDb
-  -> IO (PayloadDb cas)
+  -> IO (PayloadDb tbl)
   -> PactServiceConfig
-  -> (WithPactCtxSQLite cas -> TestTree)
+  -> (WithPactCtxSQLite tbl -> TestTree)
   -> TestTree
 withPactCtxSQLite v bhdbIO pdbIO conf f =
   withResource
@@ -750,7 +752,7 @@ withPactCtxSQLite v bhdbIO pdbIO conf f =
 toTxCreationTime :: Integral a => Time a -> TxCreationTime
 toTxCreationTime (Time timespan) = TxCreationTime $ fromIntegral $ timeSpanToSeconds timespan
 
-withPayloadDb :: (IO (PayloadDb HashMapCas) -> TestTree) -> TestTree
+withPayloadDb :: (IO (PayloadDb HashMapTable) -> TestTree) -> TestTree
 withPayloadDb = withResource newPayloadDb mempty
 
 

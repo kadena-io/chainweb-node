@@ -2,10 +2,8 @@
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE LambdaCase #-}
-{-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
-{-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
@@ -104,7 +102,8 @@ import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
 import Chainweb.TreeDB (getBranchIncreasing, forkEntry, lookup, lookupM)
 import Chainweb.Utils hiding (check)
-import Data.CAS (casLookup)
+
+import Chainweb.Storage.Table
 
 -- | Support lifting bracket style continuations in 'IO' into 'PactServiceM' by
 -- providing a function that allows unwrapping pact actions in IO while
@@ -114,10 +113,10 @@ import Data.CAS (casLookup)
 -- thread.
 --
 withPactState
-    :: forall cas b
-    . PayloadCasLookup cas
-    => ((forall a . PactServiceM cas a -> IO a) -> IO b)
-    -> PactServiceM cas b
+    :: forall tbl b
+    . CanReadablePayloadCas tbl
+    => ((forall a . PactServiceM tbl a -> IO a) -> IO b)
+    -> PactServiceM tbl b
 withPactState inner = bracket captureState releaseState $ \ref -> do
     e <- ask
     liftIO $ inner $ \act -> mask $ \umask -> do
@@ -129,7 +128,7 @@ withPactState inner = bracket captureState releaseState $ \ref -> do
     captureState = liftIO . newIORef =<< get
     releaseState = liftIO . readIORef >=> put
 
-exitOnRewindLimitExceeded :: PactServiceM cas a -> PactServiceM cas a
+exitOnRewindLimitExceeded :: PactServiceM tbl a -> PactServiceM tbl a
 exitOnRewindLimitExceeded = handle $ \case
     e@RewindLimitExceeded{} -> do
         killFunction <- asks (\x -> _psOnFatalError x)
@@ -183,13 +182,13 @@ data WithCheckpointerResult a
 --
 withCheckpointerWithoutRewind
     :: HasCallStack
-    => PayloadCasLookup cas
+    => CanReadablePayloadCas tbl
     => Maybe ParentHeader
         -- ^ block height and hash of the parent header
     -> String
         -- ^ Putative caller
-    -> (PactDbEnv' -> PactServiceM cas (WithCheckpointerResult a))
-    -> PactServiceM cas a
+    -> (PactDbEnv' -> PactServiceM tbl (WithCheckpointerResult a))
+    -> PactServiceM tbl a
 withCheckpointerWithoutRewind target caller act = do
     checkPointer <- getCheckpointer
     logDebug $ "restoring (with caller " <> caller <> ") " <> sshow target
@@ -232,10 +231,10 @@ withCheckpointerWithoutRewind target caller act = do
 -- | 'withCheckpointer' but using the cached parent header for target.
 --
 withCurrentCheckpointer
-    :: PayloadCasLookup cas
+    :: CanReadablePayloadCas tbl
     => String
-    -> (PactDbEnv' -> PactServiceM cas (WithCheckpointerResult a))
-    -> PactServiceM cas a
+    -> (PactDbEnv' -> PactServiceM tbl (WithCheckpointerResult a))
+    -> PactServiceM tbl a
 withCurrentCheckpointer caller act = do
     ph <- syncParentHeader "withCurrentCheckpointer"
         -- discover the header for the latest block that is stored in the
@@ -253,7 +252,7 @@ withCurrentCheckpointer caller act = do
 --
 withCheckpointerRewind
     :: HasCallStack
-    => PayloadCasLookup cas
+    => CanReadablePayloadCas tbl
     => Maybe BlockHeight
         -- ^ if set, limit rewinds to this delta
     -> Maybe ParentHeader
@@ -262,8 +261,8 @@ withCheckpointerRewind
         -- 'Nothing' restores the checkpointer for evaluating the genesis block.
         --
     -> String
-    -> (PactDbEnv' -> PactServiceM cas (WithCheckpointerResult a))
-    -> PactServiceM cas a
+    -> (PactDbEnv' -> PactServiceM tbl (WithCheckpointerResult a))
+    -> PactServiceM tbl a
 withCheckpointerRewind rewindLimit p caller act = do
     rewindTo rewindLimit p
         -- This updates '_psParentHeader'
@@ -275,7 +274,7 @@ withCheckpointerRewind rewindLimit p caller act = do
 -- state. In case of an failure, the checkpointer is reverted to the initial
 -- state.
 --
-withBatch :: PactServiceM cas a -> PactServiceM cas a
+withBatch :: PactServiceM tbl a -> PactServiceM tbl a
 withBatch act = do
     cp <- getCheckpointer
     local (set psIsBatch True) $ mask $ \r -> do
@@ -289,10 +288,10 @@ withBatch act = do
 -- 'withPactState'.
 --
 withBatchIO
-    :: forall cas b
-    . PayloadCasLookup cas
-    => (forall a . PactServiceM cas a -> IO a)
-    -> ((forall a . PactServiceM cas a -> IO a) -> IO b)
+    :: forall tbl b
+    . CanReadablePayloadCas tbl
+    => (forall a . PactServiceM tbl a -> IO a)
+    -> ((forall a . PactServiceM tbl a -> IO a) -> IO b)
     -> IO b
 withBatchIO runPact act = mask $ \umask -> do
     cp <- runPact getCheckpointer
@@ -301,7 +300,7 @@ withBatchIO runPact act = mask $ \umask -> do
     _cpCommitCheckpointerBatch cp
     return v
   where
-    runLocalPact :: forall a . PactServiceM cas a -> IO a
+    runLocalPact :: forall a . PactServiceM tbl a -> IO a
     runLocalPact f = runPact $ local (set psIsBatch True) f
 
 -- | Run a batch of checkpointer operations, possibly involving the evaluation
@@ -309,7 +308,7 @@ withBatchIO runPact act = mask $ \umask -> do
 -- 'withCheckPointerRewind' or 'withCurrentCheckpointer', and discard the final
 -- state at the end.
 --
-withDiscardedBatch :: PactServiceM cas a -> PactServiceM cas a
+withDiscardedBatch :: PactServiceM tbl a -> PactServiceM tbl a
 withDiscardedBatch act = do
     cp <- getCheckpointer
     local (set psIsBatch True) $ bracket_
@@ -330,14 +329,14 @@ withDiscardedBatch act = do
 -- exception is raised.
 --
 rewindTo
-    :: forall cas
+    :: forall tbl
     . HasCallStack
-    => PayloadCasLookup cas
+    => CanReadablePayloadCas tbl
     => Maybe BlockHeight
         -- ^ if set, limit rewinds to this delta
     -> Maybe ParentHeader
         -- ^ The parent header which is the rewind target
-    -> PactServiceM cas ()
+    -> PactServiceM tbl ()
 rewindTo _ Nothing = return ()
 rewindTo rewindLimit (Just (ParentHeader parent)) = do
 
@@ -416,17 +415,17 @@ rewindTo rewindLimit (Just (ParentHeader parent)) = do
 -- Fast forward a block within a 'rewindTo' loop.
 --
 fastForward
-    :: forall c
+    :: forall tbl
     . HasCallStack
-    => PayloadCasLookup c
+    => CanReadablePayloadCas tbl
     => (ParentHeader, BlockHeader)
-    -> PactServiceM c ()
+    -> PactServiceM tbl ()
 fastForward (target, block) =
     -- This does a restore, i.e. it rewinds the checkpointer back in
     -- history, if needed.
     withCheckpointerWithoutRewind (Just target) "fastForward" $ \pdbenv -> do
         payloadDb <- asks _psPdb
-        payload <- liftIO $ casLookup payloadDb bpHash >>= \case
+        payload <- liftIO $ tableLookup payloadDb bpHash >>= \case
             Nothing -> throwM $ PactInternalError
                 $ "Checkpointer.rewindTo.fastForward: lookup of payload failed"
                 <> ". BlockPayloadHash: " <> encodeToText bpHash
@@ -449,7 +448,7 @@ fastForward (target, block) =
 -- header isn't available, the function recursively checks the result of
 -- '_cpGetBlockParent'.
 --
-findLatestValidBlock :: PactServiceM cas (Maybe BlockHeader)
+findLatestValidBlock :: PactServiceM tbl (Maybe BlockHeader)
 findLatestValidBlock = getCheckpointer >>= liftIO . _cpGetLatestBlock >>= \case
     Nothing -> return Nothing
     Just (height, hash) -> go height hash
@@ -487,7 +486,7 @@ findLatestValidBlock = getCheckpointer >>= liftIO . _cpGetLatestBlock >>= \case
 -- prevented by rewinding on pact service startup to the latest available header
 -- in the block header db.
 --
-syncParentHeader :: String -> PactServiceM cas ParentHeader
+syncParentHeader :: String -> PactServiceM tbl ParentHeader
 syncParentHeader caller = do
     cp <- getCheckpointer
     liftIO (_cpGetLatestBlock cp) >>= \case
@@ -519,7 +518,7 @@ syncParentHeader caller = do
 -- 2. the header gets orphaned and the next 'execValidateBlock' call would cause
 --    a rewind to an ancestor, which is available in the db.
 --
-lookupBlockHeader :: BlockHash -> Text -> PactServiceM cas BlockHeader
+lookupBlockHeader :: BlockHash -> Text -> PactServiceM tbl BlockHeader
 lookupBlockHeader bhash ctx = do
     ParentHeader cur <- use psParentHeader
     if (bhash == _blockHash cur)
@@ -545,14 +544,14 @@ lookupBlockHeader bhash ctx = do
 -- exception is raised.
 --
 rewindToIncremental
-    :: forall cas
+    :: forall tbl
     . HasCallStack
-    => PayloadCasLookup cas
+    => CanReadablePayloadCas tbl
     => Maybe BlockHeight
         -- ^ if set, limit rewinds to this delta
     -> Maybe ParentHeader
         -- ^ The parent header which is the rewind target
-    -> PactServiceM cas ()
+    -> PactServiceM tbl ()
 rewindToIncremental _ Nothing = return ()
 rewindToIncremental rewindLimit (Just (ParentHeader parent)) = do
 

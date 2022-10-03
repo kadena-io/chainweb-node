@@ -11,7 +11,6 @@ module Chainweb.Test.Mempool.Consensus
 import Control.Monad.IO.Class
 
 import qualified Data.ByteString.Short as SB
-import Data.CAS.RocksDB
 import Data.Foldable (toList)
 import Data.Hashable
 import Data.HashMap.Strict (HashMap)
@@ -50,6 +49,8 @@ import Chainweb.Test.Orphans.Time ()
 import Chainweb.Test.Utils
 import Chainweb.Test.Utils.BlockHeader
 import Chainweb.Time
+
+import Chainweb.Storage.Table.RocksDB
 
 import Data.LogMessage
 

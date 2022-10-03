@@ -147,16 +147,16 @@ serveSocketTls settings certChain key = runTLSSocket tlsSettings settings
 -- | Datatype for collectively passing all storage backends to
 -- functions that run a chainweb server.
 --
-data ChainwebServerDbs t cas = ChainwebServerDbs
-    { _chainwebServerCutDb :: !(Maybe (CutDb cas))
+data ChainwebServerDbs t tbl = ChainwebServerDbs
+    { _chainwebServerCutDb :: !(Maybe (CutDb tbl))
     , _chainwebServerBlockHeaderDbs :: ![(ChainId, BlockHeaderDb)]
     , _chainwebServerMempools :: ![(ChainId, MempoolBackend t)]
-    , _chainwebServerPayloadDbs :: ![(ChainId, PayloadDb cas)]
+    , _chainwebServerPayloadDbs :: ![(ChainId, PayloadDb tbl)]
     , _chainwebServerPeerDbs :: ![(NetworkId, PeerDb)]
     }
     deriving (Generic)
 
-emptyChainwebServerDbs :: ChainwebServerDbs t cas
+emptyChainwebServerDbs :: ChainwebServerDbs t tbl
 emptyChainwebServerDbs = ChainwebServerDbs
     { _chainwebServerCutDb = Nothing
     , _chainwebServerBlockHeaderDbs = []
@@ -216,9 +216,9 @@ chainwebServiceMiddlewares
 
 someChainwebServer
     :: Show t
-    => PayloadCasLookup cas
+    => CanReadablePayloadCas tbl
     => ChainwebConfiguration
-    -> ChainwebServerDbs t cas
+    -> ChainwebServerDbs t tbl
     -> SomeServer
 someChainwebServer config dbs =
     maybe mempty (someCutServer v cutPeerDb) cuts
@@ -242,9 +242,9 @@ someChainwebServer config dbs =
 
 chainwebApplication
     :: Show t
-    => PayloadCasLookup cas
+    => CanReadablePayloadCas tbl
     => ChainwebConfiguration
-    -> ChainwebServerDbs t cas
+    -> ChainwebServerDbs t tbl
     -> Application
 chainwebApplication config dbs
     = chainwebP2pMiddlewares
@@ -253,29 +253,29 @@ chainwebApplication config dbs
 
 serveChainwebOnPort
     :: Show t
-    => PayloadCasLookup cas
+    => CanReadablePayloadCas tbl
     => Port
     -> ChainwebConfiguration
-    -> ChainwebServerDbs t cas
+    -> ChainwebServerDbs t tbl
     -> IO ()
 serveChainwebOnPort p c dbs = run (int p) $ chainwebApplication c dbs
 
 serveChainweb
     :: Show t
-    => PayloadCasLookup cas
+    => CanReadablePayloadCas tbl
     => Settings
     -> ChainwebConfiguration
-    -> ChainwebServerDbs t cas
+    -> ChainwebServerDbs t tbl
     -> IO ()
 serveChainweb s c dbs = runSettings s $ chainwebApplication c dbs
 
 serveChainwebSocket
     :: Show t
-    => PayloadCasLookup cas
+    => CanReadablePayloadCas tbl
     => Settings
     -> Socket
     -> ChainwebConfiguration
-    -> ChainwebServerDbs t cas
+    -> ChainwebServerDbs t tbl
     -> Middleware
     -> IO ()
 serveChainwebSocket settings sock c dbs m =
@@ -283,13 +283,13 @@ serveChainwebSocket settings sock c dbs m =
 
 serveChainwebSocketTls
     :: Show t
-    => PayloadCasLookup cas
+    => CanReadablePayloadCas tbl
     => Settings
     -> X509CertChainPem
     -> X509KeyPem
     -> Socket
     -> ChainwebConfiguration
-    -> ChainwebServerDbs t cas
+    -> ChainwebServerDbs t tbl
     -> Middleware
     -> IO ()
 serveChainwebSocketTls settings certChain key sock c dbs m =
@@ -321,12 +321,12 @@ servePeerDbSocketTls settings certChain key sock v nid pdb m =
 
 someServiceApiServer
     :: Show t
-    => PayloadCasLookup cas
+    => CanReadablePayloadCas tbl
     => Logger logger
     => ChainwebVersion
-    -> ChainwebServerDbs t cas
-    -> [(ChainId, PactAPI.PactServerData logger cas)]
-    -> Maybe (MiningCoordination logger cas)
+    -> ChainwebServerDbs t tbl
+    -> [(ChainId, PactAPI.PactServerData logger tbl)]
+    -> Maybe (MiningCoordination logger tbl)
     -> HeaderStream
     -> Rosetta
     -> Maybe (BackupEnv logger)
@@ -359,12 +359,12 @@ someServiceApiServer v dbs pacts mr (HeaderStream hs) (Rosetta r) backupEnv pbl 
 
 serviceApiApplication
     :: Show t
-    => PayloadCasLookup cas
+    => CanReadablePayloadCas tbl
     => Logger logger
     => ChainwebVersion
-    -> ChainwebServerDbs t cas
-    -> [(ChainId, PactAPI.PactServerData logger cas)]
-    -> Maybe (MiningCoordination logger cas)
+    -> ChainwebServerDbs t tbl
+    -> [(ChainId, PactAPI.PactServerData logger tbl)]
+    -> Maybe (MiningCoordination logger tbl)
     -> HeaderStream
     -> Rosetta
     -> Maybe (BackupEnv logger)
@@ -377,14 +377,14 @@ serviceApiApplication v dbs pacts mr hs r be pbl
 
 serveServiceApiSocket
     :: Show t
-    => PayloadCasLookup cas
+    => CanReadablePayloadCas tbl
     => Logger logger
     => Settings
     -> Socket
     -> ChainwebVersion
-    -> ChainwebServerDbs t cas
-    -> [(ChainId, PactAPI.PactServerData logger cas)]
-    -> Maybe (MiningCoordination logger cas)
+    -> ChainwebServerDbs t tbl
+    -> [(ChainId, PactAPI.PactServerData logger tbl)]
+    -> Maybe (MiningCoordination logger tbl)
     -> HeaderStream
     -> Rosetta
     -> Maybe (BackupEnv logger)
