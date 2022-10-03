@@ -7,12 +7,12 @@ import Data.Char
 import Data.List(stripPrefix)
 import System.Exit
 import System.IO
-import System.Process
+import System.Posix.Process (getProcessID)
 import Text.Read
 
 checkRLimits :: IO ()
 checkRLimits = do
-    pid <- getCurrentPid
+    pid <- getProcessID
     limits <- readFile $ "/proc/" <> show pid <> "/limits"
     let
         -- the format of /proc/<pid>/limits looks like
