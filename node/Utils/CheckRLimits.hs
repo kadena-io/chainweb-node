@@ -32,7 +32,7 @@ checkRLimits = do
                 hPutStrLn stderr $
                     "This process is only able to open " <> show n <> " file descriptors at once, "
                     <> "which is not enough to run chainweb-node.\n" <>
-                    "Set the limit higher than 32768 using the ulimit command or contact an administrator."
+                    "Set the limit higher than 32767 using the ulimit command or contact an administrator."
                 exitFailure
         -- this check is conservative to avoid crashing nodes that don't deserve it
         _ ->
