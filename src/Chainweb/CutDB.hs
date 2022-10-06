@@ -368,10 +368,10 @@ withCutDb
     -> Casify RocksDbTable CutHashes
     -> (forall t' . CanReadablePayloadCas t' => CutDb t' -> IO a)
     -> IO a
-withCutDb config logfun headerStore payloadStore cutHashesStore 
+withCutDb config logfun headerStore payloadStore cutHashesStore a
     = bracket
         (startCutDb config logfun headerStore payloadStore cutHashesStore)
-        stopCutDb
+        stopCutDb a
 
 -- | Start a CutDB. This loads the initial cut from the database (falling back
 -- to the configured initial cut loading fails) and starts the cut validation
