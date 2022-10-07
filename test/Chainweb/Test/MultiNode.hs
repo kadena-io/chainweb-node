@@ -204,12 +204,11 @@ harvestConsensusState _ _ _ (Replayed _ _) =
 harvestConsensusState logger stateVar nid (StartedChainweb cw) = do
     runChainweb cw `finally` do
         logFunctionText logger Info "write sample data"
-        modifyMVar_ stateVar $ \state -> force <$>
+        modifyMVar_ stateVar $
             sampleConsensusState
                 nid
                 (view (chainwebCutResources . cutsCutDb . cutDbWebBlockHeaderDb) cw)
                 (view (chainwebCutResources . cutsCutDb) cw)
-                state
         logFunctionText logger Info "shutdown node"
 
 multiNode
@@ -380,7 +379,7 @@ test loglevel v n seconds = testCaseSteps name $ \f -> do
     let countedLog msg = modifyMVar_ var $ \c -> force (succ c) <$
             when (c < maxLogMsgs) (logFun msg)
     withTempRocksDb "multinode-tests" $ \rdb -> do
-        stateVar <- newEmptyMVar
+        stateVar <- newMVar (emptyConsensusState v)
         runNodesForSeconds loglevel countedLog (multiConfig v n) n seconds rdb
             (harvestConsensusState (genericLogger loglevel logFun) stateVar)
         consensusStateSummary <$> readMVar stateVar >>= \case
