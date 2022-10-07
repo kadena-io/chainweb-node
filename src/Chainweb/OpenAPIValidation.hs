@@ -5,11 +5,13 @@
 
 module Chainweb.OpenAPIValidation (mkValidationMiddleware) where
 
+import Control.Applicative ((<|>))
 import Control.Monad
 import Data.Aeson
 import qualified Data.ByteString.Char8 as BS8
 import qualified Data.ByteString.Lazy as BL
 import Data.Foldable
+import Data.Functor ((<&>))
 import qualified Data.HashSet as HS
 import Data.IORef
 import Data.LogMessage (LogFunctionText)
@@ -25,46 +27,57 @@ import Chainweb.Time
 import Chainweb.Utils
 import Chainweb.Version
 
-mkValidationMiddleware :: Logger logger => logger -> ChainwebVersion -> HTTP.Manager -> IO Middleware
-mkValidationMiddleware logger v mgr = do
-    (chainwebSpec, pactSpec) <- fetchOpenApiSpecs
-    apiCoverageRef <- newIORef $ WV.initialCoverageMap [chainwebSpec, pactSpec]
-    apiCoverageLogTimeRef <- newIORef =<< getCurrentTimeIntegral
-    return $
-        WV.mkValidator apiCoverageRef (WV.Log logValidationFailure (logApiCoverage apiCoverageLogTimeRef)) $ \path -> asum
-            [ case BS8.split '/' path of
-                ("" : "chainweb" : "0.0" : rawVersion : "chain" : rawChainId : "pact" : "api" : "v1" : rest) -> do
-                    findPact pactSpec rawVersion rawChainId rest
-                ("" : "chainweb" : "0.0" : rawVersion : "chain" : rawChainId : "pact" : rest) -> do
-                    findPact pactSpec rawVersion rawChainId rest
-                _ -> Nothing
-            , (,chainwebSpec) <$> BS8.stripPrefix (T.encodeUtf8 $ "/chainweb/0.0/" <> chainwebVersionToText v) path
-            , Just (path,chainwebSpec)
-            ]
-    where
-    findPact pactSpec rawVersion rawChainId rest = do
+data APISpec = APISpec 
+  { asProcessPath :: BS8.ByteString -> Maybe BS8.ByteString
+  , asSpecName :: String 
+  }
+
+pactSpec :: ChainwebVersion -> APISpec
+pactSpec v = APISpec processPath name where
+    name = "pact.openapi"
+    processPath path = case BS8.split '/' path of
+        ("" : "chainweb" : "0.0" : rawVersion : "chain" : rawChainId : "pact" : "api" : "v1" : rest) -> do
+            findPact rawVersion rawChainId rest
+        ("" : "chainweb" : "0.0" : rawVersion : "chain" : rawChainId : "pact" : rest) -> do
+            findPact rawVersion rawChainId rest
+        _ -> Nothing     
+    findPact rawVersion rawChainId rest = do
         reqVersion <- chainwebVersionFromText (T.decodeUtf8 rawVersion)
         guard (reqVersion == v)
         reqChainId <- chainIdFromText (T.decodeUtf8 rawChainId)
         guard (HS.member reqChainId (chainIds v))
-        return (BS8.intercalate "/" ("":rest), pactSpec)
+        return (BS8.intercalate "/" ("":rest))
+  
+chainwebSpec :: ChainwebVersion -> APISpec
+chainwebSpec v = APISpec processPath name where
+    name = "chainweb.openapi"
+    processPath path = BS8.stripPrefix prefix path <|> Just path
+    prefix = T.encodeUtf8 $ "/chainweb/0.0/" <> chainwebVersionToText v
 
-    fetchOpenApiSpecs = do
-        let chainwebUri = "https://raw.githubusercontent.com/kadena-io/chainweb-openapi/validation-fixes-3/chainweb.openapi.yaml"
-        chainwebSpec <- Yaml.decodeThrow . BL.toStrict . HTTP.responseBody =<< HTTP.httpLbs (HTTP.parseRequest_ chainwebUri) mgr
-        let pactUri = "https://raw.githubusercontent.com/kadena-io/chainweb-openapi/validation-fixes-3/pact.openapi.yaml"
-        pactSpec <- Yaml.decodeThrow . BL.toStrict . HTTP.responseBody =<< HTTP.httpLbs (HTTP.parseRequest_ pactUri) mgr
-        return (chainwebSpec, pactSpec)
-    logValidationFailure (reqBody, req) (respBody, resp) err = do
-        logg Warn $ "openapi error: " <> sshow (err, req, reqBody, responseHeaders resp, responseStatus resp, respBody)
-    logApiCoverage apiCoverageLogTimeRef apiCoverageMap = do
-        now :: Time Integer <- getCurrentTimeIntegral
-        then' <- readIORef apiCoverageLogTimeRef
-        let beenFive = now `diff` then' >= scaleTimeSpan (5 :: Integer) minute
-        when beenFive $ do
-            writeIORef apiCoverageLogTimeRef now
-            logFunctionJson logger Info $ object
-                [ "apiCoverageMap" .= toJSON apiCoverageMap
-                ]
-    logg :: LogFunctionText
-    logg = logFunctionText logger
+mkValidationMiddleware :: Logger logger => logger -> ChainwebVersion -> HTTP.Manager -> IO Middleware
+mkValidationMiddleware logger v mgr = do
+    let specDefinitions = [pactSpec v, chainwebSpec v]
+    specs <- forM specDefinitions $ \s -> do
+        let specUri = "https://raw.githubusercontent.com/kadena-io/chainweb-openapi/validation-fixes-3/"<> asSpecName s <> ".yaml"
+        spec <- Yaml.decodeThrow . BL.toStrict . HTTP.responseBody =<< HTTP.httpLbs (HTTP.parseRequest_ specUri) mgr
+        return (asProcessPath s, spec)
+    apiCoverageRef <- newIORef $ WV.initialCoverageMap $ snd <$> specs
+    apiCoverageLogTimeRef <- newIORef =<< getCurrentTimeIntegral
+    let wvLog = WV.Log logValidationFailure (logApiCoverage apiCoverageLogTimeRef)
+    return $ WV.mkValidator apiCoverageRef wvLog $ \path -> 
+        asum $ specs <&> \(processPath,apiSpec) -> 
+            (,apiSpec) <$> processPath path 
+    where
+        logValidationFailure (reqBody, req) (respBody, resp) err = do
+            logg Warn $ "openapi error: " <> sshow (err, req, reqBody, responseHeaders resp, responseStatus resp, respBody)
+        logApiCoverage apiCoverageLogTimeRef apiCoverageMap = do
+            now :: Time Integer <- getCurrentTimeIntegral
+            then' <- readIORef apiCoverageLogTimeRef
+            let beenFive = now `diff` then' >= scaleTimeSpan (5 :: Integer) minute
+            when beenFive $ do
+                writeIORef apiCoverageLogTimeRef now
+                logFunctionJson logger Info $ object
+                    [ "apiCoverageMap" .= toJSON apiCoverageMap
+                    ]
+        logg :: LogFunctionText
+        logg = logFunctionText logger
