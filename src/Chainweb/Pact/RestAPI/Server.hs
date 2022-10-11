@@ -230,13 +230,10 @@ sendHandler logger mempool (SubmitBatch cmds) = Handler $ do
            liftIO (mempoolInsertCheck mempool txs) >>= checkResult
            liftIO (mempoolInsert mempool UncheckedInsert txs)
            return $! RequestKeys $ NEL.map cmdToRequestKey enriched
-       Left err -> failWith $ "Validation failed: " <> err
+       Left err -> failWith $ "Validation failed: " <> T.pack err
   where
-    failWith :: String -> ExceptT ServerError IO a
-    failWith err = throwError $ err400
-        { errBody = BSL8.pack err
-        , errHeaders = [("Content-Type", "text/plain;charset=utf-8")]
-        }
+    failWith :: Text -> ExceptT ServerError IO a
+    failWith err = throwError $ setErrText err err400
 
     logg = logFunctionJson (setComponent "send-handler" logger)
 
@@ -245,12 +242,12 @@ sendHandler logger mempool (SubmitBatch cmds) = Handler $ do
 
     checkResult :: Either (T2 TransactionHash InsertError) () -> ExceptT ServerError IO ()
     checkResult (Right _) = pure ()
-    checkResult (Left (T2 hash insErr)) =
-        failWith $ concat [ "Validation failed for hash "
-                          , show $ toPactHash hash
-                          , ": "
-                          , show insErr
-                          ]
+    checkResult (Left (T2 hash insErr)) = failWith $ fold
+        [ "Validation failed for hash "
+        , sshow $ toPactHash hash
+        , ": "
+        , sshow insErr
+        ]
 -- -------------------------------------------------------------------------- --
 -- Poll Handler
 
@@ -345,18 +342,12 @@ localHandler logger pact cmd = do
     cmd' <- case validateCommand cmd of
       (Right !c) -> return c
       Left err ->
-        throwError $ err400
-            { errBody = "Validation failed: " <> BSL8.pack err
-            , errHeaders = [("Content-Type", "text/plain;charset=utf-8")]
-            }
+        throwError $ setErrText ("Validation failed: " <> T.pack err) err400
     r <- liftIO $ _pactLocal pact cmd'
     case r of
       Left err ->
-        throwError $ err400
-            { errBody = "Execution failed: " <> BSL8.pack (show err)
-            , errHeaders = [("Content-Type", "text/plain;charset=utf-8")]
-            }
-      (Right !r') -> return r'
+        throwError $ setErrText ("Execution failed: " <> sshow err) err400
+      Right r' -> return $! r'
   where
     logg = logFunctionJson (setComponent "local-handler" logger)
 
@@ -401,10 +392,11 @@ spvHandler l cdb cid (SpvRequest rk (Pact.ChainId ptid)) = do
     tid <- chainIdFromText ptid
     p <- liftIO (try $ createTransactionOutputProof cdb tid cid bhe idx) >>= \case
       Left e@SpvExceptionTargetNotReachable{} ->
-        toErr $ "SPV target not reachable: " <> spvErrOf e
+        toErr $ "SPV target not reachable: " <> _spvExceptionMsg e
       Left e@SpvExceptionVerificationFailed{} ->
-        toErr $ "SPV verification failed: " <> spvErrOf e
-      Left e -> toErr $ "Internal error: SPV verification failed: " <> spvErrOf e
+        toErr $ "SPV verification failed: " <> _spvExceptionMsg e
+      Left e ->
+        toErr $ "Internal error: SPV verification failed: " <> _spvExceptionMsg e
       Right q -> return q
 
     return $! b64 p
@@ -421,14 +413,7 @@ spvHandler l cdb cid (SpvRequest rk (Pact.ChainId ptid)) = do
     logg = logFunctionJson (setComponent "spv-handler" l) Info
       . PactCmdLogSpv
 
-    toErr e = throwError $ err400
-        { errBody = e
-        , errHeaders = [("Content-Type", "text/plain;charset=utf-8")]
-        }
-
-    spvErrOf = BSL8.fromStrict
-      . encodeUtf8
-      . _spvExceptionMsg
+    toErr e = throwError $ setErrText e err400
 
 -- -------------------------------------------------------------------------- --
 -- SPV2 Handler
@@ -648,16 +633,13 @@ validateCommand cmdText = case verifyCommand cmdBS of
 validateRequestKey :: RequestKey -> Handler ()
 validateRequestKey (RequestKey h'@(Hash h))
     | keyLength == blakeHashLength = return ()
-    | otherwise = throwError err400
-      { errBody = "Request Key "
-        <> keyString
+    | otherwise = throwError $ setErrText
+        ( "Request Key "
+        <> Pact.hashToText h'
         <> " has incorrect hash of length "
-        <> BSL8.pack (show keyLength)
-      , errHeaders = [("Content-Type", "text/plain;charset=utf-8")]
-      }
+        <> sshow keyLength
+        ) err400
   where
-    keyString = BSL8.pack $ T.unpack $ Pact.hashToText h'
-
     -- length of the encoded request key hash
     --
     keyLength = BS.length h

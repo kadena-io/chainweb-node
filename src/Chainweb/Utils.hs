@@ -409,6 +409,7 @@ minusOrZero a b = a - min a b
 {-# INLINE minusOrZero #-}
 
 -- | Analogous to `unsafeInterleaveIO` but doesn't hide the effect behind evaluation.
+-- Careful; if the inner action throws an exception, it will never not throw that exception.
 interleaveIO :: IO a -> IO (IO a)
 interleaveIO act = evaluate <$> unsafeInterleaveIO act
 {-# INLINE interleaveIO #-}

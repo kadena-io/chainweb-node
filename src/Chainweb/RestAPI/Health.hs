@@ -46,11 +46,7 @@ someHealthCheckServer = SomeServer (Proxy @HealthCheckApi) handler
         h <- liftIO $ readMVar globalHealthStatus
         case h of
           Healthy -> return "Health check OK.\n"
-          Unhealthy -> throwError $ err503
-            { errBody = drainMsg
-            , errHeaders = [("Content-Type", "text/plain;charset=utf-8")]
-            }
-
+          Unhealthy -> throwError $ setErrText drainMsg err503
 
 setHealth :: HealthStatus -> IO ()
 setHealth !h = void $ swapMVar globalHealthStatus h

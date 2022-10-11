@@ -57,10 +57,7 @@ import Data.CAS
 -- Utils
 
 err404Msg :: ToJSON msg  => msg -> ServerError
-err404Msg msg = err404
-    { errBody = encode msg
-    , errHeaders = [("Content-Type", "application/json;charset=utf-8")]
-    }
+err404Msg msg = setErrJSON msg err404
 
 catMaybes :: V.Vector (Maybe a) -> V.Vector a
 catMaybes = V.catMaybes

@@ -111,10 +111,8 @@ peerPutHandler
     -> PeerInfo
     -> Handler NoContent
 peerPutHandler db v nid e = liftIO (guardPeerDb v nid db e) >>= \case
-    Left failure -> throwError $ err400
-        { errBody = "Invalid hostaddress: " <> sshow failure
-        , errHeaders = [("Content-Type", "text/plain;charset=utf-8")]
-        }
+    Left failure ->
+        throwError $ setErrText ("Invalid hostaddress: " <> sshow failure) err400
     Right _ -> NoContent <$ liftIO (peerDbInsert db nid e)
 
 -- -------------------------------------------------------------------------- --

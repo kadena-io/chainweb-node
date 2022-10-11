@@ -71,17 +71,11 @@ cutGetHandler db (Just (MaxRank (Max mar))) = liftIO $ do
 
 cutPutHandler :: PeerDb -> CutDb cas -> CutHashes -> Handler NoContent
 cutPutHandler pdb db c = case _peerAddr <$> _cutOrigin c of
-    Nothing -> throwError $ err400
-        { errBody = "Cut is missing an origin entry"
-        , errHeaders = [("Content-Type", "text/plain;charset=utf-8")]
-        }
+    Nothing -> throwError $ setErrText "Cut is missing an origin entry" err400
     Just addr -> do
         ps <- liftIO $ peerDbSnapshot pdb
         case getOne (getEQ addr ps) of
-            Nothing -> throwError $ err401
-                { errBody = "Unknown peer"
-                , errHeaders = [("Content-Type", "text/plain;charset=utf-8")]
-                }
+            Nothing -> throwError $ setErrText "Unknown peer" err401
             Just{} -> NoContent <$ liftIO (addCutHashes db c)
 
 -- -------------------------------------------------------------------------- --

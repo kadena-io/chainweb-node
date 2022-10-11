@@ -56,10 +56,7 @@ someBackupServer :: Logger logger => ChainwebVersion -> Backup.BackupEnv logger 
 someBackupServer (FromSingChainwebVersion (SChainwebVersion :: Sing vT)) backupEnv =
     SomeServer (Proxy @(BackupApi vT)) $ makeBackup :<|> checkBackup
   where
-    noSuchBackup = err404
-        { errBody = "no such backup"
-        , errHeaders = [("Content-Type", "text/plain;charset=utf-8")]
-        }
+    noSuchBackup = setErrText "no such backup" err404
     makeBackup backupPactFlag = liftIO $ do
         nextBackupIdentifier <- getNextBackupIdentifier
         join $ atomically $ do

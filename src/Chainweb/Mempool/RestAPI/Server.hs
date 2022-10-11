@@ -109,10 +109,7 @@ getPendingHandler mempool mbNonce mbHw = liftIO $ do
 
 handleErrs :: NFData a => Handler a -> Handler a
 handleErrs = flip catchAllSynchronous $ \e ->
-    throwError $ err400
-        { errBody = sshow e
-        , errHeaders = [("Content-Type", "text/plain;charset=utf-8")]
-        }
+    throwError $ setErrText (sshow e) err400
 
 someMempoolServer
     :: (Show t)
