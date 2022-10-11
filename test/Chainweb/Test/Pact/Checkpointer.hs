@@ -38,6 +38,8 @@ import Pact.Types.SQLite
 import Test.Tasty
 import Test.Tasty.HUnit
 
+import System.Logger (LogLevel(..))
+
 -- internal imports
 import Chainweb.BlockHash
 import Chainweb.BlockHeight (BlockHeight(..))
@@ -47,7 +49,7 @@ import Chainweb.Pact.Backend.ChainwebPactDb
 import Chainweb.Pact.Backend.Compaction
 import Chainweb.Pact.Backend.RelationalCheckpointer
 import Chainweb.Pact.Backend.Types
-import Chainweb.Pact.Backend.Utils hiding (tbl)
+import Chainweb.Pact.Backend.Utils
 import Chainweb.Pact.TransactionExec
     (applyContinuation', applyExec', buildExecParsedCode)
 import Chainweb.Pact.Types
@@ -196,7 +198,8 @@ testHashes = withTempSQLiteResource $ runSQLite' $ \resIO -> testCase "testHashe
     hC3 <- checkHash "tA" "C" 3 hC2
     assertNotEquals "C 2->3 hash" hC3 hC2
 
-    compact (newLogger (pactTestLogger True) "compact") 2 _sConn
+    withDefaultLogger Debug $ \l ->
+      runCompactM (mkCompactEnv l _sConn 2) compact
 
     qry_ _sConn "select * from VersionedTableChecksum" [RText,RInt,RBlob] >>= mapM_ print
     qry_ _sConn "select rowkey,txid from tA" [RText,RInt] >>= mapM_ print
