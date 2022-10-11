@@ -64,6 +64,7 @@ import Numeric.Natural
 
 import qualified Streaming.Prelude as S
 
+import System.FilePath
 import System.IO.Temp
 import System.LogLevel
 import System.Timeout
@@ -217,14 +218,14 @@ multiNode
     -> MVar PeerInfo
     -> ChainwebConfiguration
     -> RocksDb
+    -> FilePath
     -> Int
         -- ^ Unique node id. Node id 0 is used for the bootstrap node
     -> (forall logger. Int -> StartedChainweb logger -> IO ())
     -> IO ()
-multiNode loglevel write bootstrapPeerInfoVar conf rdb nid inner = do
+multiNode loglevel write bootstrapPeerInfoVar conf rdb pactDbDir nid inner = do
     withSystemTempDirectory "multiNode-backup-dir" $ \backupTmpDir ->
-        withSystemTempDirectory "multiNode-pact-db" $ \tmpDir ->
-            withChainweb conf logger nodeRocksDb (pactDbDir tmpDir) backupTmpDir False $ \cw -> do
+            withChainweb conf logger nodeRocksDb (pactDbDir </> show nid) backupTmpDir False $ \cw -> do
                 case cw of
                     StartedChainweb cw' ->
                         when (nid == 0) $ putMVar bootstrapPeerInfoVar
@@ -232,8 +233,6 @@ multiNode loglevel write bootstrapPeerInfoVar conf rdb nid inner = do
                     Replayed _ _ -> return ()
                 inner nid cw
   where
-    pactDbDir tmpDir = tmpDir <> "/" <> show nid
-
     logger :: GenericLogger
     logger = addLabel ("node", toText nid) $ genericLogger loglevel write
 
@@ -249,9 +248,10 @@ runNodes
     -> Natural
         -- ^ number of nodes
     -> RocksDb
+    -> FilePath
     -> (forall logger. Int -> StartedChainweb logger -> IO ())
     -> IO ()
-runNodes loglevel write baseConf n rdb inner = do
+runNodes loglevel write baseConf n rdb pactDbDir inner = do
     -- NOTE: pact is enabled until we have a good way to disable it globally in
     -- "Chainweb.Chainweb".
     --
@@ -273,7 +273,7 @@ runNodes loglevel write baseConf n rdb inner = do
             | otherwise ->
                 setBootstrapPeerInfo <$> readMVar bootstrapPortVar <*> pure baseConf
 
-        multiNode loglevel write bootstrapPortVar conf rdb i inner
+        multiNode loglevel write bootstrapPortVar conf rdb pactDbDir i inner
 
 runNodesForSeconds
     :: LogLevel
@@ -286,29 +286,31 @@ runNodesForSeconds
     -> Seconds
         -- ^ test duration in seconds
     -> RocksDb
+    -> FilePath
     -> (forall logger. Int -> StartedChainweb logger -> IO ())
     -> IO ()
-runNodesForSeconds loglevel write baseConf n (Seconds seconds) rdb inner = do
+runNodesForSeconds loglevel write baseConf n (Seconds seconds) rdb pactDbDir inner = do
     void $ timeout (int seconds * 1_000_000)
-        $ runNodes loglevel write baseConf n rdb inner
+        $ runNodes loglevel write baseConf n rdb pactDbDir inner
 
 replayTest
     :: LogLevel
     -> ChainwebVersion
     -> Natural
     -> TestTree
-replayTest loglevel v n = testCaseSteps name $ \step -> do
-    let tastylog = step . T.unpack
-    withTempRocksDb "replay-test" $ \rdb -> do
+replayTest loglevel v n = after AllFinish "ConsensusNetwork" $ testCaseSteps name $ \step -> 
+    withTempRocksDb "replay-test-rocks" $ \rdb -> 
+    withSystemTempDirectory "replay-test-pact" $ \pactDbDir -> do
+        let tastylog = step . T.unpack
         tastylog "phase 1..."
         stateVar <- newMVar $ emptyConsensusState v
         let ct = harvestConsensusState (genericLogger loglevel T.putStrLn) stateVar
-        runNodesForSeconds loglevel T.putStrLn (multiConfig v n) n 60 rdb ct
+        runNodesForSeconds loglevel T.putStrLn (multiConfig v n) n 60 rdb pactDbDir ct
         Just stats1 <- consensusStateSummary <$> swapMVar stateVar (emptyConsensusState v)
         assertGe "maximum cut height before reset" (Actual $ _statMaxHeight stats1) (Expected $ 10)
         tastylog $ sshow stats1
         tastylog $ "phase 2... resetting"
-        runNodesForSeconds loglevel T.putStrLn (multiConfig v n & set (configCuts . cutInitialBlockHeightLimit) (Just 5)) n 30 rdb ct
+        runNodesForSeconds loglevel T.putStrLn (multiConfig v n & set (configCuts . cutInitialBlockHeightLimit) (Just 5)) n 30 rdb pactDbDir ct
         state2 <- swapMVar stateVar (emptyConsensusState v)
         let stats2 = fromJuste $ consensusStateSummary state2
         tastylog $ sshow stats2
@@ -321,7 +323,7 @@ replayTest loglevel v n = testCaseSteps name $ \step -> do
             (multiConfig v n
                 & set (configCuts . cutInitialBlockHeightLimit) (Just replayInitialHeight)
                 & set configOnlySyncPact True)
-            n (Seconds 20) rdb $ \nid cw -> case cw of
+            n (Seconds 20) rdb pactDbDir $ \nid cw -> case cw of
                 Replayed l u -> do
                     writeIORef firstReplayCompleteRef True
                     _ <- flip HM.traverseWithKey (_cutMap l) $ \cid bh ->
@@ -340,7 +342,7 @@ replayTest loglevel v n = testCaseSteps name $ \step -> do
                 & set (configCuts . cutInitialBlockHeightLimit) (Just replayInitialHeight)
                 & set (configCuts . cutFastForwardBlockHeightLimit) (Just fastForwardHeight)
                 & set configOnlySyncPact True)
-            n (Seconds 20) rdb $ \_ cw -> case cw of
+            n (Seconds 20) rdb pactDbDir $ \_ cw -> case cw of
                 Replayed l u -> do
                     writeIORef secondReplayCompleteRef True
                     _ <- flip HM.traverseWithKey (_cutMap l) $ \cid bh ->
@@ -352,7 +354,7 @@ replayTest loglevel v n = testCaseSteps name $ \step -> do
         assertEqual "second replay completion" True =<< readIORef secondReplayCompleteRef
         tastylog "done."
     where
-    name = "ConsensusNetwork [replay]"
+    name = "Replay network"
 
 -- -------------------------------------------------------------------------- --
 -- Test
@@ -363,24 +365,24 @@ test
     -> Natural
     -> Seconds
     -> TestTree
-test loglevel v n seconds = testCaseSteps name $ \f -> do
-    let tastylog = f . T.unpack
-#if DEBUG_MULTINODE_TEST
-    -- useful for debugging, requires import of Data.Text.IO.
-    let logFun = T.putStrLn
-        maxLogMsgs = 100_000
-#else
-    let logFun = tastylog
-        maxLogMsgs = 60
-#endif
-
+test loglevel v n seconds = testCaseSteps name $ \f -> 
     -- Count log messages and only print the first 60 messages
-    var <- newMVar (0 :: Int)
-    let countedLog msg = modifyMVar_ var $ \c -> force (succ c) <$
-            when (c < maxLogMsgs) (logFun msg)
-    withTempRocksDb "multinode-tests" $ \rdb -> do
+    withTempRocksDb "multinode-tests" $ \rdb -> 
+    withSystemTempDirectory "replay-test-pact" $ \pactDbDir -> do
+        let tastylog = f . T.unpack
+#if DEBUG_MULTINODE_TEST
+        -- useful for debugging, requires import of Data.Text.IO.
+        let logFun = T.putStrLn
+            maxLogMsgs = 100_000
+#else
+        let logFun = tastylog
+            maxLogMsgs = 60
+#endif
+        var <- newMVar (0 :: Int)
+        let countedLog msg = modifyMVar_ var $ \c -> force (succ c) <$
+                when (c < maxLogMsgs) (logFun msg)
         stateVar <- newMVar (emptyConsensusState v)
-        runNodesForSeconds loglevel countedLog (multiConfig v n) n seconds rdb
+        runNodesForSeconds loglevel countedLog (multiConfig v n) n seconds rdb pactDbDir
             (harvestConsensusState (genericLogger loglevel logFun) stateVar)
         consensusStateSummary <$> readMVar stateVar >>= \case
             Nothing -> assertFailure "chainweb didn't make any progress"
