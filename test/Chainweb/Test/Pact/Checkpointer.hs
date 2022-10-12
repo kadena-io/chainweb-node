@@ -21,6 +21,8 @@ import qualified Data.Map.Strict as M
 import Data.Text (Text)
 import qualified Data.Text as T
 
+import Database.SQLite3.Direct (Utf8)
+
 import Pact.Gas
 import Pact.Interpreter (EvalResult(..), PactDbEnv(..), defaultInterpreter)
 import Pact.Native (nativeDefs)
@@ -201,10 +203,22 @@ testHashes = withTempSQLiteResource $ runSQLite' $ \resIO -> testCase "testHashe
     withDefaultLogger Debug $ \l ->
       runCompactM (mkCompactEnv l _sConn 2 [Flag_KeepCompactTables]) compact
 
-    qry_ _sConn "select * from CompactTableChecksum" [RText,RBlob] >>= mapM_ print
-    qry_ _sConn "select rowkey,txid from tA" [RText,RInt] >>= mapM_ print
+    let checkGrandHash :: Maybe Utf8 -> [[SType]] -> IO SType
+        checkGrandHash tbl [[hsh]] = do
+          h <- maybe
+              (qry_ _sConn "select hash from CompactTableChecksum where tablename IS NULL" [RBlob])
+              (\t -> qry _sConn "select hash from CompactTableChecksum where tablename = ?1" [SText t] [RBlob])
+              tbl
+          assertEqual ("checkHash: " ++ show tbl) [[hsh]] h
+          return hsh
+        checkGrandHash tbl _ = assertFailure $ "query failure: " ++ show tbl
 
-    qry _sConn "select sha3_256(?1,?2,?3)" [hA_AA1,hA_B2,hC2] [RBlob] >>= mapM_ print
+    hshA <- qry _sConn "select sha3_256(?1,?2,?3)" [hA_AA1,hA_B2,hC2] [RBlob]
+            >>= checkGrandHash (Just "tA")
+    hshAA <- qry _sConn "select sha3_256(?1,?2)" [hAA_A1, hAA_B1] [RBlob]
+             >>= checkGrandHash (Just "tAA")
+    void $ qry _sConn "select sha3_256(?1,?2)" [hshA,hshAA] [RBlob]
+        >>= checkGrandHash Nothing
 
 --- -------------------------------------------------------------------------- --
 --- Key Set Test
