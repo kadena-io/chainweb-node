@@ -13,7 +13,8 @@ import Control.Exception
 import Control.Lens hiding ((.=))
 import Control.Monad.Reader
 
-import Data.Aeson (Value(..), object, toJSON, (.=))
+import Data.Aeson (Value(..), object, (.=), Key)
+import Data.ByteString (ByteString)
 import Data.Default (def)
 import Data.Function
 import qualified Data.HashMap.Strict as HM
@@ -203,24 +204,32 @@ testHashes = withTempSQLiteResource $ runSQLite' $ \resIO -> testCase "testHashe
     assertNotEquals "C 2->3 hash" hC3 hC2
 
     withDefaultLogger Debug $ \l ->
-      runCompactM (mkCompactEnv l _sConn 2 [Flag_KeepCompactTables]) compact
+      runCompactM (mkCompactEnv l _sConn 2 [Flag_KeepCompactTables]) $ do
 
-    let checkGrandHash :: Maybe Utf8 -> [[SType]] -> IO SType
-        checkGrandHash tbl [[hsh]] = do
-          h <- maybe
-              (qry_ _sConn "select hash from CompactTableChecksum where tablename IS NULL" [RBlob])
-              (\t -> qry _sConn "select hash from CompactTableChecksum where tablename = ?1" [SText t] [RBlob])
-              tbl
-          assertEqual ("checkHash: " ++ show tbl) [[hsh]] h
-          return hsh
-        checkGrandHash tbl _ = assertFailure $ "query failure: " ++ show tbl
+        gh <- compact
 
-    hshA <- qry _sConn "select sha3_256(?1,?2,?3)" [hA_AA1,hA_B2,hC2] [RBlob]
+        -- use DB to compute grand hashes to check per-table and global results
+
+        let checkGrandHash :: Maybe Utf8 -> [[SType]] -> CompactM ByteString
+            checkGrandHash tbl [[SBlob hsh]] = do
+              h <- readGrandHash tbl
+              liftIO $ assertEqual ("checkHash: " ++ show tbl) hsh h
+              return $ hsh
+            checkGrandHash tbl _ = liftIO $ assertFailure $ "query failure: " ++ show tbl
+
+        hshA <-
+          liftIO (qry _sConn "select sha3_256(?1,?2,?3)"
+                  [hA_AA1,hA_B2,hC2] [RBlob])
             >>= checkGrandHash (Just "tA")
-    hshAA <- qry _sConn "select sha3_256(?1,?2)" [hAA_A1, hAA_B1] [RBlob]
-             >>= checkGrandHash (Just "tAA")
-    void $ qry _sConn "select sha3_256(?1,?2)" [hshA,hshAA] [RBlob]
-        >>= checkGrandHash Nothing
+        hshAA <-
+          liftIO (qry _sConn "select sha3_256(?1,?2)"
+                  [hAA_A1, hAA_B1] [RBlob])
+            >>= checkGrandHash (Just "tAA")
+        gh' <- liftIO (qry _sConn "select sha3_256(?1,?2)"
+                       [SBlob hshA,SBlob hshAA] [RBlob])
+            >>= checkGrandHash Nothing
+
+        liftIO $ assertEqual "global hash check" gh' gh
 
 --- -------------------------------------------------------------------------- --
 --- Key Set Test
