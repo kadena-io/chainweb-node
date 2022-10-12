@@ -199,9 +199,9 @@ testHashes = withTempSQLiteResource $ runSQLite' $ \resIO -> testCase "testHashe
     assertNotEquals "C 2->3 hash" hC3 hC2
 
     withDefaultLogger Debug $ \l ->
-      runCompactM (mkCompactEnv l _sConn 2) compact
+      runCompactM (mkCompactEnv l _sConn 2 [Flag_KeepCompactTables]) compact
 
-    qry_ _sConn "select * from VersionedTableChecksum" [RText,RInt,RBlob] >>= mapM_ print
+    qry_ _sConn "select * from CompactTableChecksum" [RText,RBlob] >>= mapM_ print
     qry_ _sConn "select rowkey,txid from tA" [RText,RInt] >>= mapM_ print
 
     qry _sConn "select sha3_256(?1,?2,?3)" [hA_AA1,hA_B2,hC2] [RBlob] >>= mapM_ print

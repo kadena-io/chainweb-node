@@ -22,6 +22,7 @@
 module Chainweb.Pact.Backend.Compaction
   ( mkCompactEnv
   , runCompactM
+  , CompactFlag(..)
   , CompactM
   , compact
   , withDefaultLogger
@@ -53,6 +54,10 @@ data CompactException
   deriving Show
 instance Exception CompactException
 
+data CompactFlag =
+  Flag_KeepCompactTables
+  deriving (Eq,Show)
+
 internalError :: MonadThrow m => Text -> m a
 internalError = throwM . CompactExceptionInternal
 
@@ -63,6 +68,7 @@ data CompactEnv = CompactEnv
   , _ceVersionTables :: [Utf8]
   , _ceVersionTable :: Maybe Utf8
   , _ceLogger :: Logger Text
+  , _ceFlags :: [CompactFlag]
   }
 makeLenses ''CompactEnv
 
@@ -70,7 +76,17 @@ withDefaultLogger :: LogLevel -> (Logger Text -> IO a) -> IO a
 withDefaultLogger ll f = withHandleBackend defaultHandleBackendConfig $ \b ->
     withLogger defaultLoggerConfig b $ \l -> f (set setLoggerLevel ll l)
 
-mkCompactEnv :: Logger Text -> Database -> BlockHeight -> CompactEnv
+-- | Set up compaction.
+mkCompactEnv
+    :: Logger Text
+    -- ^ Logger
+    -> Database
+    -- ^ A single-chain pact database connection.
+    -> BlockHeight
+    -- ^ Compaction blockheight.
+    -> [CompactFlag]
+    -- ^ Execution flags.
+    -> CompactEnv
 mkCompactEnv l d b = CompactEnv d b Nothing [] Nothing l
 
 newtype CompactM a = CompactM {
@@ -90,6 +106,7 @@ instance MonadLog Text CompactM where
 
   withPolicy p = local (set (ceLogger.setLoggerPolicy) p)
 
+-- | Run compaction monad, see 'mkCompactEnv'.
 runCompactM :: CompactEnv -> CompactM a -> IO a
 runCompactM e a = runReaderT (unCompactM a) e
 
@@ -111,6 +128,8 @@ qryM q ins' outs = do
   ins <- sequence ins'
   withDb $ \db -> liftIO $ qry db q' ins outs
 
+-- | Statements are templated with "$VTABLE$" substituted
+-- with the currently-focused versioned table.
 templateStmt :: Text -> CompactM Utf8
 templateStmt s
     | tblTemplate `isInfixOf` s =
@@ -148,6 +167,9 @@ withTx a = withDb $ \db -> do
 withDb :: (Database -> CompactM a) -> CompactM a
 withDb a = view ceDb >>= a
 
+unlessFlag :: CompactFlag -> CompactM () -> CompactM ()
+unlessFlag f a = view ceFlags >>= \fs -> unless (f `elem` fs) a
+
 withTables :: CompactM () -> CompactM ()
 withTables a = view ceVersionTables >>= \ts ->
   forM_ ts $ \t@(Utf8 t') ->
@@ -161,22 +183,26 @@ setTables rs next = do
     _ -> internalError "setTables: expected text"
   local (set ceVersionTables ts) next
 
-
-createTables :: CompactM ()
-createTables = do
+-- | CompactTableChecksum associates table name with grand hash of its versioned rows,
+-- and NULL with grand hash of all table hashes.
+createCompactTableChecksum :: CompactM ()
+createCompactTableChecksum = do
   logg Info "createTables"
   execM_
-      " CREATE TABLE IF NOT EXISTS VersionedTableChecksum \
+      " CREATE TABLE IF NOT EXISTS CompactTableChecksum \
       \ ( tablename TEXT \
-      \ , blockheight UNSIGNED BIGINT NOT NULL \
       \ , hash BLOB \
       \ , UNIQUE (tablename) ); "
 
   execM_
-      "DELETE FROM VersionedTableChecksum"
+      "DELETE FROM CompactTableChecksum"
 
+
+-- | CompactActiveVersion collects all active rows from all tables.
+createCompactActiveVersion :: CompactM ()
+createCompactActiveVersion = do
   execM_
-      " CREATE TABLE IF NOT EXISTS ActiveVersion \
+      " CREATE TABLE IF NOT EXISTS CompactActiveVersion \
       \ ( tablename TEXT NOT NULL \
       \ , rowkey TEXT NOT NULL \
       \ , vrowid INTEGER NOT NULL \
@@ -184,8 +210,9 @@ createTables = do
       \ , UNIQUE (tablename,rowkey) ); "
 
   execM_
-      "DELETE FROM ActiveVersion"
+      "DELETE FROM CompactActiveVersion"
 
+-- | Sets environment txid, which is the "endingtxid" of the target blockheight.
 readTxId :: CompactM a -> CompactM a
 readTxId next = do
 
@@ -200,12 +227,113 @@ readTxId next = do
         local (set ceTxId (Just t)) next
     _ -> internalError "initialize: expected single-row int"
 
+-- | Sets environment versioned tables, as all active tables created at
+-- or before the target blockheight.
+collectVersionedTables :: CompactM () -> CompactM ()
+collectVersionedTables next = do
+  logg Info "collectVersionedTables"
+  rs <- qryM
+        " SELECT DISTINCT tablename FROM VersionedTableMutation \
+        \ WHERE blockheight <= ? ORDER BY tablename"
+        [blockheight]
+        [RText]
+  setTables rs next
+
+-- | For a given table, collect all active rows into CompactActiveVersion,
+-- and compute+store table grand hash in CompactTableChecksum.
+computeTableHash :: CompactM ()
+computeTableHash = do
+  logg Info "computeTableHash:insert"
+  execM'
+      " INSERT INTO CompactActiveVersion \
+      \ SELECT ?1,rowkey,rowid,hash FROM $VTABLE$ t1 \
+      \ WHERE txid=(SELECT MAX(txid) FROM $VTABLE$ t2 \
+      \  WHERE t2.rowkey=t1.rowkey AND t2.txid<?2) \
+      \ GROUP BY rowkey "
+      [vtable,txid]
+
+  logg Info "computeTableHash:checksum"
+  execM'
+      " INSERT INTO CompactTableChecksum \
+      \ VALUES (?1, \
+      \  (SELECT sha3a_256(hash) FROM CompactActiveVersion \
+      \   WHERE tablename=?1 ORDER BY rowkey)) "
+      [vtable]
+
+-- | Compute global grand hash from all table grand hashes.
+computeGlobalHash :: CompactM ()
+computeGlobalHash = do
+  logg Info "computeGlobalHash"
+  execM_
+      " INSERT INTO CompactTableChecksum \
+      \ VALUES (NULL, \
+      \  (SELECT sha3a_256(hash) FROM CompactTableChecksum \
+      \   WHERE tablename IS NOT NULL ORDER BY tablename)) "
+
+-- | Delete non-active rows from given table.
+compactTable :: CompactM ()
+compactTable = do
+  logg Info "compactTable"
+  execM'
+      " DELETE FROM $VTABLE$ WHERE rowid NOT IN \
+      \ (SELECT t.rowid FROM $VTABLE$ t \
+      \  LEFT JOIN CompactActiveVersion v \
+      \  WHERE t.rowid = v.vrowid AND v.tablename=?1) "
+      [vtable]
+
+-- | For given table, re-compute table grand hash and compare
+-- with stored grand hash in CompactTableChecksum.
+verifyTable :: CompactM ()
+verifyTable = do
+  logg Info "verifyTable"
+  rs <- qryM
+        " SELECT hash FROM CompactTableChecksum WHERE tablename=?1 \
+        \ UNION ALL \
+        \ SELECT sha3a_256(hash) FROM (SELECT hash FROM $VTABLE$ t1 \
+        \  WHERE txid=(select max(txid) FROM $VTABLE$ t2 \
+        \   WHERE t2.rowkey=t1.rowkey) GROUP BY rowkey) "
+      [vtable]
+      [RBlob]
+  case rs of
+    [[SBlob prev],[SBlob curr]] | prev == curr -> return ()
+    _ -> vtable' >>= throwM . CompactExceptionTableVerificationFailure
+
+-- | Drop any versioned tables created after target blockheight.
+dropNewTables :: CompactM ()
+dropNewTables = do
+  logg Info "dropNewTables"
+  nts <- qryM
+      "SELECT tablename FROM VersionedTableCreation WHERE createBlockheight > ?1"
+      [blockheight]
+      [RText]
+
+  setTables nts $ withTables $ do
+    execM_ "DROP TABLE $VTABLE$"
+
+-- | Delete all rows from Checkpointer system tables that are not for the target blockheight.
+compactSystemTables :: CompactM ()
+compactSystemTables = do
+  execM'
+      " DELETE FROM BlockHistory WHERE blockheight != ?1; \
+      \ DELETE FROM VersionedTableMutation WHERE blockheight != ?1; \
+      \ DELETE FROM TransactionIndex WHERE blockheight != ?1; \
+      \ DELETE FROM VersionedTableCreation WHERE createBlockheight != ?1; "
+      [blockheight]
+
+dropCompactTables :: CompactM ()
+dropCompactTables = do
+  execM_
+      " DROP TABLE CompactTableChecksum; \
+      \ DROP TABLE CompactActiveVersion; "
+
 
 
 compact :: CompactM ()
 compact = do
 
-    createTables
+    withTx $ do
+      createCompactTableChecksum
+      createCompactActiveVersion
 
     readTxId $ collectVersionedTables $ do
 
@@ -220,85 +348,4 @@ compact = do
           dropNewTables
           compactSystemTables
 
-  where
-
-
-
-
-
-    collectVersionedTables next = do
-      logg Info "collectVersionedTables"
-      rs <- qryM
-          " SELECT DISTINCT tablename FROM VersionedTableMutation \
-          \ WHERE blockheight <= ? ORDER BY tablename"
-          [blockheight]
-          [RText]
-      setTables rs next
-
-    computeTableHash = do
-      logg Info "computeTableHash:insert"
-      execM'
-          " INSERT INTO ActiveVersion \
-          \ SELECT ?1,rowkey,rowid,hash FROM $VTABLE$ t1 \
-          \ WHERE txid=(SELECT MAX(txid) FROM $VTABLE$ t2 \
-          \  WHERE t2.rowkey=t1.rowkey AND t2.txid<?2) \
-          \ GROUP BY rowkey "
-          [vtable,txid]
-
-      logg Info "computeTableHash:checksum"
-      execM'
-          " INSERT INTO VersionedTableChecksum \
-          \ VALUES (?1, ?2, \
-          \  (SELECT sha3a_256(hash) FROM ActiveVersion \
-          \   WHERE tablename=?1 ORDER BY rowkey)) "
-          [vtable,blockheight]
-
-    computeGlobalHash = do
-      logg Info "computeGlobalHash"
-      execM'
-          " INSERT INTO VersionedTableChecksum \
-          \ VALUES (NULL, ?1, \
-          \  (SELECT sha3a_256(hash) FROM VersionedTableChecksum \
-          \   WHERE tablename IS NOT NULL ORDER BY tablename)) "
-          [blockheight]
-
-    compactTable = do
-      logg Info "compactTable"
-      execM'
-          " DELETE FROM $VTABLE$ WHERE rowid NOT IN \
-          \ (SELECT t.rowid FROM $VTABLE$ t \
-          \  LEFT JOIN ActiveVersion v \
-          \  WHERE t.rowid = v.vrowid AND v.tablename=?1) "
-          [vtable]
-
-    verifyTable = do
-      logg Info "verifyTable"
-      rs <- qryM
-            " SELECT hash FROM VersionedTableChecksum WHERE tablename=?1 \
-            \ UNION ALL \
-            \ SELECT sha3a_256(hash) FROM (SELECT hash FROM $VTABLE$ t1 \
-            \  WHERE txid=(select max(txid) FROM $VTABLE$ t2 \
-            \   WHERE t2.rowkey=t1.rowkey) GROUP BY rowkey) "
-          [vtable]
-          [RBlob]
-      case rs of
-        [[SBlob prev],[SBlob curr]] | prev == curr -> return ()
-        _ -> vtable' >>= throwM . CompactExceptionTableVerificationFailure
-
-    dropNewTables = do
-      logg Info "dropNewTables"
-      nts <- qryM
-          "SELECT tablename FROM VersionedTableCreation WHERE createBlockheight > ?1"
-          [blockheight]
-          [RText]
-
-      setTables nts $ withTables $ do
-        execM_ "DROP TABLE $VTABLE$"
-
-    compactSystemTables = do
-      execM'
-          " DELETE FROM BlockHistory WHERE blockheight != ?1; \
-          \ DELETE FROM VersionedTableMutation WHERE blockheight != ?1; \
-          \ DELETE FROM TransactionIndex WHERE blockheight != ?1; \
-          \ DELETE FROM VersionedTableCreation WHERE createBlockheight != ?1; "
-          [blockheight]
+        unlessFlag Flag_KeepCompactTables $ withTx $ dropCompactTables
