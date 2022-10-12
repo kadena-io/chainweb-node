@@ -25,6 +25,7 @@ module Chainweb.Pact.Backend.Compaction
   , CompactFlag(..)
   , CompactM
   , compact
+  , readGrandHash
   , withDefaultLogger
   ) where
 
@@ -33,6 +34,7 @@ import Control.Monad
 import Control.Monad.Catch
 import Control.Monad.Reader
 
+import Data.ByteString (ByteString)
 import Data.Int
 import Data.Text (Text,replace,isInfixOf)
 import Data.Text.Encoding
@@ -42,6 +44,7 @@ import Database.SQLite3.Direct
 import Prelude hiding (log)
 
 import Chainweb.BlockHeight
+import Chainweb.Utils (sshow)
 
 import System.Logger
 
@@ -49,14 +52,16 @@ import Pact.Types.SQLite
 
 data CompactException
     = CompactExceptionInternal Text
+    | CompactExceptionDb SomeException
     | CompactExceptionInvalidBlockHeight
     | CompactExceptionTableVerificationFailure Utf8
   deriving Show
 instance Exception CompactException
 
-data CompactFlag =
-  Flag_KeepCompactTables
-  deriving (Eq,Show)
+data CompactFlag
+    = Flag_KeepCompactTables
+    | Flag_MigrateVersionTables
+    deriving (Eq,Show)
 
 internalError :: MonadThrow m => Text -> m a
 internalError = throwM . CompactExceptionInternal
@@ -162,13 +167,16 @@ withTx a = withDb $ \db -> do
   catch (a >>= \r -> liftIO (exec_ db "COMMIT TRANSACTION") >> return r) $
       \e@SomeException {} -> do
         liftIO $ exec_ db "ROLLBACK TRANSACTION"
-        throwM e
+        throwM $ CompactExceptionDb e
 
 withDb :: (Database -> CompactM a) -> CompactM a
 withDb a = view ceDb >>= a
 
 unlessFlag :: CompactFlag -> CompactM () -> CompactM ()
 unlessFlag f a = view ceFlags >>= \fs -> unless (f `elem` fs) a
+
+whenFlag :: CompactFlag -> CompactM () -> CompactM ()
+whenFlag f a = view ceFlags >>= \fs -> when (f `elem` fs) a
 
 withTables :: CompactM () -> CompactM ()
 withTables a = view ceVersionTables >>= \ts ->
@@ -326,10 +334,28 @@ dropCompactTables = do
       " DROP TABLE CompactTableChecksum; \
       \ DROP TABLE CompactActiveVersion; "
 
+readGrandHash :: Maybe Utf8 -> CompactM ByteString
+readGrandHash tblM = do
+  r <- withDb $ \db -> liftIO $ case tblM of
+         (Just tbl) -> qry db
+             "SELECT hash FROM CompactTableChecksum WHERE tablename = ?1;"
+             [SText tbl]
+             [RBlob]
+         Nothing ->
+             qry_ db "SELECT hash FROM CompactTableChecksum WHERE tablename IS NULL" [RBlob]
+  case r of
+    [[SBlob h]] -> return h
+    _ -> throwM $ CompactExceptionInternal $ "invalid/unknown grand hash: " <> sshow (tblM,r)
+
+migrateVersionTables :: CompactM ()
+migrateVersionTables = return () -- TODO
 
 
-compact :: CompactM ()
+compact :: CompactM ByteString
 compact = do
+
+    whenFlag Flag_MigrateVersionTables $
+        migrateVersionTables
 
     withTx $ do
       createCompactTableChecksum
@@ -348,4 +374,8 @@ compact = do
           dropNewTables
           compactSystemTables
 
-        unlessFlag Flag_KeepCompactTables $ withTx $ dropCompactTables
+    h <- readGrandHash Nothing
+
+    unlessFlag Flag_KeepCompactTables $ withTx $ dropCompactTables
+
+    return h
