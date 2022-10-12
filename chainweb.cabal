@@ -588,6 +588,8 @@ executable chainweb-node
     autogen-modules:
         Paths_chainweb
         PkgInfo
+    build-tool-depends: 
+        c2hs:c2hs
     build-depends:
         -- internal
           chainweb

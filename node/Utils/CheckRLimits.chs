@@ -13,13 +13,13 @@ import GHC.Stack
 import System.Exit
 import System.IO
 
--- RLIMIT_NOFILE
-
 #include <sys/resource.h>
 #include <errno.h>
 #include <sys/types.h>
 
--- k = #size rlimit
+type RLIM_T = {#type rlim_t#}
+
+{#enum define Resource {RLIMIT_NOFILE as NumberOpenFiles}#}
 
 foreign import ccall "sys/resource.h getrlimit" 
     c_getrlimit :: CInt -> Ptr () -> IO CInt
@@ -27,19 +27,19 @@ foreign import ccall "sys/resource.h getrlimit"
 foreign import ccall "sys/resource.h setrlimit" 
     c_setrlimit :: CInt -> Ptr () -> IO CInt
 
-getOpenFileLimits :: HasCallStack => IO ((#type rlim_t), (#type rlim_t))
-getOpenFileLimits = allocaBytes (#size struct rlimit) $ \ptr -> do
-    err <- c_getrlimit (#const RLIMIT_NOFILE) ptr
+getOpenFileLimits :: HasCallStack => IO (RLIM_T, RLIM_T)
+getOpenFileLimits = allocaBytes {#sizeof rlimit#} $ \rlimit -> do
+    err <- c_getrlimit (fromIntegral $ fromEnum NumberOpenFiles) rlimit
     if err /= 0 then do
         Errno errno <- getErrno
         error $ "getOpenFileLimits: errno not equal to 0: " <> show errno
-    else (,) <$> (#peek struct rlimit, rlim_cur) ptr <*> (#peek struct rlimit, rlim_max) ptr
+    else (,) <$> {#get rlimit->rlim_cur#} rlimit <*> {#get rlimit->rlim_max#} rlimit
 
-setOpenFileLimits :: HasCallStack => ((#type rlim_t), (#type rlim_t)) -> IO ()
-setOpenFileLimits (soft, hard) = allocaBytes (#size struct rlimit) $ \ptr -> do
-    (#poke struct rlimit, rlim_cur) ptr soft
-    (#poke struct rlimit, rlim_max) ptr hard
-    err <- c_setrlimit (#const RLIMIT_NOFILE) ptr
+setOpenFileLimits :: HasCallStack => (RLIM_T, RLIM_T) -> IO ()
+setOpenFileLimits (soft, hard) = allocaBytes {#sizeof rlimit#} $ \rlimit -> do
+    {#set rlimit.rlim_cur#} rlimit soft
+    {#set rlimit.rlim_max#} rlimit hard
+    err <- c_setrlimit (fromIntegral $ fromEnum NumberOpenFiles) rlimit
     when (err /= 0) $ do
         Errno errno <- getErrno
         error $ "setOpenFileLimits: errno not equal to 0: " <> show errno
