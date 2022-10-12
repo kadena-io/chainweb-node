@@ -580,6 +580,8 @@ executable chainweb-node
         -rtsopts
     hs-source-dirs: node
     main-is: ChainwebNode.hs
+    install-includes: node/c/rlim_utils.h
+    c-sources: node/c/rlim_utils.c
     other-modules:
         Paths_chainweb
         PkgInfo
@@ -588,8 +590,6 @@ executable chainweb-node
     autogen-modules:
         Paths_chainweb
         PkgInfo
-    build-tool-depends: 
-        c2hs:c2hs
     build-depends:
         -- internal
           chainweb
@@ -606,7 +606,6 @@ executable chainweb-node
         , http-client-tls >=0.3
         , lens >= 4.17
         , loglevel >= 0.1
-        , process >= 1.6
         , managed >= 1.0
         , streaming >= 0.2
         , text >= 1.2
