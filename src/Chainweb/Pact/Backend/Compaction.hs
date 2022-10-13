@@ -38,10 +38,11 @@ import Data.ByteString (ByteString)
 import Data.Int
 import Data.Text (Text,replace,isInfixOf)
 import Data.Text.Encoding
+import qualified Data.Vector as V
 
 import Database.SQLite3.Direct
 
-import Prelude hiding (log)
+import GHC.Stack
 
 import Chainweb.BlockHeight
 import Chainweb.Utils (sshow)
@@ -60,7 +61,7 @@ instance Exception CompactException
 
 data CompactFlag
     = Flag_KeepCompactTables
-    | Flag_MigrateVersionTables
+    -- ^ Keep compaction tables post-compaction for inspection.
     deriving (Eq,Show)
 
 internalError :: MonadThrow m => Text -> m a
@@ -70,8 +71,8 @@ data CompactEnv = CompactEnv
   { _ceDb :: Database
   , _ceBlockHeight :: BlockHeight
   , _ceTxId :: Maybe Int64
-  , _ceVersionTables :: [Utf8]
-  , _ceVersionTable :: Maybe Utf8
+  , _ceVersionTables :: V.Vector Utf8
+  , _ceVersionTable :: Maybe (Utf8,Int)
   , _ceLogger :: Logger Text
   , _ceFlags :: [CompactFlag]
   }
@@ -92,7 +93,7 @@ mkCompactEnv
     -> [CompactFlag]
     -- ^ Execution flags.
     -> CompactEnv
-mkCompactEnv l d b = CompactEnv d b Nothing [] Nothing l
+mkCompactEnv l d b = CompactEnv d b Nothing mempty Nothing l
 
 newtype CompactM a = CompactM {
   unCompactM :: ReaderT CompactEnv IO a
@@ -158,15 +159,15 @@ vtable = SText <$> vtable'
 
 vtable' :: CompactM Utf8
 vtable' = view ceVersionTable >>= \case
-  Just t -> pure t
+  Just t -> pure $ fst t
   Nothing -> internalError "version table not initialized!"
 
-withTx :: CompactM a -> CompactM a
+withTx :: HasCallStack => CompactM a -> CompactM a
 withTx a = withDb $ \db -> do
-  liftIO $ exec_ db $ "BEGIN TRANSACTION"
-  catch (a >>= \r -> liftIO (exec_ db "COMMIT TRANSACTION") >> return r) $
+  liftIO $ exec_ db $ "SAVEPOINT compact_tx"
+  catch (a >>= \r -> liftIO (exec_ db "RELEASE SAVEPOINT compact_tx") >> return r) $
       \e@SomeException {} -> do
-        liftIO $ exec_ db "ROLLBACK TRANSACTION"
+        liftIO $ exec_ db "ROLLBACK TRANSACTION TO SAVEPOINT compact_tx"
         throwM $ CompactExceptionDb e
 
 withDb :: (Database -> CompactM a) -> CompactM a
@@ -175,42 +176,43 @@ withDb a = view ceDb >>= a
 unlessFlag :: CompactFlag -> CompactM () -> CompactM ()
 unlessFlag f a = view ceFlags >>= \fs -> unless (f `elem` fs) a
 
-whenFlag :: CompactFlag -> CompactM () -> CompactM ()
-whenFlag f a = view ceFlags >>= \fs -> when (f `elem` fs) a
+_whenFlag :: CompactFlag -> CompactM () -> CompactM ()
+_whenFlag f a = view ceFlags >>= \fs -> when (f `elem` fs) a
 
 withTables :: CompactM () -> CompactM ()
 withTables a = view ceVersionTables >>= \ts ->
-  forM_ ts $ \t@(Utf8 t') ->
+  forM_ (zip (V.toList ts) [1..]) $ \t@(Utf8 t',i) -> do
+    let lbl = decodeUtf8 t' <> " (" <> sshow i <> " of " <> sshow (V.length ts) <> ")"
     local (set ceVersionTable $ Just t) $
-      localScope (("table",decodeUtf8 t'):) $ a
+      localScope (("table",lbl):) $ a
 
 setTables :: [[SType]] -> CompactM () -> CompactM ()
 setTables rs next = do
   ts <- forM rs $ \r -> case r of
     [SText n] -> return n
     _ -> internalError "setTables: expected text"
-  local (set ceVersionTables ts) next
+  local (set ceVersionTables $ V.fromList ts) next
 
--- | CompactTableChecksum associates table name with grand hash of its versioned rows,
+-- | CompactGrandHash associates table name with grand hash of its versioned rows,
 -- and NULL with grand hash of all table hashes.
-createCompactTableChecksum :: CompactM ()
-createCompactTableChecksum = do
+createCompactGrandHash :: CompactM ()
+createCompactGrandHash = do
   logg Info "createTables"
   execM_
-      " CREATE TABLE IF NOT EXISTS CompactTableChecksum \
+      " CREATE TABLE IF NOT EXISTS CompactGrandHash \
       \ ( tablename TEXT \
       \ , hash BLOB \
       \ , UNIQUE (tablename) ); "
 
   execM_
-      "DELETE FROM CompactTableChecksum"
+      "DELETE FROM CompactGrandHash"
 
 
--- | CompactActiveVersion collects all active rows from all tables.
-createCompactActiveVersion :: CompactM ()
-createCompactActiveVersion = do
+-- | CompactActiveRow collects all active rows from all tables.
+createCompactActiveRow :: CompactM ()
+createCompactActiveRow = do
   execM_
-      " CREATE TABLE IF NOT EXISTS CompactActiveVersion \
+      " CREATE TABLE IF NOT EXISTS CompactActiveRow \
       \ ( tablename TEXT NOT NULL \
       \ , rowkey TEXT NOT NULL \
       \ , vrowid INTEGER NOT NULL \
@@ -218,7 +220,7 @@ createCompactActiveVersion = do
       \ , UNIQUE (tablename,rowkey) ); "
 
   execM_
-      "DELETE FROM CompactActiveVersion"
+      "DELETE FROM CompactActiveRow"
 
 -- | Sets environment txid, which is the "endingtxid" of the target blockheight.
 readTxId :: CompactM a -> CompactM a
@@ -247,13 +249,22 @@ collectVersionedTables next = do
         [RText]
   setTables rs next
 
--- | For a given table, collect all active rows into CompactActiveVersion,
--- and compute+store table grand hash in CompactTableChecksum.
+tableRowCount :: Text -> CompactM ()
+tableRowCount lbl =
+  qryM "SELECT COUNT(*) FROM $VTABLE$" [] [RInt] >>= \case
+    [[SInt r]] -> logg Info $ lbl <> ":rowcount=" <> sshow r
+    _ -> internalError "count(*) failure"
+
+-- | For a given table, collect all active rows into CompactActiveRow,
+-- and compute+store table grand hash in CompactGrandHash.
 computeTableHash :: CompactM ()
 computeTableHash = do
+
+  tableRowCount "computeTableHash"
+
   logg Info "computeTableHash:insert"
   execM'
-      " INSERT INTO CompactActiveVersion \
+      " INSERT INTO CompactActiveRow \
       \ SELECT ?1,rowkey,rowid,hash FROM $VTABLE$ t1 \
       \ WHERE txid=(SELECT MAX(txid) FROM $VTABLE$ t2 \
       \  WHERE t2.rowkey=t1.rowkey AND t2.txid<?2) \
@@ -262,9 +273,9 @@ computeTableHash = do
 
   logg Info "computeTableHash:checksum"
   execM'
-      " INSERT INTO CompactTableChecksum \
+      " INSERT INTO CompactGrandHash \
       \ VALUES (?1, \
-      \  (SELECT sha3a_256(hash) FROM CompactActiveVersion \
+      \  (SELECT sha3a_256(hash) FROM CompactActiveRow \
       \   WHERE tablename=?1 ORDER BY rowkey)) "
       [vtable]
 
@@ -273,9 +284,9 @@ computeGlobalHash :: CompactM ()
 computeGlobalHash = do
   logg Info "computeGlobalHash"
   execM_
-      " INSERT INTO CompactTableChecksum \
+      " INSERT INTO CompactGrandHash \
       \ VALUES (NULL, \
-      \  (SELECT sha3a_256(hash) FROM CompactTableChecksum \
+      \  (SELECT sha3a_256(hash) FROM CompactGrandHash \
       \   WHERE tablename IS NOT NULL ORDER BY tablename)) "
 
 -- | Delete non-active rows from given table.
@@ -285,17 +296,17 @@ compactTable = do
   execM'
       " DELETE FROM $VTABLE$ WHERE rowid NOT IN \
       \ (SELECT t.rowid FROM $VTABLE$ t \
-      \  LEFT JOIN CompactActiveVersion v \
+      \  LEFT JOIN CompactActiveRow v \
       \  WHERE t.rowid = v.vrowid AND v.tablename=?1) "
       [vtable]
 
 -- | For given table, re-compute table grand hash and compare
--- with stored grand hash in CompactTableChecksum.
+-- with stored grand hash in CompactGrandHash.
 verifyTable :: CompactM ()
 verifyTable = do
   logg Info "verifyTable"
   rs <- qryM
-        " SELECT hash FROM CompactTableChecksum WHERE tablename=?1 \
+        " SELECT hash FROM CompactGrandHash WHERE tablename=?1 \
         \ UNION ALL \
         \ SELECT sha3a_256(hash) FROM (SELECT hash FROM $VTABLE$ t1 \
         \  WHERE txid=(select max(txid) FROM $VTABLE$ t2 \
@@ -303,7 +314,7 @@ verifyTable = do
       [vtable]
       [RBlob]
   case rs of
-    [[SBlob prev],[SBlob curr]] | prev == curr -> return ()
+    [[SBlob prev],[SBlob curr]] | prev == curr -> tableRowCount "verifyTable"
     _ -> vtable' >>= throwM . CompactExceptionTableVerificationFailure
 
 -- | Drop any versioned tables created after target blockheight.
@@ -331,35 +342,30 @@ compactSystemTables = do
 dropCompactTables :: CompactM ()
 dropCompactTables = do
   execM_
-      " DROP TABLE CompactTableChecksum; \
-      \ DROP TABLE CompactActiveVersion; "
+      " DROP TABLE CompactGrandHash; \
+      \ DROP TABLE CompactActiveRow; "
 
 readGrandHash :: Maybe Utf8 -> CompactM ByteString
 readGrandHash tblM = do
   r <- withDb $ \db -> liftIO $ case tblM of
          (Just tbl) -> qry db
-             "SELECT hash FROM CompactTableChecksum WHERE tablename = ?1;"
+             "SELECT hash FROM CompactGrandHash WHERE tablename = ?1;"
              [SText tbl]
              [RBlob]
          Nothing ->
-             qry_ db "SELECT hash FROM CompactTableChecksum WHERE tablename IS NULL" [RBlob]
+             qry_ db "SELECT hash FROM CompactGrandHash WHERE tablename IS NULL" [RBlob]
   case r of
     [[SBlob h]] -> return h
     _ -> throwM $ CompactExceptionInternal $ "invalid/unknown grand hash: " <> sshow (tblM,r)
 
-migrateVersionTables :: CompactM ()
-migrateVersionTables = return () -- TODO
 
 
 compact :: CompactM ByteString
 compact = do
 
-    whenFlag Flag_MigrateVersionTables $
-        migrateVersionTables
-
     withTx $ do
-      createCompactTableChecksum
-      createCompactActiveVersion
+      createCompactGrandHash
+      createCompactActiveRow
 
     readTxId $ collectVersionedTables $ do
 
