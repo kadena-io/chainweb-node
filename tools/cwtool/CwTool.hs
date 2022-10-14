@@ -5,6 +5,8 @@ import System.Environment
 import System.Exit
 import Text.Printf
 
+import Chainweb.Pact.Backend.Compaction
+
 import qualified CheckpointerDBChecksum
 import qualified Ea
 import qualified EncodeDecodeB64Util
@@ -92,6 +94,10 @@ topLevelCommands =
       "tx-sim"
       "Simulate tx execution against real pact dbs"
       TxSimulator.simulateMain
+  , CommandSpec
+      "compact"
+      "Compact pact database"
+      compactMain
   ]
 
 printHelp :: [CommandSpec] -> IO ()

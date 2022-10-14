@@ -1,3 +1,5 @@
+{-# LANGUAGE DeriveTraversable #-}
+{-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE DeriveFunctor #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE BangPatterns #-}
@@ -10,6 +12,7 @@
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE TypeApplications #-}
 
 -- |
 -- Module: Chainweb.Pact.Backend.Compaction
@@ -25,6 +28,8 @@ module Chainweb.Pact.Backend.Compaction
   , CompactFlag(..)
   , CompactM
   , compact
+  , compactAll
+  , compactMain
   , readGrandHash
   , withDefaultLogger
   ) where
@@ -35,8 +40,11 @@ import Control.Monad.Catch
 import Control.Monad.Reader
 
 import Data.ByteString (ByteString)
+import Data.Foldable
 import Data.Int
-import Data.Text (Text,replace,isInfixOf)
+import Data.List (sort)
+import Data.Maybe
+import Data.Text (Text,replace,isInfixOf,pack)
 import Data.Text.Encoding
 import qualified Data.Vector as V
 
@@ -44,10 +52,17 @@ import Database.SQLite3.Direct
 
 import GHC.Stack
 
+import Options.Applicative
+
 import Chainweb.BlockHeight
 import Chainweb.Utils (sshow)
+import Chainweb.Version
+import Chainweb.Version.Utils
+import Chainweb.Pact.Backend.Types
+import Chainweb.Pact.Backend.Utils
 
 import System.Logger
+import Data.LogMessage
 
 import Pact.Types.SQLite
 
@@ -62,7 +77,7 @@ instance Exception CompactException
 data CompactFlag
     = Flag_KeepCompactTables
     -- ^ Keep compaction tables post-compaction for inspection.
-    deriving (Eq,Show)
+    deriving (Eq,Show,Read,Enum,Bounded)
 
 internalError :: MonadThrow m => Text -> m a
 internalError = throwM . CompactExceptionInternal
@@ -73,18 +88,18 @@ data CompactEnv = CompactEnv
   , _ceTxId :: Maybe Int64
   , _ceVersionTables :: V.Vector Utf8
   , _ceVersionTable :: Maybe (Utf8,Int)
-  , _ceLogger :: Logger Text
+  , _ceLogger :: Logger SomeLogMessage
   , _ceFlags :: [CompactFlag]
   }
 makeLenses ''CompactEnv
 
-withDefaultLogger :: LogLevel -> (Logger Text -> IO a) -> IO a
-withDefaultLogger ll f = withHandleBackend defaultHandleBackendConfig $ \b ->
+withDefaultLogger :: LogLevel -> (Logger SomeLogMessage -> IO a) -> IO a
+withDefaultLogger ll f = withHandleBackend_ logText defaultHandleBackendConfig $ \b ->
     withLogger defaultLoggerConfig b $ \l -> f (set setLoggerLevel ll l)
 
 -- | Set up compaction.
 mkCompactEnv
-    :: Logger Text
+    :: Logger SomeLogMessage
     -- ^ Logger
     -> Database
     -- ^ A single-chain pact database connection.
@@ -106,7 +121,7 @@ instance MonadLog Text CompactM where
 
   logg ll m = do
     l <- view ceLogger
-    liftIO $ loggerFunIO l ll m
+    liftIO $ loggerFunIO l ll $ toLogMessage $ TextLog m
 
   withLevel l = local (set (ceLogger.setLoggerLevel) l)
 
@@ -181,7 +196,7 @@ _whenFlag f a = view ceFlags >>= \fs -> when (f `elem` fs) a
 
 withTables :: CompactM () -> CompactM ()
 withTables a = view ceVersionTables >>= \ts ->
-  forM_ (zip (V.toList ts) [1..]) $ \t@(Utf8 t',i) -> do
+  forM_ (zip (toList ts) [1..]) $ \t@(Utf8 t',i) -> do
     let lbl = decodeUtf8 t' <> " (" <> sshow i <> " of " <> sshow (V.length ts) <> ")"
     local (set ceVersionTable $ Just t) $
       localScope (("table",lbl):) $ a
@@ -385,3 +400,61 @@ compact = do
     unlessFlag Flag_KeepCompactTables $ withTx $ dropCompactTables
 
     return h
+
+data CompactConfig v = CompactConfig
+  { ccBlockHeight :: BlockHeight
+  , ccDbDir :: FilePath
+  , ccVersion :: v
+  , ccFlags :: [CompactFlag]
+  , ccChain :: Maybe ChainId
+  } deriving (Eq,Show,Functor,Foldable,Traversable)
+
+compactAll :: CompactConfig ChainwebVersion -> IO ()
+compactAll CompactConfig{..} = withDefaultLogger Debug $ \logger' ->
+  forM_ cids $ \cid -> do
+    let logger = over setLoggerScope (("chain",sshow cid):) logger'
+    withSqliteDb cid logger ccDbDir False $ \(SQLiteEnv db _) ->
+      runCompactM (mkCompactEnv logger db ccBlockHeight ccFlags) $
+        case ccChain of
+          Just ccid | ccid /= cid -> logg Info $ "Skipping chain"
+          _ -> do
+            logg Info $ "Beginning compaction"
+            h <- compact
+            logg Info $ "Compaction complete, hash=" <> sshow h
+
+  where
+    cids = sort $ toList $ chainIdsAt ccVersion ccBlockHeight
+
+compactMain :: IO ()
+compactMain = do
+  execParser opts >>= \cc -> do
+    traverse (chainwebVersionFromText.pack) cc >>= compactAll
+  where
+    opts :: ParserInfo (CompactConfig String)
+    opts = info (parser <**> helper)
+        (fullDesc <> progDesc "Pact DB Compaction tool")
+
+    parser = CompactConfig
+        <$> (fromIntegral @Int <$> option auto
+             (short 'b'
+              <> metavar "BLOCKHEIGHT"
+              <> help "Target blockheight"))
+        <*> strOption
+             (short 'd'
+              <> metavar "DBDIR"
+              <> help "Pact database directory")
+        <*> (fromMaybe (show Mainnet01) <$> optional (strOption
+             (short 'v'
+              <> metavar "VERSION"
+              <> help ("Chainweb version for graph. Only needed for non-standard graphs, defaults to "
+                       ++ show Mainnet01))))
+        <*> (fromMaybe [] <$> optional (option auto
+             (short 'f'
+              <> metavar "FLAGS"
+              <> help ("Execution flags: \""
+                       ++ show [minBound @CompactFlag .. maxBound]
+                       ++ "\" (needs quotes)"))))
+        <*> optional (unsafeChainId <$> option auto
+             (short 'c'
+              <> metavar "CHAINID"
+              <> help "If supplied, compact only this chain"))
