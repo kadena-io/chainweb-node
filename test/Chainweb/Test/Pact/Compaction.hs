@@ -53,7 +53,7 @@ testCompactCheckpointer =
 
     (CheckpointEnv {..}, SQLiteEnv {..}) <- resIO
 
-    -- init genesis
+    -- init genesis (block 0)
     let hash00 = getArbitrary 0
     void $ _cpRestore _cpeCheckpointer Nothing
     _cpSave _cpeCheckpointer hash00
@@ -61,8 +61,12 @@ testCompactCheckpointer =
     let hash01 = getArbitrary 1
         hash02 = getArbitrary 2
         hash03 = getArbitrary 3
+
+    -- block 1, empty block
     void $ _cpRestore _cpeCheckpointer (Just (1, hash00))
     _cpSave _cpeCheckpointer hash01
+
+    -- block 2: create tables, add/mutate values
     (PactDbEnv' (PactDbEnv pactdb mvar)) <- _cpRestore _cpeCheckpointer (Just (2, hash01))
 
     let withTx f = do
@@ -72,21 +76,29 @@ testCompactCheckpointer =
         rd1 = RowData RDV1 $ ObjectMap $ M.fromList [("a", RDLiteral (LBool False))]
         rd2 = RowData RDV1 $ ObjectMap $ M.fromList [("a", RDLiteral (LBool True))]
 
+    -- tx: create tables
     withTx $ do
       _createUserTable pactdb "tA" "mod" mvar
       _createUserTable pactdb "tAA" "mod" mvar
 
+    -- tx: insert values, include common keys/tables/values to verify unique row hashes for same tuples
+    -- this covers the use of tags in hashing to distinguish table from name
+    -- (e.g., hashing 'TtAKAA' for tA table, key AA instead of just 'tAAA' which would
+    -- collide with tAA table, key A with naive concatenation.
     withTx $ do
       _writeRow pactdb Insert (UserTables "tA") "AA" rd1 mvar -- test table+key collision
       _writeRow pactdb Insert (UserTables "tAA") "A" rd1 mvar
       _writeRow pactdb Insert (UserTables "tA") "B" rd2 mvar -- test row+key collision
       _writeRow pactdb Insert (UserTables "tAA") "B" rd2 mvar
 
+    -- tx: update, insert
     withTx $ do
       _writeRow pactdb Update (UserTables "tA") "B" rd2 mvar -- test update to same data collision
       _writeRow pactdb Insert (UserTables "tA") "C" rd1 mvar -- new insert
 
     _cpSave _cpeCheckpointer hash02
+
+    -- block 3: updates
     void $ _cpRestore _cpeCheckpointer $ Just (3,hash02)
 
     withTx $ do
@@ -94,6 +106,8 @@ testCompactCheckpointer =
       _writeRow pactdb Update (UserTables "tA") "C" rd2 mvar -- test updated hash
 
     _cpSave _cpeCheckpointer hash03
+
+    -- verify checkpointer-created row hashes
 
     let calcHash tbl rk txid hsh = qry _sConn
             ( "SELECT sha3_256('T',?1,'K',rowkey,'I',txid,'D',rowdata,'H',?4) FROM "
@@ -119,6 +133,7 @@ testCompactCheckpointer =
         assertNotEquals msg v1 v2 = assertSatisfies msg v1 (/= v2)
 
 
+    -- confirm hashes and check for collisions
     hA_AA1 <- checkHash "tA" "AA" 1 nullHash
     hAA_A1 <- checkHash "tAA" "A" 1 nullHash
     assertNotEquals "table+key collision" hAA_A1 hA_AA1
@@ -141,6 +156,7 @@ testCompactCheckpointer =
 
       runCompactM (mkCompactEnv l _sConn 2 [Flag_KeepCompactTables]) $ do
 
+        -- compact and store global grand hash
         gh <- compact
 
         -- use DB to compute grand hashes to check per-table and global results
@@ -152,6 +168,7 @@ testCompactCheckpointer =
               return $ hsh
             checkGrandHash tbl _ = liftIO $ assertFailure $ "query failure: " ++ show tbl
 
+        -- recompute global hash from table grand hashes, checking each
         hshA <-
           liftIO (qry _sConn "select sha3_256(?1,?2,?3)"
                   [hA_AA1,hA_B2,hC2] [RBlob])
@@ -164,6 +181,7 @@ testCompactCheckpointer =
                        [SBlob hshA,SBlob hshAA] [RBlob])
             >>= checkGrandHash Nothing
 
+        -- test that value returned from 'compact' is global hash
         liftIO $ assertEqual "global hash check" gh' gh
 
 
