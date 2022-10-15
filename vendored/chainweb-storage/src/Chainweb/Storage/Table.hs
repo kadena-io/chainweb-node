@@ -51,6 +51,7 @@ module Chainweb.Storage.Table
 where
 
 import Control.Exception (Exception, SomeException)
+import Control.Lens
 import Control.Monad.Catch (throwM)
 
 import Data.Coerce
@@ -80,8 +81,8 @@ class Eq (CasKeyType v) => IsCasValue v where
 -- itself.
 class ReadableTable t k v | t -> k v where
     tableLookup :: t -> k -> IO (Maybe v)
-    tableLookupBatch :: t -> [k] -> IO [Maybe v]
-    tableLookupBatch t ks = traverse (tableLookup t) ks
+    tableLookupBatch :: Each s t' k (Maybe v) => t -> s -> IO t'
+    tableLookupBatch t ks = each (tableLookup t) ks
     tableMember :: t -> k -> IO Bool
     tableMember t k = isJust <$> tableLookup t k
 
@@ -146,7 +147,8 @@ type CasIterator i v = Iterator i (CasKeyType v) v
 newtype Casify t v = Casify { unCasify :: t (CasKeyType v) v }
 instance forall t k v. (CasKeyType v ~ k, ReadableTable (t k v) k v) => ReadableTable (Casify t v) k v where
     tableLookup = coerce @(t k v -> k -> IO (Maybe v)) tableLookup
-    tableLookupBatch = coerce @(t k v -> [k] -> IO [Maybe v]) tableLookupBatch
+    tableLookupBatch :: forall s t'. Each s t' k (Maybe v) => Casify t v -> s -> IO t'
+    tableLookupBatch = coerce @(t k v -> s -> IO t') tableLookupBatch
     tableMember = coerce @(t k v -> k -> IO Bool) tableMember
 instance forall t k v. (CasKeyType v ~ k, Table (t k v) k v) => Table (Casify t v) k v where
     tableInsert = coerce @(t k v -> k -> v -> IO ()) tableInsert
