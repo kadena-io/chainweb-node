@@ -86,6 +86,7 @@ module Chainweb.Storage.Table.RocksDB
   ) where
 
 import Control.Exception(evaluate)
+import Control.Lens
 import Control.Monad
 import Control.Monad.Catch
 import Control.Monad.IO.Class
@@ -543,7 +544,7 @@ instance ReadableTable (RocksDbTable k v) k v where
     -- key @k@ in the 'RocksDbTable' @db@ if it exists, or 'Nothing' if the @k@
     -- doesn't exist in the table.
     --
-    tableLookupBatch db ks = do
+    tableLookupBatch db = unsafePartsOf each $ \ks -> do
         results <- V.toList <$> multiGet (_rocksDbTableDb db) mempty (V.fromList $ map (encKey db) ks)
         forM results $ \case
             Left e -> error $ "Chainweb.Storage.Table.RocksDB.tableLookupBatch: " <> e
