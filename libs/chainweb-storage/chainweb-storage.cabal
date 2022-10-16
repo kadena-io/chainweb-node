@@ -48,6 +48,7 @@ library
         , hashable >=1.2
         , lens >=4.16
         , memory >=0.14
+        , mtl >= 2.2
         , nothunks >= 0.1.0.0
         , rocksdb-haskell-kadena >=1.1.0
         , stm >=2.4
