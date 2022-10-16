@@ -27,6 +27,7 @@
 module Chainweb.Storage.Table
   ( IsCasValue (..)
   , ReadableTable (..)
+  , tableLookupBatch
   , ReadableTable1
   , ReadableCas
   , Table (..)
@@ -81,10 +82,13 @@ class Eq (CasKeyType v) => IsCasValue v where
 -- itself.
 class ReadableTable t k v | t -> k v where
     tableLookup :: t -> k -> IO (Maybe v)
-    tableLookupBatch :: Each s t' k (Maybe v) => t -> s -> IO t'
-    tableLookupBatch t ks = each (tableLookup t) ks
+    tableLookupBatch' :: t -> Traversal s r k (Maybe v) -> s -> IO r
+    tableLookupBatch' t l = l (tableLookup t) 
     tableMember :: t -> k -> IO Bool
     tableMember t k = isJust <$> tableLookup t k
+
+tableLookupBatch :: (ReadableTable t k v, Each s t' k (Maybe v)) => t -> s -> IO t'
+tableLookupBatch t = tableLookupBatch' t each
 
 type ReadableCas t v = ReadableTable t (CasKeyType v) v
 type ReadableTable1 t = forall k v. ReadableTable (t k v) k v
@@ -147,8 +151,8 @@ type CasIterator i v = Iterator i (CasKeyType v) v
 newtype Casify t v = Casify { unCasify :: t (CasKeyType v) v }
 instance forall t k v. (CasKeyType v ~ k, ReadableTable (t k v) k v) => ReadableTable (Casify t v) k v where
     tableLookup = coerce @(t k v -> k -> IO (Maybe v)) tableLookup
-    tableLookupBatch :: forall s t'. Each s t' k (Maybe v) => Casify t v -> s -> IO t'
-    tableLookupBatch = coerce @(t k v -> s -> IO t') tableLookupBatch
+    -- can't seem to write `coerce` without the resulting instantiation being impredicative
+    tableLookupBatch' (Casify t) b = tableLookupBatch' t b
     tableMember = coerce @(t k v -> k -> IO Bool) tableMember
 instance forall t k v. (CasKeyType v ~ k, Table (t k v) k v) => Table (Casify t v) k v where
     tableInsert = coerce @(t k v -> k -> v -> IO ()) tableInsert
