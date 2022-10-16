@@ -94,6 +94,7 @@ import Control.Monad.IO.Class
 import Data.ByteString(ByteString)
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Char8 as B8
+import qualified Data.ByteString.Internal as BI
 import qualified Data.ByteString.Unsafe as BU
 import Data.Coerce
 import Data.Foldable
@@ -102,7 +103,6 @@ import Data.Maybe
 import Chainweb.Storage.Table
 import Data.String
 import qualified Data.Text as T
-import qualified Data.Vector as V
 
 import Foreign
 import Foreign.C
@@ -532,20 +532,20 @@ tableMinEntry = flip withTableIterator $ \i -> iterFirst i *> iterEntry i
 -- | For a 'IsCasValue' @v@ with 'CasKeyType v ~ k@,  a 'RocksDbTable k v' is an
 -- instance of 'HasCasLookup'.
 --
-instance ReadableTable (RocksDbTable k v) k v where
+instance forall k v. ReadableTable (RocksDbTable k v) k v where
     tableLookup db k = do
-        maybeBytes <- get (_rocksDbTableDb db) mempty (encKey db k)
+        maybeBytes <- getRocksDb (_rocksDbTableDb db) mempty (encKey db k)
         traverse (decVal db) maybeBytes
 
     tableMember db k = 
-        isJust <$> get (_rocksDbTableDb db) mempty (encKey db k)
+        isJust <$> getRocksDb (_rocksDbTableDb db) mempty (encKey db k)
 
     -- | @tableLookupBatch db ks@ returns for each @k@ in @ks@ 'Just' the value at
     -- key @k@ in the 'RocksDbTable' @db@ if it exists, or 'Nothing' if the @k@
     -- doesn't exist in the table.
     --
-    tableLookupBatch db = unsafePartsOf each $ \ks -> do
-        results <- V.toList <$> multiGet (_rocksDbTableDb db) mempty (V.fromList $ map (encKey db) ks)
+    tableLookupBatch' db t = unsafePartsOf t $ \ks -> do
+        results <- multiGet (_rocksDbTableDb db) mempty (map (encKey db) ks)
         forM results $ \case
             Left e -> error $ "Chainweb.Storage.Table.RocksDB.tableLookupBatch: " <> e
             Right x -> traverse (decVal db) x
@@ -687,8 +687,8 @@ compactRangeRocksDb table range =
 
 -- | Read a value by key.
 -- One less copy than the version in rocksdb-haskell by using unsafePackCStringFinalizer.
-get :: MonadIO m => R.DB -> R.ReadOptions -> ByteString -> m (Maybe ByteString)
-get (R.DB db_ptr) opts key = liftIO $ R.withReadOptions opts $ \opts_ptr ->
+getRocksDb :: MonadIO m => R.DB -> R.ReadOptions -> ByteString -> m (Maybe ByteString)
+getRocksDb (R.DB db_ptr) opts key = liftIO $ R.withReadOptions opts $ \opts_ptr ->
     BU.unsafeUseAsCStringLen key $ \(key_ptr, klen) ->
     alloca $ \vlen_ptr -> do
         val_ptr <- checked "Chainweb.Storage.Table.RocksDB.get" $
@@ -718,8 +718,8 @@ multiGet
     :: MonadIO m
     => R.DB
     -> R.ReadOptions
-    -> V.Vector ByteString
-    -> m (V.Vector (Either String (Maybe ByteString)))
+    -> [ByteString]
+    -> m [Either String (Maybe ByteString)]
 multiGet (R.DB db_ptr) opts keys = liftIO $ R.withReadOptions opts $ \opts_ptr ->
     allocaArray len $ \keysArray ->
     allocaArray len $ \keySizesArray ->
@@ -737,21 +737,22 @@ multiGet (R.DB db_ptr) opts keys = liftIO $ R.withReadOptions opts $ \opts_ptr -
                     keysArray keySizesArray
                     valuesArray valueSizesArray
                     errsArray
-                V.generateM len $ \i -> do
+                forM [0..len-1] $ \i -> do
                   valuePtr <- peekElemOff valuesArray i
                   if valuePtr /= nullPtr
                     then do
                       valueLen <- R.cSizeToInt <$> peekElemOff valueSizesArray i
-                      r <- BU.unsafePackMallocCStringLen (valuePtr, valueLen)
+                      r <- BU.unsafePackCStringFinalizer (castPtr valuePtr) valueLen (C.c_rocksdb_free valuePtr)
                       return $ Right $ Just r
                     else do
                       errPtr <- peekElemOff errsArray i
                       if errPtr /= nullPtr
                         then do
-                          err <- B8.unpack <$> BU.unsafePackMallocCString errPtr
+                          errLen <- BI.c_strlen errPtr
+                          err <- B8.unpack <$> BU.unsafePackCStringFinalizer (castPtr errPtr) (fromIntegral errLen :: Int) (C.c_rocksdb_free errPtr)
                           return $ Left err
                         else
                           return $ Right Nothing
-        in go 0 $ V.toList keys
+        in go 0 keys
   where
-    len = V.length keys
+    len = length keys
