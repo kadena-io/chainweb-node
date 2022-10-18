@@ -59,7 +59,7 @@ source-repository-package
 source-repository-package
     type: git
     location: https://github.com/kadena-io/chainweb-storage.git
-    tag: 29bed31b9404f46eaa8b09faa882accaf4300a35
+    tag: 328ea737e359901148027dd037f9ed30d74d1273
 
 source-repository-package
     type: git
@@ -111,3 +111,4 @@ allow-newer: pact:direct-sqlite
 
 -- TODO remove once entropy is fixed upstream
 constraints: entropy <0.4.1.9
+
