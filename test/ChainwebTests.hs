@@ -39,7 +39,8 @@ import qualified Chainweb.Test.Pact.Checkpointer
 import qualified Chainweb.Test.Pact.ModuleCacheOnRestart
 import qualified Chainweb.Test.Pact.NoCoinbase
 import qualified Chainweb.Test.Pact.PactExec
-import qualified Chainweb.Test.Pact.PactInProcApi
+import qualified Chainweb.Test.Pact.PactMultiChainTest
+import qualified Chainweb.Test.Pact.PactSingleChainTest
 import qualified Chainweb.Test.Pact.PactReplay
 import qualified Chainweb.Test.Pact.RemotePactTest
 import qualified Chainweb.Test.Pact.RewardsTest
@@ -93,7 +94,8 @@ pactTestSuite rdb = testGroupSch "Chainweb-Pact Tests"
     $ schedule Sequential
         [ Chainweb.Test.Pact.PactExec.tests
         , Chainweb.Test.Pact.Checkpointer.tests
-        , Chainweb.Test.Pact.PactInProcApi.tests rdb
+        , Chainweb.Test.Pact.PactMultiChainTest.tests
+        , Chainweb.Test.Pact.PactSingleChainTest.tests rdb
         , Chainweb.Test.Pact.RemotePactTest.tests rdb
         , Chainweb.Test.Pact.PactReplay.tests rdb
         , Chainweb.Test.Pact.ModuleCacheOnRestart.tests rdb

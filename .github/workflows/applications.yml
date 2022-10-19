@@ -124,14 +124,16 @@ jobs:
         {
           "ghc": ["8.10.7", "9.0.2"],
           "cabal": ["3.6"],
-          "os": ["ubuntu-18.04", "ubuntu-20.04"],
+          "os": ["ubuntu-20.04", "ubuntu-22.04"],
           "cabalcache": ["true"],
-          "exclude": [
+          "use-freeze-file": ["false"],
+          "include": [
             {
-              "ghc": "9.0.2",
+              "ghc": "8.10.7",
               "cabal": "3.6",
               "os" : "ubuntu-20.04",
-              "cabalcache": "true"
+              "cabalcache": "true",
+              "use-freeze-file": "true"
             }
           ]
         }
@@ -226,7 +228,7 @@ jobs:
         cabal --version
     - name: Install non-Haskell dependencies (ubuntu)
       if: contains(matrix.os, 'ubuntu')
-      run: sudo apt-get install -y liblz4-dev libzstd-dev libgflags-dev libtbb-dev libsnappy-dev libbz2-dev
+      run: sudo apt-get install -y libgflags-dev liblz4-dev libzstd-dev libgflags-dev libtbb-dev libsnappy-dev libbz2-dev
     # Project Configuration
     - name: Create cabal.project.local
       run: |
@@ -301,6 +303,7 @@ jobs:
 
     # Build
     - name: Delete Freeze file if it exists
+      if: matrix.use-freeze-file != 'true'
       # we generate and archive a new freeze file during the build
       run: rm -f cabal.project.freeze
     - name: Update package database
@@ -308,9 +311,10 @@ jobs:
     - name: Display outdated packages
       run: cabal outdated
     - name: Configure build
-      run: |
-        cabal build all --dry-run
-        cabal freeze
+      run: cabal build all --dry-run
+    - name: Generate new freeze file
+      if: matrix.use-freeze-file != 'true'
+      run: cabal freeze
     - name: Display Dependency Changes
       run: |
         diff -w <(git show HEAD:cabal.project.freeze) cabal.project.freeze || true
@@ -333,23 +337,17 @@ jobs:
     # Checks
     - name: Check that working directory tree is clean
       run: |
-        mv cabal.project.freeze cabal.project.freeze.backup
-        git checkout -- cabal.project.freeze || true
-        if ! git diff --exit-code; then
+        if ! git diff --exit-code -- :^cabal.project.freeze ; then
           echo "Git working tree is not clean. The build changed some file that is checked into git." 1>&2
           exit 1
         fi
-        mv cabal.project.freeze.backup cabal.project.freeze
     - name: Run ea and verify consistency of genesis headers
       run: |
         cabal run cwtool -- ea
-        mv cabal.project.freeze cabal.project.freeze.backup
-        git checkout -- cabal.project.freeze || true
-        if ! git diff --exit-code; then
+        if ! git diff --exit-code -- src/Chainweb/BlockHeader/Genesis/ src/Chainweb/Pact/Transactions/ ; then
           echo "Inconsistent genesis headers detected. Did you forget to run ea?" 1>&2
           exit 1
         fi
-        mv cabal.project.freeze.backup cabal.project.freeze
 
     # Archive Artifacts
     - name: Prepare artifacts
