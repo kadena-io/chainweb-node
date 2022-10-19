@@ -623,7 +623,7 @@ jobs:
       matrix:
         # TODO when adding more than one build, use a different package name or
         # different tags
-        ghc: ["8.10.7"]
+        ghc: ["9.0.2"]
         os: ["ubuntu-20.04"]
     env:
       OS: ${{ matrix.os }}
