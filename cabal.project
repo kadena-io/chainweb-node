@@ -1,8 +1,9 @@
 packages: chainweb.cabal
 
 debug-info: True
-profiling: True
-profiling-detail: none
+package *
+    profiling: True
+    profiling-detail: none
 
 -- -------------------------------------------------------------------------- --
 -- Package Specific Build Settings
