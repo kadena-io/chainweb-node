@@ -1,6 +1,8 @@
 packages: chainweb.cabal
 
 debug-info: True
+profiling: True
+profiling-detail: none
 
 -- -------------------------------------------------------------------------- --
 -- Package Specific Build Settings
@@ -14,13 +16,9 @@ package chainweb
     extra-lib-dirs:
       /opt/local/lib
       /usr/local/opt/openssl/lib/
-    profiling: True
-    profiling-detail: none
 
 package pact
     ghc-options: -Wwarn
-    profiling: True
-    profiling-detail: none
     -- avoid conflict with cryptonite during linking
     flags: +cryptonite-ed25519 -build-tool +no-advice
 
