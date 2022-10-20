@@ -63,6 +63,16 @@ source-repository-package
 
 source-repository-package
     type: git
+    location: https://github.com/edmundnoble/Boolean.git
+    tag: 6a637015758b7b1b588ed23e9267f7c1f32cabc7
+
+source-repository-package
+    type: git
+    location: https://github.com/edmundnoble/NumInstances.git
+    tag: 342b6189832e7b775f5e69081585b5e75af6f37a
+
+source-repository-package
+    type: git
     location: https://github.com/kadena-io/pact.git
     tag: 77c0c578c7678d2904d7be0b06c49fa9264a7dc0
 
