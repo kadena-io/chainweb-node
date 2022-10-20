@@ -11,7 +11,7 @@ on:
         default: '1'
       profiling:
         description: enable profiling runtime
-        default: 'False'
+        default: 'True'
       debug:
         description: compile and link with -debug
         default: 'False'
