@@ -87,7 +87,6 @@ import GHC.Stack
 
 import Numeric.Natural
 
-import Pact.Parse
 import Pact.Types.Command
 import Pact.Types.PactValue
 import Pact.Types.Runtime (PactEvent(..), Literal(..))
@@ -849,8 +848,8 @@ arbitraryOutputEvents = OutputEvents
 instance Arbitrary OutputEvents where
     arbitrary = arbitraryOutputEvents
 
-instance Arbitrary PactEvent where
-    arbitrary = arbitraryProofPactEvent
+-- instance Arbitrary PactEvent where
+--     arbitrary = arbitraryProofPactEvent
 
 instance MerkleHashAlgorithm a => Arbitrary (BlockEventsHash_ a) where
     arbitrary = BlockEventsHash <$> arbitrary
@@ -930,18 +929,6 @@ instance Arbitrary PendingTransactions where
 
 instance Arbitrary TransactionMetadata where
     arbitrary = TransactionMetadata <$> arbitrary <*> arbitrary
-
-instance Arbitrary ParsedDecimal where
-    arbitrary = ParsedDecimal <$> arbitrary
-
-instance Arbitrary ParsedInteger where
-    arbitrary = ParsedInteger <$> arbitrary
-
-instance Arbitrary GasLimit where
-    arbitrary = GasLimit <$> (getPositive <$> arbitrary)
-
-instance Arbitrary GasPrice where
-    arbitrary = GasPrice <$> (getPositive <$> arbitrary)
 
 instance Arbitrary MockTx where
     arbitrary = MockTx <$> arbitrary <*> arbitrary <*> arbitrary <*> arbitrary

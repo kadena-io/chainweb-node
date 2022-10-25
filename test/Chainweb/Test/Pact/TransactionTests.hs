@@ -46,6 +46,7 @@ import Pact.Types.PactValue
 import Pact.Types.RPC
 import Pact.Types.Runtime
 import Pact.Types.SPV
+import Pact.Utils.LegacyValue
 
 
 -- internal chainweb modules
@@ -343,7 +344,7 @@ testUpgradeScript
     :: FilePath
     -> V.ChainId
     -> BlockHeight
-    -> (T2 (CommandResult [TxLog Value]) (Maybe ModuleCache) -> IO ())
+    -> (T2 (CommandResult [TxLog LegacyValue]) (Maybe ModuleCache) -> IO ())
     -> IO ()
 testUpgradeScript script cid bh test = do
     (pdb, mc) <- loadScript script
@@ -378,7 +379,7 @@ parent bh cid = ParentHeader $ (someBlockHeader v bh)
     , _blockHeight = pred bh
     }
 
-logResults :: [TxLog Value] -> [(Text, Text, Maybe Value)]
+logResults :: [TxLog LegacyValue] -> [(Text, Text, Maybe Value)]
 logResults = fmap f
   where
     f l =
@@ -386,5 +387,6 @@ logResults = fmap f
       , _txKey l
       -- This lens is because some of the transacctions happen post 420 fork
       -- So the object representation changes due to the RowData type.
-      , l ^? txValue . _Object . ix "balance" <|> l ^? txValue . _Object . ix "$d" . _Object . ix "balance"
+      , l ^? txValue . to _getLegacyValue . _Object . ix "balance"
+        <|> l ^? txValue . to _getLegacyValue . _Object . ix "$d" . _Object . ix "balance"
       )

@@ -326,7 +326,7 @@ cutHashesProperties c =
     ifNotEmpty
         :: ToJSONKey k
         => ToJSON v
-        => T.Text
+        => Key
         -> Lens' CutHashes (HM.HashMap k v)
         -> [kv]
     ifNotEmpty s l

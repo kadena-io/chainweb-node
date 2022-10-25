@@ -122,7 +122,7 @@ import Control.Monad
 import Control.Monad.Catch
 import Control.Monad.IO.Class
 
-import Data.Aeson (Value(..), object, (.=))
+import Data.Aeson (Value(..), object, (.=), Key)
 import Data.ByteString (ByteString)
 import Data.CAS.HashMap hiding (toList)
 import Data.CAS.RocksDB
@@ -235,7 +235,7 @@ allocation00KeyPair =
 
 
 -- | Make trivial keyset data
-mkKeySetData :: Text  -> [SimpleKeyPair] -> Value
+mkKeySetData :: Key  -> [SimpleKeyPair] -> Value
 mkKeySetData name keys = object [ name .= map fst keys ]
 
 sender00Ks :: KeySet

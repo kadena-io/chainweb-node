@@ -26,12 +26,12 @@ module Chainweb.Pact.Service.BlockValidation
 
 import Control.Concurrent.MVar.Strict
 
-import Data.Aeson (Value)
 import Data.Vector (Vector)
 
 import Pact.Types.Command
 import Pact.Types.Hash
 import Pact.Types.Persistence (RowKey, TxLog)
+import Pact.Utils.LegacyValue
 
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
@@ -119,7 +119,7 @@ pactHistoricalLookup
     -> Domain'
     -> RowKey
     -> PactQueue
-    -> IO (MVar (Either PactException (Maybe (TxLog Value))))
+    -> IO (MVar (Either PactException (Maybe (TxLog LegacyValue))))
 pactHistoricalLookup bh d k reqQ = do
   resultVar <- newEmptyMVar
   let !req = HistoricalLookupReq bh d k resultVar

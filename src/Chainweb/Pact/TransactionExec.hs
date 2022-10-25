@@ -94,6 +94,7 @@ import Pact.Types.RPC
 import Pact.Types.Runtime
 import Pact.Types.Server
 import Pact.Types.SPV
+import Pact.Utils.LegacyValue
 
 -- internal Chainweb modules
 
@@ -157,7 +158,7 @@ applyCmd
       -- ^ initial gas used
     -> ModuleCache
       -- ^ cached module state
-    -> IO (T2 (CommandResult [TxLog Value]) ModuleCache)
+    -> IO (T2 (CommandResult [TxLog LegacyValue]) ModuleCache)
 applyCmd v logger gasLogger pdbenv miner gasModel txCtx spv cmd initialGas mcache0 =
     second _txCache <$!>
       runTransactionM cenv txst applyBuyGas
@@ -249,7 +250,7 @@ applyGenesisCmd
       -- ^ SPV support (validates cont proofs)
     -> Command (Payload PublicMeta ParsedCode)
       -- ^ command with payload to execute
-    -> IO (T2 (CommandResult [TxLog Value]) ModuleCache)
+    -> IO (T2 (CommandResult [TxLog LegacyValue]) ModuleCache)
 applyGenesisCmd logger dbEnv spv cmd =
     second _txCache <$!> runTransactionM tenv txst go
   where
@@ -308,7 +309,7 @@ applyCoinbase
     -> CoinbaseUsePrecompiled
       -- ^ always enable precompilation
     -> ModuleCache
-    -> IO (T2 (CommandResult [TxLog Value]) (Maybe ModuleCache))
+    -> IO (T2 (CommandResult [TxLog LegacyValue]) (Maybe ModuleCache))
 applyCoinbase v logger dbEnv (Miner mid mks@(MinerKeys mk)) reward@(ParsedDecimal d) txCtx
   (EnforceCoinbaseFailure enfCBFailure) (CoinbaseUsePrecompiled enablePC) mc
   | fork1_3InEffect || enablePC = do
@@ -403,7 +404,7 @@ applyLocal
       -- ^ command with payload to execute
     -> ModuleCache
     -> ExecutionConfig
-    -> IO (CommandResult [TxLog Value])
+    -> IO (CommandResult [TxLog LegacyValue])
 applyLocal logger gasLogger dbEnv gasModel txCtx spv cmdIn mc execConfig =
     evalTransactionM tenv txst go
   where
@@ -587,7 +588,7 @@ applyTwentyChainUpgrade v cid bh
 jsonErrorResult
     :: PactError
     -> Text
-    -> TransactionM p (CommandResult [TxLog Value])
+    -> TransactionM p (CommandResult [TxLog LegacyValue])
 jsonErrorResult err msg = do
     logs <- use txLogs
     gas <- view txGasLimit -- error means all gas was charged
@@ -606,7 +607,7 @@ jsonErrorResult err msg = do
 runPayload
     :: Command (Payload PublicMeta ParsedCode)
     -> NamespacePolicy
-    -> TransactionM p (CommandResult [TxLog Value])
+    -> TransactionM p (CommandResult [TxLog LegacyValue])
 runPayload cmd nsp = do
     g0 <- use txGasUsed
     interp <- gasInterpreter g0
@@ -628,7 +629,7 @@ runGenesis
     :: Command (Payload PublicMeta ParsedCode)
     -> NamespacePolicy
     -> Interpreter p
-    -> TransactionM p (CommandResult [TxLog Value])
+    -> TransactionM p (CommandResult [TxLog LegacyValue])
 runGenesis cmd nsp interp = case payload of
     Exec pm ->
       applyExec 0 interp pm signers chash nsp
@@ -648,7 +649,7 @@ applyExec
     -> [Signer]
     -> Hash
     -> NamespacePolicy
-    -> TransactionM p (CommandResult [TxLog Value])
+    -> TransactionM p (CommandResult [TxLog LegacyValue])
 applyExec initialGas interp em senderSigs hsh nsp = do
     EvalResult{..} <- applyExec' initialGas interp em senderSigs hsh nsp
     for_ _erLogGas $ \gl -> gasLog $ "gas logs: " <> sshow gl
@@ -750,7 +751,7 @@ applyContinuation
     -> [Signer]
     -> Hash
     -> NamespacePolicy
-    -> TransactionM p (CommandResult [TxLog Value])
+    -> TransactionM p (CommandResult [TxLog LegacyValue])
 applyContinuation initialGas interp cm senderSigs hsh nsp = do
     EvalResult{..} <- applyContinuation' initialGas interp cm senderSigs hsh nsp
     for_ _erLogGas $ \gl -> gasLog $ "gas logs: " <> sshow gl
@@ -938,9 +939,9 @@ initStateInterpreter s = Interpreter (put s >>)
 checkTooBigTx
     :: Gas
     -> GasLimit
-    -> TransactionM p (CommandResult [TxLog Value])
-    -> (CommandResult [TxLog Value] -> TransactionM p (CommandResult [TxLog Value]))
-    -> TransactionM p (CommandResult [TxLog Value])
+    -> TransactionM p (CommandResult [TxLog LegacyValue])
+    -> (CommandResult [TxLog LegacyValue] -> TransactionM p (CommandResult [TxLog LegacyValue]))
+    -> TransactionM p (CommandResult [TxLog LegacyValue])
 checkTooBigTx initialGas gasLimit next onFail
   | initialGas >= (fromIntegral gasLimit) = do
       txGasUsed .= (fromIntegral gasLimit) -- all gas is consumed
@@ -1026,7 +1027,7 @@ setModuleCache
   -> EvalState
 setModuleCache mcache es =
   let allDeps = foldMap (allModuleExports . fst) mcache
-  in set (evalRefs . rsQualifiedDeps) allDeps $ set (evalRefs . rsLoadedModules) mcache $ es
+  in set (evalRefs . rsQualifiedDeps) allDeps $ set (evalRefs . rsLoadedModules) mcache es
 {-# INLINE setModuleCache #-}
 
 -- | Set tx result state

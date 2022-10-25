@@ -40,6 +40,7 @@ import Pact.Types.PactError
 import Pact.Types.Gas
 import Pact.Types.Hash
 import Pact.Types.Persistence
+import Pact.Utils.LegacyValue
 
 -- internal chainweb modules
 
@@ -123,8 +124,8 @@ instance Exception PactException
 -- key in history, if any
 -- Not intended for public API use; ToJSONs are for logging output.
 data BlockTxHistory = BlockTxHistory
-  { _blockTxHistory :: !(Map TxId [TxLog Value])
-  , _blockPrevHistory :: !(Map RowKey (TxLog Value))
+  { _blockTxHistory :: !(Map TxId [TxLog LegacyValue])
+  , _blockPrevHistory :: !(Map RowKey (TxLog LegacyValue))
   }
   deriving (Eq,Generic)
 instance Show BlockTxHistory where
@@ -209,7 +210,7 @@ data HistoricalLookupReq = HistoricalLookupReq
   { _historicalLookupHeader :: !BlockHeader
   , _historicalLookupDomain :: !Domain'
   , _historicalLookupRowKey :: !RowKey
-  , _historicalLookupResult :: !(PactExMVar (Maybe (TxLog Value)))
+  , _historicalLookupResult :: !(PactExMVar (Maybe (TxLog LegacyValue)))
   }
 instance Show HistoricalLookupReq where
   show (HistoricalLookupReq h d k _) =

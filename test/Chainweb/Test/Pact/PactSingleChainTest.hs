@@ -50,6 +50,7 @@ import Pact.Types.Info
 import Pact.Types.Persistence
 import Pact.Types.PactError
 import Pact.Types.RPC
+import Pact.Utils.LegacyValue
 
 import Chainweb.BlockCreationTime
 import Chainweb.BlockHeader
@@ -156,7 +157,7 @@ getHistory refIO reqIO = testCase "getHistory" $ do
   -- just check first one here
   assertEqual "check first entry of history"
     (Just [TxLog "coin_coin-table" "sender00"
-      (object
+      (LegacyValue $ object
        [ "guard" .= object
          [ "pred" .= ("keys-all" :: T.Text)
          , "keys" .=
@@ -174,7 +175,7 @@ getHistory refIO reqIO = testCase "getHistory" $ do
     (M.fromList
      [(RowKey "sender00",
        (TxLog "coin_coin-table" "sender00"
-        (object
+        (LegacyValue $ object
          [ "guard" .= object
            [ "pred" .= ("keys-all" :: T.Text)
            , "keys" .=
@@ -188,7 +189,7 @@ getHistory refIO reqIO = testCase "getHistory" $ do
 
 getHistoricalLookupNoTxs
     :: T.Text
-    -> (Maybe (TxLog Value) -> IO ())
+    -> (Maybe (TxLog LegacyValue) -> IO ())
     -> IO (IORef MemPoolAccess)
     -> IO (PactQueue,TestBlockDb)
     -> TestTree
@@ -202,7 +203,7 @@ getHistoricalLookupNoTxs key assertF refIO reqIO = testCase msg $ do
 
 getHistoricalLookupWithTxs
     :: T.Text
-    -> (Maybe (TxLog Value) -> IO ())
+    -> (Maybe (TxLog LegacyValue) -> IO ())
     -> IO (IORef MemPoolAccess)
     -> IO (PactQueue,TestBlockDb)
     -> TestTree
@@ -215,16 +216,16 @@ getHistoricalLookupWithTxs key assertF refIO reqIO = testCase msg $ do
   where msg = T.unpack $ "getHistoricalLookupWithTxs: " <> key
 
 
-histLookup :: PactQueue -> BlockHeader -> T.Text -> IO (Maybe (TxLog Value))
+histLookup :: PactQueue -> BlockHeader -> T.Text -> IO (Maybe (TxLog LegacyValue))
 histLookup q bh k = do
   mv <- pactHistoricalLookup bh (Domain' (UserTables "coin_coin-table")) (RowKey k) q
   forSuccess "histLookup" (return mv)
 
-assertSender00Bal :: Rational -> String -> Maybe (TxLog Value) -> Assertion
+assertSender00Bal :: Rational -> String -> Maybe (TxLog LegacyValue) -> Assertion
 assertSender00Bal bal msg hist =
   assertEqual msg
     (Just (TxLog "coin_coin-table" "sender00"
-      (object
+      (LegacyValue $ object
         [ "guard" .= object
           [ "pred" .= ("keys-all" :: T.Text)
           , "keys" .=

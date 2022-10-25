@@ -66,6 +66,7 @@ import qualified Pact.Types.Logger as P
 import Pact.Types.RPC
 import qualified Pact.Types.Runtime as P
 import qualified Pact.Types.SPV as P
+import qualified Pact.Utils.LegacyValue as P
 
 import Chainweb.BlockHeader
 import Chainweb.BlockHeight
@@ -110,11 +111,11 @@ execBlock
         -- instead.
     -> PayloadData
     -> PactDbEnv'
-    -> PactServiceM cas (T2 Miner (Transactions (P.CommandResult [P.TxLog A.Value])))
+    -> PactServiceM cas (T2 Miner (Transactions (P.CommandResult [P.TxLog P.LegacyValue])))
 execBlock currHeader plData pdbenv = do
 
     unlessM ((> 0) <$> asks _psCheckpointerDepth) $ do
-        error $ "Code invariant violation: execBlock must be called with withCheckpointer. Please report this as a bug."
+        error "Code invariant violation: execBlock must be called with withCheckpointer. Please report this as a bug."
 
     miner <- decodeStrictOrThrow' (_minerData $ _payloadDataMiner plData)
     trans <- liftIO $ transactionsFromPayload (Just (v, _blockHeight currHeader)) plData
@@ -139,7 +140,7 @@ execBlock currHeader plData pdbenv = do
 
     case foldr handleValids [] valids of
       [] -> return ()
-      errs -> throwM $ TransactionValidationException $ errs
+      errs -> throwM $ TransactionValidationException errs
 
     logInitCache
 
@@ -238,7 +239,7 @@ validateChainwebTxs logger v cid cp txValidationTime bh txs doBuyGas
     checkTxHash t =
         case P.verifyHash (P._cmdHash t) (SB.fromShort $ payloadBytes $ P._cmdPayload t) of
             Left _
-                | doCheckTxHash v bh -> return $ Left $ InsertErrorInvalidHash
+                | doCheckTxHash v bh -> return $ Left InsertErrorInvalidHash
                 | otherwise -> do
                     P.logLog logger "DEBUG" "ignored legacy tx-hash failure"
                     return $ Right t
@@ -251,7 +252,7 @@ validateChainwebTxs logger v cid cp txValidationTime bh txs doBuyGas
             | v == Testnet04 && not (doCheckTxHash v bh) -> do
                 P.logLog logger "DEBUG" "ignored legacy invalid signature"
                 return $ Right t
-            | otherwise -> return $ Left $ InsertErrorInvalidSigs
+            | otherwise -> return $ Left InsertErrorInvalidSigs
         Right _ -> pure $ Right t
 
     validateSigs :: ChainwebTransaction -> Either () ()
@@ -310,7 +311,7 @@ execTransactions
     -> CoinbaseUsePrecompiled
     -> PactDbEnv'
     -> Maybe P.Gas
-    -> PactServiceM cas (Transactions (Either GasPurchaseFailure (P.CommandResult [P.TxLog A.Value])))
+    -> PactServiceM cas (Transactions (Either GasPurchaseFailure (P.CommandResult [P.TxLog P.LegacyValue])))
 execTransactions isGenesis miner ctxs enfCBFail usePrecomp (PactDbEnv' pactdbenv) gasLimit = do
     mc <- getCache
 
@@ -336,7 +337,7 @@ execTransactionsOnly
     -> Vector ChainwebTransaction
     -> PactDbEnv'
     -> PactServiceM cas
-       (Vector (ChainwebTransaction, Either GasPurchaseFailure (P.CommandResult [P.TxLog A.Value])))
+       (Vector (ChainwebTransaction, Either GasPurchaseFailure (P.CommandResult [P.TxLog P.LegacyValue])))
 execTransactionsOnly miner ctxs (PactDbEnv' pactdbenv) = do
     mc <- getInitCache
     txOuts <- applyPactCmds False pactdbenv ctxs miner mc Nothing
@@ -349,7 +350,7 @@ runCoinbase
     -> EnforceCoinbaseFailure
     -> CoinbaseUsePrecompiled
     -> ModuleCache
-    -> PactServiceM cas (P.CommandResult [P.TxLog A.Value])
+    -> PactServiceM cas (P.CommandResult [P.TxLog P.LegacyValue])
 runCoinbase True _ _ _ _ _ = return noCoinbase
 runCoinbase False dbEnv miner enfCBFail usePrecomp mc = do
     logger <- view psLogger
@@ -384,7 +385,7 @@ applyPactCmds
     -> Miner
     -> ModuleCache
     -> Maybe P.Gas
-    -> PactServiceM cas (Vector (Either GasPurchaseFailure (P.CommandResult [P.TxLog A.Value])))
+    -> PactServiceM cas (Vector (Either GasPurchaseFailure (P.CommandResult [P.TxLog P.LegacyValue])))
 applyPactCmds isGenesis env cmds miner mc blockGas = do
     evalStateT (V.mapM (applyPactCmd isGenesis env miner) cmds) (T2 mc blockGas)
 
@@ -396,7 +397,7 @@ applyPactCmd
   -> StateT
       (T2 ModuleCache (Maybe P.Gas))
       (PactServiceM cas)
-      (Either GasPurchaseFailure (P.CommandResult [P.TxLog A.Value]))
+      (Either GasPurchaseFailure (P.CommandResult [P.TxLog P.LegacyValue]))
 applyPactCmd isGenesis env miner cmd = StateT $ \(T2 mcache maybeBlockGasRemaining) -> do
   logger <- view psLogger
   gasLogger <- view psGasLogger
@@ -446,7 +447,7 @@ applyPactCmd isGenesis env miner cmd = StateT $ \(T2 mcache maybeBlockGasRemaini
     let maybeBlockGasRemaining' = (\g -> g - P._crGas result) <$> maybeBlockGasRemaining
     pure (Right result, T2 mcache' maybeBlockGasRemaining')
 
-toHashCommandResult :: P.CommandResult [P.TxLog A.Value] -> P.CommandResult P.Hash
+toHashCommandResult :: P.CommandResult [P.TxLog P.LegacyValue] -> P.CommandResult P.Hash
 toHashCommandResult = over (P.crLogs . _Just) $ P.pactHash . encodeToByteString
 
 transactionsFromPayload
@@ -497,7 +498,7 @@ minerReward v (MinerRewards rs) bh =
 {-# INLINE minerReward #-}
 
 
-data CRLogPair = CRLogPair P.Hash [P.TxLog A.Value]
+data CRLogPair = CRLogPair P.Hash [P.TxLog P.LegacyValue]
 
 crLogPairProperties :: A.KeyValue kv => CRLogPair -> [kv]
 crLogPairProperties (CRLogPair h logs) =
@@ -517,7 +518,7 @@ validateHashes
         -- ^ Current Header
     -> PayloadData
     -> Miner
-    -> Transactions (P.CommandResult [P.TxLog A.Value])
+    -> Transactions (P.CommandResult [P.TxLog P.LegacyValue])
     -> Either PactException PayloadWithOutputs
 validateHashes bHeader pData miner transactions =
     if newHash == prevHash
@@ -545,6 +546,8 @@ validateHashes bHeader pData miner transactions =
       newOutputsHash = _payloadWithOutputsOutputsHash pwo
       prevOutputsHash = _payloadDataOutputsHash pData
 
+      -- The following JSON encodings are used in the BlockValidationFailure message
+
       check desc extra expect actual
         | expect == actual = []
         | otherwise =
@@ -566,7 +569,7 @@ validateHashes bHeader pData miner transactions =
          ]
         ]
 
-      addTxOuts :: (ChainwebTransaction, P.CommandResult [P.TxLog A.Value]) -> A.Value
+      addTxOuts :: (ChainwebTransaction, P.CommandResult [P.TxLog P.LegacyValue]) -> A.Value
       addTxOuts (tx,cr) = A.object
         [ "tx" A..= fmap (fmap _pcCode . payloadObj) tx
         , "result" A..= toPairCR cr
@@ -595,7 +598,7 @@ toOutputBytes cr =
     let outBytes = A.encode cr
     in TransactionOutput { _transactionOutputBytes = BL.toStrict outBytes }
 
-toPayloadWithOutputs :: Miner -> Transactions (P.CommandResult [P.TxLog A.Value]) -> PayloadWithOutputs
+toPayloadWithOutputs :: Miner -> Transactions (P.CommandResult [P.TxLog P.LegacyValue]) -> PayloadWithOutputs
 toPayloadWithOutputs mi ts =
     let oldSeq = _transactionPairs ts
         trans = cmdBSToTx . fst <$> oldSeq

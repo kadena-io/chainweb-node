@@ -13,7 +13,7 @@ import Control.Exception
 import Control.Lens hiding ((.=))
 import Control.Monad.Reader
 
-import Data.Aeson (Value(..), object, toJSON, (.=))
+import Data.Aeson (Value(..), object, (.=), Key)
 import Data.Default (def)
 import Data.Function
 import qualified Data.HashMap.Strict as HM
@@ -34,6 +34,7 @@ import Pact.Types.RowData
 import Pact.Types.Runtime hiding (ChainId)
 import Pact.Types.SPV (noSPVSupport)
 import Pact.Types.SQLite
+import Pact.Utils.LegacyValue
 
 import Test.Tasty
 import Test.Tasty.HUnit
@@ -405,7 +406,7 @@ checkpointerTest name relational cenvIO = testCaseSteps name $ \next -> do
       where
         msg = "The table duplication somehow went through. Investigate this error."
 
-    ksData :: Text -> Value
+    ksData :: Key -> Value
     ksData idx = object
         [ ("k" <> idx) .= object
             [ "keys" .= ([] :: [Text])
@@ -480,7 +481,7 @@ runRegression pactdb e schemaInit = do
         toPV = pactValueToRowData . toPactValueLenient . toTerm'
     _createUserTable pactdb user1 "someModule" conn
     assertEquals' "output of commit2"
-        [ TxLog "SYS:usertables" "user1" $
+        [ TxLog "SYS:usertables" "user1" $ LegacyValue $
             object
                 [ "utModule" .= object
                     [ "name" .= String "someModule"
@@ -509,22 +510,22 @@ runRegression pactdb e schemaInit = do
         [ TxLog
             { _txDomain = "SYS:KeySets"
             , _txKey = "ks1"
-            , _txValue = toJSON ks
+            , _txValue = toLegacyJson ks
             }
         , TxLog
             { _txDomain = "SYS:Modules"
             , _txKey = asString modName
-            , _txValue = toJSON mod'
+            , _txValue = toLegacyJson mod'
             }
         , TxLog
             { _txDomain = "user1"
             , _txKey = "key1"
-            , _txValue = toJSON row
+            , _txValue = toLegacyJson row
             }
         , TxLog
             { _txDomain = "user1"
             , _txKey = "key1"
-            , _txValue = toJSON row'
+            , _txValue = toLegacyJson row'
             }
         ]
         (commit pactdb conn)
@@ -648,7 +649,7 @@ begin :: PactDb e -> Method e (Maybe TxId)
 begin pactdb = _beginTx pactdb Transactional
 
 {- this should be moved to pact -}
-commit :: PactDb e -> Method e [TxLog Value]
+commit :: PactDb e -> Method e [TxLog LegacyValue]
 commit pactdb = _commitTx pactdb
 
 loadModule :: IO (ModuleName, ModuleData Ref, PersistModuleData)

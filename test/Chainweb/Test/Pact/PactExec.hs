@@ -62,6 +62,7 @@ import Pact.Types.Hash
 import Pact.Types.PactValue
 import Pact.Types.Persistence
 import Pact.Types.Pretty
+import Pact.Utils.LegacyValue
 
 testVersion :: ChainwebVersion
 testVersion = FastTimedCPM petersonChainGraph
@@ -590,7 +591,7 @@ _showValidationFailure = do
         , _crTxId = Nothing
         , _crResult = PactResult $ Right $ pString "hi"
         , _crGas = 0
-        , _crLogs = Just [TxLog "Domain" "Key" (object [ "stuff" .= True ])]
+        , _crLogs = Just [TxLog "Domain" "Key" (LegacyValue $ object [ "stuff" .= True ])]
         , _crContinuation = Nothing
         , _crMetaData = Nothing
         , _crEvents = []

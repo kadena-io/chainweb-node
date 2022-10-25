@@ -16,6 +16,7 @@ import Control.Concurrent.MVar
 import Control.Lens
 
 import qualified Data.Aeson as A
+import qualified Data.Aeson.KeyMap as KM
 import Data.Decimal
 import Data.Functor (void)
 import qualified Data.HashMap.Strict as HM
@@ -167,7 +168,7 @@ accountBalanceTests tio envIo =
       b1 @=? b0
       curr @=? kda
 
--- | Test that /block endpoint does not return a 
+-- | Test that /block endpoint does not return a
 --   TxLog parse error after fork to Pact 420.
 --   This assumes that this test occurs after the
 --   fork blockheight.
@@ -297,7 +298,7 @@ blockTests testname tio envIo = testCaseSchSteps testname $ \step -> do
                 case ops of
                   [a,b',c,d,e,f] -> validateTxs Nothing a b' c d e f
                   _ -> assertFailure "should have 6 ops: coinbase + 5 for transfer tx"
-     
+
               _ -> assertFailure "block should have at least 2 transactions: coinbase + txs"
 
       validateBlock $ _blockResp_block resp
@@ -382,7 +383,7 @@ block20ChainRemediationTests _ envIo =
           [cbase,remOp] -> do
             validateOp 0 "CoinbaseReward" noMinerks Successful defMiningReward cbase
             validateOp 0 "TransferOrCreateAcct" e7f7ks Remediation (negate 100) remOp
-      
+
           _ -> assertFailure "total # of ops should be == 2: coinbase + remediation"
 
       _ -> assertFailure $ "20 chain remediation block should have at least 2 transactions:"
@@ -491,7 +492,7 @@ constructionTransferTests _ envIo =
           res3 = P.PLiteral $ P.LString "Write succeeded"
       submitToConstructionAPI' ops3 cid res3
 
-  where    
+  where
     mkOp name delta guard idx related =
       operation Successful
                 TransferOrCreateAcct
@@ -612,13 +613,13 @@ submitToConstructionAPI expectOps chainId' payer getKeys expectResult cenv step 
       Right sk' <- pure $ P.parseB16TextOnly sk
       Right pk' <- pure $ P.parseB16TextOnly pk
       let akps = P.ApiKeyPair (P.PrivBS sk') (Just $ P.PubBS pk')
-                 Nothing Nothing Nothing 
+                 Nothing Nothing Nothing
       [(kp,_)] <- P.mkKeyPairs [akps]
-      (Right (hsh :: P.PactHash)) <- pure $ fmap 
-        (P.fromUntypedHash . P.Hash) 
+      (Right (hsh :: P.PactHash)) <- pure $ fmap
+        (P.fromUntypedHash . P.Hash)
         (P.parseB16TextOnly $ _rosettaSigningPayload_hexBytes payload)
       sig <- P.signHash hsh kp
-      
+
       pure $! RosettaSignature
         { _rosettaSignature_signingPayload = payload
         , _rosettaSignature_publicKey =
@@ -743,7 +744,7 @@ rosettaVersion = RosettaNodeVersion
     { _version_rosettaVersion = "1.4.4"
     , _version_nodeVersion = VERSION_chainweb
     , _version_middlewareVersion = Nothing
-    , _version_metadata = Just $ HM.fromList
+    , _version_metadata = Just $ KM.fromList
       [ "node-api-version" A..= ("0.0" :: Text)
       , "chainweb-version" A..= ("fastTimedCPM-peterson" :: Text)
       , "rosetta-chainweb-version" A..= ("2.0.0" :: Text)
@@ -817,7 +818,7 @@ mkTransfer sid tio = do
         ]
       $ set cbCreationTime t
       $ set cbNetworkId (Just v)
-      $ set cbChainId sid 
+      $ set cbChainId sid
       $ mkCmd ("nonce-transfer-" <> sshow t <> "-" <> sshow n)
       $ mkExec' "(coin.transfer \"sender00\" \"sender01\" 1.0)"
 
@@ -895,7 +896,7 @@ transferOneAsync_ sid tio cenv callback
 
 -- | Extract poll response metadata at some request key
 --
-extractMetadata :: RequestKey -> PollResponses -> IO (HM.HashMap Text A.Value)
+extractMetadata :: RequestKey -> PollResponses -> IO (KM.KeyMap A.Value)
 extractMetadata rk (PollResponses pr) = case HM.lookup rk pr of
     Just cr -> case _crMetaData cr of
       Just (A.Object o) -> return o

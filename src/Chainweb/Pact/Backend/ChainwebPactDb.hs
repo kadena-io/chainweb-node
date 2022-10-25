@@ -72,6 +72,7 @@ import Pact.Types.RowData
 import Pact.Types.SQLite
 import Pact.Types.Term (ModuleName(..), ObjectMap(..), TableName(..))
 import Pact.Types.Util (AsString(..))
+import Pact.Utils.LegacyValue
 
 -- chainweb
 
@@ -401,7 +402,7 @@ recordTxLog tt d k v = do
 
   where
     !upd = M.insertWith DL.append tt txlogs
-    !txlogs = DL.singleton (TxLog (asString d) (asString k) (toJSON v))
+    !txlogs = DL.singleton (TxLog (asString d) (asString k) (toLegacyJson v))
 
 modifyPendingData
     :: (SQLitePendingData -> SQLitePendingData)
@@ -437,7 +438,7 @@ doCreateUserTable tn@(TableName ttxt) mn = do
     txlogKey = "SYS:usertables"
     stn = asString tn
     uti = UserTableInfo mn
-    txlogs = DL.singleton (TxLog txlogKey stn (toJSON uti))
+    txlogs = DL.singleton (TxLog txlogKey stn (toLegacyJson uti))
 {-# INLINE doCreateUserTable #-}
 
 doRollback :: BlockHandler SQLiteEnv ()
@@ -445,7 +446,7 @@ doRollback = modify'
     $ set bsMode Nothing
     . set bsPendingTx Nothing
 
-doCommit :: BlockHandler SQLiteEnv [TxLog Value]
+doCommit :: BlockHandler SQLiteEnv [TxLog LegacyValue]
 doCommit = use bsMode >>= \case
     Nothing -> doRollback >> internalError "doCommit: Not in transaction"
     Just m -> do
@@ -465,7 +466,7 @@ doCommit = use bsMode >>= \case
     merge Nothing a = a
     merge (Just a) b = SQLitePendingData
         { _pendingTableCreation = HashSet.union (_pendingTableCreation a) (_pendingTableCreation b)
-        , _pendingWrites = HashMap.unionWith mergeW  (_pendingWrites a) (_pendingWrites b)
+        , _pendingWrites = HashMap.unionWith mergeW (_pendingWrites a) (_pendingWrites b)
         , _pendingTxLogMap = _pendingTxLogMap a
         , _pendingSuccessfulTxs = _pendingSuccessfulTxs b
         }

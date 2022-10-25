@@ -2,12 +2,10 @@
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE LambdaCase #-}
-{-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 
 -- |
@@ -45,7 +43,6 @@ import Control.Monad.Catch
 import Control.Monad.Reader
 import Control.Monad.State.Strict
 
-import qualified Data.Aeson as A
 import Data.Default (def)
 import qualified Data.DList as DL
 import Data.Either
@@ -70,6 +67,7 @@ import qualified Pact.Types.Hash as P
 import qualified Pact.Types.Logger as P
 import qualified Pact.Types.Runtime as P
 import qualified Pact.Types.SPV as P
+import qualified Pact.Utils.LegacyValue as P
 
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
@@ -450,7 +448,7 @@ attemptBuyGas miner (PactDbEnv' dbEnv) txs = do
 
 data BlockFilling = BlockFilling
     { _bfState :: BlockFill
-    , _bfSuccessPairs :: V.Vector (ChainwebTransaction,P.CommandResult [P.TxLog A.Value])
+    , _bfSuccessPairs :: V.Vector (ChainwebTransaction,P.CommandResult [P.TxLog P.LegacyValue])
     , _bfFailures :: V.Vector GasPurchaseFailure
     }
 
@@ -684,7 +682,7 @@ execBlockTxHistory bh (Domain' d) = do
   !cp <- getCheckpointer
   liftIO $ _cpGetBlockHistory cp bh d
 
-execHistoricalLookup :: BlockHeader -> Domain' -> P.RowKey -> PactServiceM cas (Maybe (P.TxLog A.Value))
+execHistoricalLookup :: BlockHeader -> Domain' -> P.RowKey -> PactServiceM cas (Maybe (P.TxLog P.LegacyValue))
 execHistoricalLookup bh (Domain' d) k = do
   !cp <- getCheckpointer
   liftIO $ _cpGetHistoricalLookup cp bh d k
