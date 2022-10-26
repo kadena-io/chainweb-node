@@ -117,6 +117,7 @@ tests = ScheduledTest testName go
          , multiChainTest getGasModel "pact431UpgradeTest" pact431UpgradeTest
          , multiChainTest getGasModel "chainweb215Test" chainweb215Test
          , multiChainTest getGasModel "chainweb216Test" chainweb216Test
+         , multiChainTest getGasModel "pact45UpgradeTest" pact45UpgradeTest
          ]
       where
         multiChainTest gasmodel tname f =
@@ -208,6 +209,20 @@ chainweb213Test = do
         , "  (defun fselect () (select tbl (constantly true))))"
         , "(create-table tbl)"
         ]
+
+pact45UpgradeTest :: PactTestM ()
+pact45UpgradeTest = do
+  runToHeight 54
+  runBlockTest
+    [ PactTxTest (buildSimpleCmd "(enforce false 'hi)") $
+    assertTxFailure "Should fail with the error from the enforce" "hi"]
+  runBlockTest
+    [ PactTxTest (buildSimpleCmd "(+ 1 \'clearlyanerror)") $
+      assertTxFailure "Should replace tx error with empty error" ""]
+  where
+  buildSimpleCmd code = buildBasicGas 1000
+      $ mkExec code
+      $ mkKeySetData "k" [sender00]
 
 pact43UpgradeTest :: PactTestM ()
 pact43UpgradeTest = do
