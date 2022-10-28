@@ -43,8 +43,9 @@ import Data.ByteString (ByteString)
 import Data.Foldable
 import Data.Int
 import Data.List (sort)
+import qualified Data.Map.Strict as M
 import Data.Maybe
-import Data.Text (Text,replace,isInfixOf,pack)
+import Data.Text (Text,replace,isInfixOf,pack,toLower)
 import Data.Text.Encoding
 import qualified Data.Vector as V
 
@@ -203,10 +204,12 @@ withTables a = view ceVersionTables >>= \ts ->
 
 setTables :: [[SType]] -> CompactM () -> CompactM ()
 setTables rs next = do
-  ts <- forM rs $ \r -> case r of
-    [SText n] -> return n
-    _ -> internalError "setTables: expected text"
+  ts <- fmap (M.elems . M.fromListWith const) $
+        forM rs $ \r -> case r of
+          [SText n@(Utf8 s)] -> return (toLower (decodeUtf8 s), n)
+          _ -> internalError "setTables: expected text"
   local (set ceVersionTables $ V.fromList ts) next
+
 
 -- | CompactGrandHash associates table name with grand hash of its versioned rows,
 -- and NULL with grand hash of all table hashes.
@@ -259,7 +262,7 @@ collectVersionedTables next = do
   logg Info "collectVersionedTables"
   rs <- qryM
         " SELECT DISTINCT tablename FROM VersionedTableMutation \
-        \ WHERE blockheight <= ? ORDER BY tablename"
+        \ WHERE blockheight <= ? ORDER BY blockheight; "
         [blockheight]
         [RText]
   setTables rs next
@@ -283,7 +286,7 @@ computeTableHash = do
       \ SELECT ?1,rowkey,rowid,hash FROM $VTABLE$ t1 \
       \ WHERE txid=(SELECT MAX(txid) FROM $VTABLE$ t2 \
       \  WHERE t2.rowkey=t1.rowkey AND t2.txid<?2) \
-      \ GROUP BY rowkey "
+      \ GROUP BY rowkey; "
       [vtable,txid]
 
   logg Info "computeTableHash:checksum"
@@ -291,7 +294,7 @@ computeTableHash = do
       " INSERT INTO CompactGrandHash \
       \ VALUES (?1, \
       \  (SELECT sha3a_256(hash) FROM CompactActiveRow \
-      \   WHERE tablename=?1 ORDER BY rowkey)) "
+      \   WHERE tablename=?1 ORDER BY rowkey)); "
       [vtable]
 
 -- | Compute global grand hash from all table grand hashes.
@@ -302,7 +305,7 @@ computeGlobalHash = do
       " INSERT INTO CompactGrandHash \
       \ VALUES (NULL, \
       \  (SELECT sha3a_256(hash) FROM CompactGrandHash \
-      \   WHERE tablename IS NOT NULL ORDER BY tablename)) "
+      \   WHERE tablename IS NOT NULL ORDER BY tablename)); "
 
 -- | Delete non-active rows from given table.
 compactTable :: CompactM ()
@@ -312,7 +315,7 @@ compactTable = do
       " DELETE FROM $VTABLE$ WHERE rowid NOT IN \
       \ (SELECT t.rowid FROM $VTABLE$ t \
       \  LEFT JOIN CompactActiveRow v \
-      \  WHERE t.rowid = v.vrowid AND v.tablename=?1) "
+      \  WHERE t.rowid = v.vrowid AND v.tablename=?1); "
       [vtable]
 
 -- | For given table, re-compute table grand hash and compare
@@ -325,7 +328,7 @@ verifyTable = do
         \ UNION ALL \
         \ SELECT sha3a_256(hash) FROM (SELECT hash FROM $VTABLE$ t1 \
         \  WHERE txid=(select max(txid) FROM $VTABLE$ t2 \
-        \   WHERE t2.rowkey=t1.rowkey) GROUP BY rowkey) "
+        \   WHERE t2.rowkey=t1.rowkey) GROUP BY rowkey); "
       [vtable]
       [RBlob]
   case rs of
@@ -337,7 +340,7 @@ dropNewTables :: CompactM ()
 dropNewTables = do
   logg Info "dropNewTables"
   nts <- qryM
-      "SELECT tablename FROM VersionedTableCreation WHERE createBlockheight > ?1"
+      " SELECT tablename FROM VersionedTableCreation WHERE createBlockheight > ?1 ORDER BY createBlockheight; "
       [blockheight]
       [RText]
 
