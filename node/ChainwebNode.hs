@@ -109,6 +109,7 @@ import Utils.Logging
 import Utils.Logging.Config
 import Utils.Logging.Trace
 
+import Utils.CheckRLimits
 import Utils.InstallSignalHandlers
 
 -- -------------------------------------------------------------------------- --
@@ -484,6 +485,7 @@ mainInfo = programInfoValidate
 main :: IO ()
 main = do
     installFatalSignalHandlers [ sigHUP, sigTERM, sigXCPU, sigXFSZ ]
+    checkRLimits
     runWithPkgInfoConfiguration mainInfo pkgInfo $ \conf -> do
         let v = _configChainwebVersion $ _nodeConfigChainweb conf
         hSetBuffering stderr LineBuffering
