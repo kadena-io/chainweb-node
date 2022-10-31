@@ -53,9 +53,9 @@ jobs:
     - name: Git revision infos
       id: git-info
       run: |
-        echo "::set-output name=git-sha-short::${GITHUB_SHA:0:7}"
-        echo "::set-output name=is-release::${{ contains(github.event_name, 'release') }}"
-        echo "::set-output name=git-ref-short::${GITHUB_REF#refs/heads/}"
+        echo "git-sha-short=${GITHUB_SHA:0:7}" >> $GITHUB_OUTPUT
+        echo "is-release=${{ contains(github.event_name, 'release') }}" >> $GITHUB_OUTPUT
+        echo "git-ref-short=${GITHUB_REF#refs/heads/}" >> $GITHUB_OUTPUT
     - name: Set optimization level and debugging info
       id: compile-flags
       run: |
@@ -64,59 +64,59 @@ jobs:
         # Optimization
         OPT_LEVEL=${{ github.event.inputs.optimizationLevel }}
         if [[ -n "$OPT_LEVEL" && "$OPT_LEVEL" != "1" ]] ; then
-          echo "::set-output name=opt-level::$OPT_LEVEL"
+          echo "opt-level=$OPT_LEVEL" >> $GITHUB_OUTPUT
           TAG_SUFFIX+=-opt$OPT_LEVEL
         else
-          echo "::set-output name=opt-level::1"
+          echo "opt-level=1" >> $GITHUB_OUTPUT
         fi
 
         # Debug info
         DEBUG_INFO=${{ github.event.inputs.debugInfo }}
         if [[ -n "$DEBUG_INFO" && "${DEBUG_INFO^^}" = "TRUE" ]] ; then
           echo "building binaries with dwarf debug symbols"
-          echo "::set-output name=debug-info::True"
-          echo "::set-output name=stripping::False"
+          echo "debug-info=True" >> $GITHUB_OUTPUT
+          echo "stripping=False" >> $GITHUB_OUTPUT
           TAG_SUFFIX+=-dwarf
         else
           echo "building binaries without dwarf debug symbols"
-          echo "::set-output name=debug-info::False"
-          echo "::set-output name=stripping::True"
+          echo "debug-info=False" >> $GITHUB_OUTPUT
+          echo "stripping=True" >> $GITHUB_OUTPUT
         fi
 
         # Profiling
         PROFILING=${{ github.event.inputs.profiling }}
         if [[ -n "$PROFILING" && "${PROFILING^^}" = "TRUE" ]] ; then
           echo "building binaries with profiling runtime"
-          echo "::set-output name=profiling::True"
+          echo "profiling=True" >> $GITHUB_OUTPUT
           TAG_SUFFIX+=-prof
         else
           echo "building binaries without profiling runtime"
-          echo "::set-output name=profiling::False"
+          echo "profiling=False" >> $GITHUB_OUTPUT
         fi
 
         # Debug
         DEBUG=${{ github.event.inputs.debug }}
         if [[ -n "$DEBUG" && "${DEBUG^^}" = "TRUE" ]] ; then
           echo "building binaries with -debug"
-          echo "::set-output name=debug::True"
+          echo "debug=True" >> $GITHUB_OUTPUT
           TAG_SUFFIX+=-debug
         else
           echo "building binaries without -debug"
-          echo "::set-output name=debug::False"
+          echo "debug=False" >> $GITHUB_OUTPUT
         fi
 
         # Eventlog
         EVENTLOG=${{ github.event.inputs.eventlog }}
         if [[ -n "$EVENTLOG" && "${EVENTLOG^^}" = "TRUE" ]] ; then
           echo "building binaries with -eventlog"
-          echo "::set-output name=eventlog::True"
+          echo "eventlog=True" >> $GITHUB_OUTPUT
           TAG_SUFFIX+=-eventlog
         else
           echo "building binaries without -eventlog"
-          echo "::set-output name=eventlog::False"
+          echo "eventlog=False" >> $GITHUB_OUTPUT
         fi
 
-        echo "::set-output name=tag-suffix::$TAG_SUFFIX"
+        echo "tag-suffix=$TAG_SUFFIX" >> $GITHUB_OUTPUT
     - name: Create matrix
       id: set-matrix
       run: |
@@ -139,7 +139,7 @@ jobs:
         }
         EOF
         )"
-        echo "::set-output name=matrix::$( echo "$MATRIX" )"
+        echo "matrix=$MATRIX" >> $GITHUB_OUTPUT
     - name: Log config
       run: |
         echo "::group::context"
