@@ -123,14 +123,14 @@ jobs:
         MATRIX="$(jq -c '.' <<EOF
         {
           "ghc": ["8.10.7", "9.0.2"],
-          "cabal": ["3.6"],
+          "cabal": ["3.8"],
           "os": ["ubuntu-20.04", "ubuntu-22.04"],
           "cabalcache": ["true"],
           "use-freeze-file": ["false"],
           "include": [
             {
               "ghc": "8.10.7",
-              "cabal": "3.6",
+              "cabal": "3.8",
               "os" : "ubuntu-20.04",
               "cabalcache": "true",
               "use-freeze-file": "true"
@@ -218,7 +218,7 @@ jobs:
     #       touch -d $(git log --pretty=format:%cI -1 "$rev" -- "$f") "$f";
     #     done
     - name: Install GHC and Cabal
-      uses: haskell/actions/setup@v1.2.7
+      uses: haskell/actions/setup@v2.0.1
       with:
          ghc-version: ${{ matrix.ghc }}
          cabal-version: ${{ matrix.cabal }}
@@ -353,20 +353,10 @@ jobs:
     - name: Prepare artifacts
       run: |
         mkdir -p artifacts/chainweb
-
-        # TODO use cabal install to prepare artificats
-        export VER=$(grep '^version' chainweb.cabal | sed -e 's/.*: *//')
-        if [ "${{ needs.config.outputs.opt-level }}" -gt 1 ] ; then
-          cp dist-newstyle/build/*/ghc-${{ matrix.ghc }}/chainweb-${VER}/opt/build/*/chainweb-node artifacts/chainweb
-          cp dist-newstyle/build/*/ghc-${{ matrix.ghc }}/chainweb-${VER}/opt/build/*/chainweb-tests artifacts/chainweb
-          cp dist-newstyle/build/*/ghc-${{ matrix.ghc }}/chainweb-${VER}/opt/build/*/cwtool artifacts/chainweb
-          cp dist-newstyle/build/*/ghc-${{ matrix.ghc }}/chainweb-${VER}/opt/build/*/bench artifacts/chainweb
-        else
-          cp dist-newstyle/build/*/ghc-${{ matrix.ghc }}/chainweb-${VER}/build/*/chainweb-node artifacts/chainweb
-          cp dist-newstyle/build/*/ghc-${{ matrix.ghc }}/chainweb-${VER}/build/*/chainweb-tests artifacts/chainweb
-          cp dist-newstyle/build/*/ghc-${{ matrix.ghc }}/chainweb-${VER}/build/*/cwtool artifacts/chainweb
-          cp dist-newstyle/build/*/ghc-${{ matrix.ghc }}/chainweb-${VER}/build/*/bench artifacts/chainweb
-        fi
+        cp $(cabal list-bin chainweb-node) artifacts/chainweb
+        cp $(cabal list-bin chainweb-tests) artifacts/chainweb
+        cp $(cabal list-bin cwtool) artifacts/chainweb
+        cp $(cabal list-bin bench) artifacts/chainweb
         cp README.md artifacts/chainweb
         cp CHANGELOG.md artifacts/chainweb
         cp LICENSE artifacts/chainweb
