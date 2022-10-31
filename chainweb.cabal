@@ -185,6 +185,7 @@ library
         , Chainweb.Mempool.RestAPI
         , Chainweb.Mempool.RestAPI.Client
         , Chainweb.Mempool.RestAPI.Server
+        , Chainweb.Mempool.TxFilter
         , Chainweb.MerkleLogHash
         , Chainweb.MerkleUniverse
         , Chainweb.Miner.Config
@@ -372,6 +373,7 @@ library
         , pem >=0.2
         , primitive >= 0.7.1.0
         , random >= 1.2
+        , regex-tdfa >= 1.3
         , rosetta >= 1.0
         , safe-exceptions >= 0.1
         , scheduler >= 1.4
