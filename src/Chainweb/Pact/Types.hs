@@ -440,14 +440,16 @@ getInitCache = get >>= \PactServiceState{..} ->
 -- | Update init cache at adjusted parent block height (APBH).
 -- Contents are merged with cache found at or before APBH.
 -- APBH is 0 for genesis and (parent block height + 1) thereafter.
-updateInitCache :: ModuleCache -> PactServiceM cas ()
-updateInitCache mc = get >>= \PactServiceState{..} -> do
+updateInitCache :: Bool -> ModuleCache -> PactServiceM cas ()
+updateInitCache doPurge mc = get >>= \PactServiceState{..} -> do
     let bf 0 = 0
         bf h = succ h
         pbh = bf . _blockHeight . _parentHeader $ _psParentHeader
     psInitCache .= case M.lookupLE pbh _psInitCache of
       Nothing -> M.singleton pbh mc
-      Just (_,before) -> M.insert pbh (HM.union mc before) _psInitCache
+      Just (_,before)
+        | doPurge -> M.insert pbh mc _psInitCache
+        | otherwise -> M.insert pbh (HM.union mc before) _psInitCache
 
 -- | Convert context to datatype for Pact environment.
 --

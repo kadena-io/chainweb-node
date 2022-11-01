@@ -6,7 +6,7 @@
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-
+{-# LANGUAGE TupleSections #-}
 -- |
 -- Module      :  Chainweb.Pact.TransactionExec
 -- Copyright   :  Copyright © 2018 Kadena LLC.
@@ -192,6 +192,7 @@ applyCmd v logger gasLogger pdbenv miner gasModel txCtx spv cmd initialGas mcach
     isModuleNameFix2 = enableModuleNameFix2 v currHeight
     isPactBackCompatV16 = pactBackCompat_v16 v currHeight
     chainweb213Pact' = chainweb213Pact (ctxVersion txCtx) (ctxCurrentBlockHeight txCtx)
+    chainweb217Pact' = chainweb217Pact (ctxVersion txCtx) (ctxCurrentBlockHeight txCtx)
 
     toOldListErr pe = pe { peDoc = listErrMsg }
     isOldListErr = \case
@@ -215,6 +216,9 @@ applyCmd v logger gasLogger pdbenv miner gasModel txCtx spv cmd initialGas mcach
       cr <- catchesPactError $! runPayload cmd managedNamespacePolicy
       case cr of
         Left e
+          | chainweb217Pact' -> do
+              r <- jsonErrorResult (PactError ArgsError def [] "") "tx failure for request key when running cmd"
+              redeemAllGas r
           | chainweb213Pact' || not (isOldListErr e) -> do
               r <- jsonErrorResult e "tx failure for request key when running cmd"
               redeemAllGas r
@@ -308,7 +312,7 @@ applyCoinbase
     -> CoinbaseUsePrecompiled
       -- ^ always enable precompilation
     -> ModuleCache
-    -> IO (T2 (CommandResult [TxLog Value]) (Maybe ModuleCache))
+    -> IO (T2 (CommandResult [TxLog Value]) (Maybe (Bool, ModuleCache)))
 applyCoinbase v logger dbEnv (Miner mid mks@(MinerKeys mk)) reward@(ParsedDecimal d) txCtx
   (EnforceCoinbaseFailure enfCBFailure) (CoinbaseUsePrecompiled enablePC) mc
   | fork1_3InEffect || enablePC = do
@@ -317,12 +321,20 @@ applyCoinbase v logger dbEnv (Miner mid mks@(MinerKeys mk)) reward@(ParsedDecima
         mk
     let (cterm, cexec) = mkCoinbaseTerm mid mks reward
         interp = Interpreter $ \_ -> do put initState; fmap pure (eval cterm)
-    go interp cexec
+
+    T2 r maybeCache <- go interp cexec
+    let mc' = (chainweb217',) <$> maybeCache
+    pure $ T2 r mc'
   | otherwise = do
     cexec <- mkCoinbaseCmd mid mks reward
     let interp = initStateInterpreter initState
-    go interp cexec
+    T2 r maybeCache <- go interp cexec
+    let mc' = (chainweb217',) <$> maybeCache
+    pure $ T2 r mc'
   where
+    chainweb217' = chainweb217Pact
+      (ctxVersion txCtx)
+      (ctxCurrentBlockHeight txCtx)
     chainweb213Pact' = chainweb213Pact v bh
     fork1_3InEffect = vuln797Fix v cid bh
     throwCritical = fork1_3InEffect || enfCBFailure
@@ -441,10 +453,22 @@ readInitModules
       -- ^ Pact db environment
     -> TxContext
       -- ^ tx metadata and parent header
-    -> IO ModuleCache
-readInitModules logger dbEnv txCtx =
-    evalTransactionM tenv txst go
+    -> IO (Bool, ModuleCache)
+readInitModules logger dbEnv txCtx
+    | chainweb217Pact' = do
+      mc <- evalTransactionM tenv txst goCw217
+      pure (True, mc)
+    | otherwise = do
+      mc <- evalTransactionM tenv txst go
+      pure (False, mc)
   where
+    -- guarding chainweb 2.17 here to allow for
+    -- cache purging everything but coin and its
+    -- dependencies.
+    chainweb217Pact' = chainweb217Pact
+      (ctxVersion txCtx)
+      (ctxCurrentBlockHeight txCtx)
+
     parent = _tcParentHeader txCtx
     v = _chainwebVersion parent
     h = _blockHeight (_parentHeader parent) + 1
@@ -497,6 +521,18 @@ readInitModules logger dbEnv txCtx =
       -- return loaded cache
       use txCache
 
+    -- Only load coin and its dependencies for chainweb >=2.17
+    goCw217 :: TransactionM p ModuleCache
+    goCw217 = do
+      coinDepsCmd <- liftIO $ mkCmd $ T.intercalate " "
+        [ "coin.MINIMUM_PRECISION"
+        , "fungible-v1.account-details"
+        , "fungible-v2.account-details"
+        , "(let ((m:module{fungible-xchain-v1} coin)) 1)"
+        ]
+      void $ run "load modules" coinDepsCmd
+
+      use txCache
 
 
 applyUpgrades

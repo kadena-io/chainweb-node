@@ -230,8 +230,8 @@ initializeCoinContract _logger memPoolAccess v cid pwo = do
       withCheckpointerRewind Nothing (Just parent) "initializeCoinContract.readContracts" $ \(PactDbEnv' pdbenv) -> do
         PactServiceEnv{..} <- ask
         pd <- getTxContext def
-        !mc <- liftIO $ readInitModules _psLogger pdbenv pd
-        updateInitCache mc
+        (doPurge, !mc) <- liftIO $ readInitModules _psLogger pdbenv pd
+        updateInitCache doPurge mc
         return $! Discard ()
 
 -- | Lookup a block header.
