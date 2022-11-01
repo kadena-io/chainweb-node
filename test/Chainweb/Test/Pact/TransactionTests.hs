@@ -343,7 +343,7 @@ testUpgradeScript
     :: FilePath
     -> V.ChainId
     -> BlockHeight
-    -> (T2 (CommandResult [TxLog Value]) (Maybe ModuleCache) -> IO ())
+    -> (T2 (CommandResult [TxLog Value]) (Maybe (Bool,ModuleCache)) -> IO ())
     -> IO ()
 testUpgradeScript script cid bh test = do
     (pdb, mc) <- loadScript script

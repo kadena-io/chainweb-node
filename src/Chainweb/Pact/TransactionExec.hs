@@ -522,6 +522,8 @@ readInitModules logger dbEnv txCtx
       use txCache
 
     -- Only load coin and its dependencies for chainweb >=2.17
+    -- Note: no need to check if things are there, because this
+    -- requires a block height that witnesses the invariant.
     goCw217 :: TransactionM p ModuleCache
     goCw217 = do
       coinDepsCmd <- liftIO $ mkCmd $ T.intercalate " "
