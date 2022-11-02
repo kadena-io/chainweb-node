@@ -29,6 +29,7 @@ import Test.Tasty.HUnit
 import Pact.Types.Capability
 import Pact.Types.Command
 import Pact.Types.Continuation
+import Pact.Types.Exp (Literal(..))
 import Pact.Types.Hash
 import Pact.Types.PactError
 import Pact.Types.PactValue
@@ -117,6 +118,7 @@ tests = ScheduledTest testName go
          , multiChainTest getGasModel "pact431UpgradeTest" pact431UpgradeTest
          , multiChainTest getGasModel "chainweb215Test" chainweb215Test
          , multiChainTest getGasModel "chainweb216Test" chainweb216Test
+         , multiChainTest getGasModel "pact45UpgradeTest" pact45UpgradeTest
          ]
       where
         multiChainTest gasmodel tname f =
@@ -208,6 +210,42 @@ chainweb213Test = do
         , "  (defun fselect () (select tbl (constantly true))))"
         , "(create-table tbl)"
         ]
+
+pact45UpgradeTest :: PactTestM ()
+pact45UpgradeTest = do
+  runToHeight 54
+  runBlockTest
+    [ moduleCacheTest "Pre-filtered cache contains all loaded modules"
+        [ "coin"
+        , "fungible-v1"
+        , "fungible-v2"
+        , "fungible-xchain-v1"
+        , "gas-payer-v1"
+        , "ns"
+        ]
+    , PactTxTest (buildSimpleCmd "(enforce false 'hi)") $
+      assertTxFailure "Should fail with the error from the enforce" "hi"
+    ]
+
+  runBlockTest
+    [ -- test for cache purge
+      moduleCacheTest "Post-filtered cache contains only coin" ["coin"]
+
+    , PactTxTest (buildSimpleCmd "(+ 1 \'clearlyanerror)") $
+      assertTxFailure "Should replace tx error with empty error" ""
+    ]
+  where
+  buildSimpleCmd code = buildBasicGas 1000
+      $ mkExec code
+      $ mkKeySetData "k" [sender00]
+
+  moduleCacheTest msg modList = PactTxTest
+    (buildSimpleCmd "(list-modules)")
+    (\cr -> case _pactResult $ _crResult cr of
+        Left e -> assertFailure (show e)
+        Right r ->
+          let mc = PList $ V.fromList $ PLiteral . LString <$> modList
+          in assertEqual msg r mc)
 
 pact43UpgradeTest :: PactTestM ()
 pact43UpgradeTest = do
@@ -672,6 +710,7 @@ chainweb216Test = do
       , "k456" .= map fst [sender00]
       , "free.k123" .= map fst [sender00]
       , "free.k456" .= map fst [sender00]]
+
 
 pact4coin3UpgradeTest :: PactTestM ()
 pact4coin3UpgradeTest = do
