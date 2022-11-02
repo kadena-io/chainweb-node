@@ -573,6 +573,7 @@ test-suite chainweb-tests
 --
 executable chainweb-node
     import: warning-flags, debugging-flags
+
     default-language: Haskell2010
     ghc-options:
         -threaded
@@ -580,9 +581,12 @@ executable chainweb-node
         -rtsopts
     hs-source-dirs: node
     main-is: ChainwebNode.hs
+    install-includes: node/c/rlim_utils.h
+    c-sources: node/c/rlim_utils.c
     other-modules:
         Paths_chainweb
         PkgInfo
+        Utils.CheckRLimits
         Utils.InstallSignalHandlers
     autogen-modules:
         Paths_chainweb
