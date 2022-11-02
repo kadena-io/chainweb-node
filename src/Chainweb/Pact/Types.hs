@@ -107,6 +107,7 @@ module Chainweb.Pact.Types
   , ModuleInitCache
   , getInitCache
   , updateInitCache
+  , filterModuleCache
 
     -- * Pact Service Monad
   , PactServiceM(..)
@@ -430,26 +431,42 @@ _debugMC t = do
 
 -- | Look up an init cache that is stored at or before the height of the current parent header.
 getInitCache :: PactServiceM cas ModuleCache
-getInitCache = get >>= \PactServiceState{..} ->
-    case M.lookupLE (pbh _psParentHeader) _psInitCache of
+getInitCache = get >>= \PactServiceState{..} -> do
+    mc <- case M.lookupLE (pbh _psParentHeader) _psInitCache of
       Just (_,mc) -> return mc
       Nothing -> return mempty
+
+    filterModuleCache mc
   where
     pbh = _blockHeight . _parentHeader
+
+-- | Filter a module cache in a pact service context.
+--
+-- If we're past the chainweb 2.17 service date height,
+-- then filter on the coin contract.
+--
+filterModuleCache :: ModuleCache -> PactServiceM cas ModuleCache
+filterModuleCache mc = do
+  pbh <- use $ psParentHeader . parentHeader . blockHeight
+  cwv <- view psVersion
+
+  -- once we're past a certain height, purge cache of
+  -- all but the coin contract.
+  pure $ if chainweb217Pact cwv pbh
+    then HM.filterWithKey (\k _ -> k == "coin") mc
+    else mc
 
 -- | Update init cache at adjusted parent block height (APBH).
 -- Contents are merged with cache found at or before APBH.
 -- APBH is 0 for genesis and (parent block height + 1) thereafter.
-updateInitCache :: Bool -> ModuleCache -> PactServiceM cas ()
-updateInitCache doPurge mc = get >>= \PactServiceState{..} -> do
+updateInitCache :: ModuleCache -> PactServiceM cas ()
+updateInitCache mc = get >>= \PactServiceState{..} -> do
     let bf 0 = 0
         bf h = succ h
         pbh = bf . _blockHeight . _parentHeader $ _psParentHeader
     psInitCache .= case M.lookupLE pbh _psInitCache of
       Nothing -> M.singleton pbh mc
-      Just (_,before)
-        | doPurge -> M.insert pbh mc _psInitCache
-        | otherwise -> M.insert pbh (HM.union mc before) _psInitCache
+      Just (_,before) -> M.insert pbh (HM.union mc before) _psInitCache
 
 -- | Convert context to datatype for Pact environment.
 --

@@ -312,7 +312,7 @@ execTransactions
     -> Maybe P.Gas
     -> PactServiceM cas (Transactions (Either GasPurchaseFailure (P.CommandResult [P.TxLog A.Value])))
 execTransactions isGenesis miner ctxs enfCBFail usePrecomp (PactDbEnv' pactdbenv) gasLimit = do
-    mc <- getCache
+    mc <- getCache >>= filterModuleCache
 
     coinOut <- runCoinbase isGenesis pactdbenv miner enfCBFail usePrecomp mc
     txOuts <- applyPactCmds isGenesis pactdbenv ctxs miner mc gasLimit
@@ -326,8 +326,8 @@ execTransactions isGenesis miner ctxs enfCBFail usePrecomp (PactDbEnv' pactdbenv
           else do
             l <- asks _psLogger
             pd <- getTxContext def
-            (doPurge, mc) <- liftIO (readInitModules l pactdbenv pd)
-            updateInitCache doPurge mc
+            mc <- liftIO $ readInitModules l pactdbenv pd
+            updateInitCache mc
             return mc
         Just (_,mc) -> return mc
 
@@ -369,9 +369,9 @@ runCoinbase False dbEnv miner enfCBFail usePrecomp mc = do
 
   where
 
-    upgradeInitCache (doPurge, newCache) = do
+    upgradeInitCache newCache = do
       logInfo "Updating init cache for upgrade"
-      updateInitCache doPurge newCache
+      updateInitCache newCache
 
 
 -- | Apply multiple Pact commands, incrementing the transaction Id for each.
