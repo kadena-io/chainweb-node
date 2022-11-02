@@ -44,6 +44,7 @@ import Data.Decimal
 import Data.Default (def)
 import Data.Either
 import Data.Foldable (toList)
+import qualified Data.HashMap.Strict as HM
 import qualified Data.Map as Map
 import Data.Text (Text)
 import qualified Data.Text as T
@@ -386,7 +387,12 @@ applyPactCmds
     -> Maybe P.Gas
     -> PactServiceM cas (Vector (Either GasPurchaseFailure (P.CommandResult [P.TxLog A.Value])))
 applyPactCmds isGenesis env cmds miner mc blockGas = do
-    evalStateT (V.mapM (applyPactCmd isGenesis env miner) cmds) (T2 mc blockGas)
+    (crs, T2 blockMc _blockGas) <- runStateT (V.mapM (applyPactCmd isGenesis env miner) cmds) (T2 mc blockGas)
+
+    -- Log block cache at info to make caching more apparent
+    logInfo $ T.unpack $ "Loaded module cache: " <> encodeToText (HM.keys blockMc)
+
+    pure crs
 
 applyPactCmd
   :: Bool
@@ -427,7 +433,7 @@ applyPactCmd isGenesis env miner cmd = StateT $ \(T2 mcache maybeBlockGasRemaini
         liftIO $! applyCmd v logger gasLogger env miner (gasModel pd) pd spv gasLimitedCmd initialGas mcache
 
     if isGenesis
-    then updateInitCache False mcache'
+    then updateInitCache mcache'
     else debugResult "applyPactCmd" result
 
     cp <- getCheckpointer
