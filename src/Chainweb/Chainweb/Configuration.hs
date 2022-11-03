@@ -539,7 +539,7 @@ pChainwebConfiguration = id
         <> help "Terminate after synchronizing the pact databases to the latest cut"
     <*< configSyncPactChains .:: jsonOption
         % long "sync-pact-chains"
-        <> help "The only Pact databases to synchronize. If empty, all chains will be synchronized."
+        <> help "The only Pact databases to synchronize. If empty or unset, all chains will be synchronized."
         <> metavar "JSON list of chain ids"
     <*< configBackup %:: pBackupConfig
 
