@@ -449,15 +449,6 @@ startCutDb config logfun headerStore payloadStore cutHashesStore = mask_ $ do
                         casInsert cutHashesStore (cutToCutHashes Nothing limitedCut)
                     return limitedCutHeaders
 
-    -- TODO: The following code doesn't perform any validation of the cut.
-    -- 'joinIntoHeavier_' may stil be slow on large dbs. Eventually, we should
-    -- support different levels of validation:
-    --
-    -- 1. nothing
-    -- 2. braiding
-    -- 3. exitence of dependencies
-    -- 4. full validation
-    --
 readHighestCutHeaders :: ChainwebVersion -> LogFunction -> WebBlockHeaderDb -> RocksDbCas CutHashes -> IO (HM.HashMap ChainId BlockHeader)
 readHighestCutHeaders v logfun wbhdb cutHashesStore = withTableIter (_getRocksDbCas cutHashesStore) $ \it -> do
     tableIterLast it
