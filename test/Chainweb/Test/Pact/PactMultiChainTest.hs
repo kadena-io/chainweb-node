@@ -47,6 +47,7 @@ import Chainweb.Mempool.Mempool
 import Chainweb.Miner.Pact
 import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.PactService
+import Chainweb.Pact.PactService.ExecBlock (TxTimeout(..))
 import Chainweb.Pact.Service.Types
 import Chainweb.Pact.TransactionExec (listErrMsg)
 import Chainweb.Payload
@@ -112,6 +113,7 @@ tests = ScheduledTest testName go
          [ multiChainTest freeGasModel "pact4coin3UpgradeTest" pact4coin3UpgradeTest
          , multiChainTest freeGasModel "pact420UpgradeTest" pact420UpgradeTest
          , multiChainTest freeGasModel "minerKeysetTest" minerKeysetTest
+         , multiChainTest freeGasModel "txTimeoutTest" txTimeoutTest
          , multiChainTest getGasModel "chainweb213Test" chainweb213Test
          , multiChainTest getGasModel "pact43UpgradeTest" pact43UpgradeTest
          , multiChainTest getGasModel "pact431UpgradeTest" pact431UpgradeTest
@@ -148,6 +150,17 @@ minerKeysetTest = do
 
     badMiner = Miner (MinerId "miner") $ MinerKeys $ mkKeySet ["bad-bad-bad"] "keys-all"
 
+txTimeoutTest :: PactTestM ()
+txTimeoutTest = do
+  -- get access to `enumerate`
+  runToHeight 20
+  handle (\(TxTimeout _) -> return ()) $ do
+    runBlockTest 
+      -- deliberately time out in newblock
+      [PactTxTest (buildBasicGas 1000 $ mkExec' "(enumerate 0 999999999999)") (\_ -> error "tx succeeded")] 
+    -- assert that the block is never produced
+    error "block succeeded"
+  runToHeight 26
 
 chainweb213Test :: PactTestM ()
 chainweb213Test = do
