@@ -250,7 +250,6 @@ pCutConfig = id
         % long "initial-block-height-limit"
     <*< cutFastForwardBlockHeightLimit .:: optional % fmap BlockHeight . option auto
         % long "fast-forward-block-height-limit"
-    -- cutResetToCut isn't supported on the command line
 
 -- -------------------------------------------------------------------------- --
 -- Service API Configuration
