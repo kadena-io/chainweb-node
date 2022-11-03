@@ -287,18 +287,22 @@ jobs:
         EOF
 
     # dist cache
+    # the cache-key forces uploading of cache at least once a day, which ensures that
+    # upstream depenency changes are captured regularly.
     - name: Create date file for dist-newstyle cache key
+      id: cache-date
       run: |
-        date +%Y-%j > /tmp/cache-key
-    - uses: larskuhtz/always-upload-cache@3dc6e6c4eed0c594fbff7c4c2885c6106d1bfcf0
+        echo "value=$(date +%Y.%j)" >> GITHUB_OUTPUT
+    - uses: actions/cache@v3
       name: Cache dist-newstyle
       with:
         path: |
+          ~/.cabal/packages
           ~/.cabal/store
           dist-newstyle
-        key: ${{ matrix.os }}-${{ matrix.ghc }}-2-${{ hashFiles('/tmp/cache-key') }}-${{ hashFiles('cabal.*', '*.cabal', 'src/**', 'test/**') }}
+        key: ${{ matrix.os }}-${{ matrix.ghc }}-2-${{ steps.cache-date.outputs.value }}-${{ hashFiles('cabal.*', '*.cabal', 'src/**', 'test/**') }}
         restore-keys: |
-          ${{ matrix.os }}-${{ matrix.ghc }}-2-${{ hashFiles('/tmp/cache-key') }}-
+          ${{ matrix.os }}-${{ matrix.ghc }}-2-${{ steps.cache-date.outputs.value }}-
           ${{ matrix.os }}-${{ matrix.ghc }}-2-
 
     # Build
