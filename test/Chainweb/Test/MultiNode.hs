@@ -305,16 +305,15 @@ replayTest loglevel v n = after AllFinish "ConsensusNetwork" $ testCaseSteps nam
         tastylog "phase 1..."
         stateVar <- newMVar $ emptyConsensusState v
         let ct = harvestConsensusState (genericLogger loglevel T.putStrLn) stateVar
-        runNodesForSeconds loglevel T.putStrLn (multiConfig v n) n 60 rdb pactDbDir ct
+        runNodesForSeconds loglevel T.putStrLn (multiConfig v n) 2 60 rdb pactDbDir ct
         Just stats1 <- consensusStateSummary <$> swapMVar stateVar (emptyConsensusState v)
         assertGe "maximum cut height before reset" (Actual $ _statMaxHeight stats1) (Expected $ 10)
         tastylog $ sshow stats1
         tastylog $ "phase 2... resetting"
-        runNodesForSeconds loglevel T.putStrLn (multiConfig v n & set (configCuts . cutInitialBlockHeightLimit) (Just 5)) n 30 rdb pactDbDir ct
+        runNodesForSeconds loglevel T.putStrLn (multiConfig v 2 & set (configCuts . cutInitialBlockHeightLimit) (Just 5)) n 30 rdb pactDbDir ct
         state2 <- swapMVar stateVar (emptyConsensusState v)
         let stats2 = fromJuste $ consensusStateSummary state2
         tastylog $ sshow stats2
-        assertLe "minimum cut height after reset" (Actual $ _statAvgHeight stats2) (Expected $ _statAvgHeight stats1)
         assertGe "block count after reset" (Actual $ _statBlockCount stats2) (Expected $ _statBlockCount stats1)
         tastylog $ "phase 3... replaying"
         let replayInitialHeight = 5
