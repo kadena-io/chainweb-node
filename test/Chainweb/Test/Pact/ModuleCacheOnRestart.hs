@@ -109,7 +109,6 @@ type CacheTest cas =
 -- | Do genesis load, snapshot cache.
 testInitial :: PayloadCasLookup cas => CacheTest cas
 testInitial = (initPayloadState,snapshotCache)
-  where
 
 -- | Do restart load, test results of 'initialPayloadState' against snapshotted cache.
 testRestart :: PayloadCasLookup cas => CacheTest cas
@@ -220,7 +219,7 @@ doNextCoinbase iobdb = do
 
 -- | Interfaces can't be upgraded, but modules can, so verify hash in that case.
 justModuleHashes :: ModuleInitCache -> HM.HashMap ModuleName (Maybe ModuleHash)
-justModuleHashes = justModuleHashes' . snd . last . M.toList where
+justModuleHashes = justModuleHashes' . snd . last . M.toList
 
 justModuleHashes' :: ModuleCache -> HM.HashMap ModuleName (Maybe ModuleHash)
 justModuleHashes' = HM.map $ \v -> preview (_1 . mdModule . _MDModule . mHash) v

@@ -326,8 +326,8 @@ execTransactions isGenesis miner ctxs enfCBFail usePrecomp (PactDbEnv' pactdbenv
           else do
             l <- asks _psLogger
             pd <- getTxContext def
-            (doPurge, mc) <- liftIO (readInitModules l pactdbenv pd)
-            updateInitCache doPurge mc
+            mc <- liftIO (readInitModules l pactdbenv pd)
+            updateInitCache mc
             return mc
         Just (_,mc) -> return mc
 
@@ -369,9 +369,9 @@ runCoinbase False dbEnv miner enfCBFail usePrecomp mc = do
 
   where
 
-    upgradeInitCache (doPurge, newCache) = do
+    upgradeInitCache newCache = do
       logInfo "Updating init cache for upgrade"
-      updateInitCache doPurge newCache
+      updateInitCache newCache
 
 
 -- | Apply multiple Pact commands, incrementing the transaction Id for each.
@@ -427,7 +427,7 @@ applyPactCmd isGenesis env miner cmd = StateT $ \(T2 mcache maybeBlockGasRemaini
         liftIO $! applyCmd v logger gasLogger env miner (gasModel pd) pd spv gasLimitedCmd initialGas mcache
 
     if isGenesis
-    then updateInitCache False mcache'
+    then updateInitCache mcache'
     else debugResult "applyPactCmd" result
 
     cp <- getCheckpointer

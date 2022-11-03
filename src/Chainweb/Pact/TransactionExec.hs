@@ -312,7 +312,7 @@ applyCoinbase
     -> CoinbaseUsePrecompiled
       -- ^ always enable precompilation
     -> ModuleCache
-    -> IO (T2 (CommandResult [TxLog Value]) (Maybe (Bool, ModuleCache)))
+    -> IO (T2 (CommandResult [TxLog Value]) (Maybe ModuleCache))
 applyCoinbase v logger dbEnv (Miner mid mks@(MinerKeys mk)) reward@(ParsedDecimal d) txCtx
   (EnforceCoinbaseFailure enfCBFailure) (CoinbaseUsePrecompiled enablePC) mc
   | fork1_3InEffect || enablePC = do
@@ -322,19 +322,12 @@ applyCoinbase v logger dbEnv (Miner mid mks@(MinerKeys mk)) reward@(ParsedDecima
     let (cterm, cexec) = mkCoinbaseTerm mid mks reward
         interp = Interpreter $ \_ -> do put initState; fmap pure (eval cterm)
 
-    T2 r maybeCache <- go interp cexec
-    let mc' = (chainweb217',) <$> maybeCache
-    pure $ T2 r mc'
+    go interp cexec
   | otherwise = do
     cexec <- mkCoinbaseCmd mid mks reward
     let interp = initStateInterpreter initState
-    T2 r maybeCache <- go interp cexec
-    let mc' = (chainweb217',) <$> maybeCache
-    pure $ T2 r mc'
+    go interp cexec
   where
-    chainweb217' = chainweb217Pact
-      (ctxVersion txCtx)
-      (ctxCurrentBlockHeight txCtx)
     chainweb213Pact' = chainweb213Pact v bh
     fork1_3InEffect = vuln797Fix v cid bh
     throwCritical = fork1_3InEffect || enfCBFailure
@@ -453,14 +446,10 @@ readInitModules
       -- ^ Pact db environment
     -> TxContext
       -- ^ tx metadata and parent header
-    -> IO (Bool, ModuleCache)
+    -> IO ModuleCache
 readInitModules logger dbEnv txCtx
-    | chainweb217Pact' = do
-      mc <- evalTransactionM tenv txst goCw217
-      pure (True, mc)
-    | otherwise = do
-      mc <- evalTransactionM tenv txst go
-      pure (False, mc)
+    | chainweb217Pact' = evalTransactionM tenv txst goCw217
+    | otherwise = evalTransactionM tenv txst go
   where
     -- guarding chainweb 2.17 here to allow for
     -- cache purging everything but coin and its
@@ -526,14 +515,8 @@ readInitModules logger dbEnv txCtx
     -- requires a block height that witnesses the invariant.
     goCw217 :: TransactionM p ModuleCache
     goCw217 = do
-      coinDepsCmd <- liftIO $ mkCmd $ T.intercalate " "
-        [ "coin.MINIMUM_PRECISION"
-        , "fungible-v1.account-details"
-        , "fungible-v2.account-details"
-        , "(let ((m:module{fungible-xchain-v1} coin)) 1)"
-        ]
-      void $ run "load modules" coinDepsCmd
-
+      coinDepCmd <- liftIO $ mkCmd "coin.MINIMUM_PRECISION"
+      void $ run "load modules" coinDepCmd
       use txCache
 
 
