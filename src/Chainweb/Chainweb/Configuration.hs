@@ -387,7 +387,7 @@ data ChainwebConfiguration = ChainwebConfiguration
     , _configOnlySyncPact :: !Bool
         -- ^ exit after synchronizing pact dbs to the latest cut
     , _configSyncPactChains :: ![ChainId]
-        -- ^ the only chains to be synchronized to the latest cut.
+        -- ^ the only chains to be synchronized on startup to the latest cut.
         --   if unset, all chains will be synchronized.
     } deriving (Show, Eq, Generic)
 
