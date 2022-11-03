@@ -458,9 +458,9 @@ withChainwebInternal conf logger peer serviceSock rocksDb pactDbDir backupDir re
             --
             let
                 pactSyncChains =
-                    if _configOnlySyncPact conf && not (null $ _configSyncPactChains conf)
-                    then HM.filterWithKey (\k _ -> elem k (_configSyncPactChains conf)) cs
-                    else cs
+                    case _configSyncPactChains conf of
+                      Just syncChains | _configOnlySyncPact conf -> HM.filterWithKey (\k _ -> elem k syncChains) cs
+                      _ -> cs
             logg Info "start synchronizing Pact DBs to initial cut"
             initialCut <- _cut mCutDb
             synchronizePactDb pactSyncChains initialCut

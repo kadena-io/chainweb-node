@@ -386,7 +386,7 @@ data ChainwebConfiguration = ChainwebConfiguration
     , _configServiceApi :: !ServiceApiConfig
     , _configOnlySyncPact :: !Bool
         -- ^ exit after synchronizing pact dbs to the latest cut
-    , _configSyncPactChains :: ![ChainId]
+    , _configSyncPactChains :: !(Maybe [ChainId])
         -- ^ the only chains to be synchronized on startup to the latest cut.
         --   if unset, all chains will be synchronized.
     } deriving (Show, Eq, Generic)
@@ -434,7 +434,7 @@ defaultChainwebConfiguration v = ChainwebConfiguration
     , _configRosetta = False
     , _configServiceApi = defaultServiceApiConfig
     , _configOnlySyncPact = False
-    , _configSyncPactChains = []
+    , _configSyncPactChains = Nothing
     , _configBackup = defaultBackupConfig
     }
 
@@ -537,7 +537,7 @@ pChainwebConfiguration = id
     <*< configOnlySyncPact .:: boolOption_
         % long "only-sync-pact"
         <> help "Terminate after synchronizing the pact databases to the latest cut"
-    <*< configSyncPactChains .:: jsonOption
+    <*< configSyncPactChains .:: fmap Just % jsonOption
         % long "sync-pact-chains"
         <> help "The only Pact databases to synchronize. If empty or unset, all chains will be synchronized."
         <> metavar "JSON list of chain ids"
