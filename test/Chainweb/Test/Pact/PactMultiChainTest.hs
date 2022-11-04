@@ -111,21 +111,21 @@ tests = ScheduledTest testName go
   where
     testName = "Chainweb.Test.Pact.PactMultiChainTest"
     go = testGroup testName
-         [ multiChainTest generousPactServiceConfig freeGasModel "pact4coin3UpgradeTest" pact4coin3UpgradeTest
-         , multiChainTest generousPactServiceConfig freeGasModel "pact420UpgradeTest" pact420UpgradeTest
-         , multiChainTest generousPactServiceConfig freeGasModel "minerKeysetTest" minerKeysetTest
-         , multiChainTest defaultPactServiceConfig freeGasModel "txTimeoutTest" txTimeoutTest
-         , multiChainTest generousPactServiceConfig getGasModel "chainweb213Test" chainweb213Test
-         , multiChainTest generousPactServiceConfig getGasModel "pact43UpgradeTest" pact43UpgradeTest
-         , multiChainTest generousPactServiceConfig getGasModel "pact431UpgradeTest" pact431UpgradeTest
-         , multiChainTest generousPactServiceConfig getGasModel "chainweb215Test" chainweb215Test
-         , multiChainTest generousPactServiceConfig getGasModel "chainweb216Test" chainweb216Test
+         [ test generousConfig freeGasModel "pact4coin3UpgradeTest" pact4coin3UpgradeTest
+         , test generousConfig freeGasModel "pact420UpgradeTest" pact420UpgradeTest
+         , test generousConfig freeGasModel "minerKeysetTest" minerKeysetTest
+         , test defaultPactServiceConfig freeGasModel "txTimeoutTest" txTimeoutTest
+         , test generousConfig getGasModel "chainweb213Test" chainweb213Test
+         , test generousConfig getGasModel "pact43UpgradeTest" pact43UpgradeTest
+         , test generousConfig getGasModel "pact431UpgradeTest" pact431UpgradeTest
+         , test generousConfig getGasModel "chainweb215Test" chainweb215Test
+         , test generousConfig getGasModel "chainweb216Test" chainweb216Test
          ]
       where
           -- This is way more than what is used in production, but during testing
           -- we can be generous.
-        generousPactServiceConfig = defaultPactServiceConfig { _pactBlockGasLimit = 300_000 }
-        multiChainTest pactConfig gasmodel tname f =
+        generousConfig = defaultPactServiceConfig { _pactBlockGasLimit = 300_000 }
+        test pactConfig gasmodel tname f =
           withDelegateMempool $ \dmpio -> testCase tname $
             withTestBlockDb testVersion $ \bdb -> do
               (iompa,mpa) <- dmpio
