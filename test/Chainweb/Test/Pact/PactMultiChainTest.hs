@@ -114,7 +114,7 @@ tests = ScheduledTest testName go
          [ test generousConfig freeGasModel "pact4coin3UpgradeTest" pact4coin3UpgradeTest
          , test generousConfig freeGasModel "pact420UpgradeTest" pact420UpgradeTest
          , test generousConfig freeGasModel "minerKeysetTest" minerKeysetTest
-         , test defaultPactServiceConfig freeGasModel "txTimeoutTest" txTimeoutTest
+         , test defaultPactServiceConfig { _pactBlockGasLimit = 100_000 } freeGasModel "txTimeoutTest" txTimeoutTest
          , test generousConfig getGasModel "chainweb213Test" chainweb213Test
          , test generousConfig getGasModel "pact43UpgradeTest" pact43UpgradeTest
          , test generousConfig getGasModel "pact431UpgradeTest" pact431UpgradeTest
