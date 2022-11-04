@@ -47,9 +47,9 @@ import Chainweb.Mempool.Mempool
 import Chainweb.Miner.Pact
 import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.PactService
-import Chainweb.Pact.PactService.ExecBlock (TxTimeout(..))
 import Chainweb.Pact.Service.Types
 import Chainweb.Pact.TransactionExec (listErrMsg)
+import Chainweb.Pact.Types (TxTimeout(..))
 import Chainweb.Payload
 import Chainweb.SPV.CreateProof
 import Chainweb.Test.Cut
@@ -157,9 +157,8 @@ txTimeoutTest = do
   handle (\(TxTimeout _) -> return ()) $ do
     runBlockTest 
       -- deliberately time out in newblock
-      [PactTxTest (buildBasicGas 1000 $ mkExec' "(enumerate 0 999999999999)") (\_ -> error "tx succeeded")] 
-    -- assert that the block is never produced
-    error "block succeeded"
+      [PactTxTest (buildBasicGas 1000 $ mkExec' "(enumerate 0 999999999999)") (\_ -> assertFailure "tx succeeded")] 
+    liftIO $ assertFailure "block succeeded"
   runToHeight 26
 
 chainweb213Test :: PactTestM ()

@@ -27,7 +27,6 @@ module Chainweb.Pact.PactService.ExecBlock
     , validateChainwebTxs
     , validateHashes
     , throwOnGasFailure
-    , TxTimeout(..)
     ) where
 
 import Control.DeepSeq
@@ -86,10 +85,6 @@ import Chainweb.Time
 import Chainweb.Transaction
 import Chainweb.Utils hiding (check)
 import Chainweb.Version
-
-data TxTimeout = TxTimeout !TransactionHash
-    deriving Show
-instance Exception TxTimeout
 
 -- | Set parent header in state and spv support (using parent hash)
 setParentHeader :: String -> ParentHeader -> PactServiceM cas ()
@@ -434,8 +429,12 @@ applyPactCmd isGenesis env miner txTimeLimit cmd = StateT $ \(T2 mcache maybeBlo
       else do
         pd <- getTxContext (publicMetaOf gasLimitedCmd)
         spv <- use psSpvSupport
-        let timeoutError = TxTimeout (requestKeyToTransactionHash $ P.cmdToRequestKey cmd)
-        let txTimeout = maybe id (\limit -> maybe (throwM timeoutError) return <=< timeout (fromIntegral limit)) txTimeLimit
+        let 
+          timeoutError = TxTimeout (requestKeyToTransactionHash $ P.cmdToRequestKey cmd)
+          txTimeout = case txTimeLimit of 
+            Nothing -> id
+            Just limit -> 
+               maybe (throwM timeoutError) return <=< timeout (fromIntegral limit)
         liftIO $! txTimeout $ applyCmd v logger gasLogger env miner (gasModel pd) pd spv gasLimitedCmd initialGas mcache
 
     if isGenesis

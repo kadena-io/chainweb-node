@@ -471,7 +471,7 @@ execNewBlock mpAccess parent miner = do
   where
     handleTimeout :: TxTimeout -> PactServiceM cas a
     handleTimeout (TxTimeout h) = do
-      logInfo $ "execNewBlock: timed out on " <> sshow h
+      logError $ "execNewBlock: timed out on " <> sshow h
       liftIO $ mpaBadlistTx mpAccess (V.singleton h)
       throwM (TxTimeout h)
 
