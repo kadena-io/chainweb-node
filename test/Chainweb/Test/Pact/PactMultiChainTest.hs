@@ -1,5 +1,6 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TemplateHaskell #-}
@@ -110,22 +111,25 @@ tests = ScheduledTest testName go
   where
     testName = "Chainweb.Test.Pact.PactMultiChainTest"
     go = testGroup testName
-         [ multiChainTest freeGasModel "pact4coin3UpgradeTest" pact4coin3UpgradeTest
-         , multiChainTest freeGasModel "pact420UpgradeTest" pact420UpgradeTest
-         , multiChainTest freeGasModel "minerKeysetTest" minerKeysetTest
-         , multiChainTest freeGasModel "txTimeoutTest" txTimeoutTest
-         , multiChainTest getGasModel "chainweb213Test" chainweb213Test
-         , multiChainTest getGasModel "pact43UpgradeTest" pact43UpgradeTest
-         , multiChainTest getGasModel "pact431UpgradeTest" pact431UpgradeTest
-         , multiChainTest getGasModel "chainweb215Test" chainweb215Test
-         , multiChainTest getGasModel "chainweb216Test" chainweb216Test
+         [ multiChainTest generousPactServiceConfig freeGasModel "pact4coin3UpgradeTest" pact4coin3UpgradeTest
+         , multiChainTest generousPactServiceConfig freeGasModel "pact420UpgradeTest" pact420UpgradeTest
+         , multiChainTest generousPactServiceConfig freeGasModel "minerKeysetTest" minerKeysetTest
+         , multiChainTest defaultPactServiceConfig freeGasModel "txTimeoutTest" txTimeoutTest
+         , multiChainTest generousPactServiceConfig getGasModel "chainweb213Test" chainweb213Test
+         , multiChainTest generousPactServiceConfig getGasModel "pact43UpgradeTest" pact43UpgradeTest
+         , multiChainTest generousPactServiceConfig getGasModel "pact431UpgradeTest" pact431UpgradeTest
+         , multiChainTest generousPactServiceConfig getGasModel "chainweb215Test" chainweb215Test
+         , multiChainTest generousPactServiceConfig getGasModel "chainweb216Test" chainweb216Test
          ]
       where
-        multiChainTest gasmodel tname f =
+          -- This is way more than what is used in production, but during testing
+          -- we can be generous.
+        generousPactServiceConfig = defaultPactServiceConfig { _pactBlockGasLimit = 300_000 }
+        multiChainTest pactConfig gasmodel tname f =
           withDelegateMempool $ \dmpio -> testCase tname $
             withTestBlockDb testVersion $ \bdb -> do
               (iompa,mpa) <- dmpio
-              withWebPactExecutionService testVersion bdb mpa gasmodel $ \pact ->
+              withWebPactExecutionService testVersion pactConfig bdb mpa gasmodel $ \pact ->
                 runReaderT f $
                 MultiEnv bdb pact (return iompa) noMiner cid
 
