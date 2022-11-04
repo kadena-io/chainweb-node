@@ -114,7 +114,7 @@ tests = ScheduledTest testName go
          [ test generousConfig freeGasModel "pact4coin3UpgradeTest" pact4coin3UpgradeTest
          , test generousConfig freeGasModel "pact420UpgradeTest" pact420UpgradeTest
          , test generousConfig freeGasModel "minerKeysetTest" minerKeysetTest
-         , test defaultPactServiceConfig { _pactBlockGasLimit = 100_000 } freeGasModel "txTimeoutTest" txTimeoutTest
+         , test timeoutConfig freeGasModel "txTimeoutTest" txTimeoutTest
          , test generousConfig getGasModel "chainweb213Test" chainweb213Test
          , test generousConfig getGasModel "pact43UpgradeTest" pact43UpgradeTest
          , test generousConfig getGasModel "pact431UpgradeTest" pact431UpgradeTest
@@ -125,6 +125,7 @@ tests = ScheduledTest testName go
           -- This is way more than what is used in production, but during testing
           -- we can be generous.
         generousConfig = defaultPactServiceConfig { _pactBlockGasLimit = 300_000 }
+        timeoutConfig = defaultPactServiceConfig { _pactBlockGasLimit = 100_000 }
         test pactConfig gasmodel tname f =
           withDelegateMempool $ \dmpio -> testCase tname $
             withTestBlockDb testVersion $ \bdb -> do
