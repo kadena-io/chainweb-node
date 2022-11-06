@@ -45,18 +45,26 @@ package cryptonite
 package vault
     documentation: false
 
+package yet-another-logger
+    flags: -tbmqueue
+
 -- -------------------------------------------------------------------------- --
 -- Source Repository Packages
 
 source-repository-package
     type: git
     location: https://github.com/kadena-io/pact.git
-    tag: 3081be0543631e8d68938ff7be21b5d6f49acfa3
+    tag: d15d87d5b0375169264a9b97cacfe1e51a10ff6e
 
 source-repository-package
     type: git
     location: https://github.com/kadena-io/chainweb-storage.git
-    tag: 5bfe043ab11512b6eb4d625deaee0a79edc595df
+    tag: 5b04025bca75b035d7df29419963880c03c43493
+
+source-repository-package
+    type: git
+    location: https://github.com/kadena-io/rocksdb-haskell.git
+    tag: 2f0bae730d137b7edee090c4014d891675933ba5
 
 source-repository-package
     type: git
@@ -67,13 +75,6 @@ source-repository-package
     type: git
     location: https://github.com/kadena-io/kadena-ethereum-bridge.git
     tag: 10f21e96af1dce4f13e261be9dfad8c28cd299f7
-
--- use for chainweb-tests
-
-source-repository-package
-    type: git
-    location: https://github.com/larskuhtz/hs-sha-validation.git
-    tag: 0542786e7e7b4b24a37243d7168f81800abe59f0
 
 -- Required for GHC-9:
 
@@ -108,3 +109,5 @@ constraints: base64-bytestring <1.1
 -- TODO remove once the bounds are upgraded in pact.
 allow-newer: pact:direct-sqlite
 
+-- TODO remove once entropy is fixed upstream
+constraints: entropy <0.4.1.9

@@ -109,6 +109,7 @@ import Utils.Logging
 import Utils.Logging.Config
 import Utils.Logging.Trace
 
+import Utils.CheckRLimits
 import Utils.InstallSignalHandlers
 
 -- -------------------------------------------------------------------------- --
@@ -240,12 +241,14 @@ runBlockUpdateMonitor logger db = L.withLoggerLabel ("component", "block-update-
             & S.mapM toUpdate
             & S.mapM_ (logFunctionJson l Info)
   where
-    payloadCas = view cutDbPayloadCas db
+    txsCas = view (cutDbPayloadCas . transactionDb . transactionDbBlockTransactions) db
+    payloadCas = view (cutDbPayloadCas . transactionDb . transactionDbBlockPayloads) db
 
     txCount :: BlockHeader -> IO Int
     txCount bh = do
-        x <- casLookupM payloadCas (_blockPayloadHash bh)
-        return $ length $ _payloadWithOutputsTransactions x
+        bp <- casLookupM payloadCas (_blockPayloadHash bh)
+        x <- casLookupM txsCas (_blockPayloadTransactionsHash bp)
+        return $ length $ _blockTransactions x
 
     toUpdate :: Either BlockHeader BlockHeader -> IO BlockUpdate
     toUpdate (Right bh) = BlockUpdate
@@ -307,17 +310,21 @@ node conf logger = do
     rocksDbDir <- getRocksDbDir conf
     pactDbDir <- getPactDbDir conf
     dbBackupsDir <- getBackupsDir conf
-    withRocksDb rocksDbDir $ \rocksDb -> do
+    withRocksDb rocksDbDir modernDefaultOptions $ \rocksDb -> do
         logFunctionText logger Info $ "opened rocksdb in directory " <> sshow rocksDbDir
         logFunctionText logger Info $ "backup config: " <> sshow (_configBackup cwConf)
-        withChainweb cwConf logger rocksDb pactDbDir dbBackupsDir (_nodeConfigResetChainDbs conf) $ \cw -> mapConcurrently_ id
-            [ runChainweb cw
-              -- we should probably push 'onReady' deeper here but this should be ok
-            , runCutMonitor (_chainwebLogger cw) (_cutResCutDb $ _chainwebCutResources cw)
-            , runQueueMonitor (_chainwebLogger cw) (_cutResCutDb $ _chainwebCutResources cw)
-            , runRtsMonitor (_chainwebLogger cw)
-            , runBlockUpdateMonitor (_chainwebLogger cw) (_cutResCutDb $ _chainwebCutResources cw)
-            ]
+        withChainweb cwConf logger rocksDb pactDbDir dbBackupsDir (_nodeConfigResetChainDbs conf) $ \case
+            Replayed _ _ -> return ()
+            StartedChainweb cw ->
+                concurrentlies_
+                    [ runChainweb cw
+                    -- we should probably push 'onReady' deeper here but this should be ok
+                    , runCutMonitor (_chainwebLogger cw) (_cutResCutDb $ _chainwebCutResources cw)
+                    , runQueueMonitor (_chainwebLogger cw) (_cutResCutDb $ _chainwebCutResources cw)
+                    , runRtsMonitor (_chainwebLogger cw)
+                    , runBlockUpdateMonitor (_chainwebLogger cw) (_cutResCutDb $ _chainwebCutResources cw)
+                    ]
+
   where
     cwConf = _nodeConfigChainweb conf
 
@@ -467,10 +474,10 @@ pkgInfoScopes =
 -- -------------------------------------------------------------------------- --
 -- main
 
--- SERVICE DATE for version 2.15
+-- SERVICE DATE for version 2.16
 --
 serviceDate :: Maybe String
-serviceDate = Just "2022-09-01T00:00:00Z"
+serviceDate = Just "2022-12-01T00:00:00Z"
 
 mainInfo :: ProgramInfo ChainwebNodeConfiguration
 mainInfo = programInfoValidate
@@ -482,6 +489,7 @@ mainInfo = programInfoValidate
 main :: IO ()
 main = do
     installFatalSignalHandlers [ sigHUP, sigTERM, sigXCPU, sigXFSZ ]
+    checkRLimits
     runWithPkgInfoConfiguration mainInfo pkgInfo $ \conf -> do
         let v = _configChainwebVersion $ _nodeConfigChainweb conf
         hSetBuffering stderr LineBuffering

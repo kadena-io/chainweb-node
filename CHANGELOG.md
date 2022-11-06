@@ -1,5 +1,28 @@
 # `chainweb-node` Changelog
 
+## 2.16 (2022-08-23)
+
+This version replaces all previous versions. Any prior version will stop working
+on **2022-09-01T00:00:00Z**. Node administrators must upgrade to this version
+before that date.
+
+This version will expire on **2022-12-01T00:00:00Z**.
+
+To upgrade, pull the latest docker image or download the binary and restart the
+node.
+
+[Changes](https://github.com/kadena-io/chainweb-node/compare/2.15...2.16):
+
+*   Upgrade to Pact 4.4. This release brings namespaced keysets. For further changes check the [Pact Changelog](https://github.com/kadena-io/pact/blob/master/CHANGELOG.md).
+*   Improve performance during catchup. (#1473, #1474, #1476)
+*   Improve P2P protocol performance. (#1502)
+*   Improve TLS session management. (#1489)
+*   Faster and safer binary serialization across the board. (#1494)
+
+Bug Fixes:
+
+*   Fix some potential race conditions in SQLite interface code. (#1477)
+
 ## 2.15 (2022-06-09)
 
 This version replaces all previous versions. Any prior version will stop working

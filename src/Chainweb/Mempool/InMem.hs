@@ -30,7 +30,7 @@ import Control.Concurrent.MVar
 import Control.DeepSeq
 import Control.Error.Util (hush)
 import Control.Exception (bracket, evaluate, mask_, throw)
-import Control.Monad (void, (<$!>))
+import Control.Monad
 
 import Data.Aeson
 import Data.Bifunctor (bimap)
@@ -241,11 +241,13 @@ markValidatedInMem logger tcfg lock txs = withMVarMasked lock $ \mdata -> do
     -- resources for pending txs.
     --
     let curTxIdxRef = _inmemCurrentTxs mdata
-    logg Info $ "mark " <> sshow (length (V.zip expiries hashes)) <> " txs as validated"
+    let validatedCount = length (V.zip expiries hashes)
+    logg Debug $ "mark " <> sshow validatedCount <> " txs as validated"
     x <- readIORef curTxIdxRef
-    logg Info $ "previous current tx index size: " <> sshow (currentTxsSize x)
     !x' <- currentTxsInsertBatch x (V.zip expiries hashes)
-    logg Info $ "new current tx index size: " <> sshow (currentTxsSize x')
+    when (currentTxsSize x /= currentTxsSize x') $ do
+      logg Info $ "previous current tx index size: " <> sshow (currentTxsSize x)
+      logg Info $ "new current tx index size: " <> sshow (currentTxsSize x')
     writeIORef curTxIdxRef x'
   where
     hashes = txHasher tcfg <$> txs
@@ -488,7 +490,7 @@ getBlockInMem logg cfg lock (BlockFill gasLimit txHashes _)  txValidate bheight 
         let !psq'' = V.foldl' ins (HashMap.union seen psq') out
         writeIORef (_inmemPending mdata) $! force psq''
         writeIORef (_inmemBadMap mdata) $! force badmap'
-        mout <- V.unsafeThaw $ V.map (snd . snd) out
+        mout <- V.thaw $ V.map (snd . snd) out
         TimSort.sortBy (compareOnGasPrice txcfg) mout
         V.unsafeFreeze mout
 
@@ -555,8 +557,8 @@ getBlockInMem logg cfg lock (BlockFill gasLimit txHashes _)  txValidate bheight 
         -> GasLimit
         -> IO [(TransactionHash, (SB.ShortByteString, t))]
     nextBatch !psq !remainingGas = do
-        let !pendingTxs0 = V.fromList $ HashMap.toList psq
-        mPendingTxs <- V.unsafeThaw pendingTxs0
+        let !pendingTxs0 = HashMap.toList psq
+        mPendingTxs <- mutableVectorFromList pendingTxs0
         TimSort.sortBy (compare `on` snd) mPendingTxs
         !pendingTxs <- V.unsafeFreeze mPendingTxs
         return $! getBatch pendingTxs remainingGas [] 0

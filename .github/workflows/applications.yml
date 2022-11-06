@@ -4,11 +4,20 @@ on:
   workflow_dispatch:
     inputs:
       debugInfo:
-         description: whether to create binaries with debugging info
+         description: whether to create binaries with debugging info (dwarf debugging symbols)
          default: 'False'
       optimizationLevel:
         description: optimization level that is used to compile pact and chainweb-node
         default: '1'
+      profiling:
+        description: enable profiling runtime
+        default: 'False'
+      debug:
+        description: compile and link with -debug
+        default: 'False'
+      eventlog:
+        description: link with -eventlog
+        default: 'False'
   push:
 
 env:
@@ -32,7 +41,11 @@ jobs:
       git-ref-short: ${{ steps.git-info.outputs.git-ref-short }}
       is-release: ${{ steps.git-info.outputs.is-release }}
       debug-info: ${{ steps.compile-flags.outputs.debug-info }}
+      stripping: ${{ steps.compile-flags.outputs.stripping }}
       opt-level: ${{ steps.compile-flags.outputs.opt-level }}
+      profiling: ${{ steps.compile-flags.outputs.profiling }}
+      debug: ${{ steps.compile-flags.outputs.debug }}
+      eventlog: ${{ steps.compile-flags.outputs.eventlog }}
       tag-suffix: ${{ steps.compile-flags.outputs.tag-suffix }}
     steps:
     - name: Checkout repository
@@ -47,6 +60,8 @@ jobs:
       id: compile-flags
       run: |
         TAG_SUFFIX=
+
+        # Optimization
         OPT_LEVEL=${{ github.event.inputs.optimizationLevel }}
         if [[ -n "$OPT_LEVEL" && "$OPT_LEVEL" != "1" ]] ; then
           echo "::set-output name=opt-level::$OPT_LEVEL"
@@ -54,15 +69,53 @@ jobs:
         else
           echo "::set-output name=opt-level::1"
         fi
+
+        # Debug info
         DEBUG_INFO=${{ github.event.inputs.debugInfo }}
         if [[ -n "$DEBUG_INFO" && "${DEBUG_INFO^^}" = "TRUE" ]] ; then
-          echo "building binaries with debug symbols"
+          echo "building binaries with dwarf debug symbols"
           echo "::set-output name=debug-info::True"
+          echo "::set-output name=stripping::False"
+          TAG_SUFFIX+=-dwarf
+        else
+          echo "building binaries without dwarf debug symbols"
+          echo "::set-output name=debug-info::False"
+          echo "::set-output name=stripping::True"
+        fi
+
+        # Profiling
+        PROFILING=${{ github.event.inputs.profiling }}
+        if [[ -n "$PROFILING" && "${PROFILING^^}" = "TRUE" ]] ; then
+          echo "building binaries with profiling runtime"
+          echo "::set-output name=profiling::True"
+          TAG_SUFFIX+=-prof
+        else
+          echo "building binaries without profiling runtime"
+          echo "::set-output name=profiling::False"
+        fi
+
+        # Debug
+        DEBUG=${{ github.event.inputs.debug }}
+        if [[ -n "$DEBUG" && "${DEBUG^^}" = "TRUE" ]] ; then
+          echo "building binaries with -debug"
+          echo "::set-output name=debug::True"
           TAG_SUFFIX+=-debug
         else
-          echo "building binaries without debug symbols"
-          echo "::set-output name=debug-info::False"
+          echo "building binaries without -debug"
+          echo "::set-output name=debug::False"
         fi
+
+        # Eventlog
+        EVENTLOG=${{ github.event.inputs.eventlog }}
+        if [[ -n "$EVENTLOG" && "${EVENTLOG^^}" = "TRUE" ]] ; then
+          echo "building binaries with -eventlog"
+          echo "::set-output name=eventlog::True"
+          TAG_SUFFIX+=-eventlog
+        else
+          echo "building binaries without -eventlog"
+          echo "::set-output name=eventlog::False"
+        fi
+
         echo "::set-output name=tag-suffix::$TAG_SUFFIX"
     - name: Create matrix
       id: set-matrix
@@ -71,14 +124,16 @@ jobs:
         {
           "ghc": ["8.10.7", "9.0.2"],
           "cabal": ["3.6"],
-          "os": ["ubuntu-18.04", "ubuntu-20.04"],
+          "os": ["ubuntu-20.04", "ubuntu-22.04"],
           "cabalcache": ["true"],
-          "exclude": [
-            { 
-              "ghc": "9.0.2",
+          "use-freeze-file": ["false"],
+          "include": [
+            {
+              "ghc": "8.10.7",
               "cabal": "3.6",
               "os" : "ubuntu-20.04",
-              "cabalcache": "true"
+              "cabalcache": "true",
+              "use-freeze-file": "true"
             }
           ]
         }
@@ -97,6 +152,10 @@ jobs:
         echo "config.outputs.git-ref-short=${{ steps.git-info.outputs.git-ref-short }}"
         echo "config.outputs.is-release=${{ steps.git-info.outputs.is-release }}"
         echo "config.outputs.debug-info=${{ steps.compile-flags.outputs.debug-info }}"
+        echo "config.outputs.stripping=${{ steps.compile-flags.outputs.stripping }}"
+        echo "config.outputs.debug=${{ steps.compile-flags.outputs.debug }}"
+        echo "config.outputs.eventlog=${{ steps.compile-flags.outputs.eventlog }}"
+        echo "config.outputs.profiling=${{ steps.compile-flags.outputs.profiling }}"
         echo "config.outputs.opt-level=${{ steps.compile-flags.outputs.opt-level }}"
         echo "config.outputs.tag-suffix=${{ steps.compile-flags.outputs.tag-suffix }}"
         echo "config.outputs.matrix=${{ steps.set-matrix.outputs.matrix }}"
@@ -139,8 +198,6 @@ jobs:
       matrix: ${{ fromJson(needs.config.outputs.matrix) }}
 
     env:
-      OPT_LEVEL: ${{ needs.config.outputs.opt-level }}
-      DEBUG_INFO: ${{ needs.config.outputs.debug-info }}
       ARTIFACTS_ARCHIVE: chainweb.${{ matrix.ghc }}.${{ matrix.os }}.${{ needs.config.outputs.git-sha-short }}${{ needs.config.outputs.tag-suffix }}.tar.gz
       ARTIFACTS_NAME: chainweb-applications.${{ matrix.ghc }}.${{ matrix.os }}
 
@@ -171,25 +228,62 @@ jobs:
         cabal --version
     - name: Install non-Haskell dependencies (ubuntu)
       if: contains(matrix.os, 'ubuntu')
-      run: sudo apt-get install -y librocksdb-dev z3
+      run: sudo apt-get install -y libgflags-dev liblz4-dev libzstd-dev libgflags-dev libtbb-dev libsnappy-dev libbz2-dev
+    # Project Configuration
     - name: Create cabal.project.local
       run: |
         cat > cabal.project.local <<EOF
         package *
           documentation: False
-          debug-info: ${{ needs.config.outputs.debug-info }}
-          executable-stripping: True
-          library-stripping: True
         package chainweb
           documentation: False
-          optimization: ${{ needs.config.outputs.opt-level }}
           benchmarks: True
           tests: True
           ghc-options: -Wno-unused-packages
         package pact
           documentation: False
-          optimization: ${{ needs.config.outputs.opt-level }}
           ghc-options: -Wno-unused-packages
+        EOF
+
+    - name: Configure Optimization Level
+      run: |
+        cat >> cabal.project.local <<EOF
+        package pact
+          optimization: ${{ needs.config.outputs.opt-level }}
+        package chainweb
+          optimization: ${{ needs.config.outputs.opt-level }}
+        EOF
+
+    - name: Configure Profiling
+      run: |
+        cat >> cabal.project.local <<EOF
+        package *
+          profiling: ${{ needs.config.outputs.profiling }}
+        EOF
+
+    - name: Configure Debug Info and Symbol Stripping
+      run: |
+        cat >> cabal.project.local <<EOF
+        package *
+          debug-info: ${{ needs.config.outputs.debug-info }}
+          executable-stripping: ${{ needs.config.outputs.stripping }}
+          library-stripping: ${{ needs.config.outputs.stripping }}
+        EOF
+
+    - name: Set GHC Debug Flag
+      if: needs.config.outputs.debug == 'True'
+      run: |
+        cat >> cabal.project.local <<EOF
+        package chainweb
+          ghc-options: -debug
+        EOF
+
+    - name: Set GHC Eventlog Flag
+      if: needs.config.outputs.eventlog == 'True'
+      run: |
+        cat >> cabal.project.local <<EOF
+        package chainweb
+          ghc-options: -eventlog
         EOF
 
     # dist cache
@@ -209,6 +303,7 @@ jobs:
 
     # Build
     - name: Delete Freeze file if it exists
+      if: matrix.use-freeze-file != 'true'
       # we generate and archive a new freeze file during the build
       run: rm -f cabal.project.freeze
     - name: Update package database
@@ -216,9 +311,10 @@ jobs:
     - name: Display outdated packages
       run: cabal outdated
     - name: Configure build
-      run: |
-        cabal build all --dry-run
-        cabal freeze
+      run: cabal build all --dry-run
+    - name: Generate new freeze file
+      if: matrix.use-freeze-file != 'true'
+      run: cabal freeze
     - name: Display Dependency Changes
       run: |
         diff -w <(git show HEAD:cabal.project.freeze) cabal.project.freeze || true
@@ -241,23 +337,17 @@ jobs:
     # Checks
     - name: Check that working directory tree is clean
       run: |
-        mv cabal.project.freeze cabal.project.freeze.backup
-        git checkout -- cabal.project.freeze || true
-        if ! git diff --exit-code; then
+        if ! git diff --exit-code -- :^cabal.project.freeze ; then
           echo "Git working tree is not clean. The build changed some file that is checked into git." 1>&2
           exit 1
         fi
-        mv cabal.project.freeze.backup cabal.project.freeze
     - name: Run ea and verify consistency of genesis headers
       run: |
         cabal run cwtool -- ea
-        mv cabal.project.freeze cabal.project.freeze.backup
-        git checkout -- cabal.project.freeze || true
-        if ! git diff --exit-code; then
+        if ! git diff --exit-code -- src/Chainweb/BlockHeader/Genesis/ src/Chainweb/Pact/Transactions/ ; then
           echo "Inconsistent genesis headers detected. Did you forget to run ea?" 1>&2
           exit 1
         fi
-        mv cabal.project.freeze.backup cabal.project.freeze
 
     # Archive Artifacts
     - name: Prepare artifacts
@@ -321,7 +411,7 @@ jobs:
         os: ${{ matrix.os }}
         ghc: ${{ matrix.ghc }}
     - name: Run slow tests
-      timeout-minutes: 5
+      timeout-minutes: 20
       run: |
           ulimit -n 10000
           cwtool slow-tests
@@ -536,12 +626,7 @@ jobs:
         ghc: ["8.10.7"]
         os: ["ubuntu-20.04"]
     env:
-      GHC_VERSION: ${{ matrix.ghc }}
       OS: ${{ matrix.os }}
-      OPT_LEVEL: ${{ needs.config.outputs.opt-level }}
-      DEBUG_INFO: ${{ needs.config.outputs.debug-info }}
-      GIT_SHA_SHORT: ${{ needs.config.outputs.git-sha-short }}
-      COMPILER: ghc-${{ matrix.ghc }}
       ARTIFACTS_NAME: chainweb-applications.${{ matrix.ghc }}.${{ matrix.os }}
       ARTIFACTS_ARCHIVE: chainweb.${{ matrix.ghc }}.${{ matrix.os }}.${{ needs.config.outputs.git-sha-short }}${{ needs.config.outputs.tag-suffix }}.tar.gz
 
@@ -560,12 +645,15 @@ jobs:
       run: |
         cat > Dockerfile <<EOF
         FROM ubuntu:${OS#ubuntu-}
-        LABEL com.chainweb.docker.image.compiler="$COMPILER"
+        LABEL com.chainweb.docker.image.compiler="ghc-${{ matrix.ghc }}"
         LABEL com.chainweb.docker.image.os="${OS}"
-        LABEL com.chainweb.docker.image.optimization="$OPT_LEVEL"
-        LABEL com.chainweb.docker.image.debug-info="$DEBUG_INFO"
-        LABEL com.chainweb.docker.image.revision="$GIT_SHA_SHORT"
-        RUN apt-get update && apt-get install -y librocksdb-dev ca-certificates locales && rm -rf /var/lib/apt/lists/* && locale-gen en_US.UTF-8 && update-locale LC_ALL=en_US.UTF-8 LANG=en_US.UTF-8
+        LABEL com.chainweb.docker.image.optimization="${{ needs.config.outputs.opt-level }}"
+        LABEL com.chainweb.docker.image.debug-info="${{ needs.config.outputs.debug-info }}"
+        LABEL com.chainweb.docker.image.profiling="${{ needs.config.outputs.profiling }}"
+        LABEL com.chainweb.docker.image.debug="${{ needs.config.outputs.debug }}"
+        LABEL com.chainweb.docker.image.eventlog="${{ needs.config.outputs.eventlog }}"
+        LABEL com.chainweb.docker.image.revision="${{ needs.config.outputs.git-sha-short }}"
+        RUN apt-get update && apt-get install -y ca-certificates libgflags-dev libsnappy-dev libtbb-dev zlib1g-dev liblz4-dev libbz2-dev libgflags-dev libzstd-dev locales && rm -rf /var/lib/apt/lists/* && locale-gen en_US.UTF-8 && update-locale LC_ALL=en_US.UTF-8 LANG=en_US.UTF-8
         ENV LANG=en_US.UTF-8
         WORKDIR /chainweb
         COPY chainweb/chainweb-node .
@@ -623,10 +711,13 @@ jobs:
         cache-from: type=local,src=/tmp/.buildx-cache
         cache-to: type=local,dest=/tmp/.buildx-cache
 
+  # ########################################################################## #
+  # Trigger Integration Tests Run
+
   integration-tests:
     name: Run Integration Tests from remote repo
     needs: [ config, docker-image ]
-    runs-on: ubuntu-latest 
+    runs-on: ubuntu-latest
 
     env:
       GIT_SHA_SHORT: ${{ needs.config.outputs.git-sha-short }}
@@ -642,4 +733,4 @@ jobs:
         repo: kadena-io/integration-tests
         display-workflow-run-url: true
         wait-for-completion: false # here you could make this pipeline wait them out
-        
+

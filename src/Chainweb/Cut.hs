@@ -403,30 +403,30 @@ joinChains a b = (HM.union a c, HM.union b c)
 -- If the requested limit is larger or equal to the current height, the given
 -- cut is returned.
 --
--- Otherwise, the requested height limit is divided by the number of chains
--- (rounded down) and the result is used such that for each chain the
--- predecessor of the given cut at the respective height is returned.
+-- Otherwise, the predecessor of the given cut at the given height on each chain
+-- is returned.
 --
 limitCut
     :: HasCallStack
     => WebBlockHeaderDb
-    -> CutHeight
-        -- upper bound for the cut height. This is not a tight bound.
+    -> BlockHeight
+        -- upper bound for the block height of each chain. This is not a tight bound.
     -> Cut
     -> IO Cut
 limitCut wdb h c
-    | h >= _cutHeight c = return c
+    | all (\bh -> h >= _blockHeight bh) (view cutHeaders c) =
+        return c
     | otherwise = do
         hdrs <- itraverse go $ view cutHeaders c
         return $! set unsafeCutHeaders (projectChains $ HM.mapMaybe id hdrs) c
   where
-    ch :: BlockHeight
-    ch = floor $ avgBlockHeightAtCutHeight (_chainwebVersion wdb) h
-
     go :: ChainId -> BlockHeader -> IO (Maybe BlockHeader)
     go cid bh = do
-        !db <- getWebBlockHeaderDb wdb cid
-        seekAncestor db bh (min (int $ _blockHeight bh) (int ch))
+        if h >= _blockHeight bh
+        then return (Just bh)
+        else do
+            !db <- getWebBlockHeaderDb wdb cid
+            seekAncestor db bh (min (int $ _blockHeight bh) (int h))
         -- this is safe because it's guaranteed that the requested rank is
         -- smaller then the block height of the argument
 
@@ -436,8 +436,8 @@ limitCut wdb h c
 limitCutHeaders
     :: HasCallStack
     => WebBlockHeaderDb
-    -> CutHeight
-        -- ^ upper bound for the cut height. This is not a tight bound.
+    -> BlockHeight
+        -- ^ upper bound for the block height of each chain. This is not a tight bound.
     -> HM.HashMap ChainId BlockHeader
     -> IO (HM.HashMap ChainId BlockHeader)
 limitCutHeaders whdb h ch = _cutHeaders <$> limitCut whdb h Cut'

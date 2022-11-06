@@ -3,6 +3,7 @@
   , "coin-load-gas": 3413
   })
 (load "../v2/coin.repl")
+(env-exec-config ["DisablePact44"])
 
 ;; ======================================================
 ;; test transfer, gas events

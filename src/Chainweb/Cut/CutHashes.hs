@@ -70,8 +70,6 @@ import Crypto.Hash.Algorithms
 import Data.Aeson
 import Data.Bits
 import qualified Data.ByteArray as BA
-import Data.Bytes.Get
-import Data.Bytes.Put
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Short as SB
 import Data.Foldable
@@ -99,6 +97,7 @@ import Chainweb.BlockWeight
 import Chainweb.ChainId
 import Chainweb.Cut
 import Chainweb.Utils
+import Chainweb.Utils.Serialization
 import Chainweb.Version
 
 import Chainweb.Payload
@@ -133,7 +132,7 @@ instance Show CutId where
     show = T.unpack . cutIdToText
     {-# INLINE show #-}
 
-encodeCutId :: MonadPut m => CutId -> m ()
+encodeCutId :: CutId -> Put
 encodeCutId (CutId w) = putByteString $ SB.fromShort w
 {-# INLINE encodeCutId #-}
 
@@ -141,13 +140,13 @@ cutIdBytes :: CutId -> SB.ShortByteString
 cutIdBytes (CutId bytes) = bytes
 {-# INLINE cutIdBytes #-}
 
-decodeCutId :: MonadGet m => m CutId
-decodeCutId = CutId . SB.toShort <$!> getBytes (int cutIdBytesCount)
+decodeCutId :: Get CutId
+decodeCutId = CutId . SB.toShort <$!> getByteString (int cutIdBytesCount)
 {-# INLINE decodeCutId #-}
 
 instance Hashable CutId where
     hashWithSalt s (CutId bytes) = xor s
-        . unsafePerformIO
+        . unsafeDupablePerformIO
         $ BA.withByteArray (SB.fromShort bytes) (peek @Int)
     -- CutIds are already cryptographically strong hashes
     -- that include the chain id.
@@ -169,7 +168,7 @@ cutIdToText = encodeB64UrlNoPaddingText . runPutS . encodeCutId
 
 cutIdFromText :: MonadThrow m => T.Text -> m CutId
 cutIdFromText t = either (throwM . TextFormatException . sshow) return
-    $ runGet decodeCutId =<< decodeB64UrlNoPaddingText t
+    $ runGetS decodeCutId =<< decodeB64UrlNoPaddingText t
 {-# INLINE cutIdFromText #-}
 
 instance HasTextRepresentation CutId where
@@ -202,7 +201,7 @@ instance HasCutId (HM.HashMap x BlockHash) where
         . BA.convert
         . C.hash @_ @SHA512t_256
         . mconcat
-        . fmap (runPut . encodeBlockHash)
+        . fmap (runPutS . encodeBlockHash)
         . toList
     {-# INLINE _cutId #-}
 
@@ -381,10 +380,10 @@ type CutHashesCas cas = CasConstraint cas CutHashes
 
 -- TODO
 --
--- encodeCutHashes :: MonadPut m => CutHashes -> m ()
+-- encodeCutHashes :: CutHashes -> Put
 -- encodeCutHashes = error "encodeCodeHashes: TODO"
 -- {-# INLINE encodeCutHashes #-}
 --
--- decodeCutHashes :: MonadGet m => m CutId
+-- decodeCutHashes :: Get CutId
 -- decodeCutHashes = error "decodeCutHashes: TODO"
 -- {-# INLINE decodeCutHashes #-}

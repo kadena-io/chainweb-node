@@ -5,9 +5,7 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 
-module Chainweb.Test.Pact.Checkpointer
-( tests
-) where
+module Chainweb.Test.Pact.Checkpointer (tests) where
 
 import Control.Concurrent.MVar
 import Control.DeepSeq
@@ -140,19 +138,18 @@ keysetTest c = testCaseSteps "Keyset test" $ \next -> do
 -- CheckPointer Test
 
 testRelational :: TestTree
-testRelational = withRelationalCheckpointerResource $
+testRelational =
+  withRelationalCheckpointerResource $
     checkpointerTest "Relational Checkpointer" True
 
 checkpointerTest :: String -> Bool -> IO CheckpointEnv -> TestTree
 checkpointerTest name relational cenvIO = testCaseSteps name $ \next -> do
     cenv <- cenvIO
     let cp = _cpeCheckpointer cenv
-
     ------------------------------------------------------------------
     -- s01 : new block workflow (restore -> discard), genesis
     ------------------------------------------------------------------
 
-    let hash00 = nullBlockHash
     runTwice next $ do
         next "Step 1 : new block workflow (restore -> discard), genesis"
         blockenvGenesis0 <- _cpRestore cp Nothing
@@ -164,6 +161,7 @@ checkpointerTest name relational cenvIO = testCaseSteps name $ \next -> do
     -- s02 : validate block workflow (restore -> save), genesis
     -----------------------------------------------------------
 
+    let hash00 = nullBlockHash
     next "Step 2 : validate block workflow (restore -> save), genesis"
     blockenvGenesis1 <- _cpRestore cp Nothing
     void $ runExec cenv blockenvGenesis1 (Just $ ksData "1") $ defModule "1"
@@ -206,7 +204,7 @@ checkpointerTest name relational cenvIO = testCaseSteps name $ \next -> do
     -- exec next part of pact
     ------------------------------------------------------------------
 
-    let msg =   "Step 5: validate block 02\n create m2 module, exercise RefStore checkpoint\n exec next part of pact"
+    let msg = "Step 5: validate block 02\n create m2 module, exercise RefStore checkpoint\n exec next part of pact"
     next msg
     hash02 <- BlockHash <$> merkleLogHash "0000000000000000000000000000002a"
     blockenv02 <- _cpRestore cp (Just (BlockHeight 2, hash01))
@@ -331,39 +329,46 @@ checkpointerTest name relational cenvIO = testCaseSteps name $ \next -> do
     runExec cenv blockEnv09 Nothing "(m6.readTbl)" >>= \EvalResult{..} -> Right _erOutput @?= traverse toPactValue [tIntList [1,4]]
     _cpSave cp hash08
 
-    next "Don't create the same table twice in the same block"
+    next "Create the free namespace for the test"
     hash09 <- BlockHash <$> merkleLogHash "0000000000000000000000000000009a"
     blockEnv10 <- _cpRestore cp (Just (BlockHeight 9, hash08))
+    void $ runExec cenv blockEnv10 Nothing defFree
+    _cpSave cp hash09
+
+    hash10 <- BlockHash <$> merkleLogHash "0000000000000000000000000000010a"
+
+    next "Don't create the same table twice in the same block"
+    blockEnv11 <- _cpRestore cp (Just (BlockHeight 10, hash09))
 
     let tKeyset = object ["test-keyset" .= object ["keys" .= ([] :: [Text]), "pred" .= String ">="]]
-    void $ runExec cenv blockEnv10 (Just tKeyset) tablecode
-    expectException $ runExec cenv blockEnv10 (Just tKeyset) tablecode
+    void $ runExec cenv blockEnv11 (Just tKeyset) tablecode
+    expectException $ runExec cenv blockEnv11 (Just tKeyset) tablecode
     _cpDiscard cp
 
     next "Don't create the same table twice in the same transaction."
 
-    blockEnv10a <- _cpRestore cp (Just (BlockHeight 9, hash08))
-    expectException $ runExec cenv blockEnv10a (Just tKeyset) (tablecode <> tablecode)
+    blockEnv11a <- _cpRestore cp (Just (BlockHeight 10, hash09))
+    expectException $ runExec cenv blockEnv11a (Just tKeyset) (tablecode <> tablecode)
 
     _cpDiscard cp
 
     next "Don't create the same table twice over blocks."
 
-    blockEnv10b <- _cpRestore cp (Just (BlockHeight 9, hash08))
-    void $ runExec cenv blockEnv10b (Just tKeyset) tablecode
-
-    _cpSave cp hash09
-
-    hash10 <- BlockHash <$> merkleLogHash "0000000000000000000000000000010a"
-
-    blockEnv11 <- _cpRestore cp (Just (BlockHeight 10, hash09))
-    expectException $ runExec cenv blockEnv11 (Just tKeyset) tablecode
+    blockEnv11b <- _cpRestore cp (Just (BlockHeight 10, hash09))
+    void $ runExec cenv blockEnv11b (Just tKeyset) tablecode
 
     _cpSave cp hash10
 
+    hash11 <- BlockHash <$> merkleLogHash "0000000000000000000000000000011a"
+
+    blockEnv12 <- _cpRestore cp (Just (BlockHeight 11, hash10))
+    expectException $ runExec cenv blockEnv12 (Just tKeyset) tablecode
+
+    _cpSave cp hash11
+
     next "Purposefully restore to an illegal checkpoint."
 
-    _blockEnvFailure <- expectException $ _cpRestore cp (Just (BlockHeight 12, hash10))
+    _blockEnvFailure <- expectException $ _cpRestore cp (Just (BlockHeight 13, hash10))
 
     when relational $ do
 
@@ -598,29 +603,29 @@ runSQLite' runTest sqlEnvIO = runTest $ do
     cp <- initRelationalCheckpointer initialBlockState sqlenv logger testVer testChainId
     return (cp, sqlenv)
   where
-    initialBlockState = initBlockState $ genesisHeight testVer testChainId
+    initialBlockState = set bsModuleNameFix True $ initBlockState $ genesisHeight testVer testChainId
     logger = newLogger (pactTestLogger False) "RelationalCheckpointer"
 
 runExec :: CheckpointEnv -> PactDbEnv'-> Maybe Value -> Text -> IO EvalResult
 runExec cp (PactDbEnv' pactdbenv) eData eCode = do
     execMsg <- buildExecParsedCode Nothing {- use latest parser version -} eData eCode
     evalTransactionM cmdenv cmdst $
-      applyExec' defaultInterpreter execMsg [] h' permissiveNamespacePolicy
+      applyExec' 0 defaultInterpreter execMsg [] h' permissiveNamespacePolicy
   where
     h' = H.toUntypedHash (H.hash "" :: H.PactHash)
-    cmdenv = TransactionEnv Transactional pactdbenv (_cpeLogger cp) def
+    cmdenv = TransactionEnv Transactional pactdbenv (_cpeLogger cp) Nothing def
              noSPVSupport Nothing 0.0 (RequestKey h') 0 def
     cmdst = TransactionState mempty mempty 0 Nothing (_geGasModel freeGasEnv)
 
 runCont :: CheckpointEnv -> PactDbEnv' -> PactId -> Int -> IO EvalResult
 runCont cp (PactDbEnv' pactdbenv) pactId step = do
     evalTransactionM cmdenv cmdst $
-      applyContinuation' defaultInterpreter contMsg [] h' permissiveNamespacePolicy
+      applyContinuation' 0 defaultInterpreter contMsg [] h' permissiveNamespacePolicy
   where
     contMsg = ContMsg pactId step False Null Nothing
 
     h' = H.toUntypedHash (H.hash "" :: H.PactHash)
-    cmdenv = TransactionEnv Transactional pactdbenv (_cpeLogger cp) def
+    cmdenv = TransactionEnv Transactional pactdbenv (_cpeLogger cp) Nothing def
              noSPVSupport Nothing 0.0 (RequestKey h') 0 def
     cmdst = TransactionState mempty mempty 0 Nothing (_geGasModel freeGasEnv)
 
@@ -675,14 +680,18 @@ tStringList = toTList (TyPrim TyString) def . map toTerm
 toTerm' :: ToTerm a => a -> Term Name
 toTerm' = toTerm
 
+defFree :: Text
+defFree = T.unlines
+  [ "(module ezfree G (defcap G () true) (defun ALLOW () true))"
+  , "(define-namespace 'free (create-user-guard (ALLOW)) (create-user-guard (ALLOW)))"
+  ]
+
 defModule :: Text -> Text
 defModule idx = T.unlines
     [ " ;;"
     , ""
-    , "(define-keyset 'k" <> idx <> " (read-keyset 'k" <> idx <> "))"
-    , ""
-    , "(module m" <> idx <> " 'k" <> idx
-    , ""
+    , "(module m" <> idx <> " G"
+    , "  (defcap G () true)"
     , "  (defschema sch col:integer)"
     , ""
     , "  (deftable tbl:{sch})"
@@ -713,10 +722,11 @@ defModule idx = T.unlines
 
 tablecode :: Text
 tablecode = T.unlines
-    [ "(define-keyset 'table-admin-keyset"
+    [ "(namespace 'free)"
+    , "(define-keyset \"free.table-admin-keyset\""
     , "  (read-keyset \"test-keyset\"))"
     , ""
-    , "(module table-example 'table-admin-keyset"
+    , "(module table-example \"free.table-admin-keyset\""
     , ""
     , "  (defschema test-schema"
     , "    content:string)"

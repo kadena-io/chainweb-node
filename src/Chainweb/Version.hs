@@ -45,6 +45,8 @@ module Chainweb.Version
 , window
 , headerSizeBytes
 , workSizeBytes
+-- ** Payload Validation Parameters
+, maxBlockGasLimit
 -- ** Payload Validation Guards
 , vuln797Fix
 , coinV2Upgrade
@@ -63,6 +65,8 @@ module Chainweb.Version
 , chainweb213Pact
 , chainweb214Pact
 , chainweb215Pact
+, chainweb216Pact
+, pact44NewTrans
 
 -- ** BlockHeader Validation Guards
 , slowEpochGuard
@@ -122,12 +126,11 @@ module Chainweb.Version
 
 import Control.DeepSeq
 import Control.Lens
+import Control.Monad
 import Control.Monad.Catch
 
 import Data.Aeson hiding (pairs)
 import Data.Bits
-import Data.Bytes.Get
-import Data.Bytes.Put
 import Data.Hashable
 import qualified Data.HashSet as HS
 import qualified Data.List.NonEmpty as NE
@@ -141,7 +144,7 @@ import GHC.TypeLits
 
 import Numeric.Natural
 
-import System.IO.Unsafe (unsafePerformIO)
+import System.IO.Unsafe (unsafeDupablePerformIO)
 import System.Environment (lookupEnv)
 
 import Text.Read (readMaybe)
@@ -155,6 +158,7 @@ import Chainweb.Graph
 import Chainweb.MerkleUniverse
 import Chainweb.Time
 import Chainweb.Utils
+import Chainweb.Utils.Serialization
 
 import Data.Singletons
 
@@ -296,11 +300,11 @@ fromChainwebVersionId 0x00000005 = Mainnet01
 fromChainwebVersionId i = fromTestChainwebVersionId i
 {-# INLINABLE fromChainwebVersionId #-}
 
-encodeChainwebVersion :: MonadPut m => ChainwebVersion -> m ()
+encodeChainwebVersion :: ChainwebVersion -> Put
 encodeChainwebVersion = putWord32le . chainwebVersionId
 {-# INLINABLE encodeChainwebVersion #-}
 
-decodeChainwebVersion :: MonadGet m => m ChainwebVersion
+decodeChainwebVersion :: Get ChainwebVersion
 decodeChainwebVersion = fromChainwebVersionId <$> getWord32le
 {-# INLINABLE decodeChainwebVersion #-}
 
@@ -658,7 +662,7 @@ blockRate Development = BlockRate $ maybe 30 int customeDevnetRate
 
 customeDevnetRate :: Maybe Int
 customeDevnetRate =
-    readMaybe =<< unsafePerformIO (lookupEnv "DEVELOPMENT_BLOCK_RATE")
+    readMaybe =<< unsafeDupablePerformIO (lookupEnv "DEVELOPMENT_BLOCK_RATE")
 {-# NOINLINE customeDevnetRate #-}
 
 -- | The number of blocks to be mined after a difficulty adjustment, before
@@ -750,6 +754,26 @@ workSizeBytes
     -> Natural
 workSizeBytes v h = headerSizeBytes v (unsafeChainId 0) h - 32
 {-# INLINE workSizeBytes #-}
+
+-- -------------------------------------------------------------------------- --
+-- Pact Validation Parameters
+
+-- | This the hard upper limit of the gas within a block. Blocks that use more
+-- gas are invalid and rejected. This limit is needed as a DOS protection.
+--
+-- Smaller limits can be configured for creating new blocks.
+--
+-- Before the chainweb-node 2.16 fork, there was no maximum block gas limit.
+--
+maxBlockGasLimit
+    :: ChainwebVersion
+    -> ChainId
+    -> BlockHeight
+    -> Maybe Natural
+maxBlockGasLimit Mainnet01 _ bh = 180000 <$ guard (chainweb216Pact After Mainnet01 bh)
+maxBlockGasLimit Testnet04 _ bh = 180000 <$ guard (chainweb216Pact After Testnet04 bh)
+maxBlockGasLimit Development _ _ = Just 180000
+maxBlockGasLimit _ _ _ = Just 2_000000
 
 -- -------------------------------------------------------------------------- --
 -- Pact Validation Guards
@@ -926,6 +950,11 @@ chainweb213Pact Development = (>= 95)
 chainweb213Pact (FastTimedCPM g) | g == petersonChainGraph = (> 25)
 chainweb213Pact _ = const True
 
+-- | Fork for musl trans funs
+pact44NewTrans :: ChainwebVersion -> BlockHeight -> Bool
+pact44NewTrans Mainnet01 = (>= 2_965_885) -- Todo: add date
+pact44NewTrans Testnet04 = (>= 2_500_369) -- Todo: add date
+pact44NewTrans _ = const True
 
 -- | Pact and coin contract changes for Chainweb 2.14
 --
@@ -960,6 +989,23 @@ chainweb215Pact aoa v h = case aoa of
     go f Development = f 165
     go f (FastTimedCPM g) | g == petersonChainGraph = f 35
     go f _ = f 10
+
+-- | Pact and coin contract changes for Chainweb 2.16
+--
+chainweb216Pact
+    :: AtOrAfter
+    -> ChainwebVersion
+    -> BlockHeight
+    -> Bool
+chainweb216Pact aoa v h = case aoa of
+    At -> go (==) v h
+    After -> go (<) v h
+  where
+    go f Mainnet01 = f 2988324 -- 2022-09-02 00:00:00+00:00
+    go f Testnet04 = f 2516739 -- 2022-09-01 12:00:00+00:00
+    go f Development = f 215
+    go f (FastTimedCPM g) | g == petersonChainGraph = f 53
+    go f _ = f 16
 
 -- -------------------------------------------------------------------------- --
 -- Header Validation Guards

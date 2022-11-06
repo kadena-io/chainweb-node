@@ -150,8 +150,8 @@ pactProcessFork
 pactProcessFork mpc theLogger bHeader = do
     let forkFunc = (mpcProcessFork mpc) (logFunction theLogger)
     (reintroTxs, validatedTxs) <- forkFunc bHeader
-    (logFn theLogger) Info $! "pactMemPoolAccess - " <> sshow (length reintroTxs)
-                           <> " transactions to reintroduce"
+    logFn theLogger Debug $!
+        "pactMemPoolAccess - " <> sshow (length reintroTxs) <> " transactions to reintroduce"
     -- No need to run pre-insert check here -- we know these are ok, and
     -- calling the pre-check would block here (it calls back into pact service)
     mempoolInsert (mpcMempool mpc) UncheckedInsert reintroTxs

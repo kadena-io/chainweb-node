@@ -48,7 +48,6 @@ import Data.HashSet (HashSet)
 import qualified Data.HashSet as HashSet
 import qualified Data.Map.Strict as M
 import Data.Maybe
-import qualified Data.Serialize
 import qualified Data.Set as Set
 import Data.String
 import qualified Data.Text as T
@@ -83,6 +82,7 @@ import Chainweb.Pact.Backend.Utils
 import Chainweb.Pact.Service.Types (PactException(..), internalError)
 import Chainweb.Version (ChainwebVersion, ChainId, genesisHeight)
 import Chainweb.Utils (encodeToByteString, sshow)
+import Chainweb.Utils.Serialization
 
 tbl :: HasCallStack => Utf8 -> Utf8
 tbl t@(Utf8 b)
@@ -111,7 +111,7 @@ getPendingData = do
     return $ ptx ++ [pb]
 
 forModuleNameFix :: (Bool -> BlockHandler e a) -> BlockHandler e a
-forModuleNameFix a = use bsModuleNameFix >>= a
+forModuleNameFix f = use bsModuleNameFix >>= f
 
 doReadRow
     :: (IsString k, FromJSON v)
@@ -555,7 +555,7 @@ blockHistoryInsert bh hsh t =
     callDb "blockHistoryInsert" $ \db ->
         exec' db stmt
             [ SInt (fromIntegral bh)
-            , SBlob (Data.Serialize.encode hsh)
+            , SBlob (runPutS (encodeBlockHash hsh))
             , SInt (fromIntegral t)
             ]
   where
@@ -698,7 +698,7 @@ handlePossibleRewind v cid bRestore hsh = do
         resultCount <- callDb "handlePossibleRewind" $ \db -> do
             qry db "SELECT COUNT(*) FROM BlockHistory WHERE blockheight = ? AND hash = ?;"
                    [ SInt $! fromIntegral $ pred bRestore
-                   , SBlob (Data.Serialize.encode hsh) ]
+                   , SBlob (runPutS $ encodeBlockHash hsh) ]
                    [RInt]
                 >>= expectSingleRowCol "handlePossibleRewind: (historyInvariant):"
         when (resultCount /= SInt 1) $

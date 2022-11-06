@@ -2,6 +2,8 @@
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveFunctor #-}
+{-# LANGUAGE DeriveFoldable #-}
+{-# LANGUAGE DeriveTraversable #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
@@ -50,6 +52,7 @@ module Chainweb.Pact.Types
   , txMode
   , txDbEnv
   , txLogger
+  , txGasLogger
   , txPublicData
   , txSpvSupport
   , txNetworkId
@@ -76,6 +79,7 @@ module Chainweb.Pact.Types
   , psVersion
   , psValidateHashesOnReplay
   , psLogger
+  , psGasLogger
   , psLoggers
   , psAllowReadsInLocal
   , psIsBatch
@@ -189,7 +193,7 @@ import Chainweb.Version
 data Transactions r = Transactions
     { _transactionPairs :: !(Vector (ChainwebTransaction, r))
     , _transactionCoinbase :: !(CommandResult [TxLog Value])
-    } deriving (Eq, Show, Generic, NFData)
+    } deriving (Functor, Foldable, Traversable, Eq, Show, Generic, NFData)
 makeLenses 'Transactions
 
 data PactDbStatePersist = PactDbStatePersist
@@ -240,6 +244,7 @@ data TransactionEnv db = TransactionEnv
     { _txMode :: !ExecutionMode
     , _txDbEnv :: PactDbEnv db
     , _txLogger :: !P.Logger
+    , _txGasLogger :: !(Maybe P.Logger)
     , _txPublicData :: !PublicData
     , _txSpvSupport :: !SPVSupport
     , _txNetworkId :: !(Maybe NetworkId)
@@ -338,6 +343,7 @@ data PactServiceEnv cas = PactServiceEnv
     , _psValidateHashesOnReplay :: !Bool
     , _psAllowReadsInLocal :: !Bool
     , _psLogger :: !P.Logger
+    , _psGasLogger :: !(Maybe P.Logger)
     , _psLoggers :: !P.Loggers
         -- ^ logger factory. A new logger can be created via
         --
@@ -378,6 +384,7 @@ defaultPactServiceConfig = PactServiceConfig
       , _pactAllowReadsInLocal = False
       , _pactUnlimitedInitialRewind = False
       , _pactBlockGasLimit = defaultBlockGasLimit
+      , _pactLogGas = False
       }
 
 -- | This default value is only relevant for testing. In a chainweb-node the @GasLimit@

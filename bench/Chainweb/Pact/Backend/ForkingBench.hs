@@ -27,8 +27,6 @@ import qualified Criterion.Main as C
 import Data.Aeson hiding (Error)
 import Data.Bool
 import Data.ByteString (ByteString)
-import qualified Data.ByteString as B
-import qualified Data.ByteString.Short as BS
 import Data.Char
 import Data.Decimal
 import Data.FileEmbed
@@ -39,7 +37,6 @@ import Data.List.NonEmpty (NonEmpty)
 import qualified Data.List.NonEmpty as NEL
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as M
-import Data.Proxy
 import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Text.Encoding
@@ -50,9 +47,7 @@ import qualified Data.Yaml as Y
 
 import GHC.Generics hiding (from, to)
 
-import System.Directory
 import System.Environment
-import System.IO.Temp
 import System.LogLevel
 import System.Random
 
@@ -79,11 +74,9 @@ import Chainweb.BlockHeader
 import Chainweb.BlockHeader.Genesis
 import Chainweb.BlockHeaderDB
 import Chainweb.BlockHeaderDB.Internal
-import Chainweb.Cut.Create
 import Chainweb.ChainId
 import Chainweb.Graph
 import Chainweb.Logger
-import Chainweb.Miner.Core
 import Chainweb.Miner.Pact
 import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.Backend.Utils
@@ -106,12 +99,20 @@ import Chainweb.Version.Utils
 import Data.CAS.HashMap hiding (toList)
 import Data.CAS.RocksDB
 
+-- -------------------------------------------------------------------------- --
+-- For testing with GHCI
+--
 _run :: [String] -> IO ()
-_run args = withArgs args $ C.defaultMain [bench]
+_run args = withTempRocksDb "forkingbench" $ \rdb ->
+    withArgs args $ C.defaultMain [bench rdb]
 
-bench :: C.Benchmark
-bench = C.bgroup "PactService"
-    [ withResources 10 Quiet forkingBench
+-- -------------------------------------------------------------------------- --
+-- Benchmarks
+
+bench :: RocksDb -> C.Benchmark
+bench rdb = C.bgroup "PactService"
+    [ forkingBench
+    , nonForkingBench
     , oneBlock True 1
     , oneBlock True 10
     , oneBlock True 50
@@ -122,24 +123,196 @@ bench = C.bgroup "PactService"
     , oneBlock False 100
     ]
   where
-    forkingBench mainLineBlocks pdb bhdb nonceCounter pactQueue _ =
-      C.bench "forkingBench"  $ C.whnfIO $ do
-        let (T3 _ join1 _) = mainLineBlocks !! 5
-            forkLength1 = 5
-            forkLength2 = 5
-        void $ playLine pdb bhdb forkLength1 join1 pactQueue nonceCounter
-        void $ playLine pdb bhdb forkLength2 join1 pactQueue nonceCounter
+    nonForkingBench = withResources rdb 10 Quiet
+        $ \mainLineBlocks pdb bhdb nonceCounter pactQueue _ ->
+            C.bench "simpleForkingBench"  $ C.whnfIO $ do
+              let (T3 _ join1 _) = mainLineBlocks !! 5
+              void $ playLine pdb bhdb 5 join1 pactQueue nonceCounter
 
-    oneBlock validate txCount = withResources 1 Error go
+    forkingBench = withResources rdb 10 Quiet
+        $ \mainLineBlocks pdb bhdb nonceCounter pactQueue _ ->
+            C.bench "forkingBench"  $ C.whnfIO $ do
+              let (T3 _ join1 _) = mainLineBlocks !! 5
+                  forkLength1 = 5
+                  forkLength2 = 5
+              void $ playLine pdb bhdb forkLength1 join1 pactQueue nonceCounter
+              void $ playLine pdb bhdb forkLength2 join1 pactQueue nonceCounter
+
+    oneBlock validate txCount = withResources rdb 1 Error go
       where
         go mainLineBlocks _pdb _bhdb _nonceCounter pactQueue txsPerBlock =
           C.bench name $ C.whnfIO $ do
             writeIORef txsPerBlock txCount
             let (T3 _ join1 _) = head mainLineBlocks
-            noMineBlock validate (ParentHeader join1) (Nonce 1234) pactQueue
+            createBlock validate (ParentHeader join1) (Nonce 1234) pactQueue
         name = "block-new" ++ (if validate then "-valid" else "") ++
                "[" ++ show txCount ++ "]"
 
+-- -------------------------------------------------------------------------- --
+-- Benchmark Function
+
+playLine
+    :: PayloadDb HashMapCas
+    -> BlockHeaderDb
+    -> Word64
+    -> BlockHeader
+    -> PactQueue
+    -> IORef Word64
+    -> IO [T3 ParentHeader BlockHeader PayloadWithOutputs]
+playLine  pdb bhdb trunkLength startingBlock rr =
+    mineLine startingBlock trunkLength
+  where
+    mineLine :: BlockHeader -> Word64 -> IORef Word64 -> IO [T3 ParentHeader BlockHeader PayloadWithOutputs]
+    mineLine start l ncounter =
+        evalStateT (runReaderT (mapM (const go) [startHeight :: Word64 .. startHeight + l - 1]) rr) start
+      where
+        startHeight :: Num a => a
+        startHeight = fromIntegral $ _blockHeight start
+        go = do
+            r <- ask
+            pblock <- gets ParentHeader
+            n <- liftIO $ Nonce <$> readIORef ncounter
+            ret@(T3 _ newblock _) <- liftIO $ mineBlock pblock n pdb bhdb r
+            liftIO $ modifyIORef' ncounter succ
+            put newblock
+            return ret
+
+mineBlock
+    :: ParentHeader
+    -> Nonce
+    -> PayloadDb HashMapCas
+    -> BlockHeaderDb
+    -> PactQueue
+    -> IO (T3 ParentHeader BlockHeader PayloadWithOutputs)
+mineBlock parent nonce pdb bhdb pact = do
+    !r@(T3 _ newHeader payload) <- createBlock True parent nonce pact
+    addNewPayload pdb payload
+    -- NOTE: this doesn't validate the block header, which is fine in this test case
+    unsafeInsertBlockHeaderDb bhdb newHeader
+    return r
+
+createBlock
+    :: Bool
+    -> ParentHeader
+    -> Nonce
+    -> PactQueue
+    -> IO (T3 ParentHeader BlockHeader PayloadWithOutputs)
+createBlock validate parent nonce pact = do
+
+     -- assemble block without nonce and timestamp
+
+     mv <- newBlock noMiner parent pact
+
+     payload <- assertNotLeft =<< takeMVar mv
+
+     let creationTime = add second $ _blockCreationTime $ _parentHeader parent
+     let bh = newBlockHeader
+              mempty
+              (_payloadWithOutputsPayloadHash payload)
+              nonce
+              creationTime
+              parent
+
+     when validate $ do
+       mv' <- validateBlock bh (payloadWithOutputsToPayloadData payload) pact
+       void $ assertNotLeft =<< takeMVar mv'
+
+     return $ T3 parent bh payload
+
+-- -------------------------------------------------------------------------- --
+-- Benchmark Resources
+
+data Resources
+  = Resources
+    { payloadDb :: !(PayloadDb HashMapCas)
+    , blockHeaderDb :: !BlockHeaderDb
+    , pactService :: !(Async (), PactQueue)
+    , mainTrunkBlocks :: ![T3 ParentHeader BlockHeader PayloadWithOutputs]
+    , coinAccounts :: !(MVar (Map Account (NonEmpty SomeKeyPairCaps)))
+    , nonceCounter :: !(IORef Word64)
+    , txPerBlock :: !(IORef Int)
+    , sqlEnv :: !SQLiteEnv
+    }
+
+type RunPactService =
+  [T3 ParentHeader BlockHeader PayloadWithOutputs]
+  -> PayloadDb HashMapCas
+  -> BlockHeaderDb
+  -> IORef Word64
+  -> PactQueue
+  -> IORef Int
+  -> C.Benchmark
+
+withResources :: RocksDb -> Word64 -> LogLevel -> RunPactService -> C.Benchmark
+withResources rdb trunkLength logLevel f = C.envWithCleanup create destroy unwrap
+  where
+
+    unwrap ~(NoopNFData (Resources {..})) =
+      f mainTrunkBlocks payloadDb blockHeaderDb nonceCounter (snd pactService) txPerBlock
+
+    create = do
+        payloadDb <- createPayloadDb
+        blockHeaderDb <- testBlockHeaderDb
+        coinAccounts <- newMVar mempty
+        nonceCounter <- newIORef 1
+        txPerBlock <- newIORef 10
+        sqlEnv <- openSQLiteConnection "" {- temporary SQLite db -} chainwebBenchPragmas
+        mp <- testMemPoolAccess txPerBlock coinAccounts
+        pactService <-
+          startPact testVer logger blockHeaderDb payloadDb mp sqlEnv
+        mainTrunkBlocks <-
+          playLine payloadDb blockHeaderDb trunkLength genesisBlock (snd pactService) nonceCounter
+        return $ NoopNFData $ Resources {..}
+
+    destroy (NoopNFData (Resources {..})) = do
+      stopPact pactService
+      stopSqliteDb sqlEnv
+
+    pactQueueSize = 2000
+
+    logger = genericLogger logLevel T.putStrLn
+
+    startPact version l bhdb pdb mempool sqlEnv = do
+        reqQ <- newPactQueue pactQueueSize
+        a <- async $ initPactService version cid l reqQ mempool bhdb pdb sqlEnv defaultPactServiceConfig
+            { _pactBlockGasLimit = 150000
+            }
+
+        return (a, reqQ)
+
+    stopPact (a, _) = cancel a
+
+    chainwebBenchPragmas =
+        [ "synchronous = NORMAL"
+        , "journal_mode = WAL"
+        , "locking_mode = EXCLUSIVE"
+            -- this is different from the prodcution database that uses @NORMAL@
+        , "temp_store = MEMORY"
+        , "auto_vacuum = NONE"
+        , "page_size = 1024"
+        ]
+
+    genesisBlock :: BlockHeader
+    genesisBlock = genesisBlockHeader testVer cid
+
+    -- | Creates an in-memory Payload database that is managed by the garbage
+    -- collector.
+    --
+    createPayloadDb :: IO (PayloadDb HashMapCas)
+    createPayloadDb = newPayloadDb
+
+    -- | This block header db is created on an isolated namespace within the
+    -- given RocksDb. There's no need to clean this up. It will be deleted
+    -- along with the RocksDb instance.
+    --
+    testBlockHeaderDb :: IO BlockHeaderDb
+    testBlockHeaderDb = do
+        prefix <- ("BlockHeaderDb" <>) . sshow <$> (randomIO @Word64)
+        let t = rdb { _rocksDbNamespace = prefix }
+        initBlockHeaderDb (Configuration genesisBlock t)
+
+-- | Mempool Access
+--
 testMemPoolAccess :: IORef Int -> MVar (Map Account (NonEmpty SomeKeyPairCaps)) -> IO MemPoolAccess
 testMemPoolAccess txsPerBlock accounts = do
   hs <- newIORef []
@@ -199,212 +372,14 @@ testMemPoolAccess txsPerBlock accounts = do
                       , PLiteral $ LString $ T.pack r
                       , PLiteral $ LDecimal m]
 
-playLine
-    :: PayloadDb HashMapCas
-    -> BlockHeaderDb
-    -> Word64
-    -> BlockHeader
-    -> PactQueue
-    -> IORef Word64
-    -> IO [T3 ParentHeader BlockHeader PayloadWithOutputs]
-playLine  pdb bhdb trunkLength startingBlock rr =
-    mineLine startingBlock trunkLength
-  where
-    mineLine :: BlockHeader -> Word64 -> IORef Word64 -> IO [T3 ParentHeader BlockHeader PayloadWithOutputs]
-    mineLine start l ncounter =
-        evalStateT (runReaderT (mapM (const go) [startHeight :: Word64 .. startHeight + l - 1]) rr) start
-      where
-        startHeight :: Num a => a
-        startHeight = fromIntegral $ _blockHeight start
-        go = do
-            r <- ask
-            pblock <- gets ParentHeader
-            n <- liftIO $ Nonce <$> readIORef ncounter
-            ret@(T3 _ newblock _) <- liftIO $ mineBlock pblock n pdb bhdb r
-            liftIO $ modifyIORef' ncounter succ
-            put newblock
-            return ret
-
-mineBlock
-    :: ParentHeader
-    -> Nonce
-    -> PayloadDb HashMapCas
-    -> BlockHeaderDb
-    -> PactQueue
-    -> IO (T3 ParentHeader BlockHeader PayloadWithOutputs)
-mineBlock parent nonce pdb bhdb r = do
-
-     -- assemble block without nonce and timestamp
-     mv <- newBlock noMiner parent r
-
-     payload <- assertNotLeft =<< takeMVar mv
-
-     let creationTime = add second $ _blockCreationTime $ _parentHeader parent
-         bh = newBlockHeader
-              mempty
-              (_payloadWithOutputsPayloadHash payload)
-              nonce
-              creationTime
-              parent
-         work = WorkHeader
-            { _workHeaderBytes = BS.toShort $ runPut $ encodeBlockHeaderWithoutHash bh
-            , _workHeaderChainId = _chainId bh
-            , _workHeaderTarget = _blockTarget bh
-            }
-
-     T2 (SolvedWork newHeader) _ <- usePowHash testVer $ \(_ :: Proxy a) -> mine @a (_blockNonce bh) work
-
-     mv' <- validateBlock (newHeader { _blockCreationTime = creationTime}) (payloadWithOutputsToPayloadData payload) r
-
-     void $ assertNotLeft =<< takeMVar mv'
-
-     addNewPayload pdb payload
-
-     -- NOTE: this doesn't validate the block header, which is fine in this test case
-     unsafeInsertBlockHeaderDb bhdb newHeader
-
-     return $ T3 parent newHeader payload
-
-
-
-noMineBlock
-    :: Bool
-    -> ParentHeader
-    -> Nonce
-    -> PactQueue
-    -> IO (T3 ParentHeader BlockHeader PayloadWithOutputs)
-noMineBlock validate parent nonce r = do
-
-     -- assemble block without nonce and timestamp
-
-     mv <- newBlock noMiner parent r
-
-     payload <- assertNotLeft =<< takeMVar mv
-
-     let creationTime = add second $ _blockCreationTime $ _parentHeader parent
-     let bh = newBlockHeader
-              mempty
-              (_payloadWithOutputsPayloadHash payload)
-              nonce
-              creationTime
-              parent
-
-     when validate $ do
-       mv' <- validateBlock bh (payloadWithOutputsToPayloadData payload) r
-
-       void $ assertNotLeft =<< takeMVar mv'
-
-     return $ T3 parent bh payload
-
-
-data Resources
-  = Resources
-    { rocksDbAndDir :: !(FilePath, RocksDb)
-    , payloadDb :: !(PayloadDb HashMapCas)
-    , blockHeaderDb :: !BlockHeaderDb
-    , pactService :: !(Async (), PactQueue)
-    , mainTrunkBlocks :: ![T3 ParentHeader BlockHeader PayloadWithOutputs]
-    , coinAccounts :: !(MVar (Map Account (NonEmpty SomeKeyPairCaps)))
-    , nonceCounter :: !(IORef Word64)
-    , txPerBlock :: !(IORef Int)
-    , sqlEnv :: !SQLiteEnv
-    }
-
-type RunPactService =
-  [T3 ParentHeader BlockHeader PayloadWithOutputs]
-  -> PayloadDb HashMapCas
-  -> BlockHeaderDb
-  -> IORef Word64
-  -> PactQueue
-  -> IORef Int
-  -> C.Benchmark
-
-withResources :: Word64 -> LogLevel -> RunPactService -> C.Benchmark
-withResources trunkLength logLevel f = C.envWithCleanup create destroy unwrap
-  where
-
-    create = do
-        rocksDbAndDir <- createRocksResource
-        payloadDb <- createPayloadDb
-        blockHeaderDb <- testBlockHeaderDb (snd rocksDbAndDir) genesisBlock
-        coinAccounts <- newMVar mempty
-        nonceCounter <- newIORef 1
-        txPerBlock <- newIORef 10
-        sqlEnv <- openSQLiteConnection "" {- temporary SQLite db -} chainwebPragmas
-        mp <- testMemPoolAccess txPerBlock coinAccounts
-        pactService <-
-          startPact testVer logger blockHeaderDb payloadDb mp sqlEnv
-        mainTrunkBlocks <-
-          playLine payloadDb blockHeaderDb trunkLength genesisBlock (snd pactService) nonceCounter
-        return $ NoopNFData $ Resources {..}
-
-    destroy (NoopNFData (Resources {..})) = do
-      stopPact pactService
-      stopSqliteDb sqlEnv
-      destroyRocksResource rocksDbAndDir
-      destroyPayloadDb payloadDb
-
-    unwrap ~(NoopNFData (Resources {..})) =
-      f mainTrunkBlocks payloadDb blockHeaderDb nonceCounter (snd pactService) txPerBlock
-
-    pactQueueSize = 2000
-
-    logger = genericLogger logLevel T.putStrLn
-
-    startPact version l bhdb pdb mempool sqlEnv = do
-        reqQ <- newPactQueue pactQueueSize
-        a <- async $ initPactService version cid l reqQ mempool bhdb pdb sqlEnv defaultPactServiceConfig
-            { _pactBlockGasLimit = 150000
-            }
-
-        return (a, reqQ)
-
-    stopPact (a, _) = cancel a
+-- -------------------------------------------------------------------------- --
+-- Utils
 
 cid :: ChainId
 cid = someChainId testVer
 
 testVer :: ChainwebVersion
 testVer = FastTimedCPM petersonChainGraph
-
-genesisBlock :: BlockHeader
-genesisBlock = genesisBlockHeader testVer cid
-
-createRocksResource :: IO (FilePath, RocksDb)
-createRocksResource = do
-    sysdir <- getCanonicalTemporaryDirectory
-    dir <- createTempDirectory sysdir "chainweb-rocksdb-tmp"
-    rocks <- openRocksDb dir
-    return (dir, rocks)
-
-destroyRocksResource :: (FilePath, RocksDb) -> IO ()
-destroyRocksResource (dir, rocks) =  do
-    closeRocksDb rocks
-    destroyRocksDb dir
-    doesDirectoryExist dir >>= flip when (removeDirectoryRecursive dir)
-
-createPayloadDb :: IO (PayloadDb HashMapCas)
-createPayloadDb = newPayloadDb
-
-destroyPayloadDb :: PayloadDb HashMapCas -> IO ()
-destroyPayloadDb = const $ return ()
-
-testBlockHeaderDb
-    :: RocksDb
-    -> BlockHeader
-    -> IO BlockHeaderDb
-testBlockHeaderDb rdb h = do
-    rdb' <- testRocksDb "withTestBlockHeaderDb" rdb
-    initBlockHeaderDb (Configuration h rdb')
-
-testRocksDb
-    :: B.ByteString
-    -> RocksDb
-    -> IO RocksDb
-testRocksDb l = rocksDbNamespace (const prefix)
-  where
-    prefix = (<>) l . sshow <$> (randomIO @Word64)
-
 
 assertNotLeft :: (MonadThrow m, Exception e) => Either e a -> m a
 assertNotLeft (Left l) = throwM l

@@ -678,7 +678,7 @@ allocationTest iot nio = testCaseSteps "genesis allocation tests" $ \step -> do
       $ M.fromList
         [ (FieldKey "account", PLiteral $ LString "allocation00")
         , (FieldKey "balance", PLiteral $ LDecimal 1_099_995.84) -- balance = (1k + 1mm) - gas
-        , (FieldKey "guard", PGuard $ GKeySetRef (KeySetName "allocation00"))
+        , (FieldKey "guard", PGuard $ GKeySetRef (KeySetName "allocation00" Nothing))
         ]
 
     ttl = 2 * 24 * 60 * 60
@@ -703,7 +703,7 @@ allocationTest iot nio = testCaseSteps "genesis allocation tests" $ \step -> do
       $ M.fromList
         [ (FieldKey "account", PLiteral $ LString "allocation02")
         , (FieldKey "balance", PLiteral $ LDecimal 1_099_995.13) -- 1k + 1mm - gas
-        , (FieldKey "guard", PGuard $ GKeySetRef (KeySetName "allocation02"))
+        , (FieldKey "guard", PGuard $ GKeySetRef (KeySetName "allocation02" Nothing))
         ]
 
 

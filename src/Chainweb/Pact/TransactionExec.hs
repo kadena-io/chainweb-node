@@ -42,12 +42,12 @@ module Chainweb.Pact.TransactionExec
 , publicMetaOf
 , networkIdOf
 , gasSupplyOf
-, gasPriceOf
 
   -- * Utilities
 , buildExecParsedCode
 , mkMagicCapSlot
 , listErrMsg
+, initialGasOf
 
 ) where
 
@@ -67,8 +67,9 @@ import qualified Data.ByteString.Short as SB
 import Data.Decimal (Decimal, roundTo)
 import Data.Default (def)
 import Data.Foldable (for_, traverse_, foldl')
+import Data.IORef
 import qualified Data.HashMap.Strict as HM
-import Data.Maybe (isJust)
+import Data.Maybe
 import qualified Data.Set as S
 import Data.Text (Text)
 import qualified Data.Text as T
@@ -138,6 +139,8 @@ applyCmd
     :: ChainwebVersion
     -> Logger
       -- ^ Pact logger
+    -> Maybe Logger
+      -- ^ Pact gas logger
     -> PactDbEnv p
       -- ^ Pact db environment
     -> Miner
@@ -148,12 +151,14 @@ applyCmd
       -- ^ tx metadata and parent header
     -> SPVSupport
       -- ^ SPV support (validates cont proofs)
-    -> Command PayloadWithText
+    -> Command (Payload PublicMeta ParsedCode)
       -- ^ command with payload to execute
+    -> Gas
+      -- ^ initial gas used
     -> ModuleCache
       -- ^ cached module state
     -> IO (T2 (CommandResult [TxLog Value]) ModuleCache)
-applyCmd v logger pdbenv miner gasModel txCtx spv cmdIn mcache0 =
+applyCmd v logger gasLogger pdbenv miner gasModel txCtx spv cmd initialGas mcache0 =
     second _txCache <$!>
       runTransactionM cenv txst applyBuyGas
   where
@@ -171,16 +176,16 @@ applyCmd v logger pdbenv miner gasModel txCtx spv cmdIn mcache0 =
           ++ enablePactModuleMemcheck txCtx
           ++ enablePact43 txCtx
           ++ enablePact431 txCtx
+          ++ enablePact44 txCtx
+          ++ enableNewTrans txCtx
         )
 
-    cenv = TransactionEnv Transactional pdbenv logger (ctxToPublicData txCtx) spv nid gasPrice
+    cenv = TransactionEnv Transactional pdbenv logger gasLogger (ctxToPublicData txCtx) spv nid gasPrice
       requestKey (fromIntegral gasLimit) executionConfigNoHistory
 
-    cmd = payloadObj <$> cmdIn
     requestKey = cmdToRequestKey cmd
-    gasPrice = gasPriceOf cmd
-    gasLimit = gasLimitOf cmd
-    initialGas = initialGasOf (_cmdPayload cmdIn)
+    gasPrice = view cmdGasPrice cmd
+    gasLimit = view cmdGasLimit cmd
     nid = networkIdOf cmd
     currHeight = ctxCurrentBlockHeight txCtx
     isModuleNameFix = enableModuleNameFix v currHeight
@@ -254,6 +259,7 @@ applyGenesisCmd logger dbEnv spv cmd =
         { _txMode = Transactional
         , _txDbEnv = dbEnv
         , _txLogger = logger
+        , _txGasLogger = Nothing
         , _txPublicData = def
         , _txSpvSupport = spv
         , _txNetworkId = nid
@@ -265,6 +271,7 @@ applyGenesisCmd logger dbEnv spv cmd =
           , FlagDisablePact420
           , FlagDisableInlineMemCheck
           , FlagDisablePact43
+          , FlagDisablePact44
           ]
         }
     txst = TransactionState
@@ -327,8 +334,9 @@ applyCoinbase v logger dbEnv (Miner mid mks@(MinerKeys mk)) reward@(ParsedDecima
       enablePact420 txCtx ++
       enablePactModuleMemcheck txCtx ++
       enablePact43 txCtx ++
-      enablePact431 txCtx
-    tenv = TransactionEnv Transactional dbEnv logger (ctxToPublicData txCtx) noSPVSupport
+      enablePact431 txCtx ++
+      enablePact44 txCtx
+    tenv = TransactionEnv Transactional dbEnv logger Nothing (ctxToPublicData txCtx) noSPVSupport
            Nothing 0.0 rk 0 ec
     txst = TransactionState mc mempty 0 Nothing (_geGasModel freeGasEnv)
     initState = setModuleCache mc $ initCapabilities [magic_COINBASE]
@@ -343,7 +351,7 @@ applyCoinbase v logger dbEnv (Miner mid mks@(MinerKeys mk)) reward@(ParsedDecima
 
     go interp cexec = evalTransactionM tenv txst $! do
       cr <- catchesPactError $!
-        applyExec' interp cexec mempty chash managedNamespacePolicy
+        applyExec' 0 interp cexec mempty chash managedNamespacePolicy
 
       case cr of
         Left e
@@ -381,6 +389,8 @@ applyCoinbase v logger dbEnv (Miner mid mks@(MinerKeys mk)) reward@(ParsedDecima
 applyLocal
     :: Logger
       -- ^ Pact logger
+    -> Maybe Logger
+      -- ^ Pact gas logger
     -> PactDbEnv p
       -- ^ Pact db environment
     -> GasModel
@@ -394,7 +404,7 @@ applyLocal
     -> ModuleCache
     -> ExecutionConfig
     -> IO (CommandResult [TxLog Value])
-applyLocal logger dbEnv gasModel txCtx spv cmdIn mc execConfig =
+applyLocal logger gasLogger dbEnv gasModel txCtx spv cmdIn mc execConfig =
     evalTransactionM tenv txst go
   where
     cmd = payloadObj <$> cmdIn
@@ -402,9 +412,9 @@ applyLocal logger dbEnv gasModel txCtx spv cmdIn mc execConfig =
     nid = networkIdOf cmd
     chash = toUntypedHash $ _cmdHash cmd
     signers = _pSigners $ _cmdPayload cmd
-    gasPrice = gasPriceOf cmd
-    gasLimit = gasLimitOf cmd
-    tenv = TransactionEnv Local dbEnv logger (ctxToPublicData txCtx) spv nid gasPrice
+    gasPrice = view cmdGasPrice cmd
+    gasLimit = view cmdGasLimit cmd
+    tenv = TransactionEnv Local dbEnv logger gasLogger (ctxToPublicData txCtx) spv nid gasPrice
            rk (fromIntegral gasLimit) execConfig
     txst = TransactionState mc mempty 0 Nothing gasModel
     gas0 = initialGasOf (_cmdPayload cmdIn)
@@ -413,9 +423,9 @@ applyLocal logger dbEnv gasModel txCtx spv cmdIn mc execConfig =
       interp <- gasInterpreter gas0
       cr <- catchesPactError $! case m of
         Exec em ->
-          applyExec interp em signers chash managedNamespacePolicy
+          applyExec gas0 interp em signers chash managedNamespacePolicy
         Continuation cm ->
-          applyContinuation interp cm signers chash managedNamespacePolicy
+          applyContinuation gas0 interp cm signers chash managedNamespacePolicy
 
       case cr of
         Left e -> jsonErrorResult e "applyLocal"
@@ -441,7 +451,7 @@ readInitModules logger dbEnv txCtx =
     rk = RequestKey chash
     nid = Nothing
     chash = pactInitialHash
-    tenv = TransactionEnv Local dbEnv logger (ctxToPublicData txCtx) noSPVSupport nid 0.0
+    tenv = TransactionEnv Local dbEnv logger Nothing (ctxToPublicData txCtx) noSPVSupport nid 0.0
            rk 0 def
     txst = TransactionState mempty mempty 0 Nothing (_geGasModel freeGasEnv)
     interp = defaultInterpreter
@@ -449,7 +459,7 @@ readInitModules logger dbEnv txCtx =
     mkCmd = buildExecParsedCode (Just (v, h)) Nothing
     run msg cmd = do
       er <- catchesPactError $!
-        applyExec' interp cmd [] chash permissiveNamespacePolicy
+        applyExec' 0 interp cmd [] chash permissiveNamespacePolicy
       case er of
         Left e -> die $ msg <> ": failed: " <> sshow e
         Right r -> case _erOutput r of
@@ -524,8 +534,9 @@ applyUpgrades v cid height
       caches <- local (set txExecutionConfig execConfig) $ mapM applyTx txs
       return $ Just (HM.unions caches)
 
-    interp = initStateInterpreter $ installCoinModuleAdmin $
-      initCapabilities [mkMagicCapSlot "REMEDIATE"]
+    interp = initStateInterpreter
+        $ installCoinModuleAdmin
+        $ initCapabilities [mkMagicCapSlot "REMEDIATE"]
 
     applyTx tx = do
       infoLog $ "Running upgrade tx " <> sshow (_cmdHash tx)
@@ -602,9 +613,9 @@ runPayload cmd nsp = do
 
     case payload of
       Exec pm ->
-        applyExec interp pm signers chash nsp
+        applyExec g0 interp pm signers chash nsp
       Continuation ym ->
-        applyContinuation interp ym signers chash nsp
+        applyContinuation g0 interp ym signers chash nsp
 
   where
     signers = _pSigners $ _cmdPayload cmd
@@ -620,9 +631,9 @@ runGenesis
     -> TransactionM p (CommandResult [TxLog Value])
 runGenesis cmd nsp interp = case payload of
     Exec pm ->
-      applyExec interp pm signers chash nsp
+      applyExec 0 interp pm signers chash nsp
     Continuation ym ->
-      applyContinuation interp ym signers chash nsp
+      applyContinuation 0 interp ym signers chash nsp
   where
     signers = _pSigners $ _cmdPayload cmd
     chash = toUntypedHash $ _cmdHash cmd
@@ -631,15 +642,16 @@ runGenesis cmd nsp interp = case payload of
 -- | Execute an 'ExecMsg' and Return the result with module cache
 --
 applyExec
-    :: Interpreter p
+    :: Gas
+    -> Interpreter p
     -> ExecMsg ParsedCode
     -> [Signer]
     -> Hash
     -> NamespacePolicy
     -> TransactionM p (CommandResult [TxLog Value])
-applyExec interp em senderSigs hsh nsp = do
-    EvalResult{..} <- applyExec' interp em senderSigs hsh nsp
-    debug $ "gas logs: " <> sshow _erLogGas
+applyExec initialGas interp em senderSigs hsh nsp = do
+    EvalResult{..} <- applyExec' initialGas interp em senderSigs hsh nsp
+    for_ _erLogGas $ \gl -> gasLog $ "gas logs: " <> sshow gl
     logs <- use txLogs
     rk <- view txRequestKey
     -- applyExec enforces non-empty expression set so `last` ok
@@ -652,13 +664,14 @@ applyExec interp em senderSigs hsh nsp = do
 -- wrapping it up in a JSON result.
 --
 applyExec'
-    :: Interpreter p
+    :: Gas
+    -> Interpreter p
     -> ExecMsg ParsedCode
     -> [Signer]
     -> Hash
     -> NamespacePolicy
     -> TransactionM p EvalResult
-applyExec' interp (ExecMsg parsedCode execData) senderSigs hsh nsp
+applyExec' initialGas interp (ExecMsg parsedCode execData) senderSigs hsh nsp
     | null (_pcExps parsedCode) = throwCmdEx "No expressions found"
     | otherwise = do
 
@@ -669,6 +682,7 @@ applyExec' interp (ExecMsg parsedCode execData) senderSigs hsh nsp
           <&> disablePact420Natives pactFlags
           <&> disablePact43Natives pactFlags
           <&> disablePact431Natives pactFlags
+      setEnvGas initialGas eenv
 
       er <- liftIO $! evalExec interp eenv parsedCode
 
@@ -717,36 +731,51 @@ enablePact431 tc
     | chainweb215Pact After (ctxVersion tc) (ctxCurrentBlockHeight tc) = []
     | otherwise = [FlagDisablePact431]
 
+enablePact44 :: TxContext -> [ExecutionFlag]
+enablePact44 tc
+    | chainweb216Pact After (ctxVersion tc) (ctxCurrentBlockHeight tc) = []
+    | otherwise = [FlagDisablePact44]
+
+enableNewTrans :: TxContext -> [ExecutionFlag]
+enableNewTrans tc
+    | pact44NewTrans (ctxVersion tc) (ctxCurrentBlockHeight tc) = []
+    | otherwise = [FlagDisableNewTrans]
 
 -- | Execute a 'ContMsg' and return the command result and module cache
 --
 applyContinuation
-    :: Interpreter p
+    :: Gas
+    -> Interpreter p
     -> ContMsg
     -> [Signer]
     -> Hash
     -> NamespacePolicy
     -> TransactionM p (CommandResult [TxLog Value])
-applyContinuation interp cm senderSigs hsh nsp = do
-    EvalResult{..} <- applyContinuation' interp cm senderSigs hsh nsp
-    debug $ "gas logs: " <> sshow _erLogGas
+applyContinuation initialGas interp cm senderSigs hsh nsp = do
+    EvalResult{..} <- applyContinuation' initialGas interp cm senderSigs hsh nsp
+    for_ _erLogGas $ \gl -> gasLog $ "gas logs: " <> sshow gl
     logs <- use txLogs
     rk <- view txRequestKey
     -- last safe here because cont msg is guaranteed one exp
     return $! (CommandResult rk _erTxId (PactResult (Right (last _erOutput)))
       _erGas (Just logs) _erExec Nothing) _erEvents
 
+
+setEnvGas ::  Gas -> EvalEnv e -> TransactionM p ()
+setEnvGas initialGas = liftIO . views eeGas (`writeIORef` initialGas)
+
 -- | Execute a 'ContMsg' and return just eval result, not wrapped in a
 -- 'CommandResult' wrapper
 --
 applyContinuation'
-    :: Interpreter p
+    :: Gas
+    -> Interpreter p
     -> ContMsg
     -> [Signer]
     -> Hash
     -> NamespacePolicy
     -> TransactionM p EvalResult
-applyContinuation' interp cm@(ContMsg pid s rb d _) senderSigs hsh nsp = do
+applyContinuation' initialGas interp cm@(ContMsg pid s rb d _) senderSigs hsh nsp = do
 
     pactFlags <- asks _txExecutionConfig
 
@@ -754,6 +783,7 @@ applyContinuation' interp cm@(ContMsg pid s rb d _) senderSigs hsh nsp = do
           <&> disablePact40Natives pactFlags
           <&> disablePact420Natives pactFlags
           <&> disablePact43Natives pactFlags
+    setEnvGas initialGas eenv
 
     er <- liftIO $! evalContinuation interp eenv cm
 
@@ -791,7 +821,7 @@ buyGas isPactBackCompatV16 cmd (Miner mid mks) = go
           interp mc = Interpreter $ \_input ->
             put (initState mc) >> run (pure <$> eval buyGasTerm)
 
-      result <- applyExec' (interp mcache) buyGasCmd
+      result <- applyExec' 0 (interp mcache) buyGasCmd
         (_pSigners $ _cmdPayload cmd) bgHash managedNamespacePolicy
 
       case _erExec result of
@@ -874,7 +904,7 @@ redeemGas cmd = do
 
     fee <- gasSupplyOf <$> use txGasUsed <*> view txGasPrice
 
-    _crEvents <$> applyContinuation (initState mcache) (redeemGasCmd fee gid)
+    _crEvents <$> applyContinuation 0 (initState mcache) (redeemGasCmd fee gid)
       (_pSigners $ _cmdPayload cmd) (toUntypedHash $ _cmdHash cmd)
       managedNamespacePolicy
 
@@ -898,8 +928,8 @@ initCapabilities :: [CapSlot UserCapability] -> EvalState
 initCapabilities cs = set (evalCapabilities . capStack) cs def
 {-# INLINABLE initCapabilities #-}
 
-initStateInterpreter :: EvalState -> Interpreter p
-initStateInterpreter s = Interpreter $ (put s >>)
+initStateInterpreter :: EvalState -> Interpreter e
+initStateInterpreter s = Interpreter (put s >>)
 
 
 -- | Check whether the cost of running a tx is more than the allowed
@@ -926,24 +956,25 @@ checkTooBigTx initialGas gasLimit next onFail
 gasInterpreter :: Gas -> TransactionM db (Interpreter p)
 gasInterpreter g = do
     mc <- use txCache
+    logGas <- isJust <$> view txGasLogger
     return $ initStateInterpreter
-        $ set evalLogGas (Just [("GTxSize",g)]) -- enables gas logging
-        $ set evalGas g
+        $ set evalLogGas (guard logGas >> Just [("GTxSize",g)]) -- enables gas logging
         $ setModuleCache mc def
+
 
 -- | Initial gas charged for transaction size
 --   ignoring the size of a continuation proof, if present
 --
 initialGasOf :: PayloadWithText -> Gas
-initialGasOf cmd = gasFee
+initialGasOf payload = gasFee
   where
     feePerByte :: Rational = 0.01
 
     contProofSize =
-      case _pPayload (payloadObj cmd) of
+      case _pPayload (payloadObj payload) of
         Continuation (ContMsg _ _ _ _ (Just (ContProof p))) -> B.length p
         _ -> 0
-    txSize = SB.length (payloadBytes cmd) - contProofSize
+    txSize = SB.length (payloadBytes payload) - contProofSize
 
     costPerByte = fromIntegral txSize * feePerByte
     sizePenalty = txSizeAccelerationFee costPerByte
@@ -1019,8 +1050,7 @@ mkEvalEnv nsp msg = do
       <$> view (txGasLimit . to fromIntegral)
       <*> view txGasPrice
       <*> use txGasModel
-
-    return $ setupEvalEnv (_txDbEnv tenv) Nothing (_txMode tenv)
+    liftIO $ setupEvalEnv (_txDbEnv tenv) Nothing (_txMode tenv)
       msg initRefStore genv
       nsp (_txSpvSupport tenv) (_txPublicData tenv) (_txExecutionConfig tenv)
 
@@ -1084,6 +1114,13 @@ gasSupplyOf gas (GasPrice (ParsedDecimal gp)) = GasSupply (ParsedDecimal gs)
 toCoinUnit :: Decimal -> Decimal
 toCoinUnit = roundTo 12
 {-# INLINE toCoinUnit #-}
+
+gasLog :: Text -> TransactionM db ()
+gasLog m = do
+  l <- view txGasLogger
+  rk <- view txRequestKey
+  for_ l $ \logger ->
+    liftIO $! logLog logger "INFO" $! T.unpack m <> ": " <> show rk
 
 -- | Log request keys at DEBUG when successful
 --

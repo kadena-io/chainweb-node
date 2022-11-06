@@ -119,7 +119,7 @@ domainTableName :: Domain k v -> Utf8
 domainTableName = asStringUtf8
 
 convKeySetName :: KeySetName -> Utf8
-convKeySetName (KeySetName name) = toUtf8 name
+convKeySetName = toUtf8 . asString
 
 convModuleName
   :: Bool
@@ -252,17 +252,17 @@ chainwebPragmas =
   ]
 
 execMulti :: Traversable t => Database -> Utf8 -> t [SType] -> IO ()
-execMulti db q rows = do
-    stmt <- prepStmt db q
+execMulti db q rows = bracket (prepStmt db q) destroy $ \stmt -> do
     forM_ rows $ \row -> do
         reset stmt >>= checkError
         clearBindings stmt
         bindParams stmt row
         step stmt >>= checkError
-    finalize stmt >>= checkError
   where
     checkError (Left e) = void $ fail $ "error during batch insert: " ++ show e
     checkError (Right _) = return ()
+
+    destroy x = void (finalize x >>= checkError)
 
 withSqliteDb
     :: Logger logger

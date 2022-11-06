@@ -24,19 +24,20 @@ module Chainweb.Miner.Core
   , mine
   ) where
 
+import Control.Monad
+
 import Crypto.Hash.Algorithms (Blake2s_256)
 import Crypto.Hash.IO
 
 import qualified Data.ByteArray as BA
 import qualified Data.ByteString.Char8 as B
 import qualified Data.ByteString.Short as BS
-import Data.IORef (newIORef, readIORef, writeIORef)
 import Data.Proxy (Proxy(..))
 import Data.Word (Word64, Word8)
 
 import Foreign.Marshal.Alloc (allocaBytes)
 import Foreign.Ptr (Ptr, castPtr)
-import Foreign.Storable (peekElemOff, pokeByteOff)
+import Foreign.Storable (peekElemOff, pokeByteOff, sizeOf)
 
 import Servant.API
 
@@ -47,6 +48,7 @@ import Chainweb.Cut.Create
 import Chainweb.Difficulty
 import Chainweb.Time hiding (second)
 import Chainweb.Utils
+import Chainweb.Utils.Serialization
 import Chainweb.Version (ChainwebVersion(..))
 
 ---
@@ -86,20 +88,34 @@ usePowHash Development f = f $ Proxy @Blake2s_256
 usePowHash Testnet04 f = f $ Proxy @Blake2s_256
 usePowHash Mainnet01 f = f $ Proxy @Blake2s_256
 
--- | This Miner makes low-level assumptions about the chainweb protocol. It may
--- break if the protocol changes.
+-- -------------------------------------------------------------------------- --
+-- CPU Mining
 --
--- TODO: Check the chainweb version to make sure this function can handle the
--- respective version.
+-- ONLY USE FOR TESTING. BE CAREFUL ABOUT ONLY USING IT WITH HEADERS IN THE
+-- CORRECT FORMAT.
+
+noncePosition :: Int
+noncePosition = 278
+{-# INLINE noncePosition #-}
+
+timestampPosition :: Int
+timestampPosition = 8
+{-# INLINE timestampPosition #-}
+
+-- | CPU POW mining for chainweb.
+--
+-- See <https://github.com/kadena-io/chainweb-node/wiki/Block-Header-Binary-Encoding>
+-- for details about the encoding of 'WorkHeader'.
 --
 mine
   :: forall a
   . HashAlgorithm a
   => Nonce
   -> WorkHeader
-  -> IO (T2 SolvedWork Word64)
-mine orig@(Nonce o) work = do
-    nonces <- newIORef 0
+  -> IO SolvedWork
+mine orig work = do
+    when (bufSize < noncePosition + sizeOf (0 :: Word64)) $
+        error "Chainweb.Miner.Core.mine: Buffer is too small to receive the nonce"
     BA.withByteArray tbytes $ \trgPtr -> do
         !ctx <- hashMutableInit @a
         new <- BA.copy hbytes $ \buf ->
@@ -115,7 +131,7 @@ mine orig@(Nonce o) work = do
 
                         -- check whether the nonce meets the target
                         fastCheckTarget trgPtr (castPtr pow) >>= \case
-                            True -> Nothing <$ writeIORef nonces (nv - o)
+                            True -> return Nothing
                             False -> go1 (i - 1) (Nonce $ nv + 1)
 
                 -- outer loop
@@ -135,10 +151,9 @@ mine orig@(Nonce o) work = do
                 -- Start outer mining loop
                 t <- getCurrentTimeIntegral
                 go0 100000 t orig
-        solved <- runGet decodeSolvedWork new
-        T2 solved <$> readIORef nonces
+        runGetS decodeSolvedWork new
   where
-    tbytes = runPut $ encodeHashTarget (_workHeaderTarget work)
+    tbytes = runPutS $ encodeHashTarget (_workHeaderTarget work)
     hbytes = BS.fromShort $ _workHeaderBytes work
 
     bufSize :: Int
@@ -156,25 +171,33 @@ mine orig@(Nonce o) work = do
             hashInternalFinalize ctxPtr $ castPtr pow
     {-# INLINE hash #-}
 
--- | `injectNonce` makes low-level assumptions about the byte layout of a
--- hashed `BlockHeader`. If that layout changes, this functions need to be
--- updated. The assumption allows us to iterate on new nonces quickly.
+-- | Inject a nonce value into mining work header.
 --
 -- Recall: `Nonce` contains a `Word64`, and is thus 8 bytes long.
 --
 -- See also: https://github.com/kadena-io/chainweb-node/wiki/Block-Header-Binary-Encoding
 --
 injectNonce :: Nonce -> Ptr Word8 -> IO ()
-injectNonce (Nonce n) buf = pokeByteOff buf 278 n
+injectNonce (Nonce n) buf = pokeByteOff buf noncePosition n
 {-# INLINE injectNonce #-}
 
+-- | Inject a timestamp value into mining work header.
+--
+-- Updating the creation timestamp is optional for miners. More accurate block
+-- creation times improve the accuracy of difficulty adjustment, which is
+-- beneficial for miners. In particular it causes mining luck to more accurately
+-- reflect the hash rate of a miner.
+--
+-- See also: https://github.com/kadena-io/chainweb-node/wiki/Block-Header-Binary-Encoding
+--
 injectTime :: Time Micros -> Ptr Word8 -> IO ()
-injectTime t buf = pokeByteOff buf 8 $ encodeTimeToWord64 t
+injectTime t buf = pokeByteOff buf timestampPosition $ encodeTimeToWord64 t
 {-# INLINE injectTime #-}
 
 -- | `PowHashNat` interprets POW hashes as unsigned 256 bit integral numbers in
 -- little endian encoding, hence we compare against the target from the end of
 -- the bytes first, then move toward the front 8 bytes at a time.
+--
 fastCheckTarget :: Ptr Word64 -> Ptr Word64 -> IO Bool
 fastCheckTarget !trgPtr !powPtr =
     fastCheckTargetN 3 trgPtr powPtr >>= \case
@@ -198,6 +221,7 @@ fastCheckTarget !trgPtr !powPtr =
 -- sections (64 * 4 = 256).
 --
 -- This must never be called for @n >= 4@.
+--
 fastCheckTargetN :: Int -> Ptr Word64 -> Ptr Word64 -> IO Ordering
 fastCheckTargetN n trgPtr powPtr = compare
     <$> peekElemOff trgPtr n
