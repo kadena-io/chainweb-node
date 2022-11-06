@@ -405,7 +405,7 @@ jobs:
         os: ${{ matrix.os }}
         ghc: ${{ matrix.ghc }}
     - name: Run slow tests
-      timeout-minutes: 5
+      timeout-minutes: 20
       run: |
           ulimit -n 10000
           cwtool slow-tests
