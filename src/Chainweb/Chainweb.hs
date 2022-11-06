@@ -5,6 +5,7 @@
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE GADTs #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE MultiWayIf #-}
@@ -65,6 +66,7 @@ module Chainweb.Chainweb
 , chainwebConfig
 , chainwebServiceSocket
 , chainwebBackup
+, StartedChainweb(..)
 
 -- ** Mempool integration
 , ChainwebTransaction
@@ -92,6 +94,7 @@ module Chainweb.Chainweb
 , cutPruneChainDatabase
 , cutFetchTimeout
 , cutInitialBlockHeightLimit
+, cutFastForwardBlockHeightLimit
 , defaultCutConfig
 
 ) where
@@ -219,7 +222,7 @@ withChainweb
     -> FilePath
     -> FilePath
     -> Bool
-    -> (forall cas' . PayloadCasLookup cas' => Chainweb logger cas' -> IO ())
+    -> (StartedChainweb logger -> IO ())
     -> IO ()
 withChainweb c logger rocksDb pactDbDir backupDir resetDb inner =
     withPeerResources v (view configP2p confWithBootstraps) logger $ \logger' peer ->
@@ -324,6 +327,10 @@ validatingMempoolConfig cid v gl gp mv = Mempool.InMemConfig
            | ver /= Just v -> Left Mempool.InsertErrorMetadataMismatch
            | otherwise     -> Right tx
 
+data StartedChainweb logger
+    = forall cas. (PayloadCasLookup cas, Logger logger) => StartedChainweb !(Chainweb logger cas)
+    | Replayed !Cut !Cut
+
 -- Intializes all service chainweb components but doesn't start any networking.
 --
 withChainwebInternal
@@ -337,7 +344,7 @@ withChainwebInternal
     -> FilePath
     -> FilePath
     -> Bool
-    -> (forall cas' . PayloadCasLookup cas' => Chainweb logger cas' -> IO ())
+    -> (StartedChainweb logger -> IO ())
     -> IO ()
 withChainwebInternal conf logger peer serviceSock rocksDb pactDbDir backupDir resetDb inner = do
 
@@ -446,14 +453,28 @@ withChainwebInternal conf logger peer serviceSock rocksDb pactDbDir backupDir re
             --
             -- This is a consistency check that validates the blocks in the
             -- current cut. If it fails an exception is raised. Also, if it
-            -- takes long (why would it?) we want this to happen before we go
-            -- online.
+            -- takes long (for example, when doing a reset to a prior block
+            -- height) we want this to happen before we go online.
             --
-            logg Info "start synchronizing Pact DBs"
-            synchronizePactDb cs mCutDb
-            logg Info "finished synchronizing Pact DBs"
+            let
+                pactSyncChains =
+                    case _configSyncPactChains conf of
+                      Just syncChains | _configOnlySyncPact conf -> HM.filterWithKey (\k _ -> elem k syncChains) cs
+                      _ -> cs
+            logg Info "start synchronizing Pact DBs to initial cut"
+            initialCut <- _cut mCutDb
+            synchronizePactDb pactSyncChains initialCut
+            logg Info "finished synchronizing Pact DBs to initial cut"
 
-            unless (_configOnlySyncPact conf) $
+            if _configOnlySyncPact conf
+            then do
+                logg Info "start replaying Pact DBs to fast forward cut"
+                fastForwardCutDb mCutDb
+                newCut <- _cut mCutDb
+                synchronizePactDb pactSyncChains newCut
+                logg Info "finished replaying Pact DBs to fast forward cut"
+                inner $ Replayed initialCut newCut
+            else do
                 withPactData cs cuts $ \pactData -> do
                     logg Info "start initializing miner resources"
 
@@ -466,7 +487,7 @@ withChainwebInternal conf logger peer serviceSock rocksDb pactDbDir backupDir re
                         withMinerResources mLogger (_miningInNode mConf) cs mCutDb mc $ \m -> do
                             logg Info "finished initializing miner resources"
                             let !haddr = _peerConfigAddr $ _p2pConfigPeer $ _configP2p conf
-                            inner Chainweb
+                            inner $ StartedChainweb Chainweb
                                 { _chainwebHostAddress = haddr
                                 , _chainwebChains = cs
                                 , _chainwebCutResources = cuts
@@ -514,20 +535,17 @@ withChainwebInternal conf logger peer serviceSock rocksDb pactDbDir backupDir re
         { _cutDbParamsLogLevel = Info
         , _cutDbParamsTelemetryLevel = Info
         , _cutDbParamsInitialHeightLimit = _cutInitialBlockHeightLimit cutConf
+        , _cutDbParamsFastForwardHeightLimit = _cutFastForwardBlockHeightLimit cutConf
+        , _cutDbParamsReadOnly = _configOnlySyncPact conf
         }
       where
         cutConf = _configCuts conf
 
-    synchronizePactDb :: HM.HashMap ChainId (ChainResources logger) -> CutDb cas -> IO ()
-    synchronizePactDb cs cutDb = do
-        currentCut <- _cut cutDb
-        mapConcurrently_ syncOne $ mergeCutResources $ _cutMap currentCut
+    synchronizePactDb :: HM.HashMap ChainId (ChainResources logger) -> Cut -> IO ()
+    synchronizePactDb cs targetCut = do
+        mapConcurrently_ syncOne $
+            HM.intersectionWith (,) (_cutMap targetCut) cs
       where
-        mergeCutResources :: HM.HashMap ChainId b -> [(b, ChainResources logger)]
-        mergeCutResources c =
-            let f cid bh = (bh, fromJuste $ HM.lookup cid cs)
-            in map snd $ HM.toList $ HM.mapWithKey f c
-
         syncOne :: (BlockHeader, ChainResources logger) -> IO ()
         syncOne (bh, cr) = do
             let pact = _chainResPact cr
