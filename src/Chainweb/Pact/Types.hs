@@ -452,11 +452,8 @@ updateInitCache mc = get >>= \PactServiceState{..} -> do
     psInitCache .= case M.lookupLE pbh _psInitCache of
       Nothing -> M.singleton pbh mc
       Just (_,before)
-        | chainweb217Pact v pbh ->
-          -- If we're past the chainweb 2.17 fork height,
-          -- only return the coin contract in the module cache
-          let mc' = HM.filterWithKey (\k _ -> k == "coin") mc
-          in M.insert pbh mc' _psInitCache
+        | chainweb217Pact After v pbh || chainweb217Pact At v pbh->
+          M.insert pbh mc _psInitCache
         | otherwise -> M.insert pbh (HM.union mc before) _psInitCache
 
 -- | Convert context to datatype for Pact environment.

@@ -191,7 +191,7 @@ applyCmd v logger gasLogger pdbenv miner gasModel txCtx spv cmd initialGas mcach
     isModuleNameFix2 = enableModuleNameFix2 v currHeight
     isPactBackCompatV16 = pactBackCompat_v16 v currHeight
     chainweb213Pact' = chainweb213Pact (ctxVersion txCtx) (ctxCurrentBlockHeight txCtx)
-    chainweb217Pact' = chainweb217Pact (ctxVersion txCtx) (ctxCurrentBlockHeight txCtx)
+    chainweb217Pact' = chainweb217Pact After (ctxVersion txCtx) (ctxCurrentBlockHeight txCtx)
 
     toOldListErr pe = pe { peDoc = listErrMsg }
     isOldListErr = \case
@@ -454,6 +454,7 @@ readInitModules logger dbEnv txCtx
     -- cache purging everything but coin and its
     -- dependencies.
     chainweb217Pact' = chainweb217Pact
+      After
       (ctxVersion txCtx)
       (ctxCurrentBlockHeight txCtx)
 
@@ -531,6 +532,7 @@ applyUpgrades v cid height
      | pact4coin3Upgrade At v height = applyCoinV3
      | chainweb214Pact At v height = applyCoinV4
      | chainweb215Pact At v height = applyCoinV5
+     | chainweb217Pact At v height = filterModuleCache
      | otherwise = return Nothing
   where
     installCoinModuleAdmin = set (evalCapabilities . capModuleAdmin) $ S.singleton (ModuleName "coin" Nothing)
@@ -541,6 +543,10 @@ applyUpgrades v cid height
 
     applyCoinV4 = applyTxs coinV4Transactions []
     applyCoinV5 = applyTxs coinV5Transactions []
+
+    filterModuleCache = do
+      mc <- use txCache
+      pure $ Just $ HM.filterWithKey (\k _ -> k == "coin") mc
 
     applyTxs txsIO flags = do
       infoLog "Applying upgrade!"
