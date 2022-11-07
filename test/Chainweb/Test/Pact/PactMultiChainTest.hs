@@ -215,10 +215,20 @@ pact45UpgradeTest = do
   runToHeight 54
   runBlockTest
     [ PactTxTest (buildSimpleCmd "(enforce false 'hi)") $
-    assertTxFailure "Should fail with the error from the enforce" "hi"]
+        assertTxFailure "Should fail with the error from the enforce" "hi"
+    , PactTxTest (buildSimpleCmd "(enforce true (format  \"{}-{}\" [12345, 657859]))") $
+        assertTxGas "Enforce pre-fork evaluates the string with gas" 35
+    , PactTxTest (buildSimpleCmd "(enumerate 0 10) (str-to-list 'hi) (make-list 10 'hi)") $
+        assertTxGas "List functions pre-fork gas" 20
+    ]
   runBlockTest
     [ PactTxTest (buildSimpleCmd "(+ 1 \'clearlyanerror)") $
-      assertTxFailure "Should replace tx error with empty error" ""]
+      assertTxFailure "Should replace tx error with empty error" ""
+    , PactTxTest (buildSimpleCmd "(enforce true (format  \"{}-{}\" [12345, 657859]))") $
+        assertTxGas "Enforce post fork does not eval the string" 15
+    , PactTxTest (buildSimpleCmd "(enumerate 0 10) (str-to-list 'hi) (make-list 10 'hi)") $
+        assertTxGas "List functions post-fork change gas" 40
+    ]
   where
   buildSimpleCmd code = buildBasicGas 1000
       $ mkExec code
