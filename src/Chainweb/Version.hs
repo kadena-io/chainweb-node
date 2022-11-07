@@ -1009,10 +1009,9 @@ chainweb216Pact aoa v h = case aoa of
     go f _ = f 16
 
 -- | Pact changes for Chainweb 2.17
--- TODO: Fill in stub
 chainweb217Pact :: ChainwebVersion -> BlockHeight -> Bool
-chainweb217Pact Mainnet01 = const False -- 2022-02-26 00:00:00
-chainweb217Pact Testnet04 = const False -- 2022-02-25 00:00:00
+chainweb217Pact Mainnet01 = (>= 3_250_357) -- 2022-12-02 00:00:00+00:00
+chainweb217Pact Testnet04 = (>= 2_777_376) -- 2022-12-01 12:00:00+00:00
 chainweb217Pact Development = (>= 220)
 chainweb217Pact (FastTimedCPM g) | g == petersonChainGraph = (> 55)
 chainweb217Pact _ = const True

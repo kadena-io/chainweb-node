@@ -177,6 +177,7 @@ applyCmd v logger gasLogger pdbenv miner gasModel txCtx spv cmd initialGas mcach
           ++ enablePact43 txCtx
           ++ enablePact431 txCtx
           ++ enablePact44 txCtx
+          ++ enablePact45 txCtx
           ++ enableNewTrans txCtx
         )
 
@@ -193,6 +194,7 @@ applyCmd v logger gasLogger pdbenv miner gasModel txCtx spv cmd initialGas mcach
     isPactBackCompatV16 = pactBackCompat_v16 v currHeight
     chainweb213Pact' = chainweb213Pact (ctxVersion txCtx) (ctxCurrentBlockHeight txCtx)
     chainweb217Pact' = chainweb217Pact (ctxVersion txCtx) (ctxCurrentBlockHeight txCtx)
+    toEmptyPactError (PactError errty _ _ _) = PactError errty def [] mempty
 
     toOldListErr pe = pe { peDoc = listErrMsg }
     isOldListErr = \case
@@ -217,7 +219,7 @@ applyCmd v logger gasLogger pdbenv miner gasModel txCtx spv cmd initialGas mcach
       case cr of
         Left e
           | chainweb217Pact' -> do
-            r <- jsonErrorResult (PactError ArgsError def [] "") "tx failure for request key when running cmd"
+            r <- jsonErrorResult (toEmptyPactError e) "tx failure for request key when running cmd"
             redeemAllGas r
           | chainweb213Pact' || not (isOldListErr e) -> do
               r <- jsonErrorResult e "tx failure for request key when running cmd"
@@ -276,6 +278,7 @@ applyGenesisCmd logger dbEnv spv cmd =
           , FlagDisableInlineMemCheck
           , FlagDisablePact43
           , FlagDisablePact44
+          , FlagDisablePact45
           ]
         }
     txst = TransactionState
@@ -339,7 +342,8 @@ applyCoinbase v logger dbEnv (Miner mid mks@(MinerKeys mk)) reward@(ParsedDecima
       enablePactModuleMemcheck txCtx ++
       enablePact43 txCtx ++
       enablePact431 txCtx ++
-      enablePact44 txCtx
+      enablePact44 txCtx ++
+      enablePact45 txCtx
     tenv = TransactionEnv Transactional dbEnv logger Nothing (ctxToPublicData txCtx) noSPVSupport
            Nothing 0.0 rk 0 ec
     txst = TransactionState mc mempty 0 Nothing (_geGasModel freeGasEnv)
@@ -517,12 +521,12 @@ applyUpgrades v cid height
   where
     installCoinModuleAdmin = set (evalCapabilities . capModuleAdmin) $ S.singleton (ModuleName "coin" Nothing)
 
-    applyCoinV2 = applyTxs (upgradeTransactions v cid) [FlagDisableInlineMemCheck, FlagDisablePact43]
+    applyCoinV2 = applyTxs (upgradeTransactions v cid) [FlagDisableInlineMemCheck, FlagDisablePact43, FlagDisablePact45]
 
-    applyCoinV3 = applyTxs coinV3Transactions [FlagDisableInlineMemCheck, FlagDisablePact43]
+    applyCoinV3 = applyTxs coinV3Transactions [FlagDisableInlineMemCheck, FlagDisablePact43, FlagDisablePact45]
 
-    applyCoinV4 = applyTxs coinV4Transactions []
-    applyCoinV5 = applyTxs coinV5Transactions []
+    applyCoinV4 = applyTxs coinV4Transactions [FlagDisablePact45]
+    applyCoinV5 = applyTxs coinV5Transactions [FlagDisablePact45]
 
     applyTxs txsIO flags = do
       infoLog "Applying upgrade!"
@@ -739,6 +743,11 @@ enablePact44 :: TxContext -> [ExecutionFlag]
 enablePact44 tc
     | chainweb216Pact After (ctxVersion tc) (ctxCurrentBlockHeight tc) = []
     | otherwise = [FlagDisablePact44]
+
+enablePact45 :: TxContext -> [ExecutionFlag]
+enablePact45 tc
+    | chainweb217Pact (ctxVersion tc) (ctxCurrentBlockHeight tc) = []
+    | otherwise = [FlagDisablePact45]
 
 enableNewTrans :: TxContext -> [ExecutionFlag]
 enableNewTrans tc
