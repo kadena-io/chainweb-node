@@ -6,7 +6,6 @@
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE TupleSections #-}
 -- |
 -- Module      :  Chainweb.Pact.TransactionExec
 -- Copyright   :  Copyright © 2018 Kadena LLC.
@@ -513,6 +512,8 @@ readInitModules logger dbEnv txCtx
     -- Only load coin and its dependencies for chainweb >=2.17
     -- Note: no need to check if things are there, because this
     -- requires a block height that witnesses the invariant.
+    --
+    -- if this changes, we must change the filter in 'updateInitCache'
     goCw217 :: TransactionM p ModuleCache
     goCw217 = do
       coinDepCmd <- liftIO $ mkCmd "coin.MINIMUM_PRECISION"

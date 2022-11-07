@@ -15,6 +15,7 @@ import Control.Lens
 import Control.Monad
 import Control.Monad.IO.Class
 
+import Data.Foldable (for_)
 import Data.CAS.RocksDB
 import qualified Data.HashMap.Strict as HM
 import qualified Data.Map.Strict as M
@@ -65,7 +66,9 @@ type RewindPoint = (BlockHeader, PayloadWithOutputs)
 data RewindData = RewindData
   { afterV4 :: RewindPoint
   , beforeV4 :: RewindPoint
+  , afterCw217 :: RewindPoint
   , v3Cache :: HM.HashMap ModuleName (Maybe ModuleHash)
+  , cw217Cache :: HM.HashMap ModuleName (Maybe ModuleHash)
   } deriving Generic
 
 instance NFData RewindData
@@ -98,6 +101,12 @@ tests rdb =
         testCase "testRewindAfterFork" $ withPact' bdbio ioSqlEnv iom (testRewindAfterFork bdbio rewindDataM)
       , after AllSucceed "testRewindAfterFork" $
         testCase "testRewindBeforeFork" $ withPact' bdbio ioSqlEnv iom (testRewindBeforeFork bdbio rewindDataM)
+      , after AllSucceed "testRewindBeforeFork" $
+        testCase "testCw217" $ withPact' bdbio ioSqlEnv iom $
+          testCw217CoinOnly bdbio rewindDataM
+      , after AllSucceed "testCw217CoinOnly" $
+        testCase "testCw217Rewind" $ withPact' bdbio ioSqlEnv iom $
+          testCw217CoinOnlyRewind bdbio rewindDataM
       ]
   where
     label = "Chainweb.Test.Pact.ModuleCacheOnRestart"
@@ -137,7 +146,7 @@ testV3 iobdb rewindM = (go,grabAndSnapshotCache)
       void $ doNextCoinbase iobdb
       void $ doNextCoinbase iobdb
       hpwo <- doNextCoinbase iobdb
-      liftIO (rewindM >>= \rewind -> putMVar rewind $ RewindData hpwo hpwo mempty)
+      liftIO (rewindM >>= \rewind -> putMVar rewind $ RewindData hpwo hpwo hpwo mempty mempty)
     grabAndSnapshotCache ioa initCache = do
       rewindM >>= \rewind -> modifyMVar_ rewind $ \old -> pure $ old { v3Cache = justModuleHashes initCache }
       snapshotCache ioa initCache
@@ -189,6 +198,38 @@ testRewindBeforeFork iobdb rewindM = (go, checkLoadedCache)
           assertNoCacheMismatch v3c (justModuleHashes' d)
         _ -> assertFailure "Failed to lookup either block 4 or 5."
 
+testCw217CoinOnly
+    :: PayloadCasLookup cas
+    => IO TestBlockDb
+    -> IO (MVar RewindData)
+    -> CacheTest cas
+testCw217CoinOnly iobdb rewindM = (go, snapshotCache)
+  where
+    go = do
+      initPayloadState
+      liftIO rewindM >>= liftIO . readMVar >>= rewindToBlock . afterV4
+      doNextCoinbaseN_ 20 iobdb
+      afterCw217' <- doNextCoinbase iobdb
+      r <- liftIO rewindM
+      liftIO $ modifyMVar_ r $ \a -> pure $ a { afterCw217 = afterCw217' }
+
+testCw217CoinOnlyRewind
+    :: PayloadCasLookup cas
+    => IO TestBlockDb
+    -> IO (MVar RewindData)
+    -> CacheTest cas
+testCw217CoinOnlyRewind iobdb rewindM = (go, checkLoadedCache)
+  where
+    go = do
+      initPayloadState
+      liftIO rewindM >>= liftIO . readMVar >>= rewindToBlock . afterCw217
+      doNextCoinbaseN_ 20 iobdb
+
+    checkLoadedCache ioa initCache = do
+      a <- ioa >>= readMVar
+      print $ M.keys a
+      print $ M.keys initCache
+
 assertNoCacheMismatch
     :: HM.HashMap ModuleName (Maybe ModuleHash)
     -> HM.HashMap ModuleName (Maybe ModuleHash)
@@ -215,7 +256,16 @@ doNextCoinbase iobdb = do
       liftIO $ addTestBlockDb bdb (Nonce 0) (offsetBlockTime second) testChainId pwo
       nextH <- liftIO $ getParentTestBlockDb bdb testChainId
       valPWO <- execValidateBlock mempty nextH (payloadWithOutputsToPayloadData pwo)
+      liftIO . print . M.keys =<< use psInitCache
       return (nextH, valPWO)
+
+doNextCoinbaseN_
+    :: PayloadCasLookup cas
+    => Int
+    -> IO TestBlockDb
+    -> PactServiceM cas ()
+doNextCoinbaseN_ n iobdb = for_ [1..n] $ \_ ->
+    void $ doNextCoinbase iobdb
 
 -- | Interfaces can't be upgraded, but modules can, so verify hash in that case.
 justModuleHashes :: ModuleInitCache -> HM.HashMap ModuleName (Maybe ModuleHash)

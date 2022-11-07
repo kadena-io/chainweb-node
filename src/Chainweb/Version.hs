@@ -1015,7 +1015,7 @@ chainweb217Pact Mainnet01 = const False -- 2022-02-26 00:00:00
 chainweb217Pact Testnet04 = const False -- 2022-02-25 00:00:00
 chainweb217Pact Development = (>= 220)
 chainweb217Pact (FastTimedCPM g) | g == petersonChainGraph = (> 55)
-chainweb217Pact _ = const True
+chainweb217Pact _ = (> 20)
 
 -- -------------------------------------------------------------------------- --
 -- Header Validation Guards
