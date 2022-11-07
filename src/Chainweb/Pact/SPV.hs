@@ -1,4 +1,4 @@
-t{-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
