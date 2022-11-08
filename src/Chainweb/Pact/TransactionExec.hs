@@ -192,7 +192,7 @@ applyCmd v logger gasLogger pdbenv miner gasModel txCtx spv cmd initialGas mcach
     isModuleNameFix2 = enableModuleNameFix2 v currHeight
     isPactBackCompatV16 = pactBackCompat_v16 v currHeight
     chainweb213Pact' = chainweb213Pact (ctxVersion txCtx) (ctxCurrentBlockHeight txCtx)
-    chainweb217Pact' = chainweb217Pact (ctxVersion txCtx) (ctxCurrentBlockHeight txCtx)
+    chainweb217Pact' = chainweb217Pact After (ctxVersion txCtx) (ctxCurrentBlockHeight txCtx)
     toEmptyPactError (PactError errty _ _ _) = PactError errty def [] mempty
 
     toOldListErr pe = pe { peDoc = listErrMsg }
@@ -770,7 +770,7 @@ enablePact44 tc
 
 enablePact45 :: TxContext -> [ExecutionFlag]
 enablePact45 tc
-    | chainweb217Pact (ctxVersion tc) (ctxCurrentBlockHeight tc) = []
+    | chainweb217Pact After (ctxVersion tc) (ctxCurrentBlockHeight tc) = []
     | otherwise = [FlagDisablePact45]
 
 enableNewTrans :: TxContext -> [ExecutionFlag]
