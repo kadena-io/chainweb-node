@@ -191,7 +191,6 @@ applyCmd v logger gasLogger pdbenv miner gasModel txCtx spv cmd initialGas mcach
     isModuleNameFix2 = enableModuleNameFix2 v currHeight
     isPactBackCompatV16 = pactBackCompat_v16 v currHeight
     chainweb213Pact' = chainweb213Pact (ctxVersion txCtx) (ctxCurrentBlockHeight txCtx)
-    chainweb217Pact' = chainweb217Pact After (ctxVersion txCtx) (ctxCurrentBlockHeight txCtx)
 
     toOldListErr pe = pe { peDoc = listErrMsg }
     isOldListErr = \case
@@ -215,9 +214,6 @@ applyCmd v logger gasLogger pdbenv miner gasModel txCtx spv cmd initialGas mcach
       cr <- catchesPactError $! runPayload cmd managedNamespacePolicy
       case cr of
         Left e
-          | chainweb217Pact' -> do
-              r <- jsonErrorResult (PactError ArgsError def [] "") "tx failure for request key when running cmd"
-              redeemAllGas r
           | chainweb213Pact' || not (isOldListErr e) -> do
               r <- jsonErrorResult e "tx failure for request key when running cmd"
               redeemAllGas r
