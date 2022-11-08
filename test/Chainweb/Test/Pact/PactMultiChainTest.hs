@@ -1,5 +1,6 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TemplateHaskell #-}
@@ -49,6 +50,7 @@ import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.PactService
 import Chainweb.Pact.Service.Types
 import Chainweb.Pact.TransactionExec (listErrMsg)
+import Chainweb.Pact.Types (TxTimeout(..))
 import Chainweb.Payload
 import Chainweb.SPV.CreateProof
 import Chainweb.Test.Cut
@@ -109,22 +111,27 @@ tests = ScheduledTest testName go
   where
     testName = "Chainweb.Test.Pact.PactMultiChainTest"
     go = testGroup testName
-         [ multiChainTest freeGasModel "pact4coin3UpgradeTest" pact4coin3UpgradeTest
-         , multiChainTest freeGasModel "pact420UpgradeTest" pact420UpgradeTest
-         , multiChainTest freeGasModel "minerKeysetTest" minerKeysetTest
-         , multiChainTest getGasModel "chainweb213Test" chainweb213Test
-         , multiChainTest getGasModel "pact43UpgradeTest" pact43UpgradeTest
-         , multiChainTest getGasModel "pact431UpgradeTest" pact431UpgradeTest
-         , multiChainTest getGasModel "chainweb215Test" chainweb215Test
-         , multiChainTest getGasModel "chainweb216Test" chainweb216Test
-         , multiChainTest getGasModel "pact45UpgradeTest" pact45UpgradeTest
+         [ test generousConfig freeGasModel "pact4coin3UpgradeTest" pact4coin3UpgradeTest
+         , test generousConfig freeGasModel "pact420UpgradeTest" pact420UpgradeTest
+         , test generousConfig freeGasModel "minerKeysetTest" minerKeysetTest
+         , test timeoutConfig freeGasModel "txTimeoutTest" txTimeoutTest
+         , test generousConfig getGasModel "chainweb213Test" chainweb213Test
+         , test generousConfig getGasModel "pact43UpgradeTest" pact43UpgradeTest
+         , test generousConfig getGasModel "pact431UpgradeTest" pact431UpgradeTest
+         , test generousConfig getGasModel "chainweb215Test" chainweb215Test
+         , test generousConfig getGasModel "chainweb216Test" chainweb216Test
+         , test generousConfig getGasModel "pact45UpgradeTest" pact45UpgradeTest
          ]
       where
-        multiChainTest gasmodel tname f =
+          -- This is way more than what is used in production, but during testing
+          -- we can be generous.
+        generousConfig = defaultPactServiceConfig { _pactBlockGasLimit = 300_000 }
+        timeoutConfig = defaultPactServiceConfig { _pactBlockGasLimit = 100_000 }
+        test pactConfig gasmodel tname f =
           withDelegateMempool $ \dmpio -> testCase tname $
             withTestBlockDb testVersion $ \bdb -> do
               (iompa,mpa) <- dmpio
-              withWebPactExecutionService testVersion bdb mpa gasmodel $ \pact ->
+              withWebPactExecutionService testVersion pactConfig bdb mpa gasmodel $ \pact ->
                 runReaderT f $
                 MultiEnv bdb pact (return iompa) noMiner cid
 
@@ -149,6 +156,16 @@ minerKeysetTest = do
 
     badMiner = Miner (MinerId "miner") $ MinerKeys $ mkKeySet ["bad-bad-bad"] "keys-all"
 
+txTimeoutTest :: PactTestM ()
+txTimeoutTest = do
+  -- get access to `enumerate`
+  runToHeight 20
+  handle (\(TxTimeout _) -> return ()) $ do
+    runBlockTest 
+      -- deliberately time out in newblock
+      [PactTxTest (buildBasicGas 1000 $ mkExec' "(enumerate 0 999999999999)") (\_ -> assertFailure "tx succeeded")] 
+    liftIO $ assertFailure "block succeeded"
+  runToHeight 26
 
 chainweb213Test :: PactTestM ()
 chainweb213Test = do
