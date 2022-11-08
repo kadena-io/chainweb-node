@@ -1,5 +1,24 @@
 # `chainweb-node` Changelog
 
+## 2.16.1 (2022-11-07)
+
+This is a feature and bug-fix release. Upgrading is optional but recommended.
+
+To upgrade, pull the latest docker image or download the binary and restart the
+node.
+
+**NOTE**: This release upgrades the version of RocksDB. After upgrading to this
+version previous versions of chainweb-node will not be able to open the
+database.
+
+Changes:
+
+*   Upgrade RocksDB version (#1394)
+*   Support for partial replays (#1524)
+*   Allow enabling gas logs from configuration (#1525)
+*   Reduce volume of info level logging (#1526)
+*   Check file descriptor rlimit on startup (#1532)
+
 ## 2.16 (2022-08-23)
 
 This version replaces all previous versions. Any prior version will stop working
