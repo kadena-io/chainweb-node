@@ -525,7 +525,15 @@ readInitModules logger dbEnv txCtx
       void $ run "load modules" coinDepCmd
       use txCache
 
-
+-- | Apply (forking) upgrade transactions and module cache updates
+-- at a particular blockheight.
+--
+-- This is the place where we consistently /introduce/ new transactions
+-- into the blockchain along with module cache updates. The only other
+-- places are Pact Service startup and the
+-- empty-module-cache-after-initial-rewind case caught in 'execTransactions'
+-- which both hit the database.
+--
 applyUpgrades
   :: ChainwebVersion
   -> V.ChainId
