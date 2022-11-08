@@ -288,7 +288,7 @@ jobs:
 
     # dist cache
     # the cache-key forces uploading of cache at least once a day, which ensures that
-    # upstream depenency changes are captured regularly.
+    # upstream dependency changes are captured regularly.
     - name: Create date file for dist-newstyle cache key
       id: cache-date
       run: |
