@@ -1012,7 +1012,7 @@ chainweb216Pact aoa v h = case aoa of
 chainweb217Pact :: ChainwebVersion -> BlockHeight -> Bool
 chainweb217Pact Mainnet01 = (>= 3_250_357) -- 2022-12-02 00:00:00+00:00
 chainweb217Pact Testnet04 = (>= 2_777_376) -- 2022-12-01 12:00:00+00:00
-chainweb217Pact Development = (>= 220)
+chainweb217Pact Development = (>= 470)
 chainweb217Pact (FastTimedCPM g) | g == petersonChainGraph = (> 55)
 chainweb217Pact _ = const False
 
