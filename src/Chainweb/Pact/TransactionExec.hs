@@ -476,10 +476,7 @@ readInitModules logger dbEnv txCtx
     chash = pactInitialHash
     tenv = TransactionEnv Local dbEnv logger Nothing (ctxToPublicData txCtx) noSPVSupport nid 0.0
            rk 0 def tableMunger
-    tableMunger
-      | chainweb217Pact' = ucaseEncodeTableMunger
-      | otherwise = simpleTableMunger
-
+    tableMunger = mkTableMunger txCtx
     txst = TransactionState mempty mempty 0 Nothing (_geGasModel freeGasEnv)
     interp = defaultInterpreter
     die msg = throwM $ PactInternalError $ "readInitModules: " <> msg

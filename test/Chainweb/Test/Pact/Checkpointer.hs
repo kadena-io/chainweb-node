@@ -626,7 +626,7 @@ runCont cp (PactDbEnv' pactdbenv) pactId step = do
 
     h' = H.toUntypedHash (H.hash "" :: H.PactHash)
     cmdenv = TransactionEnv Transactional pactdbenv (_cpeLogger cp) Nothing def
-             noSPVSupport Nothing 0.0 (RequestKey h') 0 def ucaseEncodeTableMunger
+             noSPVSupport Nothing 0.0 (RequestKey h') 0 def simpleTableMunger
     cmdst = TransactionState mempty mempty 0 Nothing (_geGasModel freeGasEnv)
 
 -- -------------------------------------------------------------------------- --
