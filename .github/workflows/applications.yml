@@ -647,7 +647,7 @@ jobs:
         LABEL com.chainweb.docker.image.debug="${{ needs.config.outputs.debug }}"
         LABEL com.chainweb.docker.image.eventlog="${{ needs.config.outputs.eventlog }}"
         LABEL com.chainweb.docker.image.revision="${{ needs.config.outputs.git-sha-short }}"
-        RUN apt-get update && apt-get install -y ca-certificates libgflags-dev libsnappy-dev libtbb-dev zlib1g-dev liblz4-dev libbz2-dev libgflags-dev libzstd-dev locales && rm -rf /var/lib/apt/lists/* && locale-gen en_US.UTF-8 && update-locale LC_ALL=en_US.UTF-8 LANG=en_US.UTF-8
+        RUN apt-get update && apt-get install -y ca-certificates libgmp10 libssl1.1 libsnappy1v5 libtbb2 zlib1g liblz4-1 libbz2-1.0 libgflags2.2 zstd locales && rm -rf /var/lib/apt/lists/* && locale-gen en_US.UTF-8 && update-locale LC_ALL=en_US.UTF-8 LANG=en_US.UTF-8
         ENV LANG=en_US.UTF-8
         WORKDIR /chainweb
         COPY chainweb/chainweb-node .
