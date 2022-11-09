@@ -28,6 +28,8 @@ env:
   S3_ARTIFACT_BUCKET: kadena-cabal-cache
   S3_ARTIFACT_FOLDER: chainweb-node
 
+  USE_CABAL_CACHE: false
+
 jobs:
 
   # ########################################################################## #
@@ -125,14 +127,12 @@ jobs:
           "ghc": ["8.10.7", "9.0.2"],
           "cabal": ["3.8"],
           "os": ["ubuntu-20.04", "ubuntu-22.04"],
-          "cabalcache": ["false"],
           "use-freeze-file": ["false"],
           "include": [
             {
               "ghc": "8.10.7",
               "cabal": "3.8",
               "os" : "ubuntu-20.04",
-              "cabalcache": "false",
               "use-freeze-file": "true"
             }
           ]
@@ -323,7 +323,7 @@ jobs:
       run: |
         diff -w <(git show HEAD:cabal.project.freeze) cabal.project.freeze || true
     - name: Sync from cabal cache
-      if: matrix.cabalcache == 'true'
+      if: env.USE_CABAL_CACHE == 'true'
       uses: larskuhtz/cabal-cache-action@ecc751af6d31b3ed5a3b4aefdefd0ed6ef4cb414
       with:
         bucket: "kadena-cabal-cache"
