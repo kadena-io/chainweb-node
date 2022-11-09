@@ -83,10 +83,15 @@ can be found in [this repository](https://github.com/kadena-io/docker-compose-ch
 
 The following packages must be installed the on the host system:
 
-```bash
-sudo apt-get update
-apt-get install ca-certificates libgmp10 libssl1.1 libsnappy1v5 libtbb2 zlib1g liblz4-1 libbz2-1.0 libgflags2.2 zstd
-```
+*   ubuntu-20.04:
+    ```bash
+    apt-get install ca-certificates libgmp10 libssl1.1 libsnappy1v5 libtbb2 zlib1g liblz4-1 libbz2-1.0 libgflags2.2 zstd
+    ```
+
+*   ubuntu-22.04:
+    ```bash
+    apt-get install ca-certificates libgmp10 libssl1.1 libsnappy1v5 libtbb12 zlib1g liblz4-1 libbz2-1.0 libgflags2.2 zstd
+    ```
 
 Chainweb-node binaries for ubuntu-20.04 and ubuntu-22.04 can be found
 [here](https://github.com/kadena-io/chainweb-node/releases).
@@ -172,9 +177,9 @@ Bootstrap nodes must have public DNS names and a corresponding TLS certificate
 that is issued by a widely accepted CA (a minimum requirement is acceptance by
 the OpenSSL library).
 
-Operators of bootstrap nodes are expected be committed to guarantee long-term
-availability of the nodes. The list of builtin bootstrap nodes should be kept
-up-to-date and concise for each chainweb-node release.
+Operators of bootstrap nodes are expected to guarantee long-term availability of
+the nodes. The list of builtin bootstrap nodes should be kept up-to-date and
+concise for each chainweb-node release.
 
 If you like to have your node included as a bootstrap node please make a pull
 request that adds your node to [P2P.BootstrapNodes module](src/P2P/BootstrapNodes.hs).
@@ -289,15 +294,15 @@ For production scenarios we recommend that you use log-level `warn` or `error`.
 For trouble shooting or improved monitoring you can also use `info`.
 
 Once your node is running, go through the following checks to verify that you have a healthy node:
-* run the command in your terminal:
-```
-$ curl -sk "https://<public-ip>:<port>/chainweb/0.0/mainnet01/cut"
-```
-* navigate to this website on your browser: [https://yourPublicIp:port/chainweb/0.0/mainnet01/cut](https://yourPublicIp:port/chainweb/0.0/mainnet01/cut)
-* check logs for whether services are started
-* check if the node is receiving cuts
-* look for errors in the logs
-* look for warnings in the logs
+*   run the command in your terminal:
+    ```
+    $ curl -sk "https://<public-ip>:<port>/chainweb/0.0/mainnet01/cut"
+    ```
+*   navigate to this website on your browser: [https://yourPublicIp:port/chainweb/0.0/mainnet01/cut](https://yourPublicIp:port/chainweb/0.0/mainnet01/cut)
+*   check logs for whether services are started
+*   check if the node is receiving cuts
+*   look for errors in the logs
+*   look for warnings in the logs
 
 Usually, when a node is receiving and publishing cuts (i.e. block heights at every chain), it's working correctly.
 
