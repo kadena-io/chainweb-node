@@ -449,8 +449,7 @@ updateInitCache :: ModuleCache -> PactServiceM cas ()
 updateInitCache mc = get >>= \PactServiceState{..} -> do
     let bf 0 = 0
         bf h = succ h
-        ph = _parentHeader _psParentHeader
-        pbh = bf $ _blockHeight ph
+        pbh = bf . _blockHeight . _parentHeader $ _psParentHeader
 
     v <- view psVersion
 
