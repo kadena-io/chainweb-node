@@ -165,8 +165,7 @@ jobs:
   # Download Development Database for Testing
   #
   # Uploading artifacts is slow, but downloading is fast.
-  # For the development database that pays off. For the mainnet database
-  # the upload would take > 20 min.
+  # For the development database that pays off.
 
   sync-chain-db:
     name: Download test chain database
@@ -181,7 +180,7 @@ jobs:
     - name: Sync chain database from S3
       run: aws s3 sync "$DB_SNAPSHOT_URI" db/0/rocksDb --delete --exclude=LOCK
     - name: Store chain database as artifact
-      uses: actions/upload-artifact@v2
+      uses: actions/upload-artifact@v3
       with:
         name: chain-db-${{ matrix.chainwebVersion }}
         path: db
@@ -374,7 +373,7 @@ jobs:
         tar -C ./artifacts/ -czf "$ARTIFACTS_ARCHIVE" chainweb
         ls ./artifacts
     - name: Safe artifacts
-      uses: actions/upload-artifact@v2
+      uses: actions/upload-artifact@v3
       with:
         name: ${{ env.ARTIFACTS_NAME }}
         path: ${{ env.ARTIFACTS_ARCHIVE }}
@@ -395,7 +394,7 @@ jobs:
     steps:
     - uses: actions/checkout@v3
     - name: Download build artifacts
-      uses: actions/download-artifact@v2
+      uses: actions/download-artifact@v3
       with:
         name: ${{ env.ARTIFACTS_NAME }}
         path: .
@@ -428,7 +427,7 @@ jobs:
     steps:
     - uses: actions/checkout@v3
     - name: Download build artifacts
-      uses: actions/download-artifact@v2
+      uses: actions/download-artifact@v3
       with:
         name: ${{ env.ARTIFACTS_NAME }}
         path: .
@@ -460,12 +459,12 @@ jobs:
     steps:
     - uses: actions/checkout@v3
     - name: Download ${{ matrix.chainwebVersion }} chain database artifact
-      uses: actions/download-artifact@v2
+      uses: actions/download-artifact@v3
       with:
         name: chain-db-development
         path: db
     - name: Download build artifacts
-      uses: actions/download-artifact@v2
+      uses: actions/download-artifact@v3
       with:
         name: ${{ env.ARTIFACTS_NAME }}
         path: .
@@ -551,7 +550,7 @@ jobs:
     steps:
     - uses: actions/checkout@v3
     - name: Download build artifacts
-      uses: actions/download-artifact@v2
+      uses: actions/download-artifact@v3
       with:
         name: ${{ env.ARTIFACTS_NAME }}
         path: .
@@ -596,7 +595,7 @@ jobs:
       ARTIFACTS_NAME: chainweb-applications.${{ matrix.use-freeze-file }}.${{ matrix.ghc }}.${{ matrix.os }}
     steps:
     - name: Download build artifacts
-      uses: actions/download-artifact@v2
+      uses: actions/download-artifact@v3
       with:
         name: ${{ env.ARTIFACTS_NAME }}
         path: .
@@ -627,7 +626,7 @@ jobs:
 
     steps:
     - name: Get build artifacts
-      uses: actions/download-artifact@v2
+      uses: actions/download-artifact@v3
       with:
         name: ${{ env.ARTIFACTS_NAME }}
         path: .
