@@ -88,6 +88,7 @@ import Pact.Types.Hash as Pact
 import Pact.Types.KeySet
 import Pact.Types.Logger hiding (logError)
 import Pact.Types.PactValue
+import Pact.Types.Persistence
 import Pact.Types.Pretty
 import Pact.Types.RPC
 import Pact.Types.Runtime
@@ -181,7 +182,11 @@ applyCmd v logger gasLogger pdbenv miner gasModel txCtx spv cmd initialGas mcach
         )
 
     cenv = TransactionEnv Transactional pdbenv logger gasLogger (ctxToPublicData txCtx) spv nid gasPrice
-      requestKey (fromIntegral gasLimit) executionConfigNoHistory
+      requestKey (fromIntegral gasLimit) executionConfigNoHistory tableMunger
+
+    tableMunger
+      | chainweb217Pact' = ucaseEncodeTableMunger
+      | otherwise = simpleTableMunger
 
     requestKey = cmdToRequestKey cmd
     gasPrice = view cmdGasPrice cmd
@@ -279,6 +284,7 @@ applyGenesisCmd logger dbEnv spv cmd =
           , FlagDisablePact44
           , FlagDisablePact45
           ]
+        , _txTableMunger = simpleTableMunger
         }
     txst = TransactionState
         { _txCache = mempty
@@ -345,7 +351,7 @@ applyCoinbase v logger dbEnv (Miner mid mks@(MinerKeys mk)) reward@(ParsedDecima
       enablePact44 txCtx ++
       enablePact45 txCtx
     tenv = TransactionEnv Transactional dbEnv logger Nothing (ctxToPublicData txCtx) noSPVSupport
-           Nothing 0.0 rk 0 ec
+           Nothing 0.0 rk 0 ec simpleTableMunger
     txst = TransactionState mc mempty 0 Nothing (_geGasModel freeGasEnv)
     initState = setModuleCache mc $ initCapabilities [magic_COINBASE]
     rk = RequestKey chash
@@ -423,7 +429,7 @@ applyLocal logger gasLogger dbEnv gasModel txCtx spv cmdIn mc execConfig =
     gasPrice = view cmdGasPrice cmd
     gasLimit = view cmdGasLimit cmd
     tenv = TransactionEnv Local dbEnv logger gasLogger (ctxToPublicData txCtx) spv nid gasPrice
-           rk (fromIntegral gasLimit) execConfig
+           rk (fromIntegral gasLimit) execConfig ucaseEncodeTableMunger
     txst = TransactionState mc mempty 0 Nothing gasModel
     gas0 = initialGasOf (_cmdPayload cmdIn)
 
@@ -469,7 +475,11 @@ readInitModules logger dbEnv txCtx
     nid = Nothing
     chash = pactInitialHash
     tenv = TransactionEnv Local dbEnv logger Nothing (ctxToPublicData txCtx) noSPVSupport nid 0.0
-           rk 0 def
+           rk 0 def tableMunger
+    tableMunger
+      | chainweb217Pact' = ucaseEncodeTableMunger
+      | otherwise = simpleTableMunger
+
     txst = TransactionState mempty mempty 0 Nothing (_geGasModel freeGasEnv)
     interp = defaultInterpreter
     die msg = throwM $ PactInternalError $ "readInitModules: " <> msg
@@ -1098,6 +1108,7 @@ mkEvalEnv nsp msg = do
     liftIO $ setupEvalEnv (_txDbEnv tenv) Nothing (_txMode tenv)
       msg initRefStore genv
       nsp (_txSpvSupport tenv) (_txPublicData tenv) (_txExecutionConfig tenv)
+      (_txTableMunger tenv)
 
 -- | Managed namespace policy CAF
 --

@@ -59,6 +59,7 @@ module Chainweb.Pact.Types
   , txGasPrice
   , txRequestKey
   , txExecutionConfig
+  , txTableMunger
 
     -- * Transaction Execution Monad
   , TransactionM(..)
@@ -168,7 +169,7 @@ import Pact.Types.Command
 import Pact.Types.Gas
 import qualified Pact.Types.Logger as P
 import Pact.Types.Names
-import Pact.Types.Persistence (ExecutionMode, TxLog)
+import Pact.Types.Persistence (ExecutionMode, TxLog, TableMunger)
 import Pact.Types.Runtime (ExecutionConfig(..), ModuleData(..))
 import Pact.Types.SPV
 import Pact.Types.Term
@@ -254,6 +255,7 @@ data TransactionEnv db = TransactionEnv
     , _txRequestKey :: !RequestKey
     , _txGasLimit :: !Gas
     , _txExecutionConfig :: !ExecutionConfig
+    , _txTableMunger :: !TableMunger
     }
 makeLenses ''TransactionEnv
 
