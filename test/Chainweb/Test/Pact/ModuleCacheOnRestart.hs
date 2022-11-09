@@ -35,7 +35,6 @@ import Pact.Types.Term
 
 -- chainweb imports
 
-
 import Chainweb.BlockHeader
 import Chainweb.BlockHeader.Genesis
 import Chainweb.ChainId
