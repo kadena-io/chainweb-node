@@ -49,7 +49,7 @@ jobs:
       tag-suffix: ${{ steps.compile-flags.outputs.tag-suffix }}
     steps:
     - name: Checkout repository
-      uses: actions/checkout@v2.3.2
+      uses: actions/checkout@v3
     - name: Git revision infos
       id: git-info
       run: |
@@ -204,7 +204,7 @@ jobs:
     steps:
     # Setup
     - name: Checkout repository
-      uses: actions/checkout@v2
+      uses: actions/checkout@v3
       with:
         fetch-depth: 0
     # This only works if also the times of the cache are adjusted accordingly
@@ -393,7 +393,7 @@ jobs:
       fail-fast: false
       matrix: ${{ fromJson(needs.config.outputs.matrix) }}
     steps:
-    - uses: actions/checkout@v2
+    - uses: actions/checkout@v3
     - name: Download build artifacts
       uses: actions/download-artifact@v2
       with:
@@ -426,7 +426,7 @@ jobs:
       BENCH_FOLDER: chainweb-benchmark-results/${{ matrix.ghc }}/${{ matrix.os }}
       ARTIFACTS_NAME: chainweb-applications.${{ matrix.use-freeze-file }}.${{ matrix.ghc }}.${{ matrix.os }}
     steps:
-    - uses: actions/checkout@v2
+    - uses: actions/checkout@v3
     - name: Download build artifacts
       uses: actions/download-artifact@v2
       with:
@@ -458,7 +458,7 @@ jobs:
     env:
       ARTIFACTS_NAME: chainweb-applications.${{ matrix.use-freeze-file }}.${{ matrix.ghc }}.${{ matrix.os }}
     steps:
-    - uses: actions/checkout@v2
+    - uses: actions/checkout@v3
     - name: Download ${{ matrix.chainwebVersion }} chain database artifact
       uses: actions/download-artifact@v2
       with:
@@ -549,7 +549,7 @@ jobs:
       TEST_RESULT_FOLDER: chainweb-test-results/ghc-${{ matrix.ghc }}/${{ matrix.os }}
       ARTIFACTS_NAME: chainweb-applications.${{ matrix.use-freeze-file }}.${{ matrix.ghc }}.${{ matrix.os }}
     steps:
-    - uses: actions/checkout@v2
+    - uses: actions/checkout@v3
     - name: Download build artifacts
       uses: actions/download-artifact@v2
       with:
