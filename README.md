@@ -37,63 +37,16 @@ If you have additions or comments, please submit a pull request or raise an issu
 
 ## Installing Chainweb
 
-### Installing dependencies
-
-If you are using a docker image, you can ignore the reset of this sub-section.
-
-**Apt-based Linux distributions**
-
-If you are on Ubuntu, Debian, CentOS or any other Apt-based distribution, you
-will need to install rocksdb with the following command:
-
-```bash
-sudo apt-get update
-```
-
-```bash
-sudo apt-get install -y librocksdb-dev zlib1g-dev libtinfo-dev libsqlite3-dev libz3-dev
-```
-
-If this is not available, then please view the [Rocksdb](https://rocksdb.org/)
-site for alternative modes of installation.
-
-**Other Linux distributions**
-
-For all other distributions not using Apt (RHEL, Gentoo, Arch, etc), please
-consult your distro's repositories for `librocksdb5.8`, `tinfo`, `zlib`
-and install with its preferred package manager, or follow the alternative modes
-of installation described in [Rocksdb](https://rocksdb.org/).
-
-**Mac OSX**
-
-Using the `brew` package manager, issue the following commands to install Chainweb's dependencies
-
-```bash
-brew update
-brew install sqlite
-brew install rocksdb
-```
-
-### Installing Chainweb-node
-
 Minimal recommended hardware requirements for nodes are:
 
 * 2 CPU cores
 * 4 GB of RAM
-* 100 GB SSD or fast HDD
+* 250 GB SSD or fast HDD
 * Public IP address
 
 If the node is also used as API server for Pact or mining, rosetta, chainweb-data: 4 CPU cores and 8GB of RAM.
 
-Chainweb-node binaries for ubuntu-16.04, ubuntu-18.04 can be found
-[here](https://github.com/kadena-io/chainweb-node/releases).
-
-Download the archive for your system and extract the binaries and place them
-into a directory from where they can be executed.
-
-At this point, you are ready to [run a Chainweb node](#configuring-running-and-monitoring-the-health-of-a-chainweb-node)
-
-### Docker
+### Docker (all batteries included)
 
 A docker image is available from
 [here](https://hub.docker.com/r/kadena/chainweb-node) and can be used with
@@ -112,7 +65,38 @@ docker run -d -p 443:443 -v chainweb-db:target=/root/.local/share/chainweb-node/
 Further details can be found in the [README of the docker
 repository](https://hub.docker.com/r/kadena/chainweb-node).
 
-### Building from Source
+### Docker (bare metal)
+
+A docker image with just a bare chainweb-node binary and its dependencies is
+available at `ghcr.io/kadena-io/chainweb-node/ubuntu:latest`. It is up to the
+user to setup and manage the database and configure the node to their needs.
+
+```sh
+docker run -p 1789:1789 -p 80:80 --entrypoint=/chainweb/chainweb-node ghcr.io/kadena-io/chainweb-node/ubuntu:latest --help
+docker run -p 1789:1789 -p 80:80 --entrypoint=/chainweb/chainweb-node ghcr.io/kadena-io/chainweb-node/ubuntu:latest --print-config
+```
+
+Examples for running docker compose setups for chainweb-node for different usage scenarios
+can be found in [this repository](https://github.com/kadena-io/docker-compose-chainweb-node).
+
+### Ubuntu Linux
+
+The following packages must be installed the on the host system:
+
+```bash
+sudo apt-get update
+apt-get install ca-certificates libgmp10 libssl1.1 libsnappy1v5 libtbb2 zlib1g liblz4-1 libbz2-1.0 libgflags2.2 zstd
+```
+
+Chainweb-node binaries for ubuntu-20.04 and ubuntu-22.04 can be found
+[here](https://github.com/kadena-io/chainweb-node/releases).
+
+Download the archive for your system and extract the binaries and place them
+into a directory from where they can be executed.
+
+At this point, you are ready to [run a Chainweb node](#configuring-running-and-monitoring-the-health-of-a-chainweb-node)
+
+## Building from Source
 
 *IMPORTANT NODE: We recommend the use of officially released chainweb-node
 binaries or docker images, which can be found in the
@@ -128,14 +112,21 @@ Chainweb is a [Haskell](https://www.haskell.org/) project. After cloning the
 code with git from this GitHub repository the chainweb-node application can be
 built as follows.
 
-#### Building with Cabal
+### Building with Cabal
 
 In order to build with `cabal` you have to install `ghc-8.10.7` (Haskell compiler)
 and `cabal >= 3.0` (Haskell build-tool)
 
 *   [Linux / Mac](https://www.haskell.org/ghcup/)
 
-You may also need to install `zlib`, `openssl`, `rocksdb`, and `sqlite`.
+You need to install the development versions of the following libraries:
+`gflags`, `snappy`, `tbb`, `zlib`, `lz4`, `bz2`, `zstd`.
+
+On apt based distribution these can be installed as follows:
+
+```
+apt-get install ca-certificates libssl-dev libgmp-dev libsnappy-dev libtbb-dev zlib1g-dev liblz4-dev libbz2-dev libgflags-dev libzstd-dev
+```
 
 To build a `chainweb-node` binary:
 
@@ -153,7 +144,7 @@ To install a runnable binary to `~/.cabal/bin/`:
 cabal install
 ```
 
-#### Building with Nix
+### Building with Nix
 
 Another way to build and run chainweb is to use the Nix package manager which
 has binary caching capabilities that allow you to download pre-built binaries
@@ -320,7 +311,7 @@ $ curl -sk https://<bootstrap-node-url>/chainweb/0.0/mainnet01/cut | jq '.height
 
 ## Mine for a Chainweb Network
 
-Successful mining on mainnet requires specialized hardware (ASIC). The setup for solo mining involves running a chainweb-node with a configuration that enables mining and a [chainweb-mining-client](https://github.com/kadena-io/chainweb-mining-client/) that connects to the mining API of a chainweb-node and provides a Stratum API for the mining hardware (ASIC). 
+Successful mining on mainnet requires specialized hardware (ASIC). The setup for solo mining involves running a chainweb-node with a configuration that enables mining and a [chainweb-mining-client](https://github.com/kadena-io/chainweb-mining-client/) that connects to the mining API of a chainweb-node and provides a Stratum API for the mining hardware (ASIC).
 
 Detailed instructions for setting up all the infrastructure needed to start
 mining using `docker compose` can be found in the documentation of [docker-compose-chainweb-node/mining-node](https://github.com/kadena-io/docker-compose-chainweb-node/tree/main/mining-node).
