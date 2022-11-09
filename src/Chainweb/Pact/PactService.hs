@@ -415,10 +415,7 @@ attemptBuyGas miner (PactDbEnv' dbEnv) txs = do
         let ec = P.mkExecutionConfig
               [ P.FlagDisableModuleInstall
               , P.FlagDisableHistoryInTransactionalMode ]
-            tm = if chainweb217Pact After (ctxVersion pd) (ctxCurrentBlockHeight pd)
-              then P.ucaseEncodeTableMunger
-              else P.simpleTableMunger
-
+            tm = mkTableMunger pd
         return $! TransactionEnv P.Transactional db l Nothing (ctxToPublicData pd) spv nid gp rk gl ec tm
       where
         !nid = networkIdOf cmd

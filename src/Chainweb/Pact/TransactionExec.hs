@@ -47,7 +47,7 @@ module Chainweb.Pact.TransactionExec
 , mkMagicCapSlot
 , listErrMsg
 , initialGasOf
-
+, mkTableMunger
 ) where
 
 import Control.DeepSeq
@@ -184,10 +184,7 @@ applyCmd v logger gasLogger pdbenv miner gasModel txCtx spv cmd initialGas mcach
     cenv = TransactionEnv Transactional pdbenv logger gasLogger (ctxToPublicData txCtx) spv nid gasPrice
       requestKey (fromIntegral gasLimit) executionConfigNoHistory tableMunger
 
-    tableMunger
-      | chainweb217Pact' = ucaseEncodeTableMunger
-      | otherwise = simpleTableMunger
-
+    tableMunger = mkTableMunger txCtx
     requestKey = cmdToRequestKey cmd
     gasPrice = view cmdGasPrice cmd
     gasLimit = view cmdGasLimit cmd
@@ -337,6 +334,7 @@ applyCoinbase v logger dbEnv (Miner mid mks@(MinerKeys mk)) reward@(ParsedDecima
     go interp cexec
   where
     chainweb213Pact' = chainweb213Pact v bh
+    tableMunger = mkTableMunger txCtx
     fork1_3InEffect = vuln797Fix v cid bh
     throwCritical = fork1_3InEffect || enfCBFailure
     ec = mkExecutionConfig $
@@ -351,7 +349,7 @@ applyCoinbase v logger dbEnv (Miner mid mks@(MinerKeys mk)) reward@(ParsedDecima
       enablePact44 txCtx ++
       enablePact45 txCtx
     tenv = TransactionEnv Transactional dbEnv logger Nothing (ctxToPublicData txCtx) noSPVSupport
-           Nothing 0.0 rk 0 ec simpleTableMunger
+           Nothing 0.0 rk 0 ec tableMunger
     txst = TransactionState mc mempty 0 Nothing (_geGasModel freeGasEnv)
     initState = setModuleCache mc $ initCapabilities [magic_COINBASE]
     rk = RequestKey chash
@@ -428,8 +426,10 @@ applyLocal logger gasLogger dbEnv gasModel txCtx spv cmdIn mc execConfig =
     signers = _pSigners $ _cmdPayload cmd
     gasPrice = view cmdGasPrice cmd
     gasLimit = view cmdGasLimit cmd
+    tableMunger = mkTableMunger txCtx
+
     tenv = TransactionEnv Local dbEnv logger gasLogger (ctxToPublicData txCtx) spv nid gasPrice
-           rk (fromIntegral gasLimit) execConfig ucaseEncodeTableMunger
+           rk (fromIntegral gasLimit) execConfig tableMunger
     txst = TransactionState mc mempty 0 Nothing gasModel
     gas0 = initialGasOf (_cmdPayload cmdIn)
 
@@ -1109,6 +1109,19 @@ mkEvalEnv nsp msg = do
       msg initRefStore genv
       nsp (_txSpvSupport tenv) (_txPublicData tenv) (_txExecutionConfig tenv)
       (_txTableMunger tenv)
+
+-- | Make a 'TableMunger' given a tx context.
+--
+-- As of Chainweb 2.17, we want to munge table names
+-- in a different manner than previously.
+--
+mkTableMunger :: TxContext -> TableMunger
+mkTableMunger txCtx
+    | chainweb217Pact After v h = ucaseEncodeTableMunger
+    | otherwise = simpleTableMunger
+  where
+    v = ctxVersion txCtx
+    h = ctxCurrentBlockHeight txCtx
 
 -- | Managed namespace policy CAF
 --
