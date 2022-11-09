@@ -162,7 +162,9 @@ applyCmd v logger gasLogger pdbenv miner gasModel txCtx spv cmd initialGas mcach
     second _txCache <$!>
       runTransactionM cenv txst applyBuyGas
   where
-    txst = TransactionState mcache0 mempty 0 Nothing (_geGasModel freeGasEnv)
+    txst = TransactionState mcache0 mempty 0 Nothing $
+      if chainweb217Pact' then gasModel
+      else _geGasModel freeGasEnv
 
     executionConfigNoHistory = mkExecutionConfig
       $ FlagDisableHistoryInTransactionalMode
@@ -178,8 +180,7 @@ applyCmd v logger gasLogger pdbenv miner gasModel txCtx spv cmd initialGas mcach
           ++ enablePact431 txCtx
           ++ enablePact44 txCtx
           ++ enablePact45 txCtx
-          ++ enableNewTrans txCtx
-        )
+          ++ enableNewTrans txCtx )
 
     cenv = TransactionEnv Transactional pdbenv logger gasLogger (ctxToPublicData txCtx) spv nid gasPrice
       requestKey (fromIntegral gasLimit) executionConfigNoHistory
@@ -213,7 +214,8 @@ applyCmd v logger gasLogger pdbenv miner gasModel txCtx spv cmd initialGas mcach
 
     applyPayload = do
       txGasModel .= gasModel
-      txGasUsed .= initialGas
+      if chainweb217Pact' then txGasUsed += initialGas
+      else txGasUsed .= initialGas
 
       cr <- catchesPactError $! runPayload cmd managedNamespacePolicy
       case cr of
@@ -227,7 +229,6 @@ applyCmd v logger gasLogger pdbenv miner gasModel txCtx spv cmd initialGas mcach
           | otherwise -> do
               r <- jsonErrorResult (toOldListErr e) "tx failure for request key when running cmd"
               redeemAllGas r
-        -- Left e ->
         Right r -> applyRedeem r
 
     applyRedeem cr = do
@@ -816,7 +817,8 @@ buyGas isPactBackCompatV16 cmd (Miner mid mks) = go
   where
     sender = view (cmdPayload . pMeta . pmSender) cmd
 
-    initState mc = setModuleCache mc $ initCapabilities [magic_GAS]
+    initState mc logGas =
+      set evalLogGas (guard logGas >> Just []) $ setModuleCache mc $ initCapabilities [magic_GAS]
 
     run input = do
       (findPayer isPactBackCompatV16 cmd) >>= \r -> case r of
@@ -829,10 +831,11 @@ buyGas isPactBackCompatV16 cmd (Miner mid mks) = go
     go = do
       mcache <- use txCache
       supply <- gasSupplyOf <$> view txGasLimit <*> view txGasPrice
+      logGas <- isJust <$> view txGasLogger
 
       let (buyGasTerm, buyGasCmd) = mkBuyGasTerm mid mks sender supply
-          interp mc = Interpreter $ \_input ->
-            put (initState mc) >> run (pure <$> eval buyGasTerm)
+          interp mc = Interpreter $ \_input -> do
+            put (initState mc logGas) >> run (pure <$> eval buyGasTerm)
 
       result <- applyExec' 0 (interp mcache) buyGasCmd
         (_pSigners $ _cmdPayload cmd) bgHash managedNamespacePolicy

@@ -161,9 +161,9 @@ txTimeoutTest = do
   -- get access to `enumerate`
   runToHeight 20
   handle (\(TxTimeout _) -> return ()) $ do
-    runBlockTest 
+    runBlockTest
       -- deliberately time out in newblock
-      [PactTxTest (buildBasicGas 1000 $ mkExec' "(enumerate 0 999999999999)") (\_ -> assertFailure "tx succeeded")] 
+      [PactTxTest (buildBasicGas 1000 $ mkExec' "(enumerate 0 999999999999)") (\_ -> assertFailure "tx succeeded")]
     liftIO $ assertFailure "block succeeded"
   runToHeight 26
 
@@ -242,11 +242,12 @@ pact45UpgradeTest = do
     [ PactTxTest (buildSimpleCmd "(+ 1 \'clearlyanerror)") $
       assertTxFailure "Should replace tx error with empty error" ""
     , PactTxTest (buildSimpleCmd "(enforce true (format  \"{}-{}\" [12345, 657859]))") $
-        assertTxGas "Enforce post fork does not eval the string" 15
+        assertTxGas "Enforce post fork does not eval the string" (15 + coinTxBuyTransferGas)
     , PactTxTest (buildSimpleCmd "(enumerate 0 10) (str-to-list 'hi) (make-list 10 'hi)") $
-        assertTxGas "List functions post-fork change gas" 40
+        assertTxGas "List functions post-fork change gas" (40 + coinTxBuyTransferGas)
     ]
   where
+  coinTxBuyTransferGas = 216
   buildSimpleCmd code = buildBasicGas 1000
       $ mkExec code
       $ mkKeySetData "k" [sender00]
