@@ -292,7 +292,7 @@ jobs:
     - name: Create date file for dist-newstyle cache key
       id: cache-date
       run: |
-        echo "value=$(date +%Y.%j)" >> GITHUB_OUTPUT
+        echo "value=$(date +%Y.%j)" >> $GITHUB_OUTPUT
     - uses: actions/cache@v3
       name: Cache dist-newstyle
       with:
