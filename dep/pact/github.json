@@ -1,8 +1,8 @@
 {
   "owner": "kadena-io",
   "repo": "pact",
-  "branch": "master",
+  "branch": "mlep/fix-table-mungers",
   "private": false,
-  "rev": "1afa7d24de6c42af55a7395ba853c84048e29141",
-  "sha256": "1202kvr7v8qgxqv2hcgr3q7vanydxcdlmx4cj60rg3dxb15hqpg5"
+  "rev": "91e429529861b88a36b5c960f1ffb00463da55d6",
+  "sha256": "1hs1s9myybifg1cfb660hmm8bxw2h1w9qhm4z0mglwfh9z2fha8f"
 }
