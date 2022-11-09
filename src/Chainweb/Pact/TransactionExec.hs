@@ -6,7 +6,6 @@
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-
 -- |
 -- Module      :  Chainweb.Pact.TransactionExec
 -- Copyright   :  Copyright © 2018 Kadena LLC.
@@ -193,7 +192,7 @@ applyCmd v logger gasLogger pdbenv miner gasModel txCtx spv cmd initialGas mcach
     isModuleNameFix2 = enableModuleNameFix2 v currHeight
     isPactBackCompatV16 = pactBackCompat_v16 v currHeight
     chainweb213Pact' = chainweb213Pact (ctxVersion txCtx) (ctxCurrentBlockHeight txCtx)
-    chainweb217Pact' = chainweb217Pact (ctxVersion txCtx) (ctxCurrentBlockHeight txCtx)
+    chainweb217Pact' = chainweb217Pact After (ctxVersion txCtx) (ctxCurrentBlockHeight txCtx)
     toEmptyPactError (PactError errty _ _ _) = PactError errty def [] mempty
 
     toOldListErr pe = pe { peDoc = listErrMsg }
@@ -324,6 +323,7 @@ applyCoinbase v logger dbEnv (Miner mid mks@(MinerKeys mk)) reward@(ParsedDecima
         mk
     let (cterm, cexec) = mkCoinbaseTerm mid mks reward
         interp = Interpreter $ \_ -> do put initState; fmap pure (eval cterm)
+
     go interp cexec
   | otherwise = do
     cexec <- mkCoinbaseCmd mid mks reward
@@ -450,9 +450,18 @@ readInitModules
     -> TxContext
       -- ^ tx metadata and parent header
     -> IO ModuleCache
-readInitModules logger dbEnv txCtx =
-    evalTransactionM tenv txst go
+readInitModules logger dbEnv txCtx
+    | chainweb217Pact' = evalTransactionM tenv txst goCw217
+    | otherwise = evalTransactionM tenv txst go
   where
+    -- guarding chainweb 2.17 here to allow for
+    -- cache purging everything but coin and its
+    -- dependencies.
+    chainweb217Pact' = chainweb217Pact
+      After
+      (ctxVersion txCtx)
+      (ctxCurrentBlockHeight txCtx)
+
     parent = _tcParentHeader txCtx
     v = _chainwebVersion parent
     h = _blockHeight (_parentHeader parent) + 1
@@ -505,8 +514,26 @@ readInitModules logger dbEnv txCtx =
       -- return loaded cache
       use txCache
 
+    -- Only load coin and its dependencies for chainweb >=2.17
+    -- Note: no need to check if things are there, because this
+    -- requires a block height that witnesses the invariant.
+    --
+    -- if this changes, we must change the filter in 'updateInitCache'
+    goCw217 :: TransactionM p ModuleCache
+    goCw217 = do
+      coinDepCmd <- liftIO $ mkCmd "coin.MINIMUM_PRECISION"
+      void $ run "load modules" coinDepCmd
+      use txCache
 
-
+-- | Apply (forking) upgrade transactions and module cache updates
+-- at a particular blockheight.
+--
+-- This is the place where we consistently /introduce/ new transactions
+-- into the blockchain along with module cache updates. The only other
+-- places are Pact Service startup and the
+-- empty-module-cache-after-initial-rewind case caught in 'execTransactions'
+-- which both hit the database.
+--
 applyUpgrades
   :: ChainwebVersion
   -> V.ChainId
@@ -517,6 +544,7 @@ applyUpgrades v cid height
      | pact4coin3Upgrade At v height = applyCoinV3
      | chainweb214Pact At v height = applyCoinV4
      | chainweb215Pact At v height = applyCoinV5
+     | chainweb217Pact At v height = filterModuleCache
      | otherwise = return Nothing
   where
     installCoinModuleAdmin = set (evalCapabilities . capModuleAdmin) $ S.singleton (ModuleName "coin" Nothing)
@@ -527,6 +555,10 @@ applyUpgrades v cid height
 
     applyCoinV4 = applyTxs coinV4Transactions [FlagDisablePact45]
     applyCoinV5 = applyTxs coinV5Transactions [FlagDisablePact45]
+
+    filterModuleCache = do
+      mc <- use txCache
+      pure $ Just $ HM.filterWithKey (\k _ -> k == "coin") mc
 
     applyTxs txsIO flags = do
       infoLog "Applying upgrade!"
@@ -746,7 +778,7 @@ enablePact44 tc
 
 enablePact45 :: TxContext -> [ExecutionFlag]
 enablePact45 tc
-    | chainweb217Pact (ctxVersion tc) (ctxCurrentBlockHeight tc) = []
+    | chainweb217Pact After (ctxVersion tc) (ctxCurrentBlockHeight tc) = []
     | otherwise = [FlagDisablePact45]
 
 enableNewTrans :: TxContext -> [ExecutionFlag]

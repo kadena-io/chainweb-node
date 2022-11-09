@@ -450,9 +450,15 @@ updateInitCache mc = get >>= \PactServiceState{..} -> do
     let bf 0 = 0
         bf h = succ h
         pbh = bf . _blockHeight . _parentHeader $ _psParentHeader
+
+    v <- view psVersion
+
     psInitCache .= case M.lookupLE pbh _psInitCache of
       Nothing -> M.singleton pbh mc
-      Just (_,before) -> M.insert pbh (HM.union mc before) _psInitCache
+      Just (_,before)
+        | chainweb217Pact After v pbh || chainweb217Pact At v pbh ->
+          M.insert pbh mc _psInitCache
+        | otherwise -> M.insert pbh (HM.union mc before) _psInitCache
 
 -- | Convert context to datatype for Pact environment.
 --
