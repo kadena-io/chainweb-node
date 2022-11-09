@@ -457,7 +457,7 @@ updateInitCache mc = get >>= \PactServiceState{..} -> do
     psInitCache .= case M.lookupLE pbh _psInitCache of
       Nothing -> M.singleton pbh mc
       Just (_,before)
-        | chainweb217Pact After v pbh || chainweb217Pact At v pbh->
+        | chainweb217Pact After v pbh || chainweb217Pact At v pbh ->
           M.insert pbh mc _psInitCache
         | otherwise -> M.insert pbh (HM.union mc before) _psInitCache
 
