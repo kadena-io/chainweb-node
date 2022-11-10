@@ -31,7 +31,9 @@ node.
 
 **NOTE**: This release upgrades the version of RocksDB. After upgrading to this
 version previous versions of chainweb-node will not be able to open the
-database.
+database. Additionally, when using the ubuntu binaries the set of required
+system dependencies changes. For details please see the [release
+nodes](https://github.com/kadena-io/chainweb-node/releases/tag/2.16.1).
 
 Changes:
 
