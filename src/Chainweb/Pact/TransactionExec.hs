@@ -6,7 +6,6 @@
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-
 -- |
 -- Module      :  Chainweb.Pact.TransactionExec
 -- Copyright   :  Copyright © 2018 Kadena LLC.
@@ -162,7 +161,9 @@ applyCmd v logger gasLogger pdbenv miner gasModel txCtx spv cmd initialGas mcach
     second _txCache <$!>
       runTransactionM cenv txst applyBuyGas
   where
-    txst = TransactionState mcache0 mempty 0 Nothing (_geGasModel freeGasEnv)
+    txst = TransactionState mcache0 mempty 0 Nothing $
+      if chainweb217Pact' then gasModel
+      else _geGasModel freeGasEnv
 
     executionConfigNoHistory = mkExecutionConfig
       $ FlagDisableHistoryInTransactionalMode
@@ -177,8 +178,8 @@ applyCmd v logger gasLogger pdbenv miner gasModel txCtx spv cmd initialGas mcach
           ++ enablePact43 txCtx
           ++ enablePact431 txCtx
           ++ enablePact44 txCtx
-          ++ enableNewTrans txCtx
-        )
+          ++ enablePact45 txCtx
+          ++ enableNewTrans txCtx )
 
     cenv = TransactionEnv Transactional pdbenv logger gasLogger (ctxToPublicData txCtx) spv nid gasPrice
       requestKey (fromIntegral gasLimit) executionConfigNoHistory
@@ -192,6 +193,8 @@ applyCmd v logger gasLogger pdbenv miner gasModel txCtx spv cmd initialGas mcach
     isModuleNameFix2 = enableModuleNameFix2 v currHeight
     isPactBackCompatV16 = pactBackCompat_v16 v currHeight
     chainweb213Pact' = chainweb213Pact (ctxVersion txCtx) (ctxCurrentBlockHeight txCtx)
+    chainweb217Pact' = chainweb217Pact After (ctxVersion txCtx) (ctxCurrentBlockHeight txCtx)
+    toEmptyPactError (PactError errty _ _ _) = PactError errty def [] mempty
 
     toOldListErr pe = pe { peDoc = listErrMsg }
     isOldListErr = \case
@@ -210,18 +213,21 @@ applyCmd v logger gasLogger pdbenv miner gasModel txCtx spv cmd initialGas mcach
 
     applyPayload = do
       txGasModel .= gasModel
-      txGasUsed .= initialGas
+      if chainweb217Pact' then txGasUsed += initialGas
+      else txGasUsed .= initialGas
 
       cr <- catchesPactError $! runPayload cmd managedNamespacePolicy
       case cr of
         Left e
+          | chainweb217Pact' -> do
+            r <- jsonErrorResult (toEmptyPactError e) "tx failure for request key when running cmd"
+            redeemAllGas r
           | chainweb213Pact' || not (isOldListErr e) -> do
               r <- jsonErrorResult e "tx failure for request key when running cmd"
               redeemAllGas r
           | otherwise -> do
               r <- jsonErrorResult (toOldListErr e) "tx failure for request key when running cmd"
               redeemAllGas r
-        -- Left e ->
         Right r -> applyRedeem r
 
     applyRedeem cr = do
@@ -272,6 +278,7 @@ applyGenesisCmd logger dbEnv spv cmd =
           , FlagDisableInlineMemCheck
           , FlagDisablePact43
           , FlagDisablePact44
+          , FlagDisablePact45
           ]
         }
     txst = TransactionState
@@ -317,6 +324,7 @@ applyCoinbase v logger dbEnv (Miner mid mks@(MinerKeys mk)) reward@(ParsedDecima
         mk
     let (cterm, cexec) = mkCoinbaseTerm mid mks reward
         interp = Interpreter $ \_ -> do put initState; fmap pure (eval cterm)
+
     go interp cexec
   | otherwise = do
     cexec <- mkCoinbaseCmd mid mks reward
@@ -335,7 +343,8 @@ applyCoinbase v logger dbEnv (Miner mid mks@(MinerKeys mk)) reward@(ParsedDecima
       enablePactModuleMemcheck txCtx ++
       enablePact43 txCtx ++
       enablePact431 txCtx ++
-      enablePact44 txCtx
+      enablePact44 txCtx ++
+      enablePact45 txCtx
     tenv = TransactionEnv Transactional dbEnv logger Nothing (ctxToPublicData txCtx) noSPVSupport
            Nothing 0.0 rk 0 ec
     txst = TransactionState mc mempty 0 Nothing (_geGasModel freeGasEnv)
@@ -442,9 +451,18 @@ readInitModules
     -> TxContext
       -- ^ tx metadata and parent header
     -> IO ModuleCache
-readInitModules logger dbEnv txCtx =
-    evalTransactionM tenv txst go
+readInitModules logger dbEnv txCtx
+    | chainweb217Pact' = evalTransactionM tenv txst goCw217
+    | otherwise = evalTransactionM tenv txst go
   where
+    -- guarding chainweb 2.17 here to allow for
+    -- cache purging everything but coin and its
+    -- dependencies.
+    chainweb217Pact' = chainweb217Pact
+      After
+      (ctxVersion txCtx)
+      (ctxCurrentBlockHeight txCtx)
+
     parent = _tcParentHeader txCtx
     v = _chainwebVersion parent
     h = _blockHeight (_parentHeader parent) + 1
@@ -497,8 +515,26 @@ readInitModules logger dbEnv txCtx =
       -- return loaded cache
       use txCache
 
+    -- Only load coin and its dependencies for chainweb >=2.17
+    -- Note: no need to check if things are there, because this
+    -- requires a block height that witnesses the invariant.
+    --
+    -- if this changes, we must change the filter in 'updateInitCache'
+    goCw217 :: TransactionM p ModuleCache
+    goCw217 = do
+      coinDepCmd <- liftIO $ mkCmd "coin.MINIMUM_PRECISION"
+      void $ run "load modules" coinDepCmd
+      use txCache
 
-
+-- | Apply (forking) upgrade transactions and module cache updates
+-- at a particular blockheight.
+--
+-- This is the place where we consistently /introduce/ new transactions
+-- into the blockchain along with module cache updates. The only other
+-- places are Pact Service startup and the
+-- empty-module-cache-after-initial-rewind case caught in 'execTransactions'
+-- which both hit the database.
+--
 applyUpgrades
   :: ChainwebVersion
   -> V.ChainId
@@ -509,16 +545,21 @@ applyUpgrades v cid height
      | pact4coin3Upgrade At v height = applyCoinV3
      | chainweb214Pact At v height = applyCoinV4
      | chainweb215Pact At v height = applyCoinV5
+     | chainweb217Pact At v height = filterModuleCache
      | otherwise = return Nothing
   where
     installCoinModuleAdmin = set (evalCapabilities . capModuleAdmin) $ S.singleton (ModuleName "coin" Nothing)
 
-    applyCoinV2 = applyTxs (upgradeTransactions v cid) [FlagDisableInlineMemCheck, FlagDisablePact43]
+    applyCoinV2 = applyTxs (upgradeTransactions v cid) [FlagDisableInlineMemCheck, FlagDisablePact43, FlagDisablePact45]
 
-    applyCoinV3 = applyTxs coinV3Transactions [FlagDisableInlineMemCheck, FlagDisablePact43]
+    applyCoinV3 = applyTxs coinV3Transactions [FlagDisableInlineMemCheck, FlagDisablePact43, FlagDisablePact45]
 
-    applyCoinV4 = applyTxs coinV4Transactions []
-    applyCoinV5 = applyTxs coinV5Transactions []
+    applyCoinV4 = applyTxs coinV4Transactions [FlagDisablePact45]
+    applyCoinV5 = applyTxs coinV5Transactions [FlagDisablePact45]
+
+    filterModuleCache = do
+      mc <- use txCache
+      pure $ Just $ HM.filterWithKey (\k _ -> k == "coin") mc
 
     applyTxs txsIO flags = do
       infoLog "Applying upgrade!"
@@ -736,6 +777,11 @@ enablePact44 tc
     | chainweb216Pact After (ctxVersion tc) (ctxCurrentBlockHeight tc) = []
     | otherwise = [FlagDisablePact44]
 
+enablePact45 :: TxContext -> [ExecutionFlag]
+enablePact45 tc
+    | chainweb217Pact After (ctxVersion tc) (ctxCurrentBlockHeight tc) = []
+    | otherwise = [FlagDisablePact45]
+
 enableNewTrans :: TxContext -> [ExecutionFlag]
 enableNewTrans tc
     | pact44NewTrans (ctxVersion tc) (ctxCurrentBlockHeight tc) = []
@@ -803,7 +849,8 @@ buyGas isPactBackCompatV16 cmd (Miner mid mks) = go
   where
     sender = view (cmdPayload . pMeta . pmSender) cmd
 
-    initState mc = setModuleCache mc $ initCapabilities [magic_GAS]
+    initState mc logGas =
+      set evalLogGas (guard logGas >> Just [("GBuyGas",0)]) $ setModuleCache mc $ initCapabilities [magic_GAS]
 
     run input = do
       (findPayer isPactBackCompatV16 cmd) >>= \r -> case r of
@@ -816,10 +863,11 @@ buyGas isPactBackCompatV16 cmd (Miner mid mks) = go
     go = do
       mcache <- use txCache
       supply <- gasSupplyOf <$> view txGasLimit <*> view txGasPrice
+      logGas <- isJust <$> view txGasLogger
 
       let (buyGasTerm, buyGasCmd) = mkBuyGasTerm mid mks sender supply
           interp mc = Interpreter $ \_input ->
-            put (initState mc) >> run (pure <$> eval buyGasTerm)
+            put (initState mc logGas) >> run (pure <$> eval buyGasTerm)
 
       result <- applyExec' 0 (interp mcache) buyGasCmd
         (_pSigners $ _cmdPayload cmd) bgHash managedNamespacePolicy
