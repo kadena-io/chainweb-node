@@ -20,7 +20,8 @@ node.
 
 Bug fixes:
 
-*   Filter Module Cache for Coin #1548
+*   Filter Module Cache for Coin. (#1548)
+*   Prevent table name clashes in module. (TODO)
 
 ## 2.16.1 (2022-11-07)
 
