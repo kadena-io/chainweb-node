@@ -517,7 +517,6 @@ test-suite chainweb-tests
         , directory >= 1.2
         , ethereum
         , exceptions
-        , filepath >= 1.4
         , hashable >= 1.3 && < 1.3.1
         , http-client >= 0.5
         , http-types >= 0.12
@@ -752,7 +751,6 @@ benchmark bench
         , merkle-log
         , mtl >= 2.2
         , pact
-        , rocksdb-haskell-kadena >= 1.1.0
         , random >= 1.2
         , text >= 1.2
         , vector >= 0.12.2
