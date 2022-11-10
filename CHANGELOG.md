@@ -16,7 +16,7 @@ node.
 *   Remove error messages from pact output for on-chain transactions (#1543)
 *   Implement a per-tx timeout during creation of new blocks prevent mining
     nodes from staling when block creation takes too long. (#1546)
-*   Miscellaneous changes for fine tuning of the gas model. (TODO)
+*   Miscellaneous changes for fine tuning of the gas model. (#1554)
 
 Bug fixes:
 
