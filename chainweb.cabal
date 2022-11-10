@@ -713,7 +713,6 @@ executable cwtool
     if flag(ed25519)
         cpp-options: -DWITH_ED25519=1
 
-
 benchmark bench
     import: warning-flags, debugging-flags
     default-language: Haskell2010
@@ -731,7 +730,12 @@ benchmark bench
         JSONEncoding
 
         -- From test
+        Chainweb.Test.HostAddress
         Chainweb.Test.Orphans.Internal
+        Chainweb.Test.Orphans.Pact
+        Chainweb.Test.Orphans.Time
+        P2P.Test.Orphans
+
     build-depends:
           Decimal >= 0.4.2
         , aeson >= 1.4.3
