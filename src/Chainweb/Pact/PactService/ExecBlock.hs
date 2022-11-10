@@ -52,6 +52,7 @@ import Data.Vector (Vector)
 import qualified Data.Vector as V
 
 import System.IO
+import System.Timeout
 
 import Prelude hiding (lookup)
 
@@ -80,10 +81,10 @@ import Chainweb.Pact.Types
 import Chainweb.Pact.Utils
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
+import Chainweb.Time
 import Chainweb.Transaction
 import Chainweb.Utils hiding (check)
 import Chainweb.Version
-
 
 -- | Set parent header in state and spv support (using parent hash)
 setParentHeader :: String -> ParentHeader -> PactServiceM cas ()
@@ -176,11 +177,11 @@ execBlock currHeader plData pdbenv = do
       then do
         -- GENESIS VALIDATE COINBASE: Reject bad coinbase, use date rule for precompilation
         execTransactions True m txs
-          (EnforceCoinbaseFailure True) (CoinbaseUsePrecompiled False) pdbenv blockGasLimit
+          (EnforceCoinbaseFailure True) (CoinbaseUsePrecompiled False) pdbenv blockGasLimit Nothing
       else do
         -- VALIDATE COINBASE: back-compat allow failures, use date rule for precompilation
         execTransactions False m txs
-          (EnforceCoinbaseFailure False) (CoinbaseUsePrecompiled False) pdbenv blockGasLimit
+          (EnforceCoinbaseFailure False) (CoinbaseUsePrecompiled False) pdbenv blockGasLimit Nothing
 
 throwOnGasFailure
     :: Transactions (Either GasPurchaseFailure a)
@@ -310,12 +311,13 @@ execTransactions
     -> CoinbaseUsePrecompiled
     -> PactDbEnv'
     -> Maybe P.Gas
+    -> Maybe Micros
     -> PactServiceM cas (Transactions (Either GasPurchaseFailure (P.CommandResult [P.TxLog A.Value])))
-execTransactions isGenesis miner ctxs enfCBFail usePrecomp (PactDbEnv' pactdbenv) gasLimit = do
+execTransactions isGenesis miner ctxs enfCBFail usePrecomp (PactDbEnv' pactdbenv) gasLimit timeLimit = do
     mc <- getCache
 
     coinOut <- runCoinbase isGenesis pactdbenv miner enfCBFail usePrecomp mc
-    txOuts <- applyPactCmds isGenesis pactdbenv ctxs miner mc gasLimit
+    txOuts <- applyPactCmds isGenesis pactdbenv ctxs miner mc gasLimit timeLimit
     return $! Transactions (V.zip ctxs txOuts) coinOut
   where
     getCache = get >>= \PactServiceState{..} -> do
@@ -335,12 +337,13 @@ execTransactionsOnly
     :: Miner
     -> Vector ChainwebTransaction
     -> PactDbEnv'
+    -> Maybe Micros
     -> PactServiceM cas
        (Vector (ChainwebTransaction, Either GasPurchaseFailure (P.CommandResult [P.TxLog A.Value])))
-execTransactionsOnly miner ctxs (PactDbEnv' pactdbenv) = do
+execTransactionsOnly miner ctxs (PactDbEnv' pactdbenv) txTimeLimit = do
     mc <- getInitCache
-    txOuts <- applyPactCmds False pactdbenv ctxs miner mc Nothing
-    return $! (V.zip ctxs txOuts)
+    txOuts <- applyPactCmds False pactdbenv ctxs miner mc Nothing txTimeLimit
+    return $! V.zip ctxs txOuts
 
 runCoinbase
     :: Bool
@@ -384,20 +387,22 @@ applyPactCmds
     -> Miner
     -> ModuleCache
     -> Maybe P.Gas
+    -> Maybe Micros
     -> PactServiceM cas (Vector (Either GasPurchaseFailure (P.CommandResult [P.TxLog A.Value])))
-applyPactCmds isGenesis env cmds miner mc blockGas = do
-    evalStateT (V.mapM (applyPactCmd isGenesis env miner) cmds) (T2 mc blockGas)
+applyPactCmds isGenesis env cmds miner mc blockGas txTimeLimit = do
+    evalStateT (V.mapM (applyPactCmd isGenesis env miner txTimeLimit) cmds) (T2 mc blockGas)
 
 applyPactCmd
   :: Bool
   -> P.PactDbEnv p
   -> Miner
+  -> Maybe Micros
   -> ChainwebTransaction
   -> StateT
       (T2 ModuleCache (Maybe P.Gas))
       (PactServiceM cas)
       (Either GasPurchaseFailure (P.CommandResult [P.TxLog A.Value]))
-applyPactCmd isGenesis env miner cmd = StateT $ \(T2 mcache maybeBlockGasRemaining) -> do
+applyPactCmd isGenesis env miner txTimeLimit cmd = StateT $ \(T2 mcache maybeBlockGasRemaining) -> do
   logger <- view psLogger
   gasLogger <- view psGasLogger
   gasModel <- view psGasModel
@@ -424,7 +429,13 @@ applyPactCmd isGenesis env miner cmd = StateT $ \(T2 mcache maybeBlockGasRemaini
       else do
         pd <- getTxContext (publicMetaOf gasLimitedCmd)
         spv <- use psSpvSupport
-        liftIO $! applyCmd v logger gasLogger env miner (gasModel pd) pd spv gasLimitedCmd initialGas mcache
+        let 
+          timeoutError = TxTimeout (requestKeyToTransactionHash $ P.cmdToRequestKey cmd)
+          txTimeout = case txTimeLimit of 
+            Nothing -> id
+            Just limit -> 
+               maybe (throwM timeoutError) return <=< timeout (fromIntegral limit)
+        liftIO $! txTimeout $ applyCmd v logger gasLogger env miner (gasModel pd) pd spv gasLimitedCmd initialGas mcache
 
     if isGenesis
     then updateInitCache mcache'
