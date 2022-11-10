@@ -517,7 +517,6 @@ test-suite chainweb-tests
         , directory >= 1.2
         , ethereum
         , exceptions
-        , filepath >= 1.4
         , hashable >= 1.3 && < 1.3.1
         , http-client >= 0.5
         , http-types >= 0.12
@@ -714,7 +713,6 @@ executable cwtool
     if flag(ed25519)
         cpp-options: -DWITH_ED25519=1
 
-
 benchmark bench
     import: warning-flags, debugging-flags
     default-language: Haskell2010
@@ -732,7 +730,12 @@ benchmark bench
         JSONEncoding
 
         -- From test
+        Chainweb.Test.HostAddress
         Chainweb.Test.Orphans.Internal
+        Chainweb.Test.Orphans.Pact
+        Chainweb.Test.Orphans.Time
+        P2P.Test.Orphans
+
     build-depends:
           Decimal >= 0.4.2
         , aeson >= 1.4.3
@@ -752,7 +755,6 @@ benchmark bench
         , merkle-log
         , mtl >= 2.2
         , pact
-        , rocksdb-haskell-kadena >= 1.1.0
         , random >= 1.2
         , text >= 1.2
         , vector >= 0.12.2
