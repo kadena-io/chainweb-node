@@ -161,9 +161,9 @@ txTimeoutTest = do
   -- get access to `enumerate`
   runToHeight 20
   handle (\(TxTimeout _) -> return ()) $ do
-    runBlockTest 
+    runBlockTest
       -- deliberately time out in newblock
-      [PactTxTest (buildBasicGas 1000 $ mkExec' "(enumerate 0 999999999999)") (\_ -> assertFailure "tx succeeded")] 
+      [PactTxTest (buildBasicGas 1000 $ mkExec' "(enumerate 0 999999999999)") (\_ -> assertFailure "tx succeeded")]
     liftIO $ assertFailure "block succeeded"
   runToHeight 26
 
@@ -234,22 +234,31 @@ pact45UpgradeTest = do
     [ PactTxTest (buildSimpleCmd "(enforce false 'hi)") $
         assertTxFailure "Should fail with the error from the enforce" "hi"
     , PactTxTest (buildSimpleCmd "(enforce true (format  \"{}-{}\" [12345, 657859]))") $
-        assertTxGas "Enforce pre-fork evaluates the string with gas" 35
+        assertTxGas "Enforce pre-fork evaluates the string with gas" 34
     , PactTxTest (buildSimpleCmd "(enumerate 0 10) (str-to-list 'hi) (make-list 10 'hi)") $
         assertTxGas "List functions pre-fork gas" 20
+    , PactTxTest (buildCoinXfer "(coin.transfer 'sender00 'sender01 1.0)") $
+        assertTxGas "Coin transfer pre-fork" 1583
     ]
   runBlockTest
     [ PactTxTest (buildSimpleCmd "(+ 1 \'clearlyanerror)") $
       assertTxFailure "Should replace tx error with empty error" ""
     , PactTxTest (buildSimpleCmd "(enforce true (format  \"{}-{}\" [12345, 657859]))") $
-        assertTxGas "Enforce post fork does not eval the string" 15
+        assertTxGas "Enforce post fork does not eval the string" (14 + coinTxBuyTransferGas)
     , PactTxTest (buildSimpleCmd "(enumerate 0 10) (str-to-list 'hi) (make-list 10 'hi)") $
-        assertTxGas "List functions post-fork change gas" 40
+        assertTxGas "List functions post-fork change gas" (40 + coinTxBuyTransferGas)
+    , PactTxTest (buildCoinXfer "(coin.transfer 'sender00 'sender01 1.0)") $
+        assertTxGas "Coin post-fork" 709
     ]
   where
-  buildSimpleCmd code = buildBasicGas 1000
-      $ mkExec code
-      $ mkKeySetData "k" [sender00]
+  buildCoinXfer code = buildBasic'
+    (set cbSigners [mkSigner' sender00 coinCaps] . set cbGasLimit 3000)
+    $ mkExec' code
+    where
+    coinCaps = [ mkGasCap, mkTransferCap "sender00" "sender01" 1.0 ]
+  coinTxBuyTransferGas = 216
+  buildSimpleCmd code = buildBasicGas 3000
+      $ mkExec' code
 
 pact43UpgradeTest :: PactTestM ()
 pact43UpgradeTest = do
@@ -987,10 +996,12 @@ buildBasic'
     :: (CmdBuilder -> CmdBuilder)
     -> PactRPC T.Text
     -> MempoolCmdBuilder
-buildBasic' s r = MempoolCmdBuilder $ \(MempoolInput _ bh) ->
-  s $ signSender00
+buildBasic' f r = MempoolCmdBuilder $ \(MempoolInput _ bh) ->
+  f $ signSender00
   $ setFromHeader bh
   $ mkCmd (sshow bh) r
+
+
 
 
 -- | Get output on latest cut for chain
