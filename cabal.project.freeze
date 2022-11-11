@@ -206,7 +206,7 @@ constraints: any.Boolean ==0.2.4,
              any.optparse-applicative ==0.17.0.0,
              optparse-applicative +process,
              any.pact ==4.4,
-             pact -build-tool +cryptonite-ed25519 +no-advice -with-integer-gmp,
+             pact -build-tool +cryptonite-ed25519 +no-advice -tests-in-lib -with-integer-gmp,
              any.pact-time ==0.2.0.1,
              pact-time -with-time,
              any.parallel ==3.2.2.0,
@@ -359,4 +359,4 @@ constraints: any.Boolean ==0.2.4,
              yet-another-logger -tbmqueue,
              any.zlib ==0.6.3.0,
              zlib -bundled-c-zlib -non-blocking-ffi -pkg-config
-index-state: hackage.haskell.org 2022-11-06T23:49:06Z
+index-state: hackage.haskell.org 2022-11-11T17:41:49Z
