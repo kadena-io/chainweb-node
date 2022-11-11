@@ -72,6 +72,7 @@ cid = someChainId testVersion
 data MultiEnv = MultiEnv
     { _menvBdb :: TestBlockDb
     , _menvPact :: WebPactExecutionService
+    , _menvPacts :: HM.HashMap ChainId PactExecutionService
     , _menvMpa :: IO (IORef MemPoolAccess)
     , _menvMiner :: Miner
     , _menvChainId :: ChainId
@@ -131,9 +132,9 @@ tests = ScheduledTest testName go
           withDelegateMempool $ \dmpio -> testCase tname $
             withTestBlockDb testVersion $ \bdb -> do
               (iompa,mpa) <- dmpio
-              withWebPactExecutionService testVersion pactConfig bdb mpa gasmodel $ \pact ->
+              withWebPactExecutionService testVersion pactConfig bdb mpa gasmodel $ \(pact,pacts) ->
                 runReaderT f $
-                MultiEnv bdb pact (return iompa) noMiner cid
+                MultiEnv bdb pact pacts (return iompa) noMiner cid
 
 
 minerKeysetTest :: PactTestM ()
@@ -229,7 +230,12 @@ chainweb213Test = do
 
 pact45UpgradeTest :: PactTestM ()
 pact45UpgradeTest = do
-  runToHeight 54
+  runToHeight 53 -- 2 before fork
+  runBlockTest
+    [ PactTxTest
+      (buildBasicGas 70000 $ tblModule "tbl") $
+      assertTxSuccess "mod53 table created" $ pString "TableCreated"
+    ]
   runBlockTest
     [ PactTxTest (buildSimpleCmd "(enforce false 'hi)") $
         assertTxFailure "Should fail with the error from the enforce" "hi"
@@ -237,9 +243,13 @@ pact45UpgradeTest = do
         assertTxGas "Enforce pre-fork evaluates the string with gas" 34
     , PactTxTest (buildSimpleCmd "(enumerate 0 10) (str-to-list 'hi) (make-list 10 'hi)") $
         assertTxGas "List functions pre-fork gas" 20
+    , PactTxTest
+      (buildBasicGas 70000 $ tblModule "Tbl") $
+      assertTxSuccess "mod53 table update succeeds" $ pString "TableCreated"
     , PactTxTest (buildCoinXfer "(coin.transfer 'sender00 'sender01 1.0)") $
         assertTxGas "Coin transfer pre-fork" 1583
     ]
+  -- chainweb217 fork
   runBlockTest
     [ PactTxTest (buildSimpleCmd "(+ 1 \'clearlyanerror)") $
       assertTxFailure "Should replace tx error with empty error" ""
@@ -247,10 +257,26 @@ pact45UpgradeTest = do
         assertTxGas "Enforce post fork does not eval the string" (14 + coinTxBuyTransferGas)
     , PactTxTest (buildSimpleCmd "(enumerate 0 10) (str-to-list 'hi) (make-list 10 'hi)") $
         assertTxGas "List functions post-fork change gas" (40 + coinTxBuyTransferGas)
+    , PactTxTest
+      (buildBasicGas 70000 $ tblModule "tBl") $
+      assertTxFailure "mod53 table update fails after fork" ""
     , PactTxTest (buildCoinXfer "(coin.transfer 'sender00 'sender01 1.0)") $
         assertTxGas "Coin post-fork" 709
     ]
+  -- run local to check error
+  lr <- runLocal cid $ set cbGasLimit 70000 $ mkCmd "nonce" (tblModule "tBl")
+  assertLocalFailure "mod53 table update error"
+    (pretty $ show $ PactDuplicateTableError "free.mod53_tBl")
+    lr
+
   where
+  tblModule tn = mkExec' $ T.replace "$TABLE$" tn
+      " (namespace 'free) \
+      \ (module mod53 G \
+      \   (defcap G () true) \
+      \   (defschema sch s:string) \
+      \   (deftable $TABLE$:{sch})) \
+      \ (create-table $TABLE$)"
   buildCoinXfer code = buildBasic'
     (set cbSigners [mkSigner' sender00 coinCaps] . set cbGasLimit 3000)
     $ mkExec' code
@@ -259,6 +285,22 @@ pact45UpgradeTest = do
   coinTxBuyTransferGas = 216
   buildSimpleCmd code = buildBasicGas 3000
       $ mkExec' code
+
+runLocal :: ChainId -> CmdBuilder -> PactTestM (Either PactException (CommandResult Hash))
+runLocal cid' cmd = do
+  HM.lookup cid' <$> view menvPacts >>= \case
+    Just pact -> buildCwCmd cmd >>= liftIO . _pactLocal pact
+    Nothing -> liftIO $ assertFailure $ "No pact service found at chain id " ++ show cid'
+
+assertLocalFailure
+    :: (HasCallStack, MonadIO m)
+    => String
+    -> Doc
+    -> Either PactException (CommandResult Hash)
+    -> m ()
+assertLocalFailure s d lr =
+  liftIO $ assertEqual s (Just d) $
+    lr ^? _Right . crResult . to _pactResult . _Left . to peDoc
 
 pact43UpgradeTest :: PactTestM ()
 pact43UpgradeTest = do
