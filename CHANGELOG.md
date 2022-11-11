@@ -13,14 +13,15 @@ node.
 
 [Changes](https://github.com/kadena-io/chainweb-node/compare/2.16.1...2.17):
 
-*   Remove error messages from pact output for on-chain transactions. (#1543)
-*   Implement a per-tx timeout during creation of new blocks prevent mining
-    nodes from staling when block creation takes too long. (#1546)
+*   Remove error messages from pact output for on-chain transactions. Dapps can 
+    still retrieve transaction error messages from the `local` endpoint. (#1543)
+*   Implement a per-tx timeout during creation of new blocks to prevent mining
+    nodes from stalling when block creation takes too long. (#1546)
 *   Miscellaneous changes for fine tuning of the gas model. (#1554)
 
 Bug fixes:
 
-*   Filter Module Cache for Coin. (#1548)
+*   Filter Module Cache for just `coin` contract. (#1548)
 *   Prevent table name clashes in module. (#1556)
 
 ## 2.16.1 (2022-11-07)
