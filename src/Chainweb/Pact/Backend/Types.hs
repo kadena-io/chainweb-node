@@ -62,6 +62,7 @@ module Chainweb.Pact.Backend.Types
     , bsPendingTx
     , bsModuleNameFix
     , bsSortedKeys
+    , bsLowerCaseTables
     , BlockEnv(..)
     , benvBlockState
     , benvDb
@@ -222,6 +223,7 @@ data BlockState = BlockState
     , _bsPendingTx :: !(Maybe SQLitePendingData)
     , _bsModuleNameFix :: Bool
     , _bsSortedKeys :: Bool
+    , _bsLowerCaseTables :: Bool
     }
     deriving Show
 
@@ -237,6 +239,7 @@ initBlockState initialBlockHeight = BlockState
     , _bsPendingTx = Nothing
     , _bsModuleNameFix = False
     , _bsSortedKeys = False
+    , _bsLowerCaseTables = False
     }
 
 makeLenses ''BlockState
