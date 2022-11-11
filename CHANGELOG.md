@@ -1,6 +1,6 @@
 # `chainweb-node` Changelog
 
-## 2.17 (2022-11-15)
+## 2.17 (2022-11-17)
 
 This version replaces all previous versions. Any prior version will stop working
 on **2022-12-01T00:00:00Z**. Node administrators must upgrade to this version
@@ -13,7 +13,7 @@ node.
 
 [Changes](https://github.com/kadena-io/chainweb-node/compare/2.16.1...2.17):
 
-*   Remove error messages from pact output for on-chain transactions (#1543)
+*   Remove error messages from pact output for on-chain transactions. (#1543)
 *   Implement a per-tx timeout during creation of new blocks prevent mining
     nodes from staling when block creation takes too long. (#1546)
 *   Miscellaneous changes for fine tuning of the gas model. (#1554)
@@ -21,7 +21,7 @@ node.
 Bug fixes:
 
 *   Filter Module Cache for Coin. (#1548)
-*   Prevent table name clashes in module. (TODO)
+*   Prevent table name clashes in module. (#1556)
 
 ## 2.16.1 (2022-11-07)
 
