@@ -5,6 +5,7 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 
 -- |
 -- Module: Chainweb.Pact.Backend.ChainwebPactDb
@@ -83,6 +84,7 @@ import Chainweb.Pact.Service.Types (PactException(..), internalError)
 import Chainweb.Version (ChainwebVersion, ChainId, genesisHeight)
 import Chainweb.Utils (encodeToByteString, sshow)
 import Chainweb.Utils.Serialization
+import Chainweb.Time
 
 tbl :: HasCallStack => Utf8 -> Utf8
 tbl t@(Utf8 b)
@@ -161,8 +163,13 @@ doReadRow d k = forModuleNameFix $ \mnFix ->
         -- First, check: did we create this table during this block? If so,
         -- there's no point in looking up the key.
         checkDbTableExists tableName
-        result <- lift $ callDb "doReadRow"
-                       $ \db -> qry db queryStmt [SText rowkey] [RBlob]
+        (result,l) <- lift $ callDb "doReadRow"
+                       $ \db -> do
+          (t0 :: Time Micros) <- getCurrentTimeIntegral
+          r <- qry db queryStmt [SText rowkey] [RBlob]
+          t1 <- getCurrentTimeIntegral
+          return (r,("read"::String,tableName,rowkey,diff t1 t0))
+        lift $ logDebug $ show l
         case result of
             [] -> mzero
             [[SBlob a]] -> MaybeT $ return $! decode $ fromStrict a

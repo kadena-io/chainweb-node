@@ -75,10 +75,10 @@ simulate (SimConfig dbDir parentBlockFile payloadFile txIdx cid ver) = do
                 txc = txContext parent cmd
             (PactDbEnv' pde) <- _cpRestore cp $ Just (succ (_blockHeight parent), _blockHash parent)
             mc <- readInitModules logger pde txc
-            ((Time (TimeSpan t0)) :: Time Micros) <- getCurrentTimeIntegral
+            (t0 :: Time Micros) <- getCurrentTimeIntegral
             (T2 !cr _mc) <- applyCmd ver logger gasLogger pde miner chainweb213GasModel txc noSPVSupport cmd (initGas cmdPwt) mc
-            (Time (TimeSpan t1)) <- getCurrentTimeIntegral
-            print ("Elapsed micros" :: String,(t1-t0))
+            t1 <- getCurrentTimeIntegral
+            logLog logger "DEBUG" $ show ("Elapsed micros" :: String,diff t1 t0)
             T.putStrLn (encodeToText cr)
 
 
@@ -107,7 +107,7 @@ simulateMain = do
         <*> strOption
              (short 'h'
               <> metavar "PARENT_HEADER"
-              <> help "Parent header, example: curl 'https://api.chainweb.com/chainweb/0.0/mainnet01/chain/2/header?maxheight=3195192&minheight=3195192'")
+              <> help "Parent header, example: curl 'https://api.chainweb.com/chainweb/0.0/mainnet01/chain/2/header?maxheight=3195192&minheight=3195192' -s | jq '.items[0]'")
         <*> strOption
              (short 'p'
               <> metavar "PAYLOAD"
