@@ -34,6 +34,7 @@ module Chainweb.Pact.PactService
     , initPactService'
     , execNewGenesisBlock
     , getGasModel
+    , chainweb213GasModel
     ) where
 
 import Control.Concurrent.Async
@@ -508,12 +509,12 @@ execNewBlock mpAccess parent miner = do
         blockGasLimit <- view psBlockGasLimit
         let initState = BlockFill blockGasLimit mempty 0
 
-        let 
+        let
             txTimeHeadroomFactor :: Double
             txTimeHeadroomFactor = 5
             -- 2.5 microseconds per unit gas
             txTimeLimit :: Micros
-            txTimeLimit = round $ (2.5 * txTimeHeadroomFactor) * fromIntegral blockGasLimit 
+            txTimeLimit = round $ (2.5 * txTimeHeadroomFactor) * fromIntegral blockGasLimit
 
         -- Heuristic: limit fetches to count of 1000-gas txs in block.
         let fetchLimit = fromIntegral $ blockGasLimit `div` 1000
