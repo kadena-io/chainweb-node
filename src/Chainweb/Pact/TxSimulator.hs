@@ -83,9 +83,9 @@ simulate (SimConfig dbDir parentBlockFile payloadFile txIdx cid ver) = do
 
 
   where
-    cwLogger = genericLogger Info T.putStrLn
+    cwLogger = genericLogger Debug T.putStrLn
     initGas cmd = initialGasOf (_cmdPayload cmd)
-    logger = newLogger alwaysLog "TxSimulator"
+    logger = newLogger (pactLoggers cwLogger) "TxSimulator"
     gasLogger = Nothing
     txContext parent cmd = TxContext (ParentHeader parent) $ publicMetaOf cmd
 
