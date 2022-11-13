@@ -8,8 +8,11 @@ module Chainweb.Pact.TxSimulator
   where
 
 import Control.Monad.Catch
+import Data.Maybe
+import qualified Data.Text as T
 import qualified Data.Text.IO as T
 import qualified Data.Vector as V
+import Options.Applicative
 import System.LogLevel
 
 import Chainweb.BlockHeader
@@ -36,10 +39,8 @@ data SimConfig = SimConfig
       -- ^ db dir containing sqlite pact db files
     , scParentBlock :: FilePath
       -- ^ block header file.
-      -- curl 'https://api.chainweb.com/chainweb/0.0/mainnet01/chain/2/header?maxheight=3195192&minheight=3195192'
     , scPayload :: FilePath
       -- ^ payload file
-      -- curl https://api.chainweb.com/chainweb/0.0/mainnet01/chain/2/payload/3uU_CZVy3ZynNOniLbSDykNdzO5pFYuKftuynax9eUo
     , scTxIndex :: Int
       -- ^ index in payload transactions list
     , scChain :: ChainId
@@ -87,3 +88,40 @@ simulate (SimConfig dbDir parentBlockFile payloadFile txIdx cid ver) = do
     logger = newLogger alwaysLog "TxSimulator"
     gasLogger = Nothing
     txContext parent cmd = TxContext (ParentHeader parent) $ publicMetaOf cmd
+
+
+simulateMain :: IO ()
+simulateMain = do
+  execParser opts >>= \(d,h,p,i,c,v) -> do
+    vv <- chainwebVersionFromText (T.pack v)
+    cc <- chainIdFromText (T.pack c)
+    simulate $ SimConfig d h p i cc vv
+  where
+    opts = info (parser <**> helper)
+        (fullDesc <> progDesc "Single Transaction simulator")
+    parser = (,,,,,)
+        <$> strOption
+             (short 'd'
+              <> metavar "DBDIR"
+              <> help "Pact database directory")
+        <*> strOption
+             (short 'h'
+              <> metavar "PARENT_HEADER"
+              <> help "Parent header, example: curl 'https://api.chainweb.com/chainweb/0.0/mainnet01/chain/2/header?maxheight=3195192&minheight=3195192'")
+        <*> strOption
+             (short 'p'
+              <> metavar "PAYLOAD"
+              <> help "Block payload, example: curl https://api.chainweb.com/chainweb/0.0/mainnet01/chain/2/payload/3uU_CZVy3ZynNOniLbSDykNdzO5pFYuKftuynax9eUo")
+        <*> (fromIntegral @Int <$> option auto
+             (short 'i'
+              <> metavar "INDEX"
+              <> help "Transaction index in payload list"))
+        <*> (strOption
+             (short 'c'
+              <> metavar "CHAIN"
+              <> help "Chain ID"))
+        <*> (fromMaybe (show Mainnet01) <$> optional (strOption
+             (short 'v'
+              <> metavar "VERSION"
+              <> help ("Chainweb version, default is "
+                       ++ show Mainnet01))))
