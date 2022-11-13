@@ -172,7 +172,12 @@ doReadRow d k = forModuleNameFix $ \mnFix ->
         lift $ logDebug $ show l
         case result of
             [] -> mzero
-            [[SBlob a]] -> MaybeT $ return $! decode $ fromStrict a
+            [[SBlob a]] -> do
+              (t0 :: Time Micros) <- liftIO getCurrentTimeIntegral
+              rv <- return $! decode $ fromStrict a
+              t1 <- liftIO getCurrentTimeIntegral
+              lift $ logDebug $ show ("desz"::String,tableName,rowkey,diff t1 t0)
+              MaybeT $ return rv
             err -> internalError $
                      "doReadRow: Expected (at most) a single result, but got: " <>
                      T.pack (show err)
