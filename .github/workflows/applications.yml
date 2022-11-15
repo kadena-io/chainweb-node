@@ -28,7 +28,7 @@ env:
   S3_ARTIFACT_BUCKET: kadena-cabal-cache
   S3_ARTIFACT_FOLDER: chainweb-node
 
-  USE_CABAL_CACHE: false
+  USE_CABAL_CACHE: true
 
 jobs:
 
