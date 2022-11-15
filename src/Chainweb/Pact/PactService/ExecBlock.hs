@@ -44,6 +44,7 @@ import Data.Decimal
 import Data.Default (def)
 import Data.Either
 import Data.Foldable (toList)
+import qualified Data.HashMap.Strict as HM
 import qualified Data.Map as Map
 import Data.Text (Text)
 import qualified Data.Text as T
@@ -329,7 +330,8 @@ execTransactions isGenesis miner ctxs enfCBFail usePrecomp (PactDbEnv' pactdbenv
             l <- asks _psLogger
             pd <- getTxContext def
             mc <- liftIO (readInitModules l pactdbenv pd)
-            updateInitCache mc
+            logWarn $ show (HM.keys mc)
+            logWarn $ show mc
             return mc
         Just (_,mc) -> return mc
 

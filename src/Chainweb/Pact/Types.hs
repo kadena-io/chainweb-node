@@ -119,10 +119,12 @@ module Chainweb.Pact.Types
   , pactLoggers
   , logg_
   , logInfo_
+  , logWarn_
   , logError_
   , logDebug_
   , logg
   , logInfo
+  , logWarn
   , logError
   , logDebug
 
@@ -453,12 +455,15 @@ updateInitCache mc = get >>= \PactServiceState{..} -> do
 
     v <- view psVersion
 
-    psInitCache .= case M.lookupLE pbh _psInitCache of
-      Nothing -> M.singleton pbh mc
+    (psInitCache .=) =<< case M.lookupLE pbh _psInitCache of
+      Nothing -> return (M.singleton pbh mc)
       Just (_,before)
-        | chainweb217Pact After v pbh || chainweb217Pact At v pbh ->
-          M.insert pbh mc _psInitCache
-        | otherwise -> M.insert pbh (HM.union mc before) _psInitCache
+        | chainweb217Pact After v pbh || chainweb217Pact At v pbh -> do
+          logWarn "updating init cache after or at chainweb217Pact"
+          return $ M.insert pbh mc _psInitCache
+        | otherwise -> do
+          logWarn "updating init cache before chainweb217Pact" 
+          return $ M.insert pbh (HM.union mc before) _psInitCache
 
 -- | Convert context to datatype for Pact environment.
 --
@@ -595,6 +600,9 @@ logg_ logger level msg = liftIO $ P.logLog logger level msg
 logInfo_ :: MonadIO m => P.Logger -> String -> m ()
 logInfo_ l = logg_ l "INFO"
 
+logWarn_ :: MonadIO m => P.Logger -> String -> m ()
+logWarn_ l = logg_ l "WARN"
+
 logError_ :: MonadIO m => P.Logger -> String -> m ()
 logError_ l = logg_ l "ERROR"
 
@@ -608,6 +616,9 @@ logg level msg = view psLogger >>= \l -> logg_ l level msg
 
 logInfo :: String -> PactServiceM cas ()
 logInfo msg = view psLogger >>= \l -> logInfo_ l msg
+
+logWarn :: String -> PactServiceM cas ()
+logWarn msg = view psLogger >>= \l -> logWarn_ l msg
 
 logError :: String -> PactServiceM cas ()
 logError msg = view psLogger >>= \l -> logError_ l msg
