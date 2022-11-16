@@ -374,6 +374,8 @@ withNodeLogger logConfig v f = runManaged $ do
         $ mkTelemetryLogger @BlockUpdate mgr teleLogConfig
     pactQueueStatsBackend <- managed
         $ mkTelemetryLogger @PactQueueStats mgr teleLogConfig
+    topLevelStatusBackend <- managed
+        $ mkTelemetryLogger @ChainwebStatus mgr teleLogConfig
 
     logger <- managed
         $ L.withLogger (_logConfigLogger logConfig) $ logHandles
@@ -393,6 +395,7 @@ withNodeLogger logConfig v f = runManaged $ do
             , logHandler mempoolStatsBackend
             , logHandler blockUpdateBackend
             , logHandler pactQueueStatsBackend
+            , logHandler topLevelStatusBackend
             ] baseBackend
 
     liftIO $ f
@@ -494,6 +497,7 @@ main = do
         let v = _configChainwebVersion $ _nodeConfigChainweb conf
         hSetBuffering stderr LineBuffering
         withNodeLogger (_nodeConfigLog conf) v $ \logger -> do
+            logFunctionJson logger Info ProcessStarted
             kt <- mapM (parseTimeM False defaultTimeLocale timeFormat) serviceDate
             withServiceDate (logFunctionText logger) kt $
                 node conf logger
