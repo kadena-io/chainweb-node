@@ -14,7 +14,7 @@ import qualified RunNodes
 import qualified SlowTests
 import qualified TxStream
 import qualified KnownGraphs
-import qualified Chainweb.Pact.TxSimulator as TxSimulator
+import qualified TxSimulator
 
 main :: IO ()
 main = do

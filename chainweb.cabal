@@ -305,7 +305,6 @@ library
         , Chainweb.Pact.Transactions.MainnetKADTransactions
         , Chainweb.Pact.Transactions.OtherTransactions
         , Chainweb.Pact.Transactions.UpgradeTransactions
-        , Chainweb.Pact.TxSimulator
         , Chainweb.Pact.Types
         , Chainweb.Pact.Utils
 
@@ -648,6 +647,7 @@ executable cwtool
         RunNodes
         SlowTests
         TxStream
+        TxSimulator
 
     build-depends:
         -- internal

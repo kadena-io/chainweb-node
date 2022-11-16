@@ -3,8 +3,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-module Chainweb.Pact.TxSimulator
-
+module TxSimulator
   where
 
 import Control.Monad.Catch
