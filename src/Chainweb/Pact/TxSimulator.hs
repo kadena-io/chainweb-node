@@ -112,10 +112,10 @@ simulateMain = do
              (short 'p'
               <> metavar "PAYLOAD"
               <> help "Block payload, example: curl https://api.chainweb.com/chainweb/0.0/mainnet01/chain/2/payload/3uU_CZVy3ZynNOniLbSDykNdzO5pFYuKftuynax9eUo")
-        <*> (fromIntegral @Int <$> option auto
+        <*> option auto
              (short 'i'
               <> metavar "INDEX"
-              <> help "Transaction index in payload list"))
+              <> help "Transaction index in payload list")
         <*> (strOption
              (short 'c'
               <> metavar "CHAIN"
