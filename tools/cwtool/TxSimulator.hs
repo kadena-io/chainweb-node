@@ -46,15 +46,6 @@ data SimConfig = SimConfig
     , scVersion :: ChainwebVersion
     }
 
-_confMainnetChain2 :: SimConfig
-_confMainnetChain2 = SimConfig
-  "pactdbs"
-  "header.json"
-  "payload.json"
-  0
-  (unsafeChainId 2)
-  Mainnet01
-
 simulate :: SimConfig -> IO ()
 simulate (SimConfig dbDir parentBlockFile payloadFile txIdx cid ver) = do
   parent <- decodeFileStrictOrThrow parentBlockFile
