@@ -13,14 +13,11 @@
 
 ;; Test that we can upgrade ns.pact only when appropriate keys
 ;; are in scope.
-(env-data {})
 (expect-failure
   "Cannot upgrade the namespace contract due to governance failure"
   "tx failure on upgrade"
   (try (enforce false "tx failure on upgrade") (load "ns.pact")))
 
-(env-data
-  { 'ns-admin-keyset: ['admin] })
 (env-keys ['admin])
 (load "ns.pact")
 
