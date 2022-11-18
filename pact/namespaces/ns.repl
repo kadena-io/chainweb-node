@@ -16,7 +16,8 @@
 (env-data {})
 (expect-failure
   "Cannot upgrade the namespace contract due to governance failure"
-  (load "ns.pact"))
+  "tx failure on upgrade"
+  (try (enforce false "tx failure on upgrade") (load "ns.pact")))
 
 (env-data
   { 'ns-admin-keyset: ['admin] })
