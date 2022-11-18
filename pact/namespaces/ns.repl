@@ -1,17 +1,33 @@
 (env-exec-config ["DisablePact44", "DisablePact45"])
 (begin-tx)
+
 (env-data
  { 'ns-admin-keyset: ["admin"]
  , 'ns-operate-keyset: ["operate"]
  , 'ns-genesis-keyset: { "keys": [], "pred": "="} })
 
 (load "v1/ns.pact")
-(load "ns.pact")
+
 (commit-tx)
+(begin-tx)
+
+;; Test that we can upgrade ns.pact only when appropriate keys
+;; are in scope.
+(env-data {})
+(expect-failure
+  "Cannot upgrade the namespace contract due to governance failure"
+  (load "ns.pact"))
+
+(env-data
+  { 'ns-admin-keyset: ['admin] })
+(env-keys ['admin])
+(load "ns.pact")
+
+(commit-tx)
+(begin-tx)
 
 (env-namespace-policy false (ns.validate))
 
-(begin-tx)
 (namespace 'user)
 (env-keys [])
 
