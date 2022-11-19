@@ -1,5 +1,50 @@
 # `chainweb-node` Changelog
 
+## 2.17 (2022-11-17)
+
+This version replaces all previous versions. Any prior version will stop working
+on **2022-12-01T00:00:00Z**. Node administrators must upgrade to this version
+before that date.
+
+This version will expire on **2023-03-02T00:00:00Z**.
+
+To upgrade, pull the latest docker image or download the binary and restart the
+node.
+
+[Changes](https://github.com/kadena-io/chainweb-node/compare/2.16.1...2.17):
+
+*   Remove error messages from pact output for on-chain transactions. Dapps can 
+    still retrieve transaction error messages from the `local` endpoint. (#1543)
+*   Implement a per-tx timeout during creation of new blocks to prevent mining
+    nodes from stalling when block creation takes too long. (#1546)
+*   Miscellaneous changes for fine tuning of the gas model. (#1554)
+
+Bug fixes:
+
+*   Filter Module Cache for just `coin` contract. (#1548)
+*   Prevent table name clashes in module. (#1556)
+
+## 2.16.1 (2022-11-07)
+
+This is a feature and bug-fix release. Upgrading is optional but recommended.
+
+To upgrade, pull the latest docker image or download the binary and restart the
+node.
+
+**NOTE**: This release upgrades the version of RocksDB. After upgrading to this
+version previous versions of chainweb-node will not be able to open the
+database. Additionally, when using the ubuntu binaries the set of required
+system dependencies changes. For details please see the [release
+nodes](https://github.com/kadena-io/chainweb-node/releases/tag/2.16.1).
+
+Changes:
+
+*   Upgrade RocksDB version (#1394)
+*   Support for partial replays (#1524)
+*   Allow enabling gas logs from configuration (#1525)
+*   Reduce volume of info level logging (#1526)
+*   Check file descriptor rlimit on startup (#1532)
+
 ## 2.16 (2022-08-23)
 
 This version replaces all previous versions. Any prior version will stop working

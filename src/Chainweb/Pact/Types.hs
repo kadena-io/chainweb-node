@@ -128,6 +128,7 @@ module Chainweb.Pact.Types
 
     -- * types
   , ModuleCache
+  , TxTimeout(..)
 
   -- * miscellaneous
   , defaultOnFatalError
@@ -180,6 +181,7 @@ import Chainweb.BlockHash
 import Chainweb.BlockHeader
 import Chainweb.BlockHeight
 import Chainweb.BlockHeaderDB
+import Chainweb.Mempool.Mempool (TransactionHash)
 import Chainweb.Miner.Pact
 import Chainweb.Logger
 import Chainweb.Pact.Backend.Types
@@ -403,6 +405,9 @@ instance Exception ReorgLimitExceeded where
     fromException = asyncExceptionFromException
     toException = asyncExceptionToException
 
+data TxTimeout = TxTimeout !TransactionHash
+    deriving Show
+instance Exception TxTimeout
 
 defaultOnFatalError :: forall a. (LogLevel -> Text -> IO ()) -> PactException -> Text -> IO a
 defaultOnFatalError lf pex t = do
@@ -446,9 +451,15 @@ updateInitCache mc = get >>= \PactServiceState{..} -> do
     let bf 0 = 0
         bf h = succ h
         pbh = bf . _blockHeight . _parentHeader $ _psParentHeader
+
+    v <- view psVersion
+
     psInitCache .= case M.lookupLE pbh _psInitCache of
       Nothing -> M.singleton pbh mc
-      Just (_,before) -> M.insert pbh (HM.union mc before) _psInitCache
+      Just (_,before)
+        | chainweb217Pact After v pbh || chainweb217Pact At v pbh ->
+          M.insert pbh mc _psInitCache
+        | otherwise -> M.insert pbh (HM.union mc before) _psInitCache
 
 -- | Convert context to datatype for Pact environment.
 --

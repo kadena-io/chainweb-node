@@ -636,29 +636,27 @@ freeGasModel :: TxContext -> GasModel
 freeGasModel = const $ constGasModel 0
 
 
--- | A queue-less WebPactExecutionService (for all chains).
+-- | A queue-less WebPactExecutionService (for all chains)
+-- with direct chain access map for local.
 withWebPactExecutionService
     :: ChainwebVersion
+    -> PactServiceConfig
     -> TestBlockDb
     -> MemPoolAccess
     -> (TxContext -> GasModel)
-    -> (WebPactExecutionService -> IO a)
+    -> ((WebPactExecutionService,HM.HashMap ChainId PactExecutionService) -> IO a)
     -> IO a
-withWebPactExecutionService v bdb mempoolAccess gasmodel act =
+withWebPactExecutionService v pactConfig bdb mempoolAccess gasmodel act =
   withDbs $ \sqlenvs -> do
-    pacts <- fmap (mkWebPactExecutionService . HM.fromList)
+    pacts <- fmap HM.fromList
            $ traverse mkPact
            $ zip sqlenvs
            $ toList
            $ chainIds v
-    act pacts
+    act (mkWebPactExecutionService pacts, pacts)
   where
     withDbs f = foldl' (\soFar _ -> withDb soFar) f (chainIds v) []
     withDb g envs =  withTempSQLiteConnection chainwebPragmas $ \s -> g (s : envs)
-
-    -- This is way more than what is used in production, but during testing
-    -- we can be generous.
-    pactConfig = defaultPactServiceConfig { _pactBlockGasLimit = 1_000_000 }
 
     mkPact (sqlenv, c) = do
         bhdb <- getBlockHeaderDb c bdb

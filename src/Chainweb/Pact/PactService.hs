@@ -87,6 +87,7 @@ import Chainweb.Pact.TransactionExec
 import Chainweb.Pact.Types
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
+import Chainweb.Time
 import Chainweb.Transaction
 import Chainweb.TreeDB (lookupM)
 import Chainweb.Utils hiding (check)
@@ -466,6 +467,11 @@ execNewBlock mpAccess parent miner = do
     withDiscardedBatch $ do
       withCheckpointerRewind newblockRewindLimit (Just parent) "execNewBlock" doNewBlock
   where
+    handleTimeout :: TxTimeout -> PactServiceM cas a
+    handleTimeout (TxTimeout h) = do
+      logError $ "execNewBlock: timed out on " <> sshow h
+      liftIO $ mpaBadlistTx mpAccess (V.singleton h)
+      throwM (TxTimeout h)
 
     -- This is intended to mitigate mining attempts during replay.
     -- In theory we shouldn't need to rewind much ever, but values
@@ -500,6 +506,13 @@ execNewBlock mpAccess parent miner = do
         blockGasLimit <- view psBlockGasLimit
         let initState = BlockFill blockGasLimit mempty 0
 
+        let 
+            txTimeHeadroomFactor :: Double
+            txTimeHeadroomFactor = 5
+            -- 2.5 microseconds per unit gas
+            txTimeLimit :: Micros
+            txTimeLimit = round $ (2.5 * txTimeHeadroomFactor) * fromIntegral blockGasLimit 
+
         -- Heuristic: limit fetches to count of 1000-gas txs in block.
         let fetchLimit = fromIntegral $ blockGasLimit `div` 1000
 
@@ -511,9 +524,10 @@ execNewBlock mpAccess parent miner = do
           (CoinbaseUsePrecompiled True)
           pdbenv
           Nothing
+          (Just txTimeLimit) `catch` handleTimeout
 
         (BlockFilling _ successPairs failures) <-
-          refill fetchLimit pdbenv =<<
+          refill fetchLimit txTimeLimit pdbenv =<<
           foldM splitResults (incCount (BlockFilling initState mempty mempty)) pairs
 
         liftIO $ mpaBadlistTx mpAccess (V.map gasPurchaseFailureHash failures)
@@ -521,7 +535,7 @@ execNewBlock mpAccess parent miner = do
         let !pwo = toPayloadWithOutputs miner (Transactions successPairs cb)
         return $! Discard pwo
 
-    refill fetchLimit pdbenv unchanged@(BlockFilling bfState oldPairs oldFails) = do
+    refill fetchLimit txTimeLimit pdbenv unchanged@(BlockFilling bfState oldPairs oldFails) = do
 
       logDebug $ describeBF unchanged
 
@@ -537,7 +551,7 @@ execNewBlock mpAccess parent miner = do
         newTrans <- getBlockTxs bfState
         if V.null newTrans then pure unchanged else do
 
-          pairs <- execTransactionsOnly miner newTrans pdbenv
+          pairs <- execTransactionsOnly miner newTrans pdbenv (Just txTimeLimit) `catch` handleTimeout
 
           newFill@(BlockFilling newState newPairs newFails) <-
                 foldM splitResults unchanged pairs
@@ -553,7 +567,7 @@ execNewBlock mpAccess parent miner = do
           if (_bfGasLimit newState < _bfGasLimit bfState)
               -- ... OR only non-zero failures were returned.
              || (newSuccessCount == 0  && newFailCount > 0)
-              then refill fetchLimit pdbenv (incCount newFill)
+              then refill fetchLimit txTimeLimit pdbenv (incCount newFill)
               else throwM $ MempoolFillFailure $ "Invariant failure: " <>
                    sshow (bfState,newState,V.length newTrans
                          ,V.length newPairs,V.length newFails)
@@ -600,7 +614,7 @@ execNewGenesisBlock miner newTrans = withDiscardedBatch $
         -- NEW GENESIS COINBASE: Reject bad coinbase, use date rule for precompilation
         results <- execTransactions True miner newTrans
                    (EnforceCoinbaseFailure True)
-                   (CoinbaseUsePrecompiled False) pdbenv Nothing
+                   (CoinbaseUsePrecompiled False) pdbenv Nothing Nothing
                    >>= throwOnGasFailure
         return $! Discard (toPayloadWithOutputs miner results)
 

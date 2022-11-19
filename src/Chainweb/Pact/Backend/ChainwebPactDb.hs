@@ -421,20 +421,26 @@ doCreateUserTable tn@(TableName ttxt) mn = do
       Nothing -> throwM $ PactDuplicateTableError ttxt
       Just () -> do
           -- then check if it is in the db
-          cond <- inDb $ Utf8 $ T.encodeUtf8 ttxt
+          lcTables <- use bsLowerCaseTables
+          cond <- inDb lcTables $ Utf8 $ T.encodeUtf8 ttxt
           when cond $ throwM $ PactDuplicateTableError ttxt
           modifyPendingData
             $ over pendingTableCreation (HashSet.insert (T.encodeUtf8 ttxt))
             . over pendingTxLogMap (M.insertWith DL.append (TableName txlogKey) txlogs)
   where
-    inDb t =
+    inDb lcTables t =
       callDb "doCreateUserTable" $ \db -> do
-        r <- qry db tableLookupStmt [SText t] [RText]
+        r <- qry db (tableLookupStmt lcTables) [SText t] [RText]
         return $ case r of
-          [[SText rname]] -> rname == t
+          -- if lowercase matching, no need to check equality
+          -- (wasn't needed before either but leaving alone for replay)
+          [[SText rname]] -> lcTables || rname == t
           _ -> False
 
-    tableLookupStmt = "SELECT name FROM sqlite_master WHERE type='table' and name=?;"
+    tableLookupStmt False =
+      "SELECT name FROM sqlite_master WHERE type='table' and name=?;"
+    tableLookupStmt True =
+      "SELECT name FROM sqlite_master WHERE type='table' and lower(name)=lower(?);"
     txlogKey = "SYS:usertables"
     stn = asString tn
     uti = UserTableInfo mn

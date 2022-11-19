@@ -460,7 +460,7 @@ testRegress =
         >>= assertEquals "The final block state is" finalBlockState
   where
     finalBlockState = (2, 0)
-    toTup (BlockState txid _ blockVersion _ _ _ _) = (txid, blockVersion)
+    toTup BlockState { _bsTxId = txid, _bsBlockHeight = blockVersion } = (txid, blockVersion)
 
 regressChainwebPactDb :: IO (MVar (BlockEnv SQLiteEnv))
 regressChainwebPactDb =  simpleBlockEnvInit runRegression
