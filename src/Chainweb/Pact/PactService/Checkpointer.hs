@@ -652,5 +652,5 @@ heightProgress initialHeight ref logFun = forever $ do
     logFun 
       $ "processed blocks: " <> sshow (h - initialHeight) 
       <> ", current height: " <> sshow h 
-    threadDelay (30 * 1_000000)
+    threadDelay (20 * 1_000000)
 
