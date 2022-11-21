@@ -1,14 +1,12 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DerivingVia #-}
 {-# LANGUAGE FlexibleContexts #-}
-{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE ViewPatterns #-}
@@ -18,17 +16,16 @@ module Chainweb.Test.Pact.PactSingleChainTest
 ) where
 
 import Control.Arrow ((&&&))
-import Control.DeepSeq
 import Control.Concurrent.MVar
+import Control.DeepSeq
 import Control.Lens hiding ((.=))
 import Control.Monad
 import Control.Monad.Catch
 
-
 import Data.Aeson (object, (.=), Value(..), decode)
+import qualified Data.ByteString.Lazy as BL
 import Data.CAS.RocksDB
 import Data.Either (isRight)
-import qualified Data.ByteString.Lazy as BL
 import Data.IORef
 import qualified Data.Map.Strict as M
 import qualified Data.Text as T
@@ -36,11 +33,12 @@ import qualified Data.Text.Encoding as T
 import qualified Data.Vector as V
 import qualified Data.Yaml as Y
 
+import GHC.Stack
+
 import System.LogLevel
 
 import Test.Tasty
 import Test.Tasty.HUnit
-
 
 -- internal modules
 
@@ -279,7 +277,7 @@ pattern BlockGasLimitError <-
   Left (PactInternalError (decode . BL.fromStrict . T.encodeUtf8 -> Just (BlockGasLimitExceeded _)))
 
 -- this test relies on block gas errors being thrown before other Pact errors.
-blockGasLimitTest :: IO (IORef MemPoolAccess) -> IO (PactQueue, TestBlockDb) -> TestTree
+blockGasLimitTest :: HasCallStack => IO (IORef MemPoolAccess) -> IO (PactQueue, TestBlockDb) -> TestTree
 blockGasLimitTest _ reqIO = testCase "blockGasLimitTest" $ do
   (q,_) <- reqIO
 
@@ -289,7 +287,7 @@ blockGasLimitTest _ reqIO = testCase "blockGasLimitTest" $ do
       let
         cr = CommandResult
           (RequestKey (Hash "0")) Nothing
-          (PactResult $ Left $ PactError EvalError (Pact.Types.Info.Info $ Nothing) [] mempty)
+          (PactResult $ Left $ PactError EvalError (Pact.Types.Info.Info Nothing) [] mempty)
           (fromIntegral g) Nothing Nothing Nothing []
         block = Transactions
           (V.singleton (bigTx, cr))

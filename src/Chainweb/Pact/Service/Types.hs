@@ -88,7 +88,7 @@ gasPurchaseFailureHash (GasPurchaseFailure h _) = h
 -- | Exceptions thrown by PactService components that
 -- are _not_ recorded in blockchain record.
 data PactException
-  = BlockValidationFailure !Value
+  = BlockValidationFailure !LegacyValue
   | PactInternalError !Text
   | PactTransactionExecError !PactHash !Text
   | CoinbaseFailure !Text

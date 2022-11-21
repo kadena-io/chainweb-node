@@ -149,7 +149,7 @@ contTXOUTOld step = do
   checkResult c1 0 "ObjectMap"
   checkResult' c3 1 $ PactResult $ Right $ PLiteral $ LString rSuccessTXOUT
   where
-    mdata = toJSON [fst sender01] :: Value
+    mdata = toJSON [fst sender01] :: Value -- FIXME?
 
 
 contTXOUTNew :: (String -> IO ()) -> Assertion

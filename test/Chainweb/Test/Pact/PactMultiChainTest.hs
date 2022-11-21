@@ -491,8 +491,8 @@ chainweb215Test = do
     mkRecdEvents h h' = sequence
       [ mkTransferEvent "sender00" "NoMiner" 0.0258 "coin" h
       , mkTransferEvent "" "sender00" 0.0123 "coin" h
-      , mkTransferXChainRecdEvent "" "sender00" 0.0123 "coin" h "8"
-      , mkXResumeEvent "sender00" "sender00" 0.0123 sender00Ks "pact" h' "8" "0"
+      , mkTransferXChainRecdEvent "" "sender00" 0.0123 "coin" h (toText cid)
+      , mkXResumeEvent "sender00" "sender00" 0.0123 sender00Ks "pact" h' (toText cid) "0"
       ]
 
 

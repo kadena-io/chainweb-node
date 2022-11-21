@@ -265,7 +265,7 @@ localChainDataTest iot nio = do
           pm = Pact.PublicMeta pactCid "sender00" 1000 0.1 (fromInteger ttl)
 
     expectedResult (PObject (ObjectMap m)) = do
-          assert' "chain-id" (PLiteral (LString "8"))
+          assert' "chain-id" (PLiteral (LString $ chainIdToText cid))
           assert' "gas-limit" (PLiteral (LInteger 1000))
           assert' "gas-price" (PLiteral (LDecimal 0.1))
           assert' "sender" (PLiteral (LString "sender00"))

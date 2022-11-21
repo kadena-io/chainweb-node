@@ -534,7 +534,7 @@ validateHashes
 validateHashes bHeader pData miner transactions =
     if newHash == prevHash
     then Right pwo
-    else Left $ BlockValidationFailure $ A.object
+    else Left $ BlockValidationFailure $ P.toLegacyJson $ A.object
          [ "mismatch" A..= errorMsg "Payload hash" prevHash newHash
          , "details" A..= details
          ]
@@ -561,10 +561,10 @@ validateHashes bHeader pData miner transactions =
 
       check desc extra expect actual
         | expect == actual = []
-        | otherwise =
+        | otherwise = P.toLegacyJson <$>
           [A.object $ "mismatch" A..= errorMsg desc expect actual :  extra]
 
-      errorMsg desc expect actual = A.object
+      errorMsg desc expect actual = P.toLegacyJson $ A.object
         [ "type" A..= (desc :: Text)
         , "actual" A..= actual
         , "expected" A..= expect
@@ -580,8 +580,8 @@ validateHashes bHeader pData miner transactions =
          ]
         ]
 
-      addTxOuts :: (ChainwebTransaction, P.CommandResult [P.TxLog P.LegacyValue]) -> A.Value
-      addTxOuts (tx,cr) = A.object
+      addTxOuts :: (ChainwebTransaction, P.CommandResult [P.TxLog P.LegacyValue]) -> P.LegacyValue
+      addTxOuts (tx,cr) = P.toLegacyJson $ A.object
         [ "tx" A..= fmap (fmap _pcCode . payloadObj) tx
         , "result" A..= toPairCR cr
         ]

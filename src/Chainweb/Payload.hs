@@ -116,9 +116,11 @@ import Control.Monad ((<$!>))
 import Control.Monad.Catch
 
 import Data.Aeson
+import Data.Aeson.Encoding (encodingToLazyByteString, pair)
 import qualified Data.Aeson.Types as A
 import qualified Data.ByteArray as BA
 import qualified Data.ByteString as B
+import qualified Data.ByteString.Lazy as BL
 import Data.Hashable
 import Data.MerkleLog
 import qualified Data.Text as T
@@ -553,9 +555,9 @@ coinbaseOutputFromText t = either (throwM . TextFormatException . sshow) return
 -- | No-op coinbase payload
 --
 noCoinbaseOutput :: CoinbaseOutput
-noCoinbaseOutput = CoinbaseOutput $ encodeToByteString $ object
+noCoinbaseOutput = CoinbaseOutput $ BL.toStrict $ encodingToLazyByteString $ pairs $ mconcat
     [ "gas" .= (0 :: Int)
-    , "result" .= object
+    , pair "result" $ pairs $ mconcat
         [ "status" .= ("success" :: String)
         , "data" .= ("NO_COINBASE" :: String)
         ]
@@ -914,9 +916,9 @@ payloadDataProperties
 payloadDataProperties o =
     [ "transactions" .= _payloadDataTransactions o
     , "minerData" .= _payloadDataMiner o
-    , "payloadHash" .= _payloadDataPayloadHash o
     , "transactionsHash" .= _payloadDataTransactionsHash o
     , "outputsHash" .= _payloadDataOutputsHash o
+    , "payloadHash" .= _payloadDataPayloadHash o
     ]
 {-# INLINE payloadDataProperties #-}
 
@@ -1064,10 +1066,10 @@ payloadWithOutputsProperties
 payloadWithOutputsProperties o =
     [ "transactions" .= _payloadWithOutputsTransactions o
     , "minerData" .= _payloadWithOutputsMiner o
-    , "coinbase" .= _payloadWithOutputsCoinbase o
-    , "payloadHash" .= _payloadWithOutputsPayloadHash o
     , "transactionsHash" .= _payloadWithOutputsTransactionsHash o
     , "outputsHash" .= _payloadWithOutputsOutputsHash o
+    , "payloadHash" .= _payloadWithOutputsPayloadHash o
+    , "coinbase" .= _payloadWithOutputsCoinbase o
     ]
 {-# INLINE payloadWithOutputsProperties #-}
 
