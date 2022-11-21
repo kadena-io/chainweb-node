@@ -66,17 +66,19 @@ import Text.Printf (printf)
 
 import Pact.Persist
 import Pact.PersistPactDb hiding (db)
+import Pact.Types.Info (Code(..))
 import Pact.Types.Logger
 import Pact.Types.Persistence
 import Pact.Types.RowData
 import Pact.Types.SQLite
-import Pact.Types.Term (ModuleName(..), ObjectMap(..), TableName(..))
+import Pact.Types.Term (ModuleName(..), ObjectMap(..), TableName(..), moduleDefCode)
 import Pact.Types.Util (AsString(..))
 
 -- chainweb
 
 import Chainweb.BlockHash
 import Chainweb.BlockHeight
+import Chainweb.Pact.Backend.RowCache
 import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.Backend.Utils
 import Chainweb.Pact.Service.Types (PactException(..), internalError)
@@ -113,6 +115,19 @@ getPendingData = do
 forModuleNameFix :: (Bool -> BlockHandler e a) -> BlockHandler e a
 forModuleNameFix f = use bsModuleNameFix >>= f
 
+moduleSizeThreshold :: Int
+moduleSizeThreshold = 1000
+
+updateModCache :: Utf8 -> PersistModuleData -> BlockHandler e ()
+updateModCache k m = do
+  tid <- use bsTxId
+  let sz = T.length $ _unCode $ moduleDefCode $ _mdModule m
+      filt | sz > moduleSizeThreshold = Just m
+           | otherwise = Nothing
+      updCache c = pure $! insertCache tid k filt c
+  use bsModuleRowCache >>= updateStore updCache >>= assign bsModuleRowCache
+
+
 doReadRow
     :: (IsString k, FromJSON v)
     => Domain k v
@@ -120,26 +135,45 @@ doReadRow
     -> BlockHandler SQLiteEnv (Maybe v)
 doReadRow d k = forModuleNameFix $ \mnFix ->
     case d of
-        KeySets -> lookupWithKey (convKeySetName k)
+        KeySets -> lookupWithKey (convKeySetName k) noCache noUpdate
         -- TODO: This is incomplete (the modules case), due to namespace
         -- resolution concerns
-        Modules -> lookupWithKey (convModuleName mnFix k)
-        Namespaces -> lookupWithKey (convNamespaceName k)
-        (UserTables _) -> lookupWithKey (convRowKey k)
-        Pacts -> lookupWithKey (convPactId k)
+        Modules -> lookupWithKey (convModuleName mnFix k) lookupModCache updateModCache
+        Namespaces -> lookupWithKey (convNamespaceName k) noCache noUpdate
+        (UserTables _) -> lookupWithKey (convRowKey k) noCache noUpdate
+        Pacts -> lookupWithKey (convPactId k) noCache noUpdate
   where
     tableName = domainTableName d
     (Utf8 tableNameBS) = tableName
 
+    noCache :: Utf8 -> forall v . BlockHandler SQLiteEnv (Maybe v)
+    noCache _ = pure Nothing
+
+    noUpdate :: Utf8 -> forall v . v -> BlockHandler SQLiteEnv ()
+    noUpdate _ _ = return ()
+
+    lookupModCache :: Utf8 -> BlockHandler SQLiteEnv (Maybe PersistModuleData)
+    lookupModCache k' = use bsModuleRowCache >>= withPendingStore (pure . join . lookupCache k')
+
     queryStmt =
         "SELECT rowdata FROM " <> tbl tableName <> " WHERE rowkey = ? ORDER BY txid DESC LIMIT 1;"
 
-    lookupWithKey :: forall v . FromJSON v => Utf8 -> BlockHandler SQLiteEnv (Maybe v)
-    lookupWithKey key = do
+    lookupWithKey
+        :: forall v . FromJSON v
+        => Utf8
+        -> (Utf8 -> BlockHandler SQLiteEnv (Maybe v))
+        -> (Utf8 -> v -> BlockHandler SQLiteEnv ())
+        -> BlockHandler SQLiteEnv (Maybe v)
+    lookupWithKey key lookupInCache updCache = do
         pds <- getPendingData
         let lookPD = foldr1 (<|>) $ map (lookupInPendingData key) pds
         let lookDB = lookupInDb key
-        runMaybeT (lookPD <|> lookDB)
+        lookupInCache key >>= \case
+          Nothing -> do
+            r <- runMaybeT (lookPD <|> lookDB)
+            maybe (return ()) (updCache key) r
+            pure r
+          v -> return v
 
     lookupInPendingData
         :: forall v . FromJSON v

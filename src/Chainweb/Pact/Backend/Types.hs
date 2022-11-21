@@ -63,6 +63,7 @@ module Chainweb.Pact.Backend.Types
     , bsModuleNameFix
     , bsSortedKeys
     , bsLowerCaseTables
+    , bsModuleRowCache
     , BlockEnv(..)
     , benvBlockState
     , benvDb
@@ -118,6 +119,7 @@ import Chainweb.BlockHash
 import Chainweb.BlockHeader
 import Chainweb.BlockHeight
 import Chainweb.Mempool.Mempool (MempoolPreBlockCheck,TransactionHash,BlockFill)
+import Chainweb.Pact.Backend.RowCache
 import Chainweb.Pact.Service.Types
 import Chainweb.Transaction
 import Chainweb.Utils (T2)
@@ -224,8 +226,8 @@ data BlockState = BlockState
     , _bsModuleNameFix :: Bool
     , _bsSortedKeys :: Bool
     , _bsLowerCaseTables :: Bool
+    , _bsModuleRowCache :: TransactionalStore ModuleRowCache
     }
-    deriving Show
 
 emptySQLitePendingData :: SQLitePendingData
 emptySQLitePendingData = SQLitePendingData mempty mempty mempty mempty
@@ -240,6 +242,7 @@ initBlockState initialBlockHeight = BlockState
     , _bsModuleNameFix = False
     , _bsSortedKeys = False
     , _bsLowerCaseTables = False
+    , _bsModuleRowCache = mkTransactionalStore emptyRowCache
     }
 
 makeLenses ''BlockState
