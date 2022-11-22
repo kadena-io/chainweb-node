@@ -146,10 +146,10 @@ doReadRow d k = forModuleNameFix $ \mnFix ->
     tableName = domainTableName d
     (Utf8 tableNameBS) = tableName
 
-    noCache :: Utf8 -> forall v . BlockHandler SQLiteEnv (Maybe v)
+    noCache :: Utf8 -> BlockHandler SQLiteEnv (Maybe v)
     noCache _ = pure Nothing
 
-    noUpdate :: Utf8 -> forall v . v -> BlockHandler SQLiteEnv ()
+    noUpdate :: Utf8 -> v -> BlockHandler SQLiteEnv ()
     noUpdate _ _ = return ()
 
     lookupModCache :: Utf8 -> BlockHandler SQLiteEnv (Maybe PersistModuleData)
