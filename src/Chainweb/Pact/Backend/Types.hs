@@ -63,8 +63,9 @@ module Chainweb.Pact.Backend.Types
     , bsModuleNameFix
     , bsSortedKeys
     , bsLowerCaseTables
-    , bsModuleRowCache
+    , bsModuleCacheStore
     , modifyModuleRowCache
+    , moduleSizeFilter
     , BlockEnv(..)
     , benvBlockState
     , benvDb
@@ -99,6 +100,7 @@ import Data.Hashable (Hashable)
 import Data.HashMap.Strict (HashMap)
 import Data.HashSet (HashSet)
 import Data.Map.Strict (Map)
+import qualified Data.Text as T
 import Data.Vector (Vector)
 
 import Database.SQLite3.Direct as SQ3
@@ -111,9 +113,11 @@ import Pact.Interpreter (PactDbEnv(..))
 import Pact.Persist.SQLite (Pragma(..), SQLiteConfig(..))
 import Pact.PersistPactDb (DbEnv(..))
 import qualified Pact.Types.Hash as P
+import Pact.Types.Info (Code(..))
 import Pact.Types.Logger (Logger(..), Logging(..))
 import Pact.Types.Persistence
 import Pact.Types.Runtime (TableName)
+import Pact.Types.Term (moduleDefCode)
 
 -- internal modules
 import Chainweb.BlockHash
@@ -227,15 +231,14 @@ data BlockState = BlockState
     , _bsModuleNameFix :: Bool
     , _bsSortedKeys :: Bool
     , _bsLowerCaseTables :: Bool
-    , _bsModuleRowCache :: TransactionalStore (TransactionalStore ModuleRowCache)
-      -- ^ Block -> Tx transactional store.
+    , _bsModuleCacheStore :: ModuleCacheStore
     }
 
 emptySQLitePendingData :: SQLitePendingData
 emptySQLitePendingData = SQLitePendingData mempty mempty mempty mempty
 
-initBlockState :: BlockHeight -> BlockState
-initBlockState initialBlockHeight = BlockState
+initBlockState :: BlockHeight -> ModuleFilter -> BlockState
+initBlockState initialBlockHeight filt = BlockState
     { _bsTxId = 0
     , _bsMode = Nothing
     , _bsBlockHeight = initialBlockHeight
@@ -244,8 +247,7 @@ initBlockState initialBlockHeight = BlockState
     , _bsModuleNameFix = False
     , _bsSortedKeys = False
     , _bsLowerCaseTables = False
-    , _bsModuleRowCache =
-      mkTransactionalStore $ mkTransactionalStore emptyRowCache
+    , _bsModuleCacheStore = initModuleCacheStore filt
     }
 
 makeLenses ''BlockState
@@ -289,7 +291,17 @@ modifyModuleRowCache
     :: (TransactionalStore (TransactionalStore ModuleRowCache)
         -> BlockHandler s (TransactionalStore (TransactionalStore ModuleRowCache)))
     -> BlockHandler s ()
-modifyModuleRowCache f = use bsModuleRowCache >>= f >>= assign bsModuleRowCache
+modifyModuleRowCache f =
+  use (bsModuleCacheStore . mcsStore)
+  >>= f
+  >>= assign (bsModuleCacheStore . mcsStore)
+
+-- TODO code isn't enough
+moduleSizeFilter :: Int -> ModuleFilter
+moduleSizeFilter thresh m = sz > thresh
+  where
+    sz = T.length $ _unCode $ moduleDefCode $ _mdModule m
+
 
 data PactDbEnv' = forall e. PactDbEnv' (PactDbEnv e)
 

@@ -162,7 +162,8 @@ initPactService' ver cid chainwebLogger bhDb pdb sqlenv config act = do
         exitOnRewindLimitExceeded $ initializeLatestBlock (_pactUnlimitedInitialRewind config)
         act
   where
-    initialBlockState = initBlockState $ genesisHeight ver cid
+    initialBlockState = initBlockState (genesisHeight ver cid) moduleFilter
+    moduleFilter = moduleSizeFilter 15000 -- coin and larger TODO need inlined size
     loggers = pactLoggers chainwebLogger
     cplogger = P.newLogger loggers $ P.LogName "Checkpointer"
     pactLogger = P.newLogger loggers $ P.LogName "PactService"
@@ -508,12 +509,12 @@ execNewBlock mpAccess parent miner = do
         blockGasLimit <- view psBlockGasLimit
         let initState = BlockFill blockGasLimit mempty 0
 
-        let 
+        let
             txTimeHeadroomFactor :: Double
             txTimeHeadroomFactor = 5
             -- 2.5 microseconds per unit gas
             txTimeLimit :: Micros
-            txTimeLimit = round $ (2.5 * txTimeHeadroomFactor) * fromIntegral blockGasLimit 
+            txTimeLimit = round $ (2.5 * txTimeHeadroomFactor) * fromIntegral blockGasLimit
 
         -- Heuristic: limit fetches to count of 1000-gas txs in block.
         let fetchLimit = fromIntegral $ blockGasLimit `div` 1000

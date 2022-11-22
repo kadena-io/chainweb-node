@@ -1,5 +1,6 @@
-{-# LANGUAGE StrictData #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE StrictData #-}
+{-# LANGUAGE TemplateHaskell #-}
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 
 module Chainweb.Pact.Backend.RowCache
@@ -18,9 +19,15 @@ module Chainweb.Pact.Backend.RowCache
   , withPendingStore
   , withCommittedStore
   , updateStore
+  , ModuleCacheStore
+  , mcsStore
+  , mcsFilter
+  , initModuleCacheStore
+  , ModuleFilter
   ) where
 
 
+import Control.Lens (makeLenses)
 import Control.Monad
 import Control.Monad.Catch
 
@@ -28,7 +35,7 @@ import Data.Hashable (Hashable(..))
 import qualified Data.HashMap.Strict as HM
 import qualified Data.Map.Strict as M
 import qualified Data.HashSet as HS
-import Data.Text (Text)
+import qualified Data.Text as T
 import Database.SQLite3.Direct (Utf8(..))
 
 import Pact.Types.Persistence (TxId,PersistModuleData)
@@ -98,7 +105,7 @@ data TransactionalStore a =
   Pending a a
 
 data TransactionalStoreError =
-  TransactionalStoreErrorInvalidState Text
+  TransactionalStoreErrorInvalidState T.Text
   deriving (Eq,Show)
 instance Exception TransactionalStoreError
 
@@ -128,3 +135,18 @@ updateStore f (Pending c p) = f p >>= \p' -> pure $! Pending c p'
 
 mkTransactionalStore :: a -> TransactionalStore a
 mkTransactionalStore a = Committed a
+
+type ModuleFilter = PersistModuleData -> Bool
+
+data ModuleCacheStore = ModuleCacheStore
+    { _mcsStore :: TransactionalStore (TransactionalStore ModuleRowCache)
+    , _mcsFilter :: ModuleFilter
+    }
+
+initModuleCacheStore :: (PersistModuleData -> Bool) -> ModuleCacheStore
+initModuleCacheStore filt = ModuleCacheStore
+  (mkTransactionalStore (mkTransactionalStore emptyRowCache))
+  filt
+
+
+makeLenses 'ModuleCacheStore

@@ -103,7 +103,7 @@ cpWithBench torun =
     name = "batchedCheckpointer"
     cid = unsafeChainId 0
 
-    initialBlockState = initBlockState $ genesisHeight v cid
+    initialBlockState = initBlockState (genesisHeight v cid) (moduleSizeFilter 15000)
 
     setup = do
         let dbFile = "" {- temporary SQLite db -}

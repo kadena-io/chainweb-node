@@ -65,13 +65,12 @@ import Text.Printf (printf)
 -- pact
 
 import Pact.Persist
-import Pact.PersistPactDb hiding (db)
-import Pact.Types.Info (Code(..))
+import Pact.PersistPactDb (UserTableInfo(..))
 import Pact.Types.Logger
 import Pact.Types.Persistence
 import Pact.Types.RowData
 import Pact.Types.SQLite
-import Pact.Types.Term (ModuleName(..), ObjectMap(..), TableName(..), moduleDefCode)
+import Pact.Types.Term (ModuleName(..), ObjectMap(..), TableName(..))
 import Pact.Types.Util (AsString(..))
 
 -- chainweb
@@ -82,6 +81,7 @@ import Chainweb.Pact.Backend.RowCache
 import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.Backend.Utils
 import Chainweb.Pact.Service.Types (PactException(..), internalError)
+import Chainweb.Pact.Types (logDebug_)
 import Chainweb.Version (ChainwebVersion, ChainId, genesisHeight)
 import Chainweb.Utils (encodeToByteString, sshow)
 import Chainweb.Utils.Serialization
@@ -115,17 +115,17 @@ getPendingData = do
 forModuleNameFix :: (Bool -> BlockHandler e a) -> BlockHandler e a
 forModuleNameFix f = use bsModuleNameFix >>= f
 
-moduleSizeThreshold :: Int
-moduleSizeThreshold = 1000
-
 updateModCache :: Utf8 -> PersistModuleData -> BlockHandler e ()
 updateModCache k m = do
   tid <- use bsTxId
-  let sz = T.length $ _unCode $ moduleDefCode $ _mdModule m
-      filt | sz > moduleSizeThreshold = Just m
-           | otherwise = Nothing
-      updCache c = pure $! insertCache tid k filt c
-  use bsModuleRowCache >>= updateStore (updateStore updCache) >>= assign bsModuleRowCache
+  filt <- use $ bsModuleCacheStore . mcsFilter
+  let cached = filt m
+      entry = if cached then Just m else Nothing
+      updCache c = pure $! insertCache tid k entry c
+  reader _logger >>= \l -> liftIO $ logDebug_ l $
+      "updateModCache: module: " ++ show k ++
+      ", txid: " ++ show tid ++ ", cached: " ++ show cached
+  modifyModuleRowCache $ updateStore (updateStore updCache)
 
 
 doReadRow
@@ -153,8 +153,13 @@ doReadRow d k = forModuleNameFix $ \mnFix ->
     noUpdate _ _ = return ()
 
     lookupModCache :: Utf8 -> BlockHandler SQLiteEnv (Maybe PersistModuleData)
-    lookupModCache k' =
-      use bsModuleRowCache >>= withPendingStore (withPendingStore (pure . join . lookupCache k'))
+    lookupModCache k' = do
+      r <- use (bsModuleCacheStore . mcsStore)
+           >>= withPendingStore (withPendingStore (pure . join . lookupCache k'))
+      forM_ r $ \_ ->
+        reader _logger >>= \l -> liftIO $ logDebug_ l $
+          "lookupModCache: module " ++ show k' ++ " in cache"
+      pure r
 
     queryStmt =
         "SELECT rowdata FROM " <> tbl tableName <> " WHERE rowkey = ? ORDER BY txid DESC LIMIT 1;"
