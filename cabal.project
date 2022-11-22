@@ -77,7 +77,7 @@ source-repository-package
 source-repository-package
     type: git
     location: https://github.com/kadena-io/kadena-ethereum-bridge.git
-    tag: fb5ee6fd440e9fa152f193fa82da5358ad9d6f8b
+    tag: 7b8daff3e79e3fcfb1ae7ba61b779993244658ea
 -- packages: ../ethereum
 
 -- Required for GHC-9:
