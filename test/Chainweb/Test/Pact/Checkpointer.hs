@@ -608,7 +608,7 @@ runSQLite' runTest sqlEnvIO = runTest $ do
     return (cp, sqlenv)
   where
     initialBlockState = set bsModuleNameFix True $
-        initBlockState (genesisHeight testVer testChainId) (moduleSizeFilter 400)
+        initBlockState (genesisHeight testVer testChainId) (moduleSizeFilter 1200)
     logger = newLogger (pactTestLogger True) "RelationalCheckpointer"
 
 runExec :: CheckpointEnv -> PactDbEnv'-> Maybe Value -> Text -> IO EvalResult
@@ -648,7 +648,7 @@ simpleBlockEnvInit f = withTempSQLiteConnection chainwebPragmas $ \sqlenv -> do
     loggers = pactTestLogger False
     blockEnv e = BlockEnv
         (BlockDbEnv e (newLogger loggers "BlockEnvironment"))
-        (initBlockState (genesisHeight testVer testChainId) (moduleSizeFilter 400))
+        (initBlockState (genesisHeight testVer testChainId) (moduleSizeFilter 1200))
 
 {- this should be moved to pact -}
 begin :: PactDb e -> Method e (Maybe TxId)

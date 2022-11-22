@@ -66,6 +66,7 @@ module Chainweb.Pact.Backend.Types
     , bsModuleCacheStore
     , modifyModuleRowCache
     , moduleSizeFilter
+    , moduleSize
     , BlockEnv(..)
     , benvBlockState
     , benvDb
@@ -99,8 +100,8 @@ import Data.DList (DList)
 import Data.Hashable (Hashable)
 import Data.HashMap.Strict (HashMap)
 import Data.HashSet (HashSet)
+import Data.Int
 import Data.Map.Strict (Map)
-import qualified Data.Text as T
 import Data.Vector (Vector)
 
 import Database.SQLite3.Direct as SQ3
@@ -113,11 +114,10 @@ import Pact.Interpreter (PactDbEnv(..))
 import Pact.Persist.SQLite (Pragma(..), SQLiteConfig(..))
 import Pact.PersistPactDb (DbEnv(..))
 import qualified Pact.Types.Hash as P
-import Pact.Types.Info (Code(..))
 import Pact.Types.Logger (Logger(..), Logging(..))
 import Pact.Types.Persistence
 import Pact.Types.Runtime (TableName)
-import Pact.Types.Term (moduleDefCode)
+import Pact.Types.SizeOf
 
 -- internal modules
 import Chainweb.BlockHash
@@ -296,12 +296,15 @@ modifyModuleRowCache f =
   >>= f
   >>= assign (bsModuleCacheStore . mcsStore)
 
--- TODO code isn't enough
-moduleSizeFilter :: Int -> ModuleFilter
-moduleSizeFilter thresh m = sz > thresh
-  where
-    sz = T.length $ _unCode $ moduleDefCode $ _mdModule m
+moduleSizeFilter :: Int64 -> ModuleFilter
+moduleSizeFilter thresh m = moduleSize m > thresh
 
+moduleSize :: PersistModuleData -> Int64
+moduleSize m = sz
+  where
+    m' = () <$ m -- TODO determine if this is a decent heuristic
+    sz = sizeOf sv (_mdModule m') + sizeOf sv (_mdDependencies m')
+    sv = SizeOfV1
 
 data PactDbEnv' = forall e. PactDbEnv' (PactDbEnv e)
 

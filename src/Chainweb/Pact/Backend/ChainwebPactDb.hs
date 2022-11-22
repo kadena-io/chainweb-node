@@ -124,7 +124,8 @@ updateModCache k m = do
       updCache c = pure $! insertCache tid k entry c
   reader _logger >>= \l -> liftIO $ logDebug_ l $
       "updateModCache: module: " ++ show k ++
-      ", txid: " ++ show tid ++ ", cached: " ++ show cached
+      ", txid: " ++ show tid ++ ", size: " ++ show (moduleSize m) ++
+      ", cached: " ++ show cached
   modifyModuleRowCache $ updateStore (updateStore updCache)
 
 

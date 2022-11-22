@@ -163,7 +163,7 @@ initPactService' ver cid chainwebLogger bhDb pdb sqlenv config act = do
         act
   where
     initialBlockState = initBlockState (genesisHeight ver cid) moduleFilter
-    moduleFilter = moduleSizeFilter 15000 -- coin and larger TODO need inlined size
+    moduleFilter = moduleSizeFilter 100000
     loggers = pactLoggers chainwebLogger
     cplogger = P.newLogger loggers $ P.LogName "Checkpointer"
     pactLogger = P.newLogger loggers $ P.LogName "PactService"
