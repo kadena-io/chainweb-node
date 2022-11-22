@@ -125,7 +125,7 @@ updateModCache k m = do
       filt | sz > moduleSizeThreshold = Just m
            | otherwise = Nothing
       updCache c = pure $! insertCache tid k filt c
-  use bsModuleRowCache >>= updateStore updCache >>= assign bsModuleRowCache
+  use bsModuleRowCache >>= updateStore (updateStore updCache) >>= assign bsModuleRowCache
 
 
 doReadRow
@@ -153,7 +153,8 @@ doReadRow d k = forModuleNameFix $ \mnFix ->
     noUpdate _ _ = return ()
 
     lookupModCache :: Utf8 -> BlockHandler SQLiteEnv (Maybe PersistModuleData)
-    lookupModCache k' = use bsModuleRowCache >>= withPendingStore (pure . join . lookupCache k')
+    lookupModCache k' =
+      use bsModuleRowCache >>= withPendingStore (withPendingStore (pure . join . lookupCache k'))
 
     queryStmt =
         "SELECT rowdata FROM " <> tbl tableName <> " WHERE rowkey = ? ORDER BY txid DESC LIMIT 1;"
@@ -221,8 +222,10 @@ writeSys
 writeSys d k v = gets _bsTxId >>= go
   where
     go txid = do
-        forModuleNameFix $ \mnFix ->
-          recordPendingUpdate (getKeyString mnFix k) tableName txid v
+        forModuleNameFix $ \mnFix -> do
+          let k' = getKeyString mnFix k
+          updCache k' d
+          recordPendingUpdate k' tableName txid v
         recordTxLog (toTableName tableName) d k v
 
     toTableName (Utf8 str) = TableName $ T.decodeUtf8 str
@@ -234,6 +237,10 @@ writeSys d k v = gets _bsTxId >>= go
         Namespaces -> convNamespaceName
         Pacts -> convPactId
         UserTables _ -> error "impossible"
+
+    updCache k' = \case
+      Modules -> updateModCache k' v
+      _ -> return ()
 
 recordPendingUpdate
     :: ToJSON v
@@ -481,9 +488,12 @@ doCreateUserTable tn@(TableName ttxt) mn = do
 {-# INLINE doCreateUserTable #-}
 
 doRollback :: BlockHandler SQLiteEnv ()
-doRollback = modify'
-    $ set bsMode Nothing
-    . set bsPendingTx Nothing
+doRollback = do
+  modify'
+      $ set bsMode Nothing
+      . set bsPendingTx Nothing
+  modifyModuleRowCache $ updateStore (pure . rollbackStoreTx)
+
 
 doCommit :: BlockHandler SQLiteEnv [TxLog Value]
 doCommit = use bsMode >>= \case
@@ -497,6 +507,7 @@ doCommit = use bsMode >>= \case
               modify' $ over bsPendingBlock (merge pending)
               blockLogs <- use $ bsPendingBlock . pendingTxLogMap
               modify' $ set bsPendingTx Nothing
+              modifyModuleRowCache $ updateStore commitStoreTx
               resetTemp
               return blockLogs
           else doRollback >> return mempty
@@ -534,6 +545,7 @@ doBegin m = do
     modify'
         $ set bsMode (Just m)
         . set bsPendingTx (Just emptySQLitePendingData)
+    modifyModuleRowCache $ updateStore beginStoreTx
     case m of
         Transactional -> Just <$> use bsTxId
         Local -> pure Nothing

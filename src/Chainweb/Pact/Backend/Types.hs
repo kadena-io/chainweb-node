@@ -64,6 +64,7 @@ module Chainweb.Pact.Backend.Types
     , bsSortedKeys
     , bsLowerCaseTables
     , bsModuleRowCache
+    , modifyModuleRowCache
     , BlockEnv(..)
     , benvBlockState
     , benvDb
@@ -226,7 +227,8 @@ data BlockState = BlockState
     , _bsModuleNameFix :: Bool
     , _bsSortedKeys :: Bool
     , _bsLowerCaseTables :: Bool
-    , _bsModuleRowCache :: TransactionalStore ModuleRowCache
+    , _bsModuleRowCache :: TransactionalStore (TransactionalStore ModuleRowCache)
+      -- ^ Block -> Tx transactional store.
     }
 
 emptySQLitePendingData :: SQLitePendingData
@@ -242,7 +244,8 @@ initBlockState initialBlockHeight = BlockState
     , _bsModuleNameFix = False
     , _bsSortedKeys = False
     , _bsLowerCaseTables = False
-    , _bsModuleRowCache = mkTransactionalStore emptyRowCache
+    , _bsModuleRowCache =
+      mkTransactionalStore $ mkTransactionalStore emptyRowCache
     }
 
 makeLenses ''BlockState
@@ -281,6 +284,12 @@ newtype BlockHandler p a = BlockHandler
         , MonadIO
         , MonadReader (BlockDbEnv p)
         )
+
+modifyModuleRowCache
+    :: (TransactionalStore (TransactionalStore ModuleRowCache)
+        -> BlockHandler s (TransactionalStore (TransactionalStore ModuleRowCache)))
+    -> BlockHandler s ()
+modifyModuleRowCache f = use bsModuleRowCache >>= f >>= assign bsModuleRowCache
 
 data PactDbEnv' = forall e. PactDbEnv' (PactDbEnv e)
 

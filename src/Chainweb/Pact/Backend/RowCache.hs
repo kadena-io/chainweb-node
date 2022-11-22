@@ -1,4 +1,5 @@
 {-# LANGUAGE StrictData #-}
+{-# LANGUAGE OverloadedStrings #-}
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 
 module Chainweb.Pact.Backend.RowCache
@@ -27,6 +28,7 @@ import Data.Hashable (Hashable(..))
 import qualified Data.HashMap.Strict as HM
 import qualified Data.Map.Strict as M
 import qualified Data.HashSet as HS
+import Data.Text (Text)
 import Database.SQLite3.Direct (Utf8(..))
 
 import Pact.Types.Persistence (TxId,PersistModuleData)
@@ -96,7 +98,7 @@ data TransactionalStore a =
   Pending a a
 
 data TransactionalStoreError =
-  TransactionalStoreErrorInvalidState
+  TransactionalStoreErrorInvalidState Text
   deriving (Eq,Show)
 instance Exception TransactionalStoreError
 
@@ -106,20 +108,22 @@ beginStoreTx = withCommittedStore $ \c -> pure $! Pending c c
 commitStoreTx :: MonadThrow m => TransactionalStore a -> m (TransactionalStore a)
 commitStoreTx = withPendingStore $ \p -> pure $! Committed p
 
-rollbackStoreTx :: MonadThrow m => TransactionalStore a -> m (TransactionalStore a)
-rollbackStoreTx Committed {} = throwM TransactionalStoreErrorInvalidState
-rollbackStoreTx (Pending c _) = pure $! Committed c
+-- | Rollback is always safe
+rollbackStoreTx :: TransactionalStore a -> TransactionalStore a
+rollbackStoreTx c@Committed {} = c
+rollbackStoreTx (Pending c _) = Committed c
 
 withPendingStore :: MonadThrow m => (a -> m b) -> TransactionalStore a -> m b
-withPendingStore _ Committed {} = throwM TransactionalStoreErrorInvalidState
+withPendingStore _ Committed {} = throwM $ TransactionalStoreErrorInvalidState "withPendingStore"
 withPendingStore f (Pending _ p) = f p
 
 withCommittedStore :: MonadThrow m => (a -> m b) -> TransactionalStore a -> m b
-withCommittedStore _ Pending {} = throwM TransactionalStoreErrorInvalidState
+withCommittedStore _ Pending {} = throwM $ TransactionalStoreErrorInvalidState "withCommittedStore"
 withCommittedStore f (Committed c) = f c
 
+-- | Updating is only allowed in Pending state.
 updateStore :: MonadThrow m => (a -> m a) -> TransactionalStore a -> m (TransactionalStore a)
-updateStore _ Committed {} = throwM TransactionalStoreErrorInvalidState
+updateStore _ Committed {} = throwM $ TransactionalStoreErrorInvalidState "updateStore"
 updateStore f (Pending c p) = f p >>= \p' -> pure $! Pending c p'
 
 mkTransactionalStore :: a -> TransactionalStore a

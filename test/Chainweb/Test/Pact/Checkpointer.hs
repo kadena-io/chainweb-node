@@ -91,12 +91,14 @@ testModuleName = withTempSQLiteResource $
         (PactDbEnv' (PactDbEnv pactdb mvar)) <- _cpRestore _cpeCheckpointer (Just (2, hash01))
 
 
+        void $ _beginTx pactdb Transactional mvar
         -- block 2: write module records
         (_,_,mod') <- loadModule
         -- write qualified
         _writeRow pactdb Insert Modules "nsname.qualmod" mod' mvar
         -- write unqualified
         _writeRow pactdb Insert Modules "baremod" mod' mvar
+        void $ _commitTx pactdb mvar
         _cpSave _cpeCheckpointer hash02
 
         r1 <- qry_ _sConn "SELECT rowkey FROM [SYS:Modules] WHERE rowkey LIKE '%qual%'" [RText]
@@ -578,8 +580,10 @@ withRelationalCheckpointerResource =
     withResource initializeSQLite freeSQLiteResource . runSQLite
 
 addKeyset :: PactDbEnv' -> KeySetName -> KeySet -> IO ()
-addKeyset (PactDbEnv' (PactDbEnv pactdb mvar)) keysetname keyset =
+addKeyset (PactDbEnv' (PactDbEnv pactdb mvar)) keysetname keyset = do
+    void $ begin pactdb mvar
     _writeRow pactdb Insert KeySets keysetname keyset mvar
+    void $ commit pactdb mvar
 
 runTwice :: MonadIO m => (String -> IO ()) -> m () -> m ()
 runTwice step action = do
@@ -635,8 +639,10 @@ runCont cp (PactDbEnv' pactdbenv) pactId step = do
 simpleBlockEnvInit
     :: (PactDb (BlockEnv SQLiteEnv) -> BlockEnv SQLiteEnv -> (MVar (BlockEnv SQLiteEnv) -> IO ()) -> IO a)
     -> IO a
-simpleBlockEnvInit f = withTempSQLiteConnection chainwebPragmas $ \sqlenv ->
-    f chainwebPactDb (blockEnv sqlenv) (\v -> runBlockEnv v initSchema)
+simpleBlockEnvInit f = withTempSQLiteConnection chainwebPragmas $ \sqlenv -> do
+    f chainwebPactDb (blockEnv sqlenv) $ \v -> runBlockEnv v $ do
+      initSchema
+      startModuleRowCacheBlockTx 0
   where
     loggers = pactTestLogger False
     blockEnv e = BlockEnv

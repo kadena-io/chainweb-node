@@ -14,6 +14,7 @@
 module Chainweb.Pact.Backend.RelationalCheckpointer
   ( initRelationalCheckpointer
   , initRelationalCheckpointer'
+  , startModuleRowCacheBlockTx
   ) where
 
 import Control.Concurrent.MVar
@@ -55,6 +56,7 @@ import Chainweb.BlockHash
 import Chainweb.BlockHeader
 import Chainweb.BlockHeight
 import Chainweb.Pact.Backend.ChainwebPactDb
+import Chainweb.Pact.Backend.RowCache
 import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.Backend.Utils
 import Chainweb.Pact.Service.Types
@@ -115,8 +117,9 @@ doRestore v cid dbenv (Just (bh, hash)) = runBlockEnv dbenv $ do
     setSortedKeys
     setLowerCaseTables
     clearPendingTxState
-    void $ withSavepoint PreBlock $ handlePossibleRewind v cid bh hash
+    tid <- withSavepoint PreBlock $ handlePossibleRewind v cid bh hash
     beginSavepoint Block
+    startModuleRowCacheBlockTx tid
     return $! PactDbEnv' $! PactDbEnv chainwebPactDb dbenv
   where
     -- Module name fix follows the restore call to checkpointer.
@@ -140,8 +143,21 @@ doRestore _ _ dbenv Nothing = runBlockEnv dbenv $ do
         exec_ db "DELETE FROM VersionedTableMutation;"
         exec_ db "DELETE FROM TransactionIndex;"
     beginSavepoint Block
+    startModuleRowCacheBlockTx 0
     assign bsTxId 0
     return $! PactDbEnv' $ PactDbEnv chainwebPactDb dbenv
+
+-- | Always-safe module row cache init, by rolling back pending in any case.
+-- Returns rewound store in Pending block, Committed tx state.
+startModuleRowCacheBlockTx :: TxId -> BlockHandler s ()
+startModuleRowCacheBlockTx tid =
+  modifyModuleRowCache $ \s0 -> do
+    -- block level: rollback, begin block savepoint
+    s1 <- beginStoreTx $ rollbackStoreTx s0
+    -- rewind using tx savepoint and commit
+    (`updateStore` s1) $ \rc0 -> do
+      rc1 <- beginStoreTx $ rollbackStoreTx rc0
+      updateStore (pure . rewindCache tid) rc1 >>= commitStoreTx
 
 doSave :: Db -> BlockHash -> IO ()
 doSave dbenv hash = runBlockEnv dbenv $ do
@@ -153,6 +169,7 @@ doSave dbenv hash = runBlockEnv dbenv $ do
     -- FIXME: if any of the above fails with an exception the following isn't
     -- executed and a pending SAVEPOINT is left on the stack.
     commitSavepoint Block
+    modifyModuleRowCache commitStoreTx
     clearPendingTxState
   where
     runPending :: BlockHeight -> BlockHandler SQLiteEnv ()
@@ -188,6 +205,8 @@ doDiscard :: Db -> IO ()
 doDiscard dbenv = runBlockEnv dbenv $ do
     clearPendingTxState
     rollbackSavepoint Block
+    -- if tx-level is pending, this will be resolved in 'startModuleRowCacheBlockTx'
+    modifyModuleRowCache (pure . rollbackStoreTx)
 
     -- @ROLLBACK TO n@ only rolls back updates up to @n@ but doesn't remove the
     -- savepoint. In order to also pop the savepoint from the stack we commit it
