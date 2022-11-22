@@ -44,6 +44,7 @@ import Chainweb.BlockHeaderDB (BlockHeaderDb)
 import Chainweb.Graph
 import Chainweb.Miner.Pact
 import Chainweb.Pact.PactService
+import Chainweb.Pact.PactService.Checkpointer
 import Chainweb.Pact.PactService.ExecBlock
 import Chainweb.Pact.Types
 import Chainweb.Pact.Service.Types
@@ -479,16 +480,18 @@ testAllowReadsLocalSuccess = (tx,test)
 -- Utils
 
 execTest
-    :: WithPactCtxSQLite cas
+    :: PayloadCasLookup cas
+    => WithPactCtxSQLite cas
     -> TestRequest
     -> ScheduledTest
 execTest runPact request = _trEval request $ do
     cmdStrs <- mapM getPactCode $ _trCmds request
     trans <- mkCmds cmdStrs
-    results <- runPact $ \pde ->
-      execTransactions False defaultMiner
-        trans (EnforceCoinbaseFailure True) (CoinbaseUsePrecompiled True) pde Nothing Nothing
-        >>= throwOnGasFailure
+    results <- runPact $ \pde -> do
+      withDiscardedBatch $ withCurrentCheckpointer "execTest" $ \_ -> fmap Discard $
+          execTransactions False defaultMiner
+          trans (EnforceCoinbaseFailure True) (CoinbaseUsePrecompiled True) pde Nothing Nothing
+          >>= throwOnGasFailure
 
     let outputs = V.toList $ snd <$> _transactionPairs results
     return $ TestResponse
@@ -506,7 +509,8 @@ execTest runPact request = _trEval request $ do
       mkKeySetData "test-admin-keyset" [sender00]
 
 execTxsTest
-    :: WithPactCtxSQLite cas
+    :: PayloadCasLookup cas
+    => WithPactCtxSQLite cas
     -> String
     -> TxsTest
     -> ScheduledTest
@@ -514,10 +518,11 @@ execTxsTest runPact name (trans',check) = testCaseSch name (go >>= check)
   where
     go = do
       trans <- trans'
-      results' <- tryAllSynchronous $ runPact $ \pde ->
-        execTransactions False defaultMiner trans
-          (EnforceCoinbaseFailure True) (CoinbaseUsePrecompiled True) pde Nothing Nothing
-          >>= throwOnGasFailure
+      results' <- tryAllSynchronous $ runPact $ \pde -> do
+        withDiscardedBatch $ withCurrentCheckpointer "execTest" $ \_ -> fmap Discard $
+          execTransactions False defaultMiner trans
+              (EnforceCoinbaseFailure True) (CoinbaseUsePrecompiled True) pde Nothing Nothing
+              >>= throwOnGasFailure
       case results' of
         Right results -> Right <$> do
           let outputs = V.toList $ snd <$> _transactionPairs results
