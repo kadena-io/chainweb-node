@@ -50,15 +50,15 @@ data SimConfig = SimConfig
 simulate :: SimConfig -> IO ()
 simulate (SimConfig dbDir parentBlockFile payloadFile txIdx cid ver) = do
   parent <- decodeFileStrictOrThrow parentBlockFile
-  ((PayloadData txs md _ _ _) :: PayloadData) <- decodeFileStrictOrThrow payloadFile
-  let (Transaction tx) = txs V.! txIdx
+  PayloadData txs md _ _ _ :: PayloadData <- decodeFileStrictOrThrow payloadFile
+  let Transaction tx = txs V.! txIdx
   cmdTx <- decodeStrictOrThrow tx
   miner <- decodeStrictOrThrow $ _minerData md
   case validateCommand cmdTx of
     Left _ -> error "bad cmd"
     Right cmdPwt ->
       withSqliteDb cid cwLogger dbDir False $ \sqlenv -> do
-        (CheckpointEnv cp _) <-
+        CheckpointEnv cp _ <-
           initRelationalCheckpointer (initBlockState 0) sqlenv logger ver cid
         bracket_
           (_cpBeginCheckpointerBatch cp)
