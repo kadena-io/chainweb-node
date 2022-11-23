@@ -648,6 +648,7 @@ executable cwtool
         RunNodes
         SlowTests
         TxStream
+        TxSimulator
 
     build-depends:
         -- internal
