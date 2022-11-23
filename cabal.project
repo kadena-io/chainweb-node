@@ -2,6 +2,9 @@ packages: chainweb.cabal
 
 debug-info: True
 
+package *
+  ghc-options: -fno-omit-yields -feager-blackholing -fno-full-laziness
+
 -- -------------------------------------------------------------------------- --
 -- Package Specific Build Settings
 
