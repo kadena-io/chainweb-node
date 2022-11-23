@@ -24,7 +24,6 @@ import Chainweb.Pact.RestAPI.Server
 import Chainweb.Pact.TransactionExec
 import Chainweb.Pact.Types
 import Chainweb.Payload
-import Chainweb.Time
 import Chainweb.Transaction
 import Chainweb.Utils
 import Chainweb.Version
@@ -32,6 +31,8 @@ import Chainweb.Version
 import Pact.Types.Command
 import Pact.Types.Logger
 import Pact.Types.SPV
+
+import Utils.Logging.Trace
 
 data SimConfig = SimConfig
     { scDbDir :: FilePath
@@ -57,18 +58,20 @@ simulate (SimConfig dbDir parentBlockFile payloadFile txIdx cid ver) = do
     Left _ -> error "bad cmd"
     Right cmdPwt ->
       withSqliteDb cid cwLogger dbDir False $ \sqlenv -> do
-        (CheckpointEnv cp _) <- initRelationalCheckpointer (initBlockState 0) sqlenv logger ver cid
-        bracket
+        (CheckpointEnv cp _) <-
+          initRelationalCheckpointer (initBlockState 0) sqlenv logger ver cid
+        bracket_
           (_cpBeginCheckpointerBatch cp)
-          (\_ -> _cpDiscardCheckpointerBatch cp) $ \_ -> do
+          (_cpDiscardCheckpointerBatch cp) $ do
             let cmd = payloadObj <$> cmdPwt
                 txc = txContext parent cmd
-            (PactDbEnv' pde) <- _cpRestore cp $ Just (succ (_blockHeight parent), _blockHash parent)
+            PactDbEnv' pde <-
+              _cpRestore cp $ Just (succ (_blockHeight parent), _blockHash parent)
             mc <- readInitModules logger pde txc
-            (t0 :: Time Micros) <- getCurrentTimeIntegral
-            (T2 !cr _mc) <- applyCmd ver logger gasLogger pde miner chainweb213GasModel txc noSPVSupport cmd (initGas cmdPwt) mc
-            t1 <- getCurrentTimeIntegral
-            logLog logger "DEBUG" $ show ("Elapsed micros" :: String,diff t1 t0)
+            (T2 !cr _mc) <-
+              trace (logFunction cwLogger) "applyCmd" () 1 $
+                applyCmd ver logger gasLogger pde miner (getGasModel txc)
+                txc noSPVSupport cmd (initGas cmdPwt) mc
             T.putStrLn (encodeToText cr)
 
 
