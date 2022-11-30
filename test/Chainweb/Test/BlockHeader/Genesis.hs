@@ -32,6 +32,7 @@ import Chainweb.ChainId (ChainId, unsafeChainId)
 import Chainweb.Difficulty
 import Chainweb.Test.Utils (golden)
 import Chainweb.Utils
+import Chainweb.Utils.Serialization
 import Chainweb.Version (ChainwebVersion(..))
 
 ---
@@ -53,7 +54,7 @@ blockHashes =
     BB.toLazyByteString . foldMap (hash . snd) . sortBy (compare `on` fst) . HM.toList
   where
     hash :: BlockHeader -> BB.Builder
-    hash = BB.byteString . B64U.encode . runPut . encodeBlockHash . _blockHash
+    hash = BB.byteString . B64U.encode . runPutS . encodeBlockHash . _blockHash
 
 blockHash :: ChainwebVersion -> TestTree
 blockHash v = golden (sshow v <> "-block-hashes") $
@@ -93,6 +94,6 @@ graphTransitionTargetTests = testGroup "graph transition genesis targets"
 
   where
     forChain v target cid = (show cid, genesisBlockTarget v cid === target)
-    decodePowHashNat64 t = runGet decodePowHashNat =<< decodeB64UrlNoPaddingText t
+    decodePowHashNat64 t = runGetS decodePowHashNat =<< decodeB64UrlNoPaddingText t
     decodePowHashNatJson t = decodeStrictOrThrow' @_ @PowHashNat $ "\"" <> t <> "\""
 

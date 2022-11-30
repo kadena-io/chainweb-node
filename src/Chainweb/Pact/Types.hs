@@ -2,6 +2,8 @@
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveFunctor #-}
+{-# LANGUAGE DeriveFoldable #-}
+{-# LANGUAGE DeriveTraversable #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
@@ -50,6 +52,7 @@ module Chainweb.Pact.Types
   , txMode
   , txDbEnv
   , txLogger
+  , txGasLogger
   , txPublicData
   , txSpvSupport
   , txNetworkId
@@ -76,6 +79,7 @@ module Chainweb.Pact.Types
   , psVersion
   , psValidateHashesOnReplay
   , psLogger
+  , psGasLogger
   , psLoggers
   , psAllowReadsInLocal
   , psIsBatch
@@ -124,6 +128,7 @@ module Chainweb.Pact.Types
 
     -- * types
   , ModuleCache
+  , TxTimeout(..)
 
   -- * miscellaneous
   , defaultOnFatalError
@@ -175,6 +180,7 @@ import Chainweb.BlockHash
 import Chainweb.BlockHeader
 import Chainweb.BlockHeight
 import Chainweb.BlockHeaderDB
+import Chainweb.Mempool.Mempool (TransactionHash)
 import Chainweb.Miner.Pact
 import Chainweb.Logger
 import Chainweb.Pact.Backend.Types
@@ -189,7 +195,7 @@ import Chainweb.Version
 data Transactions r = Transactions
     { _transactionPairs :: !(Vector (ChainwebTransaction, r))
     , _transactionCoinbase :: !(CommandResult [TxLog Value])
-    } deriving (Eq, Show, Generic, NFData)
+    } deriving (Functor, Foldable, Traversable, Eq, Show, Generic, NFData)
 makeLenses 'Transactions
 
 data PactDbStatePersist = PactDbStatePersist
@@ -240,6 +246,7 @@ data TransactionEnv db = TransactionEnv
     { _txMode :: !ExecutionMode
     , _txDbEnv :: PactDbEnv db
     , _txLogger :: !P.Logger
+    , _txGasLogger :: !(Maybe P.Logger)
     , _txPublicData :: !PublicData
     , _txSpvSupport :: !SPVSupport
     , _txNetworkId :: !(Maybe NetworkId)
@@ -338,6 +345,7 @@ data PactServiceEnv cas = PactServiceEnv
     , _psValidateHashesOnReplay :: !Bool
     , _psAllowReadsInLocal :: !Bool
     , _psLogger :: !P.Logger
+    , _psGasLogger :: !(Maybe P.Logger)
     , _psLoggers :: !P.Loggers
         -- ^ logger factory. A new logger can be created via
         --
@@ -378,6 +386,7 @@ defaultPactServiceConfig = PactServiceConfig
       , _pactAllowReadsInLocal = False
       , _pactUnlimitedInitialRewind = False
       , _pactBlockGasLimit = defaultBlockGasLimit
+      , _pactLogGas = False
       }
 
 -- | This default value is only relevant for testing. In a chainweb-node the @GasLimit@
@@ -395,6 +404,9 @@ instance Exception ReorgLimitExceeded where
     fromException = asyncExceptionFromException
     toException = asyncExceptionToException
 
+data TxTimeout = TxTimeout !TransactionHash
+    deriving Show
+instance Exception TxTimeout
 
 defaultOnFatalError :: forall a. (LogLevel -> Text -> IO ()) -> PactException -> Text -> IO a
 defaultOnFatalError lf pex t = do
@@ -438,9 +450,15 @@ updateInitCache mc = get >>= \PactServiceState{..} -> do
     let bf 0 = 0
         bf h = succ h
         pbh = bf . _blockHeight . _parentHeader $ _psParentHeader
+
+    v <- view psVersion
+
     psInitCache .= case M.lookupLE pbh _psInitCache of
       Nothing -> M.singleton pbh mc
-      Just (_,before) -> M.insert pbh (HM.union mc before) _psInitCache
+      Just (_,before)
+        | chainweb217Pact After v pbh || chainweb217Pact At v pbh ->
+          M.insert pbh mc _psInitCache
+        | otherwise -> M.insert pbh (HM.union mc before) _psInitCache
 
 -- | Convert context to datatype for Pact environment.
 --

@@ -65,6 +65,9 @@ module Chainweb.Version
 , chainweb213Pact
 , chainweb214Pact
 , chainweb215Pact
+, chainweb216Pact
+, chainweb217Pact
+, pact44NewTrans
 
 -- ** BlockHeader Validation Guards
 , slowEpochGuard
@@ -124,12 +127,11 @@ module Chainweb.Version
 
 import Control.DeepSeq
 import Control.Lens
+import Control.Monad
 import Control.Monad.Catch
 
 import Data.Aeson hiding (pairs)
 import Data.Bits
-import Data.Bytes.Get
-import Data.Bytes.Put
 import Data.Hashable
 import qualified Data.HashSet as HS
 import qualified Data.List.NonEmpty as NE
@@ -157,6 +159,7 @@ import Chainweb.Graph
 import Chainweb.MerkleUniverse
 import Chainweb.Time
 import Chainweb.Utils
+import Chainweb.Utils.Serialization
 
 import Data.Singletons
 
@@ -298,11 +301,11 @@ fromChainwebVersionId 0x00000005 = Mainnet01
 fromChainwebVersionId i = fromTestChainwebVersionId i
 {-# INLINABLE fromChainwebVersionId #-}
 
-encodeChainwebVersion :: MonadPut m => ChainwebVersion -> m ()
+encodeChainwebVersion :: ChainwebVersion -> Put
 encodeChainwebVersion = putWord32le . chainwebVersionId
 {-# INLINABLE encodeChainwebVersion #-}
 
-decodeChainwebVersion :: MonadGet m => m ChainwebVersion
+decodeChainwebVersion :: Get ChainwebVersion
 decodeChainwebVersion = fromChainwebVersionId <$> getWord32le
 {-# INLINABLE decodeChainwebVersion #-}
 
@@ -761,19 +764,17 @@ workSizeBytes v h = headerSizeBytes v (unsafeChainId 0) h - 32
 --
 -- Smaller limits can be configured for creating new blocks.
 --
--- WARNING: this isn't yet enforced as block validation property. The current use of this ignores the
--- block height and use the value only during new block creation. Future versions of chainweb-node
--- will enforce this limit during block validation.
+-- Before the chainweb-node 2.16 fork, there was no maximum block gas limit.
 --
 maxBlockGasLimit
     :: ChainwebVersion
     -> ChainId
     -> BlockHeight
-    -> Natural
-maxBlockGasLimit Mainnet01 _ _ = 180000
-maxBlockGasLimit Testnet04 _ _ = 180000
-maxBlockGasLimit Development _ _ = 180000
-maxBlockGasLimit _ _ _ = 180000
+    -> Maybe Natural
+maxBlockGasLimit Mainnet01 _ bh = 180000 <$ guard (chainweb216Pact After Mainnet01 bh)
+maxBlockGasLimit Testnet04 _ bh = 180000 <$ guard (chainweb216Pact After Testnet04 bh)
+maxBlockGasLimit Development _ _ = Just 180000
+maxBlockGasLimit _ _ _ = Just 2_000000
 
 -- -------------------------------------------------------------------------- --
 -- Pact Validation Guards
@@ -950,6 +951,11 @@ chainweb213Pact Development = (>= 95)
 chainweb213Pact (FastTimedCPM g) | g == petersonChainGraph = (> 25)
 chainweb213Pact _ = const True
 
+-- | Fork for musl trans funs
+pact44NewTrans :: ChainwebVersion -> BlockHeight -> Bool
+pact44NewTrans Mainnet01 = (>= 2_965_885) -- Todo: add date
+pact44NewTrans Testnet04 = (>= 2_500_369) -- Todo: add date
+pact44NewTrans _ = const True
 
 -- | Pact and coin contract changes for Chainweb 2.14
 --
@@ -984,6 +990,38 @@ chainweb215Pact aoa v h = case aoa of
     go f Development = f 165
     go f (FastTimedCPM g) | g == petersonChainGraph = f 35
     go f _ = f 10
+
+-- | Pact and coin contract changes for Chainweb 2.16
+--
+chainweb216Pact
+    :: AtOrAfter
+    -> ChainwebVersion
+    -> BlockHeight
+    -> Bool
+chainweb216Pact aoa v h = case aoa of
+    At -> go (==) v h
+    After -> go (<) v h
+  where
+    go f Mainnet01 = f 2988324 -- 2022-09-02 00:00:00+00:00
+    go f Testnet04 = f 2516739 -- 2022-09-01 12:00:00+00:00
+    go f Development = f 215
+    go f (FastTimedCPM g) | g == petersonChainGraph = f 53
+    go f _ = f 16
+
+chainweb217Pact
+    :: AtOrAfter
+    -> ChainwebVersion
+    -> BlockHeight
+    -> Bool
+chainweb217Pact aoa v h = case aoa of
+    At -> go (==) v h
+    After -> go (<) v h
+  where
+    go f Mainnet01 = f 3_250_348 -- 2022-12-02 00:00:00+00:00
+    go f Testnet04 = f 2_777_367 -- 2022-12-01 12:00:00+00:00
+    go f Development = f 470
+    go f (FastTimedCPM g) | g == petersonChainGraph = f 55
+    go f _ = f 20
 
 -- -------------------------------------------------------------------------- --
 -- Header Validation Guards

@@ -1,5 +1,6 @@
 {-# LANGUAGE CPP #-}
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE OverloadedStrings #-}
@@ -145,7 +146,6 @@ import Control.Monad.IO.Class
 
 import Data.Aeson (FromJSON, ToJSON)
 import Data.Bifunctor hiding (second)
-import Data.Bytes.Put
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Char8 as B8
 import qualified Data.ByteString.Lazy as BL
@@ -180,7 +180,6 @@ import Numeric.Natural
 
 import Servant.Client (BaseUrl(..), ClientEnv, Scheme(..), mkClientEnv)
 
-import System.Directory
 import System.Environment (withArgs)
 import System.IO
 import System.IO.Temp
@@ -237,10 +236,12 @@ import Chainweb.Test.Utils.BlockHeader
 import Chainweb.Time
 import Chainweb.TreeDB
 import Chainweb.Utils
+import Chainweb.Utils.Serialization
 import Chainweb.Version
 import Chainweb.Version.Utils
 
 import Data.CAS.RocksDB
+import qualified Database.RocksDB.Internal as R
 
 import Network.X509.SelfSigned
 
@@ -290,9 +291,9 @@ testRocksDb
     :: B.ByteString
     -> RocksDb
     -> IO RocksDb
-testRocksDb l = rocksDbNamespace (const prefix)
-  where
-    prefix = (<>) l . sshow <$> (randomIO @Word64)
+testRocksDb l r = do
+  prefix <- (<>) l . sshow <$> (randomIO @Word64)
+  return r { _rocksDbNamespace = prefix }
 
 withRocksResource :: (IO RocksDb -> TestTree) -> TestTree
 withRocksResource m = withResource create destroy wrap
@@ -300,14 +301,14 @@ withRocksResource m = withResource create destroy wrap
     create = do
       sysdir <- getCanonicalTemporaryDirectory
       dir <- createTempDirectory sysdir "chainweb-rocksdb-tmp"
-      rocks <- openRocksDb dir
-      return (dir, rocks)
-    destroy (dir, rocks) = do
-        closeRocksDb rocks
-        destroyRocksDb dir
-        removeDirectoryRecursive dir
-          `catchAllSynchronous` (const $ return ())
-    wrap ioact = let io' = snd <$> ioact in m io'
+      opts@(R.Options' opts_ptr _ _) <- R.mkOpts modernDefaultOptions
+      rocks <- openRocksDb dir opts_ptr
+      return (dir, rocks, opts)
+    destroy (dir, rocks, opts) =
+        closeRocksDb rocks `finally`
+            R.freeOpts opts `finally`
+            destroyRocksDb dir
+    wrap ioact = let io' = view _2 <$> ioact in m io'
 
 -- -------------------------------------------------------------------------- --
 -- SQLite DB Test Resource
@@ -852,8 +853,8 @@ prop_iso' d e a = Right a === first show (d (e a))
 prop_encodeDecode
     :: Eq a
     => Show a
-    => (forall m . MonadGetExtra m => m a)
-    -> (forall m . MonadPut m => a -> m ())
+    => Get a
+    -> (a -> Put)
     -> a
     -> Property
 prop_encodeDecode d e a
@@ -864,34 +865,34 @@ prop_encodeDecode d e a
 prop_encodeDecodeRoundtrip
     :: Eq a
     => Show a
-    => (forall m . MonadGetExtra m => m a)
-    -> (forall m . MonadPut m => a -> m ())
+    => Get a
+    -> (a -> Put)
     -> a
     -> Property
 prop_encodeDecodeRoundtrip d e =
-    prop_iso' (runGetEither d) (runPutS . e)
+    prop_iso' (runGetEitherS d) (runPutS . e)
 
 prop_decode_failPending
     :: Eq a
     => Show a
-    => (forall m . MonadGetExtra m => m a)
-    -> (forall m . MonadPut m => a -> m ())
+    => Get a
+    -> (a -> Put)
     -> a
     -> Property
-prop_decode_failPending d e a = case runGetEither d (runPutS (e a) <> "a") of
+prop_decode_failPending d e a = case runGetEitherS d (runPutS (e a) <> "a") of
     Left _ -> property True
     Right _ -> property False
 
 prop_decode_failMissing
     :: Eq a
     => Show a
-    => (forall m . MonadGetExtra m => m a)
-    -> (forall m . MonadPut m => a -> m ())
+    => Get a
+    -> (a -> Put)
     -> a
     -> Property
 prop_decode_failMissing d e a
     | B.null x = discard
-    | otherwise = case runGetEither d $ B.init x of
+    | otherwise = case runGetEitherS d $ B.init x of
         Left _ -> property True
         Right _ -> property False
   where
@@ -948,14 +949,15 @@ assertGe msg actual expected = assertBool msg_
 
 -- | Assert that predicate holds.
 assertSatisfies
-  :: Show a
+  :: MonadIO m
+  => Show a
   => String
   -> a
   -> (a -> Bool)
-  -> Assertion
+  -> m ()
 assertSatisfies msg value predf
-  | result = assertEqual msg True result
-  | otherwise = assertFailure $ msg ++ ": " ++ show value
+  | result = liftIO $ assertEqual msg True result
+  | otherwise = liftIO $ assertFailure $ msg ++ ": " ++ show value
   where result = predf value
 
 -- | Assert that string rep of value contains contents.
@@ -1119,19 +1121,21 @@ node testLabel rdb rawLogger peerInfoVar conf nid = do
     rocksDb <- testRocksDb (testLabel <> T.encodeUtf8 (toText nid)) rdb
     withSystemTempDirectory "test-backupdir" $ \backupDir ->
         withSystemTempDirectory "test-rocksdb" $ \dir ->
-            withChainweb conf logger rocksDb backupDir dir False $ \cw -> do
+            withChainweb conf logger rocksDb backupDir dir False $ \case
+                StartedChainweb cw -> do
 
-                -- If this is the bootstrap node we extract the port number and publish via an MVar.
-                when (nid == 0) $ do
-                    let bootStrapInfo = view (chainwebPeer . peerResPeer . peerInfo) cw
-                        bootStrapPort = view (chainwebServiceSocket . _1) cw
-                    putMVar peerInfoVar (bootStrapInfo, bootStrapPort)
+                    -- If this is the bootstrap node we extract the port number and publish via an MVar.
+                    when (nid == 0) $ do
+                        let bootStrapInfo = view (chainwebPeer . peerResPeer . peerInfo) cw
+                            bootStrapPort = view (chainwebServiceSocket . _1) cw
+                        putMVar peerInfoVar (bootStrapInfo, bootStrapPort)
 
-                poisonDeadBeef cw
-                runChainweb cw `finally` do
-                    logFunctionText logger Info "write sample data"
-                    logFunctionText logger Info "shutdown node"
-                return ()
+                    poisonDeadBeef cw
+                    runChainweb cw `finally` do
+                        logFunctionText logger Info "write sample data"
+                        logFunctionText logger Info "shutdown node"
+                    return ()
+                Replayed _ _ -> error "node: should not be a replay"
   where
     logger = addLabel ("node", sshow nid) rawLogger
 

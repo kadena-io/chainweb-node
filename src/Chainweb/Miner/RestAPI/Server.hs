@@ -59,7 +59,8 @@ import Chainweb.Miner.Core
 import Chainweb.Miner.Pact
 import Chainweb.Miner.RestAPI (MiningApi)
 import Chainweb.RestAPI.Utils
-import Chainweb.Utils (EncodingException(..), runGet, runPut)
+import Chainweb.Utils (EncodingException(..))
+import Chainweb.Utils.Serialization
 import Chainweb.Version
 
 -- -------------------------------------------------------------------------- --
@@ -82,7 +83,7 @@ workHandler mr mcid m@(Miner (MinerId mid) _) = do
         liftIO $ atomicModifyIORef' (_coord403s mr) (\c -> (c + 1, ()))
         throwError $ setErrText ("Unauthorized Miner: " <> mid) err403
     wh <- liftIO $ work mr mcid m
-    return $ WorkBytes $ runPut $ encodeWorkHeader wh
+    return $ WorkBytes $ runPutS $ encodeWorkHeader wh
 
 -- -------------------------------------------------------------------------- --
 -- Solved Handler
@@ -94,7 +95,7 @@ solvedHandler
     -> HeaderBytes
     -> Handler NoContent
 solvedHandler mr (HeaderBytes bytes) = do
-    liftIO (try $ runGet decodeSolvedWork bytes) >>= \case
+    liftIO (try $ runGetS decodeSolvedWork bytes) >>= \case
         Left (DecodeException e) ->
             throwError $ setErrText ("Decoding error: " <> e) err400
         Left _ ->
@@ -119,7 +120,7 @@ updatesHandler
     -> ChainBytes
     -> Tagged Handler Application
 updatesHandler mr (ChainBytes cbytes) = Tagged $ \req resp -> withLimit resp $ do
-    cid <- runGet decodeChainId cbytes
+    cid <- runGetS decodeChainId cbytes
     cv  <- _cut (_coordCutDb mr) >>= newIORef
 
     -- An update stream is closed after @timeout@ seconds. We add some jitter to

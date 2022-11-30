@@ -63,6 +63,7 @@ import Chainweb.Miner.Pact
 import Chainweb.RestAPI.Orphans ()
 import Chainweb.Transaction
 import Chainweb.Utils
+import Chainweb.Utils.Serialization
 import Chainweb.Version
 
 import Data.LogMessage (LogFunction)
@@ -102,7 +103,7 @@ localTest lf v coord m cdb gen miners =
     go :: BlockHeight -> WorkHeader -> IO SolvedWork
     go height w = do
         MWC.geometric1 t gen >>= threadDelay
-        runGet decodeSolvedWork $ BS.fromShort $ _workHeaderBytes w
+        runGetS decodeSolvedWork $ BS.fromShort $ _workHeaderBytes w
       where
         t :: Double
         t = int graphOrder / (int (_minerCount miners) * meanBlockTime * 1000000)

@@ -89,6 +89,7 @@ import Chainweb.Pact.TransactionExec
 import Chainweb.Pact.Types
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
+import Chainweb.Time
 import Chainweb.Transaction
 import Chainweb.TreeDB (lookupM)
 import Chainweb.Utils hiding (check)
@@ -146,6 +147,7 @@ initPactService' ver cid chainwebLogger bhDb pdb sqlenv config act = do
                 , _psIsBatch = False
                 , _psCheckpointerDepth = 0
                 , _psLogger = pactLogger
+                , _psGasLogger = gasLogger <$ guard (_pactLogGas config)
                 , _psLoggers = loggers
                 , _psBlockGasLimit = _pactBlockGasLimit config
                 }
@@ -164,6 +166,7 @@ initPactService' ver cid chainwebLogger bhDb pdb sqlenv config act = do
     loggers = pactLoggers chainwebLogger
     cplogger = P.newLogger loggers $ P.LogName "Checkpointer"
     pactLogger = P.newLogger loggers $ P.LogName "PactService"
+    gasLogger = P.newLogger loggers $ P.LogName "GasLogs"
 
 initializeLatestBlock :: PayloadCasLookup cas => Bool -> PactServiceM cas ()
 initializeLatestBlock unlimitedRewind = findLatestValidBlock >>= \case
@@ -412,7 +415,7 @@ attemptBuyGas miner (PactDbEnv' dbEnv) txs = do
         let ec = P.mkExecutionConfig
               [ P.FlagDisableModuleInstall
               , P.FlagDisableHistoryInTransactionalMode ]
-        return $! TransactionEnv P.Transactional db l (ctxToPublicData pd) spv nid gp rk gl ec
+        return $! TransactionEnv P.Transactional db l Nothing (ctxToPublicData pd) spv nid gp rk gl ec
       where
         !nid = networkIdOf cmd
         !rk = P.cmdToRequestKey cmd
@@ -425,8 +428,8 @@ attemptBuyGas miner (PactDbEnv' dbEnv) txs = do
     runBuyGas _db mcache l@Left {} = return (T2 mcache l)
     runBuyGas db mcache (Right tx) = do
         let cmd = payloadObj <$> tx
-            gasPrice = gasPriceOf cmd
-            gasLimit = fromIntegral $ gasLimitOf cmd
+            gasPrice = view cmdGasPrice cmd
+            gasLimit = fromIntegral $ view cmdGasLimit cmd
             txst = TransactionState
                 { _txCache = mcache
                 , _txLogs = mempty
@@ -466,6 +469,11 @@ execNewBlock mpAccess parent miner = do
     withDiscardedBatch $ do
       withCheckpointerRewind newblockRewindLimit (Just parent) "execNewBlock" doNewBlock
   where
+    handleTimeout :: TxTimeout -> PactServiceM cas a
+    handleTimeout (TxTimeout h) = do
+      logError $ "execNewBlock: timed out on " <> sshow h
+      liftIO $ mpaBadlistTx mpAccess (V.singleton h)
+      throwM (TxTimeout h)
 
     -- This is intended to mitigate mining attempts during replay.
     -- In theory we shouldn't need to rewind much ever, but values
@@ -500,6 +508,13 @@ execNewBlock mpAccess parent miner = do
         blockGasLimit <- view psBlockGasLimit
         let initState = BlockFill blockGasLimit mempty 0
 
+        let
+            txTimeHeadroomFactor :: Double
+            txTimeHeadroomFactor = 5
+            -- 2.5 microseconds per unit gas
+            txTimeLimit :: Micros
+            txTimeLimit = round $ (2.5 * txTimeHeadroomFactor) * fromIntegral blockGasLimit
+
         -- Heuristic: limit fetches to count of 1000-gas txs in block.
         let fetchLimit = fromIntegral $ blockGasLimit `div` 1000
 
@@ -510,9 +525,11 @@ execNewBlock mpAccess parent miner = do
           (EnforceCoinbaseFailure True)
           (CoinbaseUsePrecompiled True)
           pdbenv
+          Nothing
+          (Just txTimeLimit) `catch` handleTimeout
 
         (BlockFilling _ successPairs failures) <-
-          refill fetchLimit pdbenv =<<
+          refill fetchLimit txTimeLimit pdbenv =<<
           foldM splitResults (incCount (BlockFilling initState mempty mempty)) pairs
 
         liftIO $ mpaBadlistTx mpAccess (V.map gasPurchaseFailureHash failures)
@@ -520,9 +537,9 @@ execNewBlock mpAccess parent miner = do
         let !pwo = toPayloadWithOutputs miner (Transactions successPairs cb)
         return $! Discard pwo
 
-    refill fetchLimit pdbenv unchanged@(BlockFilling bfState oldPairs oldFails) = do
+    refill fetchLimit txTimeLimit pdbenv unchanged@(BlockFilling bfState oldPairs oldFails) = do
 
-      logInfo $ describeBF unchanged
+      logDebug $ describeBF unchanged
 
       -- LOOP INVARIANT: limit absolute recursion count
       when (_bfCount bfState > fetchLimit) $
@@ -536,7 +553,7 @@ execNewBlock mpAccess parent miner = do
         newTrans <- getBlockTxs bfState
         if V.null newTrans then pure unchanged else do
 
-          pairs <- execTransactionsOnly miner newTrans pdbenv
+          pairs <- execTransactionsOnly miner newTrans pdbenv (Just txTimeLimit) `catch` handleTimeout
 
           newFill@(BlockFilling newState newPairs newFails) <-
                 foldM splitResults unchanged pairs
@@ -552,7 +569,7 @@ execNewBlock mpAccess parent miner = do
           if (_bfGasLimit newState < _bfGasLimit bfState)
               -- ... OR only non-zero failures were returned.
              || (newSuccessCount == 0  && newFailCount > 0)
-              then refill fetchLimit pdbenv (incCount newFill)
+              then refill fetchLimit txTimeLimit pdbenv (incCount newFill)
               else throwM $ MempoolFillFailure $ "Invariant failure: " <>
                    sshow (bfState,newState,V.length newTrans
                          ,V.length newPairs,V.length newFails)
@@ -599,7 +616,7 @@ execNewGenesisBlock miner newTrans = withDiscardedBatch $
         -- NEW GENESIS COINBASE: Reject bad coinbase, use date rule for precompilation
         results <- execTransactions True miner newTrans
                    (EnforceCoinbaseFailure True)
-                   (CoinbaseUsePrecompiled False) pdbenv
+                   (CoinbaseUsePrecompiled False) pdbenv Nothing Nothing
                    >>= throwOnGasFailure
         return $! Discard (toPayloadWithOutputs miner results)
 
@@ -619,7 +636,7 @@ execLocal cmd = withDiscardedBatch $ do
         logger = P.newLogger _psLoggers "execLocal"
     withCurrentCheckpointer "execLocal" $ \(PactDbEnv' pdbenv) -> do
         r <- liftIO $
-          applyLocal logger pdbenv chainweb213GasModel pd spv cmd mc execConfig
+          applyLocal logger _psGasLogger pdbenv chainweb213GasModel pd spv cmd mc execConfig
         return $! Discard (toHashCommandResult r)
 
 execSyncToBlock
