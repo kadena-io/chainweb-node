@@ -33,7 +33,6 @@ import Data.Maybe
 import qualified Data.HashMap.Strict as HashMap
 import qualified Data.List as List
 import qualified Data.Set as S
-import Data.Serialize hiding (get)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
 import qualified Data.Vector as V
@@ -60,8 +59,8 @@ import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.Backend.Utils
 import Chainweb.Pact.Service.Types
 import Chainweb.Utils
+import Chainweb.Utils.Serialization
 import Chainweb.Version
-
 
 initRelationalCheckpointer
     :: BlockState
@@ -114,6 +113,7 @@ doRestore :: ChainwebVersion -> ChainId -> Db -> Maybe (BlockHeight, ParentHash)
 doRestore v cid dbenv (Just (bh, hash)) = runBlockEnv dbenv $ do
     setModuleNameFix
     setSortedKeys
+    setLowerCaseTables
     clearPendingTxState
     void $ withSavepoint PreBlock $ handlePossibleRewind v cid bh hash
     beginSavepoint Block
@@ -122,6 +122,7 @@ doRestore v cid dbenv (Just (bh, hash)) = runBlockEnv dbenv $ do
     -- Module name fix follows the restore call to checkpointer.
     setModuleNameFix = bsModuleNameFix .= enableModuleNameFix v bh
     setSortedKeys = bsSortedKeys .= pact420Upgrade v bh
+    setLowerCaseTables = bsLowerCaseTables .= chainweb217Pact After v bh
 doRestore _ _ dbenv Nothing = runBlockEnv dbenv $ do
     clearPendingTxState
     withSavepoint DbTransaction $
@@ -206,7 +207,7 @@ doGetLatest dbenv =
             \ ORDER BY blockheight DESC LIMIT 1"
 
     go [SInt hgt, SBlob blob] =
-        let hash = either error id $ Data.Serialize.decode blob
+        let hash = either error id $ runGetEitherS decodeBlockHash blob
         in return (fromIntegral hgt, hash)
     go _ = fail "impossible"
 
@@ -232,7 +233,7 @@ doDiscardBatch db = runBlockEnv db $ do
 doLookupBlock :: Db -> (BlockHeight, BlockHash) -> IO Bool
 doLookupBlock dbenv (bheight, bhash) = runBlockEnv dbenv $ do
     r <- callDb "lookupBlock" $ \db ->
-         qry db qtext [SInt $ fromIntegral bheight, SBlob (encode bhash)]
+         qry db qtext [SInt $ fromIntegral bheight, SBlob (runPutS (encodeBlockHash bhash))]
                       [RInt]
     liftIO (expectSingle "row" r) >>= \case
         [SInt n] -> return $! n /= 0
@@ -251,8 +252,9 @@ doGetBlockParent v cid dbenv (bh, hash)
           else runBlockEnv dbenv $ do
             r <- callDb "getBlockParent" $ \db -> qry db qtext [SInt (fromIntegral (pred bh))] [RBlob]
             case r of
-               [[SBlob blob]] -> either (internalError . T.pack) (return . return) $! Data.Serialize.decode blob
-               _ -> internalError "doGetBlockParent: output mismatch"
+              [[SBlob blob]] ->
+                either (internalError . T.pack) (return . return) $! runGetEitherS decodeBlockHash blob
+              _ -> internalError "doGetBlockParent: output mismatch"
   where
     qtext = "SELECT hash FROM BlockHistory WHERE blockheight = ?"
 
@@ -274,7 +276,7 @@ doLookupSuccessful dbenv (TypedHash hash) = runBlockEnv dbenv $ do
             \TransactionIndex INNER JOIN BlockHistory \
             \USING (blockheight) WHERE txhash = ?;"
     go [SInt h, SBlob blob] = do
-        !hsh <- either fail return $ Data.Serialize.decode blob
+        !hsh <- either fail return $ runGetEitherS decodeBlockHash blob
         return $! T2 (fromIntegral h) hsh
     go _ = fail "impossible"
 
@@ -335,7 +337,7 @@ getEndTxId :: Database -> BlockHeight -> BlockHash -> IO Int64
 getEndTxId db bhi bha = do
   r <- qry db
     "SELECT endingtxid FROM BlockHistory WHERE blockheight = ? and hash = ?;"
-    [SInt $ fromIntegral bhi, SBlob $ encode bha]
+    [SInt $ fromIntegral bhi, SBlob $ runPutS (encodeBlockHash bha)]
     [RInt]
   case r of
     [[SInt tid]] -> return tid
@@ -369,4 +371,3 @@ doGetHistoricalLookup dbenv blockHeader d k = runBlockEnv dbenv $ do
         [[SText key, SBlob value]] -> Just <$> toTxLog d key value
         [] -> pure Nothing
         _ -> internalError $ "doGetHistoricalLookup: expected single-row result, got " <> sshow r
-

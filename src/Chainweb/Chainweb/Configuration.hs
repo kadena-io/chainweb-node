@@ -36,6 +36,7 @@ module Chainweb.Chainweb.Configuration
 , cutPruneChainDatabase
 , cutFetchTimeout
 , cutInitialBlockHeightLimit
+, cutFastForwardBlockHeightLimit
 , defaultCutConfig
 , pCutConfig
 
@@ -66,6 +67,8 @@ module Chainweb.Chainweb.Configuration
 , configRosetta
 , configBackup
 , configServiceApi
+, configOnlySyncPact
+, configSyncPactChains
 , defaultChainwebConfiguration
 , pChainwebConfiguration
 , validateChainwebConfiguration
@@ -201,6 +204,7 @@ data CutConfig = CutConfig
     { _cutPruneChainDatabase :: !ChainDatabaseGcConfig
     , _cutFetchTimeout :: !Int
     , _cutInitialBlockHeightLimit :: !(Maybe BlockHeight)
+    , _cutFastForwardBlockHeightLimit :: !(Maybe BlockHeight)
     } deriving (Eq, Show)
 
 makeLenses ''CutConfig
@@ -210,6 +214,7 @@ instance ToJSON CutConfig where
         [ "pruneChainDatabase" .= _cutPruneChainDatabase o
         , "fetchTimeout" .= _cutFetchTimeout o
         , "initialBlockHeightLimit" .= _cutInitialBlockHeightLimit o
+        , "fastForwardBlockHeightLimit" .= _cutFastForwardBlockHeightLimit o
         ]
 
 instance FromJSON (CutConfig -> CutConfig) where
@@ -217,12 +222,14 @@ instance FromJSON (CutConfig -> CutConfig) where
         <$< cutPruneChainDatabase ..: "pruneChainDatabase" % o
         <*< cutFetchTimeout ..: "fetchTimeout" % o
         <*< cutInitialBlockHeightLimit ..: "initialBlockHeightLimit" % o
+        <*< cutFastForwardBlockHeightLimit ..: "fastForwardBlockHeightLimit" % o
 
 defaultCutConfig :: CutConfig
 defaultCutConfig = CutConfig
     { _cutPruneChainDatabase = GcNone
     , _cutFetchTimeout = 3_000_000
     , _cutInitialBlockHeightLimit = Nothing
+    , _cutFastForwardBlockHeightLimit = Nothing
     }
 
 pCutConfig :: MParser CutConfig
@@ -239,8 +246,10 @@ pCutConfig = id
     <*< cutFetchTimeout .:: option auto
         % long "cut-fetch-timeout"
         <> help "The timeout for processing new cuts in microseconds"
-    -- cutInitialBlockHeightLimit isn't supported on the command line
-    -- cutResetToCut isn't supported on the command line
+    <*< cutInitialBlockHeightLimit .:: fmap (Just . BlockHeight) . option auto
+        % long "initial-block-height-limit"
+    <*< cutFastForwardBlockHeightLimit .:: fmap (Just . BlockHeight) . option auto
+        % long "fast-forward-block-height-limit"
 
 -- -------------------------------------------------------------------------- --
 -- Service API Configuration
@@ -365,6 +374,7 @@ data ChainwebConfiguration = ChainwebConfiguration
     , _configThrottling :: !ThrottlingConfig
     , _configMempoolP2p :: !(EnableConfig MempoolP2pConfig)
     , _configBlockGasLimit :: !Mempool.GasLimit
+    , _configLogGas :: !Bool
     , _configMinGasPrice :: !Mempool.GasPrice
     , _configPactQueueSize :: !Natural
     , _configReorgLimit :: !Natural
@@ -376,6 +386,9 @@ data ChainwebConfiguration = ChainwebConfiguration
     , _configServiceApi :: !ServiceApiConfig
     , _configOnlySyncPact :: !Bool
         -- ^ exit after synchronizing pact dbs to the latest cut
+    , _configSyncPactChains :: !(Maybe [ChainId])
+        -- ^ the only chains to be synchronized on startup to the latest cut.
+        --   if unset, all chains will be synchronized.
     } deriving (Show, Eq, Generic)
 
 makeLenses ''ChainwebConfiguration
@@ -412,6 +425,7 @@ defaultChainwebConfiguration v = ChainwebConfiguration
     , _configThrottling = defaultThrottlingConfig
     , _configMempoolP2p = defaultEnableConfig defaultMempoolP2pConfig
     , _configBlockGasLimit = 150000
+    , _configLogGas = False
     , _configMinGasPrice = 1e-8
     , _configPactQueueSize = 2000
     , _configReorgLimit = int defaultReorgLimit
@@ -420,6 +434,7 @@ defaultChainwebConfiguration v = ChainwebConfiguration
     , _configRosetta = False
     , _configServiceApi = defaultServiceApiConfig
     , _configOnlySyncPact = False
+    , _configSyncPactChains = Nothing
     , _configBackup = defaultBackupConfig
     }
 
@@ -434,6 +449,7 @@ instance ToJSON ChainwebConfiguration where
         , "throttling" .= _configThrottling o
         , "mempoolP2p" .= _configMempoolP2p o
         , "gasLimitOfBlock" .= _configBlockGasLimit o
+        , "logGas" .= _configLogGas o
         , "minGasPrice" .= _configMinGasPrice o
         , "pactQueueSize" .= _configPactQueueSize o
         , "reorgLimit" .= _configReorgLimit o
@@ -442,6 +458,7 @@ instance ToJSON ChainwebConfiguration where
         , "rosetta" .= _configRosetta o
         , "serviceApi" .= _configServiceApi o
         , "onlySyncPact" .= _configOnlySyncPact o
+        , "syncPactChains" .= _configSyncPactChains o
         , "backup" .= _configBackup o
         ]
 
@@ -461,6 +478,7 @@ instance FromJSON (ChainwebConfiguration -> ChainwebConfiguration) where
         <*< configThrottling %.: "throttling" % o
         <*< configMempoolP2p %.: "mempoolP2p" % o
         <*< configBlockGasLimit ..: "gasLimitOfBlock" % o
+        <*< configLogGas ..: "logGas" % o
         <*< configMinGasPrice ..: "minGasPrice" % o
         <*< configPactQueueSize ..: "pactQueueSize" % o
         <*< configReorgLimit ..: "reorgLimit" % o
@@ -469,6 +487,7 @@ instance FromJSON (ChainwebConfiguration -> ChainwebConfiguration) where
         <*< configRosetta ..: "rosetta" % o
         <*< configServiceApi %.: "serviceApi" % o
         <*< configOnlySyncPact ..: "onlySyncPact" % o
+        <*< configSyncPactChains ..: "syncPactChains" % o
         <*< configBackup %.: "backup" % o
 
 pChainwebConfiguration :: MParser ChainwebConfiguration
@@ -489,6 +508,9 @@ pChainwebConfiguration = id
     <*< configBlockGasLimit .:: jsonOption
         % long "block-gas-limit"
         <> help "the sum of all transaction gas fees in a block must not exceed this number"
+    <*< configLogGas .:: boolOption_
+        % long "log-gas"
+        <> help "log gas consumed by Pact commands"
     <*< configMinGasPrice .:: jsonOption
         % long "min-gas-price"
         <> help "the gas price of an individual transaction in a block must not be beneath this number"
@@ -515,5 +537,9 @@ pChainwebConfiguration = id
     <*< configOnlySyncPact .:: boolOption_
         % long "only-sync-pact"
         <> help "Terminate after synchronizing the pact databases to the latest cut"
+    <*< configSyncPactChains .:: fmap Just % jsonOption
+        % long "sync-pact-chains"
+        <> help "The only Pact databases to synchronize. If empty or unset, all chains will be synchronized."
+        <> metavar "JSON list of chain ids"
     <*< configBackup %:: pBackupConfig
 

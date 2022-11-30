@@ -48,8 +48,6 @@ import Control.Monad.Catch
 import Control.Monad.Trans.Maybe
 
 import Data.Aeson
-import Data.Bytes.Get
-import Data.Bytes.Put
 import Data.Function
 import Data.Hashable
 import Data.Maybe
@@ -72,6 +70,7 @@ import Chainweb.ChainId
 import Chainweb.TreeDB
 import Chainweb.Utils hiding (Codec)
 import Chainweb.Utils.Paging
+import Chainweb.Utils.Serialization
 import Chainweb.Version
 
 import Data.CAS
@@ -142,21 +141,21 @@ newtype BlockRank = BlockRank { _getBlockRank :: BlockHeight }
 -- -------------------------------------------------------------------------- --
 -- Internal
 
-encodeRankedBlockHeader :: MonadPut m => RankedBlockHeader -> m ()
+encodeRankedBlockHeader :: RankedBlockHeader -> Put
 encodeRankedBlockHeader = encodeBlockHeader . _getRankedBlockHeader
 {-# INLINE encodeRankedBlockHeader #-}
 
-decodeRankedBlockHeader :: MonadGet m => m RankedBlockHeader
+decodeRankedBlockHeader :: Get RankedBlockHeader
 decodeRankedBlockHeader = RankedBlockHeader <$!> decodeBlockHeader
 {-# INLINE decodeRankedBlockHeader #-}
 
-encodeRankedBlockHash :: MonadPut m => RankedBlockHash -> m ()
+encodeRankedBlockHash :: RankedBlockHash -> Put
 encodeRankedBlockHash (RankedBlockHash r bh) = do
     encodeBlockHeightBe r -- big endian encoding for lexicographical order
     encodeBlockHash bh
 {-# INLINE encodeRankedBlockHash #-}
 
-decodeRankedBlockHash :: MonadGet m => m RankedBlockHash
+decodeRankedBlockHash :: Get RankedBlockHash
 decodeRankedBlockHash = RankedBlockHash
     <$!> decodeBlockHeightBe
     <*> decodeBlockHash
@@ -247,14 +246,14 @@ initBlockHeaderDb config = do
 
     headerTable = newTable
         (_configRocksDb config)
-        (Codec (runPut . encodeRankedBlockHeader) (runGet decodeRankedBlockHeader))
-        (Codec (runPut . encodeRankedBlockHash) (runGet decodeRankedBlockHash))
+        (Codec (runPutS . encodeRankedBlockHeader) (runGetS decodeRankedBlockHeader))
+        (Codec (runPutS . encodeRankedBlockHash) (runGetS decodeRankedBlockHash))
         ["BlockHeader", cidNs, "header"]
 
     rankTable = newTable
         (_configRocksDb config)
-        (Codec (runPut . encodeBlockHeight) (runGet decodeBlockHeight))
-        (Codec (runPut . encodeBlockHash) (runGet decodeBlockHash))
+        (Codec (runPutS . encodeBlockHeight) (runGetS decodeBlockHeight))
+        (Codec (runPutS . encodeBlockHash) (runGetS decodeBlockHash))
         ["BlockHeader", cidNs, "rank"]
 
     !db = BlockHeaderDb cid
@@ -339,7 +338,8 @@ withSeekTreeDb
     -> Maybe MinRank
     -> (RocksDbTableIter RankedBlockHash RankedBlockHeader -> IO a)
     -> IO a
-withSeekTreeDb db k mir = bracket (seekTreeDb db k mir) releaseTableIter
+withSeekTreeDb db k mir kont =
+    withTableIter (_chainDbCas db) (\it -> seekTreeDb db k mir it >> kont it)
 {-# INLINE withSeekTreeDb #-}
 
 -- | If @k@ is not 'Nothing', @seekTreeDb d k mir@ seeks key @k@ in @db@. If the
@@ -358,9 +358,9 @@ seekTreeDb
     :: BlockHeaderDb
     -> Maybe (NextItem BlockHash)
     -> Maybe MinRank
-    -> IO (RocksDbTableIter RankedBlockHash RankedBlockHeader)
-seekTreeDb db k mir = do
-    !it <- createTableIter (_chainDbCas db)
+    -> RocksDbTableIter RankedBlockHash RankedBlockHeader
+    -> IO ()
+seekTreeDb db k mir it = do
     case k of
         Nothing -> case mir of
             Nothing -> return ()
@@ -387,11 +387,10 @@ seekTreeDb db k mir = do
             -- Check minimum rank. Return invalid iter if cursor is below
             -- minimum rank.
             tableIterKey it >>= \case
-                Just (RankedBlockHash r' _) | Just m <- mir, int r' < m -> invalidIter it
+                Just (RankedBlockHash r' _) | Just m <- mir, int r' < m -> invalidIter
                 _ -> return ()
-    return it
   where
-    invalidIter it = tableIterLast it >> tableIterNext it
+    invalidIter = tableIterLast it >> tableIterNext it
 
 -- -------------------------------------------------------------------------- --
 -- Insertions

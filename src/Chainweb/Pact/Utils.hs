@@ -34,6 +34,7 @@ import Data.Aeson
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
 
+import Control.Lens
 import Control.Monad.Catch
 
 import Pact.Parse
@@ -83,9 +84,9 @@ timingsCheck (ParentCreationTime (BlockCreationTime txValidationTime)) tx =
     && timeFromSeconds (txOriginationTime + ttl) > txValidationTime
     && ttl <= maxTTL
   where
-    (TTLSeconds ttl) = timeToLiveOf tx
+    TTLSeconds ttl = view cmdTimeToLive tx
     timeFromSeconds = Time . secondsToTimeSpan . Seconds . fromIntegral
-    (TxCreationTime txOriginationTime) = creationTimeOf tx
+    TxCreationTime txOriginationTime = view cmdCreationTime tx
     lenientTxValidationTime = add (scaleTimeSpan lenientTimeSlop second) txValidationTime
 
 -- | Validation "slop" to allow for a more lenient creation time check after

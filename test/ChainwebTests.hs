@@ -39,7 +39,8 @@ import qualified Chainweb.Test.Pact.Checkpointer
 import qualified Chainweb.Test.Pact.ModuleCacheOnRestart
 import qualified Chainweb.Test.Pact.NoCoinbase
 import qualified Chainweb.Test.Pact.PactExec
-import qualified Chainweb.Test.Pact.PactInProcApi
+import qualified Chainweb.Test.Pact.PactMultiChainTest
+import qualified Chainweb.Test.Pact.PactSingleChainTest
 import qualified Chainweb.Test.Pact.PactReplay
 import qualified Chainweb.Test.Pact.RemotePactTest
 import qualified Chainweb.Test.Pact.RewardsTest
@@ -67,6 +68,7 @@ import qualified Data.Test.PQueue (properties)
 import qualified Data.Test.Word.Encoding (properties)
 
 import qualified P2P.Test.TaskQueue (properties)
+import qualified P2P.Test.Node (properties)
 
 main :: IO ()
 main =
@@ -92,7 +94,8 @@ pactTestSuite rdb = testGroupSch "Chainweb-Pact Tests"
     $ schedule Sequential
         [ Chainweb.Test.Pact.PactExec.tests
         , Chainweb.Test.Pact.Checkpointer.tests
-        , Chainweb.Test.Pact.PactInProcApi.tests rdb
+        , Chainweb.Test.Pact.PactMultiChainTest.tests
+        , Chainweb.Test.Pact.PactSingleChainTest.tests rdb
         , Chainweb.Test.Pact.RemotePactTest.tests rdb
         , Chainweb.Test.Pact.PactReplay.tests rdb
         , Chainweb.Test.Pact.ModuleCacheOnRestart.tests rdb
@@ -138,6 +141,7 @@ suite rdb =
         , testProperties "Chainweb.Test.HostAddress" Chainweb.Test.HostAddress.properties
         , testProperties "Chainweb.Test.Sync.WebBlockHeaderStore" Chainweb.Test.Sync.WebBlockHeaderStore.properties
         , testProperties "P2P.Test.TaskQueue" P2P.Test.TaskQueue.properties
+        , testProperties "P2P.Test.Node" P2P.Test.Node.properties
         , testProperties "Data.Test.PQueue" Data.Test.PQueue.properties
         , testProperties "Chainweb.Test.Difficulty" Chainweb.Test.Difficulty.properties
         , testProperties "Data.Test.Word.Encoding" Data.Test.Word.Encoding.properties

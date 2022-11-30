@@ -100,8 +100,6 @@ import Crypto.Hash.Algorithms (SHA512t_256)
 import Data.Aeson
 import Data.Bits (bit, shiftL, shiftR, (.&.))
 import Data.ByteArray (convert)
-import Data.Bytes.Get
-import Data.Bytes.Put
 import qualified Data.ByteString.Base64.URL as B64
 import Data.ByteString.Char8 (ByteString)
 import qualified Data.ByteString.Char8 as B
@@ -141,6 +139,7 @@ import Chainweb.Time (Micros(..), Time(..), TimeSpan(..))
 import qualified Chainweb.Time as Time
 import Chainweb.Transaction
 import Chainweb.Utils
+import Chainweb.Utils.Serialization
 import Chainweb.Version (ChainwebVersion(..))
 import Data.LogMessage (LogFunctionText)
 
@@ -370,10 +369,10 @@ chainwebTransactionConfig chainCtx = TransactionConfig (chainwebPayloadCodec cha
     txmeta
 
   where
-    getGasPrice = gasPriceOf . fmap payloadObj
-    getGasLimit = gasLimitOf . fmap payloadObj
-    getTimeToLive = timeToLiveOf . fmap payloadObj
-    getCreationTime = creationTimeOf . fmap payloadObj
+    getGasPrice = view cmdGasPrice . fmap payloadObj
+    getGasLimit = view cmdGasLimit . fmap payloadObj
+    getTimeToLive = view cmdTimeToLive . fmap payloadObj
+    getCreationTime = view cmdCreationTime . fmap payloadObj
     commandHash c = let (H.Hash !h) = H.toUntypedHash $ _cmdHash c
                     in TransactionHash $! SB.toShort $ h
     txmeta t =
@@ -572,7 +571,7 @@ instance Show TransactionHash where
 instance Hashable TransactionHash where
   hashWithSalt s (TransactionHash h) = hashWithSalt s (hashCode :: Int)
     where
-      hashCode = either error id $ runGetS (fromIntegral <$> getWord64host) (B.take 8 $ SB.fromShort h)
+      hashCode = either error id $ runGetEitherS (fromIntegral <$> getWord64le) (B.take 8 $ SB.fromShort h)
   {-# INLINE hashWithSalt #-}
 
 instance ToJSON TransactionHash where
@@ -713,7 +712,7 @@ mockEncode (MockTx nonce (GasPrice (ParsedDecimal price)) limit meta) =
     Time.encodeTime $ txMetaExpiryTime meta
 
 
-putDecimal :: MonadPut m => Decimal -> m ()
+putDecimal :: Decimal -> Put
 putDecimal (Decimal places mantissa) = do
     putWord8 places
     putWord8 $ if mantissa >= 0 then 0 else 1
@@ -729,7 +728,7 @@ putDecimal (Decimal places mantissa) = do
                               in Just (a, d')
 
 
-getDecimal :: MonadGet m => m Decimal
+getDecimal :: Get Decimal
 getDecimal = do
     !places <- getWord8
     !negative <- getWord8
@@ -748,7 +747,7 @@ getDecimal = do
 mockDecode :: ByteString -> Either String MockTx
 mockDecode s = do
     s' <- B64.decode s
-    runGetS (MockTx <$> getI64 <*> getPrice <*> getGL <*> getMeta) s'
+    runGetEitherS (MockTx <$> getI64 <*> getPrice <*> getGL <*> getMeta) s'
   where
     getPrice = GasPrice . ParsedDecimal <$> getDecimal
     getGL = GasLimit . ParsedInteger . fromIntegral <$> getWord64le
