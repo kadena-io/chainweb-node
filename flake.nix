@@ -6,8 +6,6 @@
     # nixpkgs.follows = "haskellNix/nixpkgs-unstable";
     haskellNix.url = "github:input-output-hk/haskell.nix";
     flake-utils.url = "github:numtide/flake-utils";
-    # pact.url = "github:kadena-io/pact?rev=53c574b92c16faeb9e6134c3d878cd32d606fb5c";
-    # pact.url = "git+file:///Users/johnw/kadena/work/nix-flake/pact?rev=53c574b92c16faeb9e6134c3d878cd32d606fb5c";
   };
 
   outputs = { self, nixpkgs, flake-utils, haskellNix }:
@@ -19,12 +17,11 @@
         inherit system overlays;
         inherit (haskellNix) config;
       };
-      flake = pkgs.chainweb-node.flake {
-        # crossPlatforms = p: [ p.ghcjs ];
+      flake = pkgs.chainweb.flake {
       };
       overlays = [ haskellNix.overlay
         (final: prev: {
-          chainweb-node =
+          chainweb =
             final.haskell-nix.project' {
               src = ./.;
               compiler-nix-name = "ghc8107";
@@ -33,7 +30,6 @@
                 # hlint = {};
               };
               shell.buildInputs = with pkgs; [
-                # pact.packages.default
                 zlib
                 pkgconfig
               ];
@@ -41,6 +37,6 @@
         })
       ];
     in flake // {
-      packages.default = flake.packages."chainweb-node:exe:chainweb-node";
+      packages.default = flake.packages."chainweb:exe:chainweb-node";
     });
 }
