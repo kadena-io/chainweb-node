@@ -6,10 +6,11 @@
     # nixpkgs.follows = "haskellNix/nixpkgs-unstable";
     haskellNix.url = "github:input-output-hk/haskell.nix";
     flake-utils.url = "github:numtide/flake-utils";
-    pact.url = ../pact;
+    # pact.url = "github:kadena-io/pact?rev=53c574b92c16faeb9e6134c3d878cd32d606fb5c";
+    # pact.url = "git+file:///Users/johnw/kadena/work/nix-flake/pact?rev=53c574b92c16faeb9e6134c3d878cd32d606fb5c";
   };
 
-  outputs = { self, nixpkgs, flake-utils, haskellNix, pact }:
+  outputs = { self, nixpkgs, flake-utils, haskellNix }:
     flake-utils.lib.eachSystem
       [ "x86_64-linux" "x86_64-darwin"
         "aarch64-linux" "aarch64-darwin" ] (system:
@@ -32,11 +33,10 @@
                 # hlint = {};
               };
               shell.buildInputs = with pkgs; [
-                pact
+                # pact.packages.default
                 zlib
                 pkgconfig
               ];
-              # shell.crossPlatforms = p: [ p.ghcjs ];
             };
         })
       ];
