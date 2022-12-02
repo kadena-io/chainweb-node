@@ -46,6 +46,7 @@ import Servant.Server
 
 -- internal modules
 
+import Chainweb.BlockHeight
 import Chainweb.Cut
 import Chainweb.Cut.CutHashes
 import Chainweb.CutDB
@@ -55,6 +56,7 @@ import Chainweb.RestAPI.Utils
 import Chainweb.TreeDB (MaxRank(..))
 import Chainweb.Utils
 import Chainweb.Version
+import Chainweb.Version.Utils
 
 import P2P.Node.PeerDB
 import P2P.Peer
@@ -66,7 +68,9 @@ cutGetHandler :: CutDb cas -> Maybe MaxRank -> Handler CutHashes
 cutGetHandler db Nothing = liftIO $ cutToCutHashes Nothing <$> _cut db
 cutGetHandler db (Just (MaxRank (Max mar))) = liftIO $ do
     !c <- _cut db
-    !c' <- limitCut (view cutDbWebBlockHeaderDb db) (int mar) c
+    let v = _chainwebVersion db
+    let !bh = BlockHeight $ floor (avgBlockHeightAtCutHeight v (CutHeight $ int mar))
+    !c' <- limitCut (view cutDbWebBlockHeaderDb db) bh c
     return $! cutToCutHashes Nothing c'
 
 cutPutHandler :: PeerDb -> CutDb cas -> CutHashes -> Handler NoContent
