@@ -505,7 +505,6 @@ tests rdb = testGroup "CutDB"
     [ testCutPruning rdb
     , testCutGet rdb
     ]
-  where
 
 testCutPruning :: RocksDb -> TestTree
 testCutPruning rdb = testCase "cut pruning" $ do
@@ -540,7 +539,9 @@ testCutGet rdb = testCase "cut get" $ do
     let ch = avgCutHeightAt v bh
     let halfCh = ch `div` 2
 
-    withTestCutDbWithoutPact rdb v id (int ch) (\_ _ -> return ()) $ \_ cutDb -> do
+    withTestCutDbWithoutPact rdb v id (2 * int ch) (\_ _ -> return ()) $ \_ cutDb -> do
+      curHeight <- _cutHeight <$> _cut cutDb
+      assertGe "cut height is large enough" (Actual curHeight) (Expected $ 2 * int ch)
       retCut <- cutGetHandler cutDb (Just $ MaxRank (Max $ int halfCh))
-      assertBool "cut hashes are too high" (_cutHashesHeight retCut <= halfCh)
+      assertLe "cut hashes are too high" (Actual (_cutHashesHeight retCut)) (Expected halfCh)
 
