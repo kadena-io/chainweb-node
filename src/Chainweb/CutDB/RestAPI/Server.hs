@@ -64,7 +64,7 @@ import P2P.Peer
 -- -------------------------------------------------------------------------- --
 -- Handlers
 
-cutGetHandler :: CutDb cas -> Maybe MaxRank -> Handler CutHashes
+cutGetHandler :: CutDb cas -> Maybe MaxRank -> IO CutHashes
 cutGetHandler db Nothing = liftIO $ cutToCutHashes Nothing <$> _cut db
 cutGetHandler db (Just (MaxRank (Max mar))) = liftIO $ do
     !c <- _cut db
@@ -90,13 +90,13 @@ cutServer
     . PeerDb
     -> CutDbT cas v
     -> Server (CutApi v)
-cutServer pdb (CutDbT db) = cutGetHandler db :<|> cutPutHandler pdb db
+cutServer pdb (CutDbT db) = liftIO . cutGetHandler db :<|> cutPutHandler pdb db
 
 cutGetServer
     :: forall cas (v :: ChainwebVersionT)
     . CutDbT cas v
     -> Server (CutGetApi v)
-cutGetServer (CutDbT db) = cutGetHandler db
+cutGetServer (CutDbT db) = liftIO . cutGetHandler db
 
 -- -------------------------------------------------------------------------- --
 -- Some Cut Server

@@ -39,6 +39,7 @@ import Control.Monad.Catch
 import Data.Foldable
 import Data.Function
 import qualified Data.HashMap.Strict as HM
+import Data.Semigroup
 import qualified Data.Vector as V
 
 import GHC.Stack
@@ -61,6 +62,7 @@ import Chainweb.Cut
 import Chainweb.Cut.CutHashes
 import Chainweb.Test.Cut
 import Chainweb.CutDB
+import Chainweb.CutDB.RestAPI.Server
 import Chainweb.Graph
 import Chainweb.Miner.Pact
 import Chainweb.Payload
@@ -71,6 +73,7 @@ import Chainweb.Test.Orphans.Internal ()
 import Chainweb.Test.Sync.WebBlockHeaderStore
 import Chainweb.Test.Utils
 import Chainweb.Time
+import Chainweb.TreeDB (MaxRank(..))
 import Chainweb.Utils
 import Chainweb.Version
 import Chainweb.Version.Utils
@@ -500,6 +503,7 @@ fakePact = WebPactExecutionService $ PactExecutionService
 tests :: RocksDb -> TestTree
 tests rdb = testGroup "CutDB"
     [ testCutPruning rdb
+    , testCutGet rdb
     ]
   where
 
@@ -528,4 +532,15 @@ testCutPruning rdb = testCase "cut pruning" $ do
         set cutDbParamsPruningFrequency 1 .
         set cutDbParamsWritingFrequency 1
     minedBlockHeight = 300
+
+testCutGet :: RocksDb -> TestTree
+testCutGet rdb = testCase "cut get" $ do
+    let v = Test pairChainGraph
+    let bh = BlockHeight 300
+    let ch = avgCutHeightAt v bh
+    let halfCh = ch `div` 2
+
+    withTestCutDbWithoutPact rdb v id (int ch) (\_ _ -> return ()) $ \_ cutDb -> do
+      retCut <- cutGetHandler cutDb (Just $ MaxRank (Max $ int halfCh))
+      assertBool "cut hashes are too high" (_cutHashesHeight retCut <= halfCh)
 
