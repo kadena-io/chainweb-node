@@ -15,6 +15,8 @@ import Options.Applicative
 import System.LogLevel
 
 import Chainweb.BlockHeader
+import Chainweb.BlockHeaderDB.RestAPI.Client
+import Chainweb.BlockHeight
 import Chainweb.Logger
 import Chainweb.Pact.Backend.RelationalCheckpointer
 import Chainweb.Pact.Backend.Types
@@ -24,9 +26,16 @@ import Chainweb.Pact.RestAPI.Server
 import Chainweb.Pact.TransactionExec
 import Chainweb.Pact.Types
 import Chainweb.Payload
+import Chainweb.Payload.RestAPI.Client
 import Chainweb.Transaction
 import Chainweb.Utils
+import Chainweb.Utils.Paging
 import Chainweb.Version
+
+import Network.Connection
+import Network.HTTP.Client.TLS
+import Servant.Client.Core
+import Servant.Client
 
 import Pact.Types.Command
 import Pact.Types.Logger
@@ -37,21 +46,20 @@ import Utils.Logging.Trace
 data SimConfig = SimConfig
     { scDbDir :: FilePath
       -- ^ db dir containing sqlite pact db files
-    , scParentBlock :: FilePath
-      -- ^ block header file.
-    , scPayload :: FilePath
-      -- ^ payload file
     , scTxIndex :: Int
       -- ^ index in payload transactions list
+    , scApiHostUrl :: BaseUrl
+    , scRange :: (BlockHeight,BlockHeight)
     , scChain :: ChainId
     , scVersion :: ChainwebVersion
     }
 
 simulate :: SimConfig -> IO ()
-simulate (SimConfig dbDir parentBlockFile payloadFile txIdx cid ver) = do
-  parent <- decodeFileStrictOrThrow parentBlockFile
-  PayloadData txs md _ _ _ :: PayloadData <- decodeFileStrictOrThrow payloadFile
-  let Transaction tx = txs V.! txIdx
+simulate sc@(SimConfig dbDir txIdx _ _ cid ver) = do
+  cenv <- setupClient sc
+  (parent:hdr:_) <- fetchHeaders sc cenv
+  [PayloadWithOutputs txs md _ _ _ _ :: PayloadWithOutputs] <- fetchOutputs sc cenv [hdr]
+  let Transaction tx = fst $ txs V.! txIdx
   cmdTx <- decodeStrictOrThrow tx
   miner <- decodeStrictOrThrow $ _minerData md
   case validateCommand cmdTx of
@@ -83,32 +91,64 @@ simulate (SimConfig dbDir parentBlockFile payloadFile txIdx cid ver) = do
     txContext parent cmd = TxContext (ParentHeader parent) $ publicMetaOf cmd
 
 
+setupClient :: SimConfig -> IO ClientEnv
+setupClient sc = flip mkClientEnv (scApiHostUrl sc) <$> newTlsManagerWith mgrSettings
+  where
+    mgrSettings = mkManagerSettings
+        (TLSSettingsSimple True False False)
+        Nothing
+
+-- | note, fetches [low - 1, hi] to have parent headers
+fetchHeaders :: SimConfig -> ClientEnv -> IO [BlockHeader]
+fetchHeaders sc cenv = do
+  r <- (`runClientM` cenv) $
+      headersClient (scVersion sc) (scChain sc) Nothing Nothing
+      (Just $ fromIntegral $ pred $ fst $ scRange sc)
+      (Just $ fromIntegral $ snd $ scRange sc)
+  case r of
+    Left e -> throwM e
+    Right p -> return $! _pageItems p
+
+fetchOutputs :: SimConfig -> ClientEnv -> [BlockHeader] -> IO [PayloadWithOutputs]
+fetchOutputs sc cenv bhs = do
+  r <- (`runClientM` cenv) $ do
+    outputsBatchClient (scVersion sc) (scChain sc) (map _blockPayloadHash bhs)
+  case r of
+    Left e -> throwM e
+    Right ps -> return ps
+
 simulateMain :: IO ()
 simulateMain = do
-  execParser opts >>= \(d,h,p,i,c,v) -> do
+  execParser opts >>= \(d,s,e,i,h,c,v) -> do
     vv <- chainwebVersionFromText (T.pack v)
     cc <- chainIdFromText (T.pack c)
-    simulate $ SimConfig d h p i cc vv
+    u <- parseBaseUrl h
+    let rng = (fromIntegral @Integer s,fromIntegral @Integer (fromMaybe s e))
+    simulate $ SimConfig d i u rng cc vv
   where
     opts = info (parser <**> helper)
         (fullDesc <> progDesc "Single Transaction simulator")
-    parser = (,,,,,)
+    parser = (,,,,,,)
         <$> strOption
              (short 'd'
               <> metavar "DBDIR"
               <> help "Pact database directory")
-        <*> strOption
-             (short 'h'
-              <> metavar "PARENT_HEADER"
-              <> help "Parent header, example: curl 'https://api.chainweb.com/chainweb/0.0/mainnet01/chain/2/header?maxheight=3195192&minheight=3195192' -s | jq '.items[0]'")
-        <*> strOption
-             (short 'p'
-              <> metavar "PAYLOAD"
-              <> help "Block payload, example: curl https://api.chainweb.com/chainweb/0.0/mainnet01/chain/2/payload/3uU_CZVy3ZynNOniLbSDykNdzO5pFYuKftuynax9eUo")
+        <*> option auto
+             (short 's'
+              <> metavar "START_BLOCK_HEIGHT"
+              <> help "Starting block height")
+        <*> optional (option auto
+             (short 'e'
+              <> metavar "END_BLOCK_HEIGHT"
+              <> help "Ending block height, if running more than one block"))
         <*> option auto
              (short 'i'
               <> metavar "INDEX"
               <> help "Transaction index in payload list")
+        <*> (fromMaybe "api.chainweb.com" <$> optional (strOption
+             (short 'h'
+              <> metavar "API_HOST"
+              <> help "API host, default is api.chainweb.com")))
         <*> (strOption
              (short 'c'
               <> metavar "CHAIN"
