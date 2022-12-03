@@ -11,7 +11,6 @@ All 2.17* versions expire on **2023-03-02T00:00:00Z**.
 
 [Changes](https://github.com/kadena-io/chainweb-node/compare/2.17...2.17.1):
 
-*   Add transaction simulator to cwtools. (#1558)
 
 Bug fixes:
 
@@ -19,6 +18,9 @@ Bug fixes:
     (#1566)
 *   Fix cut GET endpoint height limiting. (#1571)
 
+Miscellaneous:
+
+*   Add transaction simulator to cwtools. (#1558)
 ## 2.17 (2022-11-17)
 
 This version replaces all previous versions. Any prior version will stop working
