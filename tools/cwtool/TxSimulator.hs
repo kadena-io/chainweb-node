@@ -76,7 +76,7 @@ simulate sc@(SimConfig dbDir txIdx' _ _ cid ver) = do
       initRelationalCheckpointer (initBlockState 0) sqlenv logger ver cid
     bracket_
       (_cpBeginCheckpointerBatch cp)
-      (discardCpBatch cp) $ case txIdx' of
+      (_cpDiscardCheckpointerBatch cp) $ case txIdx' of
         Just txIdx -> do -- single-tx simulation
           let PayloadWithOutputs txs md _ _ _ _ :: PayloadWithOutputs = head pwos
           miner <- decodeStrictOrThrow $ _minerData md
@@ -97,7 +97,7 @@ simulate sc@(SimConfig dbDir txIdx' _ _ cid ver) = do
               T.putStrLn (encodeToText cr)
         Nothing -> do -- blocks simulation
           paydb <- newPayloadDb
-          withRocksDb "rocksdb" modernDefaultOptions $ \rdb ->
+          withRocksDb "txsim-rocksdb" modernDefaultOptions $ \rdb ->
             withBlockHeaderDb rdb ver cid $ \bdb -> do
               let pse = PactServiceEnv Nothing cpe paydb bdb getGasModel readRewards 0 ferr
                         ver True False logger gasLogger (pactLoggers cwLogger) False 1 defaultBlockGasLimit
@@ -108,10 +108,6 @@ simulate sc@(SimConfig dbDir txIdx' _ _ cid ver) = do
 
 
   where
-
-    discardCpBatch cp = do
-      putStrLn "discardCpBatch"
-      _cpDiscardCheckpointerBatch cp
 
     cwLogger = genericLogger Debug T.putStrLn
     initGas cmd = initialGasOf (_cmdPayload cmd)
@@ -124,7 +120,6 @@ simulate sc@(SimConfig dbDir txIdx' _ _ cid ver) = do
     doBlock _ _ [] = return ()
     doBlock initMC parent ((hdr,pwo):rest) = do
       !cp <- getCheckpointer
-      liftIO $ putStrLn "hello"
       pde'@(PactDbEnv' pde) <-
           liftIO $ _cpRestore cp $ Just (succ (_blockHeight parent), _blockHash parent)
       when initMC $ do
@@ -192,7 +187,7 @@ simulateMain = do
         <*> optional (option auto
              (short 'i'
               <> metavar "INDEX"
-              <> help "Transaction index in payload list"))
+              <> help "Transaction index in payload list. If provided, only runs first block with this tx."))
         <*> (fromMaybe "api.chainweb.com" <$> optional (strOption
              (short 'h'
               <> metavar "API_HOST"
