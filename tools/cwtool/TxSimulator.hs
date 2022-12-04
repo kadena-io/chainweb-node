@@ -7,6 +7,7 @@
 module TxSimulator
   where
 
+import Control.Lens
 import Control.Monad
 import Control.Monad.Catch
 import Control.Monad.IO.Class
@@ -130,6 +131,7 @@ simulate sc@(SimConfig dbDir txIdx' _ _ cid ver) = do
         mc <- liftIO $ readInitModules logger pde (TxContext (ParentHeader parent) def)
         updateInitCache mc
       -- TODO setup mock SPV
+      psParentHeader .= ParentHeader parent
       _r <- trace (logFunction cwLogger) "execBlock" () 1 $
           execBlock hdr (payloadWithOutputsToPayloadData pwo) pde'
       liftIO $ _cpSave cp (_blockHash hdr)
