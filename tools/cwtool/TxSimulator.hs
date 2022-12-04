@@ -75,7 +75,7 @@ simulate sc@(SimConfig dbDir txIdx' _ _ cid ver) = do
       initRelationalCheckpointer (initBlockState 0) sqlenv logger ver cid
     bracket_
       (_cpBeginCheckpointerBatch cp)
-      (_cpDiscardCheckpointerBatch cp) $ case txIdx' of
+      (discardCpBatch cp) $ case txIdx' of
         Just txIdx -> do -- single-tx simulation
           let PayloadWithOutputs txs md _ _ _ _ :: PayloadWithOutputs = head pwos
           miner <- decodeStrictOrThrow $ _minerData md
@@ -107,6 +107,11 @@ simulate sc@(SimConfig dbDir txIdx' _ _ cid ver) = do
 
 
   where
+
+    discardCpBatch cp = do
+      putStrLn "discardCpBatch"
+      _cpDiscardCheckpointerBatch cp
+
     cwLogger = genericLogger Debug T.putStrLn
     initGas cmd = initialGasOf (_cmdPayload cmd)
     logger = newLogger (pactLoggers cwLogger) "TxSimulator"
@@ -116,7 +121,7 @@ simulate sc@(SimConfig dbDir txIdx' _ _ cid ver) = do
 
     doBlock :: PayloadCasLookup cas => Bool -> BlockHeader -> [(BlockHeader,PayloadWithOutputs)] -> PactServiceM cas ()
     doBlock _ _ [] = return ()
-    doBlock initMC parent ((hdr,pwo):rest) = trace (logFunction cwLogger) "doBlock" () 1 $ do
+    doBlock initMC parent ((hdr,pwo):rest) = do
       !cp <- getCheckpointer
       liftIO $ putStrLn "hello"
       pde'@(PactDbEnv' pde) <-
@@ -125,7 +130,8 @@ simulate sc@(SimConfig dbDir txIdx' _ _ cid ver) = do
         mc <- liftIO $ readInitModules logger pde (TxContext (ParentHeader parent) def)
         updateInitCache mc
       -- TODO setup mock SPV
-      _r <- execBlock hdr (payloadWithOutputsToPayloadData pwo) pde'
+      _r <- trace (logFunction cwLogger) "execBlock" () 1 $
+          execBlock hdr (payloadWithOutputsToPayloadData pwo) pde'
       liftIO $ _cpSave cp (_blockHash hdr)
       doBlock False hdr rest
 
