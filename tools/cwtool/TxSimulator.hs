@@ -7,13 +7,17 @@
 module TxSimulator
   where
 
+import Control.Concurrent.MVar
 import Control.Lens
 import Control.Monad
 import Control.Monad.Catch
 import Control.Monad.IO.Class
+import Crypto.Hash.Algorithms
+import Data.Aeson (decodeStrict')
 import Data.Default
 import Data.Maybe
 import qualified Data.Text as T
+import qualified Data.Text.Encoding as T
 import qualified Data.Text.IO as T
 import qualified Data.Vector as V
 import Options.Applicative
@@ -23,6 +27,7 @@ import Chainweb.BlockHeader
 import Chainweb.BlockHeaderDB.RestAPI.Client
 import Chainweb.BlockHeaderDB.Internal
 import Chainweb.BlockHeight
+import Chainweb.Crypto.MerkleLog
 import Chainweb.Logger
 import Chainweb.Miner.Pact
 import Chainweb.Pact.Backend.RelationalCheckpointer
@@ -31,12 +36,14 @@ import Chainweb.Pact.Backend.Utils
 import Chainweb.Pact.PactService
 import Chainweb.Pact.PactService.ExecBlock
 import Chainweb.Pact.RestAPI.Server
+import Chainweb.Pact.Service.Types
 import Chainweb.Pact.TransactionExec
 import Chainweb.Pact.Types
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
 import Chainweb.Payload.PayloadStore.InMemory
 import Chainweb.Payload.RestAPI.Client
+import Chainweb.SPV
 import Chainweb.Transaction
 import Chainweb.Utils
 import Chainweb.Utils.Paging
@@ -50,7 +57,9 @@ import Servant.Client
 import Data.CAS.RocksDB
 
 import Pact.Types.Command
+import Pact.Types.Hash
 import Pact.Types.Logger
+import Pact.Types.RPC
 import Pact.Types.SPV
 
 import Utils.Logging.Trace
@@ -116,7 +125,12 @@ simulate sc@(SimConfig dbDir txIdx' _ _ cid ver) = do
     txContext parent cmd = TxContext (ParentHeader parent) $ publicMetaOf cmd
     ferr e _ = throwM e
 
-    doBlock :: PayloadCasLookup cas => Bool -> BlockHeader -> [(BlockHeader,PayloadWithOutputs)] -> PactServiceM cas ()
+    doBlock
+        :: PayloadCasLookup cas
+        => Bool
+        -> BlockHeader
+        -> [(BlockHeader,PayloadWithOutputs)]
+        -> PactServiceM cas ()
     doBlock _ _ [] = return ()
     doBlock initMC parent ((hdr,pwo):rest) = do
       !cp <- getCheckpointer
@@ -127,12 +141,43 @@ simulate sc@(SimConfig dbDir txIdx' _ _ cid ver) = do
         updateInitCache mc
       -- TODO setup mock SPV
       psParentHeader .= ParentHeader parent
+      liftIO (spvSim sc hdr pwo) >>= assign psSpvSupport
       _r <- trace (logFunction cwLogger) "execBlock" () 1 $
           execBlock hdr (payloadWithOutputsToPayloadData pwo) pde'
       liftIO $ _cpSave cp (_blockHash hdr)
       doBlock False hdr rest
 
-
+-- | Block-scoped SPV mock by matching cont proofs to payload txs.
+-- Transactions are eliminated by searching for first matching proof in input;
+-- there should always be as many exact matches as proofs.
+-- TODO Heuristic for failed SPV needs to interrogate failures from outputs.
+spvSim :: SimConfig -> BlockHeader -> PayloadWithOutputs -> IO SPVSupport
+spvSim sc bh pwo = do
+  mv <- newMVar (V.toList (_payloadWithOutputsTransactions pwo))
+  return $ SPVSupport (_spvSupport noSPVSupport) (go mv)
+  where
+    go mv cp = modifyMVar mv $ searchOuts cp
+    searchOuts _ [] = return ([],Left "spv: proof not found")
+    searchOuts cp@(ContProof pf) ((Transaction ti,TransactionOutput o):txs) =
+      case codecDecode (chainwebPayloadCodec (Just (scVersion sc,_blockHeight bh))) ti of
+        Left {} -> internalError "input decode failed"
+        Right cmd -> case _pPayload $ payloadObj $ _cmdPayload cmd of
+          Continuation cm | _cmProof cm == Just cp -> do
+            cr :: CommandResult Hash <- decodeStrictOrThrow o
+            case _pactResult (_crResult cr) of
+              _ -> do -- TODO failed SPV error heuristic
+                -- the following adapted from Chainweb.Pact.SPV.verifyCont with matching errors
+                t <- decodeB64UrlNoPaddingText $ T.decodeUtf8 pf
+                case decodeStrict' t of
+                  Nothing -> internalError "unable to decode continuation proof"
+                  Just (TransactionOutputProof _ p :: TransactionOutputProof SHA512t_256) -> do
+                    TransactionOutput tout <- proofSubject p
+                    case decodeStrict' tout :: Maybe (CommandResult Hash) of
+                      Nothing -> internalError "unable to decode spv transaction output"
+                      Just cro -> case _crContinuation cro of
+                        Nothing -> return (txs,Left "no pact exec found in command result")
+                        Just pe -> return (txs,Right pe)
+          _ -> searchOuts cp txs
 
 setupClient :: SimConfig -> IO ClientEnv
 setupClient sc = flip mkClientEnv (scApiHostUrl sc) <$> newTlsManagerWith mgrSettings
