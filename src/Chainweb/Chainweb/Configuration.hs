@@ -51,6 +51,7 @@ module Chainweb.Chainweb.Configuration
 , BackupApiConfig(..)
 , configBackupApi
 , BackupConfig(..)
+, defaultBackupConfig
 
 -- * Chainweb Configuration
 , ChainwebConfiguration(..)
