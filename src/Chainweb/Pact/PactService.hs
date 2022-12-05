@@ -340,7 +340,7 @@ serviceRequests logFn memPoolAccess reqQ = do
         (evalPactOnThread (post <$> m) >>= (liftIO . putMVar mvar))
         `catches`
             [ Handler $ \(e :: SomeAsyncException) -> do
-                logError $ mconcat
+                logWarn $ mconcat
                     [ "Received asynchronous exception running pact service ("
                     , which
                     , "): "
