@@ -139,7 +139,6 @@ simulate sc@(SimConfig dbDir txIdx' _ _ cid ver) = do
       when initMC $ do
         mc <- liftIO $ readInitModules logger pde (TxContext (ParentHeader parent) def)
         updateInitCache mc
-      -- TODO setup mock SPV
       psParentHeader .= ParentHeader parent
       liftIO (spvSim sc hdr pwo) >>= assign psSpvSupport
       _r <- trace (logFunction cwLogger) "execBlock" () 1 $
@@ -170,7 +169,9 @@ spvSim sc bh pwo = do
                 t <- decodeB64UrlNoPaddingText $ T.decodeUtf8 pf
                 case decodeStrict' t of
                   Nothing -> internalError "unable to decode continuation proof"
-                  Just (TransactionOutputProof _ p :: TransactionOutputProof SHA512t_256) -> do
+                  Just (TransactionOutputProof pcid p :: TransactionOutputProof SHA512t_256) -> do
+                    unless (pcid == scChain sc) $
+                      internalError "cannot redeem continuation proof on wrong target chain"
                     TransactionOutput tout <- proofSubject p
                     case decodeStrict' tout :: Maybe (CommandResult Hash) of
                       Nothing -> internalError "unable to decode spv transaction output"
