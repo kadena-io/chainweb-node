@@ -1,5 +1,26 @@
 # `chainweb-node` Changelog
 
+## 2.17.1 (2022-12-02)
+
+This is a feature and bug-fix release. Upgrading is optional but recommended.
+
+To upgrade, pull the latest docker image or download the binary and restart the
+node.
+
+All 2.17* versions expire on **2023-03-02T00:00:00Z**.
+
+[Changes](https://github.com/kadena-io/chainweb-node/compare/2.17...2.17.1):
+
+
+Bug fixes:
+
+*   Fix `initialHeightLimit` CLI argument parsing to not override config file.
+    (#1566)
+*   Fix cut GET endpoint height limiting. (#1571)
+
+Miscellaneous:
+
+*   Add transaction simulator to cwtools. (#1558)
 ## 2.17 (2022-11-17)
 
 This version replaces all previous versions. Any prior version will stop working
@@ -13,7 +34,7 @@ node.
 
 [Changes](https://github.com/kadena-io/chainweb-node/compare/2.16.1...2.17):
 
-*   Remove error messages from pact output for on-chain transactions. Dapps can 
+*   Remove error messages from pact output for on-chain transactions. Dapps can
     still retrieve transaction error messages from the `local` endpoint. (#1543)
 *   Implement a per-tx timeout during creation of new blocks to prevent mining
     nodes from stalling when block creation takes too long. (#1546)
