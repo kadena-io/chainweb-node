@@ -246,9 +246,9 @@ pCutConfig = id
     <*< cutFetchTimeout .:: option auto
         % long "cut-fetch-timeout"
         <> help "The timeout for processing new cuts in microseconds"
-    <*< cutInitialBlockHeightLimit .:: optional % fmap BlockHeight . option auto
+    <*< cutInitialBlockHeightLimit .:: fmap (Just . BlockHeight) . option auto
         % long "initial-block-height-limit"
-    <*< cutFastForwardBlockHeightLimit .:: optional % fmap BlockHeight . option auto
+    <*< cutFastForwardBlockHeightLimit .:: fmap (Just . BlockHeight) . option auto
         % long "fast-forward-block-height-limit"
 
 -- -------------------------------------------------------------------------- --
