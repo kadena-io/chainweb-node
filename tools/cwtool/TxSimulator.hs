@@ -147,9 +147,8 @@ simulate sc@(SimConfig dbDir txIdx' _ _ cid ver) = do
       doBlock False hdr rest
 
 -- | Block-scoped SPV mock by matching cont proofs to payload txs.
--- Transactions are eliminated by searching for first matching proof in input;
+-- Transactions are eliminated by searching for matching proof in input;
 -- there should always be as many exact matches as proofs.
--- TODO Heuristic for failed SPV needs to interrogate failures from outputs.
 spvSim :: SimConfig -> BlockHeader -> PayloadWithOutputs -> IO SPVSupport
 spvSim sc bh pwo = do
   mv <- newMVar (V.toList (_payloadWithOutputsTransactions pwo))
@@ -157,27 +156,24 @@ spvSim sc bh pwo = do
   where
     go mv cp = modifyMVar mv $ searchOuts cp
     searchOuts _ [] = return ([],Left "spv: proof not found")
-    searchOuts cp@(ContProof pf) ((Transaction ti,TransactionOutput o):txs) =
+    searchOuts cp@(ContProof pf) ((Transaction ti,TransactionOutput _o):txs) =
       case codecDecode (chainwebPayloadCodec (Just (scVersion sc,_blockHeight bh))) ti of
         Left {} -> internalError "input decode failed"
         Right cmd -> case _pPayload $ payloadObj $ _cmdPayload cmd of
           Continuation cm | _cmProof cm == Just cp -> do
-            cr :: CommandResult Hash <- decodeStrictOrThrow o
-            case _pactResult (_crResult cr) of
-              _ -> do -- TODO failed SPV error heuristic
-                -- the following adapted from Chainweb.Pact.SPV.verifyCont with matching errors
-                t <- decodeB64UrlNoPaddingText $ T.decodeUtf8 pf
-                case decodeStrict' t of
-                  Nothing -> internalError "unable to decode continuation proof"
-                  Just (TransactionOutputProof pcid p :: TransactionOutputProof SHA512t_256) -> do
-                    unless (pcid == scChain sc) $
-                      internalError "cannot redeem continuation proof on wrong target chain"
-                    TransactionOutput tout <- proofSubject p
-                    case decodeStrict' tout :: Maybe (CommandResult Hash) of
-                      Nothing -> internalError "unable to decode spv transaction output"
-                      Just cro -> case _crContinuation cro of
-                        Nothing -> return (txs,Left "no pact exec found in command result")
-                        Just pe -> return (txs,Right pe)
+            -- the following adapted from Chainweb.Pact.SPV.verifyCont with matching errors
+            t <- decodeB64UrlNoPaddingText $ T.decodeUtf8 pf
+            case decodeStrict' t of
+              Nothing -> internalError "unable to decode continuation proof"
+              Just (TransactionOutputProof pcid p :: TransactionOutputProof SHA512t_256) -> do
+                unless (pcid == scChain sc) $
+                  internalError "cannot redeem continuation proof on wrong target chain"
+                TransactionOutput tout <- proofSubject p
+                case decodeStrict' tout :: Maybe (CommandResult Hash) of
+                  Nothing -> internalError "unable to decode spv transaction output"
+                  Just cro -> case _crContinuation cro of
+                    Nothing -> return (txs,Left "no pact exec found in command result")
+                    Just pe -> return (txs,Right pe)
           _ -> searchOuts cp txs
 
 setupClient :: SimConfig -> IO ClientEnv
