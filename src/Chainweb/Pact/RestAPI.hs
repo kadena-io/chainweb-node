@@ -34,7 +34,8 @@ module Chainweb.Pact.RestAPI
 , pactSendApi
 , PactPollApi
 , pactPollApi
-
+, PactLocalWithQueryApi
+, pactLocalWithQueryApi
 -- * Pact Spv Api
 , PactSpvApi
 , pactSpvApi
@@ -56,7 +57,10 @@ module Chainweb.Pact.RestAPI
 , somePactServiceApis
 ) where
 
+
 import Pact.Server.API as API
+import Pact.Types.ChainMeta
+import Pact.Types.Gas
 
 import Servant
 
@@ -71,9 +75,18 @@ import Chainweb.SPV.PayloadProof
 import Chainweb.Version
 
 -- -------------------------------------------------------------------------- --
--- @GET /chainweb/<ApiVersion>/<ChainwebVersion>/chain/<ChainId>/pact/@
+-- @POST /chainweb/<ApiVersion>/<ChainwebVersion>/chain/<ChainId>/pact/@
 
-type PactApi_ = "pact" :> API.ApiV1API -- TODO unify with Pact versioning
+-- TODO unify with Pact versioning
+type PactApi_
+    = "pact"
+    :> "api"
+    :> "v1"
+    :> ( ApiSend
+       :<|> ApiPoll
+       :<|> ApiListen
+       :<|> PactLocalWithQueryApi_
+       )
 
 type PactApi (v :: ChainwebVersionT) (c :: ChainIdT)
     = 'ChainwebEndpoint v :> ChainEndpoint c :> Reassoc PactApi_
@@ -120,6 +133,23 @@ pactPollApi
 pactPollApi = Proxy
 
 -- -------------------------------------------------------------------------- --
+-- POST Queries for Pact Local Pre-flight
+
+type PactLocalWithQueryApi_
+  = QueryParam "gasPrice" GasPrice
+  :> QueryParam "gasLimit" GasLimit
+  :> QueryParam "ttl" TTLSeconds
+  :> QueryParam "creationTime" TxCreationTime
+  :> ApiLocal
+
+type PactLocalWithQueryApi v c = PactV1ApiEndpoint v c PactLocalWithQueryApi_
+
+pactLocalWithQueryApi
+  :: forall (v :: ChainwebVersionT) (c :: ChainIdT)
+  . Proxy (PactLocalWithQueryApi v c)
+pactLocalWithQueryApi = Proxy
+
+-- -------------------------------------------------------------------------- --
 -- POST Pact Spv Transaction Proof
 
 type PactSpvApi_
@@ -157,7 +187,7 @@ pactSpv2Api
 pactSpv2Api = Proxy
 
 -- -------------------------------------------------------------------------- --
--- GET Eth Receipt SPV Proof
+-- POST Eth Receipt SPV Proof
 
 type EthSpvApi_
     = "pact"
