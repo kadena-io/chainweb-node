@@ -110,11 +110,12 @@ constraints: prettyprinter <1.6.1
 constraints: hashable <1.3.1
 constraints: base64-bytestring <1.1
 
+-- other pact induced bounds (not relevant for on-chain semantics)
+constraints: megaparsec <9.3
+
 -- -------------------------------------------------------------------------- --
 -- direct-sqlite 2.3.27
 
 -- TODO remove once the bounds are upgraded in pact.
 allow-newer: pact:direct-sqlite
 
--- TODO remove once entropy is fixed upstream
-constraints: entropy <0.4.1.9
