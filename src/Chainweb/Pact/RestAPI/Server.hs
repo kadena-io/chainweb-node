@@ -119,9 +119,11 @@ import Chainweb.WebPactExecutionService
 
 import Pact.Types.API
 import qualified Pact.Types.ChainId as Pact
+import Pact.Types.ChainMeta
 import Pact.Types.Command
 import Pact.Types.Hash (Hash(..))
 import qualified Pact.Types.Hash as Pact
+import Pact.Types.Gas
 import Pact.Types.PactError (PactError(..), PactErrorType(..))
 import Pact.Types.Pretty (pretty)
 
@@ -334,9 +336,13 @@ localHandler
     :: Logger logger
     => logger
     -> PactExecutionService
+    -> Maybe GasPrice
+    -> Maybe GasLimit
+    -> Maybe TTLSeconds
+    -> Maybe TxCreationTime
     -> Command Text
     -> Handler (CommandResult Hash)
-localHandler logger pact cmd = do
+localHandler logger pact _gasPrice _gasLimit _ttl _ct cmd = do
     liftIO $ logg Info $ PactCmdLogLocal cmd
     cmd' <- case validateCommand cmd of
       (Right !c) -> return c
