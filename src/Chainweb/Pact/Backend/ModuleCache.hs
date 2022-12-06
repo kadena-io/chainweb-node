@@ -1,3 +1,4 @@
+{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE LambdaCase #-}
@@ -19,8 +20,7 @@ import Database.SQLite3.Direct
 import Data.ByteString (ByteString)
 import Pact.Types.Persistence
 import Control.Lens
-import Data.Aeson (decode)
-import Data.ByteString.Lazy (fromStrict)
+import Data.Aeson (decodeStrict')
 import qualified Crypto.Hash as C (hash)
 import Crypto.Hash.Algorithms
 import qualified Data.ByteArray as BA
@@ -40,13 +40,13 @@ newtype CacheAddress = CacheAddress ByteString
 -- CacheEntry
 
 data CacheEntry = CacheEntry
-  { _ceTxId :: TxId
+  { _ceTxId :: !TxId
     -- ^ Priority for cache eviction
-  , _ceAddy :: CacheAddress
+  , _ceAddy :: !CacheAddress
     -- ^ Key. Uniquly identifieds entries in the cache
-  , _ceSize :: Int64
+  , _ceSize :: !Int64
     -- ^ The size of the entry. Use to keep track of the cache limit
-  , _ceData :: PersistModuleData
+  , _ceData :: !PersistModuleData
     -- ^ Cached data.
   }
   deriving (Show)
@@ -71,9 +71,9 @@ instance Ord CacheEntry where
 -- ModuleCache
 
 data ModuleCache = ModuleCache
-  { _mcStore :: HM.HashMap CacheAddress CacheEntry
-  , _mcSize :: Int64
-  , _mcLimit :: Int64
+  { _mcStore :: !(HM.HashMap CacheAddress CacheEntry)
+  , _mcSize :: !Int64
+  , _mcLimit :: !Int64
   }
   deriving (Show)
 
@@ -119,12 +119,12 @@ checkModuleCache key rowdata txid = runState $ do
     readModuleCache txid addy >>= \case
 
         -- Cache hit
-        Just x -> return $ Just x
+        Just !x -> return $ Just x
 
         -- Cache miss: decode module and insert into cache
-        Nothing -> case decode (fromStrict rowdata) of
+        Nothing -> case decodeStrict' rowdata of
             Nothing -> return Nothing
-            Just m -> do
+            Just !m -> do
                 writeModuleCache txid addy m
                 return $ Just m
   where
