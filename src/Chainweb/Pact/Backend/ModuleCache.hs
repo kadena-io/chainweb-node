@@ -13,7 +13,7 @@ module Chainweb.Pact.Backend.ModuleCache
 , count
 ) where
 
-import Control.Monad.State
+import Control.Monad.State.Strict
 
 import Database.SQLite3.Direct
 import Data.ByteString (ByteString)
