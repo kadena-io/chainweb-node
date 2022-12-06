@@ -670,6 +670,7 @@ executable cwtool
         , connection >=0.2
         , containers >= 0.5
         , cryptonite >= 0.25
+        , data-default >=0.7
         , deepseq >= 1.4
         , digraph >= 0.2
         , direct-sqlite >= 2.3.27
@@ -696,6 +697,7 @@ executable cwtool
         , rocksdb-haskell-kadena >= 1.1.0
         , safe-exceptions >= 0.1
         , servant-client >= 0.18.2
+        , servant-client-core >= 0.18.2
         , streaming >= 0.2.2
         , streaming-commons >= 0.2
         , tasty >= 1.0
