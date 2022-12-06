@@ -3,6 +3,7 @@
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE MultiWayIf #-}
+{-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE RecordWildCards #-}
@@ -70,6 +71,8 @@ module Chainweb.Pact.PactService.Checkpointer
 
     ) where
 
+import Control.Concurrent
+import Control.Concurrent.Async
 import Control.Lens
 import Control.Monad
 import Control.Monad.Catch
@@ -402,13 +405,14 @@ rewindTo rewindLimit (Just (ParentHeader parent)) = do
                 getBranchIncreasing bhdb parent (int ancestorHeight) $ \newBlocks -> do
                     -- This stream is guaranteed to at least contain @e@.
                     (h, s) <- fromJuste <$> S.uncons newBlocks
-                    s
-                        & S.scanM
-                            (\(!p) (!c) -> runPact (fastForward (ParentHeader p, c)) >> return c)
-                            (return h) -- initial parent
-                            return
-                        & blockStreamProgress 25000 (logInfo_ progressLogger)
-                        & S.length_
+                    heightRef <- newIORef (_blockHeight commonAncestor)
+                    withAsync (heightProgress (_blockHeight commonAncestor) heightRef (logInfo_ progressLogger)) $ \_ -> 
+                      s
+                          & S.scanM
+                              (\ !p !c -> runPact (fastForward (ParentHeader p, c)) >> writeIORef heightRef (_blockHeight c) >> return c)
+                              (return h) -- initial parent
+                              return
+                          & S.length_
             logInfo $ "rewindTo.playFork: replayed " <> sshow c <> " blocks"
 
 -- | INTERNAL UTILITY FUNCTION. DON'T EXPORT FROM THIS MODULE.
@@ -619,35 +623,34 @@ rewindToIncremental rewindLimit (Just (ParentHeader parent)) = do
 
                     -- fastforwards all blocks in a chunk in a single database
                     -- transactions (withBatchIO).
-                    let playChunk :: BlockHeader -> Stream (Of BlockHeader) IO r -> IO (Of BlockHeader r)
-                        playChunk cur s = withBatchIO runPact $ \runPactLocal -> S.foldM
-                            (\c x -> x <$ runPactLocal (fastForward (ParentHeader c, x)))
+                    let playChunk :: IORef BlockHeight -> BlockHeader -> Stream (Of BlockHeader) IO r -> IO (Of BlockHeader r)
+                        playChunk heightRef cur s = withBatchIO runPact $ \runPactLocal -> S.foldM
+                            (\c x -> x <$ (runPactLocal (fastForward (ParentHeader c, x)) >> writeIORef heightRef (_blockHeight c)))
                             (return cur)
                             return
                             s
 
                     -- This stream is guaranteed to at least contain @e@.
                     (curHdr, remaining) <- fromJuste <$> S.uncons newBlocks
-                    remaining
-                        & blockStreamProgress 25000 (logInfo_ progressLogger)
-                        & S.copy
-                        & S.length_
-                        & chunksOf 1000
-                        & foldChunksM playChunk curHdr
+
+                    heightRef <- newIORef (_blockHeight curHdr)
+                    withAsync (heightProgress (_blockHeight curHdr) heightRef (logInfo_ progressLogger)) $ \_ -> 
+                      remaining
+                          & S.copy
+                          & S.length_
+                          & chunksOf 1000
+                          & foldChunksM (playChunk heightRef) curHdr
 
             logInfo $ "rewindTo.playFork: replayed " <> sshow c <> " blocks"
 
 -- -------------------------------------------------------------------------- --
 -- Utils
 
-blockStreamProgress
-    :: Monad m
-    => Int
-        -- ^ Progress reporting callback
-    -> (String -> m ())
-        -- ^ progress callback
-    -> S.Stream (S.Of BlockHeader) m r
-    -> S.Stream (S.Of BlockHeader) m r
-blockStreamProgress n logFun = progress n $ \i b -> logFun
-    $ "processed blocks: " <> sshow i
-    <> ", current height: " <> sshow (_blockHeight b)
+heightProgress :: BlockHeight -> IORef BlockHeight -> (String -> IO ()) -> IO ()
+heightProgress initialHeight ref logFun = forever $ do
+    h <- readIORef ref
+    logFun 
+      $ "processed blocks: " <> sshow (h - initialHeight) 
+      <> ", current height: " <> sshow h 
+    threadDelay (20 * 1_000000)
+
