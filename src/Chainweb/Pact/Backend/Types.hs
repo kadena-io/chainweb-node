@@ -63,6 +63,7 @@ module Chainweb.Pact.Backend.Types
     , bsModuleNameFix
     , bsSortedKeys
     , bsLowerCaseTables
+    , bsModuleCache
     , BlockEnv(..)
     , benvBlockState
     , benvDb
@@ -118,6 +119,7 @@ import Chainweb.BlockHash
 import Chainweb.BlockHeader
 import Chainweb.BlockHeight
 import Chainweb.Mempool.Mempool (MempoolPreBlockCheck,TransactionHash,BlockFill)
+import Chainweb.Pact.Backend.ModuleCache
 import Chainweb.Pact.Service.Types
 import Chainweb.Transaction
 import Chainweb.Utils (T2)
@@ -224,6 +226,7 @@ data BlockState = BlockState
     , _bsModuleNameFix :: Bool
     , _bsSortedKeys :: Bool
     , _bsLowerCaseTables :: Bool
+    , _bsModuleCache :: ModuleCache
     }
     deriving Show
 
@@ -240,6 +243,7 @@ initBlockState initialBlockHeight = BlockState
     , _bsModuleNameFix = False
     , _bsSortedKeys = False
     , _bsLowerCaseTables = False
+    , _bsModuleCache = emptyCache (1024 * 1024 * 1024) -- FIXME: what is a reasonable value here?
     }
 
 makeLenses ''BlockState

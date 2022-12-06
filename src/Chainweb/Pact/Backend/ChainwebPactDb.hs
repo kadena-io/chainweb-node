@@ -124,13 +124,20 @@ doReadRow d k = forModuleNameFix $ \mnFix ->
         KeySets -> lookupWithKey (convKeySetName k) noCache
         -- TODO: This is incomplete (the modules case), due to namespace
         -- resolution concerns
-        Modules -> lookupWithKey (convModuleName mnFix k) checkModuleCache
+        Modules -> lookupWithKey (convModuleName mnFix k) checkModuleCache_
         Namespaces -> lookupWithKey (convNamespaceName k) noCache
         (UserTables _) -> lookupWithKey (convRowKey k) noCache
         Pacts -> lookupWithKey (convPactId k) noCache
   where
     tableName = domainTableName d
     (Utf8 tableNameBS) = tableName
+
+    checkModuleCache_ u b = MaybeT $ do
+        txid <- use bsTxId
+        mc <- use bsModuleCache
+        let (r, mc') = checkModuleCache u b txid mc
+        bsModuleCache .= mc'
+        return r
 
     queryStmt =
         "SELECT rowdata FROM " <> tbl tableName <> " WHERE rowkey = ? ORDER BY txid DESC LIMIT 1;"
