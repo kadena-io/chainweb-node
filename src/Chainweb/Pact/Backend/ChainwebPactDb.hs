@@ -77,6 +77,7 @@ import Pact.Types.Util (AsString(..))
 
 import Chainweb.BlockHash
 import Chainweb.BlockHeight
+import Chainweb.Pact.Backend.ModuleCache
 import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.Backend.Utils
 import Chainweb.Pact.Service.Types (PactException(..), internalError)
@@ -120,13 +121,13 @@ doReadRow
     -> BlockHandler SQLiteEnv (Maybe v)
 doReadRow d k = forModuleNameFix $ \mnFix ->
     case d of
-        KeySets -> lookupWithKey (convKeySetName k)
+        KeySets -> lookupWithKey (convKeySetName k) noCache
         -- TODO: This is incomplete (the modules case), due to namespace
         -- resolution concerns
-        Modules -> lookupWithKey (convModuleName mnFix k)
-        Namespaces -> lookupWithKey (convNamespaceName k)
-        (UserTables _) -> lookupWithKey (convRowKey k)
-        Pacts -> lookupWithKey (convPactId k)
+        Modules -> lookupWithKey (convModuleName mnFix k) checkModuleCache
+        Namespaces -> lookupWithKey (convNamespaceName k) noCache
+        (UserTables _) -> lookupWithKey (convRowKey k) noCache
+        Pacts -> lookupWithKey (convPactId k) noCache
   where
     tableName = domainTableName d
     (Utf8 tableNameBS) = tableName
@@ -134,11 +135,15 @@ doReadRow d k = forModuleNameFix $ \mnFix ->
     queryStmt =
         "SELECT rowdata FROM " <> tbl tableName <> " WHERE rowkey = ? ORDER BY txid DESC LIMIT 1;"
 
-    lookupWithKey :: forall v . FromJSON v => Utf8 -> BlockHandler SQLiteEnv (Maybe v)
-    lookupWithKey key = do
+    lookupWithKey
+        :: forall v . FromJSON v
+        => Utf8
+        -> (Utf8 -> BS.ByteString -> MaybeT (BlockHandler SQLiteEnv) v)
+        -> BlockHandler SQLiteEnv (Maybe v)
+    lookupWithKey key checkCache = do
         pds <- getPendingData
         let lookPD = foldr1 (<|>) $ map (lookupInPendingData key) pds
-        let lookDB = lookupInDb key
+        let lookDB = lookupInDb key checkCache
         runMaybeT (lookPD <|> lookDB)
 
     lookupInPendingData
@@ -156,8 +161,12 @@ doReadRow d k = forModuleNameFix $ \mnFix ->
             -- -- we care about the most recent update to this rowkey
             else MaybeT $ return $! decode $ fromStrict $ DL.head ddata
 
-    lookupInDb :: forall v . FromJSON v => Utf8 -> MaybeT (BlockHandler SQLiteEnv) v
-    lookupInDb rowkey = do
+    lookupInDb
+        :: forall v . FromJSON v
+        => Utf8
+        -> (Utf8 -> BS.ByteString -> MaybeT (BlockHandler SQLiteEnv) v)
+        -> MaybeT (BlockHandler SQLiteEnv) v
+    lookupInDb rowkey checkCache = do
         -- First, check: did we create this table during this block? If so,
         -- there's no point in looking up the key.
         checkDbTableExists tableName
@@ -165,10 +174,19 @@ doReadRow d k = forModuleNameFix $ \mnFix ->
                        $ \db -> qry db queryStmt [SText rowkey] [RBlob]
         case result of
             [] -> mzero
-            [[SBlob a]] -> MaybeT $ return $! decode $ fromStrict a
+            [[SBlob a]] ->
+              checkCache rowkey a <|>
+              (MaybeT $ return $! decode $ fromStrict a)
             err -> internalError $
                      "doReadRow: Expected (at most) a single result, but got: " <>
                      T.pack (show err)
+
+    noCache
+        :: Utf8
+        -> BS.ByteString
+        -> MaybeT (BlockHandler SQLiteEnv) v
+    noCache _key _rowdata = mzero
+
 
 checkDbTableExists :: Utf8 -> MaybeT (BlockHandler SQLiteEnv) ()
 checkDbTableExists tableName = do
