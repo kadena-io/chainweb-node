@@ -119,7 +119,7 @@ import Chainweb.BlockHash
 import Chainweb.BlockHeader
 import Chainweb.BlockHeight
 import Chainweb.Mempool.Mempool (MempoolPreBlockCheck,TransactionHash,BlockFill)
-import Chainweb.Pact.Backend.ModuleCache
+import Chainweb.Pact.Backend.DbCache
 import Chainweb.Pact.Service.Types
 import Chainweb.Transaction
 import Chainweb.Utils (T2)
@@ -226,7 +226,7 @@ data BlockState = BlockState
     , _bsModuleNameFix :: Bool
     , _bsSortedKeys :: Bool
     , _bsLowerCaseTables :: Bool
-    , _bsModuleCache :: ModuleCache
+    , _bsModuleCache :: DbCache PersistModuleData
     }
     deriving Show
 
@@ -243,7 +243,7 @@ initBlockState initialBlockHeight = BlockState
     , _bsModuleNameFix = False
     , _bsSortedKeys = False
     , _bsLowerCaseTables = False
-    , _bsModuleCache = emptyCache (1024 * 1024 * 1024) -- FIXME: what is a reasonable value here?
+    , _bsModuleCache = emptyDbCache (1024 * 1024 * 1024) -- FIXME: what is a reasonable value here?
     }
 
 makeLenses ''BlockState

@@ -76,7 +76,7 @@ import Pact.Types.Util (AsString(..))
 
 import Chainweb.BlockHash
 import Chainweb.BlockHeight
-import Chainweb.Pact.Backend.ModuleCache
+import Chainweb.Pact.Backend.DbCache
 import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.Backend.Utils
 import Chainweb.Pact.Service.Types (PactException(..), internalError)
@@ -123,7 +123,7 @@ doReadRow d k = forModuleNameFix $ \mnFix ->
         KeySets -> lookupWithKey (convKeySetName k) noCache
         -- TODO: This is incomplete (the modules case), due to namespace
         -- resolution concerns
-        Modules -> lookupWithKey (convModuleName mnFix k) checkModuleCache_
+        Modules -> lookupWithKey (convModuleName mnFix k) checkModuleCache
         Namespaces -> lookupWithKey (convNamespaceName k) noCache
         (UserTables _) -> lookupWithKey (convRowKey k) noCache
         Pacts -> lookupWithKey (convPactId k) noCache
@@ -131,10 +131,10 @@ doReadRow d k = forModuleNameFix $ \mnFix ->
     tableName = domainTableName d
     (Utf8 tableNameBS) = tableName
 
-    checkModuleCache_ u b = MaybeT $ do
+    checkModuleCache u b = MaybeT $ do
         txid <- use bsTxId -- cache priority
         mc <- use bsModuleCache
-        let (r, mc') = checkModuleCache u b txid mc
+        let (r, mc') = checkDbCache u b txid mc
         modify' (bsModuleCache .~ mc')
         return r
 

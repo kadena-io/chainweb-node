@@ -6,30 +6,38 @@
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeApplications #-}
 
-module Chainweb.Pact.Backend.ModuleCache
-( ModuleCache
-, checkModuleCache
-, emptyCache
-, size
-, count
-, isEmpty
+-- |
+-- Module: Chainweb.Pact.Backend.DbCache
+-- Copyright: Copyright © 2022 Kadena LLC.
+-- License: See LICENSE file
+--
+-- LRU cache for avoiding expensive JSON deserialization.
+--
+
+module Chainweb.Pact.Backend.DbCache
+( DbCache
+, checkDbCache
+, emptyDbCache
+, cacheSize
+, cacheCount
+, isEmptyCache
 ) where
 
-import Control.Monad.State.Strict
 
-import Database.SQLite3.Direct
-import Data.ByteString (ByteString)
-import Pact.Types.Persistence
 import Control.Lens
-import Data.Aeson (decodeStrict')
-import qualified Crypto.Hash as C (hash)
+import Control.Monad.State.Strict
 import Crypto.Hash.Algorithms
+import qualified Crypto.Hash as C (hash)
+import Data.Aeson (decodeStrict',FromJSON)
 import qualified Data.ByteArray as BA
-import qualified Data.HashMap.Strict as HM
+import Data.ByteString (ByteString)
+import qualified Data.ByteString as BS
 import Data.Hashable
-import Data.Int
-import Pact.Types.SizeOf
+import qualified Data.HashMap.Strict as HM
 import Data.List (sort)
+import Database.SQLite3.Direct
+
+import Pact.Types.Persistence
 
 -- -------------------------------------------------------------------------- --
 -- CacheAddress
@@ -40,28 +48,28 @@ newtype CacheAddress = CacheAddress ByteString
 -- -------------------------------------------------------------------------- --
 -- CacheEntry
 
-data CacheEntry = CacheEntry
+data CacheEntry a = CacheEntry
   { _ceTxId :: !TxId
     -- ^ Priority for cache eviction
   , _ceAddy :: !CacheAddress
     -- ^ Key. Uniquly identifieds entries in the cache
-  , _ceSize :: !Int64
+  , _ceSize :: !Int
     -- ^ The size of the entry. Use to keep track of the cache limit
-  , _ceData :: !PersistModuleData
+  , _ceData :: !a
     -- ^ Cached data.
   }
   deriving (Show)
 
-ceTxId :: Lens' CacheEntry TxId
+ceTxId :: Lens' (CacheEntry a) TxId
 ceTxId = lens _ceTxId (\a b -> a { _ceTxId = b })
 
-instance Eq CacheEntry where
+instance Eq (CacheEntry a) where
   a == b = _ceAddy a == _ceAddy b && _ceTxId a == _ceTxId b
 
 -- | Sort first by '_ceTxId', so that smaller tx ids are evicted first from the
 -- cache.
 --
-instance Ord CacheEntry where
+instance Ord (CacheEntry a) where
   a `compare` b = cmp _ceTxId (cmp _ceAddy EQ)
     where
       cmp acc next = case acc a `compare` acc b of
@@ -69,55 +77,56 @@ instance Ord CacheEntry where
         c -> c
 
 -- -------------------------------------------------------------------------- --
--- ModuleCache
+-- DbCache
 
-data ModuleCache = ModuleCache
-  { _mcStore :: !(HM.HashMap CacheAddress CacheEntry)
-  , _mcSize :: !Int64
-  , _mcLimit :: !Int64
+data DbCache a = DbCache
+  { _dcStore :: !(HM.HashMap CacheAddress (CacheEntry a))
+  , _dcSize :: !Int
+  , _dcLimit :: !Int
   }
   deriving (Show)
 
-makeLenses 'ModuleCache
+makeLenses 'DbCache
 
-emptyCache :: Int64 -> ModuleCache
-emptyCache limit = ModuleCache
-    { _mcStore = mempty
-    , _mcSize = 0
-    , _mcLimit = limit
+emptyDbCache :: Int -> DbCache a
+emptyDbCache limit = DbCache
+    { _dcStore = mempty
+    , _dcSize = 0
+    , _dcLimit = limit
     }
 
-isEmpty :: ModuleCache -> Bool
-isEmpty = HM.null . _mcStore
+isEmptyCache :: DbCache a -> Bool
+isEmptyCache = HM.null . _dcStore
 
--- | The totall size of all modules in the cache.
+-- | The total size of all data in the cache.
 --
 -- Complexity: \(O(1)\)
 --
-size :: ModuleCache -> Int
-size = fromIntegral . _mcSize
+cacheSize :: DbCache a -> Int
+cacheSize = _dcSize
 
--- | Number of modules in the cache.
+-- | Number of entries in the cache.
 --
 -- Complexity: \(O(n)\), linear in the number of entries
 --
-count :: ModuleCache -> Int
-count = HM.size . _mcStore
+cacheCount :: DbCache a -> Int
+cacheCount = HM.size . _dcStore
 
 -- | Decode Module from row data using the module cache.
 --
-checkModuleCache
-    :: Utf8
-        -- ^ Row Key for the module
+checkDbCache
+    :: FromJSON a
+    => Utf8
+        -- ^ Db key for data
     -> ByteString
-        -- ^ row data that contains the encoded module
+        -- ^ row data that contains the encoded value
     -> TxId
-        -- ^ TxId. This is used as priority for cache eviction. Smaller values
-        -- are evicted first.
-    -> ModuleCache
-    -> (Maybe PersistModuleData, ModuleCache)
-checkModuleCache key rowdata txid = runState $ do
-    readModuleCache txid addy >>= \case
+       -- ^ Current TxId from checkpointer, used as priority for cache eviction.
+       -- Smaller values are evicted first.
+    -> DbCache a
+    -> (Maybe a, DbCache a)
+checkDbCache key rowdata txid = runState $ do
+    readCache txid addy >>= \case
 
         -- Cache hit
         Just !x -> return $ Just x
@@ -126,7 +135,7 @@ checkModuleCache key rowdata txid = runState $ do
         Nothing -> case decodeStrict' rowdata of
             Nothing -> return Nothing
             Just !m -> do
-                writeModuleCache txid addy m
+                writeCache txid addy (BS.length rowdata) m
                 return $ Just m
   where
     addy = mkAddress key rowdata
@@ -138,48 +147,47 @@ mkAddress :: Utf8 -> ByteString -> CacheAddress
 mkAddress (Utf8 key) rowdata = CacheAddress $
     key <> ":" <> BA.convert (C.hash @_ @SHA512t_256 rowdata)
 
-readModuleCache
+readCache
     :: TxId
-        -- ^ TxId of
+        -- ^ Current TxId from checkpointer
     -> CacheAddress
-    -> State ModuleCache (Maybe PersistModuleData)
-readModuleCache txid ca = do
-    mc <- use mcStore
-    forM (HM.lookup ca mc) $ \e -> do
-        modify' $ mcStore . ix ca . ceTxId .~ txid
+    -> State (DbCache a) (Maybe a)
+readCache txid ca = do
+    dc <- use dcStore
+    forM (HM.lookup ca dc) $ \e -> do
+        modify' $ dcStore . ix ca . ceTxId .~ txid
         return $! _ceData e
 
 -- | Add item to module cache
 --
-writeModuleCache
+writeCache
     :: TxId
     -> CacheAddress
-    -> PersistModuleData
-    -> State ModuleCache ()
-writeModuleCache txid ca v = do
-    modify' $ mcStore %~ HM.insert ca (CacheEntry txid ca sz v)
-    modify' $ mcSize +~ sz
+    -> Int
+    -> a
+    -> State (DbCache a) ()
+writeCache txid ca sz v = do
+    modify' $ dcStore %~ HM.insert ca (CacheEntry txid ca sz v)
+    modify' $ dcSize +~ sz
     maintainCache
-  where
-    sz = sizeOf SizeOfV1 $ void (_mdModule v)
 
 -- | Prune Cache to meet size limit
 --
 -- Complexity: \(O(n \log(n))\) in the number of entries
 --
-maintainCache :: State ModuleCache ()
+maintainCache :: State (DbCache a) ()
 maintainCache = do
-    sz <- use mcSize
-    lim <- use mcLimit
+    sz <- use dcSize
+    lim <- use dcLimit
     unless (sz < lim) $ do
-        vals <- sort . HM.elems <$> use mcStore
+        vals <- sort . HM.elems <$> use dcStore
         evict sz lim vals
   where
     evict _ _ [] = return ()
     evict sz lim (e:es)
         | sz < lim = return ()
         | otherwise = do
-            modify' $ mcStore %~ HM.delete (_ceAddy e)
+            modify' $ dcStore %~ HM.delete (_ceAddy e)
             let sz' = sz - _ceSize e
-            modify' $ mcSize .~ sz'
+            modify' $ dcSize .~ sz'
             evict sz' lim es
