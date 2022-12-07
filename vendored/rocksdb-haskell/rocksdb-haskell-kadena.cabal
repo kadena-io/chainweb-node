@@ -45,6 +45,11 @@ source-repository head
   type: git
   location: git://github.com/kadena-io/rocksdb-haskell.git
 
+flag no-tbb
+     description: Build without tbb support
+     default: False
+     manual: True
+
 library
   hs-source-dirs:   src
 
@@ -95,8 +100,11 @@ library
     bz2
     lz4
     zstd
-    tbb
     stdc++
+
+  if !flag(no-tbb)
+    extra-libraries:
+      tbb
 
   -- These options are extracted from CXXFLAGS the RocksDB Makefile
   cxx-options:
@@ -120,7 +128,6 @@ library
     -DBZIP2
     -DLZ4
     -DZSTD
-    -DTBB
     -DROCKSDB_BACKTRACE
     -march=native
     -DHAVE_SSE42
@@ -137,6 +144,9 @@ library
     -Wno-missing-field-initializers
     -- -O2
 
+  if !flag(no-tbb)
+    cxx-options:
+      -DTBB
 
   if os(linux)
     cxx-options:
@@ -485,4 +495,3 @@ test-suite rocksdb-tests
                      , hspec-expectations
                      , QuickCheck
   default-language:    Haskell2010
-
