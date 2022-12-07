@@ -13,23 +13,27 @@ module Chainweb.Pact.Backend.ModuleCache
 , size
 , count
 , isEmpty
+, moduleCacheStats
 ) where
 
+import Control.Lens hiding ((.=))
 import Control.Monad.State.Strict
 
-import Database.SQLite3.Direct
-import Data.ByteString (ByteString)
-import Pact.Types.Persistence
-import Control.Lens
-import Data.Aeson (decodeStrict')
 import qualified Crypto.Hash as C (hash)
 import Crypto.Hash.Algorithms
+
+import Data.Aeson (Value, object, decodeStrict', (.=))
 import qualified Data.ByteArray as BA
-import qualified Data.HashMap.Strict as HM
+import Data.ByteString (ByteString)
 import Data.Hashable
+import qualified Data.HashMap.Strict as HM
 import Data.Int
-import Pact.Types.SizeOf
 import Data.List (sort)
+
+import Database.SQLite3.Direct
+
+import Pact.Types.Persistence
+import Pact.Types.SizeOf
 
 -- -------------------------------------------------------------------------- --
 -- CacheAddress
@@ -49,11 +53,16 @@ data CacheEntry = CacheEntry
     -- ^ The size of the entry. Use to keep track of the cache limit
   , _ceData :: !PersistModuleData
     -- ^ Cached data.
+  , _ceHits :: Int
+    -- ^ Count of cache hits for this entry
   }
   deriving (Show)
 
 ceTxId :: Lens' CacheEntry TxId
 ceTxId = lens _ceTxId (\a b -> a { _ceTxId = b })
+
+ceHits :: Lens' CacheEntry Int
+ceHits = lens _ceHits (\a b -> a { _ceHits = b })
 
 instance Eq CacheEntry where
   a == b = _ceAddy a == _ceAddy b && _ceTxId a == _ceTxId b
@@ -75,6 +84,10 @@ data ModuleCache = ModuleCache
   { _mcStore :: !(HM.HashMap CacheAddress CacheEntry)
   , _mcSize :: !Int64
   , _mcLimit :: !Int64
+
+  -- Telemetry
+  , _mcMisses :: !Int
+  , _mcHits :: !Int
   }
   deriving (Show)
 
@@ -85,6 +98,8 @@ emptyCache limit = ModuleCache
     { _mcStore = mempty
     , _mcSize = 0
     , _mcLimit = limit
+    , _mcMisses = 0
+    , _mcHits = 0
     }
 
 isEmpty :: ModuleCache -> Bool
@@ -120,16 +135,27 @@ checkModuleCache key rowdata txid = runState $ do
     readModuleCache txid addy >>= \case
 
         -- Cache hit
-        Just !x -> return $ Just x
+        Just !x -> do
+            modify' (mcHits +~ 1)
+            return $ Just x
 
         -- Cache miss: decode module and insert into cache
         Nothing -> case decodeStrict' rowdata of
             Nothing -> return Nothing
             Just !m -> do
                 writeModuleCache txid addy m
+                modify' (mcMisses +~ 1)
                 return $ Just m
   where
     addy = mkAddress key rowdata
+
+moduleCacheStats :: ModuleCache -> Value
+moduleCacheStats mc = object
+    [ "misses" .= _mcMisses mc
+    , "hits" .= _mcHits mc
+    , "size" .=  size mc
+    , "count" .= count mc
+    ]
 
 -- -------------------------------------------------------------------------- --
 -- Internal
@@ -146,7 +172,9 @@ readModuleCache
 readModuleCache txid ca = do
     mc <- use mcStore
     forM (HM.lookup ca mc) $ \e -> do
-        modify' $ mcStore . ix ca . ceTxId .~ txid
+        modify'
+            $ (mcStore . ix ca . ceTxId .~ txid)
+            . (mcStore . ix ca . ceHits +~ 1)
         return $! _ceData e
 
 -- | Add item to module cache
@@ -157,8 +185,9 @@ writeModuleCache
     -> PersistModuleData
     -> State ModuleCache ()
 writeModuleCache txid ca v = do
-    modify' $ mcStore %~ HM.insert ca (CacheEntry txid ca sz v)
-    modify' $ mcSize +~ sz
+    modify'
+        $ (mcStore %~ HM.insert ca (CacheEntry txid ca sz v 0))
+        . (mcSize +~ sz)
     maintainCache
   where
     sz = sizeOf SizeOfV1 $ void (_mdModule v)
@@ -179,7 +208,8 @@ maintainCache = do
     evict sz lim (e:es)
         | sz < lim = return ()
         | otherwise = do
-            modify' $ mcStore %~ HM.delete (_ceAddy e)
             let sz' = sz - _ceSize e
-            modify' $ mcSize .~ sz'
+            modify'
+                $ (mcStore %~ HM.delete (_ceAddy e))
+                . (mcSize .~ sz')
             evict sz' lim es
