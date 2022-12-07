@@ -34,7 +34,7 @@ import Data.List (sort)
 -- CacheAddress
 
 newtype CacheAddress = CacheAddress ByteString
-    deriving (Show, Eq,Ord,Hashable)
+    deriving (Show,Eq,Ord,Hashable)
 
 -- -------------------------------------------------------------------------- --
 -- CacheEntry
@@ -135,7 +135,7 @@ checkModuleCache key rowdata txid = runState $ do
 
 mkAddress :: Utf8 -> ByteString -> CacheAddress
 mkAddress (Utf8 key) rowdata = CacheAddress $
-  key <> ":" <> BA.convert (C.hash @_ @SHA512t_256 rowdata)
+    key <> ":" <> BA.convert (C.hash @_ @SHA512t_256 rowdata)
 
 readModuleCache
     :: TxId
@@ -143,10 +143,10 @@ readModuleCache
     -> CacheAddress
     -> State ModuleCache (Maybe PersistModuleData)
 readModuleCache txid ca = do
-  mc <- use mcStore
-  forM (HM.lookup ca mc) $ \e -> do
-      mcStore . ix ca . ceTxId .= txid
-      return $! _ceData e
+    mc <- use mcStore
+    forM (HM.lookup ca mc) $ \e -> do
+        modify' $ mcStore . ix ca . ceTxId .~ txid
+        return $! _ceData e
 
 -- | Add item to module cache
 --
@@ -156,10 +156,11 @@ writeModuleCache
     -> PersistModuleData
     -> State ModuleCache ()
 writeModuleCache txid ca v = do
-  let sz = sizeOf SizeOfV1 $ void (_mdModule v)
-  mcStore %= HM.insert ca (CacheEntry txid ca sz v)
-  mcSize %= (+ sz)
-  maintainCache
+    modify' $ mcStore %~ HM.insert ca (CacheEntry txid ca sz v)
+    modify' $ mcSize +~ sz
+    maintainCache
+  where
+    sz = sizeOf SizeOfV1 $ void (_mdModule v)
 
 -- | Prune Cache to meet size limit
 --
@@ -176,9 +177,9 @@ maintainCache = do
   where
     evict _ _ [] = return ()
     evict sz lim (e:es)
-      | sz < lim = return ()
-      | otherwise = do
-          mcStore %= HM.delete (_ceAddy e)
-          let sz' = sz - _ceSize e
-          mcSize .= sz'
-          evict sz' lim es
+        | sz < lim = return ()
+        | otherwise = do
+            modify' $ mcStore %~ HM.delete (_ceAddy e)
+            let sz' = sz - _ceSize e
+            modify' $ mcSize .~ sz'
+            evict sz' lim es
