@@ -23,7 +23,8 @@ description:
     the system: gmp, gflags.
     .
     The build also requires the following optional libraries to be present in
-    the system: snappy, z, bz2, lz4, zstd, tbb. If one of these is missing, one
+    the system: snappy, z, bz2, lz4, zstd, tbb (see 'with-tbb' flag to disable).
+    If one of these is missing, one
     has to comment out the respective entries in list of extra-libraries and the
     cxx-flags in the file rocksb-haskell-kadena.cabal.
     .
@@ -45,9 +46,9 @@ source-repository head
   type: git
   location: git://github.com/kadena-io/rocksdb-haskell.git
 
-flag no-tbb
-     description: Build without tbb support
-     default: False
+flag with-tbb
+     description: Build with tbb support
+     default: True
      manual: True
 
 library
@@ -102,7 +103,7 @@ library
     zstd
     stdc++
 
-  if !flag(no-tbb)
+  if flag(with-tbb)
     extra-libraries:
       tbb
 
@@ -144,7 +145,7 @@ library
     -Wno-missing-field-initializers
     -- -O2
 
-  if !flag(no-tbb)
+  if flag(with-tbb)
     cxx-options:
       -DTBB
 
