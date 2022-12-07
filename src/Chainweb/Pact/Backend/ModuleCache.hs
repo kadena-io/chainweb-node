@@ -12,6 +12,7 @@ module Chainweb.Pact.Backend.ModuleCache
 , emptyCache
 , size
 , count
+, isEmpty
 ) where
 
 import Control.Monad.State.Strict
@@ -170,8 +171,7 @@ maintainCache :: State ModuleCache ()
 maintainCache = do
     sz <- use mcSize
     lim <- use mcLimit
-    e <- gets isEmpty
-    unless (e || sz < lim) $ do
+    unless (sz < lim) $ do
         vals <- sort . HM.elems <$> use mcStore
         evict sz lim vals
   where

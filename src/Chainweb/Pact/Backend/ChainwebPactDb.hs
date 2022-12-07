@@ -39,7 +39,6 @@ import Control.Monad.Trans.Maybe
 import Data.Aeson hiding ((.=))
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Char8 as B8
-import Data.ByteString.Lazy (fromStrict)
 import qualified Data.DList as DL
 import Data.Foldable (toList)
 import Data.List(sort)
@@ -133,10 +132,10 @@ doReadRow d k = forModuleNameFix $ \mnFix ->
     (Utf8 tableNameBS) = tableName
 
     checkModuleCache_ u b = MaybeT $ do
-        txid <- use bsTxId
+        txid <- use bsTxId -- cache priority
         mc <- use bsModuleCache
         let (r, mc') = checkModuleCache u b txid mc
-        bsModuleCache .= mc'
+        modify' (bsModuleCache .~ mc')
         return r
 
     queryStmt =
@@ -166,7 +165,7 @@ doReadRow d k = forModuleNameFix $ \mnFix ->
             then mzero
             -- we merge with (++) which should produce txids most-recent-first
             -- -- we care about the most recent update to this rowkey
-            else MaybeT $ return $! decode $ fromStrict $ DL.head ddata
+            else MaybeT $ return $! decodeStrict' $ DL.head ddata
 
     lookupInDb
         :: forall v . FromJSON v
@@ -183,7 +182,7 @@ doReadRow d k = forModuleNameFix $ \mnFix ->
             [] -> mzero
             [[SBlob a]] ->
               checkCache rowkey a <|>
-              (MaybeT $ return $! decode $ fromStrict a)
+              (MaybeT $ return $! decodeStrict' a)
             err -> internalError $
                      "doReadRow: Expected (at most) a single result, but got: " <>
                      T.pack (show err)
