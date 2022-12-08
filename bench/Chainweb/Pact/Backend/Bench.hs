@@ -103,7 +103,7 @@ cpWithBench torun =
     name = "batchedCheckpointer"
     cid = unsafeChainId 0
 
-    initialBlockState = initBlockState $ genesisHeight v cid
+    initialBlockState = initBlockState (1024^(2::Int) {- 1MiB -}) $ genesisHeight v cid
 
     setup = do
         let dbFile = "" {- temporary SQLite db -}

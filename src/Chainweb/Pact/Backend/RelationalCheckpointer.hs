@@ -1,7 +1,8 @@
-{-# LANGUAGE TupleSections #-}
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE TupleSections #-}
 
 -- |
 -- Module: Chainweb.Pact.Backend.RelationalCheckpointer
@@ -14,8 +15,11 @@
 module Chainweb.Pact.Backend.RelationalCheckpointer
   ( initRelationalCheckpointer
   , initRelationalCheckpointer'
+  , withProdRelationalCheckpointer
   ) where
 
+import Control.Concurrent (threadDelay)
+import Control.Concurrent.Async
 import Control.Concurrent.MVar
 import Control.Lens
 import Control.Monad
@@ -42,6 +46,8 @@ import Database.SQLite3.Direct
 
 import Prelude hiding (log)
 
+import System.LogLevel
+
 -- pact
 
 import Pact.Interpreter (PactDbEnv(..))
@@ -54,9 +60,11 @@ import Pact.Types.SQLite
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
 import Chainweb.BlockHeight
+import qualified Chainweb.Logger as C
 import Chainweb.Pact.Backend.ChainwebPactDb
 import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.Backend.Utils
+import Chainweb.Pact.Backend.DbCache (cacheStats)
 import Chainweb.Pact.Service.Types
 import Chainweb.Utils
 import Chainweb.Utils.Serialization
@@ -72,6 +80,26 @@ initRelationalCheckpointer
 initRelationalCheckpointer bstate sqlenv loggr v cid =
     snd <$!> initRelationalCheckpointer' bstate sqlenv loggr v cid
 
+withProdRelationalCheckpointer
+    :: C.Logger logger
+    => logger
+    -> BlockState
+    -> SQLiteEnv
+    -> Logger
+    -> ChainwebVersion
+    -> ChainId
+    -> (CheckpointEnv -> IO a)
+    -> IO a
+withProdRelationalCheckpointer logger bstate sqlenv pactLogger v cid inner = do
+    (dbenv, cpenv) <- initRelationalCheckpointer' bstate sqlenv pactLogger v cid
+    withAsync (logModuleCacheStats dbenv) $ \_ -> inner cpenv
+  where
+    logFun = C.logFunctionText logger
+    logModuleCacheStats e = runForever logFun "ModuleCacheStats" $ do
+        stats <- cacheStats . _bsModuleCache . _benvBlockState <$> readMVar (pdPactDbVar e)
+        C.logFunctionJson logger Info stats
+        threadDelay (60 * 1000000)
+
 -- for testing
 initRelationalCheckpointer'
     :: BlockState
@@ -79,13 +107,13 @@ initRelationalCheckpointer'
     -> Logger
     -> ChainwebVersion
     -> ChainId
-    -> IO (PactDbEnv', CheckpointEnv)
+    -> IO (PactDbEnv (BlockEnv SQLiteEnv), CheckpointEnv)
 initRelationalCheckpointer' bstate sqlenv loggr v cid = do
     let dbenv = BlockDbEnv sqlenv loggr
     db <- newMVar (BlockEnv dbenv bstate)
     runBlockEnv db initSchema
     return
-      (PactDbEnv' (PactDbEnv chainwebPactDb db),
+      (PactDbEnv chainwebPactDb db,
        CheckpointEnv
         { _cpeCheckpointer =
             Checkpointer

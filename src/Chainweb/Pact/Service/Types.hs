@@ -73,6 +73,8 @@ data PactServiceConfig = PactServiceConfig
     -- ^ the gas limit for new block creation, not for validation
   , _pactLogGas :: !Bool
     -- ^ whether to write transaction gas logs at INFO
+  , _pactModuleCacheLimit :: !Natural
+    -- ^ limit of the database module cache in bytes of corresponding row data
   } deriving (Eq,Show)
 
 data GasPurchaseFailure = GasPurchaseFailure TransactionHash PactError

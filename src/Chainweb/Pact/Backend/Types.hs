@@ -233,8 +233,12 @@ data BlockState = BlockState
 emptySQLitePendingData :: SQLitePendingData
 emptySQLitePendingData = SQLitePendingData mempty mempty mempty mempty
 
-initBlockState :: BlockHeight -> BlockState
-initBlockState initialBlockHeight = BlockState
+initBlockState
+    :: Int
+        -- ^ Module Cache Limit (in bytes of corresponding rowdata)
+    -> BlockHeight
+    -> BlockState
+initBlockState cl initialBlockHeight = BlockState
     { _bsTxId = 0
     , _bsMode = Nothing
     , _bsBlockHeight = initialBlockHeight
@@ -243,7 +247,7 @@ initBlockState initialBlockHeight = BlockState
     , _bsModuleNameFix = False
     , _bsSortedKeys = False
     , _bsLowerCaseTables = False
-    , _bsModuleCache = emptyDbCache (1024 * 1024 * 1024) -- FIXME: what is a reasonable value here?
+    , _bsModuleCache = emptyDbCache cl
     }
 
 makeLenses ''BlockState
@@ -283,7 +287,7 @@ newtype BlockHandler p a = BlockHandler
         , MonadReader (BlockDbEnv p)
         )
 
-data PactDbEnv' = forall e. PactDbEnv' (PactDbEnv e)
+newtype PactDbEnv' = PactDbEnv' (PactDbEnv (BlockEnv SQLiteEnv))
 
 instance Logging (BlockHandler p) where
     log c s = view logger >>= \l -> liftIO $ logLog l c s

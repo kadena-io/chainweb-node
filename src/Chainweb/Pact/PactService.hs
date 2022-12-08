@@ -79,7 +79,7 @@ import Chainweb.BlockHeight
 import Chainweb.Logger
 import Chainweb.Mempool.Mempool as Mempool
 import Chainweb.Miner.Pact
-import Chainweb.Pact.Backend.RelationalCheckpointer (initRelationalCheckpointer)
+import Chainweb.Pact.Backend.RelationalCheckpointer (withProdRelationalCheckpointer)
 import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.PactService.ExecBlock
 import Chainweb.Pact.PactService.Checkpointer
@@ -128,45 +128,49 @@ initPactService'
     -> PactServiceConfig
     -> PactServiceM cas a
     -> IO (T2 a PactServiceState)
-initPactService' ver cid chainwebLogger bhDb pdb sqlenv config act = do
-    checkpointEnv <- initRelationalCheckpointer initialBlockState sqlenv cplogger ver cid
-    let !rs = readRewards
-        !initialParentHeader = ParentHeader $ genesisBlockHeader ver cid
-        !pse = PactServiceEnv
-                { _psMempoolAccess = Nothing
-                , _psCheckpointEnv = checkpointEnv
-                , _psPdb = pdb
-                , _psBlockHeaderDb = bhDb
-                , _psGasModel = getGasModel
-                , _psMinerRewards = rs
-                , _psReorgLimit = fromIntegral $ _pactReorgLimit config
-                , _psOnFatalError = defaultOnFatalError (logFunctionText chainwebLogger)
-                , _psVersion = ver
-                , _psValidateHashesOnReplay = _pactRevalidate config
-                , _psAllowReadsInLocal = _pactAllowReadsInLocal config
-                , _psIsBatch = False
-                , _psCheckpointerDepth = 0
-                , _psLogger = pactLogger
-                , _psGasLogger = gasLogger <$ guard (_pactLogGas config)
-                , _psLoggers = loggers
-                , _psBlockGasLimit = _pactBlockGasLimit config
-                }
-        !pst = PactServiceState Nothing mempty initialParentHeader P.noSPVSupport
-    runPactServiceM pst pse $ do
+initPactService' ver cid chainwebLogger bhDb pdb sqlenv config act =
+    -- checkpointEnv <- initRelationalCheckpointer initialBlockState sqlenv cplogger ver cid
+    withProdRelationalCheckpointer checkpointerLogger initialBlockState sqlenv cplogger ver cid $ \checkpointEnv -> do
+        let !rs = readRewards
+            !initialParentHeader = ParentHeader $ genesisBlockHeader ver cid
+            !pse = PactServiceEnv
+                    { _psMempoolAccess = Nothing
+                    , _psCheckpointEnv = checkpointEnv
+                    , _psPdb = pdb
+                    , _psBlockHeaderDb = bhDb
+                    , _psGasModel = getGasModel
+                    , _psMinerRewards = rs
+                    , _psReorgLimit = fromIntegral $ _pactReorgLimit config
+                    , _psOnFatalError = defaultOnFatalError (logFunctionText chainwebLogger)
+                    , _psVersion = ver
+                    , _psValidateHashesOnReplay = _pactRevalidate config
+                    , _psAllowReadsInLocal = _pactAllowReadsInLocal config
+                    , _psIsBatch = False
+                    , _psCheckpointerDepth = 0
+                    , _psLogger = pactLogger
+                    , _psGasLogger = gasLogger <$ guard (_pactLogGas config)
+                    , _psLoggers = loggers
+                    , _psBlockGasLimit = _pactBlockGasLimit config
+                    }
+            !pst = PactServiceState Nothing mempty initialParentHeader P.noSPVSupport
+        runPactServiceM pst pse $ do
 
-        -- If the latest header that is stored in the checkpointer was on an
-        -- orphaned fork, there is no way to recover it in the call of
-        -- 'initalPayloadState.readContracts'. We therefore rewind to the latest
-        -- avaliable header in the block header database.
-        --
-        exitOnRewindLimitExceeded $ initializeLatestBlock (_pactUnlimitedInitialRewind config)
-        act
+            -- If the latest header that is stored in the checkpointer was on an
+            -- orphaned fork, there is no way to recover it in the call of
+            -- 'initalPayloadState.readContracts'. We therefore rewind to the latest
+            -- avaliable header in the block header database.
+            --
+            exitOnRewindLimitExceeded $ initializeLatestBlock (_pactUnlimitedInitialRewind config)
+            act
   where
-    initialBlockState = initBlockState $ genesisHeight ver cid
+    initialBlockState = initBlockState (int $ _pactModuleCacheLimit config) $ genesisHeight ver cid
     loggers = pactLoggers chainwebLogger
     cplogger = P.newLogger loggers $ P.LogName "Checkpointer"
     pactLogger = P.newLogger loggers $ P.LogName "PactService"
     gasLogger = P.newLogger loggers $ P.LogName "GasLogs"
+
+    checkpointerLogger = addLabel ("sub-component", "checkpointer") chainwebLogger
+
 
 initializeLatestBlock :: PayloadCasLookup cas => Bool -> PactServiceM cas ()
 initializeLatestBlock unlimitedRewind = findLatestValidBlock >>= \case

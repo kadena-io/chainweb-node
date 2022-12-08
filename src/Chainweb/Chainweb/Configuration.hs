@@ -392,6 +392,8 @@ data ChainwebConfiguration = ChainwebConfiguration
     , _configSyncPactChains :: !(Maybe [ChainId])
         -- ^ the only chains to be synchronized on startup to the latest cut.
         --   if unset, all chains will be synchronized.
+    , _configModuleCacheLimit :: !Natural
+        -- ^ module cache size limit in bytes of raw module data.
     } deriving (Show, Eq, Generic)
 
 makeLenses ''ChainwebConfiguration
@@ -439,6 +441,7 @@ defaultChainwebConfiguration v = ChainwebConfiguration
     , _configOnlySyncPact = False
     , _configSyncPactChains = Nothing
     , _configBackup = defaultBackupConfig
+    , _configModuleCacheLimit = 1024^(3::Int) -- 1GiB
     }
 
 instance ToJSON ChainwebConfiguration where
@@ -463,6 +466,7 @@ instance ToJSON ChainwebConfiguration where
         , "onlySyncPact" .= _configOnlySyncPact o
         , "syncPactChains" .= _configSyncPactChains o
         , "backup" .= _configBackup o
+        , "moduleCacheLimit" .= _configModuleCacheLimit o
         ]
 
 instance FromJSON ChainwebConfiguration where
@@ -492,6 +496,7 @@ instance FromJSON (ChainwebConfiguration -> ChainwebConfiguration) where
         <*< configOnlySyncPact ..: "onlySyncPact" % o
         <*< configSyncPactChains ..: "syncPactChains" % o
         <*< configBackup %.: "backup" % o
+        <*< configModuleCacheLimit ..: "moduleCacheLimit" % o
 
 pChainwebConfiguration :: MParser ChainwebConfiguration
 pChainwebConfiguration = id
@@ -545,4 +550,8 @@ pChainwebConfiguration = id
         <> help "The only Pact databases to synchronize. If empty or unset, all chains will be synchronized."
         <> metavar "JSON list of chain ids"
     <*< configBackup %:: pBackupConfig
+    <*< configModuleCacheLimit .:: option auto
+        % long "module-cache-limit"
+        <> help "Maximum size of the module cache in bytes in terms of the raw module data"
+        <> metavar "INT"
 

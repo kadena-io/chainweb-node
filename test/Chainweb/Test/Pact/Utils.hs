@@ -598,7 +598,7 @@ testPactCtxSQLite
   -> SQLiteEnv
   -> PactServiceConfig
   -> (TxContext -> GasModel)
-  -> IO (TestPactCtx cas,PactDbEnv')
+  -> IO (TestPactCtx cas, PactDbEnv')
 testPactCtxSQLite v cid bhdb pdb sqlenv conf gasmodel = do
     (dbSt,cpe) <- initRelationalCheckpointer' initialBlockState sqlenv cpLogger v cid
     let rs = readRewards
@@ -607,9 +607,9 @@ testPactCtxSQLite v cid bhdb pdb sqlenv conf gasmodel = do
       <$!> newMVar (PactServiceState Nothing mempty ph noSPVSupport)
       <*> pure (pactServiceEnv cpe rs)
     evalPactServiceM_ ctx (initialPayloadState dummyLogger mempty v cid)
-    return (ctx,dbSt)
+    return (ctx, PactDbEnv' dbSt)
   where
-    initialBlockState = initBlockState $ Version.genesisHeight v cid
+    initialBlockState = initBlockState (1024^(2::Int)) $ Version.genesisHeight v cid
     loggers = pactTestLogger False -- toggle verbose pact test logging
     cpLogger = newLogger loggers $ LogName ("Checkpointer" ++ show cid)
     pactServiceEnv cpe rs = PactServiceEnv

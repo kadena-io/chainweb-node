@@ -389,6 +389,7 @@ defaultPactServiceConfig = PactServiceConfig
       , _pactUnlimitedInitialRewind = False
       , _pactBlockGasLimit = defaultBlockGasLimit
       , _pactLogGas = False
+      , _pactModuleCacheLimit = 1024^(3::Int) -- 1GiB
       }
 
 -- | This default value is only relevant for testing. In a chainweb-node the @GasLimit@
