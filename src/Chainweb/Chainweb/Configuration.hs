@@ -441,7 +441,7 @@ defaultChainwebConfiguration v = ChainwebConfiguration
     , _configOnlySyncPact = False
     , _configSyncPactChains = Nothing
     , _configBackup = defaultBackupConfig
-    , _configModuleCacheLimit = 1024^(3::Int) -- 1GiB
+    , _configModuleCacheLimit = 10 * 1024^(2::Int) -- 10MiB (per chain)
     }
 
 instance ToJSON ChainwebConfiguration where
