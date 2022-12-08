@@ -22,6 +22,7 @@ module Chainweb.Pact.Backend.DbCache
 , cacheCount
 , isEmptyCache
 , cacheStats
+, updateCacheStats
 ) where
 
 import Control.Lens hiding ((.=))
@@ -167,6 +168,9 @@ cacheStats mc = object
     , "size" .=  cacheSize mc
     , "count" .= cacheCount mc
     ]
+
+updateCacheStats :: DbCache a -> (Value, DbCache a)
+updateCacheStats mc = (cacheStats mc, set dcMisses 0 (set dcHits 0 mc))
 
 -- -------------------------------------------------------------------------- --
 -- Internal

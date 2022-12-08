@@ -64,7 +64,7 @@ import qualified Chainweb.Logger as C
 import Chainweb.Pact.Backend.ChainwebPactDb
 import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.Backend.Utils
-import Chainweb.Pact.Backend.DbCache (cacheStats)
+import Chainweb.Pact.Backend.DbCache (updateCacheStats)
 import Chainweb.Pact.Service.Types
 import Chainweb.Utils
 import Chainweb.Utils.Serialization
@@ -96,7 +96,10 @@ withProdRelationalCheckpointer logger bstate sqlenv pactLogger v cid inner = do
   where
     logFun = C.logFunctionText logger
     logModuleCacheStats e = runForever logFun "ModuleCacheStats" $ do
-        stats <- cacheStats . _bsModuleCache . _benvBlockState <$> readMVar (pdPactDbVar e)
+        stats <- modifyMVar (pdPactDbVar e) $ \db -> do
+            let (s, !mc') = updateCacheStats $ _bsModuleCache $ _benvBlockState db
+                !db' = set (benvBlockState . bsModuleCache) mc' db
+            return (db', s)
         C.logFunctionJson logger Info stats
         threadDelay (60 * 1000000)
 
