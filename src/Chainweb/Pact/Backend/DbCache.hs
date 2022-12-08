@@ -14,7 +14,6 @@
 --
 -- LRU cache for avoiding expensive JSON deserialization.
 --
-
 module Chainweb.Pact.Backend.DbCache
 ( DbCache
 , checkDbCache
@@ -22,20 +21,23 @@ module Chainweb.Pact.Backend.DbCache
 , cacheSize
 , cacheCount
 , isEmptyCache
+, cacheStats
 ) where
 
-
-import Control.Lens
+import Control.Lens hiding ((.=))
 import Control.Monad.State.Strict
-import Crypto.Hash.Algorithms
+
 import qualified Crypto.Hash as C (hash)
-import Data.Aeson (decodeStrict',FromJSON)
+import Crypto.Hash.Algorithms
+
+import Data.Aeson (FromJSON, Value, object, decodeStrict', (.=))
 import qualified Data.ByteArray as BA
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
 import Data.Hashable
 import qualified Data.HashMap.Strict as HM
 import Data.List (sort)
+
 import Database.SQLite3.Direct
 
 import Pact.Types.Persistence
@@ -58,11 +60,16 @@ data CacheEntry a = CacheEntry
     -- ^ The size of the entry. Used to keep track of the cache limit
   , _ceData :: !a
     -- ^ Cached data.
+  , _ceHits :: Int
+    -- ^ Count of cache hits for this entry
   }
   deriving (Show)
 
 ceTxId :: Lens' (CacheEntry a) TxId
 ceTxId = lens _ceTxId (\a b -> a { _ceTxId = b })
+
+ceHits :: Lens' (CacheEntry a) Int
+ceHits = lens _ceHits (\a b -> a { _ceHits = b })
 
 instance Eq (CacheEntry a) where
   a == b = _ceAddy a == _ceAddy b && _ceTxId a == _ceTxId b
@@ -84,6 +91,10 @@ data DbCache a = DbCache
   { _dcStore :: !(HM.HashMap CacheAddress (CacheEntry a))
   , _dcSize :: !Int
   , _dcLimit :: !Int
+
+  -- Telemetry
+  , _dcMisses :: !Int
+  , _dcHits :: !Int
   }
   deriving (Show)
 
@@ -94,6 +105,8 @@ emptyDbCache limit = DbCache
     { _dcStore = mempty
     , _dcSize = 0
     , _dcLimit = limit
+    , _dcMisses = 0
+    , _dcHits = 0
     }
 
 isEmptyCache :: DbCache a -> Bool
@@ -133,16 +146,27 @@ checkDbCache key rowdata txid = runState $ do
     readCache txid addy >>= \case
 
         -- Cache hit
-        Just !x -> return $ Just x
+        Just !x -> do
+            modify' (dcHits +~ 1)
+            return $ Just x
 
         -- Cache miss: decode module and insert into cache
         Nothing -> case decodeStrict' rowdata of
             Nothing -> return Nothing
             Just !m -> do
                 writeCache txid addy (BS.length rowdata) m
+                modify' (dcMisses +~ 1)
                 return $ Just m
   where
     addy = mkAddress key rowdata
+
+cacheStats :: DbCache a -> Value
+cacheStats mc = object
+    [ "misses" .= _dcMisses mc
+    , "hits" .= _dcHits mc
+    , "size" .=  cacheSize mc
+    , "count" .= cacheCount mc
+    ]
 
 -- -------------------------------------------------------------------------- --
 -- Internal
@@ -157,9 +181,11 @@ readCache
     -> CacheAddress
     -> State (DbCache a) (Maybe a)
 readCache txid ca = do
-    dc <- use dcStore
-    forM (HM.lookup ca dc) $ \e -> do
-        modify' $ dcStore . ix ca . ceTxId .~ txid
+    mc <- use dcStore
+    forM (HM.lookup ca mc) $ \e -> do
+        modify'
+            $ (dcStore . ix ca . ceTxId .~ txid)
+            . (dcStore . ix ca . ceHits +~ 1)
         return $! _ceData e
 
 -- | Add item to module cache
@@ -172,8 +198,8 @@ writeCache
     -> State (DbCache a) ()
 writeCache txid ca sz v = do
     modify'
-        $ over dcStore (HM.insert ca (CacheEntry txid ca sz v))
-        . over dcSize (+ sz)
+        $ (dcStore %~ HM.insert ca (CacheEntry txid ca sz v 0))
+        . (dcSize +~ sz)
     maintainCache
 
 -- | Prune Cache to meet size limit
@@ -194,6 +220,6 @@ maintainCache = do
         | otherwise = do
             let sz' = sz - _ceSize e
             modify'
-                $ over dcStore (HM.delete (_ceAddy e))
-                . set dcSize sz'
+                $ (dcStore %~ HM.delete (_ceAddy e))
+                . (dcSize .~ sz')
             evict sz' lim es
