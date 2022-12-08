@@ -455,6 +455,7 @@ test-suite chainweb-tests
         Chainweb.Test.Pact.PactMultiChainTest
         Chainweb.Test.Pact.PactSingleChainTest
         Chainweb.Test.P2P.Peer.BootstrapConfig
+        Chainweb.Test.Pact.DbCacheTest
         Chainweb.Test.Pact.Checkpointer
         Chainweb.Test.Pact.ModuleCacheOnRestart
         Chainweb.Test.Pact.NoCoinbase
@@ -515,6 +516,7 @@ test-suite chainweb-tests
         , data-dword >= 0.3
         , data-ordlist >= 0.4.7
         , deepseq >= 1.4
+        , direct-sqlite >= 2.3.27
         , directory >= 1.2
         , ethereum
         , exceptions
