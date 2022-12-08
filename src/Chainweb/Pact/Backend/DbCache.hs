@@ -5,6 +5,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 
 -- |
 -- Module: Chainweb.Pact.Backend.DbCache
@@ -52,9 +53,9 @@ data CacheEntry a = CacheEntry
   { _ceTxId :: !TxId
     -- ^ Priority for cache eviction
   , _ceAddy :: !CacheAddress
-    -- ^ Key. Uniquly identifieds entries in the cache
+    -- ^ Key. Uniquely identifies entries in the cache
   , _ceSize :: !Int
-    -- ^ The size of the entry. Use to keep track of the cache limit
+    -- ^ The size of the entry. Used to keep track of the cache limit
   , _ceData :: !a
     -- ^ Cached data.
   }
@@ -66,8 +67,8 @@ ceTxId = lens _ceTxId (\a b -> a { _ceTxId = b })
 instance Eq (CacheEntry a) where
   a == b = _ceAddy a == _ceAddy b && _ceTxId a == _ceTxId b
 
--- | Sort first by '_ceTxId', so that smaller tx ids are evicted first from the
--- cache.
+-- | Sort by '_ceTxId' so that smaller tx ids are evicted first from the
+-- cache. '_ceAddy' is just for stable sort.
 --
 instance Ord (CacheEntry a) where
   a `compare` b = cmp _ceTxId (cmp _ceAddy EQ)
@@ -112,7 +113,10 @@ cacheSize = _dcSize
 cacheCount :: DbCache a -> Int
 cacheCount = HM.size . _dcStore
 
--- | Decode Module from row data using the module cache.
+-- | Provide read-time caching of deserialized JSON values.
+-- If cache entry is found, mark it with the current txid and return value.
+-- If not, deserialize row data and store in cache, which triggers
+-- cache maintenance.
 --
 checkDbCache
     :: FromJSON a
@@ -167,8 +171,9 @@ writeCache
     -> a
     -> State (DbCache a) ()
 writeCache txid ca sz v = do
-    modify' $ dcStore %~ HM.insert ca (CacheEntry txid ca sz v)
-    modify' $ dcSize +~ sz
+    modify'
+        $ over dcStore (HM.insert ca (CacheEntry txid ca sz v))
+        . over dcSize (+ sz)
     maintainCache
 
 -- | Prune Cache to meet size limit
@@ -187,7 +192,8 @@ maintainCache = do
     evict sz lim (e:es)
         | sz < lim = return ()
         | otherwise = do
-            modify' $ dcStore %~ HM.delete (_ceAddy e)
             let sz' = sz - _ceSize e
-            modify' $ dcSize .~ sz'
+            modify'
+                $ over dcStore (HM.delete (_ceAddy e))
+                . set dcSize sz'
             evict sz' lim es
