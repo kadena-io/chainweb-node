@@ -124,6 +124,7 @@ import Control.Monad.IO.Class
 
 import Data.Aeson (Value(..), object, (.=))
 import Data.ByteString (ByteString)
+import qualified Data.ByteString.Short as BS
 import Data.CAS.HashMap hiding (toList)
 import Data.CAS.RocksDB
 import Data.Decimal
@@ -283,7 +284,7 @@ mkEvent
     -> m PactEvent
 mkEvent n params m mh = do
   mh' <- decodeB64UrlNoPaddingText mh
-  return $ PactEvent n params m (ModuleHash (Hash mh'))
+  return $ PactEvent n params m (ModuleHash (Hash $ BS.toShort mh'))
 
 mkTransferEvent
     :: MonadThrow m

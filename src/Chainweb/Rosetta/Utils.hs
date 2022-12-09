@@ -25,6 +25,7 @@ import Text.Read (readMaybe)
 import Text.Printf ( printf )
 
 import qualified Data.ByteString.Lazy as BSL
+import qualified Data.ByteString.Short as BS
 import qualified Data.HashMap.Strict as HM
 import qualified Data.Map.Strict as M
 import qualified Data.Memory.Endian as BA
@@ -553,7 +554,7 @@ rosettaAccountIdtoKAccount acct = do
 rosettaPubKeyTokAccount :: RosettaPublicKey -> Either RosettaError (T2 T.Text P.KeySet)
 rosettaPubKeyTokAccount (RosettaPublicKey pubKey curve) = do
   _ <- getScheme curve -- enforce only valid schemes
-  let pubKeyPact = P.PublicKey $ T.encodeUtf8 pubKey
+  let pubKeyPact = P.PublicKey $ BS.toShort $ T.encodeUtf8 pubKey
   kAccount <- toRosettaError RosettaInvalidPublicKey $
               note (show pubKey) $
               generateKAccountFromPubKey pubKeyPact
@@ -709,7 +710,7 @@ createSigningPayloads
     -> [RosettaSigningPayload]
 createSigningPayloads (EnrichedCommand cmd _ _) = map f
   where
-    hashBase16 = P.toB16Text $! P.unHash $!
+    hashBase16 = P.toB16Text $! BS.fromShort $! P.unHash $!
                  P.toUntypedHash $! _cmdHash cmd
 
     f (signer, acct) = RosettaSigningPayload
@@ -1179,7 +1180,7 @@ toRosettaError failure = annotate (stringRosettaError failure)
 
 ksToPubKeys :: P.KeySet -> [T.Text]
 ksToPubKeys (P.KeySet pkSet _) =
-  map (T.decodeUtf8 . P._pubKey) (S.toList pkSet)
+  map (T.decodeUtf8 . BS.fromShort . P._pubKey) (S.toList pkSet)
 
 
 parsePubKeys :: T.Text -> Value -> Either RosettaError [T.Text]

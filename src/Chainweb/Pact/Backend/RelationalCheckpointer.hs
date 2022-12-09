@@ -28,6 +28,7 @@ import Control.Monad.IO.Class
 import Control.Monad.State (gets)
 
 import Data.ByteString (ByteString)
+import qualified Data.ByteString.Short as BS
 import Data.Aeson hiding (encode,(.=))
 import qualified Data.DList as DL
 import Data.Foldable (toList,foldl')
@@ -292,13 +293,13 @@ doGetBlockParent v cid dbenv (bh, hash)
 
 doRegisterSuccessful :: Db -> PactHash -> IO ()
 doRegisterSuccessful dbenv (TypedHash hash) =
-    runBlockEnv dbenv (indexPactTransaction hash)
+    runBlockEnv dbenv (indexPactTransaction $ BS.fromShort hash)
 
 
 doLookupSuccessful :: Db -> PactHash -> IO (Maybe (T2 BlockHeight BlockHash))
 doLookupSuccessful dbenv (TypedHash hash) = runBlockEnv dbenv $ do
     r <- callDb "doLookupSuccessful" $ \db ->
-         qry db qtext [ SBlob hash ] [RInt, RBlob] >>= mapM go
+         qry db qtext [ SBlob (BS.fromShort hash) ] [RInt, RBlob] >>= mapM go
     case r of
         [] -> return Nothing
         (!o:_) -> return (Just o)
