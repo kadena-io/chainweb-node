@@ -349,6 +349,7 @@ library
         , exceptions >= 0.8
         , file-embed >= 0.0
         , filepath >= 1.4
+        , ghc-compact >= 0.1
         , hashable >= 1.3
         , heaps >= 0.3
         , hourglass >=0.2

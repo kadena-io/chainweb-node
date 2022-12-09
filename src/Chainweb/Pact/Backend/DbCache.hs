@@ -41,6 +41,8 @@ import Data.List (sort)
 
 import Database.SQLite3.Direct
 
+import GHC.Compact
+
 import Pact.Types.Persistence
 
 -- -------------------------------------------------------------------------- --
@@ -59,12 +61,11 @@ data CacheEntry a = CacheEntry
     -- ^ Key. Uniquely identifies entries in the cache
   , _ceSize :: !Int
     -- ^ The size of the entry. Used to keep track of the cache limit
-  , _ceData :: !a
+  , _ceData :: !(Compact a)
     -- ^ Cached data.
   , _ceHits :: Int
     -- ^ Count of cache hits for this entry
   }
-  deriving (Show)
 
 ceTxId :: Lens' (CacheEntry a) TxId
 ceTxId = lens _ceTxId (\a b -> a { _ceTxId = b })
@@ -97,7 +98,6 @@ data DbCache a = DbCache
   , _dcMisses :: !Int
   , _dcHits :: !Int
   }
-  deriving (Show)
 
 makeLenses 'DbCache
 
@@ -142,8 +142,8 @@ checkDbCache
        -- ^ Current TxId from checkpointer, used as priority for cache eviction.
        -- Smaller values are evicted first.
     -> DbCache a
-    -> (Maybe a, DbCache a)
-checkDbCache key rowdata txid = runState $ do
+    -> IO (Maybe a, DbCache a)
+checkDbCache key rowdata txid = runStateT $ do
     readCache txid addy >>= \case
 
         -- Cache hit
@@ -183,14 +183,14 @@ readCache
     :: TxId
         -- ^ Current TxId from checkpointer
     -> CacheAddress
-    -> State (DbCache a) (Maybe a)
+    -> StateT (DbCache a) IO (Maybe a)
 readCache txid ca = do
     mc <- use dcStore
     forM (HM.lookup ca mc) $ \e -> do
         modify'
             $ (dcStore . ix ca . ceTxId .~ txid)
             . (dcStore . ix ca . ceHits +~ 1)
-        return $! _ceData e
+        return $ getCompact $ _ceData e
 
 -- | Add item to module cache
 --
@@ -199,10 +199,11 @@ writeCache
     -> CacheAddress
     -> Int
     -> a
-    -> State (DbCache a) ()
+    -> StateT (DbCache a) IO ()
 writeCache txid ca sz v = do
+    cv <- lift $ compact v
     modify'
-        $ (dcStore %~ HM.insert ca (CacheEntry txid ca sz v 0))
+        $ (dcStore %~ HM.insert ca (CacheEntry txid ca sz cv 0))
         . (dcSize +~ sz)
     maintainCache
 
@@ -210,7 +211,7 @@ writeCache txid ca sz v = do
 --
 -- Complexity: \(O(n \log(n))\) in the number of entries
 --
-maintainCache :: State (DbCache a) ()
+maintainCache :: Monad m => StateT (DbCache a) m ()
 maintainCache = do
     sz <- use dcSize
     lim <- use dcLimit

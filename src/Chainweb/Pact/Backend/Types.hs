@@ -228,7 +228,6 @@ data BlockState = BlockState
     , _bsLowerCaseTables :: Bool
     , _bsModuleCache :: DbCache PersistModuleData
     }
-    deriving Show
 
 emptySQLitePendingData :: SQLitePendingData
 emptySQLitePendingData = SQLitePendingData mempty mempty mempty mempty

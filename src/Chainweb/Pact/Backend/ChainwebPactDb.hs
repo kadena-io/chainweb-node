@@ -134,7 +134,7 @@ doReadRow d k = forModuleNameFix $ \mnFix ->
     checkModuleCache u b = MaybeT $ do
         txid <- use bsTxId -- cache priority
         mc <- use bsModuleCache
-        let (r, mc') = checkDbCache u b txid mc
+        (r, mc') <- liftIO $ checkDbCache u b txid mc
         modify' (bsModuleCache .~ mc')
         return r
 
