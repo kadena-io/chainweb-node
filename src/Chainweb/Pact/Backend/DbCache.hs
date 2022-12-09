@@ -31,10 +31,10 @@ import Control.Monad.State.Strict
 import qualified Crypto.Hash as C (hash)
 import Crypto.Hash.Algorithms
 
-import Data.Aeson (FromJSON, Value, object, decodeStrict', (.=))
+import Data.Aeson (FromJSON, Value, object, decodeStrict, (.=))
 import qualified Data.ByteArray as BA
 import Data.ByteString (ByteString)
-import qualified Data.ByteString as BS
+import qualified Data.ByteString.Short as BS
 import Data.Hashable
 import qualified Data.HashMap.Strict as HM
 import Data.List (sort)
@@ -48,7 +48,7 @@ import Pact.Types.Persistence
 -- -------------------------------------------------------------------------- --
 -- CacheAddress
 
-newtype CacheAddress = CacheAddress ByteString
+newtype CacheAddress = CacheAddress BS.ShortByteString
     deriving (Show,Eq,Ord,Hashable)
 
 -- -------------------------------------------------------------------------- --
@@ -61,7 +61,7 @@ data CacheEntry a = CacheEntry
     -- ^ Key. Uniquely identifies entries in the cache
   , _ceSize :: !Int
     -- ^ The size of the entry. Used to keep track of the cache limit
-  , _ceData :: !(Compact a)
+  , _ceData :: !a
     -- ^ Cached data.
   , _ceHits :: Int
     -- ^ Count of cache hits for this entry
@@ -152,12 +152,19 @@ checkDbCache key rowdata txid = runStateT $ do
             return $ Just x
 
         -- Cache miss: decode module and insert into cache
-        Nothing -> case decodeStrict' rowdata of
-            Nothing -> return Nothing
-            Just !m -> do
-                writeCache txid addy (BS.length rowdata) m
-                modify' (dcMisses +~ 1)
-                return $ Just m
+        --
+        -- The cache entry is stored within a compact region. The whole region is
+        -- GCed only when no pointer to any data in the region is live any more.
+        --
+        Nothing -> do
+            c <- lift $ compact (decodeStrict {- lazy, forced by compact -} rowdata)
+            case getCompact c of
+                Nothing -> return Nothing
+                Just m -> do
+                    s <- lift $ compactSize c
+                    writeCache txid addy (fromIntegral s) m
+                    modify' (dcMisses +~ 1)
+                    return $ Just m
   where
     addy = mkAddress key rowdata
 
@@ -176,7 +183,7 @@ updateCacheStats mc = (cacheStats mc, set dcMisses 0 (set dcHits 0 mc))
 -- Internal
 
 mkAddress :: Utf8 -> ByteString -> CacheAddress
-mkAddress (Utf8 key) rowdata = CacheAddress $
+mkAddress (Utf8 key) rowdata = CacheAddress . BS.toShort $
     key <> ":" <> BA.convert (C.hash @_ @SHA512t_256 rowdata)
 
 readCache
@@ -190,7 +197,7 @@ readCache txid ca = do
         modify'
             $ (dcStore . ix ca . ceTxId .~ txid)
             . (dcStore . ix ca . ceHits +~ 1)
-        return $ getCompact $ _ceData e
+        return $ _ceData e
 
 -- | Add item to module cache
 --
@@ -201,9 +208,8 @@ writeCache
     -> a
     -> StateT (DbCache a) IO ()
 writeCache txid ca sz v = do
-    cv <- lift $ compact v
     modify'
-        $ (dcStore %~ HM.insert ca (CacheEntry txid ca sz cv 0))
+        $ (dcStore %~ HM.insert ca (CacheEntry txid ca sz v 0))
         . (dcSize +~ sz)
     maintainCache
 
