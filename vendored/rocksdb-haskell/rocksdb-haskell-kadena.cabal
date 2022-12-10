@@ -48,7 +48,7 @@ source-repository head
 
 flag with-tbb
      description: Build with tbb support
-     default: True
+     default: False
      manual: True
 
 library
