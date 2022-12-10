@@ -62,7 +62,7 @@ data CacheEntry a = CacheEntry
   , _ceSize :: !Int
     -- ^ The size of the entry. Used to keep track of the cache limit
   , _ceData :: !a
-    -- ^ Cached data.
+    -- ^ Cached data. This is stored in a compact region.
   , _ceHits :: Int
     -- ^ Count of cache hits for this entry
   }

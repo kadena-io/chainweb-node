@@ -393,7 +393,7 @@ data ChainwebConfiguration = ChainwebConfiguration
         -- ^ the only chains to be synchronized on startup to the latest cut.
         --   if unset, all chains will be synchronized.
     , _configModuleCacheLimit :: !Natural
-        -- ^ module cache size limit in bytes of raw module data.
+        -- ^ module cache size limit in bytes
     } deriving (Show, Eq, Generic)
 
 makeLenses ''ChainwebConfiguration
@@ -552,6 +552,6 @@ pChainwebConfiguration = id
     <*< configBackup %:: pBackupConfig
     <*< configModuleCacheLimit .:: option auto
         % long "module-cache-limit"
-        <> help "Maximum size of the module cache in bytes in terms of the raw module data"
+        <> help "Maximum size of the per-chain checkpointer module cache in bytes"
         <> metavar "INT"
 

@@ -129,7 +129,6 @@ initPactService'
     -> PactServiceM cas a
     -> IO (T2 a PactServiceState)
 initPactService' ver cid chainwebLogger bhDb pdb sqlenv config act =
-    -- checkpointEnv <- initRelationalCheckpointer initialBlockState sqlenv cplogger ver cid
     withProdRelationalCheckpointer checkpointerLogger initialBlockState sqlenv cplogger ver cid $ \checkpointEnv -> do
         let !rs = readRewards
             !initialParentHeader = ParentHeader $ genesisBlockHeader ver cid
@@ -170,7 +169,6 @@ initPactService' ver cid chainwebLogger bhDb pdb sqlenv config act =
     gasLogger = P.newLogger loggers $ P.LogName "GasLogs"
 
     checkpointerLogger = addLabel ("sub-component", "checkpointer") chainwebLogger
-
 
 initializeLatestBlock :: PayloadCasLookup cas => Bool -> PactServiceM cas ()
 initializeLatestBlock unlimitedRewind = findLatestValidBlock >>= \case
