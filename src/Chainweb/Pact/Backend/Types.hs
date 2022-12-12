@@ -118,11 +118,12 @@ import Pact.Types.Runtime (TableName)
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
 import Chainweb.BlockHeight
-import Chainweb.Mempool.Mempool (MempoolPreBlockCheck,TransactionHash,BlockFill)
 import Chainweb.Pact.Backend.DbCache
 import Chainweb.Pact.Service.Types
 import Chainweb.Transaction
 import Chainweb.Utils (T2)
+
+import Chainweb.Mempool.Mempool (MempoolPreBlockCheck,TransactionHash,BlockFill)
 
 
 data Env' = forall a. Env' (PactDbEnv (DbEnv a))
@@ -233,7 +234,7 @@ emptySQLitePendingData :: SQLitePendingData
 emptySQLitePendingData = SQLitePendingData mempty mempty mempty mempty
 
 initBlockState
-    :: Int
+    :: DbCacheLimitBytes
         -- ^ Module Cache Limit (in bytes of corresponding rowdata)
     -> BlockHeight
     -> BlockState

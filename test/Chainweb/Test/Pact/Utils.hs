@@ -610,7 +610,7 @@ testPactCtxSQLite v cid bhdb pdb sqlenv conf gasmodel = do
     evalPactServiceM_ ctx (initialPayloadState dummyLogger mempty v cid)
     return (ctx, PactDbEnv' dbSt)
   where
-    initialBlockState = initBlockState (1024^(2::Int)) $ Version.genesisHeight v cid
+    initialBlockState = initBlockState defaultModuleCacheLimit $ Version.genesisHeight v cid
     loggers = pactTestLogger False -- toggle verbose pact test logging
     cpLogger = newLogger loggers $ LogName ("Checkpointer" ++ show cid)
     pactServiceEnv cpe rs = PactServiceEnv

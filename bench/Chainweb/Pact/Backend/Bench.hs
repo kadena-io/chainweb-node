@@ -41,6 +41,7 @@ import Chainweb.MerkleLogHash
 import Chainweb.Pact.Backend.RelationalCheckpointer
 import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.Backend.Utils
+import Chainweb.Pact.Types
 import Chainweb.Utils.Bench
 import Chainweb.Utils (sshow)
 import Chainweb.Version
@@ -103,7 +104,7 @@ cpWithBench torun =
     name = "batchedCheckpointer"
     cid = unsafeChainId 0
 
-    initialBlockState = initBlockState (1024^(2::Int) {- 1MiB -}) $ genesisHeight v cid
+    initialBlockState = initBlockState defaultModuleCacheLimit $ genesisHeight v cid
 
     setup = do
         let dbFile = "" {- temporary SQLite db -}

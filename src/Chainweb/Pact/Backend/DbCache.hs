@@ -3,9 +3,9 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeApplications #-}
-{-# LANGUAGE ScopedTypeVariables #-}
 
 -- |
 -- Module: Chainweb.Pact.Backend.DbCache
@@ -15,7 +15,8 @@
 -- LRU cache for avoiding expensive JSON deserialization.
 --
 module Chainweb.Pact.Backend.DbCache
-( DbCache
+( DbCacheLimitBytes(..)
+, DbCache
 , checkDbCache
 , emptyDbCache
 , cacheSize
@@ -31,7 +32,7 @@ import Control.Monad.State.Strict
 import qualified Crypto.Hash as C (hash)
 import Crypto.Hash.Algorithms
 
-import Data.Aeson (FromJSON, Value, object, decodeStrict, (.=))
+import Data.Aeson (FromJSON, ToJSON, Value, object, decodeStrict, (.=))
 import qualified Data.ByteArray as BA
 import Data.ByteString (ByteString)
 import qualified Data.ByteString.Short as BS
@@ -43,8 +44,17 @@ import Data.Ord
 import Database.SQLite3.Direct
 
 import GHC.Compact
+import GHC.Stack
+
+import Numeric.Natural
 
 import Pact.Types.Persistence
+
+-- -------------------------------------------------------------------------- --
+-- ModuleCacheLimitBytes
+
+newtype DbCacheLimitBytes = DbCacheLimitBytes Natural
+    deriving (Show, Read, Eq, Ord, ToJSON, FromJSON)
 
 -- -------------------------------------------------------------------------- --
 -- CacheAddress
@@ -98,11 +108,13 @@ data DbCache a = DbCache
 
 makeLenses 'DbCache
 
-emptyDbCache :: Int -> DbCache a
-emptyDbCache limit = DbCache
+emptyDbCache :: HasCallStack => DbCacheLimitBytes -> DbCache a
+emptyDbCache (DbCacheLimitBytes limit)
+    | fromIntegral limit > maxBound @Int = error "cache limit is too large"
+emptyDbCache (DbCacheLimitBytes limit) = DbCache
     { _dcStore = mempty
     , _dcSize = 0
-    , _dcLimit = limit
+    , _dcLimit = fromIntegral limit
     , _dcMisses = 0
     , _dcHits = 0
     }

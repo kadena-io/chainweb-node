@@ -82,7 +82,7 @@ simulate sc@(SimConfig dbDir txIdx' _ _ cid ver) = do
   pwos <- fetchOutputs sc cenv hdrs
   withSqliteDb cid cwLogger dbDir False $ \sqlenv -> do
     cpe@(CheckpointEnv cp _) <-
-      initRelationalCheckpointer (initBlockState (1024^(3::Int)) 0) sqlenv logger ver cid
+      initRelationalCheckpointer (initBlockState defaultModuleCacheLimit 0) sqlenv logger ver cid
     bracket_
       (_cpBeginCheckpointerBatch cp)
       (_cpDiscardCheckpointerBatch cp) $ case txIdx' of

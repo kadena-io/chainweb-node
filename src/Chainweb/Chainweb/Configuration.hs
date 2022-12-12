@@ -105,12 +105,13 @@ import Chainweb.HostAddress
 import qualified Chainweb.Mempool.Mempool as Mempool
 import Chainweb.Mempool.P2pConfig
 import Chainweb.Miner.Config
-import Chainweb.Pact.Types (defaultReorgLimit)
+import Chainweb.Pact.Types (defaultReorgLimit, defaultModuleCacheLimit)
 import Chainweb.Payload.RestAPI (PayloadBatchLimit(..), defaultServicePayloadBatchLimit)
 import Chainweb.Utils
 import Chainweb.Version
 
 import P2P.Node.Configuration
+import Chainweb.Pact.Backend.DbCache (DbCacheLimitBytes)
 
 -- -------------------------------------------------------------------------- --
 -- Throttling Configuration
@@ -392,7 +393,7 @@ data ChainwebConfiguration = ChainwebConfiguration
     , _configSyncPactChains :: !(Maybe [ChainId])
         -- ^ the only chains to be synchronized on startup to the latest cut.
         --   if unset, all chains will be synchronized.
-    , _configModuleCacheLimit :: !Natural
+    , _configModuleCacheLimit :: !DbCacheLimitBytes
         -- ^ module cache size limit in bytes
     } deriving (Show, Eq, Generic)
 
@@ -441,7 +442,7 @@ defaultChainwebConfiguration v = ChainwebConfiguration
     , _configOnlySyncPact = False
     , _configSyncPactChains = Nothing
     , _configBackup = defaultBackupConfig
-    , _configModuleCacheLimit = 60 * 1024^(2::Int) -- 60MiB (per chain, 1.2GiB in total)
+    , _configModuleCacheLimit = defaultModuleCacheLimit
     }
 
 instance ToJSON ChainwebConfiguration where

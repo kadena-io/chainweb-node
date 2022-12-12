@@ -50,7 +50,7 @@ testCache = testCase "testCache" $ do
   (d, sd) <- entry 0 'd' -- small
 
   -- cache size (enough to hold a + b0 + b1 + c)
-  let cs = sa + sb0 + sb1 + sc + 1
+  let cs = DbCacheLimitBytes . fromIntegral $ sa + sb0 + sb1 + sc + 1
 
   void $ (`runStateT` (emptyDbCache cs :: DbCache [String])) $ do
 
