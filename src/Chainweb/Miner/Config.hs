@@ -41,9 +41,7 @@ import Control.Monad (when)
 import Control.Monad.Except (throwError)
 import Control.Monad.Writer (tell)
 
-import qualified Data.ByteString.Short as BS
 import qualified Data.Set as S
-import qualified Data.Text.Encoding as T
 
 import GHC.Generics (Generic)
 
@@ -51,7 +49,7 @@ import Numeric.Natural (Natural)
 
 import Options.Applicative
 
-import Pact.Types.Term (mkKeySet, PublicKey(..))
+import Pact.Types.Term (mkKeySet, PublicKeyText(..))
 
 -- internal modules
 
@@ -204,7 +202,7 @@ pMiner :: String -> Parser Miner
 pMiner prefix = pkToMiner <$> pPk
   where
     pkToMiner pk = Miner
-        (MinerId $ "k:" <> T.decodeUtf8 (BS.fromShort (_pubKey pk)))
+        (MinerId $ "k:" <> _pubKey pk)
         (MinerKeys $ mkKeySet [pk] "keys-all")
     pPk = strOption
         % long (prefix <> "mining-public-key")

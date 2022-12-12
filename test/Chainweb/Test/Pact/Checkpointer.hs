@@ -497,7 +497,7 @@ runRegression pactdb e schemaInit = do
     let row' = RowData RDV1 $ ObjectMap $ M.fromList [("gah",toPV False),("fh",toPV (1 :: Int))]
     _writeRow pactdb Update usert "key1" row' conn
     assertEquals' "user update" (Just row') (_readRow pactdb usert "key1" conn)
-    let ks = mkKeySet [PublicKey "skdjhfskj"] "predfun"
+    let ks = mkKeySet [PublicKeyText "skdjhfskj"] "predfun"
     _writeRow pactdb Write KeySets "ks1" ks conn
     assertEquals' "keyset write" (Just ks) $ _readRow pactdb KeySets "ks1" conn
     (modName,modRef,mod') <- loadModule

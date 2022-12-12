@@ -23,7 +23,6 @@ import qualified Data.HashMap.Strict as HM
 import Data.IORef
 import qualified Data.List.NonEmpty as NEL
 import Data.Text (Text)
-import qualified Data.Text.Encoding as T
 import Data.Foldable
 
 import GHC.Natural
@@ -509,7 +508,7 @@ constructionTransferTests _ envIo =
 
     ks (TestKeySet _ Nothing pred') = P.mkKeySet [] pred'
     ks (TestKeySet _ (Just (pk,_)) pred') =
-      P.mkKeySet [P.PublicKey $ BS.toShort $ T.encodeUtf8 pk] pred'
+      P.mkKeySet [P.PublicKeyText pk] pred'
 
     sender00KAcct = "k:" <> fst sender00
     sender01KAcct = "k:" <> fst sender01
