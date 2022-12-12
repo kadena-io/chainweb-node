@@ -119,10 +119,12 @@ module Chainweb.Pact.Types
   , pactLoggers
   , logg_
   , logInfo_
+  , logWarn_
   , logError_
   , logDebug_
   , logg
   , logInfo
+  , logWarn
   , logError
   , logDebug
 
@@ -595,6 +597,9 @@ logg_ logger level msg = liftIO $ P.logLog logger level msg
 logInfo_ :: MonadIO m => P.Logger -> String -> m ()
 logInfo_ l = logg_ l "INFO"
 
+logWarn_ :: MonadIO m => P.Logger -> String -> m ()
+logWarn_ l = logg_ l "WARN"
+
 logError_ :: MonadIO m => P.Logger -> String -> m ()
 logError_ l = logg_ l "ERROR"
 
@@ -608,6 +613,9 @@ logg level msg = view psLogger >>= \l -> logg_ l level msg
 
 logInfo :: String -> PactServiceM cas ()
 logInfo msg = view psLogger >>= \l -> logInfo_ l msg
+
+logWarn :: String -> PactServiceM cas ()
+logWarn msg = view psLogger >>= \l -> logWarn_ l msg
 
 logError :: String -> PactServiceM cas ()
 logError msg = view psLogger >>= \l -> logError_ l msg

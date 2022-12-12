@@ -12,6 +12,7 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE TupleSections #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 
@@ -56,6 +57,7 @@ import Control.Monad.Managed
 
 import Data.CAS
 import Data.CAS.RocksDB
+import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Time
 import Data.Typeable
@@ -71,7 +73,7 @@ import qualified Streaming.Prelude as S
 
 import System.Directory
 import System.FilePath
-import System.IO (BufferMode(LineBuffering), hSetBuffering, stderr)
+import System.IO
 import qualified System.Logger as L
 import System.LogLevel
 
@@ -197,7 +199,7 @@ getDbBaseDir conf = case _nodeConfigDatabaseDirectory conf of
 -- cause, only 10 immediate restart are allowed. After that restart is throttled
 -- to at most one restart every 10 seconds.
 --
-runMonitorLoop :: Logger logger => T.Text -> logger -> IO () -> IO ()
+runMonitorLoop :: Logger logger => Text -> logger -> IO () -> IO ()
 runMonitorLoop actionLabel logger = runForeverThrottled
     (logFunction logger)
     actionLabel
@@ -300,6 +302,31 @@ runQueueMonitor logger cutDb = L.withLoggerLabel ("component", "queue-monitor") 
             logFunctionJson logger Info stats
             approximateThreadDelay 60_000_000 {- 1 minute -}
 
+data DbStats = DbStats
+    { dbStatsName :: !Text
+    , dbStatsSize :: !Integer
+    } deriving (Generic, NFData, ToJSON)
+
+runDatabaseMonitor :: Logger logger => logger -> FilePath -> FilePath -> IO ()
+runDatabaseMonitor logger rocksDbDir pactDbDir = L.withLoggerLabel ("component", "database-monitor") logger go
+  where
+    go l = do
+        logFunctionText l Info "Initialized Database monitor"
+        runMonitorLoop "ChainwebNode.runDatabaseMonitor" l $ do
+            logFunctionText l Debug $ "logging database stats"
+            logFunctionJson l Info . DbStats "rocksDb" =<< sizeOf rocksDbDir
+            logFunctionJson l Info . DbStats "pactDb" =<< sizeOf pactDbDir
+            approximateThreadDelay 1_200_000_000 {- 20 minutes -}
+    sizeOf path = do
+        dir <- doesDirectoryExist path
+        file <- doesFileExist path
+        if dir then
+            fmap sum . traverse (sizeOf . (path </>)) =<< listDirectory path
+        else if file then
+            getFileSize path
+        else 
+            pure 0
+
 -- -------------------------------------------------------------------------- --
 -- Run Node
 
@@ -323,8 +350,8 @@ node conf logger = do
                     , runQueueMonitor (_chainwebLogger cw) (_cutResCutDb $ _chainwebCutResources cw)
                     , runRtsMonitor (_chainwebLogger cw)
                     , runBlockUpdateMonitor (_chainwebLogger cw) (_cutResCutDb $ _chainwebCutResources cw)
+                    , runDatabaseMonitor (_chainwebLogger cw) rocksDbDir pactDbDir
                     ]
-
   where
     cwConf = _nodeConfigChainweb conf
 
@@ -372,6 +399,8 @@ withNodeLogger logConfig v f = runManaged $ do
         $ mkTelemetryLogger @MempoolStats mgr teleLogConfig
     blockUpdateBackend <- managed
         $ mkTelemetryLogger @BlockUpdate mgr teleLogConfig
+    dbStatsBackend <- managed
+        $ mkTelemetryLogger @DbStats mgr teleLogConfig
     pactQueueStatsBackend <- managed
         $ mkTelemetryLogger @PactQueueStats mgr teleLogConfig
 
@@ -392,6 +421,7 @@ withNodeLogger logConfig v f = runManaged $ do
             , logHandler traceBackend
             , logHandler mempoolStatsBackend
             , logHandler blockUpdateBackend
+            , logHandler dbStatsBackend
             , logHandler pactQueueStatsBackend
             ] baseBackend
 
@@ -416,7 +446,7 @@ mkTelemetryLogger mgr = configureHandler
 -- -------------------------------------------------------------------------- --
 -- Service Date
 
-newtype ServiceDate = ServiceDate T.Text
+newtype ServiceDate = ServiceDate Text
 
 instance Show ServiceDate where
     show (ServiceDate t) = "Service interval end: " <> T.unpack t
@@ -426,7 +456,7 @@ instance Exception ServiceDate where
     toException = asyncExceptionToException
 
 withServiceDate
-    :: (LogLevel -> T.Text -> IO ())
+    :: (LogLevel -> Text -> IO ())
     -> Maybe UTCTime
     -> IO a
     -> IO a
@@ -446,13 +476,13 @@ withServiceDate lf (Just t) inner = race timer inner >>= \case
         lf Warn warning
         threadDelay $ min (10 * 60 * 1_000_000) micros
 
-    warning :: T.Text
+    warning :: Text
     warning = T.concat
         [ "This version of chainweb node will stop to work at " <> sshow t <> "."
         , " Please upgrade to a new version before that date."
         ]
 
-    shutdownMessage :: T.Text
+    shutdownMessage :: Text
     shutdownMessage = T.concat
         [ "Shutting down. This version of chainweb was only valid until" <> sshow t <> "."
         , " Please upgrade to a new version."
@@ -461,7 +491,7 @@ withServiceDate lf (Just t) inner = race timer inner >>= \case
 -- -------------------------------------------------------------------------- --
 -- Encode Package Info into Log mesage scopes
 
-pkgInfoScopes :: [(T.Text, T.Text)]
+pkgInfoScopes :: [(Text, Text)]
 pkgInfoScopes =
     [ ("revision", revision)
     , ("branch", branch)
