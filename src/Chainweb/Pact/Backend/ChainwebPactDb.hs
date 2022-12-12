@@ -180,18 +180,17 @@ doReadRow d k = forModuleNameFix $ \mnFix ->
                        $ \db -> qry db queryStmt [SText rowkey] [RBlob]
         case result of
             [] -> mzero
-            [[SBlob a]] ->
-              checkCache rowkey a <|>
-              (MaybeT $ return $! decodeStrict' a)
+            [[SBlob a]] -> checkCache rowkey a
             err -> internalError $
                      "doReadRow: Expected (at most) a single result, but got: " <>
                      T.pack (show err)
 
     noCache
-        :: Utf8
+        :: FromJSON v
+        => Utf8
         -> BS.ByteString
         -> MaybeT (BlockHandler SQLiteEnv) v
-    noCache _key _rowdata = mzero
+    noCache _key rowdata = MaybeT $ return $! decodeStrict' rowdata
 
 
 checkDbTableExists :: Utf8 -> MaybeT (BlockHandler SQLiteEnv) ()
