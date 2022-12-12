@@ -22,7 +22,7 @@ tests = testGroup "Chainweb.Test.Pact.DbCacheTest"
     [ testCache ]
 
 defaultChunkSize :: Int
-defaultChunkSize = 2^(15::Int)
+defaultChunkSize = 32768
 
 -- | Create entries with a size the corresponds to the default
 -- chunk size of the cache.
