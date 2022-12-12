@@ -38,6 +38,7 @@ import qualified Data.ByteString.Short as BS
 import Data.Hashable
 import qualified Data.HashMap.Strict as HM
 import Data.List (sort)
+import Data.Ord
 
 import Database.SQLite3.Direct
 
@@ -80,11 +81,7 @@ instance Eq (CacheEntry a) where
 -- cache. '_ceAddy' is just for stable sort.
 --
 instance Ord (CacheEntry a) where
-  a `compare` b = cmp _ceTxId (cmp _ceAddy EQ)
-    where
-      cmp acc next = case acc a `compare` acc b of
-        EQ -> next
-        c -> c
+  a `compare` b = comparing _ceTxId a b <> comparing _ceAddy a b
 
 -- -------------------------------------------------------------------------- --
 -- DbCache
@@ -147,7 +144,7 @@ checkDbCache key rowdata txid = runStateT $ do
     readCache txid addy >>= \case
 
         -- Cache hit
-        Just !x -> do
+        Just x -> do
             modify' (dcHits +~ 1)
             return $ Just x
 
