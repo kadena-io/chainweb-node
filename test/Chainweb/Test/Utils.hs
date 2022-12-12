@@ -671,14 +671,14 @@ instance Exception ValidationException
 chainwebOpenApiSpec :: OpenApi
 chainwebOpenApiSpec = unsafePerformIO $ do
     mgr <- manager 10_000_000
-    let specUri = "https://raw.githubusercontent.com/kadena-io/chainweb-openapi/validation-fixes-3/chainweb.openapi.yaml"
+    let specUri = "https://raw.githubusercontent.com/kadena-io/chainweb-openapi/main/chainweb.openapi.yaml"
     Yaml.decodeThrow . BL.toStrict . HTTP.responseBody =<< HTTP.httpLbs (HTTP.parseRequest_ specUri) mgr
 
 {-# NOINLINE pactOpenApiSpec #-}
 pactOpenApiSpec :: OpenApi
 pactOpenApiSpec = unsafePerformIO $ do
     mgr <- manager 10_000_000
-    let specUri = "https://raw.githubusercontent.com/kadena-io/chainweb-openapi/validation-fixes-3/pact.openapi.yaml"
+    let specUri = "https://raw.githubusercontent.com/kadena-io/chainweb-openapi/main/pact.openapi.yaml"
     Yaml.decodeThrow . BL.toStrict . HTTP.responseBody =<< HTTP.httpLbs (HTTP.parseRequest_ specUri) mgr
 
 -- TODO: catch, wrap, and forward exceptions from chainwebApplication

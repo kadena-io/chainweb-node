@@ -54,8 +54,8 @@ package yet-another-logger
 
 source-repository-package
     type: git
-    location: https://github.com/edmundnoble/wai-middleware-validation.git
-    tag: ea2f735d7e15f72b572182153bbd9b0a7ae57afe
+    location: https://github.com/kadena-io/wai-middleware-validation.git
+    tag: f783ba7fc52e161b245d82acadffc4517bc8cdf5
 
 source-repository-package
     type: git

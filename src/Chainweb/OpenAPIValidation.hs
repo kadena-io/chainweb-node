@@ -50,9 +50,9 @@ mkValidationMiddleware logger v mgr = do
         return (BS8.intercalate "/" ("":rest), pactSpec)
 
     fetchOpenApiSpecs = do
-        let chainwebUri = "https://raw.githubusercontent.com/kadena-io/chainweb-openapi/validation-fixes-3/chainweb.openapi.yaml"
+        let chainwebUri = "https://raw.githubusercontent.com/kadena-io/chainweb-openapi/main/chainweb.openapi.yaml"
         chainwebSpec <- Yaml.decodeThrow . BL.toStrict . HTTP.responseBody =<< HTTP.httpLbs (HTTP.parseRequest_ chainwebUri) mgr
-        let pactUri = "https://raw.githubusercontent.com/kadena-io/chainweb-openapi/validation-fixes-3/pact.openapi.yaml"
+        let pactUri = "https://raw.githubusercontent.com/kadena-io/chainweb-openapi/main/pact.openapi.yaml"
         pactSpec <- Yaml.decodeThrow . BL.toStrict . HTTP.responseBody =<< HTTP.httpLbs (HTTP.parseRequest_ pactUri) mgr
         return (chainwebSpec, pactSpec)
     logValidationFailure (reqBody, req) (respBody, resp) err = do
