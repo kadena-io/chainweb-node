@@ -6,7 +6,6 @@
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 
 -- |
@@ -29,8 +28,8 @@ module Chainweb.Pact.PactService
     , execBlockTxHistory
     , execHistoricalLookup
     , execSyncToBlock
-    , initPactService
-    , initPactService'
+    , runPactService
+    , runPactService'
     , execNewGenesisBlock
     , getGasModel
     ) where
@@ -97,7 +96,7 @@ import Data.LogMessage
 import Utils.Logging.Trace
 
 
-initPactService
+runPactService
     :: Logger logger
     => PayloadCasLookup cas
     => ChainwebVersion
@@ -110,12 +109,12 @@ initPactService
     -> SQLiteEnv
     -> PactServiceConfig
     -> IO ()
-initPactService ver cid chainwebLogger reqQ mempoolAccess bhDb pdb sqlenv config =
-    void $ initPactService' ver cid chainwebLogger bhDb pdb sqlenv config $ do
+runPactService ver cid chainwebLogger reqQ mempoolAccess bhDb pdb sqlenv config =
+    void $ runPactService' ver cid chainwebLogger bhDb pdb sqlenv config $ do
         initialPayloadState chainwebLogger mempoolAccess ver cid
         serviceRequests (logFunction chainwebLogger) mempoolAccess reqQ
 
-initPactService'
+runPactService'
     :: Logger logger
     => PayloadCasLookup cas
     => ChainwebVersion
@@ -127,7 +126,7 @@ initPactService'
     -> PactServiceConfig
     -> PactServiceM cas a
     -> IO (T2 a PactServiceState)
-initPactService' ver cid chainwebLogger bhDb pdb sqlenv config act =
+runPactService' ver cid chainwebLogger bhDb pdb sqlenv config act =
     withProdRelationalCheckpointer checkpointerLogger initialBlockState sqlenv cplogger ver cid $ \checkpointEnv -> do
         let !rs = readRewards
             !initialParentHeader = ParentHeader $ genesisBlockHeader ver cid
