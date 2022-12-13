@@ -131,13 +131,6 @@ doReadRow d k = forModuleNameFix $ \mnFix ->
     tableName = domainTableName d
     (Utf8 tableNameBS) = tableName
 
-    checkModuleCache u b = MaybeT $ do
-        txid <- use bsTxId -- cache priority
-        mc <- use bsModuleCache
-        (r, mc') <- liftIO $ checkDbCache u b txid mc
-        modify' (bsModuleCache .~ mc')
-        return r
-
     queryStmt =
         "SELECT rowdata FROM " <> tbl tableName <> " WHERE rowkey = ? ORDER BY txid DESC LIMIT 1;"
 
@@ -184,6 +177,13 @@ doReadRow d k = forModuleNameFix $ \mnFix ->
             err -> internalError $
                      "doReadRow: Expected (at most) a single result, but got: " <>
                      T.pack (show err)
+
+    checkModuleCache u b = MaybeT $ do
+        txid <- use bsTxId -- cache priority
+        mc <- use bsModuleCache
+        (r, mc') <- liftIO $ checkDbCache u b txid mc
+        modify' (bsModuleCache .~ mc')
+        return r
 
     noCache
         :: FromJSON v
