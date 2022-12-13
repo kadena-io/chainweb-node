@@ -158,7 +158,7 @@ dupegenMemPoolAccess = do
 -- | This is a regression test for correct initialization of the checkpointer
 -- during pact service initialization.
 --
--- Removing the call to 'initializeLatestBlock' in 'initPactService' causes
+-- Removing the call to 'initializeLatestBlock' in 'runPactService' causes
 -- this test to fail.
 --
 serviceInitializationAfterFork

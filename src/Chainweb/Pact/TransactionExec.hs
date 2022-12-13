@@ -354,7 +354,7 @@ applyCoinbase v logger dbEnv (Miner mid mks@(MinerKeys mk)) reward@(ParsedDecima
 
     bh = ctxCurrentBlockHeight txCtx
     cid = V._chainId parent
-    chash = Pact.Hash $ encodeToByteString $ _blockHash $ _parentHeader parent
+    chash = Pact.Hash $ SB.toShort $ encodeToByteString $ _blockHash $ _parentHeader parent
         -- NOTE: it holds that @ _pdPrevBlockHash pd == encode _blockHash@
         -- NOTE: chash includes the /quoted/ text of the parent header.
 

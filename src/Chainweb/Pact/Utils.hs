@@ -32,7 +32,6 @@ module Chainweb.Pact.Utils
 
 import Data.Aeson
 import qualified Data.Text as T
-import qualified Data.Text.Encoding as T
 
 import Control.Lens
 import Control.Monad.Catch
@@ -43,6 +42,8 @@ import qualified Pact.Types.Term as P
 import Pact.Types.ChainMeta
 import Pact.Types.Command ( Payload, Command, ParsedCode )
 import Pact.Types.KeySet (validateKeyFormat)
+
+-- Internal modules
 
 import Chainweb.BlockCreationTime
 import Chainweb.BlockHeader
@@ -105,33 +106,33 @@ toTxCreationTime (Time timespan) =
   TxCreationTime $ ParsedInteger $ fromIntegral $ timeSpanToSeconds timespan
 
 
-validatePubKey :: P.PublicKey -> Bool
+validatePubKey :: P.PublicKeyText -> Bool
 validatePubKey = validateKeyFormat
 
 validateKAccount :: T.Text -> Bool
 validateKAccount acctName =
   case T.take 2 acctName of
     "k:" ->
-      let pubKey = P.PublicKey $ T.encodeUtf8 $ T.drop 2 acctName
+      let pubKey = P.PublicKeyText $ T.drop 2 acctName
       in validateKeyFormat pubKey
     _ -> False
 
-extractPubKeyFromKAccount :: T.Text -> Maybe P.PublicKey
+extractPubKeyFromKAccount :: T.Text -> Maybe P.PublicKeyText
 extractPubKeyFromKAccount kacct
   | validateKAccount kacct =
-    Just $ P.PublicKey $ T.encodeUtf8 $ T.drop 2 kacct
+    Just $ P.PublicKeyText $ T.drop 2 kacct
   | otherwise = Nothing
 
-generateKAccountFromPubKey :: P.PublicKey -> Maybe T.Text
+generateKAccountFromPubKey :: P.PublicKeyText -> Maybe T.Text
 generateKAccountFromPubKey pubKey
   | validatePubKey pubKey =
-    let pubKeyText = T.decodeUtf8 $ P._pubKey pubKey
+    let pubKeyText = P._pubKey pubKey
     in Just $ "k:" <> pubKeyText
   | otherwise = Nothing
 
--- Warning: Only use if already certain that PublicKey
+-- Warning: Only use if already certain that PublicKeyText
 -- is valid.
-pubKeyToKAccountKeySet :: P.PublicKey -> P.KeySet
+pubKeyToKAccountKeySet :: P.PublicKeyText -> P.KeySet
 pubKeyToKAccountKeySet pubKey = P.mkKeySet [pubKey] "keys-all"
 
 generateKeySetFromKAccount :: T.Text -> Maybe P.KeySet

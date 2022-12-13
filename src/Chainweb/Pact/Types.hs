@@ -1,8 +1,6 @@
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DeriveAnyClass #-}
-{-# LANGUAGE DeriveFunctor #-}
-{-# LANGUAGE DeriveFoldable #-}
 {-# LANGUAGE DeriveTraversable #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DerivingStrategies #-}
@@ -137,6 +135,7 @@ module Chainweb.Pact.Types
   , defaultReorgLimit
   , defaultPactServiceConfig
   , defaultBlockGasLimit
+  , defaultModuleCacheLimit
   ) where
 
 import Control.DeepSeq
@@ -185,6 +184,7 @@ import Chainweb.BlockHeaderDB
 import Chainweb.Mempool.Mempool (TransactionHash)
 import Chainweb.Miner.Pact
 import Chainweb.Logger
+import Chainweb.Pact.Backend.DbCache
 import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.Service.Types
 import Chainweb.Payload.PayloadStore
@@ -378,6 +378,13 @@ instance HasChainId (PactServiceEnv c) where
 defaultReorgLimit :: Word64
 defaultReorgLimit = 480
 
+-- | Default limit for the per chain size of the decoded module cache.
+--
+-- default limit: 60 MiB per chain
+--
+defaultModuleCacheLimit :: DbCacheLimitBytes
+defaultModuleCacheLimit = DbCacheLimitBytes (60 * mebi)
+
 -- | NOTE this is only used for tests/benchmarks. DO NOT USE IN PROD
 defaultPactServiceConfig :: PactServiceConfig
 defaultPactServiceConfig = PactServiceConfig
@@ -389,6 +396,7 @@ defaultPactServiceConfig = PactServiceConfig
       , _pactUnlimitedInitialRewind = False
       , _pactBlockGasLimit = defaultBlockGasLimit
       , _pactLogGas = False
+      , _pactModuleCacheLimit = defaultModuleCacheLimit
       }
 
 -- | This default value is only relevant for testing. In a chainweb-node the @GasLimit@
@@ -406,7 +414,7 @@ instance Exception ReorgLimitExceeded where
     fromException = asyncExceptionFromException
     toException = asyncExceptionToException
 
-data TxTimeout = TxTimeout !TransactionHash
+newtype TxTimeout = TxTimeout TransactionHash
     deriving Show
 instance Exception TxTimeout
 
