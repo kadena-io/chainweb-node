@@ -21,9 +21,6 @@ tests :: TestTree
 tests = testGroup "Chainweb.Test.Pact.DbCacheTest"
     [ testCache ]
 
--- | Create entries with a size the corresponds to the default
--- chunk size of the cache.
---
 entry :: MonadIO m => String -> m ([String], Int)
 entry c = do
     s <- liftIO $ compactSize =<< compact [c]
