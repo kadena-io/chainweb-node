@@ -21,33 +21,23 @@ tests :: TestTree
 tests = testGroup "Chainweb.Test.Pact.DbCacheTest"
     [ testCache ]
 
-defaultChunkSize :: Int
-defaultChunkSize = 32768
-
 -- | Create entries with a size the corresponds to the default
 -- chunk size of the cache.
 --
-entry :: MonadIO m => Int -> Char -> m ([String], Int)
-entry i c = do
-    let e = [replicate (i * defaultChunkSize `div` 256) c]
-    s <- liftIO $ compactSize =<< compact e
-    return (e, fromIntegral s)
-
-combineEntries :: MonadIO m => Monoid a => a -> a -> m (a, Int)
-combineEntries a b = do
-    let e = a <> b
-    s <- liftIO $ compactSize =<< compact e
-    return (e, fromIntegral s)
+entry :: MonadIO m => String -> m ([String], Int)
+entry c = do
+    s <- liftIO $ compactSize =<< compact [c]
+    return ([c], fromIntegral s)
 
 testCache :: TestTree
 testCache = testCase "testCache" $ do
 
   -- Create Items
-  (a, sa) <- entry 1 'a'; -- large
-  (b0, sb0) <- combineEntries a a -- larger
-  (b1, sb1) <- entry 0 'b' -- small
-  (c, sc) <- combineEntries b0 b0 -- even larger
-  (d, sd) <- entry 0 'd' -- small
+  (a, sa) <- entry "a"
+  (b0, sb0) <- entry "b0"
+  (b1, sb1) <- entry "b1"
+  (c, sc) <- entry "c"
+  (d, sd) <- entry "d"
 
   -- cache size (enough to hold a + b0 + b1 + c)
   let cs = DbCacheLimitBytes . fromIntegral $ sa + sb0 + sb1 + sc + 1

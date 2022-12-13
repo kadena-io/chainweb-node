@@ -93,18 +93,30 @@ instance Eq (CacheEntry a) where
 instance Ord (CacheEntry a) where
   a `compare` b = comparing _ceTxId a b <> comparing _ceAddy a b
 
+-- | Cache entries are stored within a compact regions. The whole region is GCed
+-- only when no pointer to any data in the region is live any more.
+--
+compactCacheEntry :: MonadIO m => FromJSON a => ByteString -> m (Maybe (a, Int))
+compactCacheEntry rowdata = do
+    c <- liftIO $ compact (decodeStrict {- lazy, forced by compact -} rowdata)
+    case getCompact c of
+        Nothing -> return Nothing
+        Just m -> do
+            s <- liftIO $ compactSize c
+            return $ Just (m, fromIntegral s)
+
 -- -------------------------------------------------------------------------- --
 -- DbCache
 
 data DbCache a = DbCache
-  { _dcStore :: !(HM.HashMap CacheAddress (CacheEntry a))
-  , _dcSize :: !Int
-  , _dcLimit :: !Int
+    { _dcStore :: !(HM.HashMap CacheAddress (CacheEntry a))
+    , _dcSize :: !Int
+    , _dcLimit :: !Int
 
-  -- Telemetry
-  , _dcMisses :: !Int
-  , _dcHits :: !Int
-  }
+    -- Telemetry
+    , _dcMisses :: !Int
+    , _dcHits :: !Int
+    }
 
 makeLenses 'DbCache
 
@@ -161,19 +173,12 @@ checkDbCache key rowdata txid = runStateT $ do
             return $ Just x
 
         -- Cache miss: decode module and insert into cache
-        --
-        -- The cache entry is stored within a compact region. The whole region is
-        -- GCed only when no pointer to any data in the region is live any more.
-        --
-        Nothing -> do
-            c <- lift $ compact (decodeStrict {- lazy, forced by compact -} rowdata)
-            case getCompact c of
-                Nothing -> return Nothing
-                Just m -> do
-                    s <- lift $ compactSize c
-                    writeCache txid addy (fromIntegral s) m
-                    modify' (dcMisses +~ 1)
-                    return $ Just m
+        Nothing -> compactCacheEntry rowdata >>= \case
+            Nothing -> return Nothing
+            Just (m, s) -> do
+                writeCache txid addy s m
+                modify' (dcMisses +~ 1)
+                return $ Just m
   where
     addy = mkAddress key rowdata
 
