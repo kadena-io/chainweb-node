@@ -533,9 +533,9 @@ main = do
             logFunctionJson logger Info ProcessStarted
             handles
                 [ Handler $ \(e :: SomeAsyncException) ->
-                    logFunctionJson logger Info (ProcessDied $ show e)
+                    logFunctionJson logger Info (ProcessDied $ show e) >> throwIO e
                 , Handler $ \(e :: SomeException) ->
-                    logFunctionJson logger Error (ProcessDied $ show e)
+                    logFunctionJson logger Error (ProcessDied $ show e) >> throwIO e
                 ] $ do
                 kt <- mapM (parseTimeM False defaultTimeLocale timeFormat) serviceDate
                 withServiceDate (logFunctionText logger) kt $
