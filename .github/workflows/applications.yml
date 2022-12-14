@@ -227,7 +227,7 @@ jobs:
         cabal --version
     - name: Install non-Haskell dependencies (ubuntu)
       if: contains(matrix.os, 'ubuntu')
-      run: sudo apt-get install -y libgflags-dev liblz4-dev libzstd-dev libgflags-dev libtbb-dev libsnappy-dev libbz2-dev
+      run: sudo apt-get install -y libgflags-dev liblz4-dev libzstd-dev libtbb-dev libsnappy-dev libbz2-dev
     # Project Configuration
     - name: Create cabal.project.local
       run: |
