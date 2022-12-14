@@ -277,7 +277,7 @@ withPact' bdbio ioSqlEnv r (ps, cacheTest) = do
     bhdb <- getWebBlockHeaderDb (_bdbWebBlockHeaderDb bdb) testChainId
     let pdb = _bdbPayloadDb bdb
     sqlEnv <- ioSqlEnv
-    T2 _ pstate <- initPactService'
+    T2 _ pstate <- runPactService'
         testVer testChainId logger bhdb pdb sqlEnv defaultPactServiceConfig ps
     cacheTest r (_psInitCache pstate)
   where
