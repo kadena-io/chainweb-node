@@ -324,7 +324,7 @@ runDatabaseMonitor logger rocksDbDir pactDbDir = L.withLoggerLabel ("component",
             fmap sum . traverse (sizeOf . (path </>)) =<< listDirectory path
         else if file then
             getFileSize path
-        else 
+        else
             pure 0
 
 -- -------------------------------------------------------------------------- --
@@ -403,6 +403,8 @@ withNodeLogger logConfig v f = runManaged $ do
         $ mkTelemetryLogger @DbStats mgr teleLogConfig
     pactQueueStatsBackend <- managed
         $ mkTelemetryLogger @PactQueueStats mgr teleLogConfig
+    topLevelStatusBackend <- managed
+        $ mkTelemetryLogger @ChainwebStatus mgr teleLogConfig
 
     logger <- managed
         $ L.withLogger (_logConfigLogger logConfig) $ logHandles
@@ -423,6 +425,7 @@ withNodeLogger logConfig v f = runManaged $ do
             , logHandler blockUpdateBackend
             , logHandler dbStatsBackend
             , logHandler pactQueueStatsBackend
+            , logHandler topLevelStatusBackend
             ] baseBackend
 
     liftIO $ f
@@ -516,6 +519,9 @@ mainInfo = programInfoValidate
     (defaultChainwebNodeConfiguration Mainnet01)
     validateChainwebNodeConfiguration
 
+handles :: [Handler a] -> IO a -> IO a
+handles = flip catches
+
 main :: IO ()
 main = do
     installFatalSignalHandlers [ sigHUP, sigTERM, sigXCPU, sigXFSZ ]
@@ -524,8 +530,15 @@ main = do
         let v = _configChainwebVersion $ _nodeConfigChainweb conf
         hSetBuffering stderr LineBuffering
         withNodeLogger (_nodeConfigLog conf) v $ \logger -> do
-            kt <- mapM (parseTimeM False defaultTimeLocale timeFormat) serviceDate
-            withServiceDate (logFunctionText logger) kt $
-                node conf logger
+            logFunctionJson logger Info ProcessStarted
+            handles
+                [ Handler $ \(e :: SomeAsyncException) ->
+                    logFunctionJson logger Info (ProcessDied $ show e) >> throwIO e
+                , Handler $ \(e :: SomeException) ->
+                    logFunctionJson logger Error (ProcessDied $ show e) >> throwIO e
+                ] $ do
+                kt <- mapM (parseTimeM False defaultTimeLocale timeFormat) serviceDate
+                withServiceDate (logFunctionText logger) kt $
+                    node conf logger
   where
     timeFormat = iso8601DateFormat (Just "%H:%M:%SZ")
