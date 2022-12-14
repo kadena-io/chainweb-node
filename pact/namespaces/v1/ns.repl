@@ -1,0 +1,87 @@
+(env-exec-config ["DisablePact44"])
+(begin-tx)
+(env-data
+ { 'ns-admin-keyset: ["admin"]
+ , 'ns-operate-keyset: ["operate"]
+ , 'ns-genesis-keyset: { "keys": [], "pred": "="} })
+
+(load "ns.pact")
+(commit-tx)
+
+(env-namespace-policy false (ns.validate))
+
+(begin-tx)
+(namespace 'user)
+(env-keys [])
+
+(module mod G
+  (defcap G () (enforce false "disabled"))
+  (defun foo () 1))
+
+(namespace 'free)
+
+(module mod G
+  (defcap G () (enforce false "disabled"))
+  (defun foo () 2))
+
+(expect-failure
+  "Cannot bring kadena ns into scope w/o operate admin"
+  (namespace 'kadena))
+
+(env-keys ["operate"])
+
+(namespace 'kadena)
+
+(module mod G
+  (defcap G () (enforce false "disabled"))
+  (defun foo () 3))
+
+(commit-tx)
+
+(expect "user.mod works" 1 (user.mod.foo))
+(expect "free.mod works" 2 (free.mod.foo))
+(expect "kadena.mod works" 3 (kadena.mod.foo))
+
+(begin-tx)
+(env-keys ["operate"])
+(env-data
+ { 'ns-admin-keyset: ["admin"]
+ , 'ns-operate-keyset: ["operate"] })
+
+(expect-failure "cannot redefine user"
+  (define-namespace 'user ns.GUARD_FAILURE ns.GUARD_FAILURE))
+(expect-failure "cannot redefine free"
+  (define-namespace 'free ns.GUARD_FAILURE ns.GUARD_FAILURE))
+(expect "can redefine kadena"
+  "Namespace defined: kadena"
+  (define-namespace 'kadena ns.GUARD_SUCCESS ns.GUARD_FAILURE))
+
+(commit-tx)
+
+(begin-tx)
+(env-keys [])
+
+(namespace 'kadena)
+
+(module mod2 G
+  (defcap G () (enforce false "disabled"))
+  (defun foo () 4))
+(commit-tx)
+
+(expect "kadena.mod2 works" 4 (kadena.mod2.foo))
+
+(use ns)
+(env-keys ["operate"])
+(expect-failure
+  "cannot register empty name"
+  (write-registry "" GUARD_SUCCESS true))
+
+(expect-failure
+  "cannot register >64 length name"
+  (write-registry
+    "1234567890123456789012345678901234567890123456789012345678901234567890"
+    GUARD_SUCCESS true))
+
+(expect-failure
+  "must be latin1 charset"
+  (write-registry "emilyπ" GUARD_SUCCESS true))

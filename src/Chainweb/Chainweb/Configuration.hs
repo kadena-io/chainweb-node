@@ -51,6 +51,7 @@ module Chainweb.Chainweb.Configuration
 , BackupApiConfig(..)
 , configBackupApi
 , BackupConfig(..)
+, defaultBackupConfig
 
 -- * Chainweb Configuration
 , ChainwebConfiguration(..)
@@ -238,18 +239,20 @@ pCutConfig = id
         % long "prune-chain-database"
         <> help
             ( "How to prune the chain database on startup."
-            <> " Pruning headers takes about between 10s to 2min. "
-            <> " Pruning headers with full header validation (headers-checked) and full GC can take"
-            <> " a longer time (up to 10 minutes or more)."
+            <> " This can take several hours."
             )
         <> metavar "none|headers|headers-checked|full"
     <*< cutFetchTimeout .:: option auto
         % long "cut-fetch-timeout"
         <> help "The timeout for processing new cuts in microseconds"
-    <*< cutInitialBlockHeightLimit .:: optional % fmap BlockHeight . option auto
+    <*< cutInitialBlockHeightLimit .:: fmap (Just . BlockHeight) . option auto
         % long "initial-block-height-limit"
-    <*< cutFastForwardBlockHeightLimit .:: optional % fmap BlockHeight . option auto
+        <> help "Reset initial cut to this block height."
+        <> metavar "INT"
+    <*< cutFastForwardBlockHeightLimit .:: fmap (Just . BlockHeight) . option auto
         % long "fast-forward-block-height-limit"
+        <> help "When --only-sync-pact is given fast forward to this height. Ignored otherwise."
+        <> metavar "INT"
 
 -- -------------------------------------------------------------------------- --
 -- Service API Configuration

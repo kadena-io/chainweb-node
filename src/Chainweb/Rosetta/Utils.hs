@@ -429,10 +429,10 @@ getSuggestedFee tx someMaxFees someMult = do
     -- NOTE: GasLimit should never be greater than default block gas limit.
 
     -- Derived from a couple of gas unit cost of the following transfer transactions + some buffer:
-    -- - https://explorer.chainweb.com/testnet/tx/g8dxg1CAM3eZ5S-rk51N27N8-nKEW3Wg_cyk5moqmBg
-    -- - https://explorer.chainweb.com/testnet/tx/IGVzaRkTHOSMIiHM7q8bPxrATW5b5SEhoCqE6tPkVFA
-    -- - https://explorer.chainweb.com/testnet/tx/cK0B0XOkOlMDR32GloR0GQvjAWAJ9mvNPZwQDalPr6c
-    defGasUnitsTransferCreate = 600
+    -- - https://explorer.chainweb.com/mainnet/txdetail/EUiZfeHHeisKMP2uHpzyAcMOIqZJVsJB6sT_ABpBUsQ
+    -- - https://explorer.chainweb.com/mainnet/txdetail/-cb0Pz6rKb1NVhAFQ_Bcz2V2dGPjTmIiVBl-gXMLGRQ
+    -- - https://explorer.chainweb.com/mainnet/txdetail/2riuW2nBmbN2dzmyAh5b2lUns5SPARb44-QN_EKzzmk
+    defGasUnitsTransferCreate = 1000
 
     -- See Chainweb.Chainweb.Configuration for latest min gas
     minGasPrice = Decimal 8 1
