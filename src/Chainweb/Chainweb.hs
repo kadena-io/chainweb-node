@@ -344,6 +344,7 @@ data ChainwebStatus
     | PactReplayInProgress
     | InitializingMinerResources
     | ChainwebStarted
+    | ProcessDied !String
     | PactReplaySuccessful
     deriving (Generic, Eq, Ord, Show, NFData, ToJSON, FromJSON)
 

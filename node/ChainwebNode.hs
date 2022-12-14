@@ -324,7 +324,7 @@ runDatabaseMonitor logger rocksDbDir pactDbDir = L.withLoggerLabel ("component",
             fmap sum . traverse (sizeOf . (path </>)) =<< listDirectory path
         else if file then
             getFileSize path
-        else 
+        else
             pure 0
 
 -- -------------------------------------------------------------------------- --
@@ -519,6 +519,9 @@ mainInfo = programInfoValidate
     (defaultChainwebNodeConfiguration Mainnet01)
     validateChainwebNodeConfiguration
 
+handles :: [Handler a] -> IO a -> IO a
+handles = flip catches
+
 main :: IO ()
 main = do
     installFatalSignalHandlers [ sigHUP, sigTERM, sigXCPU, sigXFSZ ]
@@ -528,8 +531,14 @@ main = do
         hSetBuffering stderr LineBuffering
         withNodeLogger (_nodeConfigLog conf) v $ \logger -> do
             logFunctionJson logger Info ProcessStarted
-            kt <- mapM (parseTimeM False defaultTimeLocale timeFormat) serviceDate
-            withServiceDate (logFunctionText logger) kt $
-                node conf logger
+            handles
+                [ Handler $ \(e :: SomeAsyncException) ->
+                    logFunctionJson logger Info (ProcessDied $ show e)
+                , Handler $ \(e :: SomeException) ->
+                    logFunctionJson logger Error (ProcessDied $ show e)
+                ] $ do
+                kt <- mapM (parseTimeM False defaultTimeLocale timeFormat) serviceDate
+                withServiceDate (logFunctionText logger) kt $
+                    node conf logger
   where
     timeFormat = iso8601DateFormat (Just "%H:%M:%SZ")
