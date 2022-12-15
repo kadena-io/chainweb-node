@@ -44,12 +44,13 @@ pkgs.haskell.packages.${compiler}.developPackage {
         sha256 = "1fp3m6jwzykpfkbwi447rylg9616ph1k0avrr0i73p1pippxzqpx";
       }) {};
 
-      rosetta = self.callCabal2nix "rosetta" (pkgs.fetchFromGitHub {
+      rosetta = doJailbreak (self.callCabal2nix "rosetta" (pkgs.fetchFromGitHub {
         owner = "kadena-io";
         repo = "rosetta";
-        rev = "6c8dd2eea1f6d0dba925646dbcb6e07feeccbfd5";
+        rev = "100733c3c74b61cdf3f921fb466f85a56c1d4de0";
         sha256 = "19pjy06xrx2siggzybcmly0qaq4ds3yzxcsvqwgs4qh9kkzh0kqh";
-      }) {};
+        # date = "2022-02-11T13:55:11-05:00";
+      }) {});
 
       rocksdb-haskell-kadena = overrideCabal
         (self.callCabal2nix "rocksdb-haskell-kadena" (pkgs.fetchFromGitHub {
@@ -80,8 +81,9 @@ pkgs.haskell.packages.${compiler}.developPackage {
       ethereum = dontCheck (self.callCabal2nix "ethereum" (pkgs.fetchFromGitHub {
         owner = "kadena-io";
         repo = "kadena-ethereum-bridge";
-        rev = "10f21e96af1dce4f13e261be9dfad8c28cd299f7";
-        sha256 = "1vab2m67ign6x77k1sjfjmv9sbrrl5sl2pl07rw1fw8bjqnp5vqk";
+        rev = "7b8daff3e79e3fcfb1ae7ba61b779993244658ea";
+        sha256 = "03dysqfbv9qpsh092glnk33hhb7r4is7k7mypjnk98iawg1mp14r";
+        # date = "2022-11-22T08:20:17-08:00";
       }) {});
 
       resource-pool = self.callHackageDirect {
@@ -104,14 +106,37 @@ pkgs.haskell.packages.${compiler}.developPackage {
 
       hashes = self.callHackageDirect {
         pkg = "hashes";
-        ver = "0.2.2.1";
-        sha256 = "1039smdvx03j52md2vv1lvkllm47rf0zi9bqmnh1lk1zhcv0sag3";
+        ver = "0.2.3";
+        sha256 = "0rif1hh2zwqmh2p8ca8si1jngzrrl91bpdzhpwpcxj49q3b6sys1";
       } {};
 
-      pact = appendConfigureFlag super.pact "-f-build-tool";
+      sbv = dontCheck (self.callHackageDirect {
+        pkg = "sbv";
+        ver = "9.0";
+        sha256 = "14g2qax1vc7q4g78fa562dviqvcd0l52kd5jmgv90g3g3ci15bnl";
+      } {});
+
+      hashable = self.callHackageDirect {
+        pkg = "hashable";
+        ver = "1.4.1.0";
+        sha256 = "0ms8df9v4rcy424ggsjaz9ik4fnggs6698zlfq099vqmsp2x93nn";
+      } {};
+
+      pact-time = self.callHackageDirect {
+        pkg = "pact-time";
+        ver = "0.2.0.1";
+        sha256 = "0lp0nypq675f652k2pl4kf92agy9jhzvf03zx61gvj4djgjw1rxy";
+      } {};
+
+      lens-aeson = self.callHackageDirect {
+        pkg = "lens-aeson";
+        ver = "1.2.2";
+        sha256 = "154lx61zbdgnmd9csnbvfqzpv4y9lqm7k7ssal2d4mxlwwlcx6jf";
+      } {};
+
+      pact = dontCheck (appendConfigureFlag (import ../pact/default-new.nix {}) "-f-build-tool");
 
       autodocodec    = unmarkBroken super.autodocodec;
-      hashable       = doJailbreak super.hashable;
       ixset-typed    = unmarkBroken super.ixset-typed;
       rebase         = doJailbreak super.rebase;
       token-bucket   = unmarkBroken super.token-bucket;
@@ -129,20 +154,19 @@ pkgs.haskell.packages.${compiler}.developPackage {
 
   source-overrides = {
     chainweb-storage = nix-thunk.thunkSource ./dep/chainweb-storage;
-    pact             = nix-thunk.thunkSource ./dep/pact;
+    # pact             = nix-thunk.thunkSource ./dep/pact;
 
-    OneTuple                    = "0.3";
-    aeson                       = "1.5.6.0";
+    # OneTuple                    = "0.3.1";
     ansi-terminal               = "0.11.3";
     prettyprinter-ansi-terminal = "1.1.2";
-    time-compat                 = "1.9.5";
-    trifecta                    = "2.1.1";
-    unordered-containers        = "0.2.15.0";
+    # time-compat                 = "1.9.6.1";
+    trifecta                    = "2.1.2";
+    pact-time                   = "0.2.0.1";
+    unordered-containers        = "0.2.19.1";
 
     # These are required in order to not break payload validation
     base16-bytestring = "0.1.1.7";
-    prettyprinter     = "1.6.0";
-    hashable          = "1.3.0.0";
+    prettyprinter     = "1.7.1";
     base64-bytestring = "1.0.0.3";
   };
 
