@@ -204,7 +204,6 @@ genPayloadModule' v tag cwTxs =
     cid = someChainId v
     quoted t = "\"" <> t <> "\""
 
-
 startModule :: Text -> [Text]
 startModule tag =
     [ "{-# LANGUAGE OverloadedStrings #-}"

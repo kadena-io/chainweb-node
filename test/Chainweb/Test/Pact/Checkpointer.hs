@@ -623,7 +623,7 @@ runCont cp (PactDbEnv' pactdbenv) pactId step = do
     evalTransactionM cmdenv cmdst $
       applyContinuation' 0 defaultInterpreter contMsg [] h' permissiveNamespacePolicy
   where
-    contMsg = ContMsg pactId step False Null Nothing
+    contMsg = ContMsg pactId step False (toLegacyJson Null) Nothing
 
     h' = H.toUntypedHash (H.hash "" :: H.PactHash)
     cmdenv = TransactionEnv Transactional pactdbenv (_cpeLogger cp) Nothing def

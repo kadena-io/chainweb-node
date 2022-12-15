@@ -909,7 +909,7 @@ findPayer isPactBackCompatV16 cmd = runMaybeT $ do
     runCap i capRef as input = do
       let msgBody = enrichedMsgBody cmd
           enrichMsgBody | isPactBackCompatV16 = id
-                        | otherwise = setEnvMsgBody msgBody
+                        | otherwise = setEnvMsgBody (toLegacyJson msgBody)
       ar <- local enrichMsgBody $
         evalCap i CapCallStack False $ mkApp i capRef as
 
@@ -925,13 +925,13 @@ enrichedMsgBody cmd = case (_pPayload $ _cmdPayload cmd) of
   Exec (ExecMsg (ParsedCode _ exps) userData) ->
     object [ "tx-type" A..= ( "exec" :: Text)
            , "exec-code" A..= map renderCompactText exps
-           , "exec-user-data" A..= pactFriendlyUserData userData ]
+           , "exec-user-data" A..= pactFriendlyUserData (_getLegacyValue userData) ]
   Continuation (ContMsg pid step isRollback userData proof) ->
     object [ "tx-type" A..= ("cont" :: Text)
            , "cont-pact-id" A..= pid
            , "cont-step" A..= (LInteger $ toInteger step)
            , "cont-is-rollback" A..= LBool isRollback
-           , "cont-user-data" A..= pactFriendlyUserData userData
+           , "cont-user-data" A..= pactFriendlyUserData (_getLegacyValue userData)
            , "cont-has-proof" A..= (LBool $ isJust proof)
            ]
   where
@@ -963,7 +963,7 @@ redeemGas cmd = do
       $ initCapabilities [magic_GAS]
 
     redeemGasCmd fee (GasId pid) =
-      ContMsg pid 1 False (object [ "fee" A..= fee ]) Nothing
+      ContMsg pid 1 False (toLegacyJson $ object [ "fee" A..= fee ]) Nothing
 
 
 -- ---------------------------------------------------------------------------- --
@@ -1132,7 +1132,7 @@ buildExecParsedCode
 buildExecParsedCode chainCtx value code = maybe (go Null) go value
   where
     go val = case parsePact chainCtx code of
-      Right !t -> pure $! ExecMsg t val
+      Right !t -> pure $! ExecMsg t (toLegacyJson val)
       -- if we can't construct coin contract calls, this should
       -- fail fast
       Left err -> internalError $ "buildExecParsedCode: parse failed: " <> T.pack err

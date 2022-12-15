@@ -35,6 +35,7 @@ import Pact.Parse
 import Pact.Types.Command
 import Pact.Types.RPC
 import Pact.Types.Runtime
+import Pact.Utils.LegacyValue
 
 import Chainweb.Miner.Pact
 import Chainweb.Pact.Types
@@ -93,7 +94,7 @@ mkBuyGasTerm
 mkBuyGasTerm (MinerId mid) (MinerKeys ks) sender total = (populatedTerm, execMsg)
   where (term, senderS, minerS) = buyGasTemplate
         populatedTerm = set senderS sender $ set minerS mid term
-        execMsg = ExecMsg dummyParsedCode buyGasData
+        execMsg = ExecMsg dummyParsedCode (toLegacyJson buyGasData)
         buyGasData = object
           [ "miner-keyset" A..= ks
           , "total" A..= total
@@ -118,7 +119,7 @@ mkCoinbaseTerm (MinerId mid) (MinerKeys ks) reward = (populatedTerm, execMsg)
   where
     (term, minerS) = coinbaseTemplate
     populatedTerm = set minerS mid term
-    execMsg = ExecMsg dummyParsedCode coinbaseData
+    execMsg = ExecMsg dummyParsedCode (toLegacyJson coinbaseData)
     coinbaseData = object
       [ "miner-keyset" A..= ks
       , "reward" A..= reward
@@ -133,7 +134,7 @@ buildExecParsedCode :: Maybe Value -> Text -> IO (ExecMsg ParsedCode)
 buildExecParsedCode value code = maybe (go Null) go value
   where
     go v = case parsePact code of
-      Right !t -> pure $! ExecMsg t v
+      Right !t -> pure $! ExecMsg t (toLegacyJson v)
       -- if we can't construct coin contract calls, this should
       -- fail fast
       Left err -> internalError $ "buildExecParsedCode: parse failed: " <> pack err

@@ -168,6 +168,7 @@ import Pact.Types.SPV
 import Pact.Types.Term
 import Pact.Types.SQLite
 import Pact.Types.Util (parseB16TextOnly)
+import Pact.Utils.LegacyValue
 
 -- internal modules
 
@@ -487,7 +488,7 @@ mkExec' ecode = mkExec ecode Null
 
 -- | Make Exec PactRPC
 mkExec :: Text -> Value -> PactRPC Text
-mkExec ecode edata = Exec $ ExecMsg ecode edata
+mkExec ecode edata = Exec $ ExecMsg ecode (toLegacyJson edata)
 
 mkCont :: ContMsg -> PactRPC Text
 mkCont = Continuation
@@ -497,7 +498,7 @@ mkContMsg pid step = ContMsg
   { _cmPactId = pid
   , _cmStep = step
   , _cmRollback = False
-  , _cmData = Null
+  , _cmData = toLegacyJson Null
   , _cmProof = Nothing }
 
 -- | Default builder.

@@ -685,7 +685,7 @@ constructionTxToPactRPC txInfo =
   case txInfo of
     ConstructTransfer from _ to toGuard amt ->
       let (code, rdata) = transferCreateCode from (to, toGuard) amt
-      in P.Exec $ P.ExecMsg code rdata
+      in P.Exec $ P.ExecMsg code (toLegacyJson rdata)
 
 
 -- | Creates an enriched Command that consists of an
