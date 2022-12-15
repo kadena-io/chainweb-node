@@ -126,3 +126,6 @@ allow-newer: base64-bytestring:*
 allow-newer: base16-bytestring:*
 allow-newer: prettyprint:*
 
+-- other pact induced bounds (not relevant for on-chain semantics)
+constraints: megaparsec <9.3
+

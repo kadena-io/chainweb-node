@@ -26,6 +26,7 @@ import Text.Read (readMaybe)
 import Text.Printf ( printf )
 
 import qualified Data.ByteString.Lazy as BSL
+import qualified Data.ByteString.Short as BS
 import qualified Data.HashMap.Strict as HM
 import qualified Data.Map.Strict as M
 import qualified Data.Memory.Endian as BA
@@ -431,10 +432,10 @@ getSuggestedFee tx someMaxFees someMult = do
     -- NOTE: GasLimit should never be greater than default block gas limit.
 
     -- Derived from a couple of gas unit cost of the following transfer transactions + some buffer:
-    -- - https://explorer.chainweb.com/testnet/tx/g8dxg1CAM3eZ5S-rk51N27N8-nKEW3Wg_cyk5moqmBg
-    -- - https://explorer.chainweb.com/testnet/tx/IGVzaRkTHOSMIiHM7q8bPxrATW5b5SEhoCqE6tPkVFA
-    -- - https://explorer.chainweb.com/testnet/tx/cK0B0XOkOlMDR32GloR0GQvjAWAJ9mvNPZwQDalPr6c
-    defGasUnitsTransferCreate = 600
+    -- - https://explorer.chainweb.com/mainnet/txdetail/EUiZfeHHeisKMP2uHpzyAcMOIqZJVsJB6sT_ABpBUsQ
+    -- - https://explorer.chainweb.com/mainnet/txdetail/-cb0Pz6rKb1NVhAFQ_Bcz2V2dGPjTmIiVBl-gXMLGRQ
+    -- - https://explorer.chainweb.com/mainnet/txdetail/2riuW2nBmbN2dzmyAh5b2lUns5SPARb44-QN_EKzzmk
+    defGasUnitsTransferCreate = 1000
 
     -- See Chainweb.Chainweb.Configuration for latest min gas
     minGasPrice = Decimal 8 1
@@ -555,7 +556,7 @@ rosettaAccountIdtoKAccount acct = do
 rosettaPubKeyTokAccount :: RosettaPublicKey -> Either RosettaError (T2 T.Text P.KeySet)
 rosettaPubKeyTokAccount (RosettaPublicKey pubKey curve) = do
   _ <- getScheme curve -- enforce only valid schemes
-  let pubKeyPact = P.PublicKey $ T.encodeUtf8 pubKey
+  let pubKeyPact = P.PublicKeyText pubKey
   kAccount <- toRosettaError RosettaInvalidPublicKey $
               note (show pubKey) $
               generateKAccountFromPubKey pubKeyPact
@@ -711,7 +712,7 @@ createSigningPayloads
     -> [RosettaSigningPayload]
 createSigningPayloads (EnrichedCommand cmd _ _) = map f
   where
-    hashBase16 = P.toB16Text $! P.unHash $!
+    hashBase16 = P.toB16Text $! BS.fromShort $! P.unHash $!
                  P.toUntypedHash $! _cmdHash cmd
 
     f (signer, acct) = RosettaSigningPayload
@@ -1181,7 +1182,7 @@ toRosettaError failure = annotate (stringRosettaError failure)
 
 ksToPubKeys :: P.KeySet -> [T.Text]
 ksToPubKeys (P.KeySet pkSet _) =
-  map (T.decodeUtf8 . P._pubKey) (S.toList pkSet)
+  map P._pubKey (S.toList pkSet)
 
 
 parsePubKeys :: T.Text -> Value -> Either RosettaError [T.Text]

@@ -51,6 +51,7 @@ module Chainweb.Chainweb.Configuration
 , BackupApiConfig(..)
 , configBackupApi
 , BackupConfig(..)
+, defaultBackupConfig
 
 -- * Chainweb Configuration
 , ChainwebConfiguration(..)
@@ -104,12 +105,13 @@ import Chainweb.HostAddress
 import qualified Chainweb.Mempool.Mempool as Mempool
 import Chainweb.Mempool.P2pConfig
 import Chainweb.Miner.Config
-import Chainweb.Pact.Types (defaultReorgLimit)
+import Chainweb.Pact.Types (defaultReorgLimit, defaultModuleCacheLimit)
 import Chainweb.Payload.RestAPI (PayloadBatchLimit(..), defaultServicePayloadBatchLimit)
 import Chainweb.Utils
 import Chainweb.Version
 
 import P2P.Node.Configuration
+import Chainweb.Pact.Backend.DbCache (DbCacheLimitBytes)
 
 -- -------------------------------------------------------------------------- --
 -- Throttling Configuration
@@ -238,18 +240,20 @@ pCutConfig = id
         % long "prune-chain-database"
         <> help
             ( "How to prune the chain database on startup."
-            <> " Pruning headers takes about between 10s to 2min. "
-            <> " Pruning headers with full header validation (headers-checked) and full GC can take"
-            <> " a longer time (up to 10 minutes or more)."
+            <> " This can take several hours."
             )
         <> metavar "none|headers|headers-checked|full"
     <*< cutFetchTimeout .:: option auto
         % long "cut-fetch-timeout"
         <> help "The timeout for processing new cuts in microseconds"
-    <*< cutInitialBlockHeightLimit .:: optional % fmap BlockHeight . option auto
+    <*< cutInitialBlockHeightLimit .:: fmap (Just . BlockHeight) . option auto
         % long "initial-block-height-limit"
-    <*< cutFastForwardBlockHeightLimit .:: optional % fmap BlockHeight . option auto
+        <> help "Reset initial cut to this block height."
+        <> metavar "INT"
+    <*< cutFastForwardBlockHeightLimit .:: fmap (Just . BlockHeight) . option auto
         % long "fast-forward-block-height-limit"
+        <> help "When --only-sync-pact is given fast forward to this height. Ignored otherwise."
+        <> metavar "INT"
 
 -- -------------------------------------------------------------------------- --
 -- Service API Configuration
@@ -389,6 +393,8 @@ data ChainwebConfiguration = ChainwebConfiguration
     , _configSyncPactChains :: !(Maybe [ChainId])
         -- ^ the only chains to be synchronized on startup to the latest cut.
         --   if unset, all chains will be synchronized.
+    , _configModuleCacheLimit :: !DbCacheLimitBytes
+        -- ^ module cache size limit in bytes
     } deriving (Show, Eq, Generic)
 
 makeLenses ''ChainwebConfiguration
@@ -436,6 +442,7 @@ defaultChainwebConfiguration v = ChainwebConfiguration
     , _configOnlySyncPact = False
     , _configSyncPactChains = Nothing
     , _configBackup = defaultBackupConfig
+    , _configModuleCacheLimit = defaultModuleCacheLimit
     }
 
 instance ToJSON ChainwebConfiguration where
@@ -460,6 +467,7 @@ instance ToJSON ChainwebConfiguration where
         , "onlySyncPact" .= _configOnlySyncPact o
         , "syncPactChains" .= _configSyncPactChains o
         , "backup" .= _configBackup o
+        , "moduleCacheLimit" .= _configModuleCacheLimit o
         ]
 
 instance FromJSON ChainwebConfiguration where
@@ -489,6 +497,7 @@ instance FromJSON (ChainwebConfiguration -> ChainwebConfiguration) where
         <*< configOnlySyncPact ..: "onlySyncPact" % o
         <*< configSyncPactChains ..: "syncPactChains" % o
         <*< configBackup %.: "backup" % o
+        <*< configModuleCacheLimit ..: "moduleCacheLimit" % o
 
 pChainwebConfiguration :: MParser ChainwebConfiguration
 pChainwebConfiguration = id
@@ -542,4 +551,8 @@ pChainwebConfiguration = id
         <> help "The only Pact databases to synchronize. If empty or unset, all chains will be synchronized."
         <> metavar "JSON list of chain ids"
     <*< configBackup %:: pBackupConfig
+    <*< configModuleCacheLimit .:: option auto
+        % long "module-cache-limit"
+        <> help "Maximum size of the per-chain checkpointer module cache in bytes"
+        <> metavar "INT"
 

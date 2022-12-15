@@ -138,6 +138,7 @@ constraints: any.Boolean ==0.2.4,
              generic-data -enable-inspect,
              any.generically ==0.1,
              any.ghc-boot-th ==8.10.7,
+             any.ghc-compact ==0.1.0.0,
              any.ghc-heap ==8.10.7,
              any.ghc-prim ==0.6.1,
              any.hashable ==1.4.1.0,
@@ -365,4 +366,4 @@ constraints: any.Boolean ==0.2.4,
              yet-another-logger -tbmqueue,
              any.zlib ==0.6.3.0,
              zlib -bundled-c-zlib -non-blocking-ffi -pkg-config
-index-state: hackage.haskell.org 2022-11-22T08:14:17Z
+index-state: hackage.haskell.org 2022-11-28T23:22:03Z

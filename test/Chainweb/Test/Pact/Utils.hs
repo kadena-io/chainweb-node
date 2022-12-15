@@ -124,6 +124,7 @@ import Control.Monad.IO.Class
 
 import Data.Aeson (Value(..), object, (.=), Key)
 import Data.ByteString (ByteString)
+import qualified Data.ByteString.Short as BS
 import Data.CAS.HashMap hiding (toList)
 import Data.CAS.RocksDB
 import Data.Decimal
@@ -284,7 +285,7 @@ mkEvent
     -> m PactEvent
 mkEvent n params m mh = do
   mh' <- decodeB64UrlNoPaddingText mh
-  return $ PactEvent n params m (ModuleHash (Hash mh'))
+  return $ PactEvent n params m (ModuleHash (Hash $ BS.toShort mh'))
 
 mkTransferEvent
     :: MonadThrow m
@@ -599,7 +600,7 @@ testPactCtxSQLite
   -> SQLiteEnv
   -> PactServiceConfig
   -> (TxContext -> GasModel)
-  -> IO (TestPactCtx cas,PactDbEnv')
+  -> IO (TestPactCtx cas, PactDbEnv')
 testPactCtxSQLite v cid bhdb pdb sqlenv conf gasmodel = do
     (dbSt,cpe) <- initRelationalCheckpointer' initialBlockState sqlenv cpLogger v cid
     let rs = readRewards
@@ -608,9 +609,9 @@ testPactCtxSQLite v cid bhdb pdb sqlenv conf gasmodel = do
       <$!> newMVar (PactServiceState Nothing mempty ph noSPVSupport)
       <*> pure (pactServiceEnv cpe rs)
     evalPactServiceM_ ctx (initialPayloadState dummyLogger mempty v cid)
-    return (ctx,dbSt)
+    return (ctx, PactDbEnv' dbSt)
   where
-    initialBlockState = initBlockState $ Version.genesisHeight v cid
+    initialBlockState = initBlockState defaultModuleCacheLimit $ Version.genesisHeight v cid
     loggers = pactTestLogger False -- toggle verbose pact test logging
     cpLogger = newLogger loggers $ LogName ("Checkpointer" ++ show cid)
     pactServiceEnv cpe rs = PactServiceEnv
@@ -839,7 +840,7 @@ withPactTestBlockDb version cid logLevel rdb mempoolIO pactConfig f =
         let pdb = _bdbPayloadDb bdb
         sqlEnv <- startSqliteDb cid logger dir False
         a <- async $ runForever (\_ _ -> return ()) "Chainweb.Test.Pact.Utils.withPactTestBlockDb" $
-            initPactService version cid logger reqQ mempool bhdb pdb sqlEnv pactConfig
+            runPactService version cid logger reqQ mempool bhdb pdb sqlEnv pactConfig
         return (a, sqlEnv, (reqQ,bdb))
 
     stopPact (a, sqlEnv, _) = cancel a >> stopSqliteDb sqlEnv

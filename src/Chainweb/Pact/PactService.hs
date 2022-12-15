@@ -28,8 +28,8 @@ module Chainweb.Pact.PactService
     , execBlockTxHistory
     , execHistoricalLookup
     , execSyncToBlock
-    , initPactService
-    , initPactService'
+    , runPactService
+    , runPactService'
     , execNewGenesisBlock
     , getGasModel
     ) where
@@ -77,7 +77,7 @@ import Chainweb.BlockHeight
 import Chainweb.Logger
 import Chainweb.Mempool.Mempool as Mempool
 import Chainweb.Miner.Pact
-import Chainweb.Pact.Backend.RelationalCheckpointer (initRelationalCheckpointer)
+import Chainweb.Pact.Backend.RelationalCheckpointer (withProdRelationalCheckpointer)
 import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.PactService.ExecBlock
 import Chainweb.Pact.PactService.Checkpointer
@@ -96,7 +96,7 @@ import Data.LogMessage
 import Utils.Logging.Trace
 
 
-initPactService
+runPactService
     :: Logger logger
     => PayloadCasLookup cas
     => ChainwebVersion
@@ -109,12 +109,12 @@ initPactService
     -> SQLiteEnv
     -> PactServiceConfig
     -> IO ()
-initPactService ver cid chainwebLogger reqQ mempoolAccess bhDb pdb sqlenv config =
-    void $ initPactService' ver cid chainwebLogger bhDb pdb sqlenv config $ do
+runPactService ver cid chainwebLogger reqQ mempoolAccess bhDb pdb sqlenv config =
+    void $ runPactService' ver cid chainwebLogger bhDb pdb sqlenv config $ do
         initialPayloadState chainwebLogger mempoolAccess ver cid
         serviceRequests (logFunction chainwebLogger) mempoolAccess reqQ
 
-initPactService'
+runPactService'
     :: Logger logger
     => PayloadCasLookup cas
     => ChainwebVersion
@@ -126,45 +126,47 @@ initPactService'
     -> PactServiceConfig
     -> PactServiceM cas a
     -> IO (T2 a PactServiceState)
-initPactService' ver cid chainwebLogger bhDb pdb sqlenv config act = do
-    checkpointEnv <- initRelationalCheckpointer initialBlockState sqlenv cplogger ver cid
-    let !rs = readRewards
-        !initialParentHeader = ParentHeader $ genesisBlockHeader ver cid
-        !pse = PactServiceEnv
-                { _psMempoolAccess = Nothing
-                , _psCheckpointEnv = checkpointEnv
-                , _psPdb = pdb
-                , _psBlockHeaderDb = bhDb
-                , _psGasModel = getGasModel
-                , _psMinerRewards = rs
-                , _psReorgLimit = fromIntegral $ _pactReorgLimit config
-                , _psOnFatalError = defaultOnFatalError (logFunctionText chainwebLogger)
-                , _psVersion = ver
-                , _psValidateHashesOnReplay = _pactRevalidate config
-                , _psAllowReadsInLocal = _pactAllowReadsInLocal config
-                , _psIsBatch = False
-                , _psCheckpointerDepth = 0
-                , _psLogger = pactLogger
-                , _psGasLogger = gasLogger <$ guard (_pactLogGas config)
-                , _psLoggers = loggers
-                , _psBlockGasLimit = _pactBlockGasLimit config
-                }
-        !pst = PactServiceState Nothing mempty initialParentHeader P.noSPVSupport
-    runPactServiceM pst pse $ do
+runPactService' ver cid chainwebLogger bhDb pdb sqlenv config act =
+    withProdRelationalCheckpointer checkpointerLogger initialBlockState sqlenv cplogger ver cid $ \checkpointEnv -> do
+        let !rs = readRewards
+            !initialParentHeader = ParentHeader $ genesisBlockHeader ver cid
+            !pse = PactServiceEnv
+                    { _psMempoolAccess = Nothing
+                    , _psCheckpointEnv = checkpointEnv
+                    , _psPdb = pdb
+                    , _psBlockHeaderDb = bhDb
+                    , _psGasModel = getGasModel
+                    , _psMinerRewards = rs
+                    , _psReorgLimit = fromIntegral $ _pactReorgLimit config
+                    , _psOnFatalError = defaultOnFatalError (logFunctionText chainwebLogger)
+                    , _psVersion = ver
+                    , _psValidateHashesOnReplay = _pactRevalidate config
+                    , _psAllowReadsInLocal = _pactAllowReadsInLocal config
+                    , _psIsBatch = False
+                    , _psCheckpointerDepth = 0
+                    , _psLogger = pactLogger
+                    , _psGasLogger = gasLogger <$ guard (_pactLogGas config)
+                    , _psLoggers = loggers
+                    , _psBlockGasLimit = _pactBlockGasLimit config
+                    }
+            !pst = PactServiceState Nothing mempty initialParentHeader P.noSPVSupport
+        runPactServiceM pst pse $ do
 
-        -- If the latest header that is stored in the checkpointer was on an
-        -- orphaned fork, there is no way to recover it in the call of
-        -- 'initalPayloadState.readContracts'. We therefore rewind to the latest
-        -- avaliable header in the block header database.
-        --
-        exitOnRewindLimitExceeded $ initializeLatestBlock (_pactUnlimitedInitialRewind config)
-        act
+            -- If the latest header that is stored in the checkpointer was on an
+            -- orphaned fork, there is no way to recover it in the call of
+            -- 'initalPayloadState.readContracts'. We therefore rewind to the latest
+            -- avaliable header in the block header database.
+            --
+            exitOnRewindLimitExceeded $ initializeLatestBlock (_pactUnlimitedInitialRewind config)
+            act
   where
-    initialBlockState = initBlockState $ genesisHeight ver cid
+    initialBlockState = initBlockState (_pactModuleCacheLimit config) $ genesisHeight ver cid
     loggers = pactLoggers chainwebLogger
     cplogger = P.newLogger loggers $ P.LogName "Checkpointer"
     pactLogger = P.newLogger loggers $ P.LogName "PactService"
     gasLogger = P.newLogger loggers $ P.LogName "GasLogs"
+
+    checkpointerLogger = addLabel ("sub-component", "checkpointer") chainwebLogger
 
 initializeLatestBlock :: PayloadCasLookup cas => Bool -> PactServiceM cas ()
 initializeLatestBlock unlimitedRewind = findLatestValidBlock >>= \case
@@ -338,7 +340,7 @@ serviceRequests logFn memPoolAccess reqQ = do
         (evalPactOnThread (post <$> m) >>= (liftIO . putMVar mvar))
         `catches`
             [ Handler $ \(e :: SomeAsyncException) -> do
-                logError $ mconcat
+                logWarn $ mconcat
                     [ "Received asynchronous exception running pact service ("
                     , which
                     , "): "
@@ -506,12 +508,12 @@ execNewBlock mpAccess parent miner = do
         blockGasLimit <- view psBlockGasLimit
         let initState = BlockFill blockGasLimit mempty 0
 
-        let 
+        let
             txTimeHeadroomFactor :: Double
             txTimeHeadroomFactor = 5
             -- 2.5 microseconds per unit gas
             txTimeLimit :: Micros
-            txTimeLimit = round $ (2.5 * txTimeHeadroomFactor) * fromIntegral blockGasLimit 
+            txTimeLimit = round $ (2.5 * txTimeHeadroomFactor) * fromIntegral blockGasLimit
 
         -- Heuristic: limit fetches to count of 1000-gas txs in block.
         let fetchLimit = fromIntegral $ blockGasLimit `div` 1000

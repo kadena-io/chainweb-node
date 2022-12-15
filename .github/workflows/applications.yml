@@ -227,7 +227,7 @@ jobs:
         cabal --version
     - name: Install non-Haskell dependencies (ubuntu)
       if: contains(matrix.os, 'ubuntu')
-      run: sudo apt-get install -y libgflags-dev liblz4-dev libzstd-dev libgflags-dev libtbb-dev libsnappy-dev libbz2-dev
+      run: sudo apt-get install -y libgflags-dev liblz4-dev libzstd-dev libtbb-dev libsnappy-dev libbz2-dev
     # Project Configuration
     - name: Create cabal.project.local
       run: |
@@ -689,7 +689,7 @@ jobs:
           type=ref,event=pr
 
     - name: Set up Docker Buildx
-      uses: docker/setup-buildx-action@v1
+      uses: docker/setup-buildx-action@v2
 
     - name: Cache Docker layers
       uses: actions/cache@v3
@@ -700,7 +700,7 @@ jobs:
           ${{ runner.os }}-buildx-
 
     - name: Login to GitHub Container Registry
-      uses: docker/login-action@v1
+      uses: docker/login-action@v2
       with:
         registry: ghcr.io
         username: kadena-build

@@ -17,13 +17,13 @@ import Control.Lens
 
 import qualified Data.Aeson as A
 import qualified Data.Aeson.KeyMap as KM
+import qualified Data.ByteString.Short as BS
 import Data.Decimal
 import Data.Functor (void)
 import qualified Data.HashMap.Strict as HM
 import Data.IORef
 import qualified Data.List.NonEmpty as NEL
 import Data.Text (Text)
-import qualified Data.Text.Encoding as T
 import Data.Foldable
 
 import GHC.Natural
@@ -509,7 +509,7 @@ constructionTransferTests _ envIo =
 
     ks (TestKeySet _ Nothing pred') = P.mkKeySet [] pred'
     ks (TestKeySet _ (Just (pk,_)) pred') =
-      P.mkKeySet [P.PublicKey $ T.encodeUtf8 pk] pred'
+      P.mkKeySet [P.PublicKeyText pk] pred'
 
     sender00KAcct = "k:" <> fst sender00
     sender01KAcct = "k:" <> fst sender01
@@ -616,7 +616,7 @@ submitToConstructionAPI expectOps chainId' payer getKeys expectResult cenv step 
                  Nothing Nothing Nothing
       [(kp,_)] <- P.mkKeyPairs [akps]
       (Right (hsh :: P.PactHash)) <- pure $ fmap
-        (P.fromUntypedHash . P.Hash)
+        (P.fromUntypedHash . P.Hash . BS.toShort)
         (P.parseB16TextOnly $ _rosettaSigningPayload_hexBytes payload)
       sig <- P.signHash hsh kp
 

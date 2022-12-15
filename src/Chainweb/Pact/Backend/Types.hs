@@ -63,6 +63,7 @@ module Chainweb.Pact.Backend.Types
     , bsModuleNameFix
     , bsSortedKeys
     , bsLowerCaseTables
+    , bsModuleCache
     , BlockEnv(..)
     , benvBlockState
     , benvDb
@@ -118,10 +119,12 @@ import Pact.Utils.LegacyValue
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
 import Chainweb.BlockHeight
-import Chainweb.Mempool.Mempool (MempoolPreBlockCheck,TransactionHash,BlockFill)
+import Chainweb.Pact.Backend.DbCache
 import Chainweb.Pact.Service.Types
 import Chainweb.Transaction
 import Chainweb.Utils (T2)
+
+import Chainweb.Mempool.Mempool (MempoolPreBlockCheck,TransactionHash,BlockFill)
 
 
 data Env' = forall a. Env' (PactDbEnv (DbEnv a))
@@ -225,14 +228,18 @@ data BlockState = BlockState
     , _bsModuleNameFix :: Bool
     , _bsSortedKeys :: Bool
     , _bsLowerCaseTables :: Bool
+    , _bsModuleCache :: DbCache PersistModuleData
     }
-    deriving Show
 
 emptySQLitePendingData :: SQLitePendingData
 emptySQLitePendingData = SQLitePendingData mempty mempty mempty mempty
 
-initBlockState :: BlockHeight -> BlockState
-initBlockState initialBlockHeight = BlockState
+initBlockState
+    :: DbCacheLimitBytes
+        -- ^ Module Cache Limit (in bytes of corresponding rowdata)
+    -> BlockHeight
+    -> BlockState
+initBlockState cl initialBlockHeight = BlockState
     { _bsTxId = 0
     , _bsMode = Nothing
     , _bsBlockHeight = initialBlockHeight
@@ -241,6 +248,7 @@ initBlockState initialBlockHeight = BlockState
     , _bsModuleNameFix = False
     , _bsSortedKeys = False
     , _bsLowerCaseTables = False
+    , _bsModuleCache = emptyDbCache cl
     }
 
 makeLenses ''BlockState
@@ -280,7 +288,7 @@ newtype BlockHandler p a = BlockHandler
         , MonadReader (BlockDbEnv p)
         )
 
-data PactDbEnv' = forall e. PactDbEnv' (PactDbEnv e)
+newtype PactDbEnv' = PactDbEnv' (PactDbEnv (BlockEnv SQLiteEnv))
 
 instance Logging (BlockHandler p) where
     log c s = view logger >>= \l -> liftIO $ logLog l c s

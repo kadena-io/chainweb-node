@@ -60,5 +60,6 @@ someGetConfigServer config = SomeServer (Proxy @GetConfigApi) $ return
     -- Service API port
     $ set (configServiceApi . serviceApiConfigPort) 0
     $ set (configServiceApi . serviceApiConfigInterface) "invalid"
+    $ set configBackup defaultBackupConfig
     config
 

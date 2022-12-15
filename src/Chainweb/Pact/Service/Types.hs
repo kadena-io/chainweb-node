@@ -49,13 +49,14 @@ import Chainweb.BlockHeader
 import Chainweb.BlockHeight
 import Chainweb.Mempool.Mempool (InsertError(..),TransactionHash)
 import Chainweb.Miner.Pact
+import Chainweb.Pact.Backend.DbCache
 import Chainweb.Payload
 import Chainweb.Transaction
 import Chainweb.Utils (T2, encodeToText)
 import Chainweb.Version
 
-
 -- | Externally-injected PactService properties.
+--
 data PactServiceConfig = PactServiceConfig
   { _pactReorgLimit :: !Natural
     -- ^ Maximum allowed reorg depth, implemented as a rewind limit in validate. New block
@@ -74,6 +75,8 @@ data PactServiceConfig = PactServiceConfig
     -- ^ the gas limit for new block creation, not for validation
   , _pactLogGas :: !Bool
     -- ^ whether to write transaction gas logs at INFO
+  , _pactModuleCacheLimit :: !DbCacheLimitBytes
+    -- ^ limit of the database module cache in bytes of corresponding row data
   } deriving (Eq,Show)
 
 data GasPurchaseFailure = GasPurchaseFailure TransactionHash PactError
