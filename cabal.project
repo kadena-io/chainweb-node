@@ -56,26 +56,31 @@ source-repository-package
     type: git
     location: https://github.com/kadena-io/pact.git
     tag: bb6476de0fe56858a80f179d256809676885d0cb
+    --sha256: sha256-PiA0YqnGrl+5QkbYWu1EGVXvD/uV406OP2cUNpSlzEg=
 
 source-repository-package
     type: git
     location: https://github.com/kadena-io/chainweb-storage.git
     tag: 5b04025bca75b035d7df29419963880c03c43493
+    --sha256: sha256-1nOVXefYVCCbU/GvkMx9sPivtMZRlM4LNhO+/r4UMhE=
 
 source-repository-package
     type: git
     location: https://github.com/kadena-io/rocksdb-haskell.git
     tag: 2f0bae730d137b7edee090c4014d891675933ba5
+    --sha256: sha256-4I9MQKKxGEDmd2Odavhwq08K2wMZrgaA4zjH+31LfSs=
 
 source-repository-package
     type: git
     location: https://github.com/kadena-io/rosetta.git
     tag: 6c8dd2eea1f6d0dba925646dbcb6e07feeccbfd5
+    --sha256: sha256-EE8A/5wJYqIfx1uz/v3QjWCFgaeVLf/fi1r03A3w8qY=
 
 source-repository-package
     type: git
     location: https://github.com/kadena-io/kadena-ethereum-bridge.git
     tag: 10f21e96af1dce4f13e261be9dfad8c28cd299f7
+    --sha256: sha256-E+9yLZYLcRd4PoBeQXWhOS+ddpVO6jDP6ca+eEwVS+0=
 
 -- Required for GHC-9:
 
@@ -84,6 +89,7 @@ source-repository-package
     type: git
     location: https://github.com/larskuhtz/ixset-typed
     tag: d8019c3404d6f3b3c0b0416e9899cfdf614ef425
+    --sha256: sha256-AwS/uqzUQrTUgxEHNjpX65JKFcaOuZN+03mI16JXuiY=
 
 -- -------------------------------------------------------------------------- --
 -- Relaxed Bounds
