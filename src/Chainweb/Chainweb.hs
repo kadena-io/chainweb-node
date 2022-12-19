@@ -67,6 +67,7 @@ module Chainweb.Chainweb
 , chainwebServiceSocket
 , chainwebBackup
 , StartedChainweb(..)
+, ChainwebStatus(..)
 
 -- ** Mempool integration
 , ChainwebTransaction
@@ -104,6 +105,7 @@ import Configuration.Utils hiding (Error, Lens', disabled)
 import Control.Concurrent (threadDelay)
 import Control.Concurrent.Async
 import Control.Concurrent.MVar (MVar, readMVar)
+import Control.DeepSeq
 import Control.Error.Util (note)
 import Control.Lens hiding ((.=), (<.>))
 import Control.Monad
@@ -120,6 +122,8 @@ import Data.Maybe
 import qualified Data.Text as T
 import Data.These (These(..))
 import qualified Data.Vector as V
+
+import GHC.Generics
 
 import qualified Network.HTTP.Client as HTTP
 import Network.Socket (Socket)
@@ -329,6 +333,19 @@ data StartedChainweb logger
     = forall cas. (PayloadCasLookup cas, Logger logger) => StartedChainweb !(Chainweb logger cas)
     | Replayed !Cut !Cut
 
+data ChainwebStatus
+    = ProcessStarted
+    | PruningDatabases
+    | InitializingChainResources
+    | InitializingCutResources
+    | InitialSyncInProgress
+    | PactReplayInProgress
+    | InitializingMinerResources
+    | ChainwebStarted
+    | ProcessDied !String
+    | PactReplaySuccessful
+    deriving (Generic, Eq, Ord, Show, NFData, ToJSON, FromJSON)
+
 -- Intializes all service chainweb components but doesn't start any networking.
 --
 withChainwebInternal
@@ -350,6 +367,7 @@ withChainwebInternal conf logger peer serviceSock rocksDb pactDbDir backupDir re
 
     -- Garbage Collection
     -- performed before PayloadDb and BlockHeaderDb used by other components
+    logFunctionJson logger Info PruningDatabases
     logg Info "start pruning databases"
     case _cutPruneChainDatabase (_configCuts conf) of
         GcNone -> return ()
@@ -360,6 +378,7 @@ withChainwebInternal conf logger peer serviceSock rocksDb pactDbDir backupDir re
         GcFull ->
             fullGc (pruningLogger "full") rocksDb v
     logg Info "finished pruning databases"
+    logFunctionJson logger Info InitializingChainResources
 
     logg Info "start initializing chain resources"
     concurrentWith
@@ -400,6 +419,7 @@ withChainwebInternal conf logger peer serviceSock rocksDb pactDbDir backupDir re
           isJust (_cutDbParamsInitialCutFile cutConfig)
       , _pactBlockGasLimit = maybe id min maxGasLimit (_configBlockGasLimit conf)
       , _pactLogGas = _configLogGas conf
+      , _pactModuleCacheLimit = _configModuleCacheLimit conf
       }
 
     pruningLogger :: T.Text -> logger
@@ -432,6 +452,7 @@ withChainwebInternal conf logger peer serviceSock rocksDb pactDbDir backupDir re
             !mgr = _peerResManager peer
 
         logg Info "start initializing cut resources"
+        logFunctionJson logger Info InitializingCutResources
 
         withCutResources cutConfig peer cutLogger rocksDb webchain payloadDb mgr pact $ \cuts -> do
             logg Info "finished initializing cut resources"
@@ -460,21 +481,25 @@ withChainwebInternal conf logger peer serviceSock rocksDb pactDbDir backupDir re
                       Just syncChains | _configOnlySyncPact conf -> HM.filterWithKey (\k _ -> elem k syncChains) cs
                       _ -> cs
             logg Info "start synchronizing Pact DBs to initial cut"
+            logFunctionJson logger Info InitialSyncInProgress
             initialCut <- _cut mCutDb
             synchronizePactDb pactSyncChains initialCut
             logg Info "finished synchronizing Pact DBs to initial cut"
 
             if _configOnlySyncPact conf
             then do
+                logFunctionJson logger Info PactReplayInProgress
                 logg Info "start replaying Pact DBs to fast forward cut"
                 fastForwardCutDb mCutDb
                 newCut <- _cut mCutDb
                 synchronizePactDb pactSyncChains newCut
                 logg Info "finished replaying Pact DBs to fast forward cut"
+                logFunctionJson logger Info PactReplaySuccessful
                 inner $ Replayed initialCut newCut
             else do
                 withPactData cs cuts $ \pactData -> do
                     logg Info "start initializing miner resources"
+                    logFunctionJson logger Info InitializingMinerResources
 
                     withMiningCoordination mLogger mConf mCutDb $ \mc ->
 
@@ -483,6 +508,7 @@ withChainwebInternal conf logger peer serviceSock rocksDb pactDbDir backupDir re
                         -- keeps the mempool updated) in production setups.
                         --
                         withMinerResources mLogger (_miningInNode mConf) cs mCutDb mc $ \m -> do
+                            logFunctionJson logger Info ChainwebStarted
                             logg Info "finished initializing miner resources"
                             let !haddr = _peerConfigAddr $ _p2pConfigPeer $ _configP2p conf
                             inner $ StartedChainweb Chainweb

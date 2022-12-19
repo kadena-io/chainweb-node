@@ -44,7 +44,6 @@ import Control.Monad.Trans.Maybe
 import Data.Aeson as Aeson
 import Data.Bifunctor (second)
 import Data.ByteString (ByteString)
-import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy.Char8 as BSL8
 import qualified Data.ByteString.Short as SB
 import Data.CAS
@@ -240,7 +239,7 @@ sendHandler logger mempool (SubmitBatch cmds) = Handler $ do
     logg = logFunctionJson (setComponent "send-handler" logger)
 
     toPactHash :: TransactionHash -> Pact.TypedHash h
-    toPactHash (TransactionHash h) = Pact.TypedHash $ SB.fromShort h
+    toPactHash (TransactionHash h) = Pact.TypedHash h
 
     checkResult :: Either (T2 TransactionHash InsertError) () -> ExceptT ServerError IO ()
     checkResult (Right _) = pure ()
@@ -601,7 +600,7 @@ internalPoll pdb bhdb mempool pactEx cut requestKeys0 = do
     checkBadList rkeys = do
         let !hashes = V.map requestKeyToTransactionHash rkeys
         out <- mempoolCheckBadList mempool hashes
-        let bad = V.map (RequestKey . Hash . SB.fromShort . unTransactionHash . fst) $
+        let bad = V.map (RequestKey . Hash . unTransactionHash . fst) $
                   V.filter snd $ V.zip hashes out
         return $! V.map hashIsOnBadList bad
 
@@ -653,7 +652,7 @@ validateRequestKey (RequestKey h'@(Hash h))
 
     -- length of the encoded request key hash
     --
-    keyLength = BS.length h
+    keyLength = SB.length h
 
     -- Blake hash length = 32 - the length of a
     -- Blake2b_256 hash
