@@ -163,6 +163,7 @@ import Chainweb.Miner.Config
 import Chainweb.Pact.RestAPI.Server (PactServerData(..))
 import Chainweb.Pact.Service.Types (PactServiceConfig(..))
 import Chainweb.Pact.Utils (fromPactChainId)
+import Chainweb.Pact.Validations
 import Chainweb.Payload.PayloadStore
 import Chainweb.Payload.PayloadStore.RocksDB
 import Chainweb.RestAPI
@@ -296,13 +297,13 @@ validatingMempoolConfig cid v gl gp mv = Mempool.InMemConfig
     preInsertSingle tx = do
         let !pay = payloadObj . P._cmdPayload $ tx
             pcid = P._pmChainId $ P._pMeta pay
-            sigs = length (P._cmdSigs tx)
-            ver  = P._pNetworkId pay >>= fromText @ChainwebVersion . P._networkId
-        tcid <- note (Mempool.InsertErrorOther "Unparsable ChainId") $ fromPactChainId pcid
-        if | tcid /= cid   -> Left Mempool.InsertErrorMetadataMismatch
-           | sigs > 100    -> Left $ Mempool.InsertErrorOther "Too many signatures"
-           | ver /= Just v -> Left Mempool.InsertErrorMetadataMismatch
-           | otherwise     -> Right tx
+            sigs = P._cmdSigs tx
+            ver  = P._pNetworkId pay
+        if | not $ assertParseChainId pcid -> Left $ Mempool.InsertErrorOther "Unparsable ChainId"
+           | not $ assertChainId cid pcid  -> Left Mempool.InsertErrorMetadataMismatch
+           | not $ assertSigSize sigs      -> Left $ Mempool.InsertErrorOther "Too many signatures"
+           | not $ assertNetworkId v ver   -> Left Mempool.InsertErrorMetadataMismatch
+           | otherwise                     -> Right tx
 
     -- | Validation: All checks that should occur before a TX is inserted into
     -- the mempool. A rejection at this stage means that something is

@@ -308,7 +308,7 @@ library
         , Chainweb.Pact.Transactions.UpgradeTransactions
         , Chainweb.Pact.Types
         , Chainweb.Pact.Utils
-        , Chainweb.Pact.Validators
+        , Chainweb.Pact.Validations
 
         -- utils
         , Servant.Client_
