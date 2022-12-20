@@ -78,7 +78,7 @@ import Chainweb.Pact.Service.Types
 import Chainweb.Pact.SPV
 import Chainweb.Pact.TransactionExec
 import Chainweb.Pact.Types
-import Chainweb.Pact.Utils
+import Chainweb.Pact.Validations (assertTxTimeRelativeToParent)
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
 import Chainweb.Time
@@ -232,7 +232,7 @@ validateChainwebTxs logger v cid cp txValidationTime bh txs doBuyGas
     checkTimes :: ChainwebTransaction -> IO (Either InsertError ChainwebTransaction)
     checkTimes t
         | skipTxTimingValidation v bh = return $ Right t
-        | timingsCheck txValidationTime $ fmap payloadObj t = return $ Right t
+        | assertTxTimeRelativeToParent txValidationTime $ fmap payloadObj t = return $ Right t
         | otherwise = return $ Left InsertErrorInvalidTime
 
     checkTxHash :: ChainwebTransaction -> IO (Either InsertError ChainwebTransaction)
@@ -429,11 +429,11 @@ applyPactCmd isGenesis env miner txTimeLimit cmd = StateT $ \(T2 mcache maybeBlo
       else do
         pd <- getTxContext (publicMetaOf gasLimitedCmd)
         spv <- use psSpvSupport
-        let 
+        let
           timeoutError = TxTimeout (requestKeyToTransactionHash $ P.cmdToRequestKey cmd)
-          txTimeout = case txTimeLimit of 
+          txTimeout = case txTimeLimit of
             Nothing -> id
-            Just limit -> 
+            Just limit ->
                maybe (throwM timeoutError) return <=< timeout (fromIntegral limit)
         liftIO $! txTimeout $ applyCmd v logger gasLogger env miner (gasModel pd) pd spv gasLimitedCmd initialGas mcache
 

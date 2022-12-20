@@ -979,7 +979,23 @@ initCapabilities cs = set (evalCapabilities . capStack) cs def
 initStateInterpreter :: EvalState -> Interpreter e
 initStateInterpreter s = Interpreter (put s >>)
 
+checkTooBigTx
+    :: Gas
+    -> GasLimit
+    -> TransactionM p (CommandResult [TxLog Value])
+    -> (CommandResult [TxLog Value] -> TransactionM p (CommandResult [TxLog Value]))
+    -> TransactionM p (CommandResult [TxLog Value])
+checkTooBigTx initialGas gasLimit next onFail
+  | initialGas >= (fromIntegral gasLimit) = do
+      txGasUsed .= (fromIntegral gasLimit) -- all gas is consumed
 
+      let !pe = PactError GasError def []
+            $ "Tx too big (" <> pretty initialGas <> "), limit "
+            <> pretty gasLimit
+
+      r <- jsonErrorResult pe "Tx too big"
+      onFail r
+  | otherwise = next
 
 gasInterpreter :: Gas -> TransactionM db (Interpreter p)
 gasInterpreter g = do
@@ -988,7 +1004,6 @@ gasInterpreter g = do
     return $ initStateInterpreter
         $ set evalLogGas (guard logGas >> Just [("GTxSize",g)]) -- enables gas logging
         $ setModuleCache mc def
-
 
 -- | Initial gas charged for transaction size
 --   ignoring the size of a continuation proof, if present
