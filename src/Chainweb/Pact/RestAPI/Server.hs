@@ -119,11 +119,9 @@ import Chainweb.WebPactExecutionService
 
 import Pact.Types.API
 import qualified Pact.Types.ChainId as Pact
-import Pact.Types.ChainMeta
 import Pact.Types.Command
 import Pact.Types.Hash (Hash(..))
 import qualified Pact.Types.Hash as Pact
-import Pact.Types.Gas
 import Pact.Types.PactError (PactError(..), PactErrorType(..))
 import Pact.Types.Pretty (pretty)
 
@@ -336,19 +334,17 @@ localHandler
     :: Logger logger
     => logger
     -> PactExecutionService
-    -> Maybe GasPrice
-    -> Maybe GasLimit
-    -> Maybe TTLSeconds
-    -> Maybe TxCreationTime
+    -> Bool
+      -- ^ Preflight flag
     -> Command Text
     -> Handler (CommandResult Hash)
-localHandler logger pact _gasPrice _gasLimit _ttl _ct cmd = do
+localHandler logger pact preflight cmd = do
     liftIO $ logg Info $ PactCmdLogLocal cmd
     cmd' <- case validateCommand cmd of
       (Right !c) -> return c
       Left err ->
         throwError $ err400 { errBody = "Validation failed: " <> BSL8.pack err }
-    r <- liftIO $ _pactLocal pact cmd'
+    r <- liftIO $ _pactLocal pact preflight cmd'
     case r of
       Left err ->
         throwError $ err400 { errBody = "Execution failed: " <> BSL8.pack (show err) }

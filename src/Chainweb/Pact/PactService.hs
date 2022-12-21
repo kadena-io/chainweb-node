@@ -275,10 +275,10 @@ serviceRequests logFn memPoolAccess reqQ = do
         logDebug $ "serviceRequests: " <> sshow msg
         case msg of
             CloseMsg -> return ()
-            LocalMsg LocalReq{..} -> do
+            LocalMsg (LocalReq localRequest preflight localResultVar)  -> do
                 trace logFn "Chainweb.Pact.PactService.execLocal" () 0 $
-                    tryOne "execLocal" _localResultVar $
-                        execLocal _localRequest
+                    tryOne "execLocal" localResultVar $
+                        execLocal localRequest preflight
                 go
             NewBlockMsg NewBlockReq {..} -> do
                 trace logFn "Chainweb.Pact.PactService.execNewBlock"
@@ -623,20 +623,31 @@ execNewGenesisBlock miner newTrans = withDiscardedBatch $
 execLocal
     :: PayloadCasLookup cas
     => ChainwebTransaction
+    -> Bool
+      -- ^ preflight flag
     -> PactServiceM cas (P.CommandResult P.Hash)
-execLocal cmd = withDiscardedBatch $ do
+execLocal cwtx preflight = withDiscardedBatch $ do
     PactServiceEnv{..} <- ask
+
+    let !cmd = payloadObj <$> cwtx
+
     mc <- getInitCache
-    pd <- getTxContext (publicMetaOf $! payloadObj <$> cmd)
+    pd <- getTxContext $ publicMetaOf cmd
     spv <- use psSpvSupport
+
     let execConfig = P.mkExecutionConfig $
             [ P.FlagAllowReadInLocal | _psAllowReadsInLocal ] ++
             enablePactEvents' pd ++
             enforceKeysetFormats' pd
         logger = P.newLogger _psLoggers "execLocal"
+        initialGas = initialGasOf $ P._cmdPayload cwtx
+
     withCurrentCheckpointer "execLocal" $ \(PactDbEnv' pdbenv) -> do
-        r <- liftIO $
-          applyLocal logger _psGasLogger pdbenv chainweb213GasModel pd spv cmd mc execConfig
+        r <- liftIO $ if preflight
+          then applyLocal logger _psGasLogger pdbenv chainweb213GasModel pd spv cwtx mc execConfig
+          else do
+            T2 cr _mc' <- applyCmd _psVersion logger _psGasLogger pdbenv noMiner chainweb213GasModel pd spv cmd initialGas mc
+            return cr
         return $! Discard (toHashCommandResult r)
 
 execSyncToBlock

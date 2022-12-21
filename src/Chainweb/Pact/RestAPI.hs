@@ -59,8 +59,6 @@ module Chainweb.Pact.RestAPI
 
 
 import Pact.Server.API as API
-import Pact.Types.ChainMeta
-import Pact.Types.Gas
 
 import Servant
 
@@ -136,11 +134,7 @@ pactPollApi = Proxy
 -- POST Queries for Pact Local Pre-flight
 
 type PactLocalWithQueryApi_
-  = QueryParam "gasPrice" GasPrice
-  :> QueryParam "gasLimit" GasLimit
-  :> QueryParam "ttl" TTLSeconds
-  :> QueryParam "creationTime" TxCreationTime
-  :> ApiLocal
+    = QueryFlag "preFlight" :> ApiLocal
 
 type PactLocalWithQueryApi v c = PactV1ApiEndpoint v c PactLocalWithQueryApi_
 

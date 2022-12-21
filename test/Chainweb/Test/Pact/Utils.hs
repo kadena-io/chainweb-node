@@ -667,8 +667,8 @@ withWebPactExecutionService v pactConfig bdb mempoolAccess gasmodel act =
               evalPactServiceM_ ctx $ execNewBlock mempoolAccess p m
           , _pactValidateBlock = \h d ->
               evalPactServiceM_ ctx $ execValidateBlock mempoolAccess h d
-          , _pactLocal = \cmd ->
-              evalPactServiceM_ ctx $ Right <$> execLocal cmd
+          , _pactLocal = \pf cmd ->
+              evalPactServiceM_ ctx $ Right <$> execLocal cmd pf
           , _pactLookup = \rp hashes ->
               evalPactServiceM_ ctx $ Right <$> execLookupPactTxs rp hashes
           , _pactPreInsertCheck = \_ txs ->
