@@ -643,11 +643,21 @@ execLocal cwtx preflight = withDiscardedBatch $ do
         initialGas = initialGasOf $ P._cmdPayload cwtx
 
     withCurrentCheckpointer "execLocal" $ \(PactDbEnv' pdbenv) -> do
+        --
+        -- if the ?preflight query parameter is set to True, we run the `applyCmd` workflow
+        -- otherwise, we prefer the old (default) behavior. When no preflight flag is
+        -- specified, we run the old behavior. When it is set to true, we also do metadata
+        -- validations.
+        --
         r <- liftIO $ if preflight
-          then applyLocal logger _psGasLogger pdbenv chainweb213GasModel pd spv cwtx mc execConfig
-          else do
-            T2 cr _mc' <- applyCmd _psVersion logger _psGasLogger pdbenv noMiner chainweb213GasModel pd spv cmd initialGas mc
+          then do
+            T2 cr _mc' <-
+              applyCmd
+                _psVersion logger _psGasLogger pdbenv
+                noMiner chainweb213GasModel pd spv cmd
+                initialGas mc ApplyLocal
             return cr
+          else applyLocal logger _psGasLogger pdbenv chainweb213GasModel pd spv cwtx mc execConfig
         return $! Discard (toHashCommandResult r)
 
 execSyncToBlock

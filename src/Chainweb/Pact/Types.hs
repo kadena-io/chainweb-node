@@ -129,6 +129,7 @@ module Chainweb.Pact.Types
     -- * types
   , ModuleCache
   , TxTimeout(..)
+  , ApplyCmdExecutionContext(..)
 
   -- * miscellaneous
   , defaultOnFatalError
@@ -227,6 +228,11 @@ newtype EnforceCoinbaseFailure = EnforceCoinbaseFailure Bool
 newtype CoinbaseUsePrecompiled = CoinbaseUsePrecompiled Bool
 
 type ModuleCache = HashMap ModuleName (ModuleData Ref, Bool)
+
+-- -------------------------------------------------------------------- --
+-- Local vs. Send execution context flag
+
+data ApplyCmdExecutionContext = ApplyLocal | ApplySend
 
 -- -------------------------------------------------------------------- --
 -- Tx Execution Service Monad

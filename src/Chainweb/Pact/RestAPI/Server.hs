@@ -344,6 +344,7 @@ localHandler logger pact preflight cmd = do
       (Right !c) -> return c
       Left err ->
         throwError $ err400 { errBody = "Validation failed: " <> BSL8.pack err }
+
     r <- liftIO $ _pactLocal pact preflight cmd'
     case r of
       Left err ->

@@ -1,11 +1,7 @@
 {-# LANGUAGE DataKinds #-}
-{-# LANGUAGE DeriveAnyClass #-}
-{-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE KindSignatures #-}
-{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeOperators #-}
 
@@ -134,7 +130,7 @@ pactPollApi = Proxy
 -- POST Queries for Pact Local Pre-flight
 
 type PactLocalWithQueryApi_
-    = QueryFlag "preFlight" :> ApiLocal
+    = QueryFlag "preflight" :> ApiLocal
 
 type PactLocalWithQueryApi v c = PactV1ApiEndpoint v c PactLocalWithQueryApi_
 

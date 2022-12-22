@@ -3,7 +3,6 @@
 {-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
-{-# LANGUAGE TypeOperators #-}
 -- |
 -- Module: Chainweb.Pact.RestAPI.Client
 -- Copyright: Copyright © 2018 - 2020 Kadena LLC.
@@ -28,6 +27,8 @@ module Chainweb.Pact.RestAPI.Client
 , pactSendApiClient
 , pactLocalApiClient_
 , pactLocalApiClient
+, pactLocalWithQueryApiClient_
+, pactLocalWithQueryApiClient
 )
 where
 
@@ -149,6 +150,26 @@ pactLocalApiClient
     (FromSingChainwebVersion (SChainwebVersion :: Sing v))
     (FromSingChainId (SChainId :: Sing c))
     = pactLocalApiClient_ @v @c
+
+pactLocalWithQueryApiClient_
+    :: forall (v :: ChainwebVersionT) (c :: ChainIdT)
+    . KnownChainwebVersionSymbol v
+    => KnownChainIdSymbol c
+    => Bool
+    -> Command T.Text
+    -> ClientM (CommandResult Hash)
+pactLocalWithQueryApiClient_ = client (pactLocalWithQueryApi @v @c)
+
+pactLocalWithQueryApiClient
+    :: ChainwebVersion
+    -> ChainId
+    -> Bool
+    -> Command T.Text
+    -> ClientM (CommandResult Hash)
+pactLocalWithQueryApiClient
+    (FromSingChainwebVersion (SChainwebVersion :: Sing v))
+    (FromSingChainId (SChainId :: Sing c))
+    = pactLocalWithQueryApiClient_ @v @c
 
 -- -------------------------------------------------------------------------- --
 -- Pact Listen

@@ -156,8 +156,10 @@ applyCmd
       -- ^ initial gas used
     -> ModuleCache
       -- ^ cached module state
+    -> ApplyCmdExecutionContext
+      -- ^ is this a local or mainnet execution context?
     -> IO (T2 (CommandResult [TxLog Value]) ModuleCache)
-applyCmd v logger gasLogger pdbenv miner gasModel txCtx spv cmd initialGas mcache0 =
+applyCmd v logger gasLogger pdbenv miner gasModel txCtx spv cmd initialGas mcache0 callCtx =
     second _txCache <$!>
       runTransactionM cenv txst applyBuyGas
   where
@@ -220,7 +222,10 @@ applyCmd v logger gasLogger pdbenv miner gasModel txCtx spv cmd initialGas mcach
       case cr of
         Left e
           | chainweb217Pact' -> do
-            r <- jsonErrorResult (toEmptyPactError e) "tx failure for request key when running cmd"
+            let e' = case callCtx of
+                  ApplyLocal -> e
+                  ApplySend -> toEmptyPactError e
+            r <- jsonErrorResult e' "tx failure for request key when running cmd"
             redeemAllGas r
           | chainweb213Pact' || not (isOldListErr e) -> do
               r <- jsonErrorResult e "tx failure for request key when running cmd"
