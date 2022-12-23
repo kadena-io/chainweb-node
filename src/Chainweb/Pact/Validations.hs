@@ -101,10 +101,7 @@ assertTxSize initialGas gasLimit = initialGas < fromIntegral gasLimit
 assertValidateSigs :: P.PactHash -> [P.Signer] -> [P.UserSig] -> Bool
 assertValidateSigs hsh signers sigs
     | length signers /= length sigs = False
-    | otherwise = foldr validateSig False $ zip signers sigs
-  where
-    validateSig (signer, sig) acc =
-      P.verifyUserSig hsh sig signer && acc
+    | otherwise = all (uncurry (P.verifyUserSig hsh)) $ zip sigs signers
 
 -- prop_tx_ttl_newBlock/validateBlock
 --

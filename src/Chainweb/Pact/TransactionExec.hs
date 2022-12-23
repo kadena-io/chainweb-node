@@ -157,7 +157,7 @@ applyCmd
     -> ModuleCache
       -- ^ cached module state
     -> ApplyCmdExecutionContext
-      -- ^ is this a local or mainnet execution context?
+      -- ^ is this a local or send execution context?
     -> IO (T2 (CommandResult [TxLog Value]) ModuleCache)
 applyCmd v logger gasLogger pdbenv miner gasModel txCtx spv cmd initialGas mcache0 callCtx =
     second _txCache <$!>

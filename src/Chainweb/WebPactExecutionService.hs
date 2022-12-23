@@ -64,7 +64,7 @@ data PactExecutionService = PactExecutionService
     , _pactLocal :: !(
         Bool ->
         ChainwebTransaction ->
-        IO (Either PactException (CommandResult Hash)))
+        IO (Either PactException (Either MetadataError (CommandResult Hash))))
       -- ^ Directly execute a single transaction in "local" mode (all DB interactions rolled back).
       -- Corresponds to `local` HTTP endpoint.
     , _pactLookup :: !(

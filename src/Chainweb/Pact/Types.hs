@@ -127,9 +127,9 @@ module Chainweb.Pact.Types
   , logDebug
 
     -- * types
-  , ModuleCache
   , TxTimeout(..)
   , ApplyCmdExecutionContext(..)
+  , ModuleCache
 
   -- * miscellaneous
   , defaultOnFatalError

@@ -173,9 +173,20 @@ instance Show ValidateBlockReq where show ValidateBlockReq{..} = show (_valBlock
 data LocalReq = LocalReq
     { _localRequest :: !ChainwebTransaction
     , _localPreflight :: !Bool
-    , _localResultVar :: !(PactExMVar (CommandResult Hash))
+    , _localResultVar :: !(PactExMVar (Either MetadataError (CommandResult Hash)))
     }
 instance Show LocalReq where show LocalReq{..} = show _localRequest
+
+data MetadataError
+  = Foobar
+{-  ChainIdParseError P.ChainId
+  | ChainIdMismatch ChainId P.ChainId
+  | GasPriceDecimalExceedsMax P.GasPrice
+  | NetworkIdMismatch ChainwebVersion (Maybe P.NetworkId)
+  | SigListSizeExceedsMax Int
+  | TxSizeExceedsLimit P.Gas P.GasLimit
+  | InvalidSignature [P.Signer] P.PactHash
+-}
 
 data LookupPactTxsReq = LookupPactTxsReq
     { _lookupRestorePoint :: !Rewind

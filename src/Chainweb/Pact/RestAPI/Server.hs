@@ -349,7 +349,7 @@ localHandler logger pact preflight cmd = do
     case r of
       Left err ->
         throwError $ err400 { errBody = "Execution failed: " <> BSL8.pack (show err) }
-      (Right !r') -> return r'
+      (Right !r') -> error "branch on metadata error formatting or command"
   where
     logg = logFunctionJson (setComponent "local-handler" logger)
 

@@ -625,7 +625,7 @@ execLocal
     => ChainwebTransaction
     -> Bool
       -- ^ preflight flag
-    -> PactServiceM cas (P.CommandResult P.Hash)
+    -> PactServiceM cas (Either MetadataError (P.CommandResult P.Hash))
 execLocal cwtx preflight = withDiscardedBatch $ do
     PactServiceEnv{..} <- ask
 
@@ -651,7 +651,7 @@ execLocal cwtx preflight = withDiscardedBatch $ do
         --
         r <- liftIO $ if preflight
           then do
-            T2 cr _mc' <-
+            T2 cr _mc' <- do
               applyCmd
                 _psVersion logger _psGasLogger pdbenv
                 noMiner chainweb213GasModel pd spv cmd
