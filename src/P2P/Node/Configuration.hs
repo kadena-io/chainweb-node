@@ -222,7 +222,7 @@ pP2pConfiguration = id
         % prefixLong net "tls"
         <> internal -- hidden option, only for expert use
     <*< p2pConfigValidateSpec .:: enableDisableFlag
-        % prefixLong net "validateSpec"
+        % prefixLong net "validate-spec"
         <> internal -- hidden option, only for expert use
   where
     net = Nothing

@@ -314,7 +314,7 @@ pServiceApiConfig = id
         % prefixLong service "payload-batch-limit"
         <> suffixHelp service "upper limit for the size of payload batches on the service API"
     <*< serviceApiConfigValidateSpec .:: enableDisableFlag
-        % prefixLong service "validateSpec"
+        % prefixLong service "validate-spec"
         <> internal -- hidden option, for expert use
   where
     service = Just "service"
