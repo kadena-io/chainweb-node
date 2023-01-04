@@ -706,10 +706,12 @@ runChainweb cw = do
     withOpenConnsCounter openConnectionsCounter =
         setFork
             (\act -> do
-                atomically $ do
+                n <- atomically $ do
                     n <- readTVar openConnectionsCounter
                     guard (n < 1000)
                     modifyTVar' openConnectionsCounter (+ 1)
+                    return n
+                print n
                 void $ forkIOWithUnmask act
             ) .
         setOnClose
