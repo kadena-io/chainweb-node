@@ -120,7 +120,7 @@ built as follows.
 ### Building with Cabal
 
 In order to build with `cabal` you have to install `ghc-8.10.7` (Haskell compiler)
-and `cabal >= 3.0` (Haskell build-tool)
+and `cabal >= 3.4` (Haskell build-tool)
 
 *   [Linux / Mac](https://www.haskell.org/ghcup/)
 
