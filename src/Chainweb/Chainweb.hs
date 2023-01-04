@@ -105,6 +105,7 @@ import Configuration.Utils hiding (Error, Lens', disabled)
 import Control.Concurrent (threadDelay)
 import Control.Concurrent.Async
 import Control.Concurrent.MVar (MVar, readMVar)
+import Control.Concurrent.STM
 import Control.DeepSeq
 import Control.Error.Util (note)
 import Control.Lens hiding ((.=), (<.>))
@@ -126,7 +127,7 @@ import qualified Data.Vector as V
 import GHC.Generics
 
 import qualified Network.HTTP.Client as HTTP
-import Network.Socket (Socket)
+import Network.Socket (Socket, accept)
 import Network.Wai
 import Network.Wai.Handler.Warp hiding (Port)
 import Network.Wai.Handler.WarpTLS (WarpTLSException(..))
@@ -175,6 +176,7 @@ import Chainweb.WebBlockHeaderDB
 import Chainweb.WebPactExecutionService
 
 import Data.CAS.RocksDB
+
 import Data.LogMessage (LogFunctionText)
 
 import P2P.Node.Configuration
@@ -347,6 +349,7 @@ data ChainwebStatus
     | ProcessDied !String
     | PactReplaySuccessful
     deriving (Generic, Eq, Ord, Show, NFData, ToJSON, FromJSON)
+
 
 -- Intializes all service chainweb components but doesn't start any networking.
 --
@@ -633,9 +636,11 @@ runChainweb
     -> IO ()
 runChainweb cw = do
     logg Info "start chainweb node"
+    openConnectionsCounter <- newTVarIO 0
+    clientClosedConnectionsCounter <- newCounter
     concurrentlies_
         -- 1. Start serving Rest API
-        [ (if tls then serve else servePlain)
+        [ (if tls then serve else servePlain) clientClosedConnectionsCounter openConnectionsCounter
             $ httpLog
             . throttle (_chainwebPutPeerThrottler cw)
             . throttle (_chainwebThrottler cw)
@@ -643,7 +648,7 @@ runChainweb cw = do
         -- 2. Start Clients (with a delay of 500ms)
         , threadDelay 500000 >> clients
         -- 3. Start serving local API
-        , threadDelay 500000 >> serveServiceApi (serviceHttpLog . requestSizeLimit)
+        , threadDelay 500000 >> serveServiceApi clientClosedConnectionsCounter openConnectionsCounter (serviceHttpLog . requestSizeLimit)
         ]
 
   where
@@ -691,8 +696,28 @@ runChainweb cw = do
 
     -- P2P Server
 
-    serverSettings :: Counter "clientClosedConnections" -> Settings
-    serverSettings closedConnectionsCounter = setOnException
+    serverSettings :: Counter "clientClosedConnections" -> TVar Int -> Settings
+    serverSettings closedConnectionsCounter openConnectionsCounter =
+        withConnsClosedCounter closedConnectionsCounter $
+        withOpenConnsCounter openConnectionsCounter $
+        peerServerSettings (_peerResPeer $ _chainwebPeer cw)
+
+    withOpenConnsCounter :: TVar Int -> Settings -> Settings
+    withOpenConnsCounter openConnectionsCounter =
+        setAccept
+            (\sock -> do
+                atomically $ do
+                    n <- readTVar openConnectionsCounter
+                    guard (n < 30000)
+                    modifyTVar' openConnectionsCounter (+ 1)
+                accept sock
+            ) .
+        setOnClose
+            (\_ -> atomically $ modifyTVar' openConnectionsCounter (\n -> n - 1)
+            )
+
+    withConnsClosedCounter :: Counter "clientClosedConnections" -> Settings -> Settings
+    withConnsClosedCounter closedConnectionsCounter = setOnException
         (\r e -> if
             | Just InsecureConnectionDenied <- fromException e ->
                 return ()
@@ -701,7 +726,7 @@ runChainweb cw = do
             | otherwise ->
                 when (defaultShouldDisplayException e) $
                     logg Warn $ loggServerError r e
-        ) $ peerServerSettings (_peerResPeer $ _chainwebPeer cw)
+        )
 
     monitorConnectionsClosedByClient :: Counter "clientClosedConnections" -> IO ()
     monitorConnectionsClosedByClient clientClosedConnectionsCounter =
@@ -710,12 +735,11 @@ runChainweb cw = do
             logFunctionCounter (_chainwebLogger cw) Info . (:[]) =<<
                 roll clientClosedConnectionsCounter
 
-    serve :: Middleware -> IO ()
-    serve mw = do
-        clientClosedConnectionsCounter <- newCounter
+    serve :: Counter "clientClosedConnections" -> TVar Int -> Middleware -> IO ()
+    serve clientClosedConnectionsCounter openConnectionsCounter mw = do
         concurrently_
             (serveChainwebSocketTls
-                (serverSettings clientClosedConnectionsCounter)
+                (serverSettings clientClosedConnectionsCounter openConnectionsCounter)
                 (_peerCertificateChain $ _peerResPeer $ _chainwebPeer cw)
                 (_peerKey $ _peerResPeer $ _chainwebPeer cw)
                 (_peerResSocket $ _chainwebPeer cw)
@@ -731,12 +755,11 @@ runChainweb cw = do
             (monitorConnectionsClosedByClient clientClosedConnectionsCounter)
 
     -- serve without tls
-    servePlain :: Middleware -> IO ()
-    servePlain mw = do
-        clientClosedConnectionsCounter <- newCounter
+    servePlain :: Counter "clientClosedConnections" -> TVar Int -> Middleware -> IO ()
+    servePlain clientClosedConnectionsCounter connCounter mw = do
         concurrently_
             (serveChainwebSocket
-                (serverSettings clientClosedConnectionsCounter)
+                (serverSettings clientClosedConnectionsCounter connCounter)
                 (_peerResSocket $ _chainwebPeer cw)
                 (_chainwebConfig cw)
                 ChainwebServerDbs
@@ -763,20 +786,20 @@ runChainweb cw = do
 
     -- Service API Server
 
-    serviceApiServerSettings :: Port -> HostPreference -> Settings
-    serviceApiServerSettings port interface = defaultSettings
+    serviceApiServerSettings :: Counter "clientClosedConnections" -> TVar Int -> Port -> HostPreference -> Settings
+    serviceApiServerSettings clientClosedConnectionsCounter openConnectionsCounter port interface = defaultSettings
         & setPort (int port)
         & setHost interface
-        & setOnException
-            (\r e -> when (defaultShouldDisplayException e) (logg Warn $ loggServiceApiServerError r e))
+        & withConnsClosedCounter clientClosedConnectionsCounter
+        & withOpenConnsCounter openConnectionsCounter
 
     serviceApiHost = _serviceApiConfigInterface $ _configServiceApi $ _chainwebConfig cw
 
     backupApiEnabled = _enableConfigEnabled $ _configBackupApi $ _configBackup $ _chainwebConfig cw
 
-    serveServiceApi :: Middleware -> IO ()
-    serveServiceApi = serveServiceApiSocket
-        (serviceApiServerSettings (fst $ _chainwebServiceSocket cw) serviceApiHost)
+    serveServiceApi :: Counter "clientClosedConnections" -> TVar Int -> Middleware -> IO ()
+    serveServiceApi clientClosedConnectionsCounter openConnectionsCounter = serveServiceApiSocket
+        (serviceApiServerSettings clientClosedConnectionsCounter openConnectionsCounter (fst $ _chainwebServiceSocket cw) serviceApiHost)
         (snd $ _chainwebServiceSocket cw)
         (_chainwebVersion cw)
         ChainwebServerDbs
@@ -796,8 +819,8 @@ runChainweb cw = do
     serviceHttpLog :: Middleware
     serviceHttpLog = requestResponseLogger $ setComponent "http:service-api" (_chainwebLogger cw)
 
-    loggServiceApiServerError (Just r) e = "HTTP service API server error: " <> sshow e <> ". Request: " <> sshow r
-    loggServiceApiServerError Nothing e = "HTTP service API server error: " <> sshow e
+    -- loggServiceApiServerError (Just r) e = "HTTP service API server error: " <> sshow e <> ". Request: " <> sshow r
+    -- loggServiceApiServerError Nothing e = "HTTP service API server error: " <> sshow e
 
     -- HTTP Request Logger
 
