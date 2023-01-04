@@ -36,7 +36,7 @@ jobs:
       run: |
         case "${{ runner.os }}" in
         Linux)
-          sudo apt-get install -y librocksdb-dev
+          sudo apt-get install -y libgflags-dev liblz4-dev libzstd-dev libsnappy-dev libbz2-dev
           ;;
         mac*)
           brew install rocksdb

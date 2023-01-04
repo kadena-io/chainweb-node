@@ -75,15 +75,12 @@ class Eq (CasKeyType v) => IsCasValue v where
     type CasKeyType v
     casKey :: v -> CasKeyType v
 
--- | Read-Only View of a Content Addressed Key-Value Store
+-- | Read-Only View of a Key-Value Store
 --
--- Since the key uniquely determines the content of the store a value for a key
--- is either available or not available. There is no dispute about the value
--- itself.
 class ReadableTable t k v | t -> k v where
     tableLookup :: t -> k -> IO (Maybe v)
     tableLookupBatch' :: t -> Traversal s r k (Maybe v) -> s -> IO r
-    tableLookupBatch' t l = l (tableLookup t) 
+    tableLookupBatch' t l = l (tableLookup t)
     tableMember :: t -> k -> IO Bool
     tableMember t k = isJust <$> tableLookup t k
 
@@ -164,7 +161,7 @@ instance forall t i k v. (CasKeyType v ~ k, IterableTable (t k v) i k v, Iterato
     withTableIterator :: forall a. Casify t v -> (i -> IO a) -> IO a
     withTableIterator = coerce @(t k v -> (i -> IO a) -> IO a) withTableIterator
 
--- | Lookup a value by its key in a content-addressable store and throw an
+-- | Lookup a value by its key in a key-value store and throw an
 -- 'TableException' if the value doesn't exist in the store
 tableLookupM :: (HasCallStack, ReadableTable t k v) => t -> k -> IO v
 tableLookupM cas k =
