@@ -708,7 +708,7 @@ runChainweb cw = do
             (\sock -> do
                 atomically $ do
                     n <- readTVar openConnectionsCounter
-                    guard (n < 30000)
+                    guard (n < 5000)
                     modifyTVar' openConnectionsCounter (+ 1)
                 accept sock
             ) .
