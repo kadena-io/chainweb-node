@@ -102,7 +102,7 @@ module Chainweb.Chainweb
 
 import Configuration.Utils hiding (Error, Lens', disabled)
 
-import Control.Concurrent (threadDelay)
+import Control.Concurrent (forkIOWithUnmask, threadDelay)
 import Control.Concurrent.Async
 import Control.Concurrent.MVar (MVar, readMVar)
 import Control.Concurrent.STM
@@ -127,7 +127,7 @@ import qualified Data.Vector as V
 import GHC.Generics
 
 import qualified Network.HTTP.Client as HTTP
-import Network.Socket (Socket, accept)
+import Network.Socket (Socket)
 import Network.Wai
 import Network.Wai.Handler.Warp hiding (Port)
 import Network.Wai.Handler.WarpTLS (WarpTLSException(..))
@@ -704,13 +704,13 @@ runChainweb cw = do
 
     withOpenConnsCounter :: TVar Int -> Settings -> Settings
     withOpenConnsCounter openConnectionsCounter =
-        setAccept
-            (\sock -> do
+        setFork
+            (\act -> do
                 atomically $ do
                     n <- readTVar openConnectionsCounter
-                    guard (n < 100)
+                    guard (n < 1000)
                     modifyTVar' openConnectionsCounter (+ 1)
-                accept sock
+                void $ forkIOWithUnmask act
             ) .
         setOnClose
             (\_ -> atomically $ modifyTVar' openConnectionsCounter (\n -> n - 1)
