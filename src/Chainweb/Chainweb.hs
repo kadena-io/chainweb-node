@@ -227,7 +227,7 @@ withChainweb
     -> FilePath
     -> FilePath
     -> Bool
-    -> (forall t' . CanReadablePayloadCas t' => StartedChainweb logger t' -> IO ())
+    -> (StartedChainweb logger -> IO ())
     -> IO ()
 withChainweb c logger rocksDb pactDbDir backupDir resetDb inner =
     withPeerResources v (view configP2p confWithBootstraps) logger $ \logger' peer ->
@@ -333,7 +333,7 @@ validatingMempoolConfig cid v gl gp mv = Mempool.InMemConfig
            | otherwise     -> Right tx
 
 data StartedChainweb logger
-    = forall cas. (PayloadCasLookup cas, Logger logger) => StartedChainweb !(Chainweb logger cas)
+    = forall cas. (CanReadablePayloadCas cas, Logger logger) => StartedChainweb !(Chainweb logger cas)
     | Replayed !Cut !Cut
 
 data ChainwebStatus
@@ -362,7 +362,7 @@ withChainwebInternal
     -> FilePath
     -> FilePath
     -> Bool
-    -> (forall t' . CanReadablePayloadCas t' => StartedChainweb logger t' -> IO ())
+    -> (StartedChainweb logger -> IO ())
     -> IO ()
 withChainwebInternal conf logger peer serviceSock rocksDb pactDbDir backupDir resetDb inner = do
 

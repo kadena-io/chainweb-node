@@ -197,7 +197,7 @@ testRewindBeforeFork iobdb rewindM = (go, checkLoadedCache)
         _ -> assertFailure "Failed to lookup either block 4 or 5."
 
 testCw217CoinOnly
-    :: PayloadCasLookup cas
+    :: CanReadablePayloadCas cas
     => IO TestBlockDb
     -> IO (MVar RewindData)
     -> CacheTest cas
@@ -242,7 +242,7 @@ doNextCoinbase iobdb = do
       return (nextH, valPWO)
 
 doNextCoinbaseN_
-    :: PayloadCasLookup cas
+    :: CanReadablePayloadCas cas
     => Int
     -> IO TestBlockDb
     -> PactServiceM cas (BlockHeader, PayloadWithOutputs)

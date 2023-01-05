@@ -165,6 +165,8 @@ runPactService' ver cid chainwebLogger bhDb pdb sqlenv config act =
     pactLogger = P.newLogger loggers $ P.LogName "PactService"
     gasLogger = P.newLogger loggers $ P.LogName "GasLogs"
 
+    checkpointerLogger = addLabel ("sub-component", "checkpointer") chainwebLogger
+
 initializeLatestBlock :: CanReadablePayloadCas tbl => Bool -> PactServiceM tbl ()
 initializeLatestBlock unlimitedRewind = findLatestValidBlock >>= \case
     Nothing -> return ()
