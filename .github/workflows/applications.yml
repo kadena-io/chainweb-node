@@ -333,9 +333,9 @@ jobs:
     - name: Install build dependencies
       run: cabal build chainweb --only-dependencies
     - name: Build chainweb library
-      run: cabal build lib:chainweb
+      run: cabal build --ghc-options=-j4 lib:chainweb
     - name: Build chainweb applications
-      run: cabal build exe:chainweb-node test:chainweb-tests exe:cwtool chainweb:bench:bench
+      run: cabal build -j --ghc-options=-j4 exe:chainweb-node test:chainweb-tests exe:cwtool chainweb:bench:bench
 
     # Checks
     - name: Check that working directory tree is clean
