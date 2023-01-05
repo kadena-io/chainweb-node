@@ -31,13 +31,13 @@ library
     ghc-options:
         -Wall
     exposed-modules:
-        Data.CAS
-        Data.CAS.Forgetful
-        Data.CAS.HashMap
-        Data.CAS.RocksDB
-        Data.DedupStore
+        Chainweb.Storage.Table
+        Chainweb.Storage.Table.Forgetful
+        Chainweb.Storage.Table.HashMap
+        Chainweb.Storage.Table.RocksDB
+        Chainweb.Storage.DedupStore
     build-depends:
-        , base >=4.10 && <4.16
+        , base >=4.10 && <5
         , bytestring >=0.10
         , containers >=0.5
         , cryptonite >= 0.25
@@ -48,6 +48,7 @@ library
         , hashable >=1.2
         , lens >=4.16
         , memory >=0.14
+        , mtl >= 2.2
         , nothunks >= 0.1.0.0
         , rocksdb-haskell-kadena >=1.1.0
         , stm >=2.4
@@ -74,7 +75,7 @@ test-suite rocksdb-tests
 
         -- external
         , async >=2.2
-        , base >=4.10 && <4.16
+        , base >=4.10 && <5
         , bytestring >=0.10
         , exceptions >=0.10
         , lens >=4.16
