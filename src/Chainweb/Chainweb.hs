@@ -712,7 +712,8 @@ runChainweb cw = do
             ) .
         setOnClose
             (\_ -> atomically $ modifyTVar' openConnectionsCounter (\n -> n - 1)
-            )
+            ) .
+        setGracefulShutdownTimeout (Just 0)
 
     withConnsClosedCounter :: Counter "clientClosedConnections" -> Settings -> Settings
     withConnsClosedCounter closedConnectionsCounter = setOnException
