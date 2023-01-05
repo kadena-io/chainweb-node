@@ -705,10 +705,10 @@ runChainweb cw = do
     withOpenConnsCounter :: TVar Int -> Settings -> Settings
     withOpenConnsCounter openConnectionsCounter =
         setOnOpen
-            (\_ -> atomically $ do
+            (\_ -> (print =<< readTVarIO openConnectionsCounter) >> atomically (do
                 n <- readTVar openConnectionsCounter
                 when (n < 1000) $ writeTVar openConnectionsCounter (n + 1)
-                return (n < 1000)
+                return (n < 1000))
             ) .
         setOnClose
             (\_ -> atomically $ modifyTVar' openConnectionsCounter (\n -> n - 1)
