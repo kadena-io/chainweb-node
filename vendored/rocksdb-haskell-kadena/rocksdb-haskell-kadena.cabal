@@ -130,7 +130,7 @@ library
     -DLZ4
     -DZSTD
     -DROCKSDB_BACKTRACE
-    -march=native
+    -- -march=native
     -DHAVE_SSE42
     -DHAVE_PCLMUL
     -DHAVE_BMI
