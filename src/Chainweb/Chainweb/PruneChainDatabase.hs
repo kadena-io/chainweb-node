@@ -229,12 +229,6 @@ checkPayloads pdb False h = tableLookup pdb (_blockPayloadHash h) >>= \case
 -- This is faster than 'checkPayload' because only the top-level 'PayloadData'
 -- structure is queried -- and immediately discarded.
 --
--- TODO: tableMember for rocksdb internally uses the default implementation that
--- uses tableLookup. The Haskell rocksdb bindings don't provide a member check
--- without getting the value. It could be done via the iterator API, which has
--- different cost overheads. One optimization could be an implementation that
--- avoids decoding of the value (now implemented)
---
 checkPayloadsExist :: PayloadDb RocksDbTable -> Bool -> BlockHeader -> IO ()
 checkPayloadsExist _ True _ = return ()
 checkPayloadsExist pdb False h = unlessM (tableMember db $ _blockPayloadHash h) $
