@@ -1,6 +1,7 @@
 name: Build
 
 on:
+  workflow_dispatch:
   push:
   schedule:
     - cron: '0 8 * * *'
@@ -13,11 +14,11 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        ghc: ['8.8.4', '8.10.7', '9.0.1']
-        cabal: ['3.4']
+        ghc: ['8.10.7', '9.0.2', '9.2']
+        cabal: ['3.6']
         os:
-        - 'ubuntu-18.04'
         - 'ubuntu-20.04'
+        - 'ubuntu-22.04'
         - 'macOS-latest'
         # - 'windows-latest' # windows builds generally work but are flaky on the github runners
 
@@ -25,9 +26,9 @@ jobs:
 
     # Setup
     - name: Checkout repository
-      uses: actions/checkout@v2
+      uses: actions/checkout@v3
     - name: Install GHC and Cabal
-      uses: haskell/actions/setup@v1.2.3
+      uses: haskell/actions/setup@v2
       with:
          ghc-version: ${{ matrix.ghc }}
          cabal-version: ${{ matrix.cabal }}
@@ -54,20 +55,19 @@ jobs:
           documentation: True
           benchmarks: True
           tests: True
-        write-ghc-environment-files: always
         EOF
 
     # Restore Packages from Caches
-    - uses: actions/cache@v2.1.6
+    - uses: actions/cache@v3
       name: Cache ~/.cabal/packages
       with:
         path: |
             ~/.cabal/packages
             ~/.cabal/store
             dist-newstyle
-        key: ${{ matrix.os }}-${{ matrix.ghc }}-cabal-cache-${{ github.sha }}
+        key: ${{ matrix.os }}-${{ matrix.ghc }}-cabal-${{ github.sha }}
         restore-keys: |
-          ${{ matrix.os }}-${{ matrix.ghc }}-cabal-cache-
+          ${{ matrix.os }}-${{ matrix.ghc }}-cabal-
 
     # Build
     - name: Update package database
