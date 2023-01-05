@@ -37,7 +37,7 @@ library
         Chainweb.Storage.Table.RocksDB
         Chainweb.Storage.DedupStore
     build-depends:
-        , base >=4.10 && <4.16
+        , base >=4.10 && <5
         , bytestring >=0.10
         , containers >=0.5
         , cryptonite >= 0.25
@@ -75,7 +75,7 @@ test-suite rocksdb-tests
 
         -- external
         , async >=2.2
-        , base >=4.10 && <4.16
+        , base >=4.10 && <5
         , bytestring >=0.10
         , exceptions >=0.10
         , lens >=4.16
