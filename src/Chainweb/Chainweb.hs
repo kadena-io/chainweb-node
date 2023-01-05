@@ -102,7 +102,7 @@ module Chainweb.Chainweb
 
 import Configuration.Utils hiding (Error, Lens', disabled)
 
-import Control.Concurrent (forkIOWithUnmask, threadDelay)
+import Control.Concurrent (threadDelay)
 import Control.Concurrent.Async
 import Control.Concurrent.MVar (MVar, readMVar)
 import Control.Concurrent.STM
@@ -704,15 +704,11 @@ runChainweb cw = do
 
     withOpenConnsCounter :: TVar Int -> Settings -> Settings
     withOpenConnsCounter openConnectionsCounter =
-        setFork
-            (\act -> do
-                n <- atomically $ do
-                    n <- readTVar openConnectionsCounter
-                    guard (n < 1000)
-                    modifyTVar' openConnectionsCounter (+ 1)
-                    return n
-                print n
-                void $ forkIOWithUnmask act
+        setOnOpen
+            (\_ -> atomically $ do
+                n <- readTVar openConnectionsCounter
+                when (n < 1000) $ writeTVar openConnectionsCounter (n + 1)
+                return (n < 1000)
             ) .
         setOnClose
             (\_ -> atomically $ modifyTVar' openConnectionsCounter (\n -> n - 1)
