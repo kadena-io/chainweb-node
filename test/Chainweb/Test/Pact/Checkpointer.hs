@@ -459,7 +459,7 @@ testRegress =
         >>= assertEquals "The final block state is" finalBlockState
   where
     finalBlockState = (2, 0)
-    toTup (BlockState txid _ blockVersion _ _ _ _) = (txid, blockVersion)
+    toTup BlockState { _bsTxId = txid, _bsBlockHeight = blockVersion } = (txid, blockVersion)
 
 regressChainwebPactDb :: IO (MVar (BlockEnv SQLiteEnv))
 regressChainwebPactDb =  simpleBlockEnvInit runRegression
@@ -497,7 +497,7 @@ runRegression pactdb e schemaInit = do
     let row' = RowData RDV1 $ ObjectMap $ M.fromList [("gah",toPV False),("fh",toPV (1 :: Int))]
     _writeRow pactdb Update usert "key1" row' conn
     assertEquals' "user update" (Just row') (_readRow pactdb usert "key1" conn)
-    let ks = mkKeySet [PublicKey "skdjhfskj"] "predfun"
+    let ks = mkKeySet [PublicKeyText "skdjhfskj"] "predfun"
     _writeRow pactdb Write KeySets "ks1" ks conn
     assertEquals' "keyset write" (Just ks) $ _readRow pactdb KeySets "ks1" conn
     (modName,modRef,mod') <- loadModule
@@ -603,7 +603,7 @@ runSQLite' runTest sqlEnvIO = runTest $ do
     cp <- initRelationalCheckpointer initialBlockState sqlenv logger testVer testChainId
     return (cp, sqlenv)
   where
-    initialBlockState = set bsModuleNameFix True $ initBlockState $ genesisHeight testVer testChainId
+    initialBlockState = set bsModuleNameFix True $ initBlockState defaultModuleCacheLimit $ genesisHeight testVer testChainId
     logger = newLogger (pactTestLogger False) "RelationalCheckpointer"
 
 runExec :: CheckpointEnv -> PactDbEnv'-> Maybe Value -> Text -> IO EvalResult
@@ -641,7 +641,7 @@ simpleBlockEnvInit f = withTempSQLiteConnection chainwebPragmas $ \sqlenv ->
     loggers = pactTestLogger False
     blockEnv e = BlockEnv
         (BlockDbEnv e (newLogger loggers "BlockEnvironment"))
-        (initBlockState $ genesisHeight testVer testChainId)
+        (initBlockState defaultModuleCacheLimit $ genesisHeight testVer testChainId)
 
 {- this should be moved to pact -}
 begin :: PactDb e -> Method e (Maybe TxId)

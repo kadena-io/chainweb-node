@@ -109,6 +109,7 @@ import Data.Aeson
 import qualified Data.ByteArray as BA
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Base16 as B16
+import qualified Data.ByteString.Short as BS
 import Data.Decimal
 import Data.Foldable
 import Data.Hashable
@@ -300,7 +301,7 @@ encodeDecimal d = encodeInteger $ case decimalToInteger d of
     Right x -> x
 
 encodeHash :: Hash -> Put
-encodeHash = encodeBytes . unHash
+encodeHash = encodeBytes . BS.fromShort . unHash
 
 encodeModRef :: ModRef -> Put
 encodeModRef n@(ModRef _ (Just _) _) = throw $ UnsupportedModRefWithSpec (renderCompactText n)
@@ -355,7 +356,7 @@ decodeArray f = label "decodeArray" $ do
         label ("[" <> show i <> "]") f
 
 decodeHash :: Get Hash
-decodeHash = label "decodeHash" $ Hash <$> decodeBytes
+decodeHash = label "decodeHash" $ Hash . BS.toShort <$> decodeBytes
 
 decodeBytes :: Get B.ByteString
 decodeBytes = label "decodeBytes" $ do

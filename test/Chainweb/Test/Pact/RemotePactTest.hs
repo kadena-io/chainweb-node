@@ -301,7 +301,7 @@ pollBadKeyTest nio =
         Left _ -> return ()
         Right r -> assertFailure $ "Poll succeeded with response: " <> show r
   where
-    toRk = (NEL.:| []) . RequestKey . Hash
+    toRk = (NEL.:| []) . RequestKey . Hash . SB.toShort
 
 sendValidationTest :: IO (Time Micros) -> IO ChainwebNetwork -> TestTree
 sendValidationTest iot nio =
@@ -804,4 +804,4 @@ testBatch iot mnonce = testBatch' iot ttl mnonce
 
 pactDeadBeef :: RequestKey
 pactDeadBeef = let (TransactionHash b) = deadbeef
-               in RequestKey $ Hash $ SB.fromShort b
+               in RequestKey $ Hash b

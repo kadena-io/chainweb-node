@@ -1,8 +1,6 @@
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DeriveAnyClass #-}
-{-# LANGUAGE DeriveFunctor #-}
-{-# LANGUAGE DeriveFoldable #-}
 {-# LANGUAGE DeriveTraversable #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DerivingStrategies #-}
@@ -119,21 +117,25 @@ module Chainweb.Pact.Types
   , pactLoggers
   , logg_
   , logInfo_
+  , logWarn_
   , logError_
   , logDebug_
   , logg
   , logInfo
+  , logWarn
   , logError
   , logDebug
 
     -- * types
   , ModuleCache
+  , TxTimeout(..)
 
   -- * miscellaneous
   , defaultOnFatalError
   , defaultReorgLimit
   , defaultPactServiceConfig
   , defaultBlockGasLimit
+  , defaultModuleCacheLimit
   ) where
 
 import Control.DeepSeq
@@ -179,8 +181,10 @@ import Chainweb.BlockHash
 import Chainweb.BlockHeader
 import Chainweb.BlockHeight
 import Chainweb.BlockHeaderDB
+import Chainweb.Mempool.Mempool (TransactionHash)
 import Chainweb.Miner.Pact
 import Chainweb.Logger
+import Chainweb.Pact.Backend.DbCache
 import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.Service.Types
 import Chainweb.Payload.PayloadStore
@@ -374,6 +378,13 @@ instance HasChainId (PactServiceEnv c) where
 defaultReorgLimit :: Word64
 defaultReorgLimit = 480
 
+-- | Default limit for the per chain size of the decoded module cache.
+--
+-- default limit: 60 MiB per chain
+--
+defaultModuleCacheLimit :: DbCacheLimitBytes
+defaultModuleCacheLimit = DbCacheLimitBytes (60 * mebi)
+
 -- | NOTE this is only used for tests/benchmarks. DO NOT USE IN PROD
 defaultPactServiceConfig :: PactServiceConfig
 defaultPactServiceConfig = PactServiceConfig
@@ -385,6 +396,7 @@ defaultPactServiceConfig = PactServiceConfig
       , _pactUnlimitedInitialRewind = False
       , _pactBlockGasLimit = defaultBlockGasLimit
       , _pactLogGas = False
+      , _pactModuleCacheLimit = defaultModuleCacheLimit
       }
 
 -- | This default value is only relevant for testing. In a chainweb-node the @GasLimit@
@@ -402,6 +414,9 @@ instance Exception ReorgLimitExceeded where
     fromException = asyncExceptionFromException
     toException = asyncExceptionToException
 
+newtype TxTimeout = TxTimeout TransactionHash
+    deriving Show
+instance Exception TxTimeout
 
 defaultOnFatalError :: forall a. (LogLevel -> Text -> IO ()) -> PactException -> Text -> IO a
 defaultOnFatalError lf pex t = do
@@ -445,9 +460,15 @@ updateInitCache mc = get >>= \PactServiceState{..} -> do
     let bf 0 = 0
         bf h = succ h
         pbh = bf . _blockHeight . _parentHeader $ _psParentHeader
+
+    v <- view psVersion
+
     psInitCache .= case M.lookupLE pbh _psInitCache of
       Nothing -> M.singleton pbh mc
-      Just (_,before) -> M.insert pbh (HM.union mc before) _psInitCache
+      Just (_,before)
+        | chainweb217Pact After v pbh || chainweb217Pact At v pbh ->
+          M.insert pbh mc _psInitCache
+        | otherwise -> M.insert pbh (HM.union mc before) _psInitCache
 
 -- | Convert context to datatype for Pact environment.
 --
@@ -584,6 +605,9 @@ logg_ logger level msg = liftIO $ P.logLog logger level msg
 logInfo_ :: MonadIO m => P.Logger -> String -> m ()
 logInfo_ l = logg_ l "INFO"
 
+logWarn_ :: MonadIO m => P.Logger -> String -> m ()
+logWarn_ l = logg_ l "WARN"
+
 logError_ :: MonadIO m => P.Logger -> String -> m ()
 logError_ l = logg_ l "ERROR"
 
@@ -597,6 +621,9 @@ logg level msg = view psLogger >>= \l -> logg_ l level msg
 
 logInfo :: String -> PactServiceM tbl ()
 logInfo msg = view psLogger >>= \l -> logInfo_ l msg
+
+logWarn :: String -> PactServiceM tbl ()
+logWarn msg = view psLogger >>= \l -> logWarn_ l msg
 
 logError :: String -> PactServiceM tbl ()
 logError msg = view psLogger >>= \l -> logError_ l msg

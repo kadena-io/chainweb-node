@@ -90,13 +90,12 @@ withPactService'
     -> IO a
 withPactService' ver cid logger memPoolAccess bhDb pdb sqlenv config action = do
     reqQ <- newPactQueue (_pactQueueSize config)
-    race (concurrently_ (monitor reqQ) (server reqQ)) (client reqQ) >>= \case
+    race (concurrently_ (monitor reqQ) (server reqQ)) (action reqQ) >>= \case
         Left () -> error "Chainweb.Pact.Service.PactInProcApi: pact service terminated unexpectedly"
         Right a -> return a
   where
-    client reqQ = action reqQ
     server reqQ = runForever logg "pact-service"
-        $ PS.initPactService ver cid logger reqQ memPoolAccess bhDb pdb sqlenv config
+        $ PS.runPactService ver cid logger reqQ memPoolAccess bhDb pdb sqlenv config
     logg = logFunction logger
     monitor = runPactServiceQueueMonitor $ addLabel ("sub-component", "PactQueue") logger
 

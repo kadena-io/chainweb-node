@@ -99,6 +99,12 @@ tests rdb =
         testCase "testRewindAfterFork" $ withPact' bdbio ioSqlEnv iom (testRewindAfterFork bdbio rewindDataM)
       , after AllSucceed "testRewindAfterFork" $
         testCase "testRewindBeforeFork" $ withPact' bdbio ioSqlEnv iom (testRewindBeforeFork bdbio rewindDataM)
+      , after AllSucceed "testRewindBeforeFork" $
+        testCase "testCw217CoinOnly" $ withPact' bdbio ioSqlEnv iom $
+          testCw217CoinOnly bdbio rewindDataM
+      , after AllSucceed "testCw217CoinOnly" $
+        testCase "testRestartCw217" $
+        withPact' bdbio ioSqlEnv iom testRestart
       ]
   where
     label = "Chainweb.Test.Pact.ModuleCacheOnRestart"
@@ -110,7 +116,6 @@ type CacheTest tbl =
 -- | Do genesis load, snapshot cache.
 testInitial :: CanReadablePayloadCas tbl => CacheTest tbl
 testInitial = (initPayloadState,snapshotCache)
-  where
 
 -- | Do restart load, test results of 'initialPayloadState' against snapshotted cache.
 testRestart :: CanReadablePayloadCas tbl => CacheTest tbl
@@ -191,6 +196,23 @@ testRewindBeforeFork iobdb rewindM = (go, checkLoadedCache)
           assertNoCacheMismatch v3c (justModuleHashes' d)
         _ -> assertFailure "Failed to lookup either block 4 or 5."
 
+testCw217CoinOnly
+    :: PayloadCasLookup cas
+    => IO TestBlockDb
+    -> IO (MVar RewindData)
+    -> CacheTest cas
+testCw217CoinOnly iobdb _rewindM = (go, go')
+  where
+    go = do
+      initPayloadState
+      void $ doNextCoinbaseN_ 9 iobdb
+
+    go' ioa initCache = do
+      snapshotCache ioa initCache
+      case M.lookup 20 initCache of
+        Just a -> assertEqual "module init cache contains only coin" ["coin"] $ HM.keys a
+        Nothing -> assertFailure "failed to lookup block at 20"
+
 assertNoCacheMismatch
     :: HM.HashMap ModuleName (Maybe ModuleHash)
     -> HM.HashMap ModuleName (Maybe ModuleHash)
@@ -219,9 +241,17 @@ doNextCoinbase iobdb = do
       valPWO <- execValidateBlock mempty nextH (payloadWithOutputsToPayloadData pwo)
       return (nextH, valPWO)
 
+doNextCoinbaseN_
+    :: PayloadCasLookup cas
+    => Int
+    -> IO TestBlockDb
+    -> PactServiceM cas (BlockHeader, PayloadWithOutputs)
+doNextCoinbaseN_ n iobdb = fmap last $ forM [1..n] $ \_ ->
+    doNextCoinbase iobdb
+
 -- | Interfaces can't be upgraded, but modules can, so verify hash in that case.
 justModuleHashes :: ModuleInitCache -> HM.HashMap ModuleName (Maybe ModuleHash)
-justModuleHashes = justModuleHashes' . snd . last . M.toList where
+justModuleHashes = justModuleHashes' . snd . last . M.toList
 
 justModuleHashes' :: ModuleCache -> HM.HashMap ModuleName (Maybe ModuleHash)
 justModuleHashes' = HM.map $ \v -> preview (_1 . mdModule . _MDModule . mHash) v
@@ -248,7 +278,7 @@ withPact' bdbio ioSqlEnv r (ps, cacheTest) = do
     bhdb <- getWebBlockHeaderDb (_bdbWebBlockHeaderDb bdb) testChainId
     let pdb = _bdbPayloadDb bdb
     sqlEnv <- ioSqlEnv
-    T2 _ pstate <- initPactService'
+    T2 _ pstate <- runPactService'
         testVer testChainId logger bhdb pdb sqlEnv defaultPactServiceConfig ps
     cacheTest r (_psInitCache pstate)
   where
