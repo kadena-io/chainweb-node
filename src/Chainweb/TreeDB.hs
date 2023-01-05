@@ -870,7 +870,7 @@ seekAncestor db h r
         case a of
             [] -> throwM $ TreeDbAncestorMissing @db h (int r)
                 "No entry at this rank in the database"
-            [x] -> return $ Just x
+            [x] -> putStrLn "fastRoute1 hit!" >> return (Just x)
             _ -> fastRoute2 1
 
     hh = rank h
@@ -895,7 +895,7 @@ seekAncestor db h r
             case bs of
                 [] -> throwM $ TreeDbAncestorMissing @db h (int r)
                     $ "Backward search from rank " <> sshow l <> " results"
-                [x] -> return $ Just x
+                [x] -> putStrLn "fastRoute2 hit!" >> return (Just x)
                 _ -> fastRoute2 (succ i)
         | otherwise = slowRoute
       where
@@ -913,7 +913,7 @@ seekAncestor db h r
         case a of
             Nothing -> throwM $ TreeDbAncestorMissing @db h (int r)
                 "branch traversal yields no result"
-            x -> return x
+            Just x -> putStrLn "slowRoute hit!" >> return (Just x)
 
 -- | @getBranchIncreasing db e r@ returns a stream of acestors of e sorted by
 -- rank in ascending order starting at rank @r@.
