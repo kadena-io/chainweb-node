@@ -341,7 +341,9 @@ localHandler
 localHandler logger pact preflight cmd = do
     liftIO $ logg Info $ PactCmdLogLocal cmd
     cmd' <- case validateCommand cmd of
-      (Right !c) -> return c
+      Right c
+        | preflight -> undefined c
+        | otherwise -> return c
       Left err ->
         throwError $ err400 { errBody = "Validation failed: " <> BSL8.pack err }
 
