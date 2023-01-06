@@ -9,6 +9,7 @@
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE ExistentialQuantification #-}
+{-# LANGUAGE InstanceSigs #-}
 -- |
 -- Module: Chainweb.Pact.Service.Types
 -- Copyright: Copyright © 2018 Kadena LLC.
@@ -176,6 +177,10 @@ data LocalReq = LocalReq
     , _localResultVar :: !(PactExMVar (Either MetadataError (CommandResult Hash)))
     }
 instance Show LocalReq where show LocalReq{..} = show _localRequest
+
+data LocalResponse
+  = InvalidMetadata BlockHeader [MetadataError]
+  | SuccessfulTx (CommandResult Hash)
 
 data MetadataError
   = Foobar
