@@ -14,7 +14,6 @@ import Control.Monad.Reader
 import Control.Monad.State
 import Control.Lens
 
-import Data.CAS.RocksDB
 import Data.IORef
 import qualified Data.Text as T
 import qualified Data.Vector as V
@@ -48,8 +47,10 @@ import Chainweb.Utils (sshow, tryAllSynchronous, catchAllSynchronous, T3(..))
 import Chainweb.Version
 import Chainweb.Version.Utils
 
-import Data.CAS
 import Chainweb.BlockHeaderDB.Internal (_chainDbCas, RankedBlockHeader(..))
+
+import Chainweb.Storage.Table
+import Chainweb.Storage.Table.RocksDB
 
 testVer :: ChainwebVersion
 testVer = FastTimedCPM peterson
@@ -199,7 +200,7 @@ serviceInitializationAfterFork mpio genesisBlock iop = do
         dbs <- snd <$> iop
         db <- getBlockHeaderDb c dbs
         h <- maxEntry db
-        casDelete (_chainDbCas db) (casKey $ RankedBlockHeader h)
+        tableDelete (_chainDbCas db) (casKey $ RankedBlockHeader h)
 
     cids = chainIds testVer
 

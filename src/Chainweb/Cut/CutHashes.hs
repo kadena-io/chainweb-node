@@ -3,6 +3,7 @@
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DerivingStrategies #-}
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
@@ -102,7 +103,7 @@ import Chainweb.Version
 
 import Chainweb.Payload
 
-import Data.CAS
+import Chainweb.Storage.Table
 
 import P2P.Peer
 
@@ -376,7 +377,7 @@ instance IsCasValue CutHashes where
     casKey c = (_cutHashesHeight c, _cutHashesWeight c, _cutHashesId c)
     {-# INLINE casKey #-}
 
-type CutHashesCas cas = CasConstraint cas CutHashes
+type CutHashesCas tbl = Cas tbl CutHashes
 
 -- TODO
 --

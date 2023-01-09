@@ -97,8 +97,6 @@ import Control.Monad.Catch
 import Data.Aeson hiding (Error)
 import qualified Data.ByteArray as BA
 import qualified Data.ByteString as B
-import Data.CAS
-import Data.CAS.RocksDB
 import Data.Cuckoo
 import Data.Foldable
 
@@ -129,6 +127,9 @@ import Chainweb.TreeDB
 import Chainweb.Utils
 import Chainweb.Version
 import Chainweb.WebBlockHeaderDB
+
+import Chainweb.Storage.Table
+import Chainweb.Storage.Table.RocksDB
 
 import Data.LogMessage
 
@@ -213,9 +214,9 @@ instance Exception DatabaseCheckException
 --
 -- Adds about 4 minutes of overhead at block height 800,000 on a mac bock pro.
 --
-checkPayloads :: PayloadDb RocksDbCas -> Bool -> BlockHeader -> IO ()
+checkPayloads :: PayloadDb RocksDbTable -> Bool -> BlockHeader -> IO ()
 checkPayloads _ True _ = return ()
-checkPayloads pdb False h = casLookup pdb (_blockPayloadHash h) >>= \case
+checkPayloads pdb False h = tableLookup pdb (_blockPayloadHash h) >>= \case
     Just p
         | verifyPayloadWithOutputs p -> return ()
         | otherwise -> throwM $ InconsistentPaylaod h p
@@ -228,15 +229,9 @@ checkPayloads pdb False h = casLookup pdb (_blockPayloadHash h) >>= \case
 -- This is faster than 'checkPayload' because only the top-level 'PayloadData'
 -- structure is queried -- and immediately discarded.
 --
--- TODO: casMember for rocksdb internally uses the default implementation that
--- uses casLookup. The Haskell rocksdb bindings don't provide a member check
--- without getting the value. It could be done via the iterator API, which has
--- different cost overheads. One optimization could be an implementation that
--- avoids decoding of the value.
---
-checkPayloadsExist :: PayloadDb RocksDbCas -> Bool -> BlockHeader -> IO ()
+checkPayloadsExist :: PayloadDb RocksDbTable -> Bool -> BlockHeader -> IO ()
 checkPayloadsExist _ True _ = return ()
-checkPayloadsExist pdb False h = unlessM (casMember db $ _blockPayloadHash h) $
+checkPayloadsExist pdb False h = unlessM (tableMember db $ _blockPayloadHash h) $
     throwM $ MissingPayloadException h
   where
     db = _transactionDbBlockPayloads $ _transactionDb pdb
@@ -256,7 +251,7 @@ checkIntrinsic now False h = validateIntrinsicM now h
 checkInductive :: Time Micros -> BlockHeaderDb -> Bool -> BlockHeader -> IO ()
 checkInductive _ _ True _ = return ()
 checkInductive now cdb False h = do
-    validateInductiveChainM (casLookup cdb) h
+    validateInductiveChainM (tableLookup cdb) h
     validateIntrinsicM now h
 {-# INLINE checkInductive #-}
 
@@ -269,7 +264,7 @@ checkFull _ _ True = const $ return ()
 checkFull now wdb False = void . validateBlockHeaderM now ctx
   where
     ctx :: ChainValue BlockHash -> IO (Maybe BlockHeader)
-    ctx cv = fmap _chainValueValue <$> casLookup wdb cv
+    ctx cv = fmap _chainValueValue <$> tableLookup wdb cv
 {-# INLINE checkFull #-}
 
 -- -------------------------------------------------------------------------- --
@@ -372,7 +367,7 @@ markOutputs f
 --
 sweepPayloads
     :: LogFunctionText
-    -> PayloadDb RocksDbCas
+    -> PayloadDb RocksDbTable
     -> [Filter BlockPayloadHash]
     -> IO (Filter BlockTransactionsHash, Filter BlockOutputsHash)
 sweepPayloads logg db markedPayloads = do
@@ -392,7 +387,7 @@ sweepPayloads logg db markedPayloads = do
         <> "MB for marking outputs hashes entries"
 
     -- traverse all payloads
-    c0 <- withTableIter payloadsTable
+    c0 <- withTableIterator payloadsTable
         $ S.sum_ @_ @Int . S.mapM (go markedTrans markedOutputs) . iterToValueStream
     logg Info $ "Swept entries for " <> sshow c0 <> " block payload hashes"
     return (markedTrans, markedOutputs)
@@ -403,20 +398,20 @@ sweepPayloads logg db markedPayloads = do
 
     -- Extract RocksDB Tables from Payload Db
     payloadsTable :: RocksDbTable BlockPayloadHash BlockPayload
-    payloadsTable = _getRocksDbCas t
+    payloadsTable = unCasify t
       where
-        BlockPayloadStore t = _transactionDbBlockPayloads $ _transactionDb db
+        t = _transactionDbBlockPayloads $ _transactionDb db
 
 -- | Sweep Transations
 --
 sweepTransactions
     :: LogFunctionText
-    -> PayloadDb RocksDbCas
+    -> PayloadDb RocksDbTable
     -> Filter BlockTransactionsHash
     -> IO ()
 sweepTransactions logg db marked = do
     logg Info $ "Sweeping BlockTransactions"
-    c1 <- withTableIter table $ S.sum_ @_ @Int . S.mapM go . iterToKeyStream
+    c1 <- withTableIterator table $ S.sum_ @_ @Int . S.mapM go . iterToKeyStream
     logg Info $ "Swept " <> sshow c1 <> " block transactions hashes"
   where
     go x = member marked (GcHash x) >>= \case
@@ -425,20 +420,20 @@ sweepTransactions logg db marked = do
 
     -- Extract RocksDB Tables from Payload Db
     table :: RocksDbTable BlockTransactionsHash BlockTransactions
-    table = _getRocksDbCas t
+    table = unCasify t
       where
-        BlockTransactionsStore t = _transactionDbBlockTransactions $ _transactionDb db
+        t = _transactionDbBlockTransactions $ _transactionDb db
 
 -- | Sweep Outputs
 --
 sweepOutputs
     :: LogFunctionText
-    -> PayloadDb RocksDbCas
+    -> PayloadDb RocksDbTable
     -> Filter BlockOutputsHash
     -> IO ()
 sweepOutputs logg db marked = do
     logg Info "Sweeping BlockOutputss"
-    c1 <- withTableIter table $ S.sum_ @_ @Int . S.mapM go . iterToKeyStream
+    c1 <- withTableIterator table $ S.sum_ @_ @Int . S.mapM go . iterToKeyStream
     logg Info $ "Swept " <> sshow c1 <> " block output hashes"
   where
     go x = member marked (GcHash x) >>= \case
@@ -447,9 +442,9 @@ sweepOutputs logg db marked = do
 
     -- Extract RocksDB Tables from Payload Db
     table :: RocksDbTable BlockOutputsHash BlockOutputs
-    table = _getRocksDbCas t
+    table = unCasify t
       where
-        BlockOutputsStore t = _payloadCacheBlockOutputs $ _payloadCache db
+        t = _payloadCacheBlockOutputs $ _payloadCache db
 
 -- -------------------------------------------------------------------------- --
 -- Utils for Mark and sweep GC for Payloads
@@ -526,32 +521,29 @@ checkMark fs a = go fs
 -- | delete BlockPayload
 --
 deleteBlockPayload
-    :: CasConstraint cas BlockPayload
-    => CasConstraint cas BlockOutputs
-    => CasConstraint cas OutputTree
+    :: CanPayloadCas tbl
     => LogFunctionText
-    -> PayloadDb cas
+    -> PayloadDb tbl
     -> BlockPayload
     -> IO ()
 deleteBlockPayload logg db p = do
     logg Debug $ "Delete PayloadHash for " <> encodeToText (_blockPayloadPayloadHash p)
-    casDelete pdb (_blockPayloadPayloadHash p)
+    tableDelete pdb (_blockPayloadPayloadHash p)
   where
     pdb = _transactionDbBlockPayloads $ _transactionDb db
 
 -- | Delete BlockOutputs and OutputTree
 --
 deleteBlockOutputs
-    :: CasConstraint cas BlockOutputs
-    => CasConstraint cas OutputTree
+    :: CanPayloadCas tbl
     => LogFunctionText
-    -> PayloadDb cas
+    -> PayloadDb tbl
     -> BlockOutputsHash
     -> IO ()
 deleteBlockOutputs logg db p = do
     logg Debug $ "Delete BlockOutputs for " <> encodeToText p
-    casDelete odb p
-    casDelete otdb p
+    tableDelete odb p
+    tableDelete otdb p
   where
     odb = _payloadCacheBlockOutputs $ _payloadCache db
     otdb = _payloadCacheOutputTrees $ _payloadCache db
@@ -559,16 +551,15 @@ deleteBlockOutputs logg db p = do
 -- | Delete BlockTransactions and TransactionsTree
 --
 deleteBlockTransactions
-    :: CasConstraint cas BlockTransactions
-    => CasConstraint cas TransactionTree
+    :: CanPayloadCas tbl
     => LogFunctionText
-    -> PayloadDb cas
+    -> PayloadDb tbl
     -> BlockTransactionsHash
     -> IO ()
 deleteBlockTransactions logg db p = do
     logg Debug $ "Delete BlockTransactions for " <> encodeToText p
-    casDelete tdb p
-    casDelete ttdb p
+    tableDelete tdb p
+    tableDelete ttdb p
   where
     tdb = _transactionDbBlockTransactions $ _transactionDb db
     ttdb = _payloadCacheTransactionTrees $ _payloadCache db

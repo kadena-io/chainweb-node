@@ -40,7 +40,6 @@ import Data.Binary.Builder (fromByteString, fromLazyByteString)
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Base16 as B16
 import Data.ByteString.Short (fromShort)
-import Data.CAS (casLookupM)
 import Data.Foldable
 import Data.Functor.Of
 import Data.IORef
@@ -63,7 +62,7 @@ import Chainweb.BlockHeader (BlockHeader(..), ObjectEncoded(..), _blockPow)
 import Chainweb.BlockHeaderDB
 import Chainweb.BlockHeaderDB.RestAPI
 import Chainweb.ChainId
-import Chainweb.CutDB (CutDb, blockDiffStream, cutDbPayloadCas)
+import Chainweb.CutDB (CutDb, blockDiffStream, cutDbPayloadDb)
 import Chainweb.Difficulty (showTargetHex)
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
@@ -73,6 +72,8 @@ import Chainweb.RestAPI.Utils
 import Chainweb.TreeDB
 import Chainweb.Utils.Paging
 import Chainweb.Version
+
+import Chainweb.Storage.Table 
 
 -- -------------------------------------------------------------------------- --
 -- Handler Tools
@@ -276,18 +277,18 @@ someBlockHeaderDbServers v = mconcat
 -- -------------------------------------------------------------------------- --
 -- BlockHeader Event Stream
 
-someHeaderStreamServer :: PayloadCasLookup cas => ChainwebVersion -> CutDb cas -> SomeServer
+someHeaderStreamServer :: CanReadablePayloadCas tbl => ChainwebVersion -> CutDb tbl -> SomeServer
 someHeaderStreamServer (FromSingChainwebVersion (SChainwebVersion :: Sing v)) cdb =
     SomeServer (Proxy @(HeaderStreamApi v)) $ headerStreamServer cdb
 
 headerStreamServer
-    :: forall cas (v :: ChainwebVersionT)
-    .  PayloadCasLookup cas
-    => CutDb cas
+    :: forall tbl (v :: ChainwebVersionT)
+    .  CanReadablePayloadCas tbl
+    => CutDb tbl
     -> Server (HeaderStreamApi v)
 headerStreamServer cdb = headerStreamHandler cdb
 
-headerStreamHandler :: forall cas. PayloadCasLookup cas => CutDb cas -> Tagged Handler Application
+headerStreamHandler :: forall tbl. CanReadablePayloadCas tbl => CutDb tbl -> Tagged Handler Application
 headerStreamHandler db = Tagged $ \req resp -> do
     streamRef <- newIORef $ SP.map f $ SP.mapM g $ SP.concat $ blockDiffStream db
     eventSourceAppIO (run streamRef) req resp
@@ -297,8 +298,8 @@ headerStreamHandler db = Tagged $ \req resp -> do
         Nothing -> return CloseEvent
         Just (cur, !s') -> cur <$ writeIORef var s'
 
-    cas :: PayloadDb cas
-    cas = view cutDbPayloadCas db
+    cas :: PayloadDb tbl
+    cas = view cutDbPayloadDb db
 
     g :: BlockHeader -> IO HeaderUpdate
     g bh = do
