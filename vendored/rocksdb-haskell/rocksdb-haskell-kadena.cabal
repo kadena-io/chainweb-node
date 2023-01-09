@@ -130,7 +130,7 @@ library
     -DLZ4
     -DZSTD
     -DROCKSDB_BACKTRACE
-    -- -march=native
+    -march=x86-64
     -DHAVE_SSE42
     -DHAVE_PCLMUL
     -DHAVE_BMI
@@ -143,7 +143,7 @@ library
     -Woverloaded-virtual
     -Wnon-virtual-dtor
     -Wno-missing-field-initializers
-    -- -O2
+    -O2
 
   if flag(with-tbb)
     cxx-options:
