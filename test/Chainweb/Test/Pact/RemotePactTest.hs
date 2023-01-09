@@ -90,7 +90,7 @@ import Chainweb.Time
 import Chainweb.Utils hiding (check)
 import Chainweb.Version
 
-import Data.CAS.RocksDB
+import Chainweb.Storage.Table.RocksDB
 
 
 -- -------------------------------------------------------------------------- --

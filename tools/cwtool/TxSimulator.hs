@@ -1,4 +1,5 @@
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TypeApplications #-}
@@ -54,7 +55,7 @@ import Network.HTTP.Client.TLS
 import Servant.Client.Core
 import Servant.Client
 
-import Data.CAS.RocksDB
+import Chainweb.Storage.Table.RocksDB
 
 import Pact.Types.Command
 import Pact.Types.Hash
@@ -126,7 +127,7 @@ simulate sc@(SimConfig dbDir txIdx' _ _ cid ver) = do
     ferr e _ = throwM e
 
     doBlock
-        :: PayloadCasLookup cas
+        :: CanReadablePayloadCas cas
         => Bool
         -> BlockHeader
         -> [(BlockHeader,PayloadWithOutputs)]

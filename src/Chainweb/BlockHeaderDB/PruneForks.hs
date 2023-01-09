@@ -4,13 +4,10 @@
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE GADTs #-}
-{-# LANGUAGE GeneralizedNewtypeDeriving #-}
-{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE PolyKinds #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE TypeApplications #-}
 
 -- |
 -- Module: Chainweb.BlockHeaderDB.PruneForks
@@ -60,8 +57,8 @@ import Chainweb.TreeDB
 import Chainweb.Utils hiding (Codec)
 import Chainweb.Version
 
-import Data.CAS
-import Data.CAS.RocksDB
+import Chainweb.Storage.Table
+import Chainweb.Storage.Table.RocksDB
 import Data.LogMessage
 
 -- -------------------------------------------------------------------------- --
@@ -224,8 +221,8 @@ pruneForks_ logg cdb mar mir callback = do
     deleteHdr k = do
         -- TODO: make this atomic (create boilerplate to combine queries for
         -- different tables)
-        casDelete (_chainDbCas cdb) (casKey $ RankedBlockHeader k)
-        tableDelete (_chainDbRankTable cdb) (_blockHash k)
+        casDelete (_chainDbCas cdb) (RankedBlockHeader k) 
+        tableDelete (_chainDbRankTable cdb) (_blockHash k) 
         logg Debug
             $ "pruned block header " <> encodeToText (_blockHash k)
             <> " at height " <> sshow (_blockHeight k)
@@ -241,9 +238,9 @@ withReverseHeaderStream
     -> MinRank
     -> (S.Stream (S.Of BlockHeader) IO () -> IO a)
     -> IO a
-withReverseHeaderStream db mar mir inner = withTableIter headerTbl $ \it -> do
-    tableIterSeek it $ RankedBlockHash (BlockHeight $ int $ _getMaxRank mar + 1) nullBlockHash
-    tableIterPrev it
+withReverseHeaderStream db mar mir inner = withTableIterator headerTbl $ \it -> do
+    iterSeek it $ RankedBlockHash (BlockHeight $ int $ _getMaxRank mar + 1) nullBlockHash
+    iterPrev it
     inner $ iterToReverseValueStream it
         & S.map _getRankedBlockHeader
         & S.takeWhile (\a -> int (_blockHeight a) >= mir)

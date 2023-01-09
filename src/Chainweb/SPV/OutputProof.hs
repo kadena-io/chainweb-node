@@ -1,6 +1,6 @@
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE GADTs #-}
-{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
@@ -37,7 +37,6 @@ import Control.Monad.Catch
 
 import Crypto.Hash.Algorithms
 
-import Data.CAS
 import qualified Data.List.NonEmpty as N
 import Data.MerkleLog hiding (Expected, Actual)
 import qualified Data.Vector as V
@@ -62,6 +61,8 @@ import Chainweb.SPV
 import Chainweb.SPV.PayloadProof
 import Chainweb.TreeDB
 import Chainweb.Utils
+
+import Chainweb.Storage.Table
 
 -- -------------------------------------------------------------------------- --
 -- Utils
@@ -194,11 +195,11 @@ createOutputProofKeccak256 = createOutputProof_
 -- at the given target header.
 --
 createOutputProofDb_
-    :: forall a cas
+    :: forall a tbl
     . MerkleHashAlgorithm a
-    => PayloadCasLookup cas
+    => CanReadablePayloadCas tbl
     => BlockHeaderDb
-    -> PayloadDb cas
+    -> PayloadDb tbl
     -> Natural
         -- ^ minimum depth of the target header in the block chain. The current
         -- header of the chain has depth 0.
@@ -228,9 +229,9 @@ createOutputProofDb_ headerDb payloadDb d h reqKey = do
 -- at the given target header.
 --
 createOutputProofDb
-    :: PayloadCasLookup cas
+    :: CanReadablePayloadCas tbl
     => BlockHeaderDb
-    -> PayloadDb cas
+    -> PayloadDb tbl
     -> Natural
         -- ^ minimum depth of the target header in the block chain. The current
         -- header of the chain has depth 0.
@@ -245,9 +246,9 @@ createOutputProofDb = createOutputProofDb_
 -- at the given target header. The proof uses Keccak_256 as Merkle hash function.
 --
 createOutputProofDbKeccak256
-    :: PayloadCasLookup cas
+    :: CanReadablePayloadCas tbl
     => BlockHeaderDb
-    -> PayloadDb cas
+    -> PayloadDb tbl
     -> Natural
         -- ^ minimum depth of the target header in the block chain. The current
         -- header of the chain has depth 0.

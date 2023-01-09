@@ -26,7 +26,6 @@ import Control.Monad.Catch
 
 
 import Data.Aeson (object, (.=), Value(..), decode)
-import Data.CAS.RocksDB
 import Data.Either (isRight)
 import qualified Data.ByteString.Lazy as BL
 import Data.IORef
@@ -71,6 +70,8 @@ import Chainweb.Time
 import Chainweb.Utils
 import Chainweb.Version
 import Chainweb.Version.Utils
+
+import Chainweb.Storage.Table.RocksDB
 
 testVersion :: ChainwebVersion
 testVersion = FastTimedCPM peterson
