@@ -131,7 +131,6 @@ library
     -DZSTD
     -DROCKSDB_BACKTRACE
     -march=x86-64
-    -DHAVE_SSE42
     -DHAVE_PCLMUL
     -DHAVE_BMI
     -DHAVE_LZCNT
