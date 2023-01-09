@@ -120,6 +120,7 @@ library
     -Werror
     -std=c++17
     -faligned-new
+    -DNO_THREEWAY_CRC32C
     -DHAVE_ALIGNED_NEW
     -DROCKSDB_PLATFORM_POSIX
     -DROCKSDB_LIB_IO_POSIX
@@ -132,6 +133,7 @@ library
     -DROCKSDB_BACKTRACE
     -march=x86-64
     -mtune=generic
+    -msse3
     -DROCKSDB_SUPPORT_THREAD_LOCAL
     -fno-omit-frame-pointer
     -momit-leaf-frame-pointer
