@@ -17,10 +17,10 @@ runs:
       run: |
         case "${{ inputs.os }}" in
         ubuntu-20.04)
-          sudo apt-get install -u libtbb2 libgflags2.2
+          sudo apt-get install -u libgflags2.2
           ;;
         ubuntu-22.04)
-          sudo apt-get install -u libtbb12 libgflags2.2
+          sudo apt-get install -u libgflags2.2
           ;;
         mac*)
           brew update && brew install gnu-tar || true
