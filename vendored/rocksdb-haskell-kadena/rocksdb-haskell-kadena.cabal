@@ -131,10 +131,7 @@ library
     -DZSTD
     -DROCKSDB_BACKTRACE
     -march=x86-64
-    -DHAVE_PCLMUL
-    -DHAVE_BMI
-    -DHAVE_LZCNT
-    -DHAVE_UINT128_EXTENSION
+    -mtune=generic
     -DROCKSDB_SUPPORT_THREAD_LOCAL
     -fno-omit-frame-pointer
     -momit-leaf-frame-pointer
