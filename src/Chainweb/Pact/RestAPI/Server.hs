@@ -348,8 +348,10 @@ localHandler logger pact preflight cmd = do
 
     r <- liftIO $ _pactLocal pact preflight cmd'
     case r of
-      Left err ->
-        throwError $ err400 { errBody = "Execution failed: " <> BSL8.pack (show err) }
+      Left (LocalMetadataValidationFailure e) -> throwError $ err400
+        { errorBody = "Metadata validation failed: " <> BSL8.pack e }
+      Left err -> throwError $ err400
+        { errBody = "Execution failed: " <> BSL8.pack (show err) }
       Right !_r' -> error "branch on metadata error formatting or command"
   where
     logg = logFunctionJson (setComponent "local-handler" logger)
