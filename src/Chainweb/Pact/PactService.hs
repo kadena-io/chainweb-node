@@ -637,10 +637,8 @@ execLocal cwtx preflight rdepth = withDiscardedBatch $ do
         !pm = publicMetaOf cmd
 
     mc <- getInitCache
-
     ctx <- getTxContext pm
     spv <- use psSpvSupport
-
 
     let rewindHeight = BlockHeight <$> rdepth
         rewindHeader
