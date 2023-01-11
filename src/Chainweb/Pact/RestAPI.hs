@@ -130,7 +130,9 @@ pactPollApi = Proxy
 -- POST Queries for Pact Local Pre-flight
 
 type PactLocalWithQueryApi_
-    = QueryFlag "preflight" :> ApiLocal
+    = QueryFlag "preflight"
+    :> ApiLocal
+
 
 type PactLocalWithQueryApi v c = PactV1ApiEndpoint v c PactLocalWithQueryApi_
 
