@@ -94,6 +94,7 @@ data PactException
   = BlockValidationFailure !Value
   | PactInternalError !Text
   | PactTransactionExecError !PactHash !Text
+  | LocalMetadataValidationFailure !Text
   | CoinbaseFailure !Text
   | NoBlockValidatedYet
   | TransactionValidationException ![(PactHash, Text)]
@@ -174,7 +175,7 @@ instance Show ValidateBlockReq where show ValidateBlockReq{..} = show (_valBlock
 data LocalReq = LocalReq
     { _localRequest :: !ChainwebTransaction
     , _localPreflight :: !Bool
-    , _localResultVar :: !(PactExMVar (Either MetadataError (CommandResult Hash)))
+    , _localResultVar :: !(PactExMVar (CommandResult Hash))
     }
 instance Show LocalReq where show LocalReq{..} = show _localRequest
 

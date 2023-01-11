@@ -7,19 +7,7 @@
       inherit sha256; }) {
       config.allowBroken = false;
       config.allowUnfree = true;
-      overlays = [
-        (self: super: {
-           tbb = super.tbb.overrideAttrs(attrs: {
-             patches = attrs.patches ++ [
-               (super.fetchurl {
-                 name = "aarch64-darwin.patch";
-                 url = "https://github.com/oneapi-src/oneTBB/pull/258/commits/86f6dcdc17a8f5ef2382faaef860cfa5243984fe.patch";
-                 sha256 = "sha256-JXqrFPCb3q1vfxk752tQu7HhApCB4YH2LoVnGRwmspk=";
-               })
-             ];
-           });
-         })
-      ];
+      overlays = [];
     }
 , returnShellEnv ? false
 , mkDerivation ? null

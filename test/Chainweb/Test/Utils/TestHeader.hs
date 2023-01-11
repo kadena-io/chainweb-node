@@ -1,9 +1,12 @@
 {-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TupleSections #-}
 {-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE UndecidableInstances #-}
 
 -- |
 -- Module: Chainweb.Test.Utils.TestHeader
@@ -35,7 +38,6 @@ import Control.Lens hiding ((.=))
 
 import Data.Aeson
 import Data.Aeson.Types
-import Data.CAS
 import Data.Foldable
 import qualified Data.HashMap.Strict as HM
 
@@ -58,6 +60,8 @@ import Chainweb.ChainValue
 import Chainweb.Test.Orphans.Internal
 import Chainweb.Test.Utils.ApiQueries
 import Chainweb.Version
+
+import Chainweb.Storage.Table
 
 -- -------------------------------------------------------------------------- --
 -- TestHeader
@@ -83,18 +87,17 @@ instance HasChainGraph TestHeader where
     _chainGraph = _chainGraph . _testHeaderHdr
     {-# INLINE _chainGraph #-}
 
-instance HasCasLookup TestHeader where
-    type CasValueType TestHeader = BlockHeader
-    casLookup h = return . testHeaderLookup h
-    {-# INLINE casLookup #-}
+instance (k ~ CasKeyType BlockHeader) => ReadableTable TestHeader k BlockHeader where
+    tableLookup h = return . testHeaderLookup h
+    {-# INLINE tableLookup #-}
 
 testHeaderLookup :: TestHeader -> BlockHash -> Maybe BlockHeader
-testHeaderLookup testHdr x = lookup x cas
+testHeaderLookup testHdr x = lookup x tbl
   where
     h = _testHeaderHdr testHdr
     p = _parentHeader $ _testHeaderParent testHdr
     a = _testHeaderAdjs testHdr
-    cas
+    tbl
         = (_blockHash h, h)
         : (_blockHash p, p)
         : fmap (\(ParentHeader b) -> (_blockHash b, b)) a

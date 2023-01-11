@@ -15,7 +15,6 @@ import Control.Lens (set)
 import Control.Monad
 import Control.Monad.Catch
 
-import Data.CAS.RocksDB
 import qualified Data.Vector as V
 
 import Pact.Types.ChainMeta
@@ -47,6 +46,8 @@ import Chainweb.Time
 import Chainweb.Utils
 import Chainweb.Version
 import Chainweb.Version.Utils
+
+import Chainweb.Storage.Table.RocksDB
 
 -- -------------------------------------------------------------------------- --
 -- Settings
@@ -271,7 +272,7 @@ assertDoPreBlockFailure action = try @_ @PactException action >>= \case
 data Ctx = Ctx
     { _ctxMempool :: !(MVar MemPoolAccess)
     , _ctxQueue :: !PactQueue
-    , _ctxPdb :: !(PayloadDb RocksDbCas)
+    , _ctxPdb :: !(PayloadDb RocksDbTable)
     , _ctxBdb :: !BlockHeaderDb
     }
 

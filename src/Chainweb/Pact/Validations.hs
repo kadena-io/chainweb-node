@@ -53,7 +53,6 @@ import qualified Pact.Types.Command as P
 import qualified Pact.Types.ChainMeta as P
 import qualified Pact.Parse as P
 
-
 -- | Check whether a particular Pact chain id is parseable
 --
 assertParseChainId :: P.ChainId -> Bool

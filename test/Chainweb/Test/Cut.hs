@@ -106,7 +106,7 @@ import Chainweb.Version
 import Chainweb.Version.Utils
 import Chainweb.WebBlockHeaderDB
 
-import Data.CAS.RocksDB
+import Chainweb.Storage.Table.RocksDB
 
 import Numeric.Additive
 import Numeric.AffineSpace
