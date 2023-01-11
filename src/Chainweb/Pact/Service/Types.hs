@@ -181,21 +181,6 @@ data LocalReq = LocalReq
     }
 instance Show LocalReq where show LocalReq{..} = show _localRequest
 
-data LocalResponse
-  = InvalidMetadata BlockHeader [MetadataError]
-  | SuccessfulTx (CommandResult Hash)
-
-data MetadataError
-  = Foobar
-{-  ChainIdParseError P.ChainId
-  | ChainIdMismatch ChainId P.ChainId
-  | GasPriceDecimalExceedsMax P.GasPrice
-  | NetworkIdMismatch ChainwebVersion (Maybe P.NetworkId)
-  | SigListSizeExceedsMax Int
-  | TxSizeExceedsLimit P.Gas P.GasLimit
-  | InvalidSignature [P.Signer] P.PactHash
--}
-
 data LookupPactTxsReq = LookupPactTxsReq
     { _lookupRestorePoint :: !Rewind
         -- here if the restore point is "Nothing" it means "we don't care"
