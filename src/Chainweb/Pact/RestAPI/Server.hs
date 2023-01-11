@@ -355,7 +355,7 @@ localHandler logger pact preflight rewindDepth cmd = do
         { errBody = "Metadata validation failed: " <> BSL8.pack (show e) }
       Left err -> throwError $ err400
         { errBody = "Execution failed: " <> BSL8.pack (show err) }
-      Right !_r' -> error "branch on metadata error formatting or command"
+      Right resp -> pure resp
   where
     logg = logFunctionJson (setComponent "local-handler" logger)
 
