@@ -640,10 +640,13 @@ execLocal cwtx preflight rdepth = withDiscardedBatch $ do
     ctx <- getTxContext pm
     spv <- use psSpvSupport
 
-    let rewindHeight = BlockHeight <$> rdepth
-        rewindHeader
-          | Just{} <- rewindHeight = Just $ _tcParentHeader ctx
-          | otherwise = Nothing
+    let rewindHeight
+          | Just d <- rdepth = Just $ BlockHeight d
+          -- when no height is defined, treat
+          -- withCheckpointerRewind as withCurrentCheckpointer
+          -- (i.e. setting rewind to 0).
+          | otherwise = Just 0
+        rewindHeader = Just $ _tcParentHeader ctx
 
     let execConfig = P.mkExecutionConfig $
             [ P.FlagAllowReadInLocal | _psAllowReadsInLocal ] ++
