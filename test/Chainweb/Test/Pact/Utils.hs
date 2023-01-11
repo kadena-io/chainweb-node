@@ -633,6 +633,7 @@ testPactCtxSQLite v cid bhdb pdb sqlenv conf gasmodel = do
         , _psGasLogger = Nothing
         , _psLoggers = loggers
         , _psBlockGasLimit = _pactBlockGasLimit conf
+        , _psChainId = cid
         }
 
 freeGasModel :: TxContext -> GasModel

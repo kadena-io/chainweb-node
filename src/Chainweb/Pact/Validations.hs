@@ -70,15 +70,17 @@ assertLocalMetadata
 assertLocalMetadata cmd@(P.Command pay sigs hsh) txCtx = do
     v <- view psVersion
     cid <- view psChainId
+    bgl <- view psBlockGasLimit
 
-    let P.PublicMeta{..} = P._pMeta pay
+    let P.PublicMeta pcid _ gl gp _ _ = P._pMeta pay
         nid = P._pNetworkId pay
         signers = P._pSigners pay
 
-    eUnless "cannot parse transaction chain id" $ assertParseChainId _pmChainId
-    eUnless "chain id mismatch" $ assertChainId cid _pmChainId
-    eUnless "gas price decimal precision too high" $ assertGasPrice _pmGasPrice
-    eUnless "network id mismatch" $ assertNetworkId v nid
+    eUnless "Unparseable transaction chain id" $ assertParseChainId pcid
+    eUnless "Chain id mismatch" $ assertChainId cid pcid
+    eUnless "Transaction Gas limit exceeds block gas limit" $ assertBlockGasLimit bgl gl
+    eUnless "Gas price decimal precision too high" $ assertGasPrice gp
+    eUnless "Network id mismatch" $ assertNetworkId v nid
     eUnless "Too many signatures" $ assertValidateSigs hsh signers sigs
     eUnless "Tx time outside of valid range" $ assertTxTimeRelativeToParent pct cmd
 
@@ -114,6 +116,12 @@ assertChainId cid0 cid1 = chainIdToText cid0 == P._chainId cid1
 --
 assertGasPrice :: P.GasPrice -> Bool
 assertGasPrice (P.GasPrice (P.ParsedDecimal gp)) = decimalPlaces gp <= defaultMaxCoinDecimalPlaces
+
+-- | Check and assert that the 'GasLimit' of a transaction is higher than
+-- the block gas limit
+--
+assertBlockGasLimit :: P.GasLimit -> P.GasLimit -> Bool
+assertBlockGasLimit = (<)
 
 -- | Check and assert that 'ChainwebVersion' is equal to some pact 'NetworkId'.
 --

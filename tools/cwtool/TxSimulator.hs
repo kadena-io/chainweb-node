@@ -110,7 +110,7 @@ simulate sc@(SimConfig dbDir txIdx' _ _ cid ver) = do
           withRocksDb "txsim-rocksdb" modernDefaultOptions $ \rdb ->
             withBlockHeaderDb rdb ver cid $ \bdb -> do
               let pse = PactServiceEnv Nothing cpe paydb bdb getGasModel readRewards 0 ferr
-                        ver True False logger gasLogger (pactLoggers cwLogger) False 1 defaultBlockGasLimit
+                        ver True False logger gasLogger (pactLoggers cwLogger) False 1 defaultBlockGasLimit cid
                   pss = PactServiceState Nothing mempty (ParentHeader parent) noSPVSupport
               evalPactServiceM pss pse $ doBlock True parent (zip hdrs pwos)
 
