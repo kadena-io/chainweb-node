@@ -29,6 +29,7 @@ import Data.Aeson
 import Data.Map (Map)
 import Data.Text (Text, pack, unpack)
 import Data.Vector (Vector)
+import Data.Word
 
 import GHC.Generics
 import Numeric.Natural (Natural)
@@ -175,6 +176,8 @@ instance Show ValidateBlockReq where show ValidateBlockReq{..} = show (_valBlock
 data LocalReq = LocalReq
     { _localRequest :: !ChainwebTransaction
     , _localPreflight :: !Bool
+    , _localConfirmationDepth :: !(Maybe Word64)
+    , _localRewindDepth :: !(Maybe Word64)
     , _localResultVar :: !(PactExMVar (CommandResult Hash))
     }
 instance Show LocalReq where show LocalReq{..} = show _localRequest

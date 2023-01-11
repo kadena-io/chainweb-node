@@ -542,7 +542,8 @@ execLocalTest runPact name (trans',check) = testCaseSch name (go >>= check)
   where
     go = do
       trans <- trans'
-      results' <- tryAllSynchronous $ runPact $ \_ -> execLocal trans False
+      results' <- tryAllSynchronous $ runPact $ \_ ->
+        execLocal trans False Nothing Nothing
       case results' of
         Right cr -> return $ Right cr
         Left e -> return $ Left $ show e

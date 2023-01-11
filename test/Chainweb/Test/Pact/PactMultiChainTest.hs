@@ -290,7 +290,8 @@ pact45UpgradeTest = do
 runLocal :: ChainId -> CmdBuilder -> PactTestM (Either PactException (CommandResult Hash))
 runLocal cid' cmd = do
   HM.lookup cid' <$> view menvPacts >>= \case
-    Just pact -> buildCwCmd cmd >>= liftIO . _pactLocal pact False
+    Just pact -> buildCwCmd cmd >>=
+      liftIO . _pactLocal pact False Nothing Nothing
     Nothing -> liftIO $ assertFailure $ "No pact service found at chain id " ++ show cid'
 
 assertLocalFailure

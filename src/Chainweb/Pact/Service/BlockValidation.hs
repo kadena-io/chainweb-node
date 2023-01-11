@@ -28,6 +28,7 @@ import Control.Concurrent.MVar.Strict
 
 import Data.Aeson (Value)
 import Data.Vector (Vector)
+import Data.Word
 
 import Pact.Types.Command
 import Pact.Types.Hash
@@ -70,12 +71,20 @@ validateBlock bHeader plData reqQ = do
     addRequest reqQ msg
     return resultVar
 
-local :: Bool -> ChainwebTransaction -> PactQueue -> IO (MVar (Either PactException (CommandResult Hash)))
-local preflight ct reqQ = do
+local
+    :: Bool
+    -> Maybe Word64
+    -> Maybe Word64
+    -> ChainwebTransaction
+    -> PactQueue
+    -> IO (MVar (Either PactException (CommandResult Hash)))
+local preflight cd rd ct reqQ = do
     !resultVar <- newEmptyMVar
     let !msg = LocalMsg LocalReq
           { _localRequest = ct
           , _localPreflight = preflight
+          , _localConfirmationDepth = cd
+          , _localRewindDepth = rd
           , _localResultVar = resultVar }
     addRequest reqQ msg
     return resultVar
