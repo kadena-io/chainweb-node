@@ -632,9 +632,6 @@ execLocal cwtx preflight = withDiscardedBatch $ do
 
     let !cmd = payloadObj <$> cwtx
         !pm = publicMetaOf cmd
-        !pay = P._cmdPayload cmd
-        !sigs = P._cmdSigs cmd
-        !hsh = P._cmdHash cmd
 
     mc <- getInitCache
 
@@ -655,29 +652,20 @@ execLocal cwtx preflight = withDiscardedBatch $ do
         -- specified, we run the old behavior. When it is set to true, we also do metadata
         -- validations.
         --
-        r <- liftIO $ if preflight
+        r <- if preflight
           then do
-            void $ case validateMetadata _psVersion _psChainId pay pm sigs hsh of
-              Left e -> throwM $ LocalMetadataValidationFailure e
-              Right{} -> pure ()
-
-            T2 cr _mc' <- do
-              applyCmd
-                _psVersion logger _psGasLogger pdbenv
-                noMiner chainweb213GasModel ctx spv cmd
-                initialGas mc ApplyLocal
+            void $ assertLocalMetadata cmd ctx
+            T2 cr _mc' <- liftIO $ applyCmd
+              _psVersion logger _psGasLogger pdbenv
+              noMiner chainweb213GasModel ctx spv cmd
+              initialGas mc ApplyLocal
             return cr
-          else applyLocal logger _psGasLogger pdbenv chainweb213GasModel ctx spv cwtx mc execConfig
+          else liftIO $ applyLocal
+            logger _psGasLogger pdbenv
+            chainweb213GasModel ctx spv
+            cwtx mc execConfig
+
         return $! Discard (toHashCommandResult r)
-  where
-    validateMetadata v cid P.Payload{..} P.PublicMeta{..} sigs hsh
-      =  nebool_ "cannot parse transaction chain id" (assertParseChainId _pmChainId)
-      >> nebool_ "chain id mismatch" (assertChainId cid _pmChainId)
-      >> nebool_ "gas price decimal precision too high" (assertGasPrice _pmGasPrice)
-      >> nebool_ "network id mismatch" (assertNetworkId v _pNetworkId)
-      >> nebool_ "Initial gas cost of tx too big" undefined -- TODO
-      >> nebool_ "Too many signatures" (assertValidateSigs hsh _pSigners sigs)
-      >> nebool_ "Tx time outside of valid range" undefined -- TODO
 
 execSyncToBlock
     :: CanReadablePayloadCas tbl

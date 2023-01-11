@@ -1,5 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE RecordWildCards #-}
 -- |
 -- Module: Chainweb.Pact.Validations
 -- Copyright: Copyright © 2018,2019,2020,2021,2022 Kadena LLC.
@@ -13,8 +14,10 @@
 --  - The codepath for letting users test their transaction via /local
 --
 module Chainweb.Pact.Validations
-( -- * Validation checks
-  assertParseChainId
+( -- * Local metadata _validation
+  assertLocalMetadata
+  -- * Validation checks
+, assertParseChainId
 , assertChainId
 , assertGasPrice
 , assertNetworkId
@@ -29,6 +32,8 @@ module Chainweb.Pact.Validations
 , defaultLenientTimeSlop
 ) where
 
+import Control.Monad (unless)
+import Control.Monad.Catch (throwM)
 import Control.Lens
 
 import Data.Decimal (decimalPlaces)
@@ -37,14 +42,16 @@ import Data.Word (Word8)
 
 -- internal modules
 
-import Chainweb.BlockHeader (ParentCreationTime(..))
+import Chainweb.BlockHeader (ParentCreationTime(..), BlockHeader(..), ParentHeader(..))
 import Chainweb.BlockCreationTime (BlockCreationTime(..))
 import Chainweb.ChainId (ChainId, chainIdToText)
+import Chainweb.Pact.Types
 import Chainweb.Pact.Utils (fromPactChainId)
+import Chainweb.Pact.Service.Types (PactException(..))
 import Chainweb.Time (Seconds(..), Time(..), secondsToTimeSpan, scaleTimeSpan, second, add)
 import Chainweb.Transaction (cmdTimeToLive, cmdCreationTime)
 import Chainweb.Version (ChainwebVersion)
-import Chainweb.Utils (HasTextRepresentation(..))
+import Chainweb.Utils (HasTextRepresentation(..),)
 
 import qualified Pact.Types.Gas as P
 import qualified Pact.Types.Hash as P
@@ -52,6 +59,38 @@ import qualified Pact.Types.ChainId as P
 import qualified Pact.Types.Command as P
 import qualified Pact.Types.ChainMeta as P
 import qualified Pact.Parse as P
+
+
+-- | Check whether a local Api request has valid metadata
+--
+assertLocalMetadata
+    :: P.Command (P.Payload P.PublicMeta c)
+    -> TxContext
+    -> PactServiceM tbl ()
+assertLocalMetadata cmd@(P.Command pay sigs hsh) txCtx = do
+    v <- view psVersion
+    cid <- view psChainId
+
+    let P.PublicMeta{..} = P._pMeta pay
+        nid = P._pNetworkId pay
+        signers = P._pSigners pay
+
+    eUnless "cannot parse transaction chain id" $ assertParseChainId _pmChainId
+    eUnless "chain id mismatch" $ assertChainId cid _pmChainId
+    eUnless "gas price decimal precision too high" $ assertGasPrice _pmGasPrice
+    eUnless "network id mismatch" $ assertNetworkId v nid
+    eUnless "Too many signatures" $ assertValidateSigs hsh signers sigs
+    eUnless "Tx time outside of valid range" $ assertTxTimeRelativeToParent pct cmd
+
+  where
+    pct = ParentCreationTime
+      . _blockCreationTime
+      . _parentHeader
+      . _tcParentHeader
+      $ txCtx
+
+    eUnless t assertion = unless assertion $
+       throwM (LocalMetadataValidationFailure t)
 
 -- | Check whether a particular Pact chain id is parseable
 --
