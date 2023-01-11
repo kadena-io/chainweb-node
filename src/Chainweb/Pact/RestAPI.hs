@@ -133,10 +133,8 @@ pactPollApi = Proxy
 
 type PactLocalWithQueryApi_
     = QueryFlag "preflight"
-    :> QueryParam "confirmationDepth" Word64
     :> QueryParam "rewindToBlock" Word64
     :> ApiLocal
-
 
 type PactLocalWithQueryApi v c = PactV1ApiEndpoint v c PactLocalWithQueryApi_
 

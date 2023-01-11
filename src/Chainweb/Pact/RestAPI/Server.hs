@@ -339,19 +339,17 @@ localHandler
     -> Bool
       -- ^ Preflight flag
     -> Maybe Word64
-      -- ^ Confirmation depth
-    -> Maybe Word64
       -- ^ Rewind depth
     -> Command Text
     -> Handler (CommandResult Hash)
-localHandler logger pact preflight confirmDepth rewindDepth cmd = do
+localHandler logger pact preflight rewindDepth cmd = do
     liftIO $ logg Info $ PactCmdLogLocal cmd
     cmd' <- case validateCommand cmd of
       Right c -> return c
       Left err ->
         throwError $ err400 { errBody = "Validation failed: " <> BSL8.pack err }
 
-    r <- liftIO $ _pactLocal pact preflight confirmDepth rewindDepth cmd'
+    r <- liftIO $ _pactLocal pact preflight rewindDepth cmd'
     case r of
       Left (LocalMetadataValidationFailure e) -> throwError $ err400
         { errBody = "Metadata validation failed: " <> BSL8.pack (show e) }

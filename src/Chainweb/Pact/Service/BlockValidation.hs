@@ -74,16 +74,14 @@ validateBlock bHeader plData reqQ = do
 local
     :: Bool
     -> Maybe Word64
-    -> Maybe Word64
     -> ChainwebTransaction
     -> PactQueue
     -> IO (MVar (Either PactException (CommandResult Hash)))
-local preflight cd rd ct reqQ = do
+local preflight rd ct reqQ = do
     !resultVar <- newEmptyMVar
     let !msg = LocalMsg LocalReq
           { _localRequest = ct
           , _localPreflight = preflight
-          , _localConfirmationDepth = cd
           , _localRewindDepth = rd
           , _localResultVar = resultVar }
     addRequest reqQ msg

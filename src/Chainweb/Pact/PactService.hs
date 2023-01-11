@@ -277,10 +277,10 @@ serviceRequests logFn memPoolAccess reqQ = do
         logDebug $ "serviceRequests: " <> sshow msg
         case msg of
             CloseMsg -> return ()
-            LocalMsg (LocalReq localRequest preflight cdepth rdepth localResultVar)  -> do
+            LocalMsg (LocalReq localRequest preflight rewindDepth localResultVar)  -> do
                 trace logFn "Chainweb.Pact.PactService.execLocal" () 0 $
                     tryOne "execLocal" localResultVar $
-                        execLocal localRequest preflight cdepth rdepth
+                        execLocal localRequest preflight rewindDepth
                 go
             NewBlockMsg NewBlockReq {..} -> do
                 trace logFn "Chainweb.Pact.PactService.execNewBlock"
@@ -628,11 +628,9 @@ execLocal
     -> Bool
       -- ^ preflight flag
     -> Maybe Word64
-      -- ^ confirmation depth
-    -> Maybe Word64
       -- ^ rewind depth
     -> PactServiceM tbl (P.CommandResult P.Hash)
-execLocal cwtx preflight _cdepth _rdepth = withDiscardedBatch $ do
+execLocal cwtx preflight _rdepth = withDiscardedBatch $ do
     PactServiceEnv{..} <- ask
 
     let !cmd = payloadObj <$> cwtx
