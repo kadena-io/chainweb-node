@@ -75,7 +75,6 @@ module Chainweb.Utils
 , unlessM
 , whenM
 , ebool_
-, nebool_
 , alignWithV
 , (&)
 , IxedGet(..)
@@ -416,9 +415,6 @@ whenM c a = c >>= flip when a
 
 ebool_ :: e -> Bool -> Either e ()
 ebool_ e = bool (Left e) (Right ())
-
-nebool_ :: e -> Bool -> Either e ()
-nebool_ e = bool (Left e) (Right ()) . not
 
 -- | Round an integral `n` up to the nearest multiple of
 -- an integral `m`
