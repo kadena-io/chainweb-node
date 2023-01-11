@@ -54,6 +54,8 @@ module Chainweb.Pact.RestAPI
 ) where
 
 
+import Data.Word
+
 import Pact.Server.API as API
 
 import Servant
@@ -131,6 +133,8 @@ pactPollApi = Proxy
 
 type PactLocalWithQueryApi_
     = QueryFlag "preflight"
+    :> QueryParam "confirmationDepth" Word64
+    :> QueryParam "rewindToBlock" Word64
     :> ApiLocal
 
 

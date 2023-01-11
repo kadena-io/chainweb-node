@@ -61,6 +61,7 @@ import qualified Data.Text as T
 import Data.Text.Encoding
 import Data.Vector (Vector)
 import qualified Data.Vector as V
+import Data.Word (Word64)
 
 import Ethereum.Block
 import Ethereum.Header
@@ -337,9 +338,13 @@ localHandler
     -> PactExecutionService
     -> Bool
       -- ^ Preflight flag
+    -> Maybe Word64
+      -- ^ Confirmation depth
+    -> Maybe Word64
+      -- ^ Rewind depth
     -> Command Text
     -> Handler (CommandResult Hash)
-localHandler logger pact preflight cmd = do
+localHandler logger pact preflight _confirmDepth _rewindDepth cmd = do
     liftIO $ logg Info $ PactCmdLogLocal cmd
     cmd' <- case validateCommand cmd of
       Right c -> return c

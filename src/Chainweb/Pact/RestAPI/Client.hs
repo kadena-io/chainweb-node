@@ -29,9 +29,10 @@ module Chainweb.Pact.RestAPI.Client
 , pactLocalApiClient
 , pactLocalWithQueryApiClient_
 , pactLocalWithQueryApiClient
-)
-where
+) where
 
+
+import Data.Word
 import qualified Data.Text as T
 
 import Pact.Types.API
@@ -156,6 +157,8 @@ pactLocalWithQueryApiClient_
     . KnownChainwebVersionSymbol v
     => KnownChainIdSymbol c
     => Bool
+    -> Maybe Word64
+    -> Maybe Word64
     -> Command T.Text
     -> ClientM (CommandResult Hash)
 pactLocalWithQueryApiClient_ = client (pactLocalWithQueryApi @v @c)
@@ -164,6 +167,8 @@ pactLocalWithQueryApiClient
     :: ChainwebVersion
     -> ChainId
     -> Bool
+    -> Maybe Word64
+    -> Maybe Word64
     -> Command T.Text
     -> ClientM (CommandResult Hash)
 pactLocalWithQueryApiClient
