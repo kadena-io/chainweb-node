@@ -1,17 +1,12 @@
 {-# LANGUAGE DataKinds #-}
-{-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE FlexibleInstances #-}
-{-# LANGUAGE OverloadedLists #-}
-{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeOperators #-}
 
 {-# OPTIONS_GHC -fno-warn-orphans #-}
-{-# LANGUAGE InstanceSigs #-}
 
 -- |
 -- Module: Chainweb.RestAPI.Orphan
@@ -184,8 +179,6 @@ instance
     => HasLink (sym :> sub)
   where
     type MkLink (sym :> sub) a = MkLink sub a
-    toLink :: (KnownChainwebVersionSymbol sym, HasLink sub) =>
-      (Link -> a) -> Proxy (sym :> sub) -> Link -> MkLink (sym :> sub) a
     toLink toA _ = toLink toA (Proxy @(ChainwebVersionSymbol sym :> sub))
 
 instance
