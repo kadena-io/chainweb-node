@@ -186,7 +186,7 @@ mineBlock
     -> IO (T3 ParentHeader BlockHeader PayloadWithOutputs)
 mineBlock parent nonce pdb bhdb pact = do
     !r@(T3 _ newHeader payload) <- createBlock True parent nonce pact
-    addNewPayload pdb payload
+    addNewPayload pdb (succ $ _blockHeight $ _parentHeader parent) payload
     -- NOTE: this doesn't validate the block header, which is fine in this test case
     unsafeInsertBlockHeaderDb bhdb newHeader
     return r

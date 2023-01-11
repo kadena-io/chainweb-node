@@ -22,8 +22,9 @@ import Chainweb.Utils hiding (Codec(..))
 import Chainweb.Utils.Serialization
 import Chainweb.Version
 import Chainweb.WebBlockHeaderDB
-import Data.CAS
-import Data.CAS.RocksDB
+
+import Chainweb.Storage.Table
+import Chainweb.Storage.Table.RocksDB
 
 main :: IO ()
 main = do
@@ -62,7 +63,7 @@ migratePayloadStore :: ChainwebVersion -> RocksDb -> IO ()
 migratePayloadStore v rdb = do
     (view webBlockHeaderDb -> headerDbMap) <- initWebBlockHeaderDb rdb v
     for_ headerDbMap $ \(_chainDbCas -> headerTable) -> do
-        withTableIter headerTable $ \headerIter ->
+        withTableIterator headerTable $ \headerIter ->
             iterToValueStream headerIter
                 & S.mapM_ migrateHeader
     -- headerDbMap
