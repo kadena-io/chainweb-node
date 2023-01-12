@@ -52,6 +52,7 @@ import Data.Either
 import Data.Foldable (toList)
 import Data.Text (Text)
 import qualified Data.Text as T
+import Data.Word
 
 import Rosetta
 
@@ -119,28 +120,42 @@ repeatUntil test action = retrying testRetryPolicy
     (\_ b -> not <$> test b)
     (const action)
 
+
 -- | Calls to /local via the pact local api client with retry
+--
+localWithQueryParams
+    :: ChainId
+    -> ClientEnv
+    -> Bool
+    -> Maybe Word64
+    -> Command Text
+    -> IO (CommandResult Hash)
+localWithQueryParams sid cenv pf rd cmd =
+    recovering testRetryPolicy [h] $ \s -> do
+      debug
+        $ "requesting local cmd for " <> take 19 (show cmd)
+        <> " [" <> show (view rsIterNumberL s) <> "]"
+
+      -- send a single local request and return the result
+      --
+      runClientM (pactLocalWithQueryApiClient v sid pf rd cmd) cenv >>= \case
+        Left e -> throwM $ LocalFailure (show e)
+        Right t -> return t
+  where
+    h _ = Handler $ \case
+      LocalFailure _ -> pure False
+      _ -> pure True
+
+-- | Calls /local via the pact local api client with preflight
+-- turned off. Retries.
 --
 local
     :: ChainId
     -> ClientEnv
     -> Command Text
     -> IO (CommandResult Hash)
-local sid cenv cmd =
-    recovering testRetryPolicy [h] $ \s -> do
-      debug
-        $ "requesting local cmd for " <> take 19 (show cmd)
-        <> " [" <> show (view rsIterNumberL s) <> "]"
-
-      -- send a single spv request and return the result
-      --
-      runClientM (pactLocalApiClient v sid cmd) cenv >>= \case
-        Left e -> throwM $ LocalFailure (show e)
-        Right t -> return t
-  where
-    h _ = Handler $ \case
-      LocalFailure _ -> return True
-      _ -> return False
+local sid cenv =
+    localWithQueryParams sid cenv False Nothing
 
 localTestToRetry
     :: ChainId

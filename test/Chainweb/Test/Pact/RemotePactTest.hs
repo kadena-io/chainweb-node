@@ -157,6 +157,8 @@ tests rdb = testGroupSch "Chainweb.Test.Pact.RemotePactTest"
                 localContTest iot net
               , after AllSucceed "local continuation test" $
                 pollBadKeyTest net
+              -- , after AllSucceed "poll bad key test" $
+              --   localPreflightSimTest iot net
               ]
     ]
 
@@ -272,6 +274,18 @@ localChainDataTest iot nio = do
         where
           assert' name value = assertEqual name (M.lookup  (FieldKey (T.pack name)) m) (Just value)
     expectedResult _ = assertFailure "Didn't get back an object map!"
+
+-- localPreflightSimTest :: IO (Time Micros) -> IO ChainwebNetwork -> TestTree
+-- localPreflightSimTest iot nio = testCaseSteps "local preflight sim test" $ \step -> do
+--     cenv <- _getServiceClientEnv <$> nio
+--     mv <- newMVar 0
+
+--     step "execute preflight /local tx"
+--     SubmitBatch (cmd NEL.:| []) <- testBatch iot mv gp
+--     res <- undefined
+--     undefined
+--   where
+
 
 pollingBadlistTest :: IO ChainwebNetwork -> TestTree
 pollingBadlistTest nio = testCase "/poll reports badlisted txs" $ do

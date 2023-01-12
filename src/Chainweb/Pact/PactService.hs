@@ -665,7 +665,7 @@ execLocal cwtx preflight rdepth = withDiscardedBatch $ do
         --
         r <- if preflight
           then do
-            void $ assertLocalMetadata cmd ctx
+            assertLocalMetadata cmd ctx
             T2 cr _mc' <- liftIO $ applyCmd
               _psVersion logger _psGasLogger pdbenv
               noMiner chainweb213GasModel ctx spv cmd
