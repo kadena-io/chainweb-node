@@ -30,7 +30,6 @@ module Chainweb.RestAPI.Orphans () where
 import Control.Monad
 
 import Data.Bifunctor
-import Data.Decimal
 import Data.Proxy
 import Data.Semigroup (Max(..), Min(..))
 import qualified Data.Text as T
@@ -53,31 +52,18 @@ import Chainweb.Version
 
 import P2P.Peer
 
-import Pact.Parse (ParsedInteger(..), ParsedDecimal(..))
+import Pact.Parse (ParsedInteger(..))
 import Pact.Server.API ()
-import Pact.Types.Gas (GasLimit(..), GasPrice(..))
-import Pact.Types.ChainMeta (TxCreationTime(..), TTLSeconds(..))
+import Pact.Types.Gas (GasLimit(..))
 
 -- -------------------------------------------------------------------------- --
 -- HttpApiData
-
-instance ToHttpApiData Decimal where
-    toUrlPiece = sshow
-
-instance FromHttpApiData Decimal where
-    parseUrlPiece = first sshow . treadM
 
 instance ToHttpApiData GasLimit where
     toUrlPiece (GasLimit (ParsedInteger g)) = toUrlPiece g
 
 instance FromHttpApiData GasLimit where
     parseUrlPiece p = GasLimit . ParsedInteger <$> parseUrlPiece p
-
-instance ToHttpApiData GasPrice where
-    toUrlPiece (GasPrice (ParsedDecimal g)) = toUrlPiece g
-
-instance FromHttpApiData GasPrice where
-    parseUrlPiece p = GasPrice . ParsedDecimal <$> parseUrlPiece p
 
 instance ToHttpApiData PeerId where
     toUrlPiece = toText
@@ -187,15 +173,3 @@ instance
   where
     type MkLink (sym :> sub) a = MkLink sub a
     toLink toA _ = toLink toA (Proxy @(ChainIdSymbol sym :> sub))
-
-instance ToHttpApiData TxCreationTime where
-    toUrlPiece (TxCreationTime (ParsedInteger t)) = toUrlPiece t
-
-instance FromHttpApiData TxCreationTime where
-    parseUrlPiece = fmap (TxCreationTime . ParsedInteger) . parseUrlPiece
-
-instance ToHttpApiData TTLSeconds where
-    toUrlPiece (TTLSeconds (ParsedInteger t)) = toUrlPiece t
-
-instance FromHttpApiData TTLSeconds where
-    parseUrlPiece = fmap (TTLSeconds . ParsedInteger) . parseUrlPiece

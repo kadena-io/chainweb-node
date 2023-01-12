@@ -9,7 +9,6 @@
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE ExistentialQuantification #-}
-{-# LANGUAGE InstanceSigs #-}
 -- |
 -- Module: Chainweb.Pact.Service.Types
 -- Copyright: Copyright © 2018 Kadena LLC.
