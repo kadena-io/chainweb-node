@@ -30,10 +30,17 @@ main :: IO ()
 main = do
     v <- chainwebVersionFromText . fromString =<< prompt "Version:"
     rocksDbDir <- prompt "RocksDB dir:"
+    skipChains <-
+        traverse (chainIdFromText . fromString) . splitOn ',' =<<
+            prompt "Skip chains (delimit with commas):"
     withRocksDb rocksDbDir modernDefaultOptions $ \rdb ->
-        migratePayloadStore v rdb
+        migratePayloadStore v rdb skipChains
     where
     prompt m = putStr m *> hFlush stdout *> getLine
+    splitOn _ [] = []
+    splitOn c xs =
+        let (f,s) = break (/= c) xs
+        in f : splitOn c s
 
 data BlockPayloadWithHeight a = BlockPayloadWithHeight !BlockHeight {-# UNPACK #-} !(BlockPayload_ a)
 
@@ -59,8 +66,8 @@ targetPayloadIndex db = newTable db
     (Codec (runPutS . encodeBlockPayloadHash) (runGetS decodeBlockPayloadHash))
     ["BlockPayloadIndex"]
 
-migratePayloadStore :: ChainwebVersion -> RocksDb -> IO ()
-migratePayloadStore v rdb = do
+migratePayloadStore :: ChainwebVersion -> RocksDb -> [ChainId] -> IO ()
+migratePayloadStore v rdb skipChains = do
     (view webBlockHeaderDb -> headerDbMap) <- initWebBlockHeaderDb rdb v
     for_ headerDbMap $ \(_chainDbCas -> headerTable) -> do
         withTableIterator headerTable $ \headerIter ->
@@ -75,8 +82,9 @@ migratePayloadStore v rdb = do
     migrateHeader (RankedBlockHeader h) = do
         when (int (_blockHeight h) `mod` (100 :: Word64) == 0) $
             putStrLn $ "migrating chain " <> show (_blockChainId h) <> " at " <> show (_blockHeight h) <> "..."
-        Just original <- tableLookup src (_blockPayloadHash h)
-        -- putStr "writing..."
-        tableInsert tgt (_blockHeight h, _blockPayloadHash h) original
-        tableInsert tgtIndex (_blockPayloadHash h) (_blockHeight h)
-        -- putStrLn "done"
+        unless (elem (_blockChainId h) skipChains) $ do
+            Just original <- tableLookup src (_blockPayloadHash h)
+            -- putStr "writing..."
+            tableInsert tgt (_blockHeight h, _blockPayloadHash h) original
+            tableInsert tgtIndex (_blockPayloadHash h) (_blockHeight h)
+            -- putStrLn "done"
