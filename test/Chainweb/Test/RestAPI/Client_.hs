@@ -47,6 +47,7 @@ import Chainweb.BlockHash
 import Chainweb.BlockHeader
 import Chainweb.BlockHeaderDB
 import Chainweb.BlockHeaderDB.RestAPI
+import Chainweb.BlockHeight
 import Chainweb.Cut.CutHashes
 import Chainweb.CutDB.RestAPI
 import Chainweb.Payload
@@ -66,6 +67,7 @@ payloadGetClient'
     :: ChainwebVersion
     -> ChainId
     -> BlockPayloadHash
+    -> Maybe BlockHeight
     -> ClientM_ PayloadData
 payloadGetClient' v c = runIdentity $ do
     (SomeSing (SChainwebVersion :: Sing v)) <- return $ toSing v

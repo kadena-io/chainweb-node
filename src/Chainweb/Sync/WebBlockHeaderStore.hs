@@ -62,6 +62,7 @@ import Chainweb.BlockHeader
 import Chainweb.BlockHeader.Genesis
 import Chainweb.BlockHeader.Validation
 import Chainweb.BlockHeaderDB
+import Chainweb.BlockHeight
 import Chainweb.ChainId
 import Chainweb.ChainValue
 import Chainweb.Payload
@@ -190,9 +191,9 @@ getBlockPayload s candidateStore priority maybeOrigin h = do
         Nothing -> lookupPayloadWithHeight cas (_blockHeight h) payloadHash >>= \case
             Just !x -> return $! payloadWithOutputsToPayloadData x
             Nothing -> memo memoMap payloadHash $ \k ->
-                pullOrigin k maybeOrigin >>= \case
+                pullOrigin (Just $ _blockHeight h) k maybeOrigin >>= \case
                     Nothing -> do
-                        t <- queryPayloadTask k
+                        t <- queryPayloadTask (Just $ _blockHeight h) k
                         pQueueInsert queue t
                         awaitTask t
                     (Just !x) -> return x
@@ -214,14 +215,14 @@ getBlockPayload s candidateStore priority maybeOrigin h = do
 
     -- | Try to pull a block payload from the given origin peer
     --
-    pullOrigin :: BlockPayloadHash -> Maybe PeerInfo -> IO (Maybe PayloadData)
-    pullOrigin k Nothing = do
+    pullOrigin :: Maybe BlockHeight -> BlockPayloadHash -> Maybe PeerInfo -> IO (Maybe PayloadData)
+    pullOrigin _ k Nothing = do
         logfun Debug $ taskMsg k "no origin"
         return Nothing
-    pullOrigin k (Just origin) = do
+    pullOrigin bh k (Just origin) = do
         let originEnv = peerInfoClientEnv mgr origin
         logfun Debug $ taskMsg k "lookup origin"
-        runClientM (payloadClient v cid k) originEnv >>= \case
+        runClientM (payloadClient v cid k bh) originEnv >>= \case
             (Right !x) -> do
                 logfun Debug $ taskMsg k "received from origin"
                 return $ Just x
@@ -231,10 +232,10 @@ getBlockPayload s candidateStore priority maybeOrigin h = do
 
     -- | Query a block payload via the task queue
     --
-    queryPayloadTask :: BlockPayloadHash -> IO (Task ClientEnv PayloadData)
-    queryPayloadTask k = newTask (sshow k) priority $ \logg env -> do
+    queryPayloadTask :: Maybe BlockHeight -> BlockPayloadHash -> IO (Task ClientEnv PayloadData)
+    queryPayloadTask bh k = newTask (sshow k) priority $ \logg env -> do
         logg @T.Text Debug $ taskMsg k "query remote block payload"
-        runClientM (payloadClient v cid k) env >>= \case
+        runClientM (payloadClient v cid k bh) env >>= \case
             (Right !x) -> do
                 logg @T.Text Debug $ taskMsg k "received remote block payload"
                 return x

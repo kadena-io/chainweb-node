@@ -65,6 +65,7 @@ import Servant.API
 -- internal modules
 
 import Chainweb.BlockHeader
+import Chainweb.BlockHeight
 import Chainweb.ChainId
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
@@ -110,6 +111,7 @@ somePayloadDbVal v cid db = runIdentity $ do
 type PayloadGetApi_
     = "payload"
     :> Capture "BlockPayloadHash" BlockPayloadHash
+    :> QueryParam "blockHeight" BlockHeight
     :> Get '[JSON] PayloadData
 
 type PayloadGetApi (v :: ChainwebVersionT) (c :: ChainIdT)

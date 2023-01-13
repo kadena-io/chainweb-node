@@ -27,6 +27,7 @@ module Chainweb.Payload.RestAPI.Server
 , payloadApiLayout
 ) where
 
+import Control.Applicative
 import Control.Lens hiding ((.=))
 import Control.Monad
 import Control.Monad.IO.Class
@@ -45,6 +46,7 @@ import Servant
 -- internal modules
 
 import Chainweb.BlockHeader
+import Chainweb.BlockHeight
 import Chainweb.ChainId
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
@@ -71,8 +73,9 @@ payloadHandler
     :: CanReadablePayloadCas tbl
     => PayloadDb tbl
     -> BlockPayloadHash
+    -> Maybe BlockHeight
     -> Handler PayloadData
-payloadHandler db k = run >>= \case
+payloadHandler db k h = run >>= \case
     Nothing -> throwError $ err404Msg $ object
         [ "reason" .= ("key not found" :: String)
         , "key" .= k
@@ -80,12 +83,13 @@ payloadHandler db k = run >>= \case
     Just e -> return e
   where
     run = runMaybeT $ do
-        h <- MaybeT $ liftIO $ tableLookup
-            (_transactionDbBlockPayloadHeights $ _transactionDb db)
-            k
+        let lookupHeight = tableLookup
+              (_transactionDbBlockPayloadHeights $ _transactionDb db)
+              k
+        height <- MaybeT (pure h) <|> MaybeT (liftIO lookupHeight)
         payload <- MaybeT $ liftIO $ tableLookup
             (_transactionDbBlockPayloads $ _transactionDb db)
-            (h, k)
+            (height, k)
         txs <- MaybeT $ liftIO $ tableLookup
             (_transactionDbBlockTransactions $ _transactionDb db)
             (_blockPayloadTransactionsHash payload)
