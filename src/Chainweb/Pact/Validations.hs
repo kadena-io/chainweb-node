@@ -117,11 +117,11 @@ assertChainId cid0 cid1 = chainIdToText cid0 == P._chainId cid1
 assertGasPrice :: P.GasPrice -> Bool
 assertGasPrice (P.GasPrice (P.ParsedDecimal gp)) = decimalPlaces gp <= defaultMaxCoinDecimalPlaces
 
--- | Check and assert that the 'GasLimit' of a transaction is higher than
+-- | Check and assert that the 'GasLimit' of a transaction is less than or eqaul to
 -- the block gas limit
 --
 assertBlockGasLimit :: P.GasLimit -> P.GasLimit -> Bool
-assertBlockGasLimit = (<)
+assertBlockGasLimit bgl tgl = bgl >= tgl
 
 -- | Check and assert that 'ChainwebVersion' is equal to some pact 'NetworkId'.
 --

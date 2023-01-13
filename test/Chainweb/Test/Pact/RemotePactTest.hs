@@ -71,6 +71,7 @@ import qualified Pact.Types.PactError as Pact
 import Pact.Types.PactValue
 import Pact.Types.Pretty
 import Pact.Types.Term
+import Pact.Parse (ParsedInteger(..))
 
 -- internal modules
 
@@ -83,13 +84,13 @@ import Chainweb.Mempool.Mempool
 import Chainweb.Pact.RestAPI.Client
 import Chainweb.Pact.RestAPI.EthSpv
 import Chainweb.Pact.Service.Types
+import Chainweb.Pact.Validations
 import Chainweb.Test.Pact.Utils
 import Chainweb.Test.RestAPI.Utils
 import Chainweb.Test.Utils
 import Chainweb.Time
 import Chainweb.Utils hiding (check)
 import Chainweb.Version
-
 import Chainweb.Storage.Table.RocksDB
 
 
@@ -157,8 +158,8 @@ tests rdb = testGroupSch "Chainweb.Test.Pact.RemotePactTest"
                 localContTest iot net
               , after AllSucceed "local continuation test" $
                 pollBadKeyTest net
-              -- , after AllSucceed "poll bad key test" $
-              --   localPreflightSimTest iot net
+              , after AllSucceed "poll bad key test" $
+                localPreflightSimTest iot net
               ]
     ]
 
@@ -275,17 +276,24 @@ localChainDataTest iot nio = do
           assert' name value = assertEqual name (M.lookup  (FieldKey (T.pack name)) m) (Just value)
     expectedResult _ = assertFailure "Didn't get back an object map!"
 
--- localPreflightSimTest :: IO (Time Micros) -> IO ChainwebNetwork -> TestTree
--- localPreflightSimTest iot nio = testCaseSteps "local preflight sim test" $ \step -> do
---     cenv <- _getServiceClientEnv <$> nio
---     mv <- newMVar 0
+localPreflightSimTest :: IO (Time Micros) -> IO ChainwebNetwork -> TestTree
+localPreflightSimTest iot nio = testCaseSteps "local preflight sim test" $ \step -> do
+    cenv <- _getServiceClientEnv <$> nio
+    mv <- newMVar 0
+    sid <- mkChainId v maxBound (0 :: Int)
 
---     step "execute preflight /local tx"
---     SubmitBatch (cmd NEL.:| []) <- testBatch iot mv gp
---     res <- undefined
---     undefined
---   where
+    let pid = Pact.ChainId $ chainIdToText sid
+    step "execute preflight /local tx"
+    SubmitBatch (cmd NEL.:| []) <- testBatch'' pid iot ttl mv gp
+    res <- runLocalPreflightClient sid cenv cmd
+    checkCr res
+  where
+    ParsedInteger ttl = defaultMaxTTL
+    runLocalPreflightClient sid e cmd = flip runClientM e $
+      pactLocalWithQueryApiClient v sid True Nothing cmd
 
+    checkCr (Left e) = throwM $ LocalFailure (show e)
+    checkCr _ = return ()
 
 pollingBadlistTest :: IO ChainwebNetwork -> TestTree
 pollingBadlistTest nio = testCase "/poll reports badlisted txs" $ do
