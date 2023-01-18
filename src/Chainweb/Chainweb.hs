@@ -723,7 +723,7 @@ runChainweb cw = do
                 (_chainwebConfig cw)
                 ChainwebServerDbs
                     { _chainwebServerCutDb = Just cutDb
-                    , _chainwebServerBlockHeaderDbs = chainDbsToServe
+                    , _chainwebServerChains = chainDbsToServe
                     , _chainwebServerMempools = mempoolsToServe
                     , _chainwebServerPayloadDbs = payloadDbsToServe
                     , _chainwebServerPeerDbs = (CutNetwork, cutPeerDb) : memP2pToServe

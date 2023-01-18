@@ -126,15 +126,13 @@ defaultEntryLimit = 360
 -- Cf. "Chainweb.BlockHeaderDB.RestAPI" for more details
 --
 branchHashesHandler
-    :: TreeDb db
-    => ToJSON (DbKey db)
-    => db
+    :: BlockHeaderDb
     -> Maybe Limit
-    -> Maybe (NextItem (DbKey db))
+    -> Maybe (NextItem (DbKey BlockHeaderDb))
     -> Maybe MinRank
     -> Maybe MaxRank
-    -> BranchBounds db
-    -> Handler (Page (NextItem (DbKey db)) (DbKey db))
+    -> BranchBounds BlockHeaderDb
+    -> Handler (Page (NextItem (DbKey BlockHeaderDb)) (DbKey BlockHeaderDb))
 branchHashesHandler db limit next minr maxr bounds = do
     nextChecked <- traverse (traverse $ checkKey db) next
     checkedBounds <- checkBounds db bounds
@@ -151,39 +149,46 @@ branchHashesHandler db limit next minr maxr bounds = do
 -- Cf. "Chainweb.BlockHeaderDB.RestAPI" for more details
 --
 branchHeadersHandler
-    :: TreeDb db
-    => ToJSON (DbKey db)
-    => db
+    :: CanReadablePayloadCas tbl
+    => BlockHeaderDb
+    -> PayloadDb tbl
     -> Maybe Limit
-    -> Maybe (NextItem (DbKey db))
+    -> Maybe (NextItem (DbKey BlockHeaderDb))
     -> Maybe MinRank
     -> Maybe MaxRank
-    -> BranchBounds db
-    -> Handler (Page (NextItem (DbKey db)) (DbEntry db))
-branchHeadersHandler db limit next minr maxr bounds = do
+    -> Bool
+    -> BranchBounds BlockHeaderDb
+    -> Handler (Page (NextItem (DbKey BlockHeaderDb)) BlockHeaderResult)
+branchHeadersHandler db pdb limit next minr maxr includePayload bounds = do
     nextChecked <- traverse (traverse $ checkKey db) next
     checkedBounds <- checkBounds db bounds
     liftIO
         $ branchEntries db nextChecked (succ <$> effectiveLimit) minr maxr
             (_branchBoundsLower checkedBounds)
             (_branchBoundsUpper checkedBounds)
-        $ finiteStreamToPage key effectiveLimit . void
+        $ finiteStreamToPage (key.resultHeader) effectiveLimit . void . SP.mapM (fetchPayload pdb includePayload)
   where
     effectiveLimit = min defaultEntryLimit <$> (limit <|> Just defaultEntryLimit)
+
+fetchPayload :: CanReadablePayloadCas tbl => PayloadDb tbl -> Bool -> BlockHeader -> IO BlockHeaderResult
+fetchPayload pdb True bh = do
+    Just payload <- lookupPayloadWithHeight pdb (_blockHeight bh) (_blockPayloadHash bh)
+    let pd = payloadWithOutputsToPayloadData payload
+    return (BlockHeaderResult bh (Just pd))
+fetchPayload _ False bh =
+    return (BlockHeaderResult bh Nothing)
 
 -- | Every `TreeDb` key within a given range.
 --
 -- Cf. "Chainweb.BlockHeaderDB.RestAPI" for more details
 --
 hashesHandler
-    :: TreeDb db
-    => ToJSON (DbKey db)
-    => db
+    :: BlockHeaderDb
     -> Maybe Limit
-    -> Maybe (NextItem (DbKey db))
+    -> Maybe (NextItem (DbKey BlockHeaderDb))
     -> Maybe MinRank
     -> Maybe MaxRank
-    -> Handler (Page (NextItem (DbKey db)) (DbKey db))
+    -> Handler (Page (NextItem (DbKey BlockHeaderDb)) (DbKey BlockHeaderDb))
 hashesHandler db limit next minr maxr = do
     nextChecked <- traverse (traverse $ checkKey db) next
     liftIO
@@ -198,19 +203,20 @@ hashesHandler db limit next minr maxr = do
 -- Cf. "Chainweb.BlockHeaderDB.RestAPI" for more details
 --
 headersHandler
-    :: TreeDb db
-    => ToJSON (DbKey db)
-    => db
+    :: CanReadablePayloadCas tbl
+    => BlockHeaderDb
+    -> PayloadDb tbl
     -> Maybe Limit
-    -> Maybe (NextItem (DbKey db))
+    -> Maybe (NextItem (DbKey BlockHeaderDb))
     -> Maybe MinRank
     -> Maybe MaxRank
-    -> Handler (Page (NextItem (DbKey db)) (DbEntry db))
-headersHandler db limit next minr maxr = do
+    -> Bool
+    -> Handler (Page (NextItem (DbKey BlockHeaderDb)) BlockHeaderResult)
+headersHandler db pdb limit next minr maxr includePayload = do
     nextChecked <- traverse (traverse $ checkKey db) next
     liftIO
         $ entries db nextChecked (succ <$> effectiveLimit) minr maxr
-        $ finitePrefixOfInfiniteStreamToPage key effectiveLimit . void
+        $ finitePrefixOfInfiniteStreamToPage (key.resultHeader) effectiveLimit . void . SP.mapM (fetchPayload pdb includePayload)
   where
     effectiveLimit = min defaultEntryLimit <$> (limit <|> Just defaultEntryLimit)
 
@@ -219,39 +225,43 @@ headersHandler db limit next minr maxr = do
 -- Cf. "Chainweb.BlockHeaderDB.RestAPI" for more details
 --
 headerHandler
-    :: ToJSON (DbKey db)
-    => TreeDb db
-    => db
-    -> DbKey db
-    -> Handler (DbEntry db)
-headerHandler db k = liftIO (lookup db k) >>= \case
+    :: CanReadablePayloadCas tbl
+    => BlockHeaderDb
+    -> PayloadDb tbl
+    -> Bool
+    -> DbKey BlockHeaderDb
+    -> Handler BlockHeaderResult
+headerHandler db pdb includePayload k = liftIO (lookup db k) >>= \case
     Nothing -> throwError $ err404Msg $ object
         [ "reason" .= ("key not found" :: String)
         , "key" .= k
         ]
-    Just e -> pure e
+    Just e ->
+        liftIO $ fetchPayload pdb includePayload e
 
 -- -------------------------------------------------------------------------- --
 -- BlockHeaderDB API Server
 
-blockHeaderDbServer :: BlockHeaderDb_ v c -> Server (BlockHeaderDbApi v c)
-blockHeaderDbServer (BlockHeaderDb_ db)
+blockHeaderDbServer :: CanReadablePayloadCas tbl => BlockHeaderDb_ v c -> PayloadDb tbl -> Server (BlockHeaderDbApi v c)
+blockHeaderDbServer (BlockHeaderDb_ db) pdb
     = hashesHandler db
-    :<|> headersHandler db
-    :<|> headerHandler db
+    :<|> headersHandler db pdb
+    :<|> headerHandler db pdb
     :<|> branchHashesHandler db
-    :<|> branchHeadersHandler db
+    :<|> branchHeadersHandler db pdb
 
 -- -------------------------------------------------------------------------- --
 -- Application for a single BlockHeaderDB
 
 blockHeaderDbApp
-    :: forall v c
+    :: forall v c tbl
     . KnownChainwebVersionSymbol v
     => KnownChainIdSymbol c
+    => CanReadablePayloadCas tbl
     => BlockHeaderDb_ v c
+    -> PayloadDb tbl
     -> Application
-blockHeaderDbApp db = serve (Proxy @(BlockHeaderDbApi v c)) (blockHeaderDbServer db)
+blockHeaderDbApp bhdb pdb = serve (Proxy @(BlockHeaderDbApi v c)) (blockHeaderDbServer bhdb pdb)
 
 blockHeaderDbApiLayout
     :: forall v c
@@ -264,13 +274,13 @@ blockHeaderDbApiLayout _ = T.putStrLn $ layout (Proxy @(BlockHeaderDbApi v c))
 -- -------------------------------------------------------------------------- --
 -- Multichain Server
 
-someBlockHeaderDbServer :: SomeBlockHeaderDb -> SomeServer
-someBlockHeaderDbServer (SomeBlockHeaderDb (db :: BlockHeaderDb_ v c))
-    = SomeServer (Proxy @(BlockHeaderDbApi v c)) (blockHeaderDbServer db)
+someBlockHeaderDbServer :: CanReadablePayloadCas tbl => SomeBlockHeaderDb -> PayloadDb tbl -> SomeServer
+someBlockHeaderDbServer (SomeBlockHeaderDb (db :: BlockHeaderDb_ v c)) pdb
+    = SomeServer (Proxy @(BlockHeaderDbApi v c)) (blockHeaderDbServer db pdb)
 
-someBlockHeaderDbServers :: ChainwebVersion -> [(ChainId, BlockHeaderDb)] -> SomeServer
+someBlockHeaderDbServers :: CanReadablePayloadCas tbl => ChainwebVersion -> [(ChainId, BlockHeaderDb, PayloadDb tbl)] -> SomeServer
 someBlockHeaderDbServers v = mconcat
-    . fmap (someBlockHeaderDbServer . uncurry (someBlockHeaderDbVal v))
+    . fmap (\(cid,bhdb,pdb) -> someBlockHeaderDbServer (someBlockHeaderDbVal v cid bhdb) pdb)
 
 -- -------------------------------------------------------------------------- --
 -- BlockHeader Event Stream

@@ -11,6 +11,7 @@ module Chainweb.Utils.Serialization
     , Put
     , runGetL
     , runGetEitherL
+    , runGetEitherL'
     , runGetS
     , runGetEitherS
     , runPutL
@@ -72,18 +73,26 @@ instance MonadThrow Get where
     throwM e = Get (fail (show e))
 
 -- | Decode a value from a 'B.ByteString'. In case of a failure a
--- 'DecodeException' is thrown.
+-- 'DecodeException' is thrown. Throws away any remaining input.
 --
 runGetL :: MonadThrow m => Get a -> BL.ByteString -> m a
 runGetL g = fromEitherM . over _Left (DecodeException . T.pack) . runGetEitherL g
 {-# INLINE runGetL #-}
 
 -- | Decode a value from a 'B.ByteString' and return either the result or a
--- 'DecodeException'.
+-- 'DecodeException', failing if there is remaining input.
 --
 runGetEitherL :: Get a -> BL.ByteString -> Either String a
-runGetEitherL (Get g) = over _Left (view _3) . over _Right (view _3) . Binary.runGetOrFail (g <* eof)
+runGetEitherL (Get g) =
+    over _Right (view _1) . runGetEitherL' (Get $ g <* eof)
 {-# INLINE runGetEitherL #-}
+
+-- | Decode a value from a 'B.ByteString' and return either the result or a
+-- 'DecodeException', returning any remaining input.
+--
+runGetEitherL' :: Get a -> BL.ByteString -> Either String (a, BL.ByteString)
+runGetEitherL' (Get g) i =
+    over _Left (view _3) $ over _Right ((,) <$> view _3 <*> view _1) $ Binary.runGetOrFail g i
 
 runGetS :: MonadThrow m => Get a -> B.ByteString -> m a
 runGetS g = runGetL g . BL.fromStrict

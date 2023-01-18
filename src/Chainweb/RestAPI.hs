@@ -149,9 +149,7 @@ serveSocketTls settings certChain key = runTLSSocket tlsSettings settings
 --
 data ChainwebServerDbs t tbl = ChainwebServerDbs
     { _chainwebServerCutDb :: !(Maybe (CutDb tbl))
-    , _chainwebServerBlockHeaderDbs :: ![(ChainId, BlockHeaderDb)]
-    , _chainwebServerMempools :: ![(ChainId, MempoolBackend t)]
-    , _chainwebServerPayloadDbs :: ![(ChainId, PayloadDb tbl)]
+    , _chainwebServerChainDbs :: ![(ChainId, BlockHeaderDb, MempoolBackend t, PayloadDb tbl)]
     , _chainwebServerPeerDbs :: ![(NetworkId, PeerDb)]
     }
     deriving (Generic)
@@ -159,9 +157,7 @@ data ChainwebServerDbs t tbl = ChainwebServerDbs
 emptyChainwebServerDbs :: ChainwebServerDbs t tbl
 emptyChainwebServerDbs = ChainwebServerDbs
     { _chainwebServerCutDb = Nothing
-    , _chainwebServerBlockHeaderDbs = []
-    , _chainwebServerMempools = []
-    , _chainwebServerPayloadDbs = []
+    , _chainwebServerChainDbs = []
     , _chainwebServerPeerDbs = []
     }
 
@@ -229,11 +225,12 @@ someChainwebServer config dbs =
     <> someP2pServers v peers
     <> someGetConfigServer config
   where
-    payloads = _chainwebServerPayloadDbs dbs
-    blocks = _chainwebServerBlockHeaderDbs dbs
+    chains = _chainwebServerChainDbs dbs
+    payloads = [(cid, pdb) | (cid, _, _, pdb) <- chains]
+    blocks = [(cid, bhdb, pdb) | (cid, bhdb, _, pdb) <- chains]
+    mempools = [(cid, mem) | (cid, _, mem, _) <- chains]
     cuts = _chainwebServerCutDb dbs
     peers = _chainwebServerPeerDbs dbs
-    mempools = _chainwebServerMempools dbs
     cutPeerDb = fromJuste $ lookup CutNetwork peers
     v = _configChainwebVersion config
 
@@ -349,13 +346,14 @@ someServiceApiServer v dbs pacts mr (HeaderStream hs) (Rosetta r) backupEnv pbl 
     <> somePayloadServers v pbl payloads
     <> someBlockHeaderDbServers v blocks
   where
+    chains = _chainwebServerChainDbs dbs
     cuts = _chainwebServerCutDb dbs
     peers = _chainwebServerPeerDbs dbs
     concreteMs = second PactAPI._pactServerDataMempool <$> pacts
     concretePacts = second PactAPI._pactServerDataPact <$> pacts
     cutPeerDb = fromJuste $ lookup CutNetwork peers
-    payloads = _chainwebServerPayloadDbs dbs
-    blocks = _chainwebServerBlockHeaderDbs dbs
+    payloads = [(cid, pdb) | (cid, _, _, pdb) <- chains]
+    blocks = [(cid, bhdb, pdb) | (cid, bhdb, _, pdb) <- chains]
 
 serviceApiApplication
     :: Show t

@@ -38,6 +38,7 @@ import System.LogLevel
 
 import Chainweb.BlockHash (BlockHash)
 import Chainweb.BlockHeader (BlockHeader(..))
+import Chainweb.BlockHeaderDB.RestAPI
 import Chainweb.BlockHeaderDB.RestAPI.Client
 import Chainweb.ChainId (ChainId)
 import Chainweb.TreeDB
@@ -63,10 +64,11 @@ instance TreeDb RemoteDb where
     maxEntry = error "Chainweb.TreeDB.RemoteDB.RemoteDb.maxEntry: not implemented"
 
     -- If other default functions rely on this, it could be quite inefficient.
-    lookup (RemoteDb env alog ver cid) k = hush <$> runClientM client env
+    lookup (RemoteDb env alog ver cid) k =
+        (fmap.fmap) resultHeader $ hush <$> runClientM client env
       where
         client = logServantError alog "failed to query tree db entry"
-            $ headerClient ver cid k
+            $ headerClient ver cid False k
 
     keys (RemoteDb env alog ver cid) next limit minr maxr f
         = f $ callAndPage client next 0 env
@@ -80,7 +82,7 @@ instance TreeDb RemoteDb where
       where
         client :: Maybe (NextItem BlockHash) -> ClientM (Page (NextItem BlockHash) BlockHeader)
         client nxt = logServantError alog "failed to query tree db entries"
-            $ headersClient ver cid limit nxt minr maxr
+            $ (fmap.fmap) resultHeader $ headersClient ver cid limit nxt minr maxr False
 
     branchKeys (RemoteDb env alog ver cid) next limit minr maxr lower upper f
         = f $ callAndPage client next 0 env
@@ -94,7 +96,7 @@ instance TreeDb RemoteDb where
       where
         client :: Maybe (NextItem BlockHash) -> ClientM (Page (NextItem BlockHash) BlockHeader)
         client nxt = logServantError alog "failed to query remote branch entries"
-            $ branchHeadersClient ver cid limit nxt minr maxr (BranchBounds lower upper)
+            $ (fmap.fmap) resultHeader $ branchHeadersClient ver cid limit nxt minr maxr False (BranchBounds lower upper)
 
     -- We could either use the cut or create a new API
     -- maxEntry (RemoteDb env alog ver cid) e =

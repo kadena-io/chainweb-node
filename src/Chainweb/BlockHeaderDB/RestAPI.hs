@@ -48,6 +48,7 @@ module Chainweb.BlockHeaderDB.RestAPI
 -- * API types
   BlockHashPage
 , BlockHeaderPage
+, BlockHeaderResult(..)
 
 -- * Encodings
 , JsonBlockHeaderObject
@@ -85,9 +86,12 @@ module Chainweb.BlockHeaderDB.RestAPI
 ) where
 
 import Control.Monad.Identity
+import Control.Monad.State.Strict
 
 import Data.Aeson
-import Data.Bifunctor
+import Data.ByteString.Builder (toLazyByteString)
+import qualified Data.ByteString.Lazy as LBS
+import Data.Foldable
 import Data.Proxy
 import Data.Text (Text)
 
@@ -100,6 +104,7 @@ import Chainweb.BlockHash
 import Chainweb.BlockHeader
 import Chainweb.BlockHeaderDB
 import Chainweb.ChainId
+import Chainweb.Payload
 import Chainweb.RestAPI.Orphans ()
 import Chainweb.RestAPI.Utils
 import Chainweb.TreeDB
@@ -116,7 +121,34 @@ type BlockHashPage = Page (NextItem BlockHash) BlockHash
 
 -- | A page of BlockHeaders
 --
-type BlockHeaderPage = Page (NextItem BlockHash) BlockHeader
+data BlockHeaderResult = BlockHeaderResult
+    { resultHeader :: !BlockHeader
+    , resultPayload ::  !(Maybe PayloadData)
+    }
+
+instance ToJSON BlockHeaderResult where
+    toJSON (BlockHeaderResult h Nothing) =
+        toJSON h
+    toJSON (BlockHeaderResult h (Just p)) = object
+        [ "header" .= h
+        , "payload" .= p
+        ]
+instance ToJSON (ObjectEncoded BlockHeaderResult) where
+    toJSON (ObjectEncoded (BlockHeaderResult h Nothing)) =
+        toJSON (ObjectEncoded h)
+    toJSON (ObjectEncoded (BlockHeaderResult h (Just p))) = object
+        [ "header" .= ObjectEncoded h
+        , "payload" .= p
+        ]
+    toEncoding (ObjectEncoded (BlockHeaderResult h Nothing)) =
+        toEncoding (ObjectEncoded h)
+    toEncoding (ObjectEncoded (BlockHeaderResult h (Just p))) = pairs $ fold
+        [ "header" .= ObjectEncoded h
+        , "payload" .= p
+        ]
+instance FromJSON BlockHeaderResult where
+    parseJSON v = BlockHeaderResult <$> parseJSON v <*> pure Nothing
+type BlockHeaderPage = Page (NextItem BlockHash) BlockHeaderResult
 
 -- -------------------------------------------------------------------------- --
 -- Encodings
@@ -146,16 +178,34 @@ data JsonBlockHeaderObject
 instance Accept JsonBlockHeaderObject where
     contentType _ = "application" // "json" /: ("blockheader-encoding", "object")
 
-instance MimeUnrender JsonBlockHeaderObject BlockHeader where
-    mimeUnrender _ = second _objectEncoded . eitherDecode
+instance MimeRender OctetStream BlockHeaderResult where
+    mimeRender pr (BlockHeaderResult h Nothing) = mimeRender pr h
+    mimeRender pr (BlockHeaderResult h (Just p)) = mimeRender pr h <> encode p
+
+instance MimeUnrender OctetStream BlockHeaderResult where
+    mimeUnrender _ i = flip evalStateT i $ do
+      h <- StateT (runGetEitherL' decodeBlockHeader)
+      r <- get
+      if LBS.null r
+      then return $ BlockHeaderResult h Nothing
+      else do
+          p <- get >>= (lift . eitherDecode')
+          return $ BlockHeaderResult h (Just p)
+
+instance MimeUnrender JsonBlockHeaderObject BlockHeaderResult where
+    mimeUnrender _  = fmap (flip BlockHeaderResult Nothing . _objectEncoded) . eitherDecode
     {-# INLINE mimeUnrender #-}
 
-instance MimeRender JsonBlockHeaderObject BlockHeader where
-    mimeRender _ = encode . ObjectEncoded
+instance MimeRender JsonBlockHeaderObject BlockHeaderResult where
+    mimeRender _ (BlockHeaderResult h Nothing) = encode (ObjectEncoded h)
+    mimeRender _ (BlockHeaderResult h (Just p)) = toLazyByteString $ fromEncoding $ pairs $ fold
+        [ "header" .= h
+        , "payload" .= p
+        ]
     {-# INLINE mimeRender #-}
 
 instance MimeUnrender JsonBlockHeaderObject BlockHeaderPage where
-    mimeUnrender _ = second (fmap _objectEncoded) . eitherDecode
+    mimeUnrender _ = fmap (fmap (flip BlockHeaderResult Nothing . _objectEncoded)) . eitherDecode
     {-# INLINE mimeUnrender #-}
 
 instance MimeRender JsonBlockHeaderObject BlockHeaderPage where
@@ -229,6 +279,7 @@ type BranchHeadersApi_
     :> PageParams (NextItem BlockHash)
     :> MinHeightParam
     :> MaxHeightParam
+    :> QueryFlag "include-payload"
     :> ReqBody '[JSON] (BranchBounds BlockHeaderDb)
     :> Post '[JSON, JsonBlockHeaderObject] BlockHeaderPage
 
@@ -286,6 +337,7 @@ type HeadersApi_
     = "header"
     :> PageParams (NextItem BlockHash)
     :> FilterParams
+    :> QueryFlag "include-payload"
     :> Get '[JSON, JsonBlockHeaderObject] BlockHeaderPage
 
 -- | @GET \/chainweb\/\<ApiVersion\>\/\<InstanceId\>\/chain\/\<ChainId\>\/header@
@@ -308,8 +360,9 @@ headersApi = Proxy
 -- -------------------------------------------------------------------------- --
 type HeaderApi_
     = "header"
+    :> QueryFlag "include-payload"
     :> Capture "BlockHash" BlockHash
-    :> Get '[JSON, JsonBlockHeaderObject, OctetStream] BlockHeader
+    :> Get '[JSON, JsonBlockHeaderObject, OctetStream] BlockHeaderResult
 
 -- | @GET \/chainweb\/\<ApiVersion\>\/\<InstanceId\>\/chain\/\<ChainId\>\/header\/\<BlockHash\>@
 --
