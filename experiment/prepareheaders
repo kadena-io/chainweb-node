@@ -1,0 +1,12 @@
+#!/bin/bash
+set -o pipefail
+for i in $(seq 0 19)
+do
+    curl -sk "https://us2.testnet.chainweb.com/chainweb/0.0/testnet04/chain/$i/header?minheight=2800000" \
+      -H 'content-type:application/json' \
+      -H 'accept:application/json;blockheader-encoding=object' 2>&1 |
+    jq '.items[] | {payloadHash, height}' > "headers.chain$i";
+done
+
+curl --no-keepalive -sk "https://us1.testnet.chainweb.com/chainweb/0.0/testnet04/chain/$1/payload/batch" -d @- -H 'content-type:application/json' > /dev/null 2>&1
+
