@@ -106,9 +106,6 @@ assertParseChainId = isJust . fromPactChainId
 -- The supplied chain id should be derived from the current
 -- chainweb node structure
 --
--- desnote(emily): should we be checking against a chainweb version instead of
--- a raw chain id? Ask lars.
---
 assertChainId :: ChainId -> P.ChainId -> Bool
 assertChainId cid0 cid1 = chainIdToText cid0 == P._chainId cid1
 
