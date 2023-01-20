@@ -282,7 +282,7 @@ localPreflightSimTest iot nio = testCaseSteps "local preflight sim test" $ \step
     sid <- mkChainId v maxBound (0 :: Int)
     let sigs = [mkSigner' sender00 []]
 
-    step "Execute preflight /local tx - known success"
+    step "Execute preflight /local tx - preflight known /send success"
     cb0 <- mkCmdBuilder sigs v sid 1000 gp
     SubmitBatch (cmd0 NEL.:| []) <- mkTx mv cb0
     runLocalPreflightClient sid cenv cmd0 >>= \case
@@ -319,10 +319,10 @@ localPreflightSimTest iot nio = testCaseSteps "local preflight sim test" $ \step
     step "Execute preflight /local tx - invalid signers/usersigs"
 
     step "Execute preflight /local tx - too many sigs"
-    -- let sigs' = replicate 101 $ mkSigner' sender00 []
-    -- SubmitBatch (cmd6 NEL.:| []) <- mkTx mv =<<
-    --   mkCmdBuilder sigs' v sid 1000 gp
-    -- runClientFailureAssertion sid cenv cmd6 "Too many signatures"
+    sigs' <- testKeyPairs sender00 Nothing >>= \s -> pure (s >>= replicate 101)
+    let pcid = Pact.ChainId $ chainIdToText sid
+    SubmitBatch (cmd6 NEL.:| []) <- mkRawTx' mv pcid sigs'
+    runClientFailureAssertion sid cenv cmd6 "Signature list size too big"
   where
     runLocalPreflightClient sid e cmd = flip runClientM e $
       pactLocalWithQueryApiClient v sid True Nothing cmd
@@ -340,13 +340,15 @@ localPreflightSimTest iot nio = testCaseSteps "local preflight sim test" $ \step
     -- would allow for us to modify the chain id to something
     -- unparsable. Hence we need to do this in the unparsable
     -- chain id case and nowhere else.
-    mkRawTx mv pcid = modifyMVar mv $ \nn -> do
+    mkRawTx mv pcid =
+      testKeyPairs sender00 Nothing >>= mkRawTx' mv pcid
+
+    mkRawTx' mv pcid kps = modifyMVar mv $ \nn -> do
       let nonce = "nonce" <> sshow nn
           ttl = 2 * 24 * 60 * 60
           pm = Pact.PublicMeta pcid "sender00" 1000 0.1 (fromInteger ttl)
 
       t <- toTxCreationTime <$> iot
-      kps <- testKeyPairs sender00 Nothing
       c <- Pact.mkExec "(+ 1 2)" A.Null (pm t) kps (Just "fastTimedCPM-peterson") (Just nonce)
       pure (succ nn, SubmitBatch (pure c))
 
