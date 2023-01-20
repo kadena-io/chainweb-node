@@ -32,7 +32,6 @@ module Chainweb.Pact.Validations
 , defaultLenientTimeSlop
 ) where
 
-
 import Control.Monad (unless)
 import Control.Monad.Catch (throwM)
 import Control.Lens
@@ -68,7 +67,7 @@ assertLocalMetadata
     :: P.Command (P.Payload P.PublicMeta c)
     -> TxContext
     -> PactServiceM tbl ()
-assertLocalMetadata _cmd@(P.Command pay sigs hsh) txCtx = do
+assertLocalMetadata cmd@(P.Command pay sigs hsh) txCtx = do
     v <- view psVersion
     cid <- view psChainId
     bgl <- view psBlockGasLimit
@@ -84,10 +83,10 @@ assertLocalMetadata _cmd@(P.Command pay sigs hsh) txCtx = do
     eUnless "Network id mismatch" $ assertNetworkId v nid
     eUnless "Signature list size too big" $ assertSigSize sigs
     eUnless "Invalid transaction signatures" $ assertValidateSigs hsh signers sigs
-    -- eUnless "Tx time outside of valid range" $ assertTxTimeRelativeToParent pct cmd
+    eUnless "Tx time outside of valid range" $ assertTxTimeRelativeToParent pct cmd
 
   where
-    _pct = ParentCreationTime
+    pct = ParentCreationTime
       . _blockCreationTime
       . _parentHeader
       . _tcParentHeader

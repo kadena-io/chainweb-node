@@ -157,6 +157,8 @@ tests rdb = testGroupSch "Chainweb.Test.Pact.RemotePactTest"
                 localContTest iot net
               , after AllSucceed "local continuation test" $
                 pollBadKeyTest net
+              , testCaseSteps "await network" $ \step ->
+                awaitNetworkHeight step net 20
               , after AllSucceed "poll bad key test" $
                 localPreflightSimTest iot net
               ]
@@ -283,7 +285,9 @@ localPreflightSimTest iot nio = testCaseSteps "local preflight sim test" $ \step
     let sigs = [mkSigner' sender00 []]
 
     step "Execute preflight /local tx - preflight known /send success"
-    cmd0 <- mkTx mv =<< mkCmdBuilder sigs v sid 1000 gp
+    let psid = Pact.ChainId $ chainIdToText sid
+    psigs <- testKeyPairs sender00 Nothing
+    cmd0 <- mkRawTx mv psid psigs
     runLocalPreflightClient sid cenv cmd0 >>= \case
       Left e -> assertFailure $ show e
       Right{} -> pure ()
@@ -312,15 +316,11 @@ localPreflightSimTest iot nio = testCaseSteps "local preflight sim test" $ \step
     cmd5 <- mkTx mv =<< mkCmdBuilder sigs Mainnet01 sid 1000 gp
     runClientFailureAssertion sid cenv cmd5 "Network id mismatch"
 
-    -- step "Execute preflight /local tx - invalid signers/usersigs"
-    -- cmd6_ <- mkTx mv =<< mkCmdBuilder sigs v sid 1000 gp
-    -- runClientFailureAssertion sid cenv cmd6_ "Invalid transaction signatures"
-
     step "Execute preflight /local tx - too many sigs"
     let pcid = Pact.ChainId $ chainIdToText sid
     sigs1' <- (>>= replicate 101) <$> testKeyPairs sender00 Nothing
-    cmd7 <- mkRawTx mv pcid sigs1'
-    runClientFailureAssertion sid cenv cmd7 "Signature list size too big"
+    cmd6 <- mkRawTx mv pcid sigs1'
+    runClientFailureAssertion sid cenv cmd6 "Signature list size too big"
   where
     runLocalPreflightClient sid e cmd = flip runClientM e $
       pactLocalWithQueryApiClient v sid True Nothing cmd
