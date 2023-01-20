@@ -32,7 +32,7 @@ module Chainweb.Pact.Validations
 , defaultLenientTimeSlop
 ) where
 
-import Control.Monad.IO.Class
+
 import Control.Monad (unless)
 import Control.Monad.Catch (throwM)
 import Control.Lens
@@ -82,11 +82,7 @@ assertLocalMetadata _cmd@(P.Command pay sigs hsh) txCtx = do
     eUnless "Transaction Gas limit exceeds block gas limit" $ assertBlockGasLimit bgl gl
     eUnless "Gas price decimal precision too high" $ assertGasPrice gp
     eUnless "Network id mismatch" $ assertNetworkId v nid
-
-    liftIO $ print sigs
-    liftIO $ print signers
     eUnless "Signature list size too big" $ assertSigSize sigs
-    liftIO $ putStrLn "HERE"
     eUnless "Invalid transaction signatures" $ assertValidateSigs hsh signers sigs
     -- eUnless "Tx time outside of valid range" $ assertTxTimeRelativeToParent pct cmd
 
@@ -151,8 +147,9 @@ assertTxSize initialGas gasLimit = initialGas < fromIntegral gasLimit
 -- transaction hash.
 --
 assertValidateSigs :: P.PactHash -> [P.Signer] -> [P.UserSig] -> Bool
-assertValidateSigs hsh signers sigs = length signers == length sigs
-    && all (uncurry (P.verifyUserSig hsh)) (zip sigs signers)
+assertValidateSigs hsh signers sigs
+    | length signers /= length sigs = False
+    | otherwise = all (uncurry (P.verifyUserSig hsh)) (zip sigs signers)
 
 -- prop_tx_ttl_newBlock/validateBlock
 --
