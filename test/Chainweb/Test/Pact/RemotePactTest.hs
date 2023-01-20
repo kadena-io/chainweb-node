@@ -79,7 +79,7 @@ import Chainweb.BlockHeight
 import Chainweb.ChainId
 import Chainweb.Cut.CutHashes
 import Chainweb.CutDB.RestAPI.Client
-import Chainweb.Graph ( petersonChainGraph )
+import Chainweb.Graph
 import Chainweb.Mempool.Mempool
 import Chainweb.Pact.RestAPI.Client
 import Chainweb.Pact.RestAPI.EthSpv
@@ -283,46 +283,44 @@ localPreflightSimTest iot nio = testCaseSteps "local preflight sim test" $ \step
     let sigs = [mkSigner' sender00 []]
 
     step "Execute preflight /local tx - preflight known /send success"
-    cb0 <- mkCmdBuilder sigs v sid 1000 gp
-    SubmitBatch (cmd0 NEL.:| []) <- mkTx mv cb0
+    cmd0 <- mkTx mv =<< mkCmdBuilder sigs v sid 1000 gp
     runLocalPreflightClient sid cenv cmd0 >>= \case
       Left e -> assertFailure $ show e
       Right{} -> pure ()
 
     step "Execute preflight /local tx - unparseable chain id"
-    SubmitBatch (cmd1 NEL.:| []) <- mkRawTx mv $ Pact.ChainId "fail"
+    sigs0 <- testKeyPairs sender00 Nothing
+    cmd1 <- mkRawTx mv (Pact.ChainId "fail") sigs0
     runClientFailureAssertion sid cenv cmd1 "Unparseable transaction chain id"
 
     step "Execute preflight /local tx - chain id mismatch"
     let fcid = unsafeChainId (-1)
-    SubmitBatch (cmd2 NEL.:| []) <- mkTx mv =<<
-      mkCmdBuilder sigs v fcid 1000 gp
+    cmd2 <- mkTx mv =<< mkCmdBuilder sigs v fcid 1000 gp
     runClientFailureAssertion sid cenv cmd2 "Chain id mismatch"
 
     step "Execute preflight /local tx - tx gas limit too high"
-    SubmitBatch (cmd3 NEL.:| []) <- mkTx mv =<<
-      mkCmdBuilder sigs v sid 100000000000000 gp
+    cmd3 <- mkTx mv =<< mkCmdBuilder sigs v sid 100000000000000 gp
     runClientFailureAssertion sid cenv cmd3
       "Transaction Gas limit exceeds block gas limit"
 
     step "Execute preflight /local tx - tx gas price precision too high"
-    SubmitBatch (cmd4 NEL.:| []) <- mkTx mv =<<
-      mkCmdBuilder sigs v sid 1000 0.00000000000000001
+    cmd4 <- mkTx mv =<< mkCmdBuilder sigs v sid 1000 0.00000000000000001
     runClientFailureAssertion sid cenv cmd4
       "Gas price decimal precision too high"
 
     step "Execute preflight /local tx - network id mismatch"
-    SubmitBatch (cmd5 NEL.:| []) <- mkTx mv =<<
-      mkCmdBuilder sigs Mainnet01 sid 1000 gp
+    cmd5 <- mkTx mv =<< mkCmdBuilder sigs Mainnet01 sid 1000 gp
     runClientFailureAssertion sid cenv cmd5 "Network id mismatch"
 
-    step "Execute preflight /local tx - invalid signers/usersigs"
+    -- step "Execute preflight /local tx - invalid signers/usersigs"
+    -- cmd6_ <- mkTx mv =<< mkCmdBuilder sigs v sid 1000 gp
+    -- runClientFailureAssertion sid cenv cmd6_ "Invalid transaction signatures"
 
     step "Execute preflight /local tx - too many sigs"
-    sigs' <- testKeyPairs sender00 Nothing >>= \s -> pure (s >>= replicate 101)
     let pcid = Pact.ChainId $ chainIdToText sid
-    SubmitBatch (cmd6 NEL.:| []) <- mkRawTx' mv pcid sigs'
-    runClientFailureAssertion sid cenv cmd6 "Signature list size too big"
+    sigs1' <- (>>= replicate 101) <$> testKeyPairs sender00 Nothing
+    cmd7 <- mkRawTx mv pcid sigs1'
+    runClientFailureAssertion sid cenv cmd7 "Signature list size too big"
   where
     runLocalPreflightClient sid e cmd = flip runClientM e $
       pactLocalWithQueryApiClient v sid True Nothing cmd
@@ -330,7 +328,7 @@ localPreflightSimTest iot nio = testCaseSteps "local preflight sim test" $ \step
     runClientFailureAssertion sid e cmd msg =
       runLocalPreflightClient sid e cmd >>= \case
         Left err -> checkClientErrText err msg
-        r -> assertFailure $ show r
+        r -> assertFailure $ "Unintended success: " ++ show r
 
     checkClientErrText (FailureResponse _ (Response _ _ _ body)) e
       | BS.isInfixOf e $ LBS.toStrict body = pure ()
@@ -340,17 +338,14 @@ localPreflightSimTest iot nio = testCaseSteps "local preflight sim test" $ \step
     -- would allow for us to modify the chain id to something
     -- unparsable. Hence we need to do this in the unparsable
     -- chain id case and nowhere else.
-    mkRawTx mv pcid =
-      testKeyPairs sender00 Nothing >>= mkRawTx' mv pcid
-
-    mkRawTx' mv pcid kps = modifyMVar mv $ \nn -> do
+    mkRawTx mv pcid kps = modifyMVar mv $ \(nn :: Int) -> do
       let nonce = "nonce" <> sshow nn
           ttl = 2 * 24 * 60 * 60
           pm = Pact.PublicMeta pcid "sender00" 1000 0.1 (fromInteger ttl)
 
       t <- toTxCreationTime <$> iot
       c <- Pact.mkExec "(+ 1 2)" A.Null (pm t) kps (Just "fastTimedCPM-peterson") (Just nonce)
-      pure (succ nn, SubmitBatch (pure c))
+      pure (succ nn, c)
 
     mkCmdBuilder sigs nid pcid limit price = do
       t <- toTxCreationTime <$> iot
@@ -367,7 +362,7 @@ localPreflightSimTest iot nio = testCaseSteps "local preflight sim test" $ \step
     mkTx mv tx = modifyMVar mv $ \nn -> do
       let n = "nonce-" <> sshow nn
       tx' <- buildTextCmd $ set cbNonce n tx
-      pure (succ nn, SubmitBatch $ pure tx')
+      pure (succ nn, tx')
 
 pollingBadlistTest :: IO ChainwebNetwork -> TestTree
 pollingBadlistTest nio = testCase "/poll reports badlisted txs" $ do

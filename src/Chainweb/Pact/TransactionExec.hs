@@ -984,6 +984,9 @@ initCapabilities cs = set (evalCapabilities . capStack) cs def
 initStateInterpreter :: EvalState -> Interpreter e
 initStateInterpreter s = Interpreter (put s >>)
 
+-- | Check whether the cost of running a tx is more than the allowed
+-- gas limit and do some action depending on the outcome
+--
 checkTooBigTx
     :: Gas
     -> GasLimit
@@ -1009,6 +1012,7 @@ gasInterpreter g = do
     return $ initStateInterpreter
         $ set evalLogGas (guard logGas >> Just [("GTxSize",g)]) -- enables gas logging
         $ setModuleCache mc def
+
 
 -- | Initial gas charged for transaction size
 --   ignoring the size of a continuation proof, if present
