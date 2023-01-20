@@ -26,7 +26,7 @@ module Chainweb.Pact.Validations
 , assertValidateSigs
 , assertTxTimeRelativeToParent
   -- * Defaults
-, defaultMaxCommandSignatureListSize
+, defaultMaxCommandUserSigListSize
 , defaultMaxCoinDecimalPlaces
 , defaultMaxTTL
 , defaultLenientTimeSlop
@@ -67,7 +67,7 @@ assertLocalMetadata
     :: P.Command (P.Payload P.PublicMeta c)
     -> TxContext
     -> PactServiceM tbl ()
-assertLocalMetadata cmd@(P.Command pay sigs hsh) txCtx = do
+assertLocalMetadata _cmd@(P.Command pay sigs hsh) txCtx = do
     v <- view psVersion
     cid <- view psChainId
     bgl <- view psBlockGasLimit
@@ -81,18 +81,19 @@ assertLocalMetadata cmd@(P.Command pay sigs hsh) txCtx = do
     eUnless "Transaction Gas limit exceeds block gas limit" $ assertBlockGasLimit bgl gl
     eUnless "Gas price decimal precision too high" $ assertGasPrice gp
     eUnless "Network id mismatch" $ assertNetworkId v nid
-    eUnless "Too many signatures" $ assertValidateSigs hsh signers sigs
-    eUnless "Tx time outside of valid range" $ assertTxTimeRelativeToParent pct cmd
+    eUnless "Signature list size too big" $ assertSigSize sigs
+    eUnless "Invalid transaction signatures" $ assertValidateSigs hsh signers sigs
+    -- eUnless "Tx time outside of valid range" $ assertTxTimeRelativeToParent pct cmd
 
   where
-    pct = ParentCreationTime
+    _pct = ParentCreationTime
       . _blockCreationTime
       . _parentHeader
       . _tcParentHeader
       $ txCtx
 
     eUnless t assertion = unless assertion $
-       throwM (LocalMetadataValidationFailure t)
+      throwM $ LocalMetadataValidationFailure t
 
 -- | Check whether a particular Pact chain id is parseable
 --
@@ -133,7 +134,7 @@ assertNetworkId v (Just (P.NetworkId nid)) = fromText @ChainwebVersion nid == Ju
 -- at most 100.
 --
 assertSigSize :: [P.UserSig] -> Bool
-assertSigSize sigs = length sigs <= defaultMaxCommandSignatureListSize
+assertSigSize sigs = length sigs <= defaultMaxCommandUserSigListSize
 
 -- | Check and assert that the initial 'Gas' cost of a transaction
 -- is less than the specified 'GasLimit'.
@@ -179,8 +180,8 @@ assertTxTimeRelativeToParent (ParentCreationTime (BlockCreationTime txValidation
 -- | The maximum admissible signature list size allowed for
 -- Pact/Chainweb transactions
 --
-defaultMaxCommandSignatureListSize :: Int
-defaultMaxCommandSignatureListSize = 100
+defaultMaxCommandUserSigListSize :: Int
+defaultMaxCommandUserSigListSize = 100
 
 -- | The maximum admissible number of decimal places allowed
 -- by the coin contract.
