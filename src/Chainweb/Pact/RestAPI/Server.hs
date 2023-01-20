@@ -352,11 +352,11 @@ localHandler logger pact preflight rewindDepth cmd = do
 
     r <- liftIO $ _pactLocal pact preflight rewindDepth cmd'
     case r of
-      Left (LocalMetadataValidationFailure e) -> throwError $ err400
-        { errBody = "Metadata validation failed: " <> BSL8.pack (show e) }
       Left err -> throwError $ err400
         { errBody = "Execution failed: " <> BSL8.pack (show err) }
-      Right resp -> pure resp
+      Right (Left (MetadataValidationFailure e)) -> throwError $ err400
+        { errBody = "Metadata validation failed: " <> BSL8.pack (show e) }
+      Right (Right resp) -> pure resp
   where
     logg = logFunctionJson (setComponent "local-handler" logger)
 

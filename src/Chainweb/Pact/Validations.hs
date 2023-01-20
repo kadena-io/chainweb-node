@@ -1,6 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TypeApplications #-}
-{-# LANGUAGE RecordWildCards #-}
 -- |
 -- Module: Chainweb.Pact.Validations
 -- Copyright: Copyright © 2018,2019,2020,2021,2022 Kadena LLC.
@@ -32,8 +31,6 @@ module Chainweb.Pact.Validations
 , defaultLenientTimeSlop
 ) where
 
-import Control.Monad (unless)
-import Control.Monad.Catch (throwM)
 import Control.Lens
 
 import Data.Decimal (decimalPlaces)
@@ -47,7 +44,7 @@ import Chainweb.BlockCreationTime (BlockCreationTime(..))
 import Chainweb.ChainId (ChainId, chainIdToText)
 import Chainweb.Pact.Types
 import Chainweb.Pact.Utils (fromPactChainId)
-import Chainweb.Pact.Service.Types (PactException(..))
+import Chainweb.Pact.Service.Types (MetadataValidationFailure(..))
 import Chainweb.Time (Seconds(..), Time(..), secondsToTimeSpan, scaleTimeSpan, second, add)
 import Chainweb.Transaction (cmdTimeToLive, cmdCreationTime)
 import Chainweb.Version (ChainwebVersion)
@@ -66,7 +63,7 @@ import qualified Pact.Parse as P
 assertLocalMetadata
     :: P.Command (P.Payload P.PublicMeta c)
     -> TxContext
-    -> PactServiceM tbl ()
+    -> PactServiceM tbl (Either MetadataValidationFailure ())
 assertLocalMetadata cmd@(P.Command pay sigs hsh) txCtx = do
     v <- view psVersion
     cid <- view psChainId
@@ -76,15 +73,15 @@ assertLocalMetadata cmd@(P.Command pay sigs hsh) txCtx = do
         nid = P._pNetworkId pay
         signers = P._pSigners pay
 
-    eUnless "Unparseable transaction chain id" $ assertParseChainId pcid
-    eUnless "Chain id mismatch" $ assertChainId cid pcid
-    eUnless "Transaction Gas limit exceeds block gas limit" $ assertBlockGasLimit bgl gl
-    eUnless "Gas price decimal precision too high" $ assertGasPrice gp
-    eUnless "Network id mismatch" $ assertNetworkId v nid
-    eUnless "Signature list size too big" $ assertSigSize sigs
-    eUnless "Invalid transaction signatures" $ assertValidateSigs hsh signers sigs
-    eUnless "Tx time outside of valid range" $ assertTxTimeRelativeToParent pct cmd
-
+    pure $ sequence_
+      [ eUnless "Unparseable transaction chain id" $ assertParseChainId pcid
+      , eUnless "Chain id mismatch" $ assertChainId cid pcid
+      , eUnless "Transaction Gas limit exceeds block gas limit" $ assertBlockGasLimit bgl gl
+      , eUnless "Gas price decimal precision too high" $ assertGasPrice gp
+      , eUnless "Network id mismatch" $ assertNetworkId v nid
+      , eUnless "Signature list size too big" $ assertSigSize sigs
+      , eUnless "Invalid transaction signatures" $ assertValidateSigs hsh signers sigs
+      , eUnless "Tx time outside of valid range" $ assertTxTimeRelativeToParent pct cmd    ]
   where
     pct = ParentCreationTime
       . _blockCreationTime
@@ -92,8 +89,9 @@ assertLocalMetadata cmd@(P.Command pay sigs hsh) txCtx = do
       . _tcParentHeader
       $ txCtx
 
-    eUnless t assertion = unless assertion $
-      throwM $ LocalMetadataValidationFailure t
+    eUnless t assertion
+      | assertion = Right ()
+      | otherwise = Left $ MetadataValidationFailure t
 
 -- | Check whether a particular Pact chain id is parseable
 --

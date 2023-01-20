@@ -629,7 +629,7 @@ execLocal
       -- ^ preflight flag
     -> Maybe Word64
       -- ^ rewind depth
-    -> PactServiceM tbl (P.CommandResult P.Hash)
+    -> PactServiceM tbl (Either MetadataValidationFailure (P.CommandResult P.Hash))
 execLocal cwtx preflight rdepth = withDiscardedBatch $ do
     PactServiceEnv{..} <- ask
 
@@ -665,18 +665,22 @@ execLocal cwtx preflight rdepth = withDiscardedBatch $ do
         --
         r <- if preflight
           then do
-            assertLocalMetadata cmd ctx
-            T2 cr _mc' <- liftIO $ applyCmd
-              _psVersion logger _psGasLogger pdbenv
-              noMiner chainweb213GasModel ctx spv cmd
-              initialGas mc ApplyLocal
-            return cr
-          else liftIO $ applyLocal
-            logger _psGasLogger pdbenv
-            chainweb213GasModel ctx spv
-            cwtx mc execConfig
+            assertLocalMetadata cmd ctx >>= \case
+              Right{} -> do
+                T2 cr _mc' <- liftIO $ applyCmd
+                  _psVersion logger _psGasLogger pdbenv
+                  noMiner chainweb213GasModel ctx spv cmd
+                  initialGas mc ApplyLocal
+                pure $ Right cr
+              Left e -> pure $ Left e
+          else liftIO $ do
+            cr <- applyLocal
+              logger _psGasLogger pdbenv
+              chainweb213GasModel ctx spv
+              cwtx mc execConfig
+            pure $ Right cr
 
-        return $! Discard (toHashCommandResult r)
+        return $! Discard (toHashCommandResult <$> r)
 
 execSyncToBlock
     :: CanReadablePayloadCas tbl

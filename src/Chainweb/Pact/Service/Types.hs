@@ -44,7 +44,7 @@ import Pact.Types.Persistence
 
 -- internal chainweb modules
 
-import Chainweb.BlockHash
+import Chainweb.BlockHash ( BlockHash )
 import Chainweb.BlockHeader
 import Chainweb.BlockHeight
 import Chainweb.Mempool.Mempool (InsertError(..),TransactionHash)
@@ -88,13 +88,19 @@ instance Show GasPurchaseFailure where show = unpack . encodeToText
 gasPurchaseFailureHash :: GasPurchaseFailure -> TransactionHash
 gasPurchaseFailureHash (GasPurchaseFailure h _) = h
 
+-- | Used by /local to tag metadata validation failures
+--
+newtype MetadataValidationFailure
+    = MetadataValidationFailure Text
+    deriving stock (Eq, Show, Generic)
+    deriving newtype (NFData)
+
 -- | Exceptions thrown by PactService components that
 -- are _not_ recorded in blockchain record.
 data PactException
   = BlockValidationFailure !Value
   | PactInternalError !Text
   | PactTransactionExecError !PactHash !Text
-  | LocalMetadataValidationFailure !Text
   | CoinbaseFailure !Text
   | NoBlockValidatedYet
   | TransactionValidationException ![(PactHash, Text)]
@@ -176,7 +182,7 @@ data LocalReq = LocalReq
     { _localRequest :: !ChainwebTransaction
     , _localPreflight :: !Bool
     , _localRewindDepth :: !(Maybe Word64)
-    , _localResultVar :: !(PactExMVar (CommandResult Hash))
+    , _localResultVar :: !(PactExMVar (Either MetadataValidationFailure (CommandResult Hash)))
     }
 instance Show LocalReq where show LocalReq{..} = show _localRequest
 

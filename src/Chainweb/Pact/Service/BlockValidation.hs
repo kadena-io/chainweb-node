@@ -76,7 +76,7 @@ local
     -> Maybe Word64
     -> ChainwebTransaction
     -> PactQueue
-    -> IO (MVar (Either PactException (CommandResult Hash)))
+    -> IO (MVar (Either PactException (Either MetadataValidationFailure (CommandResult Hash))))
 local preflight rd ct reqQ = do
     !resultVar <- newEmptyMVar
     let !msg = LocalMsg LocalReq
