@@ -143,8 +143,8 @@ localWithQueryParams sid cenv pf rd cmd =
         Right t -> return t
   where
     h _ = Handler $ \case
-      LocalFailure _ -> pure False
-      _ -> pure True
+      LocalFailure _ -> pure True
+      _ -> pure False
 
 -- | Calls /local via the pact local api client with preflight
 -- turned off. Retries.

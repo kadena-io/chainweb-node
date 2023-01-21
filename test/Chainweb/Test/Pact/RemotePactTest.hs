@@ -318,7 +318,10 @@ localPreflightSimTest iot nio = testCaseSteps "local preflight sim test" $ \step
 
     step "Execute preflight /local tx - too many sigs"
     let pcid = Pact.ChainId $ chainIdToText sid
-    sigs1' <- (>>= replicate 101) <$> testKeyPairs sender00 Nothing
+    sigs1' <- testKeyPairs sender00 Nothing >>= \case
+      [ks] -> pure $ replicate 101 ks
+      _ -> assertFailure "/local test keypair construction failed"
+
     cmd6 <- mkRawTx mv pcid sigs1'
     runClientFailureAssertion sid cenv cmd6 "Signature list size too big"
   where
