@@ -346,8 +346,7 @@ localHandler logger pact preflight rewindDepth cmd = do
     liftIO $ logg Info $ PactCmdLogLocal cmd
     cmd' <- case validateCommand cmd of
       Right c -> return c
-      Left err -> do
-        liftIO $ putStrLn "HERE"
+      Left err ->
         throwError $ err400 { errBody = "Validation failed: " <> BSL8.pack err }
 
     r <- liftIO $ _pactLocal pact preflight rewindDepth cmd'
