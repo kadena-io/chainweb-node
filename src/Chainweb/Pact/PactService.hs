@@ -680,7 +680,7 @@ execLocal cwtx preflight rdepth = withDiscardedBatch $ do
               cwtx mc execConfig
             pure $ Right cr
 
-        return $! Discard (toHashCommandResult <$> r)
+        return $ Discard (toHashCommandResult <$> r)
 
 execSyncToBlock
     :: CanReadablePayloadCas tbl
