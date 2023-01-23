@@ -73,15 +73,17 @@ validateBlock bHeader plData reqQ = do
 
 local
     :: Bool
+    -> Bool
     -> Maybe Word64
     -> ChainwebTransaction
     -> PactQueue
     -> IO (MVar (Either PactException (Either MetadataValidationFailure (CommandResult Hash))))
-local preflight rd ct reqQ = do
+local preflight noSigVerify rd ct reqQ = do
     !resultVar <- newEmptyMVar
     let !msg = LocalMsg LocalReq
           { _localRequest = ct
           , _localPreflight = preflight
+          , _localNoSigVerification = noSigVerify
           , _localRewindDepth = rd
           , _localResultVar = resultVar }
     addRequest reqQ msg

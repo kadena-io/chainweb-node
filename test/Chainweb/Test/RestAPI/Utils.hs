@@ -127,10 +127,11 @@ localWithQueryParams
     :: ChainId
     -> ClientEnv
     -> Bool
+    -> Bool
     -> Maybe Word64
     -> Command Text
     -> IO (CommandResult Hash)
-localWithQueryParams sid cenv pf rd cmd =
+localWithQueryParams sid cenv pf sv rd cmd =
     recovering testRetryPolicy [h] $ \s -> do
       debug
         $ "requesting local cmd for " <> take 19 (show cmd)
@@ -138,7 +139,7 @@ localWithQueryParams sid cenv pf rd cmd =
 
       -- send a single local request and return the result
       --
-      runClientM (pactLocalWithQueryApiClient v sid pf rd cmd) cenv >>= \case
+      runClientM (pactLocalWithQueryApiClient v sid pf sv rd cmd) cenv >>= \case
         Left e -> throwM $ LocalFailure (show e)
         Right t -> return t
   where
@@ -155,7 +156,7 @@ local
     -> Command Text
     -> IO (CommandResult Hash)
 local sid cenv =
-    localWithQueryParams sid cenv False Nothing
+    localWithQueryParams sid cenv False False Nothing
 
 localTestToRetry
     :: ChainId

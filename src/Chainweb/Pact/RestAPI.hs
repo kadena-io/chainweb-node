@@ -133,6 +133,7 @@ pactPollApi = Proxy
 
 type PactLocalWithQueryApi_
     = QueryFlag "preflight"
+    :> QueryFlag "noSignatureVerification"
     :> QueryParam "rewindToBlock" Word64
     :> ApiLocal
 

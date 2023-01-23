@@ -181,6 +181,7 @@ instance Show ValidateBlockReq where show ValidateBlockReq{..} = show (_valBlock
 data LocalReq = LocalReq
     { _localRequest :: !ChainwebTransaction
     , _localPreflight :: !Bool
+    , _localNoSigVerification :: !Bool
     , _localRewindDepth :: !(Maybe Word64)
     , _localResultVar :: !(PactExMVar (Either MetadataValidationFailure (CommandResult Hash)))
     }

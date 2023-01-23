@@ -63,8 +63,9 @@ import qualified Pact.Parse as P
 assertLocalMetadata
     :: P.Command (P.Payload P.PublicMeta c)
     -> TxContext
+    -> Bool
     -> PactServiceM tbl (Either MetadataValidationFailure ())
-assertLocalMetadata cmd@(P.Command pay sigs hsh) txCtx = do
+assertLocalMetadata cmd@(P.Command pay sigs hsh) txCtx noSigVerify = do
     v <- view psVersion
     cid <- view psChainId
     bgl <- view psBlockGasLimit
@@ -80,9 +81,13 @@ assertLocalMetadata cmd@(P.Command pay sigs hsh) txCtx = do
       , eUnless "Gas price decimal precision too high" $ assertGasPrice gp
       , eUnless "Network id mismatch" $ assertNetworkId v nid
       , eUnless "Signature list size too big" $ assertSigSize sigs
-      , eUnless "Invalid transaction signatures" $ assertValidateSigs hsh signers sigs
+      , eUnless "Invalid transaction signatures" $ sigValidate signers
       , eUnless "Tx time outside of valid range" $ assertTxTimeRelativeToParent pct cmd    ]
   where
+    sigValidate signers
+      | noSigVerify = True
+      | otherwise = assertValidateSigs hsh signers sigs
+
     pct = ParentCreationTime
       . _blockCreationTime
       . _parentHeader

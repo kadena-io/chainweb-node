@@ -119,6 +119,7 @@ import Chainweb.WebPactExecutionService
 
 import Chainweb.Storage.Table
 
+import qualified Pact.Parse as Pact
 import Pact.Types.API
 import qualified Pact.Types.ChainId as Pact
 import Pact.Types.Command
@@ -338,18 +339,20 @@ localHandler
     -> PactExecutionService
     -> Bool
       -- ^ Preflight flag
+    -> Bool
+      -- ^ No sig verification flag
     -> Maybe Word64
       -- ^ Rewind depth
     -> Command Text
     -> Handler (CommandResult Hash)
-localHandler logger pact preflight rewindDepth cmd = do
+localHandler logger pact preflight noSigVerify rewindDepth cmd = do
     liftIO $ logg Info $ PactCmdLogLocal cmd
-    cmd' <- case validateCommand cmd of
+    cmd' <- case doCommandValidation cmd of
       Right c -> return c
       Left err ->
         throwError $ err400 { errBody = "Validation failed: " <> BSL8.pack err }
 
-    r <- liftIO $ _pactLocal pact preflight rewindDepth cmd'
+    r <- liftIO $ _pactLocal pact preflight noSigVerify rewindDepth cmd'
     case r of
       Left err -> throwError $ err400
         { errBody = "Execution failed: " <> BSL8.pack (show err) }
@@ -358,6 +361,25 @@ localHandler logger pact preflight rewindDepth cmd = do
       Right (Right resp) -> pure resp
   where
     logg = logFunctionJson (setComponent "local-handler" logger)
+
+    doCommandValidation cmdText
+      | noSigVerify = do
+          --
+          -- desnote(emily): This workflow is 'Pact.Types.Command.verifyCommand'
+          -- lite - only decode and parse the pact command, no sig checking.
+          -- We at least check the consistency of the payload hash. Further
+          -- down in the 'execLocal' code, 'noSigVerify' triggers a nop on
+          -- checking again if 'preflight' is set.
+          --
+          let cmdBS = encodeUtf8 <$> cmdText
+
+          void $ Pact.verifyHash @'Pact.Blake2b_256 (_cmdHash cmdBS) (_cmdPayload cmdBS)
+          decoded <- eitherDecodeStrict' $ _cmdPayload cmdBS
+          p <- traverse Pact.parsePact decoded
+
+          let cmd' = cmdBS { _cmdPayload = p }
+          pure $ mkPayloadWithText cmdBS <$> cmd'
+      | otherwise = validateCommand cmd
 
 -- -------------------------------------------------------------------------- --
 -- Cross Chain SPV Handler

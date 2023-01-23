@@ -277,10 +277,10 @@ serviceRequests logFn memPoolAccess reqQ = do
         logDebug $ "serviceRequests: " <> sshow msg
         case msg of
             CloseMsg -> return ()
-            LocalMsg (LocalReq localRequest preflight rewindDepth localResultVar)  -> do
+            LocalMsg (LocalReq localRequest preflight noSigVerify rewindDepth localResultVar)  -> do
                 trace logFn "Chainweb.Pact.PactService.execLocal" () 0 $
                     tryOne "execLocal" localResultVar $
-                        execLocal localRequest preflight rewindDepth
+                        execLocal localRequest preflight noSigVerify rewindDepth
                 go
             NewBlockMsg NewBlockReq {..} -> do
                 trace logFn "Chainweb.Pact.PactService.execNewBlock"
@@ -627,10 +627,12 @@ execLocal
     => ChainwebTransaction
     -> Bool
       -- ^ preflight flag
+    -> Bool
+      -- ^ turn off signature verification checks?
     -> Maybe Word64
       -- ^ rewind depth
     -> PactServiceM tbl (Either MetadataValidationFailure (P.CommandResult P.Hash))
-execLocal cwtx preflight rdepth = withDiscardedBatch $ do
+execLocal cwtx preflight noSigVerify rdepth = withDiscardedBatch $ do
     PactServiceEnv{..} <- ask
 
     let !cmd = payloadObj <$> cwtx
@@ -665,7 +667,7 @@ execLocal cwtx preflight rdepth = withDiscardedBatch $ do
         --
         r <- if preflight
           then do
-            assertLocalMetadata cmd ctx >>= \case
+            assertLocalMetadata cmd ctx noSigVerify >>= \case
               Right{} -> do
                 T2 cr _mc' <- liftIO $ applyCmd
                   _psVersion logger _psGasLogger pdbenv

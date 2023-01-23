@@ -157,6 +157,7 @@ pactLocalWithQueryApiClient_
     . KnownChainwebVersionSymbol v
     => KnownChainIdSymbol c
     => Bool
+    -> Bool
     -> Maybe Word64
     -> Command T.Text
     -> ClientM (CommandResult Hash)
@@ -165,6 +166,7 @@ pactLocalWithQueryApiClient_ = client (pactLocalWithQueryApi @v @c)
 pactLocalWithQueryApiClient
     :: ChainwebVersion
     -> ChainId
+    -> Bool
     -> Bool
     -> Maybe Word64
     -> Command T.Text

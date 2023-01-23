@@ -543,7 +543,7 @@ execLocalTest runPact name (trans',check) = testCaseSch name (go >>= check)
     go = do
       trans <- trans'
       results' <- tryAllSynchronous $ runPact $ \_ ->
-        execLocal trans False Nothing
+        execLocal trans False False Nothing
       case results' of
         Right (Left (MetadataValidationFailure e)) ->
           return $ Left $ show e
