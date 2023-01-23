@@ -43,6 +43,64 @@
 
   (deftable coin-table:{coin-schema})
 
+    ; --------------------------------------------------------------------------
+  ; Constants
+
+  (defconst COIN_CHARSET CHARSET_LATIN1
+    "The default coin contract character set")
+
+  (defconst MINIMUM_PRECISION 12
+    "Minimum allowed precision for coin transactions")
+
+  (defconst MINIMUM_ACCOUNT_LENGTH 3
+    "Minimum account length admissible for coin accounts")
+
+  (defconst MAXIMUM_ACCOUNT_LENGTH 256
+    "Maximum account name length admissible for coin accounts")
+
+  (defconst VALID_CHAIN_IDS (map (int-to-str 10) (enumerate 0 19))
+    "List of all valid Chainweb chain ids")
+
+  ; --------------------------------------------------------------------------
+  ; Utilities
+
+  (defun enforce-unit:bool (amount:decimal)
+    @doc "Enforce minimum precision allowed for coin transactions"
+
+    (enforce
+      (= (floor amount MINIMUM_PRECISION)
+         amount)
+      (format "Amount violates minimum precision: {}" [amount]))
+    )
+
+  (defun validate-account (account:string)
+    @doc "Enforce that an account name conforms to the coin contract \
+         \minimum and maximum length requirements, as well as the    \
+         \latin-1 character set."
+
+    (enforce
+      (is-charset COIN_CHARSET account)
+      (format
+        "Account does not conform to the coin contract charset: {}"
+        [account]))
+
+    (let ((account-length (length account)))
+
+      (enforce
+        (>= account-length MINIMUM_ACCOUNT_LENGTH)
+        (format
+          "Account name does not conform to the min length requirement: {}"
+          [account]))
+
+      (enforce
+        (<= account-length MAXIMUM_ACCOUNT_LENGTH)
+        (format
+          "Account name does not conform to the max length requirement: {}"
+          [account]))
+      )
+  )
+
+
   ; --------------------------------------------------------------------------
   ; Capabilities
 
@@ -68,11 +126,11 @@
   (defcap DEBIT (sender:string)
     "Capability for managing debiting operations"
     (enforce-guard (at 'guard (read coin-table sender)))
-    (enforce (!= sender "") "valid sender"))
+    (validate-account sender))
 
   (defcap CREDIT (receiver:string)
     "Capability for managing crediting operations"
-    (enforce (!= receiver "") "valid receiver"))
+    (validate-account receiver))
 
   (defcap ROTATE (account:string)
     @doc "Autonomously managed capability for guard rotation"
@@ -144,62 +202,6 @@
     @event true
   )
 
-  ; --------------------------------------------------------------------------
-  ; Constants
-
-  (defconst COIN_CHARSET CHARSET_LATIN1
-    "The default coin contract character set")
-
-  (defconst MINIMUM_PRECISION 12
-    "Minimum allowed precision for coin transactions")
-
-  (defconst MINIMUM_ACCOUNT_LENGTH 3
-    "Minimum account length admissible for coin accounts")
-
-  (defconst MAXIMUM_ACCOUNT_LENGTH 256
-    "Maximum account name length admissible for coin accounts")
-
-  (defconst VALID_CHAIN_IDS (map (int-to-str 10) (enumerate 0 19))
-    "List of all valid Chainweb chain ids")
-
-  ; --------------------------------------------------------------------------
-  ; Utilities
-
-  (defun enforce-unit:bool (amount:decimal)
-    @doc "Enforce minimum precision allowed for coin transactions"
-
-    (enforce
-      (= (floor amount MINIMUM_PRECISION)
-         amount)
-      (format "Amount violates minimum precision: {}" [amount]))
-    )
-
-  (defun validate-account (account:string)
-    @doc "Enforce that an account name conforms to the coin contract \
-         \minimum and maximum length requirements, as well as the    \
-         \latin-1 character set."
-
-    (enforce
-      (is-charset COIN_CHARSET account)
-      (format
-        "Account does not conform to the coin contract charset: {}"
-        [account]))
-
-    (let ((account-length (length account)))
-
-      (enforce
-        (>= account-length MINIMUM_ACCOUNT_LENGTH)
-        (format
-          "Account name does not conform to the min length requirement: {}"
-          [account]))
-
-      (enforce
-        (<= account-length MAXIMUM_ACCOUNT_LENGTH)
-        (format
-          "Account name does not conform to the max length requirement: {}"
-          [account]))
-      )
-  )
 
   ; --------------------------------------------------------------------------
   ; Coin Contract
