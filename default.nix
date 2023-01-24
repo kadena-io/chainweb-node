@@ -75,7 +75,7 @@ pkgs.haskell.packages.${compiler}.developPackage {
       resource-pool = self.callHackageDirect {
         pkg = "resource-pool";
         ver = "0.4.0.0";
-        sha256 = "0bpf868b6kq1g83s3sad26kfsawmpd3j0xpkyab8370lsq6zhcs0";
+        sha256 = "0zlnizx0igwmvpx43mcnk0h58v9lakhwr4g9csy1vj74p7a4hxaz";
       } {};
 
       direct-sqlite = self.callHackageDirect {
