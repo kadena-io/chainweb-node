@@ -44,7 +44,7 @@ import Chainweb.BlockCreationTime (BlockCreationTime(..))
 import Chainweb.ChainId (ChainId, chainIdToText)
 import Chainweb.Pact.Types
 import Chainweb.Pact.Utils (fromPactChainId)
-import Chainweb.Pact.Service.Types (MetadataValidationFailure(..))
+import Chainweb.Pact.Service.Types
 import Chainweb.Time (Seconds(..), Time(..), secondsToTimeSpan, scaleTimeSpan, second, add)
 import Chainweb.Transaction (cmdTimeToLive, cmdCreationTime)
 import Chainweb.Version (ChainwebVersion)
@@ -63,9 +63,9 @@ import qualified Pact.Parse as P
 assertLocalMetadata
     :: P.Command (P.Payload P.PublicMeta c)
     -> TxContext
-    -> Bool
+    -> Maybe LocalSignatureVerification
     -> PactServiceM tbl (Either MetadataValidationFailure ())
-assertLocalMetadata cmd@(P.Command pay sigs hsh) txCtx noSigVerify = do
+assertLocalMetadata cmd@(P.Command pay sigs hsh) txCtx sigVerify = do
     v <- view psVersion
     cid <- view psChainId
     bgl <- view psBlockGasLimit
@@ -85,7 +85,7 @@ assertLocalMetadata cmd@(P.Command pay sigs hsh) txCtx noSigVerify = do
       , eUnless "Tx time outside of valid range" $ assertTxTimeRelativeToParent pct cmd    ]
   where
     sigValidate signers
-      | noSigVerify = True
+      | Just NoVerify <- sigVerify = True
       | otherwise = assertValidateSigs hsh signers sigs
 
     pct = ParentCreationTime

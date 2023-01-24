@@ -19,7 +19,6 @@ import Data.Aeson (Value)
 import qualified Data.HashMap.Strict as HM
 import Data.Vector (Vector)
 import qualified Data.Vector as V
-import Data.Word
 
 import GHC.Stack
 
@@ -63,9 +62,9 @@ data PactExecutionService = PactExecutionService
         )
       -- ^ Request a new block to be formed using mempool
     , _pactLocal :: !(
-        Bool ->
-        Bool ->
-        Maybe Word64 ->
+        Maybe LocalPreflightSimulation ->
+        Maybe LocalSignatureVerification ->
+        Maybe BlockHeight ->
         ChainwebTransaction ->
         IO (Either PactException (Either MetadataValidationFailure (CommandResult Hash))))
       -- ^ Directly execute a single transaction in "local" mode (all DB interactions rolled back).

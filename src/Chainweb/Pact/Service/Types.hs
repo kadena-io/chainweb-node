@@ -28,7 +28,6 @@ import Data.Aeson
 import Data.Map (Map)
 import Data.Text (Text, pack, unpack)
 import Data.Vector (Vector)
-import Data.Word
 
 import GHC.Generics
 import Numeric.Natural (Natural)
@@ -94,6 +93,20 @@ newtype MetadataValidationFailure
     = MetadataValidationFailure Text
     deriving stock (Eq, Show, Generic)
     deriving newtype (NFData)
+
+-- | Used by /local to trigger user signature verification
+--
+data LocalSignatureVerification
+    = Verify
+    | NoVerify
+    deriving stock (Eq, Show, Generic)
+
+-- | Used by /local to trigger preflight simulation
+--
+data LocalPreflightSimulation
+    = PreflightSimulation
+    | LegacySimulation
+    deriving stock (Eq, Show, Generic)
 
 -- | Exceptions thrown by PactService components that
 -- are _not_ recorded in blockchain record.
@@ -180,9 +193,9 @@ instance Show ValidateBlockReq where show ValidateBlockReq{..} = show (_valBlock
 
 data LocalReq = LocalReq
     { _localRequest :: !ChainwebTransaction
-    , _localPreflight :: !Bool
-    , _localNoSigVerification :: !Bool
-    , _localRewindDepth :: !(Maybe Word64)
+    , _localPreflight :: !(Maybe LocalPreflightSimulation)
+    , _localSigVerification :: !(Maybe LocalSignatureVerification)
+    , _localRewindDepth :: !(Maybe BlockHeight)
     , _localResultVar :: !(PactExMVar (Either MetadataValidationFailure (CommandResult Hash)))
     }
 instance Show LocalReq where show LocalReq{..} = show _localRequest

@@ -54,7 +54,6 @@ import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Vector (Vector)
 import qualified Data.Vector as V
-import Data.Word
 
 import System.IO
 
@@ -277,10 +276,10 @@ serviceRequests logFn memPoolAccess reqQ = do
         logDebug $ "serviceRequests: " <> sshow msg
         case msg of
             CloseMsg -> return ()
-            LocalMsg (LocalReq localRequest preflight noSigVerify rewindDepth localResultVar)  -> do
+            LocalMsg (LocalReq localRequest preflight sigVerify rewindDepth localResultVar)  -> do
                 trace logFn "Chainweb.Pact.PactService.execLocal" () 0 $
                     tryOne "execLocal" localResultVar $
-                        execLocal localRequest preflight noSigVerify rewindDepth
+                        execLocal localRequest preflight sigVerify rewindDepth
                 go
             NewBlockMsg NewBlockReq {..} -> do
                 trace logFn "Chainweb.Pact.PactService.execNewBlock"
@@ -625,14 +624,14 @@ execNewGenesisBlock miner newTrans = withDiscardedBatch $
 execLocal
     :: CanReadablePayloadCas tbl
     => ChainwebTransaction
-    -> Bool
+    -> Maybe LocalPreflightSimulation
       -- ^ preflight flag
-    -> Bool
+    -> Maybe LocalSignatureVerification
       -- ^ turn off signature verification checks?
-    -> Maybe Word64
+    -> Maybe BlockHeight
       -- ^ rewind depth
     -> PactServiceM tbl (Either MetadataValidationFailure (P.CommandResult P.Hash))
-execLocal cwtx preflight noSigVerify rdepth = withDiscardedBatch $ do
+execLocal cwtx preflight sigVerify rdepth = withDiscardedBatch $ do
     PactServiceEnv{..} <- ask
 
     let !cmd = payloadObj <$> cwtx
@@ -643,7 +642,7 @@ execLocal cwtx preflight noSigVerify rdepth = withDiscardedBatch $ do
     spv <- use psSpvSupport
 
     let rewindHeight
-          | Just d <- rdepth = Just $ BlockHeight d
+          | Just d <- rdepth = Just d
           -- when no height is defined, treat
           -- withCheckpointerRewind as withCurrentCheckpointer
           -- (i.e. setting rewind to 0).
@@ -665,9 +664,9 @@ execLocal cwtx preflight noSigVerify rdepth = withDiscardedBatch $ do
         -- specified, we run the old behavior. When it is set to true, we also do metadata
         -- validations.
         --
-        r <- if preflight
-          then do
-            assertLocalMetadata cmd ctx noSigVerify >>= \case
+        r <- case preflight of
+          Just PreflightSimulation -> do
+            assertLocalMetadata cmd ctx sigVerify >>= \case
               Right{} -> do
                 T2 cr _mc' <- liftIO $ applyCmd
                   _psVersion logger _psGasLogger pdbenv
@@ -675,7 +674,7 @@ execLocal cwtx preflight noSigVerify rdepth = withDiscardedBatch $ do
                   initialGas mc ApplyLocal
                 pure $ Right cr
               Left e -> pure $ Left e
-          else liftIO $ do
+          _ ->  liftIO $ do
             cr <- applyLocal
               logger _psGasLogger pdbenv
               chainweb213GasModel ctx spv

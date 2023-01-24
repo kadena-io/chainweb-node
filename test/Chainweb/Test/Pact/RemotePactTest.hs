@@ -294,7 +294,10 @@ localPreflightSimTest iot nio = testCaseSteps "local preflight sim test" $ \step
 
     step "Execute preflight /local tx - preflight+signoverify known /send success"
     cmd0' <- mkRawTx mv psid psigs
-    void $ runClientM (pactLocalWithQueryApiClient v sid True True Nothing cmd0') cenv >>= \case
+    cr <- runClientM
+      (pactLocalWithQueryApiClient v sid
+         (Just PreflightSimulation) (Just NoVerify) Nothing cmd0') cenv
+    void $ case cr of
       Left e -> assertFailure $ show e
       Right{} -> pure ()
 
@@ -332,7 +335,9 @@ localPreflightSimTest iot nio = testCaseSteps "local preflight sim test" $ \step
     runClientFailureAssertion sid cenv cmd6 "Signature list size too big"
   where
     runLocalPreflightClient sid e cmd = flip runClientM e $
-      pactLocalWithQueryApiClient v sid True False Nothing cmd
+      pactLocalWithQueryApiClient v sid
+        (Just PreflightSimulation)
+        (Just Verify) Nothing cmd
 
     runClientFailureAssertion sid e cmd msg =
       runLocalPreflightClient sid e cmd >>= \case

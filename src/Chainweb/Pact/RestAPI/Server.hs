@@ -61,7 +61,6 @@ import qualified Data.Text as T
 import Data.Text.Encoding
 import Data.Vector (Vector)
 import qualified Data.Vector as V
-import Data.Word (Word64)
 
 import Ethereum.Block
 import Ethereum.Header
@@ -337,22 +336,22 @@ localHandler
     :: Logger logger
     => logger
     -> PactExecutionService
-    -> Bool
+    -> Maybe LocalPreflightSimulation
       -- ^ Preflight flag
-    -> Bool
+    -> Maybe LocalSignatureVerification
       -- ^ No sig verification flag
-    -> Maybe Word64
+    -> Maybe BlockHeight
       -- ^ Rewind depth
     -> Command Text
     -> Handler (CommandResult Hash)
-localHandler logger pact preflight noSigVerify rewindDepth cmd = do
+localHandler logger pact preflight sigVerify rewindDepth cmd = do
     liftIO $ logg Info $ PactCmdLogLocal cmd
     cmd' <- case doCommandValidation cmd of
       Right c -> return c
       Left err ->
         throwError $ err400 { errBody = "Validation failed: " <> BSL8.pack err }
 
-    r <- liftIO $ _pactLocal pact preflight noSigVerify rewindDepth cmd'
+    r <- liftIO $ _pactLocal pact preflight sigVerify rewindDepth cmd'
     case r of
       Left err -> throwError $ err400
         { errBody = "Execution failed: " <> BSL8.pack (show err) }
@@ -363,7 +362,7 @@ localHandler logger pact preflight noSigVerify rewindDepth cmd = do
     logg = logFunctionJson (setComponent "local-handler" logger)
 
     doCommandValidation cmdText
-      | noSigVerify = do
+      | Just NoVerify <- sigVerify = do
           --
           -- desnote(emily): This workflow is 'Pact.Types.Command.verifyCommand'
           -- lite - only decode and parse the pact command, no sig checking.

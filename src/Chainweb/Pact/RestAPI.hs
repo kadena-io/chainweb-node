@@ -54,14 +54,13 @@ module Chainweb.Pact.RestAPI
 ) where
 
 
-import Data.Word
-
 import Pact.Server.API as API
 
 import Servant
 
 -- internal modules
 
+import Chainweb.BlockHeight
 import Chainweb.ChainId
 import Chainweb.Pact.RestAPI.EthSpv
 import Chainweb.Pact.RestAPI.SPV
@@ -132,9 +131,9 @@ pactPollApi = Proxy
 -- POST Queries for Pact Local Pre-flight
 
 type PactLocalWithQueryApi_
-    = QueryFlag "preflight"
-    :> QueryFlag "noSignatureVerification"
-    :> QueryParam "rewindToBlock" Word64
+    = QueryParam "preflight" LocalPreflightSimulation
+    :> QueryParam "signatureVerification" LocalSignatureVerification
+    :> QueryParam "rewindToBlock" BlockHeight
     :> ApiLocal
 
 type PactLocalWithQueryApi v c = PactV1ApiEndpoint v c PactLocalWithQueryApi_

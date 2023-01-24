@@ -52,7 +52,6 @@ import Data.Either
 import Data.Foldable (toList)
 import Data.Text (Text)
 import qualified Data.Text as T
-import Data.Word
 
 import Rosetta
 
@@ -60,6 +59,7 @@ import Servant.Client
 
 -- internal chainweb modules
 
+import Chainweb.BlockHeight
 import Chainweb.ChainId
 import Chainweb.Graph
 import Chainweb.Pact.RestAPI.Client
@@ -126,9 +126,9 @@ repeatUntil test action = retrying testRetryPolicy
 localWithQueryParams
     :: ChainId
     -> ClientEnv
-    -> Bool
-    -> Bool
-    -> Maybe Word64
+    -> Maybe LocalPreflightSimulation
+    -> Maybe LocalSignatureVerification
+    -> Maybe BlockHeight
     -> Command Text
     -> IO (CommandResult Hash)
 localWithQueryParams sid cenv pf sv rd cmd =
@@ -156,7 +156,7 @@ local
     -> Command Text
     -> IO (CommandResult Hash)
 local sid cenv =
-    localWithQueryParams sid cenv False False Nothing
+    localWithQueryParams sid cenv Nothing Nothing Nothing
 
 localTestToRetry
     :: ChainId

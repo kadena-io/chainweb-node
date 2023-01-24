@@ -32,7 +32,6 @@ module Chainweb.Pact.RestAPI.Client
 ) where
 
 
-import Data.Word
 import qualified Data.Text as T
 
 import Pact.Types.API
@@ -43,6 +42,7 @@ import Servant.Client
 
 -- internal modules
 
+import Chainweb.BlockHeight
 import Chainweb.ChainId
 import Chainweb.Pact.RestAPI
 import Chainweb.Pact.RestAPI.EthSpv
@@ -156,9 +156,9 @@ pactLocalWithQueryApiClient_
     :: forall (v :: ChainwebVersionT) (c :: ChainIdT)
     . KnownChainwebVersionSymbol v
     => KnownChainIdSymbol c
-    => Bool
-    -> Bool
-    -> Maybe Word64
+    => Maybe LocalPreflightSimulation
+    -> Maybe LocalSignatureVerification
+    -> Maybe BlockHeight
     -> Command T.Text
     -> ClientM (CommandResult Hash)
 pactLocalWithQueryApiClient_ = client (pactLocalWithQueryApi @v @c)
@@ -166,9 +166,9 @@ pactLocalWithQueryApiClient_ = client (pactLocalWithQueryApi @v @c)
 pactLocalWithQueryApiClient
     :: ChainwebVersion
     -> ChainId
-    -> Bool
-    -> Bool
-    -> Maybe Word64
+    -> Maybe LocalPreflightSimulation
+    -> Maybe LocalSignatureVerification
+    -> Maybe BlockHeight
     -> Command T.Text
     -> ClientM (CommandResult Hash)
 pactLocalWithQueryApiClient
