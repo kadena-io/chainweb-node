@@ -133,7 +133,7 @@ pactPollApi = Proxy
 type PactLocalWithQueryApi_
     = QueryParam "preflight" LocalPreflightSimulation
     :> QueryParam "signatureVerification" LocalSignatureVerification
-    :> QueryParam "rewindToBlock" BlockHeight
+    :> QueryParam "rewindDepth" BlockHeight
     :> ApiLocal
 
 type PactLocalWithQueryApi v c = PactV1ApiEndpoint v c PactLocalWithQueryApi_
