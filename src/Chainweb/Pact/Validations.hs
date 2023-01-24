@@ -82,7 +82,8 @@ assertLocalMetadata cmd@(P.Command pay sigs hsh) txCtx sigVerify = do
       , eUnless "Network id mismatch" $ assertNetworkId v nid
       , eUnless "Signature list size too big" $ assertSigSize sigs
       , eUnless "Invalid transaction signatures" $ sigValidate signers
-      , eUnless "Tx time outside of valid range" $ assertTxTimeRelativeToParent pct cmd    ]
+      , eUnless "Tx time outside of valid range" $ assertTxTimeRelativeToParent pct cmd
+      ]
   where
     sigValidate signers
       | Just NoVerify <- sigVerify = True
