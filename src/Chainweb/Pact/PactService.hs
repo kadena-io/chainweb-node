@@ -629,7 +629,7 @@ execLocal
     -> Maybe LocalSignatureVerification
       -- ^ turn off signature verification checks?
     -> Maybe BlockHeight
-      -- ^ rewind depth
+      -- ^ rewind depth (note: this is a *depth*, not an absolute height)
     -> PactServiceM tbl (Either MetadataValidationFailure (P.CommandResult P.Hash))
 execLocal cwtx preflight sigVerify rdepth = withDiscardedBatch $ do
     PactServiceEnv{..} <- ask
