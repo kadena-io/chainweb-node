@@ -112,4 +112,3 @@ constraints: megaparsec <9.3
 
 -- TODO remove once the bounds are upgraded in pact.
 allow-newer: pact:direct-sqlite
-

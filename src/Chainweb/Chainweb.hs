@@ -106,7 +106,6 @@ import Control.Concurrent (threadDelay)
 import Control.Concurrent.Async
 import Control.Concurrent.MVar (MVar, readMVar)
 import Control.DeepSeq
-import Control.Error.Util (note)
 import Control.Lens hiding ((.=), (<.>))
 import Control.Monad
 import Control.Monad.Catch (fromException, throwM)
@@ -162,7 +161,7 @@ import Chainweb.Mempool.P2pConfig
 import Chainweb.Miner.Config
 import Chainweb.Pact.RestAPI.Server (PactServerData(..))
 import Chainweb.Pact.Service.Types (PactServiceConfig(..))
-import Chainweb.Pact.Utils (fromPactChainId)
+import Chainweb.Pact.Validations
 import Chainweb.Payload.PayloadStore
 import Chainweb.Payload.PayloadStore.RocksDB
 import Chainweb.RestAPI
@@ -182,7 +181,6 @@ import P2P.Node.Configuration
 import P2P.Node.PeerDB (PeerDb)
 import P2P.Peer
 
-import qualified Pact.Types.ChainId as P
 import qualified Pact.Types.ChainMeta as P
 import qualified Pact.Types.Command as P
 
@@ -291,8 +289,19 @@ validatingMempoolConfig cid v gl gp mv = Mempool.InMemConfig
         -- is about 360 tx per block. Larger TPS values would result in false
         -- negatives in the set.
 
+    -- | Validation: Is this TX associated with the correct `ChainId`?
+    --
     preInsertSingle :: ChainwebTransaction -> Either Mempool.InsertError ChainwebTransaction
-    preInsertSingle tx = checkMetadata tx
+    preInsertSingle tx = do
+        let !pay = payloadObj . P._cmdPayload $ tx
+            pcid = P._pmChainId $ P._pMeta pay
+            sigs = P._cmdSigs tx
+            ver  = P._pNetworkId pay
+        if | not $ assertParseChainId pcid -> Left $ Mempool.InsertErrorOther "Unparsable ChainId"
+           | not $ assertChainId cid pcid  -> Left Mempool.InsertErrorMetadataMismatch
+           | not $ assertSigSize sigs      -> Left $ Mempool.InsertErrorOther "Too many signatures"
+           | not $ assertNetworkId v ver   -> Left Mempool.InsertErrorMetadataMismatch
+           | otherwise                     -> Right tx
 
     -- | Validation: All checks that should occur before a TX is inserted into
     -- the mempool. A rejection at this stage means that something is
@@ -318,19 +327,6 @@ validatingMempoolConfig cid v gl gp mv = Mempool.InMemConfig
         f (That (T2 h _)) = Left (T2 h $ Mempool.InsertErrorOther "preInsertBatch: align mismatch 0")
         f (This _) = Left (T2 (Mempool.TransactionHash "") (Mempool.InsertErrorOther "preInsertBatch: align mismatch 1"))
 
-    -- | Validation: Is this TX associated with the correct `ChainId`?
-    --
-    checkMetadata :: ChainwebTransaction -> Either Mempool.InsertError ChainwebTransaction
-    checkMetadata tx = do
-        let !pay = payloadObj . P._cmdPayload $ tx
-            pcid = P._pmChainId $ P._pMeta pay
-            sigs = length (P._cmdSigs tx)
-            ver  = P._pNetworkId pay >>= fromText @ChainwebVersion . P._networkId
-        tcid <- note (Mempool.InsertErrorOther "Unparsable ChainId") $ fromPactChainId pcid
-        if | tcid /= cid   -> Left Mempool.InsertErrorMetadataMismatch
-           | sigs > 100    -> Left $ Mempool.InsertErrorOther "Too many signatures"
-           | ver /= Just v -> Left Mempool.InsertErrorMetadataMismatch
-           | otherwise     -> Right tx
 
 data StartedChainweb logger
     = forall cas. (CanReadablePayloadCas cas, Logger logger) => StartedChainweb !(Chainweb logger cas)
@@ -844,4 +840,3 @@ runChainweb cw = do
         enabled conf = do
             logg Info "Mempool p2p sync enabled"
             return $ map (runMempoolSyncClient mgr conf (_chainwebPeer cw)) chainVals
-

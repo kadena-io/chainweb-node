@@ -78,7 +78,7 @@ import Chainweb.Pact.Service.Types
 import Chainweb.Pact.SPV
 import Chainweb.Pact.TransactionExec
 import Chainweb.Pact.Types
-import Chainweb.Pact.Utils
+import Chainweb.Pact.Validations (assertTxTimeRelativeToParent, assertValidateSigs)
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
 import Chainweb.Time
@@ -232,7 +232,7 @@ validateChainwebTxs logger v cid cp txValidationTime bh txs doBuyGas
     checkTimes :: ChainwebTransaction -> IO (Either InsertError ChainwebTransaction)
     checkTimes t
         | skipTxTimingValidation v bh = return $ Right t
-        | timingsCheck txValidationTime $ fmap payloadObj t = return $ Right t
+        | assertTxTimeRelativeToParent txValidationTime $ fmap payloadObj t = return $ Right t
         | otherwise = return $ Left InsertErrorInvalidTime
 
     checkTxHash :: ChainwebTransaction -> IO (Either InsertError ChainwebTransaction)
@@ -246,29 +246,17 @@ validateChainwebTxs logger v cid cp txValidationTime bh txs doBuyGas
             Right _ -> pure $ Right t
 
     checkTxSigs :: ChainwebTransaction -> IO (Either InsertError ChainwebTransaction)
-    checkTxSigs t = case validateSigs t of
-        Left _
-            -- special case for old testnet history
-            | v == Testnet04 && not (doCheckTxHash v bh) -> do
-                P.logLog logger "DEBUG" "ignored legacy invalid signature"
-                return $ Right t
-            | otherwise -> return $ Left $ InsertErrorInvalidSigs
-        Right _ -> pure $ Right t
-
-    validateSigs :: ChainwebTransaction -> Either () ()
-    validateSigs t
-        | length signers /= length sigs = Left ()
-        | otherwise = case traverse validateSig $ zip signers sigs of
-            Left _ -> Left ()
-            Right _ -> Right ()
+    checkTxSigs t
+      | assertValidateSigs hsh signers sigs = pure $ Right t
+      -- special case for old testnet history
+      | v == Testnet04 && not (doCheckTxHash v bh) = do
+        P.logLog logger "DEBUG" "ignored legacy invalid signature"
+        return $ Right t
+      | otherwise = return $ Left InsertErrorInvalidSigs
       where
         hsh = P._cmdHash t
         sigs = P._cmdSigs t
         signers = P._pSigners $ payloadObj $ P._cmdPayload t
-        validateSig (signer,sig)
-            | P.verifyUserSig hsh sig signer = Right ()
-            | otherwise = Left ()
-
 
     initTxList :: ValidateTxs
     initTxList = V.map Right txs
@@ -435,7 +423,7 @@ applyPactCmd isGenesis env miner txTimeLimit cmd = StateT $ \(T2 mcache maybeBlo
             Nothing -> id
             Just limit ->
                maybe (throwM timeoutError) return <=< timeout (fromIntegral limit)
-        liftIO $! txTimeout $ applyCmd v logger gasLogger env miner (gasModel pd) pd spv gasLimitedCmd initialGas mcache
+        liftIO $! txTimeout $ applyCmd v logger gasLogger env miner (gasModel pd) pd spv gasLimitedCmd initialGas mcache ApplySend
 
     if isGenesis
     then updateInitCache mcache'

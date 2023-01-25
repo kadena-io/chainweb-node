@@ -70,11 +70,20 @@ validateBlock bHeader plData reqQ = do
     addRequest reqQ msg
     return resultVar
 
-local :: ChainwebTransaction -> PactQueue -> IO (MVar (Either PactException (CommandResult Hash)))
-local ct reqQ = do
+local
+    :: Maybe LocalPreflightSimulation
+    -> Maybe LocalSignatureVerification
+    -> Maybe BlockHeight
+    -> ChainwebTransaction
+    -> PactQueue
+    -> IO (MVar (Either PactException (Either MetadataValidationFailure (CommandResult Hash))))
+local preflight sigVerify rd ct reqQ = do
     !resultVar <- newEmptyMVar
     let !msg = LocalMsg LocalReq
           { _localRequest = ct
+          , _localPreflight = preflight
+          , _localSigVerification = sigVerify
+          , _localRewindDepth = rd
           , _localResultVar = resultVar }
     addRequest reqQ msg
     return resultVar

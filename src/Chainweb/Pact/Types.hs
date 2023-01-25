@@ -83,6 +83,7 @@ module Chainweb.Pact.Types
   , psIsBatch
   , psCheckpointerDepth
   , psBlockGasLimit
+  , psChainId
 
   , getCheckpointer
 
@@ -127,8 +128,9 @@ module Chainweb.Pact.Types
   , logDebug
 
     -- * types
-  , ModuleCache
   , TxTimeout(..)
+  , ApplyCmdExecutionContext(..)
+  , ModuleCache
 
   -- * miscellaneous
   , defaultOnFatalError
@@ -227,6 +229,11 @@ newtype EnforceCoinbaseFailure = EnforceCoinbaseFailure Bool
 newtype CoinbaseUsePrecompiled = CoinbaseUsePrecompiled Bool
 
 type ModuleCache = HashMap ModuleName (ModuleData Ref, Bool)
+
+-- -------------------------------------------------------------------- --
+-- Local vs. Send execution context flag
+
+data ApplyCmdExecutionContext = ApplyLocal | ApplySend
 
 -- -------------------------------------------------------------------- --
 -- Tx Execution Service Monad
@@ -364,6 +371,7 @@ data PactServiceEnv tbl = PactServiceEnv
     , _psCheckpointerDepth :: !Int
         -- ^ Number of nested checkpointer calls
     , _psBlockGasLimit :: !GasLimit
+    , _psChainId :: ChainId
     }
 makeLenses ''PactServiceEnv
 
