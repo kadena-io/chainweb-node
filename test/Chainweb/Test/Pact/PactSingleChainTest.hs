@@ -42,13 +42,13 @@ import Test.Tasty.HUnit
 
 -- internal modules
 
+import Pact.JSON.Legacy.Value
 import Pact.Types.Command
 import Pact.Types.Hash
 import Pact.Types.Info
 import Pact.Types.Persistence
 import Pact.Types.PactError
 import Pact.Types.RPC
-import Pact.Utils.LegacyValue
 
 import Chainweb.BlockCreationTime
 import Chainweb.BlockHeader

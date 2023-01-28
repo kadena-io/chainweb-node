@@ -23,6 +23,7 @@ import qualified Data.Text as T
 
 import Pact.Gas
 import Pact.Interpreter (EvalResult(..), PactDbEnv(..), defaultInterpreter)
+import Pact.JSON.Legacy.Value
 import Pact.Native (nativeDefs)
 import Pact.Repl
 import Pact.Repl.Types
@@ -34,7 +35,6 @@ import Pact.Types.RowData
 import Pact.Types.Runtime hiding (ChainId)
 import Pact.Types.SPV (noSPVSupport)
 import Pact.Types.SQLite
-import Pact.Utils.LegacyValue
 
 import Test.Tasty
 import Test.Tasty.HUnit

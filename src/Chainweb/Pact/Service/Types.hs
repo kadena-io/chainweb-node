@@ -1,14 +1,15 @@
-{-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DerivingStrategies #-}
+{-# LANGUAGE ExistentialQuantification #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE ExistentialQuantification #-}
+{-# LANGUAGE TypeApplications #-}
 -- |
 -- Module: Chainweb.Pact.Service.Types
 -- Copyright: Copyright © 2018 Kadena LLC.
@@ -40,7 +41,9 @@ import Pact.Types.PactError
 import Pact.Types.Gas
 import Pact.Types.Hash
 import Pact.Types.Persistence
-import Pact.Utils.LegacyValue
+import Pact.Types.RowData
+
+import qualified Pact.JSON.Encode as J
 
 -- internal chainweb modules
 
@@ -91,7 +94,7 @@ gasPurchaseFailureHash (GasPurchaseFailure h _) = h
 -- | Exceptions thrown by PactService components that
 -- are _not_ recorded in blockchain record.
 data PactException
-  = BlockValidationFailure !LegacyValue
+  = BlockValidationFailure !J.JsonText
   | PactInternalError !Text
   | PactTransactionExecError !PactHash !Text
   | CoinbaseFailure !Text
@@ -116,10 +119,36 @@ data PactException
   deriving (Eq,Generic)
 
 instance Show PactException where
-    show = unpack . encodeToText
+    show = unpack . J.encodeText
 
-instance ToJSON PactException
-instance FromJSON PactException
+-- instance ToJSON PactException
+-- instance FromJSON PactException
+
+instance J.Encode PactException where
+  build (BlockValidationFailure msg) = tagged "BlockValidationFailure" msg
+  build (PactInternalError msg) = tagged "PactInternalError" msg
+  build (PactTransactionExecError h msg) = tagged "PactTransactionExecError" (J.Array (h, msg))
+  build (CoinbaseFailure msg) = tagged "CoinbaseFailure" msg
+  build NoBlockValidatedYet = tagged "NoBlockValidatedYet" J.null
+  build (TransactionValidationException l) = tagged "TransactionValidationException" (J.Array $ J.Array <$> l)
+  build (PactDuplicateTableError msg) = tagged "PactDuplicateTableError" msg
+  build (TransactionDecodeFailure msg) = tagged "TransactionDecodeFailure" msg
+  build (o@RewindLimitExceeded {}) = tagged "RewindLimitExceeded" $ J.object
+    [ "_rewindExceededLimit" J..= J.Aeson (_rewindExceededLimit o)
+    , "_rewindExceededLastHeight" J..= J.Aeson @Int (fromIntegral $ _rewindExceededLastHeight o)
+    , "_rewindExceededForkHeight" J..= J.Aeson @Int (fromIntegral $ _rewindExceededForkHeight o)
+    , "_rewindExceededTarget" J..= J.encodeWithAeson (_rewindExceededTarget o)
+    ]
+  build (BlockHeaderLookupFailure msg) = tagged "BlockHeaderLookupFailure" msg
+  build (BuyGasFailure failure) = tagged "BuyGasFailure" (J.encodeWithAeson failure)
+  build (MempoolFillFailure msg) = tagged "MempoolFillFailure" msg
+  build (BlockGasLimitExceeded gas) = tagged "BlockGasLimitExceeded" gas
+
+tagged :: J.Encode v => Text -> v -> J.Builder
+tagged t v = J.object
+    [ "contents" J..= v
+    , "tag" J..= t
+    ]
 
 instance Exception PactException
 
@@ -127,12 +156,12 @@ instance Exception PactException
 -- key in history, if any
 -- Not intended for public API use; ToJSONs are for logging output.
 data BlockTxHistory = BlockTxHistory
-  { _blockTxHistory :: !(Map TxId [TxLog LegacyValue])
-  , _blockPrevHistory :: !(Map RowKey (TxLog LegacyValue))
+  { _blockTxHistory :: !(Map TxId [TxLog RowData])
+  , _blockPrevHistory :: !(Map RowKey (TxLog RowData))
   }
   deriving (Eq,Generic)
 instance Show BlockTxHistory where
-  show = show . fmap encodeToText . _blockTxHistory
+  show = show . fmap (J.encodeText . J.Array) . _blockTxHistory
 instance NFData BlockTxHistory
 
 
@@ -202,7 +231,7 @@ instance Show Domain' where
 
 data BlockTxHistoryReq = BlockTxHistoryReq
   { _blockTxHistoryHeader :: !BlockHeader
-  , _blockTxHistoryDomain :: !Domain'
+  , _blockTxHistoryDomain :: !(Domain RowKey RowData)
   , _blockTxHistoryResult :: !(PactExMVar BlockTxHistory)
   }
 instance Show BlockTxHistoryReq where
@@ -211,9 +240,9 @@ instance Show BlockTxHistoryReq where
 
 data HistoricalLookupReq = HistoricalLookupReq
   { _historicalLookupHeader :: !BlockHeader
-  , _historicalLookupDomain :: !Domain'
+  , _historicalLookupDomain :: !(Domain RowKey RowData)
   , _historicalLookupRowKey :: !RowKey
-  , _historicalLookupResult :: !(PactExMVar (Maybe (TxLog LegacyValue)))
+  , _historicalLookupResult :: !(PactExMVar (Maybe (TxLog RowData)))
   }
 instance Show HistoricalLookupReq where
   show (HistoricalLookupReq h d k _) =

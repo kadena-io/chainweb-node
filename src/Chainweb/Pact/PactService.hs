@@ -65,9 +65,9 @@ import qualified Pact.Types.ChainMeta as P
 import qualified Pact.Types.Command as P
 import qualified Pact.Types.Hash as P
 import qualified Pact.Types.Logger as P
+import qualified Pact.Types.RowData as P
 import qualified Pact.Types.Runtime as P
 import qualified Pact.Types.SPV as P
-import qualified Pact.Utils.LegacyValue as P
 
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
@@ -451,7 +451,7 @@ attemptBuyGas miner (PactDbEnv' dbEnv) txs = do
 
 data BlockFilling = BlockFilling
     { _bfState :: BlockFill
-    , _bfSuccessPairs :: V.Vector (ChainwebTransaction,P.CommandResult [P.TxLog P.LegacyValue])
+    , _bfSuccessPairs :: V.Vector (ChainwebTransaction,P.CommandResult [P.TxLogJson])
     , _bfFailures :: V.Vector GasPurchaseFailure
     }
 
@@ -693,13 +693,20 @@ execValidateBlock memPoolAccess currHeader plData = do
                 -- succeeds. If this fails it usually means that the block
                 -- header database is corrupted.
 
-execBlockTxHistory :: BlockHeader -> Domain' -> PactServiceM cas BlockTxHistory
-execBlockTxHistory bh (Domain' d) = do
+execBlockTxHistory
+    :: BlockHeader
+    -> P.Domain P.RowKey P.RowData
+    -> PactServiceM cas BlockTxHistory
+execBlockTxHistory bh d = do
   !cp <- getCheckpointer
   liftIO $ _cpGetBlockHistory cp bh d
 
-execHistoricalLookup :: BlockHeader -> Domain' -> P.RowKey -> PactServiceM cas (Maybe (P.TxLog P.LegacyValue))
-execHistoricalLookup bh (Domain' d) k = do
+execHistoricalLookup
+    :: BlockHeader
+    -> P.Domain P.RowKey P.RowData
+    -> P.RowKey
+    -> PactServiceM cas (Maybe (P.TxLog P.RowData))
+execHistoricalLookup bh d k = do
   !cp <- getCheckpointer
   liftIO $ _cpGetHistoricalLookup cp bh d k
 

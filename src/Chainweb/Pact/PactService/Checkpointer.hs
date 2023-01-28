@@ -79,7 +79,6 @@ import Control.Monad.Catch
 import Control.Monad.Reader
 import Control.Monad.State.Strict
 
-import qualified Data.Aeson as A
 import Data.Either
 import Data.IORef
 import Data.Text (Text)
@@ -88,6 +87,7 @@ import qualified Data.Text as T
 import GHC.Stack
 
 import qualified Pact.Types.Logger as P
+import qualified Pact.JSON.Encode as J
 
 import Prelude hiding (lookup)
 
@@ -136,12 +136,12 @@ exitOnRewindLimitExceeded :: PactServiceM cas a -> PactServiceM cas a
 exitOnRewindLimitExceeded = handle $ \case
     e@RewindLimitExceeded{} -> do
         killFunction <- asks (\x -> _psOnFatalError x)
-        liftIO $ killFunction e (encodeToText $ msg e)
+        liftIO $ killFunction e (J.encodeText $ msg e)
     e -> throwM e
   where
-    msg e = A.object
-        [ "details" A..= e
-        , "message" A..= id @T.Text "Your node is part of a losing fork longer than your\
+    msg e = J.object
+        [ "details" J..= e
+        , "message" J..= J.text "Your node is part of a losing fork longer than your\
             \ reorg-limit, which is a situation that requires manual\
             \ intervention.\
             \ For information on recovering from this, please consult:\
@@ -406,7 +406,7 @@ rewindTo rewindLimit (Just (ParentHeader parent)) = do
                     -- This stream is guaranteed to at least contain @e@.
                     (h, s) <- fromJuste <$> S.uncons newBlocks
                     heightRef <- newIORef (_blockHeight commonAncestor)
-                    withAsync (heightProgress (_blockHeight commonAncestor) heightRef (logInfo_ progressLogger)) $ \_ -> 
+                    withAsync (heightProgress (_blockHeight commonAncestor) heightRef (logInfo_ progressLogger)) $ \_ ->
                       s
                           & S.scanM
                               (\ !p !c -> runPact (fastForward (ParentHeader p, c)) >> writeIORef heightRef (_blockHeight c) >> return c)
@@ -634,7 +634,7 @@ rewindToIncremental rewindLimit (Just (ParentHeader parent)) = do
                     (curHdr, remaining) <- fromJuste <$> S.uncons newBlocks
 
                     heightRef <- newIORef (_blockHeight curHdr)
-                    withAsync (heightProgress (_blockHeight curHdr) heightRef (logInfo_ progressLogger)) $ \_ -> 
+                    withAsync (heightProgress (_blockHeight curHdr) heightRef (logInfo_ progressLogger)) $ \_ ->
                       remaining
                           & S.copy
                           & S.length_
@@ -649,8 +649,8 @@ rewindToIncremental rewindLimit (Just (ParentHeader parent)) = do
 heightProgress :: BlockHeight -> IORef BlockHeight -> (String -> IO ()) -> IO ()
 heightProgress initialHeight ref logFun = forever $ do
     h <- readIORef ref
-    logFun 
-      $ "processed blocks: " <> sshow (h - initialHeight) 
-      <> ", current height: " <> sshow h 
+    logFun
+      $ "processed blocks: " <> sshow (h - initialHeight)
+      <> ", current height: " <> sshow h
     threadDelay (20 * 1_000000)
 

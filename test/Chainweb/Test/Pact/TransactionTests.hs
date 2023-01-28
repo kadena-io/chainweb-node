@@ -36,6 +36,7 @@ import Data.Default
 
 import Pact.Gas
 import Pact.Interpreter
+import Pact.JSON.Legacy.Value
 import Pact.Parse
 import Pact.Repl
 import Pact.Repl.Types
@@ -46,7 +47,6 @@ import Pact.Types.PactValue
 import Pact.Types.RPC
 import Pact.Types.Runtime
 import Pact.Types.SPV
-import Pact.Utils.LegacyValue
 
 
 -- internal chainweb modules

@@ -71,7 +71,8 @@ import Pact.Types.RowData
 import Pact.Types.SQLite
 import Pact.Types.Term (ModuleName(..), ObjectMap(..), TableName(..))
 import Pact.Types.Util (AsString(..))
-import Pact.Utils.LegacyValue
+
+import qualified Pact.JSON.Encode as J
 
 -- chainweb
 
@@ -82,7 +83,7 @@ import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.Backend.Utils
 import Chainweb.Pact.Service.Types (PactException(..), internalError)
 import Chainweb.Version (ChainwebVersion, ChainId, genesisHeight)
-import Chainweb.Utils (encodeToByteString, sshow)
+import Chainweb.Utils (sshow)
 import Chainweb.Utils.Serialization
 
 tbl :: HasCallStack => Utf8 -> Utf8
@@ -203,7 +204,7 @@ checkDbTableExists tableName = do
     (Utf8 tableNameBS) = tableName
 
 writeSys
-    :: (AsString k, ToJSON v)
+    :: (AsString k, J.Encode v)
     => Domain k v
     -> k
     -> v
@@ -226,7 +227,7 @@ writeSys d k v = gets _bsTxId >>= go
         UserTables _ -> error "impossible"
 
 recordPendingUpdate
-    :: ToJSON v
+    :: J.Encode v
     => Utf8
     -> Utf8
     -> TxId
@@ -234,7 +235,7 @@ recordPendingUpdate
     -> BlockHandler SQLiteEnv ()
 recordPendingUpdate (Utf8 key) (Utf8 tn) txid v = modifyPendingData modf
   where
-    !vs = encodeToByteString v
+    !vs = J.encodeStrict v
     delta = SQLiteRowDelta tn txid key vs
     deltaKey = SQLiteDeltaKey tn key
 
@@ -317,7 +318,7 @@ writeUser wt d k rowdata@(RowData _ row) = gets _bsTxId >>= go
             return rowdata
 
 doWriteRow
-  :: (AsString k, ToJSON v)
+  :: (AsString k, J.Encode v)
     => WriteType
     -> Domain k v
     -> k
@@ -410,7 +411,7 @@ doTxIds (TableName tn) _tid@(TxId tid) = do
 {-# INLINE doTxIds #-}
 
 recordTxLog
-    :: (AsString k, ToJSON v)
+    :: (AsString k, J.Encode v)
     => TableName
     -> Domain k v
     -> k
@@ -425,7 +426,7 @@ recordTxLog tt d k v = do
 
   where
     !upd = M.insertWith DL.append tt txlogs
-    !txlogs = DL.singleton (TxLog (asString d) (asString k) (toLegacyJson v))
+    !txlogs = DL.singleton (encodeTxLog $ TxLog (asString d) (asString k) v)
 
 modifyPendingData
     :: (SQLitePendingData -> SQLitePendingData)
@@ -467,7 +468,7 @@ doCreateUserTable tn@(TableName ttxt) mn = do
     txlogKey = "SYS:usertables"
     stn = asString tn
     uti = UserTableInfo mn
-    txlogs = DL.singleton (TxLog txlogKey stn (toLegacyJson uti))
+    txlogs = DL.singleton $ encodeTxLog $ TxLog txlogKey stn uti
 {-# INLINE doCreateUserTable #-}
 
 doRollback :: BlockHandler SQLiteEnv ()
@@ -475,7 +476,7 @@ doRollback = modify'
     $ set bsMode Nothing
     . set bsPendingTx Nothing
 
-doCommit :: BlockHandler SQLiteEnv [TxLog LegacyValue]
+doCommit :: BlockHandler SQLiteEnv [TxLogJson]
 doCommit = use bsMode >>= \case
     Nothing -> doRollback >> internalError "doCommit: Not in transaction"
     Just m -> do
@@ -503,7 +504,6 @@ doCommit = use bsMode >>= \case
     mergeW a b = case take 1 (DL.toList a) of
         [] -> b
         (x:_) -> DL.cons x b
-
 {-# INLINE doCommit #-}
 
 clearPendingTxState :: BlockHandler SQLiteEnv ()
@@ -535,7 +535,7 @@ resetTemp = modify'
     -- clear out txlog entries
     . set (bsPendingBlock . pendingTxLogMap) mempty
 
-doGetTxLog :: FromJSON v => Domain k v -> TxId -> BlockHandler SQLiteEnv [TxLog v]
+doGetTxLog :: Domain k RowData -> TxId -> BlockHandler SQLiteEnv [TxLog RowData]
 doGetTxLog d txid = do
     -- try to look up this tx from pending log -- if we find it there it can't
     -- possibly be in the db.
@@ -571,8 +571,8 @@ doGetTxLog d txid = do
     stmt = "SELECT rowkey, rowdata FROM " <> tbl tableName <> " WHERE txid = ?"
 
 
-toTxLog :: (MonadThrow m, FromJSON v, FromJSON l) =>
-           Domain k v -> Utf8 -> BS.ByteString -> m (TxLog l)
+toTxLog :: MonadThrow m =>
+           Domain k v -> Utf8 -> BS.ByteString -> m (TxLog RowData)
 toTxLog d key value =
         case Data.Aeson.decodeStrict' value of
             Nothing -> internalError

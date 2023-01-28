@@ -152,6 +152,7 @@ import Test.Tasty
 
 import Pact.ApiReq (ApiKeyPair(..), mkKeyPairs)
 import Pact.Gas
+import Pact.JSON.Legacy.Value
 import Pact.Types.Capability
 import qualified Pact.Types.ChainId as P
 import Pact.Types.ChainMeta
@@ -169,7 +170,6 @@ import Pact.Types.SPV
 import Pact.Types.Term
 import Pact.Types.SQLite
 import Pact.Types.Util (parseB16TextOnly)
-import Pact.Utils.LegacyValue
 
 -- internal modules
 

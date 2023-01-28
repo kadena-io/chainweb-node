@@ -57,12 +57,12 @@ import Chainweb.Version (ChainwebVersion(..))
 import Chainweb.Version.Utils (someChainId)
 import Chainweb.Utils (sshow, tryAllSynchronous)
 
+import Pact.JSON.Legacy.Value
 import Pact.Types.Command
 import Pact.Types.Hash
 import Pact.Types.PactValue
 import Pact.Types.Persistence
 import Pact.Types.Pretty
-import Pact.Utils.LegacyValue
 
 testVersion :: ChainwebVersion
 testVersion = FastTimedCPM petersonChainGraph

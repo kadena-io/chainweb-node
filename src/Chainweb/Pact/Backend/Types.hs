@@ -112,8 +112,8 @@ import Pact.PersistPactDb (DbEnv(..))
 import qualified Pact.Types.Hash as P
 import Pact.Types.Logger (Logger(..), Logging(..))
 import Pact.Types.Persistence
+import Pact.Types.RowData (RowData)
 import Pact.Types.Runtime (TableName)
-import Pact.Utils.LegacyValue
 
 -- internal modules
 import Chainweb.BlockHash
@@ -184,7 +184,7 @@ data SQLiteDeltaKey = SQLiteDeltaKey
 
 -- | A map from table name to a list of 'TxLog' entries. This is maintained in
 -- 'BlockState' and is cleared upon pact transaction commit.
-type TxLogMap = Map TableName (DList (TxLog LegacyValue))
+type TxLogMap = Map TableName (DList TxLogJson)
 
 -- | Between a @restore..save@ bracket, we also need to record which tables
 -- were created during this block (so the necessary @CREATE TABLE@ statements
@@ -320,10 +320,10 @@ data Checkpointer = Checkpointer
 
       -- TODO: this would be nicer as a batch lookup :(
     , _cpLookupProcessedTx :: !(P.PactHash -> IO (Maybe (T2 BlockHeight BlockHash)))
-    , _cpGetBlockHistory :: !(
-        forall k v . (FromJSON v) => BlockHeader -> Domain k v -> IO BlockTxHistory)
-    , _cpGetHistoricalLookup :: !(
-        forall k v . (FromJSON v) => BlockHeader -> Domain k v -> RowKey -> IO (Maybe (TxLog LegacyValue)))
+    , _cpGetBlockHistory ::
+        !(BlockHeader -> Domain RowKey RowData -> IO BlockTxHistory)
+    , _cpGetHistoricalLookup ::
+        !(BlockHeader -> Domain RowKey RowData -> RowKey -> IO (Maybe (TxLog RowData)))
     }
 
 data CheckpointEnv = CheckpointEnv

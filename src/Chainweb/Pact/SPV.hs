@@ -347,7 +347,7 @@ mkSPVResult CommandResult{..} j =
     , ("txid", tStr $ maybe "" asString _crTxId)
     , ("gas", toTerm $ (fromIntegral _crGas :: Integer))
     , ("meta", maybe empty metaField _crMetaData)
-    , ("logs", tStr $ asString $ _crLogs)
+    , ("logs", tStr $ asString _crLogs)
     , ("continuation", maybe empty contField _crContinuation)
     , ("events", toTList TyAny def $ map eventField _crEvents)
     ]

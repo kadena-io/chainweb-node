@@ -47,7 +47,7 @@ import Numeric.Natural ( Natural )
 import Pact.Types.Command
 import Pact.Types.PactValue (PactValue(..))
 import Pact.Types.Exp (Literal(..))
-import Pact.Utils.LegacyValue
+import Pact.JSON.Legacy.Value
 
 import Rosetta
 
@@ -1234,9 +1234,8 @@ rowDataToAccountLog (currKey, currBal, currGuard) prev = do
         }
 
 -- | Parse TxLog Value into fungible asset account columns
-txLogToAccountRow :: P.TxLog LegacyValue -> Maybe AccountRow
-txLogToAccountRow (P.TxLog _ key obj) = do
-  P.RowData _ (P.ObjectMap row) :: P.RowData <- (hushResult . fromJSON . _getLegacyValue) obj
+txLogToAccountRow :: P.TxLog P.RowData -> Maybe AccountRow
+txLogToAccountRow (P.TxLog _ key (P.RowData _ (P.ObjectMap row))) = do
   guard :: Value <- toJSON . P.rowDataToPactValue <$> M.lookup "guard" row
   case M.lookup "balance" row of
     Just (P.RDLiteral (LDecimal bal)) -> pure (key, bal, guard)

@@ -31,11 +31,11 @@ import Text.Trifecta.Delta (Delta(..))
 
 -- internal modules
 
+import Pact.JSON.Legacy.Value
 import Pact.Parse
 import Pact.Types.Command
 import Pact.Types.RPC
 import Pact.Types.Runtime
-import Pact.Utils.LegacyValue
 
 import Chainweb.Miner.Pact
 import Chainweb.Pact.Types

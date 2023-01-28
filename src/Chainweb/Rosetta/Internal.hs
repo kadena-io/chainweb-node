@@ -34,17 +34,17 @@ import qualified Data.Text as T
 import qualified Data.Vector as V
 import qualified Data.Set as S
 
-import qualified Pact.Types.Runtime as P
 import qualified Pact.Parse as P
 import qualified Pact.Types.Capability as P
 import qualified Pact.Types.Command as P
+import qualified Pact.Types.Runtime as P
 
 import Pact.Types.Command
 import Pact.Types.Hash
 import Pact.Types.Runtime (TxId(..), Domain(..), TxLog(..))
 import Pact.Types.Persistence (RowKey(..))
+import Pact.Types.RowData (RowData)
 import Pact.Types.PactValue
-import Pact.Utils.LegacyValue
 
 import Rosetta
 import Servant.Server
@@ -56,7 +56,7 @@ import Chainweb.BlockHeader (BlockHeader(..))
 import Chainweb.Cut
 import Chainweb.CutDB
 import Chainweb.Pact.Transactions.UpgradeTransactions
-import Chainweb.Pact.Service.Types (Domain'(..), BlockTxHistory(..))
+import Chainweb.Pact.Service.Types (BlockTxHistory(..))
 import Chainweb.Payload hiding (Transaction(..))
 import Chainweb.Payload.PayloadStore
 import Chainweb.Rosetta.Utils
@@ -581,10 +581,10 @@ getTxLogs cr bh = do
   histAcctRow <- hoistEither $ parseHist hist
   pure $ getBalanceDeltas histAcctRow lastBalSeen
   where
-    d = Domain' (UserTables "coin_coin-table")
+    d = UserTables "coin_coin-table"
 
     parseHist
-        :: Map TxId [TxLog LegacyValue]
+        :: Map TxId [TxLog RowData]
         -> Either RosettaFailure (Map TxId [AccountRow])
     parseHist m
       | M.size parsed == M.size m = pure $! parsed
@@ -593,7 +593,7 @@ getTxLogs cr bh = do
         parsed = M.mapMaybe (mapM txLogToAccountRow) m
 
     parsePrevTxs
-        :: Map RowKey (TxLog LegacyValue)
+        :: Map RowKey (TxLog RowData)
         -> Either RosettaFailure (Map RowKey AccountRow)
     parsePrevTxs m
       | M.size parsed == M.size m = pure $! parsed
@@ -662,7 +662,7 @@ getHistoricalLookupBalance' cr bh k = do
       row <- txLogToAccountRow h ?? RosettaUnparsableTxLog
       pure $ Just row
   where
-    d = Domain' (UserTables "coin_coin-table")
+    d = UserTables "coin_coin-table"
     key = RowKey k -- TODO: How to sanitize this further
 
 getHistoricalLookupBalance

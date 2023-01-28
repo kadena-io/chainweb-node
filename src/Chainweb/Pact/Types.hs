@@ -169,11 +169,10 @@ import Pact.Types.Command
 import Pact.Types.Gas
 import qualified Pact.Types.Logger as P
 import Pact.Types.Names
-import Pact.Types.Persistence (ExecutionMode, TxLog)
+import Pact.Types.Persistence (ExecutionMode, TxLogJson)
 import Pact.Types.Runtime (ExecutionConfig(..), ModuleData(..))
 import Pact.Types.SPV
 import Pact.Types.Term
-import Pact.Utils.LegacyValue
 
 -- internal chainweb modules
 
@@ -197,7 +196,7 @@ import Chainweb.Version
 
 data Transactions r = Transactions
     { _transactionPairs :: !(Vector (ChainwebTransaction, r))
-    , _transactionCoinbase :: !(CommandResult [TxLog LegacyValue])
+    , _transactionCoinbase :: !(CommandResult [TxLogJson])
     } deriving (Functor, Foldable, Traversable, Eq, Show, Generic, NFData)
 makeLenses 'Transactions
 
@@ -236,7 +235,7 @@ type ModuleCache = HashMap ModuleName (ModuleData Ref, Bool)
 --
 data TransactionState = TransactionState
     { _txCache :: ModuleCache
-    , _txLogs :: [TxLog LegacyValue]
+    , _txLogs :: [TxLogJson]
     , _txGasUsed :: !Gas
     , _txGasId :: !(Maybe GasId)
     , _txGasModel :: !GasModel
