@@ -106,7 +106,6 @@ import Control.Concurrent (threadDelay)
 import Control.Concurrent.Async
 import Control.Concurrent.MVar (MVar, readMVar)
 import Control.DeepSeq
-import Control.Error.Util (note)
 import Control.Lens hiding ((.=), (<.>))
 import Control.Monad
 import Control.Monad.Catch (fromException, throwM)
@@ -162,7 +161,7 @@ import Chainweb.Mempool.P2pConfig
 import Chainweb.Miner.Config
 import Chainweb.Pact.RestAPI.Server (PactServerData(..))
 import Chainweb.Pact.Service.Types (PactServiceConfig(..))
-import Chainweb.Pact.Utils (fromPactChainId)
+import Chainweb.Pact.Validations
 import Chainweb.Payload.PayloadStore
 import Chainweb.Payload.PayloadStore.RocksDB
 import Chainweb.RestAPI
@@ -174,31 +173,31 @@ import Chainweb.Version
 import Chainweb.WebBlockHeaderDB
 import Chainweb.WebPactExecutionService
 
-import Data.CAS.RocksDB
+import Chainweb.Storage.Table.RocksDB
+
 import Data.LogMessage (LogFunctionText)
 
 import P2P.Node.Configuration
 import P2P.Node.PeerDB (PeerDb)
 import P2P.Peer
 
-import qualified Pact.Types.ChainId as P
 import qualified Pact.Types.ChainMeta as P
 import qualified Pact.Types.Command as P
 
 -- -------------------------------------------------------------------------- --
 -- Chainweb Resources
 
-data Chainweb logger cas = Chainweb
+data Chainweb logger tbl = Chainweb
     { _chainwebHostAddress :: !HostAddress
     , _chainwebChains :: !(HM.HashMap ChainId (ChainResources logger))
-    , _chainwebCutResources :: !(CutResources logger cas)
-    , _chainwebMiner :: !(Maybe (MinerResources logger cas))
-    , _chainwebCoordinator :: !(Maybe (MiningCoordination logger cas))
+    , _chainwebCutResources :: !(CutResources logger tbl)
+    , _chainwebMiner :: !(Maybe (MinerResources logger tbl))
+    , _chainwebCoordinator :: !(Maybe (MiningCoordination logger tbl))
     , _chainwebLogger :: !logger
     , _chainwebPeer :: !(PeerResources logger)
-    , _chainwebPayloadDb :: !(PayloadDb cas)
+    , _chainwebPayloadDb :: !(PayloadDb tbl)
     , _chainwebManager :: !HTTP.Manager
-    , _chainwebPactData :: ![(ChainId, PactServerData logger cas)]
+    , _chainwebPactData :: ![(ChainId, PactServerData logger tbl)]
     , _chainwebThrottler :: !(Throttle Address)
     , _chainwebPutPeerThrottler :: !(Throttle Address)
     , _chainwebConfig :: !ChainwebConfiguration
@@ -208,10 +207,10 @@ data Chainweb logger cas = Chainweb
 
 makeLenses ''Chainweb
 
-chainwebSocket :: Getter (Chainweb logger cas) Socket
+chainwebSocket :: Getter (Chainweb logger t) Socket
 chainwebSocket = chainwebPeer . peerResSocket
 
-instance HasChainwebVersion (Chainweb logger cas) where
+instance HasChainwebVersion (Chainweb logger t) where
     _chainwebVersion = _chainwebVersion . _chainwebCutResources
     {-# INLINE _chainwebVersion #-}
 
@@ -290,8 +289,19 @@ validatingMempoolConfig cid v gl gp mv = Mempool.InMemConfig
         -- is about 360 tx per block. Larger TPS values would result in false
         -- negatives in the set.
 
+    -- | Validation: Is this TX associated with the correct `ChainId`?
+    --
     preInsertSingle :: ChainwebTransaction -> Either Mempool.InsertError ChainwebTransaction
-    preInsertSingle tx = checkMetadata tx
+    preInsertSingle tx = do
+        let !pay = payloadObj . P._cmdPayload $ tx
+            pcid = P._pmChainId $ P._pMeta pay
+            sigs = P._cmdSigs tx
+            ver  = P._pNetworkId pay
+        if | not $ assertParseChainId pcid -> Left $ Mempool.InsertErrorOther "Unparsable ChainId"
+           | not $ assertChainId cid pcid  -> Left Mempool.InsertErrorMetadataMismatch
+           | not $ assertSigSize sigs      -> Left $ Mempool.InsertErrorOther "Too many signatures"
+           | not $ assertNetworkId v ver   -> Left Mempool.InsertErrorMetadataMismatch
+           | otherwise                     -> Right tx
 
     -- | Validation: All checks that should occur before a TX is inserted into
     -- the mempool. A rejection at this stage means that something is
@@ -317,22 +327,9 @@ validatingMempoolConfig cid v gl gp mv = Mempool.InMemConfig
         f (That (T2 h _)) = Left (T2 h $ Mempool.InsertErrorOther "preInsertBatch: align mismatch 0")
         f (This _) = Left (T2 (Mempool.TransactionHash "") (Mempool.InsertErrorOther "preInsertBatch: align mismatch 1"))
 
-    -- | Validation: Is this TX associated with the correct `ChainId`?
-    --
-    checkMetadata :: ChainwebTransaction -> Either Mempool.InsertError ChainwebTransaction
-    checkMetadata tx = do
-        let !pay = payloadObj . P._cmdPayload $ tx
-            pcid = P._pmChainId $ P._pMeta pay
-            sigs = length (P._cmdSigs tx)
-            ver  = P._pNetworkId pay >>= fromText @ChainwebVersion . P._networkId
-        tcid <- note (Mempool.InsertErrorOther "Unparsable ChainId") $ fromPactChainId pcid
-        if | tcid /= cid   -> Left Mempool.InsertErrorMetadataMismatch
-           | sigs > 100    -> Left $ Mempool.InsertErrorOther "Too many signatures"
-           | ver /= Just v -> Left Mempool.InsertErrorMetadataMismatch
-           | otherwise     -> Right tx
 
 data StartedChainweb logger
-    = forall cas. (PayloadCasLookup cas, Logger logger) => StartedChainweb !(Chainweb logger cas)
+    = forall cas. (CanReadablePayloadCas cas, Logger logger) => StartedChainweb !(Chainweb logger cas)
     | Replayed !Cut !Cut
 
 data ChainwebStatus
@@ -431,7 +428,7 @@ withChainwebInternal conf logger peer serviceSock rocksDb pactDbDir backupDir re
     cidsList :: [ChainId]
     cidsList = toList cids
 
-    payloadDb :: PayloadDb RocksDbCas
+    payloadDb :: PayloadDb RocksDbTable
     payloadDb = newPayloadDb rocksDb
 
     chainLogger :: ChainId -> logger
@@ -521,7 +518,7 @@ withChainwebInternal conf logger peer serviceSock rocksDb pactDbDir backupDir re
                                 , _chainwebCoordinator = mc
                                 , _chainwebLogger = logger
                                 , _chainwebPeer = peer
-                                , _chainwebPayloadDb = view cutDbPayloadCas $ _cutResCutDb cuts
+                                , _chainwebPayloadDb = view cutDbPayloadDb $ _cutResCutDb cuts
                                 , _chainwebManager = mgr
                                 , _chainwebPactData = pactData
                                 , _chainwebThrottler = throttler
@@ -539,8 +536,8 @@ withChainwebInternal conf logger peer serviceSock rocksDb pactDbDir backupDir re
 
     withPactData
         :: HM.HashMap ChainId (ChainResources logger)
-        -> CutResources logger cas
-        -> ([(ChainId, PactServerData logger cas)] -> IO b)
+        -> CutResources logger tbl
+        -> ([(ChainId, PactServerData logger tbl)] -> IO b)
         -> IO b
     withPactData cs cuts m = do
         let l = sortBy (compare `on` fst) (HM.toList cs)
@@ -626,10 +623,10 @@ mkThrottler e rate c = initThrottler (defaultThrottleSettings $ TimeSpec (ceilin
 -- | Starts server and runs all network clients
 --
 runChainweb
-    :: forall logger cas
+    :: forall logger tbl
     . Logger logger
-    => PayloadCasLookup cas
-    => Chainweb logger cas
+    => CanReadablePayloadCas tbl
+    => Chainweb logger tbl
     -> IO ()
 runChainweb cw = do
     logg Info "start chainweb node"
@@ -683,10 +680,10 @@ runChainweb cw = do
     memP2pToServe :: [(NetworkId, PeerDb)]
     memP2pToServe = (\(i, _) -> (MempoolNetwork i, peerDb)) <$> chains
 
-    payloadDbsToServe :: [(ChainId, PayloadDb cas)]
+    payloadDbsToServe :: [(ChainId, PayloadDb tbl)]
     payloadDbsToServe = itoList (view chainwebPayloadDb cw <$ _chainwebChains cw)
 
-    pactDbsToServe :: [(ChainId, PactServerData logger cas)]
+    pactDbsToServe :: [(ChainId, PactServerData logger tbl)]
     pactDbsToServe = _chainwebPactData cw
 
     -- P2P Server
@@ -803,7 +800,7 @@ runChainweb cw = do
 
     -- Cut DB and Miner
 
-    cutDb :: CutDb cas
+    cutDb :: CutDb tbl
     cutDb = _cutResCutDb $ _chainwebCutResources cw
 
     cutPeerDb :: PeerDb
@@ -843,4 +840,3 @@ runChainweb cw = do
         enabled conf = do
             logg Info "Mempool p2p sync enabled"
             return $ map (runMempoolSyncClient mgr conf (_chainwebPeer cw)) chainVals
-

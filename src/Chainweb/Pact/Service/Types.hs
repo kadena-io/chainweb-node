@@ -47,7 +47,7 @@ import qualified Pact.JSON.Encode as J
 
 -- internal chainweb modules
 
-import Chainweb.BlockHash
+import Chainweb.BlockHash ( BlockHash )
 import Chainweb.BlockHeader
 import Chainweb.BlockHeight
 import Chainweb.Mempool.Mempool (InsertError(..),TransactionHash)
@@ -91,10 +91,41 @@ instance Show GasPurchaseFailure where show = unpack . encodeToText
 gasPurchaseFailureHash :: GasPurchaseFailure -> TransactionHash
 gasPurchaseFailureHash (GasPurchaseFailure h _) = h
 
+-- | Used by /local to tag metadata validation failures
+--
+newtype MetadataValidationFailure
+    = MetadataValidationFailure Text
+    deriving stock (Eq, Show, Generic)
+    deriving newtype (NFData)
+
+-- | Used by /local to trigger user signature verification
+--
+data LocalSignatureVerification
+    = Verify
+    | NoVerify
+    deriving stock (Eq, Show, Generic)
+
+-- | Used by /local to trigger preflight simulation
+--
+data LocalPreflightSimulation
+    = PreflightSimulation
+    | LegacySimulation
+    deriving stock (Eq, Show, Generic)
+
+newtype BlockValidationFailureMsg = BlockValidationFailureMsg J.JsonText
+    deriving (Eq, Ord, Generic)
+    deriving newtype (J.Encode)
+
+-- | Intended only for use in Testing and Debugging. This doesn't
+-- roundtrip and my result in missleading failure messages.
+--
+instance FromJSON BlockValidationFailureMsg where
+    parseJSON = pure . BlockValidationFailureMsg . J.encodeWithAeson
+
 -- | Exceptions thrown by PactService components that
 -- are _not_ recorded in blockchain record.
 data PactException
-  = BlockValidationFailure !J.JsonText
+  = BlockValidationFailure !BlockValidationFailureMsg
   | PactInternalError !Text
   | PactTransactionExecError !PactHash !Text
   | CoinbaseFailure !Text
@@ -121,8 +152,7 @@ data PactException
 instance Show PactException where
     show = unpack . J.encodeText
 
--- instance ToJSON PactException
--- instance FromJSON PactException
+instance FromJSON PactException
 
 instance J.Encode PactException where
   build (BlockValidationFailure msg) = tagged "BlockValidationFailure" msg
@@ -133,7 +163,7 @@ instance J.Encode PactException where
   build (TransactionValidationException l) = tagged "TransactionValidationException" (J.Array $ J.Array <$> l)
   build (PactDuplicateTableError msg) = tagged "PactDuplicateTableError" msg
   build (TransactionDecodeFailure msg) = tagged "TransactionDecodeFailure" msg
-  build (o@RewindLimitExceeded {}) = tagged "RewindLimitExceeded" $ J.object
+  build o@(RewindLimitExceeded{}) = tagged "RewindLimitExceeded" $ J.object
     [ "_rewindExceededLimit" J..= J.Aeson (_rewindExceededLimit o)
     , "_rewindExceededLastHeight" J..= J.Aeson @Int (fromIntegral $ _rewindExceededLastHeight o)
     , "_rewindExceededForkHeight" J..= J.Aeson @Int (fromIntegral $ _rewindExceededForkHeight o)
@@ -202,7 +232,10 @@ instance Show ValidateBlockReq where show ValidateBlockReq{..} = show (_valBlock
 
 data LocalReq = LocalReq
     { _localRequest :: !ChainwebTransaction
-    , _localResultVar :: !(PactExMVar (CommandResult Hash))
+    , _localPreflight :: !(Maybe LocalPreflightSimulation)
+    , _localSigVerification :: !(Maybe LocalSignatureVerification)
+    , _localRewindDepth :: !(Maybe BlockHeight)
+    , _localResultVar :: !(PactExMVar (Either MetadataValidationFailure (CommandResult Hash)))
     }
 instance Show LocalReq where show LocalReq{..} = show _localRequest
 

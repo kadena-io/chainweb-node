@@ -2,12 +2,15 @@
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DerivingStrategies #-}
+{-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE UndecidableInstances #-}
 
 -- |
 -- Module: Chainweb.BlockHeaderDB.Internal
@@ -73,8 +76,8 @@ import Chainweb.Utils.Paging
 import Chainweb.Utils.Serialization
 import Chainweb.Version
 
-import Data.CAS
-import Data.CAS.RocksDB
+import Chainweb.Storage.Table
+import Chainweb.Storage.Table.RocksDB
 
 import Numeric.Additive
 
@@ -185,10 +188,9 @@ instance HasChainwebVersion BlockHeaderDb where
     _chainwebVersion = _chainDbChainwebVersion
     {-# INLINE _chainwebVersion #-}
 
-instance HasCasLookup BlockHeaderDb where
-    type CasValueType BlockHeaderDb = BlockHeader
-    casLookup = lookup
-    {-# INLINE casLookup #-}
+instance (k ~ CasKeyType BlockHeader) => ReadableTable BlockHeaderDb k BlockHeader where
+    tableLookup = lookup
+    {-# INLINE tableLookup #-}
 
 -- -------------------------------------------------------------------------- --
 -- Insert
@@ -200,7 +202,7 @@ instance HasCasLookup BlockHeaderDb where
 -- Updates all indices.
 --
 dbAddChecked :: BlockHeaderDb -> BlockHeader -> IO ()
-dbAddChecked db e = unlessM (casMember (_chainDbCas db) ek) dbAddCheckedInternal
+dbAddChecked db e = unlessM (tableMember (_chainDbCas db) ek) dbAddCheckedInternal
   where
     r = int $ rank e
     ek = RankedBlockHash r (_blockHash e)
@@ -216,7 +218,7 @@ dbAddChecked db e = unlessM (casMember (_chainDbCas db) ek) dbAddCheckedInternal
     dbAddCheckedInternal :: IO ()
     dbAddCheckedInternal = case parent e of
         Nothing -> add
-        Just p -> casLookup (_chainDbCas db) (RankedBlockHash (r - 1) p)  >>= \case
+        Just p -> tableLookup (_chainDbCas db) (RankedBlockHash (r - 1) p) >>= \case
             Nothing -> throwM $ TreeDbParentMissing @BlockHeaderDb e
             Just (RankedBlockHeader pe) -> do
                 unless (rank e == rank pe + 1)
@@ -290,12 +292,12 @@ instance TreeDb BlockHeaderDb where
 
     lookup db h = runMaybeT $ do
         -- lookup rank
-        r <- MaybeT $ tableLookup (_chainDbRankTable db) h
+        r <- MaybeT $ tableLookup (_chainDbRankTable db) h 
         MaybeT $ lookupRanked db (int r) h
     {-# INLINEABLE lookup #-}
 
     lookupRanked db r h = runMaybeT $ do
-        rh <- MaybeT $ casLookup (_chainDbCas db) $ RankedBlockHash (int r) h
+        rh <- MaybeT $ tableLookup (_chainDbCas db) (RankedBlockHash (int r) h)
         return $! _getRankedBlockHeader rh
     {-# INLINEABLE lookupRanked #-}
 
@@ -316,17 +318,17 @@ instance TreeDb BlockHeaderDb where
             & limitStream l
     {-# INLINEABLE keys #-}
 
-    maxEntry db = withTableIter (_chainDbCas db) $ \it -> do
-        tableIterLast it
-        tableIterValue it >>= \case
+    maxEntry db = withTableIterator (_chainDbCas db) $ \it -> do
+        iterLast it
+        iterValue it >>= \case
             Just (RankedBlockHeader !r) -> return r
             Nothing -> throwM
                 $ InternalInvariantViolation "BlockHeaderDb.maxEntry: empty block header db"
     {-# INLINEABLE maxEntry #-}
 
-    maxRank db = withTableIter (_chainDbCas db) $ \it -> do
-        tableIterLast it
-        tableIterKey it >>= \case
+    maxRank db = withTableIterator (_chainDbCas db) $ \it -> do
+        iterLast it
+        iterKey it >>= \case
             Just (RankedBlockHash !r _) -> return $! int r
             Nothing -> throwM
                 $ InternalInvariantViolation "BlockHeaderDb.maxRank: empty block header db"
@@ -339,7 +341,7 @@ withSeekTreeDb
     -> (RocksDbTableIter RankedBlockHash RankedBlockHeader -> IO a)
     -> IO a
 withSeekTreeDb db k mir kont =
-    withTableIter (_chainDbCas db) (\it -> seekTreeDb db k mir it >> kont it)
+    withTableIterator (_chainDbCas db) (\it -> seekTreeDb db k mir it >> kont it)
 {-# INLINE withSeekTreeDb #-}
 
 -- | If @k@ is not 'Nothing', @seekTreeDb d k mir@ seeks key @k@ in @db@. If the
@@ -364,7 +366,7 @@ seekTreeDb db k mir it = do
     case k of
         Nothing -> case mir of
             Nothing -> return ()
-            Just r -> tableIterSeek it
+            Just r -> iterSeek it
                 $ RankedBlockHash (BlockHeight $ int $ _getMinRank r) nullBlockHash
 
         Just a -> do
@@ -374,23 +376,23 @@ seekTreeDb db k mir it = do
             r <- tableLookup (_chainDbRankTable db) x >>= \case
                 Nothing -> throwM $ TreeDbKeyNotFound @BlockHeaderDb x
                 (Just !b) -> return b
-            tableIterSeek it (RankedBlockHash r x)
+            iterSeek it (RankedBlockHash r x)
 
             -- if we don't find the cursor, throw exception
-            tableIterKey it >>= \case
+            iterKey it >>= \case
                 Just (RankedBlockHash _ b) | b == x -> return ()
                 _ -> throwM $ TreeDbKeyNotFound @BlockHeaderDb x
 
             -- If the cursor is exclusive, then advance the iterator
-            when (isExclusive a) $ tableIterNext it
+            when (isExclusive a) $ iterNext it
 
             -- Check minimum rank. Return invalid iter if cursor is below
             -- minimum rank.
-            tableIterKey it >>= \case
+            iterKey it >>= \case
                 Just (RankedBlockHash r' _) | Just m <- mir, int r' < m -> invalidIter
                 _ -> return ()
   where
-    invalidIter = tableIterLast it >> tableIterNext it
+    invalidIter = iterLast it >> iterNext it
 
 -- -------------------------------------------------------------------------- --
 -- Insertions
@@ -400,6 +402,6 @@ insertBlockHeaderDb db = dbAddChecked db . _validatedHeader
 {-# INLINE insertBlockHeaderDb #-}
 
 unsafeInsertBlockHeaderDb :: BlockHeaderDb -> BlockHeader -> IO ()
-unsafeInsertBlockHeaderDb db = dbAddChecked db
+unsafeInsertBlockHeaderDb = dbAddChecked 
 {-# INLINE unsafeInsertBlockHeaderDb #-}
 

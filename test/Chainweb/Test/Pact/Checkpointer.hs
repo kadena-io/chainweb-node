@@ -481,7 +481,7 @@ runRegression pactdb e schemaInit = do
         toPV = pactValueToRowData . toPactValueLenient . toTerm'
     _createUserTable pactdb user1 "someModule" conn
     assertEquals' "output of commit2"
-        [ TxLog "SYS:usertables" "user1" $ LegacyValue $
+        [ encodeTxLog $ TxLog "SYS:usertables" "user1" $
             object
                 [ "utModule" .= object
                     [ "name" .= String "someModule"
@@ -507,22 +507,22 @@ runRegression pactdb e schemaInit = do
     assertEquals "module native repopulation" (Right modRef) $
       traverse (traverse (fromPersistDirect nativeLookup)) mod'
     assertEquals' "result of commit 3"
-        [ TxLog
+        [ encodeTxLog TxLog
             { _txDomain = "SYS:KeySets"
             , _txKey = "ks1"
             , _txValue = toLegacyJson ks
             }
-        , TxLog
+        , encodeTxLog TxLog
             { _txDomain = "SYS:Modules"
             , _txKey = asString modName
             , _txValue = toLegacyJson mod'
             }
-        , TxLog
+        , encodeTxLog TxLog
             { _txDomain = "user1"
             , _txKey = "key1"
             , _txValue = toLegacyJson row
             }
-        , TxLog
+        , encodeTxLog TxLog
             { _txDomain = "user1"
             , _txKey = "key1"
             , _txValue = toLegacyJson row'
@@ -649,7 +649,7 @@ begin :: PactDb e -> Method e (Maybe TxId)
 begin pactdb = _beginTx pactdb Transactional
 
 {- this should be moved to pact -}
-commit :: PactDb e -> Method e [TxLog LegacyValue]
+commit :: PactDb e -> Method e [TxLogJson]
 commit pactdb = _commitTx pactdb
 
 loadModule :: IO (ModuleName, ModuleData Ref, PersistModuleData)

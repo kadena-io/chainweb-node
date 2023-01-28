@@ -46,7 +46,6 @@ import Data.Bifunctor (second)
 import Data.ByteString (ByteString)
 import qualified Data.ByteString.Lazy.Char8 as BSL8
 import qualified Data.ByteString.Short as SB
-import Data.CAS
 import Data.Default (def)
 import Data.Foldable
 import Data.Function
@@ -117,6 +116,9 @@ import Chainweb.Utils
 import Chainweb.Version
 import Chainweb.WebPactExecutionService
 
+import Chainweb.Storage.Table
+
+import qualified Pact.Parse as Pact
 import Pact.Types.API
 import qualified Pact.Types.ChainId as Pact
 import Pact.Types.Command
@@ -127,30 +129,30 @@ import Pact.Types.Pretty (pretty)
 
 -- -------------------------------------------------------------------------- --
 
-data PactServerData logger cas = PactServerData
-    { _pactServerDataCutDb :: !(CutDB.CutDb cas)
+data PactServerData logger tbl = PactServerData
+    { _pactServerDataCutDb :: !(CutDB.CutDb tbl)
     , _pactServerDataMempool :: !(MempoolBackend ChainwebTransaction)
     , _pactServerDataLogger :: !logger
     , _pactServerDataPact :: !PactExecutionService
     }
 
-newtype PactServerData_ (v :: ChainwebVersionT) (c :: ChainIdT) logger cas
-    = PactServerData_ { _unPactServerData :: PactServerData logger cas }
+newtype PactServerData_ (v :: ChainwebVersionT) (c :: ChainIdT) logger tbl
+    = PactServerData_ { _unPactServerData :: PactServerData logger tbl }
 
-data SomePactServerData = forall v c logger cas
+data SomePactServerData = forall v c logger tbl
     . (KnownChainwebVersionSymbol v,
        KnownChainIdSymbol c,
-       PayloadCasLookup cas,
+       CanReadablePayloadCas tbl,
        Logger logger)
-    => SomePactServerData (PactServerData_ v c logger cas)
+    => SomePactServerData (PactServerData_ v c logger tbl)
 
 
 somePactServerData
-    :: PayloadCasLookup cas
+    :: CanReadablePayloadCas tbl
     => Logger logger
     => ChainwebVersion
     -> ChainId
-    -> PactServerData logger cas
+    -> PactServerData logger tbl
     -> SomePactServerData
 somePactServerData v cid db =
     case someChainwebVersionVal v of
@@ -161,12 +163,12 @@ somePactServerData v cid db =
 
 
 pactServer
-    :: forall v c cas logger
+    :: forall v c tbl logger
      . KnownChainwebVersionSymbol v
     => KnownChainIdSymbol c
-    => PayloadCasLookup cas
+    => CanReadablePayloadCas tbl
     => Logger logger
-    => PactServerData logger cas
+    => PactServerData logger tbl
     -> Server (PactServiceApi v c)
 pactServer d =
     pactApiHandlers
@@ -190,15 +192,15 @@ pactServer d =
     pactSpv2Handler = spv2Handler logger cdb cid
 
 somePactServer :: SomePactServerData -> SomeServer
-somePactServer (SomePactServerData (db :: PactServerData_ v c logger cas))
+somePactServer (SomePactServerData (db :: PactServerData_ v c logger tbl))
     = SomeServer (Proxy @(PactServiceApi v c)) (pactServer @v @c $ _unPactServerData db)
 
 
 somePactServers
-    :: PayloadCasLookup cas
+    :: CanReadablePayloadCas tbl
     => Logger logger
     => ChainwebVersion
-    -> [(ChainId, PactServerData logger cas)]
+    -> [(ChainId, PactServerData logger tbl)]
     -> SomeServer
 somePactServers v =
     mconcat . fmap (somePactServer . uncurry (somePactServerData v))
@@ -252,10 +254,10 @@ sendHandler logger mempool (SubmitBatch cmds) = Handler $ do
 
 pollHandler
     :: HasCallStack
-    => PayloadCasLookup cas
+    => CanReadablePayloadCas tbl
     => Logger logger
     => logger
-    -> CutDB.CutDb cas
+    -> CutDB.CutDb tbl
     -> ChainId
     -> PactExecutionService
     -> MempoolBackend ChainwebTransaction
@@ -269,7 +271,7 @@ pollHandler logger cdb cid pact mem (Poll request) = do
     cut <- liftIO $! CutDB._cut cdb
     PollResponses <$!> liftIO (internalPoll pdb bdb mem pact cut request)
   where
-    pdb = view CutDB.cutDbPayloadCas cdb
+    pdb = view CutDB.cutDbPayloadDb cdb
     bdb = fromJuste $ preview (CutDB.cutDbBlockHeaderDb cid) cdb
     logg = logFunctionJson (setComponent "poll-handler" logger)
 
@@ -277,10 +279,10 @@ pollHandler logger cdb cid pact mem (Poll request) = do
 -- Listen Handler
 
 listenHandler
-    :: PayloadCasLookup cas
+    :: CanReadablePayloadCas tbl
     => Logger logger
     => logger
-    -> CutDB.CutDb cas
+    -> CutDB.CutDb tbl
     -> ChainId
     -> PactExecutionService
     -> MempoolBackend ChainwebTransaction
@@ -292,7 +294,7 @@ listenHandler logger cdb cid pact mem (ListenerRequest key) = do
     liftIO $ logg Info $ PactCmdLogListen $ requestKeyToB16Text key
     liftIO (registerDelay defaultTimeout >>= runListen)
   where
-    pdb = view CutDB.cutDbPayloadCas cdb
+    pdb = view CutDB.cutDbPayloadDb cdb
     bdb = fromJuste $ preview (CutDB.cutDbBlockHeaderDb cid) cdb
     logg = logFunctionJson (setComponent "listen-handler" logger)
     runListen :: TVar Bool -> IO ListenResponse
@@ -334,32 +336,60 @@ localHandler
     :: Logger logger
     => logger
     -> PactExecutionService
+    -> Maybe LocalPreflightSimulation
+      -- ^ Preflight flag
+    -> Maybe LocalSignatureVerification
+      -- ^ No sig verification flag
+    -> Maybe BlockHeight
+      -- ^ Rewind depth
     -> Command Text
     -> Handler (CommandResult Hash)
-localHandler logger pact cmd = do
+localHandler logger pact preflight sigVerify rewindDepth cmd = do
     liftIO $ logg Info $ PactCmdLogLocal cmd
-    cmd' <- case validateCommand cmd of
-      (Right !c) -> return c
+    cmd' <- case doCommandValidation cmd of
+      Right c -> return c
       Left err ->
         throwError $ err400 { errBody = "Validation failed: " <> BSL8.pack err }
-    r <- liftIO $ _pactLocal pact cmd'
+
+    r <- liftIO $ _pactLocal pact preflight sigVerify rewindDepth cmd'
     case r of
-      Left err ->
-        throwError $ err400 { errBody = "Execution failed: " <> BSL8.pack (show err) }
-      (Right !r') -> return r'
+      Left err -> throwError $ err400
+        { errBody = "Execution failed: " <> BSL8.pack (show err) }
+      Right (Left (MetadataValidationFailure e)) -> throwError $ err400
+        { errBody = "Metadata validation failed: " <> BSL8.pack (show e) }
+      Right (Right resp) -> pure resp
   where
     logg = logFunctionJson (setComponent "local-handler" logger)
+
+    doCommandValidation cmdText
+      | Just NoVerify <- sigVerify = do
+          --
+          -- desnote(emily): This workflow is 'Pact.Types.Command.verifyCommand'
+          -- lite - only decode and parse the pact command, no sig checking.
+          -- We at least check the consistency of the payload hash. Further
+          -- down in the 'execLocal' code, 'noSigVerify' triggers a nop on
+          -- checking again if 'preflight' is set.
+          --
+          let cmdBS = encodeUtf8 <$> cmdText
+
+          void $ Pact.verifyHash @'Pact.Blake2b_256 (_cmdHash cmdBS) (_cmdPayload cmdBS)
+          decoded <- eitherDecodeStrict' $ _cmdPayload cmdBS
+          p <- traverse Pact.parsePact decoded
+
+          let cmd' = cmdBS { _cmdPayload = p }
+          pure $ mkPayloadWithText cmdBS <$> cmd'
+      | otherwise = validateCommand cmd
 
 -- -------------------------------------------------------------------------- --
 -- Cross Chain SPV Handler
 
 spvHandler
-    :: forall cas l
+    :: forall tbl l
     . ( Logger l
-      , PayloadCasLookup cas
+      , CanReadablePayloadCas tbl
       )
     => l
-    -> CutDB.CutDb cas
+    -> CutDB.CutDb tbl
         -- ^ cut db
     -> ChainId
         -- ^ the chain id of the source chain id used in the
@@ -402,7 +432,7 @@ spvHandler l cdb cid (SpvRequest rk (Pact.ChainId ptid)) = do
     pe = _webPactExecutionService $ view CutDB.cutDbPactService cdb
     ph = Pact.fromUntypedHash $ unRequestKey rk
     bdb = fromJuste $ preview (CutDB.cutDbBlockHeaderDb cid) cdb
-    pdb = view CutDB.cutDbPayloadCas cdb
+    pdb = view CutDB.cutDbPayloadDb cdb
     b64 = TransactionOutputProofB64
       . encodeB64UrlNoPaddingText
       . BSL8.toStrict
@@ -421,12 +451,12 @@ spvHandler l cdb cid (SpvRequest rk (Pact.ChainId ptid)) = do
 -- SPV2 Handler
 
 spv2Handler
-    :: forall cas l
+    :: forall tbl l
     . ( Logger l
-      , PayloadCasLookup cas
+      , CanReadablePayloadCas tbl
       )
     => l
-    -> CutDB.CutDb cas
+    -> CutDB.CutDb tbl
         -- ^ CutDb contains the cut, payload, and block db
     -> ChainId
         -- ^ ChainId of the target
@@ -452,7 +482,7 @@ spv2Handler l cdb cid r = case _spvSubjectIdType sid of
         :: forall a
         . MerkleHashAlgorithm a
         => MerkleHashAlgorithmName a
-        => (BlockHeaderDb -> PayloadDb cas -> Natural -> BlockHash -> RequestKey -> IO (PayloadProof a))
+        => (BlockHeaderDb -> PayloadDb tbl -> Natural -> BlockHash -> RequestKey -> IO (PayloadProof a))
         -> Handler SomePayloadProof
     proof f = SomePayloadProof <$> do
         validateRequestKey rk
@@ -476,7 +506,7 @@ spv2Handler l cdb cid r = case _spvSubjectIdType sid of
     pe = _webPactExecutionService $ view CutDB.cutDbPactService cdb
     ph = Pact.fromUntypedHash $ unRequestKey rk
     bdb = fromJuste $ preview (CutDB.cutDbBlockHeaderDb cid) cdb
-    pdb = view CutDB.cutDbPayloadCas cdb
+    pdb = view CutDB.cutDbPayloadDb cdb
 
     logg = logFunctionJson (setComponent "spv-handler" l) Info
       . PactCmdLogSpv
@@ -538,8 +568,8 @@ ethSpvHandler req = do
 -- Poll Helper
 
 internalPoll
-    :: PayloadCasLookup cas
-    => PayloadDb cas
+    :: CanReadablePayloadCas tbl
+    => PayloadDb tbl
     -> BlockHeaderDb
     -> MempoolBackend ChainwebTransaction
     -> PactExecutionService
@@ -576,7 +606,7 @@ internalPoll pdb bhdb mempool pactEx cut requestKeys0 = do
         let matchingHash = (== pactHash) . _cmdHash . fst
         blockHeader <- liftIO $ TreeDB.lookupM bhdb bHash
         let payloadHash = _blockPayloadHash blockHeader
-        (PayloadWithOutputs txsBs _ _ _ _ _) <- MaybeT $ casLookup pdb payloadHash
+        (PayloadWithOutputs txsBs _ _ _ _ _) <- MaybeT $ tableLookup pdb payloadHash
         !txs <- mapM fromTx txsBs
         case find matchingHash txs of
             Just (_cmd, TransactionOutput output) -> do

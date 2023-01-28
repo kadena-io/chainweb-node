@@ -22,9 +22,8 @@ import Control.Lens hiding ((.=))
 import Control.Monad
 import Control.Monad.Catch
 
-import Data.Aeson (object, (.=), Value(..), decode)
+import Data.Aeson (object, (.=), Value(..), encode, decode, eitherDecode)
 import qualified Data.ByteString.Lazy as BL
-import Data.CAS.RocksDB
 import Data.Either (isRight)
 import Data.IORef
 import qualified Data.Map.Strict as M
@@ -42,12 +41,12 @@ import Test.Tasty.HUnit
 
 -- internal modules
 
-import Pact.JSON.Legacy.Value
 import Pact.Types.Command
 import Pact.Types.Hash
 import Pact.Types.Info
 import Pact.Types.Persistence
 import Pact.Types.PactError
+import Pact.Types.RowData
 import Pact.Types.RPC
 
 import Chainweb.BlockCreationTime
@@ -70,6 +69,8 @@ import Chainweb.Time
 import Chainweb.Utils
 import Chainweb.Version
 import Chainweb.Version.Utils
+
+import Chainweb.Storage.Table.RocksDB
 
 testVersion :: ChainwebVersion
 testVersion = FastTimedCPM peterson
@@ -142,6 +143,13 @@ newBlockAndValidate refIO reqIO = testCase "newBlockAndValidate" $ do
   setOneShotMempool refIO goldenMemPool
   void $ runBlock q bdb second "newBlockAndValidate"
 
+toRowData :: HasCallStack => Value -> RowData
+toRowData v = case eitherDecode encV of
+    Left e -> error $
+        "toRowData: failed to encode as row data. " <> e <> "\n" <> show encV
+    Right r -> r
+  where
+    encV = encode v
 
 getHistory :: IO (IORef MemPoolAccess) -> IO (PactQueue,TestBlockDb) -> TestTree
 getHistory refIO reqIO = testCase "getHistory" $ do
@@ -149,13 +157,13 @@ getHistory refIO reqIO = testCase "getHistory" $ do
   setOneShotMempool refIO goldenMemPool
   void $ runBlock q bdb second "getHistory"
   h <- getParentTestBlockDb bdb cid
-  mv <- pactBlockTxHistory h (Domain' (UserTables "coin_coin-table")) q
+  mv <- pactBlockTxHistory h (UserTables "coin_coin-table") q
 
   (BlockTxHistory hist prevBals) <- forSuccess "getHistory" (return mv)
   -- just check first one here
   assertEqual "check first entry of history"
     (Just [TxLog "coin_coin-table" "sender00"
-      (LegacyValue $ object
+      (toRowData $ object
        [ "guard" .= object
          [ "pred" .= ("keys-all" :: T.Text)
          , "keys" .=
@@ -173,7 +181,7 @@ getHistory refIO reqIO = testCase "getHistory" $ do
     (M.fromList
      [(RowKey "sender00",
        (TxLog "coin_coin-table" "sender00"
-        (LegacyValue $ object
+        (toRowData $ object
          [ "guard" .= object
            [ "pred" .= ("keys-all" :: T.Text)
            , "keys" .=
@@ -187,7 +195,7 @@ getHistory refIO reqIO = testCase "getHistory" $ do
 
 getHistoricalLookupNoTxs
     :: T.Text
-    -> (Maybe (TxLog LegacyValue) -> IO ())
+    -> (Maybe (TxLog RowData) -> IO ())
     -> IO (IORef MemPoolAccess)
     -> IO (PactQueue,TestBlockDb)
     -> TestTree
@@ -201,7 +209,7 @@ getHistoricalLookupNoTxs key assertF refIO reqIO = testCase msg $ do
 
 getHistoricalLookupWithTxs
     :: T.Text
-    -> (Maybe (TxLog LegacyValue) -> IO ())
+    -> (Maybe (TxLog RowData) -> IO ())
     -> IO (IORef MemPoolAccess)
     -> IO (PactQueue,TestBlockDb)
     -> TestTree
@@ -214,16 +222,16 @@ getHistoricalLookupWithTxs key assertF refIO reqIO = testCase msg $ do
   where msg = T.unpack $ "getHistoricalLookupWithTxs: " <> key
 
 
-histLookup :: PactQueue -> BlockHeader -> T.Text -> IO (Maybe (TxLog LegacyValue))
+histLookup :: PactQueue -> BlockHeader -> T.Text -> IO (Maybe (TxLog RowData))
 histLookup q bh k = do
-  mv <- pactHistoricalLookup bh (Domain' (UserTables "coin_coin-table")) (RowKey k) q
+  mv <- pactHistoricalLookup bh (UserTables "coin_coin-table") (RowKey k) q
   forSuccess "histLookup" (return mv)
 
-assertSender00Bal :: Rational -> String -> Maybe (TxLog LegacyValue) -> Assertion
+assertSender00Bal :: Rational -> String -> Maybe (TxLog RowData) -> Assertion
 assertSender00Bal bal msg hist =
   assertEqual msg
     (Just (TxLog "coin_coin-table" "sender00"
-      (LegacyValue $ object
+      (toRowData $ object
         [ "guard" .= object
           [ "pred" .= ("keys-all" :: T.Text)
           , "keys" .=
@@ -454,7 +462,7 @@ mempoolCreationTimeTest mpRefIO reqIO = testCase "mempoolCreationTimeTest" $ do
     makeTx nonce t = buildCwCmd
         $ signSender00
         $ set cbChainId cid
-        $ set cbCreationTime (toTxCreationTime $ t)
+        $ set cbCreationTime (toTxCreationTime t)
         $ set cbTTL 300
         $ mkCmd (sshow t <> nonce)
         $ mkExec' "1"

@@ -1,5 +1,6 @@
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE OverloadedStrings #-}
@@ -23,9 +24,7 @@ module Chainweb.Test.Pact.PactExec
 import Control.Lens hiding ((.=))
 import Control.Monad
 import Data.Aeson
-import Data.Aeson.Encode.Pretty
 import qualified Data.ByteString.Lazy.Char8 as BL
-import Data.CAS.RocksDB (RocksDb)
 import qualified Data.List as L
 import Data.String
 import Data.Text (Text, pack)
@@ -50,6 +49,7 @@ import Chainweb.Pact.Service.Types
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
 import Chainweb.Payload.PayloadStore.InMemory (newPayloadDb)
+import Chainweb.Storage.Table.RocksDB (RocksDb)
 import Chainweb.Test.Pact.Utils
 import Chainweb.Test.Utils
 import Chainweb.Transaction
@@ -57,12 +57,13 @@ import Chainweb.Version (ChainwebVersion(..))
 import Chainweb.Version.Utils (someChainId)
 import Chainweb.Utils (sshow, tryAllSynchronous)
 
-import Pact.JSON.Legacy.Value
 import Pact.Types.Command
 import Pact.Types.Hash
 import Pact.Types.PactValue
 import Pact.Types.Persistence
 import Pact.Types.Pretty
+
+import qualified Pact.JSON.Encode as J
 
 testVersion :: ChainwebVersion
 testVersion = FastTimedCPM petersonChainGraph
@@ -480,7 +481,7 @@ testAllowReadsLocalSuccess = (tx,test)
 -- Utils
 
 execTest
-    :: WithPactCtxSQLite cas
+    :: WithPactCtxSQLite tbl
     -> TestRequest
     -> ScheduledTest
 execTest runPact request = _trEval request $ do
@@ -507,7 +508,7 @@ execTest runPact request = _trEval request $ do
       mkKeySetData "test-admin-keyset" [sender00]
 
 execTxsTest
-    :: WithPactCtxSQLite cas
+    :: WithPactCtxSQLite tbl
     -> String
     -> TxsTest
     -> ScheduledTest
@@ -532,8 +533,8 @@ execTxsTest runPact name (trans',check) = testCaseSch name (go >>= check)
 type LocalTest = (IO ChainwebTransaction,Either String (CommandResult Hash) -> Assertion)
 
 execLocalTest
-    :: PayloadCasLookup cas
-    => WithPactCtxSQLite cas
+    :: CanReadablePayloadCas tbl
+    => WithPactCtxSQLite tbl
     -> String
     -> LocalTest
     -> ScheduledTest
@@ -541,9 +542,12 @@ execLocalTest runPact name (trans',check) = testCaseSch name (go >>= check)
   where
     go = do
       trans <- trans'
-      results' <- tryAllSynchronous $ runPact $ \_ -> execLocal trans
+      results' <- tryAllSynchronous $ runPact $ \_ ->
+        execLocal trans Nothing Nothing Nothing
       case results' of
-        Right cr -> return $ Right cr
+        Right (Left (MetadataValidationFailure e)) ->
+          return $ Left $ show e
+        Right (Right cr) -> return $ Right cr
         Left e -> return $ Left $ show e
 
 getPactCode :: TestSource -> IO Text
@@ -591,7 +595,7 @@ _showValidationFailure = do
         , _crTxId = Nothing
         , _crResult = PactResult $ Right $ pString "hi"
         , _crGas = 0
-        , _crLogs = Just [TxLog "Domain" "Key" (LegacyValue $ object [ "stuff" .= True ])]
+        , _crLogs = Just [encodeTxLog $ TxLog "Domain" "Key" (object [ "stuff" .= True ])]
         , _crContinuation = Nothing
         , _crMetaData = Nothing
         , _crEvents = []
@@ -610,4 +614,6 @@ _showValidationFailure = do
         }
       r = validateHashes header pd miner outs2
 
-  BL.putStrLn $ encodePretty r
+  BL.putStrLn $ case r of
+    Left e -> J.encode e
+    Right x -> encode x

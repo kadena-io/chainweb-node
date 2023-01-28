@@ -136,10 +136,11 @@ import Chainweb.Crypto.MerkleLog
 import Chainweb.MerkleLogHash
 import Chainweb.MerkleUniverse
 
+import Chainweb.Storage.Table
+
 import Chainweb.Utils
 import Chainweb.Utils.Serialization
 
-import Data.CAS
 
 -- -------------------------------------------------------------------------- --
 -- Block Transactions Hash
@@ -957,7 +958,7 @@ newPayloadData
     -> PayloadData_ a
 newPayloadData txs outputs = payloadData txs $ blockPayload txs outputs
 
-type PayloadDataCas cas = CasConstraint cas PayloadData
+type PayloadDataCas tbl = Cas tbl PayloadData
 
 -- | Verify the consistency of the MerkleTree of a 'PayloadData' value.
 --

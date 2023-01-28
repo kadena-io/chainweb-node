@@ -17,7 +17,6 @@ import Control.Monad.Catch
 import Control.Monad.Reader
 import Data.Aeson (object, (.=))
 import qualified Data.ByteString.Base64.URL as B64U
-import Data.CAS (casLookupM)
 import qualified Data.HashMap.Strict as HM
 import Data.IORef
 import qualified Data.Text as T
@@ -62,6 +61,8 @@ import Chainweb.Utils
 import Chainweb.Version
 import Chainweb.Version.Utils
 import Chainweb.WebPactExecutionService
+
+import Chainweb.Storage.Table (casLookupM)
 
 testVersion :: ChainwebVersion
 testVersion = FastTimedCPM peterson
@@ -286,21 +287,22 @@ pact45UpgradeTest = do
   buildSimpleCmd code = buildBasicGas 3000
       $ mkExec' code
 
-runLocal :: ChainId -> CmdBuilder -> PactTestM (Either PactException (CommandResult Hash))
+runLocal :: ChainId -> CmdBuilder -> PactTestM (Either PactException (Either MetadataValidationFailure (CommandResult Hash)))
 runLocal cid' cmd = do
   HM.lookup cid' <$> view menvPacts >>= \case
-    Just pact -> buildCwCmd cmd >>= liftIO . _pactLocal pact
+    Just pact -> buildCwCmd cmd >>=
+      liftIO . _pactLocal pact Nothing Nothing Nothing
     Nothing -> liftIO $ assertFailure $ "No pact service found at chain id " ++ show cid'
 
 assertLocalFailure
     :: (HasCallStack, MonadIO m)
     => String
     -> Doc
-    -> Either PactException (CommandResult Hash)
+    -> Either PactException (Either MetadataValidationFailure (CommandResult Hash))
     -> m ()
 assertLocalFailure s d lr =
   liftIO $ assertEqual s (Just d) $
-    lr ^? _Right . crResult . to _pactResult . _Left . to peDoc
+    lr ^? _Right . _Right . crResult . to _pactResult . _Left . to peDoc
 
 pact43UpgradeTest :: PactTestM ()
 pact43UpgradeTest = do
@@ -803,6 +805,7 @@ pact4coin3UpgradeTest = do
   -- block 22
   -- get proof
   xproof <- buildXProof cid 7 1 send0
+  cont <- buildCont send0
 
   let v3Hash = "1os_sLAUYvBzspn5jjawtRpJWiH1WPfhyNraeVvSIwU"
       block22 =
@@ -829,6 +832,10 @@ pact4coin3UpgradeTest = do
           assertTxFailure
           "Should not allow bad keys"
           "Invalid keyset"
+        , PactTxTest cont $
+          assertTxFailure'
+          "Attempt to continue xchain on same chain fails"
+          "yield provenance"
         ]
       block22_0 =
         [ PactTxTest (buildXReceive xproof) $ \cr -> do
@@ -876,6 +883,10 @@ pact4coin3UpgradeTest = do
       (set cbSigners [ mkSigner' sender00 []
                      , mkSigner' allocation00KeyPair []])
       $ mkExec' "(coin.release-allocation 'allocation00)"
+
+    buildCont sendTx = do
+      pid <- getPactId sendTx
+      return $ buildBasic $ mkCont (mkContMsg pid 1)
 
 
 -- =========================================================
@@ -944,10 +955,20 @@ assertTxSuccess msg r tx = do
   liftIO $ assertEqual msg (Just r)
     (tx ^? crResult . to _pactResult . _Right)
 
+-- | Exact match on error doc
 assertTxFailure :: (HasCallStack, MonadIO m) => String -> Doc -> CommandResult Hash -> m ()
 assertTxFailure msg d tx =
   liftIO $ assertEqual msg (Just d)
     (tx ^? crResult . to _pactResult . _Left . to peDoc)
+
+-- | Partial match on show of error doc
+assertTxFailure' :: (HasCallStack, MonadIO m) => String -> T.Text -> CommandResult Hash -> m ()
+assertTxFailure' msg needle tx =
+  liftIO $ assertSatisfies msg
+    (tx ^? crResult . to _pactResult . _Left . to peDoc) $ \case
+      Nothing -> False
+      Just d -> T.isInfixOf needle (sshow d)
+
 
 -- | Run a single mempool block on current chain with tests for each tx.
 -- Limitations: can only run a single-chain, single-refill test for
@@ -1006,9 +1027,12 @@ buildXProof scid bh i sendTx = do
     bdb <- view menvBdb
     proof <- liftIO $ ContProof . B64U.encode . encodeToByteString <$>
       createTransactionOutputProof_ (_bdbWebBlockHeaderDb bdb) (_bdbPayloadDb bdb) chain0 scid bh i
-    pid <- fromMaybeM (userError "no continuation") $
-      preview (crContinuation . _Just . pePactId) sendTx
+    pid <- getPactId sendTx
     return (proof,pid)
+
+getPactId :: CommandResult l -> PactTestM PactId
+getPactId = fromMaybeM (userError "no continuation") .
+            preview (crContinuation . _Just . pePactId)
 
 buildXReceive
     :: (ContProof, PactId)

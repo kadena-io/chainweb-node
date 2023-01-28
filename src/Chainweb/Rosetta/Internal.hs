@@ -1,3 +1,4 @@
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeFamilies #-}
@@ -23,7 +24,6 @@ import Data.Map (Map)
 import Data.List (foldl', find)
 import Data.Default (def)
 import Data.Decimal
-import Data.CAS
 import Data.Word (Word64)
 
 
@@ -64,6 +64,8 @@ import Chainweb.TreeDB (seekAncestor)
 import Chainweb.Utils
 import Chainweb.Version
 import Chainweb.WebPactExecutionService (PactExecutionService(..))
+
+import Chainweb.Storage.Table
 
 ---
 
@@ -506,7 +508,7 @@ singleRemediation logs cid coinbase remTxs txs rkTarget = do
 --------------------------------------------------------------------------------
 
 getLatestBlockHeader
-    :: CutDb cas
+    :: CutDb tbl
     -> ChainId
     -> ExceptT RosettaFailure Handler BlockHeader
 getLatestBlockHeader cutDb cid = do
@@ -515,7 +517,7 @@ getLatestBlockHeader cutDb cid = do
 
 
 findBlockHeaderInCurrFork
-    :: CutDb cas
+    :: CutDb tbl
     -> ChainId
     -> Maybe Word64
     -- ^ Block Height
@@ -537,7 +539,7 @@ findBlockHeaderInCurrFork cutDb cid someHeight someHash = do
         else throwError RosettaMismatchBlockHashHeight
     (Nothing, Just hsh) -> do
       bhash <- blockHashFromText hsh ?? RosettaUnparsableBlockHash
-      somebh <- liftIO (casLookup chainDb bhash)
+      somebh <- liftIO (tableLookup chainDb bhash)
       bh <- somebh ?? RosettaBlockHashNotFound
       isInCurrFork <- liftIO $ memberOfHeader cutDb cid bhash latestBlock
       if isInCurrFork
@@ -550,13 +552,13 @@ findBlockHeaderInCurrFork cutDb cid someHeight someHash = do
 
 
 getBlockOutputs
-    :: forall cas
-    . PayloadCasLookup cas
-    => PayloadDb cas
+    :: forall tbl
+    . CanReadablePayloadCas tbl
+    => PayloadDb tbl
     -> BlockHeader
     -> ExceptT RosettaFailure Handler (CoinbaseTx (CommandResult Hash), V.Vector (CommandResult Hash))
 getBlockOutputs payloadDb bh = do
-  someOut <- liftIO $ casLookup payloadDb (_blockPayloadHash bh)
+  someOut <- liftIO $ tableLookup payloadDb (_blockPayloadHash bh)
   outputs <- someOut ?? RosettaPayloadNotFound
   txsOut <- decodeTxsOut outputs ?? RosettaUnparsableTxOut
   coinbaseOut <- decodeCoinbaseOut outputs ?? RosettaUnparsableTxOut
@@ -718,7 +720,7 @@ toSignerAcctsMap
     -> AccountId
     -> ChainId
     -> [(ChainId, PactExecutionService)]
-    -> CutDb cas
+    -> CutDb tbl
     -> ExceptT RosettaError Handler
        (HM.HashMap AccountId ([P.SigCapability], [T.Text]))
 toSignerAcctsMap txInfo payerAcct cid pacts cutDb = do

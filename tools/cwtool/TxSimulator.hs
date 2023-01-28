@@ -1,4 +1,5 @@
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TypeApplications #-}
@@ -54,13 +55,14 @@ import Network.HTTP.Client.TLS
 import Servant.Client.Core
 import Servant.Client
 
-import Data.CAS.RocksDB
+import Chainweb.Storage.Table.RocksDB
 
 import Pact.Types.Command
 import Pact.Types.Hash
 import Pact.Types.Logger
 import Pact.Types.RPC
 import Pact.Types.SPV
+import qualified Pact.JSON.Encode as J
 
 import Utils.Logging.Trace
 
@@ -102,14 +104,14 @@ simulate sc@(SimConfig dbDir txIdx' _ _ cid ver) = do
               (T2 !cr _mc) <-
                 trace (logFunction cwLogger) "applyCmd" () 1 $
                   applyCmd ver logger gasLogger pde miner (getGasModel txc)
-                  txc noSPVSupport cmd (initGas cmdPwt) mc
-              T.putStrLn (encodeToText cr)
+                  txc noSPVSupport cmd (initGas cmdPwt) mc ApplySend
+              T.putStrLn (J.encodeText (J.Array <$> cr))
         Nothing -> do -- blocks simulation
           paydb <- newPayloadDb
           withRocksDb "txsim-rocksdb" modernDefaultOptions $ \rdb ->
             withBlockHeaderDb rdb ver cid $ \bdb -> do
               let pse = PactServiceEnv Nothing cpe paydb bdb getGasModel readRewards 0 ferr
-                        ver True False logger gasLogger (pactLoggers cwLogger) False 1 defaultBlockGasLimit
+                        ver True False logger gasLogger (pactLoggers cwLogger) False 1 defaultBlockGasLimit cid
                   pss = PactServiceState Nothing mempty (ParentHeader parent) noSPVSupport
               evalPactServiceM pss pse $ doBlock True parent (zip hdrs pwos)
 
@@ -126,7 +128,7 @@ simulate sc@(SimConfig dbDir txIdx' _ _ cid ver) = do
     ferr e _ = throwM e
 
     doBlock
-        :: PayloadCasLookup cas
+        :: CanReadablePayloadCas cas
         => Bool
         -> BlockHeader
         -> [(BlockHeader,PayloadWithOutputs)]

@@ -57,7 +57,7 @@ import Chainweb.Utils
 import Chainweb.Version
 import Chainweb.WebBlockHeaderDB
 
-import Data.CAS
+import Chainweb.Storage.Table
 
 -- -------------------------------------------------------------------------- --
 -- Create Transaction Proof
@@ -72,8 +72,8 @@ import Data.CAS
 --
 createTransactionProof
     :: HasCallStack
-    => PayloadCasLookup cas
-    => CutDb cas
+    => CanReadablePayloadCas tbl
+    => CutDb tbl
         -- ^ Block Header Database
     -> ChainId
         -- ^ target chain. The proof asserts that the subject is included in
@@ -88,15 +88,15 @@ createTransactionProof
 createTransactionProof cutDb =
   createTransactionProof_
     (view cutDbWebBlockHeaderDb cutDb)
-    (view cutDbPayloadCas cutDb)
+    (view cutDbPayloadDb cutDb)
 
 -- | Version without CutDb dependency
 --
 createTransactionProof_
     :: HasCallStack
-    => PayloadCasLookup cas
+    => CanReadablePayloadCas tbl
     => WebBlockHeaderDb
-    -> PayloadDb cas
+    -> PayloadDb tbl
     -> ChainId
         -- ^ target chain. The proof asserts that the subject is included in
         -- this chain
@@ -120,8 +120,8 @@ createTransactionProof_ headerDb payloadDb tcid scid bh i = do
 --
 createTransactionProof'
     :: HasCallStack
-    => PayloadCasLookup cas
-    => CutDb cas
+    => CanReadablePayloadCas tbl
+    => CutDb tbl
         -- ^ Block Header Database
     -> ChainId
         -- ^ target chain. The proof asserts that the subject is included in
@@ -137,14 +137,14 @@ createTransactionProof' cutDb tcid scid bh i = TransactionProof tcid
     <$> createPayloadProof transactionProofPrefix cutDb tcid scid bh i
 
 transactionProofPrefix
-    :: PayloadCasLookup cas
+    :: CanReadablePayloadCas tbl
     => Int
-    -> PayloadDb cas
+    -> PayloadDb tbl
     -> BlockPayload
     -> IO PayloadProofPrefix
 transactionProofPrefix i db payload = do
     -- 1. TX proof
-    Just outs <- casLookup cas $ _blockPayloadTransactionsHash payload
+    Just outs <- tableLookup txTable $ _blockPayloadTransactionsHash payload
         -- TODO: use the transaction tree cache
     let (!subj, pos, t) = bodyTree @_ @ChainwebHashTag outs i
         -- FIXME use log
@@ -155,7 +155,7 @@ transactionProofPrefix i db payload = do
     let !proof = tree N.:| [headerTree_ @BlockTransactionsHash payload]
     return (subj, proof)
   where
-    cas = _transactionDbBlockTransactions $ _transactionDb db
+    txTable = _transactionDbBlockTransactions $ _transactionDb db
 
 -- -------------------------------------------------------------------------- --
 -- Creates Output Proof
@@ -170,8 +170,8 @@ transactionProofPrefix i db payload = do
 --
 createTransactionOutputProof
     :: HasCallStack
-    => PayloadCasLookup cas
-    => CutDb cas
+    => CanReadablePayloadCas tbl
+    => CutDb tbl
         -- ^ Block Header Database
     -> ChainId
         -- ^ target chain. The proof asserts that the subject is included in
@@ -186,16 +186,16 @@ createTransactionOutputProof
 createTransactionOutputProof cutDb =
   createTransactionOutputProof_
     (view cutDbWebBlockHeaderDb cutDb)
-    (view cutDbPayloadCas cutDb)
+    (view cutDbPayloadDb cutDb)
 
 
 -- | Version without CutDb dependency
 --
 createTransactionOutputProof_
     :: HasCallStack
-    => PayloadCasLookup cas
+    => CanReadablePayloadCas tbl
     => WebBlockHeaderDb
-    -> PayloadDb cas
+    -> PayloadDb tbl
         -- ^ Block Header Database
     -> ChainId
         -- ^ target chain. The proof asserts that the subject is included in
@@ -220,8 +220,8 @@ createTransactionOutputProof_ headerDb payloadDb tcid scid bh i = do
 --
 createTransactionOutputProof'
     :: HasCallStack
-    => PayloadCasLookup cas
-    => CutDb cas
+    => CanReadablePayloadCas tbl
+    => CutDb tbl
         -- ^ Block Header Database
     -> ChainId
         -- ^ target chain. The proof asserts that the subject is included in
@@ -238,15 +238,15 @@ createTransactionOutputProof' cutDb tcid scid bh i
         <$> createPayloadProof outputProofPrefix cutDb tcid scid bh i
 
 outputProofPrefix
-    :: PayloadCasLookup cas
+    :: CanReadablePayloadCas tbl
     => Int
         -- ^ transaction index
-    -> PayloadDb cas
+    -> PayloadDb tbl
     -> BlockPayload
     -> IO PayloadProofPrefix
 outputProofPrefix i db payload = do
     -- 1. TX proof
-    Just outs <- casLookup cas $ _blockPayloadOutputsHash payload
+    Just outs <- tableLookup blockOutputTable $ _blockPayloadOutputsHash payload
         -- TODO: use the transaction tree cache
     let (!subj, pos, t) = bodyTree @_ @ChainwebHashTag outs i
         -- FIXME use log
@@ -257,7 +257,7 @@ outputProofPrefix i db payload = do
     let !proof = tree N.:| [headerTree_ @BlockOutputsHash payload]
     return (subj, proof)
   where
-    cas = _payloadCacheBlockOutputs $ _payloadCache db
+    blockOutputTable = _payloadCacheBlockOutputs $ _payloadCache db
 
 -- -------------------------------------------------------------------------- --
 -- Internal Proof Creation
@@ -272,9 +272,9 @@ type PayloadProofPrefix =
 --
 createPayloadProof
     :: HasCallStack
-    => PayloadCasLookup cas
-    => (Int -> PayloadDb cas -> BlockPayload -> IO PayloadProofPrefix)
-    -> CutDb cas
+    => CanReadablePayloadCas tbl
+    => (Int -> PayloadDb tbl -> BlockPayload -> IO PayloadProofPrefix)
+    -> CutDb tbl
         -- ^ Block Header Database
     -> ChainId
         -- ^ target chain. The proof asserts that the subject is included in
@@ -291,7 +291,7 @@ createPayloadProof getPrefix cutDb tcid scid txHeight txIx = do
     createPayloadProof_ getPrefix headerDb payloadDb tcid scid txHeight txIx trgHeadHeader
   where
     headerDb = view cutDbWebBlockHeaderDb cutDb
-    payloadDb = view cutDbPayloadCas cutDb
+    payloadDb = view cutDbPayloadDb cutDb
     trgChain = headerDb ^?! ixg tcid
 
 -- | Creates a witness that a transaction is included in a chain of a chainweb
@@ -299,10 +299,10 @@ createPayloadProof getPrefix cutDb tcid scid txHeight txIx = do
 --
 createPayloadProof_
     :: HasCallStack
-    => PayloadCasLookup cas
-    => (Int -> PayloadDb cas -> BlockPayload -> IO PayloadProofPrefix)
+    => CanReadablePayloadCas tbl
+    => (Int -> PayloadDb tbl -> BlockPayload -> IO PayloadProofPrefix)
     -> WebBlockHeaderDb
-    -> PayloadDb cas
+    -> PayloadDb tbl
     -> ChainId
         -- ^ target chain. The proof asserts that the subject is included in
         -- this chain
@@ -366,7 +366,7 @@ createPayloadProof_ getPrefix headerDb payloadDb tcid scid txHeight txIx trgHead
             , _spvExceptionTargetHeight = _blockHeight trgHeader
             }
 
-    Just payload <- casLookup pDb (_blockPayloadHash txHeader)
+    Just payload <- tableLookup pDb (_blockPayloadHash txHeader)
 
     -- ----------------------------- --
     -- 1. Payload Proofs (TXs and Payload)

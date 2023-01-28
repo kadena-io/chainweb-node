@@ -1,5 +1,6 @@
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -69,13 +70,13 @@ import P2P.Peer
 ---
 
 rosettaServer
-    :: forall cas (v :: ChainwebVersionT)
-    . PayloadCasLookup cas
+    :: forall tbl (v :: ChainwebVersionT)
+    . CanReadablePayloadCas tbl
     => ChainwebVersion
-    -> [(ChainId, PayloadDb cas)]
+    -> [(ChainId, PayloadDb tbl)]
     -> [(ChainId, MempoolBackend ChainwebTransaction)]
     -> PeerDb
-    -> CutDb cas
+    -> CutDb tbl
     -> [(ChainId, PactExecutionService)]
     -> Server (RosettaApi v)
 rosettaServer v ps ms peerDb cutDb pacts =
@@ -102,13 +103,13 @@ rosettaServer v ps ms peerDb cutDb pacts =
     :<|> networkStatusH v cutDb peerDb
 
 someRosettaServer
-    :: PayloadCasLookup cas
+    :: CanReadablePayloadCas tbl
     => ChainwebVersion
-    -> [(ChainId, PayloadDb cas)]
+    -> [(ChainId, PayloadDb tbl)]
     -> [(ChainId, MempoolBackend ChainwebTransaction)]
     -> PeerDb
     -> [(ChainId, PactExecutionService)]
-    -> CutDb cas
+    -> CutDb tbl
     -> SomeServer
 someRosettaServer v@(FromSingChainwebVersion (SChainwebVersion :: Sing vT)) ps ms pdb pacts cdb =
     SomeServer (Proxy @(RosettaApi vT)) $ rosettaServer v ps ms pdb cdb pacts
@@ -118,7 +119,7 @@ someRosettaServer v@(FromSingChainwebVersion (SChainwebVersion :: Sing vT)) ps m
 
 accountBalanceH
     :: ChainwebVersion
-    -> CutDb cas
+    -> CutDb tbl
     -> [(ChainId, PactExecutionService)]
     -> AccountBalanceReq
     -> Handler AccountBalanceResp
@@ -149,11 +150,11 @@ accountBalanceH v cutDb pacts (AccountBalanceReq net (AccountId acct _ _) pbid) 
 -- Block Handlers
 
 blockH
-    :: forall cas
-    . PayloadCasLookup cas
+    :: forall tbl
+    . CanReadablePayloadCas tbl
     => ChainwebVersion
-    -> CutDb cas
-    -> [(ChainId, PayloadDb cas)]
+    -> CutDb tbl
+    -> [(ChainId, PayloadDb tbl)]
     -> [(ChainId, PactExecutionService)]
     -> BlockReq
     -> Handler BlockResp
@@ -184,11 +185,11 @@ blockH v cutDb ps pacts (BlockReq net (PartialBlockId bheight bhash)) =
         }
 
 blockTransactionH
-    :: forall cas
-    . PayloadCasLookup cas
+    :: forall tbl
+    . CanReadablePayloadCas tbl
     => ChainwebVersion
-    -> CutDb cas
-    -> [(ChainId, PayloadDb cas)]
+    -> CutDb tbl
+    -> [(ChainId, PayloadDb tbl)]
     -> [(ChainId, PactExecutionService)]
     -> BlockTransactionReq
     -> Handler BlockTransactionResp
@@ -279,7 +280,7 @@ constructionPreprocessH v req = do
 
 constructionMetadataH
     :: ChainwebVersion
-    -> CutDb cas
+    -> CutDb tbl
     -> [(ChainId, PactExecutionService)]
     -> ConstructionMetadataReq
     -> Handler ConstructionMetadataResp
@@ -504,7 +505,7 @@ mempoolTransactionH v ms mtr = runExceptT work >>= either throwRosetta pure
 --------------------------------------------------------------------------------
 -- Network Handlers
 
-networkListH :: ChainwebVersion -> CutDb cas -> MetadataReq -> Handler NetworkListResp
+networkListH :: ChainwebVersion -> CutDb tbl -> MetadataReq -> Handler NetworkListResp
 networkListH v cutDb _ = runExceptT work >>= either throwRosetta pure
   where
     work = do
@@ -567,7 +568,7 @@ networkOptionsH v (NetworkReq nid _) = runExceptT work >>= either throwRosetta p
 
 networkStatusH
     :: ChainwebVersion
-    -> CutDb cas
+    -> CutDb tbl
     -> PeerDb
     -> NetworkReq
     -> Handler NetworkStatusResp
