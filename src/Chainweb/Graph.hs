@@ -185,7 +185,7 @@ validChainGraph g
     && (G.order g <= 1 || G.symSize g >= 1)
 {-# INLINE validChainGraph #-}
 
--- | Returns an empty set of the chain id is not in the graph
+-- | Returns an empty set if the chain id is not in the graph
 --
 adjacentChainIds
     :: HasChainId p

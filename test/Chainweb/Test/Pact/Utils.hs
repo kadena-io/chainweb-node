@@ -825,7 +825,7 @@ withPactTestBlockDb
     -> ChainId
     -> LogLevel
     -> RocksDb
-    -> (IO MemPoolAccess)
+    -> IO MemPoolAccess
     -> PactServiceConfig
     -> (IO (PactQueue,TestBlockDb) -> TestTree)
     -> TestTree

@@ -88,17 +88,17 @@ tests rdb = ScheduledTest testName go
     go = testGroup testName
          [ test Warn $ goldenNewBlock "new-block-0" goldenMemPool
          , test Warn $ goldenNewBlock "empty-block-tests" mempty
-         , test Warn $ newBlockAndValidate
-         , test Warn $ newBlockRewindValidate
-         , test Quiet $ getHistory
-         , test Quiet $ testHistLookup1
-         , test Quiet $ testHistLookup2
-         , test Quiet $ testHistLookup3
-         , test Quiet $ badlistNewBlockTest
-         , test Warn $ mempoolCreationTimeTest
-         , test Warn $ moduleNameFork
-         , test Warn $ mempoolRefillTest
-         , test Quiet $ blockGasLimitTest
+         , test Warn newBlockAndValidate
+         , test Warn newBlockRewindValidate
+         , test Quiet getHistory
+         , test Quiet testHistLookup1
+         , test Quiet testHistLookup2
+         , test Quiet testHistLookup3
+         , test Quiet badlistNewBlockTest
+         , test Warn mempoolCreationTimeTest
+         , test Warn moduleNameFork
+         , test Warn mempoolRefillTest
+         , test Quiet blockGasLimitTest
          ]
       where
         test logLevel f =

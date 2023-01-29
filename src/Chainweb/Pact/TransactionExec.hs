@@ -375,7 +375,7 @@ applyCoinbase v logger dbEnv (Miner mid mks@(MinerKeys mk)) reward@(ParsedDecima
         Right er -> do
           debug
             $! "successful coinbase of "
-            <> (T.take 18 $ sshow d)
+            <> T.take 18 (sshow d)
             <> " to "
             <> sshow mid
 
@@ -397,7 +397,7 @@ applyCoinbase v logger dbEnv (Miner mid mks@(MinerKeys mk)) reward@(ParsedDecima
 
           return $! T2
             (CommandResult rk (_erTxId er) (PactResult (Right (last $ _erOutput er)))
-              (_erGas er) (Just $ logs) (_erExec er) Nothing (_erEvents er))
+              (_erGas er) (Just logs) (_erExec er) Nothing (_erEvents er))
             upgradedModuleCache
 
 

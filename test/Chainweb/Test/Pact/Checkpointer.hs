@@ -35,6 +35,7 @@ import Pact.Types.RowData
 import Pact.Types.Runtime hiding (ChainId)
 import Pact.Types.SPV (noSPVSupport)
 import Pact.Types.SQLite
+import qualified Pact.JSON.Encode as J
 
 import Test.Tasty
 import Test.Tasty.HUnit
@@ -482,10 +483,10 @@ runRegression pactdb e schemaInit = do
     _createUserTable pactdb user1 "someModule" conn
     assertEquals' "output of commit2"
         [ encodeTxLog $ TxLog "SYS:usertables" "user1" $
-            object
-                [ "utModule" .= object
-                    [ "name" .= String "someModule"
-                    , "namespace" .= Null
+            J.object
+                [ "utModule" J..= J.object
+                    [ "namespace" J..= J.null
+                    , "name" J..= J.text "someModule"
                     ]
                ]
         ]
