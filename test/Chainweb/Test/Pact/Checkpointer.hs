@@ -110,6 +110,7 @@ testModuleName = withTempSQLiteResource $
 
 -- -------------------------------------------------------------------------- --
 -- Key Set Test
+
 testKeyset :: TestTree
 testKeyset = withResource initializeSQLite freeSQLiteResource (runSQLite keysetTest)
 
