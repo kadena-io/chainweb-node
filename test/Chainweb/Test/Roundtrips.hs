@@ -65,7 +65,7 @@ import Chainweb.RestAPI.NodeInfo
 import Chainweb.SPV
 import Chainweb.SPV.EventProof
 import Chainweb.SPV.PayloadProof
-import Chainweb.Test.Orphans.Internal (EventPactValue(..))
+import Chainweb.Test.Orphans.Internal (EventPactValue(..), ProofPactEvent(..))
 import Chainweb.Test.SPV.EventProof hiding (tests)
 import Chainweb.Test.Utils
 import Chainweb.Time
@@ -187,7 +187,7 @@ encodeDecodeTests = testGroup "Encode-Decode roundtrips"
 
         -- FIXME "too few bytes"
         , testProperty "PactEvent"
-            $ prop_encodeDecode decodePactEvent encodePactEvent
+            $ prop_encodeDecode (ProofPactEvent <$> decodePactEvent) (encodePactEvent . getProofPactEvent)
         -- FIXME "pending bytes"
         , testProperty "PactParam"
             $ prop_encodeDecode (EventPactValue <$> decodeParam) (encodeParam . getEventPactValue)
