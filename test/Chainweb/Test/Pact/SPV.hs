@@ -98,7 +98,6 @@ import Chainweb.Storage.Table (casLookupM)
 
 import Data.LogMessage
 
-
 -- | Note: These tests are intermittently non-deterministic due to the way
 -- random chain sampling works with our test harnesses.
 --
@@ -151,7 +150,7 @@ contTXOUTOld step = do
   checkResult c1 0 "ObjectMap"
   checkResult' c3 1 $ PactResult $ Right $ PLiteral $ LString rSuccessTXOUT
   where
-    mdata = toJSON [fst sender01] :: Value -- FIXME?
+    mdata = toJSON [fst sender01] :: Value
 
 
 contTXOUTNew :: (String -> IO ()) -> Assertion
@@ -161,7 +160,7 @@ contTXOUTNew step = do
   checkResult c1 0 "ObjectMap"
   checkResult' c3 1 $ PactResult $ Right $ PLiteral $ LString rSuccessTXOUT
   where
-    mdata = toJSON [fst sender01] :: Value
+    mdata = toJSON [fst sender01]
 
 
 tfrTXOUTNew :: (String -> IO ()) -> Assertion
@@ -278,7 +277,8 @@ roundtrip' v sid0 tid0 burn create step = withTestBlockDb v $ \bdb -> do
 
     -- cut 1: burn
     step "cut 1: burn"
-    (BlockCreationTime t1) <- _blockCreationTime <$> getParentTestBlockDb bdb sid
+    -- Creating the parent took at least 1 second. So 1s is fine as creation time
+    let t1 = add second epoch
     txGen1 <- burn t1 pidv sid tid
     void $ swapMVar tg txGen1
     co1 <- runCut' v bdb pact
@@ -378,6 +378,7 @@ burnGen time pidv sid tid = do
                   set cbSigners [mkSigner' sender00 []] $
                   set cbCreationTime (toTxCreationTime time) $
                   set cbChainId sid $
+                  -- FIXME does networkId == Nothing actually work?
                   mkCmd "0" $
                   mkExec tx1Code tx1Data
                 writeIORef ref0 True
@@ -432,6 +433,7 @@ transferGen time pidv sid _tid = do
                        ,mkGasCap]] $
                   set cbCreationTime (toTxCreationTime time) $
                   set cbChainId sid $
+                  -- FIXME what about the network id? It is Nothing
                   mkCmd "0" $
                   mkExec' tx1Code
                 writeIORef ref0 True
@@ -476,7 +478,9 @@ createVerify bridge code mdata time (TestBlockDb wdb pdb _c) _pidv sid tid bhe =
             True -> return mempty
             False -> do
                 pf <- createTransactionOutputProof_ wdb pdb tid sid bhe 0
-                let q | bridge = object [("proof",String $ encodeB64UrlNoPaddingText $ encodeToByteString pf)]
+                let q | bridge = object
+                        [ ("proof", String $ encodeB64UrlNoPaddingText $ encodeToByteString pf)
+                        ]
                       | otherwise = toJSON pf
                 cmd <- buildCwCmd $
                   set cbSigners [mkSigner' sender00 []] $
