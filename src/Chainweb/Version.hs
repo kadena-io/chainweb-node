@@ -553,7 +553,7 @@ to20ChainsTestnet :: BlockHeight
 to20ChainsTestnet = 332_604 -- 2020-07-28 16:00:00
 
 to20ChainsDevelopment :: BlockHeight
-to20ChainsDevelopment = 60
+to20ChainsDevelopment = 12
 
 -- | Return the Graph History at a given block height in descending order.
 --
@@ -916,7 +916,7 @@ pact4coin3Upgrade aoa v h = case aoa of
   where
     go f Mainnet01 = f 1_722_500 -- 2021-06-19T03:34:05
     go f Testnet04 = f 1_261_000 -- 2021-06-17T15:54:14
-    go f Development = f 80
+    go f Development = f 14
     go f (FastTimedCPM g) | g == petersonChainGraph = f 20
     go f _ = f 4
     -- lowering this number causes some tests in Test.Pact.SPV to fail
@@ -924,21 +924,19 @@ pact4coin3Upgrade aoa v h = case aoa of
 pact420Upgrade :: ChainwebVersion -> BlockHeight -> Bool
 pact420Upgrade Mainnet01 = (>= 2_334_500) -- 2022-01-17T17:51:12
 pact420Upgrade Testnet04 = (>= 1_862_000) -- 2022-01-13T16:11:10
-pact420Upgrade Development = (>= 90)
+pact420Upgrade Development = (>= 15)
 pact420Upgrade (FastTimedCPM g) | g == petersonChainGraph = (>= 5)
 pact420Upgrade _ = const True
 
 enforceKeysetFormats :: ChainwebVersion -> BlockHeight -> Bool
 enforceKeysetFormats Mainnet01 = (>= 2_162_000) -- 2021-11-18T20:06:55
 enforceKeysetFormats Testnet04 = (>= 1_701_000) -- 2021-11-18T17:54:36
-enforceKeysetFormats Development = (>= 100)
 enforceKeysetFormats (FastTimedCPM g) | g == petersonChainGraph = (>= 10)
 enforceKeysetFormats _ = const True
 
 doCheckTxHash :: ChainwebVersion -> BlockHeight -> Bool
 doCheckTxHash Mainnet01 = (>= 2_349_800) -- 2022-01-23T02:53:38
 doCheckTxHash Testnet04 = (>= 1_889_000) -- 2022-01-24T04:19:24
-doCheckTxHash Development = (>= 110)
 doCheckTxHash (FastTimedCPM g) | g == petersonChainGraph = (>= 7)
 doCheckTxHash _ = const True
 
@@ -947,7 +945,7 @@ doCheckTxHash _ = const True
 chainweb213Pact :: ChainwebVersion -> BlockHeight -> Bool
 chainweb213Pact Mainnet01 = (>= 2_447_315) -- 2022-02-26 00:00:00
 chainweb213Pact Testnet04 = (>= 1_974_556) -- 2022-02-25 00:00:00
-chainweb213Pact Development = (>= 95)
+chainweb213Pact Development = (>= 16)
 chainweb213Pact (FastTimedCPM g) | g == petersonChainGraph = (> 25)
 chainweb213Pact _ = const True
 
@@ -970,7 +968,7 @@ chainweb214Pact aoa v h = case aoa of
   where
     go f Mainnet01 = f 2605663 -- 2022-04-22T00:00:00Z
     go f Testnet04 = f 2134331 -- 2022-04-21T12:00:00Z
-    go f Development = f 115
+    go f Development = f 17
     go f (FastTimedCPM g) | g == petersonChainGraph = f 30
     go f _ = f 5
 
@@ -987,7 +985,7 @@ chainweb215Pact aoa v h = case aoa of
   where
     go f Mainnet01 = f 2766630 -- 2022-06-17T00:00:00+00:00
     go f Testnet04 = f 2295437 -- 2022-06-16T12:00:00+00:00
-    go f Development = f 165
+    go f Development = f 18
     go f (FastTimedCPM g) | g == petersonChainGraph = f 35
     go f _ = f 10
 
@@ -1004,7 +1002,7 @@ chainweb216Pact aoa v h = case aoa of
   where
     go f Mainnet01 = f 2988324 -- 2022-09-02 00:00:00+00:00
     go f Testnet04 = f 2516739 -- 2022-09-01 12:00:00+00:00
-    go f Development = f 215
+    go f Development = f 19
     go f (FastTimedCPM g) | g == petersonChainGraph = f 53
     go f _ = f 16
 
@@ -1019,7 +1017,7 @@ chainweb217Pact aoa v h = case aoa of
   where
     go f Mainnet01 = f 3_250_348 -- 2022-12-02 00:00:00+00:00
     go f Testnet04 = f 2_777_367 -- 2022-12-01 12:00:00+00:00
-    go f Development = f 470
+    go f Development = f 20
     go f (FastTimedCPM g) | g == petersonChainGraph = f 55
     go f _ = f 20
 
