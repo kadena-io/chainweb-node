@@ -108,10 +108,8 @@ testModuleName = withTempSQLiteResource $
         r2 <- qry_ _sConn "SELECT rowkey FROM [SYS:Modules] WHERE rowkey LIKE '%bare%'" [RText]
         assertEqual "correct bare module name" [[SText "baremod"]] r2
 
-
-
---- -------------------------------------------------------------------------- --
---- Key Set Test
+-- -------------------------------------------------------------------------- --
+-- Key Set Test
 testKeyset :: TestTree
 testKeyset = withResource initializeSQLite freeSQLiteResource (runSQLite keysetTest)
 
