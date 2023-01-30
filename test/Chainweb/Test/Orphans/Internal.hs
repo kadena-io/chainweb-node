@@ -1,15 +1,11 @@
 {-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DataKinds #-}
-{-# LANGUAGE DeriveGeneric #-}
-{-# LANGUAGE DeriveTraversable #-}
-{-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE DerivingVia #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
-{-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE StandaloneDeriving #-}
@@ -57,6 +53,7 @@ module Chainweb.Test.Orphans.Internal
 , mkTestEventsProof
 , arbitraryEventsProof
 , EventPactValue(..)
+, ProofPactEvent(..)
 
 -- ** Misc
 , arbitraryPage
@@ -848,8 +845,14 @@ arbitraryOutputEvents = OutputEvents
 instance Arbitrary OutputEvents where
     arbitrary = arbitraryOutputEvents
 
--- instance Arbitrary PactEvent where
---     arbitrary = arbitraryProofPactEvent
+-- | Events that are supported in proofs
+--
+newtype ProofPactEvent = ProofPactEvent { getProofPactEvent :: PactEvent }
+    deriving (Show)
+    deriving newtype (Eq, ToJSON, FromJSON)
+
+instance Arbitrary ProofPactEvent where
+    arbitrary = ProofPactEvent <$> arbitraryProofPactEvent
 
 instance MerkleHashAlgorithm a => Arbitrary (BlockEventsHash_ a) where
     arbitrary = BlockEventsHash <$> arbitrary
@@ -858,6 +861,8 @@ instance Arbitrary Int256 where
     arbitrary = unsafeInt256
         <$> choose (int256ToInteger minBound, int256ToInteger maxBound)
 
+-- | PactValues that are supported in Proofs
+--
 newtype EventPactValue = EventPactValue { getEventPactValue :: PactValue }
     deriving (Show, Eq, Ord)
 
