@@ -266,6 +266,7 @@
       (enforce (>= fee 0.0)
         "fee must be a non-negative quantity")
 
+      (enforce-unit refund) ; implicitly enforced by fee and total
       (enforce (>= refund 0.0)
         "refund must be a non-negative quantity")
 
@@ -450,7 +451,6 @@
     @model [ (property (> total 0.0))
              (property (valid-account sender))
              (property (valid-account miner))
-             ;(property conserves-mass) not supported yet
            ]
     (step (let ((unused 0))
             (validate-account miner)
