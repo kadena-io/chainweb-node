@@ -67,6 +67,8 @@
   (defun enforce-unit:bool (amount:decimal)
     @doc "Enforce minimum precision allowed for coin transactions"
 
+    (enforce (>= amount 0.0) "Positive Amount")
+
     (enforce
       (= (floor amount MINIMUM_PRECISION)
          amount)
@@ -300,6 +302,8 @@
     )
 
   (defun get-balance:decimal (account:string)
+    (validate-account account)
+    
     (with-read coin-table account
       { "balance" := balance }
       balance
@@ -308,6 +312,9 @@
 
   (defun details:object{fungible-v3.account-details}
     ( account:string )
+
+    (validate-account account)
+    
     (with-read coin-table account
       { "balance" := bal
       , "guard" := g }
@@ -317,6 +324,9 @@
     )
 
   (defun rotate:string (account:string new-guard:guard)
+
+    (validate-account account)
+    
     (with-capability (ROTATE account)
       (with-read coin-table account
         { "guard" := old-guard }
@@ -601,7 +611,7 @@
 
   (defschema allocation-schema
     @doc "Genesis allocation registry"
-    ;@model [ (invariant (>= balance 0.0)) ]
+    @model [ (invariant (>= balance 0.0)) ]
 
     balance:decimal
     date:time
