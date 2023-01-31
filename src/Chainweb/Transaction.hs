@@ -31,7 +31,6 @@ import Control.Lens
 import qualified Data.Aeson as Aeson
 import Data.ByteString.Char8 (ByteString)
 import qualified Data.ByteString.Char8 as B
-import qualified Data.ByteString.Lazy as BL
 import qualified Data.ByteString.Short as SB
 import Data.Hashable
 import Data.Text (Text)
@@ -44,6 +43,8 @@ import Pact.Types.ChainMeta
 import Pact.Types.Command
 import Pact.Types.Gas (GasLimit(..), GasPrice(..))
 import Pact.Types.Hash
+import qualified Pact.JSON.Encode as J
+import Pact.JSON.Legacy.Value
 
 import Chainweb.Utils
 import Chainweb.Utils.Serialization
@@ -76,7 +77,7 @@ mkPayloadWithText cmd p = PayloadWithText
 
 mkPayloadWithTextOld :: Payload PublicMeta ParsedCode -> PayloadWithText
 mkPayloadWithTextOld p = PayloadWithText
-    { _payloadBytes = SB.toShort $ BL.toStrict $ Aeson.encode $ fmap _pcCode p
+    { _payloadBytes = SB.toShort $ J.encodeStrict $ toLegacyJson $ fmap _pcCode p
     , _payloadObj = p
     }
 
