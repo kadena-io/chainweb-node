@@ -14,9 +14,6 @@
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 
--- TODO KeySet NFData in Pact
-{-# OPTIONS_GHC -fno-warn-orphans #-}
-
 -- |
 -- Module: Chainweb.Payload
 -- Copyright: Copyright © 2018 - 2020 Kadena LLC.
@@ -141,7 +138,6 @@ import Chainweb.Storage.Table
 import Chainweb.Utils
 import Chainweb.Utils.Serialization
 
-
 -- -------------------------------------------------------------------------- --
 -- Block Transactions Hash
 
@@ -167,6 +163,12 @@ instance MerkleHashAlgorithm a => IsMerkleLogEntry a ChainwebHashTag (BlockTrans
     fromMerkleNode = decodeMerkleTreeNode
     {-# INLINE toMerkleNode #-}
     {-# INLINE fromMerkleNode #-}
+
+instance HasTextRepresentation BlockTransactionsHash where
+  toText (BlockTransactionsHash h) = toText h
+  fromText = fmap BlockTransactionsHash . fromText
+  {-# INLINE toText #-}
+  {-# INLINE fromText #-}
 
 -- -------------------------------------------------------------------------- --
 -- Block Outputs Hash
@@ -194,6 +196,12 @@ instance MerkleHashAlgorithm a => IsMerkleLogEntry a ChainwebHashTag (BlockOutpu
     {-# INLINE toMerkleNode #-}
     {-# INLINE fromMerkleNode #-}
 
+instance HasTextRepresentation BlockOutputsHash where
+  toText (BlockOutputsHash h) = toText h
+  fromText = fmap BlockOutputsHash . fromText
+  {-# INLINE toText #-}
+  {-# INLINE fromText #-}
+
 -- -------------------------------------------------------------------------- --
 -- BlockPayloadHash
 
@@ -220,6 +228,12 @@ instance MerkleHashAlgorithm a => IsMerkleLogEntry a ChainwebHashTag (BlockPaylo
     fromMerkleNode = decodeMerkleTreeNode
     {-# INLINE toMerkleNode #-}
     {-# INLINE fromMerkleNode #-}
+
+instance HasTextRepresentation BlockPayloadHash where
+  toText (BlockPayloadHash h) = toText h
+  fromText = fmap BlockPayloadHash . fromText
+  {-# INLINE toText #-}
+  {-# INLINE fromText #-}
 
 -- -------------------------------------------------------------------------- --
 -- Transaction
@@ -279,8 +293,13 @@ instance HasTextRepresentation Transaction where
 --
 newtype TransactionOutput = TransactionOutput
     { _transactionOutputBytes :: B.ByteString }
-    deriving (Show, Eq, Ord, Generic)
-    deriving newtype (BA.ByteArrayAccess, NFData)
+    deriving (Eq, Ord, Generic)
+    deriving anyclass (NFData)
+    deriving newtype (BA.ByteArrayAccess)
+
+instance Show TransactionOutput where
+    show = T.unpack . encodeToText
+    {-# INLINE show #-}
 
 instance ToJSON TransactionOutput where
     toJSON = toJSON . encodeB64UrlNoPaddingText . _transactionOutputBytes
