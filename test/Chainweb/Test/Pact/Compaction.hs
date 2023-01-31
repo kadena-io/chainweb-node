@@ -29,6 +29,7 @@ import System.Logger (LogLevel(..))
 
 -- internal imports
 
+import Chainweb.Pact.Types
 import Chainweb.Pact.Backend.Compaction
 import Chainweb.Pact.Backend.RelationalCheckpointer
 import Chainweb.Pact.Backend.Types
@@ -206,5 +207,6 @@ runSQLite' runTest sqlEnvIO = runTest $ do
     cp <- initRelationalCheckpointer initialBlockState sqlenv logger testVer testChainId
     return (cp, sqlenv)
   where
-    initialBlockState = set bsModuleNameFix True $ initBlockState $ genesisHeight testVer testChainId
+    initialBlockState = set bsModuleNameFix True $
+        initBlockState defaultModuleCacheLimit $ genesisHeight testVer testChainId
     logger = newLogger (pactTestLogger False) "RelationalCheckpointer"
