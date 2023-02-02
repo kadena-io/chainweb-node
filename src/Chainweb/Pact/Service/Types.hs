@@ -2,6 +2,7 @@
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DerivingStrategies #-}
+{-# LANGUAGE DeriveFunctor #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
@@ -25,6 +26,7 @@ import Control.Concurrent.MVar.Strict
 import Control.Monad.Catch
 
 import Data.Aeson
+import Data.Set (Set)
 import Data.Map (Map)
 import Data.Text (Text, pack, unpack)
 import Data.Vector (Vector)
@@ -40,6 +42,7 @@ import Pact.Types.PactError
 import Pact.Types.Gas
 import Pact.Types.Hash
 import Pact.Types.Persistence
+import Pact.Types.Runtime (PactWarning(..))
 
 -- internal chainweb modules
 
@@ -87,13 +90,6 @@ instance Show GasPurchaseFailure where show = unpack . encodeToText
 gasPurchaseFailureHash :: GasPurchaseFailure -> TransactionHash
 gasPurchaseFailureHash (GasPurchaseFailure h _) = h
 
--- | Used by /local to tag metadata validation failures
---
-newtype MetadataValidationFailure
-    = MetadataValidationFailure Text
-    deriving stock (Eq, Show, Generic)
-    deriving newtype (NFData)
-
 -- | Used by /local to trigger user signature verification
 --
 data LocalSignatureVerification
@@ -107,6 +103,14 @@ data LocalPreflightSimulation
     = PreflightSimulation
     | LegacySimulation
     deriving stock (Eq, Show, Generic)
+
+-- | The type of local results (used in /local endpoint)
+--
+data LocalResult
+    = MetadataValidationFailure !Text
+    | LocalResultWithWarns !(CommandResult Hash) !(Set PactWarning)
+    | LocalResultLegacy !(CommandResult Hash)
+    deriving (Show, Generic)
 
 -- | Exceptions thrown by PactService components that
 -- are _not_ recorded in blockchain record.
@@ -196,7 +200,7 @@ data LocalReq = LocalReq
     , _localPreflight :: !(Maybe LocalPreflightSimulation)
     , _localSigVerification :: !(Maybe LocalSignatureVerification)
     , _localRewindDepth :: !(Maybe BlockHeight)
-    , _localResultVar :: !(PactExMVar (Either MetadataValidationFailure (CommandResult Hash)))
+    , _localResultVar :: !(PactExMVar LocalResult)
     }
 instance Show LocalReq where show LocalReq{..} = show _localRequest
 
