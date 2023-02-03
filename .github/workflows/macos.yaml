@@ -12,8 +12,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        ghc: ["8.10.7", "9.0"]
-        cabal: ["3.6"]
+        ghc: ["8.10.7", "9.0", "9.2", "9.4"]
+        cabal: ["3.8"]
         os: ["macOS-latest"]
         cabalcache: ["true"]
 
@@ -22,7 +22,7 @@ jobs:
     - name: Checkout repository
       uses: actions/checkout@v3
     - name: Install GHC and Cabal
-      uses: haskell/actions/setup@v2.0.1
+      uses: haskell/actions/setup@v2
       with:
          ghc-version: ${{ matrix.ghc }}
          cabal-version: ${{ matrix.cabal }}
