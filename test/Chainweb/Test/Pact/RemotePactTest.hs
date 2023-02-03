@@ -290,7 +290,11 @@ localPreflightSimTest iot nio = testCaseSteps "local preflight sim test" $ \step
     cmd0 <- mkRawTx mv psid psigs
     runLocalPreflightClient sid cenv cmd0 >>= \case
       Left e -> assertFailure $ show e
-      Right{} -> pure ()
+      Right LocalResultLegacy{} ->
+        assertFailure "Preflight /local call produced legacy result"
+      Right MetadataValidationFailure{} ->
+        assertFailure "Preflight produced an impossible result"
+      Right LocalResultWithWarns{} -> pure ()
 
     step "Execute preflight /local tx - preflight+signoverify known /send success"
     cmd0' <- mkRawTx mv psid psigs
