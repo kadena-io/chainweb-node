@@ -5,6 +5,7 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE TypeOperators #-}
 
 module Chainweb.Test.Rosetta.RestAPI
 ( tests
@@ -86,7 +87,7 @@ nonceRef = unsafePerformIO $ newIORef 0
 
 defGasLimit, defGasPrice :: Decimal
 defGasLimit = realToFrac $ _cbGasLimit defaultCmd
-defGasPrice = realToFrac $_cbGasPrice defaultCmd
+defGasPrice = realToFrac $ _cbGasPrice defaultCmd
 
 defFundGas :: Decimal
 defFundGas = defGasLimit * defGasPrice

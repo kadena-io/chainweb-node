@@ -1,3 +1,4 @@
+{-# LANGUAGE CPP #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
@@ -143,7 +144,9 @@ import GHC.Generics (Generic)
 import GHC.Stack
 import GHC.TypeLits
 
+#if !MIN_VERSION_base(4,16,0)
 import Numeric.Natural
+#endif
 
 import System.IO.Unsafe (unsafeDupablePerformIO)
 import System.Environment (lookupEnv)

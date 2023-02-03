@@ -95,6 +95,7 @@ import Chainweb.Pact.RestAPI.Server (PactCmdLog(..))
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
 import Chainweb.Time
+import Data.Time.Format.ISO8601
 import Chainweb.Utils
 import Chainweb.Utils.RequestLog
 import Chainweb.Version
@@ -538,8 +539,6 @@ main = do
                 , Handler $ \(e :: SomeException) ->
                     logFunctionJson logger Error (ProcessDied $ show e) >> throwIO e
                 ] $ do
-                kt <- mapM (parseTimeM False defaultTimeLocale timeFormat) serviceDate
+                kt <- mapM iso8601ParseM serviceDate
                 withServiceDate (logFunctionText logger) kt $
                     node conf logger
-  where
-    timeFormat = iso8601DateFormat (Just "%H:%M:%SZ")

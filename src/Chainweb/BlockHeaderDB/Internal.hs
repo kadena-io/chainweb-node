@@ -10,6 +10,7 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE UndecidableInstances #-}
 
 -- |
@@ -292,7 +293,7 @@ instance TreeDb BlockHeaderDb where
 
     lookup db h = runMaybeT $ do
         -- lookup rank
-        r <- MaybeT $ tableLookup (_chainDbRankTable db) h 
+        r <- MaybeT $ tableLookup (_chainDbRankTable db) h
         MaybeT $ lookupRanked db (int r) h
     {-# INLINEABLE lookup #-}
 
@@ -402,6 +403,6 @@ insertBlockHeaderDb db = dbAddChecked db . _validatedHeader
 {-# INLINE insertBlockHeaderDb #-}
 
 unsafeInsertBlockHeaderDb :: BlockHeaderDb -> BlockHeader -> IO ()
-unsafeInsertBlockHeaderDb = dbAddChecked 
+unsafeInsertBlockHeaderDb = dbAddChecked
 {-# INLINE unsafeInsertBlockHeaderDb #-}
 
