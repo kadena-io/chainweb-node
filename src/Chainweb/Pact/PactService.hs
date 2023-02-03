@@ -438,6 +438,7 @@ attemptBuyGas miner (PactDbEnv' dbEnv) txs = do
                 , _txGasUsed = 0
                 , _txGasId = Nothing
                 , _txGasModel = P._geGasModel P.freeGasEnv
+                , _txWarnings = mempty
                 }
 
         buyGasEnv <- createGasEnv db cmd gasPrice gasLimit
