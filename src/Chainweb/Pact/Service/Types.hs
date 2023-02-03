@@ -9,6 +9,7 @@
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE ExistentialQuantification #-}
+{-# LANGUAGE TemplateHaskell #-}
 -- |
 -- Module: Chainweb.Pact.Service.Types
 -- Copyright: Copyright © 2018 Kadena LLC.
@@ -22,6 +23,7 @@ module Chainweb.Pact.Service.Types where
 
 import Control.DeepSeq
 import Control.Concurrent.MVar.Strict
+import Control.Lens hiding ((.=))
 import Control.Monad.Catch
 import Control.Applicative
 
@@ -109,6 +111,13 @@ data LocalResult
     | LocalResultWithWarns !(CommandResult Hash) ![Text]
     | LocalResultLegacy !(CommandResult Hash)
     deriving (Show, Generic)
+
+makePrisms ''LocalResult
+
+instance NFData LocalResult where
+    rnf (MetadataValidationFailure t) = rnf t
+    rnf (LocalResultWithWarns cr ws) = rnf cr `seq` rnf ws
+    rnf (LocalResultLegacy cr) = rnf cr
 
 instance ToJSON LocalResult where
   toJSON (MetadataValidationFailure e) = object
