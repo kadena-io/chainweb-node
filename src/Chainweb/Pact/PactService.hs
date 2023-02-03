@@ -68,6 +68,7 @@ import qualified Pact.Types.Hash as P
 import qualified Pact.Types.Logger as P
 import qualified Pact.Types.Runtime as P
 import qualified Pact.Types.SPV as P
+import qualified Pact.Types.Pretty as P
 
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
@@ -675,7 +676,8 @@ execLocal cwtx preflight sigVerify rdepth = withDiscardedBatch $ do
                   initialGas mc ApplyLocal
 
                 let cr' = toHashCommandResult cr
-                pure $ LocalResultWithWarns cr' warns
+                    warns' = P.renderCompactText <$> toList warns
+                pure $ LocalResultWithWarns cr' warns'
               Left e -> pure $ MetadataValidationFailure e
           _ ->  liftIO $ do
             cr <- applyLocal

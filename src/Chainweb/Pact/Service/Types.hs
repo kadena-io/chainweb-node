@@ -2,7 +2,6 @@
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DerivingStrategies #-}
-{-# LANGUAGE DeriveFunctor #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
@@ -24,9 +23,9 @@ module Chainweb.Pact.Service.Types where
 import Control.DeepSeq
 import Control.Concurrent.MVar.Strict
 import Control.Monad.Catch
+import Control.Applicative
 
 import Data.Aeson
-import Data.Set (Set)
 import Data.Map (Map)
 import Data.Text (Text, pack, unpack)
 import Data.Vector (Vector)
@@ -42,7 +41,6 @@ import Pact.Types.PactError
 import Pact.Types.Gas
 import Pact.Types.Hash
 import Pact.Types.Persistence
-import Pact.Types.Runtime (PactWarning(..))
 
 -- internal chainweb modules
 
@@ -108,9 +106,32 @@ data LocalPreflightSimulation
 --
 data LocalResult
     = MetadataValidationFailure !Text
-    | LocalResultWithWarns !(CommandResult Hash) !(Set PactWarning)
+    | LocalResultWithWarns !(CommandResult Hash) ![Text]
     | LocalResultLegacy !(CommandResult Hash)
     deriving (Show, Generic)
+
+instance ToJSON LocalResult where
+  toJSON (MetadataValidationFailure e) = object
+    [ "preflightValidationFailure" .= toJSON e ]
+  toJSON (LocalResultLegacy cr) = toJSON cr
+  toJSON (LocalResultWithWarns cr ws) = object
+    [ "preflightResult" .= cr
+    , "preflightWarnings" .= ws
+    ]
+
+instance FromJSON LocalResult where
+  parseJSON v = withObject "LocalResult"
+    (\o -> metaFailureParser o
+      <|> localWithWarnParser o
+      <|> legacyFallbackParser o)
+    v
+    where
+      metaFailureParser o =
+        MetadataValidationFailure <$> o .: "preflightValidationFailure"
+      localWithWarnParser o = LocalResultWithWarns
+        <$> o .: "preflightResult"
+        <*> o .: "preflightWarnings"
+      legacyFallbackParser _ = LocalResultLegacy <$> parseJSON v
 
 -- | Exceptions thrown by PactService components that
 -- are _not_ recorded in blockchain record.
