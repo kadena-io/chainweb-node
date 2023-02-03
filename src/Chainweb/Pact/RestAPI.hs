@@ -54,6 +54,9 @@ module Chainweb.Pact.RestAPI
 ) where
 
 
+import Data.Text (Text)
+
+import qualified Pact.Types.Command as Pact
 import Pact.Server.API as API
 
 import Servant
@@ -131,10 +134,12 @@ pactPollApi = Proxy
 -- POST Queries for Pact Local Pre-flight
 
 type PactLocalWithQueryApi_
-    = QueryParam "preflight" LocalPreflightSimulation
+    = "local"
+    :> QueryParam "preflight" LocalPreflightSimulation
     :> QueryParam "signatureVerification" LocalSignatureVerification
     :> QueryParam "rewindDepth" BlockHeight
-    :> ApiLocal
+    :> ReqBody '[JSON] (Pact.Command Text)
+    :> Post '[JSON] LocalResult
 
 type PactLocalWithQueryApi v c = PactV1ApiEndpoint v c PactLocalWithQueryApi_
 

@@ -130,7 +130,7 @@ localWithQueryParams
     -> Maybe LocalSignatureVerification
     -> Maybe BlockHeight
     -> Command Text
-    -> IO (CommandResult Hash)
+    -> IO LocalResult
 localWithQueryParams sid cenv pf sv rd cmd =
     recovering testRetryPolicy [h] $ \s -> do
       debug
@@ -155,8 +155,10 @@ local
     -> ClientEnv
     -> Command Text
     -> IO (CommandResult Hash)
-local sid cenv =
-    localWithQueryParams sid cenv Nothing Nothing Nothing
+local sid cenv cmd = do
+    LocalResultLegacy cr <-
+      localWithQueryParams sid cenv Nothing Nothing Nothing cmd
+    pure cr
 
 localTestToRetry
     :: ChainId
