@@ -709,8 +709,8 @@ applyExec initialGas interp em senderSigs hsh nsp = do
     logs <- use txLogs
     rk <- view txRequestKey
 
-    -- set tx warnings to eval warnings
-    txWarnings .= _erWarnings
+    -- concat tx warnings with eval warnings
+    txWarnings <>= _erWarnings
 
     -- applyExec enforces non-empty expression set so `last` ok
     -- forcing it here for lazy errors. TODO NFData the Pacts
@@ -821,7 +821,7 @@ applyContinuation initialGas interp cm senderSigs hsh nsp = do
     rk <- view txRequestKey
 
     -- set tx warnings to eval warnings
-    txWarnings .= _erWarnings
+    txWarnings <>= _erWarnings
 
     -- last safe here because cont msg is guaranteed one exp
     return $! (CommandResult rk _erTxId (PactResult (Right (last _erOutput)))

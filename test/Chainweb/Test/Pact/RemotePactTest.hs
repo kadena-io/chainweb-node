@@ -337,6 +337,19 @@ localPreflightSimTest iot nio = testCaseSteps "local preflight sim test" $ \step
 
     cmd6 <- mkRawTx mv pcid sigs1'
     runClientFailureAssertion sid cenv cmd6 "Signature list size too big"
+
+    step "Execute preflight /local tx - collect warnings"
+    cmd7 <- mkRawTx' mv pcid sigs0 "(+ 1 2.0)"
+    runLocalPreflightClient sid cenv cmd7 >>= \case
+      Left e -> assertFailure $ show e
+      Right LocalResultLegacy{} ->
+        assertFailure "Preflight /local call produced legacy result"
+      Right MetadataValidationFailure{} ->
+        assertFailure "Preflight produced an impossible result"
+      Right (LocalResultWithWarns _ ws) -> case ws of
+        [w] | "decimal/integer operator overload" `T.isInfixOf` w ->
+          pure ()
+        ws' -> assertFailure $ "Incorrect warns: " ++ show ws'
   where
     runLocalPreflightClient sid e cmd = flip runClientM e $
       pactLocalWithQueryApiClient v sid
@@ -356,13 +369,15 @@ localPreflightSimTest iot nio = testCaseSteps "local preflight sim test" $ \step
     -- would allow for us to modify the chain id to something
     -- unparsable. Hence we need to do this in the unparsable
     -- chain id case and nowhere else.
-    mkRawTx mv pcid kps = modifyMVar mv $ \(nn :: Int) -> do
+    mkRawTx mv pcid kps = mkRawTx' mv pcid kps "(+ 1 2)"
+
+    mkRawTx' mv pcid kps code = modifyMVar mv $ \(nn :: Int) -> do
       let nonce = "nonce" <> sshow nn
           ttl = 2 * 24 * 60 * 60
           pm = Pact.PublicMeta pcid "sender00" 1000 0.1 (fromInteger ttl)
 
       t <- toTxCreationTime <$> iot
-      c <- Pact.mkExec "(+ 1 2)" A.Null (pm t) kps (Just "fastTimedCPM-peterson") (Just nonce)
+      c <- Pact.mkExec code A.Null (pm t) kps (Just "fastTimedCPM-peterson") (Just nonce)
       pure (succ nn, c)
 
     mkCmdBuilder sigs nid pcid limit price = do
