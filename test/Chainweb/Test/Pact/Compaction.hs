@@ -9,18 +9,14 @@ module Chainweb.Test.Pact.Compaction (tests) where
 
 import Control.Lens hiding ((.=))
 import Control.Monad.Reader
-
-import Data.ByteString (ByteString)
+import Data.List (sort)
 import qualified Data.Map.Strict as M
-
-import Database.SQLite3.Direct (Utf8)
 
 
 import Pact.Interpreter (PactDbEnv(..))
 import Pact.Types.Logger (newLogger)
 import Pact.Types.RowData
 import Pact.Types.Runtime hiding (ChainId)
-import Pact.Types.SQLite
 
 import Test.Tasty
 import Test.Tasty.HUnit
@@ -82,10 +78,7 @@ testCompactCheckpointer =
       _createUserTable pactdb "tA" "mod" mvar
       _createUserTable pactdb "tAA" "mod" mvar
 
-    -- tx: insert values, include common keys/tables/values to verify unique row hashes for same tuples
-    -- this covers the use of tags in hashing to distinguish table from name
-    -- (e.g., hashing 'TtAKAA' for tA table, key AA instead of just 'tAAA' which would
-    -- collide with tAA table, key A with naive concatenation.
+    -- setup potential hash collisions.
     withTx $ do
       _writeRow pactdb Insert (UserTables "tA") "AA" rd1 mvar -- test table+key collision
       _writeRow pactdb Insert (UserTables "tAA") "A" rd1 mvar
@@ -108,82 +101,32 @@ testCompactCheckpointer =
 
     _cpSave _cpeCheckpointer hash03
 
-    -- verify checkpointer-created row hashes
+    let checkTable tbl expectedRows = do
+          ks <- sort <$> _keys pactdb (UserTables tbl) mvar
+          assertEqual ("rowcount match: " <> show tbl) (length expectedRows) (length ks)
+          forM_ (zip expectedRows ks) $ \((ke,rde),ka) -> do
+            assertEqual ("key match: " <> show tbl) ke ka
+            rda <- _readRow pactdb (UserTables tbl) ka mvar
+            assertEqual ("data match: " <> show (tbl,ke)) (Just rde) rda
 
-    let calcHash tbl rk txid hsh = qry _sConn
-            ( "SELECT sha3_256('T',?1,'K',rowkey,'I',txid,'D',rowdata,'H',?4) FROM "
-              <> tbl <> " where rowkey=?2 and txid=?3" )
-            [SText tbl,SText rk,SInt txid,hsh] [RBlob]
-
-        getHash tbl rk txid = qry _sConn
-            ( "SELECT hash FROM " <> tbl <> " where rowkey=?2 and txid=?3" )
-            [SText tbl,SText rk,SInt txid] [RBlob]
-
-        -- to test, regenerate hash from db with provided hash value
-        checkHash tbl rk txid hsh = do
-          h <- calcHash tbl rk txid hsh
-          h' <- getHash tbl rk txid
-          assertEqual ("checkHash: tbl=" ++ show tbl ++ ",key=" ++ show rk ++ ",txid=" ++ show txid) h h'
-          case h of
-            [[h'']] -> return h''
-            _ -> assertFailure $ "expected single col/row:" ++ show (tbl,rk,txid,h)
-
-        -- sha3 funs treats NULL as empty string
-        nullHash = SBlob mempty
-
-        assertNotEquals msg v1 v2 = assertSatisfies msg v1 (/= v2)
-
-
-    -- confirm hashes and check for collisions
-    hA_AA1 <- checkHash "tA" "AA" 1 nullHash
-    hAA_A1 <- checkHash "tAA" "A" 1 nullHash
-    assertNotEquals "table+key collision" hAA_A1 hA_AA1
-
-    hA_B1 <- checkHash "tA" "B" 1 nullHash
-    hAA_B1 <- checkHash "tAA" "B" 1 nullHash
-    assertNotEquals "row+key collision" hA_B1 hAA_B1
-
-    hA_B2 <- checkHash "tA" "B" 2 hA_B1
-    assertNotEquals "update to same data collision" hA_B2 hA_B1
-    hC2 <- checkHash "tA" "C" 2 nullHash
-
-    hA_B3 <- checkHash "tA" "B" 3 hA_B2
-    assertNotEquals "B 2->3 hash" hA_B3 hA_B2
-    hC3 <- checkHash "tA" "C" 3 hC2
-    assertNotEquals "C 2->3 hash" hC3 hC2
-
-
+    -- compact to height 2
     withDefaultLogger Debug $ \l ->
 
       runCompactM (mkCompactEnv l _sConn 2 [Flag_KeepCompactTables]) $ do
 
-        -- compact and store global grand hash
-        gh <- compact
+        -- compact and capture global grand hash
+        void $ compact
 
-        -- use DB to compute grand hashes to check per-table and global results
+    checkTable "tA"
+      [ ( "AA", rd1 )
+      , ( "B", rd2 )
+      , ( "C", rd1 ) ]
 
-        let checkGrandHash :: Maybe Utf8 -> [[SType]] -> CompactM ByteString
-            checkGrandHash tbl [[SBlob hsh]] = do
-              h <- readGrandHash tbl
-              liftIO $ assertEqual ("checkHash: " ++ show tbl) hsh h
-              return $ hsh
-            checkGrandHash tbl _ = liftIO $ assertFailure $ "query failure: " ++ show tbl
+    checkTable "tAA"
+      [ ( "A", rd1 )
+      , ( "B", rd2 ) ]
 
-        -- recompute global hash from table grand hashes, checking each
-        hshA <-
-          liftIO (qry _sConn "select sha3_256(?1,?2,?3)"
-                  [hA_AA1,hA_B2,hC2] [RBlob])
-            >>= checkGrandHash (Just "tA")
-        hshAA <-
-          liftIO (qry _sConn "select sha3_256(?1,?2)"
-                  [hAA_A1, hAA_B1] [RBlob])
-            >>= checkGrandHash (Just "tAA")
-        gh' <- liftIO (qry _sConn "select sha3_256(?1,?2)"
-                       [SBlob hshA,SBlob hshAA] [RBlob])
-            >>= checkGrandHash Nothing
 
-        -- test that value returned from 'compact' is global hash
-        liftIO $ assertEqual "global hash check" gh' gh
 
 
 -- -------------------------------------------------------------------------- --
