@@ -77,6 +77,8 @@ instance Exception CompactException
 data CompactFlag
     = Flag_KeepCompactTables
     -- ^ Keep compaction tables post-compaction for inspection.
+    | Flag_NoVacuum
+    -- ^ Don't VACUUM database
     deriving (Eq,Show,Read,Enum,Bounded)
 
 internalError :: MonadThrow m => Text -> m a
@@ -369,7 +371,7 @@ dropNewTables = do
       [RText]
 
   setTables nts $ withTables $ do
-    execM_ "DROP TABLE $VTABLE$"
+    execM_ "DROP TABLE IF EXISTS $VTABLE$"
 
 -- | Delete all rows from Checkpointer system tables that are not for the target blockheight.
 compactSystemTables :: CompactM ()
@@ -410,7 +412,12 @@ compact = do
 
         unlessFlag Flag_KeepCompactTables $ withTx $ dropCompactTables
 
+        unlessFlag Flag_NoVacuum $ do
+          logg Info "Vacuum"
+          execM_ "VACUUM;"
+
         return gh
+
 
 data CompactConfig v = CompactConfig
   { ccBlockHeight :: BlockHeight
