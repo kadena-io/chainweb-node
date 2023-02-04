@@ -16,10 +16,10 @@
 
 -- |
 -- Module: Chainweb.Pact.Backend.Compaction
--- Copyright: Copyright © 2022 Kadena LLC.
+-- Copyright: Copyright © 2023 Kadena LLC.
 -- License: see LICENSE.md
--- Maintainer: stuart@kadena.io
--- Stability: experimental
+--
+-- Compact Checkpointer PactDbs by culling old journal rows.
 --
 
 module Chainweb.Pact.Backend.Compaction
@@ -30,7 +30,6 @@ module Chainweb.Pact.Backend.Compaction
   , compact
   , compactAll
   , compactMain
-  , readGrandHash
   , withDefaultLogger
   ) where
 
@@ -202,7 +201,7 @@ withTables a = view ceVersionTables >>= \ts ->
     local (set ceVersionTable $ Just t) $
       localScope (("table",lbl):) $ a
 
-setTables :: [[SType]] -> CompactM () -> CompactM ()
+setTables :: [[SType]] -> CompactM a -> CompactM a
 setTables rs next = do
   ts <- fmap (M.elems . M.fromListWith const) $
         forM rs $ \r -> case r of
@@ -257,7 +256,7 @@ readTxId next = do
 
 -- | Sets environment versioned tables, as all active tables created at
 -- or before the target blockheight.
-collectVersionedTables :: CompactM () -> CompactM ()
+collectVersionedTables :: CompactM a -> CompactM a
 collectVersionedTables next = do
   logg Info "collectVersionedTables"
   rs <- qryM
@@ -275,21 +274,23 @@ tableRowCount lbl =
 
 -- | For a given table, collect all active rows into CompactActiveRow,
 -- and compute+store table grand hash in CompactGrandHash.
-computeTableHash :: CompactM ()
-computeTableHash = do
+collectTableRows :: CompactM ()
+collectTableRows = do
 
-  tableRowCount "computeTableHash"
+  tableRowCount "collectTableRows"
 
-  logg Info "computeTableHash:insert"
+  logg Info "collectTableRows:insert"
   execM'
       " INSERT INTO CompactActiveRow \
-      \ SELECT ?1,rowkey,rowid,hash FROM $VTABLE$ t1 \
+      \ SELECT ?1,rowkey,rowid, \
+      \ sha3_256('T',?1,'K',rowkey,'I',txid,'D',rowdata) \
+      \ FROM $VTABLE$ t1 \
       \ WHERE txid=(SELECT MAX(txid) FROM $VTABLE$ t2 \
       \  WHERE t2.rowkey=t1.rowkey AND t2.txid<?2) \
       \ GROUP BY rowkey; "
       [vtable,txid]
 
-  logg Info "computeTableHash:checksum"
+  logg Info "collectTableRows:checksum"
   execM'
       " INSERT INTO CompactGrandHash \
       \ VALUES (?1, \
@@ -298,7 +299,7 @@ computeTableHash = do
       [vtable]
 
 -- | Compute global grand hash from all table grand hashes.
-computeGlobalHash :: CompactM ()
+computeGlobalHash :: CompactM ByteString
 computeGlobalHash = do
   logg Info "computeGlobalHash"
   execM_
@@ -306,6 +307,11 @@ computeGlobalHash = do
       \ VALUES (NULL, \
       \  (SELECT sha3a_256(hash) FROM CompactGrandHash \
       \   WHERE tablename IS NOT NULL ORDER BY tablename)); "
+
+  withDb $ \db ->
+    liftIO $ qry_ db "SELECT hash FROM CompactGrandHash WHERE tablename IS NULL" [RBlob] >>= \case
+      [[SBlob h]] -> return h
+      _ -> throwM $ CompactExceptionInternal "computeGlobalHash: bad result"
 
 -- | Delete non-active rows from given table.
 compactTable :: CompactM ()
@@ -320,27 +326,45 @@ compactTable = do
 
 -- | For given table, re-compute table grand hash and compare
 -- with stored grand hash in CompactGrandHash.
-verifyTable :: CompactM ()
+verifyTable :: CompactM ByteString
 verifyTable = do
   logg Info "verifyTable"
+  curr <- computeTableHash
+  rs <- qryM " SELECT hash FROM CompactGrandHash WHERE tablename=?1 "
+      [vtable]
+      [RBlob]
+  case rs of
+    [[SBlob prev]]
+        | prev == curr -> do
+            tableRowCount "verifyTable"
+            return curr
+        | otherwise ->
+            vtable' >>= throwM . CompactExceptionTableVerificationFailure
+    _ -> throwM $ CompactExceptionInternal "verifyTable: bad result"
+
+
+-- | For given table, compute table grand hash for max txid.
+computeTableHash :: CompactM ByteString
+computeTableHash = do
   rs <- qryM
-        " SELECT hash FROM CompactGrandHash WHERE tablename=?1 \
-        \ UNION ALL \
-        \ SELECT sha3a_256(hash) FROM (SELECT hash FROM $VTABLE$ t1 \
+        " SELECT sha3a_256(hash) FROM \
+        \ (SELECT sha3_256('T',?1,'K',rowkey,'I',txid,'D',rowdata) as hash \
+        \  FROM $VTABLE$ t1 \
         \  WHERE txid=(select max(txid) FROM $VTABLE$ t2 \
         \   WHERE t2.rowkey=t1.rowkey) GROUP BY rowkey); "
       [vtable]
       [RBlob]
   case rs of
-    [[SBlob prev],[SBlob curr]] | prev == curr -> tableRowCount "verifyTable"
-    _ -> vtable' >>= throwM . CompactExceptionTableVerificationFailure
+    [[SBlob curr]] -> return curr
+    _ -> throwM $ CompactExceptionInternal "checksumTable: bad result"
 
 -- | Drop any versioned tables created after target blockheight.
 dropNewTables :: CompactM ()
 dropNewTables = do
   logg Info "dropNewTables"
   nts <- qryM
-      " SELECT tablename FROM VersionedTableCreation WHERE createBlockheight > ?1 ORDER BY createBlockheight; "
+      " SELECT tablename FROM VersionedTableCreation \
+      \ WHERE createBlockheight > ?1 ORDER BY createBlockheight; "
       [blockheight]
       [RText]
 
@@ -363,20 +387,6 @@ dropCompactTables = do
       " DROP TABLE CompactGrandHash; \
       \ DROP TABLE CompactActiveRow; "
 
-readGrandHash :: Maybe Utf8 -> CompactM ByteString
-readGrandHash tblM = do
-  r <- withDb $ \db -> liftIO $ case tblM of
-         (Just tbl) -> qry db
-             "SELECT hash FROM CompactGrandHash WHERE tablename = ?1;"
-             [SText tbl]
-             [RBlob]
-         Nothing ->
-             qry_ db "SELECT hash FROM CompactGrandHash WHERE tablename IS NULL" [RBlob]
-  case r of
-    [[SBlob h]] -> return h
-    _ -> throwM $ CompactExceptionInternal $ "invalid/unknown grand hash: " <> sshow (tblM,r)
-
-
 
 compact :: CompactM ByteString
 compact = do
@@ -387,22 +397,20 @@ compact = do
 
     readTxId $ collectVersionedTables $ do
 
-        withTx $ do
-          withTables computeTableHash
+        gh <- withTx $ do
+          withTables collectTableRows
           computeGlobalHash
 
         withTx $ do
           withTables $ do
             compactTable
-            verifyTable
+            void $ verifyTable
           dropNewTables
           compactSystemTables
 
-    h <- readGrandHash Nothing
+        unlessFlag Flag_KeepCompactTables $ withTx $ dropCompactTables
 
-    unlessFlag Flag_KeepCompactTables $ withTx $ dropCompactTables
-
-    return h
+        return gh
 
 data CompactConfig v = CompactConfig
   { ccBlockHeight :: BlockHeight
