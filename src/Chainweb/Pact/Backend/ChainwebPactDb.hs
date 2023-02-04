@@ -260,7 +260,7 @@ backendWriteUpdateBatch bh writesByTable db = mapM_ writeTable writesByTable
         execMulti db q (V.toList $ V.map prepRow writes)
         markTableMutation tableName bh db
       where
-        q = "INSERT OR REPLACE INTO " <> tbl tableName <> "(rowkey,txid,rowdata) VALUES (?,?,?)"
+        q = "INSERT OR REPLACE INTO " <> tbl tableName <> "(rowkey,txid,rowdata) VALUES(?,?,?)"
 
 
 markTableMutation :: Utf8 -> BlockHeight -> Database -> IO ()
