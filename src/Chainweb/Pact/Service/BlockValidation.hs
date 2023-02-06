@@ -28,7 +28,6 @@ import Control.Concurrent.MVar.Strict
 
 import Data.Vector (Vector)
 
-import Pact.Types.Command
 import Pact.Types.Hash
 import Pact.Types.Persistence (RowKey, TxLog, Domain)
 import Pact.Types.RowData (RowData)
@@ -76,7 +75,7 @@ local
     -> Maybe BlockHeight
     -> ChainwebTransaction
     -> PactQueue
-    -> IO (MVar (Either PactException (Either MetadataValidationFailure (CommandResult Hash))))
+    -> IO (MVar (Either PactException LocalResult))
 local preflight sigVerify rd ct reqQ = do
     !resultVar <- newEmptyMVar
     let !msg = LocalMsg LocalReq

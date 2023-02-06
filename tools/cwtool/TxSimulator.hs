@@ -101,7 +101,7 @@ simulate sc@(SimConfig dbDir txIdx' _ _ cid ver) = do
               PactDbEnv' pde <-
                 _cpRestore cp $ Just (succ (_blockHeight parent), _blockHash parent)
               mc <- readInitModules logger pde txc
-              (T2 !cr _mc) <-
+              T3 !cr _mc _ <-
                 trace (logFunction cwLogger) "applyCmd" () 1 $
                   applyCmd ver logger gasLogger pde miner (getGasModel txc)
                   txc noSPVSupport cmd (initGas cmdPwt) mc ApplySend

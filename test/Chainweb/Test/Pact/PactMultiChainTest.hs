@@ -287,7 +287,7 @@ pact45UpgradeTest = do
   buildSimpleCmd code = buildBasicGas 3000
       $ mkExec' code
 
-runLocal :: ChainId -> CmdBuilder -> PactTestM (Either PactException (Either MetadataValidationFailure (CommandResult Hash)))
+runLocal :: ChainId -> CmdBuilder -> PactTestM (Either PactException LocalResult)
 runLocal cid' cmd = do
   HM.lookup cid' <$> view menvPacts >>= \case
     Just pact -> buildCwCmd cmd >>=
@@ -298,11 +298,11 @@ assertLocalFailure
     :: (HasCallStack, MonadIO m)
     => String
     -> Doc
-    -> Either PactException (Either MetadataValidationFailure (CommandResult Hash))
+    -> Either PactException LocalResult
     -> m ()
 assertLocalFailure s d lr =
   liftIO $ assertEqual s (Just d) $
-    lr ^? _Right . _Right . crResult . to _pactResult . _Left . to peDoc
+    lr ^? _Right . _LocalResultLegacy . crResult . to _pactResult . _Left . to peDoc
 
 pact43UpgradeTest :: PactTestM ()
 pact43UpgradeTest = do

@@ -44,6 +44,7 @@ module Chainweb.Pact.Types
   , txGasId
   , txLogs
   , txCache
+  , txWarnings
 
     -- * Transaction Env
   , TransactionEnv(..)
@@ -152,6 +153,7 @@ import Data.Aeson hiding (Error,(.=))
 import Data.Default (def)
 import Data.HashMap.Strict (HashMap)
 import qualified Data.HashMap.Strict as HM
+import Data.Set (Set)
 import qualified Data.Map.Strict as M
 import Data.Text (pack, unpack, Text)
 import Data.Vector (Vector)
@@ -172,7 +174,7 @@ import Pact.Types.Gas
 import qualified Pact.Types.Logger as P
 import Pact.Types.Names
 import Pact.Types.Persistence (ExecutionMode, TxLogJson)
-import Pact.Types.Runtime (ExecutionConfig(..), ModuleData(..))
+import Pact.Types.Runtime (ExecutionConfig(..), ModuleData(..), PactWarning)
 import Pact.Types.SPV
 import Pact.Types.Term
 
@@ -246,6 +248,7 @@ data TransactionState = TransactionState
     , _txGasUsed :: !Gas
     , _txGasId :: !(Maybe GasId)
     , _txGasModel :: !GasModel
+    , _txWarnings :: Set PactWarning
     }
 makeLenses ''TransactionState
 
