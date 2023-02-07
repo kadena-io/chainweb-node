@@ -35,6 +35,7 @@ import Control.Lens
 
 import Data.Decimal (decimalPlaces)
 import Data.Maybe (isJust, catMaybes)
+import Data.List.NonEmpty (NonEmpty, nonEmpty)
 import Data.Text (Text)
 import Data.Word (Word8)
 
@@ -65,7 +66,7 @@ assertLocalMetadata
     :: P.Command (P.Payload P.PublicMeta c)
     -> TxContext
     -> Maybe LocalSignatureVerification
-    -> PactServiceM tbl (Either [Text] ())
+    -> PactServiceM tbl (Either (NonEmpty Text) ())
 assertLocalMetadata cmd@(P.Command pay sigs hsh) txCtx sigVerify = do
     v <- view psVersion
     cid <- view psChainId
@@ -75,7 +76,7 @@ assertLocalMetadata cmd@(P.Command pay sigs hsh) txCtx sigVerify = do
         nid = P._pNetworkId pay
         signers = P._pSigners pay
 
-    let vs = catMaybes
+    let errs = catMaybes
           [ eUnless "Unparseable transaction chain id" $ assertParseChainId pcid
           , eUnless "Chain id mismatch" $ assertChainId cid pcid
           , eUnless "Transaction Gas limit exceeds block gas limit" $ assertBlockGasLimit bgl gl
@@ -86,9 +87,9 @@ assertLocalMetadata cmd@(P.Command pay sigs hsh) txCtx sigVerify = do
           , eUnless "Tx time outside of valid range" $ assertTxTimeRelativeToParent pct cmd
           ]
 
-    pure $ case vs of
-      [] -> Right ()
-      xs -> Left xs
+    pure $ case nonEmpty errs of
+      Nothing -> Right ()
+      Just vs -> Left vs
   where
     sigValidate signers
       | Just NoVerify <- sigVerify = True
