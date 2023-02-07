@@ -729,6 +729,7 @@ applyExec' initialGas interp (ExecMsg parsedCode execData) senderSigs hsh nsp
           <&> disablePact420Natives pactFlags
           <&> disablePact43Natives pactFlags
           <&> disablePact431Natives pactFlags
+          <&> disablePact46Natives pactFlags
       setEnvGas initialGas eenv
 
       er <- liftIO $! evalExec interp eenv parsedCode
@@ -840,6 +841,7 @@ applyContinuation' initialGas interp cm@(ContMsg pid s rb d _) senderSigs hsh ns
           <&> disablePact40Natives pactFlags
           <&> disablePact420Natives pactFlags
           <&> disablePact43Natives pactFlags
+          <&> disablePact46Natives pactFlags
     setEnvGas initialGas eenv
 
     er <- liftIO $! evalContinuation interp eenv cm
