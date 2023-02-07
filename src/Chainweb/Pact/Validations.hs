@@ -35,6 +35,7 @@ import Control.Lens
 
 import Data.Decimal (decimalPlaces)
 import Data.Maybe (isJust)
+import Data.Text (Text)
 import Data.Word (Word8)
 
 -- internal modules
@@ -64,7 +65,7 @@ assertLocalMetadata
     :: P.Command (P.Payload P.PublicMeta c)
     -> TxContext
     -> Maybe LocalSignatureVerification
-    -> PactServiceM tbl (Either MetadataValidationFailure ())
+    -> PactServiceM tbl (Either Text ())
 assertLocalMetadata cmd@(P.Command pay sigs hsh) txCtx sigVerify = do
     v <- view psVersion
     cid <- view psChainId
@@ -97,7 +98,7 @@ assertLocalMetadata cmd@(P.Command pay sigs hsh) txCtx sigVerify = do
 
     eUnless t assertion
       | assertion = Right ()
-      | otherwise = Left $ MetadataValidationFailure t
+      | otherwise = Left t
 
 -- | Check whether a particular Pact chain id is parseable
 --

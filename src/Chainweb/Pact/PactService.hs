@@ -68,6 +68,7 @@ import qualified Pact.Types.Hash as P
 import qualified Pact.Types.Logger as P
 import qualified Pact.Types.Runtime as P
 import qualified Pact.Types.SPV as P
+import qualified Pact.Types.Pretty as P
 
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
@@ -437,6 +438,7 @@ attemptBuyGas miner (PactDbEnv' dbEnv) txs = do
                 , _txGasUsed = 0
                 , _txGasId = Nothing
                 , _txGasModel = P._geGasModel P.freeGasEnv
+                , _txWarnings = mempty
                 }
 
         buyGasEnv <- createGasEnv db cmd gasPrice gasLimit
@@ -630,7 +632,7 @@ execLocal
       -- ^ turn off signature verification checks?
     -> Maybe BlockHeight
       -- ^ rewind depth (note: this is a *depth*, not an absolute height)
-    -> PactServiceM tbl (Either MetadataValidationFailure (P.CommandResult P.Hash))
+    -> PactServiceM tbl LocalResult
 execLocal cwtx preflight sigVerify rdepth = withDiscardedBatch $ do
     PactServiceEnv{..} <- ask
 
@@ -668,20 +670,25 @@ execLocal cwtx preflight sigVerify rdepth = withDiscardedBatch $ do
           Just PreflightSimulation -> do
             assertLocalMetadata cmd ctx sigVerify >>= \case
               Right{} -> do
-                T2 cr _mc' <- liftIO $ applyCmd
+                T3 cr _mc warns <- liftIO $ applyCmd
                   _psVersion logger _psGasLogger pdbenv
                   noMiner chainweb213GasModel ctx spv cmd
                   initialGas mc ApplyLocal
-                pure $ Right cr
-              Left e -> pure $ Left e
+
+                let cr' = toHashCommandResult cr
+                    warns' = P.renderCompactText <$> toList warns
+                pure $ LocalResultWithWarns cr' warns'
+              Left e -> pure $ MetadataValidationFailure e
           _ ->  liftIO $ do
             cr <- applyLocal
               logger _psGasLogger pdbenv
               chainweb213GasModel ctx spv
               cwtx mc execConfig
-            pure $ Right cr
 
-        return $ Discard (toHashCommandResult <$> r)
+            let cr' = toHashCommandResult cr
+            pure $ LocalResultLegacy cr'
+
+        return $ Discard r
 
 execSyncToBlock
     :: CanReadablePayloadCas tbl

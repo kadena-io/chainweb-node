@@ -343,7 +343,7 @@ localHandler
     -> Maybe BlockHeight
       -- ^ Rewind depth
     -> Command Text
-    -> Handler (CommandResult Hash)
+    -> Handler LocalResult
 localHandler logger pact preflight sigVerify rewindDepth cmd = do
     liftIO $ logg Info $ PactCmdLogLocal cmd
     cmd' <- case doCommandValidation cmd of
@@ -355,9 +355,10 @@ localHandler logger pact preflight sigVerify rewindDepth cmd = do
     case r of
       Left err -> throwError $ err400
         { errBody = "Execution failed: " <> BSL8.pack (show err) }
-      Right (Left (MetadataValidationFailure e)) -> throwError $ err400
-        { errBody = "Metadata validation failed: " <> BSL8.pack (show e) }
-      Right (Right resp) -> pure resp
+      Right (MetadataValidationFailure e) -> do
+        throwError $ err400
+          { errBody = "Metadata validation failed: " <> BSL8.pack (show e) }
+      Right lr -> pure lr
   where
     logg = logFunctionJson (setComponent "local-handler" logger)
 

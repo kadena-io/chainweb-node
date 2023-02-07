@@ -38,7 +38,6 @@ import Chainweb.Payload
 import Chainweb.Transaction
 import Chainweb.Utils (T2)
 
-import Pact.Types.Command
 import Pact.Types.Hash
 import Pact.Types.Persistence (RowKey, TxLog)
 
@@ -66,7 +65,7 @@ data PactExecutionService = PactExecutionService
         Maybe LocalSignatureVerification ->
         Maybe BlockHeight ->
         ChainwebTransaction ->
-        IO (Either PactException (Either MetadataValidationFailure (CommandResult Hash))))
+        IO (Either PactException LocalResult))
       -- ^ Directly execute a single transaction in "local" mode (all DB interactions rolled back).
       -- Corresponds to `local` HTTP endpoint.
     , _pactLookup :: !(
