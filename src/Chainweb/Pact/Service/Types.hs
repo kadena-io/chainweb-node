@@ -107,7 +107,7 @@ data LocalPreflightSimulation
 -- | The type of local results (used in /local endpoint)
 --
 data LocalResult
-    = MetadataValidationFailure !Text
+    = MetadataValidationFailure ![Text]
     | LocalResultWithWarns !(CommandResult Hash) ![Text]
     | LocalResultLegacy !(CommandResult Hash)
     deriving (Show, Generic)
@@ -121,7 +121,7 @@ instance NFData LocalResult where
 
 instance ToJSON LocalResult where
   toJSON (MetadataValidationFailure e) = object
-    [ "preflightValidationFailure" .= toJSON e ]
+    [ "preflightValidationFailures" .= e ]
   toJSON (LocalResultLegacy cr) = toJSON cr
   toJSON (LocalResultWithWarns cr ws) = object
     [ "preflightResult" .= cr
