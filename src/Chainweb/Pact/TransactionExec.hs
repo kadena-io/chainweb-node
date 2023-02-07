@@ -181,7 +181,8 @@ applyCmd v logger gasLogger pdbenv miner gasModel txCtx spv cmd initialGas mcach
           ++ enablePact431 txCtx
           ++ enablePact44 txCtx
           ++ enablePact45 txCtx
-          ++ enableNewTrans txCtx )
+          ++ enableNewTrans txCtx
+          ++ enablePact46 txCtx )
 
     cenv = TransactionEnv Transactional pdbenv logger gasLogger (ctxToPublicData txCtx) spv nid gasPrice
       requestKey (fromIntegral gasLimit) executionConfigNoHistory
@@ -792,6 +793,11 @@ enableNewTrans tc
     | pact44NewTrans (ctxVersion tc) (ctxCurrentBlockHeight tc) = []
     | otherwise = [FlagDisableNewTrans]
 
+enablePact46 :: TxContext -> [ExecutionFlag]
+enablePact46 tc
+    | chainweb218Pact (ctxVersion tc) (ctxCurrentBlockHeight tc) = []
+    | otherwise = [FlagDisablePact46]
+
 -- | Execute a 'ContMsg' and return the command result and module cache
 --
 applyContinuation
@@ -1069,6 +1075,10 @@ disablePact43Natives = disablePactNatives ["create-principal", "validate-princip
 disablePact431Natives :: ExecutionConfig -> EvalEnv e -> EvalEnv e
 disablePact431Natives = disablePactNatives ["is-principal", "typeof-principal"] FlagDisablePact431
 {-# INLINE disablePact431Natives #-}
+
+disablePact46Natives :: ExecutionConfig -> EvalEnv e -> EvalEnv e
+disablePact46Natives = disablePactNatives ["point-add", "scalar-mult", "pairing-check"] FlagDisablePact46
+{-# INLINE disablePact46Natives #-}
 
 -- | Set the module cache of a pact 'EvalState'
 --
