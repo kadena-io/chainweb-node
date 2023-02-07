@@ -67,6 +67,7 @@ module Chainweb.Version
 , chainweb215Pact
 , chainweb216Pact
 , chainweb217Pact
+, chainweb218Pact
 , pact44NewTrans
 
 -- ** BlockHeader Validation Guards
@@ -1022,6 +1023,21 @@ chainweb217Pact aoa v h = case aoa of
     go f Development = f 470
     go f (FastTimedCPM g) | g == petersonChainGraph = f 55
     go f _ = f 20
+
+chainweb218Pact
+    :: AtOrAfter
+    -> ChainwebVersion
+    -> BlockHeight
+    -> Bool
+chainweb218Pact aoa v h = case aoa of
+    At -> go (==) v h
+    After -> go (<) v h
+  where
+    go f Mainnet01 = f $ error "TODO"
+    go f Testnet04 = f $ error "TODO"
+    go f Development = f 480
+    go f (FastTimedCPM g) | g == petersonChainGraph = f 60
+    go f _ = f 25
 
 -- -------------------------------------------------------------------------- --
 -- Header Validation Guards
