@@ -131,9 +131,7 @@ library
     -DLZ4
     -DZSTD
     -DROCKSDB_BACKTRACE
-    -march=x86-64
     -mtune=generic
-    -msse3
     -DROCKSDB_SUPPORT_THREAD_LOCAL
     -fno-omit-frame-pointer
     -momit-leaf-frame-pointer
@@ -142,6 +140,11 @@ library
     -Wnon-virtual-dtor
     -Wno-missing-field-initializers
     -O2
+
+  if arch(x86_64)
+    cxx-options:
+      -march=x86-64
+      -msse3
 
   if flag(with-tbb)
     cxx-options:
