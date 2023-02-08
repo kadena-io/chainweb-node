@@ -357,7 +357,7 @@ localHandler logger pact preflight sigVerify rewindDepth cmd = do
         { errBody = "Execution failed: " <> BSL8.pack (show err) }
       Right (MetadataValidationFailure e) -> do
         throwError $ err400
-          { errBody = "Metadata validation failed: " <> BSL8.pack (show e) }
+          { errBody = "Metadata validation failed: " <> Aeson.encode e }
       Right lr -> pure lr
   where
     logg = logFunctionJson (setComponent "local-handler" logger)
