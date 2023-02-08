@@ -34,7 +34,9 @@ module Chainweb.Pact.Validations
 import Control.Lens
 
 import Data.Decimal (decimalPlaces)
-import Data.Maybe (isJust)
+import Data.Maybe (isJust, catMaybes)
+import Data.List.NonEmpty (NonEmpty, nonEmpty)
+import Data.Text (Text)
 import Data.Word (Word8)
 
 -- internal modules
@@ -64,7 +66,7 @@ assertLocalMetadata
     :: P.Command (P.Payload P.PublicMeta c)
     -> TxContext
     -> Maybe LocalSignatureVerification
-    -> PactServiceM tbl (Either MetadataValidationFailure ())
+    -> PactServiceM tbl (Either (NonEmpty Text) ())
 assertLocalMetadata cmd@(P.Command pay sigs hsh) txCtx sigVerify = do
     v <- view psVersion
     cid <- view psChainId
@@ -74,16 +76,20 @@ assertLocalMetadata cmd@(P.Command pay sigs hsh) txCtx sigVerify = do
         nid = P._pNetworkId pay
         signers = P._pSigners pay
 
-    pure $ sequence_
-      [ eUnless "Unparseable transaction chain id" $ assertParseChainId pcid
-      , eUnless "Chain id mismatch" $ assertChainId cid pcid
-      , eUnless "Transaction Gas limit exceeds block gas limit" $ assertBlockGasLimit bgl gl
-      , eUnless "Gas price decimal precision too high" $ assertGasPrice gp
-      , eUnless "Network id mismatch" $ assertNetworkId v nid
-      , eUnless "Signature list size too big" $ assertSigSize sigs
-      , eUnless "Invalid transaction signatures" $ sigValidate signers
-      , eUnless "Tx time outside of valid range" $ assertTxTimeRelativeToParent pct cmd
-      ]
+    let errs = catMaybes
+          [ eUnless "Unparseable transaction chain id" $ assertParseChainId pcid
+          , eUnless "Chain id mismatch" $ assertChainId cid pcid
+          , eUnless "Transaction Gas limit exceeds block gas limit" $ assertBlockGasLimit bgl gl
+          , eUnless "Gas price decimal precision too high" $ assertGasPrice gp
+          , eUnless "Network id mismatch" $ assertNetworkId v nid
+          , eUnless "Signature list size too big" $ assertSigSize sigs
+          , eUnless "Invalid transaction signatures" $ sigValidate signers
+          , eUnless "Tx time outside of valid range" $ assertTxTimeRelativeToParent pct cmd
+          ]
+
+    pure $ case nonEmpty errs of
+      Nothing -> Right ()
+      Just vs -> Left vs
   where
     sigValidate signers
       | Just NoVerify <- sigVerify = True
@@ -96,8 +102,8 @@ assertLocalMetadata cmd@(P.Command pay sigs hsh) txCtx sigVerify = do
       $ txCtx
 
     eUnless t assertion
-      | assertion = Right ()
-      | otherwise = Left $ MetadataValidationFailure t
+      | assertion = Nothing
+      | otherwise = Just t
 
 -- | Check whether a particular Pact chain id is parseable
 --

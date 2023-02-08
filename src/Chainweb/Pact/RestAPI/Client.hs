@@ -160,7 +160,7 @@ pactLocalWithQueryApiClient_
     -> Maybe LocalSignatureVerification
     -> Maybe BlockHeight
     -> Command T.Text
-    -> ClientM (CommandResult Hash)
+    -> ClientM LocalResult
 pactLocalWithQueryApiClient_ = client (pactLocalWithQueryApi @v @c)
 
 pactLocalWithQueryApiClient
@@ -170,7 +170,7 @@ pactLocalWithQueryApiClient
     -> Maybe LocalSignatureVerification
     -> Maybe BlockHeight
     -> Command T.Text
-    -> ClientM (CommandResult Hash)
+    -> ClientM LocalResult
 pactLocalWithQueryApiClient
     (FromSingChainwebVersion (SChainwebVersion :: Sing v))
     (FromSingChainId (SChainId :: Sing c))
