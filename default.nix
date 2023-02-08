@@ -51,9 +51,8 @@ pkgs.haskell.packages.${compiler}.developPackage {
           preConfigure = (attrs.preConfigure or "") +
             pkgs.lib.optionalString (!pkgs.stdenv.hostPlatform.sse4_2Support) ''
               perl -i -ne 'print unless /HAVE_SSE42/;' rocksdb-haskell-kadena.cabal
-            '' +
-            pkgs.lib.optionalString (pkgs.stdenv.hostPlatform.system == "aarch64-darwin") ''
-              patch -p1 < ${./rocksdb-arm64.patch}
+              perl -i -ne 'print unless /msse3/;' rocksdb-haskell-kadena.cabal
+              perl -i -ne 'print unless /march=x86-64/;' rocksdb-haskell-kadena.cabal
             '';
           librarySystemDepends = (attrs.librarySystemDepends or []) ++ [
             pkgs.snappy.dev
