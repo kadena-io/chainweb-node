@@ -1027,8 +1027,8 @@ chainweb217Pact aoa v h = case aoa of
 -- | Pact changes for Chainweb 2.13
 --
 chainweb218Pact :: ChainwebVersion -> BlockHeight -> Bool
-chainweb218Pact Mainnet01 = error "todo: fill"
-chainweb218Pact Testnet04 = error "todo: fill"
+chainweb218Pact Mainnet01 = (>= 3518107)
+chainweb218Pact Testnet04 = (>= 3036950)
 chainweb218Pact Development = (>= 500)
 chainweb218Pact (FastTimedCPM g) | g == petersonChainGraph = (> 60)
 chainweb218Pact _ = const True
