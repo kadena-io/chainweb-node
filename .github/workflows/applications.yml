@@ -238,10 +238,9 @@ jobs:
           documentation: False
           benchmarks: True
           tests: True
-          ghc-options: -Wno-unused-packages
+          ghc-options: -Wunused-packages
         package pact
           documentation: False
-          ghc-options: -Wno-unused-packages
         EOF
 
     - name: Configure Optimization Level
