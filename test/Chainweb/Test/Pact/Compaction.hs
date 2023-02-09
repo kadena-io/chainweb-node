@@ -126,6 +126,11 @@ testCompactCheckpointer =
       [ ( "A", rd1 )
       , ( "B", rd2 ) ]
 
+    -- test coverage TODOs
+    -- create table
+    -- restart robustness
+    -- check hashes against haskell-computed sha256
+
 
 
 
