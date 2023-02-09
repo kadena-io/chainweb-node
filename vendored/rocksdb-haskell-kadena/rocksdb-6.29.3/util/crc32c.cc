@@ -355,6 +355,7 @@ static inline void Slow_CRC32(uint64_t* l, uint8_t const **p) {
   table0_[c >> 24];
 }
 
+#if defined(__linux__)
 #if (!(defined(HAVE_POWER8) && defined(HAS_ALTIVEC))) && \
         (!defined(HAVE_ARM64_CRC)) ||                    \
     defined(NO_THREEWAY_CRC32C)
@@ -371,6 +372,7 @@ static inline void Fast_CRC32(uint64_t* l, uint8_t const **p) {
   *p += 4;
 #endif
 }
+#endif
 #endif
 
 template<void (*CRC32)(uint64_t*, uint8_t const**)>
