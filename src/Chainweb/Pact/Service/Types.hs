@@ -30,6 +30,7 @@ import Control.Applicative
 
 import Data.Aeson
 import Data.Map (Map)
+import Data.List.NonEmpty (NonEmpty)
 import Data.Text (Text, pack, unpack)
 import Data.Vector (Vector)
 
@@ -121,7 +122,7 @@ instance FromJSON BlockValidationFailureMsg where
 -- | The type of local results (used in /local endpoint)
 --
 data LocalResult
-    = MetadataValidationFailure !Text
+    = MetadataValidationFailure !(NonEmpty Text)
     | LocalResultWithWarns !(CommandResult Hash) ![Text]
     | LocalResultLegacy !(CommandResult Hash)
     deriving (Show, Generic)
@@ -135,7 +136,7 @@ instance NFData LocalResult where
 
 instance ToJSON LocalResult where
     toJSON (MetadataValidationFailure e) = object
-        [ "preflightValidationFailure" .= e ]
+        [ "preflightValidationFailures" .= e ]
     toJSON (LocalResultLegacy cr) = toJSON cr
     toJSON (LocalResultWithWarns cr ws) = object
         [ "preflightResult" .= cr
@@ -143,7 +144,7 @@ instance ToJSON LocalResult where
         ]
 
     toEncoding (MetadataValidationFailure e) = pairs
-        $ "preflightValidationFailure" .= e
+        $ "preflightValidationFailures" .= e
     toEncoding (LocalResultLegacy cr) = toEncoding cr
     toEncoding (LocalResultWithWarns cr ws) = pairs
         $ "preflightResult" .= cr

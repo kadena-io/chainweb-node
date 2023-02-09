@@ -483,7 +483,7 @@ withServiceDate lf (Just t) inner = race timer inner >>= \case
 
     warning :: Text
     warning = T.concat
-        [ "This version of chainweb node will stop to work at " <> sshow t <> "."
+        [ "This version of chainweb node will stop working at " <> sshow t <> "."
         , " Please upgrade to a new version before that date."
         ]
 
