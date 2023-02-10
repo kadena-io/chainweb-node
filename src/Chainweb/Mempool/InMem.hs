@@ -66,7 +66,7 @@ import Chainweb.Logger
 import Chainweb.Mempool.CurrentTxs
 import Chainweb.Mempool.InMemTypes
 import Chainweb.Mempool.Mempool
-import Chainweb.Pact.Utils (maxTTL)
+import Chainweb.Pact.Validations (defaultMaxTTL, defaultMaxCoinDecimalPlaces)
 import Chainweb.Time
 import Chainweb.Utils
 import Chainweb.Version (ChainwebVersion)
@@ -265,7 +265,7 @@ addToBadListInMem lock txs = withMVarMasked lock $ \mdata -> do
     let !pnd' = foldl' (flip HashMap.delete) pnd txs
     -- we don't have the expiry time here, so just use maxTTL
     now <- getCurrentTimeIntegral
-    let (ParsedInteger mt) = maxTTL
+    let (ParsedInteger mt) = defaultMaxTTL
     let !endTime = add (secondsToTimeSpan $ fromIntegral mt) now
     let !bad' = foldl' (\h tx -> HashMap.insert tx endTime h) bad txs
     writeIORef (_inmemPending mdata) pnd'
@@ -364,7 +364,7 @@ validateOne cfg badmap curTxIdx now t h =
     gasPriceRoundingCheck =
         ebool_ (InsertErrorOther msg) (f (txGasPrice txcfg t))
       where
-        f (GasPrice (ParsedDecimal d)) = decimalPlaces d <= 12
+        f (GasPrice (ParsedDecimal d)) = decimalPlaces d <= defaultMaxCoinDecimalPlaces
         msg = mconcat
             [ "This  transaction's gas price: "
             , sshow (txGasPrice txcfg t)

@@ -52,7 +52,7 @@ import Chainweb.Transaction
 import Chainweb.Version
 import Chainweb.WebPactExecutionService
 
-import Data.CAS.RocksDB
+import Chainweb.Storage.Table.RocksDB
 
 -- -------------------------------------------------------------------------- --
 -- Single Chain Resources
@@ -78,13 +78,13 @@ instance HasChainId (ChainResources logger) where
 --
 withChainResources
     :: Logger logger
-    => PayloadCasLookup cas
+    => CanReadablePayloadCas tbl
     => ChainwebVersion
     -> ChainId
     -> RocksDb
     -> logger
     -> (MVar PactExecutionService -> Mempool.InMemConfig ChainwebTransaction)
-    -> PayloadDb cas
+    -> PayloadDb tbl
     -> FilePath
         -- ^ database directory for checkpointer
     -> PactServiceConfig

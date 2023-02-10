@@ -21,7 +21,6 @@ import Control.Lens
 import Control.Concurrent.Async
 import Control.Monad
 import Control.Monad.Catch
-import Data.CAS.RocksDB
 import Data.HashSet(HashSet)
 import Data.String
 import qualified Data.Text as T
@@ -40,6 +39,8 @@ import Chainweb.Logger
 import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.Backend.Utils(chainDbFileName, withSqliteDb)
 import Chainweb.Utils
+
+import Chainweb.Storage.Table.RocksDB
 
 data BackupOptions = BackupOptions
     { _backupIdentifier :: !FilePath

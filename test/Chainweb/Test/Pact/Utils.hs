@@ -5,6 +5,7 @@
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TemplateHaskell #-}
@@ -124,8 +125,7 @@ import Control.Monad.IO.Class
 
 import Data.Aeson (Value(..), object, (.=))
 import Data.ByteString (ByteString)
-import Data.CAS.HashMap hiding (toList)
-import Data.CAS.RocksDB
+import qualified Data.ByteString.Short as BS
 import Data.Decimal
 import Data.Default (def)
 import Data.Foldable
@@ -203,6 +203,9 @@ import qualified Chainweb.Version as Version
 import Chainweb.Version.Utils (someChainId)
 import Chainweb.WebBlockHeaderDB
 import Chainweb.WebPactExecutionService
+
+import Chainweb.Storage.Table.HashMap hiding (toList)
+import Chainweb.Storage.Table.RocksDB
 
 -- ----------------------------------------------------------------------- --
 -- Keys
@@ -283,7 +286,7 @@ mkEvent
     -> m PactEvent
 mkEvent n params m mh = do
   mh' <- decodeB64UrlNoPaddingText mh
-  return $ PactEvent n params m (ModuleHash (Hash mh'))
+  return $ PactEvent n params m (ModuleHash (Hash $ BS.toShort mh'))
 
 mkTransferEvent
     :: MonadThrow m
@@ -573,32 +576,32 @@ pactTestLogger showAll = initLoggers putStrLn f def
 
 -- | Test Pact Execution Context for running inside 'PactServiceM'.
 -- Only used internally.
-data TestPactCtx cas = TestPactCtx
+data TestPactCtx tbl = TestPactCtx
     { _testPactCtxState :: !(MVar PactServiceState)
-    , _testPactCtxEnv :: !(PactServiceEnv cas)
+    , _testPactCtxEnv :: !(PactServiceEnv tbl)
     }
 
 
-evalPactServiceM_ :: TestPactCtx cas -> PactServiceM cas a -> IO a
+evalPactServiceM_ :: TestPactCtx tbl -> PactServiceM tbl a -> IO a
 evalPactServiceM_ ctx pact = modifyMVar (_testPactCtxState ctx) $ \s -> do
     T2 a s' <- runPactServiceM s (_testPactCtxEnv ctx) pact
     return (s',a)
 
-destroyTestPactCtx :: TestPactCtx cas -> IO ()
+destroyTestPactCtx :: TestPactCtx tbl -> IO ()
 destroyTestPactCtx = void . takeMVar . _testPactCtxState
 
 -- | setup TestPactCtx, internal function.
 -- Use 'withPactCtxSQLite' in tests.
 testPactCtxSQLite
-  :: PayloadCasLookup cas
+  :: CanReadablePayloadCas tbl
   => ChainwebVersion
   -> Version.ChainId
   -> BlockHeaderDb
-  -> PayloadDb cas
+  -> PayloadDb tbl
   -> SQLiteEnv
   -> PactServiceConfig
   -> (TxContext -> GasModel)
-  -> IO (TestPactCtx cas,PactDbEnv')
+  -> IO (TestPactCtx tbl, PactDbEnv')
 testPactCtxSQLite v cid bhdb pdb sqlenv conf gasmodel = do
     (dbSt,cpe) <- initRelationalCheckpointer' initialBlockState sqlenv cpLogger v cid
     let rs = readRewards
@@ -607,9 +610,9 @@ testPactCtxSQLite v cid bhdb pdb sqlenv conf gasmodel = do
       <$!> newMVar (PactServiceState Nothing mempty ph noSPVSupport)
       <*> pure (pactServiceEnv cpe rs)
     evalPactServiceM_ ctx (initialPayloadState dummyLogger mempty v cid)
-    return (ctx,dbSt)
+    return (ctx, PactDbEnv' dbSt)
   where
-    initialBlockState = initBlockState $ Version.genesisHeight v cid
+    initialBlockState = initBlockState defaultModuleCacheLimit $ Version.genesisHeight v cid
     loggers = pactTestLogger False -- toggle verbose pact test logging
     cpLogger = newLogger loggers $ LogName ("Checkpointer" ++ show cid)
     pactServiceEnv cpe rs = PactServiceEnv
@@ -630,35 +633,34 @@ testPactCtxSQLite v cid bhdb pdb sqlenv conf gasmodel = do
         , _psGasLogger = Nothing
         , _psLoggers = loggers
         , _psBlockGasLimit = _pactBlockGasLimit conf
+        , _psChainId = cid
         }
 
 freeGasModel :: TxContext -> GasModel
 freeGasModel = const $ constGasModel 0
 
 
--- | A queue-less WebPactExecutionService (for all chains).
+-- | A queue-less WebPactExecutionService (for all chains)
+-- with direct chain access map for local.
 withWebPactExecutionService
     :: ChainwebVersion
+    -> PactServiceConfig
     -> TestBlockDb
     -> MemPoolAccess
     -> (TxContext -> GasModel)
-    -> (WebPactExecutionService -> IO a)
+    -> ((WebPactExecutionService,HM.HashMap ChainId PactExecutionService) -> IO a)
     -> IO a
-withWebPactExecutionService v bdb mempoolAccess gasmodel act =
+withWebPactExecutionService v pactConfig bdb mempoolAccess gasmodel act =
   withDbs $ \sqlenvs -> do
-    pacts <- fmap (mkWebPactExecutionService . HM.fromList)
+    pacts <- fmap HM.fromList
            $ traverse mkPact
            $ zip sqlenvs
            $ toList
            $ chainIds v
-    act pacts
+    act (mkWebPactExecutionService pacts, pacts)
   where
     withDbs f = foldl' (\soFar _ -> withDb soFar) f (chainIds v) []
-    withDb g envs =  withTempSQLiteConnection chainwebPragmas $ \s -> g (s : envs)
-
-    -- This is way more than what is used in production, but during testing
-    -- we can be generous.
-    pactConfig = defaultPactServiceConfig { _pactBlockGasLimit = 1_000_000 }
+    withDb g envs = withTempSQLiteConnection chainwebPragmas $ \s -> g (s : envs)
 
     mkPact (sqlenv, c) = do
         bhdb <- getBlockHeaderDb c bdb
@@ -668,8 +670,8 @@ withWebPactExecutionService v bdb mempoolAccess gasmodel act =
               evalPactServiceM_ ctx $ execNewBlock mempoolAccess p m
           , _pactValidateBlock = \h d ->
               evalPactServiceM_ ctx $ execValidateBlock mempoolAccess h d
-          , _pactLocal = \cmd ->
-              evalPactServiceM_ ctx $ Right <$> execLocal cmd
+          , _pactLocal = \pf sv rd cmd ->
+              evalPactServiceM_ ctx $ Right <$> execLocal cmd pf sv rd
           , _pactLookup = \rp hashes ->
               evalPactServiceM_ ctx $ Right <$> execLookupPactTxs rp hashes
           , _pactPreInsertCheck = \_ txs ->
@@ -720,16 +722,16 @@ freeSQLiteResource :: SQLiteEnv -> IO ()
 freeSQLiteResource sqlenv = void $ close_v2 $ _sConn sqlenv
 
 -- | Run in 'PactServiceM' with direct db access.
-type WithPactCtxSQLite cas = forall a . (PactDbEnv' -> PactServiceM cas a) -> IO a
+type WithPactCtxSQLite tbl = forall a . (PactDbEnv' -> PactServiceM tbl a) -> IO a
 
 -- | Used to run 'PactServiceM' functions directly on a database (ie not use checkpointer).
 withPactCtxSQLite
-  :: PayloadCasLookup cas
+  :: CanReadablePayloadCas tbl
   => ChainwebVersion
   -> IO BlockHeaderDb
-  -> IO (PayloadDb cas)
+  -> IO (PayloadDb tbl)
   -> PactServiceConfig
-  -> (WithPactCtxSQLite cas -> TestTree)
+  -> (WithPactCtxSQLite tbl -> TestTree)
   -> TestTree
 withPactCtxSQLite v bhdbIO pdbIO conf f =
   withResource
@@ -750,7 +752,7 @@ withPactCtxSQLite v bhdbIO pdbIO conf f =
 toTxCreationTime :: Integral a => Time a -> TxCreationTime
 toTxCreationTime (Time timespan) = TxCreationTime $ fromIntegral $ timeSpanToSeconds timespan
 
-withPayloadDb :: (IO (PayloadDb HashMapCas) -> TestTree) -> TestTree
+withPayloadDb :: (IO (PayloadDb HashMapTable) -> TestTree) -> TestTree
 withPayloadDb = withResource newPayloadDb mempty
 
 
@@ -840,7 +842,7 @@ withPactTestBlockDb version cid logLevel rdb mempoolIO pactConfig f =
         let pdb = _bdbPayloadDb bdb
         sqlEnv <- startSqliteDb cid logger dir False
         a <- async $ runForever (\_ _ -> return ()) "Chainweb.Test.Pact.Utils.withPactTestBlockDb" $
-            initPactService version cid logger reqQ mempool bhdb pdb sqlEnv pactConfig
+            runPactService version cid logger reqQ mempool bhdb pdb sqlEnv pactConfig
         return (a, sqlEnv, (reqQ,bdb))
 
     stopPact (a, sqlEnv, _) = cancel a >> stopSqliteDb sqlEnv

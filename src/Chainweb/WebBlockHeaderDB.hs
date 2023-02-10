@@ -1,8 +1,11 @@
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE UndecidableInstances #-}
+
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 
 -- |
@@ -40,7 +43,6 @@ import Control.Lens
 import Control.Monad
 import Control.Monad.Catch
 
-import Data.CAS
 import Data.Foldable
 import Data.Functor.Of
 import qualified Data.HashMap.Strict as HM
@@ -65,7 +67,8 @@ import Chainweb.TreeDB
 import Chainweb.Utils
 import Chainweb.Version
 
-import Data.CAS.RocksDB
+import Chainweb.Storage.Table
+import Chainweb.Storage.Table.RocksDB
 
 -- -------------------------------------------------------------------------- --
 -- Web Chain Database
@@ -113,12 +116,11 @@ instance IxedGet WebBlockHeaderDb where
     ixg i = webBlockHeaderDb . ix i
     {-# INLINE ixg #-}
 
-instance HasCasLookup WebBlockHeaderDb where
-    type CasValueType WebBlockHeaderDb = ChainValue BlockHeader
-    casLookup db k = case preview (ixg (_chainId k)) db of
+instance (k ~ CasKeyType (ChainValue BlockHeader)) => ReadableTable WebBlockHeaderDb k (ChainValue BlockHeader) where
+    tableLookup db k = case preview (ixg (_chainId k)) db of
         Nothing -> return Nothing
-        Just cdb -> sequence <$> traverse (casLookup cdb) k
-    {-# INLINE casLookup #-}
+        Just cdb -> sequence <$> traverse (tableLookup cdb) k
+    {-# INLINE tableLookup #-}
 
 initWebBlockHeaderDb
     :: RocksDb

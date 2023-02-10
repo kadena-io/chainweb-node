@@ -1,5 +1,6 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TemplateHaskell #-}
@@ -16,7 +17,6 @@ import Control.Monad.Catch
 import Control.Monad.Reader
 import Data.Aeson (object, (.=))
 import qualified Data.ByteString.Base64.URL as B64U
-import Data.CAS (casLookupM)
 import qualified Data.HashMap.Strict as HM
 import Data.IORef
 import qualified Data.Text as T
@@ -49,6 +49,7 @@ import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.PactService
 import Chainweb.Pact.Service.Types
 import Chainweb.Pact.TransactionExec (listErrMsg)
+import Chainweb.Pact.Types (TxTimeout(..))
 import Chainweb.Payload
 import Chainweb.SPV.CreateProof
 import Chainweb.Test.Cut
@@ -61,6 +62,8 @@ import Chainweb.Version
 import Chainweb.Version.Utils
 import Chainweb.WebPactExecutionService
 
+import Chainweb.Storage.Table (casLookupM)
+
 testVersion :: ChainwebVersion
 testVersion = FastTimedCPM peterson
 
@@ -70,6 +73,7 @@ cid = someChainId testVersion
 data MultiEnv = MultiEnv
     { _menvBdb :: TestBlockDb
     , _menvPact :: WebPactExecutionService
+    , _menvPacts :: HM.HashMap ChainId PactExecutionService
     , _menvMpa :: IO (IORef MemPoolAccess)
     , _menvMiner :: Miner
     , _menvChainId :: ChainId
@@ -109,23 +113,29 @@ tests = ScheduledTest testName go
   where
     testName = "Chainweb.Test.Pact.PactMultiChainTest"
     go = testGroup testName
-         [ multiChainTest freeGasModel "pact4coin3UpgradeTest" pact4coin3UpgradeTest
-         , multiChainTest freeGasModel "pact420UpgradeTest" pact420UpgradeTest
-         , multiChainTest freeGasModel "minerKeysetTest" minerKeysetTest
-         , multiChainTest getGasModel "chainweb213Test" chainweb213Test
-         , multiChainTest getGasModel "pact43UpgradeTest" pact43UpgradeTest
-         , multiChainTest getGasModel "pact431UpgradeTest" pact431UpgradeTest
-         , multiChainTest getGasModel "chainweb215Test" chainweb215Test
-         , multiChainTest getGasModel "chainweb216Test" chainweb216Test
+         [ test generousConfig freeGasModel "pact4coin3UpgradeTest" pact4coin3UpgradeTest
+         , test generousConfig freeGasModel "pact420UpgradeTest" pact420UpgradeTest
+         , test generousConfig freeGasModel "minerKeysetTest" minerKeysetTest
+         , test timeoutConfig freeGasModel "txTimeoutTest" txTimeoutTest
+         , test generousConfig getGasModel "chainweb213Test" chainweb213Test
+         , test generousConfig getGasModel "pact43UpgradeTest" pact43UpgradeTest
+         , test generousConfig getGasModel "pact431UpgradeTest" pact431UpgradeTest
+         , test generousConfig getGasModel "chainweb215Test" chainweb215Test
+         , test generousConfig getGasModel "chainweb216Test" chainweb216Test
+         , test generousConfig getGasModel "pact45UpgradeTest" pact45UpgradeTest
          ]
       where
-        multiChainTest gasmodel tname f =
+          -- This is way more than what is used in production, but during testing
+          -- we can be generous.
+        generousConfig = defaultPactServiceConfig { _pactBlockGasLimit = 300_000 }
+        timeoutConfig = defaultPactServiceConfig { _pactBlockGasLimit = 100_000 }
+        test pactConfig gasmodel tname f =
           withDelegateMempool $ \dmpio -> testCase tname $
             withTestBlockDb testVersion $ \bdb -> do
               (iompa,mpa) <- dmpio
-              withWebPactExecutionService testVersion bdb mpa gasmodel $ \pact ->
+              withWebPactExecutionService testVersion pactConfig bdb mpa gasmodel $ \(pact,pacts) ->
                 runReaderT f $
-                MultiEnv bdb pact (return iompa) noMiner cid
+                MultiEnv bdb pact pacts (return iompa) noMiner cid
 
 
 minerKeysetTest :: PactTestM ()
@@ -148,6 +158,16 @@ minerKeysetTest = do
 
     badMiner = Miner (MinerId "miner") $ MinerKeys $ mkKeySet ["bad-bad-bad"] "keys-all"
 
+txTimeoutTest :: PactTestM ()
+txTimeoutTest = do
+  -- get access to `enumerate`
+  runToHeight 20
+  handle (\(TxTimeout _) -> return ()) $ do
+    runBlockTest
+      -- deliberately time out in newblock
+      [PactTxTest (buildBasicGas 1000 $ mkExec' "(enumerate 0 999999999999)") (\_ -> assertFailure "tx succeeded")]
+    liftIO $ assertFailure "block succeeded"
+  runToHeight 26
 
 chainweb213Test :: PactTestM ()
 chainweb213Test = do
@@ -208,6 +228,81 @@ chainweb213Test = do
         , "  (defun fselect () (select tbl (constantly true))))"
         , "(create-table tbl)"
         ]
+
+pact45UpgradeTest :: PactTestM ()
+pact45UpgradeTest = do
+  runToHeight 53 -- 2 before fork
+  runBlockTest
+    [ PactTxTest
+      (buildBasicGas 70000 $ tblModule "tbl") $
+      assertTxSuccess "mod53 table created" $ pString "TableCreated"
+    ]
+  runBlockTest
+    [ PactTxTest (buildSimpleCmd "(enforce false 'hi)") $
+        assertTxFailure "Should fail with the error from the enforce" "hi"
+    , PactTxTest (buildSimpleCmd "(enforce true (format  \"{}-{}\" [12345, 657859]))") $
+        assertTxGas "Enforce pre-fork evaluates the string with gas" 34
+    , PactTxTest (buildSimpleCmd "(enumerate 0 10) (str-to-list 'hi) (make-list 10 'hi)") $
+        assertTxGas "List functions pre-fork gas" 20
+    , PactTxTest
+      (buildBasicGas 70000 $ tblModule "Tbl") $
+      assertTxSuccess "mod53 table update succeeds" $ pString "TableCreated"
+    , PactTxTest (buildCoinXfer "(coin.transfer 'sender00 'sender01 1.0)") $
+        assertTxGas "Coin transfer pre-fork" 1583
+    ]
+  -- chainweb217 fork
+  runBlockTest
+    [ PactTxTest (buildSimpleCmd "(+ 1 \'clearlyanerror)") $
+      assertTxFailure "Should replace tx error with empty error" ""
+    , PactTxTest (buildSimpleCmd "(enforce true (format  \"{}-{}\" [12345, 657859]))") $
+        assertTxGas "Enforce post fork does not eval the string" (14 + coinTxBuyTransferGas)
+    , PactTxTest (buildSimpleCmd "(enumerate 0 10) (str-to-list 'hi) (make-list 10 'hi)") $
+        assertTxGas "List functions post-fork change gas" (40 + coinTxBuyTransferGas)
+    , PactTxTest
+      (buildBasicGas 70000 $ tblModule "tBl") $
+      assertTxFailure "mod53 table update fails after fork" ""
+    , PactTxTest (buildCoinXfer "(coin.transfer 'sender00 'sender01 1.0)") $
+        assertTxGas "Coin post-fork" 709
+    ]
+  -- run local to check error
+  lr <- runLocal cid $ set cbGasLimit 70000 $ mkCmd "nonce" (tblModule "tBl")
+  assertLocalFailure "mod53 table update error"
+    (pretty $ show $ PactDuplicateTableError "free.mod53_tBl")
+    lr
+
+  where
+  tblModule tn = mkExec' $ T.replace "$TABLE$" tn
+      " (namespace 'free) \
+      \ (module mod53 G \
+      \   (defcap G () true) \
+      \   (defschema sch s:string) \
+      \   (deftable $TABLE$:{sch})) \
+      \ (create-table $TABLE$)"
+  buildCoinXfer code = buildBasic'
+    (set cbSigners [mkSigner' sender00 coinCaps] . set cbGasLimit 3000)
+    $ mkExec' code
+    where
+    coinCaps = [ mkGasCap, mkTransferCap "sender00" "sender01" 1.0 ]
+  coinTxBuyTransferGas = 216
+  buildSimpleCmd code = buildBasicGas 3000
+      $ mkExec' code
+
+runLocal :: ChainId -> CmdBuilder -> PactTestM (Either PactException LocalResult)
+runLocal cid' cmd = do
+  HM.lookup cid' <$> view menvPacts >>= \case
+    Just pact -> buildCwCmd cmd >>=
+      liftIO . _pactLocal pact Nothing Nothing Nothing
+    Nothing -> liftIO $ assertFailure $ "No pact service found at chain id " ++ show cid'
+
+assertLocalFailure
+    :: (HasCallStack, MonadIO m)
+    => String
+    -> Doc
+    -> Either PactException LocalResult
+    -> m ()
+assertLocalFailure s d lr =
+  liftIO $ assertEqual s (Just d) $
+    lr ^? _Right . _LocalResultLegacy . crResult . to _pactResult . _Left . to peDoc
 
 pact43UpgradeTest :: PactTestM ()
 pact43UpgradeTest = do
@@ -710,6 +805,7 @@ pact4coin3UpgradeTest = do
   -- block 22
   -- get proof
   xproof <- buildXProof cid 7 1 send0
+  cont <- buildCont send0
 
   let v3Hash = "1os_sLAUYvBzspn5jjawtRpJWiH1WPfhyNraeVvSIwU"
       block22 =
@@ -736,6 +832,10 @@ pact4coin3UpgradeTest = do
           assertTxFailure
           "Should not allow bad keys"
           "Invalid keyset"
+        , PactTxTest cont $
+          assertTxFailure'
+          "Attempt to continue xchain on same chain fails"
+          "yield provenance"
         ]
       block22_0 =
         [ PactTxTest (buildXReceive xproof) $ \cr -> do
@@ -783,6 +883,10 @@ pact4coin3UpgradeTest = do
       (set cbSigners [ mkSigner' sender00 []
                      , mkSigner' allocation00KeyPair []])
       $ mkExec' "(coin.release-allocation 'allocation00)"
+
+    buildCont sendTx = do
+      pid <- getPactId sendTx
+      return $ buildBasic $ mkCont (mkContMsg pid 1)
 
 
 -- =========================================================
@@ -851,10 +955,20 @@ assertTxSuccess msg r tx = do
   liftIO $ assertEqual msg (Just r)
     (tx ^? crResult . to _pactResult . _Right)
 
+-- | Exact match on error doc
 assertTxFailure :: (HasCallStack, MonadIO m) => String -> Doc -> CommandResult Hash -> m ()
 assertTxFailure msg d tx =
   liftIO $ assertEqual msg (Just d)
     (tx ^? crResult . to _pactResult . _Left . to peDoc)
+
+-- | Partial match on show of error doc
+assertTxFailure' :: (HasCallStack, MonadIO m) => String -> T.Text -> CommandResult Hash -> m ()
+assertTxFailure' msg needle tx =
+  liftIO $ assertSatisfies msg
+    (tx ^? crResult . to _pactResult . _Left . to peDoc) $ \case
+      Nothing -> False
+      Just d -> T.isInfixOf needle (sshow d)
+
 
 -- | Run a single mempool block on current chain with tests for each tx.
 -- Limitations: can only run a single-chain, single-refill test for
@@ -913,9 +1027,12 @@ buildXProof scid bh i sendTx = do
     bdb <- view menvBdb
     proof <- liftIO $ ContProof . B64U.encode . encodeToByteString <$>
       createTransactionOutputProof_ (_bdbWebBlockHeaderDb bdb) (_bdbPayloadDb bdb) chain0 scid bh i
-    pid <- fromMaybeM (userError "no continuation") $
-      preview (crContinuation . _Just . pePactId) sendTx
+    pid <- getPactId sendTx
     return (proof,pid)
+
+getPactId :: CommandResult l -> PactTestM PactId
+getPactId = fromMaybeM (userError "no continuation") .
+            preview (crContinuation . _Just . pePactId)
 
 buildXReceive
     :: (ContProof, PactId)
@@ -945,10 +1062,12 @@ buildBasic'
     :: (CmdBuilder -> CmdBuilder)
     -> PactRPC T.Text
     -> MempoolCmdBuilder
-buildBasic' s r = MempoolCmdBuilder $ \(MempoolInput _ bh) ->
-  s $ signSender00
+buildBasic' f r = MempoolCmdBuilder $ \(MempoolInput _ bh) ->
+  f $ signSender00
   $ setFromHeader bh
   $ mkCmd (sshow bh) r
+
+
 
 
 -- | Get output on latest cut for chain

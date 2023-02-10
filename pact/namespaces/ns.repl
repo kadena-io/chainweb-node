@@ -1,16 +1,31 @@
-(env-exec-config ["DisablePact44"])
+(env-exec-config ["DisablePact44", "DisablePact45"])
 (begin-tx)
+
 (env-data
  { 'ns-admin-keyset: ["admin"]
  , 'ns-operate-keyset: ["operate"]
  , 'ns-genesis-keyset: { "keys": [], "pred": "="} })
 
-(load "ns.pact")
+(load "v1/ns.pact")
+
 (commit-tx)
+(begin-tx)
+
+;; Test that we can upgrade ns.pact only when appropriate keys
+;; are in scope.
+(expect-failure
+  "Cannot upgrade the namespace contract due to governance failure"
+  "tx failure on upgrade"
+  (try (enforce false "tx failure on upgrade") (load "ns.pact")))
+
+(env-keys ['admin])
+(load "ns.pact")
+
+(commit-tx)
+(begin-tx)
 
 (env-namespace-policy false (ns.validate))
 
-(begin-tx)
 (namespace 'user)
 (env-keys [])
 
@@ -67,6 +82,7 @@
   (defcap G () (enforce false "disabled"))
   (defun foo () 4))
 (commit-tx)
+(begin-tx)
 
 (expect "kadena.mod2 works" 4 (kadena.mod2.foo))
 
@@ -85,3 +101,109 @@
 (expect-failure
   "must be latin1 charset"
   (write-registry "emilyπ" GUARD_SUCCESS true))
+
+(commit-tx)
+(begin-tx)
+
+(env-exec-config [])
+(env-data
+ { 'single :
+   ["70c787fcfe6c6f4ec23d13c2e94682bc90952f7cec06c7dbac1c012b0b6678b9"]
+ , 'multi : ["a", "b"]
+ })
+
+(expect
+ "single principal ns"
+ "n_c1a583206e24450af26de41110042b019695db8c"
+ (ns.create-principal-namespace (read-keyset 'single)))
+
+(expect
+ "multi principal ns"
+ "n_64bfdef1c668b167c87f7cf329454c572e284664"
+ (ns.create-principal-namespace (read-keyset 'multi)))
+
+(expect-failure
+  "Principal of other than admin keyset fails"
+  "Inactive or unregistered namespace"
+  (define-namespace
+   "n_c1a583206e24450af26de41110042b019695db8c"
+   (read-keyset 'single)
+   (read-keyset 'multi))
+)
+
+(define-namespace
+  "n_c1a583206e24450af26de41110042b019695db8c"
+  (read-keyset 'single)
+  (read-keyset 'single))
+
+(define-namespace
+  "n_64bfdef1c668b167c87f7cf329454c572e284664"
+  (read-keyset 'multi)
+  (read-keyset 'multi))
+
+(commit-tx)
+
+(begin-tx "test rotation")
+(env-keys
+  [ "70c787fcfe6c6f4ec23d13c2e94682bc90952f7cec06c7dbac1c012b0b6678b9" ])
+;; rotate to multi/multi
+(define-namespace
+  "n_c1a583206e24450af26de41110042b019695db8c"
+  (read-keyset 'multi)
+  (read-keyset 'multi))
+;; rotate to multi/single
+(env-keys ["a","b"])
+(define-namespace
+  "n_c1a583206e24450af26de41110042b019695db8c"
+  (read-keyset 'multi)
+  (read-keyset 'single))
+(rollback-tx)
+
+
+(begin-tx)
+(env-exec-config [])
+(env-keys
+  [ "70c787fcfe6c6f4ec23d13c2e94682bc90952f7cec06c7dbac1c012b0b6678b9"
+  , "a"
+  , "b"
+  ]
+  )
+
+(namespace "n_c1a583206e24450af26de41110042b019695db8c")
+(module modK G
+  (defcap G () true)
+  (defun f () 1))
+
+(namespace "n_64bfdef1c668b167c87f7cf329454c572e284664")
+(module modW G
+  (defcap G () true)
+  (defun f () 2))
+
+(commit-tx)
+(begin-tx)
+
+(expect
+  "k: principal namespaces work"
+  1
+  (n_c1a583206e24450af26de41110042b019695db8c.modK.f))
+
+(expect
+  "w: principal namespaces work"
+  2
+  (n_64bfdef1c668b167c87f7cf329454c572e284664.modW.f))
+
+(commit-tx)
+(begin-tx)
+
+(env-data
+  { "n_c1a583206e24450af26de41110042b019695db8c.failure": ['k]
+  })
+
+(namespace "n_c1a583206e24450af26de41110042b019695db8c")
+(define-keyset "n_c1a583206e24450af26de41110042b019695db8c.failure")
+
+(expect-failure
+  "r: principal namespaces do not work"
+  "Unsupported guard protocol: r:"
+  (ns.create-principal-namespace
+    (keyset-ref-guard "n_c1a583206e24450af26de41110042b019695db8c.failure")))

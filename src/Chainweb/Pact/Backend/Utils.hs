@@ -57,7 +57,7 @@ module Chainweb.Pact.Backend.Utils
   , chainwebPragmas
   ) where
 
-import Control.Exception (AsyncException, evaluate)
+import Control.Exception (SomeAsyncException, evaluate)
 import Control.Exception.Safe (tryAny)
 import Control.Lens
 import Control.Monad
@@ -166,7 +166,7 @@ withSavepoint name action = mask $ \resetMask -> do
         liftIO $ evaluate r
     throwErr s = internalError $ "withSavepoint (" <> toText name <> "): " <> s
     handlers = [ Handler $ \(e :: PactException) -> throwErr (sshow e)
-               , Handler $ \(e :: AsyncException) -> throwM e
+               , Handler $ \(e :: SomeAsyncException) -> throwM e
                , Handler $ \(e :: SomeException) -> throwErr ("non-pact exception: " <> sshow e)
                ]
 

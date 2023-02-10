@@ -1,5 +1,6 @@
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
@@ -66,7 +67,7 @@ import Chainweb.TreeDB
 import Chainweb.Utils
 import qualified Chainweb.Version as CW
 
-import Data.CAS
+import Chainweb.Storage.Table
 
 -- internal pact modules
 
@@ -283,9 +284,9 @@ ethResultToPactValue ReceiptProofValidation{..} = mkObject
 --
 getTxIdx
     :: HasCallStack
-    => PayloadCasLookup cas
+    => CanReadablePayloadCas tbl
     => BlockHeaderDb
-    -> PayloadDb cas
+    -> PayloadDb tbl
     -> BlockHeight
     -> PactHash
     -> IO (Either Text Int)

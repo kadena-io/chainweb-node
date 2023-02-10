@@ -1,5 +1,106 @@
 # `chainweb-node` Changelog
 
+## 2.17.2 (2022-12-22)
+
+This is a feature and bug-fix release. Upgrading is optional but recommended.
+
+To upgrade, pull the latest docker image or download the binary and restart the
+node.
+
+All 2.17* versions expire on **2023-03-02T00:00:00Z**.
+
+[Changes](https://github.com/kadena-io/chainweb-node/compare/2.17.1...2.17.2):
+
+Logging and Telemetry Changes:
+
+*   Add telemetry logging for Database size. (#1330)
+*   Make Pact service log asynchronous exceptions with log-level `warn` and not
+    `error`. (#1562)
+*   Log replay height based on time, not blocks. (#1563)
+*   Add telemetry logging for node top-level status. (#1561)
+
+Performance Improvements:
+
+*   Add module cache to checkpointer. (#1577)
+
+Bug Fixes:
+
+*   `withSavepoint` now catches `SomeAsyncException`. (#1576)
+*   Fix transfer cost for Rosetta transaction generator. (#1579)
+
+Miscellaneous:
+
+*   Censor `BackupConfig` from `config` endpoint. (#1569)
+*   Simulate whole block(s) in transaction simulator. (#1573)
+*   Fix some command line help messages. (#1574)
+
+## 2.17.1 (2022-12-02)
+
+This is a feature and bug-fix release. Upgrading is optional but recommended.
+
+To upgrade, pull the latest docker image or download the binary and restart the
+node.
+
+All 2.17* versions expire on **2023-03-02T00:00:00Z**.
+
+[Changes](https://github.com/kadena-io/chainweb-node/compare/2.17...2.17.1):
+
+
+Bug fixes:
+
+*   Fix `initialHeightLimit` CLI argument parsing to not override config file.
+    (#1566)
+*   Fix cut GET endpoint height limiting. (#1571)
+
+Miscellaneous:
+
+*   Add transaction simulator to cwtools. (#1558)
+
+## 2.17 (2022-11-17)
+
+This version replaces all previous versions. Any prior version will stop working
+on **2022-12-01T00:00:00Z**. Node administrators must upgrade to this version
+before that date.
+
+This version will expire on **2023-03-02T00:00:00Z**.
+
+To upgrade, pull the latest docker image or download the binary and restart the
+node.
+
+[Changes](https://github.com/kadena-io/chainweb-node/compare/2.16.1...2.17):
+
+*   Remove error messages from pact output for on-chain transactions. Dapps can
+    still retrieve transaction error messages from the `local` endpoint. (#1543)
+*   Implement a per-tx timeout during creation of new blocks to prevent mining
+    nodes from stalling when block creation takes too long. (#1546)
+*   Miscellaneous changes for fine tuning of the gas model. (#1554)
+
+Bug fixes:
+
+*   Filter Module Cache for just `coin` contract. (#1548)
+*   Prevent table name clashes in module. (#1556)
+
+## 2.16.1 (2022-11-07)
+
+This is a feature and bug-fix release. Upgrading is optional but recommended.
+
+To upgrade, pull the latest docker image or download the binary and restart the
+node.
+
+**NOTE**: This release upgrades the version of RocksDB. After upgrading to this
+version previous versions of chainweb-node will not be able to open the
+database. Additionally, when using the ubuntu binaries the set of required
+system dependencies changes. For details please see the [release
+nodes](https://github.com/kadena-io/chainweb-node/releases/tag/2.16.1).
+
+Changes:
+
+*   Upgrade RocksDB version (#1394)
+*   Support for partial replays (#1524)
+*   Allow enabling gas logs from configuration (#1525)
+*   Reduce volume of info level logging (#1526)
+*   Check file descriptor rlimit on startup (#1532)
+
 ## 2.16 (2022-08-23)
 
 This version replaces all previous versions. Any prior version will stop working
