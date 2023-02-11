@@ -216,8 +216,13 @@ jobs:
     #     for f in $(git ls-tree -r -t --full-name --name-only "$rev") ; do
     #       touch -d $(git log --pretty=format:%cI -1 "$rev" -- "$f") "$f";
     #     done
+
+    # work around for https://github.com/haskell/actions/issues/187
+    - name: Set permissions for .ghcup
+      if: startsWith(matrix.os, 'ubuntu-')
+      run: sudo chown -R $USER /usr/local/.ghcup
     - name: Install GHC and Cabal
-      uses: haskell/actions/setup@v2.0.1
+      uses: haskell/actions/setup@v2
       with:
          ghc-version: ${{ matrix.ghc }}
          cabal-version: ${{ matrix.cabal }}
@@ -238,10 +243,9 @@ jobs:
           documentation: False
           benchmarks: True
           tests: True
-          ghc-options: -Wno-unused-packages
+          ghc-options: -Wunused-packages
         package pact
           documentation: False
-          ghc-options: -Wno-unused-packages
         EOF
 
     - name: Configure Optimization Level
