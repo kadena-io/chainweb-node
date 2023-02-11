@@ -14,7 +14,6 @@ package chainweb
     extra-lib-dirs:
       /opt/local/lib
       /usr/local/opt/openssl/lib/
-    ghc-options: -Wunused-packages
 
 package pact
     ghc-options: -Wwarn
@@ -52,7 +51,7 @@ package yet-another-logger
 source-repository-package
     type: git
     location: https://github.com/kadena-io/pact.git
-    tag: bceff83121fc2be40df16ec90dadb6d682d1c85a
+    tag: 6c9f26a003e0ef63c06234b5e8f72a8348ab0d40
 
 source-repository-package
   type: git

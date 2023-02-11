@@ -68,6 +68,7 @@ module Chainweb.Version
 , chainweb215Pact
 , chainweb216Pact
 , chainweb217Pact
+, chainweb218Pact
 , pact44NewTrans
 
 -- ** BlockHeader Validation Guards
@@ -1025,6 +1026,16 @@ chainweb217Pact aoa v h = case aoa of
     go f Development = f 470
     go f (FastTimedCPM g) | g == petersonChainGraph = f 55
     go f _ = f 20
+
+-- | Pact changes for Chainweb 2.13
+--
+chainweb218Pact :: ChainwebVersion -> BlockHeight -> Bool
+chainweb218Pact Mainnet01 = (>= 3518107)
+chainweb218Pact Testnet04 = (>= 3036950)
+chainweb218Pact Development = (>= 500)
+chainweb218Pact (FastTimedCPM g) | g == petersonChainGraph = (> 60)
+chainweb218Pact _ = (> 24)
+
 
 -- -------------------------------------------------------------------------- --
 -- Header Validation Guards

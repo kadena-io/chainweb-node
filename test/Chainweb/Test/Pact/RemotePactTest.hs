@@ -311,7 +311,7 @@ localPreflightSimTest iot nio = testCaseSteps "local preflight sim test" $ \step
     runClientFailureAssertion sid cenv cmd1 "Unparseable transaction chain id"
 
     step "Execute preflight /local tx - chain id mismatch"
-    let fcid = unsafeChainId (-1)
+    let fcid = unsafeChainId maxBound
     cmd2 <- mkTx mv =<< mkCmdBuilder sigs v fcid 1000 gp
     runClientFailureAssertion sid cenv cmd2 "Chain id mismatch"
 
