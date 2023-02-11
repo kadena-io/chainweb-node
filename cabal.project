@@ -14,7 +14,6 @@ package chainweb
     extra-lib-dirs:
       /opt/local/lib
       /usr/local/opt/openssl/lib/
-    ghc-options: -Wunused-packages
 
 package pact
     ghc-options: -Wwarn
