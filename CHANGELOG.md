@@ -3,7 +3,7 @@
 ## 2.18 (2023-03-01)
 
 This version replaces all previous versions. Any prior version will stop working
-on **2023-02-23T00:00:00Z**. Node administrators must upgrade to this version
+on **2023-03-02T00:00:00Z**. Node administrators must upgrade to this version
 before that date.
 
 This version will expire on **2023-06-01T00:00:00Z**.
