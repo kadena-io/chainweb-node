@@ -187,7 +187,8 @@ applyCmd v logger gasLogger pdbenv miner gasModel txCtx spv cmd initialGas mcach
           ++ enablePact431 txCtx
           ++ enablePact44 txCtx
           ++ enablePact45 txCtx
-          ++ enableNewTrans txCtx )
+          ++ enableNewTrans txCtx
+          ++ enablePact46 txCtx )
 
     cenv = TransactionEnv Transactional pdbenv logger gasLogger (ctxToPublicData txCtx) spv nid gasPrice
       requestKey (fromIntegral gasLimit) executionConfigNoHistory
@@ -740,6 +741,7 @@ applyExec' initialGas interp (ExecMsg parsedCode execData) senderSigs hsh nsp
           <&> disablePact420Natives pactFlags
           <&> disablePact43Natives pactFlags
           <&> disablePact431Natives pactFlags
+          <&> disablePact46Natives pactFlags
       setEnvGas initialGas eenv
 
       er <- liftIO $! evalExec interp eenv parsedCode
@@ -804,6 +806,11 @@ enableNewTrans tc
     | pact44NewTrans (ctxVersion tc) (ctxCurrentBlockHeight tc) = []
     | otherwise = [FlagDisableNewTrans]
 
+enablePact46 :: TxContext -> [ExecutionFlag]
+enablePact46 tc
+    | chainweb218Pact (ctxVersion tc) (ctxCurrentBlockHeight tc) = []
+    | otherwise = [FlagDisablePact46]
+
 -- | Execute a 'ContMsg' and return the command result and module cache
 --
 applyContinuation
@@ -850,6 +857,7 @@ applyContinuation' initialGas interp cm@(ContMsg pid s rb d _) senderSigs hsh ns
           <&> disablePact40Natives pactFlags
           <&> disablePact420Natives pactFlags
           <&> disablePact43Natives pactFlags
+          <&> disablePact46Natives pactFlags
     setEnvGas initialGas eenv
 
     er <- liftIO $! evalContinuation interp eenv cm
@@ -1085,6 +1093,10 @@ disablePact43Natives = disablePactNatives ["create-principal", "validate-princip
 disablePact431Natives :: ExecutionConfig -> EvalEnv e -> EvalEnv e
 disablePact431Natives = disablePactNatives ["is-principal", "typeof-principal"] FlagDisablePact431
 {-# INLINE disablePact431Natives #-}
+
+disablePact46Natives :: ExecutionConfig -> EvalEnv e -> EvalEnv e
+disablePact46Natives = disablePactNatives ["point-add", "scalar-mult", "pairing-check"] FlagDisablePact46
+{-# INLINE disablePact46Natives #-}
 
 -- | Set the module cache of a pact 'EvalState'
 --
