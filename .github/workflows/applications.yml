@@ -659,6 +659,7 @@ jobs:
         ENV LANG=en_US.UTF-8
         WORKDIR /chainweb
         COPY chainweb/chainweb-node .
+        COPY chainweb/chainweb-tests .
         COPY chainweb/LICENSE .
         COPY chainweb/README.md .
         COPY chainweb/CHANGELOG.md .
