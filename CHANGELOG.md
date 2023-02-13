@@ -27,6 +27,7 @@ Bug fixes:
 
 *   Filter Module Cache for just `coin` contract. (#1548)
 *   Prevent table name clashes in module. (#1556)
+When upgrading directly from chainweb-node version 2.17, please, also take a look at the changes in versions 2.17.1 and 2.17.2 below.
 
 ## 2.17.2 (2022-12-22)
 
