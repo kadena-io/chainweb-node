@@ -220,8 +220,8 @@ instance J.Encode PactException where
 
 tagged :: J.Encode v => Text -> v -> J.Builder
 tagged t v = J.object
-    [ "contents" J..= v
-    , "tag" J..= t
+    [ "tag" J..= t
+    , "contents" J..= v
     ]
 
 instance Exception PactException
