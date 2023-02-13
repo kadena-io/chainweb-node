@@ -1006,6 +1006,8 @@ assertTxGas msg g = liftIO . assertEqual msg g . _crGas
 
 assertTxSuccess :: (HasCallStack, MonadIO m) => String -> PactValue -> CommandResult Hash -> m ()
 assertTxSuccess msg r tx = do
+  unless (Just r == (tx ^? crResult . to _pactResult . _Right)) $
+    liftIO $ print tx
   liftIO $ assertEqual msg (Just r)
     (tx ^? crResult . to _pactResult . _Right)
 
