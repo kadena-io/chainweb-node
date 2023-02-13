@@ -123,6 +123,7 @@ tests = ScheduledTest testName go
          , test generousConfig getGasModel "chainweb215Test" chainweb215Test
          , test generousConfig getGasModel "chainweb216Test" chainweb216Test
          , test generousConfig getGasModel "pact45UpgradeTest" pact45UpgradeTest
+         , test generousConfig getGasModel "pact46UpgradeTest" pact46UpgradeTest
          ]
       where
           -- This is way more than what is used in production, but during testing
@@ -767,6 +768,59 @@ chainweb216Test = do
       , "k456" .= map fst [sender00]
       , "free.k123" .= map fst [sender00]
       , "free.k456" .= map fst [sender00]]
+
+
+pact46UpgradeTest :: PactTestM ()
+pact46UpgradeTest = do
+
+  -- run past genesis, upgrades
+  runToHeight 59
+
+  -- Note: no error messages on-chain, so the error message is empty
+  runBlockTest
+      [ PactTxTest pointAddTx $
+        assertTxFailure
+        "Should not resolve new pact native: point-add"
+        ""
+      , PactTxTest scalarMulTx $
+        assertTxFailure
+        "Should not resolve new pact native: scalar-mult"
+        ""
+      , PactTxTest pairingTx $
+        assertTxFailure
+        "Should not resolve new pact native: pairing-check"
+        ""
+      ]
+
+  runBlockTest
+      [ PactTxTest pointAddTx $
+        assertTxSuccess
+        "Should resolve point-add properly post-fork"
+        (pObject [("x", pInteger  1368015179489954701390400359078579693043519447331113978918064868415326638035)
+        , ("y", pInteger 9918110051302171585080402603319702774565515993150576347155970296011118125764)])
+      , PactTxTest scalarMulTx $
+        assertTxSuccess
+         "Should resolve scalar-mult properly post-fork"
+        (pObject [("x", pInteger 1)
+        , ("y", pInteger 2)])
+      , PactTxTest pairingTx $
+        assertTxSuccess
+         "Should resolve scalar-mult properly post-fork"
+        (pBool True)
+      ]
+  where
+    pointAddTx = buildBasicGas 10000
+        $ mkExec' (mconcat
+        [ "(point-add 'g1 {'x:1, 'y:2} {'x:1, 'y:2})"
+        ])
+    scalarMulTx = buildBasicGas 10000
+        $ mkExec' (mconcat
+        [ "(scalar-mult 'g1 {'x: 1, 'y: 2} 1)"
+        ])
+    pairingTx = buildBasicGas 30000
+        $ mkExec' (mconcat
+        [ "(pairing-check [{'x: 1, 'y: 2}] [{'x:[0, 0], 'y:[0, 0]}])"
+        ])
 
 pact4coin3UpgradeTest :: PactTestM ()
 pact4coin3UpgradeTest = do

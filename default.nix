@@ -43,18 +43,11 @@ pkgs.haskell.packages.${compiler}.developPackage {
         (self.callCabal2nix "rocksdb-haskell-kadena" (pkgs.fetchFromGitHub {
           owner = "kadena-io";
           repo = "rocksdb-haskell";
-          rev = "b4bfc0e4cb0fd401f68190d1ba90b56b80d3effc";
-          sha256 = "0v1fmiwcpamzflashdwbsd5s3psczlm2yx588938sd5dcx9bil3x";
-          # date = "2023-01-09T11:38:12-05:00";
+          rev = "097b3541041ab93e63d8186e8510cd0f54f024f8";
+          sha256 = "1jviqkrwy64ryhmxhli4zn4ifkd2zd6a92axj37jhbv596kaq6d6";
+          # date = "2023-02-08T15:08:55-08:00";
         }) {})
         (attrs: {
-          preConfigure = (attrs.preConfigure or "") +
-            pkgs.lib.optionalString (!pkgs.stdenv.hostPlatform.sse4_2Support) ''
-              perl -i -ne 'print unless /HAVE_SSE42/;' rocksdb-haskell-kadena.cabal
-            '' +
-            pkgs.lib.optionalString (pkgs.stdenv.hostPlatform.system == "aarch64-darwin") ''
-              patch -p1 < ${./rocksdb-arm64.patch}
-            '';
           librarySystemDepends = (attrs.librarySystemDepends or []) ++ [
             pkgs.snappy.dev
             pkgs.zlib.dev
