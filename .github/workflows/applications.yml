@@ -621,7 +621,7 @@ jobs:
         # when adding more than one build, use a different package name or
         # different tags
         include:
-        - ghc: "8.10.7"
+        - ghc: "9.4.4"
           os: "ubuntu-20.04"
           use-freeze-file: "false"
         - ghc: "8.10.7"
