@@ -35,6 +35,15 @@ The Kadena Docs site, which can be found [here](https://kadena-io.github.io/kade
 
 If you have additions or comments, please submit a pull request or raise an issue - the GitHub project can be found [here](https://github.com/kadena-io/kadena-docs)
 
+## Node Update Process
+
+1. Create a new binary that is set to go active at a specific block height
+2. Validate the binary through unit and integration tests. 
+3. Run the binary through a mainnet replay for complete validation.
+5. Release the binary to node runners.
+6. Node runners choose to adopt and install the new binary.
+7. Once 51% of the node operators have migrated, the upgrade is in effect.
+
 ## Installing Chainweb
 
 Minimal recommended hardware requirements for nodes are:
