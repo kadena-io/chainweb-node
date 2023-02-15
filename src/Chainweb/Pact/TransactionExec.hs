@@ -878,8 +878,9 @@ buyGas isPactBackCompatV16 cmd (Miner mid mks) = go
   where
     sender = view (cmdPayload . pMeta . pmSender) cmd
 
-    initState mc logGas =
-      set evalLogGas (guard logGas >> Just [("GBuyGas",0)]) $ setModuleCache mc $ initCapabilities [magic_GAS]
+    initState mc _logGas =
+      -- set evalLogGas (guard logGas >> Just [("GBuyGas",0)]) $ setModuleCache mc $ initCapabilities [magic_GAS]
+      setModuleCache mc $ initCapabilities [magic_GAS]
 
     run input = do
       (findPayer isPactBackCompatV16 cmd) >>= \r -> case r of
@@ -1030,11 +1031,11 @@ checkTooBigTx initialGas gasLimit next onFail
   | otherwise = next
 
 gasInterpreter :: Gas -> TransactionM db (Interpreter p)
-gasInterpreter g = do
+gasInterpreter _g = do
     mc <- use txCache
-    logGas <- isJust <$> view txGasLogger
+    -- logGas <- isJust <$> view txGasLogger
     return $ initStateInterpreter
-        $ set evalLogGas (guard logGas >> Just [("GTxSize",g)]) -- enables gas logging
+        -- $ set evalLogGas (guard logGas >> Just [("GTxSize",g)]) -- enables gas logging
         $ setModuleCache mc def
 
 
