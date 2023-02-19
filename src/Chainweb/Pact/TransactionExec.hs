@@ -273,7 +273,7 @@ applyCmd v logger gasLogger pdbenv miner gasModel txCtx spv cmd initialGas mcach
 
           let !cr' = case callCtx of
                 ApplySend -> set crLogs (Just logs) $ over crEvents (es ++) cr
-                ApplyLocal -> set crMetaData (Just $ toJSON ctxToPublicData' txCtx)
+                ApplyLocal -> set crMetaData (Just $ toJSON $ ctxToPublicData' txCtx)
                   $ set crLogs (Just logs)
                   $ over crEvents (es ++) cr
 
