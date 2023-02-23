@@ -1,11 +1,7 @@
 {-# LANGUAGE DataKinds #-}
-{-# LANGUAGE DeriveAnyClass #-}
-{-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE KindSignatures #-}
-{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeOperators #-}
 
@@ -34,7 +30,8 @@ module Chainweb.Pact.RestAPI
 , pactSendApi
 , PactPollApi
 , pactPollApi
-
+, PactLocalWithQueryApi
+, pactLocalWithQueryApi
 -- * Pact Spv Api
 , PactSpvApi
 , pactSpvApi
@@ -56,12 +53,17 @@ module Chainweb.Pact.RestAPI
 , somePactServiceApis
 ) where
 
+
+import Data.Text (Text)
+
+import qualified Pact.Types.Command as Pact
 import Pact.Server.API as API
 
 import Servant
 
 -- internal modules
 
+import Chainweb.BlockHeight
 import Chainweb.ChainId
 import Chainweb.Pact.RestAPI.EthSpv
 import Chainweb.Pact.RestAPI.SPV
@@ -71,9 +73,18 @@ import Chainweb.SPV.PayloadProof
 import Chainweb.Version
 
 -- -------------------------------------------------------------------------- --
--- @GET /chainweb/<ApiVersion>/<ChainwebVersion>/chain/<ChainId>/pact/@
+-- @POST /chainweb/<ApiVersion>/<ChainwebVersion>/chain/<ChainId>/pact/@
 
-type PactApi_ = "pact" :> API.ApiV1API -- TODO unify with Pact versioning
+-- TODO unify with Pact versioning
+type PactApi_
+    = "pact"
+    :> "api"
+    :> "v1"
+    :> ( ApiSend
+       :<|> ApiPoll
+       :<|> ApiListen
+       :<|> PactLocalWithQueryApi_
+       )
 
 type PactApi (v :: ChainwebVersionT) (c :: ChainIdT)
     = 'ChainwebEndpoint v :> ChainEndpoint c :> Reassoc PactApi_
@@ -120,6 +131,24 @@ pactPollApi
 pactPollApi = Proxy
 
 -- -------------------------------------------------------------------------- --
+-- POST Queries for Pact Local Pre-flight
+
+type PactLocalWithQueryApi_
+    = "local"
+    :> QueryParam "preflight" LocalPreflightSimulation
+    :> QueryParam "signatureVerification" LocalSignatureVerification
+    :> QueryParam "rewindDepth" BlockHeight
+    :> ReqBody '[JSON] (Pact.Command Text)
+    :> Post '[JSON] LocalResult
+
+type PactLocalWithQueryApi v c = PactV1ApiEndpoint v c PactLocalWithQueryApi_
+
+pactLocalWithQueryApi
+  :: forall (v :: ChainwebVersionT) (c :: ChainIdT)
+  . Proxy (PactLocalWithQueryApi v c)
+pactLocalWithQueryApi = Proxy
+
+-- -------------------------------------------------------------------------- --
 -- POST Pact Spv Transaction Proof
 
 type PactSpvApi_
@@ -157,7 +186,7 @@ pactSpv2Api
 pactSpv2Api = Proxy
 
 -- -------------------------------------------------------------------------- --
--- GET Eth Receipt SPV Proof
+-- POST Eth Receipt SPV Proof
 
 type EthSpvApi_
     = "pact"

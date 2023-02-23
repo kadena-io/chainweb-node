@@ -53,7 +53,7 @@ import Chainweb.TreeDB
 import Chainweb.Utils
 import Chainweb.Version
 
-import Data.CAS
+import Chainweb.Storage.Table
 import Data.LogMessage (JsonLog(..), LogFunction)
 
 ------------------------------------------------------------------------------
@@ -61,9 +61,7 @@ data MempoolConsensus = MempoolConsensus
     { mpcMempool :: !(MempoolBackend ChainwebTransaction)
     , mpcLastNewBlockParent :: !(IORef (Maybe BlockHeader))
     , mpcProcessFork
-          :: LogFunction
-          -> BlockHeader
-          -> IO (Vector ChainwebTransaction, Vector ChainwebTransaction)
+        :: LogFunction -> BlockHeader -> IO (Vector ChainwebTransaction, Vector ChainwebTransaction)
     }
 
 data ReintroducedTxsLog = ReintroducedTxsLog
@@ -83,10 +81,10 @@ instance Exception MempoolException
 
 ------------------------------------------------------------------------------
 mkMempoolConsensus
-    :: PayloadCasLookup cas
+    :: CanReadablePayloadCas tbl
     => MempoolBackend ChainwebTransaction
     -> BlockHeaderDb
-    -> Maybe (PayloadDb cas)
+    -> Maybe (PayloadDb tbl)
     -> IO MempoolConsensus
 mkMempoolConsensus mempool blockHeaderDb payloadStore = do
     lastParentRef <- newIORef Nothing :: IO (IORef (Maybe BlockHeader))
@@ -100,9 +98,9 @@ mkMempoolConsensus mempool blockHeaderDb payloadStore = do
 
 ------------------------------------------------------------------------------
 processFork
-    :: PayloadCasLookup cas
+    :: CanReadablePayloadCas tbl
     => BlockHeaderDb
-    -> Maybe (PayloadDb cas)
+    -> Maybe (PayloadDb tbl)
     -> IORef (Maybe BlockHeader)
     -> LogFunction
     -> BlockHeader
@@ -171,8 +169,8 @@ processFork' logFun db newHeader lastHeaderM plLookup flt =
 
 ------------------------------------------------------------------------------
 payloadLookup
-    :: forall cas . PayloadCasLookup cas
-    => Maybe (PayloadDb cas)
+    :: CanReadablePayloadCas tbl
+    => Maybe (PayloadDb tbl)
     -> BlockHeader
     -> IO (HashSet (HashableTrans PayloadWithText))
 payloadLookup payloadStore bh =
@@ -183,7 +181,7 @@ payloadLookup payloadStore bh =
             chainwebTxsFromPd (Just (_chainwebVersion bh, _blockHeight bh)) pd
   where
     casLookupM' s h = do
-        x <- casLookup s h
+        x <- tableLookup s h
         case x of
             Nothing -> throwIO $ PayloadNotFoundException h
             Just pd -> return pd

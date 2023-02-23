@@ -79,9 +79,9 @@ localTest
     :: Logger logger
     => LogFunction
     -> ChainwebVersion
-    -> MiningCoordination logger cas
+    -> MiningCoordination logger tbl
     -> Miner
-    -> CutDb cas
+    -> CutDb tbl
     -> MWC.GenIO
     -> MinerCount
     -> IO ()
@@ -132,9 +132,9 @@ localPOW
     :: Logger logger
     => LogFunction
     -> ChainwebVersion
-    -> MiningCoordination logger cas
+    -> MiningCoordination logger tbl
     -> Miner
-    -> CutDb cas
+    -> CutDb tbl
     -> IO ()
 localPOW lf v coord m cdb = runForever lf "Chainweb.Miner.Miners.localPOW" $ do
     c <- _cut cdb

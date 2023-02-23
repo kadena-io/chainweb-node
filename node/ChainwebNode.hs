@@ -55,8 +55,6 @@ import Control.Lens hiding ((.=))
 import Control.Monad
 import Control.Monad.Managed
 
-import Data.CAS
-import Data.CAS.RocksDB
 import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Time
@@ -100,6 +98,9 @@ import Chainweb.Time
 import Chainweb.Utils
 import Chainweb.Utils.RequestLog
 import Chainweb.Version
+
+import Chainweb.Storage.Table
+import Chainweb.Storage.Table.RocksDB
 
 import Data.LogMessage
 
@@ -206,7 +207,7 @@ runMonitorLoop actionLabel logger = runForeverThrottled
     10 -- 10 bursts in case of failure
     (10 * mega) -- allow restart every 10 seconds in case of failure
 
-runCutMonitor :: Logger logger => logger -> CutDb cas -> IO ()
+runCutMonitor :: Logger logger => logger -> CutDb tbl -> IO ()
 runCutMonitor logger db = L.withLoggerLabel ("component", "cut-monitor") logger $ \l ->
     runMonitorLoop "ChainwebNode.runCutMonitor" l $ do
         logFunctionText l Info $ "Initialized Cut Monitor"
@@ -235,7 +236,7 @@ instance ToJSON BlockUpdate where
     {-# INLINE toEncoding #-}
     {-# INLINE toJSON #-}
 
-runBlockUpdateMonitor :: PayloadCasLookup cas => Logger logger => logger -> CutDb cas -> IO ()
+runBlockUpdateMonitor :: CanReadablePayloadCas tbl => Logger logger => logger -> CutDb tbl -> IO ()
 runBlockUpdateMonitor logger db = L.withLoggerLabel ("component", "block-update-monitor") logger $ \l ->
     runMonitorLoop "ChainwebNode.runBlockUpdateMonitor" l $ do
         logFunctionText l Info $ "Initialized tx counter"
@@ -243,13 +244,13 @@ runBlockUpdateMonitor logger db = L.withLoggerLabel ("component", "block-update-
             & S.mapM toUpdate
             & S.mapM_ (logFunctionJson l Info)
   where
-    txsCas = view (cutDbPayloadCas . transactionDb . transactionDbBlockTransactions) db
-    payloadCas = view (cutDbPayloadCas . transactionDb . transactionDbBlockPayloads) db
+    txsDb = view (cutDbPayloadDb . transactionDb . transactionDbBlockTransactions) db
+    payloadDb = view (cutDbPayloadDb . transactionDb . transactionDbBlockPayloads) db
 
     txCount :: BlockHeader -> IO Int
     txCount bh = do
-        bp <- casLookupM payloadCas (_blockPayloadHash bh)
-        x <- casLookupM txsCas (_blockPayloadTransactionsHash bp)
+        bp <- casLookupM payloadDb (_blockPayloadHash bh)
+        x <- casLookupM txsDb (_blockPayloadTransactionsHash bp)
         return $ length $ _blockTransactions x
 
     toUpdate :: Either BlockHeader BlockHeader -> IO BlockUpdate
@@ -291,7 +292,7 @@ runRtsMonitor logger = L.withLoggerLabel ("component", "rts-monitor") logger go
                 logFunctionJson logger Info stats
                 approximateThreadDelay 60_000_000 {- 1 minute -}
 
-runQueueMonitor :: Logger logger => logger -> CutDb cas -> IO ()
+runQueueMonitor :: Logger logger => logger -> CutDb tbl -> IO ()
 runQueueMonitor logger cutDb = L.withLoggerLabel ("component", "queue-monitor") logger go
   where
     go l = do
@@ -324,7 +325,7 @@ runDatabaseMonitor logger rocksDbDir pactDbDir = L.withLoggerLabel ("component",
             fmap sum . traverse (sizeOf . (path </>)) =<< listDirectory path
         else if file then
             getFileSize path
-        else 
+        else
             pure 0
 
 -- -------------------------------------------------------------------------- --
@@ -403,6 +404,8 @@ withNodeLogger logConfig v f = runManaged $ do
         $ mkTelemetryLogger @DbStats mgr teleLogConfig
     pactQueueStatsBackend <- managed
         $ mkTelemetryLogger @PactQueueStats mgr teleLogConfig
+    topLevelStatusBackend <- managed
+        $ mkTelemetryLogger @ChainwebStatus mgr teleLogConfig
 
     logger <- managed
         $ L.withLogger (_logConfigLogger logConfig) $ logHandles
@@ -423,6 +426,7 @@ withNodeLogger logConfig v f = runManaged $ do
             , logHandler blockUpdateBackend
             , logHandler dbStatsBackend
             , logHandler pactQueueStatsBackend
+            , logHandler topLevelStatusBackend
             ] baseBackend
 
     liftIO $ f
@@ -478,7 +482,7 @@ withServiceDate lf (Just t) inner = race timer inner >>= \case
 
     warning :: Text
     warning = T.concat
-        [ "This version of chainweb node will stop to work at " <> sshow t <> "."
+        [ "This version of chainweb node will stop working at " <> sshow t <> "."
         , " Please upgrade to a new version before that date."
         ]
 
@@ -504,10 +508,10 @@ pkgInfoScopes =
 -- -------------------------------------------------------------------------- --
 -- main
 
--- SERVICE DATE for version 2.17
+-- SERVICE DATE for version 2.18
 --
 serviceDate :: Maybe String
-serviceDate = Just "2023-03-02T00:00:00Z"
+serviceDate = Just "2023-06-01T00:00:00Z"
 
 mainInfo :: ProgramInfo ChainwebNodeConfiguration
 mainInfo = programInfoValidate
@@ -515,6 +519,9 @@ mainInfo = programInfoValidate
     pChainwebNodeConfiguration
     (defaultChainwebNodeConfiguration Mainnet01)
     validateChainwebNodeConfiguration
+
+handles :: [Handler a] -> IO a -> IO a
+handles = flip catches
 
 main :: IO ()
 main = do
@@ -524,8 +531,15 @@ main = do
         let v = _configChainwebVersion $ _nodeConfigChainweb conf
         hSetBuffering stderr LineBuffering
         withNodeLogger (_nodeConfigLog conf) v $ \logger -> do
-            kt <- mapM (parseTimeM False defaultTimeLocale timeFormat) serviceDate
-            withServiceDate (logFunctionText logger) kt $
-                node conf logger
+            logFunctionJson logger Info ProcessStarted
+            handles
+                [ Handler $ \(e :: SomeAsyncException) ->
+                    logFunctionJson logger Info (ProcessDied $ show e) >> throwIO e
+                , Handler $ \(e :: SomeException) ->
+                    logFunctionJson logger Error (ProcessDied $ show e) >> throwIO e
+                ] $ do
+                kt <- mapM (parseTimeM False defaultTimeLocale timeFormat) serviceDate
+                withServiceDate (logFunctionText logger) kt $
+                    node conf logger
   where
     timeFormat = iso8601DateFormat (Just "%H:%M:%SZ")

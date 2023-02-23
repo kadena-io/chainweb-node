@@ -29,7 +29,7 @@ import Chainweb.Test.TreeDB (RunStyle(..), treeDbInvariants)
 import Chainweb.Test.Utils (insertN, toyBlockHeaderDb, withToyDB, toyChainId, withTestBlockHeaderDb)
 import Chainweb.TreeDB
 
-import Data.CAS.RocksDB
+import Chainweb.Storage.Table.RocksDB
 
 tests :: RocksDb -> TestTree
 tests rdb = testGroup "Unit Tests"

@@ -8,7 +8,7 @@
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeFamilies #-}
-{-# LANGUAGE TypeOperators #-}
+
 -- |
 -- Module: Chainweb.Pact.Service.PactInProcApi
 -- Copyright: Copyright © 2018 Kadena LLC.
@@ -54,14 +54,14 @@ import GHC.Stack (HasCallStack)
 
 -- | Initialization for Pact (in process) Api
 withPactService
-    :: PayloadCasLookup cas
+    :: CanReadablePayloadCas tbl
     => Logger logger
     => ChainwebVersion
     -> ChainId
     -> logger
     -> MempoolConsensus
     -> BlockHeaderDb
-    -> PayloadDb cas
+    -> PayloadDb tbl
     -> FilePath
     -> PactServiceConfig
     -> (PactQueue -> IO a)
@@ -75,7 +75,7 @@ withPactService ver cid logger mpc bhdb pdb pactDbDir config action =
 -- | Alternate Initialization for Pact (in process) Api, only used directly in
 --   tests to provide memPool with test transactions
 withPactService'
-    :: PayloadCasLookup cas
+    :: CanReadablePayloadCas tbl
     => Logger logger
     => HasCallStack
     => ChainwebVersion
@@ -83,20 +83,19 @@ withPactService'
     -> logger
     -> MemPoolAccess
     -> BlockHeaderDb
-    -> PayloadDb cas
+    -> PayloadDb tbl
     -> SQLiteEnv
     -> PactServiceConfig
     -> (PactQueue -> IO a)
     -> IO a
 withPactService' ver cid logger memPoolAccess bhDb pdb sqlenv config action = do
     reqQ <- newPactQueue (_pactQueueSize config)
-    race (concurrently_ (monitor reqQ) (server reqQ)) (client reqQ) >>= \case
+    race (concurrently_ (monitor reqQ) (server reqQ)) (action reqQ) >>= \case
         Left () -> error "Chainweb.Pact.Service.PactInProcApi: pact service terminated unexpectedly"
         Right a -> return a
   where
-    client reqQ = action reqQ
     server reqQ = runForever logg "pact-service"
-        $ PS.initPactService ver cid logger reqQ memPoolAccess bhDb pdb sqlenv config
+        $ PS.runPactService ver cid logger reqQ memPoolAccess bhDb pdb sqlenv config
     logg = logFunction logger
     monitor = runPactServiceQueueMonitor $ addLabel ("sub-component", "PactQueue") logger
 

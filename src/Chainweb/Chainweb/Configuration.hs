@@ -105,12 +105,13 @@ import Chainweb.HostAddress
 import qualified Chainweb.Mempool.Mempool as Mempool
 import Chainweb.Mempool.P2pConfig
 import Chainweb.Miner.Config
-import Chainweb.Pact.Types (defaultReorgLimit)
+import Chainweb.Pact.Types (defaultReorgLimit, defaultModuleCacheLimit)
 import Chainweb.Payload.RestAPI (PayloadBatchLimit(..), defaultServicePayloadBatchLimit)
 import Chainweb.Utils
 import Chainweb.Version
 
 import P2P.Node.Configuration
+import Chainweb.Pact.Backend.DbCache (DbCacheLimitBytes)
 
 -- -------------------------------------------------------------------------- --
 -- Throttling Configuration
@@ -392,6 +393,8 @@ data ChainwebConfiguration = ChainwebConfiguration
     , _configSyncPactChains :: !(Maybe [ChainId])
         -- ^ the only chains to be synchronized on startup to the latest cut.
         --   if unset, all chains will be synchronized.
+    , _configModuleCacheLimit :: !DbCacheLimitBytes
+        -- ^ module cache size limit in bytes
     } deriving (Show, Eq, Generic)
 
 makeLenses ''ChainwebConfiguration
@@ -439,6 +442,7 @@ defaultChainwebConfiguration v = ChainwebConfiguration
     , _configOnlySyncPact = False
     , _configSyncPactChains = Nothing
     , _configBackup = defaultBackupConfig
+    , _configModuleCacheLimit = defaultModuleCacheLimit
     }
 
 instance ToJSON ChainwebConfiguration where
@@ -463,6 +467,7 @@ instance ToJSON ChainwebConfiguration where
         , "onlySyncPact" .= _configOnlySyncPact o
         , "syncPactChains" .= _configSyncPactChains o
         , "backup" .= _configBackup o
+        , "moduleCacheLimit" .= _configModuleCacheLimit o
         ]
 
 instance FromJSON ChainwebConfiguration where
@@ -492,6 +497,7 @@ instance FromJSON (ChainwebConfiguration -> ChainwebConfiguration) where
         <*< configOnlySyncPact ..: "onlySyncPact" % o
         <*< configSyncPactChains ..: "syncPactChains" % o
         <*< configBackup %.: "backup" % o
+        <*< configModuleCacheLimit ..: "moduleCacheLimit" % o
 
 pChainwebConfiguration :: MParser ChainwebConfiguration
 pChainwebConfiguration = id
@@ -545,4 +551,8 @@ pChainwebConfiguration = id
         <> help "The only Pact databases to synchronize. If empty or unset, all chains will be synchronized."
         <> metavar "JSON list of chain ids"
     <*< configBackup %:: pBackupConfig
+    <*< configModuleCacheLimit .:: option auto
+        % long "module-cache-limit"
+        <> help "Maximum size of the per-chain checkpointer module cache in bytes"
+        <> metavar "INT"
 
