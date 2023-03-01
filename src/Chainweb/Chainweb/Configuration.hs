@@ -23,7 +23,6 @@ module Chainweb.Chainweb.Configuration
   ThrottlingConfig(..)
 , throttlingRate
 , throttlingPeerRate
-, throttlingMempoolRate
 , defaultThrottlingConfig
 
 -- * Cut Configuration
@@ -122,7 +121,9 @@ data ThrottlingConfig = ThrottlingConfig
         -- check of the client. And we want to keep bad actors out of the
         -- system. There should be no need for a client to call this endpoint on
         -- the same node more often than at most few times peer minute.
-    , _throttlingMempoolRate :: !Double
+        --
+        -- Default is 1 per second
+        --
     }
     deriving stock (Eq, Show)
 
@@ -130,23 +131,20 @@ makeLenses ''ThrottlingConfig
 
 defaultThrottlingConfig :: ThrottlingConfig
 defaultThrottlingConfig = ThrottlingConfig
-    { _throttlingRate = 50 -- per second, in a 100 burst
-    , _throttlingPeerRate = 11 -- per second, 1 for each p2p network
-    , _throttlingMempoolRate = 20 -- one every seconds per mempool.
+    { _throttlingRate = 200 -- per second
+    , _throttlingPeerRate = 21 -- per second, one for each p2p network
     }
 
 instance ToJSON ThrottlingConfig where
     toJSON o = object
         [ "global" .= _throttlingRate o
         , "putPeer" .= _throttlingPeerRate o
-        , "mempool" .= _throttlingMempoolRate o
         ]
 
 instance FromJSON (ThrottlingConfig -> ThrottlingConfig) where
     parseJSON = withObject "ThrottlingConfig" $ \o -> id
         <$< throttlingRate ..: "global" % o
         <*< throttlingPeerRate ..: "putPeer" % o
-        <*< throttlingMempoolRate ..: "mempool" % o
 
 -- -------------------------------------------------------------------------- --
 -- Cut Coniguration
