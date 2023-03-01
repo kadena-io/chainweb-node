@@ -22,9 +22,7 @@ module Chainweb.Chainweb.Configuration
 -- * Throttling Configuration
   ThrottlingConfig(..)
 , throttlingRate
-, throttlingMiningRate
 , throttlingPeerRate
-, throttlingLocalRate
 , defaultThrottlingConfig
 
 -- * Cut Configuration
@@ -118,11 +116,6 @@ import Chainweb.Pact.Backend.DbCache (DbCacheLimitBytes)
 
 data ThrottlingConfig = ThrottlingConfig
     { _throttlingRate :: !Double
-    , _throttlingMiningRate :: !Double
-        -- ^ The rate should be sufficient to make at least on call per cut. We
-        -- expect an cut to arrive every few seconds.
-        --
-        -- Default is 10 per second.
     , _throttlingPeerRate :: !Double
         -- ^ This should throttle aggressively. This endpoint does an expensive
         -- check of the client. And we want to keep bad actors out of the
@@ -131,7 +124,6 @@ data ThrottlingConfig = ThrottlingConfig
         --
         -- Default is 1 per second
         --
-    , _throttlingLocalRate :: !Double
     }
     deriving stock (Eq, Show)
 
@@ -140,25 +132,19 @@ makeLenses ''ThrottlingConfig
 defaultThrottlingConfig :: ThrottlingConfig
 defaultThrottlingConfig = ThrottlingConfig
     { _throttlingRate = 200 -- per second
-    , _throttlingMiningRate = 5 --  per second
     , _throttlingPeerRate = 21 -- per second, one for each p2p network
-    , _throttlingLocalRate = 0.1  -- per 10 seconds
     }
 
 instance ToJSON ThrottlingConfig where
     toJSON o = object
         [ "global" .= _throttlingRate o
-        , "mining" .= _throttlingMiningRate o
         , "putPeer" .= _throttlingPeerRate o
-        , "local" .= _throttlingLocalRate o
         ]
 
 instance FromJSON (ThrottlingConfig -> ThrottlingConfig) where
     parseJSON = withObject "ThrottlingConfig" $ \o -> id
         <$< throttlingRate ..: "global" % o
-        <*< throttlingMiningRate ..: "mining" % o
         <*< throttlingPeerRate ..: "putPeer" % o
-        <*< throttlingLocalRate ..: "local" % o
 
 -- -------------------------------------------------------------------------- --
 -- Cut Coniguration
