@@ -141,7 +141,7 @@ outputsBatchHandler batchLimit db ks = liftIO
 -- Payload API Server
 
 payloadServer
-    :: forall tbl v c 
+    :: forall tbl v c
     . CanReadablePayloadCas tbl
     => PayloadBatchLimit
     -> PayloadDb' tbl v c

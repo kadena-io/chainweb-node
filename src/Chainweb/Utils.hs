@@ -191,6 +191,7 @@ module Chainweb.Utils
 , scurry
 , suncurry
 , suncurry3
+, uncurry3
 , rwipe3
 , _T2
 , _T3
@@ -1278,6 +1279,10 @@ scurry f a b = f (T2 a b)
 suncurry :: (a -> b -> c) -> T2 a b -> c
 suncurry k (T2 a b) = k a b
 {-# INLINE suncurry #-}
+
+uncurry3 :: (a -> b -> c -> d) -> (a, b, c) -> d
+uncurry3 k (a, b, c) = k a b c
+{-# INLINE uncurry3 #-}
 
 suncurry3 :: (a -> b -> c -> d) -> T3 a b c -> d
 suncurry3 k (T3 a b c) = k a b c

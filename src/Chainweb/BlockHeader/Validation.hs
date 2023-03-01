@@ -5,6 +5,7 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeFamilies #-}
 
 -- |
 -- Module: Chainweb.BlockHeader.Validation
@@ -103,21 +104,18 @@ import qualified Data.Text as T
 
 import GHC.Generics
 
-import System.Environment
-import System.IO.Unsafe
-
 -- internal modules
 
 import Chainweb.BlockCreationTime
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
-import Chainweb.BlockHeader.Genesis (genesisBlockTarget, genesisParentBlockHash, genesisBlockHeader)
 import Chainweb.ChainId
 import Chainweb.ChainValue
 import Chainweb.Difficulty
 import Chainweb.Time
 import Chainweb.Utils
 import Chainweb.Version
+import Chainweb.Version.Guards
 
 -- -------------------------------------------------------------------------- --
 -- Validated BockHeader
@@ -675,17 +673,11 @@ validateInductiveWebStep s = concat
 -- Intrinsic BlockHeader properties
 -- -------------------------------------------------------------------------- --
 
-powDisabled :: Bool
-powDisabled = case unsafeDupablePerformIO $ lookupEnv "DISABLE_POW_VALIDATION" of
-  Nothing -> False
-  Just{} -> True
-{-# NOINLINE powDisabled #-}
-
 prop_block_pow :: BlockHeader -> Bool
 prop_block_pow b
     | isGenesisBlockHeader b = True
-        -- Genesis block headers are not mined. So there's not need for POW
-    | _blockChainwebVersion b == Development && powDisabled = True
+    -- Genesis block headers are not mined. So there's not need for POW
+    | b ^. chainwebVersion . versionCheats . disablePow = True
     | otherwise = checkTarget (_blockTarget b) (_blockPow b)
 
 prop_block_hash :: BlockHeader -> Bool
@@ -701,18 +693,19 @@ prop_block_genesis_parent b
 
 prop_block_genesis_target :: BlockHeader -> Bool
 prop_block_genesis_target b = isGenesisBlockHeader b
-    ==> _blockTarget b == genesisBlockTarget (_chainwebVersion b) (_chainId b)
+    ==> _blockTarget b == _chainwebVersion b ^?! versionGenesis . genesisBlockTarget . onChain (_chainId b)
 
 prop_block_current :: Time Micros -> BlockHeader -> Bool
 prop_block_current t b = BlockCreationTime t >= _blockCreationTime b
 
 prop_block_featureFlags :: BlockHeader -> Bool
 prop_block_featureFlags b
-    | skipFeatureFlagValidationGuard v h = True
+    | skipFeatureFlagValidationGuard v cid h = True
     | otherwise = _blockFlags b == mkFeatureFlags
   where
     v = _chainwebVersion b
     h = _blockHeight b
+    cid = _chainId b
 
 -- | Verify that the adjacent hashes of the block are for the correct set of
 -- chain ids.
@@ -761,7 +754,7 @@ prop_block_target (WebStep as (ChainStep p b))
 
 prop_block_epoch :: WebStep -> Bool
 prop_block_epoch (WebStep as (ChainStep p b))
-    | oldDaGuard (_chainwebVersion b) (_blockHeight b)
+    | oldDaGuard (_chainwebVersion b) (_chainId b) (_blockHeight b)
         = _blockEpochStart b <= EpochStartTime (_bct $ _blockCreationTime b)
         && _blockEpochStart (_parentHeader p) <= _blockEpochStart b
         && _blockEpochStart b == epochStart p as (_blockCreationTime b)
@@ -773,7 +766,7 @@ prop_block_creationTime :: WebStep -> Bool
 prop_block_creationTime (WebStep as (ChainStep (ParentHeader p) b))
     | isGenesisBlockHeader b
         = _blockCreationTime b == _blockCreationTime p
-    | oldDaGuard (_chainwebVersion b) (_blockHeight b)
+    | oldDaGuard (_chainwebVersion b) (_chainId b) (_blockHeight b)
         = _blockCreationTime b > _blockCreationTime p
     | otherwise
         = _blockCreationTime b > _blockCreationTime p

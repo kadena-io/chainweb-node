@@ -256,7 +256,7 @@ withChainweb c logger rocksDb pactDbDir backupDir resetDb inner =
     confWithBootstraps
         | _p2pConfigIgnoreBootstrapNodes (_configP2p c) = c
         | otherwise = configP2p . p2pConfigKnownPeers
-            %~ (\x -> L.nub $ x <> bootstrapPeerInfos v) $ c
+            %~ (\x -> L.nub $ x <> _versionBootstraps v) $ c
 
 -- TODO: The type InMempoolConfig contains parameters that should be
 -- configurable as well as parameters that are determined by the chainweb
@@ -280,7 +280,7 @@ validatingMempoolConfig cid v gl gp mv = Mempool.InMemConfig
     , Mempool._inmemCurrentTxsSize = currentTxsSize
     }
   where
-    txcfg = Mempool.chainwebTransactionConfig Nothing
+    txcfg = Mempool.chainwebTransactionConfig (maxBound :: PactParserVersion)
         -- The mempool doesn't provide a chain context to the codec which means
         -- that the latest version of the parser is used.
 
@@ -325,11 +325,11 @@ validatingMempoolConfig cid v gl gp mv = Mempool.InMemConfig
         let !pay = payloadObj . P._cmdPayload $ tx
             pcid = P._pmChainId $ P._pMeta pay
             sigs = length (P._cmdSigs tx)
-            ver  = P._pNetworkId pay >>= fromText @ChainwebVersion . P._networkId
+            ver  = P._pNetworkId pay >>= fromText @ChainwebVersionName . P._networkId
         tcid <- note (Mempool.InsertErrorOther "Unparsable ChainId") $ fromPactChainId pcid
         if | tcid /= cid   -> Left Mempool.InsertErrorMetadataMismatch
            | sigs > 100    -> Left $ Mempool.InsertErrorOther "Too many signatures"
-           | ver /= Just v -> Left Mempool.InsertErrorMetadataMismatch
+           | ver /= Just (_versionName v) -> Left Mempool.InsertErrorMetadataMismatch
            | otherwise     -> Right tx
 
 data StartedChainweb logger
@@ -389,7 +389,7 @@ withChainwebInternal conf logger peer serviceSock rocksDb pactDbDir backupDir re
         (\cid x -> do
             let mcfg = validatingMempoolConfig cid v (_configBlockGasLimit conf) (_configMinGasPrice conf)
             -- NOTE: the gas limit may be set based on block height in future, so this approach may not be valid.
-            let maxGasLimit = fromIntegral <$> maxBlockGasLimit v cid maxBound
+            let maxGasLimit = fromIntegral <$> maxBlockGasLimit v maxBound
             when (Just (_configBlockGasLimit conf) > maxGasLimit) $
                 logg Warn "configured block gas limit is greater than the maximum for this chain; the maximum will be used instead"
             withChainResources
@@ -828,15 +828,9 @@ runChainweb cw = do
     mempoolSyncClients :: IO [IO ()]
     mempoolSyncClients = case enabledConfig mempoolP2pConfig of
         Nothing -> disabled
-        Just c -> case _chainwebVersion cw of
-            Test{} -> disabled
-            TimedConsensus{} -> disabled
-            PowConsensus{} -> disabled
-            TimedCPM{} -> enabled c
-            FastTimedCPM{} -> enabled c
-            Development -> enabled c
-            Testnet04 -> enabled c
-            Mainnet01 -> enabled c
+        Just c
+            | cw ^. chainwebVersion . versionCheats . disableMempool -> disabled
+            | otherwise -> enabled c
       where
         disabled = do
             logg Info "Mempool p2p sync disabled"

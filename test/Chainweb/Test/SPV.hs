@@ -75,12 +75,16 @@ import Chainweb.SPV.VerifyProof
 import Chainweb.Test.CutDB hiding (tests)
 import Chainweb.Test.Orphans.Internal
 import Chainweb.Test.Utils
+import Chainweb.Test.TestVersions(barebonesTestVersion)
 import Chainweb.TreeDB
 import Chainweb.Utils hiding ((==>))
 import Chainweb.Version
 
 import Chainweb.Storage.Table
 import Chainweb.Storage.Table.RocksDB
+
+version :: ChainwebVersion
+version = barebonesTestVersion petersonChainGraph
 
 -- -------------------------------------------------------------------------- --
 -- Test Tree
@@ -89,15 +93,14 @@ import Chainweb.Storage.Table.RocksDB
 -- quickCheck instead of HUnit or should be derandomized.
 --
 tests :: RocksDb -> TestTree
-tests rdb = testGroup "SPV tests"
-    [ testCaseStepsN "SPV transaction proof" 10 (spvTransactionRoundtripTest rdb version)
-    , testCaseStepsN "SPV transaction output proof" 10 (spvTransactionOutputRoundtripTest rdb version)
-    , apiTests rdb version
-    , testCaseSteps "SPV transaction proof test" (spvTest rdb version)
-    , properties
-    ]
-  where
-    version = Test petersonChainGraph
+tests rdb =
+    testGroup "SPV tests"
+        [ testCaseStepsN "SPV transaction proof" 10 (spvTransactionRoundtripTest rdb version)
+        , testCaseStepsN "SPV transaction output proof" 10 (spvTransactionOutputRoundtripTest rdb version)
+        , apiTests rdb version
+        , testCaseSteps "SPV transaction proof test" (spvTest rdb version)
+        , properties
+        ]
 
 -- -------------------------------------------------------------------------- --
 -- Utils

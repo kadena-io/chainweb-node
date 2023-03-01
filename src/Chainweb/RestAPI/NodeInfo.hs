@@ -28,10 +28,12 @@ import GHC.Generics
 import Servant
 
 import Chainweb.BlockHeight
+import Chainweb.ChainId
 import Chainweb.Cut.CutHashes
 import Chainweb.CutDB
 import Chainweb.Graph
 import Chainweb.RestAPI.Utils
+import Chainweb.Utils.Rule
 import Chainweb.Version
 
 type NodeInfoApi = "info" :> Get '[JSON] NodeInfo
@@ -45,7 +47,7 @@ someNodeInfoServer v c =
 
 data NodeInfo = NodeInfo
   {
-    nodeVersion :: ChainwebVersion
+    nodeVersion :: ChainwebVersionName
   , nodeApiVersion :: Text
   , nodeChains :: [Text]
   -- ^ Current list of chains
@@ -54,6 +56,8 @@ data NodeInfo = NodeInfo
   , nodeGraphHistory :: [(BlockHeight, [(Int, [Int])])]
   -- ^ List of chain graphs and the block height they took effect. Sorted
   -- descending by height so the current chain graph is at the beginning.
+  , nodeLatestBehaviorHeight :: BlockHeight
+  -- ^ edtodo document
   } deriving (Show, Eq, Generic)
 
 instance ToJSON NodeInfo
@@ -68,11 +72,12 @@ nodeInfoHandler v (SomeCutDb ((CutDbT db) :: CutDbT cas v)) = do
         curGraph = head $ dropWhile (\(h,_) -> h > curHeight) graphs
         curChains = map fst $ snd curGraph
     return $ NodeInfo
-      { nodeVersion = v
+      { nodeVersion = _versionName v
       , nodeApiVersion = prettyApiVersion
       , nodeChains = T.pack . show <$> curChains
       , nodeNumberOfChains = length curChains
       , nodeGraphHistory = graphs
+      , nodeLatestBehaviorHeight = latestBehaviorAt v
       }
 
 -- | Converts chainwebGraphs to a simpler structure that has invertible JSON
@@ -80,7 +85,7 @@ nodeInfoHandler v (SomeCutDb ((CutDbT db) :: CutDbT cas v)) = do
 unpackGraphs :: ChainwebVersion -> [(BlockHeight, [(Int, [Int])])]
 unpackGraphs v = gs
   where
-    gs = map (second graphAdjacencies) $ NE.toList $ chainwebGraphs v
+    gs = map (second graphAdjacencies) $ NE.toList $ ruleElems (BlockHeight 0) $ _versionGraphs v
     graphAdjacencies = map unChain . HashMap.toList . fmap HashSet.toList . G.adjacencySets . view chainGraphGraph
     unChain (a, bs) = (chainIdInt a, map chainIdInt bs)
 

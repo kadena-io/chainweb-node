@@ -121,7 +121,6 @@ library
         , Chainweb.BlockCreationTime
         , Chainweb.BlockHash
         , Chainweb.BlockHeader
-        , Chainweb.BlockHeader.Genesis
         , Chainweb.BlockHeader.Genesis.Development0Payload
         , Chainweb.BlockHeader.Genesis.DevelopmentKADPayload
         , Chainweb.BlockHeader.Genesis.DevelopmentNPayload
@@ -234,8 +233,14 @@ library
         , Chainweb.Utils
         , Chainweb.Utils.Paging
         , Chainweb.Utils.RequestLog
+        , Chainweb.Utils.Rule
         , Chainweb.Utils.Serialization
         , Chainweb.Version
+        , Chainweb.Version.Development
+        , Chainweb.Version.Guards
+        , Chainweb.Version.Mainnet
+        , Chainweb.Version.Registry
+        , Chainweb.Version.Testnet
         , Chainweb.Version.Utils
         , Chainweb.WebBlockHeaderDB
         , Chainweb.WebPactExecutionService
@@ -305,7 +310,7 @@ library
         , Chainweb.Pact.Transactions.Mainnet9Transactions
         , Chainweb.Pact.Transactions.MainnetKADTransactions
         , Chainweb.Pact.Transactions.OtherTransactions
-        , Chainweb.Pact.Transactions.UpgradeTransactions
+        -- , Chainweb.Pact.Transactions.UpgradeTransactions
         , Chainweb.Pact.Types
         , Chainweb.Pact.Utils
 
@@ -317,6 +322,7 @@ library
 
     build-depends:
           Decimal >= 0.4.2
+        , adjunctions >= 4.4.2
         , aeson >= 1.4.3
         , asn1-encoding >=0.9
         , asn1-types >=0.3
@@ -343,6 +349,7 @@ library
         , digraph >= 0.2
         , direct-sqlite >= 2.3.27
         , directory >= 1.3
+        , distributive >= 0.6.2.1
         , dlist >= 0.8
         , errors >= 2.3
         , ethereum >= 0.1
@@ -373,10 +380,12 @@ library
         , pact >= 4.2.0.1
         , pem >=0.2
         , primitive >= 0.7.1.0
+        , pretty-show
         , random >= 1.2
         , rosetta >= 1.0
         , safe-exceptions >= 0.1
         , scheduler >= 1.4
+        , semigroupoids >= 5.3.7
         , servant >= 0.18.2
         , servant-client >= 0.18.2
         , servant-client-core >= 0.18.2
@@ -478,13 +487,14 @@ test-suite chainweb-tests
         Chainweb.Test.SPV
         Chainweb.Test.SPV.EventProof
         Chainweb.Test.Sync.WebBlockHeaderStore
+        Chainweb.Test.TestVersions
         Chainweb.Test.TreeDB
         Chainweb.Test.TreeDB.RemoteDB
         Chainweb.Test.Utils
         Chainweb.Test.Version
         Chainweb.Test.Utils.BlockHeader
         Chainweb.Test.Utils.TestHeader
-        Chainweb.Test.Utils.ApiQueries
+        -- Chainweb.Test.Utils.ApiQueries
 
         -- Data
         Data.Test.PQueue
@@ -556,6 +566,7 @@ test-suite chainweb-tests
         , text >=1.2
         , time >= 1.8
         , transformers >= 0.5
+        , MemoTrie
         , unordered-containers == 0.2.15.0
         , vector >= 0.12.2
         , wai >= 3.2
@@ -698,6 +709,7 @@ executable cwtool
         , process >= 1.5
         , quickcheck-instances >= 0.3
         , random >= 1.2
+        , retry >= 0.9
         , rocksdb-haskell-kadena >= 1.1.0
         , safe-exceptions >= 0.1
         , servant-client >= 0.18.2
@@ -710,6 +722,7 @@ executable cwtool
         , tasty-quickcheck >= 0.9
         , temporary >= 1.3
         , text >= 1.2
+        , MemoTrie
         , unordered-containers == 0.2.15.0
         , vector >= 0.12.2
         , wai >= 3.2

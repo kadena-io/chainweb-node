@@ -82,10 +82,12 @@ import Chainweb.BlockHash
 import Chainweb.BlockHeader
 import Chainweb.BlockHeader.Validation
 import Chainweb.BlockHeight
+import Chainweb.ChainId
 import Chainweb.ChainValue
 import Chainweb.Cut
 import Chainweb.Cut.CutHashes
 import Chainweb.Difficulty
+import Chainweb.Graph
 import Chainweb.Payload
 import Chainweb.Time
 import Chainweb.Utils

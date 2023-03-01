@@ -70,6 +70,7 @@ import Chainweb.Pact.Service.Types
 import Chainweb.Utils
 import Chainweb.Utils.Serialization
 import Chainweb.Version
+import Chainweb.Version.Guards
 
 initRelationalCheckpointer
     :: BlockState
@@ -152,9 +153,9 @@ doRestore v cid dbenv (Just (bh, hash)) = runBlockEnv dbenv $ do
     return $! PactDbEnv' $! PactDbEnv chainwebPactDb dbenv
   where
     -- Module name fix follows the restore call to checkpointer.
-    setModuleNameFix = bsModuleNameFix .= enableModuleNameFix v bh
-    setSortedKeys = bsSortedKeys .= pact420Upgrade v bh
-    setLowerCaseTables = bsLowerCaseTables .= chainweb217Pact After v bh
+    setModuleNameFix = bsModuleNameFix .= enableModuleNameFix v cid bh
+    setSortedKeys = bsSortedKeys .= pact420 v cid bh
+    setLowerCaseTables = bsLowerCaseTables .= chainweb217Pact v cid bh
 doRestore _ _ dbenv Nothing = runBlockEnv dbenv $ do
     clearPendingTxState
     withSavepoint DbTransaction $

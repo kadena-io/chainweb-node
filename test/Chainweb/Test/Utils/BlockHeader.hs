@@ -39,7 +39,6 @@ import GHC.Stack
 import Chainweb.BlockCreationTime
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
-import Chainweb.BlockHeader.Genesis
 import Chainweb.ChainValue
 import Chainweb.Payload
 import Chainweb.Time

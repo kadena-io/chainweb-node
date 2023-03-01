@@ -45,6 +45,7 @@ import Chainweb.Test.Utils
 import Chainweb.Test.Utils.BlockHeader
 import Chainweb.Utils
 import Chainweb.Version
+import Chainweb.Version.Development
 
 import Chainweb.Storage.Table
 import Chainweb.Storage.Table.RocksDB

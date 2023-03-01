@@ -75,12 +75,13 @@ import Pact.Types.Util (AsString(..))
 -- chainweb
 
 import Chainweb.BlockHash
+import Chainweb.BlockHeader
 import Chainweb.BlockHeight
 import Chainweb.Pact.Backend.DbCache
 import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.Backend.Utils
 import Chainweb.Pact.Service.Types (PactException(..), internalError)
-import Chainweb.Version (ChainwebVersion, ChainId, genesisHeight)
+import Chainweb.Version
 import Chainweb.Utils (encodeToByteString, sshow)
 import Chainweb.Utils.Serialization
 
@@ -745,7 +746,7 @@ handlePossibleRewind v cid bRestore hsh = do
             printf "handlePossibleRewind: The checkpointer attempted to restore to block hash\
                 \ %s at block height %d, which is not in the current block history of the\
                 \ checkpointer at height %d."
-                (blockHashToText hsh) (_height bRestore - 1) (_height succOfCurrent - 1)
+                (blockHashToText hsh) (getBlockHeight bRestore - 1) (getBlockHeight succOfCurrent - 1)
 
         rowCountErrorMessage = T.pack .
             printf "At this blockheight/blockhash (%d, %s) in BlockHistoryTable, there are %d entries."
@@ -756,7 +757,7 @@ handlePossibleRewind v cid bRestore hsh = do
             printf "handlePossibleRewind: The checkpointer attempted to restore to block hash %s\
                 \ at height %d, which is greater than the max entry in the block history of the\
                 \ checkpointer at height %d."
-                (blockHashToText hsh) (_height bRestore - 1) (_height succOfCurrent - 1)
+                (blockHashToText hsh) (getBlockHeight bRestore - 1) (getBlockHeight succOfCurrent - 1)
 
     newChildBlock bCurrent = do
         assign bsBlockHeight bRestore

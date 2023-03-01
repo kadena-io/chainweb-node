@@ -136,7 +136,7 @@ p2pServer (PeerDbT db) = case sing @_ @n of
         -> peerGetHandler db (MempoolNetwork $ FromSing cid)
         :<|> peerPutHandler db v (MempoolNetwork $ FromSing cid)
   where
-    v = FromSing (SChainwebVersion :: Sing v)
+    v = _chainwebVersion db
 
 -- -------------------------------------------------------------------------- --
 -- Application for a single P2P Network

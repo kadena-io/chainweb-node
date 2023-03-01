@@ -98,6 +98,7 @@ import Chainweb.Time
 import Chainweb.Utils
 import Chainweb.Utils.RequestLog
 import Chainweb.Version
+import Chainweb.Version.Mainnet
 
 import Chainweb.Storage.Table
 import Chainweb.Storage.Table.RocksDB
@@ -128,18 +129,16 @@ data ChainwebNodeConfiguration = ChainwebNodeConfiguration
 
 makeLenses ''ChainwebNodeConfiguration
 
-defaultChainwebNodeConfiguration :: ChainwebVersion -> ChainwebNodeConfiguration
-defaultChainwebNodeConfiguration v = ChainwebNodeConfiguration
-    { _nodeConfigChainweb = defaultChainwebConfiguration v
+defaultChainwebNodeConfiguration :: ChainwebNodeConfiguration
+defaultChainwebNodeConfiguration = ChainwebNodeConfiguration
+    { _nodeConfigChainweb = defaultChainwebConfiguration Mainnet01
     , _nodeConfigLog = defaultLogConfig
         & logConfigLogger . L.loggerConfigThreshold .~ level
     , _nodeConfigDatabaseDirectory = Nothing
     , _nodeConfigResetChainDbs = False
     }
   where
-    level = case v of
-        Mainnet01 -> L.Info
-        _ -> L.Info
+    level = L.Info
 
 validateChainwebNodeConfiguration :: ConfigValidation ChainwebNodeConfiguration []
 validateChainwebNodeConfiguration o = do
@@ -185,7 +184,7 @@ getBackupsDir conf = (</> "backups") <$> getDbBaseDir conf
 getDbBaseDir :: HasCallStack => ChainwebNodeConfiguration -> IO FilePath
 getDbBaseDir conf = case _nodeConfigDatabaseDirectory conf of
     Nothing -> getXdgDirectory XdgData
-        $ "chainweb-node" </> sshow v
+        $ "chainweb-node" </> sshow (_versionName v)
     Just d -> return d
   where
     v = _configChainwebVersion $ _nodeConfigChainweb conf
@@ -431,7 +430,7 @@ withNodeLogger logConfig v f = runManaged $ do
 
     liftIO $ f
         $ maybe id (\x -> addLabel ("cluster", toText x)) (_logConfigClusterId logConfig)
-        $ addLabel ("chainwebVersion", sshow v)
+        $ addLabel ("chainwebVersion", sshow (_versionName v))
         $ logger
   where
     teleLogConfig = _logConfigTelemetryBackend logConfig
@@ -517,7 +516,7 @@ mainInfo :: ProgramInfo ChainwebNodeConfiguration
 mainInfo = programInfoValidate
     "Chainweb Node"
     pChainwebNodeConfiguration
-    (defaultChainwebNodeConfiguration Mainnet01)
+    defaultChainwebNodeConfiguration
     validateChainwebNodeConfiguration
 
 handles :: [Handler a] -> IO a -> IO a

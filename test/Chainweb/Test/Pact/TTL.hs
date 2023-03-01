@@ -28,7 +28,6 @@ import Test.Tasty.HUnit
 
 import Chainweb.BlockCreationTime
 import Chainweb.BlockHeader
-import Chainweb.BlockHeader.Genesis
 import Chainweb.BlockHeaderDB hiding (withBlockHeaderDb)
 import Chainweb.BlockHeaderDB.Internal (unsafeInsertBlockHeaderDb)
 import Chainweb.Miner.Pact
@@ -42,6 +41,7 @@ import Chainweb.Payload.PayloadStore
 import Chainweb.Test.Cut.TestBlockDb
 import Chainweb.Test.Pact.Utils
 import Chainweb.Test.Utils
+import Chainweb.Test.TestVersions
 import Chainweb.Time
 import Chainweb.Utils
 import Chainweb.Version
@@ -53,7 +53,7 @@ import Chainweb.Storage.Table.RocksDB
 -- Settings
 
 testVer :: ChainwebVersion
-testVer = FastTimedCPM peterson
+testVer = fastForkingCpmTestVersion peterson
 
 genblock :: BlockHeader
 genblock = genesisBlockHeader testVer (someChainId testVer)

@@ -36,10 +36,11 @@ import Control.Concurrent.Async (race)
 import Control.Lens
 import Control.Monad
 
+import Crypto.Hash.Algorithms (Blake2s_256)
+
 import qualified Data.ByteString.Short as BS
 import Data.HashMap.Strict (HashMap)
 import qualified Data.HashMap.Strict as HashMap
-import Data.Proxy
 
 import Numeric.Natural (Natural)
 
@@ -53,6 +54,8 @@ import Chainweb.BlockHeight
 import Chainweb.ChainId
 import Chainweb.Cut.Create
 import Chainweb.CutDB
+import Chainweb.Difficulty
+import Chainweb.Graph
 import Chainweb.Logger
 import Chainweb.Mempool.Mempool
 import qualified Chainweb.Mempool.Mempool as Mempool
@@ -98,7 +101,7 @@ localTest lf v coord m cdb gen miners =
                 void $ awaitNewCut cdb c
   where
     meanBlockTime :: Double
-    meanBlockTime = int $ _getBlockRate $ blockRate v
+    meanBlockTime = int (_getBlockRate (blockRate v)) / 1_000_000
 
     go :: BlockHeight -> WorkHeader -> IO SolvedWork
     go height w = do
@@ -106,7 +109,7 @@ localTest lf v coord m cdb gen miners =
         runGetS decodeSolvedWork $ BS.fromShort $ _workHeaderBytes w
       where
         t :: Double
-        t = int graphOrder / (int (_minerCount miners) * meanBlockTime * 1000000)
+        t = int graphOrder / (int (_minerCount miners) * meanBlockTime * 1_000_000)
 
         graphOrder :: Natural
         graphOrder = order $ chainGraphAt v height
@@ -131,12 +134,11 @@ mempoolNoopMiner lf chainRes =
 localPOW
     :: Logger logger
     => LogFunction
-    -> ChainwebVersion
     -> MiningCoordination logger tbl
     -> Miner
     -> CutDb tbl
     -> IO ()
-localPOW lf v coord m cdb = runForever lf "Chainweb.Miner.Miners.localPOW" $ do
+localPOW lf coord m cdb = runForever lf "Chainweb.Miner.Miners.localPOW" $ do
     c <- _cut cdb
     wh <- work coord Nothing m
     race (awaitNewCutByChainId cdb (_workHeaderChainId wh) c) (go wh) >>= \case
@@ -146,4 +148,4 @@ localPOW lf v coord m cdb = runForever lf "Chainweb.Miner.Miners.localPOW" $ do
             void $ awaitNewCut cdb c
   where
     go :: WorkHeader -> IO SolvedWork
-    go wh = usePowHash v $ \(_ :: Proxy a) -> mine @a (Nonce 0) wh
+    go = mine @Blake2s_256 (Nonce 0)

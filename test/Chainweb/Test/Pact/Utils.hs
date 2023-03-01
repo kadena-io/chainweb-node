@@ -140,6 +140,7 @@ import Data.String
 import qualified Data.Vector as V
 
 import GHC.Generics
+import GHC.Stack
 
 import System.Directory
 import System.IO.Temp (createTempDirectory)
@@ -173,10 +174,10 @@ import Pact.Types.Util (parseB16TextOnly)
 
 import Chainweb.BlockCreationTime
 import Chainweb.BlockHeader
-import Chainweb.BlockHeader.Genesis
 import Chainweb.BlockHeaderDB hiding (withBlockHeaderDb)
 import Chainweb.BlockHeight
 import Chainweb.ChainId
+import Chainweb.Graph
 import Chainweb.Logger
 import Chainweb.Miner.Pact
 import Chainweb.Pact.Backend.RelationalCheckpointer
@@ -195,10 +196,11 @@ import Chainweb.Test.Cut
 import Chainweb.Test.Cut.TestBlockDb
 import Chainweb.Test.Utils
 import Chainweb.Test.Utils.BlockHeader
+import Chainweb.Test.TestVersions
 import Chainweb.Time
 import Chainweb.Transaction
 import Chainweb.Utils
-import Chainweb.Version (ChainwebVersion(..), chainIds)
+import Chainweb.Version
 import qualified Chainweb.Version as Version
 import Chainweb.Version.Utils (someChainId)
 import Chainweb.WebBlockHeaderDB
@@ -213,6 +215,7 @@ import Chainweb.Storage.Table.RocksDB
 type SimpleKeyPair = (Text,Text)
 
 -- | Legacy; better to use 'CmdSigner'/'CmdBuilder'.
+-- if caps are empty, gas cap is implicit. otherwise it must be included
 testKeyPairs :: SimpleKeyPair -> Maybe [SigCapability] -> IO [SomeKeyPairCaps]
 testKeyPairs skp capsm = do
   kp <- toApiKp $ mkSigner' skp (fromMaybe [] capsm)
@@ -609,10 +612,10 @@ testPactCtxSQLite v cid bhdb pdb sqlenv conf gasmodel = do
     !ctx <- TestPactCtx
       <$!> newMVar (PactServiceState Nothing mempty ph noSPVSupport)
       <*> pure (pactServiceEnv cpe rs)
-    evalPactServiceM_ ctx (initialPayloadState dummyLogger mempty v cid)
+    evalPactServiceM_ ctx (initialPayloadState (genericLogger Info T.putStrLn) mempty v cid)
     return (ctx, PactDbEnv' dbSt)
   where
-    initialBlockState = initBlockState defaultModuleCacheLimit $ Version.genesisHeight v cid
+    initialBlockState = initBlockState defaultModuleCacheLimit $ genesisHeight v cid
     loggers = pactTestLogger False -- toggle verbose pact test logging
     cpLogger = newLogger loggers $ LogName ("Checkpointer" ++ show cid)
     pactServiceEnv cpe rs = PactServiceEnv
@@ -811,7 +814,8 @@ withTemporaryDir = withResource
     removeDirectoryRecursive
 
 withTestBlockDbTest
-    :: ChainwebVersion
+    :: HasCallStack
+    => ChainwebVersion
     -> RocksDb
     -> (IO TestBlockDb -> TestTree)
     -> TestTree
@@ -819,7 +823,8 @@ withTestBlockDbTest v rdb = withResource (mkTestBlockDb v rdb) mempty
 
 -- | Single-chain Pact via service queue.
 withPactTestBlockDb
-    :: ChainwebVersion
+    :: HasCallStack
+    => ChainwebVersion
     -> ChainId
     -> LogLevel
     -> RocksDb
@@ -852,7 +857,7 @@ dummyLogger :: GenericLogger
 dummyLogger = genericLogger Quiet T.putStrLn
 
 someTestVersion :: ChainwebVersion
-someTestVersion = FastTimedCPM peterson
+someTestVersion = fastForkingCpmTestVersion petersonChainGraph
 
 someTestVersionHeader :: BlockHeader
 someTestVersionHeader = someBlockHeader someTestVersion 10

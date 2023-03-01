@@ -73,7 +73,7 @@ import Chainweb.TreeDB
 import Chainweb.Utils.Paging
 import Chainweb.Version
 
-import Chainweb.Storage.Table 
+import Chainweb.Storage.Table
 
 -- -------------------------------------------------------------------------- --
 -- Handler Tools

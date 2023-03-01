@@ -11,6 +11,7 @@
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE StrictData #-}
 {-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE TypeFamilies #-}
 -- |
 -- Module: Chainweb.Pact.Types
 -- Copyright: Copyright © 2018 Kadena LLC.
@@ -91,6 +92,7 @@ module Chainweb.Pact.Types
   , ctxToPublicData
   , ctxToPublicData'
   , ctxCurrentBlockHeight
+  , ctxChainId
   , ctxVersion
   , getTxContext
 
@@ -181,6 +183,7 @@ import Chainweb.BlockHash
 import Chainweb.BlockHeader
 import Chainweb.BlockHeight
 import Chainweb.BlockHeaderDB
+import Chainweb.ChainId
 import Chainweb.Mempool.Mempool (TransactionHash)
 import Chainweb.Miner.Pact
 import Chainweb.Logger
@@ -192,6 +195,7 @@ import Chainweb.Time
 import Chainweb.Transaction
 import Chainweb.Utils
 import Chainweb.Version
+import Chainweb.Version.Guards
 
 
 data Transactions r = Transactions
@@ -466,7 +470,7 @@ updateInitCache mc = get >>= \PactServiceState{..} -> do
     psInitCache .= case M.lookupLE pbh _psInitCache of
       Nothing -> M.singleton pbh mc
       Just (_,before)
-        | chainweb217Pact After v pbh || chainweb217Pact At v pbh ->
+        | cleanModuleCache v (_chainId $ _psParentHeader) pbh ->
           M.insert pbh mc _psInitCache
         | otherwise -> M.insert pbh (HM.union mc before) _psInitCache
 
@@ -515,6 +519,9 @@ ctxBlockHeader = _parentHeader . _tcParentHeader
 -- which influenced legacy switch checks as well.
 ctxCurrentBlockHeight :: TxContext -> BlockHeight
 ctxCurrentBlockHeight = succ . _blockHeight . ctxBlockHeader
+
+ctxChainId :: TxContext -> ChainId
+ctxChainId = _blockChainId . ctxBlockHeader
 
 ctxVersion :: TxContext -> ChainwebVersion
 ctxVersion = _blockChainwebVersion . ctxBlockHeader

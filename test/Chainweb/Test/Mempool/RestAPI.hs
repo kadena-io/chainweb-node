@@ -26,6 +26,7 @@ import Chainweb.RestAPI
 import Chainweb.Test.Mempool (InsertCheck, MempoolWithFunc(..))
 import qualified Chainweb.Test.Mempool
 import Chainweb.Test.Utils (withTestAppServer)
+import Chainweb.Test.TestVersions
 import Chainweb.Utils (Codec(..))
 import Chainweb.Version
 import Chainweb.Version.Utils
@@ -70,12 +71,12 @@ newTestServer = mask_ $ do
     server inMemCfg inmemMv envMv restore =
         InMem.withInMemoryMempool inMemCfg version $ \inmem -> do
             putMVar inmemMv inmem
-            restore $ withTestAppServer True version (return $! mkApp inmem) mkEnv $ \env -> do
+            restore $ withTestAppServer True (return $! mkApp inmem) mkEnv $ \env -> do
                 putMVar envMv env
                 atomically retry
 
     version :: ChainwebVersion
-    version = Test singletonChainGraph
+    version = barebonesTestVersion singletonChainGraph
 
     host :: String
     host = "127.0.0.1"

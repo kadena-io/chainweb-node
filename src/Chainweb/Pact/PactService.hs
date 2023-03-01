@@ -29,7 +29,7 @@ module Chainweb.Pact.PactService
     , execHistoricalLookup
     , execSyncToBlock
     , runPactService
-    , runPactService'
+    , withPactService
     , execNewGenesisBlock
     , getGasModel
     ) where
@@ -71,9 +71,9 @@ import qualified Pact.Types.SPV as P
 
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
-import Chainweb.BlockHeader.Genesis (genesisBlockHeader, genesisBlockPayload)
 import Chainweb.BlockHeaderDB
 import Chainweb.BlockHeight
+import Chainweb.ChainId
 import Chainweb.Logger
 import Chainweb.Mempool.Mempool as Mempool
 import Chainweb.Miner.Pact
@@ -92,6 +92,7 @@ import Chainweb.Transaction
 import Chainweb.TreeDB (lookupM)
 import Chainweb.Utils hiding (check)
 import Chainweb.Version
+import Chainweb.Version.Guards 
 import Data.LogMessage
 import Utils.Logging.Trace
 
@@ -109,11 +110,11 @@ runPactService
     -> PactServiceConfig
     -> IO ()
 runPactService ver cid chainwebLogger reqQ mempoolAccess bhDb pdb sqlenv config =
-    void $ runPactService' ver cid chainwebLogger bhDb pdb sqlenv config $ do
+    void $ withPactService ver cid chainwebLogger bhDb pdb sqlenv config $ do
         initialPayloadState chainwebLogger mempoolAccess ver cid
         serviceRequests (logFunction chainwebLogger) mempoolAccess reqQ
 
-runPactService'
+withPactService
     :: Logger logger
     => CanReadablePayloadCas tbl
     => ChainwebVersion
@@ -125,7 +126,7 @@ runPactService'
     -> PactServiceConfig
     -> PactServiceM tbl a
     -> IO (T2 a PactServiceState)
-runPactService' ver cid chainwebLogger bhDb pdb sqlenv config act =
+withPactService ver cid chainwebLogger bhDb pdb sqlenv config act =
     withProdRelationalCheckpointer checkpointerLogger initialBlockState sqlenv cplogger ver cid $ \checkpointEnv -> do
         let !rs = readRewards
             !initialParentHeader = ParentHeader $ genesisBlockHeader ver cid
@@ -182,19 +183,10 @@ initialPayloadState
     -> ChainwebVersion
     -> ChainId
     -> PactServiceM tbl ()
-initialPayloadState _ _ Test{} _ = pure ()
-initialPayloadState _ _ TimedConsensus{} _ = pure ()
-initialPayloadState _ _ PowConsensus{} _ = pure ()
-initialPayloadState logger mpa v@TimedCPM{} cid =
-    initializeCoinContract logger mpa v cid $ genesisBlockPayload v cid
-initialPayloadState logger mpa v@FastTimedCPM{} cid =
-    initializeCoinContract logger mpa v cid $ genesisBlockPayload v cid
-initialPayloadState logger mpa v@Development cid =
-    initializeCoinContract logger mpa v cid $ genesisBlockPayload v cid
-initialPayloadState logger mpa v@Testnet04 cid =
-    initializeCoinContract logger mpa v cid $ genesisBlockPayload v cid
-initialPayloadState logger mpa v@Mainnet01 cid =
-    initializeCoinContract logger mpa v cid $ genesisBlockPayload v cid
+initialPayloadState logger mpa v cid
+    | v ^. versionCheats . disablePact = pure ()
+    | otherwise = initializeCoinContract logger mpa v cid $
+        v ^?! versionGenesis . genesisBlockPayload . onChain cid
 
 initializeCoinContract
     :: forall tbl logger. (CanReadablePayloadCas tbl, Logger logger)
@@ -207,7 +199,7 @@ initializeCoinContract
 initializeCoinContract _logger memPoolAccess v cid pwo = do
     cp <- getCheckpointer
     genesisExists <- liftIO
-        $ _cpLookupBlockInCheckpointer cp (genesisHeight v cid, ghash)
+        $ _cpLookupBlockInCheckpointer cp (_blockHeight genesisHeader, ghash)
     if genesisExists
       then readContracts
       else validateGenesis
@@ -630,8 +622,8 @@ execLocal cmd = withDiscardedBatch $ do
     spv <- use psSpvSupport
     let execConfig = P.mkExecutionConfig $
             [ P.FlagAllowReadInLocal | _psAllowReadsInLocal ] ++
-            enablePactEvents' pd ++
-            enforceKeysetFormats' pd
+            enablePactEvents' (ctxVersion pd) (ctxChainId pd) (ctxCurrentBlockHeight pd) ++
+            enforceKeysetFormats' (ctxVersion pd) (ctxChainId pd) (ctxCurrentBlockHeight pd)
         logger = P.newLogger _psLoggers "execLocal"
     withCurrentCheckpointer "execLocal" $ \(PactDbEnv' pdbenv) -> do
         r <- liftIO $
@@ -776,5 +768,5 @@ chainweb213GasModel = modifiedGasModel
 
 getGasModel :: TxContext -> P.GasModel
 getGasModel ctx
-    | chainweb213Pact (ctxVersion ctx) (ctxCurrentBlockHeight ctx) = chainweb213GasModel
+    | chainweb213Pact (ctxVersion ctx) (ctxChainId ctx) (ctxCurrentBlockHeight ctx) = chainweb213GasModel
     | otherwise = freeModuleLoadGasModel

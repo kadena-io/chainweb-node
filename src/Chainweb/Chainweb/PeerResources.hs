@@ -213,7 +213,7 @@ getHost
     -> IO (Either T.Text Hostname)
 getHost mgr ver logger peers = do
     nis <- forConcurrently peers $ \p ->
-        tryAllSynchronous (requestRemoteNodeInfo mgr ver (_peerAddr p) Nothing) >>= \case
+        tryAllSynchronous (requestRemoteNodeInfo mgr (_versionName ver) (_peerAddr p) Nothing) >>= \case
             Right x -> Just x <$ do
                 logFunctionText logger Info
                     $ "got remote info from " <> toText (_peerAddr p)
@@ -244,7 +244,7 @@ withPeerSocket conf act = withSocket port interface $ \(p, s) ->
 -- Run PeerDb for a Chainweb Version
 
 startPeerDb_ :: ChainwebVersion -> P2pConfiguration -> IO PeerDb
-startPeerDb_ v = startPeerDb nids
+startPeerDb_ v = startPeerDb v nids
   where
     nids = HS.singleton CutNetwork
         `HS.union` HS.map MempoolNetwork cids

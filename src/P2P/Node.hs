@@ -10,6 +10,7 @@
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TupleSections #-}
 {-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE TypeFamilies #-}
 
 -- |
 -- Module: P2P.Node
@@ -384,10 +385,7 @@ guardPeerDb v nid peerDb pinf = do
                 else return $ Left $ NodeVersionNotAccepted pinf nodeVersion
   where
     isReserved :: Bool
-    isReserved = case v of
-        Mainnet01 -> isReservedHostAddress (_peerAddr pinf)
-        Testnet04 -> isReservedHostAddress (_peerAddr pinf)
-        _ -> False
+    isReserved = not (v ^. versionCheats . disablePeerValidation) && isReservedHostAddress (_peerAddr pinf)
 
     -- Currently we are using 'getNewPeerManager' which doesn't validate
     -- certificates. We could be more strict and check that the certificate
@@ -395,7 +393,7 @@ guardPeerDb v nid peerDb pinf = do
     --
     canConnect = do
         mgr <- getNewPeerManager
-        getNodeVersion mgr v (_peerAddr pinf) (Just $ networkIdToText nid <> "/peer")
+        getNodeVersion mgr (_versionName v) (_peerAddr pinf) (Just $ networkIdToText nid <> "/peer")
 
     -- Only compare the address because even for equal peer infos the peer
     -- ID may be 'Nothing' for one peer and 'Just' some value for the other.
@@ -719,11 +717,12 @@ waitAnySession node = do
 -- | Start a 'PeerDb' for the given set of NetworkIds
 --
 startPeerDb
-    :: HS.HashSet NetworkId
+    :: ChainwebVersion
+    -> HS.HashSet NetworkId
     -> P2pConfiguration
     -> IO PeerDb
-startPeerDb nids conf = do
-    !peerDb <- newEmptyPeerDb
+startPeerDb v nids conf = do
+    !peerDb <- newEmptyPeerDb v
     forM_ nids $ \nid ->
         peerDbInsertPeerInfoList_ True nid (_p2pConfigKnownPeers conf) peerDb
     return $ if _p2pConfigPrivate conf
@@ -739,11 +738,12 @@ stopPeerDb _ _ = return ()
 -- | Run a computation with a PeerDb
 --
 withPeerDb
-    :: HS.HashSet NetworkId
+    :: ChainwebVersion
+    -> HS.HashSet NetworkId
     -> P2pConfiguration
     -> (PeerDb -> IO a)
     -> IO a
-withPeerDb nids conf = bracket (startPeerDb nids conf) (stopPeerDb conf)
+withPeerDb v nids conf = bracket (startPeerDb v nids conf) (stopPeerDb conf)
 
 -- -------------------------------------------------------------------------- --
 -- Create

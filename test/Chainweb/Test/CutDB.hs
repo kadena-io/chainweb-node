@@ -60,10 +60,10 @@ import Chainweb.BlockHeight
 import Chainweb.ChainId
 import Chainweb.Cut
 import Chainweb.Cut.CutHashes
+import Chainweb.Graph
 import Chainweb.Test.Cut
 import Chainweb.CutDB
 import Chainweb.CutDB.RestAPI.Server
-import Chainweb.Graph
 import Chainweb.Miner.Pact
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
@@ -71,7 +71,8 @@ import Chainweb.Payload.PayloadStore.RocksDB
 import Chainweb.Sync.WebBlockHeaderStore
 import Chainweb.Test.Orphans.Internal ()
 import Chainweb.Test.Sync.WebBlockHeaderStore
-import Chainweb.Test.Utils
+import Chainweb.Test.Utils hiding (awaitBlockHeight)
+import Chainweb.Test.TestVersions (barebonesTestVersion)
 import Chainweb.Time
 import Chainweb.TreeDB (MaxRank(..))
 import Chainweb.Utils
@@ -509,7 +510,7 @@ tests rdb = testGroup "CutDB"
 testCutPruning :: RocksDb -> TestTree
 testCutPruning rdb = testCase "cut pruning" $ do
     -- initialize cut DB and mine enough to trigger pruning
-    let v = Test pairChainGraph
+    let v = barebonesTestVersion pairChainGraph
     withTestCutDbWithoutPact rdb v alterPruningSettings
         (int $ avgCutHeightAt v minedBlockHeight)
         (\_ _ -> return ())
@@ -534,7 +535,7 @@ testCutPruning rdb = testCase "cut pruning" $ do
 
 testCutGet :: RocksDb -> TestTree
 testCutGet rdb = testCase "cut get" $ do
-    let v = Test pairChainGraph
+    let v = barebonesTestVersion pairChainGraph
     let bh = BlockHeight 300
     let ch = avgCutHeightAt v bh
     let halfCh = ch `div` 2

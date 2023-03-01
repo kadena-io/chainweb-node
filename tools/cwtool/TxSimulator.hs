@@ -49,6 +49,8 @@ import Chainweb.Transaction
 import Chainweb.Utils
 import Chainweb.Utils.Paging
 import Chainweb.Version
+import Chainweb.Version.Mainnet
+import Chainweb.Version.Registry
 
 import Network.Connection
 import Network.HTTP.Client.TLS
@@ -115,8 +117,6 @@ simulate sc@(SimConfig dbDir txIdx' _ _ cid ver) = do
               evalPactServiceM pss pse $ doBlock True parent (zip hdrs pwos)
 
 
-
-
   where
 
     cwLogger = genericLogger Debug T.putStrLn
@@ -158,7 +158,7 @@ spvSim sc bh pwo = do
     go mv cp = modifyMVar mv $ searchOuts cp
     searchOuts _ [] = return ([],Left "spv: proof not found")
     searchOuts cp@(ContProof pf) ((Transaction ti,TransactionOutput _o):txs) =
-      case codecDecode (chainwebPayloadCodec (Just (scVersion sc,_blockHeight bh))) ti of
+      case codecDecode (chainwebPayloadCodec (pactParserVersion (scVersion sc) (_chainId bh) (_blockHeight bh))) ti of
         Left {} -> internalError "input decode failed"
         Right cmd -> case _pPayload $ payloadObj $ _cmdPayload cmd of
           Continuation cm | _cmProof cm == Just cp -> do
@@ -206,7 +206,7 @@ fetchOutputs sc cenv bhs = do
 simulateMain :: IO ()
 simulateMain = do
   execParser opts >>= \(d,s,e,i,h,c,v) -> do
-    vv <- chainwebVersionFromText (T.pack v)
+    vv <- findKnownVersion $ ChainwebVersionName (T.pack v)
     cc <- chainIdFromText (T.pack c)
     u <- parseBaseUrl h
     let rng = (fromIntegral @Integer s,fromIntegral @Integer (fromMaybe s e))

@@ -100,7 +100,7 @@ headerClientJson
     -> DbKey BlockHeaderDb
     -> ClientM BlockHeader
 headerClientJson v c k = runIdentity $ do
-    (SomeSing (SChainwebVersion :: Sing v)) <- return $ toSing v
+    (SomeSing (SChainwebVersion :: Sing v)) <- return $ toSing (_versionName v)
     (SomeSing (SChainId :: Sing c)) <- return $ toSing c
     return $ headerClientContentType_ @v @c @JSON k
 
@@ -110,7 +110,7 @@ headerClientJsonPretty
     -> BlockHash
     -> ClientM BlockHeader
 headerClientJsonPretty v c k = runIdentity $ do
-    (SomeSing (SChainwebVersion :: Sing v)) <- return $ toSing v
+    (SomeSing (SChainwebVersion :: Sing v)) <- return $ toSing (_versionName v)
     (SomeSing (SChainId :: Sing c)) <- return $ toSing c
     return $ headerClientContentType_ @v @c @JsonBlockHeaderObject k
 
@@ -120,7 +120,7 @@ headerClientJsonBinary
     -> BlockHash
     -> ClientM BlockHeader
 headerClientJsonBinary v c k = runIdentity $ do
-    (SomeSing (SChainwebVersion :: Sing v)) <- return $ toSing v
+    (SomeSing (SChainwebVersion :: Sing v)) <- return $ toSing (_versionName v)
     (SomeSing (SChainId :: Sing c)) <- return $ toSing c
     return $ headerClientContentType_ @v @c @OctetStream k
 
@@ -187,7 +187,7 @@ headersClientJson
         -- ^ Filter: no header of `BlockHeight` higher than this will be returned.
     -> ClientM BlockHeaderPage
 headersClientJson v c limit start minr maxr = runIdentity $ do
-    (SomeSing (SChainwebVersion :: Sing v)) <- return $ toSing v
+    (SomeSing (SChainwebVersion :: Sing v)) <- return $ toSing (_versionName v)
     (SomeSing (SChainId :: Sing c)) <- return $ toSing c
     return $ headersClientContentType_ @v @c @JSON limit start minr maxr
 
@@ -207,8 +207,7 @@ headersClientJsonPretty
     -> Maybe MaxRank
         -- ^ Filter: no header of `BlockHeight` higher than this will be returned.
     -> ClientM BlockHeaderPage
-headersClientJsonPretty v c limit start minr maxr = runIdentity $ do
-    (SomeSing (SChainwebVersion :: Sing v)) <- return $ toSing v
+headersClientJsonPretty (FromSingChainwebVersion (SChainwebVersion :: Sing v)) c limit start minr maxr = runIdentity $ do
     (SomeSing (SChainId :: Sing c)) <- return $ toSing c
     return $ headersClientContentType_ @v @c @JsonBlockHeaderObject limit start minr maxr
 
@@ -237,8 +236,8 @@ branchHashesClient
     -> BranchBounds BlockHeaderDb
     -> ClientM BlockHashPage
 branchHashesClient v c limit start minr maxr bounds = runIdentity $ do
-    (SomeSing (SChainwebVersion :: Sing v)) <- return $ toSing v
-    (SomeSing (SChainId :: Sing c)) <- return $ toSing c
+    SomeSing (SChainwebVersion :: Sing v) <- return $ toSing (_versionName v)
+    SomeSing (SChainId :: Sing c) <- return $ toSing c
     return $ branchHashesClient_ @v @c limit start minr maxr bounds
 
 -- -------------------------------------------------------------------------- --
@@ -292,8 +291,8 @@ branchHeadersClientJson
     -> BranchBounds BlockHeaderDb
     -> ClientM BlockHeaderPage
 branchHeadersClientJson v c limit start minr maxr bounds = runIdentity $ do
-    (SomeSing (SChainwebVersion :: Sing v)) <- return $ toSing v
-    (SomeSing (SChainId :: Sing c)) <- return $ toSing c
+    SomeSing (SChainwebVersion :: Sing v) <- return $ toSing (_versionName v)
+    SomeSing (SChainId :: Sing c) <- return $ toSing c
     return $ branchHeadersClientContentType_ @v @c @JSON limit start minr maxr bounds
 
 branchHeadersClientJsonPretty
@@ -306,8 +305,8 @@ branchHeadersClientJsonPretty
     -> BranchBounds BlockHeaderDb
     -> ClientM BlockHeaderPage
 branchHeadersClientJsonPretty v c limit start minr maxr bounds = runIdentity $ do
-    (SomeSing (SChainwebVersion :: Sing v)) <- return $ toSing v
-    (SomeSing (SChainId :: Sing c)) <- return $ toSing c
+    SomeSing (SChainwebVersion :: Sing v) <- return $ toSing (_versionName v)
+    SomeSing (SChainId :: Sing c) <- return $ toSing c
     return $ branchHeadersClientContentType_ @v @c @JsonBlockHeaderObject limit start minr maxr bounds
 
 -- -------------------------------------------------------------------------- --
@@ -333,6 +332,6 @@ hashesClient
     -> Maybe MaxRank
     -> ClientM BlockHashPage
 hashesClient v c limit start minr maxr = runIdentity $ do
-    (SomeSing (SChainwebVersion :: Sing v)) <- return $ toSing v
+    (SomeSing (SChainwebVersion :: Sing v)) <- return $ toSing (_versionName v)
     (SomeSing (SChainId :: Sing c)) <- return $ toSing c
     return $ hashesClient_ @v @c limit start minr maxr

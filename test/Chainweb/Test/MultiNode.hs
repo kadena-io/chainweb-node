@@ -182,7 +182,7 @@ multiBootstrapConfig conf = conf
     & set (configP2p . p2pConfigPeer) peerConfig
     & set (configP2p . p2pConfigKnownPeers) []
   where
-    peerConfig = (head $ bootstrapPeerConfig $ _configChainwebVersion conf)
+    peerConfig = (head $ testBootstrapPeerConfig $ _configChainwebVersion conf)
         & set peerConfigPort 0
         -- Normally, the port of bootstrap nodes is hard-coded. But in
         -- test-suites that may run concurrently we want to use a port that is
@@ -298,8 +298,8 @@ replayTest
     -> ChainwebVersion
     -> Natural
     -> TestTree
-replayTest loglevel v n = after AllFinish "ConsensusNetwork" $ testCaseSteps name $ \step -> 
-    withTempRocksDb "replay-test-rocks" $ \rdb -> 
+replayTest loglevel v n = after AllFinish "ConsensusNetwork" $ testCaseSteps name $ \step ->
+    withTempRocksDb "replay-test-rocks" $ \rdb ->
     withSystemTempDirectory "replay-test-pact" $ \pactDbDir -> do
         let tastylog = step . T.unpack
         tastylog "phase 1..."
@@ -364,9 +364,9 @@ test
     -> Natural
     -> Seconds
     -> TestTree
-test loglevel v n seconds = testCaseSteps name $ \f -> 
+test loglevel v n seconds = testCaseSteps name $ \f ->
     -- Count log messages and only print the first 60 messages
-    withTempRocksDb "multinode-tests" $ \rdb -> 
+    withTempRocksDb "multinode-tests" $ \rdb ->
     withSystemTempDirectory "replay-test-pact" $ \pactDbDir -> do
         let tastylog = f . T.unpack
 #if DEBUG_MULTINODE_TEST

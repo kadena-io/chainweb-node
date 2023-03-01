@@ -30,7 +30,7 @@ import qualified Chainweb.Pact.Transactions.CoinV3Transactions as CoinV3
 import qualified Chainweb.Pact.Transactions.CoinV4Transactions as CoinV4
 import qualified Chainweb.Pact.Transactions.CoinV5Transactions as CoinV5
 
-upgradeTransactions :: ChainwebVersion -> ChainId -> IO [ChainwebTransaction]
+upgradeTransactions :: ChainwebVersion dc -> ChainId -> IO [ChainwebTransaction]
 upgradeTransactions Mainnet01 cid = case cidInt of
   0 -> MN0.transactions
   1 -> MN1.transactions
@@ -46,18 +46,18 @@ upgradeTransactions Mainnet01 cid = case cidInt of
   c -> internalError $ "Invalid mainnet chain id: " <> sshow c
   where cidInt :: Int
         cidInt = chainIdInt cid
-upgradeTransactions Development cid = case chainIdInt @Int cid of
+upgradeTransactions Development{} cid = case chainIdInt @Int cid of
   c | c >= 0, c <= 9 -> Devnet.transactions
   c | c >= 10, c <= 19 -> return []
   c -> internalError $ "Invalid devnet chain id: "  <> sshow c
 upgradeTransactions _ _ = Other.transactions
 
-twentyChainUpgradeTransactions :: ChainwebVersion -> ChainId -> IO [ChainwebTransaction]
+twentyChainUpgradeTransactions :: ChainwebVersion dc -> ChainId -> IO [ChainwebTransaction]
 twentyChainUpgradeTransactions Mainnet01 cid = case chainIdInt @Int cid of
   0 -> MNKAD.transactions
   c | c >= 1, c <= 19 -> return []
   c -> internalError $ "Invalid mainnet chain id: " <> sshow c
-twentyChainUpgradeTransactions Development cid = case chainIdInt @Int cid of
+twentyChainUpgradeTransactions Development{} cid = case chainIdInt @Int cid of
   0 -> MNKAD.transactions -- just remeds
   c | c >= 1, c <= 19 -> return []
   c -> internalError $ "Invalid devnet chain id: " <> sshow c

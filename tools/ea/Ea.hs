@@ -27,7 +27,7 @@
 module Ea
   ( main ) where
 
-import Control.Lens (set)
+import Control.Lens
 
 import Data.Foldable
 import Data.Functor
@@ -60,7 +60,7 @@ import Chainweb.Time
 import Chainweb.Transaction
     (ChainwebTransaction, chainwebPayloadCodec, mkPayloadWithTextOld)
 import Chainweb.Utils
-import Chainweb.Version (ChainwebVersion(..))
+import Chainweb.Version
 import Chainweb.Version.Utils (someChainId)
 
 import Chainweb.Storage.Table.RocksDB
@@ -186,7 +186,7 @@ genPayloadModule' v tag cwTxs =
         pdb <- newPayloadDb
         withSystemTempDirectory "ea-pact-db" $ \pactDbDir -> do
             T2 payloadWO _ <- withSqliteDb cid logger pactDbDir False $ \env ->
-                runPactService' v cid logger bhdb pdb env defaultPactServiceConfig $
+                withPactService v cid logger bhdb pdb env defaultPactServiceConfig $
                     execNewGenesisBlock noMiner (V.fromList cwTxs)
 
             let payloadYaml = TE.decodeUtf8 $ Yaml.encode payloadWO
@@ -280,7 +280,7 @@ genTxModule tag txFiles = do
 
   let encTxs = map quoteTx cwTxs
       quoteTx tx = "    \"" <> encTx tx <> "\""
-      encTx = encodeB64UrlNoPaddingText . codecEncode (chainwebPayloadCodec Nothing)
+      encTx = encodeB64UrlNoPaddingText . codecEncode (chainwebPayloadCodec maxBound)
       modl = T.unlines $ startTxModule tag <> [T.intercalate "\n    ,\n" encTxs] <> endTxModule
       fileName = "src/Chainweb/Pact/Transactions/" <> tag <> "Transactions.hs"
 
@@ -302,7 +302,7 @@ startTxModule tag =
     , "transactions :: IO [ChainwebTransaction]"
     , "transactions ="
     , "  let decodeTx t ="
-    , "        fromEitherM . (first (userError . show)) . codecDecode (chainwebPayloadCodec Nothing) =<< decodeB64UrlNoPaddingText t"
+    , "        fromEitherM . (first (userError . show)) . codecDecode (chainwebPayloadCodec maxBound) =<< decodeB64UrlNoPaddingText t"
     , "  in mapM decodeTx ["
     ]
 

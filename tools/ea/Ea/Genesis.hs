@@ -51,7 +51,11 @@ import Control.Lens
 import Data.Text
 
 import Chainweb.Graph
+import Chainweb.Test.TestVersions
 import Chainweb.Version
+import Chainweb.Version.Development
+import Chainweb.Version.Mainnet
+import Chainweb.Version.Testnet
 
 
 -- ---------------------------------------------------------------------- --
@@ -213,7 +217,7 @@ devnetKadOps = "pact/genesis/devnet/kad-ops-grants.yaml"
 
 fastTimedCPM0 :: Genesis
 fastTimedCPM0 = Genesis
-    { _version = FastTimedCPM petersonChainGraph
+    { _version = fastForkingCpmTestVersion petersonChainGraph
     , _tag = "FastTimedCPM"
     , _txChainId = Zero
     , _coinbase = Just fast0Grants

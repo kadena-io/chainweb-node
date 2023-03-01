@@ -57,6 +57,7 @@ import Chainweb.BlockHash as CW
 import Chainweb.BlockHeader
 import Chainweb.BlockHeaderDB
 import Chainweb.BlockHeight
+import qualified Chainweb.ChainId as CW
 import Chainweb.Pact.Service.Types
 import Chainweb.Pact.Utils (aeson)
 import Chainweb.Payload
@@ -66,6 +67,7 @@ import Chainweb.SPV.VerifyProof
 import Chainweb.TreeDB
 import Chainweb.Utils
 import qualified Chainweb.Version as CW
+import qualified Chainweb.Version.Guards as CW
 
 import Chainweb.Storage.Table
 
@@ -106,7 +108,7 @@ verifySPV
 verifySPV bdb bh typ proof = go typ proof
   where
     cid = CW._chainId bdb
-    enableBridge = CW.enableSPVBridge (_blockChainwebVersion bh) (_blockHeight bh)
+    enableBridge = CW.enableSPVBridge (CW._chainwebVersion bh) cid (_blockHeight bh)
 
     mkSPVResult' cr j
         | enableBridge =

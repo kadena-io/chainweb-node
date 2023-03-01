@@ -100,6 +100,7 @@ import Chainweb.Cut
 import Chainweb.Utils
 import Chainweb.Utils.Serialization
 import Chainweb.Version
+import Chainweb.Version.Registry
 
 import Chainweb.Payload
 
@@ -318,7 +319,7 @@ cutHashesProperties c =
     , "origin" .= _cutOrigin c
     , "weight" .= _cutHashesWeight c
     , "height" .= _cutHashesHeight c
-    , "instance" .= _cutHashesChainwebVersion c
+    , "instance" .= _versionCode (_cutHashesChainwebVersion c)
     , "id" .= _cutHashesId c
     ]
     <> ifNotEmpty "headers" cutHashesHeaders
@@ -346,7 +347,7 @@ instance FromJSON CutHashes where
         <*> o .: "origin"
         <*> o .: "weight"
         <*> o .: "height"
-        <*> o .: "instance"
+        <*> (lookupVersionByCode <$> o .: "instance")
         <*> o .: "id"
         <*> o .:? "headers" .!= mempty
         <*> o .:? "payloads" .!= mempty

@@ -1,13 +1,19 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DeriveAnyClass #-}
+{-# LANGUAGE DeriveFoldable #-}
+{-# LANGUAGE DeriveFunctor #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GADTs #-}
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE PatternSynonyms #-}
+{-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE ViewPatterns #-}
@@ -50,15 +56,23 @@ module Chainweb.ChainId
 -- * Testing
 , unsafeChainId
 , chainIdInt
+
+, ChainMap(..)
+, onChain
+, onChains
+, chainZip
 ) where
 
+import Control.Applicative
 import Control.DeepSeq
-import Control.Lens
+import Control.Lens hiding ((.=))
 import Control.Monad.Catch (Exception, MonadThrow)
 
 import Data.Aeson
 import Data.Aeson.Types (toJSONKeyText)
 import Data.Hashable (Hashable(..))
+import Data.HashMap.Strict (HashMap)
+import qualified Data.HashMap.Strict as HM
 import Data.Kind
 import Data.Proxy
 import qualified Data.Text as T
@@ -252,3 +266,33 @@ chainIdInt :: Integral i => ChainId -> i
 chainIdInt (ChainId cid) = int cid
 {-# INLINE chainIdInt #-}
 
+-- edtodo: document
+data ChainMap a = AllChains a | OnChains (HashMap ChainId a)
+    deriving stock (Eq, Functor, Foldable, Generic, Ord, Show)
+    deriving anyclass (Hashable, NFData)
+
+onChains :: [(ChainId, a)] -> ChainMap a
+onChains = OnChains . HM.fromList
+
+chainZip :: (a -> a -> a) -> ChainMap a -> ChainMap a -> ChainMap a
+chainZip f (OnChains l) (OnChains r) = OnChains $ HM.unionWith f l r
+chainZip f (OnChains l) (AllChains r) = OnChains $ fmap (`f` r) l
+chainZip f (AllChains l) (OnChains r) = OnChains $ fmap (l `f`) r
+chainZip f (AllChains l) (AllChains r) = AllChains $ f l r
+
+instance ToJSON a => ToJSON (ChainMap a) where
+    toJSON (AllChains a) = object
+        [ "allChains" .= a
+        ]
+    toJSON (OnChains m) = toJSON m
+
+instance FromJSON a => FromJSON (ChainMap a) where
+    parseJSON = withObject "ChainMap" $ \o ->
+        (AllChains <$> o .: "allChains") <|> OnChains <$> parseJSON (Object o)
+
+makePrisms ''ChainMap
+
+onChain :: ChainId -> Fold (ChainMap a) a
+onChain cid = folding $ \case
+    OnChains m -> m ^. at cid
+    AllChains a -> Just a

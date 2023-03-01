@@ -275,7 +275,7 @@ runMiner v mr
     | enabled = case _minerResCoordination mr of
         Nothing -> error
             "Mining coordination must be enabled in order to use the in-node test miner"
-        Just coord -> case window v of
+        Just coord -> case _versionWindow v of
             Nothing -> testMiner coord
             Just _ -> powMiner coord
     | otherwise = mempoolNoopMiner lf (_chainResMempool <$> _minerChainResources mr)
@@ -296,4 +296,4 @@ runMiner v mr
         gen <- MWC.createSystemRandom
         localTest lf v coord (_nodeMiner conf) cdb gen (_nodeTestMiners conf)
 
-    powMiner coord = localPOW lf v coord (_nodeMiner conf) cdb
+    powMiner coord = localPOW lf coord (_nodeMiner conf) cdb

@@ -92,10 +92,10 @@ instance FromHttpApiData BlockPayloadHash where
 instance ToHttpApiData BlockPayloadHash where
     toUrlPiece = encodeB64UrlNoPaddingText . runPutS . encodeBlockPayloadHash
 
-instance FromHttpApiData ChainwebVersion where
+instance FromHttpApiData ChainwebVersionName where
     parseUrlPiece = first T.pack . eitherFromText
 
-instance ToHttpApiData ChainwebVersion where
+instance ToHttpApiData ChainwebVersionName where
     toUrlPiece = toText
 
 instance FromHttpApiData ChainId where

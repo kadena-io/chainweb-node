@@ -15,7 +15,7 @@
 module Chainweb.Rosetta.Internal where
 
 import Control.Error.Util
-import Control.Lens ((^?))
+import Control.Lens hiding ((??), from, to)
 import Control.Monad (foldM)
 import Control.Monad.Except (throwError)
 import Control.Monad.IO.Class
@@ -52,10 +52,11 @@ import Servant.Server
 -- internal modules
 
 import Chainweb.BlockHash
-import Chainweb.BlockHeader (BlockHeader(..))
+import Chainweb.BlockHeader
+import Chainweb.ChainId
 import Chainweb.Cut
 import Chainweb.CutDB
-import Chainweb.Pact.Transactions.UpgradeTransactions
+-- import Chainweb.Pact.Transactions.UpgradeTransactions
 import Chainweb.Pact.Service.Types (Domain'(..), BlockTxHistory(..))
 import Chainweb.Payload hiding (Transaction(..))
 import Chainweb.Payload.PayloadStore
@@ -120,11 +121,7 @@ matchLogs
     -> ExceptT RosettaFailure Handler tx
 matchLogs typ bh logs coinbase txs
   | bheight == genesisHeight v cid = matchGenesis
-  | coinV2Upgrade v cid bheight = matchRemediation (upgradeTransactions v cid)
-  | to20ChainRebalance v cid bheight = matchRemediation (twentyChainUpgradeTransactions v cid)
-  | pact4coin3Upgrade At v bheight = matchRemediation coinV3Transactions
-  | chainweb214Pact At v bheight = matchRemediation coinV4Transactions
-  | chainweb215Pact At v bheight = matchRemediation coinV5Transactions
+  | Just upg <- v ^? versionUpgrades . onChain cid . at bheight . _Just = matchRemediation upg
   | otherwise = matchRest
   where
     bheight = _blockHeight bh
@@ -135,16 +132,15 @@ matchLogs typ bh logs coinbase txs
       FullLogs -> genesisTransactions logs cid txs
       SingleLog rk -> genesisTransaction logs cid txs rk
 
-    matchRemediation getRemTxs = do
-      rems <- liftIO getRemTxs
+    matchRemediation upg = do
       hoistEither $ case typ of
         FullLogs ->
           overwriteError RosettaMismatchTxLogs $!
-            remediations logs cid coinbase rems txs
+            remediations logs cid coinbase (_upgradeTransactions upg) txs
         SingleLog rk ->
           (noteOptional RosettaTxIdNotFound .
             overwriteError RosettaMismatchTxLogs) $
-              singleRemediation logs cid coinbase rems txs rk
+              singleRemediation logs cid coinbase (_upgradeTransactions upg) txs rk
 
     matchRest = hoistEither $ case typ of
       FullLogs ->
@@ -747,7 +743,7 @@ toSignerAcctsMap txInfo payerAcct cid pacts cutDb = do
       someActualFrom <- getOwnership peCurr bhCurr from
       someActualTo <- getOwnership peCurr bhCurr to
 
-      _ <- enforceAcctPresent from someActualFrom
+      _ <- enforceAcctPresent' from someActualFrom
       checkExpectedOwnership from expectedFrom someActualFrom
       checkExpectedOwnership to expectedTo someActualTo
 
@@ -820,6 +816,18 @@ enforceAcctPresent k actualOwnership =
       hoistEither $ Left $
       stringRosettaError RosettaInvalidAccountProvided $
       "Account=" ++ show k ++ " doesn't exists"
+
+enforceAcctPresent'
+    :: AccountId
+    -> Maybe [T.Text]
+    -> ExceptT RosettaError Handler [T.Text]
+enforceAcctPresent' k actualOwnership =
+  case actualOwnership of
+    Just pks -> pure pks
+    Nothing -> -- key missing (not expected)
+      hoistEither $ Left $
+      stringRosettaError RosettaInvalidAccountProvided $
+      "Account=" ++ show k ++ " doesn't exists (2)"
 
 checkExpectedOwnership
     :: AccountId

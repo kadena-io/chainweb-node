@@ -56,6 +56,7 @@ import Chainweb.Test.Cut
 import Chainweb.Test.Cut.TestBlockDb
 import Chainweb.Test.Pact.Utils
 import Chainweb.Test.Utils
+import Chainweb.Test.TestVersions
 import Chainweb.Time
 import Chainweb.Utils
 import Chainweb.Version
@@ -65,7 +66,7 @@ import Chainweb.WebPactExecutionService
 import Chainweb.Storage.Table (casLookupM)
 
 testVersion :: ChainwebVersion
-testVersion = FastTimedCPM peterson
+testVersion = slowForkingCpmTestVersion peterson
 
 cid :: ChainId
 cid = someChainId testVersion
@@ -85,7 +86,8 @@ type PactTestM = ReaderT MultiEnv IO
 
 data MempoolInput = MempoolInput
     { _miBlockFill :: BlockFill
-    , _miBlockHeader :: BlockHeader }
+    , _miBlockHeader :: BlockHeader
+    }
 
 newtype MempoolCmdBuilder = MempoolCmdBuilder
     { _mempoolCmdBuilder :: MempoolInput -> CmdBuilder
@@ -98,7 +100,8 @@ newtype MempoolBlock = MempoolBlock
 
 -- | Mempool with an ordered list of fillers.
 newtype PactMempool = PactMempool
-  { _pactMempool :: [MempoolBlock] }
+  { _pactMempool :: [MempoolBlock]
+  }
   deriving (Semigroup,Monoid)
 
 
@@ -127,7 +130,7 @@ tests = ScheduledTest testName go
       where
           -- This is way more than what is used in production, but during testing
           -- we can be generous.
-        generousConfig = defaultPactServiceConfig { _pactBlockGasLimit = 300_000 }
+        generousConfig = defaultPactServiceConfig { _pactBlockGasLimit = 300_000, _pactLogGas = True }
         timeoutConfig = defaultPactServiceConfig { _pactBlockGasLimit = 100_000 }
         test pactConfig gasmodel tname f =
           withDelegateMempool $ \dmpio -> testCase tname $
@@ -241,7 +244,7 @@ pact45UpgradeTest = do
     [ PactTxTest (buildSimpleCmd "(enforce false 'hi)") $
         assertTxFailure "Should fail with the error from the enforce" "hi"
     , PactTxTest (buildSimpleCmd "(enforce true (format  \"{}-{}\" [12345, 657859]))") $
-        assertTxGas "Enforce pre-fork evaluates the string with gas" 34
+        assertTxGas "Enforce pre-fork evaluates the string with gas" 35
     , PactTxTest (buildSimpleCmd "(enumerate 0 10) (str-to-list 'hi) (make-list 10 'hi)") $
         assertTxGas "List functions pre-fork gas" 20
     , PactTxTest
@@ -255,7 +258,7 @@ pact45UpgradeTest = do
     [ PactTxTest (buildSimpleCmd "(+ 1 \'clearlyanerror)") $
       assertTxFailure "Should replace tx error with empty error" ""
     , PactTxTest (buildSimpleCmd "(enforce true (format  \"{}-{}\" [12345, 657859]))") $
-        assertTxGas "Enforce post fork does not eval the string" (14 + coinTxBuyTransferGas)
+        assertTxGas "Enforce post fork does not eval the string" (15 + coinTxBuyTransferGas)
     , PactTxTest (buildSimpleCmd "(enumerate 0 10) (str-to-list 'hi) (make-list 10 'hi)") $
         assertTxGas "List functions post-fork change gas" (40 + coinTxBuyTransferGas)
     , PactTxTest
@@ -652,7 +655,7 @@ chainweb216Test = do
       [ PactTxTest (buildSimpleCmd formatGas) $
         assertTxGas "Pre-fork format gas" 21
       , PactTxTest (buildSimpleCmd tryGas) $
-        assertTxGas "Pre-fork try" 18
+        assertTxGas "Pre-fork try" 19
       , PactTxTest (buildSimpleCmd defineNonNamespacedPreFork) $
         assertTxSuccess
         "Should pass when defining a non-namespaced keyset"
@@ -668,7 +671,7 @@ chainweb216Test = do
       [ PactTxTest (buildSimpleCmd formatGas) $
         assertTxGas "Post-fork format gas increase" 48
       , PactTxTest (buildSimpleCmd tryGas) $
-        assertTxGas "Post-fork try should charge a bit more gas" 19
+        assertTxGas "Post-fork try should charge a bit more gas" 20
       , PactTxTest (buildSimpleCmd defineNonNamespacedPostFork1) $
         assertTxFailure
         "Should fail when defining a non-namespaced keyset post fork"

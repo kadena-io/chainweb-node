@@ -48,10 +48,10 @@ import Chainweb.Version
 -- -------------------------------------------------------------------------- --
 -- Endpoints
 
-endpoint :: HasCallStack => HTTP.Manager -> ChainwebVersion -> HTTP.ClientEnv
+endpoint :: HasCallStack => HTTP.Manager -> ChainwebVersionName -> HTTP.ClientEnv
 endpoint mgr Mainnet01 = HTTP.mkClientEnv mgr $ HTTP.BaseUrl HTTP.Https "us-e1.chainweb.com" 443 ""
 endpoint mgr Testnet04 = HTTP.mkClientEnv mgr $ HTTP.BaseUrl HTTP.Https "us1.testnet.chainweb.com" 443 ""
-endpoint mgr Development = HTTP.mkClientEnv mgr $ HTTP.BaseUrl HTTP.Https "us1.tn.chainweb.com" 443 ""
+endpoint mgr (Development ()) = HTTP.mkClientEnv mgr $ HTTP.BaseUrl HTTP.Https "us1.tn.chainweb.com" 443 ""
 endpoint _ x = error $ "endpoint: unsupported chainweb version " <> sshow x
 
 -- -------------------------------------------------------------------------- --
@@ -65,7 +65,7 @@ mkMgr = HTTP.newTlsManagerWith $ HTTP.mkManagerSettings
 runQuery
     :: HasCallStack
     => HTTP.Manager
-    -> ChainwebVersion
+    -> ChainwebVersionTag
     -> HTTP.ClientM a
     -> IO a
 runQuery mgr v q = HTTP.runClientM q (endpoint mgr v) >>= \case
@@ -78,7 +78,7 @@ runQuery mgr v q = HTTP.runClientM q (endpoint mgr v) >>= \case
 getHeaderByHash
     :: HasCallStack
     => HTTP.Manager
-    -> ChainwebVersion
+    -> ChainwebVersionTag
     -> ChainId
     -> BlockHash
     -> IO BlockHeader
@@ -87,7 +87,7 @@ getHeaderByHash mgr v c = runQuery mgr v . headerClient v c
 getHeaderByHeight
     :: HasCallStack
     => HTTP.Manager
-    -> ChainwebVersion
+    -> ChainwebVersionTag
     -> ChainId
     -> BlockHeight
     -> IO BlockHeader
@@ -110,7 +110,7 @@ getHeaderByHeight mgr v cid height = do
 currentHash
     :: HasCallStack
     => HTTP.Manager
-    -> ChainwebVersion
+    -> ChainwebVersionTag
     -> ChainId
     -> IO BlockHashWithHeight
 currentHash mgr v cid = do
