@@ -104,7 +104,6 @@ import Chainweb.RestAPI.NetworkID
 import Chainweb.RestAPI.NodeInfo
 import Chainweb.RestAPI.Utils
 import Chainweb.Rosetta.RestAPI.Server
-import Chainweb.SPV.RestAPI.Server
 import Chainweb.Utils
 import Chainweb.Version
 
@@ -222,9 +221,8 @@ someChainwebServer
     -> SomeServer
 someChainwebServer config dbs =
     maybe mempty (someCutServer v cutPeerDb) cuts
-    <> maybe mempty (someSpvServers v) cuts
     <> somePayloadServers v p2pPayloadBatchLimit payloads
-    <> someBlockHeaderDbServers v blocks
+    <> someP2pBlockHeaderDbServers v blocks
     <> Mempool.someMempoolServers v mempools
     <> someP2pServers v peers
     <> someGetConfigServer config
@@ -343,11 +341,12 @@ someServiceApiServer v dbs pacts mr (HeaderStream hs) (Rosetta r) backupEnv pbl 
         -- TODO: not sure if passing the correct PeerDb here
         -- TODO: why does Rosetta need a peer db at all?
         -- TODO: simplify number of resources passing to rosetta
+    -- <> maybe mempty (someSpvServers v) cuts -- AFAIK currently not used
 
     -- GET Cut, Payload, and Headers endpoints
     <> maybe mempty (someCutGetServer v) cuts
     <> somePayloadServers v pbl payloads
-    <> someBlockHeaderDbServers v blocks
+    <> someBlockHeaderDbServers v blocks -- TOD make max limits configurable
   where
     cuts = _chainwebServerCutDb dbs
     peers = _chainwebServerPeerDbs dbs

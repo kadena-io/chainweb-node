@@ -168,9 +168,7 @@ multiConfig v n = defaultChainwebConfiguration v
 
     throttling = defaultThrottlingConfig
         { _throttlingRate = 10_000 -- per second
-        , _throttlingMiningRate = 10_000 --  per second
         , _throttlingPeerRate = 10_000 -- per second, one for each p2p network
-        , _throttlingLocalRate = 10_000  -- per 10 seconds
         }
 
 -- | Configure a bootstrap node
@@ -298,8 +296,8 @@ replayTest
     -> ChainwebVersion
     -> Natural
     -> TestTree
-replayTest loglevel v n = after AllFinish "ConsensusNetwork" $ testCaseSteps name $ \step -> 
-    withTempRocksDb "replay-test-rocks" $ \rdb -> 
+replayTest loglevel v n = after AllFinish "ConsensusNetwork" $ testCaseSteps name $ \step ->
+    withTempRocksDb "replay-test-rocks" $ \rdb ->
     withSystemTempDirectory "replay-test-pact" $ \pactDbDir -> do
         let tastylog = step . T.unpack
         tastylog "phase 1..."
@@ -364,9 +362,9 @@ test
     -> Natural
     -> Seconds
     -> TestTree
-test loglevel v n seconds = testCaseSteps name $ \f -> 
+test loglevel v n seconds = testCaseSteps name $ \f ->
     -- Count log messages and only print the first 60 messages
-    withTempRocksDb "multinode-tests" $ \rdb -> 
+    withTempRocksDb "multinode-tests" $ \rdb ->
     withSystemTempDirectory "replay-test-pact" $ \pactDbDir -> do
         let tastylog = f . T.unpack
 #if DEBUG_MULTINODE_TEST

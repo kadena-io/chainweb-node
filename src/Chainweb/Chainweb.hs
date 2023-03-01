@@ -85,8 +85,6 @@ module Chainweb.Chainweb
 
 , ThrottlingConfig(..)
 , throttlingRate
-, throttlingLocalRate
-, throttlingMiningRate
 , throttlingPeerRate
 , defaultThrottlingConfig
 
