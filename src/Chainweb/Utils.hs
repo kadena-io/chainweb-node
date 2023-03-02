@@ -103,6 +103,7 @@ module Chainweb.Utils
 , encodeB64UrlText
 , decodeB64UrlText
 , encodeB64UrlNoPaddingText
+, b64UrlNoPaddingTextEncoding
 , decodeB64UrlNoPaddingText
 
 -- ** JSON
@@ -239,8 +240,10 @@ import Data.Bifunctor
 import Data.Bool (bool)
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as B
+import qualified Data.ByteString.Char8 as B8
 import qualified Data.ByteString.Base64 as B64
 import qualified Data.ByteString.Base64.URL as B64U
+import qualified Data.ByteString.Builder as BB
 import qualified Data.ByteString.Lazy as BL
 import qualified Data.Csv as CSV
 import Data.Decimal
@@ -649,6 +652,12 @@ decodeB64UrlNoPaddingText = fromEitherM
 encodeB64UrlNoPaddingText :: B.ByteString -> T.Text
 encodeB64UrlNoPaddingText = T.dropWhileEnd (== '=') . T.decodeUtf8 . B64U.encode
 {-# INLINE encodeB64UrlNoPaddingText #-}
+
+-- | Encode a binary value to a base64-url (without padding) JSON encoding.
+--
+b64UrlNoPaddingTextEncoding :: B.ByteString -> Encoding
+b64UrlNoPaddingTextEncoding t =
+    Aeson.unsafeToEncoding $ BB.char8 '\"' <> BB.byteString (B8.dropWhileEnd (== '=') $ B64U.encode t) <> BB.char8 '\"'
 
 -- -------------------------------------------------------------------------- --
 -- ** JSON

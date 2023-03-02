@@ -779,8 +779,8 @@ decodeBlockHeader = BlockHeader
     <*> decodeBlockHash
 
 instance ToJSON BlockHeader where
-    toJSON = toJSON .  encodeB64UrlNoPaddingText . runPutS . encodeBlockHeader
-    toEncoding = toEncoding .  encodeB64UrlNoPaddingText . runPutS . encodeBlockHeader
+    toJSON = toJSON . encodeB64UrlNoPaddingText . runPutS . encodeBlockHeader
+    toEncoding = b64UrlNoPaddingTextEncoding . runPutS . encodeBlockHeader
     {-# INLINE toJSON #-}
     {-# INLINE toEncoding #-}
 
