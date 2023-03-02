@@ -286,7 +286,7 @@ data Upgrade = Upgrade
     -- are included in.  do not use this for new upgrades unless you are sure
     -- you need it, this mostly exists for old upgrades.
     }
-    deriving stock (Generic)
+    deriving stock (Generic, Eq)
     deriving anyclass (NFData)
 
 upgrade :: [ChainwebTransaction] -> Upgrade
@@ -331,6 +331,8 @@ instance Ord ChainwebVersion where
         , _versionName v `compare` _versionName v'
         , _versionGraphs v `compare` _versionGraphs v'
         , _versionForks v `compare` _versionForks v'
+        -- upgrades cannot be ordered because Payload in Pact cannot be ordered
+        -- , _versionUpgrades v `compare` _versionUpgrades v'
         , _versionBlockRate v `compare` _versionBlockRate v'
         , _versionWindow v `compare` _versionWindow v'
         , _versionHeaderBaseSizeBytes v `compare` _versionHeaderBaseSizeBytes v'
@@ -341,7 +343,10 @@ instance Ord ChainwebVersion where
         ]
 
 instance Eq ChainwebVersion where
-    v == v' = compare v v' == EQ
+    v == v' = and
+        [ compare v v' == EQ
+        , _versionUpgrades v == _versionUpgrades v'
+        ]
 
 data Cheats = Cheats
     { _disablePow :: Bool
