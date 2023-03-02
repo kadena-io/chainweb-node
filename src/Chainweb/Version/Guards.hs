@@ -15,11 +15,10 @@
 -- chainweb versions.
 --
 
-module Chainweb.Version.Guards 
+module Chainweb.Version.Guards
+    (
     -- ** Payload Validation Guards
-    ( vuln797Fix
-    -- , coinV2Upgrade
-    -- , to20ChainRebalance
+    vuln797Fix
     , pactBackCompat_v16
     , skipTxTimingValidation
     , enableModuleNameFix
