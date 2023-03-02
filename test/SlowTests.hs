@@ -21,7 +21,6 @@ import Test.Tasty
 import Chainweb.Graph
 import qualified Chainweb.Test.MultiNode
 import Chainweb.Test.TestVersions
-import Chainweb.Version
 
 import qualified Network.X509.SelfSigned.Test
 

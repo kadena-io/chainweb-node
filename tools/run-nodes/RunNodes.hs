@@ -10,7 +10,6 @@ import Chainweb.Version.Registry
 
 import Control.Concurrent
 import Control.Concurrent.Async
-import Control.Error.Util (note)
 import Control.Exception
 
 import qualified Data.Text as T

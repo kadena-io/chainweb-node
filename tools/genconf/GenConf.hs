@@ -22,7 +22,6 @@ import Chainweb.Chainweb
 import Chainweb.Chainweb.Configuration
 import Chainweb.HostAddress
 import Chainweb.Miner.Config
-import Chainweb.Version
 import Chainweb.Version.Mainnet
 
 import P2P.Node.Configuration

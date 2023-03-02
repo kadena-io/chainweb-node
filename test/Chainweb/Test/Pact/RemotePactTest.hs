@@ -34,7 +34,6 @@ import Control.Lens
 import Control.Monad
 import Control.Monad.Catch
 import Control.Monad.IO.Class
-import Control.Retry
 
 import qualified Data.Aeson as A
 import Data.Aeson.Lens hiding (values)
@@ -44,7 +43,6 @@ import Data.Decimal
 import Data.Default (def)
 import Data.Foldable (toList)
 import qualified Data.HashMap.Strict as HashMap
-import qualified Data.HashSet as HashSet
 import qualified Data.List as L
 import qualified Data.List.NonEmpty as NEL
 import qualified Data.Map.Strict as M
@@ -76,10 +74,7 @@ import Pact.Types.Term
 
 -- internal modules
 
-import Chainweb.BlockHeight
 import Chainweb.ChainId
-import Chainweb.Cut.CutHashes
-import Chainweb.CutDB.RestAPI.Client
 import Chainweb.Graph
 import Chainweb.Mempool.Mempool
 import Chainweb.Pact.RestAPI.Client
@@ -599,18 +594,20 @@ allocationTest iot nio = testCaseSteps "genesis allocation tests" $ \step -> do
       Left e -> assertFailure $ "test failure: " <> show e
       Right cr -> assertEqual "00 expect /local allocation balance" accountInfo (resultOf cr)
 
+    -- edtodo: be more principled about `try`?
     step "negative allocation test: allocation01 release"
-    batch0 <- mkSingletonBatch iot allocation01KeyPair tx2 n2 (pm "allocation01") Nothing
+    do
+      batch0 <- mkSingletonBatch iot allocation01KeyPair tx2 n2 (pm "allocation01") Nothing
 
-    testCaseStep "sendApiClient: submit allocation release request"
-    cr <- local sid cenv (NEL.head $ _sbCmds batch0)
+      testCaseStep "sendApiClient: submit allocation release request"
+      cr <- local sid cenv (NEL.head $ _sbCmds batch0)
 
-    case resultOf cr of
-      Left e -> do
-        assertBool "expect negative allocation test failure"
-          $ T.isInfixOf "Failure: Tx Failed: funds locked"
-          $ sshow e
-      _ -> assertFailure "unexpected pact result success in negative allocation test"
+      case resultOf cr of
+        Left e -> do
+          assertBool "expect negative allocation test failure"
+            $ T.isInfixOf "Failure: Tx Failed: funds locked"
+            $ sshow e
+        _ -> assertFailure "unexpected pact result success in negative allocation test"
 
     step "positive key-rotation test: allocation2"
     r <- try @IO @PactTestFailure $ do

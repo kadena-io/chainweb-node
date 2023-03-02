@@ -10,8 +10,6 @@ module Chainweb.Test.Rosetta.RestAPI
 ( tests
 ) where
 
-
-import Debug.Trace
 import Control.Concurrent.Async
 import Control.Concurrent.MVar
 import Control.Lens

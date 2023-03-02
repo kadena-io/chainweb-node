@@ -50,7 +50,7 @@ import Chainweb.Test.Cut.TestBlockDb
 import Chainweb.Test.Utils
 import Chainweb.Test.Pact.Utils
 import Chainweb.Test.TestVersions(fastForkingCpmTestVersion)
-import Chainweb.Utils (T2(..), fromJuste)
+import Chainweb.Utils (T2(..))
 import Chainweb.Version
 import Chainweb.WebBlockHeaderDB
 

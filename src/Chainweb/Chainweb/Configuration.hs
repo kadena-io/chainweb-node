@@ -170,7 +170,7 @@ instance FromJSON (ThrottlingConfig -> ThrottlingConfig) where
         <*< throttlingLocalRate ..: "local" % o
 
 -- -------------------------------------------------------------------------- --
--- Cut Coniguration
+-- Cut Configuration
 
 data ChainDatabaseGcConfig
     = GcNone

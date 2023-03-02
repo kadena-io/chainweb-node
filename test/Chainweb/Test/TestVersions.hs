@@ -16,14 +16,10 @@ module Chainweb.Test.TestVersions
     ) where
 
 import Control.Lens hiding (elements)
-import Data.Bits
-import Data.Foldable
-import Data.Function
 import Data.HashMap.Strict (HashMap)
 import qualified Data.HashMap.Strict as HM
 import qualified Data.HashSet as HS
 import qualified Data.List as List
-import Data.Word
 import qualified Chainweb.BlockHeader.Genesis.FastTimedCPM0Payload as TN0
 import qualified Chainweb.BlockHeader.Genesis.FastTimedCPMNPayload as TNN
 
@@ -69,7 +65,9 @@ testBootstrapPeerInfos =
             }
         }
 
-legalizeTestVersion :: (ChainwebVersion -> ChainwebVersion) -> ChainwebVersion
+type VersionBuilder = ChainwebVersion -> ChainwebVersion
+
+legalizeTestVersion :: VersionBuilder -> ChainwebVersion
 legalizeTestVersion f = unsafePerformIO $ do
     let v = f v
     registerVersion v
@@ -98,7 +96,7 @@ testRegistry = concat
       ]
     ]
 
-testVersionTemplate :: ChainwebVersion -> ChainwebVersion
+testVersionTemplate :: VersionBuilder
 testVersionTemplate v = v
     & versionCode .~ ChainwebVersionCode (int (fromJuste $ List.findIndex (\vn -> vn == _versionName v) testRegistry) + 0x80000000)
     & versionHeaderBaseSizeBytes .~ 318 - 110
@@ -136,6 +134,7 @@ fastForks = HM.fromList
 barebonesTestVersion :: ChainGraph -> ChainwebVersion
 barebonesTestVersion g = legalizeTestVersion (barebonesTestVersion' g)
 
+barebonesTestVersion' :: ChainGraph -> VersionBuilder
 barebonesTestVersion' g v =
     testVersionTemplate v
         & versionWindow .~ Nothing
@@ -161,7 +160,7 @@ barebonesTestVersion' g v =
             , (Chainweb215Pact, AllChains (upgrade CoinV5.transactions))
             ]
 
-cpmTestVersion :: ChainGraph -> ChainwebVersion -> ChainwebVersion
+cpmTestVersion :: ChainGraph -> VersionBuilder
 cpmTestVersion g v = v
     & versionWindow .~ Nothing
     & versionBlockRate .~ BlockRate (Micros 200_000)
@@ -191,6 +190,7 @@ cpmTestVersion g v = v
 slowForkingCpmTestVersion :: ChainGraph -> ChainwebVersion
 slowForkingCpmTestVersion g = legalizeTestVersion (slowForkingCpmTestVersion' g)
 
+slowForkingCpmTestVersion' :: ChainGraph -> VersionBuilder
 slowForkingCpmTestVersion' g v =
     cpmTestVersion g (testVersionTemplate v)
         & versionName .~ ChainwebVersionName ("slowfork-CPM-" <> toText g)
@@ -222,6 +222,7 @@ slowForkingCpmTestVersion' g v =
 fastForkingCpmTestVersion :: ChainGraph -> ChainwebVersion
 fastForkingCpmTestVersion g = legalizeTestVersion (fastForkingCpmTestVersion' g)
 
+fastForkingCpmTestVersion' :: ChainGraph -> VersionBuilder
 fastForkingCpmTestVersion' g v =
     cpmTestVersion g (testVersionTemplate v)
         & versionName .~ ChainwebVersionName ("fastfork-CPM-" <> toText g)
@@ -230,6 +231,7 @@ fastForkingCpmTestVersion' g v =
 noBridgeCpmTestVersion :: ChainGraph -> ChainwebVersion
 noBridgeCpmTestVersion g = legalizeTestVersion (noBridgeCpmTestVersion' g)
 
+noBridgeCpmTestVersion' :: ChainGraph -> VersionBuilder
 noBridgeCpmTestVersion' g v =
     cpmTestVersion g (testVersionTemplate v)
         & versionName .~ ChainwebVersionName ("nobridge-CPM-" <> toText g)
@@ -238,6 +240,7 @@ noBridgeCpmTestVersion' g v =
 timedConsensusVersion :: ChainGraph -> ChainGraph -> ChainwebVersion
 timedConsensusVersion g1 g2 = legalizeTestVersion (timedConsensusVersion' g1 g2)
 
+timedConsensusVersion' :: ChainGraph -> ChainGraph -> VersionBuilder
 timedConsensusVersion' g1 g2 v =
     testVersionTemplate v
         & versionName .~ ChainwebVersionName ("timedConsensus-" <> toText g1 <> "-" <> toText g2)
