@@ -63,6 +63,7 @@ module Chainweb.Chainweb
 , chainwebPactData
 , chainwebThrottler
 , chainwebPutPeerThrottler
+, chainwebMempoolThrottler
 , chainwebConfig
 , chainwebServiceSocket
 , chainwebBackup
@@ -198,6 +199,7 @@ data Chainweb logger tbl = Chainweb
     , _chainwebPactData :: ![(ChainId, PactServerData logger tbl)]
     , _chainwebThrottler :: !(Throttle Address)
     , _chainwebPutPeerThrottler :: !(Throttle Address)
+    , _chainwebMempoolThrottler :: !(Throttle Address)
     , _chainwebConfig :: !ChainwebConfiguration
     , _chainwebServiceSocket :: !(Port, Socket)
     , _chainwebBackup :: !(BackupEnv logger)
@@ -462,6 +464,7 @@ withChainwebInternal conf logger peer serviceSock rocksDb pactDbDir backupDir re
             -- initialize throttler
             throttler <- mkGenericThrottler $ _throttlingRate throt
             putPeerThrottler <- mkPutPeerThrottler $ _throttlingPeerRate throt
+            mempoolThrottler <- mkMempoolThrottler $ _throttlingMempoolRate throt
             logg Info "initialized throttlers"
 
             -- synchronize pact dbs with latest cut before we start the server
@@ -521,6 +524,7 @@ withChainwebInternal conf logger peer serviceSock rocksDb pactDbDir backupDir re
                                 , _chainwebPactData = pactData
                                 , _chainwebThrottler = throttler
                                 , _chainwebPutPeerThrottler = putPeerThrottler
+                                , _chainwebMempoolThrottler = mempoolThrottler
                                 , _chainwebConfig = conf
                                 , _chainwebServiceSocket = serviceSock
                                 , _chainwebBackup = BackupEnv
@@ -585,11 +589,15 @@ withChainwebInternal conf logger peer serviceSock rocksDb pactDbDir backupDir re
 -- Throttling
 
 mkGenericThrottler :: Double -> IO (Throttle Address)
-mkGenericThrottler rate = mkThrottler 5 rate (const True)
+mkGenericThrottler rate = mkThrottler 30 rate (const True)
 
 mkPutPeerThrottler :: Double -> IO (Throttle Address)
-mkPutPeerThrottler rate = mkThrottler 5 rate $ \r ->
+mkPutPeerThrottler rate = mkThrottler 30 rate $ \r ->
     elem "peer" (pathInfo r) && requestMethod r == "PUT"
+
+mkMempoolThrottler :: Double -> IO (Throttle Address)
+mkMempoolThrottler rate = mkThrottler 30 rate $ \r ->
+    elem "mempool" (pathInfo r)
 
 checkPathPrefix
     :: [T.Text]
@@ -633,6 +641,7 @@ runChainweb cw = do
         [ (if tls then serve else servePlain)
             $ httpLog
             . throttle (_chainwebPutPeerThrottler cw)
+            . throttle (_chainwebMempoolThrottler cw)
             . throttle (_chainwebThrottler cw)
             . requestSizeLimit
         -- 2. Start Clients (with a delay of 500ms)

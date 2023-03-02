@@ -84,7 +84,8 @@ getConf = do
 defaultThrottlingConfig :: ThrottlingConfig
 defaultThrottlingConfig = ThrottlingConfig
   { _throttlingRate = 50 -- per second
-  , _throttlingPeerRate = 11  -- per second, on for each p2p network
+  , _throttlingPeerRate = 11  -- per second, one each 2 seconds for each p2p network
+  , _throttlingMempoolRate = 5 -- per second, one each 4 seconds for each mempool
   }
 
 main :: IO ()
