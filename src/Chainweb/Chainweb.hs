@@ -619,7 +619,7 @@ mkThrottler
 mkThrottler e rate c = initThrottler (defaultThrottleSettings $ TimeSpec (ceiling e) 0) -- expiration
     { throttleSettingsRate = rate -- number of allowed requests per period
     , throttleSettingsPeriod = 1_000_000 -- 1 second
-    , throttleSettingsBurst = 2 * ceiling rate
+    , throttleSettingsBurst = 4 * ceiling rate
     , throttleSettingsIsThrottled = c
     }
 

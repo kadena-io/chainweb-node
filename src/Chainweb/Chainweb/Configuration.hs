@@ -131,8 +131,8 @@ makeLenses ''ThrottlingConfig
 defaultThrottlingConfig :: ThrottlingConfig
 defaultThrottlingConfig = ThrottlingConfig
     { _throttlingRate = 50 -- per second, in a 100 burst
-    , _throttlingPeerRate = 11 -- per second, 1 for each p2p network in a burst
-    , _throttlingMempoolRate = 5 -- one every four seconds per mempool.
+    , _throttlingPeerRate = 11 -- per second, 1 for each p2p network
+    , _throttlingMempoolRate = 20 -- one every seconds per mempool.
     }
 
 instance ToJSON ThrottlingConfig where
