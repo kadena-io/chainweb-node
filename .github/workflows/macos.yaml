@@ -21,8 +21,13 @@ jobs:
     # Setup
     - name: Checkout repository
       uses: actions/checkout@v3
+
+    # work around for https://github.com/haskell/actions/issues/187
+    - name: Set permissions for .ghcup
+      if: startsWith(matrix.os, 'ubuntu-')
+      run: sudo chown -R $USER /usr/local/.ghcup
     - name: Install GHC and Cabal
-      uses: haskell/actions/setup@v2.0.1
+      uses: haskell/actions/setup@v2
       with:
          ghc-version: ${{ matrix.ghc }}
          cabal-version: ${{ matrix.cabal }}

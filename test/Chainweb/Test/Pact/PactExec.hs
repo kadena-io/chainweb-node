@@ -543,9 +543,13 @@ execLocalTest runPact name (trans',check) = testCaseSch name (go >>= check)
   where
     go = do
       trans <- trans'
-      results' <- tryAllSynchronous $ runPact $ \_ -> execLocal trans
+      results' <- tryAllSynchronous $ runPact $ \_ ->
+        execLocal trans Nothing Nothing Nothing
       case results' of
-        Right cr -> return $ Right cr
+        Right (MetadataValidationFailure e) ->
+          return $ Left $ show e
+        Right (LocalResultLegacy cr) -> return $ Right cr
+        Right (LocalResultWithWarns cr _) -> return $ Right cr
         Left e -> return $ Left $ show e
 
 getPactCode :: TestSource -> IO Text

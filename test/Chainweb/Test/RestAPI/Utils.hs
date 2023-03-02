@@ -56,6 +56,7 @@ import Servant.Client
 
 -- internal chainweb modules
 
+import Chainweb.BlockHeight
 import Chainweb.ChainId
 import Chainweb.Graph
 import Chainweb.Pact.RestAPI.Client
@@ -106,28 +107,45 @@ repeatUntil test action = retrying testRetryPolicy
     (\_ b -> not <$> test b)
     (const action)
 
+
 -- | Calls to /local via the pact local api client with retry
+--
+localWithQueryParams
+    :: ChainId
+    -> ClientEnv
+    -> Maybe LocalPreflightSimulation
+    -> Maybe LocalSignatureVerification
+    -> Maybe BlockHeight
+    -> Command Text
+    -> IO LocalResult
+localWithQueryParams sid cenv pf sv rd cmd =
+    recovering testRetryPolicy [h] $ \s -> do
+      debug
+        $ "requesting local cmd for " <> take 19 (show cmd)
+        <> " [" <> show (view rsIterNumberL s) <> "]"
+
+      -- send a single local request and return the result
+      --
+      runClientM (pactLocalWithQueryApiClient v sid pf sv rd cmd) cenv >>= \case
+        Left e -> throwM $ LocalFailure (show e)
+        Right t -> return t
+  where
+    h _ = Handler $ \case
+      LocalFailure _ -> pure True
+      _ -> pure False
+
+-- | Calls /local via the pact local api client with preflight
+-- turned off. Retries.
 --
 local
     :: ChainId
     -> ClientEnv
     -> Command Text
     -> IO (CommandResult Hash)
-local sid cenv cmd =
-    recovering testRetryPolicy [h] $ \s -> do
-      debug
-        $ "requesting local cmd for " <> take 19 (show cmd)
-        <> " [" <> show (view rsIterNumberL s) <> "]"
-
-      -- send a single spv request and return the result
-      --
-      runClientM (pactLocalApiClient v sid cmd) cenv >>= \case
-        Left e -> throwM $ LocalFailure (show e)
-        Right t -> return t
-  where
-    h _ = Handler $ \case
-      LocalFailure _ -> return True
-      _ -> return False
+local sid cenv cmd = do
+    LocalResultLegacy cr <-
+      localWithQueryParams sid cenv Nothing Nothing Nothing cmd
+    pure cr
 
 localTestToRetry
     :: ChainId

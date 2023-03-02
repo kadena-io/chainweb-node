@@ -111,7 +111,7 @@ tests :: RocksDb -> ScheduledTest
 tests rdb = testGroupSch "Chainweb.Test.Rosetta.RestAPI" go
   where
     go = return $
-      withNodes v "rosettaRemoteTests-" rdb nodes $ \envIo ->
+      withNodesAtLatestBehavior v "rosettaRemoteTests-" rdb nodes $ \envIo ->
       withTime $ \tio -> testGroup "Rosetta Api tests" $
         schedule Sequential (tgroup tio $ _getServiceClientEnv <$> envIo)
 
@@ -128,8 +128,7 @@ tests rdb = testGroupSch "Chainweb.Test.Rosetta.RestAPI" go
     --
 
     tgroup tio envIo = fmap (\test -> test tio envIo)
-      [ waitForRemediations
-      , blockTransactionTests
+      [ blockTransactionTests
       , blockCoinV2RemediationTests
       , block20ChainRemediationTests
       , blockTests "Block Test without potential remediation"
@@ -142,11 +141,6 @@ tests rdb = testGroupSch "Chainweb.Test.Rosetta.RestAPI" go
       , constructionTransferTests
       , blockCoinV3RemediationTests
       ]
-
-waitForRemediations :: RosettaTest
-waitForRemediations _tio envIo =
-  testCaseSchSteps "Wait for cut height post-remediations" $ \step ->
-    awaitBlockHeight v step envIo (latestBehaviorAt v)
 
 -- | Rosetta account balance endpoint tests
 --

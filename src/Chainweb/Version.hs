@@ -205,6 +205,7 @@ data Fork
     | Chainweb215Pact
     | Chainweb216Pact
     | Chainweb217Pact
+    | Chainweb218Pact
     | Pact44NewTrans
     -- always add new forks at the end, not in the middle of the constructors.
     deriving (Bounded, Generic, NFData, Hashable, Eq, Enum, Ord, Show)
@@ -231,6 +232,7 @@ instance HasTextRepresentation Fork where
   toText Chainweb215Pact = "chainweb215Pact"
   toText Chainweb216Pact = "chainweb216Pact"
   toText Chainweb217Pact = "chainweb217Pact"
+  toText Chainweb218Pact = "chainweb218Pact"
   toText Pact44NewTrans = "pact44NewTrans"
 
   fromText "vuln797Fix" = return Vuln797Fix
@@ -254,6 +256,7 @@ instance HasTextRepresentation Fork where
   fromText "chainweb215Pact" = return Chainweb215Pact
   fromText "chainweb216Pact" = return Chainweb216Pact
   fromText "chainweb217Pact" = return Chainweb217Pact
+  fromText "chainweb218Pact" = return Chainweb218Pact
   fromText "pact44NewTrans" = return Pact44NewTrans
   fromText t = throwM . TextFormatException $ "Unknown Chainweb fork: " <> t
 
@@ -556,3 +559,9 @@ maxBlockGasLimit v bh = case measureRule bh $ _versionMaxBlockGasLimit v of
     Top (_, limit) -> limit
     Between (_, limit) _ -> limit
 
+-- edtodo
+-- chainweb218Pact :: ChainwebVersion -> BlockHeight -> Bool
+-- chainweb218Pact Testnet04 = (>= 3_038_343) -- 2023-03-02 12:00:00+00:00
+-- chainweb218Pact Development = (>= 500)
+-- chainweb218Pact (FastTimedCPM g) | g == petersonChainGraph = (> 60)
+-- chainweb218Pact _ = (> 24)

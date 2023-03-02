@@ -9,6 +9,7 @@
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE ExistentialQuantification #-}
+{-# LANGUAGE TemplateHaskell #-}
 -- |
 -- Module: Chainweb.Pact.Service.Types
 -- Copyright: Copyright © 2018 Kadena LLC.
@@ -22,10 +23,13 @@ module Chainweb.Pact.Service.Types where
 
 import Control.DeepSeq
 import Control.Concurrent.MVar.Strict
+import Control.Lens hiding ((.=))
 import Control.Monad.Catch
+import Control.Applicative
 
 import Data.Aeson
 import Data.Map (Map)
+import Data.List.NonEmpty (NonEmpty)
 import Data.Text (Text, pack, unpack)
 import Data.Vector (Vector)
 
@@ -43,7 +47,7 @@ import Pact.Types.Persistence
 
 -- internal chainweb modules
 
-import Chainweb.BlockHash
+import Chainweb.BlockHash ( BlockHash )
 import Chainweb.BlockHeader
 import Chainweb.BlockHeight
 import Chainweb.ChainId
@@ -86,6 +90,58 @@ instance Show GasPurchaseFailure where show = unpack . encodeToText
 
 gasPurchaseFailureHash :: GasPurchaseFailure -> TransactionHash
 gasPurchaseFailureHash (GasPurchaseFailure h _) = h
+
+-- | Used by /local to trigger user signature verification
+--
+data LocalSignatureVerification
+    = Verify
+    | NoVerify
+    deriving stock (Eq, Show, Generic)
+
+-- | Used by /local to trigger preflight simulation
+--
+data LocalPreflightSimulation
+    = PreflightSimulation
+    | LegacySimulation
+    deriving stock (Eq, Show, Generic)
+
+-- | The type of local results (used in /local endpoint)
+--
+data LocalResult
+    = MetadataValidationFailure !(NonEmpty Text)
+    | LocalResultWithWarns !(CommandResult Hash) ![Text]
+    | LocalResultLegacy !(CommandResult Hash)
+    deriving (Show, Generic)
+
+makePrisms ''LocalResult
+
+instance NFData LocalResult where
+    rnf (MetadataValidationFailure t) = rnf t
+    rnf (LocalResultWithWarns cr ws) = rnf cr `seq` rnf ws
+    rnf (LocalResultLegacy cr) = rnf cr
+
+instance ToJSON LocalResult where
+  toJSON (MetadataValidationFailure e) = object
+    [ "preflightValidationFailures" .= e ]
+  toJSON (LocalResultLegacy cr) = toJSON cr
+  toJSON (LocalResultWithWarns cr ws) = object
+    [ "preflightResult" .= cr
+    , "preflightWarnings" .= ws
+    ]
+
+instance FromJSON LocalResult where
+  parseJSON v = withObject "LocalResult"
+    (\o -> metaFailureParser o
+      <|> localWithWarnParser o
+      <|> legacyFallbackParser o)
+    v
+    where
+      metaFailureParser o =
+        MetadataValidationFailure <$> o .: "preflightValidationFailure"
+      localWithWarnParser o = LocalResultWithWarns
+        <$> o .: "preflightResult"
+        <*> o .: "preflightWarnings"
+      legacyFallbackParser _ = LocalResultLegacy <$> parseJSON v
 
 -- | Exceptions thrown by PactService components that
 -- are _not_ recorded in blockchain record.
@@ -172,7 +228,10 @@ instance Show ValidateBlockReq where show ValidateBlockReq{..} = show (_valBlock
 
 data LocalReq = LocalReq
     { _localRequest :: !ChainwebTransaction
-    , _localResultVar :: !(PactExMVar (CommandResult Hash))
+    , _localPreflight :: !(Maybe LocalPreflightSimulation)
+    , _localSigVerification :: !(Maybe LocalSignatureVerification)
+    , _localRewindDepth :: !(Maybe BlockHeight)
+    , _localResultVar :: !(PactExMVar LocalResult)
     }
 instance Show LocalReq where show LocalReq{..} = show _localRequest
 

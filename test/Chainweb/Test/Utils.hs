@@ -115,6 +115,7 @@ module Chainweb.Test.Utils
 
 -- * Multi-node testing utils
 , ChainwebNetwork(..)
+, withNodesAtLatestBehavior
 , withNodes
 , withNodes_
 , awaitBlockHeight
@@ -989,6 +990,17 @@ withNodes
     -> TestTree
 withNodes = withNodes_ (genericLogger Warn print)
 
+withNodesAtLatestBehavior
+    :: ChainwebVersion
+    -> B.ByteString
+    -> RocksDb
+    -> Natural
+    -> (IO ChainwebNetwork -> TestTree)
+    -> TestTree
+withNodesAtLatestBehavior v testLabel rdb n f = withNodes v testLabel rdb n $ \net ->
+    withResource (awaitBlockHeight v putStrLn (_getClientEnv <$> net) (latestBehaviorAt v)) (const (return ())) $ \_ ->
+        f net
+
 -- | Network initialization takes some time. Within my ghci session it took
 -- about 10 seconds. Once initialization is complete even large numbers of empty
 -- blocks were mined almost instantaneously.
@@ -1125,7 +1137,6 @@ bootstrapConfig conf = conf
 setBootstrapPeerInfo :: PeerInfo -> ChainwebConfiguration -> ChainwebConfiguration
 setBootstrapPeerInfo =
     over (configP2p . p2pConfigKnownPeers) . (:)
-
 
 host :: Hostname
 -- host = unsafeHostnameFromText "::1"

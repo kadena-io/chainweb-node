@@ -68,6 +68,7 @@ import qualified Pact.Types.Hash as P
 import qualified Pact.Types.Logger as P
 import qualified Pact.Types.Runtime as P
 import qualified Pact.Types.SPV as P
+import qualified Pact.Types.Pretty as P
 
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
@@ -85,6 +86,7 @@ import Chainweb.Pact.Service.PactQueue (PactQueue, getNextRequest)
 import Chainweb.Pact.Service.Types
 import Chainweb.Pact.TransactionExec
 import Chainweb.Pact.Types
+import Chainweb.Pact.Validations
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
 import Chainweb.Time
@@ -92,7 +94,7 @@ import Chainweb.Transaction
 import Chainweb.TreeDB (lookupM)
 import Chainweb.Utils hiding (check)
 import Chainweb.Version
-import Chainweb.Version.Guards 
+import Chainweb.Version.Guards
 import Data.LogMessage
 import Utils.Logging.Trace
 
@@ -148,6 +150,7 @@ withPactService ver cid chainwebLogger bhDb pdb sqlenv config act =
                     , _psGasLogger = gasLogger <$ guard (_pactLogGas config)
                     , _psLoggers = loggers
                     , _psBlockGasLimit = _pactBlockGasLimit config
+                    , _psChainId = cid
                     }
             !pst = PactServiceState Nothing mempty initialParentHeader P.noSPVSupport
         runPactServiceM pst pse $ do
@@ -266,10 +269,10 @@ serviceRequests logFn memPoolAccess reqQ = do
         logDebug $ "serviceRequests: " <> sshow msg
         case msg of
             CloseMsg -> return ()
-            LocalMsg LocalReq{..} -> do
+            LocalMsg (LocalReq localRequest preflight sigVerify rewindDepth localResultVar)  -> do
                 trace logFn "Chainweb.Pact.PactService.execLocal" () 0 $
-                    tryOne "execLocal" _localResultVar $
-                        execLocal _localRequest
+                    tryOne "execLocal" localResultVar $
+                        execLocal localRequest preflight sigVerify rewindDepth
                 go
             NewBlockMsg NewBlockReq {..} -> do
                 trace logFn "Chainweb.Pact.PactService.execNewBlock"
@@ -427,6 +430,7 @@ attemptBuyGas miner (PactDbEnv' dbEnv) txs = do
                 , _txGasUsed = 0
                 , _txGasId = Nothing
                 , _txGasModel = P._geGasModel P.freeGasEnv
+                , _txWarnings = mempty
                 }
 
         buyGasEnv <- createGasEnv db cmd gasPrice gasLimit
@@ -614,21 +618,69 @@ execNewGenesisBlock miner newTrans = withDiscardedBatch $
 execLocal
     :: CanReadablePayloadCas tbl
     => ChainwebTransaction
-    -> PactServiceM tbl (P.CommandResult P.Hash)
-execLocal cmd = withDiscardedBatch $ do
+    -> Maybe LocalPreflightSimulation
+      -- ^ preflight flag
+    -> Maybe LocalSignatureVerification
+      -- ^ turn off signature verification checks?
+    -> Maybe BlockHeight
+      -- ^ rewind depth (note: this is a *depth*, not an absolute height)
+    -> PactServiceM tbl LocalResult
+execLocal cwtx preflight sigVerify rdepth = withDiscardedBatch $ do
     PactServiceEnv{..} <- ask
+
+    let !cmd = payloadObj <$> cwtx
+        !pm = publicMetaOf cmd
+
     mc <- getInitCache
-    pd <- getTxContext (publicMetaOf $! payloadObj <$> cmd)
+    ctx <- getTxContext pm
     spv <- use psSpvSupport
+
+    let rewindHeight
+          | Just d <- rdepth = Just d
+          -- when no height is defined, treat
+          -- withCheckpointerRewind as withCurrentCheckpointer
+          -- (i.e. setting rewind to 0).
+          | otherwise = Just 0
+        rewindHeader = Just $ _tcParentHeader ctx
+
     let execConfig = P.mkExecutionConfig $
             [ P.FlagAllowReadInLocal | _psAllowReadsInLocal ] ++
-            enablePactEvents' (ctxVersion pd) (ctxChainId pd) (ctxCurrentBlockHeight pd) ++
-            enforceKeysetFormats' (ctxVersion pd) (ctxChainId pd) (ctxCurrentBlockHeight pd)
+            enablePactEvents' (ctxVersion ctx) (ctxChainId ctx) (ctxCurrentBlockHeight ctx) ++
+            enforceKeysetFormats' (ctxVersion ctx) (ctxChainId ctx) (ctxCurrentBlockHeight ctx)
         logger = P.newLogger _psLoggers "execLocal"
-    withCurrentCheckpointer "execLocal" $ \(PactDbEnv' pdbenv) -> do
-        r <- liftIO $
-          applyLocal logger _psGasLogger pdbenv chainweb213GasModel pd spv cmd mc execConfig
-        return $! Discard (toHashCommandResult r)
+        initialGas = initialGasOf $ P._cmdPayload cwtx
+
+    withCheckpointerRewind rewindHeight rewindHeader "execLocal" $
+      \(PactDbEnv' pdbenv) -> do
+        --
+        -- if the ?preflight query parameter is set to True, we run the `applyCmd` workflow
+        -- otherwise, we prefer the old (default) behavior. When no preflight flag is
+        -- specified, we run the old behavior. When it is set to true, we also do metadata
+        -- validations.
+        --
+        r <- case preflight of
+          Just PreflightSimulation -> do
+            assertLocalMetadata cmd ctx sigVerify >>= \case
+              Right{} -> do
+                T3 cr _mc warns <- liftIO $ applyCmd
+                  _psVersion logger _psGasLogger pdbenv
+                  noMiner chainweb213GasModel ctx spv cmd
+                  initialGas mc ApplyLocal
+
+                let cr' = toHashCommandResult cr
+                    warns' = P.renderCompactText <$> toList warns
+                pure $ LocalResultWithWarns cr' warns'
+              Left e -> pure $ MetadataValidationFailure e
+          _ ->  liftIO $ do
+            cr <- applyLocal
+              logger _psGasLogger pdbenv
+              chainweb213GasModel ctx spv
+              cwtx mc execConfig
+
+            let cr' = toHashCommandResult cr
+            pure $ LocalResultLegacy cr'
+
+        return $ Discard r
 
 execSyncToBlock
     :: CanReadablePayloadCas tbl

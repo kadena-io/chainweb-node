@@ -45,6 +45,7 @@ module Chainweb.Pact.Types
   , txGasId
   , txLogs
   , txCache
+  , txWarnings
 
     -- * Transaction Env
   , TransactionEnv(..)
@@ -84,6 +85,7 @@ module Chainweb.Pact.Types
   , psIsBatch
   , psCheckpointerDepth
   , psBlockGasLimit
+  , psChainId
 
   , getCheckpointer
 
@@ -129,8 +131,9 @@ module Chainweb.Pact.Types
   , logDebug
 
     -- * types
-  , ModuleCache
   , TxTimeout(..)
+  , ApplyCmdExecutionContext(..)
+  , ModuleCache
 
   -- * miscellaneous
   , defaultOnFatalError
@@ -152,6 +155,7 @@ import Data.Aeson hiding (Error,(.=))
 import Data.Default (def)
 import Data.HashMap.Strict (HashMap)
 import qualified Data.HashMap.Strict as HM
+import Data.Set (Set)
 import qualified Data.Map.Strict as M
 import Data.Text (pack, unpack, Text)
 import Data.Vector (Vector)
@@ -172,7 +176,7 @@ import Pact.Types.Gas
 import qualified Pact.Types.Logger as P
 import Pact.Types.Names
 import Pact.Types.Persistence (ExecutionMode, TxLog)
-import Pact.Types.Runtime (ExecutionConfig(..), ModuleData(..))
+import Pact.Types.Runtime (ExecutionConfig(..), ModuleData(..), PactWarning)
 import Pact.Types.SPV
 import Pact.Types.Term
 
@@ -233,6 +237,11 @@ newtype CoinbaseUsePrecompiled = CoinbaseUsePrecompiled Bool
 type ModuleCache = HashMap ModuleName (ModuleData Ref, Bool)
 
 -- -------------------------------------------------------------------- --
+-- Local vs. Send execution context flag
+
+data ApplyCmdExecutionContext = ApplyLocal | ApplySend
+
+-- -------------------------------------------------------------------- --
 -- Tx Execution Service Monad
 
 -- | Transaction execution state
@@ -243,6 +252,7 @@ data TransactionState = TransactionState
     , _txGasUsed :: !Gas
     , _txGasId :: !(Maybe GasId)
     , _txGasModel :: !GasModel
+    , _txWarnings :: Set PactWarning
     }
 makeLenses ''TransactionState
 
@@ -368,6 +378,7 @@ data PactServiceEnv tbl = PactServiceEnv
     , _psCheckpointerDepth :: !Int
         -- ^ Number of nested checkpointer calls
     , _psBlockGasLimit :: !GasLimit
+    , _psChainId :: ChainId
     }
 makeLenses ''PactServiceEnv
 

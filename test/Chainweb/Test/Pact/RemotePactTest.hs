@@ -38,6 +38,7 @@ import Control.Monad.IO.Class
 import qualified Data.Aeson as A
 import Data.Aeson.Lens hiding (values)
 import qualified Data.ByteString as BS
+import qualified Data.ByteString.Lazy as LBS
 import qualified Data.ByteString.Short as SB
 import Data.Decimal
 import Data.Default (def)
@@ -87,7 +88,7 @@ import Chainweb.Test.TestVersions
 import Chainweb.Time
 import Chainweb.Utils hiding (check)
 import Chainweb.Version
-
+import Chainweb.Version.Mainnet
 import Chainweb.Storage.Table.RocksDB
 
 
@@ -120,42 +121,41 @@ gp = 0.1
 --
 tests :: RocksDb -> ScheduledTest
 tests rdb = testGroupSch "Chainweb.Test.Pact.RemotePactTest"
-    [ withNodes v "remotePactTest-" rdb nNodes $ \net ->
-        withMVarResource 0 $ \iomvar ->
-          withTime $ \iot ->
-            testGroup "remote pact tests"
-              [ testCaseSteps "await network" $ \step ->
-                awaitBlockHeight v step (_getClientEnv <$> net) (latestBehaviorAt v)
-              , after AllSucceed "await network" $
-                withRequestKeys iot iomvar net $ responseGolden net
-              , after AllSucceed "remote-golden" $
-                testGroup "remote spv" [spvTest iot net]
-              , after AllSucceed "remote-golden" $
-                testGroup "remote eth spv" [ethSpvTest iot net]
-              , after AllSucceed "remote spv" $
-                sendValidationTest iot net
-              , after AllSucceed "remote spv" $
-                pollingBadlistTest net
-              , after AllSucceed "remote spv" $
-                testCase "trivialLocalCheck" $
-                localTest iot net
-              , after AllSucceed "remote spv" $
-                testCase "localChainData" $
-                localChainDataTest iot net
-              , after AllSucceed "remote spv" $
-                testGroup "gasForTxSize"
-                [ txTooBigGasTest iot net ]
-              , after AllSucceed "remote spv" $
-                testGroup "genesisAllocations"
-                [ allocationTest iot net ]
-              , after AllSucceed "genesisAllocations" $
-                testGroup "caplistTests"
-                [ caplistTest iot net ]
-              , after AllSucceed "caplistTests" $
-                localContTest iot net
-              , after AllSucceed "local continuation test" $
-                pollBadKeyTest net
-              ]
+    [ withNodesAtLatestBehavior v "remotePactTest-" rdb nNodes $ \net -> do
+          withMVarResource 0 $ \iomvar ->
+            withTime $ \iot ->
+              testGroup "remote pact tests"
+                [ withRequestKeys iot iomvar net $ responseGolden net
+                , after AllSucceed "remote-golden" $
+                  testGroup "remote spv" [spvTest iot net]
+                , after AllSucceed "remote-golden" $
+                  testGroup "remote eth spv" [ethSpvTest iot net]
+                , after AllSucceed "remote spv" $
+                  sendValidationTest iot net
+                , after AllSucceed "remote spv" $
+                  pollingBadlistTest net
+                , after AllSucceed "remote spv" $
+                  testCase "trivialLocalCheck" $
+                  localTest iot net
+                , after AllSucceed "remote spv" $
+                  testCase "localChainData" $
+                  localChainDataTest iot net
+                , after AllSucceed "remote spv" $
+                  testGroup "gasForTxSize"
+                  [ txTooBigGasTest iot net ]
+                , after AllSucceed "remote spv" $
+                  testGroup "genesisAllocations"
+                  [ allocationTest iot net ]
+                , after AllSucceed "genesisAllocations" $
+                  testGroup "caplistTests"
+                  [ caplistTest iot net ]
+                , after AllSucceed "caplistTests" $
+                  localContTest iot net
+                , after AllSucceed "local continuation test" $
+                  pollBadKeyTest net
+                , after AllSucceed "poll bad key test" $
+                  localPreflightSimTest iot net
+                ]
     ]
 
 responseGolden :: IO ChainwebNetwork -> IO RequestKeys -> TestTree
@@ -261,6 +261,126 @@ localChainDataTest iot nio = do
         where
           assert' name value = assertEqual name (M.lookup  (FieldKey (T.pack name)) m) (Just value)
     expectedResult _ = assertFailure "Didn't get back an object map!"
+
+localPreflightSimTest :: IO (Time Micros) -> IO ChainwebNetwork -> TestTree
+localPreflightSimTest iot nio = testCaseSteps "local preflight sim test" $ \step -> do
+    cenv <- _getServiceClientEnv <$> nio
+    mv <- newMVar (0 :: Int)
+    sid <- mkChainId v maxBound 0
+    let sigs = [mkSigner' sender00 []]
+
+    step "Execute preflight /local tx - preflight known /send success"
+    let psid = Pact.ChainId $ chainIdToText sid
+    psigs <- testKeyPairs sender00 Nothing
+    cmd0 <- mkRawTx mv psid psigs
+    runLocalPreflightClient sid cenv cmd0 >>= \case
+      Left e -> assertFailure $ show e
+      Right LocalResultLegacy{} ->
+        assertFailure "Preflight /local call produced legacy result"
+      Right MetadataValidationFailure{} ->
+        assertFailure "Preflight produced an impossible result"
+      Right LocalResultWithWarns{} -> pure ()
+
+    step "Execute preflight /local tx - preflight+signoverify known /send success"
+    cmd0' <- mkRawTx mv psid psigs
+    cr <- runClientM
+      (pactLocalWithQueryApiClient v sid
+         (Just PreflightSimulation) (Just NoVerify) Nothing cmd0') cenv
+    void $ case cr of
+      Left e -> assertFailure $ show e
+      Right{} -> pure ()
+
+    step "Execute preflight /local tx - unparseable chain id"
+    sigs0 <- testKeyPairs sender00 Nothing
+    cmd1 <- mkRawTx mv (Pact.ChainId "fail") sigs0
+    runClientFailureAssertion sid cenv cmd1 "Unparseable transaction chain id"
+
+    step "Execute preflight /local tx - chain id mismatch"
+    let fcid = unsafeChainId maxBound
+    cmd2 <- mkTx mv =<< mkCmdBuilder sigs v fcid 1000 gp
+    runClientFailureAssertion sid cenv cmd2 "Chain id mismatch"
+
+    step "Execute preflight /local tx - tx gas limit too high"
+    cmd3 <- mkTx mv =<< mkCmdBuilder sigs v sid 100000000000000 gp
+    runClientFailureAssertion sid cenv cmd3
+      "Transaction Gas limit exceeds block gas limit"
+
+    step "Execute preflight /local tx - tx gas price precision too high"
+    cmd4 <- mkTx mv =<< mkCmdBuilder sigs v sid 1000 0.00000000000000001
+    runClientFailureAssertion sid cenv cmd4
+      "Gas price decimal precision too high"
+
+    step "Execute preflight /local tx - network id mismatch"
+    cmd5 <- mkTx mv =<< mkCmdBuilder sigs Mainnet01 sid 1000 gp
+    runClientFailureAssertion sid cenv cmd5 "Network id mismatch"
+
+    step "Execute preflight /local tx - too many sigs"
+    let pcid = Pact.ChainId $ chainIdToText sid
+    sigs1' <- testKeyPairs sender00 Nothing >>= \case
+      [ks] -> pure $ replicate 101 ks
+      _ -> assertFailure "/local test keypair construction failed"
+
+    cmd6 <- mkRawTx mv pcid sigs1'
+    runClientFailureAssertion sid cenv cmd6 "Signature list size too big"
+
+    step "Execute preflight /local tx - collect warnings"
+    cmd7 <- mkRawTx' mv pcid sigs0 "(+ 1 2.0)"
+    runLocalPreflightClient sid cenv cmd7 >>= \case
+      Left e -> assertFailure $ show e
+      Right LocalResultLegacy{} ->
+        assertFailure "Preflight /local call produced legacy result"
+      Right MetadataValidationFailure{} ->
+        assertFailure "Preflight produced an impossible result"
+      Right (LocalResultWithWarns _ ws) -> case ws of
+        [w] | "decimal/integer operator overload" `T.isInfixOf` w ->
+          pure ()
+        ws' -> assertFailure $ "Incorrect warns: " ++ show ws'
+  where
+    runLocalPreflightClient sid e cmd = flip runClientM e $
+      pactLocalWithQueryApiClient v sid
+        (Just PreflightSimulation)
+        (Just Verify) Nothing cmd
+
+    runClientFailureAssertion sid e cmd msg =
+      runLocalPreflightClient sid e cmd >>= \case
+        Left err -> checkClientErrText err msg
+        r -> assertFailure $ "Unintended success: " ++ show r
+
+    checkClientErrText (FailureResponse _ (Response _ _ _ body)) e
+      | BS.isInfixOf e $ LBS.toStrict body = pure ()
+    checkClientErrText _ e = assertFailure $ show e
+
+    -- cmd builder is more correct by construction than
+    -- would allow for us to modify the chain id to something
+    -- unparsable. Hence we need to do this in the unparsable
+    -- chain id case and nowhere else.
+    mkRawTx mv pcid kps = mkRawTx' mv pcid kps "(+ 1 2)"
+
+    mkRawTx' mv pcid kps code = modifyMVar mv $ \(nn :: Int) -> do
+      let nonce = "nonce" <> sshow nn
+          ttl = 2 * 24 * 60 * 60
+          pm = Pact.PublicMeta pcid "sender00" 1000 0.1 (fromInteger ttl)
+
+      t <- toTxCreationTime <$> iot
+      c <- Pact.mkExec code A.Null (pm t) kps (Just "fastfork-CPM-peterson") (Just nonce)
+      pure (succ nn, c)
+
+    mkCmdBuilder sigs nid pcid limit price = do
+      t <- toTxCreationTime <$> iot
+      pure
+        $ set cbGasLimit limit
+        $ set cbGasPrice price
+        $ set cbChainId pcid
+        $ set cbSigners sigs
+        $ set cbCreationTime t
+        $ set cbNetworkId (Just nid)
+        $ mkCmd ""
+        $ mkExec' "(+ 1 2)"
+
+    mkTx mv tx = modifyMVar mv $ \nn -> do
+      let n = "nonce-" <> sshow nn
+      tx' <- buildTextCmd $ set cbNonce n tx
+      pure (succ nn, tx')
 
 pollingBadlistTest :: IO ChainwebNetwork -> TestTree
 pollingBadlistTest nio = testCase "/poll reports badlisted txs" $ do

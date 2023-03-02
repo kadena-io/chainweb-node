@@ -344,10 +344,10 @@ jsonTestCases f =
         ]
     ]
     -- Types with ToJSON but without FromJSON instance
-    -- * CRLogPair
-    -- * RemoteNodeInfo
-    -- * JsonSockAddr
-    -- * Trace
+    -- - CRLogPair
+    -- - RemoteNodeInfo
+    -- - JsonSockAddr
+    -- - Trace
 
 jsonRoundtripTests :: TestTree
 jsonRoundtripTests = testGroup "JSON roundtrips"

@@ -138,6 +138,7 @@ mainnet = ChainwebVersion
         Chainweb215Pact -> AllChains (BlockHeight 2_766_630) -- 2022-06-17T00:00:00+00:00
         Chainweb216Pact -> AllChains (BlockHeight 2_988_324) -- 2022-09-02T00:00:00+00:00
         Chainweb217Pact -> AllChains (BlockHeight 3_250_348) -- 2022-12-02T00:00:00+00:00
+        Chainweb218Pact -> AllChains (BlockHeight 3_512_363) -- 2023-03-03 00:00:00+00:00
 
     , _versionGraphs =
         (to20ChainsMainnet, twentyChainGraph) `Above`

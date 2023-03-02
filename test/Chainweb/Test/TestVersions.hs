@@ -129,6 +129,7 @@ fastForks = HM.fromList
     , (Chainweb215Pact, AllChains (BlockHeight 10))
     , (Chainweb216Pact, AllChains (BlockHeight 16))
     , (Chainweb217Pact, AllChains (BlockHeight 20))
+    , (Chainweb218Pact, AllChains (BlockHeight 21))
     ]
 
 barebonesTestVersion :: ChainGraph -> ChainwebVersion
@@ -163,7 +164,7 @@ barebonesTestVersion' g v =
 cpmTestVersion :: ChainGraph -> VersionBuilder
 cpmTestVersion g v = v
     & versionWindow .~ Nothing
-    & versionBlockRate .~ BlockRate (Micros 200_000)
+    & versionBlockRate .~ BlockRate (Micros 100_000)
     & versionGraphs .~ End g
     & versionCheats .~ Cheats
         { _disablePow = False -- PoW is effectively disabled with window = Nothing? edtodo
@@ -217,6 +218,7 @@ slowForkingCpmTestVersion' g v =
             , (Chainweb215Pact, AllChains (BlockHeight 35))
             , (Chainweb216Pact, AllChains (BlockHeight 53))
             , (Chainweb217Pact, AllChains (BlockHeight 55))
+            , (Chainweb218Pact, AllChains (BlockHeight 60))
             ]
 
 fastForkingCpmTestVersion :: ChainGraph -> ChainwebVersion

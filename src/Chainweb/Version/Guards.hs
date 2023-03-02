@@ -39,6 +39,7 @@ module Chainweb.Version.Guards
     , chainweb216Pact
     , chainweb217Pact
     , cleanModuleCache
+    , chainweb218Pact
     , pact44NewTrans
     , pactParserVersion
 
@@ -115,6 +116,8 @@ chainweb217Pact :: ChainwebVersion -> ChainId -> BlockHeight -> Bool
 chainweb217Pact = checkFork (>) Chainweb217Pact
 cleanModuleCache :: ChainwebVersion -> ChainId -> BlockHeight -> Bool
 cleanModuleCache = checkFork (==) Chainweb217Pact
+chainweb218Pact :: ChainwebVersion -> ChainId -> BlockHeight -> Bool
+chainweb218Pact = checkFork (>=) Chainweb218Pact
 
 pactParserVersion :: ChainwebVersion -> ChainId -> BlockHeight -> PactParserVersion
 pactParserVersion v cid bh

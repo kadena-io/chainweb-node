@@ -909,7 +909,7 @@ decodeBlockHeader = BlockHeader
 
 instance ToJSON BlockHeader where
     toJSON = toJSON . encodeB64UrlNoPaddingText . runPutS . encodeBlockHeader
-    toEncoding = toEncoding . encodeB64UrlNoPaddingText . runPutS . encodeBlockHeader
+    toEncoding = b64UrlNoPaddingTextEncoding . runPutS . encodeBlockHeader
 
 instance FromJSON BlockHeader where
     parseJSON = withText "BlockHeader" $ \t ->

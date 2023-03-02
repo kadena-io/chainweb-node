@@ -43,18 +43,11 @@ pkgs.haskell.packages.${compiler}.developPackage {
         (self.callCabal2nix "rocksdb-haskell-kadena" (pkgs.fetchFromGitHub {
           owner = "kadena-io";
           repo = "rocksdb-haskell";
-          rev = "b4bfc0e4cb0fd401f68190d1ba90b56b80d3effc";
-          sha256 = "0v1fmiwcpamzflashdwbsd5s3psczlm2yx588938sd5dcx9bil3x";
-          # date = "2023-01-09T11:38:12-05:00";
+          rev = "c2b3dd8bb714a12ea6763565d168a03df38fcc58";
+          sha256 = "122xnsx6wlcxzgdywx1rzg9w6mj37g6vfcvmwz93xq50fxy33fc0";
+          # date = "2023-02-13T16:59:35-08:00";
         }) {})
         (attrs: {
-          preConfigure = (attrs.preConfigure or "") +
-            pkgs.lib.optionalString (!pkgs.stdenv.hostPlatform.sse4_2Support) ''
-              perl -i -ne 'print unless /HAVE_SSE42/;' rocksdb-haskell-kadena.cabal
-            '' +
-            pkgs.lib.optionalString (pkgs.stdenv.hostPlatform.system == "aarch64-darwin") ''
-              patch -p1 < ${./rocksdb-arm64.patch}
-            '';
           librarySystemDepends = (attrs.librarySystemDepends or []) ++ [
             pkgs.snappy.dev
             pkgs.zlib.dev
@@ -74,8 +67,8 @@ pkgs.haskell.packages.${compiler}.developPackage {
 
       resource-pool = self.callHackageDirect {
         pkg = "resource-pool";
-        ver = "0.3.0.0";
-        sha256 = "0bpf868b6kq1g83s3sad26kfsawmpd3j0xpkyab8370lsq6zhcs1";
+        ver = "0.4.0.0";
+        sha256 = "0zlnizx0igwmvpx43mcnk0h58v9lakhwr4g9csy1vj74p7a4hxaz";
       } {};
 
       direct-sqlite = self.callHackageDirect {
