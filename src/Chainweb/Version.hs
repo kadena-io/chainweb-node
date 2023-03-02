@@ -282,8 +282,10 @@ newtype ChainwebVersionCode =
 
 data Upgrade = Upgrade
     { _upgradeTransactions :: [ChainwebTransaction]
-    -- edtodo document
     , _legacyUpgradeIsPrecocious :: Bool
+    -- ^ when set to `True`, the upgrade transactions are executed using the forks of the subsequent
+    -- block, rather than the block the upgrade transactions are included in.
+    -- do not use this for new upgrades unless you are sure you need it.
     }
     deriving stock (Generic)
     deriving anyclass (NFData)
@@ -326,9 +328,8 @@ blockRate = _versionBlockRate
 
 instance Ord ChainwebVersion where
     v `compare` v' = fold
-        -- edtodo: doc
-        -- [ _versionCode v `compare` _versionCode v'
-        [ _versionName v `compare` _versionName v'
+        [ _versionCode v `compare` _versionCode v'
+        , _versionName v `compare` _versionName v'
         , _versionGraphs v `compare` _versionGraphs v'
         , _versionForks v `compare` _versionForks v'
         , _versionBlockRate v `compare` _versionBlockRate v'
@@ -549,15 +550,12 @@ instance HasChainwebVersion ChainwebVersion where
 chainIds :: HasChainwebVersion v => v -> HS.HashSet ChainId
 chainIds = graphChainIds . snd . ruleHead . _versionGraphs . _chainwebVersion
 
--- edtodo: doc
+-- | Creates a map from fork heights to upgrades.
 forkUpgrades
     :: ChainwebVersion
     -> [(Fork, ChainMap Upgrade)]
     -> ChainMap (HashMap BlockHeight Upgrade)
 forkUpgrades v = OnChains . foldl' go (HM.empty <$ HS.toMap (chainIds v))
-    -- upgrades must not conflict
-    -- upgrades must be ordered like the forks are
-    -- upgrades must not be empty
     where
     conflictError fork h =
         error $ "conflicting upgrades at block height " <> show h <> " when adding upgrade for fork " <> show fork
@@ -577,7 +575,8 @@ forkUpgrades v = OnChains . foldl' go (HM.empty <$ HS.toMap (chainIds v))
             , forkHeight /= maxBound
             ]
 
--- edtodo: document
+-- | The block height at all chains at which the latest known behavior changes
+-- will have taken effect: forks, upgrade transactions, or graph changes.
 latestBehaviorAt :: ChainwebVersion -> BlockHeight
 latestBehaviorAt v =
     foldlOf' changes maxBlockHeight 0 v + 1

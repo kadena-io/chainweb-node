@@ -75,10 +75,9 @@ legalizeTestVersion f = unsafePerformIO $ do
     registerVersion v
     return v
 
--- edtodo: document
--- all chainweb versions used in tests *must* be included in this list to be assigned
+-- | All chainweb versions used in tests *must* be included in this list to be assigned
 -- a version code, and also registered via legalizeTestVersion into the version registry.
--- failure to do so will result in runtime errors.
+-- Failure to do so will result in runtime errors.
 testRegistry :: [ChainwebVersionName]
 testRegistry = concat
     [ [ _versionName $ fastForkingCpmTestVersion' (knownChainGraph g) undefined

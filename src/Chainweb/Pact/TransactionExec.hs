@@ -733,11 +733,9 @@ applyExec' initialGas interp (ExecMsg parsedCode execData) senderSigs hsh nsp
 
       return er
 
--- edtodo use cid
 enablePactEvents' :: ChainwebVersion -> V.ChainId -> BlockHeight -> [ExecutionFlag]
 enablePactEvents' v cid bh = [FlagDisablePactEvents | not (enablePactEvents v cid bh)]
 
--- edtodo use cid
 enforceKeysetFormats' :: ChainwebVersion -> V.ChainId -> BlockHeight -> [ExecutionFlag]
 enforceKeysetFormats' v cid bh = [FlagEnforceKeyFormats | enforceKeysetFormats v cid bh]
 

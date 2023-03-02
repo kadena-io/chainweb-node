@@ -669,8 +669,7 @@ data BlockHeader :: Type where
         , _blockParent :: {-# UNPACK #-} !BlockHash
             -- ^ authoritative
 
-        , _blockAdjacentHashes :: BlockHashRecord
-        -- edtodo: document why this is lazy
+        , _blockAdjacentHashes :: !BlockHashRecord
             -- ^ authoritative
 
         , _blockTarget :: {-# UNPACK #-} !HashTarget

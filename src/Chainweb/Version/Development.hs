@@ -1,8 +1,9 @@
+{-# language LambdaCase #-}
 {-# language NumericUnderscores #-}
-{-# language PatternSynonyms #-}
 {-# language OverloadedStrings #-}
-{-# language ViewPatterns #-}
+{-# language PatternSynonyms #-}
 {-# language QuasiQuotes #-}
+{-# language ViewPatterns #-}
 
 module Chainweb.Version.Development(devnet, pattern Development) where
 
@@ -14,6 +15,7 @@ import Chainweb.ChainId
 import Chainweb.Difficulty
 import Chainweb.Graph
 import Chainweb.Time
+import Chainweb.Utils
 import Chainweb.Utils.Rule
 import Chainweb.Version
 
@@ -38,35 +40,45 @@ devnet = ChainwebVersion
     { _versionCode = ChainwebVersionCode 0x00000001
     , _versionName = ChainwebVersionName "development"
 
-    , _versionForks = HM.unions
-        [ HM.fromList
-            [ (Chainweb217Pact, AllChains $ BlockHeight 20)
-            , (Chainweb216Pact, AllChains $ BlockHeight 19)
-            , (Chainweb215Pact, AllChains $ BlockHeight 18)
-            , (Chainweb214Pact, AllChains $ BlockHeight 17)
-            , (Chainweb213Pact, AllChains $ BlockHeight 16)
-            , (Pact420, AllChains $ BlockHeight 15)
-            , (Pact4Coin3, AllChains $ BlockHeight 14)
-            , (CoinV2, onChains $ concat
+    , _versionForks = tabulateHashMap $ \case
+            Vuln797Fix -> AllChains 1
+            SlowEpoch -> AllChains 1
+            OldTargetGuard -> AllChains 1
+            EnforceKeysetFormats -> AllChains 1
+            SkipFeatureFlagValidation -> AllChains 1
+            OldDAGuard -> AllChains 1
+            CheckTxHash -> AllChains 1
+            PactEvents -> AllChains 1
+            SkipTxTimingValidation -> AllChains 1
+            SPVBridge -> AllChains 1
+            ModuleNameFix -> AllChains 1
+            ModuleNameFix2 -> AllChains 1
+            PactBackCompat_v16 -> AllChains 1
+            Pact44NewTrans -> AllChains 1
+            Pact420 -> AllChains $ BlockHeight 1
+            CoinV2 -> onChains $ concat
                 [ [(unsafeChainId 0, BlockHeight 3)]
                 , [(unsafeChainId i, BlockHeight 4) | i <- [1..19]]
-                ])
-            ]
-        -- all unspecified forks start at block 1
-        , HM.fromList [(fork, AllChains 1) | fork <- [minBound..maxBound]]
-        ]
+                ]
+            Pact4Coin3 -> AllChains $ BlockHeight 14
+            Chainweb213Pact -> AllChains $ BlockHeight 15
+            Chainweb214Pact -> AllChains $ BlockHeight 16
+            Chainweb215Pact -> AllChains $ BlockHeight 17
+            Chainweb216Pact -> AllChains $ BlockHeight 18
+            Chainweb217Pact -> AllChains $ BlockHeight 18
 
-    , _versionUpgrades = chainZip HM.union
-        (forkUpgrades devnet
-        [ (CoinV2, onChains $ concat
-            [ [(unsafeChainId 0, upgrade Devnet.transactions)]
-            , [(unsafeChainId i, upgrade Devnet.transactions) | i <- [1..9]]
-            ])
-        , (Pact4Coin3, AllChains (upgrade CoinV3.transactions))
-        , (Chainweb214Pact, AllChains (upgrade CoinV4.transactions))
-        , (Chainweb215Pact, AllChains (upgrade CoinV5.transactions))
-        ])
-        (onChains [(unsafeChainId 0, HM.singleton to20ChainsDevelopment (upgrade MNKAD.transactions))])
+    , _versionUpgrades = foldr (chainZip HM.union) (AllChains mempty)
+        [ forkUpgrades devnet
+            [ (CoinV2, onChains $ concat
+                [ [(unsafeChainId 0, upgrade Devnet.transactions)]
+                , [(unsafeChainId i, upgrade Devnet.transactions) | i <- [1..9]]
+                ])
+            , (Pact4Coin3, AllChains (upgrade CoinV3.transactions))
+            , (Chainweb214Pact, AllChains (upgrade CoinV4.transactions))
+            , (Chainweb215Pact, AllChains (upgrade CoinV5.transactions))
+            ]
+        , onChains [(unsafeChainId 0, HM.singleton to20ChainsDevelopment (upgrade MNKAD.transactions))]
+        ]
 
     , _versionGraphs =
         (to20ChainsDevelopment, twentyChainGraph) `Above`

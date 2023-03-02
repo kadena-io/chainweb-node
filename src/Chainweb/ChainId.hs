@@ -57,6 +57,7 @@ module Chainweb.ChainId
 , unsafeChainId
 , chainIdInt
 
+-- * Mapping from chain IDs to values
 , ChainMap(..)
 , onChain
 , onChains

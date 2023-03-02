@@ -99,6 +99,7 @@ import Chainweb.Utils
 import Chainweb.Utils.RequestLog
 import Chainweb.Version
 import Chainweb.Version.Mainnet
+import Chainweb.Version.Registry
 
 import Chainweb.Storage.Table
 import Chainweb.Storage.Table.RocksDB
@@ -528,6 +529,7 @@ main = do
     checkRLimits
     runWithPkgInfoConfiguration mainInfo pkgInfo $ \conf -> do
         let v = _configChainwebVersion $ _nodeConfigChainweb conf
+        registerVersion v
         hSetBuffering stderr LineBuffering
         withNodeLogger (_nodeConfigLog conf) v $ \logger -> do
             logFunctionJson logger Info ProcessStarted

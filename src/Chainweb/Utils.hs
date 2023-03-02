@@ -66,6 +66,7 @@ module Chainweb.Utils
 , len
 , (==>)
 , keySet
+, tabulateHashMap
 , minimumsOf
 , minimumsByOf
 , maxBy
@@ -358,6 +359,11 @@ infixr 1 ==>
 keySet :: HM.HashMap a b -> HS.HashSet a
 keySet = HS.fromMap . set each ()
 {-# INLINE keySet #-}
+
+-- | A HashMap memoizing a function over a finite input type.
+--
+tabulateHashMap :: (Enum a, Bounded a, Hashable a, Eq a) => (a -> b) -> HM.HashMap a b
+tabulateHashMap f = HM.fromList [ (a, f a) | a <- [minBound..maxBound] ]
 
 -- | The the minimum elements of a list.
 --
