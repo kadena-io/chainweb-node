@@ -49,6 +49,7 @@ import Chainweb.Transaction
 import Chainweb.Utils
 import Chainweb.Utils.Paging
 import Chainweb.Version
+import Chainweb.Version.Guards
 import Chainweb.Version.Mainnet
 import Chainweb.Version.Registry
 

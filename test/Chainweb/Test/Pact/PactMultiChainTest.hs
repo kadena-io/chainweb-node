@@ -244,7 +244,7 @@ pact45UpgradeTest = do
     [ PactTxTest (buildSimpleCmd "(enforce false 'hi)") $
         assertTxFailure "Should fail with the error from the enforce" "hi"
     , PactTxTest (buildSimpleCmd "(enforce true (format  \"{}-{}\" [12345, 657859]))") $
-        assertTxGas "Enforce pre-fork evaluates the string with gas" 35
+        assertTxGas "Enforce pre-fork evaluates the string with gas" 34
     , PactTxTest (buildSimpleCmd "(enumerate 0 10) (str-to-list 'hi) (make-list 10 'hi)") $
         assertTxGas "List functions pre-fork gas" 20
     , PactTxTest
@@ -258,7 +258,7 @@ pact45UpgradeTest = do
     [ PactTxTest (buildSimpleCmd "(+ 1 \'clearlyanerror)") $
       assertTxFailure "Should replace tx error with empty error" ""
     , PactTxTest (buildSimpleCmd "(enforce true (format  \"{}-{}\" [12345, 657859]))") $
-        assertTxGas "Enforce post fork does not eval the string" (15 + coinTxBuyTransferGas)
+        assertTxGas "Enforce post fork does not eval the string" (14 + coinTxBuyTransferGas)
     , PactTxTest (buildSimpleCmd "(enumerate 0 10) (str-to-list 'hi) (make-list 10 'hi)") $
         assertTxGas "List functions post-fork change gas" (40 + coinTxBuyTransferGas)
     , PactTxTest
@@ -655,7 +655,7 @@ chainweb216Test = do
       [ PactTxTest (buildSimpleCmd formatGas) $
         assertTxGas "Pre-fork format gas" 21
       , PactTxTest (buildSimpleCmd tryGas) $
-        assertTxGas "Pre-fork try" 19
+        assertTxGas "Pre-fork try" 18
       , PactTxTest (buildSimpleCmd defineNonNamespacedPreFork) $
         assertTxSuccess
         "Should pass when defining a non-namespaced keyset"
@@ -671,7 +671,7 @@ chainweb216Test = do
       [ PactTxTest (buildSimpleCmd formatGas) $
         assertTxGas "Post-fork format gas increase" 48
       , PactTxTest (buildSimpleCmd tryGas) $
-        assertTxGas "Post-fork try should charge a bit more gas" 20
+        assertTxGas "Post-fork try should charge a bit more gas" 19
       , PactTxTest (buildSimpleCmd defineNonNamespacedPostFork1) $
         assertTxFailure
         "Should fail when defining a non-namespaced keyset post fork"

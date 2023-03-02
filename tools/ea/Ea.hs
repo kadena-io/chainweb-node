@@ -295,15 +295,16 @@ startTxModule tag =
     , "module Chainweb.Pact.Transactions." <> tag <> "Transactions ( transactions ) where"
     , ""
     , "import Data.Bifunctor (first)"
+    , "import System.IO.Unsafe"
     , ""
     , "import Chainweb.Transaction"
     , "import Chainweb.Utils"
     , ""
-    , "transactions :: IO [ChainwebTransaction]"
+    , "transactions :: [ChainwebTransaction]"
     , "transactions ="
     , "  let decodeTx t ="
     , "        fromEitherM . (first (userError . show)) . codecDecode (chainwebPayloadCodec maxBound) =<< decodeB64UrlNoPaddingText t"
-    , "  in mapM decodeTx ["
+    , "  in unsafePerformIO $ mapM decodeTx ["
     ]
 
 endTxModule :: [Text]

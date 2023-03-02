@@ -727,7 +727,7 @@ nid = NetworkId
     }
 
 genesisId :: BlockId
-genesisId = BlockId 0 "gl2bDgfL9ZRJCe0VkGZq8pfCl1PazbfYsSAZNHp8giI"
+genesisId = BlockId 0 "dqdUQNqEXcdMDeb6xWXuv1_KvLvDXysgsaEU8ZfLs9Q"
 
 rosettaVersion :: RosettaNodeVersion
 rosettaVersion = RosettaNodeVersion
