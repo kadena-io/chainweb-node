@@ -37,6 +37,7 @@ module Chainweb.RestAPI
 -- * Chainweb P2P API Server
 , someChainwebServer
 , chainwebApplication
+, chainwebApplicationWithHashesAndSpvApi
 , serveChainwebOnPort
 , serveChainweb
 , serveChainwebSocket
@@ -104,6 +105,7 @@ import Chainweb.RestAPI.NetworkID
 import Chainweb.RestAPI.NodeInfo
 import Chainweb.RestAPI.Utils
 import Chainweb.Rosetta.RestAPI.Server
+import Chainweb.SPV.RestAPI.Server (someSpvServers)
 import Chainweb.Utils
 import Chainweb.Version
 
@@ -234,6 +236,33 @@ someChainwebServer config dbs =
     cutPeerDb = fromJuste $ lookup CutNetwork peers
     v = _configChainwebVersion config
 
+-- | Legacy version with Hashes API that is used in tests
+--
+-- When we have comprehensive testing for the service API we can remove this
+--
+someChainwebServerWithHashesAndSpvApi
+    :: Show t
+    => CanReadablePayloadCas tbl
+    => ChainwebConfiguration
+    -> ChainwebServerDbs t tbl
+    -> SomeServer
+someChainwebServerWithHashesAndSpvApi config dbs =
+    maybe mempty (someCutServer v cutPeerDb) cuts
+    <> somePayloadServers v p2pPayloadBatchLimit payloads
+    <> someBlockHeaderDbServers v blocks
+    <> Mempool.someMempoolServers v mempools
+    <> someP2pServers v peers
+    <> someGetConfigServer config
+    <> maybe mempty (someSpvServers v) cuts
+  where
+    payloads = _chainwebServerPayloadDbs dbs
+    blocks = _chainwebServerBlockHeaderDbs dbs
+    cuts = _chainwebServerCutDb dbs
+    peers = _chainwebServerPeerDbs dbs
+    mempools = _chainwebServerMempools dbs
+    cutPeerDb = fromJuste $ lookup CutNetwork peers
+    v = _configChainwebVersion config
+
 -- -------------------------------------------------------------------------- --
 -- Chainweb P2P API Application
 
@@ -247,6 +276,21 @@ chainwebApplication config dbs
     = chainwebP2pMiddlewares
     . someServerApplication
     $ someChainwebServer config dbs
+
+-- | Legacy version with Hashes API that is used in tests
+--
+-- When we have comprehensive testing for the service API we can remove this
+--
+chainwebApplicationWithHashesAndSpvApi
+    :: Show t
+    => CanReadablePayloadCas tbl
+    => ChainwebConfiguration
+    -> ChainwebServerDbs t tbl
+    -> Application
+chainwebApplicationWithHashesAndSpvApi config dbs
+    = chainwebP2pMiddlewares
+    . someServerApplication
+    $ someChainwebServerWithHashesAndSpvApi config dbs
 
 serveChainwebOnPort
     :: Show t
@@ -391,3 +435,4 @@ serveServiceApiSocket
     -> IO ()
 serveServiceApiSocket s sock v dbs pacts mr hs r be pbl m =
     runSettingsSocket s sock $ m $ serviceApiApplication v dbs pacts mr hs r be pbl
+
