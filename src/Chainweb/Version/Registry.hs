@@ -62,7 +62,7 @@ registerVersion v = do
 -- | Look up a version in the registry by code.
 lookupVersionByCode :: HasCallStack => ChainwebVersionCode -> ChainwebVersion
 lookupVersionByCode code
-    -- | these two cases exist to ensure that the mainnet and testnet versions
+    -- these two cases exist to ensure that the mainnet and testnet versions
     -- cannot be accidentally replaced and are the most performant to look up.
     -- registering them is still allowed, as long as they are not conflicting.
     | code == _versionCode mainnet = mainnet
