@@ -71,7 +71,7 @@ import Data.Foldable
 import Data.String
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
-import Database.SQLite3.Direct as SQ3
+import Database.SQLite3.Direct as SQ3 hiding (open2)
 
 import Prelude hiding (log)
 
