@@ -218,8 +218,7 @@ import Control.Concurrent.Async
 import Control.Concurrent.MVar
 import Control.Concurrent.TokenBucket
 import Control.DeepSeq
-import Control.Exception
-    (IOException, SomeAsyncException(..), evaluate)
+import Control.Exception (SomeAsyncException(..))
 import Control.Lens hiding ((.=))
 import Control.Monad
 import Control.Monad.Catch hiding (bracket)
@@ -239,12 +238,10 @@ import qualified Data.ByteString.Base64.URL as B64U
 import qualified Data.ByteString.Lazy as BL
 import qualified Data.Csv as CSV
 import Data.Decimal
-import Data.Foldable
 import Data.Functor.Of
 import Data.Hashable
 import qualified Data.HashMap.Strict as HM
 import qualified Data.HashSet as HS
-import Data.Monoid (Endo)
 import Data.Proxy
 import Data.String (IsString(..))
 import qualified Data.Text as T

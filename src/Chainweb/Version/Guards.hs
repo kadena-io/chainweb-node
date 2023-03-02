@@ -14,6 +14,10 @@
 -- Functions which dictate changes in block validation at different BlockHeights, based on
 -- chainweb versions.
 --
+-- Changes either activate at a certain block height and for all subsequent blocks,
+-- activate for all subsequent blocks after a certain block height,
+-- or activate for all previous blocks before a certain block height.
+--
 
 module Chainweb.Version.Guards
     (
