@@ -202,7 +202,6 @@ chainwebP2pMiddlewares
     = chainwebTime
     . chainwebPeerAddr
     . chainwebNodeVersion
-    . chainwebCors
 
 chainwebServiceMiddlewares :: Middleware
 chainwebServiceMiddlewares
