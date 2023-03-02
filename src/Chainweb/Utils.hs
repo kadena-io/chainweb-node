@@ -67,12 +67,7 @@ module Chainweb.Utils
 , (==>)
 , keySet
 , tabulateHashMap
-, minimumsOf
-, minimumsByOf
 , maxBy
-, minBy
-, allEqOn
-, roundBy
 , unlessM
 , whenM
 , ebool_
@@ -131,7 +126,6 @@ module Chainweb.Utils
 , (???)
 , fromEitherM
 , InternalInvariantViolation(..)
-, eatIOExceptions
 
 -- ** Synchronous Exceptions
 , catchSynchronous
@@ -193,7 +187,6 @@ module Chainweb.Utils
 , suncurry
 , suncurry3
 , uncurry3
-, rwipe3
 , _T2
 , _T3
 
@@ -365,24 +358,6 @@ keySet = HS.fromMap . set each ()
 tabulateHashMap :: (Enum a, Bounded a, Hashable a, Eq a) => (a -> b) -> HM.HashMap a b
 tabulateHashMap f = HM.fromList [ (a, f a) | a <- [minBound..maxBound] ]
 
--- | The the minimum elements of a list.
---
-minimumsOf :: Ord a => Getting (Endo (Endo [a])) s a -> s -> [a]
-minimumsOf l = minimumsByOf l compare
-{-# INLINE minimumsOf #-}
-
--- | The the minimum elements of a list by some comparision function.
---
-minimumsByOf :: Getting (Endo (Endo [a])) s a -> (a -> a -> Ordering) -> s -> [a]
-minimumsByOf l cmp = foldlOf' l mf []
-  where
-    mf [] !y = [y]
-    mf x@(h:_) !y = case cmp h y of
-        EQ -> y:x
-        GT -> [y]
-        LT -> x
-{-# INLINE minimumsByOf #-}
-
 -- | The maximum of two value by some comparision function.
 --
 maxBy :: (a -> a -> Ordering) -> a -> a -> a
@@ -390,23 +365,6 @@ maxBy cmp a b = case cmp a b of
     LT -> b
     _ -> a
 {-# INLINE maxBy #-}
-
--- | The minimum of two value by some comparision function.
---
-minBy :: (a -> a -> Ordering) -> a -> a -> a
-minBy cmp a b = case cmp a b of
-    GT -> b
-    _ -> a
-{-# INLINE minBy #-}
-
--- | Checks that all elements of foldable structure are equal under the given
--- mapping.
---
-allEqOn :: Foldable f => Eq b => (a -> b) -> f a -> Bool
-allEqOn p f = case toList f of
-    [] -> True
-    (h:t) -> all (== p h) $ p <$> t
-{-# INLINEABLE allEqOn #-}
 
 -- | A version of 'unless' with a monadic predicate.
 --
@@ -422,13 +380,6 @@ whenM c a = c >>= flip when a
 
 ebool_ :: e -> Bool -> Either e ()
 ebool_ e = bool (Left e) (Right ())
-
--- | Round an integral `n` up to the nearest multiple of
--- an integral `m`
---
-roundBy :: Integral a => a -> a -> a
-roundBy n m = ((n `div` m) + 1) * m
-{-# INLINE roundBy #-}
 
 -- | Elide 'semialign' import with this simple Vector-specialized version.
 -- O(n)-ish -- O(min (m,n) + 2*max(m-n,n-m))
@@ -870,15 +821,6 @@ newtype InternalInvariantViolation = InternalInvariantViolation T.Text
 
 instance Exception InternalInvariantViolation
 
--- | Catch and strictly evaluate any 'IOException's.
---
--- This function should be used with great care because operation may silently
--- fail without leaving a trace. This can hide issues in the code making them
--- very difficult to debug.
---
-eatIOExceptions :: IO () -> IO ()
-eatIOExceptions = handle $ \(e :: IOException) -> void $ evaluate e
-
 -- | Catch and handle exception that are not contained in 'SomeAsyncException'.
 --
 catchSynchronous
@@ -1293,10 +1235,6 @@ uncurry3 k (a, b, c) = k a b c
 suncurry3 :: (a -> b -> c -> d) -> T3 a b c -> d
 suncurry3 k (T3 a b c) = k a b c
 {-# INLINE suncurry3 #-}
-
-rwipe3 :: T3 a b c -> T2 b c
-rwipe3 (T3 _ b c) = T2 b c
-{-# INLINE rwipe3 #-}
 
 _T2 :: Iso (T2 a b) (T2 s t) (a,b) (s,t)
 _T2 = iso (\(T2 a b) -> (a,b)) (uncurry T2)

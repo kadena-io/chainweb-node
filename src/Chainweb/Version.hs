@@ -34,7 +34,8 @@
 -- Maintainer: Lars Kuhtz <lars@kadena.io>
 -- Stability: experimental
 --
--- Properties of Chainweb Versions
+-- Properties of Chainweb Versions; properties which should be consistent
+-- between all nodes running on the same network.
 --
 module Chainweb.Version
     ( Fork(..)
@@ -74,9 +75,6 @@ module Chainweb.Version
     , domainAddr2PeerInfo
     , encodeChainwebVersionCode
     , decodeChainwebVersionCode
-    -- , chainwebVersionFromText
-    -- , chainwebVersionToText
-    -- , chainwebVersionId
 
     -- * Properties of Chainweb Version
     -- ** POW
@@ -283,9 +281,10 @@ newtype ChainwebVersionCode =
 data Upgrade = Upgrade
     { _upgradeTransactions :: [ChainwebTransaction]
     , _legacyUpgradeIsPrecocious :: Bool
-    -- ^ when set to `True`, the upgrade transactions are executed using the forks of the subsequent
-    -- block, rather than the block the upgrade transactions are included in.
-    -- do not use this for new upgrades unless you are sure you need it.
+    -- ^ when set to `True`, the upgrade transactions are executed using the
+    -- forks of the next block, rather than the block the upgrade transactions
+    -- are included in.  do not use this for new upgrades unless you are sure
+    -- you need it, this mostly exists for old upgrades.
     }
     deriving stock (Generic)
     deriving anyclass (NFData)
@@ -381,30 +380,6 @@ emptyPayload = PayloadWithOutputs mempty miner coinbase h i o
     miner = MinerData $ encodeToByteString noMiner
     coinbase = noCoinbaseOutput
 
--- -- | This function and its dual `fromChainwebVersionId` are used to efficiently
--- -- serialize a `ChainwebVersion` and its associated internal `ChainGraph` value.
--- -- __This function must be injective (one-to-one)!__ The scheme is as follows:
--- --
--- --   * Production `ChainwebVersion`s start from @0x00000001@ and count upwards.
--- --     Their value must be less than @0x8000000@, but this limit is unlikely to
--- --     ever be reached.
--- --
--- --   * `ChainwebVersion`s for testing begin at @0x80000000@, as can be seen in
--- --     `toTestChainwebVersion`. This value is combined (via `.|.`) with the
--- --     "code" of their associated `ChainGraph` (as seen in `graphToCode`). Such
--- --     codes start at @0x00010000@ and count upwards.
--- --
--- -- chainwebVersionId :: ChainwebVersion dc -> Word32
--- -- chainwebVersionId v@Test{} = toTestChainwebVersionId v
--- -- chainwebVersionId v@TimedConsensus{} = toTestChainwebVersionId v
--- -- chainwebVersionId v@PowConsensus{} = toTestChainwebVersionId v
--- -- chainwebVersionId v@TimedCPM{} = toTestChainwebVersionId v
--- -- chainwebVersionId v@FastTimedCPM{} = toTestChainwebVersionId v
--- -- chainwebVersionId Development{} = 0x00000001
--- -- chainwebVersionId Testnet04 = 0x00000007
--- -- chainwebVersionId Mainnet01 = 0x00000005
--- -- {-# INLINABLE chainwebVersionId #-}
-
 encodeChainwebVersionCode :: ChainwebVersionCode -> Put
 encodeChainwebVersionCode = putWord32le . getChainwebVersionCode
 
@@ -419,69 +394,6 @@ instance MerkleHashAlgorithm a => IsMerkleLogEntry a ChainwebHashTag ChainwebVer
 instance HasTextRepresentation ChainwebVersionName where
     toText = getChainwebVersionName
     fromText = pure . ChainwebVersionName
-
--- -- -------------------------------------------------------------------------- --
--- -- Test instances
--- --
--- -- The code in this section must not be called in production.
--- --
-
--- data GraphPos = P1 | P2 deriving (Bounded, Enum)
-
--- graphToCodeN :: GraphPos -> KnownGraph -> Word32
--- graphToCodeN p g = shiftL (graphToCode g) (4 * (4 + fromEnum p))
---   where
---     graphToCode :: KnownGraph -> Word32
---     graphToCode Singleton = 0x00000001
---     graphToCode Pair = 0x00000002
---     graphToCode Triangle = 0x00000003
---     graphToCode Peterson = 0x00000004
---     graphToCode Twenty = 0x00000005
---     graphToCode HoffmanSingleton = 0x00000006
-
--- codeToGraphN :: HasCallStack => GraphPos -> Word32 -> KnownGraph
--- codeToGraphN p c = codeToGraph (shiftR c (4 * (4 + fromEnum p)) .&. 0x0000000f)
---   where
---     codeToGraph :: HasCallStack => Word32 -> KnownGraph
---     codeToGraph 0x00000001 = Singleton
---     codeToGraph 0x00000002 = Pair
---     codeToGraph 0x00000003 = Triangle
---     codeToGraph 0x00000004 = Peterson
---     codeToGraph 0x00000005 = Twenty
---     codeToGraph 0x00000006 = HoffmanSingleton
---     codeToGraph _ = error "Unknown Graph Code"
-
--- -- toTestChainwebVersionId :: HasCallStack => ChainwebVersion dc -> Word32
--- -- toTestChainwebVersionId (Test g) = 0x80000000
--- --     .|. graphToCodeN P1 (view chainGraphKnown g)
--- -- toTestChainwebVersionId (TimedConsensus g1 g2) = 0x80000001
--- --     .|. graphToCodeN P1 (view chainGraphKnown g1)
--- --     .|. graphToCodeN P2 (view chainGraphKnown g2)
--- -- toTestChainwebVersionId (PowConsensus g) = 0x80000002
--- --     .|. graphToCodeN P1 (view chainGraphKnown g)
--- -- toTestChainwebVersionId (TimedCPM g) = 0x80000003
--- --     .|. graphToCodeN P1 (view chainGraphKnown g)
--- -- toTestChainwebVersionId (FastTimedCPM g) = 0x80000004
--- --     .|. graphToCodeN P1 (view chainGraphKnown g)
--- -- toTestChainwebVersionId Development{} =
--- --     error "Illegal ChainwebVersion passed to toTestChainwebVersion"
--- -- toTestChainwebVersionId Testnet04 =
--- --     error "Illegal ChainwebVersion passed to toTestChainwebVersion"
--- -- toTestChainwebVersionId Mainnet01 =
--- --     error "Illegal ChainwebVersion passed to toTestChainwebVersion"
-
--- -- fromTestChainwebVersionId :: HasCallStack => Word32 -> ChainwebVersionCode
--- -- fromTestChainwebVersionId c = case v of
--- --     0x80000000 -> Test (knownChainGraph $ codeToGraphN P1 g)
--- --     0x80000001 -> TimedConsensus
--- --         (knownChainGraph $ codeToGraphN P1 g)
--- --         (knownChainGraph $ codeToGraphN P2 g)
--- --     0x80000002 -> PowConsensus (knownChainGraph $ codeToGraphN P1 g)
--- --     0x80000003 -> TimedCPM (knownChainGraph $ codeToGraphN P1 g)
--- --     0x80000004 -> FastTimedCPM (knownChainGraph $ codeToGraphN P1 g)
--- --     _ -> error "Unknown ChainwebVersion Code"
--- --   where
--- --     (v, g) = (0xf000ffff .&. c, 0x0fff0000 .&. c)
 
 -- -- -------------------------------------------------------------------------- --
 -- -- Type level ChainwebVersion
@@ -579,17 +491,13 @@ forkUpgrades v = OnChains . foldl' go (HM.empty <$ HS.toMap (chainIds v))
 -- will have taken effect: forks, upgrade transactions, or graph changes.
 latestBehaviorAt :: ChainwebVersion -> BlockHeight
 latestBehaviorAt v =
-    foldlOf' changes maxBlockHeight 0 v + 1
+    foldlOf' changes max 0 v + 1
     where
     changes = fold
         [ versionForks . folded . folded
         , versionUpgrades . folded . ifolded . asIndex
         , versionGraphs . to ruleHead . _1 . _Just
-        ]
-    maxBlockHeight x y
-        | x == maxBound = y
-        | y == maxBound = x
-        | otherwise = max x y
+        ] . filtered (/= maxBound)
 
 mkChainId
     :: (MonadThrow m, HasChainwebVersion v)
