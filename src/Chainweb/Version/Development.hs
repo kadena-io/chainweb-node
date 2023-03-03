@@ -41,12 +41,12 @@ devnet = ChainwebVersion
     , _versionName = ChainwebVersionName "development"
 
     , _versionForks = tabulateHashMap $ \case
-            Vuln797Fix -> AllChains 1
-            SlowEpoch -> AllChains 1
-            OldTargetGuard -> AllChains 1
+            Vuln797Fix -> AllChains 0
+            SlowEpoch -> AllChains 0
+            OldTargetGuard -> AllChains 0
             EnforceKeysetFormats -> AllChains 1
             SkipFeatureFlagValidation -> AllChains 1
-            OldDAGuard -> AllChains 1
+            OldDAGuard -> AllChains 13
             CheckTxHash -> AllChains 1
             PactEvents -> AllChains 1
             SkipTxTimingValidation -> AllChains 1
