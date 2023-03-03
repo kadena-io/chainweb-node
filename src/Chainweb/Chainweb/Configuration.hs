@@ -569,8 +569,9 @@ pChainwebConfiguration = id
         <$> optional knownVersion
         <*> optional (textOption @Fork (long "fork-upper-bound" <> help "(development mode only) the latest fork the node will enable"))
         <*> optional (BlockRate <$> textOption (long "block-rate" <> help "(development mode only) the block rate in seconds per block"))
+        <*> switch (long "disable-pow" <> help "(development mode only) disable proof of work check")
         where
-          constructVersion cliVersion fub br oldVersion
+          constructVersion cliVersion fub br disablePow' oldVersion
             | _versionCode winningVersion == _versionCode devnet = winningVersion
                 { _versionBlockRate = fromMaybe (_versionBlockRate winningVersion) br
                 , _versionForks =
@@ -585,6 +586,8 @@ pChainwebConfiguration = id
                                 in HM.filterWithKey (\bh _ -> bh <= fubHeight) (winningVersion ^?! versionUpgrades . onChain cid))
                             (HS.toMap (chainIds winningVersion))
                     ) fub
+                , _versionCheats = 
+                    _versionCheats winningVersion & disablePow .~ disablePow'
                 }
             | Nothing <- br, Nothing <- fub = winningVersion
             | otherwise = error

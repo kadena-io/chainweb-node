@@ -75,7 +75,9 @@ lookupVersionByCode code
     lookupVersion = unsafeDupablePerformIO $ do
         m <- readIORef versionMap
         return $ fromMaybe (error notRegistered) $ HM.lookup code m
-    notRegistered = "version not registered with code " <> show code <> ", have you seen Chainweb.Test.TestVersions.legalizeTestVersion?"
+    notRegistered 
+      | code == _versionCode devnet = "devnet version used but not registered, remember to do so after it's configured"
+      | otherwise = "version not registered with code " <> show code <> ", have you seen Chainweb.Test.TestVersions.legalizeTestVersion?"
 
 -- | Versions known to us by name.
 knownVersions :: [ChainwebVersion]
