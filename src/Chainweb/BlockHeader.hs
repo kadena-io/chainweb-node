@@ -227,6 +227,161 @@ encodeEpochStartTime (EpochStartTime t) = encodeTime t
 decodeEpochStartTime :: Get EpochStartTime
 decodeEpochStartTime = EpochStartTime <$> decodeTime
 
+-- -----------------------------------------------------------------------------
+-- Feature Flags
+
+newtype FeatureFlags = FeatureFlags Word64
+    deriving stock (Show, Eq, Generic)
+    deriving anyclass (NFData)
+    deriving newtype (ToJSON, FromJSON)
+
+encodeFeatureFlags :: FeatureFlags -> Put
+encodeFeatureFlags (FeatureFlags ff) = putWord64le ff
+
+decodeFeatureFlags :: Get FeatureFlags
+decodeFeatureFlags = FeatureFlags <$> getWord64le
+
+instance MerkleHashAlgorithm a => IsMerkleLogEntry a ChainwebHashTag FeatureFlags where
+    type Tag FeatureFlags = 'FeatureFlagsTag
+    toMerkleNode = encodeMerkleInputNode encodeFeatureFlags
+    fromMerkleNode = decodeMerkleInputNode decodeFeatureFlags
+
+mkFeatureFlags :: FeatureFlags
+mkFeatureFlags = FeatureFlags 0x0
+
+-- -------------------------------------------------------------------------- --
+-- Block Header
+
+-- | BlockHeader
+--
+-- Values of this type should never be constructed directly by external code.
+-- Instead the 'newBlockHeader' smart constructor should be used. Once
+-- constructed 'BlockHeader' values must not be modified.
+--
+-- Some redundant, aggregated information is included in the block and the block
+-- hash. This enables nodes to check blocks inductively with respect to existing
+-- blocks without recalculating the aggregated value from the genesis block
+-- onward.
+--
+-- The POW hash is not included, since it can be derived from the Nonce and the
+-- other fields of the 'BlockHeader'.
+--
+-- /IMPORTANT/: Fields in this record must have pairwise distinct types.
+--
+data BlockHeader :: Type where
+    BlockHeader ::
+        { _blockFlags :: {-# UNPACK #-} !FeatureFlags
+            -- ^ An 8-byte bitmask reserved for the future addition of boolean
+            -- "feature flags".
+
+        , _blockCreationTime :: {-# UNPACK #-} !BlockCreationTime
+            -- ^ The time when the block was creates as recorded by the miner
+            -- of the block. The value must be strictly monotonically increasing
+            -- within the chain of blocks. Nodes must ignore blocks with values
+            -- that are in the future and reconsider a block when its value is
+            -- in the past. Nodes do not have to store blocks until they become
+            -- recent (but may do it).
+            --
+            -- The block creation time is used to determine the block difficulty for
+            -- future blocks.
+            --
+            -- Nodes are not supposed to consider the creation time when
+            -- choosing between two valid (this implies that creation time of a
+            -- block is not the future) forks.
+            --
+            -- This creates an incentive for nodes to maintain an accurate clock
+            -- with respect to an (unspecified) commonly accepted time source,
+            -- such as the public NTP network.
+            --
+            -- It is possible that a miner always chooses the smallest possible
+            -- creation time value. It is not clear what advantage a miner would
+            -- gain from doing so, but attack models should consider and
+            -- investigate such behavior.
+            --
+            -- On the other hand miners may choose to compute forks with creation
+            -- time long in the future. By doing so, the difficulty on such a fork
+            -- would decrease allowing the miner to compute very long chains very
+            -- quickly. However, those chains would become valid only after a long
+            -- time passed and would be of low PoW weight. The algorithm for
+            -- computing the difficulty must ensure this strategy doesn't give
+            -- an advantage to an attacker that would increase the success
+            -- probability for an attack.
+
+        , _blockParent :: {-# UNPACK #-} !BlockHash
+            -- ^ authoritative
+
+        , _blockAdjacentHashes :: !BlockHashRecord
+            -- ^ authoritative
+
+        , _blockTarget :: {-# UNPACK #-} !HashTarget
+            -- ^ authoritative
+
+        , _blockPayloadHash :: {-# UNPACK #-} !BlockPayloadHash
+            -- ^ authoritative
+
+        , _blockChainId :: {-# UNPACK #-} !ChainId
+
+        , _blockWeight :: {-# UNPACK #-} !BlockWeight
+            -- ^ the accumulated weight of the chain. It is redundant information
+            -- that is subject to the inductive property that the block weight
+            -- of a block is the block weight of the parent plus the difficulty
+            -- of the block.
+
+        , _blockHeight :: {-# UNPACK #-} !BlockHeight
+            -- ^ block height records the length of the chain. It is redundant
+            -- information and thus subject the inductive property that
+            -- the block height of a block is the block height of its parent
+            -- plus one.
+
+        , _blockChainwebVersion :: !ChainwebVersion
+            -- ^ the Chainweb version is a constant for the chain. A chain
+            -- is uniquely identified by its genesis block. Thus this is
+            -- redundant information and thus subject to the inductive property
+            -- that the Chainweb version of a block equals the Chainweb version
+            -- of its parent.
+
+        , _blockEpochStart :: {-# UNPACK #-} !EpochStartTime
+            -- ^ The start time of the current difficulty adjustment epoch.
+            -- Epochs divide the sequence of blocks in the chain into continuous
+            -- ranges of blocks. Each epoch is defined by the minimal block
+            -- height of the blocks in the epoch.
+
+        , _blockNonce :: {-# UNPACK #-} !Nonce
+            -- ^ authoritative
+
+        , _blockHash :: {-# UNPACK #-} !BlockHash
+            -- ^ the hash of the block. It includes all of the above block properties.
+        }
+        -> BlockHeader
+        deriving (Show, Generic)
+        deriving anyclass (NFData)
+
+instance Eq BlockHeader where
+     (==) = (==) `on` _blockHash
+
+instance Ord BlockHeader where
+     compare = compare `on` _blockHash
+
+instance Hashable BlockHeader where
+    hashWithSalt s = hashWithSalt s . _blockHash
+
+instance HasChainId BlockHeader where
+    _chainId = _blockChainId
+
+instance HasChainGraph BlockHeader where
+    _chainGraph h = _chainGraph (_blockChainwebVersion h, _blockHeight h)
+
+instance HasChainwebVersion BlockHeader where
+    _chainwebVersion = _blockChainwebVersion
+
+instance IsCasValue BlockHeader where
+    type CasKeyType BlockHeader = BlockHash
+    casKey = _blockHash
+
+type BlockHeaderCas tbl = Cas tbl BlockHeader
+
+makeLenses ''BlockHeader
+
 -- | During the first epoch after genesis there are 10 extra difficulty
 -- adjustments. This is to account for rapidly changing total hash power in the
 -- early stages of the network.
@@ -424,28 +579,6 @@ epochStart ph@(ParentHeader p) adj (BlockCreationTime bt)
     parentIsFirstOnNewChain
         = _blockHeight p > 1 && _blockHeight p == genesisHeight ver cid + 1
 
--- -----------------------------------------------------------------------------
--- Feature Flags
-
-newtype FeatureFlags = FeatureFlags Word64
-    deriving stock (Show, Eq, Generic)
-    deriving anyclass (NFData)
-    deriving newtype (ToJSON, FromJSON)
-
-encodeFeatureFlags :: FeatureFlags -> Put
-encodeFeatureFlags (FeatureFlags ff) = putWord64le ff
-
-decodeFeatureFlags :: Get FeatureFlags
-decodeFeatureFlags = FeatureFlags <$> getWord64le
-
-instance MerkleHashAlgorithm a => IsMerkleLogEntry a ChainwebHashTag FeatureFlags where
-    type Tag FeatureFlags = 'FeatureFlagsTag
-    toMerkleNode = encodeMerkleInputNode encodeFeatureFlags
-    fromMerkleNode = decodeMerkleInputNode decodeFeatureFlags
-
-mkFeatureFlags :: FeatureFlags
-mkFeatureFlags = FeatureFlags 0x0
-
 -- -------------------------------------------------------------------------- --
 -- Newtype wrappers for function parameters
 
@@ -476,7 +609,6 @@ isGenesisBlockHeader :: BlockHeader -> Bool
 isGenesisBlockHeader b =
     _blockHeight b == genesisHeight (_chainwebVersion b) (_chainId b)
 
---
 -- | The genesis block hash includes the Chainweb version and the 'ChainId'
 -- within the Chainweb version.
 --
@@ -490,7 +622,7 @@ genesisParentBlockHash v p = BlockHash $ MerkleLogHash
         , encodeMerkleInputNode encodeChainId (_chainId p)
         ]
 
-{-# noinline genesisBlockHeaderCache #-}
+{-# NOINLINE genesisBlockHeaderCache #-}
 genesisBlockHeaderCache :: IORef (HashMap ChainwebVersionCode (HashMap ChainId BlockHeader))
 genesisBlockHeaderCache = unsafePerformIO $ do
     let mkMainnetHeader = makeGenesisBlockHeader mainnet
@@ -607,139 +739,6 @@ genesisGraph v = chainGraphAt v_ . genesisHeight' v_ . _chainId
 --
 genesisHeight :: HasCallStack => ChainwebVersion -> ChainId -> BlockHeight
 genesisHeight v c = _blockHeight (genesisBlockHeader v c)
-
--- -------------------------------------------------------------------------- --
--- Block Header
-
--- | BlockHeader
---
--- Values of this type should never be constructed directly by external code.
--- Instead the 'newBlockHeader' smart constructor should be used. Once
--- constructed 'BlockHeader' values must not be modified.
---
--- Some redundant, aggregated information is included in the block and the block
--- hash. This enables nodes to check blocks inductively with respect to existing
--- blocks without recalculating the aggregated value from the genesis block
--- onward.
---
--- The POW hash is not included, since it can be derived from the Nonce and the
--- other fields of the 'BlockHeader'.
---
--- /IMPORTANT/: Fields in this record must have pairwise distinct types.
---
-data BlockHeader :: Type where
-    BlockHeader ::
-        { _blockFlags :: {-# UNPACK #-} !FeatureFlags
-            -- ^ An 8-byte bitmask reserved for the future addition of boolean
-            -- "feature flags".
-
-        , _blockCreationTime :: {-# UNPACK #-} !BlockCreationTime
-            -- ^ The time when the block was creates as recorded by the miner
-            -- of the block. The value must be strictly monotonically increasing
-            -- within the chain of blocks. Nodes must ignore blocks with values
-            -- that are in the future and reconsider a block when its value is
-            -- in the past. Nodes do not have to store blocks until they become
-            -- recent (but may do it).
-            --
-            -- The block creation time is used to determine the block difficulty for
-            -- future blocks.
-            --
-            -- Nodes are not supposed to consider the creation time when
-            -- choosing between two valid (this implies that creation time of a
-            -- block is not the future) forks.
-            --
-            -- This creates an incentive for nodes to maintain an accurate clock
-            -- with respect to an (unspecified) commonly accepted time source,
-            -- such as the public NTP network.
-            --
-            -- It is possible that a miner always chooses the smallest possible
-            -- creation time value. It is not clear what advantage a miner would
-            -- gain from doing so, but attack models should consider and
-            -- investigate such behavior.
-            --
-            -- On the other hand miners may choose to compute forks with creation
-            -- time long in the future. By doing so, the difficulty on such a fork
-            -- would decrease allowing the miner to compute very long chains very
-            -- quickly. However, those chains would become valid only after a long
-            -- time passed and would be of low PoW weight. The algorithm for
-            -- computing the difficulty must ensure this strategy doesn't give
-            -- an advantage to an attacker that would increase the success
-            -- probability for an attack.
-
-        , _blockParent :: {-# UNPACK #-} !BlockHash
-            -- ^ authoritative
-
-        , _blockAdjacentHashes :: !BlockHashRecord
-            -- ^ authoritative
-
-        , _blockTarget :: {-# UNPACK #-} !HashTarget
-            -- ^ authoritative
-
-        , _blockPayloadHash :: {-# UNPACK #-} !BlockPayloadHash
-            -- ^ authoritative
-
-        , _blockChainId :: {-# UNPACK #-} !ChainId
-
-        , _blockWeight :: {-# UNPACK #-} !BlockWeight
-            -- ^ the accumulated weight of the chain. It is redundant information
-            -- that is subject to the inductive property that the block weight
-            -- of a block is the block weight of the parent plus the difficulty
-            -- of the block.
-
-        , _blockHeight :: {-# UNPACK #-} !BlockHeight
-            -- ^ block height records the length of the chain. It is redundant
-            -- information and thus subject the inductive property that
-            -- the block height of a block is the block height of its parent
-            -- plus one.
-
-        , _blockChainwebVersion :: !ChainwebVersion
-            -- ^ the Chainweb version is a constant for the chain. A chain
-            -- is uniquely identified by its genesis block. Thus this is
-            -- redundant information and thus subject to the inductive property
-            -- that the Chainweb version of a block equals the Chainweb version
-            -- of its parent.
-
-        , _blockEpochStart :: {-# UNPACK #-} !EpochStartTime
-            -- ^ The start time of the current difficulty adjustment epoch.
-            -- Epochs divide the sequence of blocks in the chain into continuous
-            -- ranges of blocks. Each epoch is defined by the minimal block
-            -- height of the blocks in the epoch.
-
-        , _blockNonce :: {-# UNPACK #-} !Nonce
-            -- ^ authoritative
-
-        , _blockHash :: {-# UNPACK #-} !BlockHash
-            -- ^ the hash of the block. It includes all of the above block properties.
-        }
-        -> BlockHeader
-        deriving (Show, Generic)
-        deriving anyclass (NFData)
-
-instance Eq BlockHeader where
-     (==) = (==) `on` _blockHash
-
-instance Ord BlockHeader where
-     compare = compare `on` _blockHash
-
-instance Hashable BlockHeader where
-    hashWithSalt s = hashWithSalt s . _blockHash
-
-instance HasChainId BlockHeader where
-    _chainId = _blockChainId
-
-instance HasChainGraph BlockHeader where
-    _chainGraph h = _chainGraph (_blockChainwebVersion h, _blockHeight h)
-
-instance HasChainwebVersion BlockHeader where
-    _chainwebVersion = _blockChainwebVersion
-
-instance IsCasValue BlockHeader where
-    type CasKeyType BlockHeader = BlockHash
-    casKey = _blockHash
-
-type BlockHeaderCas tbl = Cas tbl BlockHeader
-
-makeLenses ''BlockHeader
 
 instance HasMerkleLog ChainwebMerkleHashAlgorithm ChainwebHashTag BlockHeader where
 
