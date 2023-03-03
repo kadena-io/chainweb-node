@@ -85,7 +85,7 @@ devnet = ChainwebVersion
         (to20ChainsDevelopment, twentyChainGraph) `Above`
         End petersonChainGraph
 
-    , _versionBlockRate = BlockRate 30_000_000
+    , _versionBlockRate = BlockRate 10_000_000
     , _versionWindow = Just $ WindowWidth 120
     , _versionHeaderBaseSizeBytes = 318 - 110
     , _versionFakeFirstEpochStart = True
@@ -106,7 +106,7 @@ devnet = ChainwebVersion
     , _versionMaxBlockGasLimit = End (Just 180_000)
     , _versionCheats = Cheats
         { _disablePeerValidation = True
-        , _disablePow = False
+        , _disablePow = True
         , _disablePact = False
         , _disableMempool = False
         }
