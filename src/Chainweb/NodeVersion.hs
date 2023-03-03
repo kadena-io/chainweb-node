@@ -137,7 +137,7 @@ req ver addr endpoint = HTTP.defaultRequest
     , HTTP.path = T.encodeUtf8 $ T.intercalate "/"
         [ "/chainweb"
         , prettyApiVersion
-        , sshow ver
+        , getChainwebVersionName ver
         , endpoint
         ]
     , HTTP.responseTimeout = HTTP.responseTimeoutMicro requestTimeoutMicros
@@ -157,7 +157,7 @@ cutReq ver addr = HTTP.defaultRequest
     , HTTP.path = T.encodeUtf8 $ T.intercalate "/"
         [ "/chainweb"
         , prettyApiVersion
-        , sshow ver
+        , getChainwebVersionName ver
         , "cut"
         ]
     , HTTP.responseTimeout = HTTP.responseTimeoutMicro requestTimeoutMicros

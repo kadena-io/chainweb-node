@@ -272,8 +272,10 @@ instance FromJSONKey Fork where
 newtype ChainwebVersionName =
     ChainwebVersionName { getChainwebVersionName :: T.Text }
     deriving stock (Generic, Eq, Ord)
-    deriving newtype (Show, ToJSON, FromJSON)
+    deriving newtype (ToJSON, FromJSON)
     deriving anyclass (Hashable, NFData)
+
+instance Show ChainwebVersionName where show = T.unpack . getChainwebVersionName
 
 newtype ChainwebVersionCode =
     ChainwebVersionCode { getChainwebVersionCode :: Word32 }
@@ -423,7 +425,7 @@ someChainwebVersionVal :: ChainwebVersion -> SomeChainwebVersionT
 someChainwebVersionVal v = someChainwebVersionVal' (_versionName v)
 
 someChainwebVersionVal' :: ChainwebVersionName -> SomeChainwebVersionT
-someChainwebVersionVal' v = case someSymbolVal (sshow v) of
+someChainwebVersionVal' v = case someSymbolVal (show v) of
     (SomeSymbol (Proxy :: Proxy v)) -> SomeChainwebVersionT (Proxy @('ChainwebVersionT v))
 
 -- -- -------------------------------------------------------------------------- --
