@@ -74,9 +74,9 @@ devnet = ChainwebVersion
                 [ [(unsafeChainId 0, upgrade Devnet.transactions)]
                 , [(unsafeChainId i, upgrade Devnet.transactions) | i <- [1..9]]
                 ])
-            , (Pact4Coin3, AllChains (upgrade CoinV3.transactions))
-            , (Chainweb214Pact, AllChains (upgrade CoinV4.transactions))
-            , (Chainweb215Pact, AllChains (upgrade CoinV5.transactions))
+            , (Pact4Coin3, AllChains (Upgrade CoinV3.transactions True))
+            , (Chainweb214Pact, AllChains (Upgrade CoinV4.transactions True))
+            , (Chainweb215Pact, AllChains (Upgrade CoinV5.transactions True))
             ]
         , onChains [(unsafeChainId 0, HM.singleton to20ChainsDevelopment (upgrade MNKAD.transactions))]
         ]
