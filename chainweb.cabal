@@ -381,7 +381,6 @@ library
         , pact >= 4.2.0.1
         , pem >=0.2
         , primitive >= 0.7.1.0
-        , pretty-show
         , random >= 1.2
         , rosetta >= 1.0
         , safe-exceptions >= 0.1
