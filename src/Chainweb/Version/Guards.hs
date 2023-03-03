@@ -42,6 +42,7 @@ module Chainweb.Version.Guards
     , chainweb218Pact
     , pact44NewTrans
     , pactParserVersion
+    , maxBlockGasLimit
 
     -- ** BlockHeader Validation Guards
     , slowEpochGuard
@@ -51,11 +52,13 @@ module Chainweb.Version.Guards
   ) where
 
 import Control.Lens
+import Numeric.Natural
 
 import Chainweb.BlockHeight
 import Chainweb.ChainId
 import Chainweb.Transaction
 import Chainweb.Version
+import Chainweb.Utils.Rule
 
 getForkHeight :: Fork -> ChainwebVersion -> ChainId -> BlockHeight
 getForkHeight fork v cid = v ^?! versionForks . at fork . _Just . onChain cid
@@ -123,3 +126,9 @@ pactParserVersion :: ChainwebVersion -> ChainId -> BlockHeight -> PactParserVers
 pactParserVersion v cid bh
     | chainweb213Pact v cid bh = PactParserChainweb213
     | otherwise = PactParserGenesis
+
+maxBlockGasLimit :: ChainwebVersion -> BlockHeight -> Maybe Natural
+maxBlockGasLimit v bh = case measureRule bh $ _versionMaxBlockGasLimit v of
+    Bottom limit -> limit
+    Top (_, limit) -> limit
+    Between (_, limit) _ -> limit

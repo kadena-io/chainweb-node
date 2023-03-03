@@ -170,6 +170,7 @@ import Chainweb.Transaction
 import Chainweb.Utils
 import Chainweb.Utils.RequestLog
 import Chainweb.Version
+import Chainweb.Version.Guards
 import Chainweb.WebBlockHeaderDB
 import Chainweb.WebPactExecutionService
 

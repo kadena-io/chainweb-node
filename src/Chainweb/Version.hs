@@ -1,3 +1,4 @@
+-- edtodo redo docs here
 {-# LANGUAGE CPP #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DeriveAnyClass #-}
@@ -81,7 +82,6 @@ module Chainweb.Version
     , BlockRate(..)
     , WindowWidth(..)
     -- ** Payload Validation Parameters
-    , maxBlockGasLimit
 
     -- * Typelevel ChainwebVersion
     , ChainwebVersionT(..)
@@ -552,16 +552,3 @@ chainGraphAt_ = chainGraphAt . _chainwebVersion
 
 instance HasChainGraph (ChainwebVersion, BlockHeight) where
     _chainGraph = uncurry chainGraphAt
-
-maxBlockGasLimit :: ChainwebVersion -> BlockHeight -> Maybe Natural
-maxBlockGasLimit v bh = case measureRule bh $ _versionMaxBlockGasLimit v of
-    Bottom limit -> limit
-    Top (_, limit) -> limit
-    Between (_, limit) _ -> limit
-
--- edtodo
--- chainweb218Pact :: ChainwebVersion -> BlockHeight -> Bool
--- chainweb218Pact Testnet04 = (>= 3_038_343) -- 2023-03-02 12:00:00+00:00
--- chainweb218Pact Development = (>= 500)
--- chainweb218Pact (FastTimedCPM g) | g == petersonChainGraph = (> 60)
--- chainweb218Pact _ = (> 24)
