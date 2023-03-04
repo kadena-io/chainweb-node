@@ -267,7 +267,7 @@ globalBlockRateAt
     -> Double
 globalBlockRateAt v h = (int r / 1_000_000) / int (chainCountAt v h)
   where
-    BlockRate r = blockRate (_chainwebVersion v)
+    BlockRate r = _versionBlockRate (_chainwebVersion v)
 
 -- -------------------------------------------------------------------------- --
 -- Cut Heights
@@ -306,7 +306,6 @@ chainGraphsByCutHeight = M.fromList
 --
 chainGraphAtCutHeight :: HasChainwebVersion v => v -> CutHeight -> ChainGraph
 chainGraphAtCutHeight v h = atCutHeight h $ chainGraphsByCutHeight v
-{-# INLINE chainGraphAtCutHeight #-}
 
 -- | The number of chains that exist at the given cut height
 --
@@ -314,7 +313,6 @@ chainGraphAtCutHeight v h = atCutHeight h $ chainGraphsByCutHeight v
 --
 chainCountAtCutHeight :: HasChainwebVersion v => v -> CutHeight -> Natural
 chainCountAtCutHeight v = order . chainGraphAtCutHeight v
-{-# INLINE chainCountAtCutHeight #-}
 
 -- | The diameter of the chain graph at the given cut height
 --
@@ -322,7 +320,6 @@ chainCountAtCutHeight v = order . chainGraphAtCutHeight v
 --
 diameterAtCutHeight :: HasChainwebVersion v => v -> CutHeight -> Natural
 diameterAtCutHeight v = diameter . chainGraphAtCutHeight v
-{-# INLINE diameterAtCutHeight #-}
 
 -- | The degree of the chain graph at the given cut height
 --
@@ -330,7 +327,6 @@ diameterAtCutHeight v = diameter . chainGraphAtCutHeight v
 --
 degreeAtCutHeight :: HasChainwebVersion v => v -> CutHeight -> Natural
 degreeAtCutHeight v = degree . chainGraphAtCutHeight v
-{-# INLINE degreeAtCutHeight #-}
 
 -- | The average chain height at a given cut height.
 --
@@ -339,7 +335,6 @@ degreeAtCutHeight v = degree . chainGraphAtCutHeight v
 --
 avgBlockHeightAtCutHeight :: HasChainwebVersion v => v -> CutHeight -> Double
 avgBlockHeightAtCutHeight v h = int h / int (chainCountAtCutHeight v h)
-{-# INLINE avgBlockHeightAtCutHeight #-}
 
 -- | The global number of blocks that exist at the given cut height.
 --
@@ -356,7 +351,6 @@ blockCountAtCutHeight v h
     = globalBlockCountAt v (int k `div` int (order g)) + int (h - k)
   where
    (k, g) = fromJuste $ M.lookupLE h $ chainGraphsByCutHeight v
-{-# INLINE blockCountAtCutHeight #-}
 
 lastGraphChangeByCutHeight
     :: HasCallStack
@@ -366,7 +360,6 @@ lastGraphChangeByCutHeight
     -> CutHeight
 lastGraphChangeByCutHeight v h
     = fst $ fromJuste $ M.lookupLE h $ chainGraphsByCutHeight v
-{-# INLINE lastGraphChangeByCutHeight #-}
 
 nextGraphChangeByCutHeight
     :: HasCallStack
@@ -376,7 +369,6 @@ nextGraphChangeByCutHeight
     -> CutHeight
 nextGraphChangeByCutHeight v h
     = fst $ fromJuste $ M.lookupGT h $ chainGraphsByCutHeight v
-{-# INLINE nextGraphChangeByCutHeight #-}
 
 -- -------------------------------------------------------------------------- --
 -- Expected Block Count, Block Heights, and Cut Heights
@@ -396,7 +388,7 @@ expectedBlockCountAfterSeconds v cid s = max 0 (1 + (int s / (int r / 1_000_000)
     -- The `max 0` term is required for chains that were added during graph transitions
     -- and thus have `genesisHeight > 0`
   where
-    BlockRate r = blockRate (_chainwebVersion v)
+    BlockRate r = _versionBlockRate (_chainwebVersion v)
     gh = genesisHeight (_chainwebVersion v) (_chainId cid)
 
 -- | This function is useful for performance testing when calculating the
@@ -432,7 +424,7 @@ expectedBlockHeightAfterSeconds
     -> Double
 expectedBlockHeightAfterSeconds v s = int s / (int r / 1_000_000)
   where
-    BlockRate r = blockRate (_chainwebVersion v)
+    BlockRate r = _versionBlockRate (_chainwebVersion v)
 
 -- | The expected CutHeight after the given number of seconds has passed.
 --

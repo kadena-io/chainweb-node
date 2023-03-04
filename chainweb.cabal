@@ -245,8 +245,6 @@ library
         , Chainweb.WebBlockHeaderDB
         , Chainweb.WebPactExecutionService
 
-        , Control.Concurrent.FixedThreadPool
-
         , Data.IVar
         , Data.LogMessage
         , Data.PQueue

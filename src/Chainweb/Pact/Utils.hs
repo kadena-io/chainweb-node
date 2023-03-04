@@ -24,6 +24,9 @@ module Chainweb.Pact.Utils
     , pubKeyToKAccountKeySet
     , generateKeySetFromKAccount
     , validateKAccountKeySet
+
+    -- * empty payload
+    , emptyPayload
     ) where
 
 import Data.Aeson
@@ -40,8 +43,10 @@ import Pact.Types.KeySet (validateKeyFormat)
 -- Internal modules
 
 import Chainweb.ChainId
+import Chainweb.Miner.Pact
+import Chainweb.Payload
 import Chainweb.Time
-
+import Chainweb.Utils
 
 fromPactChainId :: MonadThrow m => P.ChainId -> m ChainId
 fromPactChainId (P.ChainId t) = chainIdFromText t
@@ -99,3 +104,12 @@ validateKAccountKeySet kacct actualKeySet =
     Just expectedKeySet
       | expectedKeySet == actualKeySet -> True
       | otherwise -> False
+
+-- | Empty payload marking no-op transaction payloads.
+--
+emptyPayload :: PayloadWithOutputs
+emptyPayload = PayloadWithOutputs mempty miner coinbase h i o
+  where
+    BlockPayload h i o = newBlockPayload miner coinbase mempty
+    miner = MinerData $ encodeToByteString noMiner
+    coinbase = noCoinbaseOutput

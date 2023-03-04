@@ -33,9 +33,9 @@ import Chainweb.Miner.Pact
 import Chainweb.Pact.Service.BlockValidation
 import Chainweb.Pact.Service.PactQueue
 import Chainweb.Pact.Service.Types
+import Chainweb.Pact.Utils
 import Chainweb.Payload
 import Chainweb.Transaction
-import Chainweb.Version
 import Chainweb.Utils (T2)
 
 import Pact.Types.Hash

@@ -1130,4 +1130,3 @@ verifyPayloadWithOutputs p
         (_payloadWithOutputsMiner p)
         (_payloadWithOutputsCoinbase p)
         (_payloadWithOutputsTransactions p)
-

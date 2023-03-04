@@ -32,6 +32,7 @@ import Chainweb.BlockHeight
 import Chainweb.Difficulty
 import Chainweb.Graph
 import Chainweb.HostAddress
+import Chainweb.Pact.Utils
 import Chainweb.Time
 import Chainweb.Utils
 import Chainweb.Utils.Rule
@@ -101,7 +102,7 @@ testVersionTemplate v = v
     & versionCode .~ ChainwebVersionCode (int (fromJuste $ List.findIndex (\vn -> vn == _versionName v) testRegistry) + 0x80000000)
     & versionHeaderBaseSizeBytes .~ 318 - 110
     & versionWindow .~ Nothing
-    & versionFakeFirstEpochStart .~ False -- DA is already disabled with window = Nothing
+    & versionFakeFirstEpochStart .~ False -- DA is already disabled with _versionWindow = Nothing
     & versionMaxBlockGasLimit .~ End (Just 2_000_000)
     & versionBootstraps .~ [testBootstrapPeerInfos]
 
@@ -143,7 +144,7 @@ barebonesTestVersion' g v =
         & versionName .~ ChainwebVersionName ("test-" <> toText g)
         & versionGraphs .~ End g
         & versionCheats .~ Cheats
-            { _disablePow = False -- PoW is effectively disabled with window = Nothing? edtodo
+            { _disablePow = False -- PoW is effectively disabled with _versionWindow = Nothing? edtodo
             , _disablePact = True
             , _disableMempool = True
             , _disablePeerValidation = True
@@ -167,7 +168,7 @@ cpmTestVersion g v = v
     & versionBlockRate .~ BlockRate (Micros 100_000)
     & versionGraphs .~ End g
     & versionCheats .~ Cheats
-        { _disablePow = False -- PoW is effectively disabled with window = Nothing? edtodo
+        { _disablePow = False -- PoW is effectively disabled with _versionWindow = Nothing? edtodo
         , _disablePact = False
         , _disableMempool = False
         , _disablePeerValidation = True
@@ -261,7 +262,7 @@ timedConsensusVersion' g1 g2 v =
         & versionWindow .~ Nothing
         & versionGraphs .~ Above (BlockHeight 8, g2) (End g1)
         & versionCheats .~ Cheats
-            { _disablePow = False -- PoW is effectively disabled with window = Nothing? edtodo
+            { _disablePow = False -- PoW is effectively disabled with _versionWindow = Nothing? edtodo
             , _disablePact = True
             , _disableMempool = True
             , _disablePeerValidation = True

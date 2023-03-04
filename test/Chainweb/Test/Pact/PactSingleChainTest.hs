@@ -61,6 +61,7 @@ import Chainweb.Pact.Service.PactQueue (PactQueue)
 import Chainweb.Pact.Service.Types
 import Chainweb.Pact.PactService.ExecBlock
 import Chainweb.Pact.Types
+import Chainweb.Pact.Utils (emptyPayload)
 import Chainweb.Payload
 import Chainweb.Test.Cut.TestBlockDb
 import Chainweb.Test.Pact.Utils

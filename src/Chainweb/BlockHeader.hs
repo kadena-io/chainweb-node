@@ -415,8 +415,8 @@ slowEpoch :: ParentHeader -> BlockCreationTime -> Bool
 slowEpoch (ParentHeader p) (BlockCreationTime ct) = actual > (expected * 5)
   where
     EpochStartTime es = _blockEpochStart p
-    BlockRate s = blockRate (_blockChainwebVersion p)
-    WindowWidth ww = fromJuste $ window (_blockChainwebVersion p)
+    BlockRate s = _versionBlockRate (_blockChainwebVersion p)
+    WindowWidth ww = fromJuste $ _versionWindow (_blockChainwebVersion p)
 
     expected :: Micros
     expected = s * int ww

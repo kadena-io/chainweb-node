@@ -60,7 +60,6 @@ import GHC.Generics
 
 import qualified Network.HTTP.Client as HTTP
 import Network.Socket (Socket)
-import Network.Wai.Handler.Warp (Settings, defaultSettings, setHost, setPort)
 
 import Prelude hiding (log)
 
@@ -153,12 +152,6 @@ withPeerResources v conf logger inner = withPeerSocket conf $ \(conf', sock) -> 
                         (_p2pConfigBootstrapReachability conf'')
 
                 inner logger' (PeerResources conf'' peer sock localDb mgr logger')
-
-peerServerSettings :: Peer -> Settings
-peerServerSettings peer
-    = setPort (int . _hostAddressPort . _peerAddr $ _peerInfo peer)
-    . setHost (_peerInterface peer)
-    $ defaultSettings
 
 -- | Setup the local hostname.
 --

@@ -39,7 +39,9 @@
 -- between all nodes running on the same network.
 --
 module Chainweb.Version
-    ( Fork(..)
+    (
+    -- * Properties of Chainweb Version
+      Fork(..)
     , ChainwebGenesis(..)
     , Cheats(..)
     , disableMempool
@@ -47,6 +49,8 @@ module Chainweb.Version
     , disablePeerValidation
     , disablePow
     , ChainwebVersionCode(..)
+    , encodeChainwebVersionCode
+    , decodeChainwebVersionCode
     , ChainwebVersionName(..)
     , ChainwebVersion(..)
     , Upgrade(..)
@@ -63,25 +67,11 @@ module Chainweb.Version
     , versionMaxBlockGasLimit
     , versionName
     , versionWindow
-    , window
-    , blockRate
     , versionGenesis
     , genesisBlockPayload
     , genesisBlockPayloadHash
     , genesisBlockTarget
     , genesisTime
-    , emptyPayload
-    , forkUpgrades
-    , latestBehaviorAt
-    , domainAddr2PeerInfo
-    , encodeChainwebVersionCode
-    , decodeChainwebVersionCode
-
-    -- * Properties of Chainweb Version
-    -- ** POW
-    , BlockRate(..)
-    , WindowWidth(..)
-    -- ** Payload Validation Parameters
 
     -- * Typelevel ChainwebVersion
     , ChainwebVersionT(..)
@@ -128,6 +118,11 @@ module Chainweb.Version
     , adjsOfVertex
     , checkAdjacentChainIds
 
+    -- ** Utilities for constructing Chainweb Version
+    , forkUpgrades
+    , latestBehaviorAt
+    , domainAddr2PeerInfo
+
     -- * Internal. Don't use. Exported only for testing
     -- , headerSizes
     -- , headerBaseSizeBytes
@@ -164,7 +159,6 @@ import Chainweb.Difficulty
 import Chainweb.Graph
 import Chainweb.HostAddress
 import Chainweb.MerkleUniverse
-import Chainweb.Miner.Pact
 import Chainweb.Payload
 import Chainweb.Transaction
 import Chainweb.Utils
@@ -183,6 +177,7 @@ import P2P.Peer
 domainAddr2PeerInfo :: [HostAddress] -> [PeerInfo]
 domainAddr2PeerInfo = fmap (PeerInfo Nothing)
 
+-- edtodo properly order by original mainnet height
 data Fork
     = Vuln797Fix
     | SlowEpoch
@@ -205,8 +200,8 @@ data Fork
     | Chainweb215Pact
     | Chainweb216Pact
     | Chainweb217Pact
-    | Chainweb218Pact
     | Pact44NewTrans
+    | Chainweb218Pact
     -- always add new forks at the end, not in the middle of the constructors.
     deriving (Bounded, Generic, NFData, Hashable, Eq, Enum, Ord, Show)
 
@@ -283,6 +278,17 @@ newtype ChainwebVersionCode =
     deriving newtype (Show, ToJSON, FromJSON)
     deriving anyclass (Hashable, NFData)
 
+encodeChainwebVersionCode :: ChainwebVersionCode -> Put
+encodeChainwebVersionCode = putWord32le . getChainwebVersionCode
+
+decodeChainwebVersionCode :: Get ChainwebVersionCode
+decodeChainwebVersionCode = ChainwebVersionCode <$> getWord32le
+
+instance MerkleHashAlgorithm a => IsMerkleLogEntry a ChainwebHashTag ChainwebVersionCode where
+    type Tag ChainwebVersionCode = 'ChainwebVersionTag
+    toMerkleNode = encodeMerkleInputNode encodeChainwebVersionCode
+    fromMerkleNode = decodeMerkleInputNode decodeChainwebVersionCode
+
 data Upgrade = Upgrade
     { _upgradeTransactions :: [ChainwebTransaction]
     , _legacyUpgradeIsPrecocious :: Bool
@@ -322,13 +328,7 @@ data ChainwebVersion
     deriving anyclass NFData
 
 instance Show ChainwebVersion where
-    show = T.unpack . getChainwebVersionName . _versionName
-
-window :: ChainwebVersion -> Maybe WindowWidth
-window = _versionWindow
-
-blockRate :: ChainwebVersion -> BlockRate
-blockRate = _versionBlockRate
+    show = show . _versionName
 
 instance Ord ChainwebVersion where
     v `compare` v' = fold
@@ -344,6 +344,8 @@ instance Ord ChainwebVersion where
         , _versionMaxBlockGasLimit v `compare` _versionMaxBlockGasLimit v'
         , _versionFakeFirstEpochStart v `compare` _versionFakeFirstEpochStart v'
         , _versionBootstraps v `compare` _versionBootstraps v'
+        -- genesis cannot be ordered because Payload in Pact cannot be ordered
+        -- , _versionGenesis v `compare` _versionGenesis v'
         , _versionCheats v `compare` _versionCheats v'
         ]
 
@@ -379,27 +381,6 @@ makeLensesWith (lensRules & generateLazyPatterns .~ True) 'Cheats
 
 genesisBlockPayloadHash :: ChainwebVersion -> ChainId -> BlockPayloadHash
 genesisBlockPayloadHash v cid = v ^?! versionGenesis . genesisBlockPayload . onChain cid . to _payloadWithOutputsPayloadHash
-
--- | Empty payload marking no-op transaction payloads for deprecated
--- versions.
---
-emptyPayload :: PayloadWithOutputs
-emptyPayload = PayloadWithOutputs mempty miner coinbase h i o
-  where
-    BlockPayload h i o = newBlockPayload miner coinbase mempty
-    miner = MinerData $ encodeToByteString noMiner
-    coinbase = noCoinbaseOutput
-
-encodeChainwebVersionCode :: ChainwebVersionCode -> Put
-encodeChainwebVersionCode = putWord32le . getChainwebVersionCode
-
-decodeChainwebVersionCode :: Get ChainwebVersionCode
-decodeChainwebVersionCode = ChainwebVersionCode <$> getWord32le
-
-instance MerkleHashAlgorithm a => IsMerkleLogEntry a ChainwebHashTag ChainwebVersionCode where
-    type Tag ChainwebVersionCode = 'ChainwebVersionTag
-    toMerkleNode = encodeMerkleInputNode encodeChainwebVersionCode
-    fromMerkleNode = decodeMerkleInputNode decodeChainwebVersionCode
 
 instance HasTextRepresentation ChainwebVersionName where
     toText = getChainwebVersionName
