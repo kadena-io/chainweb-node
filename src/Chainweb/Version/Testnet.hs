@@ -93,29 +93,28 @@ testnet = ChainwebVersion
     , _versionName = ChainwebVersionName "testnet04"
     , _versionForks = tabulateHashMap $ \case
         SlowEpoch -> AllChains 0
-        OldTargetGuard -> AllChains 0
-        SkipFeatureFlagValidation -> AllChains 0
-        OldDAGuard -> AllChains 318_204 -- ~ 2020-07-23 16:00:00
         Vuln797Fix -> AllChains 0
-        PactBackCompat_v16 -> AllChains 0
-        SkipTxTimingValidation -> AllChains 1
-        ModuleNameFix -> AllChains 2
-        ModuleNameFix2 -> AllChains 289_966 -- ~ 2020-07-13
-        PactEvents -> AllChains 660_000
-        SPVBridge -> AllChains 820_000 -- 2021-01-14T17:12:02
-        EnforceKeysetFormats -> AllChains 1_701_000 -- 2021-11-18T17:54:36
-        CheckTxHash -> AllChains 1_889_000 -- 2022-01-24T04:19:24
-        Pact44NewTrans -> AllChains 2_500_369 -- Todo: add date
-        Pact420 -> AllChains 1_862_000  -- 2021-06-19T03:34:05
-
         CoinV2 -> onChains $ concat
             [ [(unsafeChainId i, BlockHeight 1) | i <- [0..9]]
             , [(unsafeChainId i, BlockHeight 337_000) | i <- [10..19]]
             ]
+        PactBackCompat_v16 -> AllChains 0
+        ModuleNameFix -> AllChains 2
+        SkipTxTimingValidation -> AllChains 1
+        OldTargetGuard -> AllChains 0
+        SkipFeatureFlagValidation -> AllChains 0
+        ModuleNameFix2 -> AllChains 289_966 -- ~ 2020-07-13
+        OldDAGuard -> AllChains 318_204 -- ~ 2020-07-23 16:00:00
+        PactEvents -> AllChains 660_000
+        SPVBridge -> AllChains 820_000 -- 2021-01-14T17:12:02
         Pact4Coin3 -> AllChains 1_261_000  -- 2021-06-17T15:54:14
+        EnforceKeysetFormats -> AllChains 1_701_000 -- 2021-11-18T17:54:36
+        Pact420 -> AllChains 1_862_000  -- 2021-06-19T03:34:05
+        CheckTxHash -> AllChains 1_889_000 -- 2022-01-24T04:19:24
         Chainweb213Pact -> AllChains 1_974_556  -- 2022-02-25 00:00:00
         Chainweb214Pact -> AllChains 2_134_331  -- 2022-04-21T12:00:00Z
         Chainweb215Pact -> AllChains 2_295_437  -- 2022-06-16T12:00:00+00:00
+        Pact44NewTrans -> AllChains 2_500_369 -- Todo: add date
         Chainweb216Pact -> AllChains 2_516_739  -- 2022-09-01 12:00:00+00:00
         Chainweb217Pact -> AllChains 2_777_367  -- 2022-12-01 12:00:00+00:00
         Chainweb218Pact -> AllChains 3_038_343  -- 2023-03-02 12:00:00+00:00

@@ -41,29 +41,29 @@ devnet = ChainwebVersion
     , _versionName = ChainwebVersionName "development"
 
     , _versionForks = tabulateHashMap $ \case
-            Vuln797Fix -> AllChains 0
             SlowEpoch -> AllChains 0
-            OldTargetGuard -> AllChains 0
-            EnforceKeysetFormats -> AllChains 1
-            SkipFeatureFlagValidation -> AllChains 1
-            OldDAGuard -> AllChains 13
-            CheckTxHash -> AllChains 1
-            PactEvents -> AllChains 1
-            SkipTxTimingValidation -> AllChains 1
-            SPVBridge -> AllChains 1
-            ModuleNameFix -> AllChains 1
-            ModuleNameFix2 -> AllChains 1
-            PactBackCompat_v16 -> AllChains 1
-            Pact44NewTrans -> AllChains 1
-            Pact420 -> AllChains $ BlockHeight 1
+            Vuln797Fix -> AllChains 0
             CoinV2 -> onChains $ concat
                 [ [(unsafeChainId 0, BlockHeight 3)]
                 , [(unsafeChainId i, BlockHeight 4) | i <- [1..19]]
                 ]
+            PactBackCompat_v16 -> AllChains 1
+            ModuleNameFix -> AllChains 1
+            SkipTxTimingValidation -> AllChains 1
+            OldTargetGuard -> AllChains 0
+            SkipFeatureFlagValidation -> AllChains 1
+            ModuleNameFix2 -> AllChains 1
+            OldDAGuard -> AllChains 13
+            PactEvents -> AllChains 1
+            SPVBridge -> AllChains 1
             Pact4Coin3 -> AllChains $ BlockHeight 14
+            EnforceKeysetFormats -> AllChains 1
+            Pact420 -> AllChains $ BlockHeight 1
+            CheckTxHash -> AllChains 1
             Chainweb213Pact -> AllChains $ BlockHeight 15
             Chainweb214Pact -> AllChains $ BlockHeight 16
             Chainweb215Pact -> AllChains $ BlockHeight 17
+            Pact44NewTrans -> AllChains 1
             Chainweb216Pact -> AllChains $ BlockHeight 18
             Chainweb217Pact -> AllChains $ BlockHeight 18
             Chainweb218Pact -> AllChains $ BlockHeight 18

@@ -177,82 +177,81 @@ import P2P.Peer
 domainAddr2PeerInfo :: [HostAddress] -> [PeerInfo]
 domainAddr2PeerInfo = fmap (PeerInfo Nothing)
 
--- edtodo properly order by original mainnet height
 data Fork
-    = Vuln797Fix
-    | SlowEpoch
-    | OldTargetGuard
-    | EnforceKeysetFormats
-    | SkipFeatureFlagValidation
-    | OldDAGuard
-    | CheckTxHash
-    | PactEvents
-    | SkipTxTimingValidation
-    | SPVBridge
-    | ModuleNameFix
-    | ModuleNameFix2
-    | PactBackCompat_v16
+    = SlowEpoch
+    | Vuln797Fix
     | CoinV2
+    | PactBackCompat_v16
+    | ModuleNameFix
+    | SkipTxTimingValidation
+    | OldTargetGuard
+    | SkipFeatureFlagValidation
+    | ModuleNameFix2
+    | OldDAGuard
+    | PactEvents
+    | SPVBridge
     | Pact4Coin3
+    | EnforceKeysetFormats
     | Pact420
+    | CheckTxHash
     | Chainweb213Pact
     | Chainweb214Pact
     | Chainweb215Pact
+    | Pact44NewTrans
     | Chainweb216Pact
     | Chainweb217Pact
-    | Pact44NewTrans
     | Chainweb218Pact
     -- always add new forks at the end, not in the middle of the constructors.
     deriving (Bounded, Generic, NFData, Hashable, Eq, Enum, Ord, Show)
 
 instance HasTextRepresentation Fork where
+  toText SlowEpoch = "slowEpoch"
   toText Vuln797Fix = "vuln797Fix"
   toText CoinV2 = "coinV2"
-  toText SlowEpoch = "slowEpoch"
-  toText OldTargetGuard = "oldTargetGuard"
-  toText EnforceKeysetFormats = "enforceKeysetFormats"
-  toText SkipFeatureFlagValidation = "skipFeatureFlagValidation"
-  toText OldDAGuard = "oldDaGuard"
-  toText CheckTxHash = "checkTxHash"
-  toText Pact4Coin3 = "pact4Coin3"
-  toText PactEvents = "pactEvents"
-  toText SkipTxTimingValidation = "skipTxTimingValidation"
-  toText SPVBridge = "spvBridge"
   toText PactBackCompat_v16 = "pactBackCompat_v16"
   toText ModuleNameFix = "moduleNameFix"
+  toText SkipTxTimingValidation = "skipTxTimingValidation"
+  toText OldTargetGuard = "oldTargetGuard"
+  toText SkipFeatureFlagValidation = "skipFeatureFlagValidation"
   toText ModuleNameFix2 = "moduleNameFix2"
+  toText OldDAGuard = "oldDaGuard"
+  toText PactEvents = "pactEvents"
+  toText SPVBridge = "spvBridge"
+  toText Pact4Coin3 = "pact4Coin3"
+  toText EnforceKeysetFormats = "enforceKeysetFormats"
   toText Pact420 = "pact420"
+  toText CheckTxHash = "checkTxHash"
   toText Chainweb213Pact = "chainweb213Pact"
   toText Chainweb214Pact = "chainweb214Pact"
   toText Chainweb215Pact = "chainweb215Pact"
+  toText Pact44NewTrans = "pact44NewTrans"
   toText Chainweb216Pact = "chainweb216Pact"
   toText Chainweb217Pact = "chainweb217Pact"
   toText Chainweb218Pact = "chainweb218Pact"
-  toText Pact44NewTrans = "pact44NewTrans"
 
+  fromText "slowEpoch" = return SlowEpoch
   fromText "vuln797Fix" = return Vuln797Fix
   fromText "coinV2" = return CoinV2
-  fromText "slowEpoch" = return SlowEpoch
-  fromText "oldTargetGuard" = return OldTargetGuard
-  fromText "enforceKeysetFormats" = return EnforceKeysetFormats
-  fromText "skipFeatureFlagValidation" = return SkipFeatureFlagValidation
-  fromText "oldDaGuard" = return OldDAGuard
-  fromText "checkTxHash" = return CheckTxHash
-  fromText "pact4Coin3" = return Pact4Coin3
-  fromText "pactEvents" = return PactEvents
-  fromText "skipTxTimingValidation" = return SkipTxTimingValidation
-  fromText "spvBridge" = return SPVBridge
   fromText "pactBackCompat_v16" = return PactBackCompat_v16
   fromText "moduleNameFix" = return ModuleNameFix
+  fromText "skipTxTimingValidation" = return SkipTxTimingValidation
+  fromText "oldTargetGuard" = return OldTargetGuard
+  fromText "skipFeatureFlagValidation" = return SkipFeatureFlagValidation
   fromText "moduleNameFix2" = return ModuleNameFix2
+  fromText "oldDaGuard" = return OldDAGuard
+  fromText "pactEvents" = return PactEvents
+  fromText "spvBridge" = return SPVBridge
+  fromText "pact4Coin3" = return Pact4Coin3
+  fromText "enforceKeysetFormats" = return EnforceKeysetFormats
   fromText "pact420" = return Pact420
+  fromText "checkTxHash" = return CheckTxHash
   fromText "chainweb213Pact" = return Chainweb213Pact
   fromText "chainweb214Pact" = return Chainweb214Pact
   fromText "chainweb215Pact" = return Chainweb215Pact
+  fromText "pact44NewTrans" = return Pact44NewTrans
   fromText "chainweb216Pact" = return Chainweb216Pact
   fromText "chainweb217Pact" = return Chainweb217Pact
   fromText "chainweb218Pact" = return Chainweb218Pact
-  fromText "pact44NewTrans" = return Pact44NewTrans
   fromText t = throwM . TextFormatException $ "Unknown Chainweb fork: " <> t
 
 instance ToJSON Fork where

@@ -93,10 +93,7 @@ mainnet = ChainwebVersion
     { _versionCode = ChainwebVersionCode 0x00000005
     , _versionName = ChainwebVersionName "mainnet01"
     , _versionForks = tabulateHashMap $ \case
-        SlowEpoch -> AllChains 80_000
-        OldTargetGuard -> AllChains 452_820 -- ~ 2020-04-04T00:00:00Z
-        SkipFeatureFlagValidation -> AllChains 530_500 -- ~ 2020-05-01T00:00:xxZ
-        OldDAGuard -> AllChains 771_414 -- ~ 2020-07-23 16:00:00
+        SlowEpoch -> AllChains (BlockHeight 80_000)
         Vuln797Fix -> onChains $
             [ (unsafeChainId 0, BlockHeight 121_452) -- 2019-12-10T21:00:00.0
             , (unsafeChainId 1, BlockHeight 121_452)
@@ -109,18 +106,7 @@ mainnet = ChainwebVersion
             , (unsafeChainId 8, BlockHeight 121_452)
             , (unsafeChainId 9, BlockHeight 121_451)
             ] <> [(unsafeChainId i, BlockHeight 0) | i <- [10..19]]
-        PactBackCompat_v16 -> AllChains 328_000
-        SkipTxTimingValidation -> AllChains 449_940
-        ModuleNameFix -> AllChains 448_501
-        ModuleNameFix2 -> AllChains 752_214
-        PactEvents -> AllChains 1_138_000
-        SPVBridge -> AllChains 1_275_000
-        EnforceKeysetFormats -> AllChains 2_162_000 -- 2022-01-17T17:51:12
-        CheckTxHash -> AllChains 2_349_800 -- 2022-01-23T02:53:38
-        Pact44NewTrans -> AllChains 2_965_885 -- Todo: add date
-        Pact420 -> AllChains (BlockHeight 2_334_500)         -- 2022-01-17T17:51:12+00:00
-
-        CoinV2 -> onChains
+        CoinV2 -> onChains $
             [ (unsafeChainId 0, BlockHeight 140_808)
             , (unsafeChainId 1, BlockHeight 140_809)
             , (unsafeChainId 2, BlockHeight 140_808)
@@ -131,11 +117,24 @@ mainnet = ChainwebVersion
             , (unsafeChainId 7, BlockHeight 140_809)
             , (unsafeChainId 8, BlockHeight 140_808)
             , (unsafeChainId 9, BlockHeight 140_808)
-            ]
+            ] <> [(unsafeChainId i, BlockHeight 1) | i <- [10..19]]
+        PactBackCompat_v16 -> AllChains (BlockHeight 328_000)
+        ModuleNameFix -> AllChains (BlockHeight 448_501)
+        SkipTxTimingValidation -> AllChains (BlockHeight 449_940)
+        OldTargetGuard -> AllChains (BlockHeight 452_820) -- ~ 2020-04-04T00:00:00Z
+        SkipFeatureFlagValidation -> AllChains (BlockHeight 530_500) -- ~ 2020-05-01T00:00:xxZ
+        ModuleNameFix2 -> AllChains (BlockHeight 752_214)
+        OldDAGuard -> AllChains (BlockHeight 771_414) -- ~ 2020-07-23 16:00:00
+        PactEvents -> AllChains (BlockHeight 1_138_000)
+        SPVBridge -> AllChains (BlockHeight 1_275_000)
         Pact4Coin3 -> AllChains (BlockHeight 1_722_500)      -- 2021-06-19T03:34:05+00:00
+        EnforceKeysetFormats -> AllChains (BlockHeight 2_162_000) -- 2022-01-17T17:51:12
+        Pact420 -> AllChains (BlockHeight 2_334_500) -- 2022-01-17T17:51:12+00:00
+        CheckTxHash -> AllChains (BlockHeight 2_349_800) -- 2022-01-23T02:53:38
         Chainweb213Pact -> AllChains (BlockHeight 2_447_315) -- 2022-02-26T00:00:00+00:00
         Chainweb214Pact -> AllChains (BlockHeight 2_605_663) -- 2022-04-22T00:00:00+00:00
         Chainweb215Pact -> AllChains (BlockHeight 2_766_630) -- 2022-06-17T00:00:00+00:00
+        Pact44NewTrans -> AllChains (BlockHeight 2_965_885) -- Todo: add date
         Chainweb216Pact -> AllChains (BlockHeight 2_988_324) -- 2022-09-02T00:00:00+00:00
         Chainweb217Pact -> AllChains (BlockHeight 3_250_348) -- 2022-12-02T00:00:00+00:00
         Chainweb218Pact -> AllChains (BlockHeight 3_512_363) -- 2023-03-03 00:00:00+00:00
