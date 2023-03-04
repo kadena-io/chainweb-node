@@ -58,29 +58,29 @@ type Logger l = L.LoggerCtx l SomeLogMessage
 
 logFunction :: Logger l => l -> LogFunction
 logFunction logger level = L.loggerFunIO logger (l2l level) . toLogMessage
-{-# INLINE logFunction #-}
+
 
 logFunctionText :: Logger l => l -> LogFunctionText
 logFunctionText logger level = logFunction logger level . TextLog
-{-# INLINE logFunctionText #-}
+
 
 logFunctionJson
     :: Logger l
     => l
     -> LogFunctionJson a
 logFunctionJson logger level = logFunction logger level . JsonLog
-{-# INLINE logFunctionJson #-}
+
 
 -- -------------------------------------------------------------------------- --
 -- Utils
 
 setComponent :: Logger logger => T.Text -> logger -> logger
 setComponent c = addLabel ("component", c)
-{-# INLINE setComponent #-}
+
 
 addLabel :: Logger logger => (T.Text, T.Text) -> logger -> logger
 addLabel = over L.setLoggerScope . (:)
-{-# INLINE addLabel #-}
+
 
 l2l :: LogLevel -> L.LogLevel
 l2l Quiet = L.Quiet
@@ -89,7 +89,7 @@ l2l Warn = L.Warn
 l2l Info = L.Info
 l2l Debug = L.Debug
 l2l (Other _) = L.Debug
-{-# INLINE l2l #-}
+
 
 l2l' :: L.LogLevel -> LogLevel
 l2l' L.Quiet = Quiet
@@ -131,9 +131,9 @@ instance L.LoggerCtx GenericLogger SomeLogMessage where
     setLoggerPolicy = glPolicy
 
     {-# INLINABLE loggerFunIO #-}
-    {-# INLINE setLoggerLevel #-}
-    {-# INLINE setLoggerScope #-}
-    {-# INLINE setLoggerPolicy #-}
+
+
+
 
 -- | Simpel generic logger for chainweb. For production purposes a proper
 -- logging framework should be used.

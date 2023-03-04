@@ -258,29 +258,29 @@ data CutDb tbl = CutDb
 
 instance HasChainwebVersion (CutDb tbl) where
     _chainwebVersion = _chainwebVersion . _cutDbHeaderStore
-    {-# INLINE _chainwebVersion #-}
+
 
 cutDbPayloadDb :: Getter (CutDb tbl) (PayloadDb tbl)
 cutDbPayloadDb = to $ _webBlockPayloadStoreCas . _cutDbPayloadStore
-{-# INLINE cutDbPayloadDb #-}
+
 
 cutDbPactService :: Getter (CutDb tbl) WebPactExecutionService
 cutDbPactService = to $ _webBlockPayloadStorePact . _cutDbPayloadStore
-{-# INLINE cutDbPactService #-}
+
 
 cutDbPayloadStore :: Getter (CutDb tbl) (WebBlockPayloadStore tbl)
 cutDbPayloadStore = to _cutDbPayloadStore
-{-# INLINE cutDbPayloadStore #-}
+
 
 -- We export the 'WebBlockHeaderDb' read-only
 --
 cutDbWebBlockHeaderDb :: Getter (CutDb tbl) WebBlockHeaderDb
 cutDbWebBlockHeaderDb = to $ _webBlockHeaderStoreCas . _cutDbHeaderStore
-{-# INLINE cutDbWebBlockHeaderDb #-}
+
 
 cutDbWebBlockHeaderStore :: Getter (CutDb tbl) WebBlockHeaderStore
 cutDbWebBlockHeaderStore = to _cutDbHeaderStore
-{-# INLINE cutDbWebBlockHeaderStore #-}
+
 
 -- | Access the blockerheaderdb via the cutdb for a given chain id
 --
@@ -293,7 +293,7 @@ cutDbBlockHeaderDb cid = cutDbWebBlockHeaderDb . ixg (_chainId cid)
 --
 _cut :: CutDb tbl -> IO Cut
 _cut = readTVarIO . _cutDbCut
-{-# INLINE _cut #-}
+
 
 -- | Get the current 'Cut', which represent the latest chainweb state.
 --
@@ -333,7 +333,7 @@ awaitNewCut cdb c = atomically $ do
 --
 awaitNewCutByChainId :: CutDb tbl -> ChainId -> Cut -> IO Cut
 awaitNewCutByChainId cdb cid c = atomically $ awaitNewCutByChainIdStm cdb cid c
-{-# INLINE awaitNewCutByChainId #-}
+
 
 -- | As in `awaitNewCut`, but only updates when the specified `ChainId` has
 -- grown.

@@ -229,7 +229,7 @@ showSessionId pinf ses = showInfo pinf <> ":" <> (T.drop 9 . sshow $ asyncThread
 
 showInfo :: PeerInfo -> T.Text
 showInfo = shortPeerInfo
-{-# INLINE showInfo #-}
+
 
 addSession
     :: P2pNode
@@ -290,11 +290,11 @@ loggFun = _p2pNodeLogFunction
 
 nodeRandom :: R.Random a => P2pNode -> (R.StdGen -> (a, R.StdGen)) -> IO a
 nodeRandom node r = atomicModifyIORef' (_p2pNodeRng node) $ swap . r
-{-# INLINE nodeRandom #-}
+
 
 nodeRandomR :: R.Random a => P2pNode -> (a, a) -> IO a
 nodeRandomR node = nodeRandom node . R.randomR
-{-# INLINE nodeRandomR #-}
+
 
 -- | Geometric distribution that counts the number of failures before success.
 --
@@ -309,7 +309,7 @@ geometric p g
 
 nodeGeometric :: HasCallStack => P2pNode -> Double -> IO Int
 nodeGeometric node = nodeRandom node . geometric
-{-# INLINE nodeGeometric #-}
+
 
 setInactive :: P2pNode -> STM ()
 setInactive node = writeTVar (_p2pNodeActive node) False
@@ -332,7 +332,7 @@ newPeerManager = unsafePerformIO $ do
 
 getNewPeerManager :: IO HTTP.Manager
 getNewPeerManager = readIORef newPeerManager
-{-# INLINE getNewPeerManager #-}
+
 
 -- -------------------------------------------------------------------------- --
 -- Guard PeerDB
@@ -733,7 +733,7 @@ startPeerDb v nids conf = do
 --
 stopPeerDb :: P2pConfiguration -> PeerDb -> IO ()
 stopPeerDb _ _ = return ()
-{-# INLINE stopPeerDb #-}
+
 
 -- | Run a computation with a PeerDb
 --

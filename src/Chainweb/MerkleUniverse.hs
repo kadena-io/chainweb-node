@@ -143,19 +143,19 @@ merkleRootTypeFromText t = throwM . TextFormatException $ "Unknown merkle root t
 
 instance HasTextRepresentation MerkleRootType where
     toText = merkleRootTypeToText
-    {-# INLINE toText #-}
+
     fromText = merkleRootTypeFromText
-    {-# INLINE fromText #-}
+
 
 instance ToJSON MerkleRootType where
     toJSON = toJSON . toText
     toEncoding = toEncoding . toText
-    {-# INLINE toJSON #-}
-    {-# INLINE toEncoding #-}
+
+
 
 instance FromJSON MerkleRootType where
     parseJSON = parseJsonFromText "MerkleRootType"
-    {-# INLINE parseJSON #-}
+
 
 data MerkleRootMismatch = MerkleRootMismatch
     { _merkleRootMismatchExpected :: !(Expected MerkleRootType)

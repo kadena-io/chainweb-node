@@ -171,7 +171,7 @@ instance Ord SQLiteRowDelta where
       where
         aa = (_deltaTableName a, _deltaRowKey a, _deltaTxId a)
         bb = (_deltaTableName b, _deltaRowKey b, _deltaTxId b)
-    {-# INLINE compare #-}
+
 
 -- | When we index 'SQLiteRowDelta' values, we need a lookup key.
 data SQLiteDeltaKey = SQLiteDeltaKey

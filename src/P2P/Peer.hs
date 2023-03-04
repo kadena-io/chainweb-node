@@ -114,7 +114,7 @@ newtype PeerId = PeerId B.ByteString
 
 peerIdToText :: PeerId -> T.Text
 peerIdToText (PeerId b) = encodeB64UrlNoPaddingText b
-{-# INLINE peerIdToText #-}
+
 
 shortPeerId :: PeerId -> T.Text
 shortPeerId = T.take 6 . toText
@@ -128,40 +128,40 @@ peerIdFromText t = do
         <> sshow fingerprintByteCount <> " bytes, got "
         <> sshow (B.length bytes) <> " bytes."
     return $! PeerId bytes
-{-# INLINE peerIdFromText #-}
+
 
 unsafePeerIdFromText :: HasCallStack => String -> PeerId
 unsafePeerIdFromText = fromJuste . peerIdFromText . T.pack
-{-# INLINE unsafePeerIdFromText #-}
+
 
 instance HasTextRepresentation PeerId where
     toText = peerIdToText
-    {-# INLINE toText #-}
+
     fromText = peerIdFromText
-    {-# INLINE fromText #-}
+
 
 instance ToJSON PeerId where
     toJSON = toJSON . toText
     toEncoding = toEncoding . toText
-    {-# INLINE toJSON #-}
-    {-# INLINE toEncoding #-}
+
+
 
 instance FromJSON PeerId where
     parseJSON = parseJsonFromText "PeerId"
-    {-# INLINE parseJSON #-}
+
 
 pPeerId :: Maybe String -> OptionParser PeerId
 pPeerId service = textOption
     % prefixLong service "peer-id"
-{-# INLINE pPeerId #-}
+
 
 peerIdToFingerprint :: PeerId -> Fingerprint
 peerIdToFingerprint (PeerId b) = Fingerprint b
-{-# INLINE peerIdToFingerprint #-}
+
 
 peerIdFromFingerprint :: Fingerprint -> PeerId
 peerIdFromFingerprint (Fingerprint b) = PeerId b
-{-# INLINE peerIdFromFingerprint #-}
+
 
 -- -------------------------------------------------------------------------- --
 -- Peer Info
@@ -189,25 +189,25 @@ peerInfoProperties a =
     [ "id" .= _peerId a
     , "address" .= _peerAddr a
     ]
-{-# INLINE peerInfoProperties #-}
+
 
 instance ToJSON PeerInfo where
     toJSON  = object . peerInfoProperties
     toEncoding  = pairs . mconcat . peerInfoProperties
-    {-# INLINE toJSON #-}
-    {-# INLINE toEncoding #-}
+
+
 
 instance FromJSON PeerInfo where
     parseJSON = withObject "PeerInfo" $ \o -> PeerInfo
         <$> o .: "id"
         <*> o .: "address"
-    {-# INLINE parseJSON #-}
+
 
 instance FromJSON (PeerInfo -> PeerInfo) where
     parseJSON = withObject "PeerInfo" $ \o -> id
         <$< peerId ..: "id" % o
         <*< peerAddr ..: "address" % o
-    {-# INLINE parseJSON #-}
+
 
 peerInfoToText :: PeerInfo -> T.Text
 peerInfoToText pinf
@@ -231,15 +231,15 @@ shortPeerInfo pinf =
 
 instance HasTextRepresentation PeerInfo where
     toText = peerInfoToText
-    {-# INLINE toText #-}
+
     fromText = peerInfoFromText
-    {-# INLINE fromText #-}
+
 
 pPeerInfo :: Maybe String -> MParser PeerInfo
 pPeerInfo service = id
     <$< peerId .:: fmap Just % pPeerId service
     <*< peerAddr %:: pHostAddress service
-{-# INLINE pPeerInfo #-}
+
 
 -- | Parser Peer Id as a single option
 --
@@ -350,13 +350,13 @@ peerConfigProperties o =
     , "key" .= _peerConfigKey o
     , "keyFile" .= _peerConfigKeyFile o
     ]
-{-# INLINE peerConfigProperties #-}
+
 
 instance ToJSON PeerConfig where
     toJSON = object . peerConfigProperties
     toEncoding = pairs . mconcat . peerConfigProperties
-    {-# INLINE toJSON #-}
-    {-# INLINE toEncoding #-}
+
+
 
 instance FromJSON PeerConfig where
     parseJSON = withObject "PeerConfig" $ \o -> PeerConfig
@@ -390,7 +390,7 @@ pPeerConfig service = id
     <*< peerConfigKeyFile .:: fmap Just % fileOption
         % prefixLong service "certificate-key-file"
         <> suffixHelp service "file with the PEM encoded certificate key. A textually provided certificate key has precedence over a file."
-{-# INLINE pPeerConfig #-}
+
 
 -- -------------------------------------------------------------------------- --
 -- Peer
@@ -454,13 +454,13 @@ peerProperties p =
     , "certificateChain" .= _peerCertificateChain p
     , "key" .= _peerKey p
     ]
-{-# INLINE peerProperties #-}
+
 
 instance ToJSON Peer where
     toJSON = object . peerProperties
     toEncoding = pairs. mconcat . peerProperties
-    {-# INLINE toJSON #-}
-    {-# INLINE toEncoding #-}
+
+
 
 instance FromJSON Peer where
     parseJSON = withObject "Peer" $ \o -> Peer
@@ -468,5 +468,5 @@ instance FromJSON Peer where
         <*> (parseJsonFromText "interface" =<< o .: "interface")
         <*> o .: "certificateChain"
         <*> o .: "key"
-    {-# INLINE parseJSON #-}
+
 

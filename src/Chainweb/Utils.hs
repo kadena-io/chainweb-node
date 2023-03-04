@@ -331,14 +331,14 @@ exbi = 1024 ^ (6 :: Int)
 --
 int :: Integral a => Num b => a -> b
 int = fromIntegral
-{-# INLINE int #-}
+
 
 -- | A generalization of 'length' that returns any type that is an instance of
 -- 'Integral'.
 --
 len :: Integral a => [b] -> a
 len = int . length
-{-# INLINE len #-}
+
 
 -- | Boolean implication operator.
 --
@@ -351,7 +351,7 @@ infixr 1 ==>
 --
 keySet :: HM.HashMap a b -> HS.HashSet a
 keySet = HS.fromMap . set each ()
-{-# INLINE keySet #-}
+
 
 -- | A HashMap memoizing a function over a finite input type.
 --
@@ -364,19 +364,19 @@ maxBy :: (a -> a -> Ordering) -> a -> a -> a
 maxBy cmp a b = case cmp a b of
     LT -> b
     _ -> a
-{-# INLINE maxBy #-}
+
 
 -- | A version of 'unless' with a monadic predicate.
 --
 unlessM :: Monad m => m Bool -> m () -> m ()
 unlessM c a = c >>= flip unless a
-{-# INLINE unlessM #-}
+
 
 -- | A version of 'when' with a monadic predicate.
 --
 whenM :: Monad m => m Bool -> m () -> m ()
 whenM c a = c >>= flip when a
-{-# INLINE whenM #-}
+
 
 ebool_ :: e -> Bool -> Either e ()
 ebool_ e = bool (Left e) (Right ())
@@ -395,7 +395,7 @@ alignWithV f a b = V.zipWith (\a' -> f . These a') a b <> case (V.length a,V.len
 --
 minusOrZero :: Ord a => Num a => a -> a -> a
 minusOrZero a b = a - min a b
-{-# INLINE minusOrZero #-}
+
 
 -- | Equivalent to V.thaw . V.fromList but by inspection probably faster.
 mutableVectorFromList
@@ -406,7 +406,7 @@ mutableVectorFromList as = do
     vec <- MV.unsafeNew (length as)
     forM_ (zip [0..] as) $ uncurry (MV.unsafeWrite vec)
     return vec
-{-# inline mutableVectorFromList #-}
+
 
 -- -------------------------------------------------------------------------- --
 -- * Read only Ixed
@@ -425,7 +425,7 @@ class IxedGet a where
 
     default ixg :: Ixed a => Index a -> Fold a (IxValue a)
     ixg i = ix i
-    {-# INLINE ixg #-}
+
 
 -- -------------------------------------------------------------------------- --
 -- * Encodings and Serialization
@@ -456,20 +456,20 @@ instance Exception EncodingException
 --
 sshow :: Show a => IsString b => a -> b
 sshow = fromString . show
-{-# INLINE sshow #-}
+
 
 -- | Read a value from a textual encoding using its 'Read' instance. Returns and
 -- textual error message if the operation fails.
 --
 tread :: Read a => T.Text -> Either T.Text a
 tread = first T.pack . readEither . T.unpack
-{-# INLINE tread #-}
+
 
 -- | Throws 'TextFormatException' on failure.
 --
 treadM :: MonadThrow m => Read a => T.Text -> m a
 treadM = fromEitherM . first TextFormatException . tread
-{-# INLINE treadM #-}
+
 
 -- | Class of types that have an textual representation.
 --
@@ -479,38 +479,38 @@ class HasTextRepresentation a where
 
 instance HasTextRepresentation T.Text where
     toText = id
-    {-# INLINE toText #-}
+
     fromText = return
-    {-# INLINE fromText #-}
+
 
 instance HasTextRepresentation [Char] where
     toText = T.pack
-    {-# INLINE toText #-}
+
     fromText = return . T.unpack
-    {-# INLINE fromText #-}
+
 
 instance HasTextRepresentation Int where
     toText = sshow
-    {-# INLINE toText #-}
+
     fromText = treadM
-    {-# INLINE fromText #-}
+
 
 instance HasTextRepresentation Integer where
     toText = sshow
-    {-# INLINE toText #-}
+
     fromText = treadM
-    {-# INLINE fromText #-}
+
 
 instance HasTextRepresentation UTCTime where
     toText = T.pack . formatTime defaultTimeLocale iso8601DateTimeFormat
-    {-# INLINE toText #-}
+
 
     fromText d = case parseTimeM False defaultTimeLocale fmt (T.unpack d) of
         Nothing -> throwM $ TextFormatException $ "failed to parse utc date " <> sshow d
         Just x -> return x
       where
         fmt = iso8601DateTimeFormat
-    {-# INLINE fromText #-}
+
 
 -- | Decode a value from its textual representation.
 --
@@ -523,14 +523,14 @@ eitherFromText = either f return . fromText
     f e = Left $ case fromException e of
         Just (TextFormatException err) -> T.unpack err
         _ -> displayException e
-{-# INLINE eitherFromText #-}
+
 
 -- | Unsafely decode a value rom its textual representation. It is an program
 -- error if decoding fails.
 --
 unsafeFromText :: HasCallStack => HasTextRepresentation a => T.Text -> a
 unsafeFromText = fromJuste . fromText
-{-# INLINE unsafeFromText #-}
+
 
 -- | Run a 'A.Parser' on a text input. All input must be consume by the parser.
 -- A 'TextFormatException' is thrown if parsing fails.
@@ -538,17 +538,17 @@ unsafeFromText = fromJuste . fromText
 parseM :: MonadThrow m => A.Parser a -> T.Text -> m a
 parseM p = either (throwM . TextFormatException . T.pack) return
     . A.parseOnly (p <* A.endOfInput)
-{-# INLINE parseM #-}
+
 
 -- | A parser for types with an 'HasTextRepresentation' instance.
 --
 parseText :: HasTextRepresentation a => A.Parser T.Text -> A.Parser a
 parseText p = either (fail . sshow) return . fromText =<< p
-{-# INLINE parseText #-}
+
 
 iso8601DateTimeFormat :: String
 iso8601DateTimeFormat = iso8601DateFormat (Just "%H:%M:%SZ")
-{-# INLINE iso8601DateTimeFormat #-}
+
 
 -- -------------------------------------------------------------------------- --
 -- ** Base64
@@ -562,13 +562,13 @@ decodeB64Text = fromEitherM
     . first (Base64DecodeException . T.pack)
     . B64.decode
     . T.encodeUtf8
-{-# INLINE decodeB64Text #-}
+
 
 -- | Encode a binary value to a textual base64 representation.
 --
 encodeB64Text :: B.ByteString -> T.Text
 encodeB64Text = T.decodeUtf8 . B64.encode
-{-# INLINE encodeB64Text #-}
+
 
 -- | Decode a binary value from a textual base64-url representation. A
 -- 'Base64DecodeException' is thrown if the input is not a valid base64-url
@@ -579,13 +579,13 @@ decodeB64UrlText = fromEitherM
     . first (Base64DecodeException . T.pack)
     . B64U.decode
     . T.encodeUtf8
-{-# INLINE decodeB64UrlText #-}
+
 
 -- | Encode a binary value to a textual base64-url representation.
 --
 encodeB64UrlText :: B.ByteString -> T.Text
 encodeB64UrlText = T.decodeUtf8 . B64U.encode
-{-# INLINE encodeB64UrlText #-}
+
 
 -- | Decode a binary value from a textual base64-url without padding
 -- representation. A 'Base64DecodeException' is thrown if the input is not a
@@ -599,14 +599,14 @@ decodeB64UrlNoPaddingText = fromEitherM
     . pad
   where
     pad t = let s = T.length t `mod` 4 in t <> T.replicate ((4 - s) `mod` 4) "="
-{-# INLINE decodeB64UrlNoPaddingText #-}
+
 
 -- | Encode a binary value to a textual base64-url without padding
 -- representation.
 --
 encodeB64UrlNoPaddingText :: B.ByteString -> T.Text
 encodeB64UrlNoPaddingText = T.dropWhileEnd (== '=') . T.decodeUtf8 . B64U.encode
-{-# INLINE encodeB64UrlNoPaddingText #-}
+
 
 -- | Encode a binary value to a base64-url (without padding) JSON encoding.
 --
@@ -621,13 +621,13 @@ b64UrlNoPaddingTextEncoding t =
 --
 encodeToText :: ToJSON a => a -> T.Text
 encodeToText = TL.toStrict . encodeToLazyText
-{-# INLINE encodeToText #-}
+
 
 -- | Encode a value to a strict 'B.ByteString'.
 --
 encodeToByteString :: ToJSON a => a -> B.ByteString
 encodeToByteString = BL.toStrict . encode
-{-# INLINE encodeToByteString #-}
+
 
 -- | Decode a JSON value from a strict 'B.ByteString'. If decoding fails a
 -- 'JsonDecodeException' is thrown.
@@ -636,7 +636,7 @@ decodeStrictOrThrow :: MonadThrow m => FromJSON a => B.ByteString -> m a
 decodeStrictOrThrow = fromEitherM
     . first (JsonDecodeException . T.pack)
     . eitherDecodeStrict
-{-# INLINE decodeStrictOrThrow #-}
+
 
 -- | Strictly decode a JSON value from a strict 'B.ByteString'. If decoding
 -- fails a 'JsonDecodeException' is thrown.
@@ -654,7 +654,7 @@ decodeOrThrow :: MonadThrow m => FromJSON a => BL.ByteString -> m a
 decodeOrThrow = fromEitherM
     . first (JsonDecodeException . T.pack)
     . eitherDecode
-{-# INLINE decodeOrThrow #-}
+
 
 -- | Strictly decode a JSON value from a lazy 'BL.ByteString'. If decoding fails
 -- a 'JsonDecodeException' is thrown.
@@ -675,7 +675,7 @@ decodeFileStrictOrThrow :: MonadIO m => MonadThrow m => FromJSON a => FilePath -
 decodeFileStrictOrThrow = fromEitherM
     <=< return . first (JsonDecodeException . T.pack)
     <=< liftIO . eitherDecodeFileStrict
-{-# INLINE decodeFileStrictOrThrow #-}
+
 
 -- | Strictly decode a JSON value from the content of a file. If decoding fails
 -- a 'JsonDecodeException' is thrown.
@@ -711,7 +711,7 @@ instance CSV.FromField CsvDecimal where
     parseField s = do
         cs <- either (fail . show) pure $ T.unpack <$> T.decodeUtf8' s
         either fail pure $ readEither cs
-    {-# INLINE parseField #-}
+
 
 -- -------------------------------------------------------------------------- --
 -- Option Parsing
@@ -797,7 +797,7 @@ check e a b = do
 --
 fromMaybeM :: MonadThrow m => Exception e => e -> Maybe a -> m a
 fromMaybeM e = maybe (throwM e) return
-{-# INLINE fromMaybeM #-}
+
 
 -- | Like `Data.Maybe.fromJust`, but carries forward the `HasCallStack`
 -- constraint. "Juste" is French for "Just".
@@ -817,7 +817,7 @@ infixl 0 ???
 --
 fromEitherM :: MonadThrow m => Exception e => Either e a -> m a
 fromEitherM = either throwM return
-{-# INLINE fromEitherM #-}
+
 
 -- | An exeption to indicate an violation of an internal code invariants.
 -- Throwing this type of exception means that there is a bug in the code.
@@ -840,7 +840,7 @@ catchSynchronous a f = force <$> a `catches`
     [ Handler $ throwM @_ @SomeAsyncException
     , Handler f
     ]
-{-# INLINE catchSynchronous #-}
+
 
 -- | Catch all exceptions and return 'Left e' for all exceptions @e@ that are
 -- not contained in 'SomeAsyncException'. Asynchronous exceptions are re-thrown.
@@ -855,7 +855,7 @@ trySynchronous a = (Right <$> a) `catches`
     [ Handler $ throwM @_ @SomeAsyncException
     , Handler $ pure . Left
     ]
-{-# INLINE trySynchronous #-}
+
 
 -- | A version of 'catchSynchronous' that doesn't discriminate on the type of
 -- the exception but handles all exceptions in 'SomeExeption' that are not
@@ -868,7 +868,7 @@ catchAllSynchronous
     -> (SomeException -> m a)
     -> m a
 catchAllSynchronous = catchSynchronous
-{-# INLINE catchAllSynchronous #-}
+
 
 -- | A version of 'trySynchronous' that doesn't discriminate on the type of the
 -- exception but handles all exceptions in 'SomeExeption' that are not contained
@@ -880,7 +880,7 @@ tryAllSynchronous
     => m a
     -> m (Either SomeException a)
 tryAllSynchronous = trySynchronous
-{-# INLINE tryAllSynchronous #-}
+
 
 -- | Repeatedly run a computation 'forever' until it is stopped by receiving
 -- 'SomeAsyncException'.
@@ -956,19 +956,19 @@ enableConfigProperties o =
     [ "enabled" .= _enableConfigEnabled o
     , "configuration" .= _enableConfigConfig o
     ]
-{-# INLINE enableConfigProperties #-}
+
 
 instance ToJSON a => ToJSON (EnableConfig a) where
     toJSON = object . enableConfigProperties
     toEncoding = pairs . mconcat . enableConfigProperties
-    {-# INLINE toJSON #-}
-    {-# INLINE toEncoding #-}
+
+
 
 instance FromJSON (a -> a) => FromJSON (EnableConfig a -> EnableConfig a) where
     parseJSON = withObject "EnableConfig" $ \o -> id
         <$< enableConfigEnabled ..: "enabled" % o
         <*< enableConfigConfig %.: "configuration" % o
-    {-# INLINE parseJSON #-}
+
 
 validateEnableConfig :: ConfigValidation a l -> ConfigValidation (EnableConfig a) l
 validateEnableConfig v c = when (_enableConfigEnabled c) $ v (_enableConfigConfig c)
@@ -1087,7 +1087,7 @@ foldChunksM f = go
         Right chunk -> do
             (!seed' S.:> s') <- f seed chunk
             go seed' s'
-{-# INLINE foldChunksM #-}
+
 
 -- | Fold over a chunked stream
 --
@@ -1098,7 +1098,7 @@ foldChunksM_
     -> S.Stream (S.Stream f m) m a
     -> m t
 foldChunksM_ f seed = fmap (fst . S.lazily) . foldChunksM f seed
-{-# INLINE foldChunksM_ #-}
+
 
 -- | Progress reporting for long-running streams. I calls an action
 -- every @n@ streams items.
@@ -1114,7 +1114,7 @@ progress
 progress n act s = s
     & S.zip (S.enumFrom 1)
     & S.mapM (\(!i, !a) -> a <$ when (i `rem` n == 0) (act i a))
-{-# INLINE progress #-}
+
 
 -- -------------------------------------------------------------------------- --
 -- Misc
@@ -1199,7 +1199,7 @@ concurrentlies_ = void . concurrentlies
 
 thd :: (a,b,c) -> c
 thd (_,_,c) = c
-{-# INLINE thd #-}
+
 
 -- -------------------------------------------------------------------------- --
 -- Strict Tuple
@@ -1209,46 +1209,46 @@ data T2 a b = T2 !a !b
 
 instance Bifunctor T2 where
     bimap f g (T2 a b) =  T2 (f a) (g b)
-    {-# INLINE bimap #-}
+
 
 data T3 a b c = T3 !a !b !c
     deriving (Show, Eq, Ord, Generic, NFData, Functor)
 
 instance Bifunctor (T3 a) where
     bimap f g (T3 a b c) =  T3 a (f b) (g c)
-    {-# INLINE bimap #-}
+
 
 sfst :: T2 a b -> a
 sfst (T2 a _) = a
-{-# INLINE sfst #-}
+
 
 ssnd :: T2 a b -> b
 ssnd (T2 _ b) = b
-{-# INLINE ssnd #-}
+
 
 scurry :: (T2 a b -> c) -> a -> b -> c
 scurry f a b = f (T2 a b)
-{-# INLINE scurry #-}
+
 
 suncurry :: (a -> b -> c) -> T2 a b -> c
 suncurry k (T2 a b) = k a b
-{-# INLINE suncurry #-}
+
 
 uncurry3 :: (a -> b -> c -> d) -> (a, b, c) -> d
 uncurry3 k (a, b, c) = k a b c
-{-# INLINE uncurry3 #-}
+
 
 suncurry3 :: (a -> b -> c -> d) -> T3 a b c -> d
 suncurry3 k (T3 a b c) = k a b c
-{-# INLINE suncurry3 #-}
+
 
 _T2 :: Iso (T2 a b) (T2 s t) (a,b) (s,t)
 _T2 = iso (\(T2 a b) -> (a,b)) (uncurry T2)
-{-# INLINE _T2 #-}
+
 
 _T3 :: Iso (T3 a b c) (T3 s t u) (a,b,c) (s,t,u)
 _T3 = iso (\(T3 a b c) -> (a,b,c)) (\(a,b,c) -> T3 a b c)
-{-# INLINE _T3 #-}
+
 
 -- -------------------------------------------------------------------------- --
 -- Approximate thread delays

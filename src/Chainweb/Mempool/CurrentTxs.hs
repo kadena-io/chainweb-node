@@ -93,13 +93,13 @@ newCurrentTxs = CurrentTxs mempty
 
 currentTxsSize :: CurrentTxs -> Int
 currentTxsSize (CurrentTxs s) = S.size s
-{-# INLINE currentTxsSize #-}
+
 
 -- Membership
 
 currentTxsMember :: CurrentTxs -> Time Micros -> TransactionHash -> Bool
 currentTxsMember s expiry h = S.member (getCurrentTxsKey expiry h) (_currentTxs s)
-{-# INLINE currentTxsMember #-}
+
 
 -- Insertion
 
@@ -125,7 +125,7 @@ currentTxsInsertBatch s txs = do
 currentTxsRemove :: CurrentTxs -> Time Micros -> TransactionHash -> CurrentTxs
 currentTxsRemove (CurrentTxs s) expiry h = CurrentTxs $
     S.delete (getCurrentTxsKey expiry h) s
-{-# INLINE currentTxsRemove #-}
+
 
 -- Pruning
 

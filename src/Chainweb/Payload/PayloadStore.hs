@@ -138,7 +138,7 @@ instance (pk ~ CasKeyType (PayloadData_ a), CanReadableTransactionDbCas_ a tbl) 
             , _payloadDataTransactionsHash = txsHash
             , _payloadDataOutputsHash = outsHash
             }
-    {-# INLINE tableLookup #-}
+
 
 -- -------------------------------------------------------------------------- --
 -- Caches
@@ -291,7 +291,7 @@ instance (pk ~ CasKeyType (PayloadWithOutputs_ a), CanReadablePayloadCas_ a tbl)
             , _payloadWithOutputsTransactionsHash = txsHash
             , _payloadWithOutputsOutputsHash = outsHash
             }
-    {-# INLINE tableLookup #-}
+
 
 
 -- | Combine all Payload related stores into a single content addressed
@@ -301,7 +301,7 @@ instance (pk ~ CasKeyType (PayloadWithOutputs_ a), CanReadablePayloadCas_ a tbl)
 --
 instance (pk ~ CasKeyType (PayloadWithOutputs_ a), MerkleHashAlgorithm a, CanPayloadCas_ a tbl) => Table (PayloadDb_ a tbl) pk (PayloadWithOutputs_ a) where
     tableInsert db _ v = addNewPayload db v
-    {-# INLINE tableInsert #-}
+
 
     tableDelete db k =
         tableLookup (_transactionDbBlockPayloads $ _transactionDb db) k >>= \case
@@ -316,4 +316,4 @@ instance (pk ~ CasKeyType (PayloadWithOutputs_ a), MerkleHashAlgorithm a, CanPay
                     (_payloadCacheBlockOutputs $ _payloadCache db)
                     (_blockPayloadOutputsHash pd)
             Nothing -> return ()
-    {-# INLINE tableDelete #-}
+

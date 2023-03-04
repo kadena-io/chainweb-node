@@ -62,13 +62,13 @@ traceProperties o =
     , "weight" .= _traceWeight o
     , "time" .= _traceTime o
     ]
-{-# INLINE traceProperties #-}
+
 
 instance ToJSON Trace where
     toJSON = object . traceProperties
     toEncoding = pairs . mconcat . traceProperties
-    {-# INLINE toJSON #-}
-    {-# INLINE toEncoding #-}
+
+
 
 trace
     :: MonadIO m

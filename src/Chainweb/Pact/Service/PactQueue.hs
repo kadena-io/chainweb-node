@@ -125,8 +125,8 @@ data PactQueueCounters = PactQueueCounters
 instance ToJSON PactQueueCounters where
     toJSON = object . pactQueueCountersProperties
     toEncoding = pairs . mconcat . pactQueueCountersProperties
-    {-# INLINE toJSON #-}
-    {-# INLINE toEncoding #-}
+
+
 
 pactQueueCountersProperties :: KeyValue kv => PactQueueCounters -> [kv]
 pactQueueCountersProperties pqc =
@@ -141,7 +141,7 @@ pactQueueCountersProperties pqc =
     avg = if _pactQueueCountersCount pqc == 0
         then Nothing
         else Just $ fromIntegral (_pactQueueCountersSum pqc) / fromIntegral (_pactQueueCountersCount pqc)
-{-# INLINE pactQueueCountersProperties #-}
+
 
 updatePactQueueCounters :: IORef PactQueueCounters -> TimeSpan Micros -> IO ()
 updatePactQueueCounters countersRef (timeSpanToMicros -> timespan) = do
@@ -167,8 +167,8 @@ data PactQueueStats = PactQueueStats
 instance ToJSON PactQueueStats where
     toJSON = object . pactQueueStatsProperties
     toEncoding = pairs . mconcat . pactQueueStatsProperties
-    {-# INLINE toJSON #-}
-    {-# INLINE toEncoding #-}
+
+
 
 pactQueueStatsProperties :: KeyValue kv => PactQueueStats -> [kv]
 pactQueueStatsProperties o =
@@ -176,7 +176,7 @@ pactQueueStatsProperties o =
     , "newblock" .= _newblock o
     , "other" .= _othermsg o
     ]
-{-# INLINE pactQueueStatsProperties #-}
+
 
 resetPactQueueStats :: PactQueue -> IO ()
 resetPactQueueStats q = do

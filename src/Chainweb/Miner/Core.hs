@@ -80,11 +80,11 @@ newtype ChainBytes = ChainBytes { _chainBytes :: B.ByteString }
 
 noncePosition :: Int
 noncePosition = 278
-{-# INLINE noncePosition #-}
+
 
 timestampPosition :: Int
 timestampPosition = 8
-{-# INLINE timestampPosition #-}
+
 
 -- | CPU POW mining for chainweb.
 --
@@ -153,7 +153,7 @@ mine orig work = do
         BA.withByteArray ctx $ \ctxPtr -> do
             hashInternalUpdate @a ctxPtr buf $ fromIntegral bufSize
             hashInternalFinalize ctxPtr $ castPtr pow
-    {-# INLINE hash #-}
+
 
 -- | Inject a nonce value into mining work header.
 --
@@ -163,7 +163,7 @@ mine orig work = do
 --
 injectNonce :: Nonce -> Ptr Word8 -> IO ()
 injectNonce (Nonce n) buf = pokeByteOff buf noncePosition n
-{-# INLINE injectNonce #-}
+
 
 -- | Inject a timestamp value into mining work header.
 --
@@ -176,7 +176,7 @@ injectNonce (Nonce n) buf = pokeByteOff buf noncePosition n
 --
 injectTime :: Time Micros -> Ptr Word8 -> IO ()
 injectTime t buf = pokeByteOff buf timestampPosition $ encodeTimeToWord64 t
-{-# INLINE injectTime #-}
+
 
 -- | `PowHashNat` interprets POW hashes as unsigned 256 bit integral numbers in
 -- little endian encoding, hence we compare against the target from the end of
@@ -197,7 +197,7 @@ fastCheckTarget !trgPtr !powPtr =
                     LT -> return False
                     GT -> return True
                     EQ -> return True
-{-# INLINE fastCheckTarget #-}
+
 
 -- | Recall that `peekElemOff` acts like `drop` for the size of the type in
 -- question. Here, this is `Word64`. Since our hash is treated as a `Word256`,
@@ -210,5 +210,5 @@ fastCheckTargetN :: Int -> Ptr Word64 -> Ptr Word64 -> IO Ordering
 fastCheckTargetN n trgPtr powPtr = compare
     <$> peekElemOff trgPtr n
     <*> peekElemOff powPtr n
-{-# INLINE fastCheckTargetN #-}
+
 

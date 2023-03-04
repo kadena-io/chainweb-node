@@ -153,18 +153,18 @@ data LookupResult t = Missing
 instance ToJSON t => ToJSON (LookupResult t) where
     toJSON Missing = object [ "tag" .= ("Missing" :: String) ]
     toJSON (Pending t) = object [ "tag" .= ("Pending" :: String), "contents" .= t ]
-    {-# INLINE toJSON #-}
+
 
     toEncoding Missing = pairs $ "tag" .= ("Missing" :: String)
     toEncoding (Pending t) = pairs $ "tag" .= ("Pending" :: String) <> "contents" .= t
-    {-# INLINE toEncoding #-}
+
 
 instance FromJSON t => FromJSON (LookupResult t) where
     parseJSON = withObject "LookupResult" $ \o -> o .: "tag" >>= \case
         "Missing" -> return Missing
         "Pending" -> Pending <$> o .: "contents"
         t -> fail $ "Unrecognized lookup result tag: " <> t
-    {-# INLINE parseJSON #-}
+
 
 instance Functor LookupResult where
     fmap _ Missing = Missing
@@ -571,7 +571,7 @@ instance Hashable TransactionHash where
   hashWithSalt s (TransactionHash h) = hashWithSalt s (hashCode :: Int)
     where
       hashCode = either error id $ runGetEitherS (fromIntegral <$> getWord64le) (B.take 8 $ SB.fromShort h)
-  {-# INLINE hashWithSalt #-}
+
 
 instance ToJSON TransactionHash where
   toJSON (TransactionHash x) = toJSON $! encodeB64UrlNoPaddingText $ SB.fromShort x
@@ -600,19 +600,19 @@ transactionMetadataProperties o =
     [ "txMetaCreationTime" .= txMetaCreationTime o
     , "txMetaExpiryTime" .= txMetaExpiryTime o
     ]
-{-# INLINE transactionMetadataProperties #-}
+
 
 instance ToJSON TransactionMetadata where
     toJSON = object . transactionMetadataProperties
     toEncoding = pairs . mconcat . transactionMetadataProperties
-    {-# INLINE toJSON #-}
-    {-# INLINE toEncoding #-}
+
+
 
 instance FromJSON TransactionMetadata where
     parseJSON = withObject "TransactionMetadata" $ \o -> TransactionMetadata
         <$> o .: "txMetaCreationTime"
         <*> o .: "txMetaExpiryTime"
-    {-# INLINE parseJSON #-}
+
 
 ------------------------------------------------------------------------------
 -- | Mempools will check these values match in APIs
@@ -642,20 +642,20 @@ validatedTransactionProperties o =
     , "validatedHash" .= validatedHash o
     , "validatedTransaction" .= validatedTransaction o
     ]
-{-# INLINE validatedTransactionProperties #-}
+
 
 instance ToJSON t => ToJSON (ValidatedTransaction t) where
     toJSON = object . validatedTransactionProperties
     toEncoding = pairs . mconcat . validatedTransactionProperties
-    {-# INLINE toJSON #-}
-    {-# INLINE toEncoding #-}
+
+
 
 instance FromJSON t => FromJSON (ValidatedTransaction t) where
     parseJSON = withObject "ValidatedTransaction" $ \o -> ValidatedTransaction
         <$> o .: "validatedHeight"
         <*> o .: "validatedHash"
         <*> o .: "validatedTransaction"
-    {-# INLINE parseJSON #-}
+
 
 ------------------------------------------------------------------------------
 -- | Mempool only cares about a few projected values from the transaction type
@@ -676,13 +676,13 @@ mockTxProperties o =
     , "mockGasLimit" .= mockGasLimit o
     , "mockMeta" .= mockMeta o
     ]
-{-# INLINE mockTxProperties #-}
+
 
 instance ToJSON MockTx where
     toJSON = object . mockTxProperties
     toEncoding = pairs . mconcat . mockTxProperties
-    {-# INLINE toJSON #-}
-    {-# INLINE toEncoding #-}
+
+
 
 instance FromJSON MockTx where
     parseJSON = withObject "MockTx" $ \o -> MockTx
@@ -690,7 +690,7 @@ instance FromJSON MockTx where
         <*> o .: "mockGasPrice"
         <*> o .: "mockGasLimit"
         <*> o .: "mockMeta"
-    {-# INLINE parseJSON #-}
+
 
 mockBlockGasLimit :: GasLimit
 mockBlockGasLimit = 100_000_000

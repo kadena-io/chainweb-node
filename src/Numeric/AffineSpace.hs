@@ -56,15 +56,15 @@ instance LeftTorsor Integer where
     type Diff Integer = Integer
     add = (+)
     diff = (-)
-    {-# INLINE add #-}
-    {-# INLINE diff #-}
+
+
 
 instance LeftTorsor Rational where
     type Diff Rational = Rational
     add = (+)
     diff = (-)
-    {-# INLINE add #-}
-    {-# INLINE diff #-}
+
+
 
 infix 6 .-.
 (.-.) :: AdditiveAbelianGroup (Diff t) => LeftTorsor t => t -> t -> Diff t

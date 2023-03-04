@@ -69,8 +69,8 @@ instance MerkleHashAlgorithm a => IsMerkleLogEntry a ChainwebHashTag BlockHeight
     type Tag BlockHeight = 'BlockHeightTag
     toMerkleNode = encodeMerkleInputNode encodeBlockHeight
     fromMerkleNode = decodeMerkleInputNode decodeBlockHeight
-    {-# INLINE toMerkleNode #-}
-    {-# INLINE fromMerkleNode #-}
+
+
 
 -- | Little endian encoding of block height. This the default encoding for
 -- exchanging chainweb data.

@@ -93,7 +93,7 @@ newtype WebBlockHeaderCas = WebBlockHeaderCas WebBlockHeaderDb
 
 instance HasChainwebVersion WebBlockHeaderCas where
     _chainwebVersion (WebBlockHeaderCas db) = _chainwebVersion db
-    {-# INLINE _chainwebVersion #-}
+
 
 -- -------------------------------------------------------------------------- --
 -- Obtain and Validate Block Payloads
@@ -139,7 +139,7 @@ data WebBlockHeaderStore = WebBlockHeaderStore
 
 instance HasChainwebVersion WebBlockHeaderStore where
     _chainwebVersion = _chainwebVersion . _webBlockHeaderStoreCas
-    {-# INLINE _chainwebVersion #-}
+
 
 -- -------------------------------------------------------------------------- --
 -- Overlay CAS with asynchronous weak HashMap
@@ -541,7 +541,7 @@ getBlockHeader headerStore payloadStore candidateHeaderCas candidatePayloadCas c
         priority
         maybeOrigin
         (ChainValue cid h)
-{-# INLINE getBlockHeader #-}
+
 
 instance (CasKeyType (ChainValue BlockHeader) ~ k) => ReadableTable WebBlockHeaderCas k (ChainValue BlockHeader) where
     tableLookup (WebBlockHeaderCas db) (ChainValue cid h) =
@@ -549,12 +549,12 @@ instance (CasKeyType (ChainValue BlockHeader) ~ k) => ReadableTable WebBlockHead
             `catch` \e -> case e of
                 TDB.TreeDbKeyNotFound _ -> return Nothing
                 _ -> throwM @_ @(TDB.TreeDbException BlockHeaderDb) e
-    {-# INLINE tableLookup #-}
+
 
 instance (CasKeyType (ChainValue BlockHeader) ~ k) => Table WebBlockHeaderCas k (ChainValue BlockHeader) where
     tableInsert (WebBlockHeaderCas db) _ (ChainValue _ h)
         = insertWebBlockHeaderDb db h
-    {-# INLINE tableInsert #-}
+
 
     tableDelete = error "not implemented"
 

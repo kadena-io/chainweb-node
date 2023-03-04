@@ -1029,7 +1029,7 @@ initialGasOf payload = gasFee
     costPerByte = fromIntegral txSize * feePerByte
     sizePenalty = txSizeAccelerationFee costPerByte
     gasFee = ceiling (costPerByte + sizePenalty)
-{-# INLINE initialGasOf #-}
+
 
 txSizeAccelerationFee :: Rational -> Rational
 txSizeAccelerationFee costPerByte = total
@@ -1037,40 +1037,40 @@ txSizeAccelerationFee costPerByte = total
     total = (costPerByte / bytePenalty) ^ power
     bytePenalty = 512
     power :: Integer = 7
-{-# INLINE txSizeAccelerationFee #-}
+
 
 -- | Disable certain natives around pact 4 / coin v3 upgrade
 --
 disablePact40Natives :: ExecutionConfig -> EvalEnv e -> EvalEnv e
 disablePact40Natives =
   disablePactNatives ["enumerate" , "distinct" , "emit-event" , "concat" , "str-to-list"] FlagDisablePact40
-{-# INLINE disablePact40Natives #-}
+
 
 disablePactNatives :: [Text] -> ExecutionFlag -> ExecutionConfig -> EvalEnv e -> EvalEnv e
 disablePactNatives bannedNatives flag ec = if has (ecFlags . ix flag) ec
     then over (eeRefStore . rsNatives) (\k -> foldl' (flip HM.delete) k bannedNatives)
     else id
-{-# INLINE disablePactNatives #-}
+
 
 -- | Disable certain natives around pact 4.2.0
 --
 disablePact420Natives :: ExecutionConfig -> EvalEnv e -> EvalEnv e
 disablePact420Natives = disablePactNatives ["zip", "fold-db"] FlagDisablePact420
-{-# INLINE disablePact420Natives #-}
+
 
 -- | Disable certain natives around pact 4.2.0
 --
 disablePact43Natives :: ExecutionConfig -> EvalEnv e -> EvalEnv e
 disablePact43Natives = disablePactNatives ["create-principal", "validate-principal", "continue"] FlagDisablePact43
-{-# INLINE disablePact43Natives #-}
+
 
 disablePact431Natives :: ExecutionConfig -> EvalEnv e -> EvalEnv e
 disablePact431Natives = disablePactNatives ["is-principal", "typeof-principal"] FlagDisablePact431
-{-# INLINE disablePact431Natives #-}
+
 
 disablePact46Natives :: ExecutionConfig -> EvalEnv e -> EvalEnv e
 disablePact46Natives = disablePactNatives ["point-add", "scalar-mult", "pairing-check"] FlagDisablePact46
-{-# INLINE disablePact46Natives #-}
+
 
 -- | Set the module cache of a pact 'EvalState'
 --
@@ -1081,7 +1081,7 @@ setModuleCache
 setModuleCache mcache es =
   let allDeps = foldMap (allModuleExports . fst) mcache
   in set (evalRefs . rsQualifiedDeps) allDeps $ set (evalRefs . rsLoadedModules) mcache $ es
-{-# INLINE setModuleCache #-}
+
 
 -- | Set tx result state
 --
@@ -1090,7 +1090,7 @@ setTxResultState er = do
     txLogs <>= (_erLogs er)
     txCache .= (_erLoadedModules er)
     txGasUsed .= (_erGas er)
-{-# INLINE setTxResultState #-}
+
 
 -- | Make an 'EvalEnv' given a tx env + state
 --
@@ -1123,7 +1123,7 @@ mkMagicCapSlot c = CapSlot CapCallStack cap []
     mn = ModuleName "coin" Nothing
     fqn = QualifiedName mn c def
     cap = SigCapability fqn []
-{-# INLINE mkMagicCapSlot #-}
+
 
 -- | Build the 'ExecMsg' for some pact code fed to the function. The 'value'
 -- parameter is for any possible environmental data that needs to go into
@@ -1146,13 +1146,13 @@ buildExecParsedCode ppv value code = maybe (go Null) go value
 --
 publicMetaOf :: Command (Payload PublicMeta ParsedCode) -> PublicMeta
 publicMetaOf = _pMeta . _cmdPayload
-{-# INLINE publicMetaOf #-}
+
 
 -- | Retrieve the optional Network identifier from a command
 --
 networkIdOf :: Command (Payload PublicMeta ParsedCode) -> Maybe NetworkId
 networkIdOf = _pNetworkId . _cmdPayload
-{-# INLINE networkIdOf #-}
+
 
 -- | Calculate the gas fee (pact-generate gas cost * user-specified gas price),
 -- rounding to the nearest stu.
@@ -1161,13 +1161,13 @@ gasSupplyOf :: Gas -> GasPrice -> GasSupply
 gasSupplyOf gas (GasPrice (ParsedDecimal gp)) = GasSupply (ParsedDecimal gs)
   where
     gs = toCoinUnit ((fromIntegral gas) * gp)
-{-# INLINE gasSupplyOf #-}
+
 
 -- | Round to the nearest Stu
 --
 toCoinUnit :: Decimal -> Decimal
 toCoinUnit = roundTo 12
-{-# INLINE toCoinUnit #-}
+
 
 gasLog :: Text -> TransactionM db ()
 gasLog m = do

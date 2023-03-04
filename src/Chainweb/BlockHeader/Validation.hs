@@ -128,19 +128,19 @@ newtype ValidatedHeader = ValidatedHeader BlockHeader
 
 instance HasChainId ValidatedHeader where
     _chainId = _chainId . _validatedHeader
-    {-# INLINE _chainId #-}
+
 
 instance HasChainwebVersion ValidatedHeader where
     _chainwebVersion = _chainwebVersion . _validatedHeader
-    {-# INLINE _chainwebVersion #-}
+
 
 instance HasChainGraph ValidatedHeader where
     _chainGraph = _chainGraph . _validatedHeader
-    {-# INLINE _chainGraph #-}
+
 
 _validatedHeader :: ValidatedHeader -> BlockHeader
 _validatedHeader (ValidatedHeader h) = h
-{-# INLINE _validatedHeader #-}
+
 
 -- | Values of this type witness that a set of BlockHeaders has been validated for
 -- the properties defined in this module.
@@ -163,7 +163,7 @@ newtype ValidatedHeaders = ValidatedHeaders (HM.HashMap BlockHash BlockHeader)
 
 _validatedHeaders :: ValidatedHeaders -> HM.HashMap BlockHash BlockHeader
 _validatedHeaders (ValidatedHeaders hs) = hs
-{-# INLINE _validatedHeaders #-}
+
 
 -- -------------------------------------------------------------------------- --
 -- Input Data Types for Validation Functions
@@ -198,11 +198,11 @@ data ChainStep = ChainStep ParentHeader BlockHeader
 
 _chainStepParent :: ChainStep -> ParentHeader
 _chainStepParent (ChainStep p _) = p
-{-# INLINE _chainStepParent #-}
+
 
 _chainStepHeader :: ChainStep -> BlockHeader
 _chainStepHeader (ChainStep _ h) = h
-{-# INLINE _chainStepHeader #-}
+
 
 chainStep
     :: MonadThrow m
@@ -247,19 +247,19 @@ webStep as hp@(ChainStep _ h) = WebStep
 
 _webStepAdjs :: WebStep -> HM.HashMap ChainId ParentHeader
 _webStepAdjs (WebStep as _) = as
-{-# INLINE _webStepAdjs #-}
+
 
 _webStepChain :: WebStep -> ChainStep
 _webStepChain (WebStep _ p) = p
-{-# INLINE _webStepChain #-}
+
 
 _webStepHeader :: WebStep -> BlockHeader
 _webStepHeader (WebStep _ p) = _chainStepHeader p
-{-# INLINE _webStepHeader #-}
+
 
 _webStepParent :: WebStep -> ParentHeader
 _webStepParent (WebStep _ p) = _chainStepParent p
-{-# INLINE _webStepParent #-}
+
 
 -- -------------------------------------------------------------------------- --
 -- BlockHeader Validation Failures

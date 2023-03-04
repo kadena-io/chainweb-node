@@ -76,19 +76,19 @@ makeLenses ''TestHeader
 
 instance HasChainId TestHeader where
     _chainId = _chainId . _testHeaderHdr
-    {-# INLINE _chainId #-}
+
 
 instance HasChainwebVersion TestHeader where
     _chainwebVersion = _chainwebVersion . _testHeaderHdr
-    {-# INLINE _chainwebVersion #-}
+
 
 instance HasChainGraph TestHeader where
     _chainGraph = _chainGraph . _testHeaderHdr
-    {-# INLINE _chainGraph #-}
+
 
 instance (k ~ CasKeyType BlockHeader) => ReadableTable TestHeader k BlockHeader where
     tableLookup h = return . testHeaderLookup h
-    {-# INLINE tableLookup #-}
+
 
 testHeaderLookup :: TestHeader -> BlockHash -> Maybe BlockHeader
 testHeaderLookup testHdr x = lookup x tbl
@@ -100,14 +100,14 @@ testHeaderLookup testHdr x = lookup x tbl
         = (_blockHash h, h)
         : (_blockHash p, p)
         : fmap (\(ParentHeader b) -> (_blockHash b, b)) a
-{-# INLINE testHeaderLookup #-}
+
 
 instance FromJSON TestHeader where
     parseJSON = withObject "TestHeader" $ \o -> TestHeader
         <$> o .: "header"
         <*> (ParentHeader <$> o .: "parent")
         <*> (fmap ParentHeader <$> o .: "adjacents")
-    {-# INLINE parseJSON #-}
+
 
 instance ToJSON TestHeader where
     toJSON o = object
@@ -115,7 +115,7 @@ instance ToJSON TestHeader where
         , "parent" .= _parentHeader (_testHeaderParent o)
         , "adjacents" .= fmap _parentHeader (_testHeaderAdjs o)
         ]
-    {-# INLINE toJSON #-}
+
 
 -- | An unsafe convenience functions for hard coding test headers in the code
 -- use Aeson syntax. Cf. Test.Chainweb.BlockHeader.Validation for examples.
@@ -124,7 +124,7 @@ testHeader :: HasCallStack => [Pair] -> TestHeader
 testHeader v = case fromJSON (object v) of
     Success a -> a
     e -> error (show e)
-{-# INLINE testHeader #-}
+
 
 -- -------------------------------------------------------------------------- --
 -- arbitrary TestHeader
@@ -140,7 +140,7 @@ arbitraryTestHeader :: ChainwebVersion -> ChainId -> Gen TestHeader
 arbitraryTestHeader v cid = do
     h <- chooseEnum (genesisHeight v cid, maxBound `div` 2)
     arbitraryTestHeaderHeight v cid h
-{-# INLINE arbitraryTestHeader #-}
+
 
 arbitraryTestHeaderHeight
     :: ChainwebVersion
@@ -178,7 +178,7 @@ testHeaderChainLookup
     -> ChainValue BlockHash
     -> m (Maybe BlockHeader)
 testHeaderChainLookup h x = pure $! testHeaderLookup h $ _chainValueValue x
-{-# INLINE testHeaderChainLookup #-}
+
 
 -- -------------------------------------------------------------------------- --
 -- Genesis Test Headers

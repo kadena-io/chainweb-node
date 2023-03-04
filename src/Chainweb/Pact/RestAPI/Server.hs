@@ -684,4 +684,4 @@ validateRequestKey (RequestKey h'@(Hash h))
     --
     blakeHashLength :: Int
     blakeHashLength = Pact.hashLength Pact.Blake2b_256
-{-# INLINE validateRequestKey #-}
+

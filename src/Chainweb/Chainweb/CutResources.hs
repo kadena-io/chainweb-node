@@ -84,7 +84,7 @@ makeLensesFor
 
 instance HasChainwebVersion (CutResources logger tbl) where
     _chainwebVersion = _chainwebVersion . _cutResCutDb
-    {-# INLINE _chainwebVersion #-}
+
 
 withCutResources
     :: Logger logger

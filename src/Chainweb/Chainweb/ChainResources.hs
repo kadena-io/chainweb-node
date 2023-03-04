@@ -68,11 +68,11 @@ makeLenses ''ChainResources
 
 instance HasChainwebVersion (ChainResources logger) where
     _chainwebVersion = _chainwebVersion . _chainResBlockHeaderDb
-    {-# INLINE _chainwebVersion #-}
+
 
 instance HasChainId (ChainResources logger) where
     _chainId = _chainId . _chainResBlockHeaderDb
-    {-# INLINE _chainId #-}
+
 
 -- | Intializes all local Chain resources, but doesn't start any networking.
 --

@@ -94,7 +94,7 @@ instance Hashable (HashableTrans PayloadWithText) where
         (TypedHash hc) = _cmdHash t
         decHC = runGetEitherS getWord64le
         !hashCode = either error id $ decHC (B.take 8 $ SB.fromShort hc)
-    {-# INLINE hashWithSalt #-}
+
 
 -- | A codec for (Command PayloadWithText) transactions.
 chainwebPayloadCodec
@@ -131,17 +131,17 @@ parsePact PactParserGenesis = P.legacyParsePact
 -- | Access the gas limit/supply of a public chain command payload
 cmdGasLimit :: Lens' (Command (Payload PublicMeta c)) GasLimit
 cmdGasLimit = cmdPayload . pMeta . pmGasLimit
-{-# INLINE cmdGasLimit #-}
+
 
 -- | Get the gas price of a public chain command payload
 cmdGasPrice :: Lens' (Command (Payload PublicMeta c)) GasPrice
 cmdGasPrice = cmdPayload . pMeta . pmGasPrice
-{-# INLINE cmdGasPrice #-}
+
 
 cmdTimeToLive :: Lens' (Command (Payload PublicMeta c)) TTLSeconds
 cmdTimeToLive = cmdPayload . pMeta . pmTTL
-{-# INLINE cmdTimeToLive #-}
+
 
 cmdCreationTime :: Lens' (Command (Payload PublicMeta c)) TxCreationTime
 cmdCreationTime = cmdPayload . pMeta . pmCreationTime
-{-# INLINE cmdCreationTime #-}
+

@@ -17,7 +17,7 @@
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeOperators #-}
 
-{-# OPTIONS_GHC -fno-warn-orphans #-}
+{-# OPTIONS_GHC -fno-warn-orphans -fno-specialise #-}
 
 -- |
 -- Module: Chainweb.Test.Orphans.Internal
@@ -242,7 +242,7 @@ instance Arbitrary PeerEntry where
 
 instance Arbitrary HostAddressIdx where
     arbitrary = hostAddressIdx <$> arbitrary
-    {-# INLINE arbitrary #-}
+
 
 deriving newtype instance Arbitrary LastSuccess
 deriving newtype instance Arbitrary SuccessiveFailures
@@ -323,7 +323,7 @@ instance Arbitrary FeatureFlags where
 
 instance Arbitrary BlockHeader where
     arbitrary = arbitrary >>= arbitraryBlockHeaderVersion
-    {-# INLINE arbitrary #-}
+
 
 arbitraryBlockHashRecordVersionHeightChain
     :: ChainwebVersion
@@ -345,7 +345,7 @@ arbitraryBlockHeaderVersion :: ChainwebVersion -> Gen BlockHeader
 arbitraryBlockHeaderVersion v = do
     h <- arbitrary
     arbitraryBlockHeaderVersionHeight v h
-{-# INLINE arbitraryBlockHeaderVersion #-}
+
 
 arbitraryBlockHeaderVersionHeight
     :: ChainwebVersion
@@ -354,7 +354,7 @@ arbitraryBlockHeaderVersionHeight
 arbitraryBlockHeaderVersionHeight v h = do
     cid <- elements $ toList $ chainIdsAt v h
     arbitraryBlockHeaderVersionHeightChain v h cid
-{-# INLINE arbitraryBlockHeaderVersionHeight #-}
+
 
 arbitraryBlockHeaderVersionHeightChain
     :: ChainwebVersion

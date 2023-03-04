@@ -68,8 +68,8 @@ newtype ClientM_ a = ClientM_ { unClientM_ :: ReaderT Mods ClientM a }
 instance MonadReader ClientEnv ClientM_ where
     ask = ClientM_ $ lift ask
     local f = ClientM_ . mapReaderT (local f) . unClientM_
-    {-# INLINE ask #-}
-    {-# INLINE local #-}
+
+
 
 instance RunClient ClientM_ where
     runRequestAcceptStatus s req = ClientM_ $ do
@@ -77,32 +77,32 @@ instance RunClient ClientM_ where
         req' <- liftIO $ _modReq e req
         res <- lift (runRequestAcceptStatus s req')
         liftIO $ _modRes e res
-    {-# INLINE runRequestAcceptStatus #-}
+
 
     throwClientError = throwError
-    {-# INLINE throwClientError #-}
+
 
 -- | Locally overwrite 'Request's made the inner computation.
 --
 modifyRequest :: (Request -> IO Request) -> ClientM_ a -> ClientM_ a
 modifyRequest f = ClientM_ . local (set modReq f) . unClientM_
-{-# INLINE modifyResponse #-}
+
 
 -- | Locally overwrite 'Response's received the inner computation.
 --
 modifyResponse :: (Response -> IO Response) -> ClientM_ a -> ClientM_ a
 modifyResponse f = ClientM_ . local (set modRes f) . unClientM_
-{-# INLINE modifyRequest #-}
+
 
 -- | Run a 'ClientM_' computation.
 --
 runClientM_ :: ClientM_ a -> ClientEnv -> IO (Either ClientError a)
 runClientM_ cm env
     = flip runClientM env . flip runReaderT (Mods pure pure) $ unClientM_ cm
-{-# INLINE runClientM_ #-}
+
 
 -- | Create API client functions
 --
 client_ :: forall api . HasClient ClientM_ api => Client ClientM_ api
 client_ = clientIn (Proxy @api) (Proxy @ClientM_)
-{-# INLINE client_ #-}
+

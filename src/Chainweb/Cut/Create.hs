@@ -131,11 +131,11 @@ cutExtensionAdjacentHashes = cutExtensionAdjacentHashes'
 
 instance HasChainId CutExtension where
     _chainId = _chainId . _cutExtensionParent
-    {-# INLINE _chainId #-}
+
 
 instance HasChainwebVersion CutExtension where
     _chainwebVersion = _chainwebVersion . _cutExtensionCut
-    {-# INLINE _chainwebVersion #-}
+
 
 -- | Witness that a cut can be extended for the given chain by trying to
 -- assemble the adjacent hashes for a new work header.

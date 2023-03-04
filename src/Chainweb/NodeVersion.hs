@@ -72,26 +72,26 @@ newtype NodeVersion = NodeVersion { _getNodeVersion :: [Int] }
 instance HasTextRepresentation NodeVersion where
     toText (NodeVersion l) = T.intercalate "." $ sshow <$> l
     fromText = fmap NodeVersion . traverse treadM . T.splitOn "."
-    {-# INLINE toText #-}
-    {-# INLINE fromText #-}
+
+
 
 instance ToJSON NodeVersion where
     toJSON = toJSON . toText
     toEncoding = toEncoding . toText
-    {-# INLINE toJSON #-}
-    {-# INLINE toEncoding #-}
+
+
 
 instance FromJSON NodeVersion where
     parseJSON = parseJsonFromText "NodeVersion"
-    {-# INLINE parseJSON #-}
+
 
 minAcceptedVersion :: NodeVersion
 minAcceptedVersion = NodeVersion [1,2]
-{-# INLINE minAcceptedVersion #-}
+
 
 isAcceptedVersion :: NodeVersion -> Bool
 isAcceptedVersion = (<=) minAcceptedVersion
-{-# INLINE isAcceptedVersion #-}
+
 
 -- -------------------------------------------------------------------------- --
 -- Query Remote Version
@@ -193,7 +193,7 @@ makeLenses ''RemoteNodeInfo
 
 remoteNodeInfoHostname :: Lens' RemoteNodeInfo Hostname
 remoteNodeInfoHostname = remoteNodeInfoAddr . hostAddressHost
-{-# INLINE remoteNodeInfoHostname #-}
+
 
 remoteNodeInfoProperties :: KeyValue kv => RemoteNodeInfo -> [kv]
 remoteNodeInfoProperties x =
@@ -201,13 +201,13 @@ remoteNodeInfoProperties x =
     , "timestamp" .= _remoteNodeInfoTimestamp x
     , "hostaddress" .= _remoteNodeInfoAddr x
     ]
-{-# INLINE remoteNodeInfoProperties #-}
+
 
 instance ToJSON RemoteNodeInfo where
     toJSON = object . remoteNodeInfoProperties
     toEncoding = pairs . mconcat . remoteNodeInfoProperties
-    {-# INLINE toJSON #-}
-    {-# INLINE toEncoding #-}
+
+
 
 -- | Request NodeInfos from a remote chainweb node.
 --

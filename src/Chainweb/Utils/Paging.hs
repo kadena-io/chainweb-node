@@ -106,20 +106,20 @@ pageProperties p =
     , "items" .= _pageItems p
     , "next" .= _pageNext p
     ]
-{-# INLINE pageProperties #-}
+
 
 instance (HasTextRepresentation k, ToJSON k, ToJSON a) => ToJSON (Page k a) where
     toJSON = object . pageProperties
     toEncoding = pairs . mconcat . pageProperties
-    {-# INLINE toJSON #-}
-    {-# INLINE toEncoding #-}
+
+
 
 instance (HasTextRepresentation k, FromJSON k, FromJSON a) => FromJSON (Page k a) where
     parseJSON = withObject "page" $ \o -> Page
         <$> (Limit <$> (o .: "limit"))
         <*> o .: "items"
         <*> o .: "next"
-    {-# INLINE parseJSON #-}
+
 
 -- -------------------------------------------------------------------------- --
 -- Next Item
@@ -138,11 +138,11 @@ data NextItem k
 _getNextItem :: NextItem k -> k
 _getNextItem (Inclusive k) = k
 _getNextItem (Exclusive k) = k
-{-# INLINE _getNextItem #-}
+
 
 getNextItem :: Getter (NextItem k) k
 getNextItem = to _getNextItem
-{-# INLINE getNextItem #-}
+
 
 isInclusive :: NextItem k -> Bool
 isInclusive Inclusive{} = True
@@ -166,19 +166,19 @@ nextItemFromText t = case T.break (== ':') t of
 
 instance HasTextRepresentation k => HasTextRepresentation (NextItem k) where
     toText = nextItemToText
-    {-# INLINE toText #-}
+
     fromText = nextItemFromText
-    {-# INLINE fromText #-}
+
 
 instance HasTextRepresentation k => ToJSON (NextItem k) where
     toJSON = toJSON . toText
     toEncoding = toEncoding . toText
-    {-# INLINE toJSON #-}
-    {-# INLINE toEncoding #-}
+
+
 
 instance HasTextRepresentation k => FromJSON (NextItem k) where
     parseJSON = parseJsonFromText "NextItem"
-    {-# INLINE parseJSON #-}
+
 
 -- -------------------------------------------------------------------------- --
 -- End-Of-Stream

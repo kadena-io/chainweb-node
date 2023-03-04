@@ -271,7 +271,7 @@ createNewCut1Second db n p i c
 
 arbitraryChainId :: HasChainwebVersion v => v -> T.Gen ChainId
 arbitraryChainId = T.elements . toList . chainIds
-{-# INLINE arbitraryChainId #-}
+
 
 arbitraryCut
     :: HasCallStack
@@ -670,5 +670,5 @@ ioTest db v f = T.monadicIO $
 
 pickBlind :: T.Gen a -> T.PropertyM IO a
 pickBlind = fmap T.getBlind . T.pick . fmap T.Blind
-{-# INLINE pickBlind #-}
+
 

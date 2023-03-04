@@ -140,43 +140,43 @@ newtype TimeSpan a = TimeSpan a
 
 encodeTimeSpan :: TimeSpan Micros -> Put
 encodeTimeSpan (TimeSpan (Micros a)) = putWord64le $ unsigned a
-{-# INLINE encodeTimeSpan #-}
+
 
 encodeTimeSpanToWord64 :: TimeSpan Micros -> Word64
 encodeTimeSpanToWord64 (TimeSpan (Micros a)) = BA.unLE . BA.toLE $ unsigned a
-{-# INLINE encodeTimeSpanToWord64 #-}
+
 
 decodeTimeSpan :: Get (TimeSpan Micros)
 decodeTimeSpan = TimeSpan . Micros . signed <$!> getWord64le
-{-# INLINE decodeTimeSpan #-}
+
 
 castTimeSpan :: NumCast a b => TimeSpan a -> TimeSpan b
 castTimeSpan (TimeSpan a) = TimeSpan $ numCast a
-{-# INLINE castTimeSpan #-}
+
 
 maybeCastTimeSpan :: MaybeNumCast a b => TimeSpan a -> Maybe (TimeSpan b)
 maybeCastTimeSpan (TimeSpan a) = TimeSpan <$!> maybeNumCast a
-{-# INLINE maybeCastTimeSpan #-}
+
 
 ceilingTimeSpan :: RealFrac a => Integral b => TimeSpan a -> TimeSpan b
 ceilingTimeSpan (TimeSpan a) = TimeSpan (ceiling a)
-{-# INLINE ceilingTimeSpan #-}
+
 
 floorTimeSpan :: RealFrac a => Integral b => TimeSpan a -> TimeSpan b
 floorTimeSpan (TimeSpan a) = TimeSpan (floor a)
-{-# INLINE floorTimeSpan #-}
+
 
 scaleTimeSpan :: Integral a => Num b => a -> TimeSpan b -> TimeSpan b
 scaleTimeSpan scalar (TimeSpan t) = TimeSpan (fromIntegral scalar * t)
-{-# INLINE scaleTimeSpan #-}
+
 
 addTimeSpan :: Num a => TimeSpan a -> TimeSpan a -> TimeSpan a
 addTimeSpan (TimeSpan a) (TimeSpan b) = TimeSpan (a + b)
-{-# INLINE addTimeSpan #-}
+
 
 divTimeSpan :: Integral a => Integral b => TimeSpan b -> a -> TimeSpan b
 divTimeSpan (TimeSpan a) s = TimeSpan $ a `div` (int s)
-{-# INLINE divTimeSpan #-}
+
 
 -- -------------------------------------------------------------------------- --
 -- Time
@@ -192,12 +192,12 @@ instance AdditiveGroup (TimeSpan a) => LeftTorsor (Time a) where
     type Diff (Time a) = TimeSpan a
     add s (Time t) = Time (s `plus` t)
     diff (Time t₁) (Time t₂) = t₁ `minus` t₂
-    {-# INLINE add #-}
-    {-# INLINE diff #-}
+
+
 
 epoch :: Num a => Time a
 epoch = Time (TimeSpan 0)
-{-# INLINE epoch #-}
+
 
 timeMicrosQQ :: QuasiQuoter
 timeMicrosQQ = QuasiQuoter
@@ -245,71 +245,71 @@ getCurrentTimeIntegral = do
 
 encodeTime :: Time Micros -> Put
 encodeTime (Time a) = encodeTimeSpan a
-{-# INLINE encodeTime #-}
+
 
 encodeTimeToWord64 :: Time Micros -> Word64
 encodeTimeToWord64 (Time a) = encodeTimeSpanToWord64 a
-{-# INLINE encodeTimeToWord64 #-}
+
 
 decodeTime :: Get (Time Micros)
 decodeTime  = Time <$!> decodeTimeSpan
-{-# INLINE decodeTime #-}
+
 
 castTime :: NumCast a b => Time a -> Time b
 castTime (Time a) = Time $ castTimeSpan a
-{-# INLINE castTime #-}
+
 
 maybeCastTime :: MaybeNumCast a b => Time a -> Maybe (Time b)
 maybeCastTime (Time a) = Time <$!> maybeCastTimeSpan a
-{-# INLINE maybeCastTime #-}
+
 
 ceilingTime :: RealFrac a => Integral b => Time a -> Time b
 ceilingTime (Time a) = Time (ceilingTimeSpan a)
-{-# INLINE ceilingTime #-}
+
 
 floorTime :: RealFrac a => Integral b => Time a -> Time b
 floorTime (Time a) = Time (floorTimeSpan a)
-{-# INLINE floorTime #-}
+
 
 minTime :: Bounded a => Time a
 minTime = minBound
-{-# INLINE minTime #-}
+
 
 maxTime :: Bounded a => Time a
 maxTime = maxBound
-{-# INLINE maxTime #-}
+
 
 floorTimeBy :: Integral a => TimeSpan a -> Time a -> Time a
 floorTimeBy (TimeSpan a) (Time (TimeSpan b))
     = Time $ TimeSpan (floor (b % a) * a)
-{-# INLINE floorTimeBy #-}
+
 
 -- -------------------------------------------------------------------------- --
 -- Time Span Values
 
 microsecond :: Num a => TimeSpan a
 microsecond = TimeSpan 1
-{-# INLINE microsecond #-}
+
 
 millisecond :: Num a => TimeSpan a
 millisecond = TimeSpan kilo
-{-# INLINE millisecond #-}
+
 
 second :: Num a => TimeSpan a
 second = TimeSpan mega
-{-# INLINE second #-}
+
 
 minute :: Num a => TimeSpan a
 minute = TimeSpan $ mega * 60
-{-# INLINE minute #-}
+
 
 hour :: Num a => TimeSpan a
 hour = TimeSpan $ mega * 3600
-{-# INLINE hour #-}
+
 
 day :: Num a => TimeSpan a
 day = TimeSpan $ mega * 24 * 3600
-{-# INLINE day #-}
+
 
 -- -------------------------------------------------------------------------- --
 -- Seconds
@@ -322,15 +322,15 @@ newtype Seconds = Seconds Int64
 
 secondsToTimeSpan :: Num a => Seconds -> TimeSpan a
 secondsToTimeSpan (Seconds s) = scaleTimeSpan s second
-{-# INLINE secondsToTimeSpan #-}
+
 
 timeSpanToSeconds :: Integral a => TimeSpan a -> Seconds
 timeSpanToSeconds (TimeSpan us) = Seconds $! int $ us `div` 1000000
-{-# INLINE timeSpanToSeconds #-}
+
 
 secondsToText :: Seconds -> T.Text
 secondsToText (Seconds s) = sshow s
-{-# INLINE secondsToText #-}
+
 
 secondsFromText :: MonadThrow m => T.Text -> m Seconds
 secondsFromText = fmap Seconds . treadM
@@ -338,9 +338,9 @@ secondsFromText = fmap Seconds . treadM
 
 instance HasTextRepresentation Seconds where
     toText = secondsToText
-    {-# INLINE toText #-}
+
     fromText = secondsFromText
-    {-# INLINE fromText #-}
+
 
 -- -------------------------------------------------------------------------- --
 -- Microseconds
@@ -355,15 +355,15 @@ newtype Micros = Micros Int64
 
 microsToTimeSpan :: Num a => Micros -> TimeSpan a
 microsToTimeSpan (Micros us) = scaleTimeSpan us microsecond
-{-# INLINE microsToTimeSpan #-}
+
 
 timeSpanToMicros :: Integral a => TimeSpan a -> Micros
 timeSpanToMicros (TimeSpan us) = Micros $! int $ us
-{-# INLINE timeSpanToMicros #-}
+
 
 microsToText :: Micros -> T.Text
 microsToText (Micros us) = sshow us
-{-# INLINE microsToText #-}
+
 
 microsFromText :: MonadThrow m => T.Text -> m Micros
 microsFromText = fmap Micros . treadM
@@ -371,6 +371,6 @@ microsFromText = fmap Micros . treadM
 
 instance HasTextRepresentation Micros where
     toText = microsToText
-    {-# INLINE toText #-}
+
     fromText = microsFromText
     {-# INLINABLE fromText #-}

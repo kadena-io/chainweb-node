@@ -161,15 +161,15 @@ type ChainwebNodeVersionHeaderValue = CURRENT_PACKAGE_VERSION
 
 chainwebNodeVersionHeaderName :: IsString a => CI.FoldCase a => CI.CI a
 chainwebNodeVersionHeaderName = fromString $ symbolVal (Proxy @ChainwebNodeVersionHeaderName)
-{-# INLINE chainwebNodeVersionHeaderName #-}
+
 
 chainwebNodeVersionHeaderValue :: IsString a => a
 chainwebNodeVersionHeaderValue = fromString $ symbolVal (Proxy @ChainwebNodeVersionHeaderValue)
-{-# INLINE chainwebNodeVersionHeaderValue #-}
+
 
 chainwebNodeVersionHeader :: HTTP.Header
 chainwebNodeVersionHeader = (chainwebNodeVersionHeaderName, chainwebNodeVersionHeaderValue)
-{-# INLINE chainwebNodeVersionHeader #-}
+
 
 -- -------------------------------------------------------------------------- --
 -- Peer Addr header
@@ -178,7 +178,7 @@ type PeerAddrHeaderName = "X-Peer-Addr"
 
 peerAddrHeaderName :: IsString a => CI.FoldCase a => CI.CI a
 peerAddrHeaderName = fromString $ symbolVal (Proxy @PeerAddrHeaderName)
-{-# INLINE peerAddrHeaderName #-}
+
 
 -- -------------------------------------------------------------------------- --
 -- Server Timestamp header
@@ -187,7 +187,7 @@ type ServerTimestampHeaderName = "X-Server-Timestamp"
 
 serverTimestampHeaderName :: IsString a => CI.FoldCase a => CI.CI a
 serverTimestampHeaderName = fromString $ symbolVal (Proxy @ServerTimestampHeaderName)
-{-# INLINE serverTimestampHeaderName #-}
+
 
 -- -------------------------------------------------------------------------- --
 -- Paging Utils

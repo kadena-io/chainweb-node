@@ -175,32 +175,32 @@ data Cut = Cut'
 
 cutChainwebVersion :: Lens' Cut ChainwebVersion
 cutChainwebVersion = lens _cutChainwebVersion $ \c v -> c { _cutChainwebVersion = v }
-{-# INLINE cutChainwebVersion #-}
+
 
 cutHeaders :: Getter Cut (HM.HashMap ChainId BlockHeader)
 cutHeaders = to _cutHeaders
 
 unsafeCutHeaders :: Setter' Cut (HM.HashMap ChainId BlockHeader)
 unsafeCutHeaders = lens _cutHeaders $ \c m -> c { _cutHeaders = m }
-{-# INLINE unsafeCutHeaders #-}
+
 
 -- | The chain graph is the graph at the /minimum/ height of the block headers
 -- in the cut.
 --
 instance HasChainGraph Cut where
     _chainGraph c = chainGraphAt (_chainwebVersion c) (minChainHeight c)
-    {-# INLINE _chainGraph #-}
+
 
 instance HasChainwebVersion Cut where
     _chainwebVersion = view cutChainwebVersion
-    {-# INLINE _chainwebVersion #-}
+
 
 type instance Index Cut = ChainId
 type instance IxValue Cut = BlockHeader
 
 instance IxedGet Cut where
     ixg i = cutHeaders . ix i
-    {-# INLINE ixg #-}
+
 
 _cutMap :: Cut -> HM.HashMap ChainId BlockHeader
 _cutMap = _cutHeaders
@@ -224,14 +224,14 @@ _cutWeight = sumOf $ cutHeaders . folded . blockWeight
 
 cutWeight :: Getter Cut BlockWeight
 cutWeight = to _cutWeight
-{-# INLINE cutWeight #-}
+
 
 _cutHeight :: Cut -> CutHeight
 _cutHeight = sumOf $ cutHeaders . folded . blockHeight . to int
 
 cutHeight :: Getter Cut CutHeight
 cutHeight = to _cutHeight
-{-# INLINE cutHeight #-}
+
 
 unsafeMkCut :: ChainwebVersion -> HM.HashMap ChainId BlockHeader -> Cut
 unsafeMkCut v hdrs = Cut'
@@ -256,7 +256,7 @@ cutAdjs
     -> cid
     -> HM.HashMap ChainId BlockHeader
 cutAdjs c = HM.intersection (_cutHeaders c) . HS.toMap . cutAdjChainIds c
-{-# INLINE cutAdjs #-}
+
 
 -- | Adjacent chain ids for a chain in a cut. The function considers the block
 -- height for the respective chain in the given cut.
@@ -265,7 +265,7 @@ cutAdjs c = HM.intersection (_cutHeaders c) . HS.toMap . cutAdjChainIds c
 --
 cutAdjChainIds :: HasChainId cid => Cut -> cid -> HS.HashSet ChainId
 cutAdjChainIds c cid = c ^?! ixg (_chainId cid) . blockAdjacentChainIds
-{-# INLINE cutAdjChainIds #-}
+
 
 -- | /Directed/ adjacent pairs of a cut. Note that block headers in a cut can be
 -- of different block height and can thus use different chain graphs.
@@ -275,32 +275,32 @@ _cutAdjPairs c = do
     (cid, h) <- HM.toList (_cutMap c)
     x <- toList (cutAdjs c cid)
     return (h, x)
-{-# INLINE _cutAdjPairs #-}
+
 
 cutAdjPairs :: Getter Cut [(BlockHeader, BlockHeader)]
 cutAdjPairs = to _cutAdjPairs
-{-# INLINE cutAdjPairs #-}
+
 
 -- -------------------------------------------------------------------------- --
 -- Chain Heights
 
 chainHeights :: Cut -> [BlockHeight]
 chainHeights = fmap (_blockHeight) . toList . _cutHeaders
-{-# INLINE chainHeights #-}
+
 
 meanChainHeight :: Cut -> BlockHeight
 meanChainHeight = mean . chainHeights
   where
     mean l = round $ sum @_ @Double (realToFrac <$> l) / realToFrac (length l)
-{-# INLINE meanChainHeight #-}
+
 
 maxChainHeight :: Cut -> BlockHeight
 maxChainHeight = maximum . chainHeights
-{-# INLINE maxChainHeight #-}
+
 
 minChainHeight :: Cut -> BlockHeight
 minChainHeight = minimum . chainHeights
-{-# INLINE minChainHeight #-}
+
 
 -- | Returns whether a chain graph transition occurs within the cut.
 --
@@ -330,11 +330,11 @@ isTransitionCut c = minChainHeight c < lastGraphChange c (maxChainHeight c)
 
 cutHeadersMinHeight :: HM.HashMap ChainId BlockHeader -> BlockHeight
 cutHeadersMinHeight = minimum . fmap _blockHeight
-{-# INLINE cutHeadersMinHeight #-}
+
 
 cutHeadersChainwebVersion :: HM.HashMap ChainId BlockHeader -> ChainwebVersion
 cutHeadersChainwebVersion m = _chainwebVersion $ head $ toList m
-{-# INLINE cutHeadersChainwebVersion #-}
+
 
 -- | The function projects onto the chains available at the minimum block height
 -- in input headers.
@@ -352,7 +352,7 @@ projectChains
 projectChains m = HM.intersection m
     $ HS.toMap
     $ chainIdsAt (cutHeadersChainwebVersion m) (cutHeadersMinHeight m)
-{-# INLINE projectChains #-}
+
 
 -- | Extend the chains for the graph at the minimum block height of the input
 -- headers. If a header for a chain is missing the genesis block header for that
@@ -368,7 +368,7 @@ extendChains m = HM.union m
     $ genesisBlockHeadersAtHeight
         (cutHeadersChainwebVersion m)
         (cutHeadersMinHeight m)
-{-# INLINE extendChains #-}
+
 
 -- | This function adds all chains that are available in either of the input
 -- headers. It is assumed that both input header maps are contain headers for
@@ -389,7 +389,7 @@ joinChains a b = (HM.union a c, HM.union b c)
   where
     v = cutHeadersChainwebVersion a
     c = genesisBlockHeader v <$> a <> b
-{-# INLINE joinChains #-}
+
 
 -- -------------------------------------------------------------------------- --
 -- Limit Cut Hashes By Height
@@ -496,7 +496,7 @@ instance Exception CutException
 --
 checkBraidingOfCut :: MonadThrow m => Cut -> m ()
 checkBraidingOfCut = checkBraidingOfCutPairs . _cutAdjPairs
-{-# INLINE checkBraidingOfCut #-}
+
 
 -- | Check that a set of adjacent pairs of a cut is correctly braided.
 --
@@ -506,7 +506,7 @@ checkBraidingOfCutPairs
     => f (BlockHeader, BlockHeader)
     -> m ()
 checkBraidingOfCutPairs = traverse_ (uncurry checkBraidingOfCutPair)
-{-# INLINE checkBraidingOfCutPairs #-}
+
 
 -- | Checks that directed adjacent pair in a cut is correctly braided.
 --

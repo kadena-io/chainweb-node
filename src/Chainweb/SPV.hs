@@ -118,8 +118,8 @@ jsonProofSubjectProperties (JsonProofSubject (InputNode bytes)) =
 instance ToJSON JsonProofSubject where
     toJSON = object . jsonProofSubjectProperties
     toEncoding = pairs . mconcat . jsonProofSubjectProperties
-    {-# INLINE toJSON #-}
-    {-# INLINE toEncoding #-}
+
+
 
 parseProof
     :: String
@@ -171,12 +171,12 @@ data TransactionProof a = TransactionProof
 instance ToJSON (TransactionProof SHA512t_256) where
     toJSON (TransactionProof cid p) = object $ proofProperties cid p
     toEncoding (TransactionProof cid p) = pairs . mconcat $ proofProperties cid p
-    {-# INLINE toJSON #-}
-    {-# INLINE toEncoding #-}
+
+
 
 instance FromJSON (TransactionProof SHA512t_256) where
     parseJSON = parseProof "TransactionProof" TransactionProof
-    {-# INLINE parseJSON #-}
+
 
 -- | Getter into the chain id of a 'TransactionProof'
 --
@@ -201,12 +201,12 @@ data TransactionOutputProof a = TransactionOutputProof
 instance ToJSON (TransactionOutputProof SHA512t_256) where
     toJSON (TransactionOutputProof cid p) = object $ proofProperties cid p
     toEncoding (TransactionOutputProof cid p) = pairs . mconcat $ proofProperties cid p
-    {-# INLINE toJSON #-}
-    {-# INLINE toEncoding #-}
+
+
 
 instance FromJSON (TransactionOutputProof SHA512t_256) where
     parseJSON = parseProof "TransactionOutputProof" TransactionOutputProof
-    {-# INLINE parseJSON #-}
+
 
 -- | Getter into the chain id of a 'TransactionOutputProof'
 --

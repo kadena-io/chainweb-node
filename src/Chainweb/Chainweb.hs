@@ -213,7 +213,7 @@ chainwebSocket = chainwebPeer . peerResSocket
 
 instance HasChainwebVersion (Chainweb logger t) where
     _chainwebVersion = _chainwebVersion . _chainwebCutResources
-    {-# INLINE _chainwebVersion #-}
+
 
 -- Intializes all service API chainweb components but doesn't start any networking.
 --

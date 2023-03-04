@@ -56,8 +56,8 @@ instance MerkleHashAlgorithm a => IsMerkleLogEntry a ChainwebHashTag BlockCreati
     type Tag BlockCreationTime = 'BlockCreationTimeTag
     toMerkleNode = encodeMerkleInputNode encodeBlockCreationTime
     fromMerkleNode = decodeMerkleInputNode decodeBlockCreationTime
-    {-# INLINE toMerkleNode #-}
-    {-# INLINE fromMerkleNode #-}
+
+
 
 encodeBlockCreationTime :: BlockCreationTime -> Put
 encodeBlockCreationTime (BlockCreationTime t) = encodeTime t

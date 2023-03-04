@@ -163,8 +163,8 @@ instance MerkleHashAlgorithm a => IsMerkleLogEntry a ChainwebHashTag (BlockTrans
     type Tag (BlockTransactionsHash_ a) = 'BlockTransactionsHashTag
     toMerkleNode = encodeMerkleTreeNode
     fromMerkleNode = decodeMerkleTreeNode
-    {-# INLINE toMerkleNode #-}
-    {-# INLINE fromMerkleNode #-}
+
+
 
 -- -------------------------------------------------------------------------- --
 -- Block Outputs Hash
@@ -189,8 +189,8 @@ instance MerkleHashAlgorithm a => IsMerkleLogEntry a ChainwebHashTag (BlockOutpu
     type Tag (BlockOutputsHash_ a) = 'BlockOutputsHashTag
     toMerkleNode = encodeMerkleTreeNode
     fromMerkleNode = decodeMerkleTreeNode
-    {-# INLINE toMerkleNode #-}
-    {-# INLINE fromMerkleNode #-}
+
+
 
 -- -------------------------------------------------------------------------- --
 -- BlockPayloadHash
@@ -216,8 +216,8 @@ instance MerkleHashAlgorithm a => IsMerkleLogEntry a ChainwebHashTag (BlockPaylo
     type Tag (BlockPayloadHash_ a) = 'BlockPayloadHashTag
     toMerkleNode = encodeMerkleTreeNode
     fromMerkleNode = decodeMerkleTreeNode
-    {-# INLINE toMerkleNode #-}
-    {-# INLINE fromMerkleNode #-}
+
+
 
 -- -------------------------------------------------------------------------- --
 -- Transaction
@@ -234,17 +234,17 @@ newtype Transaction = Transaction { _transactionBytes :: B.ByteString }
 
 instance Show Transaction where
     show = T.unpack . encodeToText
-    {-# INLINE show #-}
+
 
 instance ToJSON Transaction where
     toJSON = toJSON . encodeB64UrlNoPaddingText . _transactionBytes
     toEncoding = b64UrlNoPaddingTextEncoding . _transactionBytes
-    {-# INLINE toJSON #-}
-    {-# INLINE toEncoding #-}
+
+
 
 instance FromJSON Transaction where
     parseJSON = parseJsonFromText "Transaction"
-    {-# INLINE parseJSON #-}
+
 
 instance MerkleHashAlgorithm a => IsMerkleLogEntry a ChainwebHashTag Transaction where
     type Tag Transaction = 'TransactionTag
@@ -254,18 +254,18 @@ instance MerkleHashAlgorithm a => IsMerkleLogEntry a ChainwebHashTag Transaction
 
 transactionToText :: Transaction -> T.Text
 transactionToText = encodeB64UrlNoPaddingText . _transactionBytes
-{-# INLINE transactionToText #-}
+
 
 transactionFromText :: MonadThrow m => T.Text -> m Transaction
 transactionFromText t = either (throwM . TextFormatException . sshow) return
     $ Transaction <$!> decodeB64UrlNoPaddingText t
-{-# INLINE transactionFromText #-}
+
 
 instance HasTextRepresentation Transaction where
     toText = transactionToText
-    {-# INLINE toText #-}
+
     fromText = transactionFromText
-    {-# INLINE fromText #-}
+
 
 -- -------------------------------------------------------------------------- --
 -- Transaction Output
@@ -283,12 +283,12 @@ newtype TransactionOutput = TransactionOutput
 instance ToJSON TransactionOutput where
     toJSON = toJSON . encodeB64UrlNoPaddingText . _transactionOutputBytes
     toEncoding = b64UrlNoPaddingTextEncoding . _transactionOutputBytes
-    {-# INLINE toJSON #-}
-    {-# INLINE toEncoding #-}
+
+
 
 instance FromJSON TransactionOutput where
     parseJSON = parseJsonFromText "TransactionOutput"
-    {-# INLINE parseJSON #-}
+
 
 instance MerkleHashAlgorithm a => IsMerkleLogEntry a ChainwebHashTag TransactionOutput where
     type Tag TransactionOutput = 'TransactionOutputTag
@@ -298,18 +298,18 @@ instance MerkleHashAlgorithm a => IsMerkleLogEntry a ChainwebHashTag Transaction
 
 transactionOutputToText :: TransactionOutput -> T.Text
 transactionOutputToText = encodeB64UrlNoPaddingText . _transactionOutputBytes
-{-# INLINE transactionOutputToText #-}
+
 
 transactionOutputFromText :: MonadThrow m => T.Text -> m TransactionOutput
 transactionOutputFromText t = either (throwM . TextFormatException . sshow) return
     $ TransactionOutput <$!> decodeB64UrlNoPaddingText t
-{-# INLINE transactionOutputFromText #-}
+
 
 instance HasTextRepresentation TransactionOutput where
     toText = transactionOutputToText
-    {-# INLINE toText #-}
+
     fromText = transactionOutputFromText
-    {-# INLINE fromText #-}
+
 
 -- -------------------------------------------------------------------------- --
 -- Block Payloads
@@ -402,16 +402,16 @@ newtype MinerData = MinerData { _minerData :: B.ByteString }
 
 instance Show MinerData where
     show = T.unpack . encodeToText
-    {-# INLINE show #-}
+
 
 instance ToJSON MinerData where
     toJSON = toJSON . encodeB64UrlNoPaddingText . _minerData
     toEncoding = b64UrlNoPaddingTextEncoding . _minerData
-    {-# INLINE toJSON #-}
+
 
 instance FromJSON MinerData where
     parseJSON = parseJsonFromText "MinerData"
-    {-# INLINE parseJSON #-}
+
 
 instance MerkleHashAlgorithm a => IsMerkleLogEntry a ChainwebHashTag MinerData where
     type Tag MinerData = 'MinerDataTag
@@ -421,18 +421,18 @@ instance MerkleHashAlgorithm a => IsMerkleLogEntry a ChainwebHashTag MinerData w
 
 minerDataToText :: MinerData -> T.Text
 minerDataToText = encodeB64UrlNoPaddingText . _minerData
-{-# INLINE minerDataToText #-}
+
 
 minerDataFromText :: MonadThrow m => T.Text -> m MinerData
 minerDataFromText t = either (throwM . TextFormatException . sshow) return
     $ MinerData <$!> decodeB64UrlNoPaddingText t
-{-# INLINE minerDataFromText #-}
+
 
 instance HasTextRepresentation MinerData where
     toText = minerDataToText
-    {-# INLINE toText #-}
+
     fromText = minerDataFromText
-    {-# INLINE fromText #-}
+
 
 -- -------------------------------------------------------------------------- --
 -- Block Transactions
@@ -464,13 +464,13 @@ blockTransactionsProperties o =
     , "transaction" .= _blockTransactions o
     , "minerData" .= _blockMinerData o
     ]
-{-# INLINE blockTransactionsProperties #-}
+
 
 instance MerkleHashAlgorithm a => ToJSON (BlockTransactions_ a) where
     toJSON = object . blockTransactionsProperties
     toEncoding = pairs . mconcat . blockTransactionsProperties
-    {-# INLINE toJSON #-}
-    {-# INLINE toEncoding #-}
+
+
 
 instance MerkleHashAlgorithm a => FromJSON (BlockTransactions_ a) where
     parseJSON = withObject "BlockTransactions" $ \o -> BlockTransactions
@@ -524,17 +524,17 @@ newtype CoinbaseOutput = CoinbaseOutput { _coinbaseOutput :: B.ByteString }
 
 instance Show CoinbaseOutput where
     show = T.unpack . encodeToText
-    {-# INLINE show #-}
+
 
 instance ToJSON CoinbaseOutput where
     toJSON = toJSON . encodeB64UrlNoPaddingText . _coinbaseOutput
     toEncoding = b64UrlNoPaddingTextEncoding . _coinbaseOutput
-    {-# INLINE toJSON #-}
-    {-# INLINE toEncoding #-}
+
+
 
 instance FromJSON CoinbaseOutput where
     parseJSON = parseJsonFromText "CoinbaseOutput"
-    {-# INLINE parseJSON #-}
+
 
 instance MerkleHashAlgorithm a => IsMerkleLogEntry a ChainwebHashTag CoinbaseOutput where
     type Tag CoinbaseOutput = 'CoinbaseOutputTag
@@ -544,12 +544,12 @@ instance MerkleHashAlgorithm a => IsMerkleLogEntry a ChainwebHashTag CoinbaseOut
 
 coinbaseOutputToText :: CoinbaseOutput -> T.Text
 coinbaseOutputToText = encodeB64UrlNoPaddingText . _coinbaseOutput
-{-# INLINE coinbaseOutputToText #-}
+
 
 coinbaseOutputFromText :: MonadThrow m => T.Text -> m CoinbaseOutput
 coinbaseOutputFromText t = either (throwM . TextFormatException . sshow) return
     $ CoinbaseOutput <$!> decodeB64UrlNoPaddingText t
-{-# INLINE coinbaseOutputFromText #-}
+
 
 -- | No-op coinbase payload
 --
@@ -571,9 +571,9 @@ noCoinbaseOutput = CoinbaseOutput $ encodeToByteString $ object
 
 instance HasTextRepresentation CoinbaseOutput where
     toText = coinbaseOutputToText
-    {-# INLINE toText #-}
+
     fromText = coinbaseOutputFromText
-    {-# INLINE fromText #-}
+
 
 -- -------------------------------------------------------------------------- --
 -- Block Outputs
@@ -609,13 +609,13 @@ blockOutputsProperties o =
     , "outputs" .= _blockOutputs o
     , "coinbaseOutput" .= _blockCoinbaseOutput o
     ]
-{-# INLINE blockOutputsProperties #-}
+
 
 instance MerkleHashAlgorithm a => ToJSON (BlockOutputs_ a) where
     toJSON = object . blockOutputsProperties
     toEncoding = pairs . mconcat . blockOutputsProperties
-    {-# INLINE toJSON #-}
-    {-# INLINE toEncoding #-}
+
+
 
 instance MerkleHashAlgorithm a => FromJSON (BlockOutputs_ a) where
     parseJSON = withObject "BlockOutputs" $ \o -> BlockOutputs
@@ -684,13 +684,13 @@ transactionTreeProperties o =
     [ "hash" .= _transactionTreeHash o
     , "tree" .= merkleTreeToJson (_transactionTree o)
     ]
-{-# INLINE transactionTreeProperties #-}
+
 
 instance MerkleHashAlgorithm a => ToJSON (TransactionTree_ a) where
     toJSON = object . transactionTreeProperties
     toEncoding = pairs . mconcat . transactionTreeProperties
-    {-# INLINE toJSON #-}
-    {-# INLINE toEncoding #-}
+
+
 
 instance MerkleHashAlgorithm a => FromJSON (TransactionTree_ a) where
     parseJSON = withObject "TransactionTree" $ \o -> TransactionTree
@@ -742,13 +742,13 @@ outputTreeProperties o =
     [ "hash" .= _outputTreeHash o
     , "tree" .= merkleTreeToJson (_outputTree o)
     ]
-{-# INLINE outputTreeProperties #-}
+
 
 instance MerkleHashAlgorithm a => ToJSON (OutputTree_ a) where
     toJSON = object . outputTreeProperties
     toEncoding = pairs . mconcat . outputTreeProperties
-    {-# INLINE toJSON #-}
-    {-# INLINE toEncoding #-}
+
+
 
 instance MerkleHashAlgorithm a => FromJSON (OutputTree_ a) where
     parseJSON = withObject "OutputTree" $ \o -> OutputTree
@@ -919,13 +919,13 @@ payloadDataProperties o =
     , "transactionsHash" .= _payloadDataTransactionsHash o
     , "outputsHash" .= _payloadDataOutputsHash o
     ]
-{-# INLINE payloadDataProperties #-}
+
 
 instance MerkleHashAlgorithm a => ToJSON (PayloadData_ a) where
     toJSON = object . payloadDataProperties
     toEncoding = pairs . mconcat . payloadDataProperties
-    {-# INLINE toJSON #-}
-    {-# INLINE toEncoding #-}
+
+
 
 instance MerkleHashAlgorithm a => FromJSON (PayloadData_ a) where
     parseJSON = withObject "PayloadData" $ \o -> PayloadData
@@ -938,7 +938,7 @@ instance MerkleHashAlgorithm a => FromJSON (PayloadData_ a) where
 instance IsCasValue (PayloadData_ a) where
     type CasKeyType (PayloadData_ a) = BlockPayloadHash_ a
     casKey = _payloadDataPayloadHash
-    {-# INLINE casKey #-}
+
 
 payloadData :: BlockTransactions_ a -> BlockPayload_ a -> PayloadData_ a
 payloadData txs payload = PayloadData
@@ -1002,7 +1002,7 @@ data PayloadWithOutputs_ a = PayloadWithOutputs
 instance IsCasValue (PayloadWithOutputs_ a) where
     type CasKeyType (PayloadWithOutputs_ a) = BlockPayloadHash_ a
     casKey = _payloadWithOutputsPayloadHash
-    {-# INLINE casKey #-}
+
 
 -- | Smart constructor for 'PayloadWithOutputs'.
 --
@@ -1070,13 +1070,13 @@ payloadWithOutputsProperties o =
     , "transactionsHash" .= _payloadWithOutputsTransactionsHash o
     , "outputsHash" .= _payloadWithOutputsOutputsHash o
     ]
-{-# INLINE payloadWithOutputsProperties #-}
+
 
 instance MerkleHashAlgorithm a => ToJSON (PayloadWithOutputs_ a) where
     toJSON = object . payloadWithOutputsProperties
     toEncoding = pairs . mconcat . payloadWithOutputsProperties
-    {-# INLINE toJSON #-}
-    {-# INLINE toEncoding #-}
+
+
 
 -- | This instance trusts the content of the JSON structure. It doesn't
 -- guarantee that the result is consistent (it doesn't rebuild the Merkle tree).

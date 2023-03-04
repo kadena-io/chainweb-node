@@ -221,7 +221,7 @@ checkPayloads pdb False h = tableLookup pdb (_blockPayloadHash h) >>= \case
         | verifyPayloadWithOutputs p -> return ()
         | otherwise -> throwM $ InconsistentPaylaod h p
     Nothing -> throwM $ MissingPayloadException h
-{-# INLINE checkPayloads #-}
+
 
 -- | Just check the existence of the Payload in the Database but don't check
 -- that it can actually be decoded and is consistent.
@@ -235,7 +235,7 @@ checkPayloadsExist pdb False h = unlessM (tableMember db $ _blockPayloadHash h) 
     throwM $ MissingPayloadException h
   where
     db = _transactionDbBlockPayloads $ _transactionDb pdb
-{-# INLINE checkPayloadsExist #-}
+
 
 -- | Intrinsically validate all block headers that are not deleted.
 --
@@ -244,7 +244,7 @@ checkPayloadsExist pdb False h = unlessM (tableMember db $ _blockPayloadHash h) 
 checkIntrinsic :: Time Micros -> Bool -> BlockHeader -> IO ()
 checkIntrinsic _ True _ = return ()
 checkIntrinsic now False h = validateIntrinsicM now h
-{-# INLINE checkIntrinsic #-}
+
 
 -- | Intrinsically validate all block headers that are not deleted.
 --
@@ -253,7 +253,7 @@ checkInductive _ _ True _ = return ()
 checkInductive now cdb False h = do
     validateInductiveChainM (tableLookup cdb) h
     validateIntrinsicM now h
-{-# INLINE checkInductive #-}
+
 
 -- | Perform complete block header validation for all block that are not deleted.
 --
@@ -265,7 +265,7 @@ checkFull now wdb False = void . validateBlockHeaderM now ctx
   where
     ctx :: ChainValue BlockHash -> IO (Maybe BlockHeader)
     ctx cv = fmap _chainValueValue <$> tableLookup wdb cv
-{-# INLINE checkFull #-}
+
 
 -- -------------------------------------------------------------------------- --
 -- Full GC
@@ -347,21 +347,21 @@ fullGc logger rdb v = do
 --
 markPayload :: Filter BlockPayloadHash -> BlockHeader -> IO ()
 markPayload f = tryInsert f "payload hash" . _blockPayloadHash
-{-# INLINE markPayload #-}
+
 
 -- | Mark Payload Transactions
 --
 markTransactions :: Filter BlockTransactionsHash -> BlockPayload -> IO ()
 markTransactions f
     = tryInsert f "transactions hash" . _blockPayloadTransactionsHash
-{-# INLINE markTransactions #-}
+
 
 -- | Mark Payload Outputs
 --
 markOutputs :: Filter BlockOutputsHash -> BlockPayload -> IO ()
 markOutputs f
     = tryInsert f "outputs hash" . _blockPayloadOutputsHash
-{-# INLINE markOutputs #-}
+
 
 -- | Sweep payload and mark all transactions that are kept
 --
@@ -460,8 +460,8 @@ instance BA.ByteArrayAccess a => CuckooFilterHash (GcHash a) where
         saltedFnv1aByteString s (B.take 8 $ BA.convert a)
     cuckooFingerprint (Salt s) (GcHash a) =
         saltedSipHashByteString s (B.take 8 $ BA.convert a)
-    {-# INLINE cuckooHash #-}
-    {-# INLINE cuckooFingerprint #-}
+
+
 
 type Filter a = CuckooFilterIO 4 10 (GcHash a)
 
@@ -478,7 +478,7 @@ tryInsert cf k a = unlessM (member cf $ GcHash a) $
     unlessM (insert cf $ GcHash a) $ error
         $ "failed to insert item " <> k <> " in cuckoo filter"
         <> ": while very rare this can happen. Usually it is resolve by retrying."
-{-# INLINE tryInsert #-}
+
 
 -- TODO: consider using bloom fiters instead that can be merged. Alternatively,
 -- implement concurrent insertion for cuckoo filters, where the hashing is done
@@ -492,7 +492,7 @@ checkMark fs a = go fs
     go (h : t) = member h (GcHash a) >>= \case
         True -> return True
         False -> go t
-    {-# INLINE go #-}
+
 
 -- -------------------------------------------------------------------------- --
 -- Delete Payload

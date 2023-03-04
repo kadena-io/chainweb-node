@@ -58,7 +58,7 @@ makeLenses ''ChainValue
 
 instance TraversableWithIndex ChainId ChainValue where
   itraverse f (ChainValue cid v) = ChainValue cid <$> f cid v
-  {-# INLINE itraverse #-}
+
 
 instance FoldableWithIndex ChainId ChainValue
 instance FunctorWithIndex ChainId ChainValue
@@ -70,15 +70,15 @@ instance FunctorWithIndex ChainId ChainValue
 instance IsCasValue a => IsCasValue (ChainValue a) where
     type CasKeyType (ChainValue a) = ChainValue (CasKeyType a)
     casKey (ChainValue cid a) = ChainValue cid (casKey a)
-    {-# INLINE casKey #-}
+
 
 instance HasChainId (ChainValue a) where
     _chainId (ChainValue cid _) = cid
-    {-# INLINE _chainId #-}
+
 
 chainValue :: HasChainId a => a -> ChainValue a
 chainValue a = ChainValue (_chainId a) a
-{-# INLINE chainValue #-}
+
 
 chainLookup
     :: ReadableCas db (ChainValue a)
@@ -86,7 +86,7 @@ chainLookup
     -> CasKeyType (ChainValue a)
     -> IO (Maybe a)
 chainLookup db = fmap (fmap _chainValueValue) . tableLookup db
-{-# INLINE chainLookup #-}
+
 
 chainLookupM
     :: ReadableCas db (ChainValue a)
@@ -94,7 +94,7 @@ chainLookupM
     -> CasKeyType (ChainValue a)
     -> IO a
 chainLookupM db = fmap _chainValueValue . tableLookupM db
-{-# INLINE chainLookupM #-}
+
 
 type ChainValueCasLookup a b = ReadableCas a (ChainValue b)
 

@@ -73,7 +73,7 @@ type MerkleLogHashBytesCount = 32
 
 merkleLogHashBytesCount :: Natural
 merkleLogHashBytesCount = natVal $ Proxy @MerkleLogHashBytesCount
-{-# INLINE merkleLogHashBytesCount #-}
+
 
 newtype MerkleLogHash a = MerkleLogHash (MerkleRoot a)
     deriving stock (Show, Eq, Ord, Generic)
@@ -88,7 +88,7 @@ merkleLogHash
     => B.ByteString
     -> m (MerkleLogHash a)
 merkleLogHash = fmap MerkleLogHash . decodeMerkleRoot
-{-# INLINE merkleLogHash #-}
+
 
 unsafeMerkleLogHash
     :: HasCallStack
@@ -98,24 +98,24 @@ unsafeMerkleLogHash
 unsafeMerkleLogHash = MerkleLogHash
     . either (error . displayException) id
     . decodeMerkleRoot
-{-# INLINE unsafeMerkleLogHash #-}
+
 
 encodeMerkleLogHash :: MerkleLogHash a -> Put
 encodeMerkleLogHash (MerkleLogHash bytes) = putByteString $ encodeMerkleRoot bytes
-{-# INLINE encodeMerkleLogHash #-}
+
 
 decodeMerkleLogHash
     :: MerkleHashAlgorithm a
     => Get (MerkleLogHash a)
 decodeMerkleLogHash = unsafeMerkleLogHash <$> getByteString (int merkleLogHashBytesCount)
-{-# INLINE decodeMerkleLogHash #-}
+
 
 instance Hashable (MerkleLogHash a) where
     hashWithSalt s = xor s
         . unsafeDupablePerformIO . flip BA.withByteArray (peek @Int)
     -- BlockHashes are already cryptographically strong hashes
     -- that include the chain id.
-    {-# INLINE hashWithSalt #-}
+
 
 nullHashBytes :: MerkleHashAlgorithm a => MerkleLogHash a
 nullHashBytes = unsafeMerkleLogHash $ B.replicate (int merkleLogHashBytesCount) 0x00
@@ -127,7 +127,7 @@ oneHashBytes = unsafeMerkleLogHash $ B.replicate (int merkleLogHashBytesCount) 0
 
 merkleLogHashToText :: MerkleHashAlgorithm a => MerkleLogHash a -> T.Text
 merkleLogHashToText = encodeB64UrlNoPaddingText . runPutS . encodeMerkleLogHash
-{-# INLINE merkleLogHashToText #-}
+
 
 merkleLogHashFromText
     :: MerkleHashAlgorithm a
@@ -136,29 +136,29 @@ merkleLogHashFromText
     -> m (MerkleLogHash a)
 merkleLogHashFromText t = either (throwM . TextFormatException . sshow) return
         $ runGetS decodeMerkleLogHash =<< decodeB64UrlNoPaddingText t
-{-# INLINE merkleLogHashFromText #-}
+
 
 instance MerkleHashAlgorithm a => HasTextRepresentation (MerkleLogHash a) where
     toText = merkleLogHashToText
-    {-# INLINE toText #-}
+
     fromText = merkleLogHashFromText
-    {-# INLINE fromText #-}
+
 
 instance MerkleHashAlgorithm a => ToJSON (MerkleLogHash a) where
     toJSON = toJSON . toText
     toEncoding = toEncoding . toText
-    {-# INLINE toJSON #-}
-    {-# INLINE toEncoding #-}
+
+
 
 instance MerkleHashAlgorithm a => ToJSONKey (MerkleLogHash a) where
     toJSONKey = toJSONKeyText toText
-    {-# INLINE toJSONKey #-}
+
 
 instance MerkleHashAlgorithm a => FromJSON (MerkleLogHash a) where
     parseJSON = parseJsonFromText "MerkleLogHash"
-    {-# INLINE parseJSON #-}
+
 
 instance MerkleHashAlgorithm a => FromJSONKey (MerkleLogHash a) where
     fromJSONKey = FromJSONKeyTextParser
         $ either fail return . eitherFromText
-    {-# INLINE fromJSONKey #-}
+

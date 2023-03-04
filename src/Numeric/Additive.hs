@@ -50,63 +50,63 @@ class AdditiveSemigroup g where
 
 instance AdditiveSemigroup Integer where
     plus = (+)
-    {-# INLINE plus #-}
+
 
 instance AdditiveSemigroup Rational where
     plus = (+)
-    {-# INLINE plus #-}
+
 
 instance AdditiveSemigroup Natural where
     plus = (+)
-    {-# INLINE plus #-}
+
 
 instance AdditiveSemigroup Int where
     plus = (+)
-    {-# INLINE plus #-}
+
 
 instance AdditiveSemigroup Word where
     plus = (+)
-    {-# INLINE plus #-}
+
 
 instance AdditiveSemigroup Word8 where
     plus = (+)
-    {-# INLINE plus #-}
+
 
 instance AdditiveSemigroup Word16 where
     plus = (+)
-    {-# INLINE plus #-}
+
 
 instance AdditiveSemigroup Word32 where
     plus = (+)
-    {-# INLINE plus #-}
+
 
 instance AdditiveSemigroup Word64 where
     plus = (+)
-    {-# INLINE plus #-}
+
 
 instance AdditiveSemigroup Word128 where
     plus = (+)
-    {-# INLINE plus #-}
+
 
 instance AdditiveSemigroup Word256 where
     plus = (+)
-    {-# INLINE plus #-}
+
 
 instance AdditiveSemigroup Int8 where
     plus = (+)
-    {-# INLINE plus #-}
+
 
 instance AdditiveSemigroup Int16 where
     plus = (+)
-    {-# INLINE plus #-}
+
 
 instance AdditiveSemigroup Int32 where
     plus = (+)
-    {-# INLINE plus #-}
+
 
 instance AdditiveSemigroup Int64 where
     plus = (+)
-    {-# INLINE plus #-}
+
 
 -- -------------------------------------------------------------------------- --
 -- | Additive Abelian Semigroup
@@ -147,63 +147,63 @@ class AdditiveSemigroup g => AdditiveMonoid g where
 
 instance AdditiveMonoid Integer where
     zero = 0
-    {-# INLINE zero #-}
+
 
 instance AdditiveMonoid Rational where
     zero = 0
-    {-# INLINE zero #-}
+
 
 instance AdditiveMonoid Natural where
     zero = 0
-    {-# INLINE zero #-}
+
 
 instance AdditiveMonoid Int where
     zero = 0
-    {-# INLINE zero #-}
+
 
 instance AdditiveMonoid Word where
     zero = 0
-    {-# INLINE zero #-}
+
 
 instance AdditiveMonoid Word8 where
     zero = 0
-    {-# INLINE zero #-}
+
 
 instance AdditiveMonoid Word16 where
     zero = 0
-    {-# INLINE zero #-}
+
 
 instance AdditiveMonoid Word32 where
     zero = 0
-    {-# INLINE zero #-}
+
 
 instance AdditiveMonoid Word64 where
     zero = 0
-    {-# INLINE zero #-}
+
 
 instance AdditiveMonoid Word128 where
     zero = 0
-    {-# INLINE zero #-}
+
 
 instance AdditiveMonoid Word256 where
     zero = 0
-    {-# INLINE zero #-}
+
 
 instance AdditiveMonoid Int8 where
     zero = 0
-    {-# INLINE zero #-}
+
 
 instance AdditiveMonoid Int16 where
     zero = 0
-    {-# INLINE zero #-}
+
 
 instance AdditiveMonoid Int32 where
     zero = 0
-    {-# INLINE zero #-}
+
 
 instance AdditiveMonoid Int64 where
     zero = 0
-    {-# INLINE zero #-}
+
 
 type AdditiveAbelianMonoid g = (AdditiveMonoid g, AdditiveAbelianSemigroup g)
 
@@ -225,86 +225,86 @@ class AdditiveMonoid g => AdditiveGroup g where
 instance AdditiveGroup Integer where
     invert a = -a
     minus = (-)
-    {-# INLINE invert #-}
-    {-# INLINE minus #-}
+
+
 
 instance AdditiveGroup Rational where
     invert a = -a
     minus = (-)
-    {-# INLINE invert #-}
-    {-# INLINE minus #-}
+
+
 
 instance AdditiveGroup Int where
     invert a = -a
     minus = (-)
-    {-# INLINE invert #-}
-    {-# INLINE minus #-}
+
+
 
 instance AdditiveGroup Word where
     invert a = -a
     minus = (-)
-    {-# INLINE invert #-}
-    {-# INLINE minus #-}
+
+
 
 instance AdditiveGroup Word8 where
     invert a = -a
     minus = (-)
-    {-# INLINE invert #-}
-    {-# INLINE minus #-}
+
+
 
 instance AdditiveGroup Word16 where
     invert a = -a
     minus = (-)
-    {-# INLINE invert #-}
-    {-# INLINE minus #-}
+
+
 
 instance AdditiveGroup Word32 where
     invert a = -a
     minus = (-)
-    {-# INLINE invert #-}
-    {-# INLINE minus #-}
+
+
 
 instance AdditiveGroup Word64 where
     invert a = -a
     minus = (-)
-    {-# INLINE invert #-}
-    {-# INLINE minus #-}
+
+
 
 instance AdditiveGroup Word128 where
     invert a = -a
     minus = (-)
-    {-# INLINE invert #-}
-    {-# INLINE minus #-}
+
+
 
 instance AdditiveGroup Word256 where
     invert a = -a
     minus = (-)
-    {-# INLINE invert #-}
-    {-# INLINE minus #-}
+
+
 
 instance AdditiveGroup Int8 where
     invert a = -a
     minus = (-)
-    {-# INLINE invert #-}
-    {-# INLINE minus #-}
+
+
 
 instance AdditiveGroup Int16 where
     invert a = -a
     minus = (-)
-    {-# INLINE invert #-}
-    {-# INLINE minus #-}
+
+
 
 instance AdditiveGroup Int32 where
     invert a = -a
     minus = (-)
-    {-# INLINE invert #-}
-    {-# INLINE minus #-}
+
+
 
 instance AdditiveGroup Int64 where
     invert a = -a
     minus = (-)
-    {-# INLINE invert #-}
-    {-# INLINE minus #-}
+
+
 
 -- -------------------------------------------------------------------------- --
 -- | Additive Abelian Group

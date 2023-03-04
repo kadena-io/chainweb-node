@@ -161,16 +161,16 @@ instance HasTextRepresentation ChainGraph where
     toText = toText . _chainGraphKnown
     fromText = fmap knownChainGraph . fromText
 
-    {-# INLINE toText #-}
-    {-# INLINE fromText #-}
+
+
 
 chainGraphKnown :: Getter ChainGraph KnownGraph
 chainGraphKnown = to _chainGraphKnown
-{-# INLINE chainGraphKnown #-}
+
 
 chainGraphGraph :: Getter ChainGraph (G.DiGraph ChainId)
 chainGraphGraph = to _chainGraphGraph
-{-# INLINE chainGraphGraph #-}
+
 
 -- | A valid chain graph is symmetric, regular, and the out-degree
 -- is at least 1 if the graph has at least two vertices.
@@ -183,7 +183,7 @@ validChainGraph g
     && G.isSymmetric g
     && G.isRegular g
     && (G.order g <= 1 || G.symSize g >= 1)
-{-# INLINE validChainGraph #-}
+
 
 -- | Returns an empty set of the chain id is not in the graph
 --
@@ -195,7 +195,7 @@ adjacentChainIds
 adjacentChainIds graph@(ChainGraph g _ _ _) cid
     | isWebChain graph cid = G.adjacents (_chainId cid) g
     | otherwise = mempty
-{-# INLINE adjacentChainIds #-}
+
 
 -- -------------------------------------------------------------------------- --
 -- Undirected Edges
@@ -218,7 +218,7 @@ adjs
     :: ChainGraph
     -> HS.HashSet (AdjPair ChainId)
 adjs = HS.map (uncurry Adj) . G.edges . _chainGraphGraph
-{-# INLINE adjs #-}
+
 
 adjsOfVertex
     :: HasChainId p
@@ -266,23 +266,23 @@ class HasChainGraph a where
     chainGraph :: Getter a ChainGraph
 
     _chainGraph = view chainGraph
-    {-# INLINE _chainGraph #-}
+
 
     chainGraph = to _chainGraph
-    {-# INLINE chainGraph #-}
+
 
     {-# MINIMAL _chainGraph | chainGraph #-}
 
 instance HasChainGraph ChainGraph where
     _chainGraph = id
-    {-# INLINE _chainGraph #-}
+
 
 -- -------------------------------------------------------------------------- --
 -- Checks with a given Graphs
 
 graphChainIds :: ChainGraph -> HS.HashSet ChainId
 graphChainIds = G.vertices . _chainGraphGraph
-{-# INLINE graphChainIds #-}
+
 
 -- | Given a 'ChainGraph' @g@, @checkWebChainId p@ checks that @p@ is a vertex
 -- in @g@.
@@ -297,7 +297,7 @@ checkWebChainId g p = unless (isWebChain g p)
 --
 isWebChain :: HasChainGraph g => HasChainId p => g -> p -> Bool
 isWebChain g p = G.isVertex (_chainId p) (_chainGraphGraph $ _chainGraph g)
-{-# INLINE isWebChain #-}
+
 
 -- | Given a 'ChainGraph' @g@, @checkAdjacentChainIds cid as@ checks that the
 -- 'ChainId' cid is in @g@ and the set of adjacents chain ids of @cid@ is the
@@ -346,8 +346,8 @@ instance HasTextRepresentation KnownGraph where
     fromText "hoffman" = return HoffmanSingleton
     fromText x = throwM $ TextFormatException $ "unknown KnownGraph: " <> x
 
-    {-# INLINE toText #-}
-    {-# INLINE fromText #-}
+
+
 
 knownGraph :: KnownGraph -> G.DiGraph Int
 knownGraph Singleton = G.singleton
@@ -375,7 +375,7 @@ toChainGraph kg
     | otherwise = error "the given graph is not a valid chain graph"
   where
     c = G.mapVertices (unsafeChainId . int) $! knownGraph kg
-{-# INLINE toChainGraph #-}
+
 
 knownChainGraph :: KnownGraph -> ChainGraph
 knownChainGraph Singleton = singletonChainGraph

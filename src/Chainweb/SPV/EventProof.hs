@@ -427,8 +427,8 @@ instance MerkleHashAlgorithm a => IsMerkleLogEntry a ChainwebHashTag (BlockEvent
     type Tag (BlockEventsHash_ a) = 'BlockEventsHashTag
     toMerkleNode = encodeMerkleTreeNode
     fromMerkleNode = decodeMerkleTreeNode
-    {-# INLINE toMerkleNode #-}
-    {-# INLINE fromMerkleNode #-}
+
+
 
 -- -------------------------------------------------------------------------- --
 -- Output Events

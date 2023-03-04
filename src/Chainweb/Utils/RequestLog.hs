@@ -80,8 +80,8 @@ newtype JsonSockAddr = JsonSockAddr SockAddr
 instance ToJSON JsonSockAddr where
     toJSON (JsonSockAddr s) = object $ sockAddrJson s
     toEncoding (JsonSockAddr s) = pairs . mconcat $ sockAddrJson s
-    {-# INLINE toJSON #-}
-    {-# INLINE toEncoding #-}
+
+
 
 data RequestLog = RequestLog
     { _requestLogVersion :: !T.Text
@@ -113,13 +113,13 @@ requestLogProperties o =
     , "userAgent" .= _requestLogUserAgent o
     , "headers" .= _requestLogHeaders o
     ]
-{-# INLINE requestLogProperties #-}
+
 
 instance ToJSON RequestLog where
     toJSON = object . requestLogProperties
     toEncoding = pairs . mconcat . requestLogProperties
-    {-# INLINE toJSON #-}
-    {-# INLINE toEncoding #-}
+
+
 
 -- | INVARIANT: this result of this function must not retain pointers to
 -- the original request data that came over the wire.
@@ -169,8 +169,8 @@ requestResponseLogProperties o =
 instance ToJSON RequestResponseLog where
     toJSON = object . requestResponseLogProperties
     toEncoding = pairs . mconcat . requestResponseLogProperties
-    {-# INLINE toJSON #-}
-    {-# INLINE toEncoding #-}
+
+
 
 logRequestResponse :: RequestLog -> Response -> Int -> RequestResponseLog
 logRequestResponse reqLog res d = RequestResponseLog

@@ -427,7 +427,7 @@ fingerprint = flip getFingerprint HashSHA256
 
 fingerprintToText :: Fingerprint -> T.Text
 fingerprintToText (Fingerprint b) = encodeB64UrlNoPaddingText b
-{-# INLINE fingerprintToText #-}
+
 
 fingerprintFromText :: MonadThrow m => T.Text -> m Fingerprint
 fingerprintFromText t = do
@@ -438,11 +438,11 @@ fingerprintFromText t = do
         <> sshow fingerprintByteCount <> " bytes, got "
         <> sshow (B.length bytes) <> " bytes."
     return $! Fingerprint bytes
-{-# INLINE fingerprintFromText #-}
+
 
 unsafeFingerprintFromText :: HasCallStack => String -> Fingerprint
 unsafeFingerprintFromText = fromJuste . fingerprintFromText . T.pack
-{-# INLINE unsafeFingerprintFromText #-}
+
 
 -- -------------------------------------------------------------------------- --
 -- PEM Encoded Certificate
@@ -453,37 +453,37 @@ newtype X509CertPem = X509CertPem B.ByteString
 
 x509CertPemToText :: X509CertPem -> T.Text
 x509CertPemToText (X509CertPem b) = T.decodeUtf8 b
-{-# INLINE x509CertPemToText #-}
+
 
 x509CertPemFromText :: MonadThrow m => T.Text -> m X509CertPem
 x509CertPemFromText t = return $! X509CertPem $! T.encodeUtf8 t
-{-# INLINE x509CertPemFromText #-}
+
 
 unsafeX509CertPemFromText :: HasCallStack => String -> X509CertPem
 unsafeX509CertPemFromText = fromJuste . x509CertPemFromText . T.pack
-{-# INLINE unsafeX509CertPemFromText #-}
+
 
 instance HasTextRepresentation X509CertPem where
     toText = x509CertPemToText
-    {-# INLINE toText #-}
+
     fromText = x509CertPemFromText
-    {-# INLINE fromText #-}
+
 
 instance ToJSON X509CertPem where
     toJSON = toJSON . toText
     toEncoding = toEncoding . toText
-    {-# INLINE toJSON #-}
-    {-# INLINE toEncoding #-}
+
+
 
 instance FromJSON X509CertPem where
     parseJSON = parseJsonFromText "X509CertPem"
-    {-# INLINE parseJSON #-}
+
 
 pX509CertPem :: Maybe String -> OptionParser X509CertPem
 pX509CertPem service = textOption
     % prefixLong service "certificate"
     <> suffixHelp service "PEM encoded X509 certificate of the local peer"
-{-# INLINE pX509CertPem #-}
+
 
 validateX509CertPem :: MonadError T.Text m => X509CertPem -> m ()
 validateX509CertPem pemCert =
@@ -532,37 +532,37 @@ newtype X509KeyPem = X509KeyPem B.ByteString
 
 x509KeyPemToText :: X509KeyPem -> T.Text
 x509KeyPemToText (X509KeyPem b) = T.decodeUtf8 b
-{-# INLINE x509KeyPemToText #-}
+
 
 x509KeyPemFromText :: MonadThrow m => T.Text -> m X509KeyPem
 x509KeyPemFromText t = return . X509KeyPem $ T.encodeUtf8 t
-{-# INLINE x509KeyPemFromText #-}
+
 
 unsafeX509KeyPemFromText :: HasCallStack => String -> X509KeyPem
 unsafeX509KeyPemFromText = fromJuste . x509KeyPemFromText . T.pack
-{-# INLINE unsafeX509KeyPemFromText #-}
+
 
 instance HasTextRepresentation X509KeyPem where
     toText = x509KeyPemToText
-    {-# INLINE toText #-}
+
     fromText = x509KeyPemFromText
-    {-# INLINE fromText #-}
+
 
 instance ToJSON X509KeyPem where
     toJSON = toJSON . toText
     toEncoding = toEncoding . toText
-    {-# INLINE toJSON #-}
-    {-# INLINE toEncoding #-}
+
+
 
 instance FromJSON X509KeyPem where
     parseJSON = parseJsonFromText "X509KeyPem"
-    {-# INLINE parseJSON #-}
+
 
 pX509KeyPem :: Maybe String -> OptionParser X509KeyPem
 pX509KeyPem service = textOption
     % prefixLong service "key"
     <> suffixHelp service "PEM encoded X509 certificate key of the local peer"
-{-# INLINE pX509KeyPem #-}
+
 
 encodeKeyDer :: X509Key k => k -> B.ByteString
 encodeKeyDer sk = encodeASN1' DER $ (toASN1 $ getPrivKey sk) []
@@ -794,37 +794,37 @@ x509CertChainPemToText :: X509CertChainPem -> T.Text
 x509CertChainPemToText (X509CertChainPem a b) = T.intercalate "\n"
     $ x509CertPemToText a
     : (x509CertPemToText <$> b)
-{-# INLINE x509CertChainPemToText #-}
+
 
 x509CertChainPemFromText :: MonadThrow m => T.Text -> m X509CertChainPem
 x509CertChainPemFromText = parseCertChain . T.encodeUtf8
-{-# INLINE x509CertChainPemFromText #-}
+
 
 unsafeX509CertChainPemFromText :: HasCallStack => String -> X509CertChainPem
 unsafeX509CertChainPemFromText = unsafeFromText . T.pack
-{-# INLINE unsafeX509CertChainPemFromText #-}
+
 
 instance HasTextRepresentation X509CertChainPem where
     toText = x509CertChainPemToText
-    {-# INLINE toText #-}
+
     fromText = x509CertChainPemFromText
-    {-# INLINE fromText #-}
+
 
 instance ToJSON X509CertChainPem where
     toJSON = toJSON . toText
     toEncoding = toEncoding . toText
-    {-# INLINE toJSON #-}
-    {-# INLINE toEncoding #-}
+
+
 
 instance FromJSON X509CertChainPem where
     parseJSON = parseJsonFromText "X509CertChainPem"
-    {-# INLINE parseJSON #-}
+
 
 pX509CertChainPem :: Maybe String -> OptionParser X509CertChainPem
 pX509CertChainPem service = textOption
     % prefixLong service "certificate-chain"
     <> suffixHelp service "PEM encoded X509 certificate or certificate chain of the local peer"
-{-# INLINE pX509CertChainPem #-}
+
 
 validateX509CertChainPem :: MonadError T.Text m => X509CertChainPem -> m ()
 validateX509CertChainPem (X509CertChainPem a b) =

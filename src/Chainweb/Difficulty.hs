@@ -139,48 +139,48 @@ newtype PowHashNat = PowHashNat Word256
 
 powHashNat :: PowHash -> PowHashNat
 powHashNat = PowHashNat . powHashToWord256
-{-# INLINE powHashNat #-}
+
 
 powHashToWord256 :: (32 <= PowHashBytesCount) => PowHash -> Word256
 powHashToWord256 = either error id . runGetEitherS decodeWordLe . SB.fromShort . powHashBytes
-{-# INLINE powHashToWord256 #-}
+
 
 encodePowHashNat :: PowHashNat -> Put
 encodePowHashNat (PowHashNat n) = encodeWordLe n
-{-# INLINE encodePowHashNat #-}
+
 
 decodePowHashNat :: Get PowHashNat
 decodePowHashNat = PowHashNat <$!> decodeWordLe
-{-# INLINE decodePowHashNat #-}
+
 
 encodePowHashNatBe :: PowHashNat -> Put
 encodePowHashNatBe (PowHashNat n) = encodeWordBe n
-{-# INLINE encodePowHashNatBe #-}
+
 
 decodePowHashNatBe :: Get PowHashNat
 decodePowHashNatBe = PowHashNat <$!> decodeWordBe
-{-# INLINE decodePowHashNatBe #-}
+
 
 instance ToJSON PowHashNat where
     toJSON = toJSON . encodeB64UrlNoPaddingText . runPutS . encodePowHashNat
     toEncoding = b64UrlNoPaddingTextEncoding . runPutS . encodePowHashNat
-    {-# INLINE toJSON #-}
-    {-# INLINE toEncoding #-}
+
+
 
 instance FromJSON PowHashNat where
     parseJSON = withText "PowHashNat" $ either (fail . show) return
         . (runGetS decodePowHashNat <=< decodeB64UrlNoPaddingText)
-    {-# INLINE parseJSON #-}
+
 
 instance ToJSONKey PowHashNat where
     toJSONKey = toJSONKeyText
         $ encodeB64UrlNoPaddingText . runPutS . encodePowHashNat
-    {-# INLINE toJSONKey #-}
+
 
 instance FromJSONKey PowHashNat where
     fromJSONKey = FromJSONKeyTextParser $ either (fail . show) return
         . (runGetS decodePowHashNat <=< decodeB64UrlNoPaddingText)
-    {-# INLINE fromJSONKey #-}
+
 
 -- -------------------------------------------------------------------------- --
 -- HashTarget
@@ -199,7 +199,7 @@ newtype HashTarget = HashTarget { _hashTarget :: PowHashNat }
 
 hashTarget :: Lens' HashTarget PowHashNat
 hashTarget = lens _hashTarget $ const HashTarget
-{-# INLINE hashTarget #-}
+
 
 -- | A visualization of a `HashTarget` as binary.
 --
@@ -223,23 +223,23 @@ instance MerkleHashAlgorithm a => IsMerkleLogEntry a ChainwebHashTag HashTarget 
     type Tag HashTarget = 'HashTargetTag
     toMerkleNode = encodeMerkleInputNode encodeHashTarget
     fromMerkleNode = decodeMerkleInputNode decodeHashTarget
-    {-# INLINE toMerkleNode #-}
-    {-# INLINE fromMerkleNode #-}
+
+
 
 -- | The critical check in Proof-of-Work mining: did the generated hash match
 -- the target?
 --
 checkTarget :: HashTarget -> PowHash -> Bool
 checkTarget (HashTarget target) h = powHashNat h <= target
-{-# INLINE checkTarget #-}
+
 
 encodeHashTarget :: HashTarget -> Put
 encodeHashTarget = encodePowHashNat . coerce
-{-# INLINE encodeHashTarget #-}
+
 
 decodeHashTarget :: Get HashTarget
 decodeHashTarget = HashTarget <$!> decodePowHashNat
-{-# INLINE decodeHashTarget #-}
+
 
 -- -------------------------------------------------------------------------- --
 -- HashDifficulty
@@ -263,19 +263,19 @@ newtype HashDifficulty = HashDifficulty PowHashNat
 
 encodeHashDifficulty :: HashDifficulty -> Put
 encodeHashDifficulty (HashDifficulty x) = encodePowHashNat x
-{-# INLINE encodeHashDifficulty #-}
+
 
 decodeHashDifficulty :: Get HashDifficulty
 decodeHashDifficulty = HashDifficulty <$!> decodePowHashNat
-{-# INLINE decodeHashDifficulty #-}
+
 
 encodeHashDifficultyBe :: HashDifficulty -> Put
 encodeHashDifficultyBe (HashDifficulty x) = encodePowHashNatBe x
-{-# INLINE encodeHashDifficultyBe #-}
+
 
 decodeHashDifficultyBe :: Get HashDifficulty
 decodeHashDifficultyBe = HashDifficulty <$!> decodePowHashNatBe
-{-# INLINE decodeHashDifficultyBe #-}
+
 
 -- | Given the same `ChainwebVersion`, forms an isomorphism with
 -- `difficultyToTarget`.
@@ -283,7 +283,7 @@ decodeHashDifficultyBe = HashDifficulty <$!> decodePowHashNatBe
 targetToDifficulty :: HasCallStack => HashTarget -> HashDifficulty
 targetToDifficulty (HashTarget (PowHashNat target)) =
     HashDifficulty . PowHashNat $ maxTargetWord `div` target
-{-# INLINE targetToDifficulty #-}
+
 
 -- -------------------------------------------------------------------------- --
 -- Difficulty Adjustment
@@ -331,7 +331,7 @@ adjust (BlockRate br) (WindowWidth ww) (TimeSpan delta) (HashTarget oldTarget) =
 -- This is used when 'oldDaGuard' is active.
 --
 legacyAdjust
-    :: HasCallStack 
+    :: HasCallStack
     => BlockRate
     -> WindowWidth
     -> TimeSpan Micros

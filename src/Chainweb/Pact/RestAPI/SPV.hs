@@ -44,11 +44,11 @@ data SpvAlgorithm
 instance ToJSON SpvAlgorithm where
     toJSON SpvSHA512t_256 = "SHA512t_256"
     toJSON SpvKeccak_256 = "Keccak_256"
-    {-# INLINE toJSON #-}
+
 
     toEncoding SpvSHA512t_256 = toEncoding @String "SHA512t_256"
     toEncoding SpvKeccak_256 = toEncoding @String "Keccak_256"
-    {-# INLINE toEncoding #-}
+
 
 instance FromJSON SpvAlgorithm where
     parseJSON = withText "SpvAlgorithm" $ \case
@@ -67,11 +67,11 @@ data SpvSubjectType
 instance ToJSON SpvSubjectType where
     toJSON SpvSubjectResult = "result"
     toJSON SpvSubjectEvents = "events"
-    {-# INLINE toJSON #-}
+
 
     toEncoding SpvSubjectResult = toEncoding @String "result"
     toEncoding SpvSubjectEvents = toEncoding @String "events"
-    {-# INLINE toEncoding #-}
+
 
 instance FromJSON SpvSubjectType where
     parseJSON = withText "SpvType" $ \case
@@ -95,13 +95,13 @@ spvSubjectIdentifierProperties o =
     , "chain" .= _spvSubjectIdChain o
     , "requestKey" .= _spvSubjectIdReqKey o
     ]
-{-# INLINE spvSubjectIdentifierProperties #-}
+
 
 instance ToJSON SpvSubjectIdentifier where
     toJSON = object . spvSubjectIdentifierProperties
     toEncoding = pairs . mconcat . spvSubjectIdentifierProperties
-    {-# INLINE toJSON #-}
-    {-# INLINE toEncoding #-}
+
+
 
 instance FromJSON SpvSubjectIdentifier where
     parseJSON = withObject "SpvSubjectIdentifier" $ \o -> SpvSubjectIdentifier
@@ -125,13 +125,13 @@ spv2RequestProperties o =
     , "minimalProofDepth" .= _spv2ReqMinimalProofDepth o
     , "algorithm" .= _spv2ReqAlgorithm o
     ]
-{-# INLINE spv2RequestProperties #-}
+
 
 instance ToJSON Spv2Request where
     toJSON = object . spv2RequestProperties
     toEncoding = pairs . mconcat . spv2RequestProperties
-    {-# INLINE toJSON #-}
-    {-# INLINE toEncoding #-}
+
+
 
 instance FromJSON Spv2Request where
     parseJSON = withObject "Spv2Request" $ \o -> Spv2Request

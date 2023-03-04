@@ -101,19 +101,19 @@ import Chainweb.Utils
 
 toUtf8 :: T.Text -> SQ3.Utf8
 toUtf8 = SQ3.Utf8 . T.encodeUtf8
-{-# INLINE toUtf8 #-}
+
 
 fromUtf8 :: SQ3.Utf8 -> T.Text
 fromUtf8 (SQ3.Utf8 bytes) = T.decodeUtf8 bytes
-{-# INLINE fromUtf8 #-}
+
 
 toTextUtf8 :: HasTextRepresentation a => a -> SQ3.Utf8
 toTextUtf8 = toUtf8 . toText
-{-# INLINE toTextUtf8 #-}
+
 
 asStringUtf8 :: AsString a => a -> SQ3.Utf8
 asStringUtf8 = toUtf8 . asString
-{-# INLINE asStringUtf8 #-}
+
 
 domainTableName :: Domain k v -> SQ3.Utf8
 domainTableName = asStringUtf8
@@ -207,7 +207,7 @@ instance HasTextRepresentation SavepointName where
     toText Block = "block"
     toText DbTransaction = "db-transaction"
     toText PreBlock = "preblock"
-    {-# INLINE toText #-}
+
 
     fromText "batch" = pure BatchSavepoint
     fromText "block" = pure Block
@@ -216,7 +216,7 @@ instance HasTextRepresentation SavepointName where
     fromText t = throwM $ TextFormatException
         $ "failed to decode SavepointName " <> t
         <> ". Valid names are " <> T.intercalate ", " (toText @SavepointName <$> [minBound .. maxBound])
-    {-# INLINE fromText #-}
+
 
 -- instance AsString SavepointName where
 --   asString = toText

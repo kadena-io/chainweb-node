@@ -77,13 +77,13 @@ pendingTransactionsProperties o =
     [ "hashes" .= _pendingTransationsHashes o
     , "highwaterMark" .= _pendingTransactionsHighwaterMark o
     ]
-{-# INLINE pendingTransactionsProperties #-}
+
 
 instance ToJSON PendingTransactions where
     toJSON = object . pendingTransactionsProperties
     toEncoding = pairs . mconcat . pendingTransactionsProperties
-    {-# INLINE toJSON #-}
-    {-# INLINE toEncoding #-}
+
+
 
 instance FromJSON PendingTransactions where
     parseJSON = withObject "PendingTransactions" $ \o -> PendingTransactions

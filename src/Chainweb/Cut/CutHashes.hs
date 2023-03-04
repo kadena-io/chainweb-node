@@ -115,7 +115,7 @@ type CutIdBytesCount = 32
 
 cutIdBytesCount :: Natural
 cutIdBytesCount = natVal $ Proxy @CutIdBytesCount
-{-# INLINE cutIdBytesCount #-}
+
 
 -- | This is used to uniquly identify a cut.
 --
@@ -132,19 +132,19 @@ instance Bounded CutId where
 
 instance Show CutId where
     show = T.unpack . cutIdToText
-    {-# INLINE show #-}
+
 
 encodeCutId :: CutId -> Put
 encodeCutId (CutId w) = putByteString $ SB.fromShort w
-{-# INLINE encodeCutId #-}
+
 
 cutIdBytes :: CutId -> SB.ShortByteString
 cutIdBytes (CutId bytes) = bytes
-{-# INLINE cutIdBytes #-}
+
 
 decodeCutId :: Get CutId
 decodeCutId = CutId . SB.toShort <$!> getByteString (int cutIdBytesCount)
-{-# INLINE decodeCutId #-}
+
 
 instance Hashable CutId where
     hashWithSalt s (CutId bytes) = xor s
@@ -152,36 +152,36 @@ instance Hashable CutId where
         $ BA.withByteArray (SB.fromShort bytes) (peek @Int)
     -- CutIds are already cryptographically strong hashes
     -- that include the chain id.
-    {-# INLINE hashWithSalt #-}
+
 
 instance ToJSON CutId where
     toJSON = toJSON . toText
     toEncoding = toEncoding . toText
-    {-# INLINE toJSON #-}
-    {-# INLINE toEncoding #-}
+
+
 
 instance FromJSON CutId where
     parseJSON = parseJsonFromText "CutId"
-    {-# INLINE parseJSON #-}
+
 
 cutIdToText :: CutId -> T.Text
 cutIdToText = encodeB64UrlNoPaddingText . runPutS . encodeCutId
-{-# INLINE cutIdToText #-}
+
 
 cutIdFromText :: MonadThrow m => T.Text -> m CutId
 cutIdFromText t = either (throwM . TextFormatException . sshow) return
     $ runGetS decodeCutId =<< decodeB64UrlNoPaddingText t
-{-# INLINE cutIdFromText #-}
+
 
 instance HasTextRepresentation CutId where
     toText = cutIdToText
-    {-# INLINE toText #-}
+
     fromText = cutIdFromText
-    {-# INLINE fromText #-}
+
 
 cutIdToTextShort :: CutId -> T.Text
 cutIdToTextShort = T.take 6 . toText
-{-# INLINE cutIdToTextShort #-}
+
 
 -- -------------------------------------------------------------------------- --
 -- HasCutId Class
@@ -192,8 +192,8 @@ class HasCutId c where
 
     cutId = to _cutId
     _cutId = view cutId
-    {-# INLINE cutId #-}
-    {-# INLINE _cutId #-}
+
+
 
     {-# MINIMAL cutId | _cutId #-}
 
@@ -205,23 +205,23 @@ instance HasCutId (HM.HashMap x BlockHash) where
         . mconcat
         . fmap (runPutS . encodeBlockHash)
         . toList
-    {-# INLINE _cutId #-}
+
 
 instance HasCutId (HM.HashMap x BlockHeader) where
     _cutId = _cutId . fmap _blockHash
-    {-# INLINE _cutId #-}
+
 
 instance HasCutId (HM.HashMap x (y, BlockHash)) where
     _cutId = _cutId . fmap snd
-    {-# INLINE _cutId #-}
+
 
 instance HasCutId Cut where
     _cutId = _cutId . _cutMap
-    {-# INLINE _cutId #-}
+
 
 instance HasCutId CutId where
     _cutId = id
-    {-# INLINE _cutId #-}
+
 
 -- -------------------------------------------------------------------------- --
 -- Cut Hashes
@@ -238,19 +238,19 @@ blockHashWithHeightProperties o =
     [ "height" .= _bhwhHeight o
     , "hash" .= _bhwhHash o
     ]
-{-# INLINE blockHashWithHeightProperties #-}
+
 
 instance ToJSON BlockHashWithHeight where
     toJSON = object . blockHashWithHeightProperties
     toEncoding = pairs . mconcat . blockHashWithHeightProperties
-    {-# INLINE toJSON #-}
-    {-# INLINE toEncoding #-}
+
+
 
 instance FromJSON BlockHashWithHeight where
     parseJSON = withObject "HashWithHeight" $ \o -> BlockHashWithHeight
         <$> o .: "height"
         <*> o .: "hash"
-    {-# INLINE parseJSON #-}
+
 
 -- | This data structure is used to inform other components and chainweb nodes
 -- about new cuts along with some properties of the cut.
@@ -283,21 +283,21 @@ makeLenses ''CutHashes
 --
 _cutHashesMaxHeight :: CutHashes -> BlockHeight
 _cutHashesMaxHeight = maximum . fmap _bhwhHeight . _cutHashes
-{-# INLINE _cutHashesMaxHeight #-}
+
 
 cutHashesMaxHeight :: Getter CutHashes BlockHeight
 cutHashesMaxHeight = to _cutHashesMaxHeight
-{-# INLINE cutHashesMaxHeight #-}
+
 
 -- | Complexity is linear in the number of chains
 --
 _cutHashesMinHeight :: CutHashes -> BlockHeight
 _cutHashesMinHeight = minimum . fmap _bhwhHeight . _cutHashes
-{-# INLINE _cutHashesMinHeight #-}
+
 
 cutHashesMinHeight :: Getter CutHashes BlockHeight
 cutHashesMinHeight = to _cutHashesMinHeight
-{-# INLINE cutHashesMinHeight #-}
+
 
 -- | The value of 'cutOrigin' is ignored for equality
 --
@@ -307,11 +307,11 @@ instance Eq CutHashes where
 
 instance Hashable CutHashes where
     hashWithSalt s = hashWithSalt s . _cutHashesId
-    {-# INLINE hashWithSalt #-}
+
 
 instance Ord CutHashes where
     compare = compare `on` (_cutHashesWeight &&& _cutHashesId)
-    {-# INLINE compare #-}
+
 
 cutHashesProperties :: forall kv . KeyValue kv => CutHashes -> [kv]
 cutHashesProperties c =
@@ -338,8 +338,8 @@ cutHashesProperties c =
 instance ToJSON CutHashes where
     toJSON = object . cutHashesProperties
     toEncoding = pairs . mconcat . cutHashesProperties
-    {-# INLINE toJSON #-}
-    {-# INLINE toEncoding #-}
+
+
 
 instance FromJSON CutHashes where
     parseJSON = withObject "CutHashes" $ \o -> CutHashes
@@ -369,14 +369,14 @@ cutToCutHashes p c = CutHashes
 
 instance HasCutId CutHashes where
     _cutId = _cutHashesId
-    {-# INLINE _cutId #-}
+
 
 -- Note that this instance ignores the value of '_cutOrigin'
 --
 instance IsCasValue CutHashes where
     type CasKeyType CutHashes = (CutHeight, BlockWeight, CutId)
     casKey c = (_cutHashesHeight c, _cutHashesWeight c, _cutHashesId c)
-    {-# INLINE casKey #-}
+
 
 type CutHashesCas tbl = Cas tbl CutHashes
 
@@ -384,8 +384,8 @@ type CutHashesCas tbl = Cas tbl CutHashes
 --
 -- encodeCutHashes :: CutHashes -> Put
 -- encodeCutHashes = error "encodeCodeHashes: TODO"
--- {-# INLINE encodeCutHashes #-}
+--
 --
 -- decodeCutHashes :: Get CutId
 -- decodeCutHashes = error "decodeCutHashes: TODO"
--- {-# INLINE decodeCutHashes #-}
+--

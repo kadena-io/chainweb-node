@@ -90,11 +90,11 @@ data WebBlockHeaderDb = WebBlockHeaderDb
 
 instance HasChainGraph (WebBlockHeaderDb, BlockHeight) where
     _chainGraph (v, h) = _chainGraph (_webChainwebVersion v, h)
-    {-# INLINE _chainGraph #-}
+
 
 instance HasChainwebVersion WebBlockHeaderDb where
     _chainwebVersion = _webChainwebVersion
-    {-# INLINE _chainwebVersion #-}
+
 
 webBlockHeaderDb :: Getter WebBlockHeaderDb (HM.HashMap ChainId BlockHeaderDb)
 webBlockHeaderDb = to _webBlockHeaderDb
@@ -114,13 +114,13 @@ type instance IxValue WebBlockHeaderDb = BlockHeaderDb
 
 instance IxedGet WebBlockHeaderDb where
     ixg i = webBlockHeaderDb . ix i
-    {-# INLINE ixg #-}
+
 
 instance (k ~ CasKeyType (ChainValue BlockHeader)) => ReadableTable WebBlockHeaderDb k (ChainValue BlockHeader) where
     tableLookup db k = case preview (ixg (_chainId k)) db of
         Nothing -> return Nothing
         Just cdb -> sequence <$> traverse (tableLookup cdb) k
-    {-# INLINE tableLookup #-}
+
 
 initWebBlockHeaderDb
     :: HasCallStack => RocksDb
@@ -259,7 +259,7 @@ checkBlockHeaderGraph b = void
     graph
         | isGenesisBlockHeader b = _chainGraph b
         | otherwise = chainGraphAt (_blockChainwebVersion b) (_blockHeight b - 1)
-{-# INLINE checkBlockHeaderGraph #-}
+
 
 -- | Given a 'WebBlockHeaderDb' @db@, @checkBlockAdjacentParents h@ checks that
 -- all referenced adjacent parents block headers exist in @db@.
@@ -269,5 +269,5 @@ checkBlockAdjacentParents
     -> BlockHeader
     -> IO ()
 checkBlockAdjacentParents db = void . blockAdjacentParentHeaders db
-{-# INLINE checkBlockAdjacentParents #-}
+
 

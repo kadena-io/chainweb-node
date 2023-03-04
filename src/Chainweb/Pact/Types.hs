@@ -384,11 +384,11 @@ makeLenses ''PactServiceEnv
 
 instance HasChainwebVersion (PactServiceEnv c) where
     _chainwebVersion = _chainwebVersion . _psBlockHeaderDb
-    {-# INLINE _chainwebVersion #-}
+
 
 instance HasChainId (PactServiceEnv c) where
     _chainId = _chainId . _psBlockHeaderDb
-    {-# INLINE _chainId #-}
+
 
 defaultReorgLimit :: Word64
 defaultReorgLimit = 480

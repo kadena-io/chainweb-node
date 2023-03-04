@@ -188,7 +188,7 @@ newtype HostAddressIdx = HostAddressIdx Int
 
 hostAddressIdx :: HostAddress -> HostAddressIdx
 hostAddressIdx = HostAddressIdx . xor pdNonce . hash
-{-# INLINE hostAddressIdx #-}
+
 
 type PeerEntryIxs =
     '[ HostAddressIdx
@@ -312,19 +312,19 @@ peerDbSetLocalPeer pinfo db = do
 
 peerDbSnapshot :: PeerDb -> IO PeerSet
 peerDbSnapshot (PeerDb _ _ _ _ var) = readTVarIO var
-{-# INLINE peerDbSnapshot #-}
+
 
 peerDbSnapshotSTM :: PeerDb -> STM PeerSet
 peerDbSnapshotSTM (PeerDb _ _ _ _ var) = readTVar var
-{-# INLINE peerDbSnapshotSTM #-}
+
 
 peerDbSize :: PeerDb -> IO Natural
 peerDbSize (PeerDb _ _ _ _ var) = int . size <$!> readTVarIO var
-{-# INLINE peerDbSize #-}
+
 
 peerDbSizeSTM :: PeerDb -> STM Natural
 peerDbSizeSTM (PeerDb _ _ _ _ var) = int . size <$!> readTVar var
-{-# INLINE peerDbSizeSTM #-}
+
 
 -- | Adds new 'PeerInfo' values for a given chain id.
 --
@@ -341,7 +341,7 @@ peerDbInsert (PeerDb _ _ _ lock var) nid i = do
         . atomically
         . modifyTVar' var
         $ addPeerInfo nid i now
-{-# INLINE peerDbInsert #-}
+
 
 -- | Delete a peer, identified by its host address, from the peer database.
 --
@@ -351,7 +351,7 @@ peerDbDelete (PeerDb _ _ _ lock var) i = withMVar lock
     . atomically
     . modifyTVar' var
     $ deletePeer i False
-{-# INLINE peerDbDelete #-}
+
 
 peerDbDelete_
     :: PeerDb
@@ -364,7 +364,7 @@ peerDbDelete_ (PeerDb _ _ _ lock var) forceSticky i = withMVar lock
     . atomically
     . modifyTVar' var
     $ deletePeer i forceSticky
-{-# INLINE peerDbDelete_ #-}
+
 
 -- | Delete peers that
 -- 1. not currently used, that

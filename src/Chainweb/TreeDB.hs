@@ -401,7 +401,7 @@ class (Typeable db, TreeDbEntry (DbEntry db)) => TreeDb db where
 
 root :: TreeDb db => db -> IO (DbEntry db)
 root db = fromJuste <$> entries db Nothing (Just 1) Nothing Nothing S.head_
-{-# INLINE root #-}
+
 
 -- | The rank of the root. Often, but not always, this is 0.
 --
@@ -410,7 +410,7 @@ root db = fromJuste <$> entries db Nothing (Just 1) Nothing Nothing S.head_
 --
 minRank :: TreeDb db => db -> IO Natural
 minRank = fmap rank . root
-{-# INLINE minRank #-}
+
 
 -- | Filter the stream of entries for entries in a range of ranks.
 --
@@ -440,7 +440,7 @@ ancestors
     -> DbKey db
     -> S.Stream (Of (DbEntry db)) IO ()
 ancestors db k = getBranch db mempty (HS.singleton $ UpperBound k)
-{-# INLINE ancestors #-}
+
 
 -- | The default implementation for getBranch. This implementation always starts
 -- traversing from the given upper bounds and prunes the result to the possibly
@@ -826,7 +826,7 @@ collectForkBlocks db lastHeader newHeader = do
                 go strm (oldBlocks, blk:newBlocks)
             Right (These lBlk rBlk, strm) ->
                 go strm (lBlk:oldBlocks, rBlk:newBlocks)
-{-# INLINE collectForkBlocks #-}
+
 
 -- -------------------------------------------------------------------------- --
 -- Query an item with given rank on a branch

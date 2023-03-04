@@ -277,7 +277,7 @@ ethResultToPactValue ReceiptProofValidation{..} = mkObject
       _ -> tStr $ sshow v
     ts (Timestamp t) = tInt t
     tix (TransactionIndex i) = tInt i
-{-# INLINE ethResultToPactValue #-}
+
 
 -- | Look up pact tx hash at some block height in the
 -- payload db, and return the tx index for proof creation.

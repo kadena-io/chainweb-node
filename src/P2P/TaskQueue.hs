@@ -132,7 +132,7 @@ awaitTask = awaitIVar . _taskResult >=> either (throwM . TaskFailed) return
 
 taskResult :: Task env a -> RIVar (Either [SomeException] a)
 taskResult = rIVar . _taskResult
-{-# INLINE taskResult #-}
+
 
 instance Eq (Task env a) where
     (==) = (==) `on` (_taskPriority &&& _taskAttemptsCount)
@@ -140,7 +140,7 @@ instance Eq (Task env a) where
 
 instance Ord (Task env a) where
     compare = compare `on` (_taskPriority &&& _taskAttemptsCount)
-    {-# INLINE compare #-}
+
 
 -- -------------------------------------------------------------------------- --
 -- P2P Session Backend for Task Queue
@@ -156,7 +156,7 @@ session
     -> PeerInfo
     -> IO Bool
 session li q lo e _ = session_ li q lo e
-{-# INLINE session #-}
+
 
 session_
     :: AttemptsCount

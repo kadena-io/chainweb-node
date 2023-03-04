@@ -247,31 +247,31 @@ portFromInt :: MonadThrow m => Integral a => a -> m Port
 portFromInt n
     | n >= 0 && n <= 2^(16 :: Int)-1 = return $ Port (int n)
     | otherwise = throwM $ InvalidPortException (int n)
-{-# INLINE portFromInt #-}
+
 
 readPortBytes :: MonadThrow m => B8.ByteString -> m Port
 readPortBytes = parseBytes "port" portParser
-{-# INLINE readPortBytes #-}
+
 
 portToText :: Port -> T.Text
 portToText = sshow
-{-# INLINE portToText #-}
+
 
 portFromText :: MonadThrow m => T.Text -> m Port
 portFromText = readPortBytes . T.encodeUtf8
-{-# INLINE portFromText #-}
+
 
 instance HasTextRepresentation Port where
     toText = portToText
-    {-# INLINE toText #-}
+
     fromText = portFromText
-    {-# INLINE fromText #-}
+
 
 pPort :: Maybe String -> OptionParser Port
 pPort service = textOption
     % prefixLong service "port"
     <> suffixHelp service "port number"
-{-# INLINE pPort #-}
+
 
 -- -------------------------------------------------------------------------- --
 -- Hostnames
@@ -293,37 +293,37 @@ readHostnameBytes b = parseBytes "hostname" parser b
         HostTypeName -> return $! HostnameName (CI.mk b)
         HostTypeIPv4 -> return $! HostnameIPv4 (CI.mk b)
         HostTypeIPv6 -> return $! HostnameIPv6 (CI.mk b)
-{-# INLINE readHostnameBytes #-}
+
 
 localhost :: Hostname
 localhost = HostnameName "localhost"
-{-# INLINE localhost #-}
+
 
 -- | Using explicit IP addresses and not to "localhost" greatly improves
 -- networking performance and Mac OS X.
 --
 localhostIPv4 :: Hostname
 localhostIPv4 = HostnameIPv4 "127.0.0.1"
-{-# INLINE localhostIPv4 #-}
+
 
 -- | Using explicit IP addresses and not to "localhost" greatly improves
 -- networking performance and Mac OS X.
 --
 localhostIPv6 :: Hostname
 localhostIPv6 = HostnameIPv6 "::1"
-{-# INLINE localhostIPv6 #-}
+
 
 anyIpv4 :: Hostname
 anyIpv4 = HostnameIPv4 "0.0.0.0"
-{-# INLINE anyIpv4 #-}
+
 
 loopback :: Hostname
 loopback = HostnameIPv4 "127.0.0.1"
-{-# INLINE loopback #-}
+
 
 broadcast :: Hostname
 broadcast = HostnameIPv4 "255.255.255.255"
-{-# INLINE broadcast #-}
+
 
 isPrivateHostname :: Hostname -> Bool
 isPrivateHostname (HostnameIPv4 ip) = isPrivateIp (read $ B8.unpack $ CI.original ip)
@@ -368,41 +368,41 @@ hostnameBytes :: Hostname -> B8.ByteString
 hostnameBytes (HostnameName b) = CI.original b
 hostnameBytes (HostnameIPv4 b) = CI.original b
 hostnameBytes (HostnameIPv6 b) = CI.original b
-{-# INLINE hostnameBytes #-}
+
 
 hostnameToText :: Hostname -> T.Text
 hostnameToText = T.decodeUtf8 . hostnameBytes
-{-# INLINE hostnameToText #-}
+
 
 hostnameFromText :: MonadThrow m => T.Text -> m Hostname
 hostnameFromText = readHostnameBytes . T.encodeUtf8
-{-# INLINE hostnameFromText #-}
+
 
 unsafeHostnameFromText :: HasCallStack => T.Text -> Hostname
 unsafeHostnameFromText = fromJuste . hostnameFromText
-{-# INLINE unsafeHostnameFromText #-}
+
 
 instance ToJSON Hostname where
     toJSON = toJSON . hostnameToText
     toEncoding = toEncoding. hostnameToText
-    {-# INLINE toJSON #-}
-    {-# INLINE toEncoding #-}
+
+
 
 instance FromJSON Hostname where
     parseJSON = parseJsonFromText "Hostname"
-    {-# INLINE parseJSON #-}
+
 
 instance HasTextRepresentation Hostname where
     toText = hostnameToText
-    {-# INLINE toText #-}
+
     fromText = hostnameFromText
-    {-# INLINE fromText #-}
+
 
 pHostname :: Maybe String -> OptionParser Hostname
 pHostname service = textOption
     % prefixLong service "hostname"
     <> suffixHelp service "hostname"
-{-# INLINE pHostname #-}
+
 
 -- -------------------------------------------------------------------------- --
 -- Host Addresses
@@ -423,7 +423,7 @@ hostAddressBytes a = host <> ":" <> sshow (_hostAddressPort a)
     host = case ha of
         HostnameIPv6 _ -> "[" <> hostnameBytes ha <> "]"
         _ -> hostnameBytes ha
-{-# INLINE hostAddressBytes #-}
+
 
 readHostAddressBytes :: MonadThrow m => B8.ByteString -> m HostAddress
 readHostAddressBytes bytes = parseBytes "hostaddress" (hostAddressParser bytes) bytes
@@ -446,46 +446,46 @@ hostAddressParser b = HostAddress
 
 hostAddressToText :: HostAddress -> T.Text
 hostAddressToText = T.decodeUtf8 . hostAddressBytes
-{-# INLINE hostAddressToText #-}
+
 
 hostAddressFromText :: MonadThrow m => T.Text -> m HostAddress
 hostAddressFromText = readHostAddressBytes . T.encodeUtf8
-{-# INLINE hostAddressFromText #-}
+
 
 unsafeHostAddressFromText :: HasCallStack => T.Text -> HostAddress
 unsafeHostAddressFromText = fromJuste . hostAddressFromText
-{-# INLINE unsafeHostAddressFromText #-}
+
 
 instance HasTextRepresentation HostAddress where
     toText = hostAddressToText
-    {-# INLINE toText #-}
+
     fromText = hostAddressFromText
-    {-# INLINE fromText #-}
+
 
 hostAddressProperties :: KeyValue kv => HostAddress -> [kv]
 hostAddressProperties o =
     [ "hostname" .= _hostAddressHost o
     , "port" .= _hostAddressPort o
     ]
-{-# INLINE hostAddressProperties #-}
+
 
 instance ToJSON HostAddress where
     toJSON = object. hostAddressProperties
     toEncoding = pairs . mconcat . hostAddressProperties
-    {-# INLINE toJSON #-}
-    {-# INLINE toEncoding #-}
+
+
 
 instance FromJSON HostAddress where
     parseJSON = withObject "HostAddress" $ \o -> HostAddress
         <$> o .: "hostname"
         <*> o .: "port"
-    {-# INLINE parseJSON #-}
+
 
 instance FromJSON (HostAddress -> HostAddress) where
     parseJSON = withObject "HostAddress" $ \o -> id
         <$< hostAddressHost ..: "hostname" % o
         <*< hostAddressPort ..: "port" % o
-    {-# INLINE parseJSON #-}
+
 
 pHostAddress :: Maybe String -> MParser HostAddress
 pHostAddress service = id
@@ -503,11 +503,11 @@ hostAddressToBaseUrl s (HostAddress hn p) = BaseUrl s hn' p' ""
 
 isPrivateHostAddress :: HostAddress -> Bool
 isPrivateHostAddress (HostAddress n _) = isPrivateHostname n
-{-# INLINE isPrivateHostAddress #-}
+
 
 isReservedHostAddress :: HostAddress -> Bool
 isReservedHostAddress (HostAddress n _) = isReservedHostname n
-{-# INLINE isReservedHostAddress #-}
+
 
 -- -------------------------------------------------------------------------- --
 -- Host Preference Utils
@@ -532,7 +532,7 @@ hostPreferenceFromText s = Host . T.unpack . toText <$> hostnameFromText s
 --
 instance HasTextRepresentation HostPreference where
     toText = hostPreferenceToText
-    {-# INLINE toText #-}
+
     fromText = hostPreferenceFromText
-    {-# INLINE fromText #-}
+
 

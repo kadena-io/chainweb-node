@@ -83,11 +83,11 @@ data SomeLogMessage = forall a . LogMessage a => SomeLogMessage a
 
 instance NFData SomeLogMessage where
     rnf (SomeLogMessage a) = rnf a
-    {-# INLINE rnf #-}
+
 
 instance Show SomeLogMessage where
     show (SomeLogMessage a) = T.unpack $ logText a
-    {-# INLINE show #-}
+
 
 -- -------------------------------------------------------------------------- --
 -- LogMessage
@@ -104,31 +104,31 @@ class (NFData a, Typeable a) => LogMessage a where
     fromLogMessage :: SomeLogMessage -> Maybe a
 
     toLogMessage = SomeLogMessage
-    {-# INLINE toLogMessage #-}
+
 
     fromLogMessage (SomeLogMessage a) = cast a
-    {-# INLINE fromLogMessage #-}
+
 
     default logText :: Show a => a -> T.Text
     logText = T.pack . show
-    {-# INLINE logText #-}
+
 
 instance LogMessage SomeLogMessage where
     logText (SomeLogMessage a) = logText a
-    {-# INLINE logText #-}
+
 
     toLogMessage a = a
-    {-# INLINE toLogMessage #-}
+
 
     fromLogMessage = Just
-    {-# INLINE fromLogMessage #-}
+
 
 -- | TODO: is this instance a good idea or should we use a
 -- newtype wrapper?
 --
 instance LogMessage T.Text where
     logText t = t
-    {-# INLINE logText #-}
+
 
 -- -------------------------------------------------------------------------- --
 -- LogFunction
@@ -171,7 +171,7 @@ newtype JsonLog a = JsonLog a
 
 instance (Typeable a, NFData a, ToJSON a) => LogMessage (JsonLog a) where
     logText (JsonLog a) = T.decodeUtf8 . BL.toStrict $ encode a
-    {-# INLINE logText #-}
+
 
 -- | A dynamically polymorphic wrapper for any log message type that has a
 -- 'ToJSON' instance.
@@ -180,11 +180,11 @@ data SomeJsonLog = forall a . (NFData a, ToJSON a) => SomeJsonLog a
 
 instance NFData SomeJsonLog where
     rnf (SomeJsonLog a) = rnf a
-    {-# INLINE rnf #-}
+
 
 instance LogMessage SomeJsonLog where
     logText (SomeJsonLog a) = T.decodeUtf8 . BL.toStrict $ encode a
-    {-# INLINE logText #-}
+
 
 -- | A newtype wrapper for textual log messages.
 --
@@ -202,7 +202,7 @@ data BinaryLog
 instance LogMessage BinaryLog where
     logText (BinaryLog a) = T.decodeUtf8 $ B64.encode a
     logText (BinaryLogLazy a) = T.decodeUtf8 . B64.encode $ BL.toStrict a
-    {-# INLINE logText #-}
+
 
 -- | Static textual log messages using 'Symbol' literals from 'GHC.TypeLits'.
 --
@@ -213,5 +213,5 @@ instance NFData SomeSymbolLog where
 
 instance LogMessage SomeSymbolLog where
     logText (SomeSymbolLog (_ :: Proxy a)) = T.pack $ symbolVal (Proxy @a)
-    {-# INLINE logText #-}
+
 

@@ -126,41 +126,41 @@ newtype ChainId :: Type where
 
 instance ToJSONKey ChainId where
     toJSONKey = toJSONKeyText toText
-    {-# INLINE toJSONKey #-}
+
 
 instance FromJSONKey ChainId where
     fromJSONKey = FromJSONKeyTextParser (either fail return . eitherFromText)
-    {-# INLINE fromJSONKey #-}
+
 
 class HasChainId a where
     _chainId :: a -> ChainId
     _chainId = view chainId
-    {-# INLINE _chainId #-}
+
 
     chainId :: Getter a ChainId
     chainId = to _chainId
-    {-# INLINE chainId #-}
+
 
     {-# MINIMAL _chainId | chainId #-}
 
 instance HasChainId ChainId where
     _chainId = id
-    {-# INLINE _chainId #-}
+
 
 instance HasChainId a => HasChainId (Expected a) where
     _chainId = _chainId . getExpected
-    {-# INLINE _chainId #-}
+
 
 instance HasChainId a => HasChainId (Actual a) where
     _chainId = _chainId . getActual
-    {-# INLINE _chainId #-}
+
 
 instance MerkleHashAlgorithm a => IsMerkleLogEntry a ChainwebHashTag ChainId where
     type Tag ChainId = 'ChainIdTag
     toMerkleNode = encodeMerkleInputNode encodeChainId
     fromMerkleNode = decodeMerkleInputNode decodeChainId
-    {-# INLINE toMerkleNode #-}
-    {-# INLINE fromMerkleNode #-}
+
+
 
 checkChainId
     :: MonadThrow m
@@ -171,39 +171,39 @@ checkChainId
     -> m ChainId
 checkChainId expected actual = _chainId
     <$> check ChainIdMismatch (_chainId <$> expected) (_chainId <$> actual)
-{-# INLINE checkChainId #-}
+
 
 chainIdToText :: ChainId -> T.Text
 chainIdToText (ChainId i) = sshow i
-{-# INLINE chainIdToText #-}
+
 
 chainIdFromText :: MonadThrow m => T.Text -> m ChainId
 chainIdFromText = fmap ChainId . treadM
-{-# INLINE chainIdFromText #-}
+
 
 instance HasTextRepresentation ChainId where
     toText = chainIdToText
-    {-# INLINE toText #-}
+
     fromText = chainIdFromText
-    {-# INLINE fromText #-}
+
 
 -- -------------------------------------------------------------------------- --
 -- Serialization
 
 encodeChainId :: ChainId -> Put
 encodeChainId (ChainId w32) = putWord32le w32
-{-# INLINE encodeChainId #-}
+
 
 decodeChainId :: Get ChainId
 decodeChainId = ChainId <$> getWord32le
-{-# INLINE decodeChainId #-}
+
 
 decodeChainIdChecked
     :: HasChainId p
     => Expected p
     -> Get ChainId
 decodeChainIdChecked p = checkChainId p . Actual =<< decodeChainId
-{-# INLINE decodeChainIdChecked #-}
+
 
 -- -------------------------------------------------------------------------- --
 -- Type Level ChainId
@@ -245,8 +245,8 @@ instance SingKind ChainIdT where
     toSing n = case someChainIdVal n of
         SomeChainIdT p -> SomeSing (singByProxy p)
 
-    {-# INLINE fromSing #-}
-    {-# INLINE toSing #-}
+
+
 
 pattern FromSingChainId :: Sing (n :: ChainIdT) -> ChainId
 pattern FromSingChainId sng <- ((\cid -> withSomeSing cid SomeSing) -> SomeSing sng)
@@ -261,11 +261,11 @@ pattern FromSingChainId sng <- ((\cid -> withSomeSing cid SomeSing) -> SomeSing 
 --
 unsafeChainId :: Word32 -> ChainId
 unsafeChainId = ChainId
-{-# INLINE unsafeChainId #-}
+
 
 chainIdInt :: Integral i => ChainId -> i
 chainIdInt (ChainId cid) = int cid
-{-# INLINE chainIdInt #-}
+
 
 -- edtodo: document
 data ChainMap a = AllChains a | OnChains (HashMap ChainId a)

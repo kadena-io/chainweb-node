@@ -75,13 +75,13 @@ newtype IVar a = IVar (MVar a)
 
 instance IsRIVar IVar where
     tryReadIVar (IVar v) = tryReadMVar v
-    {-# INLINE tryReadIVar #-}
+
     awaitIVar (IVar v) = readMVar v
-    {-# INLINE awaitIVar #-}
+
 
 instance IsWIVar IVar where
     putIVar (IVar var) a = tryPutMVar var $! a
-    {-# INLINE putIVar #-}
+
     putIVar' (IVar var) a = tryPutMVar var $!! a
     {-# INLINE putIVar' #-}
 
@@ -90,14 +90,14 @@ instance IsWIVar IVar where
 --
 newIVar :: IO (IVar a)
 newIVar = IVar <$> newEmptyMVar
-{-# INLINE newIVar #-}
+
 
 -- | Create an weak 'IVar'. For details and caveats regarding weak references,
 -- please, see the documentation for 'mkWeakMVar'.
 --
 mkWeakIVar :: IVar a -> IO () -> IO (Weak (IVar a))
 mkWeakIVar (IVar var) f = coerce <$> mkWeakMVar var f
-{-# INLINE mkWeakIVar #-}
+
 
 -- -------------------------------------------------------------------------- --
 -- Writeable IVar
@@ -114,7 +114,7 @@ newtype WIVar a = WIVar (IVar a)
 --
 wIVar :: IVar a -> WIVar a
 wIVar = WIVar
-{-# INLINE wIVar #-}
+
 
 -- -------------------------------------------------------------------------- --
 -- Readable IVar
@@ -131,4 +131,4 @@ newtype RIVar a = RIVar (IVar a)
 --
 rIVar :: IVar a -> RIVar a
 rIVar = RIVar
-{-# INLINE rIVar #-}
+

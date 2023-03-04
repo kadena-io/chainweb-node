@@ -113,7 +113,7 @@ _webPactNewBlock
     -> ParentHeader
     -> IO PayloadWithOutputs
 _webPactNewBlock = _pactNewBlock . _webPactExecutionService
-{-# INLINE _webPactNewBlock #-}
+
 
 _webPactValidateBlock
     :: WebPactExecutionService
@@ -121,7 +121,7 @@ _webPactValidateBlock
     -> PayloadData
     -> IO PayloadWithOutputs
 _webPactValidateBlock = _pactValidateBlock . _webPactExecutionService
-{-# INLINE _webPactValidateBlock #-}
+
 
 mkWebPactExecutionService
     :: HasCallStack

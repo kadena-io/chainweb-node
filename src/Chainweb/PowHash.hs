@@ -69,7 +69,7 @@ type PowHashBytesCount = 32
 
 powHashBytesCount :: Natural
 powHashBytesCount = natVal $ Proxy @PowHashBytesCount
-{-# INLINE powHashBytesCount #-}
+
 
 newtype PowHash = PowHash SB.ShortByteString
     deriving (Show, Eq, Ord, Generic)
@@ -79,30 +79,30 @@ newtype PowHash = PowHash SB.ShortByteString
 --
 mkPowHash :: MonadThrow m => B.ByteString -> m PowHash
 mkPowHash = runGetS decodePowHash
-{-# INLINE mkPowHash #-}
+
 
 unsafeMkPowHash :: HasCallStack => B.ByteString -> PowHash
 unsafeMkPowHash = fromJuste . runGetS decodePowHash
-{-# INLINE unsafeMkPowHash #-}
+
 
 instance MerkleHashAlgorithm a => IsMerkleLogEntry a ChainwebHashTag PowHash where
     type Tag PowHash = 'PowHashTag
     toMerkleNode = encodeMerkleInputNode encodePowHash
     fromMerkleNode = decodeMerkleInputNode decodePowHash
-    {-# INLINE toMerkleNode #-}
-    {-# INLINE fromMerkleNode #-}
+
+
 
 encodePowHash :: PowHash -> Put
 encodePowHash (PowHash w) = putByteString $ SB.fromShort w
-{-# INLINE encodePowHash #-}
+
 
 powHashBytes :: PowHash -> SB.ShortByteString
 powHashBytes (PowHash bytes) = bytes
-{-# INLINE powHashBytes #-}
+
 
 decodePowHash :: Get PowHash
 decodePowHash = PowHash . SB.toShort <$> getByteString (int powHashBytesCount)
-{-# INLINE decodePowHash #-}
+
 
 instance Hashable PowHash where
     hashWithSalt s (PowHash bytes) = xor s
@@ -110,19 +110,19 @@ instance Hashable PowHash where
         $ BA.withByteArray (SB.fromShort bytes) (peek @Int)
     -- PowHashs are already cryptographically strong hashes
     -- that include the chain id.
-    {-# INLINE hashWithSalt #-}
+
 
 instance ToJSON PowHash where
     toJSON = toJSON . encodeB64UrlNoPaddingText . runPutS . encodePowHash
     toEncoding = b64UrlNoPaddingTextEncoding . runPutS . encodePowHash
-    {-# INLINE toJSON #-}
-    {-# INLINE toEncoding #-}
+
+
 
 instance FromJSON PowHash where
     parseJSON = withText "PowHash" $ \t ->
         either (fail . show) return
             $ runGetS decodePowHash =<< decodeB64UrlNoPaddingText t
-    {-# INLINE parseJSON #-}
+
 
 -- -------------------------------------------------------------------------- --
 -- Cryptographic Hash

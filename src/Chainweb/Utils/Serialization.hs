@@ -76,36 +76,36 @@ instance MonadThrow Get where
 --
 runGetL :: MonadThrow m => Get a -> BL.ByteString -> m a
 runGetL g = fromEitherM . over _Left (DecodeException . T.pack) . runGetEitherL g
-{-# INLINE runGetL #-}
+
 
 -- | Decode a value from a 'B.ByteString' and return either the result or a
 -- 'DecodeException'.
 --
 runGetEitherL :: Get a -> BL.ByteString -> Either String a
 runGetEitherL (Get g) = over _Left (view _3) . over _Right (view _3) . Binary.runGetOrFail (g <* eof)
-{-# INLINE runGetEitherL #-}
+
 
 runGetS :: MonadThrow m => Get a -> B.ByteString -> m a
 runGetS g = runGetL g . BL.fromStrict
-{-# INLINE runGetS #-}
+
 
 runGetEitherS :: Get a -> B.ByteString -> Either String a
 runGetEitherS g = runGetEitherL g . BL.fromStrict
-{-# INLINE runGetEitherS #-}
+
 
 -- | Encode a value into a 'B.ByteString'.
 --
 runPutL :: Put -> BL.ByteString
 runPutL (PutM x) = Binary.runPut x
-{-# INLINE runPutL #-}
+
 
 runPutS :: Put -> B.ByteString
 runPutS x = BL.toStrict (runPutL x)
-{-# INLINE runPutS #-}
+
 
 eof :: Binary.Get ()
 eof = unlessM Binary.isEmpty $ fail "pending bytes in input"
-{-# INLINE eof #-}
+
 
 label :: forall a. String -> Get a -> Get a
 label = coerce (Binary.label :: String -> Binary.Get a -> Binary.Get a)
@@ -164,60 +164,60 @@ instance WordEncoding Word8 where
     decodeWordLe = getWord8
     encodeWordBe = putWord8
     decodeWordBe = getWord8
-    {-# INLINE encodeWordLe #-}
-    {-# INLINE decodeWordLe #-}
-    {-# INLINE encodeWordBe #-}
-    {-# INLINE decodeWordBe #-}
+
+
+
+
 
 instance WordEncoding Word16 where
     encodeWordLe = putWord16le
     decodeWordLe = getWord16le
     encodeWordBe = putWord16be
     decodeWordBe = getWord16be
-    {-# INLINE encodeWordLe #-}
-    {-# INLINE decodeWordLe #-}
-    {-# INLINE encodeWordBe #-}
-    {-# INLINE decodeWordBe #-}
+
+
+
+
 
 instance WordEncoding Word32 where
     encodeWordLe = putWord32le
     decodeWordLe = getWord32le
     encodeWordBe = putWord32be
     decodeWordBe = getWord32be
-    {-# INLINE encodeWordLe #-}
-    {-# INLINE decodeWordLe #-}
-    {-# INLINE encodeWordBe #-}
-    {-# INLINE decodeWordBe #-}
+
+
+
+
 
 instance WordEncoding Word64 where
     encodeWordLe = putWord64le
     decodeWordLe = getWord64le
     encodeWordBe = putWord64be
     decodeWordBe = getWord64be
-    {-# INLINE encodeWordLe #-}
-    {-# INLINE decodeWordLe #-}
-    {-# INLINE encodeWordBe #-}
-    {-# INLINE decodeWordBe #-}
+
+
+
+
 
 instance WordEncoding Word128 where
     encodeWordLe (Word128 a b) = encodeWordLe b *> encodeWordLe a
     decodeWordLe = flip Word128 <$!> decodeWordLe <*> decodeWordLe
     encodeWordBe (Word128 a b) = encodeWordBe a *> encodeWordBe b
     decodeWordBe = Word128 <$!> decodeWordBe <*> decodeWordBe
-    {-# INLINE encodeWordLe #-}
-    {-# INLINE decodeWordLe #-}
-    {-# INLINE encodeWordBe #-}
-    {-# INLINE decodeWordBe #-}
+
+
+
+
 
 instance WordEncoding Word256 where
     encodeWordLe (Word256 a b) = encodeWordLe b *> encodeWordLe a
     decodeWordLe = flip Word256 <$!> decodeWordLe <*> decodeWordLe
     encodeWordBe (Word256 a b) = encodeWordBe a *> encodeWordBe b
     decodeWordBe = Word256 <$!> decodeWordBe <*> decodeWordBe
-    {-# INLINE encodeWordLe #-}
-    {-# INLINE decodeWordLe #-}
-    {-# INLINE encodeWordBe #-}
-    {-# INLINE decodeWordBe #-}
+
+
+
+
 
 -- poached from Data.Bytes.Signed, but safer
 

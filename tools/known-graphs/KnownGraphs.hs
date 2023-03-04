@@ -34,7 +34,7 @@ main = do
 
 instance ToJSON KnownGraph where
     toJSON = toJSON . toText
-    {-# INLINE toJSON #-}
+
 
 instance ToJSON ChainGraph where
     toJSON g = object
@@ -45,5 +45,5 @@ instance ToJSON ChainGraph where
         , "size" .= size g
         , "adjacents" .= G.adjacencySets (view chainGraphGraph g)
         ]
-    {-# INLINE toJSON #-}
+
 

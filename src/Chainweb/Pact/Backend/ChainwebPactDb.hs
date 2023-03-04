@@ -366,7 +366,7 @@ doKeys d = do
     collect p =
         let flt k _ = _dkTable k == tnS
         in DL.concat $ HashMap.elems $ HashMap.filterWithKey flt (_pendingWrites p)
-{-# INLINE doKeys #-}
+
 
 -- tid is non-inclusive lower bound for the search
 doTxIds :: TableName -> TxId -> BlockHandler SQLiteEnv [TxId]
@@ -407,7 +407,7 @@ doTxIds (TableName tn) _tid@(TxId tid) = do
                     HashMap.elems $
                     HashMap.filterWithKey flt (_pendingWrites p)
         in filter (> _tid) txids
-{-# INLINE doTxIds #-}
+
 
 recordTxLog
     :: (AsString k, ToJSON v)
@@ -468,7 +468,7 @@ doCreateUserTable tn@(TableName ttxt) mn = do
     stn = asString tn
     uti = UserTableInfo mn
     txlogs = DL.singleton (TxLog txlogKey stn (toJSON uti))
-{-# INLINE doCreateUserTable #-}
+
 
 doRollback :: BlockHandler SQLiteEnv ()
 doRollback = modify'
@@ -504,7 +504,7 @@ doCommit = use bsMode >>= \case
         [] -> b
         (x:_) -> DL.cons x b
 
-{-# INLINE doCommit #-}
+
 
 clearPendingTxState :: BlockHandler SQLiteEnv ()
 clearPendingTxState = do
@@ -527,7 +527,7 @@ doBegin m = do
     case m of
         Transactional -> Just <$> use bsTxId
         Local -> pure Nothing
-{-# INLINE doBegin #-}
+
 
 resetTemp :: BlockHandler SQLiteEnv ()
 resetTemp = modify'

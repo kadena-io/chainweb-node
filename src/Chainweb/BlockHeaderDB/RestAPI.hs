@@ -125,13 +125,13 @@ type BlockHeaderPage = Page (NextItem BlockHash) BlockHeader
 --
 instance MimeUnrender OctetStream BlockHeader where
     mimeUnrender _ = runGetEitherL decodeBlockHeader
-    {-# INLINE mimeUnrender #-}
+
 
 -- | Orphan instance to encode BlockHeaders as OctetStream
 --
 instance MimeRender OctetStream BlockHeader where
     mimeRender _ = runPutL . encodeBlockHeader
-    {-# INLINE mimeRender #-}
+
 
 -- | The default JSON instance of BlockHeader is an unpadded base64Url encoding of
 -- the block header bytes. There a newtype wrapper that provides an alternative
@@ -148,19 +148,19 @@ instance Accept JsonBlockHeaderObject where
 
 instance MimeUnrender JsonBlockHeaderObject BlockHeader where
     mimeUnrender _ = second _objectEncoded . eitherDecode
-    {-# INLINE mimeUnrender #-}
+
 
 instance MimeRender JsonBlockHeaderObject BlockHeader where
     mimeRender _ = encode . ObjectEncoded
-    {-# INLINE mimeRender #-}
+
 
 instance MimeUnrender JsonBlockHeaderObject BlockHeaderPage where
     mimeUnrender _ = second (fmap _objectEncoded) . eitherDecode
-    {-# INLINE mimeUnrender #-}
+
 
 instance MimeRender JsonBlockHeaderObject BlockHeaderPage where
     mimeRender _ = encode . fmap ObjectEncoded
-    {-# INLINE mimeRender #-}
+
 
 -- -------------------------------------------------------------------------- --
 -- Type indexed BlockHeaderDb
@@ -369,13 +369,13 @@ headerUpdateProperties o =
     , "powHash" .= _huPowHash o
     , "target"  .= _huTarget o
     ]
-{-# INLINE headerUpdateProperties #-}
+
 
 instance ToJSON HeaderUpdate where
     toJSON = object . headerUpdateProperties
     toEncoding = pairs . mconcat . headerUpdateProperties
-    {-# INLINE toJSON #-}
-    {-# INLINE toEncoding #-}
+
+
 
 instance FromJSON HeaderUpdate where
     parseJSON = withObject "HeaderUpdate" $ \o -> HeaderUpdate
@@ -383,7 +383,7 @@ instance FromJSON HeaderUpdate where
         <*> o .: "txCount"
         <*> o .: "powHash"
         <*> o .: "target"
-    {-# INLINE parseJSON #-}
+
 
 type HeaderStreamApi_ = "header" :> "updates" :> Raw
 

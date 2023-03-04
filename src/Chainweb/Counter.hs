@@ -78,12 +78,12 @@ newtype Labeled (s :: Symbol) a = Labeled a
 instance (KnownSymbol s, ToJSON a) => ToJSON (Labeled s a) where
     toJSON = object . pure . kv
     toEncoding = pairs . kv
-    {-# INLINE toJSON #-}
-    {-# INLINE toEncoding #-}
+
+
 
 kv :: forall s a x . KnownSymbol s => ToJSON a => KeyValue x => Labeled s a -> x
 kv (Labeled a) = symbolText @s .= a
-{-# INLINE kv #-}
+
 
 kv' :: forall s . KnownSymbol s => Labeled s Encoding -> Series
 kv' (Labeled a) = pair (symbolText @s) a
@@ -97,11 +97,11 @@ class IsCounter c where
 
 instance KnownSymbol s => IsCounter (Counter s) where
     roll = rollCounter
-    {-# INLINE roll #-}
+
 
 instance KnownSymbol s => IsCounter (CounterMap s) where
     roll = rollCounterMap
-    {-# INLINE roll #-}
+
 
 -- -------------------------------------------------------------------------- --
 -- Counter
@@ -164,7 +164,7 @@ incKeyBy cm@(CounterMap mref) k i = do
 
 incKey :: CounterMap s -> T.Text -> IO ()
 incKey c k = incKeyBy c k (1 :: Int)
-{-# INLINE incKey #-}
+
 
 -- -------------------------------------------------------------------------- --
 -- Counter Value
@@ -176,7 +176,7 @@ data CounterValue where
 instance NFData CounterValue where
     rnf (CounterValue v) = rnf v
     rnf (CounterMapValue v) = rnf v
-    {-# INLINE rnf #-}
+
 
 -- -------------------------------------------------------------------------- --
 -- Logging of Counters
@@ -194,20 +194,20 @@ newtype CounterLog = CounterLog (V.Vector CounterValue)
 
 instance LogMessage CounterLog where
     logText = encodeToText
-    {-# INLINE logText #-}
+
 
 instance ToJSON CounterLog where
     toJSON (CounterLog v) = object $ V.toList $ V.map f v
       where
         f (CounterValue i) = kv i
         f (CounterMapValue m) = kv $ fmap (object . V.toList . V.map (fmap toJSON)) m
-    {-# INLINE toJSON #-}
+
 
     toEncoding (CounterLog v) = pairs $ foldMap f v
       where
         f (CounterValue i) = kv i
         f (CounterMapValue m) = kv' $ fmap (pairs . foldMap (uncurry (.=))) m
-    {-# INLINE toEncoding #-}
+
 
 logFunctionCounter
     :: Logger l
@@ -217,6 +217,6 @@ logFunctionCounter logger level = logFunction logger level
     . CounterLog
     . V.fromList
     . toList
-{-# INLINE logFunctionCounter #-}
+
 
 type LogFunctionCounter = forall f . Foldable f => LogLevel -> f CounterValue -> IO ()

@@ -493,7 +493,7 @@ minerReward v (MinerRewards rs) bh =
   where
     !n = int . order $ chainGraphAt v bh
     err = internalError "block heights have been exhausted"
-{-# INLINE minerReward #-}
+
 
 
 data CRLogPair = CRLogPair P.Hash [P.TxLog A.Value]
@@ -503,13 +503,13 @@ crLogPairProperties (CRLogPair h logs) =
   [ "hash" A..= h
   , "rawLogs" A..= logs
   ]
-{-# INLINE crLogPairProperties #-}
+
 
 instance A.ToJSON CRLogPair where
   toJSON = A.object . crLogPairProperties
   toEncoding = A.pairs . mconcat . crLogPairProperties
-  {-# INLINE toJSON #-}
-  {-# INLINE toEncoding #-}
+
+
 
 validateHashes
     :: BlockHeader

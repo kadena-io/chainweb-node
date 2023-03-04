@@ -233,8 +233,8 @@ instance ToJSON BlockUpdate where
         , "txCount" .= _blockUpdateTxCount o
         ]
 
-    {-# INLINE toEncoding #-}
-    {-# INLINE toJSON #-}
+
+
 
 runBlockUpdateMonitor :: CanReadablePayloadCas tbl => Logger logger => logger -> CutDb tbl -> IO ()
 runBlockUpdateMonitor logger db = L.withLoggerLabel ("component", "block-update-monitor") logger $ \l ->

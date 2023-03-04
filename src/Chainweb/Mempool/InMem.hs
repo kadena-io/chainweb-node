@@ -78,7 +78,7 @@ compareOnGasPrice txcfg a b = compare aa bb
     getGP = txGasPrice txcfg
     !aa = Down $ getGP a
     !bb = Down $ getGP b
-{-# INLINE compareOnGasPrice #-}
+
 
 ------------------------------------------------------------------------------
 makeInMemPool :: InMemConfig t
@@ -111,17 +111,17 @@ toMempoolBackend
 toMempoolBackend logger mempool = do
     return $! MempoolBackend
       { mempoolTxConfig = tcfg
-      , mempoolMember = member
-      , mempoolLookup = lookup
-      , mempoolInsert = insert
-      , mempoolInsertCheck = insertCheck
-      , mempoolMarkValidated = markValidated
-      , mempoolAddToBadList = addToBadList
-      , mempoolCheckBadList = checkBadList
-      , mempoolGetBlock = getBlock
-      , mempoolPrune = prune
-      , mempoolGetPendingTransactions = getPending
-      , mempoolClear = clear
+      , mempoolMember = memberInMem lockMVar
+      , mempoolLookup = lookupInMem tcfg lockMVar
+      , mempoolInsert = insertInMem cfg lockMVar
+      , mempoolInsertCheck = insertCheckInMem cfg lockMVar
+      , mempoolMarkValidated = markValidatedInMem logger tcfg lockMVar
+      , mempoolAddToBadList = addToBadListInMem lockMVar
+      , mempoolCheckBadList = checkBadListInMem lockMVar
+      , mempoolGetBlock = getBlockInMem logger cfg lockMVar
+      , mempoolPrune = pruneInMem lockMVar
+      , mempoolGetPendingTransactions = getPendingInMem cfg nonce lockMVar
+      , mempoolClear = clearInMem lockMVar
       }
   where
     cfg = _inmemCfg mempool
@@ -129,17 +129,6 @@ toMempoolBackend logger mempool = do
     lockMVar = _inmemDataLock mempool
 
     InMemConfig tcfg _ _ _ _ _ _ = cfg
-    member = memberInMem lockMVar
-    lookup = lookupInMem tcfg lockMVar
-    insert = insertInMem cfg lockMVar
-    insertCheck = insertCheckInMem cfg lockMVar
-    markValidated = markValidatedInMem logger tcfg lockMVar
-    addToBadList = addToBadListInMem lockMVar
-    checkBadList = checkBadListInMem lockMVar
-    getBlock = getBlockInMem logger cfg lockMVar
-    getPending = getPendingInMem cfg nonce lockMVar
-    prune = pruneInMem lockMVar
-    clear = clearInMem lockMVar
 
 
 ------------------------------------------------------------------------------
@@ -265,12 +254,11 @@ addToBadListInMem lock txs = withMVarMasked lock $ \mdata -> do
     let !pnd' = foldl' (flip HashMap.delete) pnd txs
     -- we don't have the expiry time here, so just use maxTTL
     now <- getCurrentTimeIntegral
-    let (ParsedInteger mt) = defaultMaxTTL
+    let ParsedInteger mt = defaultMaxTTL
     let !endTime = add (secondsToTimeSpan $ fromIntegral mt) now
     let !bad' = foldl' (\h tx -> HashMap.insert tx endTime h) bad txs
     writeIORef (_inmemPending mdata) pnd'
     writeIORef (_inmemBadMap mdata) bad'
-
 
 ------------------------------------------------------------------------------
 checkBadListInMem
@@ -280,7 +268,6 @@ checkBadListInMem
 checkBadListInMem lock hashes = withMVarMasked lock $ \mdata -> do
     !bad <- readIORef $ _inmemBadMap mdata
     return $! V.map (`HashMap.member` bad) hashes
-
 
 maxNumPending :: Int
 maxNumPending = 10000
@@ -412,7 +399,7 @@ insertCheckInMem' cfg lock txs
     let withHashes :: Vector (T2 TransactionHash t)
         withHashes = flip V.mapMaybe txs $ \tx ->
           let !h = hasher tx
-          in (T2 h) <$> hush (validateOne cfg badmap curTxIdx now tx h)
+          in T2 h <$> hush (validateOne cfg badmap curTxIdx now tx h)
 
     V.mapMaybe hush <$!> _inmemPreInsertBatchChecks cfg withHashes
   where
@@ -435,7 +422,7 @@ insertInMem cfg lock runCheck txs0 = do
         let txs = V.take (max 0 (maxNumPending - cnt)) txhashes
         let T2 !pending' !newHashesDL = V.foldl' insOne (T2 pending id) txs
         let !newHashes = V.fromList $ newHashesDL []
-        writeIORef (_inmemPending mdata) $! force pending'
+        writeIORef (_inmemPending mdata) pending'
         modifyIORef' (_inmemRecentLog mdata) $
             recordRecentTransactions maxRecent newHashes
   where
@@ -450,10 +437,10 @@ insertInMem cfg lock runCheck txs0 = do
     hasher = txHasher txcfg
 
     insOne (T2 pending soFar) (T2 txhash tx) =
-        let !gp = txGasPrice txcfg tx
-            !gl = txGasLimit txcfg tx
-            !bytes = SB.toShort $! encodeTx tx
-            !expTime = txMetaExpiryTime $ txMetadata txcfg tx
+        let gp = txGasPrice txcfg tx
+            gl = txGasLimit txcfg tx
+            bytes = SB.toShort $! encodeTx tx
+            expTime = txMetaExpiryTime $ txMetadata txcfg tx
             !x = PendingEntry gp gl bytes expTime
         in T2 (HashMap.insert txhash x pending) (soFar . (txhash:))
 
@@ -488,8 +475,8 @@ getBlockInMem logg cfg lock (BlockFill gasLimit txHashes _)  txValidate bheight 
         -- put the txs chosen for the block back into the map -- they don't get
         -- expunged until they are mined and validated by consensus.
         let !psq'' = V.foldl' ins (HashMap.union seen psq') out
-        writeIORef (_inmemPending mdata) $! force psq''
-        writeIORef (_inmemBadMap mdata) $! force badmap'
+        writeIORef (_inmemPending mdata) psq''
+        writeIORef (_inmemBadMap mdata) badmap'
         mout <- V.thaw $ V.map (snd . snd) out
         TimSort.sortBy (compareOnGasPrice txcfg) mout
         V.unsafeFreeze mout
@@ -578,7 +565,7 @@ getBlockInMem logg cfg lock (BlockFill gasLimit txHashes _)  txValidate bheight 
             let (T2 (h, pe) !pendingTxs') = unconsV pendingTxs
             let !txbytes = _inmemPeBytes pe
             let !tx = decodeTx txbytes
-            let !txSz = getSize tx
+            let txSz = getSize tx
             if txSz <= sz
               then getBatch pendingTxs' (sz - txSz) ((h,(txbytes, tx)):soFar) 0
               else getBatch pendingTxs' sz soFar (inARow + 1)
@@ -662,16 +649,16 @@ emptyRecentLog = RecentLog 0 mempty
 recordRecentTransactions :: Int -> Vector TransactionHash -> RecentLog -> RecentLog
 recordRecentTransactions maxNumRecent newTxs rlog = rlog'
   where
-    !rlog' = RecentLog { _rlNext = newNext
-                       , _rlRecent = newL
-                       }
+    rlog' = RecentLog { _rlNext = newNext
+                      , _rlRecent = newL
+                      }
 
     numNewItems = V.length newTxs
     oldNext = _rlNext rlog
     newNext = oldNext + fromIntegral numNewItems
     newTxs' = V.reverse (V.map (T2 oldNext) newTxs)
     newL' = newTxs' <> _rlRecent rlog
-    newL = force $ V.take maxNumRecent newL'
+    newL = V.force $ V.take maxNumRecent newL'
 
 
 -- | Get the recent transactions from the transaction log. Returns Nothing if
@@ -680,7 +667,7 @@ getRecentTxs :: Int -> MempoolTxId -> RecentLog -> Maybe [TransactionHash]
 getRecentTxs maxNumRecent oldHw rlog
     | oldHw <= oldestHw || oldHw > oldNext = Nothing
     | oldHw == oldNext = Just mempty
-    | otherwise = Just $! V.toList txs
+    | otherwise = Just $ V.toList txs
 
   where
     oldNext = _rlNext rlog
@@ -691,11 +678,12 @@ getRecentTxs maxNumRecent oldHw rlog
 ------------------------------------------------------------------------------
 getMempoolStats :: InMemoryMempool t -> IO MempoolStats
 getMempoolStats m = do
-    withMVar (_inmemDataLock m) $ \d -> MempoolStats
-        <$!> (HashMap.size <$!> readIORef (_inmemPending d))
-        <*> (length . _rlRecent <$!> readIORef (_inmemRecentLog d))
-        <*> (HashMap.size <$!> readIORef (_inmemBadMap d))
-        <*> (currentTxsSize <$!> readIORef (_inmemCurrentTxs d))
+    withMVar (_inmemDataLock m) $ \d -> do
+      pendingCnt <- HashMap.size <$> readIORef (_inmemPending d)
+      recentCnt <- length . _rlRecent <$> readIORef (_inmemRecentLog d)
+      badCnt <- HashMap.size <$> readIORef (_inmemBadMap d)
+      currentCnt <- currentTxsSize <$> readIORef (_inmemCurrentTxs d)
+      return $! MempoolStats pendingCnt recentCnt badCnt currentCnt
 
 ------------------------------------------------------------------------------
 -- | Prune the mempool's pending map and badmap.
@@ -721,11 +709,11 @@ pruneInternal
 pruneInternal mdata now = do
     let pref = _inmemPending mdata
     !pending <- readIORef pref
-    !pending' <- evaluate $ force $ HashMap.filter flt pending
+    let pending' = HashMap.filter flt pending
     writeIORef pref pending'
 
     let bref = _inmemBadMap mdata
-    !badmap <- (force . pruneBadMap) <$!> readIORef bref
+    !badmap <- pruneBadMap <$> readIORef bref
     writeIORef bref badmap
 
   where

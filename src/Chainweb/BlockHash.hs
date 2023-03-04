@@ -109,51 +109,51 @@ instance Show (BlockHash_ a) where
 
 instance Hashable (BlockHash_ a) where
     hashWithSalt s (BlockHash bytes) = hashWithSalt s bytes
-    {-# INLINE hashWithSalt #-}
+
 
 instance MerkleHashAlgorithm a => IsMerkleLogEntry a ChainwebHashTag (BlockHash_ a) where
     type Tag (BlockHash_ a) = 'BlockHashTag
     toMerkleNode = encodeMerkleTreeNode
     fromMerkleNode = decodeMerkleTreeNode
-    {-# INLINE toMerkleNode #-}
-    {-# INLINE fromMerkleNode #-}
+
+
 
 encodeBlockHash :: BlockHash_ a -> Put
 encodeBlockHash (BlockHash bytes) = encodeMerkleLogHash bytes
-{-# INLINE encodeBlockHash #-}
+
 
 decodeBlockHash :: MerkleHashAlgorithm a => Get (BlockHash_ a)
 decodeBlockHash = BlockHash <$!> decodeMerkleLogHash
-{-# INLINE decodeBlockHash #-}
+
 
 instance ToJSON (BlockHash_ a) where
     toJSON = toJSON . encodeB64UrlNoPaddingText . runPutS . encodeBlockHash
     toEncoding = b64UrlNoPaddingTextEncoding . runPutS . encodeBlockHash
-    {-# INLINE toJSON #-}
-    {-# INLINE toEncoding #-}
+
+
 
 instance MerkleHashAlgorithm a => FromJSON (BlockHash_ a) where
     parseJSON = withText "BlockHash" $ either (fail . show) return
         . (runGetS decodeBlockHash <=< decodeB64UrlNoPaddingText)
-    {-# INLINE parseJSON #-}
+
 
 instance ToJSONKey (BlockHash_ a) where
     toJSONKey = toJSONKeyText
         $ encodeB64UrlNoPaddingText . runPutS . encodeBlockHash
-    {-# INLINE toJSONKey #-}
+
 
 instance MerkleHashAlgorithm a => FromJSONKey (BlockHash_ a) where
     fromJSONKey = FromJSONKeyTextParser $ either (fail . show) return
         . (runGetS decodeBlockHash <=< decodeB64UrlNoPaddingText)
-    {-# INLINE fromJSONKey #-}
+
 
 nullBlockHash :: MerkleHashAlgorithm a => BlockHash_ a
 nullBlockHash = BlockHash nullHashBytes
-{-# INLINE nullBlockHash #-}
+
 
 blockHashToText :: BlockHash_ a -> T.Text
 blockHashToText = encodeB64UrlNoPaddingText . runPutS . encodeBlockHash
-{-# INLINE blockHashToText #-}
+
 
 blockHashFromText
     :: MerkleHashAlgorithm a
@@ -162,13 +162,13 @@ blockHashFromText
     -> m (BlockHash_ a)
 blockHashFromText t = either (throwM . TextFormatException . sshow) return
     $ runGetS decodeBlockHash =<< decodeB64UrlNoPaddingText t
-{-# INLINE blockHashFromText #-}
+
 
 instance MerkleHashAlgorithm a => HasTextRepresentation (BlockHash_ a) where
     toText = blockHashToText
-    {-# INLINE toText #-}
+
     fromText = blockHashFromText
-    {-# INLINE fromText #-}
+
 
 -- -------------------------------------------------------------------------- --
 -- BlockHashRecord

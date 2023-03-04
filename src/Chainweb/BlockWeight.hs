@@ -63,22 +63,22 @@ instance MerkleHashAlgorithm a => IsMerkleLogEntry a ChainwebHashTag BlockWeight
     type Tag BlockWeight = 'BlockWeightTag
     toMerkleNode = encodeMerkleInputNode encodeBlockWeight
     fromMerkleNode = decodeMerkleInputNode decodeBlockWeight
-    {-# INLINE toMerkleNode #-}
-    {-# INLINE fromMerkleNode #-}
+
+
 
 encodeBlockWeight :: BlockWeight -> Put
 encodeBlockWeight (BlockWeight w) = encodeHashDifficulty w
-{-# INLINE encodeBlockWeight #-}
+
 
 decodeBlockWeight :: Get BlockWeight
 decodeBlockWeight = BlockWeight <$> decodeHashDifficulty
-{-# INLINE decodeBlockWeight #-}
+
 
 encodeBlockWeightBe :: BlockWeight -> Put
 encodeBlockWeightBe (BlockWeight w) = encodeHashDifficultyBe w
-{-# INLINE encodeBlockWeightBe #-}
+
 
 decodeBlockWeightBe :: Get BlockWeight
 decodeBlockWeightBe = BlockWeight <$> decodeHashDifficultyBe
-{-# INLINE decodeBlockWeightBe #-}
+
 

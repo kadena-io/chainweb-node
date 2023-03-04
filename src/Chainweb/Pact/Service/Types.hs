@@ -293,19 +293,19 @@ spvRequestProperties r =
   [ "requestKey" .= _spvRequestKey r
   , "targetChainId" .= _spvTargetChainId r
   ]
-{-# INLINE spvRequestProperties #-}
+
 
 instance ToJSON SpvRequest where
   toJSON = object . spvRequestProperties
   toEncoding = pairs . mconcat . spvRequestProperties
-  {-# INLINE toJSON #-}
-  {-# INLINE toEncoding #-}
+
+
 
 instance FromJSON SpvRequest where
   parseJSON = withObject "SpvRequest" $ \o -> SpvRequest
     <$> o .: "requestKey"
     <*> o .: "targetChainId"
-  {-# INLINE parseJSON #-}
+
 
 newtype TransactionOutputProofB64 = TransactionOutputProofB64 Text
     deriving stock (Eq, Show, Generic)
@@ -325,4 +325,4 @@ instance HasChainId Rewind where
     _chainId = \case
       DoRewind !bh -> _chainId bh
       NoRewind !cid -> cid
-    {-# INLINE _chainId #-}
+

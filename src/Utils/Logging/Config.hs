@@ -90,16 +90,16 @@ logFormatFromText t = case CI.mk t of
 instance HasTextRepresentation LogFormat where
     toText = logFormatToText
     fromText = logFormatFromText
-    {-# INLINE toText #-}
-    {-# INLINE fromText #-}
+
+
 
 instance ToJSON LogFormat where
     toJSON = toJSON @T.Text . logFormatToText
-    {-# INLINE toJSON #-}
+
 
 instance FromJSON LogFormat where
     parseJSON = parseJsonFromText "LogFormat"
-    {-# INLINE parseJSON #-}
+
 
 pLogFormat :: OptionParser LogFormat
 pLogFormat = pLogFormat_ ""
@@ -160,8 +160,8 @@ instance HasTextRepresentation HandleConfig where
     toText = handleConfigToText
     fromText = handleConfigFromText
 
-    {-# INLINE toText #-}
-    {-# INLINE fromText #-}
+
+
 
 validateHandleConfig :: ConfigValidation HandleConfig l
 validateHandleConfig (FileHandle filepath) = validateFileWritable "file handle" filepath

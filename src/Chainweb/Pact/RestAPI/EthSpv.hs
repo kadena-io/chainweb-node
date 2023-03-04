@@ -54,8 +54,8 @@ data EthSpvRequest = EthSpvRequest
 instance ToJSON EthSpvRequest where
     toEncoding = pairs . mconcat . ethSpvRequestProperties
     toJSON = object . ethSpvRequestProperties
-    {-# INLINE toEncoding #-}
-    {-# INLINE toJSON #-}
+
+
 
 ethSpvRequestProperties :: KeyValue kv => EthSpvRequest -> [kv]
 ethSpvRequestProperties o =
@@ -63,14 +63,14 @@ ethSpvRequestProperties o =
         , "blocks" .= _ethSpvReqBlocks o
         , "receipts" .= _ethSpvReqReceipts o
         ]
-{-# INLINE ethSpvRequestProperties #-}
+
 
 instance FromJSON EthSpvRequest where
     parseJSON = withObject "EthSpvRequest" $ \o -> EthSpvRequest
         <$> o .: "transactionHash"
         <*> o .: "blocks"
         <*> o .: "receipts"
-    {-# INLINE parseJSON #-}
+
 
 -- -------------------------------------------------------------------------- --
 -- Eth SPV Receipt Proof
@@ -83,15 +83,15 @@ newtype EthSpvResponse = EthSpvResponse
 instance ToJSON EthSpvResponse where
     toEncoding = pairs . mconcat . ethSpvResponseProperties
     toJSON = object . ethSpvResponseProperties
-    {-# INLINE toEncoding #-}
-    {-# INLINE toJSON #-}
+
+
 
 ethSpvResponseProperties :: KeyValue kv => EthSpvResponse -> [kv]
 ethSpvResponseProperties o = [ "proof" .= _ethSpvResponse o ]
-{-# INLINE ethSpvResponseProperties #-}
+
 
 instance FromJSON EthSpvResponse where
     parseJSON = withObject "proof" $ \o -> EthSpvResponse
         <$> o .: "proof"
-    {-# INLINE parseJSON #-}
+
 

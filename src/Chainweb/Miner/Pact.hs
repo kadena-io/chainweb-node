@@ -94,7 +94,7 @@ minerProperties (Miner (MinerId m) (MinerKeys ks)) =
     , "predicate" .= _ksPredFun ks
     , "public-keys" .= _ksKeys ks
     ]
-{-# INLINE minerProperties #-}
+
 
 -- NOTE: These JSON instances are used (among other things) to embed Miner data
 -- into the Genesis Payloads. If these change, the payloads become unreadable!
@@ -102,8 +102,8 @@ minerProperties (Miner (MinerId m) (MinerKeys ks)) =
 instance ToJSON Miner where
     toJSON = object . minerProperties
     toEncoding = pairs . mconcat . minerProperties
-    {-# INLINE toJSON #-}
-    {-# INLINE toEncoding #-}
+
+
 
 instance FromJSON Miner where
     parseJSON = withObject "Miner" $ \o -> Miner
@@ -114,13 +114,13 @@ instance FromJSON Miner where
 --
 minerId :: Lens' Miner MinerId
 minerId = lens (\(Miner i _) -> i) (\(Miner _ k) b -> Miner b k)
-{-# INLINE minerId #-}
+
 
 -- | A lens into the miner keys of a miner.
 --
 minerKeys :: Lens' Miner MinerKeys
 minerKeys = lens (\(Miner _ k) -> k) (\(Miner i _) b -> Miner i b)
-{-# INLINE minerKeys #-}
+
 
 -- | Keyset taken from cp examples in Pact
 -- The private key here was taken from `examples/cp` from the Pact repository

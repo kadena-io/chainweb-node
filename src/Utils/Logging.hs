@@ -270,14 +270,14 @@ newtype Probability = Probability Double
 instance ToJSON Probability where
     toJSON (Probability p) = toJSON p
     toEncoding (Probability p) = toEncoding p
-    {-# INLINE toJSON #-}
-    {-# INLINE toEncoding #-}
+
+
 
 instance FromJSON Probability where
     parseJSON = withScientific "Probability" $ \n -> do
         unless (0 <= n && n <= 1) $ fail "probablility must be between 0 and 1"
         return (Probability $ realToFrac n)
-    {-# INLINE parseJSON #-}
+
 
 data LogFilterRule = LogFilterRule
     { _logFilterRuleLabel :: !L.LogLabel
@@ -304,15 +304,15 @@ logFilterRuleProperties r =
 instance ToJSON LogFilterRule where
     toJSON = object . logFilterRuleProperties
     toEncoding = pairs . mconcat . logFilterRuleProperties
-    {-# INLINE toJSON #-}
-    {-# INLINE toEncoding #-}
+
+
 
 instance FromJSON LogFilterRule where
     parseJSON = withObject "LogFilterRule" $ \o -> LogFilterRule
         <$> ((,) <$> o .: "key" <*> o .: "value")
         <*> o .: "level"
         <*> o .:? "rate" .!= Probability 1
-    {-# INLINE parseJSON #-}
+
 
 -- | A filter for log messages.
 --
@@ -366,7 +366,7 @@ instance Monoid LogFilter where
         , _logFilterDefaultLevel = maxBound
         , _logFilterDefaultRate = Probability 1
         }
-    {-# INLINE mempty #-}
+
 
 instance ToJSON LogFilter where
     toJSON a = object
@@ -374,14 +374,14 @@ instance ToJSON LogFilter where
         , "default" .=  _logFilterDefaultLevel a
         , "default-rate" .=  _logFilterDefaultRate a
         ]
-    {-# INLINE toJSON #-}
+
 
 instance FromJSON LogFilter where
     parseJSON = withObject "LogFilter" $ \o -> LogFilter
         <$> o .: "rules"
         <*> o .: "default"
         <*> o .:? "default-rate" .!= Probability 1
-    {-# INLINE parseJSON #-}
+
 
 -- | Global RNG for use in filter rules.
 --
@@ -401,7 +401,7 @@ logRuleToss (Probability p) = do
     r <- Prob.bernoulli p rng
     Prob.save rng >>= atomicWriteIORef logRuleRng
     return r
-{-# INLINE logRuleToss #-}
+
 
 applyRule :: LogFilterRule -> L.LogMessage a -> IO (Maybe All)
 applyRule r m = mconcat <$> mapM applyToLabel scopes
@@ -505,8 +505,8 @@ newtype JsonLogMessage a = JsonLogMessage
 instance ToJSON a => ToJSON (JsonLogMessage a) where
     toEncoding = pairs . mconcat . jsonLogMessageEncoding
     toJSON = object . jsonLogMessageEncoding
-    {-# INLINE toEncoding #-}
-    {-# INLINE toJSON #-}
+
+
 
 jsonLogMessageEncoding :: KeyValue kv => ToJSON a => JsonLogMessage a -> [kv]
 jsonLogMessageEncoding (JsonLogMessage a) =
@@ -517,7 +517,7 @@ jsonLogMessageEncoding (JsonLogMessage a) =
     ]
   where
     scopeToJson = object . map (uncurry (.=)) . reverse
-{-# INLINE jsonLogMessageEncoding #-}
+
 
 -- | Format a Log Message for Usage in Elasticsearch DataStreams
 --
@@ -528,8 +528,8 @@ newtype EsJsonLogMessage a = EsJsonLogMessage
 instance ToJSON a => ToJSON (EsJsonLogMessage a) where
     toEncoding = pairs . mconcat . esJsonLogMessageEncoding
     toJSON = object . esJsonLogMessageEncoding
-    {-# INLINE toEncoding #-}
-    {-# INLINE toJSON #-}
+
+
 
 esJsonLogMessageEncoding :: KeyValue kv => ToJSON a => EsJsonLogMessage a -> [kv]
 esJsonLogMessageEncoding (EsJsonLogMessage a) =
@@ -540,7 +540,7 @@ esJsonLogMessageEncoding (EsJsonLogMessage a) =
     ]
   where
     scopeToJson = object . map (uncurry (.=)) . reverse
-{-# INLINE esJsonLogMessageEncoding #-}
+
 
 -- -------------------------------------------------------------------------- --
 -- Base Backends

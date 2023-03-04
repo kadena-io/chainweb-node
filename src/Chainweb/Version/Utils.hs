@@ -84,7 +84,7 @@ import Chainweb.Version
 
 limitHeight :: BlockHeight -> M.Map BlockHeight a -> M.Map BlockHeight a
 limitHeight h = M.takeWhileAntitone (h >=)
-{-# INLINE limitHeight #-}
+
 
 -- | This is an internal function and must not be exported.
 --
@@ -94,7 +94,7 @@ limitHeight h = M.takeWhileAntitone (h >=)
 --
 atHeight :: HasCallStack => BlockHeight -> M.Map BlockHeight a -> a
 atHeight h = snd . fromJuste . M.lookupLE h
-{-# INLINE atHeight #-}
+
 
 -- | This is an internal function and must not be exported.
 --
@@ -102,7 +102,7 @@ atHeight h = snd . fromJuste . M.lookupLE h
 --
 atCutHeight :: HasCallStack => CutHeight -> M.Map CutHeight a -> a
 atCutHeight h = snd . fromJuste . M.lookupLE h
-{-# INLINE atCutHeight #-}
+
 
 -- -------------------------------------------------------------------------- --
 -- Chain Graph Properties By Block Height
@@ -133,7 +133,7 @@ chainGraphsAt
     -> BlockHeight
     -> M.Map BlockHeight ChainGraph
 chainGraphsAt v h = limitHeight h (chainGraphs v)
-{-# INLINE chainGraphsAt #-}
+
 
 lastGraphChange
     :: HasCallStack
@@ -142,7 +142,7 @@ lastGraphChange
     -> BlockHeight
     -> BlockHeight
 lastGraphChange v h = fst . fromJuste . M.lookupLE h $ chainGraphs v
-{-# INLINE lastGraphChange #-}
+
 
 nextGraphChange
     :: HasCallStack
@@ -151,7 +151,7 @@ nextGraphChange
     -> BlockHeight
     -> BlockHeight
 nextGraphChange v h = fst . fromJuste . M.lookupGT h $ chainGraphs v
-{-# INLINE nextGraphChange #-}
+
 
 chainCountAt
     :: HasCallStack
@@ -160,7 +160,7 @@ chainCountAt
     -> BlockHeight
     -> Natural
 chainCountAt v h = order $ atHeight h $ chainGraphs v
-{-# INLINE chainCountAt #-}
+
 
 degreeAt
     :: HasCallStack
@@ -169,7 +169,7 @@ degreeAt
     -> BlockHeight
     -> Natural
 degreeAt v h = degree $ atHeight h $ chainGraphs v
-{-# INLINE degreeAt #-}
+
 
 diameterAt
     :: HasCallStack
@@ -178,7 +178,7 @@ diameterAt
     -> BlockHeight
     -> Natural
 diameterAt v h = diameter $ atHeight h $ chainGraphs v
-{-# INLINE diameterAt #-}
+
 
 chainIdsAt
     :: HasCallStack
@@ -187,13 +187,13 @@ chainIdsAt
     -> BlockHeight
     -> HS.HashSet ChainId
 chainIdsAt v h = graphChainIds $ atHeight h $ chainGraphs v
-{-# INLINE chainIdsAt #-}
+
 
 -- | Uniformily get a random ChainId at the top of the current chainweb
 --
 randomChainId :: HasChainwebVersion v => v -> IO ChainId
 randomChainId v = randomChainIdAt v maxBound
-{-# INLINE randomChainId #-}
+
 
 -- | Uniformily get a random ChainId at the given height of the chainweb
 --
@@ -201,7 +201,7 @@ randomChainIdAt :: HasChainwebVersion v => v -> BlockHeight -> IO ChainId
 randomChainIdAt v h = (!!) (toList cs) <$> randomRIO (0, length cs - 1)
   where
     cs = chainIdsAt v h
-{-# INLINE randomChainIdAt #-}
+
 
 -- | Sometimes, in particular for testing and examples, some fixed chain id is
 -- needed, but it doesn't matter which one. This function provides some valid
@@ -209,7 +209,7 @@ randomChainIdAt v h = (!!) (toList cs) <$> randomRIO (0, length cs - 1)
 --
 someChainId :: HasCallStack => HasChainwebVersion v => v -> ChainId
 someChainId v = someChainIdAt v maxBound
-{-# INLINE someChainId #-}
+
 
 -- | Sometimes, in particular for testing and examples, some fixed chain id is
 -- needed, but it doesn't matter which one. This function provides some valid
@@ -219,11 +219,11 @@ someChainIdAt :: HasCallStack => HasChainwebVersion v => v -> BlockHeight -> Cha
 someChainIdAt v h = head . toList $ chainIdsAt v h
     -- 'head' is guaranteed to succeed because the empty graph isn't a valid chain
     -- graph.
-{-# INLINE someChainIdAt #-}
+
 
 isGraphChange :: HasChainwebVersion v => v -> BlockHeight -> Bool
 isGraphChange v h = M.member h (chainGraphs v)
-{-# INLINE isGraphChange #-}
+
 
 -- -------------------------------------------------------------------------- --
 -- Block Count
@@ -280,7 +280,7 @@ globalBlockRateAt v h = (int r / 1_000_000) / int (chainCountAt v h)
 --
 avgCutHeightAt :: HasChainwebVersion v => v -> BlockHeight -> CutHeight
 avgCutHeightAt v h = int $ int h * chainCountAt v h
-{-# INLINE avgCutHeightAt #-}
+
 
 -- | Cut height intervals for the chain graphs of a chainweb version
 --
@@ -298,7 +298,7 @@ chainGraphsByCutHeight = M.fromList
     . fmap (\(h,g) -> (int h * int (order g), g))
     . M.toAscList
     . chainGraphs
-{-# INLINE chainGraphsByCutHeight #-}
+
 
 -- | The chain graph at the given cut height
 --

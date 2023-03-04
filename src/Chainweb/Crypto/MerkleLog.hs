@@ -295,11 +295,11 @@ class MerkleHashAlgorithmName a where
 
 instance MerkleHashAlgorithmName SHA512t_256 where
     merkleHashAlgorithmName = "SHA512t_256"
-    {-# INLINE merkleHashAlgorithmName #-}
+
 
 instance MerkleHashAlgorithmName Keccak_256 where
     merkleHashAlgorithmName = "Keccak_256"
-    {-# INLINE merkleHashAlgorithmName #-}
+
 
 -- -------------------------------------------------------------------------- --
 -- Merkle Log Entries
@@ -335,7 +335,7 @@ fromMerkleNodeM
     => MerkleNodeType a B.ByteString
     -> m b
 fromMerkleNodeM = either throwM return . fromMerkleNode @a
-{-# INLINE fromMerkleNodeM #-}
+
 
 -- -------------------------------------------------------------------------- --
 -- Merkle Log Entries
@@ -381,7 +381,7 @@ infixr 5 :+:
 
 emptyBody :: IsMerkleLogEntry a u b => MerkleLogEntries a u '[] b
 emptyBody = MerkleLogBody mempty
-{-# INLINE emptyBody #-}
+
 
 mapLogEntries
     :: forall a u h s b
@@ -393,7 +393,7 @@ mapLogEntries f m = V.concat $ go m
     go :: forall h' . MerkleLogEntries a u h' s -> [V.Vector b]
     go (MerkleLogBody s) = [V.map f s]
     go (h :+: t) = V.singleton (f h) : go t
-{-# INLINE mapLogEntries #-}
+
 
 entriesHeaderSize :: MerkleLogEntries a u l s -> Int
 entriesHeaderSize MerkleLogBody{} = 0
@@ -402,7 +402,7 @@ entriesHeaderSize (_ :+: t) = succ $ entriesHeaderSize t
 entriesBody :: MerkleLogEntries a u l s -> V.Vector s
 entriesBody (MerkleLogBody s) = s
 entriesBody (_ :+: t) = entriesBody t
-{-# INLINE entriesBody #-}
+
 
 -- -------------------------------------------------------------------------- --
 -- Merkle Log
@@ -568,19 +568,19 @@ type HasHeader a u c b = HasHeader_ a u c b (Index c (Hdr b))
 --
 body :: MerkleLog a u l s -> V.Vector s
 body = entriesBody . _merkleLogEntries
-{-# INLINE body #-}
+
 
 -- | Get the number of entries in the header of a Merkle log.
 --
 headerSize :: MerkleLog a u l s -> Int
 headerSize = entriesHeaderSize . _merkleLogEntries
-{-# INLINE headerSize #-}
+
 
 -- | Get the number of entries in the body of a Merkle log.
 --
 bodySize :: MerkleLog a u l s -> Int
 bodySize = V.length . body
-{-# INLINE bodySize #-}
+
 
 -- | Compute the Merkle root hash for an instance of 'HasMerkleLog'.
 --
@@ -594,7 +594,7 @@ computeMerkleLogRoot
     => b
     -> MerkleRoot a
 computeMerkleLogRoot = merkleRoot . _merkleLogTree . toLog @a
-{-# INLINE computeMerkleLogRoot #-}
+
 
 -- -------------------------------------------------------------------------- --
 -- Proofs
@@ -620,7 +620,7 @@ headerProof
     => b
     -> m (MerkleProof a)
 headerProof = uncurry3 merkleProof . headerTree @c @a
-{-# INLINE headerProof #-}
+
 
 -- | Create the parameters for creating nested inclusion proofs with the
 -- 'merkleProof_' of the merkle-log package.
@@ -674,7 +674,7 @@ bodyProof
         -- ^ the index in the body of the log
     -> m (MerkleProof a)
 bodyProof b = uncurry3 merkleProof . bodyTree @a b
-{-# INLINE bodyProof #-}
+
 
 -- | Create the parameters for creating nested inclusion proofs with the
 -- 'merkleProof_' of the merkle-log package.
@@ -724,7 +724,7 @@ proofSubject
 proofSubject p = fromMerkleNodeTagged @a subj
   where
     MerkleProofSubject subj = _merkleProofSubject p
-{-# INLINE proofSubject #-}
+
 
 -- -------------------------------------------------------------------------- --
 -- Tools Defining Instances
@@ -770,8 +770,8 @@ instance
     toMerkleNode (ByteArrayMerkleLogEntry b) = InputNode $ BA.convert b
     fromMerkleNode (InputNode x) = return $! ByteArrayMerkleLogEntry $! BA.convert x
     fromMerkleNode (TreeNode _) = throwM expectedInputNodeException
-    {-# INLINE toMerkleNode #-}
-    {-# INLINE fromMerkleNode #-}
+
+
 
 -- | Support for deriving IsMerkleLogEntry for types that are newtype wrappers of
 -- 'MerkleRoot' via the @DerivingVia@ extension.
@@ -783,8 +783,8 @@ instance (MerkleHashAlgorithm a, InUniverse u t) => IsMerkleLogEntry a u (Merkle
     toMerkleNode (MerkleRootLogEntry r) = TreeNode r
     fromMerkleNode (TreeNode !x) = return $! MerkleRootLogEntry x
     fromMerkleNode (InputNode _) = throwM expectedTreeNodeException
-    {-# INLINE toMerkleNode #-}
-    {-# INLINE fromMerkleNode #-}
+
+
 
 -- | Support for deriving IsMerkleLogEntry for types that are newtype wrappers of
 -- 'Word8' via the @DerivingVia@ extension.
@@ -803,8 +803,8 @@ instance
         Just _ -> throwM
             $ MerkleLogDecodeException "failed to deserialize Word8. Pending bytes in input"
     fromMerkleNode (TreeNode _) = throwM expectedInputNodeException
-    {-# INLINE toMerkleNode #-}
-    {-# INLINE fromMerkleNode #-}
+
+
 
 -- | Support for deriving IsMerkleLogEntry for types that are newtype wrappers of
 -- 'Word16' via the @DerivingVia@ extension.
@@ -819,8 +819,8 @@ instance
     toMerkleNode = InputNode . fromWordBE . _getWord16BeLogEntry
     fromMerkleNode (InputNode x) = Word16BeMerkleLogEntry <$> toWordBE x
     fromMerkleNode (TreeNode _) = throwM expectedInputNodeException
-    {-# INLINE toMerkleNode #-}
-    {-# INLINE fromMerkleNode #-}
+
+
 
 -- | Support for deriving IsMerkleLogEntry for types that are newtype wrappers of
 -- 'Word32' via the @DerivingVia@ extension.
@@ -835,8 +835,8 @@ instance
     toMerkleNode = InputNode . fromWordBE . _getWord32BeLogEntry
     fromMerkleNode (InputNode x) = Word32BeMerkleLogEntry <$> toWordBE x
     fromMerkleNode (TreeNode _) = throwM expectedInputNodeException
-    {-# INLINE toMerkleNode #-}
-    {-# INLINE fromMerkleNode #-}
+
+
 
 -- | Support for deriving IsMerkleLogEntry for types that are newtype wrappers of
 -- 'Word64' via the @DerivingVia@ extension.
@@ -851,5 +851,5 @@ instance
     toMerkleNode = InputNode . fromWordBE . _getWord64BeLogEntry
     fromMerkleNode (InputNode x) = Word64BeMerkleLogEntry <$> toWordBE x
     fromMerkleNode (TreeNode _) = throwM expectedInputNodeException
-    {-# INLINE toMerkleNode #-}
-    {-# INLINE fromMerkleNode #-}
+
+

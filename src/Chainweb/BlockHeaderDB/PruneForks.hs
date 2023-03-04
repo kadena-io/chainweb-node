@@ -247,4 +247,4 @@ withReverseHeaderStream db mar mir inner = withTableIterator headerTbl $ \it -> 
   where
     headerTbl = _chainDbCas db
 
-{-# INLINE withReverseHeaderStream #-}
+

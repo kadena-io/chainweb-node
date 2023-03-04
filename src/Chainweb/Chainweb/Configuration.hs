@@ -10,6 +10,7 @@
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
+{-# OPTIONS_GHC -fno-specialise #-}
 
 -- |
 -- Module: Chainweb.Chainweb.Configuration
@@ -196,12 +197,12 @@ chainDatabaseGcFromText t = case T.toCaseFold t of
 instance HasTextRepresentation ChainDatabaseGcConfig where
     toText = chainDatabaseGcToText
     fromText = chainDatabaseGcFromText
-    {-# INLINE toText #-}
-    {-# INLINE fromText #-}
+
+
 
 instance ToJSON ChainDatabaseGcConfig where
     toJSON = toJSON . chainDatabaseGcToText
-    {-# INLINE toJSON #-}
+
 
 instance FromJSON ChainDatabaseGcConfig where
     parseJSON v = parseJsonFromText "ChainDatabaseGcConfig" v <|> legacy v
@@ -209,7 +210,7 @@ instance FromJSON ChainDatabaseGcConfig where
         legacy = withBool "ChainDatabaseGcConfig" $ \case
             True -> return GcHeaders
             False -> return GcNone
-    {-# INLINE parseJSON #-}
+
 
 data CutConfig = CutConfig
     { _cutPruneChainDatabase :: !ChainDatabaseGcConfig
@@ -410,7 +411,7 @@ makeLenses ''ChainwebConfiguration
 
 instance HasChainwebVersion ChainwebConfiguration where
     _chainwebVersion = _configChainwebVersion
-    {-# INLINE _chainwebVersion #-}
+
 
 validateChainwebConfiguration :: ConfigValidation ChainwebConfiguration []
 validateChainwebConfiguration c = do
@@ -586,7 +587,7 @@ pChainwebConfiguration = id
                                 in HM.filterWithKey (\bh _ -> bh <= fubHeight) (winningVersion ^?! versionUpgrades . onChain cid))
                             (HS.toMap (chainIds winningVersion))
                     ) fub
-                , _versionCheats = 
+                , _versionCheats =
                     _versionCheats winningVersion & disablePow .~ disablePow'
                 }
             | Nothing <- br, Nothing <- fub = winningVersion

@@ -98,19 +98,19 @@ newtype RankedBlockHeader = RankedBlockHeader { _getRankedBlockHeader :: BlockHe
 
 instance HasChainwebVersion RankedBlockHeader where
     _chainwebVersion = _chainwebVersion . _getRankedBlockHeader
-    {-# INLINE _chainwebVersion #-}
+
 
 instance HasChainId RankedBlockHeader where
     _chainId = _chainId . _getRankedBlockHeader
-    {-# INLINE _chainId #-}
+
 
 instance HasChainGraph RankedBlockHeader where
     _chainGraph = _chainGraph . _getRankedBlockHeader
-    {-# INLINE _chainGraph #-}
+
 
 instance Ord RankedBlockHeader where
     compare = compare `on` ((_blockHeight &&& id) . _getRankedBlockHeader)
-    {-# INLINE compare #-}
+
 
 -- -------------------------------------------------------------------------- --
 -- Ranked Block Hash
@@ -126,7 +126,7 @@ instance IsCasValue RankedBlockHeader where
     type CasKeyType RankedBlockHeader = RankedBlockHash
     casKey (RankedBlockHeader bh)
         = RankedBlockHash (_blockHeight bh) (_blockHash bh)
-    {-# INLINE casKey #-}
+
 
 -- -------------------------------------------------------------------------- --
 -- BlockRank
@@ -145,23 +145,23 @@ newtype BlockRank = BlockRank { _getBlockRank :: BlockHeight }
 
 encodeRankedBlockHeader :: RankedBlockHeader -> Put
 encodeRankedBlockHeader = encodeBlockHeader . _getRankedBlockHeader
-{-# INLINE encodeRankedBlockHeader #-}
+
 
 decodeRankedBlockHeader :: Get RankedBlockHeader
 decodeRankedBlockHeader = RankedBlockHeader <$!> decodeBlockHeader
-{-# INLINE decodeRankedBlockHeader #-}
+
 
 encodeRankedBlockHash :: RankedBlockHash -> Put
 encodeRankedBlockHash (RankedBlockHash r bh) = do
     encodeBlockHeightBe r -- big endian encoding for lexicographical order
     encodeBlockHash bh
-{-# INLINE encodeRankedBlockHash #-}
+
 
 decodeRankedBlockHash :: Get RankedBlockHash
 decodeRankedBlockHash = RankedBlockHash
     <$!> decodeBlockHeightBe
     <*> decodeBlockHash
-{-# INLINE decodeRankedBlockHash #-}
+
 
 -- -------------------------------------------------------------------------- --
 -- BlockHeader DB
@@ -181,15 +181,15 @@ data BlockHeaderDb = BlockHeaderDb
 
 instance HasChainId BlockHeaderDb where
     _chainId = _chainDbId
-    {-# INLINE _chainId #-}
+
 
 instance HasChainwebVersion BlockHeaderDb where
     _chainwebVersion = _chainDbChainwebVersion
-    {-# INLINE _chainwebVersion #-}
+
 
 instance (k ~ CasKeyType BlockHeader) => ReadableTable BlockHeaderDb k BlockHeader where
     tableLookup = lookup
-    {-# INLINE tableLookup #-}
+
 
 -- -------------------------------------------------------------------------- --
 -- Insert
@@ -341,7 +341,7 @@ withSeekTreeDb
     -> IO a
 withSeekTreeDb db k mir kont =
     withTableIterator (_chainDbCas db) (\it -> seekTreeDb db k mir it >> kont it)
-{-# INLINE withSeekTreeDb #-}
+
 
 -- | If @k@ is not 'Nothing', @seekTreeDb d k mir@ seeks key @k@ in @db@. If the
 -- key doesn't exist it throws @TreeDbKeyNotFound@. Otherwise if @k@ was
@@ -398,9 +398,9 @@ seekTreeDb db k mir it = do
 
 insertBlockHeaderDb :: BlockHeaderDb -> ValidatedHeader -> IO ()
 insertBlockHeaderDb db = dbAddChecked db . _validatedHeader
-{-# INLINE insertBlockHeaderDb #-}
+
 
 unsafeInsertBlockHeaderDb :: BlockHeaderDb -> BlockHeader -> IO ()
 unsafeInsertBlockHeaderDb = dbAddChecked
-{-# INLINE unsafeInsertBlockHeaderDb #-}
+
 

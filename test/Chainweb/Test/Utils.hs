@@ -893,7 +893,7 @@ goldenSch
     -> IO BL.ByteString -- ^ Test action
     -> ScheduledTest
 goldenSch l = ScheduledTest l . golden l
-{-# INLINE goldenSch #-}
+
 
 -- -------------------------------------------------------------------------- --
 -- Scheduling Tests

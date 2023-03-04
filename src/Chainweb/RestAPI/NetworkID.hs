@@ -78,7 +78,7 @@ networkIdToText :: NetworkId -> T.Text
 networkIdToText CutNetwork = "cut"
 networkIdToText (ChainNetwork cid) = "chain/" <> chainIdToText cid
 networkIdToText (MempoolNetwork cid) = "chain/" <> chainIdToText cid <> "/mempool"
-{-# INLINE networkIdToText #-}
+
 
 networkIdFromText :: MonadThrow m => T.Text -> m NetworkId
 networkIdFromText t = case T.split (== '/') t of
@@ -89,23 +89,23 @@ networkIdFromText t = case T.split (== '/') t of
 
 unsafeNetworkIdFromText :: HasCallStack => T.Text -> NetworkId
 unsafeNetworkIdFromText = fromJuste . networkIdFromText
-{-# INLINE unsafeNetworkIdFromText #-}
+
 
 instance ToJSON NetworkId where
     toJSON = toJSON . networkIdToText
     toEncoding = toEncoding . networkIdToText
-    {-# INLINE toJSON #-}
-    {-# INLINE toEncoding #-}
+
+
 
 instance FromJSON NetworkId where
     parseJSON = parseJsonFromText "NetworkId"
-    {-# INLINE parseJSON #-}
+
 
 instance HasTextRepresentation NetworkId where
     toText = networkIdToText
-    {-# INLINE toText #-}
+
     fromText = networkIdFromText
-    {-# INLINE fromText #-}
+
 
 pNetworkId :: OptionParser NetworkId
 pNetworkId = textOption
@@ -187,8 +187,8 @@ instance SingKind NetworkIdT where
     toSing (MempoolNetwork (FromSingChainId c)) = withSingI c $ SomeSing (SMempoolNetwork c)
     toSing CutNetwork = SomeSing SCutNetwork
 
-    {-# INLINE fromSing #-}
-    {-# INLINE toSing #-}
+
+
 
 pattern FromSingNetworkId :: Sing (n :: NetworkIdT) -> NetworkId
 pattern FromSingNetworkId sng <- ((\cid -> withSomeSing cid SomeSing) -> SomeSing sng)
