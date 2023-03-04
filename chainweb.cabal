@@ -387,7 +387,6 @@ library
         , servant-client-core >= 0.18.2
         , servant-server >= 0.18.2
         , stm >= 2.4
-        , stm-chans
         , stopwatch >= 0.1
         , streaming >= 0.2
         , streaming-commons >= 0.2
