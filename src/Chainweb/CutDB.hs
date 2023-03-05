@@ -821,7 +821,7 @@ member db cid h = do
 -- -------------------------------------------------------------------------- --
 -- Some CutDB
 
--- | 'CutDb' with type level 'ChainwebVersionTag
+-- | 'CutDb' with type level 'ChainwebVersionName'
 --
 newtype CutDbT tbl (v :: ChainwebVersionT) = CutDbT (CutDb tbl)
     deriving (Generic)

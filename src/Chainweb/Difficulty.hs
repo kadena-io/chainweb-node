@@ -75,7 +75,6 @@ import Data.Hashable
 import qualified Data.Text as T
 
 import GHC.Generics
-import GHC.Stack
 import GHC.TypeNats
 
 import Text.Printf (printf)
@@ -278,7 +277,7 @@ decodeHashDifficultyBe = HashDifficulty <$!> decodePowHashNatBe
 -- | Given the same `ChainwebVersion`, forms an isomorphism with
 -- `difficultyToTarget`.
 --
-targetToDifficulty :: HasCallStack => HashTarget -> HashDifficulty
+targetToDifficulty :: HashTarget -> HashDifficulty
 targetToDifficulty (HashTarget (PowHashNat target)) =
     HashDifficulty . PowHashNat $ maxTargetWord `div` target
 {-# INLINE targetToDifficulty #-}
@@ -329,8 +328,7 @@ adjust (BlockRate br) (WindowWidth ww) (TimeSpan delta) (HashTarget oldTarget) =
 -- This is used when 'oldDaGuard' is active.
 --
 legacyAdjust
-    :: HasCallStack
-    => BlockRate
+    :: BlockRate
     -> WindowWidth
     -> TimeSpan Micros
         -- ^ the actual time of the last epoch: creation time minus the epoch

@@ -308,7 +308,6 @@ library
         , Chainweb.Pact.Transactions.Mainnet9Transactions
         , Chainweb.Pact.Transactions.MainnetKADTransactions
         , Chainweb.Pact.Transactions.OtherTransactions
-        -- , Chainweb.Pact.Transactions.UpgradeTransactions
         , Chainweb.Pact.Types
         , Chainweb.Pact.Utils
         , Chainweb.Pact.Validations

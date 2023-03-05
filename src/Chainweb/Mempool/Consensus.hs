@@ -42,7 +42,6 @@ import System.LogLevel
 ------------------------------------------------------------------------------
 import Chainweb.BlockHeader
 import Chainweb.BlockHeaderDB
-import Chainweb.ChainId
 import Chainweb.Mempool.InMem
 import Chainweb.Mempool.Mempool
 import Chainweb.Payload
@@ -52,7 +51,7 @@ import Chainweb.Transaction
 import Chainweb.TreeDB
 import Chainweb.Utils
 import Chainweb.Version
-import Chainweb.Version.Guards 
+import Chainweb.Version.Guards
 
 import Chainweb.Storage.Table
 import Data.LogMessage (JsonLog(..), LogFunction)

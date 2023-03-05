@@ -51,7 +51,6 @@ import System.Random
 
 -- internal modules
 
-import Chainweb.ChainId
 import Chainweb.Cut (Cut)
 import Chainweb.Cut.Create
 import Chainweb.CutDB (awaitNewCutByChainIdStm, _cut)

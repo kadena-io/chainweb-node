@@ -57,7 +57,6 @@ import Chainweb.BlockHash as CW
 import Chainweb.BlockHeader
 import Chainweb.BlockHeaderDB
 import Chainweb.BlockHeight
-import qualified Chainweb.ChainId as CW
 import Chainweb.Pact.Service.Types
 import Chainweb.Pact.Utils (aeson)
 import Chainweb.Payload

@@ -190,6 +190,8 @@ instance MerkleHashAlgorithm a => IsMerkleLogEntry a ChainwebHashTag Nonce where
     type Tag Nonce = 'BlockNonceTag
     toMerkleNode = encodeMerkleInputNode encodeNonce
     fromMerkleNode = decodeMerkleInputNode decodeNonce
+    {-# INLINE toMerkleNode #-}
+    {-# INLINE fromMerkleNode #-}
 
 encodeNonce :: Nonce -> Put
 encodeNonce (Nonce n) = putWord64le n
@@ -203,6 +205,8 @@ decodeNonce = Nonce <$> getWord64le
 instance ToJSON Nonce where
     toJSON (Nonce i) = toJSON $ show i
     toEncoding (Nonce i) = toEncoding $ show i
+    {-# INLINE toJSON #-}
+    {-# INLINE toEncoding #-}
 
 instance FromJSON Nonce where
     parseJSON = withText "Nonce"
@@ -220,6 +224,8 @@ instance MerkleHashAlgorithm a => IsMerkleLogEntry a ChainwebHashTag EpochStartT
     type Tag EpochStartTime = 'EpochStartTimeTag
     toMerkleNode = encodeMerkleInputNode encodeEpochStartTime
     fromMerkleNode = decodeMerkleInputNode decodeEpochStartTime
+    {-# INLINE toMerkleNode #-}
+    {-# INLINE fromMerkleNode #-}
 
 encodeEpochStartTime :: EpochStartTime -> Put
 encodeEpochStartTime (EpochStartTime t) = encodeTime t
@@ -358,6 +364,7 @@ data BlockHeader :: Type where
 
 instance Eq BlockHeader where
      (==) = (==) `on` _blockHash
+     {-# INLINE (==) #-}
 
 instance Ord BlockHeader where
      compare = compare `on` _blockHash
@@ -377,6 +384,7 @@ instance HasChainwebVersion BlockHeader where
 instance IsCasValue BlockHeader where
     type CasKeyType BlockHeader = BlockHash
     casKey = _blockHash
+    {-# INLINE casKey #-}
 
 type BlockHeaderCas tbl = Cas tbl BlockHeader
 
@@ -414,11 +422,11 @@ slowEpoch :: ParentHeader -> BlockCreationTime -> Bool
 slowEpoch (ParentHeader p) (BlockCreationTime ct) = actual > (expected * 5)
   where
     EpochStartTime es = _blockEpochStart p
-    BlockRate s = _versionBlockRate (_blockChainwebVersion p)
+    BlockRate br = _versionBlockRate (_blockChainwebVersion p)
     WindowWidth ww = _versionWindow (_blockChainwebVersion p)
 
     expected :: Micros
-    expected = s * int ww
+    expected = br * int ww
 
     actual :: Micros
     actual = timeSpanToMicros $ ct .-. es
@@ -472,6 +480,7 @@ powTarget p@(ParentHeader ph) as bct = case effectiveWindow ph of
     avgTarget targets = HashTarget $ floor $ s / int (length targets)
       where
         s = sum $ fmap (int @_ @Rational . _hashTarget) targets
+{-# INLINE powTarget #-}
 
 -- | Compute the epoch start value for a new BlockHeader
 --
@@ -577,6 +586,7 @@ epochStart ph@(ParentHeader p) adj (BlockCreationTime bt)
 
     parentIsFirstOnNewChain
         = _blockHeight p > 1 && _blockHeight p == genesisHeight ver cid + 1
+{-# INLINE epochStart #-}
 
 -- -------------------------------------------------------------------------- --
 -- Newtype wrappers for function parameters
@@ -597,12 +607,15 @@ parentHeader = lens _parentHeader $ \_ hdr -> ParentHeader hdr
 
 instance HasChainId ParentHeader where
     _chainId = _chainId . _parentHeader
+    {-# INLINE _chainId #-}
 
 instance HasChainwebVersion ParentHeader where
     _chainwebVersion = _chainwebVersion . _parentHeader
+    {-# INLINE _chainwebVersion #-}
 
 instance HasChainGraph ParentHeader where
     _chainGraph = _chainGraph . _parentHeader
+    {-# INLINE _chainGraph #-}
 
 isGenesisBlockHeader :: BlockHeader -> Bool
 isGenesisBlockHeader b =
@@ -908,6 +921,8 @@ decodeBlockHeader = BlockHeader
 instance ToJSON BlockHeader where
     toJSON = toJSON . encodeB64UrlNoPaddingText . runPutS . encodeBlockHeader
     toEncoding = b64UrlNoPaddingTextEncoding . runPutS . encodeBlockHeader
+    {-# INLINE toJSON #-}
+    {-# INLINE toEncoding #-}
 
 instance FromJSON BlockHeader where
     parseJSON = withText "BlockHeader" $ \t ->
@@ -931,9 +946,11 @@ getAdjacentHash p b = firstOf (blockAdjacentHashes . ixg (_chainId p)) b
     ??? ChainNotAdjacentException
         (Expected $ _chainId p)
         (Actual $ _blockAdjacentChainIds b)
+{-# INLINE getAdjacentHash #-}
 
 computeBlockHash :: BlockHeader -> BlockHash
 computeBlockHash h = BlockHash $ MerkleLogHash $ computeMerkleLogRoot h
+{-# INLINE computeBlockHash #-}
 
 -- | The Proof-Of-Work hash includes all data in the block except for the
 -- '_blockHash'. The value (interpreted as 'BlockHashNat' must be smaller than
@@ -945,6 +962,7 @@ _blockPow h = cryptoHash @Blake2s_256
 
 blockPow :: Getter BlockHeader PowHash
 blockPow = to _blockPow
+{-# INLINE blockPow #-}
 
 -- | The number of microseconds between the creation time of two `BlockHeader`s.
 --
@@ -991,10 +1009,13 @@ blockHeaderProperties (ObjectEncoded b) =
     , "featureFlags" .= _blockFlags b
     , "hash" .= _blockHash b
     ]
+{-# INLINE blockHeaderProperties #-}
 
 instance ToJSON (ObjectEncoded BlockHeader) where
     toJSON = object . blockHeaderProperties
     toEncoding = pairs . mconcat . blockHeaderProperties
+    {-# INLINE toJSON #-}
+    {-# INLINE toEncoding #-}
 
 parseBlockHeaderObject :: Object -> Parser BlockHeader
 parseBlockHeaderObject o = BlockHeader
@@ -1015,6 +1036,7 @@ parseBlockHeaderObject o = BlockHeader
 instance FromJSON (ObjectEncoded BlockHeader) where
     parseJSON = withObject "BlockHeader"
         $ fmap ObjectEncoded . parseBlockHeaderObject
+    {-# INLINE parseJSON #-}
 
 -- -------------------------------------------------------------------------- --
 -- IsBlockHeader

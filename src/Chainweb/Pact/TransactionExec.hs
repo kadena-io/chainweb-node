@@ -597,44 +597,6 @@ applyUpgrades v cid height
           logError $ "Upgrade transaction failed! " <> sshow e
           throwM e
 
--- applyTwentyChainUpgrade
---     :: ChainwebVersion
---     -> Chainweb.ChainId
---     -> BlockHeight
---     -> TransactionM p ()
--- applyTwentyChainUpgrade v cid bh
---     | False = do -- atFork To20Chains v cid bh = do
---       let txlist = undefined -- v ^?! versionUpgradeTransactions . to20ChainTransactions . onChain cid
-
---       infoLog $ "Applying 20-chain upgrades on chain " <> sshow cid
-
---       let txs = undefined -- fmap payloadObj <$> txlist
-
---       --
---       -- Note (emily): This function does not need to care about
---       -- module caching, because it is already seeded with the correct cache
---       -- state, and is not updating the module cache, unlike 'applyUpgrades'.
---       --
-
---       -- traverse_ applyTx txs
---       undefined
---     | otherwise = return ()
---   where
---     applyTx tx = do
---       infoLog $ "Running 20-chain upgrade tx " <> sshow (_cmdHash tx)
-
---       let i = initStateInterpreter
---             $ initCapabilities [mkMagicCapSlot "REMEDIATE"]
-
---       r <- tryAllSynchronous (runGenesis tx permissiveNamespacePolicy i)
---       case r of
---         Left e -> do
---           logError $ "Upgrade transaction failed: " <> sshow e
---           void $! throwM e
---         Right _ -> return ()
-
-
-
 jsonErrorResult
     :: PactError
     -> Text
