@@ -67,7 +67,6 @@ withTestCoordinator
     -> (forall tbl logger . Logger logger => logger -> MiningCoordination logger tbl -> IO ())
     -> IO ()
 withTestCoordinator rdb maybeConf a = do
-    let v = barebonesTestVersion pairChainGraph
     var <- newEmptyMVar
     x <- race (takeMVar var) $
         withTestCutDb rdb v id 0 (\_ _ -> return fakePact) (logFunction logger) $ \_ cdb ->
@@ -81,6 +80,7 @@ withTestCoordinator rdb maybeConf a = do
         Right () -> logFunctionText logger Info "withTestCoordinator: coordinator service stopped"
 
   where
+    v = barebonesTestVersion pairChainGraph
     logger = genericLogger Warn print
     conf = fromMaybe defaultMining maybeConf
         & miningCoordination . coordinationEnabled .~ True

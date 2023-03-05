@@ -48,7 +48,6 @@ import Data.Functor.Of
 import qualified Data.HashMap.Strict as HM
 import qualified Data.HashSet as HS
 import qualified Data.List as L
-import GHC.Stack
 
 import qualified Streaming.Prelude as S
 
@@ -123,7 +122,7 @@ instance (k ~ CasKeyType (ChainValue BlockHeader)) => ReadableTable WebBlockHead
     {-# INLINE tableLookup #-}
 
 initWebBlockHeaderDb
-    :: HasCallStack => RocksDb
+    :: RocksDb
     -> ChainwebVersion
     -> IO WebBlockHeaderDb
 initWebBlockHeaderDb db v = WebBlockHeaderDb

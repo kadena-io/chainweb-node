@@ -6,7 +6,6 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeApplications #-}
-{-# LANGUAGE ViewPatterns #-}
 
 -- |
 -- Module: Chainweb.Rosetta.RestAPI.Server

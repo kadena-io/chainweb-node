@@ -56,7 +56,6 @@ import Chainweb.BlockHeader
 import Chainweb.ChainId
 import Chainweb.Cut
 import Chainweb.CutDB
--- import Chainweb.Pact.Transactions.UpgradeTransactions
 import Chainweb.Pact.Service.Types (Domain'(..), BlockTxHistory(..))
 import Chainweb.Payload hiding (Transaction(..))
 import Chainweb.Payload.PayloadStore
@@ -743,7 +742,7 @@ toSignerAcctsMap txInfo payerAcct cid pacts cutDb = do
       someActualFrom <- getOwnership peCurr bhCurr from
       someActualTo <- getOwnership peCurr bhCurr to
 
-      _ <- enforceAcctPresent' from someActualFrom
+      _ <- enforceAcctPresent from someActualFrom
       checkExpectedOwnership from expectedFrom someActualFrom
       checkExpectedOwnership to expectedTo someActualTo
 
@@ -816,18 +815,6 @@ enforceAcctPresent k actualOwnership =
       hoistEither $ Left $
       stringRosettaError RosettaInvalidAccountProvided $
       "Account=" ++ show k ++ " doesn't exists"
-
-enforceAcctPresent'
-    :: AccountId
-    -> Maybe [T.Text]
-    -> ExceptT RosettaError Handler [T.Text]
-enforceAcctPresent' k actualOwnership =
-  case actualOwnership of
-    Just pks -> pure pks
-    Nothing -> -- key missing (not expected)
-      hoistEither $ Left $
-      stringRosettaError RosettaInvalidAccountProvided $
-      "Account=" ++ show k ++ " doesn't exists (2)"
 
 checkExpectedOwnership
     :: AccountId

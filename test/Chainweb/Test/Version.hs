@@ -1,10 +1,6 @@
-{-# LANGUAGE CPP #-}
 {-# LANGUAGE LambdaCase #-}
-{-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE RecursiveDo #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# OPTIONS_GHC -Wno-missing-fields #-}
 
 -- |
 -- Module: Chainweb.Test.Version

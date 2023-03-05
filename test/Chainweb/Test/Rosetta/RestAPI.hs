@@ -162,7 +162,6 @@ accountBalanceTests tio envIo =
   where
     req = AccountBalanceReq nid (AccountId "sender00" Nothing Nothing) Nothing
 
-    checkBalance :: HasCallStack => AccountBalanceResp -> Decimal -> IO ()
     checkBalance resp bal1 = do
       let b0 = head $ _accountBalanceResp_balances resp
           b1 = kdaToRosettaAmount bal1
@@ -502,8 +501,7 @@ constructionTransferTests _ envIo =
     getKeys _ = Nothing
 
 submitToConstructionAPI
-    :: HasCallStack
-    => [Operation]
+    :: [Operation]
     -> ChainId
     -> Text
     -> (Text -> Maybe SimpleKeyPair)
@@ -752,8 +750,7 @@ operationTypes =
 -- | Validate all useful data for a tx operation
 --
 validateOp
-    :: HasCallStack
-    => Word64
+    :: Word64
       -- ^ op idx
     -> Text
       -- ^ operation type

@@ -83,9 +83,6 @@ import Chainweb.Version
 import Chainweb.Storage.Table
 import Chainweb.Storage.Table.RocksDB
 
-version :: ChainwebVersion
-version = barebonesTestVersion petersonChainGraph
-
 -- -------------------------------------------------------------------------- --
 -- Test Tree
 
@@ -93,14 +90,16 @@ version = barebonesTestVersion petersonChainGraph
 -- quickCheck instead of HUnit or should be derandomized.
 --
 tests :: RocksDb -> TestTree
-tests rdb =
-    testGroup "SPV tests"
-        [ testCaseStepsN "SPV transaction proof" 10 (spvTransactionRoundtripTest rdb version)
-        , testCaseStepsN "SPV transaction output proof" 10 (spvTransactionOutputRoundtripTest rdb version)
-        , apiTests rdb version
-        , testCaseSteps "SPV transaction proof test" (spvTest rdb version)
-        , properties
-        ]
+tests rdb =testGroup  "SPV tests"
+    [ testCaseStepsN "SPV transaction proof" 10 (spvTransactionRoundtripTest rdb version)
+    , testCaseStepsN "SPV transaction output proof" 10 (spvTransactionOutputRoundtripTest rdb version)
+    , apiTests rdb version
+    , testCaseSteps "SPV transaction proof test" (spvTest rdb version)
+    , properties
+    ]
+  where
+    version = barebonesTestVersion petersonChainGraph
+
 
 -- -------------------------------------------------------------------------- --
 -- Utils

@@ -140,7 +140,6 @@ import Data.String
 import qualified Data.Vector as V
 
 import GHC.Generics
-import GHC.Stack
 
 import System.Directory
 import System.IO.Temp (createTempDirectory)
@@ -200,7 +199,7 @@ import Chainweb.Test.TestVersions
 import Chainweb.Time
 import Chainweb.Transaction
 import Chainweb.Utils
-import Chainweb.Version
+import Chainweb.Version (ChainwebVersion(..), chainIds)
 import qualified Chainweb.Version as Version
 import Chainweb.Version.Utils (someChainId)
 import Chainweb.WebBlockHeaderDB
@@ -612,7 +611,7 @@ testPactCtxSQLite v cid bhdb pdb sqlenv conf gasmodel = do
     !ctx <- TestPactCtx
       <$!> newMVar (PactServiceState Nothing mempty ph noSPVSupport)
       <*> pure (pactServiceEnv cpe rs)
-    evalPactServiceM_ ctx (initialPayloadState (genericLogger Info T.putStrLn) mempty v cid)
+    evalPactServiceM_ ctx (initialPayloadState dummyLogger mempty v cid)
     return (ctx, PactDbEnv' dbSt)
   where
     initialBlockState = initBlockState defaultModuleCacheLimit $ genesisHeight v cid
@@ -815,8 +814,7 @@ withTemporaryDir = withResource
     removeDirectoryRecursive
 
 withTestBlockDbTest
-    :: HasCallStack
-    => ChainwebVersion
+    :: ChainwebVersion
     -> RocksDb
     -> (IO TestBlockDb -> TestTree)
     -> TestTree
@@ -824,8 +822,7 @@ withTestBlockDbTest v rdb = withResource (mkTestBlockDb v rdb) mempty
 
 -- | Single-chain Pact via service queue.
 withPactTestBlockDb
-    :: HasCallStack
-    => ChainwebVersion
+    :: ChainwebVersion
     -> ChainId
     -> LogLevel
     -> RocksDb

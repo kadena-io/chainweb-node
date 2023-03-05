@@ -318,10 +318,10 @@ testCoinbaseUpgradeDevnet cid upgradeHeight =
 
 testTwentyChainDevnetUpgrades :: TestTree
 testTwentyChainDevnetUpgrades = testCaseSteps "Test 20-chain Devnet upgrades" $ \step -> do
-      step "Check that 20-chain upgrades fire at block height 150"
+      step "Check that 20-chain upgrades fire at block height 12"
       testUpgradeScript "test/pact/twenty-chain-upgrades.repl" (unsafeChainId 0) 12 test0
 
-      step "Check that 20-chain upgrades do not fire at block heights < 150 and > 150"
+      step "Check that 20-chain upgrades do not fire at block heights < 12 and > 12"
       testUpgradeScript "test/pact/twenty-chain-upgrades.repl" (unsafeChainId 0) (12 - 1) test1
       testUpgradeScript "test/pact/twenty-chain-upgrades.repl" (unsafeChainId 0) (12 + 1) test1
 
@@ -366,7 +366,7 @@ testUpgradeScript script cid bh test = do
   where
     p = parent bh cid
 
-matchLogs :: HasCallStack => [(Text, Text, Maybe Value)] -> [(Text, Text, Maybe Value)] -> IO ()
+matchLogs :: [(Text, Text, Maybe Value)] -> [(Text, Text, Maybe Value)] -> IO ()
 matchLogs expectedResults actualResults
     | length actualResults /= length expectedResults = void $
       assertFailure $ intercalate "\n" $

@@ -140,6 +140,7 @@ import Chainweb.SPV.OutputProof
 import Chainweb.SPV.PayloadProof
 import Chainweb.Test.Orphans.Pact
 import Chainweb.Test.Orphans.Time ()
+import Chainweb.Test.TestVersions
 import Chainweb.Time
 import Chainweb.Utils
 import Chainweb.Utils.Paging
@@ -147,6 +148,7 @@ import Chainweb.Utils.Serialization
 import Chainweb.Version
 import Chainweb.Version.Development
 import Chainweb.Version.Mainnet
+import Chainweb.Version.Registry
 import Chainweb.Version.Testnet
 import Chainweb.Version.Utils
 
@@ -183,15 +185,13 @@ instance Arbitrary Utf8Encoded where
 
 instance Arbitrary ChainwebVersion where
     arbitrary = elements
-        -- [ Test singletonChainGraph
-        -- , Test petersonChainGraph
-        -- , TimedConsensus singletonChainGraph singletonChainGraph
-        -- , TimedConsensus petersonChainGraph petersonChainGraph
-        -- , TimedConsensus singletonChainGraph pairChainGraph
-        -- , TimedConsensus petersonChainGraph twentyChainGraph
-        -- , PowConsensus singletonChainGraph
-        -- , PowConsensus petersonChainGraph
-        [ Development
+        [ barebonesTestVersion singletonChainGraph
+        , barebonesTestVersion petersonChainGraph
+        , timedConsensusVersion singletonChainGraph singletonChainGraph
+        , timedConsensusVersion petersonChainGraph petersonChainGraph
+        , timedConsensusVersion singletonChainGraph pairChainGraph
+        , timedConsensusVersion petersonChainGraph twentyChainGraph
+        , Development
         , Testnet04
         , Mainnet01
         ]
@@ -209,7 +209,7 @@ instance MerkleHashAlgorithm a => Arbitrary (MerkleLogHash a) where
 -- A somewhat boring instance. Mostly the default value.
 --
 instance Arbitrary ChainwebConfiguration where
-    arbitrary = defaultChainwebConfiguration <$> arbitrary
+    arbitrary = defaultChainwebConfiguration <$> elements knownVersions
 
 -- -------------------------------------------------------------------------- --
 -- POW

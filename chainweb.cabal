@@ -489,7 +489,6 @@ test-suite chainweb-tests
         Chainweb.Test.Version
         Chainweb.Test.Utils.BlockHeader
         Chainweb.Test.Utils.TestHeader
-        -- Chainweb.Test.Utils.ApiQueries
 
         -- Data
         Data.Test.PQueue

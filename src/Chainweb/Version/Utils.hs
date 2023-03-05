@@ -4,6 +4,7 @@
 {-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE ViewPatterns #-}
 
 -- |
 -- Module: Chainweb.Version.Utils
@@ -78,6 +79,7 @@ import Chainweb.Graph
 import Chainweb.Utils
 import Chainweb.Utils.Rule
 import Chainweb.Version
+import Chainweb.Version.Mainnet
 
 -- -------------------------------------------------------------------------- --
 --  Utils
@@ -116,7 +118,12 @@ atCutHeight h = snd . fromJuste . M.lookupLE h
 -- @
 --
 chainGraphs :: HasChainwebVersion v => v -> M.Map BlockHeight ChainGraph
-chainGraphs v = M.fromDistinctDescList . toList . ruleElems minBound $ _versionGraphs $ _chainwebVersion v
+chainGraphs = \case
+    (_chainwebVersion -> v)
+        | _versionCode v == _versionCode mainnet -> mainnetGraphs
+        | otherwise -> M.fromDistinctDescList . toList . ruleElems minBound $ _versionGraphs v
+    where
+    mainnetGraphs = M.fromDistinctDescList . toList . ruleElems minBound $ _versionGraphs mainnet
 
 -- | BlockHeight intervals for the chain graphs of a chainweb version up to a
 -- given block height.

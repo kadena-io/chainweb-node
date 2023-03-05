@@ -122,40 +122,40 @@ gp = 0.1
 tests :: RocksDb -> ScheduledTest
 tests rdb = testGroupSch "Chainweb.Test.Pact.RemotePactTest"
     [ withNodesAtLatestBehavior v "remotePactTest-" rdb nNodes $ \net -> do
-          withMVarResource 0 $ \iomvar ->
+        withMVarResource 0 $ \iomvar ->
             withTime $ \iot ->
-              testGroup "remote pact tests"
-                [ withRequestKeys iot iomvar net $ responseGolden net
-                , after AllSucceed "remote-golden" $
-                  testGroup "remote spv" [spvTest iot net]
-                , after AllSucceed "remote-golden" $
-                  testGroup "remote eth spv" [ethSpvTest iot net]
-                , after AllSucceed "remote spv" $
-                  sendValidationTest iot net
-                , after AllSucceed "remote spv" $
-                  pollingBadlistTest net
-                , after AllSucceed "remote spv" $
-                  testCase "trivialLocalCheck" $
-                  localTest iot net
-                , after AllSucceed "remote spv" $
-                  testCase "localChainData" $
-                  localChainDataTest iot net
-                , after AllSucceed "remote spv" $
-                  testGroup "gasForTxSize"
-                  [ txTooBigGasTest iot net ]
-                , after AllSucceed "remote spv" $
-                  testGroup "genesisAllocations"
-                  [ allocationTest iot net ]
-                , after AllSucceed "genesisAllocations" $
-                  testGroup "caplistTests"
-                  [ caplistTest iot net ]
-                , after AllSucceed "caplistTests" $
-                  localContTest iot net
-                , after AllSucceed "local continuation test" $
-                  pollBadKeyTest net
-                , after AllSucceed "poll bad key test" $
-                  localPreflightSimTest iot net
-                ]
+                testGroup "remote pact tests"
+                    [ withRequestKeys iot iomvar net $ responseGolden net
+                    , after AllSucceed "remote-golden" $
+                      testGroup "remote spv" [spvTest iot net]
+                    , after AllSucceed "remote-golden" $
+                      testGroup "remote eth spv" [ethSpvTest iot net]
+                    , after AllSucceed "remote spv" $
+                      sendValidationTest iot net
+                    , after AllSucceed "remote spv" $
+                      pollingBadlistTest net
+                    , after AllSucceed "remote spv" $
+                      testCase "trivialLocalCheck" $
+                      localTest iot net
+                    , after AllSucceed "remote spv" $
+                      testCase "localChainData" $
+                      localChainDataTest iot net
+                    , after AllSucceed "remote spv" $
+                      testGroup "gasForTxSize"
+                      [ txTooBigGasTest iot net ]
+                    , after AllSucceed "remote spv" $
+                      testGroup "genesisAllocations"
+                      [ allocationTest iot net ]
+                    , after AllSucceed "genesisAllocations" $
+                      testGroup "caplistTests"
+                      [ caplistTest iot net ]
+                    , after AllSucceed "caplistTests" $
+                      localContTest iot net
+                    , after AllSucceed "local continuation test" $
+                      pollBadKeyTest net
+                    , after AllSucceed "poll bad key test" $
+                      localPreflightSimTest iot net
+                    ]
     ]
 
 responseGolden :: IO ChainwebNetwork -> IO RequestKeys -> TestTree

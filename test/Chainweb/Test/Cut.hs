@@ -655,7 +655,7 @@ properties db
     <> properties_miscCut db v
     <> properties_misc
   where
-    v =  barebonesTestVersion pairChainGraph
+    v = barebonesTestVersion pairChainGraph
 
 -- -------------------------------------------------------------------------- --
 -- TestTools

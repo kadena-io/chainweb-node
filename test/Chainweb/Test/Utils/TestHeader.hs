@@ -57,7 +57,6 @@ import Chainweb.BlockHeader
 import Chainweb.BlockHeight
 import Chainweb.ChainValue
 import Chainweb.Test.Orphans.Internal
--- import Chainweb.Test.Utils.ApiQueries
 import Chainweb.Version
 
 import Chainweb.Storage.Table
@@ -202,55 +201,3 @@ genesisTestHeader v cid = TestHeader
     }
   where
     gen = genesisBlockHeader (_chainwebVersion v) (_chainId cid)
-
--- -- -------------------------------------------------------------------------- --
--- -- Query TestHeader from a network
-
--- queryTestHeader
---     :: HasCallStack
---     => HasChainwebVersion v
---     => HasChainId c
---     => v
---     -> c
---     -> BlockHash
---     -> IO TestHeader
--- queryTestHeader v c h = do
---     mgr <- mkMgr
---     hdr <- getHeaderByHash mgr (chainwebVersionTag ver) cid h
---     parent <- getHeaderByHash mgr (chainwebVersionTag ver) cid $ _blockParent hdr
---     ads <- itraverse (\ac a -> ParentHeader <$> getHeaderByHash mgr (chainwebVersionTag ver) ac a)
---         $ _getBlockHashRecord
---         $ _blockAdjacentHashes hdr
---     return $ TestHeader
---         { _testHeaderHdr = hdr
---         , _testHeaderParent = ParentHeader parent
---         , _testHeaderAdjs = toList ads
---         }
---   where
---     ver = _chainwebVersion v
---     cid = _chainId c
-
--- queryTestHeaderByHeight
---     :: HasCallStack
---     => HasChainwebVersion v
---     => HasChainId c
---     => v
---     -> c
---     -> BlockHeight
---     -> IO TestHeader
--- queryTestHeaderByHeight v c h = do
---     mgr <- mkMgr
---     hdr <- getHeaderByHeight mgr ver cid h
---     parent <- getHeaderByHash mgr ver cid $ _blockParent hdr
---     ads <- itraverse (\ac a -> ParentHeader <$> getHeaderByHash mgr ver ac a)
---         $ _getBlockHashRecord
---         $ _blockAdjacentHashes hdr
---     return $ TestHeader
---         { _testHeaderHdr = hdr
---         , _testHeaderParent = ParentHeader parent
---         , _testHeaderAdjs = toList ads
---         }
---   where
---     ver = _chainwebVersion v
---     cid = _chainId c
-
