@@ -86,9 +86,8 @@ devnet = ChainwebVersion
         End petersonChainGraph
 
     , _versionBlockRate = BlockRate 30_000_000
-    , _versionWindow = Just $ WindowWidth 120
+    , _versionWindow = WindowWidth 120
     , _versionHeaderBaseSizeBytes = 318 - 110
-    , _versionFakeFirstEpochStart = True
     , _versionBootstraps = []
     , _versionGenesis = ChainwebGenesis
         { _genesisBlockTarget = onChains $ concat
@@ -107,7 +106,8 @@ devnet = ChainwebVersion
     , _versionCheats = Cheats
         { _disablePeerValidation = True
         , _disablePow = False
+        , _fakeFirstEpochStart = True
         , _disablePact = False
-        , _disableMempool = False
+        , _disableMempoolSync = False
         }
     }

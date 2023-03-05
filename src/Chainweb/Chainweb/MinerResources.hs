@@ -33,7 +33,7 @@ import Control.Concurrent (threadDelay)
 import Control.Concurrent.Async
 import Control.Concurrent.STM (atomically)
 import Control.Concurrent.STM.TVar
-import Control.Lens (at, over, view, (&), (?~))
+import Control.Lens (at, over, view, (&), (?~), (^.))
 
 import Data.HashMap.Strict (HashMap)
 import qualified Data.HashMap.Strict as HM
@@ -275,9 +275,9 @@ runMiner v mr
     | enabled = case _minerResCoordination mr of
         Nothing -> error
             "Mining coordination must be enabled in order to use the in-node test miner"
-        Just coord -> case _versionWindow v of
-            Nothing -> testMiner coord
-            Just _ -> powMiner coord
+        Just coord -> case v ^. versionCheats . disablePow of
+            True -> testMiner coord
+            False -> powMiner coord
     | otherwise = mempoolNoopMiner lf (_chainResMempool <$> _minerChainResources mr)
 
   where

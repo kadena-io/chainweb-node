@@ -123,12 +123,11 @@ testnet = ChainwebVersion
         (to20ChainsTestnet, twentyChainGraph) `Above`
         End petersonChainGraph
     , _versionBlockRate = BlockRate 30_000_000
-    , _versionWindow = Just $ WindowWidth 120
+    , _versionWindow = WindowWidth 120
     , _versionHeaderBaseSizeBytes = 318 - 110
     , _versionMaxBlockGasLimit =
         (succ $ testnet ^?! versionForks . at Chainweb216Pact . _Just . onChain (unsafeChainId 0), Just 180_000) `Above`
         End Nothing
-    , _versionFakeFirstEpochStart = False
     , _versionBootstraps = domainAddr2PeerInfo testnetBootstrapHosts
     , _versionGenesis = ChainwebGenesis
         { _genesisBlockTarget = OnChains $ HM.fromList $ concat
@@ -164,7 +163,8 @@ testnet = ChainwebVersion
     , _versionCheats = Cheats
         { _disablePeerValidation = False
         , _disablePow = False
-        , _disableMempool = False
+        , _fakeFirstEpochStart = False
+        , _disableMempoolSync = False
         , _disablePact = False
         }
     }

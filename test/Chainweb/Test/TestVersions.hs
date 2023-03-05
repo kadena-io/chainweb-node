@@ -101,8 +101,7 @@ testVersionTemplate :: VersionBuilder
 testVersionTemplate v = v
     & versionCode .~ ChainwebVersionCode (int (fromJuste $ List.findIndex (\vn -> vn == _versionName v) testRegistry) + 0x80000000)
     & versionHeaderBaseSizeBytes .~ 318 - 110
-    & versionWindow .~ Nothing
-    & versionFakeFirstEpochStart .~ False -- DA is already disabled with _versionWindow = Nothing
+    & versionWindow .~ WindowWidth 120
     & versionMaxBlockGasLimit .~ End (Just 2_000_000)
     & versionBootstraps .~ [testBootstrapPeerInfos]
 
@@ -138,14 +137,15 @@ barebonesTestVersion g = legalizeTestVersion (barebonesTestVersion' g)
 barebonesTestVersion' :: ChainGraph -> VersionBuilder
 barebonesTestVersion' g v =
     testVersionTemplate v
-        & versionWindow .~ Nothing
-        & versionBlockRate .~ BlockRate 0
+        & versionWindow .~ WindowWidth 120
+        & versionBlockRate .~ BlockRate 1_000_000
         & versionName .~ ChainwebVersionName ("test-" <> toText g)
         & versionGraphs .~ End g
         & versionCheats .~ Cheats
-            { _disablePow = False -- PoW is effectively disabled with _versionWindow = Nothing
+            { _disablePow = True
+            , _fakeFirstEpochStart = True
             , _disablePact = True
-            , _disableMempool = True
+            , _disableMempoolSync = True
             , _disablePeerValidation = True
             }
         & versionGenesis .~ ChainwebGenesis
@@ -163,13 +163,14 @@ barebonesTestVersion' g v =
 
 cpmTestVersion :: ChainGraph -> VersionBuilder
 cpmTestVersion g v = v
-    & versionWindow .~ Nothing
+    & versionWindow .~ WindowWidth 120
     & versionBlockRate .~ BlockRate (Micros 100_000)
     & versionGraphs .~ End g
     & versionCheats .~ Cheats
-        { _disablePow = False -- PoW is effectively disabled with _versionWindow = Nothing
+        { _disablePow = True
+        , _fakeFirstEpochStart = True
         , _disablePact = False
-        , _disableMempool = False
+        , _disableMempoolSync = False
         , _disablePeerValidation = True
         }
     & versionGenesis .~ ChainwebGenesis
@@ -247,19 +248,20 @@ timedConsensusVersion' g1 g2 v =
     testVersionTemplate v
         & versionName .~ ChainwebVersionName ("timedConsensus-" <> toText g1 <> "-" <> toText g2)
         & versionBlockRate .~ BlockRate 1_000_000
-        & versionWindow .~ Nothing
+        & versionWindow .~ WindowWidth 120
         & versionForks .~ tabulateHashMap (\case
             SkipTxTimingValidation -> AllChains (BlockHeight 2)
             -- pact is disabled, we don't care about pact forks
             _ -> AllChains (BlockHeight 0)
         )
         & versionUpgrades .~ AllChains HM.empty
-        & versionWindow .~ Nothing
+        & versionWindow .~ WindowWidth 120
         & versionGraphs .~ Above (BlockHeight 8, g2) (End g1)
         & versionCheats .~ Cheats
-            { _disablePow = False -- PoW is effectively disabled with _versionWindow = Nothing
+            { _disablePow = True
+            , _fakeFirstEpochStart = True
             , _disablePact = True
-            , _disableMempool = True
+            , _disableMempoolSync = True
             , _disablePeerValidation = True
             }
         & versionGenesis .~ ChainwebGenesis

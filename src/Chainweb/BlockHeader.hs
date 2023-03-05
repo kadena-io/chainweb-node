@@ -388,8 +388,7 @@ makeLenses ''BlockHeader
 --
 effectiveWindow :: BlockHeader -> Maybe WindowWidth
 effectiveWindow h = WindowWidth <$> case _versionWindow (_chainwebVersion h) of
-    Nothing -> Nothing
-    Just (WindowWidth w)
+    WindowWidth w
         | int (_blockHeight h) <= w -> Just $ max 1 $ w `div` 10
         | otherwise -> Just w
 
@@ -416,7 +415,7 @@ slowEpoch (ParentHeader p) (BlockCreationTime ct) = actual > (expected * 5)
   where
     EpochStartTime es = _blockEpochStart p
     BlockRate s = _versionBlockRate (_blockChainwebVersion p)
-    WindowWidth ww = fromJuste $ _versionWindow (_blockChainwebVersion p)
+    WindowWidth ww = _versionWindow (_blockChainwebVersion p)
 
     expected :: Micros
     expected = s * int ww
@@ -495,7 +494,7 @@ epochStart ph@(ParentHeader p) adj (BlockCreationTime bt)
     -- A special case for starting a new devnet, to compensate the inaccurate
     -- creation time of the genesis blocks. This would result in a very long
     -- first epoch that cause a trivial target in the second epoch.
-    | _versionFakeFirstEpochStart ver, _blockHeight p == 1 = EpochStartTime (_bct $ _blockCreationTime p)
+    | ver ^. versionCheats . fakeFirstEpochStart, _blockHeight p == 1 = EpochStartTime (_bct $ _blockCreationTime p)
 
     -- New Graph: the block time of the genesis block isn't accurate, we thus
     -- use the block time of the first block on the chain. Depending on where

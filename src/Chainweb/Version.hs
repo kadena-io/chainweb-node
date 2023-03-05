@@ -32,10 +32,11 @@ module Chainweb.Version
       Fork(..)
     , ChainwebGenesis(..)
     , Cheats(..)
-    , disableMempool
+    , disablePow
+    , fakeFirstEpochStart
     , disablePact
     , disablePeerValidation
-    , disablePow
+    , disableMempoolSync
     , ChainwebVersionCode(..)
     , encodeChainwebVersionCode
     , decodeChainwebVersionCode
@@ -49,7 +50,6 @@ module Chainweb.Version
     , versionUpgrades
     , versionBootstraps
     , versionCode
-    , versionFakeFirstEpochStart
     , versionGraphs
     , versionHeaderBaseSizeBytes
     , versionMaxBlockGasLimit
@@ -307,9 +307,8 @@ data ChainwebVersion
     -- ^ The Proof-of-Work `BlockRate` for each `ChainwebVersion`. This is the
     -- number of microseconds we expect to pass while a miner mines on various chains,
     -- eventually succeeding on one.
-    , _versionWindow :: Maybe WindowWidth
-    -- ^ The Proof-of-Work `WindowWidth` for each `ChainwebVersion`. For chainwebs
-    -- that do not expect to perform POW, this should be `Nothing`.
+    , _versionWindow :: WindowWidth
+    -- ^ The Proof-of-Work `WindowWidth` for each `ChainwebVersion`.
     , _versionHeaderBaseSizeBytes :: Natural
     -- ^ The size in bytes of the constant portion of the serialized header. This is
     -- the header /without/ the adjacent hashes.
@@ -318,8 +317,6 @@ data ChainwebVersion
     -- use 'headerSizeBytes'.
     , _versionMaxBlockGasLimit :: Rule BlockHeight (Maybe Natural)
     -- ^ The maximum gas limit for an entire block.
-    , _versionFakeFirstEpochStart :: Bool
-    -- ^ Whether to fake the start time of the first epoch. See `Chainweb.BlockHeader.epochStart`.
     , _versionBootstraps :: [PeerInfo]
     -- ^ The locations of the bootstrap peers.
     , _versionGenesis :: ChainwebGenesis
@@ -345,7 +342,6 @@ instance Ord ChainwebVersion where
         , _versionWindow v `compare` _versionWindow v'
         , _versionHeaderBaseSizeBytes v `compare` _versionHeaderBaseSizeBytes v'
         , _versionMaxBlockGasLimit v `compare` _versionMaxBlockGasLimit v'
-        , _versionFakeFirstEpochStart v `compare` _versionFakeFirstEpochStart v'
         , _versionBootstraps v `compare` _versionBootstraps v'
         -- genesis cannot be ordered because Payload in Pact cannot be ordered
         -- , _versionGenesis v `compare` _versionGenesis v'
@@ -362,10 +358,14 @@ instance Eq ChainwebVersion where
 data Cheats = Cheats
     { _disablePow :: Bool
     -- ^ should we stop checking proof of work?
+    , _fakeFirstEpochStart :: Bool
+    -- ^ should we fake the start time of the first epoch? See `Chainweb.BlockHeader.epochStart`.
     , _disablePact :: Bool
+    -- ^ Should we replace the pact service with a dummy that always makes empty blocks?
     , _disablePeerValidation :: Bool
-    -- ^ should we try to check that a peer is valid? See `P2P.Peer.validatePeerConfig`.
-    , _disableMempool :: Bool
+    -- ^ should we try to check that a peer is valid? See `P2P.Peer.validatePeerConfig`
+    , _disableMempoolSync :: Bool
+    -- ^ should we disable mempool sync entirely?
     }
     deriving stock (Generic, Eq, Ord, Show)
     deriving anyclass (ToJSON, FromJSON, NFData)
