@@ -475,7 +475,7 @@ consensusStateSummary s
         }
   where
     cutHeights = _cutHeight <$> _stateCutMap s
-    graph = chainGraphAt_ s
+    graph = chainGraphAt s
         $ maximum . concatMap chainHeights
         $ toList
         $ _stateCutMap s

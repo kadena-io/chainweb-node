@@ -57,7 +57,8 @@ data NodeInfo = NodeInfo
   -- ^ List of chain graphs and the block height they took effect. Sorted
   -- descending by height so the current chain graph is at the beginning.
   , nodeLatestBehaviorHeight :: BlockHeight
-  -- ^ edtodo document
+  -- ^ Height at which the latest behavior of the node is activated. See
+  -- `Chainweb.Version.latestBehaviorAt`.
   } deriving (Show, Eq, Generic)
 
 instance ToJSON NodeInfo

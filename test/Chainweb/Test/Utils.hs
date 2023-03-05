@@ -1005,7 +1005,6 @@ withNodesAtLatestBehavior v testLabel rdb n f = withNodes v testLabel rdb n $ \n
 -- about 10 seconds. Once initialization is complete even large numbers of empty
 -- blocks were mined almost instantaneously.
 --
--- edtodo: move to RestAPI.Utils?
 awaitBlockHeight
     :: ChainwebVersion
     -> (String -> IO ())

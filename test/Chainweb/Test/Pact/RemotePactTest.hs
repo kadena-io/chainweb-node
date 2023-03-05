@@ -695,7 +695,7 @@ allocationTest iot nio = testCaseSteps "genesis allocation tests" $ \step -> do
     cenv <- fmap _getServiceClientEnv nio
 
     step "positive allocation test: allocation00 release"
-    p <- try @IO @PactTestFailure $ do
+    p <- do
       batch0 <- liftIO
         $ mkSingletonBatch iot allocation00KeyPair tx0 n0 (pm "allocation00") Nothing
 
@@ -710,11 +710,8 @@ allocationTest iot nio = testCaseSteps "genesis allocation tests" $ \step -> do
       testCaseStep "localApiClient: submit local account balance request"
       liftIO $ localTestToRetry sid cenv (head (toList batch1)) (localAfterBlockHeight 4)
 
-    case p of
-      Left e -> assertFailure $ "test failure: " <> show e
-      Right cr -> assertEqual "00 expect /local allocation balance" accountInfo (resultOf cr)
+    assertEqual "00 expect /local allocation balance" accountInfo (resultOf p)
 
-    -- edtodo: be more principled about `try`?
     step "negative allocation test: allocation01 release"
     do
       batch0 <- mkSingletonBatch iot allocation01KeyPair tx2 n2 (pm "allocation01") Nothing
@@ -730,7 +727,7 @@ allocationTest iot nio = testCaseSteps "genesis allocation tests" $ \step -> do
         _ -> assertFailure "unexpected pact result success in negative allocation test"
 
     step "positive key-rotation test: allocation2"
-    r <- try @IO @PactTestFailure $ do
+    r <- do
 
       batch0 <- mkSingletonBatch iot allocation02KeyPair tx3 n3 (pm "allocation02") Nothing
 
@@ -752,9 +749,7 @@ allocationTest iot nio = testCaseSteps "genesis allocation tests" $ \step -> do
 
       localTestToRetry sid cenv (head (toList batch2)) (localAfterPollResponse pr)
 
-    case r of
-      Left e -> assertFailure $ "test failure: " <> show e
-      Right cr -> assertEqual "02 expect /local allocation balance" accountInfo' (resultOf cr)
+    assertEqual "02 expect /local allocation balance" accountInfo' (resultOf r)
 
   where
     n0 = Just "allocation-0"

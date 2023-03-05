@@ -143,7 +143,7 @@ barebonesTestVersion' g v =
         & versionName .~ ChainwebVersionName ("test-" <> toText g)
         & versionGraphs .~ End g
         & versionCheats .~ Cheats
-            { _disablePow = False -- PoW is effectively disabled with _versionWindow = Nothing? edtodo
+            { _disablePow = False -- PoW is effectively disabled with _versionWindow = Nothing
             , _disablePact = True
             , _disableMempool = True
             , _disablePeerValidation = True
@@ -167,7 +167,7 @@ cpmTestVersion g v = v
     & versionBlockRate .~ BlockRate (Micros 100_000)
     & versionGraphs .~ End g
     & versionCheats .~ Cheats
-        { _disablePow = False -- PoW is effectively disabled with _versionWindow = Nothing? edtodo
+        { _disablePow = False -- PoW is effectively disabled with _versionWindow = Nothing
         , _disablePact = False
         , _disableMempool = False
         , _disablePeerValidation = True
@@ -248,20 +248,16 @@ timedConsensusVersion' g1 g2 v =
         & versionName .~ ChainwebVersionName ("timedConsensus-" <> toText g1 <> "-" <> toText g2)
         & versionBlockRate .~ BlockRate 1_000_000
         & versionWindow .~ Nothing
-        & versionForks .~ HM.fromList
-            [ (Vuln797Fix, AllChains (BlockHeight 0))
-            , (SkipTxTimingValidation, AllChains (BlockHeight 2))
-            , (CheckTxHash, AllChains (BlockHeight 0))
-            , (SlowEpoch, AllChains (BlockHeight 0))
-            , (OldTargetGuard, AllChains (BlockHeight 0))
-            , (SkipFeatureFlagValidation, AllChains (BlockHeight 0))
-            , (OldDAGuard, AllChains (BlockHeight 0))
-            ]
+        & versionForks .~ tabulateHashMap (\case
+            SkipTxTimingValidation -> AllChains (BlockHeight 2)
+            -- pact is disabled, we don't care about pact forks
+            _ -> AllChains (BlockHeight 0)
+        )
         & versionUpgrades .~ AllChains HM.empty
         & versionWindow .~ Nothing
         & versionGraphs .~ Above (BlockHeight 8, g2) (End g1)
         & versionCheats .~ Cheats
-            { _disablePow = False -- PoW is effectively disabled with _versionWindow = Nothing? edtodo
+            { _disablePow = False -- PoW is effectively disabled with _versionWindow = Nothing
             , _disablePact = True
             , _disableMempool = True
             , _disablePeerValidation = True

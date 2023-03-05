@@ -372,7 +372,6 @@ block20ChainRemediationTests _ envIo =
       _ -> assertFailure $ "20 chain remediation block should have at least 2 transactions:"
            ++ " coinbase + 1 remediations"
   where
-    -- edtodo: extract this from the version(?)
     bhChain20Rem = 2
     nidChain3 = NetworkId
       { _networkId_blockchain = "kadena"

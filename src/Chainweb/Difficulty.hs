@@ -99,17 +99,16 @@ import Numeric.Natural
 instance NFData Word128
 instance NFData Word256
 --
--- -- | The gap in SECONDS that we desire between the Creation Time of subsequent
--- -- blocks in some chain.
--- --
+-- | The gap in MICROSECONDS that we desire between the Creation Time of subsequent
+-- blocks in some chain.
+--
 newtype BlockRate = BlockRate { _getBlockRate :: Micros }
     deriving stock (Eq, Generic, Ord, Show)
     deriving newtype (Hashable, NFData, ToJSON, FromJSON)
 
--- -- | The number of blocks to be mined after a difficulty adjustment, before
--- -- considering a further adjustment. Critical for the "epoch-based" adjustment
--- -- algorithm seen in `adjust`.
--- --
+-- | The number of blocks to be mined after a difficulty adjustment, before
+-- considering a further adjustment. Critical for the "epoch-based" adjustment
+-- algorithm seen in `adjust`.
 newtype WindowWidth = WindowWidth Natural
     deriving stock (Eq, Generic, Ord, Show)
     deriving newtype (Hashable, NFData, ToJSON, FromJSON)
@@ -331,7 +330,7 @@ adjust (BlockRate br) (WindowWidth ww) (TimeSpan delta) (HashTarget oldTarget) =
 -- This is used when 'oldDaGuard' is active.
 --
 legacyAdjust
-    :: HasCallStack 
+    :: HasCallStack
     => BlockRate
     -> WindowWidth
     -> TimeSpan Micros

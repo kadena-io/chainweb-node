@@ -267,14 +267,16 @@ chainIdInt :: Integral i => ChainId -> i
 chainIdInt (ChainId cid) = int cid
 {-# INLINE chainIdInt #-}
 
--- edtodo: document
+-- | Values keyed by `ChainId`s, or a single value that applies for all chains.
 data ChainMap a = AllChains a | OnChains (HashMap ChainId a)
     deriving stock (Eq, Functor, Foldable, Generic, Ord, Show)
     deriving anyclass (Hashable, NFData)
 
+-- | A smart constructor, @onChains = OnChains . HM.fromList@.
 onChains :: [(ChainId, a)] -> ChainMap a
 onChains = OnChains . HM.fromList
 
+-- | Zips two `ChainMap`s on their chain IDs.
 chainZip :: (a -> a -> a) -> ChainMap a -> ChainMap a -> ChainMap a
 chainZip f (OnChains l) (OnChains r) = OnChains $ HM.unionWith f l r
 chainZip f (OnChains l) (AllChains r) = OnChains $ fmap (`f` r) l
@@ -293,6 +295,7 @@ instance FromJSON a => FromJSON (ChainMap a) where
 
 makePrisms ''ChainMap
 
+-- | Provides access to the value at a `ChainId`, if it exists.
 onChain :: ChainId -> Fold (ChainMap a) a
 onChain cid = folding $ \case
     OnChains m -> m ^. at cid

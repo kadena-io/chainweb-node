@@ -612,7 +612,7 @@ processCuts conf logFun headerStore payloadStore cutHashesStore queue cutVar = d
     --
     isVeryOld x = do
         curMin <- minChainHeight <$> readTVarIO cutVar
-        let diam = diameter $ chainGraphAt_ headerStore curMin
+        let diam = diameter $ chainGraphAt headerStore curMin
             newMin = _cutHashesMinHeight x
         let r = newMin + 2 * (1 + int diam) <= curMin
         when r $ loggc Debug x "skip very old cut"

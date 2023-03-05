@@ -6,8 +6,6 @@
 {-# language DerivingStrategies #-}
 {-# language TupleSections #-}
 
--- edTODO document
-
 module Chainweb.Utils.Rule where
 
 import Control.DeepSeq
@@ -22,6 +20,9 @@ import qualified Data.Vector as V
 
 import GHC.Generics
 
+-- | `a` values graded by `h`, starting with the highest `h` value and lowering
+-- as you go deeper, bottoming out with no `h` value at all. Used to efficiently
+-- represent behaviors that change as the block height increases.
 data Rule h a = Above (h, a) (Rule h a) | End a
     deriving stock (Eq, Ord, Show, Foldable, Functor, Generic, Generic1, Traversable)
     deriving anyclass (Hashable, NFData)
@@ -60,8 +61,11 @@ ruleDropWhile p (Above (h, a) t)
     | otherwise = Above (h, a) t
 ruleDropWhile _ t = t
 
+-- | A measurement on a rule tells you where a condition starts to be true; at
+-- the Top, at the Bottom, or Between lower and upper.
 data Measurement h a = Bottom a | Top (h, a) | Between (h, a) (h, a)
 
+-- | Takes a measurement on a rule using a monotone function.
 measureRule' :: (h -> Bool) -> Rule h a -> Measurement h a
 measureRule' p ((topH, topA) `Above` topTail)
     | p topH = Top (topH, topA)
@@ -77,18 +81,12 @@ measureRule :: Ord h => h -> Rule h a -> Measurement h a
 measureRule h =
     measureRule' (\hc -> h >= hc)
 
-ruleElemHeight :: Eq a => (a -> Bool) -> Rule h a -> Maybe (Maybe h)
-ruleElemHeight p (Above (h, a) t)
-    | p a = Just (Just h)
-    | otherwise = ruleElemHeight p t
-ruleElemHeight p (End a)
-    | p a = Just Nothing
-    | otherwise = Nothing
-
+-- | Returns the elements of the Rule.
 ruleElems :: h -> Rule h a -> NE.NonEmpty (h, a)
 ruleElems h (End a) = (h, a) NE.:| []
 ruleElems he (Above (h, a) t) = (h, a) `NE.cons` ruleElems he t
 
+-- | Checks that a Rule is decreasing, and thus valid.
 ruleValid :: Ord h => Rule h a -> Bool
-ruleValid (Above (h, _) t@(Above (h', _) _)) = h >= h' && ruleValid t
+ruleValid (Above (h, _) t@(Above (h', _) _)) = h > h' && ruleValid t
 ruleValid _ = True

@@ -495,7 +495,7 @@ spv2Handler l cdb cid r = case _spvSubjectIdType sid of
                 Nothing -> toErr $ "Transaction hash not found: " <> sshow ph
                 Just t -> return t
 
-        let confDepth = fromMaybe (diameter (chainGraphAt_ cdb bhe)) $ _spv2ReqMinimalProofDepth r
+        let confDepth = fromMaybe (diameter (chainGraphAt cdb bhe)) $ _spv2ReqMinimalProofDepth r
 
         liftIO (tryAllSynchronous $ f bdb pdb confDepth bha rk) >>= \case
             Left e -> toErr $ "SPV proof creation failed:" <> sshow e

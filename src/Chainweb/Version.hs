@@ -1,29 +1,17 @@
--- edtodo redo docs here
-{-# LANGUAGE CPP #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DeriveAnyClass #-}
-{-# LANGUAGE DeriveFunctor #-}
-{-# LANGUAGE DeriveFoldable #-}
 {-# LANGUAGE DeriveGeneric #-}
-{-# LANGUAGE DeriveTraversable #-}
 {-# LANGUAGE DerivingStrategies #-}
-{-# LANGUAGE ExistentialQuantification #-}
 {-# LANGUAGE FunctionalDependencies #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
-{-# LANGUAGE LambdaCase #-}
-{-# LANGUAGE MultiParamTypeClasses #-}
-{-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE PatternSynonyms #-}
-{-# LANGUAGE QuasiQuotes #-}
 {-# LANGUAGE RankNTypes #-}
-{-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TemplateHaskell #-}
-{-# LANGUAGE TupleSections #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE ViewPatterns #-}
@@ -73,7 +61,7 @@ module Chainweb.Version
     , genesisBlockTarget
     , genesisTime
 
-    -- * Typelevel ChainwebVersion
+    -- * Typelevel ChainwebVersionName
     , ChainwebVersionT(..)
     , ChainwebVersionSymbol
     , chainwebVersionSymbolVal
@@ -91,7 +79,7 @@ module Chainweb.Version
     , mkChainId
     , chainIds
 
-    -- * ChainId
+    -- * ChainId re-export
     , module Chainweb.ChainId
 
     -- * Re-exports from Chainweb.ChainGraph
@@ -101,7 +89,6 @@ module Chainweb.Version
     , HasChainGraph(..)
     , adjacentChainIds
     , chainGraphAt
-    , chainGraphAt_
     , chainwebGraphsAt
 
     -- ** Graph Properties
@@ -144,7 +131,6 @@ import qualified Data.Text as T
 import Data.Word
 
 import GHC.Generics(Generic)
-import GHC.Stack
 import GHC.TypeLits
 
 import Numeric.Natural
@@ -169,14 +155,8 @@ import Data.Singletons
 
 import P2P.Peer
 
--- -------------------------------------------------------------------------- --
--- Bootstrap Peer Info
-
--- | Official testnet bootstrap nodes
---
-domainAddr2PeerInfo :: [HostAddress] -> [PeerInfo]
-domainAddr2PeerInfo = fmap (PeerInfo Nothing)
-
+-- | Data type representing changes to block validation, whether in the payload or in the header.
+-- Always add new forks at the end, not in the middle of the constructors.
 data Fork
     = SlowEpoch
     | Vuln797Fix
@@ -202,7 +182,8 @@ data Fork
     | Chainweb217Pact
     | Chainweb218Pact
     -- always add new forks at the end, not in the middle of the constructors.
-    deriving (Bounded, Generic, NFData, Hashable, Eq, Enum, Ord, Show)
+    deriving stock (Bounded, Generic, Eq, Enum, Ord, Show)
+    deriving anyclass (NFData, Hashable)
 
 instance HasTextRepresentation Fork where
   toText SlowEpoch = "slowEpoch"
@@ -288,6 +269,8 @@ instance MerkleHashAlgorithm a => IsMerkleLogEntry a ChainwebHashTag ChainwebVer
     toMerkleNode = encodeMerkleInputNode encodeChainwebVersionCode
     fromMerkleNode = decodeMerkleInputNode decodeChainwebVersionCode
 
+-- The type of upgrades, which are sets of transactions to run at certain block
+-- heights during coinbase.
 data Upgrade = Upgrade
     { _upgradeTransactions :: [ChainwebTransaction]
     , _legacyUpgradeIsPrecocious :: Bool
@@ -302,15 +285,31 @@ data Upgrade = Upgrade
 upgrade :: [ChainwebTransaction] -> Upgrade
 upgrade txs = Upgrade txs False
 
+-- | Chainweb versions are sets of properties that must remain consistent among
+-- all nodes on the same network. For examples see `Chainweb.Version.Mainnet`,
+-- `Chainweb.Version.Testnet`, `Chainweb.Version.Development`, and
+-- `Chainweb.Test.TestVersions`.
 data ChainwebVersion
     = ChainwebVersion
     { _versionCode :: ChainwebVersionCode
+    -- ^ The numeric code identifying the Version, must be unique. See `Chainweb.Version.Registry`.
     , _versionName :: ChainwebVersionName
+    -- ^ The textual name of the Version, used in almost all REST endpoints.
     , _versionGraphs :: Rule BlockHeight ChainGraph
+    -- ^ The chain graphs in the history and at which block heights they apply.
     , _versionForks :: HashMap Fork (ChainMap BlockHeight)
+    -- ^ The block heights on each chain to apply behavioral changes.
+    -- Interpretation of these is up to the functions in
+    -- `Chainweb.Version.Guards`.
     , _versionUpgrades :: ChainMap (HashMap BlockHeight Upgrade)
+    -- ^ The upgrade transactions to execute on each chain at certain block heights.
     , _versionBlockRate :: BlockRate
+    -- ^ The Proof-of-Work `BlockRate` for each `ChainwebVersion`. This is the
+    -- number of microseconds we expect to pass while a miner mines on various chains,
+    -- eventually succeeding on one.
     , _versionWindow :: Maybe WindowWidth
+    -- ^ The Proof-of-Work `WindowWidth` for each `ChainwebVersion`. For chainwebs
+    -- that do not expect to perform POW, this should be `Nothing`.
     , _versionHeaderBaseSizeBytes :: Natural
     -- ^ The size in bytes of the constant portion of the serialized header. This is
     -- the header /without/ the adjacent hashes.
@@ -318,10 +317,15 @@ data ChainwebVersion
     -- NOTE: This is internal. For the actual size of the serialized header
     -- use 'headerSizeBytes'.
     , _versionMaxBlockGasLimit :: Rule BlockHeight (Maybe Natural)
+    -- ^ The maximum gas limit for an entire block.
     , _versionFakeFirstEpochStart :: Bool
+    -- ^ Whether to fake the start time of the first epoch. See `Chainweb.BlockHeader.epochStart`.
     , _versionBootstraps :: [PeerInfo]
+    -- ^ The locations of the bootstrap peers.
     , _versionGenesis :: ChainwebGenesis
+    -- ^ The information used to construct the genesis blocks.
     , _versionCheats :: Cheats
+    -- ^ Whether to disable any core functionality.
     }
     deriving stock (Generic)
     deriving anyclass NFData
@@ -352,12 +356,15 @@ instance Eq ChainwebVersion where
     v == v' = and
         [ compare v v' == EQ
         , _versionUpgrades v == _versionUpgrades v'
+        , _versionGenesis v == _versionGenesis v'
         ]
 
 data Cheats = Cheats
     { _disablePow :: Bool
+    -- ^ should we stop checking proof of work?
     , _disablePact :: Bool
     , _disablePeerValidation :: Bool
+    -- ^ should we try to check that a peer is valid? See `P2P.Peer.validatePeerConfig`.
     , _disableMempool :: Bool
     }
     deriving stock (Generic, Eq, Ord, Show)
@@ -385,8 +392,8 @@ instance HasTextRepresentation ChainwebVersionName where
     toText = getChainwebVersionName
     fromText = pure . ChainwebVersionName
 
--- -- -------------------------------------------------------------------------- --
--- -- Type level ChainwebVersion
+-------------------------------------------------------------------------- --
+-- Type level ChainwebVersion
 
 newtype ChainwebVersionT = ChainwebVersionT Symbol
 
@@ -408,8 +415,8 @@ someChainwebVersionVal' :: ChainwebVersionName -> SomeChainwebVersionT
 someChainwebVersionVal' v = case someSymbolVal (show v) of
     (SomeSymbol (Proxy :: Proxy v)) -> SomeChainwebVersionT (Proxy @('ChainwebVersionT v))
 
--- -- -------------------------------------------------------------------------- --
--- -- Singletons
+-------------------------------------------------------------------------- --
+-- Singletons
 
 data instance Sing (v :: ChainwebVersionT) where
     SChainwebVersion :: KnownChainwebVersionSymbol v => Sing v
@@ -432,9 +439,9 @@ pattern FromSingChainwebVersion :: Sing (n :: ChainwebVersionT) -> ChainwebVersi
 pattern FromSingChainwebVersion sng <- ((\v -> withSomeSing (_versionName v) SomeSing) -> SomeSing sng)
 {-# COMPLETE FromSingChainwebVersion #-}
 
--- -- -------------------------------------------------------------------------- --
--- -- HasChainwebVersion Class
---
+-------------------------------------------------------------------------- --
+-- HasChainwebVersion Class
+
 class HasChainwebVersion a where
     _chainwebVersion :: a -> ChainwebVersion
     _chainwebVersion = view chainwebVersion
@@ -452,13 +459,52 @@ instance HasChainwebVersion ChainwebVersion where
 chainIds :: HasChainwebVersion v => v -> HS.HashSet ChainId
 chainIds = graphChainIds . snd . ruleHead . _versionGraphs . _chainwebVersion
 
+mkChainId
+    :: (MonadThrow m, HasChainwebVersion v)
+    => v -> BlockHeight -> Word32 -> m ChainId
+mkChainId v h i = cid
+    <$ checkWebChainId (chainGraphAt (_chainwebVersion v) h) cid
+  where
+    cid = unsafeChainId i
+
+-------------------------------------------------------------------------- --
+-- Properties of Chainweb Versions
+-------------------------------------------------------------------------- --
+
+-- | Return the Graph History at a given block height in descending order.
+--
+-- The functions provided in 'Chainweb.Version.Utils' are generally more
+-- convenient to use than this function.
+--
+-- This function is safe because of invariants provided by 'chainwebGraphs'.
+-- (There are also unit tests the confirm this.)
+chainwebGraphsAt
+    :: ChainwebVersion
+    -> BlockHeight
+    -> Rule BlockHeight ChainGraph
+chainwebGraphsAt v h =
+    ruleDropWhile (> h) (_versionGraphs v)
+
+-- | The 'ChainGraph' for the given 'BlockHeight'
+chainGraphAt :: HasChainwebVersion v => v -> BlockHeight -> ChainGraph
+chainGraphAt v = snd . ruleHead . chainwebGraphsAt (_chainwebVersion v)
+
+instance HasChainGraph (ChainwebVersion, BlockHeight) where
+    _chainGraph = uncurry chainGraphAt
+
+-------------------------------------------------------------------------- --
+-- Utilities for constructing chainweb versions
+
+domainAddr2PeerInfo :: [HostAddress] -> [PeerInfo]
+domainAddr2PeerInfo = fmap (PeerInfo Nothing)
+
 -- | Creates a map from fork heights to upgrades.
 forkUpgrades
     :: ChainwebVersion
     -> [(Fork, ChainMap Upgrade)]
     -> ChainMap (HashMap BlockHeight Upgrade)
 forkUpgrades v = OnChains . foldl' go (HM.empty <$ HS.toMap (chainIds v))
-    where
+  where
     conflictError fork h =
         error $ "conflicting upgrades at block height " <> show h <> " when adding upgrade for fork " <> show fork
     emptyUpgradeError fork =
@@ -467,7 +513,7 @@ forkUpgrades v = OnChains . foldl' go (HM.empty <$ HS.toMap (chainIds v))
         HM.unionWith
             (HM.unionWithKey (conflictError fork))
             acc newTxs
-        where
+      where
         newTxs = HM.fromList $
             [ (cid, HM.singleton forkHeight upg)
             | cid <- HM.keys acc
@@ -480,57 +526,10 @@ forkUpgrades v = OnChains . foldl' go (HM.empty <$ HS.toMap (chainIds v))
 -- | The block height at all chains at which the latest known behavior changes
 -- will have taken effect: forks, upgrade transactions, or graph changes.
 latestBehaviorAt :: ChainwebVersion -> BlockHeight
-latestBehaviorAt v =
-    foldlOf' changes max 0 v + 1
+latestBehaviorAt v = foldlOf' behaviorChanges max 0 v + 1
     where
-    changes = fold
+    behaviorChanges = fold
         [ versionForks . folded . folded
         , versionUpgrades . folded . ifolded . asIndex
         , versionGraphs . to ruleHead . _1 . _Just
         ] . filtered (/= maxBound)
-
-mkChainId
-    :: (MonadThrow m, HasChainwebVersion v)
-    => v -> BlockHeight -> Word32 -> m ChainId
-mkChainId v h i = cid
-    <$ checkWebChainId (chainGraphAt (_chainwebVersion v) h) cid
-  where
-    cid = unsafeChainId i
-
--- -- -------------------------------------------------------------------------- --
--- -- Properties of Chainweb Versions
--- -- -------------------------------------------------------------------------- --
-
--- | Return the Graph History at a given block height in descending order.
---
--- The functions provided in 'Chainweb.Version.Utils' are generally more
--- convenient to use than this function.
---
--- This function is safe because of invariants provided by 'chainwebGraphs'.
--- (There are also unit tests the confirm this.)
---
-chainwebGraphsAt
-    :: HasCallStack
-    => ChainwebVersion
-    -> BlockHeight
-    -> Rule BlockHeight ChainGraph
-chainwebGraphsAt v h =
-    ruleDropWhile (> h) (_versionGraphs v)
-
--- | The 'ChainGraph' for the given 'BlockHeight'
---
-chainGraphAt :: HasCallStack => ChainwebVersion -> BlockHeight -> ChainGraph
-chainGraphAt v = snd . ruleHead . chainwebGraphsAt v
-
--- | The 'ChainGraph' for the given 'BlockHeight'
---
-chainGraphAt_
-    :: HasCallStack
-    => HasChainwebVersion v
-    => v
-    -> BlockHeight
-    -> ChainGraph
-chainGraphAt_ = chainGraphAt . _chainwebVersion
-
-instance HasChainGraph (ChainwebVersion, BlockHeight) where
-    _chainGraph = uncurry chainGraphAt

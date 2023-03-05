@@ -25,9 +25,11 @@ module Chainweb.Version.Registry
 import Control.DeepSeq
 import Control.Exception
 import Control.Lens
+import Control.Monad
 import Data.Foldable
 import Data.HashMap.Strict (HashMap)
 import qualified Data.HashMap.Strict as HM
+import qualified Data.HashSet as HS
 import Data.IORef
 import Data.Maybe
 import qualified Data.Text as T
@@ -39,18 +41,19 @@ import Chainweb.Version
 import Chainweb.Version.Development
 import Chainweb.Version.Mainnet
 import Chainweb.Version.Testnet
+import Chainweb.Utils.Rule
 
 {-# NOINLINE versionMap #-}
 versionMap :: IORef (HashMap ChainwebVersionCode ChainwebVersion)
 versionMap = unsafePerformIO $ do
-    traverse_ (evaluate . rnf) knownVersions
+    traverse_ validateVersion knownVersions
     newIORef $ HM.fromList [(_versionCode v, v) | v <- [mainnet, testnet]]
 
 -- | Register a version into our registry by code, ensuring it contains no
 -- errors and there are no others registered with that code.
-registerVersion :: ChainwebVersion -> IO ()
+registerVersion :: HasCallStack => ChainwebVersion -> IO ()
 registerVersion v = do
-    evaluate (rnf v)
+    validateVersion v
     atomicModifyIORef' versionMap $ \m ->
         case HM.lookup (_versionCode v) m of
             Just v'
@@ -58,6 +61,33 @@ registerVersion v = do
                 | otherwise -> (m, ())
             Nothing ->
                 (HM.insert (_versionCode v) v m, ())
+
+validateVersion :: HasCallStack => ChainwebVersion -> IO ()
+validateVersion v = do
+    evaluate (rnf v)
+    let
+        hasAllChains (AllChains _) = True
+        hasAllChains (OnChains m) = HS.fromMap (void m) == chainIds v
+        errors = concat
+            [ [ "validateVersion: version does not have heights for all forks"
+                | not (HS.fromMap (void $ _versionForks v) == HS.fromList [minBound :: Fork .. maxBound :: Fork]) ]
+            , [ "validateVersion: version is missing fork heights for some forks on some chains"
+                | not (all hasAllChains (_versionForks v)) ]
+            , [ "validateVersion: chain graphs do not decrease in block height"
+                | not (ruleValid (_versionGraphs v)) ]
+            , [ "validateVersion: block gas limits do not decrease in block height"
+                | not (ruleValid (_versionMaxBlockGasLimit v)) ]
+            , [ "validateVersion: genesis data is missing for some chains"
+                | not (and
+                    [ hasAllChains (_genesisBlockPayload $ _versionGenesis v)
+                    , hasAllChains (_genesisBlockTarget $ _versionGenesis v)
+                    , hasAllChains (_genesisTime $ _versionGenesis v)
+                    ])]
+            ]
+    if null errors
+    then return ()
+    else
+        error $ unlines $ ["errors encountered validating version " <> show v <> ":"] <> errors
 
 -- | Look up a version in the registry by code.
 lookupVersionByCode :: HasCallStack => ChainwebVersionCode -> ChainwebVersion
@@ -75,7 +105,7 @@ lookupVersionByCode code
     lookupVersion = unsafeDupablePerformIO $ do
         m <- readIORef versionMap
         return $ fromMaybe (error notRegistered) $ HM.lookup code m
-    notRegistered 
+    notRegistered
       | code == _versionCode devnet = "devnet version used but not registered, remember to do so after it's configured"
       | otherwise = "version not registered with code " <> show code <> ", have you seen Chainweb.Test.TestVersions.legalizeTestVersion?"
 
