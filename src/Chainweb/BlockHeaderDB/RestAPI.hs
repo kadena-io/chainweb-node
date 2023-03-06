@@ -70,9 +70,15 @@ module Chainweb.BlockHeaderDB.RestAPI
 , branchHashesApi
 , BranchHeadersApi
 , branchHeadersApi
+, P2pBranchHeadersApi
+, p2pBranchHeadersApi
 , HeaderApi
+, P2pHeaderApi
 , headerApi
+, p2pHeaderApi
 , HeadersApi
+, P2pHeadersApi
+, p2pHeadersApi
 , headersApi
 , HashesApi
 , hashesApi
@@ -224,6 +230,14 @@ type BranchHeadersApi_
     :> ReqBody '[JSON] (BranchBounds BlockHeaderDb)
     :> Post '[JSON, JsonBlockHeaderObject] BlockHeaderPage
 
+type P2pBranchHeadersApi_
+    = "header" :> "branch"
+    :> PageParams (NextItem BlockHash)
+    :> MinHeightParam
+    :> MaxHeightParam
+    :> ReqBody '[JSON] (BranchBounds BlockHeaderDb)
+    :> Post '[JSON] BlockHeaderPage
+
 -- | @GET \/chainweb\/\<ApiVersion\>\/\<InstanceId\>\/chain\/\<ChainId\>\/header\/branch@
 --
 -- Returns a set of branches. A branch is obtained by traversing the block
@@ -243,11 +257,18 @@ type BranchHeadersApi_
 --
 type BranchHeadersApi (v :: ChainwebVersionT) (c :: ChainIdT)
     = 'ChainwebEndpoint v :> ChainEndpoint c :> Reassoc BranchHeadersApi_
+type P2pBranchHeadersApi (v :: ChainwebVersionT) (c :: ChainIdT)
+    = 'ChainwebEndpoint v :> ChainEndpoint c :> Reassoc P2pBranchHeadersApi_
 
 branchHeadersApi
     :: forall (v :: ChainwebVersionT) (c :: ChainIdT)
     . Proxy (BranchHeadersApi v c)
 branchHeadersApi = Proxy
+
+p2pBranchHeadersApi
+    :: forall (v :: ChainwebVersionT) (c :: ChainIdT)
+    . Proxy (P2pBranchHeadersApi v c)
+p2pBranchHeadersApi = Proxy
 
 -- -------------------------------------------------------------------------- --
 type HashesApi_
@@ -280,6 +301,12 @@ type HeadersApi_
     :> FilterParams
     :> Get '[JSON, JsonBlockHeaderObject] BlockHeaderPage
 
+type P2pHeadersApi_
+    = "header"
+    :> PageParams (NextItem BlockHash)
+    :> FilterParams
+    :> Get '[JSON] BlockHeaderPage
+
 -- | @GET \/chainweb\/\<ApiVersion\>\/\<InstanceId\>\/chain\/\<ChainId\>\/header@
 --
 -- Returns block headers in the block header tree database in ascending order
@@ -292,10 +319,18 @@ type HeadersApi_
 type HeadersApi (v :: ChainwebVersionT) (c :: ChainIdT)
     = 'ChainwebEndpoint v :> ChainEndpoint c :> Reassoc HeadersApi_
 
+type P2pHeadersApi (v :: ChainwebVersionT) (c :: ChainIdT)
+    = 'ChainwebEndpoint v :> ChainEndpoint c :> Reassoc P2pHeadersApi_
+
 headersApi
     :: forall (v :: ChainwebVersionT) (c :: ChainIdT)
     . Proxy (HeadersApi v c)
 headersApi = Proxy
+
+p2pHeadersApi
+    :: forall (v :: ChainwebVersionT) (c :: ChainIdT)
+    . Proxy (P2pHeadersApi v c)
+p2pHeadersApi = Proxy
 
 -- -------------------------------------------------------------------------- --
 type HeaderApi_
@@ -303,17 +338,29 @@ type HeaderApi_
     :> Capture "BlockHash" BlockHash
     :> Get '[JSON, JsonBlockHeaderObject, OctetStream] BlockHeader
 
+type P2pHeaderApi_
+    = "header"
+    :> Capture "BlockHash" BlockHash
+    :> Get '[JSON, OctetStream] BlockHeader
+
 -- | @GET \/chainweb\/\<ApiVersion\>\/\<InstanceId\>\/chain\/\<ChainId\>\/header\/\<BlockHash\>@
 --
 -- Returns a single block headers for a given block hash.
 --
 type HeaderApi (v :: ChainwebVersionT) (c :: ChainIdT)
     = 'ChainwebEndpoint v :> ChainEndpoint c :> HeaderApi_
+type P2pHeaderApi (v :: ChainwebVersionT) (c :: ChainIdT)
+    = 'ChainwebEndpoint v :> ChainEndpoint c :> P2pHeaderApi_
 
 headerApi
     :: forall (v :: ChainwebVersionT) (c :: ChainIdT)
     . Proxy (HeaderApi v c)
 headerApi = Proxy
+
+p2pHeaderApi
+    :: forall (v :: ChainwebVersionT) (c :: ChainIdT)
+    . Proxy (P2pHeaderApi v c)
+p2pHeaderApi = Proxy
 
 -- -------------------------------------------------------------------------- --
 -- | BlockHeaderDb Api
@@ -328,9 +375,9 @@ type BlockHeaderDbApi v c
 -- | Restricted P2P BlockHeader DB API
 --
 type P2pBlockHeaderDbApi v c
-    = HeadersApi v c
-    :<|> HeaderApi v c
-    :<|> BranchHeadersApi v c
+    = P2pHeadersApi v c
+    :<|> P2pHeaderApi v c
+    :<|> P2pBranchHeadersApi v c
 
 -- -------------------------------------------------------------------------- --
 -- BlockHeader Event Stream
