@@ -265,7 +265,7 @@ branchHeadersClient
     -> Maybe MaxRank
     -> BranchBounds BlockHeaderDb
     -> ClientM BlockHeaderPage
-branchHeadersClient = branchHeadersClientBinary
+branchHeadersClient = branchHeadersClientJson
 
 branchHeadersClientContentType_
     :: forall (v :: ChainwebVersionT) (c :: ChainIdT) (ct :: Type) api
