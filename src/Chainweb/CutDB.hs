@@ -503,8 +503,8 @@ lookupCutHashes wbhdb hs =
     flip itraverse (_cutHashes hs) $ \cid (BlockHashWithHeight _ h) ->
         lookupWebBlockHeaderDb wbhdb cid h
 
--- cutAvgBlockHeight :: ChainwebVersion -> Cut -> BlockHeight
--- cutAvgBlockHeight v = BlockHeight . round . avgBlockHeightAtCutHeight v . _cutHeight
+cutAvgBlockHeight :: ChainwebVersion -> Cut -> BlockHeight
+cutAvgBlockHeight v = BlockHeight . round . avgBlockHeightAtCutHeight v . _cutHeight
 
 -- | This is at the heart of 'Chainweb' POW: Deciding the current "longest" cut
 -- among the incoming candiates.
@@ -562,10 +562,10 @@ processCuts conf logFun headerStore payloadStore cutHashesStore queue cutVar = d
 
     v = _chainwebVersion headerStore
 
-    -- maybePrune rng curCutAvgBlockHeight = do
-    --     r :: Double <- Prob.uniform rng
-    --     when (r < 1 / int (int (_cutDbParamsPruningFrequency conf) * chainCountAt v maxBound)) $
-    --         pruneCuts logFun v conf curCutAvgBlockHeight cutHashesStore
+    maybePrune rng curCutAvgBlockHeight = do
+        r :: Double <- Prob.uniform rng
+        when (r < 1 / int (int (_cutDbParamsPruningFrequency conf) * chainCountAt v maxBound)) $
+            pruneCuts logFun v conf curCutAvgBlockHeight cutHashesStore
 
     maybeWrite rng newCut = do
         r :: Double <- Prob.uniform rng
