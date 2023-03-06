@@ -1,7 +1,8 @@
-{-# LANGUAGE TupleSections #-}
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE TupleSections #-}
 
 -- |
 -- Module: Chainweb.Pact.Backend.RelationalCheckpointer
@@ -14,8 +15,11 @@
 module Chainweb.Pact.Backend.RelationalCheckpointer
   ( initRelationalCheckpointer
   , initRelationalCheckpointer'
+  , withProdRelationalCheckpointer
   ) where
 
+import Control.Concurrent (threadDelay)
+import Control.Concurrent.Async
 import Control.Concurrent.MVar
 import Control.Lens
 import Control.Monad
@@ -24,6 +28,7 @@ import Control.Monad.IO.Class
 import Control.Monad.State (gets)
 
 import Data.ByteString (ByteString)
+import qualified Data.ByteString.Short as BS
 import Data.Aeson hiding (encode,(.=))
 import qualified Data.DList as DL
 import Data.Foldable (toList,foldl')
@@ -42,6 +47,8 @@ import Database.SQLite3.Direct
 
 import Prelude hiding (log)
 
+import System.LogLevel
+
 -- pact
 
 import Pact.Interpreter (PactDbEnv(..))
@@ -54,9 +61,11 @@ import Pact.Types.SQLite
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
 import Chainweb.BlockHeight
+import qualified Chainweb.Logger as C
 import Chainweb.Pact.Backend.ChainwebPactDb
 import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.Backend.Utils
+import Chainweb.Pact.Backend.DbCache (updateCacheStats)
 import Chainweb.Pact.Service.Types
 import Chainweb.Utils
 import Chainweb.Utils.Serialization
@@ -72,6 +81,29 @@ initRelationalCheckpointer
 initRelationalCheckpointer bstate sqlenv loggr v cid =
     snd <$!> initRelationalCheckpointer' bstate sqlenv loggr v cid
 
+withProdRelationalCheckpointer
+    :: C.Logger logger
+    => logger
+    -> BlockState
+    -> SQLiteEnv
+    -> Logger
+    -> ChainwebVersion
+    -> ChainId
+    -> (CheckpointEnv -> IO a)
+    -> IO a
+withProdRelationalCheckpointer logger bstate sqlenv pactLogger v cid inner = do
+    (dbenv, cpenv) <- initRelationalCheckpointer' bstate sqlenv pactLogger v cid
+    withAsync (logModuleCacheStats dbenv) $ \_ -> inner cpenv
+  where
+    logFun = C.logFunctionText logger
+    logModuleCacheStats e = runForever logFun "ModuleCacheStats" $ do
+        stats <- modifyMVar (pdPactDbVar e) $ \db -> do
+            let (s, !mc') = updateCacheStats $ _bsModuleCache $ _benvBlockState db
+                !db' = set (benvBlockState . bsModuleCache) mc' db
+            return (db', s)
+        C.logFunctionJson logger Info stats
+        threadDelay (60 * 1000000)
+
 -- for testing
 initRelationalCheckpointer'
     :: BlockState
@@ -79,13 +111,13 @@ initRelationalCheckpointer'
     -> Logger
     -> ChainwebVersion
     -> ChainId
-    -> IO (PactDbEnv', CheckpointEnv)
+    -> IO (PactDbEnv (BlockEnv SQLiteEnv), CheckpointEnv)
 initRelationalCheckpointer' bstate sqlenv loggr v cid = do
     let dbenv = BlockDbEnv sqlenv loggr
     db <- newMVar (BlockEnv dbenv bstate)
     runBlockEnv db initSchema
     return
-      (PactDbEnv' (PactDbEnv chainwebPactDb db),
+      (PactDbEnv chainwebPactDb db,
        CheckpointEnv
         { _cpeCheckpointer =
             Checkpointer
@@ -113,6 +145,7 @@ doRestore :: ChainwebVersion -> ChainId -> Db -> Maybe (BlockHeight, ParentHash)
 doRestore v cid dbenv (Just (bh, hash)) = runBlockEnv dbenv $ do
     setModuleNameFix
     setSortedKeys
+    setLowerCaseTables
     clearPendingTxState
     void $ withSavepoint PreBlock $ handlePossibleRewind v cid bh hash
     beginSavepoint Block
@@ -121,6 +154,7 @@ doRestore v cid dbenv (Just (bh, hash)) = runBlockEnv dbenv $ do
     -- Module name fix follows the restore call to checkpointer.
     setModuleNameFix = bsModuleNameFix .= enableModuleNameFix v bh
     setSortedKeys = bsSortedKeys .= pact420Upgrade v bh
+    setLowerCaseTables = bsLowerCaseTables .= chainweb217Pact After v bh
 doRestore _ _ dbenv Nothing = runBlockEnv dbenv $ do
     clearPendingTxState
     withSavepoint DbTransaction $
@@ -259,13 +293,13 @@ doGetBlockParent v cid dbenv (bh, hash)
 
 doRegisterSuccessful :: Db -> PactHash -> IO ()
 doRegisterSuccessful dbenv (TypedHash hash) =
-    runBlockEnv dbenv (indexPactTransaction hash)
+    runBlockEnv dbenv (indexPactTransaction $ BS.fromShort hash)
 
 
 doLookupSuccessful :: Db -> PactHash -> IO (Maybe (T2 BlockHeight BlockHash))
 doLookupSuccessful dbenv (TypedHash hash) = runBlockEnv dbenv $ do
     r <- callDb "doLookupSuccessful" $ \db ->
-         qry db qtext [ SBlob hash ] [RInt, RBlob] >>= mapM go
+         qry db qtext [ SBlob (BS.fromShort hash) ] [RInt, RBlob] >>= mapM go
     case r of
         [] -> return Nothing
         (!o:_) -> return (Just o)
@@ -369,4 +403,3 @@ doGetHistoricalLookup dbenv blockHeader d k = runBlockEnv dbenv $ do
         [[SText key, SBlob value]] -> Just <$> toTxLog d key value
         [] -> pure Nothing
         _ -> internalError $ "doGetHistoricalLookup: expected single-row result, got " <> sshow r
-

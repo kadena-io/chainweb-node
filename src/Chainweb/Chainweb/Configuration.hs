@@ -22,9 +22,8 @@ module Chainweb.Chainweb.Configuration
 -- * Throttling Configuration
   ThrottlingConfig(..)
 , throttlingRate
-, throttlingMiningRate
 , throttlingPeerRate
-, throttlingLocalRate
+, throttlingMempoolRate
 , defaultThrottlingConfig
 
 -- * Cut Configuration
@@ -36,6 +35,7 @@ module Chainweb.Chainweb.Configuration
 , cutPruneChainDatabase
 , cutFetchTimeout
 , cutInitialBlockHeightLimit
+, cutFastForwardBlockHeightLimit
 , defaultCutConfig
 , pCutConfig
 
@@ -50,6 +50,7 @@ module Chainweb.Chainweb.Configuration
 , BackupApiConfig(..)
 , configBackupApi
 , BackupConfig(..)
+, defaultBackupConfig
 
 -- * Chainweb Configuration
 , ChainwebConfiguration(..)
@@ -66,6 +67,8 @@ module Chainweb.Chainweb.Configuration
 , configRosetta
 , configBackup
 , configServiceApi
+, configOnlySyncPact
+, configSyncPactChains
 , defaultChainwebConfiguration
 , pChainwebConfiguration
 , validateChainwebConfiguration
@@ -101,32 +104,25 @@ import Chainweb.HostAddress
 import qualified Chainweb.Mempool.Mempool as Mempool
 import Chainweb.Mempool.P2pConfig
 import Chainweb.Miner.Config
-import Chainweb.Pact.Types (defaultReorgLimit)
+import Chainweb.Pact.Types (defaultReorgLimit, defaultModuleCacheLimit)
 import Chainweb.Payload.RestAPI (PayloadBatchLimit(..), defaultServicePayloadBatchLimit)
 import Chainweb.Utils
 import Chainweb.Version
 
 import P2P.Node.Configuration
+import Chainweb.Pact.Backend.DbCache (DbCacheLimitBytes)
 
 -- -------------------------------------------------------------------------- --
 -- Throttling Configuration
 
 data ThrottlingConfig = ThrottlingConfig
     { _throttlingRate :: !Double
-    , _throttlingMiningRate :: !Double
-        -- ^ The rate should be sufficient to make at least on call per cut. We
-        -- expect an cut to arrive every few seconds.
-        --
-        -- Default is 10 per second.
     , _throttlingPeerRate :: !Double
         -- ^ This should throttle aggressively. This endpoint does an expensive
         -- check of the client. And we want to keep bad actors out of the
         -- system. There should be no need for a client to call this endpoint on
         -- the same node more often than at most few times peer minute.
-        --
-        -- Default is 1 per second
-        --
-    , _throttlingLocalRate :: !Double
+    , _throttlingMempoolRate :: !Double
     }
     deriving stock (Eq, Show)
 
@@ -134,26 +130,23 @@ makeLenses ''ThrottlingConfig
 
 defaultThrottlingConfig :: ThrottlingConfig
 defaultThrottlingConfig = ThrottlingConfig
-    { _throttlingRate = 200 -- per second
-    , _throttlingMiningRate = 5 --  per second
-    , _throttlingPeerRate = 21 -- per second, one for each p2p network
-    , _throttlingLocalRate = 0.1  -- per 10 seconds
+    { _throttlingRate = 50 -- per second, in a 100 burst
+    , _throttlingPeerRate = 11 -- per second, 1 for each p2p network
+    , _throttlingMempoolRate = 20 -- one every seconds per mempool.
     }
 
 instance ToJSON ThrottlingConfig where
     toJSON o = object
         [ "global" .= _throttlingRate o
-        , "mining" .= _throttlingMiningRate o
         , "putPeer" .= _throttlingPeerRate o
-        , "local" .= _throttlingLocalRate o
+        , "mempool" .= _throttlingMempoolRate o
         ]
 
 instance FromJSON (ThrottlingConfig -> ThrottlingConfig) where
     parseJSON = withObject "ThrottlingConfig" $ \o -> id
         <$< throttlingRate ..: "global" % o
-        <*< throttlingMiningRate ..: "mining" % o
         <*< throttlingPeerRate ..: "putPeer" % o
-        <*< throttlingLocalRate ..: "local" % o
+        <*< throttlingMempoolRate ..: "mempool" % o
 
 -- -------------------------------------------------------------------------- --
 -- Cut Coniguration
@@ -201,6 +194,7 @@ data CutConfig = CutConfig
     { _cutPruneChainDatabase :: !ChainDatabaseGcConfig
     , _cutFetchTimeout :: !Int
     , _cutInitialBlockHeightLimit :: !(Maybe BlockHeight)
+    , _cutFastForwardBlockHeightLimit :: !(Maybe BlockHeight)
     } deriving (Eq, Show)
 
 makeLenses ''CutConfig
@@ -210,6 +204,7 @@ instance ToJSON CutConfig where
         [ "pruneChainDatabase" .= _cutPruneChainDatabase o
         , "fetchTimeout" .= _cutFetchTimeout o
         , "initialBlockHeightLimit" .= _cutInitialBlockHeightLimit o
+        , "fastForwardBlockHeightLimit" .= _cutFastForwardBlockHeightLimit o
         ]
 
 instance FromJSON (CutConfig -> CutConfig) where
@@ -217,12 +212,14 @@ instance FromJSON (CutConfig -> CutConfig) where
         <$< cutPruneChainDatabase ..: "pruneChainDatabase" % o
         <*< cutFetchTimeout ..: "fetchTimeout" % o
         <*< cutInitialBlockHeightLimit ..: "initialBlockHeightLimit" % o
+        <*< cutFastForwardBlockHeightLimit ..: "fastForwardBlockHeightLimit" % o
 
 defaultCutConfig :: CutConfig
 defaultCutConfig = CutConfig
     { _cutPruneChainDatabase = GcNone
     , _cutFetchTimeout = 3_000_000
     , _cutInitialBlockHeightLimit = Nothing
+    , _cutFastForwardBlockHeightLimit = Nothing
     }
 
 pCutConfig :: MParser CutConfig
@@ -231,16 +228,20 @@ pCutConfig = id
         % long "prune-chain-database"
         <> help
             ( "How to prune the chain database on startup."
-            <> " Pruning headers takes about between 10s to 2min. "
-            <> " Pruning headers with full header validation (headers-checked) and full GC can take"
-            <> " a longer time (up to 10 minutes or more)."
+            <> " This can take several hours."
             )
         <> metavar "none|headers|headers-checked|full"
     <*< cutFetchTimeout .:: option auto
         % long "cut-fetch-timeout"
         <> help "The timeout for processing new cuts in microseconds"
-    -- cutInitialBlockHeightLimit isn't supported on the command line
-    -- cutResetToCut isn't supported on the command line
+    <*< cutInitialBlockHeightLimit .:: fmap (Just . BlockHeight) . option auto
+        % long "initial-block-height-limit"
+        <> help "Reset initial cut to this block height."
+        <> metavar "INT"
+    <*< cutFastForwardBlockHeightLimit .:: fmap (Just . BlockHeight) . option auto
+        % long "fast-forward-block-height-limit"
+        <> help "When --only-sync-pact is given fast forward to this height. Ignored otherwise."
+        <> metavar "INT"
 
 -- -------------------------------------------------------------------------- --
 -- Service API Configuration
@@ -377,6 +378,11 @@ data ChainwebConfiguration = ChainwebConfiguration
     , _configServiceApi :: !ServiceApiConfig
     , _configOnlySyncPact :: !Bool
         -- ^ exit after synchronizing pact dbs to the latest cut
+    , _configSyncPactChains :: !(Maybe [ChainId])
+        -- ^ the only chains to be synchronized on startup to the latest cut.
+        --   if unset, all chains will be synchronized.
+    , _configModuleCacheLimit :: !DbCacheLimitBytes
+        -- ^ module cache size limit in bytes
     } deriving (Show, Eq, Generic)
 
 makeLenses ''ChainwebConfiguration
@@ -422,7 +428,9 @@ defaultChainwebConfiguration v = ChainwebConfiguration
     , _configRosetta = False
     , _configServiceApi = defaultServiceApiConfig
     , _configOnlySyncPact = False
+    , _configSyncPactChains = Nothing
     , _configBackup = defaultBackupConfig
+    , _configModuleCacheLimit = defaultModuleCacheLimit
     }
 
 instance ToJSON ChainwebConfiguration where
@@ -445,7 +453,9 @@ instance ToJSON ChainwebConfiguration where
         , "rosetta" .= _configRosetta o
         , "serviceApi" .= _configServiceApi o
         , "onlySyncPact" .= _configOnlySyncPact o
+        , "syncPactChains" .= _configSyncPactChains o
         , "backup" .= _configBackup o
+        , "moduleCacheLimit" .= _configModuleCacheLimit o
         ]
 
 instance FromJSON ChainwebConfiguration where
@@ -473,7 +483,9 @@ instance FromJSON (ChainwebConfiguration -> ChainwebConfiguration) where
         <*< configRosetta ..: "rosetta" % o
         <*< configServiceApi %.: "serviceApi" % o
         <*< configOnlySyncPact ..: "onlySyncPact" % o
+        <*< configSyncPactChains ..: "syncPactChains" % o
         <*< configBackup %.: "backup" % o
+        <*< configModuleCacheLimit ..: "moduleCacheLimit" % o
 
 pChainwebConfiguration :: MParser ChainwebConfiguration
 pChainwebConfiguration = id
@@ -522,5 +534,13 @@ pChainwebConfiguration = id
     <*< configOnlySyncPact .:: boolOption_
         % long "only-sync-pact"
         <> help "Terminate after synchronizing the pact databases to the latest cut"
+    <*< configSyncPactChains .:: fmap Just % jsonOption
+        % long "sync-pact-chains"
+        <> help "The only Pact databases to synchronize. If empty or unset, all chains will be synchronized."
+        <> metavar "JSON list of chain ids"
     <*< configBackup %:: pBackupConfig
+    <*< configModuleCacheLimit .:: option auto
+        % long "module-cache-limit"
+        <> help "Maximum size of the per-chain checkpointer module cache in bytes"
+        <> metavar "INT"
 

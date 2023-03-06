@@ -24,36 +24,39 @@ module Chainweb.Payload.PayloadStore.InMemory
 
 -- internal modules
 
+import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
-import qualified Data.CAS.HashMap as HashCAS
+import Chainweb.Storage.Table
+import Chainweb.Storage.Table.HashMap(HashMapTable)
+import qualified Chainweb.Storage.Table.HashMap as HashMapTable
 
 -- -------------------------------------------------------------------------- --
 -- HashMap CAS
 
-newBlockPayloadStore :: IO (BlockPayloadStore HashCAS.HashMapCas)
-newBlockPayloadStore = BlockPayloadStore <$> HashCAS.emptyCas
+newBlockPayloadStore :: IO (Casify HashMapTable BlockPayload)
+newBlockPayloadStore = Casify <$> HashMapTable.emptyTable
 
-newBlockTransactionsStore :: IO (BlockTransactionsStore HashCAS.HashMapCas)
-newBlockTransactionsStore = BlockTransactionsStore <$> HashCAS.emptyCas
+newBlockTransactionsStore :: IO (Casify HashMapTable BlockTransactions)
+newBlockTransactionsStore = Casify <$> HashMapTable.emptyTable
 
-newTransactionDb :: IO (TransactionDb HashCAS.HashMapCas)
+newTransactionDb :: IO (TransactionDb HashMapTable)
 newTransactionDb = TransactionDb
     <$> newBlockTransactionsStore
     <*> newBlockPayloadStore
 
-newBlockOutputsStore :: IO (BlockOutputsStore HashCAS.HashMapCas)
-newBlockOutputsStore = BlockOutputsStore <$> HashCAS.emptyCas
+newBlockOutputsStore :: IO (BlockOutputsStore HashMapTable)
+newBlockOutputsStore = Casify <$> HashMapTable.emptyTable
 
-newTransactionTreeStore :: IO (TransactionTreeStore HashCAS.HashMapCas)
-newTransactionTreeStore = TransactionTreeStore <$> HashCAS.emptyCas
+newTransactionTreeStore :: IO (TransactionTreeStore HashMapTable)
+newTransactionTreeStore = Casify <$> HashMapTable.emptyTable
 
-newOutputTreeStore :: IO (OutputTreeStore HashCAS.HashMapCas)
-newOutputTreeStore = OutputTreeStore <$> HashCAS.emptyCas
+newOutputTreeStore :: IO (OutputTreeStore HashMapTable)
+newOutputTreeStore = Casify <$> HashMapTable.emptyTable
 
-newPayloadCache :: IO (PayloadCache HashCAS.HashMapCas)
+newPayloadCache :: IO (PayloadCache HashMapTable)
 newPayloadCache = PayloadCache <$> newBlockOutputsStore
     <*> newTransactionTreeStore
     <*> newOutputTreeStore
 
-newPayloadDb :: IO (PayloadDb HashCAS.HashMapCas)
+newPayloadDb :: IO (PayloadDb HashMapTable)
 newPayloadDb = PayloadDb <$> newTransactionDb <*> newPayloadCache

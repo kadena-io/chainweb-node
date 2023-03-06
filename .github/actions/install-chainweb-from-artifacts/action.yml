@@ -16,8 +16,11 @@ runs:
       shell: bash
       run: |
         case "${{ inputs.os }}" in
-        ubuntu*)
-          sudo apt-get install -y build-essential libgflags-dev libtbb-dev
+        ubuntu-20.04)
+          sudo apt-get install -u libgflags2.2
+          ;;
+        ubuntu-22.04)
+          sudo apt-get install -u libgflags2.2
           ;;
         mac*)
           brew update && brew install gnu-tar || true

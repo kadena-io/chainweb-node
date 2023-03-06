@@ -7,6 +7,7 @@
 (env-data {'gas-payer-operate: ["operate"]})
 (env-keys ["operate"])
 
+(env-exec-config ['DisablePact44])
 (load "gas-payer-v1-reference.pact")
 
 (verify "user.gas-payer-v1-reference")

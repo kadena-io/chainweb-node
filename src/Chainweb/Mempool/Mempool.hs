@@ -374,7 +374,7 @@ chainwebTransactionConfig chainCtx = TransactionConfig (chainwebPayloadCodec cha
     getTimeToLive = view cmdTimeToLive . fmap payloadObj
     getCreationTime = view cmdCreationTime . fmap payloadObj
     commandHash c = let (H.Hash !h) = H.toUntypedHash $ _cmdHash c
-                    in TransactionHash $! SB.toShort $ h
+                    in TransactionHash h
     txmeta t =
         TransactionMetadata
         (toMicros ct)
@@ -587,7 +587,7 @@ instance HasTextRepresentation TransactionHash where
   fromText = (TransactionHash . SB.toShort <$>) . decodeB64UrlNoPaddingText
 
 requestKeyToTransactionHash :: RequestKey -> TransactionHash
-requestKeyToTransactionHash = TransactionHash . SB.toShort . H.unHash . unRequestKey
+requestKeyToTransactionHash = TransactionHash . H.unHash . unRequestKey
 
 ------------------------------------------------------------------------------
 data TransactionMetadata = TransactionMetadata {

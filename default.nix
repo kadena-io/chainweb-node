@@ -7,19 +7,7 @@
       inherit sha256; }) {
       config.allowBroken = false;
       config.allowUnfree = true;
-      overlays = [
-        (self: super: {
-           tbb = super.tbb.overrideAttrs(attrs: {
-             patches = attrs.patches ++ [
-               (super.fetchurl {
-                 name = "aarch64-darwin.patch";
-                 url = "https://github.com/oneapi-src/oneTBB/pull/258/commits/86f6dcdc17a8f5ef2382faaef860cfa5243984fe.patch";
-                 sha256 = "sha256-JXqrFPCb3q1vfxk752tQu7HhApCB4YH2LoVnGRwmspk=";
-               })
-             ];
-           });
-         })
-      ];
+      overlays = [];
     }
 , returnShellEnv ? false
 , mkDerivation ? null
@@ -55,18 +43,11 @@ pkgs.haskell.packages.${compiler}.developPackage {
         (self.callCabal2nix "rocksdb-haskell-kadena" (pkgs.fetchFromGitHub {
           owner = "kadena-io";
           repo = "rocksdb-haskell";
-          rev = "2161777750bf879856251289e551e8dc2cd512e2";
-          sha256 = "09cmjrhkjv6mccaaasb2lz1sjndha1df3wyygi7166axj0srw8ds";
-          # date = "2022-08-10T09:03:56-04:00";
+          rev = "c2b3dd8bb714a12ea6763565d168a03df38fcc58";
+          sha256 = "122xnsx6wlcxzgdywx1rzg9w6mj37g6vfcvmwz93xq50fxy33fc0";
+          # date = "2023-02-13T16:59:35-08:00";
         }) {})
         (attrs: {
-          preConfigure = (attrs.preConfigure or "") +
-            pkgs.lib.optionalString (!pkgs.stdenv.hostPlatform.sse4_2Support) ''
-              perl -i -ne 'print unless /HAVE_SSE42/;' rocksdb-haskell-kadena.cabal
-            '' +
-            pkgs.lib.optionalString (pkgs.stdenv.hostPlatform.system == "aarch64-darwin") ''
-              patch -p1 < ${./rocksdb-arm64.patch}
-            '';
           librarySystemDepends = (attrs.librarySystemDepends or []) ++ [
             pkgs.snappy.dev
             pkgs.zlib.dev
@@ -86,8 +67,8 @@ pkgs.haskell.packages.${compiler}.developPackage {
 
       resource-pool = self.callHackageDirect {
         pkg = "resource-pool";
-        ver = "0.3.0.0";
-        sha256 = "0bpf868b6kq1g83s3sad26kfsawmpd3j0xpkyab8370lsq6zhcs1";
+        ver = "0.4.0.0";
+        sha256 = "0zlnizx0igwmvpx43mcnk0h58v9lakhwr4g9csy1vj74p7a4hxaz";
       } {};
 
       direct-sqlite = self.callHackageDirect {

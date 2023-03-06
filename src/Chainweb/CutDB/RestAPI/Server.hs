@@ -46,6 +46,7 @@ import Servant.Server
 
 -- internal modules
 
+import Chainweb.BlockHeight
 import Chainweb.Cut
 import Chainweb.Cut.CutHashes
 import Chainweb.CutDB
@@ -55,6 +56,7 @@ import Chainweb.RestAPI.Utils
 import Chainweb.TreeDB (MaxRank(..))
 import Chainweb.Utils
 import Chainweb.Version
+import Chainweb.Version.Utils
 
 import P2P.Node.PeerDB
 import P2P.Peer
@@ -62,14 +64,16 @@ import P2P.Peer
 -- -------------------------------------------------------------------------- --
 -- Handlers
 
-cutGetHandler :: CutDb cas -> Maybe MaxRank -> Handler CutHashes
+cutGetHandler :: CutDb tbl -> Maybe MaxRank -> IO CutHashes
 cutGetHandler db Nothing = liftIO $ cutToCutHashes Nothing <$> _cut db
 cutGetHandler db (Just (MaxRank (Max mar))) = liftIO $ do
     !c <- _cut db
-    !c' <- limitCut (view cutDbWebBlockHeaderDb db) (int mar) c
+    let v = _chainwebVersion db
+    let !bh = BlockHeight $ floor (avgBlockHeightAtCutHeight v (CutHeight $ int mar))
+    !c' <- limitCut (view cutDbWebBlockHeaderDb db) bh c
     return $! cutToCutHashes Nothing c'
 
-cutPutHandler :: PeerDb -> CutDb cas -> CutHashes -> Handler NoContent
+cutPutHandler :: PeerDb -> CutDb tbl -> CutHashes -> Handler NoContent
 cutPutHandler pdb db c = case _peerAddr <$> _cutOrigin c of
     Nothing -> throwError $ err400 { errBody = "Cut is missing an origin entry" }
     Just addr -> do
@@ -82,39 +86,39 @@ cutPutHandler pdb db c = case _peerAddr <$> _cutOrigin c of
 -- Cut API Server
 
 cutServer
-    :: forall cas (v :: ChainwebVersionT)
+    :: forall tbl (v :: ChainwebVersionT)
     . PeerDb
-    -> CutDbT cas v
+    -> CutDbT tbl v
     -> Server (CutApi v)
-cutServer pdb (CutDbT db) = cutGetHandler db :<|> cutPutHandler pdb db
+cutServer pdb (CutDbT db) = liftIO . cutGetHandler db :<|> cutPutHandler pdb db
 
 cutGetServer
-    :: forall cas (v :: ChainwebVersionT)
-    . CutDbT cas v
+    :: forall tbl (v :: ChainwebVersionT)
+    . CutDbT tbl v
     -> Server (CutGetApi v)
-cutGetServer (CutDbT db) = cutGetHandler db
+cutGetServer (CutDbT db) = liftIO . cutGetHandler db
 
 -- -------------------------------------------------------------------------- --
 -- Some Cut Server
 
-someCutServerT :: PeerDb -> SomeCutDb cas -> SomeServer
-someCutServerT pdb (SomeCutDb (db :: CutDbT cas v)) =
+someCutServerT :: PeerDb -> SomeCutDb tbl -> SomeServer
+someCutServerT pdb (SomeCutDb (db :: CutDbT tbl v)) =
     SomeServer (Proxy @(CutApi v)) (cutServer pdb db)
 
-someCutServer :: ChainwebVersion -> PeerDb -> CutDb cas -> SomeServer
+someCutServer :: ChainwebVersion -> PeerDb -> CutDb tbl -> SomeServer
 someCutServer v pdb = someCutServerT pdb . someCutDbVal v
 
-someCutGetServerT :: SomeCutDb cas -> SomeServer
-someCutGetServerT (SomeCutDb (db :: CutDbT cas v)) =
+someCutGetServerT :: SomeCutDb tbl -> SomeServer
+someCutGetServerT (SomeCutDb (db :: CutDbT tbl v)) =
     SomeServer (Proxy @(CutGetApi v)) (cutGetServer db)
 
-someCutGetServer :: ChainwebVersion -> CutDb cas -> SomeServer
+someCutGetServer :: ChainwebVersion -> CutDb tbl -> SomeServer
 someCutGetServer v = someCutGetServerT . someCutDbVal v
 
 -- -------------------------------------------------------------------------- --
 -- Run Server
 
-serveCutOnPort :: Port -> ChainwebVersion -> PeerDb -> CutDb cas -> IO ()
+serveCutOnPort :: Port -> ChainwebVersion -> PeerDb -> CutDb tbl -> IO ()
 serveCutOnPort p v pdb = run (int p) . someServerApplication . someCutServer v pdb
 
 

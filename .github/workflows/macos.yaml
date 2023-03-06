@@ -20,9 +20,14 @@ jobs:
     steps:
     # Setup
     - name: Checkout repository
-      uses: actions/checkout@v2
+      uses: actions/checkout@v3
+
+    # work around for https://github.com/haskell/actions/issues/187
+    - name: Set permissions for .ghcup
+      if: startsWith(matrix.os, 'ubuntu-')
+      run: sudo chown -R $USER /usr/local/.ghcup
     - name: Install GHC and Cabal
-      uses: haskell/actions/setup@v1.2.7
+      uses: haskell/actions/setup@v2
       with:
          ghc-version: ${{ matrix.ghc }}
          cabal-version: ${{ matrix.cabal }}
@@ -33,7 +38,7 @@ jobs:
     - name: Install non-Haskell dependencies (macOS)
       if: contains(matrix.os, 'mac')
       run: |
-        brew update && brew install gflags llvm tbb gnu-tar snappy zstd lz4 || true
+        brew update && brew install gflags llvm gnu-tar snappy zstd lz4 || true
         # work around bug in macOS and github actions cache (cf. https://github.com/actions/cache/issues/403)
         echo PATH="/usr/local/opt/gnu-tar/libexec/gnubin:$PATH" >> $GITHUB_ENV
     - name: Create cabal.project.local
@@ -48,14 +53,21 @@ jobs:
         package pact
           documentation: False
         EOF
-    - uses: pat-s/always-upload-cache@v2.1.5
+    - name: Create date file for dist-newstyle cache key
+      id: cache-date
+      run: |
+        echo "value=$(date +%Y.%j)" >> $GITHUB_OUTPUT
+    - uses: actions/cache@v3
       name: Cache dist-newstyle
       with:
         path: |
           ~/.cabal/packages
           ~/.cabal/store
           dist-newstyle
-        key: ${{ matrix.os }}-${{ matrix.ghc }}-7-cabal
+        key: ${{ matrix.os }}-${{ matrix.ghc }}-2-${{ steps.cache-date.outputs.value }}-${{ hashFiles('cabal.*', '*.cabal', 'src/**', 'test/**') }}
+        restore-keys: |
+          ${{ matrix.os }}-${{ matrix.ghc }}-2-${{ steps.cache-date.outputs.value }}-
+          ${{ matrix.os }}-${{ matrix.ghc }}-2-
 
     # Build
     - name: Delete Freeze file if it exists

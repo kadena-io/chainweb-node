@@ -22,7 +22,6 @@ import Control.Concurrent.Async
 import Control.Concurrent.STM.TVar
 import Control.Lens
 
-import Data.CAS.RocksDB
 import Data.Foldable
 import qualified Data.HashMap.Strict as HM
 import Data.Maybe
@@ -46,6 +45,8 @@ import Chainweb.Miner.Pact
 import Chainweb.Test.CutDB hiding (tests)
 import Chainweb.Version
 
+import Chainweb.Storage.Table.RocksDB
+
 -- -------------------------------------------------------------------------- --
 --
 
@@ -63,7 +64,7 @@ withTestCoordiantor
     -> Maybe MiningConfig
         -- ^ Custom Mining configuration. If coordination is disabled it will be
         -- set to enabled before the coordinator is initialized.
-    -> (forall cas logger . Logger logger => logger -> MiningCoordination logger cas -> IO ())
+    -> (forall tbl logger . Logger logger => logger -> MiningCoordination logger tbl -> IO ())
     -> IO ()
 withTestCoordiantor rdb maybeConf a = do
     var <- newEmptyMVar

@@ -1,8 +1,9 @@
 {-# LANGUAGE AllowAmbiguousTypes #-}
-{-# LANGUAGE NumericUnderscores #-}
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE ConstraintKinds #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -38,7 +39,6 @@ import qualified Data.ByteString.Base64.URL as B64U
 import qualified Data.ByteString.Char8 as B8
 
 import Data.ByteString.Lazy (toStrict)
-import Data.CAS (casLookupM)
 import qualified Data.HashMap.Strict as HM
 import Data.IORef
 import Data.List (isInfixOf)
@@ -93,6 +93,8 @@ import Chainweb.Transaction
 import Chainweb.Utils hiding (check)
 import Chainweb.Version as Chainweb
 import Chainweb.WebPactExecutionService
+
+import Chainweb.Storage.Table (casLookupM)
 
 import Data.LogMessage
 
@@ -262,7 +264,7 @@ roundtrip'
     -> IO (CutOutputs, CutOutputs)
 roundtrip' v sid0 tid0 burn create step = withTestBlockDb v $ \bdb -> do
   tg <- newMVar mempty
-  withWebPactExecutionService v bdb (chainToMPA' tg) freeGasModel $ \pact -> do
+  withWebPactExecutionService v defaultPactServiceConfig bdb (chainToMPA' tg) freeGasModel $ \(pact,_) -> do
 
     sid <- mkChainId v maxBound sid0
     tid <- mkChainId v maxBound tid0
@@ -300,7 +302,7 @@ roundtrip' v sid0 tid0 burn create step = withTestBlockDb v $ \bdb -> do
     return (co1,co2)
 
 
-_debugCut :: PayloadCasLookup cas => String -> Cut -> PayloadDb cas -> IO ()
+_debugCut :: CanReadablePayloadCas tbl => String -> Cut -> PayloadDb tbl -> IO ()
 _debugCut msg c pdb = do
   putStrLn $ "CUT: =============== " ++ msg
   outs <- cutToPayloadOutputs c pdb
@@ -312,9 +314,9 @@ _debugCut msg c pdb = do
 type CutOutputs = HM.HashMap Chainweb.ChainId (Vector (Command Text, CommandResult Hash))
 
 cutToPayloadOutputs
-  :: PayloadCasLookup cas
+  :: CanReadablePayloadCas tbl
   => Cut
-  -> PayloadDb cas
+  -> PayloadDb tbl
   -> IO CutOutputs
 cutToPayloadOutputs c pdb = do
   forM (_cutMap c) $ \bh -> do

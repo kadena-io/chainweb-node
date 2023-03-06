@@ -92,7 +92,7 @@ instance Hashable (HashableTrans PayloadWithText) where
       where
         (TypedHash hc) = _cmdHash t
         decHC = runGetEitherS getWord64le
-        !hashCode = either error id $ decHC (B.take 8 hc)
+        !hashCode = either error id $ decHC (B.take 8 $ SB.fromShort hc)
     {-# INLINE hashWithSalt #-}
 
 -- | A codec for (Command PayloadWithText) transactions.

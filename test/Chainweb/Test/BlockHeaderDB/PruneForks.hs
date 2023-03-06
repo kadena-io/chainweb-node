@@ -19,8 +19,6 @@ module Chainweb.Test.BlockHeaderDB.PruneForks
 import Control.Monad
 import Control.Monad.Catch
 
-import Data.CAS
-import Data.CAS.RocksDB
 import qualified Data.Text as T
 
 import Numeric.Natural
@@ -48,6 +46,9 @@ import Chainweb.Test.Utils.BlockHeader
 import Chainweb.Utils
 import Chainweb.Version
 
+import Chainweb.Storage.Table
+import Chainweb.Storage.Table.RocksDB
+
 -- -------------------------------------------------------------------------- --
 -- Utils
 
@@ -64,7 +65,7 @@ testLogLevel = Warn
 
 withDbs
     :: IO RocksDb
-    -> (RocksDb -> BlockHeaderDb -> PayloadDb RocksDbCas -> BlockHeader -> IO ())
+    -> (RocksDb -> BlockHeaderDb -> PayloadDb RocksDbTable -> BlockHeader -> IO ())
     -> IO ()
 withDbs rio inner = do
     -- create unique namespace for each test so that they so that test can
@@ -83,7 +84,7 @@ withDbs rio inner = do
 
 createForks
     :: BlockHeaderDb
-    -> PayloadDb RocksDbCas
+    -> PayloadDb RocksDbTable
     -> BlockHeader
     -> IO ([BlockHeader], [BlockHeader])
 createForks bdb pdb h = (,)
@@ -92,7 +93,7 @@ createForks bdb pdb h = (,)
 
 insertWithPayloads
     :: BlockHeaderDb
-    -> PayloadDb RocksDbCas
+    -> PayloadDb RocksDbTable
     -> BlockHeader
     -> Nonce
     -> Natural
@@ -107,7 +108,7 @@ cid = unsafeChainId 0
 
 delHdr :: BlockHeaderDb -> BlockHeader -> IO ()
 delHdr cdb k = do
-    casDelete (_chainDbCas cdb) (casKey $ RankedBlockHeader k)
+    tableDelete (_chainDbCas cdb) (casKey $ RankedBlockHeader k)
     tableDelete (_chainDbRankTable cdb) (_blockHash k)
 
 -- -------------------------------------------------------------------------- --
@@ -179,24 +180,24 @@ singleForkTest rio step d expect msg =
 
 assertHeaders :: BlockHeaderDb -> [BlockHeader] -> IO ()
 assertHeaders db f =
-    unlessM (fmap and $ mapM (casMember db) $ _blockHash <$> f) $
+    unlessM (fmap and $ mapM (tableMember db) $ _blockHash <$> f) $
         assertFailure "missing block header that should not have been pruned"
 
 assertPrunedHeaders :: BlockHeaderDb -> [BlockHeader] -> IO ()
 assertPrunedHeaders db f =
-    whenM (fmap or $ mapM (casMember db) $ _blockHash <$> f) $
+    whenM (fmap or $ mapM (tableMember db) $ _blockHash <$> f) $
         assertFailure "failed to prune some block header"
 
-assertPayloads :: PayloadDb RocksDbCas -> [BlockHeader] -> IO ()
+assertPayloads :: PayloadDb RocksDbTable -> [BlockHeader] -> IO ()
 assertPayloads db f =
-    unlessM (fmap and $ mapM (casMember db) $ _blockPayloadHash <$> f) $
+    unlessM (fmap and $ mapM (tableMember db) $ _blockPayloadHash <$> f) $
         assertFailure "missing block payload that should not have been garbage collected"
 
 -- | This can fail due to the probabilistic nature of the GC algorithms
 --
-assertPrunedPayloads :: PayloadDb RocksDbCas -> [BlockHeader] -> IO ()
+assertPrunedPayloads :: PayloadDb RocksDbTable -> [BlockHeader] -> IO ()
 assertPrunedPayloads db f = do
-    results <- mapM (casMember db) $ _blockPayloadHash <$> f
+    results <- mapM (tableMember db) $ _blockPayloadHash <$> f
     let remained = length (filter id results)
     when (remained > 1) $
         assertFailure $ "failed to garage collect some block payloads"
@@ -303,7 +304,7 @@ failPayloadCheck :: IO RocksDb -> [PruningChecks] -> Natural -> (String -> IO ()
 failPayloadCheck rio checks n step = withDbs rio $ \rdb bdb pdb h -> do
     (f0, _) <- createForks bdb pdb h
     let db = _transactionDbBlockPayloads $ _transactionDb pdb
-    casDelete db (_blockPayloadHash $ f0 !! int n)
+    tableDelete db (_blockPayloadHash $ f0 !! int n)
     try (pruneAllChains logger rdb toyVersion checks) >>= \case
         Left (MissingPayloadException{}) -> return ()
         Left e -> assertFailure
@@ -326,7 +327,7 @@ failPayloadCheck2 rio checks n step = withDbs rio $ \rdb bdb pdb h -> do
     (f0, _) <- createForks bdb pdb h
     let b = f0 !! int n
     payload <- casLookupM pdb (_blockPayloadHash b)
-    casDelete (_transactionDbBlockTransactions $ _transactionDb pdb)
+    tableDelete (_transactionDbBlockTransactions $ _transactionDb pdb)
         $ _payloadWithOutputsTransactionsHash payload
     try (pruneAllChains logger rdb toyVersion checks) >>= \case
         Left (MissingPayloadException{}) -> return ()

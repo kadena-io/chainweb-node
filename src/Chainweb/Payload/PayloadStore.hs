@@ -2,13 +2,16 @@
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DerivingStrategies #-}
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE PolyKinds #-}
+{-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeFamilies #-}
-{-# LANGUAGE TypeSynonymInstances #-}
 {-# LANGUAGE UndecidableInstances #-}
 
 -- |
@@ -25,28 +28,20 @@ module Chainweb.Payload.PayloadStore
 , PayloadNotFoundException_(..)
 
 -- * Transaction Database
-, BlockTransactionsStore
-, BlockTransactionsStore_(..)
-, BlockPayloadStore
-, BlockPayloadStore_(..)
 , TransactionDb
 , TransactionDb_(..)
-, TransactionDbCasLookup
-, TransactionDbCas
 , transactionDbBlockTransactions
 , transactionDbBlockPayloads
 
 -- * Caches
 , OutputTreeStore
-, OutputTreeStore_(..)
+, OutputTreeStore_
 , TransactionTreeStore
-, TransactionTreeStore_(..)
+, TransactionTreeStore_
 , BlockOutputsStore
-, BlockOutputsStore_(..)
+, BlockOutputsStore_
 , PayloadCache
 , PayloadCache_(..)
-, PayloadCacheCasLookup
-, PayloadCacheCas
 , payloadCacheBlockOutputs
 , payloadCacheOutputTrees
 , payloadCacheTransactionTrees
@@ -55,8 +50,8 @@ module Chainweb.Payload.PayloadStore
 -- * Payload Database
 , PayloadDb
 , PayloadDb_(..)
-, PayloadCasLookup
-, PayloadCas
+, CanPayloadCas
+, CanReadablePayloadCas
 , payloadCache
 , transactionDb
 
@@ -88,7 +83,7 @@ import Chainweb.MerkleUniverse
 import Chainweb.Payload
 import Chainweb.Version
 
-import Data.CAS
+import Chainweb.Storage.Table
 
 -- -------------------------------------------------------------------------- --
 -- Exceptions
@@ -104,35 +99,16 @@ instance Exception PayloadNotFoundException
 -- -------------------------------------------------------------------------- --
 -- Transaction Database
 
-
--- | Store of the 'BlockPayloads' for all blocks
---
--- Primary Key: '_blockPayloadHash'
---
-type BlockPayloadStore cas = BlockPayloadStore_ ChainwebMerkleHashAlgorithm cas
-newtype BlockPayloadStore_ a cas = BlockPayloadStore (cas (BlockPayload_ a))
-deriving newtype instance HasCasLookup (cas (BlockPayload_ a)) => HasCasLookup (BlockPayloadStore_ a cas)
-deriving newtype instance IsCas (cas (BlockPayload_ a)) => IsCas (BlockPayloadStore_ a cas)
-
--- | Store of the 'BlockTransactions' for all blocks.
---
--- Primary Key: '_blockTransactionsHash'
---
-type BlockTransactionsStore cas = BlockTransactionsStore_ ChainwebMerkleHashAlgorithm cas
-newtype BlockTransactionsStore_ a cas = BlockTransactionsStore (cas (BlockTransactions_ a))
-deriving newtype instance HasCasLookup (cas (BlockTransactions_ a)) => HasCasLookup (BlockTransactionsStore_ a cas)
-deriving newtype instance IsCas (cas (BlockTransactions_ a)) => IsCas (BlockTransactionsStore_ a cas)
-
-type TransactionDb cas = TransactionDb_ ChainwebMerkleHashAlgorithm cas
+type TransactionDb tbl = TransactionDb_ ChainwebMerkleHashAlgorithm tbl
 
 -- | The authoritative CAS stores for a block chain.
 --
-data TransactionDb_ a cas = TransactionDb
-    { _transactionDbBlockTransactions :: !(BlockTransactionsStore_ a cas)
+data TransactionDb_ a tbl = TransactionDb
+    { _transactionDbBlockTransactions :: !(Casify tbl (BlockTransactions_ a))
         -- ^ The block transactions of the block chain. This data is strictly
         -- needed to rebuild the payload data.
 
-    , _transactionDbBlockPayloads :: !(BlockPayloadStore_ a cas)
+    , _transactionDbBlockPayloads :: !(Casify tbl (BlockPayload_ a))
         -- ^ While the content of this store can be computed from the block
         -- transactions, it is needed as an index into the block transaction
         -- store. If it would be lost one would have to recompute all of it in
@@ -141,26 +117,20 @@ data TransactionDb_ a cas = TransactionDb
 
 makeLenses ''TransactionDb_
 
-type TransactionDbCasLookup cas = TransactionDbCasLookup_ ChainwebMerkleHashAlgorithm cas
-type TransactionDbCasLookup_ a cas =
-    ( HasCasLookupConstraint cas (BlockPayload_ a)
-    , HasCasLookupConstraint cas (BlockTransactions_ a)
+type CanCas tbl a = Cas (tbl (CasKeyType a) a) a
+type CanReadableCas tbl a = ReadableCas (tbl (CasKeyType a) a) a
+
+type CanReadableTransactionDbCas_ a tbl =
+    ( CanReadableCas tbl (BlockTransactions_ a)
+    , CanReadableCas tbl (BlockPayload_ a)
     )
 
-type TransactionDbCas cas = TransactionDbCas_ ChainwebMerkleHashAlgorithm cas
-type TransactionDbCas_ a cas =
-    ( CasConstraint cas (BlockPayload_ a)
-    , CasConstraint cas (BlockTransactions_ a)
-    )
-
-instance TransactionDbCasLookup_ a cas => HasCasLookup (TransactionDb_ a cas) where
-    type CasValueType (TransactionDb_ a cas) = PayloadData_ a
-
-    casLookup db k = {-# SCC "TransactionDb.casLookup" #-} (runMaybeT $ do
-        pd <- MaybeT $ casLookup (_transactionDbBlockPayloads db) k
+instance (pk ~ CasKeyType (PayloadData_ a), CanReadableTransactionDbCas_ a tbl) => ReadableTable (TransactionDb_ a tbl) pk (PayloadData_ a) where
+    tableLookup db k = {-# SCC "TransactionDb.casLookup" #-} (runMaybeT $ do
+        pd <- MaybeT $ tableLookup (_transactionDbBlockPayloads db) k
         let txsHash = _blockPayloadTransactionsHash pd
         let outsHash = _blockPayloadOutputsHash pd
-        txs <- MaybeT $ casLookup (_transactionDbBlockTransactions db) txsHash
+        txs <- MaybeT $ tableLookup (_transactionDbBlockTransactions db) txsHash
         return $ PayloadData
             { _payloadDataTransactions = _blockTransactions txs
             , _payloadDataMiner = _blockMinerData txs
@@ -168,94 +138,74 @@ instance TransactionDbCasLookup_ a cas => HasCasLookup (TransactionDb_ a cas) wh
             , _payloadDataTransactionsHash = txsHash
             , _payloadDataOutputsHash = outsHash
             })
-    {-# INLINE casLookup #-}
+    {-# INLINE tableLookup #-}
 
 -- -------------------------------------------------------------------------- --
 -- Caches
 
 -- | Store of the 'BlockOutputs' for all blocks.
 --
-type BlockOutputsStore cas = BlockOutputsStore_ ChainwebMerkleHashAlgorithm cas
-newtype BlockOutputsStore_ a cas = BlockOutputsStore (cas (BlockOutputs_ a))
-deriving newtype instance HasCasLookupConstraint cas (BlockOutputs_ a) => HasCasLookup (BlockOutputsStore_ a cas)
-deriving newtype instance CasConstraint cas (BlockOutputs_ a) => IsCas (BlockOutputsStore_ a cas)
+type BlockOutputsStore tbl = BlockOutputsStore_ ChainwebMerkleHashAlgorithm tbl
+type BlockOutputsStore_ a tbl = Casify tbl (BlockOutputs_ a)
 
 -- | Store of the 'TransactionTree' Merkle trees for all blocks.
 --
-type TransactionTreeStore cas = TransactionTreeStore_ ChainwebMerkleHashAlgorithm cas
-newtype TransactionTreeStore_ a cas = TransactionTreeStore (cas (TransactionTree_ a))
-deriving newtype instance HasCasLookupConstraint cas (TransactionTree_ a) => HasCasLookup (TransactionTreeStore_ a cas)
-deriving newtype instance CasConstraint cas (TransactionTree_ a) => IsCas (TransactionTreeStore_ a cas)
+type TransactionTreeStore tbl = TransactionTreeStore_ ChainwebMerkleHashAlgorithm tbl
+type TransactionTreeStore_ a tbl = Casify tbl (TransactionTree_ a)
 
 -- | Store of the 'OutputTree' Merkle trees for all blocks.
 --
-type OutputTreeStore cas = OutputTreeStore_ ChainwebMerkleHashAlgorithm cas
-newtype OutputTreeStore_ a cas = OutputTreeStore (cas (OutputTree_ a))
-deriving newtype instance HasCasLookupConstraint cas (OutputTree_ a) => HasCasLookup (OutputTreeStore_ a cas)
-deriving newtype instance CasConstraint cas (OutputTree_ a) => IsCas (OutputTreeStore_ a cas)
+type OutputTreeStore tbl = OutputTreeStore_ ChainwebMerkleHashAlgorithm tbl
+type OutputTreeStore_ a tbl = Casify tbl (OutputTree_ a)
 
 -- | The CAS caches for a block chain.
 --
 -- If an entry is missing it can be rebuild from the PayloadDb
 --
-type PayloadCache cas = PayloadCache_ ChainwebMerkleHashAlgorithm cas
-data PayloadCache_ a cas = PayloadCache
-    { _payloadCacheBlockOutputs :: !(BlockOutputsStore_ a cas)
+type PayloadCache tbl = PayloadCache_ ChainwebMerkleHashAlgorithm tbl
+data PayloadCache_ a tbl = PayloadCache
+    { _payloadCacheBlockOutputs :: !(BlockOutputsStore_ a tbl)
         -- ^ This is relatively expensive to rebuild.
 
-    , _payloadCacheTransactionTrees :: !(TransactionTreeStore_ a cas)
+    , _payloadCacheTransactionTrees :: !(TransactionTreeStore_ a tbl)
         -- ^ This are relatively cheap to rebuild.
         -- (tens of thousands of blocks per second)
 
-    , _payloadCacheOutputTrees :: !(OutputTreeStore_ a cas)
+    , _payloadCacheOutputTrees :: !(OutputTreeStore_ a tbl)
         -- ^ This are relatively cheap to rebuild.
         -- (tens of thousands blocks per second)
     }
 
 makeLenses ''PayloadCache_
 
-type PayloadCacheCasLookup cas = PayloadCacheCasLookup_ ChainwebMerkleHashAlgorithm cas
-type PayloadCacheCasLookup_ a cas =
-    ( HasCasLookupConstraint cas (BlockOutputs_ a)
-    , HasCasLookupConstraint cas (TransactionTree_ a)
-    , HasCasLookupConstraint cas (OutputTree_ a)
-    )
-
-type PayloadCacheCas cas = PayloadCacheCas_ ChainwebMerkleHashAlgorithm cas
-type PayloadCacheCas_ a cas =
-    ( CasConstraint cas (BlockOutputs_ a)
-    , CasConstraint cas (TransactionTree_ a)
-    , CasConstraint cas (OutputTree_ a)
-    )
-
 -- -------------------------------------------------------------------------- --
 -- Payload Database
 
-type PayloadDb cas = PayloadDb_ ChainwebMerkleHashAlgorithm cas
+type PayloadDb tbl = PayloadDb_ ChainwebMerkleHashAlgorithm tbl
 
-data PayloadDb_ a cas = PayloadDb
-    { _transactionDb :: !(TransactionDb_ a cas)
-    , _payloadCache :: !(PayloadCache_ a cas)
+data PayloadDb_ a tbl = PayloadDb
+    { _transactionDb :: !(TransactionDb_ a tbl)
+    , _payloadCache :: !(PayloadCache_ a tbl)
     }
 
 makeLenses ''PayloadDb_
 
-type PayloadCasLookup cas = PayloadCasLookup_ ChainwebMerkleHashAlgorithm cas
-type PayloadCasLookup_ a cas =
-    ( HasCasLookupConstraint cas (BlockOutputs_ a)
-    , HasCasLookupConstraint cas (TransactionTree_ a)
-    , HasCasLookupConstraint cas (OutputTree_ a)
-    , HasCasLookupConstraint cas (BlockTransactions_ a)
-    , HasCasLookupConstraint cas (BlockPayload_ a)
+type CanReadablePayloadCas tbl = CanReadablePayloadCas_ ChainwebMerkleHashAlgorithm tbl
+type CanReadablePayloadCas_ a tbl =
+    ( CanReadableCas tbl (BlockOutputs_ a)
+    , CanReadableCas tbl (TransactionTree_ a)
+    , CanReadableCas tbl (OutputTree_ a)
+    , CanReadableCas tbl (BlockTransactions_ a)
+    , CanReadableCas tbl (BlockPayload_ a)
     )
 
-type PayloadCas cas = PayloadCas_ ChainwebMerkleHashAlgorithm cas
-type PayloadCas_ a cas =
-    ( CasConstraint cas (BlockOutputs_ a)
-    , CasConstraint cas (TransactionTree_ a)
-    , CasConstraint cas (OutputTree_ a)
-    , CasConstraint cas (BlockTransactions_ a)
-    , CasConstraint cas (BlockPayload_ a)
+type CanPayloadCas tbl = CanPayloadCas_ ChainwebMerkleHashAlgorithm tbl
+type CanPayloadCas_ a tbl =
+    ( CanCas tbl (BlockOutputs_ a)
+    , CanCas tbl (TransactionTree_ a)
+    , CanCas tbl (OutputTree_ a)
+    , CanCas tbl (BlockTransactions_ a)
+    , CanCas tbl (BlockPayload_ a)
     )
 
 -- -------------------------------------------------------------------------- --
@@ -265,9 +215,9 @@ type PayloadCas_ a cas =
 -- version.
 --
 initializePayloadDb
-    :: PayloadCas cas
+    :: CanPayloadCas tbl
     => ChainwebVersion
-    -> PayloadDb cas
+    -> PayloadDb tbl
     -> IO ()
 initializePayloadDb v db = traverse_ initForChain $ chainIds v
   where
@@ -281,21 +231,19 @@ initializePayloadDb v db = traverse_ initForChain $ chainIds v
 --
 addPayload
     :: MerkleHashAlgorithm a
-    => PayloadCas_ a cas
-    => PayloadDb_ a cas
+    => CanPayloadCas_ a tbl
+    => PayloadDb_ a tbl
     -> BlockTransactions_ a
     -> TransactionTree_ a
     -> BlockOutputs_ a
     -> OutputTree_ a
     -> IO ()
-addPayload db txs txTree outs outTree = {-# SCC "addPayload" #-}
-    (do
-        casInsert (_transactionDbBlockPayloads $ _transactionDb db) payload
-        casInsert (_transactionDbBlockTransactions $ _transactionDb db) txs
-        casInsert (_payloadCacheBlockOutputs $ _payloadCache db) outs
-        casInsert (_payloadCacheTransactionTrees $ _payloadCache db) txTree
-        casInsert (_payloadCacheOutputTrees $ _payloadCache db) outTree
-    )
+addPayload db txs txTree outs outTree = {-# SCC "addPayload" #-} (do
+    casInsert (_transactionDbBlockPayloads $ _transactionDb db) payload
+    casInsert (_transactionDbBlockTransactions $ _transactionDb db) txs
+    casInsert (_payloadCacheBlockOutputs $ _payloadCache db) outs
+    casInsert (_payloadCacheTransactionTrees $ _payloadCache db) txTree
+    casInsert (_payloadCacheOutputTrees $ _payloadCache db) outTree)
   where
     payload = blockPayload txs outs
 
@@ -304,8 +252,8 @@ addPayload db txs txTree outs outTree = {-# SCC "addPayload" #-}
 --
 addNewPayload
     :: MerkleHashAlgorithm a
-    => PayloadCas_ a cas
-    => PayloadDb_ a cas
+    => CanPayloadCas_ a tbl
+    => PayloadDb_ a tbl
     -> PayloadWithOutputs_ a
     -> IO ()
 addNewPayload db s = addPayload db txs txTree outs outTree
@@ -322,19 +270,17 @@ addNewPayload db s = addPayload db txs txTree outs outTree
 -- of its dependencies are present. For that we must be careful about the order
 -- of insertion and deletions.
 --
-instance PayloadCasLookup_ a cas => HasCasLookup (PayloadDb_ a cas) where
-    type CasValueType (PayloadDb_ a cas) = PayloadWithOutputs_ a
-
-    casLookup db k = {-# SCC "payloadCasLookup" #-} runMaybeT $ do
-        pd <- MaybeT $ casLookup
+instance (pk ~ CasKeyType (PayloadWithOutputs_ a), CanReadablePayloadCas_ a tbl) => ReadableTable (PayloadDb_ a tbl) pk (PayloadWithOutputs_ a) where
+    tableLookup db k = {-# SCC "payloadCasLookup" #-} runMaybeT $ do
+        pd <- MaybeT $ tableLookup
             (_transactionDbBlockPayloads $ _transactionDb db)
             k
         let txsHash = _blockPayloadTransactionsHash pd
         let outsHash = _blockPayloadOutputsHash pd
-        txs <- MaybeT $ casLookup
+        txs <- MaybeT $ tableLookup
             (_transactionDbBlockTransactions $ _transactionDb db)
             txsHash
-        outs <- MaybeT $ casLookup
+        outs <- MaybeT $ tableLookup
             (_payloadCacheBlockOutputs $ _payloadCache db)
             outsHash
         return $ PayloadWithOutputs
@@ -345,7 +291,7 @@ instance PayloadCasLookup_ a cas => HasCasLookup (PayloadDb_ a cas) where
             , _payloadWithOutputsTransactionsHash = txsHash
             , _payloadWithOutputsOutputsHash = outsHash
             }
-    {-# INLINE casLookup #-}
+    {-# INLINE tableLookup #-}
 
 
 -- | Combine all Payload related stores into a single content addressed
@@ -353,21 +299,21 @@ instance PayloadCasLookup_ a cas => HasCasLookup (PayloadDb_ a cas) where
 -- of its dependencies are present. For that we must be careful about the order
 -- of insertion and deletions.
 --
-instance (MerkleHashAlgorithm a, PayloadCas_ a cas) => IsCas (PayloadDb_ a cas) where
-    casInsert = addNewPayload
-    {-# INLINE casInsert #-}
+instance (pk ~ CasKeyType (PayloadWithOutputs_ a), MerkleHashAlgorithm a, CanPayloadCas_ a tbl) => Table (PayloadDb_ a tbl) pk (PayloadWithOutputs_ a) where
+    tableInsert db _ v = addNewPayload db v
+    {-# INLINE tableInsert #-}
 
-    casDelete db k =
-        casLookup (_transactionDbBlockPayloads $ _transactionDb db) k >>= \case
+    tableDelete db k =
+        tableLookup (_transactionDbBlockPayloads $ _transactionDb db) k >>= \case
             Just pd -> do
-                casDelete
+                tableDelete
                     (_transactionDbBlockPayloads $ _transactionDb db)
                     k
-                casDelete
+                tableDelete
                     (_transactionDbBlockTransactions $ _transactionDb db)
                     (_blockPayloadTransactionsHash pd)
-                casDelete
+                tableDelete
                     (_payloadCacheBlockOutputs $ _payloadCache db)
                     (_blockPayloadOutputsHash pd)
             Nothing -> return ()
-    {-# INLINE casDelete #-}
+    {-# INLINE tableDelete #-}

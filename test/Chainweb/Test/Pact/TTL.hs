@@ -15,7 +15,6 @@ import Control.Lens (set)
 import Control.Monad
 import Control.Monad.Catch
 
-import Data.CAS.RocksDB
 import qualified Data.Vector as V
 
 import Pact.Types.ChainMeta
@@ -37,7 +36,7 @@ import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.Service.BlockValidation
 import Chainweb.Pact.Service.PactQueue
 import Chainweb.Pact.Service.Types
-import Chainweb.Pact.Utils (lenientTimeSlop)
+import Chainweb.Pact.Validations (defaultLenientTimeSlop)
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
 import Chainweb.Test.Cut.TestBlockDb
@@ -47,6 +46,8 @@ import Chainweb.Time
 import Chainweb.Utils
 import Chainweb.Version
 import Chainweb.Version.Utils
+
+import Chainweb.Storage.Table.RocksDB
 
 -- -------------------------------------------------------------------------- --
 -- Settings
@@ -102,13 +103,13 @@ testTxTimeLenient :: IO Ctx -> TestTree
 testTxTimeLenient ctxIO =
     testCase "testTxTimeLenient: tx time of parent time + slop and default ttl succeeds during new block validation" $ do
         T2 hdr _ <- mineBlock ctxIO mempty (ParentHeader genblock) (Nonce 1) 1
-        void $ doNewBlock ctxIO (offset lenientTimeSlop) (ParentHeader hdr) (Nonce 2) 1
+        void $ doNewBlock ctxIO (offset defaultLenientTimeSlop) (ParentHeader hdr) (Nonce 2) 1
 
 testTxTimeFail1 :: IO Ctx -> TestTree
 testTxTimeFail1 ctxIO =
     testCase "testTxTimeFail1: tx time of parent time + slop + 1 and default ttl fails during new block validation" $ do
         T2 hdr _ <- mineBlock ctxIO mempty (ParentHeader genblock) (Nonce 1) 1
-        assertDoPreBlockFailure $ doNewBlock ctxIO (offset (succ lenientTimeSlop)) (ParentHeader hdr) (Nonce 2) 1
+        assertDoPreBlockFailure $ doNewBlock ctxIO (offset (succ defaultLenientTimeSlop)) (ParentHeader hdr) (Nonce 2) 1
 
 testTxTimeFail2 :: IO Ctx -> TestTree
 testTxTimeFail2 ctxIO =
@@ -271,7 +272,7 @@ assertDoPreBlockFailure action = try @_ @PactException action >>= \case
 data Ctx = Ctx
     { _ctxMempool :: !(MVar MemPoolAccess)
     , _ctxQueue :: !PactQueue
-    , _ctxPdb :: !(PayloadDb RocksDbCas)
+    , _ctxPdb :: !(PayloadDb RocksDbTable)
     , _ctxBdb :: !BlockHeaderDb
     }
 
