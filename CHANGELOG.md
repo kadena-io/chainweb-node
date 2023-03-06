@@ -19,8 +19,8 @@ Performance Improvements:
 Miscellaneous:
 
 *   Remove unused rate limiting configuration settings. (#1616)
-*   Remove CORS support from P2P AP. (#1616)
-*   Remove unsused hashes and SPV endpoints from P2P API. (#1616)
+*   Remove CORS support from the P2P API. (#1616)
+*   Remove unused hashes and SPV endpoints from the P2P API. (#1616)
 *   Tighten default P2P rate limits. (#1616)
 *   Add dedicated rate limiter for Mempool requests. (#1616)
 *   Disable unused `application/json;blockheader-encoding=object` in responses
