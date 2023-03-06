@@ -3,7 +3,6 @@
 {-# LANGUAGE ExistentialQuantification #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
-{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -85,10 +84,8 @@ module Chainweb.BlockHeaderDB.RestAPI
 , hashesApi
 ) where
 
-import Control.Monad
 import Data.Aeson
 import Data.Bifunctor
-import Data.Foldable
 import Data.Proxy
 import Data.Text (Text)
 
@@ -104,7 +101,6 @@ import Chainweb.ChainId
 import Chainweb.RestAPI.Orphans ()
 import Chainweb.RestAPI.Utils
 import Chainweb.TreeDB
-import Chainweb.Utils
 import Chainweb.Utils.Paging
 import Chainweb.Utils.Serialization hiding (Get)
 import Chainweb.Version
@@ -134,35 +130,6 @@ instance MimeUnrender OctetStream BlockHeader where
 instance MimeRender OctetStream BlockHeader where
     mimeRender _ = runPutL . encodeBlockHeader
     {-# INLINE mimeRender #-}
-
-instance MimeRender OctetStream BlockHeaderPage where
-    mimeRender _ pg = runPutL $ do
-        putWord64le (int $ _pageLimit pg)
-        traverse_ encodeBlockHeaderSized (_pageItems pg)
-        case _pageNext pg of
-            Nothing ->
-                putWord8 0
-            Just (Inclusive k) -> do
-                putWord8 1
-                encodeBlockHash k
-            Just (Exclusive k) -> do
-                putWord8 2
-                encodeBlockHash k
-
-instance MimeUnrender OctetStream BlockHeaderPage where
-    mimeUnrender _ = runGetEitherL $ do
-        lim <- label "limit" $ getWord64le
-        bhs <- label "headers" $ replicateM (int lim) decodeBlockHeaderSized
-        next <- label "next" $ getWord8 >>= \case
-            0 -> return Nothing
-            1 -> do
-                bh <- decodeBlockHash
-                return $ Just $ Inclusive bh
-            2 -> do
-                bh <- decodeBlockHash
-                return $ Just $ Exclusive bh
-            _ -> fail "MimeUnrender OctetStream BlockHeaderPage: invalid next tag"
-        return $ Page (Limit $ int lim) bhs next
 
 -- | The default JSON instance of BlockHeader is an unpadded base64Url encoding of
 -- the block header bytes. There a newtype wrapper that provides an alternative
@@ -261,7 +228,7 @@ type BranchHeadersApi_
     :> MinHeightParam
     :> MaxHeightParam
     :> ReqBody '[JSON] (BranchBounds BlockHeaderDb)
-    :> Post '[JSON, JsonBlockHeaderObject, OctetStream] BlockHeaderPage
+    :> Post '[JSON, JsonBlockHeaderObject] BlockHeaderPage
 
 type P2pBranchHeadersApi_
     = "header" :> "branch"
@@ -269,7 +236,7 @@ type P2pBranchHeadersApi_
     :> MinHeightParam
     :> MaxHeightParam
     :> ReqBody '[JSON] (BranchBounds BlockHeaderDb)
-    :> Post '[JSON, OctetStream] BlockHeaderPage
+    :> Post '[JSON] BlockHeaderPage
 
 -- | @GET \/chainweb\/\<ApiVersion\>\/\<InstanceId\>\/chain\/\<ChainId\>\/header\/branch@
 --
@@ -332,13 +299,13 @@ type HeadersApi_
     = "header"
     :> PageParams (NextItem BlockHash)
     :> FilterParams
-    :> Get '[JSON, JsonBlockHeaderObject, OctetStream] BlockHeaderPage
+    :> Get '[JSON, JsonBlockHeaderObject] BlockHeaderPage
 
 type P2pHeadersApi_
     = "header"
     :> PageParams (NextItem BlockHash)
     :> FilterParams
-    :> Get '[JSON, OctetStream] BlockHeaderPage
+    :> Get '[JSON] BlockHeaderPage
 
 -- | @GET \/chainweb\/\<ApiVersion\>\/\<InstanceId\>\/chain\/\<ChainId\>\/header@
 --

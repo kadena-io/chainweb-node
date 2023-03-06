@@ -282,20 +282,6 @@ branchHeadersClientContentType_
 branchHeadersClientContentType_ = client
     $ Proxy @(SetRespBodyContentType ct (BranchHeadersApi v c))
 
-branchHeadersClientBinary
-    :: ChainwebVersion
-    -> ChainId
-    -> Maybe Limit
-    -> Maybe (NextItem BlockHash)
-    -> Maybe MinRank
-    -> Maybe MaxRank
-    -> BranchBounds BlockHeaderDb
-    -> ClientM BlockHeaderPage
-branchHeadersClientBinary v c limit start minr maxr bounds = runIdentity $ do
-    (SomeSing (SChainwebVersion :: Sing v)) <- return $ toSing v
-    (SomeSing (SChainId :: Sing c)) <- return $ toSing c
-    return $ branchHeadersClientContentType_ @v @c @OctetStream limit start minr maxr bounds
-
 branchHeadersClientJson
     :: ChainwebVersion
     -> ChainId

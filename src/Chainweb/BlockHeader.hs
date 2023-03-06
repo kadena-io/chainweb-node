@@ -84,10 +84,8 @@ module Chainweb.BlockHeader
 , _blockAdjacentChainIds
 , blockAdjacentChainIds
 , encodeBlockHeader
-, encodeBlockHeaderSized
 , encodeBlockHeaderWithoutHash
 , decodeBlockHeader
-, decodeBlockHeaderSized
 , decodeBlockHeaderWithoutHash
 , decodeBlockHeaderChecked
 , decodeBlockHeaderCheckedChainId
@@ -118,7 +116,6 @@ import Control.Monad.Catch
 
 import Data.Aeson
 import Data.Aeson.Types (Parser)
-import qualified Data.ByteString as B
 import Data.Function (on)
 import Data.Hashable
 import qualified Data.HashMap.Strict as HM
@@ -705,12 +702,6 @@ encodeBlockHeader b = do
     encodeBlockHeaderWithoutHash b
     encodeBlockHash (_blockHash b)
 
-encodeBlockHeaderSized :: BlockHeader -> Put
-encodeBlockHeaderSized b = do
-    let bs = runPutS (encodeBlockHeader b)
-    putWord32le (int $ B.length bs)
-    putByteString bs
-
 -- | Decode and check that
 --
 -- 1. chain id is in graph
@@ -786,11 +777,6 @@ decodeBlockHeader = BlockHeader
     <*> decodeEpochStartTime
     <*> decodeNonce
     <*> decodeBlockHash
-
-decodeBlockHeaderSized :: Get BlockHeader
-decodeBlockHeaderSized = do
-    sz <- getWord32le
-    isolate (int sz) decodeBlockHeader
 
 instance ToJSON BlockHeader where
     toJSON = toJSON . encodeB64UrlNoPaddingText . runPutS . encodeBlockHeader
