@@ -248,6 +248,7 @@ library
         , Data.Singletons
         , Data.TaskMap
 
+        , Network.RateLimit
         , Network.X509.SelfSigned
 
         , Numeric.Cast
@@ -329,6 +330,7 @@ library
             -- due to change in error message that is inlined in pact
         , binary >= 0.8
         , bytestring >= 0.10
+        , cache >= 0.1.1
         , case-insensitive >= 1.2
         , cassava >= 0.5.1
         , chainweb-storage >= 0.1
@@ -450,6 +452,7 @@ test-suite chainweb-tests
         Chainweb.Test.Mempool.RestAPI
         Chainweb.Test.Mempool.Sync
         Chainweb.Test.Mining
+        Chainweb.Test.Network.RateLimit
         Chainweb.Test.Misc
         Chainweb.Test.Orphans.Internal
         Chainweb.Test.Orphans.Pact
