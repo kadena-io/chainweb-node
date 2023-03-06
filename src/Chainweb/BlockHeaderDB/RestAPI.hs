@@ -59,17 +59,11 @@ module Chainweb.BlockHeaderDB.RestAPI
 
 -- * BlockHeaderDb API
 , BlockHeaderDbApi
-, blockHeaderDbApi
-
--- * Multichain APIs
-, someBlockHeaderDbApi
-, someBlockHeaderDbApis
+, P2pBlockHeaderDbApi
 
 -- * BlockHeader Event Stream
 , HeaderUpdate(..)
 , HeaderStreamApi
-, headerStreamApi
-, someHeaderStreamApi
 
 -- * Sub APIs
 , BranchHashesApi
@@ -83,8 +77,6 @@ module Chainweb.BlockHeaderDB.RestAPI
 , HashesApi
 , hashesApi
 ) where
-
-import Control.Monad.Identity
 
 import Data.Aeson
 import Data.Bifunctor
@@ -333,23 +325,12 @@ type BlockHeaderDbApi v c
     :<|> BranchHashesApi v c
     :<|> BranchHeadersApi v c
 
-blockHeaderDbApi
-    :: forall (v :: ChainwebVersionT) (c :: ChainIdT)
-    . Proxy (BlockHeaderDbApi v c)
-blockHeaderDbApi = Proxy
-
--- -------------------------------------------------------------------------- --
--- Multi Chain API
-
--- TODO Just use @case@ statements.
-someBlockHeaderDbApi :: ChainwebVersion -> ChainId -> SomeApi
-someBlockHeaderDbApi v c = runIdentity $ do
-    SomeChainwebVersionT (_ :: Proxy v') <- return $ someChainwebVersionVal v
-    SomeChainIdT (_ :: Proxy c') <- return $ someChainIdVal c
-    return $ SomeApi (blockHeaderDbApi @v' @c')
-
-someBlockHeaderDbApis :: ChainwebVersion -> [ChainId] -> SomeApi
-someBlockHeaderDbApis v = mconcat . fmap (someBlockHeaderDbApi v)
+-- | Restricted P2P BlockHeader DB API
+--
+type P2pBlockHeaderDbApi v c
+    = HeadersApi v c
+    :<|> HeaderApi v c
+    :<|> BranchHeadersApi v c
 
 -- -------------------------------------------------------------------------- --
 -- BlockHeader Event Stream
@@ -391,8 +372,3 @@ type HeaderStreamApi_ = "header" :> "updates" :> Raw
 --
 type HeaderStreamApi (v :: ChainwebVersionT) = 'ChainwebEndpoint v :> HeaderStreamApi_
 
-headerStreamApi :: forall (v :: ChainwebVersionT). Proxy (HeaderStreamApi v)
-headerStreamApi = Proxy
-
-someHeaderStreamApi :: ChainwebVersion -> SomeApi
-someHeaderStreamApi (FromSingChainwebVersion (SChainwebVersion :: Sing v)) = SomeApi $ headerStreamApi @v
