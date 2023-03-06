@@ -91,7 +91,6 @@ import Data.Bifunctor
 import Data.Foldable
 import Data.Proxy
 import Data.Text (Text)
-import Debug.Trace
 
 import Network.HTTP.Media ((//), (/:))
 
@@ -152,11 +151,8 @@ instance MimeRender OctetStream BlockHeaderPage where
 
 instance MimeUnrender OctetStream BlockHeaderPage where
     mimeUnrender _ = runGetEitherL $ do
-        traceM "start"
         lim <- label "limit" $ getWord64le
-        traceM "limit"
         bhs <- label "headers" $ replicateM (int lim) decodeBlockHeaderSized
-        traceM "headers"
         next <- label "next" $ getWord8 >>= \case
             0 -> return Nothing
             1 -> do
@@ -166,7 +162,6 @@ instance MimeUnrender OctetStream BlockHeaderPage where
                 bh <- decodeBlockHash
                 return $ Just $ Exclusive bh
             _ -> fail "MimeUnrender OctetStream BlockHeaderPage: invalid next tag"
-        traceM "next"
         return $ Page (Limit $ int lim) bhs next
 
 -- | The default JSON instance of BlockHeader is an unpadded base64Url encoding of
