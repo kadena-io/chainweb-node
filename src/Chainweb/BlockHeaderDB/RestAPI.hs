@@ -3,6 +3,7 @@
 {-# LANGUAGE ExistentialQuantification #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -70,18 +71,27 @@ module Chainweb.BlockHeaderDB.RestAPI
 , branchHashesApi
 , BranchHeadersApi
 , branchHeadersApi
+, P2pBranchHeadersApi
+, p2pBranchHeadersApi
 , HeaderApi
+, P2pHeaderApi
 , headerApi
+, p2pHeaderApi
 , HeadersApi
+, P2pHeadersApi
+, p2pHeadersApi
 , headersApi
 , HashesApi
 , hashesApi
 ) where
 
+import Control.Monad
 import Data.Aeson
 import Data.Bifunctor
+import Data.Foldable
 import Data.Proxy
 import Data.Text (Text)
+import Debug.Trace
 
 import Network.HTTP.Media ((//), (/:))
 
@@ -95,6 +105,7 @@ import Chainweb.ChainId
 import Chainweb.RestAPI.Orphans ()
 import Chainweb.RestAPI.Utils
 import Chainweb.TreeDB
+import Chainweb.Utils
 import Chainweb.Utils.Paging
 import Chainweb.Utils.Serialization hiding (Get)
 import Chainweb.Version
@@ -124,6 +135,39 @@ instance MimeUnrender OctetStream BlockHeader where
 instance MimeRender OctetStream BlockHeader where
     mimeRender _ = runPutL . encodeBlockHeader
     {-# INLINE mimeRender #-}
+
+instance MimeRender OctetStream BlockHeaderPage where
+    mimeRender _ pg = runPutL $ do
+        putWord64le (int $ _pageLimit pg)
+        traverse_ encodeBlockHeaderSized (_pageItems pg)
+        case _pageNext pg of
+            Nothing ->
+                putWord8 0
+            Just (Inclusive k) -> do
+                putWord8 1
+                encodeBlockHash k
+            Just (Exclusive k) -> do
+                putWord8 2
+                encodeBlockHash k
+
+instance MimeUnrender OctetStream BlockHeaderPage where
+    mimeUnrender _ = runGetEitherL $ do
+        traceM "start"
+        lim <- label "limit" $ getWord64le
+        traceM "limit"
+        bhs <- label "headers" $ replicateM (int lim) decodeBlockHeaderSized
+        traceM "headers"
+        next <- label "next" $ getWord8 >>= \case
+            0 -> return Nothing
+            1 -> do
+                bh <- decodeBlockHash
+                return $ Just $ Inclusive bh
+            2 -> do
+                bh <- decodeBlockHash
+                return $ Just $ Exclusive bh
+            _ -> fail "MimeUnrender OctetStream BlockHeaderPage: invalid next tag"
+        traceM "next"
+        return $ Page (Limit $ int lim) bhs next
 
 -- | The default JSON instance of BlockHeader is an unpadded base64Url encoding of
 -- the block header bytes. There a newtype wrapper that provides an alternative
@@ -222,7 +266,15 @@ type BranchHeadersApi_
     :> MinHeightParam
     :> MaxHeightParam
     :> ReqBody '[JSON] (BranchBounds BlockHeaderDb)
-    :> Post '[JSON, JsonBlockHeaderObject] BlockHeaderPage
+    :> Post '[JSON, JsonBlockHeaderObject, OctetStream] BlockHeaderPage
+
+type P2pBranchHeadersApi_
+    = "header" :> "branch"
+    :> PageParams (NextItem BlockHash)
+    :> MinHeightParam
+    :> MaxHeightParam
+    :> ReqBody '[JSON] (BranchBounds BlockHeaderDb)
+    :> Post '[JSON, OctetStream] BlockHeaderPage
 
 -- | @GET \/chainweb\/\<ApiVersion\>\/\<InstanceId\>\/chain\/\<ChainId\>\/header\/branch@
 --
@@ -243,11 +295,18 @@ type BranchHeadersApi_
 --
 type BranchHeadersApi (v :: ChainwebVersionT) (c :: ChainIdT)
     = 'ChainwebEndpoint v :> ChainEndpoint c :> Reassoc BranchHeadersApi_
+type P2pBranchHeadersApi (v :: ChainwebVersionT) (c :: ChainIdT)
+    = 'ChainwebEndpoint v :> ChainEndpoint c :> Reassoc P2pBranchHeadersApi_
 
 branchHeadersApi
     :: forall (v :: ChainwebVersionT) (c :: ChainIdT)
     . Proxy (BranchHeadersApi v c)
 branchHeadersApi = Proxy
+
+p2pBranchHeadersApi
+    :: forall (v :: ChainwebVersionT) (c :: ChainIdT)
+    . Proxy (P2pBranchHeadersApi v c)
+p2pBranchHeadersApi = Proxy
 
 -- -------------------------------------------------------------------------- --
 type HashesApi_
@@ -278,7 +337,13 @@ type HeadersApi_
     = "header"
     :> PageParams (NextItem BlockHash)
     :> FilterParams
-    :> Get '[JSON, JsonBlockHeaderObject] BlockHeaderPage
+    :> Get '[JSON, JsonBlockHeaderObject, OctetStream] BlockHeaderPage
+
+type P2pHeadersApi_
+    = "header"
+    :> PageParams (NextItem BlockHash)
+    :> FilterParams
+    :> Get '[JSON, OctetStream] BlockHeaderPage
 
 -- | @GET \/chainweb\/\<ApiVersion\>\/\<InstanceId\>\/chain\/\<ChainId\>\/header@
 --
@@ -292,10 +357,18 @@ type HeadersApi_
 type HeadersApi (v :: ChainwebVersionT) (c :: ChainIdT)
     = 'ChainwebEndpoint v :> ChainEndpoint c :> Reassoc HeadersApi_
 
+type P2pHeadersApi (v :: ChainwebVersionT) (c :: ChainIdT)
+    = 'ChainwebEndpoint v :> ChainEndpoint c :> Reassoc P2pHeadersApi_
+
 headersApi
     :: forall (v :: ChainwebVersionT) (c :: ChainIdT)
     . Proxy (HeadersApi v c)
 headersApi = Proxy
+
+p2pHeadersApi
+    :: forall (v :: ChainwebVersionT) (c :: ChainIdT)
+    . Proxy (P2pHeadersApi v c)
+p2pHeadersApi = Proxy
 
 -- -------------------------------------------------------------------------- --
 type HeaderApi_
@@ -303,17 +376,29 @@ type HeaderApi_
     :> Capture "BlockHash" BlockHash
     :> Get '[JSON, JsonBlockHeaderObject, OctetStream] BlockHeader
 
+type P2pHeaderApi_
+    = "header"
+    :> Capture "BlockHash" BlockHash
+    :> Get '[JSON, OctetStream] BlockHeader
+
 -- | @GET \/chainweb\/\<ApiVersion\>\/\<InstanceId\>\/chain\/\<ChainId\>\/header\/\<BlockHash\>@
 --
 -- Returns a single block headers for a given block hash.
 --
 type HeaderApi (v :: ChainwebVersionT) (c :: ChainIdT)
     = 'ChainwebEndpoint v :> ChainEndpoint c :> HeaderApi_
+type P2pHeaderApi (v :: ChainwebVersionT) (c :: ChainIdT)
+    = 'ChainwebEndpoint v :> ChainEndpoint c :> P2pHeaderApi_
 
 headerApi
     :: forall (v :: ChainwebVersionT) (c :: ChainIdT)
     . Proxy (HeaderApi v c)
 headerApi = Proxy
+
+p2pHeaderApi
+    :: forall (v :: ChainwebVersionT) (c :: ChainIdT)
+    . Proxy (P2pHeaderApi v c)
+p2pHeaderApi = Proxy
 
 -- -------------------------------------------------------------------------- --
 -- | BlockHeaderDb Api
@@ -328,9 +413,9 @@ type BlockHeaderDbApi v c
 -- | Restricted P2P BlockHeader DB API
 --
 type P2pBlockHeaderDbApi v c
-    = HeadersApi v c
-    :<|> HeaderApi v c
-    :<|> BranchHeadersApi v c
+    = P2pHeadersApi v c
+    :<|> P2pHeaderApi v c
+    :<|> P2pBranchHeadersApi v c
 
 -- -------------------------------------------------------------------------- --
 -- BlockHeader Event Stream

@@ -74,14 +74,14 @@ headerClient_
     => KnownChainIdSymbol c
     => DbKey BlockHeaderDb
     -> ClientM BlockHeader
-headerClient_ = headerClientContentType_ @v @c @JSON
+headerClient_ = headerClientContentType_ @v @c @OctetStream
 
 headerClient
     :: ChainwebVersion
     -> ChainId
     -> DbKey BlockHeaderDb
     -> ClientM BlockHeader
-headerClient = headerClientJson
+headerClient = headerClientJsonBinary
 
 headerClientContentType_
     :: forall (v :: ChainwebVersionT) (c :: ChainIdT) (ct :: Type) x
@@ -265,7 +265,7 @@ branchHeadersClient
     -> Maybe MaxRank
     -> BranchBounds BlockHeaderDb
     -> ClientM BlockHeaderPage
-branchHeadersClient = branchHeadersClientJson
+branchHeadersClient = branchHeadersClientBinary
 
 branchHeadersClientContentType_
     :: forall (v :: ChainwebVersionT) (c :: ChainIdT) (ct :: Type) api
@@ -281,6 +281,20 @@ branchHeadersClientContentType_
     -> ClientM BlockHeaderPage
 branchHeadersClientContentType_ = client
     $ Proxy @(SetRespBodyContentType ct (BranchHeadersApi v c))
+
+branchHeadersClientBinary
+    :: ChainwebVersion
+    -> ChainId
+    -> Maybe Limit
+    -> Maybe (NextItem BlockHash)
+    -> Maybe MinRank
+    -> Maybe MaxRank
+    -> BranchBounds BlockHeaderDb
+    -> ClientM BlockHeaderPage
+branchHeadersClientBinary v c limit start minr maxr bounds = runIdentity $ do
+    (SomeSing (SChainwebVersion :: Sing v)) <- return $ toSing v
+    (SomeSing (SChainId :: Sing c)) <- return $ toSing c
+    return $ branchHeadersClientContentType_ @v @c @OctetStream limit start minr maxr bounds
 
 branchHeadersClientJson
     :: ChainwebVersion

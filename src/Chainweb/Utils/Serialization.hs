@@ -16,6 +16,7 @@ module Chainweb.Utils.Serialization
     , runPutL
     , runPutS
     , label
+    , isolate
     -- concrete encoders and decoders
     , putWord8
     , getWord8
@@ -33,6 +34,7 @@ module Chainweb.Utils.Serialization
     , getWord64be
     , putByteString
     , getByteString
+    , putLazyByteString
 
     -- abstract encoders and decoders
     , WordEncoding(..)
@@ -110,6 +112,9 @@ eof = unlessM Binary.isEmpty $ fail "pending bytes in input"
 label :: forall a. String -> Get a -> Get a
 label = coerce (Binary.label :: String -> Binary.Get a -> Binary.Get a)
 
+isolate :: forall a. Int -> Get a -> Get a
+isolate = coerce (Binary.isolate :: Int -> Binary.Get a -> Binary.Get a)
+
 --------------------
 -- Specific encoders/decoders
 --------------------
@@ -146,6 +151,8 @@ getByteString :: Int -> Get B.ByteString
 getByteString = coerce Binary.getByteString
 putByteString :: B.ByteString -> Put
 putByteString = coerce Binary.putByteString
+putLazyByteString :: BL.ByteString -> Put
+putLazyByteString = coerce Binary.putLazyByteString
 
 --------------------
 -- Abstract encoders/decoders

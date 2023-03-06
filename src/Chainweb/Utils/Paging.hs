@@ -3,7 +3,9 @@
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DeriveTraversable #-}
 {-# LANGUAGE DerivingStrategies #-}
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TemplateHaskell #-}
@@ -53,6 +55,7 @@ import Control.Lens.TH
 import Control.Monad.Catch
 
 import Data.Aeson
+import Data.Foldable
 import Data.Functor.Of
 import Data.Hashable
 import Data.Maybe
@@ -62,11 +65,14 @@ import GHC.Generics (Generic)
 
 import Numeric.Natural
 
+import Servant.API
+
 import qualified Streaming.Prelude as S
 
 -- internal modules
 
 import Chainweb.Utils hiding ((==>))
+import Chainweb.Utils.Serialization
 
 -- -------------------------------------------------------------------------- --
 -- Limit
