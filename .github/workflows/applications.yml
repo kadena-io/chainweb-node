@@ -133,7 +133,7 @@ jobs:
               "ghc": "9.0.2",
               "cabal": "3.8",
               "os" : "ubuntu-20.04",
-              "use-freeze-file": "true"
+              "use-freeze-file": "false"
             }
           ]
         }
@@ -198,7 +198,7 @@ jobs:
 
     env:
       ARTIFACTS_ARCHIVE: chainweb.${{ matrix.ghc }}.${{ matrix.os }}.${{ needs.config.outputs.git-sha-short }}${{ needs.config.outputs.tag-suffix }}.tar.gz
-      ARTIFACTS_NAME: chainweb-applications.${{ matrix.use-freeze-file }}.${{ matrix.ghc }}.${{ matrix.os }}
+      ARTIFACTS_NAME: chainweb-applications.${{ matrix.ghc }}.${{ matrix.os }}
 
     steps:
     # Setup
@@ -391,7 +391,7 @@ jobs:
     needs: [config, build]
     runs-on: ${{ matrix.os }}
     env:
-      ARTIFACTS_NAME: chainweb-applications.${{ matrix.use-freeze-file }}.${{ matrix.ghc }}.${{ matrix.os }}
+      ARTIFACTS_NAME: chainweb-applications.${{ matrix.ghc }}.${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix: ${{ fromJson(needs.config.outputs.matrix) }}
@@ -427,7 +427,7 @@ jobs:
       BENCH_FILE: results.${{ github.run_id }}.${{ github.run_number }}.json
       BENCH_BUCKET: kadena-cabal-cache
       BENCH_FOLDER: chainweb-benchmark-results/${{ matrix.ghc }}/${{ matrix.os }}
-      ARTIFACTS_NAME: chainweb-applications.${{ matrix.use-freeze-file }}.${{ matrix.ghc }}.${{ matrix.os }}
+      ARTIFACTS_NAME: chainweb-applications.${{ matrix.ghc }}.${{ matrix.os }}
     steps:
     - uses: actions/checkout@v3
     - name: Download build artifacts
@@ -459,7 +459,7 @@ jobs:
       matrix: ${{ fromJson(needs.config.outputs.matrix) }}
     runs-on: ${{ matrix.os }}
     env:
-      ARTIFACTS_NAME: chainweb-applications.${{ matrix.use-freeze-file }}.${{ matrix.ghc }}.${{ matrix.os }}
+      ARTIFACTS_NAME: chainweb-applications.${{ matrix.ghc }}.${{ matrix.os }}
     steps:
     - uses: actions/checkout@v3
     - name: Download ${{ matrix.chainwebVersion }} chain database artifact
@@ -550,7 +550,7 @@ jobs:
       TEST_RESULT_FILE: test-results.${{ github.run_id }}.${{ github.run_number }}.json
       TEST_RESULT_BUCKET: kadena-cabal-cache
       TEST_RESULT_FOLDER: chainweb-test-results/ghc-${{ matrix.ghc }}/${{ matrix.os }}
-      ARTIFACTS_NAME: chainweb-applications.${{ matrix.use-freeze-file }}.${{ matrix.ghc }}.${{ matrix.os }}
+      ARTIFACTS_NAME: chainweb-applications.${{ matrix.ghc }}.${{ matrix.os }}
     steps:
     - uses: actions/checkout@v3
     - name: Download build artifacts
@@ -596,7 +596,7 @@ jobs:
       matrix: ${{ fromJson(needs.config.outputs.matrix) }}
     env:
       ARTIFACTS_ARCHIVE: chainweb.${{ matrix.ghc }}.${{ matrix.os }}.${{ needs.config.outputs.git-sha-short }}${{ needs.config.outputs.tag-suffix }}.tar.gz
-      ARTIFACTS_NAME: chainweb-applications.${{ matrix.use-freeze-file }}.${{ matrix.ghc }}.${{ matrix.os }}
+      ARTIFACTS_NAME: chainweb-applications.${{ matrix.ghc }}.${{ matrix.os }}
     steps:
     - name: Download build artifacts
       uses: actions/download-artifact@v3
@@ -624,7 +624,7 @@ jobs:
         os: ["ubuntu-20.04"]
     env:
       OS: ${{ matrix.os }}
-      ARTIFACTS_NAME: chainweb-applications.${{ matrix.use-freeze-file }}.${{ matrix.ghc }}.${{ matrix.os }}
+      ARTIFACTS_NAME: chainweb-applications.${{ matrix.ghc }}.${{ matrix.os }}
       ARTIFACTS_ARCHIVE: chainweb.${{ matrix.ghc }}.${{ matrix.os }}.${{ needs.config.outputs.git-sha-short }}${{ needs.config.outputs.tag-suffix }}.tar.gz
 
     steps:
