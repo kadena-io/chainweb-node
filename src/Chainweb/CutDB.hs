@@ -94,7 +94,6 @@ import Control.DeepSeq
 import Control.Exception.Safe
 import Control.Lens hiding ((:>))
 import Control.Monad hiding (join)
-import Control.Monad.Catch (throwM)
 import Control.Monad.IO.Class
 import Control.Monad.Morph
 import Control.Monad.STM
