@@ -4,6 +4,7 @@ debug-info: True
 package *
     profiling: True
     profiling-detail: none
+    ghc-options: -fno-omit-yields
 
 -- -------------------------------------------------------------------------- --
 -- Package Specific Build Settings
