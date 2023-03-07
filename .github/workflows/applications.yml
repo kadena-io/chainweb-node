@@ -45,7 +45,7 @@ jobs:
       debug-info: ${{ steps.compile-flags.outputs.debug-info }}
       stripping: ${{ steps.compile-flags.outputs.stripping }}
       opt-level: ${{ steps.compile-flags.outputs.opt-level }}
-      profiling: ${{ steps.compile-flags.outputs.profiling }}
+      profiling: True
       debug: ${{ steps.compile-flags.outputs.debug }}
       eventlog: ${{ steps.compile-flags.outputs.eventlog }}
       tag-suffix: ${{ steps.compile-flags.outputs.tag-suffix }}
