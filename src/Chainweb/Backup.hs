@@ -19,8 +19,8 @@ module Chainweb.Backup
 import Control.Lens
 
 import Control.Concurrent.Async
+import Control.Exception.Safe
 import Control.Monad
-import Control.Monad.Catch
 import Data.HashSet(HashSet)
 import Data.String
 import qualified Data.Text as T

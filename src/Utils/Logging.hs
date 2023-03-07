@@ -111,9 +111,9 @@ import Control.Concurrent.Async
 import Control.Concurrent.Chan
 import Control.Concurrent.STM.TBQueue
 import Control.Concurrent.STM.TVar
+import Control.Exception.Safe
 import Control.Lens hiding ((.=))
 import Control.Monad
-import Control.Monad.Catch
 import Control.Monad.IO.Class
 import Control.Monad.STM
 import Control.Monad.Trans.Control

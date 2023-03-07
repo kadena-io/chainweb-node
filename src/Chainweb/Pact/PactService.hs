@@ -36,10 +36,9 @@ module Chainweb.Pact.PactService
 
 import Control.Concurrent.Async
 import Control.Concurrent.MVar
-import Control.Exception (SomeAsyncException)
+import Control.Exception.Safe
 import Control.Lens
 import Control.Monad
-import Control.Monad.Catch
 import Control.Monad.Reader
 import Control.Monad.State.Strict
 

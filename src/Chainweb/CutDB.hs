@@ -91,7 +91,7 @@ import Control.Applicative
 import Control.Concurrent.Async
 import Control.Concurrent.STM.TVar
 import Control.DeepSeq
-import Control.Exception
+import Control.Exception.Safe
 import Control.Lens hiding ((:>))
 import Control.Monad hiding (join)
 import Control.Monad.Catch (throwM)

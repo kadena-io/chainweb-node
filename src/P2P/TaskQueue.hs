@@ -48,9 +48,9 @@ module P2P.TaskQueue
 
 import Control.Arrow
 import Control.DeepSeq
+import Control.Exception.Safe
 import Control.Lens
 import Control.Monad
-import Control.Monad.Catch
 
 import Data.Either
 import Data.Function
