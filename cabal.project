@@ -6,6 +6,9 @@ package *
     profiling-detail: toplevel-functions
     ghc-options: -fno-omit-yields 
 
+package statistics 
+    profiling-detail: none
+
 -- -------------------------------------------------------------------------- --
 -- Package Specific Build Settings
 
