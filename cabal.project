@@ -3,8 +3,8 @@ packages: chainweb.cabal
 debug-info: True
 package *
     profiling: True
-    profiling-detail: none
-    ghc-options: -fno-omit-yields
+    profiling-detail: exported-functions
+    ghc-options: -fno-omit-yields 
 
 -- -------------------------------------------------------------------------- --
 -- Package Specific Build Settings
