@@ -416,7 +416,7 @@ validateChainwebConfiguration :: ConfigValidation ChainwebConfiguration []
 validateChainwebConfiguration c = do
     validateMinerConfig (_configMining c)
     validateBackupConfig (_configBackup c)
-    unless (c ^. chainwebVersion . versionCheats . disablePeerValidation) $
+    unless (c ^. chainwebVersion . versionDefaults . disablePeerValidation) $
         validateP2pConfiguration (_configP2p c)
 
 validateBackupConfig :: ConfigValidation BackupConfig []
@@ -586,7 +586,7 @@ pChainwebConfiguration = id
                                 in HM.filterWithKey (\bh _ -> bh <= fubHeight) (winningVersion ^?! versionUpgrades . onChain cid))
                             (HS.toMap (chainIds winningVersion))
                     ) fub
-                , _versionCheats = 
+                , _versionCheats =
                     _versionCheats winningVersion & disablePow .~ disablePow'
                 }
             | Nothing <- br, Nothing <- fub = winningVersion

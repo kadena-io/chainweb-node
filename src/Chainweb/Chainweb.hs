@@ -826,7 +826,7 @@ runChainweb cw = do
     mempoolSyncClients = case enabledConfig mempoolP2pConfig of
         Nothing -> disabled
         Just c
-            | cw ^. chainwebVersion . versionCheats . disableMempoolSync -> disabled
+            | cw ^. chainwebVersion . versionDefaults . disableMempoolSync -> disabled
             | otherwise -> enabled c
       where
         disabled = do

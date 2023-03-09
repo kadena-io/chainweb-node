@@ -384,7 +384,7 @@ guardPeerDb v nid peerDb pinf = do
                 else return $ Left $ NodeVersionNotAccepted pinf nodeVersion
   where
     isReserved :: Bool
-    isReserved = not (v ^. versionCheats . disablePeerValidation) && isReservedHostAddress (_peerAddr pinf)
+    isReserved = not (v ^. versionDefaults . disablePeerValidation) && isReservedHostAddress (_peerAddr pinf)
 
     -- Currently we are using 'getNewPeerManager' which doesn't validate
     -- certificates. We could be more strict and check that the certificate

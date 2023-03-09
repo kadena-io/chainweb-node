@@ -141,14 +141,16 @@ barebonesTestVersion' g v =
         & versionBlockRate .~ BlockRate 1_000_000
         & versionName .~ ChainwebVersionName ("test-" <> toText g)
         & versionGraphs .~ End g
-        & versionCheats .~ Cheats
+        & versionCheats .~ VersionCheats
             { _disablePow = True
             , _fakeFirstEpochStart = True
             , _disablePact = True
-            , _disableMempoolSync = True
+            }
+        & versionDefaults .~ VersionDefaults
+            { _disableMempoolSync = True
             , _disablePeerValidation = True
             }
-        & versionGenesis .~ ChainwebGenesis
+        & versionGenesis .~ VersionGenesis
             { _genesisBlockPayload = AllChains emptyPayload
             , _genesisBlockTarget = AllChains maxTarget
             , _genesisTime = AllChains $ BlockCreationTime epoch
@@ -166,14 +168,16 @@ cpmTestVersion g v = v
     & versionWindow .~ WindowWidth 120
     & versionBlockRate .~ BlockRate (Micros 100_000)
     & versionGraphs .~ End g
-    & versionCheats .~ Cheats
+    & versionCheats .~ VersionCheats
         { _disablePow = True
         , _fakeFirstEpochStart = True
         , _disablePact = False
-        , _disableMempoolSync = False
+        }
+    & versionDefaults .~ VersionDefaults
+        { _disableMempoolSync = False
         , _disablePeerValidation = True
         }
-    & versionGenesis .~ ChainwebGenesis
+    & versionGenesis .~ VersionGenesis
         { _genesisBlockPayload = onChains $
             (unsafeChainId 0, TN0.payloadBlock) :
             [(n, TNN.payloadBlock) | n <- HS.toList (unsafeChainId 0 `HS.delete` chainIds v)]
@@ -257,14 +261,16 @@ timedConsensusVersion' g1 g2 v =
         & versionUpgrades .~ AllChains HM.empty
         & versionWindow .~ WindowWidth 120
         & versionGraphs .~ Above (BlockHeight 8, g2) (End g1)
-        & versionCheats .~ Cheats
+        & versionCheats .~ VersionCheats
             { _disablePow = True
             , _fakeFirstEpochStart = True
             , _disablePact = True
-            , _disableMempoolSync = True
+            }
+        & versionDefaults .~ VersionDefaults
+            { _disableMempoolSync = True
             , _disablePeerValidation = True
             }
-        & versionGenesis .~ ChainwebGenesis
+        & versionGenesis .~ VersionGenesis
             { _genesisBlockPayload = onChains $
                 (unsafeChainId 0, TN0.payloadBlock) :
                 [(n, TNN.payloadBlock) | n <- HS.toList (unsafeChainId 0 `HS.delete` chainIds v)]

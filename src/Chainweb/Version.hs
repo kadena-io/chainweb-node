@@ -30,8 +30,9 @@ module Chainweb.Version
     (
     -- * Properties of Chainweb Version
       Fork(..)
-    , ChainwebGenesis(..)
-    , Cheats(..)
+    , VersionGenesis(..)
+    , VersionCheats(..)
+    , VersionDefaults(..)
     , disablePow
     , fakeFirstEpochStart
     , disablePact
@@ -47,6 +48,7 @@ module Chainweb.Version
     , versionForks
     , versionBlockRate
     , versionCheats
+    , versionDefaults
     , versionUpgrades
     , versionBootstraps
     , versionCode
@@ -328,10 +330,11 @@ data ChainwebVersion
         -- ^ The maximum gas limit for an entire block.
     , _versionBootstraps :: [PeerInfo]
         -- ^ The locations of the bootstrap peers.
-    , _versionGenesis :: ChainwebGenesis
+    , _versionGenesis :: VersionGenesis
         -- ^ The information used to construct the genesis blocks.
-    , _versionCheats :: Cheats
+    , _versionCheats :: VersionCheats
         -- ^ Whether to disable any core functionality.
+    , _versionDefaults :: VersionDefaults
     }
     deriving stock (Generic)
     deriving anyclass NFData
@@ -364,22 +367,27 @@ instance Eq ChainwebVersion where
         , _versionGenesis v == _versionGenesis v'
         ]
 
-data Cheats = Cheats
-    { _disablePow :: Bool
-    -- ^ should we stop checking proof of work?
-    , _fakeFirstEpochStart :: Bool
-    -- ^ should we fake the start time of the first epoch? See `Chainweb.BlockHeader.epochStart`.
-    , _disablePact :: Bool
-    -- ^ Should we replace the pact service with a dummy that always makes empty blocks?
-    , _disablePeerValidation :: Bool
-    -- ^ should we try to check that a peer is valid? See `P2P.Peer.validatePeerConfig`
+data VersionDefaults = VersionDefaults
+    { _disablePeerValidation :: Bool
+        -- ^ should we try to check that a peer is valid? See `P2P.Peer.validatePeerConfig`
     , _disableMempoolSync :: Bool
-    -- ^ should we disable mempool sync entirely?
+        -- ^ should we disable mempool sync entirely?
     }
     deriving stock (Generic, Eq, Ord, Show)
     deriving anyclass (ToJSON, FromJSON, NFData)
 
-data ChainwebGenesis = ChainwebGenesis
+data VersionCheats = VersionCheats
+    { _disablePow :: Bool
+        -- ^ should we stop checking proof of work?
+    , _fakeFirstEpochStart :: Bool
+        -- ^ should we fake the start time of the first epoch? See `Chainweb.BlockHeader.epochStart`.
+    , _disablePact :: Bool
+        -- ^ Should we replace the pact service with a dummy that always makes empty blocks?
+    }
+    deriving stock (Generic, Eq, Ord, Show)
+    deriving anyclass (ToJSON, FromJSON, NFData)
+
+data VersionGenesis = VersionGenesis
     { _genesisBlockTarget :: ChainMap HashTarget
     , _genesisBlockPayload :: ChainMap PayloadWithOutputs
     , _genesisTime :: ChainMap BlockCreationTime
@@ -387,12 +395,13 @@ data ChainwebGenesis = ChainwebGenesis
     deriving stock (Generic, Eq)
     deriving anyclass NFData
 
-instance Show ChainwebGenesis where
+instance Show VersionGenesis where
     show _ = "<genesis>"
 
 makeLensesWith (lensRules & generateLazyPatterns .~ True) 'ChainwebVersion
-makeLensesWith (lensRules & generateLazyPatterns .~ True) 'ChainwebGenesis
-makeLensesWith (lensRules & generateLazyPatterns .~ True) 'Cheats
+makeLensesWith (lensRules & generateLazyPatterns .~ True) 'VersionGenesis
+makeLensesWith (lensRules & generateLazyPatterns .~ True) 'VersionCheats
+makeLensesWith (lensRules & generateLazyPatterns .~ True) 'VersionDefaults
 
 genesisBlockPayloadHash :: ChainwebVersion -> ChainId -> BlockPayloadHash
 genesisBlockPayloadHash v cid = v ^?! versionGenesis . genesisBlockPayload . onChain cid . to _payloadWithOutputsPayloadHash

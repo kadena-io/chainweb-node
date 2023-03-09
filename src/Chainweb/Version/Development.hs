@@ -89,7 +89,7 @@ devnet = ChainwebVersion
     , _versionWindow = WindowWidth 120
     , _versionHeaderBaseSizeBytes = 318 - 110
     , _versionBootstraps = []
-    , _versionGenesis = ChainwebGenesis
+    , _versionGenesis = VersionGenesis
         { _genesisBlockTarget = onChains $ concat
             [ [(unsafeChainId i, HashTarget $ maxBound `div` 100_000) | i <- [0..9]]
             , [(unsafeChainId i, HashTarget 0x0000088f99632cadf39b0db7655be62cb7dbc84ebbd9a90e5b5756d3e7d9196c) | i <- [10..19]]
@@ -103,11 +103,13 @@ devnet = ChainwebVersion
         }
 
     , _versionMaxBlockGasLimit = End (Just 180_000)
-    , _versionCheats = Cheats
-        { _disablePeerValidation = True
-        , _disablePow = False
+    , _versionCheats = VersionCheats
+        { _disablePow = False
         , _fakeFirstEpochStart = True
         , _disablePact = False
+        }
+    , _versionDefaults = VersionDefaults
+        { _disablePeerValidation = True
         , _disableMempoolSync = False
         }
     }

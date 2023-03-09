@@ -149,7 +149,7 @@ mainnet = ChainwebVersion
         (succ $ mainnet ^?! versionForks . at Chainweb216Pact . _Just . onChain (unsafeChainId 0), Just 180_000) `Above`
         End Nothing
     , _versionBootstraps = domainAddr2PeerInfo mainnetBootstrapHosts
-    , _versionGenesis = ChainwebGenesis
+    , _versionGenesis = VersionGenesis
         { _genesisBlockTarget = OnChains $ HM.fromList $ concat
             [ [(unsafeChainId i, maxTarget) | i <- [0..9]]
             , [(unsafeChainId i, mainnet20InitialHashTarget) | i <- [10..19]]
@@ -189,11 +189,13 @@ mainnet = ChainwebVersion
         , (Chainweb215Pact, AllChains $ Upgrade CoinV5.transactions True)
         ])
         (onChains [(unsafeChainId 0, HM.singleton to20ChainsMainnet (upgrade MNKAD.transactions))])
-    , _versionCheats = Cheats
-        { _disablePeerValidation = False
-        , _disablePow = False
+    , _versionCheats = VersionCheats
+        { _disablePow = False
         , _fakeFirstEpochStart = False
-        , _disableMempoolSync = False
         , _disablePact = False
+        }
+    , _versionDefaults = VersionDefaults
+        { _disablePeerValidation = False
+        , _disableMempoolSync = False
         }
     }
