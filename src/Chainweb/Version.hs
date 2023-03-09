@@ -155,8 +155,10 @@ import Data.Singletons
 
 import P2P.Peer
 
--- | Data type representing changes to block validation, whether in the payload or in the header.
--- Always add new forks at the end, not in the middle of the constructors.
+-- | Data type representing changes to block validation, whether in the payload
+-- or in the header. Always add new forks at the end, not in the middle of the
+-- constructors.
+--
 data Fork
     = SlowEpoch
     | Vuln797Fix
@@ -186,54 +188,54 @@ data Fork
     deriving anyclass (NFData, Hashable)
 
 instance HasTextRepresentation Fork where
-  toText SlowEpoch = "slowEpoch"
-  toText Vuln797Fix = "vuln797Fix"
-  toText CoinV2 = "coinV2"
-  toText PactBackCompat_v16 = "pactBackCompat_v16"
-  toText ModuleNameFix = "moduleNameFix"
-  toText SkipTxTimingValidation = "skipTxTimingValidation"
-  toText OldTargetGuard = "oldTargetGuard"
-  toText SkipFeatureFlagValidation = "skipFeatureFlagValidation"
-  toText ModuleNameFix2 = "moduleNameFix2"
-  toText OldDAGuard = "oldDaGuard"
-  toText PactEvents = "pactEvents"
-  toText SPVBridge = "spvBridge"
-  toText Pact4Coin3 = "pact4Coin3"
-  toText EnforceKeysetFormats = "enforceKeysetFormats"
-  toText Pact420 = "pact420"
-  toText CheckTxHash = "checkTxHash"
-  toText Chainweb213Pact = "chainweb213Pact"
-  toText Chainweb214Pact = "chainweb214Pact"
-  toText Chainweb215Pact = "chainweb215Pact"
-  toText Pact44NewTrans = "pact44NewTrans"
-  toText Chainweb216Pact = "chainweb216Pact"
-  toText Chainweb217Pact = "chainweb217Pact"
-  toText Chainweb218Pact = "chainweb218Pact"
+    toText SlowEpoch = "slowEpoch"
+    toText Vuln797Fix = "vuln797Fix"
+    toText CoinV2 = "coinV2"
+    toText PactBackCompat_v16 = "pactBackCompat_v16"
+    toText ModuleNameFix = "moduleNameFix"
+    toText SkipTxTimingValidation = "skipTxTimingValidation"
+    toText OldTargetGuard = "oldTargetGuard"
+    toText SkipFeatureFlagValidation = "skipFeatureFlagValidation"
+    toText ModuleNameFix2 = "moduleNameFix2"
+    toText OldDAGuard = "oldDaGuard"
+    toText PactEvents = "pactEvents"
+    toText SPVBridge = "spvBridge"
+    toText Pact4Coin3 = "pact4Coin3"
+    toText EnforceKeysetFormats = "enforceKeysetFormats"
+    toText Pact420 = "pact420"
+    toText CheckTxHash = "checkTxHash"
+    toText Chainweb213Pact = "chainweb213Pact"
+    toText Chainweb214Pact = "chainweb214Pact"
+    toText Chainweb215Pact = "chainweb215Pact"
+    toText Pact44NewTrans = "pact44NewTrans"
+    toText Chainweb216Pact = "chainweb216Pact"
+    toText Chainweb217Pact = "chainweb217Pact"
+    toText Chainweb218Pact = "chainweb218Pact"
 
-  fromText "slowEpoch" = return SlowEpoch
-  fromText "vuln797Fix" = return Vuln797Fix
-  fromText "coinV2" = return CoinV2
-  fromText "pactBackCompat_v16" = return PactBackCompat_v16
-  fromText "moduleNameFix" = return ModuleNameFix
-  fromText "skipTxTimingValidation" = return SkipTxTimingValidation
-  fromText "oldTargetGuard" = return OldTargetGuard
-  fromText "skipFeatureFlagValidation" = return SkipFeatureFlagValidation
-  fromText "moduleNameFix2" = return ModuleNameFix2
-  fromText "oldDaGuard" = return OldDAGuard
-  fromText "pactEvents" = return PactEvents
-  fromText "spvBridge" = return SPVBridge
-  fromText "pact4Coin3" = return Pact4Coin3
-  fromText "enforceKeysetFormats" = return EnforceKeysetFormats
-  fromText "pact420" = return Pact420
-  fromText "checkTxHash" = return CheckTxHash
-  fromText "chainweb213Pact" = return Chainweb213Pact
-  fromText "chainweb214Pact" = return Chainweb214Pact
-  fromText "chainweb215Pact" = return Chainweb215Pact
-  fromText "pact44NewTrans" = return Pact44NewTrans
-  fromText "chainweb216Pact" = return Chainweb216Pact
-  fromText "chainweb217Pact" = return Chainweb217Pact
-  fromText "chainweb218Pact" = return Chainweb218Pact
-  fromText t = throwM . TextFormatException $ "Unknown Chainweb fork: " <> t
+    fromText "slowEpoch" = return SlowEpoch
+    fromText "vuln797Fix" = return Vuln797Fix
+    fromText "coinV2" = return CoinV2
+    fromText "pactBackCompat_v16" = return PactBackCompat_v16
+    fromText "moduleNameFix" = return ModuleNameFix
+    fromText "skipTxTimingValidation" = return SkipTxTimingValidation
+    fromText "oldTargetGuard" = return OldTargetGuard
+    fromText "skipFeatureFlagValidation" = return SkipFeatureFlagValidation
+    fromText "moduleNameFix2" = return ModuleNameFix2
+    fromText "oldDaGuard" = return OldDAGuard
+    fromText "pactEvents" = return PactEvents
+    fromText "spvBridge" = return SPVBridge
+    fromText "pact4Coin3" = return Pact4Coin3
+    fromText "enforceKeysetFormats" = return EnforceKeysetFormats
+    fromText "pact420" = return Pact420
+    fromText "checkTxHash" = return CheckTxHash
+    fromText "chainweb213Pact" = return Chainweb213Pact
+    fromText "chainweb214Pact" = return Chainweb214Pact
+    fromText "chainweb215Pact" = return Chainweb215Pact
+    fromText "pact44NewTrans" = return Pact44NewTrans
+    fromText "chainweb216Pact" = return Chainweb216Pact
+    fromText "chainweb217Pact" = return Chainweb217Pact
+    fromText "chainweb218Pact" = return Chainweb218Pact
+    fromText t = throwM . TextFormatException $ "Unknown Chainweb fork: " <> t
 
 instance ToJSON Fork where
     toJSON = toJSON . toText
@@ -271,13 +273,14 @@ instance MerkleHashAlgorithm a => IsMerkleLogEntry a ChainwebHashTag ChainwebVer
 
 -- The type of upgrades, which are sets of transactions to run at certain block
 -- heights during coinbase.
+--
 data Upgrade = Upgrade
     { _upgradeTransactions :: [ChainwebTransaction]
     , _legacyUpgradeIsPrecocious :: Bool
-    -- ^ when set to `True`, the upgrade transactions are executed using the
-    -- forks of the next block, rather than the block the upgrade transactions
-    -- are included in.  do not use this for new upgrades unless you are sure
-    -- you need it, this mostly exists for old upgrades.
+        -- ^ when set to `True`, the upgrade transactions are executed using the
+        -- forks of the next block, rather than the block the upgrade
+        -- transactions are included in.  do not use this for new upgrades
+        -- unless you are sure you need it, this mostly exists for old upgrades.
     }
     deriving stock (Generic, Eq)
     deriving anyclass (NFData)
@@ -289,40 +292,46 @@ upgrade txs = Upgrade txs False
 -- all nodes on the same network. For examples see `Chainweb.Version.Mainnet`,
 -- `Chainweb.Version.Testnet`, `Chainweb.Version.Development`, and
 -- `Chainweb.Test.TestVersions`.
+--
+-- NOTE: non of the fields should be strict!
+-- FIXME: provide a reason
+--
 data ChainwebVersion
     = ChainwebVersion
     { _versionCode :: ChainwebVersionCode
-    -- ^ The numeric code identifying the Version, must be unique. See `Chainweb.Version.Registry`.
+        -- ^ The numeric code identifying the Version, must be unique. See
+        -- `Chainweb.Version.Registry`.
     , _versionName :: ChainwebVersionName
-    -- ^ The textual name of the Version, used in almost all REST endpoints.
+        -- ^ The textual name of the Version, used in almost all REST endpoints.
     , _versionGraphs :: Rule BlockHeight ChainGraph
-    -- ^ The chain graphs in the history and at which block heights they apply.
+        -- ^ The chain graphs in the history and at which block heights they apply.
     , _versionForks :: HashMap Fork (ChainMap BlockHeight)
-    -- ^ The block heights on each chain to apply behavioral changes.
-    -- Interpretation of these is up to the functions in
-    -- `Chainweb.Version.Guards`.
+        -- ^ The block heights on each chain to apply behavioral changes.
+        -- Interpretation of these is up to the functions in
+        -- `Chainweb.Version.Guards`.
     , _versionUpgrades :: ChainMap (HashMap BlockHeight Upgrade)
-    -- ^ The upgrade transactions to execute on each chain at certain block heights.
+        -- ^ The upgrade transactions to execute on each chain at certain block
+        -- heights.
     , _versionBlockRate :: BlockRate
-    -- ^ The Proof-of-Work `BlockRate` for each `ChainwebVersion`. This is the
-    -- number of microseconds we expect to pass while a miner mines on various chains,
-    -- eventually succeeding on one.
+        -- ^ The Proof-of-Work `BlockRate` for each `ChainwebVersion`. This is
+        -- the number of microseconds we expect to pass while a miner mines on
+        -- various chains, eventually succeeding on one.
     , _versionWindow :: WindowWidth
-    -- ^ The Proof-of-Work `WindowWidth` for each `ChainwebVersion`.
+        -- ^ The Proof-of-Work `WindowWidth` for each `ChainwebVersion`.
     , _versionHeaderBaseSizeBytes :: Natural
-    -- ^ The size in bytes of the constant portion of the serialized header. This is
-    -- the header /without/ the adjacent hashes.
-    --
-    -- NOTE: This is internal. For the actual size of the serialized header
-    -- use 'headerSizeBytes'.
+        -- ^ The size in bytes of the constant portion of the serialized header.
+        -- This is the header /without/ the adjacent hashes.
+        --
+        -- NOTE: This is internal. For the actual size of the serialized header
+        -- use 'headerSizeBytes'.
     , _versionMaxBlockGasLimit :: Rule BlockHeight (Maybe Natural)
-    -- ^ The maximum gas limit for an entire block.
+        -- ^ The maximum gas limit for an entire block.
     , _versionBootstraps :: [PeerInfo]
-    -- ^ The locations of the bootstrap peers.
+        -- ^ The locations of the bootstrap peers.
     , _versionGenesis :: ChainwebGenesis
-    -- ^ The information used to construct the genesis blocks.
+        -- ^ The information used to construct the genesis blocks.
     , _versionCheats :: Cheats
-    -- ^ Whether to disable any core functionality.
+        -- ^ Whether to disable any core functionality.
     }
     deriving stock (Generic)
     deriving anyclass NFData
