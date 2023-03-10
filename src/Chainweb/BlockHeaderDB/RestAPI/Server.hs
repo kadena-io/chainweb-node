@@ -111,6 +111,14 @@ checkBounds
 checkBounds db b = b
     <$ traverse_ (checkKey db . _getUpperBound) (_branchBoundsUpper b)
 
+err400Msg :: ToJSON msg  => msg -> ServerError
+err400Msg msg = ServerError
+    { errHTTPCode = 400
+    , errReasonPhrase = "Bad request"
+    , errBody = encode msg
+    , errHeaders = []
+    }
+
 -- -------------------------------------------------------------------------- --
 -- Handlers
 
@@ -122,6 +130,17 @@ defaultEntryLimit = 360
 
 p2pEntryLimit :: Num a => a
 p2pEntryLimit = 20
+
+-- | Default limit for the number of bounds in the request of a branch query
+--
+defaultBoundsLimit :: Int
+defaultBoundsLimit = 32
+
+-- | Limit for the number of bounds in the request of a branch query on the P2P
+-- API.
+--
+p2pBoundsLimit :: Int
+p2pBoundsLimit = 4
 
 -- | Query Branch Hashes of the database.
 --
@@ -137,14 +156,19 @@ branchHashesHandler
     -> Maybe MaxRank
     -> BranchBounds db
     -> Handler (Page (NextItem (DbKey db)) (DbKey db))
-branchHashesHandler db limit next minr maxr bounds = do
-    nextChecked <- traverse (traverse $ checkKey db) next
-    checkedBounds <- checkBounds db bounds
-    liftIO
-        $ branchKeys db nextChecked (succ <$> effectiveLimit) minr maxr
-            (_branchBoundsLower checkedBounds)
-            (_branchBoundsUpper checkedBounds)
-        $ finiteStreamToPage id effectiveLimit . void
+branchHashesHandler db limit next minr maxr bounds
+    | length (_branchBoundsUpper bounds) > defaultBoundsLimit = throwError $ err400Msg $
+        "upper branch bound limit exceeded. Only " <> show defaultBoundsLimit <> " values are supported."
+    | length (_branchBoundsLower bounds) > defaultBoundsLimit = throwError $ err400Msg $
+        "upper branch bound limit exceeded. Only " <> show defaultBoundsLimit <> " values are supported."
+    | otherwise = do
+        nextChecked <- traverse (traverse $ checkKey db) next
+        checkedBounds <- checkBounds db bounds
+        liftIO
+            $ branchKeys db nextChecked (succ <$> effectiveLimit) minr maxr
+                (_branchBoundsLower checkedBounds)
+                (_branchBoundsUpper checkedBounds)
+            $ finiteStreamToPage id effectiveLimit . void
   where
     effectiveLimit = min defaultKeyLimit <$> (limit <|> Just defaultKeyLimit)
 
@@ -156,6 +180,8 @@ branchHeadersHandler
     :: TreeDb db
     => ToJSON (DbKey db)
     => db
+    -> Int
+        -- ^ bounds limit
     -> Limit
         -- ^ max limit
     -> Maybe Limit
@@ -164,14 +190,19 @@ branchHeadersHandler
     -> Maybe MaxRank
     -> BranchBounds db
     -> Handler (Page (NextItem (DbKey db)) (DbEntry db))
-branchHeadersHandler db maxLimit limit next minr maxr bounds = do
-    nextChecked <- traverse (traverse $ checkKey db) next
-    checkedBounds <- checkBounds db bounds
-    liftIO
-        $ branchEntries db nextChecked (succ <$> effectiveLimit) minr maxr
-            (_branchBoundsLower checkedBounds)
-            (_branchBoundsUpper checkedBounds)
-        $ finiteStreamToPage key effectiveLimit . void
+branchHeadersHandler db boundsLimit maxLimit limit next minr maxr bounds
+    | length (_branchBoundsUpper bounds) > boundsLimit = throwError $ err400Msg $
+        "upper branch bound limit exceeded. Only " <> show boundsLimit <> " values are supported."
+    | length (_branchBoundsLower bounds) > boundsLimit = throwError $ err400Msg $
+        "upper branch bound limit exceeded. Only " <> show boundsLimit <> " values are supported."
+    | otherwise = do
+        nextChecked <- traverse (traverse $ checkKey db) next
+        checkedBounds <- checkBounds db bounds
+        liftIO
+            $ branchEntries db nextChecked (succ <$> effectiveLimit) minr maxr
+                (_branchBoundsLower checkedBounds)
+                (_branchBoundsUpper checkedBounds)
+            $ finiteStreamToPage key effectiveLimit . void
   where
     effectiveLimit = min maxLimit <$> (limit <|> Just maxLimit)
 
@@ -248,7 +279,7 @@ blockHeaderDbServer (BlockHeaderDb_ db)
     :<|> headersHandler db defaultEntryLimit
     :<|> headerHandler db
     :<|> branchHashesHandler db
-    :<|> branchHeadersHandler db defaultEntryLimit
+    :<|> branchHeadersHandler db defaultBoundsLimit defaultEntryLimit
 
 -- Restricted P2P BlockHeader DB API
 --
@@ -256,7 +287,7 @@ p2pBlockHeaderDbServer :: BlockHeaderDb_ v c -> Server (P2pBlockHeaderDbApi v c)
 p2pBlockHeaderDbServer (BlockHeaderDb_ db)
     = headersHandler db p2pEntryLimit
     :<|> headerHandler db
-    :<|> branchHeadersHandler db p2pEntryLimit
+    :<|> branchHeadersHandler db p2pBoundsLimit p2pEntryLimit
 
 -- -------------------------------------------------------------------------- --
 -- Multichain Server
@@ -289,7 +320,7 @@ headerStreamServer
     .  CanReadablePayloadCas tbl
     => CutDb tbl
     -> Server (HeaderStreamApi v)
-headerStreamServer cdb = headerStreamHandler cdb
+headerStreamServer = headerStreamHandler
 
 headerStreamHandler :: forall tbl. CanReadablePayloadCas tbl => CutDb tbl -> Tagged Handler Application
 headerStreamHandler db = Tagged $ \req resp -> do
