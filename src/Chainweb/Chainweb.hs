@@ -637,17 +637,17 @@ runChainweb
 runChainweb cw = do
     logg Info "start chainweb node"
     concurrentlies_
-        -- 1. Start serving Rest API
+        -- 1. Start serving P2P API
         [ (if tls then serve else servePlain)
             $ httpLog
             . throttle (_chainwebPutPeerThrottler cw)
             . throttle (_chainwebMempoolThrottler cw)
             . throttle (_chainwebThrottler cw)
-            . requestSizeLimit
+            . p2pRequestSizeLimit
         -- 2. Start Clients (with a delay of 500ms)
         , threadDelay 500000 >> clients
-        -- 3. Start serving local API
-        , threadDelay 500000 >> serveServiceApi (serviceHttpLog . requestSizeLimit)
+        -- 3. Start serving the service API
+        , threadDelay 500000 >> serveServiceApi (serviceHttpLog . serviceRequestSizeLimit)
         ]
 
   where
@@ -753,11 +753,26 @@ runChainweb cw = do
                 mw)
             (monitorConnectionsClosedByClient clientClosedConnectionsCounter)
 
-    requestSizeLimit :: Middleware
-    requestSizeLimit = requestSizeLimitMiddleware $
+    -- Request size limit for the service API
+    --
+    serviceRequestSizeLimit :: Middleware
+    serviceRequestSizeLimit = requestSizeLimitMiddleware $
         setMaxLengthForRequest (\_req -> pure $ Just $ 2 * 1024 * 1024) -- 2MB
         defaultRequestSizeLimitSettings
 
+    -- Request size limit for the P2P API
+    --
+    -- NOTE: this may need to have to be adjusted if the p2p limits for batch
+    -- sizes or number of branch bound change. It may also need adjustment for
+    -- other protocol changes, like additional HTTP request headers or changes
+    -- in the mempool protocol.
+    --
+    -- FIXME: is 8K enough for the mempool?
+    --
+    p2pRequestSizeLimit :: Middleware
+    p2pRequestSizeLimit = requestSizeLimitMiddleware $
+        setMaxLengthForRequest (\_req -> pure $ Just $ 8 * 1024) -- 8KB
+        defaultRequestSizeLimitSettings
 
     httpLog :: Middleware
     httpLog = requestResponseLogger $ setComponent "http:p2p-api" (_chainwebLogger cw)
