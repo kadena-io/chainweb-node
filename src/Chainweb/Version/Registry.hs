@@ -1,5 +1,3 @@
-{-# language RecordWildCards #-}
-
 -- |
 -- Module: Chainweb.Version.Registry
 -- Copyright: Copyright © 2023 Kadena LLC.
