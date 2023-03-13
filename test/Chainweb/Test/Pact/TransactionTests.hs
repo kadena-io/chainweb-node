@@ -384,7 +384,7 @@ matchLogs expectedResults actualResults
 
 parent :: BlockHeight -> V.ChainId -> ParentHeader
 parent bh cid = ParentHeader (someBlockHeader v bh)
-    { _blockChainwebVersion = v
+    { _blockChainwebVersion = _versionCode v
     , _blockChainId = cid
     , _blockHeight = pred bh
     }

@@ -165,7 +165,7 @@ import Chainweb.Version
 import Chainweb.Version.Guards
 import Chainweb.Version.Mainnet
 import Chainweb.Version.Testnet
-import Chainweb.Version.Registry
+import Chainweb.Version.Registry ()
 
 import Chainweb.Storage.Table
 
@@ -340,7 +340,7 @@ data BlockHeader :: Type where
             -- the block height of a block is the block height of its parent
             -- plus one.
 
-        , _blockChainwebVersion :: !ChainwebVersion
+        , _blockChainwebVersion :: !ChainwebVersionCode
             -- ^ the Chainweb version is a constant for the chain. A chain
             -- is uniquely identified by its genesis block. Thus this is
             -- redundant information and thus subject to the inductive property
@@ -377,10 +377,10 @@ instance HasChainId BlockHeader where
     _chainId = _blockChainId
 
 instance HasChainGraph BlockHeader where
-    _chainGraph h = _chainGraph (_blockChainwebVersion h, _blockHeight h)
+    _chainGraph h = _chainGraph (_chainwebVersion h, _blockHeight h)
 
 instance HasChainwebVersion BlockHeader where
-    _chainwebVersion = _blockChainwebVersion
+    _chainwebVersion = _chainwebVersion . _blockChainwebVersion
 
 instance IsCasValue BlockHeader where
     type CasKeyType BlockHeader = BlockHash
@@ -423,8 +423,9 @@ slowEpoch :: ParentHeader -> BlockCreationTime -> Bool
 slowEpoch (ParentHeader p) (BlockCreationTime ct) = actual > (expected * 5)
   where
     EpochStartTime es = _blockEpochStart p
-    BlockRate br = _versionBlockRate (_blockChainwebVersion p)
-    WindowWidth ww = _versionWindow (_blockChainwebVersion p)
+    v = _chainwebVersion p
+    BlockRate br = _versionBlockRate v
+    WindowWidth ww = _versionWindow v
 
     expected :: Micros
     expected = br * int ww
@@ -786,7 +787,7 @@ instance HasMerkleLog ChainwebMerkleHashAlgorithm ChainwebHashTag BlockHeader wh
             :+: _blockChainId bh
             :+: _blockWeight bh
             :+: _blockHeight bh
-            :+: _versionCode (_blockChainwebVersion bh)
+            :+: _blockChainwebVersion bh
             :+: _blockEpochStart bh
             :+: _blockNonce bh
             :+: MerkleLogBody (blockHashRecordToVector $ _blockAdjacentHashes bh)
@@ -801,7 +802,7 @@ instance HasMerkleLog ChainwebMerkleHashAlgorithm ChainwebHashTag BlockHeader wh
             , _blockChainId = cid
             , _blockWeight = weight
             , _blockHeight = height
-            , _blockChainwebVersion = cwv
+            , _blockChainwebVersion = cwvc
             , _blockEpochStart = es
             , _blockNonce = nonce
             , _blockAdjacentHashes = blockHashRecordFromVector adjGraph cid adjParents
@@ -820,7 +821,7 @@ instance HasMerkleLog ChainwebMerkleHashAlgorithm ChainwebHashTag BlockHeader wh
             :+: nonce
             :+: MerkleLogBody adjParents
             ) = _merkleLogEntries l
-        cwv = lookupVersionByCode cwvc
+        cwv = _chainwebVersion cwvc
 
         adjGraph
             | height == genesisHeight' cwv cid = chainGraphAt cwv height
@@ -837,7 +838,7 @@ encodeBlockHeaderWithoutHash b = do
     encodeChainId (_blockChainId b)
     encodeBlockWeight (_blockWeight b)
     encodeBlockHeight (_blockHeight b)
-    encodeChainwebVersionCode (_versionCode $ _blockChainwebVersion b)
+    encodeChainwebVersionCode (_blockChainwebVersion b)
     encodeEpochStartTime (_blockEpochStart b)
     encodeNonce (_blockNonce b)
 
@@ -917,7 +918,7 @@ decodeBlockHeader = BlockHeader
     <*> decodeChainId
     <*> decodeBlockWeight
     <*> decodeBlockHeight
-    <*> (lookupVersionByCode <$> decodeChainwebVersionCode)
+    <*> decodeChainwebVersionCode
     <*> decodeEpochStartTime
     <*> decodeNonce
     <*> decodeBlockHash
@@ -1008,7 +1009,7 @@ blockHeaderProperties (ObjectEncoded b) =
     , "chainId" .= _chainId b
     , "weight" .= _blockWeight b
     , "height" .= _blockHeight b
-    , "chainwebVersion" .= _versionCode (_blockChainwebVersion b)
+    , "chainwebVersion" .= _blockChainwebVersion b
     , "epochStart" .= _blockEpochStart b
     , "featureFlags" .= _blockFlags b
     , "hash" .= _blockHash b
@@ -1032,7 +1033,7 @@ parseBlockHeaderObject o = BlockHeader
     <*> o .: "chainId"
     <*> o .: "weight"
     <*> o .: "height"
-    <*> (lookupVersionByCode <$> o .: "chainwebVersion")
+    <*> o .: "chainwebVersion"
     <*> o .: "epochStart"
     <*> o .: "nonce"
     <*> o .: "hash"

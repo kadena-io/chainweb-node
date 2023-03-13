@@ -326,7 +326,7 @@ doGetBlockHistory dbenv blockHeader d = runBlockEnv dbenv $ do
     !prev <- M.fromList . catMaybes <$> mapM (queryPrev db tname startTxId) (S.toList hkeys)
     return $ BlockTxHistory tmap prev
   where
-    v = _blockChainwebVersion blockHeader
+    v = _chainwebVersion blockHeader
     cid = _blockChainId blockHeader
     bHeight = _blockHeight blockHeader
 

@@ -357,7 +357,7 @@ header' h = do
    where
     BlockCreationTime t = _blockCreationTime h
     target = powTarget (ParentHeader h) mempty t'
-    v = _blockChainwebVersion h
+    v = _chainwebVersion h
     t' = BlockCreationTime (scaleTimeSpan (10 :: Int) second `add` t)
 
 ----------------------------------------------------------------------------------------------------

@@ -1,3 +1,4 @@
+{-# OPTIONS_GHC -Wno-orphans #-}
 -- |
 -- Module: Chainweb.Version.Registry
 -- Copyright: Copyright © 2023 Kadena LLC.
@@ -118,3 +119,6 @@ findKnownVersion vn =
     case find (\v -> _versionName v == vn) knownVersions of
         Nothing -> fail $ T.unpack (getChainwebVersionName vn) <> " is not a known version: try development, mainnet01 or testnet04"
         Just v -> return v
+
+instance HasChainwebVersion ChainwebVersionCode where
+    _chainwebVersion = lookupVersionByCode

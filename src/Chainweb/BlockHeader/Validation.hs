@@ -688,7 +688,7 @@ prop_block_genesis_parent b
     && hasGenesisParentHash b ==> isGenesisBlockHeader b
   where
     hasGenesisParentHash b' =
-        _blockParent b' == genesisParentBlockHash (_blockChainwebVersion b') (_chainId b')
+        _blockParent b' == genesisParentBlockHash (_chainwebVersion b') (_chainId b')
 
 prop_block_genesis_target :: BlockHeader -> Bool
 prop_block_genesis_target b = isGenesisBlockHeader b
@@ -798,7 +798,7 @@ prop_block_adjacent_parents (WebStep as (ChainStep _ b))
 
 prop_block_adjacent_parents_version :: WebStep -> Bool
 prop_block_adjacent_parents_version (WebStep as (ChainStep _ b))
-    = all ((== v) . _blockChainwebVersion . _parentHeader) as
+    = all ((== v) . _chainwebVersion . _parentHeader) as
   where
     v = _chainwebVersion b
 

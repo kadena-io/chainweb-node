@@ -125,7 +125,7 @@ matchLogs typ bh logs coinbase txs
   where
     bheight = _blockHeight bh
     cid = _blockChainId bh
-    v = _blockChainwebVersion bh
+    v = _chainwebVersion bh
 
     matchGenesis = hoistEither $ case typ of
       FullLogs -> genesisTransactions logs cid txs

@@ -535,7 +535,7 @@ ctxChainId :: TxContext -> ChainId
 ctxChainId = _blockChainId . ctxBlockHeader
 
 ctxVersion :: TxContext -> ChainwebVersion
-ctxVersion = _blockChainwebVersion . ctxBlockHeader
+ctxVersion = _chainwebVersion . ctxBlockHeader
 
 -- | Assemble tx context from transaction metadata and parent header.
 getTxContext :: PublicMeta -> PactServiceM tbl TxContext

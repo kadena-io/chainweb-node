@@ -485,7 +485,7 @@ header p = do
    where
     BlockCreationTime t = _blockCreationTime p
     target = powTarget (ParentHeader p) mempty t'
-    v = _blockChainwebVersion p
+    v = _chainwebVersion p
     t' = BlockCreationTime (scaleTimeSpan (10 :: Int) second `add` t)
 
 -- | get arbitrary value for seed.

@@ -851,7 +851,7 @@ parentBlockId bh
   where
     bHeight = _blockHeight bh
     cid = _blockChainId bh
-    v = _blockChainwebVersion bh
+    v = _chainwebVersion bh
     parent = BlockId
       { _blockId_index = getBlockHeight (pred $ _blockHeight bh)
       , _blockId_hash = blockHashToText (_blockParent bh)
