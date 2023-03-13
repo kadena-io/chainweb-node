@@ -164,6 +164,7 @@ import Chainweb.Utils.Serialization
 import Chainweb.Version
 import Chainweb.Version.Guards
 import Chainweb.Version.Mainnet
+import Chainweb.Version.Testnet
 import Chainweb.Version.Registry
 
 import Chainweb.Storage.Table
@@ -637,11 +638,7 @@ genesisParentBlockHash v p = BlockHash $ MerkleLogHash
 {-# NOINLINE genesisBlockHeaderCache #-}
 genesisBlockHeaderCache :: IORef (HashMap ChainwebVersionCode (HashMap ChainId BlockHeader))
 genesisBlockHeaderCache = unsafePerformIO $ do
-    let mkMainnetHeader = makeGenesisBlockHeader mainnet
-    newIORef $ HM.singleton (_versionCode mainnet) $ HM.fromList
-        [ (cid, mkMainnetHeader cid)
-        | cid <- HS.toList (chainIds mainnet)
-        ]
+    newIORef HM.empty
 
 -- | A block chain is globally uniquely identified by its genesis hash.
 -- Internally, we use the 'ChainwebVersionTag value and the 'ChainId'
@@ -652,18 +649,25 @@ genesisBlockHeaderCache = unsafePerformIO $ do
 -- scope and identify chains only by their internal 'ChainId'.
 --
 genesisBlockHeaders :: ChainwebVersion -> HashMap ChainId BlockHeader
-genesisBlockHeaders v = unsafePerformIO $
-    HM.lookup (_versionCode v) <$> readIORef genesisBlockHeaderCache >>= \case
-        Just hs -> return hs
-        Nothing -> do
-            modifyIORef' genesisBlockHeaderCache $ HM.insert (_versionCode v) freshGenesisHeaders
-            return freshGenesisHeaders
+genesisBlockHeaders = \v ->
+    if _versionCode v == _versionCode mainnet then mainnetGenesisHeaders
+    else if _versionCode v == _versionCode testnet then testnetGenesisHeaders
+    else unsafeDupablePerformIO $
+        HM.lookup (_versionCode v) <$> readIORef genesisBlockHeaderCache >>= \case
+            Just hs -> return hs
+            Nothing -> do
+                let freshGenesisHeaders = makeGenesisBlockHeaders v
+                modifyIORef' genesisBlockHeaderCache $ HM.insert (_versionCode v) freshGenesisHeaders
+                return freshGenesisHeaders
   where
-    freshGenesisHeaders =
-        HM.fromList [ (cid, makeGenesisBlockHeader v cid) | cid <- HS.toList (chainIds v) ]
+    mainnetGenesisHeaders = makeGenesisBlockHeaders mainnet
+    testnetGenesisHeaders = makeGenesisBlockHeaders testnet
 
 genesisBlockHeader :: (HasCallStack, HasChainId p) => ChainwebVersion -> p -> BlockHeader
 genesisBlockHeader v p = genesisBlockHeaders v ^?! at (_chainId p) . _Just
+
+makeGenesisBlockHeaders :: ChainwebVersion -> HashMap ChainId BlockHeader
+makeGenesisBlockHeaders v = HM.fromList [ (cid, makeGenesisBlockHeader v cid) | cid <- HS.toList (chainIds v)]
 
 makeGenesisBlockHeader :: ChainwebVersion -> ChainId -> BlockHeader
 makeGenesisBlockHeader v cid =
