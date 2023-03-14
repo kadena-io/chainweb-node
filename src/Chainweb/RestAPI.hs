@@ -38,8 +38,9 @@ module Chainweb.RestAPI
 , Rosetta(..)
 
 -- * Chainweb P2P API Server
+, defaultP2pApiOptions
+, P2pApiOptions(..)
 , chainwebApplication
--- , chainwebApplicationWithHashesAndSpvApi
 , serveChainwebOnPort
 , serveChainweb
 , serveChainwebSocket

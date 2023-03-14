@@ -197,6 +197,7 @@ import Chainweb.BlockHeader
 import Chainweb.BlockHeader.Genesis (genesisBlockHeader)
 import Chainweb.BlockHeaderDB
 import Chainweb.BlockHeaderDB.Internal
+import Chainweb.BlockHeaderDB.RestAPI.Server
 import Chainweb.BlockHeight
 import Chainweb.BlockWeight
 import Chainweb.ChainId
@@ -563,7 +564,7 @@ withChainServer
 withChainServer dbs f = W.testWithApplication (pure app) work
   where
     app :: W.Application
-    app = chainwebApplication conf dbs
+    app = chainwebApplication defaultP2pApiOptions conf dbs
 
     work :: Int -> IO a
     work port = do
@@ -700,13 +701,20 @@ clientEnvWithChainwebTestServer tls v dbsIO =
     withChainwebTestServer tls v mkApp mkEnv
   where
 
-    -- FIXME: Hashes API got removed from the P2P API. We use an application that
-    -- includes this API for testing. We should create comprehensive tests for the
-    -- servcice API and move the tests over there.
+    -- FIXME: Hashes and SPV API got removed from the P2P API. We use an
+    -- application that includes this API for testing. We should create
+    -- comprehensive tests for the service API and move the tests over there.
     --
     mkApp :: IO W.Application
-    mkApp = return $ \_ _ -> undefined
-    -- mkApp = chainwebApplicationWithHashesAndSpvApi (defaultChainwebConfiguration v) <$> dbsIO
+    mkApp = chainwebApplication p2pApiOptions (defaultChainwebConfiguration v) <$> dbsIO
+
+    p2pApiOptions = P2pApiOptions
+        { blockHeaderDbServerOptions = BlockHeaderDbServerOptions
+            { enableHashesEndpoints = True
+            , entryLimit = 360
+            }
+        , spvServerEnabled = True
+        }
 
     mkEnv :: Int -> IO (TestClientEnv t tbl)
     mkEnv port = do
