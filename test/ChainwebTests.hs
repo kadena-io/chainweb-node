@@ -35,11 +35,13 @@ import qualified Chainweb.Test.Mempool.RestAPI
 import qualified Chainweb.Test.Mempool.Sync
 import qualified Chainweb.Test.Mining (tests)
 import qualified Chainweb.Test.Misc
+import qualified Chainweb.Test.Pact.DbCacheTest
 import qualified Chainweb.Test.Pact.Checkpointer
 import qualified Chainweb.Test.Pact.ModuleCacheOnRestart
 import qualified Chainweb.Test.Pact.NoCoinbase
 import qualified Chainweb.Test.Pact.PactExec
-import qualified Chainweb.Test.Pact.PactInProcApi
+import qualified Chainweb.Test.Pact.PactMultiChainTest
+import qualified Chainweb.Test.Pact.PactSingleChainTest
 import qualified Chainweb.Test.Pact.PactReplay
 import qualified Chainweb.Test.Pact.RemotePactTest
 import qualified Chainweb.Test.Pact.RewardsTest
@@ -57,16 +59,18 @@ import qualified Chainweb.Test.Sync.WebBlockHeaderStore (properties)
 import qualified Chainweb.Test.TreeDB (properties)
 import qualified Chainweb.Test.TreeDB.RemoteDB
 import Chainweb.Test.Utils
-    (RunStyle(..), ScheduledTest, schedule, testGroupSch, toyChainId,
+    (RunStyle(..), ScheduledTest(..), schedule, testGroupSch, toyChainId,
     withToyDB)
 import qualified Chainweb.Test.Version (tests)
 import qualified Chainweb.Test.Chainweb.Utils.Paging (properties)
 
-import Data.CAS.RocksDB
+import Chainweb.Storage.Table.RocksDB
+
 import qualified Data.Test.PQueue (properties)
 import qualified Data.Test.Word.Encoding (properties)
 
 import qualified P2P.Test.TaskQueue (properties)
+import qualified P2P.Test.Node (properties)
 
 main :: IO ()
 main =
@@ -91,8 +95,10 @@ pactTestSuite :: RocksDb -> ScheduledTest
 pactTestSuite rdb = testGroupSch "Chainweb-Pact Tests"
     $ schedule Sequential
         [ Chainweb.Test.Pact.PactExec.tests
+        , ScheduledTest "DbCacheTests" Chainweb.Test.Pact.DbCacheTest.tests
         , Chainweb.Test.Pact.Checkpointer.tests
-        , Chainweb.Test.Pact.PactInProcApi.tests rdb
+        , Chainweb.Test.Pact.PactMultiChainTest.tests
+        , Chainweb.Test.Pact.PactSingleChainTest.tests rdb
         , Chainweb.Test.Pact.RemotePactTest.tests rdb
         , Chainweb.Test.Pact.PactReplay.tests rdb
         , Chainweb.Test.Pact.ModuleCacheOnRestart.tests rdb
@@ -138,6 +144,7 @@ suite rdb =
         , testProperties "Chainweb.Test.HostAddress" Chainweb.Test.HostAddress.properties
         , testProperties "Chainweb.Test.Sync.WebBlockHeaderStore" Chainweb.Test.Sync.WebBlockHeaderStore.properties
         , testProperties "P2P.Test.TaskQueue" P2P.Test.TaskQueue.properties
+        , testProperties "P2P.Test.Node" P2P.Test.Node.properties
         , testProperties "Data.Test.PQueue" Data.Test.PQueue.properties
         , testProperties "Chainweb.Test.Difficulty" Chainweb.Test.Difficulty.properties
         , testProperties "Data.Test.Word.Encoding" Data.Test.Word.Encoding.properties

@@ -1,7 +1,7 @@
 cabal-version: 3.0
 
 name:         chainweb
-version:      2.15
+version:      2.18.1
 synopsis:     A Proof-of-Work Parallel-Chain Architecture for Massive Throughput
 description:  A Proof-of-Work Parallel-Chain Architecture for Massive Throughput.
 homepage:     https://github.com/kadena-io/chainweb
@@ -10,7 +10,7 @@ license:      BSD-3-Clause
 license-file: LICENSE
 author:       Chainweb Dev Team
 maintainer:   chainweb-dev@kadena.io
-copyright:    Copyright (C) 2018 - 2022 Kadena LLC
+copyright:    Copyright (C) 2018 - 2023 Kadena LLC
 category:     Blockchain, Currency, Bitcoin, Kadena
 build-type:   Custom
 
@@ -233,6 +233,7 @@ library
         , Chainweb.Utils.HTTP
         , Chainweb.Utils.Paging
         , Chainweb.Utils.RequestLog
+        , Chainweb.Utils.Serialization
         , Chainweb.Version
         , Chainweb.Version.Utils
         , Chainweb.WebBlockHeaderDB
@@ -245,7 +246,6 @@ library
         , Data.PQueue
         , Data.Singletons
         , Data.TaskMap
-        , Data.Word.Encoding
 
         , Network.X509.SelfSigned
 
@@ -266,6 +266,7 @@ library
 
         -- pact
         , Chainweb.Pact.Backend.ChainwebPactDb
+        , Chainweb.Pact.Backend.DbCache
         , Chainweb.Pact.Backend.RelationalCheckpointer
         , Chainweb.Pact.Backend.SQLite.DirectV2
         , Chainweb.Pact.Backend.SQLite.V2
@@ -306,6 +307,7 @@ library
         , Chainweb.Pact.Transactions.UpgradeTransactions
         , Chainweb.Pact.Types
         , Chainweb.Pact.Utils
+        , Chainweb.Pact.Validations
 
         -- utils
         , Servant.Client_
@@ -325,11 +327,9 @@ library
         , base64-bytestring >= 1.0 && < 1.1
             -- due to change in error message that is inlined in pact
         , binary >= 0.8
-        , bytes >= 0.15
         , bytestring >= 0.10
         , case-insensitive >= 1.2
         , cassava >= 0.5.1
-        , cereal >= 0.5
         , chainweb-storage >= 0.1
         , clock >= 0.7
         , configuration-tools >= 0.6
@@ -352,6 +352,7 @@ library
         , exceptions >= 0.8
         , file-embed >= 0.0
         , filepath >= 1.4
+        , ghc-compact >= 0.1
         , hashable >= 1.3
         , heaps >= 0.3
         , hourglass >=0.2
@@ -377,6 +378,7 @@ library
         , pact >= 4.2.0.1
         , pem >=0.2
         , profunctors >=5.6
+        , primitive >= 0.7.1.0
         , random >= 1.2
         , rosetta >= 1.0
         , safe-exceptions >= 0.1
@@ -392,7 +394,6 @@ library
         , streaming-commons >= 0.2
         , strict-concurrency >= 0.2
         , template-haskell >= 2.14
-        , temporary >= 1.3
         , text >= 1.2
         , trifecta >= 2.1
         , these >= 1.0
@@ -415,7 +416,7 @@ library
         , x509-system >=1.6
         , x509-validation >=1.6
         , yaml >= 0.11
-        , yet-another-logger >= 0.4
+        , yet-another-logger >= 0.4.1
 
     if flag(ed25519)
         cpp-options: -DWITH_ED25519=1
@@ -453,12 +454,15 @@ test-suite chainweb-tests
         Chainweb.Test.Mempool.InMem
         Chainweb.Test.Mempool.RestAPI
         Chainweb.Test.Mempool.Sync
+        Chainweb.Test.Mining
         Chainweb.Test.Misc
         Chainweb.Test.Orphans.Internal
         Chainweb.Test.Orphans.Pact
         Chainweb.Test.Orphans.Time
-        Chainweb.Test.Pact.PactInProcApi
+        Chainweb.Test.Pact.PactMultiChainTest
+        Chainweb.Test.Pact.PactSingleChainTest
         Chainweb.Test.P2P.Peer.BootstrapConfig
+        Chainweb.Test.Pact.DbCacheTest
         Chainweb.Test.Pact.Checkpointer
         Chainweb.Test.Pact.ModuleCacheOnRestart
         Chainweb.Test.Pact.NoCoinbase
@@ -509,10 +513,8 @@ test-suite chainweb-tests
         , base >= 4.12 && < 5
         , base64-bytestring >= 1.0 && < 1.1
             -- due to change in error message that is inlined in pact
-        , bytes >= 0.15
         , bytestring >= 0.10
         , case-insensitive >= 1.2
-        , cereal >= 0.5
         , chainweb-storage >= 0.1
         , connection >=0.2
         , containers >= 0.5
@@ -521,9 +523,11 @@ test-suite chainweb-tests
         , data-dword >= 0.3
         , data-ordlist >= 0.4.7
         , deepseq >= 1.4
+        , direct-sqlite >= 2.3.27
         , directory >= 1.2
         , ethereum
         , exceptions
+        , ghc-compact >= 0.1
         , hashable >= 1.3 && < 1.3.1
         , http-client >= 0.5
         , http-types >= 0.12
@@ -537,8 +541,9 @@ test-suite chainweb-tests
         , pact
         , quickcheck-instances >= 0.3
         , random >= 1.2
-        , resource-pool >= 0.3
+        , resource-pool >= 0.4
         , retry >= 0.7
+        , rocksdb-haskell-kadena >= 1.1.0
         , rosetta >= 1.0
         , scheduler >= 1.4
         , servant >= 0.18.2
@@ -563,9 +568,9 @@ test-suite chainweb-tests
         , warp >= 3.3.5
         , warp-tls >= 3.2.9
         , yaml >= 0.11
-        , yet-another-logger >= 0.4
+        , yet-another-logger >= 0.4.1
         , sha-validation >=0.1
-        , hashes >=0.2.1.1
+        , hashes >=0.2.2.0
 
     if flag(ed25519)
         cpp-options: -DWITH_ED25519=1
@@ -578,6 +583,7 @@ test-suite chainweb-tests
 --
 executable chainweb-node
     import: warning-flags, debugging-flags
+
     default-language: Haskell2010
     ghc-options:
         -threaded
@@ -585,9 +591,12 @@ executable chainweb-node
         -rtsopts
     hs-source-dirs: node
     main-is: ChainwebNode.hs
+    install-includes: node/c/rlim_utils.h
+    c-sources: node/c/rlim_utils.c
     other-modules:
         Paths_chainweb
         PkgInfo
+        Utils.CheckRLimits
         Utils.InstallSignalHandlers
     autogen-modules:
         Paths_chainweb
@@ -612,7 +621,7 @@ executable chainweb-node
         , streaming >= 0.2
         , text >= 1.2
         , time >= 1.8
-        , yet-another-logger >= 0.4
+        , yet-another-logger >= 0.4.1
 
     if !os(windows)
         build-depends:
@@ -649,6 +658,7 @@ executable cwtool
         RunNodes
         SlowTests
         TxStream
+        TxSimulator
 
     build-depends:
         -- internal
@@ -661,22 +671,23 @@ executable cwtool
         , lens-aeson >= 1.1
         , async >= 2.2
         , base >= 4.12 && < 5
-        , bytes >= 0.15
         , bytestring >= 0.10
-        , cereal >= 0.5
         , case-insensitive >= 1.2
         , cassava >= 0.5.1
+        , cereal >= 0.5
         , chainweb-storage >= 0.1
         , configuration-tools >= 0.6
         , connection >=0.2
         , containers >= 0.5
         , cryptonite >= 0.25
+        , data-default >=0.7
         , deepseq >= 1.4
         , digraph >= 0.2
         , direct-sqlite >= 2.3.27
         , directory >= 1.3
         , errors >= 2.3
         , file-embed
+        , filepath >= 1.4
         , exceptions >= 0.8
         , file-embed >= 0.0
         , http-client >= 0.5
@@ -693,9 +704,10 @@ executable cwtool
         , process >= 1.5
         , quickcheck-instances >= 0.3
         , random >= 1.2
-        , rocksdb-haskell >= 1.0
+        , rocksdb-haskell-kadena >= 1.1.0
         , safe-exceptions >= 0.1
         , servant-client >= 0.18.2
+        , servant-client-core >= 0.18.2
         , streaming >= 0.2.2
         , streaming-commons >= 0.2
         , tasty >= 1.0
@@ -710,11 +722,10 @@ executable cwtool
         , warp >= 3.3.5
         , warp-tls >= 3.2.9
         , yaml >= 0.8
-        , yet-another-logger >= 0.4
+        , yet-another-logger >= 0.4.1
 
     if flag(ed25519)
         cpp-options: -DWITH_ED25519=1
-
 
 benchmark bench
     import: warning-flags, debugging-flags
@@ -733,7 +744,12 @@ benchmark bench
         JSONEncoding
 
         -- From test
+        Chainweb.Test.HostAddress
         Chainweb.Test.Orphans.Internal
+        Chainweb.Test.Orphans.Pact
+        Chainweb.Test.Orphans.Time
+        P2P.Test.Orphans
+
     build-depends:
           Decimal >= 0.4.2
         , aeson >= 1.4.3
@@ -746,7 +762,6 @@ benchmark bench
         , containers >= 0.5
         , criterion
         , deepseq >= 1.4
-        , directory >= 1.3
         , exceptions >= 0.8
         , file-embed >= 0.0
         , lens >= 4.17
@@ -755,7 +770,6 @@ benchmark bench
         , mtl >= 2.2
         , pact
         , random >= 1.2
-        , temporary >= 1.3
         , text >= 1.2
         , vector >= 0.12.2
         , yaml >= 0.11
@@ -766,4 +780,4 @@ benchmark bench
         , quickcheck-instances >= 0.3
         , streaming-commons >= 0.2
         , unordered-containers == 0.2.15.0
-        , yet-another-logger >= 0.4
+        , yet-another-logger >= 0.4.1

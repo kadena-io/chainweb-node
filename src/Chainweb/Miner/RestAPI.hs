@@ -35,6 +35,7 @@ import Data.Foldable
 import Data.IORef (IORef, atomicModifyIORef', newIORef, readIORef, writeIORef)
 import qualified Data.Map.Strict as M
 import qualified Data.Set as S
+import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
 
 import Network.HTTP.Types
@@ -55,7 +56,7 @@ import Chainweb.Logger (Logger)
 import Chainweb.Miner.Config
 import Chainweb.Miner.Coordinator
 import Chainweb.Miner.Pact
-import Chainweb.Utils (runGetEitherL, runPutL)
+import Chainweb.Utils.Serialization
 import Chainweb.Version
 
 miningApi :: Logger l => MiningCoordination l cas -> Route Wai.Application
@@ -87,7 +88,7 @@ solvedHandler mr req respond = do
     bytes <- Wai.lazyRequestBody req
     case runGetEitherL decodeSolvedWork bytes of
         Left e ->
-            errorWithStatus status400 $ "Decoding error: " <> T.encodeUtf8 e
+            errorWithStatus status400 $ "Decoding error: " <> T.encodeUtf8 (T.pack e)
 
         Right !solved -> do
             result <- liftIO $ catches (Right () <$ solve mr solved)
@@ -108,7 +109,7 @@ updatesHandler mr req respond = withLimit $ do
     cbytes <- Wai.lazyRequestBody req
     !cid <- case runGetEitherL decodeChainId cbytes of
         Left e ->
-            errorWithStatus status400 $ "Decoding error: " <> T.encodeUtf8 e
+            errorWithStatus status400 $ "Decoding error: " <> T.encodeUtf8 (T.pack e)
         Right cid -> return cid
     cv  <- _cut (_coordCutDb mr) >>= newIORef
 

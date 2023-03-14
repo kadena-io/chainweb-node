@@ -39,7 +39,6 @@ import Control.Monad.Trans.Maybe
 import Data.Aeson hiding ((.=))
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Char8 as B8
-import Data.ByteString.Lazy (fromStrict)
 import qualified Data.DList as DL
 import Data.Foldable (toList)
 import Data.List(sort)
@@ -48,7 +47,6 @@ import Data.HashSet (HashSet)
 import qualified Data.HashSet as HashSet
 import qualified Data.Map.Strict as M
 import Data.Maybe
-import qualified Data.Serialize
 import qualified Data.Set as Set
 import Data.String
 import qualified Data.Text as T
@@ -78,11 +76,13 @@ import Pact.Types.Util (AsString(..))
 
 import Chainweb.BlockHash
 import Chainweb.BlockHeight
+import Chainweb.Pact.Backend.DbCache
 import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.Backend.Utils
 import Chainweb.Pact.Service.Types (PactException(..), internalError)
 import Chainweb.Version (ChainwebVersion, ChainId, genesisHeight)
 import Chainweb.Utils (encodeToByteString, sshow)
+import Chainweb.Utils.Serialization
 
 tbl :: HasCallStack => Utf8 -> Utf8
 tbl t@(Utf8 b)
@@ -111,7 +111,7 @@ getPendingData = do
     return $ ptx ++ [pb]
 
 forModuleNameFix :: (Bool -> BlockHandler e a) -> BlockHandler e a
-forModuleNameFix a = use bsModuleNameFix >>= a
+forModuleNameFix f = use bsModuleNameFix >>= f
 
 doReadRow
     :: (IsString k, FromJSON v)
@@ -120,13 +120,13 @@ doReadRow
     -> BlockHandler SQLiteEnv (Maybe v)
 doReadRow d k = forModuleNameFix $ \mnFix ->
     case d of
-        KeySets -> lookupWithKey (convKeySetName k)
+        KeySets -> lookupWithKey (convKeySetName k) noCache
         -- TODO: This is incomplete (the modules case), due to namespace
         -- resolution concerns
-        Modules -> lookupWithKey (convModuleName mnFix k)
-        Namespaces -> lookupWithKey (convNamespaceName k)
-        (UserTables _) -> lookupWithKey (convRowKey k)
-        Pacts -> lookupWithKey (convPactId k)
+        Modules -> lookupWithKey (convModuleName mnFix k) checkModuleCache
+        Namespaces -> lookupWithKey (convNamespaceName k) noCache
+        (UserTables _) -> lookupWithKey (convRowKey k) noCache
+        Pacts -> lookupWithKey (convPactId k) noCache
   where
     tableName = domainTableName d
     (Utf8 tableNameBS) = tableName
@@ -134,11 +134,15 @@ doReadRow d k = forModuleNameFix $ \mnFix ->
     queryStmt =
         "SELECT rowdata FROM " <> tbl tableName <> " WHERE rowkey = ? ORDER BY txid DESC LIMIT 1;"
 
-    lookupWithKey :: forall v . FromJSON v => Utf8 -> BlockHandler SQLiteEnv (Maybe v)
-    lookupWithKey key = do
+    lookupWithKey
+        :: forall v . FromJSON v
+        => Utf8
+        -> (Utf8 -> BS.ByteString -> MaybeT (BlockHandler SQLiteEnv) v)
+        -> BlockHandler SQLiteEnv (Maybe v)
+    lookupWithKey key checkCache = do
         pds <- getPendingData
         let lookPD = foldr1 (<|>) $ map (lookupInPendingData key) pds
-        let lookDB = lookupInDb key
+        let lookDB = lookupInDb key checkCache
         runMaybeT (lookPD <|> lookDB)
 
     lookupInPendingData
@@ -154,10 +158,14 @@ doReadRow d k = forModuleNameFix $ \mnFix ->
             then mzero
             -- we merge with (++) which should produce txids most-recent-first
             -- -- we care about the most recent update to this rowkey
-            else MaybeT $ return $! decode $ fromStrict $ DL.head ddata
+            else MaybeT $ return $! decodeStrict' $ DL.head ddata
 
-    lookupInDb :: forall v . FromJSON v => Utf8 -> MaybeT (BlockHandler SQLiteEnv) v
-    lookupInDb rowkey = do
+    lookupInDb
+        :: forall v . FromJSON v
+        => Utf8
+        -> (Utf8 -> BS.ByteString -> MaybeT (BlockHandler SQLiteEnv) v)
+        -> MaybeT (BlockHandler SQLiteEnv) v
+    lookupInDb rowkey checkCache = do
         -- First, check: did we create this table during this block? If so,
         -- there's no point in looking up the key.
         checkDbTableExists tableName
@@ -165,10 +173,25 @@ doReadRow d k = forModuleNameFix $ \mnFix ->
                        $ \db -> qry db queryStmt [SText rowkey] [RBlob]
         case result of
             [] -> mzero
-            [[SBlob a]] -> MaybeT $ return $! decode $ fromStrict a
+            [[SBlob a]] -> checkCache rowkey a
             err -> internalError $
                      "doReadRow: Expected (at most) a single result, but got: " <>
                      T.pack (show err)
+
+    checkModuleCache u b = MaybeT $ do
+        txid <- use bsTxId -- cache priority
+        mc <- use bsModuleCache
+        (r, mc') <- liftIO $ checkDbCache u b txid mc
+        modify' (bsModuleCache .~ mc')
+        return r
+
+    noCache
+        :: FromJSON v
+        => Utf8
+        -> BS.ByteString
+        -> MaybeT (BlockHandler SQLiteEnv) v
+    noCache _key rowdata = MaybeT $ return $! decodeStrict' rowdata
+
 
 checkDbTableExists :: Utf8 -> MaybeT (BlockHandler SQLiteEnv) ()
 checkDbTableExists tableName = do
@@ -420,20 +443,26 @@ doCreateUserTable tn@(TableName ttxt) mn = do
       Nothing -> throwM $ PactDuplicateTableError ttxt
       Just () -> do
           -- then check if it is in the db
-          cond <- inDb $ Utf8 $ T.encodeUtf8 ttxt
+          lcTables <- use bsLowerCaseTables
+          cond <- inDb lcTables $ Utf8 $ T.encodeUtf8 ttxt
           when cond $ throwM $ PactDuplicateTableError ttxt
           modifyPendingData
             $ over pendingTableCreation (HashSet.insert (T.encodeUtf8 ttxt))
             . over pendingTxLogMap (M.insertWith DL.append (TableName txlogKey) txlogs)
   where
-    inDb t =
+    inDb lcTables t =
       callDb "doCreateUserTable" $ \db -> do
-        r <- qry db tableLookupStmt [SText t] [RText]
+        r <- qry db (tableLookupStmt lcTables) [SText t] [RText]
         return $ case r of
-          [[SText rname]] -> rname == t
+          -- if lowercase matching, no need to check equality
+          -- (wasn't needed before either but leaving alone for replay)
+          [[SText rname]] -> lcTables || rname == t
           _ -> False
 
-    tableLookupStmt = "SELECT name FROM sqlite_master WHERE type='table' and name=?;"
+    tableLookupStmt False =
+      "SELECT name FROM sqlite_master WHERE type='table' and name=?;"
+    tableLookupStmt True =
+      "SELECT name FROM sqlite_master WHERE type='table' and lower(name)=lower(?);"
     txlogKey = "SYS:usertables"
     stn = asString tn
     uti = UserTableInfo mn
@@ -555,7 +584,7 @@ blockHistoryInsert bh hsh t =
     callDb "blockHistoryInsert" $ \db ->
         exec' db stmt
             [ SInt (fromIntegral bh)
-            , SBlob (Data.Serialize.encode hsh)
+            , SBlob (runPutS (encodeBlockHash hsh))
             , SInt (fromIntegral t)
             ]
   where
@@ -698,7 +727,7 @@ handlePossibleRewind v cid bRestore hsh = do
         resultCount <- callDb "handlePossibleRewind" $ \db -> do
             qry db "SELECT COUNT(*) FROM BlockHistory WHERE blockheight = ? AND hash = ?;"
                    [ SInt $! fromIntegral $ pred bRestore
-                   , SBlob (Data.Serialize.encode hsh) ]
+                   , SBlob (runPutS $ encodeBlockHash hsh) ]
                    [RInt]
                 >>= expectSingleRowCol "handlePossibleRewind: (historyInvariant):"
         when (resultCount /= SInt 1) $
@@ -761,7 +790,7 @@ dropTablesAtRewind bh db = do
                       [SInt (fromIntegral bh)] [RText]
     tbls <- fmap HashSet.fromList . forM toDropTblNames $ \case
         [SText tblname@(Utf8 tn)] -> do
-            exec_ db $ "DROP TABLE " <> tbl tblname
+            exec_ db $ "DROP TABLE IF EXISTS " <> tbl tblname
             return tn
         _ -> internalError rewindmsg
     exec' db

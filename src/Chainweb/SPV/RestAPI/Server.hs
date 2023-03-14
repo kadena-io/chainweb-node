@@ -1,5 +1,6 @@
 {-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
@@ -60,9 +61,8 @@ import Data.Singletons
 -- SPV Transaction Proof Handler
 
 spvGetTransactionProofHandler
-    :: MonadIO m
-    => PayloadCasLookup cas
-    => CutDb cas
+    :: (CanReadablePayloadCas tbl, MonadIO m)
+    => CutDb tbl
     -> ChainId
         -- ^ the target chain of the proof. This is the chain for which
         -- inclusion is proved.
@@ -84,9 +84,8 @@ spvGetTransactionProofHandler db tcid scid bh i =
 -- SPV Transaction Output Proof Handler
 
 spvGetTransactionOutputProofHandler
-    :: MonadIO m
-    => PayloadCasLookup cas
-    => CutDb cas
+    :: (CanReadablePayloadCas tbl, MonadIO m)
+    => CutDb tbl
     -> ChainId
         -- ^ the target chain of the proof. This is the chain for which inclusion
         -- is proved.
@@ -109,10 +108,10 @@ spvGetTransactionOutputProofHandler db tcid scid bh i =
 -- SPV API Server
 
 spvServer
-    :: forall cas v (c :: ChainIdT)
-    . PayloadCasLookup cas
+    :: forall tbl v (c :: ChainIdT)
+    . CanReadablePayloadCas tbl
     => KnownChainIdSymbol c
-    => CutDbT cas v
+    => CutDbT tbl v
     -> Server (SpvApi v c)
 spvServer (CutDbT db)
     = spvGetTransactionProofHandler db tcid
@@ -120,7 +119,7 @@ spvServer (CutDbT db)
   where
     tcid = fromSing (sing :: Sing c)
 
-newSpvServer :: PayloadCasLookup cas => CutDb cas -> Route (ChainId -> ChainId -> Application)
+newSpvServer :: CanReadablePayloadCas tbl => CutDb tbl -> Route (ChainId -> ChainId -> Application)
 newSpvServer cutDb =
     choice "height" $ capture $ fold
         [ choice "transaction" $ capture $
@@ -135,38 +134,38 @@ newSpvServer cutDb =
 -- Application for a single Chain
 
 spvApp
-    :: forall cas v c
-    . PayloadCasLookup cas
+    :: forall tbl v c
+    . CanReadablePayloadCas tbl
     => KnownChainwebVersionSymbol v
     => KnownChainIdSymbol c
-    => CutDbT cas v
+    => CutDbT tbl v
     -> Application
-spvApp db = serve (Proxy @(SpvApi v c)) (spvServer @cas @v @c db)
+spvApp db = serve (Proxy @(SpvApi v c)) (spvServer @tbl @v @c db)
 
 spvApiLayout
-    :: forall cas v c
+    :: forall tbl v c
     . KnownChainwebVersionSymbol v
     => KnownChainIdSymbol c
-    => CutDbT cas v
+    => CutDbT tbl v
     -> IO ()
 spvApiLayout _ = T.putStrLn $ layout (Proxy @(SpvApi v c))
 
 someSpvServer
-    :: forall cas c
-    . PayloadCasLookup cas
+    :: forall tbl c
+    . CanReadablePayloadCas tbl
     => KnownChainIdSymbol c
-    => SomeCutDb cas
+    => SomeCutDb tbl
     -> SomeServer
-someSpvServer (SomeCutDb (db :: CutDbT cas v))
-    = SomeServer (Proxy @(SpvApi v c)) (spvServer @cas @v @c db)
+someSpvServer (SomeCutDb (db :: CutDbT tbl v))
+    = SomeServer (Proxy @(SpvApi v c)) (spvServer @tbl @v @c db)
 
 -- -------------------------------------------------------------------------- --
 -- Multichain Server
 
 someSpvServers
-    :: PayloadCasLookup cas
+    :: CanReadablePayloadCas tbl
     => ChainwebVersion
-    -> CutDb cas
+    -> CutDb tbl
     -> SomeServer
 someSpvServers v db = mconcat $ flip fmap cids $ \(FromSingChainId (SChainId :: Sing c)) ->
     someSpvServer @_ @c (someCutDbVal v db)

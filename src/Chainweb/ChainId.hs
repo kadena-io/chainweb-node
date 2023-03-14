@@ -58,9 +58,6 @@ import Control.Monad.Catch (Exception, MonadThrow)
 
 import Data.Aeson
 import Data.Aeson.Types (toJSONKeyText)
-import Data.Bytes.Get
-import Data.Bytes.Put
-import Data.Bytes.Signed
 import Data.Hashable (Hashable(..))
 import Data.Kind
 import Data.Proxy
@@ -75,6 +72,7 @@ import GHC.TypeLits
 import Chainweb.Crypto.MerkleLog
 import Chainweb.MerkleUniverse
 import Chainweb.Utils
+import Chainweb.Utils.Serialization
 
 import Data.Singletons
 
@@ -177,20 +175,18 @@ instance HasTextRepresentation ChainId where
 -- -------------------------------------------------------------------------- --
 -- Serialization
 
-encodeChainId :: MonadPut m => ChainId -> m ()
-encodeChainId (ChainId i32) = putWord32le $ unsigned i32
+encodeChainId :: ChainId -> Put
+encodeChainId (ChainId w32) = putWord32le w32
 {-# INLINE encodeChainId #-}
 
-decodeChainId :: MonadGet m => m ChainId
+decodeChainId :: Get ChainId
 decodeChainId = ChainId <$> getWord32le
 {-# INLINE decodeChainId #-}
 
 decodeChainIdChecked
-    :: MonadGet m
-    => MonadThrow m
-    => HasChainId p
+    :: HasChainId p
     => Expected p
-    -> m ChainId
+    -> Get ChainId
 decodeChainIdChecked p = checkChainId p . Actual =<< decodeChainId
 {-# INLINE decodeChainIdChecked #-}
 

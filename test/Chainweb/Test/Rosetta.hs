@@ -17,6 +17,7 @@ module Chainweb.Test.Rosetta
 
 import Control.Monad (foldM, void)
 import Data.Aeson
+import qualified Data.ByteString.Short as BS
 import Data.Decimal
 import Data.Map (Map)
 import Data.Word (Word64)
@@ -631,7 +632,7 @@ mockRosettaTx mrk _ ops =
   }
 
 textToRk :: T.Text -> RequestKey
-textToRk = RequestKey . Hash . T.encodeUtf8
+textToRk = RequestKey . Hash . BS.toShort . T.encodeUtf8
 
 adjust :: String -> String -> String
 adjust msg a = msg ++ ": " ++ show a

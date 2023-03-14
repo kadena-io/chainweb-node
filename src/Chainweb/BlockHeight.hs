@@ -39,8 +39,6 @@ module Chainweb.BlockHeight
 import Control.DeepSeq
 
 import Data.Aeson
-import Data.Bytes.Get
-import Data.Bytes.Put
 import Data.Hashable
 import Data.Word
 
@@ -50,6 +48,7 @@ import GHC.Generics (Generic)
 
 import Chainweb.Crypto.MerkleLog
 import Chainweb.MerkleUniverse
+import Chainweb.Utils.Serialization
 
 import Numeric.Additive
 
@@ -76,27 +75,27 @@ instance MerkleHashAlgorithm a => IsMerkleLogEntry a ChainwebHashTag BlockHeight
 -- | Little endian encoding of block height. This the default encoding for
 -- exchanging chainweb data.
 --
-encodeBlockHeight :: MonadPut m => BlockHeight -> m ()
+encodeBlockHeight :: BlockHeight -> Put
 encodeBlockHeight (BlockHeight h) = putWord64le h
 
 -- | Little endian encoding of block height. This the default encoding for
 -- exchanging chainweb data.
 --
-decodeBlockHeight :: MonadGet m => m BlockHeight
+decodeBlockHeight :: Get BlockHeight
 decodeBlockHeight = BlockHeight <$> getWord64le
 
 -- | Encodings for data exchange use little endian by default. Big endian
 -- encodings are provided for use in internal storage when a bytewise
 -- lexicographcial ordering is required.
 --
-encodeBlockHeightBe :: MonadPut m => BlockHeight -> m ()
+encodeBlockHeightBe :: BlockHeight -> Put
 encodeBlockHeightBe (BlockHeight r) = putWord64be r
 
 -- | Encodings for data exchange use little endian by default. Big endian
 -- encodings are provided for use in internal storage when a bytewise
 -- lexicographcial ordering is required.
 --
-decodeBlockHeightBe :: MonadGet m => m BlockHeight
+decodeBlockHeightBe :: Get BlockHeight
 decodeBlockHeightBe = BlockHeight <$> getWord64be
 
 -- -------------------------------------------------------------------------- --
@@ -116,26 +115,26 @@ instance Show CutHeight where show (CutHeight b) = show b
 -- | Little endian encoding of block height. This the default encoding for
 -- exchanging chainweb data.
 --
-encodeCutHeight :: MonadPut m => CutHeight -> m ()
+encodeCutHeight :: CutHeight -> Put
 encodeCutHeight (CutHeight h) = putWord64le h
 
 -- | Little endian encoding of block height. This the default encoding for
 -- exchanging chainweb data.
 --
-decodeCutHeight :: MonadGet m => m CutHeight
+decodeCutHeight :: Get CutHeight
 decodeCutHeight = CutHeight <$> getWord64le
 
 -- | Encodings for data exchange use little endian by default. Big endian
 -- encodings are provided for use in internal storage when a bytewise
 -- lexicographcial ordering is required.
 --
-encodeCutHeightBe :: MonadPut m => CutHeight -> m ()
+encodeCutHeightBe :: CutHeight -> Put
 encodeCutHeightBe (CutHeight r) = putWord64be r
 
 -- | Encodings for data exchange use little endian by default. Big endian
 -- encodings are provided for use in internal storage when a bytewise
 -- lexicographcial ordering is required.
 --
-decodeCutHeightBe :: MonadGet m => m CutHeight
+decodeCutHeightBe :: Get CutHeight
 decodeCutHeightBe = CutHeight <$> getWord64be
 

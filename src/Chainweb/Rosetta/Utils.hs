@@ -25,6 +25,7 @@ import Text.Read (readMaybe)
 import Text.Printf ( printf )
 
 import qualified Data.ByteString.Lazy as BSL
+import qualified Data.ByteString.Short as BS
 import qualified Data.HashMap.Strict as HM
 import qualified Data.Map.Strict as M
 import qualified Data.Memory.Endian as BA
@@ -299,7 +300,7 @@ instance FromJSON ConstructionTx where
 -- performs balance and k:account checks.
 transferTx
     :: (AccountId, P.ParsedDecimal, P.KeySet)
-    -> (AccountId, P.ParsedDecimal, P.KeySet) 
+    -> (AccountId, P.ParsedDecimal, P.KeySet)
     -> Either RosettaError ConstructionTx
 transferTx (acct1, bal1, ks1) (acct2, bal2, ks2)
   | acct1 == acct2 =
@@ -421,7 +422,7 @@ getSuggestedFee tx someMaxFees someMult = do
       fee = kdaToRosettaAmount $! calcKDAFee gasLimit gasPrice
 
   pure (gasLimit, gasPrice, fee)
-    
+
   where
     ------------
     -- Defaults
@@ -429,10 +430,10 @@ getSuggestedFee tx someMaxFees someMult = do
     -- NOTE: GasLimit should never be greater than default block gas limit.
 
     -- Derived from a couple of gas unit cost of the following transfer transactions + some buffer:
-    -- - https://explorer.chainweb.com/testnet/tx/g8dxg1CAM3eZ5S-rk51N27N8-nKEW3Wg_cyk5moqmBg
-    -- - https://explorer.chainweb.com/testnet/tx/IGVzaRkTHOSMIiHM7q8bPxrATW5b5SEhoCqE6tPkVFA
-    -- - https://explorer.chainweb.com/testnet/tx/cK0B0XOkOlMDR32GloR0GQvjAWAJ9mvNPZwQDalPr6c
-    defGasUnitsTransferCreate = 700
+    -- - https://explorer.chainweb.com/mainnet/txdetail/EUiZfeHHeisKMP2uHpzyAcMOIqZJVsJB6sT_ABpBUsQ
+    -- - https://explorer.chainweb.com/mainnet/txdetail/-cb0Pz6rKb1NVhAFQ_Bcz2V2dGPjTmIiVBl-gXMLGRQ
+    -- - https://explorer.chainweb.com/mainnet/txdetail/2riuW2nBmbN2dzmyAh5b2lUns5SPARb44-QN_EKzzmk
+    defGasUnitsTransferCreate = 1000
 
     -- See Chainweb.Chainweb.Configuration for latest min gas
     minGasPrice = Decimal 8 1
@@ -471,7 +472,7 @@ getSuggestedFee tx someMaxFees someMult = do
         minFeeNeeded =
           calcKDAFee estimatedGasLimit
             (P.GasPrice $ P.ParsedDecimal minGasPrice)
-    
+
     estimatedGasLimit = P.GasLimit $ P.ParsedInteger $! case tx of
       ConstructTransfer {} -> defGasUnitsTransferCreate
 
@@ -512,7 +513,7 @@ getSuggestedFee tx someMaxFees someMult = do
         P.GasLimit (P.ParsedInteger units) = gasLimit
         P.GasPrice (P.ParsedDecimal price) = gasPrice
         fee = fromIntegral units * price
-  
+
 
 --------------------------------------------------------------------------------
 -- /metadata
@@ -553,7 +554,7 @@ rosettaAccountIdtoKAccount acct = do
 rosettaPubKeyTokAccount :: RosettaPublicKey -> Either RosettaError (T2 T.Text P.KeySet)
 rosettaPubKeyTokAccount (RosettaPublicKey pubKey curve) = do
   _ <- getScheme curve -- enforce only valid schemes
-  let pubKeyPact = P.PublicKey $ T.encodeUtf8 pubKey
+  let pubKeyPact = P.PublicKeyText pubKey
   kAccount <- toRosettaError RosettaInvalidPublicKey $
               note (show pubKey) $
               generateKAccountFromPubKey pubKeyPact
@@ -709,9 +710,9 @@ createSigningPayloads
     -> [RosettaSigningPayload]
 createSigningPayloads (EnrichedCommand cmd _ _) = map f
   where
-    hashBase16 = P.toB16Text $! P.unHash $!
+    hashBase16 = P.toB16Text $! BS.fromShort $! P.unHash $!
                  P.toUntypedHash $! _cmdHash cmd
-    
+
     f (signer, acct) = RosettaSigningPayload
       { _rosettaSigningPayload_address = Nothing
       , _rosettaSigningPayload_accountIdentifier = Just acct
@@ -732,7 +733,7 @@ txToOps txInfo = case txInfo of
     [ op (_accountId_address from) (negate amt) fromGuard 0
     , op (_accountId_address to) amt toGuard 1
     ]
-  
+
   where
     op name delta guard idx =
       o { _operation_status = "" }
@@ -743,7 +744,7 @@ txToOps txInfo = case txInfo of
                 (toAcctLog name delta guard)
                 idx
                 []
-      
+
     toAcctLog name delta guard = AccountLog
       { _accountLogKey = name
       , _accountLogBalanceDelta = BalanceDelta delta
@@ -770,7 +771,7 @@ matchSigs
 matchSigs sigs signers = do
   sigMap <- HM.fromList <$> mapM sigAndAddr sigs
   mapM (match sigMap) signers
-  
+
   where
     match
         :: HM.HashMap T.Text UserSig
@@ -781,16 +782,16 @@ matchSigs sigs signers = do
       note (stringRosettaError RosettaInvalidSignature
             $ "Missing signature for public key=" ++ show (_siPubKey signer))
             $ HM.lookup addr m
-    
+
     sigAndAddr (RosettaSignature _ (RosettaPublicKey pk ct) sigTyp sig) = do
       _ <- toRosettaError RosettaInvalidSignature $! P.parseB16TextOnly sig
       sigScheme <- sigToScheme sigTyp
       pkScheme <- getScheme ct
       when (sigScheme /= pkScheme)
         (Left $ stringRosettaError RosettaInvalidSignature $
-         "Expected the same Signature and PublicKey type for Signature=" ++ show sig) 
+         "Expected the same Signature and PublicKey type for Signature=" ++ show sig)
 
-      let userSig = P.UserSig sig      
+      let userSig = P.UserSig sig
       addr <- toPactPubKeyAddr pk pkScheme
       pure (addr, userSig)
 
@@ -1002,7 +1003,7 @@ parseOp (Operation i _ typ stat someAcct someAmt _ someMeta) = do
   prevOwn @?= currOwn   -- ensure that the ownership wasn't rotated
   ownership <- hushResult (fromJSON currOwn) @??
                "Only Pact KeySet is supported for account ownership"
-  
+
   pure (acct, P.ParsedDecimal amtDelta, ownership)
 
   where
@@ -1011,7 +1012,7 @@ parseOp (Operation i _ typ stat someAcct someAmt _ someMeta) = do
       Left $ stringRosettaError RosettaInvalidOperation $
         "Operation id=" ++ show i ++ ": " ++ msg
     (Just a) @?? _ = pure a
-    
+
     (@?=)
         :: (Show a, Eq a) => a
         -> a
@@ -1179,7 +1180,7 @@ toRosettaError failure = annotate (stringRosettaError failure)
 
 ksToPubKeys :: P.KeySet -> [T.Text]
 ksToPubKeys (P.KeySet pkSet _) =
-  map (T.decodeUtf8 . P._pubKey) (S.toList pkSet)
+  map P._pubKey (S.toList pkSet)
 
 
 parsePubKeys :: T.Text -> Value -> Either RosettaError [T.Text]

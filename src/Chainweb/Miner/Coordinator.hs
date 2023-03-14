@@ -111,9 +111,9 @@ lookupInCut c cid
 -- | For coordinating requests for work and mining solutions from remote Mining
 -- Clients.
 --
-data MiningCoordination logger cas = MiningCoordination
+data MiningCoordination logger tbl = MiningCoordination
     { _coordLogger :: !logger
-    , _coordCutDb :: !(CutDb cas)
+    , _coordCutDb :: !(CutDb tbl)
     , _coordState :: !(TVar MiningState)
     , _coordLimit :: !Int
     , _coord503s :: !(IORef Int)
@@ -236,7 +236,7 @@ chainChoice c choice = case choice of
 --
 publish
     :: LogFunction
-    -> CutDb cas
+    -> CutDb tbl
     -> TVar PrimedWork
     -> MinerId
     -> PayloadData
@@ -292,9 +292,9 @@ publish lf cdb pwVar miner pd s = do
 -- yet exist in the primed work cache it is added.
 --
 work
-    :: forall l cas
+    :: forall l tbl
     .  Logger l
-    => MiningCoordination l cas
+    => MiningCoordination l tbl
     -> Maybe ChainId
     -> Miner
     -> IO WorkHeader
@@ -330,7 +330,7 @@ work mr mcid m = do
     choice :: ChainChoice
     choice = maybe Anything Suggestion mcid
 
-    cdb :: CutDb cas
+    cdb :: CutDb tbl
     cdb = _coordCutDb mr
 
     pact :: PactExecutionService
@@ -342,9 +342,9 @@ data NoAssociatedPayload = NoAssociatedPayload
 instance Exception NoAssociatedPayload
 
 solve
-    :: forall l cas
+    :: forall l tbl
     . Logger l
-    => MiningCoordination l cas
+    => MiningCoordination l tbl
     -> SolvedWork
     -> IO ()
 solve mr solved@(SolvedWork hdr) = do

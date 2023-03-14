@@ -30,7 +30,7 @@ import Control.Concurrent.MVar
 import Control.DeepSeq
 import Control.Error.Util (hush)
 import Control.Exception (bracket, evaluate, mask_, throw)
-import Control.Monad (void, (<$!>))
+import Control.Monad
 
 import Data.Aeson
 import Data.Bifunctor (bimap)
@@ -66,7 +66,7 @@ import Chainweb.Logger
 import Chainweb.Mempool.CurrentTxs
 import Chainweb.Mempool.InMemTypes
 import Chainweb.Mempool.Mempool
-import Chainweb.Pact.Utils (maxTTL)
+import Chainweb.Pact.Validations (defaultMaxTTL, defaultMaxCoinDecimalPlaces)
 import Chainweb.Time
 import Chainweb.Utils
 import Chainweb.Version (ChainwebVersion)
@@ -241,11 +241,13 @@ markValidatedInMem logger tcfg lock txs = withMVarMasked lock $ \mdata -> do
     -- resources for pending txs.
     --
     let curTxIdxRef = _inmemCurrentTxs mdata
-    logg Info $ "mark " <> sshow (length (V.zip expiries hashes)) <> " txs as validated"
+    let validatedCount = length (V.zip expiries hashes)
+    logg Debug $ "mark " <> sshow validatedCount <> " txs as validated"
     x <- readIORef curTxIdxRef
-    logg Info $ "previous current tx index size: " <> sshow (currentTxsSize x)
     !x' <- currentTxsInsertBatch x (V.zip expiries hashes)
-    logg Info $ "new current tx index size: " <> sshow (currentTxsSize x')
+    when (currentTxsSize x /= currentTxsSize x') $ do
+      logg Info $ "previous current tx index size: " <> sshow (currentTxsSize x)
+      logg Info $ "new current tx index size: " <> sshow (currentTxsSize x')
     writeIORef curTxIdxRef x'
   where
     hashes = txHasher tcfg <$> txs
@@ -263,7 +265,7 @@ addToBadListInMem lock txs = withMVarMasked lock $ \mdata -> do
     let !pnd' = foldl' (flip HashMap.delete) pnd txs
     -- we don't have the expiry time here, so just use maxTTL
     now <- getCurrentTimeIntegral
-    let (ParsedInteger mt) = maxTTL
+    let (ParsedInteger mt) = defaultMaxTTL
     let !endTime = add (secondsToTimeSpan $ fromIntegral mt) now
     let !bad' = foldl' (\h tx -> HashMap.insert tx endTime h) bad txs
     writeIORef (_inmemPending mdata) pnd'
@@ -362,7 +364,7 @@ validateOne cfg badmap curTxIdx now t h =
     gasPriceRoundingCheck =
         ebool_ (InsertErrorOther msg) (f (txGasPrice txcfg t))
       where
-        f (GasPrice (ParsedDecimal d)) = decimalPlaces d <= 12
+        f (GasPrice (ParsedDecimal d)) = decimalPlaces d <= defaultMaxCoinDecimalPlaces
         msg = mconcat
             [ "This  transaction's gas price: "
             , sshow (txGasPrice txcfg t)
@@ -433,7 +435,7 @@ insertInMem cfg lock runCheck txs0 = do
         let txs = V.take (max 0 (maxNumPending - cnt)) txhashes
         let T2 !pending' !newHashesDL = V.foldl' insOne (T2 pending id) txs
         let !newHashes = V.fromList $ newHashesDL []
-        writeIORef (_inmemPending mdata) $! force pending'
+        writeIORef (_inmemPending mdata) $! pending'
         modifyIORef' (_inmemRecentLog mdata) $
             recordRecentTransactions maxRecent newHashes
   where
@@ -486,9 +488,9 @@ getBlockInMem logg cfg lock (BlockFill gasLimit txHashes _)  txValidate bheight 
         -- put the txs chosen for the block back into the map -- they don't get
         -- expunged until they are mined and validated by consensus.
         let !psq'' = V.foldl' ins (HashMap.union seen psq') out
-        writeIORef (_inmemPending mdata) $! force psq''
-        writeIORef (_inmemBadMap mdata) $! force badmap'
-        mout <- V.unsafeThaw $ V.map (snd . snd) out
+        writeIORef (_inmemPending mdata) $ psq''
+        writeIORef (_inmemBadMap mdata) $ badmap'
+        mout <- V.thaw $ V.map (snd . snd) out
         TimSort.sortBy (compareOnGasPrice txcfg) mout
         V.unsafeFreeze mout
 
@@ -512,7 +514,7 @@ getBlockInMem logg cfg lock (BlockFill gasLimit txHashes _)  txValidate bheight 
 
     txcfg = _inmemTxCfg cfg
     codec = txCodec txcfg
-    decodeTx tx0 = either err id $! codecDecode codec tx
+    decodeTx tx0 = either err id $ codecDecode codec tx
       where
         !tx = SB.fromShort tx0
         err s = error $
@@ -555,8 +557,8 @@ getBlockInMem logg cfg lock (BlockFill gasLimit txHashes _)  txValidate bheight 
         -> GasLimit
         -> IO [(TransactionHash, (SB.ShortByteString, t))]
     nextBatch !psq !remainingGas = do
-        let !pendingTxs0 = V.fromList $ HashMap.toList psq
-        mPendingTxs <- V.unsafeThaw pendingTxs0
+        let !pendingTxs0 = HashMap.toList psq
+        mPendingTxs <- mutableVectorFromList pendingTxs0
         TimSort.sortBy (compare `on` snd) mPendingTxs
         !pendingTxs <- V.unsafeFreeze mPendingTxs
         return $! getBatch pendingTxs remainingGas [] 0
@@ -669,7 +671,7 @@ recordRecentTransactions maxNumRecent newTxs rlog = rlog'
     newNext = oldNext + fromIntegral numNewItems
     newTxs' = V.reverse (V.map (T2 oldNext) newTxs)
     newL' = newTxs' <> _rlRecent rlog
-    newL = force $ V.take maxNumRecent newL'
+    newL = V.force $ V.take maxNumRecent newL'
 
 
 -- | Get the recent transactions from the transaction log. Returns Nothing if
@@ -719,14 +721,13 @@ pruneInternal
 pruneInternal mdata now = do
     let pref = _inmemPending mdata
     !pending <- readIORef pref
-    !pending' <- evaluate $ force $ HashMap.filter flt pending
+    let !pending' = HashMap.filter flt pending
     writeIORef pref pending'
 
     let bref = _inmemBadMap mdata
-    !badmap <- (force . pruneBadMap) <$!> readIORef bref
+    !badmap <- HashMap.filter (> now) <$> readIORef bref
     writeIORef bref badmap
 
   where
     -- keep transactions that expire in the future.
     flt pe = _inmemPeExpires pe > now
-    pruneBadMap = HashMap.filter (> now)

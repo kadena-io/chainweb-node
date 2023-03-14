@@ -31,18 +31,35 @@
 --
 module Chainweb.Utils
 (
--- * SI unit prefixes
-  milli
+-- * Unit Prefixes
+  deci
+, centi
+, milli
 , micro
 , nano
 , pico
 , femto
+, atto
+, zepto
+, yocto
+
+, deka
+, hecto
 , kilo
 , mega
 , giga
 , tera
 , peta
 , exa
+, zetta
+, yotta
+
+, kibi
+, mebi
+, gibi
+, tebi
+, pebi
+, exbi
 
 -- * Misc
 , int
@@ -62,18 +79,10 @@ module Chainweb.Utils
 , (&)
 , IxedGet(..)
 , minusOrZero
+, mutableVectorFromList
 
 -- * Encoding and Serialization
 , EncodingException(..)
-
--- ** Binary
-, runGet
-, runPut
-, runPutL
-, runGetEither
-, runGetEitherL
-, eof
-, MonadGetExtra(..)
 
 -- ** Codecs
 , Codec(..)
@@ -94,6 +103,7 @@ module Chainweb.Utils
 , encodeB64UrlText
 , decodeB64UrlText
 , encodeB64UrlNoPaddingText
+, b64UrlNoPaddingTextEncoding
 , decodeB64UrlNoPaddingText
 
 -- ** JSON
@@ -168,6 +178,8 @@ module Chainweb.Utils
 -- * Resource Management
 , concurrentWith
 , withLink
+, concurrentlies
+, concurrentlies_
 
 -- * Tuples
 , thd
@@ -218,6 +230,7 @@ import Control.Lens hiding ((.=))
 import Control.Monad
 import Control.Monad.Catch hiding (bracket)
 import Control.Monad.IO.Class
+import Control.Monad.Primitive
 import Control.Monad.Reader as Reader
 
 import Data.Aeson.Text (encodeToLazyText)
@@ -226,12 +239,12 @@ import qualified Data.Attoparsec.Text as A
 import Data.Bifunctor
 import qualified Data.Binary.Get as Binary
 import Data.Bool (bool)
-import Data.Bytes.Get
-import Data.Bytes.Put
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as B
+import qualified Data.ByteString.Char8 as B8
 import qualified Data.ByteString.Base64 as B64
 import qualified Data.ByteString.Base64.URL as B64U
+import qualified Data.ByteString.Builder as BB
 import qualified Data.ByteString.Lazy as BL
 import qualified Data.Csv as CSV
 import Data.Decimal
@@ -242,8 +255,6 @@ import qualified Data.HashMap.Strict as HM
 import qualified Data.HashSet as HS
 import Data.Monoid (Endo)
 import Data.Proxy
-import qualified Data.Serialize.Get as Serialize
-import qualified Data.Serialize.Put as Serialize
 import Data.String (IsString(..))
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
@@ -251,6 +262,7 @@ import qualified Data.Text.Lazy as TL
 import Data.These (These(..))
 import Data.Time
 import qualified Data.Vector as V
+import qualified Data.Vector.Mutable as MV
 import Data.Word
 
 import GHC.Generics
@@ -281,20 +293,45 @@ import Text.Read (readEither)
 -- -------------------------------------------------------------------------- --
 -- SI unit prefixes
 
-milli, micro, nano, pico, femto :: Fractional a => a
+-- | cf. https://www.nist.gov/pml/owm/metric-si-prefixes
+--
+deci, centi, milli, micro, nano, pico, femto, atto, zepto, yocto :: Fractional a => a
+deci = 10 ^^ (-1 :: Int)
+centi = 10 ^^ (-2 :: Int)
 milli = 10 ^^ (-3 :: Int)
 micro = 10 ^^ (-6 :: Int)
 nano = 10 ^^ (-9 :: Int)
 pico = 10 ^^ (-12 :: Int)
 femto = 10 ^^ (-15 :: Int)
+atto = 10 ^^ (-18 :: Int)
+zepto = 10 ^^ (-21 :: Int)
+yocto = 10 ^^ (-24 :: Int)
 
-kilo, mega, giga, tera, peta, exa :: Num a => a
+-- | cf. https://www.nist.gov/pml/owm/metric-si-prefixes
+--
+deka, hecto, kilo, mega, giga, tera, peta, exa, zetta, yotta :: Num a => a
+deka = 10 ^ (1 :: Int)
+hecto = 10 ^ (2 :: Int)
 kilo = 10 ^ (3 :: Int)
 mega = 10 ^ (6 :: Int)
 giga = 10 ^ (9 :: Int)
 tera = 10 ^ (12 :: Int)
 peta = 10 ^ (15 :: Int)
 exa = 10 ^ (18 :: Int)
+zetta = 10 ^ (21 :: Int)
+yotta = 10 ^ (24 :: Int)
+
+-- | IEC 60027-X unit prefixes for binary bases.
+--
+-- cf. https://www.nist.gov/pml/special-publication-811/nist-guide-si-appendix-d-bibliography#05
+--
+kibi, mebi, gibi, tebi, pebi, exbi:: Num a => a
+kibi = 1024 ^ (1 :: Int)
+mebi = 1024 ^ (2 :: Int)
+gibi = 1024 ^ (3 :: Int)
+tebi = 1024 ^ (4 :: Int)
+pebi = 1024 ^ (5 :: Int)
+exbi = 1024 ^ (6 :: Int)
 
 -- -------------------------------------------------------------------------- --
 -- Misc
@@ -406,6 +443,17 @@ minusOrZero :: Ord a => Num a => a -> a -> a
 minusOrZero a b = a - min a b
 {-# INLINE minusOrZero #-}
 
+-- | Equivalent to V.thaw . V.fromList but by inspection probably faster.
+mutableVectorFromList
+    :: PrimMonad m
+    => [a]
+    -> m (MV.MVector (PrimState m) a)
+mutableVectorFromList as = do
+    vec <- MV.unsafeNew (length as)
+    forM_ (zip [0..] as) $ uncurry (MV.unsafeWrite vec)
+    return vec
+{-# inline mutableVectorFromList #-}
+
 -- -------------------------------------------------------------------------- --
 -- * Read only Ixed
 
@@ -447,51 +495,6 @@ data EncodingException where
 
 instance Exception EncodingException
 
--- | Decode a value from a 'B.ByteString'. In case of a failure a
--- 'DecodeException' is thrown.
---
-runGet :: MonadThrow m => Serialize.Get a -> B.ByteString -> m a
-runGet g = fromEitherM . runGetEither (g <* eof)
-{-# INLINE runGet #-}
-
--- | Decode a value from a 'B.ByteString' and return either the result or a
--- 'DecodeException'.
---
-runGetEither :: Serialize.Get a -> B.ByteString -> Either EncodingException a
-runGetEither g = first (DecodeException . T.pack) . runGetS (g <* eof)
-{-# INLINE runGetEither #-}
-
--- | Decode a value from a 'BL.ByteString' and return either the result or a
--- 'Text'.
---
-runGetEitherL :: Binary.Get a -> BL.ByteString -> Either T.Text a
-runGetEitherL g =
-    over _Right (view _3) .
-    over _Left (T.pack . view _3) .
-    Binary.runGetOrFail (g <* eof)
-{-# INLINE runGetEitherL #-}
-
--- | Encode a value into a 'B.ByteString'.
---
-runPut :: Serialize.Put -> B.ByteString
-runPut = runPutS
-{-# INLINE runPut #-}
-
-eof :: MonadGet m => m ()
-eof = unlessM isEmpty $ fail "pending bytes in input"
-{-# INLINE eof #-}
-
-class MonadGet m => MonadGetExtra m where
-    label :: String -> m a -> m a
-    isolate :: Int -> m a -> m a
-
-instance MonadGetExtra Binary.Get where
-    label = Binary.label
-    isolate = Binary.isolate
-
-instance MonadGetExtra Serialize.Get where
-    label = Serialize.label
-    isolate = Serialize.isolate
 -- -------------------------------------------------------------------------- --
 -- ** Text
 
@@ -650,6 +653,12 @@ decodeB64UrlNoPaddingText = fromEitherM
 encodeB64UrlNoPaddingText :: B.ByteString -> T.Text
 encodeB64UrlNoPaddingText = T.dropWhileEnd (== '=') . T.decodeUtf8 . B64U.encode
 {-# INLINE encodeB64UrlNoPaddingText #-}
+
+-- | Encode a binary value to a base64-url (without padding) JSON encoding.
+--
+b64UrlNoPaddingTextEncoding :: B.ByteString -> Encoding
+b64UrlNoPaddingTextEncoding t =
+    Aeson.unsafeToEncoding $ BB.char8 '\"' <> BB.byteString (B8.dropWhileEnd (== '=') $ B64U.encode t) <> BB.char8 '\"'
 
 -- -------------------------------------------------------------------------- --
 -- ** JSON
@@ -1232,6 +1241,13 @@ withLink act = do
   link a
   return a
 
+-- | Like `sequence` for IO but concurrent
+concurrentlies :: forall a. [IO a] -> IO [a]
+concurrentlies = runConcurrently . traverse Concurrently
+
+-- | Like `sequence_` for IO but concurrent
+concurrentlies_ :: forall a. [IO a] -> IO ()
+concurrentlies_ = void . concurrentlies
 
 -- -------------------------------------------------------------------------- --
 -- Tuples

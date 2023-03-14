@@ -82,7 +82,7 @@ newtype PayloadBatchLimit = PayloadBatchLimit Natural
     deriving newtype (Ord, Enum, Num, Real, Integral, ToJSON, FromJSON)
 
 p2pPayloadBatchLimit :: PayloadBatchLimit
-p2pPayloadBatchLimit = 50
+p2pPayloadBatchLimit = 20
 
 defaultServicePayloadBatchLimit :: PayloadBatchLimit
 defaultServicePayloadBatchLimit = 1000
@@ -90,17 +90,17 @@ defaultServicePayloadBatchLimit = 1000
 -- -------------------------------------------------------------------------- --
 -- Type indexed PayloadDb
 
-newtype PayloadDb' cas (v :: ChainwebVersionT) (c :: ChainIdT) = PayloadDb' (PayloadDb cas)
+newtype PayloadDb' tbl (v :: ChainwebVersionT) (c :: ChainIdT) = PayloadDb' (PayloadDb tbl)
 
-data SomePayloadDb cas = forall v c
+data SomePayloadDb tbl = forall v c
     . (KnownChainwebVersionSymbol v, KnownChainIdSymbol c)
-    => SomePayloadDb (PayloadDb' cas v c)
+    => SomePayloadDb (PayloadDb' tbl v c)
 
-somePayloadDbVal :: forall cas . ChainwebVersion -> ChainId -> PayloadDb cas -> SomePayloadDb cas
+somePayloadDbVal :: forall tbl . ChainwebVersion -> ChainId -> PayloadDb tbl -> SomePayloadDb tbl
 somePayloadDbVal v cid db = runIdentity $ do
     SomeChainwebVersionT (Proxy :: Proxy vt) <- return $ someChainwebVersionVal v
     SomeChainIdT (Proxy :: Proxy cidt) <- return $ someChainIdVal cid
-    return $! SomePayloadDb (PayloadDb' @cas @vt @cidt db)
+    return $! SomePayloadDb (PayloadDb' @tbl @vt @cidt db)
 
 -- -------------------------------------------------------------------------- --
 -- Payload GET API

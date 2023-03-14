@@ -29,7 +29,6 @@ module Ea
 
 import Control.Lens (set)
 
-import Data.CAS.RocksDB
 import Data.Foldable
 import Data.Functor
 import Data.Text (Text)
@@ -63,6 +62,8 @@ import Chainweb.Transaction
 import Chainweb.Utils
 import Chainweb.Version (ChainwebVersion(..))
 import Chainweb.Version.Utils (someChainId)
+
+import Chainweb.Storage.Table.RocksDB
 
 import Pact.ApiReq
 import Pact.Types.ChainMeta
@@ -185,7 +186,7 @@ genPayloadModule' v tag cwTxs =
         pdb <- newPayloadDb
         withSystemTempDirectory "ea-pact-db" $ \pactDbDir -> do
             T2 payloadWO _ <- withSqliteDb cid logger pactDbDir False $ \env ->
-                initPactService' v cid logger bhdb pdb env defaultPactServiceConfig $
+                runPactService' v cid logger bhdb pdb env defaultPactServiceConfig $
                     execNewGenesisBlock noMiner (V.fromList cwTxs)
 
             let payloadYaml = TE.decodeUtf8 $ Yaml.encode payloadWO

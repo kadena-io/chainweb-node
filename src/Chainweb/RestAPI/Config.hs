@@ -64,6 +64,7 @@ censorConfig config =
     -- Service API port
     $ set (configServiceApi . serviceApiConfigPort) 0
     $ set (configServiceApi . serviceApiConfigInterface) "invalid"
+    $ set configBackup defaultBackupConfig
     config
 
 someGetConfigServer :: ChainwebConfiguration -> SomeServer

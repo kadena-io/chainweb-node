@@ -1,5 +1,6 @@
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE OverloadedStrings #-}
@@ -25,7 +26,6 @@ import Control.Monad
 import Data.Aeson
 import Data.Aeson.Encode.Pretty
 import qualified Data.ByteString.Lazy.Char8 as BL
-import Data.CAS.RocksDB (RocksDb)
 import qualified Data.List as L
 import Data.String
 import Data.Text (Text, pack)
@@ -56,6 +56,8 @@ import Chainweb.Transaction
 import Chainweb.Version (ChainwebVersion(..))
 import Chainweb.Version.Utils (someChainId)
 import Chainweb.Utils (sshow, tryAllSynchronous)
+
+import Chainweb.Storage.Table.RocksDB (RocksDb)
 
 import Pact.Types.Command
 import Pact.Types.Hash
@@ -479,7 +481,7 @@ testAllowReadsLocalSuccess = (tx,test)
 -- Utils
 
 execTest
-    :: WithPactCtxSQLite cas
+    :: WithPactCtxSQLite tbl
     -> TestRequest
     -> ScheduledTest
 execTest runPact request = _trEval request $ do
@@ -487,7 +489,7 @@ execTest runPact request = _trEval request $ do
     trans <- mkCmds cmdStrs
     results <- runPact $ \pde ->
       execTransactions False defaultMiner
-        trans (EnforceCoinbaseFailure True) (CoinbaseUsePrecompiled True) pde
+        trans (EnforceCoinbaseFailure True) (CoinbaseUsePrecompiled True) pde Nothing Nothing
         >>= throwOnGasFailure
 
     let outputs = V.toList $ snd <$> _transactionPairs results
@@ -506,7 +508,7 @@ execTest runPact request = _trEval request $ do
       mkKeySetData "test-admin-keyset" [sender00]
 
 execTxsTest
-    :: WithPactCtxSQLite cas
+    :: WithPactCtxSQLite tbl
     -> String
     -> TxsTest
     -> ScheduledTest
@@ -516,7 +518,7 @@ execTxsTest runPact name (trans',check) = testCaseSch name (go >>= check)
       trans <- trans'
       results' <- tryAllSynchronous $ runPact $ \pde ->
         execTransactions False defaultMiner trans
-          (EnforceCoinbaseFailure True) (CoinbaseUsePrecompiled True) pde
+          (EnforceCoinbaseFailure True) (CoinbaseUsePrecompiled True) pde Nothing Nothing
           >>= throwOnGasFailure
       case results' of
         Right results -> Right <$> do
@@ -531,8 +533,8 @@ execTxsTest runPact name (trans',check) = testCaseSch name (go >>= check)
 type LocalTest = (IO ChainwebTransaction,Either String (CommandResult Hash) -> Assertion)
 
 execLocalTest
-    :: PayloadCasLookup cas
-    => WithPactCtxSQLite cas
+    :: CanReadablePayloadCas tbl
+    => WithPactCtxSQLite tbl
     -> String
     -> LocalTest
     -> ScheduledTest
@@ -540,9 +542,13 @@ execLocalTest runPact name (trans',check) = testCaseSch name (go >>= check)
   where
     go = do
       trans <- trans'
-      results' <- tryAllSynchronous $ runPact $ \_ -> execLocal trans
+      results' <- tryAllSynchronous $ runPact $ \_ ->
+        execLocal trans Nothing Nothing Nothing
       case results' of
-        Right cr -> return $ Right cr
+        Right (MetadataValidationFailure e) ->
+          return $ Left $ show e
+        Right (LocalResultLegacy cr) -> return $ Right cr
+        Right (LocalResultWithWarns cr _) -> return $ Right cr
         Left e -> return $ Left $ show e
 
 getPactCode :: TestSource -> IO Text
