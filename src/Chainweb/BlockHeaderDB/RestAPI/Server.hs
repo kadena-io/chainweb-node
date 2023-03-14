@@ -123,9 +123,6 @@ defaultKeyLimit = 4096
 defaultEntryLimit :: Num a => a
 defaultEntryLimit = 360
 
-p2pEntryLimit :: Num a => a
-p2pEntryLimit = 20
-
 -- | Query Branch Hashes of the database.
 --
 -- Cf. "Chainweb.BlockHeaderDB.RestAPI" for more details

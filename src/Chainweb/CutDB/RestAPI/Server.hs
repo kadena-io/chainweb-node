@@ -30,40 +30,25 @@ module Chainweb.CutDB.RestAPI.Server
 , serveCutOnPort
 ) where
 
-import Control.Lens (view)
 import Control.Monad.Except
 
-import Data.IxSet.Typed
 import Data.Proxy
-import Data.Semigroup
 
-import Network.HTTP.Media
-import Network.HTTP.Types
 import Network.Wai.Handler.Warp hiding (Port)
-import qualified Network.Wai as Wai
 
 import Servant.API
 import Servant.Server
 
-import Web.DeepRoute
-import Web.DeepRoute.Wai
-
 -- internal modules
 
-import Chainweb.BlockHeight
-import Chainweb.Cut
-import Chainweb.Cut.CutHashes
 import Chainweb.CutDB
 import Chainweb.CutDB.RestAPI
 import Chainweb.HostAddress
 import Chainweb.RestAPI.Utils
-import Chainweb.TreeDB (MaxRank(..))
 import Chainweb.Utils
 import Chainweb.Version
-import Chainweb.Version.Utils
 
 import P2P.Node.PeerDB
-import P2P.Peer
 
 -- -------------------------------------------------------------------------- --
 -- Handlers

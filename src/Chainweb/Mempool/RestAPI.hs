@@ -180,11 +180,11 @@ insertHandler mempool txsT = handleErrs begin
   where
     txcfg = mempoolTxConfig mempool
 
-    decode :: T.Text -> Either String t
-    decode = codecDecode (txCodec txcfg) . T.encodeUtf8
+    decodeTx :: T.Text -> Either String t
+    decodeTx = codecDecode (txCodec txcfg) . T.encodeUtf8
 
     go :: T.Text -> IO t
-    go h = case decode h of
+    go h = case decodeTx h of
         Left e -> throwM . DecodeException $ T.pack e
         Right t -> return t
 
@@ -209,8 +209,8 @@ lookupHandler mempool txs = handleErrs look
   where
     txV = V.fromList txs
     txcfg = mempoolTxConfig mempool
-    encode = T.decodeUtf8 . codecEncode (txCodec txcfg)
-    look = V.toList . V.map (fmap encode) <$> mempoolLookup mempool txV
+    encodeTx = T.decodeUtf8 . codecEncode (txCodec txcfg)
+    look = V.toList . V.map (fmap encodeTx) <$> mempoolLookup mempool txV
 
 getPendingHandler
     :: Show t

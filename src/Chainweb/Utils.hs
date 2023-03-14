@@ -237,7 +237,6 @@ import Data.Aeson.Text (encodeToLazyText)
 import qualified Data.Aeson.Types as Aeson
 import qualified Data.Attoparsec.Text as A
 import Data.Bifunctor
-import qualified Data.Binary.Get as Binary
 import Data.Bool (bool)
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as B

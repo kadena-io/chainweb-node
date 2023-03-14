@@ -61,19 +61,12 @@ import Chainweb.BlockHeight
 import Chainweb.Cut
 import Chainweb.Cut.CutHashes
 import Chainweb.CutDB
-import Chainweb.HostAddress
 import Chainweb.RestAPI.Utils
 import Chainweb.TreeDB (MaxRank(..))
 import Chainweb.Utils
 import Chainweb.Version
-import Chainweb.ChainId
-import Chainweb.Cut.CutHashes
-import Chainweb.CutDB
 import Chainweb.RestAPI.NetworkID
 import Chainweb.RestAPI.Orphans ()
-import Chainweb.RestAPI.Utils
-import Chainweb.TreeDB (MaxRank(..))
-import Chainweb.Version
 import Chainweb.Version.Utils
 
 import P2P.Node.PeerDB

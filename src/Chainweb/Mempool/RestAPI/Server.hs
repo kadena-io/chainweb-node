@@ -12,8 +12,6 @@ module Chainweb.Mempool.RestAPI.Server
   ) where
 
 ------------------------------------------------------------------------------
-import Control.DeepSeq (NFData)
-import Control.Exception.Safe hiding (Handler)
 import Control.Monad.IO.Class
 import Servant
 
