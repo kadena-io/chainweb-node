@@ -206,7 +206,7 @@ testCw217CoinOnly iobdb _rewindM = (go, go')
   where
     go = do
       initPayloadState
-      void $ doNextCoinbaseN_ 9 iobdb
+      void $ doNextCoinbaseN_ 8 iobdb
 
     go' ioa initCache = do
       snapshotCache ioa initCache
