@@ -5,9 +5,6 @@ debug-info: True
 -- -------------------------------------------------------------------------- --
 -- Package Specific Build Settings
 
-profiling: True
-profiling-detail: all-functions
-
 package chainweb
     tests: True
     benchmarks: True
