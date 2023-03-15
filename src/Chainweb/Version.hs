@@ -295,8 +295,13 @@ upgrade txs = Upgrade txs False
 -- `Chainweb.Version.Testnet`, `Chainweb.Version.Development`, and
 -- `Chainweb.Test.TestVersions`.
 --
--- NOTE: non of the fields should be strict!
--- FIXME: provide a reason
+-- NOTE: none of the fields should be strict at any level, because of how we
+-- use them in `Chainweb.Test.TestVersions`. However, all versions are
+-- evaluated to normal form by `Chainweb.Version.Registry` before use. We also
+-- explicitly produce lazy optics which are required by
+-- `Chainweb.Test.TestVersions`. Only the mutation side of the optics is lazy,
+-- and mutating a chainweb version during normal operation of a node is
+-- completely illegal.
 --
 data ChainwebVersion
     = ChainwebVersion

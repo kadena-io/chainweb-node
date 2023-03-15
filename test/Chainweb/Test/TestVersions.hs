@@ -5,8 +5,7 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 
 module Chainweb.Test.TestVersions
-    ( legalizeTestVersion
-    , barebonesTestVersion
+    ( barebonesTestVersion
     , fastForkingCpmTestVersion
     , noBridgeCpmTestVersion
     , slowForkingCpmTestVersion
@@ -66,43 +65,51 @@ testBootstrapPeerInfos =
 
 type VersionBuilder = ChainwebVersion -> ChainwebVersion
 
-legalizeTestVersion :: VersionBuilder -> ChainwebVersion
-legalizeTestVersion f = unsafePerformIO $ do
-    let v = f v
-    registerVersion v
-    return v
+-- | Executes a `VersionBuilder` to build a `ChainwebVersion`, by taking its
+-- fixed point. Additionally registers it in the global version registry.
+buildTestVersion :: VersionBuilder -> ChainwebVersion
+buildTestVersion f =
+    unsafeDupablePerformIO (v <$ registerVersion v) & versionName .~ v ^. versionName
+    where
+    v = f v
 
--- | All chainweb versions used in tests *must* be included in this list to be assigned
--- a version code, and also registered via legalizeTestVersion into the version registry.
--- Failure to do so will result in runtime errors.
-testRegistry :: [ChainwebVersionName]
-testRegistry = concat
-    [ [ _versionName $ fastForkingCpmTestVersion' (knownChainGraph g) undefined
+-- | All testing `ChainwebVersion`s *must* have unique names and must be
+-- included in this list to be assigned a version code, and also registered via
+-- `buildTestVersion` into the global version registry. Failure to do so will
+-- result in runtime errors from `Chainweb.Version.Registry`.
+testVersions :: [ChainwebVersionName]
+testVersions = _versionName <$> concat
+    [ [ fastForkingCpmTestVersion (knownChainGraph g)
       | g :: KnownGraph <- [minBound..maxBound]
       ]
-    , [ _versionName $ slowForkingCpmTestVersion' (knownChainGraph g) undefined
+    , [ slowForkingCpmTestVersion (knownChainGraph g)
       | g :: KnownGraph <- [minBound..maxBound]
       ]
-    , [ _versionName $ barebonesTestVersion' (knownChainGraph g) undefined
+    , [ barebonesTestVersion (knownChainGraph g)
       | g :: KnownGraph <- [minBound..maxBound]
       ]
-    , [ _versionName $ noBridgeCpmTestVersion' (knownChainGraph g) undefined
+    , [ noBridgeCpmTestVersion (knownChainGraph g)
       | g :: KnownGraph <- [minBound..maxBound]
       ]
-    , [ _versionName $ timedConsensusVersion' (knownChainGraph g1) (knownChainGraph g2) undefined
+    , [ timedConsensusVersion (knownChainGraph g1) (knownChainGraph g2)
       | g1 :: KnownGraph <- [minBound..maxBound]
       , g2 :: KnownGraph <- [minBound..maxBound]
       ]
     ]
 
+-- | Details common to all test versions thus far.
+-- Using this, a `ChainwebVersion`'s `versionCode` is set to the version's
+-- index in `testVersions`, to ensure that all test versions have unique codes
+-- in the global version registry in `Chainweb.Version.Registry`.
 testVersionTemplate :: VersionBuilder
 testVersionTemplate v = v
-    & versionCode .~ ChainwebVersionCode (int (fromJuste $ List.findIndex (\vn -> vn == _versionName v) testRegistry) + 0x80000000)
+    & versionCode .~ ChainwebVersionCode (int (fromJuste $ List.elemIndex (_versionName v) testVersions) + 0x80000000)
     & versionHeaderBaseSizeBytes .~ 318 - 110
     & versionWindow .~ WindowWidth 120
     & versionMaxBlockGasLimit .~ End (Just 2_000_000)
     & versionBootstraps .~ [testBootstrapPeerInfos]
 
+-- | A set of fork heights which are relatively fast, but not fast enough to break anything.
 fastForks :: HashMap Fork (ChainMap BlockHeight)
 fastForks = tabulateHashMap $ \case
     Pact420 -> AllChains (BlockHeight 0)
@@ -129,11 +136,9 @@ fastForks = tabulateHashMap $ \case
     Chainweb217Pact -> AllChains (BlockHeight 20)
     Chainweb218Pact -> AllChains (BlockHeight 21)
 
+-- | A test version without Pact or PoW, with only one chain graph.
 barebonesTestVersion :: ChainGraph -> ChainwebVersion
-barebonesTestVersion g = legalizeTestVersion (barebonesTestVersion' g)
-
-barebonesTestVersion' :: ChainGraph -> VersionBuilder
-barebonesTestVersion' g v =
+barebonesTestVersion g = buildTestVersion $ \v ->
     testVersionTemplate v
         & versionWindow .~ WindowWidth 120
         & versionBlockRate .~ BlockRate 1_000_000
@@ -156,8 +161,41 @@ barebonesTestVersion' g v =
         & versionForks .~ HM.fromList [ (f, AllChains $ BlockHeight 0) | f <- [minBound..maxBound] ]
         & versionUpgrades .~ AllChains HM.empty
 
+-- | A test version without Pact or PoW, with a chain graph upgrade at block height 8.
+timedConsensusVersion :: ChainGraph -> ChainGraph -> ChainwebVersion
+timedConsensusVersion g1 g2 = buildTestVersion $ \v -> v
+    & testVersionTemplate
+    & versionName .~ ChainwebVersionName ("timedConsensus-" <> toText g1 <> "-" <> toText g2)
+    & versionBlockRate .~ BlockRate 1_000_000
+    & versionWindow .~ WindowWidth 120
+    & versionForks .~ tabulateHashMap (\case
+        SkipTxTimingValidation -> AllChains (BlockHeight 2)
+        -- pact is disabled, we don't care about pact forks
+        _ -> AllChains (BlockHeight 0)
+    )
+    & versionUpgrades .~ AllChains HM.empty
+    & versionGraphs .~ Above (BlockHeight 8, g2) (End g1)
+    & versionCheats .~ VersionCheats
+        { _disablePow = True
+        , _fakeFirstEpochStart = True
+        , _disablePact = True
+        }
+    & versionDefaults .~ VersionDefaults
+        { _disableMempoolSync = True
+        , _disablePeerValidation = True
+        }
+    & versionGenesis .~ VersionGenesis
+        { _genesisBlockPayload = onChains $
+            (unsafeChainId 0, TN0.payloadBlock) :
+            [(n, TNN.payloadBlock) | n <- HS.toList (unsafeChainId 0 `HS.delete` chainIds v)]
+        , _genesisBlockTarget = AllChains maxTarget
+        , _genesisTime = AllChains $ BlockCreationTime epoch
+        }
+
+-- | A family of versions each with Pact enabled and PoW disabled.
 cpmTestVersion :: ChainGraph -> VersionBuilder
 cpmTestVersion g v = v
+    & testVersionTemplate
     & versionWindow .~ WindowWidth 120
     & versionBlockRate .~ BlockRate (Micros 100_000)
     & versionGraphs .~ End g
@@ -186,88 +224,49 @@ cpmTestVersion g v = v
             ])
         (onChains [(unsafeChainId 3, HM.singleton (BlockHeight 2) (Upgrade MNKAD.transactions False))])
 
+-- | CPM version (see `cpmTestVersion`) with forks and upgrades slowly enabled.
 slowForkingCpmTestVersion :: ChainGraph -> ChainwebVersion
-slowForkingCpmTestVersion g = legalizeTestVersion (slowForkingCpmTestVersion' g)
+slowForkingCpmTestVersion g = buildTestVersion $ \v -> v
+    & cpmTestVersion g
+    & versionName .~ ChainwebVersionName ("slowfork-CPM-" <> toText g)
+    & versionForks .~ HM.fromList
+        [ (SlowEpoch, AllChains (BlockHeight 0))
+        , (OldTargetGuard, AllChains (BlockHeight 0))
+        , (SkipFeatureFlagValidation, AllChains (BlockHeight 0))
+        , (OldDAGuard, AllChains (BlockHeight 0))
+        , (Vuln797Fix, AllChains (BlockHeight 0))
+        , (PactBackCompat_v16, AllChains (BlockHeight 0))
+        , (SPVBridge, AllChains (BlockHeight 0))
+        , (Pact44NewTrans, AllChains (BlockHeight 0))
+        , (CoinV2, AllChains (BlockHeight 1))
+        , (SkipTxTimingValidation, AllChains (BlockHeight 2))
+        , (ModuleNameFix, AllChains (BlockHeight 2))
+        , (ModuleNameFix2, AllChains (BlockHeight 2))
+        , (Pact420, AllChains (BlockHeight 5))
+        , (CheckTxHash, AllChains (BlockHeight 7))
+        , (EnforceKeysetFormats, AllChains (BlockHeight 10))
+        , (PactEvents, AllChains (BlockHeight 10))
+        , (Pact4Coin3, AllChains (BlockHeight 20))
+        , (Chainweb213Pact, AllChains (BlockHeight 26))
+        , (Chainweb214Pact, AllChains (BlockHeight 30))
+        , (Chainweb215Pact, AllChains (BlockHeight 35))
+        , (Chainweb216Pact, AllChains (BlockHeight 53))
+        , (Chainweb217Pact, AllChains (BlockHeight 55))
+        , (Chainweb218Pact, AllChains (BlockHeight 60))
+        ]
 
-slowForkingCpmTestVersion' :: ChainGraph -> VersionBuilder
-slowForkingCpmTestVersion' g v =
-    cpmTestVersion g (testVersionTemplate v)
-        & versionName .~ ChainwebVersionName ("slowfork-CPM-" <> toText g)
-        & versionForks .~ HM.fromList
-            [ (SlowEpoch, AllChains (BlockHeight 0))
-            , (OldTargetGuard, AllChains (BlockHeight 0))
-            , (SkipFeatureFlagValidation, AllChains (BlockHeight 0))
-            , (OldDAGuard, AllChains (BlockHeight 0))
-            , (Vuln797Fix, AllChains (BlockHeight 0))
-            , (PactBackCompat_v16, AllChains (BlockHeight 0))
-            , (SPVBridge, AllChains (BlockHeight 0))
-            , (Pact44NewTrans, AllChains (BlockHeight 0))
-            , (CoinV2, AllChains (BlockHeight 1))
-            , (SkipTxTimingValidation, AllChains (BlockHeight 2))
-            , (ModuleNameFix, AllChains (BlockHeight 2))
-            , (ModuleNameFix2, AllChains (BlockHeight 2))
-            , (Pact420, AllChains (BlockHeight 5))
-            , (CheckTxHash, AllChains (BlockHeight 7))
-            , (EnforceKeysetFormats, AllChains (BlockHeight 10))
-            , (PactEvents, AllChains (BlockHeight 10))
-            , (Pact4Coin3, AllChains (BlockHeight 20))
-            , (Chainweb213Pact, AllChains (BlockHeight 26))
-            , (Chainweb214Pact, AllChains (BlockHeight 30))
-            , (Chainweb215Pact, AllChains (BlockHeight 35))
-            , (Chainweb216Pact, AllChains (BlockHeight 53))
-            , (Chainweb217Pact, AllChains (BlockHeight 55))
-            , (Chainweb218Pact, AllChains (BlockHeight 60))
-            ]
-
+-- | CPM version (see `cpmTestVersion`) with forks and upgrades quickly enabled.
 fastForkingCpmTestVersion :: ChainGraph -> ChainwebVersion
-fastForkingCpmTestVersion g = legalizeTestVersion (fastForkingCpmTestVersion' g)
+fastForkingCpmTestVersion g = buildTestVersion $ \v -> v
+    & cpmTestVersion g
+    & versionName .~ ChainwebVersionName ("fastfork-CPM-" <> toText g)
+    & versionForks .~ fastForks
 
-fastForkingCpmTestVersion' :: ChainGraph -> VersionBuilder
-fastForkingCpmTestVersion' g v =
-    cpmTestVersion g (testVersionTemplate v)
-        & versionName .~ ChainwebVersionName ("fastfork-CPM-" <> toText g)
-        & versionForks .~ fastForks
-
+-- | CPM version (see `cpmTestVersion`) with forks and upgrades quickly enabled
+-- but with no SPV bridge.
 noBridgeCpmTestVersion :: ChainGraph -> ChainwebVersion
-noBridgeCpmTestVersion g = legalizeTestVersion (noBridgeCpmTestVersion' g)
-
-noBridgeCpmTestVersion' :: ChainGraph -> VersionBuilder
-noBridgeCpmTestVersion' g v =
-    cpmTestVersion g (testVersionTemplate v)
-        & versionName .~ ChainwebVersionName ("nobridge-CPM-" <> toText g)
-        & versionForks .~ (fastForks & at SPVBridge ?~ AllChains maxBound)
-
-timedConsensusVersion :: ChainGraph -> ChainGraph -> ChainwebVersion
-timedConsensusVersion g1 g2 = legalizeTestVersion (timedConsensusVersion' g1 g2)
-
-timedConsensusVersion' :: ChainGraph -> ChainGraph -> VersionBuilder
-timedConsensusVersion' g1 g2 v =
-    testVersionTemplate v
-        & versionName .~ ChainwebVersionName ("timedConsensus-" <> toText g1 <> "-" <> toText g2)
-        & versionBlockRate .~ BlockRate 1_000_000
-        & versionWindow .~ WindowWidth 120
-        & versionForks .~ tabulateHashMap (\case
-            SkipTxTimingValidation -> AllChains (BlockHeight 2)
-            -- pact is disabled, we don't care about pact forks
-            _ -> AllChains (BlockHeight 0)
-        )
-        & versionUpgrades .~ AllChains HM.empty
-        & versionWindow .~ WindowWidth 120
-        & versionGraphs .~ Above (BlockHeight 8, g2) (End g1)
-        & versionCheats .~ VersionCheats
-            { _disablePow = True
-            , _fakeFirstEpochStart = True
-            , _disablePact = True
-            }
-        & versionDefaults .~ VersionDefaults
-            { _disableMempoolSync = True
-            , _disablePeerValidation = True
-            }
-        & versionGenesis .~ VersionGenesis
-            { _genesisBlockPayload = onChains $
-                (unsafeChainId 0, TN0.payloadBlock) :
-                [(n, TNN.payloadBlock) | n <- HS.toList (unsafeChainId 0 `HS.delete` chainIds v)]
-            , _genesisBlockTarget = AllChains maxTarget
-            , _genesisTime = AllChains $ BlockCreationTime epoch
-            }
+noBridgeCpmTestVersion g = buildTestVersion $ \v -> v
+    & cpmTestVersion g
+    & versionName .~ ChainwebVersionName ("nobridge-CPM-" <> toText g)
+    & versionForks .~ (fastForks & at SPVBridge ?~ AllChains maxBound)
 
