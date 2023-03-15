@@ -798,9 +798,9 @@ prop_block_adjacent_parents (WebStep as (ChainStep _ b))
 
 prop_block_adjacent_parents_version :: WebStep -> Bool
 prop_block_adjacent_parents_version (WebStep as (ChainStep _ b))
-    = all ((== v) . _chainwebVersion . _parentHeader) as
+    = all ((== v) . _blockChainwebVersion . _parentHeader) as
   where
-    v = _chainwebVersion b
+    v = _blockChainwebVersion b
 
 -- | TODO: we don't current check this here. It is enforced in the cut merge
 -- algorithm , namely in 'monotonicCutExtension'. The property that is checked
