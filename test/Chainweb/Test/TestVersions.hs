@@ -153,13 +153,8 @@ barebonesTestVersion' g v =
             , _genesisBlockTarget = AllChains maxTarget
             , _genesisTime = AllChains $ BlockCreationTime epoch
             }
-        & versionForks .~ fastForks
-        & versionUpgrades .~ forkUpgrades v
-            [ (CoinV2, AllChains (upgrade Other.transactions))
-            , (Pact4Coin3, AllChains (upgrade CoinV3.transactions))
-            , (Chainweb214Pact, AllChains (upgrade CoinV4.transactions))
-            , (Chainweb215Pact, AllChains (upgrade CoinV5.transactions))
-            ]
+        & versionForks .~ HM.fromList [ (f, AllChains $ BlockHeight 0) | f <- [minBound..maxBound] ]
+        & versionUpgrades .~ AllChains HM.empty
 
 cpmTestVersion :: ChainGraph -> VersionBuilder
 cpmTestVersion g v = v
