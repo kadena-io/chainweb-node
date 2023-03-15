@@ -18,8 +18,6 @@
 -- Maintainer: Lars Kuhtz <lars@kadena.io>
 -- Stability: experimental
 --
--- TODO
---
 module Chainweb.Chainweb.Configuration
 (
 -- * Throttling Configuration

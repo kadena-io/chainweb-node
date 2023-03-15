@@ -454,7 +454,7 @@ instance SingKind ChainwebVersionT where
         SomeChainwebVersionT p -> SomeSing (singByProxy p)
 
 pattern FromSingChainwebVersion :: Sing (n :: ChainwebVersionT) -> ChainwebVersion
-pattern FromSingChainwebVersion sng <- ((\v -> withSomeSing (_versionName v) SomeSing) -> SomeSing sng)
+pattern FromSingChainwebVersion sng <- (\v -> withSomeSing (_versionName v) SomeSing -> SomeSing sng)
 {-# COMPLETE FromSingChainwebVersion #-}
 
 -------------------------------------------------------------------------- --

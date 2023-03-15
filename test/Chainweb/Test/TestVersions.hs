@@ -2,8 +2,6 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE RecordWildCards #-}
-{-# LANGUAGE RecursiveDo #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 
 module Chainweb.Test.TestVersions
@@ -242,7 +240,7 @@ noBridgeCpmTestVersion' :: ChainGraph -> VersionBuilder
 noBridgeCpmTestVersion' g v =
     cpmTestVersion g (testVersionTemplate v)
         & versionName .~ ChainwebVersionName ("nobridge-CPM-" <> toText g)
-        & versionForks .~ (fastForks & at SPVBridge .~ Just (AllChains maxBound))
+        & versionForks .~ (fastForks & at SPVBridge ?~ AllChains maxBound)
 
 timedConsensusVersion :: ChainGraph -> ChainGraph -> ChainwebVersion
 timedConsensusVersion g1 g2 = legalizeTestVersion (timedConsensusVersion' g1 g2)
