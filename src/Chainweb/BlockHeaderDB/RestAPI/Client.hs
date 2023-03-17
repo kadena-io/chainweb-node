@@ -74,14 +74,14 @@ headerClient_
     => KnownChainIdSymbol c
     => DbKey BlockHeaderDb
     -> ClientM BlockHeader
-headerClient_ = headerClientContentType_ @v @c @JSON
+headerClient_ = headerClientContentType_ @v @c @OctetStream
 
 headerClient
     :: ChainwebVersion
     -> ChainId
     -> DbKey BlockHeaderDb
     -> ClientM BlockHeader
-headerClient = headerClientJson
+headerClient = headerClientJsonBinary
 
 headerClientContentType_
     :: forall (v :: ChainwebVersionT) (c :: ChainIdT) (ct :: Type) x

@@ -20,10 +20,8 @@ module Chainweb.BlockHeaderDB.RestAPI.Server
 (
   someBlockHeaderDbServer
 , someBlockHeaderDbServers
-
--- * Single Chain Server
-, blockHeaderDbApp
-, blockHeaderDbApiLayout
+, someP2pBlockHeaderDbServer
+, someP2pBlockHeaderDbServers
 
 -- * Header Stream Server
 , someHeaderStreamServer
@@ -45,7 +43,6 @@ import Data.Functor.Of
 import Data.IORef
 import Data.Proxy
 import Data.Text.Encoding (decodeUtf8)
-import qualified Data.Text.IO as T
 
 import Network.Wai.EventSource (ServerEvent(..), eventSourceAppIO)
 
@@ -123,6 +120,9 @@ defaultKeyLimit = 4096
 defaultEntryLimit :: Num a => a
 defaultEntryLimit = 360
 
+p2pEntryLimit :: Num a => a
+p2pEntryLimit = 20
+
 -- | Query Branch Hashes of the database.
 --
 -- Cf. "Chainweb.BlockHeaderDB.RestAPI" for more details
@@ -156,13 +156,15 @@ branchHeadersHandler
     :: TreeDb db
     => ToJSON (DbKey db)
     => db
+    -> Limit
+        -- ^ max limit
     -> Maybe Limit
     -> Maybe (NextItem (DbKey db))
     -> Maybe MinRank
     -> Maybe MaxRank
     -> BranchBounds db
     -> Handler (Page (NextItem (DbKey db)) (DbEntry db))
-branchHeadersHandler db limit next minr maxr bounds = do
+branchHeadersHandler db maxLimit limit next minr maxr bounds = do
     nextChecked <- traverse (traverse $ checkKey db) next
     checkedBounds <- checkBounds db bounds
     liftIO
@@ -171,7 +173,7 @@ branchHeadersHandler db limit next minr maxr bounds = do
             (_branchBoundsUpper checkedBounds)
         $ finiteStreamToPage key effectiveLimit . void
   where
-    effectiveLimit = min defaultEntryLimit <$> (limit <|> Just defaultEntryLimit)
+    effectiveLimit = min maxLimit <$> (limit <|> Just maxLimit)
 
 -- | Every `TreeDb` key within a given range.
 --
@@ -203,18 +205,20 @@ headersHandler
     :: TreeDb db
     => ToJSON (DbKey db)
     => db
+    -> Limit
+        -- ^ max limit
     -> Maybe Limit
     -> Maybe (NextItem (DbKey db))
     -> Maybe MinRank
     -> Maybe MaxRank
     -> Handler (Page (NextItem (DbKey db)) (DbEntry db))
-headersHandler db limit next minr maxr = do
+headersHandler db maxLimit limit next minr maxr = do
     nextChecked <- traverse (traverse $ checkKey db) next
     liftIO
         $ entries db nextChecked (succ <$> effectiveLimit) minr maxr
         $ finitePrefixOfInfiniteStreamToPage key effectiveLimit . void
   where
-    effectiveLimit = min defaultEntryLimit <$> (limit <|> Just defaultEntryLimit)
+    effectiveLimit = min maxLimit <$> (limit <|> Just maxLimit)
 
 -- | Query a single 'BlockHeader' by its 'BlockHash'
 --
@@ -236,32 +240,23 @@ headerHandler db k = liftIO (lookup db k) >>= \case
 -- -------------------------------------------------------------------------- --
 -- BlockHeaderDB API Server
 
+-- Full BlockHeader DB API (used for Service API)
+--
 blockHeaderDbServer :: BlockHeaderDb_ v c -> Server (BlockHeaderDbApi v c)
 blockHeaderDbServer (BlockHeaderDb_ db)
     = hashesHandler db
-    :<|> headersHandler db
+    :<|> headersHandler db defaultEntryLimit
     :<|> headerHandler db
     :<|> branchHashesHandler db
-    :<|> branchHeadersHandler db
+    :<|> branchHeadersHandler db defaultEntryLimit
 
--- -------------------------------------------------------------------------- --
--- Application for a single BlockHeaderDB
-
-blockHeaderDbApp
-    :: forall v c
-    . KnownChainwebVersionSymbol v
-    => KnownChainIdSymbol c
-    => BlockHeaderDb_ v c
-    -> Application
-blockHeaderDbApp db = serve (Proxy @(BlockHeaderDbApi v c)) (blockHeaderDbServer db)
-
-blockHeaderDbApiLayout
-    :: forall v c
-    . KnownChainwebVersionSymbol v
-    => KnownChainIdSymbol c
-    => BlockHeaderDb_ v c
-    -> IO ()
-blockHeaderDbApiLayout _ = T.putStrLn $ layout (Proxy @(BlockHeaderDbApi v c))
+-- Restricted P2P BlockHeader DB API
+--
+p2pBlockHeaderDbServer :: BlockHeaderDb_ v c -> Server (P2pBlockHeaderDbApi v c)
+p2pBlockHeaderDbServer (BlockHeaderDb_ db)
+    = headersHandler db p2pEntryLimit
+    :<|> headerHandler db
+    :<|> branchHeadersHandler db p2pEntryLimit
 
 -- -------------------------------------------------------------------------- --
 -- Multichain Server
@@ -273,6 +268,14 @@ someBlockHeaderDbServer (SomeBlockHeaderDb (db :: BlockHeaderDb_ v c))
 someBlockHeaderDbServers :: ChainwebVersion -> [(ChainId, BlockHeaderDb)] -> SomeServer
 someBlockHeaderDbServers v = mconcat
     . fmap (someBlockHeaderDbServer . uncurry (someBlockHeaderDbVal v))
+
+someP2pBlockHeaderDbServer :: SomeBlockHeaderDb -> SomeServer
+someP2pBlockHeaderDbServer (SomeBlockHeaderDb (db :: BlockHeaderDb_ v c))
+    = SomeServer (Proxy @(P2pBlockHeaderDbApi v c)) (p2pBlockHeaderDbServer db)
+
+someP2pBlockHeaderDbServers :: ChainwebVersion -> [(ChainId, BlockHeaderDb)] -> SomeServer
+someP2pBlockHeaderDbServers v = mconcat
+    . fmap (someP2pBlockHeaderDbServer . uncurry (someBlockHeaderDbVal v))
 
 -- -------------------------------------------------------------------------- --
 -- BlockHeader Event Stream

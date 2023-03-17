@@ -168,9 +168,7 @@ multiConfig v n = defaultChainwebConfiguration v
 
     throttling = defaultThrottlingConfig
         { _throttlingRate = 10_000 -- per second
-        , _throttlingMiningRate = 10_000 --  per second
         , _throttlingPeerRate = 10_000 -- per second, one for each p2p network
-        , _throttlingLocalRate = 10_000  -- per 10 seconds
         }
 
 -- | Configure a bootstrap node

@@ -36,10 +36,9 @@ module Chainweb.Pact.PactService
 
 import Control.Concurrent.Async
 import Control.Concurrent.MVar
-import Control.Exception (SomeAsyncException)
+import Control.Exception.Safe
 import Control.Lens
 import Control.Monad
-import Control.Monad.Catch
 import Control.Monad.Reader
 import Control.Monad.State.Strict
 
@@ -248,7 +247,7 @@ lookupBlockHeader bhash ctx = do
       then return cur
       else do
         bhdb <- view psBlockHeaderDb
-        liftIO $! lookupM bhdb bhash `catchAllSynchronous` \e ->
+        liftIO $ lookupM bhdb bhash `catchAny` \e ->
             throwM $ BlockHeaderLookupFailure $
                 "failed lookup of parent header in " <> ctx <> ": " <> sshow e
 
