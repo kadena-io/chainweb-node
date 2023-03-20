@@ -1030,7 +1030,7 @@ parseOp (Operation i _ typ stat someAcct someAmt _ someMeta) = do
 rosettaTimestamp :: BlockHeader -> Word64
 rosettaTimestamp bh = BA.unLE . BA.toLE $ fromInteger msTime
   where
-    msTime = int $ microTime `div` ms
+    msTime = int @Word64 @Integer $ microTime `div` ms
     TimeSpan ms = millisecond
     microTime = encodeTimeToWord64 $ _bct (_blockCreationTime bh)
 

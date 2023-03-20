@@ -35,6 +35,7 @@ import qualified Data.ByteString as B
 import qualified Data.ByteString.Lazy as BL
 import Data.Foldable
 import Data.Functor.Of
+import Data.Int
 import qualified Data.List as L
 import Data.LogMessage
 import Data.MerkleLog
@@ -57,6 +58,7 @@ import Test.Tasty.QuickCheck
 -- internal modules
 
 import Chainweb.BlockHeader
+import Chainweb.BlockHeight
 import Chainweb.ChainId
 import Chainweb.Crypto.MerkleLog
 import Chainweb.Cut
@@ -291,11 +293,11 @@ spvTest rdb v step = do
 
                 -- return (proof size, block size, height, distance, tx size)
                 return
-                    [ int $ BL.length $ encode proof
-                    , int n
-                    , int $ _blockHeight h
-                    , int $ distance cutDb h trgChain
-                    , int $ B.length (_transactionOutputBytes txOut)
+                    [ int @Int64 @Double $ BL.length $ encode proof
+                    , int @Int @Double n
+                    , int @BlockHeight @Double $ _blockHeight h
+                    , int @Int @Double $ distance cutDb h trgChain
+                    , int @Int @Double $ B.length (_transactionOutputBytes txOut)
                     ]
 
         isReachable <- reachable cutDb h trgChain
@@ -327,7 +329,7 @@ spvTest rdb v step = do
     reachable :: CutDb as -> BlockHeader -> ChainId -> IO Bool
     reachable cutDb h trgChain = do
         m <- maxRank $ cutDb ^?! cutDbBlockHeaderDb trgChain
-        return $ (int m - int (_blockHeight h)) >= distance cutDb h trgChain
+        return $ (int @Natural @Int m - int @BlockHeight @Int (_blockHeight h)) >= distance cutDb h trgChain
 
     -- regression model with @createTransactionOutputProof@. Proof size doesn't
     -- depend on target height.
@@ -458,7 +460,7 @@ txApiTests envIO step = do
 
     step "request transaction proof"
     txProof <- flip runClientM env $
-        spvGetTransactionProofClient v trgChain (_chainId h) (_blockHeight h) (int txIx)
+        spvGetTransactionProofClient v trgChain (_chainId h) (_blockHeight h) (int @Int @Natural txIx)
 
     case txProof of
 
@@ -476,7 +478,7 @@ txApiTests envIO step = do
 
     step "request transaction output proof"
     outProof <- flip runClientM env $
-        spvGetTransactionOutputProofClient v trgChain (_chainId h) (_blockHeight h) (int txIx)
+        spvGetTransactionOutputProofClient v trgChain (_chainId h) (_blockHeight h) (int @Int @Natural txIx)
 
     case outProof of
 

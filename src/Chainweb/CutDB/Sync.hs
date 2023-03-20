@@ -39,6 +39,7 @@ import Chainweb.Cut (_cutHeight, cutMap)
 import Chainweb.Cut.CutHashes
 import Chainweb.CutDB
 import Chainweb.CutDB.RestAPI.Client
+import Chainweb.TreeDB
 import Chainweb.Utils
 import Chainweb.Version
 
@@ -67,7 +68,7 @@ getCut
     :: CutClientEnv
     -> CutHeight
     -> IO CutHashes
-getCut (CutClientEnv v env) h = runClientThrowM (cutGetClientLimit v (int h)) env
+getCut (CutClientEnv v env) h = runClientThrowM (cutGetClientLimit v (int @CutHeight @MaxRank h)) env
 
 -- -------------------------------------------------------------------------- --
 -- Sync Session
@@ -106,7 +107,7 @@ syncSession v p db logg env pinf = do
         -- Query cut that is at most 'catchupStepSize' blocks ahead
         let curHeight = _cutHeight cur
             curChainCount = length $ view cutMap cur
-            limit = curHeight + min catchupStepSize (int farAheadThreshold * int curChainCount - 1)
+            limit = curHeight + min catchupStepSize (int @BlockHeight @CutHeight farAheadThreshold * int @Int @CutHeight curChainCount - 1)
                 -- Cf. documentation of 'farAheadThreshold' for why this bound
                 -- is needed. Note that 'farAheadThreshold' is of type
                 -- 'BlockHeight'. So we multiply it with the (current) number

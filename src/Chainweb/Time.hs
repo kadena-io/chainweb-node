@@ -12,6 +12,7 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE UndecidableInstances #-}
 
 -- |
@@ -174,8 +175,8 @@ addTimeSpan :: Num a => TimeSpan a -> TimeSpan a -> TimeSpan a
 addTimeSpan (TimeSpan a) (TimeSpan b) = TimeSpan (a + b)
 {-# INLINE addTimeSpan #-}
 
-divTimeSpan :: Integral a => Integral b => TimeSpan b -> a -> TimeSpan b
-divTimeSpan (TimeSpan a) s = TimeSpan $ a `div` (int s)
+divTimeSpan :: forall a b. Integral a => Integral b => TimeSpan b -> a -> TimeSpan b
+divTimeSpan (TimeSpan a) s = TimeSpan $ a `div` (int @a @b s)
 {-# INLINE divTimeSpan #-}
 
 -- -------------------------------------------------------------------------- --
@@ -324,8 +325,8 @@ secondsToTimeSpan :: Num a => Seconds -> TimeSpan a
 secondsToTimeSpan (Seconds s) = scaleTimeSpan s second
 {-# INLINE secondsToTimeSpan #-}
 
-timeSpanToSeconds :: Integral a => TimeSpan a -> Seconds
-timeSpanToSeconds (TimeSpan us) = Seconds $! int $ us `div` 1000000
+timeSpanToSeconds :: forall a. Integral a => TimeSpan a -> Seconds
+timeSpanToSeconds (TimeSpan us) = Seconds $! int @a @Int64 $ us `div` 1000000
 {-# INLINE timeSpanToSeconds #-}
 
 secondsToText :: Seconds -> T.Text
@@ -357,8 +358,8 @@ microsToTimeSpan :: Num a => Micros -> TimeSpan a
 microsToTimeSpan (Micros us) = scaleTimeSpan us microsecond
 {-# INLINE microsToTimeSpan #-}
 
-timeSpanToMicros :: Integral a => TimeSpan a -> Micros
-timeSpanToMicros (TimeSpan us) = Micros $! int $ us
+timeSpanToMicros :: forall a. Integral a => TimeSpan a -> Micros
+timeSpanToMicros (TimeSpan us) = Micros $! int @a @Int64 $ us
 {-# INLINE timeSpanToMicros #-}
 
 microsToText :: Micros -> T.Text

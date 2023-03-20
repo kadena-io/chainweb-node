@@ -9,6 +9,7 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE TypeApplications #-}
 
 -- |
 -- Module: Chainweb.Utils.RequestLog
@@ -53,6 +54,7 @@ import qualified Data.CaseInsensitive as CI
 import qualified Data.HashMap.Strict as HM
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
+import Data.Word
 
 import GHC.Generics
 
@@ -135,7 +137,7 @@ logRequest req = RequestLog
     , _requestLogQueryString = queryToQueryText $ queryString req
     , _requestLogBodyLength = case requestBodyLength req of
         ChunkedBody -> Nothing
-        KnownLength x -> Just $ int x
+        KnownLength x -> Just $ int @Word64 @Natural x
     , _requestLogUserAgent = T.decodeUtf8 <$> requestHeaderUserAgent req
     , _requestLogHeaders = HM.fromList $
         bimap (T.decodeUtf8 . CI.original) T.decodeUtf8 <$> (requestHeaders req)
@@ -191,5 +193,5 @@ requestResponseLogger logger app req respond = do
         resTime <- getTime Monotonic
         logFunctionJson logger Info
             $ logRequestResponse reqLog res
-            $ (int $ toNanoSecs $ diffTimeSpec resTime reqTime) `div` 1000
+            $ (int @Integer @Int $ toNanoSecs $ diffTimeSpec resTime reqTime) `div` 1000
         return r

@@ -481,9 +481,9 @@ type family ReqBodyContentTypeNotSupportedMsg ct api where
 bindPortTcp :: Port -> HostPreference -> IO (Port, N.Socket)
 bindPortTcp p interface = do
     (port, sock) <- do
-        socket <- bindPortGen N.Stream (int p) interface
+        socket <- bindPortGen N.Stream (int @Port @Int p) interface
         port <- N.socketPort socket
-        return (int port, socket)
+        return (int @N.PortNumber @Port port, socket)
     N.listen sock (max 2048 N.maxListenQueue)
     return (port, sock)
 

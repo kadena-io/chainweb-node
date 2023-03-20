@@ -228,7 +228,7 @@ cutWeight = to _cutWeight
 {-# INLINE cutWeight #-}
 
 _cutHeight :: Cut -> CutHeight
-_cutHeight = sumOf $ cutHeaders . folded . blockHeight . to int
+_cutHeight = sumOf $ cutHeaders . folded . blockHeight . to (int @BlockHeight @CutHeight)
 
 cutHeight :: Getter Cut CutHeight
 cutHeight = to _cutHeight
@@ -424,7 +424,7 @@ limitCut wdb h c
         then return (Just bh)
         else do
             !db <- getWebBlockHeaderDb wdb cid
-            seekAncestor db bh (min (int $ _blockHeight bh) (int h))
+            seekAncestor db bh (min (int @BlockHeight @Natural $ _blockHeight bh) (int @BlockHeight @Natural h))
         -- this is safe because it's guaranteed that the requested rank is
         -- smaller then the block height of the argument
 
@@ -855,7 +855,7 @@ forkDepth
     -> IO Natural
 forkDepth wdb a b = do
     m <- meet wdb a b
-    return $! int $ max (maxDepth m a) (maxDepth m b)
+    return $! int @BlockHeight @Natural $ max (maxDepth m a) (maxDepth m b)
   where
     maxDepth l u = maximum
         $ (\(_, x, y) -> _blockHeight y - _blockHeight x)

@@ -317,11 +317,11 @@ peerDbSnapshotSTM (PeerDb _ _ _ var) = readTVar var
 {-# INLINE peerDbSnapshotSTM #-}
 
 peerDbSize :: PeerDb -> IO Natural
-peerDbSize (PeerDb _ _ _ var) = int . size <$!> readTVarIO var
+peerDbSize (PeerDb _ _ _ var) = int @Int @Natural . size <$!> readTVarIO var
 {-# INLINE peerDbSize #-}
 
 peerDbSizeSTM :: PeerDb -> STM Natural
-peerDbSizeSTM (PeerDb _ _ _ var) = int . size <$!> readTVar var
+peerDbSizeSTM (PeerDb _ _ _ var) = int @Int @Natural . size <$!> readTVar var
 {-# INLINE peerDbSizeSTM #-}
 
 -- | Adds new 'PeerInfo' values for a given chain id.

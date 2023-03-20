@@ -776,7 +776,7 @@ withElasticsearchBackend mgr esServer key ixName pkgScopes inner = do
         h <- atomically $ readTBQueue queue
 
         -- set timer to 1 second
-        timer <- registerDelay (int elasticSearchBatchDelayMs)
+        timer <- registerDelay (int @Natural @Int elasticSearchBatchDelayMs)
 
         -- Fill the batch
         (remaining, batch) <- go elasticSearchBatchSize (indexAction h) timer

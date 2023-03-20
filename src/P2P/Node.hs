@@ -275,7 +275,7 @@ updateKnownPeerCount node = do
 
 updateActiveCount :: P2pNode -> STM ()
 updateActiveCount node = do
-    active <- int . M.size <$!> readTVar (_p2pNodeSessions node)
+    active <- int @Int @Natural . M.size <$!> readTVar (_p2pNodeSessions node)
     modifyStats (p2pStatsActiveLast .~ active) node
     modifyStats (p2pStatsActiveMax %~ max active) node
 
@@ -567,7 +567,7 @@ findNextPeer conf node = do
         -- Retry if there are more active sessions than the maximum number
         -- of sessions
         --
-        check (int sessionCount < _p2pConfigMaxSessionCount conf)
+        check (int @Int @Natural sessionCount < _p2pConfigMaxSessionCount conf)
 
         let addrs = S.fromList (_peerAddr <$> M.keys sessions)
 

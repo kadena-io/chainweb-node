@@ -1,6 +1,7 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 
 -- |
@@ -230,7 +231,7 @@ test5 rio step = singleForkTest rio step 10 0
 failTest :: IO RocksDb -> Natural -> (String -> IO ()) -> IO ()
 failTest rio n step = withDbs rio $ \_rdb db pdb h -> do
     (f0, _) <- createForks db pdb h
-    delHdr db $ f0 !! (int n)
+    delHdr db $ f0 !! (int @Natural @Int n)
     try (prune db 2) >>= \case
         Left (InternalInvariantViolation{}) -> return ()
         Right x -> assertFailure
@@ -272,7 +273,7 @@ testPruneWithChecks rio checks step = withDbs rio $ \rdb db pdb h -> do
 failIntrinsicCheck :: IO RocksDb -> [PruningChecks] -> Natural -> (String -> IO ()) -> IO ()
 failIntrinsicCheck rio checks n step = withDbs rio $ \rdb bdb pdb h -> do
     (f0, _) <- createForks bdb pdb h
-    let b = f0 !! int n
+    let b = f0 !! int @Natural @Int n
     delHdr bdb b
     unsafeInsertBlockHeaderDb bdb $ b { _blockChainwebVersion = Development }
     try (pruneAllChains logger rdb toyVersion checks) >>= \case
@@ -304,7 +305,7 @@ failPayloadCheck :: IO RocksDb -> [PruningChecks] -> Natural -> (String -> IO ()
 failPayloadCheck rio checks n step = withDbs rio $ \rdb bdb pdb h -> do
     (f0, _) <- createForks bdb pdb h
     let db = _transactionDbBlockPayloads $ _transactionDb pdb
-    tableDelete db (_blockPayloadHash $ f0 !! int n)
+    tableDelete db (_blockPayloadHash $ f0 !! int @Natural @Int n)
     try (pruneAllChains logger rdb toyVersion checks) >>= \case
         Left (MissingPayloadException{}) -> return ()
         Left e -> assertFailure
@@ -325,7 +326,7 @@ failPayloadCheck rio checks n step = withDbs rio $ \rdb bdb pdb h -> do
 failPayloadCheck2 :: IO RocksDb -> [PruningChecks] -> Natural -> (String -> IO ()) -> IO ()
 failPayloadCheck2 rio checks n step = withDbs rio $ \rdb bdb pdb h -> do
     (f0, _) <- createForks bdb pdb h
-    let b = f0 !! int n
+    let b = f0 !! int @Natural @Int n
     payload <- casLookupM pdb (_blockPayloadHash b)
     tableDelete (_transactionDbBlockTransactions $ _transactionDb pdb)
         $ _payloadWithOutputsTransactionsHash payload

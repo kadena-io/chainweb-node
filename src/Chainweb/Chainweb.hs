@@ -769,7 +769,7 @@ runChainweb cw = do
 
     serviceApiServerSettings :: Port -> HostPreference -> Settings
     serviceApiServerSettings port interface = defaultSettings
-        & setPort (int port)
+        & setPort (int @Port @Int port)
         & setHost interface
         & setOnException
             (\r e -> when (defaultShouldDisplayException e) (logg Warn $ loggServiceApiServerError r e))

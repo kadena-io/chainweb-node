@@ -184,7 +184,7 @@ serveP2pOnPort
     -> ChainwebVersion
     -> [(NetworkId, PeerDb)]
     -> IO ()
-serveP2pOnPort p v = run (int p) . someServerApplication . someP2pServers v
+serveP2pOnPort p v = run (int @Port @Int p) . someServerApplication . someP2pServers v
 
 serveP2pSocket
     :: Settings

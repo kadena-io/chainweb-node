@@ -201,7 +201,7 @@ instance Arbitrary ChainwebVersion where
 
 instance MerkleHashAlgorithm a => Arbitrary (MerkleLogHash a) where
     arbitrary = unsafeMerkleLogHash . B.pack
-        <$> vector (int merkleLogHashBytesCount)
+        <$> vector (int @Natural @Int merkleLogHashBytesCount)
 
 -- A somewhat boring instance. Mostly the default value.
 --
@@ -215,7 +215,7 @@ instance Arbitrary PowHashNat where
     arbitrary = powHashNat <$> arbitrary
 
 instance Arbitrary PowHash where
-    arbitrary = unsafeMkPowHash <$> arbitraryBytes (int powHashBytesCount)
+    arbitrary = unsafeMkPowHash <$> arbitraryBytes (int @Natural @Int powHashBytesCount)
 
 instance Arbitrary HashTarget where
     arbitrary = HashTarget <$> arbitrary
@@ -802,7 +802,7 @@ instance (Arbitrary a, Arbitrary b) => Arbitrary (Page a b) where
 
 arbitraryPage :: Arbitrary a => Arbitrary b => Natural -> Gen (Page a b)
 arbitraryPage n = Page (Limit n)
-    <$> vector (int n)
+    <$> vector (int @Natural @Int n)
     <*> arbitrary
 
 -- -------------------------------------------------------------------------- --

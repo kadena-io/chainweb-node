@@ -1,6 +1,7 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeApplications #-}
 
 -- |
 -- Module: Chainweb.Test.Utils.ApiQueries
@@ -104,7 +105,7 @@ getHeaderByHeight mgr v cid height = do
   where
     query b = branchHeadersClient v cid (Just 1) Nothing
         Nothing
-        (Just $ int height)
+        (Just $ int @BlockHeight @MaxRank height)
         (BranchBounds mempty $ HS.singleton (UpperBound b))
 
 currentHash

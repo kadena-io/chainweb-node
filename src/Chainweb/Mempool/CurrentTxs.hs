@@ -1,6 +1,7 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeApplications #-}
 
 -- |
 -- Module: Chainweb.Mempool.CurrentTxs
@@ -139,7 +140,7 @@ pruneCurrentTxs (CurrentTxs s) = do
     -- room for the new entry. For performance reasons we delete elements in
     -- chunks of 1000.
     --
-    indexesToBeDeleted <- if l >= int maxCurrentTxsSize
+    indexesToBeDeleted <- if l >= int @Natural @Int maxCurrentTxsSize
       then
         -- The following terminates because n <= l
         --
@@ -147,7 +148,7 @@ pruneCurrentTxs (CurrentTxs s) = do
         -- expected running time is for @1000 == maxCurrentTxsSize@, which still
         -- is very fast.
         --
-        let n = min l (max 1000 (l - int maxCurrentTxsSize))
+        let n = min l (max 1000 (l - int @Natural @Int maxCurrentTxsSize))
         in take n . L.nub . randomRs (0, l-1) <$> newStdGen
       else return []
 

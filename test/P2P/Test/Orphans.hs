@@ -1,5 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeApplications #-}
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 
 -- |
@@ -15,6 +16,8 @@ module P2P.Test.Orphans
 
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Char8 as B8
+
+import Numeric.Natural
 
 import Test.QuickCheck
 
@@ -57,7 +60,7 @@ arbitraryPeerInfo :: Gen PeerInfo
 arbitraryPeerInfo = PeerInfo <$> arbitrary <*> arbitrary
 
 instance Arbitrary PeerId where
-    arbitrary = PeerId . B.pack <$> vector (int fingerprintByteCount)
+    arbitrary = PeerId . B.pack <$> vector (int @Natural @Int fingerprintByteCount)
 
 instance Arbitrary PeerInfo where
     arbitrary = arbitraryPeerInfo

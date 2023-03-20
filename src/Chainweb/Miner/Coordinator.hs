@@ -258,8 +258,8 @@ publish lf cdb pwVar miner pd s = do
                         _payloadDataTransactions pd
             lf Info $ JsonLog $ NewMinedBlock
                 { _minedBlockHeader = ObjectEncoded bh
-                , _minedBlockTrans = int . V.length $ _payloadDataTransactions pd
-                , _minedBlockSize = int bytes
+                , _minedBlockTrans = int @Int @Word . V.length $ _payloadDataTransactions pd
+                , _minedBlockSize = int @Int @Word bytes
                 , _minedBlockMiner = _minerId miner
                 , _minedBlockDiscoveredAt = now
                 }

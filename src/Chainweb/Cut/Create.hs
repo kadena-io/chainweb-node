@@ -75,6 +75,8 @@ import qualified Data.Text as T
 import GHC.Generics
 import GHC.Stack
 
+import Numeric.Natural
+
 -- internal modules
 
 import Chainweb.BlockCreationTime
@@ -266,7 +268,7 @@ decodeWorkHeader :: ChainwebVersion -> BlockHeight -> Get WorkHeader
 decodeWorkHeader ver h = WorkHeader
     <$> decodeChainId
     <*> decodeHashTarget
-    <*> (SB.toShort <$> getByteString (int $ workSizeBytes ver h))
+    <*> (SB.toShort <$> getByteString (int @Natural @Int $ workSizeBytes ver h))
 
 -- | Create work header for cut
 --

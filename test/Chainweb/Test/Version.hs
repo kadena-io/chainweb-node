@@ -1,6 +1,7 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeApplications #-}
 
 -- |
 -- Module: Chainweb.Test.Version
@@ -18,6 +19,8 @@ module Chainweb.Test.Version
 import qualified Data.ByteString as B
 import Data.Foldable
 import qualified Data.List.NonEmpty as NE
+
+import Numeric.Natural
 
 import Test.QuickCheck
 import Test.Tasty (testGroup, TestTree)
@@ -109,7 +112,7 @@ prop_headerBaseSizeBytes v = property $ do
     let genHdr = genesisBlockHeader v cid
         gen = runPutS $ encodeBlockHeader genHdr
         as = runPutS $ encodeBlockHashRecord (_blockAdjacentHashes genHdr)
-    return $ headerBaseSizeBytes v === int (B.length gen - B.length as)
+    return $ headerBaseSizeBytes v === int @Int @Natural (B.length gen - B.length as)
 
 prop_headerSizes_sorted :: ChainwebVersion -> Property
 prop_headerSizes_sorted v
@@ -127,7 +130,7 @@ prop_headerSizeBytes_gen :: ChainwebVersion -> Property
 prop_headerSizeBytes_gen v = property $ do
     cid <- elements $ toList $ chainIds v
     let hdr = genesisBlockHeader v cid
-        l = int $ B.length $ runPutS $ encodeBlockHeader $ hdr
+        l = int @Int @Natural $ B.length $ runPutS $ encodeBlockHeader $ hdr
     return
         $ counterexample ("chain: " <> sshow cid)
         $ headerSizeBytes v cid (_blockHeight hdr) === l
@@ -135,7 +138,7 @@ prop_headerSizeBytes_gen v = property $ do
 prop_headerSizeBytes :: ChainwebVersion -> Property
 prop_headerSizeBytes v = property $ do
     h <- arbitraryBlockHeaderVersion v
-    let l = int $ B.length $ runPutS $ encodeBlockHeader h
+    let l = int @Int @Natural $ B.length $ runPutS $ encodeBlockHeader h
     return
         $ counterexample ("header: " <> sshow h)
         $ headerSizeBytes (_chainwebVersion h) (_blockChainId h) (_blockHeight h) === l
@@ -146,7 +149,7 @@ prop_workSizeBytes v = property $ do
     if (_blockHeight h == genesisHeight v (_chainId h))
       then discard
       else do
-        let l = int $ B.length $ runPutS $ encodeBlockHeaderWithoutHash h
+        let l = int @Int @Natural $ B.length $ runPutS $ encodeBlockHeaderWithoutHash h
         return
             $ counterexample ("header: " <> sshow h)
             $ workSizeBytes (_chainwebVersion h) (_blockHeight h) === l

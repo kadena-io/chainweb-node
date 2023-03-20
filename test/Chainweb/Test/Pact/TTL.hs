@@ -15,6 +15,7 @@ import Control.Lens (set)
 import Control.Monad
 import Control.Monad.Catch
 
+import Data.Int
 import qualified Data.Vector as V
 
 import Pact.Types.ChainMeta
@@ -48,6 +49,8 @@ import Chainweb.Version
 import Chainweb.Version.Utils
 
 import Chainweb.Storage.Table.RocksDB
+
+import Pact.Parse(ParsedInteger)
 
 -- -------------------------------------------------------------------------- --
 -- Settings
@@ -179,7 +182,7 @@ modAtTtl :: (Time Micros -> Time Micros) -> Seconds -> MemPoolAccess
 modAtTtl f (Seconds t) = mempty
     { mpaGetBlock = \_ validate bh hash ph -> do
         let txTime = toTxCreationTime $ f $ _bct $ _blockCreationTime ph
-            tt = TTLSeconds (int t)
+            tt = TTLSeconds (int @Int64 @ParsedInteger t)
         outtxs <- fmap V.singleton $ buildCwCmd
           $ set cbCreationTime txTime
           $ set cbTTL tt

@@ -70,6 +70,7 @@ import qualified Data.HashMap.Strict as HM
 import qualified Data.List as L
 import qualified Data.Text as T
 import qualified Data.Vector as V
+import Data.Word
 
 import GHC.Generics hiding (to)
 
@@ -195,7 +196,7 @@ instance Each BlockHashRecord BlockHashRecord BlockHash BlockHash where
 
 encodeBlockHashRecord :: BlockHashRecord -> Put
 encodeBlockHashRecord (BlockHashRecord r) = do
-    putWord16le (int $ length r)
+    putWord16le (int @Int @Word16 $ length r)
     traverse_ (bimapM_ encodeChainId encodeBlockHash) $ L.sort $ HM.toList r
 
 decodeBlockHashWithChainId
@@ -205,7 +206,7 @@ decodeBlockHashWithChainId = (,) <$!> decodeChainId <*> decodeBlockHash
 decodeBlockHashRecord :: Get BlockHashRecord
 decodeBlockHashRecord = do
     l <- getWord16le
-    hashes <- replicateM (int l) decodeBlockHashWithChainId
+    hashes <- replicateM (int @Word16 @Int l) decodeBlockHashWithChainId
     return $ BlockHashRecord $! HM.fromList hashes
 
 decodeBlockHashWithChainIdChecked
@@ -223,8 +224,8 @@ decodeBlockHashRecordChecked
     => Expected [p]
     -> Get BlockHashRecord
 decodeBlockHashRecordChecked ps = do
-    (l :: Natural) <- int <$!> getWord16le
-    void $ check ItemCountDecodeException (int . length <$> ps) (Actual l)
+    l <- int @Word16 @Natural <$!> getWord16le
+    void $ check ItemCountDecodeException (int @Int @Natural . length <$> ps) (Actual l)
     hashes <- mapM decodeBlockHashWithChainIdChecked (Expected <$!> getExpected ps)
     return $! BlockHashRecord $! HM.fromList hashes
 

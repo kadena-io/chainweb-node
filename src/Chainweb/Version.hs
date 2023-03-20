@@ -660,7 +660,7 @@ blockRate FastTimedCPM{} = BlockRate 1
 -- 120 blocks per hour, 2,880 per day, 20,160 per week, 1,048,320 per year.
 blockRate Testnet04 = BlockRate 30
 blockRate Mainnet01 = BlockRate 30
-blockRate Development = BlockRate $ maybe 30 int customeDevnetRate
+blockRate Development = BlockRate $ maybe 30 (int @Int @Seconds) customeDevnetRate
 
 customeDevnetRate :: Maybe Int
 customeDevnetRate =

@@ -1,6 +1,7 @@
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE StandaloneDeriving #-}
+{-# LANGUAGE TypeApplications #-}
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 
 
@@ -33,5 +34,5 @@ instance Arbitrary a => Arbitrary (TimeSpan a) where
     arbitrary = TimeSpan <$> arbitrary
 
 instance Arbitrary Seconds where
-    arbitrary = int <$> (arbitrary :: Gen Integer)
+    arbitrary = int @Integer @Seconds <$> (arbitrary :: Gen Integer)
 

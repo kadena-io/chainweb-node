@@ -2,6 +2,7 @@
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE PatternSynonyms #-}
+{-# LANGUAGE TypeApplications #-}
 
 -- |
 -- Module: Chainweb.Test.RestAPI
@@ -381,7 +382,7 @@ pagingTest name getDbItems getKey fin request envIO = testGroup name
         let l = len ents
         res <- flip runClientM env
             $ forM_ [0 .. (l-1)] $ \i -> forM_ [0 .. (l+2-i)] $ \j -> do
-                let es = drop (int i) ents
+                let es = drop (int @Limit @Int i) ents
                 session step es cid (Just j) (Just . Inclusive . getKey . head $ es)
         assertBool ("test limit and next failed: " <> sshow res) (isRight res)
 
@@ -396,10 +397,10 @@ pagingTest name getDbItems getKey fin request envIO = testGroup name
         void $ liftIO $ step $ "limit " <> sshow n <> ", next " <> sshow next
         r <- request cid n next
         assertExpectation "result has wrong page 'limit' value"
-            (Expected . maybe id min n . int $ length ents)
+            (Expected . maybe id min n . int  @Int @Limit $ length ents)
             (Actual $ _pageLimit r)
         assertExpectation "result contains wrong page 'items'"
-            (Expected . maybe id (take . int) n $ ents)
+            (Expected . maybe id (take . int @Limit @Int) n $ ents)
             (Actual $ _pageItems r)
         assertExpectation "result contains wrong page 'next' value"
             (Expected $ expectedNext ents n)
@@ -409,13 +410,13 @@ pagingTest name getDbItems getKey fin request envIO = testGroup name
 
     -- Finite case
     expectedNextFin _ Nothing = Nothing
-    expectedNextFin ents (Just n) = Inclusive . getKey <$> listToMaybe (drop (int n) ents)
+    expectedNextFin ents (Just n) = Inclusive . getKey <$> listToMaybe (drop (int @Limit @Int n) ents)
 
     -- Infinite case
     expectedNextInf ents Nothing = Exclusive . getKey <$> (Just $ last ents)
     expectedNextInf ents (Just n)
         | n >= len ents = Exclusive . getKey <$> (Just $ last ents)
-        | otherwise = Inclusive . getKey <$> listToMaybe (drop (int n) ents)
+        | otherwise = Inclusive . getKey <$> listToMaybe (drop (int @Limit @Int n) ents)
 
 testPageLimitHeadersClient :: ChainwebVersion -> IO TestClientEnv_ -> TestTree
 testPageLimitHeadersClient version = pagingTest "headersClient" headers key False request

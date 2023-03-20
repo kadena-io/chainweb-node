@@ -2,6 +2,7 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 
 -- |
@@ -282,7 +283,7 @@ prop_seekLimitStream_limit l i = i <= len l ==> actual === expected
     & cover 1 (null l) "length of stream == 0"
   where
     actual = runIdentity . P.toList $ seekLimitStream id Nothing (Just (Limit i)) (P.each l)
-    expected = take (int i) l :> (i, Eos (i >= len l))
+    expected = take (int @Natural @Int i) l :> (i, Eos (i >= len l))
 
 prop_seekLimitStream_id :: [Int] -> Property
 prop_seekLimitStream_id l = actual === expected
@@ -317,8 +318,8 @@ prop_forkEntry f i j = do
   where
     g = view (from isoBH) $ toyGenesis toyChainId
     t = Node g []
-    a = take (int i) $ branch (Nonce 0) g
-    b = take (int j) $ branch (Nonce 1) g
+    a = take (int @Natural @Int i) $ branch (Nonce 0) g
+    b = take (int @Natural @Int j) $ branch (Nonce 1) g
 
     branch n x = view (from isoBH) <$> testBlockHeadersWithNonce n (ParentHeader $ view isoBH x)
 
@@ -332,7 +333,7 @@ prop_getBranchIncreasing_order
     => WithTestDb db
     -> SparseTree
     -> Property
-prop_getBranchIncreasing_order f (SparseTree t0) = forAll (int <$> choose (0,m)) $ \i -> do
+prop_getBranchIncreasing_order f (SparseTree t0) = forAll (int @Int @Natural <$> choose (0,m)) $ \i -> do
     label ("depth " <> show m) $ label ("width " <> show w) $
         ioProperty $ withTreeDb f t $ \db _ -> do
             e <- maxEntry db
@@ -350,7 +351,7 @@ prop_getBranchIncreasing_end
     => WithTestDb db
     -> SparseTree
     -> Property
-prop_getBranchIncreasing_end f (SparseTree t0) = forAll (int <$> choose (0,m - 1)) $ \i ->
+prop_getBranchIncreasing_end f (SparseTree t0) = forAll (int @Int @Natural <$> choose (0,m - 1)) $ \i ->
     ioProperty $ withTreeDb f t $ \db _ -> do
         e <- maxEntry db
         l <- getBranchIncreasing db e i P.last_
@@ -366,7 +367,7 @@ prop_getBranchIncreasing_parents
     => WithTestDb db
     -> SparseTree
     -> Property
-prop_getBranchIncreasing_parents f (SparseTree t0) = forAll (int <$> choose (0,m)) $ \i ->
+prop_getBranchIncreasing_parents f (SparseTree t0) = forAll (int @Int @Natural <$> choose (0,m)) $ \i ->
     ioProperty $ withTreeDb f t $ \db _ -> do
         e <- maxEntry db
         branch <- getBranchIncreasing db e i $ \s -> P.toList_ $ P.map (view isoBH) s

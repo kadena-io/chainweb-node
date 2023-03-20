@@ -868,7 +868,7 @@ epochCreationTime = BlockCreationTime epoch
 --
 someBlockHeader :: ChainwebVersion -> BlockHeight -> BlockHeader
 someBlockHeader v 0 = genesisBlockHeader v (unsafeChainId 0)
-someBlockHeader v h = (!! (int h - 1))
+someBlockHeader v h = (!! (int @BlockHeight @Int h - 1))
     $ testBlockHeaders
     $ ParentHeader
     $ genesisBlockHeader v (unsafeChainId 0)

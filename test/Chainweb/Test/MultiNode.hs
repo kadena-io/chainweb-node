@@ -49,6 +49,7 @@ import Data.Aeson
 import Data.Foldable
 import qualified Data.HashMap.Strict as HM
 import qualified Data.HashSet as HS
+import Data.Int
 import Data.IORef
 import qualified Data.List as L
 import qualified Data.Text as T
@@ -262,8 +263,8 @@ runNodes loglevel write baseConf n rdb pactDbDir inner = do
         -- OS assigned port from the bootstrap node during startup and inject it
         -- into the configuration of the remaining nodes.
 
-    forConcurrently_ [0 .. int n - 1] $ \i -> do
-        threadDelay (500_000 * int i)
+    forConcurrently_ [0 .. int @Natural @Int n - 1] $ \i -> do
+        threadDelay (500_000 * i)
 
         conf <- if
             | i == 0 ->
@@ -288,7 +289,7 @@ runNodesForSeconds
     -> (forall logger. Int -> StartedChainweb logger -> IO ())
     -> IO ()
 runNodesForSeconds loglevel write baseConf n (Seconds seconds) rdb pactDbDir inner = do
-    void $ timeout (int seconds * 1_000_000)
+    void $ timeout (int @Int64 @Int seconds * 1_000_000)
         $ runNodes loglevel write baseConf n rdb pactDbDir inner
 
 replayTest
@@ -389,10 +390,10 @@ test loglevel v n seconds = testCaseSteps name $ \f ->
                 tastylog $ "Expected BlockCount: " <> sshow (expectedBlockCount v seconds) -- 80 + 19.5 * 20
                 tastylog $ encodeToText stats
                 tastylog $ encodeToText $ object
-                    [ "maxEfficiency%" .= (realToFrac (bc $ _statMaxHeight stats) * (100 :: Double) / int (_statBlockCount stats))
-                    , "minEfficiency%" .= (realToFrac (bc $ _statMinHeight stats) * (100 :: Double) / int (_statBlockCount stats))
-                    , "medEfficiency%" .= (realToFrac (bc $ _statMedHeight stats) * (100 :: Double) / int (_statBlockCount stats))
-                    , "avgEfficiency%" .= (realToFrac (bc $ round (_statAvgHeight stats)) * (100 :: Double) / int (_statBlockCount stats))
+                    [ "maxEfficiency%" .= (realToFrac (bc $ _statMaxHeight stats) * (100 :: Double) / int @Natural @Double (_statBlockCount stats))
+                    , "minEfficiency%" .= (realToFrac (bc $ _statMinHeight stats) * (100 :: Double) / int @Natural @Double (_statBlockCount stats))
+                    , "medEfficiency%" .= (realToFrac (bc $ _statMedHeight stats) * (100 :: Double) / int @Natural @Double (_statBlockCount stats))
+                    , "avgEfficiency%" .= (realToFrac (bc $ round (_statAvgHeight stats)) * (100 :: Double) / int @Natural @Double (_statBlockCount stats))
                     ]
 
                 (assertGe "number of blocks") (Actual $ _statBlockCount stats) (Expected $ _statBlockCount l)
@@ -465,7 +466,7 @@ consensusStateSummary :: ConsensusState -> Maybe Stats
 consensusStateSummary s
     | HM.null (_stateCutMap s) = Nothing
     | otherwise = Just Stats
-        { _statBlockCount = int $ hashCount
+        { _statBlockCount = hashCount
         , _statMaxHeight = maxHeight
         , _statMinHeight = minHeight
         , _statMedHeight = medHeight
@@ -477,7 +478,7 @@ consensusStateSummary s
         $ maximum . concatMap chainHeights
         $ toList
         $ _stateCutMap s
-    hashCount = HS.size (_stateBlockHashes s) - int (order graph)
+    hashCount = int @Int @Natural (HS.size (_stateBlockHashes s)) - int (order graph)
 
     avg :: Foldable f => Real a => f a -> Double
     avg f = realToFrac (sum $ toList f) / realToFrac (length f)

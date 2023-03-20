@@ -133,6 +133,7 @@ import Pact.Types.Runtime hiding (fromText)
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
 import Chainweb.BlockHeaderDB
+import Chainweb.BlockHeight
 import Chainweb.MerkleLogHash
 import Chainweb.MerkleUniverse
 import Chainweb.Payload
@@ -206,10 +207,10 @@ putInt256Le (Int256 i) = case compare i 0 of
     LT -> go (2^(256 :: Int) + i)
   where
     go x = do
-        putWord64le $ int r0
-        putWord64le $ int r1
-        putWord64le $ int r2
-        putWord64le $ int r3
+        putWord64le $ int @Integer @Word64 r0
+        putWord64le $ int @Integer @Word64 r1
+        putWord64le $ int @Integer @Word64 r2
+        putWord64le $ int @Integer @Word64 r3
       where
         m64 = 2^(64 :: Int)
         (a0, r0) = quotRem x m64
@@ -224,10 +225,10 @@ putInt256Be (Int256 i) = case compare i 0 of
     LT -> go (2^(256 :: Int) + i)
   where
     go x = do
-        putWord64le $ int r3
-        putWord64le $ int r2
-        putWord64le $ int r1
-        putWord64le $ int r0
+        putWord64le $ int @Integer @Word64 r3
+        putWord64le $ int @Integer @Word64 r2
+        putWord64le $ int @Integer @Word64 r1
+        putWord64le $ int @Integer @Word64 r0
       where
         m64 = 2^(64 :: Int)
         (a0, r0) = quotRem x m64
@@ -237,10 +238,10 @@ putInt256Be (Int256 i) = case compare i 0 of
 
 getInt256Le :: Get Int256
 getInt256Le = do
-    w0 <- int <$> getWord64le
-    w1 <- int <$> getWord64le
-    w2 <- int <$> getWord64le
-    w3 <- int <$> getWord64le
+    w0 <- int @Word64 @Integer <$> getWord64le
+    w1 <- int @Word64 @Integer <$> getWord64le
+    w2 <- int @Word64 @Integer <$> getWord64le
+    w3 <- int @Word64 @Integer <$> getWord64le
     let r = w0 + 2^(64 :: Int) * (w1 + 2^(64 :: Int) * (w2 + 2^(64 :: Int) * w3))
     return $ if r > int256ToInteger maxBound
       then Int256 (- (2^(256::Int) - r))
@@ -248,10 +249,10 @@ getInt256Le = do
 
 getInt256Be :: Get Int256
 getInt256Be = do
-    w3 <- int <$> getWord64le
-    w2 <- int <$> getWord64le
-    w1 <- int <$> getWord64le
-    w0 <- int <$> getWord64le
+    w3 <- int @Word64 @Integer <$> getWord64le
+    w2 <- int @Word64 @Integer <$> getWord64le
+    w1 <- int @Word64 @Integer <$> getWord64le
+    w0 <- int @Word64 @Integer <$> getWord64le
     let r = w0 + 2^(64 :: Int) * (w1 + 2^(64 :: Int) * (w2 + 2^(64 :: Int) * w3))
     return $ if r > int256ToInteger maxBound
       then Int256 (- (2^(256::Int) - r))
@@ -280,8 +281,8 @@ encodeModuleName = encodeString . asString
 --
 encodeBytes :: B.ByteString -> Put
 encodeBytes b
-    | B.length b <= int (maxBound @Word32)
-        = putWord32le (int $ B.length b) >> putByteString b
+    | B.length b <= int @Word32 @Int (maxBound @Word32)
+        = putWord32le (int @Int @Word32 $ B.length b) >> putByteString b
     | otherwise = throw $ ByteStringTooBigException (B.length b)
 
 -- | This throws a pure exception of type 'PactEventEncodingException', if the
@@ -317,8 +318,8 @@ encodeArray
     -> (a -> Put)
     -> Put
 encodeArray a f
-    | length a > int (maxBound @Word32) = throw $ ArrayTooBigException (length a)
-    | otherwise = putWord32le (int $ length a) >> traverse_ f a
+    | length a > int @Word32 @Int (maxBound @Word32) = throw $ ArrayTooBigException (length a)
+    | otherwise = putWord32le (int @Int @Word32 $ length a) >> traverse_ f a
 
 encodeParam :: PactValue -> Put
 encodeParam (PLiteral (LString t)) = putWord8 0x0 >> encodeString t
@@ -352,7 +353,7 @@ decodePactEvent = label "decodeEvent" $ do
 decodeArray :: Get a -> Get [a]
 decodeArray f = label "decodeArray" $ do
     l <- getWord32le
-    label ("#" <> show l) $ forM [0 :: Int .. int l - 1] $ \i ->
+    label ("#" <> show l) $ forM [0 :: Int .. int @Word32 @Int l - 1] $ \i ->
         label ("[" <> show i <> "]") f
 
 decodeHash :: Get Hash
@@ -361,7 +362,7 @@ decodeHash = label "decodeHash" $ Hash . BS.toShort <$> decodeBytes
 decodeBytes :: Get B.ByteString
 decodeBytes = label "decodeBytes" $ do
     l <- getWord32le
-    getByteString (int l)
+    getByteString (int @Word32 @Int l)
 
 decodeString :: Get T.Text
 decodeString = label "decodeString" $ do
@@ -596,11 +597,11 @@ createEventsProofDb_ headerDb payloadDb d h reqKey = do
             , _spvExceptionMsgPayloadHash = _blockPayloadHash hdr
             }
     curRank <- maxRank headerDb
-    unless (int (_blockHeight hdr) + d <= curRank) $
+    unless (int @BlockHeight @Natural (_blockHeight hdr) + d <= curRank) $
         throwM $ SpvExceptionInsufficientProofDepth
             { _spvExceptionMsg = "Insufficient depth of root header for SPV proof"
             , _spvExceptionExpectedDepth = Expected d
-            , _spvExceptionActualDepth = Actual $ curRank `minusOrZero` int (_blockHeight hdr)
+            , _spvExceptionActualDepth = Actual $ curRank `minusOrZero` int @BlockHeight @Natural (_blockHeight hdr)
             }
     createEventsProof_ p reqKey
 

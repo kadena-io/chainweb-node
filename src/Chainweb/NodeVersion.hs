@@ -133,7 +133,7 @@ req ver addr endpoint = HTTP.defaultRequest
     { HTTP.method = "GET"
     , HTTP.secure = True
     , HTTP.host = hostnameBytes (_hostAddressHost addr)
-    , HTTP.port = int (_hostAddressPort addr)
+    , HTTP.port = int @Port @Int (_hostAddressPort addr)
     , HTTP.path = T.encodeUtf8 $ T.intercalate "/"
         [ "/chainweb"
         , prettyApiVersion
@@ -153,7 +153,7 @@ cutReq ver addr = HTTP.defaultRequest
     { HTTP.method = "GET"
     , HTTP.secure = True
     , HTTP.host = hostnameBytes (_hostAddressHost addr)
-    , HTTP.port = int (_hostAddressPort addr)
+    , HTTP.port = int @Port @Int (_hostAddressPort addr)
     , HTTP.path = T.encodeUtf8 $ T.intercalate "/"
         [ "/chainweb"
         , prettyApiVersion

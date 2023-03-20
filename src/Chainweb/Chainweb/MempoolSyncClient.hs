@@ -3,6 +3,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeApplications #-}
 
 -- |
 -- Module: Chainweb.Chainweb.MempoolSyncClient
@@ -23,6 +24,7 @@ import Control.Lens hiding ((.=), (<.>))
 import Control.Monad
 import Control.Monad.Catch
 
+import Data.Int
 import qualified Data.Text as T
 
 import qualified Network.HTTP.Client as HTTP
@@ -102,7 +104,7 @@ mempoolSyncP2pSession chain (Seconds pollInterval) logg0 env _ = do
 
     -- FIXME Potentially dangerous down-cast.
     syncIntervalUs :: Int
-    syncIntervalUs = int pollInterval * 500000
+    syncIntervalUs = int @Int64 @Int pollInterval * 500000
 
     remote = T.pack $ Sv.showBaseUrl $ Sv.baseUrl env
     logg d m = logg0 d $ T.concat ["[mempool sync@", remote, "]:", m]

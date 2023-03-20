@@ -55,6 +55,7 @@ import Data.Function
 import Data.Hashable
 import Data.Maybe
 import qualified Data.Text.Encoding as T
+import Data.Word
 
 import GHC.Generics
 
@@ -80,6 +81,7 @@ import Chainweb.Storage.Table
 import Chainweb.Storage.Table.RocksDB
 
 import Numeric.Additive
+import Numeric.Natural
 
 -- -------------------------------------------------------------------------- --
 -- | Configuration of the chain DB.
@@ -204,7 +206,7 @@ instance (k ~ CasKeyType BlockHeader) => ReadableTable BlockHeaderDb k BlockHead
 dbAddChecked :: BlockHeaderDb -> BlockHeader -> IO ()
 dbAddChecked db e = unlessM (tableMember (_chainDbCas db) ek) dbAddCheckedInternal
   where
-    r = int $ rank e
+    r = _blockHeight e
     ek = RankedBlockHash r (_blockHash e)
 
     -- Internal helper methods
@@ -292,19 +294,19 @@ instance TreeDb BlockHeaderDb where
 
     lookup db h = runMaybeT $ do
         -- lookup rank
-        r <- MaybeT $ tableLookup (_chainDbRankTable db) h 
-        MaybeT $ lookupRanked db (int r) h
+        r <- MaybeT $ tableLookup (_chainDbRankTable db) h
+        MaybeT $ lookupRanked db (int @BlockHeight @Natural r) h
     {-# INLINEABLE lookup #-}
 
     lookupRanked db r h = runMaybeT $ do
-        rh <- MaybeT $ tableLookup (_chainDbCas db) (RankedBlockHash (int r) h)
+        rh <- MaybeT $ tableLookup (_chainDbCas db) (RankedBlockHash (int @Natural @BlockHeight r) h)
         return $! _getRankedBlockHeader rh
     {-# INLINEABLE lookupRanked #-}
 
     entries db k l mir mar f = withSeekTreeDb db k mir $ \it -> f $ do
         iterToValueStream it
             & S.map _getRankedBlockHeader
-            & maybe id (\x -> S.takeWhile (\a -> int (_blockHeight a) <= x)) mar
+            & maybe id (\x -> S.takeWhile (\a -> int @BlockHeight @MaxRank (_blockHeight a) <= x)) mar
             & limitStream l
     {-# INLINEABLE entries #-}
 
@@ -313,7 +315,7 @@ instance TreeDb BlockHeaderDb where
 
     keys db k l mir mar f = withSeekTreeDb db k mir $ \it -> f $ do
         iterToKeyStream it
-            & maybe id (\x -> S.takeWhile (\a -> int (_rankedBlockHashHeight a) <= x)) mar
+            & maybe id (\x -> S.takeWhile (\a -> int @BlockHeight @MaxRank (_rankedBlockHashHeight a) <= x)) mar
             & S.map _rankedBlockHash
             & limitStream l
     {-# INLINEABLE keys #-}
@@ -329,7 +331,7 @@ instance TreeDb BlockHeaderDb where
     maxRank db = withTableIterator (_chainDbCas db) $ \it -> do
         iterLast it
         iterKey it >>= \case
-            Just (RankedBlockHash !r _) -> return $! int r
+            Just (RankedBlockHash !r _) -> return $! int @BlockHeight @Natural r
             Nothing -> throwM
                 $ InternalInvariantViolation "BlockHeaderDb.maxRank: empty block header db"
     {-# INLINEABLE maxRank #-}
@@ -367,7 +369,7 @@ seekTreeDb db k mir it = do
         Nothing -> case mir of
             Nothing -> return ()
             Just r -> iterSeek it
-                $ RankedBlockHash (BlockHeight $ int $ _getMinRank r) nullBlockHash
+                $ RankedBlockHash (BlockHeight $ int @Natural @Word64 $ _getMinRank r) nullBlockHash
 
         Just a -> do
 
@@ -389,7 +391,7 @@ seekTreeDb db k mir it = do
             -- Check minimum rank. Return invalid iter if cursor is below
             -- minimum rank.
             iterKey it >>= \case
-                Just (RankedBlockHash r' _) | Just m <- mir, int r' < m -> invalidIter
+                Just (RankedBlockHash r' _) | Just m <- mir, int @BlockHeight @MinRank r' < m -> invalidIter
                 _ -> return ()
   where
     invalidIter = iterLast it >> iterNext it
@@ -402,6 +404,6 @@ insertBlockHeaderDb db = dbAddChecked db . _validatedHeader
 {-# INLINE insertBlockHeaderDb #-}
 
 unsafeInsertBlockHeaderDb :: BlockHeaderDb -> BlockHeader -> IO ()
-unsafeInsertBlockHeaderDb = dbAddChecked 
+unsafeInsertBlockHeaderDb = dbAddChecked
 {-# INLINE unsafeInsertBlockHeaderDb #-}
 

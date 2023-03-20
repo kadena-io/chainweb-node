@@ -61,6 +61,7 @@ import Chainweb.Miner.Coordinator
 import Chainweb.Miner.Core
 import Chainweb.Miner.Pact
 import Chainweb.RestAPI.Orphans ()
+import Chainweb.Time
 import Chainweb.Transaction
 import Chainweb.Utils
 import Chainweb.Utils.Serialization
@@ -98,7 +99,7 @@ localTest lf v coord m cdb gen miners =
                 void $ awaitNewCut cdb c
   where
     meanBlockTime :: Double
-    meanBlockTime = int $ _getBlockRate $ blockRate v
+    meanBlockTime = int @Seconds @Double $ _getBlockRate $ blockRate v
 
     go :: BlockHeight -> WorkHeader -> IO SolvedWork
     go height w = do
@@ -106,7 +107,7 @@ localTest lf v coord m cdb gen miners =
         runGetS decodeSolvedWork $ BS.fromShort $ _workHeaderBytes w
       where
         t :: Double
-        t = int graphOrder / (int (_minerCount miners) * meanBlockTime * 1000000)
+        t = int @Natural @Double graphOrder / (int @Natural @Double (_minerCount miners) * meanBlockTime * 1000000)
 
         graphOrder :: Natural
         graphOrder = order $ chainGraphAt v height

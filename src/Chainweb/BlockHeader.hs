@@ -150,6 +150,7 @@ import Chainweb.Version
 import Chainweb.Storage.Table
 
 import Numeric.AffineSpace
+import Numeric.Natural
 
 import Text.Read (readEither)
 
@@ -219,7 +220,7 @@ effectiveWindow :: BlockHeader -> Maybe WindowWidth
 effectiveWindow h = WindowWidth <$> case window ver of
     Nothing -> Nothing
     Just (WindowWidth w)
-        | int (_blockHeight h) <= w -> Just $ max 1 $ w `div` 10
+        | int @BlockHeight @Natural (_blockHeight h) <= w -> Just $ max 1 $ w `div` 10
         | otherwise -> Just w
   where
     ver = _blockChainwebVersion h
@@ -231,7 +232,7 @@ isLastInEpoch :: BlockHeader -> Bool
 isLastInEpoch h = case effectiveWindow h of
     Nothing -> False
     Just (WindowWidth w)
-        | (int (_blockHeight h) + 1) `mod` w == 0 -> True
+        | (int @BlockHeight @Natural (_blockHeight h) + 1) `mod` w == 0 -> True
         | otherwise -> False
 {-# INLINE isLastInEpoch #-}
 
@@ -252,7 +253,7 @@ slowEpoch (ParentHeader p) (BlockCreationTime ct) = actual > (expected * 5)
     WindowWidth ww = fromJuste $ window (_blockChainwebVersion p)
 
     expected :: Seconds
-    expected = s * int ww
+    expected = s * int @Natural @Seconds ww
 
     actual :: Seconds
     actual = timeSpanToSeconds $ ct .-. es
@@ -303,9 +304,9 @@ powTarget p@(ParentHeader ph) as bct = case effectiveWindow ph of
 
     toEpochStart = EpochStartTime . _bct . _blockCreationTime
 
-    avgTarget targets = HashTarget $ floor $ s / int (length targets)
+    avgTarget targets = HashTarget $ floor $ s / int @Int @Rational (length targets)
       where
-        s = sum $ fmap (int @_ @Rational . _hashTarget) targets
+        s = sum $ fmap (int @PowHashNat @Rational . _hashTarget) targets
 
 {-# INLINE powTarget #-}
 
@@ -970,7 +971,7 @@ newBlockHeader adj pay nonce t p@(ParentHeader b) =
 instance TreeDbEntry BlockHeader where
     type Key BlockHeader = BlockHash
     key = _blockHash
-    rank = int . _blockHeight
+    rank = int @BlockHeight @Natural . _blockHeight
     parent e
         | isGenesisBlockHeader e = Nothing
         | otherwise = Just (_blockParent e)

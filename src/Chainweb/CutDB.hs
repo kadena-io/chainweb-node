@@ -354,8 +354,9 @@ pruneCuts
     -> Casify RocksDbTable CutHashes
     -> IO ()
 pruneCuts logfun v conf curAvgBlockHeight cutHashesStore = do
-    let pruneCutHeight = CutHeight $ int $ max 0
-            (int (avgCutHeightAt v curAvgBlockHeight) - int (_cutDbParamsAvgBlockHeightPruningDepth conf) :: Integer)
+    let pruneCutHeight = int @Integer @CutHeight $ max 0
+            (int @CutHeight @Integer (avgCutHeightAt v curAvgBlockHeight) -
+                int @BlockHeight @Integer (_cutDbParamsAvgBlockHeightPruningDepth conf))
     logfun @T.Text Info $ "pruning CutDB before cut height " <> T.pack (show pruneCutHeight)
     deleteRangeRocksDb (unCasify cutHashesStore)
         (Nothing, Just (pruneCutHeight, 0, maxBound :: CutId))
@@ -564,12 +565,12 @@ processCuts conf logFun headerStore payloadStore cutHashesStore queue cutVar = d
 
     maybePrune rng curCutAvgBlockHeight = do
         r :: Double <- Prob.uniform rng
-        when (r < 1 / int (int (_cutDbParamsPruningFrequency conf) * chainCountAt v maxBound)) $
+        when (r < 1 / int @Natural @Double (int @BlockHeight @Natural (_cutDbParamsPruningFrequency conf) * chainCountAt v maxBound)) $
             pruneCuts logFun v conf curCutAvgBlockHeight cutHashesStore
 
     maybeWrite rng newCut = do
         r :: Double <- Prob.uniform rng
-        when (r < 1 / int (int (_cutDbParamsWritingFrequency conf) * chainCountAt v maxBound)) $ do
+        when (r < 1 / int @Natural @Double (int @BlockHeight @Natural (_cutDbParamsWritingFrequency conf) * chainCountAt v maxBound)) $ do
             loggc Info newCut "writing cut"
             casInsert cutHashesStore (cutToCutHashes Nothing newCut)
 
@@ -614,7 +615,7 @@ processCuts conf logFun headerStore payloadStore cutHashesStore queue cutVar = d
         curMin <- minChainHeight <$> readTVarIO cutVar
         let diam = diameter $ chainGraphAt_ headerStore curMin
             newMin = _cutHashesMinHeight x
-        let r = newMin + 2 * (1 + int diam) <= curMin
+        let r = newMin + 2 * (1 + int @Natural @BlockHeight diam) <= curMin
         when r $ loggc Debug x "skip very old cut"
             -- log at debug level because this is a common case during catchup
         return r
@@ -623,7 +624,7 @@ processCuts conf logFun headerStore payloadStore cutHashesStore queue cutVar = d
     --
     isOld x = do
         curHashes <- cutToCutHashes Nothing <$> readTVarIO cutVar
-        let r = all (>= (0 :: Int)) $ (HM.unionWith (-) `on` (fmap (int . _bhwhHeight) . _cutHashes)) curHashes x
+        let r = all (>= (0 :: Int)) $ (HM.unionWith (-) `on` (fmap (int @BlockHeight @Int . _bhwhHeight) . _cutHashes)) curHashes x
         when r $ loggc Debug x "skip old cut"
         return r
 
@@ -709,8 +710,8 @@ cutStreamToHeaderDiffStream db s = S.for (cutUpdates Nothing s) $ \(T2 p n) ->
         These a b -> S.each [Left a, Right b]
 
     toOrd :: Either BlockHeader BlockHeader -> Int
-    toOrd (Right a) = int $ uniqueBlockNumber a
-    toOrd (Left a) = negate $ int (uniqueBlockNumber a)
+    toOrd (Right a) = int @Natural @Int $ uniqueBlockNumber a
+    toOrd (Left a) = negate $ int @Natural @Int (uniqueBlockNumber a)
 
 -- | Assign each block a unique number that respects the order of blocks in a
 -- chain:
@@ -719,7 +720,7 @@ cutStreamToHeaderDiffStream db s = S.for (cutUpdates Nothing s) $ \(T2 p n) ->
 --
 uniqueBlockNumber :: BlockHeader -> Natural
 uniqueBlockNumber bh
-    = chainIdInt (_chainId bh) + int (_blockHeight bh) * order (_chainGraph bh)
+    = chainIdInt (_chainId bh) + int @BlockHeight @Natural (_blockHeight bh) * order (_chainGraph bh)
 
 blockStream :: MonadIO m => CutDb tbl -> S.Stream (Of BlockHeader) m r
 blockStream db = cutStreamToHeaderStream db $ cutStream db
@@ -768,7 +769,7 @@ cutHashesToBlockHeaderMap conf logfun headerStore payloadStore hs =
                 else return $! Left $! T2 hsid missing
 
     origin = _cutOrigin hs
-    priority = Priority (- int (_cutHashesHeight hs))
+    priority = Priority (- int @CutHeight @Int (_cutHashesHeight hs))
 
     tryGetBlockHeader hdrs plds cv@(cid, _) =
         (Right <$> mapM (getBlockHeader headerStore payloadStore hdrs plds cid priority origin) cv)
@@ -791,7 +792,7 @@ memberOfHeader
 memberOfHeader db cid h ctx = do
     lookup chainDb h >>= \case
         Nothing -> return False
-        Just lh -> seekAncestor chainDb ctx (int $ _blockHeight lh) >>= \case
+        Just lh -> seekAncestor chainDb ctx (int @BlockHeight @Natural $ _blockHeight lh) >>= \case
             Nothing -> return False
             Just x -> return $ _blockHash x == h
   where
@@ -848,7 +849,7 @@ getQueueStats :: CutDb tbl -> IO QueueStats
 getQueueStats db = QueueStats
     <$> cutDbQueueSize db
     <*> pQueueSize (_webBlockHeaderStoreQueue $ view cutDbWebBlockHeaderStore db)
-    <*> (int <$> TM.size (_webBlockHeaderStoreMemo $ view cutDbWebBlockHeaderStore db))
+    <*> (int @Int @Natural <$> TM.size (_webBlockHeaderStoreMemo $ view cutDbWebBlockHeaderStore db))
     <*> pQueueSize (_webBlockPayloadStoreQueue $ view cutDbPayloadStore db)
-    <*> (int <$> TM.size (_webBlockPayloadStoreMemo $ view cutDbPayloadStore db))
+    <*> (int @Int @Natural <$> TM.size (_webBlockPayloadStoreMemo $ view cutDbPayloadStore db))
 

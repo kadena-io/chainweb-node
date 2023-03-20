@@ -8,6 +8,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE PolyKinds #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeApplications #-}
 
 -- |
 -- Module: Chainweb.BlockHeaderDB.PruneForks
@@ -34,6 +35,7 @@ import qualified Data.List as L
 import Data.Maybe
 import Data.Semigroup
 import qualified Data.Text as T
+import Data.Word
 
 import GHC.Generics
 import GHC.Stack
@@ -121,19 +123,19 @@ pruneForks
 pruneForks logg cdb depth callback = do
     hdr <- maxEntry cdb
     if
-        | int (_blockHeight hdr) <= depth -> do
+        | int @BlockHeight @Natural (_blockHeight hdr) <= depth -> do
             logg Info
                 $ "Skipping database pruning because the maximum block height "
                 <> sshow (_blockHeight hdr) <> " is not larger than then requested depth "
                 <> sshow depth
             return 0
-        | int (_blockHeight hdr) <= int genHeight + depth -> do
+        | int @BlockHeight @Natural (_blockHeight hdr) <= int @BlockHeight @Natural genHeight + depth -> do
             logg Info $ "Skipping database pruning because there are not yet"
                 <> " enough block headers on the chain"
             return 0
         | otherwise -> do
-            let mar = MaxRank $ Max $ int (_blockHeight hdr) - depth
-            pruneForks_ logg cdb mar (MinRank $ Min $ int genHeight) callback
+            let mar = MaxRank $ Max $ int @BlockHeight @Natural (_blockHeight hdr) - depth
+            pruneForks_ logg cdb mar (MinRank $ Min $ int @BlockHeight @Natural genHeight) callback
   where
     v = _chainwebVersion cdb
     cid = _chainId cdb
@@ -221,8 +223,8 @@ pruneForks_ logg cdb mar mir callback = do
     deleteHdr k = do
         -- TODO: make this atomic (create boilerplate to combine queries for
         -- different tables)
-        casDelete (_chainDbCas cdb) (RankedBlockHeader k) 
-        tableDelete (_chainDbRankTable cdb) (_blockHash k) 
+        casDelete (_chainDbCas cdb) (RankedBlockHeader k)
+        tableDelete (_chainDbRankTable cdb) (_blockHash k)
         logg Debug
             $ "pruned block header " <> encodeToText (_blockHash k)
             <> " at height " <> sshow (_blockHeight k)
@@ -239,11 +241,11 @@ withReverseHeaderStream
     -> (S.Stream (S.Of BlockHeader) IO () -> IO a)
     -> IO a
 withReverseHeaderStream db mar mir inner = withTableIterator headerTbl $ \it -> do
-    iterSeek it $ RankedBlockHash (BlockHeight $ int $ _getMaxRank mar + 1) nullBlockHash
+    iterSeek it $ RankedBlockHash (BlockHeight $ int @Natural @Word64 $ _getMaxRank mar + 1) nullBlockHash
     iterPrev it
     inner $ iterToReverseValueStream it
         & S.map _getRankedBlockHeader
-        & S.takeWhile (\a -> int (_blockHeight a) >= mir)
+        & S.takeWhile (\a -> int @BlockHeight @MinRank (_blockHeight a) >= mir)
   where
     headerTbl = _chainDbCas db
 

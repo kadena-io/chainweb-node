@@ -293,7 +293,7 @@ getTxIdx
 getTxIdx bdb pdb bh th = do
     -- get BlockPayloadHash
     m <- maxEntry bdb
-    ph <- seekAncestor bdb m (int bh) >>= \case
+    ph <- seekAncestor bdb m (int @BlockHeight @Natural bh) >>= \case
         Just x -> return $ Right $! _blockPayloadHash x
         Nothing -> return $ Left "unable to find payload associated with transaction hash"
 

@@ -7,6 +7,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE TypeApplications #-}
 
 -- |
 -- Module: Chainweb.Chainweb.Configuration
@@ -86,6 +87,7 @@ import Control.Monad.Writer
 import Data.Foldable
 import Data.Maybe
 import qualified Data.Text as T
+import Data.Word
 
 import GHC.Generics hiding (from)
 
@@ -422,7 +424,7 @@ defaultChainwebConfiguration v = ChainwebConfiguration
     , _configLogGas = False
     , _configMinGasPrice = 1e-8
     , _configPactQueueSize = 2000
-    , _configReorgLimit = int defaultReorgLimit
+    , _configReorgLimit = int @Word64 @Natural defaultReorgLimit
     , _configValidateHashesOnReplay = False
     , _configAllowReadsInLocal = False
     , _configRosetta = False

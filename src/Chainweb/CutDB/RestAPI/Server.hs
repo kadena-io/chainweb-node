@@ -38,6 +38,9 @@ import Control.Monad.Except
 import Data.IxSet.Typed
 import Data.Proxy
 import Data.Semigroup
+import Data.Word
+
+import Numeric.Natural
 
 import Network.Wai.Handler.Warp hiding (Port)
 
@@ -69,7 +72,7 @@ cutGetHandler db Nothing = liftIO $ cutToCutHashes Nothing <$> _cut db
 cutGetHandler db (Just (MaxRank (Max mar))) = liftIO $ do
     !c <- _cut db
     let v = _chainwebVersion db
-    let !bh = BlockHeight $ floor (avgBlockHeightAtCutHeight v (CutHeight $ int mar))
+    let !bh = BlockHeight $ floor (avgBlockHeightAtCutHeight v (CutHeight $ int @Natural @Word64 mar))
     !c' <- limitCut (view cutDbWebBlockHeaderDb db) bh c
     return $! cutToCutHashes Nothing c'
 
@@ -119,6 +122,6 @@ someCutGetServer v = someCutGetServerT . someCutDbVal v
 -- Run Server
 
 serveCutOnPort :: Port -> ChainwebVersion -> PeerDb -> CutDb tbl -> IO ()
-serveCutOnPort p v pdb = run (int p) . someServerApplication . someCutServer v pdb
+serveCutOnPort p v pdb = run (int @Port @Int p) . someServerApplication . someCutServer v pdb
 
 

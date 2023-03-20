@@ -390,7 +390,7 @@ insertN_ s n g db = do
     traverse_ (unsafeInsertBlockHeaderDb db) bhs
     return bhs
   where
-    bhs = take (int n) $ testBlockHeadersWithNonce s $ ParentHeader g
+    bhs = take (int @Natural @Int n) $ testBlockHeadersWithNonce s $ ParentHeader g
 
 -- | Useful for terminal-based debugging. A @Tree BlockHeader@ can be obtained
 -- from any `TreeDb` via `toTree`.
@@ -528,7 +528,7 @@ linearBlockHeaderDbs n genDbs = do
   where
     populateDb (_, db) = do
         gbh0 <- root db
-        traverse_ (unsafeInsertBlockHeaderDb db) . take (int n) . testBlockHeaders $ ParentHeader gbh0
+        traverse_ (unsafeInsertBlockHeaderDb db) . take (int @Natural @Int n) . testBlockHeaders $ ParentHeader gbh0
 
 starBlockHeaderDbs
     :: Natural
@@ -541,7 +541,7 @@ starBlockHeaderDbs n genDbs = do
   where
     populateDb (_, db) = do
         gbh0 <- root db
-        traverse_ (\i -> unsafeInsertBlockHeaderDb db . newEntry i $ ParentHeader gbh0) [0 .. (int n-1)]
+        traverse_ (\i -> unsafeInsertBlockHeaderDb db . newEntry i $ ParentHeader gbh0) [0 .. (int @Natural @Word64 n-1)]
 
     newEntry i h = head $ testBlockHeadersWithNonce (Nonce i) h
 
@@ -1042,8 +1042,8 @@ runTestNodes
     -> MVar (PeerInfo, Port)
     -> IO ()
 runTestNodes testLabel rdb logger ver n portMVar =
-    forConcurrently_ [0 .. int n - 1] $ \i -> do
-        threadDelay (1000 * int i)
+    forConcurrently_ [0 .. int @Natural @Int n - 1] $ \i -> do
+        threadDelay (1000 * i)
         let baseConf = config ver n
         conf <- if
             | i == 0 ->

@@ -262,11 +262,11 @@ pConfig = id
         % long "database"
         <> short 'd'
         <> help "location of the databases"
-    <*< configStart .:: fmap (Just . int @Natural) % option auto
+    <*< configStart .:: fmap (Just . int @Natural @(Min Natural)) % option auto
         % long "start"
         <> short 's'
         <> help "start block height"
-    <*< configEnd .:: fmap (Just . int @Natural) % option auto
+    <*< configEnd .:: fmap (Just . int @Natural @(Max Natural)) % option auto
         % long "end"
         <> short 'e'
         <> help "end block height"

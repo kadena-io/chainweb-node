@@ -70,7 +70,7 @@ spvGetTransactionProofHandler
         -- is proven.
     -> Handler (TransactionProof SHA512t_256)
 spvGetTransactionProofHandler db tcid scid bh i =
-    liftIO $ createTransactionProof db tcid scid bh (int i)
+    liftIO $ createTransactionProof db tcid scid bh (int @Natural @Int i)
     -- FIXME: add proper error handling
 
 -- -------------------------------------------------------------------------- --
@@ -94,7 +94,7 @@ spvGetTransactionOutputProofHandler
         -- inclusion is proven.
     -> Handler (TransactionOutputProof SHA512t_256)
 spvGetTransactionOutputProofHandler db tcid scid bh i =
-    liftIO $ createTransactionOutputProof db tcid scid bh (int i)
+    liftIO $ createTransactionOutputProof db tcid scid bh (int @Natural @Int i)
     -- FIXME: add proper error handling
 
 -- -------------------------------------------------------------------------- --
