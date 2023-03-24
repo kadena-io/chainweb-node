@@ -404,6 +404,15 @@ validateChainwebConfiguration c = do
     validateBackupConfig (_configBackup c)
     unless (c ^. chainwebVersion . versionDefaults . disablePeerValidation) $
         validateP2pConfiguration (_configP2p c)
+    validateChainwebVersion (_configChainwebVersion c)
+
+validateChainwebVersion :: ConfigValidation ChainwebVersion []
+validateChainwebVersion v = unless (_versionCode v == _versionCode devnet) $
+    throwError $ T.unwords
+        [ "Specifying version properties is only legal with chainweb-version"
+        , "set to development, but version is set to"
+        , sshow (_versionName v)
+        ]
 
 validateBackupConfig :: ConfigValidation BackupConfig []
 validateBackupConfig c =
@@ -494,7 +503,7 @@ instance FromJSON (ChainwebConfiguration -> ChainwebConfiguration) where
 
 pChainwebConfiguration :: MParser ChainwebConfiguration
 pChainwebConfiguration = id
-    <$< configChainwebVersion %:: version
+    <$< configChainwebVersion %:: parseVersion
     <*< configHeaderStream .:: boolOption_
         % long "header-stream"
         <> help "whether to enable an endpoint for streaming block updates"
@@ -546,39 +555,31 @@ pChainwebConfiguration = id
         <> help "Maximum size of the per-chain checkpointer module cache in bytes"
         <> metavar "INT"
     where
-    knownVersion = do
-        option (findKnownVersion =<< textReader)
+
+parseVersion :: MParser ChainwebVersion
+parseVersion = constructVersion
+    <$> optional
+        (option (findKnownVersion =<< textReader)
             % long "chainweb-version"
             <> short 'v'
             <> help "the chainweb version that this node is using"
-    version = constructVersion
-        <$> optional knownVersion
-        <*> optional (textOption @Fork (long "fork-upper-bound" <> help "(development mode only) the latest fork the node will enable"))
-        <*> optional (BlockRate <$> textOption (long "block-rate" <> help "(development mode only) the block rate in seconds per block"))
-        <*> switch (long "disable-pow" <> help "(development mode only) disable proof of work check")
+        )
+    <*> optional (textOption @Fork (long "fork-upper-bound" <> help "(development mode only) the latest fork the node will enable"))
+    <*> optional (BlockRate <$> textOption (long "block-rate" <> help "(development mode only) the block rate in seconds per block"))
+    <*> switch (long "disable-pow" <> help "(development mode only) disable proof of work check")
+    where
+    constructVersion cliVersion fub br disablePow' oldVersion = winningVersion
+        & versionBlockRate .~ fromMaybe (_versionBlockRate winningVersion) br
+        & versionForks %~ HM.filterWithKey (\fork _ -> fork <= fromMaybe maxBound fub)
+        & versionUpgrades .~
+            maybe (_versionUpgrades winningVersion) (\fub' ->
+                OnChains $ HM.mapWithKey
+                    (\cid _ ->
+                        let fubHeight = winningVersion ^?! versionForks . at fub' . _Just . onChain cid
+                        in HM.filterWithKey (\bh _ -> bh <= fubHeight) (winningVersion ^?! versionUpgrades . onChain cid))
+                    (HS.toMap (chainIds winningVersion))
+            ) fub
+        & versionCheats . disablePow .~ disablePow'
         where
-          constructVersion cliVersion fub br disablePow' oldVersion
-            | _versionCode winningVersion == _versionCode devnet = winningVersion
-                { _versionBlockRate = fromMaybe (_versionBlockRate winningVersion) br
-                , _versionForks =
-                    maybe (_versionForks winningVersion) (\fub' ->
-                        HM.filterWithKey (\fork _ -> fork <= fub') (_versionForks winningVersion)
-                    ) fub
-                , _versionUpgrades =
-                    maybe (_versionUpgrades winningVersion) (\fub' ->
-                        OnChains $ HM.mapWithKey
-                            (\cid _ ->
-                                let fubHeight = winningVersion ^?! versionForks . at fub' . _Just . onChain cid
-                                in HM.filterWithKey (\bh _ -> bh <= fubHeight) (winningVersion ^?! versionUpgrades . onChain cid))
-                            (HS.toMap (chainIds winningVersion))
-                    ) fub
-                , _versionCheats =
-                    _versionCheats winningVersion & disablePow .~ disablePow'
-                }
-            | Nothing <- br, Nothing <- fub = winningVersion
-            | otherwise = error
-              $ "Specifying block-rate or fork-upper-bound is only legal with chainweb-version "
-              <> "set to development, but version is set to " <> show (_versionName winningVersion)
-            where
-            winningVersion = fromMaybe oldVersion cliVersion
+        winningVersion = fromMaybe oldVersion cliVersion
 

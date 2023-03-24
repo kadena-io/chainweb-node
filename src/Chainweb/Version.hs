@@ -340,6 +340,7 @@ data ChainwebVersion
     , _versionCheats :: VersionCheats
         -- ^ Whether to disable any core functionality.
     , _versionDefaults :: VersionDefaults
+        -- ^ Version-specific defaults that can be overridden elsewhere.
     }
     deriving stock (Generic)
     deriving anyclass NFData
