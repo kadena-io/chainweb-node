@@ -45,7 +45,7 @@ import Data.Proxy
 import Data.Semigroup
 
 import qualified Network.HTTP.Client.Internal as Client
-import Network.HTTP.Media
+import Network.HTTP.Media hiding ((//))
 import Network.HTTP.Types
 import qualified Network.Wai as Wai
 
@@ -143,11 +143,10 @@ cutGetEndpoint cutDb = (methodGet, "application/json",) $ \req resp -> do
     maxheight <- getParams req (queryParamMaybe "maxheight")
     resp . responseJSON status200 [] =<< cutGetHandler cutDb maxheight
 
-newCutGetClient :: (HasRouteRoot e, HasClientEnv e) => e -> MaxRank -> (Maybe CutHashes -> IO r) -> IO r
-newCutGetClient e maxheight = doJSONRequest (e ^. clientEnv) $
-    withMethod e methodGet &
-    requestQuery .~ [("maxheight", Just (toQueryParam maxheight))] &
-    requestHeaders .~ [("Accept", "application/json")]
+newCutGetClient :: (HasRouteRoot e, HasClientEnv e) => e -> Maybe MaxRank -> IO CutHashes
+newCutGetClient e mh = doJSONRequest (e ^. clientEnv) $ withMethod e methodGet
+    & requestQuery .~ [("maxheight", Just (toQueryParam maxheight)) | Just maxheight <- [mh]]
+    & requestHeaders .~ [("Accept", "application/json")]
 
 newCutGetServer :: CutDb cas -> Route Wai.Application
 newCutGetServer cutDb = terminus' [cutGetEndpoint cutDb]
@@ -161,7 +160,6 @@ newCutServer peerDb cutDb = terminus'
     ]
 
 newCutPutClient :: (HasRouteRoot e, HasClientEnv e) => e -> CutHashes -> IO ()
-newCutPutClient e ch = doRequestForEffect (e ^. clientEnv) $
-    withMethod e methodPut &
-    requestBody .~ Client.RequestBodyLBS (encode ch) &
-    requestHeaders .~ [("Content-Type", "application/json")]
+newCutPutClient e ch = doRequestForEffect (e ^. clientEnv) $ withMethod e methodPut
+    & requestBody .~ Client.RequestBodyLBS (encode ch)
+    & requestHeaders .~ [("Content-Type", "application/json")]

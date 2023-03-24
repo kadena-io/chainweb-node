@@ -2,6 +2,7 @@
 {-# LANGUAGE ConstraintKinds #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE PolyKinds #-}
 {-# LANGUAGE RankNTypes #-}
@@ -19,39 +20,39 @@
 -- Stability: experimental
 --
 module Chainweb.BlockHeaderDB.RestAPI.Client
-( headerClient_
-, headerClient
-, headerClientContentType_
-, headerClientJson
-, headerClientJsonPretty
-, headerClientJsonBinary
+( headerClient
 
-, hashesClient_
 , hashesClient
-, headersClient_
 , headersClient
-, headersClientContentType_
-, headersClientJson
-, headersClientJsonPretty
+, newHashesClient
+, newHeadersClient
+, newBranchHashesClient
+, newBranchHeadersClient
 
-, branchHashesClient_
 , branchHashesClient
 
-, branchHeadersClient_
 , branchHeadersClient
-, branchHeadersClientContentType_
 , branchHeadersClientJson
-, branchHeadersClientJsonPretty
 ) where
 
+import Control.Lens
 import Control.Monad.Identity
 
+import Data.Aeson(encode)
 import Data.Kind
 import Data.Proxy
 import Data.Singletons
 
 import Servant.API
-import Servant.Client
+import Servant.Client (ClientM, client)
+
+import Network.HTTP.Client(RequestBody(..))
+import Network.HTTP.Media hiding ((//))
+import Network.HTTP.Types
+
+import Web.DeepRoute hiding (QueryParam)
+import Web.DeepRoute.Client
+import Web.DeepRoute.Wai
 
 -- internal modules
 
@@ -87,7 +88,7 @@ headerClientContentType_
     :: forall (v :: ChainwebVersionT) (c :: ChainIdT) (ct :: Type) x
     . KnownChainwebVersionSymbol v
     => KnownChainIdSymbol c
-    => Accept ct
+    => Servant.API.Accept ct
     => SupportedRespBodyContentType ct x BlockHeader
     => (HeaderApi v c) ~ x
     => BlockHash
@@ -160,7 +161,7 @@ headersClientContentType_
     :: forall (v :: ChainwebVersionT) (c :: ChainIdT) (ct :: Type) x
     . KnownChainwebVersionSymbol v
     => KnownChainIdSymbol c
-    => Accept ct
+    => Servant.API.Accept ct
     => HeadersApi v c ~ x
     => SupportedRespBodyContentType ct x BlockHeaderPage
     => Maybe Limit
@@ -190,6 +191,83 @@ headersClientJson v c limit start minr maxr = runIdentity $ do
     (SomeSing (SChainwebVersion :: Sing v)) <- return $ toSing v
     (SomeSing (SChainId :: Sing c)) <- return $ toSing c
     return $ headersClientContentType_ @v @c @JSON limit start minr maxr
+
+includePageParams :: ToHttpApiData (NextItem k) => Maybe Limit -> Maybe (NextItem k) -> ApiRequest -> ApiRequest
+includePageParams limit start r = r
+    & requestQuery <>~ [ ("limit", Just $ toQueryParam lim) | Just lim <- [limit] ]
+    & requestQuery <>~ [ ("next", Just $ toQueryParam next) | Just next <- [start] ]
+includeFilterParams :: Maybe MinRank -> Maybe MaxRank -> ApiRequest -> ApiRequest
+includeFilterParams minr maxr r = r
+    & requestQuery <>~ [ ("minheight", Just $ toQueryParam mh) | Just mh <- [minr] ]
+    & requestQuery <>~ [ ("maxheight", Just $ toQueryParam mh) | Just mh <- [maxr] ]
+
+newHeadersClient
+    :: (HasRouteRoot e, HasClientEnv e)
+    => e
+    -> ChainwebVersion
+    -> ChainId
+    -> Maybe Limit
+    -> Maybe (NextItem BlockHash)
+    -> Maybe MinRank
+    -> Maybe MaxRank
+    -> IO BlockHeaderPage
+newHeadersClient e v cid limit start minr maxr = doJSONRequest (e ^. clientEnv) $
+    withMethod e methodGet /@ "chainweb" /@ "0.0" /@@ v /@ "chain" /@@ cid /@ "header"
+        & requestAcceptable ?~ ["application/json"]
+        & includePageParams limit start
+        & includeFilterParams minr maxr
+
+newHashesClient
+    :: (HasRouteRoot e, HasClientEnv e)
+    => e
+    -> ChainwebVersion
+    -> ChainId
+    -> Maybe Limit
+    -> Maybe (NextItem BlockHash)
+    -> Maybe MinRank
+    -> Maybe MaxRank
+    -> IO BlockHeaderPage
+newHashesClient e v cid limit start minr maxr = doJSONRequest (e ^. clientEnv) $
+    withMethod e methodGet /@ "chainweb" /@ "0.0" /@@ v /@ "chain" /@@ cid /@ "hash"
+        & requestAcceptable ?~ ["application/json"]
+        & includePageParams limit start
+        & includeFilterParams minr maxr
+
+newBranchHeadersClient
+    :: (HasRouteRoot e, HasClientEnv e)
+    => e
+    -> ChainwebVersion
+    -> ChainId
+    -> Maybe Limit
+    -> Maybe (NextItem BlockHash)
+    -> Maybe MinRank
+    -> Maybe MaxRank
+    -> BranchBounds BlockHeaderDb
+    -> IO BlockHeaderPage
+newBranchHeadersClient e v cid limit start minr maxr bb = doJSONRequest (e ^. clientEnv) $
+    withMethod e methodPost /@ "chainweb" /@ "0.0" /@@ v /@ "chain" /@@ cid /@ "header" /@ "branch"
+        & requestAcceptable ?~ ["application/json"]
+        & includePageParams limit start
+        & includeFilterParams minr maxr
+        & requestBody .~ RequestBodyLBS (encode bb)
+
+newBranchHashesClient
+    :: (HasRouteRoot e, HasClientEnv e)
+    => e
+    -> ChainwebVersion
+    -> ChainId
+    -> Maybe Limit
+    -> Maybe (NextItem BlockHash)
+    -> Maybe MinRank
+    -> Maybe MaxRank
+    -> BranchBounds BlockHeaderDb
+    -> IO BlockHashPage
+newBranchHashesClient e v cid limit start minr maxr bb = doJSONRequest (e ^. clientEnv) $
+    withMethod e methodPost /@ "chainweb" /@ "0.0" /@@ v /@ "chain" /@@ cid /@ "hash" /@ "branch"
+        & requestAcceptable ?~ ["application/json"]
+        & includePageParams limit start
+        & includeFilterParams minr maxr
+        & requestBody .~ RequestBodyLBS (encode bb)
 
 headersClientJsonPretty
     :: ChainwebVersion
@@ -266,6 +344,7 @@ branchHeadersClient
     -> BranchBounds BlockHeaderDb
     -> ClientM BlockHeaderPage
 branchHeadersClient = branchHeadersClientJson
+
 
 branchHeadersClientContentType_
     :: forall (v :: ChainwebVersionT) (c :: ChainIdT) (ct :: Type) api

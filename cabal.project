@@ -80,7 +80,7 @@ source-repository-package
 source-repository-package
     type: git
     location: https://github.com/kadena-io/deeproute.git
-    tag: 856be917bf162a769d9082c26700af4bdbb87d49
+    tag: 6c865566d5afc009206119da2995d60288e1f610
 
 -- Required for GHC-9:
 

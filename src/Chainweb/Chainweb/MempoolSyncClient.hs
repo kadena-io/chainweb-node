@@ -93,19 +93,19 @@ mempoolSyncP2pSession
     -> Seconds
     -> P2pSession
 mempoolSyncP2pSession chain (Seconds pollInterval) logg0 env _ = do
-    logg Debug "mempool sync session starting"
-    Mempool.syncMempools' logg syncIntervalUs pool peerMempool
-    logg Debug "mempool sync session finished"
+    -- logg Debug "mempool sync session starting"
+    -- Mempool.syncMempools' logg syncIntervalUs pool peerMempool
+    -- logg Debug "mempool sync session finished"
     return True
   where
-    peerMempool = MPC.toMempool v cid txcfg env
+    peerMempool = undefined -- MPC.toMempool v cid txcfg env
 
     -- FIXME Potentially dangerous down-cast.
     syncIntervalUs :: Int
     syncIntervalUs = int pollInterval * 500000
 
-    remote = T.pack $ Sv.showBaseUrl $ Sv.baseUrl env
-    logg d m = logg0 d $ T.concat ["[mempool sync@", remote, "]:", m]
+    -- remote = T.pack $ Sv.showBaseUrl $ Sv.baseUrl env
+    -- logg d m = logg0 d $ T.concat ["[mempool sync@", remote, "]:", m]
 
     pool = _chainResMempool chain
     txcfg = Mempool.mempoolTxConfig pool

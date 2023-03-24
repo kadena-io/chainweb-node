@@ -195,8 +195,7 @@ type MaxHeightParam = QueryParam "maxheight" MaxRank
 type BranchHashesApi_
     = "hash" :> "branch"
     :> PageParams (NextItem BlockHash)
-    :> MinHeightParam
-    :> MaxHeightParam
+    :> FilterParams
     :> ReqBody '[JSON] (BranchBounds BlockHeaderDb)
     :> Post '[JSON] BlockHashPage
 -- -------------------------------------------------------------------------- --
@@ -210,8 +209,7 @@ type HashesApi_
 type BranchHeadersApi_
     = "header" :> "branch"
     :> PageParams (NextItem BlockHash)
-    :> MinHeightParam
-    :> MaxHeightParam
+    :> FilterParams
     :> ReqBody '[JSON] (BranchBounds BlockHeaderDb)
     :> Post '[JSON, JsonBlockHeaderObject] BlockHeaderPage
 -- -------------------------------------------------------------------------- --

@@ -28,7 +28,7 @@ import Control.Monad
 
 import qualified Data.Text.IO as T
 
-import Servant.Client
+import Web.DeepRoute.Client
 
 import System.LogLevel
 

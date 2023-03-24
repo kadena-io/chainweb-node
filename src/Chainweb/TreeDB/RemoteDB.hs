@@ -28,6 +28,7 @@ import qualified Data.Text as T
 import Numeric.Natural
 
 import Servant.Client hiding (client)
+import Web.DeepRoute.Client hiding (ClientEnv)
 
 import Streaming
 import qualified Streaming.Prelude as SP
@@ -76,11 +77,11 @@ instance TreeDb RemoteDb where
             $ hashesClient ver cid limit nxt minr maxr
 
     entries (RemoteDb env alog ver cid) next limit minr maxr f
-        = f $ callAndPage client next 0 env
+        = f $ newCallAndPage client next 0 env
       where
-        client :: Maybe (NextItem BlockHash) -> ClientM (Page (NextItem BlockHash) BlockHeader)
-        client nxt = logServantError alog "failed to query tree db entries"
-            $ headersClient ver cid limit nxt minr maxr
+        client :: Maybe (NextItem BlockHash) -> RootedClientEnv -> IO (Page (NextItem BlockHash) BlockHeader)
+        client nxt e = logDeepRouteError alog "failed to query tree db entries"
+            $ newHeadersClient e ver cid limit nxt minr maxr
 
     branchKeys (RemoteDb env alog ver cid) next limit minr maxr lower upper f
         = f $ callAndPage client next 0 env
@@ -90,17 +91,22 @@ instance TreeDb RemoteDb where
             $ branchHashesClient ver cid limit nxt minr maxr (BranchBounds lower upper)
 
     branchEntries (RemoteDb env alog ver cid) next limit minr maxr lower upper f
-        = f $ callAndPage client next 0 env
+        = f $ newCallAndPage client next 0 env
       where
-        client :: Maybe (NextItem BlockHash) -> ClientM (Page (NextItem BlockHash) BlockHeader)
-        client nxt = logServantError alog "failed to query remote branch entries"
-            $ branchHeadersClient ver cid limit nxt minr maxr (BranchBounds lower upper)
+        client :: Maybe (NextItem BlockHash) -> RootedClientEnv -> IO (Page (NextItem BlockHash) BlockHeader)
+        client nxt e = logDeepRouteError alog "failed to query remote branch entries"
+            $ newBranchHeadersClient e ver cid limit nxt minr maxr (BranchBounds lower upper)
 
     -- We could either use the cut or create a new API
     -- maxEntry (RemoteDb env alog ver cid) e =
+    --
+logDeepRouteError :: ALogFunction -> T.Text -> IO a -> IO a
+logDeepRouteError alog msg = handle $ \(e :: Web.DeepRoute.Client.ClientError) -> do
+    liftIO $ (_getLogFunction alog) @T.Text Debug $ msg <> ": " <> sshow e
+    throwM e
 
 logServantError :: ALogFunction -> T.Text -> ClientM a -> ClientM a
-logServantError alog msg = handle $ \(e :: ClientError) -> do
+logServantError alog msg = handle $ \(e :: Servant.Client.ClientError) -> do
     liftIO $ (_getLogFunction alog) @T.Text Debug $ msg <> ": " <> sshow e
     throwM e
 
@@ -124,6 +130,33 @@ callAndPage f next !n env = lift (runClientM (f next) env) >>= either (lift . th
         case _pageNext page of
             nxt@(Just (Inclusive _)) -> callAndPage f nxt total env
             _ -> pure (total, Eos True)
+
+newCallAndPage
+    :: (Maybe (NextItem k) -> RootedClientEnv -> IO (Page (NextItem k) a))
+    -> Maybe (NextItem k)
+    -> Natural
+    -> ClientEnv
+    -> Stream (Of a) IO (Natural, Eos)
+newCallAndPage f next !n env = lift (f next (undefined @_ @(ClientEnv -> RootedClientEnv) env)) >>= g
+    where
+    g page = do
+        SP.each $ _pageItems page
+        let total = n + fromIntegral (length $ _pageItems page)
+        case _pageNext page of
+            nxt@(Just (Inclusive _)) -> newCallAndPage f nxt total env
+            _ -> pure (total, Eos True)
+-- newCallAndPage f next !n env = lift (runClientM (f next) env) >>= either (lift . throwM) g
+--   where
+--     -- | Stream every `BlockHeader` from a `Page`, automatically requesting
+--     -- the next `Page` if there is one.
+--     --
+--     g page = do
+--         SP.each $ _pageItems page
+--         let total = n + fromIntegral (length $ _pageItems page)
+--         case _pageNext page of
+--             nxt@(Just (Inclusive _)) -> callAndPage f nxt total env
+--             _ -> pure (total, Eos True)
+
 
 -- | Given some connection configuration, form a `RemoteDb` interface to some
 -- `TreeDb`.
