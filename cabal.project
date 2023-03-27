@@ -139,7 +139,7 @@ allow-newer: servant:*
 -- these are more liberal than necessary, but since everything works fine
 -- with this there's no reason constrain it more.
 allow-newer: *:base
-allow-newer: *.tempalte-haskell
+allow-newer: *:tempalte-haskell
 
 -- -------------------------------------------------------------------------- --
 -- Upper Bounds
