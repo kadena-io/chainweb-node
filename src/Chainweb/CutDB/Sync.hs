@@ -62,14 +62,14 @@ putCut
     -> CutHashes
     -> IO ()
 putCut (CutClientEnv v env) ch =
-    newCutPutClient (RootedClientEnv (T.encodeUtf8 $ "chainweb/0.0/" <> toText v <> "/cut") env) ch
+    newCutPutClient v env ch
 
 getCut
     :: CutClientEnv
     -> CutHeight
     -> IO CutHashes
 getCut (CutClientEnv v env) h =
-    newCutGetClient (RootedClientEnv (T.encodeUtf8 $ "chainweb/0.0/" <> toText v <> "/cut") env) Nothing
+    newCutGetClient v env Nothing
 
 -- -------------------------------------------------------------------------- --
 -- Sync Session

@@ -143,10 +143,11 @@ cutGetEndpoint cutDb = (methodGet, "application/json",) $ \req resp -> do
     maxheight <- getParams req (queryParamMaybe "maxheight")
     resp . responseJSON status200 [] =<< cutGetHandler cutDb maxheight
 
-newCutGetClient :: (HasRouteRoot e, HasClientEnv e) => e -> Maybe MaxRank -> IO CutHashes
-newCutGetClient e mh = doJSONRequest (e ^. clientEnv) $ withMethod e methodGet
-    & requestQuery .~ [("maxheight", Just (toQueryParam maxheight)) | Just maxheight <- [mh]]
-    & requestHeaders .~ [("Accept", "application/json")]
+newCutGetClient :: ChainwebVersion -> ClientEnv -> Maybe MaxRank -> IO CutHashes
+newCutGetClient v e mh = doJSONRequest e $
+    "chainweb" /@ "0.0" /@@ v /@ "cut" `withMethod` methodGet
+        & requestQuery .~ [("maxheight", Just (toQueryParam maxheight)) | Just maxheight <- [mh]]
+        & requestHeaders .~ [("Accept", "application/json")]
 
 newCutGetServer :: CutDb cas -> Route Wai.Application
 newCutGetServer cutDb = terminus' [cutGetEndpoint cutDb]
@@ -159,7 +160,8 @@ newCutServer peerDb cutDb = terminus'
         resp $ Wai.responseLBS noContent204 [] ""
     ]
 
-newCutPutClient :: (HasRouteRoot e, HasClientEnv e) => e -> CutHashes -> IO ()
-newCutPutClient e ch = doRequestForEffect (e ^. clientEnv) $ withMethod e methodPut
-    & requestBody .~ Client.RequestBodyLBS (encode ch)
-    & requestHeaders .~ [("Content-Type", "application/json")]
+newCutPutClient :: ChainwebVersion -> ClientEnv -> CutHashes -> IO ()
+newCutPutClient v e ch = doRequestForEffect e $
+    "chainweb" /@ "0.0" /@@ v /@ "cut" `withMethod` methodPut
+        & requestBody .~ Client.RequestBodyLBS (encode ch)
+        & requestHeaders .~ [("Content-Type", "application/json")]

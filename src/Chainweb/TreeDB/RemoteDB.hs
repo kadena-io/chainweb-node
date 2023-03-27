@@ -1,4 +1,5 @@
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -21,14 +22,15 @@ module Chainweb.TreeDB.RemoteDB
   ) where
 
 import Control.Error.Util (hush)
-import Control.Monad.Catch (handle, throwM)
+import Control.Monad.Catch (catch, handle, throwM)
 
 import qualified Data.Text as T
 
 import Numeric.Natural
 
-import Servant.Client hiding (client)
-import Web.DeepRoute.Client hiding (ClientEnv)
+-- import Servant.Client hiding (client)
+import Network.HTTP.Types.Status
+import Web.DeepRoute.Client
 
 import Streaming
 import qualified Streaming.Prelude as SP
@@ -64,36 +66,38 @@ instance TreeDb RemoteDb where
     maxEntry = error "Chainweb.TreeDB.RemoteDB.RemoteDb.maxEntry: not implemented"
 
     -- If other default functions rely on this, it could be quite inefficient.
-    lookup (RemoteDb env alog ver cid) k = hush <$> runClientM client env
+    lookup (RemoteDb env alog ver cid) k = (Just <$> client env) `catch` \case
+        Web.DeepRoute.Client.UnsuccessfulStatus st | statusCode st == 404 -> return Nothing
+        e -> throwM e
       where
-        client = logServantError alog "failed to query tree db entry"
-            $ headerClient ver cid k
+        client e = logDeepRouteError alog "failed to query tree db entry"
+            $ newHeaderClient e ver cid k
 
     keys (RemoteDb env alog ver cid) next limit minr maxr f
-        = f $ callAndPage client next 0 env
+        = f $ newCallAndPage client next 0 env
       where
-        client :: Maybe (NextItem BlockHash) -> ClientM (Page (NextItem BlockHash) BlockHash)
-        client nxt = logServantError alog "failed to query tree db keys"
-            $ hashesClient ver cid limit nxt minr maxr
+        client :: Maybe (NextItem BlockHash) -> ClientEnv -> IO (Page (NextItem BlockHash) BlockHash)
+        client nxt e = logDeepRouteError alog "failed to query tree db keys"
+            $ newHashesClient e ver cid limit nxt minr maxr
 
     entries (RemoteDb env alog ver cid) next limit minr maxr f
         = f $ newCallAndPage client next 0 env
       where
-        client :: Maybe (NextItem BlockHash) -> RootedClientEnv -> IO (Page (NextItem BlockHash) BlockHeader)
+        client :: Maybe (NextItem BlockHash) -> ClientEnv -> IO (Page (NextItem BlockHash) BlockHeader)
         client nxt e = logDeepRouteError alog "failed to query tree db entries"
             $ newHeadersClient e ver cid limit nxt minr maxr
 
     branchKeys (RemoteDb env alog ver cid) next limit minr maxr lower upper f
-        = f $ callAndPage client next 0 env
+        = f $ newCallAndPage client next 0 env
       where
-        client :: Maybe (NextItem BlockHash) -> ClientM (Page (NextItem BlockHash) BlockHash)
-        client nxt = logServantError alog "failed to query remote branch keys"
-            $ branchHashesClient ver cid limit nxt minr maxr (BranchBounds lower upper)
+        client :: Maybe (NextItem BlockHash) -> ClientEnv -> IO (Page (NextItem BlockHash) BlockHash)
+        client nxt e = logDeepRouteError alog "failed to query remote branch keys"
+            $ newBranchHashesClient e ver cid limit nxt minr maxr (BranchBounds lower upper)
 
     branchEntries (RemoteDb env alog ver cid) next limit minr maxr lower upper f
         = f $ newCallAndPage client next 0 env
       where
-        client :: Maybe (NextItem BlockHash) -> RootedClientEnv -> IO (Page (NextItem BlockHash) BlockHeader)
+        client :: Maybe (NextItem BlockHash) -> ClientEnv -> IO (Page (NextItem BlockHash) BlockHeader)
         client nxt e = logDeepRouteError alog "failed to query remote branch entries"
             $ newBranchHeadersClient e ver cid limit nxt minr maxr (BranchBounds lower upper)
 
@@ -101,44 +105,47 @@ instance TreeDb RemoteDb where
     -- maxEntry (RemoteDb env alog ver cid) e =
     --
 logDeepRouteError :: ALogFunction -> T.Text -> IO a -> IO a
-logDeepRouteError alog msg = handle $ \(e :: Web.DeepRoute.Client.ClientError) -> do
+logDeepRouteError alog msg = handle $ \(e :: ClientError) -> do
     liftIO $ (_getLogFunction alog) @T.Text Debug $ msg <> ": " <> sshow e
     throwM e
 
-logServantError :: ALogFunction -> T.Text -> ClientM a -> ClientM a
-logServantError alog msg = handle $ \(e :: Servant.Client.ClientError) -> do
-    liftIO $ (_getLogFunction alog) @T.Text Debug $ msg <> ": " <> sshow e
-    throwM e
+-- logServantError :: ALogFunction -> T.Text -> ClientM a -> ClientM a
+-- logServantError alog msg = handle $ \(e :: Servant.Client.ClientError) -> do
+--     liftIO $ (_getLogFunction alog) @T.Text Debug $ msg <> ": " <> sshow e
+--     throwM e
 
 -- | Given the proper arguments to initiate a remote request, perform said request
 -- and deconstruct consecutive pages into a `Stream`.
 --
-callAndPage
-    :: (Maybe (NextItem k) -> ClientM (Page (NextItem k) a))
+-- callAndPage
+--     :: (Maybe (NextItem k) -> ClientM (Page (NextItem k) a))
+--     -> Maybe (NextItem k)
+--     -> Natural
+--     -> ClientEnv
+--     -> Stream (Of a) IO (Natural, Eos)
+-- callAndPage f next !n env = lift (runClientM (f next) env) >>= either (lift . throwM) g
+--   where
+--     -- | Stream every `BlockHeader` from a `Page`, automatically requesting
+--     -- the next `Page` if there is one.
+--     --
+--     g page = do
+--         SP.each $ _pageItems page
+--         let total = n + fromIntegral (length $ _pageItems page)
+--         case _pageNext page of
+--             nxt@(Just (Inclusive _)) -> callAndPage f nxt total env
+--             _ -> pure (total, Eos True)
+
+newCallAndPage
+    :: (Maybe (NextItem k) -> ClientEnv -> IO (Page (NextItem k) a))
     -> Maybe (NextItem k)
     -> Natural
     -> ClientEnv
     -> Stream (Of a) IO (Natural, Eos)
-callAndPage f next !n env = lift (runClientM (f next) env) >>= either (lift . throwM) g
-  where
+newCallAndPage f next !n env = lift (f next env) >>= g
+    where
     -- | Stream every `BlockHeader` from a `Page`, automatically requesting
     -- the next `Page` if there is one.
     --
-    g page = do
-        SP.each $ _pageItems page
-        let total = n + fromIntegral (length $ _pageItems page)
-        case _pageNext page of
-            nxt@(Just (Inclusive _)) -> callAndPage f nxt total env
-            _ -> pure (total, Eos True)
-
-newCallAndPage
-    :: (Maybe (NextItem k) -> RootedClientEnv -> IO (Page (NextItem k) a))
-    -> Maybe (NextItem k)
-    -> Natural
-    -> ClientEnv
-    -> Stream (Of a) IO (Natural, Eos)
-newCallAndPage f next !n env = lift (f next (undefined @_ @(ClientEnv -> RootedClientEnv) env)) >>= g
-    where
     g page = do
         SP.each $ _pageItems page
         let total = n + fromIntegral (length $ _pageItems page)
@@ -147,9 +154,6 @@ newCallAndPage f next !n env = lift (f next (undefined @_ @(ClientEnv -> RootedC
             _ -> pure (total, Eos True)
 -- newCallAndPage f next !n env = lift (runClientM (f next) env) >>= either (lift . throwM) g
 --   where
---     -- | Stream every `BlockHeader` from a `Page`, automatically requesting
---     -- the next `Page` if there is one.
---     --
 --     g page = do
 --         SP.each $ _pageItems page
 --         let total = n + fromIntegral (length $ _pageItems page)

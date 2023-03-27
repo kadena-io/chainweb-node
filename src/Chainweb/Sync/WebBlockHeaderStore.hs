@@ -51,7 +51,7 @@ import GHC.Generics
 
 import qualified Network.HTTP.Client as HTTP
 
-import Servant.Client
+import Web.DeepRoute.Client
 
 import System.LogLevel
 
@@ -468,8 +468,8 @@ getBlockHeaderInternal headerStore payloadStore candidateHeaderCas candidatePayl
     pullOrigin ck@(ChainValue cid k) (Just origin) = do
         let originEnv = peerInfoClientEnv mgr origin
         logg Debug $ taskMsg ck "lookup origin"
-        -- !r <- TDB.lookup (rDb v cid originEnv) k
-        -- logg Debug $ taskMsg ck "received from origin"
+        !r <- TDB.lookup (rDb v cid originEnv) k
+        logg Debug $ taskMsg ck "received from origin"
         -- return r
         undefined
 

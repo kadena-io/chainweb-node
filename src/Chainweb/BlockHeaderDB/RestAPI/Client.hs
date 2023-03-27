@@ -21,6 +21,7 @@
 --
 module Chainweb.BlockHeaderDB.RestAPI.Client
 ( headerClient
+, newHeaderClient
 
 , hashesClient
 , headersClient
@@ -46,7 +47,7 @@ import Data.Singletons
 import Servant.API
 import Servant.Client (ClientM, client)
 
-import Network.HTTP.Client(RequestBody(..))
+import Network.HTTP.Client(RequestBody(..), responseBody)
 import Network.HTTP.Media hiding ((//))
 import Network.HTTP.Types
 
@@ -64,6 +65,7 @@ import Chainweb.RestAPI.Orphans ()
 import Chainweb.RestAPI.Utils
 import Chainweb.TreeDB
 import Chainweb.Utils.Paging
+import Chainweb.Utils.Serialization
 import Chainweb.Version
 
 -- -------------------------------------------------------------------------- --
@@ -124,6 +126,18 @@ headerClientJsonBinary v c k = runIdentity $ do
     (SomeSing (SChainwebVersion :: Sing v)) <- return $ toSing v
     (SomeSing (SChainId :: Sing c)) <- return $ toSing c
     return $ headerClientContentType_ @v @c @OctetStream k
+
+newHeaderClient
+    :: ClientEnv
+    -> ChainwebVersion
+    -> ChainId
+    -> BlockHash
+    -> IO BlockHeader
+newHeaderClient e v cid bh =
+    let req = doRequest e $
+            "chainweb" /@ "0.0" /@@ v /@ "chain" /@@ cid /@ "header" /@@ bh `withMethod` methodGet
+                & requestAcceptable ?~ ["application/octet-stream"]
+    in req $ readLazyResponseBody (runGetL decodeBlockHeader)
 
 -- -------------------------------------------------------------------------- --
 -- Headers Client
@@ -196,14 +210,14 @@ includePageParams :: ToHttpApiData (NextItem k) => Maybe Limit -> Maybe (NextIte
 includePageParams limit start r = r
     & requestQuery <>~ [ ("limit", Just $ toQueryParam lim) | Just lim <- [limit] ]
     & requestQuery <>~ [ ("next", Just $ toQueryParam next) | Just next <- [start] ]
+
 includeFilterParams :: Maybe MinRank -> Maybe MaxRank -> ApiRequest -> ApiRequest
 includeFilterParams minr maxr r = r
     & requestQuery <>~ [ ("minheight", Just $ toQueryParam mh) | Just mh <- [minr] ]
     & requestQuery <>~ [ ("maxheight", Just $ toQueryParam mh) | Just mh <- [maxr] ]
 
 newHeadersClient
-    :: (HasRouteRoot e, HasClientEnv e)
-    => e
+    :: ClientEnv
     -> ChainwebVersion
     -> ChainId
     -> Maybe Limit
@@ -211,31 +225,29 @@ newHeadersClient
     -> Maybe MinRank
     -> Maybe MaxRank
     -> IO BlockHeaderPage
-newHeadersClient e v cid limit start minr maxr = doJSONRequest (e ^. clientEnv) $
-    withMethod e methodGet /@ "chainweb" /@ "0.0" /@@ v /@ "chain" /@@ cid /@ "header"
+newHeadersClient e v cid limit start minr maxr = doJSONRequest e $
+     "chainweb" /@ "0.0" /@@ v /@ "chain" /@@ cid /@ "header" `withMethod` methodGet
         & requestAcceptable ?~ ["application/json"]
         & includePageParams limit start
         & includeFilterParams minr maxr
 
 newHashesClient
-    :: (HasRouteRoot e, HasClientEnv e)
-    => e
+    :: ClientEnv
     -> ChainwebVersion
     -> ChainId
     -> Maybe Limit
     -> Maybe (NextItem BlockHash)
     -> Maybe MinRank
     -> Maybe MaxRank
-    -> IO BlockHeaderPage
-newHashesClient e v cid limit start minr maxr = doJSONRequest (e ^. clientEnv) $
-    withMethod e methodGet /@ "chainweb" /@ "0.0" /@@ v /@ "chain" /@@ cid /@ "hash"
+    -> IO BlockHashPage
+newHashesClient e v cid limit start minr maxr = doJSONRequest e $
+    "chainweb" /@ "0.0" /@@ v /@ "chain" /@@ cid /@ "hash" `withMethod` methodGet
         & requestAcceptable ?~ ["application/json"]
         & includePageParams limit start
         & includeFilterParams minr maxr
 
 newBranchHeadersClient
-    :: (HasRouteRoot e, HasClientEnv e)
-    => e
+    :: ClientEnv
     -> ChainwebVersion
     -> ChainId
     -> Maybe Limit
@@ -244,16 +256,15 @@ newBranchHeadersClient
     -> Maybe MaxRank
     -> BranchBounds BlockHeaderDb
     -> IO BlockHeaderPage
-newBranchHeadersClient e v cid limit start minr maxr bb = doJSONRequest (e ^. clientEnv) $
-    withMethod e methodPost /@ "chainweb" /@ "0.0" /@@ v /@ "chain" /@@ cid /@ "header" /@ "branch"
+newBranchHeadersClient e v cid limit start minr maxr bb = doJSONRequest e $
+    "chainweb" /@ "0.0" /@@ v /@ "chain" /@@ cid /@ "header" /@ "branch" `withMethod` methodPost
         & requestAcceptable ?~ ["application/json"]
         & includePageParams limit start
         & includeFilterParams minr maxr
         & requestBody .~ RequestBodyLBS (encode bb)
 
 newBranchHashesClient
-    :: (HasRouteRoot e, HasClientEnv e)
-    => e
+    :: ClientEnv
     -> ChainwebVersion
     -> ChainId
     -> Maybe Limit
@@ -263,7 +274,7 @@ newBranchHashesClient
     -> BranchBounds BlockHeaderDb
     -> IO BlockHashPage
 newBranchHashesClient e v cid limit start minr maxr bb = doJSONRequest (e ^. clientEnv) $
-    withMethod e methodPost /@ "chainweb" /@ "0.0" /@@ v /@ "chain" /@@ cid /@ "hash" /@ "branch"
+    "chainweb" /@ "0.0" /@@ v /@ "chain" /@@ cid /@ "hash" /@ "branch" `withMethod` methodPost
         & requestAcceptable ?~ ["application/json"]
         & includePageParams limit start
         & includeFilterParams minr maxr
