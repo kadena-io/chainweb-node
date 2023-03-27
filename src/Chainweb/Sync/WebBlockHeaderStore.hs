@@ -40,9 +40,9 @@ module Chainweb.Sync.WebBlockHeaderStore
 ) where
 
 import Control.Concurrent.Async
+import Control.Exception.Safe
 import Control.Lens
 import Control.Monad
-import Control.Monad.Catch
 
 import Data.Foldable
 import Data.Hashable
@@ -446,7 +446,7 @@ getBlockHeaderInternal headerStore payloadStore candidateHeaderCas candidatePayl
     queryBlockHeaderTask ck@(ChainValue cid k)
         = newTask (sshow ck) priority $ \l env -> chainValue <$> do
             l @T.Text Debug $ taskMsg ck "query remote block header"
-            !r <- TDB.lookupM (rDb v cid env) k `catchAllSynchronous` \e -> do
+            !r <- TDB.lookupM (rDb v cid env) k `catchAny` \e -> do
                 l @T.Text Debug $ taskMsg ck $ "failed: " <> sshow e
                 throwM e
             l @T.Text Debug $ taskMsg ck "received remote block header"

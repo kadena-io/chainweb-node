@@ -37,6 +37,7 @@ module Chainweb.RestAPI
 -- * Chainweb P2P API Server
 , someChainwebServer
 , chainwebApplication
+, chainwebApplicationWithHashesAndSpvApi
 , serveChainwebOnPort
 , serveChainweb
 , serveChainwebSocket
@@ -104,7 +105,7 @@ import Chainweb.RestAPI.NetworkID
 import Chainweb.RestAPI.NodeInfo
 import Chainweb.RestAPI.Utils
 import Chainweb.Rosetta.RestAPI.Server
-import Chainweb.SPV.RestAPI.Server
+import Chainweb.SPV.RestAPI.Server (someSpvServers)
 import Chainweb.Utils
 import Chainweb.Version
 
@@ -203,7 +204,6 @@ chainwebP2pMiddlewares
     = chainwebTime
     . chainwebPeerAddr
     . chainwebNodeVersion
-    . chainwebCors
 
 chainwebServiceMiddlewares :: Middleware
 chainwebServiceMiddlewares
@@ -222,12 +222,38 @@ someChainwebServer
     -> SomeServer
 someChainwebServer config dbs =
     maybe mempty (someCutServer v cutPeerDb) cuts
-    <> maybe mempty (someSpvServers v) cuts
+    <> somePayloadServers v p2pPayloadBatchLimit payloads
+    <> someP2pBlockHeaderDbServers v blocks
+    <> Mempool.someMempoolServers v mempools
+    <> someP2pServers v peers
+    <> someGetConfigServer config
+  where
+    payloads = _chainwebServerPayloadDbs dbs
+    blocks = _chainwebServerBlockHeaderDbs dbs
+    cuts = _chainwebServerCutDb dbs
+    peers = _chainwebServerPeerDbs dbs
+    mempools = _chainwebServerMempools dbs
+    cutPeerDb = fromJuste $ lookup CutNetwork peers
+    v = _configChainwebVersion config
+
+-- | Legacy version with Hashes API that is used in tests
+--
+-- When we have comprehensive testing for the service API we can remove this
+--
+someChainwebServerWithHashesAndSpvApi
+    :: Show t
+    => CanReadablePayloadCas tbl
+    => ChainwebConfiguration
+    -> ChainwebServerDbs t tbl
+    -> SomeServer
+someChainwebServerWithHashesAndSpvApi config dbs =
+    maybe mempty (someCutServer v cutPeerDb) cuts
     <> somePayloadServers v p2pPayloadBatchLimit payloads
     <> someBlockHeaderDbServers v blocks
     <> Mempool.someMempoolServers v mempools
     <> someP2pServers v peers
     <> someGetConfigServer config
+    <> maybe mempty (someSpvServers v) cuts
   where
     payloads = _chainwebServerPayloadDbs dbs
     blocks = _chainwebServerBlockHeaderDbs dbs
@@ -250,6 +276,21 @@ chainwebApplication config dbs
     = chainwebP2pMiddlewares
     . someServerApplication
     $ someChainwebServer config dbs
+
+-- | Legacy version with Hashes API that is used in tests
+--
+-- When we have comprehensive testing for the service API we can remove this
+--
+chainwebApplicationWithHashesAndSpvApi
+    :: Show t
+    => CanReadablePayloadCas tbl
+    => ChainwebConfiguration
+    -> ChainwebServerDbs t tbl
+    -> Application
+chainwebApplicationWithHashesAndSpvApi config dbs
+    = chainwebP2pMiddlewares
+    . someServerApplication
+    $ someChainwebServerWithHashesAndSpvApi config dbs
 
 serveChainwebOnPort
     :: Show t
@@ -343,11 +384,12 @@ someServiceApiServer v dbs pacts mr (HeaderStream hs) (Rosetta r) backupEnv pbl 
         -- TODO: not sure if passing the correct PeerDb here
         -- TODO: why does Rosetta need a peer db at all?
         -- TODO: simplify number of resources passing to rosetta
+    -- <> maybe mempty (someSpvServers v) cuts -- AFAIK currently not used
 
     -- GET Cut, Payload, and Headers endpoints
     <> maybe mempty (someCutGetServer v) cuts
     <> somePayloadServers v pbl payloads
-    <> someBlockHeaderDbServers v blocks
+    <> someBlockHeaderDbServers v blocks -- TOD make max limits configurable
   where
     cuts = _chainwebServerCutDb dbs
     peers = _chainwebServerPeerDbs dbs
@@ -393,3 +435,4 @@ serveServiceApiSocket
     -> IO ()
 serveServiceApiSocket s sock v dbs pacts mr hs r be pbl m =
     runSettingsSocket s sock $ m $ serviceApiApplication v dbs pacts mr hs r be pbl
+

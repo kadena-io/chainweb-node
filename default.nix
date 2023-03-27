@@ -44,9 +44,9 @@ pkgs.haskell.packages.${compiler}.developPackage {
         (self.callCabal2nix "rocksdb-haskell-kadena" (pkgs.fetchFromGitHub {
           owner = "kadena-io";
           repo = "rocksdb-haskell";
-          rev = "097b3541041ab93e63d8186e8510cd0f54f024f8";
-          sha256 = "1jviqkrwy64ryhmxhli4zn4ifkd2zd6a92axj37jhbv596kaq6d6";
-          # date = "2023-02-08T15:08:55-08:00";
+          rev = "c2b3dd8bb714a12ea6763565d168a03df38fcc58";
+          sha256 = "122xnsx6wlcxzgdywx1rzg9w6mj37g6vfcvmwz93xq50fxy33fc0";
+          # date = "2023-02-13T16:59:35-08:00";
         }) {})
         (attrs: {
           librarySystemDepends = (attrs.librarySystemDepends or []) ++ [

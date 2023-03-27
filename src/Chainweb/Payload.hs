@@ -254,7 +254,7 @@ instance Show Transaction where
 
 instance ToJSON Transaction where
     toJSON = toJSON . encodeB64UrlNoPaddingText . _transactionBytes
-    toEncoding = toEncoding . encodeB64UrlNoPaddingText . _transactionBytes
+    toEncoding = b64UrlNoPaddingTextEncoding . _transactionBytes
     {-# INLINE toJSON #-}
     {-# INLINE toEncoding #-}
 
@@ -303,7 +303,7 @@ instance Show TransactionOutput where
 
 instance ToJSON TransactionOutput where
     toJSON = toJSON . encodeB64UrlNoPaddingText . _transactionOutputBytes
-    toEncoding = toEncoding . encodeB64UrlNoPaddingText . _transactionOutputBytes
+    toEncoding = b64UrlNoPaddingTextEncoding . _transactionOutputBytes
     {-# INLINE toJSON #-}
     {-# INLINE toEncoding #-}
 
@@ -427,7 +427,7 @@ instance Show MinerData where
 
 instance ToJSON MinerData where
     toJSON = toJSON . encodeB64UrlNoPaddingText . _minerData
-    toEncoding = toEncoding . encodeB64UrlNoPaddingText . _minerData
+    toEncoding = b64UrlNoPaddingTextEncoding . _minerData
     {-# INLINE toJSON #-}
 
 instance FromJSON MinerData where
@@ -549,7 +549,7 @@ instance Show CoinbaseOutput where
 
 instance ToJSON CoinbaseOutput where
     toJSON = toJSON . encodeB64UrlNoPaddingText . _coinbaseOutput
-    toEncoding = toEncoding . encodeB64UrlNoPaddingText . _coinbaseOutput
+    toEncoding = b64UrlNoPaddingTextEncoding . _coinbaseOutput
     {-# INLINE toJSON #-}
     {-# INLINE toEncoding #-}
 
