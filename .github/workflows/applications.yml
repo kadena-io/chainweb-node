@@ -645,7 +645,7 @@ jobs:
 
     - name: Create Dockerfile
       run: |
-        cat > Dockerfile <<EOF
+        cat > Dockerfile <<DEOF
         FROM ubuntu:${OS#ubuntu-}
         LABEL com.chainweb.docker.image.compiler="ghc-${{ matrix.ghc }}"
         LABEL com.chainweb.docker.image.os="${OS}"
@@ -671,6 +671,7 @@ jobs:
           rm -rf /var/lib/apt/lists/* &&
           locale-gen en_US.UTF-8 &&
           update-locale LC_ALL=en_US.UTF-8 LANG=en_US.UTF-8
+        EOF
         ENV LANG=en_US.UTF-8
         WORKDIR /chainweb
         COPY chainweb/chainweb-node .
@@ -684,7 +685,7 @@ jobs:
         COPY chainweb/cabal.project.freeze .
         STOPSIGNAL SIGTERM
         ENTRYPOINT [ "/chainweb/chainweb-node" ]
-        EOF
+        DEOF
 
     - name: Set frozen tag
       id: frozen-tag
