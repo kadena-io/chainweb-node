@@ -125,13 +125,13 @@ jobs:
         MATRIX="$(jq -c '.' <<EOF
         {
           "ghc": ["8.10.7", "9.0.2", "9.2.6", "9.4.4", "9.6.1"],
-          "cabal": ["3.8"],
+          "cabal": ["3.10"],
           "os": ["ubuntu-20.04", "ubuntu-22.04"],
           "use-freeze-file": ["false"],
           "include": [
             {
               "ghc": "8.10.7",
-              "cabal": "3.8",
+              "cabal": "3.10",
               "os" : "ubuntu-20.04",
               "use-freeze-file": "true"
             }
