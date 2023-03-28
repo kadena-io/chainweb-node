@@ -88,6 +88,8 @@ import Pact.Types.Command
 import Pact.Types.PactValue
 import Pact.Types.Runtime (PactEvent(..), Literal(..))
 
+import Prelude hiding (Applicative(..))
+
 import System.IO.Unsafe
 
 import Test.QuickCheck.Arbitrary
