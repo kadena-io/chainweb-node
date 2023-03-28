@@ -119,12 +119,19 @@ jobs:
         fi
 
         echo "tag-suffix=$TAG_SUFFIX" >> $GITHUB_OUTPUT
+
+    # BUILD MATRIX
+    #
+    # Note that the build for 9.4 is temporarly disabled until 
+    # https://gitlab.haskell.org/ghc/ghc/-/issues/22998 is resolved for this version
+    # (which will hopefully be the case for GHC-9.4.5).
+    #
     - name: Create matrix
       id: set-matrix
       run: |
         MATRIX="$(jq -c '.' <<EOF
         {
-          "ghc": ["8.10.7", "9.0.2", "9.2.6", "9.4.4", "9.6.1"],
+          "ghc": ["8.10.7", "9.0.2", "9.2.7", "9.6.1"],
           "cabal": ["3.10"],
           "os": ["ubuntu-20.04", "ubuntu-22.04"],
           "use-freeze-file": ["false"],
