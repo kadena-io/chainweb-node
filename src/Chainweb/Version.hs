@@ -30,6 +30,10 @@ module Chainweb.Version
     (
     -- * Properties of Chainweb Version
       Fork(..)
+    , ForkHeight(..)
+    , _ForkAtBlockHeight
+    , _ForkAtGenesis
+    , _ForkNever
     , VersionGenesis(..)
     , VersionCheats(..)
     , VersionDefaults(..)
@@ -248,6 +252,12 @@ instance FromJSON Fork where
 instance FromJSONKey Fork where
     fromJSONKey = FromJSONKeyTextParser $ either fail return . eitherFromText
 
+data ForkHeight = ForkAtBlockHeight !BlockHeight | ForkAtGenesis | ForkNever
+    deriving stock (Generic, Eq, Ord)
+    deriving anyclass (Hashable, NFData)
+
+makePrisms ''ForkHeight
+
 newtype ChainwebVersionName =
     ChainwebVersionName { getChainwebVersionName :: T.Text }
     deriving stock (Generic, Eq, Ord)
@@ -312,7 +322,7 @@ data ChainwebVersion
         -- ^ The textual name of the Version, used in almost all REST endpoints.
     , _versionGraphs :: Rule BlockHeight ChainGraph
         -- ^ The chain graphs in the history and at which block heights they apply.
-    , _versionForks :: HashMap Fork (ChainMap BlockHeight)
+    , _versionForks :: HashMap Fork (ChainMap ForkHeight)
         -- ^ The block heights on each chain to apply behavioral changes.
         -- Interpretation of these is up to the functions in
         -- `Chainweb.Version.Guards`.
@@ -543,7 +553,7 @@ forkUpgrades v = OnChains . foldl' go (HM.empty <$ HS.toMap (chainIds v))
             | cid <- HM.keys acc
             , Just upg <- [txsPerChain ^? onChain cid]
             , not (null $ _upgradeTransactions upg) || emptyUpgradeError fork
-            , let forkHeight = v ^?! versionForks . at fork . _Just . onChain cid
+            , ForkAtBlockHeight forkHeight <- [v ^?! versionForks . at fork . _Just . onChain cid]
             , forkHeight /= maxBound
             ]
 
@@ -553,7 +563,7 @@ latestBehaviorAt :: ChainwebVersion -> BlockHeight
 latestBehaviorAt v = foldlOf' behaviorChanges max 0 v + 1
     where
     behaviorChanges = fold
-        [ versionForks . folded . folded
+        [ versionForks . folded . folded . _ForkAtBlockHeight
         , versionUpgrades . folded . ifolded . asIndex
         , versionGraphs . to ruleHead . _1 . _Just
-        ] . filtered (/= maxBound)
+        ]

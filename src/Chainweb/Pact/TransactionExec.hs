@@ -258,10 +258,12 @@ applyGenesisCmd
       -- ^ Pact db environment
     -> SPVSupport
       -- ^ SPV support (validates cont proofs)
+    -> TxContext
+      -- ^ tx metadata
     -> Command (Payload PublicMeta ParsedCode)
       -- ^ command with payload to execute
     -> IO (T2 (CommandResult [TxLog Value]) ModuleCache)
-applyGenesisCmd logger dbEnv spv cmd =
+applyGenesisCmd logger dbEnv spv txCtx cmd =
     second _txCache <$!> runTransactionM tenv txst go
   where
     nid = networkIdOf cmd
@@ -277,14 +279,14 @@ applyGenesisCmd logger dbEnv spv cmd =
         , _txGasPrice = 0.0
         , _txRequestKey = rk
         , _txGasLimit = 0
-        , _txExecutionConfig = mkExecutionConfig
-          [ FlagDisablePact40
-          , FlagDisablePact420
-          , FlagDisableInlineMemCheck
-          , FlagDisablePact43
-          , FlagDisablePact44
-          , FlagDisablePact45
-          ]
+        , _txExecutionConfig = ExecutionConfig
+          $ flagsFor (ctxVersion txCtx) (ctxChainId txCtx) (_blockHeight $ ctxBlockHeader txCtx)
+          -- TODO this is very ugly. Genesis blocks need to install keysets
+          -- outside of namespaces so we need to disable Pact 4.4. It would be
+          -- preferable to have a flag specifically for the namespaced keyset
+          -- stuff so that we retain the super cow powers in genesis and
+          -- upgrade txs.
+          <> S.fromList [ FlagDisableInlineMemCheck, FlagDisablePact44 ]
         }
     txst = TransactionState
         { _txCache = mempty

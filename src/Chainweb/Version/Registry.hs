@@ -38,6 +38,7 @@ import GHC.Stack
 
 import Chainweb.Version
 import Chainweb.Version.Development
+import Chainweb.Version.FastDevelopment
 import Chainweb.Version.Mainnet
 import Chainweb.Version.Testnet
 import Chainweb.Utils.Rule
@@ -83,9 +84,7 @@ validateVersion v = do
                     , hasAllChains (_genesisTime $ _versionGenesis v)
                     ])]
             ]
-    if null errors
-    then return ()
-    else
+    unless (null errors) $
         error $ unlines $ ["errors encountered validating version " <> show v <> ":"] <> errors
 
 -- | Look up a version in the registry by code.
@@ -106,11 +105,12 @@ lookupVersionByCode code
         return $ fromMaybe (error notRegistered) $ HM.lookup code m
     notRegistered
       | code == _versionCode devnet = "devnet version used but not registered, remember to do so after it's configured"
+      | code == _versionCode fastDevnet = "fastDevnet version used but not registered, remember to do so after it's configured"
       | otherwise = "version not registered with code " <> show code <> ", have you seen Chainweb.Test.TestVersions.legalizeTestVersion?"
 
 -- | Versions known to us by name.
 knownVersions :: [ChainwebVersion]
-knownVersions = [mainnet, testnet, devnet]
+knownVersions = [mainnet, testnet, devnet, fastDevnet]
 
 -- | Look up a known version by name, usually with `m` instantiated to some
 -- configuration parser monad.

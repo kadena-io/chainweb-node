@@ -21,6 +21,7 @@ import Chainweb.Version.Registry
 main :: IO ()
 main = withTempRocksDb "benchmarks" $ \rdb -> do
   registerVersion Development
+  registerVersion FastDevelopment
   defaultMain
     [ Checkpointer.bench
     , ForkingBench.bench rdb

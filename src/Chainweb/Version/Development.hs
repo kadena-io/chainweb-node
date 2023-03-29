@@ -20,8 +20,8 @@ import Chainweb.Utils.Rule
 import Chainweb.Version
 
 import qualified Chainweb.BlockHeader.Genesis.Development0Payload as DN0
-import qualified Chainweb.BlockHeader.Genesis.DevelopmentNPayload as DNN
-import qualified Chainweb.BlockHeader.Genesis.DevelopmentKADPayload as DNKAD
+import qualified Chainweb.BlockHeader.Genesis.Development1to9Payload as DNN
+import qualified Chainweb.BlockHeader.Genesis.Development10to19Payload as DNKAD
 import qualified Chainweb.Pact.Transactions.DevelopmentTransactions as Devnet
 import qualified Chainweb.Pact.Transactions.CoinV3Transactions as CoinV3
 import qualified Chainweb.Pact.Transactions.CoinV4Transactions as CoinV4
@@ -41,29 +41,29 @@ devnet = ChainwebVersion
     , _versionName = ChainwebVersionName "development"
 
     , _versionForks = tabulateHashMap $ \case
-            SlowEpoch -> AllChains $ BlockHeight 0
-            Vuln797Fix -> AllChains $ BlockHeight 0
-            CoinV2 -> AllChains $ BlockHeight 1
-            PactBackCompat_v16 -> AllChains $ BlockHeight 0
-            ModuleNameFix -> AllChains $ BlockHeight 0
-            SkipTxTimingValidation -> AllChains $ BlockHeight 0
-            OldTargetGuard -> AllChains $ BlockHeight 0
-            SkipFeatureFlagValidation -> AllChains $ BlockHeight 0
-            ModuleNameFix2 -> AllChains $ BlockHeight 0
-            OldDAGuard -> AllChains $ BlockHeight 1
-            PactEvents -> AllChains $ BlockHeight 1
-            SPVBridge -> AllChains $ BlockHeight 1
-            Pact4Coin3 -> AllChains $ BlockHeight 2
-            EnforceKeysetFormats -> AllChains $ BlockHeight 1
-            Pact420 -> AllChains $ BlockHeight 1
-            CheckTxHash -> AllChains $ BlockHeight 1
-            Chainweb213Pact -> AllChains $ BlockHeight 3
-            Chainweb214Pact -> AllChains $ BlockHeight 4
-            Chainweb215Pact -> AllChains $ BlockHeight 5
-            Pact44NewTrans -> AllChains $ BlockHeight 1
-            Chainweb216Pact -> AllChains $ BlockHeight 6
-            Chainweb217Pact -> AllChains $ BlockHeight 6
-            Chainweb218Pact -> AllChains $ BlockHeight 6
+            SlowEpoch -> AllChains $ ForkAtBlockHeight 0
+            Vuln797Fix -> AllChains $ ForkAtBlockHeight 0
+            CoinV2 -> AllChains $ ForkAtBlockHeight 1
+            PactBackCompat_v16 -> AllChains $ ForkAtBlockHeight 0
+            ModuleNameFix -> AllChains $ ForkAtBlockHeight 0
+            SkipTxTimingValidation -> AllChains $ ForkAtBlockHeight 0
+            OldTargetGuard -> AllChains $ ForkAtBlockHeight 0
+            SkipFeatureFlagValidation -> AllChains $ ForkAtBlockHeight 0
+            ModuleNameFix2 -> AllChains $ ForkAtBlockHeight 0
+            OldDAGuard -> AllChains $ ForkAtBlockHeight 1
+            PactEvents -> AllChains $ ForkAtBlockHeight 1
+            SPVBridge -> AllChains $ ForkAtBlockHeight 1
+            Pact4Coin3 -> AllChains $ ForkAtBlockHeight 2
+            EnforceKeysetFormats -> AllChains $ ForkAtBlockHeight 1
+            Pact420 -> AllChains $ ForkAtBlockHeight 1
+            CheckTxHash -> AllChains $ ForkAtBlockHeight 1
+            Chainweb213Pact -> AllChains $ ForkAtBlockHeight 3
+            Chainweb214Pact -> AllChains $ ForkAtBlockHeight 4
+            Chainweb215Pact -> AllChains $ ForkAtBlockHeight 5
+            Pact44NewTrans -> AllChains $ ForkAtBlockHeight 1
+            Chainweb216Pact -> AllChains $ ForkAtBlockHeight 6
+            Chainweb217Pact -> AllChains $ ForkAtBlockHeight 6
+            Chainweb218Pact -> AllChains $ ForkAtBlockHeight 6
 
     , _versionUpgrades = foldr (chainZip HM.union) (AllChains mempty)
         [ forkUpgrades devnet

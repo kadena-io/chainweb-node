@@ -2,7 +2,7 @@
 
 -- This module is auto-generated. DO NOT EDIT IT MANUALLY.
 
-module Chainweb.BlockHeader.Genesis.FastTimedCPMNPayload ( payloadBlock ) where
+module Chainweb.BlockHeader.Genesis.FastTimedCPM1to9Payload ( payloadBlock ) where
 
 import Data.Text.Encoding (encodeUtf8)
 import qualified Data.Text as T

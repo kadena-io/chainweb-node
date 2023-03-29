@@ -113,6 +113,7 @@ import Chainweb.Payload.RestAPI (PayloadBatchLimit(..), defaultServicePayloadBat
 import Chainweb.Utils
 import Chainweb.Version
 import Chainweb.Version.Development
+import Chainweb.Version.FastDevelopment
 import Chainweb.Version.Mainnet
 import Chainweb.Version.Registry
 
@@ -407,7 +408,7 @@ validateChainwebConfiguration c = do
     validateChainwebVersion (_configChainwebVersion c)
 
 validateChainwebVersion :: ConfigValidation ChainwebVersion []
-validateChainwebVersion v = unless (_versionCode v == _versionCode devnet) $
+validateChainwebVersion v = unless (_versionCode v `elem` map _versionCode [devnet, fastDevnet]) $
     throwError $ T.unwords
         [ "Specifying version properties is only legal with chainweb-version"
         , "set to development, but version is set to"
@@ -575,8 +576,11 @@ parseVersion = constructVersion
             maybe (_versionUpgrades winningVersion) (\fub' ->
                 OnChains $ HM.mapWithKey
                     (\cid _ ->
-                        let fubHeight = winningVersion ^?! versionForks . at fub' . _Just . onChain cid
-                        in HM.filterWithKey (\bh _ -> bh <= fubHeight) (winningVersion ^?! versionUpgrades . onChain cid))
+                        case winningVersion ^?! versionForks . at fub' . _Just . onChain cid of
+                            ForkNever -> error "the fork upper bound never occurs"
+                            ForkAtBlockHeight fubHeight -> HM.filterWithKey (\bh _ -> bh <= fubHeight) (winningVersion ^?! versionUpgrades . onChain cid)
+                            ForkAtGenesis -> winningVersion ^?! versionUpgrades . onChain cid
+                    )
                     (HS.toMap (chainIds winningVersion))
             ) fub
         & versionCheats . disablePow .~ disablePow'

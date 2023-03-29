@@ -413,7 +413,7 @@ applyPactCmd isGenesis env miner txTimeLimit cmd = StateT $ \(T2 mcache maybeBlo
     T2 result mcache' <- do
       pd <- getTxContext (publicMetaOf gasLimitedCmd)
       if isGenesis
-      then liftIO $! applyGenesisCmd logger env P.noSPVSupport gasLimitedCmd
+      then liftIO $! applyGenesisCmd logger env P.noSPVSupport pd gasLimitedCmd
       else do
         spv <- use psSpvSupport
         let
