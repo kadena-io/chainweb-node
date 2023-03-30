@@ -73,6 +73,7 @@ import Pact.Types.Term (ModuleName(..), ObjectMap(..), TableName(..))
 import Pact.Types.Util (AsString(..))
 
 import qualified Pact.JSON.Encode as J
+import qualified Pact.JSON.Legacy.HashMap as LHM
 
 -- chainweb
 
@@ -342,11 +343,10 @@ doKeys d = do
                   fmap (B8.unpack . _deltaRowKey) $
                   collect pb `DL.append` maybe DL.empty collect mptx
 
-    let allKeys = map fromString $
-                  msort $
-                  HashSet.toList $
-                  HashSet.fromList $
-                  dbKeys ++ memKeys
+    let allKeys = fmap fromString
+                  $ msort -- becomes avaialble with pact420Upgrade
+                  $ LHM.sort
+                  $ dbKeys ++ memKeys
     return allKeys
 
   where
