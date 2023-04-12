@@ -129,8 +129,11 @@ verifySPV bdb bh typ proof = go typ proof
       "TXOUT" -> case extractProof enableBridge o of
         Left t -> return (Left t)
         Right u
-          | (view outputProofChainId u) /= cid ->
+          | ProofTargetChain tcid <- view outputProofTarget u, tcid /= cid ->
             internalError "cannot redeem spv proof on wrong target chain"
+          -- NOT allowed to use ProofTargetCrossNetwork yet
+          | ProofTargetCrossNetwork _ <- view outputProofTarget u ->
+            internalError "cannot use verify-spv with a cross-network proof"
           | otherwise -> do
 
             -- SPV proof verification is a 3 step process:
@@ -173,7 +176,7 @@ verifyCont bdb bh (ContProof cp) = do
     case decodeStrict' t of
       Nothing -> internalError "unable to decode continuation proof"
       Just u
-        | (view outputProofChainId u) /= cid ->
+        | ProofTargetChain tcid <- view outputProofTarget u, tcid /= cid ->
           internalError "cannot redeem continuation proof on wrong target chain"
         | otherwise -> do
 

@@ -8,6 +8,7 @@
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TupleSections #-}
@@ -419,16 +420,22 @@ spvHandler l cdb cid (SpvRequest rk (Pact.ChainId ptid)) = do
         <> sshow e
       Right i -> return i
 
-    tid <- chainIdFromText ptid
-    p <- liftIO (try $ createTransactionOutputProof cdb tid cid bhe idx) >>= \case
+    p <- if
+      | Just netID <- T.stripPrefix "crossnet:" ptid ->
+        liftIO $ try $ createCrossNetworkTransactionOutputProof cdb netID cid bhe idx
+      | Just tid <- chainIdFromText ptid ->
+        liftIO $ try $ createTransactionOutputProof cdb tid cid bhe idx
+      | otherwise ->
+        toErr "Invalid proof target: not a chain ID or crossnet:<some string>"
+
+    case p of
       Left e@SpvExceptionTargetNotReachable{} ->
         toErr $ "SPV target not reachable: " <> spvErrOf e
       Left e@SpvExceptionVerificationFailed{} ->
         toErr $ "SPV verification failed: " <> spvErrOf e
       Left e -> toErr $ "Internal error: SPV verification failed: " <> spvErrOf e
-      Right q -> return q
+      Right q -> return $! b64 q
 
-    return $! b64 p
   where
     pe = _webPactExecutionService $ view CutDB.cutDbPactService cdb
     ph = Pact.fromUntypedHash $ unRequestKey rk

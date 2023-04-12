@@ -887,6 +887,12 @@ instance Arbitrary Spv2Request where
 instance Arbitrary (TransactionProof ChainwebMerkleHashAlgorithm) where
     arbitrary = TransactionProof <$> arbitrary <*> arbitrary
 
+instance Arbitrary ProofTarget where
+    arbitrary = oneof
+        [ ProofTargetChain <$> arbitrary
+        , ProofTargetCrossNetwork <$> arbitrary
+        ]
+
 instance Arbitrary (TransactionOutputProof ChainwebMerkleHashAlgorithm) where
     arbitrary = TransactionOutputProof <$> arbitrary <*> arbitrary
 

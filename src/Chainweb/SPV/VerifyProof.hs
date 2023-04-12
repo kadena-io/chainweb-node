@@ -126,9 +126,12 @@ verifyTransactionOutputProof
     :: CutDb tbl
     -> TransactionOutputProof SHA512t_256
     -> IO TransactionOutput
-verifyTransactionOutputProof cutDb proof@(TransactionOutputProof cid p) = do
-    unlessM (member cutDb cid h) $ throwM
-        $ SpvExceptionVerificationFailed "target header is not in the chain"
+verifyTransactionOutputProof cutDb proof@(TransactionOutputProof tgt p) = do
+    case tgt of
+        ProofTargetChain cid ->
+            unlessM (member cutDb cid h) $ throwM
+                $ SpvExceptionVerificationFailed "target header is not in the chain"
+        ProofTargetCrossNetwork _net -> return ()
     proofSubject p
   where
     h = runTransactionOutputProof proof
@@ -145,9 +148,12 @@ verifyTransactionOutputProofAt
     -> TransactionOutputProof SHA512t_256
     -> BlockHash
     -> IO TransactionOutput
-verifyTransactionOutputProofAt cutDb proof@(TransactionOutputProof cid p) ctx = do
-    unlessM (memberOfM cutDb cid h ctx) $ throwM
-        $ SpvExceptionVerificationFailed "target header is not in the chain"
+verifyTransactionOutputProofAt cutDb proof@(TransactionOutputProof tgt p) ctx = do
+    case tgt of
+        ProofTargetChain cid ->
+            unlessM (memberOfM cutDb cid h ctx) $ throwM
+                $ SpvExceptionVerificationFailed "target header is not in the chain"
+        ProofTargetCrossNetwork _net -> return ()
     proofSubject p
   where
     h = runTransactionOutputProof proof

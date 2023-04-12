@@ -22,6 +22,7 @@ module Chainweb.SPV.CreateProof
 , createTransactionOutputProof
 , createTransactionOutputProof_
 , createTransactionOutputProof'
+, createCrossNetworkTransactionOutputProof
 ) where
 
 import Control.Applicative
@@ -34,6 +35,7 @@ import Crypto.Hash.Algorithms
 import qualified Data.ByteString as B
 import qualified Data.List.NonEmpty as N
 import Data.MerkleLog
+import Data.Text (Text)
 
 import GHC.Stack
 
@@ -188,7 +190,6 @@ createTransactionOutputProof cutDb =
     (view cutDbWebBlockHeaderDb cutDb)
     (view cutDbPayloadDb cutDb)
 
-
 -- | Version without CutDb dependency
 --
 createTransactionOutputProof_
@@ -209,7 +210,7 @@ createTransactionOutputProof_
     -> IO (TransactionOutputProof SHA512t_256)
 createTransactionOutputProof_ headerDb payloadDb tcid scid bh i = do
     trgHeader <- minimumTrgHeader headerDb tcid scid bh
-    TransactionOutputProof tcid
+    TransactionOutputProof (ProofTargetChain tcid)
         <$> createPayloadProof_ outputProofPrefix headerDb payloadDb tcid scid bh i trgHeader
 
 
@@ -234,7 +235,7 @@ createTransactionOutputProof'
         -- ^ The index of the transaction in the block
     -> IO (TransactionOutputProof SHA512t_256)
 createTransactionOutputProof' cutDb tcid scid bh i
-    = TransactionOutputProof tcid
+    = TransactionOutputProof (ProofTargetChain tcid)
         <$> createPayloadProof outputProofPrefix cutDb tcid scid bh i
 
 outputProofPrefix
@@ -248,7 +249,7 @@ outputProofPrefix i db payload = do
     -- 1. TX proof
     Just outs <- tableLookup blockOutputTable $ _blockPayloadOutputsHash payload
         -- TODO: use the transaction tree cache
-    let (!subj, pos, t) = bodyTree @_ @ChainwebHashTag outs i
+    let !(!subj, pos, t) = bodyTree @_ @ChainwebHashTag outs i
         -- FIXME use log
     let tree = (pos, t)
         -- we blindly trust the ix
@@ -258,6 +259,27 @@ outputProofPrefix i db payload = do
     return (subj, proof)
   where
     blockOutputTable = _payloadCacheBlockOutputs $ _payloadCache db
+
+-- TODO: incorporate version into crossnet: syntax?
+-- TODO: if and when this is less trivial, incorporate this logic into createPayloadProof
+createCrossNetworkTransactionOutputProof :: (CanReadablePayloadCas tbl, HasCallStack) => CutDb tbl -> Text -> ChainId -> BlockHeight -> Int -> IO (TransactionOutputProof SHA512t_256)
+createCrossNetworkTransactionOutputProof cutDb tgt scid txHeight txIx = do
+    tip <- maxEntry headerDb
+    txHeader <- maybe (throwM headerNotFound) pure =<< seekAncestor headerDb tip (int txHeight)
+    Just payload <- tableLookup pDb (_blockPayloadHash txHeader)
+    (subj, prefix) <- outputProofPrefix txIx payloadDb payload
+    TransactionOutputProof (ProofTargetCrossNetwork tgt) <$> merkleProof_ subj prefix
+    where
+    headerDb = cutDb ^?! cutDbWebBlockHeaderDb . ixg scid
+    payloadDb = view cutDbPayloadDb cutDb
+    pDb = _transactionDbBlockPayloads $ _transactionDb payloadDb
+    headerNotFound = SpvExceptionTargetNotReachable
+        { _spvExceptionMsg = "Target of SPV proof can't be reached from the source transaction"
+        , _spvExceptionSourceChainId = scid
+        , _spvExceptionSourceHeight = txHeight
+        , _spvExceptionTargetChainId = ProofTargetCrossNetwork tgt
+        , _spvExceptionTargetHeight = txHeight
+        }
 
 -- -------------------------------------------------------------------------- --
 -- Internal Proof Creation
@@ -342,7 +364,7 @@ createPayloadProof_ getPrefix headerDb payloadDb tcid scid txHeight txIx trgHead
             { _spvExceptionMsg = "target chain not reachable. Chainweb instance is too young"
             , _spvExceptionSourceChainId = scid
             , _spvExceptionSourceHeight = txHeight
-            , _spvExceptionTargetChainId = tcid
+            , _spvExceptionTargetChainId = ProofTargetChain tcid
             , _spvExceptionTargetHeight = _blockHeight trgHeader
             }
 
@@ -351,7 +373,7 @@ createPayloadProof_ getPrefix headerDb payloadDb tcid scid txHeight txIx trgHead
             { _spvExceptionMsg = "Target of SPV proof can't be reached from the source transaction"
             , _spvExceptionSourceChainId = scid
             , _spvExceptionSourceHeight = txHeight
-            , _spvExceptionTargetChainId = tcid
+            , _spvExceptionTargetChainId = ProofTargetChain tcid
             , _spvExceptionTargetHeight = _blockHeight trgHeader
             }
 
@@ -362,7 +384,7 @@ createPayloadProof_ getPrefix headerDb payloadDb tcid scid txHeight txIx trgHead
             { _spvExceptionMsg = "Target of SPV proof can't be reached from the source transaction"
             , _spvExceptionSourceChainId = scid
             , _spvExceptionSourceHeight = txHeight
-            , _spvExceptionTargetChainId = tcid
+            , _spvExceptionTargetChainId = ProofTargetChain tcid
             , _spvExceptionTargetHeight = _blockHeight trgHeader
             }
 
@@ -430,7 +452,7 @@ crumbsOnChain db trgHeader srcHeight
             go p (cur : acc)
 
 -- | Create a path of bread crumbs from the source chain id to the target header
--- along the adjancet parent relation.
+-- along the adjacent parent relation.
 --
 -- Returns 'Nothing' if no such path exists.
 --
@@ -481,7 +503,7 @@ minimumTrgHeader headerDb tcid scid bh = do
             { _spvExceptionMsg = "target chain not reachable. Chainweb instance is too young"
             , _spvExceptionSourceChainId = scid
             , _spvExceptionSourceHeight = bh
-            , _spvExceptionTargetChainId = tcid
+            , _spvExceptionTargetChainId = ProofTargetChain tcid
             , _spvExceptionTargetHeight = int trgHeight
             }
   where
