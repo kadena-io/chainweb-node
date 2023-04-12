@@ -53,17 +53,17 @@ devnet = ChainwebVersion
             OldDAGuard -> AllChains $ BlockHeight 1
             PactEvents -> AllChains $ BlockHeight 1
             SPVBridge -> AllChains $ BlockHeight 1
-            Pact4Coin3 -> AllChains $ BlockHeight 2
+            Pact4Coin3 -> AllChains $ BlockHeight 14
             EnforceKeysetFormats -> AllChains $ BlockHeight 1
             Pact420 -> AllChains $ BlockHeight 1
             CheckTxHash -> AllChains $ BlockHeight 1
-            Chainweb213Pact -> AllChains $ BlockHeight 3
-            Chainweb214Pact -> AllChains $ BlockHeight 4
-            Chainweb215Pact -> AllChains $ BlockHeight 5
+            Chainweb213Pact -> AllChains $ BlockHeight 14
+            Chainweb214Pact -> AllChains $ BlockHeight 15
+            Chainweb215Pact -> AllChains $ BlockHeight 16
             Pact44NewTrans -> AllChains $ BlockHeight 1
-            Chainweb216Pact -> AllChains $ BlockHeight 6
-            Chainweb217Pact -> AllChains $ BlockHeight 6
-            Chainweb218Pact -> AllChains $ BlockHeight 6
+            Chainweb216Pact -> AllChains $ BlockHeight 17
+            Chainweb217Pact -> AllChains $ BlockHeight 17
+            Chainweb218Pact -> AllChains $ BlockHeight 17
 
     , _versionUpgrades = foldr (chainZip HM.union) (AllChains mempty)
         [ forkUpgrades devnet
