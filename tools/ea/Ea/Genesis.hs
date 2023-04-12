@@ -112,7 +112,7 @@ data Genesis = Genesis
     , _coinContract :: [FilePath]
     } deriving (Eq, Ord) -- Show)
 
-makeLenses ''Genesis
+makeLensesFor [("_" <> fn, fn) | fn <- ["txChainIds", "coinbase", "keysets", "allocations", "namespaces", "coinContract"]] ''Genesis
 
 -- ---------------------------------------------------------------------- --
 --  Coin Contract Essentials
