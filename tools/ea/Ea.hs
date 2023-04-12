@@ -62,7 +62,6 @@ import Chainweb.Transaction
     (ChainwebTransaction, chainwebPayloadCodec, mkPayloadWithTextOld)
 import Chainweb.Utils
 import Chainweb.Version
-import Chainweb.Version.Utils (someChainId)
 
 import Chainweb.Storage.Table.RocksDB
 
@@ -125,14 +124,14 @@ mkPayloads :: Traversable t => t Genesis -> IO ()
 mkPayloads = traverse_ (\g -> writePayload g =<< mkPayload g)
 
 writePayload :: Genesis -> Text -> IO ()
-writePayload gen@(Genesis v tag cid c k a ns cc) payload = do
+writePayload gen payload = do
     let fileName = "src/Chainweb/BlockHeader/Genesis/" <> fullGenesisTag gen <> "Payload.hs"
     TIO.writeFile (T.unpack fileName) payload
 
 -- | Generate a payload for a given list of genesis transactions
 --
 mkPayload :: Genesis -> IO Text
-mkPayload gen@(Genesis v tag cidr@(ChainIdRange l u) c k a ns cc) = do
+mkPayload gen@(Genesis v _ cidr@(ChainIdRange l u) c k a ns cc) = do
     printf ("Generating Genesis Payload for %s on " <> show_ cidr <> "...\n") $ show v
     payloadModules <- for [l..u] $ \cid ->
         genPayloadModule v (fullGenesisTag gen) (unsafeChainId cid) =<< mkChainwebTxs txs
