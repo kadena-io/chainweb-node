@@ -132,15 +132,10 @@ parseProof
     -> Value
     -> Aeson.Parser a
 parseProof name mkProof = withObject name $ \o -> join $ mkProof
-    <$> target o
+    <$> o .: "chain"
     <*> parse o
     <* (assertJSON ("SHA512t_256" :: T.Text) =<< o .: "algorithm")
   where
-    target o =
-        o .: "chain" >>= \case
-            (T.stripPrefix "crossnet:" -> Just tgt) -> return $ ProofTargetCrossNetwork tgt
-            (chainIdFromText -> Just cid) -> return $ ProofTargetChain cid
-            _ -> fail "expected numeric chain ID or crossnet:<some string>"
     parse o = MerkleProof
         <$> (parseSubject =<< o .: "subject")
         <*> (parseObject =<< o .: "object")
@@ -207,6 +202,12 @@ instance ToJSON ProofTarget where
     toJSON (ProofTargetCrossNetwork subtgt) = toJSON ("crossnet:" <> subtgt)
     toEncoding (ProofTargetChain cid) = toEncoding cid
     toEncoding (ProofTargetCrossNetwork subtgt) = toEncoding ("crossnet:" <> subtgt)
+
+instance FromJSON ProofTarget where
+    parseJSON = withText "ProofTarget" $ \case
+        (T.stripPrefix "crossnet:" -> Just tgt) -> return $ ProofTargetCrossNetwork tgt
+        (chainIdFromText -> Just cid) -> return $ ProofTargetChain cid
+        _ -> fail "expected numeric chain ID or crossnet:<some string>"
 
 
 -- | Witness that a transaction output is included in the head of a chain in a
