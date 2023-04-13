@@ -187,7 +187,7 @@ fastDevelopment0 = Genesis
     , _coinbase = Just dev0Grants
     , _keysets = Just devKeysets
     , _allocations = Just devAllocations
-    , _namespaces = Just devNs
+    , _namespaces = Just devNs2
     , _coinContract = [fungibleAssetV1, fungibleXChainV1, fungibleAssetV2, installCoinContractV5, gasPayer]
     }
 
@@ -196,8 +196,11 @@ fastDevelopmentN = fastDevelopment0
     & txChainIds .~ ChainIdRange 1 19
     & coinbase .~ (Just devNGrants)
 
+devNs2 :: FilePath
+devNs2 = "pact/genesis/ns-v2.yaml"
+
 devNs :: FilePath
-devNs = "pact/genesis/ns.yaml"
+devNs = "pact/genesis/ns-v1.yaml"
 
 devKeysets :: FilePath
 devKeysets = "pact/genesis/devnet/keysets.yaml"
@@ -235,7 +238,7 @@ fastTimedCPMN = fastTimedCPM0
     & coinbase .~ (Just fastNGrants)
 
 fastNs :: FilePath
-fastNs = "pact/genesis/ns.yaml"
+fastNs = "pact/genesis/ns-v1.yaml"
 
 fastKeysets :: FilePath
 fastKeysets = "pact/genesis/devnet/keysets.yaml"
@@ -276,7 +279,7 @@ testNGrants :: FilePath
 testNGrants = "pact/genesis/testnet/grantsN.yaml"
 
 testNs :: FilePath
-testNs = "pact/genesis/ns.yaml"
+testNs = "pact/genesis/ns-v1.yaml"
 
 testnetAllocations :: FilePath
 testnetAllocations = "pact/genesis/testnet/allocations.yaml"
