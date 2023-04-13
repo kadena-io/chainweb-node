@@ -699,8 +699,13 @@ clientEnvWithChainwebTestServer
 clientEnvWithChainwebTestServer tls v dbsIO =
     withChainwebTestServer tls v mkApp mkEnv
   where
+
+    -- FIXME: Hashes API got removed from the P2P API. We use an application that
+    -- includes this API for testing. We should create comprehensive tests for the
+    -- servcice API and move the tests over there.
+    --
     mkApp :: IO W.Application
-    mkApp = chainwebApplication (defaultChainwebConfiguration v) <$> dbsIO
+    mkApp = chainwebApplicationWithHashesAndSpvApi (defaultChainwebConfiguration v) <$> dbsIO
 
     mkEnv :: Int -> IO (TestClientEnv t tbl)
     mkEnv port = do

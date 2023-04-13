@@ -1,5 +1,31 @@
 # `chainweb-node` Changelog
 
+## 2.18.1 (2023-03-06)
+
+This is a feature and bug-fix release. Upgrading is optional but recommended.
+
+To upgrade, pull the latest docker image or download the binary and restart the
+node.
+
+All 2.18.* versions will expire on **2023-06-01T00:00:00Z**.
+
+[Changes](https://github.com/kadena-io/chainweb-node/compare/2.18...2.18.1):
+
+Performance Improvements:
+
+*   Optimize JSON+base64 encoding. (#1611)
+*   Use `application/octet-stream` encoding for P2P header queries. (#1619)
+
+Miscellaneous:
+
+*   Remove unused rate limiting configuration settings. (#1616)
+*   Remove CORS support from the P2P API. (#1616)
+*   Remove unused hashes and SPV endpoints from the P2P API. (#1616)
+*   Tighten default P2P rate limits. (#1616)
+*   Add dedicated rate limiter for Mempool requests. (#1616)
+*   Disable unused `application/json;blockheader-encoding=object` in responses
+    from the P2P API. (#1619)
+
 ## 2.18 (2023-03-01)
 
 This version replaces all previous versions. Any prior version will stop working

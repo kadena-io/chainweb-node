@@ -128,7 +128,7 @@ decodeBlockHash = BlockHash <$!> decodeMerkleLogHash
 
 instance ToJSON (BlockHash_ a) where
     toJSON = toJSON . encodeB64UrlNoPaddingText . runPutS . encodeBlockHash
-    toEncoding = toEncoding . encodeB64UrlNoPaddingText . runPutS . encodeBlockHash
+    toEncoding = b64UrlNoPaddingTextEncoding . runPutS . encodeBlockHash
     {-# INLINE toJSON #-}
     {-# INLINE toEncoding #-}
 
@@ -206,7 +206,7 @@ decodeBlockHashRecord :: Get BlockHashRecord
 decodeBlockHashRecord = do
     l <- getWord16le
     hashes <- replicateM (int l) decodeBlockHashWithChainId
-    return $ BlockHashRecord $! HM.fromList hashes
+    return $! BlockHashRecord $ HM.fromList hashes
 
 decodeBlockHashWithChainIdChecked
     :: HasChainId p
