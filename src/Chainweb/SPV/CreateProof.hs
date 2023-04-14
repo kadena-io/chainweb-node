@@ -249,7 +249,7 @@ outputProofPrefix i db payload = do
     -- 1. TX proof
     Just outs <- tableLookup blockOutputTable $ _blockPayloadOutputsHash payload
         -- TODO: use the transaction tree cache
-    let !(!subj, pos, t) = bodyTree @_ @ChainwebHashTag outs i
+    let (!subj, pos, t) = bodyTree @_ @ChainwebHashTag outs i
         -- FIXME use log
     let tree = (pos, t)
         -- we blindly trust the ix
