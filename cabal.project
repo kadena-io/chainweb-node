@@ -14,7 +14,6 @@ package chainweb
     extra-lib-dirs:
       /opt/local/lib
       /usr/local/opt/openssl/lib/
-    ghc-options: -Wunused-packages
 
 package pact
     ghc-options: -Wwarn
@@ -60,17 +59,17 @@ source-repository-package
 source-repository-package
     type: git
     location: https://github.com/kadena-io/pact.git
-    tag: bb6476de0fe56858a80f179d256809676885d0cb
+    tag: 842fbc4256b3cbbde337dbeaa393b649a26f1574
 
 source-repository-package
     type: git
     location: https://github.com/kadena-io/chainweb-storage.git
-    tag: 5b04025bca75b035d7df29419963880c03c43493
+    tag: af9f42c78bcd703ac382cfd8101c6d1c66a035f1
 
 source-repository-package
     type: git
     location: https://github.com/kadena-io/rocksdb-haskell.git
-    tag: 2f0bae730d137b7edee090c4014d891675933ba5
+    tag: c2b3dd8bb714a12ea6763565d168a03df38fcc58
 
 source-repository-package
     type: git
@@ -117,4 +116,3 @@ constraints: megaparsec <9.3
 
 -- TODO remove once the bounds are upgraded in pact.
 allow-newer: pact:direct-sqlite
-

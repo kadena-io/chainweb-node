@@ -10,6 +10,7 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE UndecidableInstances #-}
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 
 -- |
@@ -38,9 +39,9 @@ module Chainweb.Sync.WebBlockHeaderStore
 ) where
 
 import Control.Concurrent.Async
+import Control.Exception.Safe
 import Control.Lens
 import Control.Monad
-import Control.Monad.Catch
 
 import Data.Foldable
 import Data.Hashable
@@ -75,7 +76,6 @@ import Chainweb.Version
 import Chainweb.WebBlockHeaderDB
 import Chainweb.WebPactExecutionService
 
-import Data.CAS
 import Data.LogMessage
 import Data.PQueue
 import Data.TaskMap
@@ -84,6 +84,8 @@ import P2P.Peer
 import P2P.TaskQueue
 
 import Utils.Logging.Trace
+
+import Chainweb.Storage.Table
 
 -- -------------------------------------------------------------------------- --
 -- Append Only CAS for WebBlockHeaderDb
@@ -97,8 +99,8 @@ instance HasChainwebVersion WebBlockHeaderCas where
 -- -------------------------------------------------------------------------- --
 -- Obtain and Validate Block Payloads
 
-data WebBlockPayloadStore cas = WebBlockPayloadStore
-    { _webBlockPayloadStoreCas :: !(PayloadDb cas)
+data WebBlockPayloadStore tbl = WebBlockPayloadStore
+    { _webBlockPayloadStoreCas :: !(PayloadDb tbl)
         -- ^ Cas for storing complete payload data including outputs.
     , _webBlockPayloadStoreMemo :: !(TaskMap BlockPayloadHash PayloadData)
         -- ^ Internal memo table for active tasks
@@ -144,14 +146,14 @@ instance HasChainwebVersion WebBlockHeaderStore where
 -- Overlay CAS with asynchronous weak HashMap
 
 memoInsert
-    :: IsCas a
-    => Hashable (CasKeyType (CasValueType a))
-    => a
-    -> TaskMap (CasKeyType (CasValueType a)) (CasValueType a)
-    -> CasKeyType (CasValueType a)
-    -> (CasKeyType (CasValueType a) -> IO (CasValueType a))
-    -> IO (CasValueType a)
-memoInsert cas m k a = casLookup cas k >>= \case
+    :: (Table t (CasKeyType v) v, IsCasValue v)
+    => Hashable (CasKeyType v)
+    => t
+    -> TaskMap (CasKeyType v) v
+    -> CasKeyType v
+    -> (CasKeyType v -> IO v)
+    -> IO v
+memoInsert cas m k a = tableLookup cas k >>= \case
     Nothing -> memo m k $ \k' -> do
         -- there is the chance of a race here. At this time some task may just
         -- have finished updating the CAS with the key we are looking for. We
@@ -171,10 +173,10 @@ memoInsert cas m k a = casLookup cas k >>= \case
 -- garbage.
 --
 getBlockPayload
-    :: PayloadCasLookup cas
-    => PayloadDataCas candidateCas
-    => WebBlockPayloadStore cas
-    -> candidateCas PayloadData
+    :: CanReadablePayloadCas tbl
+    => Cas candidateCas PayloadData
+    => WebBlockPayloadStore tbl
+    -> candidateCas
     -> Priority
     -> Maybe PeerInfo
         -- ^ Peer from with the BlockPayloadHash originated, if available.
@@ -183,9 +185,9 @@ getBlockPayload
     -> IO PayloadData
 getBlockPayload s candidateStore priority maybeOrigin h = do
     logfun Debug $ "getBlockPayload: " <> sshow h
-    casLookup candidateStore payloadHash >>= \case
+    tableLookup candidateStore payloadHash >>= \case
         Just !x -> return x
-        Nothing -> casLookup cas payloadHash >>= \case
+        Nothing -> tableLookup cas payloadHash >>= \case
             (Just !x) -> return $! payloadWithOutputsToPayloadData x
             Nothing -> memo memoMap payloadHash $ \k ->
                 pullOrigin k maybeOrigin >>= \case
@@ -258,13 +260,13 @@ instance Exception GetBlockHeaderFailure
 -- iterative algorithm is preferable.
 --
 getBlockHeaderInternal
-    :: PayloadCas payloadCas
-    => PayloadDataCas candidatePayloadCas
+    :: CanPayloadCas tbl
     => BlockHeaderCas candidateHeaderCas
+    => PayloadDataCas candidatePayloadCas
     => WebBlockHeaderStore
-    -> WebBlockPayloadStore payloadCas
-    -> candidateHeaderCas BlockHeader
-    -> candidatePayloadCas PayloadData
+    -> WebBlockPayloadStore tbl
+    -> candidateHeaderCas
+    -> candidatePayloadCas
     -> Priority
     -> Maybe PeerInfo
     -> ChainValue BlockHash
@@ -281,7 +283,7 @@ getBlockHeaderInternal headerStore payloadStore candidateHeaderCas candidatePayl
         -- - cut origin, or
         -- - task queue of P2P network
         --
-        (maybeOrigin', header) <- casLookup candidateHeaderCas k' >>= \case
+        (maybeOrigin', header) <- tableLookup candidateHeaderCas k' >>= \case
             Just !x -> return (maybeOrigin, x)
             Nothing -> pullOrigin k maybeOrigin >>= \case
                 Nothing -> do
@@ -341,7 +343,7 @@ getBlockHeaderInternal headerStore payloadStore candidateHeaderCas candidatePayl
                     maybeOrigin'
                     p
                 chainDb <- getWebBlockHeaderDb (_webBlockHeaderStoreCas headerStore) header
-                validateInductiveChainM (casLookup chainDb) header
+                validateInductiveChainM (tableLookup chainDb) header
 
         p <- runConcurrently
             -- query payload
@@ -443,7 +445,7 @@ getBlockHeaderInternal headerStore payloadStore candidateHeaderCas candidatePayl
     queryBlockHeaderTask ck@(ChainValue cid k)
         = newTask (sshow ck) priority $ \l env -> chainValue <$> do
             l @T.Text Debug $ taskMsg ck "query remote block header"
-            !r <- TDB.lookupM (rDb v cid env) k `catchAllSynchronous` \e -> do
+            !r <- TDB.lookupM (rDb v cid env) k `catchAny` \e -> do
                 l @T.Text Debug $ taskMsg ck $ "failed: " <> sshow e
                 throwM e
             l @T.Text Debug $ taskMsg ck "received remote block header"
@@ -492,37 +494,37 @@ newWebBlockHeaderStore mgr wdb logfun = do
     return $! WebBlockHeaderStore wdb m queue logfun mgr
 
 newEmptyWebPayloadStore
-    :: PayloadCas cas
+    :: CanPayloadCas tbl
     => ChainwebVersion
     -> HTTP.Manager
     -> WebPactExecutionService
     -> LogFunction
-    -> PayloadDb cas
-    -> IO (WebBlockPayloadStore cas)
-newEmptyWebPayloadStore v mgr pact logfun payloadCas = do
-    initializePayloadDb v payloadCas
-    newWebPayloadStore mgr pact payloadCas logfun
+    -> PayloadDb tbl
+    -> IO (WebBlockPayloadStore tbl)
+newEmptyWebPayloadStore v mgr pact logfun payloadDb = do
+    initializePayloadDb v payloadDb
+    newWebPayloadStore mgr pact payloadDb logfun
 
 newWebPayloadStore
     :: HTTP.Manager
     -> WebPactExecutionService
-    -> PayloadDb cas
+    -> PayloadDb tbl
     -> LogFunction
-    -> IO (WebBlockPayloadStore cas)
-newWebPayloadStore mgr pact payloadCas logfun = do
+    -> IO (WebBlockPayloadStore tbl)
+newWebPayloadStore mgr pact payloadDb logfun = do
     payloadTaskQueue <- newEmptyPQueue
     payloadMemo <- new
     return $! WebBlockPayloadStore
-        payloadCas payloadMemo payloadTaskQueue logfun mgr pact
+        payloadDb payloadMemo payloadTaskQueue logfun mgr pact
 
 getBlockHeader
-    :: PayloadCas cas
+    :: CanPayloadCas tbl
     => BlockHeaderCas candidateHeaderCas
     => PayloadDataCas candidatePayloadCas
     => WebBlockHeaderStore
-    -> WebBlockPayloadStore cas
-    -> candidateHeaderCas BlockHeader
-    -> candidatePayloadCas PayloadData
+    -> WebBlockPayloadStore tbl
+    -> candidateHeaderCas
+    -> candidatePayloadCas
     -> ChainId
     -> Priority
     -> Maybe PeerInfo
@@ -542,21 +544,20 @@ getBlockHeader headerStore payloadStore candidateHeaderCas candidatePayloadCas c
         (ChainValue cid h)
 {-# INLINE getBlockHeader #-}
 
-instance HasCasLookup WebBlockHeaderCas where
-    type CasValueType WebBlockHeaderCas = ChainValue BlockHeader
-    casLookup (WebBlockHeaderCas db) (ChainValue cid h) =
+instance (CasKeyType (ChainValue BlockHeader) ~ k) => ReadableTable WebBlockHeaderCas k (ChainValue BlockHeader) where
+    tableLookup (WebBlockHeaderCas db) (ChainValue cid h) =
         (Just . ChainValue cid <$> lookupWebBlockHeaderDb db cid h)
             `catch` \e -> case e of
                 TDB.TreeDbKeyNotFound _ -> return Nothing
                 _ -> throwM @_ @(TDB.TreeDbException BlockHeaderDb) e
-    {-# INLINE casLookup #-}
+    {-# INLINE tableLookup #-}
 
-instance IsCas WebBlockHeaderCas where
-    casInsert (WebBlockHeaderCas db) (ChainValue _ h)
+instance (CasKeyType (ChainValue BlockHeader) ~ k) => Table WebBlockHeaderCas k (ChainValue BlockHeader) where
+    tableInsert (WebBlockHeaderCas db) _ (ChainValue _ h)
         = insertWebBlockHeaderDb db h
-    {-# INLINE casInsert #-}
+    {-# INLINE tableInsert #-}
 
-    casDelete = error "not implemented"
+    tableDelete = error "not implemented"
 
     -- This is fine since the type 'WebBlockHeaderCas' is not exported. So the
     -- instance is available only locally.

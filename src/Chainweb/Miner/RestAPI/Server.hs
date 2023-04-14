@@ -68,7 +68,7 @@ import Chainweb.Version
 
 workHandler
     :: Logger l
-    => MiningCoordination l cas
+    => MiningCoordination l tbl
     -> Maybe ChainId
     -> Miner
     -> Handler WorkBytes
@@ -89,9 +89,9 @@ workHandler mr mcid m@(Miner (MinerId mid) _) = do
 -- Solved Handler
 
 solvedHandler
-    :: forall l cas
+    :: forall l tbl
     . Logger l
-    => MiningCoordination l cas
+    => MiningCoordination l tbl
     -> HeaderBytes
     -> Handler NoContent
 solvedHandler mr (HeaderBytes bytes) = do
@@ -116,7 +116,7 @@ solvedHandler mr (HeaderBytes bytes) = do
 
 updatesHandler
     :: Logger l
-    => MiningCoordination l cas
+    => MiningCoordination l tbl
     -> ChainBytes
     -> Tagged Handler Application
 updatesHandler mr (ChainBytes cbytes) = Tagged $ \req resp -> withLimit resp $ do
@@ -172,12 +172,12 @@ updatesHandler mr (ChainBytes cbytes) = Tagged $ \req resp -> withLimit resp $ d
 -- Mining API Server
 
 miningServer
-    :: forall l cas (v :: ChainwebVersionT)
+    :: forall l tbl (v :: ChainwebVersionT)
     .  Logger l
-    => MiningCoordination l cas
+    => MiningCoordination l tbl
     -> Server (MiningApi v)
 miningServer mr = workHandler mr :<|> solvedHandler mr :<|> updatesHandler mr
 
-someMiningServer :: Logger l => ChainwebVersion -> MiningCoordination l cas -> SomeServer
+someMiningServer :: Logger l => ChainwebVersion -> MiningCoordination l tbl -> SomeServer
 someMiningServer (FromSingChainwebVersion (SChainwebVersion :: Sing vT)) mr =
     SomeServer (Proxy @(MiningApi vT)) $ miningServer mr

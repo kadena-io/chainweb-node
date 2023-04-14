@@ -1,4 +1,5 @@
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TypeApplications #-}
@@ -54,7 +55,7 @@ import Network.HTTP.Client.TLS
 import Servant.Client.Core
 import Servant.Client
 
-import Data.CAS.RocksDB
+import Chainweb.Storage.Table.RocksDB
 
 import Pact.Types.Command
 import Pact.Types.Hash
@@ -73,10 +74,11 @@ data SimConfig = SimConfig
     , scRange :: (BlockHeight,BlockHeight)
     , scChain :: ChainId
     , scVersion :: ChainwebVersion
+    , scGasLog :: Bool
     }
 
 simulate :: SimConfig -> IO ()
-simulate sc@(SimConfig dbDir txIdx' _ _ cid ver) = do
+simulate sc@(SimConfig dbDir txIdx' _ _ cid ver gasLog) = do
   cenv <- setupClient sc
   (parent:hdrs) <- fetchHeaders sc cenv
   pwos <- fetchOutputs sc cenv hdrs
@@ -99,17 +101,17 @@ simulate sc@(SimConfig dbDir txIdx' _ _ cid ver) = do
               PactDbEnv' pde <-
                 _cpRestore cp $ Just (succ (_blockHeight parent), _blockHash parent)
               mc <- readInitModules logger pde txc
-              (T2 !cr _mc) <-
+              T3 !cr _mc _ <-
                 trace (logFunction cwLogger) "applyCmd" () 1 $
                   applyCmd ver logger gasLogger pde miner (getGasModel txc)
-                  txc noSPVSupport cmd (initGas cmdPwt) mc
+                  txc noSPVSupport cmd (initGas cmdPwt) mc ApplySend
               T.putStrLn (encodeToText cr)
         Nothing -> do -- blocks simulation
           paydb <- newPayloadDb
           withRocksDb "txsim-rocksdb" modernDefaultOptions $ \rdb ->
             withBlockHeaderDb rdb ver cid $ \bdb -> do
               let pse = PactServiceEnv Nothing cpe paydb bdb getGasModel readRewards 0 ferr
-                        ver True False logger gasLogger (pactLoggers cwLogger) False 1 defaultBlockGasLimit
+                        ver True False logger gasLogger (pactLoggers cwLogger) False 1 defaultBlockGasLimit cid
                   pss = PactServiceState Nothing mempty (ParentHeader parent) noSPVSupport
               evalPactServiceM pss pse $ doBlock True parent (zip hdrs pwos)
 
@@ -121,12 +123,13 @@ simulate sc@(SimConfig dbDir txIdx' _ _ cid ver) = do
     cwLogger = genericLogger Debug T.putStrLn
     initGas cmd = initialGasOf (_cmdPayload cmd)
     logger = newLogger (pactLoggers cwLogger) "TxSimulator"
-    gasLogger = Nothing
+    gasLogger | gasLog = Just logger
+              | otherwise = Nothing
     txContext parent cmd = TxContext (ParentHeader parent) $ publicMetaOf cmd
     ferr e _ = throwM e
 
     doBlock
-        :: PayloadCasLookup cas
+        :: CanReadablePayloadCas cas
         => Bool
         -> BlockHeader
         -> [(BlockHeader,PayloadWithOutputs)]
@@ -204,16 +207,16 @@ fetchOutputs sc cenv bhs = do
 
 simulateMain :: IO ()
 simulateMain = do
-  execParser opts >>= \(d,s,e,i,h,c,v) -> do
+  execParser opts >>= \(d,s,e,i,h,c,v,g) -> do
     vv <- chainwebVersionFromText (T.pack v)
     cc <- chainIdFromText (T.pack c)
     u <- parseBaseUrl h
     let rng = (fromIntegral @Integer s,fromIntegral @Integer (fromMaybe s e))
-    simulate $ SimConfig d i u rng cc vv
+    simulate $ SimConfig d i u rng cc vv g
   where
     opts = info (parser <**> helper)
         (fullDesc <> progDesc "Single Transaction simulator")
-    parser = (,,,,,,)
+    parser = (,,,,,,,)
         <$> strOption
              (short 'd'
               <> metavar "DBDIR"
@@ -243,3 +246,6 @@ simulateMain = do
               <> metavar "VERSION"
               <> help ("Chainweb version, default is "
                        ++ show Mainnet01))))
+        <*> switch
+             (short 'g'
+              <> help "Enable gas logging")

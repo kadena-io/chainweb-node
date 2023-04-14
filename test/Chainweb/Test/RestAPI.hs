@@ -56,7 +56,7 @@ import Chainweb.Utils
 import Chainweb.Utils.Paging
 import Chainweb.Version
 
-import Data.CAS.RocksDB
+import Chainweb.Storage.Table.RocksDB
 
 import Servant.Client_
 
@@ -114,7 +114,7 @@ tests_ rdb tls =
 
 -- | The type of 'TestClientEnv' that is used everywhere in this file
 --
-type TestClientEnv_ = TestClientEnv MockTx RocksDbCas
+type TestClientEnv_ = TestClientEnv MockTx RocksDbTable
 
 noMempool :: [(ChainId, MempoolBackend MockTx)]
 noMempool = []

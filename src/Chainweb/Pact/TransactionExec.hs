@@ -105,7 +105,7 @@ import Chainweb.Pact.Templates
 import Chainweb.Pact.Transactions.UpgradeTransactions
 import Chainweb.Pact.Types hiding (logError)
 import Chainweb.Transaction
-import Chainweb.Utils (encodeToByteString, sshow, tryAllSynchronous, T2(..))
+import Chainweb.Utils (encodeToByteString, sshow, tryAllSynchronous, T2(..), T3(..))
 import Chainweb.Version as V
 
 
@@ -156,14 +156,22 @@ applyCmd
       -- ^ initial gas used
     -> ModuleCache
       -- ^ cached module state
-    -> IO (T2 (CommandResult [TxLog Value]) ModuleCache)
-applyCmd v logger gasLogger pdbenv miner gasModel txCtx spv cmd initialGas mcache0 =
-    second _txCache <$!>
-      runTransactionM cenv txst applyBuyGas
+    -> ApplyCmdExecutionContext
+      -- ^ is this a local or send execution context?
+    -> IO (T3 (CommandResult [TxLog Value]) ModuleCache (S.Set PactWarning))
+applyCmd v logger gasLogger pdbenv miner gasModel txCtx spv cmd initialGas mcache0 callCtx = do
+    T2 cr st <- runTransactionM cenv txst applyBuyGas
+
+    let cache = _txCache st
+        warns = _txWarnings st
+
+    pure $ T3 cr cache warns
   where
-    txst = TransactionState mcache0 mempty 0 Nothing $
-      if chainweb217Pact' then gasModel
-      else _geGasModel freeGasEnv
+    stGasModel
+      | chainweb217Pact' = gasModel
+      | otherwise = _geGasModel freeGasEnv
+    txst = TransactionState mcache0 mempty 0 Nothing stGasModel mempty
+
 
     executionConfigNoHistory = mkExecutionConfig
       $ FlagDisableHistoryInTransactionalMode
@@ -179,7 +187,8 @@ applyCmd v logger gasLogger pdbenv miner gasModel txCtx spv cmd initialGas mcach
           ++ enablePact431 txCtx
           ++ enablePact44 txCtx
           ++ enablePact45 txCtx
-          ++ enableNewTrans txCtx )
+          ++ enableNewTrans txCtx
+          ++ enablePact46 txCtx )
 
     cenv = TransactionEnv Transactional pdbenv logger gasLogger (ctxToPublicData txCtx) spv nid gasPrice
       requestKey (fromIntegral gasLimit) executionConfigNoHistory
@@ -220,7 +229,10 @@ applyCmd v logger gasLogger pdbenv miner gasModel txCtx spv cmd initialGas mcach
       case cr of
         Left e
           | chainweb217Pact' -> do
-            r <- jsonErrorResult (toEmptyPactError e) "tx failure for request key when running cmd"
+            let e' = case callCtx of
+                  ApplyLocal -> e
+                  ApplySend -> toEmptyPactError e
+            r <- jsonErrorResult e' "tx failure for request key when running cmd"
             redeemAllGas r
           | chainweb213Pact' || not (isOldListErr e) -> do
               r <- jsonErrorResult e "tx failure for request key when running cmd"
@@ -287,6 +299,7 @@ applyGenesisCmd logger dbEnv spv cmd =
         , _txGasUsed = 0
         , _txGasId = Nothing
         , _txGasModel = _geGasModel freeGasEnv
+        , _txWarnings = mempty
         }
 
     interp = initStateInterpreter
@@ -347,7 +360,7 @@ applyCoinbase v logger dbEnv (Miner mid mks@(MinerKeys mk)) reward@(ParsedDecima
       enablePact45 txCtx
     tenv = TransactionEnv Transactional dbEnv logger Nothing (ctxToPublicData txCtx) noSPVSupport
            Nothing 0.0 rk 0 ec
-    txst = TransactionState mc mempty 0 Nothing (_geGasModel freeGasEnv)
+    txst = TransactionState mc mempty 0 Nothing (_geGasModel freeGasEnv) mempty
     initState = setModuleCache mc $ initCapabilities [magic_COINBASE]
     rk = RequestKey chash
     parent = _tcParentHeader txCtx
@@ -425,7 +438,7 @@ applyLocal logger gasLogger dbEnv gasModel txCtx spv cmdIn mc execConfig =
     gasLimit = view cmdGasLimit cmd
     tenv = TransactionEnv Local dbEnv logger gasLogger (ctxToPublicData txCtx) spv nid gasPrice
            rk (fromIntegral gasLimit) execConfig
-    txst = TransactionState mc mempty 0 Nothing gasModel
+    txst = TransactionState mc mempty 0 Nothing gasModel mempty
     gas0 = initialGasOf (_cmdPayload cmdIn)
 
     applyPayload m = do
@@ -471,7 +484,7 @@ readInitModules logger dbEnv txCtx
     chash = pactInitialHash
     tenv = TransactionEnv Local dbEnv logger Nothing (ctxToPublicData txCtx) noSPVSupport nid 0.0
            rk 0 def
-    txst = TransactionState mempty mempty 0 Nothing (_geGasModel freeGasEnv)
+    txst = TransactionState mempty mempty 0 Nothing (_geGasModel freeGasEnv) mempty
     interp = defaultInterpreter
     die msg = throwM $ PactInternalError $ "readInitModules: " <> msg
     mkCmd = buildExecParsedCode (Just (v, h)) Nothing
@@ -658,6 +671,7 @@ runPayload cmd nsp = do
       Continuation ym ->
         applyContinuation g0 interp ym signers chash nsp
 
+
   where
     signers = _pSigners $ _cmdPayload cmd
     chash = toUntypedHash $ _cmdHash cmd
@@ -695,6 +709,10 @@ applyExec initialGas interp em senderSigs hsh nsp = do
     for_ _erLogGas $ \gl -> gasLog $ "gas logs: " <> sshow gl
     logs <- use txLogs
     rk <- view txRequestKey
+
+    -- concat tx warnings with eval warnings
+    txWarnings <>= _erWarnings
+
     -- applyExec enforces non-empty expression set so `last` ok
     -- forcing it here for lazy errors. TODO NFData the Pacts
     lastResult <- return $!! last _erOutput
@@ -723,6 +741,7 @@ applyExec' initialGas interp (ExecMsg parsedCode execData) senderSigs hsh nsp
           <&> disablePact420Natives pactFlags
           <&> disablePact43Natives pactFlags
           <&> disablePact431Natives pactFlags
+          <&> disablePact46Natives pactFlags
       setEnvGas initialGas eenv
 
       er <- liftIO $! evalExec interp eenv parsedCode
@@ -787,6 +806,11 @@ enableNewTrans tc
     | pact44NewTrans (ctxVersion tc) (ctxCurrentBlockHeight tc) = []
     | otherwise = [FlagDisableNewTrans]
 
+enablePact46 :: TxContext -> [ExecutionFlag]
+enablePact46 tc
+    | chainweb218Pact (ctxVersion tc) (ctxCurrentBlockHeight tc) = []
+    | otherwise = [FlagDisablePact46]
+
 -- | Execute a 'ContMsg' and return the command result and module cache
 --
 applyContinuation
@@ -802,6 +826,10 @@ applyContinuation initialGas interp cm senderSigs hsh nsp = do
     for_ _erLogGas $ \gl -> gasLog $ "gas logs: " <> sshow gl
     logs <- use txLogs
     rk <- view txRequestKey
+
+    -- set tx warnings to eval warnings
+    txWarnings <>= _erWarnings
+
     -- last safe here because cont msg is guaranteed one exp
     return $! (CommandResult rk _erTxId (PactResult (Right (last _erOutput)))
       _erGas (Just logs) _erExec Nothing) _erEvents
@@ -829,6 +857,7 @@ applyContinuation' initialGas interp cm@(ContMsg pid s rb d _) senderSigs hsh ns
           <&> disablePact40Natives pactFlags
           <&> disablePact420Natives pactFlags
           <&> disablePact43Natives pactFlags
+          <&> disablePact46Natives pactFlags
     setEnvGas initialGas eenv
 
     er <- liftIO $! evalContinuation interp eenv cm
@@ -979,7 +1008,6 @@ initCapabilities cs = set (evalCapabilities . capStack) cs def
 initStateInterpreter :: EvalState -> Interpreter e
 initStateInterpreter s = Interpreter (put s >>)
 
-
 -- | Check whether the cost of running a tx is more than the allowed
 -- gas limit and do some action depending on the outcome
 --
@@ -1065,6 +1093,10 @@ disablePact43Natives = disablePactNatives ["create-principal", "validate-princip
 disablePact431Natives :: ExecutionConfig -> EvalEnv e -> EvalEnv e
 disablePact431Natives = disablePactNatives ["is-principal", "typeof-principal"] FlagDisablePact431
 {-# INLINE disablePact431Natives #-}
+
+disablePact46Natives :: ExecutionConfig -> EvalEnv e -> EvalEnv e
+disablePact46Natives = disablePactNatives ["point-add", "scalar-mult", "pairing-check"] FlagDisablePact46
+{-# INLINE disablePact46Natives #-}
 
 -- | Set the module cache of a pact 'EvalState'
 --

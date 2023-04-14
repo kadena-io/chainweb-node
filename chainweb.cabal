@@ -1,7 +1,7 @@
 cabal-version: 3.0
 
 name:         chainweb
-version:      2.17.2
+version:      2.18.1
 synopsis:     A Proof-of-Work Parallel-Chain Architecture for Massive Throughput
 description:  A Proof-of-Work Parallel-Chain Architecture for Massive Throughput.
 homepage:     https://github.com/kadena-io/chainweb
@@ -10,7 +10,7 @@ license:      BSD-3-Clause
 license-file: LICENSE
 author:       Chainweb Dev Team
 maintainer:   chainweb-dev@kadena.io
-copyright:    Copyright (C) 2018 - 2022 Kadena LLC
+copyright:    Copyright (C) 2018 - 2023 Kadena LLC
 category:     Blockchain, Currency, Bitcoin, Kadena
 build-type:   Custom
 
@@ -309,6 +309,7 @@ library
         , Chainweb.Pact.Transactions.UpgradeTransactions
         , Chainweb.Pact.Types
         , Chainweb.Pact.Utils
+        , Chainweb.Pact.Validations
 
         -- utils
         , Servant.Client_
@@ -537,7 +538,7 @@ test-suite chainweb-tests
         , pact
         , quickcheck-instances >= 0.3
         , random >= 1.2
-        , resource-pool >= 0.3
+        , resource-pool >= 0.4
         , retry >= 0.7
         , rocksdb-haskell-kadena >= 1.1.0
         , rosetta >= 1.0

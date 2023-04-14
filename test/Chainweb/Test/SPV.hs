@@ -33,7 +33,6 @@ import Crypto.Hash.Algorithms
 import Data.Aeson
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Lazy as BL
-import Data.CAS
 import Data.Foldable
 import Data.Functor.Of
 import qualified Data.List as L
@@ -80,7 +79,8 @@ import Chainweb.TreeDB
 import Chainweb.Utils hiding ((==>))
 import Chainweb.Version
 
-import Data.CAS.RocksDB
+import Chainweb.Storage.Table
+import Chainweb.Storage.Table.RocksDB
 
 -- -------------------------------------------------------------------------- --
 -- Test Tree
@@ -249,12 +249,12 @@ spvTest rdb v step = do
     -- - tx
     --
     getPayloads
-        :: PayloadCasLookup cas
-        => CutDb cas
+        :: CanReadablePayloadCas tbl
+        => CutDb tbl
         -> BlockHeader
         -> S.Stream (Of (BlockHeader, Int, Int, TransactionOutput)) IO ()
     getPayloads cutDb h = do
-        pay <- liftIO $ casLookupM (view cutDbPayloadCas cutDb) (_blockPayloadHash h)
+        pay <- liftIO $ casLookupM (view cutDbPayloadDb cutDb) (_blockPayloadHash h)
         let n = length $ _payloadWithOutputsTransactions pay
         S.each (zip [0..] $ fmap snd $ toList $ _payloadWithOutputsTransactions pay)
             & S.map (\(b,c) -> (h,n,b,c))
@@ -274,8 +274,8 @@ spvTest rdb v step = do
     -- - size of tx
     --
     go
-        :: PayloadCasLookup cas
-        => CutDb cas
+        :: CanReadablePayloadCas tbl
+        => CutDb tbl
         -> (BlockHeader, Int, Int, TransactionOutput, ChainId)
         -> IO (Maybe [Double])
     go cutDb (h, n, txIx, txOut, trgChain) = do
@@ -426,23 +426,24 @@ spvTransactionOutputRoundtripTest rdb v step = do
 -- -------------------------------------------------------------------------- --
 -- REST API
 
-type TestClientEnv_ cas = TestClientEnv MockTx cas
+type TestClientEnv_ tbl = TestClientEnv MockTx tbl
 
 apiTests :: RocksDb -> ChainwebVersion -> TestTree
 apiTests rdb v = withTestPayloadResource rdb v 100 (\_ _ -> return ()) $ \dbIO ->
     testGroup "SPV API tests"
-        [ withPayloadServer False False v dbIO (payloadDbs . view cutDbPayloadCas <$> dbIO) $ \env ->
+        -- TODO: there is no openapi spec for this SPV API.
+        [ withPayloadServer False False v dbIO (payloadDbs . view cutDbPayloadDb <$> dbIO) $ \env ->
             testCaseStepsN "spv api tests (without tls)" 10 (txApiTests env)
-        , withPayloadServer False True v dbIO (payloadDbs . view cutDbPayloadCas <$> dbIO) $ \env ->
+        , withPayloadServer False True v dbIO (payloadDbs . view cutDbPayloadDb <$> dbIO) $ \env ->
             testCaseStepsN "spv api tests (with tls)" 10 (txApiTests env)
         ]
   where
     cids = toList $ chainIds v
 
-    payloadDbs :: PayloadCasLookup cas' => PayloadDb cas' -> [(ChainId, PayloadDb cas')]
+    payloadDbs :: CanReadablePayloadCas tbl' => PayloadDb tbl' -> [(ChainId, PayloadDb tbl')]
     payloadDbs db = (, db) <$> cids
 
-txApiTests :: PayloadCasLookup cas => IO (TestClientEnv_ cas) -> Step -> IO ()
+txApiTests :: CanReadablePayloadCas tbl => IO (TestClientEnv_ tbl) -> Step -> IO ()
 txApiTests envIO step = do
     PayloadTestClientEnv env cutDb _payloadDbs v <- envIO
     step "pick random transaction"

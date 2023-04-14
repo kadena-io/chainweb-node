@@ -16,7 +16,7 @@ module Chainweb.Test.Cut.TestBlockDb
   , getParentTestBlockDb
   , getBlockHeaderDb
   -- convenience export
-  , RocksDbCas
+  , RocksDbTable
   ) where
 
 import Control.Concurrent.MVar
@@ -37,12 +37,12 @@ import Chainweb.Utils
 import Chainweb.Version
 import Chainweb.WebBlockHeaderDB
 
-import Data.CAS
-import Data.CAS.RocksDB
+import Chainweb.Storage.Table
+import Chainweb.Storage.Table.RocksDB
 
 data TestBlockDb = TestBlockDb
   { _bdbWebBlockHeaderDb :: WebBlockHeaderDb
-  , _bdbPayloadDb :: PayloadDb RocksDbCas
+  , _bdbPayloadDb :: PayloadDb RocksDbTable
   , _bdbCut :: MVar Cut
   }
 
