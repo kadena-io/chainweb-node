@@ -170,9 +170,12 @@ verifyTransactionOutputProofAt_
     -> TransactionOutputProof SHA512t_256
     -> BlockHash
     -> IO TransactionOutput
-verifyTransactionOutputProofAt_ bdb proof@(TransactionOutputProof _cid p) ctx = do
-    unlessM (ancestorOf bdb h ctx) $ throwM
-        $ SpvExceptionVerificationFailed "target header is not in the chain"
+verifyTransactionOutputProofAt_ bdb proof@(TransactionOutputProof tgt p) ctx = do
+    case tgt of
+        ProofTargetChain _cid ->
+            unlessM (ancestorOf bdb h ctx) $ throwM
+                $ SpvExceptionVerificationFailed "target header is not in the chain"
+        ProofTargetCrossNetwork _net -> return ()
     proofSubject p
   where
     h = runTransactionOutputProof proof
