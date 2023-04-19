@@ -5,6 +5,7 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE ViewPatterns #-}
 
 -- |
 -- Module: Chainweb.BlockHeader.Validation
@@ -73,6 +74,7 @@ module Chainweb.BlockHeader.Validation
 
 -- * Intrinsic BlockHeader Properties
 , prop_block_pow
+, prop_block_auth
 , prop_block_hash
 , prop_block_genesis_parent
 , prop_block_genesis_target
@@ -108,6 +110,7 @@ import System.IO.Unsafe
 
 -- internal modules
 
+import Chainweb.BlockAuthentication
 import Chainweb.BlockCreationTime
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
@@ -305,6 +308,7 @@ instance Show ValidationFailure where
             AdjacentParentChainMismatch -> "An adjacent parent hash references a block on the wrong chain"
             IncorrectHash -> "The hash of the block header does not match the one given"
             IncorrectPow -> "The POW hash does not match the POW target of the block"
+            IncorrectAuth -> "The block authentication hash of the header does not match the the nonce of the header"
             IncorrectEpoch -> "The epoch start time of the block is incorrect"
             IncorrectHeight -> "The given height is not one more than the parent height"
             IncorrectWeight -> "The given weight is not the sum of the difficulty target and the parent's weight"
@@ -342,6 +346,10 @@ data ValidationFailureType
     | IncorrectPow
         -- ^ The POW hash of the header does not match the POW target of the
         -- block.
+    | IncorrectAuth
+        -- ^ [Only applicable for networks that support it and if the BLOCK_AUTHENTICATION_KEY
+        -- environment variable is set] The block authentication hash of the header does not match
+        -- the the nonce of the header.
     | IncorrectHeight
         -- ^ The given height is not one more than the parent height.
     | IncorrectWeight
@@ -396,6 +404,7 @@ definiteValidationFailures =
     , ChainMismatch
     , IncorrectHash
     , IncorrectPow
+    , IncorrectAuth
     , IncorrectHeight
     , IncorrectWeight
     , IncorrectTarget
@@ -627,6 +636,7 @@ validateIntrinsic
         -- ^ A list of ways in which the block header isn't valid
 validateIntrinsic t b = concat
     [ [ IncorrectHash | not (prop_block_hash b) ]
+    , [ IncorrectAuth | not (prop_block_auth b) ]
     , [ IncorrectPow | not (prop_block_pow b) ]
     , [ IncorrectGenesisParent | not (prop_block_genesis_parent b)]
     , [ IncorrectGenesisTarget | not (prop_block_genesis_target b)]
@@ -675,6 +685,24 @@ validateInductiveWebStep s = concat
 -- Intrinsic BlockHeader properties
 -- -------------------------------------------------------------------------- --
 
+blockAuthenticationKey :: Maybe BlockAuthenticationKey
+blockAuthenticationKey = fmap (unsafeFromText . T.pack)
+    $ unsafeDupablePerformIO
+    $ lookupEnv "BLOCK_AUTHENTICATION_KEY"
+{-# NOINLINE blockAuthenticationKey #-}
+
+prop_block_auth :: BlockHeader -> Bool
+prop_block_auth b
+    -- Genesis block headers are not mined. So there's not need for Auth
+    | isGenesisBlockHeader b = True
+
+    -- Mainnet: no support for block authentication
+    | _blockChainwebVersion b == Mainnet01 = True
+
+    | otherwise = case blockAuthenticationKey of
+        Just k -> blockAuthenticationHashAsWord64 (_blockAuth k b) == encodeNonceToWord64 (_blockNonce b)
+        Nothing -> True
+
 powDisabled :: Bool
 powDisabled = case unsafeDupablePerformIO $ lookupEnv "DISABLE_POW_VALIDATION" of
   Nothing -> False
@@ -683,8 +711,8 @@ powDisabled = case unsafeDupablePerformIO $ lookupEnv "DISABLE_POW_VALIDATION" o
 
 prop_block_pow :: BlockHeader -> Bool
 prop_block_pow b
+    -- Genesis block headers are not mined. So there's not need for POW
     | isGenesisBlockHeader b = True
-        -- Genesis block headers are not mined. So there's not need for POW
     | _blockChainwebVersion b == Development && powDisabled = True
     | otherwise = checkTarget (_blockTarget b) (_blockPow b)
 

@@ -81,6 +81,8 @@ module Chainweb.BlockHeader
 , blockFlags
 , _blockPow
 , blockPow
+, _blockAuth
+, blockAuth
 , _blockAdjacentChainIds
 , blockAdjacentChainIds
 , encodeBlockHeader
@@ -129,6 +131,7 @@ import GHC.Generics (Generic)
 
 -- Internal imports
 
+import Chainweb.BlockAuthentication
 import Chainweb.BlockCreationTime
 import Chainweb.BlockHash
 import Chainweb.BlockHeight
@@ -823,6 +826,14 @@ _blockPow h = powHash (_blockChainwebVersion h)
 blockPow :: Getter BlockHeader PowHash
 blockPow = to _blockPow
 {-# INLINE blockPow #-}
+
+_blockAuth :: BlockAuthenticationKey -> BlockHeader -> BlockAuthenticationHash
+_blockAuth k h = blockAuthenticationHash k
+    $ runPutS $ encodeBlockHeaderWithoutHash h
+
+blockAuth :: BlockAuthenticationKey -> Getter BlockHeader BlockAuthenticationHash
+blockAuth k = to (_blockAuth k)
+{-# INLINE blockAuth #-}
 
 -- | The number of microseconds between the creation time of two `BlockHeader`s.
 --
