@@ -126,7 +126,7 @@ fastForks = tabulateHashMap $ \case
     Chainweb213Pact -> AllChains ForkAtGenesis
     PactEvents -> AllChains ForkAtGenesis
     CoinV2 -> AllChains $ ForkAtBlockHeight $ BlockHeight 1
-    Pact420 -> AllChains ForkNever
+    Pact420 -> AllChains $ ForkAtBlockHeight $ BlockHeight 1
     SkipTxTimingValidation -> AllChains $ ForkAtBlockHeight $ BlockHeight 2
     ModuleNameFix -> AllChains $ ForkAtBlockHeight $ BlockHeight 2
     ModuleNameFix2 -> AllChains $ ForkAtBlockHeight $ BlockHeight 2
