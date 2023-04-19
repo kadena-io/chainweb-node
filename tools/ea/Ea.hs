@@ -79,7 +79,6 @@ main = void $ do
     testnet
     mainnet
     genTxModules
-    -- gen20ChainPayloads
     genCoinV3Payloads
     genCoinV4Payloads
     genCoinV5Payloads
@@ -141,33 +140,6 @@ mkPayload gen@(Genesis v _ cidr@(ChainIdRange l u) c k a ns cc) = do
     -- NB: this is position-sensitive data.
     txs :: [FilePath]
     txs = cc <> toList ns <> toList k <> toList a <> toList c
-
--- gen20ChainPayloads :: IO ()
--- gen20ChainPayloads = traverse_ mk20ChainPayload [developmentKAD, mainnetKAD]
---   where
---     mk20ChainPayload (Genesis v tag cid c k a ns _) = do
-
---       ((ccAr,ccCode,_,_),_) <- mkApiReq coinContractV2
---       v2Install <- TIO.readFile coinContractV2Install
---       let ccCode' = ccCode <> v2Install
---           ccAr' = ccAr
---             { _ylCode = Just ccCode'
---             , _ylCodeFile = Nothing
---             , _ylNonce = Just "coin-contract-v2-temp"
---             }
---       (_,ccTx) <- mkApiReqCmd False coinContractV2 ccAr'
-
---       fa1 <- mkTx fungibleAssetV1
---       fa2 <- mkTx fungibleAssetV2
---       gp <- mkTx gasPayer
-
---       txs <- ([fa1,fa2,ccTx,gp] ++) <$>
---              mapM mkTx (toList ns <> toList k <> toList a <> toList c)
---       cwTxs <- mkChainwebTxs' txs
-
-
---       printf ("Generating Genesis 20-chain payload for %s on " <> show_ cid <> "...\n") $ show v
---       genPayloadModule v (tag <> T.pack (chainIdRangeTag cid)) cid cwTxs
 
 genCoinV3Payloads :: IO ()
 genCoinV3Payloads = genTxModule "CoinV3" [coinContractV3]
