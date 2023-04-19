@@ -198,9 +198,9 @@ data ProofTarget = ProofTargetChain !ChainId | ProofTargetCrossNetwork !Text
     deriving anyclass NFData
 
 instance ToJSON ProofTarget where
-    toJSON (ProofTargetChain cid) = toJSON cid
+    toJSON (ProofTargetChain cid) = toJSON (toText cid)
     toJSON (ProofTargetCrossNetwork subtgt) = toJSON ("crossnet:" <> subtgt)
-    toEncoding (ProofTargetChain cid) = toEncoding cid
+    toEncoding (ProofTargetChain cid) = toEncoding (toText cid)
     toEncoding (ProofTargetCrossNetwork subtgt) = toEncoding ("crossnet:" <> subtgt)
 
 instance FromJSON ProofTarget where
