@@ -49,7 +49,7 @@ fastDevnet = ChainwebVersion
             ]
         }
 
-    , _versionMaxBlockGasLimit = End (Just 180_000)
+    , _versionMaxBlockGasLimit = End Nothing
     , _versionCheats = VersionCheats
         { _disablePow = True
         , _fakeFirstEpochStart = True
