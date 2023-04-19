@@ -124,8 +124,8 @@ tests = testGroup "Chainweb.Test.Pact.TransactionTests"
   , testGroup "Coinbase Vuln Fix Tests"
     [ testCoinbase797DateFix
     , testCase "testCoinbaseEnforceFailure" testCoinbaseEnforceFailure
-    , testCase "testCoinbaseUpgradeDevnet0" (testCoinbaseUpgradeDevnet (unsafeChainId 0) 1)
-    , testCase "testCoinbaseUpgradeDevnet1" (testCoinbaseUpgradeDevnet (unsafeChainId 1) 1)
+    , testCase "testCoinbaseUpgradeDevnet0" (testCoinbaseUpgradeDevnet (unsafeChainId 0) 3)
+    , testCase "testCoinbaseUpgradeDevnet1" (testCoinbaseUpgradeDevnet (unsafeChainId 1) 4)
     ]
   , testGroup "20-Chain Fork Upgrade Tests"
     [ testTwentyChainDevnetUpgrades
@@ -318,18 +318,18 @@ testCoinbaseUpgradeDevnet cid upgradeHeight =
 
 testTwentyChainDevnetUpgrades :: TestTree
 testTwentyChainDevnetUpgrades = testCaseSteps "Test 20-chain Devnet upgrades" $ \step -> do
-      step "Check that 20-chain upgrades fire at block height 12"
-      testUpgradeScript "test/pact/twenty-chain-upgrades.repl" (unsafeChainId 0) 12 test0
+      step "Check that 20-chain upgrades fire at block height 60"
+      testUpgradeScript "test/pact/twenty-chain-upgrades.repl" (unsafeChainId 0) 60 test0
 
-      step "Check that 20-chain upgrades do not fire at block heights < 12 and > 12"
-      testUpgradeScript "test/pact/twenty-chain-upgrades.repl" (unsafeChainId 0) (12 - 1) test1
-      testUpgradeScript "test/pact/twenty-chain-upgrades.repl" (unsafeChainId 0) (12 + 1) test1
+      step "Check that 20-chain upgrades do not fire at block heights < 60 and > 60"
+      testUpgradeScript "test/pact/twenty-chain-upgrades.repl" (unsafeChainId 0) (60 - 1) test1
+      testUpgradeScript "test/pact/twenty-chain-upgrades.repl" (unsafeChainId 0) (60 + 1) test1
 
       step "Check that 20-chain upgrades do not fire at on other chains"
-      testUpgradeScript "test/pact/twenty-chain-upgrades.repl" (unsafeChainId 1) 12 test1
+      testUpgradeScript "test/pact/twenty-chain-upgrades.repl" (unsafeChainId 1) 60 test1
 
       step "Check that 20-chain upgrades succeed even if e7f7 balance is insufficient"
-      testUpgradeScript "test/pact/twenty-chain-insufficient-bal.repl" (unsafeChainId 0) 12 test1
+      testUpgradeScript "test/pact/twenty-chain-insufficient-bal.repl" (unsafeChainId 0) 60 test1
   where
     test0 (T2 cr _) = case _crLogs cr of
       Just logs -> matchLogs (logResults logs)
