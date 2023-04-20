@@ -60,6 +60,7 @@ import Control.DeepSeq
 import Data.Aeson
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Base64.URL as B64
+import qualified Data.Base64.Types as B64
 import qualified Data.ByteString.Lazy as BL
 import Data.Proxy
 import Data.String
@@ -200,8 +201,8 @@ data BinaryLog
     deriving anyclass (NFData)
 
 instance LogMessage BinaryLog where
-    logText (BinaryLog a) = T.decodeUtf8 $ B64.encode a
-    logText (BinaryLogLazy a) = T.decodeUtf8 . B64.encode $ BL.toStrict a
+    logText (BinaryLog a) = B64.extractBase64 $ B64.encodeBase64 a
+    logText (BinaryLogLazy a) = B64.extractBase64 $ B64.encodeBase64 $ BL.toStrict a
     {-# INLINE logText #-}
 
 -- | Static textual log messages using 'Symbol' literals from 'GHC.TypeLits'.

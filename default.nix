@@ -1,3 +1,9 @@
+let
+  libbase64HSSrc = builtins.fetchTarball {
+    url = "https://github.com/chessai/hs-libbase64-bindings/archive/e8a5194742f41ce4109b05098a2859e8052ad1c1.tar.gz";
+    sha256 = "1xqfjqb1ghh8idnindc6gfr62d78m5cc6jpbhv1hja8lkdrl8qf8";
+  };
+in
 { compiler ? "ghc8107"
 , rev      ? "7a94fcdda304d143f9a40006c033d7e190311b54"
 , sha256   ? "0d643wp3l77hv2pmg2fi7vyxn4rwy0iyr8djcw1h5x72315ck9ik"
@@ -7,7 +13,11 @@
       inherit sha256; }) {
       config.allowBroken = false;
       config.allowUnfree = true;
-      overlays = [];
+      overlays = [
+        (self: super: {
+          libbase64 = self.callPackage "${libbase64HSSrc}/libbase64.nix" {};
+        })
+      ];
     }
 , returnShellEnv ? false
 , mkDerivation ? null
@@ -106,6 +116,14 @@ pkgs.haskell.packages.${compiler}.developPackage {
       prettyprinter = dontCheck super.prettyprinter;
       aeson         = dontCheck super.aeson;
       generic-data  = dontCheck super.generic-data;
+
+      libbase64-bindings = (import libbase64HSSrc { inherit pkgs compiler; }).libbase64-bindings;
+      base64 = self.callCabal2nix "base64" (pkgs.fetchFromGitHub {
+        owner = "chessai";
+        repo = "base64";
+        rev = "fbd919624ab85bab8dda5558262ce30724e96efa";
+        sha256 = "0grrixnbkjdny60hrqrjqrl23vjkngrf7gn1y2mkmv9vm5s7r8w9";
+      }) {};
   };
 
   source-overrides = {

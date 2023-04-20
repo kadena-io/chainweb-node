@@ -1,5 +1,6 @@
 {-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DefaultSignatures #-}
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
@@ -242,6 +243,7 @@ import Data.ByteString (ByteString)
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Char8 as B8
 import qualified Data.ByteString.Base64 as B64
+import qualified Data.Base64.Types as B64
 import qualified Data.ByteString.Base64.URL as B64U
 import qualified Data.ByteString.Builder as BB
 import qualified Data.ByteString.Lazy as BL
@@ -604,15 +606,16 @@ iso8601DateTimeFormat = iso8601DateFormat (Just "%H:%M:%SZ")
 --
 decodeB64Text :: MonadThrow m => T.Text -> m B.ByteString
 decodeB64Text = fromEitherM
-    . first (Base64DecodeException . T.pack)
-    . B64.decode
+    . first Base64DecodeException
+    . B64.decodeBase64
+    . B64.assertBase64 @'B64.StdPadded @_
     . T.encodeUtf8
 {-# INLINE decodeB64Text #-}
 
 -- | Encode a binary value to a textual base64 representation.
 --
 encodeB64Text :: B.ByteString -> T.Text
-encodeB64Text = T.decodeUtf8 . B64.encode
+encodeB64Text = B64.extractBase64 . B64.encodeBase64
 {-# INLINE encodeB64Text #-}
 
 -- | Decode a binary value from a textual base64-url representation. A
@@ -621,15 +624,16 @@ encodeB64Text = T.decodeUtf8 . B64.encode
 --
 decodeB64UrlText :: MonadThrow m => T.Text -> m B.ByteString
 decodeB64UrlText = fromEitherM
-    . first (Base64DecodeException . T.pack)
-    . B64U.decode
+    . first Base64DecodeException
+    . B64U.decodeBase64
+    . B64.assertBase64 @'B64.UrlPadded @_
     . T.encodeUtf8
 {-# INLINE decodeB64UrlText #-}
 
 -- | Encode a binary value to a textual base64-url representation.
 --
 encodeB64UrlText :: B.ByteString -> T.Text
-encodeB64UrlText = T.decodeUtf8 . B64U.encode
+encodeB64UrlText = B64.extractBase64 . B64U.encodeBase64
 {-# INLINE encodeB64UrlText #-}
 
 -- | Decode a binary value from a textual base64-url without padding
@@ -638,8 +642,9 @@ encodeB64UrlText = T.decodeUtf8 . B64U.encode
 --
 decodeB64UrlNoPaddingText :: MonadThrow m => T.Text -> m B.ByteString
 decodeB64UrlNoPaddingText = fromEitherM
-    . first (Base64DecodeException . T.pack)
-    . B64U.decode
+    . first Base64DecodeException
+    . B64U.decodeBase64
+    . B64.assertBase64 @'B64.UrlPadded @_
     . T.encodeUtf8
     . pad
   where
@@ -650,14 +655,14 @@ decodeB64UrlNoPaddingText = fromEitherM
 -- representation.
 --
 encodeB64UrlNoPaddingText :: B.ByteString -> T.Text
-encodeB64UrlNoPaddingText = T.dropWhileEnd (== '=') . T.decodeUtf8 . B64U.encode
+encodeB64UrlNoPaddingText = T.dropWhileEnd (== '=') . B64.extractBase64 . B64U.encodeBase64
 {-# INLINE encodeB64UrlNoPaddingText #-}
 
 -- | Encode a binary value to a base64-url (without padding) JSON encoding.
 --
 b64UrlNoPaddingTextEncoding :: B.ByteString -> Encoding
 b64UrlNoPaddingTextEncoding t =
-    Aeson.unsafeToEncoding $ BB.char8 '\"' <> BB.byteString (B8.dropWhileEnd (== '=') $ B64U.encode t) <> BB.char8 '\"'
+    Aeson.unsafeToEncoding $ BB.char8 '\"' <> BB.byteString (B8.dropWhileEnd (== '=') $ B64.extractBase64 $ B64U.encodeBase64' t) <> BB.char8 '\"'
 
 -- -------------------------------------------------------------------------- --
 -- ** JSON

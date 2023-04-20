@@ -35,6 +35,7 @@ import Control.Monad
 import Control.Lens (set)
 
 import Data.Aeson as Aeson
+import qualified Data.Base64.Types as B64
 import qualified Data.ByteString.Base64.URL as B64U
 import qualified Data.ByteString.Char8 as B8
 
@@ -539,7 +540,7 @@ createSuccess time (TestBlockDb wdb pdb _c) pidv sid tid bhe = do
             True -> return mempty
             False -> do
                 q <- toJSON <$> createTransactionOutputProof_ wdb pdb tid sid bhe 0
-                let proof = Just . ContProof .  B64U.encode . toStrict . Aeson.encode $ q
+                let proof = Just . ContProof .  B64.extractBase64 . B64U.encodeBase64' . toStrict . Aeson.encode $ q
                 createCont tid pidv proof time
                     `finally` writeIORef ref True
 
@@ -557,7 +558,7 @@ createWrongTargetChain time (TestBlockDb wdb pdb _c) pidv sid tid bhe = do
             False -> do
                 q <- toJSON <$> createTransactionOutputProof_ wdb pdb tid sid bhe 0
 
-                let proof = Just . ContProof .  B64U.encode . toStrict . Aeson.encode $ q
+                let proof = Just . ContProof .  B64.extractBase64 . B64U.encodeBase64' . toStrict . Aeson.encode $ q
 
                 createCont sid pidv proof time
                     `finally` writeIORef ref True
@@ -593,7 +594,7 @@ createProofBadTargetChain time (TestBlockDb wdb pdb _c) pidv sid tid bhe = do
                 tid' <- chainIdFromText "2"
                 q <- toJSON <$> createTransactionOutputProof_ wdb pdb tid' sid bhe 0
 
-                let proof = Just . ContProof .  B64U.encode . toStrict . Aeson.encode $ q
+                let proof = Just . ContProof . B64.extractBase64 . B64U.encodeBase64' . toStrict . Aeson.encode $ q
 
                 createCont sid pidv proof time
                     `finally` writeIORef ref True

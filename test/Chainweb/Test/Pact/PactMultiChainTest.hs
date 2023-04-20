@@ -16,6 +16,7 @@ import Control.Monad
 import Control.Monad.Catch
 import Control.Monad.Reader
 import Data.Aeson (object, (.=))
+import qualified Data.Base64.Types as B64
 import qualified Data.ByteString.Base64.URL as B64U
 import qualified Data.HashMap.Strict as HM
 import Data.IORef
@@ -1079,7 +1080,7 @@ buildXProof
     -> PactTestM (ContProof, PactId)
 buildXProof scid bh i sendTx = do
     bdb <- view menvBdb
-    proof <- liftIO $ ContProof . B64U.encode . encodeToByteString <$>
+    proof <- liftIO $ ContProof . B64.extractBase64 . B64U.encodeBase64' . encodeToByteString <$>
       createTransactionOutputProof_ (_bdbWebBlockHeaderDb bdb) (_bdbPayloadDb bdb) chain0 scid bh i
     pid <- getPactId sendTx
     return (proof,pid)

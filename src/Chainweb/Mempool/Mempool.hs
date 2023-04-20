@@ -1,5 +1,6 @@
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DeriveAnyClass #-}
+{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE FlexibleContexts #-}
@@ -98,9 +99,11 @@ import Crypto.Hash (hash)
 import Crypto.Hash.Algorithms (SHA512t_256)
 
 import Data.Aeson
+import Data.Bifunctor (first)
 import Data.Bits (bit, shiftL, shiftR, (.&.))
 import Data.ByteArray (convert)
-import qualified Data.ByteString.Base64.URL as B64
+import qualified Data.Base64.Types as B64
+import qualified Data.ByteString.Base64.URL as B64U
 import Data.ByteString.Char8 (ByteString)
 import qualified Data.ByteString.Char8 as B
 import qualified Data.ByteString.Short as SB
@@ -703,7 +706,8 @@ mockCodec = Codec mockEncode mockDecode
 
 mockEncode :: MockTx -> ByteString
 mockEncode (MockTx nonce (GasPrice (ParsedDecimal price)) limit meta) =
-  B64.encode $
+  B64.extractBase64 $
+  B64U.encodeBase64' $
   runPutS $ do
     putWord64le $ fromIntegral nonce
     putDecimal price
@@ -746,7 +750,7 @@ getDecimal = do
 
 mockDecode :: ByteString -> Either String MockTx
 mockDecode s = do
-    s' <- B64.decode s
+    s' <- first T.unpack $ B64U.decodeBase64 $ B64.assertBase64 @'B64.UrlPadded @_ s
     runGetEitherS (MockTx <$> getI64 <*> getPrice <*> getGL <*> getMeta) s'
   where
     getPrice = GasPrice . ParsedDecimal <$> getDecimal
