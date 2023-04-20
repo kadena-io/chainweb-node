@@ -811,6 +811,11 @@ enablePact46 tc
     | chainweb218Pact (ctxVersion tc) (ctxCurrentBlockHeight tc) = []
     | otherwise = [FlagDisablePact46]
 
+enableNewTransMpfr :: TxContext -> [ExecutionFlag]
+enableNewTransMpfr tc
+    | pact47NewTransMpfr (ctxVersion tc) (ctxCurrentBlockHeight tc) = []
+    | otherwise = [FlagDisableNewTransMPFR]
+
 -- | Execute a 'ContMsg' and return the command result and module cache
 --
 applyContinuation

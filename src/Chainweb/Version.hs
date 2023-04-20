@@ -958,6 +958,12 @@ pact44NewTrans Mainnet01 = (>= 2_939_323) -- Todo: add date
 pact44NewTrans Testnet04 = (>= 2_500_369) -- Todo: add date
 pact44NewTrans _ = const True
 
+-- | Fork for MPFR trans funs
+pact47NewTransMpfr :: ChainwebVersion -> BlockHeight -> Bool
+pact47NewTransMpfr Mainnet01 = (>= 3_652_682) -- Todo: determine height, add date
+pact47NewTransMpfr Testnet04 = (>= 2_500_369) -- Todo: determine height, add date
+pact47NewTransMpfr _ = const True
+
 -- | Pact and coin contract changes for Chainweb 2.14
 --
 chainweb214Pact
