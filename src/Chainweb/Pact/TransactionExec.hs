@@ -188,7 +188,8 @@ applyCmd v logger gasLogger pdbenv miner gasModel txCtx spv cmd initialGas mcach
           ++ enablePact44 txCtx
           ++ enablePact45 txCtx
           ++ enableNewTrans txCtx
-          ++ enablePact46 txCtx )
+          ++ enablePact46 txCtx
+          ++ enablePact47 txCtx)
 
     cenv = TransactionEnv Transactional pdbenv logger gasLogger (ctxToPublicData txCtx) spv nid gasPrice
       requestKey (fromIntegral gasLimit) executionConfigNoHistory
@@ -357,7 +358,8 @@ applyCoinbase v logger dbEnv (Miner mid mks@(MinerKeys mk)) reward@(ParsedDecima
       enablePact43 txCtx ++
       enablePact431 txCtx ++
       enablePact44 txCtx ++
-      enablePact45 txCtx
+      enablePact45 txCtx ++
+      enablePact47 txCtx  
     tenv = TransactionEnv Transactional dbEnv logger Nothing (ctxToPublicData txCtx) noSPVSupport
            Nothing 0.0 rk 0 ec
     txst = TransactionState mc mempty 0 Nothing (_geGasModel freeGasEnv) mempty
@@ -810,6 +812,11 @@ enablePact46 :: TxContext -> [ExecutionFlag]
 enablePact46 tc
     | chainweb218Pact (ctxVersion tc) (ctxCurrentBlockHeight tc) = []
     | otherwise = [FlagDisablePact46]
+
+enablePact47 :: TxContext -> [ExecutionFlag]
+enablePact47 tc
+    | chainweb218Pact (ctxVersion tc) (ctxCurrentBlockHeight tc) = []
+    | otherwise = [FlagDisablePact47]
 
 -- | Execute a 'ContMsg' and return the command result and module cache
 --
