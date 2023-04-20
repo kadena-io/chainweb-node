@@ -13,16 +13,19 @@ in
 }:
 let chainweb-node = pkgs.haskell-nix.project' {
 	    src = ./.;
-#      index-state = "2023-04-01T00:00:00Z";
 	    compiler-nix-name = compiler;
       projectFileName = "cabal.project";
 	    shell.tools = {
         cabal = {};
-        # hlint = {};
 	    };
       shell.buildInputs = with pkgs; [
         zlib
         pkgconfig
+      ];
+      modules = [
+        {
+          packages.http2.doHaddock = false;
+        }
       ];
     };
     flake = chainweb-node.flake {};
