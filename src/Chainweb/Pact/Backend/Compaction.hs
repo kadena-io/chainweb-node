@@ -1,15 +1,16 @@
-{-# LANGUAGE DeriveTraversable #-}
-{-# LANGUAGE RecordWildCards #-}
-{-# LANGUAGE DeriveFunctor #-}
-{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE DeriveFunctor #-}
+{-# LANGUAGE DeriveTraversable #-}
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE ImportQualifiedPost #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeApplications #-}
@@ -33,38 +34,37 @@ module Chainweb.Pact.Backend.Compaction
   , withDefaultLogger
   ) where
 
-import Control.Lens
-import Control.Monad
-import Control.Monad.Catch
-import Control.Monad.Reader
-
+import Control.Exception (Exception, SomeException(..))
+import Control.Lens (makeLenses, set, over, view)
+import Control.Monad (unless, forM, forM_, void)
+import Control.Monad.Catch (MonadCatch(catch), MonadThrow(throwM))
+import Control.Monad.IO.Class (MonadIO(liftIO))
+import Control.Monad.Reader (MonadReader, ReaderT, runReaderT, local)
 import Data.ByteString (ByteString)
-import Data.Foldable
-import Data.Int
-import Data.List (sort)
-import qualified Data.Map.Strict as M
-import Data.Text (Text,replace,isInfixOf,toLower)
-import qualified Data.Text as Text
-import Data.Text.Encoding
-import qualified Data.Vector as V
-
-import Database.SQLite3.Direct
-
-import GHC.Stack
-
+import Data.Foldable qualified as F
+import Data.Int (Int64)
+import Data.List qualified as List
+import Data.Map.Strict qualified as M
+import Data.Text (Text)
+import Data.Text qualified as Text
+import Data.Text.Encoding qualified as Text
+import Data.Vector qualified as V
+import Database.SQLite3.Direct (Utf8(..), Database)
+import GHC.Stack (HasCallStack)
 import Options.Applicative
 
-import Chainweb.BlockHeight
+import Chainweb.BlockHeight (BlockHeight)
 import Chainweb.Utils (sshow)
-import Chainweb.Version
-import Chainweb.Version.Utils
-import Chainweb.Pact.Backend.Types
-import Chainweb.Pact.Backend.Utils
+import Chainweb.Version (ChainId, ChainwebVersion(..), chainwebVersionFromText, unsafeChainId)
+import Chainweb.Version.Utils (chainIdsAt)
+import Chainweb.Pact.Backend.Types (SQLiteEnv(..))
+import Chainweb.Pact.Backend.Utils (withSqliteDb)
 
 import System.Logger
 import Data.LogMessage
 
-import Pact.Types.SQLite
+import Pact.Types.SQLite (SType(..), RType(..))
+import Pact.Types.SQLite qualified as Pact
 
 data CompactException
     = CompactExceptionInternal Text
@@ -136,29 +136,29 @@ runCompactM e a = runReaderT (unCompactM a) e
 execM_ :: Text -> CompactM ()
 execM_ q = do
   q' <- templateStmt q
-  withDb $ \db -> liftIO $ exec_ db q'
+  withDb $ \db -> liftIO $ Pact.exec_ db q'
 
 execM' :: Text -> [CompactM SType] -> CompactM ()
 execM' stmt ps' = do
   ps <- sequence ps'
   stmt' <- templateStmt stmt
-  withDb $ \db -> liftIO $ exec' db stmt' ps
+  withDb $ \db -> liftIO $ Pact.exec' db stmt' ps
 
 qryM :: Text -> [CompactM SType] -> [RType] -> CompactM [[SType]]
 qryM q ins' outs = do
   q' <- templateStmt q
   ins <- sequence ins'
-  withDb $ \db -> liftIO $ qry db q' ins outs
+  withDb $ \db -> liftIO $ Pact.qry db q' ins outs
 
 -- | Statements are templated with "$VTABLE$" substituted
 -- with the currently-focused versioned table.
 templateStmt :: Text -> CompactM Utf8
 templateStmt s
-    | tblTemplate `isInfixOf` s =
+    | tblTemplate `Text.isInfixOf` s =
         vtable' >>= \(Utf8 v) ->
-          return $ Utf8 $ encodeUtf8 $
-            replace tblTemplate ("[" <> decodeUtf8 v <> "]") s
-    | otherwise = pure $ Utf8 $ encodeUtf8 s
+          return $ Utf8 $ Text.encodeUtf8 $
+            Text.replace tblTemplate ("[" <> Text.decodeUtf8 v <> "]") s
+    | otherwise = pure $ Utf8 $ Text.encodeUtf8 s
   where
     tblTemplate = "$VTABLE$"
 
@@ -180,10 +180,10 @@ vtable' = view ceVersionTable >>= \case
 
 withTx :: HasCallStack => CompactM a -> CompactM a
 withTx a = withDb $ \db -> do
-  liftIO $ exec_ db $ "SAVEPOINT compact_tx"
-  catch (a >>= \r -> liftIO (exec_ db "RELEASE SAVEPOINT compact_tx") >> return r) $
+  liftIO $ Pact.exec_ db $ "SAVEPOINT compact_tx"
+  catch (a >>= \r -> liftIO (Pact.exec_ db "RELEASE SAVEPOINT compact_tx") >> return r) $
       \e@SomeException {} -> do
-        liftIO $ exec_ db "ROLLBACK TRANSACTION TO SAVEPOINT compact_tx"
+        liftIO $ Pact.exec_ db "ROLLBACK TRANSACTION TO SAVEPOINT compact_tx"
         throwM $ CompactExceptionDb e
 
 withDb :: (Database -> CompactM a) -> CompactM a
@@ -194,8 +194,8 @@ unlessFlag f a = view ceFlags >>= \fs -> unless (f `elem` fs) a
 
 withTables :: CompactM () -> CompactM ()
 withTables a = view ceVersionTables >>= \ts ->
-  forM_ (zip (toList ts) [1..]) $ \t@(Utf8 t',i) -> do
-    let lbl = decodeUtf8 t' <> " (" <> sshow i <> " of " <> sshow (V.length ts) <> ")"
+  forM_ (zip (F.toList ts) [1..]) $ \t@(Utf8 t',i) -> do
+    let lbl = Text.decodeUtf8 t' <> " (" <> sshow i <> " of " <> sshow (V.length ts) <> ")"
     local (set ceVersionTable $ Just t) $
       localScope (("table",lbl):) $ a
 
@@ -203,7 +203,7 @@ setTables :: [[SType]] -> CompactM a -> CompactM a
 setTables rs next = do
   ts <- fmap (M.elems . M.fromListWith const) $
         forM rs $ \r -> case r of
-          [SText n@(Utf8 s)] -> return (toLower (decodeUtf8 s), n)
+          [SText n@(Utf8 s)] -> return (Text.toLower (Text.decodeUtf8 s), n)
           _ -> internalError "setTables: expected text"
   local (set ceVersionTables $ V.fromList ts) next
 
@@ -307,7 +307,7 @@ computeGlobalHash = do
       \   WHERE tablename IS NOT NULL ORDER BY tablename)); "
 
   withDb $ \db ->
-    liftIO $ qry_ db "SELECT hash FROM CompactGrandHash WHERE tablename IS NULL" [RBlob] >>= \case
+    liftIO $ Pact.qry_ db "SELECT hash FROM CompactGrandHash WHERE tablename IS NULL" [RBlob] >>= \case
       [[SBlob h]] -> return h
       _ -> throwM $ CompactExceptionInternal "computeGlobalHash: bad result"
 
@@ -437,7 +437,7 @@ compactAll CompactConfig{..} = withDefaultLogger Debug $ \logger' ->
             logg Info $ "Compaction complete, hash=" <> sshow h
 
   where
-    cids = sort $ toList $ chainIdsAt ccVersion ccBlockHeight
+    cids = List.sort $ F.toList $ chainIdsAt ccVersion ccBlockHeight
 
 compactMain :: IO ()
 compactMain = do
