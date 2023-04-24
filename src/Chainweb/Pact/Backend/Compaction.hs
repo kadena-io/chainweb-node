@@ -67,10 +67,10 @@ import Pact.Types.SQLite (SType(..), RType(..))
 import Pact.Types.SQLite qualified as Pact
 
 data CompactException
-    = CompactExceptionInternal Text
-    | CompactExceptionDb SomeException
+    = CompactExceptionInternal !Text
+    | CompactExceptionDb !SomeException
     | CompactExceptionInvalidBlockHeight
-    | CompactExceptionTableVerificationFailure Utf8
+    | CompactExceptionTableVerificationFailure !Utf8
   deriving Show
 instance Exception CompactException
 
@@ -85,11 +85,11 @@ internalError :: MonadThrow m => Text -> m a
 internalError = throwM . CompactExceptionInternal
 
 data CompactEnv = CompactEnv
-  { _ceDb :: Database
-  , _ceBlockHeight :: BlockHeight
-  , _ceTxId :: Maybe Int64
-  , _ceVersionTables :: V.Vector Utf8
-  , _ceVersionTable :: Maybe (Utf8,Int)
+  { _ceDb :: !Database
+  , _ceBlockHeight :: !BlockHeight
+  , _ceTxId :: !(Maybe Int64)
+  , _ceVersionTables :: !(V.Vector Utf8)
+  , _ceVersionTable :: !(Maybe (Utf8,Int))
   , _ceLogger :: Logger SomeLogMessage
   , _ceFlags :: [CompactFlag]
   }
