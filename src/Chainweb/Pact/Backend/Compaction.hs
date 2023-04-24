@@ -43,8 +43,8 @@ import Data.Foldable
 import Data.Int
 import Data.List (sort)
 import qualified Data.Map.Strict as M
-import Data.Maybe
-import Data.Text (Text,replace,isInfixOf,pack,toLower)
+import Data.Text (Text,replace,isInfixOf,toLower)
+import qualified Data.Text as Text
 import Data.Text.Encoding
 import qualified Data.Vector as V
 
@@ -133,7 +133,6 @@ instance MonadLog Text CompactM where
 runCompactM :: CompactEnv -> CompactM a -> IO a
 runCompactM e a = runReaderT (unCompactM a) e
 
-
 execM_ :: Text -> CompactM ()
 execM_ q = do
   q' <- templateStmt q
@@ -192,9 +191,6 @@ withDb a = view ceDb >>= a
 
 unlessFlag :: CompactFlag -> CompactM () -> CompactM ()
 unlessFlag f a = view ceFlags >>= \fs -> unless (f `elem` fs) a
-
-_whenFlag :: CompactFlag -> CompactM () -> CompactM ()
-_whenFlag f a = view ceFlags >>= \fs -> when (f `elem` fs) a
 
 withTables :: CompactM () -> CompactM ()
 withTables a = view ceVersionTables >>= \ts ->
@@ -446,32 +442,38 @@ compactAll CompactConfig{..} = withDefaultLogger Debug $ \logger' ->
 compactMain :: IO ()
 compactMain = do
   execParser opts >>= \cc -> do
-    traverse (chainwebVersionFromText.pack) cc >>= compactAll
+    traverse chainwebVersionFromText cc >>= compactAll
   where
-    opts :: ParserInfo (CompactConfig String)
+    opts :: ParserInfo (CompactConfig Text)
     opts = info (parser <**> helper)
         (fullDesc <> progDesc "Pact DB Compaction tool")
 
+    parser :: Parser (CompactConfig Text)
     parser = CompactConfig
         <$> (fromIntegral @Int <$> option auto
              (short 'b'
+              <> long "target-blockheight"
               <> metavar "BLOCKHEIGHT"
               <> help "Target blockheight"))
         <*> strOption
              (short 'd'
+              <> long "pact-database-dir"
               <> metavar "DBDIR"
               <> help "Pact database directory")
-        <*> (fromMaybe (show Mainnet01) <$> optional (strOption
-             (short 'v'
-              <> metavar "VERSION"
-              <> help ("Chainweb version for graph. Only needed for non-standard graphs, defaults to "
-                       ++ show Mainnet01))))
-        <*> (fromMaybe [] <$> optional (option auto
-             (short 'f'
-              <> metavar "FLAGS"
-              <> help ("Execution flags: \""
-                       ++ show [minBound @CompactFlag .. maxBound]
-                       ++ "\" (needs quotes)"))))
+        <*> (Text.pack <$> strOption
+              (short 'v'
+               <> long "graph-version"
+               <> metavar "VERSION"
+               <> help "Chainweb version for graph. Only needed for non-standard graphs."
+               <> value (show Mainnet01)
+               <> showDefault))
+        <*> ((<>)
+               <$> flag [] [Flag_KeepCompactTables]
+                     (long "keep-compact-tables"
+                      <> help "Keep compaction tables post-compaction, for inspection.")
+               <*> flag [] [Flag_NoVacuum]
+                     (long "no-vacuum"
+                      <> help "Don't VACUUM database."))
         <*> optional (unsafeChainId <$> option auto
              (short 'c'
               <> metavar "CHAINID"
