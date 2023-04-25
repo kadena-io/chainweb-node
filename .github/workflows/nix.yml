@@ -1,4 +1,4 @@
-name: Build and cache Nix artifacts on nixcache.chainweb.com
+name: Build and cache with Nix
 
 on:
   push:
