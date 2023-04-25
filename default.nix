@@ -12,12 +12,12 @@ in
 , ...
 }:
 let chainweb-node = pkgs.haskell-nix.project' {
-	    src = ./.;
-	    compiler-nix-name = compiler;
+      src = ./.;
+      compiler-nix-name = compiler;
       projectFileName = "cabal.project";
-	    shell.tools = {
+      shell.tools = {
         cabal = {};
-	    };
+      };
       shell.buildInputs = with pkgs; [
         zlib
         pkgconfig
