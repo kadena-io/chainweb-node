@@ -134,18 +134,32 @@ instance MonadLog Text CompactM where
 runCompactM :: CompactEnv -> CompactM a -> IO a
 runCompactM e a = runReaderT (unCompactM a) e
 
-execM_ :: Text -> CompactM ()
+-- | Prepare/Execute a "$VTABLE$"-templated query.
+execM_ :: ()
+  => Text -- ^ "$VTABLE$"-templated query
+  -> CompactM ()
 execM_ q = do
   q' <- templateStmt q
   withDb $ \db -> liftIO $ Pact.exec_ db q'
 
-execM' :: Text -> [CompactM SType] -> CompactM ()
+-- | Prepare/Execute a "$VTABLE$"-templated, parameterised query.
+--   The parameters are the results of the 'CompactM' 'SType' computations.
+execM' :: ()
+  => Text -- ^ "$VTABLE$"-templated query
+  -> [CompactM SType] -- ^ parameters
+  -> CompactM ()
 execM' stmt ps' = do
   ps <- sequence ps'
   stmt' <- templateStmt stmt
   withDb $ \db -> liftIO $ Pact.exec' db stmt' ps
 
-qryM :: Text -> [CompactM SType] -> [RType] -> CompactM [[SType]]
+-- | Prepare/Execute a "$VTABLE$"-templated, parameterised query.
+--   'RType's are the expected results.
+qryM :: ()
+  => Text -- ^ "$VTABLE$"-templated query
+  -> [CompactM SType] -- ^ parameters
+  -> [RType] -- ^ results
+  -> CompactM [[SType]]
 qryM q ins' outs = do
   q' <- templateStmt q
   ins <- sequence ins'
