@@ -1,6 +1,8 @@
 name: Build and cache with Nix
 
-on: push
+on:
+  workflow_dispatch:
+  push:
 
 jobs:
   build-and-cache:
