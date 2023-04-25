@@ -26,3 +26,4 @@ jobs:
 
     - name: Build and cache artifacts
       run: nix build && nix develop --command 'echo works'
+
