@@ -14,6 +14,7 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE ViewPatterns #-}
 
 -- |
 -- Module: Chainweb.Pact.Backend.Compaction
@@ -36,7 +37,7 @@ module Chainweb.Pact.Backend.Compaction
 
 import Control.Exception (Exception, SomeException(..))
 import Control.Lens (makeLenses, set, over, view)
-import Control.Monad (unless, forM, forM_, void)
+import Control.Monad (forM, forM_, when, void)
 import Control.Monad.Catch (MonadCatch(catch), MonadThrow(throwM))
 import Control.Monad.IO.Class (MonadIO(liftIO))
 import Control.Monad.Reader (MonadReader, ReaderT, runReaderT, local)
@@ -189,14 +190,14 @@ withTx a = withDb $ \db -> do
 withDb :: (Database -> CompactM a) -> CompactM a
 withDb a = view ceDb >>= a
 
-unlessFlag :: CompactFlag -> CompactM () -> CompactM ()
-unlessFlag f a = view ceFlags >>= \fs -> unless (f `elem` fs) a
+whenFlagUnset :: CompactFlag -> CompactM () -> CompactM ()
+whenFlagUnset f a = view ceFlags >>= \fs -> when (not (f `elem` fs)) a
 
 withTables :: CompactM () -> CompactM ()
-withTables a = view ceVersionTables >>= \ts ->
-  forM_ (zip (F.toList ts) [1..]) $ \t@(Utf8 t',i) -> do
+withTables a = view ceVersionTables >>= \ts -> do
+  V.iforM_ ts $ \((+ 1) -> i) u@(Utf8 t') -> do
     let lbl = Text.decodeUtf8 t' <> " (" <> sshow i <> " of " <> sshow (V.length ts) <> ")"
-    local (set ceVersionTable $ Just t) $
+    local (set ceVersionTable $ Just (u, i)) $
       localScope (("table",lbl):) $ a
 
 setTables :: [[SType]] -> CompactM a -> CompactM a
@@ -206,7 +207,6 @@ setTables rs next = do
           [SText n@(Utf8 s)] -> return (Text.toLower (Text.decodeUtf8 s), n)
           _ -> internalError "setTables: expected text"
   local (set ceVersionTables $ V.fromList ts) next
-
 
 -- | CompactGrandHash associates table name with grand hash of its versioned rows,
 -- and NULL with grand hash of all table hashes.
@@ -221,7 +221,6 @@ createCompactGrandHash = do
 
   execM_
       "DELETE FROM CompactGrandHash"
-
 
 -- | CompactActiveRow collects all active rows from all tables.
 createCompactActiveRow :: CompactM ()
@@ -340,7 +339,6 @@ verifyTable = do
             vtable' >>= throwM . CompactExceptionTableVerificationFailure
     _ -> throwM $ CompactExceptionInternal "verifyTable: bad result"
 
-
 -- | For given table, compute table grand hash for max txid.
 computeTableHash :: CompactM ByteString
 computeTableHash = do
@@ -406,9 +404,9 @@ compact = do
           dropNewTables
           compactSystemTables
 
-        unlessFlag Flag_KeepCompactTables $ withTx $ dropCompactTables
+        whenFlagUnset Flag_KeepCompactTables $ withTx $ dropCompactTables
 
-        unlessFlag Flag_NoVacuum $ do
+        whenFlagUnset Flag_NoVacuum $ do
           logg Info "Vacuum"
           execM_ "VACUUM;"
 
@@ -427,7 +425,8 @@ compactAll :: CompactConfig ChainwebVersion -> IO ()
 compactAll CompactConfig{..} = withDefaultLogger Debug $ \logger' ->
   forM_ cids $ \cid -> do
     let logger = over setLoggerScope (("chain",sshow cid):) logger'
-    withSqliteDb cid logger ccDbDir False $ \(SQLiteEnv db _) ->
+    let resetDb = False
+    withSqliteDb cid logger ccDbDir resetDb $ \(SQLiteEnv db _) ->
       runCompactM (mkCompactEnv logger db ccBlockHeight ccFlags) $
         case ccChain of
           Just ccid | ccid /= cid -> logg Info $ "Skipping chain"
