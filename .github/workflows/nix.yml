@@ -1,6 +1,7 @@
 name: Build and cache with Nix
 
 on:
+  workflow_dispatch:
   push:
 
 jobs:
