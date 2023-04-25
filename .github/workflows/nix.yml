@@ -3,6 +3,11 @@ name: Build and cache with Nix
 on:
   workflow_dispatch:
   push:
+    branches:
+      - johnw/nix-flake
+  pull_request:
+    branches:
+      - johnw/nix-flake
 
 jobs:
   build-and-cache:
