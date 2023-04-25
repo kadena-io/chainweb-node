@@ -3,7 +3,7 @@ name: Build and cache Nix artifacts on nixcache.chainweb.com
 on:
   push:
     branches:
-      - main
+      - master
   pull_request:
 
 jobs:
