@@ -149,7 +149,9 @@ instance Exception DuplicateHeader
 
 addHeader :: HTTP.Header -> [HTTP.Header] -> [HTTP.Header]
 addHeader (hn, hv) hs =
-    (hn, hv) : [ if n == hn then throw (DuplicateHeader hn) else h | h@(n, _) <- hs ]
+    case find ((== hn) . fst) hs of
+      Just _ -> throw (DuplicateHeader hn)
+      Nothing -> (hn, hv) : hs
 
 setErrText :: T.Text -> ServerError -> ServerError
 setErrText m e = e
