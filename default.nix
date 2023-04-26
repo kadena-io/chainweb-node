@@ -15,14 +15,14 @@ in
 , ...
 }:
 let chainweb-node = pkgs.haskell-nix.project' {
-      src = nix-filter {
+      src = with nix-filter.lib; filter {
         root = flakePath;
         exclude = [
           ./.github
           ./docs
           ./examples
-          (nix-filter.matchExt ".nix")
-        ]
+          (matchExt ".nix")
+        ];
       };
       compiler-nix-name = compiler;
       projectFileName = "cabal.project";
