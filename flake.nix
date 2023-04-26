@@ -22,5 +22,12 @@
       executable = defaultNix.default;
     in flake // {
       packages.default = executable;
+      # This package depends on the devShell at buildtime, but its output does not
+      # depend on it. This way, we don't have to download the entire devShell closure
+      # to verify that `nix develop` works.
+      packages.shellOk = pkgs.runCommand "shell-ok" {} ''
+        echo devShell: ${flake.devShell}
+        echo works > $out
+      '';
     });
 }
