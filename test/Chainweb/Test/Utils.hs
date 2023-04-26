@@ -78,6 +78,7 @@ module Chainweb.Test.Utils
 , withTestAppServer
 , withChainwebTestServer
 , clientEnvWithChainwebTestServer
+, ShouldValidateSpec(..)
 , withBlockHeaderDbsServer
 , withPeerDbsServer
 , withPayloadServer
@@ -685,14 +686,14 @@ pactOpenApiSpec = unsafePerformIO $ do
 -- TODO: catch, wrap, and forward exceptions from chainwebApplication
 --
 withChainwebTestServer
-    :: Bool
+    :: ShouldValidateSpec
     -> Bool
     -> ChainwebVersion
     -> IO W.Application
     -> (Int -> IO a)
     -> (IO a -> TestTree)
     -> TestTree
-withChainwebTestServer validateSpec tls v appIO envIO test = withResource start stop $ \x -> do
+withChainwebTestServer shouldValidateSpec tls v appIO envIO test = withResource start stop $ \x -> do
     test $ x >>= \(_, _, env) -> return env
   where
     start = do
@@ -716,10 +717,9 @@ withChainwebTestServer validateSpec tls v appIO envIO test = withResource start 
                 , (,chainwebOpenApiSpec) <$> B8.stripPrefix (T.encodeUtf8 $ "/chainweb/0.0/" <> chainwebVersionToText v) path
                 , Just (path,chainwebOpenApiSpec)
                 ]
-            mw =
-                if validateSpec
-                then WV.mkValidator coverageRef (WV.Log lg (const (return ()))) findPath
-                else id
+            mw = case shouldValidateSpec of
+                ValidateSpec -> WV.mkValidator coverageRef (WV.Log lg (const (return ()))) findPath
+                DoNotValidateSpec -> id
         app <- mw <$> appIO
         (port, sock) <- W.openFreePort
         readyVar <- newEmptyMVar
@@ -749,14 +749,14 @@ clientEnvWithChainwebTestServer
     => ToJSON t
     => FromJSON t
     => CanReadablePayloadCas tbl
-    => Bool
+    => ShouldValidateSpec
     -> Bool
     -> ChainwebVersion
     -> IO (ChainwebServerDbs t tbl)
     -> (IO (TestClientEnv t tbl) -> TestTree)
     -> TestTree
-clientEnvWithChainwebTestServer validateSpec tls v dbsIO =
-    withChainwebTestServer validateSpec tls v mkApp mkEnv
+clientEnvWithChainwebTestServer shouldValidateSpec tls v dbsIO =
+    withChainwebTestServer shouldValidateSpec tls v mkApp mkEnv
   where
 
     -- FIXME: Hashes API got removed from the P2P API. We use an application that
@@ -787,13 +787,13 @@ withPeerDbsServer
     => CanReadablePayloadCas tbl
     => ToJSON t
     => FromJSON t
-    => Bool
+    => ShouldValidateSpec
     -> Bool
     -> ChainwebVersion
     -> IO [(NetworkId, P2P.PeerDb)]
     -> (IO (TestClientEnv t tbl) -> TestTree)
     -> TestTree
-withPeerDbsServer validateSpec tls v peerDbsIO = clientEnvWithChainwebTestServer validateSpec tls v $ do
+withPeerDbsServer shouldValidateSpec tls v peerDbsIO = clientEnvWithChainwebTestServer shouldValidateSpec tls v $ do
     peerDbs <- peerDbsIO
     return $ emptyChainwebServerDbs
         { _chainwebServerPeerDbs = peerDbs
@@ -804,15 +804,15 @@ withPayloadServer
     => CanReadablePayloadCas tbl
     => ToJSON t
     => FromJSON t
-    => Bool
+    => ShouldValidateSpec
     -> Bool
     -> ChainwebVersion
     -> IO (CutDb tbl)
     -> IO [(ChainId, PayloadDb tbl)]
     -> (IO (TestClientEnv t tbl) -> TestTree)
     -> TestTree
-withPayloadServer validateSpec tls v cutDbIO payloadDbsIO =
-    clientEnvWithChainwebTestServer validateSpec tls v $ do
+withPayloadServer shouldValidateSpec tls v cutDbIO payloadDbsIO =
+    clientEnvWithChainwebTestServer shouldValidateSpec tls v $ do
         payloadDbs <- payloadDbsIO
         cutDb <- cutDbIO
         return $ emptyChainwebServerDbs
@@ -820,20 +820,22 @@ withPayloadServer validateSpec tls v cutDbIO payloadDbsIO =
             , _chainwebServerCutDb = Just cutDb
             }
 
+data ShouldValidateSpec = ValidateSpec | DoNotValidateSpec
+
 withBlockHeaderDbsServer
     :: Show t
     => CanReadablePayloadCas tbl
     => ToJSON t
     => FromJSON t
-    => Bool
+    => ShouldValidateSpec
     -> Bool
     -> ChainwebVersion
     -> IO [(ChainId, BlockHeaderDb)]
     -> IO [(ChainId, MempoolBackend t)]
     -> (IO (TestClientEnv t tbl) -> TestTree)
     -> TestTree
-withBlockHeaderDbsServer validateSpec tls v chainDbsIO mempoolsIO =
-    clientEnvWithChainwebTestServer validateSpec tls v $ do
+withBlockHeaderDbsServer shouldValidateSpec tls v chainDbsIO mempoolsIO =
+    clientEnvWithChainwebTestServer shouldValidateSpec tls v $ do
         chainDbs <- chainDbsIO
         mempools <- mempoolsIO
         return $ emptyChainwebServerDbs

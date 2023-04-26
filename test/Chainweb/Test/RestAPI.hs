@@ -122,7 +122,7 @@ noMempool = []
 simpleSessionTests :: RocksDb -> Bool -> ChainwebVersion -> TestTree
 simpleSessionTests rdb tls version =
     withBlockHeaderDbsResource rdb version $ \dbs ->
-        withBlockHeaderDbsServer True tls version dbs (return noMempool)
+        withBlockHeaderDbsServer ValidateSpec tls version dbs (return noMempool)
         $ \env -> testGroup "client session tests"
             $ httpHeaderTests env (head $ toList $ chainIds version)
             : (simpleClientSession env <$> toList (chainIds version))
@@ -328,7 +328,7 @@ simpleClientSession envIO cid =
 
 pagingTests :: RocksDb -> Bool -> ChainwebVersion -> TestTree
 pagingTests rdb tls version =
-    withBlockHeaderDbsServer True tls version
+    withBlockHeaderDbsServer ValidateSpec tls version
             (starBlockHeaderDbs 6 $ testBlockHeaderDbs rdb version)
             (return noMempool)
     $ \env -> testGroup "paging tests"

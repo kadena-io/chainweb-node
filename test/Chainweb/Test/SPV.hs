@@ -432,9 +432,9 @@ apiTests :: RocksDb -> ChainwebVersion -> TestTree
 apiTests rdb v = withTestPayloadResource rdb v 100 (\_ _ -> return ()) $ \dbIO ->
     testGroup "SPV API tests"
         -- TODO: there is no openapi spec for this SPV API.
-        [ withPayloadServer False False v dbIO (payloadDbs . view cutDbPayloadDb <$> dbIO) $ \env ->
+        [ withPayloadServer DoNotValidateSpec False v dbIO (payloadDbs . view cutDbPayloadDb <$> dbIO) $ \env ->
             testCaseStepsN "spv api tests (without tls)" 10 (txApiTests env)
-        , withPayloadServer False True v dbIO (payloadDbs . view cutDbPayloadDb <$> dbIO) $ \env ->
+        , withPayloadServer DoNotValidateSpec True v dbIO (payloadDbs . view cutDbPayloadDb <$> dbIO) $ \env ->
             testCaseStepsN "spv api tests (with tls)" 10 (txApiTests env)
         ]
   where
