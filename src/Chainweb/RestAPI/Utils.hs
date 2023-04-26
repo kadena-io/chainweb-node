@@ -106,6 +106,7 @@ import Data.Aeson
 import qualified Data.ByteString.Lazy as BSL
 import qualified Data.CaseInsensitive as CI
 import Data.Kind
+import Data.List (find)
 import Data.Proxy
 import Data.Streaming.Network (bindPortGen)
 import Data.String
