@@ -10,29 +10,19 @@
 -- Stability: experimental
 --
 -- TODO
---
 module Chainweb.Test.Utils.BlockHeader
-( testBlockHeader
-, testBlockHeaders
-, testBlockHeadersWithNonce
-, testGetNewAdjacentParentHeaders
+  ( testBlockHeader,
+    testBlockHeaders,
+    testBlockHeadersWithNonce,
+    testGetNewAdjacentParentHeaders,
 
--- * Test Payloads
-, testPayload
-, testBlockPayloadFromParent
-, testBlockPayload
-, testBlockPayload_
-) where
-
-import Control.Arrow ((&&&))
-import Control.Lens
-
-import qualified Data.ByteString.Char8 as B8
-import qualified Data.HashMap.Strict as HM
-import qualified Data.List as L
-import qualified Data.Vector as V
-
-import GHC.Stack
+    -- * Test Payloads
+    testPayload,
+    testBlockPayloadFromParent,
+    testBlockPayload,
+    testBlockPayload_,
+  )
+where
 
 -- internal modules
 
@@ -45,19 +35,26 @@ import Chainweb.Payload
 import Chainweb.Time
 import Chainweb.Utils
 import Chainweb.Version
+import Control.Arrow ((&&&))
+import Control.Lens
+import qualified Data.ByteString.Char8 as B8
+import qualified Data.HashMap.Strict as HM
+import qualified Data.List as L
+import qualified Data.Vector as V
+import GHC.Stack
 
 -- -------------------------------------------------------------------------- --
 -- Test Payloads
 
 -- | Test PayloadWithOutputs that is parameterized with some bytes.
---
 testPayload :: B8.ByteString -> PayloadWithOutputs
-testPayload n = newPayloadWithOutputs
+testPayload n =
+  newPayloadWithOutputs
     (MinerData "TEST MINER DATA")
     (CoinbaseOutput "TEST COINBASE OUTPUT")
-    (V.singleton
-        ( Transaction $ "TEST TRANSACTION: " <> n
-        , TransactionOutput $ "TEST OUTPUT: " <> n
+    ( V.singleton
+        ( Transaction $ "TEST TRANSACTION: " <> n,
+          TransactionOutput $ "TEST OUTPUT: " <> n
         )
     )
 
@@ -66,24 +63,28 @@ testPayload n = newPayloadWithOutputs
 --
 -- Payloads that are created with this function match respective payloads
 -- that are created with 'testBlockPayload'.
---
 testBlockPayloadFromParent :: ParentHeader -> PayloadWithOutputs
-testBlockPayloadFromParent (ParentHeader b) = testPayload $ B8.intercalate ","
-    [ sshow (_blockChainwebVersion b)
-    , sshow (_blockHeight b + 1)
-    ]
+testBlockPayloadFromParent (ParentHeader b) =
+  testPayload $
+    B8.intercalate
+      ","
+      [ sshow (_blockChainwebVersion b),
+        sshow (_blockHeight b + 1)
+      ]
 
 -- | Generate a test payload for a given header. Includes the block height of
 -- the block.
 --
 -- Payloads that are created with this function match respective payloads
 -- that are created with 'testBlockPayloadFromParent'.
---
 testBlockPayload :: BlockHeader -> PayloadWithOutputs
-testBlockPayload b = testPayload $ B8.intercalate ","
-    [ sshow (_blockChainwebVersion b)
-    , sshow (_blockHeight b)
-    ]
+testBlockPayload b =
+  testPayload $
+    B8.intercalate
+      ","
+      [ sshow (_blockChainwebVersion b),
+        sshow (_blockHeight b)
+      ]
 
 -- | Generate a test payload for a given parent header. Includes the block
 -- height of the block and the given Nonce.
@@ -91,54 +92,58 @@ testBlockPayload b = testPayload $ B8.intercalate ","
 -- Payloads that are created with this function match respective payloads
 -- that are created with 'testBlockPayload_', assuming that the same nonce is
 -- used.
---
 testBlockPayloadFromParent_ :: Nonce -> ParentHeader -> PayloadWithOutputs
-testBlockPayloadFromParent_ n (ParentHeader b) = testPayload $ B8.intercalate ","
-    [ sshow (_blockChainwebVersion b)
-    , sshow (_blockHeight b + 1)
-    , sshow n
-    ]
+testBlockPayloadFromParent_ n (ParentHeader b) =
+  testPayload $
+    B8.intercalate
+      ","
+      [ sshow (_blockChainwebVersion b),
+        sshow (_blockHeight b + 1),
+        sshow n
+      ]
 
 -- | Includes the nonce of the block.
 --
 -- Payloads that are created with this function match respective payloads
 -- that are created with 'testBlockPayloadFromParent_', assuming that the same
 -- nonce is used.
---
 testBlockPayload_ :: BlockHeader -> PayloadWithOutputs
-testBlockPayload_ b = testPayload $ B8.intercalate ","
-    [ sshow (_blockChainwebVersion b)
-    , sshow (_blockHeight b)
-    , sshow (_blockNonce b)
-    ]
+testBlockPayload_ b =
+  testPayload $
+    B8.intercalate
+      ","
+      [ sshow (_blockChainwebVersion b),
+        sshow (_blockHeight b),
+        sshow (_blockNonce b)
+      ]
 
 -- -------------------------------------------------------------------------- --
 -- Testing
 
-testGetNewAdjacentParentHeaders
-    :: HasCallStack
-    => Applicative m
-    => ChainwebVersion
-    -> (ChainValue BlockHash -> m BlockHeader)
-    -> BlockHashRecord
-    -> m (HM.HashMap ChainId (Either BlockHash ParentHeader))
+testGetNewAdjacentParentHeaders ::
+  HasCallStack =>
+  Applicative m =>
+  ChainwebVersion ->
+  (ChainValue BlockHash -> m BlockHeader) ->
+  BlockHashRecord ->
+  m (HM.HashMap ChainId (Either BlockHash ParentHeader))
 testGetNewAdjacentParentHeaders v hdb = itraverse select . _getBlockHashRecord
   where
     select cid h
-        | h == genesisParentBlockHash v cid = pure $ Left h
-        | otherwise = Right . ParentHeader <$> hdb (ChainValue cid h)
+      | h == genesisParentBlockHash v cid = pure $ Left h
+      | otherwise = Right . ParentHeader <$> hdb (ChainValue cid h)
 
-testBlockHeader
-    :: HM.HashMap ChainId ParentHeader
-        -- ^ Adjacent parent hashes
-    -> Nonce
-        -- ^ Randomness to affect the block hash. It is also included into
-        -- the payload
-    -> ParentHeader
-        -- ^ parent block header
-    -> BlockHeader
+testBlockHeader ::
+  -- | Adjacent parent hashes
+  HM.HashMap ChainId ParentHeader ->
+  -- | Randomness to affect the block hash. It is also included into
+  -- the payload
+  Nonce ->
+  -- | parent block header
+  ParentHeader ->
+  BlockHeader
 testBlockHeader adj nonce p@(ParentHeader b) =
-    newBlockHeader adj payload nonce (BlockCreationTime $ add second t) p
+  newBlockHeader adj payload nonce (BlockCreationTime $ add second t) p
   where
     payload = _payloadWithOutputsPayloadHash $ testBlockPayloadFromParent_ nonce p
     BlockCreationTime t = _blockCreationTime b
@@ -147,7 +152,6 @@ testBlockHeader adj nonce p@(ParentHeader b) =
 -- of `BlockHeader`s which form a legal chain.
 --
 -- Should only be used for testing purposes.
---
 testBlockHeaders :: ParentHeader -> [BlockHeader]
 testBlockHeaders (ParentHeader p) = L.unfoldr (Just . (id &&& id) . f) p
   where
@@ -157,7 +161,6 @@ testBlockHeaders (ParentHeader p) = L.unfoldr (Just . (id &&& id) . f) p
 -- of `BlockHeader`s which form a legal chain.
 --
 -- Should only be used for testing purposes.
---
 testBlockHeadersWithNonce :: Nonce -> ParentHeader -> [BlockHeader]
 testBlockHeadersWithNonce n (ParentHeader p) = L.unfoldr (Just . (id &&& id) . f) p
   where

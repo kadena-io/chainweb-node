@@ -12,14 +12,11 @@
 -- Stability: experimental
 --
 -- REST API client implementation for the Chainweb P2P network endpoints.
---
 module P2P.Node.RestAPI.Client
-( peerGetClient
-, peerPutClient
-) where
-
-import Servant.API (NoContent(..))
-import Servant.Client
+  ( peerGetClient,
+    peerPutClient,
+  )
+where
 
 -- internal modules
 
@@ -27,19 +24,20 @@ import Chainweb.ChainId
 import Chainweb.RestAPI.NetworkID
 import Chainweb.Utils.Paging
 import Chainweb.Version
-
 import P2P.Node.RestAPI
 import P2P.Peer
+import Servant.API (NoContent (..))
+import Servant.Client
 
 -- -------------------------------------------------------------------------- --
 -- GET Peer Client
 
-peerGetClient
-    :: ChainwebVersion
-    -> NetworkId
-    -> Maybe Limit
-    -> Maybe (NextItem Int)
-    -> ClientM (Page (NextItem Int) PeerInfo)
+peerGetClient ::
+  ChainwebVersion ->
+  NetworkId ->
+  Maybe Limit ->
+  Maybe (NextItem Int) ->
+  ClientM (Page (NextItem Int) PeerInfo)
 peerGetClient (FromSingChainwebVersion (SChainwebVersion :: Sing v)) = f
   where
     f (FromSingNetworkId (SChainNetwork SChainId :: Sing n)) = client $ peerGetApi @v @n
@@ -49,14 +47,13 @@ peerGetClient (FromSingChainwebVersion (SChainwebVersion :: Sing v)) = f
 -- -------------------------------------------------------------------------- --
 -- PUT Peer Client
 
-peerPutClient
-    :: ChainwebVersion
-    -> NetworkId
-    -> PeerInfo
-    -> ClientM NoContent
+peerPutClient ::
+  ChainwebVersion ->
+  NetworkId ->
+  PeerInfo ->
+  ClientM NoContent
 peerPutClient (FromSingChainwebVersion (SChainwebVersion :: Sing v)) = f
   where
     f (FromSingNetworkId (SChainNetwork SChainId :: Sing n)) = client $ peerPutApi @v @n
     f (FromSingNetworkId (SMempoolNetwork SChainId :: Sing n)) = client $ peerPutApi @v @n
     f (FromSingNetworkId (SCutNetwork :: Sing n)) = client $ peerPutApi @v @n
-

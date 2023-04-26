@@ -15,52 +15,42 @@
 -- Stability: experimental
 --
 -- The Block Payload REST API
---
 module Chainweb.Payload.RestAPI
-(
--- * Batch size limits
-  PayloadBatchLimit(..)
-, p2pPayloadBatchLimit
-, defaultServicePayloadBatchLimit
+  ( -- * Batch size limits
+    PayloadBatchLimit (..),
+    p2pPayloadBatchLimit,
+    defaultServicePayloadBatchLimit,
 
--- * Type indexed PayloadDb
-, PayloadDb'(..)
-, SomePayloadDb(..)
-, somePayloadDbVal
+    -- * Type indexed PayloadDb
+    PayloadDb' (..),
+    SomePayloadDb (..),
+    somePayloadDbVal,
 
--- * Payload GET API
-, PayloadGetApi
-, payloadGetApi
+    -- * Payload GET API
+    PayloadGetApi,
+    payloadGetApi,
 
--- * Payload batch POST API
-, PayloadPostApi
-, payloadPostApi
+    -- * Payload batch POST API
+    PayloadPostApi,
+    payloadPostApi,
 
--- * Outputs GET API
-, OutputsGetApi
-, outputsGetApi
+    -- * Outputs GET API
+    OutputsGetApi,
+    outputsGetApi,
 
--- * Outputs batch POST API
-, OutputsPostApi
-, outputsPostApi
+    -- * Outputs batch POST API
+    OutputsPostApi,
+    outputsPostApi,
 
--- * Payload API
-, PayloadApi
-, payloadApi
+    -- * Payload API
+    PayloadApi,
+    payloadApi,
 
--- * Some Payload API
-, somePayloadApi
-, somePayloadApis
-) where
-
-import Control.Monad.Identity
-
-import Data.Aeson
-import Data.Proxy
-
-import Numeric.Natural
-
-import Servant.API
+    -- * Some Payload API
+    somePayloadApi,
+    somePayloadApis,
+  )
+where
 
 -- internal modules
 
@@ -71,15 +61,19 @@ import Chainweb.Payload.PayloadStore
 import Chainweb.RestAPI.Orphans ()
 import Chainweb.RestAPI.Utils
 import Chainweb.Version
+import Control.Monad.Identity
+import Data.Aeson
+import Data.Proxy
+import Numeric.Natural
+import Servant.API
 
 -- -------------------------------------------------------------------------- --
 -- Constants
 
 -- | The maximum number of items that are returned in a batch
---
 newtype PayloadBatchLimit = PayloadBatchLimit Natural
-    deriving (Show, Eq)
-    deriving newtype (Ord, Enum, Num, Real, Integral, ToJSON, FromJSON)
+  deriving (Show, Eq)
+  deriving newtype (Ord, Enum, Num, Real, Integral, ToJSON, FromJSON)
 
 p2pPayloadBatchLimit :: PayloadBatchLimit
 p2pPayloadBatchLimit = 20
@@ -92,32 +86,32 @@ defaultServicePayloadBatchLimit = 1000
 
 newtype PayloadDb' tbl (v :: ChainwebVersionT) (c :: ChainIdT) = PayloadDb' (PayloadDb tbl)
 
-data SomePayloadDb tbl = forall v c
-    . (KnownChainwebVersionSymbol v, KnownChainIdSymbol c)
-    => SomePayloadDb (PayloadDb' tbl v c)
+data SomePayloadDb tbl
+  = forall v c.
+    (KnownChainwebVersionSymbol v, KnownChainIdSymbol c) =>
+    SomePayloadDb (PayloadDb' tbl v c)
 
-somePayloadDbVal :: forall tbl . ChainwebVersion -> ChainId -> PayloadDb tbl -> SomePayloadDb tbl
+somePayloadDbVal :: forall tbl. ChainwebVersion -> ChainId -> PayloadDb tbl -> SomePayloadDb tbl
 somePayloadDbVal v cid db = runIdentity $ do
-    SomeChainwebVersionT (Proxy :: Proxy vt) <- return $ someChainwebVersionVal v
-    SomeChainIdT (Proxy :: Proxy cidt) <- return $ someChainIdVal cid
-    return $! SomePayloadDb (PayloadDb' @tbl @vt @cidt db)
+  SomeChainwebVersionT (Proxy :: Proxy vt) <- return $ someChainwebVersionVal v
+  SomeChainIdT (Proxy :: Proxy cidt) <- return $ someChainIdVal cid
+  return $! SomePayloadDb (PayloadDb' @tbl @vt @cidt db)
 
 -- -------------------------------------------------------------------------- --
 -- Payload GET API
 
 -- | @GET \/chainweb\/\<ApiVersion\>\/\<InstanceId\>\/chain\/\<ChainId\>\/payload\/\<BlockPayloadHash\>@
-
-type PayloadGetApi_
-    = "payload"
+type PayloadGetApi_ =
+  "payload"
     :> Capture "BlockPayloadHash" BlockPayloadHash
     :> Get '[JSON] PayloadData
 
-type PayloadGetApi (v :: ChainwebVersionT) (c :: ChainIdT)
-    = 'ChainwebEndpoint v :> ChainEndpoint c :> PayloadGetApi_
+type PayloadGetApi (v :: ChainwebVersionT) (c :: ChainIdT) =
+  'ChainwebEndpoint v :> ChainEndpoint c :> PayloadGetApi_
 
-payloadGetApi
-    :: forall (v :: ChainwebVersionT) (c :: ChainIdT)
-    . Proxy (PayloadGetApi v c)
+payloadGetApi ::
+  forall (v :: ChainwebVersionT) (c :: ChainIdT).
+  Proxy (PayloadGetApi v c)
 payloadGetApi = Proxy
 
 -- -------------------------------------------------------------------------- --
@@ -127,38 +121,36 @@ payloadGetApi = Proxy
 --
 -- The query may return any number (including none) of the requested payload
 -- data. Results are returned in any order.
---
-type PayloadPostApi_
-    = "payload"
+type PayloadPostApi_ =
+  "payload"
     :> "batch"
     :> ReqBody '[JSON] [BlockPayloadHash]
     :> Post '[JSON] [PayloadData]
 
-type PayloadPostApi (v :: ChainwebVersionT) (c :: ChainIdT)
-    = 'ChainwebEndpoint v :> ChainEndpoint c :> PayloadPostApi_
+type PayloadPostApi (v :: ChainwebVersionT) (c :: ChainIdT) =
+  'ChainwebEndpoint v :> ChainEndpoint c :> PayloadPostApi_
 
-payloadPostApi
-    :: forall (v :: ChainwebVersionT) (c :: ChainIdT)
-    . Proxy (PayloadPostApi v c)
+payloadPostApi ::
+  forall (v :: ChainwebVersionT) (c :: ChainIdT).
+  Proxy (PayloadPostApi v c)
 payloadPostApi = Proxy
 
 -- -------------------------------------------------------------------------- --
 -- Outputs GET API
 
 -- | @GET \/chainweb\/\<ApiVersion\>\/\<InstanceId\>\/chain\/\<ChainId\>\/payload\/\<BlockPayloadHash\>/outputs@
-
-type OutputsGetApi_
-    = "payload"
+type OutputsGetApi_ =
+  "payload"
     :> Capture "BlockPayloadHash" BlockPayloadHash
     :> "outputs"
     :> Get '[JSON] PayloadWithOutputs
 
-type OutputsGetApi (v :: ChainwebVersionT) (c :: ChainIdT)
-    = 'ChainwebEndpoint v :> ChainEndpoint c :> OutputsGetApi_
+type OutputsGetApi (v :: ChainwebVersionT) (c :: ChainIdT) =
+  'ChainwebEndpoint v :> ChainEndpoint c :> OutputsGetApi_
 
-outputsGetApi
-    :: forall (v :: ChainwebVersionT) (c :: ChainIdT)
-    . Proxy (OutputsGetApi v c)
+outputsGetApi ::
+  forall (v :: ChainwebVersionT) (c :: ChainIdT).
+  Proxy (OutputsGetApi v c)
 outputsGetApi = Proxy
 
 -- -------------------------------------------------------------------------- --
@@ -168,34 +160,33 @@ outputsGetApi = Proxy
 --
 -- The query may return any number (including none) of the requested payload
 -- data. Results are returned in any order.
---
-type OutputsPostApi_
-    = "payload"
+type OutputsPostApi_ =
+  "payload"
     :> "outputs"
     :> "batch"
     :> ReqBody '[JSON] [BlockPayloadHash]
     :> Post '[JSON] [PayloadWithOutputs]
 
-type OutputsPostApi (v :: ChainwebVersionT) (c :: ChainIdT)
-    = 'ChainwebEndpoint v :> ChainEndpoint c :> OutputsPostApi_
+type OutputsPostApi (v :: ChainwebVersionT) (c :: ChainIdT) =
+  'ChainwebEndpoint v :> ChainEndpoint c :> OutputsPostApi_
 
-outputsPostApi
-    :: forall (v :: ChainwebVersionT) (c :: ChainIdT)
-    . Proxy (OutputsPostApi v c)
+outputsPostApi ::
+  forall (v :: ChainwebVersionT) (c :: ChainIdT).
+  Proxy (OutputsPostApi v c)
 outputsPostApi = Proxy
 
 -- -------------------------------------------------------------------------- --
 -- Payload API
 
-type PayloadApi v c
-    = PayloadGetApi v c
+type PayloadApi v c =
+  PayloadGetApi v c
     :<|> OutputsGetApi v c
     :<|> PayloadPostApi v c
     :<|> OutputsPostApi v c
 
-payloadApi
-    :: forall (v :: ChainwebVersionT) (c :: ChainIdT)
-    . Proxy (PayloadApi v c)
+payloadApi ::
+  forall (v :: ChainwebVersionT) (c :: ChainIdT).
+  Proxy (PayloadApi v c)
 payloadApi = Proxy
 
 -- -------------------------------------------------------------------------- --
@@ -203,9 +194,9 @@ payloadApi = Proxy
 
 somePayloadApi :: ChainwebVersion -> ChainId -> SomeApi
 somePayloadApi v c = runIdentity $ do
-    SomeChainwebVersionT (_ :: Proxy v') <- return $ someChainwebVersionVal v
-    SomeChainIdT (_ :: Proxy c') <- return $ someChainIdVal c
-    return $! SomeApi (payloadApi @v' @c')
+  SomeChainwebVersionT (_ :: Proxy v') <- return $ someChainwebVersionVal v
+  SomeChainIdT (_ :: Proxy c') <- return $ someChainIdVal c
+  return $! SomeApi (payloadApi @v' @c')
 
 somePayloadApis :: ChainwebVersion -> [ChainId] -> SomeApi
 somePayloadApis v = mconcat . fmap (somePayloadApi v)

@@ -1,5 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TypeApplications #-}
+
 -- |
 -- Module: Chainweb.Pact.Validations
 -- Copyright: Copyright © 2018,2019,2020,2021,2022 Kadena LLC.
@@ -11,102 +12,100 @@
 -- These functions are meant to be shared between:
 --  - The codepath for adding transactions to the mempool
 --  - The codepath for letting users test their transaction via /local
---
 module Chainweb.Pact.Validations
-( -- * Local metadata _validation
-  assertLocalMetadata
-  -- * Validation checks
-, assertParseChainId
-, assertChainId
-, assertGasPrice
-, assertNetworkId
-, assertSigSize
-, assertTxSize
-, assertValidateSigs
-, assertTxTimeRelativeToParent
-  -- * Defaults
-, defaultMaxCommandUserSigListSize
-, defaultMaxCoinDecimalPlaces
-, defaultMaxTTL
-, defaultLenientTimeSlop
-) where
+  ( -- * Local metadata _validation
+    assertLocalMetadata,
 
-import Control.Lens
+    -- * Validation checks
+    assertParseChainId,
+    assertChainId,
+    assertGasPrice,
+    assertNetworkId,
+    assertSigSize,
+    assertTxSize,
+    assertValidateSigs,
+    assertTxTimeRelativeToParent,
 
-import Data.Decimal (decimalPlaces)
-import Data.Maybe (isJust, catMaybes)
-import Data.List.NonEmpty (NonEmpty, nonEmpty)
-import Data.Text (Text)
-import Data.Word (Word8)
+    -- * Defaults
+    defaultMaxCommandUserSigListSize,
+    defaultMaxCoinDecimalPlaces,
+    defaultMaxTTL,
+    defaultLenientTimeSlop,
+  )
+where
 
 -- internal modules
 
-import Chainweb.BlockHeader (ParentCreationTime(..), BlockHeader(..), ParentHeader(..))
-import Chainweb.BlockCreationTime (BlockCreationTime(..))
+import Chainweb.BlockCreationTime (BlockCreationTime (..))
+import Chainweb.BlockHeader (BlockHeader (..), ParentCreationTime (..), ParentHeader (..))
 import Chainweb.ChainId (ChainId, chainIdToText)
+import Chainweb.Pact.Service.Types
 import Chainweb.Pact.Types
 import Chainweb.Pact.Utils (fromPactChainId)
-import Chainweb.Pact.Service.Types
-import Chainweb.Time (Seconds(..), Time(..), secondsToTimeSpan, scaleTimeSpan, second, add)
-import Chainweb.Transaction (cmdTimeToLive, cmdCreationTime)
+import Chainweb.Time (Seconds (..), Time (..), add, scaleTimeSpan, second, secondsToTimeSpan)
+import Chainweb.Transaction (cmdCreationTime, cmdTimeToLive)
+import Chainweb.Utils (HasTextRepresentation (..))
 import Chainweb.Version (ChainwebVersion)
-import Chainweb.Utils (HasTextRepresentation(..),)
-
+import Control.Lens
+import Data.Decimal (decimalPlaces)
+import Data.List.NonEmpty (NonEmpty, nonEmpty)
+import Data.Maybe (catMaybes, isJust)
+import Data.Text (Text)
+import Data.Word (Word8)
+import qualified Pact.Parse as P
+import qualified Pact.Types.ChainId as P
+import qualified Pact.Types.ChainMeta as P
+import qualified Pact.Types.Command as P
 import qualified Pact.Types.Gas as P
 import qualified Pact.Types.Hash as P
-import qualified Pact.Types.ChainId as P
-import qualified Pact.Types.Command as P
-import qualified Pact.Types.ChainMeta as P
-import qualified Pact.Parse as P
-
 
 -- | Check whether a local Api request has valid metadata
---
-assertLocalMetadata
-    :: P.Command (P.Payload P.PublicMeta c)
-    -> TxContext
-    -> Maybe LocalSignatureVerification
-    -> PactServiceM tbl (Either (NonEmpty Text) ())
+assertLocalMetadata ::
+  P.Command (P.Payload P.PublicMeta c) ->
+  TxContext ->
+  Maybe LocalSignatureVerification ->
+  PactServiceM tbl (Either (NonEmpty Text) ())
 assertLocalMetadata cmd@(P.Command pay sigs hsh) txCtx sigVerify = do
-    v <- view psVersion
-    cid <- view psChainId
-    bgl <- view psBlockGasLimit
+  v <- view psVersion
+  cid <- view psChainId
+  bgl <- view psBlockGasLimit
 
-    let P.PublicMeta pcid _ gl gp _ _ = P._pMeta pay
-        nid = P._pNetworkId pay
-        signers = P._pSigners pay
+  let P.PublicMeta pcid _ gl gp _ _ = P._pMeta pay
+      nid = P._pNetworkId pay
+      signers = P._pSigners pay
 
-    let errs = catMaybes
-          [ eUnless "Unparseable transaction chain id" $ assertParseChainId pcid
-          , eUnless "Chain id mismatch" $ assertChainId cid pcid
-          , eUnless "Transaction Gas limit exceeds block gas limit" $ assertBlockGasLimit bgl gl
-          , eUnless "Gas price decimal precision too high" $ assertGasPrice gp
-          , eUnless "Network id mismatch" $ assertNetworkId v nid
-          , eUnless "Signature list size too big" $ assertSigSize sigs
-          , eUnless "Invalid transaction signatures" $ sigValidate signers
-          , eUnless "Tx time outside of valid range" $ assertTxTimeRelativeToParent pct cmd
+  let errs =
+        catMaybes
+          [ eUnless "Unparseable transaction chain id" $ assertParseChainId pcid,
+            eUnless "Chain id mismatch" $ assertChainId cid pcid,
+            eUnless "Transaction Gas limit exceeds block gas limit" $ assertBlockGasLimit bgl gl,
+            eUnless "Gas price decimal precision too high" $ assertGasPrice gp,
+            eUnless "Network id mismatch" $ assertNetworkId v nid,
+            eUnless "Signature list size too big" $ assertSigSize sigs,
+            eUnless "Invalid transaction signatures" $ sigValidate signers,
+            eUnless "Tx time outside of valid range" $ assertTxTimeRelativeToParent pct cmd
           ]
 
-    pure $ case nonEmpty errs of
-      Nothing -> Right ()
-      Just vs -> Left vs
+  pure $ case nonEmpty errs of
+    Nothing -> Right ()
+    Just vs -> Left vs
   where
     sigValidate signers
       | Just NoVerify <- sigVerify = True
       | otherwise = assertValidateSigs hsh signers sigs
 
-    pct = ParentCreationTime
-      . _blockCreationTime
-      . _parentHeader
-      . _tcParentHeader
-      $ txCtx
+    pct =
+      ParentCreationTime
+        . _blockCreationTime
+        . _parentHeader
+        . _tcParentHeader
+        $ txCtx
 
     eUnless t assertion
       | assertion = Nothing
       | otherwise = Just t
 
 -- | Check whether a particular Pact chain id is parseable
---
 assertParseChainId :: P.ChainId -> Bool
 assertParseChainId = isJust . fromPactChainId
 
@@ -115,47 +114,40 @@ assertParseChainId = isJust . fromPactChainId
 --
 -- The supplied chain id should be derived from the current
 -- chainweb node structure
---
 assertChainId :: ChainId -> P.ChainId -> Bool
 assertChainId cid0 cid1 = chainIdToText cid0 == P._chainId cid1
 
 -- | Check and assert that 'GasPrice' is rounded to at most 12 decimal
 -- places.
---
 assertGasPrice :: P.GasPrice -> Bool
 assertGasPrice (P.GasPrice (P.ParsedDecimal gp)) = decimalPlaces gp <= defaultMaxCoinDecimalPlaces
 
 -- | Check and assert that the 'GasLimit' of a transaction is less than or eqaul to
 -- the block gas limit
---
 assertBlockGasLimit :: P.GasLimit -> P.GasLimit -> Bool
 assertBlockGasLimit bgl tgl = bgl >= tgl
 
 -- | Check and assert that 'ChainwebVersion' is equal to some pact 'NetworkId'.
---
 assertNetworkId :: ChainwebVersion -> Maybe P.NetworkId -> Bool
 assertNetworkId _ Nothing = False
 assertNetworkId v (Just (P.NetworkId nid)) = fromText @ChainwebVersion nid == Just v
 
 -- | Check and assert that the number of signatures in a 'Command' is
 -- at most 100.
---
 assertSigSize :: [P.UserSig] -> Bool
 assertSigSize sigs = length sigs <= defaultMaxCommandUserSigListSize
 
 -- | Check and assert that the initial 'Gas' cost of a transaction
 -- is less than the specified 'GasLimit'.
---
 assertTxSize :: P.Gas -> P.GasLimit -> Bool
 assertTxSize initialGas gasLimit = initialGas < fromIntegral gasLimit
 
 -- | Check and assert that signers and user signatures are valid for a given
 -- transaction hash.
---
 assertValidateSigs :: P.PactHash -> [P.Signer] -> [P.UserSig] -> Bool
 assertValidateSigs hsh signers sigs
-    | length signers /= length sigs = False
-    | otherwise = all (uncurry (P.verifyUserSig hsh)) (zip sigs signers)
+  | length signers /= length sigs = False
+  | otherwise = all (uncurry (P.verifyUserSig hsh)) (zip sigs signers)
 
 -- prop_tx_ttl_newBlock/validateBlock
 --
@@ -164,12 +156,12 @@ assertValidateSigs hsh signers sigs
 -- and TTL don't affect the tx outputs and pact state and can thus be
 -- skipped when replaying old blocks.
 --
-assertTxTimeRelativeToParent
-    :: ParentCreationTime
-    -> P.Command (P.Payload P.PublicMeta c)
-    -> Bool
+assertTxTimeRelativeToParent ::
+  ParentCreationTime ->
+  P.Command (P.Payload P.PublicMeta c) ->
+  Bool
 assertTxTimeRelativeToParent (ParentCreationTime (BlockCreationTime txValidationTime)) tx =
-    ttl > 0
+  ttl > 0
     && txValidationTime >= timeFromSeconds 0
     && txOriginationTime >= 0
     && timeFromSeconds txOriginationTime <= lenientTxValidationTime
@@ -186,21 +178,17 @@ assertTxTimeRelativeToParent (ParentCreationTime (BlockCreationTime txValidation
 
 -- | The maximum admissible signature list size allowed for
 -- Pact/Chainweb transactions
---
 defaultMaxCommandUserSigListSize :: Int
 defaultMaxCommandUserSigListSize = 100
 
 -- | The maximum admissible number of decimal places allowed
 -- by the coin contract.
---
 defaultMaxCoinDecimalPlaces :: Word8
 defaultMaxCoinDecimalPlaces = 12
-
 
 -- | The maximum time-to-live (expressed in seconds)
 --
 -- This is probably going to be changed. Let us make it 2 days for now.
---
 defaultMaxTTL :: P.ParsedInteger
 defaultMaxTTL = P.ParsedInteger $ 2 * 24 * 60 * 60
 
@@ -212,6 +200,5 @@ defaultMaxTTL = P.ParsedInteger $ 2 * 24 * 60 * 60
 -- the accuracy of the tx creation time vs "blockchain time", but is better than e.g.
 -- incurring artificial latency to wait for a parent block that is acceptable for a tx.
 -- 95 seconds represents the 99th percentile of block arrival times.
---
 defaultLenientTimeSlop :: Seconds
 defaultLenientTimeSlop = 95

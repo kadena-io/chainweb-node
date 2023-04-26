@@ -9,10 +9,10 @@
 -- Stability: experimental
 --
 -- A noop coin base for genesis transactions and testing purposes.
---
 module Chainweb.Pact.NoCoinbase
-( noCoinbase
-) where
+  ( noCoinbase,
+  )
+where
 
 -- internal modules
 
@@ -22,10 +22,15 @@ import Pact.Types.Hash
 import Pact.Types.PactValue
 
 -- | No-op coinbase payload
---
 noCoinbase :: CommandResult a
-noCoinbase = CommandResult
-    (RequestKey pactInitialHash) Nothing
+noCoinbase =
+  CommandResult
+    (RequestKey pactInitialHash)
+    Nothing
     (PactResult (Right (PLiteral (LString "NO_COINBASE"))))
-    0 Nothing Nothing Nothing []
+    0
+    Nothing
+    Nothing
+    Nothing
+    []
 {-# NOINLINE noCoinbase #-}

@@ -15,32 +15,37 @@
 -- Stability: experimental
 --
 -- The definition of the Pact miner and the Pact miner reward.
---
 module Chainweb.Miner.Pact
-( -- * Data
-  MinerId(..)
-, MinerKeys(..)
-, Miner(..)
-, MinerRewards(..)
-  -- * Combinators
-, toMinerData
-, fromMinerData
-, readRewards
-, rawMinerRewards
-  -- * Optics
-, minerId
-, minerKeys
-  -- * Defaults
-, noMiner
-, defaultMiner
-) where
+  ( -- * Data
+    MinerId (..),
+    MinerKeys (..),
+    Miner (..),
+    MinerRewards (..),
 
-import GHC.Generics (Generic)
+    -- * Combinators
+    toMinerData,
+    fromMinerData,
+    readRewards,
+    rawMinerRewards,
 
+    -- * Optics
+    minerId,
+    minerKeys,
+
+    -- * Defaults
+    noMiner,
+    defaultMiner,
+  )
+where
+
+-- internal modules
+
+import Chainweb.BlockHeight (BlockHeight (..))
+import Chainweb.Payload (MinerData (..))
+import Chainweb.Utils
 import Control.DeepSeq (NFData)
 import Control.Lens hiding ((.=))
 import Control.Monad.Catch (MonadThrow)
-
 import Data.Aeson hiding (decode)
 import Data.ByteString (ByteString)
 import qualified Data.ByteString.Lazy as BL
@@ -50,129 +55,116 @@ import Data.FileEmbed (embedFile)
 import Data.Hashable
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as M
-import Data.String (IsString(..))
+import Data.String (IsString (..))
 import Data.Text (Text)
 import qualified Data.Vector as V
 import Data.Word
-
--- internal modules
-
-import Chainweb.BlockHeight (BlockHeight(..))
-import Chainweb.Payload (MinerData(..))
-import Chainweb.Utils
-
-import Pact.Types.Term (KeySet(..), mkKeySet)
+import GHC.Generics (Generic)
+import Pact.Types.Term (KeySet (..), mkKeySet)
 
 -- -------------------------------------------------------------------------- --
 -- Miner data
 
 -- | `MinerId` is a thin wrapper around `Text` to differentiate it from user
 -- addresses.
-newtype MinerId = MinerId { _minerId :: Text }
-    deriving stock (Eq, Ord, Generic)
-    deriving newtype (Show, ToJSON, FromJSON, IsString, NFData, Hashable)
+newtype MinerId = MinerId {_minerId :: Text}
+  deriving stock (Eq, Ord, Generic)
+  deriving newtype (Show, ToJSON, FromJSON, IsString, NFData, Hashable)
 
 -- | `MinerKeys` are a thin wrapper around a Pact `KeySet` to differentiate it
 -- from user keysets.
---
 newtype MinerKeys = MinerKeys KeySet
-    deriving stock (Eq, Ord, Generic)
-    deriving newtype (Show, ToJSON, FromJSON, NFData)
+  deriving stock (Eq, Ord, Generic)
+  deriving newtype (Show, ToJSON, FromJSON, NFData)
 
 -- | Miner info data consists of a miner id (text), and its keyset (a pact
 -- type).
---
 data Miner = Miner !MinerId !MinerKeys
-    deriving stock (Eq, Ord, Show, Generic)
-    deriving anyclass (NFData)
+  deriving stock (Eq, Ord, Show, Generic)
+  deriving anyclass (NFData)
 
 -- IMPORTANT: the order of the properties here is significant!
 --
 minerProperties :: KeyValue kv => Miner -> [kv]
 minerProperties (Miner (MinerId m) (MinerKeys ks)) =
-    [ "account" .= m
-    , "predicate" .= _ksPredFun ks
-    , "public-keys" .= _ksKeys ks
-    ]
+  [ "account" .= m,
+    "predicate" .= _ksPredFun ks,
+    "public-keys" .= _ksKeys ks
+  ]
 {-# INLINE minerProperties #-}
 
 -- NOTE: These JSON instances are used (among other things) to embed Miner data
 -- into the Genesis Payloads. If these change, the payloads become unreadable!
 --
 instance ToJSON Miner where
-    toJSON = object . minerProperties
-    toEncoding = pairs . mconcat . minerProperties
-    {-# INLINE toJSON #-}
-    {-# INLINE toEncoding #-}
+  toJSON = object . minerProperties
+  toEncoding = pairs . mconcat . minerProperties
+  {-# INLINE toJSON #-}
+  {-# INLINE toEncoding #-}
 
 instance FromJSON Miner where
-    parseJSON = withObject "Miner" $ \o -> Miner
-        <$> (MinerId <$> o .: "account")
-        <*> (MinerKeys <$> (KeySet <$> o .: "public-keys" <*> o .: "predicate"))
+  parseJSON = withObject "Miner" $ \o ->
+    Miner
+      <$> (MinerId <$> o .: "account")
+      <*> (MinerKeys <$> (KeySet <$> o .: "public-keys" <*> o .: "predicate"))
 
 -- | A lens into the miner id of a miner.
---
 minerId :: Lens' Miner MinerId
 minerId = lens (\(Miner i _) -> i) (\(Miner _ k) b -> Miner b k)
 {-# INLINE minerId #-}
 
 -- | A lens into the miner keys of a miner.
---
 minerKeys :: Lens' Miner MinerKeys
 minerKeys = lens (\(Miner _ k) -> k) (\(Miner i _) b -> Miner i b)
 {-# INLINE minerKeys #-}
 
 -- | Keyset taken from cp examples in Pact
 -- The private key here was taken from `examples/cp` from the Pact repository
---
 defaultMiner :: Miner
-defaultMiner = Miner (MinerId "miner")
-    $ MinerKeys
-    $ mkKeySet
-      ["f880a433d6e2a13a32b6169030f56245efdd8c1b8a5027e9ce98a88e886bef27"]
-      "keys-all"
-
+defaultMiner =
+  Miner (MinerId "miner") $
+    MinerKeys $
+      mkKeySet
+        ["f880a433d6e2a13a32b6169030f56245efdd8c1b8a5027e9ce98a88e886bef27"]
+        "keys-all"
 {-# NOINLINE defaultMiner #-}
 
 -- | A trivial Miner.
---
 noMiner :: Miner
 noMiner = Miner (MinerId "NoMiner") (MinerKeys $ mkKeySet [] "<")
 {-# NOINLINE noMiner #-}
 
 -- | Convert from Pact `Miner` to Chainweb `MinerData`.
---
 toMinerData :: Miner -> MinerData
 toMinerData = MinerData . encodeToByteString
-{-# INLINABLE toMinerData  #-}
+{-# INLINEABLE toMinerData #-}
 
 -- | Convert from Chainweb `MinerData` to Pact Miner.
---
 fromMinerData :: MonadThrow m => MinerData -> m Miner
 fromMinerData = decodeStrictOrThrow' . _minerData
-{-# INLINABLE fromMinerData #-}
+{-# INLINEABLE fromMinerData #-}
 
 newtype MinerRewards = MinerRewards
-    { _minerRewards :: Map BlockHeight Decimal
-      -- ^ The map of blockheight thresholds to miner rewards
-    } deriving (Eq, Ord, Show, Generic)
+  { -- | The map of blockheight thresholds to miner rewards
+    _minerRewards :: Map BlockHeight Decimal
+  }
+  deriving (Eq, Ord, Show, Generic)
 
 -- | Rewards table mapping 3-month periods to their rewards
 -- according to the calculated exponential decay over 120 year period
---
 readRewards :: MinerRewards
 readRewards =
-    case CSV.decode CSV.NoHeader (BL.fromStrict rawMinerRewards) of
-      Left e -> error
-        $ "cannot construct miner reward map: "
-        <> sshow e
-      Right vs -> MinerRewards $ M.fromList . V.toList . V.map formatRow $ vs
+  case CSV.decode CSV.NoHeader (BL.fromStrict rawMinerRewards) of
+    Left e ->
+      error $
+        "cannot construct miner reward map: "
+          <> sshow e
+    Right vs -> MinerRewards $ M.fromList . V.toList . V.map formatRow $ vs
   where
     formatRow :: (Word64, CsvDecimal) -> (BlockHeight, Decimal)
-    formatRow (!a,!b) = (BlockHeight $ int a, _csvDecimal b)
+    formatRow (!a, !b) = (BlockHeight $ int a, _csvDecimal b)
 
 -- | Read in the reward csv via TH for deployment purposes.
---
 rawMinerRewards :: ByteString
 rawMinerRewards = $(embedFile "rewards/miner_rewards.csv")
 {-# NOINLINE rawMinerRewards #-}

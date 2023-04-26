@@ -25,69 +25,38 @@
 -- This is more efficient, because in most cases the receiving node already has
 -- some or all of the block headers of the cut in it's local block header
 -- database.
---
 module Chainweb.Cut.CutHashes
-(
--- * Cut Id
-  CutId
-, cutIdBytes
-, encodeCutId
-, decodeCutId
-, cutIdToText
-, cutIdFromText
-, cutIdToTextShort
+  ( -- * Cut Id
+    CutId,
+    cutIdBytes,
+    encodeCutId,
+    decodeCutId,
+    cutIdToText,
+    cutIdFromText,
+    cutIdToTextShort,
 
--- * HasCutId
-, HasCutId(..)
+    -- * HasCutId
+    HasCutId (..),
 
--- * CutHashes
-, BlockHashWithHeight(..)
-, CutHashes(..)
-, cutHashes
-, cutHashesChainwebVersion
-, cutHashesId
-, cutOrigin
-, cutHashesWeight
-, cutHashesHeight
-, cutHashesHeaders
-, cutHashesPayloads
-, cutToCutHashes
-, CutHashesCas
-, _cutHashesMaxHeight
-, cutHashesMaxHeight
-, _cutHashesMinHeight
-, cutHashesMinHeight
-) where
-
-import Control.Arrow
-import Control.DeepSeq
-import Control.Lens (Getter, Lens', makeLenses, to, view)
-import Control.Monad ((<$!>))
-import Control.Monad.Catch
-
-import qualified Crypto.Hash as C
-import Crypto.Hash.Algorithms
-
-import Data.Aeson
-import Data.Bits
-import qualified Data.ByteArray as BA
-import qualified Data.ByteString as BS
-import qualified Data.ByteString.Short as SB
-import Data.Foldable
-import Data.Function
-import Data.Hashable
-import qualified Data.HashMap.Strict as HM
-import Data.Proxy
-import qualified Data.Text as T
-
-import Foreign.Storable
-
-import GHC.Generics (Generic)
-import GHC.TypeNats
-
-import Numeric.Natural
-
-import System.IO.Unsafe
+    -- * CutHashes
+    BlockHashWithHeight (..),
+    CutHashes (..),
+    cutHashes,
+    cutHashesChainwebVersion,
+    cutHashesId,
+    cutOrigin,
+    cutHashesWeight,
+    cutHashesHeight,
+    cutHashesHeaders,
+    cutHashesPayloads,
+    cutToCutHashes,
+    CutHashesCas,
+    _cutHashesMaxHeight,
+    cutHashesMaxHeight,
+    _cutHashesMinHeight,
+    cutHashesMinHeight,
+  )
+where
 
 -- internal modules
 
@@ -97,15 +66,35 @@ import Chainweb.BlockHeight
 import Chainweb.BlockWeight
 import Chainweb.ChainId
 import Chainweb.Cut
+import Chainweb.Payload
+import Chainweb.Storage.Table
 import Chainweb.Utils
 import Chainweb.Utils.Serialization
 import Chainweb.Version
-
-import Chainweb.Payload
-
-import Chainweb.Storage.Table
-
+import Control.Arrow
+import Control.DeepSeq
+import Control.Lens (Getter, Lens', makeLenses, to, view)
+import Control.Monad ((<$!>))
+import Control.Monad.Catch
+import qualified Crypto.Hash as C
+import Crypto.Hash.Algorithms
+import Data.Aeson
+import Data.Bits
+import qualified Data.ByteArray as BA
+import qualified Data.ByteString as BS
+import qualified Data.ByteString.Short as SB
+import Data.Foldable
+import Data.Function
+import qualified Data.HashMap.Strict as HM
+import Data.Hashable
+import Data.Proxy
+import qualified Data.Text as T
+import Foreign.Storable
+import GHC.Generics (Generic)
+import GHC.TypeNats
+import Numeric.Natural
 import P2P.Peer
+import System.IO.Unsafe
 
 -- -------------------------------------------------------------------------- --
 -- CutId
@@ -120,18 +109,17 @@ cutIdBytesCount = natVal $ Proxy @CutIdBytesCount
 --
 -- TODO: should we use a MerkelHash for this, that that we could proof
 -- in clusion of a block header in a cut?
---
 newtype CutId = CutId SB.ShortByteString
-    deriving (Eq, Ord, Generic)
-    deriving anyclass (NFData)
+  deriving (Eq, Ord, Generic)
+  deriving anyclass (NFData)
 
 instance Bounded CutId where
-    minBound = CutId (SB.toShort $ BS.replicate (int cutIdBytesCount) 0)
-    maxBound = CutId (SB.toShort $ BS.replicate (int cutIdBytesCount) 255)
+  minBound = CutId (SB.toShort $ BS.replicate (int cutIdBytesCount) 0)
+  maxBound = CutId (SB.toShort $ BS.replicate (int cutIdBytesCount) 255)
 
 instance Show CutId where
-    show = T.unpack . cutIdToText
-    {-# INLINE show #-}
+  show = T.unpack . cutIdToText
+  {-# INLINE show #-}
 
 encodeCutId :: CutId -> Put
 encodeCutId (CutId w) = putByteString $ SB.fromShort w
@@ -146,37 +134,39 @@ decodeCutId = CutId . SB.toShort <$!> getByteString (int cutIdBytesCount)
 {-# INLINE decodeCutId #-}
 
 instance Hashable CutId where
-    hashWithSalt s (CutId bytes) = xor s
-        . unsafeDupablePerformIO
-        $ BA.withByteArray (SB.fromShort bytes) (peek @Int)
-    -- CutIds are already cryptographically strong hashes
-    -- that include the chain id.
-    {-# INLINE hashWithSalt #-}
+  hashWithSalt s (CutId bytes) =
+    xor s
+      . unsafeDupablePerformIO
+      $ BA.withByteArray (SB.fromShort bytes) (peek @Int)
+  -- CutIds are already cryptographically strong hashes
+  -- that include the chain id.
+  {-# INLINE hashWithSalt #-}
 
 instance ToJSON CutId where
-    toJSON = toJSON . toText
-    toEncoding = toEncoding . toText
-    {-# INLINE toJSON #-}
-    {-# INLINE toEncoding #-}
+  toJSON = toJSON . toText
+  toEncoding = toEncoding . toText
+  {-# INLINE toJSON #-}
+  {-# INLINE toEncoding #-}
 
 instance FromJSON CutId where
-    parseJSON = parseJsonFromText "CutId"
-    {-# INLINE parseJSON #-}
+  parseJSON = parseJsonFromText "CutId"
+  {-# INLINE parseJSON #-}
 
 cutIdToText :: CutId -> T.Text
 cutIdToText = encodeB64UrlNoPaddingText . runPutS . encodeCutId
 {-# INLINE cutIdToText #-}
 
 cutIdFromText :: MonadThrow m => T.Text -> m CutId
-cutIdFromText t = either (throwM . TextFormatException . sshow) return
-    $ runGetS decodeCutId =<< decodeB64UrlNoPaddingText t
+cutIdFromText t =
+  either (throwM . TextFormatException . sshow) return $
+    runGetS decodeCutId =<< decodeB64UrlNoPaddingText t
 {-# INLINE cutIdFromText #-}
 
 instance HasTextRepresentation CutId where
-    toText = cutIdToText
-    {-# INLINE toText #-}
-    fromText = cutIdFromText
-    {-# INLINE fromText #-}
+  toText = cutIdToText
+  {-# INLINE toText #-}
+  fromText = cutIdFromText
+  {-# INLINE fromText #-}
 
 cutIdToTextShort :: CutId -> T.Text
 cutIdToTextShort = T.take 6 . toText
@@ -186,70 +176,71 @@ cutIdToTextShort = T.take 6 . toText
 -- HasCutId Class
 
 class HasCutId c where
-    _cutId :: c -> CutId
-    cutId :: Getter c CutId
+  _cutId :: c -> CutId
+  cutId :: Getter c CutId
+  cutId = to _cutId
+  _cutId = view cutId
+  {-# INLINE cutId #-}
+  {-# INLINE _cutId #-}
 
-    cutId = to _cutId
-    _cutId = view cutId
-    {-# INLINE cutId #-}
-    {-# INLINE _cutId #-}
-
-    {-# MINIMAL cutId | _cutId #-}
+  {-# MINIMAL cutId | _cutId #-}
 
 instance HasCutId (HM.HashMap x BlockHash) where
-    _cutId = CutId
-        . SB.toShort
-        . BA.convert
-        . C.hash @_ @SHA512t_256
-        . mconcat
-        . fmap (runPutS . encodeBlockHash)
-        . toList
-    {-# INLINE _cutId #-}
+  _cutId =
+    CutId
+      . SB.toShort
+      . BA.convert
+      . C.hash @_ @SHA512t_256
+      . mconcat
+      . fmap (runPutS . encodeBlockHash)
+      . toList
+  {-# INLINE _cutId #-}
 
 instance HasCutId (HM.HashMap x BlockHeader) where
-    _cutId = _cutId . fmap _blockHash
-    {-# INLINE _cutId #-}
+  _cutId = _cutId . fmap _blockHash
+  {-# INLINE _cutId #-}
 
 instance HasCutId (HM.HashMap x (y, BlockHash)) where
-    _cutId = _cutId . fmap snd
-    {-# INLINE _cutId #-}
+  _cutId = _cutId . fmap snd
+  {-# INLINE _cutId #-}
 
 instance HasCutId Cut where
-    _cutId = _cutId . _cutMap
-    {-# INLINE _cutId #-}
+  _cutId = _cutId . _cutMap
+  {-# INLINE _cutId #-}
 
 instance HasCutId CutId where
-    _cutId = id
-    {-# INLINE _cutId #-}
+  _cutId = id
+  {-# INLINE _cutId #-}
 
 -- -------------------------------------------------------------------------- --
 -- Cut Hashes
 
 data BlockHashWithHeight = BlockHashWithHeight
-    { _bhwhHeight :: !BlockHeight
-    , _bhwhHash :: !BlockHash
-    }
-    deriving (Show, Eq, Ord, Generic)
-    deriving anyclass (NFData)
+  { _bhwhHeight :: !BlockHeight,
+    _bhwhHash :: !BlockHash
+  }
+  deriving (Show, Eq, Ord, Generic)
+  deriving anyclass (NFData)
 
 blockHashWithHeightProperties :: KeyValue kv => BlockHashWithHeight -> [kv]
 blockHashWithHeightProperties o =
-    [ "height" .= _bhwhHeight o
-    , "hash" .= _bhwhHash o
-    ]
+  [ "height" .= _bhwhHeight o,
+    "hash" .= _bhwhHash o
+  ]
 {-# INLINE blockHashWithHeightProperties #-}
 
 instance ToJSON BlockHashWithHeight where
-    toJSON = object . blockHashWithHeightProperties
-    toEncoding = pairs . mconcat . blockHashWithHeightProperties
-    {-# INLINE toJSON #-}
-    {-# INLINE toEncoding #-}
+  toJSON = object . blockHashWithHeightProperties
+  toEncoding = pairs . mconcat . blockHashWithHeightProperties
+  {-# INLINE toJSON #-}
+  {-# INLINE toEncoding #-}
 
 instance FromJSON BlockHashWithHeight where
-    parseJSON = withObject "HashWithHeight" $ \o -> BlockHashWithHeight
-        <$> o .: "height"
-        <*> o .: "hash"
-    {-# INLINE parseJSON #-}
+  parseJSON = withObject "HashWithHeight" $ \o ->
+    BlockHashWithHeight
+      <$> o .: "height"
+      <*> o .: "hash"
+  {-# INLINE parseJSON #-}
 
 -- | This data structure is used to inform other components and chainweb nodes
 -- about new cuts along with some properties of the cut.
@@ -259,27 +250,25 @@ instance FromJSON BlockHashWithHeight where
 --
 -- Optionally, a node may attach the 'PayloadData' and/or the 'BlockHeader' for
 -- some of the block of the 'Cut'.
---
 data CutHashes = CutHashes
-    { _cutHashes :: !(HM.HashMap ChainId BlockHashWithHeight)
-    , _cutOrigin :: !(Maybe PeerInfo)
-        -- ^ 'Nothing' is used for locally mined Cuts
-    , _cutHashesWeight :: !BlockWeight
-    , _cutHashesHeight :: !CutHeight
-    , _cutHashesChainwebVersion :: !ChainwebVersion
-    , _cutHashesId :: !CutId
-    , _cutHashesHeaders :: !(HM.HashMap BlockHash BlockHeader)
-        -- ^ optional block headers
-    , _cutHashesPayloads :: !(HM.HashMap BlockPayloadHash PayloadData)
-        -- ^ optional block payloads
-    }
-    deriving (Show, Generic)
-    deriving anyclass (NFData)
+  { _cutHashes :: !(HM.HashMap ChainId BlockHashWithHeight),
+    -- | 'Nothing' is used for locally mined Cuts
+    _cutOrigin :: !(Maybe PeerInfo),
+    _cutHashesWeight :: !BlockWeight,
+    _cutHashesHeight :: !CutHeight,
+    _cutHashesChainwebVersion :: !ChainwebVersion,
+    _cutHashesId :: !CutId,
+    -- | optional block headers
+    _cutHashesHeaders :: !(HM.HashMap BlockHash BlockHeader),
+    -- | optional block payloads
+    _cutHashesPayloads :: !(HM.HashMap BlockPayloadHash PayloadData)
+  }
+  deriving (Show, Generic)
+  deriving anyclass (NFData)
 
 makeLenses ''CutHashes
 
 -- | Complexity is linear in the number of chains
---
 _cutHashesMaxHeight :: CutHashes -> BlockHeight
 _cutHashesMaxHeight = maximum . fmap _bhwhHeight . _cutHashes
 {-# INLINE _cutHashesMaxHeight #-}
@@ -289,7 +278,6 @@ cutHashesMaxHeight = to _cutHashesMaxHeight
 {-# INLINE cutHashesMaxHeight #-}
 
 -- | Complexity is linear in the number of chains
---
 _cutHashesMinHeight :: CutHashes -> BlockHeight
 _cutHashesMinHeight = minimum . fmap _bhwhHeight . _cutHashes
 {-# INLINE _cutHashesMinHeight #-}
@@ -299,83 +287,83 @@ cutHashesMinHeight = to _cutHashesMinHeight
 {-# INLINE cutHashesMinHeight #-}
 
 -- | The value of 'cutOrigin' is ignored for equality
---
 instance Eq CutHashes where
-    (==) = (==) `on` _cutHashesId
-    {-# INLINE (==) #-}
+  (==) = (==) `on` _cutHashesId
+  {-# INLINE (==) #-}
 
 instance Hashable CutHashes where
-    hashWithSalt s = hashWithSalt s . _cutHashesId
-    {-# INLINE hashWithSalt #-}
+  hashWithSalt s = hashWithSalt s . _cutHashesId
+  {-# INLINE hashWithSalt #-}
 
 instance Ord CutHashes where
-    compare = compare `on` (_cutHashesWeight &&& _cutHashesId)
-    {-# INLINE compare #-}
+  compare = compare `on` (_cutHashesWeight &&& _cutHashesId)
+  {-# INLINE compare #-}
 
-cutHashesProperties :: forall kv . KeyValue kv => CutHashes -> [kv]
+cutHashesProperties :: forall kv. KeyValue kv => CutHashes -> [kv]
 cutHashesProperties c =
-    [ "hashes" .= _cutHashes c
-    , "origin" .= _cutOrigin c
-    , "weight" .= _cutHashesWeight c
-    , "height" .= _cutHashesHeight c
-    , "instance" .= _cutHashesChainwebVersion c
-    , "id" .= _cutHashesId c
-    ]
+  [ "hashes" .= _cutHashes c,
+    "origin" .= _cutOrigin c,
+    "weight" .= _cutHashesWeight c,
+    "height" .= _cutHashesHeight c,
+    "instance" .= _cutHashesChainwebVersion c,
+    "id" .= _cutHashesId c
+  ]
     <> ifNotEmpty "headers" cutHashesHeaders
     <> ifNotEmpty "payloads" cutHashesPayloads
   where
-    ifNotEmpty
-        :: ToJSONKey k
-        => ToJSON v
-        => T.Text
-        -> Lens' CutHashes (HM.HashMap k v)
-        -> [kv]
+    ifNotEmpty ::
+      ToJSONKey k =>
+      ToJSON v =>
+      T.Text ->
+      Lens' CutHashes (HM.HashMap k v) ->
+      [kv]
     ifNotEmpty s l
-        | x <- view l c, not (HM.null x) = [ s .= x ]
-        | otherwise = mempty
+      | x <- view l c, not (HM.null x) = [s .= x]
+      | otherwise = mempty
 
 instance ToJSON CutHashes where
-    toJSON = object . cutHashesProperties
-    toEncoding = pairs . mconcat . cutHashesProperties
-    {-# INLINE toJSON #-}
-    {-# INLINE toEncoding #-}
+  toJSON = object . cutHashesProperties
+  toEncoding = pairs . mconcat . cutHashesProperties
+  {-# INLINE toJSON #-}
+  {-# INLINE toEncoding #-}
 
 instance FromJSON CutHashes where
-    parseJSON = withObject "CutHashes" $ \o -> CutHashes
-        <$> o .: "hashes"
-        <*> o .: "origin"
-        <*> o .: "weight"
-        <*> o .: "height"
-        <*> o .: "instance"
-        <*> o .: "id"
-        <*> o .:? "headers" .!= mempty
-        <*> o .:? "payloads" .!= mempty
+  parseJSON = withObject "CutHashes" $ \o ->
+    CutHashes
+      <$> o .: "hashes"
+      <*> o .: "origin"
+      <*> o .: "weight"
+      <*> o .: "height"
+      <*> o .: "instance"
+      <*> o .: "id"
+      <*> o .:? "headers" .!= mempty
+      <*> o .:? "payloads" .!= mempty
 
 -- | Compute a 'CutHashes' structure from a 'Cut'. The result doesn't include
 -- any block headers or payloads.
---
 cutToCutHashes :: Maybe PeerInfo -> Cut -> CutHashes
-cutToCutHashes p c = CutHashes
-    { _cutHashes = (\x -> BlockHashWithHeight (_blockHeight x) (_blockHash x)) <$> _cutMap c
-    , _cutOrigin = p
-    , _cutHashesWeight = _cutWeight c
-    , _cutHashesHeight = _cutHeight c
-    , _cutHashesChainwebVersion = _chainwebVersion c
-    , _cutHashesId = _cutId c
-    , _cutHashesHeaders = mempty
-    , _cutHashesPayloads = mempty
+cutToCutHashes p c =
+  CutHashes
+    { _cutHashes = (\x -> BlockHashWithHeight (_blockHeight x) (_blockHash x)) <$> _cutMap c,
+      _cutOrigin = p,
+      _cutHashesWeight = _cutWeight c,
+      _cutHashesHeight = _cutHeight c,
+      _cutHashesChainwebVersion = _chainwebVersion c,
+      _cutHashesId = _cutId c,
+      _cutHashesHeaders = mempty,
+      _cutHashesPayloads = mempty
     }
 
 instance HasCutId CutHashes where
-    _cutId = _cutHashesId
-    {-# INLINE _cutId #-}
+  _cutId = _cutHashesId
+  {-# INLINE _cutId #-}
 
 -- Note that this instance ignores the value of '_cutOrigin'
 --
 instance IsCasValue CutHashes where
-    type CasKeyType CutHashes = (CutHeight, BlockWeight, CutId)
-    casKey c = (_cutHashesHeight c, _cutHashesWeight c, _cutHashesId c)
-    {-# INLINE casKey #-}
+  type CasKeyType CutHashes = (CutHeight, BlockWeight, CutId)
+  casKey c = (_cutHashesHeight c, _cutHashesWeight c, _cutHashesId c)
+  {-# INLINE casKey #-}
 
 type CutHashesCas tbl = Cas tbl CutHashes
 

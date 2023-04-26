@@ -19,23 +19,13 @@
 -- larger than the creation time of the parent and the adjacent parents.
 -- Chainweb node ignore blocks that have a creation time that is in the future
 -- relatively the real world clock of the respective node.
---
 module Chainweb.BlockCreationTime
-(
--- * BlockCreationTime
-  BlockCreationTime(..)
-, encodeBlockCreationTime
-, decodeBlockCreationTime
-) where
-
-import Control.DeepSeq
-
-import Data.Aeson
-import Data.Hashable
-
-import GHC.Generics
-
-import Numeric.AffineSpace
+  ( -- * BlockCreationTime
+    BlockCreationTime (..),
+    encodeBlockCreationTime,
+    decodeBlockCreationTime,
+  )
+where
 
 -- internal modules
 
@@ -43,21 +33,26 @@ import Chainweb.Crypto.MerkleLog
 import Chainweb.MerkleUniverse
 import Chainweb.Time
 import Chainweb.Utils.Serialization
+import Control.DeepSeq
+import Data.Aeson
+import Data.Hashable
+import GHC.Generics
+import Numeric.AffineSpace
 
 -- -------------------------------------------------------------------------- --
 -- Block Creation Time
 
-newtype BlockCreationTime = BlockCreationTime { _bct :: (Time Micros) }
-    deriving stock (Show, Eq, Ord, Generic)
-    deriving anyclass (NFData)
-    deriving newtype (ToJSON, FromJSON, Hashable, LeftTorsor)
+newtype BlockCreationTime = BlockCreationTime {_bct :: (Time Micros)}
+  deriving stock (Show, Eq, Ord, Generic)
+  deriving anyclass (NFData)
+  deriving newtype (ToJSON, FromJSON, Hashable, LeftTorsor)
 
 instance MerkleHashAlgorithm a => IsMerkleLogEntry a ChainwebHashTag BlockCreationTime where
-    type Tag BlockCreationTime = 'BlockCreationTimeTag
-    toMerkleNode = encodeMerkleInputNode encodeBlockCreationTime
-    fromMerkleNode = decodeMerkleInputNode decodeBlockCreationTime
-    {-# INLINE toMerkleNode #-}
-    {-# INLINE fromMerkleNode #-}
+  type Tag BlockCreationTime = 'BlockCreationTimeTag
+  toMerkleNode = encodeMerkleInputNode encodeBlockCreationTime
+  fromMerkleNode = decodeMerkleInputNode decodeBlockCreationTime
+  {-# INLINE toMerkleNode #-}
+  {-# INLINE fromMerkleNode #-}
 
 encodeBlockCreationTime :: BlockCreationTime -> Put
 encodeBlockCreationTime (BlockCreationTime t) = encodeTime t

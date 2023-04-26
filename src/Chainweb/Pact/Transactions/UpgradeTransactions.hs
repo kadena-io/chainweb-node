@@ -1,18 +1,20 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TypeApplications #-}
+
 module Chainweb.Pact.Transactions.UpgradeTransactions
-( upgradeTransactions
-, twentyChainUpgradeTransactions
-, coinV3Transactions
-, coinV4Transactions
-, coinV5Transactions
-) where
+  ( upgradeTransactions,
+    twentyChainUpgradeTransactions,
+    coinV3Transactions,
+    coinV4Transactions,
+    coinV5Transactions,
+  )
+where
 
-import Chainweb.Version
-import Chainweb.Transaction
 import Chainweb.Pact.Service.Types
-import Chainweb.Utils
-
+import qualified Chainweb.Pact.Transactions.CoinV3Transactions as CoinV3
+import qualified Chainweb.Pact.Transactions.CoinV4Transactions as CoinV4
+import qualified Chainweb.Pact.Transactions.CoinV5Transactions as CoinV5
+import qualified Chainweb.Pact.Transactions.DevelopmentTransactions as Devnet
 import qualified Chainweb.Pact.Transactions.Mainnet0Transactions as MN0
 import qualified Chainweb.Pact.Transactions.Mainnet1Transactions as MN1
 import qualified Chainweb.Pact.Transactions.Mainnet2Transactions as MN2
@@ -24,11 +26,10 @@ import qualified Chainweb.Pact.Transactions.Mainnet7Transactions as MN7
 import qualified Chainweb.Pact.Transactions.Mainnet8Transactions as MN8
 import qualified Chainweb.Pact.Transactions.Mainnet9Transactions as MN9
 import qualified Chainweb.Pact.Transactions.MainnetKADTransactions as MNKAD
-import qualified Chainweb.Pact.Transactions.DevelopmentTransactions as Devnet
 import qualified Chainweb.Pact.Transactions.OtherTransactions as Other
-import qualified Chainweb.Pact.Transactions.CoinV3Transactions as CoinV3
-import qualified Chainweb.Pact.Transactions.CoinV4Transactions as CoinV4
-import qualified Chainweb.Pact.Transactions.CoinV5Transactions as CoinV5
+import Chainweb.Transaction
+import Chainweb.Utils
+import Chainweb.Version
 
 upgradeTransactions :: ChainwebVersion -> ChainId -> IO [ChainwebTransaction]
 upgradeTransactions Mainnet01 cid = case cidInt of
@@ -44,12 +45,13 @@ upgradeTransactions Mainnet01 cid = case cidInt of
   9 -> MN9.transactions
   c | c >= 10, c <= 19 -> return []
   c -> internalError $ "Invalid mainnet chain id: " <> sshow c
-  where cidInt :: Int
-        cidInt = chainIdInt cid
+  where
+    cidInt :: Int
+    cidInt = chainIdInt cid
 upgradeTransactions Development cid = case chainIdInt @Int cid of
   c | c >= 0, c <= 9 -> Devnet.transactions
   c | c >= 10, c <= 19 -> return []
-  c -> internalError $ "Invalid devnet chain id: "  <> sshow c
+  c -> internalError $ "Invalid devnet chain id: " <> sshow c
 upgradeTransactions _ _ = Other.transactions
 
 twentyChainUpgradeTransactions :: ChainwebVersion -> ChainId -> IO [ChainwebTransaction]

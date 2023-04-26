@@ -18,42 +18,18 @@
 -- Stability: experimental
 --
 -- Chainweb Proof-Of-Work hash
---
 module Chainweb.PowHash
-( PowHash
-, powHashBytes
-, mkPowHash
-, unsafeMkPowHash
-, PowHashBytesCount
-, powHashBytesCount
-, encodePowHash
-, decodePowHash
-, powHash
-) where
-
-import Control.DeepSeq
-import Control.Monad.Catch
-
-import qualified Crypto.Hash as C (hash)
-import Crypto.Hash.Algorithms
-
-import Data.Aeson
-import Data.Bits
-import qualified Data.ByteArray as BA
-import qualified Data.ByteString as B
-import qualified Data.ByteString.Short as SB
-import Data.Hashable hiding (hash)
-import Data.Proxy
-
-import Foreign.Storable
-
-import GHC.Generics
-import GHC.Stack (HasCallStack)
-import GHC.TypeNats
-
-import Numeric.Natural
-
-import System.IO.Unsafe
+  ( PowHash,
+    powHashBytes,
+    mkPowHash,
+    unsafeMkPowHash,
+    PowHashBytesCount,
+    powHashBytesCount,
+    encodePowHash,
+    decodePowHash,
+    powHash,
+  )
+where
 
 -- internal modules
 
@@ -62,6 +38,23 @@ import Chainweb.MerkleUniverse
 import Chainweb.Utils
 import Chainweb.Utils.Serialization
 import Chainweb.Version
+import Control.DeepSeq
+import Control.Monad.Catch
+import qualified Crypto.Hash as C (hash)
+import Crypto.Hash.Algorithms
+import Data.Aeson
+import Data.Bits
+import qualified Data.ByteArray as BA
+import qualified Data.ByteString as B
+import qualified Data.ByteString.Short as SB
+import Data.Hashable hiding (hash)
+import Data.Proxy
+import Foreign.Storable
+import GHC.Generics
+import GHC.Stack (HasCallStack)
+import GHC.TypeNats
+import Numeric.Natural
+import System.IO.Unsafe
 
 -- -------------------------------------------------------------------------- --
 -- PowHash
@@ -73,11 +66,10 @@ powHashBytesCount = natVal $ Proxy @PowHashBytesCount
 {-# INLINE powHashBytesCount #-}
 
 newtype PowHash = PowHash SB.ShortByteString
-    deriving (Show, Eq, Ord, Generic)
-    deriving anyclass (NFData)
+  deriving (Show, Eq, Ord, Generic)
+  deriving anyclass (NFData)
 
 -- | Smart constructor
---
 mkPowHash :: MonadThrow m => B.ByteString -> m PowHash
 mkPowHash = runGetS decodePowHash
 {-# INLINE mkPowHash #-}
@@ -87,11 +79,11 @@ unsafeMkPowHash = fromJuste . runGetS decodePowHash
 {-# INLINE unsafeMkPowHash #-}
 
 instance MerkleHashAlgorithm a => IsMerkleLogEntry a ChainwebHashTag PowHash where
-    type Tag PowHash = 'PowHashTag
-    toMerkleNode = encodeMerkleInputNode encodePowHash
-    fromMerkleNode = decodeMerkleInputNode decodePowHash
-    {-# INLINE toMerkleNode #-}
-    {-# INLINE fromMerkleNode #-}
+  type Tag PowHash = 'PowHashTag
+  toMerkleNode = encodeMerkleInputNode encodePowHash
+  fromMerkleNode = decodeMerkleInputNode decodePowHash
+  {-# INLINE toMerkleNode #-}
+  {-# INLINE fromMerkleNode #-}
 
 encodePowHash :: PowHash -> Put
 encodePowHash (PowHash w) = putByteString $ SB.fromShort w
@@ -106,37 +98,38 @@ decodePowHash = PowHash . SB.toShort <$> getByteString (int powHashBytesCount)
 {-# INLINE decodePowHash #-}
 
 instance Hashable PowHash where
-    hashWithSalt s (PowHash bytes) = xor s
-        . unsafeDupablePerformIO
-        $ BA.withByteArray (SB.fromShort bytes) (peek @Int)
-    -- PowHashs are already cryptographically strong hashes
-    -- that include the chain id.
-    {-# INLINE hashWithSalt #-}
+  hashWithSalt s (PowHash bytes) =
+    xor s
+      . unsafeDupablePerformIO
+      $ BA.withByteArray (SB.fromShort bytes) (peek @Int)
+  -- PowHashs are already cryptographically strong hashes
+  -- that include the chain id.
+  {-# INLINE hashWithSalt #-}
 
 instance ToJSON PowHash where
-    toJSON = toJSON . encodeB64UrlNoPaddingText . runPutS . encodePowHash
-    toEncoding = b64UrlNoPaddingTextEncoding . runPutS . encodePowHash
-    {-# INLINE toJSON #-}
-    {-# INLINE toEncoding #-}
+  toJSON = toJSON . encodeB64UrlNoPaddingText . runPutS . encodePowHash
+  toEncoding = b64UrlNoPaddingTextEncoding . runPutS . encodePowHash
+  {-# INLINE toJSON #-}
+  {-# INLINE toEncoding #-}
 
 instance FromJSON PowHash where
-    parseJSON = withText "PowHash" $ \t ->
-        either (fail . show) return
-            $ runGetS decodePowHash =<< decodeB64UrlNoPaddingText t
-    {-# INLINE parseJSON #-}
+  parseJSON = withText "PowHash" $ \t ->
+    either (fail . show) return $
+      runGetS decodePowHash =<< decodeB64UrlNoPaddingText t
+  {-# INLINE parseJSON #-}
 
 -- -------------------------------------------------------------------------- --
 -- Cryptographic Hash
 
 powHash :: ChainwebVersion -> B.ByteString -> PowHash
-powHash Test{} = cryptoHash @Blake2s_256
-powHash TimedConsensus{} = cryptoHash @Blake2s_256
-powHash PowConsensus{} = cryptoHash @Blake2s_256
-powHash TimedCPM{} = cryptoHash @Blake2s_256
-powHash FastTimedCPM{} = cryptoHash @Blake2s_256
+powHash Test {} = cryptoHash @Blake2s_256
+powHash TimedConsensus {} = cryptoHash @Blake2s_256
+powHash PowConsensus {} = cryptoHash @Blake2s_256
+powHash TimedCPM {} = cryptoHash @Blake2s_256
+powHash FastTimedCPM {} = cryptoHash @Blake2s_256
 powHash Development = cryptoHash @Blake2s_256
 powHash Testnet04 = cryptoHash @Blake2s_256
 powHash Mainnet01 = cryptoHash @Blake2s_256
 
-cryptoHash :: forall a . HashAlgorithm a => B.ByteString -> PowHash
+cryptoHash :: forall a. HashAlgorithm a => B.ByteString -> PowHash
 cryptoHash = PowHash . SB.toShort . BA.convert . C.hash @_ @a

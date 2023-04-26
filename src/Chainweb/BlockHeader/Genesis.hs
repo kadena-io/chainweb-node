@@ -11,33 +11,29 @@
 -- Stability: experimental
 --
 -- Hard-coded Genesis blocks for various versions of Chainweb.
---
 module Chainweb.BlockHeader.Genesis
   ( -- * Genesis Blocks
+
     -- ** Creation
-    genesisBlockHeader
-  , genesisBlockHeader'
-  , genesisBlockHeaders
-  , genesisBlockHeadersAtHeight
+    genesisBlockHeader,
+    genesisBlockHeader',
+    genesisBlockHeaders,
+    genesisBlockHeadersAtHeight,
+
     -- ** Querying
-  , genesisBlockPayload
-  , genesisParentBlockHash
-  , genesisBlockTarget
-  , genesisTime
+    genesisBlockPayload,
+    genesisParentBlockHash,
+    genesisBlockTarget,
+    genesisTime,
+
     -- * No-op payloads
-  , emptyPayload
+    emptyPayload,
 
-  -- * Genesis targets
-  , mainnet20InitialHashTarget
-  , testnet20InitialHashTarget
-  ) where
-
-import Control.Arrow ((&&&))
-
-import Data.Foldable (toList)
-import qualified Data.HashMap.Strict as HM
-import qualified Data.HashSet as HS
-import Data.MerkleLog hiding (Actual, Expected, MerkleHash)
+    -- * Genesis targets
+    mainnet20InitialHashTarget,
+    testnet20InitialHashTarget,
+  )
+where
 
 -- internal modules
 
@@ -45,8 +41,8 @@ import Chainweb.BlockCreationTime
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
 import qualified Chainweb.BlockHeader.Genesis.Development0Payload as DN0
-import qualified Chainweb.BlockHeader.Genesis.DevelopmentNPayload as DNN
 import qualified Chainweb.BlockHeader.Genesis.DevelopmentKADPayload as DNKAD
+import qualified Chainweb.BlockHeader.Genesis.DevelopmentNPayload as DNN
 import qualified Chainweb.BlockHeader.Genesis.FastTimedCPM0Payload as TN0
 import qualified Chainweb.BlockHeader.Genesis.FastTimedCPMNPayload as TNN
 import qualified Chainweb.BlockHeader.Genesis.Mainnet0Payload as MN0
@@ -65,7 +61,7 @@ import qualified Chainweb.BlockHeader.Genesis.TestnetNPayload as PNN
 import Chainweb.BlockHeight
 import Chainweb.BlockWeight
 import Chainweb.Crypto.MerkleLog
-import Chainweb.Difficulty (HashTarget(..), maxTarget)
+import Chainweb.Difficulty (HashTarget (..), maxTarget)
 import Chainweb.MerkleLogHash
 import Chainweb.MerkleUniverse
 import Chainweb.Miner.Pact
@@ -73,7 +69,11 @@ import Chainweb.Payload
 import Chainweb.Time
 import Chainweb.Utils
 import Chainweb.Version
-
+import Control.Arrow ((&&&))
+import Data.Foldable (toList)
+import qualified Data.HashMap.Strict as HM
+import qualified Data.HashSet as HS
+import Data.MerkleLog hiding (Actual, Expected, MerkleHash)
 
 -- -------------------------------------------------------------------------- --
 -- Genesis BlockHeader
@@ -82,14 +82,16 @@ import Chainweb.Version
 -- within the Chainweb version.
 --
 -- It is the '_blockParent' of the genesis block
---
 genesisParentBlockHash :: HasChainId p => ChainwebVersion -> p -> BlockHash
-genesisParentBlockHash v p = BlockHash $ MerkleLogHash
-    $ merkleRoot $ merkleTree @ChainwebMerkleHashAlgorithm
-        [ InputNode "CHAINWEB_GENESIS"
-        , encodeMerkleInputNode encodeChainwebVersion v
-        , encodeMerkleInputNode encodeChainId (_chainId p)
-        ]
+genesisParentBlockHash v p =
+  BlockHash $
+    MerkleLogHash $
+      merkleRoot $
+        merkleTree @ChainwebMerkleHashAlgorithm
+          [ InputNode "CHAINWEB_GENESIS",
+            encodeMerkleInputNode encodeChainwebVersion v,
+            encodeMerkleInputNode encodeChainId (_chainId p)
+          ]
 
 -- | By definition, Genesis Blocks are "mined" on the easiest difficulty. No
 -- subsequent block mining can have a `HashTarget` easier (re: higher) than
@@ -106,17 +108,16 @@ genesisParentBlockHash v p = BlockHash $ MerkleLogHash
 --
 -- TODO: move this and the following definitions to Chainweb.Version (or a
 -- submodule of Chainweb.Version`).
---
 genesisBlockTarget :: ChainwebVersion -> ChainId -> HashTarget
 genesisBlockTarget v@Mainnet01 cid
-    | genesisHeight v cid > 731382 = mainnet20InitialHashTarget
+  | genesisHeight v cid > 731382 = mainnet20InitialHashTarget
 genesisBlockTarget v@Testnet04 cid
-    | genesisHeight v cid > 278626 = testnet20InitialHashTarget
+  | genesisHeight v cid > 278626 = testnet20InitialHashTarget
 genesisBlockTarget v@Development cid
-    | genesisHeight v cid > (to20ChainsDevelopment - (min to20ChainsDevelopment 10)) =
-        HashTarget 0x0000088f99632cadf39b0db7655be62cb7dbc84ebbd9a90e5b5756d3e7d9196c
-            -- 4 * 10 node-mining
-    | otherwise = HashTarget (maxBound `div` 100000)
+  | genesisHeight v cid > (to20ChainsDevelopment - (min to20ChainsDevelopment 10)) =
+      HashTarget 0x0000088f99632cadf39b0db7655be62cb7dbc84ebbd9a90e5b5756d3e7d9196c
+  -- 4 * 10 node-mining
+  | otherwise = HashTarget (maxBound `div` 100000)
 genesisBlockTarget _ _ = maxTarget
 
 -- | Initial hash target for mainnet 20-chain transition. Difficulty on the new
@@ -149,7 +150,6 @@ genesisBlockTarget _ _ = maxTarget
 -- It holds that:
 --
 -- prop> Just mainnet20InitialHashTarget == HashTarget . (4 *) <$> (runGet decodePowHashNat =<< decodeB64UrlNoPaddingText "DOordl9cgfs4ZTBdFnbjRW5th-hW-pL33DIAAAAAAAA")
---
 mainnet20InitialHashTarget :: HashTarget
 mainnet20InitialHashTarget = HashTarget 0x000000000000cb73de4be95ba21db5b9178dd85974c194e3ee05717dd8afa830
 
@@ -190,13 +190,11 @@ mainnet20InitialHashTarget = HashTarget 0x000000000000cb73de4be95ba21db5b9178dd8
 -- prop> Just testnet20InitialHashTarget == HashTarget <$> (runGet decodePowHashNat =<< decodeB64UrlNoPaddingText "NZIklpW6xujSPrX3gyhXInfxxOS6JDjkW_GbGwAAAAA")
 -- prop> _hashTarget testnet20InitialHashTarget `div` _hashTarget mainnet20InitialHashTarget == PowHashNat 8893
 -- prop> _hashTarget (genesisBlockTarget Development (unsafeChainId 10)) `div` _hashTarget testnet20InitialHashTarget == PowHashNat 38
---
 testnet20InitialHashTarget :: HashTarget
 testnet20InitialHashTarget = HashTarget 0x000000001b9bf15be43824bae4c4f17722572883f7b53ed2e8c6ba9596249235
 
 -- | Empty payload marking no-op transaction payloads for deprecated
 -- versions.
---
 emptyPayload :: PayloadWithOutputs
 emptyPayload = PayloadWithOutputs mempty miner coinbase h i o
   where
@@ -206,13 +204,12 @@ emptyPayload = PayloadWithOutputs mempty miner coinbase h i o
 
 -- | The moment of creation of a Genesis Block. For test chains, this is the
 -- Linux Epoch. Production chains are otherwise fixed to a specific timestamp.
---
 genesisTime :: ChainwebVersion -> ChainId -> BlockCreationTime
-genesisTime Test{} _ = BlockCreationTime epoch
-genesisTime TimedConsensus{} _ = BlockCreationTime epoch
-genesisTime PowConsensus{} _ = BlockCreationTime epoch
-genesisTime TimedCPM{} _ = BlockCreationTime epoch
-genesisTime FastTimedCPM{} _ = BlockCreationTime epoch
+genesisTime Test {} _ = BlockCreationTime epoch
+genesisTime TimedConsensus {} _ = BlockCreationTime epoch
+genesisTime PowConsensus {} _ = BlockCreationTime epoch
+genesisTime TimedCPM {} _ = BlockCreationTime epoch
+genesisTime FastTimedCPM {} _ = BlockCreationTime epoch
 genesisTime Development _ = BlockCreationTime [timeMicrosQQ| 2019-07-17T18:28:37.613832 |]
 genesisTime Testnet04 _ = BlockCreationTime [timeMicrosQQ| 2019-07-17T18:28:37.613832 |]
 genesisTime Mainnet01 _ = BlockCreationTime [timeMicrosQQ| 2019-10-30T00:01:00.0 |]
@@ -226,42 +223,38 @@ genesisBlockPayloadHash v = _payloadWithOutputsPayloadHash . genesisBlockPayload
 -- in PayloadStore.
 genesisBlockPayload :: ChainwebVersion -> ChainId -> PayloadWithOutputs
 -- Test Instances
-genesisBlockPayload Test{} _ = emptyPayload
-genesisBlockPayload TimedConsensus{} _ = emptyPayload
-genesisBlockPayload PowConsensus{} _ = emptyPayload
-genesisBlockPayload TimedCPM{} cid = case chainIdInt @Int cid of
-    0 -> TN0.payloadBlock
-    _ -> TNN.payloadBlock
-
-genesisBlockPayload FastTimedCPM{} cid = case chainIdInt @Int cid of
-    0 -> TN0.payloadBlock
-    _ -> TNN.payloadBlock
-
+genesisBlockPayload Test {} _ = emptyPayload
+genesisBlockPayload TimedConsensus {} _ = emptyPayload
+genesisBlockPayload PowConsensus {} _ = emptyPayload
+genesisBlockPayload TimedCPM {} cid = case chainIdInt @Int cid of
+  0 -> TN0.payloadBlock
+  _ -> TNN.payloadBlock
+genesisBlockPayload FastTimedCPM {} cid = case chainIdInt @Int cid of
+  0 -> TN0.payloadBlock
+  _ -> TNN.payloadBlock
 -- Development Instances
 genesisBlockPayload Development cid = case chainIdInt @Int cid of
-    0 -> DN0.payloadBlock
-    c | c >= 1, c <= 9 -> DNN.payloadBlock
-    c | c >= 10, c <= 19 -> DNKAD.payloadBlock
-    _ -> error "chainweb graph only supports a maximum of 20 chains - please review"
-
+  0 -> DN0.payloadBlock
+  c | c >= 1, c <= 9 -> DNN.payloadBlock
+  c | c >= 10, c <= 19 -> DNKAD.payloadBlock
+  _ -> error "chainweb graph only supports a maximum of 20 chains - please review"
 -- Production Instances
 genesisBlockPayload Testnet04 cid = case chainIdInt @Int cid of
-    0 -> PN0.payloadBlock
-    _ -> PNN.payloadBlock
-
+  0 -> PN0.payloadBlock
+  _ -> PNN.payloadBlock
 genesisBlockPayload Mainnet01 cid = case chainIdInt @Int cid of
-    0 -> MN0.payloadBlock
-    1 -> MN1.payloadBlock
-    2 -> MN2.payloadBlock
-    3 -> MN3.payloadBlock
-    4 -> MN4.payloadBlock
-    5 -> MN5.payloadBlock
-    6 -> MN6.payloadBlock
-    7 -> MN7.payloadBlock
-    8 -> MN8.payloadBlock
-    9 -> MN9.payloadBlock
-    c | c >= 10, c <= 19 -> MNKAD.payloadBlock
-    _ -> error "chainweb graph only supports a maximum of 20 chains - please review"
+  0 -> MN0.payloadBlock
+  1 -> MN1.payloadBlock
+  2 -> MN2.payloadBlock
+  3 -> MN3.payloadBlock
+  4 -> MN4.payloadBlock
+  5 -> MN5.payloadBlock
+  6 -> MN6.payloadBlock
+  7 -> MN7.payloadBlock
+  8 -> MN8.payloadBlock
+  9 -> MN9.payloadBlock
+  c | c >= 10, c <= 19 -> MNKAD.payloadBlock
+  _ -> error "chainweb graph only supports a maximum of 20 chains - please review"
 
 -- | A block chain is globally uniquely identified by its genesis hash.
 -- Internally, we use the 'ChainwebVersion' value and the 'ChainId'
@@ -270,7 +263,6 @@ genesisBlockPayload Mainnet01 cid = case chainIdInt @Int cid of
 --
 -- We assume that there is always only a single 'ChainwebVersion' in
 -- scope and identify chains only by their internal 'ChainId'.
---
 genesisBlockHeader :: HasChainId p => ChainwebVersion -> p -> BlockHeader
 genesisBlockHeader Mainnet01 p = fromJuste $ HM.lookup (_chainId p) genesisBlockHeadersMainnet01
 genesisBlockHeader Testnet04 p = fromJuste $ HM.lookup (_chainId p) genesisBlockHeadersTestnet04
@@ -285,38 +277,39 @@ genesisBlockHeaderInternal v cid = genesisBlockHeader' v cid (genesisTime v cid)
 -- This call generates the block header from the definitions in
 -- "Chainweb.Version". It is a somewhat expensive call, since it involves
 -- building the Merkle tree.
---
-genesisBlockHeader'
-    :: HasChainId p
-    => ChainwebVersion
-    -> p
-    -> BlockCreationTime
-    -> Nonce
-    -> BlockHeader
+genesisBlockHeader' ::
+  HasChainId p =>
+  ChainwebVersion ->
+  p ->
+  BlockCreationTime ->
+  Nonce ->
+  BlockHeader
 genesisBlockHeader' v p ct@(BlockCreationTime t) n =
-    fromLog @ChainwebMerkleHashAlgorithm mlog
+  fromLog @ChainwebMerkleHashAlgorithm mlog
   where
     g = genesisGraph v p
     cid = _chainId p
 
-    mlog = newMerkleLog
-        $ mkFeatureFlags
-        :+: ct
-        :+: genesisParentBlockHash v cid
-        :+: genesisBlockTarget v cid
-        :+: genesisBlockPayloadHash v cid
-        :+: cid
-        :+: BlockWeight 0
-        :+: genesisHeight v cid -- because of chain graph changes (new chains) not all chains start at 0
-        :+: v
-        :+: EpochStartTime t
-        :+: n
-        :+: MerkleLogBody (blockHashRecordToVector adjParents)
-    adjParents = BlockHashRecord $ HM.fromList $
-        (\c -> (c, genesisParentBlockHash v c)) <$> HS.toList (adjacentChainIds g p)
+    mlog =
+      newMerkleLog $
+        mkFeatureFlags
+          :+: ct
+          :+: genesisParentBlockHash v cid
+          :+: genesisBlockTarget v cid
+          :+: genesisBlockPayloadHash v cid
+          :+: cid
+          :+: BlockWeight 0
+          :+: genesisHeight v cid -- because of chain graph changes (new chains) not all chains start at 0
+          :+: v
+          :+: EpochStartTime t
+          :+: n
+          :+: MerkleLogBody (blockHashRecordToVector adjParents)
+    adjParents =
+      BlockHashRecord $
+        HM.fromList $
+          (\c -> (c, genesisParentBlockHash v c)) <$> HS.toList (adjacentChainIds g p)
 
 -- | This is an expensive call, try not to repeat it.
---
 genesisBlockHeaders :: ChainwebVersion -> HM.HashMap ChainId BlockHeader
 genesisBlockHeaders Mainnet01 = genesisBlockHeadersMainnet01
 genesisBlockHeaders Testnet04 = genesisBlockHeadersTestnet04
@@ -324,20 +317,20 @@ genesisBlockHeaders Development = genesisBlockHeadersDevelopment
 genesisBlockHeaders v = genesisBlockHeaders' v
 
 -- | This is an expensive call, try not to repeat it.
---
 genesisBlockHeaders' :: ChainwebVersion -> HM.HashMap ChainId BlockHeader
-genesisBlockHeaders' v = HM.fromList
+genesisBlockHeaders' v =
+  HM.fromList
     . fmap (id &&& genesisBlockHeaderInternal v)
     . toList
     $ chainIds v
 
 -- | The set of genesis block headers as it exited at a particular block height
---
-genesisBlockHeadersAtHeight
-    :: ChainwebVersion
-    -> BlockHeight
-    -> HM.HashMap ChainId BlockHeader
-genesisBlockHeadersAtHeight v h = HM.filter
+genesisBlockHeadersAtHeight ::
+  ChainwebVersion ->
+  BlockHeight ->
+  HM.HashMap ChainId BlockHeader
+genesisBlockHeadersAtHeight v h =
+  HM.filter
     (\hdr -> _blockHeight hdr <= h)
     $ genesisBlockHeaders v
 
@@ -347,10 +340,11 @@ genesisBlockHeadersAtHeight v h = HM.filter
 genesisBlockHeadersMainnet01 :: HM.HashMap ChainId BlockHeader
 genesisBlockHeadersMainnet01 = genesisBlockHeaders' Mainnet01
 {-# NOINLINE genesisBlockHeadersMainnet01 #-}
+
 genesisBlockHeadersTestnet04 :: HM.HashMap ChainId BlockHeader
 genesisBlockHeadersTestnet04 = genesisBlockHeaders' Testnet04
 {-# NOINLINE genesisBlockHeadersTestnet04 #-}
+
 genesisBlockHeadersDevelopment :: HM.HashMap ChainId BlockHeader
 genesisBlockHeadersDevelopment = genesisBlockHeaders' Development
 {-# NOINLINE genesisBlockHeadersDevelopment #-}
-

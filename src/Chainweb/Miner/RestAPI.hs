@@ -11,26 +11,23 @@
 -- License: MIT
 -- Maintainer: Colin Woodbury <colin@kadena.io>
 -- Stability: experimental
---
---
 module Chainweb.Miner.RestAPI
   ( -- * Mining API
-    MiningApi_
-  , MiningApi
-  , miningApi
-  , someMiningApi
-  ) where
-
-import Data.Proxy (Proxy(..))
-
-import Servant.API
+    MiningApi_,
+    MiningApi,
+    miningApi,
+    someMiningApi,
+  )
+where
 
 -- internal modules
 
 import Chainweb.Miner.Core (ChainBytes, HeaderBytes, WorkBytes)
 import Chainweb.Miner.Pact (Miner)
-import Chainweb.RestAPI.Utils (ChainwebEndpoint(..), Reassoc, SomeApi(..))
+import Chainweb.RestAPI.Utils (ChainwebEndpoint (..), Reassoc, SomeApi (..))
 import Chainweb.Version
+import Data.Proxy (Proxy (..))
+import Servant.API
 
 -- -----------------------------------------------------------------------------
 -- Mining API
@@ -41,18 +38,20 @@ import Chainweb.Version
 -- /solved/: To yield a solved `Chainweb.BlockHeader.BlockHeader` back to a
 -- Chainweb Node for it to be reassociated with its `Chainweb.Cut.Cut` and
 -- Payload, then published to the rest of the network.
---
 type MiningApi_ =
-    "mining" :> "work"
-             :> QueryParam "chain" ChainId
-             :> ReqBody '[JSON] Miner
-             :> Get '[OctetStream] WorkBytes
-    :<|> "mining" :> "solved"
-                  :> ReqBody '[OctetStream] HeaderBytes
-                  :> Post '[JSON] NoContent
-    :<|> "mining" :> "updates"
-                  :> ReqBody '[OctetStream] ChainBytes
-                  :> Raw
+  "mining"
+    :> "work"
+    :> QueryParam "chain" ChainId
+    :> ReqBody '[JSON] Miner
+    :> Get '[OctetStream] WorkBytes
+    :<|> "mining"
+      :> "solved"
+      :> ReqBody '[OctetStream] HeaderBytes
+      :> Post '[JSON] NoContent
+    :<|> "mining"
+      :> "updates"
+      :> ReqBody '[OctetStream] ChainBytes
+      :> Raw
 
 type MiningApi (v :: ChainwebVersionT) = 'ChainwebEndpoint v :> Reassoc MiningApi_
 

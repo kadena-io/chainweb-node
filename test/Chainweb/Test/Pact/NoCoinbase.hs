@@ -9,29 +9,27 @@
 -- Stability: experimental
 --
 -- TODO
---
 module Chainweb.Test.Pact.NoCoinbase
-( tests
-) where
-
-import Pact.Types.Command
-import Pact.Types.Hash
-
-import Test.Tasty.HUnit
+  ( tests,
+  )
+where
 
 -- internal modules
 
 import Chainweb.Pact.NoCoinbase
 import Chainweb.Payload
-import Chainweb.Utils
 import Chainweb.Test.Utils
+import Chainweb.Utils
+import Pact.Types.Command
+import Pact.Types.Hash
+import Test.Tasty.HUnit
 
 tests :: ScheduledTest
-tests = ScheduledTest "Chainweb.Test.Pact.NoCoinbase" $
+tests =
+  ScheduledTest "Chainweb.Test.Pact.NoCoinbase" $
     testCase "noCoinbaseOutput is consistent" test_noCoinbase
 
 test_noCoinbase :: Assertion
 test_noCoinbase =
-    noCoinbaseOutput
-    @=?
-    CoinbaseOutput (encodeToByteString (noCoinbase :: CommandResult Hash))
+  noCoinbaseOutput
+    @=? CoinbaseOutput (encodeToByteString (noCoinbase :: CommandResult Hash))

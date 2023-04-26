@@ -8,34 +8,32 @@
 -- License: MIT
 -- Maintainer: Lars Kuhtz <lars@kadena.io>
 -- Stability: experimental
---
 module Chainweb.Test.Chainweb.Utils.Paging
-( properties
-) where
-
-import Control.Monad.Identity
-
-import Data.Function
-import Data.Maybe
-
-import qualified Streaming.Prelude as S
-
-import Test.QuickCheck
+  ( properties,
+  )
+where
 
 -- internal modules
 
 import Chainweb.Test.Orphans.Internal ()
 import Chainweb.Utils hiding ((==>))
 import Chainweb.Utils.Paging
+import Control.Monad.Identity
+import Data.Function
+import Data.Maybe
+import qualified Streaming.Prelude as S
+import Test.QuickCheck
 
 -- -------------------------------------------------------------------------- --
 -- Properties
 
 prop_streamToPage_limit :: [Int] -> Limit -> Property
-prop_streamToPage_limit l i = i <= len l ==> actual === expected
-    & cover 1 (i == len l) "limit == length of stream"
-    & cover 1 (i == 0) "limit == 0"
-    & cover 1 (null l) "length of stream == 0"
+prop_streamToPage_limit l i =
+  i <= len l ==>
+    actual === expected
+      & cover 1 (i == len l) "limit == length of stream"
+      & cover 1 (i == 0) "limit == 0"
+      & cover 1 (null l) "length of stream == 0"
   where
     s = S.each l
     is = take (int i) l
@@ -43,7 +41,8 @@ prop_streamToPage_limit l i = i <= len l ==> actual === expected
     expected = Page i is (Inclusive <$> listToMaybe (drop (int i) l))
 
 prop_streamToPage_id :: [Int] -> Property
-prop_streamToPage_id l = actual === expected
+prop_streamToPage_id l =
+  actual === expected
     & cover 1 (null l) "len l == 0"
   where
     s = S.each l
@@ -52,6 +51,6 @@ prop_streamToPage_id l = actual === expected
 
 properties :: [(String, Property)]
 properties =
-    [ ("streamToPage_limit", property prop_streamToPage_limit)
-    , ("streamToPage_id", property prop_streamToPage_id)
-    ]
+  [ ("streamToPage_limit", property prop_streamToPage_limit),
+    ("streamToPage_id", property prop_streamToPage_id)
+  ]

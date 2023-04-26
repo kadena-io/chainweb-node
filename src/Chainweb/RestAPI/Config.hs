@@ -13,27 +13,22 @@
 -- Stability: experimental
 --
 -- TODO
---
 module Chainweb.RestAPI.Config
-( GetConfigApi
-, someGetConfigApi
-, someGetConfigServer
-) where
-
-import Control.Lens
-
-import Data.Proxy
-
-import Servant
+  ( GetConfigApi,
+    someGetConfigApi,
+    someGetConfigServer,
+  )
+where
 
 -- internal modules
 import Chainweb.Chainweb.Configuration
 import Chainweb.Miner.Config
 import Chainweb.RestAPI.Utils
-
+import Control.Lens
+import Data.Proxy
 import P2P.Node.Configuration
 import P2P.Peer
-
+import Servant
 
 -- -------------------------------------------------------------------------- --
 -- GET config endpoing
@@ -44,22 +39,26 @@ someGetConfigApi :: SomeApi
 someGetConfigApi = SomeApi (Proxy @GetConfigApi)
 
 someGetConfigServer :: ChainwebConfiguration -> SomeServer
-someGetConfigServer config = SomeServer (Proxy @GetConfigApi) $ return
+someGetConfigServer config =
+  SomeServer (Proxy @GetConfigApi) $
+    return
     -- hide sensible information
 
     -- SSL certificates
-    $ set (configP2p . p2pConfigPeer . peerConfigCertificateChain) Nothing
-    $ set (configP2p . p2pConfigPeer . peerConfigCertificateChainFile) Nothing
-    $ set (configP2p . p2pConfigPeer . peerConfigKey) Nothing
-    $ set (configP2p . p2pConfigPeer . peerConfigKeyFile) Nothing
-
-    -- Miner Info
-    $ set (configMining . miningCoordination . coordinationMiners) mempty
-    $ set (configMining . miningInNode . nodeMiner) invalidMiner
-
-    -- Service API port
-    $ set (configServiceApi . serviceApiConfigPort) 0
-    $ set (configServiceApi . serviceApiConfigInterface) "invalid"
-    $ set configBackup defaultBackupConfig
-    config
-
+    $
+      set (configP2p . p2pConfigPeer . peerConfigCertificateChain) Nothing $
+        set (configP2p . p2pConfigPeer . peerConfigCertificateChainFile) Nothing $
+          set (configP2p . p2pConfigPeer . peerConfigKey) Nothing $
+            set (configP2p . p2pConfigPeer . peerConfigKeyFile) Nothing
+            -- Miner Info
+            $
+              set (configMining . miningCoordination . coordinationMiners) mempty $
+                set (configMining . miningInNode . nodeMiner) invalidMiner
+                -- Service API port
+                $
+                  set (configServiceApi . serviceApiConfigPort) 0 $
+                    set (configServiceApi . serviceApiConfigInterface) "invalid" $
+                      set
+                        configBackup
+                        defaultBackupConfig
+                        config

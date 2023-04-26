@@ -34,29 +34,28 @@
 -- (or stack of handlers), but that depends on the implementation of the logger
 -- (usually a queue, but sometimes just an IO callback), which is orthorgonal to
 -- the definitions in this module.
---
 module Data.LogMessage
-( SomeLogMessage(..)
-, LogMessage(..)
+  ( SomeLogMessage (..),
+    LogMessage (..),
 
--- * Log Function
-, LogFunction
-, LogFunctionText
-, LogFunctionJson
-, ALogFunction(..)
-, alogFunction
-, aNoLog
+    -- * Log Function
+    LogFunction,
+    LogFunctionText,
+    LogFunctionJson,
+    ALogFunction (..),
+    alogFunction,
+    aNoLog,
 
--- * LogMessage types
-, JsonLog(..)
-, SomeJsonLog(..)
-, TextLog(..)
-, BinaryLog(..)
-, SomeSymbolLog(..)
-) where
+    -- * LogMessage types
+    JsonLog (..),
+    SomeJsonLog (..),
+    TextLog (..),
+    BinaryLog (..),
+    SomeSymbolLog (..),
+  )
+where
 
 import Control.DeepSeq
-
 import Data.Aeson
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Base64.URL as B64
@@ -66,10 +65,8 @@ import Data.String
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
 import Data.Typeable (Typeable, cast)
-
 import GHC.Generics
 import GHC.TypeLits
-
 import System.LogLevel
 
 -- -------------------------------------------------------------------------- --
@@ -78,16 +75,15 @@ import System.LogLevel
 -- | The 'SomeLogMessage' type is the root of the log message type hierarchy.
 -- When a log message of type 'a' is emitted, behind the scenes it is
 -- encapsulated in a 'SomeLogMessage'.
---
-data SomeLogMessage = forall a . LogMessage a => SomeLogMessage a
+data SomeLogMessage = forall a. LogMessage a => SomeLogMessage a
 
 instance NFData SomeLogMessage where
-    rnf (SomeLogMessage a) = rnf a
-    {-# INLINE rnf #-}
+  rnf (SomeLogMessage a) = rnf a
+  {-# INLINE rnf #-}
 
 instance Show SomeLogMessage where
-    show (SomeLogMessage a) = T.unpack $ logText a
-    {-# INLINE show #-}
+  show (SomeLogMessage a) = T.unpack $ logText a
+  {-# INLINE show #-}
 
 -- -------------------------------------------------------------------------- --
 -- LogMessage
@@ -97,67 +93,59 @@ instance Show SomeLogMessage where
 -- Log messages must be instances of 'NFData' and 'Typeable' and must have a
 -- textual representation. The default instance uses the 'Show' instance of a
 -- type.
---
 class (NFData a, Typeable a) => LogMessage a where
-    logText :: a -> T.Text
-    toLogMessage :: a -> SomeLogMessage
-    fromLogMessage :: SomeLogMessage -> Maybe a
+  logText :: a -> T.Text
+  toLogMessage :: a -> SomeLogMessage
+  fromLogMessage :: SomeLogMessage -> Maybe a
 
-    toLogMessage = SomeLogMessage
-    {-# INLINE toLogMessage #-}
+  toLogMessage = SomeLogMessage
+  {-# INLINE toLogMessage #-}
 
-    fromLogMessage (SomeLogMessage a) = cast a
-    {-# INLINE fromLogMessage #-}
+  fromLogMessage (SomeLogMessage a) = cast a
+  {-# INLINE fromLogMessage #-}
 
-    default logText :: Show a => a -> T.Text
-    logText = T.pack . show
-    {-# INLINE logText #-}
+  default logText :: Show a => a -> T.Text
+  logText = T.pack . show
+  {-# INLINE logText #-}
 
 instance LogMessage SomeLogMessage where
-    logText (SomeLogMessage a) = logText a
-    {-# INLINE logText #-}
+  logText (SomeLogMessage a) = logText a
+  {-# INLINE logText #-}
 
-    toLogMessage a = a
-    {-# INLINE toLogMessage #-}
+  toLogMessage a = a
+  {-# INLINE toLogMessage #-}
 
-    fromLogMessage = Just
-    {-# INLINE fromLogMessage #-}
+  fromLogMessage = Just
+  {-# INLINE fromLogMessage #-}
 
 -- | TODO: is this instance a good idea or should we use a
 -- newtype wrapper?
---
 instance LogMessage T.Text where
-    logText t = t
-    {-# INLINE logText #-}
+  logText t = t
+  {-# INLINE logText #-}
 
 -- -------------------------------------------------------------------------- --
 -- LogFunction
 
 -- | Type of a log functions
---
-type LogFunction = forall a . LogMessage a => LogLevel -> a -> IO ()
+type LogFunction = forall a. LogMessage a => LogLevel -> a -> IO ()
 
 -- | 'LogFunction' type specialized to 'T.Text'
---
 type LogFunctionText = LogLevel -> T.Text -> IO ()
 
 -- | 'LogFunction' type specialized to JSON
---
 type LogFunctionJson a =
   (Typeable a, NFData a, ToJSON a) => LogLevel -> a -> IO ()
 
 -- | A newtype wrapper that allows to store a 'LogFunction' without running into
 -- impredicative types.
---
-newtype ALogFunction = ALogFunction { _getLogFunction :: LogFunction }
+newtype ALogFunction = ALogFunction {_getLogFunction :: LogFunction}
 
 -- | Get a 'LogFunction' from 'ALogFunction'
---
-alogFunction :: forall a . LogMessage a => ALogFunction -> LogLevel -> a -> IO ()
+alogFunction :: forall a. LogMessage a => ALogFunction -> LogLevel -> a -> IO ()
 alogFunction (ALogFunction l) = l
 
 -- | 'ALogFunction' that discards all log messages
---
 aNoLog :: ALogFunction
 aNoLog = ALogFunction $ \_ _ -> return ()
 
@@ -165,53 +153,47 @@ aNoLog = ALogFunction $ \_ _ -> return ()
 -- LogMessage Types
 
 -- | A newtype wrapper for log messages types with a 'ToJSON' instance.
---
 newtype JsonLog a = JsonLog a
-    deriving newtype (NFData, ToJSON, FromJSON)
+  deriving newtype (NFData, ToJSON, FromJSON)
 
 instance (Typeable a, NFData a, ToJSON a) => LogMessage (JsonLog a) where
-    logText (JsonLog a) = T.decodeUtf8 . BL.toStrict $ encode a
-    {-# INLINE logText #-}
+  logText (JsonLog a) = T.decodeUtf8 . BL.toStrict $ encode a
+  {-# INLINE logText #-}
 
 -- | A dynamically polymorphic wrapper for any log message type that has a
 -- 'ToJSON' instance.
---
-data SomeJsonLog = forall a . (NFData a, ToJSON a) => SomeJsonLog a
+data SomeJsonLog = forall a. (NFData a, ToJSON a) => SomeJsonLog a
 
 instance NFData SomeJsonLog where
-    rnf (SomeJsonLog a) = rnf a
-    {-# INLINE rnf #-}
+  rnf (SomeJsonLog a) = rnf a
+  {-# INLINE rnf #-}
 
 instance LogMessage SomeJsonLog where
-    logText (SomeJsonLog a) = T.decodeUtf8 . BL.toStrict $ encode a
-    {-# INLINE logText #-}
+  logText (SomeJsonLog a) = T.decodeUtf8 . BL.toStrict $ encode a
+  {-# INLINE logText #-}
 
 -- | A newtype wrapper for textual log messages.
---
 newtype TextLog = TextLog T.Text
-    deriving newtype (NFData, LogMessage, IsString)
+  deriving newtype (NFData, LogMessage, IsString)
 
 -- | Binary log messages.
---
 data BinaryLog
-    = BinaryLog B.ByteString
-    | BinaryLogLazy BL.ByteString
-    deriving (Generic)
-    deriving anyclass (NFData)
+  = BinaryLog B.ByteString
+  | BinaryLogLazy BL.ByteString
+  deriving (Generic)
+  deriving anyclass (NFData)
 
 instance LogMessage BinaryLog where
-    logText (BinaryLog a) = T.decodeUtf8 $ B64.encode a
-    logText (BinaryLogLazy a) = T.decodeUtf8 . B64.encode $ BL.toStrict a
-    {-# INLINE logText #-}
+  logText (BinaryLog a) = T.decodeUtf8 $ B64.encode a
+  logText (BinaryLogLazy a) = T.decodeUtf8 . B64.encode $ BL.toStrict a
+  {-# INLINE logText #-}
 
 -- | Static textual log messages using 'Symbol' literals from 'GHC.TypeLits'.
---
-data SomeSymbolLog = forall (a :: Symbol) . KnownSymbol a => SomeSymbolLog (Proxy a)
+data SomeSymbolLog = forall (a :: Symbol). KnownSymbol a => SomeSymbolLog (Proxy a)
 
 instance NFData SomeSymbolLog where
-    rnf (SomeSymbolLog a) = rnf a
+  rnf (SomeSymbolLog a) = rnf a
 
 instance LogMessage SomeSymbolLog where
-    logText (SomeSymbolLog (_ :: Proxy a)) = T.pack $ symbolVal (Proxy @a)
-    {-# INLINE logText #-}
-
+  logText (SomeSymbolLog (_ :: Proxy a)) = T.pack $ symbolVal (Proxy @a)
+  {-# INLINE logText #-}

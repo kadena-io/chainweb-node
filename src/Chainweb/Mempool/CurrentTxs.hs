@@ -22,27 +22,16 @@
 -- already been included in a block. The transaction would only be rejected by
 -- pact service during new block validation once it has been included in another
 -- block.
---
 module Chainweb.Mempool.CurrentTxs
-( CurrentTxs
-, newCurrentTxs
-, currentTxsSize
-, currentTxsInsert
-, currentTxsInsertBatch
-, currentTxsMember
-, currentTxsRemove
-) where
-
-import qualified Data.ByteString as B
-import qualified Data.ByteString.Short as BS
-import Data.Foldable
-import qualified Data.List as L
-import qualified Data.Set as S
-import qualified Data.Vector as V
-
-import Numeric.Natural
-
-import System.Random
+  ( CurrentTxs,
+    newCurrentTxs,
+    currentTxsSize,
+    currentTxsInsert,
+    currentTxsInsertBatch,
+    currentTxsMember,
+    currentTxsRemove,
+  )
+where
 
 -- internal imports
 
@@ -50,6 +39,14 @@ import System.Random
 import Chainweb.Mempool.Mempool
 import Chainweb.Time
 import Chainweb.Utils
+import qualified Data.ByteString as B
+import qualified Data.ByteString.Short as BS
+import Data.Foldable
+import qualified Data.List as L
+import qualified Data.Set as S
+import qualified Data.Vector as V
+import Numeric.Natural
+import System.Random
 
 -- -------------------------------------------------------------------------- --
 -- Configuration
@@ -59,7 +56,6 @@ import Chainweb.Utils
 -- which elements are deleted.
 --
 -- 16 MB ~ 1000000 entries
---
 maxCurrentTxsSize :: Natural
 maxCurrentTxsSize = 1024 * 1024
 
@@ -70,23 +66,23 @@ maxCurrentTxsSize = 1024 * 1024
 -- are the first 8 bytes of tx hash. These two number provide plenty of entropy
 -- to make collisions very unlikely. In the rare event of an collision, the
 -- mempool may ignore some legitimate txs.
---
 data CurrentTxsKey = CurrentTxsKey
-    { _currentTxsExpiration :: {-# UNPACK #-} !(Time Micros)
-    , _currentTxsKey :: {-# UNPACK #-} !BS.ShortByteString
-    }
-    deriving (Show, Eq, Ord)
+  { _currentTxsExpiration :: {-# UNPACK #-} !(Time Micros),
+    _currentTxsKey :: {-# UNPACK #-} !BS.ShortByteString
+  }
+  deriving (Show, Eq, Ord)
 
 getCurrentTxsKey :: Time Micros -> TransactionHash -> CurrentTxsKey
-getCurrentTxsKey expiry h = CurrentTxsKey
-    { _currentTxsExpiration = expiry
-    , _currentTxsKey = BS.toShort $ B.take 8 $ BS.fromShort $ unTransactionHash h
+getCurrentTxsKey expiry h =
+  CurrentTxsKey
+    { _currentTxsExpiration = expiry,
+      _currentTxsKey = BS.toShort $ B.take 8 $ BS.fromShort $ unTransactionHash h
     }
 
 -- -------------------------------------------------------------------------- --
 -- Index
 
-newtype CurrentTxs = CurrentTxs { _currentTxs :: S.Set CurrentTxsKey }
+newtype CurrentTxs = CurrentTxs {_currentTxs :: S.Set CurrentTxsKey}
 
 newCurrentTxs :: CurrentTxs
 newCurrentTxs = CurrentTxs mempty
@@ -104,26 +100,26 @@ currentTxsMember s expiry h = S.member (getCurrentTxsKey expiry h) (_currentTxs 
 -- Insertion
 
 -- | If the set is full random elements are deleted.
---
 currentTxsInsert :: CurrentTxs -> Time Micros -> TransactionHash -> IO CurrentTxs
 currentTxsInsert s expiry h =
-    CurrentTxs . S.insert (getCurrentTxsKey expiry h) . _currentTxs
+  CurrentTxs . S.insert (getCurrentTxsKey expiry h) . _currentTxs
     <$> pruneCurrentTxs s
 
-currentTxsInsertBatch
-    :: CurrentTxs
-    -> V.Vector (Time Micros, TransactionHash)
-    -> IO CurrentTxs
+currentTxsInsertBatch ::
+  CurrentTxs ->
+  V.Vector (Time Micros, TransactionHash) ->
+  IO CurrentTxs
 currentTxsInsertBatch s txs = do
-    s0 <- pruneCurrentTxs s
-    pruneCurrentTxs $ CurrentTxs $ foldl' ins (_currentTxs s0) txs
+  s0 <- pruneCurrentTxs s
+  pruneCurrentTxs $ CurrentTxs $ foldl' ins (_currentTxs s0) txs
   where
     ins x (e, h) = S.insert (getCurrentTxsKey e h) x
 
 -- Deletion
 
 currentTxsRemove :: CurrentTxs -> Time Micros -> TransactionHash -> CurrentTxs
-currentTxsRemove (CurrentTxs s) expiry h = CurrentTxs $
+currentTxsRemove (CurrentTxs s) expiry h =
+  CurrentTxs $
     S.delete (getCurrentTxsKey expiry h) s
 {-# INLINE currentTxsRemove #-}
 
@@ -131,25 +127,26 @@ currentTxsRemove (CurrentTxs s) expiry h = CurrentTxs $
 
 pruneCurrentTxs :: CurrentTxs -> IO CurrentTxs
 pruneCurrentTxs (CurrentTxs s) = do
-    now <- getCurrentTimeIntegral
-    let s0 = S.dropWhileAntitone (\x -> _currentTxsExpiration x < now) s
-        l = S.size s0
+  now <- getCurrentTimeIntegral
+  let s0 = S.dropWhileAntitone (\x -> _currentTxsExpiration x < now) s
+      l = S.size s0
 
-    -- a random set of distinct set indexes that are going to be deleted to make
-    -- room for the new entry. For performance reasons we delete elements in
-    -- chunks of 1000.
-    --
-    indexesToBeDeleted <- if l >= int maxCurrentTxsSize
-      then
-        -- The following terminates because n <= l
-        --
-        -- @maxCurrentTxsSize@ should be much larger than 1000. The worst case
-        -- expected running time is for @1000 == maxCurrentTxsSize@, which still
-        -- is very fast.
-        --
+  -- a random set of distinct set indexes that are going to be deleted to make
+  -- room for the new entry. For performance reasons we delete elements in
+  -- chunks of 1000.
+  --
+  indexesToBeDeleted <-
+    if l >= int maxCurrentTxsSize
+      then -- The following terminates because n <= l
+      --
+      -- @maxCurrentTxsSize@ should be much larger than 1000. The worst case
+      -- expected running time is for @1000 == maxCurrentTxsSize@, which still
+      -- is very fast.
+      --
+
         let n = min l (max 1000 (l - int maxCurrentTxsSize))
-        in take n . L.nub . randomRs (0, l-1) <$> newStdGen
+         in take n . L.nub . randomRs (0, l - 1) <$> newStdGen
       else return []
 
-    -- Not sure if foldl' would be faster here
-    return $ CurrentTxs $! foldl' (flip S.deleteAt) s0 indexesToBeDeleted
+  -- Not sure if foldl' would be faster here
+  return $ CurrentTxs $! foldl' (flip S.deleteAt) s0 indexesToBeDeleted

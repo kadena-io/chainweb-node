@@ -8,34 +8,32 @@
 -- License: MIT
 -- Maintainer: Lars Kuhtz <lars@kadena.io>
 -- Stability: experimental
---
 module Chainweb.Test.Difficulty
-( properties
-, prop_littleEndian
-) where
-
-import qualified Data.ByteString as B
-
-import Test.QuickCheck (Property, property)
+  ( properties,
+    prop_littleEndian,
+  )
+where
 
 -- internal modules
 
 import Chainweb.Difficulty
 import Chainweb.Utils.Serialization
+import qualified Data.ByteString as B
+import Test.QuickCheck (Property, property)
 
 prop_littleEndian :: Bool
-prop_littleEndian = all run [1..31]
+prop_littleEndian = all run [1 .. 31]
   where
-    run i = (==) i
-        $ length
-        $ takeWhile (== 0x00)
-        $ reverse
-        $ B.unpack
-        $ runPutS
-        $ encodePowHashNat (maxBound `div` 2^(8*i))
+    run i =
+      (==) i $
+        length $
+          takeWhile (== 0x00) $
+            reverse $
+              B.unpack $
+                runPutS $
+                  encodePowHashNat (maxBound `div` 2 ^ (8 * i))
 
 properties :: [(String, Property)]
 properties =
-    [ ("BlockHashNat is encoded as little endian", property prop_littleEndian)
-    ]
-
+  [ ("BlockHashNat is encoded as little endian", property prop_littleEndian)
+  ]

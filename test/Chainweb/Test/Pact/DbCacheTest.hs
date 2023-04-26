@@ -1,34 +1,30 @@
-{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE OverloadedStrings #-}
 
 module Chainweb.Test.Pact.DbCacheTest (tests) where
 
 import Chainweb.Pact.Backend.DbCache
-
 import Control.Monad.State.Strict
-
 import Data.Aeson
 import Data.ByteString.Lazy (toStrict)
-
 import Database.SQLite3.Direct
-
 import GHC.Compact
-
 import Test.Tasty
 import Test.Tasty.HUnit
 
 tests :: TestTree
-tests = testGroup "Chainweb.Test.Pact.DbCacheTest"
-    [ testCache ]
+tests =
+  testGroup
+    "Chainweb.Test.Pact.DbCacheTest"
+    [testCache]
 
 entry :: MonadIO m => String -> m ([String], Int)
 entry c = do
-    s <- liftIO $ compactSize =<< compact [c]
-    return ([c], fromIntegral s)
+  s <- liftIO $ compactSize =<< compact [c]
+  return ([c], fromIntegral s)
 
 testCache :: TestTree
 testCache = testCase "testCache" $ do
-
   -- Create Items
   (a, sa) <- entry "a"
   (b0, sb0) <- entry "b0"
@@ -40,7 +36,6 @@ testCache = testCase "testCache" $ do
   let cs = DbCacheLimitBytes . fromIntegral $ sa + sb0 + sb1 + sc + 1
 
   void $ (`runStateT` (emptyDbCache cs :: DbCache [String])) $ do
-
     -- a: simple insert
     doCheck "a insert @1 -> [a@1]" "a" a 1
     assertEqual' "size a" sa cacheSize
@@ -75,9 +70,7 @@ testCache = testCase "testCache" $ do
     doCheck "a reinsert, evict b->v1@2 -> [c@3,d@4,b0@5,a@6]" "a" a 6
     assertEqual' "size c + d + b0 + a) - a - b" (sc + sd + sb0 + sa) cacheSize
     assertEqual' "count 4" 4 cacheCount
-
   where
-
     doCheck msg k v txid = do
       mc <- StateT (checkDbCache (Utf8 k) (toStrict (encode v)) txid)
       liftIO $ assertEqual msg (Just v) mc

@@ -9,20 +9,16 @@
 -- Stability: experimental
 --
 -- Chainweb Slow Tests
---
-
-module SlowTests ( main ) where
-
-import System.LogLevel
-import Test.Tasty
+module SlowTests (main) where
 
 -- internal modules
 
 import Chainweb.Graph
 import qualified Chainweb.Test.MultiNode
 import Chainweb.Version
-
 import qualified Network.X509.SelfSigned.Test
+import System.LogLevel
+import Test.Tasty
 
 main :: IO ()
 main = defaultMain suite
@@ -31,10 +27,13 @@ loglevel :: LogLevel
 loglevel = Warn
 
 suite :: TestTree
-suite = testGroup "ChainwebSlowTests"
-    [ Chainweb.Test.MultiNode.test loglevel (TimedConsensus petersonChainGraph twentyChainGraph) 10 120
-    , Chainweb.Test.MultiNode.replayTest loglevel (FastTimedCPM pairChainGraph) 6
-    , testGroup "Network.X05.SelfSigned.Test"
+suite =
+  testGroup
+    "ChainwebSlowTests"
+    [ Chainweb.Test.MultiNode.test loglevel (TimedConsensus petersonChainGraph twentyChainGraph) 10 120,
+      Chainweb.Test.MultiNode.replayTest loglevel (FastTimedCPM pairChainGraph) 6,
+      testGroup
+        "Network.X05.SelfSigned.Test"
         [ Network.X509.SelfSigned.Test.tests
         ]
     ]

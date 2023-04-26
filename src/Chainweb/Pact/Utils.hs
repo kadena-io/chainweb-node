@@ -9,46 +9,41 @@
 -- Stability: experimental
 --
 -- Pact service for Chainweb
-
 module Chainweb.Pact.Utils
-    ( -- * combinators
-      aeson
-    , fromPactChainId
-    , toTxCreationTime
+  ( -- * combinators
+    aeson,
+    fromPactChainId,
+    toTxCreationTime,
 
     -- * k:account helper functions
-    , validatePubKey
-    , validateKAccount
-    , extractPubKeyFromKAccount
-    , generateKAccountFromPubKey
-    , pubKeyToKAccountKeySet
-    , generateKeySetFromKAccount
-    , validateKAccountKeySet
-    ) where
-
-import Data.Aeson
-import qualified Data.Text as T
-
-import Control.Monad.Catch
-
-import Pact.Parse
-import qualified Pact.Types.ChainId as P
-import qualified Pact.Types.Term as P
-import Pact.Types.ChainMeta
-import Pact.Types.KeySet (validateKeyFormat)
+    validatePubKey,
+    validateKAccount,
+    extractPubKeyFromKAccount,
+    generateKAccountFromPubKey,
+    pubKeyToKAccountKeySet,
+    generateKeySetFromKAccount,
+    validateKAccountKeySet,
+  )
+where
 
 -- Internal modules
 
 import Chainweb.ChainId
 import Chainweb.Time
-
+import Control.Monad.Catch
+import Data.Aeson
+import qualified Data.Text as T
+import Pact.Parse
+import qualified Pact.Types.ChainId as P
+import Pact.Types.ChainMeta
+import Pact.Types.KeySet (validateKeyFormat)
+import qualified Pact.Types.Term as P
 
 fromPactChainId :: MonadThrow m => P.ChainId -> m ChainId
 fromPactChainId (P.ChainId t) = chainIdFromText t
 
 -- | This is the recursion principle of an 'Aeson' 'Result' of type 'a'.
 -- Similar to 'either', 'maybe', or 'bool' combinators
---
 aeson :: (String -> b) -> (a -> b) -> Result a -> b
 aeson f _ (Error a) = f a
 aeson _ g (Success a) = g a
@@ -56,7 +51,6 @@ aeson _ g (Success a) = g a
 toTxCreationTime :: Time Micros -> TxCreationTime
 toTxCreationTime (Time timespan) =
   TxCreationTime $ ParsedInteger $ fromIntegral $ timeSpanToSeconds timespan
-
 
 validatePubKey :: P.PublicKeyText -> Bool
 validatePubKey = validateKeyFormat
@@ -66,20 +60,20 @@ validateKAccount acctName =
   case T.take 2 acctName of
     "k:" ->
       let pubKey = P.PublicKeyText $ T.drop 2 acctName
-      in validateKeyFormat pubKey
+       in validateKeyFormat pubKey
     _ -> False
 
 extractPubKeyFromKAccount :: T.Text -> Maybe P.PublicKeyText
 extractPubKeyFromKAccount kacct
   | validateKAccount kacct =
-    Just $ P.PublicKeyText $ T.drop 2 kacct
+      Just $ P.PublicKeyText $ T.drop 2 kacct
   | otherwise = Nothing
 
 generateKAccountFromPubKey :: P.PublicKeyText -> Maybe T.Text
 generateKAccountFromPubKey pubKey
   | validatePubKey pubKey =
-    let pubKeyText = P._pubKey pubKey
-    in Just $ "k:" <> pubKeyText
+      let pubKeyText = P._pubKey pubKey
+       in Just $ "k:" <> pubKeyText
   | otherwise = Nothing
 
 -- Warning: Only use if already certain that PublicKeyText

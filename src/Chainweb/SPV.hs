@@ -16,34 +16,14 @@
 -- Stability: experimental
 --
 -- SPV proofs for the Chainweb Merkle Tree.
---
 module Chainweb.SPV
-( SpvException(..)
-, TransactionProof(..)
-, proofChainId
-, TransactionOutputProof(..)
-, outputProofChainId
-) where
-
-import Control.Applicative
-import Control.DeepSeq
-import Control.Lens (Getter, to)
-import Control.Monad
-import Control.Monad.Catch
-
-import Crypto.Hash.Algorithms
-
-import Data.Aeson
-import qualified Data.Aeson.Types as Aeson
-import qualified Data.ByteString as B
-import Data.MerkleLog hiding (Expected, Actual)
-import qualified Data.Text as T
-
-import GHC.Generics (Generic)
-
-import Numeric.Natural
-
-import Prelude hiding (lookup)
+  ( SpvException (..),
+    TransactionProof (..),
+    proofChainId,
+    TransactionOutputProof (..),
+    outputProofChainId,
+  )
+where
 
 -- internal modules
 
@@ -51,31 +31,45 @@ import Chainweb.BlockHeader
 import Chainweb.BlockHeight
 import Chainweb.ChainId
 import Chainweb.Utils
+import Control.Applicative
+import Control.DeepSeq
+import Control.Lens (Getter, to)
+import Control.Monad
+import Control.Monad.Catch
+import Crypto.Hash.Algorithms
+import Data.Aeson
+import qualified Data.Aeson.Types as Aeson
+import qualified Data.ByteString as B
+import Data.MerkleLog hiding (Actual, Expected)
+import qualified Data.Text as T
+import GHC.Generics (Generic)
+import Numeric.Natural
+import Prelude hiding (lookup)
 
 -- -------------------------------------------------------------------------- --
 -- Exceptions
 
 data SpvException
-    = SpvExceptionTargetNotReachable
-        { _spvExceptionMsg :: !T.Text
-        , _spvExceptionSourceChainId :: !ChainId
-        , _spvExceptionSourceHeight :: !BlockHeight
-        , _spvExceptionTargetChainId :: !ChainId
-        , _spvExceptionTargetHeight :: !BlockHeight
-        }
-    | SpvExceptionInconsistentPayloadData
-        { _spvExceptionMsg :: !T.Text
-        , _spvExceptionMsgPayloadHash :: !BlockPayloadHash
-        }
-    | SpvExceptionVerificationFailed
-        { _spvExceptionMsg :: !T.Text
-        }
-    | SpvExceptionInsufficientProofDepth
-        { _spvExceptionMsg :: !T.Text
-        , _spvExceptionExpectedDepth :: !(Expected Natural)
-        , _spvExceptionActualDepth :: !(Actual Natural)
-        }
-    deriving (Show, Eq, Ord, Generic, NFData)
+  = SpvExceptionTargetNotReachable
+      { _spvExceptionMsg :: !T.Text,
+        _spvExceptionSourceChainId :: !ChainId,
+        _spvExceptionSourceHeight :: !BlockHeight,
+        _spvExceptionTargetChainId :: !ChainId,
+        _spvExceptionTargetHeight :: !BlockHeight
+      }
+  | SpvExceptionInconsistentPayloadData
+      { _spvExceptionMsg :: !T.Text,
+        _spvExceptionMsgPayloadHash :: !BlockPayloadHash
+      }
+  | SpvExceptionVerificationFailed
+      { _spvExceptionMsg :: !T.Text
+      }
+  | SpvExceptionInsufficientProofDepth
+      { _spvExceptionMsg :: !T.Text,
+        _spvExceptionExpectedDepth :: !(Expected Natural),
+        _spvExceptionActualDepth :: !(Actual Natural)
+      }
+  deriving (Show, Eq, Ord, Generic, NFData)
 
 instance Exception SpvException
 
@@ -86,71 +80,78 @@ instance Exception SpvException
 -- that are defined in the new proof format in "Chainweb.SPV.PayloadProof".
 -- Newly added SPV API endpoints should use the new format. We keep using the
 -- legacy format for existing endpoints in order to not break existing clients.
---
-proofProperties
-    :: forall kv
-    . KeyValue kv
-    => ChainId
-    -> MerkleProof SHA512t_256
-    -> [kv]
+proofProperties ::
+  forall kv.
+  KeyValue kv =>
+  ChainId ->
+  MerkleProof SHA512t_256 ->
+  [kv]
 proofProperties cid p =
-    [ "chain" .= cid
-    , "object" .= obj (_merkleProofObject p)
-    , "subject" .= JsonProofSubject (_getMerkleProofSubject $ _merkleProofSubject p)
-    , "algorithm" .= ("SHA512t_256" :: T.Text)
-    ]
+  [ "chain" .= cid,
+    "object" .= obj (_merkleProofObject p),
+    "subject" .= JsonProofSubject (_getMerkleProofSubject $ _merkleProofSubject p),
+    "algorithm" .= ("SHA512t_256" :: T.Text)
+  ]
   where
     obj = encodeB64UrlNoPaddingText . encodeMerkleProofObject
 
 -- | Internal helper type of holding the ToJSON dictionary for the
 -- legacy proof subject encoding.
---
 newtype JsonProofSubject = JsonProofSubject (MerkleNodeType SHA512t_256 B.ByteString)
 
 jsonProofSubjectProperties :: KeyValue kv => JsonProofSubject -> [kv]
 jsonProofSubjectProperties (JsonProofSubject (TreeNode h)) =
-    [ "tree" .= encodeB64UrlNoPaddingText (encodeMerkleRoot h)
-    ]
+  [ "tree" .= encodeB64UrlNoPaddingText (encodeMerkleRoot h)
+  ]
 jsonProofSubjectProperties (JsonProofSubject (InputNode bytes)) =
-    [ "input" .= encodeB64UrlNoPaddingText bytes
-    ]
+  [ "input" .= encodeB64UrlNoPaddingText bytes
+  ]
 
 instance ToJSON JsonProofSubject where
-    toJSON = object . jsonProofSubjectProperties
-    toEncoding = pairs . mconcat . jsonProofSubjectProperties
-    {-# INLINE toJSON #-}
-    {-# INLINE toEncoding #-}
+  toJSON = object . jsonProofSubjectProperties
+  toEncoding = pairs . mconcat . jsonProofSubjectProperties
+  {-# INLINE toJSON #-}
+  {-# INLINE toEncoding #-}
 
-parseProof
-    :: String
-    -> (ChainId -> MerkleProof SHA512t_256 -> a)
-    -> Value
-    -> Aeson.Parser a
-parseProof name mkProof = withObject name $ \o -> mkProof
+parseProof ::
+  String ->
+  (ChainId -> MerkleProof SHA512t_256 -> a) ->
+  Value ->
+  Aeson.Parser a
+parseProof name mkProof = withObject name $ \o ->
+  mkProof
     <$> o .: "chain"
     <*> parse o
     <* (assertJSON ("SHA512t_256" :: T.Text) =<< o .: "algorithm")
   where
-    parse o = MerkleProof
+    parse o =
+      MerkleProof
         <$> (parseSubject =<< o .: "subject")
         <*> (parseObject =<< o .: "object")
 
-    parseSubject = withObject "ProofSubject" $ \o -> MerkleProofSubject
+    parseSubject = withObject "ProofSubject" $ \o ->
+      MerkleProofSubject
         <$> ((o .: "tree" >>= parseTreeNode) <|> (o .: "input" >>= parseInputNode))
 
-    parseTreeNode = withText "TreeNode"
-        $ fmap TreeNode . parseBinary decodeMerkleRoot
+    parseTreeNode =
+      withText "TreeNode" $
+        fmap TreeNode . parseBinary decodeMerkleRoot
 
-    parseInputNode = withText "InputNode"
-        $ fmap InputNode . parseBinary pure
+    parseInputNode =
+      withText "InputNode" $
+        fmap InputNode . parseBinary pure
 
-    parseObject = withText "ProofObject"
-        $ parseBinary decodeMerkleProofObject
+    parseObject =
+      withText "ProofObject" $
+        parseBinary decodeMerkleProofObject
 
-    assertJSON e a = unless (e == a)
-        $ fail $ "expected " <> sshow e <> ", got " <> sshow a
+    assertJSON e a =
+      unless (e == a) $
+        fail $
+          "expected " <> sshow e <> ", got " <> sshow a
 
-    parseBinary p t = either (fail . show) return $
+    parseBinary p t =
+      either (fail . show) return $
         p =<< decodeB64UrlNoPaddingText t
 
 -- -------------------------------------------------------------------------- --
@@ -158,28 +159,27 @@ parseProof name mkProof = withObject name $ \o -> mkProof
 
 -- | Witness that a transaction is included in the head of a chain in a
 -- chainweb.
---
-data TransactionProof a = TransactionProof
-    !ChainId
-        -- ^ the target chain of the proof, i.e the chain which contains
-        -- the root of the proof.
-    !(MerkleProof a)
-        -- ^ the Merkle proof blob, which contains both the proof object and
-        -- the subject.
-    deriving (Show, Eq)
+data TransactionProof a
+  = TransactionProof
+      !ChainId
+      -- ^ the target chain of the proof, i.e the chain which contains
+      -- the root of the proof.
+      !(MerkleProof a)
+      -- ^ the Merkle proof blob, which contains both the proof object and
+      -- the subject.
+  deriving (Show, Eq)
 
 instance ToJSON (TransactionProof SHA512t_256) where
-    toJSON (TransactionProof cid p) = object $ proofProperties cid p
-    toEncoding (TransactionProof cid p) = pairs . mconcat $ proofProperties cid p
-    {-# INLINE toJSON #-}
-    {-# INLINE toEncoding #-}
+  toJSON (TransactionProof cid p) = object $ proofProperties cid p
+  toEncoding (TransactionProof cid p) = pairs . mconcat $ proofProperties cid p
+  {-# INLINE toJSON #-}
+  {-# INLINE toEncoding #-}
 
 instance FromJSON (TransactionProof SHA512t_256) where
-    parseJSON = parseProof "TransactionProof" TransactionProof
-    {-# INLINE parseJSON #-}
+  parseJSON = parseProof "TransactionProof" TransactionProof
+  {-# INLINE parseJSON #-}
 
 -- | Getter into the chain id of a 'TransactionProof'
---
 proofChainId :: Getter (TransactionProof a) ChainId
 proofChainId = to (\(TransactionProof cid _) -> cid)
 
@@ -188,27 +188,26 @@ proofChainId = to (\(TransactionProof cid _) -> cid)
 
 -- | Witness that a transaction output is included in the head of a chain in a
 -- chainweb.
---
-data TransactionOutputProof a = TransactionOutputProof
-    !ChainId
-        -- ^ the target chain of the proof, i.e the chain which contains
-        -- the root of the proof.
-    !(MerkleProof a)
-        -- ^ the Merkle proof blob, which contains both the proof object and
-        -- the subject.
-    deriving (Show, Eq)
+data TransactionOutputProof a
+  = TransactionOutputProof
+      !ChainId
+      -- ^ the target chain of the proof, i.e the chain which contains
+      -- the root of the proof.
+      !(MerkleProof a)
+      -- ^ the Merkle proof blob, which contains both the proof object and
+      -- the subject.
+  deriving (Show, Eq)
 
 instance ToJSON (TransactionOutputProof SHA512t_256) where
-    toJSON (TransactionOutputProof cid p) = object $ proofProperties cid p
-    toEncoding (TransactionOutputProof cid p) = pairs . mconcat $ proofProperties cid p
-    {-# INLINE toJSON #-}
-    {-# INLINE toEncoding #-}
+  toJSON (TransactionOutputProof cid p) = object $ proofProperties cid p
+  toEncoding (TransactionOutputProof cid p) = pairs . mconcat $ proofProperties cid p
+  {-# INLINE toJSON #-}
+  {-# INLINE toEncoding #-}
 
 instance FromJSON (TransactionOutputProof SHA512t_256) where
-    parseJSON = parseProof "TransactionOutputProof" TransactionOutputProof
-    {-# INLINE parseJSON #-}
+  parseJSON = parseProof "TransactionOutputProof" TransactionOutputProof
+  {-# INLINE parseJSON #-}
 
 -- | Getter into the chain id of a 'TransactionOutputProof'
---
 outputProofChainId :: Getter (TransactionOutputProof a) ChainId
 outputProofChainId = to (\(TransactionOutputProof cid _) -> cid)

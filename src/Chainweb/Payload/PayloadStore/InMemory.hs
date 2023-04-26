@@ -8,26 +8,26 @@
 -- Stability: experimental
 --
 -- An in-memory block payload store.
---
 module Chainweb.Payload.PayloadStore.InMemory
-( newPayloadDb
+  ( newPayloadDb,
 
--- * Internal
-, newBlockPayloadStore
-, newBlockTransactionsStore
-, newTransactionDb
-, newBlockOutputsStore
-, newTransactionTreeStore
-, newOutputTreeStore
-, newPayloadCache
-) where
+    -- * Internal
+    newBlockPayloadStore,
+    newBlockTransactionsStore,
+    newTransactionDb,
+    newBlockOutputsStore,
+    newTransactionTreeStore,
+    newOutputTreeStore,
+    newPayloadCache,
+  )
+where
 
 -- internal modules
 
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
 import Chainweb.Storage.Table
-import Chainweb.Storage.Table.HashMap(HashMapTable)
+import Chainweb.Storage.Table.HashMap (HashMapTable)
 import qualified Chainweb.Storage.Table.HashMap as HashMapTable
 
 -- -------------------------------------------------------------------------- --
@@ -40,7 +40,8 @@ newBlockTransactionsStore :: IO (Casify HashMapTable BlockTransactions)
 newBlockTransactionsStore = Casify <$> HashMapTable.emptyTable
 
 newTransactionDb :: IO (TransactionDb HashMapTable)
-newTransactionDb = TransactionDb
+newTransactionDb =
+  TransactionDb
     <$> newBlockTransactionsStore
     <*> newBlockPayloadStore
 
@@ -54,7 +55,9 @@ newOutputTreeStore :: IO (OutputTreeStore HashMapTable)
 newOutputTreeStore = Casify <$> HashMapTable.emptyTable
 
 newPayloadCache :: IO (PayloadCache HashMapTable)
-newPayloadCache = PayloadCache <$> newBlockOutputsStore
+newPayloadCache =
+  PayloadCache
+    <$> newBlockOutputsStore
     <*> newTransactionTreeStore
     <*> newOutputTreeStore
 

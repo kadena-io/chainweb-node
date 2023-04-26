@@ -2,31 +2,15 @@
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
-{-# LANGUAGE ScopedTypeVariables #-}
-module TxSimulator
-  where
 
-import Control.Concurrent.MVar
-import Control.Lens
-import Control.Monad
-import Control.Monad.Catch
-import Control.Monad.IO.Class
-import Crypto.Hash.Algorithms
-import Data.Aeson (decodeStrict')
-import Data.Default
-import Data.Maybe
-import qualified Data.Text as T
-import qualified Data.Text.Encoding as T
-import qualified Data.Text.IO as T
-import qualified Data.Vector as V
-import Options.Applicative
-import System.LogLevel
+module TxSimulator where
 
 import Chainweb.BlockHeader
-import Chainweb.BlockHeaderDB.RestAPI.Client
 import Chainweb.BlockHeaderDB.Internal
+import Chainweb.BlockHeaderDB.RestAPI.Client
 import Chainweb.BlockHeight
 import Chainweb.Crypto.MerkleLog
 import Chainweb.Logger
@@ -45,50 +29,63 @@ import Chainweb.Payload.PayloadStore
 import Chainweb.Payload.PayloadStore.InMemory
 import Chainweb.Payload.RestAPI.Client
 import Chainweb.SPV
+import Chainweb.Storage.Table.RocksDB
 import Chainweb.Transaction
 import Chainweb.Utils
 import Chainweb.Utils.Paging
 import Chainweb.Version
-
+import Control.Concurrent.MVar
+import Control.Lens
+import Control.Monad
+import Control.Monad.Catch
+import Control.Monad.IO.Class
+import Crypto.Hash.Algorithms
+import Data.Aeson (decodeStrict')
+import Data.Default
+import Data.Maybe
+import qualified Data.Text as T
+import qualified Data.Text.Encoding as T
+import qualified Data.Text.IO as T
+import qualified Data.Vector as V
 import Network.Connection
 import Network.HTTP.Client.TLS
-import Servant.Client.Core
-import Servant.Client
-
-import Chainweb.Storage.Table.RocksDB
-
+import Options.Applicative
 import Pact.Types.Command
 import Pact.Types.Hash
 import Pact.Types.Logger
 import Pact.Types.RPC
 import Pact.Types.SPV
-
+import Servant.Client
+import Servant.Client.Core
+import System.LogLevel
 import Utils.Logging.Trace
 
 data SimConfig = SimConfig
-    { scDbDir :: FilePath
-      -- ^ db dir containing sqlite pact db files
-    , scTxIndex :: Maybe Int
-      -- ^ index in payload transactions list
-    , scApiHostUrl :: BaseUrl
-    , scRange :: (BlockHeight,BlockHeight)
-    , scChain :: ChainId
-    , scVersion :: ChainwebVersion
-    , scGasLog :: Bool
-    }
+  { -- | db dir containing sqlite pact db files
+    scDbDir :: FilePath,
+    -- | index in payload transactions list
+    scTxIndex :: Maybe Int,
+    scApiHostUrl :: BaseUrl,
+    scRange :: (BlockHeight, BlockHeight),
+    scChain :: ChainId,
+    scVersion :: ChainwebVersion,
+    scGasLog :: Bool
+  }
 
 simulate :: SimConfig -> IO ()
 simulate sc@(SimConfig dbDir txIdx' _ _ cid ver gasLog) = do
   cenv <- setupClient sc
-  (parent:hdrs) <- fetchHeaders sc cenv
+  (parent : hdrs) <- fetchHeaders sc cenv
   pwos <- fetchOutputs sc cenv hdrs
   withSqliteDb cid cwLogger dbDir False $ \sqlenv -> do
     cpe@(CheckpointEnv cp _) <-
       initRelationalCheckpointer (initBlockState defaultModuleCacheLimit 0) sqlenv logger ver cid
     bracket_
       (_cpBeginCheckpointerBatch cp)
-      (_cpDiscardCheckpointerBatch cp) $ case txIdx' of
-        Just txIdx -> do -- single-tx simulation
+      (_cpDiscardCheckpointerBatch cp)
+      $ case txIdx' of
+        Just txIdx -> do
+          -- single-tx simulation
           let PayloadWithOutputs txs md _ _ _ _ :: PayloadWithOutputs = head pwos
           miner <- decodeStrictOrThrow $ _minerData md
           let Transaction tx = fst $ txs V.! txIdx
@@ -103,48 +100,75 @@ simulate sc@(SimConfig dbDir txIdx' _ _ cid ver gasLog) = do
               mc <- readInitModules logger pde txc
               T3 !cr _mc _ <-
                 trace (logFunction cwLogger) "applyCmd" () 1 $
-                  applyCmd ver logger gasLogger pde miner (getGasModel txc)
-                  txc noSPVSupport cmd (initGas cmdPwt) mc ApplySend
+                  applyCmd
+                    ver
+                    logger
+                    gasLogger
+                    pde
+                    miner
+                    (getGasModel txc)
+                    txc
+                    noSPVSupport
+                    cmd
+                    (initGas cmdPwt)
+                    mc
+                    ApplySend
               T.putStrLn (encodeToText cr)
-        Nothing -> do -- blocks simulation
+        Nothing -> do
+          -- blocks simulation
           paydb <- newPayloadDb
           withRocksDb "txsim-rocksdb" modernDefaultOptions $ \rdb ->
             withBlockHeaderDb rdb ver cid $ \bdb -> do
-              let pse = PactServiceEnv Nothing cpe paydb bdb getGasModel readRewards 0 ferr
-                        ver True False logger gasLogger (pactLoggers cwLogger) False 1 defaultBlockGasLimit cid
+              let pse =
+                    PactServiceEnv
+                      Nothing
+                      cpe
+                      paydb
+                      bdb
+                      getGasModel
+                      readRewards
+                      0
+                      ferr
+                      ver
+                      True
+                      False
+                      logger
+                      gasLogger
+                      (pactLoggers cwLogger)
+                      False
+                      1
+                      defaultBlockGasLimit
+                      cid
                   pss = PactServiceState Nothing mempty (ParentHeader parent) noSPVSupport
               evalPactServiceM pss pse $ doBlock True parent (zip hdrs pwos)
-
-
-
-
   where
-
     cwLogger = genericLogger Debug T.putStrLn
     initGas cmd = initialGasOf (_cmdPayload cmd)
     logger = newLogger (pactLoggers cwLogger) "TxSimulator"
-    gasLogger | gasLog = Just logger
-              | otherwise = Nothing
+    gasLogger
+      | gasLog = Just logger
+      | otherwise = Nothing
     txContext parent cmd = TxContext (ParentHeader parent) $ publicMetaOf cmd
     ferr e _ = throwM e
 
-    doBlock
-        :: CanReadablePayloadCas cas
-        => Bool
-        -> BlockHeader
-        -> [(BlockHeader,PayloadWithOutputs)]
-        -> PactServiceM cas ()
+    doBlock ::
+      CanReadablePayloadCas cas =>
+      Bool ->
+      BlockHeader ->
+      [(BlockHeader, PayloadWithOutputs)] ->
+      PactServiceM cas ()
     doBlock _ _ [] = return ()
-    doBlock initMC parent ((hdr,pwo):rest) = do
+    doBlock initMC parent ((hdr, pwo) : rest) = do
       !cp <- getCheckpointer
       pde'@(PactDbEnv' pde) <-
-          liftIO $ _cpRestore cp $ Just (succ (_blockHeight parent), _blockHash parent)
+        liftIO $ _cpRestore cp $ Just (succ (_blockHeight parent), _blockHash parent)
       when initMC $ do
         mc <- liftIO $ readInitModules logger pde (TxContext (ParentHeader parent) def)
         updateInitCache mc
       psParentHeader .= ParentHeader parent
       liftIO (spvSim sc hdr pwo) >>= assign psSpvSupport
-      _r <- trace (logFunction cwLogger) "execBlock" () 1 $
+      _r <-
+        trace (logFunction cwLogger) "execBlock" () 1 $
           execBlock hdr (payloadWithOutputsToPayloadData pwo) pde'
       liftIO $ _cpSave cp (_blockHash hdr)
       doBlock False hdr rest
@@ -158,9 +182,9 @@ spvSim sc bh pwo = do
   return $ SPVSupport (_spvSupport noSPVSupport) (go mv)
   where
     go mv cp = modifyMVar mv $ searchOuts cp
-    searchOuts _ [] = return ([],Left "spv: proof not found")
-    searchOuts cp@(ContProof pf) ((Transaction ti,TransactionOutput _o):txs) =
-      case codecDecode (chainwebPayloadCodec (Just (scVersion sc,_blockHeight bh))) ti of
+    searchOuts _ [] = return ([], Left "spv: proof not found")
+    searchOuts cp@(ContProof pf) ((Transaction ti, TransactionOutput _o) : txs) =
+      case codecDecode (chainwebPayloadCodec (Just (scVersion sc, _blockHeight bh))) ti of
         Left {} -> internalError "input decode failed"
         Right cmd -> case _pPayload $ payloadObj $ _cmdPayload cmd of
           Continuation cm | _cmProof cm == Just cp -> do
@@ -175,24 +199,30 @@ spvSim sc bh pwo = do
                 case decodeStrict' tout :: Maybe (CommandResult Hash) of
                   Nothing -> internalError "unable to decode spv transaction output"
                   Just cro -> case _crContinuation cro of
-                    Nothing -> return (txs,Left "no pact exec found in command result")
-                    Just pe -> return (txs,Right pe)
+                    Nothing -> return (txs, Left "no pact exec found in command result")
+                    Just pe -> return (txs, Right pe)
           _ -> searchOuts cp txs
 
 setupClient :: SimConfig -> IO ClientEnv
 setupClient sc = flip mkClientEnv (scApiHostUrl sc) <$> newTlsManagerWith mgrSettings
   where
-    mgrSettings = mkManagerSettings
+    mgrSettings =
+      mkManagerSettings
         (TLSSettingsSimple True False False)
         Nothing
 
 -- | note, fetches [low - 1, hi] to have parent headers
 fetchHeaders :: SimConfig -> ClientEnv -> IO [BlockHeader]
 fetchHeaders sc cenv = do
-  r <- (`runClientM` cenv) $
-      headersClient (scVersion sc) (scChain sc) Nothing Nothing
-      (Just $ fromIntegral $ pred $ fst $ scRange sc)
-      (Just $ fromIntegral $ snd $ scRange sc)
+  r <-
+    (`runClientM` cenv) $
+      headersClient
+        (scVersion sc)
+        (scChain sc)
+        Nothing
+        Nothing
+        (Just $ fromIntegral $ pred $ fst $ scRange sc)
+        (Just $ fromIntegral $ snd $ scRange sc)
   case r of
     Left e -> throwM e
     Right p -> return $! _pageItems p
@@ -207,45 +237,74 @@ fetchOutputs sc cenv bhs = do
 
 simulateMain :: IO ()
 simulateMain = do
-  execParser opts >>= \(d,s,e,i,h,c,v,g) -> do
+  execParser opts >>= \(d, s, e, i, h, c, v, g) -> do
     vv <- chainwebVersionFromText (T.pack v)
     cc <- chainIdFromText (T.pack c)
     u <- parseBaseUrl h
-    let rng = (fromIntegral @Integer s,fromIntegral @Integer (fromMaybe s e))
+    let rng = (fromIntegral @Integer s, fromIntegral @Integer (fromMaybe s e))
     simulate $ SimConfig d i u rng cc vv g
   where
-    opts = info (parser <**> helper)
+    opts =
+      info
+        (parser <**> helper)
         (fullDesc <> progDesc "Single Transaction simulator")
-    parser = (,,,,,,,)
+    parser =
+      (,,,,,,,)
         <$> strOption
-             (short 'd'
+          ( short 'd'
               <> metavar "DBDIR"
-              <> help "Pact database directory")
-        <*> option auto
-             (short 's'
+              <> help "Pact database directory"
+          )
+        <*> option
+          auto
+          ( short 's'
               <> metavar "START_BLOCK_HEIGHT"
-              <> help "Starting block height")
-        <*> optional (option auto
-             (short 'e'
-              <> metavar "END_BLOCK_HEIGHT"
-              <> help "Ending block height, if running more than one block"))
-        <*> optional (option auto
-             (short 'i'
-              <> metavar "INDEX"
-              <> help "Transaction index in payload list. If provided, only runs first block with this tx."))
-        <*> (fromMaybe "api.chainweb.com" <$> optional (strOption
-             (short 'h'
-              <> metavar "API_HOST"
-              <> help "API host, default is api.chainweb.com")))
-        <*> (strOption
-             (short 'c'
-              <> metavar "CHAIN"
-              <> help "Chain ID"))
-        <*> (fromMaybe (show Mainnet01) <$> optional (strOption
-             (short 'v'
-              <> metavar "VERSION"
-              <> help ("Chainweb version, default is "
-                       ++ show Mainnet01))))
+              <> help "Starting block height"
+          )
+        <*> optional
+          ( option
+              auto
+              ( short 'e'
+                  <> metavar "END_BLOCK_HEIGHT"
+                  <> help "Ending block height, if running more than one block"
+              )
+          )
+        <*> optional
+          ( option
+              auto
+              ( short 'i'
+                  <> metavar "INDEX"
+                  <> help "Transaction index in payload list. If provided, only runs first block with this tx."
+              )
+          )
+        <*> ( fromMaybe "api.chainweb.com"
+                <$> optional
+                  ( strOption
+                      ( short 'h'
+                          <> metavar "API_HOST"
+                          <> help "API host, default is api.chainweb.com"
+                      )
+                  )
+            )
+        <*> ( strOption
+                ( short 'c'
+                    <> metavar "CHAIN"
+                    <> help "Chain ID"
+                )
+            )
+        <*> ( fromMaybe (show Mainnet01)
+                <$> optional
+                  ( strOption
+                      ( short 'v'
+                          <> metavar "VERSION"
+                          <> help
+                            ( "Chainweb version, default is "
+                                ++ show Mainnet01
+                            )
+                      )
+                  )
+            )
         <*> switch
-             (short 'g'
-              <> help "Enable gas logging")
+          ( short 'g'
+              <> help "Enable gas logging"
+          )

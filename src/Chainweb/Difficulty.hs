@@ -13,7 +13,6 @@
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeOperators #-}
-
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 
 -- |
@@ -26,45 +25,52 @@
 -- The difficulty of a block. The difficulty is a measure for the expected work
 -- that is needed to mine a block. Formally it is defined as the maximum hash
 -- target value divided by the hash target for the block.
---
 module Chainweb.Difficulty
-(
--- * PowHashNat
-  PowHashNat(..)
-, powHashNat
-, encodePowHashNat
-, decodePowHashNat
-, encodePowHashNatBe
-, decodePowHashNatBe
+  ( -- * PowHashNat
+    PowHashNat (..),
+    powHashNat,
+    encodePowHashNat,
+    decodePowHashNat,
+    encodePowHashNatBe,
+    decodePowHashNatBe,
 
--- * HashTarget
-, HashTarget(..)
-, hashTarget
-, showTargetHex
-, showTargetBits
-, checkTarget
-, maxTarget
-, maxTargetWord
-, encodeHashTarget
-, decodeHashTarget
+    -- * HashTarget
+    HashTarget (..),
+    hashTarget,
+    showTargetHex,
+    showTargetBits,
+    checkTarget,
+    maxTarget,
+    maxTargetWord,
+    encodeHashTarget,
+    decodeHashTarget,
 
--- * HashDifficulty
-, HashDifficulty(..)
-, encodeHashDifficulty
-, decodeHashDifficulty
-, encodeHashDifficultyBe
-, decodeHashDifficultyBe
-, targetToDifficulty
+    -- * HashDifficulty
+    HashDifficulty (..),
+    encodeHashDifficulty,
+    decodeHashDifficulty,
+    encodeHashDifficultyBe,
+    decodeHashDifficultyBe,
+    targetToDifficulty,
 
--- * Difficulty Adjustment
-, adjust
-, legacyAdjust
-) where
+    -- * Difficulty Adjustment
+    adjust,
+    legacyAdjust,
+  )
+where
 
+-- internal imports
+
+import Chainweb.Crypto.MerkleLog
+import Chainweb.MerkleUniverse
+import Chainweb.PowHash
+import Chainweb.Time (Micros (..), Seconds, TimeSpan (..))
+import Chainweb.Utils
+import Chainweb.Utils.Serialization
+import Chainweb.Version
 import Control.DeepSeq
 import Control.Lens
 import Control.Monad
-
 import Data.Aeson
 import Data.Aeson.Types (toJSONKeyText)
 import Data.Bits
@@ -73,28 +79,16 @@ import Data.Coerce
 import Data.DoubleWord
 import Data.Hashable
 import qualified Data.Text as T
-
 import GHC.Generics
 import GHC.TypeNats
-
-import Text.Printf (printf)
-
--- internal imports
-
-import Chainweb.Crypto.MerkleLog
-import Chainweb.MerkleUniverse
-import Chainweb.PowHash
-import Chainweb.Time (Micros(..), Seconds, TimeSpan(..))
-import Chainweb.Utils
-import Chainweb.Utils.Serialization
-import Chainweb.Version
-
 import Numeric.Additive
+import Text.Printf (printf)
 
 -- -------------------------------------------------------------------------- --
 -- Large Word Orphans
 
 instance NFData Word128
+
 instance NFData Word256
 
 -- -------------------------------------------------------------------------- --
@@ -107,17 +101,17 @@ instance NFData Word256
 --
 -- Arithmetic is defined as unsigned bounded integer arithmetic.
 -- Overflows result in an exception and may result in program abort.
---
 newtype PowHashNat = PowHashNat Word256
-    deriving (Show, Generic)
-    deriving anyclass (Hashable, NFData)
-    deriving newtype (Eq, Ord, Bounded, Enum)
-    deriving newtype (Num, Integral, Real, Bits, FiniteBits)
-        -- FIXME implement checked arithmetic
-        -- FIXME avoid usage of Num and co
-    deriving newtype (AdditiveSemigroup, AdditiveAbelianSemigroup)
-    -- deriving newtype (MultiplicativeSemigroup, MultiplicativeAbelianSemigroup, MultiplicativeGroup)
-        -- FIXME use checked arithmetic instead
+  deriving (Show, Generic)
+  deriving anyclass (Hashable, NFData)
+  deriving newtype (Eq, Ord, Bounded, Enum)
+  deriving newtype (Num, Integral, Real, Bits, FiniteBits)
+  -- FIXME implement checked arithmetic
+  -- FIXME avoid usage of Num and co
+  deriving newtype (AdditiveSemigroup, AdditiveAbelianSemigroup)
+
+-- deriving newtype (MultiplicativeSemigroup, MultiplicativeAbelianSemigroup, MultiplicativeGroup)
+-- FIXME use checked arithmetic instead
 
 powHashNat :: PowHash -> PowHashNat
 powHashNat = PowHashNat . powHashToWord256
@@ -144,25 +138,30 @@ decodePowHashNatBe = PowHashNat <$!> decodeWordBe
 {-# INLINE decodePowHashNatBe #-}
 
 instance ToJSON PowHashNat where
-    toJSON = toJSON . encodeB64UrlNoPaddingText . runPutS . encodePowHashNat
-    toEncoding = b64UrlNoPaddingTextEncoding . runPutS . encodePowHashNat
-    {-# INLINE toJSON #-}
-    {-# INLINE toEncoding #-}
+  toJSON = toJSON . encodeB64UrlNoPaddingText . runPutS . encodePowHashNat
+  toEncoding = b64UrlNoPaddingTextEncoding . runPutS . encodePowHashNat
+  {-# INLINE toJSON #-}
+  {-# INLINE toEncoding #-}
 
 instance FromJSON PowHashNat where
-    parseJSON = withText "PowHashNat" $ either (fail . show) return
+  parseJSON =
+    withText "PowHashNat" $
+      either (fail . show) return
         . (runGetS decodePowHashNat <=< decodeB64UrlNoPaddingText)
-    {-# INLINE parseJSON #-}
+  {-# INLINE parseJSON #-}
 
 instance ToJSONKey PowHashNat where
-    toJSONKey = toJSONKeyText
-        $ encodeB64UrlNoPaddingText . runPutS . encodePowHashNat
-    {-# INLINE toJSONKey #-}
+  toJSONKey =
+    toJSONKeyText $
+      encodeB64UrlNoPaddingText . runPutS . encodePowHashNat
+  {-# INLINE toJSONKey #-}
 
 instance FromJSONKey PowHashNat where
-    fromJSONKey = FromJSONKeyTextParser $ either (fail . show) return
+  fromJSONKey =
+    FromJSONKeyTextParser $
+      either (fail . show) return
         . (runGetS decodePowHashNat <=< decodeB64UrlNoPaddingText)
-    {-# INLINE fromJSONKey #-}
+  {-# INLINE fromJSONKey #-}
 
 -- -------------------------------------------------------------------------- --
 -- HashTarget
@@ -173,28 +172,24 @@ instance FromJSONKey PowHashNat where
 --        = maxBound / difficulty
 --
 -- network hash rate is interpolated from observered past block times.
---
-newtype HashTarget = HashTarget { _hashTarget :: PowHashNat }
-    deriving (Show, Eq, Ord, Generic)
-    deriving anyclass (NFData)
-    deriving newtype (ToJSON, FromJSON, Hashable, Bounded)
+newtype HashTarget = HashTarget {_hashTarget :: PowHashNat}
+  deriving (Show, Eq, Ord, Generic)
+  deriving anyclass (NFData)
+  deriving newtype (ToJSON, FromJSON, Hashable, Bounded)
 
 hashTarget :: Lens' HashTarget PowHashNat
 hashTarget = lens _hashTarget $ const HashTarget
 {-# INLINE hashTarget #-}
 
 -- | A visualization of a `HashTarget` as binary.
---
 showTargetHex :: HashTarget -> T.Text
 showTargetHex (HashTarget (PowHashNat n)) = T.pack . printf "%064x" $ (int n :: Integer)
 
 -- | A visualization of a `HashTarget` as binary.
---
 showTargetBits :: HashTarget -> T.Text
 showTargetBits (HashTarget (PowHashNat n)) = T.pack . printf "%0256b" $ (int n :: Integer)
 
 -- | By maximum, we mean "easiest".
---
 maxTarget :: HashTarget
 maxTarget = HashTarget $ PowHashNat maxTargetWord
 
@@ -202,15 +197,14 @@ maxTargetWord :: Word256
 maxTargetWord = maxBound
 
 instance MerkleHashAlgorithm a => IsMerkleLogEntry a ChainwebHashTag HashTarget where
-    type Tag HashTarget = 'HashTargetTag
-    toMerkleNode = encodeMerkleInputNode encodeHashTarget
-    fromMerkleNode = decodeMerkleInputNode decodeHashTarget
-    {-# INLINE toMerkleNode #-}
-    {-# INLINE fromMerkleNode #-}
+  type Tag HashTarget = 'HashTargetTag
+  toMerkleNode = encodeMerkleInputNode encodeHashTarget
+  fromMerkleNode = decodeMerkleInputNode decodeHashTarget
+  {-# INLINE toMerkleNode #-}
+  {-# INLINE fromMerkleNode #-}
 
 -- | The critical check in Proof-of-Work mining: did the generated hash match
 -- the target?
---
 checkTarget :: HashTarget -> PowHash -> Bool
 checkTarget (HashTarget target) h = powHashNat h <= target
 {-# INLINE checkTarget #-}
@@ -235,13 +229,12 @@ decodeHashTarget = HashTarget <$!> decodePowHashNat
 --
 -- The weight of a block is the sum of the difficulties of the block and  and
 -- all it's ancestors on the chain.
---
 newtype HashDifficulty = HashDifficulty PowHashNat
-    deriving (Show, Eq, Ord, Generic)
-    deriving anyclass (NFData)
-    deriving newtype (ToJSON, FromJSON, ToJSONKey, FromJSONKey, Hashable, Bounded, Enum)
-    deriving newtype (AdditiveSemigroup, AdditiveAbelianSemigroup)
-    deriving newtype (Num, Integral, Real)
+  deriving (Show, Eq, Ord, Generic)
+  deriving anyclass (NFData)
+  deriving newtype (ToJSON, FromJSON, ToJSONKey, FromJSONKey, Hashable, Bounded, Enum)
+  deriving newtype (AdditiveSemigroup, AdditiveAbelianSemigroup)
+  deriving newtype (Num, Integral, Real)
 
 encodeHashDifficulty :: HashDifficulty -> Put
 encodeHashDifficulty (HashDifficulty x) = encodePowHashNat x
@@ -261,10 +254,9 @@ decodeHashDifficultyBe = HashDifficulty <$!> decodePowHashNatBe
 
 -- | Given the same `ChainwebVersion`, forms an isomorphism with
 -- `difficultyToTarget`.
---
 targetToDifficulty :: HashTarget -> HashDifficulty
 targetToDifficulty (HashTarget (PowHashNat target)) =
-    HashDifficulty . PowHashNat $ maxTargetWord `div` target
+  HashDifficulty . PowHashNat $ maxTargetWord `div` target
 {-# INLINE targetToDifficulty #-}
 
 -- -------------------------------------------------------------------------- --
@@ -281,20 +273,19 @@ targetToDifficulty (HashTarget (PowHashNat target)) =
 -- using (infinite precision) rational arithmetic and the result converted
 -- to a target value by rounding down to the nearest integer value that is
 -- smaller or equal than 2^256-1.
---
-adjust
-    :: ChainwebVersion
-        -- ^ Chainweb Version
-    -> WindowWidth
-        -- ^ The number of blocks in an epoch
-    -> TimeSpan Micros
-        -- ^ the actual time of the last epoch: creation time minus the epoch
-        -- start time of the last block in the (previous) epoch
-    -> HashTarget
-        -- ^ the hash target of the (previous) epoch, i.e. the hash target of
-        -- the last header in the (previous) epoch
-    -> HashTarget
-        -- ^ the hash target of the new epoch
+adjust ::
+  -- | Chainweb Version
+  ChainwebVersion ->
+  -- | The number of blocks in an epoch
+  WindowWidth ->
+  -- | the actual time of the last epoch: creation time minus the epoch
+  -- start time of the last block in the (previous) epoch
+  TimeSpan Micros ->
+  -- | the hash target of the (previous) epoch, i.e. the hash target of
+  -- the last header in the (previous) epoch
+  HashTarget ->
+  -- | the hash target of the new epoch
+  HashTarget
 adjust v (WindowWidth ww) (TimeSpan delta) (HashTarget oldTarget) = newTarget
   where
     br :: Seconds
@@ -309,29 +300,29 @@ adjust v (WindowWidth ww) (TimeSpan delta) (HashTarget oldTarget) = newTarget
     actualEpochTime = int delta
 
     newTarget :: HashTarget
-    newTarget = min maxTarget
-        $ HashTarget . PowHashNat
-        $ ceiling
-        $ (actualEpochTime / targetedEpochTime)
-        * int oldTarget
+    newTarget =
+      min maxTarget $
+        HashTarget . PowHashNat $
+          ceiling $
+            (actualEpochTime / targetedEpochTime)
+              * int oldTarget
 
 -- | legacy target computation
 --
 -- This is used when 'oldDaGuard' is active.
---
-legacyAdjust
-    :: ChainwebVersion
-        -- ^ Chainweb Version
-    -> WindowWidth
-        -- ^ The number of blocks in an epoch
-    -> TimeSpan Micros
-        -- ^ the actual time of the last epoch: creation time minus the epoch
-        -- start time of the last block in the (previous) epoch
-    -> HashTarget
-        -- ^ the hash target of the (previous) epoch, i.e. the hash target of
-        -- the last header in the (previous) epoch
-    -> HashTarget
-        -- ^ the hash target of the new epoch
+legacyAdjust ::
+  -- | Chainweb Version
+  ChainwebVersion ->
+  -- | The number of blocks in an epoch
+  WindowWidth ->
+  -- | the actual time of the last epoch: creation time minus the epoch
+  -- start time of the last block in the (previous) epoch
+  TimeSpan Micros ->
+  -- | the hash target of the (previous) epoch, i.e. the hash target of
+  -- the last header in the (previous) epoch
+  HashTarget ->
+  -- | the hash target of the new epoch
+  HashTarget
 legacyAdjust v (WindowWidth ww) (TimeSpan delta) (HashTarget oldTarget) = newTarget
   where
     br :: Seconds
@@ -345,4 +336,3 @@ legacyAdjust v (WindowWidth ww) (TimeSpan delta) (HashTarget oldTarget) = newTar
 
     newTarget :: HashTarget
     newTarget = HashTarget . PowHashNat $ maxTargetWord `div` ceiling newDiff
-

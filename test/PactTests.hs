@@ -9,20 +9,22 @@
 -- Stability: experimental
 --
 -- TODO
---
 module Main
-( main
-) where
-
-import Test.Tasty
+  ( main,
+  )
+where
 
 import qualified Chainweb.Test.Pact
 import qualified Chainweb.Test.Pact.PactService
+import Test.Tasty
 
 main :: IO ()
 main = do
-    pactTests <- Chainweb.Test.Pact.tests
-    pactServiceTests <- Chainweb.Test.Pact.PactService.tests
-    defaultMain $ testGroup "Chainweb-Pact Unit Tests"
-        [ pactTests
-        , pactServiceTests ]
+  pactTests <- Chainweb.Test.Pact.tests
+  pactServiceTests <- Chainweb.Test.Pact.PactService.tests
+  defaultMain $
+    testGroup
+      "Chainweb-Pact Unit Tests"
+      [ pactTests,
+        pactServiceTests
+      ]

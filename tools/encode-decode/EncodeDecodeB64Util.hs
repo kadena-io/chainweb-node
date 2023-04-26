@@ -2,42 +2,41 @@
 
 module EncodeDecodeB64Util where
 
-import Control.Monad
-
-import Data.ByteString (ByteString)
-import qualified Data.ByteString.Char8 as B
-
-import qualified Data.Text as T
-import Data.Text (Text)
-import qualified Data.Text.IO as T
-
-import Options.Applicative
-
 -- internal imports
 
 import Chainweb.Utils
+import Control.Monad
+import Data.ByteString (ByteString)
+import qualified Data.ByteString.Char8 as B
+import Data.Text (Text)
+import qualified Data.Text as T
+import qualified Data.Text.IO as T
+import Options.Applicative
 
 main :: IO ()
-main = execParser opts >>= \case
+main =
+  execParser opts >>= \case
     Encode variant -> B.getContents >>= encoderWork variant
     Decode variant -> T.getContents >>= decoderWork variant
   where
     opts :: ParserInfo Command
-    opts = info (pCommand <**>  helper)
+    opts =
+      info
+        (pCommand <**> helper)
         (fullDesc <> progDesc "Encode/decode input via Base64 (and its variants)")
 
 encoderWork :: Base64Variant -> ByteString -> IO ()
 encoderWork variant bytes =
-    mapM_ (T.putStrLn . encodingFunction variant) (B.lines bytes)
+  mapM_ (T.putStrLn . encodingFunction variant) (B.lines bytes)
   where
     encodingFunction v = case v of
       Base64 -> encodeB64Text
       Base64Url -> encodeB64UrlText
       Base64UrlNoPadding -> encodeB64UrlNoPaddingText
 
-decoderWork ::Base64Variant -> Text -> IO ()
+decoderWork :: Base64Variant -> Text -> IO ()
 decoderWork variant text =
-    mapM_ (decodingFunction variant >=> B.putStrLn) (T.lines text)
+  mapM_ (decodingFunction variant >=> B.putStrLn) (T.lines text)
   where
     decodingFunction v = case v of
       Base64 -> decodeB64Text
@@ -56,11 +55,12 @@ data Base64Variant
 pCommand :: Parser Command
 pCommand =
   hsubparser
-    (toCommand "encodeB64" (pure $ Encode Base64) <>
-     toCommand "encodeB64Url" (pure $ Encode Base64Url) <>
-     toCommand "encodeB64UrlNoPadding" (pure $ Encode Base64UrlNoPadding) <>
-     toCommand "decodeB64" (pure $ Decode Base64) <>
-     toCommand "decodeB64Url" (pure $ Decode Base64Url) <>
-     toCommand "decodeB64UrlNoPadding" (pure $ Decode Base64UrlNoPadding))
+    ( toCommand "encodeB64" (pure $ Encode Base64)
+        <> toCommand "encodeB64Url" (pure $ Encode Base64Url)
+        <> toCommand "encodeB64UrlNoPadding" (pure $ Encode Base64UrlNoPadding)
+        <> toCommand "decodeB64" (pure $ Decode Base64)
+        <> toCommand "decodeB64Url" (pure $ Decode Base64Url)
+        <> toCommand "decodeB64UrlNoPadding" (pure $ Decode Base64UrlNoPadding)
+    )
   where
     toCommand string pcmd = command string (info pcmd (progDesc string))

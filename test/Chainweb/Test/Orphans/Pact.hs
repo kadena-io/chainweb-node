@@ -7,7 +7,6 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TypeApplications #-}
-
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 
 -- |
@@ -18,56 +17,56 @@
 -- Stability: experimental
 --
 -- Orphand Arbitrary Instances for Pact Types
---
 module Chainweb.Test.Orphans.Pact
-( arbitraryJsonValue
-, arbitraryCommandResultWithEvents
-, arbitraryMaybe
-) where
+  ( arbitraryJsonValue,
+    arbitraryCommandResultWithEvents,
+    arbitraryMaybe,
+  )
+where
 
 import qualified Data.Aeson as A
 import qualified Data.Vector as V
-
 import Pact.Types.Command
 import Pact.Types.Runtime
-
 import Test.QuickCheck
 
 -- -------------------------------------------------------------------------- --
 --
 
 instance Arbitrary RequestKey where
-    arbitrary = RequestKey <$> arbitrary
+  arbitrary = RequestKey <$> arbitrary
 
 instance Arbitrary TxId where
-    arbitrary = TxId <$> arbitrary
+  arbitrary = TxId <$> arbitrary
 
 instance Arbitrary PactResult where
-    arbitrary = PactResult . Right <$> arbitrary
+  arbitrary = PactResult . Right <$> arbitrary
 
 instance Arbitrary Gas where
-    arbitrary = Gas <$> arbitrary
+  arbitrary = Gas <$> arbitrary
 
 arbitraryJsonValue :: Gen A.Value
 arbitraryJsonValue = go (3 :: Int)
   where
-    go 0 = oneof
-        [ pure A.Null
-        , A.String <$> arbitrary
-        , A.Number <$> arbitrary
+    go 0 =
+      oneof
+        [ pure A.Null,
+          A.String <$> arbitrary,
+          A.Number <$> arbitrary
         ]
-    go i = oneof
-        [ A.object <$> listOf ((,) <$> arbitrary <*> go (i - 1))
-        , A.Array . V.fromList <$> listOf (go (i - 1))
-        , pure A.Null
-        , A.String <$> arbitrary
-        , A.Number <$> arbitrary
+    go i =
+      oneof
+        [ A.object <$> listOf ((,) <$> arbitrary <*> go (i - 1)),
+          A.Array . V.fromList <$> listOf (go (i - 1)),
+          pure A.Null,
+          A.String <$> arbitrary,
+          A.Number <$> arbitrary
         ]
 
 -- | Generates only successful results without continuations.
---
 arbitraryCommandResultWithEvents :: Gen PactEvent -> Gen (CommandResult Hash)
-arbitraryCommandResultWithEvents genEvent = CommandResult
+arbitraryCommandResultWithEvents genEvent =
+  CommandResult
     <$> arbitrary -- _crReqKey
     <*> arbitrary -- _crTxId
     <*> arbitrary -- _crResult
@@ -79,4 +78,3 @@ arbitraryCommandResultWithEvents genEvent = CommandResult
 
 arbitraryMaybe :: Gen a -> Gen (Maybe a)
 arbitraryMaybe gen = arbitrary >>= mapM (const @_ @() gen)
-

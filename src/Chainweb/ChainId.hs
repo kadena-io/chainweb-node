@@ -20,52 +20,37 @@
 -- Stability: experimental
 --
 -- The defininitions in this module are also exported via "Chainweb.Version".
---
 module Chainweb.ChainId
-( ChainIdException(..)
-, ChainId
-, HasChainId(..)
-, checkChainId
-, chainIdToText
-, chainIdFromText
+  ( ChainIdException (..),
+    ChainId,
+    HasChainId (..),
+    checkChainId,
+    chainIdToText,
+    chainIdFromText,
 
--- * Serialization
-, encodeChainId
-, decodeChainId
-, decodeChainIdChecked
+    -- * Serialization
+    encodeChainId,
+    decodeChainId,
+    decodeChainIdChecked,
 
--- * Typelevel ChainID
-, ChainIdT(..)
-, ChainIdSymbol
-, chainIdSymbolVal
-, SomeChainIdT(..)
-, KnownChainIdSymbol
-, someChainIdVal
+    -- * Typelevel ChainID
+    ChainIdT (..),
+    ChainIdSymbol,
+    chainIdSymbolVal,
+    SomeChainIdT (..),
+    KnownChainIdSymbol,
+    someChainIdVal,
 
--- * Singletons
-, Sing(SChainId)
-, type SChainId
-, pattern FromSingChainId
+    -- * Singletons
+    Sing (SChainId),
+    type SChainId,
+    pattern FromSingChainId,
 
--- * Testing
-, unsafeChainId
-, chainIdInt
-) where
-
-import Control.DeepSeq
-import Control.Lens
-import Control.Monad.Catch (Exception, MonadThrow)
-
-import Data.Aeson
-import Data.Aeson.Types (toJSONKeyText)
-import Data.Hashable (Hashable(..))
-import Data.Kind
-import Data.Proxy
-import qualified Data.Text as T
-import Data.Word (Word32)
-
-import GHC.Generics (Generic)
-import GHC.TypeLits
+    -- * Testing
+    unsafeChainId,
+    chainIdInt,
+  )
+where
 
 -- internal imports
 
@@ -73,15 +58,26 @@ import Chainweb.Crypto.MerkleLog
 import Chainweb.MerkleUniverse
 import Chainweb.Utils
 import Chainweb.Utils.Serialization
-
+import Control.DeepSeq
+import Control.Lens
+import Control.Monad.Catch (Exception, MonadThrow)
+import Data.Aeson
+import Data.Aeson.Types (toJSONKeyText)
+import Data.Hashable (Hashable (..))
+import Data.Kind
+import Data.Proxy
 import Data.Singletons
+import qualified Data.Text as T
+import Data.Word (Word32)
+import GHC.Generics (Generic)
+import GHC.TypeLits
 
 -- -------------------------------------------------------------------------- --
 -- Exceptions
 
 data ChainIdException
-    = ChainIdMismatch (Expected ChainId) (Actual ChainId)
-    deriving (Show, Eq, Ord, Generic)
+  = ChainIdMismatch (Expected ChainId) (Actual ChainId)
+  deriving (Show, Eq, Ord, Generic)
 
 instance Exception ChainIdException
 
@@ -103,58 +99,58 @@ instance Exception ChainIdException
 -- * To deserialize a chain id, use 'mkChainId'.
 -- * For a random chain id consider using 'randomChainId'.
 -- * For some arbitrary but fixed chain id consider using 'someChainId'.
---
 newtype ChainId :: Type where
-    ChainId :: Word32 -> ChainId
-    deriving stock (Show, Read, Eq, Ord, Generic)
-    deriving anyclass (Hashable, ToJSON, FromJSON, NFData)
+  ChainId :: Word32 -> ChainId
+  deriving stock (Show, Read, Eq, Ord, Generic)
+  deriving anyclass (Hashable, ToJSON, FromJSON, NFData)
 
 instance ToJSONKey ChainId where
-    toJSONKey = toJSONKeyText toText
-    {-# INLINE toJSONKey #-}
+  toJSONKey = toJSONKeyText toText
+  {-# INLINE toJSONKey #-}
 
 instance FromJSONKey ChainId where
-    fromJSONKey = FromJSONKeyTextParser (either fail return . eitherFromText)
-    {-# INLINE fromJSONKey #-}
+  fromJSONKey = FromJSONKeyTextParser (either fail return . eitherFromText)
+  {-# INLINE fromJSONKey #-}
 
 class HasChainId a where
-    _chainId :: a -> ChainId
-    _chainId = view chainId
-    {-# INLINE _chainId #-}
+  _chainId :: a -> ChainId
+  _chainId = view chainId
+  {-# INLINE _chainId #-}
 
-    chainId :: Getter a ChainId
-    chainId = to _chainId
-    {-# INLINE chainId #-}
+  chainId :: Getter a ChainId
+  chainId = to _chainId
+  {-# INLINE chainId #-}
 
-    {-# MINIMAL _chainId | chainId #-}
+  {-# MINIMAL _chainId | chainId #-}
 
 instance HasChainId ChainId where
-    _chainId = id
-    {-# INLINE _chainId #-}
+  _chainId = id
+  {-# INLINE _chainId #-}
 
 instance HasChainId a => HasChainId (Expected a) where
-    _chainId = _chainId . getExpected
-    {-# INLINE _chainId #-}
+  _chainId = _chainId . getExpected
+  {-# INLINE _chainId #-}
 
 instance HasChainId a => HasChainId (Actual a) where
-    _chainId = _chainId . getActual
-    {-# INLINE _chainId #-}
+  _chainId = _chainId . getActual
+  {-# INLINE _chainId #-}
 
 instance MerkleHashAlgorithm a => IsMerkleLogEntry a ChainwebHashTag ChainId where
-    type Tag ChainId = 'ChainIdTag
-    toMerkleNode = encodeMerkleInputNode encodeChainId
-    fromMerkleNode = decodeMerkleInputNode decodeChainId
-    {-# INLINE toMerkleNode #-}
-    {-# INLINE fromMerkleNode #-}
+  type Tag ChainId = 'ChainIdTag
+  toMerkleNode = encodeMerkleInputNode encodeChainId
+  fromMerkleNode = decodeMerkleInputNode decodeChainId
+  {-# INLINE toMerkleNode #-}
+  {-# INLINE fromMerkleNode #-}
 
-checkChainId
-    :: MonadThrow m
-    => HasChainId expected
-    => HasChainId actual
-    => Expected expected
-    -> Actual actual
-    -> m ChainId
-checkChainId expected actual = _chainId
+checkChainId ::
+  MonadThrow m =>
+  HasChainId expected =>
+  HasChainId actual =>
+  Expected expected ->
+  Actual actual ->
+  m ChainId
+checkChainId expected actual =
+  _chainId
     <$> check ChainIdMismatch (_chainId <$> expected) (_chainId <$> actual)
 {-# INLINE checkChainId #-}
 
@@ -167,10 +163,10 @@ chainIdFromText = fmap ChainId . treadM
 {-# INLINE chainIdFromText #-}
 
 instance HasTextRepresentation ChainId where
-    toText = chainIdToText
-    {-# INLINE toText #-}
-    fromText = chainIdFromText
-    {-# INLINE fromText #-}
+  toText = chainIdToText
+  {-# INLINE toText #-}
+  fromText = chainIdFromText
+  {-# INLINE fromText #-}
 
 -- -------------------------------------------------------------------------- --
 -- Serialization
@@ -183,10 +179,10 @@ decodeChainId :: Get ChainId
 decodeChainId = ChainId <$> getWord32le
 {-# INLINE decodeChainId #-}
 
-decodeChainIdChecked
-    :: HasChainId p
-    => Expected p
-    -> Get ChainId
+decodeChainIdChecked ::
+  HasChainId p =>
+  Expected p ->
+  Get ChainId
 decodeChainIdChecked p = checkChainId p . Actual =<< decodeChainId
 {-# INLINE decodeChainIdChecked #-}
 
@@ -198,44 +194,48 @@ decodeChainIdChecked p = checkChainId p . Actual =<< decodeChainId
 --
 newtype ChainIdT = ChainIdT Symbol
 
-data SomeChainIdT = forall (a :: ChainIdT)
-    . KnownChainIdSymbol a => SomeChainIdT (Proxy a)
+data SomeChainIdT
+  = forall (a :: ChainIdT).
+    KnownChainIdSymbol a =>
+    SomeChainIdT (Proxy a)
 
 class KnownSymbol (ChainIdSymbol n) => KnownChainIdSymbol (n :: ChainIdT) where
-    type ChainIdSymbol n :: Symbol
-    chainIdSymbolVal :: Proxy n -> T.Text
+  type ChainIdSymbol n :: Symbol
+  chainIdSymbolVal :: Proxy n -> T.Text
 
 instance KnownSymbol n => KnownChainIdSymbol ('ChainIdT n) where
-    type ChainIdSymbol ('ChainIdT n) = n
-    chainIdSymbolVal _ = T.pack $ symbolVal (Proxy @n)
+  type ChainIdSymbol ('ChainIdT n) = n
+  chainIdSymbolVal _ = T.pack $ symbolVal (Proxy @n)
 
 someChainIdVal :: ChainId -> SomeChainIdT
 someChainIdVal cid = case someSymbolVal (T.unpack (toText cid)) of
-    (SomeSymbol (Proxy :: Proxy v)) -> SomeChainIdT (Proxy @('ChainIdT v))
+  (SomeSymbol (Proxy :: Proxy v)) -> SomeChainIdT (Proxy @('ChainIdT v))
 
 -- -------------------------------------------------------------------------- --
 -- Singletons
 
 data instance Sing (n :: ChainIdT) where
-    SChainId :: KnownChainIdSymbol n => Sing n
+  SChainId :: KnownChainIdSymbol n => Sing n
 
 type SChainId (n :: ChainIdT) = Sing n
 
 instance KnownChainIdSymbol n => SingI (n :: ChainIdT) where
-    sing = SChainId
+  sing = SChainId
 
 instance SingKind ChainIdT where
-    type Demote ChainIdT = ChainId
-    fromSing (SChainId :: Sing n) = unsafeFromText $ chainIdSymbolVal (Proxy @n)
-    toSing n = case someChainIdVal n of
-        SomeChainIdT p -> SomeSing (singByProxy p)
+  type Demote ChainIdT = ChainId
+  fromSing (SChainId :: Sing n) = unsafeFromText $ chainIdSymbolVal (Proxy @n)
+  toSing n = case someChainIdVal n of
+    SomeChainIdT p -> SomeSing (singByProxy p)
 
-    {-# INLINE fromSing #-}
-    {-# INLINE toSing #-}
+  {-# INLINE fromSing #-}
+  {-# INLINE toSing #-}
 
 pattern FromSingChainId :: Sing (n :: ChainIdT) -> ChainId
 pattern FromSingChainId sng <- ((\cid -> withSomeSing cid SomeSing) -> SomeSing sng)
-  where FromSingChainId sng = fromSing sng
+  where
+    FromSingChainId sng = fromSing sng
+
 {-# COMPLETE FromSingChainId #-}
 
 -- -------------------------------------------------------------------------- --
@@ -243,7 +243,6 @@ pattern FromSingChainId sng <- ((\cid -> withSomeSing cid SomeSing) -> SomeSing 
 
 -- | This function should be be rarely needed. Please consult the documentation
 -- of 'ChainId' for alternative ways to obtain 'ChainId' values.
---
 unsafeChainId :: Word32 -> ChainId
 unsafeChainId = ChainId
 {-# INLINE unsafeChainId #-}
@@ -251,4 +250,3 @@ unsafeChainId = ChainId
 chainIdInt :: Integral i => ChainId -> i
 chainIdInt (ChainId cid) = int cid
 {-# INLINE chainIdInt #-}
-

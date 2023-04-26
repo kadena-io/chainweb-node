@@ -12,42 +12,39 @@
 -- Stability: experimental
 --
 -- TODO
---
 module P2P.Test.Node
-( prop_geometric
-, properties
-) where
+  ( prop_geometric,
+    properties,
+  )
+where
 
 import qualified Data.List as L
-
-import qualified System.Random as R
-
-import Test.QuickCheck
-
 -- internal modules
 
 import P2P.Node
+import qualified System.Random as R
+import Test.QuickCheck
 
 -- -------------------------------------------------------------------------- --
 -- Utils
 
-newtype ArbitraryGen = ArbitraryGen { _getGen :: R.StdGen }
-    deriving (R.RandomGen, Show)
+newtype ArbitraryGen = ArbitraryGen {_getGen :: R.StdGen}
+  deriving (R.RandomGen, Show)
 
 instance Arbitrary ArbitraryGen where
-    arbitrary = ArbitraryGen . R.mkStdGen <$> arbitrary
+  arbitrary = ArbitraryGen . R.mkStdGen <$> arbitrary
 
 -- Internal function from System.Random
 --
-buildRandoms
-    :: R.RandomGen g
-    => (a -> as -> as)
-    -> (g -> (a,g))
-    -> g
-    -> as
+buildRandoms ::
+  R.RandomGen g =>
+  (a -> as -> as) ->
+  (g -> (a, g)) ->
+  g ->
+  as
 buildRandoms cons rand = go
   where
-    go g = x `seq` (x `cons` go g') where (x,g') = rand g
+    go g = x `seq` (x `cons` go g') where (x, g') = rand g
 
 -- -------------------------------------------------------------------------- --
 -- Properties of Geometric Distribution
@@ -59,10 +56,10 @@ prop_geometric :: Property
 prop_geometric = forAll genGeometricParam prop_geometricParam
 
 prop_geometricParam :: Double -> ArbitraryGen -> Property
-prop_geometricParam param (ArbitraryGen gen) = counterexample (show hist__) $
+prop_geometricParam param (ArbitraryGen gen) =
+  counterexample (show hist__) $
     all (uncurry approx) hist_
   where
-
     -- Histgram of sampled (actual) values
     hist = L.length <$> L.group (L.sort mkdist)
 
@@ -70,7 +67,7 @@ prop_geometricParam param (ArbitraryGen gen) = counterexample (show hist__) $
     hist_ = zip (expected n) hist
 
     -- When displaying counterexamples, the expected bounds are included
-    hist__ = fmap (\(a,b) -> (a * (1 - (100 / a)), a * (1 + (100 / a)), a, b)) hist_
+    hist__ = fmap (\(a, b) -> (a * (1 - (100 / a)), a * (1 + (100 / a)), a, b)) hist_
 
     -- Sample n geometrically distributed values
     mkdist = take n $ buildRandoms (:) (geometric param) gen
@@ -95,5 +92,5 @@ prop_geometricParam param (ArbitraryGen gen) = counterexample (show hist__) $
 
 properties :: [(String, Property)]
 properties =
-    [ ("P2P.Test.Node.prop_geometric", prop_geometric)
-    ]
+  [ ("P2P.Test.Node.prop_geometric", prop_geometric)
+  ]

@@ -1,6 +1,7 @@
-module Chainweb.Test.TreeDB.RemoteDB ( tests ) where
+module Chainweb.Test.TreeDB.RemoteDB (tests) where
 
 import Test.Tasty
+
 -- import Test.Tasty.HUnit
 
 -- internal modules
@@ -18,10 +19,12 @@ import Test.Tasty
 -- import Chainweb.Version (ChainwebVersion(..))
 
 tests :: TestTree
-tests = testGroup "RemoteDB"
-    [
-    -- , treeDbInvariants withDb Sequential
-    ]
+tests =
+  testGroup
+    "RemoteDB"
+    []
+
+-- , treeDbInvariants withDb Sequential
 
 -- withDb :: BlockHeader -> (RemoteDb -> IO Bool) -> IO Bool
 -- withDb h f = do

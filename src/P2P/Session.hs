@@ -9,33 +9,28 @@
 -- Stability: experimental
 --
 -- The type of a P2P network session.
---
 module P2P.Session
-(
--- * Log Function
-  LogFunction
-, LogFunctionText
-, defaultLogFunction
+  ( -- * Log Function
+    LogFunction,
+    LogFunctionText,
+    defaultLogFunction,
 
--- * P2P Client Session
-, P2pSession
+    -- * P2P Client Session
+    P2pSession,
 
--- * Reexports
-, ClientEnv
-) where
+    -- * Reexports
+    ClientEnv,
+  )
+where
 
 import Control.Monad
-
-import qualified Data.Text.IO as T
-
-import Servant.Client
-
-import System.LogLevel
-
 -- Internal modules
 
 import Data.LogMessage
+import qualified Data.Text.IO as T
 import P2P.Peer
+import Servant.Client
+import System.LogLevel
 
 -- -------------------------------------------------------------------------- --
 -- Log Function

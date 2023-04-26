@@ -14,81 +14,82 @@
 -- License: MIT
 -- Maintainer: Lars Kuhtz <lars@kadena.io>
 -- Stability: experimental
---
 module JSONEncoding
-( benchmarks
-) where
-
-import Chainweb.BlockHeader.Genesis.Mainnet0Payload
-
-import Control.Lens hiding ((.=))
-
-import Criterion.Main
-
-import Data.Aeson
-import Data.Aeson.Encoding
-import qualified Data.ByteString.Lazy as BL
-
-import Numeric.Natural
-
-import System.IO.Unsafe
-
-import Test.QuickCheck
+  ( benchmarks,
+  )
+where
 
 -- internal modules
 
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
+import Chainweb.BlockHeader.Genesis.Mainnet0Payload
 import Chainweb.Chainweb.Configuration
 import Chainweb.Payload
 import Chainweb.RestAPI.NodeInfo
 import Chainweb.Test.Orphans.Internal
 import Chainweb.Utils.Paging
 import Chainweb.Version
+import Control.Lens hiding ((.=))
+import Criterion.Main
+import Data.Aeson
+import Data.Aeson.Encoding
+import qualified Data.ByteString.Lazy as BL
+import Numeric.Natural
+import System.IO.Unsafe
+import Test.QuickCheck
 
 -- -------------------------------------------------------------------------- --
 -- Main
 
 benchmarks :: Benchmark
-benchmarks = bgroup "JSONEncoding"
-    [ bgroup "payload page"
-        [ group "5" (payloadPage 5)
-        , group "10" (payloadPage 10)
-        , group "50" (payloadPage 50)
-        , group "100" (payloadPage 100)
-        , group "500" (payloadPage 500)
-        , group "1000" (payloadPage 1000)
-        , group "5000" (payloadPage 5000)
-        ]
-    , bgroup "header page"
-        [ group "5" (headerPage 5)
-        , group "10" (headerPage 10)
-        , group "50" (headerPage 50)
-        , group "100" (headerPage 100)
-        , group "500" (headerPage 500)
-        , group "1000" (headerPage 1000)
-        , group "5000" (headerPage 5000)
-        ]
-    , bgroup "object encoded header page"
-        [ group "5" (objHeaderPage 5)
-        , group "10" (objHeaderPage 10)
-        , group "50" (objHeaderPage 50)
-        , group "100" (objHeaderPage 100)
-        , group "500" (objHeaderPage 500)
-        , group "1000" (objHeaderPage 1000)
-        , group "5000" (objHeaderPage 5000)
-        ]
-    , bgroup "miscelaneous types"
-        [ group "payload" payload
-        , group "nodeInfo" nodeInfo
-        , group "config" config
+benchmarks =
+  bgroup
+    "JSONEncoding"
+    [ bgroup
+        "payload page"
+        [ group "5" (payloadPage 5),
+          group "10" (payloadPage 10),
+          group "50" (payloadPage 50),
+          group "100" (payloadPage 100),
+          group "500" (payloadPage 500),
+          group "1000" (payloadPage 1000),
+          group "5000" (payloadPage 5000)
+        ],
+      bgroup
+        "header page"
+        [ group "5" (headerPage 5),
+          group "10" (headerPage 10),
+          group "50" (headerPage 50),
+          group "100" (headerPage 100),
+          group "500" (headerPage 500),
+          group "1000" (headerPage 1000),
+          group "5000" (headerPage 5000)
+        ],
+      bgroup
+        "object encoded header page"
+        [ group "5" (objHeaderPage 5),
+          group "10" (objHeaderPage 10),
+          group "50" (objHeaderPage 50),
+          group "100" (objHeaderPage 100),
+          group "500" (objHeaderPage 500),
+          group "1000" (objHeaderPage 1000),
+          group "5000" (objHeaderPage 5000)
+        ],
+      bgroup
+        "miscelaneous types"
+        [ group "payload" payload,
+          group "nodeInfo" nodeInfo,
+          group "config" config
         ]
     ]
 
 group :: ToJSON a => String -> a -> Benchmark
-group l a = bgroup l
-    [ bench_toJSON a
-    , bench_toEncoding a
+group l a =
+  bgroup
+    l
+    [ bench_toJSON a,
+      bench_toEncoding a
     ]
 
 -- -------------------------------------------------------------------------- --
@@ -145,11 +146,13 @@ headerPage n = unsafePerformIO $ generate $ arbitraryPage n
 {-# NOINLINE headerPage #-}
 
 objHeaderPage :: Natural -> Page BlockHash (ObjectEncoded BlockHeader)
-objHeaderPage n = pageItems %~ fmap ObjectEncoded $ unsafePerformIO
-    $ generate $ arbitraryPage n
+objHeaderPage n =
+  pageItems %~ fmap ObjectEncoded $
+    unsafePerformIO $
+      generate $
+        arbitraryPage n
 {-# NOINLINE objHeaderPage #-}
 
 payloadPage :: Natural -> Page BlockHash PayloadWithOutputs
 payloadPage n = unsafePerformIO $ generate $ arbitraryPage n
 {-# NOINLINE payloadPage #-}
-

@@ -15,7 +15,6 @@
 {-# LANGUAGE TupleSections #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
-
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 
 -- |
@@ -26,54 +25,22 @@
 -- Stability: experimental
 --
 -- TODO
---
 module Main
-(
--- * Configuration
-  ChainwebNodeConfiguration(..)
+  ( -- * Configuration
+    ChainwebNodeConfiguration (..),
 
--- * Monitor
-, runCutMonitor
-, runRtsMonitor
+    -- * Monitor
+    runCutMonitor,
+    runRtsMonitor,
 
--- * Chainweb Node
-, node
-, withNodeLogger
+    -- * Chainweb Node
+    node,
+    withNodeLogger,
 
--- * Main function
-, main
-) where
-
-import Configuration.Utils hiding (Error)
-import Configuration.Utils.Validation (validateFilePath)
-
-import Control.Concurrent
-import Control.Concurrent.Async
-import Control.DeepSeq
-import Control.Exception
-import Control.Lens hiding ((.=))
-import Control.Monad
-import Control.Monad.Managed
-
-import Data.Text (Text)
-import qualified Data.Text as T
-import Data.Time
-import Data.Typeable
-
-import GHC.Generics hiding (from)
-import GHC.Stack
-import GHC.Stats
-
-import qualified Network.HTTP.Client as HTTP
-import qualified Network.HTTP.Client.TLS as HTTPS
-
-import qualified Streaming.Prelude as S
-
-import System.Directory
-import System.FilePath
-import System.IO
-import qualified System.Logger as L
-import System.LogLevel
+    -- * Main function
+    main,
+  )
+where
 
 -- internal modules
 
@@ -88,88 +55,114 @@ import Chainweb.Logger
 import Chainweb.Logging.Config
 import Chainweb.Logging.Miner
 import Chainweb.Mempool.Consensus (ReintroducedTxsLog)
-import Chainweb.Mempool.InMemTypes (MempoolStats(..))
+import Chainweb.Mempool.InMemTypes (MempoolStats (..))
 import Chainweb.Miner.Coordinator (MiningStats)
+import Chainweb.Pact.RestAPI.Server (PactCmdLog (..))
 import Chainweb.Pact.Service.PactQueue (PactQueueStats)
-import Chainweb.Pact.RestAPI.Server (PactCmdLog(..))
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
+import Chainweb.Storage.Table
+import Chainweb.Storage.Table.RocksDB
 import Chainweb.Time
 import Chainweb.Utils
 import Chainweb.Utils.RequestLog
 import Chainweb.Version
-
-import Chainweb.Storage.Table
-import Chainweb.Storage.Table.RocksDB
-
+import Configuration.Utils hiding (Error)
+import Configuration.Utils.Validation (validateFilePath)
+import Control.Concurrent
+import Control.Concurrent.Async
+import Control.DeepSeq
+import Control.Exception
+import Control.Lens hiding ((.=))
+import Control.Monad
+import Control.Monad.Managed
 import Data.LogMessage
-
+import Data.Text (Text)
+import qualified Data.Text as T
+import Data.Time
+import Data.Typeable
+import GHC.Generics hiding (from)
+import GHC.Stack
+import GHC.Stats
+import qualified Network.HTTP.Client as HTTP
+import qualified Network.HTTP.Client.TLS as HTTPS
 import P2P.Node
-
 import PkgInfo
-
+import qualified Streaming.Prelude as S
+import System.Directory
+import System.FilePath
+import System.IO
+import System.LogLevel
+import qualified System.Logger as L
+import Utils.CheckRLimits
+import Utils.InstallSignalHandlers
 import Utils.Logging
 import Utils.Logging.Config
 import Utils.Logging.Trace
-
-import Utils.CheckRLimits
-import Utils.InstallSignalHandlers
 
 -- -------------------------------------------------------------------------- --
 -- Configuration
 
 data ChainwebNodeConfiguration = ChainwebNodeConfiguration
-    { _nodeConfigChainweb :: !ChainwebConfiguration
-    , _nodeConfigLog :: !LogConfig
-    , _nodeConfigDatabaseDirectory :: !(Maybe FilePath)
-    , _nodeConfigResetChainDbs :: !Bool
-    }
-    deriving (Show, Eq, Generic)
+  { _nodeConfigChainweb :: !ChainwebConfiguration,
+    _nodeConfigLog :: !LogConfig,
+    _nodeConfigDatabaseDirectory :: !(Maybe FilePath),
+    _nodeConfigResetChainDbs :: !Bool
+  }
+  deriving (Show, Eq, Generic)
 
 makeLenses ''ChainwebNodeConfiguration
 
 defaultChainwebNodeConfiguration :: ChainwebVersion -> ChainwebNodeConfiguration
-defaultChainwebNodeConfiguration v = ChainwebNodeConfiguration
-    { _nodeConfigChainweb = defaultChainwebConfiguration v
-    , _nodeConfigLog = defaultLogConfig
-        & logConfigLogger . L.loggerConfigThreshold .~ level
-    , _nodeConfigDatabaseDirectory = Nothing
-    , _nodeConfigResetChainDbs = False
+defaultChainwebNodeConfiguration v =
+  ChainwebNodeConfiguration
+    { _nodeConfigChainweb = defaultChainwebConfiguration v,
+      _nodeConfigLog =
+        defaultLogConfig
+          & logConfigLogger . L.loggerConfigThreshold .~ level,
+      _nodeConfigDatabaseDirectory = Nothing,
+      _nodeConfigResetChainDbs = False
     }
   where
     level = case v of
-        Mainnet01 -> L.Info
-        _ -> L.Info
+      Mainnet01 -> L.Info
+      _ -> L.Info
 
 validateChainwebNodeConfiguration :: ConfigValidation ChainwebNodeConfiguration []
 validateChainwebNodeConfiguration o = do
-    validateLogConfig $ _nodeConfigLog o
-    validateChainwebConfiguration $ _nodeConfigChainweb o
-    mapM_ (validateFilePath "databaseDirectory") (_nodeConfigDatabaseDirectory o)
+  validateLogConfig $ _nodeConfigLog o
+  validateChainwebConfiguration $ _nodeConfigChainweb o
+  mapM_ (validateFilePath "databaseDirectory") (_nodeConfigDatabaseDirectory o)
 
 instance ToJSON ChainwebNodeConfiguration where
-    toJSON o = object
-        [ "chainweb" .= _nodeConfigChainweb o
-        , "logging" .= _nodeConfigLog o
-        , "databaseDirectory" .= _nodeConfigDatabaseDirectory o
-        , "resetChainDatabases" .= _nodeConfigResetChainDbs o
-        ]
+  toJSON o =
+    object
+      [ "chainweb" .= _nodeConfigChainweb o,
+        "logging" .= _nodeConfigLog o,
+        "databaseDirectory" .= _nodeConfigDatabaseDirectory o,
+        "resetChainDatabases" .= _nodeConfigResetChainDbs o
+      ]
 
 instance FromJSON (ChainwebNodeConfiguration -> ChainwebNodeConfiguration) where
-    parseJSON = withObject "ChainwebNodeConfig" $ \o -> id
-        <$< nodeConfigChainweb %.: "chainweb" % o
-        <*< nodeConfigLog %.: "logging" % o
-        <*< nodeConfigDatabaseDirectory ..: "databaseDirectory" % o
-        <*< nodeConfigResetChainDbs ..: "resetChainDatabases" % o
+  parseJSON = withObject "ChainwebNodeConfig" $ \o ->
+    id
+      <$< nodeConfigChainweb %.: "chainweb" % o
+      <*< nodeConfigLog %.: "logging" % o
+      <*< nodeConfigDatabaseDirectory ..: "databaseDirectory" % o
+      <*< nodeConfigResetChainDbs ..: "resetChainDatabases" % o
 
 pChainwebNodeConfiguration :: MParser ChainwebNodeConfiguration
-pChainwebNodeConfiguration = id
+pChainwebNodeConfiguration =
+  id
     <$< nodeConfigChainweb %:: pChainwebConfiguration
     <*< nodeConfigLog %:: pLogConfig
-    <*< nodeConfigDatabaseDirectory .:: fmap Just % textOption
+    <*< nodeConfigDatabaseDirectory
+      .:: fmap Just
+        % textOption
         % long "database-directory"
         <> help "directory where the databases are persisted"
-    <*< nodeConfigResetChainDbs .:: enableDisableFlag
+    <*< nodeConfigResetChainDbs
+      .:: enableDisableFlag
         % long "reset-chain-databases"
         <> help "Reset the chain databases for all chains on startup"
 
@@ -177,16 +170,17 @@ getRocksDbDir :: HasCallStack => ChainwebNodeConfiguration -> IO FilePath
 getRocksDbDir conf = (\base -> base </> "0" </> "rocksDb") <$> getDbBaseDir conf
 
 getPactDbDir :: HasCallStack => ChainwebNodeConfiguration -> IO FilePath
-getPactDbDir conf =  (\base -> base </> "0" </> "sqlite")  <$> getDbBaseDir conf
+getPactDbDir conf = (\base -> base </> "0" </> "sqlite") <$> getDbBaseDir conf
 
 getBackupsDir :: HasCallStack => ChainwebNodeConfiguration -> IO FilePath
 getBackupsDir conf = (</> "backups") <$> getDbBaseDir conf
 
 getDbBaseDir :: HasCallStack => ChainwebNodeConfiguration -> IO FilePath
 getDbBaseDir conf = case _nodeConfigDatabaseDirectory conf of
-    Nothing -> getXdgDirectory XdgData
-        $ "chainweb-node" </> sshow v
-    Just d -> return d
+  Nothing ->
+    getXdgDirectory XdgData $
+      "chainweb-node" </> sshow v
+  Just d -> return d
   where
     v = _configChainwebVersion $ _nodeConfigChainweb conf
 
@@ -199,9 +193,9 @@ getDbBaseDir conf = case _nodeConfigDatabaseDirectory conf of
 -- In order to prevent the function to spin in case of a persistent failure
 -- cause, only 10 immediate restart are allowed. After that restart is throttled
 -- to at most one restart every 10 seconds.
---
 runMonitorLoop :: Logger logger => Text -> logger -> IO () -> IO ()
-runMonitorLoop actionLabel logger = runForeverThrottled
+runMonitorLoop actionLabel logger =
+  runForeverThrottled
     (logFunction logger)
     actionLabel
     10 -- 10 bursts in case of failure
@@ -209,56 +203,63 @@ runMonitorLoop actionLabel logger = runForeverThrottled
 
 runCutMonitor :: Logger logger => logger -> CutDb tbl -> IO ()
 runCutMonitor logger db = L.withLoggerLabel ("component", "cut-monitor") logger $ \l ->
-    runMonitorLoop "ChainwebNode.runCutMonitor" l $ do
-        logFunctionText l Info $ "Initialized Cut Monitor"
-        S.mapM_ (logFunctionJson l Info)
-            $ S.map (cutToCutHashes Nothing)
-            $ cutStream db
+  runMonitorLoop "ChainwebNode.runCutMonitor" l $ do
+    logFunctionText l Info $ "Initialized Cut Monitor"
+    S.mapM_ (logFunctionJson l Info) $
+      S.map (cutToCutHashes Nothing) $
+        cutStream db
 
 data BlockUpdate = BlockUpdate
-    { _blockUpdateBlockHeader :: !(ObjectEncoded BlockHeader)
-    , _blockUpdateOrphaned :: !Bool
-    , _blockUpdateTxCount :: !Int
-    }
-    deriving (Show, Eq, Ord, Generic, NFData)
+  { _blockUpdateBlockHeader :: !(ObjectEncoded BlockHeader),
+    _blockUpdateOrphaned :: !Bool,
+    _blockUpdateTxCount :: !Int
+  }
+  deriving (Show, Eq, Ord, Generic, NFData)
 
 instance ToJSON BlockUpdate where
-    toEncoding o = pairs
-        $ "header" .= _blockUpdateBlockHeader o
-        <> "orphaned" .= _blockUpdateOrphaned o
-        <> "txCount" .= _blockUpdateTxCount o
-    toJSON o = object
-        [ "header" .= _blockUpdateBlockHeader o
-        , "orphaned" .= _blockUpdateOrphaned o
-        , "txCount" .= _blockUpdateTxCount o
-        ]
+  toEncoding o =
+    pairs $
+      "header"
+        .= _blockUpdateBlockHeader o
+          <> "orphaned"
+        .= _blockUpdateOrphaned o
+          <> "txCount"
+        .= _blockUpdateTxCount o
+  toJSON o =
+    object
+      [ "header" .= _blockUpdateBlockHeader o,
+        "orphaned" .= _blockUpdateOrphaned o,
+        "txCount" .= _blockUpdateTxCount o
+      ]
 
-    {-# INLINE toEncoding #-}
-    {-# INLINE toJSON #-}
+  {-# INLINE toEncoding #-}
+  {-# INLINE toJSON #-}
 
 runBlockUpdateMonitor :: CanReadablePayloadCas tbl => Logger logger => logger -> CutDb tbl -> IO ()
 runBlockUpdateMonitor logger db = L.withLoggerLabel ("component", "block-update-monitor") logger $ \l ->
-    runMonitorLoop "ChainwebNode.runBlockUpdateMonitor" l $ do
-        logFunctionText l Info $ "Initialized tx counter"
-        blockDiffStream db
-            & S.mapM toUpdate
-            & S.mapM_ (logFunctionJson l Info)
+  runMonitorLoop "ChainwebNode.runBlockUpdateMonitor" l $ do
+    logFunctionText l Info $ "Initialized tx counter"
+    blockDiffStream db
+      & S.mapM toUpdate
+      & S.mapM_ (logFunctionJson l Info)
   where
     txsDb = view (cutDbPayloadDb . transactionDb . transactionDbBlockTransactions) db
     payloadDb = view (cutDbPayloadDb . transactionDb . transactionDbBlockPayloads) db
 
     txCount :: BlockHeader -> IO Int
     txCount bh = do
-        bp <- casLookupM payloadDb (_blockPayloadHash bh)
-        x <- casLookupM txsDb (_blockPayloadTransactionsHash bp)
-        return $ length $ _blockTransactions x
+      bp <- casLookupM payloadDb (_blockPayloadHash bh)
+      x <- casLookupM txsDb (_blockPayloadTransactionsHash bp)
+      return $ length $ _blockTransactions x
 
     toUpdate :: Either BlockHeader BlockHeader -> IO BlockUpdate
-    toUpdate (Right bh) = BlockUpdate
+    toUpdate (Right bh) =
+      BlockUpdate
         <$> pure (ObjectEncoded bh) -- _blockUpdateBlockHeader
         <*> pure False -- _blockUpdateOrphaned
         <*> txCount bh -- _blockUpdateTxCount
-    toUpdate (Left bh) = BlockUpdate
+    toUpdate (Left bh) =
+      BlockUpdate
         <$> pure (ObjectEncoded bh) -- _blockUpdateBlockHeader
         <*> pure True -- _blockUpdateOrphaned
         <*> ((0 -) <$> txCount bh) -- _blockUpdateTxCount
@@ -273,179 +274,206 @@ deriving instance Generic RTSStats
 #endif
 
 deriving instance NFData GCDetails
+
 deriving instance NFData RTSStats
 
 deriving instance ToJSON GCDetails
+
 deriving instance ToJSON RTSStats
 
 runRtsMonitor :: Logger logger => logger -> IO ()
 runRtsMonitor logger = L.withLoggerLabel ("component", "rts-monitor") logger go
   where
-    go l = getRTSStatsEnabled >>= \case
+    go l =
+      getRTSStatsEnabled >>= \case
         False -> do
-            logFunctionText l Warn "RTS Stats isn't enabled. Run with '+RTS -T' to enable it."
+          logFunctionText l Warn "RTS Stats isn't enabled. Run with '+RTS -T' to enable it."
         True -> do
-            logFunctionText l Info $ "Initialized RTS Monitor"
-            runMonitorLoop "Chainweb.Node.runRtsMonitor" l $ do
-                logFunctionText l Debug $ "logging RTS stats"
-                stats <- getRTSStats
-                logFunctionJson logger Info stats
-                approximateThreadDelay 60_000_000 {- 1 minute -}
+          logFunctionText l Info $ "Initialized RTS Monitor"
+          runMonitorLoop "Chainweb.Node.runRtsMonitor" l $ do
+            logFunctionText l Debug $ "logging RTS stats"
+            stats <- getRTSStats
+            logFunctionJson logger Info stats
+            approximateThreadDelay 60_000_000 {- 1 minute -}
 
 runQueueMonitor :: Logger logger => logger -> CutDb tbl -> IO ()
 runQueueMonitor logger cutDb = L.withLoggerLabel ("component", "queue-monitor") logger go
   where
     go l = do
-        logFunctionText l Info $ "Initialized Queue Monitor"
-        runMonitorLoop "ChainwebNode.runQueueMonitor" l $ do
-            logFunctionText l Debug $ "logging cut queue stats"
-            stats <- getQueueStats cutDb
-            logFunctionJson logger Info stats
-            approximateThreadDelay 60_000_000 {- 1 minute -}
+      logFunctionText l Info $ "Initialized Queue Monitor"
+      runMonitorLoop "ChainwebNode.runQueueMonitor" l $ do
+        logFunctionText l Debug $ "logging cut queue stats"
+        stats <- getQueueStats cutDb
+        logFunctionJson logger Info stats
+        approximateThreadDelay 60_000_000 {- 1 minute -}
 
 data DbStats = DbStats
-    { dbStatsName :: !Text
-    , dbStatsSize :: !Integer
-    } deriving (Generic, NFData, ToJSON)
+  { dbStatsName :: !Text,
+    dbStatsSize :: !Integer
+  }
+  deriving (Generic, NFData, ToJSON)
 
 runDatabaseMonitor :: Logger logger => logger -> FilePath -> FilePath -> IO ()
 runDatabaseMonitor logger rocksDbDir pactDbDir = L.withLoggerLabel ("component", "database-monitor") logger go
   where
     go l = do
-        logFunctionText l Info "Initialized Database monitor"
-        runMonitorLoop "ChainwebNode.runDatabaseMonitor" l $ do
-            logFunctionText l Debug $ "logging database stats"
-            logFunctionJson l Info . DbStats "rocksDb" =<< sizeOf rocksDbDir
-            logFunctionJson l Info . DbStats "pactDb" =<< sizeOf pactDbDir
-            approximateThreadDelay 1_200_000_000 {- 20 minutes -}
+      logFunctionText l Info "Initialized Database monitor"
+      runMonitorLoop "ChainwebNode.runDatabaseMonitor" l $ do
+        logFunctionText l Debug $ "logging database stats"
+        logFunctionJson l Info . DbStats "rocksDb" =<< sizeOf rocksDbDir
+        logFunctionJson l Info . DbStats "pactDb" =<< sizeOf pactDbDir
+        approximateThreadDelay 1_200_000_000 {- 20 minutes -}
     sizeOf path = do
-        dir <- doesDirectoryExist path
-        file <- doesFileExist path
-        if dir then
-            fmap sum . traverse (sizeOf . (path </>)) =<< listDirectory path
-        else if file then
-            getFileSize path
+      dir <- doesDirectoryExist path
+      file <- doesFileExist path
+      if dir
+        then fmap sum . traverse (sizeOf . (path </>)) =<< listDirectory path
         else
-            pure 0
+          if file
+            then getFileSize path
+            else pure 0
 
 -- -------------------------------------------------------------------------- --
 -- Run Node
 
 node :: HasCallStack => Logger logger => ChainwebNodeConfiguration -> logger -> IO ()
 node conf logger = do
-    dbBaseDir <- getDbBaseDir conf
-    when (_nodeConfigResetChainDbs conf) $ removeDirectoryRecursive dbBaseDir
-    rocksDbDir <- getRocksDbDir conf
-    pactDbDir <- getPactDbDir conf
-    dbBackupsDir <- getBackupsDir conf
-    withRocksDb rocksDbDir modernDefaultOptions $ \rocksDb -> do
-        logFunctionText logger Info $ "opened rocksdb in directory " <> sshow rocksDbDir
-        logFunctionText logger Info $ "backup config: " <> sshow (_configBackup cwConf)
-        withChainweb cwConf logger rocksDb pactDbDir dbBackupsDir (_nodeConfigResetChainDbs conf) $ \case
-            Replayed _ _ -> return ()
-            StartedChainweb cw ->
-                concurrentlies_
-                    [ runChainweb cw
-                    -- we should probably push 'onReady' deeper here but this should be ok
-                    , runCutMonitor (_chainwebLogger cw) (_cutResCutDb $ _chainwebCutResources cw)
-                    , runQueueMonitor (_chainwebLogger cw) (_cutResCutDb $ _chainwebCutResources cw)
-                    , runRtsMonitor (_chainwebLogger cw)
-                    , runBlockUpdateMonitor (_chainwebLogger cw) (_cutResCutDb $ _chainwebCutResources cw)
-                    , runDatabaseMonitor (_chainwebLogger cw) rocksDbDir pactDbDir
-                    ]
+  dbBaseDir <- getDbBaseDir conf
+  when (_nodeConfigResetChainDbs conf) $ removeDirectoryRecursive dbBaseDir
+  rocksDbDir <- getRocksDbDir conf
+  pactDbDir <- getPactDbDir conf
+  dbBackupsDir <- getBackupsDir conf
+  withRocksDb rocksDbDir modernDefaultOptions $ \rocksDb -> do
+    logFunctionText logger Info $ "opened rocksdb in directory " <> sshow rocksDbDir
+    logFunctionText logger Info $ "backup config: " <> sshow (_configBackup cwConf)
+    withChainweb cwConf logger rocksDb pactDbDir dbBackupsDir (_nodeConfigResetChainDbs conf) $ \case
+      Replayed _ _ -> return ()
+      StartedChainweb cw ->
+        concurrentlies_
+          [ runChainweb cw,
+            -- we should probably push 'onReady' deeper here but this should be ok
+            runCutMonitor (_chainwebLogger cw) (_cutResCutDb $ _chainwebCutResources cw),
+            runQueueMonitor (_chainwebLogger cw) (_cutResCutDb $ _chainwebCutResources cw),
+            runRtsMonitor (_chainwebLogger cw),
+            runBlockUpdateMonitor (_chainwebLogger cw) (_cutResCutDb $ _chainwebCutResources cw),
+            runDatabaseMonitor (_chainwebLogger cw) rocksDbDir pactDbDir
+          ]
   where
     cwConf = _nodeConfigChainweb conf
 
-withNodeLogger
-    :: LogConfig
-    -> ChainwebVersion
-    -> (L.Logger SomeLogMessage -> IO ())
-    -> IO ()
+withNodeLogger ::
+  LogConfig ->
+  ChainwebVersion ->
+  (L.Logger SomeLogMessage -> IO ()) ->
+  IO ()
 withNodeLogger logConfig v f = runManaged $ do
+  -- This manager is used only for logging backends
+  mgr <- liftIO HTTPS.newTlsManager
 
-    -- This manager is used only for logging backends
-    mgr <- liftIO HTTPS.newTlsManager
+  -- Base Backend
+  baseBackend <-
+    managed $
+      withBaseHandleBackend "ChainwebApp" mgr pkgInfoScopes (_logConfigBackend logConfig)
 
-    -- Base Backend
-    baseBackend <- managed
-        $ withBaseHandleBackend "ChainwebApp" mgr pkgInfoScopes (_logConfigBackend logConfig)
-
-    -- Telemetry Backends
-    monitorBackend <- managed
-        $ mkTelemetryLogger @CutHashes mgr teleLogConfig
-    p2pInfoBackend <- managed
-        $ mkTelemetryLogger @P2pSessionInfo mgr teleLogConfig
-    rtsBackend <- managed
-        $ mkTelemetryLogger @RTSStats mgr teleLogConfig
-    counterBackend <- managed $ configureHandler
+  -- Telemetry Backends
+  monitorBackend <-
+    managed $
+      mkTelemetryLogger @CutHashes mgr teleLogConfig
+  p2pInfoBackend <-
+    managed $
+      mkTelemetryLogger @P2pSessionInfo mgr teleLogConfig
+  rtsBackend <-
+    managed $
+      mkTelemetryLogger @RTSStats mgr teleLogConfig
+  counterBackend <-
+    managed $
+      configureHandler
         (withJsonHandleBackend @CounterLog "connectioncounters" mgr pkgInfoScopes)
         teleLogConfig
-    endpointBackend <- managed
-        $ mkTelemetryLogger @PactCmdLog mgr teleLogConfig
-    newBlockBackend <- managed
-        $ mkTelemetryLogger @NewMinedBlock mgr teleLogConfig
-    orphanedBlockBackend <- managed
-        $ mkTelemetryLogger @OrphanedBlock mgr teleLogConfig
-    miningStatsBackend <- managed
-        $ mkTelemetryLogger @MiningStats mgr teleLogConfig
-    requestLogBackend <- managed
-        $ mkTelemetryLogger @RequestResponseLog mgr teleLogConfig
-    queueStatsBackend <- managed
-        $ mkTelemetryLogger @QueueStats mgr teleLogConfig
-    reintroBackend <- managed
-        $ mkTelemetryLogger @ReintroducedTxsLog mgr teleLogConfig
-    traceBackend <- managed
-        $ mkTelemetryLogger @Trace mgr teleLogConfig
-    mempoolStatsBackend <- managed
-        $ mkTelemetryLogger @MempoolStats mgr teleLogConfig
-    blockUpdateBackend <- managed
-        $ mkTelemetryLogger @BlockUpdate mgr teleLogConfig
-    dbStatsBackend <- managed
-        $ mkTelemetryLogger @DbStats mgr teleLogConfig
-    pactQueueStatsBackend <- managed
-        $ mkTelemetryLogger @PactQueueStats mgr teleLogConfig
-    topLevelStatusBackend <- managed
-        $ mkTelemetryLogger @ChainwebStatus mgr teleLogConfig
+  endpointBackend <-
+    managed $
+      mkTelemetryLogger @PactCmdLog mgr teleLogConfig
+  newBlockBackend <-
+    managed $
+      mkTelemetryLogger @NewMinedBlock mgr teleLogConfig
+  orphanedBlockBackend <-
+    managed $
+      mkTelemetryLogger @OrphanedBlock mgr teleLogConfig
+  miningStatsBackend <-
+    managed $
+      mkTelemetryLogger @MiningStats mgr teleLogConfig
+  requestLogBackend <-
+    managed $
+      mkTelemetryLogger @RequestResponseLog mgr teleLogConfig
+  queueStatsBackend <-
+    managed $
+      mkTelemetryLogger @QueueStats mgr teleLogConfig
+  reintroBackend <-
+    managed $
+      mkTelemetryLogger @ReintroducedTxsLog mgr teleLogConfig
+  traceBackend <-
+    managed $
+      mkTelemetryLogger @Trace mgr teleLogConfig
+  mempoolStatsBackend <-
+    managed $
+      mkTelemetryLogger @MempoolStats mgr teleLogConfig
+  blockUpdateBackend <-
+    managed $
+      mkTelemetryLogger @BlockUpdate mgr teleLogConfig
+  dbStatsBackend <-
+    managed $
+      mkTelemetryLogger @DbStats mgr teleLogConfig
+  pactQueueStatsBackend <-
+    managed $
+      mkTelemetryLogger @PactQueueStats mgr teleLogConfig
+  topLevelStatusBackend <-
+    managed $
+      mkTelemetryLogger @ChainwebStatus mgr teleLogConfig
 
-    logger <- managed
-        $ L.withLogger (_logConfigLogger logConfig) $ logHandles
-            [ logFilterHandle (_logConfigFilter logConfig)
-            , logHandler monitorBackend
-            , logHandler p2pInfoBackend
-            , logHandler rtsBackend
-            , logHandler counterBackend
-            , logHandler endpointBackend
-            , logHandler newBlockBackend
-            , logHandler orphanedBlockBackend
-            , logHandler miningStatsBackend
-            , logHandler requestLogBackend
-            , logHandler queueStatsBackend
-            , logHandler reintroBackend
-            , logHandler traceBackend
-            , logHandler mempoolStatsBackend
-            , logHandler blockUpdateBackend
-            , logHandler dbStatsBackend
-            , logHandler pactQueueStatsBackend
-            , logHandler topLevelStatusBackend
-            ] baseBackend
+  logger <-
+    managed $
+      L.withLogger (_logConfigLogger logConfig) $
+        logHandles
+          [ logFilterHandle (_logConfigFilter logConfig),
+            logHandler monitorBackend,
+            logHandler p2pInfoBackend,
+            logHandler rtsBackend,
+            logHandler counterBackend,
+            logHandler endpointBackend,
+            logHandler newBlockBackend,
+            logHandler orphanedBlockBackend,
+            logHandler miningStatsBackend,
+            logHandler requestLogBackend,
+            logHandler queueStatsBackend,
+            logHandler reintroBackend,
+            logHandler traceBackend,
+            logHandler mempoolStatsBackend,
+            logHandler blockUpdateBackend,
+            logHandler dbStatsBackend,
+            logHandler pactQueueStatsBackend,
+            logHandler topLevelStatusBackend
+          ]
+          baseBackend
 
-    liftIO $ f
-        $ maybe id (\x -> addLabel ("cluster", toText x)) (_logConfigClusterId logConfig)
-        $ addLabel ("chainwebVersion", sshow v)
-        $ logger
+  liftIO $
+    f $
+      maybe id (\x -> addLabel ("cluster", toText x)) (_logConfigClusterId logConfig) $
+        addLabel ("chainwebVersion", sshow v) $
+          logger
   where
     teleLogConfig = _logConfigTelemetryBackend logConfig
 
-mkTelemetryLogger
-    :: forall a b
-    . Typeable a
-    => ToJSON a
-    => HTTP.Manager
-    -> EnableConfig BackendConfig
-    -> (Backend (JsonLog a) -> IO b)
-    -> IO b
-mkTelemetryLogger mgr = configureHandler
-    $ withJsonHandleBackend @(JsonLog a) (sshow $ typeRep $ Proxy @a) mgr pkgInfoScopes
+mkTelemetryLogger ::
+  forall a b.
+  Typeable a =>
+  ToJSON a =>
+  HTTP.Manager ->
+  EnableConfig BackendConfig ->
+  (Backend (JsonLog a) -> IO b) ->
+  IO b
+mkTelemetryLogger mgr =
+  configureHandler $
+    withJsonHandleBackend @(JsonLog a) (sshow $ typeRep $ Proxy @a) mgr pkgInfoScopes
 
 -- -------------------------------------------------------------------------- --
 -- Service Date
@@ -453,43 +481,46 @@ mkTelemetryLogger mgr = configureHandler
 newtype ServiceDate = ServiceDate Text
 
 instance Show ServiceDate where
-    show (ServiceDate t) = "Service interval end: " <> T.unpack t
+  show (ServiceDate t) = "Service interval end: " <> T.unpack t
 
 instance Exception ServiceDate where
-    fromException = asyncExceptionFromException
-    toException = asyncExceptionToException
+  fromException = asyncExceptionFromException
+  toException = asyncExceptionToException
 
-withServiceDate
-    :: (LogLevel -> Text -> IO ())
-    -> Maybe UTCTime
-    -> IO a
-    -> IO a
+withServiceDate ::
+  (LogLevel -> Text -> IO ()) ->
+  Maybe UTCTime ->
+  IO a ->
+  IO a
 withServiceDate _ Nothing inner = inner
-withServiceDate lf (Just t) inner = race timer inner >>= \case
+withServiceDate lf (Just t) inner =
+  race timer inner >>= \case
     Left () -> error "Service date thread terminated unexpectedly"
     Right a -> return a
   where
     timer = runForever lf "ServiceDate" $ do
-        now <- getCurrentTime
-        when (now >= t) $ do
-            lf Error shutdownMessage
-            throw $ ServiceDate shutdownMessage
+      now <- getCurrentTime
+      when (now >= t) $ do
+        lf Error shutdownMessage
+        throw $ ServiceDate shutdownMessage
 
-        let w = diffUTCTime t now
-        let micros = round $ w * 1_000_000
-        lf Warn warning
-        threadDelay $ min (10 * 60 * 1_000_000) micros
+      let w = diffUTCTime t now
+      let micros = round $ w * 1_000_000
+      lf Warn warning
+      threadDelay $ min (10 * 60 * 1_000_000) micros
 
     warning :: Text
-    warning = T.concat
-        [ "This version of chainweb node will stop working at " <> sshow t <> "."
-        , " Please upgrade to a new version before that date."
+    warning =
+      T.concat
+        [ "This version of chainweb node will stop working at " <> sshow t <> ".",
+          " Please upgrade to a new version before that date."
         ]
 
     shutdownMessage :: Text
-    shutdownMessage = T.concat
-        [ "Shutting down. This version of chainweb was only valid until" <> sshow t <> "."
-        , " Please upgrade to a new version."
+    shutdownMessage =
+      T.concat
+        [ "Shutting down. This version of chainweb was only valid until" <> sshow t <> ".",
+          " Please upgrade to a new version."
         ]
 
 -- -------------------------------------------------------------------------- --
@@ -497,13 +528,13 @@ withServiceDate lf (Just t) inner = race timer inner >>= \case
 
 pkgInfoScopes :: [(Text, Text)]
 pkgInfoScopes =
-    [ ("revision", revision)
-    , ("branch", branch)
-    , ("compiler", compiler)
-    , ("optimisation", optimisation)
-    , ("architecture", arch)
-    , ("package", package)
-    ]
+  [ ("revision", revision),
+    ("branch", branch),
+    ("compiler", compiler),
+    ("optimisation", optimisation),
+    ("architecture", arch),
+    ("package", package)
+  ]
 
 -- -------------------------------------------------------------------------- --
 -- main
@@ -514,7 +545,8 @@ serviceDate :: Maybe String
 serviceDate = Just "2023-06-01T00:00:00Z"
 
 mainInfo :: ProgramInfo ChainwebNodeConfiguration
-mainInfo = programInfoValidate
+mainInfo =
+  programInfoValidate
     "Chainweb Node"
     pChainwebNodeConfiguration
     (defaultChainwebNodeConfiguration Mainnet01)
@@ -525,21 +557,22 @@ handles = flip catches
 
 main :: IO ()
 main = do
-    installFatalSignalHandlers [ sigHUP, sigTERM, sigXCPU, sigXFSZ ]
-    checkRLimits
-    runWithPkgInfoConfiguration mainInfo pkgInfo $ \conf -> do
-        let v = _configChainwebVersion $ _nodeConfigChainweb conf
-        hSetBuffering stderr LineBuffering
-        withNodeLogger (_nodeConfigLog conf) v $ \logger -> do
-            logFunctionJson logger Info ProcessStarted
-            handles
-                [ Handler $ \(e :: SomeAsyncException) ->
-                    logFunctionJson logger Info (ProcessDied $ show e) >> throwIO e
-                , Handler $ \(e :: SomeException) ->
-                    logFunctionJson logger Error (ProcessDied $ show e) >> throwIO e
-                ] $ do
-                kt <- mapM (parseTimeM False defaultTimeLocale timeFormat) serviceDate
-                withServiceDate (logFunctionText logger) kt $
-                    node conf logger
+  installFatalSignalHandlers [sigHUP, sigTERM, sigXCPU, sigXFSZ]
+  checkRLimits
+  runWithPkgInfoConfiguration mainInfo pkgInfo $ \conf -> do
+    let v = _configChainwebVersion $ _nodeConfigChainweb conf
+    hSetBuffering stderr LineBuffering
+    withNodeLogger (_nodeConfigLog conf) v $ \logger -> do
+      logFunctionJson logger Info ProcessStarted
+      handles
+        [ Handler $ \(e :: SomeAsyncException) ->
+            logFunctionJson logger Info (ProcessDied $ show e) >> throwIO e,
+          Handler $ \(e :: SomeException) ->
+            logFunctionJson logger Error (ProcessDied $ show e) >> throwIO e
+        ]
+        $ do
+          kt <- mapM (parseTimeM False defaultTimeLocale timeFormat) serviceDate
+          withServiceDate (logFunctionText logger) kt $
+            node conf logger
   where
     timeFormat = iso8601DateFormat (Just "%H:%M:%SZ")

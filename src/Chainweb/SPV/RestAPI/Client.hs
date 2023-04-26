@@ -13,21 +13,11 @@
 -- Stability: experimental
 --
 -- Client implementation of the SPV REST API
---
 module Chainweb.SPV.RestAPI.Client
-( spvGetTransactionProofClient
-, spvGetTransactionOutputProofClient
-) where
-
-import Control.Monad.Identity
-
-import Crypto.Hash.Algorithms
-
-import Data.Proxy
-
-import Numeric.Natural
-
-import Servant.Client
+  ( spvGetTransactionProofClient,
+    spvGetTransactionOutputProofClient,
+  )
+where
 
 -- internal modules
 
@@ -37,83 +27,88 @@ import Chainweb.RestAPI.Orphans ()
 import Chainweb.SPV
 import Chainweb.SPV.RestAPI
 import Chainweb.Version
+import Control.Monad.Identity
+import Crypto.Hash.Algorithms
+import Data.Proxy
+import Numeric.Natural
+import Servant.Client
 
 -- -------------------------------------------------------------------------- --
 -- SPV Transaction Proof Client
 
-spvGetTransactionProofClient_
-    :: forall (v :: ChainwebVersionT) (c :: ChainIdT)
-    . KnownChainwebVersionSymbol v
-    => KnownChainIdSymbol c
-    => ChainId
-        -- ^ the source chain of the proof. This is the chain where the proof
-        -- subject, the transaction for which inclusion is proven, is located.
-    -> BlockHeight
-        -- ^ the block height of the proof subject, the transaction for which
-        -- inclusion is proven.
-    -> Natural
-        -- ^ the index of the proof subject, the transaction for which inclusion
-        -- is proven.
-    -> ClientM (TransactionProof SHA512t_256)
+spvGetTransactionProofClient_ ::
+  forall (v :: ChainwebVersionT) (c :: ChainIdT).
+  KnownChainwebVersionSymbol v =>
+  KnownChainIdSymbol c =>
+  -- | the source chain of the proof. This is the chain where the proof
+  -- subject, the transaction for which inclusion is proven, is located.
+  ChainId ->
+  -- | the block height of the proof subject, the transaction for which
+  -- inclusion is proven.
+  BlockHeight ->
+  -- | the index of the proof subject, the transaction for which inclusion
+  -- is proven.
+  Natural ->
+  ClientM (TransactionProof SHA512t_256)
 spvGetTransactionProofClient_ = client (spvGetTransactionProofApi @v @c)
 
-spvGetTransactionProofClient
-    :: ChainwebVersion
-    -> ChainId
-        -- ^ the target chain of the proof. This is the chain for which
-        -- inclusion is proved.
-    -> ChainId
-        -- ^ the source chain of the proof. This is the chain where the proof
-        -- subject, the transaction for which inclusion is proven, is located.
-    -> BlockHeight
-        -- ^ the block height of the proof subject, the transaction for which
-        -- inclusion is proven.
-    -> Natural
-        -- ^ the index of the proof subject, the transaction for which inclusion
-        -- is proven.
-    -> ClientM (TransactionProof SHA512t_256)
+spvGetTransactionProofClient ::
+  ChainwebVersion ->
+  -- | the target chain of the proof. This is the chain for which
+  -- inclusion is proved.
+  ChainId ->
+  -- | the source chain of the proof. This is the chain where the proof
+  -- subject, the transaction for which inclusion is proven, is located.
+  ChainId ->
+  -- | the block height of the proof subject, the transaction for which
+  -- inclusion is proven.
+  BlockHeight ->
+  -- | the index of the proof subject, the transaction for which inclusion
+  -- is proven.
+  Natural ->
+  ClientM (TransactionProof SHA512t_256)
 spvGetTransactionProofClient v tcid scid h i = runIdentity $ do
-    SomeChainwebVersionT (_ :: Proxy v) <- return $ someChainwebVersionVal v
-    SomeChainIdT (_ :: Proxy c) <- return $ someChainIdVal tcid
-    return $ spvGetTransactionProofClient_ @v @c scid h i
+  SomeChainwebVersionT (_ :: Proxy v) <- return $ someChainwebVersionVal v
+  SomeChainIdT (_ :: Proxy c) <- return $ someChainIdVal tcid
+  return $ spvGetTransactionProofClient_ @v @c scid h i
 
 -- -------------------------------------------------------------------------- --
 -- SPV Transaction Output Proof Client
 
-spvGetTransactionOutputProofClient_
-    :: forall (v :: ChainwebVersionT) (c :: ChainIdT)
-    . KnownChainwebVersionSymbol v
-    => KnownChainIdSymbol c
-    => ChainId
-        -- ^ the source chain of the proof. This is the chain where the proof
-        -- subject, the transaction  output for which inclusion is proven, is
-        -- located.
-    -> BlockHeight
-        -- ^ the block height of the proof subject, the transaction output for
-        -- which inclusion is proven.
-    -> Natural
-        -- ^ the index of the proof subject, the transaction output for which
-        -- inclusion is proven.
-    -> ClientM (TransactionOutputProof SHA512t_256)
+spvGetTransactionOutputProofClient_ ::
+  forall (v :: ChainwebVersionT) (c :: ChainIdT).
+  KnownChainwebVersionSymbol v =>
+  KnownChainIdSymbol c =>
+  -- | the source chain of the proof. This is the chain where the proof
+  -- subject, the transaction  output for which inclusion is proven, is
+  -- located.
+  ChainId ->
+  -- | the block height of the proof subject, the transaction output for
+  -- which inclusion is proven.
+  BlockHeight ->
+  -- | the index of the proof subject, the transaction output for which
+  -- inclusion is proven.
+  Natural ->
+  ClientM (TransactionOutputProof SHA512t_256)
 spvGetTransactionOutputProofClient_ = client (spvGetTransactionOutputProofApi @v @c)
 
-spvGetTransactionOutputProofClient
-    :: ChainwebVersion
-    -> ChainId
-        -- ^ the target chain of the proof. This is the chain for which inclusion
-        -- is proved.
-    -> ChainId
-        -- ^ the source chain of the proof. This is the chain where the proof
-        -- subject, the transaction  output for which inclusion is proven, is
-        -- located.
-    -> BlockHeight
-        -- ^ the block height of the proof subject, the transaction output for
-        -- which inclusion is proven.
-    -> Natural
-        -- ^ the index of the proof subject, the transaction output for which
-        -- inclusion is proven.
-    -> ClientM (TransactionOutputProof SHA512t_256)
+spvGetTransactionOutputProofClient ::
+  ChainwebVersion ->
+  -- | the target chain of the proof. This is the chain for which inclusion
+  -- is proved.
+  ChainId ->
+  -- | the source chain of the proof. This is the chain where the proof
+  -- subject, the transaction  output for which inclusion is proven, is
+  -- located.
+  ChainId ->
+  -- | the block height of the proof subject, the transaction output for
+  -- which inclusion is proven.
+  BlockHeight ->
+  -- | the index of the proof subject, the transaction output for which
+  -- inclusion is proven.
+  Natural ->
+  ClientM (TransactionOutputProof SHA512t_256)
 spvGetTransactionOutputProofClient v tcid scid h i = runIdentity $ do
-    SomeChainwebVersionT (_ :: Proxy v) <- return $ someChainwebVersionVal v
-    SomeChainIdT (_ :: Proxy c) <- return $ someChainIdVal tcid
-    return $ spvGetTransactionOutputProofClient_ @v @c scid h i
+  SomeChainwebVersionT (_ :: Proxy v) <- return $ someChainwebVersionVal v
+  SomeChainIdT (_ :: Proxy c) <- return $ someChainIdVal tcid
+  return $ spvGetTransactionOutputProofClient_ @v @c scid h i

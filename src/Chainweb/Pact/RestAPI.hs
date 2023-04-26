@@ -14,52 +14,44 @@
 --
 -- This module defines the API for the main Pact service
 -- and its spv continuation proof endpoints.
---
 module Chainweb.Pact.RestAPI
-(
--- * Pact V1 Api
-  PactApi
-, pactApi
+  ( -- * Pact V1 Api
+    PactApi,
+    pactApi,
 
--- ** Pact APIs for Individual commands
-, PactLocalApi
-, pactLocalApi
-, PactListenApi
-, pactListenApi
-, PactSendApi
-, pactSendApi
-, PactPollApi
-, pactPollApi
-, PactLocalWithQueryApi
-, pactLocalWithQueryApi
--- * Pact Spv Api
-, PactSpvApi
-, pactSpvApi
+    -- ** Pact APIs for Individual commands
+    PactLocalApi,
+    pactLocalApi,
+    PactListenApi,
+    pactListenApi,
+    PactSendApi,
+    pactSendApi,
+    PactPollApi,
+    pactPollApi,
+    PactLocalWithQueryApi,
+    pactLocalWithQueryApi,
 
--- * Pact Spv Api Version 2
-, PactSpv2Api
-, pactSpv2Api
+    -- * Pact Spv Api
+    PactSpvApi,
+    pactSpvApi,
 
--- * Eth Spv Api
-, EthSpvApi
-, ethSpvApi
+    -- * Pact Spv Api Version 2
+    PactSpv2Api,
+    pactSpv2Api,
 
--- * Pact Service Api
-, PactServiceApi
-, pactServiceApi
+    -- * Eth Spv Api
+    EthSpvApi,
+    ethSpvApi,
 
--- * Some Pact Service Api
-, somePactServiceApi
-, somePactServiceApis
-) where
+    -- * Pact Service Api
+    PactServiceApi,
+    pactServiceApi,
 
-
-import Data.Text (Text)
-
-import qualified Pact.Types.Command as Pact
-import Pact.Server.API as API
-
-import Servant
+    -- * Some Pact Service Api
+    somePactServiceApi,
+    somePactServiceApis,
+  )
+where
 
 -- internal modules
 
@@ -71,34 +63,38 @@ import Chainweb.Pact.Service.Types
 import Chainweb.RestAPI.Utils
 import Chainweb.SPV.PayloadProof
 import Chainweb.Version
+import Data.Text (Text)
+import Pact.Server.API as API
+import qualified Pact.Types.Command as Pact
+import Servant
 
 -- -------------------------------------------------------------------------- --
 -- @POST /chainweb/<ApiVersion>/<ChainwebVersion>/chain/<ChainId>/pact/@
 
 -- TODO unify with Pact versioning
-type PactApi_
-    = "pact"
+type PactApi_ =
+  "pact"
     :> "api"
     :> "v1"
     :> ( ApiSend
-       :<|> ApiPoll
-       :<|> ApiListen
-       :<|> PactLocalWithQueryApi_
+           :<|> ApiPoll
+           :<|> ApiListen
+           :<|> PactLocalWithQueryApi_
        )
 
-type PactApi (v :: ChainwebVersionT) (c :: ChainIdT)
-    = 'ChainwebEndpoint v :> ChainEndpoint c :> Reassoc PactApi_
+type PactApi (v :: ChainwebVersionT) (c :: ChainIdT) =
+  'ChainwebEndpoint v :> ChainEndpoint c :> Reassoc PactApi_
 
-pactApi
-    :: forall (v :: ChainwebVersionT) (c :: ChainIdT)
-    . Proxy (PactApi v c)
+pactApi ::
+  forall (v :: ChainwebVersionT) (c :: ChainIdT).
+  Proxy (PactApi v c)
 pactApi = Proxy
 
 -- -------------------------------------------------------------------------- --
 -- Individual Pact V1 Endpoints
 
-type PactV1ApiEndpoint (v :: ChainwebVersionT) (c :: ChainIdT) api
-    = 'ChainwebEndpoint v
+type PactV1ApiEndpoint (v :: ChainwebVersionT) (c :: ChainIdT) api =
+  'ChainwebEndpoint v
     :> ChainEndpoint c
     :> "pact"
     :> "api"
@@ -106,35 +102,38 @@ type PactV1ApiEndpoint (v :: ChainwebVersionT) (c :: ChainIdT) api
     :> api
 
 type PactLocalApi v c = PactV1ApiEndpoint v c ApiLocal
+
 type PactSendApi v c = PactV1ApiEndpoint v c ApiSend
+
 type PactListenApi v c = PactV1ApiEndpoint v c ApiListen
+
 type PactPollApi v c = PactV1ApiEndpoint v c ApiPoll
 
-pactLocalApi
-    :: forall (v :: ChainwebVersionT) (c :: ChainIdT)
-    . Proxy (PactLocalApi v c)
+pactLocalApi ::
+  forall (v :: ChainwebVersionT) (c :: ChainIdT).
+  Proxy (PactLocalApi v c)
 pactLocalApi = Proxy
 
-pactSendApi
-    :: forall (v :: ChainwebVersionT) (c :: ChainIdT)
-    . Proxy (PactSendApi v c)
+pactSendApi ::
+  forall (v :: ChainwebVersionT) (c :: ChainIdT).
+  Proxy (PactSendApi v c)
 pactSendApi = Proxy
 
-pactListenApi
-    :: forall (v :: ChainwebVersionT) (c :: ChainIdT)
-    . Proxy (PactListenApi v c)
+pactListenApi ::
+  forall (v :: ChainwebVersionT) (c :: ChainIdT).
+  Proxy (PactListenApi v c)
 pactListenApi = Proxy
 
-pactPollApi
-    :: forall (v :: ChainwebVersionT) (c :: ChainIdT)
-    . Proxy (PactPollApi v c)
+pactPollApi ::
+  forall (v :: ChainwebVersionT) (c :: ChainIdT).
+  Proxy (PactPollApi v c)
 pactPollApi = Proxy
 
 -- -------------------------------------------------------------------------- --
 -- POST Queries for Pact Local Pre-flight
 
-type PactLocalWithQueryApi_
-    = "local"
+type PactLocalWithQueryApi_ =
+  "local"
     :> QueryParam "preflight" LocalPreflightSimulation
     :> QueryParam "signatureVerification" LocalSignatureVerification
     :> QueryParam "rewindDepth" BlockHeight
@@ -143,26 +142,26 @@ type PactLocalWithQueryApi_
 
 type PactLocalWithQueryApi v c = PactV1ApiEndpoint v c PactLocalWithQueryApi_
 
-pactLocalWithQueryApi
-  :: forall (v :: ChainwebVersionT) (c :: ChainIdT)
-  . Proxy (PactLocalWithQueryApi v c)
+pactLocalWithQueryApi ::
+  forall (v :: ChainwebVersionT) (c :: ChainIdT).
+  Proxy (PactLocalWithQueryApi v c)
 pactLocalWithQueryApi = Proxy
 
 -- -------------------------------------------------------------------------- --
 -- POST Pact Spv Transaction Proof
 
-type PactSpvApi_
-    = "pact"
+type PactSpvApi_ =
+  "pact"
     :> "spv"
     :> ReqBody '[JSON] SpvRequest
     :> Post '[JSON] TransactionOutputProofB64
 
-type PactSpvApi (v :: ChainwebVersionT) (c :: ChainIdT)
-    = 'ChainwebEndpoint v :> ChainEndpoint c :> PactSpvApi_
+type PactSpvApi (v :: ChainwebVersionT) (c :: ChainIdT) =
+  'ChainwebEndpoint v :> ChainEndpoint c :> PactSpvApi_
 
-pactSpvApi
-    :: forall (v :: ChainwebVersionT) (c :: ChainIdT)
-    . Proxy (PactSpvApi v c)
+pactSpvApi ::
+  forall (v :: ChainwebVersionT) (c :: ChainIdT).
+  Proxy (PactSpvApi v c)
 pactSpvApi = Proxy
 
 -- -------------------------------------------------------------------------- --
@@ -171,50 +170,50 @@ pactSpvApi = Proxy
 --  | The chain endpoint is the target chain of the proof, i.e. the chain where
 --  the root of the proof is located.
 --
-type PactSpv2Api_
-    = "pact"
+type PactSpv2Api_ =
+  "pact"
     :> "spv2"
     :> ReqBody '[JSON] Spv2Request
     :> Post '[JSON] SomePayloadProof
 
-type PactSpv2Api (v :: ChainwebVersionT) (c :: ChainIdT)
-    = 'ChainwebEndpoint v :> ChainEndpoint c :> PactSpv2Api_
+type PactSpv2Api (v :: ChainwebVersionT) (c :: ChainIdT) =
+  'ChainwebEndpoint v :> ChainEndpoint c :> PactSpv2Api_
 
-pactSpv2Api
-    :: forall (v :: ChainwebVersionT) (c :: ChainIdT)
-    . Proxy (PactSpv2Api v c)
+pactSpv2Api ::
+  forall (v :: ChainwebVersionT) (c :: ChainIdT).
+  Proxy (PactSpv2Api v c)
 pactSpv2Api = Proxy
 
 -- -------------------------------------------------------------------------- --
 -- POST Eth Receipt SPV Proof
 
-type EthSpvApi_
-    = "pact"
+type EthSpvApi_ =
+  "pact"
     :> "spv"
     :> "eth"
     :> ReqBody '[JSON] EthSpvRequest
     :> Post '[JSON] EthSpvResponse
 
-type EthSpvApi (v :: ChainwebVersionT) (c :: ChainIdT)
-    = 'ChainwebEndpoint v :> ChainEndpoint c :> EthSpvApi_
+type EthSpvApi (v :: ChainwebVersionT) (c :: ChainIdT) =
+  'ChainwebEndpoint v :> ChainEndpoint c :> EthSpvApi_
 
-ethSpvApi
-    :: forall (v :: ChainwebVersionT) (c :: ChainIdT)
-    . Proxy (EthSpvApi v c)
+ethSpvApi ::
+  forall (v :: ChainwebVersionT) (c :: ChainIdT).
+  Proxy (EthSpvApi v c)
 ethSpvApi = Proxy
 
 -- -------------------------------------------------------------------------- --
 -- PactService Api
 
-type PactServiceApi v c
-    = PactApi v c
+type PactServiceApi v c =
+  PactApi v c
     :<|> PactSpvApi v c
     :<|> EthSpvApi v c
     :<|> PactSpv2Api v c
 
-pactServiceApi
-    :: forall (v :: ChainwebVersionT) (c :: ChainIdT)
-    . Proxy (PactServiceApi v c)
+pactServiceApi ::
+  forall (v :: ChainwebVersionT) (c :: ChainIdT).
+  Proxy (PactServiceApi v c)
 pactServiceApi = Proxy
 
 -- -------------------------------------------------------------------------- --
@@ -222,9 +221,9 @@ pactServiceApi = Proxy
 
 somePactServiceApi :: ChainwebVersion -> ChainId -> SomeApi
 somePactServiceApi
-    (FromSingChainwebVersion (SChainwebVersion :: Sing v))
-    (FromSingChainId (SChainId :: Sing c))
-    = SomeApi $ pactServiceApi @v @c
+  (FromSingChainwebVersion (SChainwebVersion :: Sing v))
+  (FromSingChainId (SChainId :: Sing c)) =
+    SomeApi $ pactServiceApi @v @c
 
 somePactServiceApis :: ChainwebVersion -> [ChainId] -> SomeApi
 somePactServiceApis v = mconcat . fmap (somePactServiceApi v)

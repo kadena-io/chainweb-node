@@ -17,23 +17,15 @@
 --
 -- The weight of a block. This is the accumulated difficulty of all predecessors
 -- of a block including the block itself.
---
 module Chainweb.BlockWeight
-(
--- * Block Weight
-  BlockWeight(..)
-, encodeBlockWeight
-, decodeBlockWeight
-, encodeBlockWeightBe
-, decodeBlockWeightBe
-) where
-
-import Control.DeepSeq
-
-import Data.Aeson
-import Data.Hashable
-
-import GHC.Generics (Generic)
+  ( -- * Block Weight
+    BlockWeight (..),
+    encodeBlockWeight,
+    decodeBlockWeight,
+    encodeBlockWeightBe,
+    decodeBlockWeightBe,
+  )
+where
 
 -- Internal imports
 
@@ -41,7 +33,10 @@ import Chainweb.Crypto.MerkleLog
 import Chainweb.Difficulty
 import Chainweb.MerkleUniverse
 import Chainweb.Utils.Serialization
-
+import Control.DeepSeq
+import Data.Aeson
+import Data.Hashable
+import GHC.Generics (Generic)
 import Numeric.Additive
 
 -- -------------------------------------------------------------------------- --
@@ -50,21 +45,25 @@ import Numeric.Additive
 -- This is the accumulated Hash difficulty
 --
 newtype BlockWeight = BlockWeight HashDifficulty
-    deriving (Show, Eq, Ord, Generic)
-    deriving anyclass (NFData)
-    deriving newtype
-        ( Hashable
-        , ToJSON, FromJSON, ToJSONKey, FromJSONKey
-        , AdditiveSemigroup, AdditiveAbelianSemigroup
-        , Num
-        )
+  deriving (Show, Eq, Ord, Generic)
+  deriving anyclass (NFData)
+  deriving newtype
+    ( Hashable,
+      ToJSON,
+      FromJSON,
+      ToJSONKey,
+      FromJSONKey,
+      AdditiveSemigroup,
+      AdditiveAbelianSemigroup,
+      Num
+    )
 
 instance MerkleHashAlgorithm a => IsMerkleLogEntry a ChainwebHashTag BlockWeight where
-    type Tag BlockWeight = 'BlockWeightTag
-    toMerkleNode = encodeMerkleInputNode encodeBlockWeight
-    fromMerkleNode = decodeMerkleInputNode decodeBlockWeight
-    {-# INLINE toMerkleNode #-}
-    {-# INLINE fromMerkleNode #-}
+  type Tag BlockWeight = 'BlockWeightTag
+  toMerkleNode = encodeMerkleInputNode encodeBlockWeight
+  fromMerkleNode = decodeMerkleInputNode decodeBlockWeight
+  {-# INLINE toMerkleNode #-}
+  {-# INLINE fromMerkleNode #-}
 
 encodeBlockWeight :: BlockWeight -> Put
 encodeBlockWeight (BlockWeight w) = encodeHashDifficulty w
@@ -81,4 +80,3 @@ encodeBlockWeightBe (BlockWeight w) = encodeHashDifficultyBe w
 decodeBlockWeightBe :: Get BlockWeight
 decodeBlockWeightBe = BlockWeight <$> decodeHashDifficultyBe
 {-# INLINE decodeBlockWeightBe #-}
-

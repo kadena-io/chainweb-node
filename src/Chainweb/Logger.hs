@@ -16,37 +16,33 @@
 -- Stability: experimental
 --
 -- Chainweb Logger and logging tools.
---
 module Chainweb.Logger
-( Logger
-, logFunction
-, logFunctionText
-, logFunctionJson
+  ( Logger,
+    logFunction,
+    logFunctionText,
+    logFunctionJson,
 
--- * Utils
-, addLabel
-, setComponent
-, l2l
-, l2l'
+    -- * Utils
+    addLabel,
+    setComponent,
+    l2l,
+    l2l',
 
--- * Generic Test Logger
-, GenericLogger
-, genericLogger
-) where
-
-import Control.Lens
-import qualified Data.Text as T
-import Data.Time
-
-import qualified System.Logger.Types as L
+    -- * Generic Test Logger
+    GenericLogger,
+    genericLogger,
+  )
+where
 
 -- internal modules
 
 import Chainweb.Utils
-
+import Control.Lens
 import Data.LogMessage
-
+import qualified Data.Text as T
+import Data.Time
 import System.LogLevel
+import qualified System.Logger.Types as L
 
 -- -------------------------------------------------------------------------- --
 -- Abstract Logger
@@ -64,10 +60,10 @@ logFunctionText :: Logger l => l -> LogFunctionText
 logFunctionText logger level = logFunction logger level . TextLog
 {-# INLINE logFunctionText #-}
 
-logFunctionJson
-    :: Logger l
-    => l
-    -> LogFunctionJson a
+logFunctionJson ::
+  Logger l =>
+  l ->
+  LogFunctionJson a
 logFunctionJson logger level = logFunction logger level . JsonLog
 {-# INLINE logFunctionJson #-}
 
@@ -103,40 +99,39 @@ l2l' L.Debug = Debug
 -- Generic Test Logger
 
 data GenericLogger = GenericLogger
-    { _glScope :: ![(T.Text, T.Text)]
-    , _glLevel :: !LogLevel
-    , _glPolicy :: !L.LogPolicy
-    , _glFun :: !(T.Text -> IO ())
-    }
+  { _glScope :: ![(T.Text, T.Text)],
+    _glLevel :: !LogLevel,
+    _glPolicy :: !L.LogPolicy,
+    _glFun :: !(T.Text -> IO ())
+  }
 
 makeLenses 'GenericLogger
 
 instance L.LoggerCtx GenericLogger SomeLogMessage where
-    loggerFunIO ctx level msg
-        | level <= l2l (_glLevel ctx) = do
-            now <- getCurrentTime
-            view glFun ctx
-                $ sq (sshow now)
-                <> sq (sshow level)
-                <> sq (scope $ _glScope ctx)
-                <> " "
-                <> logText msg
-        | otherwise = return ()
-      where
-        scope l = T.intercalate "," $ (\(a,b) -> (a <> ":" <> b)) <$> reverse l
-        sq t = "[" <> t <> "]"
+  loggerFunIO ctx level msg
+    | level <= l2l (_glLevel ctx) = do
+        now <- getCurrentTime
+        view glFun ctx $
+          sq (sshow now)
+            <> sq (sshow level)
+            <> sq (scope $ _glScope ctx)
+            <> " "
+            <> logText msg
+    | otherwise = return ()
+    where
+      scope l = T.intercalate "," $ (\(a, b) -> (a <> ":" <> b)) <$> reverse l
+      sq t = "[" <> t <> "]"
 
-    setLoggerLevel = glLevel . iso l2l l2l'
-    setLoggerScope = glScope
-    setLoggerPolicy = glPolicy
+  setLoggerLevel = glLevel . iso l2l l2l'
+  setLoggerScope = glScope
+  setLoggerPolicy = glPolicy
 
-    {-# INLINABLE loggerFunIO #-}
-    {-# INLINE setLoggerLevel #-}
-    {-# INLINE setLoggerScope #-}
-    {-# INLINE setLoggerPolicy #-}
+  {-# INLINEABLE loggerFunIO #-}
+  {-# INLINE setLoggerLevel #-}
+  {-# INLINE setLoggerScope #-}
+  {-# INLINE setLoggerPolicy #-}
 
 -- | Simpel generic logger for chainweb. For production purposes a proper
 -- logging framework should be used.
---
 genericLogger :: LogLevel -> (T.Text -> IO ()) -> GenericLogger
 genericLogger level fun = GenericLogger [] level L.LogPolicyBlock fun

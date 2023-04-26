@@ -10,63 +10,63 @@
 -- License: MIT
 -- Maintainer: Lars Kuhtz <lars@kadena.io>
 -- Stability: experimental
---
 module Data.Test.Word.Encoding
-( properties
-) where
-
-import Data.Bits
-import qualified Data.ByteString as B
-import Data.DoubleWord (Word128(..))
-
-import Test.QuickCheck
+  ( properties,
+  )
+where
 
 -- internal modules
 
 import Chainweb.Utils.Serialization
+import Data.Bits
+import qualified Data.ByteString as B
+import Data.DoubleWord (Word128 (..))
+import Test.QuickCheck
 
 -- -------------------------------------------------------------------------- --
 -- Properties
 
-prop_bigEndian
-    :: forall a
-    . Integral a
-    => Bounded a
-    => WordEncoding a
-    => FiniteBits a
-    => Bool
-prop_bigEndian = all run [1 .. (finiteBitSize (undefined :: a) `div` 8 -  1)]
+prop_bigEndian ::
+  forall a.
+  Integral a =>
+  Bounded a =>
+  WordEncoding a =>
+  FiniteBits a =>
+  Bool
+prop_bigEndian = all run [1 .. (finiteBitSize (undefined :: a) `div` 8 - 1)]
   where
-    run i = (==) i
-        $ length
-        $ takeWhile (== 0x00)
-        $ B.unpack
-        $ runPutS
-        $ encodeWordBe
-        $ maxBound @a `div` 2^(8*i)
+    run i =
+      (==) i $
+        length $
+          takeWhile (== 0x00) $
+            B.unpack $
+              runPutS $
+                encodeWordBe $
+                  maxBound @a `div` 2 ^ (8 * i)
 
-prop_littleEndian
-    :: forall a
-    . Integral a
-    => Bounded a
-    => WordEncoding a
-    => FiniteBits a
-    => Bool
+prop_littleEndian ::
+  forall a.
+  Integral a =>
+  Bounded a =>
+  WordEncoding a =>
+  FiniteBits a =>
+  Bool
 prop_littleEndian = all run [1 .. (finiteBitSize (undefined :: a) `div` 8 - 1)]
   where
-    run i = (==) i
-        $ length
-        $ takeWhile (== 0x00)
-        $ reverse
-        $ B.unpack
-        $ runPutS
-        $ encodeWordLe
-        $ maxBound @a `div` 2^(8*i)
+    run i =
+      (==) i $
+        length $
+          takeWhile (== 0x00) $
+            reverse $
+              B.unpack $
+                runPutS $
+                  encodeWordLe $
+                    maxBound @a `div` 2 ^ (8 * i)
 
 properties :: [(String, Property)]
 properties =
-    [ ("Word128 little endian encoding", property $ prop_littleEndian @Word128)
-    , ("Word256 little endian encoding", property $ prop_littleEndian @Word128)
-    , ("Word128 big endian encoding", property $ prop_bigEndian @Word128)
-    , ("Word256 big endian encoding", property $ prop_bigEndian @Word128)
-    ]
+  [ ("Word128 little endian encoding", property $ prop_littleEndian @Word128),
+    ("Word256 little endian encoding", property $ prop_littleEndian @Word128),
+    ("Word128 big endian encoding", property $ prop_bigEndian @Word128),
+    ("Word256 big endian encoding", property $ prop_bigEndian @Word128)
+  ]

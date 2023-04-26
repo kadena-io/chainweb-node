@@ -10,22 +10,21 @@
 -- License: MIT
 -- Maintainer: Lars Kuhtz <lars@kadena.io>
 -- Stability: experimental
---
 module Numeric.AffineSpace
-(
--- * Torsor
-  LeftTorsor(..)
-, (.+^)
-, (^+.)
-, (.-.)
-, (.-^)
+  ( -- * Torsor
+    LeftTorsor (..),
+    (.+^),
+    (^+.),
+    (.-.),
+    (.-^),
 
--- * Vector Space
-, FractionalVectorSpace(..)
+    -- * Vector Space
+    FractionalVectorSpace (..),
 
--- * AfficeSpace
-, AffineSpace
-) where
+    -- * AfficeSpace
+    AffineSpace,
+  )
+where
 
 import Numeric.Additive
 
@@ -46,43 +45,47 @@ import Numeric.Additive
 -- prop> (s `diff` t) `add` t == s
 --
 -- The last property is states that `add` is a bijection.
---
 class (AdditiveGroup (Diff t)) => LeftTorsor t where
-    type Diff t
-    add :: Diff t -> t -> t
-    diff :: t -> t -> Diff t
+  type Diff t
+  add :: Diff t -> t -> t
+  diff :: t -> t -> Diff t
 
 instance LeftTorsor Integer where
-    type Diff Integer = Integer
-    add = (+)
-    diff = (-)
-    {-# INLINE add #-}
-    {-# INLINE diff #-}
+  type Diff Integer = Integer
+  add = (+)
+  diff = (-)
+  {-# INLINE add #-}
+  {-# INLINE diff #-}
 
 instance LeftTorsor Rational where
-    type Diff Rational = Rational
-    add = (+)
-    diff = (-)
-    {-# INLINE add #-}
-    {-# INLINE diff #-}
+  type Diff Rational = Rational
+  add = (+)
+  diff = (-)
+  {-# INLINE add #-}
+  {-# INLINE diff #-}
 
 infix 6 .-.
+
 (.-.) :: AdditiveAbelianGroup (Diff t) => LeftTorsor t => t -> t -> Diff t
 (.-.) = diff
 
 infixl 6 ^+.
+
 (^+.) :: AdditiveAbelianGroup (Diff t) => LeftTorsor t => Diff t -> t -> t
 (^+.) = add
 
 infixl 6 .+^
+
 (.+^) :: AdditiveAbelianGroup (Diff t) => LeftTorsor t => t -> Diff t -> t
 (.+^) = flip add
 
 infixl 6 .-^
+
 (.-^) :: AdditiveAbelianGroup (Diff t) => LeftTorsor t => t -> Diff t -> t
 (.-^) t d = t .+^ invert d
 
 -- -------------------------------------------------------------------------- --
+
 -- | Vector Space over Fractional Numbers
 --
 -- A real vector space is an additive abelian group that forms an module
@@ -92,19 +95,17 @@ infixl 6 .-^
 -- prop> 1 `scale` a == a
 -- prop> a `scale` (b `plus` c) == (a `scale` b) `plus` (a `scale` c)
 -- prop> (a + b) `scale` c == (a `scale` c) `plus` (b `scale` c)
---
 class (AdditiveAbelianGroup v, Fractional (Scalar v)) => FractionalVectorSpace v where
-    type Scalar v
-    scale :: Scalar v -> v -> v
+  type Scalar v
+  scale :: Scalar v -> v -> v
 
 instance FractionalVectorSpace Rational where
-    type Scalar Rational = Rational
-    scale = (*)
+  type Scalar Rational = Rational
+  scale = (*)
 
 -- -------------------------------------------------------------------------- --
 -- Affine Space
 
 -- | An affine space is a torsor for the action of the additive group
 -- of a vector space.
---
 type AffineSpace t = (FractionalVectorSpace (Diff t), LeftTorsor t)

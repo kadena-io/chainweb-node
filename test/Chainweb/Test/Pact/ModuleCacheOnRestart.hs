@@ -9,28 +9,7 @@
 
 module Chainweb.Test.Pact.ModuleCacheOnRestart (tests) where
 
-import Control.Concurrent.MVar.Strict
-import Control.DeepSeq (NFData)
-import Control.Lens
-import Control.Monad
-import Control.Monad.IO.Class
-
-import qualified Data.HashMap.Strict as HM
-import qualified Data.Map.Strict as M
-import Data.List (intercalate)
-import qualified Data.Text.IO as T
-
-import GHC.Generics
-
-import Test.Tasty.HUnit
-import Test.Tasty
-
-import System.LogLevel
-
 -- pact imports
-
-import Pact.Types.Runtime (mdModule)
-import Pact.Types.Term
 
 -- chainweb imports
 
@@ -44,16 +23,30 @@ import Chainweb.Pact.PactService
 import Chainweb.Pact.Types
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
-import Chainweb.Time
+import Chainweb.Storage.Table.RocksDB
 import Chainweb.Test.Cut
 import Chainweb.Test.Cut.TestBlockDb
-import Chainweb.Test.Utils
 import Chainweb.Test.Pact.Utils
-import Chainweb.Utils (T2(..))
+import Chainweb.Test.Utils
+import Chainweb.Time
+import Chainweb.Utils (T2 (..))
 import Chainweb.Version
 import Chainweb.WebBlockHeaderDB
-
-import Chainweb.Storage.Table.RocksDB
+import Control.Concurrent.MVar.Strict
+import Control.DeepSeq (NFData)
+import Control.Lens
+import Control.Monad
+import Control.Monad.IO.Class
+import qualified Data.HashMap.Strict as HM
+import Data.List (intercalate)
+import qualified Data.Map.Strict as M
+import qualified Data.Text.IO as T
+import GHC.Generics
+import Pact.Types.Runtime (mdModule)
+import Pact.Types.Term
+import System.LogLevel
+import Test.Tasty
+import Test.Tasty.HUnit
 
 testVer :: ChainwebVersion
 testVer = FastTimedCPM singleton
@@ -64,62 +57,75 @@ testChainId = unsafeChainId 0
 type RewindPoint = (BlockHeader, PayloadWithOutputs)
 
 data RewindData = RewindData
-  { afterV4 :: RewindPoint
-  , beforeV4 :: RewindPoint
-  , v3Cache :: HM.HashMap ModuleName (Maybe ModuleHash)
-  } deriving Generic
+  { afterV4 :: RewindPoint,
+    beforeV4 :: RewindPoint,
+    v3Cache :: HM.HashMap ModuleName (Maybe ModuleHash)
+  }
+  deriving (Generic)
 
 instance NFData RewindData
 
 tests :: RocksDb -> ScheduledTest
 tests rdb =
-      ScheduledTest label $
-      withMVarResource mempty $ \iom ->
+  ScheduledTest label $
+    withMVarResource mempty $ \iom ->
       withEmptyMVarResource $ \rewindDataM ->
-      withTestBlockDbTest testVer rdb $ \bdbio ->
-      withTempSQLiteResource $ \ioSqlEnv ->
-      testGroup label
-      [ testCase "testInitial" $ withPact' bdbio ioSqlEnv iom testInitial
-      , after AllSucceed "testInitial" $
-        testCase "testRestart1" $ withPact' bdbio ioSqlEnv iom testRestart
-      , after AllSucceed "testRestart1" $
-        -- wow, Tasty thinks there's a "loop" if the following test is called "testCoinbase"!!
-        testCase "testDoUpgrades" $ withPact' bdbio ioSqlEnv iom (testCoinbase bdbio)
-      , after AllSucceed "testDoUpgrades" $
-        testCase "testRestart2" $ withPact' bdbio ioSqlEnv iom testRestart
-      , after AllSucceed "testRestart2" $
-        testCase "testV3" $ withPact' bdbio ioSqlEnv iom (testV3 bdbio rewindDataM)
-      , after AllSucceed "testV3" $
-        testCase "testRestart3"$ withPact' bdbio ioSqlEnv iom testRestart
-      , after AllSucceed "testRestart3" $
-        testCase "testV4" $ withPact' bdbio ioSqlEnv iom (testV4 bdbio rewindDataM)
-      , after AllSucceed "testV4" $
-        testCase "testRestart4" $ withPact' bdbio ioSqlEnv iom testRestart
-      , after AllSucceed "testRestart4" $
-        testCase "testRewindAfterFork" $ withPact' bdbio ioSqlEnv iom (testRewindAfterFork bdbio rewindDataM)
-      , after AllSucceed "testRewindAfterFork" $
-        testCase "testRewindBeforeFork" $ withPact' bdbio ioSqlEnv iom (testRewindBeforeFork bdbio rewindDataM)
-      , after AllSucceed "testRewindBeforeFork" $
-        testCase "testCw217CoinOnly" $ withPact' bdbio ioSqlEnv iom $
-          testCw217CoinOnly bdbio rewindDataM
-      , after AllSucceed "testCw217CoinOnly" $
-        testCase "testRestartCw217" $
-        withPact' bdbio ioSqlEnv iom testRestart
-      ]
+        withTestBlockDbTest testVer rdb $ \bdbio ->
+          withTempSQLiteResource $ \ioSqlEnv ->
+            testGroup
+              label
+              [ testCase "testInitial" $ withPact' bdbio ioSqlEnv iom testInitial,
+                after AllSucceed "testInitial" $
+                  testCase "testRestart1" $
+                    withPact' bdbio ioSqlEnv iom testRestart,
+                after AllSucceed "testRestart1" $
+                  -- wow, Tasty thinks there's a "loop" if the following test is called "testCoinbase"!!
+                  testCase "testDoUpgrades" $
+                    withPact' bdbio ioSqlEnv iom (testCoinbase bdbio),
+                after AllSucceed "testDoUpgrades" $
+                  testCase "testRestart2" $
+                    withPact' bdbio ioSqlEnv iom testRestart,
+                after AllSucceed "testRestart2" $
+                  testCase "testV3" $
+                    withPact' bdbio ioSqlEnv iom (testV3 bdbio rewindDataM),
+                after AllSucceed "testV3" $
+                  testCase "testRestart3" $
+                    withPact' bdbio ioSqlEnv iom testRestart,
+                after AllSucceed "testRestart3" $
+                  testCase "testV4" $
+                    withPact' bdbio ioSqlEnv iom (testV4 bdbio rewindDataM),
+                after AllSucceed "testV4" $
+                  testCase "testRestart4" $
+                    withPact' bdbio ioSqlEnv iom testRestart,
+                after AllSucceed "testRestart4" $
+                  testCase "testRewindAfterFork" $
+                    withPact' bdbio ioSqlEnv iom (testRewindAfterFork bdbio rewindDataM),
+                after AllSucceed "testRewindAfterFork" $
+                  testCase "testRewindBeforeFork" $
+                    withPact' bdbio ioSqlEnv iom (testRewindBeforeFork bdbio rewindDataM),
+                after AllSucceed "testRewindBeforeFork" $
+                  testCase "testCw217CoinOnly" $
+                    withPact' bdbio ioSqlEnv iom $
+                      testCw217CoinOnly bdbio rewindDataM,
+                after AllSucceed "testCw217CoinOnly" $
+                  testCase "testRestartCw217" $
+                    withPact' bdbio ioSqlEnv iom testRestart
+              ]
   where
     label = "Chainweb.Test.Pact.ModuleCacheOnRestart"
 
 type CacheTest tbl =
-  (PactServiceM tbl ()
-  ,IO (MVar ModuleInitCache) -> ModuleInitCache -> Assertion)
+  ( PactServiceM tbl (),
+    IO (MVar ModuleInitCache) -> ModuleInitCache -> Assertion
+  )
 
 -- | Do genesis load, snapshot cache.
 testInitial :: CanReadablePayloadCas tbl => CacheTest tbl
-testInitial = (initPayloadState,snapshotCache)
+testInitial = (initPayloadState, snapshotCache)
 
 -- | Do restart load, test results of 'initialPayloadState' against snapshotted cache.
 testRestart :: CanReadablePayloadCas tbl => CacheTest tbl
-testRestart = (initPayloadState,checkLoadedCache)
+testRestart = (initPayloadState, checkLoadedCache)
   where
     checkLoadedCache ioa initCache = do
       a <- ioa >>= readMVar
@@ -127,7 +133,7 @@ testRestart = (initPayloadState,checkLoadedCache)
 
 -- | Run coinbase to do upgrade to v2, snapshot cache.
 testCoinbase :: CanReadablePayloadCas tbl => IO TestBlockDb -> CacheTest tbl
-testCoinbase iobdb = (initPayloadState >> doCoinbase,snapshotCache)
+testCoinbase iobdb = (initPayloadState >> doCoinbase, snapshotCache)
   where
     doCoinbase = do
       bdb <- liftIO $ iobdb
@@ -137,7 +143,7 @@ testCoinbase iobdb = (initPayloadState >> doCoinbase,snapshotCache)
       void $ execValidateBlock mempty nextH (payloadWithOutputsToPayloadData pwo)
 
 testV3 :: CanReadablePayloadCas tbl => IO TestBlockDb -> IO (MVar RewindData) -> CacheTest tbl
-testV3 iobdb rewindM = (go,grabAndSnapshotCache)
+testV3 iobdb rewindM = (go, grabAndSnapshotCache)
   where
     go = do
       initPayloadState
@@ -146,13 +152,11 @@ testV3 iobdb rewindM = (go,grabAndSnapshotCache)
       hpwo <- doNextCoinbase iobdb
       liftIO (rewindM >>= \rewind -> putMVar rewind $ RewindData hpwo hpwo mempty)
     grabAndSnapshotCache ioa initCache = do
-      rewindM >>= \rewind -> modifyMVar_ rewind $ \old -> pure $ old { v3Cache = justModuleHashes initCache }
+      rewindM >>= \rewind -> modifyMVar_ rewind $ \old -> pure $ old {v3Cache = justModuleHashes initCache}
       snapshotCache ioa initCache
 
-
-
 testV4 :: CanReadablePayloadCas tbl => IO TestBlockDb -> IO (MVar RewindData) -> CacheTest tbl
-testV4 iobdb rewindM = (go,snapshotCache)
+testV4 iobdb rewindM = (go, snapshotCache)
   where
     go = do
       initPayloadState
@@ -161,7 +165,7 @@ testV4 iobdb rewindM = (go,snapshotCache)
       -- just after the upgrade/fork point
       afterV4' <- doNextCoinbase iobdb
       rewind <- liftIO rewindM
-      liftIO $ modifyMVar_ rewind $ \old -> pure $ old { afterV4 = afterV4' }
+      liftIO $ modifyMVar_ rewind $ \old -> pure $ old {afterV4 = afterV4'}
       void $ doNextCoinbase iobdb
       void $ doNextCoinbase iobdb
 
@@ -196,11 +200,11 @@ testRewindBeforeFork iobdb rewindM = (go, checkLoadedCache)
           assertNoCacheMismatch v3c (justModuleHashes' d)
         _ -> assertFailure "Failed to lookup either block 4 or 5."
 
-testCw217CoinOnly
-    :: CanReadablePayloadCas cas
-    => IO TestBlockDb
-    -> IO (MVar RewindData)
-    -> CacheTest cas
+testCw217CoinOnly ::
+  CanReadablePayloadCas cas =>
+  IO TestBlockDb ->
+  IO (MVar RewindData) ->
+  CacheTest cas
 testCw217CoinOnly iobdb _rewindM = (go, go')
   where
     go = do
@@ -213,41 +217,41 @@ testCw217CoinOnly iobdb _rewindM = (go, go')
         Just a -> assertEqual "module init cache contains only coin" ["coin"] $ HM.keys a
         Nothing -> assertFailure "failed to lookup block at 20"
 
-assertNoCacheMismatch
-    :: HM.HashMap ModuleName (Maybe ModuleHash)
-    -> HM.HashMap ModuleName (Maybe ModuleHash)
-    -> Assertion
+assertNoCacheMismatch ::
+  HM.HashMap ModuleName (Maybe ModuleHash) ->
+  HM.HashMap ModuleName (Maybe ModuleHash) ->
+  Assertion
 assertNoCacheMismatch c1 c2 = assertBool msg $ c1 == c2
   where
     showCache = intercalate "\n" . map show . HM.toList
-    msg = mconcat
-      [
-      "Module cache mismatch, found: \n"
-      , showCache c1
-      , "\n expected: \n"
-      , showCache c2
-      ]
+    msg =
+      mconcat
+        [ "Module cache mismatch, found: \n",
+          showCache c1,
+          "\n expected: \n",
+          showCache c2
+        ]
 
 rewindToBlock :: CanReadablePayloadCas tbl => RewindPoint -> PactServiceM tbl ()
 rewindToBlock (rewindHeader, pwo) = void $ execValidateBlock mempty rewindHeader (payloadWithOutputsToPayloadData pwo)
 
 doNextCoinbase :: CanReadablePayloadCas tbl => IO TestBlockDb -> PactServiceM tbl (BlockHeader, PayloadWithOutputs)
 doNextCoinbase iobdb = do
-      bdb <- liftIO iobdb
-      prevH <- liftIO $ getParentTestBlockDb bdb testChainId
-      pwo <- execNewBlock mempty (ParentHeader prevH) noMiner
-      liftIO $ addTestBlockDb bdb (Nonce 0) (offsetBlockTime second) testChainId pwo
-      nextH <- liftIO $ getParentTestBlockDb bdb testChainId
-      valPWO <- execValidateBlock mempty nextH (payloadWithOutputsToPayloadData pwo)
-      return (nextH, valPWO)
+  bdb <- liftIO iobdb
+  prevH <- liftIO $ getParentTestBlockDb bdb testChainId
+  pwo <- execNewBlock mempty (ParentHeader prevH) noMiner
+  liftIO $ addTestBlockDb bdb (Nonce 0) (offsetBlockTime second) testChainId pwo
+  nextH <- liftIO $ getParentTestBlockDb bdb testChainId
+  valPWO <- execValidateBlock mempty nextH (payloadWithOutputsToPayloadData pwo)
+  return (nextH, valPWO)
 
-doNextCoinbaseN_
-    :: CanReadablePayloadCas cas
-    => Int
-    -> IO TestBlockDb
-    -> PactServiceM cas (BlockHeader, PayloadWithOutputs)
-doNextCoinbaseN_ n iobdb = fmap last $ forM [1..n] $ \_ ->
-    doNextCoinbase iobdb
+doNextCoinbaseN_ ::
+  CanReadablePayloadCas cas =>
+  Int ->
+  IO TestBlockDb ->
+  PactServiceM cas (BlockHeader, PayloadWithOutputs)
+doNextCoinbaseN_ n iobdb = fmap last $ forM [1 .. n] $ \_ ->
+  doNextCoinbase iobdb
 
 -- | Interfaces can't be upgraded, but modules can, so verify hash in that case.
 justModuleHashes :: ModuleInitCache -> HM.HashMap ModuleName (Maybe ModuleHash)
@@ -267,19 +271,27 @@ snapshotCache iomcache initCache = do
   mcache <- iomcache
   modifyMVar_ mcache (const (pure initCache))
 
-withPact'
-    :: IO TestBlockDb
-    -> IO SQLiteEnv
-    -> IO (MVar ModuleInitCache)
-    -> CacheTest RocksDbTable
-    -> Assertion
+withPact' ::
+  IO TestBlockDb ->
+  IO SQLiteEnv ->
+  IO (MVar ModuleInitCache) ->
+  CacheTest RocksDbTable ->
+  Assertion
 withPact' bdbio ioSqlEnv r (ps, cacheTest) = do
-    bdb <- bdbio
-    bhdb <- getWebBlockHeaderDb (_bdbWebBlockHeaderDb bdb) testChainId
-    let pdb = _bdbPayloadDb bdb
-    sqlEnv <- ioSqlEnv
-    T2 _ pstate <- runPactService'
-        testVer testChainId logger bhdb pdb sqlEnv defaultPactServiceConfig ps
-    cacheTest r (_psInitCache pstate)
+  bdb <- bdbio
+  bhdb <- getWebBlockHeaderDb (_bdbWebBlockHeaderDb bdb) testChainId
+  let pdb = _bdbPayloadDb bdb
+  sqlEnv <- ioSqlEnv
+  T2 _ pstate <-
+    runPactService'
+      testVer
+      testChainId
+      logger
+      bhdb
+      pdb
+      sqlEnv
+      defaultPactServiceConfig
+      ps
+  cacheTest r (_psInitCache pstate)
   where
     logger = genericLogger Quiet T.putStrLn

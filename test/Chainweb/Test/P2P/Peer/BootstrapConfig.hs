@@ -9,54 +9,52 @@
 -- Stability: experimental
 --
 -- TODO
---
 module Chainweb.Test.P2P.Peer.BootstrapConfig
-(
--- * Bootstrap Peer Config
-  bootstrapPeerConfig
-, bootstrapCertificate
-, bootstrapKey
-) where
-
-import qualified Data.ByteString.Char8 as B8
+  ( -- * Bootstrap Peer Config
+    bootstrapPeerConfig,
+    bootstrapCertificate,
+    bootstrapKey,
+  )
+where
 
 -- internal modules
 
 import Chainweb.Version
-
+import qualified Data.ByteString.Char8 as B8
 import Network.X509.SelfSigned
-
 import P2P.Peer
 
 -- -------------------------------------------------------------------------- --
 -- Bootstrap Peer Configuration
 
 -- | Peer configuration for bootstrap hard-coded bootstrap peer infos.
---
 bootstrapPeerConfig :: ChainwebVersion -> [PeerConfig]
-bootstrapPeerConfig v@Test{} = testBootstrapPeerConfig v
-bootstrapPeerConfig v@TimedConsensus{} = testBootstrapPeerConfig v
-bootstrapPeerConfig v@PowConsensus{} = testBootstrapPeerConfig v
-bootstrapPeerConfig v@TimedCPM{} = testBootstrapPeerConfig v
-bootstrapPeerConfig v@FastTimedCPM{} = testBootstrapPeerConfig v
-bootstrapPeerConfig Development = error
-    $ "bootstrap peer config isn't defined for chainweb version Development"
-bootstrapPeerConfig Testnet04 = error
-    $ "bootstrap peer config isn't defined for chainweb version Testnet04"
-bootstrapPeerConfig Mainnet01 = error
-    $ "bootstrap peer config isn't defined for chainweb version Testnet04"
+bootstrapPeerConfig v@Test {} = testBootstrapPeerConfig v
+bootstrapPeerConfig v@TimedConsensus {} = testBootstrapPeerConfig v
+bootstrapPeerConfig v@PowConsensus {} = testBootstrapPeerConfig v
+bootstrapPeerConfig v@TimedCPM {} = testBootstrapPeerConfig v
+bootstrapPeerConfig v@FastTimedCPM {} = testBootstrapPeerConfig v
+bootstrapPeerConfig Development =
+  error $
+    "bootstrap peer config isn't defined for chainweb version Development"
+bootstrapPeerConfig Testnet04 =
+  error $
+    "bootstrap peer config isn't defined for chainweb version Testnet04"
+bootstrapPeerConfig Mainnet01 =
+  error $
+    "bootstrap peer config isn't defined for chainweb version Testnet04"
 
 testBootstrapPeerConfig :: ChainwebVersion -> [PeerConfig]
 testBootstrapPeerConfig v =
-    [ PeerConfig
-        { _peerConfigAddr = _peerAddr $ head (bootstrapPeerInfos v)
-        , _peerConfigInterface = "127.0.0.1"
-        , _peerConfigCertificateChain = Just $ X509CertChainPem (bootstrapCertificate v) []
-        , _peerConfigCertificateChainFile = Nothing
-        , _peerConfigKey = Just $ bootstrapKey v
-        , _peerConfigKeyFile = Nothing
-        }
-    ]
+  [ PeerConfig
+      { _peerConfigAddr = _peerAddr $ head (bootstrapPeerInfos v),
+        _peerConfigInterface = "127.0.0.1",
+        _peerConfigCertificateChain = Just $ X509CertChainPem (bootstrapCertificate v) [],
+        _peerConfigCertificateChainFile = Nothing,
+        _peerConfigKey = Just $ bootstrapKey v,
+        _peerConfigKeyFile = Nothing
+      }
+  ]
 
 -- | A self-signed certificate for localhost for testing purposes. The
 -- fingerprint of this certificate is hard-coded for chainweb-nodes for the
@@ -64,23 +62,24 @@ testBootstrapPeerConfig v =
 --
 -- Public Chainweb versions should rely on public DNS names with official TLS
 -- certificates for bootstrapping.
---
 bootstrapCertificate :: ChainwebVersion -> X509CertPem
-bootstrapCertificate Test{} = testBootstrapCertificate
-bootstrapCertificate TimedConsensus{} = testBootstrapCertificate
-bootstrapCertificate PowConsensus{} = testBootstrapCertificate
-bootstrapCertificate TimedCPM{} = testBootstrapCertificate
-bootstrapCertificate FastTimedCPM{} = testBootstrapCertificate
-bootstrapCertificate Development = error
-    $ "bootstrap certificate isn't defined for chainweb version Development"
-bootstrapCertificate Testnet04 = error
-    $ "bootstrap certificate isn't defined for chainweb version Testnet04"
-bootstrapCertificate Mainnet01 = error
-    $ "bootstrap certificate isn't defined for chainweb version Mainnet01"
+bootstrapCertificate Test {} = testBootstrapCertificate
+bootstrapCertificate TimedConsensus {} = testBootstrapCertificate
+bootstrapCertificate PowConsensus {} = testBootstrapCertificate
+bootstrapCertificate TimedCPM {} = testBootstrapCertificate
+bootstrapCertificate FastTimedCPM {} = testBootstrapCertificate
+bootstrapCertificate Development =
+  error $
+    "bootstrap certificate isn't defined for chainweb version Development"
+bootstrapCertificate Testnet04 =
+  error $
+    "bootstrap certificate isn't defined for chainweb version Testnet04"
+bootstrapCertificate Mainnet01 =
+  error $
+    "bootstrap certificate isn't defined for chainweb version Mainnet01"
 
 -- | The test certificate is also stored in the file
 -- @./scripts/scripts/test-bootstrap-node.config@.
---
 testBootstrapCertificate :: X509CertPem
 testBootstrapCertificate = X509CertPem $ B8.intercalate "\n"
 #if WITH_ED25519
@@ -128,20 +127,22 @@ testBootstrapCertificate = X509CertPem $ B8.intercalate "\n"
 #endif
 
 bootstrapKey :: ChainwebVersion -> X509KeyPem
-bootstrapKey Test{} = testBootstrapKey
-bootstrapKey TimedConsensus{} = testBootstrapKey
-bootstrapKey PowConsensus{} = testBootstrapKey
-bootstrapKey TimedCPM{} = testBootstrapKey
-bootstrapKey FastTimedCPM{} = testBootstrapKey
-bootstrapKey Development = error
-    $ "bootstrap key isn't defined for chainweb version Development"
-bootstrapKey Testnet04 = error
-    $ "bootstrap key isn't defined for chainweb version Testnet04"
-bootstrapKey Mainnet01 = error
-    $ "bootstrap key isn't defined for chainweb version Mainnet01"
+bootstrapKey Test {} = testBootstrapKey
+bootstrapKey TimedConsensus {} = testBootstrapKey
+bootstrapKey PowConsensus {} = testBootstrapKey
+bootstrapKey TimedCPM {} = testBootstrapKey
+bootstrapKey FastTimedCPM {} = testBootstrapKey
+bootstrapKey Development =
+  error $
+    "bootstrap key isn't defined for chainweb version Development"
+bootstrapKey Testnet04 =
+  error $
+    "bootstrap key isn't defined for chainweb version Testnet04"
+bootstrapKey Mainnet01 =
+  error $
+    "bootstrap key isn't defined for chainweb version Mainnet01"
 
 -- | This is only defined for non-public Test instances
---
 testBootstrapKey :: X509KeyPem
 testBootstrapKey = X509KeyPem $ B8.intercalate "\n"
 #if WITH_ED25519

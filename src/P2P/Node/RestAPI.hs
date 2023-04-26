@@ -17,80 +17,75 @@
 -- Stability: experimental
 --
 -- REST API endpoints for the Chainweb P2P network.
---
 module P2P.Node.RestAPI
-(
--- * P2P API
-  PeerGetApi
-, peerGetApi
-, PeerPutApi
-, peerPutApi
-, P2pApi
-, p2pApi
+  ( -- * P2P API
+    PeerGetApi,
+    peerGetApi,
+    PeerPutApi,
+    peerPutApi,
+    P2pApi,
+    p2pApi,
 
--- * Some P2P API
-, someP2pApi
-, someP2pApis
-) where
-
-import Data.Proxy
-
-import Servant
+    -- * Some P2P API
+    someP2pApi,
+    someP2pApis,
+  )
+where
 
 -- internal modules
 
 import Chainweb.ChainId
 import Chainweb.RestAPI.NetworkID
+import Chainweb.RestAPI.Orphans ()
 import Chainweb.RestAPI.Utils
 import Chainweb.Utils.Paging
 import Chainweb.Version
-
+import Data.Proxy
 import P2P.Peer
-
-import Chainweb.RestAPI.Orphans ()
+import Servant
 
 -- -------------------------------------------------------------------------- --
 -- @GET /chainweb/<ApiVersion>/<ChainwebVersion>/chain/<ChainId>/peer/@
 
-type PeerGetApi_
-    = "peer"
+type PeerGetApi_ =
+  "peer"
     :> PageParams (NextItem Int)
     :> Get '[JSON] (Page (NextItem Int) PeerInfo)
 
-type PeerGetApi (v :: ChainwebVersionT) (n :: NetworkIdT)
-    = 'ChainwebEndpoint v :> 'NetworkEndpoint n :> Reassoc PeerGetApi_
+type PeerGetApi (v :: ChainwebVersionT) (n :: NetworkIdT) =
+  'ChainwebEndpoint v :> 'NetworkEndpoint n :> Reassoc PeerGetApi_
 
-peerGetApi
-    :: forall (v :: ChainwebVersionT) (n :: NetworkIdT)
-    . Proxy (PeerGetApi v n)
+peerGetApi ::
+  forall (v :: ChainwebVersionT) (n :: NetworkIdT).
+  Proxy (PeerGetApi v n)
 peerGetApi = Proxy
 
 -- -------------------------------------------------------------------------- --
 -- @PUT /chainweb/<ApiVersion>/<ChainwebVersion>/chain/<ChainId>/peer/@
 
-type PeerPutApi_
-    = "peer"
+type PeerPutApi_ =
+  "peer"
     :> ReqBody '[JSON] PeerInfo
     :> Verb 'PUT 204 '[JSON] NoContent
 
-type PeerPutApi (v :: ChainwebVersionT) (n :: NetworkIdT)
-    = 'ChainwebEndpoint v :> 'NetworkEndpoint n :> Reassoc PeerPutApi_
+type PeerPutApi (v :: ChainwebVersionT) (n :: NetworkIdT) =
+  'ChainwebEndpoint v :> 'NetworkEndpoint n :> Reassoc PeerPutApi_
 
-peerPutApi
-    :: forall (v :: ChainwebVersionT) (n :: NetworkIdT)
-    . Proxy (PeerPutApi v n)
+peerPutApi ::
+  forall (v :: ChainwebVersionT) (n :: NetworkIdT).
+  Proxy (PeerPutApi v n)
 peerPutApi = Proxy
 
 -- -------------------------------------------------------------------------- --
 -- P2P API
 
-type P2pApi v n
-    = PeerGetApi v n
+type P2pApi v n =
+  PeerGetApi v n
     :<|> PeerPutApi v n
 
-p2pApi
-    :: forall (v :: ChainwebVersionT) (n :: NetworkIdT)
-    . Proxy (P2pApi v n)
+p2pApi ::
+  forall (v :: ChainwebVersionT) (n :: NetworkIdT).
+  Proxy (P2pApi v n)
 p2pApi = Proxy
 
 -- -------------------------------------------------------------------------- --
