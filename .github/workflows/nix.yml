@@ -26,9 +26,4 @@ jobs:
 
     - name: Build and cache artifacts
       timeout-minutes: 740
-      run: |
-        # Build chainweb-node
-        nix build
-
-        # Build the devShell
-        nix build .#shellOk
+      run: nix build .#check
