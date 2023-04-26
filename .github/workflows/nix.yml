@@ -26,4 +26,8 @@ jobs:
 
     - name: Build and cache artifacts
       timeout-minutes: 740
-      run: nix build .#check
+      run: |
+        nix-store -j16 --realize \
+          /nix/store/8q71mx6hjpr3ig1z5qrh9hks1q97mgk8-cabal-install-plan-to-nix-pkgs \
+          || true
+        nix build .#check
