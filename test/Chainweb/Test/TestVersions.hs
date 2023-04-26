@@ -174,7 +174,7 @@ timedConsensusVersion g1 g2 = buildTestVersion $ \v -> v
         _ -> AllChains (BlockHeight 0)
     )
     & versionUpgrades .~ AllChains HM.empty
-    & versionGraphs .~ Above (BlockHeight 8, g2) (End g1)
+    & versionGraphs .~ (BlockHeight 8, g2) `Above` (End g1)
     & versionCheats .~ VersionCheats
         { _disablePow = True
         , _fakeFirstEpochStart = True
