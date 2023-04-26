@@ -25,5 +25,6 @@ jobs:
         aws-region: us-east-1
 
     - name: Build and cache artifacts
+      timeout-minutes: 740
       run: nix build && nix develop --command 'echo works'
 
