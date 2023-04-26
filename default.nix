@@ -10,10 +10,20 @@ let flakeDefaultNix = (import (
 in
 { pkgs ? pkgsDef
 , compiler ? "ghc8107"
+, flakePath ? flakeDefaultNix.outPath
+, nix-filter ? inputs.nix-filter
 , ...
 }:
 let chainweb-node = pkgs.haskell-nix.project' {
-      src = flakeDefaultNix.outPath;
+      src = nix-filter {
+        root = flakePath;
+        exclude = [
+          ./.github
+          ./docs
+          ./examples
+          (nix-filter.matchExt ".nix")
+        ]
+      };
       compiler-nix-name = compiler;
       projectFileName = "cabal.project";
       shell.tools = {
