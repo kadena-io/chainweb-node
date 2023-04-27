@@ -823,7 +823,7 @@ enablePact46 tc
 
 enablePact47 :: TxContext -> [ExecutionFlag]
 enablePact47 tc
-    | chainweb218Pact (ctxVersion tc) (ctxCurrentBlockHeight tc) = []
+    | chainweb219Pact (ctxVersion tc) (ctxCurrentBlockHeight tc) = []
     | otherwise = [FlagDisablePact47]
 
 -- | Execute a 'ContMsg' and return the command result and module cache
