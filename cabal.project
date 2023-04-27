@@ -50,6 +50,11 @@ package yet-another-logger
 
 -- -------------------------------------------------------------------------- --
 -- Source Repository Packages
+--
+-- In order to determine proper sha256 value each time the revision is
+-- changed, please run the following command:
+--
+--   nix-prefetch-git --url <location> --rev <tag>
 
 source-repository-package
     type: git
