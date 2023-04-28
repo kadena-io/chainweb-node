@@ -141,6 +141,7 @@ allow-newer: servant:*
 -- with this there's no reason constrain it more.
 allow-newer: *:base
 allow-newer: *:tempalte-haskell
+allow-newer: *:ghc-prim
 
 -- -------------------------------------------------------------------------- --
 -- Upper Bounds
