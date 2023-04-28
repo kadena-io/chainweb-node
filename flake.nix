@@ -30,14 +30,18 @@
         CABAL_PROJECT_PATH=${./cabal.project}
         . ${nix/check_cabal_project.sh}
       '';
-    in nixpkgs.lib.recursiveUpdate flake {
-      packages.default = executable;
       # This package depends on other packages at buildtime, but its output does not
       # depend on them. This way, we don't have to download the entire closure to verify
       # that those packages build.
+      mkCheck = name: package: pkgs.runCommand ("check-"+name) {} ''
+        echo ${name}: ${package}
+        echo works > $out
+      '';
+    in nixpkgs.lib.recursiveUpdate flake {
+      packages.default = executable;
       packages.check = pkgs.runCommand "check" {} ''
-        echo chainweb-node: ${executable}
-        echo devShell: ${flake.devShell}
+        echo ${mkCheck "chainweb-node" executable}
+        echo ${mkCheck "devShell" flake.devShell}
         echo works > $out
       '';
       packages.check-cabal-project = check-cabal-project;
