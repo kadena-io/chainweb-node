@@ -17,10 +17,13 @@ in
 let haskellSrc = with nix-filter.lib; filter {
       root = flakePath;
       exclude = [
-        ./.github
-        ./docs
-        ./examples
-        (matchExt ".nix")
+        ".github"
+        ".gitignore"
+        ".gitattributes"
+        "docs"
+        "examples"
+        (matchExt "nix")
+        "flake.lock"
       ];
     };
     chainweb-node = pkgs.haskell-nix.project' {
