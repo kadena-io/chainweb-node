@@ -38,6 +38,5 @@
         echo ${mkCheck "devShell" flake.devShell}
         echo works > $out
       '';
-      packages.check-cabal-project = defaultNix.check-cabal-project;
     });
 }

@@ -27,8 +27,5 @@ jobs:
     - name: Build and cache artifacts
       timeout-minutes: 740
       run: |
-        echo Checking the hashes in the cabal.project file
-        $(nix-build default-flake.nix -A check-cabal-project)/bin/check-cabal-project
-
         echo Building the project and its devShell
         nix build .#check

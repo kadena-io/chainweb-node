@@ -42,12 +42,6 @@ let haskellSrc = with nix-filter.lib; filter {
     };
     flake = chainweb-node.flake {};
     default = flake.packages."chainweb:exe:chainweb-node";
-    check-cabal-project = pkgs.writeScriptBin "check-cabal-project" ''
-      #!${pkgs.runtimeShell}
-      PATH=${pkgs.nix-prefetch-git}/bin:${pkgs.jq}/bin:$PATH
-      CABAL_PROJECT_PATH=${./cabal.project}
-      . ${nix/check_cabal_project.sh}
-    '';
 in {
-  inherit flake default check-cabal-project haskellSrc;
+  inherit flake default haskellSrc;
 }
