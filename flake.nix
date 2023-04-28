@@ -24,15 +24,23 @@
       };
       flake = defaultNix.flake;
       executable = defaultNix.default;
-    in flake // {
+      check-cabal-project = pkgs.writeShellScript "check-cabal-project" ''
+        PATH=${pkgs.nix-prefetch-git}/bin:$PATH
+        CABAL_PROJECT_PATH=${./cabal.project}
+        . ${nix/check_cabal_project.sh}
+      '';
+    in nixpkgs.lib.recursiveUpdate flake {
       packages.default = executable;
       # This package depends on other packages at buildtime, but its output does not
       # depend on them. This way, we don't have to download the entire closure to verify
       # that those packages build.
       packages.check = pkgs.runCommand "check" {} ''
+        echo Checking the hashes in the cabal.project file
+        ${check-cabal-project}
         echo chainweb-node: ${executable}
         echo devShell: ${flake.devShell}
         echo works > $out
       '';
+      packages.check-cabal-project = check-cabal-project;
     });
 }
