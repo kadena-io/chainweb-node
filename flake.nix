@@ -24,7 +24,8 @@
       };
       flake = defaultNix.flake;
       executable = defaultNix.default;
-      check-cabal-project = pkgs.writeShellScript "check-cabal-project" ''
+      check-cabal-project = pkgs.writeScriptBin "check-cabal-project" ''
+        #!${pkgs.runtimeShell}
         PATH=${pkgs.nix-prefetch-git}/bin:$PATH
         CABAL_PROJECT_PATH=${./cabal.project}
         . ${nix/check_cabal_project.sh}
@@ -35,8 +36,6 @@
       # depend on them. This way, we don't have to download the entire closure to verify
       # that those packages build.
       packages.check = pkgs.runCommand "check" {} ''
-        echo Checking the hashes in the cabal.project file
-        ${check-cabal-project}
         echo chainweb-node: ${executable}
         echo devShell: ${flake.devShell}
         echo works > $out

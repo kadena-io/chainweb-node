@@ -26,4 +26,9 @@ jobs:
 
     - name: Build and cache artifacts
       timeout-minutes: 740
-      run: nix build .#check
+      run: |
+        echo Checking the hashes in the cabal.project file
+        nix run .#check-cabal-project
+
+        echo Building the project and its devShell
+        nix build .#check
