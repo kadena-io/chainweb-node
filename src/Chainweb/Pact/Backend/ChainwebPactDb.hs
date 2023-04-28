@@ -182,7 +182,7 @@ doReadRow d k = forModuleNameFix $ \mnFix ->
                      T.pack (show err)
 
     checkModuleCache u b = MaybeT $ do
-        txid <- use bsTxId -- cache priority
+        !txid <- use bsTxId -- cache priority
         mc <- use bsModuleCache
         (r, mc') <- liftIO $ checkDbCache u b txid mc
         modify' (bsModuleCache .~ mc')
@@ -766,7 +766,7 @@ handlePossibleRewind v cid bRestore hsh = do
               "SELECT endingtxid FROM BlockHistory WHERE blockheight = ?;"
               [SInt (fromIntegral bCurrent)]
               [RInt]
-        txid <- case r of
+        !txid <- case r of
             SInt x -> return x
             _ -> error "Chainweb.Pact.ChainwebPactDb.handlePossibleRewind.newChildBlock: failed to match SInt"
         assign bsTxId (fromIntegral txid)
@@ -775,7 +775,7 @@ handlePossibleRewind v cid bRestore hsh = do
 
     rewindBlock bh = do
         assign bsBlockHeight bh
-        endingtx <- getEndingTxId v cid bh
+        !endingtx <- getEndingTxId v cid bh
         tableMaintenanceRowsVersionedSystemTables endingtx
         callDb "rewindBlock" $ \db -> do
             droppedtbls <- dropTablesAtRewind bh db
