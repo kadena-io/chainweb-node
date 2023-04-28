@@ -66,6 +66,8 @@ import Data.Primitive (Array)
 import Dyna (Vec)
 import Dyna qualified
 
+import Debug.Trace (traceEventIO, traceMarkerIO)
+
 import System.IO
 import System.Timeout
 
@@ -139,7 +141,8 @@ withPactService
     -> PactServiceConfig
     -> PactServiceM logger tbl a
     -> IO (T2 a PactServiceState)
-withPactService ver cid chainwebLogger bhDb pdb sqlenv config act =
+withPactService ver cid chainwebLogger bhDb pdb sqlenv config act = do
+    traceMarkerIO $ "Chainweb.Pact.PactService.runPactService':" <> show cid
     withProdRelationalCheckpointer checkpointerLogger initialBlockState sqlenv ver cid $ \checkpointer -> do
         let !rs = readRewards
             !initialParentHeader = ParentHeader $ genesisBlockHeader ver cid
@@ -279,6 +282,7 @@ serviceRequests memPoolAccess reqQ = do
   where
     go = do
         PactServiceEnv{_psLogger} <- ask
+        cid <- view psChainId
         logDebug "serviceRequests: wait"
         msg <- liftIO $ getNextRequest reqQ
         requestId <- liftIO $ UUID.toText <$> UUID.nextRandom
@@ -287,46 +291,54 @@ serviceRequests memPoolAccess reqQ = do
         case msg of
             CloseMsg -> return ()
             LocalMsg (LocalReq localRequest preflight sigVerify rewindDepth localResultVar)  -> do
+                liftIO $ traceEventIO $ "Chainweb.Pact.PactService.execLocal:" <> show cid
                 trace logFn "Chainweb.Pact.PactService.execLocal" () 0 $
                     tryOne "execLocal" localResultVar $
                         execLocal localRequest preflight sigVerify rewindDepth
                 go
             NewBlockMsg NewBlockReq {..} -> do
+                liftIO $ traceEventIO $ "Chainweb.Pact.PactService.execNewBlock:" <> show cid
                 trace logFn "Chainweb.Pact.PactService.execNewBlock"
                     (_parentHeader _newBlockHeader) 1 $
                     tryOne "execNewBlock" _newResultVar $
                         execNewBlock memPoolAccess _newBlockHeader _newMiner
                 go
             ValidateBlockMsg ValidateBlockReq {..} -> do
-                tryOne "execValidateBlock" _valResultVar $
+                tryOne "execValidateBlock" _valResultVar $ do
+                  liftIO $ traceEventIO $ "Chainweb.Pact.PactService.execValidateBlock:" <> show cid
                   fmap fst $ trace' logFn "Chainweb.Pact.PactService.execValidateBlock"
                     _valBlockHeader
                     (\(_, g) -> fromIntegral g)
                     (execValidateBlock memPoolAccess _valBlockHeader _valPayloadData)
                 go
             LookupPactTxsMsg (LookupPactTxsReq restorePoint confDepth txHashes resultVar) -> do
+                liftIO $ traceEventIO $ "Chainweb.Pact.PactService.execLookupPactTxs:" <> show cid
                 trace logFn "Chainweb.Pact.PactService.execLookupPactTxs" ()
                     (length txHashes) $
                     tryOne "execLookupPactTxs" resultVar $
                         execLookupPactTxs restorePoint confDepth txHashes
                 go
             PreInsertCheckMsg (PreInsertCheckReq txs resultVar) -> do
+                liftIO $ traceEventIO $ "Chainweb.Pact.PactService.execPreInsertCheckReq:" <> show cid
                 trace logFn "Chainweb.Pact.PactService.execPreInsertCheckReq" ()
                     (length txs) $
                     tryOne "execPreInsertCheckReq" resultVar $
                         V.map (() <$) <$> execPreInsertCheckReq txs
                 go
             BlockTxHistoryMsg (BlockTxHistoryReq bh d resultVar) -> do
+                liftIO $ traceEventIO $ "Chainweb.Pact.PactService.execBlockTxHistory:" <> show cid
                 trace logFn "Chainweb.Pact.PactService.execBlockTxHistory" bh 1 $
                     tryOne "execBlockTxHistory" resultVar $
                         execBlockTxHistory bh d
                 go
             HistoricalLookupMsg (HistoricalLookupReq bh d k resultVar) -> do
+                liftIO $ traceEventIO $ "Chainweb.Pact.PactService.execHistoricalLookup:" <> show cid
                 trace logFn "Chainweb.Pact.PactService.execHistoricalLookup" bh 1 $
                     tryOne "execHistoricalLookup" resultVar $
                         execHistoricalLookup bh d k
                 go
             SyncToBlockMsg SyncToBlockReq {..} -> do
+                liftIO $ traceEventIO $ "Chainweb.Pact.PactService.execSyncToBlock:" <> show cid
                 trace logFn "Chainweb.Pact.PactService.execSyncToBlock" _syncToBlockHeader 1 $
                     tryOne "syncToBlockBlock" _syncToResultVar $
                         execSyncToBlock _syncToBlockHeader

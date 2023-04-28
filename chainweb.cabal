@@ -628,6 +628,7 @@ executable chainweb-node
         , text >= 2.0
         , time >= 1.12.2
         , yet-another-logger >= 0.4.1
+        , ghc-debug-stub >= 0.4
 
     if !os(windows)
         build-depends:

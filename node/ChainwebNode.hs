@@ -61,6 +61,7 @@ import qualified Data.Text as T
 import Data.Time
 import Data.Typeable
 
+import GHC.Debug.Stub
 import GHC.Generics hiding (from)
 import GHC.Stack
 import GHC.Stats
@@ -541,7 +542,7 @@ handles :: [Handler a] -> IO a -> IO a
 handles = flip catches
 
 main :: IO ()
-main = do
+main = withGhcDebug $ do
     installFatalSignalHandlers [ sigHUP, sigTERM, sigXCPU, sigXFSZ ]
     checkRLimits
     runWithPkgInfoConfiguration mainInfo pkgInfo $ \conf -> do

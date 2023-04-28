@@ -112,6 +112,8 @@ import Data.Ord
 import qualified Data.Text as T
 import Data.These
 
+import Debug.Trace (traceMarkerIO)
+
 import GHC.Generics hiding (to)
 
 import Numeric.Natural
@@ -412,6 +414,7 @@ startCutDb
     -> Casify RocksDbTable CutHashes
     -> IO (CutDb tbl)
 startCutDb config logfun headerStore payloadStore cutHashesStore = mask_ $ do
+    traceMarkerIO $ "Chainweb.CutDB.startCutDb"
     logg Info "obtain initial cut"
     initialCut <- readInitialCut
     unless (_cutDbParamsReadOnly config) $

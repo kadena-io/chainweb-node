@@ -73,6 +73,8 @@ import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
 import qualified Database.SQLite3.Direct as SQ3
 
+import Debug.Trace (traceMarkerIO)
+
 import Prelude hiding (log)
 
 import System.Directory
@@ -288,6 +290,7 @@ startSqliteDb
     -> Bool
     -> IO SQLiteEnv
 startSqliteDb cid logger dbDir doResetDb = do
+    traceMarkerIO $ "Chainweb.Pact.Backend.Utils.startSqliteDb:" <> show cid
     when doResetDb resetDb
     createDirectoryIfMissing True dbDir
     textLog Info $ mconcat

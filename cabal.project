@@ -161,6 +161,8 @@ allow-newer: regex-base:*
 allow-newer: regex-tdfa:*
 allow-newer: base-compat-batteries:*
 
+allow-newer: ghc-debug-stub:*
+
 -- -------------------------------------------------------------------------- --
 -- Upper Bounds
 
