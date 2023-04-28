@@ -24,12 +24,6 @@
       };
       flake = defaultNix.flake;
       executable = defaultNix.default;
-      check-cabal-project = pkgs.writeScriptBin "check-cabal-project" ''
-        #!${pkgs.runtimeShell}
-        PATH=${pkgs.nix-prefetch-git}/bin:${pkgs.jq}/bin:$PATH
-        CABAL_PROJECT_PATH=${./cabal.project}
-        . ${nix/check_cabal_project.sh}
-      '';
       # This package depends on other packages at buildtime, but its output does not
       # depend on them. This way, we don't have to download the entire closure to verify
       # that those packages build.
@@ -44,6 +38,6 @@
         echo ${mkCheck "devShell" flake.devShell}
         echo works > $out
       '';
-      packages.check-cabal-project = check-cabal-project;
+      packages.check-cabal-project = defaultNix.check-cabal-project;
     });
 }

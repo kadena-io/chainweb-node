@@ -41,6 +41,12 @@ let chainweb-node = pkgs.haskell-nix.project' {
     };
     flake = chainweb-node.flake {};
     default = flake.packages."chainweb:exe:chainweb-node";
+    check-cabal-project = pkgs.writeScriptBin "check-cabal-project" ''
+      #!${pkgs.runtimeShell}
+      PATH=${pkgs.nix-prefetch-git}/bin:${pkgs.jq}/bin:$PATH
+      CABAL_PROJECT_PATH=${./cabal.project}
+      . ${nix/check_cabal_project.sh}
+    '';
 in {
-  inherit flake default;
+  inherit flake default check-cabal-project;
 }
