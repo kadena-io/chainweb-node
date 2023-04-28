@@ -26,7 +26,7 @@
       executable = defaultNix.default;
       check-cabal-project = pkgs.writeScriptBin "check-cabal-project" ''
         #!${pkgs.runtimeShell}
-        PATH=${pkgs.nix-prefetch-git}/bin:$PATH
+        PATH=${pkgs.nix-prefetch-git}/bin:${pkgs.jq}/bin:$PATH
         CABAL_PROJECT_PATH=${./cabal.project}
         . ${nix/check_cabal_project.sh}
       '';
