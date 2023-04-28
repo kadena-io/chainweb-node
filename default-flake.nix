@@ -26,6 +26,7 @@ let haskellSrc = with nix-filter.lib; filter {
         "flake.lock"
       ];
     };
+
     chainweb-node = pkgs.haskell-nix.project' {
       src = haskellSrc;
       compiler-nix-name = compiler;
