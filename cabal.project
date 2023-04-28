@@ -62,10 +62,8 @@ package yet-another-logger
 source-repository-package
     type: git
     location: https://github.com/kadena-io/pact.git
-    -- works with master:
-    -- tag: edcb7364a98d7e72141a9cd3bae36dcbb56a1e67
     -- requires PR 1633:
-    tag: 54ed02e4f4221817e70e7540b2b255b18f6a8a85
+    tag: 0bf488d517532f872b3366736283bbce7ae4de51
     --sha256: sha256-jD4Y2NOSYT0EQHs5BRSVvu8asfvRwt5XLDuZwbcG4mk=
 
 source-repository-package
