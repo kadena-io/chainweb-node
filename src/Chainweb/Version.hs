@@ -69,6 +69,7 @@ module Chainweb.Version
 , chainweb216Pact
 , chainweb217Pact
 , chainweb218Pact
+, chainweb219Pact
 , pact44NewTrans
 
 -- ** BlockHeader Validation Guards
@@ -1035,6 +1036,13 @@ chainweb218Pact Testnet04 = (>= 3_038_343) -- 2023-03-02 12:00:00+00:00
 chainweb218Pact Development = (>= 500)
 chainweb218Pact (FastTimedCPM g) | g == petersonChainGraph = (> 60)
 chainweb218Pact _ = (> 24)
+
+chainweb219Pact :: ChainwebVersion -> BlockHeight -> Bool
+chainweb219Pact Mainnet01 = (>= 4_000_000) -- Todo: comment times
+chainweb219Pact Testnet04 = (>= 4_000_000) -- Todo: comment times
+chainweb219Pact Development = (>= 550)
+chainweb219Pact (FastTimedCPM g) | g == petersonChainGraph = (> 70)
+chainweb219Pact _ = (> 26)
 
 
 -- -------------------------------------------------------------------------- --

@@ -16,6 +16,7 @@ import Control.Monad
 import Control.Monad.Catch
 import Control.Monad.Reader
 import Data.Aeson (object, (.=))
+import Data.List(isPrefixOf)
 import qualified Data.ByteString.Base64.URL as B64U
 import qualified Data.HashMap.Strict as HM
 import Data.IORef
@@ -37,6 +38,7 @@ import Pact.Types.RPC
 import Pact.Types.Runtime (PactEvent)
 import Pact.Types.SPV
 import Pact.Types.Term
+import Pact.Types.Lang(_LString)
 
 import Chainweb.BlockCreationTime
 import Chainweb.BlockHeader
@@ -124,6 +126,7 @@ tests = ScheduledTest testName go
          , test generousConfig getGasModel "chainweb216Test" chainweb216Test
          , test generousConfig getGasModel "pact45UpgradeTest" pact45UpgradeTest
          , test generousConfig getGasModel "pact46UpgradeTest" pact46UpgradeTest
+         , test generousConfig getGasModel "chainweb219UpgradeTest" chainweb219UpgradeTest
          ]
       where
           -- This is way more than what is used in production, but during testing
@@ -822,6 +825,73 @@ pact46UpgradeTest = do
         [ "(pairing-check [{'x: 1, 'y: 2}] [{'x:[0, 0], 'y:[0, 0]}])"
         ])
 
+chainweb219UpgradeTest :: PactTestM ()
+chainweb219UpgradeTest = do
+
+  -- run past genesis, upgrades
+  runToHeight 69
+
+  -- Block 70, pre-fork, no errors on chain
+  runBlockTest
+      [ PactTxTest addErrTx $
+        assertTxFailure
+        "Should fail on + with incorrect argument types"
+        ""
+      , PactTxTest mapErrTx $
+        assertTxFailure
+        "Should fail on map with the second argument not being a list"
+        ""
+      , PactTxTest nativeDetailsTx $
+        assertTxSuccessWith
+        "Should print native details on chain"
+        (pString nativeDetailsMsg)
+        (over (_PLiteral . _LString) (T.take (T.length nativeDetailsMsg)))
+      , PactTxTest fnDetailsTx $
+        assertTxSuccessWith
+        "Should display function preview string"
+        (pString fnDetailsMsg)
+        (over (_PLiteral . _LString) (T.take (T.length fnDetailsMsg)))
+      ]
+
+  -- Block 71, post-fork, errors should return on-chain but different
+  runBlockTest
+      [ PactTxTest addErrTx $
+        assertTxFailureWith
+        "Should error with the argument types in +"
+        (isPrefixOf "Invalid arguments in call to +, received arguments of type" . show)
+      , PactTxTest mapErrTx $
+        assertTxFailure
+        "Should fail on map with the second argument not being a list"
+        "map: expecting list, received argument of type: string"
+      , PactTxTest nativeDetailsTx $
+        assertTxFailure
+        "Should print native details on chain"
+        "Cannot display native function details in non-repl context"
+      , PactTxTest fnDetailsTx $
+        assertTxFailure
+        "Should not display function preview string"
+        "Cannot display function details in non-repl context"
+      ]
+  where
+    addErrTx = buildBasicGas 10000
+        $ mkExec' (mconcat
+        [ "(+ 1 \"a\")"
+        ])
+    mapErrTx = buildBasicGas 10000
+        $ mkExec' (mconcat
+        [ "(map (+ 1) \"a\")"
+        ])
+    nativeDetailsMsg = "native `=`  Compare alike terms for equality"
+    nativeDetailsTx = buildBasicGas 10000
+        $ mkExec' (mconcat
+        [ "="
+        ])
+    fnDetailsMsg = "(defun coin.transfer:string"
+    fnDetailsTx = buildBasicGas 10000
+        $ mkExec' (mconcat
+        [ "coin.transfer"
+        ])
+
 pact4coin3UpgradeTest :: PactTestM ()
 pact4coin3UpgradeTest = do
 
@@ -1011,11 +1081,31 @@ assertTxSuccess msg r tx = do
   liftIO $ assertEqual msg (Just r)
     (tx ^? crResult . to _pactResult . _Right)
 
+assertTxSuccessWith
+  :: (HasCallStack, MonadIO m)
+  => String
+  -> PactValue
+  -> (PactValue -> PactValue)
+  -> CommandResult Hash
+  -> m ()
+assertTxSuccessWith msg r f tx = do
+  liftIO $ assertEqual msg (Just r)
+    (tx ^? crResult . to _pactResult . _Right . to f)
+
 -- | Exact match on error doc
 assertTxFailure :: (HasCallStack, MonadIO m) => String -> Doc -> CommandResult Hash -> m ()
 assertTxFailure msg d tx =
   liftIO $ assertEqual msg (Just d)
     (tx ^? crResult . to _pactResult . _Left . to peDoc)
+
+assertTxFailureWith
+  :: (HasCallStack, MonadIO m)
+  => String
+  -> (Doc -> Bool)
+  -> CommandResult Hash -> m ()
+assertTxFailureWith msg f tx = do
+  let mresult = tx ^? crResult . to _pactResult . _Left . to peDoc
+  liftIO $ assertBool (msg <> ". Tx Result: " <>  show mresult) $ maybe False f mresult
 
 -- | Partial match on show of error doc
 assertTxFailure' :: (HasCallStack, MonadIO m) => String -> T.Text -> CommandResult Hash -> m ()
