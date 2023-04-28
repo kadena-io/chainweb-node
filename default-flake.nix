@@ -14,16 +14,17 @@ in
 , nix-filter ? inputs.nix-filter
 , ...
 }:
-let chainweb-node = pkgs.haskell-nix.project' {
-      src = with nix-filter.lib; filter {
-        root = flakePath;
-        exclude = [
-          ./.github
-          ./docs
-          ./examples
-          (matchExt ".nix")
-        ];
-      };
+let haskellSrc = with nix-filter.lib; filter {
+      root = flakePath;
+      exclude = [
+        ./.github
+        ./docs
+        ./examples
+        (matchExt ".nix")
+      ];
+    };
+    chainweb-node = pkgs.haskell-nix.project' {
+      src = haskellSrc;
       compiler-nix-name = compiler;
       projectFileName = "cabal.project";
       shell.tools = {
@@ -48,5 +49,5 @@ let chainweb-node = pkgs.haskell-nix.project' {
       . ${nix/check_cabal_project.sh}
     '';
 in {
-  inherit flake default check-cabal-project;
+  inherit flake default check-cabal-project haskellSrc;
 }
