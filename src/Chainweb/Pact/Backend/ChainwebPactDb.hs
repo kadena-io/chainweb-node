@@ -343,7 +343,7 @@ doKeys d = do
                   fmap (B8.unpack . _deltaRowKey) $
                   collect pb `DL.append` maybe DL.empty collect mptx
 
-    let allKeys = fmap fromString
+    let !allKeys = fmap fromString
                   $ msort -- becomes avaialble with pact420Upgrade
                   $ LHM.sort
                   $ dbKeys ++ memKeys
@@ -426,7 +426,7 @@ recordTxLog tt d k v = do
 
   where
     !upd = M.insertWith DL.append tt txlogs
-    !txlogs = DL.singleton (encodeTxLog $ TxLog (asString d) (asString k) v)
+    !txlogs = DL.singleton $! encodeTxLog $ TxLog (asString d) (asString k) v
 
 modifyPendingData
     :: (SQLitePendingData -> SQLitePendingData)

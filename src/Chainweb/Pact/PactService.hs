@@ -452,9 +452,9 @@ attemptBuyGas miner (PactDbEnv' dbEnv) txs = do
             Right t -> return (T2 (_txCache t) (Right tx))
 
 data BlockFilling = BlockFilling
-    { _bfState :: BlockFill
-    , _bfSuccessPairs :: V.Vector (ChainwebTransaction,P.CommandResult [P.TxLogJson])
-    , _bfFailures :: V.Vector GasPurchaseFailure
+    { _bfState :: !BlockFill
+    , _bfSuccessPairs :: !(V.Vector (ChainwebTransaction,P.CommandResult [P.TxLogJson]))
+    , _bfFailures :: !(V.Vector GasPurchaseFailure)
     }
 
 -- | Note: The BlockHeader param here is the PARENT HEADER of the new

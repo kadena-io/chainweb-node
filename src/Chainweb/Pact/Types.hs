@@ -243,12 +243,12 @@ data ApplyCmdExecutionContext = ApplyLocal | ApplySend
 -- | Transaction execution state
 --
 data TransactionState = TransactionState
-    { _txCache :: ModuleCache
-    , _txLogs :: [TxLogJson]
+    { _txCache :: !ModuleCache
+    , _txLogs :: ![TxLogJson]
     , _txGasUsed :: !Gas
     , _txGasId :: !(Maybe GasId)
     , _txGasModel :: !GasModel
-    , _txWarnings :: Set PactWarning
+    , _txWarnings :: !(Set PactWarning)
     }
 makeLenses ''TransactionState
 
@@ -256,7 +256,7 @@ makeLenses ''TransactionState
 --
 data TransactionEnv db = TransactionEnv
     { _txMode :: !ExecutionMode
-    , _txDbEnv :: PactDbEnv db
+    , _txDbEnv :: !(PactDbEnv db)
     , _txLogger :: !P.Logger
     , _txGasLogger :: !(Maybe P.Logger)
     , _txPublicData :: !PublicData
@@ -336,8 +336,8 @@ execTransactionM tenv txst act
 -- In cases where there is no transaction/Command, 'PublicMeta'
 -- default value is used.
 data TxContext = TxContext
-  { _tcParentHeader :: ParentHeader
-  , _tcPublicMeta :: PublicMeta
+  { _tcParentHeader :: !ParentHeader
+  , _tcPublicMeta :: !PublicMeta
   }
 
 
@@ -349,11 +349,11 @@ data PactServiceEnv tbl = PactServiceEnv
     , _psCheckpointEnv :: !CheckpointEnv
     , _psPdb :: !(PayloadDb tbl)
     , _psBlockHeaderDb :: !BlockHeaderDb
-    , _psGasModel :: TxContext -> GasModel
+    , _psGasModel :: !(TxContext -> GasModel)
     , _psMinerRewards :: !MinerRewards
     , _psReorgLimit :: {-# UNPACK #-} !Word64
-    , _psOnFatalError :: forall a. PactException -> Text -> IO a
-    , _psVersion :: ChainwebVersion
+    , _psOnFatalError :: !(forall a. PactException -> Text -> IO a)
+    , _psVersion :: !ChainwebVersion
     , _psValidateHashesOnReplay :: !Bool
     , _psAllowReadsInLocal :: !Bool
     , _psLogger :: !P.Logger
@@ -374,7 +374,7 @@ data PactServiceEnv tbl = PactServiceEnv
     , _psCheckpointerDepth :: !Int
         -- ^ Number of nested checkpointer calls
     , _psBlockGasLimit :: !GasLimit
-    , _psChainId :: ChainId
+    , _psChainId :: !ChainId
     }
 makeLenses ''PactServiceEnv
 

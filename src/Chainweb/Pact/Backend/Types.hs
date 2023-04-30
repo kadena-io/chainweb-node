@@ -130,8 +130,8 @@ import Chainweb.Mempool.Mempool (MempoolPreBlockCheck,TransactionHash,BlockFill)
 data Env' = forall a. Env' (PactDbEnv (DbEnv a))
 
 data PactDbEnvPersist p = PactDbEnvPersist
-    { _pdepPactDb :: PactDb (DbEnv p)
-    , _pdepEnv :: DbEnv p
+    { _pdepPactDb :: !(PactDb (DbEnv p))
+    , _pdepEnv :: !(DbEnv p)
     }
 
 makeLenses ''PactDbEnvPersist
@@ -144,11 +144,11 @@ newtype PactDbState = PactDbState { _pdbsDbEnv :: EnvPersist' }
 makeLenses ''PactDbState
 
 data PactDbConfig = PactDbConfig
-    { _pdbcPersistDir :: Maybe FilePath
-    , _pdbcLogDir :: FilePath
-    , _pdbcPragmas :: [Pragma]
-    , _pdbcGasLimit :: Maybe Int
-    , _pdbcGasRate :: Maybe Int
+    { _pdbcPersistDir :: !(Maybe FilePath)
+    , _pdbcLogDir :: !FilePath
+    , _pdbcPragmas :: ![Pragma]
+    , _pdbcGasLimit :: !(Maybe Int)
+    , _pdbcGasRate :: !(Maybe Int)
     } deriving (Eq, Show, Generic)
 
 instance FromJSON PactDbConfig
@@ -225,10 +225,10 @@ data BlockState = BlockState
     , _bsBlockHeight :: !BlockHeight
     , _bsPendingBlock :: !SQLitePendingData
     , _bsPendingTx :: !(Maybe SQLitePendingData)
-    , _bsModuleNameFix :: Bool
-    , _bsSortedKeys :: Bool
-    , _bsLowerCaseTables :: Bool
-    , _bsModuleCache :: DbCache PersistModuleData
+    , _bsModuleNameFix :: !Bool
+    , _bsSortedKeys :: !Bool
+    , _bsLowerCaseTables :: !Bool
+    , _bsModuleCache :: !(DbCache PersistModuleData)
     }
 
 emptySQLitePendingData :: SQLitePendingData
@@ -302,17 +302,17 @@ data Checkpointer = Checkpointer
       -- the "latest block"
     , _cpSave :: !(BlockHash -> IO ())
       -- ^ commits pending modifications to block, with the given blockhash
-    , _cpDiscard :: IO ()
+    , _cpDiscard :: !(IO ())
       -- ^ discard pending block changes
-    , _cpGetLatestBlock :: IO (Maybe (BlockHeight, BlockHash))
+    , _cpGetLatestBlock :: !(IO (Maybe (BlockHeight, BlockHash)))
       -- ^ get the checkpointer's idea of the latest block. The block height is
       -- is the height of the block of the block hash.
       --
       -- TODO: Under which circumstances does this return 'Nothing'?
 
-    , _cpBeginCheckpointerBatch :: IO ()
-    , _cpCommitCheckpointerBatch :: IO ()
-    , _cpDiscardCheckpointerBatch :: IO ()
+    , _cpBeginCheckpointerBatch :: !(IO ())
+    , _cpCommitCheckpointerBatch :: !(IO ())
+    , _cpDiscardCheckpointerBatch :: !(IO ())
     , _cpLookupBlockInCheckpointer :: !((BlockHeight, BlockHash) -> IO Bool)
       -- ^ is the checkpointer aware of the given block?
     , _cpGetBlockParent :: !((BlockHeight, BlockHash) -> IO (Maybe BlockHash))
@@ -339,15 +339,16 @@ newtype SQLiteFlag = SQLiteFlag { getFlag :: CInt }
 -- TODO: get rid of this shim, it's probably not necessary
 data MemPoolAccess = MemPoolAccess
   { mpaGetBlock
-        :: BlockFill
+        :: !(BlockFill
         -> MempoolPreBlockCheck ChainwebTransaction
         -> BlockHeight
         -> BlockHash
         -> BlockHeader
         -> IO (Vector ChainwebTransaction)
-  , mpaSetLastHeader :: BlockHeader -> IO ()
-  , mpaProcessFork :: BlockHeader -> IO ()
-  , mpaBadlistTx :: Vector TransactionHash -> IO ()
+        )
+  , mpaSetLastHeader :: !(BlockHeader -> IO ())
+  , mpaProcessFork :: !(BlockHeader -> IO ())
+  , mpaBadlistTx :: !(Vector TransactionHash -> IO ())
   }
 
 instance Semigroup MemPoolAccess where
@@ -359,8 +360,8 @@ instance Monoid MemPoolAccess where
 
 
 data PactServiceException = PactServiceIllegalRewind
-    { _attemptedRewindTo :: Maybe (BlockHeight, BlockHash)
-    , _latestBlock :: Maybe (BlockHeight, BlockHash)
+    { _attemptedRewindTo :: !(Maybe (BlockHeight, BlockHash))
+    , _latestBlock :: !(Maybe (BlockHeight, BlockHash))
     } deriving (Generic)
 
 instance Show PactServiceException where

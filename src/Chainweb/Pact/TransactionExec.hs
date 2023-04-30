@@ -718,16 +718,16 @@ applyExec
 applyExec initialGas interp em senderSigs hsh nsp = do
     EvalResult{..} <- applyExec' initialGas interp em senderSigs hsh nsp
     for_ _erLogGas $ \gl -> gasLog $ "gas logs: " <> sshow gl
-    logs <- use txLogs
-    rk <- view txRequestKey
+    !logs <- use txLogs
+    !rk <- view txRequestKey
 
     -- concat tx warnings with eval warnings
-    txWarnings <>= _erWarnings
+    modify' $ txWarnings <>~ _erWarnings
 
     -- applyExec enforces non-empty expression set so `last` ok
     -- forcing it here for lazy errors. TODO NFData the Pacts
-    lastResult <- return $!! last _erOutput
-    return $! CommandResult rk _erTxId (PactResult (Right lastResult))
+    let !lastResult = force $ last _erOutput
+    return $ CommandResult rk _erTxId (PactResult (Right lastResult))
       _erGas (Just logs) _erExec Nothing _erEvents
 
 -- | Variation on 'applyExec' that returns 'EvalResult' as opposed to
