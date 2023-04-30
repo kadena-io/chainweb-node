@@ -63,7 +63,7 @@ source-repository-package
     type: git
     location: https://github.com/kadena-io/pact.git
     -- requires PR 1633:
-    tag: 0bf488d517532f872b3366736283bbce7ae4de51
+    tag: 9bdbe3ae6a3a6fcb6da4c5ae5a924c941676388b
     --sha256: sha256-jD4Y2NOSYT0EQHs5BRSVvu8asfvRwt5XLDuZwbcG4mk=
 
 source-repository-package
@@ -152,7 +152,7 @@ allow-newer: servant:*
 
 -- GHC-9.6
 -- these are more liberal than necessary, but since everything works fine
--- with this there's no reason constrain it more.
+-- with this there's no reason to constrain it more than necessary.
 allow-newer: *:base
 allow-newer: *:tempalte-haskell
 allow-newer: *:ghc-prim
