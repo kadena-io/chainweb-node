@@ -25,11 +25,11 @@ jobs:
         aws-region: us-east-1
 
     # Not sure why nix cannot just do this for me (or does not want to do it) ...
-    - name: Update nix sha values for source repository packages
+    - name: Print nix sha values for source repository packages
       run: |
-        nix-shell --run "nix-prefetch-git --url https://github.com/kadena-io/pact.git --rev 9bdbe3ae6a3a6fcb6da4c5ae5a924c941676388b"
-        nix-shell --run "nix-prefetch-git --url https://github.com/kadena-io/pact-json.git --rev f8314fe8313702b07102a9f8330ad91630d1b124"
-        nix-shell --run "nix-prefetch-git --url https://github.com/kadena-io/chainweb-storage.git --rev af9f42c78bcd703ac382cfd8101c6d1c66a035f1"
+        nix-prefetch-git --url https://github.com/kadena-io/pact.git --rev 9bdbe3ae6a3a6fcb6da4c5ae5a924c941676388b
+        nix-prefetch-git --url https://github.com/kadena-io/pact-json.git --rev f8314fe8313702b07102a9f8330ad91630d1b124
+        nix-prefetch-git --url https://github.com/kadena-io/chainweb-storage.git --rev af9f42c78bcd703ac382cfd8101c6d1c66a035f1
 
     - name: Build and cache artifacts
       timeout-minutes: 740
