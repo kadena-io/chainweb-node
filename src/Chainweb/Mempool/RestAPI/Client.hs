@@ -103,7 +103,6 @@ insertClient txcfg v c k0 = runIdentity $ do
     SomeChainIdT (_ :: Proxy c) <- return $ someChainIdVal c
     return $ insertClient_ @v @c k
 
-
 ------------------------------------------------------------------------------
 memberClient_
     :: forall (v :: ChainwebVersionT) (c :: ChainIdT)

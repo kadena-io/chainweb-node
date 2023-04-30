@@ -101,7 +101,7 @@ import qualified Network.HTTP.Client as HTTP
 
 import Numeric.Natural
 
-import Servant.Client
+import Web.DeepRoute.Client
 
 import System.IO.Unsafe
 import System.LogLevel
@@ -434,48 +434,48 @@ peerClientEnv node = peerInfoClientEnv (_p2pNodeManager node)
 -- TODO: handle paging
 --
 syncFromPeer :: P2pNode -> PeerInfo -> IO Bool
-syncFromPeer node info = do
-    prunePeerDb peerDb
-    runClientM sync env >>= \case
-        Left e
-            | isCertMismatch e -> do
-                logg node Warn $ "failed to sync peers from " <> showInfo info <> ": unknown certificate. Deleting peer from peer db"
-                peerDbDelete (_p2pNodePeerDb node) info
-                return False
-            | otherwise -> do
-                logg node Warn $ "failed to sync peers from " <> showInfo info <> ": " <> sshow e
-                return False
-        Right p -> do
-            peers <- peerDbSnapshot peerDb
-            goods <- fmap catMaybes
-                $ traverseConcurrently (ParN 16) (guardPeerDbOfNode node)
-                $ take 32
-                    -- limit the maximum number of new unknown peers to 32
-                $ filter (\i -> me /= _peerId i)
-                $ filter (not . isKnown peers)
-                $ _pageItems p
-            peerDbInsertPeerInfoList
-                (_p2pNodeNetworkId node)
-                goods
-                (_p2pNodePeerDb node)
-            return True
-  where
-    env = peerClientEnv node info
-    v = _p2pNodeChainwebVersion node
-    nid = _p2pNodeNetworkId node
-    peerDb = _p2pNodePeerDb node
+syncFromPeer node info = undefined -- do
+--     prunePeerDb peerDb
+--     runClientM sync env >>= \case
+--         Left e
+--             -- | isCertMismatch e -> do
+--             --     logg node Warn $ "failed to sync peers from " <> showInfo info <> ": unknown certificate. Deleting peer from peer db"
+--             --     peerDbDelete (_p2pNodePeerDb node) info
+--             --     return False
+--             | otherwise -> do
+--                 logg node Warn $ "failed to sync peers from " <> showInfo info <> ": " <> sshow e
+--                 return False
+--         Right p -> do
+--             peers <- peerDbSnapshot peerDb
+--             goods <- fmap catMaybes
+--                 $ traverseConcurrently (ParN 16) (guardPeerDbOfNode node)
+--                 $ take 32
+--                     -- limit the maximum number of new unknown peers to 32
+--                 $ filter (\i -> me /= _peerId i)
+--                 $ filter (not . isKnown peers)
+--                 $ _pageItems p
+--             peerDbInsertPeerInfoList
+--                 (_p2pNodeNetworkId node)
+--                 goods
+--                 (_p2pNodePeerDb node)
+--             return True
+--   where
+--     env = peerClientEnv node info
+--     v = _p2pNodeChainwebVersion node
+--     nid = _p2pNodeNetworkId node
+--     peerDb = _p2pNodePeerDb node
 
-    me :: Maybe PeerId
-    me = _peerId $ _p2pNodePeerInfo node
+    -- me :: Maybe PeerId
+    -- me = _peerId $ _p2pNodePeerInfo node
 
-    sync :: ClientM (Page (NextItem Int) PeerInfo)
-    sync = do
-        !p <- peerGetClient v nid Nothing Nothing
-        liftIO $ logg node Debug $ "got " <> sshow (_pageLimit p) <> " peers " <> showInfo info
-        void $ peerPutClient v nid (_p2pNodePeerInfo node)
-        liftIO $ logg node Debug $ "put own peer info to " <> showInfo info
+    -- sync :: ClientM (Page (NextItem Int) PeerInfo)
+    -- sync = do
+        -- !p <- peerGetClient v nid Nothing Nothing
+        -- liftIO $ logg node Debug $ "got " <> sshow (_pageLimit p) <> " peers " <> showInfo info
+        -- void $ peerPutClient v nid (_p2pNodePeerInfo node)
+        -- liftIO $ logg node Debug $ "put own peer info to " <> showInfo info
 
-        return p
+        -- return p
 
     -- If the certificate check fails because the certificate is unknown, the
     -- peer is removed from the database. That is, we allow only connection to
@@ -486,11 +486,11 @@ syncFromPeer node info = do
     -- databased. This allows to implement reputation management, gray-, and
     -- black listing.
     --
-    isCertMismatch (ConnectionError e) = case fromException e of
-        Just x
-            | isCertificateMismatchException x -> True
-        _ -> False
-    isCertMismatch _ = False
+    -- isCertMismatch (ConnectionError e) = case fromException e of
+    --     Just x
+    --         | isCertificateMismatchException x -> True
+    --     _ -> False
+    -- isCertMismatch _ = False
 
 -- -------------------------------------------------------------------------- --
 -- Sample Peer from PeerDb

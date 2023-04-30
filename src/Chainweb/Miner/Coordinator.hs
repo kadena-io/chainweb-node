@@ -31,7 +31,7 @@ module Chainweb.Miner.Coordinator
 , ChainChoice(..)
 , PrimedWork(..)
 , MiningCoordination(..)
-, NoAsscociatedPayload(..)
+, NoAssociatedPayload(..)
 
 -- * Mining API Functions
 , work
@@ -336,10 +336,10 @@ work mr mcid m = do
     pact :: PactExecutionService
     pact = _webPactExecutionService $ view cutDbPactService cdb
 
-data NoAsscociatedPayload = NoAsscociatedPayload
+data NoAssociatedPayload = NoAssociatedPayload
     deriving (Show, Eq)
 
-instance Exception NoAsscociatedPayload
+instance Exception NoAssociatedPayload
 
 solve
     :: forall l tbl
@@ -353,7 +353,7 @@ solve mr solved@(SolvedWork hdr) = do
     --
     MiningState ms <- readTVarIO tms
     case M.lookup key ms of
-        Nothing -> throwM NoAsscociatedPayload
+        Nothing -> throwM NoAssociatedPayload
         Just x -> publishWork x `finally` deleteKey
             -- There is a race here, but we don't care if the same cut
             -- is published twice. There is also the risk that an item

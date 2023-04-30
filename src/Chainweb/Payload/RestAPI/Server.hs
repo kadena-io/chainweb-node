@@ -18,7 +18,8 @@
 --
 module Chainweb.Payload.RestAPI.Server
 (
-  somePayloadServer
+  newPayloadServer
+, somePayloadServer
 , somePayloadServers
 
 -- * Single Chain Server
@@ -27,18 +28,25 @@ module Chainweb.Payload.RestAPI.Server
 ) where
 
 import Control.Monad
+import Control.Monad.Catch
 import Control.Monad.IO.Class
 import Control.Monad.Trans.Maybe
 
 import Data.Aeson
 import Data.Function
+import Data.Foldable
 import Data.Maybe
 import Data.Proxy
 import qualified Data.Text.IO as T
 
-import Prelude hiding (lookup)
+import Prelude
 
+import Network.HTTP.Types
+import Network.Wai
 import Servant
+
+import Web.DeepRoute
+import Web.DeepRoute.Wai
 
 -- internal modules
 
@@ -69,19 +77,19 @@ payloadHandler
     :: CanReadablePayloadCas tbl
     => PayloadDb tbl
     -> BlockPayloadHash
-    -> Handler PayloadData
+    -> IO PayloadData
 payloadHandler db k = run >>= \case
-    Nothing -> throwError $ err404Msg $ object
+    Nothing -> throwM $ err404Msg $ object
         [ "reason" .= ("key not found" :: String)
         , "key" .= k
         ]
     Just e -> return e
   where
     run = runMaybeT $ do
-        payload <- MaybeT $ liftIO $ tableLookup
+        payload <- MaybeT $ tableLookup
             (_transactionDbBlockPayloads $ _transactionDb db)
             k
-        txs <- MaybeT $ liftIO $ tableLookup
+        txs <- MaybeT $ tableLookup
             (_transactionDbBlockTransactions $ _transactionDb db)
             (_blockPayloadTransactionsHash payload)
         return $ payloadData txs payload
@@ -94,8 +102,8 @@ payloadBatchHandler
     => PayloadBatchLimit
     -> PayloadDb tbl
     -> [BlockPayloadHash]
-    -> Handler [PayloadData]
-payloadBatchHandler batchLimit db ks = liftIO $ do
+    -> IO [PayloadData]
+payloadBatchHandler batchLimit db ks = do
     payloads <- catMaybes
         <$> tableLookupBatch payloadsDb (take (int batchLimit) ks)
     txs <- zipWith (\a b -> payloadData <$> a <*> pure b)
@@ -115,9 +123,9 @@ outputsHandler
     :: CanReadablePayloadCas tbl
     => PayloadDb tbl
     -> BlockPayloadHash
-    -> Handler PayloadWithOutputs
-outputsHandler db k = liftIO (tableLookup db k) >>= \case
-    Nothing -> throwError $ err404Msg $ object
+    -> IO PayloadWithOutputs
+outputsHandler db k = tableLookup db k >>= \case
+    Nothing -> throwM $ err404Msg $ object
         [ "reason" .= ("key not found" :: String)
         , "key" .= k
         ]
@@ -131,26 +139,26 @@ outputsBatchHandler
     => PayloadBatchLimit
     -> PayloadDb tbl
     -> [BlockPayloadHash]
-    -> Handler [PayloadWithOutputs]
-outputsBatchHandler batchLimit db ks = liftIO
-    $ fmap catMaybes
-    $ tableLookupBatch db
-    $ take (int batchLimit) ks
+    -> IO [PayloadWithOutputs]
+outputsBatchHandler batchLimit db ks =
+    fmap catMaybes
+        $ tableLookupBatch db
+        $ take (int batchLimit) ks
 
 -- -------------------------------------------------------------------------- --
 -- Payload API Server
 
 payloadServer
-    :: forall tbl v c 
+    :: forall tbl v c
     . CanReadablePayloadCas tbl
     => PayloadBatchLimit
     -> PayloadDb' tbl v c
     -> Server (PayloadApi v c)
 payloadServer batchLimit (PayloadDb' db)
-    = payloadHandler @tbl db
-    :<|> outputsHandler @tbl db
-    :<|> payloadBatchHandler @tbl batchLimit db
-    :<|> outputsBatchHandler @tbl batchLimit db
+    = liftIO . payloadHandler @tbl db
+    :<|> liftIO . outputsHandler @tbl db
+    :<|> liftIO . payloadBatchHandler @tbl batchLimit db
+    :<|> liftIO . outputsBatchHandler @tbl batchLimit db
 
 -- -------------------------------------------------------------------------- --
 -- Application for a single PayloadDb
@@ -172,6 +180,23 @@ payloadApiLayout
     => PayloadDb' tbl v c
     -> IO ()
 payloadApiLayout _ = T.putStrLn $ layout (Proxy @(PayloadApi v c))
+
+newPayloadServer :: CanReadablePayloadCas tbl => PayloadBatchLimit -> Route (PayloadDb tbl -> Application)
+newPayloadServer batchLimit = fold
+    [ choice "batch" $
+        terminus methodGet "application/json" $ \pdb req resp ->
+            resp . responseJSON ok200 [] . toJSON =<< payloadBatchHandler batchLimit pdb =<< requestFromJSON req
+    , choice "outputs" $
+        choice "batch" $
+            terminus methodPost "application/json" $ \pdb req resp ->
+            resp . responseJSON ok200 [] . toJSON =<< outputsBatchHandler batchLimit pdb =<< requestFromJSON req
+    , capture $ fold
+        [ choice "outputs" $ terminus methodGet "application/json" $ \k pdb _ resp ->
+            resp . responseJSON ok200 [] . toJSON =<< outputsHandler pdb k
+        , terminus methodGet "application/json" $ \k pdb _ resp ->
+            resp . responseJSON ok200 [] . toJSON =<< payloadHandler pdb k
+        ]
+    ]
 
 -- -------------------------------------------------------------------------- --
 -- Multichain Server

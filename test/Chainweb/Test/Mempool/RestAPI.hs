@@ -84,7 +84,7 @@ newTestServer = mask_ $ do
     chain = someChainId version
 
     mkApp :: MempoolBackend MockTx -> Application
-    mkApp mp = chainwebApplication conf (serverMempools [(chain, mp)])
+    mkApp mp = chainwebApplication defaultP2pApiOptions conf (serverMempools [(chain, mp)])
 
     conf = defaultChainwebConfiguration version
 

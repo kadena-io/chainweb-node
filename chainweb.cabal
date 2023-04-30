@@ -193,8 +193,6 @@ library
         , Chainweb.Miner.Miners
         , Chainweb.Miner.Pact
         , Chainweb.Miner.RestAPI
-        , Chainweb.Miner.RestAPI.Client
-        , Chainweb.Miner.RestAPI.Server
         , Chainweb.NodeVersion
         , Chainweb.Payload
         , Chainweb.Payload.PayloadStore
@@ -232,6 +230,7 @@ library
         , Chainweb.TreeDB
         , Chainweb.TreeDB.RemoteDB
         , Chainweb.Utils
+        , Chainweb.Utils.HTTP
         , Chainweb.Utils.Paging
         , Chainweb.Utils.RequestLog
         , Chainweb.Utils.Serialization
@@ -341,6 +340,9 @@ library
         , data-default >=0.7
         , data-dword >= 0.3
         , deepseq >= 1.4
+        , deeproute
+        , deeproute:deeproute-wai
+        , deeproute:deeproute-client
         , digraph >= 0.2
         , direct-sqlite >= 2.3.27
         , directory >= 1.3
@@ -354,6 +356,7 @@ library
         , hashable >= 1.3
         , heaps >= 0.3
         , hourglass >=0.2
+        , http-api-data >=0.4.3
         , http-client >= 0.5
         , http-client-tls >=0.3
         , http-media >= 0.7

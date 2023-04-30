@@ -62,7 +62,7 @@ import Chainweb.Cut
 import Chainweb.Cut.CutHashes
 import Chainweb.Test.Cut
 import Chainweb.CutDB
-import Chainweb.CutDB.RestAPI.Server
+import Chainweb.CutDB.RestAPI
 import Chainweb.Graph
 import Chainweb.Miner.Pact
 import Chainweb.Payload
@@ -254,7 +254,7 @@ withTestCutDbWithoutPact
     -> (forall tbl . CanReadablePayloadCas tbl => Casify RocksDbTable CutHashes -> CutDb tbl -> IO a)
     -> IO a
 withTestCutDbWithoutPact rdb v conf n =
-    withTestCutDb rdb v conf n (const $ const $ return fakePact)
+    withTestCutDb rdb v conf n (\_ _ -> return fakePact)
 
 -- | A version of withTestCutDb that can be used as a Tasty TestTree resource.
 --

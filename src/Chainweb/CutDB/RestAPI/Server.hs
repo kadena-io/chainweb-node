@@ -3,6 +3,7 @@
 {-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TupleSections #-}
 {-# LANGUAGE TypeApplications #-}
 
 -- |
@@ -16,12 +17,9 @@
 --
 module Chainweb.CutDB.RestAPI.Server
 (
--- * Handlers
-  cutGetHandler
-, cutPutHandler
 
 -- * Cut Server
-, cutServer
+  cutServer
 , cutGetServer
 
 -- * Some Cut Server
@@ -32,12 +30,9 @@ module Chainweb.CutDB.RestAPI.Server
 , serveCutOnPort
 ) where
 
-import Control.Lens (view)
 import Control.Monad.Except
 
-import Data.IxSet.Typed
 import Data.Proxy
-import Data.Semigroup
 
 import Network.Wai.Handler.Warp hiding (Port)
 
@@ -46,41 +41,17 @@ import Servant.Server
 
 -- internal modules
 
-import Chainweb.BlockHeight
-import Chainweb.Cut
-import Chainweb.Cut.CutHashes
 import Chainweb.CutDB
 import Chainweb.CutDB.RestAPI
 import Chainweb.HostAddress
 import Chainweb.RestAPI.Utils
-import Chainweb.TreeDB (MaxRank(..))
 import Chainweb.Utils
 import Chainweb.Version
-import Chainweb.Version.Utils
 
 import P2P.Node.PeerDB
-import P2P.Peer
 
 -- -------------------------------------------------------------------------- --
 -- Handlers
-
-cutGetHandler :: CutDb tbl -> Maybe MaxRank -> IO CutHashes
-cutGetHandler db Nothing = liftIO $ cutToCutHashes Nothing <$> _cut db
-cutGetHandler db (Just (MaxRank (Max mar))) = liftIO $ do
-    !c <- _cut db
-    let v = _chainwebVersion db
-    let !bh = BlockHeight $ floor (avgBlockHeightAtCutHeight v (CutHeight $ int mar))
-    !c' <- limitCut (view cutDbWebBlockHeaderDb db) bh c
-    return $! cutToCutHashes Nothing c'
-
-cutPutHandler :: PeerDb -> CutDb tbl -> CutHashes -> Handler NoContent
-cutPutHandler pdb db c = case _peerAddr <$> _cutOrigin c of
-    Nothing -> throwError $ err400 { errBody = "Cut is missing an origin entry" }
-    Just addr -> do
-        ps <- liftIO $ peerDbSnapshot pdb
-        case getOne (getEQ addr ps) of
-            Nothing -> throwError $ err401 { errBody = "Unknown peer" }
-            Just{} -> NoContent <$ liftIO (addCutHashes db c)
 
 -- -------------------------------------------------------------------------- --
 -- Cut API Server
@@ -90,7 +61,9 @@ cutServer
     . PeerDb
     -> CutDbT tbl v
     -> Server (CutApi v)
-cutServer pdb (CutDbT db) = liftIO . cutGetHandler db :<|> cutPutHandler pdb db
+cutServer pdb (CutDbT db) =
+    (liftIO . cutGetHandler db)
+    :<|> (liftIO . fmap (const NoContent) . cutPutHandler pdb db)
 
 cutGetServer
     :: forall tbl (v :: ChainwebVersionT)

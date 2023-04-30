@@ -51,7 +51,7 @@ import GHC.Generics
 
 import qualified Network.HTTP.Client as HTTP
 
-import Servant.Client
+import Web.DeepRoute.Client
 
 import System.LogLevel
 
@@ -221,26 +221,28 @@ getBlockPayload s candidateStore priority maybeOrigin h = do
     pullOrigin k (Just origin) = do
         let originEnv = peerInfoClientEnv mgr origin
         logfun Debug $ taskMsg k "lookup origin"
-        runClientM (payloadClient v cid k) originEnv >>= \case
-            (Right !x) -> do
-                logfun Debug $ taskMsg k "received from origin"
-                return $ Just x
-            Left (e :: ClientError) -> do
-                logfun Debug $ taskMsg k $ "failed to receive from origin: " <> sshow e
-                return Nothing
+        undefined
+        -- runClientM (payloadClient v cid k) originEnv >>= \case
+        --     (Right !x) -> do
+        --         logfun Debug $ taskMsg k "received from origin"
+        --         return $ Just x
+        --     Left (e :: ClientError) -> do
+        --         logfun Debug $ taskMsg k $ "failed to receive from origin: " <> sshow e
+        --         return Nothing
 
     -- | Query a block payload via the task queue
     --
     queryPayloadTask :: BlockPayloadHash -> IO (Task ClientEnv PayloadData)
     queryPayloadTask k = newTask (sshow k) priority $ \logg env -> do
         logg @T.Text Debug $ taskMsg k "query remote block payload"
-        runClientM (payloadClient v cid k) env >>= \case
-            (Right !x) -> do
-                logg @T.Text Debug $ taskMsg k "received remote block payload"
-                return x
-            Left (e :: ClientError) -> do
-                logg @T.Text Debug $ taskMsg k $ "failed: " <> sshow e
-                throwM e
+        undefined
+        -- runClientM (payloadClient v cid k) env >>= \case
+        --     (Right !x) -> do
+        --         logg @T.Text Debug $ taskMsg k "received remote block payload"
+        --         return x
+        --     Left (e :: ClientError) -> do
+        --         logg @T.Text Debug $ taskMsg k $ "failed: " <> sshow e
+        --         throwM e
 
 -- -------------------------------------------------------------------------- --
 -- Obtain, Validate, and Store BlockHeaders
@@ -468,7 +470,8 @@ getBlockHeaderInternal headerStore payloadStore candidateHeaderCas candidatePayl
         logg Debug $ taskMsg ck "lookup origin"
         !r <- TDB.lookup (rDb v cid originEnv) k
         logg Debug $ taskMsg ck "received from origin"
-        return r
+        -- return r
+        undefined
 
     -- pullOriginDeps _ Nothing = return ()
     -- pullOriginDeps ck@(ChainValue cid k) (Just origin) = do

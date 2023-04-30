@@ -98,7 +98,7 @@ import GHC.Stack
 
 import qualified Network.HTTP.Client as HTTP
 
-import Servant.Client
+import Web.DeepRoute.Client
 
 -- internal modules
 
@@ -258,12 +258,13 @@ pPeerInfoCompact service = textOption
 -- | Create a ClientEnv for querying HTTP API of a PeerInfo
 --
 peerInfoClientEnv :: HTTP.Manager -> PeerInfo -> ClientEnv
-peerInfoClientEnv mgr = mkClientEnv mgr . peerBaseUrl . _peerAddr
+peerInfoClientEnv mgr inf = ClientEnv (hostnameBytes $ view hostAddressHost addr) (int $ view hostAddressPort addr) True mgr
   where
-    peerBaseUrl a = BaseUrl Https
-        (B8.unpack . hostnameBytes $ view hostAddressHost a)
-        (int $ view hostAddressPort a)
-        ""
+    addr = _peerAddr inf
+    -- peerBaseUrl a = BaseUrl Https
+    --     (B8.unpack . hostnameBytes $ view hostAddressHost addr)
+    --     (int $ view hostAddressPort addr)
+    --     ""
 
 -- -------------------------------------------------------------------------- --
 -- Peer Configuration

@@ -71,14 +71,14 @@ module Chainweb.BlockHeaderDB.RestAPI
 , BranchHeadersApi
 , branchHeadersApi
 , P2pBranchHeadersApi
-, p2pBranchHeadersApi
+-- , p2pBranchHeadersApi
 , HeaderApi
 , P2pHeaderApi
 , headerApi
 , p2pHeaderApi
 , HeadersApi
 , P2pHeadersApi
-, p2pHeadersApi
+-- , p2pHeadersApi
 , headersApi
 , HashesApi
 , hashesApi
@@ -186,15 +186,48 @@ type FilterParams = MinHeightParam :> MaxHeightParam
 
 type MinHeightParam = QueryParam "minheight" MinRank
 type MaxHeightParam = QueryParam "maxheight" MaxRank
+-- type PageParams k = LimitParam :> NextParam k
+
+-- type LimitParam = QueryParam "limit" Limit
+-- type NextParam k = QueryParam "next" k
 
 -- -------------------------------------------------------------------------- --
 type BranchHashesApi_
     = "hash" :> "branch"
     :> PageParams (NextItem BlockHash)
-    :> MinHeightParam
-    :> MaxHeightParam
+    :> FilterParams
     :> ReqBody '[JSON] (BranchBounds BlockHeaderDb)
     :> Post '[JSON] BlockHashPage
+-- -------------------------------------------------------------------------- --
+type HashesApi_
+    = "hash"
+    :> PageParams (NextItem BlockHash)
+    :> FilterParams
+    :> Get '[JSON] BlockHashPage
+
+-- -------------------------------------------------------------------------- --
+type BranchHeadersApi_
+    = "header" :> "branch"
+    :> PageParams (NextItem BlockHash)
+    :> FilterParams
+    :> ReqBody '[JSON] (BranchBounds BlockHeaderDb)
+    :> Post '[JSON, JsonBlockHeaderObject] BlockHeaderPage
+-- -------------------------------------------------------------------------- --
+type HeaderApi_
+    = "header"
+    :> Capture "BlockHash" BlockHash
+    :> Get '[JSON, JsonBlockHeaderObject, OctetStream] BlockHeader
+-- -------------------------------------------------------------------------- --
+type HeadersApi_
+    = "header"
+    :> PageParams (NextItem BlockHash)
+    :> FilterParams
+    :> Get '[JSON, JsonBlockHeaderObject] BlockHeaderPage
+type P2pHeadersApi_
+    = "header"
+    :> PageParams (NextItem BlockHash)
+    :> FilterParams
+    :> Get '[JSON] BlockHeaderPage
 
 -- | @GET \/chainweb\/\<ApiVersion\>\/\<InstanceId\>\/chain\/\<ChainId\>\/hash\/branch@
 --
@@ -221,14 +254,6 @@ branchHashesApi
     . Proxy (BranchHashesApi v c)
 branchHashesApi = Proxy
 
--- -------------------------------------------------------------------------- --
-type BranchHeadersApi_
-    = "header" :> "branch"
-    :> PageParams (NextItem BlockHash)
-    :> MinHeightParam
-    :> MaxHeightParam
-    :> ReqBody '[JSON] (BranchBounds BlockHeaderDb)
-    :> Post '[JSON, JsonBlockHeaderObject] BlockHeaderPage
 
 type P2pBranchHeadersApi_
     = "header" :> "branch"
@@ -265,17 +290,6 @@ branchHeadersApi
     . Proxy (BranchHeadersApi v c)
 branchHeadersApi = Proxy
 
-p2pBranchHeadersApi
-    :: forall (v :: ChainwebVersionT) (c :: ChainIdT)
-    . Proxy (P2pBranchHeadersApi v c)
-p2pBranchHeadersApi = Proxy
-
--- -------------------------------------------------------------------------- --
-type HashesApi_
-    = "hash"
-    :> PageParams (NextItem BlockHash)
-    :> FilterParams
-    :> Get '[JSON] BlockHashPage
 
 -- | @GET \/chainweb\/\<ApiVersion\>\/\<InstanceId\>\/chain\/\<ChainId\>\/hash@
 --
@@ -293,20 +307,6 @@ hashesApi
     :: forall (v :: ChainwebVersionT) (c :: ChainIdT)
     . Proxy (HashesApi v c)
 hashesApi = Proxy
-
--- -------------------------------------------------------------------------- --
-type HeadersApi_
-    = "header"
-    :> PageParams (NextItem BlockHash)
-    :> FilterParams
-    :> Get '[JSON, JsonBlockHeaderObject] BlockHeaderPage
-
-type P2pHeadersApi_
-    = "header"
-    :> PageParams (NextItem BlockHash)
-    :> FilterParams
-    :> Get '[JSON] BlockHeaderPage
-
 -- | @GET \/chainweb\/\<ApiVersion\>\/\<InstanceId\>\/chain\/\<ChainId\>\/header@
 --
 -- Returns block headers in the block header tree database in ascending order
@@ -327,16 +327,6 @@ headersApi
     . Proxy (HeadersApi v c)
 headersApi = Proxy
 
-p2pHeadersApi
-    :: forall (v :: ChainwebVersionT) (c :: ChainIdT)
-    . Proxy (P2pHeadersApi v c)
-p2pHeadersApi = Proxy
-
--- -------------------------------------------------------------------------- --
-type HeaderApi_
-    = "header"
-    :> Capture "BlockHash" BlockHash
-    :> Get '[JSON, JsonBlockHeaderObject, OctetStream] BlockHeader
 
 type P2pHeaderApi_
     = "header"

@@ -4,6 +4,7 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE OverloadedStrings #-}
 
 -- |
 -- Module: Chainweb.SPV.RestAPI.Server
@@ -17,6 +18,7 @@
 module Chainweb.SPV.RestAPI.Server
 ( spvGetTransactionProofHandler
 , spvGetTransactionOutputProofHandler
+, newSpvServer
 , spvServer
 , spvApp
 , spvApiLayout
@@ -31,9 +33,14 @@ import Crypto.Hash.Algorithms
 import Data.Foldable
 import qualified Data.Text.IO as T
 
+import Network.HTTP.Types
+import Network.Wai
 import Numeric.Natural
 
 import Servant
+
+import Web.DeepRoute
+import Web.DeepRoute.Wai
 
 -- internal modules
 
@@ -54,7 +61,7 @@ import Data.Singletons
 -- SPV Transaction Proof Handler
 
 spvGetTransactionProofHandler
-    :: CanReadablePayloadCas tbl
+    :: (CanReadablePayloadCas tbl, MonadIO m)
     => CutDb tbl
     -> ChainId
         -- ^ the target chain of the proof. This is the chain for which
@@ -68,7 +75,7 @@ spvGetTransactionProofHandler
     -> Natural
         -- ^ the index of the proof subject, the transaction for which inclusion
         -- is proven.
-    -> Handler (TransactionProof SHA512t_256)
+    -> m (TransactionProof SHA512t_256)
 spvGetTransactionProofHandler db tcid scid bh i =
     liftIO $ createTransactionProof db tcid scid bh (int i)
     -- FIXME: add proper error handling
@@ -77,7 +84,7 @@ spvGetTransactionProofHandler db tcid scid bh i =
 -- SPV Transaction Output Proof Handler
 
 spvGetTransactionOutputProofHandler
-    :: CanReadablePayloadCas tbl
+    :: (CanReadablePayloadCas tbl, MonadIO m)
     => CutDb tbl
     -> ChainId
         -- ^ the target chain of the proof. This is the chain for which inclusion
@@ -92,7 +99,7 @@ spvGetTransactionOutputProofHandler
     -> Natural
         -- ^ the index of the proof subject, the transaction output for which
         -- inclusion is proven.
-    -> Handler (TransactionOutputProof SHA512t_256)
+    -> m (TransactionOutputProof SHA512t_256)
 spvGetTransactionOutputProofHandler db tcid scid bh i =
     liftIO $ createTransactionOutputProof db tcid scid bh (int i)
     -- FIXME: add proper error handling
@@ -111,6 +118,17 @@ spvServer (CutDbT db)
     :<|> spvGetTransactionOutputProofHandler db tcid
   where
     tcid = fromSing (sing :: Sing c)
+
+newSpvServer :: CanReadablePayloadCas tbl => CutDb tbl -> Route (ChainId -> ChainId -> Application)
+newSpvServer cutDb =
+    choice "height" $ capture $ fold
+        [ choice "transaction" $ capture $
+            terminus methodGet "application/json" $ \txIdx blockHeight spvChainId srcChainId _ resp ->
+                resp . responseJSON ok200 [] =<< spvGetTransactionProofHandler cutDb srcChainId spvChainId blockHeight txIdx
+        , choice "output" $ capture $
+            terminus methodGet "application/json" $ \txOutputIdx blockHeight spvChainId srcChainId _ resp ->
+                resp . responseJSON ok200 [] =<< spvGetTransactionOutputProofHandler cutDb srcChainId spvChainId blockHeight txOutputIdx
+        ]
 
 -- -------------------------------------------------------------------------- --
 -- Application for a single Chain

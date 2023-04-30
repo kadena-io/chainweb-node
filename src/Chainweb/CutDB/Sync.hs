@@ -19,14 +19,16 @@ module Chainweb.CutDB.Sync
 ) where
 
 import Control.Concurrent.Async
+import Control.Exception
 import Control.Lens (set, view)
 import Control.Monad
 
 import qualified Data.Text as T
+import qualified Data.Text.Encoding as T
 
 import GHC.Generics
 
-import Servant.Client
+import Web.DeepRoute.Client
 
 import qualified Streaming.Prelude as S
 
@@ -38,12 +40,13 @@ import Chainweb.BlockHeight
 import Chainweb.Cut (_cutHeight, cutMap)
 import Chainweb.Cut.CutHashes
 import Chainweb.CutDB
+import Chainweb.CutDB.RestAPI
 import Chainweb.CutDB.RestAPI.Client
 import Chainweb.Utils
 import Chainweb.Version
 
 import P2P.Peer
-import P2P.Session
+import P2P.Session hiding (ClientEnv)
 
 -- -------------------------------------------------------------------------- --
 -- Client Env
@@ -54,20 +57,19 @@ data CutClientEnv = CutClientEnv
     }
     deriving (Generic)
 
-runClientThrowM :: ClientM a -> ClientEnv -> IO a
-runClientThrowM req = fromEitherM <=< runClientM req
-
 putCut
     :: CutClientEnv
     -> CutHashes
     -> IO ()
-putCut (CutClientEnv v env) = void . flip runClientThrowM env . cutPutClient v
+putCut (CutClientEnv v env) ch =
+    newCutPutClient v env ch
 
 getCut
     :: CutClientEnv
     -> CutHeight
     -> IO CutHashes
-getCut (CutClientEnv v env) h = runClientThrowM (cutGetClientLimit v (int h)) env
+getCut (CutClientEnv v env) h =
+    newCutGetClient v env Nothing
 
 -- -------------------------------------------------------------------------- --
 -- Sync Session

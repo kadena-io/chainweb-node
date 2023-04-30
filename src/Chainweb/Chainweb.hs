@@ -780,9 +780,9 @@ runChainweb cw = do
 
     serveServiceApi :: Middleware -> IO ()
     serveServiceApi = serveServiceApiSocket
+        (_chainwebConfig cw)
         (serviceApiServerSettings (fst $ _chainwebServiceSocket cw) serviceApiHost)
         (snd $ _chainwebServiceSocket cw)
-        (_chainwebVersion cw)
         ChainwebServerDbs
             { _chainwebServerCutDb = Just cutDb
             , _chainwebServerBlockHeaderDbs = chainDbsToServe

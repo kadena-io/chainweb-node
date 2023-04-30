@@ -121,11 +121,11 @@ withCutResources cutDbParams peer logger rdb webchain payloadDb mgr pact f = do
                 , _cutResSyncLogger = addLabel ("sync", "cut") syncLogger
                 }
             , _cutResHeaderSync = CutSyncResources
-                { _cutResSyncSession = session 10 (_webBlockHeaderStoreQueue headerStore)
+                { _cutResSyncSession = \_ -> undefined -- session 10 (_webBlockHeaderStoreQueue headerStore)
                 , _cutResSyncLogger = addLabel ("sync", "header") syncLogger
                 }
             , _cutResPayloadSync = CutSyncResources
-                { _cutResSyncSession = session 10 (_webBlockPayloadStoreQueue payloadStore)
+                { _cutResSyncSession = \_ -> undefined -- session 10 (_webBlockPayloadStoreQueue payloadStore)
                 , _cutResSyncLogger = addLabel ("sync", "payload") syncLogger
                 }
             }
