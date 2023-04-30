@@ -134,7 +134,7 @@ source-repository-package
     tag: e314834e09953cf83ac90efbab08a1edc94500fe
     location: https://github.com/lehins/massiv
     subdir: massiv
-    --sha256: sha256-AwS/uqzUQrTUgxEHNjpX65JKFcaOuZN+03mI16JXui3=
+    --sha256: sha256-UbSGfV4IGa7lakpEJ+vlhkyOPtvVilopJi+pkNK4IyE=
 
 -- -------------------------------------------------------------------------- --
 -- Relaxed Bounds
