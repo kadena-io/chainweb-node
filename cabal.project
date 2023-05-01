@@ -93,8 +93,8 @@ source-repository-package
 source-repository-package
     type: git
     location: https://github.com/kadena-io/kadena-ethereum-bridge.git
-    tag: 7b8daff3e79e3fcfb1ae7ba61b779993244658ea
-    --sha256: 03dysqfbv9qpsh092glnk33hhb7r4is7k7mypjnk98iawg1mp14r
+    tag: f3011c7bd8d97e4896d11deb2c1d87e13cc0cf23
+    --sha256: 1cf0p1f6cf5c0qmwp9dhdxmskfvrdpm26wjgva6jv43436g5zfn3
 
 -- Required for GHC-9:
 
@@ -179,3 +179,4 @@ allow-newer: base16-bytestring:*
 -- other pact induced bounds (not relevant for on-chain semantics)
 -- constraints: megaparsec <9.3
 allow-newer: prettyprinter:*
+
