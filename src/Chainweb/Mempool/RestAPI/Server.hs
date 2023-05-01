@@ -3,6 +3,7 @@
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE OverloadedStrings #-}
 
 module Chainweb.Mempool.RestAPI.Server
   ( mempoolServer
@@ -108,7 +109,7 @@ getPendingHandler mempool mbNonce mbHw = liftIO $ do
 
 handleErrs :: NFData a => Handler a -> Handler a
 handleErrs = flip catchAny $ \e ->
-    throwError $ err400 { errBody = sshow e }
+    throwError $ setErrText (sshow e) err400
 
 someMempoolServer
     :: (Show t)
