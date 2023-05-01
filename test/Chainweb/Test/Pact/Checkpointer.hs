@@ -14,7 +14,6 @@ import Control.Lens hiding ((.=))
 import Control.Monad.Reader
 
 import Data.Aeson (Value(..), object, (.=), Key)
-import Data.ByteString (ByteString)
 import Data.Default (def)
 import Data.Function
 import qualified Data.HashMap.Strict as HM
