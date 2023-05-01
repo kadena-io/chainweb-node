@@ -6,10 +6,12 @@ let flakeDefaultNix = (import (
        src =  ./.;
      }).defaultNix;
     inputs = flakeDefaultNix.inputs;
-    pkgsDef = import inputs.nixpkgs (import inputs.haskellNix {}).nixpkgsArgs;
+    pkgsDef = import inputs.nixpkgs (import inputs.haskellNix {
+      config = {}; overlays = [];
+    }).nixpkgsArgs;
 in
 { pkgs ? pkgsDef
-, compiler ? "ghc8107"
+, compiler ? "ghc961"
 , flakePath ? flakeDefaultNix.outPath
 , nix-filter ? inputs.nix-filter
 , ...
@@ -24,7 +26,7 @@ let haskellSrc = with nix-filter.lib; filter {
         "examples"
         (matchExt "nix")
         "flake.lock"
-      ];
+      ] ++ pkgs.lib.optional (compiler != "ghc8107") "cabal.project.freeze";
     };
     chainweb-node = pkgs.haskell-nix.project' {
       src = haskellSrc;
@@ -46,5 +48,5 @@ let haskellSrc = with nix-filter.lib; filter {
     flake = chainweb-node.flake {};
     default = flake.packages."chainweb:exe:chainweb-node";
 in {
-  inherit flake default haskellSrc;
+  inherit flake default haskellSrc chainweb-node pkgs;
 }
