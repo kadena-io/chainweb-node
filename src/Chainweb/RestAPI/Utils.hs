@@ -40,6 +40,8 @@ module Chainweb.RestAPI.Utils
 (
 -- * Servant Utils
   Reassoc
+, setErrText
+, setErrJSON
 
 -- * API Version
 , Version
@@ -98,15 +100,19 @@ module Chainweb.RestAPI.Utils
 
 ) where
 
+import Control.Exception (Exception, throw)
 import Control.Monad.Catch (bracket)
 
 import Data.Aeson
+import qualified Data.ByteString.Lazy as BSL
 import qualified Data.CaseInsensitive as CI
 import Data.Kind
+import Data.List (find)
 import Data.Proxy
 import Data.Streaming.Network (bindPortGen)
 import Data.String
 import qualified Data.Text as T
+import qualified Data.Text.Encoding as T
 
 import GHC.Generics
 import GHC.TypeLits
@@ -115,7 +121,7 @@ import qualified Network.HTTP.Types.Header as HTTP
 import qualified Network.Socket as N
 import Network.Wai.Handler.Warp (HostPreference)
 
-import Servant.API
+import Servant.API hiding (addHeader)
 import Servant.Client
 import Servant.Server
 
@@ -138,6 +144,29 @@ type family ReassocBranch (a :: s) (b :: [Type]) :: Type where
     ReassocBranch (a :> b) rest = ReassocBranch a (b ': rest)
     ReassocBranch a '[] = a
     ReassocBranch a (b ': rest) = a :> ReassocBranch b rest
+
+newtype DuplicateHeader = DuplicateHeader HTTP.HeaderName
+instance Show DuplicateHeader where
+    show (DuplicateHeader hn) = "Attempted to set a duplicate header with this name: " <> show hn
+instance Exception DuplicateHeader
+
+addHeader :: HTTP.Header -> [HTTP.Header] -> [HTTP.Header]
+addHeader (hn, hv) hs =
+    case find ((== hn) . fst) hs of
+      Just _ -> throw (DuplicateHeader hn)
+      Nothing -> (hn, hv) : hs
+
+setErrText :: T.Text -> ServerError -> ServerError
+setErrText m e = e
+    { errBody = BSL.fromStrict $ T.encodeUtf8 m
+    , errHeaders = addHeader ("Content-Type", "text/plain;charset=utf-8") (errHeaders e)
+    }
+
+setErrJSON :: ToJSON a => a -> ServerError -> ServerError
+setErrJSON m e = e
+    { errBody = encode m
+    , errHeaders = addHeader ("Content-Type", "application/json;charset=utf-8") (errHeaders e)
+    }
 
 -- -------------------------------------------------------------------------- --
 -- API Version
