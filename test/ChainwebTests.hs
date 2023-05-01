@@ -36,6 +36,7 @@ import qualified Chainweb.Test.Mempool.Sync
 import qualified Chainweb.Test.Mining (tests)
 import qualified Chainweb.Test.Misc
 import qualified Chainweb.Test.Pact.DbCacheTest
+import qualified Chainweb.Test.Pact.Compaction (tests)
 import qualified Chainweb.Test.Pact.Checkpointer
 import qualified Chainweb.Test.Pact.ModuleCacheOnRestart
 import qualified Chainweb.Test.Pact.NoCoinbase
@@ -96,6 +97,7 @@ pactTestSuite rdb = testGroupSch "Chainweb-Pact Tests"
     $ schedule Sequential
         [ Chainweb.Test.Pact.PactExec.tests
         , ScheduledTest "DbCacheTests" Chainweb.Test.Pact.DbCacheTest.tests
+        , Chainweb.Test.Pact.Compaction.tests
         , Chainweb.Test.Pact.Checkpointer.tests
         , Chainweb.Test.Pact.PactMultiChainTest.tests
         , Chainweb.Test.Pact.PactSingleChainTest.tests rdb
