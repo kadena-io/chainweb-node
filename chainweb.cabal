@@ -460,6 +460,7 @@ test-suite chainweb-tests
         Chainweb.Test.Orphans.Internal
         Chainweb.Test.Orphans.Pact
         Chainweb.Test.Orphans.Time
+        Chainweb.Test.Pact.Compaction
         Chainweb.Test.Pact.PactMultiChainTest
         Chainweb.Test.Pact.PactSingleChainTest
         Chainweb.Test.P2P.Peer.BootstrapConfig
@@ -539,6 +540,7 @@ test-suite chainweb-tests
         , merkle-log >=0.2
         , mtl >= 2.2
         , network >= 3.1.2
+        , patience >= 0.3
         , http-client-tls >=0.3
         , pact
         , quickcheck-instances >= 0.3
