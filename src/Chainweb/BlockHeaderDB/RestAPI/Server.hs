@@ -90,13 +90,8 @@ checkKey !db !k = liftIO (lookup db k) >>= \case
         ]
     Just _ -> pure k
 
-err404Msg :: ToJSON msg  => msg -> ServerError
-err404Msg msg = ServerError
-    { errHTTPCode = 404
-    , errReasonPhrase = "Not Found"
-    , errBody = encode msg
-    , errHeaders = []
-    }
+err404Msg :: ToJSON msg => msg -> ServerError
+err404Msg msg = setErrJSON msg err404
 
 -- | Confirm if keys comprising the given bounds exist within a `TreeDb`.
 --

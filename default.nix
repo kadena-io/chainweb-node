@@ -65,6 +65,19 @@ pkgs.haskell.packages.${compiler}.developPackage {
         sha256 = "1vab2m67ign6x77k1sjfjmv9sbrrl5sl2pl07rw1fw8bjqnp5vqk";
       }) {});
 
+      wai-middleware-validation = dontHaddock (self.callCabal2nix "wai-middleware-validation" (pkgs.fetchFromGitHub {
+        owner = "kadena-io";
+        repo = "wai-middleware-validation";
+        rev = "f783ba7fc52e161b245d82acadffc4517bc8cdf5";
+        sha256 = "182yffj2rbv2asmq589r16mb45q9d0gvdhsxvsnmjyw89dcpyadn";
+      }) {});
+
+      predicate-transformers = self.callHackageDirect {
+        pkg = "predicate-transformers";
+        ver = "0.8.0.0";
+        sha256 = "sha256-tJ8to2QK/n3OUKSwfQCaq9u/cnoWxWO9JM934HQAHOI=";
+      } {};
+
       resource-pool = self.callHackageDirect {
         pkg = "resource-pool";
         ver = "0.4.0.0";

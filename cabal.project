@@ -53,6 +53,11 @@ package yet-another-logger
 
 source-repository-package
     type: git
+    location: https://github.com/kadena-io/wai-middleware-validation.git
+    tag: f783ba7fc52e161b245d82acadffc4517bc8cdf5
+
+source-repository-package
+    type: git
     location: https://github.com/kadena-io/pact.git
     tag: ec9ff8e5d738600c9323fd82f2c472629217759f
 
