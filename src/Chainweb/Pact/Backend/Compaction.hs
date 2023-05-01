@@ -1,4 +1,5 @@
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveFunctor #-}
 {-# LANGUAGE DeriveTraversable #-}
 {-# LANGUAGE DerivingStrategies #-}
@@ -6,6 +7,7 @@
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE ImportQualifiedPost #-}
+{-# LANGUAGE InstanceSigs #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE OverloadedStrings #-}
@@ -68,19 +70,19 @@ import Pact.Types.SQLite (SType(..), RType(..))
 import Pact.Types.SQLite qualified as Pact
 
 data CompactException
-    = CompactExceptionInternal !Text
-    | CompactExceptionDb !SomeException
-    | CompactExceptionInvalidBlockHeight
-    | CompactExceptionTableVerificationFailure !Utf8
-  deriving Show
-instance Exception CompactException
+  = CompactExceptionInternal !Text
+  | CompactExceptionDb !SomeException
+  | CompactExceptionInvalidBlockHeight !BlockHeight
+  | CompactExceptionTableVerificationFailure !Utf8
+  deriving stock (Show)
+  deriving anyclass (Exception)
 
 data CompactFlag
-    = Flag_KeepCompactTables
-    -- ^ Keep compaction tables post-compaction for inspection.
-    | Flag_NoVacuum
-    -- ^ Don't VACUUM database
-    deriving (Eq,Show,Read,Enum,Bounded)
+  = Flag_KeepCompactTables
+  -- ^ Keep compaction tables post-compaction for inspection.
+  | Flag_NoVacuum
+  -- ^ Don't VACUUM database
+  deriving stock (Eq,Show,Read,Enum,Bounded)
 
 internalError :: MonadThrow m => Text -> m a
 internalError = throwM . CompactExceptionInternal
@@ -113,21 +115,22 @@ mkCompactEnv
     -> CompactEnv
 mkCompactEnv l d b = CompactEnv d b Nothing mempty Nothing l
 
-newtype CompactM a = CompactM {
-  unCompactM :: ReaderT CompactEnv IO a
-  }
-  deriving (Functor,Applicative,Monad,MonadReader CompactEnv,MonadIO,MonadThrow,MonadCatch)
+newtype CompactM a = CompactM { unCompactM :: ReaderT CompactEnv IO a }
+  deriving newtype (Functor,Applicative,Monad,MonadReader CompactEnv,MonadIO,MonadThrow,MonadCatch)
 
 instance MonadLog Text CompactM where
+  localScope :: (LogScope -> LogScope) -> CompactM x -> CompactM x
+  localScope f = local (over (ceLogger . setLoggerScope) f)
 
-  localScope f = local (over (ceLogger.setLoggerScope) f)
-
+  logg :: LogLevel -> Text -> CompactM ()
   logg ll m = do
     l <- view ceLogger
     liftIO $ loggerFunIO l ll $ toLogMessage $ TextLog m
 
+  withLevel :: LogLevel -> CompactM x -> CompactM x
   withLevel l = local (set (ceLogger.setLoggerLevel) l)
 
+  withPolicy :: LogPolicy -> CompactM x -> CompactM x
   withPolicy p = local (set (ceLogger.setLoggerPolicy) p)
 
 -- | Run compaction monad, see 'mkCompactEnv'.
@@ -193,6 +196,8 @@ vtable' = view ceVersionTable >>= \case
   Just t -> pure $ fst t
   Nothing -> internalError "version table not initialized!"
 
+-- | Execute a SQLite transaction, rolling back on failure.
+--   Throws a 'CompactExceptionDb' on failure.
 withTx :: HasCallStack => CompactM a -> CompactM a
 withTx a = withDb $ \db -> do
   liftIO $ Pact.exec_ db $ "SAVEPOINT compact_tx"
@@ -253,14 +258,13 @@ createCompactActiveRow = do
 -- | Sets environment txid, which is the "endingtxid" of the target blockheight.
 readTxId :: CompactM a -> CompactM a
 readTxId next = do
-
   r <- qryM
        "SELECT endingtxid FROM BlockHistory WHERE blockheight=?"
        [blockheight]
        [RInt]
 
   case r of
-    [] -> throwM CompactExceptionInvalidBlockHeight
+    [] -> throwM =<< (CompactExceptionInvalidBlockHeight <$> view ceBlockHeight)
     [[SInt t]] ->
         local (set ceTxId (Just t)) next
     _ -> internalError "initialize: expected single-row int"
