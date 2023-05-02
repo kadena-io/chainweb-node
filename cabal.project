@@ -3,38 +3,40 @@ packages: chainweb.cabal
 debug-info: True
 
 -- -------------------------------------------------------------------------- --
+-- Platform specific locations of external libraries
+
+if os(darwin)
+    if arch(aarch64)
+        package *
+            extra-include-dirs:
+                /opt/homebrew/include
+                /opt/homebrew/opt/openssl/include
+            extra-lib-dirs:
+                /opt/homebrew/lib
+                /opt/homebrew/opt/openssl/lib
+    else
+        package *
+            extra-include-dirs:
+                /opt/local/include
+                /usr/local/opt/openssl/include
+            extra-lib-dirs:
+                /opt/local/lib
+                /usr/local/opt/openssl/lib/
+
+-- -------------------------------------------------------------------------- --
 -- Package Specific Build Settings
 
 package chainweb
     tests: True
     benchmarks: True
-    extra-include-dirs:
-      /opt/local/include
-      /usr/local/opt/openssl/include
-    extra-lib-dirs:
-      /opt/local/lib
-      /usr/local/opt/openssl/lib/
 
 package pact
     ghc-options: -Wwarn
     -- avoid conflict with cryptonite during linking
     flags: +cryptonite-ed25519 -build-tool +no-advice
 
-package ethereum
-    extra-include-dirs:
-      /opt/local/include
-      /usr/local/opt/openssl/include
-    extra-lib-dirs:
-      /opt/local/lib
-      /usr/local/opt/openssl/lib/
-
-package hashes
-    extra-include-dirs:
-      /opt/local/include
-      /usr/local/opt/openssl/include
-    extra-lib-dirs:
-      /opt/local/lib
-      /usr/local/opt/openssl/lib/
+package rocksdb-haskell-kadena
+    ghc-options: -Wwarn -optc-w -optcxx-w
 
 package aeson
     flags: +cffi
