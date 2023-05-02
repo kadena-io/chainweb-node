@@ -60,14 +60,10 @@ package yet-another-logger
 
 source-repository-package
     type: git
-    location: https://github.com/kadena-io/wai-middleware-validation.git
-    tag: f783ba7fc52e161b245d82acadffc4517bc8cdf5
-
-source-repository-package
-    type: git
     location: https://github.com/kadena-io/pact.git
-    tag: 842fbc4256b3cbbde337dbeaa393b649a26f1574
-    --sha256: sha256-jD4Y2NOSYT0EQHs5BRSVvu8asfvRwt5XLDuZwbcG4mk=
+    tag: ec9ff8e5d738600c9323fd82f2c472629217759f
+    --sha256: 1bya94w2yjam7q60drwqs6r5yn7k17kdc3s8w6g92dsap9nnnxr4
+
 
 source-repository-package
     type: git
@@ -92,6 +88,12 @@ source-repository-package
     location: https://github.com/kadena-io/kadena-ethereum-bridge.git
     tag: 10f21e96af1dce4f13e261be9dfad8c28cd299f7
     --sha256: sha256-E+9yLZYLcRd4PoBeQXWhOS+ddpVO6jDP6ca+eEwVS+0=
+
+source-repository-package
+    type: git
+    location: https://github.com/kadena-io/wai-middleware-validation.git
+    tag: f783ba7fc52e161b245d82acadffc4517bc8cdf5
+    --sha256: 182yffj2rbv2asmq589r16mb45q9d0gvdhsxvsnmjyw89dcpyadn
 
 -- Required for GHC-9:
 
