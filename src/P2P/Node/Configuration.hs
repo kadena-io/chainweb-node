@@ -98,6 +98,9 @@ data P2pConfiguration = P2pConfiguration
         --
         -- The user must also ensure that the proxy sets a valid X-Peer-Addr
         -- response header.
+    , _p2pConfigValidateSpec :: !Bool
+        -- ^ enable OpenAPI specification validation for requests and responses.
+        -- this will likely cause significant performance degradation.
     }
     deriving (Show, Eq, Generic)
 
@@ -121,6 +124,7 @@ defaultP2pConfiguration = P2pConfiguration
     , _p2pConfigPrivate = False
     , _p2pConfigBootstrapReachability = 0.5
     , _p2pConfigTls = True
+    , _p2pConfigValidateSpec = False
     }
 
 validateP2pConfiguration :: Applicative a => ConfigValidation P2pConfiguration a
@@ -160,8 +164,9 @@ instance ToJSON P2pConfiguration where
         , "private" .= _p2pConfigPrivate o
         , "bootstrapReachability" .= _p2pConfigBootstrapReachability o
         ]
-        -- hidden: Do not print the default value. Included only if explicitely set to False
+        -- hidden: Do not print the default value.
         <> [ "tls" .= _p2pConfigTls o | not (_p2pConfigTls o) ]
+        <> [ "validateSpec" .= _p2pConfigValidateSpec o | _p2pConfigValidateSpec o ]
 
 instance FromJSON (P2pConfiguration -> P2pConfiguration) where
     parseJSON = withObject "P2pConfiguration" $ \o -> id
@@ -174,6 +179,7 @@ instance FromJSON (P2pConfiguration -> P2pConfiguration) where
         <*< p2pConfigPrivate ..: "private" % o
         <*< p2pConfigBootstrapReachability ..: "bootstrapReachability" % o
         <*< p2pConfigTls ..: "tls" % o
+        <*< p2pConfigValidateSpec ..: "validateSpec" % o
 
 instance FromJSON P2pConfiguration where
     parseJSON = withObject "P2pExampleConfig" $ \o -> P2pConfiguration
@@ -186,6 +192,7 @@ instance FromJSON P2pConfiguration where
         <*> o .: "private"
         <*> o .: "bootstrapReachability"
         <*> o .:? "tls" .!= True
+        <*> o .:? "validateSpec" .!= False
 
 pP2pConfiguration :: MParser P2pConfiguration
 pP2pConfiguration = id
@@ -213,6 +220,9 @@ pP2pConfiguration = id
         <> metavar "[0,1]"
     <*< p2pConfigTls .:: enableDisableFlag
         % prefixLong net "tls"
+        <> internal -- hidden option, only for expert use
+    <*< p2pConfigValidateSpec .:: enableDisableFlag
+        % prefixLong net "validate-spec"
         <> internal -- hidden option, only for expert use
   where
     net = Nothing
