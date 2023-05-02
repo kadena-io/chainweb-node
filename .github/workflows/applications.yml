@@ -131,7 +131,7 @@ jobs:
           "include": [
             {
               "ghc": "8.10.7",
-              "cabal": "3.8",
+              "cabal": "3.10",
               "os" : "ubuntu-20.04",
               "use-freeze-file": "true"
             }
