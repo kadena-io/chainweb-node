@@ -52,5 +52,32 @@ let haskellSrc = with nix-filter.lib; filter {
       ];
     };
 in {
-  inherit flake default haskellSrc;
+  # The Haskell project flake: Used by flake.nix
+  inherit flake;
+
+  # The default derivation exported by the nix flake. Used by flake.nix
+  inherit default;
+
+  # The source of the Haskell project in the nix store.
+  # Useful for debugging, e.g. for nix filters.
+  #
+  # Example:
+  # $ ls $(nix-instantiate default-flake.nix -A haskellSrc --eval)
+  inherit haskellSrc;
+
+  # The haskell.nix Haskell project (executables, libraries, etc)
+  # Also contains the `flake` attribute, and many useful things.
+  #
+  # Examples
+  #
+  # Leverage the `hsPkgs` attribute to inspect the `streaming` Haskell package:
+  # $ nix show-derivation $(nix-instantiate -E '(import ./default-flake.nix {}).chainweb.hsPkgs.streaming.components.library')
+  #
+  # Use `getComponent` to get a cabal component (library/executable/test/benchmark) of a package
+  # $ nix show-derivation $(nix-instantiate -E '(import ./default-flake.nix {}).chainweb.getComponent "chainweb:exe:cwtool"')
+  # $ nix show-derivation $(nix-instantiate -E '(import ./default-flake.nix {}).chainweb.hsPkgs.semirings.getComponent "lib:semirings"')
+  inherit chainweb;
+
+  # The nix package set: Not used by anything, but useful for debugging.
+  inherit pkgs;
 }
