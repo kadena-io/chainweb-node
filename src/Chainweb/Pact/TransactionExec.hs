@@ -188,7 +188,8 @@ applyCmd v logger gasLogger pdbenv miner gasModel txCtx spv cmd initialGas mcach
           ++ enablePact44 txCtx
           ++ enablePact45 txCtx
           ++ enableNewTrans txCtx
-          ++ enablePact46 txCtx )
+          ++ enablePact46 txCtx
+          ++ enablePact47 txCtx)
 
     cenv = TransactionEnv Transactional pdbenv logger gasLogger (ctxToPublicData txCtx) spv nid gasPrice
       requestKey (fromIntegral gasLimit) executionConfigNoHistory
@@ -203,6 +204,7 @@ applyCmd v logger gasLogger pdbenv miner gasModel txCtx spv cmd initialGas mcach
     isPactBackCompatV16 = pactBackCompat_v16 v currHeight
     chainweb213Pact' = chainweb213Pact (ctxVersion txCtx) (ctxCurrentBlockHeight txCtx)
     chainweb217Pact' = chainweb217Pact After (ctxVersion txCtx) (ctxCurrentBlockHeight txCtx)
+    chainweb219Pact' = chainweb219Pact (ctxVersion txCtx) (ctxCurrentBlockHeight txCtx)
     toEmptyPactError (PactError errty _ _ _) = PactError errty def [] mempty
 
     toOldListErr pe = pe { peDoc = listErrMsg }
@@ -220,6 +222,17 @@ applyCmd v logger gasLogger pdbenv miner gasModel txCtx spv cmd initialGas mcach
           throwM $ BuyGasFailure $ GasPurchaseFailure (requestKeyToTransactionHash rk) e
         Right _ -> checkTooBigTx initialGas gasLimit applyPayload redeemAllGas
 
+    displayPactError e = do
+      r <- jsonErrorResult e "tx failure for request key when running cmd"
+      redeemAllGas r
+
+    stripPactError e = do
+      let e' = case callCtx of
+            ApplyLocal -> e
+            ApplySend -> toEmptyPactError e
+      r <- jsonErrorResult e' "tx failure for request key when running cmd"
+      redeemAllGas r
+
     applyPayload = do
       txGasModel .= gasModel
       if chainweb217Pact' then txGasUsed += initialGas
@@ -228,15 +241,11 @@ applyCmd v logger gasLogger pdbenv miner gasModel txCtx spv cmd initialGas mcach
       cr <- catchesPactError $! runPayload cmd managedNamespacePolicy
       case cr of
         Left e
-          | chainweb217Pact' -> do
-            let e' = case callCtx of
-                  ApplyLocal -> e
-                  ApplySend -> toEmptyPactError e
-            r <- jsonErrorResult e' "tx failure for request key when running cmd"
-            redeemAllGas r
-          | chainweb213Pact' || not (isOldListErr e) -> do
-              r <- jsonErrorResult e "tx failure for request key when running cmd"
-              redeemAllGas r
+          -- 2.19 onwards errors return on chain
+          | chainweb219Pact' -> displayPactError e
+          -- 2.17 errors were removed
+          | chainweb217Pact' -> stripPactError e
+          | chainweb213Pact' || not (isOldListErr e) -> displayPactError e
           | otherwise -> do
               r <- jsonErrorResult (toOldListErr e) "tx failure for request key when running cmd"
               redeemAllGas r
@@ -357,7 +366,8 @@ applyCoinbase v logger dbEnv (Miner mid mks@(MinerKeys mk)) reward@(ParsedDecima
       enablePact43 txCtx ++
       enablePact431 txCtx ++
       enablePact44 txCtx ++
-      enablePact45 txCtx
+      enablePact45 txCtx ++
+      enablePact47 txCtx
     tenv = TransactionEnv Transactional dbEnv logger Nothing (ctxToPublicData txCtx) noSPVSupport
            Nothing 0.0 rk 0 ec
     txst = TransactionState mc mempty 0 Nothing (_geGasModel freeGasEnv) mempty
@@ -519,7 +529,7 @@ readInitModules logger dbEnv txCtx
       refModsCmd <- liftIO $ mkCmd $ T.intercalate " " $
         [ "coin.MINIMUM_PRECISION"
         , "ns.GUARD_SUCCESS"
-        , "gas-payer-v1.GAS_PAYER"
+        , "(use gas-payer-v1)"
         , "fungible-v1.account-details"] ++
         [ "fungible-v2.account-details" | hasFv2 ] ++
         [ "(let ((m:module{fungible-xchain-v1} coin)) 1)" | hasFx ]
@@ -810,6 +820,11 @@ enablePact46 :: TxContext -> [ExecutionFlag]
 enablePact46 tc
     | chainweb218Pact (ctxVersion tc) (ctxCurrentBlockHeight tc) = []
     | otherwise = [FlagDisablePact46]
+
+enablePact47 :: TxContext -> [ExecutionFlag]
+enablePact47 tc
+    | chainweb219Pact (ctxVersion tc) (ctxCurrentBlockHeight tc) = []
+    | otherwise = [FlagDisablePact47]
 
 -- | Execute a 'ContMsg' and return the command result and module cache
 --
