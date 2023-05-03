@@ -1,4 +1,4 @@
-cabal-version: 3.0
+cabal-version: 3.8
 
 name:         chainweb
 version:      2.18.1
@@ -96,7 +96,7 @@ common warning-flags
 
 custom-setup
     setup-depends:
-          Cabal
+          Cabal >= 3.8
         , base >= 4.12 && < 5
         , bytestring >= 0.10
         , directory >= 1.3
