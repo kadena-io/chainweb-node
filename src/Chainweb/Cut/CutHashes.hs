@@ -44,7 +44,7 @@ module Chainweb.Cut.CutHashes
 , BlockHashWithHeight(..)
 , CutHashes(..)
 , cutHashes
-, cutHashesChainwebVersionName
+, cutHashesChainwebVersion
 , cutHashesId
 , cutOrigin
 , cutHashesWeight
@@ -106,6 +106,7 @@ import Chainweb.Payload
 import Chainweb.Storage.Table
 
 import P2P.Peer
+import Chainweb.Version.Registry (fabricateVersionWithName)
 
 -- -------------------------------------------------------------------------- --
 -- CutId
@@ -266,7 +267,7 @@ data CutHashes = CutHashes
         -- ^ 'Nothing' is used for locally mined Cuts
     , _cutHashesWeight :: !BlockWeight
     , _cutHashesHeight :: !CutHeight
-    , _cutHashesChainwebVersionName :: !ChainwebVersionName
+    , _cutHashesChainwebVersion :: ChainwebVersion
     , _cutHashesId :: !CutId
     , _cutHashesHeaders :: !(HM.HashMap BlockHash BlockHeader)
         -- ^ optional block headers
@@ -318,7 +319,7 @@ cutHashesProperties c =
     , "origin" .= _cutOrigin c
     , "weight" .= _cutHashesWeight c
     , "height" .= _cutHashesHeight c
-    , "instance" .= _cutHashesChainwebVersionName c
+    , "instance" .= _versionName (_cutHashesChainwebVersion c)
     , "id" .= _cutHashesId c
     ]
     <> ifNotEmpty "headers" cutHashesHeaders
@@ -346,7 +347,7 @@ instance FromJSON CutHashes where
         <*> o .: "origin"
         <*> o .: "weight"
         <*> o .: "height"
-        <*> o .: "instance"
+        <*> (fabricateVersionWithName <$> o .: "instance")
         <*> o .: "id"
         <*> o .:? "headers" .!= mempty
         <*> o .:? "payloads" .!= mempty
@@ -360,7 +361,7 @@ cutToCutHashes p c = CutHashes
     , _cutOrigin = p
     , _cutHashesWeight = _cutWeight c
     , _cutHashesHeight = _cutHeight c
-    , _cutHashesChainwebVersionName = _versionName $ _chainwebVersion c
+    , _cutHashesChainwebVersion = _chainwebVersion c
     , _cutHashesId = _cutId c
     , _cutHashesHeaders = mempty
     , _cutHashesPayloads = mempty

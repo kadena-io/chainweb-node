@@ -10,6 +10,7 @@
 {-# LANGUAGE TupleSections #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE ViewPatterns #-}
 
 -- |
 -- Module: Chainweb.Test.Utils
@@ -72,6 +73,7 @@ module Chainweb.Test.Utils
 , withTestAppServer
 , withChainwebTestServer
 , clientEnvWithChainwebTestServer
+, ShouldValidateSpec(..)
 , withBlockHeaderDbsServer
 , withPeerDbsServer
 , withPayloadServer
@@ -135,9 +137,7 @@ module Chainweb.Test.Utils
 
 import Control.Concurrent
 import Control.Concurrent.Async
-#if !MIN_VERSION_base(4,15,0)
-import Control.Exception (evaluate)
-#endif
+import Control.Exception (Exception, evaluate)
 import Control.Lens
 import Control.Monad
 import Control.Monad.Catch (MonadThrow(..), finally, bracket)
@@ -147,24 +147,33 @@ import Control.Retry
 import Data.Aeson (FromJSON, ToJSON)
 import Data.Bifunctor hiding (second)
 import qualified Data.ByteString as B
+import qualified Data.ByteString.Char8 as B8
 import qualified Data.ByteString.Lazy as BL
 import Data.Coerce (coerce)
 import Data.Foldable
+import Data.IORef
 import qualified Data.HashMap.Strict as HashMap
+import qualified Data.HashSet as HashSet
+import qualified Data.Map as Map
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
 import Data.Tree
 import qualified Data.Tree.Lens as LT
+import Data.Typeable
 import qualified Data.Vector as V
 import Data.Word
+import qualified Data.Yaml as Yaml
 
 import qualified Network.Connection as HTTP
 import qualified Network.HTTP.Client as HTTP
 import qualified Network.HTTP.Client.TLS as HTTP
+import Network.HTTP.Types
 import Network.Socket (close)
 import qualified Network.Wai as W
 import qualified Network.Wai.Handler.Warp as W
 import Network.Wai.Handler.WarpTLS as W (runTLSSocket)
+import Network.Wai.Middleware.OpenApi(OpenApi)
+import qualified Network.Wai.Middleware.Validation as WV
 
 import Numeric.Natural
 
@@ -173,6 +182,7 @@ import Servant.Client (BaseUrl(..), ClientEnv, Scheme(..), mkClientEnv, runClien
 import System.Environment (withArgs)
 import System.IO
 import System.IO.Temp
+import System.IO.Unsafe(unsafePerformIO)
 import System.LogLevel
 import System.Random (randomIO)
 
@@ -186,6 +196,7 @@ import Test.Tasty.HUnit
 import Test.Tasty.QuickCheck (testProperty, property, discard, (.&&.))
 
 import Text.Printf (printf)
+import Text.Show.Pretty
 
 import Data.List (sortOn,isInfixOf)
 
@@ -613,19 +624,67 @@ withTestAppServer tls appIO envIO userFunc = bracket start stop go
     go (_, _, env) = userFunc env
 
 
+data ValidationException = ValidationException
+    { vReq :: W.Request
+    , vResp :: (ResponseHeaders, Status, BL.ByteString)
+    , vErr :: WV.TopLevelError
+    }
+    deriving (Show, Typeable)
+
+instance Exception ValidationException
+
+{-# NOINLINE chainwebOpenApiSpec #-}
+chainwebOpenApiSpec :: OpenApi
+chainwebOpenApiSpec = unsafePerformIO $ do
+    mgr <- manager 10_000_000
+    let specUri = "https://raw.githubusercontent.com/kadena-io/chainweb-openapi/main/chainweb.openapi.yaml"
+    Yaml.decodeThrow . BL.toStrict . HTTP.responseBody =<< HTTP.httpLbs (HTTP.parseRequest_ specUri) mgr
+
+{-# NOINLINE pactOpenApiSpec #-}
+pactOpenApiSpec :: OpenApi
+pactOpenApiSpec = unsafePerformIO $ do
+    mgr <- manager 10_000_000
+    let specUri = "https://raw.githubusercontent.com/kadena-io/chainweb-openapi/main/pact.openapi.yaml"
+    Yaml.decodeThrow . BL.toStrict . HTTP.responseBody =<< HTTP.httpLbs (HTTP.parseRequest_ specUri) mgr
+
 -- TODO: catch, wrap, and forward exceptions from chainwebApplication
 --
 withChainwebTestServer
-    :: Bool
+    :: ShouldValidateSpec
+    -> Bool
+    -> ChainwebVersion
     -> IO W.Application
     -> (Int -> IO a)
     -> (IO a -> TestTree)
     -> TestTree
-withChainwebTestServer tls appIO envIO test = withResource start stop $ \x ->
+withChainwebTestServer shouldValidateSpec tls v appIO envIO test = withResource start stop $ \x -> do
     test $ x >>= \(_, _, env) -> return env
   where
     start = do
-        app <- appIO
+        coverageRef <- newIORef $ WV.CoverageMap Map.empty
+        _ <- evaluate chainwebOpenApiSpec
+        _ <- evaluate pactOpenApiSpec
+        let
+            lg (_, req) (respBody, resp) err = do
+                let ex = ValidationException req (W.responseHeaders resp, W.responseStatus resp, respBody) err
+                print $ ppShow ex
+                error "validation error"
+            findPath path = asum
+                [ case B8.split '/' path of
+                    ("" : "chainweb" : "0.0" : rawVersion : "chain" : rawChainId : "pact" : "api" : "v1" : rest) -> do
+                        let reqVersion = ChainwebVersionName (T.decodeUtf8 rawVersion)
+                        guard (reqVersion == _versionName v)
+                        reqChainId <- chainIdFromText (T.decodeUtf8 rawChainId)
+                        guard (HashSet.member reqChainId (chainIds v))
+                        return (B8.intercalate "/" ("":rest), pactOpenApiSpec)
+                    _ -> Nothing
+                , (,chainwebOpenApiSpec) <$> B8.stripPrefix (T.encodeUtf8 $ "/chainweb/0.0/" <> toText (_versionName v)) path
+                , Just (path,chainwebOpenApiSpec)
+                ]
+            mw = case shouldValidateSpec of
+                ValidateSpec -> WV.mkValidator coverageRef (WV.Log lg (const (return ()))) findPath
+                DoNotValidateSpec -> id
+        app <- mw <$> appIO
         (port, sock) <- W.openFreePort
         readyVar <- newEmptyMVar
         server <- async $ do
@@ -654,13 +713,14 @@ clientEnvWithChainwebTestServer
     => ToJSON t
     => FromJSON t
     => CanReadablePayloadCas tbl
-    => Bool
+    => ShouldValidateSpec
+    -> Bool
     -> ChainwebVersion
     -> IO (ChainwebServerDbs t tbl)
     -> (IO (TestClientEnv t tbl) -> TestTree)
     -> TestTree
-clientEnvWithChainwebTestServer tls v dbsIO =
-    withChainwebTestServer tls mkApp mkEnv
+clientEnvWithChainwebTestServer shouldValidateSpec tls v dbsIO =
+    withChainwebTestServer shouldValidateSpec tls v mkApp mkEnv
   where
 
     -- FIXME: Hashes API got removed from the P2P API. We use an application that
@@ -691,12 +751,13 @@ withPeerDbsServer
     => CanReadablePayloadCas tbl
     => ToJSON t
     => FromJSON t
-    => Bool
+    => ShouldValidateSpec
+    -> Bool
     -> ChainwebVersion
     -> IO [(NetworkId, P2P.PeerDb)]
     -> (IO (TestClientEnv t tbl) -> TestTree)
     -> TestTree
-withPeerDbsServer tls v peerDbsIO = clientEnvWithChainwebTestServer tls v $ do
+withPeerDbsServer shouldValidateSpec tls v peerDbsIO = clientEnvWithChainwebTestServer shouldValidateSpec tls v $ do
     peerDbs <- peerDbsIO
     return $ emptyChainwebServerDbs
         { _chainwebServerPeerDbs = peerDbs
@@ -707,14 +768,15 @@ withPayloadServer
     => CanReadablePayloadCas tbl
     => ToJSON t
     => FromJSON t
-    => Bool
+    => ShouldValidateSpec
+    -> Bool
     -> ChainwebVersion
     -> IO (CutDb tbl)
     -> IO [(ChainId, PayloadDb tbl)]
     -> (IO (TestClientEnv t tbl) -> TestTree)
     -> TestTree
-withPayloadServer tls v cutDbIO payloadDbsIO =
-    clientEnvWithChainwebTestServer tls v $ do
+withPayloadServer shouldValidateSpec tls v cutDbIO payloadDbsIO =
+    clientEnvWithChainwebTestServer shouldValidateSpec tls v $ do
         payloadDbs <- payloadDbsIO
         cutDb <- cutDbIO
         return $ emptyChainwebServerDbs
@@ -722,19 +784,22 @@ withPayloadServer tls v cutDbIO payloadDbsIO =
             , _chainwebServerCutDb = Just cutDb
             }
 
+data ShouldValidateSpec = ValidateSpec | DoNotValidateSpec
+
 withBlockHeaderDbsServer
     :: Show t
     => CanReadablePayloadCas tbl
     => ToJSON t
     => FromJSON t
-    => Bool
+    => ShouldValidateSpec
+    -> Bool
     -> ChainwebVersion
     -> IO [(ChainId, BlockHeaderDb)]
     -> IO [(ChainId, MempoolBackend t)]
     -> (IO (TestClientEnv t tbl) -> TestTree)
     -> TestTree
-withBlockHeaderDbsServer tls v chainDbsIO mempoolsIO =
-    clientEnvWithChainwebTestServer tls v $ do
+withBlockHeaderDbsServer shouldValidateSpec tls v chainDbsIO mempoolsIO =
+    clientEnvWithChainwebTestServer shouldValidateSpec tls v $ do
         chainDbs <- chainDbsIO
         mempools <- mempoolsIO
         return $ emptyChainwebServerDbs

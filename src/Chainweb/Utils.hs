@@ -75,6 +75,7 @@ module Chainweb.Utils
 , (&)
 , IxedGet(..)
 , minusOrZero
+, interleaveIO
 , mutableVectorFromList
 
 -- * Encoding and Serialization
@@ -219,7 +220,7 @@ import Control.Concurrent.Async
 import Control.Concurrent.MVar
 import Control.Concurrent.TokenBucket
 import Control.DeepSeq
-import Control.Exception (SomeAsyncException(..))
+import Control.Exception (SomeAsyncException(..), evaluate)
 import Control.Lens hiding ((.=))
 import Control.Monad
 import Control.Monad.Catch hiding (bracket)
@@ -272,7 +273,7 @@ import qualified Options.Applicative as O
 import qualified Streaming as S (concats, effect, inspect)
 import qualified Streaming.Prelude as S
 
-import System.IO.Unsafe (unsafePerformIO)
+import System.IO.Unsafe (unsafeInterleaveIO, unsafePerformIO)
 import System.LogLevel
 import qualified System.Random.MWC as Prob
 import qualified System.Random.MWC.Probability as Prob
@@ -396,6 +397,12 @@ alignWithV f a b = V.zipWith (\a' -> f . These a') a b <> case (V.length a,V.len
 minusOrZero :: Ord a => Num a => a -> a -> a
 minusOrZero a b = a - min a b
 {-# INLINE minusOrZero #-}
+
+-- | Analogous to `unsafeInterleaveIO` but doesn't hide the effect behind evaluation.
+-- Careful; if the inner action throws an exception, it will never not throw that exception.
+interleaveIO :: IO a -> IO (IO a)
+interleaveIO act = evaluate <$> unsafeInterleaveIO act
+{-# INLINE interleaveIO #-}
 
 -- | Equivalent to V.thaw . V.fromList but by inspection probably faster.
 mutableVectorFromList

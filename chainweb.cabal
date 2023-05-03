@@ -195,6 +195,7 @@ library
         , Chainweb.Miner.RestAPI.Client
         , Chainweb.Miner.RestAPI.Server
         , Chainweb.NodeVersion
+        , Chainweb.OpenAPIValidation
         , Chainweb.Payload
         , Chainweb.Payload.PayloadStore
         , Chainweb.Payload.PayloadStore.InMemory
@@ -404,6 +405,7 @@ library
         , wai-app-static >= 3.1.6.3
         , wai-cors >= 0.2.7
         , wai-extra >= 3.0.28
+        , wai-middleware-validation
         , vector >= 0.12.2
         , vector-algorithms >= 0.7
         , wai-middleware-throttle >= 0.3
@@ -562,6 +564,8 @@ test-suite chainweb-tests
         , unordered-containers == 0.2.15.0
         , vector >= 0.12.2
         , wai >= 3.2
+        , wai-middleware-validation
+        , pretty-show
         , warp >= 3.3.5
         , warp-tls >= 3.2.9
         , yaml >= 0.11
@@ -716,6 +720,8 @@ executable cwtool
         , unordered-containers == 0.2.15.0
         , vector >= 0.12.2
         , wai >= 3.2
+        , wai-middleware-validation
+        , pretty-show
         , warp >= 3.3.5
         , warp-tls >= 3.2.9
         , yaml >= 0.8
