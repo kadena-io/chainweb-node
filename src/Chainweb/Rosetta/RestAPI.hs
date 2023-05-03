@@ -58,8 +58,6 @@ module Chainweb.Rosetta.RestAPI
 import Control.Error.Util
 import Control.Monad
 
-import Data.Aeson (encode)
-
 import Rosetta
 
 import Servant
@@ -68,7 +66,7 @@ import Servant
 
 import Chainweb.ChainId
 import Chainweb.Rosetta.Utils
-import Chainweb.RestAPI.Utils (ChainwebEndpoint(..), Reassoc)
+import Chainweb.RestAPI.Utils
 import Chainweb.Version
 
 ---
@@ -308,10 +306,10 @@ rosettaNetworkStatusApi = Proxy
 
 
 throwRosetta :: RosettaFailure -> Handler a
-throwRosetta e = throwError err500 { errBody = encode $ rosettaError e Nothing }
+throwRosetta e = throwError $ setErrJSON (rosettaError e Nothing) err500
 
 throwRosettaError :: RosettaError -> Handler a
-throwRosettaError e = throwError err500 { errBody = encode e }
+throwRosettaError e = throwError $ setErrJSON e err500
 
 -- | Every Rosetta request that requires a `NetworkId` also requires a
 -- `SubNetworkId`, at least in the case of Chainweb.

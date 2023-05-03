@@ -16,6 +16,8 @@
 module Chainweb.Version.Registry
     ( registerVersion
     , lookupVersionByCode
+    , lookupVersionByName
+    , fabricateVersionWithName
     , knownVersions
     , findKnownVersion
     , versionMap
@@ -102,11 +104,32 @@ lookupVersionByCode code
   where
     lookupVersion = unsafeDupablePerformIO $ do
         m <- readIORef versionMap
-        return $ fromMaybe (error notRegistered) $ HM.lookup code m
+        return $ fromMaybe (error notRegistered) $
+            HM.lookup code m
     notRegistered
       | code == _versionCode devnet = "devnet version used but not registered, remember to do so after it's configured"
       | code == _versionCode fastDevnet = "fastDevnet version used but not registered, remember to do so after it's configured"
       | otherwise = "version not registered with code " <> show code <> ", have you seen Chainweb.Test.TestVersions.legalizeTestVersion?"
+
+-- TODO: ideally all uses of this are deprecated. currently in use in
+-- ObjectEncoded block header decoder and CutHashes decoder.
+lookupVersionByName :: HasCallStack => ChainwebVersionName -> ChainwebVersion
+lookupVersionByName name
+    | name == _versionName mainnet = mainnet
+    | name == _versionName testnet = testnet
+    | otherwise = lookupVersion & versionName .~ name
+  where
+    lookupVersion = unsafeDupablePerformIO $ do
+        m <- readIORef versionMap
+        return $ fromMaybe (error notRegistered) $
+            listToMaybe [ v | v <- HM.elems m, _versionName v == name ]
+    notRegistered
+      | name == _versionName devnet = "devnet version used but not registered, remember to do so after it's configured"
+      | otherwise = "version not registered with name " <> show name <> ", have you seen Chainweb.Test.TestVersions.legalizeTestVersion?"
+
+fabricateVersionWithName :: HasCallStack => ChainwebVersionName -> ChainwebVersion
+fabricateVersionWithName name =
+    error "attempted to access field of fabricated version." & versionName .~ name
 
 -- | Versions known to us by name.
 knownVersions :: [ChainwebVersion]

@@ -196,6 +196,7 @@ applyCmd v logger gasLogger pdbenv miner gasModel txCtx spv cmd initialGas mcach
     isPactBackCompatV16 = pactBackCompat_v16 v cid currHeight
     chainweb213Pact' = chainweb213Pact v cid currHeight
     chainweb217Pact' = chainweb217Pact v cid currHeight
+    chainweb219Pact' = chainweb219Pact v cid currHeight
     toEmptyPactError (PactError errty _ _ _) = PactError errty def [] mempty
 
     toOldListErr pe = pe { peDoc = listErrMsg }
@@ -213,6 +214,17 @@ applyCmd v logger gasLogger pdbenv miner gasModel txCtx spv cmd initialGas mcach
           throwM $ BuyGasFailure $ GasPurchaseFailure (requestKeyToTransactionHash rk) e
         Right _ -> checkTooBigTx initialGas gasLimit applyPayload redeemAllGas
 
+    displayPactError e = do
+      r <- jsonErrorResult e "tx failure for request key when running cmd"
+      redeemAllGas r
+
+    stripPactError e = do
+      let e' = case callCtx of
+            ApplyLocal -> e
+            ApplySend -> toEmptyPactError e
+      r <- jsonErrorResult e' "tx failure for request key when running cmd"
+      redeemAllGas r
+
     applyPayload = do
       txGasModel .= gasModel
       if chainweb217Pact' then txGasUsed += initialGas
@@ -221,15 +233,11 @@ applyCmd v logger gasLogger pdbenv miner gasModel txCtx spv cmd initialGas mcach
       cr <- catchesPactError $! runPayload cmd managedNamespacePolicy
       case cr of
         Left e
-          | chainweb217Pact' -> do
-            let e' = case callCtx of
-                  ApplyLocal -> e
-                  ApplySend -> toEmptyPactError e
-            r <- jsonErrorResult e' "tx failure for request key when running cmd"
-            redeemAllGas r
-          | chainweb213Pact' || not (isOldListErr e) -> do
-              r <- jsonErrorResult e "tx failure for request key when running cmd"
-              redeemAllGas r
+          -- 2.19 onwards errors return on chain
+          | chainweb219Pact' -> displayPactError e
+          -- 2.17 errors were removed
+          | chainweb217Pact' -> stripPactError e
+          | chainweb213Pact' || not (isOldListErr e) -> displayPactError e
           | otherwise -> do
               r <- jsonErrorResult (toOldListErr e) "tx failure for request key when running cmd"
               redeemAllGas r
@@ -319,6 +327,7 @@ flagsFor v cid bh = S.fromList $ concat
   , enablePact45 v cid bh
   , enableNewTrans v cid bh
   , enablePact46 v cid bh
+  , enablePact47 v cid bh
   ]
 
 applyCoinbase
@@ -523,7 +532,7 @@ readInitModules logger dbEnv txCtx
       refModsCmd <- liftIO $ mkCmd $ T.intercalate " " $
         [ "coin.MINIMUM_PRECISION"
         , "ns.GUARD_SUCCESS"
-        , "gas-payer-v1.GAS_PAYER"
+        , "(use gas-payer-v1)"
         , "fungible-v1.account-details"] ++
         [ "fungible-v2.account-details" | hasFv2 ] ++
         [ "(let ((m:module{fungible-xchain-v1} coin)) 1)" | hasFx ]
@@ -748,6 +757,9 @@ enableNewTrans v cid bh = [FlagDisableNewTrans | not (pact44NewTrans v cid bh)]
 
 enablePact46 :: ChainwebVersion -> V.ChainId -> BlockHeight -> [ExecutionFlag]
 enablePact46 v cid bh = [FlagDisablePact46 | not (chainweb218Pact v cid bh)]
+
+enablePact47 :: ChainwebVersion -> V.ChainId -> BlockHeight -> [ExecutionFlag]
+enablePact47 v cid bh = [FlagDisablePact47 | not (chainweb219Pact v cid bh)]
 
 -- | Execute a 'ContMsg' and return the command result and module cache
 --

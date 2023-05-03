@@ -123,7 +123,7 @@ noMempool = []
 simpleSessionTests :: RocksDb -> Bool -> TestTree
 simpleSessionTests rdb tls =
     withBlockHeaderDbsResource rdb version $ \dbs ->
-        withBlockHeaderDbsServer tls version dbs (return noMempool)
+        withBlockHeaderDbsServer ValidateSpec tls version dbs (return noMempool)
         $ \env -> testGroup "client session tests"
             $ httpHeaderTests env (head $ toList $ chainIds version)
             : (simpleClientSession env <$> toList (chainIds version))
@@ -329,7 +329,7 @@ simpleClientSession envIO cid =
 
 pagingTests :: RocksDb -> Bool -> TestTree
 pagingTests rdb tls =
-    withBlockHeaderDbsServer tls version
+    withBlockHeaderDbsServer ValidateSpec tls version
             (starBlockHeaderDbs 6 $ testBlockHeaderDbs rdb version)
             (return noMempool)
     $ \env -> testGroup "paging tests"
@@ -376,7 +376,7 @@ pagingTest name getDbItems getKey fin request envIO = testGroup name
             session step es cid Nothing (Just . Inclusive . getKey . head $ es)
         assertBool ("test limit and next failed: " <> sshow res) (isRight res)
 
-    , testCaseSteps "test limit and next paramter" $ \step -> do
+    , testCaseSteps "test limit and next parameter" $ \step -> do
         BlockHeaderDbsTestClientEnv env [(cid, db)] _ <- envIO
         ents <- getDbItems db
         let l = len ents

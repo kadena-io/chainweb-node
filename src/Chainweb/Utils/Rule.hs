@@ -24,7 +24,7 @@ import GHC.Generics
 --
 -- Is is optimized for lookups of items at the top of stack. On the blockchain
 -- we often lookup chain properties (e.g. forks) where we are interested in the
--- latest occurance.
+-- latest occurrence.
 --
 data Rule h a = Above (h, a) (Rule h a) | End a
     deriving stock (Eq, Ord, Show, Foldable, Functor, Generic, Generic1, Traversable)

@@ -165,7 +165,7 @@ import Chainweb.Version
 import Chainweb.Version.Guards
 import Chainweb.Version.Mainnet
 import Chainweb.Version.Testnet
-import Chainweb.Version.Registry ()
+import Chainweb.Version.Registry (lookupVersionByName)
 
 import Chainweb.Storage.Table
 
@@ -1009,7 +1009,7 @@ blockHeaderProperties (ObjectEncoded b) =
     , "chainId" .= _chainId b
     , "weight" .= _blockWeight b
     , "height" .= _blockHeight b
-    , "chainwebVersion" .= _blockChainwebVersion b
+    , "chainwebVersion" .= _versionName (_chainwebVersion b)
     , "epochStart" .= _blockEpochStart b
     , "featureFlags" .= _blockFlags b
     , "hash" .= _blockHash b
@@ -1033,7 +1033,9 @@ parseBlockHeaderObject o = BlockHeader
     <*> o .: "chainId"
     <*> o .: "weight"
     <*> o .: "height"
-    <*> o .: "chainwebVersion"
+    -- TODO: lookupVersionByName should probably be deprecated for performance,
+    -- so perhaps we move this codec outside of the node proper.
+    <*> (_versionCode . lookupVersionByName <$> (o .: "chainwebVersion"))
     <*> o .: "epochStart"
     <*> o .: "nonce"
     <*> o .: "hash"
