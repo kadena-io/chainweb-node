@@ -23,7 +23,7 @@
         flakePath = self.outPath;
       };
       flake = defaultNix.flake;
-      executable = defaultNix.default;
+      executables = defaultNix.default;
       # This package depends on other packages at buildtime, but its output does not
       # depend on them. This way, we don't have to download the entire closure to verify
       # that those packages build.
@@ -32,9 +32,9 @@
         echo works > $out
       '';
     in nixpkgs.lib.recursiveUpdate flake {
-      packages.default = executable;
+      packages.default = executables;
       packages.check = pkgs.runCommand "check" {} ''
-        echo ${mkCheck "chainweb-node" executable}
+        echo ${mkCheck "chainweb" executables}
         echo ${mkCheck "devShell" flake.devShell}
         echo works > $out
       '';
