@@ -87,6 +87,12 @@ catchAndDisplaySPVError bh =
     spvErr -> throwM spvErr
   else id
 
+forkedThrower :: BlockHeader -> Text -> ExceptT Text IO a
+forkedThrower bh =
+  if CW.chainweb219Pact (_blockChainwebVersion bh) (_blockHeight bh)
+  then throwError
+  else internalError
+
 -- | Spv support for pact
 --
 pactSPV
@@ -136,7 +142,7 @@ verifySPV bdb bh typ proof = runExceptT $ go typ proof
       "TXOUT" -> do
         u <- except $ extractProof enableBridge o
         unless (view outputProofChainId u == cid) $
-          throwError "cannot redeem spv proof on wrong target chain"
+          forkedThrower bh "cannot redeem spv proof on wrong target chain"
 
         -- SPV proof verification is a 3 step process:
         --
@@ -150,7 +156,7 @@ verifySPV bdb bh typ proof = runExceptT $ go typ proof
         TransactionOutput p <- catchAndDisplaySPVError bh $ liftIO $ verifyTransactionOutputProofAt_ bdb u (_blockHash bh)
 
         q <- case decodeStrict' p :: Maybe (CommandResult Hash) of
-          Nothing -> throwError "unable to decode spv transaction output"
+          Nothing -> forkedThrower bh "unable to decode spv transaction output"
           Just cr -> return cr
 
         case _crResult q of
@@ -177,15 +183,10 @@ verifyCont
 verifyCont bdb bh (ContProof cp) = runExceptT $ do
     t <- liftIO $ decodeB64UrlNoPaddingText $ T.decodeUtf8 cp
     case decodeStrict' t of
-      Nothing -> throwError "unable to decode continuation proof"
+      Nothing -> forkedThrower bh "unable to decode continuation proof"
       Just u
         | view outputProofChainId u /= cid ->
-          let
-            thrower =
-              if CW.chainweb219Pact (_blockChainwebVersion bh) (_blockHeight bh)
-              then throwError
-              else internalError
-          in thrower "cannot redeem continuation proof on wrong target chain"
+          forkedThrower bh "cannot redeem continuation proof on wrong target chain"
         | otherwise -> do
 
           -- Cont proof verification is a 3 step process:
@@ -200,7 +201,7 @@ verifyCont bdb bh (ContProof cp) = runExceptT $ do
           TransactionOutput p <- catchAndDisplaySPVError bh $ liftIO $ verifyTransactionOutputProofAt_ bdb u (_blockHash bh)
 
           q <- case decodeStrict' p :: Maybe (CommandResult Hash) of
-            Nothing -> throwError "unable to decode spv transaction output"
+            Nothing -> forkedThrower bh "unable to decode spv transaction output"
             Just cr -> return cr
 
           case _crContinuation q of
