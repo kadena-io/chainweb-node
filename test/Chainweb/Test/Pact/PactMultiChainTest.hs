@@ -851,6 +851,11 @@ chainweb219UpgradeTest = do
         "Should display function preview string"
         (pString fnDetailsMsg)
         (over (_PLiteral . _LString) (T.take (T.length fnDetailsMsg)))
+      , PactTxTest decTx $
+        assertTxFailure
+        "Should not resolve new pact native: dec"
+        -- Should be cannot resolve dec, but no errors pre-fork.
+        ""
       ]
 
   -- Block 71, post-fork, errors should return on-chain but different
@@ -871,6 +876,10 @@ chainweb219UpgradeTest = do
         assertTxFailure
         "Should not display function preview string"
         "Cannot display function details in non-repl context"
+      , PactTxTest decTx $
+        assertTxSuccess
+        "Should resolve new pact native: dec"
+        (pDecimal 1)
       ]
   where
     addErrTx = buildBasicGas 10000
@@ -881,6 +890,8 @@ chainweb219UpgradeTest = do
         $ mkExec' (mconcat
         [ "(map (+ 1) \"a\")"
         ])
+    decTx = buildBasicGas 10000
+       $ mkExec' "(dec 1)"
     nativeDetailsMsg = "native `=`  Compare alike terms for equality"
     nativeDetailsTx = buildBasicGas 10000
         $ mkExec' (mconcat
