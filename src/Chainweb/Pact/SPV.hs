@@ -59,6 +59,7 @@ import qualified Streaming.Prelude as S
 import Chainweb.BlockHeader
 import Chainweb.BlockHeaderDB
 import Chainweb.BlockHeight
+import Chainweb.Pact.Service.Types(internalError)
 import Chainweb.Pact.Utils (aeson)
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
@@ -179,7 +180,12 @@ verifyCont bdb bh (ContProof cp) = runExceptT $ do
       Nothing -> throwError "unable to decode continuation proof"
       Just u
         | view outputProofChainId u /= cid ->
-          internalError "cannot redeem continuation proof on wrong target chain"
+          let
+            thrower =
+              if CW.chainweb219Pact (_blockChainwebVersion bh) (_blockHeight bh)
+              then throwError
+              else internalError
+          in thrower "cannot redeem continuation proof on wrong target chain"
         | otherwise -> do
 
           -- Cont proof verification is a 3 step process:
