@@ -179,7 +179,7 @@ verifyCont bdb bh (ContProof cp) = runExceptT $ do
       Nothing -> throwError "unable to decode continuation proof"
       Just u
         | view outputProofChainId u /= cid ->
-          throwError "cannot redeem continuation proof on wrong target chain"
+          internalError "cannot redeem continuation proof on wrong target chain"
         | otherwise -> do
 
           -- Cont proof verification is a 3 step process:
