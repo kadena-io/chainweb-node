@@ -44,7 +44,7 @@ let haskellSrc = with nix-filter.lib; filter {
       ];
     };
     flake = chainweb.flake {};
-    default = pkgs.runCommandCC "chainweb" {} ''
+    default = pkgs.runCommandCC "chainweb" { buildInputs = [pkgs.patchelf] ;} ''
       mkdir -pv $out/bin
       cp ${flake.packages."chainweb:exe:chainweb-node"}/bin/chainweb-node $out/bin/chainweb-node
       cp ${flake.packages."chainweb:exe:cwtool"}/bin/cwtool $out/bin/cwtool
