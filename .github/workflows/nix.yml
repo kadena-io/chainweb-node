@@ -17,7 +17,7 @@ jobs:
     - name: Set up Nix with caching
       uses: kadena-io/setup-nix-with-cache@v1
       with:
-        cache_url: s3://nixcache.chainweb.com?region=us-east-1
+        cache_url: s3://nixcache.chainweb.com?region=us-east-1&priority=100
         signing_private_key: ${{ secrets.NIX_CACHE_PRIVATE_KEY }}
 
     - name: Set up AWS credentials
