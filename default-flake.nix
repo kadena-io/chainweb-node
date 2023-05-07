@@ -28,7 +28,7 @@ let haskellSrc = with nix-filter.lib; filter {
         "flake.lock"
       ] ++ pkgs.lib.optional (compiler != "ghc8107") "cabal.project.freeze";
     };
-    chainweb-node = pkgs.haskell-nix.project' {
+    chainweb = pkgs.haskell-nix.project' {
       src = haskellSrc;
       compiler-nix-name = compiler;
       projectFileName = "cabal.project";
@@ -45,8 +45,43 @@ let haskellSrc = with nix-filter.lib; filter {
         }
       ];
     };
-    flake = chainweb-node.flake {};
-    default = flake.packages."chainweb:exe:chainweb-node";
+    flake = chainweb.flake {};
+    default = pkgs.runCommandCC "chainweb" {} ''
+      mkdir -pv $out/bin
+      cp ${flake.packages."chainweb:exe:chainweb-node"}/bin/chainweb-node $out/bin/chainweb-node
+      cp ${flake.packages."chainweb:exe:cwtool"}/bin/cwtool $out/bin/cwtool
+      chmod +w $out/bin/{cwtool,chainweb-node}
+      $STRIP $out/bin/chainweb-node
+      $STRIP $out/bin/cwtool
+      patchelf --shrink-rpath $out/bin/{cwtool,chainweb-node}
+    '';
 in {
-  inherit flake default haskellSrc chainweb-node pkgs;
+  # The Haskell project flake: Used by flake.nix
+  inherit flake;
+
+  # The default derivation exported by the nix flake. Used by flake.nix
+  inherit default;
+
+  # The source of the Haskell project in the nix store.
+  # Useful for debugging, e.g. for nix filters.
+  #
+  # Example:
+  # $ ls $(nix-instantiate default-flake.nix -A haskellSrc --eval)
+  inherit haskellSrc;
+
+  # The haskell.nix Haskell project (executables, libraries, etc)
+  # Also contains the `flake` attribute, and many useful things.
+  #
+  # Examples
+  #
+  # Leverage the `hsPkgs` attribute to inspect the `streaming` Haskell package:
+  # $ nix show-derivation $(nix-instantiate -E '(import ./default-flake.nix {}).chainweb.hsPkgs.streaming.components.library')
+  #
+  # Use `getComponent` to get a cabal component (library/executable/test/benchmark) of a package
+  # $ nix show-derivation $(nix-instantiate -E '(import ./default-flake.nix {}).chainweb.getComponent "chainweb:exe:cwtool"')
+  # $ nix show-derivation $(nix-instantiate -E '(import ./default-flake.nix {}).chainweb.hsPkgs.semirings.getComponent "lib:semirings"')
+  inherit chainweb;
+
+  # The nix package set: Not used by anything, but useful for debugging.
+  inherit pkgs;
 }

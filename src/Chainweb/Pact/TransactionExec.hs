@@ -28,7 +28,6 @@ module Chainweb.Pact.TransactionExec
 , readInitModules
 , enablePactEvents'
 , enforceKeysetFormats'
-, disablePact40Natives
 
   -- * Gas Execution
 , buyGas
@@ -65,7 +64,7 @@ import qualified Data.ByteString as B
 import qualified Data.ByteString.Short as SB
 import Data.Decimal (Decimal, roundTo)
 import Data.Default (def)
-import Data.Foldable (for_, traverse_, foldl')
+import Data.Foldable (for_, traverse_)
 import Data.IORef
 import qualified Data.HashMap.Strict as HM
 import Data.Maybe
@@ -745,14 +744,8 @@ applyExec' initialGas interp (ExecMsg parsedCode execData) senderSigs hsh nsp
     | null (_pcExps parsedCode) = throwCmdEx "No expressions found"
     | otherwise = do
 
-      pactFlags <- asks _txExecutionConfig
-
       eenv <- mkEvalEnv nsp (MsgData execData Nothing hsh senderSigs)
-          <&> disablePact40Natives pactFlags
-          <&> disablePact420Natives pactFlags
-          <&> disablePact43Natives pactFlags
-          <&> disablePact431Natives pactFlags
-          <&> disablePact46Natives pactFlags
+
       setEnvGas initialGas eenv
 
       er <- liftIO $! evalExec interp eenv parsedCode
@@ -867,13 +860,8 @@ applyContinuation'
     -> TransactionM p EvalResult
 applyContinuation' initialGas interp cm@(ContMsg pid s rb d _) senderSigs hsh nsp = do
 
-    pactFlags <- asks _txExecutionConfig
-
     eenv <- mkEvalEnv nsp (MsgData d pactStep hsh senderSigs)
-          <&> disablePact40Natives pactFlags
-          <&> disablePact420Natives pactFlags
-          <&> disablePact43Natives pactFlags
-          <&> disablePact46Natives pactFlags
+
     setEnvGas initialGas eenv
 
     er <- liftIO $! evalContinuation interp eenv cm
@@ -1081,39 +1069,6 @@ txSizeAccelerationFee costPerByte = total
     power :: Integer = 7
 {-# INLINE txSizeAccelerationFee #-}
 
--- | Disable certain natives around pact 4 / coin v3 upgrade
---
-disablePact40Natives :: ExecutionConfig -> EvalEnv e -> EvalEnv e
-disablePact40Natives =
-  disablePactNatives ["enumerate" , "distinct" , "emit-event" , "concat" , "str-to-list"] FlagDisablePact40
-{-# INLINE disablePact40Natives #-}
-
-disablePactNatives :: [Text] -> ExecutionFlag -> ExecutionConfig -> EvalEnv e -> EvalEnv e
-disablePactNatives bannedNatives flag ec = if has (ecFlags . ix flag) ec
-    then over (eeRefStore . rsNatives) (\k -> foldl' (flip HM.delete) k bannedNatives)
-    else id
-{-# INLINE disablePactNatives #-}
-
--- | Disable certain natives around pact 4.2.0
---
-disablePact420Natives :: ExecutionConfig -> EvalEnv e -> EvalEnv e
-disablePact420Natives = disablePactNatives ["zip", "fold-db"] FlagDisablePact420
-{-# INLINE disablePact420Natives #-}
-
--- | Disable certain natives around pact 4.2.0
---
-disablePact43Natives :: ExecutionConfig -> EvalEnv e -> EvalEnv e
-disablePact43Natives = disablePactNatives ["create-principal", "validate-principal", "continue"] FlagDisablePact43
-{-# INLINE disablePact43Natives #-}
-
-disablePact431Natives :: ExecutionConfig -> EvalEnv e -> EvalEnv e
-disablePact431Natives = disablePactNatives ["is-principal", "typeof-principal"] FlagDisablePact431
-{-# INLINE disablePact431Natives #-}
-
-disablePact46Natives :: ExecutionConfig -> EvalEnv e -> EvalEnv e
-disablePact46Natives = disablePactNatives ["point-add", "scalar-mult", "pairing-check"] FlagDisablePact46
-{-# INLINE disablePact46Natives #-}
-
 -- | Set the module cache of a pact 'EvalState'
 --
 setModuleCache
@@ -1147,7 +1102,7 @@ mkEvalEnv nsp msg = do
       <*> view txGasPrice
       <*> use txGasModel
     liftIO $ setupEvalEnv (_txDbEnv tenv) Nothing (_txMode tenv)
-      msg initRefStore genv
+      msg (versionedNativesRefStore (_txExecutionConfig tenv)) genv
       nsp (_txSpvSupport tenv) (_txPublicData tenv) (_txExecutionConfig tenv)
 
 -- | Managed namespace policy CAF
