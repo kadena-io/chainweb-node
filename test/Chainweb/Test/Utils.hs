@@ -137,6 +137,7 @@ module Chainweb.Test.Utils
 
 import Control.Concurrent
 import Control.Concurrent.Async
+import Control.Exception (evaluate)
 import Control.Lens
 import Control.Monad
 import Control.Monad.Catch (MonadThrow, finally, bracket)
