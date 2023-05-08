@@ -112,6 +112,14 @@ allow-newer: token-bucket:*
 allow-newer: ixset-typed:*
 allow-newer: hashable:*
 
+-- wai-middleware-validation dependencies
+
+allow-newer: wai-middleware-validation:*
+allow-newer: validation:*
+allow-newer: these:*
+allow-newer: regex-base:*
+allow-newer: regex-tdfa:*
+
 -- -------------------------------------------------------------------------- --
 -- Upper Bounds
 
