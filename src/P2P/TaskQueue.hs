@@ -48,9 +48,9 @@ module P2P.TaskQueue
 
 import Control.Arrow
 import Control.DeepSeq
-import Control.Exception.Safe
 import Control.Lens
 import Control.Monad
+import Control.Monad.Catch
 
 import Data.Either
 import Data.Function
@@ -171,7 +171,7 @@ session_ limit q logFun env = mask $ \restore -> do
     let go = tryReadIVar (_taskResult task) >>= \case
             Nothing -> do
                 logg task Debug "run task"
-                handle (retry task) $ restore $ do
+                flip catchAllSynchronous (retry task) $ restore $ do
                     r <- _taskAction task logFun env
                     putResult (_taskResult task) (Right r)
             Just Left{} -> do
