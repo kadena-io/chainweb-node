@@ -29,3 +29,7 @@ jobs:
       run: |
         echo Building the project and its devShell
         nix build .#check
+
+    - name: Upload the Nix store
+      run: |
+        nix copy --to s3://nixcache.chainweb.com?region=us-east-1 --all
