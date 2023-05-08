@@ -137,7 +137,9 @@ module Chainweb.Test.Utils
 
 import Control.Concurrent
 import Control.Concurrent.Async
+#if !MIN_VERSION_base(4,15,0)
 import Control.Exception (evaluate)
+#endif
 import Control.Lens
 import Control.Monad
 import Control.Monad.Catch (MonadThrow, finally, bracket)
