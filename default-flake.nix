@@ -44,14 +44,16 @@ let haskellSrc = with nix-filter.lib; filter {
       ];
     };
     flake = chainweb.flake {};
-    default = pkgs.runCommandCC "chainweb" { buildInputs = [pkgs.patchelf] ;} ''
+    default = pkgs.runCommandCC "chainweb" {} ''
       mkdir -pv $out/bin
       cp ${flake.packages."chainweb:exe:chainweb-node"}/bin/chainweb-node $out/bin/chainweb-node
       cp ${flake.packages."chainweb:exe:cwtool"}/bin/cwtool $out/bin/cwtool
       chmod +w $out/bin/{cwtool,chainweb-node}
       $STRIP $out/bin/chainweb-node
       $STRIP $out/bin/cwtool
-      patchelf --shrink-rpath $out/bin/{cwtool,chainweb-node}
+      ${pkgs.lib.optionalString (pkgs.stdenv.isLinux) ''
+        patchelf --shrink-rpath $out/bin/{cwtool,chainweb-node}
+      ''}
     '';
 in {
   # The Haskell project flake: Used by flake.nix
