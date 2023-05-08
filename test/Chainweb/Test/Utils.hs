@@ -19,8 +19,6 @@
 -- Maintainer: Lars Kuhtz <lars@kadena.io>
 -- Stability: experimental
 --
--- TODO
---
 module Chainweb.Test.Utils
 (
 -- * Misc
@@ -139,7 +137,6 @@ module Chainweb.Test.Utils
 
 import Control.Concurrent
 import Control.Concurrent.Async
-import Control.Exception (Exception, evaluate)
 import Control.Lens
 import Control.Monad
 import Control.Monad.Catch (MonadThrow, finally, bracket)
@@ -148,33 +145,24 @@ import Control.Monad.IO.Class
 import Data.Aeson (FromJSON, ToJSON)
 import Data.Bifunctor hiding (second)
 import qualified Data.ByteString as B
-import qualified Data.ByteString.Char8 as B8
 import qualified Data.ByteString.Lazy as BL
 import Data.Coerce (coerce)
 import Data.Foldable
-import Data.IORef
 import qualified Data.HashMap.Strict as HashMap
-import qualified Data.HashSet as HashSet
-import qualified Data.Map as Map
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
 import Data.Tree
 import qualified Data.Tree.Lens as LT
-import Data.Typeable
 import qualified Data.Vector as V
 import Data.Word (Word64)
-import qualified Data.Yaml as Yaml
 
 import qualified Network.Connection as HTTP
 import qualified Network.HTTP.Client as HTTP
 import qualified Network.HTTP.Client.TLS as HTTP
-import Network.HTTP.Types
 import Network.Socket (close)
 import qualified Network.Wai as W
 import qualified Network.Wai.Handler.Warp as W
 import Network.Wai.Handler.WarpTLS as W (runTLSSocket)
-import Network.Wai.Middleware.OpenApi(OpenApi)
-import qualified Network.Wai.Middleware.Validation as WV
 
 import Numeric.Natural
 
@@ -183,7 +171,6 @@ import Servant.Client (BaseUrl(..), ClientEnv, Scheme(..), mkClientEnv)
 import System.Environment (withArgs)
 import System.IO
 import System.IO.Temp
-import System.IO.Unsafe(unsafePerformIO)
 import System.LogLevel
 import System.Random (randomIO)
 
@@ -197,7 +184,6 @@ import Test.Tasty.HUnit
 import Test.Tasty.QuickCheck (testProperty, property, discard, (.&&.))
 
 import Text.Printf (printf)
-import Text.Show.Pretty
 
 import Data.List (sortOn,isInfixOf)
 
