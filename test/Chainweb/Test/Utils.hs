@@ -251,6 +251,8 @@ import P2P.Node.Configuration
 import qualified P2P.Node.PeerDB as P2P
 import P2P.Peer
 
+import Chainweb.Test.Utils.APIValidation
+
 -- -------------------------------------------------------------------------- --
 -- Misc
 
@@ -659,29 +661,7 @@ withTestAppServer tls v appIO envIO userFunc = bracket start stop go
         close sock
     go (_, _, env) = userFunc env
 
-
-data ValidationException = ValidationException
-    { vReq :: W.Request
-    , vResp :: (ResponseHeaders, Status, BL.ByteString)
-    , vErr :: WV.TopLevelError
-    }
-    deriving (Show, Typeable)
-
-instance Exception ValidationException
-
-{-# NOINLINE chainwebOpenApiSpec #-}
-chainwebOpenApiSpec :: OpenApi
-chainwebOpenApiSpec = unsafePerformIO $ do
-    mgr <- manager 10_000_000
-    let specUri = "https://raw.githubusercontent.com/kadena-io/chainweb-openapi/main/chainweb.openapi.yaml"
-    Yaml.decodeThrow . BL.toStrict . HTTP.responseBody =<< HTTP.httpLbs (HTTP.parseRequest_ specUri) mgr
-
-{-# NOINLINE pactOpenApiSpec #-}
-pactOpenApiSpec :: OpenApi
-pactOpenApiSpec = unsafePerformIO $ do
-    mgr <- manager 10_000_000
-    let specUri = "https://raw.githubusercontent.com/kadena-io/chainweb-openapi/main/pact.openapi.yaml"
-    Yaml.decodeThrow . BL.toStrict . HTTP.responseBody =<< HTTP.httpLbs (HTTP.parseRequest_ specUri) mgr
+data ShouldValidateSpec = ValidateSpec | DoNotValidateSpec
 
 -- TODO: catch, wrap, and forward exceptions from chainwebApplication
 --
@@ -697,29 +677,9 @@ withChainwebTestServer shouldValidateSpec tls v appIO envIO test = withResource 
     test $ x >>= \(_, _, env) -> return env
   where
     start = do
-        coverageRef <- newIORef $ WV.CoverageMap Map.empty
-        _ <- evaluate chainwebOpenApiSpec
-        _ <- evaluate pactOpenApiSpec
-        let
-            lg (_, req) (respBody, resp) err = do
-                let ex = ValidationException req (W.responseHeaders resp, W.responseStatus resp, respBody) err
-                print $ ppShow ex
-                error "validation error"
-            findPath path = asum
-                [ case B8.split '/' path of
-                    ("" : "chainweb" : "0.0" : rawVersion : "chain" : rawChainId : "pact" : "api" : "v1" : rest) -> do
-                        reqVersion <- chainwebVersionFromText (T.decodeUtf8 rawVersion)
-                        guard (reqVersion == v)
-                        reqChainId <- chainIdFromText (T.decodeUtf8 rawChainId)
-                        guard (HashSet.member reqChainId (chainIds v))
-                        return (B8.intercalate "/" ("":rest), pactOpenApiSpec)
-                    _ -> Nothing
-                , (,chainwebOpenApiSpec) <$> B8.stripPrefix (T.encodeUtf8 $ "/chainweb/0.0/" <> chainwebVersionToText v) path
-                , Just (path,chainwebOpenApiSpec)
-                ]
-            mw = case shouldValidateSpec of
-                ValidateSpec -> WV.mkValidator coverageRef (WV.Log lg (const (return ()))) findPath
-                DoNotValidateSpec -> id
+        mw <- case shouldValidateSpec of
+            ValidateSpec -> mkApiValidationMiddleware v
+            DoNotValidateSpec -> return id
         app <- mw <$> appIO
         (port, sock) <- W.openFreePort
         readyVar <- newEmptyMVar
@@ -819,8 +779,6 @@ withPayloadServer shouldValidateSpec tls v cutDbIO payloadDbsIO =
             { _chainwebServerPayloadDbs = payloadDbs
             , _chainwebServerCutDb = Just cutDb
             }
-
-data ShouldValidateSpec = ValidateSpec | DoNotValidateSpec
 
 withBlockHeaderDbsServer
     :: Show t
