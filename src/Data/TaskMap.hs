@@ -32,12 +32,13 @@ module Data.TaskMap
 , await
 , size
 , null
+, clear
 , memo
 ) where
 
 import Control.Concurrent
 import Control.Concurrent.Async
-import Control.Exception (evaluate, finally)
+import Control.Exception (evaluate, finally, bracket)
 import Control.Monad
 
 import Data.Hashable
@@ -80,6 +81,13 @@ size (TaskMap var) = HM.size <$!> readMVar var
 null :: TaskMap k v -> IO Bool
 null (TaskMap var) = HM.null <$!> readMVar var
 
+-- | Clear the content of the map. This cancels all tasks
+--
+clear :: Eq k => Hashable k => TaskMap k v -> IO ()
+clear (TaskMap var) = modifyMVar_ var $ \m -> do
+    mapM_ (\a -> cancel a) m
+    return mempty
+
 memo
     :: Eq k
     => Hashable k
@@ -88,14 +96,14 @@ memo
     -> (k -> IO v)
         -- ^ an action that is used to produce the value if the key isn't in the map.
     -> IO v
-memo tm@(TaskMap var) k task = do
-    -- TODO: should we insert another lookup here? It depends on how optimistic
-    -- we are that the lookup is successful.
-
-    a <- modifyMVarMasked var $ \m -> case HM.lookup k m of
-        Nothing -> do
-            !a <- asyncWithUnmask $ \umask -> umask (task k) `finally` delete tm k
-            m' <- evaluate $ HM.insert k a m
-            return (m', a)
-        (Just !a) -> return (m, a)
-    wait a
+memo tm@(TaskMap var) k task = bracket query cancel wait
+  where
+    query = do
+        -- TODO: should we insert another lookup here? It depends on how optimistic
+        -- we are that the lookup is successful.
+        modifyMVarMasked var $ \m -> case HM.lookup k m of
+            Nothing -> do
+                !a <- asyncWithUnmask $ \umask -> umask (task k) `finally` delete tm k
+                !m' <- evaluate $ HM.insert k a m
+                return (m', a)
+            (Just !a) -> return (m, a)
