@@ -397,21 +397,21 @@ attemptBuyGas
     -> PactServiceM tbl (Vector (Either InsertError ChainwebTransaction))
 attemptBuyGas miner (PactDbEnv' dbEnv) txs = do
         mc <- getInitCache
-        V.fromList . toList . sfst <$> V.foldM f (T2 mempty mc) txs
+        l <- P.newLogger <$> view psLoggers <*> pure "attemptBuyGas"
+        V.fromList . toList . sfst <$> V.foldM (f l) (T2 mempty mc) txs
   where
-    f (T2 dl mcache) cmd = do
-        T2 mcache' !res <- runBuyGas dbEnv mcache cmd
+    f l (T2 dl mcache) cmd = do
+        T2 mcache' !res <- runBuyGas l dbEnv mcache cmd
         pure $! T2 (DL.snoc dl res) mcache'
 
     createGasEnv
-        :: P.PactDbEnv db
+        :: P.Logger
+        -> P.PactDbEnv db
         -> P.Command (P.Payload P.PublicMeta P.ParsedCode)
         -> P.GasPrice
         -> P.Gas
         -> PactServiceM tbl (TransactionEnv db)
-    createGasEnv db cmd gp gl = do
-        l <- P.newLogger <$> view psLoggers <*> pure "attemptBuyGas"
-
+    createGasEnv l db cmd gp gl = do
         pd <- getTxContext (publicMetaOf cmd)
         spv <- use psSpvSupport
         let ec = P.mkExecutionConfig
@@ -423,12 +423,13 @@ attemptBuyGas miner (PactDbEnv' dbEnv) txs = do
         !rk = P.cmdToRequestKey cmd
 
     runBuyGas
-        :: P.PactDbEnv a
+        :: P.Logger
+        -> P.PactDbEnv a
         -> ModuleCache
         -> Either InsertError ChainwebTransaction
         -> PactServiceM tbl (T2 ModuleCache (Either InsertError ChainwebTransaction))
-    runBuyGas _db mcache l@Left {} = return (T2 mcache l)
-    runBuyGas db mcache (Right tx) = do
+    runBuyGas _l _db mcache l@Left {} = return (T2 mcache l)
+    runBuyGas l db mcache (Right tx) = do
         let cmd = payloadObj <$> tx
             gasPrice = view cmdGasPrice cmd
             gasLimit = fromIntegral $ view cmdGasLimit cmd
@@ -441,10 +442,10 @@ attemptBuyGas miner (PactDbEnv' dbEnv) txs = do
                 , _txWarnings = mempty
                 }
 
-        buyGasEnv <- createGasEnv db cmd gasPrice gasLimit
+        buyGasEnv <- createGasEnv l db cmd gasPrice gasLimit
 
         cr <- liftIO
-          $! P.catchesPactError
+          $! catchesPactError l CensorsUnexpectedError
           $! execTransactionM buyGasEnv txst
           $! buyGas False cmd miner
 
