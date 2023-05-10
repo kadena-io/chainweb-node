@@ -725,31 +725,31 @@ jobs:
   # ########################################################################## #
   # Trigger Integration Tests Run
 
-  # integration-tests:
-  #   name: Run Integration Tests from remote repo
-  #   needs: [ config, docker-image ]
-  #   runs-on: ubuntu-latest
-  #
-  #   env:
-  #     GIT_SHA_SHORT: ${{ needs.config.outputs.git-sha-short }}
-  #
-  #   steps:
-  #   - name: Start remote integration tests
-  #     uses: aurelien-baudet/workflow-dispatch@93e95b157d791ae7f42aef8f8a0d3d723eba1c31
-  #     with:
-  #       workflow: Integration Tests on devnet chain
-  #       token: ${{ secrets.GH_WORKFLOW_PAT_FOR_TESTS }}
-  #       inputs: '{ "chainweb_node_container_id" : "sha-${{ needs.config.outputs.git-sha-short }}" }'
-  #       ref: refs/heads/master
-  #       repo: kadena-io/integration-tests
-  #       display-workflow-run-url: true
-  #       wait-for-completion: false # here you could make this pipeline wait them out
-
   integration-tests:
-    name: Run devnet integration tests
+    name: Run Integration Tests from remote repo
     needs: [ config, docker-image ]
-    uses: kadena-io/integration-tests/.github/workflows/run_all_devnet_integration_tests.yml@master
-    with:
-      chainweb_node_container_id: '{ "chainweb_node_container_id" : "sha-${{ needs.config.outputs.git-sha-short }}" }'
-    secrets: inherit
+    runs-on: ubuntu-latest
 
+    env:
+      GIT_SHA_SHORT: ${{ needs.config.outputs.git-sha-short }}
+
+    steps:
+    - name: Start remote integration tests
+      uses: aurelien-baudet/workflow-dispatch@93e95b157d791ae7f42aef8f8a0d3d723eba1c31
+      with:
+        workflow: Integration Tests on devnet chain
+        token: ${{ secrets.GH_WORKFLOW_PAT_FOR_TESTS }}
+        inputs: '{ "chainweb_node_container_id" : "sha-${{ needs.config.outputs.git-sha-short }}" }'
+        ref: refs/heads/master
+        repo: kadena-io/integration-tests
+        display-workflow-run-url: true
+        wait-for-completion: true # here you could make this pipeline wait them out
+  #
+  # integration-tests:
+  #   name: Run devnet integration tests
+  #   needs: [ config, docker-image ]
+  #   uses: kadena-io/integration-tests/.github/workflows/run_all_devnet_integration_tests.yml@master
+  #   with:
+  #     chainweb_node_container_id: '{ "chainweb_node_container_id" : "sha-${{ needs.config.outputs.git-sha-short }}" }'
+  #   secrets: inherit
+  #
