@@ -90,7 +90,7 @@ import Pact.Types.Logger hiding (logError)
 import Pact.Types.PactValue
 import Pact.Types.Pretty
 import Pact.Types.RPC
-import Pact.Types.Runtime
+import Pact.Types.Runtime hiding (catchesPactError)
 import Pact.Types.Server
 import Pact.Types.SPV
 
@@ -129,6 +129,11 @@ magic_GAS = mkMagicCapSlot "GAS"
 magic_GENESIS :: CapSlot UserCapability
 magic_GENESIS = mkMagicCapSlot "GENESIS"
 
+onChainErrorPrintingFor :: TxContext -> UnexpectedErrorPrinting
+onChainErrorPrintingFor txCtx =
+  if chainweb219Pact (ctxVersion txCtx) (ctxCurrentBlockHeight txCtx)
+  then CensorsUnexpectedError
+  else PrintsUnexpectedError
 
 -- | The main entry point to executing transactions. From here,
 -- 'applyCmd' assembles the command environment for a command and
@@ -217,7 +222,7 @@ applyCmd v logger gasLogger pdbenv miner gasModel txCtx spv cmd initialGas mcach
       applyRedeem r
 
     applyBuyGas =
-      catchesPactError (buyGas isPactBackCompatV16 cmd miner) >>= \case
+      catchesPactError logger (onChainErrorPrintingFor txCtx) (buyGas isPactBackCompatV16 cmd miner) >>= \case
         Left e -> view txRequestKey >>= \rk ->
           throwM $ BuyGasFailure $ GasPurchaseFailure (requestKeyToTransactionHash rk) e
         Right _ -> checkTooBigTx initialGas gasLimit applyPayload redeemAllGas
@@ -238,7 +243,7 @@ applyCmd v logger gasLogger pdbenv miner gasModel txCtx spv cmd initialGas mcach
       if chainweb217Pact' then txGasUsed += initialGas
       else txGasUsed .= initialGas
 
-      cr <- catchesPactError $! runPayload cmd managedNamespacePolicy
+      cr <- catchesPactError logger (onChainErrorPrintingFor txCtx) $! runPayload cmd managedNamespacePolicy
       case cr of
         Left e
           -- 2.19 onwards errors return on chain
@@ -254,7 +259,7 @@ applyCmd v logger gasLogger pdbenv miner gasModel txCtx spv cmd initialGas mcach
     applyRedeem cr = do
       txGasModel .= (_geGasModel freeGasEnv)
 
-      r <- catchesPactError $! redeemGas cmd
+      r <- catchesPactError logger (onChainErrorPrintingFor txCtx) $! redeemGas cmd
       case r of
         Left e ->
           -- redeem gas failure is fatal (block-failing) so miner doesn't lose coins
@@ -315,7 +320,8 @@ applyGenesisCmd logger dbEnv spv cmd =
       $ initCapabilities [magic_GENESIS, magic_COINBASE]
 
     go = do
-      cr <- catchesPactError $! runGenesis cmd permissiveNamespacePolicy interp
+      -- TODO: fix with version recordification so that this matches the flags at genesis heights.
+      cr <- catchesPactError logger PrintsUnexpectedError $! runGenesis cmd permissiveNamespacePolicy interp
       case cr of
         Left e -> fatal $ "Genesis command failed: " <> sshow e
         Right r -> r <$ debug "successful genesis tx for request key"
@@ -382,7 +388,7 @@ applyCoinbase v logger dbEnv (Miner mid mks@(MinerKeys mk)) reward@(ParsedDecima
         -- NOTE: chash includes the /quoted/ text of the parent header.
 
     go interp cexec = evalTransactionM tenv txst $! do
-      cr <- catchesPactError $!
+      cr <- catchesPactError logger (onChainErrorPrintingFor txCtx) $
         applyExec' 0 interp cexec mempty chash managedNamespacePolicy
 
       case cr of
@@ -453,7 +459,7 @@ applyLocal logger gasLogger dbEnv gasModel txCtx spv cmdIn mc execConfig =
 
     applyPayload m = do
       interp <- gasInterpreter gas0
-      cr <- catchesPactError $! case m of
+      cr <- catchesPactError logger PrintsUnexpectedError $! case m of
         Exec em ->
           applyExec gas0 interp em signers chash managedNamespacePolicy
         Continuation cm ->
@@ -499,7 +505,7 @@ readInitModules logger dbEnv txCtx
     die msg = throwM $ PactInternalError $ "readInitModules: " <> msg
     mkCmd = buildExecParsedCode (Just (v, h)) Nothing
     run msg cmd = do
-      er <- catchesPactError $!
+      er <- catchesPactError logger (onChainErrorPrintingFor txCtx) $!
         applyExec' 0 interp cmd [] chash permissiveNamespacePolicy
       case er of
         Left e -> die $ msg <> ": failed: " <> sshow e
