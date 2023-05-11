@@ -126,6 +126,7 @@ tests = ScheduledTest testName go
          , test generousConfig getGasModel "chainweb216Test" chainweb216Test
          , test generousConfig getGasModel "pact45UpgradeTest" pact45UpgradeTest
          , test generousConfig getGasModel "pact46UpgradeTest" pact46UpgradeTest
+         , test generousConfig getGasModel "pact47UpgradeTest" pact47UpgradeTest
          , test generousConfig getGasModel "chainweb219UpgradeTest" chainweb219UpgradeTest
          ]
       where
@@ -824,6 +825,34 @@ pact46UpgradeTest = do
         $ mkExec' (mconcat
         [ "(pairing-check [{'x: 1, 'y: 2}] [{'x:[0, 0], 'y:[0, 0]}])"
         ])
+
+pact47UpgradeTest :: PactTestM ()
+pact46UpgradeTest = do
+
+  -- run past genesis, upgrades
+  runToHeight 70
+
+  runBlockTest
+      [ PactTxTest runIllTypedFunction $
+        assertTxSuccess
+        "User function return value types should not be checked before the fork" _ ]
+
+  runBlockTest
+      [ PactTxtest runIllTypedFunction $
+        assertTxFailure
+        "User function type annotation must match body type after the fork"
+        ""
+      ]
+
+  where
+    runIllTypedFunction = buildBasicGas 10000
+        $ mkExec' (mconcat
+                  [ "(namespace 'free)"
+                  , "(module m g (defgap g () true)"
+                  , "  (defun foo:string () 1))"
+                  , "  (m.foo)"
+                  ])
+
 
 chainweb219UpgradeTest :: PactTestM ()
 chainweb219UpgradeTest = do
