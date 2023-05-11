@@ -826,8 +826,9 @@ pact46UpgradeTest = do
         [ "(pairing-check [{'x: 1, 'y: 2}] [{'x:[0, 0], 'y:[0, 0]}])"
         ])
 
+
 pact47UpgradeTest :: PactTestM ()
-pact46UpgradeTest = do
+pact47UpgradeTest = do
 
   -- run past genesis, upgrades
   runToHeight 70
@@ -835,22 +836,24 @@ pact46UpgradeTest = do
   runBlockTest
       [ PactTxTest runIllTypedFunction $
         assertTxSuccess
-        "User function return value types should not be checked before the fork" _ ]
+        "User function return value types should not be checked before the fork"
+        (pInteger 1)
+      ]
 
   runBlockTest
-      [ PactTxtest runIllTypedFunction $
+      [ PactTxTest runIllTypedFunction $
         assertTxFailure
         "User function type annotation must match body type after the fork"
-        ""
+        "Type error: expected string, found integer"
       ]
 
   where
-    runIllTypedFunction = buildBasicGas 10000
+    runIllTypedFunction = buildBasicGas 70000
         $ mkExec' (mconcat
                   [ "(namespace 'free)"
-                  , "(module m g (defgap g () true)"
+                  , "(module m g (defcap g () true)"
                   , "  (defun foo:string () 1))"
-                  , "  (m.foo)"
+                  , "(m.foo)"
                   ])
 
 
