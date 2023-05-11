@@ -831,13 +831,13 @@ pact47UpgradeTest :: PactTestM ()
 pact47UpgradeTest = do
 
   -- run past genesis, upgrades
-  runToHeight 70
+  runToHeight 69
 
   runBlockTest
       [ PactTxTest runIllTypedFunction $
         assertTxSuccess
         "User function return value types should not be checked before the fork"
-        (pInteger 1)
+        (pDecimal 1.0)
       ]
 
   runBlockTest
