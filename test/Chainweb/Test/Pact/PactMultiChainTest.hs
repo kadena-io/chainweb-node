@@ -838,6 +838,10 @@ pact47UpgradeTest = do
         assertTxSuccess
         "User function return value types should not be checked before the fork"
         (pDecimal 1.0)
+       , PactTxTest readMsg $
+         assertTxFailure
+         "read-* errors are not recoverable before the fork"
+         ""
       ]
 
   runBlockTest
@@ -845,6 +849,10 @@ pact47UpgradeTest = do
         assertTxFailure
         "User function type annotation must match body type after the fork"
         "Type error: expected string, found integer"
+      , PactTxTest readMsg $
+        assertTxSuccess
+        "read-* errors are recoverable after the fork"
+        (pDecimal 1.0)
       ]
 
   where
@@ -856,6 +864,13 @@ pact47UpgradeTest = do
                   , "(m.foo)"
                   ])
 
+    readMsg = buildBasicGas 10000
+        $ mkExec' (mconcat
+                  [ "(try 1 (read-integer \"somekey\"))"
+                  , "(try 1 (read-string \"somekey\"))"
+                  , "(try 1 (read-keyset \"somekey\"))"
+                  , "(try 1 (read-msg \"somekey\"))"
+                  ])
 
 chainweb219UpgradeTest :: PactTestM ()
 chainweb219UpgradeTest = do
