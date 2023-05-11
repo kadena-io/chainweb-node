@@ -725,16 +725,22 @@ jobs:
   # ########################################################################## #
   # Trigger Integration Tests Run
 
+  # Tag check to see how we run these
   integration-tests:
-    name: Run Integration Tests from remote repo
-    needs: [ config, docker-image ]
+    name: Integration test suite
+    needs: [ config, docker-image  ]
     runs-on: ubuntu-latest
 
     env:
       GIT_SHA_SHORT: ${{ needs.config.outputs.git-sha-short }}
 
     steps:
-    - name: Start remote integration tests
+    - uses: mukunku/tag-exists-action@v1.2.0
+      id: tagcheck-needs-it 
+      with: 
+        tag: 'needs-integration-tests'
+
+    - name: Devnet integration test suite
       uses: aurelien-baudet/workflow-dispatch@93e95b157d791ae7f42aef8f8a0d3d723eba1c31
       with:
         workflow: Integration Tests on devnet chain
@@ -743,7 +749,40 @@ jobs:
         ref: refs/heads/master
         repo: kadena-io/integration-tests
         display-workflow-run-url: true
-        wait-for-completion: true # here you could make this pipeline wait them out
+        wait-for-completion: ${{ steps.tagcheck-needs-it.outputs.exists == 'true' }}
+
+  mainnet-replay:
+    name: Mainnet pact history replay 
+    needs: [ config, docker-image  ]
+    runs-on: ubuntu-latest
+
+    env:
+      GIT_SHA_SHORT: ${{ needs.config.outputs.git-sha-short }}
+
+    steps:
+
+    - uses: mukunku/tag-exists-action@v1.2.0
+      id: tagcheck-wants-replay 
+      with: 
+        tag: 'wants-replay' 
+    - uses: mukunku/tag-exists-action@v1.2.0
+      id: tagcheck-needs-replay
+      with: 
+        tag: 'needs-replay' 
+
+    - name: Full mainnet replay
+      if: ${{ steps.tagcheck-wants-replay.outputs.exists == 'true' }}
+      uses: aurelien-baudet/workflow-dispatch@93e95b157d791ae7f42aef8f8a0d3d723eba1c31
+      with:
+        workflow: Mainnet Pact Replay 
+        token: ${{ secrets.GH_WORKFLOW_PAT_FOR_TESTS }}
+        inputs: '{ "chainweb_node_container_id" : "sha-${{ needs.config.outputs.git-sha-short }}" }'
+        ref: refs/heads/master
+        repo: kadena-io/integration-tests
+        display-workflow-run-url: true
+        wait-for-completion: ${{ steps.tagcheck-needs-replay.outputs.exists == 'true' }}
+
+
   #
   # integration-tests:
   #   name: Run devnet integration tests
