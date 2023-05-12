@@ -951,33 +951,14 @@ chainweb219UpgradeTest = do
                   , "(m.foo)"
                   ])
     tryReadInteger = buildBasicGas 1000
-        $ mkExec' (mconcat
-                  [ "(try 1 (read-integer \"somekey\"))"
-                  , "(try 1 (read-string \"somekey\"))"
-                  , "(try 1 (read-keyset \"somekey\"))"
-                  , "(try 1 (read-msg \"somekey\"))"
-                  ])
+        $ mkExec' "(try 1 (read-integer \"somekey\"))"
     tryReadString = buildBasicGas 1000
-        $ mkExec' (mconcat
-                  [ "(try 1 (read-integer \"somekey\"))"
-                  , "(try 1 (read-string \"somekey\"))"
-                  , "(try 1 (read-keyset \"somekey\"))"
-                  , "(try 1 (read-msg \"somekey\"))"
-                  ])
+        $ mkExec' "(try 1 (read-string \"somekey\"))"
     tryReadKeyset = buildBasicGas 1000
-        $ mkExec' (mconcat
-                  [ "(try 1 (read-integer \"somekey\"))"
-                  , "(try 1 (read-string \"somekey\"))"
-                  , "(try 1 (read-keyset \"somekey\"))"
-                  , "(try 1 (read-msg \"somekey\"))"
-                  ])
+        $ mkExec' "(try 1 (read-keyset \"somekey\"))"
     tryReadMsg = buildBasicGas 1000
-        $ mkExec' (mconcat
-                  [ "(try 1 (read-integer \"somekey\"))"
-                  , "(try 1 (read-string \"somekey\"))"
-                  , "(try 1 (read-keyset \"somekey\"))"
-                  , "(try 1 (read-msg \"somekey\"))"
-                  ])
+        $ mkExec' "(try 1 (read-msg \"somekey\"))"
+
 
 pact4coin3UpgradeTest :: PactTestM ()
 pact4coin3UpgradeTest = do
