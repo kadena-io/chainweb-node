@@ -861,7 +861,19 @@ chainweb219UpgradeTest = do
         assertTxSuccess
         "User function return value types should not be checked before the fork"
         (pDecimal 1.0)
-      , PactTxTest readMsg $
+      , PactTxTest tryReadString $
+        assertTxFailure
+        "read-* errors are not recoverable before the fork"
+        ""
+      , PactTxTest tryReadInteger $
+        assertTxFailure
+        "read-* errors are not recoverable before the fork"
+        ""
+      , PactTxTest tryReadKeyset $
+        assertTxFailure
+        "read-* errors are not recoverable before the fork"
+        ""
+      , PactTxTest tryReadMsg $
         assertTxFailure
         "read-* errors are not recoverable before the fork"
         ""
@@ -893,7 +905,19 @@ chainweb219UpgradeTest = do
         assertTxFailure
         "User function type annotation must match body type after the fork"
         "Type error: expected string, found integer"
-      , PactTxTest readMsg $
+      , PactTxTest tryReadString $
+        assertTxSuccess
+        "read-* errors are recoverable after the fork"
+        (pDecimal 1.0)
+      , PactTxTest tryReadInteger $
+        assertTxSuccess
+        "read-* errors are recoverable after the fork"
+        (pDecimal 1.0)
+      , PactTxTest tryReadKeyset $
+        assertTxSuccess
+        "read-* errors are recoverable after the fork"
+        (pDecimal 1.0)
+      , PactTxTest tryReadMsg $
         assertTxSuccess
         "read-* errors are recoverable after the fork"
         (pDecimal 1.0)
@@ -926,7 +950,28 @@ chainweb219UpgradeTest = do
                   , "  (defun foo:string () 1))"
                   , "(m.foo)"
                   ])
-    readMsg = buildBasicGas 10000
+    tryReadInteger = buildBasicGas 1000
+        $ mkExec' (mconcat
+                  [ "(try 1 (read-integer \"somekey\"))"
+                  , "(try 1 (read-string \"somekey\"))"
+                  , "(try 1 (read-keyset \"somekey\"))"
+                  , "(try 1 (read-msg \"somekey\"))"
+                  ])
+    tryReadString = buildBasicGas 1000
+        $ mkExec' (mconcat
+                  [ "(try 1 (read-integer \"somekey\"))"
+                  , "(try 1 (read-string \"somekey\"))"
+                  , "(try 1 (read-keyset \"somekey\"))"
+                  , "(try 1 (read-msg \"somekey\"))"
+                  ])
+    tryReadKeyset = buildBasicGas 1000
+        $ mkExec' (mconcat
+                  [ "(try 1 (read-integer \"somekey\"))"
+                  , "(try 1 (read-string \"somekey\"))"
+                  , "(try 1 (read-keyset \"somekey\"))"
+                  , "(try 1 (read-msg \"somekey\"))"
+                  ])
+    tryReadMsg = buildBasicGas 1000
         $ mkExec' (mconcat
                   [ "(try 1 (read-integer \"somekey\"))"
                   , "(try 1 (read-string \"somekey\"))"
