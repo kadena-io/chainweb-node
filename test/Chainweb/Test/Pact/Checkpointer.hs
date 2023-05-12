@@ -66,8 +66,8 @@ tests = testGroupSch "Checkpointer"
     [ testRelational
     , testKeyset
     , testModuleName
-    , testCase "PactDb Regression" testRegress
-    , testCase "readRow unitTest" readRowUnitTest
+    , testCaseSteps "PactDb Regression" testRegress
+    , testCaseSteps "readRow unitTest" readRowUnitTest
     ]
 
 -- -------------------------------------------------------------------------- --
@@ -416,8 +416,8 @@ checkpointerTest name relational cenvIO = testCaseSteps name $ \next -> do
 -- -------------------------------------------------------------------------- --
 -- Read Row Unit Test
 
-readRowUnitTest :: Assertion
-readRowUnitTest = simpleBlockEnvInit runUnitTest
+readRowUnitTest :: (String -> IO()) -> Assertion
+readRowUnitTest logBackend = simpleBlockEnvInit logBackend runUnitTest
   where
     writeRow' pactdb writeType conn i =
       _writeRow pactdb writeType (UserTables "user1") "key1"
@@ -452,17 +452,17 @@ readRowUnitTest = simpleBlockEnvInit runUnitTest
 -- -------------------------------------------------------------------------- --
 -- Test Regress
 
-testRegress :: Assertion
-testRegress =
-    regressChainwebPactDb
+testRegress :: (String -> IO ()) -> Assertion
+testRegress logBackend =
+    regressChainwebPactDb logBackend
         >>= fmap (toTup . _benvBlockState) . readMVar
         >>= assertEquals "The final block state is" finalBlockState
   where
     finalBlockState = (2, 0)
     toTup BlockState { _bsTxId = txid, _bsBlockHeight = blockVersion } = (txid, blockVersion)
 
-regressChainwebPactDb :: IO (MVar (BlockEnv SQLiteEnv))
-regressChainwebPactDb =  simpleBlockEnvInit runRegression
+regressChainwebPactDb :: (String -> IO ()) -> IO (MVar (BlockEnv SQLiteEnv))
+regressChainwebPactDb logBackend = simpleBlockEnvInit logBackend runRegression
 
 {- this should be moved to pact -}
 runRegression
@@ -573,7 +573,9 @@ throwFail = throwIO . userError
 -- -------------------------------------------------------------------------- --
 -- Checkpointer Utils
 
-withRelationalCheckpointerResource :: (IO CheckpointEnv -> TestTree) -> TestTree
+withRelationalCheckpointerResource
+    :: (IO CheckpointEnv -> TestTree)
+    -> TestTree
 withRelationalCheckpointerResource =
     withResource initializeSQLite freeSQLiteResource . runSQLite
 
@@ -604,7 +606,7 @@ runSQLite' runTest sqlEnvIO = runTest $ do
     return (cp, sqlenv)
   where
     initialBlockState = set bsModuleNameFix True $ initBlockState defaultModuleCacheLimit $ genesisHeight testVer testChainId
-    logger = newLogger (pactTestLogger False) "RelationalCheckpointer"
+    logger = newLogger (pactTestLogger (\_ -> return ()) False) "RelationalCheckpointer"
 
 runExec :: CheckpointEnv -> PactDbEnv'-> Maybe Value -> Text -> IO EvalResult
 runExec cp (PactDbEnv' pactdbenv) eData eCode = do
@@ -633,12 +635,13 @@ runCont cp (PactDbEnv' pactdbenv) pactId step = do
 -- Pact Utils
 
 simpleBlockEnvInit
-    :: (PactDb (BlockEnv SQLiteEnv) -> BlockEnv SQLiteEnv -> (MVar (BlockEnv SQLiteEnv) -> IO ()) -> IO a)
+    :: (String -> IO ())
+    -> (PactDb (BlockEnv SQLiteEnv) -> BlockEnv SQLiteEnv -> (MVar (BlockEnv SQLiteEnv) -> IO ()) -> IO a)
     -> IO a
-simpleBlockEnvInit f = withTempSQLiteConnection chainwebPragmas $ \sqlenv ->
+simpleBlockEnvInit logBackend f = withTempSQLiteConnection chainwebPragmas $ \sqlenv ->
     f chainwebPactDb (blockEnv sqlenv) (\v -> runBlockEnv v initSchema)
   where
-    loggers = pactTestLogger False
+    loggers = pactTestLogger logBackend False
     blockEnv e = BlockEnv
         (BlockDbEnv e (newLogger loggers "BlockEnvironment"))
         (initBlockState defaultModuleCacheLimit $ genesisHeight testVer testChainId)
