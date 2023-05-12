@@ -126,7 +126,6 @@ tests = ScheduledTest testName go
          , test generousConfig getGasModel "chainweb216Test" chainweb216Test
          , test generousConfig getGasModel "pact45UpgradeTest" pact45UpgradeTest
          , test generousConfig getGasModel "pact46UpgradeTest" pact46UpgradeTest
-         , test generousConfig getGasModel "pact47UpgradeTest" pact47UpgradeTest
          , test generousConfig getGasModel "chainweb219UpgradeTest" chainweb219UpgradeTest
          ]
       where
@@ -827,51 +826,6 @@ pact46UpgradeTest = do
         ])
 
 
-pact47UpgradeTest :: PactTestM ()
-pact47UpgradeTest = do
-
-  -- run past genesis, upgrades
-  runToHeight 69
-
-  runBlockTest
-      [ PactTxTest runIllTypedFunction $
-        assertTxSuccess
-        "User function return value types should not be checked before the fork"
-        (pDecimal 1.0)
-       , PactTxTest readMsg $
-         assertTxFailure
-         "read-* errors are not recoverable before the fork"
-         ""
-      ]
-
-  runBlockTest
-      [ PactTxTest runIllTypedFunction $
-        assertTxFailure
-        "User function type annotation must match body type after the fork"
-        "Type error: expected string, found integer"
-      , PactTxTest readMsg $
-        assertTxSuccess
-        "read-* errors are recoverable after the fork"
-        (pDecimal 1.0)
-      ]
-
-  where
-    runIllTypedFunction = buildBasicGas 70000
-        $ mkExec' (mconcat
-                  [ "(namespace 'free)"
-                  , "(module m g (defcap g () true)"
-                  , "  (defun foo:string () 1))"
-                  , "(m.foo)"
-                  ])
-
-    readMsg = buildBasicGas 10000
-        $ mkExec' (mconcat
-                  [ "(try 1 (read-integer \"somekey\"))"
-                  , "(try 1 (read-string \"somekey\"))"
-                  , "(try 1 (read-keyset \"somekey\"))"
-                  , "(try 1 (read-msg \"somekey\"))"
-                  ])
-
 chainweb219UpgradeTest :: PactTestM ()
 chainweb219UpgradeTest = do
 
@@ -903,6 +857,14 @@ chainweb219UpgradeTest = do
         "Should not resolve new pact native: dec"
         -- Should be cannot resolve dec, but no errors pre-fork.
         ""
+      , PactTxTest runIllTypedFunction $
+        assertTxSuccess
+        "User function return value types should not be checked before the fork"
+        (pDecimal 1.0)
+      , PactTxTest readMsg $
+        assertTxFailure
+        "read-* errors are not recoverable before the fork"
+        ""
       ]
 
   -- Block 71, post-fork, errors should return on-chain but different
@@ -927,6 +889,14 @@ chainweb219UpgradeTest = do
         assertTxSuccess
         "Should resolve new pact native: dec"
         (pDecimal 1)
+      , PactTxTest runIllTypedFunction $
+        assertTxFailure
+        "User function type annotation must match body type after the fork"
+        "Type error: expected string, found integer"
+      , PactTxTest readMsg $
+        assertTxSuccess
+        "read-* errors are recoverable after the fork"
+        (pDecimal 1.0)
       ]
   where
     addErrTx = buildBasicGas 10000
@@ -949,6 +919,20 @@ chainweb219UpgradeTest = do
         $ mkExec' (mconcat
         [ "coin.transfer"
         ])
+    runIllTypedFunction = buildBasicGas 70000
+        $ mkExec' (mconcat
+                  [ "(namespace 'free)"
+                  , "(module m g (defcap g () true)"
+                  , "  (defun foo:string () 1))"
+                  , "(m.foo)"
+                  ])
+    readMsg = buildBasicGas 10000
+        $ mkExec' (mconcat
+                  [ "(try 1 (read-integer \"somekey\"))"
+                  , "(try 1 (read-string \"somekey\"))"
+                  , "(try 1 (read-keyset \"somekey\"))"
+                  , "(try 1 (read-msg \"somekey\"))"
+                  ])
 
 pact4coin3UpgradeTest :: PactTestM ()
 pact4coin3UpgradeTest = do
