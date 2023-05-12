@@ -127,6 +127,7 @@ tests = ScheduledTest testName go
          , test generousConfig getGasModel "pact45UpgradeTest" pact45UpgradeTest
          , test generousConfig getGasModel "pact46UpgradeTest" pact46UpgradeTest
          , test generousConfig getGasModel "chainweb219UpgradeTest" chainweb219UpgradeTest
+         , test generousConfig getGasModel "pactLocalDepthTest" pactLocalDepthTest
          ]
       where
           -- This is way more than what is used in production, but during testing
@@ -233,6 +234,42 @@ chainweb213Test = do
         , "(create-table tbl)"
         ]
 
+pactLocalDepthTest :: PactTestM ()
+pactLocalDepthTest = do
+  runToHeight 53
+  runBlockTest
+    [ PactTxTest (buildCoinXfer "(coin.transfer 'sender00 'sender01 1.0)") $
+        assertTxGas "Coin transfer pre-fork" 1583
+    ]
+  runBlockTest
+    [ PactTxTest (buildCoinXfer "(coin.transfer 'sender00 'sender01 1.0)") $
+        assertTxGas "Coin post-fork" 1583
+    ]
+
+  runLocalWithDepth (Just $ BlockHeight 0) cid getSender00Balance >>= \r ->
+    checkLocalResult r $ assertTxSuccess "Should get the current balance" (pDecimal 99999997.6834)
+
+  -- checking that `Just $ BlockHeight 0` has the same behaviour as `Nothing`
+  runLocalWithDepth Nothing cid getSender00Balance >>= \r ->
+    checkLocalResult r $ assertTxSuccess "Should get the current balance as well" (pDecimal 99999997.6834)
+
+  runLocalWithDepth (Just $ BlockHeight 1) cid getSender00Balance >>= \r ->
+    checkLocalResult r $ assertTxSuccess "Should get the balance one block before" (pDecimal 99999998.8417)
+
+  runLocalWithDepth (Just $ BlockHeight 2) cid getSender00Balance >>= \r ->
+    checkLocalResult r $ assertTxSuccess "Should get the balance two blocks before" (pDecimal 100000000)
+
+  where
+  checkLocalResult r checkResult = case r of
+    (Right (LocalResultLegacy cr)) -> checkResult cr
+    res -> liftIO $ assertFailure $ "Expected LocalResultLegacy, but got: " ++ show res
+  getSender00Balance = set cbGasLimit 700 $ mkCmd "nonce" $ mkExec' "(coin.get-balance \"sender00\")"
+  buildCoinXfer code = buildBasic'
+    (set cbSigners [mkSigner' sender00 coinCaps] . set cbGasLimit 3000)
+    $ mkExec' code
+    where
+    coinCaps = [ mkGasCap, mkTransferCap "sender00" "sender01" 1.0 ]
+
 pact45UpgradeTest :: PactTestM ()
 pact45UpgradeTest = do
   runToHeight 53 -- 2 before fork
@@ -292,10 +329,13 @@ pact45UpgradeTest = do
       $ mkExec' code
 
 runLocal :: ChainId -> CmdBuilder -> PactTestM (Either PactException LocalResult)
-runLocal cid' cmd = do
+runLocal cid' cmd = runLocalWithDepth Nothing cid' cmd
+
+runLocalWithDepth :: Maybe BlockHeight -> ChainId -> CmdBuilder -> PactTestM (Either PactException LocalResult)
+runLocalWithDepth depth cid' cmd = do
   HM.lookup cid' <$> view menvPacts >>= \case
     Just pact -> buildCwCmd cmd >>=
-      liftIO . _pactLocal pact Nothing Nothing Nothing
+      liftIO . _pactLocal pact Nothing Nothing depth
     Nothing -> liftIO $ assertFailure $ "No pact service found at chain id " ++ show cid'
 
 assertLocalFailure

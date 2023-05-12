@@ -47,6 +47,7 @@ import qualified Data.Aeson as A
 import Data.Default (def)
 import qualified Data.DList as DL
 import Data.Either
+import Data.Maybe (fromMaybe)
 import Data.Foldable (toList)
 import qualified Data.Map.Strict as M
 import qualified Data.Set as S
@@ -91,7 +92,7 @@ import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
 import Chainweb.Time
 import Chainweb.Transaction
-import Chainweb.TreeDB (lookupM)
+import Chainweb.TreeDB (lookupM, seekAncestor)
 import Chainweb.Utils hiding (check)
 import Chainweb.Version
 import Data.LogMessage
@@ -651,7 +652,15 @@ execLocal cwtx preflight sigVerify rdepth = withDiscardedBatch $ do
           -- withCheckpointerRewind as withCurrentCheckpointer
           -- (i.e. setting rewind to 0).
           | otherwise = Just 0
-        rewindHeader = Just $ _tcParentHeader ctx
+
+    let parentBlockHeader = _parentHeader $ _tcParentHeader ctx
+    let ancestorRank = fromIntegral $ _height $ _blockHeight parentBlockHeader - fromMaybe 0 rdepth
+    ancestor <- liftIO $ seekAncestor _psBlockHeaderDb parentBlockHeader ancestorRank
+
+    let rewindHeader
+          | Just a <- ancestor = Just $ ParentHeader a
+          -- when there is no ancestor, use the current parent
+          | otherwise = Just $ _tcParentHeader ctx
 
     let execConfig = P.mkExecutionConfig $
             [ P.FlagAllowReadInLocal | _psAllowReadsInLocal ] ++
