@@ -11,7 +11,7 @@ To upgrade, pull the latest docker image or download the binary and restart the 
 Changes:
 
 *   Support for Pact 4.7 (#1649, #1645, #1633, #1639): 
-    *   Pact errors are now displayed to users of the Pact /poll endpoint with some details omitted. Fully detailed errors remain visible on the Pact /local endpoint.
+    *   Pact errors are now displayed to users of the Pact /poll endpoint. Some Pact errors have changed and made shorter.
 
 Bug fixes:
 
