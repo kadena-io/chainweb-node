@@ -85,7 +85,7 @@ null (TaskMap var) = HM.null <$!> readMVar var
 --
 clear :: Eq k => Hashable k => TaskMap k v -> IO ()
 clear (TaskMap var) = modifyMVar_ var $ \m -> do
-    mapM_ (\a -> cancel a) m
+    mapM_ cancel m
     return mempty
 
 memo
