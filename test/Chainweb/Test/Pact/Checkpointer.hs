@@ -416,7 +416,7 @@ checkpointerTest name relational cenvIO = testCaseSteps name $ \next -> do
 -- -------------------------------------------------------------------------- --
 -- Read Row Unit Test
 
-readRowUnitTest :: (String -> IO()) -> Assertion
+readRowUnitTest :: (String -> IO ()) -> Assertion
 readRowUnitTest logBackend = simpleBlockEnvInit logBackend runUnitTest
   where
     writeRow' pactdb writeType conn i =
