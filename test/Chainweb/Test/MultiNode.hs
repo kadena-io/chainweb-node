@@ -34,10 +34,6 @@
 --
 module Chainweb.Test.MultiNode ( test, replayTest ) where
 
-#ifndef DEBUG_MULTINODE_TEST
-#define DEBUG_MULTINODE_TEST 0
-#endif
-
 import Control.Concurrent
 import Control.Concurrent.Async
 import Control.DeepSeq
@@ -53,9 +49,6 @@ import Data.IORef
 import qualified Data.List as L
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
-#if DEBUG_MULTINODE_TEST
-import qualified Data.Text.IO as T
-#endif
 
 import GHC.Generics
 
@@ -299,11 +292,7 @@ replayTest loglevel v n = after AllFinish "ConsensusNetwork" $ testCaseSteps nam
     withTempRocksDb "replay-test-rocks" $ \rdb ->
     withSystemTempDirectory "replay-test-pact" $ \pactDbDir -> do
         let tastylog = step . T.unpack
-#if DEBUG_MULTINODE_TEST
-        let logFun = T.putStrLn
-#else
         let logFun = step . T.unpack
-#endif
         tastylog "phase 1..."
         stateVar <- newMVar $ emptyConsensusState v
         let ct = harvestConsensusState (genericLogger loglevel logFun) stateVar
@@ -371,13 +360,8 @@ test loglevel v n seconds = testCaseSteps name $ \f ->
     withTempRocksDb "multinode-tests" $ \rdb ->
     withSystemTempDirectory "replay-test-pact" $ \pactDbDir -> do
         let tastylog = f . T.unpack
-#if DEBUG_MULTINODE_TEST
-        let logFun = T.putStrLn
-            maxLogMsgs = 100_000
-#else
         let logFun = tastylog
             maxLogMsgs = 60
-#endif
         var <- newMVar (0 :: Int)
         let countedLog msg = modifyMVar_ var $ \c -> force (succ c) <$
                 when (c < maxLogMsgs) (logFun msg)
