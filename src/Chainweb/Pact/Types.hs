@@ -356,6 +356,10 @@ data PactServiceEnv tbl = PactServiceEnv
     , _psBlockHeaderDb :: !BlockHeaderDb
     , _psGasModel :: TxContext -> GasModel
     , _psMinerRewards :: !MinerRewards
+    , _psLocalRewindDepthLimit :: {-# UNPACK #-} !Word64
+    -- ^ The limit of rewind's depth in the `execLocal` command.
+    , _psReorgLimit :: {-# UNPACK #-} !Word64
+    -- ^ The limit of checkpointer's rewind in the `execValidationBlock` command.
     , _psOnFatalError :: forall a. PactException -> Text -> IO a
     , _psVersion :: ChainwebVersion
     , _psValidateHashesOnReplay :: !Bool
@@ -366,12 +370,6 @@ data PactServiceEnv tbl = PactServiceEnv
         -- ^ logger factory. A new logger can be created via
         --
         -- P.newLogger loggers (P.LogName "myLogger")
-
-    -- Configuration limits for rewinds
-    , _psLocalRewindDepthLimit :: {-# UNPACK #-} !Word64
-    -- ^ The limit of rewind's depth in the `execLocal` command.
-    , _psReorgLimit :: {-# UNPACK #-} !Word64
-    -- ^ The limit of checkpointer's rewind in the `execValidationBlock` command.
 
     -- The following two fields are used to enforce invariants for using the
     -- checkpointer. These would better be enforced on the type level. But that

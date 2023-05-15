@@ -261,7 +261,10 @@ pactLocalDepthTest = do
 
   -- the negative depth turns into 18446744073709551611 and we expect the `LocalRewindLimitExceeded` exception
   -- since `BlockHeight` is a wrapper around `Word64`
-  handle (\(LocalRewindLimitExceeded _ _) -> return ()) $ do
+  handle (\case
+      { (LocalRewindLimitExceeded _ _) -> return ()
+      ; err -> liftIO $ assertFailure $ "Expected LocalRewindLimitExceeded, but got " ++ show err}
+      ) $ do
     runLocalWithDepth (Just $ BlockHeight (-5)) cid getSender00Balance >>= \_ ->
       liftIO $ assertFailure "block succeeded"
 
