@@ -259,6 +259,16 @@ pactLocalDepthTest = do
   runLocalWithDepth (Just $ BlockHeight 2) cid getSender00Balance >>= \r ->
     checkLocalResult r $ assertTxSuccess "Should get the balance two blocks before" (pDecimal 100000000)
 
+  -- the negative depth turns into 18446744073709551611 and we expect the `LocalRewindLimitExceeded` exception
+  -- since `BlockHeight` is a wrapper around `Word64`
+  handle (\(LocalRewindLimitExceeded _ _) -> return ()) $ do
+    runLocalWithDepth (Just $ BlockHeight (-5)) cid getSender00Balance >>= \_ ->
+      liftIO $ assertFailure "block succeeded"
+
+  -- depth that reaches the genesis
+  runLocalWithDepth (Just $ BlockHeight 99) cid getSender00Balance >>= \r ->
+    checkLocalResult r $ assertTxSuccess "Should get the balance at the genesis block" (pDecimal 100000000)
+
   where
   checkLocalResult r checkResult = case r of
     (Right (LocalResultLegacy cr)) -> checkResult cr

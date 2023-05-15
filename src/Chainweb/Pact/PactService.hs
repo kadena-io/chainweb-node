@@ -140,6 +140,7 @@ runPactService' ver cid chainwebLogger bhDb pdb sqlenv config act =
                     , _psGasModel = getGasModel
                     , _psMinerRewards = rs
                     , _psReorgLimit = fromIntegral $ _pactReorgLimit config
+                    , _psLocalRewindDepthLimit = fromIntegral $ _pactLocalRewindDepthLimit config
                     , _psOnFatalError = defaultOnFatalError (logFunctionText chainwebLogger)
                     , _psVersion = ver
                     , _psValidateHashesOnReplay = _pactRevalidate config
@@ -647,11 +648,14 @@ execLocal cwtx preflight sigVerify rdepth = withDiscardedBatch $ do
     spv <- use psSpvSupport
 
     let rewindHeight
-          | Just d <- rdepth = Just d
+          | Just d <- rdepth = d
           -- when no height is defined, treat
           -- withCheckpointerRewind as withCurrentCheckpointer
           -- (i.e. setting rewind to 0).
-          | otherwise = Just 0
+          | otherwise = 0
+
+    when ((_height rewindHeight) > _psLocalRewindDepthLimit) $ do
+        throwM $ LocalRewindLimitExceeded (fromIntegral _psLocalRewindDepthLimit) rewindHeight
 
     let parentBlockHeader = _parentHeader $ _tcParentHeader ctx
     let ancestorRank = fromIntegral $ _height $ _blockHeight parentBlockHeader - fromMaybe 0 rdepth
@@ -670,7 +674,7 @@ execLocal cwtx preflight sigVerify rdepth = withDiscardedBatch $ do
         logger = P.newLogger _psLoggers "execLocal"
         initialGas = initialGasOf $ P._cmdPayload cwtx
 
-    withCheckpointerRewind rewindHeight rewindHeader "execLocal" $
+    withCheckpointerRewind (Just rewindHeight) rewindHeader "execLocal" $
       \(PactDbEnv' pdbenv) -> do
         --
         -- if the ?preflight query parameter is set to True, we run the `applyCmd` workflow

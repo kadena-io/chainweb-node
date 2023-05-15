@@ -64,6 +64,8 @@ data PactServiceConfig = PactServiceConfig
   { _pactReorgLimit :: !Natural
     -- ^ Maximum allowed reorg depth, implemented as a rewind limit in validate. New block
     -- hardcodes this to 8 currently.
+  , _pactLocalRewindDepthLimit :: !Natural
+    -- ^ Maximum allowed rewind depth in the local command.
   , _pactRevalidate :: !Bool
     -- ^ Re-validate payload hashes during transaction replay
   , _pactAllowReadsInLocal :: !Bool
@@ -168,6 +170,9 @@ data PactException
   | BuyGasFailure !GasPurchaseFailure
   | MempoolFillFailure !Text
   | BlockGasLimitExceeded !Gas
+  | LocalRewindLimitExceeded
+    { _localRewindExceededLimit :: !Natural
+    , _localRewindRequestedDepth :: !BlockHeight }
   deriving (Eq,Generic)
 
 instance Show PactException where
