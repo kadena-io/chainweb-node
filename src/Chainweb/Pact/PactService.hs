@@ -638,6 +638,8 @@ execLocal
       -- ^ rewind depth (note: this is a *depth*, not an absolute height)
     -> PactServiceM tbl LocalResult
 execLocal cwtx preflight sigVerify rdepth = withDiscardedBatch $ do
+    parent <- syncParentHeader "execLocal"
+
     PactServiceEnv{..} <- ask
 
     let !cmd = payloadObj <$> cwtx
@@ -657,7 +659,7 @@ execLocal cwtx preflight sigVerify rdepth = withDiscardedBatch $ do
     when ((_height rewindHeight) > _psLocalRewindDepthLimit) $ do
         throwM $ LocalRewindLimitExceeded (fromIntegral _psLocalRewindDepthLimit) rewindHeight
 
-    let parentBlockHeader = _parentHeader $ _tcParentHeader ctx
+    let parentBlockHeader = _parentHeader parent
     let ancestorRank = fromIntegral $ _height $ _blockHeight parentBlockHeader - fromMaybe 0 rdepth
     ancestor <- liftIO $ seekAncestor _psBlockHeaderDb parentBlockHeader ancestorRank
 
