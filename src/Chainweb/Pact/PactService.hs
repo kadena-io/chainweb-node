@@ -660,6 +660,11 @@ execLocal cwtx preflight sigVerify rdepth = withDiscardedBatch $ do
         throwM $ LocalRewindLimitExceeded (fromIntegral _psLocalRewindDepthLimit) rewindHeight
 
     let parentBlockHeader = _parentHeader parent
+
+    -- we fail if the requested depth is bigger than the current parent block height
+    -- because we can't go after the genesis block
+    when (fromMaybe 0 rdepth > _blockHeight parentBlockHeader) $ throwM LocalRewindGenesisExceeded
+
     let ancestorRank = fromIntegral $ _height $ _blockHeight parentBlockHeader - fromMaybe 0 rdepth
     ancestor <- liftIO $ seekAncestor _psBlockHeaderDb parentBlockHeader ancestorRank
 

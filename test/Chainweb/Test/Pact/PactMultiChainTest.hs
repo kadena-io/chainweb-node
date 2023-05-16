@@ -266,11 +266,20 @@ pactLocalDepthTest = do
       ; err -> liftIO $ assertFailure $ "Expected LocalRewindLimitExceeded, but got " ++ show err}
       ) $ do
     runLocalWithDepth (Just $ BlockHeight (-5)) cid getSender00Balance >>= \_ ->
-      liftIO $ assertFailure "block succeeded"
+      liftIO $ assertFailure "Expected LocalRewindLimitExceeded, but block succeeded"
 
-  -- depth that reaches the genesis
-  runLocalWithDepth (Just $ BlockHeight 99) cid getSender00Balance >>= \r ->
+  -- the genesis depth
+  runLocalWithDepth (Just $ BlockHeight 55) cid getSender00Balance >>= \r ->
     checkLocalResult r $ assertTxSuccess "Should get the balance at the genesis block" (pDecimal 100000000)
+
+  -- depth that goes after the genesis block should trigger the `LocalRewindLimitExceeded` exception
+  handle (\case
+      { LocalRewindGenesisExceeded -> return ()
+      ; err -> liftIO $ assertFailure $ "Expected LocalRewindGenesisExceeded, but got " ++ show err}
+      ) $ do
+    runLocalWithDepth (Just $ BlockHeight 56) cid getSender00Balance >>= \r -> do
+      liftIO $ print r
+      liftIO $ assertFailure "Expected LocalRewindGenesisExceeded, but block succeeded"
 
   where
   checkLocalResult r checkResult = case r of

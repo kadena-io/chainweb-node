@@ -398,7 +398,7 @@ defaultReorgLimit :: Word64
 defaultReorgLimit = 480
 
 defaultLocalRewindDepthLimit :: Word64
-defaultLocalRewindDepthLimit = 100
+defaultLocalRewindDepthLimit = 1000
 
 -- | Default limit for the per chain size of the decoded module cache.
 --

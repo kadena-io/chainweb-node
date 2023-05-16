@@ -173,6 +173,7 @@ data PactException
   | LocalRewindLimitExceeded
     { _localRewindExceededLimit :: !Natural
     , _localRewindRequestedDepth :: !BlockHeight }
+  | LocalRewindGenesisExceeded
   deriving (Eq,Generic)
 
 instance Show PactException where
