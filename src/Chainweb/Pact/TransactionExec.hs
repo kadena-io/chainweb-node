@@ -193,7 +193,8 @@ applyCmd v logger gasLogger pdbenv miner gasModel txCtx spv cmd initialGas mcach
           ++ enablePact45 txCtx
           ++ enableNewTrans txCtx
           ++ enablePact46 txCtx
-          ++ enablePact47 txCtx)
+          ++ enablePact47 txCtx
+          ++ [ FlagDisableRuntimeRTC ])
 
     cenv = TransactionEnv Transactional pdbenv logger gasLogger (ctxToPublicData txCtx) spv nid gasPrice
       requestKey (fromIntegral gasLimit) executionConfigNoHistory
@@ -304,6 +305,7 @@ applyGenesisCmd logger dbEnv spv cmd =
           , FlagDisablePact43
           , FlagDisablePact44
           , FlagDisablePact45
+          , FlagDisableRuntimeRTC
           ]
         }
     txst = TransactionState
@@ -372,7 +374,8 @@ applyCoinbase v logger dbEnv (Miner mid mks@(MinerKeys mk)) reward@(ParsedDecima
       enablePact431 txCtx ++
       enablePact44 txCtx ++
       enablePact45 txCtx ++
-      enablePact47 txCtx
+      enablePact47 txCtx ++
+      [ FlagDisableReturnRTC ]
     tenv = TransactionEnv Transactional dbEnv logger Nothing (ctxToPublicData txCtx) noSPVSupport
            Nothing 0.0 rk 0 ec
     txst = TransactionState mc mempty 0 Nothing (_geGasModel freeGasEnv) mempty
@@ -578,12 +581,12 @@ applyUpgrades v cid height
   where
     installCoinModuleAdmin = set (evalCapabilities . capModuleAdmin) $ S.singleton (ModuleName "coin" Nothing)
 
-    applyCoinV2 = applyTxs (upgradeTransactions v cid) [FlagDisableInlineMemCheck, FlagDisablePact43, FlagDisablePact45]
+    applyCoinV2 = applyTxs (upgradeTransactions v cid) [FlagDisableInlineMemCheck, FlagDisablePact43, FlagDisablePact45, FlagDisableRuntimeRTC]
 
-    applyCoinV3 = applyTxs coinV3Transactions [FlagDisableInlineMemCheck, FlagDisablePact43, FlagDisablePact45]
+    applyCoinV3 = applyTxs coinV3Transactions [FlagDisableInlineMemCheck, FlagDisablePact43, FlagDisablePact45, FlagDisableRuntimeRTC]
 
-    applyCoinV4 = applyTxs coinV4Transactions [FlagDisablePact45]
-    applyCoinV5 = applyTxs coinV5Transactions [FlagDisablePact45]
+    applyCoinV4 = applyTxs coinV4Transactions [FlagDisablePact45, FlagDisableRuntimeRTC]
+    applyCoinV5 = applyTxs coinV5Transactions [FlagDisablePact45, FlagDisableRuntimeRTC]
 
     filterModuleCache = do
       mc <- use txCache
