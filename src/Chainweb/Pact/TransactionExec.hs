@@ -194,7 +194,7 @@ applyCmd v logger gasLogger pdbenv miner gasModel txCtx spv cmd initialGas mcach
           ++ enableNewTrans txCtx
           ++ enablePact46 txCtx
           ++ enablePact47 txCtx
-          ++ [ FlagDisableRuntimeRTC ])
+          ++ [ FlagDisableReturnRTC ])
 
     cenv = TransactionEnv Transactional pdbenv logger gasLogger (ctxToPublicData txCtx) spv nid gasPrice
       requestKey (fromIntegral gasLimit) executionConfigNoHistory
@@ -305,7 +305,7 @@ applyGenesisCmd logger dbEnv spv cmd =
           , FlagDisablePact43
           , FlagDisablePact44
           , FlagDisablePact45
-          , FlagDisableRuntimeRTC
+          , FlagDisableReturnRTC
           ]
         }
     txst = TransactionState
@@ -581,12 +581,12 @@ applyUpgrades v cid height
   where
     installCoinModuleAdmin = set (evalCapabilities . capModuleAdmin) $ S.singleton (ModuleName "coin" Nothing)
 
-    applyCoinV2 = applyTxs (upgradeTransactions v cid) [FlagDisableInlineMemCheck, FlagDisablePact43, FlagDisablePact45, FlagDisableRuntimeRTC]
+    applyCoinV2 = applyTxs (upgradeTransactions v cid) [FlagDisableInlineMemCheck, FlagDisablePact43, FlagDisablePact45, FlagDisableReturnRTC]
 
-    applyCoinV3 = applyTxs coinV3Transactions [FlagDisableInlineMemCheck, FlagDisablePact43, FlagDisablePact45, FlagDisableRuntimeRTC]
+    applyCoinV3 = applyTxs coinV3Transactions [FlagDisableInlineMemCheck, FlagDisablePact43, FlagDisablePact45, FlagDisableReturnRTC]
 
-    applyCoinV4 = applyTxs coinV4Transactions [FlagDisablePact45, FlagDisableRuntimeRTC]
-    applyCoinV5 = applyTxs coinV5Transactions [FlagDisablePact45, FlagDisableRuntimeRTC]
+    applyCoinV4 = applyTxs coinV4Transactions [FlagDisablePact45, FlagDisableReturnRTC]
+    applyCoinV5 = applyTxs coinV5Transactions [FlagDisablePact45, FlagDisableReturnRTC]
 
     filterModuleCache = do
       mc <- use txCache
