@@ -857,10 +857,6 @@ chainweb219UpgradeTest = do
         "Should not resolve new pact native: dec"
         -- Should be cannot resolve dec, but no errors pre-fork.
         ""
-      , PactTxTest runIllTypedFunction $
-        assertTxSuccess
-        "User function return value types should not be checked before the fork"
-        (pDecimal 1.0)
       , PactTxTest tryReadString $
         assertTxFailure
         "read-* errors are not recoverable before the fork"
@@ -901,10 +897,6 @@ chainweb219UpgradeTest = do
         assertTxSuccess
         "Should resolve new pact native: dec"
         (pDecimal 1)
-      , PactTxTest runIllTypedFunction $
-        assertTxFailure
-        "User function type annotation must match body type after the fork"
-        "Type error: expected string, found integer"
       , PactTxTest tryReadString $
         assertTxSuccess
         "read-* errors are recoverable after the fork"
@@ -943,13 +935,6 @@ chainweb219UpgradeTest = do
         $ mkExec' (mconcat
         [ "coin.transfer"
         ])
-    runIllTypedFunction = buildBasicGas 70000
-        $ mkExec' (mconcat
-                  [ "(namespace 'free)"
-                  , "(module m g (defcap g () true)"
-                  , "  (defun foo:string () 1))"
-                  , "(m.foo)"
-                  ])
     tryReadInteger = buildBasicGas 1000
         $ mkExec' "(try 1 (read-integer \"somekey\"))"
     tryReadString = buildBasicGas 1000
