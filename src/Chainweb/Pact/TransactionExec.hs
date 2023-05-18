@@ -375,7 +375,7 @@ applyCoinbase v logger dbEnv (Miner mid mks@(MinerKeys mk)) reward@(ParsedDecima
       enablePact44 txCtx ++
       enablePact45 txCtx ++
       enablePact47 txCtx ++
-      [ FlagDisableReturnRTC ]
+      [ FlagDisableRuntimeReturnTypeChecking ]
     tenv = TransactionEnv Transactional dbEnv logger Nothing (ctxToPublicData txCtx) noSPVSupport
            Nothing 0.0 rk 0 ec
     txst = TransactionState mc mempty 0 Nothing (_geGasModel freeGasEnv) mempty
@@ -581,12 +581,12 @@ applyUpgrades v cid height
   where
     installCoinModuleAdmin = set (evalCapabilities . capModuleAdmin) $ S.singleton (ModuleName "coin" Nothing)
 
-    applyCoinV2 = applyTxs (upgradeTransactions v cid) [FlagDisableInlineMemCheck, FlagDisablePact43, FlagDisablePact45, FlagDisableReturnRTC]
+    applyCoinV2 = applyTxs (upgradeTransactions v cid) [FlagDisableInlineMemCheck, FlagDisablePact43, FlagDisablePact45, FlagDisableRuntimeReturnTypeChecking]
 
-    applyCoinV3 = applyTxs coinV3Transactions [FlagDisableInlineMemCheck, FlagDisablePact43, FlagDisablePact45, FlagDisableReturnRTC]
+    applyCoinV3 = applyTxs coinV3Transactions [FlagDisableInlineMemCheck, FlagDisablePact43, FlagDisablePact45, FlagDisableRuntimeReturnTypeChecking]
 
-    applyCoinV4 = applyTxs coinV4Transactions [FlagDisablePact45, FlagDisableReturnRTC]
-    applyCoinV5 = applyTxs coinV5Transactions [FlagDisablePact45, FlagDisableReturnRTC]
+    applyCoinV4 = applyTxs coinV4Transactions [FlagDisablePact45, FlagDisableRuntimeReturnTypeChecking]
+    applyCoinV5 = applyTxs coinV5Transactions [FlagDisablePact45, FlagDisableRuntimeReturnTypeChecking]
 
     filterModuleCache = do
       mc <- use txCache
