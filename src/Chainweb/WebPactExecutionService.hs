@@ -64,6 +64,7 @@ data PactExecutionService = PactExecutionService
         Maybe LocalPreflightSimulation ->
         Maybe LocalSignatureVerification ->
         Maybe BlockHeight ->
+        Maybe Bool ->
         ChainwebTransaction ->
         IO (Either PactException LocalResult))
       -- ^ Directly execute a single transaction in "local" mode (all DB interactions rolled back).
@@ -130,7 +131,7 @@ mkWebPactExecutionService
 mkWebPactExecutionService hm = WebPactExecutionService $ PactExecutionService
     { _pactValidateBlock = \h pd -> withChainService (_chainId h) $ \p -> _pactValidateBlock p h pd
     , _pactNewBlock = \m h -> withChainService (_chainId h) $ \p -> _pactNewBlock p m h
-    , _pactLocal = \_pf _sv _rd _ct -> throwM $ userError "Chainweb.WebPactExecutionService.mkPactExecutionService: No web-level local execution supported"
+    , _pactLocal = \_pf _sv _rd _dg _ct -> throwM $ userError "Chainweb.WebPactExecutionService.mkPactExecutionService: No web-level local execution supported"
     , _pactLookup = \h txs -> withChainService (_chainId h) $ \p -> _pactLookup p h txs
     , _pactPreInsertCheck = \cid txs -> withChainService cid $ \p -> _pactPreInsertCheck p cid txs
     , _pactBlockTxHistory = \h d -> withChainService (_chainId h) $ \p -> _pactBlockTxHistory p h d
@@ -158,8 +159,8 @@ mkPactExecutionService q = PactExecutionService
         mv <- newBlock m h q
         r <- takeMVar mv
         either throwM evaluate r
-    , _pactLocal = \pf sv rd ct ->
-        local pf sv rd ct q >>= takeMVar
+    , _pactLocal = \pf sv rd dg ct ->
+        local pf sv rd dg ct q >>= takeMVar
     , _pactLookup = \h txs ->
         lookupPactTxs h txs q >>= takeMVar
     , _pactPreInsertCheck = \_ txs ->
@@ -180,7 +181,7 @@ emptyPactExecutionService :: HasCallStack => PactExecutionService
 emptyPactExecutionService = PactExecutionService
     { _pactValidateBlock = \_ _ -> pure emptyPayload
     , _pactNewBlock = \_ _ -> pure emptyPayload
-    , _pactLocal = \_ _ _ _ -> throwM (userError "emptyPactExecutionService: attempted `local` call")
+    , _pactLocal = \_ _ _ _ _ -> throwM (userError "emptyPactExecutionService: attempted `local` call")
     , _pactLookup = \_ v -> return $! Right $! V.map (const Nothing) v
     , _pactPreInsertCheck = \_ txs -> return $ Right $ V.map (const (Right ())) txs
     , _pactBlockTxHistory = \_ _ -> throwM (userError "Chainweb.WebPactExecutionService.emptyPactExecutionService: pactBlockTxHistory unsupported")

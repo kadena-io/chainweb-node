@@ -159,6 +159,7 @@ pactLocalWithQueryApiClient_
     => Maybe LocalPreflightSimulation
     -> Maybe LocalSignatureVerification
     -> Maybe BlockHeight
+    -> Maybe Bool
     -> Command T.Text
     -> ClientM LocalResult
 pactLocalWithQueryApiClient_ = client (pactLocalWithQueryApi @v @c)
@@ -169,6 +170,7 @@ pactLocalWithQueryApiClient
     -> Maybe LocalPreflightSimulation
     -> Maybe LocalSignatureVerification
     -> Maybe BlockHeight
+    -> Maybe Bool
     -> Command T.Text
     -> ClientM LocalResult
 pactLocalWithQueryApiClient

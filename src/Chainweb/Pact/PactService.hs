@@ -277,10 +277,10 @@ serviceRequests logFn memPoolAccess reqQ = do
         logDebug $ "serviceRequests: " <> sshow msg
         case msg of
             CloseMsg -> return ()
-            LocalMsg (LocalReq localRequest preflight sigVerify rewindDepth localResultVar)  -> do
+            LocalMsg (LocalReq localRequest preflight sigVerify rewindDepth debug localResultVar)  -> do
                 trace logFn "Chainweb.Pact.PactService.execLocal" () 0 $
                     tryOne "execLocal" localResultVar $
-                        execLocal localRequest preflight sigVerify rewindDepth
+                        execLocal localRequest preflight sigVerify rewindDepth debug
                 go
             NewBlockMsg NewBlockReq {..} -> do
                 trace logFn "Chainweb.Pact.PactService.execNewBlock"
@@ -633,8 +633,10 @@ execLocal
       -- ^ turn off signature verification checks?
     -> Maybe BlockHeight
       -- ^ rewind depth (note: this is a *depth*, not an absolute height)
+    -> Maybe Bool
+      -- ^ repl-in-local execution
     -> PactServiceM tbl LocalResult
-execLocal cwtx preflight sigVerify rdepth = withDiscardedBatch $ do
+execLocal cwtx preflight sigVerify rdepth debugFlag = withDiscardedBatch $ do
     PactServiceEnv{..} <- ask
 
     let !cmd = payloadObj <$> cwtx
@@ -658,6 +660,10 @@ execLocal cwtx preflight sigVerify rdepth = withDiscardedBatch $ do
             enforceKeysetFormats' ctx
         logger = P.newLogger _psLoggers "execLocal"
         initialGas = initialGasOf $ P._cmdPayload cwtx
+
+    let debug = case debugFlag of
+          Nothing -> False
+          Just a -> a
 
     withCheckpointerRewind rewindHeight rewindHeader "execLocal" $
       \(PactDbEnv' pdbenv) -> do
@@ -684,7 +690,7 @@ execLocal cwtx preflight sigVerify rdepth = withDiscardedBatch $ do
             cr <- applyLocal
               logger _psGasLogger pdbenv
               chainweb213GasModel ctx spv
-              cwtx mc execConfig
+              cwtx mc execConfig debug
 
             let cr' = toHashCommandResult cr
             pure $ LocalResultLegacy cr'

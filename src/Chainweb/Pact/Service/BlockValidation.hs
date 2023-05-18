@@ -73,17 +73,20 @@ local
     :: Maybe LocalPreflightSimulation
     -> Maybe LocalSignatureVerification
     -> Maybe BlockHeight
+    -> Maybe Bool
     -> ChainwebTransaction
     -> PactQueue
     -> IO (MVar (Either PactException LocalResult))
-local preflight sigVerify rd ct reqQ = do
+local preflight sigVerify rd dg ct reqQ = do
     !resultVar <- newEmptyMVar
     let !msg = LocalMsg LocalReq
           { _localRequest = ct
           , _localPreflight = preflight
           , _localSigVerification = sigVerify
           , _localRewindDepth = rd
-          , _localResultVar = resultVar }
+          , _localDebugFlag = dg
+          , _localResultVar = resultVar
+          }
     addRequest reqQ msg
     return resultVar
 

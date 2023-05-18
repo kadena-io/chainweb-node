@@ -139,7 +139,7 @@ localWithQueryParams sid cenv pf sv rd cmd =
 
       -- send a single local request and return the result
       --
-      runClientM (pactLocalWithQueryApiClient v sid pf sv rd cmd) cenv >>= \case
+      runClientM (pactLocalWithQueryApiClient v sid pf sv rd Nothing cmd) cenv >>= \case
         Left e -> throwM $ LocalFailure (show e)
         Right t -> return t
   where

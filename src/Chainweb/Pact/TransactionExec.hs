@@ -92,6 +92,8 @@ import Pact.Types.RPC
 import Pact.Types.Runtime hiding (catchesPactError)
 import Pact.Types.Server
 import Pact.Types.SPV
+import Pact.Repl.Lib (replDefs)
+import Pact.Native (moduleToMap)
 
 -- internal Chainweb modules
 
@@ -388,7 +390,7 @@ applyCoinbase v logger dbEnv (Miner mid mks@(MinerKeys mk)) reward@(ParsedDecima
 
     go interp cexec = evalTransactionM tenv txst $! do
       cr <- catchesPactError logger (onChainErrorPrintingFor txCtx) $
-        applyExec' 0 interp cexec mempty chash managedNamespacePolicy
+        applyExec' 0 interp cexec mempty chash managedNamespacePolicy False
 
       case cr of
         Left e
@@ -440,8 +442,9 @@ applyLocal
       -- ^ command with payload to execute
     -> ModuleCache
     -> ExecutionConfig
+    -> Bool
     -> IO (CommandResult [TxLog Value])
-applyLocal logger gasLogger dbEnv gasModel txCtx spv cmdIn mc execConfig =
+applyLocal logger gasLogger dbEnv gasModel txCtx spv cmdIn mc execConfig debugFlag =
     evalTransactionM tenv txst go
   where
     cmd = payloadObj <$> cmdIn
@@ -460,7 +463,7 @@ applyLocal logger gasLogger dbEnv gasModel txCtx spv cmdIn mc execConfig =
       interp <- gasInterpreter gas0
       cr <- catchesPactError logger PrintsUnexpectedError $! case m of
         Exec em ->
-          applyExec gas0 interp em signers chash managedNamespacePolicy
+          applyExec gas0 interp em signers chash managedNamespacePolicy debugFlag
         Continuation cm ->
           applyContinuation gas0 interp cm signers chash managedNamespacePolicy
 
@@ -505,7 +508,7 @@ readInitModules logger dbEnv txCtx
     mkCmd = buildExecParsedCode (Just (v, h)) Nothing
     run msg cmd = do
       er <- catchesPactError logger (onChainErrorPrintingFor txCtx) $!
-        applyExec' 0 interp cmd [] chash permissiveNamespacePolicy
+        applyExec' 0 interp cmd [] chash permissiveNamespacePolicy False
       case er of
         Left e -> die $ msg <> ": failed: " <> sshow e
         Right r -> case _erOutput r of
@@ -682,7 +685,7 @@ runPayload cmd nsp = do
 
     case payload of
       Exec pm ->
-        applyExec g0 interp pm signers chash nsp
+        applyExec g0 interp pm signers chash nsp False
       Continuation ym ->
         applyContinuation g0 interp ym signers chash nsp
 
@@ -701,7 +704,7 @@ runGenesis
     -> TransactionM p (CommandResult [TxLog Value])
 runGenesis cmd nsp interp = case payload of
     Exec pm ->
-      applyExec 0 interp pm signers chash nsp
+      applyExec 0 interp pm signers chash nsp False
     Continuation ym ->
       applyContinuation 0 interp ym signers chash nsp
   where
@@ -718,9 +721,10 @@ applyExec
     -> [Signer]
     -> Hash
     -> NamespacePolicy
+    -> Bool
     -> TransactionM p (CommandResult [TxLog Value])
-applyExec initialGas interp em senderSigs hsh nsp = do
-    EvalResult{..} <- applyExec' initialGas interp em senderSigs hsh nsp
+applyExec initialGas interp em senderSigs hsh nsp debugFlag = do
+    EvalResult{..} <- applyExec' initialGas interp em senderSigs hsh nsp debugFlag
     for_ _erLogGas $ \gl -> gasLog $ "gas logs: " <> sshow gl
     logs <- use txLogs
     rk <- view txRequestKey
@@ -744,12 +748,13 @@ applyExec'
     -> [Signer]
     -> Hash
     -> NamespacePolicy
+    -> Bool
     -> TransactionM p EvalResult
-applyExec' initialGas interp (ExecMsg parsedCode execData) senderSigs hsh nsp
+applyExec' initialGas interp (ExecMsg parsedCode execData) senderSigs hsh nsp debugFlag
     | null (_pcExps parsedCode) = throwCmdEx "No expressions found"
     | otherwise = do
 
-      eenv <- mkEvalEnv nsp (MsgData execData Nothing hsh senderSigs)
+      eenv <- mkEvalEnv nsp (MsgData execData Nothing hsh senderSigs) debugFlag
 
       setEnvGas initialGas eenv
 
@@ -865,7 +870,7 @@ applyContinuation'
     -> TransactionM p EvalResult
 applyContinuation' initialGas interp cm@(ContMsg pid s rb d _) senderSigs hsh nsp = do
 
-    eenv <- mkEvalEnv nsp (MsgData d pactStep hsh senderSigs)
+    eenv <- mkEvalEnv nsp (MsgData d pactStep hsh senderSigs) False
 
     setEnvGas initialGas eenv
 
@@ -908,7 +913,7 @@ buyGas isPactBackCompatV16 cmd (Miner mid mks) = go
             put (initState mc logGas) >> run (pure <$> eval buyGasTerm)
 
       result <- applyExec' 0 (interp mcache) buyGasCmd
-        (_pSigners $ _cmdPayload cmd) bgHash managedNamespacePolicy
+        (_pSigners $ _cmdPayload cmd) bgHash managedNamespacePolicy False
 
       case _erExec result of
         Nothing ->
@@ -1099,16 +1104,30 @@ setTxResultState er = do
 mkEvalEnv
     :: NamespacePolicy
     -> MsgData
+    -> Bool
     -> TransactionM db (EvalEnv db)
-mkEvalEnv nsp msg = do
+mkEvalEnv nsp msg debugFlag = do
     tenv <- ask
     genv <- GasEnv
       <$> view (txGasLimit . to fromIntegral)
       <*> view txGasPrice
       <*> use txGasModel
-    liftIO $ setupEvalEnv (_txDbEnv tenv) Nothing (_txMode tenv)
-      msg (versionedNativesRefStore (_txExecutionConfig tenv)) genv
+
+    let refStore
+          | debugFlag =
+            let rs = versionedNativesRefStore (_txExecutionConfig tenv)
+            in over rsNatives (<> moduleToMap replDefs) rs
+          | otherwise = versionedNativesRefStore (_txExecutionConfig tenv)
+
+    eenv <- liftIO $ setupEvalEnv (_txDbEnv tenv) Nothing (_txMode tenv)
+      msg refStore genv
       nsp (_txSpvSupport tenv) (_txPublicData tenv) (_txExecutionConfig tenv)
+
+    pure $ if debugFlag
+      then set eeInRepl True eenv
+      else eenv
+
+  where
 
 -- | Managed namespace policy CAF
 --

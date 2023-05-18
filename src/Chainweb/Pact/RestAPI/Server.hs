@@ -343,16 +343,19 @@ localHandler
       -- ^ No sig verification flag
     -> Maybe BlockHeight
       -- ^ Rewind depth
+    -> Maybe Bool
+      -- ^ debug flag for repl-in-local execution
     -> Command Text
     -> Handler LocalResult
-localHandler logger pact preflight sigVerify rewindDepth cmd = do
+localHandler logger pact preflight sigVerify rewindDepth debug cmd = do
     liftIO $ logg Info $ PactCmdLogLocal cmd
+
     cmd' <- case doCommandValidation cmd of
       Right c -> return c
       Left err ->
         throwError $ setErrText ("Validation failed: " <> T.pack err) err400
 
-    r <- liftIO $ _pactLocal pact preflight sigVerify rewindDepth cmd'
+    r <- liftIO $ _pactLocal pact preflight sigVerify rewindDepth debug cmd'
     case r of
       Left err -> throwError $ setErrText
         ("Execution failed: " <> T.pack (show err)) err400

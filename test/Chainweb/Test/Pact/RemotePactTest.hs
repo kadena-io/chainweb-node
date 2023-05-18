@@ -300,7 +300,7 @@ localPreflightSimTest iot nio = testCaseSteps "local preflight sim test" $ \step
     cmd0' <- mkRawTx mv psid psigs
     cr <- runClientM
       (pactLocalWithQueryApiClient v sid
-         (Just PreflightSimulation) (Just NoVerify) Nothing cmd0') cenv
+         (Just PreflightSimulation) (Just NoVerify) Nothing Nothing cmd0') cenv
     void $ case cr of
       Left e -> assertFailure $ show e
       Right{} -> pure ()
@@ -354,7 +354,7 @@ localPreflightSimTest iot nio = testCaseSteps "local preflight sim test" $ \step
     runLocalPreflightClient sid e cmd = flip runClientM e $
       pactLocalWithQueryApiClient v sid
         (Just PreflightSimulation)
-        (Just Verify) Nothing cmd
+        (Just Verify) Nothing Nothing cmd
 
     runClientFailureAssertion sid e cmd msg =
       runLocalPreflightClient sid e cmd >>= \case

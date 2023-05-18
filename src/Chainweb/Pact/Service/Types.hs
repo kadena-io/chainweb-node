@@ -231,6 +231,7 @@ data LocalReq = LocalReq
     , _localPreflight :: !(Maybe LocalPreflightSimulation)
     , _localSigVerification :: !(Maybe LocalSignatureVerification)
     , _localRewindDepth :: !(Maybe BlockHeight)
+    , _localDebugFlag :: !(Maybe Bool)
     , _localResultVar :: !(PactExMVar LocalResult)
     }
 instance Show LocalReq where show LocalReq{..} = show _localRequest
