@@ -194,7 +194,7 @@ applyCmd v logger gasLogger pdbenv miner gasModel txCtx spv cmd initialGas mcach
           ++ enableNewTrans txCtx
           ++ enablePact46 txCtx
           ++ enablePact47 txCtx
-          ++ [ FlagDisableRuntimeReturnTypeChecking ]
+          ++ [ FlagDisableRuntimeReturnTypeChecking ] )
 
     cenv = TransactionEnv Transactional pdbenv logger gasLogger (ctxToPublicData txCtx) spv nid gasPrice
       requestKey (fromIntegral gasLimit) executionConfigNoHistory
