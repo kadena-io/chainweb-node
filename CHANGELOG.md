@@ -1,5 +1,23 @@
 # `chainweb-node` Changelog
 
+2.19 (2023-05-25)
+
+This version replaces all previous versions. Any prior version will stop working on 2023-06-01T00:00:00Z. Node administrators must upgrade to this version before that date.
+
+This version will expire on 2023-09-07.
+
+To upgrade, pull the latest docker image or download the binary and restart the node.
+
+Changes:
+
+*   Support for Pact 4.7 (#1649, #1645, #1633, #1639): 
+    *   Pact errors are now displayed to users of the Pact /poll endpoint. Some Pact errors have changed and been made shorter.
+
+Bug fixes:
+
+*   API endpoints now more strictly comply to the API specification at api.chainweb.com. (#1434)
+*   A small memory leak has been fixed. (#1635)
+
 ## 2.18.1 (2023-03-06)
 
 This is a feature and bug-fix release. Upgrading is optional but recommended.
