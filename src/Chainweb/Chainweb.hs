@@ -650,7 +650,9 @@ runChainweb cw = do
             logg Warn $ "OpenAPI spec validation enabled on service API, make sure this is what you want"
             mkValidationMiddleware
         else return id
+
     concurrentlies_
+
         -- 1. Start serving Rest API
         [ (if tls then serve else servePlain)
             $ httpLog
@@ -659,10 +661,16 @@ runChainweb cw = do
             . throttle (_chainwebThrottler cw)
             . requestSizeLimit
             . p2pValidationMiddleware
+
         -- 2. Start Clients (with a delay of 500ms)
         , threadDelay 500000 >> clients
+
         -- 3. Start serving local API
-        , threadDelay 500000 >> serveServiceApi (serviceHttpLog . requestSizeLimit . serviceApiValidationMiddleware)
+        , threadDelay 500000 >> do
+            serveServiceApi
+                $ serviceHttpLog
+                . requestSizeLimit
+                . serviceApiValidationMiddleware
         ]
 
   where

@@ -1,3 +1,4 @@
+{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
@@ -232,7 +233,7 @@ addPeerEntry :: PeerEntry -> PeerSet -> PeerSet
 addPeerEntry b m = m & case getOne (getEQ addr m) of
 
     -- new peer doesn't exist: insert
-    Nothing -> updateIx addr (force b)
+    Nothing -> updateIx addr $! b
 
     -- existing peer addr
     Just a -> case _peerId (_peerEntryInfo a) of
@@ -428,7 +429,7 @@ updatePeerDb (PeerDb _ _ lock var) a f
     = withMVar lock . const . atomically . modifyTVar' var $ \s ->
         case getOne $ getEQ a s of
             Nothing -> s
-            Just x -> force $ updateIx a (force $ f x) s
+            Just x -> let !r = f x in updateIx a r s
 
 incrementActiveSessionCount :: PeerDb -> PeerInfo -> IO ()
 incrementActiveSessionCount db i
