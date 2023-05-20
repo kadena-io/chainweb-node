@@ -14,7 +14,7 @@ To upgrade, pull the latest docker image or download the binary and restart the 
 Changes:
 
 *   Revert a change in version 2.19 the causes failures in existing smart
-    contracts on mainnet. (TODO)
+    contracts on mainnet. (#1661)
 *   Add typechecking option to tx-sim. (#1656)
 
 ## 2.19 (2023-05-25)
