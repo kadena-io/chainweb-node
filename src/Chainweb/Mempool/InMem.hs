@@ -435,7 +435,7 @@ insertInMem cfg lock runCheck txs0 = do
         let txs = V.take (max 0 (maxNumPending - cnt)) txhashes
         let T2 !pending' !newHashesDL = V.foldl' insOne (T2 pending id) txs
         let !newHashes = V.fromList $ newHashesDL []
-        writeIORef (_inmemPending mdata) $! force pending'
+        writeIORef (_inmemPending mdata) $! pending'
         modifyIORef' (_inmemRecentLog mdata) $
             recordRecentTransactions maxRecent newHashes
   where
@@ -488,8 +488,8 @@ getBlockInMem logg cfg lock (BlockFill gasLimit txHashes _)  txValidate bheight 
         -- put the txs chosen for the block back into the map -- they don't get
         -- expunged until they are mined and validated by consensus.
         let !psq'' = V.foldl' ins (HashMap.union seen psq') out
-        writeIORef (_inmemPending mdata) $! force psq''
-        writeIORef (_inmemBadMap mdata) $! force badmap'
+        writeIORef (_inmemPending mdata) $ psq''
+        writeIORef (_inmemBadMap mdata) $ badmap'
         mout <- V.thaw $ V.map (snd . snd) out
         TimSort.sortBy (compareOnGasPrice txcfg) mout
         V.unsafeFreeze mout
@@ -514,7 +514,7 @@ getBlockInMem logg cfg lock (BlockFill gasLimit txHashes _)  txValidate bheight 
 
     txcfg = _inmemTxCfg cfg
     codec = txCodec txcfg
-    decodeTx tx0 = either err id $! codecDecode codec tx
+    decodeTx tx0 = either err id $ codecDecode codec tx
       where
         !tx = SB.fromShort tx0
         err s = error $
@@ -671,7 +671,7 @@ recordRecentTransactions maxNumRecent newTxs rlog = rlog'
     newNext = oldNext + fromIntegral numNewItems
     newTxs' = V.reverse (V.map (T2 oldNext) newTxs)
     newL' = newTxs' <> _rlRecent rlog
-    newL = force $ V.take maxNumRecent newL'
+    newL = V.force $ V.take maxNumRecent newL'
 
 
 -- | Get the recent transactions from the transaction log. Returns Nothing if
@@ -721,14 +721,13 @@ pruneInternal
 pruneInternal mdata now = do
     let pref = _inmemPending mdata
     !pending <- readIORef pref
-    !pending' <- evaluate $ force $ HashMap.filter flt pending
+    let !pending' = HashMap.filter flt pending
     writeIORef pref pending'
 
     let bref = _inmemBadMap mdata
-    !badmap <- (force . pruneBadMap) <$!> readIORef bref
+    !badmap <- HashMap.filter (> now) <$> readIORef bref
     writeIORef bref badmap
 
   where
     -- keep transactions that expire in the future.
     flt pe = _inmemPeExpires pe > now
-    pruneBadMap = HashMap.filter (> now)
