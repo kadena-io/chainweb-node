@@ -308,6 +308,16 @@ assertLocalFailure s d lr =
   liftIO $ assertEqual s (Just d) $
     lr ^? _Right . _LocalResultLegacy . crResult . to _pactResult . _Left . to peDoc
 
+assertLocalSuccess
+    :: (HasCallStack, MonadIO m)
+    => String
+    -> PactValue
+    -> Either PactException LocalResult
+    -> m ()
+assertLocalSuccess s pv lr =
+  liftIO $ assertEqual s (Just pv) $
+    lr ^? _Right . _LocalResultLegacy . crResult . to _pactResult . _Right
+
 pact43UpgradeTest :: PactTestM ()
 pact43UpgradeTest = do
 
@@ -902,9 +912,9 @@ chainweb219UpgradeTest = do
         "Should resolve new pact native: dec"
         (pDecimal 1)
       , PactTxTest runIllTypedFunction $
-        assertTxFailure
-        "User function type annotation must match body type after the fork"
-        "Type error: expected string, found integer"
+        assertTxSuccess
+        "User function return value types should not be checked after the fork"
+        (pDecimal 1.0)
       , PactTxTest tryReadString $
         assertTxSuccess
         "read-* errors are recoverable after the fork"
@@ -922,6 +932,14 @@ chainweb219UpgradeTest = do
         "read-* errors are recoverable after the fork"
         (pDecimal 1.0)
       ]
+
+  -- run local on RTC check
+  lr <- runLocal cid $ set cbGasLimit 70000 $ mkCmd "nonce" runIllTypedFunctionExec
+  assertLocalSuccess
+    "User function return value types should not be checked in local"
+    (pDecimal 1.0)
+    lr
+
   where
     addErrTx = buildBasicGas 10000
         $ mkExec' (mconcat
@@ -943,8 +961,8 @@ chainweb219UpgradeTest = do
         $ mkExec' (mconcat
         [ "coin.transfer"
         ])
-    runIllTypedFunction = buildBasicGas 70000
-        $ mkExec' (mconcat
+    runIllTypedFunction = buildBasicGas 70000 runIllTypedFunctionExec
+    runIllTypedFunctionExec = mkExec' (mconcat
                   [ "(namespace 'free)"
                   , "(module m g (defcap g () true)"
                   , "  (defun foo:string () 1))"
