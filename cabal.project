@@ -33,7 +33,7 @@ package chainweb
 package pact
     ghc-options: -Wwarn
     -- avoid conflict with cryptonite during linking
-    flags: +cryptonite-ed25519 -build-tool +no-advice
+    flags: +cryptonite-ed25519 -build-tool
 
 package rocksdb-haskell-kadena
     ghc-options: -Wwarn -optc-w -optcxx-w
