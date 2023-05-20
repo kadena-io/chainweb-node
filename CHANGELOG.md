@@ -2,10 +2,10 @@
 
 ## 2.19.1 (2023-05-22)
 
-**NOTE: THIS VERSION REPLACED BY 2.19. PLEASE UPDATE AS SOON AS POSSIBLE.**
+**NOTE: THIS VERSION SUPERSEDES 2.19. PLEASE UPDATE AS SOON AS POSSIBLE.**
 
 This version replaces all previous versions. Node administrators must upgrade to
-this version before that date.
+this version before 2023-06-01T00:00:00Z.
 
 This version will expire on 2023-09-07.
 
@@ -13,8 +13,7 @@ To upgrade, pull the latest docker image or download the binary and restart the 
 
 Changes:
 
-*   Revert a change in version 2.19 the causes failures in existing smart
-    contracts on mainnet. (#1661)
+*   Disable user function return value typechecking (#1661)
 *   Add typechecking option to tx-sim. (#1656)
 
 ## 2.19 (2023-05-25)
