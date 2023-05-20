@@ -1,8 +1,11 @@
 # `chainweb-node` Changelog
 
-2.19 (2023-05-25)
+## 2.19.1 (2023-05-22)
 
-This version replaces all previous versions. Any prior version will stop working on 2023-06-01T00:00:00Z. Node administrators must upgrade to this version before that date.
+**NOTE: THIS VERSION REPLACED BY 2.19. PLEASE UPDATE AS SOON AS POSSIBLE.**
+
+This version replaces all previous versions. Node administrators must upgrade to
+this version before that date.
 
 This version will expire on 2023-09-07.
 
@@ -10,12 +13,33 @@ To upgrade, pull the latest docker image or download the binary and restart the 
 
 Changes:
 
-*   Support for Pact 4.7 (#1649, #1645, #1633, #1639): 
-    *   Pact errors are now displayed to users of the Pact /poll endpoint. Some Pact errors have changed and been made shorter.
+*   Revert a change in version 2.19 the causes failures in existing smart
+    contracts on mainnet. (#1661)
+*   Add typechecking option to tx-sim. (#1656)
+
+## 2.19 (2023-05-25)
+
+**NOTE: THIS VERSION IS OBSOLETE. IT IS REPLACED BY 2.19.1. PLEASE UPDATE AS SOON
+AS POSSIBLE.**
+
+This version replaces all previous versions. Any prior version will stop working
+on 2023-06-01T00:00:00Z. Node administrators must upgrade to this version before
+that date.
+
+This version will expire on 2023-09-07.
+
+To upgrade, pull the latest docker image or download the binary and restart the node.
+
+Changes:
+
+*   Support for Pact 4.7 (#1649, #1645, #1633, #1639):
+    *   Pact errors are now displayed to users of the Pact /poll endpoint. Some
+        Pact errors have changed and been made shorter.
 
 Bug fixes:
 
-*   API endpoints now more strictly comply to the API specification at api.chainweb.com. (#1434)
+*   API endpoints now more strictly comply to the API specification at
+    api.chainweb.com. (#1434)
 *   A small memory leak has been fixed. (#1635)
 
 ## 2.18.1 (2023-03-06)
