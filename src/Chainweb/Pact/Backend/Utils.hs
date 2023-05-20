@@ -348,7 +348,6 @@ withTempSQLiteConnection = withSQLiteConnection ""
 withInMemSQLiteConnection :: [Pragma] -> (SQLiteEnv -> IO c) -> IO c
 withInMemSQLiteConnection = withSQLiteConnection ":memory:"
 
--- TODO: use SQ3.open2 instead?
 open2 :: String -> IO (Either (SQ3.Error, SQ3.Utf8) SQ3.Database)
 open2 file = open_v2
     (fromString file)
