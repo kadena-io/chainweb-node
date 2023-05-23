@@ -44,6 +44,7 @@ import Chainweb.BlockHeight (BlockHeight(..))
 import Chainweb.MerkleLogHash (merkleLogHash)
 import Chainweb.MerkleUniverse
 import Chainweb.Pact.Backend.ChainwebPactDb
+import Chainweb.Pact.Backend.DbCache
 import Chainweb.Pact.Backend.RelationalCheckpointer
 import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.Backend.Utils
@@ -615,7 +616,7 @@ runExec cp (PactDbEnv' pactdbenv) eData eCode = do
     h' = H.toUntypedHash (H.hash "" :: H.PactHash)
     cmdenv = TransactionEnv Transactional pactdbenv (_cpeLogger cp) Nothing def
              noSPVSupport Nothing 0.0 (RequestKey h') 0 def
-    cmdst = TransactionState mempty mempty 0 Nothing (_geGasModel freeGasEnv) mempty
+    cmdst = TransactionState (emptyDbCache defaultModuleCacheLimit) mempty 0 Nothing (_geGasModel freeGasEnv) mempty
 
 runCont :: CheckpointEnv -> PactDbEnv' -> PactId -> Int -> IO EvalResult
 runCont cp (PactDbEnv' pactdbenv) pactId step = do
@@ -627,7 +628,7 @@ runCont cp (PactDbEnv' pactdbenv) pactId step = do
     h' = H.toUntypedHash (H.hash "" :: H.PactHash)
     cmdenv = TransactionEnv Transactional pactdbenv (_cpeLogger cp) Nothing def
              noSPVSupport Nothing 0.0 (RequestKey h') 0 def
-    cmdst = TransactionState mempty mempty 0 Nothing (_geGasModel freeGasEnv) mempty
+    cmdst = TransactionState (emptyDbCache defaultModuleCacheLimit) mempty 0 Nothing (_geGasModel freeGasEnv) mempty
 
 -- -------------------------------------------------------------------------- --
 -- Pact Utils

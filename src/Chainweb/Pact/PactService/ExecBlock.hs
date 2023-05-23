@@ -6,6 +6,8 @@
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE NamedFieldPuns #-}
 
 -- |
 -- Module: Chainweb.Pact.PactService.ExecBlock
@@ -30,6 +32,7 @@ module Chainweb.Pact.PactService.ExecBlock
     ) where
 
 import Control.DeepSeq
+import Control.Concurrent (tryReadMVar)
 import Control.Exception (evaluate)
 import Control.Lens
 import Control.Monad
@@ -72,6 +75,7 @@ import Chainweb.BlockHeader
 import Chainweb.BlockHeight
 import Chainweb.Mempool.Mempool as Mempool
 import Chainweb.Miner.Pact
+import Chainweb.Pact.Backend.DbCache
 import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.NoCoinbase
 import Chainweb.Pact.Service.Types
@@ -142,7 +146,7 @@ execBlock currHeader plData pdbenv = do
       [] -> return ()
       errs -> throwM $ TransactionValidationException $ errs
 
-    logInitCache
+    -- logInitCache
 
     !results <- go miner trans >>= throwOnGasFailure
 
@@ -159,11 +163,11 @@ execBlock currHeader plData pdbenv = do
     blockGasLimit =
       fromIntegral <$> maxBlockGasLimit v (_blockChainId currHeader) (_blockHeight currHeader)
 
-    logInitCache = do
-      mc <- fmap (fmap instr) <$> use psInitCache
-      logDebug $ "execBlock: initCache: " <> sshow mc
+    -- logInitCache = do
+    --   mc <- fmap (fmap instr) <$> use psInitCache
+    --   logDebug $ "execBlock: initCache: " <> sshow mc
 
-    instr (md,_) = preview (P._MDModule . P.mHash) $ P._mdModule md
+    -- instr (md,_) = preview (P._MDModule . P.mHash) $ P._mdModule md
 
     handleValids (tx,Left e) es = (P._cmdHash tx, sshow e):es
     handleValids _ es = es
@@ -308,18 +312,19 @@ execTransactions isGenesis miner ctxs enfCBFail usePrecomp (PactDbEnv' pactdbenv
     txOuts <- applyPactCmds isGenesis pactdbenv ctxs miner mc gasLimit timeLimit
     return $! Transactions (V.zip ctxs txOuts) coinOut
   where
-    getCache = get >>= \PactServiceState{..} -> do
-      let pbh = _blockHeight . _parentHeader
-      case Map.lookupLE (pbh _psParentHeader) _psInitCache of
+    getCache = do
+      liftIO $ tryReadMVar (P.pdPactDbVar pactdbenv) >>= \case
+        Just benv -> pure $ _bsModuleCache $ _benvBlockState benv
         Nothing -> if isGenesis
-          then return mempty
+          then pure $ emptyDbCache defaultModuleCacheLimit
           else do
-            l <- asks _psLogger
-            pd <- getTxContext def
-            mc <- liftIO (readInitModules l pactdbenv pd)
-            updateInitCache mc
-            return mc
-        Just (_,mc) -> return mc
+            -- TODO: fix
+            pure $ emptyDbCache defaultModuleCacheLimit
+            -- l <- asks _psLogger
+            -- pd <- getTxContext def
+            -- mc <- liftIO (readInitModules l pactdbenv pd)
+            -- updateInitCache mc
+            -- return mc
 
 execTransactionsOnly
     :: Miner
@@ -360,9 +365,10 @@ runCoinbase False dbEnv miner enfCBFail usePrecomp mc = do
 
   where
 
-    upgradeInitCache newCache = do
-      logInfo "Updating init cache for upgrade"
-      updateInitCache newCache
+    upgradeInitCache newCache = undefined newCache
+     -- do
+     --  logInfo "Updating init cache for upgrade"
+     --  updateInitCache newCache
 
 
 -- | Apply multiple Pact commands, incrementing the transaction Id for each.

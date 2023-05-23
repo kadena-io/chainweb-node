@@ -11,6 +11,7 @@
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE StrictData #-}
 {-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE NamedFieldPuns #-}
 -- |
 -- Module: Chainweb.Pact.Types
 -- Copyright: Copyright © 2018 Kadena LLC.
@@ -99,7 +100,6 @@ module Chainweb.Pact.Types
     -- * Pact Service State
   , PactServiceState(..)
   , psStateValidated
-  , psInitCache
   , psParentHeader
   , psSpvSupport
 
@@ -142,6 +142,7 @@ module Chainweb.Pact.Types
   ) where
 
 import Control.DeepSeq
+import Control.Concurrent (tryReadMVar)
 import Control.Exception (asyncExceptionFromException, asyncExceptionToException, throw)
 import Control.Lens
 import Control.Monad.Catch
@@ -151,8 +152,6 @@ import Control.Monad.State.Strict
 
 import Data.Aeson hiding (Error,(.=))
 import Data.Default (def)
-import Data.HashMap.Strict (HashMap)
-import qualified Data.HashMap.Strict as HM
 import Data.Set (Set)
 import qualified Data.Map.Strict as M
 import Data.Text (pack, unpack, Text)
@@ -165,16 +164,15 @@ import System.LogLevel
 
 -- internal pact modules
 
-import Pact.Interpreter (PactDbEnv)
+import Pact.Interpreter (PactDbEnv(pdPactDbVar))
 import Pact.Parse (ParsedDecimal)
 import Pact.Types.ChainId (NetworkId)
 import Pact.Types.ChainMeta
 import Pact.Types.Command
 import Pact.Types.Gas
 import qualified Pact.Types.Logger as P
-import Pact.Types.Names
-import Pact.Types.Persistence (ExecutionMode, TxLog)
-import Pact.Types.Runtime (ExecutionConfig(..), ModuleData(..), PactWarning)
+import Pact.Types.Persistence (ExecutionMode, TxLog, PersistModuleData)
+import Pact.Types.Runtime (ExecutionConfig(..), PactWarning)
 import Pact.Types.SPV
 import Pact.Types.Term
 
@@ -230,7 +228,7 @@ newtype EnforceCoinbaseFailure = EnforceCoinbaseFailure Bool
 -- | Always use precompiled templates in coinbase or use date rule.
 newtype CoinbaseUsePrecompiled = CoinbaseUsePrecompiled Bool
 
-type ModuleCache = HashMap ModuleName (ModuleData Ref, Bool)
+type ModuleCache = DbCache PersistModuleData
 
 -- -------------------------------------------------------------------- --
 -- Local vs. Send execution context flag
@@ -440,46 +438,50 @@ type ModuleInitCache = M.Map BlockHeight ModuleCache
 
 data PactServiceState = PactServiceState
     { _psStateValidated :: !(Maybe BlockHeader)
-    , _psInitCache :: !ModuleInitCache
     , _psParentHeader :: !ParentHeader
     , _psSpvSupport :: !SPVSupport
     }
 makeLenses ''PactServiceState
 
 
-_debugMC :: Text -> PactServiceM tbl ()
-_debugMC t = do
-  mc <- fmap (fmap instr) <$> use psInitCache
-  liftIO $ print (t,mc)
-  where
-    instr (ModuleData{..},_) = preview (_MDModule . mHash) _mdModule
+-- _debugMC :: Text -> PactServiceM tbl ()
+-- _debugMC t = do
+--   mc <- fmap (fmap instr) <$> use psInitCache
+--   liftIO $ print (t,mc)
+--   where
+--     instr (ModuleData{..},_) = preview (_MDModule . mHash) _mdModule
 
 -- | Look up an init cache that is stored at or before the height of the current parent header.
 getInitCache :: PactServiceM tbl ModuleCache
-getInitCache = get >>= \PactServiceState{..} ->
-    case M.lookupLE (pbh _psParentHeader) _psInitCache of
-      Just (_,mc) -> return mc
-      Nothing -> return mempty
-  where
-    pbh = _blockHeight . _parentHeader
+getInitCache = do
+  checkpointer <- getCheckpointer
+  PactServiceState{_psParentHeader} <- get
+  let
+    ph = _parentHeader _psParentHeader
+    checkpointerTarget = Just (_blockHeight ph + 1, _blockHash ph)
+  liftIO $! _cpRestore checkpointer checkpointerTarget >>= \case
+    PactDbEnv' pactdbenv -> tryReadMVar (pdPactDbVar pactdbenv) >>= \case
+      Just benv -> pure $ _bsModuleCache $ _benvBlockState benv
+      Nothing -> pure $ emptyDbCache defaultModuleCacheLimit
 
 -- | Update init cache at adjusted parent block height (APBH).
 -- Contents are merged with cache found at or before APBH.
 -- APBH is 0 for genesis and (parent block height + 1) thereafter.
 updateInitCache :: ModuleCache -> PactServiceM tbl ()
-updateInitCache mc = get >>= \PactServiceState{..} -> do
-    let bf 0 = 0
-        bf h = succ h
-        pbh = bf . _blockHeight . _parentHeader $ _psParentHeader
+updateInitCache mc = undefined mc
+ -- get >>= \PactServiceState{..} -> do
+ --    let bf 0 = 0
+ --        bf h = succ h
+ --        pbh = bf . _blockHeight . _parentHeader $ _psParentHeader
 
-    v <- view psVersion
+ --    v <- view psVersion
 
-    psInitCache .= case M.lookupLE pbh _psInitCache of
-      Nothing -> M.singleton pbh mc
-      Just (_,before)
-        | chainweb217Pact After v pbh || chainweb217Pact At v pbh ->
-          M.insert pbh mc _psInitCache
-        | otherwise -> M.insert pbh (HM.union mc before) _psInitCache
+ --    psInitCache .= case M.lookupLE pbh _psInitCache of
+ --      Nothing -> M.singleton pbh mc
+ --      Just (_,before)
+ --        | chainweb217Pact After v pbh || chainweb217Pact At v pbh ->
+ --          M.insert pbh mc _psInitCache
+ --        | otherwise -> M.insert pbh (HM.union mc before) _psInitCache
 
 -- | Convert context to datatype for Pact environment.
 --

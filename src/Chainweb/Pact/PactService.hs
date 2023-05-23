@@ -150,7 +150,7 @@ runPactService' ver cid chainwebLogger bhDb pdb sqlenv config act =
                     , _psBlockGasLimit = _pactBlockGasLimit config
                     , _psChainId = cid
                     }
-            !pst = PactServiceState Nothing mempty initialParentHeader P.noSPVSupport
+            !pst = PactServiceState Nothing initialParentHeader P.noSPVSupport
         runPactServiceM pst pse $ do
 
             -- If the latest header that is stored in the checkpointer was on an

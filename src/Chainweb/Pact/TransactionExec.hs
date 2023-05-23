@@ -100,6 +100,7 @@ import Chainweb.BlockHeader
 import Chainweb.BlockHeight
 import Chainweb.Mempool.Mempool (requestKeyToTransactionHash)
 import Chainweb.Miner.Pact
+import Chainweb.Pact.Backend.DbCache
 import Chainweb.Pact.Service.Types
 import Chainweb.Pact.Templates
 import Chainweb.Pact.Transactions.UpgradeTransactions
@@ -294,7 +295,7 @@ applyGenesisCmd logger dbEnv spv cmd =
           ]
         }
     txst = TransactionState
-        { _txCache = mempty
+        { _txCache = (emptyDbCache defaultModuleCacheLimit)
         , _txLogs = mempty
         , _txGasUsed = 0
         , _txGasId = Nothing
@@ -360,8 +361,9 @@ applyCoinbase v logger dbEnv (Miner mid mks@(MinerKeys mk)) reward@(ParsedDecima
       enablePact45 txCtx
     tenv = TransactionEnv Transactional dbEnv logger Nothing (ctxToPublicData txCtx) noSPVSupport
            Nothing 0.0 rk 0 ec
-    txst = TransactionState mc mempty 0 Nothing (_geGasModel freeGasEnv) mempty
-    initState = setModuleCache mc $ initCapabilities [magic_COINBASE]
+    -- TODO: fix module cache
+    txst = TransactionState (undefined mc) mempty 0 Nothing (_geGasModel freeGasEnv) mempty
+    initState = setModuleCache undefined $ initCapabilities [magic_COINBASE]
     rk = RequestKey chash
     parent = _tcParentHeader txCtx
 
@@ -484,7 +486,7 @@ readInitModules logger dbEnv txCtx
     chash = pactInitialHash
     tenv = TransactionEnv Local dbEnv logger Nothing (ctxToPublicData txCtx) noSPVSupport nid 0.0
            rk 0 def
-    txst = TransactionState mempty mempty 0 Nothing (_geGasModel freeGasEnv) mempty
+    txst = TransactionState (emptyDbCache defaultModuleCacheLimit) mempty 0 Nothing (_geGasModel freeGasEnv) mempty
     interp = defaultInterpreter
     die msg = throwM $ PactInternalError $ "readInitModules: " <> msg
     mkCmd = buildExecParsedCode (Just (v, h)) Nothing
@@ -572,7 +574,8 @@ applyUpgrades v cid height
 
     filterModuleCache = do
       mc <- use txCache
-      pure $ Just $ HM.filterWithKey (\k _ -> k == "coin") mc
+      pure $ Just mc
+      -- pure $ Just $ HM.filterWithKey (\k _ -> k == "coin") mc
 
     applyTxs txsIO flags = do
       infoLog "Applying upgrade!"
@@ -586,7 +589,7 @@ applyUpgrades v cid height
       --
       let execConfig = mkExecutionConfig flags
       caches <- local (set txExecutionConfig execConfig) $ mapM applyTx txs
-      return $ Just (HM.unions caches)
+      return $ Just (foldr unionDbCache (emptyDbCache defaultModuleCacheLimit) caches)
 
     interp = initStateInterpreter
         $ installCoinModuleAdmin
@@ -1105,8 +1108,9 @@ setModuleCache
   -> EvalState
   -> EvalState
 setModuleCache mcache es =
-  let allDeps = foldMap (allModuleExports . fst) mcache
-  in set (evalRefs . rsQualifiedDeps) allDeps $ set (evalRefs . rsLoadedModules) mcache $ es
+  -- TODO: fix
+  let allDeps = undefined -- foldMap (allModuleExports . fst) (undefined mcache)
+  in set (evalRefs . rsQualifiedDeps) allDeps $ set (evalRefs . rsLoadedModules) (undefined mcache) $ es
 {-# INLINE setModuleCache #-}
 
 -- | Set tx result state
@@ -1114,7 +1118,7 @@ setModuleCache mcache es =
 setTxResultState :: EvalResult -> TransactionM db ()
 setTxResultState er = do
     txLogs <>= (_erLogs er)
-    txCache .= (_erLoadedModules er)
+    txCache .= (emptyDbCache defaultModuleCacheLimit) -- TODO: fix!  (_erLoadedModules er)
     txGasUsed .= (_erGas er)
 {-# INLINE setTxResultState #-}
 

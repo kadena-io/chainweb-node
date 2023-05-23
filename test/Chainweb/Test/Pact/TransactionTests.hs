@@ -54,6 +54,7 @@ import Chainweb.BlockCreationTime
 import Chainweb.BlockHeader
 import Chainweb.BlockHeight
 import Chainweb.Miner.Pact
+import Chainweb.Pact.Backend.DbCache
 import Chainweb.Pact.Templates
 import Chainweb.Pact.TransactionExec
 import Chainweb.Pact.Types
@@ -154,7 +155,7 @@ loadScript fp = do
   let pdb = PactDbEnv
             (view (rEnv . eePactDb) rst)
             (view (rEnv . eePactDbVar) rst)
-      mc = view (rEvalState . evalRefs . rsLoadedModules) rst
+      mc = emptyDbCache defaultModuleCacheLimit -- view (rEvalState . evalRefs . rsLoadedModules) rst
   return (pdb,mc)
 
 -- ---------------------------------------------------------------------- --
@@ -255,7 +256,7 @@ testCoinbase797DateFix = testCaseSteps "testCoinbase791Fix" $ \step -> do
       let h = H.toUntypedHash (H.hash "" :: H.PactHash)
           tenv = TransactionEnv Transactional pdb logger Nothing def
             noSPVSupport Nothing 0.0 (RequestKey h) 0 def
-          txst = TransactionState mempty mempty 0 Nothing (_geGasModel freeGasEnv) mempty
+          txst = TransactionState (emptyDbCache defaultModuleCacheLimit) mempty 0 Nothing (_geGasModel freeGasEnv) mempty
 
       CommandResult _ _ (PactResult pr) _ _ _ _ _ <- evalTransactionM tenv txst $!
         applyExec 0 defaultInterpreter localCmd [] h permissiveNamespacePolicy

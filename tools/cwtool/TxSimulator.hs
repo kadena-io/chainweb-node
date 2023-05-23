@@ -112,7 +112,7 @@ simulate sc@(SimConfig dbDir txIdx' _ _ cid ver gasLog) = do
             withBlockHeaderDb rdb ver cid $ \bdb -> do
               let pse = PactServiceEnv Nothing cpe paydb bdb getGasModel readRewards 0 ferr
                         ver True False logger gasLogger (pactLoggers cwLogger) False 1 defaultBlockGasLimit cid
-                  pss = PactServiceState Nothing mempty (ParentHeader parent) noSPVSupport
+                  pss = PactServiceState Nothing (ParentHeader parent) noSPVSupport
               evalPactServiceM pss pse $ doBlock True parent (zip hdrs pwos)
 
 

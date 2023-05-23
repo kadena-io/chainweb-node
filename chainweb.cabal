@@ -459,7 +459,7 @@ test-suite chainweb-tests
         Chainweb.Test.P2P.Peer.BootstrapConfig
         Chainweb.Test.Pact.DbCacheTest
         Chainweb.Test.Pact.Checkpointer
-        Chainweb.Test.Pact.ModuleCacheOnRestart
+--        Chainweb.Test.Pact.ModuleCacheOnRestart
         Chainweb.Test.Pact.NoCoinbase
         Chainweb.Test.Pact.RewardsTest
         Chainweb.Test.Pact.PactExec

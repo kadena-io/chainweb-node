@@ -24,10 +24,12 @@ module Chainweb.Pact.Backend.DbCache
 , isEmptyCache
 , cacheStats
 , updateCacheStats
+, unionDbCache
 ) where
 
 import Control.Lens hiding ((.=))
 import Control.Monad.State.Strict
+import Control.DeepSeq
 
 import qualified Crypto.Hash as C (hash)
 import Crypto.Hash.Algorithms
@@ -118,6 +120,9 @@ data DbCache a = DbCache
     , _dcHits :: !Int
     }
 
+instance NFData (DbCache a) where
+    rnf _ = ()
+
 makeLenses 'DbCache
 
 emptyDbCache :: HasCallStack => DbCacheLimitBytes -> DbCache a
@@ -192,6 +197,15 @@ cacheStats mc = object
 
 updateCacheStats :: DbCache a -> (Value, DbCache a)
 updateCacheStats mc = (cacheStats mc, set dcMisses 0 (set dcHits 0 mc))
+
+unionDbCache :: DbCache a -> DbCache a -> DbCache a
+unionDbCache c c' = DbCache
+    { _dcStore = HM.union (_dcStore c) (_dcStore c')
+    , _dcSize = _dcSize c + _dcSize c'
+    , _dcLimit = _dcLimit c + _dcLimit c'
+    , _dcMisses = _dcMisses c + _dcMisses c'
+    , _dcHits = _dcHits c + _dcHits c'
+    }
 
 -- -------------------------------------------------------------------------- --
 -- Internal
