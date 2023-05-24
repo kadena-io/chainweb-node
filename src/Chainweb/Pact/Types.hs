@@ -142,7 +142,7 @@ module Chainweb.Pact.Types
   ) where
 
 import Control.DeepSeq
-import Control.Concurrent (tryReadMVar)
+import Control.Concurrent (tryReadMVar, modifyMVar_)
 import Control.Exception (asyncExceptionFromException, asyncExceptionToException, throw)
 import Control.Lens
 import Control.Monad.Catch
@@ -443,14 +443,6 @@ data PactServiceState = PactServiceState
     }
 makeLenses ''PactServiceState
 
-
--- _debugMC :: Text -> PactServiceM tbl ()
--- _debugMC t = do
---   mc <- fmap (fmap instr) <$> use psInitCache
---   liftIO $ print (t,mc)
---   where
---     instr (ModuleData{..},_) = preview (_MDModule . mHash) _mdModule
-
 -- | Look up an init cache that is stored at or before the height of the current parent header.
 getInitCache :: PactServiceM tbl ModuleCache
 getInitCache = do
@@ -468,20 +460,24 @@ getInitCache = do
 -- Contents are merged with cache found at or before APBH.
 -- APBH is 0 for genesis and (parent block height + 1) thereafter.
 updateInitCache :: ModuleCache -> PactServiceM tbl ()
-updateInitCache mc = undefined mc
- -- get >>= \PactServiceState{..} -> do
- --    let bf 0 = 0
- --        bf h = succ h
- --        pbh = bf . _blockHeight . _parentHeader $ _psParentHeader
+updateInitCache mc = do
+  checkpointer <- getCheckpointer
+  PactServiceState{_psParentHeader} <- get
+  let bf 0 = 0
+      bf h = succ h
+      ph = _parentHeader _psParentHeader
+      pbh = bf . _blockHeight $ ph
+      checkpointerTarget = Just (pbh, _blockHash ph)
 
- --    v <- view psVersion
-
- --    psInitCache .= case M.lookupLE pbh _psInitCache of
- --      Nothing -> M.singleton pbh mc
- --      Just (_,before)
- --        | chainweb217Pact After v pbh || chainweb217Pact At v pbh ->
- --          M.insert pbh mc _psInitCache
- --        | otherwise -> M.insert pbh (HM.union mc before) _psInitCache
+  v <- view psVersion
+  liftIO $! _cpRestore checkpointer checkpointerTarget >>= \case
+    PactDbEnv' pactdbenv ->
+      void $ modifyMVar_ (pdPactDbVar pactdbenv) $ \db -> do
+        let mc'
+              | chainweb217Pact After v pbh || chainweb217Pact At v pbh = mc
+              | otherwise = unionDbCache mc (view (benvBlockState . bsModuleCache) db)
+            !db' = set (benvBlockState . bsModuleCache) mc' db
+        return db'
 
 -- | Convert context to datatype for Pact environment.
 --
