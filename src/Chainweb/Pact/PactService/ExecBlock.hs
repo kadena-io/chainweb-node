@@ -90,6 +90,8 @@ import Chainweb.Transaction
 import Chainweb.Utils hiding (check)
 import Chainweb.Version
 
+import Debug.Trace (traceShowM)
+
 -- | Set parent header in state and spv support (using parent hash)
 setParentHeader :: String -> ParentHeader -> PactServiceM tbl ()
 setParentHeader msg ph@(ParentHeader bh) = do
@@ -433,7 +435,9 @@ applyPactCmd isGenesis env miner txTimeLimit cmd = StateT $ \(T2 mcache maybeBlo
         pure $ T2 r c
 
     if isGenesis
-    then updateInitCache mcache'
+    then do
+      traceShowM ("updating genesis with: " ++ show mcache')
+      updateInitCache mcache'
     else debugResult "applyPactCmd" result
 
     cp <- getCheckpointer

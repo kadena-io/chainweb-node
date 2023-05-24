@@ -84,6 +84,8 @@ import Chainweb.Version (ChainwebVersion, ChainId, genesisHeight)
 import Chainweb.Utils (encodeToByteString, sshow)
 import Chainweb.Utils.Serialization
 
+import Debug.Trace (traceShowM)
+
 tbl :: HasCallStack => Utf8 -> Utf8
 tbl t@(Utf8 b)
     | B8.elem ']' b =  error $ "Chainweb.Pact.Backend.ChainwebPactDb: Code invariant violation. Illegal SQL table name " <> sshow b <> ". Please report this as a bug."
@@ -700,6 +702,7 @@ handlePossibleRewind
     -> BlockHandler SQLiteEnv TxId
 handlePossibleRewind v cid bRestore hsh = do
     bCurrent <- getBCurrentHeight
+    traceShowM ("handlePossibleRewind" :: String, bRestore, bCurrent)
     checkHistoryInvariant (bCurrent + 1)
     case compare bRestore (bCurrent + 1) of
         GT -> internalError "handlePossibleRewind: Block_Restore invariant violation!"
@@ -710,6 +713,7 @@ handlePossibleRewind v cid bRestore hsh = do
     -- The maximum block height that is stored in the block history.
     --
     getBCurrentHeight = do
+        traceShowM ("getBCurrentHeight" :: String)
         r <- callDb "handlePossibleRewind" $ \db ->
              qry_ db "SELECT max(blockheight) AS current_block_height \
                      \FROM BlockHistory;" [RInt]
@@ -722,6 +726,8 @@ handlePossibleRewind v cid bRestore hsh = do
     -- exactly one block with hash @hsh@.
     --
     checkHistoryInvariant succOfCurrent = do
+        traceShowM ("checkHistoryInvariant" :: String)
+
         -- enforce invariant that the history has
         -- (B_restore-1,H_parent).
         resultCount <- callDb "handlePossibleRewind" $ \db -> do
@@ -773,6 +779,7 @@ handlePossibleRewind v cid bRestore hsh = do
       where msg = "handlePossibleRewind: newChildBlock: error finding txid"
 
     rewindBlock bh = do
+        traceShowM ("rewindBlock" :: String)
         assign bsBlockHeight bh
         endingtx <- getEndingTxId v cid bh
         tableMaintenanceRowsVersionedSystemTables endingtx

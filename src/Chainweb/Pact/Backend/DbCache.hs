@@ -6,6 +6,7 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE NamedFieldPuns #-}
 
 -- |
 -- Module: Chainweb.Pact.Backend.DbCache
@@ -80,6 +81,9 @@ data CacheEntry a = CacheEntry
     -- ^ Count of cache hits for this entry
   }
 
+instance Show a => Show (CacheEntry a) where
+    show (CacheEntry{_ceData}) = show _ceData
+
 ceTxId :: Lens' (CacheEntry a) TxId
 ceTxId = lens _ceTxId (\a b -> a { _ceTxId = b })
 
@@ -119,6 +123,9 @@ data DbCache a = DbCache
     , _dcMisses :: !Int
     , _dcHits :: !Int
     }
+
+instance Show a => Show (DbCache a) where
+    show (DbCache{_dcStore}) = show _dcStore
 
 instance NFData (DbCache a) where
     rnf _ = ()

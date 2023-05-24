@@ -195,6 +195,7 @@ import Chainweb.Transaction
 import Chainweb.Utils
 import Chainweb.Version
 
+import qualified Debug.Trace as DT
 
 data Transactions r = Transactions
     { _transactionPairs :: !(Vector (ChainwebTransaction, r))
@@ -446,6 +447,8 @@ makeLenses ''PactServiceState
 -- | Look up an init cache that is stored at or before the height of the current parent header.
 getInitCache :: PactServiceM tbl ModuleCache
 getInitCache = do
+  DT.traceShowM ("getInitCache" :: String)
+
   checkpointer <- getCheckpointer
   PactServiceState{_psParentHeader} <- get
   let
@@ -461,6 +464,8 @@ getInitCache = do
 -- APBH is 0 for genesis and (parent block height + 1) thereafter.
 updateInitCache :: ModuleCache -> PactServiceM tbl ()
 updateInitCache mc = do
+  DT.traceShowM ("updateInitCache" :: String)
+
   checkpointer <- getCheckpointer
   PactServiceState{_psParentHeader} <- get
   let bf 0 = 0
