@@ -109,6 +109,7 @@ import Chainweb.Transaction
 import Chainweb.Utils (encodeToByteString, sshow, tryAllSynchronous, T2(..), T3(..))
 import Chainweb.Version as V
 
+import Debug.Trace (traceShowM)
 
 -- -------------------------------------------------------------------------- --
 
@@ -1117,8 +1118,9 @@ setModuleCache mcache es =
 --
 setTxResultState :: EvalResult -> TransactionM db ()
 setTxResultState er = do
+    traceShowM ("setTxResultState!!!" :: String)
     txLogs <>= (_erLogs er)
-    txCache .= (emptyDbCache defaultModuleCacheLimit) -- TODO: fix!  (_erLoadedModules er)
+    txCache .= fromHashMap (fromJust $ _erTxId er) (_erLoadedModules er)
     txGasUsed .= (_erGas er)
 {-# INLINE setTxResultState #-}
 

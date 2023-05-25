@@ -17,6 +17,7 @@
 --
 module Chainweb.Pact.Backend.DbCache
 ( DbCacheLimitBytes(..)
+, defaultModuleCacheLimit
 , DbCache
 , checkDbCache
 , emptyDbCache
@@ -26,6 +27,7 @@ module Chainweb.Pact.Backend.DbCache
 , cacheStats
 , updateCacheStats
 , unionDbCache
+, fromHashMap
 ) where
 
 import Control.Lens hiding ((.=))
@@ -35,6 +37,7 @@ import Control.DeepSeq
 import qualified Crypto.Hash as C (hash)
 import Crypto.Hash.Algorithms
 
+import qualified Data.Text.Encoding as TE
 import Data.Aeson (FromJSON, ToJSON, Value, object, decodeStrict, (.=))
 import qualified Data.ByteArray as BA
 import Data.ByteString (ByteString)
@@ -51,7 +54,17 @@ import GHC.Stack
 
 import Numeric.Natural
 
+import Chainweb.Utils (mebi)
+
 import Pact.Types.Persistence
+import Pact.Types.Term
+
+-- | Default limit for the per chain size of the decoded module cache.
+--
+-- default limit: 60 MiB per chain
+--
+defaultModuleCacheLimit :: DbCacheLimitBytes
+defaultModuleCacheLimit = DbCacheLimitBytes (60 * mebi)
 
 -- -------------------------------------------------------------------------- --
 -- ModuleCacheLimitBytes
@@ -213,6 +226,23 @@ unionDbCache c c' = DbCache
     , _dcMisses = _dcMisses c + _dcMisses c'
     , _dcHits = _dcHits c + _dcHits c'
     }
+
+fromHashMap :: TxId -> HM.HashMap ModuleName (ModuleData Ref,Bool) -> DbCache PersistModuleData
+fromHashMap txid m = (emptyDbCache defaultModuleCacheLimit)
+    { _dcStore = HM.fromList $ map convert $ HM.toList m
+    , _dcSize = HM.size m
+    }
+    where
+        -- Ref' (Term Name)
+        toPersist :: ModuleData Ref -> PersistModuleData
+        toPersist d = either (const $ error "fromHashMap: toPersist failed") id (traverse (traverse toPersistDirect) d)
+        -- (either (const $ error "fromHashMap: toPersistDirect failed") id
+
+        convert :: (ModuleName, (ModuleData Ref,Bool)) -> (CacheAddress, (CacheEntry PersistModuleData))
+        convert (ModuleName n _, (d,_)) =
+            let ca = CacheAddress $ BS.toShort $ TE.encodeUtf8 n
+            in
+            ( ca , CacheEntry txid ca 1 (toPersist d) 0 )
 
 -- -------------------------------------------------------------------------- --
 -- Internal

@@ -388,13 +388,6 @@ instance HasChainId (PactServiceEnv c) where
 defaultReorgLimit :: Word64
 defaultReorgLimit = 480
 
--- | Default limit for the per chain size of the decoded module cache.
---
--- default limit: 60 MiB per chain
---
-defaultModuleCacheLimit :: DbCacheLimitBytes
-defaultModuleCacheLimit = DbCacheLimitBytes (60 * mebi)
-
 -- | NOTE this is only used for tests/benchmarks. DO NOT USE IN PROD
 defaultPactServiceConfig :: PactServiceConfig
 defaultPactServiceConfig = PactServiceConfig
