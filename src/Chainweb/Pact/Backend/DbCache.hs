@@ -28,6 +28,7 @@ module Chainweb.Pact.Backend.DbCache
 , updateCacheStats
 , unionDbCache
 , fromHashMap
+, toHashMap
 ) where
 
 import Control.Lens hiding ((.=))
@@ -233,16 +234,23 @@ fromHashMap txid m = (emptyDbCache defaultModuleCacheLimit)
     , _dcSize = HM.size m
     }
     where
-        -- Ref' (Term Name)
         toPersist :: ModuleData Ref -> PersistModuleData
         toPersist d = either (const $ error "fromHashMap: toPersist failed") id (traverse (traverse toPersistDirect) d)
-        -- (either (const $ error "fromHashMap: toPersistDirect failed") id
 
-        convert :: (ModuleName, (ModuleData Ref,Bool)) -> (CacheAddress, (CacheEntry PersistModuleData))
+        convert :: (ModuleName, (ModuleData Ref,Bool)) -> (CacheAddress, CacheEntry PersistModuleData)
         convert (ModuleName n _, (d,_)) =
             let ca = CacheAddress $ BS.toShort $ TE.encodeUtf8 n
-            in
-            ( ca , CacheEntry txid ca 1 (toPersist d) 0 )
+            in (ca, CacheEntry txid ca 1 (toPersist d) 0)
+
+toHashMap :: DbCache PersistModuleData -> HM.HashMap ModuleName (ModuleData Ref,Bool)
+toHashMap DbCache{_dcStore} = HM.fromList $ map convert $ HM.toList _dcStore
+    where
+        fromPersist :: PersistModuleData -> ModuleData Ref
+        fromPersist d = either (const $ error "toHashMap: fromPersist failed") id (traverse (traverse (fromPersistDirect (const Nothing))) d)
+
+        convert :: (CacheAddress, CacheEntry PersistModuleData) -> (ModuleName, (ModuleData Ref,Bool))
+        convert (CacheAddress ca, CacheEntry{_ceData}) =
+            (ModuleName (TE.decodeUtf8 $ BS.fromShort ca) Nothing, (fromPersist _ceData, False))
 
 -- -------------------------------------------------------------------------- --
 -- Internal

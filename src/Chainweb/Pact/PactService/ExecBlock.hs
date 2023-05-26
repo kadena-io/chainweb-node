@@ -310,23 +310,35 @@ execTransactions
 execTransactions isGenesis miner ctxs enfCBFail usePrecomp (PactDbEnv' pactdbenv) gasLimit timeLimit = do
     mc <- getCache
 
+    traceShowM ("module cache: " ++ show mc)
+
     coinOut <- runCoinbase isGenesis pactdbenv miner enfCBFail usePrecomp mc
     txOuts <- applyPactCmds isGenesis pactdbenv ctxs miner mc gasLimit timeLimit
     return $! Transactions (V.zip ctxs txOuts) coinOut
   where
     getCache = do
-      liftIO $ tryReadMVar (P.pdPactDbVar pactdbenv) >>= \case
-        Just benv -> pure $ _bsModuleCache $ _benvBlockState benv
-        Nothing -> if isGenesis
-          then pure $ emptyDbCache defaultModuleCacheLimit
-          else do
-            -- TODO: fix
-            pure $ emptyDbCache defaultModuleCacheLimit
-            -- l <- asks _psLogger
-            -- pd <- getTxContext def
-            -- mc <- liftIO (readInitModules l pactdbenv pd)
-            -- updateInitCache mc
-            -- return mc
+      checkpointer <- getCheckpointer
+      PactServiceState{_psParentHeader} <- get
+      let bf 0 = 0
+          bf h = succ h
+          ph = _parentHeader _psParentHeader
+          pbh = bf . _blockHeight $ ph
+          checkpointerTarget = Just (pbh, _blockHash ph)
+
+      l <- asks _psLogger
+      pd <- getTxContext def
+
+      (mc, toUpdate) <- liftIO $! _cpRestore checkpointer checkpointerTarget >>= \case
+        PactDbEnv' pactdbenv' -> tryReadMVar (P.pdPactDbVar pactdbenv') >>= \case
+          Just benv -> pure (_bsModuleCache $ _benvBlockState benv, False)
+          Nothing -> if isGenesis
+            then pure $ (emptyDbCache defaultModuleCacheLimit, False)
+            else do
+              mc <- readInitModules l pactdbenv pd
+              pure (mc, True)
+
+      when toUpdate $ updateInitCache mc
+      pure mc
 
 execTransactionsOnly
     :: Miner
@@ -367,10 +379,9 @@ runCoinbase False dbEnv miner enfCBFail usePrecomp mc = do
 
   where
 
-    upgradeInitCache newCache = undefined newCache
-     -- do
-     --  logInfo "Updating init cache for upgrade"
-     --  updateInitCache newCache
+    upgradeInitCache newCache = do
+      logInfo "Updating init cache for upgrade"
+      updateInitCache newCache
 
 
 -- | Apply multiple Pact commands, incrementing the transaction Id for each.

@@ -362,9 +362,8 @@ applyCoinbase v logger dbEnv (Miner mid mks@(MinerKeys mk)) reward@(ParsedDecima
       enablePact45 txCtx
     tenv = TransactionEnv Transactional dbEnv logger Nothing (ctxToPublicData txCtx) noSPVSupport
            Nothing 0.0 rk 0 ec
-    -- TODO: fix module cache
-    txst = TransactionState (undefined mc) mempty 0 Nothing (_geGasModel freeGasEnv) mempty
-    initState = setModuleCache undefined $ initCapabilities [magic_COINBASE]
+    txst = TransactionState mc mempty 0 Nothing (_geGasModel freeGasEnv) mempty
+    initState = setModuleCache mc $ initCapabilities [magic_COINBASE]
     rk = RequestKey chash
     parent = _tcParentHeader txCtx
 
@@ -1109,9 +1108,9 @@ setModuleCache
   -> EvalState
   -> EvalState
 setModuleCache mcache es =
-  -- TODO: fix
-  let allDeps = undefined -- foldMap (allModuleExports . fst) (undefined mcache)
-  in set (evalRefs . rsQualifiedDeps) allDeps $ set (evalRefs . rsLoadedModules) (undefined mcache) $ es
+  let mcache' = toHashMap mcache
+      allDeps = foldMap (allModuleExports . fst) mcache'
+  in set (evalRefs . rsQualifiedDeps) allDeps $ set (evalRefs . rsLoadedModules) mcache' $ es
 {-# INLINE setModuleCache #-}
 
 -- | Set tx result state

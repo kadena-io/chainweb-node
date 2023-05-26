@@ -155,8 +155,8 @@ loadScript fp = do
   let pdb = PactDbEnv
             (view (rEnv . eePactDb) rst)
             (view (rEnv . eePactDbVar) rst)
-      mc = emptyDbCache defaultModuleCacheLimit -- view (rEvalState . evalRefs . rsLoadedModules) rst
-  return (pdb,mc)
+      mc = view (rEvalState . evalRefs . rsLoadedModules) rst
+  return (pdb, fromHashMap undefined mc)
 
 -- ---------------------------------------------------------------------- --
 -- Template vuln tests
