@@ -825,7 +825,7 @@ enablePact46 tc
 enablePact47 :: TxContext -> [ExecutionFlag]
 enablePact47 tc
     | chainweb219Pact (ctxVersion tc) (ctxCurrentBlockHeight tc) = []
-    | otherwise = [FlagDisablePact47]
+    | otherwise = [FlagDisablePact47, FlagDisablePact48] -- rs (2023-05-29): change to appropriate chainweb version
 
 -- | Even though this is not forking, abstracting for future shutoffs
 disableReturnRTC :: TxContext -> [ExecutionFlag]
