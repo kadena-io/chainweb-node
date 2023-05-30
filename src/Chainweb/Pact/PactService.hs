@@ -36,9 +36,10 @@ module Chainweb.Pact.PactService
 
 import Control.Concurrent.Async
 import Control.Concurrent.MVar
-import Control.Exception.Safe
+import Control.Exception (SomeAsyncException)
 import Control.Lens
 import Control.Monad
+import Control.Monad.Catch
 import Control.Monad.Reader
 import Control.Monad.State.Strict
 
@@ -255,7 +256,7 @@ lookupBlockHeader bhash ctx = do
       then return cur
       else do
         bhdb <- view psBlockHeaderDb
-        liftIO $ lookupM bhdb bhash `catchAny` \e ->
+        liftIO $! lookupM bhdb bhash `catchAllSynchronous` \e ->
             throwM $ BlockHeaderLookupFailure $
                 "failed lookup of parent header in " <> ctx <> ": " <> sshow e
 
@@ -413,9 +414,10 @@ attemptBuyGas miner (PactDbEnv' dbEnv) txs = do
     createGasEnv l db cmd gp gl = do
         pd <- getTxContext (publicMetaOf cmd)
         spv <- use psSpvSupport
-        let ec = P.mkExecutionConfig
+        let ec = P.mkExecutionConfig $
               [ P.FlagDisableModuleInstall
-              , P.FlagDisableHistoryInTransactionalMode ]
+              , P.FlagDisableHistoryInTransactionalMode ] ++
+              disableReturnRTC pd
         return $! TransactionEnv P.Transactional db l Nothing (ctxToPublicData pd) spv nid gp rk gl ec
       where
         !nid = networkIdOf cmd
@@ -654,7 +656,8 @@ execLocal cwtx preflight sigVerify rdepth = withDiscardedBatch $ do
     let execConfig = P.mkExecutionConfig $
             [ P.FlagAllowReadInLocal | _psAllowReadsInLocal ] ++
             enablePactEvents' ctx ++
-            enforceKeysetFormats' ctx
+            enforceKeysetFormats' ctx ++
+            disableReturnRTC ctx
         logger = P.newLogger _psLoggers "execLocal"
         initialGas = initialGasOf $ P._cmdPayload cwtx
 

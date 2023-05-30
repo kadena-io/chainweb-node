@@ -397,12 +397,15 @@ insertN_ s n g db = do
 -- | Useful for terminal-based debugging. A @Tree BlockHeader@ can be obtained
 -- from any `TreeDb` via `toTree`.
 --
+-- Do not use in tests in the test suite. Those should never print directly to
+-- the console.
+--
 prettyTree :: Tree BlockHeader -> String
 prettyTree = drawTree . fmap f
   where
     f h = printf "%d - %s"
-              (coerce @BlockHeight @Word64 $ _blockHeight h)
-              (take 12 . drop 1 . show $ _blockHash h)
+        (coerce @BlockHeight @Word64 $ _blockHeight h)
+        (take 12 . drop 1 . show $ _blockHash h)
 
 normalizeTree :: Ord a => Tree a -> Tree a
 normalizeTree n@(Node _ []) = n
@@ -662,8 +665,9 @@ withChainwebTestServer
     -> (Int -> IO a)
     -> (IO a -> TestTree)
     -> TestTree
-withChainwebTestServer shouldValidateSpec tls v appIO envIO test = withResource start stop $ \x -> do
-    test $ x >>= \(_, _, env) -> return env
+withChainwebTestServer shouldValidateSpec tls v appIO envIO test =
+    withResource start stop $ \x -> do
+        test $ x >>= \(_, _, env) -> return env
   where
     start = do
         mw <- case shouldValidateSpec of
@@ -1041,7 +1045,10 @@ withNodes
     -> Natural
     -> (IO ChainwebNetwork -> TestTree)
     -> TestTree
-withNodes = withNodes_ (genericLogger Warn print)
+withNodes = withNodes_ (genericLogger Error (error . T.unpack))
+    -- Test resources are part of test infrastructure and should never print
+    -- anything. A message at log level error means that the test harness itself
+    -- failed and with thus abort the test.
 
 runTestNodes
     :: Logger logger

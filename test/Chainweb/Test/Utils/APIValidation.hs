@@ -20,19 +20,20 @@ import Control.Monad
 import qualified Data.ByteString.Char8 as B8
 import qualified Data.ByteString.Lazy as BL
 import Data.Foldable
-import Data.IORef
 import qualified Data.HashSet as HashSet
+import Data.IORef
 import qualified Data.Map as Map
 import qualified Data.Text.Encoding as T
 import Data.Typeable
 import qualified Data.Yaml as Yaml
+
+import GHC.Stack
 
 import qualified Network.HTTP.Client as HTTP
 import Network.HTTP.Types
 import qualified Network.Wai as W
 import Network.Wai.Middleware.OpenApi(OpenApi)
 import qualified Network.Wai.Middleware.Validation as WV
-
 
 import System.IO.Unsafe(unsafePerformIO)
 
@@ -76,7 +77,7 @@ pactOpenApiSpec = unsafePerformIO $ do
 -- -------------------------------------------------------------------------- --
 -- API Validation Middleware
 
-mkApiValidationMiddleware :: ChainwebVersion -> IO W.Middleware
+mkApiValidationMiddleware :: HasCallStack => ChainwebVersion -> IO W.Middleware
 mkApiValidationMiddleware v = do
     coverageRef <- newIORef $ WV.CoverageMap Map.empty
     _ <- evaluate chainwebOpenApiSpec
@@ -85,8 +86,7 @@ mkApiValidationMiddleware v = do
   where
     lg (_, req) (respBody, resp) err = do
         let ex = ValidationException req (W.responseHeaders resp, W.responseStatus resp, respBody) err
-        print $ ppShow ex
-        error "validation error"
+        error $ "Chainweb.Test.Utils.APIValidation.mkApValidationMiddleware: validation error. " <> ppShow ex
     findPath path = asum
         [ case B8.split '/' path of
             ("" : "chainweb" : "0.0" : rawVersion : "chain" : rawChainId : "pact" : "api" : "v1" : rest) -> do

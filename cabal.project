@@ -33,7 +33,7 @@ package chainweb
 package pact
     ghc-options: -Wwarn
     -- avoid conflict with cryptonite during linking
-    flags: +cryptonite-ed25519 -build-tool +no-advice
+    flags: +cryptonite-ed25519 -build-tool
 
 package rocksdb-haskell-kadena
     ghc-options: -Wwarn -optc-w -optcxx-w
@@ -61,8 +61,8 @@ package yet-another-logger
 source-repository-package
     type: git
     location: https://github.com/kadena-io/pact.git
-    tag: f49f8d911538978e85eedbbaf24354bf5206979a
-    --sha256: 1vd56h2yn7ddx7fxsbb6wy9a71m727ygap29hzbdbgpnli7rfhj3
+    tag: 456aa65ef45596458488ed59e7167621b40e6139
+    --sha256: 0l59xi2by6l6gi10r8c437m7ics29215zr0zl1syyr3039vgmv0x
 
 source-repository-package
     type: git

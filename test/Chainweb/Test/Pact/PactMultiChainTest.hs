@@ -73,12 +73,12 @@ cid :: ChainId
 cid = someChainId testVersion
 
 data MultiEnv = MultiEnv
-    { _menvBdb :: TestBlockDb
-    , _menvPact :: WebPactExecutionService
-    , _menvPacts :: HM.HashMap ChainId PactExecutionService
-    , _menvMpa :: IO (IORef MemPoolAccess)
-    , _menvMiner :: Miner
-    , _menvChainId :: ChainId
+    { _menvBdb :: !TestBlockDb
+    , _menvPact :: !WebPactExecutionService
+    , _menvPacts :: !(HM.HashMap ChainId PactExecutionService)
+    , _menvMpa :: !(IO (IORef MemPoolAccess))
+    , _menvMiner :: !Miner
+    , _menvChainId :: !ChainId
     }
 
 makeLenses ''MultiEnv
@@ -134,10 +134,10 @@ tests = ScheduledTest testName go
         generousConfig = defaultPactServiceConfig { _pactBlockGasLimit = 300_000 }
         timeoutConfig = defaultPactServiceConfig { _pactBlockGasLimit = 100_000 }
         test pactConfig gasmodel tname f =
-          withDelegateMempool $ \dmpio -> testCase tname $
+          withDelegateMempool $ \dmpio -> testCaseSteps tname $ \step ->
             withTestBlockDb testVersion $ \bdb -> do
               (iompa,mpa) <- dmpio
-              withWebPactExecutionService testVersion pactConfig bdb mpa gasmodel $ \(pact,pacts) ->
+              withWebPactExecutionService step testVersion pactConfig bdb mpa gasmodel $ \(pact,pacts) ->
                 runReaderT f $
                 MultiEnv bdb pact pacts (return iompa) noMiner cid
 
@@ -307,6 +307,16 @@ assertLocalFailure
 assertLocalFailure s d lr =
   liftIO $ assertEqual s (Just d) $
     lr ^? _Right . _LocalResultLegacy . crResult . to _pactResult . _Left . to peDoc
+
+assertLocalSuccess
+    :: (HasCallStack, MonadIO m)
+    => String
+    -> PactValue
+    -> Either PactException LocalResult
+    -> m ()
+assertLocalSuccess s pv lr =
+  liftIO $ assertEqual s (Just pv) $
+    lr ^? _Right . _LocalResultLegacy . crResult . to _pactResult . _Right
 
 pact43UpgradeTest :: PactTestM ()
 pact43UpgradeTest = do
@@ -825,6 +835,7 @@ pact46UpgradeTest = do
         [ "(pairing-check [{'x: 1, 'y: 2}] [{'x:[0, 0], 'y:[0, 0]}])"
         ])
 
+
 chainweb219UpgradeTest :: PactTestM ()
 chainweb219UpgradeTest = do
 
@@ -856,6 +867,26 @@ chainweb219UpgradeTest = do
         "Should not resolve new pact native: dec"
         -- Should be cannot resolve dec, but no errors pre-fork.
         ""
+      , PactTxTest runIllTypedFunction $
+        assertTxSuccess
+        "User function return value types should not be checked before the fork"
+        (pDecimal 1.0)
+      , PactTxTest tryReadString $
+        assertTxFailure
+        "read-* errors are not recoverable before the fork"
+        ""
+      , PactTxTest tryReadInteger $
+        assertTxFailure
+        "read-* errors are not recoverable before the fork"
+        ""
+      , PactTxTest tryReadKeyset $
+        assertTxFailure
+        "read-* errors are not recoverable before the fork"
+        ""
+      , PactTxTest tryReadMsg $
+        assertTxFailure
+        "read-* errors are not recoverable before the fork"
+        ""
       ]
 
   -- Block 71, post-fork, errors should return on-chain but different
@@ -880,7 +911,35 @@ chainweb219UpgradeTest = do
         assertTxSuccess
         "Should resolve new pact native: dec"
         (pDecimal 1)
+      , PactTxTest runIllTypedFunction $
+        assertTxSuccess
+        "User function return value types should not be checked after the fork"
+        (pDecimal 1.0)
+      , PactTxTest tryReadString $
+        assertTxSuccess
+        "read-* errors are recoverable after the fork"
+        (pDecimal 1.0)
+      , PactTxTest tryReadInteger $
+        assertTxSuccess
+        "read-* errors are recoverable after the fork"
+        (pDecimal 1.0)
+      , PactTxTest tryReadKeyset $
+        assertTxSuccess
+        "read-* errors are recoverable after the fork"
+        (pDecimal 1.0)
+      , PactTxTest tryReadMsg $
+        assertTxSuccess
+        "read-* errors are recoverable after the fork"
+        (pDecimal 1.0)
       ]
+
+  -- run local on RTC check
+  lr <- runLocal cid $ set cbGasLimit 70000 $ mkCmd "nonce" runIllTypedFunctionExec
+  assertLocalSuccess
+    "User function return value types should not be checked in local"
+    (pDecimal 1.0)
+    lr
+
   where
     addErrTx = buildBasicGas 10000
         $ mkExec' (mconcat
@@ -902,6 +961,22 @@ chainweb219UpgradeTest = do
         $ mkExec' (mconcat
         [ "coin.transfer"
         ])
+    runIllTypedFunction = buildBasicGas 70000 runIllTypedFunctionExec
+    runIllTypedFunctionExec = mkExec' (mconcat
+                  [ "(namespace 'free)"
+                  , "(module m g (defcap g () true)"
+                  , "  (defun foo:string () 1))"
+                  , "(m.foo)"
+                  ])
+    tryReadInteger = buildBasicGas 1000
+        $ mkExec' "(try 1 (read-integer \"somekey\"))"
+    tryReadString = buildBasicGas 1000
+        $ mkExec' "(try 1 (read-string \"somekey\"))"
+    tryReadKeyset = buildBasicGas 1000
+        $ mkExec' "(try 1 (read-keyset \"somekey\"))"
+    tryReadMsg = buildBasicGas 1000
+        $ mkExec' "(try 1 (read-msg \"somekey\"))"
+
 
 pact4coin3UpgradeTest :: PactTestM ()
 pact4coin3UpgradeTest = do
@@ -1085,7 +1160,13 @@ assertTxEvents msg evs = liftIO . assertEqual msg evs . _crEvents
 assertTxGas :: (HasCallStack, MonadIO m) => String -> Gas -> CommandResult Hash -> m ()
 assertTxGas msg g = liftIO . assertEqual msg g . _crGas
 
-assertTxSuccess :: (HasCallStack, MonadIO m) => String -> PactValue -> CommandResult Hash -> m ()
+assertTxSuccess
+  :: HasCallStack
+  => MonadIO m
+  => String
+  -> PactValue
+  -> CommandResult Hash
+  -> m ()
 assertTxSuccess msg r tx = do
   liftIO $ assertEqual msg (Just r)
     (tx ^? crResult . to _pactResult . _Right)
