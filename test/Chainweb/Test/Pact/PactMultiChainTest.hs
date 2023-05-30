@@ -73,12 +73,12 @@ cid :: ChainId
 cid = someChainId testVersion
 
 data MultiEnv = MultiEnv
-    { _menvBdb :: TestBlockDb
-    , _menvPact :: WebPactExecutionService
-    , _menvPacts :: HM.HashMap ChainId PactExecutionService
-    , _menvMpa :: IO (IORef MemPoolAccess)
-    , _menvMiner :: Miner
-    , _menvChainId :: ChainId
+    { _menvBdb :: !TestBlockDb
+    , _menvPact :: !WebPactExecutionService
+    , _menvPacts :: !(HM.HashMap ChainId PactExecutionService)
+    , _menvMpa :: !(IO (IORef MemPoolAccess))
+    , _menvMiner :: !Miner
+    , _menvChainId :: !ChainId
     }
 
 makeLenses ''MultiEnv
@@ -134,10 +134,10 @@ tests = ScheduledTest testName go
         generousConfig = defaultPactServiceConfig { _pactBlockGasLimit = 300_000 }
         timeoutConfig = defaultPactServiceConfig { _pactBlockGasLimit = 100_000 }
         test pactConfig gasmodel tname f =
-          withDelegateMempool $ \dmpio -> testCase tname $
+          withDelegateMempool $ \dmpio -> testCaseSteps tname $ \step ->
             withTestBlockDb testVersion $ \bdb -> do
               (iompa,mpa) <- dmpio
-              withWebPactExecutionService testVersion pactConfig bdb mpa gasmodel $ \(pact,pacts) ->
+              withWebPactExecutionService step testVersion pactConfig bdb mpa gasmodel $ \(pact,pacts) ->
                 runReaderT f $
                 MultiEnv bdb pact pacts (return iompa) noMiner cid
 
@@ -1160,7 +1160,13 @@ assertTxEvents msg evs = liftIO . assertEqual msg evs . _crEvents
 assertTxGas :: (HasCallStack, MonadIO m) => String -> Gas -> CommandResult Hash -> m ()
 assertTxGas msg g = liftIO . assertEqual msg g . _crGas
 
-assertTxSuccess :: (HasCallStack, MonadIO m) => String -> PactValue -> CommandResult Hash -> m ()
+assertTxSuccess
+  :: HasCallStack
+  => MonadIO m
+  => String
+  -> PactValue
+  -> CommandResult Hash
+  -> m ()
 assertTxSuccess msg r tx = do
   unless (Just r == (tx ^? crResult . to _pactResult . _Right)) $
     liftIO $ print tx
