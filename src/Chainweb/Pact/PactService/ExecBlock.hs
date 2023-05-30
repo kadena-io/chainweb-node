@@ -325,13 +325,19 @@ execTransactions isGenesis miner ctxs enfCBFail usePrecomp (PactDbEnv' pactdbenv
           pbh = bf . _blockHeight $ ph
           checkpointerTarget = Just (pbh, _blockHash ph)
 
+      traceShowM ("pbh: " ++ show pbh)
+
       l <- asks _psLogger
       pd <- getTxContext def
 
       (mc, toUpdate) <- liftIO $! _cpRestore checkpointer checkpointerTarget >>= \case
         PactDbEnv' pactdbenv' -> tryReadMVar (P.pdPactDbVar pactdbenv') >>= \case
-          Just benv -> pure (_bsModuleCache $ _benvBlockState benv, False)
-          Nothing -> if isGenesis
+          Just benv -> do
+            traceShowM ("thre is a db in there":: String)
+            pure (_bsModuleCache $ _benvBlockState benv, False)
+          Nothing -> do
+            traceShowM ("got nothing here" :: String)
+            if isGenesis
             then pure $ (emptyDbCache defaultModuleCacheLimit, False)
             else do
               mc <- readInitModules l pactdbenv pd
@@ -447,7 +453,7 @@ applyPactCmd isGenesis env miner txTimeLimit cmd = StateT $ \(T2 mcache maybeBlo
 
     if isGenesis
     then do
-      traceShowM ("updating genesis with: " ++ show mcache')
+      -- traceShowM ("updating genesis with: " ++ show mcache')
       updateInitCache mcache'
     else debugResult "applyPactCmd" result
 

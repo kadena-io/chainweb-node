@@ -445,10 +445,10 @@ getInitCache = do
   checkpointer <- getCheckpointer
   PactServiceState{_psParentHeader} <- get
   let
-    -- bf 0 = 0
-    -- bf h = succ h
+    bf 0 = 0
+    bf h = succ h
     ph = _parentHeader _psParentHeader
-    checkpointerTarget = Just (_blockHeight ph + 1, _blockHash ph)
+    checkpointerTarget = Just (bf $ _blockHeight ph, _blockHash ph)
   liftIO $! _cpRestore checkpointer checkpointerTarget >>= \case
     PactDbEnv' pactdbenv -> tryReadMVar (pdPactDbVar pactdbenv) >>= \case
       Just benv -> pure $ _bsModuleCache $ _benvBlockState benv
@@ -474,8 +474,8 @@ updateInitCache mc = do
     PactDbEnv' pactdbenv ->
 
       void $ modifyMVar_ (pdPactDbVar pactdbenv) $ \db -> do
-        DT.traceShowM ("db has module cache: " ++ show (view (benvBlockState . bsModuleCache) db))
-        DT.traceShowM ("updating with: " ++ show mc)
+        -- DT.traceShowM ("db has module cache: " ++ show (view (benvBlockState . bsModuleCache) db))
+        -- DT.traceShowM ("updating with: " ++ show mc)
         let mc'
               | chainweb217Pact After v pbh || chainweb217Pact At v pbh = mc
               | otherwise = unionDbCache mc (view (benvBlockState . bsModuleCache) db)
