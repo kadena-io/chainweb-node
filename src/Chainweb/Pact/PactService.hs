@@ -96,6 +96,8 @@ import Chainweb.Version
 import Data.LogMessage
 import Utils.Logging.Trace
 
+import Debug.Trace (traceShowM)
+
 runPactService
     :: Logger logger
     => CanReadablePayloadCas tbl
@@ -232,6 +234,7 @@ initializeCoinContract _logger memPoolAccess v cid pwo = do
       withCheckpointerRewind Nothing (Just parent) "initializeCoinContract.readContracts" $ \(PactDbEnv' pdbenv) -> do
         PactServiceEnv{..} <- ask
         pd <- getTxContext def
+        traceShowM ("initializeCoinContract.readContracts" :: String)
         !mc <- liftIO $ readInitModules _psLogger pdbenv pd
         updateInitCache mc
         return $! Discard ()

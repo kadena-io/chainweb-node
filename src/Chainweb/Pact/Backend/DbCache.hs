@@ -62,6 +62,13 @@ import Chainweb.Utils (mebi)
 
 import Pact.Types.Persistence
 import Pact.Types.Term
+import Pact.Native (nativeDefs)
+
+nativeLookup :: NativeDefName -> Maybe (Term Name)
+nativeLookup (NativeDefName n) = case HM.lookup n nativeDefs of
+  Just (Direct t) -> Just t
+  _ -> Nothing
+
 
 -- | Default limit for the per chain size of the decoded module cache.
 --
@@ -259,7 +266,7 @@ toHashMap :: DbCache PersistModuleData -> HM.HashMap ModuleName (ModuleData Ref,
 toHashMap DbCache{_dcStore} = HM.fromList $ map convert $ HM.toList _dcStore
     where
         fromPersist :: PersistModuleData -> ModuleData Ref
-        fromPersist d = either (const $ error "toHashMap: fromPersist failed") id (traverse (traverse (fromPersistDirect (const Nothing))) d)
+        fromPersist d = either (const $ error "toHashMap: fromPersist failed") id (traverse (traverse (fromPersistDirect nativeLookup)) d)
 
         convert :: (CacheAddress, CacheEntry PersistModuleData) -> (ModuleName, (ModuleData Ref,Bool))
         convert (CacheAddress ca, CacheEntry{_ceData}) =

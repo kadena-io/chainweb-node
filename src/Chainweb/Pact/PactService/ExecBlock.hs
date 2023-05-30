@@ -313,7 +313,7 @@ execTransactions isGenesis miner ctxs enfCBFail usePrecomp (PactDbEnv' pactdbenv
     traceShowM ("module cache: " ++ show mc)
 
     coinOut <- runCoinbase isGenesis pactdbenv miner enfCBFail usePrecomp mc
-    txOuts <- applyPactCmds isGenesis pactdbenv ctxs miner mc gasLimit timeLimit
+    txOuts <- applyPactCmds isGenesis undefined ctxs miner mc gasLimit timeLimit
     return $! Transactions (V.zip ctxs txOuts) coinOut
   where
     getCache = do
@@ -335,15 +335,22 @@ execTransactions isGenesis miner ctxs enfCBFail usePrecomp (PactDbEnv' pactdbenv
           Just benv -> do
             traceShowM ("thre is a db in there":: String, isEmptyCache $ _bsModuleCache $ _benvBlockState benv)
             if isEmptyCache $ _bsModuleCache $ _benvBlockState benv then do
-              mc <- readInitModules l pactdbenv' pd
-              pure (mc, True)
+              if isGenesis
+              then do
+                pure $ (emptyDbCache defaultModuleCacheLimit, False)
+              else do
+                mc <- readInitModules l pactdbenv' pd
+                pure (mc, True)
             else
               pure (_bsModuleCache $ _benvBlockState benv, False)
           Nothing -> do
             traceShowM ("got nothing here" :: String)
             if isGenesis
-            then pure $ (emptyDbCache defaultModuleCacheLimit, False)
+            then do
+              traceShowM ("doing genesis thing" :: String)
+              pure $ (emptyDbCache defaultModuleCacheLimit, False)
             else do
+              traceShowM ("readInitModules" :: String)
               mc <- readInitModules l pactdbenv pd
               pure (mc, True)
 
@@ -390,6 +397,7 @@ runCoinbase False dbEnv miner enfCBFail usePrecomp mc = do
   where
 
     upgradeInitCache newCache = do
+      traceShowM ("upgradeInitCache" :: String)
       logInfo "Updating init cache for upgrade"
       updateInitCache newCache
 
@@ -419,7 +427,22 @@ applyPactCmd
       (T2 ModuleCache (Maybe P.Gas))
       (PactServiceM tbl)
       (Either GasPurchaseFailure (P.CommandResult [P.TxLog A.Value]))
-applyPactCmd isGenesis env miner txTimeLimit cmd = StateT $ \(T2 mcache maybeBlockGasRemaining) -> do
+applyPactCmd isGenesis _ miner txTimeLimit cmd = StateT $ \(T2 mcache maybeBlockGasRemaining) -> do
+  cp <- getCheckpointer
+  PactServiceState{_psParentHeader} <- get
+  let
+    bf 0 = 0
+    bf h = succ h
+    ph = _parentHeader _psParentHeader
+    checkpointerTarget = Just (bf $ _blockHeight ph, _blockHash ph)
+
+  (PactDbEnv' env') <- liftIO $! _cpRestore cp checkpointerTarget
+
+  liftIO $ tryReadMVar (P.pdPactDbVar env') >>= \case
+      Just benv ->  liftIO $! print ("HERE IS THE ENV " ++ show (_bsModuleCache $ _benvBlockState benv))
+      Nothing -> liftIO $! print ("tryReadMVar NOTIHNG" :: String)
+
+  traceShowM ("applyPactCmd, is genesis " ++ show isGenesis)
   logger <- view psLogger
   gasLogger <- view psGasLogger
   gasModel <- view psGasModel
@@ -441,9 +464,15 @@ applyPactCmd isGenesis env miner txTimeLimit cmd = StateT $ \(T2 mcache maybeBlo
       set cmdGasLimit newTxGasLimit (payloadObj <$> cmd)
     initialGas = initialGasOf (P._cmdPayload cmd)
   handle onBuyGasFailure $ do
+    traceShowM ("LET'S GOOOO" :: String)
     T2 result mcache' <- if isGenesis
-      then liftIO $! applyGenesisCmd logger env P.noSPVSupport gasLimitedCmd
+      then do
+        traceShowM ("applyGenesisCmd!!" :: String)
+        liftIO $! print ("I'm HERERERERE" :: String)
+        liftIO $! applyGenesisCmd logger env' P.noSPVSupport gasLimitedCmd
       else do
+        liftIO $! print ("I'm HERERERERE 2" :: String)
+        traceShowM ("non genesis!!" :: String)
         pd <- getTxContext (publicMetaOf gasLimitedCmd)
         spv <- use psSpvSupport
         let
@@ -452,16 +481,15 @@ applyPactCmd isGenesis env miner txTimeLimit cmd = StateT $ \(T2 mcache maybeBlo
             Nothing -> id
             Just limit ->
                maybe (throwM timeoutError) return <=< timeout (fromIntegral limit)
-        T3 r c _warns <- liftIO $! txTimeout $ applyCmd v logger gasLogger env miner (gasModel pd) pd spv gasLimitedCmd initialGas mcache ApplySend
+        T3 r c _warns <- liftIO $! txTimeout $ applyCmd v logger gasLogger env' miner (gasModel pd) pd spv gasLimitedCmd initialGas mcache ApplySend
         pure $ T2 r c
 
     if isGenesis
     then do
-      -- traceShowM ("updating genesis with: " ++ show mcache')
+      traceShowM ("updating genesis with: " ++ show mcache')
+      -- traceShowM ("updating genesis" :: String)
       updateInitCache mcache'
     else debugResult "applyPactCmd" result
-
-    cp <- getCheckpointer
 
     -- mark the tx as processed at the checkpointer.
     liftIO $ _cpRegisterProcessedTx cp (P._cmdHash cmd)
