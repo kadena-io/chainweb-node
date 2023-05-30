@@ -62,7 +62,7 @@ source-repository-package
     type: git
     location: https://github.com/kadena-io/pact.git
     tag: 456aa65ef45596458488ed59e7167621b40e6139
-    --sha256: 0l59xi2by6l6gi10r8c437m7ics29215zr0zl1syyr3039vgmv0x
+    --sha256: 1c252pm7vrvplg1x6s1sslym9bf6nc1nlgz3rh83xkfw8pc62r17
 
 source-repository-package
     type: git
