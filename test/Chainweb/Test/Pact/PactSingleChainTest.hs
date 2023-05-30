@@ -1,6 +1,7 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DerivingVia #-}
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE ImportQualifiedPost #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE OverloadedStrings #-}
@@ -22,7 +23,8 @@ import Control.Lens hiding ((.=))
 import Control.Monad
 import Control.Monad.Catch
 
-import Data.Aeson (object, (.=), Value(..), encode, decode, eitherDecode)
+import Data.Aeson (object, (.=), Value(..), decode, eitherDecode)
+import qualified Data.ByteString as B
 import qualified Data.ByteString.Lazy as BL
 import Data.Either (isRight)
 import Data.IORef
@@ -48,6 +50,9 @@ import Pact.Types.Persistence
 import Pact.Types.PactError
 import Pact.Types.RowData
 import Pact.Types.RPC
+
+import Pact.JSON.Encode qualified as J
+import Pact.JSON.Yaml
 
 import Chainweb.BlockCreationTime
 import Chainweb.BlockHeader
@@ -149,7 +154,7 @@ toRowData v = case eitherDecode encV of
         "toRowData: failed to encode as row data. " <> e <> "\n" <> show encV
     Right r -> r
   where
-    encV = encode v
+    encV = J.encode v
 
 getHistory :: IO (IORef MemPoolAccess) -> IO (PactQueue,TestBlockDb) -> TestTree
 getHistory refIO reqIO = testCase "getHistory" $ do
