@@ -99,7 +99,7 @@ memo
 memo tm@(TaskMap var) k task = bracket query cancel wait
   where
     query = do
-        -- TODO: should we insert another lookup here? It depends on how optimistic
+        -- NOTE: should we insert another lookup here? It depends on how optimistic
         -- we are that the lookup is successful.
         modifyMVarMasked var $ \m -> case HM.lookup k m of
             Nothing -> do
