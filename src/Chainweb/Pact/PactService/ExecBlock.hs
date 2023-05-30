@@ -333,8 +333,12 @@ execTransactions isGenesis miner ctxs enfCBFail usePrecomp (PactDbEnv' pactdbenv
       (mc, toUpdate) <- liftIO $! _cpRestore checkpointer checkpointerTarget >>= \case
         PactDbEnv' pactdbenv' -> tryReadMVar (P.pdPactDbVar pactdbenv') >>= \case
           Just benv -> do
-            traceShowM ("thre is a db in there":: String)
-            pure (_bsModuleCache $ _benvBlockState benv, False)
+            traceShowM ("thre is a db in there":: String, isEmptyCache $ _bsModuleCache $ _benvBlockState benv)
+            if isEmptyCache $ _bsModuleCache $ _benvBlockState benv then do
+              mc <- readInitModules l pactdbenv' pd
+              pure (mc, True)
+            else
+              pure (_bsModuleCache $ _benvBlockState benv, False)
           Nothing -> do
             traceShowM ("got nothing here" :: String)
             if isGenesis

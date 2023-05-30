@@ -6,6 +6,7 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE NamedFieldPuns #-}
 
 -- |
@@ -17,6 +18,7 @@
 --
 module Chainweb.Pact.Backend.DbCache
 ( DbCacheLimitBytes(..)
+, CacheAddress(..)
 , defaultModuleCacheLimit
 , DbCache
 , checkDbCache
@@ -27,6 +29,7 @@ module Chainweb.Pact.Backend.DbCache
 , cacheStats
 , updateCacheStats
 , unionDbCache
+, filterDbCache
 , fromHashMap
 , toHashMap
 ) where
@@ -223,10 +226,20 @@ unionDbCache :: DbCache a -> DbCache a -> DbCache a
 unionDbCache c c' = DbCache
     { _dcStore = HM.union (_dcStore c) (_dcStore c')
     , _dcSize = _dcSize c + _dcSize c'
-    , _dcLimit = _dcLimit c + _dcLimit c'
+    , _dcLimit = max (_dcLimit c) (_dcLimit c')
     , _dcMisses = _dcMisses c + _dcMisses c'
     , _dcHits = _dcHits c + _dcHits c'
     }
+
+filterDbCache :: (CacheAddress -> CacheEntry a -> Bool) -> DbCache a -> DbCache a
+filterDbCache f DbCache{..} = DbCache
+    { _dcStore = m
+    , _dcSize = HM.size m
+    , _dcLimit = _dcLimit
+    , _dcMisses = 0
+    , _dcHits = 0
+    }
+    where m = HM.filterWithKey f _dcStore
 
 fromHashMap :: TxId -> HM.HashMap ModuleName (ModuleData Ref,Bool) -> DbCache PersistModuleData
 fromHashMap txid m = (emptyDbCache defaultModuleCacheLimit)

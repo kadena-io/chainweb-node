@@ -472,15 +472,18 @@ updateInitCache mc = do
   v <- view psVersion
   liftIO $! _cpRestore checkpointer checkpointerTarget >>= \case
     PactDbEnv' pactdbenv ->
+      modifyMVar_ (pdPactDbVar pactdbenv) $ \db -> do
+        if (isEmptyCache $ view (benvBlockState . bsModuleCache) db) then do
+          DT.traceShowM ("IS EMPTY SETTING" :: String, show pbh)
+          pure $ set (benvBlockState . bsModuleCache) mc db
+        else do
+          DT.traceShowM ("NOT EMPTY" :: String, show pbh)
 
-      void $ modifyMVar_ (pdPactDbVar pactdbenv) $ \db -> do
-        -- DT.traceShowM ("db has module cache: " ++ show (view (benvBlockState . bsModuleCache) db))
-        -- DT.traceShowM ("updating with: " ++ show mc)
-        let mc'
-              | chainweb217Pact After v pbh || chainweb217Pact At v pbh = mc
-              | otherwise = unionDbCache mc (view (benvBlockState . bsModuleCache) db)
-            !db' = set (benvBlockState . bsModuleCache) mc' db
-        return db'
+          let mc'
+                | chainweb217Pact After v pbh || chainweb217Pact At v pbh = mc
+                | otherwise = unionDbCache mc (view (benvBlockState . bsModuleCache) db)
+              !db' = set (benvBlockState . bsModuleCache) mc' db
+          pure db'
 
 -- | Convert context to datatype for Pact environment.
 --

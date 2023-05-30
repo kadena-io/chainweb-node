@@ -109,6 +109,7 @@ import Chainweb.Transaction
 import Chainweb.Utils (encodeToByteString, sshow, tryAllSynchronous, T2(..), T3(..))
 import Chainweb.Version as V
 
+import qualified Debug.Trace as DT
 import Debug.Trace (traceShowM)
 
 -- -------------------------------------------------------------------------- --
@@ -502,6 +503,7 @@ readInitModules logger dbEnv txCtx
 
     go :: TransactionM p ModuleCache
     go = do
+      traceShowM ("casual go" :: String)
 
       -- see if fungible-v2 is there
       checkCmd <- liftIO $ mkCmd "(contains \"fungible-v2\" (list-modules))"
@@ -537,6 +539,7 @@ readInitModules logger dbEnv txCtx
     -- if this changes, we must change the filter in 'updateInitCache'
     goCw217 :: TransactionM p ModuleCache
     goCw217 = do
+      traceShowM ("goCw217" :: String)
       coinDepCmd <- liftIO $ mkCmd "coin.MINIMUM_PRECISION"
       void $ run "load modules" coinDepCmd
       use txCache
@@ -574,8 +577,7 @@ applyUpgrades v cid height
 
     filterModuleCache = do
       mc <- use txCache
-      pure $ Just mc
-      -- pure $ Just $ HM.filterWithKey (\k _ -> k == "coin") mc
+      pure $ Just $ filterDbCache (\(CacheAddress k) _ -> k == "coin") mc
 
     applyTxs txsIO flags = do
       infoLog "Applying upgrade!"
@@ -1108,7 +1110,7 @@ setModuleCache
   -> EvalState
   -> EvalState
 setModuleCache mcache es =
-  let mcache' = toHashMap mcache
+  let mcache' = DT.trace "setModuleCache: " $ DT.traceShowId $ toHashMap mcache
       allDeps = foldMap (allModuleExports . fst) mcache'
   in set (evalRefs . rsQualifiedDeps) allDeps $ set (evalRefs . rsLoadedModules) mcache' $ es
 {-# INLINE setModuleCache #-}
@@ -1119,7 +1121,7 @@ setTxResultState :: EvalResult -> TransactionM db ()
 setTxResultState er = do
     traceShowM ("setTxResultState!!!" :: String)
     txLogs <>= (_erLogs er)
-    txCache .= fromHashMap (fromJust $ _erTxId er) (_erLoadedModules er)
+    txCache .= fromHashMap (fromJust $ _erTxId er) (DT.trace "_erLoadedModules er" $ DT.traceShowId $ _erLoadedModules er)
     txGasUsed .= (_erGas er)
 {-# INLINE setTxResultState #-}
 
