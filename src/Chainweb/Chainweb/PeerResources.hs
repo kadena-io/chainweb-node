@@ -43,9 +43,9 @@ module Chainweb.Chainweb.PeerResources
 import Configuration.Utils hiding (Error, Lens')
 
 import Control.Concurrent.Async
-import Control.Exception.Safe
 import Control.Lens hiding ((.=), (<.>))
 import Control.Monad
+import Control.Monad.Catch
 
 import qualified Data.ByteString.Char8 as B8
 import Data.Either
@@ -334,7 +334,7 @@ withConnectionLogger logger counter inner =
             ]
 
     runLogClientConnections umask = do
-        umask logClientConnections `catchAny` \e -> do
+        umask logClientConnections `catchAllSynchronous` \e -> do
             logFunctionText logger Error ("Connection manager logger failed: " <> sshow e)
         logFunctionText logger Info "Restarting connection manager logger"
         runLogClientConnections umask
