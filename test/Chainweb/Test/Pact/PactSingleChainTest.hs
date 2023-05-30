@@ -24,7 +24,6 @@ import Control.Monad
 import Control.Monad.Catch
 
 import Data.Aeson (object, (.=), Value(..), decode, eitherDecode)
-import qualified Data.ByteString as B
 import qualified Data.ByteString.Lazy as BL
 import Data.Either (isRight)
 import Data.IORef
@@ -32,7 +31,6 @@ import qualified Data.Map.Strict as M
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
 import qualified Data.Vector as V
-import qualified Data.Yaml as Y
 
 import GHC.Stack
 
@@ -519,7 +517,7 @@ goldenNewBlock name mp mpRefIO reqIO = golden name $ do
     goldenBytes resp
   where
     goldenBytes :: PayloadWithOutputs -> IO BL.ByteString
-    goldenBytes a = return $ BL.fromStrict $ Y.encode $ object
+    goldenBytes a = return $ BL.fromStrict $ encodeYaml $ object
       [ "test-group" .= ("new-block" :: T.Text)
       , "results" .= a
       ]

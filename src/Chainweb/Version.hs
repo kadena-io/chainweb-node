@@ -1038,8 +1038,8 @@ chainweb218Pact (FastTimedCPM g) | g == petersonChainGraph = (> 60)
 chainweb218Pact _ = (> 24)
 
 chainweb219Pact :: ChainwebVersion -> BlockHeight -> Bool
-chainweb219Pact Mainnet01 = (>= 4_000_000) -- Todo: comment times
-chainweb219Pact Testnet04 = (>= 4_000_000) -- Todo: comment times
+chainweb219Pact Mainnet01 = (>= 3_774_423) -- 2023-06-02 00:00:00+00:00
+chainweb219Pact Testnet04 = (>= 3_299_753) -- 2023-06-01 12:00:00+00:00
 chainweb219Pact Development = (>= 550)
 chainweb219Pact (FastTimedCPM g) | g == petersonChainGraph = (> 70)
 chainweb219Pact _ = (> 26)

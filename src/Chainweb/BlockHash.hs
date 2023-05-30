@@ -205,7 +205,7 @@ decodeBlockHashRecord :: Get BlockHashRecord
 decodeBlockHashRecord = do
     l <- getWord16le
     hashes <- replicateM (int l) decodeBlockHashWithChainId
-    return $! BlockHashRecord $ HM.fromList hashes
+    return $ BlockHashRecord $! HM.fromList hashes
 
 decodeBlockHashWithChainIdChecked
     :: HasChainId p

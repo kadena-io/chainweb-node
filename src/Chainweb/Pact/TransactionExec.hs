@@ -28,6 +28,7 @@ module Chainweb.Pact.TransactionExec
 , readInitModules
 , enablePactEvents'
 , enforceKeysetFormats'
+, disableReturnRTC
 
   -- * Gas Execution
 , buyGas
@@ -194,7 +195,8 @@ applyCmd v logger gasLogger pdbenv miner gasModel txCtx spv cmd initialGas mcach
           ++ enablePact45 txCtx
           ++ enableNewTrans txCtx
           ++ enablePact46 txCtx
-          ++ enablePact47 txCtx)
+          ++ enablePact47 txCtx
+          ++ disableReturnRTC txCtx)
 
     cenv = TransactionEnv Transactional pdbenv logger gasLogger (ctxToPublicData txCtx) spv nid gasPrice
       requestKey (fromIntegral gasLimit) executionConfigNoHistory
@@ -825,6 +827,10 @@ enablePact47 :: TxContext -> [ExecutionFlag]
 enablePact47 tc
     | chainweb219Pact (ctxVersion tc) (ctxCurrentBlockHeight tc) = []
     | otherwise = [FlagDisablePact47]
+
+-- | Even though this is not forking, abstracting for future shutoffs
+disableReturnRTC :: TxContext -> [ExecutionFlag]
+disableReturnRTC _tc = [FlagDisableRuntimeReturnTypeChecking]
 
 -- | Execute a 'ContMsg' and return the command result and module cache
 --
