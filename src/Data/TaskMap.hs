@@ -104,6 +104,6 @@ memo tm@(TaskMap var) k task = bracket query cancel wait
         modifyMVarMasked var $ \m -> case HM.lookup k m of
             Nothing -> do
                 !a <- asyncWithUnmask $ \umask -> umask (task k) `finally` delete tm k
-                !m' <- evaluate $ HM.insert k a m
+                m' <- evaluate $ HM.insert k a m
                 return (m', a)
             (Just !a) -> return (m, a)
