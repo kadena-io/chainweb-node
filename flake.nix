@@ -3,12 +3,15 @@
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs?rev=4d2b37a84fad1091b9de401eb450aae66f1a741e";
+    hackage.url = "github:input-output-hk/hackage.nix";
+    hackage.flake = false;
     haskellNix.url = "github:input-output-hk/haskell.nix";
+    haskellNix.inputs.hackage.follows = "hackage";
     flake-utils.url = "github:numtide/flake-utils";
     nix-filter.url = "github:numtide/nix-filter";
   };
 
-  outputs = { self, nixpkgs, flake-utils, haskellNix, nix-filter }:
+  outputs = { self, nixpkgs, flake-utils, haskellNix, nix-filter, ... }:
     flake-utils.lib.eachSystem
       [ "x86_64-linux" "x86_64-darwin"
         "aarch64-linux" "aarch64-darwin" ] (system:
