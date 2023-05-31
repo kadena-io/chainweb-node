@@ -438,54 +438,35 @@ data PactServiceState = PactServiceState
 makeLenses ''PactServiceState
 
 -- | Look up an init cache that is stored at or before the height of the current parent header.
-getInitCache :: PactServiceM tbl ModuleCache
-getInitCache = do
-  DT.traceShowM ("getInitCache" :: String)
-
-  checkpointer <- getCheckpointer
-  PactServiceState{_psParentHeader} <- get
-  let
-    bf 0 = 0
-    bf h = succ h
-    ph = _parentHeader _psParentHeader
-    checkpointerTarget = Just (bf $ _blockHeight ph, _blockHash ph)
-  liftIO $! _cpRestore checkpointer checkpointerTarget >>= \case
-    PactDbEnv' pactdbenv -> tryReadMVar (pdPactDbVar pactdbenv) >>= \case
-      Just benv -> pure $ _bsModuleCache $ _benvBlockState benv
-      Nothing -> pure $ emptyDbCache defaultModuleCacheLimit
+getInitCache :: PactDbEnv (BlockEnv SQLiteEnv) -> PactServiceM tbl ModuleCache
+getInitCache pactdbenv =
+  liftIO $ tryReadMVar (pdPactDbVar pactdbenv) >>= \case
+    Just benv -> pure $ _bsModuleCache $ _benvBlockState benv
+    Nothing -> pure $ emptyDbCache defaultModuleCacheLimit
 
 -- | Update init cache at adjusted parent block height (APBH).
 -- Contents are merged with cache found at or before APBH.
 -- APBH is 0 for genesis and (parent block height + 1) thereafter.
-updateInitCache :: ModuleCache -> PactServiceM tbl ()
-updateInitCache mc = do
-  DT.traceShowM ("updateInitCache" :: String)
+updateInitCache :: PactDbEnv (BlockEnv SQLiteEnv) -> ModuleCache -> PactServiceM tbl ()
+updateInitCache pactdbenv mc = do
 
-  checkpointer <- getCheckpointer
   PactServiceState{_psParentHeader} <- get
   let bf 0 = 0
       bf h = succ h
       ph = _parentHeader _psParentHeader
       pbh = bf . _blockHeight $ ph
-      checkpointerTarget = Just (pbh, _blockHash ph)
 
-  pure ()
+  v <- view psVersion
 
-  -- v <- view psVersion
-  -- liftIO $! _cpRestore checkpointer checkpointerTarget >>= \case
-  --   PactDbEnv' pactdbenv ->
-  --     modifyMVar_ (pdPactDbVar pactdbenv) $ \db -> do
-  --       if (isEmptyCache $ view (benvBlockState . bsModuleCache) db) then do
-  --         DT.traceShowM ("IS EMPTY SETTING" :: String, show pbh)
-  --         pure $ set (benvBlockState . bsModuleCache) mc db
-  --       else do
-  --         DT.traceShowM ("NOT EMPTY" :: String, show pbh)
-
-  --         let mc'
-  --               | chainweb217Pact After v pbh || chainweb217Pact At v pbh = mc
-  --               | otherwise = unionDbCache mc (view (benvBlockState . bsModuleCache) db)
-  --             !db' = set (benvBlockState . bsModuleCache) mc' db
-  --         pure db'
+  liftIO $ modifyMVar_ (pdPactDbVar pactdbenv) $ \db -> pure $
+    if (isEmptyCache $ view (benvBlockState . bsModuleCache) db)
+    then set (benvBlockState . bsModuleCache) mc db
+    else
+      let mc'
+            | chainweb217Pact After v pbh || chainweb217Pact At v pbh = mc
+            | otherwise = unionDbCache mc (view (benvBlockState . bsModuleCache) db)
+          !db' = set (benvBlockState . bsModuleCache) mc' db
+      in db'
 
 -- | Convert context to datatype for Pact environment.
 --

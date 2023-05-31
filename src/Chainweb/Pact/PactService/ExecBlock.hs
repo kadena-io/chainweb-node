@@ -32,7 +32,7 @@ module Chainweb.Pact.PactService.ExecBlock
     ) where
 
 import Control.DeepSeq
-import Control.Concurrent (tryReadMVar)
+import Control.Concurrent (readMVar)
 import Control.Exception (evaluate)
 import Control.Lens
 import Control.Monad
@@ -89,8 +89,6 @@ import Chainweb.Time
 import Chainweb.Transaction
 import Chainweb.Utils hiding (check)
 import Chainweb.Version
-
-import Debug.Trace (traceShowM)
 
 -- | Set parent header in state and spv support (using parent hash)
 setParentHeader :: String -> ParentHeader -> PactServiceM tbl ()
@@ -310,52 +308,24 @@ execTransactions
 execTransactions isGenesis miner ctxs enfCBFail usePrecomp (PactDbEnv' pactdbenv) gasLimit timeLimit = do
     mc <- getCache
 
-    traceShowM ("module cache: " ++ show mc)
-
     coinOut <- runCoinbase isGenesis pactdbenv miner enfCBFail usePrecomp mc
     txOuts <- applyPactCmds isGenesis pactdbenv ctxs miner mc gasLimit timeLimit
     return $! Transactions (V.zip ctxs txOuts) coinOut
   where
     getCache = do
-      checkpointer <- getCheckpointer
-      PactServiceState{_psParentHeader} <- get
-      let bf 0 = 0
-          bf h = succ h
-          ph = _parentHeader _psParentHeader
-          pbh = bf . _blockHeight $ ph
-          checkpointerTarget = Just (pbh, _blockHash ph)
-
-      traceShowM ("pbh: " ++ show pbh)
-
       l <- asks _psLogger
       pd <- getTxContext def
+      benv <- liftIO $ readMVar (P.pdPactDbVar pactdbenv)
+      let mcache = _bsModuleCache $ _benvBlockState benv
 
-      (mc, toUpdate) <- liftIO $! _cpRestore checkpointer checkpointerTarget >>= \case
-        PactDbEnv' pactdbenv' -> tryReadMVar (P.pdPactDbVar pactdbenv') >>= \case
-          Just benv -> do
-            traceShowM ("thre is a db in there":: String, isEmptyCache $ _bsModuleCache $ _benvBlockState benv)
-            if isEmptyCache $ _bsModuleCache $ _benvBlockState benv then do
-              if isGenesis
-              then do
-                pure $ (emptyDbCache defaultModuleCacheLimit, False)
-              else do
-                mc <- readInitModules l pactdbenv' pd
-                pure (mc, True)
-            else
-              pure (_bsModuleCache $ _benvBlockState benv, False)
-          Nothing -> do
-            traceShowM ("got nothing here" :: String)
-            if isGenesis
-            then do
-              traceShowM ("doing genesis thing" :: String)
-              pure $ (emptyDbCache defaultModuleCacheLimit, False)
-            else do
-              traceShowM ("readInitModules" :: String)
-              mc <- readInitModules l pactdbenv pd
-              pure (mc, True)
-
-      when toUpdate $ updateInitCache mc
-      pure mc
+      if isEmptyCache mcache then
+        if isGenesis
+        then pure (emptyDbCache defaultModuleCacheLimit)
+        else do
+          mc <- liftIO $ readInitModules l pactdbenv pd
+          updateInitCache pactdbenv mc
+          pure mc
+      else pure mcache
 
 execTransactionsOnly
     :: Miner
@@ -365,13 +335,13 @@ execTransactionsOnly
     -> PactServiceM tbl
        (Vector (ChainwebTransaction, Either GasPurchaseFailure (P.CommandResult [P.TxLog A.Value])))
 execTransactionsOnly miner ctxs (PactDbEnv' pactdbenv) txTimeLimit = do
-    mc <- getInitCache
+    mc <- getInitCache pactdbenv
     txOuts <- applyPactCmds False pactdbenv ctxs miner mc Nothing txTimeLimit
     return $! V.zip ctxs txOuts
 
 runCoinbase
     :: Bool
-    -> P.PactDbEnv p
+    -> P.PactDbEnv (BlockEnv SQLiteEnv)
     -> Miner
     -> EnforceCoinbaseFailure
     -> CoinbaseUsePrecompiled
@@ -390,16 +360,15 @@ runCoinbase False dbEnv miner enfCBFail usePrecomp mc = do
 
     (T2 cr upgradedCacheM) <-
       liftIO $! applyCoinbase v logger dbEnv miner reward pd enfCBFail usePrecomp mc
-    mapM_ upgradeInitCache upgradedCacheM
+    mapM_ (upgradeInitCache dbEnv) upgradedCacheM
     debugResult "runCoinbase" cr
     return $! cr
 
   where
 
-    upgradeInitCache newCache = do
-      traceShowM ("upgradeInitCache" :: String)
+    upgradeInitCache dbEnv newCache = do
       logInfo "Updating init cache for upgrade"
-      updateInitCache newCache
+      updateInitCache dbEnv newCache
 
 
 -- | Apply multiple Pact commands, incrementing the transaction Id for each.
@@ -407,7 +376,7 @@ runCoinbase False dbEnv miner enfCBFail usePrecomp mc = do
 -- with the inputs.)
 applyPactCmds
     :: Bool
-    -> P.PactDbEnv p
+    -> P.PactDbEnv (BlockEnv SQLiteEnv)
     -> Vector ChainwebTransaction
     -> Miner
     -> ModuleCache
@@ -419,7 +388,7 @@ applyPactCmds isGenesis env cmds miner mc blockGas txTimeLimit = do
 
 applyPactCmd
   :: Bool
-  -> P.PactDbEnv p
+  -> P.PactDbEnv (BlockEnv SQLiteEnv)
   -> Miner
   -> Maybe Micros
   -> ChainwebTransaction
@@ -428,21 +397,6 @@ applyPactCmd
       (PactServiceM tbl)
       (Either GasPurchaseFailure (P.CommandResult [P.TxLog A.Value]))
 applyPactCmd isGenesis env miner txTimeLimit cmd = StateT $ \(T2 mcache maybeBlockGasRemaining) -> do
-  cp <- getCheckpointer
-  PactServiceState{_psParentHeader} <- get
-  let
-    bf 0 = 0
-    bf h = succ h
-    ph = _parentHeader _psParentHeader
-    checkpointerTarget = Just (bf $ _blockHeight ph, _blockHash ph)
-
-  (PactDbEnv' env') <- liftIO $! _cpRestore cp checkpointerTarget
-
-  -- liftIO $ tryReadMVar (P.pdPactDbVar env') >>= \case
-  --     Just benv ->  liftIO $! print ("HERE IS THE ENV " ++ show (_bsModuleCache $ _benvBlockState benv))
-  --     Nothing -> liftIO $! print ("tryReadMVar NOTIHNG" :: String)
-
-  traceShowM ("applyPactCmd, is genesis " ++ show isGenesis)
   logger <- view psLogger
   gasLogger <- view psGasLogger
   gasModel <- view psGasModel
@@ -464,15 +418,9 @@ applyPactCmd isGenesis env miner txTimeLimit cmd = StateT $ \(T2 mcache maybeBlo
       set cmdGasLimit newTxGasLimit (payloadObj <$> cmd)
     initialGas = initialGasOf (P._cmdPayload cmd)
   handle onBuyGasFailure $ do
-    traceShowM ("LET'S GOOOO" :: String)
     T2 result mcache' <- if isGenesis
-      then do
-        traceShowM ("applyGenesisCmd!!" :: String)
-        liftIO $! print ("I'm HERERERERE" :: String)
-        liftIO $! applyGenesisCmd logger env P.noSPVSupport gasLimitedCmd
+      then liftIO $! applyGenesisCmd logger env P.noSPVSupport gasLimitedCmd
       else do
-        liftIO $! print ("I'm HERERERERE 2" :: String)
-        traceShowM ("non genesis!!" :: String)
         pd <- getTxContext (publicMetaOf gasLimitedCmd)
         spv <- use psSpvSupport
         let
@@ -481,16 +429,14 @@ applyPactCmd isGenesis env miner txTimeLimit cmd = StateT $ \(T2 mcache maybeBlo
             Nothing -> id
             Just limit ->
                maybe (throwM timeoutError) return <=< timeout (fromIntegral limit)
-        T3 r c _warns <- liftIO $! txTimeout $ applyCmd v logger gasLogger env' miner (gasModel pd) pd spv gasLimitedCmd initialGas mcache ApplySend
+        T3 r c _warns <- liftIO $! txTimeout $ applyCmd v logger gasLogger env miner (gasModel pd) pd spv gasLimitedCmd initialGas mcache ApplySend
         pure $ T2 r c
 
     if isGenesis
-    then do
-      -- traceShowM ("updating genesis with: " ++ show mcache')
-      -- traceShowM ("updating genesis" :: String)
-      updateInitCache mcache'
+    then updateInitCache env mcache'
     else debugResult "applyPactCmd" result
 
+    cp <- getCheckpointer
     -- mark the tx as processed at the checkpointer.
     liftIO $ _cpRegisterProcessedTx cp (P._cmdHash cmd)
     case maybeBlockGasRemaining of

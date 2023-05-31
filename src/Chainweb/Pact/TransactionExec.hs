@@ -1110,7 +1110,7 @@ setModuleCache
   -> EvalState
   -> EvalState
 setModuleCache mcache es =
-  let mcache' = DT.trace "setModuleCache: " $ DT.traceShowId $ toHashMap mcache
+  let mcache' = toHashMap mcache
       allDeps = foldMap (allModuleExports . fst) mcache'
   in set (evalRefs . rsQualifiedDeps) allDeps $ set (evalRefs . rsLoadedModules) mcache' $ es
 {-# INLINE setModuleCache #-}

@@ -96,8 +96,6 @@ import Chainweb.Version
 import Data.LogMessage
 import Utils.Logging.Trace
 
-import Debug.Trace (traceShowM)
-
 runPactService
     :: Logger logger
     => CanReadablePayloadCas tbl
@@ -234,9 +232,8 @@ initializeCoinContract _logger memPoolAccess v cid pwo = do
       withCheckpointerRewind Nothing (Just parent) "initializeCoinContract.readContracts" $ \(PactDbEnv' pdbenv) -> do
         PactServiceEnv{..} <- ask
         pd <- getTxContext def
-        traceShowM ("initializeCoinContract.readContracts" :: String)
         !mc <- liftIO $ readInitModules _psLogger pdbenv pd
-        updateInitCache mc
+        updateInitCache pdbenv mc
         return $! Discard ()
 
 -- | Lookup a block header.
@@ -398,7 +395,7 @@ attemptBuyGas
     -> Vector (Either InsertError ChainwebTransaction)
     -> PactServiceM tbl (Vector (Either InsertError ChainwebTransaction))
 attemptBuyGas miner (PactDbEnv' dbEnv) txs = do
-        mc <- getInitCache
+        mc <- getInitCache dbEnv
         V.fromList . toList . sfst <$> V.foldM f (T2 mempty mc) txs
   where
     f (T2 dl mcache) cmd = do
@@ -641,7 +638,6 @@ execLocal cwtx preflight sigVerify rdepth = withDiscardedBatch $ do
     let !cmd = payloadObj <$> cwtx
         !pm = publicMetaOf cmd
 
-    mc <- getInitCache
     ctx <- getTxContext pm
     spv <- use psSpvSupport
 
@@ -662,6 +658,7 @@ execLocal cwtx preflight sigVerify rdepth = withDiscardedBatch $ do
 
     withCheckpointerRewind rewindHeight rewindHeader "execLocal" $
       \(PactDbEnv' pdbenv) -> do
+        mc <- getInitCache pdbenv
         --
         -- if the ?preflight query parameter is set to True, we run the `applyCmd` workflow
         -- otherwise, we prefer the old (default) behavior. When no preflight flag is
