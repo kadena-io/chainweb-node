@@ -78,7 +78,7 @@ import GHC.Generics
 
 -- internal modules
 
-import Chainweb.BlockHeader.Genesis (genesisBlockPayload)
+import Chainweb.ChainId
 import Chainweb.Crypto.MerkleLog
 import Chainweb.MerkleUniverse
 import Chainweb.Payload
@@ -223,7 +223,7 @@ initializePayloadDb
 initializePayloadDb v db = traverse_ initForChain $ chainIds v
   where
     initForChain cid =
-        addNewPayload db $ genesisBlockPayload v cid
+        addNewPayload db $ v ^?! versionGenesis . genesisBlockPayload . onChain cid
 
 -- -------------------------------------------------------------------------- --
 -- Insert new Payload

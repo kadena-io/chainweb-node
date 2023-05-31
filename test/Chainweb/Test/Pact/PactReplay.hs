@@ -28,8 +28,8 @@ import Test.Tasty.HUnit
 
 import Chainweb.BlockCreationTime
 import Chainweb.BlockHeader
-import Chainweb.BlockHeader.Genesis
 import Chainweb.BlockHeaderDB.Internal (unsafeInsertBlockHeaderDb)
+import Chainweb.Graph
 import Chainweb.Test.Cut.TestBlockDb
 import Chainweb.Miner.Pact
 import Chainweb.Pact.Backend.Types
@@ -40,6 +40,7 @@ import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
 import Chainweb.Test.Pact.Utils
 import Chainweb.Test.Utils
+import Chainweb.Test.TestVersions
 import Chainweb.Time
 import Chainweb.TreeDB
 import Chainweb.Utils (sshow, tryAllSynchronous, catchAllSynchronous, T3(..))
@@ -52,7 +53,7 @@ import Chainweb.Storage.Table
 import Chainweb.Storage.Table.RocksDB
 
 testVer :: ChainwebVersion
-testVer = FastTimedCPM peterson
+testVer = fastForkingCpmTestVersion petersonChainGraph
 
 cid :: ChainId
 cid = someChainId testVer

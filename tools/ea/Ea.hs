@@ -28,7 +28,8 @@
 module Ea
   ( main ) where
 
-import Control.Lens (set)
+import Control.Exception
+import Control.Lens
 
 import Data.Foldable
 import Data.Functor
@@ -36,10 +37,13 @@ import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
 import qualified Data.Text.IO as TIO
-import qualified Data.Text.Lazy.IO as TL
+import qualified Data.Text.Lazy as TL
 import qualified Data.Text.Lazy.Builder as TB
 import Data.Traversable
 import qualified Data.Vector as V
+import GHC.Exts(the)
+
+import Ea.Genesis
 
 import System.IO.Temp
 import System.LogLevel (LogLevel(..))
@@ -62,10 +66,7 @@ import Chainweb.Time
 import Chainweb.Transaction
     (ChainwebTransaction, chainwebPayloadCodec, mkPayloadWithTextOld)
 import Chainweb.Utils
-import Chainweb.Version (ChainwebVersion(..))
-import Chainweb.Version.Utils (someChainId)
-
-import Ea.Genesis
+import Chainweb.Version
 
 import Pact.ApiReq
 import Pact.Types.ChainMeta
@@ -76,11 +77,11 @@ import Pact.Types.Command hiding (Payload)
 main :: IO ()
 main = void $ do
     devnet
+    fastDevnet
     fastnet
     testnet
     mainnet
     genTxModules
-    gen20ChainPayloads
     genCoinV3Payloads
     genCoinV4Payloads
     genCoinV5Payloads
@@ -89,6 +90,11 @@ main = void $ do
     devnet = mkPayloads
       [ development0
       , developmentN
+      , developmentKAD
+      ]
+    fastDevnet = mkPayloads
+      [ fastDevelopment0
+      , fastDevelopmentN
       ]
     fastnet = mkPayloads [fastTimedCPM0, fastTimedCPMN]
     testnet = mkPayloads [testnet0, testnetN]
@@ -103,61 +109,40 @@ main = void $ do
       , mainnet7
       , mainnet8
       , mainnet9
+      , mainnetKAD
       ]
 
-show_ :: GChainId -> String
-show_ = \case
-    N -> "all chains"
-    KAD -> "chains 10-19"
-    n -> "Chain " <> show n
+show_ :: ChainIdRange -> String
+show_ (ChainIdRange n n')
+    | n == n' = "Chain " <> show n
+    | otherwise = "Chains " <> show n <> "-" <> show n'
 
--- | Generate paylaods for a traversable of txs
+fullGenesisTag :: Genesis -> Text
+fullGenesisTag (Genesis _ tag cidr _ _ _ _ _) = tag <> T.pack (chainIdRangeTag cidr)
+
+-- | Generate payloads for a traversable of txs
 --
 mkPayloads :: Traversable t => t Genesis -> IO ()
-mkPayloads = traverse_ mkPayload
+mkPayloads = traverse_ (\g -> writePayload g =<< mkPayload g)
 
--- | Generate a payload for a given genesis transaction
+writePayload :: Genesis -> Text -> IO ()
+writePayload gen payload = do
+    let fileName = "src/Chainweb/BlockHeader/Genesis/" <> fullGenesisTag gen <> "Payload.hs"
+    TIO.writeFile (T.unpack fileName) payload
+
+-- | Generate a payload for a given list of genesis transactions
 --
-mkPayload :: Genesis -> IO ()
-mkPayload (Genesis v tag cid c k a ns) = do
-    printf ("Generating Genesis Payload for %s on " <> show_ cid <> "...\n") $ show v
-    genPayloadModule v (tag <> sshow cid) txs
+mkPayload :: Genesis -> IO Text
+mkPayload gen@(Genesis v _ cidr@(ChainIdRange l u) c k a ns cc) = do
+    printf ("Generating Genesis Payload for %s on " <> show_ cidr <> "...\n") $ show v
+    payloadModules <- for [l..u] $ \cid ->
+        genPayloadModule v (fullGenesisTag gen) (unsafeChainId cid) =<< mkChainwebTxs txs
+    evaluate $ the payloadModules
   where
-    -- coin contract genesis txs
-    cc :: [FilePath]
-    cc = [fungibleAssetV1, coinContractV1, gasPayer]
     -- final tx list.
     -- NB: this is position-sensitive data.
     txs :: [FilePath]
     txs = cc <> toList ns <> toList k <> toList a <> toList c
-
-
-gen20ChainPayloads :: IO ()
-gen20ChainPayloads = traverse_ mk20ChainPayload [developmentKAD, mainnetKAD]
-  where
-    mk20ChainPayload (Genesis v tag cid c k a ns) = do
-
-      ((ccAr,ccCode,_,_),_) <- mkApiReq coinContractV2
-      v2Install <- TIO.readFile coinContractV2Install
-      let ccCode' = ccCode <> v2Install
-          ccAr' = ccAr
-            { _ylCode = Just ccCode'
-            , _ylCodeFile = Nothing
-            , _ylNonce = Just "coin-contract-v2-temp"
-            }
-      (_,ccTx) <- mkApiReqCmd False coinContractV2 ccAr'
-
-      fa1 <- mkTx fungibleAssetV1
-      fa2 <- mkTx fungibleAssetV2
-      gp <- mkTx gasPayer
-
-      txs <- ([fa1,fa2,ccTx,gp] ++) <$>
-             mapM mkTx (toList ns <> toList k <> toList a <> toList c)
-      cwTxs <- mkChainwebTxs' txs
-
-
-      printf ("Generating Genesis 20-chain payload for %s on " <> show_ cid <> "...\n") $ show v
-      genPayloadModule' v (tag <> sshow cid) cwTxs
 
 genCoinV3Payloads :: IO ()
 genCoinV3Payloads = genTxModule "CoinV3" [coinContractV3]
@@ -177,39 +162,31 @@ genCoinV5Payloads = genTxModule "CoinV5"
 -- Payload Generation
 ---------------------
 
-genPayloadModule :: ChainwebVersion -> Text -> [FilePath] -> IO ()
-genPayloadModule v tag txFiles = genPayloadModule' v tag =<< mkChainwebTxs txFiles
-
-genPayloadModule' :: ChainwebVersion -> Text -> [ChainwebTransaction] -> IO ()
-genPayloadModule' v tag cwTxs =
+genPayloadModule :: ChainwebVersion -> Text -> ChainId -> [ChainwebTransaction] -> IO Text
+genPayloadModule v tag cid cwTxs =
     withTempRocksDb "chainweb-ea" $ \rocks ->
     withBlockHeaderDb rocks v cid $ \bhdb -> do
         let logger = genericLogger Warn TIO.putStrLn
         pdb <- newPayloadDb
         withSystemTempDirectory "ea-pact-db" $ \pactDbDir -> do
             T2 payloadWO _ <- withSqliteDb cid logger pactDbDir False $ \env ->
-                runPactService' v cid logger bhdb pdb env defaultPactServiceConfig $
+                withPactService v cid logger bhdb pdb env defaultPactServiceConfig $
                     execNewGenesisBlock noMiner (V.fromList cwTxs)
-            TL.writeFile
-                path
-                (TB.toLazyText $ payloadModuleCode tag payloadWO)
-  where
-    cid = someChainId v
-    path = T.unpack $ "src/Chainweb/BlockHeader/Genesis/" <> tag <> "Payload.hs"
+            return $ TL.toStrict $ TB.toLazyText $ payloadModuleCode tag payloadWO
 
 mkChainwebTxs :: [FilePath] -> IO [ChainwebTransaction]
 mkChainwebTxs txFiles = mkChainwebTxs' =<< traverse mkTx txFiles
 
 mkChainwebTxs' :: [Command Text] -> IO [ChainwebTransaction]
 mkChainwebTxs' rawTxs = do
-  forM rawTxs $ \cmd -> do
-    let cmdBS = fmap TE.encodeUtf8 cmd
-        procCmd = verifyCommand cmdBS
-    case procCmd of
-      f@ProcFail{} -> fail (show f)
-      ProcSucc c -> do
-        let t = toTxCreationTime (Time (TimeSpan 0))
-        return $! mkPayloadWithTextOld <$> (c & setTxTime t & setTTL (TTLSeconds $ 2 * 24 * 60 * 60))
+    forM rawTxs $ \cmd -> do
+        let cmdBS = fmap TE.encodeUtf8 cmd
+            procCmd = verifyCommand cmdBS
+        case procCmd of
+            f@ProcFail{} -> fail (show f)
+            ProcSucc c -> do
+                let t = toTxCreationTime (Time (TimeSpan 0))
+                return $! mkPayloadWithTextOld <$> (c & setTxTime t & setTTL (TTLSeconds $ 2 * 24 * 60 * 60))
   where
     setTxTime = set (cmdPayload . pMeta . pmCreationTime)
     setTTL = set (cmdPayload . pMeta . pmTTL)
@@ -312,16 +289,17 @@ genTxModules = void $ do
 
 genTxModule :: Text -> [FilePath] -> IO ()
 genTxModule tag txFiles = do
-  putStrLn $ "Generating tx module for " ++ show tag
-  cwTxs <- mkChainwebTxs txFiles
+    putStrLn $ "Generating tx module for " ++ show tag
+    cwTxs <- mkChainwebTxs txFiles
 
-  let encTxs = map quoteTx cwTxs
-      quoteTx tx = "    \"" <> encTx tx <> "\""
-      encTx = encodeB64UrlNoPaddingText . codecEncode (chainwebPayloadCodec Nothing)
-      modl = T.unlines $ startTxModule tag <> [T.intercalate "\n    ,\n" encTxs] <> endTxModule
-      fileName = "src/Chainweb/Pact/Transactions/" <> tag <> "Transactions.hs"
+    let
+        encTxs = map quoteTx cwTxs
+        quoteTx tx = "    \"" <> encTx tx <> "\""
+        encTx = encodeB64UrlNoPaddingText . codecEncode (chainwebPayloadCodec maxBound)
+        modl = T.unlines $ startTxModule tag <> [T.intercalate "\n    ,\n" encTxs] <> endTxModule
+        fileName = "src/Chainweb/Pact/Transactions/" <> tag <> "Transactions.hs"
 
-  TIO.writeFile (T.unpack fileName) modl
+    TIO.writeFile (T.unpack fileName) modl
 
 startTxModule :: Text -> [Text]
 startTxModule tag =
@@ -332,15 +310,16 @@ startTxModule tag =
     , "module Chainweb.Pact.Transactions." <> tag <> "Transactions ( transactions ) where"
     , ""
     , "import Data.Bifunctor (first)"
+    , "import System.IO.Unsafe"
     , ""
     , "import Chainweb.Transaction"
     , "import Chainweb.Utils"
     , ""
-    , "transactions :: IO [ChainwebTransaction]"
+    , "transactions :: [ChainwebTransaction]"
     , "transactions ="
     , "  let decodeTx t ="
-    , "        fromEitherM . (first (userError . show)) . codecDecode (chainwebPayloadCodec Nothing) =<< decodeB64UrlNoPaddingText t"
-    , "  in mapM decodeTx ["
+    , "        fromEitherM . (first (userError . show)) . codecDecode (chainwebPayloadCodec maxBound) =<< decodeB64UrlNoPaddingText t"
+    , "  in unsafePerformIO $ mapM decodeTx ["
     ]
 
 endTxModule :: [Text]

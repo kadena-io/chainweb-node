@@ -58,9 +58,12 @@ import Chainweb.Pact.Templates
 import Chainweb.Pact.TransactionExec
 import Chainweb.Pact.Types
 import Chainweb.Test.Utils
+import Chainweb.Test.TestVersions
 import Chainweb.Time
 import Chainweb.Utils
 import Chainweb.Version as V
+import Chainweb.Version.Development
+import Chainweb.Version.Mainnet
 import Chainweb.Test.Pact.Utils
 
 
@@ -183,11 +186,11 @@ fixedInjTest = case exec of
 
 
 buildExecWithData :: Assertion
-buildExecWithData = void $ buildExecParsedCode Nothing
+buildExecWithData = void $ buildExecParsedCode maxBound
   (Just $ object [ "data" .= (1 :: Int) ]) "(+ 1 1)"
 
 buildExecWithoutData :: Assertion
-buildExecWithoutData = void $ buildExecParsedCode Nothing Nothing "(+ 1 1)"
+buildExecWithoutData = void $ buildExecParsedCode maxBound Nothing "(+ 1 1)"
 
 badMinerId :: MinerId
 badMinerId = MinerId "alpha\" (read-keyset \"miner-keyset\") 9999999.99)(coin.coinbase \"alpha"
@@ -206,7 +209,7 @@ testCoinbase797DateFix = testCaseSteps "testCoinbase791Fix" $ \step -> do
 
     step "pre-fork code injection succeeds, no enforced precompile"
 
-    cmd <- buildExecParsedCode Nothing Nothing "(coin.get-balance \"tester01\")"
+    cmd <- buildExecParsedCode maxBound Nothing "(coin.get-balance \"tester01\")"
 
     doCoinbaseExploit pdb mc preForkHeight cmd False $ \case
       Left _ -> assertFailure "local call to get-balance failed"
@@ -217,7 +220,7 @@ testCoinbase797DateFix = testCaseSteps "testCoinbase791Fix" $ \step -> do
 
     step "post-fork code injection fails, no enforced precompile"
 
-    cmd' <- buildExecParsedCode Nothing Nothing
+    cmd' <- buildExecParsedCode maxBound Nothing
       "(coin.get-balance \"tester01\\\" (read-keyset \\\"miner-keyset\\\") 1000.0)(coin.coinbase \\\"tester01\")"
 
     doCoinbaseExploit pdb mc postForkHeight cmd' False $ \case
@@ -273,9 +276,8 @@ testCoinbase797DateFix = testCaseSteps "testCoinbase791Fix" $ \step -> do
     -- of mining a full chain we fake the height.
     --
     mkTestParentHeader :: BlockHeight -> ParentHeader
-    mkTestParentHeader h = ParentHeader $ (someBlockHeader (FastTimedCPM singleton) 10)
+    mkTestParentHeader h = ParentHeader $ (someBlockHeader (slowForkingCpmTestVersion singleton) 10)
         { _blockHeight = h }
-
 
 testCoinbaseEnforceFailure :: Assertion
 testCoinbaseEnforceFailure = do
@@ -316,18 +318,18 @@ testCoinbaseUpgradeDevnet cid upgradeHeight =
 
 testTwentyChainDevnetUpgrades :: TestTree
 testTwentyChainDevnetUpgrades = testCaseSteps "Test 20-chain Devnet upgrades" $ \step -> do
-      step "Check that 20-chain upgrades fire at block height 150"
-      testUpgradeScript "test/pact/twenty-chain-upgrades.repl" (unsafeChainId 0) V.to20ChainsDevelopment test0
+      step "Check that 20-chain upgrades fire at block height 60"
+      testUpgradeScript "test/pact/twenty-chain-upgrades.repl" (unsafeChainId 0) 60 test0
 
-      step "Check that 20-chain upgrades do not fire at block heights < 150 and > 150"
-      testUpgradeScript "test/pact/twenty-chain-upgrades.repl" (unsafeChainId 0) (V.to20ChainsDevelopment - 1) test1
-      testUpgradeScript "test/pact/twenty-chain-upgrades.repl" (unsafeChainId 0) (V.to20ChainsDevelopment + 1) test1
+      step "Check that 20-chain upgrades do not fire at block heights < 60 and > 60"
+      testUpgradeScript "test/pact/twenty-chain-upgrades.repl" (unsafeChainId 0) (60 - 1) test1
+      testUpgradeScript "test/pact/twenty-chain-upgrades.repl" (unsafeChainId 0) (60 + 1) test1
 
       step "Check that 20-chain upgrades do not fire at on other chains"
-      testUpgradeScript "test/pact/twenty-chain-upgrades.repl" (unsafeChainId 1) V.to20ChainsDevelopment test1
+      testUpgradeScript "test/pact/twenty-chain-upgrades.repl" (unsafeChainId 1) 60 test1
 
       step "Check that 20-chain upgrades succeed even if e7f7 balance is insufficient"
-      testUpgradeScript "test/pact/twenty-chain-insufficient-bal.repl" (unsafeChainId 0) V.to20ChainsDevelopment test1
+      testUpgradeScript "test/pact/twenty-chain-insufficient-bal.repl" (unsafeChainId 0) 60 test1
   where
     test0 (T2 cr _) = case _crLogs cr of
       Just logs -> matchLogs (logResults logs)
@@ -381,8 +383,8 @@ matchLogs expectedResults actualResults
       (assertEqual "balance matches" `on` view _3) actual expected
 
 parent :: BlockHeight -> V.ChainId -> ParentHeader
-parent bh cid = ParentHeader $ (someBlockHeader v bh)
-    { _blockChainwebVersion = v
+parent bh cid = ParentHeader (someBlockHeader v bh)
+    { _blockChainwebVersion = _versionCode v
     , _blockChainId = cid
     , _blockHeight = pred bh
     }

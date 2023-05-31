@@ -54,13 +54,13 @@ import qualified Pact.JSON.Encode as J
 import Chainweb.BlockHash ( BlockHash )
 import Chainweb.BlockHeader
 import Chainweb.BlockHeight
+import Chainweb.ChainId
 import Chainweb.Mempool.Mempool (InsertError(..),TransactionHash)
 import Chainweb.Miner.Pact
 import Chainweb.Pact.Backend.DbCache
 import Chainweb.Payload
 import Chainweb.Transaction
 import Chainweb.Utils (T2, encodeToText)
-import Chainweb.Version
 
 -- | Externally-injected PactService properties.
 --

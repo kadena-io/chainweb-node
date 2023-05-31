@@ -38,7 +38,7 @@ import Test.Tasty.HUnit
 
 -- internal modules
 
-import Chainweb.BlockHeader.Genesis (genesisBlockHeader)
+import Chainweb.BlockHeader (genesisBlockHeader)
 import Chainweb.BlockHeaderDB (BlockHeaderDb)
 import Chainweb.Graph
 import Chainweb.Miner.Pact
@@ -52,6 +52,7 @@ import Chainweb.Payload.PayloadStore.InMemory (newPayloadDb)
 import Chainweb.Storage.Table.RocksDB (RocksDb)
 import Chainweb.Test.Pact.Utils
 import Chainweb.Test.Utils
+import Chainweb.Test.TestVersions
 import Chainweb.Transaction
 import Chainweb.Version (ChainwebVersion(..))
 import Chainweb.Version.Utils (someChainId)
@@ -66,10 +67,10 @@ import Pact.Types.Pretty
 import qualified Pact.JSON.Encode as J
 
 testVersion :: ChainwebVersion
-testVersion = FastTimedCPM petersonChainGraph
+testVersion = slowForkingCpmTestVersion petersonChainGraph
 
 testEventsVersion :: ChainwebVersion
-testEventsVersion = FastTimedCPM singletonChainGraph
+testEventsVersion = fastForkingCpmTestVersion singletonChainGraph
 
 tests :: ScheduledTest
 tests = ScheduledTest label $

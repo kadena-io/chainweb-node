@@ -49,6 +49,7 @@ import Chainweb.Test.Orphans.Time ()
 import Chainweb.Test.Utils
 import Chainweb.Test.Utils.BlockHeader
 import Chainweb.Time
+import Chainweb.Version
 
 import Chainweb.Storage.Table.RocksDB
 
@@ -349,14 +350,14 @@ header' h = do
             :+: _chainId h
             :+: BlockWeight (targetToDifficulty target) + _blockWeight h
             :+: succ (_blockHeight h)
-            :+: v
+            :+: _versionCode v
             :+: epochStart (ParentHeader h) mempty t'
             :+: nonce
             :+: MerkleLogBody mempty
    where
     BlockCreationTime t = _blockCreationTime h
     target = powTarget (ParentHeader h) mempty t'
-    v = _blockChainwebVersion h
+    v = _chainwebVersion h
     t' = BlockCreationTime (scaleTimeSpan (10 :: Int) second `add` t)
 
 ----------------------------------------------------------------------------------------------------

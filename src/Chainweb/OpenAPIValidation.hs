@@ -38,13 +38,13 @@ mkValidationMiddleware logger v mgr = do
                 ("" : "chainweb" : "0.0" : rawVersion : "chain" : rawChainId : "pact" : rest) -> do
                     findPact pactSpec rawVersion rawChainId rest
                 _ -> Nothing
-            , (,chainwebSpec) <$> BS8.stripPrefix (T.encodeUtf8 $ "/chainweb/0.0/" <> chainwebVersionToText v) path
+            , (,chainwebSpec) <$> BS8.stripPrefix (T.encodeUtf8 $ "/chainweb/0.0/" <> toText (_versionName v)) path
             , Just (path,chainwebSpec)
             ]
     where
     findPact pactSpec rawVersion rawChainId rest = do
-        reqVersion <- chainwebVersionFromText (T.decodeUtf8 rawVersion)
-        guard (reqVersion == v)
+        let reqVersion = ChainwebVersionName (T.decodeUtf8 rawVersion)
+        guard (reqVersion == _versionName v)
         reqChainId <- chainIdFromText (T.decodeUtf8 rawChainId)
         guard (HS.member reqChainId (chainIds v))
         return (BS8.intercalate "/" ("":rest), pactSpec)

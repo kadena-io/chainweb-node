@@ -25,7 +25,6 @@ import GHC.Stack
 
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
-import Chainweb.BlockHeader.Genesis (emptyPayload)
 import Chainweb.BlockHeight
 import Chainweb.ChainId
 import Chainweb.Mempool.Mempool (InsertError)
@@ -33,6 +32,7 @@ import Chainweb.Miner.Pact
 import Chainweb.Pact.Service.BlockValidation
 import Chainweb.Pact.Service.PactQueue
 import Chainweb.Pact.Service.Types
+import Chainweb.Pact.Utils
 import Chainweb.Payload
 import Chainweb.Transaction
 import Chainweb.Utils (T2)

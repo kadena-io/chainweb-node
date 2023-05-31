@@ -2,7 +2,7 @@
 
 -- This module is auto-generated. DO NOT EDIT IT MANUALLY.
 
-module Chainweb.BlockHeader.Genesis.DevelopmentNPayload
+module Chainweb.BlockHeader.Genesis.Development1to9Payload
 ( payloadBlock
 ) where
 

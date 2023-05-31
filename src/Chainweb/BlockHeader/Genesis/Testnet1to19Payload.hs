@@ -2,7 +2,7 @@
 
 -- This module is auto-generated. DO NOT EDIT IT MANUALLY.
 
-module Chainweb.BlockHeader.Genesis.TestnetNPayload
+module Chainweb.BlockHeader.Genesis.Testnet1to19Payload
 ( payloadBlock
 ) where
 

@@ -58,6 +58,7 @@ import Chainweb.Test.Cut
 import Chainweb.Test.Cut.TestBlockDb
 import Chainweb.Test.Pact.Utils
 import Chainweb.Test.Utils
+import Chainweb.Test.TestVersions
 import Chainweb.Time
 import Chainweb.Utils
 import Chainweb.Version
@@ -67,7 +68,7 @@ import Chainweb.WebPactExecutionService
 import Chainweb.Storage.Table (casLookupM)
 
 testVersion :: ChainwebVersion
-testVersion = FastTimedCPM peterson
+testVersion = slowForkingCpmTestVersion peterson
 
 cid :: ChainId
 cid = someChainId testVersion
@@ -87,7 +88,8 @@ type PactTestM = ReaderT MultiEnv IO
 
 data MempoolInput = MempoolInput
     { _miBlockFill :: BlockFill
-    , _miBlockHeader :: BlockHeader }
+    , _miBlockHeader :: BlockHeader
+    }
 
 newtype MempoolCmdBuilder = MempoolCmdBuilder
     { _mempoolCmdBuilder :: MempoolInput -> CmdBuilder
@@ -100,7 +102,8 @@ newtype MempoolBlock = MempoolBlock
 
 -- | Mempool with an ordered list of fillers.
 newtype PactMempool = PactMempool
-  { _pactMempool :: [MempoolBlock] }
+  { _pactMempool :: [MempoolBlock]
+  }
   deriving (Semigroup,Monoid)
 
 
@@ -247,7 +250,7 @@ pact45UpgradeTest = do
     , PactTxTest (buildSimpleCmd "(enforce true (format  \"{}-{}\" [12345, 657859]))") $
         assertTxGas "Enforce pre-fork evaluates the string with gas" 34
     , PactTxTest (buildSimpleCmd "(enumerate 0 10) (str-to-list 'hi) (make-list 10 'hi)") $
-        assertTxGas "List functions pre-fork gas" 20
+        assertTxGas "List functions pre-fork gas" 19
     , PactTxTest
       (buildBasicGas 70000 $ tblModule "Tbl") $
       assertTxSuccess "mod53 table update succeeds" $ pString "TableCreated"
@@ -261,7 +264,7 @@ pact45UpgradeTest = do
     , PactTxTest (buildSimpleCmd "(enforce true (format  \"{}-{}\" [12345, 657859]))") $
         assertTxGas "Enforce post fork does not eval the string" (14 + coinTxBuyTransferGas)
     , PactTxTest (buildSimpleCmd "(enumerate 0 10) (str-to-list 'hi) (make-list 10 'hi)") $
-        assertTxGas "List functions post-fork change gas" (40 + coinTxBuyTransferGas)
+        assertTxGas "List functions post-fork change gas" (39 + coinTxBuyTransferGas)
     , PactTxTest
       (buildBasicGas 70000 $ tblModule "tBl") $
       assertTxFailure "mod53 table update fails after fork" ""
@@ -787,7 +790,7 @@ pact46UpgradeTest :: PactTestM ()
 pact46UpgradeTest = do
 
   -- run past genesis, upgrades
-  runToHeight 59
+  runToHeight 58
 
   -- Note: no error messages on-chain, so the error message is empty
   runBlockTest

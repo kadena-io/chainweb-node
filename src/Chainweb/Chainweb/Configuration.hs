@@ -5,8 +5,11 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE TypeFamilies #-}
 
 -- |
 -- Module: Chainweb.Chainweb.Configuration
@@ -14,8 +17,6 @@
 -- License: MIT
 -- Maintainer: Lars Kuhtz <lars@kadena.io>
 -- Stability: experimental
---
--- TODO
 --
 module Chainweb.Chainweb.Configuration
 (
@@ -84,6 +85,8 @@ import Control.Monad.Except
 import Control.Monad.Writer
 
 import Data.Foldable
+import qualified Data.HashMap.Strict as HM
+import qualified Data.HashSet as HS
 import Data.Maybe
 import qualified Data.Text as T
 
@@ -100,6 +103,7 @@ import System.Directory
 -- internal modules
 
 import Chainweb.BlockHeight
+import Chainweb.Difficulty
 import Chainweb.HostAddress
 import qualified Chainweb.Mempool.Mempool as Mempool
 import Chainweb.Mempool.P2pConfig
@@ -108,6 +112,10 @@ import Chainweb.Pact.Types (defaultReorgLimit, defaultModuleCacheLimit)
 import Chainweb.Payload.RestAPI (PayloadBatchLimit(..), defaultServicePayloadBatchLimit)
 import Chainweb.Utils
 import Chainweb.Version
+import Chainweb.Version.Development
+import Chainweb.Version.FastDevelopment
+import Chainweb.Version.Mainnet
+import Chainweb.Version.Registry
 
 import P2P.Node.Configuration
 import Chainweb.Pact.Backend.DbCache (DbCacheLimitBytes)
@@ -149,7 +157,7 @@ instance FromJSON (ThrottlingConfig -> ThrottlingConfig) where
         <*< throttlingMempoolRate ..: "mempool" % o
 
 -- -------------------------------------------------------------------------- --
--- Cut Coniguration
+-- Cut Configuration
 
 data ChainDatabaseGcConfig
     = GcNone
@@ -404,10 +412,17 @@ validateChainwebConfiguration :: ConfigValidation ChainwebConfiguration []
 validateChainwebConfiguration c = do
     validateMinerConfig (_configMining c)
     validateBackupConfig (_configBackup c)
-    case _configChainwebVersion c of
-        Mainnet01 -> validateP2pConfiguration (_configP2p c)
-        Testnet04 -> validateP2pConfiguration (_configP2p c)
-        _ -> return ()
+    unless (c ^. chainwebVersion . versionDefaults . disablePeerValidation) $
+        validateP2pConfiguration (_configP2p c)
+    validateChainwebVersion (_configChainwebVersion c)
+
+validateChainwebVersion :: ConfigValidation ChainwebVersion []
+validateChainwebVersion v = unless (_versionCode v `elem` map _versionCode [devnet, fastDevnet]) $
+    throwError $ T.unwords
+        [ "Specifying version properties is only legal with chainweb-version"
+        , "set to development, but version is set to"
+        , sshow (_versionName v)
+        ]
 
 validateBackupConfig :: ConfigValidation BackupConfig []
 validateBackupConfig c =
@@ -444,7 +459,7 @@ defaultChainwebConfiguration v = ChainwebConfiguration
 
 instance ToJSON ChainwebConfiguration where
     toJSON o = object
-        [ "chainwebVersion" .= _configChainwebVersion o
+        [ "chainwebVersion" .= _versionName (_configChainwebVersion o)
         , "cuts" .= _configCuts o
         , "mining" .= _configMining o
         , "headerStream" .= _configHeaderStream o
@@ -468,40 +483,37 @@ instance ToJSON ChainwebConfiguration where
         ]
 
 instance FromJSON ChainwebConfiguration where
-    parseJSON = withObject "ChainwebConfiguration" $ \o -> do
-        v <- o .: "chainwebVersion" .!= Mainnet01
-        ($ defaultChainwebConfiguration v) <$> parseJSON (Object o)
+    parseJSON = fmap ($ defaultChainwebConfiguration Mainnet01) . parseJSON
 
 instance FromJSON (ChainwebConfiguration -> ChainwebConfiguration) where
-    parseJSON = withObject "ChainwebConfig" $ \o -> id
-        <$< configChainwebVersion ..: "chainwebVersion" % o
-        <*< configCuts %.: "cuts" % o
-        <*< configMining %.: "mining" % o
-        <*< configHeaderStream ..: "headerStream" % o
-        <*< configReintroTxs ..: "reintroTxs" % o
-        <*< configP2p %.: "p2p" % o
-        <*< configThrottling %.: "throttling" % o
-        <*< configMempoolP2p %.: "mempoolP2p" % o
-        <*< configBlockGasLimit ..: "gasLimitOfBlock" % o
-        <*< configLogGas ..: "logGas" % o
-        <*< configMinGasPrice ..: "minGasPrice" % o
-        <*< configPactQueueSize ..: "pactQueueSize" % o
-        <*< configReorgLimit ..: "reorgLimit" % o
-        <*< configValidateHashesOnReplay ..: "validateHashesOnReplay" % o
-        <*< configAllowReadsInLocal ..: "allowReadsInLocal" % o
-        <*< configRosetta ..: "rosetta" % o
-        <*< configServiceApi %.: "serviceApi" % o
-        <*< configOnlySyncPact ..: "onlySyncPact" % o
-        <*< configSyncPactChains ..: "syncPactChains" % o
-        <*< configBackup %.: "backup" % o
-        <*< configModuleCacheLimit ..: "moduleCacheLimit" % o
+    parseJSON = withObject "ChainwebConfiguration" $ \o -> do
+        id
+            <$< setProperty configChainwebVersion "chainwebVersion"
+                (findKnownVersion <=< parseJSON) o
+            <*< configCuts %.: "cuts" % o
+            <*< configMining %.: "mining" % o
+            <*< configHeaderStream ..: "headerStream" % o
+            <*< configReintroTxs ..: "reintroTxs" % o
+            <*< configP2p %.: "p2p" % o
+            <*< configThrottling %.: "throttling" % o
+            <*< configMempoolP2p %.: "mempoolP2p" % o
+            <*< configBlockGasLimit ..: "gasLimitOfBlock" % o
+            <*< configLogGas ..: "logGas" % o
+            <*< configMinGasPrice ..: "minGasPrice" % o
+            <*< configPactQueueSize ..: "pactQueueSize" % o
+            <*< configReorgLimit ..: "reorgLimit" % o
+            <*< configValidateHashesOnReplay ..: "validateHashesOnReplay" % o
+            <*< configAllowReadsInLocal ..: "allowReadsInLocal" % o
+            <*< configRosetta ..: "rosetta" % o
+            <*< configServiceApi %.: "serviceApi" % o
+            <*< configOnlySyncPact ..: "onlySyncPact" % o
+            <*< configSyncPactChains ..: "syncPactChains" % o
+            <*< configBackup %.: "backup" % o
+            <*< configModuleCacheLimit ..: "moduleCacheLimit" % o
 
 pChainwebConfiguration :: MParser ChainwebConfiguration
 pChainwebConfiguration = id
-    <$< configChainwebVersion .:: textOption
-        % long "chainweb-version"
-        <> short 'v'
-        <> help "the chainweb version that this node is using"
+    <$< configChainwebVersion %:: parseVersion
     <*< configHeaderStream .:: boolOption_
         % long "header-stream"
         <> help "whether to enable an endpoint for streaming block updates"
@@ -552,4 +564,35 @@ pChainwebConfiguration = id
         % long "module-cache-limit"
         <> help "Maximum size of the per-chain checkpointer module cache in bytes"
         <> metavar "INT"
+    where
+
+parseVersion :: MParser ChainwebVersion
+parseVersion = constructVersion
+    <$> optional
+        (option (findKnownVersion =<< textReader)
+            % long "chainweb-version"
+            <> short 'v'
+            <> help "the chainweb version that this node is using"
+        )
+    <*> optional (textOption @Fork (long "fork-upper-bound" <> help "(development mode only) the latest fork the node will enable"))
+    <*> optional (BlockRate <$> textOption (long "block-rate" <> help "(development mode only) the block rate in seconds per block"))
+    <*> switch (long "disable-pow" <> help "(development mode only) disable proof of work check")
+    where
+    constructVersion cliVersion fub br disablePow' oldVersion = winningVersion
+        & versionBlockRate .~ fromMaybe (_versionBlockRate winningVersion) br
+        & versionForks %~ HM.filterWithKey (\fork _ -> fork <= fromMaybe maxBound fub)
+        & versionUpgrades .~
+            maybe (_versionUpgrades winningVersion) (\fub' ->
+                OnChains $ HM.mapWithKey
+                    (\cid _ ->
+                        case winningVersion ^?! versionForks . at fub' . _Just . onChain cid of
+                            ForkNever -> error "the fork upper bound never occurs"
+                            ForkAtBlockHeight fubHeight -> HM.filterWithKey (\bh _ -> bh <= fubHeight) (winningVersion ^?! versionUpgrades . onChain cid)
+                            ForkAtGenesis -> winningVersion ^?! versionUpgrades . onChain cid
+                    )
+                    (HS.toMap (chainIds winningVersion))
+            ) fub
+        & versionCheats . disablePow .~ disablePow'
+        where
+        winningVersion = fromMaybe oldVersion cliVersion
 

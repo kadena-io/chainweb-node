@@ -2,7 +2,7 @@
 
 -- This module is auto-generated. DO NOT EDIT IT MANUALLY.
 
-module Chainweb.BlockHeader.Genesis.FastTimedCPMNPayload
+module Chainweb.BlockHeader.Genesis.FastTimedCPM1to9Payload
 ( payloadBlock
 ) where
 
