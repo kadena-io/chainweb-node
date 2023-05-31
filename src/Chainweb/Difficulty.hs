@@ -1,4 +1,5 @@
 {-# LANGUAGE ConstraintKinds #-}
+{-# LANGUAGE CPP #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
@@ -89,6 +90,9 @@ import Chainweb.Utils
 import Chainweb.Utils.Serialization
 
 import Numeric.Additive
+#if __GLASGOW_HASKELL__ < 902
+import Numeric.Natural(Natural)
+#endif
 
 -- -------------------------------------------------------------------------- --
 -- Large Word Orphans
