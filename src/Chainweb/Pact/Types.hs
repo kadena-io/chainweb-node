@@ -469,21 +469,23 @@ updateInitCache mc = do
       pbh = bf . _blockHeight $ ph
       checkpointerTarget = Just (pbh, _blockHash ph)
 
-  v <- view psVersion
-  liftIO $! _cpRestore checkpointer checkpointerTarget >>= \case
-    PactDbEnv' pactdbenv ->
-      modifyMVar_ (pdPactDbVar pactdbenv) $ \db -> do
-        if (isEmptyCache $ view (benvBlockState . bsModuleCache) db) then do
-          DT.traceShowM ("IS EMPTY SETTING" :: String, show pbh)
-          pure $ set (benvBlockState . bsModuleCache) mc db
-        else do
-          DT.traceShowM ("NOT EMPTY" :: String, show pbh)
+  pure ()
 
-          let mc'
-                | chainweb217Pact After v pbh || chainweb217Pact At v pbh = mc
-                | otherwise = unionDbCache mc (view (benvBlockState . bsModuleCache) db)
-              !db' = set (benvBlockState . bsModuleCache) mc' db
-          pure db'
+  -- v <- view psVersion
+  -- liftIO $! _cpRestore checkpointer checkpointerTarget >>= \case
+  --   PactDbEnv' pactdbenv ->
+  --     modifyMVar_ (pdPactDbVar pactdbenv) $ \db -> do
+  --       if (isEmptyCache $ view (benvBlockState . bsModuleCache) db) then do
+  --         DT.traceShowM ("IS EMPTY SETTING" :: String, show pbh)
+  --         pure $ set (benvBlockState . bsModuleCache) mc db
+  --       else do
+  --         DT.traceShowM ("NOT EMPTY" :: String, show pbh)
+
+  --         let mc'
+  --               | chainweb217Pact After v pbh || chainweb217Pact At v pbh = mc
+  --               | otherwise = unionDbCache mc (view (benvBlockState . bsModuleCache) db)
+  --             !db' = set (benvBlockState . bsModuleCache) mc' db
+  --         pure db'
 
 -- | Convert context to datatype for Pact environment.
 --

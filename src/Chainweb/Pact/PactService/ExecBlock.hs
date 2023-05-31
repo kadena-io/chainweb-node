@@ -313,7 +313,7 @@ execTransactions isGenesis miner ctxs enfCBFail usePrecomp (PactDbEnv' pactdbenv
     traceShowM ("module cache: " ++ show mc)
 
     coinOut <- runCoinbase isGenesis pactdbenv miner enfCBFail usePrecomp mc
-    txOuts <- applyPactCmds isGenesis undefined ctxs miner mc gasLimit timeLimit
+    txOuts <- applyPactCmds isGenesis pactdbenv ctxs miner mc gasLimit timeLimit
     return $! Transactions (V.zip ctxs txOuts) coinOut
   where
     getCache = do
@@ -427,7 +427,7 @@ applyPactCmd
       (T2 ModuleCache (Maybe P.Gas))
       (PactServiceM tbl)
       (Either GasPurchaseFailure (P.CommandResult [P.TxLog A.Value]))
-applyPactCmd isGenesis _ miner txTimeLimit cmd = StateT $ \(T2 mcache maybeBlockGasRemaining) -> do
+applyPactCmd isGenesis env miner txTimeLimit cmd = StateT $ \(T2 mcache maybeBlockGasRemaining) -> do
   cp <- getCheckpointer
   PactServiceState{_psParentHeader} <- get
   let
@@ -438,9 +438,9 @@ applyPactCmd isGenesis _ miner txTimeLimit cmd = StateT $ \(T2 mcache maybeBlock
 
   (PactDbEnv' env') <- liftIO $! _cpRestore cp checkpointerTarget
 
-  liftIO $ tryReadMVar (P.pdPactDbVar env') >>= \case
-      Just benv ->  liftIO $! print ("HERE IS THE ENV " ++ show (_bsModuleCache $ _benvBlockState benv))
-      Nothing -> liftIO $! print ("tryReadMVar NOTIHNG" :: String)
+  -- liftIO $ tryReadMVar (P.pdPactDbVar env') >>= \case
+  --     Just benv ->  liftIO $! print ("HERE IS THE ENV " ++ show (_bsModuleCache $ _benvBlockState benv))
+  --     Nothing -> liftIO $! print ("tryReadMVar NOTIHNG" :: String)
 
   traceShowM ("applyPactCmd, is genesis " ++ show isGenesis)
   logger <- view psLogger
@@ -469,7 +469,7 @@ applyPactCmd isGenesis _ miner txTimeLimit cmd = StateT $ \(T2 mcache maybeBlock
       then do
         traceShowM ("applyGenesisCmd!!" :: String)
         liftIO $! print ("I'm HERERERERE" :: String)
-        liftIO $! applyGenesisCmd logger env' P.noSPVSupport gasLimitedCmd
+        liftIO $! applyGenesisCmd logger env P.noSPVSupport gasLimitedCmd
       else do
         liftIO $! print ("I'm HERERERERE 2" :: String)
         traceShowM ("non genesis!!" :: String)
@@ -486,7 +486,7 @@ applyPactCmd isGenesis _ miner txTimeLimit cmd = StateT $ \(T2 mcache maybeBlock
 
     if isGenesis
     then do
-      traceShowM ("updating genesis with: " ++ show mcache')
+      -- traceShowM ("updating genesis with: " ++ show mcache')
       -- traceShowM ("updating genesis" :: String)
       updateInitCache mcache'
     else debugResult "applyPactCmd" result

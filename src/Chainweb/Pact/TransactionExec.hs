@@ -1119,12 +1119,8 @@ setModuleCache mcache es =
 --
 setTxResultState :: EvalResult -> TransactionM db ()
 setTxResultState er = do
-    traceShowM ("setTxResultState!!!" :: String)
     txLogs <>= (_erLogs er)
-    txCache .= (
-      let mods' = (_erLoadedModules er) in
-      let r = fromHashMap (fromJust $ _erTxId er) mods'
-      in DT.trace ("_erLoadedModules er are equal or not" ++ show (mods' == toHashMap r)) r)
+    txCache .= (fromHashMap (fromJust $ _erTxId er) (_erLoadedModules er))
     txGasUsed .= (_erGas er)
 {-# INLINE setTxResultState #-}
 
