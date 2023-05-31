@@ -274,7 +274,7 @@ getBlockHeaderInternal
     -> IO (ChainValue BlockHeader)
 getBlockHeaderInternal headerStore payloadStore candidateHeaderCas candidatePayloadCas priority maybeOrigin h = do
     logg Debug $ "getBlockHeaderInternal: " <> sshow h
-    bh <- memoInsert cas memoMap h $ \k@(ChainValue cid k') -> do
+    !bh <- memoInsert cas memoMap h $ \k@(ChainValue cid k') -> do
 
         -- query BlockHeader via
         --
@@ -346,7 +346,7 @@ getBlockHeaderInternal headerStore payloadStore candidateHeaderCas candidatePayl
                 chainDb <- getWebBlockHeaderDb (_webBlockHeaderStoreCas headerStore) header
                 validateInductiveChainM (tableLookup chainDb) header
 
-        p <- runConcurrently
+        !p <- runConcurrently
             -- query payload
             $ Concurrently
                 (getBlockPayload payloadStore candidatePayloadCas priority maybeOrigin' header)

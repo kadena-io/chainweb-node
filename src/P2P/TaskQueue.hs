@@ -172,7 +172,7 @@ session_ limit q logFun env = E.mask $ \restore -> do
             Nothing -> do
                 logg task Debug "run task"
                 E.handle (retry task) $ restore $ do
-                    r <- _taskAction task logFun env
+                    !r <- _taskAction task logFun env
                     putResult (_taskResult task) (Right r)
             Just Left{} -> do
                 logg task Debug "task already failed"
