@@ -1,7 +1,7 @@
-cabal-version: 3.0
+cabal-version: 3.8
 
 name:         chainweb
-version:      2.18.1
+version:      2.19.1
 synopsis:     A Proof-of-Work Parallel-Chain Architecture for Massive Throughput
 description:  A Proof-of-Work Parallel-Chain Architecture for Massive Throughput.
 homepage:     https://github.com/kadena-io/chainweb
@@ -96,7 +96,7 @@ common warning-flags
 
 custom-setup
     setup-depends:
-          Cabal
+          Cabal >= 3.8
         , base >= 4.12 && < 5
         , bytestring >= 0.10
         , directory >= 1.3
@@ -196,6 +196,7 @@ library
         , Chainweb.Miner.RestAPI.Client
         , Chainweb.Miner.RestAPI.Server
         , Chainweb.NodeVersion
+        , Chainweb.OpenAPIValidation
         , Chainweb.Payload
         , Chainweb.Payload.PayloadStore
         , Chainweb.Payload.PayloadStore.InMemory
@@ -402,6 +403,7 @@ library
         , wai-app-static >= 3.1.6.3
         , wai-cors >= 0.2.7
         , wai-extra >= 3.0.28
+        , wai-middleware-validation
         , vector >= 0.12.2
         , vector-algorithms >= 0.7
         , wai-middleware-throttle >= 0.3
@@ -482,6 +484,7 @@ test-suite chainweb-tests
         Chainweb.Test.TreeDB
         Chainweb.Test.TreeDB.RemoteDB
         Chainweb.Test.Utils
+        Chainweb.Test.Utils.APIValidation
         Chainweb.Test.Version
         Chainweb.Test.Utils.BlockHeader
         Chainweb.Test.Utils.TestHeader
@@ -560,6 +563,8 @@ test-suite chainweb-tests
         , unordered-containers == 0.2.15.0
         , vector >= 0.12.2
         , wai >= 3.2
+        , wai-middleware-validation
+        , pretty-show
         , warp >= 3.3.5
         , warp-tls >= 3.2.9
         , yaml >= 0.11
@@ -714,6 +719,8 @@ executable cwtool
         , unordered-containers == 0.2.15.0
         , vector >= 0.12.2
         , wai >= 3.2
+        , wai-middleware-validation
+        , pretty-show
         , warp >= 3.3.5
         , warp-tls >= 3.2.9
         , yaml >= 0.8

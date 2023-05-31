@@ -10,6 +10,7 @@
 {-# LANGUAGE TupleSections #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE ViewPatterns #-}
 
 -- |
 -- Module: Chainweb.Test.Utils
@@ -17,8 +18,6 @@
 -- License: MIT
 -- Maintainer: Lars Kuhtz <lars@kadena.io>
 -- Stability: experimental
---
--- TODO
 --
 module Chainweb.Test.Utils
 (
@@ -77,6 +76,7 @@ module Chainweb.Test.Utils
 , withTestAppServer
 , withChainwebTestServer
 , clientEnvWithChainwebTestServer
+, ShouldValidateSpec(..)
 , withBlockHeaderDbsServer
 , withPeerDbsServer
 , withPayloadServer
@@ -240,6 +240,8 @@ import P2P.Node.Configuration
 import qualified P2P.Node.PeerDB as P2P
 import P2P.Peer
 
+import Chainweb.Test.Utils.APIValidation
+
 -- -------------------------------------------------------------------------- --
 -- Misc
 
@@ -395,12 +397,15 @@ insertN_ s n g db = do
 -- | Useful for terminal-based debugging. A @Tree BlockHeader@ can be obtained
 -- from any `TreeDb` via `toTree`.
 --
+-- Do not use in tests in the test suite. Those should never print directly to
+-- the console.
+--
 prettyTree :: Tree BlockHeader -> String
 prettyTree = drawTree . fmap f
   where
     f h = printf "%d - %s"
-              (coerce @BlockHeight @Word64 $ _blockHeight h)
-              (take 12 . drop 1 . show $ _blockHash h)
+        (coerce @BlockHeight @Word64 $ _blockHeight h)
+        (take 12 . drop 1 . show $ _blockHash h)
 
 normalizeTree :: Ord a => Tree a -> Tree a
 normalizeTree n@(Node _ []) = n
@@ -648,21 +653,27 @@ withTestAppServer tls v appIO envIO userFunc = bracket start stop go
         close sock
     go (_, _, env) = userFunc env
 
+data ShouldValidateSpec = ValidateSpec | DoNotValidateSpec
 
 -- TODO: catch, wrap, and forward exceptions from chainwebApplication
 --
 withChainwebTestServer
-    :: Bool
+    :: ShouldValidateSpec
+    -> Bool
     -> ChainwebVersion
     -> IO W.Application
     -> (Int -> IO a)
     -> (IO a -> TestTree)
     -> TestTree
-withChainwebTestServer tls v appIO envIO test = withResource start stop $ \x ->
-    test $ x >>= \(_, _, env) -> return env
+withChainwebTestServer shouldValidateSpec tls v appIO envIO test =
+    withResource start stop $ \x -> do
+        test $ x >>= \(_, _, env) -> return env
   where
     start = do
-        app <- appIO
+        mw <- case shouldValidateSpec of
+            ValidateSpec -> mkApiValidationMiddleware v
+            DoNotValidateSpec -> return id
+        app <- mw <$> appIO
         (port, sock) <- W.openFreePort
         readyVar <- newEmptyMVar
         server <- async $ do
@@ -691,13 +702,14 @@ clientEnvWithChainwebTestServer
     => ToJSON t
     => FromJSON t
     => CanReadablePayloadCas tbl
-    => Bool
+    => ShouldValidateSpec
+    -> Bool
     -> ChainwebVersion
     -> IO (ChainwebServerDbs t tbl)
     -> (IO (TestClientEnv t tbl) -> TestTree)
     -> TestTree
-clientEnvWithChainwebTestServer tls v dbsIO =
-    withChainwebTestServer tls v mkApp mkEnv
+clientEnvWithChainwebTestServer shouldValidateSpec tls v dbsIO =
+    withChainwebTestServer shouldValidateSpec tls v mkApp mkEnv
   where
 
     -- FIXME: Hashes API got removed from the P2P API. We use an application that
@@ -728,12 +740,13 @@ withPeerDbsServer
     => CanReadablePayloadCas tbl
     => ToJSON t
     => FromJSON t
-    => Bool
+    => ShouldValidateSpec
+    -> Bool
     -> ChainwebVersion
     -> IO [(NetworkId, P2P.PeerDb)]
     -> (IO (TestClientEnv t tbl) -> TestTree)
     -> TestTree
-withPeerDbsServer tls v peerDbsIO = clientEnvWithChainwebTestServer tls v $ do
+withPeerDbsServer shouldValidateSpec tls v peerDbsIO = clientEnvWithChainwebTestServer shouldValidateSpec tls v $ do
     peerDbs <- peerDbsIO
     return $ emptyChainwebServerDbs
         { _chainwebServerPeerDbs = peerDbs
@@ -744,14 +757,15 @@ withPayloadServer
     => CanReadablePayloadCas tbl
     => ToJSON t
     => FromJSON t
-    => Bool
+    => ShouldValidateSpec
+    -> Bool
     -> ChainwebVersion
     -> IO (CutDb tbl)
     -> IO [(ChainId, PayloadDb tbl)]
     -> (IO (TestClientEnv t tbl) -> TestTree)
     -> TestTree
-withPayloadServer tls v cutDbIO payloadDbsIO =
-    clientEnvWithChainwebTestServer tls v $ do
+withPayloadServer shouldValidateSpec tls v cutDbIO payloadDbsIO =
+    clientEnvWithChainwebTestServer shouldValidateSpec tls v $ do
         payloadDbs <- payloadDbsIO
         cutDb <- cutDbIO
         return $ emptyChainwebServerDbs
@@ -764,14 +778,15 @@ withBlockHeaderDbsServer
     => CanReadablePayloadCas tbl
     => ToJSON t
     => FromJSON t
-    => Bool
+    => ShouldValidateSpec
+    -> Bool
     -> ChainwebVersion
     -> IO [(ChainId, BlockHeaderDb)]
     -> IO [(ChainId, MempoolBackend t)]
     -> (IO (TestClientEnv t tbl) -> TestTree)
     -> TestTree
-withBlockHeaderDbsServer tls v chainDbsIO mempoolsIO =
-    clientEnvWithChainwebTestServer tls v $ do
+withBlockHeaderDbsServer shouldValidateSpec tls v chainDbsIO mempoolsIO =
+    clientEnvWithChainwebTestServer shouldValidateSpec tls v $ do
         chainDbs <- chainDbsIO
         mempools <- mempoolsIO
         return $ emptyChainwebServerDbs
@@ -1030,7 +1045,10 @@ withNodes
     -> Natural
     -> (IO ChainwebNetwork -> TestTree)
     -> TestTree
-withNodes = withNodes_ (genericLogger Warn print)
+withNodes = withNodes_ (genericLogger Error (error . T.unpack))
+    -- Test resources are part of test infrastructure and should never print
+    -- anything. A message at log level error means that the test harness itself
+    -- failed and with thus abort the test.
 
 runTestNodes
     :: Logger logger

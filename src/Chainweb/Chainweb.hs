@@ -110,7 +110,6 @@ import Control.Monad
 import Control.Monad.Catch (fromException, throwM)
 import Control.Monad.Writer
 
-import Data.Bifunctor (second)
 import Data.Foldable
 import Data.Function (on)
 import qualified Data.HashMap.Strict as HM
@@ -158,6 +157,7 @@ import qualified Chainweb.Mempool.InMemTypes as Mempool
 import qualified Chainweb.Mempool.Mempool as Mempool
 import Chainweb.Mempool.P2pConfig
 import Chainweb.Miner.Config
+import qualified Chainweb.OpenAPIValidation as OpenAPIValidation
 import Chainweb.Pact.RestAPI.Server (PactServerData(..))
 import Chainweb.Pact.Service.Types (PactServiceConfig(..))
 import Chainweb.Pact.Validations
@@ -636,7 +636,23 @@ runChainweb
     -> IO ()
 runChainweb cw = do
     logg Info "start chainweb node"
+    mkValidationMiddleware <- interleaveIO $
+        OpenAPIValidation.mkValidationMiddleware (_chainwebLogger cw) (_chainwebVersion cw) (_chainwebManager cw)
+    p2pValidationMiddleware <-
+        if _p2pConfigValidateSpec (_configP2p $ _chainwebConfig cw)
+        then do
+            logg Warn $ "OpenAPI spec validation enabled on P2P API, make sure this is what you want"
+            mkValidationMiddleware
+        else return id
+    serviceApiValidationMiddleware <-
+        if _serviceApiConfigValidateSpec (_configServiceApi $ _chainwebConfig cw)
+        then do
+            logg Warn $ "OpenAPI spec validation enabled on service API, make sure this is what you want"
+            mkValidationMiddleware
+        else return id
+
     concurrentlies_
+
         -- 1. Start serving Rest API
         [ (if tls then serve else servePlain)
             $ httpLog
@@ -644,13 +660,21 @@ runChainweb cw = do
             . throttle (_chainwebMempoolThrottler cw)
             . throttle (_chainwebThrottler cw)
             . requestSizeLimit
+            . p2pValidationMiddleware
+
         -- 2. Start Clients (with a delay of 500ms)
         , threadDelay 500000 >> clients
+
         -- 3. Start serving local API
-        , threadDelay 500000 >> serveServiceApi (serviceHttpLog . requestSizeLimit)
+        , threadDelay 500000 >> do
+            serveServiceApi
+                $ serviceHttpLog
+                . requestSizeLimit
+                . serviceApiValidationMiddleware
         ]
 
   where
+
     tls = _p2pConfigTls $ _configP2p $ _chainwebConfig cw
 
     clients :: IO ()
@@ -674,7 +698,7 @@ runChainweb cw = do
 
     -- collect server resources
     proj :: forall a . (ChainResources logger -> a) -> [(ChainId, a)]
-    proj f = map (second f) chains
+    proj f = chains & mapped . _2 %~ f
 
     chainDbsToServe :: [(ChainId, BlockHeaderDb)]
     chainDbsToServe = proj _chainResBlockHeaderDb

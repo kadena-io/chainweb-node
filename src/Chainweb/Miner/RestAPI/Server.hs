@@ -37,8 +37,6 @@ import Data.IORef (IORef, atomicModifyIORef', newIORef, readIORef, writeIORef)
 import qualified Data.Map.Strict as M
 import Data.Proxy (Proxy(..))
 import qualified Data.Set as S
-import qualified Data.Text.Lazy as TL
-import qualified Data.Text.Lazy.Encoding as TL
 
 import Network.HTTP.Types.Status
 import Network.Wai (responseLBS)
@@ -60,7 +58,7 @@ import Chainweb.Miner.Coordinator
 import Chainweb.Miner.Core
 import Chainweb.Miner.Pact
 import Chainweb.Miner.RestAPI (MiningApi)
-import Chainweb.RestAPI.Utils (SomeServer(..))
+import Chainweb.RestAPI.Utils
 import Chainweb.Utils (EncodingException(..))
 import Chainweb.Utils.Serialization
 import Chainweb.Version
@@ -78,13 +76,12 @@ workHandler mr mcid m@(Miner (MinerId mid) _) = do
     MiningState ms <- liftIO . readTVarIO $ _coordState mr
     when (M.size ms > _coordLimit mr) $ do
         liftIO $ atomicModifyIORef' (_coord503s mr) (\c -> (c + 1, ()))
-        throwError err503 { errBody = "Too many work requests" }
+        throwError $ setErrText "Too many work requests" err503
     let !conf = _coordConf mr
         !primed = S.member m $ _coordinationMiners conf
     unless primed $ do
         liftIO $ atomicModifyIORef' (_coord403s mr) (\c -> (c + 1, ()))
-        let midb = TL.encodeUtf8 $ TL.fromStrict mid
-        throwError err403 { errBody = "Unauthorized Miner: " <> midb }
+        throwError $ setErrText ("Unauthorized Miner: " <> mid) err403
     wh <- liftIO $ work mr mcid m
     return $ WorkBytes $ runPutS $ encodeWorkHeader wh
 
@@ -100,22 +97,19 @@ solvedHandler
 solvedHandler mr (HeaderBytes bytes) = do
     liftIO (try $ runGetS decodeSolvedWork bytes) >>= \case
         Left (DecodeException e) ->
-            throwError err400 { errBody = "Decoding error: " <> toErrText e }
+            throwError $ setErrText ("Decoding error: " <> e) err400
         Left _ ->
-            throwError err400 { errBody = "Unexpected encoding exception" }
-
+            throwError $ setErrText "Unexpected encoding exception" err400
         Right solved -> do
             result <- liftIO $ catches (Right () <$ solve mr solved)
                 [ E.Handler $ \NoAsscociatedPayload ->
-                    return $ Left err404 { errBody = "No associated Payload" }
+                    return $ Left $ setErrText "No associated Payload" err404
                 , E.Handler $ \(InvalidSolvedHeader _ msg) ->
-                    return $ Left err400 { errBody = "Invalid solved work: " <> toErrText msg}
+                    return $ Left $ setErrText ("Invalid solved work: " <> msg) err400
                 ]
             case result of
                 Left e -> throwError e
                 Right () -> return NoContent
-  where
-    toErrText = TL.encodeUtf8 . TL.fromStrict
 
 -- -------------------------------------------------------------------------- --
 --  Updates Handler
