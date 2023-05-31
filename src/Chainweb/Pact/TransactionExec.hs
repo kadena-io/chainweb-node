@@ -110,7 +110,6 @@ import Chainweb.Utils (encodeToByteString, sshow, tryAllSynchronous, T2(..), T3(
 import Chainweb.Version as V
 
 import qualified Debug.Trace as DT
-import Debug.Trace (traceShowM)
 
 -- -------------------------------------------------------------------------- --
 
@@ -343,6 +342,7 @@ applyCoinbase v logger dbEnv (Miner mid mks@(MinerKeys mk)) reward@(ParsedDecima
 
     go interp cexec
   | otherwise = do
+    DT.traceShowM ("applyCoinbase" :: String)
     cexec <- mkCoinbaseCmd mid mks reward
     let interp = initStateInterpreter initState
     go interp cexec
@@ -503,8 +503,6 @@ readInitModules logger dbEnv txCtx
 
     go :: TransactionM p ModuleCache
     go = do
-      traceShowM ("casual go" :: String)
-
       -- see if fungible-v2 is there
       checkCmd <- liftIO $ mkCmd "(contains \"fungible-v2\" (list-modules))"
       checkFv2 <- run "check fungible-v2" checkCmd
@@ -539,7 +537,6 @@ readInitModules logger dbEnv txCtx
     -- if this changes, we must change the filter in 'updateInitCache'
     goCw217 :: TransactionM p ModuleCache
     goCw217 = do
-      traceShowM ("goCw217" :: String)
       coinDepCmd <- liftIO $ mkCmd "coin.MINIMUM_PRECISION"
       void $ run "load modules" coinDepCmd
       use txCache
@@ -895,6 +892,7 @@ buyGas isPactBackCompatV16 cmd (Miner mid mks) = go
     bgHash = Hash (chash <> "-buygas")
 
     go = do
+      DT.traceShowM ("buyGas" :: String)
       mcache <- use txCache
       supply <- gasSupplyOf <$> view txGasLimit <*> view txGasPrice
       logGas <- isJust <$> view txGasLogger
@@ -978,6 +976,7 @@ enrichedMsgBody cmd = case (_pPayload $ _cmdPayload cmd) of
 --
 redeemGas :: Command (Payload PublicMeta ParsedCode) -> TransactionM p [PactEvent]
 redeemGas cmd = do
+    DT.traceShowM ("redeemGas" :: String)
     mcache <- use txCache
 
     gid <- use txGasId >>= \case
@@ -1036,6 +1035,7 @@ checkTooBigTx initialGas gasLimit next onFail
 
 gasInterpreter :: Gas -> TransactionM db (Interpreter p)
 gasInterpreter g = do
+    DT.traceShowM ("gasInterpreter" :: String)
     mc <- use txCache
     logGas <- isJust <$> view txGasLogger
     return $ initStateInterpreter
@@ -1110,7 +1110,7 @@ setModuleCache
   -> EvalState
   -> EvalState
 setModuleCache mcache es =
-  let mcache' = toHashMap mcache
+  let mcache' = toHashMap $ DT.trace (show $ keysDbCache mcache) $ mcache
       allDeps = foldMap (allModuleExports . fst) mcache'
   in set (evalRefs . rsQualifiedDeps) allDeps $ set (evalRefs . rsLoadedModules) mcache' $ es
 {-# INLINE setModuleCache #-}

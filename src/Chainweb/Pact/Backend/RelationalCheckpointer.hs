@@ -147,7 +147,7 @@ doRestore v cid dbenv (Just (bh, hash)) = runBlockEnv dbenv $ do
     setSortedKeys
     setLowerCaseTables
     clearPendingTxState
-    when (bh /= 0) $ void $ withSavepoint PreBlock $ handlePossibleRewind v cid bh hash
+    void $ withSavepoint PreBlock $ handlePossibleRewind v cid bh hash
     beginSavepoint Block
     return $! PactDbEnv' $! PactDbEnv chainwebPactDb dbenv
   where

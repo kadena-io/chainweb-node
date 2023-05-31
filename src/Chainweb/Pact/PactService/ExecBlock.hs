@@ -360,13 +360,13 @@ runCoinbase False dbEnv miner enfCBFail usePrecomp mc = do
 
     (T2 cr upgradedCacheM) <-
       liftIO $! applyCoinbase v logger dbEnv miner reward pd enfCBFail usePrecomp mc
-    mapM_ (upgradeInitCache dbEnv) upgradedCacheM
+    mapM_ upgradeInitCache upgradedCacheM
     debugResult "runCoinbase" cr
     return $! cr
 
   where
 
-    upgradeInitCache dbEnv newCache = do
+    upgradeInitCache newCache = do
       logInfo "Updating init cache for upgrade"
       updateInitCache dbEnv newCache
 

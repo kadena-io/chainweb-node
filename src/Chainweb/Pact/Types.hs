@@ -450,6 +450,8 @@ getInitCache pactdbenv =
 updateInitCache :: PactDbEnv (BlockEnv SQLiteEnv) -> ModuleCache -> PactServiceM tbl ()
 updateInitCache pactdbenv mc = do
 
+  DT.traceShowM ("updateInitCache!!" :: String)
+
   PactServiceState{_psParentHeader} <- get
   let bf 0 = 0
       bf h = succ h
