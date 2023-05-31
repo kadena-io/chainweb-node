@@ -119,7 +119,7 @@ test5 (Positive n) (Positive m) (Positive a)
                 | otherwise -> throwM $ TestRunnerException e
         q <- newEmptyPQueue
         traverse_ (pQueueInsert q) tasks
-        withAsync (testRunner (int a) q) $ \_ -> do
+        withAsync (testRunner (int @Int @AttemptsCount a) q) $ \_ -> do
             results <- traverse awaitTask tasks
             return $ results == [0,m..(n*m)]
 

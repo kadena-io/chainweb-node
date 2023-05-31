@@ -1,6 +1,7 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeApplications #-}
 
 -- |
 -- Module: Chainweb.Test.Chainweb.Utils.Paging
@@ -38,9 +39,9 @@ prop_streamToPage_limit l i = i <= len l ==> actual === expected
     & cover 1 (null l) "length of stream == 0"
   where
     s = S.each l
-    is = take (int i) l
+    is = take (int @Limit @Int i) l
     actual = runIdentity $ finiteStreamToPage id (Just i) s
-    expected = Page i is (Inclusive <$> listToMaybe (drop (int i) l))
+    expected = Page i is (Inclusive <$> listToMaybe (drop (int @Limit @Int i) l))
 
 prop_streamToPage_id :: [Int] -> Property
 prop_streamToPage_id l = actual === expected

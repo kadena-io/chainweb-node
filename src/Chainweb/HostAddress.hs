@@ -178,7 +178,7 @@ ipV4Parser = (,,,)
     <?> "ipv4address"
   where
     octet :: Parser Word8
-    octet = (decimal >>= \(d :: Integer) -> int d <$ guard (d < 256))
+    octet = (decimal >>= \(d :: Integer) -> int @Integer @Word8 d <$ guard (d < 256))
         <?> "octet"
 
 ipV6Parser :: Parser [Maybe Word16]
@@ -208,8 +208,8 @@ ipV6Parser = p0
     h16 :: Parser (Maybe Word16)
     h16 = Just <$> do
         h <- hexadecimal @Integer
-        guard $ h < int (maxBound @Word16)
-        return (int h)
+        guard $ h < int @Word16 @Integer (maxBound @Word16)
+        return (int @Integer @Word16 h)
         <?> "h16"
 
     l0 = []
@@ -218,8 +218,8 @@ ipV6Parser = p0
     l3 a b t = a:b:t
 
 portParser :: Parser Port
-portParser = Port
-    <$> (decimal >>= \(d :: Integer) -> int d <$ guard (d <= 2^(16 :: Int)-1))
+portParser =
+    (decimal >>= \(d :: Integer) -> int @Integer @Port d <$ guard (d <= 2^(16 :: Int)-1))
     <?> "port"
 
 parseBytes :: MonadThrow m => T.Text -> Parser a -> B8.ByteString -> m a
@@ -243,10 +243,10 @@ newtype Port = Port Word16
     deriving anyclass (Hashable, NFData)
     deriving newtype (Show, Real, Integral, Num, Bounded, Enum, ToJSON, FromJSON)
 
-portFromInt :: MonadThrow m => Integral a => a -> m Port
+portFromInt :: forall a m. MonadThrow m => Integral a => a -> m Port
 portFromInt n
-    | n >= 0 && n <= 2^(16 :: Int)-1 = return $ Port (int n)
-    | otherwise = throwM $ InvalidPortException (int n)
+    | n >= 0 && n <= 2^(16 :: Int)-1 = return $ Port (int @a @Word16 n)
+    | otherwise = throwM $ InvalidPortException (int @a @Integer n)
 {-# INLINE portFromInt #-}
 
 readPortBytes :: MonadThrow m => B8.ByteString -> m Port

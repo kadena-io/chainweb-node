@@ -7,6 +7,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE TypeApplications #-}
 
 -- |
 -- Module: Chainweb.Utils.Paging
@@ -226,11 +227,11 @@ finitePrefixOfInfiniteStreamToPage k limit s = do
         . S.copy
         . S.last
         . S.copy
-        . maybe (mempty <$) (\n -> S.splitAt (int $ _getLimit n)) limit
+        . maybe (mempty <$) (\n -> S.splitAt (int @Limit @Int n)) limit
         $ s
     maybeNext <- fmap k <$> S.head_ tailStream
 
-    return $ Page (int limit') items' $ case maybeNext of
+    return $ Page (int @Int @Limit limit') items' $ case maybeNext of
         Nothing -> case lastKey of
             Nothing -> Nothing
             Just l -> Just (Exclusive $ k l)
@@ -251,10 +252,10 @@ finiteStreamToPage k limit s = do
     (items' :> limit' :> tailStream) <- S.toList
         . S.length
         . S.copy
-        . maybe (mempty <$) (\n -> S.splitAt (int $ _getLimit n)) limit
+        . maybe (mempty <$) (\n -> S.splitAt (int @Limit @Int n)) limit
         $ s
     next <- fmap (Inclusive . k) <$> S.head_ tailStream
-    return $ Page (int limit') items' next
+    return $ Page (int @Int @Limit limit') items' next
 
 -- | Quick and dirty pagin implementation. Usage should be avoided.
 --

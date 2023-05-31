@@ -84,6 +84,8 @@ import Data.IORef
 import Data.Text (Text)
 import qualified Data.Text as T
 
+import Numeric.Natural
+
 import GHC.Stack
 
 import qualified Pact.Types.Logger as P
@@ -373,7 +375,7 @@ rewindTo rewindLimit (Just (ParentHeader parent)) = do
 
     failOnTooLowRequestedHeight (Just limit) lastHeader
         | parentHeight + 1 + limit < lastHeight = -- need to stick with addition because Word64
-            throwM $ RewindLimitExceeded (int limit) parentHeight lastHeight parent
+            throwM $ RewindLimitExceeded (int @BlockHeight @Natural limit) parentHeight lastHeight parent
       where
         lastHeight = _blockHeight lastHeader
     failOnTooLowRequestedHeight _ _ = return ()
@@ -402,7 +404,7 @@ rewindTo rewindLimit (Just (ParentHeader parent)) = do
             -- iterator. 'withPactState' allows us to call pact service actions
             -- from the callback.
             c <- withPactState $ \runPact ->
-                getBranchIncreasing bhdb parent (int ancestorHeight) $ \newBlocks -> do
+                getBranchIncreasing bhdb parent (int @BlockHeight @Natural ancestorHeight) $ \newBlocks -> do
                     -- This stream is guaranteed to at least contain @e@.
                     (h, s) <- fromJuste <$> S.uncons newBlocks
                     heightRef <- newIORef (_blockHeight commonAncestor)
@@ -589,7 +591,7 @@ rewindToIncremental rewindLimit (Just (ParentHeader parent)) = do
 
     failOnTooLowRequestedHeight (Just limit) lastHeader
         | parentHeight + 1 + limit < lastHeight = -- need to stick with addition because Word64
-            throwM $ RewindLimitExceeded (int limit) parentHeight lastHeight parent
+            throwM $ RewindLimitExceeded (int @BlockHeight @Natural limit) parentHeight lastHeight parent
       where
         lastHeight = _blockHeight lastHeader
     failOnTooLowRequestedHeight _ _ = return ()
@@ -619,7 +621,7 @@ rewindToIncremental rewindLimit (Just (ParentHeader parent)) = do
             -- maintains an 'TreeDB' iterator. 'withPactState' allows us to call
             -- pact service actions from the callback.
             (_ S.:> c) <- withPactState $ \runPact ->
-                getBranchIncreasing bhdb parent (int ancestorHeight) $ \newBlocks -> do
+                getBranchIncreasing bhdb parent (int @BlockHeight @Natural ancestorHeight) $ \newBlocks -> do
 
                     -- fastforwards all blocks in a chunk in a single database
                     -- transactions (withBatchIO).

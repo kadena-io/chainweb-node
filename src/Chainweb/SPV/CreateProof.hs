@@ -35,6 +35,8 @@ import qualified Data.ByteString as B
 import qualified Data.List.NonEmpty as N
 import Data.MerkleLog
 
+import Numeric.Natural
+
 import GHC.Stack
 
 import Prelude hiding (lookup)
@@ -441,7 +443,7 @@ crumbsToChain
     -> IO (Maybe (BlockHeader, [(Int, BlockHeader)]))
         -- ^ bread crumbs that lead from to source Chain to targetHeader
 crumbsToChain db srcCid trgHeader
-    | (int (_blockHeight trgHeader) + 1) < length path = return Nothing
+    | (int @BlockHeight @Int (_blockHeight trgHeader) + 1) < length path = return Nothing
     | otherwise = Just <$> go trgHeader path []
   where
     graph = chainGraphAt_ db (_blockHeight trgHeader)
@@ -475,25 +477,25 @@ minimumTrgHeader
     -> IO BlockHeader
 minimumTrgHeader headerDb tcid scid bh = do
     trgHeadHeader <- maxEntry trgChain
-    seekAncestor trgChain trgHeadHeader trgHeight >>= \case
+    seekAncestor trgChain trgHeadHeader (int @BlockHeight @Natural trgHeight) >>= \case
         Just x -> return $! x
         Nothing -> throwM $ SpvExceptionTargetNotReachable
             { _spvExceptionMsg = "target chain not reachable. Chainweb instance is too young"
             , _spvExceptionSourceChainId = scid
             , _spvExceptionSourceHeight = bh
             , _spvExceptionTargetChainId = tcid
-            , _spvExceptionTargetHeight = int trgHeight
+            , _spvExceptionTargetHeight = trgHeight
             }
   where
     trgChain = headerDb ^?! ixg tcid
     trgHeight
-        | srcGraph == trgGraph = int bh + int srcDistance
-        | otherwise = int bh + int srcDistance + int trgDistance
+        | srcGraph == trgGraph = bh + int @Int @BlockHeight srcDistance
+        | otherwise = bh + int @Int @BlockHeight srcDistance + int @Int @BlockHeight trgDistance
             -- This assumes that graph changes are at least graph-diameter
             -- blocks appart.
 
     srcGraph = chainGraphAt_ headerDb bh
     srcDistance = length $ shortestPath tcid scid srcGraph
-    trgGraph = chainGraphAt_ headerDb (bh + int srcDistance)
+    trgGraph = chainGraphAt_ headerDb (bh + int @Int @BlockHeight srcDistance)
     trgDistance = length $ shortestPath tcid scid trgGraph
 

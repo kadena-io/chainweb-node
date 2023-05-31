@@ -99,6 +99,7 @@ import qualified Data.ByteArray as BA
 import qualified Data.ByteString as B
 import Data.Cuckoo
 import Data.Foldable
+import Data.Semigroup
 
 import GHC.Generics
 
@@ -315,7 +316,7 @@ fullGc logger rdb v = do
             chainLogg = logFunctionText chainLogger
 
         m <- maxRank cdb
-        markedPayloads <- mkFilter (round $ (1024 + int @_ @Double m) * 1.1)
+        markedPayloads <- mkFilter (round $ (1024 + int @Natural @Double m) * 1.1)
 
         chainLogg Info $ "Allocated "
             <> sshow (sizeInAllocatedBytes markedPayloads `div` (1024 * 1024))
@@ -326,7 +327,7 @@ fullGc logger rdb v = do
         -- Blocks at (maxRank - depth) are used as pivots and pruning and marking starts at
         -- (depth - 1)
         --
-        let keptBound = MinRank $ int $ m - min m depth
+        let keptBound = MinRank $ Min $ m - min m depth
         void $ entries cdb Nothing Nothing (Just keptBound) Nothing
             $ S.mapM_ (markPayload markedPayloads)
 
@@ -375,13 +376,13 @@ sweepPayloads logg db markedPayloads = do
 
     -- create filter with sufficient capacity
     m <- sum <$> mapM itemCount markedPayloads
-    markedTrans <- mkFilter (round $ int @_ @Double m * 1.1)
+    markedTrans <- mkFilter (round $ int @Int @Double m * 1.1)
 
     logg Info $ "Allocated "
         <> sshow (sizeInAllocatedBytes markedTrans `div` (1024 * 1024))
         <> "MB for marking transaction hashes entries"
 
-    markedOutputs <- mkFilter (round $ int @_ @Double m * 1.1)
+    markedOutputs <- mkFilter (round $ int @Int @Double m * 1.1)
     logg Info $ "Allocated "
         <> sshow (sizeInAllocatedBytes markedOutputs `div` (1024 * 1024))
         <> "MB for marking outputs hashes entries"

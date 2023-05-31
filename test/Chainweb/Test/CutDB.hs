@@ -6,6 +6,7 @@
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TupleSections #-}
+{-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 
 -- |
@@ -511,7 +512,7 @@ testCutPruning rdb = testCase "cut pruning" $ do
     -- initialize cut DB and mine enough to trigger pruning
     let v = Test pairChainGraph
     withTestCutDbWithoutPact rdb v alterPruningSettings
-        (int $ avgCutHeightAt v minedBlockHeight)
+        (int @CutHeight @Int $ avgCutHeightAt v minedBlockHeight)
         (\_ _ -> return ())
         $ \cutHashesStore _ -> do
             -- peek inside the cut DB's store to find the oldest and newest cuts
@@ -524,12 +525,13 @@ testCutPruning rdb = testCase "cut pruning" $ do
                 round (avgBlockHeightAtCutHeight v leastCutHeight) >= fuzz
             -- we must keep the latest cut
             assertBool "newest cut is too old" $
-                round (avgBlockHeightAtCutHeight v mostCutHeight) >= int minedBlockHeight - fuzz
+                round (avgBlockHeightAtCutHeight v mostCutHeight) >= minedBlockHeight - fuzz
   where
     alterPruningSettings =
         set cutDbParamsAvgBlockHeightPruningDepth 50 .
         set cutDbParamsPruningFrequency 1 .
         set cutDbParamsWritingFrequency 1
+    minedBlockHeight :: Num a => a
     minedBlockHeight = 300
 
 testCutGet :: RocksDb -> TestTree
@@ -541,7 +543,7 @@ testCutGet rdb = testCase "cut get" $ do
 
     withTestCutDbWithoutPact rdb v id (2 * int ch) (\_ _ -> return ()) $ \_ cutDb -> do
       curHeight <- _cutHeight <$> _cut cutDb
-      assertGe "cut height is large enough" (Actual curHeight) (Expected $ 2 * int ch)
-      retCut <- cutGetHandler cutDb (Just $ MaxRank (Max $ int halfCh))
+      assertGe "cut height is large enough" (Actual curHeight) (Expected (2 * ch))
+      retCut <- cutGetHandler cutDb (Just $ MaxRank (Max $ int @CutHeight @Natural halfCh))
       assertLe "cut hashes are too high" (Actual (_cutHashesHeight retCut)) (Expected halfCh)
 

@@ -432,7 +432,7 @@ fingerprintToText (Fingerprint b) = encodeB64UrlNoPaddingText b
 fingerprintFromText :: MonadThrow m => T.Text -> m Fingerprint
 fingerprintFromText t = do
     !bytes <- decodeB64UrlNoPaddingText t
-    unless (B.length bytes == int fingerprintByteCount) $ throwM
+    unless (B.length bytes == int @Natural @Int fingerprintByteCount) $ throwM
         $ TextFormatException
         $ "wrong certificate fingerprint length: expected "
         <> sshow fingerprintByteCount <> " bytes, got "

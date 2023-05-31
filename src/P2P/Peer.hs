@@ -93,6 +93,8 @@ import Data.String
 import qualified Data.Text as T
 import qualified Data.Text.IO as T
 
+import Numeric.Natural
+
 import GHC.Generics (Generic)
 import GHC.Stack
 
@@ -128,7 +130,7 @@ shortPeerId = T.take 6 . toText
 peerIdFromText :: MonadThrow m => T.Text -> m PeerId
 peerIdFromText t = do
     !bytes <- decodeB64UrlNoPaddingText t
-    unless (B.length bytes == int fingerprintByteCount) $ throwM
+    unless (B.length bytes == int @Natural @Int fingerprintByteCount) $ throwM
         $ TextFormatException
         $ "wrong peer-id length: expected "
         <> sshow fingerprintByteCount <> " bytes, got "
@@ -262,7 +264,7 @@ peerInfoClientEnv mgr = mkClientEnv mgr . peerBaseUrl . _peerAddr
   where
     peerBaseUrl a = BaseUrl Https
         (B8.unpack . hostnameBytes $ view hostAddressHost a)
-        (int $ view hostAddressPort a)
+        (int @Port @Int $ view hostAddressPort a)
         ""
 
 -- -------------------------------------------------------------------------- --

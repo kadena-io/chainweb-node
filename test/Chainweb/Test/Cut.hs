@@ -75,6 +75,9 @@ import qualified Data.HashMap.Strict as HM
 import Data.Monoid
 import Data.Ord
 import qualified Data.Text as T
+import Data.Word
+
+import Numeric.Natural
 
 import GHC.Generics (Generic)
 import GHC.Stack
@@ -91,6 +94,7 @@ import qualified Test.QuickCheck.Monadic as T
 import Chainweb.BlockCreationTime
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
+import Chainweb.BlockHeight
 import Chainweb.ChainId
 import Chainweb.ChainValue
 import Chainweb.Cut
@@ -342,7 +346,7 @@ arbitraryWebChainCut_ wdb initialCut seed = do
             & fmap fromJuste
 
     mine c cid = do
-        n' <- T.pick $ Nonce . int . (* seed) <$> T.arbitrary
+        n' <- T.pick $ Nonce . int @Int @Word64 . (* seed) <$> T.arbitrary
         delay <- pickBlind $ arbitraryBlockTimeOffset Time.second (plus Time.second Time.second)
         liftIO (testMine' wdb n' delay pay cid c) >>= \case
             Right x -> return $ Just x
@@ -621,8 +625,8 @@ properties_miscCut db v =
 prop_blockCountAtChainHeight :: ChainGraph -> ChainGraph -> Bool
 prop_blockCountAtChainHeight g0 g1 = all p [0..10]
   where
-    p i = int @_ @Int (globalBlockCountAt v i) == h (int i)
-    h i = min 8 (i + 1) * int (order g0) + max 0 (i - 7) * int (order g1)
+    p i = int @Natural @Int (globalBlockCountAt v i) == h (int @BlockHeight @Int i)
+    h i = min 8 (i + 1) * int @Natural @Int (order g0) + max 0 (i - 7) * int @Natural @Int (order g1)
 
     -- (8, g1) :| [(0, g0)]
     v = TimedConsensus g0 g1

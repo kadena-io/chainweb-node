@@ -107,7 +107,7 @@ encodeMerkleLogHash (MerkleLogHash bytes) = putByteString $ encodeMerkleRoot byt
 decodeMerkleLogHash
     :: MerkleHashAlgorithm a
     => Get (MerkleLogHash a)
-decodeMerkleLogHash = unsafeMerkleLogHash <$> getByteString (int merkleLogHashBytesCount)
+decodeMerkleLogHash = unsafeMerkleLogHash <$> getByteString (int @Natural @Int merkleLogHashBytesCount)
 {-# INLINE decodeMerkleLogHash #-}
 
 instance Hashable (MerkleLogHash a) where
@@ -118,11 +118,11 @@ instance Hashable (MerkleLogHash a) where
     {-# INLINE hashWithSalt #-}
 
 nullHashBytes :: MerkleHashAlgorithm a => MerkleLogHash a
-nullHashBytes = unsafeMerkleLogHash $ B.replicate (int merkleLogHashBytesCount) 0x00
+nullHashBytes = unsafeMerkleLogHash $ B.replicate (int @Natural @Int merkleLogHashBytesCount) 0x00
 {-# NOINLINE nullHashBytes #-}
 
 oneHashBytes :: MerkleHashAlgorithm a => MerkleLogHash a
-oneHashBytes = unsafeMerkleLogHash $ B.replicate (int merkleLogHashBytesCount) 0xff
+oneHashBytes = unsafeMerkleLogHash $ B.replicate (int @Natural @Int merkleLogHashBytesCount) 0xff
 {-# NOINLINE oneHashBytes #-}
 
 merkleLogHashToText :: MerkleHashAlgorithm a => MerkleLogHash a -> T.Text

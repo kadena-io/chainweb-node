@@ -11,6 +11,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeOperators #-}
 
@@ -90,6 +91,7 @@ import Chainweb.Utils.Serialization
 import Chainweb.Version
 
 import Numeric.Additive
+import Numeric.Natural
 
 -- -------------------------------------------------------------------------- --
 -- Large Word Orphans
@@ -186,12 +188,12 @@ hashTarget = lens _hashTarget $ const HashTarget
 -- | A visualization of a `HashTarget` as binary.
 --
 showTargetHex :: HashTarget -> T.Text
-showTargetHex (HashTarget (PowHashNat n)) = T.pack . printf "%064x" $ (int n :: Integer)
+showTargetHex (HashTarget (PowHashNat n)) = T.pack . printf "%064x" $ int @Word256 @Integer n
 
 -- | A visualization of a `HashTarget` as binary.
 --
 showTargetBits :: HashTarget -> T.Text
-showTargetBits (HashTarget (PowHashNat n)) = T.pack . printf "%0256b" $ (int n :: Integer)
+showTargetBits (HashTarget (PowHashNat n)) = T.pack . printf "%0256b" $ int @Word256 @Integer n
 
 -- | By maximum, we mean "easiest".
 --
@@ -303,17 +305,17 @@ adjust v (WindowWidth ww) (TimeSpan delta) (HashTarget oldTarget) = newTarget
     -- TODO: the block rate should be specified in microseconds in
     -- "Chainweb.Version".
     targetedEpochTime :: Rational
-    targetedEpochTime = int ww * int br * 1000000
+    targetedEpochTime = int @Natural @Rational ww * int @Seconds @Rational br * 1000000
 
     actualEpochTime :: Rational
-    actualEpochTime = int delta
+    actualEpochTime = int @Micros @Rational delta
 
     newTarget :: HashTarget
     newTarget = min maxTarget
         $ HashTarget . PowHashNat
         $ ceiling
         $ (actualEpochTime / targetedEpochTime)
-        * int oldTarget
+        * int @PowHashNat @Rational oldTarget
 
 -- | legacy target computation
 --
@@ -338,10 +340,10 @@ legacyAdjust v (WindowWidth ww) (TimeSpan delta) (HashTarget oldTarget) = newTar
     br = _getBlockRate $ blockRate v
 
     newDiff :: Rational
-    newDiff = oldDiff * int br * int ww * 1000000 / int delta
+    newDiff = oldDiff * int @Seconds @Rational br * int @Natural @Rational ww * 1000000 / int @Micros @Rational delta
 
     oldDiff :: Rational
-    oldDiff = int maxTargetWord / int oldTarget
+    oldDiff = int @Word256 @Rational maxTargetWord / int @PowHashNat @Rational oldTarget
 
     newTarget :: HashTarget
     newTarget = HashTarget . PowHashNat $ maxTargetWord `div` ceiling newDiff

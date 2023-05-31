@@ -97,7 +97,7 @@ payloadBatchHandler
     -> Handler [PayloadData]
 payloadBatchHandler batchLimit db ks = liftIO $ do
     payloads <- catMaybes
-        <$> tableLookupBatch payloadsDb (take (int batchLimit) ks)
+        <$> tableLookupBatch payloadsDb (take (int @PayloadBatchLimit @Int batchLimit) ks)
     txs <- zipWith (\a b -> payloadData <$> a <*> pure b)
         <$> tableLookupBatch txsDb (_blockPayloadTransactionsHash <$> payloads)
         <*> pure payloads
@@ -135,13 +135,13 @@ outputsBatchHandler
 outputsBatchHandler batchLimit db ks = liftIO
     $ fmap catMaybes
     $ tableLookupBatch db
-    $ take (int batchLimit) ks
+    $ take (int @PayloadBatchLimit @Int batchLimit) ks
 
 -- -------------------------------------------------------------------------- --
 -- Payload API Server
 
 payloadServer
-    :: forall tbl v c 
+    :: forall tbl v c
     . CanReadablePayloadCas tbl
     => PayloadBatchLimit
     -> PayloadDb' tbl v c

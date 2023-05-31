@@ -590,17 +590,17 @@ limitStream
     -> S.Stream (Of a) m (Natural, Eos)
 limitStream Nothing s = do
     limit' <- s & S.copy & S.length_
-    return (int limit', Eos True)
+    return (int @Int @Natural limit', Eos True)
 limitStream (Just limit) s = do
     (limit' :> tailStream) <- s
-        & S.splitAt (int limit)
+        & S.splitAt (int @Limit @Int limit)
         & S.copy
         & S.length
     -- FIXME this can be expensive for infinite/blocking streams. Skip this if
     -- the underlying stream is known to be infinite.
     --
     !eos <- lift (atEos tailStream)
-    return (int limit', eos)
+    return (int @Int @Natural limit', eos)
 
 seekStream
     :: Monad m
@@ -866,9 +866,9 @@ seekAncestor db h r
     --
     -- fastRoute1 :: ChainId -> BlockHeader -> IO BlockHeader
     fastRoute1 = do
-        a <- S.toList_ & entries db Nothing (Just 2) (Just $ int r) (Just $ int r)
+        a <- S.toList_ & entries db Nothing (Just 2) (Just $ int @Natural @MinRank r) (Just $ int @Natural @MaxRank r)
         case a of
-            [] -> throwM $ TreeDbAncestorMissing @db h (int r)
+            [] -> throwM $ TreeDbAncestorMissing @db h r
                 "No entry at this rank in the database"
             [x] -> return $ Just x
             _ -> fastRoute2 1
@@ -883,17 +883,17 @@ seekAncestor db h r
     fastRoute2 (i :: Int)
         | r + 2 * off < hh = do
             -- get all blocks at height l
-            !as <- S.toList_ & entries db Nothing Nothing (Just $ int l) (Just $ int l)
+            !as <- S.toList_ & entries db Nothing Nothing (Just $ int @Natural @MinRank l) (Just $ int @Natural @MaxRank l)
 
             -- traverse backward to find blocks at height ch
             !bs <- S.toList_ & defaultBranchEntries db
                 Nothing (Just 2)
-                (Just $ int r) (Just $ int r)
+                (Just $ int @Natural @MinRank r) (Just $ int @Natural @MaxRank r)
                 mempty (HS.fromList $ UpperBound . key <$> as)
 
             -- check that result is unique
             case bs of
-                [] -> throwM $ TreeDbAncestorMissing @db h (int r)
+                [] -> throwM $ TreeDbAncestorMissing @db h r
                     $ "Backward search from rank " <> sshow l <> " results"
                 [x] -> return $ Just x
                 _ -> fastRoute2 (succ i)
@@ -908,10 +908,10 @@ seekAncestor db h r
     slowRoute = do
         !a <- S.head_ & defaultBranchEntries db
             Nothing (Just 1)
-            (Just $ int r) (Just $ int r)
+            (Just $ int @Natural @MinRank r) (Just $ int @Natural @MaxRank r)
             mempty (HS.singleton $ UpperBound $ key h)
         case a of
-            Nothing -> throwM $ TreeDbAncestorMissing @db h (int r)
+            Nothing -> throwM $ TreeDbAncestorMissing @db h r
                 "branch traversal yields no result"
             x -> return x
 
@@ -953,7 +953,7 @@ getBranchIncreasing db e r inner
     | r == rank e = inner $ S.yield e
     | otherwise = go
   where
-    go = entries db Nothing Nothing (Just $ int r) (Just $ int (rank e - 1)) $ \s ->
+    go = entries db Nothing Nothing (Just $ int @Natural @MinRank r) (Just $ int @Natural @MaxRank (rank e - 1)) $ \s ->
         (s >> S.yield e)
             & S.groupBy ((==) `on` rank)
             & S.mapped S.toList

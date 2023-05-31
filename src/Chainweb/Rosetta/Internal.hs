@@ -1,8 +1,9 @@
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE GADTs #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
-{-# LANGUAGE GADTs #-}
 
 -- |
 -- Module: Chainweb.Rosetta.Internal
@@ -27,6 +28,7 @@ import Data.Default (def)
 import Data.Decimal
 import Data.Word (Word64)
 
+import Numeric.Natural
 
 import qualified Data.DList as DList
 import qualified Data.HashMap.Strict as HM
@@ -547,7 +549,7 @@ findBlockHeaderInCurrFork cutDb cid someHeight someHash = do
         else throwError RosettaOrphanBlockHash
   where
     byHeight db latest hi = do
-      somebh <- liftIO $ seekAncestor db latest (int hi)
+      somebh <- liftIO $ seekAncestor db latest (int @Word64 @Natural hi)
       somebh ?? RosettaInvalidBlockHeight
 
 

@@ -5,6 +5,7 @@
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 
 -- |
@@ -50,6 +51,8 @@ import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
 import Data.Vector (Vector)
 import qualified Data.Vector as V
+
+import Numeric.Natural
 
 import System.IO
 import System.Timeout
@@ -492,7 +495,7 @@ minerReward v (MinerRewards rs) bh =
       Nothing -> err
       Just (_, m) -> pure $! P.ParsedDecimal (roundTo 8 (m / n))
   where
-    !n = int . order $ chainGraphAt v bh
+    !n = int @Natural @Decimal . order $ chainGraphAt v bh
     err = internalError "block heights have been exhausted"
 {-# INLINE minerReward #-}
 

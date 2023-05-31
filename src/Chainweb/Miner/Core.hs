@@ -145,7 +145,7 @@ mine orig work = do
                             Just n' -> do
                                 t' <- getCurrentTimeIntegral
                                 let TimeSpan td = diff t' t
-                                    x' = round @Double (int x * 1000000 / int td) -- target 1 second
+                                    x' = round @Double (int @Int @Double x * 1000000 / int @Micros @Double td) -- target 1 second
                                 go0 x' t' n'
 
                 -- Start outer mining loop

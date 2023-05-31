@@ -102,7 +102,7 @@ powHashBytes (PowHash bytes) = bytes
 {-# INLINE powHashBytes #-}
 
 decodePowHash :: Get PowHash
-decodePowHash = PowHash . SB.toShort <$> getByteString (int powHashBytesCount)
+decodePowHash = PowHash . SB.toShort <$> getByteString (int @Natural @Int powHashBytesCount)
 {-# INLINE decodePowHash #-}
 
 instance Hashable PowHash where

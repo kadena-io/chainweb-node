@@ -121,8 +121,8 @@ newCounter = Counter <$> newIORef 0
 inc :: Counter s -> IO ()
 inc (Counter ref) = atomicModifyIORef' ref $ (,()) . succ
 
-incBy :: Integral a => Counter s -> a -> IO ()
-incBy (Counter ref) i = atomicModifyIORef' ref $ (,()) . (+) (int i)
+incBy :: forall a s. Integral a => Counter s -> a -> IO ()
+incBy (Counter ref) i = atomicModifyIORef' ref $ (,()) . (+) (int @a @Int i)
 
 -- -------------------------------------------------------------------------- --
 -- CounterMap
@@ -146,10 +146,10 @@ rollCounterMap (CounterMap ref) = CounterMapValue @s . Labeled <$> do
     V.mapM (traverse readIORef) $ V.fromListN (HM.size old) $ HM.toList old
         -- We assume that 'V.mapM' and 'V.fromListN' get fused.
 
-incKeyBy :: Integral a => CounterMap s -> T.Text -> a -> IO ()
+incKeyBy :: forall a s. Integral a => CounterMap s -> T.Text -> a -> IO ()
 incKeyBy cm@(CounterMap mref) k i = do
     (HM.lookup k <$> readIORef mref) >>= \case
-        Just cref -> atomicModifyIORef' cref $ (, ()) . (+) (int i)
+        Just cref -> atomicModifyIORef' cref $ (, ()) . (+) (int @a @Int i)
         Nothing -> do
             cref <- newIORef 0
             atomicModifyIORef mref $ \m -> (HM.insert k cref m, ())

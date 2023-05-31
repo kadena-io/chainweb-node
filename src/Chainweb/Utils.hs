@@ -1,5 +1,6 @@
 {-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DefaultSignatures #-}
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
@@ -10,12 +11,15 @@
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TupleSections #-}
 {-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE UndecidableInstances #-}
 
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 {-# OPTIONS_GHC -fno-warn-deprecations #-}
@@ -338,15 +342,15 @@ exbi = 1024 ^ (6 :: Int)
 
 -- | A shorter alias for 'fromIntegral'
 --
-int :: Integral a => Num b => a -> b
+int :: forall a b. (Integral a, Num b) => a -> b
 int = fromIntegral
-{-# INLINE int #-}
+{-# INLINABLE int #-}
 
 -- | A generalization of 'length' that returns any type that is an instance of
 -- 'Integral'.
 --
-len :: Integral a => [b] -> a
-len = int . length
+len :: forall a b. Integral a => [b] -> a
+len = int @Int @a . length
 {-# INLINE len #-}
 
 -- | Boolean implication operator.

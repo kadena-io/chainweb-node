@@ -53,6 +53,7 @@ import Pact.Types.Runtime hiding (ChainId)
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
 import Chainweb.BlockHeaderDB
+import Chainweb.BlockHeight
 import Chainweb.Crypto.MerkleLog
 import Chainweb.MerkleUniverse
 import Chainweb.Payload
@@ -217,11 +218,11 @@ createOutputProofDb_ headerDb payloadDb d h reqKey = do
             , _spvExceptionMsgPayloadHash = _blockPayloadHash hdr
             }
     curRank <- maxRank headerDb
-    unless (int (_blockHeight hdr) + d <= curRank) $
+    unless (int @BlockHeight @Natural (_blockHeight hdr) + d <= curRank) $
         throwM $ SpvExceptionInsufficientProofDepth
             { _spvExceptionMsg = "Insufficient depth of root header for SPV proof"
             , _spvExceptionExpectedDepth = Expected d
-            , _spvExceptionActualDepth = Actual $ curRank `minusOrZero` int (_blockHeight hdr)
+            , _spvExceptionActualDepth = Actual $ curRank `minusOrZero` int @BlockHeight @Natural (_blockHeight hdr)
             }
     createOutputProof_ @a p reqKey
 

@@ -248,7 +248,7 @@ unsafeChainId :: Word32 -> ChainId
 unsafeChainId = ChainId
 {-# INLINE unsafeChainId #-}
 
-chainIdInt :: Integral i => ChainId -> i
-chainIdInt (ChainId cid) = int cid
+chainIdInt :: forall i. Integral i => ChainId -> i
+chainIdInt (ChainId cid) = int @Word32 @i cid
 {-# INLINE chainIdInt #-}
 

@@ -126,8 +126,8 @@ newtype CutId = CutId SB.ShortByteString
     deriving anyclass (NFData)
 
 instance Bounded CutId where
-    minBound = CutId (SB.toShort $ BS.replicate (int cutIdBytesCount) 0)
-    maxBound = CutId (SB.toShort $ BS.replicate (int cutIdBytesCount) 255)
+    minBound = CutId (SB.toShort $ BS.replicate (int @Natural @Int cutIdBytesCount) 0)
+    maxBound = CutId (SB.toShort $ BS.replicate (int @Natural @Int cutIdBytesCount) 255)
 
 instance Show CutId where
     show = T.unpack . cutIdToText
@@ -142,7 +142,7 @@ cutIdBytes (CutId bytes) = bytes
 {-# INLINE cutIdBytes #-}
 
 decodeCutId :: Get CutId
-decodeCutId = CutId . SB.toShort <$!> getByteString (int cutIdBytesCount)
+decodeCutId = CutId . SB.toShort <$!> getByteString (int @Natural @Int cutIdBytesCount)
 {-# INLINE decodeCutId #-}
 
 instance Hashable CutId where

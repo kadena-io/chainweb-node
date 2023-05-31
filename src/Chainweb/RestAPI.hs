@@ -3,6 +3,7 @@
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 
 #ifndef CURRENT_PACKAGE_VERSION
@@ -299,7 +300,7 @@ serveChainwebOnPort
     -> ChainwebConfiguration
     -> ChainwebServerDbs t tbl
     -> IO ()
-serveChainwebOnPort p c dbs = run (int p) $ chainwebApplication c dbs
+serveChainwebOnPort p c dbs = run (int @Port @Int p) $ chainwebApplication c dbs
 
 serveChainweb
     :: Show t

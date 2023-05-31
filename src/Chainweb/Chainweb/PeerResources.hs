@@ -156,7 +156,7 @@ withPeerResources v conf logger inner = withPeerSocket conf $ \(conf', sock) -> 
 
 peerServerSettings :: Peer -> Settings
 peerServerSettings peer
-    = setPort (int . _hostAddressPort . _peerAddr $ _peerInfo peer)
+    = setPort (int @Port @Int . _hostAddressPort . _peerAddr $ _peerInfo peer)
     . setHost (_peerInterface peer)
     $ defaultSettings
 

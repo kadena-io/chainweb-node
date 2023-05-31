@@ -13,6 +13,7 @@
 {-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeInType #-}
 {-# LANGUAGE TypeOperators #-}
@@ -95,6 +96,7 @@ import Data.Function (on)
 import Data.Hashable (Hashable(..))
 import qualified Data.HashSet as HS
 import Data.Kind (Type)
+import Data.Word
 
 import GHC.Generics hiding (to)
 
@@ -374,7 +376,7 @@ toChainGraph kg
         }
     | otherwise = error "the given graph is not a valid chain graph"
   where
-    c = G.mapVertices (unsafeChainId . int) $! knownGraph kg
+    c = G.mapVertices (unsafeChainId . int @Int @Word32) $! knownGraph kg
 {-# INLINE toChainGraph #-}
 
 knownChainGraph :: KnownGraph -> ChainGraph

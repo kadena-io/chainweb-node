@@ -2,6 +2,7 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeApplications #-}
 
 -- |
 -- Module: Chainweb.Version.Utils
@@ -258,7 +259,7 @@ blockCountAt
     -> Natural
 blockCountAt v cid h
     | h < gh = 0
-    | otherwise = 1 + int h - int gh
+    | otherwise = 1 + int @BlockHeight @Natural h - int @BlockHeight @Natural gh
   where
     gh = genesisHeight (_chainwebVersion v) (_chainId cid)
 
@@ -281,7 +282,7 @@ globalBlockRateAt
     => v
     -> BlockHeight
     -> Double
-globalBlockRateAt v h = int r / int (chainCountAt v h)
+globalBlockRateAt v h = int @Seconds @Double r / int @Natural @Double (chainCountAt v h)
   where
     BlockRate r = blockRate (_chainwebVersion v)
 
@@ -295,7 +296,7 @@ globalBlockRateAt v h = int r / int (chainCountAt v h)
 -- change.
 --
 avgCutHeightAt :: HasChainwebVersion v => v -> BlockHeight -> CutHeight
-avgCutHeightAt v h = int $ int h * chainCountAt v h
+avgCutHeightAt v h = int @Natural @CutHeight $ int @BlockHeight @Natural h * chainCountAt v h
 {-# INLINE avgCutHeightAt #-}
 
 -- | Cut height intervals for the chain graphs of a chainweb version
@@ -311,7 +312,7 @@ chainGraphsByCutHeight
     => v
     -> M.Map CutHeight ChainGraph
 chainGraphsByCutHeight = M.fromAscList
-    . fmap (\(h,g) -> (int h * int (order g), g))
+    . fmap (\(h,g) -> (int @BlockHeight @CutHeight h * int @Natural @CutHeight (order g), g))
     . M.toAscList
     . chainGraphs
 {-# INLINE chainGraphsByCutHeight #-}
@@ -356,7 +357,7 @@ degreeAtCutHeight v = degree . chainGraphAtCutHeight v
 -- change.
 --
 avgBlockHeightAtCutHeight :: HasChainwebVersion v => v -> CutHeight -> Double
-avgBlockHeightAtCutHeight v h = int h / int (chainCountAtCutHeight v h)
+avgBlockHeightAtCutHeight v h = int @CutHeight @Double h / int @Natural @Double (chainCountAtCutHeight v h)
 {-# INLINE avgBlockHeightAtCutHeight #-}
 
 -- | The global number of blocks that exist at the given cut height.
@@ -371,7 +372,7 @@ blockCountAtCutHeight
     -> CutHeight
     -> Natural
 blockCountAtCutHeight v h
-    = globalBlockCountAt v (int k `div` int (order g)) + int (h - k)
+    = globalBlockCountAt v (int @CutHeight @BlockHeight k `div` int @Natural @BlockHeight (order g)) + int @CutHeight @Natural (h - k)
   where
    (k, g) = fromJuste $ M.lookupLE h $ chainGraphsByCutHeight v
 {-# INLINE blockCountAtCutHeight #-}
@@ -410,7 +411,7 @@ expectedBlockCountAfterSeconds
     -> cid
     -> Seconds
     -> Double
-expectedBlockCountAfterSeconds v cid s = max 0 (1 + (int s / int r) - int gh)
+expectedBlockCountAfterSeconds v cid s = max 0 (1 + (int @Seconds @Double s / int @Seconds @Double r) - int @BlockHeight @Double gh)
     -- The `max 0` term is required for chains that were added during graph transitions
     -- and thus have `genesisHeight > 0`
   where
@@ -448,7 +449,7 @@ expectedBlockHeightAfterSeconds
     => v
     -> Seconds
     -> Double
-expectedBlockHeightAfterSeconds v s = (int s / int r)
+expectedBlockHeightAfterSeconds v s = int @Seconds @Double s / int @Seconds @Double r
   where
     BlockRate r = blockRate (_chainwebVersion v)
 
@@ -462,6 +463,6 @@ expectedCutHeightAfterSeconds
     => v
     -> Seconds
     -> Double
-expectedCutHeightAfterSeconds v s = eh * int (chainCountAt v (round eh))
+expectedCutHeightAfterSeconds v s = eh * int @Natural @Double (chainCountAt v (round eh))
   where
     eh = expectedBlockHeightAfterSeconds v s

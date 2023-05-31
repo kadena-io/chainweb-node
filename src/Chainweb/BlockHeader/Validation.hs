@@ -5,6 +5,7 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeApplications #-}
 
 -- |
 -- Module: Chainweb.BlockHeader.Validation
@@ -112,6 +113,7 @@ import Chainweb.BlockCreationTime
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
 import Chainweb.BlockHeader.Genesis (genesisBlockTarget, genesisParentBlockHash, genesisBlockHeader)
+import Chainweb.BlockWeight
 import Chainweb.ChainId
 import Chainweb.ChainValue
 import Chainweb.Difficulty
@@ -746,7 +748,7 @@ prop_block_weight (ChainStep (ParentHeader p) b)
     | isGenesisBlockHeader b = _blockWeight b == _blockWeight p
     | otherwise = _blockWeight b == expectedWeight
   where
-    expectedWeight = int (targetToDifficulty (_blockTarget b)) + _blockWeight p
+    expectedWeight = int  @HashDifficulty @BlockWeight (targetToDifficulty (_blockTarget b)) + _blockWeight p
 
 prop_block_chainId :: ChainStep -> Bool
 prop_block_chainId (ChainStep (ParentHeader p) b)

@@ -2,6 +2,7 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeApplications #-}
 
 -- |
 -- Module: Chainweb.Chainweb.CheckReachability
@@ -104,14 +105,14 @@ checkReachability sock mgr v logger pdb peers peer threshold = do
                         <> ": " <> sshow e
 
     let c = length $ filter id nis
-        required = ceiling (int (length peers) * threshold)
+        required = ceiling (int @Int @Double (length peers) * threshold)
     if c < required
       then do
         logg Error $ "Only "
             <> sshow c <> " out of "
             <> sshow (length peers) <> " bootstrap peers are reachable."
             <> "Required number of reachable bootstrap nodes: " <> sshow required
-        throwM $ ReachabilityException (Expected $ int required) (Actual $ int c)
+        throwM $ ReachabilityException (Expected $ int @Int @Natural required) (Actual $ int @Int @Natural c)
       else do
         logg Info $ sshow c <> " out of "
             <> sshow (length peers) <> " peers are reachable"
@@ -149,7 +150,7 @@ checkReachability sock mgr v logger pdb peers peer threshold = do
 --
 peerServerSettings :: Peer -> W.Settings
 peerServerSettings peer
-    = W.setPort (int . _hostAddressPort . _peerAddr $ _peerInfo peer)
+    = W.setPort (int @Port @Int . _hostAddressPort . _peerAddr $ _peerInfo peer)
     . W.setHost (_peerInterface peer)
     $ W.defaultSettings
 
