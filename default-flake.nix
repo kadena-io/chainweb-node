@@ -24,6 +24,7 @@ let haskellSrc = with nix-filter.lib; filter {
         "examples"
         (matchExt "nix")
         "flake.lock"
+        "cabal.project.freeze"
       ];
     };
     chainweb = pkgs.haskell-nix.project' {
