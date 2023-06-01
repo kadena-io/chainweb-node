@@ -10,6 +10,7 @@
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE StrictData #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TemplateHaskell #-}
 -- |
 -- Module: Chainweb.Pact.Types
@@ -139,15 +140,16 @@ module Chainweb.Pact.Types
   , defaultPactServiceConfig
   , defaultBlockGasLimit
   , defaultModuleCacheLimit
+  , catchesPactError
+  , UnexpectedErrorPrinting(..)
   ) where
 
 import Control.DeepSeq
-import Control.Exception (asyncExceptionFromException, asyncExceptionToException, throw)
+import Control.Exception (asyncExceptionFromException, asyncExceptionToException)
+import Control.Exception.Safe
 import Control.Lens
-import Control.Monad.Catch
 import Control.Monad.Reader
 import Control.Monad.State.Strict
-
 
 import Data.Aeson hiding (Error,(.=))
 import Data.Default (def)
@@ -174,7 +176,8 @@ import Pact.Types.Gas
 import qualified Pact.Types.Logger as P
 import Pact.Types.Names
 import Pact.Types.Persistence (ExecutionMode, TxLog)
-import Pact.Types.Runtime (ExecutionConfig(..), ModuleData(..), PactWarning)
+import Pact.Types.Pretty (viaShow)
+import Pact.Types.Runtime (ExecutionConfig(..), ModuleData(..), PactWarning, PactError(..), PactErrorType(..))
 import Pact.Types.SPV
 import Pact.Types.Term
 
@@ -641,3 +644,16 @@ logError msg = view psLogger >>= \l -> logError_ l msg
 
 logDebug :: String -> PactServiceM tbl ()
 logDebug msg = view psLogger >>= \l -> logDebug_ l msg
+
+data UnexpectedErrorPrinting = PrintsUnexpectedError | CensorsUnexpectedError
+
+catchesPactError :: (MonadCatch m, MonadIO m) => P.Logger -> UnexpectedErrorPrinting -> m a -> m (Either PactError a)
+catchesPactError logger exnPrinting action = catches (Right <$> action)
+  [ Handler $ \(e :: PactError) -> return $ Left e
+  , Handler $ \(e :: SomeException) -> do
+      liftIO $ logWarn_ logger ("catchesPactError: unknown error: " <> sshow e)
+      return $ Left $ PactError EvalError def def $
+        case exnPrinting of
+          PrintsUnexpectedError -> viaShow e
+          CensorsUnexpectedError -> "unknown error"
+  ]
