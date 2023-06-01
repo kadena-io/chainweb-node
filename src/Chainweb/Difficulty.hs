@@ -145,7 +145,7 @@ decodePowHashNatBe = PowHashNat <$!> decodeWordBe
 
 instance ToJSON PowHashNat where
     toJSON = toJSON . encodeB64UrlNoPaddingText . runPutS . encodePowHashNat
-    toEncoding = toEncoding . encodeB64UrlNoPaddingText . runPutS . encodePowHashNat
+    toEncoding = b64UrlNoPaddingTextEncoding . runPutS . encodePowHashNat
     {-# INLINE toJSON #-}
     {-# INLINE toEncoding #-}
 

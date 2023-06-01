@@ -67,6 +67,8 @@ module Chainweb.Version
 , chainweb215Pact
 , chainweb216Pact
 , chainweb217Pact
+, chainweb218Pact
+, chainweb219Pact
 , pact44NewTrans
 
 -- ** BlockHeader Validation Guards
@@ -953,7 +955,7 @@ chainweb213Pact _ = const True
 
 -- | Fork for musl trans funs
 pact44NewTrans :: ChainwebVersion -> BlockHeight -> Bool
-pact44NewTrans Mainnet01 = (>= 2_965_885) -- Todo: add date
+pact44NewTrans Mainnet01 = (>= 2_939_323) -- Todo: add date
 pact44NewTrans Testnet04 = (>= 2_500_369) -- Todo: add date
 pact44NewTrans _ = const True
 
@@ -1022,6 +1024,23 @@ chainweb217Pact aoa v h = case aoa of
     go f Development = f 470
     go f (FastTimedCPM g) | g == petersonChainGraph = f 55
     go f _ = f 20
+
+-- | Pact changes for Chainweb 2.13
+--
+chainweb218Pact :: ChainwebVersion -> BlockHeight -> Bool
+chainweb218Pact Mainnet01 = (>= 3_512_363) -- 2023-03-03 00:00:00+00:00
+chainweb218Pact Testnet04 = (>= 3_038_343) -- 2023-03-02 12:00:00+00:00
+chainweb218Pact Development = (>= 500)
+chainweb218Pact (FastTimedCPM g) | g == petersonChainGraph = (> 60)
+chainweb218Pact _ = (> 24)
+
+chainweb219Pact :: ChainwebVersion -> BlockHeight -> Bool
+chainweb219Pact Mainnet01 = (>= 3_774_423) -- 2023-06-02 00:00:00+00:00
+chainweb219Pact Testnet04 = (>= 3_299_753) -- 2023-06-01 12:00:00+00:00
+chainweb219Pact Development = (>= 550)
+chainweb219Pact (FastTimedCPM g) | g == petersonChainGraph = (> 70)
+chainweb219Pact _ = (> 26)
+
 
 -- -------------------------------------------------------------------------- --
 -- Header Validation Guards

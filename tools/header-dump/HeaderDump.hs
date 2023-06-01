@@ -65,8 +65,6 @@ import Data.Aeson.Encode.Pretty hiding (Config)
 import Data.Aeson.Lens
 import Data.Bitraversable
 import qualified Data.ByteString.Lazy as BL
-import Data.CAS
-import Data.CAS.RocksDB
 import qualified Data.CaseInsensitive as CI
 import Data.Foldable
 import Data.Functor.Of
@@ -108,6 +106,9 @@ import Chainweb.Time
 import Chainweb.TreeDB hiding (key)
 import Chainweb.Utils hiding (progress)
 import Chainweb.Version
+
+import Chainweb.Storage.Table
+import Chainweb.Storage.Table.RocksDB
 
 import Pact.Types.Command
 import Pact.Types.PactError
@@ -362,7 +363,7 @@ withBlockHeaders
     :: Logger l
     => l
     -> Config
-    -> (forall cas . PayloadCasLookup cas => PayloadDb cas -> S.Stream (Of BlockHeader) IO () -> IO a)
+    -> (forall tbl . CanReadablePayloadCas tbl => PayloadDb tbl -> S.Stream (Of BlockHeader) IO () -> IO a)
     -> IO a
 withBlockHeaders logger config inner = do
     rocksDbDir <- getRocksDbDir
@@ -533,8 +534,8 @@ miner l = S.mapM
 
 payloadsCid
     :: MonadIO m
-    => PayloadCasLookup cas
-    => PayloadDb cas
+    => CanReadablePayloadCas tbl
+    => PayloadDb tbl
     -> Traversal a b BlockHeader (ChainData PayloadWithOutputs)
     -> S.Stream (Of a) m r
     -> S.Stream (Of b) m r

@@ -34,10 +34,6 @@
 --
 module Chainweb.Test.MultiNode ( test, replayTest ) where
 
-#ifndef DEBUG_MULTINODE_TEST
-#define DEBUG_MULTINODE_TEST 0
-#endif
-
 import Control.Concurrent
 import Control.Concurrent.Async
 import Control.DeepSeq
@@ -53,10 +49,6 @@ import Data.IORef
 import qualified Data.List as L
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
-import qualified Data.Text.IO as T
-#if DEBUG_MULTINODE_TEST
-import qualified Data.Text.IO as T
-#endif
 
 import GHC.Generics
 
@@ -95,7 +87,7 @@ import Chainweb.Version
 import Chainweb.Version.Utils
 import Chainweb.WebBlockHeaderDB
 
-import Data.CAS.RocksDB
+import Chainweb.Storage.Table.RocksDB
 
 import P2P.Node.Configuration
 import P2P.Peer
@@ -168,9 +160,7 @@ multiConfig v n = defaultChainwebConfiguration v
 
     throttling = defaultThrottlingConfig
         { _throttlingRate = 10_000 -- per second
-        , _throttlingMiningRate = 10_000 --  per second
         , _throttlingPeerRate = 10_000 -- per second, one for each p2p network
-        , _throttlingLocalRate = 10_000  -- per 10 seconds
         }
 
 -- | Configure a bootstrap node
@@ -298,19 +288,20 @@ replayTest
     -> ChainwebVersion
     -> Natural
     -> TestTree
-replayTest loglevel v n = after AllFinish "ConsensusNetwork" $ testCaseSteps name $ \step -> 
-    withTempRocksDb "replay-test-rocks" $ \rdb -> 
+replayTest loglevel v n = after AllFinish "ConsensusNetwork" $ testCaseSteps name $ \step ->
+    withTempRocksDb "replay-test-rocks" $ \rdb ->
     withSystemTempDirectory "replay-test-pact" $ \pactDbDir -> do
         let tastylog = step . T.unpack
+        let logFun = step . T.unpack
         tastylog "phase 1..."
         stateVar <- newMVar $ emptyConsensusState v
-        let ct = harvestConsensusState (genericLogger loglevel T.putStrLn) stateVar
-        runNodesForSeconds loglevel T.putStrLn (multiConfig v n) 2 60 rdb pactDbDir ct
+        let ct = harvestConsensusState (genericLogger loglevel logFun) stateVar
+        runNodesForSeconds loglevel logFun (multiConfig v n) 2 60 rdb pactDbDir ct
         Just stats1 <- consensusStateSummary <$> swapMVar stateVar (emptyConsensusState v)
         assertGe "maximum cut height before reset" (Actual $ _statMaxHeight stats1) (Expected $ 10)
         tastylog $ sshow stats1
         tastylog $ "phase 2... resetting"
-        runNodesForSeconds loglevel T.putStrLn (multiConfig v 2 & set (configCuts . cutInitialBlockHeightLimit) (Just 5)) n 30 rdb pactDbDir ct
+        runNodesForSeconds loglevel logFun (multiConfig v 2 & set (configCuts . cutInitialBlockHeightLimit) (Just 5)) n 30 rdb pactDbDir ct
         state2 <- swapMVar stateVar (emptyConsensusState v)
         let stats2 = fromJuste $ consensusStateSummary state2
         tastylog $ sshow stats2
@@ -318,7 +309,7 @@ replayTest loglevel v n = after AllFinish "ConsensusNetwork" $ testCaseSteps nam
         tastylog $ "phase 3... replaying"
         let replayInitialHeight = 5
         firstReplayCompleteRef <- newIORef False
-        runNodesForSeconds loglevel T.putStrLn
+        runNodesForSeconds loglevel logFun
             (multiConfig v n
                 & set (configCuts . cutInitialBlockHeightLimit) (Just replayInitialHeight)
                 & set configOnlySyncPact True)
@@ -336,7 +327,7 @@ replayTest loglevel v n = after AllFinish "ConsensusNetwork" $ testCaseSteps nam
         let fastForwardHeight = 10
         tastylog $ "phase 4... replaying with fast-forward limit"
         secondReplayCompleteRef <- newIORef False
-        runNodesForSeconds loglevel T.putStrLn
+        runNodesForSeconds loglevel logFun
             (multiConfig v n
                 & set (configCuts . cutInitialBlockHeightLimit) (Just replayInitialHeight)
                 & set (configCuts . cutFastForwardBlockHeightLimit) (Just fastForwardHeight)
@@ -364,19 +355,13 @@ test
     -> Natural
     -> Seconds
     -> TestTree
-test loglevel v n seconds = testCaseSteps name $ \f -> 
+test loglevel v n seconds = testCaseSteps name $ \f ->
     -- Count log messages and only print the first 60 messages
-    withTempRocksDb "multinode-tests" $ \rdb -> 
+    withTempRocksDb "multinode-tests" $ \rdb ->
     withSystemTempDirectory "replay-test-pact" $ \pactDbDir -> do
         let tastylog = f . T.unpack
-#if DEBUG_MULTINODE_TEST
-        -- useful for debugging, requires import of Data.Text.IO.
-        let logFun = T.putStrLn
-            maxLogMsgs = 100_000
-#else
         let logFun = tastylog
             maxLogMsgs = 60
-#endif
         var <- newMVar (0 :: Int)
         let countedLog msg = modifyMVar_ var $ \c -> force (succ c) <$
                 when (c < maxLogMsgs) (logFun msg)
@@ -441,7 +426,7 @@ sampleConsensusState
     :: Int
         -- ^ node Id
     -> WebBlockHeaderDb
-    -> CutDb cas
+    -> CutDb tbl
     -> ConsensusState
     -> IO ConsensusState
 sampleConsensusState nid bhdb cutdb s = do

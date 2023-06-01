@@ -115,7 +115,7 @@ instance Hashable PowHash where
 
 instance ToJSON PowHash where
     toJSON = toJSON . encodeB64UrlNoPaddingText . runPutS . encodePowHash
-    toEncoding = toEncoding . encodeB64UrlNoPaddingText . runPutS . encodePowHash
+    toEncoding = b64UrlNoPaddingTextEncoding . runPutS . encodePowHash
     {-# INLINE toJSON #-}
     {-# INLINE toEncoding #-}
 

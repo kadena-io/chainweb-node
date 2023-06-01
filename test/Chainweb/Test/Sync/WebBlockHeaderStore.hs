@@ -44,11 +44,12 @@ import Test.QuickCheck.Monadic
 
 import Chainweb.Sync.WebBlockHeaderStore
 
-import Data.CAS
-import qualified Data.CAS.HashMap as CAS
 import Data.IVar
 import Data.PQueue
 import Data.TaskMap
+
+import Chainweb.Storage.Table
+import qualified Chainweb.Storage.Table.HashMap as HashMapTable
 
 import P2P.TaskQueue
 
@@ -77,12 +78,12 @@ instance IsCasValue Fib where
 testAsyncFib :: Natural -> PropertyM IO ()
 testAsyncFib n = do
     m <- run new
-    cas <- run CAS.emptyCas
+    table <- run HashMapTable.emptyTable
     t <- run $ newIORef @Int 0
 
     let fib 0 = tick t $ return $ Fib 0 1
         fib 1 = tick t $ return $ Fib 1 1
-        fib x = tick t $ memoInsert cas m x $ \k -> do
+        fib x = tick t $ memoInsert table m x $ \k -> do
             r <- (+)
                 <$> (getFib <$> fib (k - 1))
                     -- FIXME: this is synchronous, so the second fetch is
@@ -110,8 +111,8 @@ testAsyncFib n = do
 
     monitor $ cover 0.75 (fromIntegral ticks <= 1.5 * expectedTicks) "1.5 of expected ticks"
 
-    casSize <- run $ fromIntegral <$> CAS.size cas
-    monitor $ cover 1 (casSize == max 1 n - 1) "expected cas size"
+    tableSize <- run $ fromIntegral <$> HashMapTable.size table
+    monitor $ cover 1 (tableSize == max 1 n - 1) "expected table size"
 
     -- assert that result is correct
     assert (r == fibs !! fromIntegral n)

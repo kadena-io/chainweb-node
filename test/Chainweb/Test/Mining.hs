@@ -22,7 +22,6 @@ import Control.Concurrent.Async
 import Control.Concurrent.STM.TVar
 import Control.Lens
 
-import Data.CAS.RocksDB
 import Data.Foldable
 import qualified Data.HashMap.Strict as HM
 import Data.Maybe
@@ -46,12 +45,14 @@ import Chainweb.Miner.Pact
 import Chainweb.Test.CutDB hiding (tests)
 import Chainweb.Version
 
+import Chainweb.Storage.Table.RocksDB
+
 -- -------------------------------------------------------------------------- --
 --
 
 tests :: RocksDb -> TestTree
 tests rdb = testGroup "Mining"
-    [ testCase "Miner account names are not empty strings" (nonEmptyMiningAccount rdb)
+    [ testCaseSteps "Miner account names are not empty strings" (nonEmptyMiningAccount rdb)
     ]
 
 -- -------------------------------------------------------------------------- --
@@ -60,14 +61,15 @@ tests rdb = testGroup "Mining"
 withTestCoordiantor
     :: HasCallStack
     => RocksDb
+    -> (String -> IO ())
     -> Maybe MiningConfig
         -- ^ Custom Mining configuration. If coordination is disabled it will be
         -- set to enabled before the coordinator is initialized.
-    -> (forall cas logger . Logger logger => logger -> MiningCoordination logger cas -> IO ())
+    -> (forall tbl logger . Logger logger => logger -> MiningCoordination logger tbl -> IO ())
     -> IO ()
-withTestCoordiantor rdb maybeConf a = do
+withTestCoordiantor rdb logg maybeConf a = do
     var <- newEmptyMVar
-    x <- race (takeMVar var) $ 
+    x <- race (takeMVar var) $
         withTestCutDb rdb v id 0 (\_ _ -> return fakePact) (logFunction logger) $ \_ cdb ->
             withMiningCoordination logger conf cdb $ \case
                 Nothing -> error "nonEmptyMiningAccount: Bug in the mining Code"
@@ -80,15 +82,15 @@ withTestCoordiantor rdb maybeConf a = do
 
   where
     v = Test pairChainGraph
-    logger = genericLogger Warn print
+    logger = genericLogger Warn (logg . T.unpack)
     conf = fromMaybe defaultMining maybeConf
         & miningCoordination . coordinationEnabled .~ True
 
 -- -------------------------------------------------------------------------- --
 -- Tests
 
-nonEmptyMiningAccount :: HasCallStack => RocksDb -> Assertion
-nonEmptyMiningAccount rdb = withTestCoordiantor rdb Nothing $ \_logger coord -> do
+nonEmptyMiningAccount :: HasCallStack => RocksDb -> (String -> IO ()) -> Assertion
+nonEmptyMiningAccount rdb logg = withTestCoordiantor rdb logg Nothing $ \_logger coord -> do
     PrimedWork w <- readTVarIO (_coordPrimedWork coord)
     forM_ (HM.keys w) $ \(MinerId k) ->
         assertBool "miner account name must not be the empty string" (not (T.null k))

@@ -30,7 +30,7 @@ import Chainweb.Utils (Codec(..))
 import Chainweb.Version
 import Chainweb.Version.Utils
 
-import Data.CAS.RocksDB
+import Chainweb.Storage.Table.RocksDB
 
 import Network.X509.SelfSigned
 
@@ -98,18 +98,17 @@ destroyTestServer :: TestServer -> IO ()
 destroyTestServer = killThread . _tsServerThread
 
 newPool :: IO (Pool.Pool TestServer)
-newPool = Pool.newPool Pool.PoolConfig
-    { Pool.createResource = newTestServer
-    , Pool.freeResource = destroyTestServer
-    , Pool.poolCacheTTL = 10
-    , Pool.poolMaxResources = 20
-    }
+newPool = Pool.newPool $ Pool.defaultPoolConfig
+    newTestServer
+    destroyTestServer
+    10 {- ttl seconds -}
+    20 {- max entries -}
 
 ------------------------------------------------------------------------------
 
 serverMempools
     :: [(ChainId, MempoolBackend t)]
-    -> ChainwebServerDbs t RocksDbCas {- ununsed -}
+    -> ChainwebServerDbs t RocksDbTable {- ununsed -}
 serverMempools mempools = emptyChainwebServerDbs
     { _chainwebServerMempools = mempools
     }

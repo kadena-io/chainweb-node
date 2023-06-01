@@ -26,7 +26,6 @@ import Control.Monad.Catch
 
 
 import Data.Aeson (object, (.=), Value(..), decode)
-import Data.CAS.RocksDB
 import Data.Either (isRight)
 import qualified Data.ByteString.Lazy as BL
 import Data.IORef
@@ -35,8 +34,6 @@ import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
 import qualified Data.Vector as V
 import qualified Data.Yaml as Y
-
-import System.LogLevel
 
 import Test.Tasty
 import Test.Tasty.HUnit
@@ -72,6 +69,8 @@ import Chainweb.Utils
 import Chainweb.Version
 import Chainweb.Version.Utils
 
+import Chainweb.Storage.Table.RocksDB
+
 testVersion :: ChainwebVersion
 testVersion = FastTimedCPM peterson
 
@@ -86,24 +85,24 @@ tests rdb = ScheduledTest testName go
   where
     testName = "Chainweb.Test.Pact.PactSingleChainTest"
     go = testGroup testName
-         [ test Warn $ goldenNewBlock "new-block-0" goldenMemPool
-         , test Warn $ goldenNewBlock "empty-block-tests" mempty
-         , test Warn $ newBlockAndValidate
-         , test Warn $ newBlockRewindValidate
-         , test Quiet $ getHistory
-         , test Quiet $ testHistLookup1
-         , test Quiet $ testHistLookup2
-         , test Quiet $ testHistLookup3
-         , test Quiet $ badlistNewBlockTest
-         , test Warn $ mempoolCreationTimeTest
-         , test Warn $ moduleNameFork
-         , test Warn $ mempoolRefillTest
-         , test Quiet $ blockGasLimitTest
+         [ test $ goldenNewBlock "new-block-0" goldenMemPool
+         , test $ goldenNewBlock "empty-block-tests" mempty
+         , test newBlockAndValidate
+         , test newBlockRewindValidate
+         , test getHistory
+         , test testHistLookup1
+         , test testHistLookup2
+         , test testHistLookup3
+         , test badlistNewBlockTest
+         , test mempoolCreationTimeTest
+         , test moduleNameFork
+         , test mempoolRefillTest
+         , test blockGasLimitTest
          ]
       where
-        test logLevel f =
+        test f =
           withDelegateMempool $ \dm ->
-          withPactTestBlockDb testVersion cid logLevel rdb (snd <$> dm) defaultPactServiceConfig $
+          withPactTestBlockDb testVersion cid rdb (snd <$> dm) defaultPactServiceConfig $
           f (fst <$> dm)
 
         testHistLookup1 = getHistoricalLookupNoTxs "sender00"

@@ -22,9 +22,8 @@ module Chainweb.Chainweb.Configuration
 -- * Throttling Configuration
   ThrottlingConfig(..)
 , throttlingRate
-, throttlingMiningRate
 , throttlingPeerRate
-, throttlingLocalRate
+, throttlingMempoolRate
 , defaultThrottlingConfig
 
 -- * Cut Configuration
@@ -118,20 +117,12 @@ import Chainweb.Pact.Backend.DbCache (DbCacheLimitBytes)
 
 data ThrottlingConfig = ThrottlingConfig
     { _throttlingRate :: !Double
-    , _throttlingMiningRate :: !Double
-        -- ^ The rate should be sufficient to make at least on call per cut. We
-        -- expect an cut to arrive every few seconds.
-        --
-        -- Default is 10 per second.
     , _throttlingPeerRate :: !Double
         -- ^ This should throttle aggressively. This endpoint does an expensive
         -- check of the client. And we want to keep bad actors out of the
         -- system. There should be no need for a client to call this endpoint on
         -- the same node more often than at most few times peer minute.
-        --
-        -- Default is 1 per second
-        --
-    , _throttlingLocalRate :: !Double
+    , _throttlingMempoolRate :: !Double
     }
     deriving stock (Eq, Show)
 
@@ -139,26 +130,23 @@ makeLenses ''ThrottlingConfig
 
 defaultThrottlingConfig :: ThrottlingConfig
 defaultThrottlingConfig = ThrottlingConfig
-    { _throttlingRate = 200 -- per second
-    , _throttlingMiningRate = 5 --  per second
-    , _throttlingPeerRate = 21 -- per second, one for each p2p network
-    , _throttlingLocalRate = 0.1  -- per 10 seconds
+    { _throttlingRate = 50 -- per second, in a 100 burst
+    , _throttlingPeerRate = 11 -- per second, 1 for each p2p network
+    , _throttlingMempoolRate = 20 -- one every seconds per mempool.
     }
 
 instance ToJSON ThrottlingConfig where
     toJSON o = object
         [ "global" .= _throttlingRate o
-        , "mining" .= _throttlingMiningRate o
         , "putPeer" .= _throttlingPeerRate o
-        , "local" .= _throttlingLocalRate o
+        , "mempool" .= _throttlingMempoolRate o
         ]
 
 instance FromJSON (ThrottlingConfig -> ThrottlingConfig) where
     parseJSON = withObject "ThrottlingConfig" $ \o -> id
         <$< throttlingRate ..: "global" % o
-        <*< throttlingMiningRate ..: "mining" % o
         <*< throttlingPeerRate ..: "putPeer" % o
-        <*< throttlingLocalRate ..: "local" % o
+        <*< throttlingMempoolRate ..: "mempool" % o
 
 -- -------------------------------------------------------------------------- --
 -- Cut Coniguration
@@ -268,6 +256,9 @@ data ServiceApiConfig = ServiceApiConfig
     , _serviceApiConfigInterface :: !HostPreference
         -- ^ The network interface that the service APIs are bound to. Default is to
         -- bind to all available interfaces ('*').
+    , _serviceApiConfigValidateSpec :: !Bool
+        -- ^ Validate requests and responses against the latest OpenAPI specification.
+        -- Disabled by default for performance reasons
 
     , _serviceApiPayloadBatchLimit :: PayloadBatchLimit
         -- ^ maximum size for payload batches on the service API. Default is
@@ -281,6 +272,7 @@ defaultServiceApiConfig :: ServiceApiConfig
 defaultServiceApiConfig = ServiceApiConfig
     { _serviceApiConfigPort = 1848
     , _serviceApiConfigInterface = "*"
+    , _serviceApiConfigValidateSpec = False
     , _serviceApiPayloadBatchLimit = defaultServicePayloadBatchLimit
     }
 
@@ -288,6 +280,7 @@ instance ToJSON ServiceApiConfig where
     toJSON o = object
         [ "port" .= _serviceApiConfigPort o
         , "interface" .= hostPreferenceToText (_serviceApiConfigInterface o)
+        , "validateSpec" .= _serviceApiConfigValidateSpec o
         , "payloadBatchLimit" .= _serviceApiPayloadBatchLimit o
         ]
 
@@ -295,6 +288,7 @@ instance FromJSON (ServiceApiConfig -> ServiceApiConfig) where
     parseJSON = withObject "ServiceApiConfig" $ \o -> id
         <$< serviceApiConfigPort ..: "port" % o
         <*< setProperty serviceApiConfigInterface "interface" (parseJsonFromText "interface") o
+        <*< serviceApiConfigValidateSpec ..: "validateSpec" % o
         <*< serviceApiPayloadBatchLimit ..: "payloadBatchLimit" % o
 
 pServiceApiConfig :: MParser ServiceApiConfig
@@ -307,6 +301,9 @@ pServiceApiConfig = id
     <*< serviceApiPayloadBatchLimit .:: fmap PayloadBatchLimit . option auto
         % prefixLong service "payload-batch-limit"
         <> suffixHelp service "upper limit for the size of payload batches on the service API"
+    <*< serviceApiConfigValidateSpec .:: enableDisableFlag
+        % prefixLong service "validate-spec"
+        <> internal -- hidden option, for expert use
   where
     service = Just "service"
 

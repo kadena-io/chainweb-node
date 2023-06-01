@@ -5,6 +5,7 @@
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DeriveTraversable #-}
 {-# LANGUAGE DerivingStrategies #-}
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE OverloadedStrings #-}
@@ -43,7 +44,7 @@ import GHC.Generics
 import Chainweb.ChainId
 import Chainweb.Utils
 
-import Data.CAS
+import Chainweb.Storage.Table
 
 -- -------------------------------------------------------------------------- --
 -- Tag Values With a ChainId
@@ -92,22 +93,20 @@ chainValue a = ChainValue (_chainId a) a
 {-# INLINE chainValue #-}
 
 chainLookup
-    :: HasCasLookup db
-    => CasValueType db ~ ChainValue a
+    :: ReadableCas db (ChainValue a)
     => db
     -> CasKeyType (ChainValue a)
     -> IO (Maybe a)
-chainLookup db = fmap (fmap _chainValueValue) . casLookup db
+chainLookup db = fmap (fmap _chainValueValue) . tableLookup db
 {-# INLINE chainLookup #-}
 
 chainLookupM
-    :: HasCasLookup db
-    => CasValueType db ~ ChainValue a
+    :: ReadableCas db (ChainValue a)
     => db
     -> CasKeyType (ChainValue a)
     -> IO a
-chainLookupM db = fmap _chainValueValue . casLookupM db
+chainLookupM db = fmap _chainValueValue . tableLookupM db
 {-# INLINE chainLookupM #-}
 
-type ChainValueCasLookup a b = (HasCasLookup a, CasValueType a ~ ChainValue b)
+type ChainValueCasLookup a b = ReadableCas a (ChainValue b)
 

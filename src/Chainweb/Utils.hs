@@ -80,6 +80,7 @@ module Chainweb.Utils
 , IxedGet(..)
 , catMaybesVector
 , minusOrZero
+, interleaveIO
 , mutableVectorFromList
 
 -- * Encoding and Serialization
@@ -104,6 +105,7 @@ module Chainweb.Utils
 , encodeB64UrlText
 , decodeB64UrlText
 , encodeB64UrlNoPaddingText
+, b64UrlNoPaddingTextEncoding
 , decodeB64UrlNoPaddingText
 
 -- ** JSON
@@ -240,8 +242,10 @@ import Data.Bifunctor
 import Data.Bool (bool)
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as B
+import qualified Data.ByteString.Char8 as B8
 import qualified Data.ByteString.Base64 as B64
 import qualified Data.ByteString.Base64.URL as B64U
+import qualified Data.ByteString.Builder as BB
 import qualified Data.ByteString.Lazy as BL
 import qualified Data.Csv as CSV
 import Data.Decimal
@@ -278,7 +282,7 @@ import qualified Options.Applicative as O
 import qualified Streaming as S (concats, effect, inspect)
 import qualified Streaming.Prelude as S
 
-import System.IO.Unsafe (unsafePerformIO)
+import System.IO.Unsafe (unsafeInterleaveIO, unsafePerformIO)
 import System.LogLevel
 import qualified System.Random.MWC as Prob
 import qualified System.Random.MWC.Probability as Prob
@@ -444,6 +448,12 @@ catMaybesVector = V.catMaybes
 minusOrZero :: Ord a => Num a => a -> a -> a
 minusOrZero a b = a - min a b
 {-# INLINE minusOrZero #-}
+
+-- | Analogous to `unsafeInterleaveIO` but doesn't hide the effect behind evaluation.
+-- Careful; if the inner action throws an exception, it will never not throw that exception.
+interleaveIO :: IO a -> IO (IO a)
+interleaveIO act = evaluate <$> unsafeInterleaveIO act
+{-# INLINE interleaveIO #-}
 
 -- | Equivalent to V.thaw . V.fromList but by inspection probably faster.
 mutableVectorFromList
@@ -655,6 +665,12 @@ decodeB64UrlNoPaddingText = fromEitherM
 encodeB64UrlNoPaddingText :: B.ByteString -> T.Text
 encodeB64UrlNoPaddingText = T.dropWhileEnd (== '=') . T.decodeUtf8 . B64U.encode
 {-# INLINE encodeB64UrlNoPaddingText #-}
+
+-- | Encode a binary value to a base64-url (without padding) JSON encoding.
+--
+b64UrlNoPaddingTextEncoding :: B.ByteString -> Encoding
+b64UrlNoPaddingTextEncoding t =
+    Aeson.unsafeToEncoding $ BB.char8 '\"' <> BB.byteString (B8.dropWhileEnd (== '=') $ B64U.encode t) <> BB.char8 '\"'
 
 -- -------------------------------------------------------------------------- --
 -- ** JSON

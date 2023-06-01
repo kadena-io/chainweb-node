@@ -148,7 +148,7 @@ import Chainweb.Utils
 import Chainweb.Utils.Serialization
 import Chainweb.Version
 
-import Data.CAS
+import Chainweb.Storage.Table
 
 import Numeric.AffineSpace
 
@@ -610,7 +610,7 @@ instance IsCasValue BlockHeader where
     casKey = _blockHash
     {-# INLINE casKey #-}
 
-type BlockHeaderCas cas = (CasConstraint cas BlockHeader)
+type BlockHeaderCas tbl = Cas tbl BlockHeader
 
 makeLenses ''BlockHeader
 
@@ -780,8 +780,8 @@ decodeBlockHeader = BlockHeader
     <*> decodeBlockHash
 
 instance ToJSON BlockHeader where
-    toJSON = toJSON .  encodeB64UrlNoPaddingText . runPutS . encodeBlockHeader
-    toEncoding = toEncoding .  encodeB64UrlNoPaddingText . runPutS . encodeBlockHeader
+    toJSON = toJSON . encodeB64UrlNoPaddingText . runPutS . encodeBlockHeader
+    toEncoding = b64UrlNoPaddingTextEncoding . runPutS . encodeBlockHeader
     {-# INLINE toJSON #-}
     {-# INLINE toEncoding #-}
 

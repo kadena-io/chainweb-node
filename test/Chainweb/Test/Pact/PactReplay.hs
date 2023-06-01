@@ -14,13 +14,11 @@ import Control.Monad.Reader
 import Control.Monad.State
 import Control.Lens
 
-import Data.CAS.RocksDB
 import Data.IORef
 import qualified Data.Text as T
 import qualified Data.Vector as V
 import Data.Word
 
-import System.LogLevel
 import System.Timeout
 
 import Test.Tasty
@@ -48,8 +46,10 @@ import Chainweb.Utils (sshow, tryAllSynchronous, catchAllSynchronous, T3(..))
 import Chainweb.Version
 import Chainweb.Version.Utils
 
-import Data.CAS
 import Chainweb.BlockHeaderDB.Internal (_chainDbCas, RankedBlockHeader(..))
+
+import Chainweb.Storage.Table
+import Chainweb.Storage.Table.RocksDB
 
 testVer :: ChainwebVersion
 testVer = FastTimedCPM peterson
@@ -65,20 +65,20 @@ tests rdb =
         mpio = fst <$> dmp
     in
     testGroup label
-        [ withPactTestBlockDb testVer cid Warn rdb mp (forkLimit 100_000)
+        [ withPactTestBlockDb testVer cid rdb mp (forkLimit 100_000)
             (testCase "initial-playthrough" . firstPlayThrough mpio genblock)
         , after AllSucceed "initial-playthrough" $
-            withPactTestBlockDb testVer cid Warn rdb mp (forkLimit 100_000)
+            withPactTestBlockDb testVer cid rdb mp (forkLimit 100_000)
                 (testCase "service-init-after-fork" . serviceInitializationAfterFork mpio genblock)
         , after AllSucceed "service-init-after-fork" $
-            withPactTestBlockDb testVer cid Warn rdb mp (forkLimit 100_000)
+            withPactTestBlockDb testVer cid rdb mp (forkLimit 100_000)
                 (testCaseSteps "on-restart" . onRestart mpio)
         , after AllSucceed "on-restart" $
-            withPactTestBlockDb testVer cid Quiet rdb mp (forkLimit 100_000)
+            withPactTestBlockDb testVer cid rdb mp (forkLimit 100_000)
             (testCase "reject-dupes" . testDupes mpio genblock)
         , after AllSucceed "reject-dupes" $
             let deepForkLimit = 4
-            in withPactTestBlockDb testVer cid Quiet rdb mp (forkLimit deepForkLimit)
+            in withPactTestBlockDb testVer cid rdb mp (forkLimit deepForkLimit)
                 (testCaseSteps "deep-fork-limit" . testDeepForkLimit mpio (fromIntegral deepForkLimit))
         ]
   where
@@ -199,7 +199,7 @@ serviceInitializationAfterFork mpio genesisBlock iop = do
         dbs <- snd <$> iop
         db <- getBlockHeaderDb c dbs
         h <- maxEntry db
-        casDelete (_chainDbCas db) (casKey $ RankedBlockHeader h)
+        tableDelete (_chainDbCas db) (casKey $ RankedBlockHeader h)
 
     cids = chainIds testVer
 

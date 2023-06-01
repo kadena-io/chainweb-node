@@ -78,7 +78,7 @@ catchupStepSize = 1000
 syncSession
     :: ChainwebVersion
     -> PeerInfo
-    -> CutDb cas
+    -> CutDb tbl
     -> P2pSession
 syncSession v p db logg env pinf = do
     race_
