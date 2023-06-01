@@ -45,7 +45,7 @@ import Crypto.Hash.Algorithms
 import qualified Data.Text.Encoding as TE
 import Data.Aeson (FromJSON, ToJSON, Value, object, decodeStrict, (.=))
 import qualified Data.ByteArray as BA
-import Data.ByteString (ByteString)
+import Data.ByteString (ByteString, isInfixOf)
 import qualified Data.ByteString.Short as BS
 import Data.Hashable
 import qualified Data.HashMap.Strict as HM
@@ -266,8 +266,10 @@ fromHashMap txid m = (emptyDbCache defaultModuleCacheLimit)
             in (ca, CacheEntry txid ca 1 (toPersist d) 0)
 
 toHashMap :: DbCache PersistModuleData -> HM.HashMap ModuleName (ModuleData Ref,Bool)
-toHashMap DbCache{_dcStore} = HM.fromList $ map convert $ HM.toList _dcStore
+toHashMap DbCache{_dcStore} = HM.fromList $ map convert $ HM.toList filteredStore
     where
+        filteredStore = HM.filterWithKey (\(CacheAddress ca) _ -> not $ isInfixOf "hashed:" (BS.fromShort ca)) _dcStore
+
         fromPersist :: PersistModuleData -> ModuleData Ref
         fromPersist d = either (const $ error "toHashMap: fromPersist failed") id (traverse (traverse (fromPersistDirect nativeLookup)) d)
 
@@ -283,7 +285,7 @@ keysDbCache DbCache{_dcStore} = HM.keys _dcStore
 
 mkAddress :: Utf8 -> ByteString -> CacheAddress
 mkAddress (Utf8 key) rowdata = CacheAddress . BS.toShort $
-    key <> ":" <> BA.convert (C.hash @_ @SHA512t_256 rowdata)
+    "hashed:" <> key <> ":" <> BA.convert (C.hash @_ @SHA512t_256 rowdata)
 
 readCache
     :: TxId
