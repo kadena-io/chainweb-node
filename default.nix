@@ -67,7 +67,7 @@ in {
   # Useful for debugging, e.g. for nix filters.
   #
   # Example:
-  # $ ls $(nix-instantiate default-flake.nix -A haskellSrc --eval)
+  # $ ls $(nix-instantiate default.nix -A haskellSrc --eval)
   inherit haskellSrc;
 
   # The haskell.nix Haskell project (executables, libraries, etc)
@@ -76,11 +76,11 @@ in {
   # Examples
   #
   # Leverage the `hsPkgs` attribute to inspect the `streaming` Haskell package:
-  # $ nix show-derivation $(nix-instantiate -E '(import ./default-flake.nix {}).chainweb.hsPkgs.streaming.components.library')
+  # $ nix show-derivation $(nix-instantiate -E '(import ./default.nix {}).chainweb.hsPkgs.streaming.components.library')
   #
   # Use `getComponent` to get a cabal component (library/executable/test/benchmark) of a package
-  # $ nix show-derivation $(nix-instantiate -E '(import ./default-flake.nix {}).chainweb.getComponent "chainweb:exe:cwtool"')
-  # $ nix show-derivation $(nix-instantiate -E '(import ./default-flake.nix {}).chainweb.hsPkgs.semirings.getComponent "lib:semirings"')
+  # $ nix show-derivation $(nix-instantiate -E '(import ./default.nix {}).chainweb.getComponent "chainweb:exe:cwtool"')
+  # $ nix show-derivation $(nix-instantiate -E '(import ./default.nix {}).chainweb.hsPkgs.semirings.getComponent "lib:semirings"')
   inherit chainweb;
 
   # The nix package set: Not used by anything, but useful for debugging.
