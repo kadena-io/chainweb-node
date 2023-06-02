@@ -24,6 +24,7 @@ let haskellSrc = with nix-filter.lib; filter {
         "examples"
         (matchExt "nix")
         "flake.lock"
+        "cabal.project.freeze"
       ];
     };
     chainweb = pkgs.haskell-nix.project' {
@@ -51,7 +52,9 @@ let haskellSrc = with nix-filter.lib; filter {
       chmod +w $out/bin/{cwtool,chainweb-node}
       $STRIP $out/bin/chainweb-node
       $STRIP $out/bin/cwtool
-      patchelf --shrink-rpath $out/bin/{cwtool,chainweb-node}
+      ${pkgs.lib.optionalString (pkgs.stdenv.isLinux) ''
+        patchelf --shrink-rpath $out/bin/{cwtool,chainweb-node}
+      ''}
     '';
 in {
   # The Haskell project flake: Used by flake.nix
