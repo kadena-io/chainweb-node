@@ -21,7 +21,7 @@
         inherit (haskellNix) config;
         overlays = [ haskellNix.overlay ];
       };
-      defaultNix = import ./default-flake.nix {
+      defaultNix = import ./default.nix {
         inherit pkgs nix-filter;
         flakePath = self.outPath;
       };
