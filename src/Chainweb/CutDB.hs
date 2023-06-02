@@ -224,8 +224,11 @@ defaultCutDbParams v ft = CutDbParams
 -- NOTE: this number multiplied by the (current) number of chains must always be
 -- STRICTLY LARGER THAN 'catchupStepSize' in "Chainweb.CutDB.Sync".
 --
+-- This number should also be sufficiently large to accomodate for parallel
+-- mining. It should be at least the diameter of the chain graph.
+--
 farAheadThreshold :: BlockHeight
-farAheadThreshold = 200
+farAheadThreshold = 40
 
 -- -------------------------------------------------------------------------- --
 -- CutHashes Table
