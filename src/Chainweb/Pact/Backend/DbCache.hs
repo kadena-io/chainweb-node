@@ -65,8 +65,6 @@ import Pact.Types.Persistence
 import Pact.Types.Term
 import Pact.Native (nativeDefs)
 
-import qualified Debug.Trace as DT
-
 nativeLookup :: NativeDefName -> Maybe (Term Name)
 nativeLookup (NativeDefName n) = case HM.lookup n nativeDefs of
   Just (Direct t) -> Just t
@@ -275,7 +273,7 @@ toHashMap DbCache{_dcStore} = HM.fromList $ map convert $ HM.toList filteredStor
 
         convert :: (CacheAddress, CacheEntry PersistModuleData) -> (ModuleName, (ModuleData Ref,Bool))
         convert (CacheAddress ca, CacheEntry{_ceData}) =
-            (ModuleName (TE.decodeUtf8 $ DT.trace "looking at the module name " $ DT.traceShowId $ BS.fromShort ca) Nothing, (fromPersist _ceData, False))
+            (ModuleName (TE.decodeUtf8 $ BS.fromShort ca) Nothing, (fromPersist _ceData, False))
 
 keysDbCache :: DbCache PersistModuleData -> [CacheAddress]
 keysDbCache DbCache{_dcStore} = HM.keys _dcStore

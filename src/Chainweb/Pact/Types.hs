@@ -195,8 +195,6 @@ import Chainweb.Transaction
 import Chainweb.Utils
 import Chainweb.Version
 
-import qualified Debug.Trace as DT
-
 data Transactions r = Transactions
     { _transactionPairs :: !(Vector (ChainwebTransaction, r))
     , _transactionCoinbase :: !(CommandResult [TxLog Value])
@@ -449,9 +447,6 @@ getInitCache pactdbenv =
 -- APBH is 0 for genesis and (parent block height + 1) thereafter.
 updateInitCache :: PactDbEnv (BlockEnv SQLiteEnv) -> ModuleCache -> PactServiceM tbl ()
 updateInitCache pactdbenv mc = do
-
-  DT.traceShowM ("updateInitCache!!" :: String)
-
   PactServiceState{_psParentHeader} <- get
   let bf 0 = 0
       bf h = succ h
