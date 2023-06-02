@@ -2,6 +2,9 @@ packages: chainweb.cabal
 
 debug-info: True
 
+package *
+  ghc-options: -finfo-table-map -fdistinct-constructor-tables
+
 -- -------------------------------------------------------------------------- --
 -- Platform specific locations of external libraries
 
