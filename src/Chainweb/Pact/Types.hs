@@ -356,9 +356,9 @@ data PactServiceEnv tbl = PactServiceEnv
     , _psBlockHeaderDb :: !BlockHeaderDb
     , _psGasModel :: TxContext -> GasModel
     , _psMinerRewards :: !MinerRewards
-    , _psLocalRewindDepthLimit :: {-# UNPACK #-} !Word64
+    , _psLocalRewindDepthLimit :: !Word64
     -- ^ The limit of rewind's depth in the `execLocal` command.
-    , _psReorgLimit :: {-# UNPACK #-} !Word64
+    , _psReorgLimit :: !Word64
     -- ^ The limit of checkpointer's rewind in the `execValidationBlock` command.
     , _psOnFatalError :: forall a. PactException -> Text -> IO a
     , _psVersion :: ChainwebVersion

@@ -668,10 +668,10 @@ execLocal cwtx preflight sigVerify rdepth = withDiscardedBatch $ do
     let ancestorRank = fromIntegral $ _height $ _blockHeight parentBlockHeader - fromMaybe 0 rdepth
     ancestor <- liftIO $ seekAncestor _psBlockHeaderDb parentBlockHeader ancestorRank
 
-    let rewindHeader
-          | Just a <- ancestor = Just $ ParentHeader a
-          -- when there is no ancestor, use the current parent
-          | otherwise = Just $ _tcParentHeader ctx
+    rewindHeader <- case ancestor of
+        Just a -> pure $ Just $ ParentHeader a
+        Nothing -> throwM $ BlockHeaderLookupFailure $
+            "failed seekAncestor of parent header with ancestorRank " <> sshow ancestorRank
 
     let execConfig = P.mkExecutionConfig $
             [ P.FlagAllowReadInLocal | _psAllowReadsInLocal ] ++
