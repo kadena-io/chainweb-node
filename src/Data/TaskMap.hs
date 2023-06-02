@@ -38,7 +38,8 @@ module Data.TaskMap
 
 import Control.Concurrent
 import Control.Concurrent.Async
-import Control.Exception (evaluate, finally, bracket)
+import Control.Exception
+    (evaluate, finally, SomeAsyncException(..), SomeException(..), fromException, mask, throwIO, catch)
 import Control.Monad
 
 import Data.Hashable
@@ -96,7 +97,7 @@ memo
     -> (k -> IO v)
         -- ^ an action that is used to produce the value if the key isn't in the map.
     -> IO v
-memo tm@(TaskMap var) k task = bracket query cancel wait
+memo tm@(TaskMap var) k task = bracketOnError_ query onError wait
   where
     query = do
         -- NOTE: should we insert another lookup here? It depends on how optimistic
@@ -107,3 +108,18 @@ memo tm@(TaskMap var) k task = bracket query cancel wait
                 m' <- evaluate $ HM.insert k a m
                 return (m', a)
             (Just !a) -> return (m, a)
+    onError e a = case fromException e of
+      Just (_ :: SomeAsyncException) -> cancelWith a e
+      Nothing -> cancel a
+
+bracketOnError_
+    :: IO a
+    -> (SomeException -> a -> IO b)
+    -> (a -> IO c)
+    -> IO c
+bracketOnError_ before onError act = mask $ \restore -> do
+    a <- before
+    restore (act a) `catch` \e -> do
+        _ <- onError e a
+        throwIO e
+
