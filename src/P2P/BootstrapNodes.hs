@@ -42,6 +42,12 @@ mainnetBootstrapHosts = map unsafeHostAddressFromText
     , "jp1.chainweb.com:443"
     , "jp2.chainweb.com:443"
     , "jp3.chainweb.com:443"
+    , "kda-blockchain-us-sea.glexia.com:8443"
+    , "kda-blockchain-us-dal.glexia.com:8443"
+    , "kda-blockchain-fi-hel.glexia.com:8443"    
+    , "kda-blockchain-fi-hel-2.glexia.com:8443"
+    , "kda-blockchain-de-fsn.glexia.com:8443"    
+    , "kda-blockchain-de-fsn-2.glexia.com:8443"
     ]
 
 -- -------------------------------------------------------------------------- --
