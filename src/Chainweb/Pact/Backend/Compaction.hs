@@ -79,9 +79,10 @@ data CompactException
 
 data CompactFlag
   = Flag_KeepCompactTables
-  -- ^ Keep compaction tables post-compaction for inspection.
+    -- ^ Keep compaction tables post-compaction for inspection.
   | Flag_NoVacuum
-  -- ^ Don't VACUUM database
+    -- ^ Don't VACUUM database
+  | Flag_NoDropNewTables
   deriving stock (Eq,Show,Read,Enum,Bounded)
 
 internalError :: MonadThrow m => Text -> m a
@@ -419,10 +420,14 @@ compact = do
           withTables $ do
             compactTable
             void $ verifyTable
-          dropNewTables
+          whenFlagUnset Flag_NoDropNewTables $ do
+            logg Info "Dropping new tables"
+            dropNewTables
           compactSystemTables
 
-        whenFlagUnset Flag_KeepCompactTables $ withTx $ dropCompactTables
+        whenFlagUnset Flag_KeepCompactTables $ do
+          logg Info "Dropping compact-specific tables"
+          withTx $ dropCompactTables
 
         whenFlagUnset Flag_NoVacuum $ do
           logg Info "Vacuum"
@@ -437,7 +442,8 @@ data CompactConfig v = CompactConfig
   , ccVersion :: v
   , ccFlags :: [CompactFlag]
   , ccChain :: Maybe ChainId
-  } deriving (Eq,Show,Functor,Foldable,Traversable)
+  }
+  deriving stock (Eq, Show, Functor, Foldable, Traversable)
 
 compactAll :: CompactConfig ChainwebVersion -> IO ()
 compactAll CompactConfig{..} = withDefaultLogger Debug $ \logger' ->
@@ -484,13 +490,17 @@ compactMain = do
                <> help "Chainweb version for graph. Only needed for non-standard graphs."
                <> value (show Mainnet01)
                <> showDefault))
-        <*> ((<>)
-               <$> flag [] [Flag_KeepCompactTables]
-                     (long "keep-compact-tables"
-                      <> help "Keep compaction tables post-compaction, for inspection.")
-               <*> flag [] [Flag_NoVacuum]
-                     (long "no-vacuum"
-                      <> help "Don't VACUUM database."))
+        <*> (foldr (\x y -> (++) <$> x <*> y) (pure [])
+               [ flag [] [Flag_KeepCompactTables]
+                  (long "keep-compact-tables"
+                   <> help "Keep compaction tables post-compaction, for inspection.")
+               , flag [] [Flag_NoVacuum]
+                  (long "no-vacuum"
+                   <> help "Don't VACUUM database.")
+               , flag [] [Flag_NoDropNewTables]
+                  (long "no-drop-new-tables"
+                   <> help "Don't drop new tables.")
+               ])
         <*> optional (unsafeChainId <$> option auto
              (short 'c'
               <> metavar "CHAINID"
