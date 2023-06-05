@@ -37,9 +37,10 @@ module Chainweb.Pact.Backend.Compaction
   , withDefaultLogger
   ) where
 
+import Control.Concurrent.Async (forConcurrently_)
 import Control.Exception (Exception, SomeException(..))
 import Control.Lens (makeLenses, set, over, view)
-import Control.Monad (forM, forM_, when, void)
+import Control.Monad (forM, when, void)
 import Control.Monad.Catch (MonadCatch(catch), MonadThrow(throwM))
 import Control.Monad.IO.Class (MonadIO(liftIO))
 import Control.Monad.Reader (MonadReader, ReaderT, runReaderT, local)
@@ -55,10 +56,11 @@ import Data.Vector qualified as V
 import Database.SQLite3.Direct (Utf8(..), Database)
 import GHC.Stack (HasCallStack)
 import Options.Applicative
+import System.FilePath ((</>))
 
 import Chainweb.BlockHeight (BlockHeight)
 import Chainweb.Utils (sshow)
-import Chainweb.Version (ChainId, ChainwebVersion(..), chainwebVersionFromText, unsafeChainId)
+import Chainweb.Version (ChainId, ChainwebVersion(..), chainwebVersionFromText, unsafeChainId, chainIdToText)
 import Chainweb.Version.Utils (chainIdsAt)
 import Chainweb.Pact.Backend.Types (SQLiteEnv(..))
 import Chainweb.Pact.Backend.Utils (withSqliteDb)
@@ -99,9 +101,15 @@ data CompactEnv = CompactEnv
   }
 makeLenses ''CompactEnv
 
-withDefaultLogger :: LogLevel -> (Logger SomeLogMessage -> IO a) -> IO a
-withDefaultLogger ll f = withHandleBackend_ logText defaultHandleBackendConfig $ \b ->
-    withLogger defaultLoggerConfig b $ \l -> f (set setLoggerLevel ll l)
+withDefaultLogger :: FilePath -> ChainId -> LogLevel -> (Logger SomeLogMessage -> IO a) -> IO a
+withDefaultLogger logDir chainId ll f = withHandleBackend_ logText handleConfig $ \b ->
+  withLogger defaultLoggerConfig b $ \l -> f (set setLoggerLevel ll l)
+  where
+    cid = Text.unpack (chainIdToText chainId)
+
+    handleConfig = defaultHandleBackendConfig
+      { _handleBackendConfigHandle = FileHandle (logDir </> ("compact-log-" <> cid <> ".log"))
+      }
 
 -- | Set up compaction.
 mkCompactEnv
@@ -442,22 +450,24 @@ data CompactConfig v = CompactConfig
   , ccVersion :: v
   , ccFlags :: [CompactFlag]
   , ccChain :: Maybe ChainId
+  , logDir :: FilePath
   }
   deriving stock (Eq, Show, Functor, Foldable, Traversable)
 
 compactAll :: CompactConfig ChainwebVersion -> IO ()
-compactAll CompactConfig{..} = withDefaultLogger Debug $ \logger' ->
-  forM_ cids $ \cid -> do
-    let logger = over setLoggerScope (("chain",sshow cid):) logger'
-    let resetDb = False
-    withSqliteDb cid logger ccDbDir resetDb $ \(SQLiteEnv db _) ->
-      runCompactM (mkCompactEnv logger db ccBlockHeight ccFlags) $
-        case ccChain of
-          Just ccid | ccid /= cid -> logg Info $ "Skipping chain"
-          _ -> do
-            logg Info $ "Beginning compaction"
-            h <- compact
-            logg Info $ "Compaction complete, hash=" <> sshow h
+compactAll CompactConfig{..} = do
+  forConcurrently_ cids $ \cid -> do
+    withDefaultLogger logDir cid Debug $ \logger' -> do
+      let logger = over setLoggerScope (("chain",sshow cid):) logger'
+      let resetDb = False
+      withSqliteDb cid logger ccDbDir resetDb $ \(SQLiteEnv db _) ->
+        runCompactM (mkCompactEnv logger db ccBlockHeight ccFlags) $
+          case ccChain of
+            Just ccid | ccid /= cid -> logg Info $ "Skipping chain"
+            _ -> do
+              logg Info $ "Beginning compaction"
+              h <- compact
+              logg Info $ "Compaction complete, hash=" <> sshow h
 
   where
     cids = List.sort $ F.toList $ chainIdsAt ccVersion ccBlockHeight
@@ -505,3 +515,8 @@ compactMain = do
              (short 'c'
               <> metavar "CHAINID"
               <> help "If supplied, compact only this chain"))
+        <*> strOption
+              (long "log-dir"
+               <> metavar "DIRECTORY"
+               <> help "Directory where logs will be placed"
+               <> value ".")
