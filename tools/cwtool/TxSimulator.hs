@@ -141,7 +141,7 @@ simulate sc@(SimConfig dbDir txIdx' _ _ cid ver gasLog) = do
           liftIO $ _cpRestore cp $ Just (succ (_blockHeight parent), _blockHash parent)
       when initMC $ do
         mc <- liftIO $ readInitModules logger pde (TxContext (ParentHeader parent) def)
-        updateInitCache mc
+        updateInitCache pde mc
       psParentHeader .= ParentHeader parent
       liftIO (spvSim sc hdr pwo) >>= assign psSpvSupport
       _r <- trace (logFunction cwLogger) "execBlock" () 1 $
