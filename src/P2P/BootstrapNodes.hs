@@ -48,6 +48,7 @@ mainnetBootstrapHosts = map unsafeHostAddressFromText
     , "kda-blockchain-fi-hel-2.glexia.com:8443"
     , "kda-blockchain-de-fsn.glexia.com:8443"    
     , "kda-blockchain-de-fsn-2.glexia.com:8443"
+    , "kda-blockchain-au-syd.glexia.com:8443"
     ]
 
 -- -------------------------------------------------------------------------- --
