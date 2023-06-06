@@ -210,6 +210,9 @@ withCheckpointerWithoutRewind target caller act = do
         Nothing -> return ()
 
     local (over psCheckpointerDepth succ) $ mask $ \restore -> do
+        logInfo $ T.unpack $ "withCheckpointerWithoutRewind"
+            <> ". checkpointerTarget: " <> sshow checkpointerTarget
+
         cenv <- restore $ liftIO $! _cpRestore checkPointer checkpointerTarget
 
         try (restore (act cenv)) >>= \case
