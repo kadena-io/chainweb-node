@@ -80,6 +80,7 @@ import Chainweb.Pact.Backend.DbCache
 import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.Backend.Utils
 import Chainweb.Pact.Service.Types (PactException(..), internalError)
+import Chainweb.Pact.Types (logError_)
 import Chainweb.Version (ChainwebVersion, ChainId, genesisHeight)
 import Chainweb.Utils (encodeToByteString, sshow)
 import Chainweb.Utils.Serialization
@@ -686,7 +687,8 @@ createVersionedTable tablename db = do
 --
 handlePossibleRewind
     :: HasCallStack
-    => ChainwebVersion
+    => Logger
+    -> ChainwebVersion
     -> ChainId
     -> BlockHeight
         -- ^ The block height to which the check pointer is restored. This is the
@@ -698,7 +700,7 @@ handlePossibleRewind
         -- previous argument.
 
     -> BlockHandler SQLiteEnv TxId
-handlePossibleRewind v cid bRestore hsh = do
+handlePossibleRewind loggr v cid bRestore hsh = do
     bCurrent <- getBCurrentHeight
     checkHistoryInvariant (bCurrent + 1)
     case compare bRestore (bCurrent + 1) of
@@ -777,19 +779,26 @@ handlePossibleRewind v cid bRestore hsh = do
         endingtx <- getEndingTxId v cid bh
         tableMaintenanceRowsVersionedSystemTables endingtx
         callDb "rewindBlock" $ \db -> do
-            droppedtbls <- dropTablesAtRewind bh db
+            droppedtbls <- dropTablesAtRewind loggr bh db
             vacuumTablesAtRewind bh endingtx droppedtbls db
         deleteHistory bh
         assign bsTxId endingtx
         clearTxIndex
         return endingtx
 
-dropTablesAtRewind :: BlockHeight -> Database -> IO (HashSet BS.ByteString)
-dropTablesAtRewind bh db = do
+dropTablesAtRewind :: Logger -> BlockHeight -> Database -> IO (HashSet BS.ByteString)
+dropTablesAtRewind loggr bh db = do
     toDropTblNames <- qry db findTablesToDropStmt
                       [SInt (fromIntegral bh)] [RText]
     tbls <- fmap HashSet.fromList . forM toDropTblNames $ \case
         [SText tblname@(Utf8 tn)] -> do
+            
+            let tblnameText = T.decodeUtf8 tn
+            let interestingTables = [ "free.kdoge_token-table", "free.kadoge_token-table" ]
+            let isInteresting x = any (`T.isInfixOf` x) interestingTables
+            when (isInteresting tblnameText) $ do
+              logError_ loggr $ T.unpack $ "Dropping " <> tblnameText
+
             exec_ db $ "DROP TABLE IF EXISTS " <> tbl tblname
             return tn
         _ -> internalError rewindmsg

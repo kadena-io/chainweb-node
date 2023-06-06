@@ -144,12 +144,13 @@ initRelationalCheckpointer' bstate sqlenv loggr v cid = do
 type Db = MVar (BlockEnv SQLiteEnv)
 
 doRestore :: HasCallStack => Logger -> ChainwebVersion -> ChainId -> Db -> Maybe (BlockHeight, ParentHash) -> IO PactDbEnv'
-doRestore _ v cid dbenv (Just (bh, hash)) = runBlockEnv dbenv $ do
+doRestore loggr v cid dbenv (Just (bh, hash)) = runBlockEnv dbenv $ do
+    logError_ loggr $ T.unpack $ "doRestore: Just case"
     setModuleNameFix
     setSortedKeys
     setLowerCaseTables
     clearPendingTxState
-    void $ withSavepoint PreBlock $ handlePossibleRewind v cid bh hash
+    void $ withSavepoint PreBlock $ handlePossibleRewind loggr v cid bh hash
     beginSavepoint Block
     return $! PactDbEnv' $! PactDbEnv chainwebPactDb dbenv
   where
@@ -158,7 +159,7 @@ doRestore _ v cid dbenv (Just (bh, hash)) = runBlockEnv dbenv $ do
     setSortedKeys = bsSortedKeys .= pact420Upgrade v bh
     setLowerCaseTables = bsLowerCaseTables .= chainweb217Pact After v bh
 doRestore loggr _ _ dbenv Nothing = runBlockEnv dbenv $ do
-    logError_ loggr $ T.unpack $ "temp.chessai: doRestore: resetting tables"
+    logError_ loggr $ T.unpack $ "doRestore: resetting tables"
     clearPendingTxState
     withSavepoint DbTransaction $
       callDb "doRestoreInitial: resetting tables" $ \db -> do
@@ -172,18 +173,22 @@ doRestore loggr _ _ dbenv Nothing = runBlockEnv dbenv $ do
             [SText t] -> do
               let tblname = case t of { Utf8 x -> T.decodeUtf8 x; }
               let interestingTables = [ "free.kdoge_token-table", "free.kadoge_token-table" ]
-              when (any (\interesting -> interesting `T.isInfixOf` tblname) interestingTables) $ do
+              let isInteresting x = any (`T.isInfixOf` x) interestingTables
+              when (isInteresting tblname) $ do
                 stuff <- catch (qry_ db ("SELECT COUNT(*) FROM " <> t <> ";") [RInt]) $ \(SomeException e) -> do
                   withFrozenCallStack $ do 
-                    logError_ loggr $ T.unpack $ "tmp.chessai: When querying "
+                    logError_ loggr $ T.unpack $ "When querying "
                       <> tblname <> " got an error: " <> sshow e
-                    logError_ loggr $ "tmp.chessai: Callstack: " <> prettyCallStack callStack
+                    logError_ loggr $ "Callstack: " <> prettyCallStack callStack
                   throwM e
                 case stuff of
                   [[SInt count]] -> do
-                    logError_ loggr $ T.unpack $ "tmp.chessai: " <> tblname <> " has " <> sshow count <> " entries."
+                    logError_ loggr $ T.unpack $ "" <> tblname <> " has " <> sshow count <> " entries."
                   _ -> do
                     internalError $ "Didn't get [[SInt count]] from `SELECT COUNT(*) FROM " <> tblname <> ";`"
+              
+              when (isInteresting tblname) $ do
+                logError_ loggr $ T.unpack $ "Dropping " <> tblname
               exec_ db ("DROP TABLE [" <> t <> "];")
             _ -> internalError "Something went wrong when resetting tables."
         exec_ db "DELETE FROM VersionedTableCreation;"
