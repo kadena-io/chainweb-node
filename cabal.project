@@ -194,3 +194,8 @@ allow-newer: base16-bytestring:*
 -- constraints: megaparsec <9.3
 allow-newer: prettyprinter:*
 
+constraints: http2 <4.1.3
+constraints: warp <3.3.26
+constraints: warp-tls <3.3.7
+constraints: http-client-tls <0.3.6.2
+constraints: tls <1.7.0
