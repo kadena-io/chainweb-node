@@ -26,6 +26,7 @@ import Control.Monad
 import Control.Monad.Catch
 import Control.Monad.IO.Class
 import Control.Monad.State (gets)
+import GHC.Stack (HasCallStack, prettyCallStack, withFrozenCallStack, callStack)
 
 import Data.ByteString (ByteString, intercalate)
 import qualified Data.ByteString.Short as BS
@@ -67,6 +68,7 @@ import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.Backend.Utils
 import Chainweb.Pact.Backend.DbCache (updateCacheStats)
 import Chainweb.Pact.Service.Types
+import Chainweb.Pact.Types (logError_)
 import Chainweb.Utils
 import Chainweb.Utils.Serialization
 import Chainweb.Version
@@ -123,7 +125,7 @@ initRelationalCheckpointer' bstate sqlenv loggr v cid = do
         { _cpeCheckpointer =
             Checkpointer
             {
-                _cpRestore = doRestore v cid db
+                _cpRestore = doRestore loggr v cid db
               , _cpSave = doSave db
               , _cpDiscard = doDiscard db
               , _cpGetLatestBlock = doGetLatest db
@@ -142,8 +144,8 @@ initRelationalCheckpointer' bstate sqlenv loggr v cid = do
 
 type Db = MVar (BlockEnv SQLiteEnv)
 
-doRestore :: ChainwebVersion -> ChainId -> Db -> Maybe (BlockHeight, ParentHash) -> IO PactDbEnv'
-doRestore v cid dbenv (Just (bh, hash)) = runBlockEnv dbenv $ do
+doRestore :: HasCallStack => Logger -> ChainwebVersion -> ChainId -> Db -> Maybe (BlockHeight, ParentHash) -> IO PactDbEnv'
+doRestore _ v cid dbenv (Just (bh, hash)) = runBlockEnv dbenv $ do
     setModuleNameFix
     setSortedKeys
     setLowerCaseTables
@@ -167,7 +169,22 @@ doRestore _ _ dbenv Nothing = runBlockEnv dbenv $ do
         exec_ db "DELETE FROM [SYS:Pacts];"
         tblNames <- qry_ db "SELECT tablename FROM VersionedTableCreation;" [RText]
         forM_ tblNames $ \tbl -> case tbl of
-            [SText t] -> exec_ db ("DROP TABLE [" <> t <> "];")
+            [SText t] -> do
+              let tblname = case t of { Utf8 x -> T.decodeUtf8 x; }
+              let interestingTables = [ "free.kdoge_token-table", "free.kadoge_token-table" ]
+              when (any (\interesting -> interesting `T.isInfixOf` tblname) interestingTables) $ do
+                stuff <- catch (qry_ db ("SELECT COUNT(*) FROM " <> t <> ";") [RInt]) $ \(SomeException e) -> do
+                  withFrozenCallStack $ do
+                    logError_ loggr $ T.unpack $ "tmp.chessai: When querying "
+                      <> tblname <> " got an error: " <> sshow e
+                    logError_ loggr $ "tmp.chessai: Callstack: " <> prettyCallStack callStack
+                  throwM e
+                case stuff of
+                  [[SInt count]] -> do
+                    logError_ loggr $ T.unpack $ "tmp.chessai: " <> tblname <> " has " <> sshow count <> " entries."
+                  _ -> do
+                    internalError $ "Didn't get [[SInt count]] from `SELECT COUNT(*) FROM " <> tblname <> ";`"
+              exec_ db ("DROP TABLE [" <> t <> "];")
             _ -> internalError "Something went wrong when resetting tables."
         exec_ db "DELETE FROM VersionedTableCreation;"
         exec_ db "DELETE FROM VersionedTableMutation;"
