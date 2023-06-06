@@ -69,7 +69,7 @@ validateVersion v = do
     evaluate (rnf v)
     let
         hasAllChains (AllChains _) = True
-        hasAllChains (OnChains m) = HS.fromMap (void m) == chainIds v
+        hasAllChains (OnChains m) = chainIds v `HS.isSubsetOf` HS.fromMap (void m)
         errors = concat
             [ [ "validateVersion: version does not have heights for all forks"
                 | not (HS.fromMap (void $ _versionForks v) == HS.fromList [minBound :: Fork .. maxBound :: Fork]) ]
