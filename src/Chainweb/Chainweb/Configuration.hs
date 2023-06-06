@@ -104,6 +104,7 @@ import System.Directory
 
 import Chainweb.BlockHeight
 import Chainweb.Difficulty
+import Chainweb.Graph
 import Chainweb.HostAddress
 import qualified Chainweb.Mempool.Mempool as Mempool
 import Chainweb.Mempool.P2pConfig
@@ -111,6 +112,7 @@ import Chainweb.Miner.Config
 import Chainweb.Pact.Types (defaultReorgLimit, defaultModuleCacheLimit)
 import Chainweb.Payload.RestAPI (PayloadBatchLimit(..), defaultServicePayloadBatchLimit)
 import Chainweb.Utils
+import qualified Chainweb.Utils.Rule as Rule
 import Chainweb.Version
 import Chainweb.Version.Development
 import Chainweb.Version.FastDevelopment
@@ -577,8 +579,9 @@ parseVersion = constructVersion
     <*> optional (textOption @Fork (long "fork-upper-bound" <> help "(development mode only) the latest fork the node will enable"))
     <*> optional (BlockRate <$> textOption (long "block-rate" <> help "(development mode only) the block rate in seconds per block"))
     <*> switch (long "disable-pow" <> help "(development mode only) disable proof of work check")
+    <*> optional (textOption @KnownGraph (long "chain-graph" <> help "(development mode only) the chain graph"))
     where
-    constructVersion cliVersion fub br disablePow' oldVersion = winningVersion
+    constructVersion cliVersion fub br disablePow' graph oldVersion = winningVersion
         & versionBlockRate .~ fromMaybe (_versionBlockRate winningVersion) br
         & versionForks %~ HM.filterWithKey (\fork _ -> fork <= fromMaybe maxBound fub)
         & versionUpgrades .~
@@ -592,6 +595,7 @@ parseVersion = constructVersion
                     )
                     (HS.toMap (chainIds winningVersion))
             ) fub
+        & versionGraphs .~ fromMaybe (_versionGraphs winningVersion) (Rule.End . knownChainGraph <$> graph)
         & versionCheats . disablePow .~ disablePow'
         where
         winningVersion = fromMaybe oldVersion cliVersion
