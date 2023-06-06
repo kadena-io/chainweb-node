@@ -107,7 +107,7 @@ withDefaultLogger logDir chainId ll f = withHandleBackend_ logText handleConfig 
     cid = Text.unpack (chainIdToText chainId)
 
     handleConfig = defaultHandleBackendConfig
-      { _handleBackendConfigHandle = FileHandle (logDir </> ("compact-log-" <> cid <> ".log"))
+      { _handleBackendConfigHandle = FileHandle (logDir </> ("compact-chain-" <> cid <> ".log"))
       }
 
 -- | Set up compaction.
