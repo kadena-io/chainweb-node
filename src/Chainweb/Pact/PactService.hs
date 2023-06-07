@@ -96,6 +96,8 @@ import Chainweb.Version
 import Data.LogMessage
 import Utils.Logging.Trace
 
+import qualified Debug.Trace as DT
+
 runPactService
     :: Logger logger
     => CanReadablePayloadCas tbl
@@ -207,6 +209,9 @@ initializeCoinContract
     -> PayloadWithOutputs
     -> PactServiceM tbl ()
 initializeCoinContract _logger memPoolAccess v cid pwo = do
+
+    DT.traceShowM ("initializeCoinContract" :: String)
+
     cp <- getCheckpointer
     genesisExists <- liftIO
         $ _cpLookupBlockInCheckpointer cp (genesisHeight v cid, ghash)
@@ -288,6 +293,7 @@ serviceRequests logFn memPoolAccess reqQ = do
                         execNewBlock memPoolAccess _newBlockHeader _newMiner
                 go
             ValidateBlockMsg ValidateBlockReq {..} -> do
+                DT.traceShowM ("serviceRequests validateblock" :: String)
                 trace logFn "Chainweb.Pact.PactService.execValidateBlock"
                     _valBlockHeader
                     (length (_payloadDataTransactions _valPayloadData)) $
@@ -536,7 +542,7 @@ execNewBlock mpAccess parent miner = do
 
         liftIO $ mpaBadlistTx mpAccess (V.map gasPurchaseFailureHash failures)
 
-        let !pwo = toPayloadWithOutputs miner (Transactions successPairs cb)
+        let !pwo = toPayloadWithOutputs miner (Transactions (DT.trace "execNewBlock.newTrans: " $ DT.traceShow newTrans $ DT.trace "execNewBlock.pairs: " $ DT.traceShow pairs $ DT.trace "execNewBlock.successPairs: " $ DT.traceShowId successPairs) cb)
         return $! Discard pwo
 
     refill fetchLimit txTimeLimit pdbenv unchanged@(BlockFilling bfState oldPairs oldFails) = do
@@ -706,6 +712,7 @@ execValidateBlock
     -> PayloadData
     -> PactServiceM tbl PayloadWithOutputs
 execValidateBlock memPoolAccess currHeader plData = do
+    DT.traceShowM ("execValidateBlock" :: String)
     -- The parent block header must be available in the block header database
     target <- getTarget
     psEnv <- ask

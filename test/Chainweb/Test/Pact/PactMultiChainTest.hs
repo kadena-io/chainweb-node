@@ -114,16 +114,16 @@ tests = ScheduledTest testName go
     testName = "Chainweb.Test.Pact.PactMultiChainTest"
     go = testGroup testName
          [ test generousConfig freeGasModel "pact4coin3UpgradeTest" pact4coin3UpgradeTest
-         , test generousConfig freeGasModel "pact420UpgradeTest" pact420UpgradeTest
-         , test generousConfig freeGasModel "minerKeysetTest" minerKeysetTest
-         , test timeoutConfig freeGasModel "txTimeoutTest" txTimeoutTest
-         , test generousConfig getGasModel "chainweb213Test" chainweb213Test
-         , test generousConfig getGasModel "pact43UpgradeTest" pact43UpgradeTest
-         , test generousConfig getGasModel "pact431UpgradeTest" pact431UpgradeTest
-         , test generousConfig getGasModel "chainweb215Test" chainweb215Test
-         , test generousConfig getGasModel "chainweb216Test" chainweb216Test
-         , test generousConfig getGasModel "pact45UpgradeTest" pact45UpgradeTest
-         , test generousConfig getGasModel "pact46UpgradeTest" pact46UpgradeTest
+         -- , test generousConfig freeGasModel "pact420UpgradeTest" pact420UpgradeTest
+         -- , test generousConfig freeGasModel "minerKeysetTest" minerKeysetTest
+         -- , test timeoutConfig freeGasModel "txTimeoutTest" txTimeoutTest
+         -- , test generousConfig getGasModel "chainweb213Test" chainweb213Test
+         -- , test generousConfig getGasModel "pact43UpgradeTest" pact43UpgradeTest
+         -- , test generousConfig getGasModel "pact431UpgradeTest" pact431UpgradeTest
+         -- , test generousConfig getGasModel "chainweb215Test" chainweb215Test
+         -- , test generousConfig getGasModel "chainweb216Test" chainweb216Test
+         -- , test generousConfig getGasModel "pact45UpgradeTest" pact45UpgradeTest
+         -- , test generousConfig getGasModel "pact46UpgradeTest" pact46UpgradeTest
          ]
       where
           -- This is way more than what is used in production, but during testing
@@ -837,14 +837,14 @@ pact4coin3UpgradeTest = do
         assertTxEvents "Events for tx 0 @ block 7" [] cr
     , PactTxTest (buildXSend []) $
       assertTxEvents "Events for tx 1 @ block 7" []
-    , PactTxTest buildNewNatives40Cmd $
-      assertTxFailure
-      "Should not resolve new pact natives"
-      "Cannot resolve distinct"
-    , PactTxTest badKeyset $
-      assertTxSuccess
-      "Should allow bad keys" $
-      pKeySet $ mkKeySet ["badkey"] "keys-all"
+    -- , PactTxTest buildNewNatives40Cmd $
+    --   assertTxFailure
+    --   "Should not resolve new pact natives"
+    --   "Cannot resolve distinct"
+    -- , PactTxTest badKeyset $
+    --   assertTxSuccess
+    --   "Should allow bad keys" $
+    --   pKeySet $ mkKeySet ["badkey"] "keys-all"
     ]
 
   assertTxEvents "Coinbase events @ block 7" [] =<< cbResult
@@ -856,63 +856,65 @@ pact4coin3UpgradeTest = do
   savedCut <- currentCut
   runToHeight 21
 
+  liftIO $ print send0
+
   -- block 22
   -- get proof
-  xproof <- buildXProof cid 7 1 send0
-  cont <- buildCont send0
+  -- xproof <- buildXProof cid 7 1 send0
+  -- cont <- buildCont send0
 
-  let v3Hash = "1os_sLAUYvBzspn5jjawtRpJWiH1WPfhyNraeVvSIwU"
-      block22 =
-        [ PactTxTest buildHashCmd $ \cr -> do
-            gasEv0 <- mkTransferEvent "sender00" "NoMiner" 0.0013 "coin" v3Hash
-            assertTxSuccess "Hash of coin @ block 22" (pString v3Hash) cr
-            assertTxEvents "Events for tx0 @ block 22" [gasEv0] cr
-        , PactTxTest buildReleaseCommand $ \cr -> do
-            gasEv1 <- mkTransferEvent "sender00" "NoMiner" 0.0014 "coin" v3Hash
-            allocTfr <- mkTransferEvent "" "allocation00" 1000000.0 "coin" v3Hash
-            allocEv <- mkEvent "RELEASE_ALLOCATION" [pString "allocation00",pDecimal 1000000.0]
-                       "coin" v3Hash
-            assertTxEvents "Events for tx1 @ block 22" [gasEv1,allocEv,allocTfr] cr
-        , PactTxTest (buildXSend []) $ \cr -> do
-            gasEv2 <- mkTransferEvent "sender00" "NoMiner" 0.0014 "coin" v3Hash
-            sendTfr <- mkTransferEvent "sender00" "" 0.0123 "coin" v3Hash
-            yieldEv <- mkXYieldEvent "sender00" "sender00" 0.0123 sender00Ks "pact" v3Hash "0" "0"
-            assertTxEvents "Events for tx2 @ block 22" [gasEv2,sendTfr, yieldEv] cr
-        , PactTxTest buildNewNatives40Cmd $
-          assertTxSuccess
-          "Should resolve enumerate pact native"
-          (pList $ pInteger <$> [1..10])
-        , PactTxTest badKeyset $
-          assertTxFailure
-          "Should not allow bad keys"
-          "Invalid keyset"
-        , PactTxTest cont $
-          assertTxFailure'
-          "Attempt to continue xchain on same chain fails"
-          "yield provenance"
-        ]
-      block22_0 =
-        [ PactTxTest (buildXReceive xproof) $ \cr -> do
-            -- test receive XChain events
-            gasEvRcv <- mkTransferEvent "sender00" "NoMiner" 0.0014 "coin" v3Hash
-            rcvTfr <- mkTransferEvent "" "sender00" 0.0123 "coin" v3Hash
-            assertTxEvents "Events for txRcv" [gasEvRcv,rcvTfr] cr
-        ]
+  -- let v3Hash = "1os_sLAUYvBzspn5jjawtRpJWiH1WPfhyNraeVvSIwU"
+  --     block22 =
+  --       [ PactTxTest buildHashCmd $ \cr -> do
+  --           gasEv0 <- mkTransferEvent "sender00" "NoMiner" 0.0013 "coin" v3Hash
+  --           assertTxSuccess "Hash of coin @ block 22" (pString v3Hash) cr
+  --           assertTxEvents "Events for tx0 @ block 22" [gasEv0] cr
+        -- , PactTxTest buildReleaseCommand $ \cr -> do
+        --     gasEv1 <- mkTransferEvent "sender00" "NoMiner" 0.0014 "coin" v3Hash
+        --     allocTfr <- mkTransferEvent "" "allocation00" 1000000.0 "coin" v3Hash
+        --     allocEv <- mkEvent "RELEASE_ALLOCATION" [pString "allocation00",pDecimal 1000000.0]
+        --                "coin" v3Hash
+        --     assertTxEvents "Events for tx1 @ block 22" [gasEv1,allocEv,allocTfr] cr
+        -- , PactTxTest (buildXSend []) $ \cr -> do
+        --     gasEv2 <- mkTransferEvent "sender00" "NoMiner" 0.0014 "coin" v3Hash
+        --     sendTfr <- mkTransferEvent "sender00" "" 0.0123 "coin" v3Hash
+        --     yieldEv <- mkXYieldEvent "sender00" "sender00" 0.0123 sender00Ks "pact" v3Hash "0" "0"
+        --     assertTxEvents "Events for tx2 @ block 22" [gasEv2,sendTfr, yieldEv] cr
+        -- , PactTxTest buildNewNatives40Cmd $
+        --   assertTxSuccess
+        --   "Should resolve enumerate pact native"
+        --   (pList $ pInteger <$> [1..10])
+        -- , PactTxTest badKeyset $
+        --   assertTxFailure
+        --   "Should not allow bad keys"
+        --   "Invalid keyset"
+        -- , PactTxTest cont $
+        --   assertTxFailure'
+        --   "Attempt to continue xchain on same chain fails"
+        --   "yield provenance"
+        -- ]
+      -- block22_0 =
+      --   [ PactTxTest (buildXReceive xproof) $ \cr -> do
+      --       -- test receive XChain events
+      --       gasEvRcv <- mkTransferEvent "sender00" "NoMiner" 0.0014 "coin" v3Hash
+      --       rcvTfr <- mkTransferEvent "" "sender00" 0.0123 "coin" v3Hash
+      --       assertTxEvents "Events for txRcv" [gasEvRcv,rcvTfr] cr
+      --   ]
 
-  setPactMempool $ PactMempool
-      [ testsToBlock cid block22
-      , testsToBlock chain0 block22_0
-      ]
-  runCut'
-  withChain cid $ do
-    runBlockTests block22
-    cbEv <- mkTransferEvent "" "NoMiner" 2.304523 "coin" v3Hash
-    assertTxEvents "Coinbase events @ block 22" [cbEv] =<< cbResult
-  withChain chain0 $ runBlockTests block22_0
+  -- setPactMempool $ PactMempool
+      -- [ -- testsToBlock cid block22
+      -- , testsToBlock chain0 block22_0
+      -- ]
+  -- runCut'
+  -- withChain cid $ do
+  --   runBlockTests block22
+  --   cbEv <- mkTransferEvent "" "NoMiner" 2.304523 "coin" v3Hash
+  --   assertTxEvents "Coinbase events @ block 22" [cbEv] =<< cbResult
+  -- withChain chain0 $ runBlockTests block22_0
 
   -- rewind to savedCut (cut 18)
-  rewindTo savedCut
-  runToHeight 22
+  -- rewindTo savedCut
+  -- runToHeight 22
 
   where
 

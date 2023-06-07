@@ -207,6 +207,8 @@ import Chainweb.WebPactExecutionService
 import Chainweb.Storage.Table.HashMap hiding (toList)
 import Chainweb.Storage.Table.RocksDB
 
+import qualified Debug.Trace as DT
+
 -- ----------------------------------------------------------------------- --
 -- Keys
 
@@ -666,9 +668,11 @@ withWebPactExecutionService v pactConfig bdb mempoolAccess gasmodel act =
         bhdb <- getBlockHeaderDb c bdb
         (ctx,_) <- testPactCtxSQLite v c bhdb (_bdbPayloadDb bdb) sqlenv pactConfig gasmodel
         return $ (c,) $ PactExecutionService
-          { _pactNewBlock = \m p ->
+          { _pactNewBlock = \m p -> do
+              DT.traceShowM ("_pactNewBlock" :: String)
               evalPactServiceM_ ctx $ execNewBlock mempoolAccess p m
-          , _pactValidateBlock = \h d ->
+          , _pactValidateBlock = \h d -> do
+              DT.traceShowM ("_pactValidateBlock " ++ show d)
               evalPactServiceM_ ctx $ execValidateBlock mempoolAccess h d
           , _pactLocal = \pf sv rd cmd ->
               evalPactServiceM_ ctx $ Right <$> execLocal cmd pf sv rd
@@ -708,6 +712,7 @@ runCut v bdb pact genTime noncer miner =
     n <- noncer cid
     addTestBlockDb bdb n genTime cid pout
     h <- getParentTestBlockDb bdb cid
+    print ("_webPactValidateBlock!!!!", pout, payloadWithOutputsToPayloadData pout)
     void $ _webPactValidateBlock pact h (payloadWithOutputsToPayloadData pout)
 
 initializeSQLite :: IO SQLiteEnv

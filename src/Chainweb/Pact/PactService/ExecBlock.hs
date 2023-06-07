@@ -90,6 +90,8 @@ import Chainweb.Transaction
 import Chainweb.Utils hiding (check)
 import Chainweb.Version
 
+import qualified Debug.Trace as DT
+
 -- | Set parent header in state and spv support (using parent hash)
 setParentHeader :: String -> ParentHeader -> PactServiceM tbl ()
 setParentHeader msg ph@(ParentHeader bh) = do
@@ -118,11 +120,15 @@ execBlock
     -> PactServiceM tbl (T2 Miner (Transactions (P.CommandResult [P.TxLog A.Value])))
 execBlock currHeader plData pdbenv = do
 
+    DT.traceShowM ("execBlock: " ++ show plData)
+
     unlessM ((> 0) <$> asks _psCheckpointerDepth) $ do
         error $ "Code invariant violation: execBlock must be called with withCheckpointer. Please report this as a bug."
 
     miner <- decodeStrictOrThrow' (_minerData $ _payloadDataMiner plData)
     trans <- liftIO $ transactionsFromPayload (Just (v, _blockHeight currHeader)) plData
+    DT.traceShowM ("execBlock.trans: " ++ show trans)
+
     cp <- getCheckpointer
     logger <- view psLogger
 
@@ -148,6 +154,9 @@ execBlock currHeader plData pdbenv = do
 
     !results <- go miner trans >>= throwOnGasFailure
 
+    DT.traceShowM ("execBlock.results: " ++ show results)
+
+
     modify' $ set psStateValidated $ Just currHeader
 
     -- Validate hashes if requested
@@ -169,7 +178,7 @@ execBlock currHeader plData pdbenv = do
 
     isGenesisBlock = isGenesisBlockHeader currHeader
 
-    go m txs = if isGenesisBlock
+    go m txs = if (DT.trace "isGenesisBlock " $ DT.traceShowId isGenesisBlock)
       then do
         -- GENESIS VALIDATE COINBASE: Reject bad coinbase, use date rule for precompilation
         execTransactions True m txs
@@ -299,6 +308,7 @@ execTransactions
     -> PactServiceM tbl (Transactions (Either GasPurchaseFailure (P.CommandResult [P.TxLog A.Value])))
 execTransactions isGenesis miner ctxs enfCBFail usePrecomp (PactDbEnv' pactdbenv) gasLimit timeLimit = do
     mc <- getCache
+    -- DT.traceShowM ("execTransactions cache " ++ show mc)
 
     coinOut <- runCoinbase isGenesis pactdbenv miner enfCBFail usePrecomp mc
     txOuts <- applyPactCmds isGenesis pactdbenv ctxs miner mc gasLimit timeLimit
@@ -539,8 +549,8 @@ validateHashes bHeader pData miner transactions =
       newTransactionsHash = _payloadWithOutputsTransactionsHash pwo
       prevTransactionsHash = _payloadDataTransactionsHash pData
 
-      newOutputsHash = _payloadWithOutputsOutputsHash pwo
-      prevOutputsHash = _payloadDataOutputsHash pData
+      newOutputsHash = DT.trace "PWO " $ DT.traceShow pwo $ _payloadWithOutputsOutputsHash pwo
+      prevOutputsHash = DT.trace "pData " $ DT.traceShow pData $ _payloadDataOutputsHash pData
 
       check desc extra expect actual
         | expect == actual = []
@@ -594,9 +604,9 @@ toOutputBytes cr =
 
 toPayloadWithOutputs :: Miner -> Transactions (P.CommandResult [P.TxLog A.Value]) -> PayloadWithOutputs
 toPayloadWithOutputs mi ts =
-    let oldSeq = _transactionPairs ts
+    let oldSeq = _transactionPairs ts -- (DT.trace "toPayloadWithOutputs.transactions: " $ DT.traceShowId ts)
         trans = cmdBSToTx . fst <$> oldSeq
-        transOuts = toOutputBytes . toHashCommandResult . snd <$> oldSeq
+        transOuts = DT.trace "toPayloadWithOutputs.transOuts: " $ DT.traceShowId $ toOutputBytes . toHashCommandResult . snd <$> oldSeq
 
         miner = toMinerData mi
         cb = CoinbaseOutput $ encodeToByteString $ toHashCommandResult $ _transactionCoinbase ts
