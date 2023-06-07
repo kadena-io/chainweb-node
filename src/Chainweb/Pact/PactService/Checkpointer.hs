@@ -194,6 +194,7 @@ withCheckpointerWithoutRewind
     -> (PactDbEnv' -> PactServiceM tbl (WithCheckpointerResult a))
     -> PactServiceM tbl a
 withCheckpointerWithoutRewind target caller act = do
+    logError $ "withCheckpointerWithoutRewind.target = " <> case target of { Nothing -> "genesis"; Just ph -> sshow ph }
     checkPointer <- getCheckpointer
     logDebug $ "restoring (with caller " <> caller <> ") " <> sshow target
 

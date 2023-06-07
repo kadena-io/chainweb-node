@@ -55,6 +55,11 @@ import qualified Data.Text as T
 import Data.Vector (Vector)
 import qualified Data.Vector as V
 
+import Control.StopWatch (stopWatch)
+import System.LogLevel (LogLevel(Error))
+import System.Clock (toNanoSecs)
+import Utils.Logging.Trace (Trace(Trace))
+
 import System.IO
 
 import Prelude hiding (lookup)
@@ -95,7 +100,7 @@ import Chainweb.TreeDB (lookupM)
 import Chainweb.Utils hiding (check)
 import Chainweb.Version
 import Data.LogMessage
-import Utils.Logging.Trace
+import Utils.Logging.Trace (trace)
 
 runPactService
     :: Logger logger
@@ -212,8 +217,12 @@ initializeCoinContract _logger memPoolAccess v cid pwo = do
     genesisExists <- liftIO
         $ _cpLookupBlockInCheckpointer cp (genesisHeight v cid, ghash)
     if genesisExists
-      then readContracts
-      else validateGenesis
+      then do
+        logError "initializeCoinContract: readContracts" 
+        readContracts
+      else do
+        logError "initializeCoinContract: validateGenesis"
+        validateGenesis
 
   where
     validateGenesis = void $!
@@ -289,7 +298,7 @@ serviceRequests logFn memPoolAccess reqQ = do
                         execNewBlock memPoolAccess _newBlockHeader _newMiner
                 go
             ValidateBlockMsg ValidateBlockReq {..} -> do
-                trace logFn "Chainweb.Pact.PactService.execValidateBlock"
+                traceError logFn "Chainweb.Pact.PactService.execValidateBlock"
                     _valBlockHeader
                     (length (_payloadDataTransactions _valPayloadData)) $
                     tryOne "execValidateBlock" _valResultVar $
@@ -833,3 +842,18 @@ getGasModel :: TxContext -> P.GasModel
 getGasModel ctx
     | chainweb213Pact (ctxVersion ctx) (ctxCurrentBlockHeight ctx) = chainweb213GasModel
     | otherwise = freeModuleLoadGasModel
+
+traceError :: (MonadIO m, A.ToJSON param)
+  => LogFunction
+  -> T.Text
+  -> param
+  -> Int
+  -> m a
+  -> m a
+traceError logFn label param weight a = do
+    (!r, t) <- stopWatch a
+    liftIO $ logFn Error $ JsonLog $ Trace label
+        (A.toJSON param)
+        weight
+        (fromIntegral $ toNanoSecs t `div` 1000)
+    return r

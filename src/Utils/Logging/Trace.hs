@@ -23,7 +23,7 @@
 --
 module Utils.Logging.Trace
 ( trace
-, Trace
+, Trace(..)
 ) where
 
 import Control.DeepSeq

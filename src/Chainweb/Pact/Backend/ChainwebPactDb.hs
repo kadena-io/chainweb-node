@@ -792,13 +792,7 @@ dropTablesAtRewind loggr bh db = do
                       [SInt (fromIntegral bh)] [RText]
     tbls <- fmap HashSet.fromList . forM toDropTblNames $ \case
         [SText tblname@(Utf8 tn)] -> do
-            
-            let tblnameText = T.decodeUtf8 tn
-            let interestingTables = [ "free.kdoge_token-table", "free.kadoge_token-table" ]
-            let isInteresting x = any (`T.isInfixOf` x) interestingTables
-            when (isInteresting tblnameText) $ do
-              logError_ loggr $ T.unpack $ "Dropping " <> tblnameText
-
+            logError_ loggr $ T.unpack $ "Dropping " <> T.decodeUtf8 tn <> " at rewind"
             exec_ db $ "DROP TABLE IF EXISTS " <> tbl tblname
             return tn
         _ -> internalError rewindmsg
