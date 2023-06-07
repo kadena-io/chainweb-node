@@ -312,6 +312,7 @@ execTransactions isGenesis miner ctxs enfCBFail usePrecomp (PactDbEnv' pactdbenv
 
     coinOut <- runCoinbase isGenesis pactdbenv miner enfCBFail usePrecomp mc
     txOuts <- applyPactCmds isGenesis pactdbenv ctxs miner mc gasLimit timeLimit
+    DT.traceShowM ("execTransactions ctxs and txouts" :: String, ctxs, txOuts, coinOut)
     return $! Transactions (V.zip ctxs txOuts) coinOut
   where
     getCache = do
