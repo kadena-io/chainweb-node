@@ -195,6 +195,8 @@ import Chainweb.Transaction
 import Chainweb.Utils
 import Chainweb.Version
 
+import qualified Debug.Trace as DT
+
 data Transactions r = Transactions
     { _transactionPairs :: !(Vector (ChainwebTransaction, r))
     , _transactionCoinbase :: !(CommandResult [TxLog Value])
@@ -456,7 +458,7 @@ updateInitCache pactdbenv mc = do
   v <- view psVersion
 
   liftIO $ modifyMVar_ (pdPactDbVar pactdbenv) $ \db -> pure $
-    if (isEmptyCache $ view (benvBlockState . bsModuleCache) db)
+    if DT.traceShow ("pbh: " :: String, pbh, "updateInitCache.keys: " :: String) $ DT.traceShow (keysDbCache $ view (benvBlockState . bsModuleCache) db) (isEmptyCache $ view (benvBlockState . bsModuleCache) db)
     then set (benvBlockState . bsModuleCache) mc db
     else
       let mc'
