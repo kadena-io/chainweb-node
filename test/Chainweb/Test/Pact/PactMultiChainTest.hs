@@ -64,6 +64,8 @@ import Chainweb.WebPactExecutionService
 
 import Chainweb.Storage.Table (casLookupM)
 
+import qualified Debug.Trace as DT
+
 testVersion :: ChainwebVersion
 testVersion = FastTimedCPM peterson
 
@@ -824,7 +826,7 @@ pact46UpgradeTest = do
 
 pact4coin3UpgradeTest :: PactTestM ()
 pact4coin3UpgradeTest = do
-
+  DT.traceShowM "running!! pact4coin3UpgradeTest"
   -- run past genesis, upgrades
   runToHeight 6
 

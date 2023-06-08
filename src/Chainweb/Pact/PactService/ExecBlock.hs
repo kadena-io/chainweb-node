@@ -308,7 +308,6 @@ execTransactions
     -> PactServiceM tbl (Transactions (Either GasPurchaseFailure (P.CommandResult [P.TxLog A.Value])))
 execTransactions isGenesis miner ctxs enfCBFail usePrecomp (PactDbEnv' pactdbenv) gasLimit timeLimit = do
     mc <- getCache
-    -- DT.traceShowM ("execTransactions cache " ++ show mc)
 
     coinOut <- runCoinbase isGenesis pactdbenv miner enfCBFail usePrecomp mc
     txOuts <- applyPactCmds isGenesis pactdbenv ctxs miner mc gasLimit timeLimit

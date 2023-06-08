@@ -712,7 +712,7 @@ runCut v bdb pact genTime noncer miner =
     n <- noncer cid
     addTestBlockDb bdb n genTime cid pout
     h <- getParentTestBlockDb bdb cid
-    print ("_webPactValidateBlock!!!!", pout, payloadWithOutputsToPayloadData pout)
+    print ("_webPactValidateBlock!!!! at", ph, " for ", h, pout, payloadWithOutputsToPayloadData pout)
     void $ _webPactValidateBlock pact h (payloadWithOutputsToPayloadData pout)
 
 initializeSQLite :: IO SQLiteEnv
