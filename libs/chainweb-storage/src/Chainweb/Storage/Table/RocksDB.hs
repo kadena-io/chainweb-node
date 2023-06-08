@@ -42,8 +42,10 @@ module Chainweb.Storage.Table.RocksDB
   -- , rocksDbHandle
   -- , rocksDbNamespace
   , openRocksDb
+  , openReadOnlyRocksDb
   , closeRocksDb
   , withRocksDb
+  , withReadOnlyRocksDb
   , withTempRocksDb
   , destroyRocksDb
   , resetOpenRocksDb
@@ -199,6 +201,18 @@ openRocksDb path opts_ptr = do
     initializeRocksDb rdb
     return rdb
 
+openReadOnlyRocksDb :: FilePath -> C.OptionsPtr -> IO RocksDb
+openReadOnlyRocksDb path opts_ptr = do
+    GHC.setFileSystemEncoding GHC.utf8
+    createDirectoryIfMissing True path
+    db <- withFilePath path $ \path_ptr ->
+        fmap R.DB
+        $ R.throwIfErr "open"
+        $ C.c_rocksdb_open_for_read_only opts_ptr path_ptr (0 :: CChar) -- ignore extant wal file
+    let rdb = RocksDb db mempty
+    -- can't initialize read-only rocksdb
+    return rdb
+
 withOpts :: R.Options -> (R.Options' -> IO a) -> IO a
 withOpts opts =
     bracket (R.mkOpts opts) R.freeOpts
@@ -238,6 +252,14 @@ withRocksDb :: FilePath -> R.Options -> (RocksDb -> IO a) -> IO a
 withRocksDb path opts act =
     withOpts opts $ \(R.Options' opts_ptr _ _) ->
         bracket (openRocksDb path opts_ptr) closeRocksDb act
+
+-- | Provide a computation with a read-only 'RocksDb' instance. If no rocks db exists at
+-- the provided directory path, a new database is created(?) TODO
+--
+withReadOnlyRocksDb :: FilePath -> R.Options -> (RocksDb -> IO a) -> IO a
+withReadOnlyRocksDb path opts act =
+    withOpts opts $ \(R.Options' opts_ptr _ _) ->
+        bracket (openReadOnlyRocksDb path opts_ptr) closeRocksDb act
 
 -- | Provide a computation with a temporary 'RocksDb'. The database is deleted
 -- when the computation exits.
@@ -537,7 +559,7 @@ instance forall k v. ReadableTable (RocksDbTable k v) k v where
         maybeBytes <- getRocksDb (_rocksDbTableDb db) mempty (encKey db k)
         traverse (decVal db) maybeBytes
 
-    tableMember db k = 
+    tableMember db k =
         isJust <$> getRocksDb (_rocksDbTableDb db) mempty (encKey db k)
 
     -- | @tableLookupBatch db ks@ returns for each @k@ in @ks@ 'Just' the value at
@@ -565,10 +587,10 @@ instance Table (RocksDbTable k v) k v where
         R.defaultWriteOptions
         (encKey db k)
 
-    tableInsertBatch db kvs = 
+    tableInsertBatch db kvs =
         updateBatch (uncurry (RocksDbInsert db) <$> kvs)
 
-    tableDeleteBatch db ks = 
+    tableDeleteBatch db ks =
         updateBatch (RocksDbDelete db <$> ks)
 
 -- -------------------------------------------------------------------------- --
@@ -616,7 +638,7 @@ encIterKey it k = namespaceFirst ns <> _codecEncode (_rocksDbTableIterKeyCodec i
     ns = _rocksDbTableIterNamespace it
 
 decIterVal :: MonadThrow m => RocksDbTableIter k v -> B.ByteString -> m v
-decIterVal i = _codecDecode (_rocksDbTableIterValueCodec i) 
+decIterVal i = _codecDecode (_rocksDbTableIterValueCodec i)
 
 decIterKey :: MonadThrow m => RocksDbTableIter k v -> B.ByteString -> m k
 decIterKey it k =
