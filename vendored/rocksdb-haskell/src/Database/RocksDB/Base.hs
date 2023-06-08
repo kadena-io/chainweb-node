@@ -33,6 +33,7 @@ module Database.RocksDB.Base
 
     -- * Basic Database Manipulations
     , open
+    , openReadOnly
     -- , openBracket
     , close
     , put
@@ -130,11 +131,8 @@ import qualified GHC.IO.Encoding              as GHC
 -- createSnapshotBracket :: MonadResource m => DB -> m (ReleaseKey, Snapshot)
 -- createSnapshotBracket db = allocate (createSnapshot db) (releaseSnapshot db)
 
--- | Open a database.
---
--- The returned handle should be released with 'close'.
-open :: MonadIO m => FilePath -> Options -> m DB
-open path opts = liftIO $ bracketOnError initialize finalize mkDB
+openWith :: MonadIO m => (OptionsPtr -> CString -> ErrPtr -> IO RocksDBPtr) -> [Char] -> Options -> m DB
+openWith opener path opts = liftIO $ bracketOnError initialize finalize mkDB
     where
 # ifdef mingw32_HOST_OS
         initialize =
@@ -164,7 +162,20 @@ open path opts = liftIO $ bracketOnError initialize finalize mkDB
             withFilePath path $ \path_ptr ->
                 liftM DB
                 $ throwIfErr "open"
-                $ c_rocksdb_open opts_ptr path_ptr
+                $ opener opts_ptr path_ptr
+
+-- | Open a database.
+--
+-- The returned handle should be released with 'close'.
+open :: MonadIO m => FilePath -> Options -> m DB
+open = openWith c_rocksdb_open
+
+-- | Open a database in read-only mode. Any changes made to the database after
+-- the database is opened read-only will not be visible until re-opened.
+--
+-- The returned handle should be released with 'close'.
+openReadOnly :: MonadIO m => FilePath -> Options -> m DB
+openReadOnly = openWith (\o p -> c_rocksdb_open_for_read_only o p 0)
 
 -- | Close a database.
 --
