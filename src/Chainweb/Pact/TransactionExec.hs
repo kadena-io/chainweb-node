@@ -595,6 +595,7 @@ applyUpgrades v cid height
         $ initCapabilities [mkMagicCapSlot "REMEDIATE"]
 
     applyTx tx = do
+      DT.traceShowM (("Running upgrade tx " :: String) <> sshow (_cmdHash tx))
       infoLog $ "Running upgrade tx " <> sshow (_cmdHash tx)
 
       tryAllSynchronous (runGenesis tx permissiveNamespacePolicy interp) >>= \case
