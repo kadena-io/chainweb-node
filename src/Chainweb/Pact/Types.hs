@@ -356,9 +356,9 @@ data PactServiceEnv tbl = PactServiceEnv
     , _psBlockHeaderDb :: !BlockHeaderDb
     , _psGasModel :: TxContext -> GasModel
     , _psMinerRewards :: !MinerRewards
-    , _psLocalRewindDepthLimit :: !Word64
+    , _psLocalRewindDepthLimit :: !Limit
     -- ^ The limit of rewind's depth in the `execLocal` command.
-    , _psReorgLimit :: !Word64
+    , _psReorgLimit :: !Limit
     -- ^ The limit of checkpointer's rewind in the `execValidationBlock` command.
     , _psOnFatalError :: forall a. PactException -> Text -> IO a
     , _psVersion :: ChainwebVersion
@@ -410,8 +410,8 @@ defaultModuleCacheLimit = DbCacheLimitBytes (60 * mebi)
 -- | NOTE this is only used for tests/benchmarks. DO NOT USE IN PROD
 defaultPactServiceConfig :: PactServiceConfig
 defaultPactServiceConfig = PactServiceConfig
-      { _pactReorgLimit = fromIntegral defaultReorgLimit
-      , _pactLocalRewindDepthLimit = fromIntegral defaultLocalRewindDepthLimit
+      { _pactReorgLimit = Limit defaultReorgLimit
+      , _pactLocalRewindDepthLimit = Limit defaultLocalRewindDepthLimit
       , _pactRevalidate = True
       , _pactQueueSize = 1000
       , _pactResetDb = True

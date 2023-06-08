@@ -42,7 +42,6 @@ import Servant.Client
 
 -- internal modules
 
-import Chainweb.BlockHeight
 import Chainweb.ChainId
 import Chainweb.Pact.RestAPI
 import Chainweb.Pact.RestAPI.EthSpv
@@ -158,7 +157,7 @@ pactLocalWithQueryApiClient_
     => KnownChainIdSymbol c
     => Maybe LocalPreflightSimulation
     -> Maybe LocalSignatureVerification
-    -> Maybe BlockHeight
+    -> Maybe Depth
     -> Command T.Text
     -> ClientM LocalResult
 pactLocalWithQueryApiClient_ = client (pactLocalWithQueryApi @v @c)
@@ -168,7 +167,7 @@ pactLocalWithQueryApiClient
     -> ChainId
     -> Maybe LocalPreflightSimulation
     -> Maybe LocalSignatureVerification
-    -> Maybe BlockHeight
+    -> Maybe Depth
     -> Command T.Text
     -> ClientM LocalResult
 pactLocalWithQueryApiClient

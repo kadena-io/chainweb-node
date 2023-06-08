@@ -142,7 +142,7 @@ import Chainweb.Test.Orphans.Pact
 import Chainweb.Test.Orphans.Time ()
 import Chainweb.Time
 import Chainweb.Utils
-import Chainweb.Utils.Paging
+import Chainweb.Utils.Paging as Paging
 import Chainweb.Utils.Serialization
 import Chainweb.Version
 import Chainweb.Version.Utils
@@ -761,8 +761,8 @@ arbitraryEventsProof = do
 -- -------------------------------------------------------------------------- --
 -- Misc
 
-instance Arbitrary Limit where
-  arbitrary = Limit <$> arbitrary
+instance Arbitrary Paging.Limit where
+  arbitrary = Paging.Limit <$> arbitrary
 
 instance Arbitrary NetworkId where
     arbitrary = frequency
@@ -802,7 +802,7 @@ instance (Arbitrary a, Arbitrary b) => Arbitrary (Page a b) where
     arbitrary = Page <$> arbitrary <*> arbitrary <*> arbitrary
 
 arbitraryPage :: Arbitrary a => Arbitrary b => Natural -> Gen (Page a b)
-arbitraryPage n = Page (Limit n)
+arbitraryPage n = Page (Paging.Limit n)
     <$> vector (int n)
     <*> arbitrary
 
