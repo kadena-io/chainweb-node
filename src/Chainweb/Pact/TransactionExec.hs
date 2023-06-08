@@ -109,6 +109,8 @@ import Chainweb.Transaction
 import Chainweb.Utils (encodeToByteString, sshow, tryAllSynchronous, T2(..), T3(..))
 import Chainweb.Version as V
 
+import qualified Debug.Trace as DT
+
 -- -------------------------------------------------------------------------- --
 
 -- | "Magic" capability 'COINBASE' used in the coin contract to
@@ -386,6 +388,7 @@ applyCoinbase v logger dbEnv (Miner mid mks@(MinerKeys mk)) reward@(ParsedDecima
             <> " to "
             <> sshow mid
 
+          DT.traceShowM ("applyUpgrades " :: String, bh)
           upgradedModuleCache <- applyUpgrades v cid bh
           void $! applyTwentyChainUpgrade v cid bh
 
@@ -553,12 +556,12 @@ applyUpgrades
   -> BlockHeight
   -> TransactionM p (Maybe ModuleCache)
 applyUpgrades v cid height
-     | coinV2Upgrade v cid height = applyCoinV2
-     | pact4coin3Upgrade At v height = applyCoinV3
-     | chainweb214Pact At v height = applyCoinV4
-     | chainweb215Pact At v height = applyCoinV5
-     | chainweb217Pact At v height = filterModuleCache
-     | otherwise = return Nothing
+     | coinV2Upgrade v cid height = DT.traceShowM ("applyUpgrades.applyCoinV2" :: String) >> applyCoinV2
+     | pact4coin3Upgrade At v height = DT.traceShowM ("applyUpgrades.applyCoinV3" :: String) >> applyCoinV3
+     | chainweb214Pact At v height = DT.traceShowM ("applyUpgrades.applyCoinV4" :: String) >> applyCoinV4
+     | chainweb215Pact At v height = DT.traceShowM ("applyUpgrades.applyCoinV5" :: String) >> applyCoinV5
+     | chainweb217Pact At v height = DT.traceShowM ("applyUpgrades.filterModuleCache" :: String) >> filterModuleCache
+     | otherwise = DT.traceShowM ("applyUpgrades.Nothing" :: String) >> return Nothing
   where
     installCoinModuleAdmin = set (evalCapabilities . capModuleAdmin) $ S.singleton (ModuleName "coin" Nothing)
 
