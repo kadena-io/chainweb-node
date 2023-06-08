@@ -338,21 +338,22 @@ node conf logger = do
     rocksDbDir <- getRocksDbDir conf
     pactDbDir <- getPactDbDir conf
     dbBackupsDir <- getBackupsDir conf
-    withRocksDb rocksDbDir modernDefaultOptions $ \rocksDb -> do
-        logFunctionText logger Info $ "opened rocksdb in directory " <> sshow rocksDbDir
-        logFunctionText logger Info $ "backup config: " <> sshow (_configBackup cwConf)
-        withChainweb cwConf logger rocksDb pactDbDir dbBackupsDir (_nodeConfigResetChainDbs conf) $ \case
-            Replayed _ _ -> return ()
-            StartedChainweb cw ->
-                concurrentlies_
-                    [ runChainweb cw
-                    -- we should probably push 'onReady' deeper here but this should be ok
-                    , runCutMonitor (_chainwebLogger cw) (_cutResCutDb $ _chainwebCutResources cw)
-                    , runQueueMonitor (_chainwebLogger cw) (_cutResCutDb $ _chainwebCutResources cw)
-                    , runRtsMonitor (_chainwebLogger cw)
-                    , runBlockUpdateMonitor (_chainwebLogger cw) (_cutResCutDb $ _chainwebCutResources cw)
-                    , runDatabaseMonitor (_chainwebLogger cw) rocksDbDir pactDbDir
-                    ]
+    (if _configOnlySyncPact cwConf then withReadOnlyRocksDb else withRocksDb)
+        rocksDbDir modernDefaultOptions $ \rocksDb -> do
+            logFunctionText logger Info $ "opened rocksdb in directory " <> sshow rocksDbDir
+            logFunctionText logger Info $ "backup config: " <> sshow (_configBackup cwConf)
+            withChainweb cwConf logger rocksDb pactDbDir dbBackupsDir (_nodeConfigResetChainDbs conf) $ \case
+                Replayed _ _ -> return ()
+                StartedChainweb cw ->
+                    concurrentlies_
+                        [ runChainweb cw
+                        -- we should probably push 'onReady' deeper here but this should be ok
+                        , runCutMonitor (_chainwebLogger cw) (_cutResCutDb $ _chainwebCutResources cw)
+                        , runQueueMonitor (_chainwebLogger cw) (_cutResCutDb $ _chainwebCutResources cw)
+                        , runRtsMonitor (_chainwebLogger cw)
+                        , runBlockUpdateMonitor (_chainwebLogger cw) (_cutResCutDb $ _chainwebCutResources cw)
+                        , runDatabaseMonitor (_chainwebLogger cw) rocksDbDir pactDbDir
+                        ]
   where
     cwConf = _nodeConfigChainweb conf
 
