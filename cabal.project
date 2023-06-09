@@ -108,6 +108,7 @@ source-repository-package
     type: git
     location: https://github.com/kadena-io/merkle-log
     tag: 5031f4a7343200cf865b60d5c373c272509ee5c3
+    --sha256: 1pbgphh57rdjj2flslk0cbffjhp4720h0blvfpdii2h90vl6by39
 
 -- -------------------------------------------------------------------------- --
 -- Relaxed Bounds
