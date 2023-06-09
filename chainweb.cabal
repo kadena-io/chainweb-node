@@ -336,9 +336,9 @@ library
         , chainweb-storage >= 0.1
         , clock >= 0.7
         , configuration-tools >= 0.6
-        , connection >=0.2
+        , crypton-connection >=0.2
         , containers >= 0.5
-        , cryptonite >= 0.25
+        , crypton >= 0.31
         , cuckoo >= 0.3
         , data-default >=0.7
         , data-dword >= 0.3
@@ -365,7 +365,7 @@ library
         , lens >= 4.17
         , loglevel >= 0.1
         , memory >=0.14
-        , merkle-log
+        , merkle-log >=0.2
         , mmorph >= 1.1
         , monad-control >= 1.0
         , mtl >= 2.2
@@ -410,10 +410,10 @@ library
         , vector-algorithms >= 0.7
         , wai-middleware-throttle >= 0.3
         , warp >= 3.3.6
-        , warp-tls >= 3.2.10
-        , x509 >=1.7
-        , x509-system >=1.6
-        , x509-validation >=1.6
+        , warp-tls >= 3.4
+        , crypton-x509 >=1.7
+        , crypton-x509-system >=1.6
+        , crypton-x509-validation >=1.6
         , yaml >= 0.11
         , yet-another-logger >= 0.4.1
 
@@ -515,9 +515,9 @@ test-suite chainweb-tests
         , bytestring >= 0.10
         , case-insensitive >= 1.2
         , chainweb-storage >= 0.1
-        , connection >=0.2
+        , crypton-connection >=0.2
         , containers >= 0.5
-        , cryptonite >= 0.25
+        , crypton >= 0.31
         , data-default >=0.7
         , data-dword >= 0.3
         , data-ordlist >= 0.4.7
@@ -533,7 +533,7 @@ test-suite chainweb-tests
         , lens >= 4.17
         , lens-aeson >= 1.2.2
         , loglevel >= 0.1
-        , merkle-log
+        , merkle-log >=0.2
         , mtl >= 2.2
         , network >= 3.1.2
         , http-client-tls >=0.3
@@ -679,9 +679,9 @@ executable cwtool
         , cereal >= 0.5
         , chainweb-storage >= 0.1
         , configuration-tools >= 0.6
-        , connection >=0.2
+        , crypton-connection >=0.2
         , containers >= 0.5
-        , cryptonite >= 0.25
+        , crypton >= 0.31
         , data-default >=0.7
         , deepseq >= 1.4
         , digraph >= 0.2.3
@@ -698,7 +698,7 @@ executable cwtool
         , lens >= 4.17
         , loglevel >= 0.1
         , memory >=0.14
-        , merkle-log
+        , merkle-log >=0.2
         , mtl >= 2.2
         , network >= 3.1.2
         , optparse-applicative >= 0.14
@@ -771,7 +771,7 @@ benchmark bench
         , file-embed >= 0.0
         , lens >= 4.17
         , loglevel >= 0.1
-        , merkle-log
+        , merkle-log >=0.2
         , mtl >= 2.2
         , pact
         , random >= 1.2
@@ -781,7 +781,7 @@ benchmark bench
 
         -- from test
         , QuickCheck >= 2.14
-        , cryptonite >= 0.25
+        , crypton >= 0.31
         , quickcheck-instances >= 0.3
         , streaming-commons >= 0.2
         , unordered-containers >= 0.2.16
