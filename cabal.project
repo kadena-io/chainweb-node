@@ -103,6 +103,12 @@ source-repository-package
     tag: d8019c3404d6f3b3c0b0416e9899cfdf614ef425
     --sha256: sha256-AwS/uqzUQrTUgxEHNjpX65JKFcaOuZN+03mI16JXuiY=
 
+-- crypton migration
+source-repository-package
+    type: git
+    location: https://github.com/kadena-io/merkle-log
+    tag: 5031f4a7343200cf865b60d5c373c272509ee5c3
+
 -- -------------------------------------------------------------------------- --
 -- Relaxed Bounds
 
