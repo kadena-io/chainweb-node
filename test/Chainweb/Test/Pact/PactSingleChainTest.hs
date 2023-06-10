@@ -23,7 +23,7 @@ import Control.Lens hiding ((.=))
 import Control.Monad
 import Control.Monad.Catch
 
-import Data.Aeson (object, (.=), Value(..), decode, eitherDecode)
+import Data.Aeson (object, (.=), Value(..), decodeStrict, eitherDecode)
 import qualified Data.ByteString.Lazy as BL
 import Data.Either (isRight)
 import Data.IORef
@@ -283,7 +283,7 @@ setFromHeader bh =
 
 pattern BlockGasLimitError :: forall b. Either PactException b
 pattern BlockGasLimitError <-
-  Left (PactInternalError (decode . BL.fromStrict . T.encodeUtf8 -> Just (BlockGasLimitExceeded _)))
+  Left (PactInternalError (decodeStrict . T.encodeUtf8 -> Just (PactExceptionTag "BlockGasLimitExceeded")))
 
 -- this test relies on block gas errors being thrown before other Pact errors.
 blockGasLimitTest :: HasCallStack => IO (IORef MemPoolAccess) -> IO (PactQueue, TestBlockDb) -> TestTree

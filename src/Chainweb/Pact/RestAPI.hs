@@ -58,6 +58,7 @@ import Data.Text (Text)
 
 import qualified Pact.Types.Command as Pact
 import Pact.Server.API as API
+import Pact.Utils.Servant
 
 import Servant
 
@@ -138,8 +139,8 @@ type PactLocalWithQueryApi_
     :> QueryParam "preflight" LocalPreflightSimulation
     :> QueryParam "signatureVerification" LocalSignatureVerification
     :> QueryParam "rewindDepth" BlockHeight
-    :> ReqBody '[JSON] (Pact.Command Text)
-    :> Post '[JSON] LocalResult
+    :> ReqBody '[PactJson] (Pact.Command Text)
+    :> Post '[PactJson] LocalResult
 
 type PactLocalWithQueryApi v c = PactV1ApiEndpoint v c PactLocalWithQueryApi_
 
@@ -154,7 +155,7 @@ pactLocalWithQueryApi = Proxy
 type PactSpvApi_
     = "pact"
     :> "spv"
-    :> ReqBody '[JSON] SpvRequest
+    :> ReqBody '[PactJson] SpvRequest
     :> Post '[JSON] TransactionOutputProofB64
 
 type PactSpvApi (v :: ChainwebVersionT) (c :: ChainIdT)

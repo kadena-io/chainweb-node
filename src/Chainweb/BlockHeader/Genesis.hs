@@ -39,6 +39,8 @@ import qualified Data.HashMap.Strict as HM
 import qualified Data.HashSet as HS
 import Data.MerkleLog hiding (Actual, Expected, MerkleHash)
 
+import qualified Pact.JSON.Encode as J
+
 -- internal modules
 
 import Chainweb.BlockCreationTime
@@ -201,7 +203,7 @@ emptyPayload :: PayloadWithOutputs
 emptyPayload = PayloadWithOutputs mempty miner coinbase h i o
   where
     (BlockPayload h i o) = newBlockPayload miner coinbase mempty
-    miner = MinerData $ encodeToByteString noMiner
+    miner = MinerData $ J.encodeStrict noMiner
     coinbase = noCoinbaseOutput
 
 -- | The moment of creation of a Genesis Block. For test chains, this is the

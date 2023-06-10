@@ -61,6 +61,7 @@ import Chainweb.BlockHeight (BlockHeight(..))
 import Chainweb.Payload (MinerData(..))
 import Chainweb.Utils
 
+import qualified Pact.JSON.Encode as J
 import Pact.Types.Term (KeySet(..), mkKeySet)
 
 -- -------------------------------------------------------------------------- --
@@ -68,16 +69,17 @@ import Pact.Types.Term (KeySet(..), mkKeySet)
 
 -- | `MinerId` is a thin wrapper around `Text` to differentiate it from user
 -- addresses.
+--
 newtype MinerId = MinerId { _minerId :: Text }
     deriving stock (Eq, Ord, Generic)
-    deriving newtype (Show, ToJSON, FromJSON, IsString, NFData, Hashable)
+    deriving newtype (Show, ToJSON, FromJSON, IsString, NFData, Hashable, J.Encode)
 
 -- | `MinerKeys` are a thin wrapper around a Pact `KeySet` to differentiate it
 -- from user keysets.
 --
 newtype MinerKeys = MinerKeys KeySet
     deriving stock (Eq, Ord, Generic)
-    deriving newtype (Show, ToJSON, FromJSON, NFData)
+    deriving newtype (Show, FromJSON, NFData)
 
 -- | Miner info data consists of a miner id (text), and its keyset (a pact
 -- type).
@@ -86,24 +88,19 @@ data Miner = Miner !MinerId !MinerKeys
     deriving stock (Eq, Ord, Show, Generic)
     deriving anyclass (NFData)
 
--- IMPORTANT: the order of the properties here is significant!
+-- | IMPORTANT: This JSON encoding is included in the chain Merkle Tree. The
+-- order of the properties here is significant!
 --
-minerProperties :: KeyValue kv => Miner -> [kv]
-minerProperties (Miner (MinerId m) (MinerKeys ks)) =
-    [ "account" .= m
-    , "predicate" .= _ksPredFun ks
-    , "public-keys" .= _ksKeys ks
-    ]
-{-# INLINE minerProperties #-}
-
--- NOTE: These JSON instances are used (among other things) to embed Miner data
--- into the Genesis Payloads. If these change, the payloads become unreadable!
+-- These JSON instances are used (among other things) to embed Miner data into
+-- the Genesis Payloads. If these change, the payloads become unreadable!
 --
-instance ToJSON Miner where
-    toJSON = object . minerProperties
-    toEncoding = pairs . mconcat . minerProperties
-    {-# INLINE toJSON #-}
-    {-# INLINE toEncoding #-}
+instance J.Encode Miner where
+    build (Miner (MinerId m) (MinerKeys ks)) = J.object
+        [ "account" J..= m
+        , "predicate" J..= _ksPredFun ks
+        , "public-keys" J..= J.Array (_ksKeys ks)
+        ]
+    {-# INLINE build #-}
 
 instance FromJSON Miner where
     parseJSON = withObject "Miner" $ \o -> Miner
@@ -143,7 +140,7 @@ noMiner = Miner (MinerId "NoMiner") (MinerKeys $ mkKeySet [] "<")
 -- | Convert from Pact `Miner` to Chainweb `MinerData`.
 --
 toMinerData :: Miner -> MinerData
-toMinerData = MinerData . encodeToByteString
+toMinerData = MinerData . J.encodeStrict
 {-# INLINABLE toMinerData  #-}
 
 -- | Convert from Chainweb `MinerData` to Pact Miner.

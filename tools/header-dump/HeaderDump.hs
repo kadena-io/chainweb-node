@@ -116,6 +116,7 @@ import Chainweb.Storage.Table.RocksDB
 
 import Pact.Types.Command
 import Pact.Types.PactError
+import qualified Pact.JSON.Encode as J
 
 -- -------------------------------------------------------------------------- --
 
@@ -416,7 +417,7 @@ run config logger = withBlockHeaders logger config $ \pdb x -> x
             & payloadsCid pdb id
             & miner cdData
             & S.filter ((/= "noMiner") . view (cdData . minerId))
-            & S.map encodeJson
+            & S.map (encodeJson . fmap J.encodeText)
             & S.mapM_ T.putStrLn
         OutputCoinbaseOutput -> s
             & payloadsCid pdb id

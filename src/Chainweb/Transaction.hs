@@ -77,7 +77,7 @@ mkPayloadWithText cmd p = PayloadWithText
 
 mkPayloadWithTextOld :: Payload PublicMeta ParsedCode -> PayloadWithText
 mkPayloadWithTextOld p = PayloadWithText
-    { _payloadBytes = SB.toShort $ J.encodeStrict $ toLegacyJson $ fmap _pcCode p
+    { _payloadBytes = SB.toShort $ J.encodeStrict $ toLegacyJsonViaEncode $ fmap _pcCode p
     , _payloadObj = p
     }
 
@@ -97,12 +97,13 @@ instance Hashable (HashableTrans PayloadWithText) where
     {-# INLINE hashWithSalt #-}
 
 -- | A codec for (Command PayloadWithText) transactions.
+--
 chainwebPayloadCodec
     :: Maybe (ChainwebVersion, BlockHeight)
     -> Codec (Command PayloadWithText)
 chainwebPayloadCodec chainCtx = Codec enc dec
   where
-    enc c = encodeToByteString $ fmap (decodeUtf8 . encodePayload) c
+    enc c = J.encodeStrict $ fmap (decodeUtf8 . encodePayload) c
     dec bs = case Aeson.decodeStrict' bs of
                Just cmd -> traverse (decodePayload chainCtx . encodeUtf8) cmd
                Nothing -> Left "decode PayloadWithText failed"

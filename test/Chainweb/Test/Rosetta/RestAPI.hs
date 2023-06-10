@@ -182,7 +182,7 @@ blockKAccountAfterPact420 tio envIo =
     step "send transaction"
     prs <- mkOneKCoinAccountAsync cid tio cenv (putMVar rkmv)
     rk <- NEL.head . _rkRequestKeys <$> takeMVar rkmv
-    cmdMeta <- extractMetadata rk prs
+    cmdMeta <- KM.toMap <$> extractMetadata rk prs
     bh <- cmdMeta ^?! mix "blockHeight"
 
     step "check that block endpoint doesn't return TxLog parse error"
@@ -232,7 +232,7 @@ blockTransactionTests tio envIo =
 
     mkTxReq rkmv prs = do
       rk <- NEL.head . _rkRequestKeys <$> takeMVar rkmv
-      meta <- extractMetadata rk prs
+      meta <- KM.toMap <$> extractMetadata rk prs
       bh <- meta ^?! mix "blockHeight"
       bhash <- meta ^?! mix "blockHash"
 
@@ -256,7 +256,7 @@ blockTests testname tio envIo = testCaseSchSteps testname $ \step -> do
     step "send transaction"
     prs <- transferOneAsync cid tio cenv (putMVar rkmv)
     rk <- NEL.head . _rkRequestKeys <$> takeMVar rkmv
-    cmdMeta <- extractMetadata rk prs
+    cmdMeta <- KM.toMap <$> extractMetadata rk prs
     bh <- cmdMeta ^?! mix "blockHeight"
 
     step "check tx at block height matches sent tx + remediations"
@@ -585,7 +585,7 @@ submitToConstructionAPI expectOps chainId' payer getKeys expectResult cenv step 
     Just cr -> isCorrectResult rk cr
 
   step "confirm that intended operations occurred"
-  cmdMeta <- extractMetadata rk (PollResponses prs)
+  cmdMeta <- KM.toMap <$> extractMetadata rk (PollResponses prs)
   bheight <- cmdMeta ^?! mix "blockHeight"
   bhash <- cmdMeta ^?! mix "blockHash"
   let blockTxReq = BlockTransactionReq netId (BlockId bheight bhash) (TransactionId tid)

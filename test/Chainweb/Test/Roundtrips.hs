@@ -29,6 +29,7 @@ import qualified Data.HashMap.Strict as HM
 import Data.Int
 import qualified Data.Text as T
 
+import qualified Pact.JSON.Encode as J
 import Pact.Parse
 
 import Test.QuickCheck
@@ -92,6 +93,7 @@ tests = testGroup "roundtrip tests"
     , base64RoundtripTests
     , hasTextRepresentationTests
     , jsonRoundtripTests
+    , pactJsonRoundtripTests
     , jsonKeyRoundtripTests
     , timeSpanTests
     ]
@@ -215,6 +217,19 @@ encodeDecodeTests = testGroup "Encode-Decode roundtrips"
 -- -------------------------------------------------------------------------- --
 -- JSON
 
+pactJsonTestCases
+    :: (forall a . Arbitrary a => Show a => J.Encode a => FromJSON a => Eq a => a -> Property)
+    -> [TestTree]
+pactJsonTestCases f =
+    [ testGroup "SPV"
+        [ testProperty "SpvRequest" $ f @SpvRequest
+        ]
+    , testGroup "Miner"
+        [ testProperty "MinerId" $ f @MinerId
+        , testProperty "Miner" $ f @Miner
+        ]
+    ]
+
 jsonTestCases
     :: (forall a . Arbitrary a => Show a => ToJSON a => FromJSON a => Eq a => a -> Property)
     -> [TestTree]
@@ -273,7 +288,6 @@ jsonTestCases f =
         [ testProperty "SpvAlgorithm" $ f @SpvAlgorithm
         , testProperty "SpvSubjectType" $ f @SpvAlgorithm
         , testProperty "SpvSubjectIdentifier" $ f @SpvSubjectIdentifier
-        , testProperty "SpvRequest" $ f @SpvRequest
         , testProperty "Spv2Request" $ f @Spv2Request
         , testProperty "TransactionProof" $ f @(TransactionProof ChainwebMerkleHashAlgorithm)
         , testProperty "TransactionOutputProof" $ f @(TransactionOutputProof ChainwebMerkleHashAlgorithm)
@@ -282,9 +296,7 @@ jsonTestCases f =
         ]
 
     , testGroup "Miner"
-        [ testProperty "MinerId" $ f @Miner
-        , testProperty "MinerKeys" $ f @Miner
-        , testProperty "Miner" $ f @Miner
+        [ testProperty "MinerId" $ f @MinerId
         ]
 
     , testGroup "Mempool"
@@ -345,6 +357,8 @@ jsonTestCases f =
     -- - JsonSockAddr
     -- - Trace
 
+-- | Roundtrip tests for types that have ToJSON instances
+--
 jsonRoundtripTests :: TestTree
 jsonRoundtripTests = testGroup "JSON roundtrips"
     [ testGroup "decodeOrThrow . encode"
@@ -365,6 +379,20 @@ jsonRoundtripTests = testGroup "JSON roundtrips"
             ===
             (first show . decodeOrThrow @(Either SomeException) @a . encode . toJSON $ x)
         )
+    ]
+
+-- | Roundtrip tests for types that have Encode instances
+--
+pactJsonRoundtripTests :: TestTree
+pactJsonRoundtripTests = testGroup "pact-json roundtrips"
+    [ testGroup "decodeOrThrow . encode"
+        $ pactJsonTestCases (prop_iso' decodeOrThrow J.encode)
+    , testGroup "decodeOrThrow' . encode"
+        $ pactJsonTestCases (prop_iso' decodeOrThrow' J.encode)
+    , testGroup "decodeStrictOrThrow . encode"
+        $ pactJsonTestCases (prop_iso' decodeStrictOrThrow J.encodeStrict)
+    , testGroup "decodeStrictOrThrow' . encode"
+        $ pactJsonTestCases (prop_iso' decodeStrictOrThrow' J.encodeStrict)
     ]
 
 jsonKeyTestCases

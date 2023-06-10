@@ -30,7 +30,7 @@ import Control.Applicative
 
 import Data.Aeson
 import Data.Map (Map)
-import Data.List.NonEmpty (NonEmpty)
+import qualified Data.List.NonEmpty as NE
 import Data.Text (Text, pack, unpack)
 import Data.Vector (Vector)
 
@@ -59,7 +59,7 @@ import Chainweb.Miner.Pact
 import Chainweb.Pact.Backend.DbCache
 import Chainweb.Payload
 import Chainweb.Transaction
-import Chainweb.Utils (T2, encodeToText)
+import Chainweb.Utils (T2)
 import Chainweb.Version
 
 -- | Externally-injected PactService properties.
@@ -88,9 +88,10 @@ data PactServiceConfig = PactServiceConfig
 
 data GasPurchaseFailure = GasPurchaseFailure TransactionHash PactError
     deriving (Eq,Generic)
-instance ToJSON GasPurchaseFailure
-instance FromJSON GasPurchaseFailure
-instance Show GasPurchaseFailure where show = unpack . encodeToText
+instance Show GasPurchaseFailure where show = unpack . J.encodeText
+
+instance J.Encode GasPurchaseFailure where
+    build (GasPurchaseFailure h e) = J.build (J.Array (h, e))
 
 gasPurchaseFailureHash :: GasPurchaseFailure -> TransactionHash
 gasPurchaseFailureHash (GasPurchaseFailure h _) = h
@@ -122,7 +123,7 @@ instance FromJSON BlockValidationFailureMsg where
 -- | The type of local results (used in /local endpoint)
 --
 data LocalResult
-    = MetadataValidationFailure !(NonEmpty Text)
+    = MetadataValidationFailure !(NE.NonEmpty Text)
     | LocalResultWithWarns !(CommandResult Hash) ![Text]
     | LocalResultLegacy !(CommandResult Hash)
     deriving (Show, Generic)
@@ -134,21 +135,16 @@ instance NFData LocalResult where
     rnf (LocalResultWithWarns cr ws) = rnf cr `seq` rnf ws
     rnf (LocalResultLegacy cr) = rnf cr
 
-instance ToJSON LocalResult where
-    toJSON (MetadataValidationFailure e) = object
-        [ "preflightValidationFailures" .= e ]
-    toJSON (LocalResultLegacy cr) = toJSON cr
-    toJSON (LocalResultWithWarns cr ws) = object
-        [ "preflightResult" .= cr
-        , "preflightWarnings" .= ws
+instance J.Encode LocalResult where
+    build (MetadataValidationFailure e) = J.object
+        [ "preflightValidationFailures" J..= J.Array (J.text <$> e)
         ]
-
-    toEncoding (MetadataValidationFailure e) = pairs
-        $ "preflightValidationFailures" .= e
-    toEncoding (LocalResultLegacy cr) = toEncoding cr
-    toEncoding (LocalResultWithWarns cr ws) = pairs
-        $ "preflightResult" .= cr
-        <> "preflightWarnings" .= ws
+    build (LocalResultLegacy cr) = J.build cr
+    build (LocalResultWithWarns cr ws) = J.object
+        [ "preflightResult" J..= cr
+        , "preflightWarnings" J..= J.Array (J.text <$> ws)
+        ]
+    {-# INLINE build #-}
 
 instance FromJSON LocalResult where
     parseJSON v = withObject "LocalResult"
@@ -196,8 +192,6 @@ data PactException
 instance Show PactException where
     show = unpack . J.encodeText
 
-instance FromJSON PactException
-
 instance J.Encode PactException where
   build (BlockValidationFailure msg) = tagged "BlockValidationFailure" msg
   build (PactInternalError msg) = tagged "PactInternalError" msg
@@ -214,7 +208,7 @@ instance J.Encode PactException where
     , "_rewindExceededTarget" J..= J.encodeWithAeson (_rewindExceededTarget o)
     ]
   build (BlockHeaderLookupFailure msg) = tagged "BlockHeaderLookupFailure" msg
-  build (BuyGasFailure failure) = tagged "BuyGasFailure" (J.encodeWithAeson failure)
+  build (BuyGasFailure failure) = tagged "BuyGasFailure" failure
   build (MempoolFillFailure msg) = tagged "MempoolFillFailure" msg
   build (BlockGasLimitExceeded gas) = tagged "BlockGasLimitExceeded" gas
 
@@ -225,6 +219,15 @@ tagged t v = J.object
     ]
 
 instance Exception PactException
+
+-- | Used in tests for matching on JSON serialized pact exceptions
+--
+newtype PactExceptionTag = PactExceptionTag Text
+    deriving (Show, Eq)
+
+instance FromJSON PactExceptionTag where
+    parseJSON = withObject "PactExceptionTag" $ \o -> PactExceptionTag
+        <$> o .: "tag"
 
 -- | Gather tx logs for a block, along with last tx for each
 -- key in history, if any
@@ -336,18 +339,13 @@ data SpvRequest = SpvRequest
     , _spvTargetChainId :: !Pact.ChainId
     } deriving (Eq, Show, Generic)
 
-spvRequestProperties :: KeyValue kv => SpvRequest -> [kv]
-spvRequestProperties r =
-  [ "requestKey" .= _spvRequestKey r
-  , "targetChainId" .= _spvTargetChainId r
-  ]
-{-# INLINE spvRequestProperties #-}
+instance J.Encode SpvRequest where
+  build r = J.object
+    [ "requestKey" J..= _spvRequestKey r
+    , "targetChainId" J..= _spvTargetChainId r
+    ]
+  {-# INLINE build #-}
 
-instance ToJSON SpvRequest where
-  toJSON = object . spvRequestProperties
-  toEncoding = pairs . mconcat . spvRequestProperties
-  {-# INLINE toJSON #-}
-  {-# INLINE toEncoding #-}
 
 instance FromJSON SpvRequest where
   parseJSON = withObject "SpvRequest" $ \o -> SpvRequest
