@@ -171,6 +171,7 @@ allow-newer: validation:*
 allow-newer: these:*
 allow-newer: regex-base:*
 allow-newer: regex-tdfa:*
+allow-newer: base-compat-batteries:*
 
 -- -------------------------------------------------------------------------- --
 -- Upper Bounds
