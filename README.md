@@ -195,8 +195,6 @@ request that adds your node to [P2P.BootstrapNodes module](src/P2P/BootstrapNode
 
 ### Current Mainnet Bootstrap Nodes
 
-All bootstrap nodes are running on port 443.
-
 - us-e1.chainweb.com
 - us-e2.chainweb.com
 - us-e3.chainweb.com
@@ -209,6 +207,12 @@ All bootstrap nodes are running on port 443.
 - fr1.chainweb.com
 - fr2.chainweb.com
 - fr3.chainweb.com
+- kda-blockchain-us-sea.glexia.com:8443
+- kda-blockchain-us-dal.glexia.com:8443
+- kda-blockchain-fi-hel.glexia.com:8443
+- kda-blockchain-fi-hel-2.glexia.com:8443
+- kda-blockchain-de-fsn.glexia.com:8443
+- kda-blockchain-de-fsn-2.glexia.com:8443
 
 ## Configuring, running, and monitoring the health of a Chainweb Node
 
