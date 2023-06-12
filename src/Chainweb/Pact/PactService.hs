@@ -466,7 +466,7 @@ execNewBlock mpAccess parent miner = do
     updateMempool
     withDiscardedBatch $ do
       withCheckpointerRewind newblockRewindLimit (Just parent) "execNewBlock" $
-        tracePactServiceM "execNewBlock.doNewBlock" () 0 doNewBlock
+        \pdbenv -> tracePactServiceM "execNewBlock.doNewBlock" () 0 (doNewBlock pdbenv)
   where
     handleTimeout :: TxTimeout -> PactServiceM cas a
     handleTimeout (TxTimeout h) = do
