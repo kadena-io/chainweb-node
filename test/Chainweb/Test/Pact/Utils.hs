@@ -634,6 +634,7 @@ testPactCtxSQLite logBackend v cid bhdb pdb sqlenv conf gasmodel = do
         , _psAllowReadsInLocal = _pactAllowReadsInLocal conf
         , _psIsBatch = False
         , _psCheckpointerDepth = 0
+        , _psTraceLogger = \_ _ -> return ()
         , _psLogger = newLogger loggers $ LogName ("PactService" ++ show cid)
         , _psGasLogger = Nothing
         , _psLoggers = loggers

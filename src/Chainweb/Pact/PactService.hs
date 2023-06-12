@@ -148,6 +148,7 @@ withPactService ver cid chainwebLogger bhDb pdb sqlenv config act =
                     , _psAllowReadsInLocal = _pactAllowReadsInLocal config
                     , _psIsBatch = False
                     , _psCheckpointerDepth = 0
+                    , _psTraceLogger = logFunctionJson chainwebLogger
                     , _psLogger = pactLogger
                     , _psGasLogger = gasLogger <$ guard (_pactLogGas config)
                     , _psLoggers = loggers

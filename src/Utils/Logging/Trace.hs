@@ -74,7 +74,7 @@ instance ToJSON Trace where
 trace
     :: MonadIO m
     => ToJSON param
-    => LogFunction
+    => (LogLevel -> JsonLog Trace -> IO ())
     -> T.Text
     -> param
     -> Int
@@ -86,7 +86,7 @@ trace logg label param weight a =
 trace'
     :: MonadIO m
     => ToJSON param
-    => LogFunction
+    => (LogLevel -> JsonLog Trace -> IO ())
     -> T.Text
     -> param
     -> (a -> Int)

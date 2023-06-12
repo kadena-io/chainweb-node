@@ -171,6 +171,7 @@ simulate sc@(SimConfig dbDir txIdx' _ _ cid ver gasLog doTypecheck) = do
                   , _psVersion = ver
                   , _psValidateHashesOnReplay = True
                   , _psAllowReadsInLocal = False
+                  , _psTraceLogger = \_ _ -> return ()
                   , _psLogger = logger
                   , _psGasLogger = gasLogger
                   , _psLoggers = pactLoggers cwLogger
