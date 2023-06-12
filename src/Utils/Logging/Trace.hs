@@ -73,7 +73,7 @@ instance ToJSON Trace where
 trace
     :: MonadIO m
     => ToJSON param
-    => LogFunction
+    => (LogLevel -> JsonLog Trace -> IO ())
     -> T.Text
     -> param
     -> Int

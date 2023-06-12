@@ -120,6 +120,7 @@ module Chainweb.Pact.Types
 
     -- * Logging with Pact logger
 
+  , tracePactServiceM
   , pactLoggers
   , logg_
   , logInfo_
@@ -158,6 +159,7 @@ import Data.Aeson hiding (Error,(.=))
 import Data.Default (def)
 import Data.HashMap.Strict (HashMap)
 import qualified Data.HashMap.Strict as HM
+import Data.LogMessage
 import Data.Set (Set)
 import qualified Data.Map.Strict as M
 import Data.Text (pack, unpack, Text)
@@ -204,6 +206,7 @@ import Chainweb.Transaction
 import Chainweb.Utils
 import Chainweb.Version
 import Chainweb.Version.Guards
+import Utils.Logging.Trace
 
 
 data Transactions r = Transactions
@@ -364,6 +367,7 @@ data PactServiceEnv tbl = PactServiceEnv
     , _psVersion :: !ChainwebVersion
     , _psValidateHashesOnReplay :: !Bool
     , _psAllowReadsInLocal :: !Bool
+    , _psTraceLogger :: !(LogLevel -> JsonLog Trace -> IO ())
     , _psLogger :: !P.Logger
     , _psGasLogger :: !(Maybe P.Logger)
     , _psLoggers :: !P.Loggers
@@ -454,6 +458,13 @@ data PactServiceState = PactServiceState
     }
 makeLenses ''PactServiceState
 
+tracePactServiceM :: ToJSON param => Text -> param -> Int -> PactServiceM tbl a -> PactServiceM tbl a
+tracePactServiceM label param weight a = do
+    e <- ask
+    s <- get
+    T2 r s <- liftIO $ trace (_psTraceLogger e) label param weight (runPactServiceM s e a)
+    put s
+    return r
 
 _debugMC :: Text -> PactServiceM tbl ()
 _debugMC t = do
