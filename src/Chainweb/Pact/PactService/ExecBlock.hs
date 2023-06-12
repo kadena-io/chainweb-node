@@ -378,7 +378,7 @@ applyPactCmds
     -> Maybe Micros
     -> PactServiceM tbl (Vector (Either GasPurchaseFailure (P.CommandResult [P.TxLogJson])))
 applyPactCmds isGenesis env cmds miner mc blockGas txTimeLimit = do
-    evalStateT (V.mapM (applyPactCmd isGenesis env miner txTimeLimit) cmds) (T2 mc blockGas)
+    tracePactServiceM "applyPactCmds" () 0 $ evalStateT (V.mapM (applyPactCmd isGenesis env miner txTimeLimit) cmds) (T2 mc blockGas)
 
 applyPactCmd
   :: Bool
