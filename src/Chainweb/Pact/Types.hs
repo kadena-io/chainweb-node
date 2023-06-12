@@ -79,6 +79,7 @@ module Chainweb.Pact.Types
   , psOnFatalError
   , psVersion
   , psValidateHashesOnReplay
+  , psTraceLogger
   , psLogger
   , psGasLogger
   , psLoggers
@@ -462,8 +463,8 @@ tracePactServiceM :: ToJSON param => Text -> param -> Int -> PactServiceM tbl a 
 tracePactServiceM label param weight a = do
     e <- ask
     s <- get
-    T2 r s <- liftIO $ trace (_psTraceLogger e) label param weight (runPactServiceM s e a)
-    put s
+    T2 r s' <- liftIO $ trace (_psTraceLogger e) label param weight (runPactServiceM s e a)
+    put s'
     return r
 
 _debugMC :: Text -> PactServiceM tbl ()

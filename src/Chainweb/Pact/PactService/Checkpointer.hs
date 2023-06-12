@@ -106,7 +106,6 @@ import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
 import Chainweb.TreeDB (getBranchIncreasing, forkEntry, lookup, lookupM)
 import Chainweb.Utils hiding (check)
-import Utils.Logging.Trace
 
 import Chainweb.Storage.Table
 
