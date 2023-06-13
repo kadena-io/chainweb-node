@@ -84,6 +84,7 @@ data CompactFlag
     -- ^ Keep compaction tables post-compaction for inspection.
   | Flag_NoVacuum
     -- ^ Don't VACUUM database
+  | Flag_NoDropNewTables
   deriving stock (Eq,Show,Read,Enum,Bounded)
 
 internalError :: MonadThrow m => Text -> m a
@@ -380,6 +381,19 @@ computeTableHash = do
     [[SBlob curr]] -> return curr
     _ -> throwM $ CompactExceptionInternal "checksumTable: bad result"
 
+-- | Drop any versioned tables created after target blockheight.
+dropNewTables :: CompactM ()
+dropNewTables = do
+  logg Info "dropNewTables"
+  nts <- qryM
+      " SELECT tablename FROM VersionedTableCreation \
+      \ WHERE createBlockheight > ?1 ORDER BY createBlockheight; "
+      [blockheight]
+      [RText]
+
+  setTables nts $ withTables $ do
+    execM_ "DROP TABLE IF EXISTS $VTABLE$"
+
 -- | Delete all rows from Checkpointer system tables that are not for the target blockheight.
 compactSystemTables :: CompactM ()
 compactSystemTables = do
@@ -414,6 +428,9 @@ compact = do
           withTables $ do
             compactTable
             void $ verifyTable
+          whenFlagUnset Flag_NoDropNewTables $ do
+            logg Info "Dropping new tables"
+            dropNewTables
           compactSystemTables
 
         whenFlagUnset Flag_KeepCompactTables $ do
@@ -490,6 +507,9 @@ compactMain = do
                , flag [] [Flag_NoVacuum]
                   (long "no-vacuum"
                    <> help "Don't VACUUM database.")
+               , flag [] [Flag_NoDropNewTables]
+                  (long "no-drop-new-tables"
+                   <> help "Don't drop new tables.")
                ])
         <*> optional (unsafeChainId <$> option auto
              (short 'c'
