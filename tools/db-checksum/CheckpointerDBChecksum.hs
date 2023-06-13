@@ -28,8 +28,8 @@ import Data.Map (Map)
 import qualified Data.Map as M
 import Data.Monoid
 import Data.Serialize
-import Data.String.Conv
-import Data.Text (Text)
+import qualified Data.Text as T
+import qualified Data.Text.Encoding as T
 
 import Database.SQLite3.Direct as SQ3
 
@@ -71,8 +71,8 @@ main = runWithConfiguration mainInfo $ \args -> do
   where
     go :: String -> B.ByteString -> B.ByteString -> IO ()
     go dir tablename tablebytes = do
-        let !checksum = convert @(Digest SHA1) @B.ByteString . hashlazy $ toS tablebytes
-        B.writeFile (dir <> "/" <> toS tablename) checksum
+        let !checksum = convert @(Digest SHA1) @B.ByteString . hash $ tablebytes
+        B.writeFile (dir <> "/" <> T.unpack (T.decodeUtf8 tablename)) checksum
 
 type TableName = B.ByteString
 type TableContents = B.ByteString
@@ -80,7 +80,7 @@ type TableContents = B.ByteString
 -- this will produce both the raw bytes for all of the tables concatenated
 -- together, and the raw bytes of each individual table (this is over a single chain)
 work :: Args -> IO (Builder, Map TableName TableContents)
-work args = withSQLiteConnection (_sqliteFile args) chainwebPragmas False (runReaderT go)
+work args = withSQLiteConnection (_sqliteFile args) chainwebPragmas (runReaderT go)
   where
     low = _startBlockHeight args
     high = case _endBlockHeight args of
@@ -142,7 +142,7 @@ work args = withSQLiteConnection (_sqliteFile args) chainwebPragmas False (runRe
             hightxid <-
               callDb "last txid" $ \db ->
                 getActualEndingTxId h db
-            callDb ("on table " <> toS t) $ \db ->
+            callDb ("on table " <> T.decodeUtf8 t) $ \db ->
               qry db (usertablestmt t) (SInt <$> [lowtxid, hightxid]) [RText, RInt, RBlob]
 
     getActualStartingTxId :: BlockHeight -> Database -> IO Int64
@@ -196,11 +196,11 @@ work args = withSQLiteConnection (_sqliteFile args) chainwebPragmas False (runRe
         <> Utf8 tbl
         <> "] WHERE txid > ? AND txid <= ? ORDER BY txid DESC, rowkey ASC, rowdata ASC;"
 
-callDb :: Text -> (Database -> IO a) -> ReaderT SQLiteEnv IO a
+callDb :: T.Text -> (Database -> IO a) -> ReaderT SQLiteEnv IO a
 callDb callerName action = do
     c <- asks _sConn
     tryAny (liftIO $ action c) >>= \case
-      Left err -> internalError $ "callDb (" <> callerName <> "): " <> toS (show err)
+      Left err -> internalError $ "callDb (" <> callerName <> "): " <> sshow err
       Right r -> return r
 
 getUserTables :: BlockHeight -> BlockHeight -> ReaderT SQLiteEnv IO [B.ByteString]
@@ -214,7 +214,7 @@ getUserTables low high = callDb "getUserTables" $ \db -> do
   where
     eInternalError = either internalError return
     toByteString (SText (Utf8 bytestring)) = Right bytestring
-    toByteString _ = Left ("impossible case" :: Text)
+    toByteString _ = Left ("impossible case" :: T.Text)
     stmt = "SELECT DISTINCT tablename FROM VersionedTableCreation\
            \ WHERE createBlockheight >= ? AND createBlockheight <= ? \
            \ORDER BY tablename DESC;"
@@ -226,7 +226,7 @@ getUserTables low high = callDb "getUserTables" $ \db -> do
 
         when (HashSet.null r) $ internalError errMsg
         let res = getFirst $ foldMap (\tbl -> First $ if HashSet.member tbl r then Nothing else Just tbl) tbls
-        maybe (return ()) (internalError . tableErrMsg . toS) res
+        maybe (return ()) (internalError . tableErrMsg . T.decodeUtf8) res
       where
         errMsg = "Somehow there are no tables in this connection. This should be an impossible case."
         alltables = "SELECT name FROM sqlite_master WHERE type='table';"

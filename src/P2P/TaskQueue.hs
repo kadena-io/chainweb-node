@@ -48,9 +48,9 @@ module P2P.TaskQueue
 
 import Control.Arrow
 import Control.DeepSeq
+import qualified Control.Exception.Safe as E
 import Control.Lens
 import Control.Monad
-import Control.Monad.Catch
 
 import Data.Either
 import Data.Function
@@ -77,10 +77,10 @@ import P2P.Peer
 -- -------------------------------------------------------------------------- --
 -- Exceptions
 
-newtype TaskException = TaskFailed [SomeException]
+newtype TaskException = TaskFailed [E.SomeException]
     deriving Show
 
-instance Exception TaskException
+instance E.Exception TaskException
 
 -- -------------------------------------------------------------------------- --
 -- Task
@@ -105,8 +105,8 @@ data Task env a = Task
     , _taskAction :: !(TaskAction env a)
     , _taskPriority :: !Priority
     , _taskAttemptsCount :: !AttemptsCount
-    , _taskResult :: !(IVar (Either [SomeException] a))
-    , _taskFailures :: ![SomeException]
+    , _taskResult :: !(IVar (Either [E.SomeException] a))
+    , _taskFailures :: ![E.SomeException]
     }
 
 makeLensesFor
@@ -128,9 +128,9 @@ newTask tid prio act = do
         }
 
 awaitTask :: Task env a -> IO a
-awaitTask = awaitIVar . _taskResult >=> either (throwM . TaskFailed) return
+awaitTask = awaitIVar . _taskResult >=> either (E.throwM . TaskFailed) return
 
-taskResult :: Task env a -> RIVar (Either [SomeException] a)
+taskResult :: Task env a -> RIVar (Either [E.SomeException] a)
 taskResult = rIVar . _taskResult
 {-# INLINE taskResult #-}
 
@@ -164,15 +164,15 @@ session_
     -> LogFunction
     -> env
     -> IO Bool
-session_ limit q logFun env = mask $ \restore -> do
+session_ limit q logFun env = E.mask $ \restore -> do
     task <- pQueueRemove q
 
     -- check if the result variable as already been filled
     let go = tryReadIVar (_taskResult task) >>= \case
             Nothing -> do
                 logg task Debug "run task"
-                flip catchAllSynchronous (retry task) $ restore $ do
-                    r <- _taskAction task logFun env
+                E.handle (retry task) $ restore $ do
+                    !r <- _taskAction task logFun env
                     putResult (_taskResult task) (Right r)
             Just Left{} -> do
                 logg task Debug "task already failed"
@@ -181,9 +181,13 @@ session_ limit q logFun env = mask $ \restore -> do
                 logg task Debug "task already succeeded"
                 return True
 
-    go `catch` \(e :: SomeException) -> do
-        void $ retry task e
-        throwM e
+    -- This schedules a retry on *any* exception. It means that a session can't
+    -- be cancled and always attempts the maximum number of retries.
+    --
+    -- The exception is is still rethrown, which prevents this function from
+    -- swallowing asynchronous exceptions (like for instance ThreadKilled).
+    --
+    go `E.withException` retry task
 
   where
     -- reschedule a task or fail if maximum number of attempts has been reached.

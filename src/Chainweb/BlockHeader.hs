@@ -116,15 +116,12 @@ import Control.Monad.Catch
 
 import Data.Aeson
 import Data.Aeson.Types (Parser)
-import Data.Bytes.Get
-import Data.Bytes.Put
 import Data.Function (on)
 import Data.Hashable
 import qualified Data.HashMap.Strict as HM
 import qualified Data.HashSet as HS
 import Data.Kind
 import qualified Data.Memory.Endian as BA
-import Data.Serialize (Serialize(..))
 import qualified Data.Text as T
 import Data.Word
 
@@ -147,9 +144,10 @@ import Chainweb.PowHash
 import Chainweb.Time
 import Chainweb.TreeDB (TreeDbEntry(..))
 import Chainweb.Utils
+import Chainweb.Utils.Serialization
 import Chainweb.Version
 
-import Data.CAS
+import Chainweb.Storage.Table
 
 import Numeric.AffineSpace
 
@@ -173,17 +171,20 @@ instance MerkleHashAlgorithm a => IsMerkleLogEntry a ChainwebHashTag Nonce where
     {-# INLINE toMerkleNode #-}
     {-# INLINE fromMerkleNode #-}
 
-encodeNonce :: MonadPut m => Nonce -> m ()
+encodeNonce :: Nonce -> Put
 encodeNonce (Nonce n) = putWord64le n
 
 encodeNonceToWord64 :: Nonce -> Word64
 encodeNonceToWord64 (Nonce n) = BA.unLE $ BA.toLE n
 
-decodeNonce :: MonadGet m => m Nonce
+decodeNonce :: Get Nonce
 decodeNonce = Nonce <$> getWord64le
 
 instance ToJSON Nonce where
     toJSON (Nonce i) = toJSON $ show i
+    toEncoding (Nonce i) = toEncoding $ show i
+    {-# INLINE toJSON #-}
+    {-# INLINE toEncoding #-}
 
 instance FromJSON Nonce where
     parseJSON = withText "Nonce"
@@ -204,10 +205,10 @@ instance MerkleHashAlgorithm a => IsMerkleLogEntry a ChainwebHashTag EpochStartT
     {-# INLINE toMerkleNode #-}
     {-# INLINE fromMerkleNode #-}
 
-encodeEpochStartTime :: MonadPut m => EpochStartTime -> m ()
+encodeEpochStartTime :: EpochStartTime -> Put
 encodeEpochStartTime (EpochStartTime t) = encodeTime t
 
-decodeEpochStartTime :: MonadGet m => m EpochStartTime
+decodeEpochStartTime :: Get EpochStartTime
 decodeEpochStartTime = EpochStartTime <$> decodeTime
 
 -- | During the first epoch after genesis there are 10 extra difficulty
@@ -422,10 +423,10 @@ newtype FeatureFlags = FeatureFlags Word64
     deriving anyclass (NFData)
     deriving newtype (ToJSON, FromJSON)
 
-encodeFeatureFlags :: MonadPut m => FeatureFlags -> m ()
+encodeFeatureFlags :: FeatureFlags -> Put
 encodeFeatureFlags (FeatureFlags ff) = putWord64le ff
 
-decodeFeatureFlags :: MonadGet m => m FeatureFlags
+decodeFeatureFlags :: Get FeatureFlags
 decodeFeatureFlags = FeatureFlags <$> getWord64le
 
 instance MerkleHashAlgorithm a => IsMerkleLogEntry a ChainwebHashTag FeatureFlags where
@@ -477,11 +478,11 @@ instance HasChainGraph ParentHeader where
 -- constructed 'BlockHeader' values must not be modified.
 --
 -- Some redundant, aggregated information is included in the block and the block
--- hash. This enables nodes to be checked inductively with respect to existing
+-- hash. This enables nodes to check blocks inductively with respect to existing
 -- blocks without recalculating the aggregated value from the genesis block
 -- onward.
 --
--- The POW hash is not include, since it can be derived from the Nonce and the
+-- The POW hash is not included, since it can be derived from the Nonce and the
 -- other fields of the 'BlockHeader'.
 --
 -- /IMPORTANT/: Fields in this record must have pairwise distinct types.
@@ -493,36 +494,37 @@ data BlockHeader :: Type where
             -- "feature flags".
 
         , _blockCreationTime :: {-# UNPACK #-} !BlockCreationTime
-            -- ^ the time when the block was creates as recorded by the miner
+            -- ^ The time when the block was creates as recorded by the miner
             -- of the block. The value must be strictly monotonically increasing
-            -- with in the chain of blocks. The smallest allowed increment is
-            -- 'smallestBlockTimeIncrement'. Nodes are supposed to ignore blocks
-            -- with values that are in the future and reconsider a block when its
-            -- value is in the past.
+            -- within the chain of blocks. Nodes must ignore blocks with values
+            -- that are in the future and reconsider a block when its value is
+            -- in the past. Nodes do not have to store blocks until they become
+            -- recent (but may do it).
             --
             -- The block creation time is used to determine the block difficulty for
             -- future blocks.
             --
-            -- Nodes are not supposed to consider the creation time when choosing
-            -- between two valid (this include that creation times must not be in
-            -- the future) forks.
+            -- Nodes are not supposed to consider the creation time when
+            -- choosing between two valid (this implies that creation time of a
+            -- block is not the future) forks.
             --
             -- This creates an incentive for nodes to maintain an accurate clock
-            -- with respect to a (unspecified) commonly accepted time source,
+            -- with respect to an (unspecified) commonly accepted time source,
             -- such as the public NTP network.
             --
             -- It is possible that a miner always chooses the smallest possible
             -- creation time value. It is not clear what advantage a miner would
-            -- gain from doing so, but attack models should consider and investigate
-            -- such behavior.
+            -- gain from doing so, but attack models should consider and
+            -- investigate such behavior.
             --
             -- On the other hand miners may choose to compute forks with creation
             -- time long in the future. By doing so, the difficulty on such a fork
             -- would decrease allowing the miner to compute very long chains very
             -- quickly. However, those chains would become valid only after a long
-            -- time passed. The algorithm for computing the difficulty must ensure
-            -- this strategy doesn't give an advantage to an attacker that would
-            -- increase the success probability for an attack.
+            -- time passed and would be of low PoW weight. The algorithm for
+            -- computing the difficulty must ensure this strategy doesn't give
+            -- an advantage to an attacker that would increase the success
+            -- probability for an attack.
 
         , _blockParent :: {-# UNPACK #-} !BlockHash
             -- ^ authoritative
@@ -607,13 +609,9 @@ instance IsCasValue BlockHeader where
     casKey = _blockHash
     {-# INLINE casKey #-}
 
-type BlockHeaderCas cas = (CasConstraint cas BlockHeader)
+type BlockHeaderCas tbl = Cas tbl BlockHeader
 
 makeLenses ''BlockHeader
-
-instance Serialize BlockHeader where
-    put = encodeBlockHeader
-    get = decodeBlockHeader
 
 instance HasMerkleLog ChainwebMerkleHashAlgorithm ChainwebHashTag BlockHeader where
 
@@ -684,10 +682,7 @@ instance HasMerkleLog ChainwebMerkleHashAlgorithm ChainwebHashTag BlockHeader wh
             | height == genesisHeight cwv cid = chainGraphAt cwv height
             | otherwise = chainGraphAt cwv (height - 1)
 
-encodeBlockHeaderWithoutHash
-    :: MonadPut m
-    => BlockHeader
-    -> m ()
+encodeBlockHeaderWithoutHash :: BlockHeader -> Put
 encodeBlockHeaderWithoutHash b = do
     encodeFeatureFlags (_blockFlags b)
     encodeBlockCreationTime (_blockCreationTime b)
@@ -702,10 +697,7 @@ encodeBlockHeaderWithoutHash b = do
     encodeEpochStartTime (_blockEpochStart b)
     encodeNonce (_blockNonce b)
 
-encodeBlockHeader
-    :: MonadPut m
-    => BlockHeader
-    -> m ()
+encodeBlockHeader :: BlockHeader -> Put
 encodeBlockHeader b = do
     encodeBlockHeaderWithoutHash b
     encodeBlockHash (_blockHash b)
@@ -715,10 +707,7 @@ encodeBlockHeader b = do
 -- 1. chain id is in graph
 -- 2. all adjacentParent match adjacents in graph
 --
-decodeBlockHeaderChecked
-    :: MonadThrow m
-    => MonadGet m
-    => m BlockHeader
+decodeBlockHeaderChecked :: Get BlockHeader
 decodeBlockHeaderChecked = do
     !bh <- decodeBlockHeader
     _ <- checkAdjacentChainIds bh bh (Expected $ _blockAdjacentChainIds bh)
@@ -731,11 +720,9 @@ decodeBlockHeaderChecked = do
 -- 3. chainId matches the expected chain id
 --
 decodeBlockHeaderCheckedChainId
-    :: MonadThrow m
-    => MonadGet m
-    => HasChainId p
+    :: HasChainId p
     => Expected p
-    -> m BlockHeader
+    -> Get BlockHeader
 decodeBlockHeaderCheckedChainId p = do
     !bh <- decodeBlockHeaderChecked
     _ <- checkChainId p (Actual (_chainId bh))
@@ -743,9 +730,7 @@ decodeBlockHeaderCheckedChainId p = do
 
 -- | Decode a BlockHeader and trust the result
 --
-decodeBlockHeaderWithoutHash
-    :: MonadGet m
-    => m BlockHeader
+decodeBlockHeaderWithoutHash :: Get BlockHeader
 decodeBlockHeaderWithoutHash = do
     a0 <- decodeFeatureFlags
     a1 <- decodeBlockCreationTime
@@ -777,9 +762,7 @@ decodeBlockHeaderWithoutHash = do
 
 -- | Decode a BlockHeader and trust the result
 --
-decodeBlockHeader
-    :: MonadGet m
-    => m BlockHeader
+decodeBlockHeader :: Get BlockHeader
 decodeBlockHeader = BlockHeader
     <$> decodeFeatureFlags
     <*> decodeBlockCreationTime
@@ -796,11 +779,14 @@ decodeBlockHeader = BlockHeader
     <*> decodeBlockHash
 
 instance ToJSON BlockHeader where
-    toJSON = toJSON .  encodeB64UrlNoPaddingText . runPutS . encodeBlockHeader
+    toJSON = toJSON . encodeB64UrlNoPaddingText . runPutS . encodeBlockHeader
+    toEncoding = b64UrlNoPaddingTextEncoding . runPutS . encodeBlockHeader
+    {-# INLINE toJSON #-}
+    {-# INLINE toEncoding #-}
 
 instance FromJSON BlockHeader where
     parseJSON = withText "BlockHeader" $ \t ->
-        case runGet decodeBlockHeader =<< decodeB64UrlNoPaddingText t of
+        case runGetS decodeBlockHeader =<< decodeB64UrlNoPaddingText t of
             Left (e :: SomeException) -> fail (sshow e)
             (Right !x) -> return x
 
@@ -864,22 +850,32 @@ newtype ObjectEncoded a = ObjectEncoded { _objectEncoded :: a }
     deriving (Show, Generic)
     deriving newtype (Eq, Ord, Hashable, NFData)
 
+blockHeaderProperties
+    :: KeyValue kv
+    => ObjectEncoded BlockHeader
+    -> [kv]
+blockHeaderProperties (ObjectEncoded b) =
+    [ "nonce" .= _blockNonce b
+    , "creationTime" .= _blockCreationTime b
+    , "parent" .= _blockParent b
+    , "adjacents" .= _blockAdjacentHashes b
+    , "target" .= _blockTarget b
+    , "payloadHash" .= _blockPayloadHash b
+    , "chainId" .= _chainId b
+    , "weight" .= _blockWeight b
+    , "height" .= _blockHeight b
+    , "chainwebVersion" .= _blockChainwebVersion b
+    , "epochStart" .= _blockEpochStart b
+    , "featureFlags" .= _blockFlags b
+    , "hash" .= _blockHash b
+    ]
+{-# INLINE blockHeaderProperties #-}
+
 instance ToJSON (ObjectEncoded BlockHeader) where
-    toJSON (ObjectEncoded b) = object
-        [ "nonce" .= _blockNonce b
-        , "creationTime" .= _blockCreationTime b
-        , "parent" .= _blockParent b
-        , "adjacents" .= _blockAdjacentHashes b
-        , "target" .= _blockTarget b
-        , "payloadHash" .= _blockPayloadHash b
-        , "chainId" .= _chainId b
-        , "weight" .= _blockWeight b
-        , "height" .= _blockHeight b
-        , "chainwebVersion" .= _blockChainwebVersion b
-        , "epochStart" .= _blockEpochStart b
-        , "featureFlags" .= _blockFlags b
-        , "hash" .= _blockHash b
-        ]
+    toJSON = object . blockHeaderProperties
+    toEncoding = pairs . mconcat . blockHeaderProperties
+    {-# INLINE toJSON #-}
+    {-# INLINE toEncoding #-}
 
 parseBlockHeaderObject :: Object -> Parser BlockHeader
 parseBlockHeaderObject o = BlockHeader

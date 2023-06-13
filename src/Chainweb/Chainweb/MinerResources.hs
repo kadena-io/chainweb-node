@@ -42,7 +42,6 @@ import Data.IORef (IORef, atomicWriteIORef, newIORef, readIORef)
 import Data.List (foldl')
 import qualified Data.Map.Strict as M
 import qualified Data.Set as S
-import Data.Tuple.Strict (T2(..), T3(..))
 import qualified Data.Vector as V
 
 import System.LogLevel (LogLevel(..))
@@ -65,7 +64,7 @@ import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
 import Chainweb.Sync.WebBlockHeaderStore
 import Chainweb.Time (Micros, Time, minute, getCurrentTimeIntegral, scaleTimeSpan)
-import Chainweb.Utils (fromJuste, runForever, thd)
+import Chainweb.Utils (fromJuste, runForever, thd, T2(..), T3(..))
 import Chainweb.Version
 import Chainweb.WebPactExecutionService (_webPactExecutionService)
 
@@ -82,8 +81,8 @@ withMiningCoordination
     :: Logger logger
     => logger
     -> MiningConfig
-    -> CutDb cas
-    -> (Maybe (MiningCoordination logger cas) -> IO a)
+    -> CutDb tbl
+    -> (Maybe (MiningCoordination logger tbl) -> IO a)
     -> IO a
 withMiningCoordination logger conf cdb inner
     | not (_coordinationEnabled coordConf) = inner Nothing
@@ -233,12 +232,12 @@ withMiningCoordination logger conf cdb inner
 -- configured or by the mempool noop-miner (which keeps the mempool updated) in
 -- production setups.
 --
-data MinerResources logger cas = MinerResources
+data MinerResources logger tbl = MinerResources
     { _minerResLogger :: !logger
-    , _minerResCutDb :: !(CutDb cas)
+    , _minerResCutDb :: !(CutDb tbl)
     , _minerChainResources :: HashMap ChainId (ChainResources logger)
     , _minerResConfig :: !NodeMiningConfig
-    , _minerResCoordination :: !(Maybe (MiningCoordination logger cas))
+    , _minerResCoordination :: !(Maybe (MiningCoordination logger tbl))
         -- ^ The primed work cache. This is Nothing when coordination is
         -- disabled. It is needed by the in-node test miner. The mempoolNoopMiner
         -- does not use it.
@@ -248,9 +247,9 @@ withMinerResources
     :: logger
     -> NodeMiningConfig
     -> HashMap ChainId (ChainResources logger)
-    -> CutDb cas
-    -> Maybe (MiningCoordination logger cas)
-    -> (Maybe (MinerResources logger cas) -> IO a)
+    -> CutDb tbl
+    -> Maybe (MiningCoordination logger tbl)
+    -> (Maybe (MinerResources logger tbl) -> IO a)
     -> IO a
 withMinerResources logger conf chainRes cutDb tpw inner =
     inner . Just $ MinerResources
@@ -266,11 +265,11 @@ withMinerResources logger conf chainRes cutDb tpw inner =
 -- When mining coordination is disabled, this function exits with an error.
 --
 runMiner
-    :: forall logger cas
+    :: forall logger tbl
     .  Logger logger
-    => PayloadCasLookup cas
+    => CanReadablePayloadCas tbl
     => ChainwebVersion
-    -> MinerResources logger cas
+    -> MinerResources logger tbl
     -> IO ()
 runMiner v mr
     | enabled = case _minerResCoordination mr of
@@ -284,7 +283,7 @@ runMiner v mr
   where
     enabled = _nodeMiningEnabled $ _minerResConfig mr
 
-    cdb :: CutDb cas
+    cdb :: CutDb tbl
     cdb = _minerResCutDb mr
 
     conf :: NodeMiningConfig

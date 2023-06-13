@@ -4,11 +4,13 @@
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DeriveTraversable #-}
 {-# LANGUAGE DerivingStrategies #-}
+{-# LANGUAGE DerivingVia #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE KindSignatures #-}
+{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TypeApplications #-}
@@ -55,18 +57,29 @@ module Chainweb.Test.Orphans.Internal
 , mkTestEventsProof
 , arbitraryEventsProof
 , EventPactValue(..)
+
+-- ** Misc
+, arbitraryPage
 ) where
 
 import Control.Applicative
 import Control.Monad
 import Control.Monad.Catch
 
+import Crypto.Hash.Algorithms
+
+import Data.Aeson hiding (Error)
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Short as BS
 import Data.Foldable
+import Data.Function
 import qualified Data.HashMap.Strict as HM
 import Data.Kind
+import qualified Data.List as L
 import Data.MerkleLog
+import Data.Streaming.Network.Internal
+import qualified Data.Text as T
+import qualified Data.Text.Encoding as T
 import Data.Type.Equality
 import qualified Data.Vector as V
 
@@ -74,6 +87,7 @@ import GHC.Stack
 
 import Numeric.Natural
 
+import Pact.Parse
 import Pact.Types.Command
 import Pact.Types.PactValue
 import Pact.Types.Runtime (PactEvent(..), Literal(..))
@@ -94,6 +108,7 @@ import Test.QuickCheck.Instances ({- Arbitrary V4.UUID -})
 import Chainweb.BlockCreationTime
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
+import Chainweb.BlockHeaderDB.RestAPI
 import Chainweb.BlockHeight
 import Chainweb.BlockWeight
 import Chainweb.ChainId
@@ -101,30 +116,49 @@ import Chainweb.Chainweb
 import Chainweb.Chainweb.Configuration
 import Chainweb.Crypto.MerkleLog
 import Chainweb.Cut.Create
+import Chainweb.Cut.CutHashes
 import Chainweb.Difficulty
 import Chainweb.Graph
+import Chainweb.HostAddress
+import Chainweb.Mempool.Mempool
+import Chainweb.Mempool.RestAPI
 import Chainweb.MerkleLogHash
 import Chainweb.MerkleUniverse
+import Chainweb.Miner.Config
+import Chainweb.Miner.Pact
+import Chainweb.NodeVersion
+import Chainweb.Pact.RestAPI.SPV
+import Chainweb.Pact.Service.Types
 import Chainweb.Payload
 import Chainweb.PowHash
 import Chainweb.RestAPI.NetworkID
+import Chainweb.RestAPI.NodeInfo
+import Chainweb.RestAPI.Utils
+import Chainweb.SPV
 import Chainweb.SPV.EventProof
 import Chainweb.SPV.OutputProof
 import Chainweb.SPV.PayloadProof
 import Chainweb.Test.Orphans.Pact
 import Chainweb.Test.Orphans.Time ()
-import Chainweb.Test.Utils (genEnum)
 import Chainweb.Time
 import Chainweb.Utils
 import Chainweb.Utils.Paging
+import Chainweb.Utils.Serialization
 import Chainweb.Version
 import Chainweb.Version.Utils
 
 import Data.Singletons
 
+import Network.X509.SelfSigned
+
 import P2P.Node.Configuration
 import P2P.Node.PeerDB
+import P2P.Peer
 import P2P.Test.Orphans ()
+
+import System.Logger.Types
+
+import Utils.Logging
 
 -- -------------------------------------------------------------------------- --
 -- Utils
@@ -134,6 +168,12 @@ arbitraryBytes i = B.pack <$> vector i
 
 arbitraryBytesSized :: Gen B.ByteString
 arbitraryBytesSized = sized $ \s -> choose (0, s) >>= arbitraryBytes
+
+newtype Utf8Encoded = Utf8Encoded B.ByteString
+    deriving (Show, Eq, Ord)
+
+instance Arbitrary Utf8Encoded where
+    arbitrary = Utf8Encoded . T.encodeUtf8 <$> arbitrary
 
 -- -------------------------------------------------------------------------- --
 -- Basics
@@ -191,6 +231,7 @@ instance Arbitrary P2pConfiguration where
         <$> arbitrary <*> arbitrary <*> arbitrary
         <*> arbitrary <*> arbitrary <*> arbitrary
         <*> arbitrary <*> arbitrary <*> arbitrary
+        <*> arbitrary
 
 instance Arbitrary PeerEntry where
     arbitrary = PeerEntry
@@ -205,6 +246,50 @@ deriving newtype instance Arbitrary LastSuccess
 deriving newtype instance Arbitrary SuccessiveFailures
 deriving newtype instance Arbitrary AddedTime
 deriving newtype instance Arbitrary ActiveSessionCount
+deriving via (NonEmptyList Int) instance Arbitrary NodeVersion
+
+instance Arbitrary X509KeyPem where
+    arbitrary = X509KeyPem . T.encodeUtf8
+        <$> (T.cons <$> arbitrary <*> arbitrary)
+
+instance Arbitrary X509CertPem where
+    arbitrary = do
+        x <- T.cons <$> choose ('a', 'z') <*> arbitrary
+        return $ X509CertPem $ T.encodeUtf8
+            $ "-----BEGIN CERTIFICATE-----\n"
+            <> x <> "\n"
+            <> "-----END CERTIFICATE-----"
+
+instance Arbitrary X509CertChainPem where
+    arbitrary = X509CertChainPem <$> arbitrary <*> arbitrary
+
+instance Arbitrary Peer where
+    arbitrary = Peer <$> arbitrary <*> arbitrary <*> arbitrary <*> arbitrary
+
+instance Arbitrary HostPreference where
+    arbitrary = oneof
+        [ pure HostAny
+        , pure HostIPv4
+        , pure HostIPv4Only
+        , pure HostIPv6
+        , pure HostIPv6Only
+        , Host . T.unpack . toText <$> arbitrary @Hostname
+        ]
+
+instance Arbitrary NodeInfo where
+    arbitrary = do
+        v <- arbitrary
+        curHeight <- arbitrary
+        let graphs = unpackGraphs v
+            curGraph = head $ dropWhile (\(h,_) -> h > curHeight) graphs
+            curChains = map fst $ snd curGraph
+        return $ NodeInfo
+            { nodeVersion = v
+            , nodeApiVersion = prettyApiVersion
+            , nodeChains = T.pack . show <$> curChains
+            , nodeNumberOfChains = length curChains
+            , nodeGraphHistory = graphs
+            }
 
 -- -------------------------------------------------------------------------- --
 -- Block Header
@@ -214,9 +299,6 @@ instance MerkleHashAlgorithm a => Arbitrary (BlockHash_ a) where
 
 instance Arbitrary BlockHeight where
     arbitrary = BlockHeight <$> arbitrary
-
-instance Arbitrary CutHeight where
-    arbitrary = CutHeight <$> arbitrary
 
 instance Arbitrary BlockWeight where
     arbitrary = BlockWeight <$> arbitrary
@@ -278,7 +360,7 @@ arbitraryBlockHeaderVersionHeightChain
     -> Gen BlockHeader
 arbitraryBlockHeaderVersionHeightChain v h cid
     | isWebChain (chainGraphAt v h) cid = do
-        t <- genEnum (epoch, add (scaleTimeSpan @Int (365 * 200) day) epoch)
+        t <- chooseEnum (epoch, add (scaleTimeSpan @Int (365 * 200) day) epoch)
         fromLog @ChainwebMerkleHashAlgorithm . newMerkleLog <$> entries t
     | otherwise = discard
   where
@@ -292,10 +374,39 @@ arbitraryBlockHeaderVersionHeightChain v h cid
         $ liftA2 (:+:) arbitrary -- weight
         $ liftA2 (:+:) (pure h) -- height
         $ liftA2 (:+:) (pure v) -- version
-        $ liftA2 (:+:) (EpochStartTime <$> genEnum (toEnum 0, t)) -- epoch start
+        $ liftA2 (:+:) (EpochStartTime <$> chooseEnum (toEnum 0, t)) -- epoch start
         $ liftA2 (:+:) (Nonce <$> chooseAny) -- nonce
         $ fmap (MerkleLogBody . blockHashRecordToVector)
             (arbitraryBlockHashRecordVersionHeightChain v h cid) -- adjacents
+
+instance Arbitrary HeaderUpdate where
+    arbitrary = HeaderUpdate
+        <$> (ObjectEncoded <$> arbitrary)
+        <*> arbitrary
+        <*> arbitrary
+        <*> arbitrary
+
+instance Arbitrary BlockHashWithHeight where
+    arbitrary = BlockHashWithHeight <$> arbitrary <*> arbitrary
+
+-- -------------------------------------------------------------------------- --
+-- Arbitrary CutHashes
+
+instance Arbitrary CutId where
+    arbitrary = do
+        bs <- arbitraryBytes 32
+        case runGetS decodeCutId bs of
+            Left e -> error $ "Arbitrary Instance for CutId: " <> show e
+            Right x -> return x
+
+instance Arbitrary CutHashes where
+    arbitrary = CutHashes
+        <$> arbitrary <*> arbitrary <*> arbitrary <*> arbitrary
+        <*> arbitrary <*> arbitrary <*> arbitrary <*> arbitrary
+
+instance Arbitrary CutHeight where
+    arbitrary = CutHeight <$> arbitrary
+
 
 -- -------------------------------------------------------------------------- --
 -- Mining Work
@@ -306,7 +417,7 @@ instance Arbitrary WorkHeader where
         return $ WorkHeader
             { _workHeaderChainId = _chainId hdr
             , _workHeaderTarget = _blockTarget hdr
-            , _workHeaderBytes = BS.toShort $ runPut $ encodeBlockHeaderWithoutHash hdr
+            , _workHeaderBytes = BS.toShort $ runPutS $ encodeBlockHeaderWithoutHash hdr
             }
 
 instance Arbitrary SolvedWork where
@@ -561,7 +672,8 @@ hasHeader mlog = case go (sing @N @i) mlog of
 
 arbitraryPayloadWithStructuredOutputs :: Gen (V.Vector RequestKey, PayloadWithOutputs)
 arbitraryPayloadWithStructuredOutputs = resize 10 $ do
-    txs <- V.fromList <$> listOf ((,) <$> arbitrary @Transaction <*> genResult)
+    txs <- V.fromList . L.nubBy ((==) `on` _crReqKey . snd)
+        <$> listOf ((,) <$> arbitrary @Transaction <*> genResult)
     payloads <- newPayloadWithOutputs
         <$> arbitrary
         <*> arbitrary
@@ -670,6 +782,46 @@ instance Arbitrary ChainDatabaseGcConfig where
         , GcFull
         ]
 
+instance Arbitrary a => Arbitrary (EnableConfig a) where
+    arbitrary = EnableConfig <$> arbitrary <*> arbitrary
+
+-- | Helper instance for JSON roundtrip tests
+--
+instance FromJSON (EnableConfig MiningConfig) where
+    parseJSON v = do
+        f <- parseJSON v
+        return $ f $ defaultEnableConfig defaultMining
+
+instance Arbitrary a => Arbitrary (NextItem a) where
+    arbitrary = oneof
+        [ Inclusive <$> arbitrary
+        , Exclusive <$> arbitrary
+        ]
+
+instance (Arbitrary a, Arbitrary b) => Arbitrary (Page a b) where
+    arbitrary = Page <$> arbitrary <*> arbitrary <*> arbitrary
+
+arbitraryPage :: Arbitrary a => Arbitrary b => Natural -> Gen (Page a b)
+arbitraryPage n = Page (Limit n)
+    <$> vector (int n)
+    <*> arbitrary
+
+-- -------------------------------------------------------------------------- --
+-- Mining Config
+
+deriving newtype instance Arbitrary MinerCount
+
+instance Arbitrary CoordinationConfig where
+    arbitrary = CoordinationConfig
+        <$> arbitrary <*> arbitrary <*> arbitrary <*> arbitrary <*> arbitrary
+
+instance Arbitrary NodeMiningConfig where
+    arbitrary = NodeMiningConfig
+        <$> arbitrary <*> arbitrary <*> pure (MinerCount 10)
+
+instance Arbitrary MiningConfig where
+    arbitrary = MiningConfig <$> arbitrary <*> arbitrary
+
 -- -------------------------------------------------------------------------- --
 -- Chainweb.SPV.EventProof
 
@@ -713,3 +865,102 @@ newtype EventPactValue = EventPactValue { getEventPactValue :: PactValue }
 
 instance Arbitrary EventPactValue where
     arbitrary = EventPactValue <$> arbitraryEventPactValue
+
+instance Arbitrary SpvAlgorithm where
+    arbitrary = elements [SpvSHA512t_256, SpvKeccak_256]
+
+instance Arbitrary SpvSubjectIdentifier where
+    arbitrary = SpvSubjectIdentifier <$> arbitrary <*> arbitrary <*> arbitrary
+
+instance Arbitrary SpvSubjectType where
+    arbitrary = elements [SpvSubjectResult, SpvSubjectEvents]
+
+instance Arbitrary SpvRequest where
+    arbitrary = SpvRequest <$> arbitrary <*> arbitrary
+
+instance Arbitrary Spv2Request where
+    arbitrary = Spv2Request <$> arbitrary <*> arbitrary <*> arbitrary
+
+instance Arbitrary (TransactionProof ChainwebMerkleHashAlgorithm) where
+    arbitrary = TransactionProof <$> arbitrary <*> arbitrary
+
+instance Arbitrary (TransactionOutputProof ChainwebMerkleHashAlgorithm) where
+    arbitrary = TransactionOutputProof <$> arbitrary <*> arbitrary
+
+instance Arbitrary SomePayloadProof where
+    arbitrary = oneof
+        [ SomePayloadProof <$> arbitrary @(PayloadProof ChainwebMerkleHashAlgorithm)
+        , SomePayloadProof <$> arbitrary @(PayloadProof Keccak_256)
+        ]
+
+-- Equality for SomePayloadProof is only used for testing. Using 'unsafeCoerce'
+-- is a bit ugly, but efficient and doesn't require changing production code.
+--
+instance Eq SomePayloadProof where
+    (SomePayloadProof (a :: PayloadProof aalg)) == (SomePayloadProof (b :: PayloadProof balg))
+        | merkleHashAlgorithmName @aalg == merkleHashAlgorithmName @balg =
+            unsafeCoerce b == a
+        | otherwise = False
+
+-- -------------------------------------------------------------------------- --
+-- Miner
+
+instance Arbitrary MinerId where
+    arbitrary = MinerId <$> arbitrary
+
+instance Arbitrary MinerKeys where
+    arbitrary = MinerKeys <$> arbitrary
+
+instance Arbitrary Miner where
+    arbitrary = Miner <$> arbitrary <*> arbitrary
+
+-- -------------------------------------------------------------------------- --
+-- Mempool
+
+instance Arbitrary a => Arbitrary (LookupResult a) where
+    arbitrary = oneof
+        [ pure Missing
+        , Pending <$> arbitrary
+        ]
+
+instance Arbitrary TransactionHash where
+    arbitrary = TransactionHash <$> arbitrary
+
+instance Arbitrary PendingTransactions where
+    arbitrary = PendingTransactions <$> arbitrary <*> arbitrary
+
+instance Arbitrary TransactionMetadata where
+    arbitrary = TransactionMetadata <$> arbitrary <*> arbitrary
+
+instance Arbitrary ParsedDecimal where
+    arbitrary = ParsedDecimal <$> arbitrary
+
+instance Arbitrary ParsedInteger where
+    arbitrary = ParsedInteger <$> arbitrary
+
+instance Arbitrary GasLimit where
+    arbitrary = GasLimit <$> (getPositive <$> arbitrary)
+
+instance Arbitrary GasPrice where
+    arbitrary = GasPrice <$> (getPositive <$> arbitrary)
+
+instance Arbitrary MockTx where
+    arbitrary = MockTx <$> arbitrary <*> arbitrary <*> arbitrary <*> arbitrary
+
+instance Arbitrary t => Arbitrary (ValidatedTransaction t) where
+    arbitrary = ValidatedTransaction <$> arbitrary <*> arbitrary <*> arbitrary
+
+-- -------------------------------------------------------------------------- --
+-- Utils.Logging
+
+instance Arbitrary Probability where
+    arbitrary = Probability <$> choose (0, 1)
+
+instance Arbitrary LogLevel where
+    arbitrary = elements [Quiet, Error, Warn, Info, Debug]
+
+instance Arbitrary LogFilterRule where
+    arbitrary = LogFilterRule <$> arbitrary <*> arbitrary <*> arbitrary
+
+instance Arbitrary LogFilter where
+    arbitrary = LogFilter <$> arbitrary <*> arbitrary <*> arbitrary

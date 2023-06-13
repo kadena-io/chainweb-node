@@ -28,13 +28,11 @@ module Chainweb.PowHash
 , powHashBytesCount
 , encodePowHash
 , decodePowHash
-, randomPowHash
 , powHash
 ) where
 
 import Control.DeepSeq
 import Control.Monad.Catch
-import Control.Monad.IO.Class
 
 import qualified Crypto.Hash as C (hash)
 import Crypto.Hash.Algorithms
@@ -42,8 +40,6 @@ import Crypto.Hash.Algorithms
 import Data.Aeson
 import Data.Bits
 import qualified Data.ByteArray as BA
-import Data.Bytes.Get
-import Data.Bytes.Put
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Short as SB
 import Data.Hashable hiding (hash)
@@ -64,6 +60,7 @@ import System.IO.Unsafe
 import Chainweb.Crypto.MerkleLog
 import Chainweb.MerkleUniverse
 import Chainweb.Utils
+import Chainweb.Utils.Serialization
 import Chainweb.Version
 
 -- -------------------------------------------------------------------------- --
@@ -82,11 +79,11 @@ newtype PowHash = PowHash SB.ShortByteString
 -- | Smart constructor
 --
 mkPowHash :: MonadThrow m => B.ByteString -> m PowHash
-mkPowHash = runGet decodePowHash
+mkPowHash = runGetS decodePowHash
 {-# INLINE mkPowHash #-}
 
 unsafeMkPowHash :: HasCallStack => B.ByteString -> PowHash
-unsafeMkPowHash = fromJuste . runGet decodePowHash
+unsafeMkPowHash = fromJuste . runGetS decodePowHash
 {-# INLINE unsafeMkPowHash #-}
 
 instance MerkleHashAlgorithm a => IsMerkleLogEntry a ChainwebHashTag PowHash where
@@ -96,7 +93,7 @@ instance MerkleHashAlgorithm a => IsMerkleLogEntry a ChainwebHashTag PowHash whe
     {-# INLINE toMerkleNode #-}
     {-# INLINE fromMerkleNode #-}
 
-encodePowHash :: MonadPut m => PowHash -> m ()
+encodePowHash :: PowHash -> Put
 encodePowHash (PowHash w) = putByteString $ SB.fromShort w
 {-# INLINE encodePowHash #-}
 
@@ -104,13 +101,13 @@ powHashBytes :: PowHash -> SB.ShortByteString
 powHashBytes (PowHash bytes) = bytes
 {-# INLINE powHashBytes #-}
 
-decodePowHash :: MonadGet m => m PowHash
-decodePowHash = PowHash . SB.toShort <$> getBytes (int powHashBytesCount)
+decodePowHash :: Get PowHash
+decodePowHash = PowHash . SB.toShort <$> getByteString (int powHashBytesCount)
 {-# INLINE decodePowHash #-}
 
 instance Hashable PowHash where
     hashWithSalt s (PowHash bytes) = xor s
-        . unsafePerformIO
+        . unsafeDupablePerformIO
         $ BA.withByteArray (SB.fromShort bytes) (peek @Int)
     -- PowHashs are already cryptographically strong hashes
     -- that include the chain id.
@@ -118,19 +115,15 @@ instance Hashable PowHash where
 
 instance ToJSON PowHash where
     toJSON = toJSON . encodeB64UrlNoPaddingText . runPutS . encodePowHash
+    toEncoding = b64UrlNoPaddingTextEncoding . runPutS . encodePowHash
     {-# INLINE toJSON #-}
+    {-# INLINE toEncoding #-}
 
 instance FromJSON PowHash where
     parseJSON = withText "PowHash" $ \t ->
         either (fail . show) return
-            $ runGet decodePowHash =<< decodeB64UrlNoPaddingText t
+            $ runGetS decodePowHash =<< decodeB64UrlNoPaddingText t
     {-# INLINE parseJSON #-}
-
--- | This must be used only for testing. The result hash is uniformily
--- distributed, but not cryptographically safe.
---
-randomPowHash :: MonadIO m => m PowHash
-randomPowHash = PowHash <$> randomShortByteString powHashBytesCount
 
 -- -------------------------------------------------------------------------- --
 -- Cryptographic Hash

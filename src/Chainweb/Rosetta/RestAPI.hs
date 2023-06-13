@@ -2,7 +2,6 @@
 {-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeOperators #-}
 
 -- |
@@ -24,8 +23,20 @@ module Chainweb.Rosetta.RestAPI
   , rosettaBlockTransactionApi
   , RosettaBlockApi
   , rosettaBlockApi
+  , RosettaConstructionDeriveApi
+  , rosettaConstructionDeriveApi
+  , RosettaConstructionPreprocessApi
+  , rosettaConstructionPreprocessApi
   , RosettaConstructionMetadataApi
   , rosettaConstructionMetadataApi
+  , RosettaConstructionPayloadsApi
+  , rosettaConstructionPayloadsApi
+  , RosettaConstructionParseApi
+  , rosettaConstructionParseApi
+  , RosettaConstructionCombineApi
+  , rosettaConstructionCombineApi
+  , RosettaConstructionHashApi
+  , rosettaConstructionHashApi
   , RosettaConstructionSubmitApi
   , rosettaConstructionSubmitApi
   , RosettaMempoolTransactionApi
@@ -39,29 +50,22 @@ module Chainweb.Rosetta.RestAPI
   , RosettaNetworkStatusApi
   , rosettaNetworkStatusApi
     -- * Errors
-  , RosettaFailure(..)
-  , rosettaError
   , throwRosetta
+  , throwRosettaError
   , validateNetwork
   ) where
 
 import Control.Error.Util
 import Control.Monad (when)
-import Control.Monad.Trans.Except (ExceptT)
-
-import Data.Aeson (encode, Object)
-import qualified Data.Text as T
 
 import Rosetta
 
 import Servant
 
-
-import Text.Read (readMaybe)
-
 -- internal modules
 
-import Chainweb.RestAPI.Utils (ChainwebEndpoint(..), Reassoc)
+import Chainweb.Rosetta.Utils
+import Chainweb.RestAPI.Utils
 import Chainweb.Utils
 import Chainweb.Version
 
@@ -79,7 +83,13 @@ type RosettaApi_ = "rosetta" :>
     :<|> RosettaBlockTransactionApi_
     :<|> RosettaBlockApi_
       -- Construction --
+    :<|> RosettaConstructionDeriveApi_
+    :<|> RosettaConstructionPreprocessApi_
     :<|> RosettaConstructionMetadataApi_
+    :<|> RosettaConstructionPayloadsApi_
+    :<|> RosettaConstructionParseApi_
+    :<|> RosettaConstructionCombineApi_
+    :<|> RosettaConstructionHashApi_
     :<|> RosettaConstructionSubmitApi_
       -- Mempool --
     :<|> RosettaMempoolTransactionApi_
@@ -106,8 +116,14 @@ type RosettaApiEndpoint (v :: ChainwebVersionT) api
 type RosettaAccountBalanceApi v = RosettaApiEndpoint v RosettaAccountBalanceApi_
 type RosettaBlockTransactionApi v = RosettaApiEndpoint v RosettaBlockTransactionApi_
 type RosettaBlockApi v = RosettaApiEndpoint v RosettaBlockApi_
-type RosettaConstructionSubmitApi v = RosettaApiEndpoint v RosettaConstructionSubmitApi_
+type RosettaConstructionDeriveApi v = RosettaApiEndpoint v RosettaConstructionDeriveApi_
+type RosettaConstructionPreprocessApi v = RosettaApiEndpoint v RosettaConstructionPreprocessApi_
 type RosettaConstructionMetadataApi v = RosettaApiEndpoint v RosettaConstructionMetadataApi_
+type RosettaConstructionPayloadsApi v = RosettaApiEndpoint v RosettaConstructionPayloadsApi_
+type RosettaConstructionParseApi v = RosettaApiEndpoint v RosettaConstructionParseApi_
+type RosettaConstructionCombineApi v = RosettaApiEndpoint v RosettaConstructionCombineApi_
+type RosettaConstructionHashApi v = RosettaApiEndpoint v RosettaConstructionHashApi_
+type RosettaConstructionSubmitApi v = RosettaApiEndpoint v RosettaConstructionSubmitApi_
 type RosettaMempoolTransactionApi v = RosettaApiEndpoint v RosettaMempoolTransactionApi_
 type RosettaMempoolApi v = RosettaApiEndpoint v RosettaMempoolApi_
 type RosettaNetworkListApi v = RosettaApiEndpoint v RosettaNetworkListApi_
@@ -131,11 +147,47 @@ type RosettaBlockApi_
     :> ReqBody '[JSON] BlockReq
     :> Post '[JSON] BlockResp
 
+type RosettaConstructionDeriveApi_
+    = "construction"
+    :> "derive"
+    :> ReqBody '[JSON] ConstructionDeriveReq
+    :> Post '[JSON] ConstructionDeriveResp
+
+type RosettaConstructionPreprocessApi_
+    = "construction"
+    :> "preprocess"
+    :> ReqBody '[JSON] ConstructionPreprocessReq
+    :> Post '[JSON] ConstructionPreprocessResp
+
 type RosettaConstructionMetadataApi_
     = "construction"
     :> "metadata"
     :> ReqBody '[JSON] ConstructionMetadataReq
     :> Post '[JSON] ConstructionMetadataResp
+
+type RosettaConstructionPayloadsApi_
+    = "construction"
+    :> "payloads"
+    :> ReqBody '[JSON] ConstructionPayloadsReq
+    :> Post '[JSON] ConstructionPayloadsResp
+
+type RosettaConstructionParseApi_
+    = "construction"
+    :> "parse"
+    :> ReqBody '[JSON] ConstructionParseReq
+    :> Post '[JSON] ConstructionParseResp
+
+type RosettaConstructionCombineApi_
+    = "construction"
+    :> "combine"
+    :> ReqBody '[JSON] ConstructionCombineReq
+    :> Post '[JSON] ConstructionCombineResp
+
+type RosettaConstructionHashApi_
+    = "construction"
+    :> "hash"
+    :> ReqBody '[JSON] ConstructionHashReq
+    :> Post '[JSON] TransactionIdResp
 
 type RosettaConstructionSubmitApi_
     = "construction"
@@ -187,10 +239,40 @@ rosettaBlockApi
     . Proxy (RosettaBlockApi v)
 rosettaBlockApi = Proxy
 
+rosettaConstructionDeriveApi
+    :: forall (v :: ChainwebVersionT)
+    . Proxy (RosettaConstructionDeriveApi v)
+rosettaConstructionDeriveApi = Proxy
+
+rosettaConstructionPreprocessApi
+    :: forall (v :: ChainwebVersionT)
+    . Proxy (RosettaConstructionPreprocessApi v)
+rosettaConstructionPreprocessApi = Proxy
+
 rosettaConstructionMetadataApi
     :: forall (v :: ChainwebVersionT)
     . Proxy (RosettaConstructionMetadataApi v)
 rosettaConstructionMetadataApi = Proxy
+
+rosettaConstructionPayloadsApi
+    :: forall (v :: ChainwebVersionT)
+    . Proxy (RosettaConstructionPayloadsApi v)
+rosettaConstructionPayloadsApi = Proxy
+
+rosettaConstructionParseApi
+    :: forall (v :: ChainwebVersionT)
+    . Proxy (RosettaConstructionParseApi v)
+rosettaConstructionParseApi = Proxy
+
+rosettaConstructionCombineApi
+    :: forall (v :: ChainwebVersionT)
+    . Proxy (RosettaConstructionCombineApi v)
+rosettaConstructionCombineApi = Proxy
+
+rosettaConstructionHashApi
+    :: forall (v :: ChainwebVersionT)
+    . Proxy (RosettaConstructionHashApi v)
+rosettaConstructionHashApi = Proxy
 
 rosettaConstructionSubmitApi
     :: forall (v :: ChainwebVersionT)
@@ -222,68 +304,12 @@ rosettaNetworkStatusApi
     . Proxy (RosettaNetworkStatusApi v)
 rosettaNetworkStatusApi = Proxy
 
--- ------------------------------------------------------------------ --
--- Rosetta Exceptions
-
--- TODO: Investigate if Rosetta Erros can be dynamic
-data RosettaFailure
-    = RosettaChainUnspecified
-    | RosettaInvalidChain
-    | RosettaMempoolBadTx
-    | RosettaUnparsableTx
-    | RosettaInvalidTx
-    | RosettaInvalidBlockchainName
-    | RosettaMismatchNetworkName
-    | RosettaPactExceptionThrown
-    | RosettaExpectedBalDecimal
-    | RosettaInvalidResultMetaData
-    | RosettaSubAcctUnsupported
-    | RosettaMismatchTxLogs
-    | RosettaUnparsableTxLog
-    | RosettaInvalidBlockHeight
-    | RosettaBlockHashNotFound
-    | RosettaUnparsableBlockHash
-    | RosettaOrphanBlockHash
-    | RosettaMismatchBlockHashHeight
-    | RosettaPayloadNotFound
-    | RosettaUnparsableTxOut
-    | RosettaTxIdNotFound
-    | RosettaUnparsableTransactionId
-    | RosettaInvalidAccountKey
-    deriving (Show, Enum, Bounded, Eq)
-
-
--- TODO: Better grouping of rosetta error index?
-rosettaError :: RosettaFailure -> Maybe Object -> RosettaError
-rosettaError RosettaChainUnspecified = RosettaError 0 "No SubNetwork (chain) specified" False
-rosettaError RosettaInvalidChain = RosettaError 1 "Invalid SubNetwork (chain) value" False
-rosettaError RosettaMempoolBadTx = RosettaError 2 "Transaction not present in mempool" False
-rosettaError RosettaUnparsableTx = RosettaError 3 "Transaction not parsable" False
-rosettaError RosettaInvalidTx = RosettaError 4 "Invalid transaction" False
-rosettaError RosettaInvalidBlockchainName = RosettaError 5 "Invalid blockchain name" False
-rosettaError RosettaMismatchNetworkName = RosettaError 6 "Invalid Chainweb network name" False
-rosettaError RosettaPactExceptionThrown =
-  RosettaError 7 "A pact exception was thrown" False
-rosettaError RosettaExpectedBalDecimal = RosettaError 8 "Expected balance as a decimal" False
-rosettaError RosettaInvalidResultMetaData = RosettaError 9 "Invalid meta data field in command result" False
-rosettaError RosettaSubAcctUnsupported = RosettaError 10 "Sub account identifier is not supported" False
-rosettaError RosettaMismatchTxLogs =
-  RosettaError 11 "Unable to match transactions to transaction logs as expected" False
-rosettaError RosettaUnparsableTxLog = RosettaError 12 "TxLogs not parsable" False
-rosettaError RosettaInvalidBlockHeight = RosettaError 13 "Invalid block height" False -- TODO if retry could succeed
-rosettaError RosettaBlockHashNotFound = RosettaError 14 "Block hash was not found" False
-rosettaError RosettaUnparsableBlockHash = RosettaError 15 "Block hash not parsable" False
-rosettaError RosettaOrphanBlockHash = RosettaError 16 "Block hash not in the latest fork" False
-rosettaError RosettaMismatchBlockHashHeight = RosettaError 17 "Block hash and block height did not match" False
-rosettaError RosettaPayloadNotFound = RosettaError 18 "Block payload not found" False
-rosettaError RosettaUnparsableTxOut = RosettaError 19 "Transaction output not parsable" False
-rosettaError RosettaTxIdNotFound = RosettaError 20 "Transaction Id not found in block" False
-rosettaError RosettaUnparsableTransactionId = RosettaError 21 "Transaction Id not parsable" False
-rosettaError RosettaInvalidAccountKey = RosettaError 22 "Invalid AccountId address" False
-
 
 throwRosetta :: RosettaFailure -> Handler a
-throwRosetta e = throwError err500 { errBody = encode $ rosettaError e Nothing }
+throwRosetta e = throwError $ setErrJSON (rosettaError e Nothing) err500
+
+throwRosettaError :: RosettaError -> Handler a
+throwRosettaError e = throwError $ setErrJSON e err500
 
 -- | Every Rosetta request that requires a `NetworkId` also requires a
 -- `SubNetworkId`, at least in the case of Chainweb.
@@ -291,18 +317,9 @@ throwRosetta e = throwError err500 { errBody = encode $ rosettaError e Nothing }
 -- TODO for requests that concern only a particular block height it should
 -- be verified that the chain is is active at that height.
 --
-validateNetwork :: Monad m => ChainwebVersion -> NetworkId -> ExceptT RosettaFailure m ChainId
+validateNetwork :: ChainwebVersion -> NetworkId -> Either RosettaFailure ChainId
 validateNetwork v (NetworkId bc n msni) = do
-    when (bc /= "kadena") $ throwError RosettaInvalidBlockchainName
-    when (Just v /= fromText n) $ throwError RosettaMismatchNetworkName
-    SubNetworkId cid _ <- msni ?? RosettaChainUnspecified
-    readChainIdText v cid ?? RosettaInvalidChain
-
-
--- | Guarantees that the `ChainId` given actually belongs to this
--- `ChainwebVersion`. This doesn't guarantee that the chain is active.
---
-readChainIdText :: ChainwebVersion -> T.Text -> Maybe ChainId
-readChainIdText v c = do
-  cid <- readMaybe @Word (T.unpack c)
-  mkChainId v maxBound cid
+    when (bc /= "kadena") $ Left RosettaInvalidBlockchainName
+    when (Just v /= fromText n) $ Left RosettaMismatchNetworkName
+    SubNetworkId cid _ <- note RosettaChainUnspecified msni
+    note RosettaInvalidChain $ readChainIdText v cid

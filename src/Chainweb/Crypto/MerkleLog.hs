@@ -1,6 +1,5 @@
 {-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE BangPatterns #-}
-{-# LANGUAGE CPP #-}
 {-# LANGUAGE ConstraintKinds #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE FlexibleContexts #-}
@@ -16,10 +15,6 @@
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE UndecidableInstances #-}
-
-#if __GLASGOW_HASKELL__ < 806
-{-# LANGUAGE TypeInType #-}
-#endif
 
 -- |
 -- Module: Chainweb.Crypto.MerkleLog
@@ -168,7 +163,6 @@ import Control.Monad.Catch
 import Crypto.Hash.Algorithms
 
 import qualified Data.ByteArray as BA
-import Data.Bytes.Put
 import qualified Data.ByteString as B
 import Data.Coerce
 import Data.Foldable
@@ -191,6 +185,7 @@ import System.IO.Unsafe
 
 import Data.Singletons
 import Chainweb.Utils
+import Chainweb.Utils.Serialization
 
 -- -------------------------------------------------------------------------- --
 -- Exceptions
@@ -223,7 +218,7 @@ fromWordBE :: forall w b . BA.ByteArray b => ByteSwap w => w -> b
 fromWordBE w = BA.allocAndFreeze (sizeOf (undefined :: w)) $ \ptr -> poke ptr (BA.toBE w)
 
 unsafeToWordBE :: BA.ByteSwap w => BA.ByteArrayAccess b => b -> w
-unsafeToWordBE bytes = BA.fromBE . unsafePerformIO $ BA.withByteArray bytes peek
+unsafeToWordBE bytes = BA.fromBE . unsafeDupablePerformIO $ BA.withByteArray bytes peek
 
 toWordBE
     :: forall w b m
@@ -738,17 +733,17 @@ proofSubject p = fromMerkleNodeTagged @a subj
 -- Tools Defining Instances
 
 encodeMerkleInputNode
-    :: (forall m . MonadPut m => b -> m ())
+    :: (b -> Put)
     -> b
     -> MerkleNodeType a B.ByteString
 encodeMerkleInputNode encode = InputNode . runPutS . encode
 
 decodeMerkleInputNode
     :: MonadThrow m
-    => (forall n . MonadGetExtra n => n b)
+    => Get b
     -> MerkleNodeType a B.ByteString
     -> m b
-decodeMerkleInputNode decode (InputNode bytes) = runGet decode bytes
+decodeMerkleInputNode decode (InputNode bytes) = runGetS decode bytes
 decodeMerkleInputNode _ (TreeNode _) = throwM expectedInputNodeException
 
 encodeMerkleTreeNode :: Coercible a (MerkleRoot alg) => a -> MerkleNodeType alg x

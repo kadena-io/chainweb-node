@@ -1,11 +1,11 @@
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TypeFamilies #-}
 
 -- |
@@ -26,17 +26,13 @@ import Control.Monad
 import Data.Aeson
 import Data.Aeson.Encode.Pretty
 import qualified Data.ByteString.Lazy.Char8 as BL
-import Data.CAS.RocksDB (RocksDb)
 import qualified Data.List as L
 import Data.String
-import Data.String.Conv (toS)
 import Data.Text (Text, pack)
 import qualified Data.Vector as V
 import qualified Data.Yaml as Y
 
 import GHC.Generics (Generic)
-
-import System.IO.Extra (readFile')
 
 import Test.Tasty
 import Test.Tasty.HUnit
@@ -60,6 +56,8 @@ import Chainweb.Transaction
 import Chainweb.Version (ChainwebVersion(..))
 import Chainweb.Version.Utils (someChainId)
 import Chainweb.Utils (sshow, tryAllSynchronous)
+
+import Chainweb.Storage.Table.RocksDB (RocksDb)
 
 import Pact.Types.Command
 import Pact.Types.Hash
@@ -483,14 +481,17 @@ testAllowReadsLocalSuccess = (tx,test)
 -- Utils
 
 execTest
-    :: WithPactCtxSQLite cas
+    :: WithPactCtxSQLite tbl
     -> TestRequest
     -> ScheduledTest
 execTest runPact request = _trEval request $ do
     cmdStrs <- mapM getPactCode $ _trCmds request
     trans <- mkCmds cmdStrs
-    results <- runPact $ execTransactions False defaultMiner
-      trans (EnforceCoinbaseFailure True) (CoinbaseUsePrecompiled True)
+    results <- runPact $ \pde ->
+      execTransactions False defaultMiner
+        trans (EnforceCoinbaseFailure True) (CoinbaseUsePrecompiled True) pde Nothing Nothing
+        >>= throwOnGasFailure
+
     let outputs = V.toList $ snd <$> _transactionPairs results
     return $ TestResponse
         (zip (_trCmds request) (toHashCommandResult <$> outputs))
@@ -507,7 +508,7 @@ execTest runPact request = _trEval request $ do
       mkKeySetData "test-admin-keyset" [sender00]
 
 execTxsTest
-    :: WithPactCtxSQLite cas
+    :: WithPactCtxSQLite tbl
     -> String
     -> TxsTest
     -> ScheduledTest
@@ -515,8 +516,10 @@ execTxsTest runPact name (trans',check) = testCaseSch name (go >>= check)
   where
     go = do
       trans <- trans'
-      results' <- tryAllSynchronous $ runPact $ execTransactions False defaultMiner trans
-        (EnforceCoinbaseFailure True) (CoinbaseUsePrecompiled True)
+      results' <- tryAllSynchronous $ runPact $ \pde ->
+        execTransactions False defaultMiner trans
+          (EnforceCoinbaseFailure True) (CoinbaseUsePrecompiled True) pde Nothing Nothing
+          >>= throwOnGasFailure
       case results' of
         Right results -> Right <$> do
           let outputs = V.toList $ snd <$> _transactionPairs results
@@ -530,8 +533,8 @@ execTxsTest runPact name (trans',check) = testCaseSch name (go >>= check)
 type LocalTest = (IO ChainwebTransaction,Either String (CommandResult Hash) -> Assertion)
 
 execLocalTest
-    :: PayloadCasLookup cas
-    => WithPactCtxSQLite cas
+    :: CanReadablePayloadCas tbl
+    => WithPactCtxSQLite tbl
     -> String
     -> LocalTest
     -> ScheduledTest
@@ -539,9 +542,13 @@ execLocalTest runPact name (trans',check) = testCaseSch name (go >>= check)
   where
     go = do
       trans <- trans'
-      results' <- tryAllSynchronous $ runPact $ \_ -> execLocal trans
+      results' <- tryAllSynchronous $ runPact $ \_ ->
+        execLocal trans Nothing Nothing Nothing
       case results' of
-        Right cr -> return $ Right cr
+        Right (MetadataValidationFailure e) ->
+          return $ Left $ show e
+        Right (LocalResultLegacy cr) -> return $ Right cr
+        Right (LocalResultWithWarns cr _) -> return $ Right cr
         Left e -> return $ Left $ show e
 
 getPactCode :: TestSource -> IO Text
@@ -564,7 +571,7 @@ checkSuccessOnly' msg f = testCaseSch msg $ f >>= \case
 fileCompareTxLogs :: String -> IO (TestResponse TestSource) -> ScheduledTest
 fileCompareTxLogs label respIO = goldenSch label $ do
     resp <- respIO
-    return $ toS $ Y.encode
+    return $ BL.fromStrict $ Y.encode
         $ coinbase (_trCoinBaseOutput resp)
         : (result <$> _trOutputs resp)
   where

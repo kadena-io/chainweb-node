@@ -12,7 +12,6 @@
 --
 module Chainweb.Payload.PayloadStore.RocksDB
 ( newPayloadDb
-, openPayloadDb
 
 -- * Internal
 , newBlockPayloadStore
@@ -29,57 +28,57 @@ module Chainweb.Payload.PayloadStore.RocksDB
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
 import Chainweb.Utils hiding (Codec)
+import Chainweb.Utils.Serialization
 
-import Data.CAS.RocksDB
+import Chainweb.Storage.Table
+import Chainweb.Storage.Table.RocksDB
 
 -- -------------------------------------------------------------------------- --
 -- RocksDbCas
 
-newBlockPayloadStore :: RocksDb -> BlockPayloadStore RocksDbCas
-newBlockPayloadStore db = BlockPayloadStore $ newCas db
+newBlockPayloadStore :: RocksDb -> Casify RocksDbTable BlockPayload
+newBlockPayloadStore db = Casify $ newTable db
     (Codec encodeToByteString decodeStrictOrThrow')
-    (Codec (runPut . encodeBlockPayloadHash) (runGet decodeBlockPayloadHash))
+    (Codec (runPutS . encodeBlockPayloadHash) (runGetS decodeBlockPayloadHash))
     ["BlockPayload"]
 
-newBlockTransactionsStore :: RocksDb -> BlockTransactionsStore RocksDbCas
-newBlockTransactionsStore db = BlockTransactionsStore $ newCas db
+newBlockTransactionsStore :: RocksDb -> Casify RocksDbTable BlockTransactions 
+newBlockTransactionsStore db = Casify $ newTable db
     (Codec encodeToByteString decodeStrictOrThrow')
-    (Codec (runPut . encodeBlockTransactionsHash) (runGet decodeBlockTransactionsHash))
+    (Codec (runPutS . encodeBlockTransactionsHash) (runGetS decodeBlockTransactionsHash))
     ["BlockTransactions"]
 
-newTransactionDb :: RocksDb -> TransactionDb RocksDbCas
+newTransactionDb :: RocksDb -> TransactionDb RocksDbTable
 newTransactionDb db = TransactionDb
     (newBlockTransactionsStore db)
     (newBlockPayloadStore db)
 
-newBlockOutputsStore :: RocksDb -> BlockOutputsStore RocksDbCas
-newBlockOutputsStore db = BlockOutputsStore $ newCas db
+newBlockOutputsStore :: RocksDb -> BlockOutputsStore RocksDbTable
+newBlockOutputsStore db = Casify $ newTable db
     (Codec encodeToByteString decodeStrictOrThrow')
-    (Codec (runPut . encodeBlockOutputsHash) (runGet decodeBlockOutputsHash))
+    (Codec (runPutS . encodeBlockOutputsHash) (runGetS decodeBlockOutputsHash))
     ["BlockOutputs"]
 
-newTransactionTreeStore :: RocksDb -> TransactionTreeStore RocksDbCas
-newTransactionTreeStore db = TransactionTreeStore $ newCas db
+newTransactionTreeStore :: RocksDb -> TransactionTreeStore RocksDbTable
+newTransactionTreeStore db = Casify $ newTable db
     (Codec encodeToByteString decodeStrictOrThrow')
-    (Codec (runPut . encodeBlockTransactionsHash) (runGet decodeBlockTransactionsHash))
+    (Codec (runPutS . encodeBlockTransactionsHash) (runGetS decodeBlockTransactionsHash))
     ["TransactionTree"]
 
-newOutputTreeStore :: RocksDb -> OutputTreeStore RocksDbCas
-newOutputTreeStore db = OutputTreeStore $ newCas db
+newOutputTreeStore :: RocksDb -> OutputTreeStore RocksDbTable
+newOutputTreeStore db = Casify $ newTable db
     (Codec encodeToByteString decodeStrictOrThrow')
-    (Codec (runPut . encodeBlockOutputsHash) (runGet decodeBlockOutputsHash))
+    (Codec (runPutS . encodeBlockOutputsHash) (runGetS decodeBlockOutputsHash))
     ["OutputTree"]
 
-newPayloadCache :: RocksDb -> PayloadCache RocksDbCas
+newPayloadCache :: RocksDb -> PayloadCache RocksDbTable
 newPayloadCache db = PayloadCache
     (newBlockOutputsStore db)
     (newTransactionTreeStore db)
     (newOutputTreeStore db)
 
-newPayloadDb :: RocksDb -> PayloadDb RocksDbCas
+newPayloadDb :: RocksDb -> PayloadDb RocksDbTable
 newPayloadDb db = PayloadDb
     (newTransactionDb db)
     (newPayloadCache db)
 
-openPayloadDb :: FilePath -> IO (PayloadDb RocksDbCas)
-openPayloadDb path = newPayloadDb <$> openRocksDb path

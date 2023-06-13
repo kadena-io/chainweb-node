@@ -19,17 +19,11 @@
 --
 module Chainweb.Chainweb.Configuration
 (
--- * Transaction Index Configuration
-  TransactionIndexConfig(..)
-, defaultTransactionIndexConfig
-, pTransactionIndexConfig
-
 -- * Throttling Configuration
-, ThrottlingConfig(..)
+  ThrottlingConfig(..)
 , throttlingRate
-, throttlingMiningRate
 , throttlingPeerRate
-, throttlingLocalRate
+, throttlingMempoolRate
 , defaultThrottlingConfig
 
 -- * Cut Configuration
@@ -38,10 +32,10 @@ module Chainweb.Chainweb.Configuration
 , chainDatabaseGcFromText
 
 , CutConfig(..)
-, cutIncludeOrigin
 , cutPruneChainDatabase
 , cutFetchTimeout
-, cutInitialCutHeightLimit
+, cutInitialBlockHeightLimit
+, cutFastForwardBlockHeightLimit
 , defaultCutConfig
 , pCutConfig
 
@@ -52,20 +46,29 @@ module Chainweb.Chainweb.Configuration
 , defaultServiceApiConfig
 , pServiceApiConfig
 
+-- * Backup configuration
+, BackupApiConfig(..)
+, configBackupApi
+, BackupConfig(..)
+, defaultBackupConfig
+
 -- * Chainweb Configuration
 , ChainwebConfiguration(..)
 , configChainwebVersion
+, configCuts
 , configMining
 , configHeaderStream
 , configReintroTxs
 , configP2p
-, configTransactionIndex
 , configBlockGasLimit
 , configMinGasPrice
 , configThrottling
 , configReorgLimit
 , configRosetta
+, configBackup
 , configServiceApi
+, configOnlySyncPact
+, configSyncPactChains
 , defaultChainwebConfiguration
 , pChainwebConfiguration
 , validateChainwebConfiguration
@@ -77,8 +80,10 @@ import Configuration.Utils hiding (Error, Lens', disabled)
 import Control.Lens hiding ((.=), (<.>))
 import Control.Monad
 import Control.Monad.Catch (MonadThrow, throwM)
+import Control.Monad.Except
 import Control.Monad.Writer
 
+import Data.Foldable
 import Data.Maybe
 import qualified Data.Text as T
 
@@ -90,6 +95,8 @@ import Numeric.Natural (Natural)
 
 import Prelude hiding (log)
 
+import System.Directory
+
 -- internal modules
 
 import Chainweb.BlockHeight
@@ -97,51 +104,25 @@ import Chainweb.HostAddress
 import qualified Chainweb.Mempool.Mempool as Mempool
 import Chainweb.Mempool.P2pConfig
 import Chainweb.Miner.Config
-import Chainweb.Pact.Types (defaultReorgLimit)
+import Chainweb.Pact.Types (defaultReorgLimit, defaultModuleCacheLimit, defaultLocalRewindDepthLimit)
+import Chainweb.Payload.RestAPI (PayloadBatchLimit(..), defaultServicePayloadBatchLimit)
 import Chainweb.Utils
 import Chainweb.Version
 
 import P2P.Node.Configuration
-
--- -------------------------------------------------------------------------- --
--- TransactionIndexConfig
-
-data TransactionIndexConfig = TransactionIndexConfig
-    deriving (Show, Eq, Generic)
-
-makeLenses ''TransactionIndexConfig
-
-defaultTransactionIndexConfig :: TransactionIndexConfig
-defaultTransactionIndexConfig = TransactionIndexConfig
-
-instance ToJSON TransactionIndexConfig where
-    toJSON _ = object []
-
-instance FromJSON (TransactionIndexConfig -> TransactionIndexConfig) where
-    parseJSON = withObject "TransactionIndexConfig" $ const (return id)
-
-pTransactionIndexConfig :: MParser TransactionIndexConfig
-pTransactionIndexConfig = pure id
+import Chainweb.Pact.Backend.DbCache (DbCacheLimitBytes)
 
 -- -------------------------------------------------------------------------- --
 -- Throttling Configuration
 
 data ThrottlingConfig = ThrottlingConfig
     { _throttlingRate :: !Double
-    , _throttlingMiningRate :: !Double
-        -- ^ The rate should be sufficient to make at least on call per cut. We
-        -- expect an cut to arrive every few seconds.
-        --
-        -- Default is 10 per second.
     , _throttlingPeerRate :: !Double
         -- ^ This should throttle aggressively. This endpoint does an expensive
         -- check of the client. And we want to keep bad actors out of the
         -- system. There should be no need for a client to call this endpoint on
         -- the same node more often than at most few times peer minute.
-        --
-        -- Default is 1 per second
-        --
-    , _throttlingLocalRate :: !Double
+    , _throttlingMempoolRate :: !Double
     }
     deriving stock (Eq, Show)
 
@@ -149,26 +130,23 @@ makeLenses ''ThrottlingConfig
 
 defaultThrottlingConfig :: ThrottlingConfig
 defaultThrottlingConfig = ThrottlingConfig
-    { _throttlingRate = 200 -- per second
-    , _throttlingMiningRate = 5 --  per second
-    , _throttlingPeerRate = 21 -- per second, one for each p2p network
-    , _throttlingLocalRate = 0.1  -- per 10 seconds
+    { _throttlingRate = 50 -- per second, in a 100 burst
+    , _throttlingPeerRate = 11 -- per second, 1 for each p2p network
+    , _throttlingMempoolRate = 20 -- one every seconds per mempool.
     }
 
 instance ToJSON ThrottlingConfig where
     toJSON o = object
         [ "global" .= _throttlingRate o
-        , "mining" .= _throttlingMiningRate o
         , "putPeer" .= _throttlingPeerRate o
-        , "local" .= _throttlingLocalRate o
+        , "mempool" .= _throttlingMempoolRate o
         ]
 
 instance FromJSON (ThrottlingConfig -> ThrottlingConfig) where
     parseJSON = withObject "ThrottlingConfig" $ \o -> id
         <$< throttlingRate ..: "global" % o
-        <*< throttlingMiningRate ..: "mining" % o
         <*< throttlingPeerRate ..: "putPeer" % o
-        <*< throttlingLocalRate ..: "local" % o
+        <*< throttlingMempoolRate ..: "mempool" % o
 
 -- -------------------------------------------------------------------------- --
 -- Cut Coniguration
@@ -213,10 +191,10 @@ instance FromJSON ChainDatabaseGcConfig where
     {-# INLINE parseJSON #-}
 
 data CutConfig = CutConfig
-    { _cutIncludeOrigin :: !Bool
-    , _cutPruneChainDatabase :: !ChainDatabaseGcConfig
+    { _cutPruneChainDatabase :: !ChainDatabaseGcConfig
     , _cutFetchTimeout :: !Int
-    , _cutInitialCutHeightLimit :: !(Maybe CutHeight)
+    , _cutInitialBlockHeightLimit :: !(Maybe BlockHeight)
+    , _cutFastForwardBlockHeightLimit :: !(Maybe BlockHeight)
     } deriving (Eq, Show)
 
 makeLenses ''CutConfig
@@ -225,43 +203,45 @@ instance ToJSON CutConfig where
     toJSON o = object
         [ "pruneChainDatabase" .= _cutPruneChainDatabase o
         , "fetchTimeout" .= _cutFetchTimeout o
-        , "initialCutHeightLimit" .= _cutInitialCutHeightLimit o ]
+        , "initialBlockHeightLimit" .= _cutInitialBlockHeightLimit o
+        , "fastForwardBlockHeightLimit" .= _cutFastForwardBlockHeightLimit o
+        ]
 
 instance FromJSON (CutConfig -> CutConfig) where
     parseJSON = withObject "CutConfig" $ \o -> id
-        <$< cutIncludeOrigin ..: "includeOrigin" % o
-        <*< cutPruneChainDatabase ..: "pruneChainDatabase" % o
+        <$< cutPruneChainDatabase ..: "pruneChainDatabase" % o
         <*< cutFetchTimeout ..: "fetchTimeout" % o
-        <*< cutInitialCutHeightLimit ..: "initialCutHeightLimit" % o
+        <*< cutInitialBlockHeightLimit ..: "initialBlockHeightLimit" % o
+        <*< cutFastForwardBlockHeightLimit ..: "fastForwardBlockHeightLimit" % o
 
 defaultCutConfig :: CutConfig
 defaultCutConfig = CutConfig
-    { _cutIncludeOrigin = True
-    , _cutPruneChainDatabase = GcHeaders
+    { _cutPruneChainDatabase = GcNone
     , _cutFetchTimeout = 3_000_000
-    , _cutInitialCutHeightLimit = Nothing
+    , _cutInitialBlockHeightLimit = Nothing
+    , _cutFastForwardBlockHeightLimit = Nothing
     }
 
 pCutConfig :: MParser CutConfig
 pCutConfig = id
-    <$< cutIncludeOrigin .:: boolOption_
-        % long "cut-include-origin"
-        <> hidden
-        <> internal
-        <> help "whether to include the origin when sending cuts"
-    <*< cutPruneChainDatabase .:: textOption
+    <$< cutPruneChainDatabase .:: textOption
         % long "prune-chain-database"
         <> help
             ( "How to prune the chain database on startup."
-            <> " Pruning headers takes about between 10s to 2min. "
-            <> " Pruning headers with full header validation (headers-checked) and full GC can take"
-            <> " a longer time (up to 10 minutes or more)."
+            <> " This can take several hours."
             )
         <> metavar "none|headers|headers-checked|full"
     <*< cutFetchTimeout .:: option auto
         % long "cut-fetch-timeout"
         <> help "The timeout for processing new cuts in microseconds"
-    -- cutInitialCutHeightLimit isn't supported on the command line
+    <*< cutInitialBlockHeightLimit .:: fmap (Just . BlockHeight) . option auto
+        % long "initial-block-height-limit"
+        <> help "Reset initial cut to this block height."
+        <> metavar "INT"
+    <*< cutFastForwardBlockHeightLimit .:: fmap (Just . BlockHeight) . option auto
+        % long "fast-forward-block-height-limit"
+        <> help "When --only-sync-pact is given fast forward to this height. Ignored otherwise."
+        <> metavar "INT"
 
 -- -------------------------------------------------------------------------- --
 -- Service API Configuration
@@ -276,6 +256,13 @@ data ServiceApiConfig = ServiceApiConfig
     , _serviceApiConfigInterface :: !HostPreference
         -- ^ The network interface that the service APIs are bound to. Default is to
         -- bind to all available interfaces ('*').
+    , _serviceApiConfigValidateSpec :: !Bool
+        -- ^ Validate requests and responses against the latest OpenAPI specification.
+        -- Disabled by default for performance reasons
+
+    , _serviceApiPayloadBatchLimit :: PayloadBatchLimit
+        -- ^ maximum size for payload batches on the service API. Default is
+        -- 'Chainweb.Payload.RestAPI.defaultServicePayloadBatchLimit'.
     }
     deriving (Show, Eq, Generic)
 
@@ -285,18 +272,24 @@ defaultServiceApiConfig :: ServiceApiConfig
 defaultServiceApiConfig = ServiceApiConfig
     { _serviceApiConfigPort = 1848
     , _serviceApiConfigInterface = "*"
+    , _serviceApiConfigValidateSpec = False
+    , _serviceApiPayloadBatchLimit = defaultServicePayloadBatchLimit
     }
 
 instance ToJSON ServiceApiConfig where
     toJSON o = object
         [ "port" .= _serviceApiConfigPort o
         , "interface" .= hostPreferenceToText (_serviceApiConfigInterface o)
+        , "validateSpec" .= _serviceApiConfigValidateSpec o
+        , "payloadBatchLimit" .= _serviceApiPayloadBatchLimit o
         ]
 
 instance FromJSON (ServiceApiConfig -> ServiceApiConfig) where
     parseJSON = withObject "ServiceApiConfig" $ \o -> id
         <$< serviceApiConfigPort ..: "port" % o
         <*< setProperty serviceApiConfigInterface "interface" (parseJsonFromText "interface") o
+        <*< serviceApiConfigValidateSpec ..: "validateSpec" % o
+        <*< serviceApiPayloadBatchLimit ..: "payloadBatchLimit" % o
 
 pServiceApiConfig :: MParser ServiceApiConfig
 pServiceApiConfig = id
@@ -304,34 +297,102 @@ pServiceApiConfig = id
     <*< serviceApiConfigInterface .:: textOption
         % prefixLong service "interface"
         <> suffixHelp service "interface that the service Rest API binds to (see HostPreference documentation for details)"
+    -- serviceApiBackups isn't supported on the command line
+    <*< serviceApiPayloadBatchLimit .:: fmap PayloadBatchLimit . option auto
+        % prefixLong service "payload-batch-limit"
+        <> suffixHelp service "upper limit for the size of payload batches on the service API"
+    <*< serviceApiConfigValidateSpec .:: enableDisableFlag
+        % prefixLong service "validate-spec"
+        <> internal -- hidden option, for expert use
   where
     service = Just "service"
 
+-- -------------------------------------------------------------------------- --
+-- Backup configuration
+
+data BackupApiConfig = BackupApiConfig
+    deriving (Show, Eq, Generic)
+
+defaultBackupApiConfig :: BackupApiConfig
+defaultBackupApiConfig = BackupApiConfig
+
+data BackupConfig = BackupConfig
+    { _configBackupApi :: !(EnableConfig BackupApiConfig)
+    , _configBackupDirectory :: !(Maybe FilePath)
+    -- ^ Should be a path in the same partition as the database directory to
+    --   avoid the slow path of the rocksdb checkpoint mechanism.
+    }
+    deriving (Show, Eq, Generic)
+
+defaultBackupConfig :: BackupConfig
+defaultBackupConfig = BackupConfig
+    { _configBackupApi = EnableConfig False defaultBackupApiConfig
+    , _configBackupDirectory = Nothing
+    }
+
+makeLenses ''BackupApiConfig
+makeLenses ''BackupConfig
+
+instance ToJSON BackupApiConfig where
+    toJSON _cfg = toJSON $ object [ ]
+
+instance FromJSON (BackupApiConfig -> BackupApiConfig) where
+    parseJSON = withObject "BackupApiConfig" $ \_ -> return id
+
+pBackupApiConfig :: MParser BackupApiConfig
+pBackupApiConfig = pure id
+
+instance ToJSON BackupConfig where
+    toJSON cfg = object
+        [ "api" .= _configBackupApi cfg
+        , "directory" .= _configBackupDirectory cfg
+        ]
+
+instance FromJSON (BackupConfig -> BackupConfig) where
+    parseJSON = withObject "BackupConfig" $ \o -> id
+        <$< configBackupApi %.: "api" % o
+        <*< configBackupDirectory ..: "directory" % o
+
+pBackupConfig :: MParser BackupConfig
+pBackupConfig = id
+    <$< configBackupApi %:: pEnableConfig "backup-api" pBackupApiConfig
+    <*< configBackupDirectory .:: fmap Just % textOption
+        % prefixLong backup "directory"
+        <> suffixHelp backup "Directory in which backups will be placed when using the backup API endpoint"
+  where
+    backup = Just "backup"
 
 -- -------------------------------------------------------------------------- --
 -- Chainweb Configuration
 
 data ChainwebConfiguration = ChainwebConfiguration
     { _configChainwebVersion :: !ChainwebVersion
-    , _configNodeIdDeprecated :: !Value
-        -- ^ Deprecated, won't show up in --print-config
     , _configCuts :: !CutConfig
     , _configMining :: !MiningConfig
     , _configHeaderStream :: !Bool
     , _configReintroTxs :: !Bool
     , _configP2p :: !P2pConfiguration
-    , _configTransactionIndex :: !(EnableConfig TransactionIndexConfig)
     , _configThrottling :: !ThrottlingConfig
     , _configMempoolP2p :: !(EnableConfig MempoolP2pConfig)
     , _configBlockGasLimit :: !Mempool.GasLimit
+    , _configLogGas :: !Bool
     , _configMinGasPrice :: !Mempool.GasPrice
     , _configPactQueueSize :: !Natural
     , _configReorgLimit :: !Natural
+    , _configLocalRewindDepthLimit :: !Natural
     , _configValidateHashesOnReplay :: !Bool
         -- ^ Re-validate payload hashes during replay.
     , _configAllowReadsInLocal :: !Bool
     , _configRosetta :: !Bool
+    , _configBackup :: !BackupConfig
     , _configServiceApi :: !ServiceApiConfig
+    , _configOnlySyncPact :: !Bool
+        -- ^ exit after synchronizing pact dbs to the latest cut
+    , _configSyncPactChains :: !(Maybe [ChainId])
+        -- ^ the only chains to be synchronized on startup to the latest cut.
+        --   if unset, all chains will be synchronized.
+    , _configModuleCacheLimit :: !DbCacheLimitBytes
+        -- ^ module cache size limit in bytes
     } deriving (Show, Eq, Generic)
 
 makeLenses ''ChainwebConfiguration
@@ -343,35 +404,44 @@ instance HasChainwebVersion ChainwebConfiguration where
 validateChainwebConfiguration :: ConfigValidation ChainwebConfiguration []
 validateChainwebConfiguration c = do
     validateMinerConfig (_configMining c)
+    validateBackupConfig (_configBackup c)
     case _configChainwebVersion c of
         Mainnet01 -> validateP2pConfiguration (_configP2p c)
         Testnet04 -> validateP2pConfiguration (_configP2p c)
         _ -> return ()
-    unless (_configNodeIdDeprecated c == Null) $ tell
-        [ "Usage NodeId is deprecated. This option will be removed in a future version of chainweb-node"
-        , "The value of NodeId is ignored by chainweb-node. In particular the database path will not depend on it"
-        ]
+
+validateBackupConfig :: ConfigValidation BackupConfig []
+validateBackupConfig c =
+    for_ (_configBackupDirectory c) $ \dir -> do
+        liftIO $ createDirectoryIfMissing True dir
+        perms <- liftIO (getPermissions dir)
+        unless (writable perms) $
+            throwError $ "Backup directory " <> T.pack dir <> " is not writable"
 
 defaultChainwebConfiguration :: ChainwebVersion -> ChainwebConfiguration
 defaultChainwebConfiguration v = ChainwebConfiguration
     { _configChainwebVersion = v
-    , _configNodeIdDeprecated = Null
     , _configCuts = defaultCutConfig
     , _configMining = defaultMining
     , _configHeaderStream = False
     , _configReintroTxs = True
     , _configP2p = defaultP2pConfiguration
-    , _configTransactionIndex = defaultEnableConfig defaultTransactionIndexConfig
     , _configThrottling = defaultThrottlingConfig
     , _configMempoolP2p = defaultEnableConfig defaultMempoolP2pConfig
     , _configBlockGasLimit = 150000
+    , _configLogGas = False
     , _configMinGasPrice = 1e-8
     , _configPactQueueSize = 2000
     , _configReorgLimit = int defaultReorgLimit
+    , _configLocalRewindDepthLimit = int defaultLocalRewindDepthLimit
     , _configValidateHashesOnReplay = False
     , _configAllowReadsInLocal = False
     , _configRosetta = False
     , _configServiceApi = defaultServiceApiConfig
+    , _configOnlySyncPact = False
+    , _configSyncPactChains = Nothing
+    , _configBackup = defaultBackupConfig
+    , _configModuleCacheLimit = defaultModuleCacheLimit
     }
 
 instance ToJSON ChainwebConfiguration where
@@ -382,17 +452,22 @@ instance ToJSON ChainwebConfiguration where
         , "headerStream" .= _configHeaderStream o
         , "reintroTxs" .= _configReintroTxs o
         , "p2p" .= _configP2p o
-        , "transactionIndex" .= _configTransactionIndex o
         , "throttling" .= _configThrottling o
         , "mempoolP2p" .= _configMempoolP2p o
         , "gasLimitOfBlock" .= _configBlockGasLimit o
+        , "logGas" .= _configLogGas o
         , "minGasPrice" .= _configMinGasPrice o
         , "pactQueueSize" .= _configPactQueueSize o
         , "reorgLimit" .= _configReorgLimit o
+        , "localRewindDepthLimit" .= _configLocalRewindDepthLimit o
         , "validateHashesOnReplay" .= _configValidateHashesOnReplay o
         , "allowReadsInLocal" .= _configAllowReadsInLocal o
         , "rosetta" .= _configRosetta o
         , "serviceApi" .= _configServiceApi o
+        , "onlySyncPact" .= _configOnlySyncPact o
+        , "syncPactChains" .= _configSyncPactChains o
+        , "backup" .= _configBackup o
+        , "moduleCacheLimit" .= _configModuleCacheLimit o
         ]
 
 instance FromJSON ChainwebConfiguration where
@@ -403,23 +478,27 @@ instance FromJSON ChainwebConfiguration where
 instance FromJSON (ChainwebConfiguration -> ChainwebConfiguration) where
     parseJSON = withObject "ChainwebConfig" $ \o -> id
         <$< configChainwebVersion ..: "chainwebVersion" % o
-        <*< configNodeIdDeprecated ..: "nodeId" % o
         <*< configCuts %.: "cuts" % o
         <*< configMining %.: "mining" % o
         <*< configHeaderStream ..: "headerStream" % o
         <*< configReintroTxs ..: "reintroTxs" % o
         <*< configP2p %.: "p2p" % o
-        <*< configTransactionIndex %.: "transactionIndex" % o
         <*< configThrottling %.: "throttling" % o
         <*< configMempoolP2p %.: "mempoolP2p" % o
         <*< configBlockGasLimit ..: "gasLimitOfBlock" % o
+        <*< configLogGas ..: "logGas" % o
         <*< configMinGasPrice ..: "minGasPrice" % o
         <*< configPactQueueSize ..: "pactQueueSize" % o
         <*< configReorgLimit ..: "reorgLimit" % o
+        <*< configLocalRewindDepthLimit ..: "localRewindDepthLimit" % o
         <*< configValidateHashesOnReplay ..: "validateHashesOnReplay" % o
         <*< configAllowReadsInLocal ..: "allowReadsInLocal" % o
         <*< configRosetta ..: "rosetta" % o
         <*< configServiceApi %.: "serviceApi" % o
+        <*< configOnlySyncPact ..: "onlySyncPact" % o
+        <*< configSyncPactChains ..: "syncPactChains" % o
+        <*< configBackup %.: "backup" % o
+        <*< configModuleCacheLimit ..: "moduleCacheLimit" % o
 
 pChainwebConfiguration :: MParser ChainwebConfiguration
 pChainwebConfiguration = id
@@ -427,12 +506,6 @@ pChainwebConfiguration = id
         % long "chainweb-version"
         <> short 'v'
         <> help "the chainweb version that this node is using"
-    <*< configNodeIdDeprecated .:: fmap (String . T.pack) . strOption
-        % hidden
-        <> internal
-        <> long "node-id"
-        <> short 'i'
-        <> help "DEPRECATED. The value is ignored"
     <*< configHeaderStream .:: boolOption_
         % long "header-stream"
         <> help "whether to enable an endpoint for streaming block updates"
@@ -440,13 +513,14 @@ pChainwebConfiguration = id
         % long "tx-reintro"
         <> help "whether to enable transaction reintroduction from losing forks"
     <*< configP2p %:: pP2pConfiguration
-    <*< configTransactionIndex %::
-        pEnableConfig "transaction-index" pTransactionIndexConfig
     <*< configMempoolP2p %::
         pEnableConfig "mempool-p2p" pMempoolP2pConfig
     <*< configBlockGasLimit .:: jsonOption
         % long "block-gas-limit"
         <> help "the sum of all transaction gas fees in a block must not exceed this number"
+    <*< configLogGas .:: boolOption_
+        % long "log-gas"
+        <> help "log gas consumed by Pact commands"
     <*< configMinGasPrice .:: jsonOption
         % long "min-gas-price"
         <> help "the gas price of an individual transaction in a block must not be beneath this number"
@@ -458,6 +532,9 @@ pChainwebConfiguration = id
         <> help "Max allowed reorg depth.\
                 \ Consult https://github.com/kadena-io/chainweb-node/blob/master/docs/RecoveringFromDeepForks.md for\
                 \ more information. "
+    <*< configLocalRewindDepthLimit .:: jsonOption
+        % long "local-rewind-depth-limit"
+        <> help "Max allowed rewind depth for the local command."
     <*< configValidateHashesOnReplay .:: boolOption_
         % long "validateHashesOnReplay"
         <> help "Re-validate payload hashes during transaction replay."
@@ -469,4 +546,17 @@ pChainwebConfiguration = id
         <> help "Enable the Rosetta endpoints."
     <*< configCuts %:: pCutConfig
     <*< configServiceApi %:: pServiceApiConfig
+    <*< configMining %:: pMiningConfig
+    <*< configOnlySyncPact .:: boolOption_
+        % long "only-sync-pact"
+        <> help "Terminate after synchronizing the pact databases to the latest cut"
+    <*< configSyncPactChains .:: fmap Just % jsonOption
+        % long "sync-pact-chains"
+        <> help "The only Pact databases to synchronize. If empty or unset, all chains will be synchronized."
+        <> metavar "JSON list of chain ids"
+    <*< configBackup %:: pBackupConfig
+    <*< configModuleCacheLimit .:: option auto
+        % long "module-cache-limit"
+        <> help "Maximum size of the per-chain checkpointer module cache in bytes"
+        <> metavar "INT"
 

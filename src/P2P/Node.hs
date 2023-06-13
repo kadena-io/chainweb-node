@@ -1,5 +1,4 @@
 {-# LANGUAGE BangPatterns #-}
-{-# LANGUAGE CPP #-}
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DerivingStrategies #-}
@@ -65,6 +64,9 @@ module P2P.Node
 , p2pStatsKnownPeerCount
 , p2pStatsActiveLast
 , p2pStatsActiveMax
+
+-- * Utils
+, geometric
 ) where
 
 import Control.Concurrent
@@ -79,17 +81,21 @@ import Control.Monad.STM
 import Control.Scheduler (Comp(..), traverseConcurrently)
 
 import Data.Aeson hiding (Error)
-import Data.Foldable
+import Data.Bifunctor
+import Data.Function
 import Data.Hashable
 import qualified Data.HashSet as HS
 import Data.IORef
 import qualified Data.IxSet.Typed as IXS
+import qualified Data.List as L
 import qualified Data.Map.Strict as M
 import Data.Maybe
+import qualified Data.Set as S
 import qualified Data.Text as T
 import Data.Tuple
 
 import GHC.Generics
+import GHC.Stack
 
 import qualified Network.HTTP.Client as HTTP
 
@@ -205,7 +211,7 @@ data P2pNode = P2pNode
     , _p2pNodeLogFunction :: !LogFunction
     , _p2pNodeStats :: !(TVar P2pNodeStats)
     , _p2pNodeClientSession :: !P2pSession
-    , _p2pNodeRng :: !(TVar R.StdGen)
+    , _p2pNodeRng :: !(IORef R.StdGen)
     , _p2pNodeActive :: !(TVar Bool)
         -- ^ Wether this node is active. If this is 'False' no new sessions
         -- will be initialized.
@@ -281,11 +287,28 @@ logg n = _p2pNodeLogFunction n
 loggFun :: P2pNode -> LogFunction
 loggFun = _p2pNodeLogFunction
 
-randomR :: R.Random a => P2pNode -> (a, a) -> STM a
-randomR node range = do
-    !gen <- readTVar (_p2pNodeRng node)
-    let (!a, !gen') = R.randomR range gen
-    a <$ writeTVar (_p2pNodeRng node) gen'
+nodeRandom :: R.Random a => P2pNode -> (R.StdGen -> (a, R.StdGen)) -> IO a
+nodeRandom node r = atomicModifyIORef' (_p2pNodeRng node) $ swap . r
+{-# INLINE nodeRandom #-}
+
+nodeRandomR :: R.Random a => P2pNode -> (a, a) -> IO a
+nodeRandomR node = nodeRandom node . R.randomR
+{-# INLINE nodeRandomR #-}
+
+-- | Geometric distribution that counts the number of failures before success.
+--
+-- The parameter is the the success probability of the underlying Bernoulli
+-- experiment.
+--
+geometric :: HasCallStack => R.RandomGen g => Double -> g -> (Int, g)
+geometric 1 g = (0, g)
+geometric p g
+    | p > 0 && p < 1 = first (floor . logBase (1 - p)) $ R.randomR (0,1) g
+    | otherwise = error "P2P.Node.geometric: probability must be within (0,1]"
+
+nodeGeometric :: HasCallStack => P2pNode -> Double -> IO Int
+nodeGeometric node = nodeRandom node . geometric
+{-# INLINE nodeGeometric #-}
 
 setInactive :: P2pNode -> STM ()
 setInactive node = writeTVar (_p2pNodeActive node) False
@@ -387,6 +410,8 @@ guardPeerDbOfNode
     -> PeerInfo
     -> IO (Maybe PeerInfo)
 guardPeerDbOfNode node pinf = go >>= \case
+    Left (IsLocalPeerAddress _) ->
+        return Nothing
     Left e -> do
         logg node Info $ "failed to validate peer " <> showInfo pinf <> ": " <> T.pack (displayException e)
         return Nothing
@@ -477,100 +502,111 @@ syncFromPeer node info = do
 findNextPeer
     :: P2pConfiguration
     -> P2pNode
-    -> STM PeerEntry
+    -> IO PeerEntry
 findNextPeer conf node = do
-
-    -- check if this node is active. If not, don't create new sessions,
-    -- but retry until it becomes active.
-    --
-    !active <- readTVar (_p2pNodeActive node)
-    check active
-
-    -- get all known peers and all active sessions
-    --
-    peers <- peerDbSnapshotSTM peerDbVar
-    !sessions <- readTVar sessionsVar
-    let peerCount = length peers
-    let sessionCount = length sessions
-
-    -- Retry if there are already more active sessions than known peers.
-    --
-    check (sessionCount < peerCount)
-
-    -- Create a new sessions with a random peer for which there is no active
-    -- sessions:
-
-    let checkPeer (n :: PeerEntry) = do
-            let !pid = _peerId $ _peerEntryInfo n
-            -- can this check be moved out of the fold?
-            check (int sessionCount < _p2pConfigMaxSessionCount conf)
-            check (M.notMember (_peerEntryInfo n) sessions)
-            check (pid /= myPid)
-            return n
-
-    -- Classify the peers by priority
-    --
-    let base = IXS.getEQ (_p2pNodeNetworkId node) peers
-
-#if 0
+    candidates <- awaitCandidates
 
     -- random circular shift of a set
-    let shift i s = uncurry (++)
-            $ swap
-            $ splitAt (fromIntegral i)
-            $ toList
-            $ s
+    let shift i = uncurry (++)
+            . swap
+            . splitAt (fromIntegral i)
 
         shiftR s = do
-            i <- randomR node (0, max 1 (IXS.size s) - 1)
-            return $! shift i s
+            i <- nodeRandomR node (0, max 1 (length s) - 1)
+            return $ shift i s
 
-    -- TODO: how expensive is this? should be cache the classification?
+    let (p0, p1) = L.partition (\p -> _peerEntryActiveSessionCount p > 0 && _peerEntrySuccessiveFailures p <= 1) candidates
+
+        -- this ix expensive but lazy and only forced if p0 is empty
+        p2 = L.groupBy ((==) `on` _peerEntrySuccessiveFailures) p1
+
+
+    -- Choose the category to pick from
     --
-    let p0 = IXS.getGT (ActiveSessionCount 0) $ IXS.getLTE (SuccessiveFailures 1) base
-        p1 = IXS.getEQ (ActiveSessionCount 0) $ IXS.getLTE (SuccessiveFailures 1) base
-        p2 = IXS.getGT (ActiveSessionCount 0) $ IXS.getGT (SuccessiveFailures 1) base
-        p3 = IXS.getEQ (ActiveSessionCount 0) $ IXS.getGT (SuccessiveFailures 1) base
-    searchSpace <- concat <$> traverse shiftR [p0, p1, p2, p3]
-    foldr (orElse . checkPeer) retry searchSpace
+    -- In 95% of all cases are peer is selected from the highest priority, if possible.
+    -- This ensures that the overall network topology is sufficient random and
+    -- dynamic while also maintaining a reasonable level of connection sharing.
+    --
+    nodeGeometric node 0.95 >>= \case
 
-#else
+        -- Special case that avoids forcing of p2
+        0 | not (null p0) -> head <$> shiftR p0
 
-    -- random circular shift of a set
-    let shift i s = uncurry (++)
-            $ swap
-            $ splitAt (fromIntegral i)
-            $ s
-
-        shiftR s = do
-            i <- randomR node (0, max 1 (length s) - 1)
-            return $! shift i s
-
-    let p0 = toList
-            $ IXS.getGT (ActiveSessionCount 0)
-            $ IXS.getLTE (SuccessiveFailures 1) base
-        p1 = fmap snd
-            $ IXS.groupAscBy @SuccessiveFailures
-            $ IXS.union
-                (IXS.getEQ (ActiveSessionCount 0) base)
-                (IXS.getGT (SuccessiveFailures 1) base)
-    searchSpace <- concat <$> traverse shiftR (p0: p1)
-    foldr (orElse . checkPeer) retry searchSpace
-#endif
+        -- general case that forces p2
+        n -> do
+            let n' = min (length (p0 : p2) - 1) n
+            -- note that @p0 : p2@ is guaranteed to be non-empty
+            head . concat <$> traverse shiftR (drop n' (p0 : p2))
 
   where
+
+    awaitCandidates :: IO [PeerEntry]
+    awaitCandidates = atomically $ do
+
+        -- check if this node is active. If not, don't create new sessions,
+        -- but retry until it becomes active.
+        --
+        !active <- readTVar (_p2pNodeActive node)
+        check active
+
+        -- get all known peers and all active sessions
+        --
+        peers <- peerDbSnapshotSTM peerDbVar
+        !sessions <- readTVar sessionsVar
+        let peerCount = length peers
+        let sessionCount = length sessions
+
+        -- Check that there are peers
+        --
+        check (peerCount > 0)
+
+        -- Retry if there are already more active sessions than known peers.
+        --
+        check (sessionCount < peerCount)
+
+        -- Retry if there are more active sessions than the maximum number
+        -- of sessions
+        --
+        check (int sessionCount < _p2pConfigMaxSessionCount conf)
+
+        let addrs = S.fromList (_peerAddr <$> M.keys sessions)
+
+            -- peerList and candidates are supposed to be lazy. With the
+            -- transation we only check that the result is not empty, which
+            -- is expected to be much cheaper than forcing the full list.
+            --
+            peersList = IXS.toList peers
+            candidates = flip filter peersList $ \peer ->
+                let addr = _peerAddr (_peerEntryInfo peer)
+                in
+                    -- not the local peer
+                    myAddr /= addr &&
+
+                    -- no active session for this network
+                    S.notMember addr addrs &&
+
+                    -- networkId
+                    S.member netId (_peerEntryNetworkIds peer)
+
+        -- Retry if the set is empty (this only forces the head of the list)
+        check $ not $ null candidates
+
+        return candidates
+
     peerDbVar = _p2pNodePeerDb node
     sessionsVar = _p2pNodeSessions node
-    myPid = _peerId $ _p2pNodePeerInfo node
+    myAddr = _peerAddr $ _p2pNodePeerInfo node
+    netId = _p2pNodeNetworkId node
 
 -- -------------------------------------------------------------------------- --
 -- Manage Sessions
 
--- | TODO May loop forever. Add proper retry logic and logging
+-- | This can loop forever if there are no peers available for the respective
+-- network.
 --
 newSession :: P2pConfiguration -> P2pNode -> IO ()
 newSession conf node = do
-    newPeer <- atomically $ findNextPeer conf node
+    newPeer <- findNextPeer conf node
     let newPeerInfo = _peerEntryInfo newPeer
     logg node Debug $ "Selected new peer " <> encodeToText newPeer
     syncFromPeer_ newPeerInfo >>= \case
@@ -654,7 +690,7 @@ awaitSessions node = do
                 $ "session " <> showSessionId pId ses <> " failed with " <> sshow e
         _ -> return ()
 
-    logg node Info
+    logg node Debug
         $ "closed session " <> showSessionId pId ses
         <> if isSuccess result then " (success)" else " (failure)"
 
@@ -726,7 +762,7 @@ p2pCreateNode cv nid peer logfun db mgr doPeerSync session = do
     -- intialize P2P State
     sessionsVar <- newTVarIO mempty
     statsVar <- newTVarIO emptyP2pNodeStats
-    rngVar <- newTVarIO =<< R.newStdGen
+    rngVar <- newIORef =<< R.newStdGen
     activeVar <- newTVarIO True
     let !s = P2pNode
                 { _p2pNodeNetworkId = nid

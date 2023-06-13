@@ -7,7 +7,6 @@
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
-{-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE PatternSynonyms #-}
@@ -46,6 +45,8 @@ module Chainweb.Version
 , window
 , headerSizeBytes
 , workSizeBytes
+-- ** Payload Validation Parameters
+, maxBlockGasLimit
 -- ** Payload Validation Guards
 , vuln797Fix
 , coinV2Upgrade
@@ -57,8 +58,18 @@ module Chainweb.Version
 , enablePactEvents
 , enableSPVBridge
 , pact4coin3Upgrade
+, pact420Upgrade
 , enforceKeysetFormats
 , AtOrAfter(..)
+, doCheckTxHash
+, chainweb213Pact
+, chainweb214Pact
+, chainweb215Pact
+, chainweb216Pact
+, chainweb217Pact
+, chainweb218Pact
+, chainweb219Pact
+, pact44NewTrans
 
 -- ** BlockHeader Validation Guards
 , slowEpochGuard
@@ -118,12 +129,11 @@ module Chainweb.Version
 
 import Control.DeepSeq
 import Control.Lens
+import Control.Monad
 import Control.Monad.Catch
 
 import Data.Aeson hiding (pairs)
 import Data.Bits
-import Data.Bytes.Get
-import Data.Bytes.Put
 import Data.Hashable
 import qualified Data.HashSet as HS
 import qualified Data.List.NonEmpty as NE
@@ -137,7 +147,7 @@ import GHC.TypeLits
 
 import Numeric.Natural
 
-import System.IO.Unsafe (unsafePerformIO)
+import System.IO.Unsafe (unsafeDupablePerformIO)
 import System.Environment (lookupEnv)
 
 import Text.Read (readMaybe)
@@ -151,6 +161,7 @@ import Chainweb.Graph
 import Chainweb.MerkleUniverse
 import Chainweb.Time
 import Chainweb.Utils
+import Chainweb.Utils.Serialization
 
 import Data.Singletons
 
@@ -292,20 +303,23 @@ fromChainwebVersionId 0x00000005 = Mainnet01
 fromChainwebVersionId i = fromTestChainwebVersionId i
 {-# INLINABLE fromChainwebVersionId #-}
 
-encodeChainwebVersion :: MonadPut m => ChainwebVersion -> m ()
+encodeChainwebVersion :: ChainwebVersion -> Put
 encodeChainwebVersion = putWord32le . chainwebVersionId
 {-# INLINABLE encodeChainwebVersion #-}
 
-decodeChainwebVersion :: MonadGet m => m ChainwebVersion
+decodeChainwebVersion :: Get ChainwebVersion
 decodeChainwebVersion = fromChainwebVersionId <$> getWord32le
 {-# INLINABLE decodeChainwebVersion #-}
 
 instance ToJSON ChainwebVersion where
     toJSON = toJSON . toText
+    toEncoding = toEncoding . toText
     {-# INLINE toJSON #-}
+    {-# INLINE toEncoding #-}
 
 instance FromJSON ChainwebVersion where
     parseJSON = parseJsonFromText "ChainwebVersion"
+    {-# INLINE parseJSON #-}
 
 instance MerkleHashAlgorithm a => IsMerkleLogEntry a ChainwebHashTag ChainwebVersion where
     type Tag ChainwebVersion = 'ChainwebVersionTag
@@ -651,7 +665,7 @@ blockRate Development = BlockRate $ maybe 30 int customeDevnetRate
 
 customeDevnetRate :: Maybe Int
 customeDevnetRate =
-    readMaybe =<< unsafePerformIO (lookupEnv "DEVELOPMENT_BLOCK_RATE")
+    readMaybe =<< unsafeDupablePerformIO (lookupEnv "DEVELOPMENT_BLOCK_RATE")
 {-# NOINLINE customeDevnetRate #-}
 
 -- | The number of blocks to be mined after a difficulty adjustment, before
@@ -743,6 +757,26 @@ workSizeBytes
     -> Natural
 workSizeBytes v h = headerSizeBytes v (unsafeChainId 0) h - 32
 {-# INLINE workSizeBytes #-}
+
+-- -------------------------------------------------------------------------- --
+-- Pact Validation Parameters
+
+-- | This the hard upper limit of the gas within a block. Blocks that use more
+-- gas are invalid and rejected. This limit is needed as a DOS protection.
+--
+-- Smaller limits can be configured for creating new blocks.
+--
+-- Before the chainweb-node 2.16 fork, there was no maximum block gas limit.
+--
+maxBlockGasLimit
+    :: ChainwebVersion
+    -> ChainId
+    -> BlockHeight
+    -> Maybe Natural
+maxBlockGasLimit Mainnet01 _ bh = 180000 <$ guard (chainweb216Pact After Mainnet01 bh)
+maxBlockGasLimit Testnet04 _ bh = 180000 <$ guard (chainweb216Pact After Testnet04 bh)
+maxBlockGasLimit Development _ _ = Just 180000
+maxBlockGasLimit _ _ _ = Just 2_000000
 
 -- -------------------------------------------------------------------------- --
 -- Pact Validation Guards
@@ -880,19 +914,133 @@ data AtOrAfter = At | After deriving (Eq,Show)
 pact4coin3Upgrade :: AtOrAfter -> ChainwebVersion -> BlockHeight -> Bool
 pact4coin3Upgrade aoa v h = case aoa of
     At -> go (==) v h
-    After -> go (flip (>)) v h
+    After -> go (<) v h
   where
     go f Mainnet01 = f 1_722_500 -- 2021-06-19T03:34:05
     go f Testnet04 = f 1_261_000 -- 2021-06-17T15:54:14
     go f Development = f 80
     go f (FastTimedCPM g) | g == petersonChainGraph = f 20
-    go _f _ = const False
+    go f _ = f 4
+    -- lowering this number causes some tests in Test.Pact.SPV to fail
+
+pact420Upgrade :: ChainwebVersion -> BlockHeight -> Bool
+pact420Upgrade Mainnet01 = (>= 2_334_500) -- 2022-01-17T17:51:12
+pact420Upgrade Testnet04 = (>= 1_862_000) -- 2022-01-13T16:11:10
+pact420Upgrade Development = (>= 90)
+pact420Upgrade (FastTimedCPM g) | g == petersonChainGraph = (>= 5)
+pact420Upgrade _ = const True
 
 enforceKeysetFormats :: ChainwebVersion -> BlockHeight -> Bool
 enforceKeysetFormats Mainnet01 = (>= 2_162_000) -- 2021-11-18T20:06:55
 enforceKeysetFormats Testnet04 = (>= 1_701_000) -- 2021-11-18T17:54:36
 enforceKeysetFormats Development = (>= 100)
-enforceKeysetFormats _ = (>= 10)
+enforceKeysetFormats (FastTimedCPM g) | g == petersonChainGraph = (>= 10)
+enforceKeysetFormats _ = const True
+
+doCheckTxHash :: ChainwebVersion -> BlockHeight -> Bool
+doCheckTxHash Mainnet01 = (>= 2_349_800) -- 2022-01-23T02:53:38
+doCheckTxHash Testnet04 = (>= 1_889_000) -- 2022-01-24T04:19:24
+doCheckTxHash Development = (>= 110)
+doCheckTxHash (FastTimedCPM g) | g == petersonChainGraph = (>= 7)
+doCheckTxHash _ = const True
+
+-- | Pact changes for Chainweb 2.13
+--
+chainweb213Pact :: ChainwebVersion -> BlockHeight -> Bool
+chainweb213Pact Mainnet01 = (>= 2_447_315) -- 2022-02-26 00:00:00
+chainweb213Pact Testnet04 = (>= 1_974_556) -- 2022-02-25 00:00:00
+chainweb213Pact Development = (>= 95)
+chainweb213Pact (FastTimedCPM g) | g == petersonChainGraph = (> 25)
+chainweb213Pact _ = const True
+
+-- | Fork for musl trans funs
+pact44NewTrans :: ChainwebVersion -> BlockHeight -> Bool
+pact44NewTrans Mainnet01 = (>= 2_939_323) -- Todo: add date
+pact44NewTrans Testnet04 = (>= 2_500_369) -- Todo: add date
+pact44NewTrans _ = const True
+
+-- | Pact and coin contract changes for Chainweb 2.14
+--
+chainweb214Pact
+    :: AtOrAfter
+    -> ChainwebVersion
+    -> BlockHeight
+    -> Bool
+chainweb214Pact aoa v h = case aoa of
+    At -> go (==) v h
+    After -> go (<) v h
+  where
+    go f Mainnet01 = f 2605663 -- 2022-04-22T00:00:00Z
+    go f Testnet04 = f 2134331 -- 2022-04-21T12:00:00Z
+    go f Development = f 115
+    go f (FastTimedCPM g) | g == petersonChainGraph = f 30
+    go f _ = f 5
+
+-- | Pact and coin contract changes for Chainweb 2.15
+--
+chainweb215Pact
+    :: AtOrAfter
+    -> ChainwebVersion
+    -> BlockHeight
+    -> Bool
+chainweb215Pact aoa v h = case aoa of
+    At -> go (==) v h
+    After -> go (<) v h
+  where
+    go f Mainnet01 = f 2766630 -- 2022-06-17T00:00:00+00:00
+    go f Testnet04 = f 2295437 -- 2022-06-16T12:00:00+00:00
+    go f Development = f 165
+    go f (FastTimedCPM g) | g == petersonChainGraph = f 35
+    go f _ = f 10
+
+-- | Pact and coin contract changes for Chainweb 2.16
+--
+chainweb216Pact
+    :: AtOrAfter
+    -> ChainwebVersion
+    -> BlockHeight
+    -> Bool
+chainweb216Pact aoa v h = case aoa of
+    At -> go (==) v h
+    After -> go (<) v h
+  where
+    go f Mainnet01 = f 2988324 -- 2022-09-02 00:00:00+00:00
+    go f Testnet04 = f 2516739 -- 2022-09-01 12:00:00+00:00
+    go f Development = f 215
+    go f (FastTimedCPM g) | g == petersonChainGraph = f 53
+    go f _ = f 16
+
+chainweb217Pact
+    :: AtOrAfter
+    -> ChainwebVersion
+    -> BlockHeight
+    -> Bool
+chainweb217Pact aoa v h = case aoa of
+    At -> go (==) v h
+    After -> go (<) v h
+  where
+    go f Mainnet01 = f 3_250_348 -- 2022-12-02 00:00:00+00:00
+    go f Testnet04 = f 2_777_367 -- 2022-12-01 12:00:00+00:00
+    go f Development = f 470
+    go f (FastTimedCPM g) | g == petersonChainGraph = f 55
+    go f _ = f 20
+
+-- | Pact changes for Chainweb 2.13
+--
+chainweb218Pact :: ChainwebVersion -> BlockHeight -> Bool
+chainweb218Pact Mainnet01 = (>= 3_512_363) -- 2023-03-03 00:00:00+00:00
+chainweb218Pact Testnet04 = (>= 3_038_343) -- 2023-03-02 12:00:00+00:00
+chainweb218Pact Development = (>= 500)
+chainweb218Pact (FastTimedCPM g) | g == petersonChainGraph = (> 60)
+chainweb218Pact _ = (> 24)
+
+chainweb219Pact :: ChainwebVersion -> BlockHeight -> Bool
+chainweb219Pact Mainnet01 = (>= 3_774_423) -- 2023-06-02 00:00:00+00:00
+chainweb219Pact Testnet04 = (>= 3_299_753) -- 2023-06-01 12:00:00+00:00
+chainweb219Pact Development = (>= 550)
+chainweb219Pact (FastTimedCPM g) | g == petersonChainGraph = (> 70)
+chainweb219Pact _ = (> 26)
+
 
 -- -------------------------------------------------------------------------- --
 -- Header Validation Guards

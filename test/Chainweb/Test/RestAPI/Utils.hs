@@ -28,7 +28,13 @@ module Chainweb.Test.RestAPI.Utils
 , accountBalance
 , blockTransaction
 , block
+, constructionDerive
+, constructionPreprocess
 , constructionMetadata
+, constructionPayloads
+, constructionParse
+, constructionCombine
+, constructionHash
 , constructionSubmit
 , mempoolTransaction
 , mempool
@@ -53,6 +59,7 @@ import Servant.Client
 
 -- internal chainweb modules
 
+import Chainweb.BlockHeight
 import Chainweb.ChainId
 import Chainweb.Graph
 import Chainweb.Pact.RestAPI.Client
@@ -113,28 +120,45 @@ repeatUntil test action = retrying testRetryPolicy
     (\_ b -> not <$> test b)
     (const action)
 
+
 -- | Calls to /local via the pact local api client with retry
+--
+localWithQueryParams
+    :: ChainId
+    -> ClientEnv
+    -> Maybe LocalPreflightSimulation
+    -> Maybe LocalSignatureVerification
+    -> Maybe BlockHeight
+    -> Command Text
+    -> IO LocalResult
+localWithQueryParams sid cenv pf sv rd cmd =
+    recovering testRetryPolicy [h] $ \s -> do
+      debug
+        $ "requesting local cmd for " <> take 19 (show cmd)
+        <> " [" <> show (view rsIterNumberL s) <> "]"
+
+      -- send a single local request and return the result
+      --
+      runClientM (pactLocalWithQueryApiClient v sid pf sv rd cmd) cenv >>= \case
+        Left e -> throwM $ LocalFailure (show e)
+        Right t -> return t
+  where
+    h _ = Handler $ \case
+      LocalFailure _ -> pure True
+      _ -> pure False
+
+-- | Calls /local via the pact local api client with preflight
+-- turned off. Retries.
 --
 local
     :: ChainId
     -> ClientEnv
     -> Command Text
     -> IO (CommandResult Hash)
-local sid cenv cmd =
-    recovering testRetryPolicy [h] $ \s -> do
-      debug
-        $ "requesting local cmd for " <> (take 19 $ show cmd)
-        <> " [" <> show (view rsIterNumberL s) <> "]"
-
-      -- send a single spv request and return the result
-      --
-      runClientM (pactLocalApiClient v sid cmd) cenv >>= \case
-        Left e -> throwM $ LocalFailure (show e)
-        Right t -> return t
-  where
-    h _ = Handler $ \case
-      LocalFailure _ -> return True
-      _ -> return False
+local sid cenv cmd = do
+    LocalResultLegacy cr <-
+      localWithQueryParams sid cenv Nothing Nothing Nothing cmd
+    pure cr
 
 localTestToRetry
     :: ChainId
@@ -265,7 +289,12 @@ data RosettaTestException
     = AccountBalanceFailure String
     | BlockTransactionFailure String
     | BlockFailure String
+    | ConstructionPreprocessFailure String
     | ConstructionMetadataFailure String
+    | ConstructionPayloadsFailure String
+    | ConstructionParseFailure String
+    | ConstructionCombineFailure String
+    | ConstructionHashFailure String
     | ConstructionSubmitFailure String
     | MempoolTransactionFailure String
     | MempoolFailure String
@@ -283,7 +312,7 @@ accountBalance
 accountBalance cenv req =
     recovering testRetryPolicy [h] $ \s -> do
     debug
-      $ "requesting account balance for " <> (show req)
+      $ "requesting account balance for " <> show req
       <> " [" <> show (view rsIterNumberL s) <> "]"
 
     runClientM (rosettaAccountBalanceApiClient v req) cenv >>= \case
@@ -301,7 +330,7 @@ blockTransaction
 blockTransaction cenv req =
     recovering testRetryPolicy [h] $ \s -> do
     debug
-      $ "requesting block transaction for " <> (show req)
+      $ "requesting block transaction for " <> show req
       <> " [" <> show (view rsIterNumberL s) <> "]"
 
     runClientM (rosettaBlockTransactionApiClient v req) cenv >>= \case
@@ -319,7 +348,7 @@ block
 block cenv req =
     recovering testRetryPolicy [h] $ \s -> do
     debug
-      $ "requesting block for " <> (show req)
+      $ "requesting block for " <> show req
       <> " [" <> show (view rsIterNumberL s) <> "]"
 
     runClientM (rosettaBlockApiClient v req) cenv >>= \case
@@ -330,6 +359,42 @@ block cenv req =
       BlockFailure _ -> return True
       _ -> return False
 
+constructionDerive
+    :: ClientEnv
+    -> ConstructionDeriveReq
+    -> IO ConstructionDeriveResp
+constructionDerive cenv req =
+  recovering testRetryPolicy [h] $ \s -> do
+    debug
+      $ "requesting derive preprocess for " <> (show req)
+      <> " [" <> show (view rsIterNumberL s) <> "]"
+
+    runClientM (rosettaConstructionDeriveApiClient v req) cenv >>= \case
+      Left e -> throwM $ ConstructionPreprocessFailure (show e)
+      Right t -> return t
+  where
+    h _ = Handler $ \case
+      ConstructionPreprocessFailure _ -> return True
+      _ -> return False
+
+constructionPreprocess
+    :: ClientEnv
+    -> ConstructionPreprocessReq
+    -> IO ConstructionPreprocessResp
+constructionPreprocess cenv req =
+  recovering testRetryPolicy [h] $ \s -> do
+    debug
+      $ "requesting construction preprocess for " <> (show req)
+      <> " [" <> show (view rsIterNumberL s) <> "]"
+
+    runClientM (rosettaConstructionPreprocessApiClient v req) cenv >>= \case
+      Left e -> throwM $ ConstructionPreprocessFailure (show e)
+      Right t -> return t
+  where
+    h _ = Handler $ \case
+      ConstructionPreprocessFailure _ -> return True
+      _ -> return False
+
 constructionMetadata
     :: ClientEnv
     -> ConstructionMetadataReq
@@ -337,7 +402,7 @@ constructionMetadata
 constructionMetadata cenv req =
     recovering testRetryPolicy [h] $ \s -> do
     debug
-      $ "requesting construction metadata for " <> (show req)
+      $ "requesting construction metadata for " <> show req
       <> " [" <> show (view rsIterNumberL s) <> "]"
 
     runClientM (rosettaConstructionMetadataApiClient v req) cenv >>= \case
@@ -348,6 +413,78 @@ constructionMetadata cenv req =
       ConstructionMetadataFailure _ -> return True
       _ -> return False
 
+constructionPayloads
+    :: ClientEnv
+    -> ConstructionPayloadsReq
+    -> IO ConstructionPayloadsResp
+constructionPayloads cenv req =
+  recovering testRetryPolicy [h] $ \s -> do
+    debug
+      $ "requesting construction payloads for " <> (show req)
+      <> " [" <> show (view rsIterNumberL s) <> "]"
+
+    runClientM (rosettaConstructionPayloadsApiClient v req) cenv >>= \case
+      Left e -> throwM $ ConstructionPayloadsFailure (show e)
+      Right t -> return t
+  where
+    h _ = Handler $ \case
+      ConstructionPayloadsFailure _ -> return True
+      _ -> return False
+
+constructionParse
+    :: ClientEnv
+    -> ConstructionParseReq
+    -> IO ConstructionParseResp
+constructionParse cenv req =
+  recovering testRetryPolicy [h] $ \s -> do
+    debug
+      $ "requesting construction parse for " <> (show req)
+      <> " [" <> show (view rsIterNumberL s) <> "]"
+
+    runClientM (rosettaConstructionParseApiClient v req) cenv >>= \case
+      Left e -> throwM $ ConstructionParseFailure (show e)
+      Right t -> return t
+  where
+    h _ = Handler $ \case
+      ConstructionParseFailure _ -> return True
+      _ -> return False
+
+constructionCombine
+    :: ClientEnv
+    -> ConstructionCombineReq
+    -> IO ConstructionCombineResp
+constructionCombine cenv req =
+  recovering testRetryPolicy [h] $ \s -> do
+    debug
+      $ "requesting construction combine for " <> (show req)
+      <> " [" <> show (view rsIterNumberL s) <> "]"
+
+    runClientM (rosettaConstructionCombineApiClient v req) cenv >>= \case
+      Left e -> throwM $ ConstructionCombineFailure (show e)
+      Right t -> return t
+  where
+    h _ = Handler $ \case
+      ConstructionCombineFailure _ -> return True
+      _ -> return False
+
+constructionHash
+    :: ClientEnv
+    -> ConstructionHashReq
+    -> IO TransactionIdResp
+constructionHash cenv req =
+  recovering testRetryPolicy [h] $ \s -> do
+    debug
+      $ "requesting construction hash for " <> (show req)
+      <> " [" <> show (view rsIterNumberL s) <> "]"
+
+    runClientM (rosettaConstructionHashApiClient v req) cenv >>= \case
+      Left e -> throwM $ ConstructionHashFailure (show e)
+      Right t -> return t
+  where
+    h _ = Handler $ \case
+      ConstructionHashFailure _ -> return True
+      _ -> return False
+
 constructionSubmit
     :: ClientEnv
     -> ConstructionSubmitReq
@@ -355,7 +492,7 @@ constructionSubmit
 constructionSubmit cenv req =
     recovering testRetryPolicy [h] $ \s -> do
     debug
-      $ "requesting construction submit for " <> (show req)
+      $ "requesting construction submit for " <> show req
       <> " [" <> show (view rsIterNumberL s) <> "]"
 
     runClientM (rosettaConstructionSubmitApiClient v req) cenv >>= \case
@@ -373,7 +510,7 @@ mempoolTransaction
 mempoolTransaction cenv req =
     recovering testRetryPolicy [h] $ \s -> do
     debug
-      $ "requesting mempool transaction for " <> (show req)
+      $ "requesting mempool transaction for " <> show req
       <> " [" <> show (view rsIterNumberL s) <> "]"
 
     runClientM (rosettaMempoolTransactionApiClient v req) cenv >>= \case
@@ -391,7 +528,7 @@ mempool
 mempool cenv req =
     recovering testRetryPolicy [h] $ \s -> do
     debug
-      $ "requesting mempool for " <> (show req)
+      $ "requesting mempool for " <> show req
       <> " [" <> show (view rsIterNumberL s) <> "]"
 
     runClientM (rosettaMempoolApiClient v req) cenv >>= \case
@@ -409,7 +546,7 @@ networkList
 networkList cenv req =
     recovering testRetryPolicy [h] $ \s -> do
     debug
-      $ "requesting network list for " <> (take 10 $ show req)
+      $ "requesting network list for " <> show req
       <> " [" <> show (view rsIterNumberL s) <> "]"
 
     runClientM (rosettaNetworkListApiClient v req) cenv >>= \case
@@ -427,7 +564,7 @@ networkOptions
 networkOptions cenv req =
     recovering testRetryPolicy [h] $ \s -> do
     debug
-      $ "requesting network options for " <> (take 10 $ show req)
+      $ "requesting network options for " <> show req
       <> " [" <> show (view rsIterNumberL s) <> "]"
 
     runClientM (rosettaNetworkOptionsApiClient v req) cenv >>= \case
@@ -445,7 +582,7 @@ networkStatus
 networkStatus cenv req =
     recovering testRetryPolicy [h] $ \s -> do
     debug
-      $ "requesting network status for " <> (take 10 $ show req)
+      $ "requesting network status for " <> show req
       <> " [" <> show (view rsIterNumberL s) <> "]"
 
     runClientM (rosettaNetworkStatusApiClient v req) cenv >>= \case

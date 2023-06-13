@@ -16,14 +16,13 @@ module Chainweb.Test.Cut.TestBlockDb
   , getParentTestBlockDb
   , getBlockHeaderDb
   -- convenience export
-  , RocksDbCas
+  , RocksDbTable
   ) where
 
 import Control.Concurrent.MVar
 import Control.Monad.Catch
 import Data.Bifunctor (first)
 import qualified Data.HashMap.Strict as HM
-import Data.Tuple.Strict (T2(..))
 
 import Chainweb.BlockHeader
 import Chainweb.BlockHeaderDB
@@ -38,12 +37,12 @@ import Chainweb.Utils
 import Chainweb.Version
 import Chainweb.WebBlockHeaderDB
 
-import Data.CAS
-import Data.CAS.RocksDB
+import Chainweb.Storage.Table
+import Chainweb.Storage.Table.RocksDB
 
 data TestBlockDb = TestBlockDb
   { _bdbWebBlockHeaderDb :: WebBlockHeaderDb
-  , _bdbPayloadDb :: PayloadDb RocksDbCas
+  , _bdbPayloadDb :: PayloadDb RocksDbTable
   , _bdbCut :: MVar Cut
   }
 

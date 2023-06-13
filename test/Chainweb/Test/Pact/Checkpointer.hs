@@ -5,9 +5,7 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 
-module Chainweb.Test.Pact.Checkpointer
-( tests
-) where
+module Chainweb.Test.Pact.Checkpointer (tests) where
 
 import Control.Concurrent.MVar
 import Control.DeepSeq
@@ -32,6 +30,7 @@ import Pact.Types.Command
 import qualified Pact.Types.Hash as H
 import Pact.Types.Logger (newLogger)
 import Pact.Types.PactValue
+import Pact.Types.RowData
 import Pact.Types.Runtime hiding (ChainId)
 import Pact.Types.SPV (noSPVSupport)
 import Pact.Types.SQLite
@@ -45,7 +44,6 @@ import Chainweb.BlockHeight (BlockHeight(..))
 import Chainweb.MerkleLogHash (merkleLogHash)
 import Chainweb.MerkleUniverse
 import Chainweb.Pact.Backend.ChainwebPactDb
-import Chainweb.Pact.Backend.InMemoryCheckpointer (initInMemoryCheckpointEnv)
 import Chainweb.Pact.Backend.RelationalCheckpointer
 import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.Backend.Utils
@@ -65,19 +63,18 @@ import Chainweb.Test.Orphans.Internal ({- Arbitrary BlockHash -})
 
 tests :: ScheduledTest
 tests = testGroupSch "Checkpointer"
-    [ testInMemory
-    , testRelational
+    [ testRelational
     , testKeyset
     , testModuleName
-    , testCase "PactDb Regression" testRegress
-    , testCase "readRow unitTest" readRowUnitTest
+    , testCaseSteps "PactDb Regression" testRegress
+    , testCaseSteps "readRow unitTest" readRowUnitTest
     ]
 
 -- -------------------------------------------------------------------------- --
 -- Module Name Test
 
 testModuleName :: TestTree
-testModuleName = withResource initializeSQLite freeSQLiteResource $
+testModuleName = withTempSQLiteResource $
     runSQLite' $ \resIO -> testCase "testModuleName" $ do
 
         (CheckpointEnv {..}, SQLiteEnv {..}) <- resIO
@@ -140,24 +137,19 @@ keysetTest c = testCaseSteps "Keyset test" $ \next -> do
 -- -------------------------------------------------------------------------- --
 -- CheckPointer Test
 
-testInMemory :: TestTree
-testInMemory = withInMemCheckpointerResource
-    $ checkpointerTest "In-memory Checkpointer"
-
 testRelational :: TestTree
-testRelational = withRelationalCheckpointerResource $
-    checkpointerTest "Relational Checkpointer"
+testRelational =
+  withRelationalCheckpointerResource $
+    checkpointerTest "Relational Checkpointer" True
 
-checkpointerTest :: String -> IO CheckpointEnv -> TestTree
-checkpointerTest name cenvIO = testCaseSteps name $ \next -> do
+checkpointerTest :: String -> Bool -> IO CheckpointEnv -> TestTree
+checkpointerTest name relational cenvIO = testCaseSteps name $ \next -> do
     cenv <- cenvIO
     let cp = _cpeCheckpointer cenv
-
     ------------------------------------------------------------------
     -- s01 : new block workflow (restore -> discard), genesis
     ------------------------------------------------------------------
 
-    let hash00 = nullBlockHash
     runTwice next $ do
         next "Step 1 : new block workflow (restore -> discard), genesis"
         blockenvGenesis0 <- _cpRestore cp Nothing
@@ -169,6 +161,7 @@ checkpointerTest name cenvIO = testCaseSteps name $ \next -> do
     -- s02 : validate block workflow (restore -> save), genesis
     -----------------------------------------------------------
 
+    let hash00 = nullBlockHash
     next "Step 2 : validate block workflow (restore -> save), genesis"
     blockenvGenesis1 <- _cpRestore cp Nothing
     void $ runExec cenv blockenvGenesis1 (Just $ ksData "1") $ defModule "1"
@@ -211,7 +204,7 @@ checkpointerTest name cenvIO = testCaseSteps name $ \next -> do
     -- exec next part of pact
     ------------------------------------------------------------------
 
-    let msg =   "Step 5: validate block 02\n create m2 module, exercise RefStore checkpoint\n exec next part of pact"
+    let msg = "Step 5: validate block 02\n create m2 module, exercise RefStore checkpoint\n exec next part of pact"
     next msg
     hash02 <- BlockHash <$> merkleLogHash "0000000000000000000000000000002a"
     blockenv02 <- _cpRestore cp (Just (BlockHeight 2, hash01))
@@ -336,42 +329,73 @@ checkpointerTest name cenvIO = testCaseSteps name $ \next -> do
     runExec cenv blockEnv09 Nothing "(m6.readTbl)" >>= \EvalResult{..} -> Right _erOutput @?= traverse toPactValue [tIntList [1,4]]
     _cpSave cp hash08
 
-    next "Don't create the same table twice in the same block"
+    next "Create the free namespace for the test"
     hash09 <- BlockHash <$> merkleLogHash "0000000000000000000000000000009a"
     blockEnv10 <- _cpRestore cp (Just (BlockHeight 9, hash08))
+    void $ runExec cenv blockEnv10 Nothing defFree
+    _cpSave cp hash09
+
+    hash10 <- BlockHash <$> merkleLogHash "0000000000000000000000000000010a"
+
+    next "Don't create the same table twice in the same block"
+    blockEnv11 <- _cpRestore cp (Just (BlockHeight 10, hash09))
 
     let tKeyset = object ["test-keyset" .= object ["keys" .= ([] :: [Text]), "pred" .= String ">="]]
-    void $ runExec cenv blockEnv10 (Just tKeyset) tablecode
-    expectException $ runExec cenv blockEnv10 (Just tKeyset) tablecode
+    void $ runExec cenv blockEnv11 (Just tKeyset) tablecode
+    expectException $ runExec cenv blockEnv11 (Just tKeyset) tablecode
     _cpDiscard cp
 
     next "Don't create the same table twice in the same transaction."
 
-    blockEnv10a <- _cpRestore cp (Just (BlockHeight 9, hash08))
-    expectException $ runExec cenv blockEnv10a (Just tKeyset) (tablecode <> tablecode)
+    blockEnv11a <- _cpRestore cp (Just (BlockHeight 10, hash09))
+    expectException $ runExec cenv blockEnv11a (Just tKeyset) (tablecode <> tablecode)
 
     _cpDiscard cp
 
     next "Don't create the same table twice over blocks."
 
-    blockEnv10b <- _cpRestore cp (Just (BlockHeight 9, hash08))
-    void $ runExec cenv blockEnv10b (Just tKeyset) tablecode
-
-    _cpSave cp hash09
-
-    hash10 <- BlockHash <$> merkleLogHash "0000000000000000000000000000010a"
-
-    blockEnv11 <- _cpRestore cp (Just (BlockHeight 10, hash09))
-    expectException $ runExec cenv blockEnv11 (Just tKeyset) tablecode
+    blockEnv11b <- _cpRestore cp (Just (BlockHeight 10, hash09))
+    void $ runExec cenv blockEnv11b (Just tKeyset) tablecode
 
     _cpSave cp hash10
 
+    hash11 <- BlockHash <$> merkleLogHash "0000000000000000000000000000011a"
+
+    blockEnv12 <- _cpRestore cp (Just (BlockHeight 11, hash10))
+    expectException $ runExec cenv blockEnv12 (Just tKeyset) tablecode
+
+    _cpSave cp hash11
+
     next "Purposefully restore to an illegal checkpoint."
 
-    _blockEnvFailure <- expectException $ _cpRestore cp (Just (BlockHeight 12, hash10))
+    _blockEnvFailure <- expectException $ _cpRestore cp (Just (BlockHeight 13, hash10))
 
-    return ()
+    when relational $ do
+
+        next "Rewind to block 5"
+
+        next "Run block 5b with pact 4.2.0 changes"
+
+        blockEnv5b <- _cpRestore cp (Just (BlockHeight 5, hash14))
+        void $ runExec cenv blockEnv5b (Just $ ksData "7") (defModule "7")
+        void $ runExec cenv blockEnv5b Nothing "(m7.insertTbl 'b 2)"
+        void $ runExec cenv blockEnv5b Nothing "(m7.insertTbl 'd 3)"
+        void $ runExec cenv blockEnv5b Nothing "(m7.insertTbl 'c 4)"
+        void $ runExec cenv blockEnv5b Nothing "(keys m7.tbl)" >>= \EvalResult{..} -> Right _erOutput @?= traverse toPactValue [tStringList $ T.words "a b c d"]
+        _cpDiscard cp
+
+        next "Rollback to block 4 and expect failure with pact 4.2.0 changes"
+
+        blockEnv4b <- _cpRestore cp (Just (BlockHeight 4, hash13))
+        void $ runExec cenv blockEnv4b (Just $ ksData "7") (defModule "7")
+        void $ runExec cenv blockEnv4b Nothing "(m7.insertTbl 'b 2)"
+        void $ runExec cenv blockEnv4b Nothing "(m7.insertTbl 'd 3)"
+        void $ runExec cenv blockEnv4b Nothing "(m7.insertTbl 'c 4)"
+        expectException $ runExec cenv blockEnv4b Nothing "(keys m7.tbl)" >>= \EvalResult{..} -> Right _erOutput @?= traverse toPactValue [tStringList $ T.words "a b c d"]
+        _cpDiscard cp
+
   where
+
     h :: SomeException -> IO (Maybe String)
     h = const (return Nothing)
 
@@ -392,12 +416,12 @@ checkpointerTest name cenvIO = testCaseSteps name $ \next -> do
 -- -------------------------------------------------------------------------- --
 -- Read Row Unit Test
 
-readRowUnitTest :: Assertion
-readRowUnitTest = simpleBlockEnvInit runUnitTest
+readRowUnitTest :: (String -> IO ()) -> Assertion
+readRowUnitTest logBackend = simpleBlockEnvInit logBackend runUnitTest
   where
     writeRow' pactdb writeType conn i =
       _writeRow pactdb writeType (UserTables "user1") "key1"
-      (ObjectMap $ M.fromList [("f", (PLiteral (LInteger i)))]) conn
+      (RowData RDV1 (ObjectMap $ M.fromList [("f", (RDLiteral (LInteger i)))])) conn
     runUnitTest pactdb e schemaInit = do
       conn <- newMVar e
       void $ schemaInit conn
@@ -421,24 +445,24 @@ readRowUnitTest = simpleBlockEnvInit runUnitTest
       r <- _readRow pactdb usert "key1" conn
       case r of
         Nothing -> assertFailure "Unsuccessful write"
-        Just (ObjectMap m) -> case M.lookup "f" m of
-          Just l -> assertEquals "Unsuccesful write at field key \"f\"" l (PLiteral (LInteger 100))
+        Just (RowData _ (ObjectMap m)) -> case M.lookup "f" m of
+          Just l -> assertEquals "Unsuccesful write at field key \"f\"" l (RDLiteral (LInteger 100))
           Nothing -> assertFailure "Field not found"
 
 -- -------------------------------------------------------------------------- --
 -- Test Regress
 
-testRegress :: Assertion
-testRegress =
-    regressChainwebPactDb
+testRegress :: (String -> IO ()) -> Assertion
+testRegress logBackend =
+    regressChainwebPactDb logBackend
         >>= fmap (toTup . _benvBlockState) . readMVar
         >>= assertEquals "The final block state is" finalBlockState
   where
     finalBlockState = (2, 0)
-    toTup (BlockState txid _ blockVersion _ _ _) = (txid, blockVersion)
+    toTup BlockState { _bsTxId = txid, _bsBlockHeight = blockVersion } = (txid, blockVersion)
 
-regressChainwebPactDb :: IO (MVar (BlockEnv SQLiteEnv))
-regressChainwebPactDb =  simpleBlockEnvInit runRegression
+regressChainwebPactDb :: (String -> IO ()) -> IO (MVar (BlockEnv SQLiteEnv))
+regressChainwebPactDb logBackend = simpleBlockEnvInit logBackend runRegression
 
 {- this should be moved to pact -}
 runRegression
@@ -452,8 +476,8 @@ runRegression pactdb e schemaInit = do
     Just t1 <- begin pactdb conn
     let user1 = "user1"
         usert = UserTables user1
-        toPV :: ToTerm a => a -> PactValue
-        toPV = toPactValueLenient . toTerm'
+        toPV :: ToTerm a => a -> RowDataValue
+        toPV = pactValueToRowData . toPactValueLenient . toTerm'
     _createUserTable pactdb user1 "someModule" conn
     assertEquals' "output of commit2"
         [ TxLog "SYS:usertables" "user1" $
@@ -467,15 +491,13 @@ runRegression pactdb e schemaInit = do
         (commit pactdb conn)
 
     void $ begin pactdb conn
-    {- the below line is commented out because we no longer support _getUserTableInfo -}
-    -- assertEquals' "user table info correct" "someModule" $ _getUserTableInfo chainwebpactdb user1 conn
-    let row = ObjectMap $ M.fromList [("gah", PLiteral (LDecimal 123.454345))]
+    let row = RowData RDV1 $ ObjectMap $ M.fromList [("gah", RDLiteral (LDecimal 123.454345))]
     _writeRow pactdb Insert usert "key1" row conn
     assertEquals' "usert insert" (Just row) (_readRow pactdb usert "key1" conn)
-    let row' = ObjectMap $ M.fromList [("gah",toPV False),("fh",toPV (1 :: Int))]
+    let row' = RowData RDV1 $ ObjectMap $ M.fromList [("gah",toPV False),("fh",toPV (1 :: Int))]
     _writeRow pactdb Update usert "key1" row' conn
     assertEquals' "user update" (Just row') (_readRow pactdb usert "key1" conn)
-    let ks = mkKeySet [PublicKey "skdjhfskj"] "predfun"
+    let ks = mkKeySet [PublicKeyText "skdjhfskj"] "predfun"
     _writeRow pactdb Write KeySets "ks1" ks conn
     assertEquals' "keyset write" (Just ks) $ _readRow pactdb KeySets "ks1" conn
     (modName,modRef,mod') <- loadModule
@@ -513,7 +535,7 @@ runRegression pactdb e schemaInit = do
     --   [TxLog "user1" "key1" row,
     --    TxLog "user1" "key1" row'] $
     --   _getTxLog chainwebpactdb usert (head tids) conn
-    assertEquals' "user txlogs" [TxLog "user1" "key1" (ObjectMap $ on M.union _objectMap row' row)] $
+    assertEquals' "user txlogs" [TxLog "user1" "key1" (RowData RDV1 (ObjectMap $ on M.union (_objectMap . _rdData) row' row))] $
         _getTxLog pactdb usert (head tids) conn
     _writeRow pactdb Insert usert "key2" row conn
     assertEquals' "user insert key2 pre-rollback" (Just row) (_readRow pactdb usert "key2" conn)
@@ -551,14 +573,9 @@ throwFail = throwIO . userError
 -- -------------------------------------------------------------------------- --
 -- Checkpointer Utils
 
-withInMemCheckpointerResource :: (IO CheckpointEnv -> TestTree) -> TestTree
-withInMemCheckpointerResource = withResource initInMem (const $ return ())
-  where
-    loggers = pactTestLogger False
-    logger = newLogger loggers "inMemCheckpointer"
-    initInMem = initInMemoryCheckpointEnv loggers logger testVer testChainId
-
-withRelationalCheckpointerResource :: (IO CheckpointEnv -> TestTree) -> TestTree
+withRelationalCheckpointerResource
+    :: (IO CheckpointEnv -> TestTree)
+    -> TestTree
 withRelationalCheckpointerResource =
     withResource initializeSQLite freeSQLiteResource . runSQLite
 
@@ -574,59 +591,60 @@ runTwice step action = do
   action
 
 runSQLite
-    :: (IO (CheckpointEnv) -> TestTree)
-    -> IO (IO (), SQLiteEnv)
+    :: (IO CheckpointEnv -> TestTree)
+    -> IO SQLiteEnv
     -> TestTree
 runSQLite f = runSQLite' (f . fmap fst)
 
 runSQLite'
     :: (IO (CheckpointEnv,SQLiteEnv) -> TestTree)
-    -> IO (IO (), SQLiteEnv)
+    -> IO SQLiteEnv
     -> TestTree
 runSQLite' runTest sqlEnvIO = runTest $ do
-    (_,sqlenv) <- sqlEnvIO
+    sqlenv <- sqlEnvIO
     cp <- initRelationalCheckpointer initialBlockState sqlenv logger testVer testChainId
     return (cp, sqlenv)
   where
-    initialBlockState = initBlockState $ genesisHeight testVer testChainId
-    logger = newLogger (pactTestLogger False) "RelationalCheckpointer"
+    initialBlockState = set bsModuleNameFix True $ initBlockState defaultModuleCacheLimit $ genesisHeight testVer testChainId
+    logger = newLogger (pactTestLogger (\_ -> return ()) False) "RelationalCheckpointer"
 
 runExec :: CheckpointEnv -> PactDbEnv'-> Maybe Value -> Text -> IO EvalResult
 runExec cp (PactDbEnv' pactdbenv) eData eCode = do
-    execMsg <- buildExecParsedCode eData eCode
+    execMsg <- buildExecParsedCode Nothing {- use latest parser version -} eData eCode
     evalTransactionM cmdenv cmdst $
-      applyExec' defaultInterpreter execMsg [] h' permissiveNamespacePolicy
+      applyExec' 0 defaultInterpreter execMsg [] h' permissiveNamespacePolicy
   where
     h' = H.toUntypedHash (H.hash "" :: H.PactHash)
-    cmdenv = TransactionEnv Transactional pactdbenv (_cpeLogger cp) def
+    cmdenv = TransactionEnv Transactional pactdbenv (_cpeLogger cp) Nothing def
              noSPVSupport Nothing 0.0 (RequestKey h') 0 def
-    cmdst = TransactionState mempty mempty 0 Nothing (_geGasModel freeGasEnv)
+    cmdst = TransactionState mempty mempty 0 Nothing (_geGasModel freeGasEnv) mempty
 
 runCont :: CheckpointEnv -> PactDbEnv' -> PactId -> Int -> IO EvalResult
 runCont cp (PactDbEnv' pactdbenv) pactId step = do
     evalTransactionM cmdenv cmdst $
-      applyContinuation' defaultInterpreter contMsg [] h' permissiveNamespacePolicy
+      applyContinuation' 0 defaultInterpreter contMsg [] h' permissiveNamespacePolicy
   where
     contMsg = ContMsg pactId step False Null Nothing
 
     h' = H.toUntypedHash (H.hash "" :: H.PactHash)
-    cmdenv = TransactionEnv Transactional pactdbenv (_cpeLogger cp) def
+    cmdenv = TransactionEnv Transactional pactdbenv (_cpeLogger cp) Nothing def
              noSPVSupport Nothing 0.0 (RequestKey h') 0 def
-    cmdst = TransactionState mempty mempty 0 Nothing (_geGasModel freeGasEnv)
+    cmdst = TransactionState mempty mempty 0 Nothing (_geGasModel freeGasEnv) mempty
 
 -- -------------------------------------------------------------------------- --
 -- Pact Utils
 
 simpleBlockEnvInit
-    :: (PactDb (BlockEnv SQLiteEnv) -> BlockEnv SQLiteEnv -> (MVar (BlockEnv SQLiteEnv) -> IO ()) -> IO a)
+    :: (String -> IO ())
+    -> (PactDb (BlockEnv SQLiteEnv) -> BlockEnv SQLiteEnv -> (MVar (BlockEnv SQLiteEnv) -> IO ()) -> IO a)
     -> IO a
-simpleBlockEnvInit f = withTempSQLiteConnection chainwebPragmas $ \sqlenv ->
+simpleBlockEnvInit logBackend f = withTempSQLiteConnection chainwebPragmas $ \sqlenv ->
     f chainwebPactDb (blockEnv sqlenv) (\v -> runBlockEnv v initSchema)
   where
-    loggers = pactTestLogger False
+    loggers = pactTestLogger logBackend False
     blockEnv e = BlockEnv
         (BlockDbEnv e (newLogger loggers "BlockEnvironment"))
-        (initBlockState $ genesisHeight testVer testChainId)
+        (initBlockState defaultModuleCacheLimit $ genesisHeight testVer testChainId)
 
 {- this should be moved to pact -}
 begin :: PactDb e -> Method e (Maybe TxId)
@@ -652,24 +670,31 @@ loadModule = do
     fn = "test/pact/simple.repl"
 
 nativeLookup :: NativeDefName -> Maybe (Term Name)
-nativeLookup (NativeDefName n) = case HM.lookup (Name $ BareName n def) nativeDefs of
+nativeLookup (NativeDefName n) = case HM.lookup n nativeDefs of
     Just (Direct t) -> Just t
     _ -> Nothing
 
-tIntList :: [Int] -> Term n
+tIntList :: [Int] -> Term Name
 tIntList = toTList (TyPrim TyInteger) def . map toTerm
+
+tStringList :: [Text] -> Term Name
+tStringList = toTList (TyPrim TyString) def . map toTerm
 
 toTerm' :: ToTerm a => a -> Term Name
 toTerm' = toTerm
+
+defFree :: Text
+defFree = T.unlines
+  [ "(module ezfree G (defcap G () true) (defun ALLOW () true))"
+  , "(define-namespace 'free (create-user-guard (ALLOW)) (create-user-guard (ALLOW)))"
+  ]
 
 defModule :: Text -> Text
 defModule idx = T.unlines
     [ " ;;"
     , ""
-    , "(define-keyset 'k" <> idx <> " (read-keyset 'k" <> idx <> "))"
-    , ""
-    , "(module m" <> idx <> " 'k" <> idx
-    , ""
+    , "(module m" <> idx <> " G"
+    , "  (defcap G () true)"
     , "  (defschema sch col:integer)"
     , ""
     , "  (deftable tbl:{sch})"
@@ -700,10 +725,11 @@ defModule idx = T.unlines
 
 tablecode :: Text
 tablecode = T.unlines
-    [ "(define-keyset 'table-admin-keyset"
+    [ "(namespace 'free)"
+    , "(define-keyset \"free.table-admin-keyset\""
     , "  (read-keyset \"test-keyset\"))"
     , ""
-    , "(module table-example 'table-admin-keyset"
+    , "(module table-example \"free.table-admin-keyset\""
     , ""
     , "  (defschema test-schema"
     , "    content:string)"
@@ -722,4 +748,3 @@ tablecode = T.unlines
     , ""
     , "(create-table test-table)"
     ]
-

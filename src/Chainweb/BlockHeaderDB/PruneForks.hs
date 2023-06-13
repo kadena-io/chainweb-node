@@ -4,13 +4,10 @@
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE GADTs #-}
-{-# LANGUAGE GeneralizedNewtypeDeriving #-}
-{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE PolyKinds #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE TypeApplications #-}
 
 -- |
 -- Module: Chainweb.BlockHeaderDB.PruneForks
@@ -31,7 +28,6 @@ import Control.DeepSeq
 import Control.Exception (evaluate)
 import Control.Monad
 import Control.Monad.Catch
-import Control.Monad.IO.Class
 
 import Data.Function
 import qualified Data.List as L
@@ -61,8 +57,8 @@ import Chainweb.TreeDB
 import Chainweb.Utils hiding (Codec)
 import Chainweb.Version
 
-import Data.CAS
-import Data.CAS.RocksDB
+import Chainweb.Storage.Table
+import Chainweb.Storage.Table.RocksDB
 import Data.LogMessage
 
 -- -------------------------------------------------------------------------- --
@@ -189,11 +185,17 @@ pruneForks_ logg cdb mar mir callback = do
       else
         withReverseHeaderStream cdb (mar - 1) mir
             $ S.foldM_ go (return (pivots, int (_getMaxRank mar), 0)) (\(_,_,!n) -> evaluate n)
+            . progress 200000 reportProgress
 
   where
+    reportProgress i a = logg Info
+        $ "inspected " <> sshow i
+        <> " block headers. Current height "
+        <> sshow (_blockHeight a)
+
     go :: ([BlockHash], BlockHeight, Int) -> BlockHeader -> IO ([BlockHash], BlockHeight, Int)
     go ([], _, _) cur = throwM $ InternalInvariantViolation
-        $ "PrunForks.pruneForks_: no pivots left at block " <> encodeToText (ObjectEncoded cur)
+        $ "PruneForks.pruneForks_: no pivots left at block " <> encodeToText (ObjectEncoded cur)
     go (!pivots, !prevHeight, !n) !cur
 
         -- This checks some structural consistency. It's not a comprehensive
@@ -201,7 +203,7 @@ pruneForks_ logg cdb mar mir callback = do
         -- callbacks that are offered in the module "Chainweb.Chainweb.PruneChainDatabase"
         | prevHeight /= curHeight && prevHeight /= curHeight + 1 =
             throwM $ InternalInvariantViolation
-                $ "PrunForks.pruneForks_: detected a corrupted database. Some block headers are missing"
+                $ "PruneForks.pruneForks_: detected a corrupted database. Some block headers are missing"
                 <> ". Current pivots: " <> encodeToText pivots
                 <> ". Current header: " <> encodeToText (ObjectEncoded cur)
                 <> ". Previous height: " <> sshow prevHeight
@@ -219,8 +221,8 @@ pruneForks_ logg cdb mar mir callback = do
     deleteHdr k = do
         -- TODO: make this atomic (create boilerplate to combine queries for
         -- different tables)
-        casDelete (_chainDbCas cdb) (casKey $ RankedBlockHeader k)
-        tableDelete (_chainDbRankTable cdb) (_blockHash k)
+        casDelete (_chainDbCas cdb) (RankedBlockHeader k) 
+        tableDelete (_chainDbRankTable cdb) (_blockHash k) 
         logg Debug
             $ "pruned block header " <> encodeToText (_blockHash k)
             <> " at height " <> sshow (_blockHeight k)
@@ -236,27 +238,13 @@ withReverseHeaderStream
     -> MinRank
     -> (S.Stream (S.Of BlockHeader) IO () -> IO a)
     -> IO a
-withReverseHeaderStream db mar mir inner = withTableIter headerTbl $ \it -> do
-    tableIterSeek it $ RankedBlockHash (BlockHeight $ int $ _getMaxRank mar + 1) nullBlockHash
-    tableIterPrev it
+withReverseHeaderStream db mar mir inner = withTableIterator headerTbl $ \it -> do
+    iterSeek it $ RankedBlockHash (BlockHeight $ int $ _getMaxRank mar + 1) nullBlockHash
+    iterPrev it
     inner $ iterToReverseValueStream it
         & S.map _getRankedBlockHeader
         & S.takeWhile (\a -> int (_blockHeight a) >= mir)
   where
     headerTbl = _chainDbCas db
-
-    -- Returns the stream of key-value pairs of an 'RocksDbTableIter' in reverse
-    -- order.
-    --
-    -- The iterator must be released after the stream is consumed. Releasing the
-    -- iterator to early while the stream is still in use results in a runtime
-    -- error. Not releasing the iterator after the processing of the stream has
-    -- finished results in a memory leak.
-    --
-    iterToReverseValueStream :: RocksDbTableIter k v -> S.Stream (S.Of v) IO ()
-    iterToReverseValueStream it = liftIO (tableIterValue it) >>= \case
-        Nothing -> return ()
-        Just x -> S.yield x >> liftIO (tableIterPrev it) >> iterToReverseValueStream it
-    {-# INLINE iterToReverseValueStream #-}
 
 {-# INLINE withReverseHeaderStream #-}

@@ -168,7 +168,7 @@ proof_properties = testGroup "merkle proof properties"
         , testProperty "prop_eventsProof_subject" $ prop_eventsProof_subject @ChainwebMerkleHashAlgorithm
         , testProperty "prop_eventsProof_valid" $ prop_eventsProof_valid @ChainwebMerkleHashAlgorithm
         ]
-    , testGroup "ChainwebMerklehashAlgorithm"
+    , testGroup "Keccak_256"
         [ testProperty "prop_merkleProof_run" $ prop_merkleProof_run @Keccak_256
         , testProperty "prop_eventsProof_run" $ prop_eventsProof_run @Keccak_256
         , testProperty "prop_eventsProof_run2" $ prop_eventsProof_run2 @Keccak_256

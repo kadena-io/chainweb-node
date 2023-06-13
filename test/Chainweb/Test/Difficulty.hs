@@ -14,7 +14,6 @@ module Chainweb.Test.Difficulty
 , prop_littleEndian
 ) where
 
-import Data.Bytes.Put
 import qualified Data.ByteString as B
 
 import Test.QuickCheck (Property, property)
@@ -22,6 +21,7 @@ import Test.QuickCheck (Property, property)
 -- internal modules
 
 import Chainweb.Difficulty
+import Chainweb.Utils.Serialization
 
 prop_littleEndian :: Bool
 prop_littleEndian = all run [1..31]

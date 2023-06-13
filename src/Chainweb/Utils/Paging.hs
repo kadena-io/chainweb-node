@@ -94,18 +94,32 @@ data Page k a = Page
 
 makeLenses ''Page
 
+pageProperties
+    :: HasTextRepresentation k
+    => ToJSON k
+    => ToJSON a
+    => KeyValue kv
+    => Page k a
+    -> [kv]
+pageProperties p =
+    [ "limit" .= _getLimit (_pageLimit p)
+    , "items" .= _pageItems p
+    , "next" .= _pageNext p
+    ]
+{-# INLINE pageProperties #-}
+
 instance (HasTextRepresentation k, ToJSON k, ToJSON a) => ToJSON (Page k a) where
-    toJSON p = object
-        [ "limit" .= _getLimit (_pageLimit p)
-        , "items" .= _pageItems p
-        , "next" .= _pageNext p
-        ]
+    toJSON = object . pageProperties
+    toEncoding = pairs . mconcat . pageProperties
+    {-# INLINE toJSON #-}
+    {-# INLINE toEncoding #-}
 
 instance (HasTextRepresentation k, FromJSON k, FromJSON a) => FromJSON (Page k a) where
     parseJSON = withObject "page" $ \o -> Page
         <$> (Limit <$> (o .: "limit"))
         <*> o .: "items"
         <*> o .: "next"
+    {-# INLINE parseJSON #-}
 
 -- -------------------------------------------------------------------------- --
 -- Next Item
@@ -158,7 +172,9 @@ instance HasTextRepresentation k => HasTextRepresentation (NextItem k) where
 
 instance HasTextRepresentation k => ToJSON (NextItem k) where
     toJSON = toJSON . toText
+    toEncoding = toEncoding . toText
     {-# INLINE toJSON #-}
+    {-# INLINE toEncoding #-}
 
 instance HasTextRepresentation k => FromJSON (NextItem k) where
     parseJSON = parseJsonFromText "NextItem"

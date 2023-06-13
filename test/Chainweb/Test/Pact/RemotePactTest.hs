@@ -4,11 +4,9 @@
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE LambdaCase #-}
-{-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE TypeApplications #-}
 
 -- |
 -- Module: Chainweb.Test.RemotePactTest
@@ -40,6 +38,7 @@ import Control.Retry
 import qualified Data.Aeson as A
 import Data.Aeson.Lens hiding (values)
 import qualified Data.ByteString as BS
+import qualified Data.ByteString.Lazy as LBS
 import qualified Data.ByteString.Short as SB
 import Data.Decimal
 import Data.Default (def)
@@ -49,7 +48,6 @@ import qualified Data.List as L
 import qualified Data.List.NonEmpty as NEL
 import qualified Data.Map.Strict as M
 import Data.Maybe
-import Data.String.Conv (toS)
 import Data.Text (Text)
 import qualified Data.Text as T
 
@@ -92,8 +90,7 @@ import Chainweb.Test.Utils
 import Chainweb.Time
 import Chainweb.Utils hiding (check)
 import Chainweb.Version
-
-import Data.CAS.RocksDB
+import Chainweb.Storage.Table.RocksDB
 
 
 -- -------------------------------------------------------------------------- --
@@ -160,6 +157,10 @@ tests rdb = testGroupSch "Chainweb.Test.Pact.RemotePactTest"
                 localContTest iot net
               , after AllSucceed "local continuation test" $
                 pollBadKeyTest net
+              , testCaseSteps "await network" $ \step ->
+                awaitNetworkHeight step net 20
+              , after AllSucceed "poll bad key test" $
+                localPreflightSimTest iot net
               ]
     ]
 
@@ -180,7 +181,7 @@ responseGolden networkIO rksIO = golden "remote-golden" $ do
     PollResponses theMap <- polling cid cenv rks ExpectPactResult
     let values = mapMaybe (\rk -> _crResult <$> HashMap.lookup rk theMap)
                           (NEL.toList $ _rkRequestKeys rks)
-    return $! toS $! foldMap A.encode values
+    return $! foldMap A.encode values
 
 localTest :: IO (Time Micros) -> IO ChainwebNetwork -> IO ()
 localTest iot nio = do
@@ -273,8 +274,128 @@ localChainDataTest iot nio = do
           assert' "gas-price" (PLiteral (LDecimal 0.1))
           assert' "sender" (PLiteral (LString "sender00"))
         where
-          assert' name value = assertEqual name (M.lookup  (FieldKey (toS name)) m) (Just value)
+          assert' name value = assertEqual name (M.lookup  (FieldKey (T.pack name)) m) (Just value)
     expectedResult _ = assertFailure "Didn't get back an object map!"
+
+localPreflightSimTest :: IO (Time Micros) -> IO ChainwebNetwork -> TestTree
+localPreflightSimTest iot nio = testCaseSteps "local preflight sim test" $ \step -> do
+    cenv <- _getServiceClientEnv <$> nio
+    mv <- newMVar (0 :: Int)
+    sid <- mkChainId v maxBound (0 :: Int)
+    let sigs = [mkSigner' sender00 []]
+
+    step "Execute preflight /local tx - preflight known /send success"
+    let psid = Pact.ChainId $ chainIdToText sid
+    psigs <- testKeyPairs sender00 Nothing
+    cmd0 <- mkRawTx mv psid psigs
+    runLocalPreflightClient sid cenv cmd0 >>= \case
+      Left e -> assertFailure $ show e
+      Right LocalResultLegacy{} ->
+        assertFailure "Preflight /local call produced legacy result"
+      Right MetadataValidationFailure{} ->
+        assertFailure "Preflight produced an impossible result"
+      Right LocalResultWithWarns{} -> pure ()
+
+    step "Execute preflight /local tx - preflight+signoverify known /send success"
+    cmd0' <- mkRawTx mv psid psigs
+    cr <- runClientM
+      (pactLocalWithQueryApiClient v sid
+         (Just PreflightSimulation) (Just NoVerify) Nothing cmd0') cenv
+    void $ case cr of
+      Left e -> assertFailure $ show e
+      Right{} -> pure ()
+
+    step "Execute preflight /local tx - unparseable chain id"
+    sigs0 <- testKeyPairs sender00 Nothing
+    cmd1 <- mkRawTx mv (Pact.ChainId "fail") sigs0
+    runClientFailureAssertion sid cenv cmd1 "Unparseable transaction chain id"
+
+    step "Execute preflight /local tx - chain id mismatch"
+    let fcid = unsafeChainId maxBound
+    cmd2 <- mkTx mv =<< mkCmdBuilder sigs v fcid 1000 gp
+    runClientFailureAssertion sid cenv cmd2 "Chain id mismatch"
+
+    step "Execute preflight /local tx - tx gas limit too high"
+    cmd3 <- mkTx mv =<< mkCmdBuilder sigs v sid 100000000000000 gp
+    runClientFailureAssertion sid cenv cmd3
+      "Transaction Gas limit exceeds block gas limit"
+
+    step "Execute preflight /local tx - tx gas price precision too high"
+    cmd4 <- mkTx mv =<< mkCmdBuilder sigs v sid 1000 0.00000000000000001
+    runClientFailureAssertion sid cenv cmd4
+      "Gas price decimal precision too high"
+
+    step "Execute preflight /local tx - network id mismatch"
+    cmd5 <- mkTx mv =<< mkCmdBuilder sigs Mainnet01 sid 1000 gp
+    runClientFailureAssertion sid cenv cmd5 "Network id mismatch"
+
+    step "Execute preflight /local tx - too many sigs"
+    let pcid = Pact.ChainId $ chainIdToText sid
+    sigs1' <- testKeyPairs sender00 Nothing >>= \case
+      [ks] -> pure $ replicate 101 ks
+      _ -> assertFailure "/local test keypair construction failed"
+
+    cmd6 <- mkRawTx mv pcid sigs1'
+    runClientFailureAssertion sid cenv cmd6 "Signature list size too big"
+
+    step "Execute preflight /local tx - collect warnings"
+    cmd7 <- mkRawTx' mv pcid sigs0 "(+ 1 2.0)"
+    runLocalPreflightClient sid cenv cmd7 >>= \case
+      Left e -> assertFailure $ show e
+      Right LocalResultLegacy{} ->
+        assertFailure "Preflight /local call produced legacy result"
+      Right MetadataValidationFailure{} ->
+        assertFailure "Preflight produced an impossible result"
+      Right (LocalResultWithWarns _ ws) -> case ws of
+        [w] | "decimal/integer operator overload" `T.isInfixOf` w ->
+          pure ()
+        ws' -> assertFailure $ "Incorrect warns: " ++ show ws'
+  where
+    runLocalPreflightClient sid e cmd = flip runClientM e $
+      pactLocalWithQueryApiClient v sid
+        (Just PreflightSimulation)
+        (Just Verify) Nothing cmd
+
+    runClientFailureAssertion sid e cmd msg =
+      runLocalPreflightClient sid e cmd >>= \case
+        Left err -> checkClientErrText err msg
+        r -> assertFailure $ "Unintended success: " ++ show r
+
+    checkClientErrText (FailureResponse _ (Response _ _ _ body)) e
+      | BS.isInfixOf e $ LBS.toStrict body = pure ()
+    checkClientErrText _ e = assertFailure $ show e
+
+    -- cmd builder is more correct by construction than
+    -- would allow for us to modify the chain id to something
+    -- unparsable. Hence we need to do this in the unparsable
+    -- chain id case and nowhere else.
+    mkRawTx mv pcid kps = mkRawTx' mv pcid kps "(+ 1 2)"
+
+    mkRawTx' mv pcid kps code = modifyMVar mv $ \(nn :: Int) -> do
+      let nonce = "nonce" <> sshow nn
+          ttl = 2 * 24 * 60 * 60
+          pm = Pact.PublicMeta pcid "sender00" 1000 0.1 (fromInteger ttl)
+
+      t <- toTxCreationTime <$> iot
+      c <- Pact.mkExec code A.Null (pm t) kps (Just "fastTimedCPM-peterson") (Just nonce)
+      pure (succ nn, c)
+
+    mkCmdBuilder sigs nid pcid limit price = do
+      t <- toTxCreationTime <$> iot
+      pure
+        $ set cbGasLimit limit
+        $ set cbGasPrice price
+        $ set cbChainId pcid
+        $ set cbSigners sigs
+        $ set cbCreationTime t
+        $ set cbNetworkId (Just nid)
+        $ mkCmd ""
+        $ mkExec' "(+ 1 2)"
+
+    mkTx mv tx = modifyMVar mv $ \nn -> do
+      let n = "nonce-" <> sshow nn
+      tx' <- buildTextCmd $ set cbNonce n tx
+      pure (succ nn, tx')
 
 pollingBadlistTest :: IO ChainwebNetwork -> TestTree
 pollingBadlistTest nio = testCase "/poll reports badlisted txs" $ do
@@ -304,7 +425,7 @@ pollBadKeyTest nio =
         Left _ -> return ()
         Right r -> assertFailure $ "Poll succeeded with response: " <> show r
   where
-    toRk = (NEL.:| []) . RequestKey . Hash
+    toRk = (NEL.:| []) . RequestKey . Hash . SB.toShort
 
 sendValidationTest :: IO (Time Micros) -> IO ChainwebNetwork -> TestTree
 sendValidationTest iot nio =
@@ -594,10 +715,10 @@ allocationTest iot nio = testCaseSteps "genesis allocation tests" $ \step -> do
       rks0 <- liftIO $ sending sid cenv batch0
 
       testCaseStep "pollApiClient: polling for allocation key"
-      pr <- liftIO $ polling sid cenv rks0 ExpectPactResult
+      _ <- liftIO $ polling sid cenv rks0 ExpectPactResult
 
       testCaseStep "localApiClient: submit local account balance request"
-      liftIO $ localTestToRetry sid cenv (head (toList batch1)) (localAfterPollResponse pr)
+      liftIO $ localTestToRetry sid cenv (head (toList batch1)) (localAfterBlockHeight 4)
 
     case p of
       Left e -> assertFailure $ "test failure: " <> show e
@@ -668,6 +789,9 @@ allocationTest iot nio = testCaseSteps "genesis allocation tests" $ \step -> do
     localAfterPollResponse (PollResponses prs) cr =
         getBlockHeight cr > getBlockHeight (snd $ head $ HashMap.toList prs)
 
+    localAfterBlockHeight bh cr =
+      getBlockHeight cr > Just bh
+
     -- avoiding `scientific` dep here
     getBlockHeight :: CommandResult a -> Maybe Decimal
     getBlockHeight = preview (crMetaData . _Just . key "blockHeight" . _Number . to (fromRational . toRational))
@@ -678,7 +802,7 @@ allocationTest iot nio = testCaseSteps "genesis allocation tests" $ \step -> do
       $ M.fromList
         [ (FieldKey "account", PLiteral $ LString "allocation00")
         , (FieldKey "balance", PLiteral $ LDecimal 1_099_995.84) -- balance = (1k + 1mm) - gas
-        , (FieldKey "guard", PGuard $ GKeySetRef (KeySetName "allocation00"))
+        , (FieldKey "guard", PGuard $ GKeySetRef (KeySetName "allocation00" Nothing))
         ]
 
     ttl = 2 * 24 * 60 * 60
@@ -703,7 +827,7 @@ allocationTest iot nio = testCaseSteps "genesis allocation tests" $ \step -> do
       $ M.fromList
         [ (FieldKey "account", PLiteral $ LString "allocation02")
         , (FieldKey "balance", PLiteral $ LDecimal 1_099_995.13) -- 1k + 1mm - gas
-        , (FieldKey "guard", PGuard $ GKeySetRef (KeySetName "allocation02"))
+        , (FieldKey "guard", PGuard $ GKeySetRef (KeySetName "allocation02" Nothing))
         ]
 
 
@@ -778,7 +902,7 @@ awaitCutHeight step cenv i = do
             step
                 $ "awaiting cut of height " <> show i
                 <> ". Current cut height: " <> show (_cutHashesHeight c)
-                <> ". Current block heights: " <> show (fst <$> _cutHashes c)
+                <> ". Current block heights: " <> show (_bhwhHeight <$> _cutHashes c)
                 <> " [" <> show (view rsIterNumberL s) <> "]"
             return True
 
@@ -804,4 +928,4 @@ testBatch iot mnonce = testBatch' iot ttl mnonce
 
 pactDeadBeef :: RequestKey
 pactDeadBeef = let (TransactionHash b) = deadbeef
-               in RequestKey $ Hash $ SB.fromShort b
+               in RequestKey $ Hash b

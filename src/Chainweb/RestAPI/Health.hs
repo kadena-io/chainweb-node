@@ -38,7 +38,6 @@ globalHealthStatus :: MVar HealthStatus
 globalHealthStatus = unsafePerformIO $! newMVar Healthy
 {-# NOINLINE globalHealthStatus #-}
 
-
 someHealthCheckServer :: SomeServer
 someHealthCheckServer = SomeServer (Proxy @HealthCheckApi) handler
   where
@@ -47,8 +46,7 @@ someHealthCheckServer = SomeServer (Proxy @HealthCheckApi) handler
         h <- liftIO $ readMVar globalHealthStatus
         case h of
           Healthy -> return "Health check OK.\n"
-          Unhealthy -> throwError $ err503 {errBody = drainMsg }
-
+          Unhealthy -> throwError $ setErrText drainMsg err503
 
 setHealth :: HealthStatus -> IO ()
 setHealth !h = void $ swapMVar globalHealthStatus h

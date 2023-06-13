@@ -1,7 +1,7 @@
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DeriveAnyClass #-}
-{-# LANGUAGE DeriveFunctor #-}
+{-# LANGUAGE DeriveTraversable #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
@@ -10,6 +10,7 @@
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE StrictData #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TemplateHaskell #-}
 -- |
 -- Module: Chainweb.Pact.Types
@@ -28,6 +29,9 @@ module Chainweb.Pact.Types
 
     -- * Misc helpers
   , Transactions(..)
+  , transactionCoinbase
+  , transactionPairs
+
   , GasSupply(..)
   , GasId(..)
   , EnforceCoinbaseFailure(..)
@@ -41,12 +45,14 @@ module Chainweb.Pact.Types
   , txGasId
   , txLogs
   , txCache
+  , txWarnings
 
     -- * Transaction Env
   , TransactionEnv(..)
   , txMode
   , txDbEnv
   , txLogger
+  , txGasLogger
   , txPublicData
   , txSpvSupport
   , txNetworkId
@@ -69,14 +75,19 @@ module Chainweb.Pact.Types
   , psGasModel
   , psMinerRewards
   , psReorgLimit
+  , psLocalRewindDepthLimit
   , psOnFatalError
   , psVersion
   , psValidateHashesOnReplay
   , psLogger
+  , psGasLogger
   , psLoggers
   , psAllowReadsInLocal
   , psIsBatch
   , psCheckpointerDepth
+  , psBlockGasLimit
+  , psChainId
+
   , getCheckpointer
 
     -- * TxContext
@@ -110,37 +121,45 @@ module Chainweb.Pact.Types
   , pactLoggers
   , logg_
   , logInfo_
+  , logWarn_
   , logError_
   , logDebug_
   , logg
   , logInfo
+  , logWarn
   , logError
   , logDebug
 
     -- * types
+  , TxTimeout(..)
+  , ApplyCmdExecutionContext(..)
   , ModuleCache
 
   -- * miscellaneous
   , defaultOnFatalError
   , defaultReorgLimit
+  , defaultLocalRewindDepthLimit
   , defaultPactServiceConfig
+  , defaultBlockGasLimit
+  , defaultModuleCacheLimit
+  , catchesPactError
+  , UnexpectedErrorPrinting(..)
   ) where
 
 import Control.DeepSeq
-import Control.Exception (asyncExceptionFromException, asyncExceptionToException, throw)
+import Control.Exception (asyncExceptionFromException, asyncExceptionToException)
+import Control.Exception.Safe
 import Control.Lens
-import Control.Monad.Catch
 import Control.Monad.Reader
 import Control.Monad.State.Strict
-
 
 import Data.Aeson hiding (Error,(.=))
 import Data.Default (def)
 import Data.HashMap.Strict (HashMap)
 import qualified Data.HashMap.Strict as HM
+import Data.Set (Set)
 import qualified Data.Map.Strict as M
 import Data.Text (pack, unpack, Text)
-import Data.Tuple.Strict (T2)
 import Data.Vector (Vector)
 import Data.Word
 
@@ -159,7 +178,8 @@ import Pact.Types.Gas
 import qualified Pact.Types.Logger as P
 import Pact.Types.Names
 import Pact.Types.Persistence (ExecutionMode, TxLog)
-import Pact.Types.Runtime (ExecutionConfig(..), ModuleData(..))
+import Pact.Types.Pretty (viaShow)
+import Pact.Types.Runtime (ExecutionConfig(..), ModuleData(..), PactWarning, PactError(..), PactErrorType(..))
 import Pact.Types.SPV
 import Pact.Types.Term
 
@@ -170,8 +190,10 @@ import Chainweb.BlockHash
 import Chainweb.BlockHeader
 import Chainweb.BlockHeight
 import Chainweb.BlockHeaderDB
+import Chainweb.Mempool.Mempool (TransactionHash)
 import Chainweb.Miner.Pact
 import Chainweb.Logger
+import Chainweb.Pact.Backend.DbCache
 import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.Service.Types
 import Chainweb.Payload.PayloadStore
@@ -181,10 +203,11 @@ import Chainweb.Utils
 import Chainweb.Version
 
 
-data Transactions = Transactions
-    { _transactionPairs :: !(Vector (ChainwebTransaction, CommandResult [TxLog Value]))
+data Transactions r = Transactions
+    { _transactionPairs :: !(Vector (ChainwebTransaction, r))
     , _transactionCoinbase :: !(CommandResult [TxLog Value])
-    } deriving (Eq, Show, Generic, NFData)
+    } deriving (Functor, Foldable, Traversable, Eq, Show, Generic, NFData)
+makeLenses 'Transactions
 
 data PactDbStatePersist = PactDbStatePersist
     { _pdbspRestoreFile :: !(Maybe FilePath)
@@ -215,6 +238,11 @@ newtype CoinbaseUsePrecompiled = CoinbaseUsePrecompiled Bool
 type ModuleCache = HashMap ModuleName (ModuleData Ref, Bool)
 
 -- -------------------------------------------------------------------- --
+-- Local vs. Send execution context flag
+
+data ApplyCmdExecutionContext = ApplyLocal | ApplySend
+
+-- -------------------------------------------------------------------- --
 -- Tx Execution Service Monad
 
 -- | Transaction execution state
@@ -225,6 +253,7 @@ data TransactionState = TransactionState
     , _txGasUsed :: !Gas
     , _txGasId :: !(Maybe GasId)
     , _txGasModel :: !GasModel
+    , _txWarnings :: Set PactWarning
     }
 makeLenses ''TransactionState
 
@@ -234,6 +263,7 @@ data TransactionEnv db = TransactionEnv
     { _txMode :: !ExecutionMode
     , _txDbEnv :: PactDbEnv db
     , _txLogger :: !P.Logger
+    , _txGasLogger :: !(Maybe P.Logger)
     , _txPublicData :: !PublicData
     , _txSpvSupport :: !SPVSupport
     , _txNetworkId :: !(Maybe NetworkId)
@@ -305,22 +335,37 @@ execTransactionM
 execTransactionM tenv txst act
     = execStateT (runReaderT (_unTransactionM act) tenv) txst
 
+
+
+-- | Pair parent header with transaction metadata.
+-- In cases where there is no transaction/Command, 'PublicMeta'
+-- default value is used.
+data TxContext = TxContext
+  { _tcParentHeader :: ParentHeader
+  , _tcPublicMeta :: PublicMeta
+  }
+
+
 -- -------------------------------------------------------------------- --
 -- Pact Service Monad
 
-data PactServiceEnv cas = PactServiceEnv
+data PactServiceEnv tbl = PactServiceEnv
     { _psMempoolAccess :: !(Maybe MemPoolAccess)
     , _psCheckpointEnv :: !CheckpointEnv
-    , _psPdb :: !(PayloadDb cas)
+    , _psPdb :: !(PayloadDb tbl)
     , _psBlockHeaderDb :: !BlockHeaderDb
-    , _psGasModel :: !GasModel
+    , _psGasModel :: TxContext -> GasModel
     , _psMinerRewards :: !MinerRewards
-    , _psReorgLimit :: {-# UNPACK #-} !Word64
+    , _psLocalRewindDepthLimit :: !Word64
+    -- ^ The limit of rewind's depth in the `execLocal` command.
+    , _psReorgLimit :: !Word64
+    -- ^ The limit of checkpointer's rewind in the `execValidationBlock` command.
     , _psOnFatalError :: forall a. PactException -> Text -> IO a
     , _psVersion :: ChainwebVersion
     , _psValidateHashesOnReplay :: !Bool
     , _psAllowReadsInLocal :: !Bool
     , _psLogger :: !P.Logger
+    , _psGasLogger :: !(Maybe P.Logger)
     , _psLoggers :: !P.Loggers
         -- ^ logger factory. A new logger can be created via
         --
@@ -336,6 +381,8 @@ data PactServiceEnv cas = PactServiceEnv
         -- ^ True when within a `withBatch` or `withDiscardBatch` call.
     , _psCheckpointerDepth :: !Int
         -- ^ Number of nested checkpointer calls
+    , _psBlockGasLimit :: !GasLimit
+    , _psChainId :: ChainId
     }
 makeLenses ''PactServiceEnv
 
@@ -350,15 +397,36 @@ instance HasChainId (PactServiceEnv c) where
 defaultReorgLimit :: Word64
 defaultReorgLimit = 480
 
+defaultLocalRewindDepthLimit :: Word64
+defaultLocalRewindDepthLimit = 1000
+
+-- | Default limit for the per chain size of the decoded module cache.
+--
+-- default limit: 60 MiB per chain
+--
+defaultModuleCacheLimit :: DbCacheLimitBytes
+defaultModuleCacheLimit = DbCacheLimitBytes (60 * mebi)
+
+-- | NOTE this is only used for tests/benchmarks. DO NOT USE IN PROD
 defaultPactServiceConfig :: PactServiceConfig
 defaultPactServiceConfig = PactServiceConfig
-      { _pactReorgLimit = fromIntegral $ defaultReorgLimit
+      { _pactReorgLimit = fromIntegral defaultReorgLimit
+      , _pactLocalRewindDepthLimit = fromIntegral defaultLocalRewindDepthLimit
       , _pactRevalidate = True
       , _pactQueueSize = 1000
       , _pactResetDb = True
       , _pactAllowReadsInLocal = False
+      , _pactUnlimitedInitialRewind = False
+      , _pactBlockGasLimit = defaultBlockGasLimit
+      , _pactLogGas = False
+      , _pactModuleCacheLimit = defaultModuleCacheLimit
       }
 
+-- | This default value is only relevant for testing. In a chainweb-node the @GasLimit@
+-- is initialized from the @_configBlockGasLimit@ value of @ChainwebConfiguration@.
+--
+defaultBlockGasLimit :: GasLimit
+defaultBlockGasLimit = 10000
 
 newtype ReorgLimitExceeded = ReorgLimitExceeded Text
 
@@ -369,6 +437,9 @@ instance Exception ReorgLimitExceeded where
     fromException = asyncExceptionFromException
     toException = asyncExceptionToException
 
+newtype TxTimeout = TxTimeout TransactionHash
+    deriving Show
+instance Exception TxTimeout
 
 defaultOnFatalError :: forall a. (LogLevel -> Text -> IO ()) -> PactException -> Text -> IO a
 defaultOnFatalError lf pex t = do
@@ -388,7 +459,7 @@ data PactServiceState = PactServiceState
 makeLenses ''PactServiceState
 
 
-_debugMC :: Text -> PactServiceM cas ()
+_debugMC :: Text -> PactServiceM tbl ()
 _debugMC t = do
   mc <- fmap (fmap instr) <$> use psInitCache
   liftIO $ print (t,mc)
@@ -396,7 +467,7 @@ _debugMC t = do
     instr (ModuleData{..},_) = preview (_MDModule . mHash) _mdModule
 
 -- | Look up an init cache that is stored at or before the height of the current parent header.
-getInitCache :: PactServiceM cas ModuleCache
+getInitCache :: PactServiceM tbl ModuleCache
 getInitCache = get >>= \PactServiceState{..} ->
     case M.lookupLE (pbh _psParentHeader) _psInitCache of
       Just (_,mc) -> return mc
@@ -407,23 +478,20 @@ getInitCache = get >>= \PactServiceState{..} ->
 -- | Update init cache at adjusted parent block height (APBH).
 -- Contents are merged with cache found at or before APBH.
 -- APBH is 0 for genesis and (parent block height + 1) thereafter.
-updateInitCache :: ModuleCache -> PactServiceM cas ()
+updateInitCache :: ModuleCache -> PactServiceM tbl ()
 updateInitCache mc = get >>= \PactServiceState{..} -> do
     let bf 0 = 0
         bf h = succ h
         pbh = bf . _blockHeight . _parentHeader $ _psParentHeader
+
+    v <- view psVersion
+
     psInitCache .= case M.lookupLE pbh _psInitCache of
       Nothing -> M.singleton pbh mc
-      Just (_,before) -> M.insert pbh (HM.union mc before) _psInitCache
-
-
--- | Pair parent header with transaction metadata.
--- In cases where there is no transaction/Command, 'PublicMeta'
--- default value is used.
-data TxContext = TxContext
-  { _tcParentHeader :: ParentHeader
-  , _tcPublicMeta :: PublicMeta
-  }
+      Just (_,before)
+        | chainweb217Pact After v pbh || chainweb217Pact At v pbh ->
+          M.insert pbh mc _psInitCache
+        | otherwise -> M.insert pbh (HM.union mc before) _psInitCache
 
 -- | Convert context to datatype for Pact environment.
 --
@@ -475,16 +543,16 @@ ctxVersion :: TxContext -> ChainwebVersion
 ctxVersion = _blockChainwebVersion . ctxBlockHeader
 
 -- | Assemble tx context from transaction metadata and parent header.
-getTxContext :: PublicMeta -> PactServiceM cas TxContext
+getTxContext :: PublicMeta -> PactServiceM tbl TxContext
 getTxContext pm = use psParentHeader >>= \ph -> return (TxContext ph pm)
 
 
-newtype PactServiceM cas a = PactServiceM
+newtype PactServiceM tbl a = PactServiceM
   { _unPactServiceM ::
-       ReaderT (PactServiceEnv cas) (StateT PactServiceState IO) a
+       ReaderT (PactServiceEnv tbl) (StateT PactServiceState IO) a
   } deriving newtype
     ( Functor, Applicative, Monad
-    , MonadReader (PactServiceEnv cas)
+    , MonadReader (PactServiceEnv tbl)
     , MonadState PactServiceState
     , MonadThrow, MonadCatch, MonadMask
     , MonadIO
@@ -496,8 +564,8 @@ newtype PactServiceM cas a = PactServiceM
 --
 runPactServiceM
     :: PactServiceState
-    -> PactServiceEnv cas
-    -> PactServiceM cas a
+    -> PactServiceEnv tbl
+    -> PactServiceM tbl a
     -> IO (T2 a PactServiceState)
 runPactServiceM st env act
     = view (from _T2)
@@ -509,8 +577,8 @@ runPactServiceM st env act
 --
 evalPactServiceM
     :: PactServiceState
-    -> PactServiceEnv cas
-    -> PactServiceM cas a
+    -> PactServiceEnv tbl
+    -> PactServiceM tbl a
     -> IO a
 evalPactServiceM st env act
     = evalStateT (runReaderT (_unPactServiceM act) env) st
@@ -520,14 +588,14 @@ evalPactServiceM st env act
 --
 execPactServiceM
     :: PactServiceState
-    -> PactServiceEnv cas
-    -> PactServiceM cas a
+    -> PactServiceEnv tbl
+    -> PactServiceM tbl a
     -> IO PactServiceState
 execPactServiceM st env act
     = execStateT (runReaderT (_unPactServiceM act) env) st
 
 
-getCheckpointer :: PactServiceM cas Checkpointer
+getCheckpointer :: PactServiceM tbl Checkpointer
 getCheckpointer = view (psCheckpointEnv . cpeCheckpointer)
 
 -- -------------------------------------------------------------------------- --
@@ -560,6 +628,9 @@ logg_ logger level msg = liftIO $ P.logLog logger level msg
 logInfo_ :: MonadIO m => P.Logger -> String -> m ()
 logInfo_ l = logg_ l "INFO"
 
+logWarn_ :: MonadIO m => P.Logger -> String -> m ()
+logWarn_ l = logg_ l "WARN"
+
 logError_ :: MonadIO m => P.Logger -> String -> m ()
 logError_ l = logg_ l "ERROR"
 
@@ -568,14 +639,30 @@ logDebug_ l = logg_ l "DEBUG"
 
 -- | Write log message using the logger in Checkpointer environment
 --
-logg :: String -> String -> PactServiceM cas ()
+logg :: String -> String -> PactServiceM tbl ()
 logg level msg = view psLogger >>= \l -> logg_ l level msg
 
-logInfo :: String -> PactServiceM cas ()
+logInfo :: String -> PactServiceM tbl ()
 logInfo msg = view psLogger >>= \l -> logInfo_ l msg
 
-logError :: String -> PactServiceM cas ()
+logWarn :: String -> PactServiceM tbl ()
+logWarn msg = view psLogger >>= \l -> logWarn_ l msg
+
+logError :: String -> PactServiceM tbl ()
 logError msg = view psLogger >>= \l -> logError_ l msg
 
-logDebug :: String -> PactServiceM cas ()
+logDebug :: String -> PactServiceM tbl ()
 logDebug msg = view psLogger >>= \l -> logDebug_ l msg
+
+data UnexpectedErrorPrinting = PrintsUnexpectedError | CensorsUnexpectedError
+
+catchesPactError :: (MonadCatch m, MonadIO m) => P.Logger -> UnexpectedErrorPrinting -> m a -> m (Either PactError a)
+catchesPactError logger exnPrinting action = catches (Right <$> action)
+  [ Handler $ \(e :: PactError) -> return $ Left e
+  , Handler $ \(e :: SomeException) -> do
+      liftIO $ logWarn_ logger ("catchesPactError: unknown error: " <> sshow e)
+      return $ Left $ PactError EvalError def def $
+        case exnPrinting of
+          PrintsUnexpectedError -> viaShow e
+          CensorsUnexpectedError -> "unknown error"
+  ]

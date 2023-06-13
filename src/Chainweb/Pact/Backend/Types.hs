@@ -61,6 +61,9 @@ module Chainweb.Pact.Backend.Types
     , bsPendingBlock
     , bsPendingTx
     , bsModuleNameFix
+    , bsSortedKeys
+    , bsLowerCaseTables
+    , bsModuleCache
     , BlockEnv(..)
     , benvBlockState
     , benvDb
@@ -95,7 +98,6 @@ import Data.Hashable (Hashable)
 import Data.HashMap.Strict (HashMap)
 import Data.HashSet (HashSet)
 import Data.Map.Strict (Map)
-import Data.Tuple.Strict
 import Data.Vector (Vector)
 
 import Database.SQLite3.Direct as SQ3
@@ -116,9 +118,12 @@ import Pact.Types.Runtime (TableName)
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
 import Chainweb.BlockHeight
-import Chainweb.Mempool.Mempool (MempoolPreBlockCheck)
+import Chainweb.Pact.Backend.DbCache
 import Chainweb.Pact.Service.Types
 import Chainweb.Transaction
+import Chainweb.Utils (T2)
+
+import Chainweb.Mempool.Mempool (MempoolPreBlockCheck,TransactionHash,BlockFill)
 
 
 data Env' = forall a. Env' (PactDbEnv (DbEnv a))
@@ -220,20 +225,29 @@ data BlockState = BlockState
     , _bsPendingBlock :: !SQLitePendingData
     , _bsPendingTx :: !(Maybe SQLitePendingData)
     , _bsModuleNameFix :: Bool
+    , _bsSortedKeys :: Bool
+    , _bsLowerCaseTables :: Bool
+    , _bsModuleCache :: DbCache PersistModuleData
     }
-    deriving Show
 
 emptySQLitePendingData :: SQLitePendingData
 emptySQLitePendingData = SQLitePendingData mempty mempty mempty mempty
 
-initBlockState :: BlockHeight -> BlockState
-initBlockState initialBlockHeight = BlockState
+initBlockState
+    :: DbCacheLimitBytes
+        -- ^ Module Cache Limit (in bytes of corresponding rowdata)
+    -> BlockHeight
+    -> BlockState
+initBlockState cl initialBlockHeight = BlockState
     { _bsTxId = 0
     , _bsMode = Nothing
     , _bsBlockHeight = initialBlockHeight
     , _bsPendingBlock = emptySQLitePendingData
     , _bsPendingTx = Nothing
     , _bsModuleNameFix = False
+    , _bsSortedKeys = False
+    , _bsLowerCaseTables = False
+    , _bsModuleCache = emptyDbCache cl
     }
 
 makeLenses ''BlockState
@@ -273,7 +287,7 @@ newtype BlockHandler p a = BlockHandler
         , MonadReader (BlockDbEnv p)
         )
 
-data PactDbEnv' = forall e. PactDbEnv' (PactDbEnv e)
+newtype PactDbEnv' = PactDbEnv' (PactDbEnv (BlockEnv SQLiteEnv))
 
 instance Logging (BlockHandler p) where
     log c s = view logger >>= \l -> liftIO $ logLog l c s
@@ -324,14 +338,15 @@ newtype SQLiteFlag = SQLiteFlag { getFlag :: CInt }
 -- TODO: get rid of this shim, it's probably not necessary
 data MemPoolAccess = MemPoolAccess
   { mpaGetBlock
-        :: MempoolPreBlockCheck ChainwebTransaction
+        :: BlockFill
+        -> MempoolPreBlockCheck ChainwebTransaction
         -> BlockHeight
         -> BlockHash
         -> BlockHeader
         -> IO (Vector ChainwebTransaction)
   , mpaSetLastHeader :: BlockHeader -> IO ()
   , mpaProcessFork :: BlockHeader -> IO ()
-  , mpaBadlistTx :: P.PactHash -> IO ()
+  , mpaBadlistTx :: Vector TransactionHash -> IO ()
   }
 
 instance Semigroup MemPoolAccess where

@@ -1,6 +1,7 @@
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DeriveFunctor #-}
 {-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE ExistentialQuantification #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
@@ -70,9 +71,16 @@ module Utils.Logging
 , logHandles
 
 -- * Filter LogScope Backend
+, Probability(..)
+, propMult
+, LogFilterRule(..)
+, logFilterRuleLabel
+, logFilterRuleLevel
+, logFilterRuleRate
 , LogFilter(..)
 , logFilterRules
-, logFilterDefault
+, logFilterDefaultLevel
+, logFilterDefaultRate
 , logFilterHandle
 
 -- * Base Backends
@@ -113,7 +121,7 @@ import Control.Monad.Trans.Control
 import Data.Aeson.Encoding hiding (int, bool)
 import qualified Data.ByteString.Builder as BB
 import qualified Data.ByteString.Lazy.Char8 as BL8
-import qualified Data.List as List
+import Data.IORef
 import Data.Semigroup
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
@@ -132,10 +140,13 @@ import Network.Wai.UrlMap
 import Numeric.Natural
 
 import System.IO
+import System.IO.Unsafe
 import qualified System.Logger as L
 import System.Logger.Backend.ColorOption
 import qualified System.Logger.Internal as L
 import System.LogLevel
+import qualified System.Random.MWC as Prob
+import qualified System.Random.MWC.Distributions as Prob
 
 -- internal modules
 
@@ -252,90 +263,187 @@ genericLogHandle f b msg = case fromBackendLogMessage msg of
 -- -------------------------------------------------------------------------- --
 -- Filter LogScope Handle
 
+newtype Probability = Probability Double
+    deriving (Generic)
+    deriving newtype (Show, Read, Eq, Ord)
+
+instance ToJSON Probability where
+    toJSON (Probability p) = toJSON p
+    toEncoding (Probability p) = toEncoding p
+    {-# INLINE toJSON #-}
+    {-# INLINE toEncoding #-}
+
+instance FromJSON Probability where
+    parseJSON = withScientific "Probability" $ \n -> do
+        unless (0 <= n && n <= 1) $ fail "probablility must be between 0 and 1"
+        return (Probability $ realToFrac n)
+    {-# INLINE parseJSON #-}
+
+data LogFilterRule = LogFilterRule
+    { _logFilterRuleLabel :: !L.LogLabel
+    , _logFilterRuleLevel :: !L.LogLevel
+    , _logFilterRuleRate :: !Probability
+        -- ^ values that are small than zero are rounded up to 0. Values
+        -- that are larger than 1 are rounded down to 1.
+    }
+    deriving (Show, Eq, Ord, Generic)
+
+makeLenses ''LogFilterRule
+
+logFilterRuleProperties
+    :: KeyValue kv
+    => LogFilterRule
+    -> [kv]
+logFilterRuleProperties r =
+    [ "key" .= fst (_logFilterRuleLabel r)
+    , "value" .= snd (_logFilterRuleLabel r)
+    , "level" .= _logFilterRuleLevel r
+    , "rate" .= _logFilterRuleRate r
+    ]
+
+instance ToJSON LogFilterRule where
+    toJSON = object . logFilterRuleProperties
+    toEncoding = pairs . mconcat . logFilterRuleProperties
+    {-# INLINE toJSON #-}
+    {-# INLINE toEncoding #-}
+
+instance FromJSON LogFilterRule where
+    parseJSON = withObject "LogFilterRule" $ \o -> LogFilterRule
+        <$> ((,) <$> o .: "key" <*> o .: "value")
+        <*> o .: "level"
+        <*> o .:? "rate" .!= Probability 1
+    {-# INLINE parseJSON #-}
+
 -- | A filter for log messages.
 --
--- Tese are the rules for processing a log message:
+-- A log message passes a filter rule with probability
 --
--- * If a log label of a message matches the key and value of a rule, the
--- message is discarded if the log level of the message is larger than the log
--- level of the rule.
+-- * 1, if the level of the message is smaller than the level of the rule,
+-- * rate of the rule, the level of the message equals the level of the rule, and
+-- * 0 if the level of the message is larger than the level of the rule.
 --
--- * If, after applying all rules, no rule matched any label of the log message,
+-- If more than one rule matches, each rule is applied and the message passes
+-- the filter only if it passes all applying rules.
+--
+-- If, after applying all rules, no rule matched any label of the log message,
 -- the message is discarded if the log level of the message is larger than the
 -- default level of the filter.
 --
--- These semantics seem to be useful under certain circumstances. At least, the
--- order of the rules doesn't matter.
---
 -- When a filter is specified more than once in a configuration, filters are
--- merged by concatenating the lists of rules and by taking the minimum log
--- level.
+-- merged by concatenating the lists of rules (including default rules)
 --
--- The default log filter has no rules and log level debug as default level.
+-- The default log filter has no rules and log level debug as default level
+-- and 1 as default rate.
 --
 data LogFilter = LogFilter
-    { _logFilterRules :: ![(L.LogLabel, L.LogLevel)]
-    , _logFilterDefault :: !L.LogLevel
+    { _logFilterRules :: ![LogFilterRule]
+    , _logFilterDefaultLevel :: !L.LogLevel
+    , _logFilterDefaultRate :: !Probability
     }
     deriving (Show, Eq, Ord, Generic)
 
 makeLenses ''LogFilter
 
+propMult :: Probability -> Probability -> Probability
+propMult (Probability a) (Probability b) = Probability (a * b)
+
 instance Semigroup LogFilter where
     a <> b = LogFilter
         { _logFilterRules = _logFilterRules a <> _logFilterRules b
-        , _logFilterDefault = min (_logFilterDefault a) (_logFilterDefault b)
+        , _logFilterDefaultLevel = min (_logFilterDefaultLevel a) (_logFilterDefaultLevel b)
+        , _logFilterDefaultRate =
+            case compare (_logFilterDefaultLevel a) (_logFilterDefaultLevel b) of
+                LT -> _logFilterDefaultRate a
+                EQ -> propMult (_logFilterDefaultRate a) (_logFilterDefaultRate b)
+                GT -> _logFilterDefaultRate b
+
         }
     {-# INLINE (<>) #-}
 
 instance Monoid LogFilter where
     mempty = LogFilter
         { _logFilterRules = mempty
-        , _logFilterDefault = maxBound
+        , _logFilterDefaultLevel = maxBound
+        , _logFilterDefaultRate = Probability 1
         }
     {-# INLINE mempty #-}
 
 instance ToJSON LogFilter where
     toJSON a = object
-        [ "rules" .= (f <$> _logFilterRules a)
-        , "default" .=  _logFilterDefault a
+        [ "rules" .= _logFilterRules a
+        , "default" .=  _logFilterDefaultLevel a
+        , "default-rate" .=  _logFilterDefaultRate a
         ]
-      where
-        f ((key, val), lev) = object
-            [ "key" .= key
-            , "value" .= val
-            , "level" .= lev
-            ]
     {-# INLINE toJSON #-}
 
 instance FromJSON LogFilter where
     parseJSON = withObject "LogFilter" $ \o -> LogFilter
-        <$> (o .: "rules" >>= traverse f)
+        <$> o .: "rules"
         <*> o .: "default"
-      where
-        f = withObject "LogRule" $ \o -> (\x y z -> ((x,y),z))
-            <$> o .: "key"
-            <*> o .: "value"
-            <*> o .: "level"
+        <*> o .:? "default-rate" .!= Probability 1
     {-# INLINE parseJSON #-}
+
+-- | Global RNG for use in filter rules.
+--
+logRuleRng :: IORef Prob.Seed
+logRuleRng = unsafePerformIO (Prob.createSystemSeed >>= newIORef)
+{-# NOINLINE logRuleRng #-}
+-- The NOINLINE pragma ensures that the argument to unsafePerformIO is evaluated
+-- only once.
+
+logRuleToss :: Probability -> IO Bool
+logRuleToss (Probability p) = do
+    -- This is isn't thread-safe in a conventional way at all. But
+    -- we don't care about non-deterministic results due to races as
+    -- long as the results are sufficiently random on each individual thread.
+    -- Results can, but don't have to, correlate between threads.
+    rng <- Prob.restore =<< readIORef logRuleRng
+    r <- Prob.bernoulli p rng
+    Prob.save rng >>= atomicWriteIORef logRuleRng
+    return r
+{-# INLINE logRuleToss #-}
+
+applyRule :: LogFilterRule -> L.LogMessage a -> IO (Maybe All)
+applyRule r m = mconcat <$> mapM applyToLabel scopes
+  where
+    scopes :: [L.LogLabel]
+    scopes = L._logMsgScope m
+
+    applyToLabel :: L.LogLabel -> IO (Maybe All)
+    applyToLabel s
+        | s /= _logFilterRuleLabel r = return Nothing
+        | otherwise = Just . All <$> applyRuleToLevel
+            (_logFilterRuleLevel r)
+            (_logFilterRuleRate r)
+            (L._logMsgLevel m)
+
+applyRuleToLevel :: L.LogLevel -> Probability -> L.LogLevel -> IO Bool
+applyRuleToLevel rl rp l = case compare l rl of
+    LT -> return  True
+    GT -> return  False
+    -- We may instead just hash the message + timestamp + salt to make this pure
+    EQ -> logRuleToss rp
 
 -- | A handle that applies a log filter.
 --
 -- The filter is applied after log messages have been emitted according to the
 -- log level of the respective logger.
 --
+-- This could be optimized for the number of rules or the number of scopes
+-- in a message. Currently it is optimized for the. The current implementation
+-- make one lookup per scope.
+--
 logFilterHandle :: LogFilter -> LogHandler
 logFilterHandle sf = maybeLogHandler $ \msg -> do
-    let msgLevel = L._logMsgLevel msg
-        apply l = case l `List.lookup` _logFilterRules sf of
-            Just level -> Just (All $ level >= msgLevel)
-            Nothing -> Nothing
-    case mconcat $ apply <$> L._logMsgScope msg of
-        Nothing
-            | _logFilterDefault sf >= msgLevel -> return (Just msg)
-            | otherwise -> return Nothing
+    foldMap (\r -> applyRule r msg) (_logFilterRules sf) >>= \case
         Just (All True) -> return (Just msg)
         Just (All False) -> return Nothing
+        Nothing -> do
+            x <- applyRuleToLevel
+                (_logFilterDefaultLevel sf)
+                (_logFilterDefaultRate sf)
+                (L._logMsgLevel msg)
+            if x then return (Just msg) else return Nothing
 {-# INLINEABLE logFilterHandle #-}
 
 -- -------------------------------------------------------------------------- --
@@ -482,25 +590,26 @@ withBaseHandleBackend llabel mgr pkgScopes c inner = case _backendConfigHandle c
     ElasticSearch f auth ->
         withElasticsearchBackend mgr f auth (T.toLower llabel) pkgScopes esBackend
   where
+    addTypeScope = L.logMsgScope %~ (:) ("type", llabel)
 
     fdBackend h = case _backendConfigFormat c of
         LogFormatText -> do
             colored <- useColor (_backendConfigColor c) h
-            inner $ L.handleBackend_ logText h colored
+            inner $ L.handleBackend_ logText h colored . bimap addTypeScope addTypeScope
         LogFormatJson -> inner $ \case
             Right msg ->
-                BL8.hPutStrLn h $ encode $ JsonLogMessage $ logText <$> msg
+                BL8.hPutStrLn h $ encode $ JsonLogMessage $ logText <$> addTypeScope msg
             Left msg -> do
                 unless (h == stderr) $ errFallback msg
-                BL8.hPutStrLn h $ encode $ JsonLogMessage msg
+                BL8.hPutStrLn h $ encode $ JsonLogMessage $ addTypeScope msg
 
     esBackend b = inner $ \case
-        Right msg -> b $ logText <$> msg
-        Left msg -> errFallback msg >> b msg
+        Right msg -> b $ logText <$> addTypeScope msg
+        Left msg -> errFallback msg >> b (addTypeScope msg)
 
     errFallback msg = do
         colored <- useColor (_backendConfigColor c) stderr
-        L.handleBackend_ id stderr colored (Left msg)
+        L.handleBackend_ id stderr colored (Left $ addTypeScope msg)
 
 -- -------------------------------------------------------------------------- --
 -- Handle Backend For JSON Message
@@ -544,14 +653,16 @@ withJsonHandleBackend llabel mgr pkgScopes c inner = case _backendConfigHandle c
     StdOut -> fdBackend stdout
     StdErr -> fdBackend stderr
     FileHandle f -> withFile f WriteMode fdBackend
-    ElasticSearch f auth -> withElasticsearchBackend mgr f auth (T.toLower llabel) pkgScopes inner
+    ElasticSearch f auth -> withElasticsearchBackend mgr f auth (T.toLower llabel) pkgScopes $ \b ->
+        inner (b . addTypeScope)
   where
+    addTypeScope = L.logMsgScope %~ (:) ("type", llabel)
     fdBackend h = case _backendConfigFormat c of
         LogFormatText -> do
             colored <- useColor (_backendConfigColor c) h
-            inner $ L.handleBackend_ encodeToText h colored . Right
+            inner $ L.handleBackend_ encodeToText h colored . Right . addTypeScope
         LogFormatJson -> inner $
-            BL8.hPutStrLn h . encode . JsonLogMessage
+            BL8.hPutStrLn h . encode . JsonLogMessage . addTypeScope
 {-# INLINEABLE withJsonHandleBackend #-}
 
 -- -------------------------------------------------------------------------- --
@@ -574,15 +685,16 @@ withTextHandleBackend llabel mgr pkgScopes c inner = case _backendConfigHandle c
     StdErr -> fdBackend stderr
     FileHandle f -> withFile f WriteMode $ \h -> fdBackend h
     ElasticSearch f auth -> withElasticsearchBackend mgr f auth (T.toLower llabel) pkgScopes $ \b ->
-        inner (b . fmap logText)
+        inner (b . fmap logText . addTypeScope)
   where
+    addTypeScope = L.logMsgScope %~ (:) ("type", llabel)
 
     fdBackend h = case _backendConfigFormat c of
         LogFormatText -> do
             colored <- useColor (_backendConfigColor c) h
-            inner $ L.handleBackend_ logText h colored . Right
+            inner $ L.handleBackend_ logText h colored . Right . addTypeScope
         LogFormatJson -> inner $
-            BL8.hPutStrLn h . encode . JsonLogMessage . fmap logText
+            BL8.hPutStrLn h . encode . JsonLogMessage . fmap logText . addTypeScope
 {-# INLINEABLE withTextHandleBackend #-}
 
 -- TODO: it may be more useful to have a logger that logs all 'Right' messages
@@ -716,7 +828,7 @@ withElasticsearchBackend mgr esServer key ixName pkgScopes inner = do
         <> BB.char7 '\n'
 
     indexActionHeader :: Encoding
-    indexActionHeader = pairs $ pair "create" $ pairs $ mempty
+    indexActionHeader = pairs $ pair "create" $ pairs mempty
 
 -- -------------------------------------------------------------------------- --
 -- Event Source Backend for JSON messages

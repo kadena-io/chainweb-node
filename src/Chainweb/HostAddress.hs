@@ -356,7 +356,7 @@ isReservedIp ip = isLocalIp ip || isPrivateIp ip || or
     , isMatchedTo ip $ makeAddrRange (toIPv4 [192,0,0,0]) 24
     , isMatchedTo ip $ makeAddrRange (toIPv4 [192,0,2,0]) 24
     , isMatchedTo ip $ makeAddrRange (toIPv4 [192,88,99,0]) 24
-    , isMatchedTo ip $ makeAddrRange (toIPv4 [192,18,0,0]) 15
+    , isMatchedTo ip $ makeAddrRange (toIPv4 [192,168,0,0]) 15
     , isMatchedTo ip $ makeAddrRange (toIPv4 [198,51,100,0]) 24
     , isMatchedTo ip $ makeAddrRange (toIPv4 [203,0,113,0]) 24
     , isMatchedTo ip $ makeAddrRange (toIPv4 [224,0,0,0]) 4
@@ -384,7 +384,9 @@ unsafeHostnameFromText = fromJuste . hostnameFromText
 
 instance ToJSON Hostname where
     toJSON = toJSON . hostnameToText
+    toEncoding = toEncoding. hostnameToText
     {-# INLINE toJSON #-}
+    {-# INLINE toEncoding #-}
 
 instance FromJSON Hostname where
     parseJSON = parseJsonFromText "Hostname"
@@ -460,12 +462,18 @@ instance HasTextRepresentation HostAddress where
     fromText = hostAddressFromText
     {-# INLINE fromText #-}
 
+hostAddressProperties :: KeyValue kv => HostAddress -> [kv]
+hostAddressProperties o =
+    [ "hostname" .= _hostAddressHost o
+    , "port" .= _hostAddressPort o
+    ]
+{-# INLINE hostAddressProperties #-}
+
 instance ToJSON HostAddress where
-    toJSON o = object
-        [ "hostname" .= _hostAddressHost o
-        , "port" .= _hostAddressPort o
-        ]
+    toJSON = object. hostAddressProperties
+    toEncoding = pairs . mconcat . hostAddressProperties
     {-# INLINE toJSON #-}
+    {-# INLINE toEncoding #-}
 
 instance FromJSON HostAddress where
     parseJSON = withObject "HostAddress" $ \o -> HostAddress

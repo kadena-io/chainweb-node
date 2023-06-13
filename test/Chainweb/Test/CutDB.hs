@@ -5,6 +5,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TupleSections #-}
 {-# LANGUAGE TypeFamilies #-}
 
 -- |
@@ -26,6 +27,7 @@ module Chainweb.Test.CutDB
 , randomTransaction
 , randomBlockHeader
 , fakePact
+, tests
 ) where
 
 import Control.Concurrent.Async
@@ -37,7 +39,7 @@ import Control.Monad.Catch
 import Data.Foldable
 import Data.Function
 import qualified Data.HashMap.Strict as HM
-import Data.Tuple.Strict
+import Data.Semigroup
 import qualified Data.Vector as V
 
 import GHC.Stack
@@ -60,6 +62,8 @@ import Chainweb.Cut
 import Chainweb.Cut.CutHashes
 import Chainweb.Test.Cut
 import Chainweb.CutDB
+import Chainweb.CutDB.RestAPI.Server
+import Chainweb.Graph
 import Chainweb.Miner.Pact
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
@@ -67,17 +71,21 @@ import Chainweb.Payload.PayloadStore.RocksDB
 import Chainweb.Sync.WebBlockHeaderStore
 import Chainweb.Test.Orphans.Internal ()
 import Chainweb.Test.Sync.WebBlockHeaderStore
-import Chainweb.Test.Utils (testRocksDb)
+import Chainweb.Test.Utils
 import Chainweb.Time
+import Chainweb.TreeDB (MaxRank(..))
 import Chainweb.Utils
 import Chainweb.Version
+import Chainweb.Version.Utils
 import Chainweb.WebBlockHeaderDB
 import Chainweb.WebPactExecutionService
 
-import Data.CAS
-import Data.CAS.RocksDB
+import Chainweb.Storage.Table
+import Chainweb.Storage.Table.RocksDB
 import Data.LogMessage
 import Data.TaskMap
+
+import Test.Tasty.HUnit
 
 -- -------------------------------------------------------------------------- --
 -- Create a random Cut DB with the respective Payload Store
@@ -98,9 +106,11 @@ withTestCutDb
     => RocksDb
     -> ChainwebVersion
         -- ^ the chainweb version
+    -> (CutDbParams -> CutDbParams)
+        -- ^ any alterations to the CutDB's configuration
     -> Int
         -- ^ number of blocks in the chainweb in addition to the genesis blocks
-    -> (WebBlockHeaderDb -> PayloadDb RocksDbCas -> IO WebPactExecutionService)
+    -> (WebBlockHeaderDb -> PayloadDb RocksDbTable -> IO WebPactExecutionService)
         -- ^ a pact execution service.
         --
         -- When transaction don't matter you can use 'fakePact' from this module.
@@ -111,9 +121,9 @@ withTestCutDb
         --
     -> LogFunction
         -- ^ a logg function (use @\_ _ -> return ()@ turn of logging)
-    -> (forall cas . PayloadCasLookup cas => CutDb cas -> IO a)
+    -> (forall tbl . CanReadablePayloadCas tbl => Casify RocksDbTable CutHashes -> CutDb tbl -> IO a)
     -> IO a
-withTestCutDb rdb v n pactIO logfun f = do
+withTestCutDb rdb v conf n pactIO logfun f = do
     rocksDb <- testRocksDb "withTestCutDb" rdb
     let payloadDb = newPayloadDb rocksDb
         cutHashesDb = cutHashesTable rocksDb
@@ -123,9 +133,9 @@ withTestCutDb rdb v n pactIO logfun f = do
     pact <- pactIO webDb payloadDb
     withLocalWebBlockHeaderStore mgr webDb $ \headerStore ->
         withLocalPayloadStore mgr payloadDb pact $ \payloadStore ->
-            withCutDb (defaultCutDbParams v cutFetchTimeout) logfun headerStore payloadStore cutHashesDb $ \cutDb -> do
-                foldM_ (\c _ -> view _1 <$> mine defaultMiner pact cutDb c) (genesisCut v) [0..n]
-                f cutDb
+            withCutDb (conf $ defaultCutDbParams v cutFetchTimeout) logfun headerStore payloadStore cutHashesDb $ \cutDb -> do
+                foldM_ (\c _ -> view _1 <$> mine defaultMiner pact cutDb c) (genesisCut v) [1..n]
+                f cutHashesDb cutDb
 
 -- | Adds the requested number of new blocks to the given 'CutDb'.
 --
@@ -138,8 +148,8 @@ withTestCutDb rdb v n pactIO logfun f = do
 -- "InMemoryCheckpointer: Restore not found"@.
 --
 extendTestCutDb
-    :: PayloadCasLookup cas
-    => CutDb cas
+    :: CanReadablePayloadCas tbl
+    => CutDb tbl
     -> WebPactExecutionService
     -> Natural
     -> S.Stream (S.Of (Cut, ChainId, PayloadWithOutputs)) IO ()
@@ -153,8 +163,8 @@ extendTestCutDb cutDb pact n = S.scanM
 -- transactions of the payloads of all blocks in the 'CutDb'.
 --
 syncPact
-    :: PayloadCasLookup cas
-    => CutDb cas
+    :: CanReadablePayloadCas tbl
+    => CutDb tbl
     -> WebPactExecutionService
     -> IO ()
 syncPact cutDb pact =
@@ -163,8 +173,8 @@ syncPact cutDb pact =
         & S.mapM_ (\h -> payload h >>= _webPactValidateBlock pact h)
   where
     bhdb = view cutDbWebBlockHeaderDb cutDb
-    pdb = view cutDbPayloadCas cutDb
-    payload h = casLookup pdb (_blockPayloadHash h) >>= \case
+    pdb = view cutDbPayloadDb cutDb
+    payload h = tableLookup pdb (_blockPayloadHash h) >>= \case
         Nothing -> error $ "Corrupted database: failed to load payload data for block header " <> sshow h
         Just p -> return $ payloadWithOutputsToPayloadData p
 
@@ -172,7 +182,7 @@ syncPact cutDb pact =
 -- predicate for a given 'Cut' and the results of '_cutStm'.
 --
 awaitCut
-    :: CutDb cas
+    :: CutDb tbl
     -> (Cut -> Bool)
     -> IO Cut
 awaitCut cdb k = atomically $ do
@@ -190,8 +200,8 @@ awaitCut cdb k = atomically $ do
 -- check for a cut height that is larger or equal than the expected height.
 --
 extendAwait
-    :: PayloadCasLookup cas
-    => CutDb cas
+    :: CanReadablePayloadCas tbl
+    => CutDb tbl
     -> WebPactExecutionService
     -> Natural
     -> (Cut -> Bool)
@@ -215,7 +225,7 @@ extendAwait cdb pact i p = race gen (awaitCut cdb p) >>= \case
 -- id
 --
 awaitBlockHeight
-    :: CutDb cas
+    :: CutDb tbl
     -> BlockHeight
     -> ChainId
     -> IO Cut
@@ -235,14 +245,16 @@ withTestCutDbWithoutPact
     => RocksDb
     -> ChainwebVersion
         -- ^ the chainweb version
+    -> (CutDbParams -> CutDbParams)
+        -- ^ any alterations to the CutDB's configuration
     -> Int
         -- ^ number of blocks in the chainweb in addition to the genesis blocks
     -> LogFunction
         -- ^ a logg function (use @\_ _ -> return ()@ turn of logging)
-    -> (forall cas . PayloadCasLookup cas => CutDb cas -> IO a)
+    -> (forall tbl . CanReadablePayloadCas tbl => Casify RocksDbTable CutHashes -> CutDb tbl -> IO a)
     -> IO a
-withTestCutDbWithoutPact rdb v n =
-    withTestCutDb rdb v n (const $ const $ return fakePact)
+withTestCutDbWithoutPact rdb v conf n =
+    withTestCutDb rdb v conf n (const $ const $ return fakePact)
 
 -- | A version of withTestCutDb that can be used as a Tasty TestTree resource.
 --
@@ -251,7 +263,7 @@ withTestPayloadResource
     -> ChainwebVersion
     -> Int
     -> LogFunction
-    -> (forall cas . PayloadCasLookup cas => IO (CutDb cas) -> TestTree)
+    -> (forall tbl . CanReadablePayloadCas tbl => IO (CutDb tbl) -> TestTree)
     -> TestTree
 withTestPayloadResource rdb v n logfun inner
     = withResource start stopTestPayload $ \envIO -> do
@@ -267,7 +279,7 @@ startTestPayload
     -> ChainwebVersion
     -> LogFunction
     -> Int
-    -> IO (Async (), Async(), CutDb RocksDbCas)
+    -> IO (Async (), Async (), CutDb RocksDbTable)
 startTestPayload rdb v logfun n = do
     rocksDb <- testRocksDb "startTestPayload" rdb
     let payloadDb = newPayloadDb rocksDb
@@ -282,7 +294,7 @@ startTestPayload rdb v logfun n = do
     return (pserver, hserver, cutDb)
 
 
-stopTestPayload :: (Async (), Async (), CutDb cas) -> IO ()
+stopTestPayload :: (Async (), Async (), CutDb tbl) -> IO ()
 stopTestPayload (pserver, hserver, cutDb) = do
     stopCutDb cutDb
     cancel hserver
@@ -308,9 +320,9 @@ startLocalWebBlockHeaderStore mgr webDb = do
 
 withLocalPayloadStore
     :: HTTP.Manager
-    -> PayloadDb cas
+    -> PayloadDb tbl
     -> WebPactExecutionService
-    -> (WebBlockPayloadStore cas -> IO a)
+    -> (WebBlockPayloadStore tbl -> IO a)
     -> IO a
 withLocalPayloadStore mgr payloadDb pact inner = withNoopQueueServer $ \queue -> do
     mem <- new
@@ -318,8 +330,8 @@ withLocalPayloadStore mgr payloadDb pact inner = withNoopQueueServer $ \queue ->
 
 startLocalPayloadStore
     :: HTTP.Manager
-    -> PayloadDb cas
-    -> IO (Async (), WebBlockPayloadStore cas)
+    -> PayloadDb tbl
+    -> IO (Async (), WebBlockPayloadStore tbl)
 startLocalPayloadStore mgr payloadDb = do
     (server, queue) <- startNoopQueueServer
     mem <- new
@@ -330,13 +342,13 @@ startLocalPayloadStore mgr payloadDb = do
 --
 mine
     :: HasCallStack
-    => PayloadCasLookup cas
+    => CanReadablePayloadCas tbl
     => Miner
         -- ^ The miner. For testing you may use 'defaultMiner'.
     -> WebPactExecutionService
         -- ^ only the new-block generator is used. For testing you may use
         -- 'fakePact'.
-    -> CutDb cas
+    -> CutDb tbl
     -> Cut
     -> IO (Cut, ChainId, PayloadWithOutputs)
 mine miner pact cutDb c = do
@@ -377,16 +389,16 @@ getRandomUnblockedChain c = do
 -- Block times are real times.
 --
 tryMineForChain
-    :: forall cas
+    :: forall tbl
     . HasCallStack
-    => PayloadCasLookup cas
+    => CanReadablePayloadCas tbl
     => Miner
         -- ^ The miner. For testing you may use 'defaultMiner'.
         -- miner.
     -> WebPactExecutionService
         -- ^ only the new-block generator is used. For testing you may use
         -- 'fakePact'.
-    -> CutDb cas
+    -> CutDb tbl
     -> Cut
     -> ChainId
     -> IO (Either MineFailure (Cut, ChainId, PayloadWithOutputs))
@@ -414,7 +426,7 @@ tryMineForChain miner webPact cutDb c cid = do
 --
 randomBlockHeader
     :: HasCallStack
-    => CutDb cas
+    => CutDb tbl
     -> IO BlockHeader
 randomBlockHeader cutDb = do
     curCut <- _cut cutDb
@@ -431,21 +443,21 @@ randomBlockHeader cutDb = do
 --
 randomTransaction
     :: HasCallStack
-    => PayloadCasLookup cas
-    => CutDb cas
+    => CanReadablePayloadCas tbl
+    => CutDb tbl
     -> IO (BlockHeader, Int, Transaction, TransactionOutput)
 randomTransaction cutDb = do
     bh <- randomBlockHeader cutDb
-    Just pay <- casLookup
+    Just pay <- tableLookup
         (_transactionDbBlockPayloads $ _transactionDb payloadDb)
         (_blockPayloadHash bh)
     Just btxs <-
-        casLookup
+        tableLookup
             (_transactionDbBlockTransactions $ _transactionDb payloadDb)
             (_blockPayloadTransactionsHash pay)
     txIx <- generate $ choose (0, length (_blockTransactions btxs) - 1)
     Just outs <-
-        casLookup
+        tableLookup
             (_payloadCacheBlockOutputs $ _payloadCache payloadDb)
             (_blockPayloadOutputsHash pay)
     return
@@ -455,7 +467,7 @@ randomTransaction cutDb = do
         , _blockOutputs outs V.! txIx
         )
   where
-    payloadDb = view cutDbPayloadCas cutDb
+    payloadDb = view cutDbPayloadDb cutDb
 
 -- | FAKE pact execution service.
 --
@@ -487,3 +499,49 @@ fakePact = WebPactExecutionService $ PactExecutionService
     getFakeOutput (Transaction txBytes) = TransactionOutput txBytes
     coinbase = noCoinbaseOutput
     fakeMiner = MinerData "fakeMiner"
+
+tests :: RocksDb -> TestTree
+tests rdb = testGroup "CutDB"
+    [ testCutPruning rdb
+    , testCutGet rdb
+    ]
+
+testCutPruning :: RocksDb -> TestTree
+testCutPruning rdb = testCase "cut pruning" $ do
+    -- initialize cut DB and mine enough to trigger pruning
+    let v = Test pairChainGraph
+    withTestCutDbWithoutPact rdb v alterPruningSettings
+        (int $ avgCutHeightAt v minedBlockHeight)
+        (\_ _ -> return ())
+        $ \cutHashesStore _ -> do
+            -- peek inside the cut DB's store to find the oldest and newest cuts
+            let table = unCasify cutHashesStore
+            Just (leastCutHeight, _, _) <- tableMinKey table
+            Just (mostCutHeight, _, _) <- tableMaxKey table
+            let fuzz = 10 :: Integer
+            -- we must have pruned the older cuts
+            assertBool "oldest cuts are too old" $
+                round (avgBlockHeightAtCutHeight v leastCutHeight) >= fuzz
+            -- we must keep the latest cut
+            assertBool "newest cut is too old" $
+                round (avgBlockHeightAtCutHeight v mostCutHeight) >= int minedBlockHeight - fuzz
+  where
+    alterPruningSettings =
+        set cutDbParamsAvgBlockHeightPruningDepth 50 .
+        set cutDbParamsPruningFrequency 1 .
+        set cutDbParamsWritingFrequency 1
+    minedBlockHeight = 300
+
+testCutGet :: RocksDb -> TestTree
+testCutGet rdb = testCase "cut get" $ do
+    let v = Test pairChainGraph
+    let bh = BlockHeight 300
+    let ch = avgCutHeightAt v bh
+    let halfCh = ch `div` 2
+
+    withTestCutDbWithoutPact rdb v id (2 * int ch) (\_ _ -> return ()) $ \_ cutDb -> do
+      curHeight <- _cutHeight <$> _cut cutDb
+      assertGe "cut height is large enough" (Actual curHeight) (Expected $ 2 * int ch)
+      retCut <- cutGetHandler cutDb (Just $ MaxRank (Max $ int halfCh))
+      assertLe "cut hashes are too high" (Actual (_cutHashesHeight retCut)) (Expected halfCh)
+

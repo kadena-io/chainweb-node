@@ -47,6 +47,8 @@ import GHC.Generics
 
 import System.Logger.Logger
 
+import Text.Read
+
 -- internal modules
 
 import Chainweb.Utils
@@ -149,17 +151,36 @@ pFilter_ prefix = id
     pFilterRule = option (eitherReader readEntry)
         % prefixLong prefix "log-filter-rule"
         <> help "A log filter rule. Log messages with matching scope are discarded if they don't meet the log level threshold."
-        <> metavar "KEY:VALUE:LOGLEVEL"
+        <> metavar "KEY:VALUE:LOGLEVEL[:RATE]"
 
     readEntry s = case T.splitOn ":" (T.pack s) of
-        [a,b,c] -> first T.unpack $ do
-            validateNonEmpty "KEY" a
+        [a,b,c] -> do
+            first T.unpack $ validateNonEmpty "KEY" a
             l <- readLogLevel c
-            -- return $ set logFilterRules [ ((a,b),l) ] mempty
-            return $ LogFilter [((a,b),l)] Debug
-        _ -> Left $ "expecting KEY:VALUE:LOGLEVEL, but got " <> s
+            return $ LogFilter [LogFilterRule (a, b) l (Probability 1)] Debug (Probability 1)
+        [a,b,c,d] -> do
+            first T.unpack $ validateNonEmpty "KEY" a
+            l <- readLogLevel c
+            r <- readEither (T.unpack d)
+            if 0 <= r && r <= 1
+                then return $ LogFilter [LogFilterRule (a, b) l (Probability r)] Debug (Probability 1)
+                else Left "failed to read log rule rate. The value must be between zero and one"
+        _ -> Left $ "expecting KEY:VALUE:LOGLEVEL[:RATE], but got " <> s
 
-    pFilterDefault = LogFilter [] <$> option (eitherReader $ readLogLevel . T.pack)
+    pFilterDefault = option (eitherReader readDefault)
         % prefixLong prefix "log-filter-default"
-        <> help "default log filter level, which is applied to all messages that don't match any other filter rule"
-        <> metavar "LOGLEVEL"
+        <> help "default log filter, which is applied to all messages that don't match any other filter rule"
+        <> metavar "LOGLEVEL:RATE"
+
+    readDefault s = case T.splitOn ":" (T.pack s) of
+        [a] -> do
+            l <- readLogLevel a
+            return $ LogFilter [] l (Probability 1)
+        [a,b] -> do
+            l <- readLogLevel a
+            r <- readEither (T.unpack b)
+            if 0 <= r && r <= 1
+                then return $ LogFilter [] l (Probability r)
+                else Left "failed to read log rule rate. The value must be between zero and one"
+        _ -> Left $ "expecting LOGLEVEL[:RATE], but got " <> s
+

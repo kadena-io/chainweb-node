@@ -19,6 +19,7 @@ module Chainweb.Test.Pact.TransactionTests ( tests ) where
 import Test.Tasty
 import Test.Tasty.HUnit
 
+import Control.Applicative((<|>))
 import Control.Concurrent (readMVar)
 import Control.Lens hiding ((.=))
 import Control.Monad
@@ -30,7 +31,6 @@ import Data.Function (on)
 import Data.List (intercalate)
 import Data.Text (Text,isInfixOf,unpack)
 import Data.Default
-import Data.Tuple.Strict (T2(..))
 
 -- internal pact modules
 
@@ -70,8 +70,20 @@ import Chainweb.Test.Pact.Utils
 v :: ChainwebVersion
 v = Development
 
-coinRepl :: FilePath
-coinRepl = "pact/coin-contract/coin.repl"
+coinReplV1 :: FilePath
+coinReplV1 = "pact/coin-contract/coin.repl"
+
+coinReplV4 :: FilePath
+coinReplV4 = "pact/coin-contract/v4/coin-v4.repl"
+
+coinReplV5 :: FilePath
+coinReplV5 = "pact/coin-contract/v5/coin-v5.repl"
+
+nsReplV1 :: FilePath
+nsReplV1 = "pact/namespaces/v1/ns.repl"
+
+nsReplV2 :: FilePath
+nsReplV2 = "pact/namespaces/ns.repl"
 
 logger :: Logger
 #if DEBUG_TEST
@@ -90,8 +102,16 @@ tests = testGroup "Chainweb.Test.Pact.TransactionTests"
     , testCase "Build Exec without Data" buildExecWithoutData
     ]
   , testGroup "Pact Code Unit Tests"
-    [ testCase "Coin Contract Repl Tests" (ccReplTests coinRepl)
-    , testCase "Ns Repl Tests" (ccReplTests "pact/namespaces/ns.repl")
+    [ testGroup "Coin Contract repl tests"
+      [ testCase "v1" (ccReplTests coinReplV1)
+        -- v2 and v3 repl tests were consolidated in v4
+      , testCase "v4" (ccReplTests coinReplV4)
+      , testCase "v5" (ccReplTests coinReplV5)
+      ]
+    , testGroup "Namespace repl unit tests"
+      [ testCase "Ns-v1 repl tests" $ ccReplTests nsReplV1
+      , testCase "Ns-v2 repl tests" $ ccReplTests nsReplV2
+      ]
     , testCase "Payer Repl Tests" (ccReplTests "pact/gas-payer/gas-payer-v1.repl")
     ]
   , testGroup "Precompiled Statements Tests"
@@ -124,8 +144,8 @@ ccReplTests ccFile = do
 
     failCC i e = assertFailure $ renderInfo (_faInfo i) <> ": " <> unpack e
 
-loadCC :: IO (PactDbEnv LibState, ModuleCache)
-loadCC = loadScript coinRepl
+loadCC :: FilePath -> IO (PactDbEnv LibState, ModuleCache)
+loadCC = loadScript
 
 loadScript :: FilePath -> IO (PactDbEnv LibState, ModuleCache)
 loadScript fp = do
@@ -163,11 +183,11 @@ fixedInjTest = case exec of
 
 
 buildExecWithData :: Assertion
-buildExecWithData = void $ buildExecParsedCode
+buildExecWithData = void $ buildExecParsedCode Nothing
   (Just $ object [ "data" .= (1 :: Int) ]) "(+ 1 1)"
 
 buildExecWithoutData :: Assertion
-buildExecWithoutData = void $ buildExecParsedCode Nothing "(+ 1 1)"
+buildExecWithoutData = void $ buildExecParsedCode Nothing Nothing "(+ 1 1)"
 
 badMinerId :: MinerId
 badMinerId = MinerId "alpha\" (read-keyset \"miner-keyset\") 9999999.99)(coin.coinbase \"alpha"
@@ -182,11 +202,11 @@ minerKeys0 = MinerKeys $ mkKeySet
 
 testCoinbase797DateFix :: TestTree
 testCoinbase797DateFix = testCaseSteps "testCoinbase791Fix" $ \step -> do
-    (pdb,mc) <- loadCC
+    (pdb,mc) <- loadCC coinReplV1
 
     step "pre-fork code injection succeeds, no enforced precompile"
 
-    cmd <- buildExecParsedCode Nothing "(coin.get-balance \"tester01\")"
+    cmd <- buildExecParsedCode Nothing Nothing "(coin.get-balance \"tester01\")"
 
     doCoinbaseExploit pdb mc preForkHeight cmd False $ \case
       Left _ -> assertFailure "local call to get-balance failed"
@@ -197,7 +217,7 @@ testCoinbase797DateFix = testCaseSteps "testCoinbase791Fix" $ \step -> do
 
     step "post-fork code injection fails, no enforced precompile"
 
-    cmd' <- buildExecParsedCode Nothing
+    cmd' <- buildExecParsedCode Nothing Nothing
       "(coin.get-balance \"tester01\\\" (read-keyset \\\"miner-keyset\\\") 1000.0)(coin.coinbase \\\"tester01\")"
 
     doCoinbaseExploit pdb mc postForkHeight cmd' False $ \case
@@ -233,12 +253,12 @@ testCoinbase797DateFix = testCaseSteps "testCoinbase791Fix" $ \step -> do
         (EnforceCoinbaseFailure True) (CoinbaseUsePrecompiled precompile) mc
 
       let h = H.toUntypedHash (H.hash "" :: H.PactHash)
-          tenv = TransactionEnv Transactional pdb logger def
+          tenv = TransactionEnv Transactional pdb logger Nothing def
             noSPVSupport Nothing 0.0 (RequestKey h) 0 def
-          txst = TransactionState mempty mempty 0 Nothing (_geGasModel freeGasEnv)
+          txst = TransactionState mempty mempty 0 Nothing (_geGasModel freeGasEnv) mempty
 
       CommandResult _ _ (PactResult pr) _ _ _ _ _ <- evalTransactionM tenv txst $!
-        applyExec defaultInterpreter localCmd [] h permissiveNamespacePolicy
+        applyExec 0 defaultInterpreter localCmd [] h permissiveNamespacePolicy
 
       testResult pr
 
@@ -259,7 +279,7 @@ testCoinbase797DateFix = testCaseSteps "testCoinbase791Fix" $ \step -> do
 
 testCoinbaseEnforceFailure :: Assertion
 testCoinbaseEnforceFailure = do
-    (pdb,mc) <- loadCC
+    (pdb,mc) <- loadCC coinReplV4
     r <- tryAllSynchronous $ applyCoinbase toyVersion logger pdb badMiner 0.1 (TxContext someParentHeader def)
       (EnforceCoinbaseFailure True) (CoinbaseUsePrecompiled False) mc
     case r of
@@ -276,7 +296,6 @@ testCoinbaseEnforceFailure = do
       , _blockCreationTime = BlockCreationTime [timeMicrosQQ| 2019-12-10T01:00:00.0 |]
       }
 
-
 testCoinbaseUpgradeDevnet :: V.ChainId -> BlockHeight -> Assertion
 testCoinbaseUpgradeDevnet cid upgradeHeight =
     testUpgradeScript "test/pact/coin-and-devaccts.repl" cid upgradeHeight test
@@ -284,7 +303,8 @@ testCoinbaseUpgradeDevnet cid upgradeHeight =
     test (T2 cr mcm) = case (_crLogs cr,mcm) of
       (_,Nothing) -> assertFailure "Expected module cache from successful upgrade"
       (Nothing,_) -> assertFailure "Expected logs from successful upgrade"
-      (Just logs,_) -> matchLogs (logResults logs) expectedResults
+      (Just logs,_) ->
+        matchLogs (logResults logs) expectedResults
 
     expectedResults =
       [ ("USER_coin_coin-table", "NoMiner", Just (Number 0.1))
@@ -345,7 +365,7 @@ testUpgradeScript script cid bh test = do
     p = parent bh cid
 
 matchLogs :: [(Text, Text, Maybe Value)] -> [(Text, Text, Maybe Value)] -> IO ()
-matchLogs actualResults expectedResults
+matchLogs expectedResults actualResults
     | length actualResults /= length expectedResults = void $
       assertFailure $ intercalate "\n" $
         [ "matchLogs: length mismatch "
@@ -373,5 +393,7 @@ logResults = fmap f
     f l =
       ( _txDomain l
       , _txKey l
-      , l ^? txValue . _Object . ix "balance"
+      -- This lens is because some of the transacctions happen post 420 fork
+      -- So the object representation changes due to the RowData type.
+      , l ^? txValue . _Object . ix "balance" <|> l ^? txValue . _Object . ix "$d" . _Object . ix "balance"
       )

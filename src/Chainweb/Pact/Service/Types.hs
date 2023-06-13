@@ -9,6 +9,7 @@
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE ExistentialQuantification #-}
+{-# LANGUAGE TemplateHaskell #-}
 -- |
 -- Module: Chainweb.Pact.Service.Types
 -- Copyright: Copyright © 2018 Kadena LLC.
@@ -22,12 +23,14 @@ module Chainweb.Pact.Service.Types where
 
 import Control.DeepSeq
 import Control.Concurrent.MVar.Strict
+import Control.Lens hiding ((.=))
 import Control.Monad.Catch
+import Control.Applicative
 
 import Data.Aeson
 import Data.Map (Map)
+import Data.List.NonEmpty (NonEmpty)
 import Data.Text (Text, pack, unpack)
-import Data.Tuple.Strict
 import Data.Vector (Vector)
 
 import GHC.Generics
@@ -37,27 +40,32 @@ import Numeric.Natural (Natural)
 
 import qualified Pact.Types.ChainId as Pact
 import Pact.Types.Command
+import Pact.Types.PactError
+import Pact.Types.Gas
 import Pact.Types.Hash
 import Pact.Types.Persistence
 
 -- internal chainweb modules
 
-import Chainweb.BlockHash
+import Chainweb.BlockHash ( BlockHash )
 import Chainweb.BlockHeader
 import Chainweb.BlockHeight
-import Chainweb.Mempool.Mempool (InsertError(..))
+import Chainweb.Mempool.Mempool (InsertError(..),TransactionHash)
 import Chainweb.Miner.Pact
+import Chainweb.Pact.Backend.DbCache
 import Chainweb.Payload
 import Chainweb.Transaction
-import Chainweb.Utils (encodeToText)
+import Chainweb.Utils (T2, encodeToText)
 import Chainweb.Version
 
-
 -- | Externally-injected PactService properties.
+--
 data PactServiceConfig = PactServiceConfig
   { _pactReorgLimit :: !Natural
     -- ^ Maximum allowed reorg depth, implemented as a rewind limit in validate. New block
     -- hardcodes this to 8 currently.
+  , _pactLocalRewindDepthLimit :: !Natural
+    -- ^ Maximum allowed rewind depth in the local command.
   , _pactRevalidate :: !Bool
     -- ^ Re-validate payload hashes during transaction replay
   , _pactAllowReadsInLocal :: !Bool
@@ -66,10 +74,79 @@ data PactServiceConfig = PactServiceConfig
     -- ^ max size of pact internal queue.
   , _pactResetDb :: !Bool
     -- ^ blow away pact dbs
+  , _pactUnlimitedInitialRewind :: !Bool
+    -- ^ disable initial rewind limit
+  , _pactBlockGasLimit :: !GasLimit
+    -- ^ the gas limit for new block creation, not for validation
+  , _pactLogGas :: !Bool
+    -- ^ whether to write transaction gas logs at INFO
+  , _pactModuleCacheLimit :: !DbCacheLimitBytes
+    -- ^ limit of the database module cache in bytes of corresponding row data
   } deriving (Eq,Show)
 
+data GasPurchaseFailure = GasPurchaseFailure TransactionHash PactError
+    deriving (Eq,Generic)
+instance ToJSON GasPurchaseFailure
+instance FromJSON GasPurchaseFailure
+instance Show GasPurchaseFailure where show = unpack . encodeToText
 
+gasPurchaseFailureHash :: GasPurchaseFailure -> TransactionHash
+gasPurchaseFailureHash (GasPurchaseFailure h _) = h
 
+-- | Used by /local to trigger user signature verification
+--
+data LocalSignatureVerification
+    = Verify
+    | NoVerify
+    deriving stock (Eq, Show, Generic)
+
+-- | Used by /local to trigger preflight simulation
+--
+data LocalPreflightSimulation
+    = PreflightSimulation
+    | LegacySimulation
+    deriving stock (Eq, Show, Generic)
+
+-- | The type of local results (used in /local endpoint)
+--
+data LocalResult
+    = MetadataValidationFailure !(NonEmpty Text)
+    | LocalResultWithWarns !(CommandResult Hash) ![Text]
+    | LocalResultLegacy !(CommandResult Hash)
+    deriving (Show, Generic)
+
+makePrisms ''LocalResult
+
+instance NFData LocalResult where
+    rnf (MetadataValidationFailure t) = rnf t
+    rnf (LocalResultWithWarns cr ws) = rnf cr `seq` rnf ws
+    rnf (LocalResultLegacy cr) = rnf cr
+
+instance ToJSON LocalResult where
+  toJSON (MetadataValidationFailure e) = object
+    [ "preflightValidationFailures" .= e ]
+  toJSON (LocalResultLegacy cr) = toJSON cr
+  toJSON (LocalResultWithWarns cr ws) = object
+    [ "preflightResult" .= cr
+    , "preflightWarnings" .= ws
+    ]
+
+instance FromJSON LocalResult where
+  parseJSON v = withObject "LocalResult"
+    (\o -> metaFailureParser o
+      <|> localWithWarnParser o
+      <|> legacyFallbackParser o)
+    v
+    where
+      metaFailureParser o =
+        MetadataValidationFailure <$> o .: "preflightValidationFailure"
+      localWithWarnParser o = LocalResultWithWarns
+        <$> o .: "preflightResult"
+        <*> o .: "preflightWarnings"
+      legacyFallbackParser _ = LocalResultLegacy <$> parseJSON v
+
+-- | Exceptions thrown by PactService components that
+-- are _not_ recorded in blockchain record.
 data PactException
   = BlockValidationFailure !Value
   | PactInternalError !Text
@@ -89,7 +166,14 @@ data PactException
       , _rewindExceededTarget :: !BlockHeader
           -- ^ target header
       }
-  | BlockHeaderLookupFailure Text
+  | BlockHeaderLookupFailure !Text
+  | BuyGasFailure !GasPurchaseFailure
+  | MempoolFillFailure !Text
+  | BlockGasLimitExceeded !Gas
+  | LocalRewindLimitExceeded
+    { _localRewindExceededLimit :: !Natural
+    , _localRewindRequestedDepth :: !BlockHeight }
+  | LocalRewindGenesisExceeded
   deriving (Eq,Generic)
 
 instance Show PactException where
@@ -150,7 +234,10 @@ instance Show ValidateBlockReq where show ValidateBlockReq{..} = show (_valBlock
 
 data LocalReq = LocalReq
     { _localRequest :: !ChainwebTransaction
-    , _localResultVar :: !(PactExMVar (CommandResult Hash))
+    , _localPreflight :: !(Maybe LocalPreflightSimulation)
+    , _localSigVerification :: !(Maybe LocalSignatureVerification)
+    , _localRewindDepth :: !(Maybe BlockHeight)
+    , _localResultVar :: !(PactExMVar LocalResult)
     }
 instance Show LocalReq where show LocalReq{..} = show _localRequest
 
@@ -207,16 +294,24 @@ data SpvRequest = SpvRequest
     , _spvTargetChainId :: !Pact.ChainId
     } deriving (Eq, Show, Generic)
 
+spvRequestProperties :: KeyValue kv => SpvRequest -> [kv]
+spvRequestProperties r =
+  [ "requestKey" .= _spvRequestKey r
+  , "targetChainId" .= _spvTargetChainId r
+  ]
+{-# INLINE spvRequestProperties #-}
+
 instance ToJSON SpvRequest where
-  toJSON r = object
-    [ "requestKey" .= _spvRequestKey r
-    , "targetChainId" .= _spvTargetChainId r
-    ]
+  toJSON = object . spvRequestProperties
+  toEncoding = pairs . mconcat . spvRequestProperties
+  {-# INLINE toJSON #-}
+  {-# INLINE toEncoding #-}
 
 instance FromJSON SpvRequest where
   parseJSON = withObject "SpvRequest" $ \o -> SpvRequest
     <$> o .: "requestKey"
     <*> o .: "targetChainId"
+  {-# INLINE parseJSON #-}
 
 newtype TransactionOutputProofB64 = TransactionOutputProofB64 Text
     deriving stock (Eq, Show, Generic)

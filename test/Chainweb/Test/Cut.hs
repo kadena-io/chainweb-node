@@ -75,7 +75,6 @@ import qualified Data.HashMap.Strict as HM
 import Data.Monoid
 import Data.Ord
 import qualified Data.Text as T
-import Data.Tuple.Strict (T2(..))
 
 import GHC.Generics (Generic)
 import GHC.Stack
@@ -98,16 +97,16 @@ import Chainweb.Cut
 import Chainweb.Cut.Create
 import Chainweb.Graph
 import Chainweb.Payload
-import Chainweb.Test.Utils (genEnum)
 import Chainweb.Test.Utils.BlockHeader
 import Chainweb.Time (Micros(..), Time, TimeSpan)
 import qualified Chainweb.Time as Time (second)
 import Chainweb.Utils
+import Chainweb.Utils.Serialization
 import Chainweb.Version
 import Chainweb.Version.Utils
 import Chainweb.WebBlockHeaderDB
 
-import Data.CAS.RocksDB
+import Chainweb.Storage.Table.RocksDB
 
 import Numeric.Additive
 import Numeric.AffineSpace
@@ -140,19 +139,19 @@ arbitraryBlockTimeOffset
     -> TimeSpan Micros
     -> T.Gen GenBlockTime
 arbitraryBlockTimeOffset lower upper = do
-    t <- genEnum (lower, upper)
+    t <- T.chooseEnum (lower, upper)
     return $ offsetBlockTime t
 
 -- | Solve Work. Doesn't check that the nonce and the time are valid.
 --
 solveWork :: HasCallStack => WorkHeader -> Nonce -> Time Micros -> SolvedWork
 solveWork w n t =
-    case runGet decodeBlockHeaderWithoutHash $ BS.fromShort $ _workHeaderBytes w of
+    case runGetS decodeBlockHeaderWithoutHash $ BS.fromShort $ _workHeaderBytes w of
         Nothing -> error "Chainwb.Test.Cut.solveWork: Invalid work header bytes"
         Just hdr -> SolvedWork
             $ fromJuste
-            $ runGet decodeBlockHeaderWithoutHash
-            $ runPut
+            $ runGetS decodeBlockHeaderWithoutHash
+            $ runPutS
             $ encodeBlockHeaderWithoutHash
                 -- After injecting the nonce and the creation time will have to do a
                 -- serialization roundtrip to update the Merkle hash.
@@ -278,7 +277,7 @@ arbitraryCut
     => ChainwebVersion
     -> T.Gen Cut
 arbitraryCut v = T.sized $ \s -> do
-    k <- genEnum (0,s)
+    k <- T.chooseEnum (0,s)
     fst <$> foldlM (\x _ -> genCut x) (genesis, initDb) [0..(k-1)]
   where
     genesis = genesisCut v
@@ -328,7 +327,7 @@ arbitraryWebChainCut_
         -- ^ A seed for the nonce which can used to enforce forks
     -> T.PropertyM IO Cut
 arbitraryWebChainCut_ wdb initialCut seed = do
-    k <- T.pick $ T.sized $ \s -> genEnum (0,s)
+    k <- T.pick $ T.sized $ \s -> T.chooseEnum (0,s)
     foldlM (\c _ -> genCut c) initialCut [0..(k-1)]
   where
     genCut c = do

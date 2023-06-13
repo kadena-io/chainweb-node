@@ -27,10 +27,8 @@ module Chainweb.Pact.Service.BlockValidation
 import Control.Concurrent.MVar.Strict
 
 import Data.Aeson (Value)
-import Data.Tuple.Strict
 import Data.Vector (Vector)
 
-import Pact.Types.Command
 import Pact.Types.Hash
 import Pact.Types.Persistence (RowKey, TxLog)
 
@@ -43,6 +41,7 @@ import Chainweb.Pact.Service.PactQueue
 import Chainweb.Pact.Service.Types
 import Chainweb.Payload
 import Chainweb.Transaction
+import Chainweb.Utils (T2)
 
 
 newBlock :: Miner -> ParentHeader -> PactQueue ->
@@ -70,11 +69,20 @@ validateBlock bHeader plData reqQ = do
     addRequest reqQ msg
     return resultVar
 
-local :: ChainwebTransaction -> PactQueue -> IO (MVar (Either PactException (CommandResult Hash)))
-local ct reqQ = do
+local
+    :: Maybe LocalPreflightSimulation
+    -> Maybe LocalSignatureVerification
+    -> Maybe BlockHeight
+    -> ChainwebTransaction
+    -> PactQueue
+    -> IO (MVar (Either PactException LocalResult))
+local preflight sigVerify rd ct reqQ = do
     !resultVar <- newEmptyMVar
     let !msg = LocalMsg LocalReq
           { _localRequest = ct
+          , _localPreflight = preflight
+          , _localSigVerification = sigVerify
+          , _localRewindDepth = rd
           , _localResultVar = resultVar }
     addRequest reqQ msg
     return resultVar

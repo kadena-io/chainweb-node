@@ -1,10 +1,7 @@
 {-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE BangPatterns #-}
-{-# LANGUAGE CPP #-}
 {-# LANGUAGE DefaultSignatures #-}
 {-# LANGUAGE DeriveAnyClass #-}
-{-# LANGUAGE DeriveFoldable #-}
-{-# LANGUAGE DeriveFunctor #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DeriveTraversable #-}
 {-# LANGUAGE DerivingStrategies #-}
@@ -34,18 +31,35 @@
 --
 module Chainweb.Utils
 (
--- * SI unit prefixes
-  milli
+-- * Unit Prefixes
+  deci
+, centi
+, milli
 , micro
 , nano
 , pico
 , femto
+, atto
+, zepto
+, yocto
+
+, deka
+, hecto
 , kilo
 , mega
 , giga
 , tera
 , peta
 , exa
+, zetta
+, yotta
+
+, kibi
+, mebi
+, gibi
+, tebi
+, pebi
+, exbi
 
 -- * Misc
 , int
@@ -54,9 +68,6 @@ module Chainweb.Utils
 , keySet
 , minimumsOf
 , minimumsByOf
-, leadingZeros
-, randomByteString
-, randomShortByteString
 , maxBy
 , minBy
 , allEqOn
@@ -68,16 +79,11 @@ module Chainweb.Utils
 , (&)
 , IxedGet(..)
 , minusOrZero
+, interleaveIO
+, mutableVectorFromList
 
 -- * Encoding and Serialization
 , EncodingException(..)
-
--- ** Binary
-, runGet
-, runPut
-, runGetEither
-, eof
-, MonadGetExtra(..)
 
 -- ** Codecs
 , Codec(..)
@@ -98,6 +104,7 @@ module Chainweb.Utils
 , encodeB64UrlText
 , decodeB64UrlText
 , encodeB64UrlNoPaddingText
+, b64UrlNoPaddingTextEncoding
 , decodeB64UrlNoPaddingText
 
 -- ** JSON
@@ -168,18 +175,20 @@ module Chainweb.Utils
 
 -- * Type Level
 , symbolText
--- * optics
-, locally
 
 -- * Resource Management
 , concurrentWith
 , withLink
+, concurrentlies
+, concurrentlies_
 
 -- * Tuples
 , thd
 
 -- * Strict Tuples
-, sfst  -- TODO remove these
+, T2(..)
+, T3(..)
+, sfst
 , ssnd
 , scurry
 , suncurry
@@ -189,6 +198,7 @@ module Chainweb.Utils
 , _T3
 
 -- * Approximate thread delays
+, approximately
 , approximateThreadDelay
 
 -- * TLS Manager with connection timeout settings
@@ -221,26 +231,21 @@ import Control.Lens hiding ((.=))
 import Control.Monad
 import Control.Monad.Catch hiding (bracket)
 import Control.Monad.IO.Class
+import Control.Monad.Primitive
 import Control.Monad.Reader as Reader
 
 import Data.Aeson.Text (encodeToLazyText)
 import qualified Data.Aeson.Types as Aeson
 import qualified Data.Attoparsec.Text as A
 import Data.Bifunctor
-import Data.Bits
 import Data.Bool (bool)
-import Data.Bytes.Get
-import Data.Bytes.Put
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as B
+import qualified Data.ByteString.Char8 as B8
 import qualified Data.ByteString.Base64 as B64
 import qualified Data.ByteString.Base64.URL as B64U
+import qualified Data.ByteString.Builder as BB
 import qualified Data.ByteString.Lazy as BL
-#if !MIN_VERSION_random(1,2,0)
-import qualified Data.ByteString.Random as BR
-#endif
-import qualified Data.ByteString.Short as BS
-import qualified Data.ByteString.Unsafe as B
 import qualified Data.Csv as CSV
 import Data.Decimal
 import Data.Foldable
@@ -250,17 +255,14 @@ import qualified Data.HashMap.Strict as HM
 import qualified Data.HashSet as HS
 import Data.Monoid (Endo)
 import Data.Proxy
-import Data.Serialize.Get (Get)
-import qualified Data.Serialize.Get as Get
-import Data.Serialize.Put (Put)
 import Data.String (IsString(..))
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
 import qualified Data.Text.Lazy as TL
 import Data.These (These(..))
 import Data.Time
-import Data.Tuple.Strict
 import qualified Data.Vector as V
+import qualified Data.Vector.Mutable as MV
 import Data.Word
 
 import GHC.Generics
@@ -279,11 +281,8 @@ import qualified Options.Applicative as O
 import qualified Streaming as S (concats, effect, inspect)
 import qualified Streaming.Prelude as S
 
-import System.IO.Unsafe (unsafePerformIO)
+import System.IO.Unsafe (unsafeInterleaveIO, unsafePerformIO)
 import System.LogLevel
-#if MIN_VERSION_random(1,2,0)
-import System.Random
-#endif
 import qualified System.Random.MWC as Prob
 import qualified System.Random.MWC.Probability as Prob
 import System.Timeout
@@ -294,20 +293,45 @@ import Text.Read (readEither)
 -- -------------------------------------------------------------------------- --
 -- SI unit prefixes
 
-milli, micro, nano, pico, femto :: Fractional a => a
+-- | cf. https://www.nist.gov/pml/owm/metric-si-prefixes
+--
+deci, centi, milli, micro, nano, pico, femto, atto, zepto, yocto :: Fractional a => a
+deci = 10 ^^ (-1 :: Int)
+centi = 10 ^^ (-2 :: Int)
 milli = 10 ^^ (-3 :: Int)
 micro = 10 ^^ (-6 :: Int)
 nano = 10 ^^ (-9 :: Int)
 pico = 10 ^^ (-12 :: Int)
 femto = 10 ^^ (-15 :: Int)
+atto = 10 ^^ (-18 :: Int)
+zepto = 10 ^^ (-21 :: Int)
+yocto = 10 ^^ (-24 :: Int)
 
-kilo, mega, giga, tera, peta, exa :: Num a => a
+-- | cf. https://www.nist.gov/pml/owm/metric-si-prefixes
+--
+deka, hecto, kilo, mega, giga, tera, peta, exa, zetta, yotta :: Num a => a
+deka = 10 ^ (1 :: Int)
+hecto = 10 ^ (2 :: Int)
 kilo = 10 ^ (3 :: Int)
 mega = 10 ^ (6 :: Int)
 giga = 10 ^ (9 :: Int)
 tera = 10 ^ (12 :: Int)
 peta = 10 ^ (15 :: Int)
 exa = 10 ^ (18 :: Int)
+zetta = 10 ^ (21 :: Int)
+yotta = 10 ^ (24 :: Int)
+
+-- | IEC 60027-X unit prefixes for binary bases.
+--
+-- cf. https://www.nist.gov/pml/special-publication-811/nist-guide-si-appendix-d-bibliography#05
+--
+kibi, mebi, gibi, tebi, pebi, exbi:: Num a => a
+kibi = 1024 ^ (1 :: Int)
+mebi = 1024 ^ (2 :: Int)
+gibi = 1024 ^ (3 :: Int)
+tebi = 1024 ^ (4 :: Int)
+pebi = 1024 ^ (5 :: Int)
+exbi = 1024 ^ (6 :: Int)
 
 -- -------------------------------------------------------------------------- --
 -- Misc
@@ -419,6 +443,23 @@ minusOrZero :: Ord a => Num a => a -> a -> a
 minusOrZero a b = a - min a b
 {-# INLINE minusOrZero #-}
 
+-- | Analogous to `unsafeInterleaveIO` but doesn't hide the effect behind evaluation.
+-- Careful; if the inner action throws an exception, it will never not throw that exception.
+interleaveIO :: IO a -> IO (IO a)
+interleaveIO act = evaluate <$> unsafeInterleaveIO act
+{-# INLINE interleaveIO #-}
+
+-- | Equivalent to V.thaw . V.fromList but by inspection probably faster.
+mutableVectorFromList
+    :: PrimMonad m
+    => [a]
+    -> m (MV.MVector (PrimState m) a)
+mutableVectorFromList as = do
+    vec <- MV.unsafeNew (length as)
+    forM_ (zip [0..] as) $ uncurry (MV.unsafeWrite vec)
+    return vec
+{-# inline mutableVectorFromList #-}
+
 -- -------------------------------------------------------------------------- --
 -- * Read only Ixed
 
@@ -459,38 +500,6 @@ data EncodingException where
     deriving anyclass (NFData)
 
 instance Exception EncodingException
-
--- | Decode a value from a 'B.ByteString'. In case of a failure a
--- 'DecodeException' is thrown.
---
-runGet :: MonadThrow m => Get a -> B.ByteString -> m a
-runGet g = fromEitherM . runGetEither (g <* eof)
-{-# INLINE runGet #-}
-
--- | Decode a value from a 'B.ByteString' and return either the result or a
--- 'DecodeException'.
---
-runGetEither :: Get a -> B.ByteString -> Either EncodingException a
-runGetEither g = first (DecodeException . T.pack) . runGetS (g <* eof)
-{-# INLINE runGetEither #-}
-
--- | Encode a value into a 'B.ByteString'.
---
-runPut :: Put -> B.ByteString
-runPut = runPutS
-{-# INLINE runPut #-}
-
-eof :: Get ()
-eof = unlessM isEmpty $ fail "pending bytes in input"
-{-# INLINE eof #-}
-
-class MonadGet m => MonadGetExtra m where
-    label :: String -> m a -> m a
-    isolate :: Int -> m a -> m a
-
-instance MonadGetExtra Get where
-    label = Get.label
-    isolate = Get.isolate
 
 -- -------------------------------------------------------------------------- --
 -- ** Text
@@ -650,6 +659,12 @@ decodeB64UrlNoPaddingText = fromEitherM
 encodeB64UrlNoPaddingText :: B.ByteString -> T.Text
 encodeB64UrlNoPaddingText = T.dropWhileEnd (== '=') . T.decodeUtf8 . B64U.encode
 {-# INLINE encodeB64UrlNoPaddingText #-}
+
+-- | Encode a binary value to a base64-url (without padding) JSON encoding.
+--
+b64UrlNoPaddingTextEncoding :: B.ByteString -> Encoding
+b64UrlNoPaddingTextEncoding t =
+    Aeson.unsafeToEncoding $ BB.char8 '\"' <> BB.byteString (B8.dropWhileEnd (== '=') $ B64U.encode t) <> BB.char8 '\"'
 
 -- -------------------------------------------------------------------------- --
 -- ** JSON
@@ -975,55 +990,6 @@ runForeverThrottled logfun name burst rate a = mask $ \umask -> do
     void go `finally` logfun Info (name <> " stopped")
 
 -- -------------------------------------------------------------------------- --
--- Count leading zero bits of a bytestring
-
--- | Count leading zero bits of a bytestring
---
-leadingZeros :: Integral int => B.ByteString -> int
-leadingZeros b =
-    let l = B.length b
-        midx = B.findIndex (/= 0x00) b
-        countInLastChar idx = countLeadingZeros $! B.unsafeIndex b (idx + 1)
-        f idx = 8 * idx + countInLastChar idx
-        !out = int $! maybe (8 * l) f midx
-    in out
-{-# INLINE leadingZeros #-}
-
--- -------------------------------------------------------------------------- --
--- Random ByteString
---
--- 'getStdRandom' provides a generator that is stored in an 'IORef' and updated
--- via an optimistic atomic swap. 'atomicModifyIORef'' is implemented such that
--- the swapped pointer is updated lazily, which minimizes the chance of retries
--- and life locks.
---
--- However, use of the generator is still sequentialized. Thus, for long
--- 'ByteString's it can be more efficient to split the generator to speed up
--- concurrent access.
-
-#if MIN_VERSION_random(1,2,0)
-randomShortByteString :: MonadIO m => Natural -> m BS.ShortByteString
-randomShortByteString n
-    -- don't split the generators for less than 64 words.
-    -- 512 = 8 * 64
-    | n < 512 = getStdRandom $ genShortByteString (int n)
-    | otherwise = fst . genShortByteString (int n) <$> newStdGen
-
-randomByteString :: MonadIO m => Natural -> m B.ByteString
-randomByteString n
-    -- don't split the generators for less than 64 words.
-    -- 512 = 8 * 64
-    | n < 512 = getStdRandom $ genByteString (int n)
-    | otherwise = fst . genByteString (int n) <$> newStdGen
-#else
-randomShortByteString :: MonadIO m => Natural -> m BS.ShortByteString
-randomShortByteString = fmap BS.toShort . randomByteString
-
-randomByteString :: MonadIO m => Natural -> m B.ByteString
-randomByteString = liftIO . BR.random
-#endif
-
--- -------------------------------------------------------------------------- --
 -- Configuration wrapper to enable and disable components
 
 -- | Configuration wrapper to enable and disable components
@@ -1046,16 +1012,24 @@ defaultEnableConfig a = EnableConfig
     , _enableConfigConfig = a
     }
 
+enableConfigProperties :: ToJSON a => KeyValue kv => EnableConfig a -> [kv]
+enableConfigProperties o =
+    [ "enabled" .= _enableConfigEnabled o
+    , "configuration" .= _enableConfigConfig o
+    ]
+{-# INLINE enableConfigProperties #-}
+
 instance ToJSON a => ToJSON (EnableConfig a) where
-    toJSON o = object
-        [ "enabled" .= _enableConfigEnabled o
-        , "configuration" .= _enableConfigConfig o
-        ]
+    toJSON = object . enableConfigProperties
+    toEncoding = pairs . mconcat . enableConfigProperties
+    {-# INLINE toJSON #-}
+    {-# INLINE toEncoding #-}
 
 instance FromJSON (a -> a) => FromJSON (EnableConfig a -> EnableConfig a) where
     parseJSON = withObject "EnableConfig" $ \o -> id
         <$< enableConfigEnabled ..: "enabled" % o
         <*< enableConfigConfig %.: "configuration" % o
+    {-# INLINE parseJSON #-}
 
 validateEnableConfig :: ConfigValidation a l -> ConfigValidation (EnableConfig a) l
 validateEnableConfig v c = when (_enableConfigEnabled c) $ v (_enableConfigConfig c)
@@ -1163,7 +1137,7 @@ reverseStream = S.effect . S.fold_ (flip (:)) [] S.each
 --
 foldChunksM
     :: Monad m
-    => (forall b . t -> (S.Stream f m b) -> m (Of t b))
+    => (forall b . t -> S.Stream f m b -> m (Of t b))
     -> t
     -> S.Stream (S.Stream f m) m a
     -> m (Of t a)
@@ -1180,7 +1154,7 @@ foldChunksM f = go
 --
 foldChunksM_
     :: Monad m
-    => (forall b . t -> (S.Stream f m b) -> m (Of t b))
+    => (forall b . t -> S.Stream f m b -> m (Of t b))
     -> t
     -> S.Stream (S.Stream f m) m a
     -> m t
@@ -1223,17 +1197,6 @@ data Codec t = Codec
 --
 symbolText :: forall s a . KnownSymbol s => IsString a => a
 symbolText = fromString $ symbolVal (Proxy @s)
-
--- -------------------------------------------------------------------------- --
--- Optics
-
-#if ! MIN_VERSION_lens(4,17,1)
--- | Like 'local' for reader environments, but modifies the
--- target of a lens possibly deep in the environment
---
-locally :: MonadReader s m => ASetter s s a b -> (a -> b) -> m r -> m r
-locally l f = Reader.local (over l f)
-#endif
 
 -- -------------------------------------------------------------------------- --
 -- Resource Management
@@ -1284,6 +1247,13 @@ withLink act = do
   link a
   return a
 
+-- | Like `sequence` for IO but concurrent
+concurrentlies :: forall a. [IO a] -> IO [a]
+concurrentlies = runConcurrently . traverse Concurrently
+
+-- | Like `sequence_` for IO but concurrent
+concurrentlies_ :: forall a. [IO a] -> IO ()
+concurrentlies_ = void . concurrentlies
 
 -- -------------------------------------------------------------------------- --
 -- Tuples
@@ -1294,6 +1264,36 @@ thd (_,_,c) = c
 
 -- -------------------------------------------------------------------------- --
 -- Strict Tuple
+
+data T2 a b = T2 !a !b
+    deriving (Show, Eq, Ord, Generic, NFData, Functor)
+
+instance Bifunctor T2 where
+    bimap f g (T2 a b) =  T2 (f a) (g b)
+    {-# INLINE bimap #-}
+
+data T3 a b c = T3 !a !b !c
+    deriving (Show, Eq, Ord, Generic, NFData, Functor)
+
+instance Bifunctor (T3 a) where
+    bimap f g (T3 a b c) =  T3 a (f b) (g c)
+    {-# INLINE bimap #-}
+
+sfst :: T2 a b -> a
+sfst (T2 a _) = a
+{-# INLINE sfst #-}
+
+ssnd :: T2 a b -> b
+ssnd (T2 _ b) = b
+{-# INLINE ssnd #-}
+
+scurry :: (T2 a b -> c) -> a -> b -> c
+scurry f a b = f (T2 a b)
+{-# INLINE scurry #-}
+
+suncurry :: (a -> b -> c) -> T2 a b -> c
+suncurry k (T2 a b) = k a b
+{-# INLINE suncurry #-}
 
 suncurry3 :: (a -> b -> c -> d) -> T3 a b c -> d
 suncurry3 k (T3 a b c) = k a b c
@@ -1313,7 +1313,7 @@ _T3 = iso (\(T3 a b c) -> (a,b,c)) (\(a,b,c) -> T3 a b c)
 
 -- -------------------------------------------------------------------------- --
 -- Approximate thread delays
-approximately :: Int -> Prob.GenIO -> IO Int
+approximately :: Integral a => a -> Prob.GenIO -> IO a
 approximately k gen = max 0 <$!> sample
   where
     sample = (round . (/ 256.0) . head) <$!>
@@ -1366,25 +1366,20 @@ setManagerRequestTimeout micros settings = settings
 -- -------------------------------------------------------------------------- --
 -- SockAddr from network package
 
-sockAddrJson :: SockAddr -> Value
-sockAddrJson (SockAddrInet p i) = object
+sockAddrJson :: KeyValue kv => SockAddr -> [kv]
+sockAddrJson (SockAddrInet p i) =
     [ "ipv4" .= showIpv4 i
     , "port" .= fromIntegral @PortNumber @Int p
     ]
-sockAddrJson (SockAddrInet6 p f i s) = object
+sockAddrJson (SockAddrInet6 p f i s) =
     [ "ipv6" .= show i
     , "port" .= fromIntegral @PortNumber @Int p
     , "flowInfo" .= f
     , "scopeId" .= s
     ]
-sockAddrJson (SockAddrUnix s) = object
+sockAddrJson (SockAddrUnix s) =
     [ "pipe" .= s
     ]
-#if !MIN_VERSION_network(3,0,0)
-sockAddrJson (SockAddrCan i) = object
-    [ "can" .= i
-    ]
-#endif
 
 showIpv4 :: HostAddress -> T.Text
 showIpv4 ha = T.intercalate "." $ sshow <$> [a0,a1,a2,a3]
@@ -1396,14 +1391,6 @@ showIpv6 ha = T.intercalate ":"
     $ T.pack . printf "%x" <$> [a0,a1,a2,a3,a4,a5,a6,a7]
   where
     (a0,a1,a2,a3,a4,a5,a6,a7) = hostAddress6ToTuple ha
-
-#if !MIN_VERSION_network(3,0,0)
-instance NFData SockAddr where
-    rnf (SockAddrInet a b) = a `seq` b `seq` ()
-    rnf (SockAddrInet6 a b c d) = a `seq` b `seq` c `seq` d `seq` ()
-    rnf (SockAddrUnix a) = a `seq` ()
-    rnf (SockAddrCan a) = a `seq` ()
-#endif
 
 -- -------------------------------------------------------------------------- --
 -- Debugging Tools

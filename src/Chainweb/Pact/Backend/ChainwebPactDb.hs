@@ -37,20 +37,18 @@ import Control.Monad.State.Strict
 import Control.Monad.Trans.Maybe
 
 import Data.Aeson hiding ((.=))
-import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
-import Data.ByteString.Lazy (fromStrict, toStrict)
+import qualified Data.ByteString.Char8 as B8
 import qualified Data.DList as DL
 import Data.Foldable (toList)
+import Data.List(sort)
 import qualified Data.HashMap.Strict as HashMap
 import Data.HashSet (HashSet)
 import qualified Data.HashSet as HashSet
 import qualified Data.Map.Strict as M
 import Data.Maybe
-import qualified Data.Serialize
 import qualified Data.Set as Set
 import Data.String
-import Data.String.Conv
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
 import qualified Data.Vector as V
@@ -68,8 +66,8 @@ import Text.Printf (printf)
 import Pact.Persist
 import Pact.PersistPactDb hiding (db)
 import Pact.Types.Logger
-import Pact.Types.PactValue
 import Pact.Types.Persistence
+import Pact.Types.RowData
 import Pact.Types.SQLite
 import Pact.Types.Term (ModuleName(..), ObjectMap(..), TableName(..))
 import Pact.Types.Util (AsString(..))
@@ -78,10 +76,18 @@ import Pact.Types.Util (AsString(..))
 
 import Chainweb.BlockHash
 import Chainweb.BlockHeight
+import Chainweb.Pact.Backend.DbCache
 import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.Backend.Utils
 import Chainweb.Pact.Service.Types (PactException(..), internalError)
 import Chainweb.Version (ChainwebVersion, ChainId, genesisHeight)
+import Chainweb.Utils (encodeToByteString, sshow)
+import Chainweb.Utils.Serialization
+
+tbl :: HasCallStack => Utf8 -> Utf8
+tbl t@(Utf8 b)
+    | B8.elem ']' b =  error $ "Chainweb.Pact.Backend.ChainwebPactDb: Code invariant violation. Illegal SQL table name " <> sshow b <> ". Please report this as a bug."
+    | otherwise = "[" <> t <> "]"
 
 chainwebPactDb :: PactDb (BlockEnv SQLiteEnv)
 chainwebPactDb = PactDb
@@ -105,7 +111,7 @@ getPendingData = do
     return $ ptx ++ [pb]
 
 forModuleNameFix :: (Bool -> BlockHandler e a) -> BlockHandler e a
-forModuleNameFix a = use bsModuleNameFix >>= a
+forModuleNameFix f = use bsModuleNameFix >>= f
 
 doReadRow
     :: (IsString k, FromJSON v)
@@ -114,29 +120,29 @@ doReadRow
     -> BlockHandler SQLiteEnv (Maybe v)
 doReadRow d k = forModuleNameFix $ \mnFix ->
     case d of
-        KeySets -> lookupWithKey (convKeySetName k)
+        KeySets -> lookupWithKey (convKeySetName k) noCache
         -- TODO: This is incomplete (the modules case), due to namespace
         -- resolution concerns
-        Modules -> lookupWithKey (convModuleName mnFix k)
-        Namespaces -> lookupWithKey (convNamespaceName k)
-        (UserTables _) -> lookupWithKey (convRowKey k)
-        Pacts -> lookupWithKey (convPactId k)
+        Modules -> lookupWithKey (convModuleName mnFix k) checkModuleCache
+        Namespaces -> lookupWithKey (convNamespaceName k) noCache
+        (UserTables _) -> lookupWithKey (convRowKey k) noCache
+        Pacts -> lookupWithKey (convPactId k) noCache
   where
     tableName = domainTableName d
     (Utf8 tableNameBS) = tableName
 
-    queryStmt = mconcat [ "SELECT rowdata FROM ["
-                        , tableName
-                        , "]  WHERE rowkey = ? \
-                          \ ORDER BY txid DESC \
-                          \ LIMIT 1;"
-                        ]
+    queryStmt =
+        "SELECT rowdata FROM " <> tbl tableName <> " WHERE rowkey = ? ORDER BY txid DESC LIMIT 1;"
 
-    lookupWithKey :: forall v . FromJSON v => Utf8 -> BlockHandler SQLiteEnv (Maybe v)
-    lookupWithKey key = do
+    lookupWithKey
+        :: forall v . FromJSON v
+        => Utf8
+        -> (Utf8 -> BS.ByteString -> MaybeT (BlockHandler SQLiteEnv) v)
+        -> BlockHandler SQLiteEnv (Maybe v)
+    lookupWithKey key checkCache = do
         pds <- getPendingData
         let lookPD = foldr1 (<|>) $ map (lookupInPendingData key) pds
-        let lookDB = lookupInDb key
+        let lookDB = lookupInDb key checkCache
         runMaybeT (lookPD <|> lookDB)
 
     lookupInPendingData
@@ -152,10 +158,14 @@ doReadRow d k = forModuleNameFix $ \mnFix ->
             then mzero
             -- we merge with (++) which should produce txids most-recent-first
             -- -- we care about the most recent update to this rowkey
-            else MaybeT $ return $! decode $ fromStrict $ DL.head ddata
+            else MaybeT $ return $! decodeStrict' $ DL.head ddata
 
-    lookupInDb :: forall v . FromJSON v => Utf8 -> MaybeT (BlockHandler SQLiteEnv) v
-    lookupInDb rowkey = do
+    lookupInDb
+        :: forall v . FromJSON v
+        => Utf8
+        -> (Utf8 -> BS.ByteString -> MaybeT (BlockHandler SQLiteEnv) v)
+        -> MaybeT (BlockHandler SQLiteEnv) v
+    lookupInDb rowkey checkCache = do
         -- First, check: did we create this table during this block? If so,
         -- there's no point in looking up the key.
         checkDbTableExists tableName
@@ -163,10 +173,25 @@ doReadRow d k = forModuleNameFix $ \mnFix ->
                        $ \db -> qry db queryStmt [SText rowkey] [RBlob]
         case result of
             [] -> mzero
-            [[SBlob a]] -> MaybeT $ return $! decode $ fromStrict a
+            [[SBlob a]] -> checkCache rowkey a
             err -> internalError $
                      "doReadRow: Expected (at most) a single result, but got: " <>
                      T.pack (show err)
+
+    checkModuleCache u b = MaybeT $ do
+        txid <- use bsTxId -- cache priority
+        mc <- use bsModuleCache
+        (r, mc') <- liftIO $ checkDbCache u b txid mc
+        modify' (bsModuleCache .~ mc')
+        return r
+
+    noCache
+        :: FromJSON v
+        => Utf8
+        -> BS.ByteString
+        -> MaybeT (BlockHandler SQLiteEnv) v
+    noCache _key rowdata = MaybeT $ return $! decodeStrict' rowdata
+
 
 checkDbTableExists :: Utf8 -> MaybeT (BlockHandler SQLiteEnv) ()
 checkDbTableExists tableName = do
@@ -189,7 +214,7 @@ writeSys d k v = gets _bsTxId >>= go
           recordPendingUpdate (getKeyString mnFix k) tableName txid v
         recordTxLog (toTableName tableName) d k v
 
-    toTableName (Utf8 str) = TableName $ toS str
+    toTableName (Utf8 str) = TableName $ T.decodeUtf8 str
     tableName = domainTableName d
 
     getKeyString mnFix = case d of
@@ -208,7 +233,7 @@ recordPendingUpdate
     -> BlockHandler SQLiteEnv ()
 recordPendingUpdate (Utf8 key) (Utf8 tn) txid v = modifyPendingData modf
   where
-    !vs = toStrict (Data.Aeson.encode v)
+    !vs = encodeToByteString v
     delta = SQLiteRowDelta tn txid key vs
     deltaKey = SQLiteDeltaKey tn key
 
@@ -228,17 +253,14 @@ backendWriteUpdateBatch bh writesByTable db = mapM_ writeTable writesByTable
     prepRow (SQLiteRowDelta _ txid rowkey rowdata) =
         [ SText (Utf8 rowkey)
         , SInt (fromIntegral txid)
-        , SBlob rowdata ]
+        , SBlob rowdata
+        ]
 
     writeTable (tableName, writes) = do
         execMulti db q (V.toList $ V.map prepRow writes)
         markTableMutation tableName bh db
       where
-        q = mconcat
-          ["INSERT OR REPLACE INTO ["
-          , tableName
-          , "](rowkey,txid,rowdata) "
-          , "VALUES(?,?,?)"]
+        q = "INSERT OR REPLACE INTO " <> tbl tableName <> "(rowkey,txid,rowdata) VALUES(?,?,?)"
 
 
 markTableMutation :: Utf8 -> BlockHeight -> Database -> IO ()
@@ -249,9 +271,9 @@ markTableMutation tablename blockheight db = do
 
 checkInsertIsOK
     :: WriteType
-    -> Domain RowKey (ObjectMap PactValue)
+    -> Domain RowKey RowData
     -> RowKey
-    -> BlockHandler SQLiteEnv (Maybe (ObjectMap PactValue))
+    -> BlockHandler SQLiteEnv (Maybe RowData)
 checkInsertIsOK wt d k = do
     olds <- doReadRow d k
     case (olds, wt) of
@@ -266,13 +288,13 @@ checkInsertIsOK wt d k = do
 
 writeUser
     :: WriteType
-    -> Domain RowKey (ObjectMap PactValue)
+    -> Domain RowKey RowData
     -> RowKey
-    -> ObjectMap PactValue
+    -> RowData
     -> BlockHandler SQLiteEnv ()
-writeUser wt d k row = gets _bsTxId >>= go
+writeUser wt d k rowdata@(RowData _ row) = gets _bsTxId >>= go
   where
-    toTableName (Utf8 str) = TableName $ toS str
+    toTableName = TableName . fromUtf8
     tn = domainTableName d
     ttn = toTableName tn
 
@@ -284,14 +306,14 @@ writeUser wt d k row = gets _bsTxId >>= go
         recordTxLog ttn d k row'
 
       where
-        upd oldrow = do
-            let row' = ObjectMap (M.union (_objectMap row) (_objectMap oldrow))
-            recordPendingUpdate (Utf8 $! toS $ asString k) tn txid row'
+        upd (RowData oldV oldrow) = do
+            let row' = RowData oldV $ ObjectMap (M.union (_objectMap row) (_objectMap oldrow))
+            recordPendingUpdate (convRowKey k) tn txid row'
             return row'
 
         ins = do
-            recordPendingUpdate (Utf8 $! toS $ asString k) tn txid row
-            return row
+            recordPendingUpdate (convRowKey k) tn txid rowdata
+            return rowdata
 
 doWriteRow
   :: (AsString k, ToJSON v)
@@ -305,19 +327,21 @@ doWriteRow wt d k v = case d of
     _ -> writeSys d k v
 
 doKeys
-    :: (IsString k, AsString k)
+    :: (IsString k)
     => Domain k v
     -> BlockHandler SQLiteEnv [k]
 doKeys d = do
+    msort <- uses bsSortedKeys (\c -> if c then sort else id)
     dbKeys <- getDbKeys
     pb <- use bsPendingBlock
     mptx <- use bsPendingTx
 
     let memKeys = DL.toList $
-                  fmap (toS . _deltaRowKey) $
+                  fmap (B8.unpack . _deltaRowKey) $
                   collect pb `DL.append` maybe DL.empty collect mptx
 
     let allKeys = map fromString $
+                  msort $
                   HashSet.toList $
                   HashSet.fromList $
                   dbKeys ++ memKeys
@@ -330,15 +354,14 @@ doKeys d = do
             Nothing -> return mempty
             Just () -> do
                 ks <- callDb "doKeys" $ \db ->
-                          qry_ db  ("SELECT DISTINCT rowkey FROM ["
-                                    <> tn <> "];") [RText]
+                          qry_ db  ("SELECT DISTINCT rowkey FROM " <> tbl tn) [RText]
                 forM ks $ \row -> do
                     case row of
-                        [SText (Utf8 k)] -> return $! toS k
+                        [SText k] -> return $! T.unpack $ fromUtf8 k
                         _ -> internalError "doKeys: The impossible happened."
 
     tn = domainTableName d
-    tnS = toS tn
+    tnS = let (Utf8 x) = tn in x
     collect p =
         let flt k _ = _dkTable k == tnS
         in DL.concat $ HashMap.elems $ HashMap.filterWithKey flt (_pendingWrites p)
@@ -372,9 +395,9 @@ doTxIds (TableName tn) _tid@(TxId tid) = do
                     [SInt tid'] -> return $ TxId (fromIntegral tid')
                     _ -> internalError "doTxIds: the impossible happened"
 
-    stmt = "SELECT DISTINCT txid FROM [" <> Utf8 (toS tn) <> "] WHERE txid > ?"
+    stmt = "SELECT DISTINCT txid FROM " <> tbl (toUtf8 tn) <> " WHERE txid > ?"
 
-    tnS = toS tn
+    tnS = T.encodeUtf8 tn
     collect p =
         let flt k _ = _dkTable k == tnS
             txids = DL.toList $
@@ -420,20 +443,26 @@ doCreateUserTable tn@(TableName ttxt) mn = do
       Nothing -> throwM $ PactDuplicateTableError ttxt
       Just () -> do
           -- then check if it is in the db
-          cond <- inDb $ Utf8 $ T.encodeUtf8 ttxt
+          lcTables <- use bsLowerCaseTables
+          cond <- inDb lcTables $ Utf8 $ T.encodeUtf8 ttxt
           when cond $ throwM $ PactDuplicateTableError ttxt
           modifyPendingData
             $ over pendingTableCreation (HashSet.insert (T.encodeUtf8 ttxt))
             . over pendingTxLogMap (M.insertWith DL.append (TableName txlogKey) txlogs)
   where
-    inDb t =
+    inDb lcTables t =
       callDb "doCreateUserTable" $ \db -> do
-        r <- qry db tableLookupStmt [SText t] [RText]
+        r <- qry db (tableLookupStmt lcTables) [SText t] [RText]
         return $ case r of
-          [[SText rname]] -> rname == t
+          -- if lowercase matching, no need to check equality
+          -- (wasn't needed before either but leaving alone for replay)
+          [[SText rname]] -> lcTables || rname == t
           _ -> False
 
-    tableLookupStmt = "SELECT name FROM sqlite_master WHERE type='table' and name=?;"
+    tableLookupStmt False =
+      "SELECT name FROM sqlite_master WHERE type='table' and name=?;"
+    tableLookupStmt True =
+      "SELECT name FROM sqlite_master WHERE type='table' and lower(name)=lower(?);"
     txlogKey = "SYS:usertables"
     stn = asString tn
     uti = UserTableInfo mn
@@ -446,7 +475,7 @@ doRollback = modify'
     . set bsPendingTx Nothing
 
 doCommit :: BlockHandler SQLiteEnv [TxLog Value]
-doCommit = use bsMode >>= \mm -> case mm of
+doCommit = use bsMode >>= \case
     Nothing -> doRollback >> internalError "doCommit: Not in transaction"
     Just m -> do
         txrs <- if m == Transactional
@@ -485,7 +514,7 @@ clearPendingTxState = do
 
 doBegin :: ExecutionMode -> BlockHandler SQLiteEnv (Maybe TxId)
 doBegin m = do
-    use bsMode >>= \m' -> case m' of
+    use bsMode >>= \case
         Just {} -> do
             logError "beginTx: In transaction, rolling back"
             doRollback
@@ -531,42 +560,36 @@ doGetTxLog d txid = do
 
     readFromDb = do
         rows <- callDb "doGetTxLog" $ \db -> qry db stmt
-          [ SInt (fromIntegral txid) ]
+          [SInt (fromIntegral txid)]
           [RText, RBlob]
         forM rows $ \case
             [SText key, SBlob value] -> toTxLog d key value
             err -> internalError $
               "readHistoryResult: Expected single row with two columns as the \
               \result, got: " <> T.pack (show err)
-    stmt = mconcat [ "SELECT rowkey, rowdata FROM ["
-                   , tableName
-                   , "] WHERE txid = ?"
-                   ]
+    stmt = "SELECT rowkey, rowdata FROM " <> tbl tableName <> " WHERE txid = ?"
 
 
 toTxLog :: (MonadThrow m, FromJSON v, FromJSON l) =>
-           Domain k v -> Utf8 -> ByteString -> m (TxLog l)
+           Domain k v -> Utf8 -> BS.ByteString -> m (TxLog l)
 toTxLog d key value =
         case Data.Aeson.decodeStrict' value of
-            Nothing -> internalError $
+            Nothing -> internalError
               "toTxLog: Unexpected value, unable to deserialize log"
             Just v ->
-              return $! TxLog (toS $ unwrap $ domainTableName d) (toS $ unwrap key) v
-
-
-unwrap :: Utf8 -> BS.ByteString
-unwrap (Utf8 str) = str
+              return $! TxLog (asString d) (fromUtf8 key) v
 
 blockHistoryInsert :: BlockHeight -> BlockHash -> TxId -> BlockHandler SQLiteEnv ()
 blockHistoryInsert bh hsh t =
     callDb "blockHistoryInsert" $ \db ->
-        exec' db stmt [ SInt (fromIntegral bh)
-                   , SBlob (Data.Serialize.encode hsh)
-                   , SInt (fromIntegral t) ]
+        exec' db stmt
+            [ SInt (fromIntegral bh)
+            , SBlob (runPutS (encodeBlockHash hsh))
+            , SInt (fromIntegral t)
+            ]
   where
     stmt =
-      "INSERT INTO BlockHistory ('blockheight','hash','endingtxid') \
-            \ VALUES (?,?,?);"
+      "INSERT INTO BlockHistory ('blockheight','hash','endingtxid') VALUES (?,?,?);"
 
 createTransactionIndexTable :: BlockHandler SQLiteEnv ()
 createTransactionIndexTable = callDb "createTransactionIndexTable" $ \db -> do
@@ -577,7 +600,7 @@ createTransactionIndexTable = callDb "createTransactionIndexTable" $ \db -> do
     exec_ db "CREATE INDEX IF NOT EXISTS \
              \ transactionIndexByBH ON TransactionIndex(blockheight)";
 
-indexPactTransaction :: ByteString -> BlockHandler SQLiteEnv ()
+indexPactTransaction :: BS.ByteString -> BlockHandler SQLiteEnv ()
 indexPactTransaction h = modify' $
     over (bsPendingBlock . pendingSuccessfulTxs) $! HashSet.insert h
 
@@ -642,20 +665,15 @@ createVersionedTable tablename db = do
     exec_ db createtablestmt
     exec_ db indexcreationstmt
   where
+    ixName = tablename <> "_ix"
     createtablestmt =
-      "CREATE TABLE IF NOT EXISTS["
-        <> tablename
-        <> "] (rowkey TEXT\
+      "CREATE TABLE IF NOT EXISTS " <> tbl tablename <> " \
+             \ (rowkey TEXT\
              \, txid UNSIGNED BIGINT NOT NULL\
              \, rowdata BLOB NOT NULL\
              \, UNIQUE (rowkey, txid));"
     indexcreationstmt =
-       mconcat
-           ["CREATE INDEX IF NOT EXISTS ["
-           , tablename
-           , "_ix] ON ["
-           , tablename
-           , "](txid DESC);"]
+        "CREATE INDEX IF NOT EXISTS " <> tbl ixName <> " ON " <> tbl tablename <> "(txid DESC);"
 
 -- | Rewind the checkpoint in the current BlockHistory to the requested block
 -- height and hash. This doesn't handle forks. The requested block hash must
@@ -707,10 +725,9 @@ handlePossibleRewind v cid bRestore hsh = do
         -- enforce invariant that the history has
         -- (B_restore-1,H_parent).
         resultCount <- callDb "handlePossibleRewind" $ \db -> do
-            qry db "SELECT COUNT(*) FROM BlockHistory WHERE \
-                   \blockheight = ? AND hash = ?;"
+            qry db "SELECT COUNT(*) FROM BlockHistory WHERE blockheight = ? AND hash = ?;"
                    [ SInt $! fromIntegral $ pred bRestore
-                   , SBlob (Data.Serialize.encode hsh) ]
+                   , SBlob (runPutS $ encodeBlockHash hsh) ]
                    [RInt]
                 >>= expectSingleRowCol "handlePossibleRewind: (historyInvariant):"
         when (resultCount /= SInt 1) $
@@ -771,19 +788,17 @@ dropTablesAtRewind :: BlockHeight -> Database -> IO (HashSet BS.ByteString)
 dropTablesAtRewind bh db = do
     toDropTblNames <- qry db findTablesToDropStmt
                       [SInt (fromIntegral bh)] [RText]
-    tbls <- fmap (HashSet.fromList) . forM toDropTblNames $ \case
-        [SText tblname@(Utf8 tbl)] -> do
-            exec_ db $ "DROP TABLE [" <> tblname <> "];"
-            return tbl
+    tbls <- fmap HashSet.fromList . forM toDropTblNames $ \case
+        [SText tblname@(Utf8 tn)] -> do
+            exec_ db $ "DROP TABLE IF EXISTS " <> tbl tblname
+            return tn
         _ -> internalError rewindmsg
     exec' db
         "DELETE FROM VersionedTableCreation WHERE createBlockheight >= ?"
         [SInt (fromIntegral bh)]
     return tbls
   where findTablesToDropStmt =
-          "SELECT tablename FROM\
-          \ VersionedTableCreation\
-          \ WHERE createBlockheight >= ?;"
+          "SELECT tablename FROM VersionedTableCreation WHERE createBlockheight >= ?;"
         rewindmsg =
           "rewindBlock:\
           \ dropTablesAtRewind: \
@@ -791,19 +806,18 @@ dropTablesAtRewind bh db = do
 
 vacuumTablesAtRewind :: BlockHeight -> TxId -> HashSet BS.ByteString -> Database -> IO ()
 vacuumTablesAtRewind bh endingtx droppedtbls db = do
-    let processMutatedTables ms = fmap (HashSet.fromList) . forM ms $ \case
-          [SText (Utf8 tbl)] -> return tbl
+    let processMutatedTables ms = fmap HashSet.fromList . forM ms $ \case
+          [SText (Utf8 tn)] -> return tn
           _ -> internalError "rewindBlock: vacuumTablesAtRewind: Couldn't resolve the name \
                              \of the table to possibly vacuum."
     mutatedTables <- qry db
-        "SELECT DISTINCT tablename\
-        \ FROM VersionedTableMutation WHERE blockheight >= ?;"
+        "SELECT DISTINCT tablename FROM VersionedTableMutation WHERE blockheight >= ?;"
       [SInt (fromIntegral bh)]
       [RText]
       >>= processMutatedTables
     let toVacuumTblNames = HashSet.difference mutatedTables droppedtbls
     forM_ toVacuumTblNames $ \tblname ->
-        exec' db (mconcat ["DELETE FROM [", Utf8 tblname, "] WHERE txid >= ?"])
+        exec' db ("DELETE FROM " <> tbl (Utf8 tblname) <> " WHERE txid >= ?")
               [SInt $! fromIntegral endingtx]
     exec' db "DELETE FROM VersionedTableMutation WHERE blockheight >= ?;"
           [SInt (fromIntegral bh)]
@@ -837,7 +851,7 @@ initSchema = do
         create (domainTableName Pacts)
   where
     create tablename = do
-        log "DDL" $ "initSchema: "  ++ toS tablename
+        log "DDL" $ "initSchema: "  ++ (T.unpack . fromUtf8) tablename
         callDb "initSchema" $ createVersionedTable tablename
 
 getEndingTxId :: ChainwebVersion -> ChainId -> BlockHeight -> BlockHandler SQLiteEnv TxId

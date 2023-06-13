@@ -48,6 +48,7 @@ module Chainweb.Counter
 import Control.DeepSeq
 
 import Data.Aeson
+import Data.Aeson.Encoding (pair)
 import Data.Foldable
 import qualified Data.HashMap.Strict as HM
 import Data.IORef
@@ -75,18 +76,18 @@ newtype Labeled (s :: Symbol) a = Labeled a
     deriving newtype (Num, Enum, Bounded, Integral, Real, NFData)
 
 instance (KnownSymbol s, ToJSON a) => ToJSON (Labeled s a) where
-    toJSON (Labeled a) = object
-        [ symbolText @s @T.Text .= a
-        ]
+    toJSON = object . pure . kv
+    toEncoding = pairs . kv
     {-# INLINE toJSON #-}
+    {-# INLINE toEncoding #-}
 
-pair :: forall s a . KnownSymbol s => Labeled s a -> (T.Text, a)
-pair (Labeled a) = (symbolText @s, a)
-{-# INLINE pair #-}
+kv :: forall s a x . KnownSymbol s => ToJSON a => KeyValue x => Labeled s a -> x
+kv (Labeled a) = symbolText @s .= a
+{-# INLINE kv #-}
 
-jsonPair :: KnownSymbol s => ToJSON a => Labeled s a -> (T.Text, Value)
-jsonPair = fmap toJSON . pair
-{-# INLINE jsonPair #-}
+kv' :: forall s . KnownSymbol s => Labeled s Encoding -> Series
+kv' (Labeled a) = pair (symbolText @s) a
+{-# INLINE kv' #-}
 
 -- -------------------------------------------------------------------------- --
 -- Class of Counters
@@ -198,9 +199,15 @@ instance LogMessage CounterLog where
 instance ToJSON CounterLog where
     toJSON (CounterLog v) = object $ V.toList $ V.map f v
       where
-        f (CounterValue i) = jsonPair i
-        f (CounterMapValue m) = jsonPair $ fmap (object . V.toList . V.map (fmap toJSON)) m
+        f (CounterValue i) = kv i
+        f (CounterMapValue m) = kv $ fmap (object . V.toList . V.map (fmap toJSON)) m
     {-# INLINE toJSON #-}
+
+    toEncoding (CounterLog v) = pairs $ foldMap f v
+      where
+        f (CounterValue i) = kv i
+        f (CounterMapValue m) = kv' $ fmap (pairs . foldMap (uncurry (.=))) m
+    {-# INLINE toEncoding #-}
 
 logFunctionCounter
     :: Logger l

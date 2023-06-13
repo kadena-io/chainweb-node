@@ -148,7 +148,9 @@ instance HasTextRepresentation PeerId where
 
 instance ToJSON PeerId where
     toJSON = toJSON . toText
+    toEncoding = toEncoding . toText
     {-# INLINE toJSON #-}
+    {-# INLINE toEncoding #-}
 
 instance FromJSON PeerId where
     parseJSON = parseJsonFromText "PeerId"
@@ -188,12 +190,18 @@ data PeerInfo = PeerInfo
 
 makeLenses ''PeerInfo
 
+peerInfoProperties :: KeyValue kv => PeerInfo -> [kv]
+peerInfoProperties a =
+    [ "id" .= _peerId a
+    , "address" .= _peerAddr a
+    ]
+{-# INLINE peerInfoProperties #-}
+
 instance ToJSON PeerInfo where
-    toJSON a = object
-        [ "id" .= _peerId a
-        , "address" .= _peerAddr a
-        ]
+    toJSON  = object . peerInfoProperties
+    toEncoding  = pairs . mconcat . peerInfoProperties
     {-# INLINE toJSON #-}
+    {-# INLINE toEncoding #-}
 
 instance FromJSON PeerInfo where
     parseJSON = withObject "PeerInfo" $ \o -> PeerInfo
@@ -313,7 +321,7 @@ peerConfigHost = peerConfigAddr . hostAddressHost
 
 defaultPeerConfig :: PeerConfig
 defaultPeerConfig = PeerConfig
-    { _peerConfigAddr = HostAddress anyIpv4 0
+    { _peerConfigAddr = HostAddress anyIpv4 1789
     , _peerConfigInterface = fromString "*"
     , _peerConfigCertificateChain = Nothing
     , _peerConfigCertificateChainFile = Nothing
@@ -323,7 +331,7 @@ defaultPeerConfig = PeerConfig
 
 validatePeerConfig :: Applicative a => ConfigValidation PeerConfig a
 validatePeerConfig c = do
-    when (isReservedHostAddress (_peerConfigAddr c)) $ tell
+    when (_peerConfigHost c /= anyIpv4 && isReservedHostAddress (_peerConfigAddr c)) $ tell
         $ pure "The configured hostname is a localhost name or from a reserved IP address range. Please use a public hostname or IP address, or '0.0.0.0' (automatic configuration)."
 
     when (_peerConfigInterface c == "localhost" || _peerConfigInterface c == "localnet") $ tell
@@ -339,16 +347,22 @@ validatePeerConfig c = do
     when (isJust (_peerConfigKeyFile c) && isJust (_peerConfigKey c)) $
         tell $ pure "The configuration provides both 'key' and 'keyFile'. The 'key' setting will be used."
 
+peerConfigProperties :: KeyValue kv => PeerConfig -> [kv]
+peerConfigProperties o =
+    [ "hostaddress" .= _peerConfigAddr o
+    , "interface" .= hostPreferenceToText (_peerConfigInterface o)
+    , "certificateChain" .= _peerConfigCertificateChain o
+    , "certificateChainFile" .= _peerConfigCertificateChainFile o
+    , "key" .= _peerConfigKey o
+    , "keyFile" .= _peerConfigKeyFile o
+    ]
+{-# INLINE peerConfigProperties #-}
 
 instance ToJSON PeerConfig where
-    toJSON o = object
-        [ "hostaddress" .= _peerConfigAddr o
-        , "interface" .= hostPreferenceToText (_peerConfigInterface o)
-        , "certificateChain" .= _peerConfigCertificateChain o
-        , "certificateChainFile" .= _peerConfigCertificateChainFile o
-        , "key" .= _peerConfigKey o
-        , "keyFile" .= _peerConfigKeyFile o
-        ]
+    toJSON = object . peerConfigProperties
+    toEncoding = pairs . mconcat . peerConfigProperties
+    {-# INLINE toJSON #-}
+    {-# INLINE toEncoding #-}
 
 instance FromJSON PeerConfig where
     parseJSON = withObject "PeerConfig" $ \o -> PeerConfig
@@ -439,20 +453,26 @@ unsafeCreatePeer conf = do
         , _peerKey = key
         }
 
+peerProperties :: KeyValue kv => Peer -> [kv]
+peerProperties p =
+    [ "info" .= _peerInfo p
+    , "interface" .= hostPreferenceToText (_peerInterface p)
+    , "certificateChain" .= _peerCertificateChain p
+    , "key" .= _peerKey p
+    ]
+{-# INLINE peerProperties #-}
+
 instance ToJSON Peer where
-    toJSON p = object
-        [ "info" .= _peerInfo p
-        , "interface" .= hostPreferenceToText (_peerInterface p)
-        , "certifcateChain" .= _peerCertificateChain p
-        , "key" .= _peerKey p
-        ]
+    toJSON = object . peerProperties
+    toEncoding = pairs. mconcat . peerProperties
     {-# INLINE toJSON #-}
+    {-# INLINE toEncoding #-}
 
 instance FromJSON Peer where
     parseJSON = withObject "Peer" $ \o -> Peer
         <$> o .: "info"
         <*> (parseJsonFromText "interface" =<< o .: "interface")
-        <*> o .: "certificate"
+        <*> o .: "certificateChain"
         <*> o .: "key"
     {-# INLINE parseJSON #-}
 

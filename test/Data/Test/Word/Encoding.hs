@@ -16,7 +16,6 @@ module Data.Test.Word.Encoding
 ) where
 
 import Data.Bits
-import Data.Bytes.Put
 import qualified Data.ByteString as B
 import Data.DoubleWord (Word128(..))
 
@@ -24,7 +23,7 @@ import Test.QuickCheck
 
 -- internal modules
 
-import Data.Word.Encoding
+import Chainweb.Utils.Serialization
 
 -- -------------------------------------------------------------------------- --
 -- Properties

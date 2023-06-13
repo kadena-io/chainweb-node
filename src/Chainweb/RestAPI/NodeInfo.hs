@@ -39,7 +39,7 @@ type NodeInfoApi = "info" :> Get '[JSON] NodeInfo
 someNodeInfoApi :: SomeApi
 someNodeInfoApi = SomeApi (Proxy @NodeInfoApi)
 
-someNodeInfoServer :: ChainwebVersion -> CutDb cas -> SomeServer
+someNodeInfoServer :: ChainwebVersion -> CutDb tbl -> SomeServer
 someNodeInfoServer v c =
   SomeServer (Proxy @NodeInfoApi) (nodeInfoHandler v $ someCutDbVal v c)
 
@@ -54,16 +54,16 @@ data NodeInfo = NodeInfo
   , nodeGraphHistory :: [(BlockHeight, [(Int, [Int])])]
   -- ^ List of chain graphs and the block height they took effect. Sorted
   -- descending by height so the current chain graph is at the beginning.
-  } deriving (Generic)
+  } deriving (Show, Eq, Generic)
 
 instance ToJSON NodeInfo
 instance FromJSON NodeInfo
 
-nodeInfoHandler :: ChainwebVersion -> SomeCutDb cas -> Server NodeInfoApi
+nodeInfoHandler :: ChainwebVersion -> SomeCutDb tbl -> Server NodeInfoApi
 nodeInfoHandler v (SomeCutDb ((CutDbT db) :: CutDbT cas v)) = do
     curCut <- liftIO $ _cut db
     let ch = cutToCutHashes Nothing curCut
-        curHeight = maximum $ map fst $ HashMap.elems $ _cutHashes ch
+        curHeight = maximum $ map _bhwhHeight $ HashMap.elems $ _cutHashes ch
         graphs = unpackGraphs v
         curGraph = head $ dropWhile (\(h,_) -> h > curHeight) graphs
         curChains = map fst $ snd curGraph

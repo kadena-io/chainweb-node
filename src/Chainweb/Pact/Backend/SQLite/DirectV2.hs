@@ -1,4 +1,10 @@
-module Chainweb.Pact.Backend.SQLite.DirectV2 where
+{-# LANGUAGE LambdaCase #-}
+
+module Chainweb.Pact.Backend.SQLite.DirectV2
+( open_v2
+, close_v2
+, init_sha3
+) where
 
 import qualified Data.ByteString as BS
 
@@ -30,7 +36,14 @@ open_v2 (Utf8 path) (SQLiteFlag flag) mzvfs =
               Right () ->
                 if db == Database nullPtr
                 then error "sqlite3_open_v2 unexpectedly returned NULL"
-                else return $ Right db
+                else do
+                  init_sha3 db >>= \case
+                    Left err -> do
+                      msg <- errmsg db -- This returns "out of memory" if db is null.
+                      _ <- close db -- This is harmless if db is null.
+                      return $ Left (err, msg)
+                    Right () ->
+                        return $ Right db
   where
     useAsMaybeCString :: Maybe Utf8 -> (CString -> IO a) -> IO a
     useAsMaybeCString (Just (Utf8 zvfs)) f = BS.useAsCString zvfs f
@@ -40,6 +53,9 @@ close_v2 :: Database -> IO (Either Error ())
 close_v2 (Database db) =
   toResult () <$> c_sqlite3_close_v2 db
 
+init_sha3 :: Database -> IO (Either Error ())
+init_sha3 (Database db) =
+    toResult () <$> c_sqlite3_shathree_create_functions db
 
 toResult :: a -> CError -> Either Error a
 toResult a (CError 0) = Right a

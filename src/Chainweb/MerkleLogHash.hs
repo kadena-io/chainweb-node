@@ -31,19 +31,15 @@ module Chainweb.MerkleLogHash
 , decodeMerkleLogHash
 , nullHashBytes
 , oneHashBytes
-, randomMerkleLogHash
 ) where
 
 import Control.DeepSeq
 import Control.Monad.Catch (MonadThrow, displayException, throwM)
-import Control.Monad.IO.Class (MonadIO(..))
 
 import Data.Aeson (FromJSON(..), FromJSONKey(..), ToJSON(..), ToJSONKey(..))
 import Data.Aeson.Types (FromJSONKeyFunction(..), toJSONKeyText)
 import Data.Bits
 import qualified Data.ByteArray as BA
-import Data.Bytes.Get
-import Data.Bytes.Put
 import qualified Data.ByteString as B
 import Data.Hashable (Hashable(..))
 import Data.MerkleLog hiding (Expected, Actual)
@@ -64,6 +60,7 @@ import System.IO.Unsafe
 
 import Chainweb.Crypto.MerkleLog
 import Chainweb.Utils
+import Chainweb.Utils.Serialization
 
 -- -------------------------------------------------------------------------- --
 -- MerkleLogHash
@@ -103,20 +100,19 @@ unsafeMerkleLogHash = MerkleLogHash
     . decodeMerkleRoot
 {-# INLINE unsafeMerkleLogHash #-}
 
-encodeMerkleLogHash :: MonadPut m => MerkleLogHash a -> m ()
+encodeMerkleLogHash :: MerkleLogHash a -> Put
 encodeMerkleLogHash (MerkleLogHash bytes) = putByteString $ encodeMerkleRoot bytes
 {-# INLINE encodeMerkleLogHash #-}
 
 decodeMerkleLogHash
     :: MerkleHashAlgorithm a
-    => MonadGet m
-    => m (MerkleLogHash a)
-decodeMerkleLogHash = unsafeMerkleLogHash <$> getBytes (int merkleLogHashBytesCount)
+    => Get (MerkleLogHash a)
+decodeMerkleLogHash = unsafeMerkleLogHash <$> getByteString (int merkleLogHashBytesCount)
 {-# INLINE decodeMerkleLogHash #-}
 
 instance Hashable (MerkleLogHash a) where
     hashWithSalt s = xor s
-        . unsafePerformIO . flip BA.withByteArray (peek @Int)
+        . unsafeDupablePerformIO . flip BA.withByteArray (peek @Int)
     -- BlockHashes are already cryptographically strong hashes
     -- that include the chain id.
     {-# INLINE hashWithSalt #-}
@@ -129,12 +125,6 @@ oneHashBytes :: MerkleHashAlgorithm a => MerkleLogHash a
 oneHashBytes = unsafeMerkleLogHash $ B.replicate (int merkleLogHashBytesCount) 0xff
 {-# NOINLINE oneHashBytes #-}
 
--- | This must be used only for testing. The result hash is uniformily
--- distributed, but not cryptographically safe.
---
-randomMerkleLogHash :: MerkleHashAlgorithm a => MonadIO m => m (MerkleLogHash a)
-randomMerkleLogHash = unsafeMerkleLogHash <$> randomByteString merkleLogHashBytesCount
-
 merkleLogHashToText :: MerkleHashAlgorithm a => MerkleLogHash a -> T.Text
 merkleLogHashToText = encodeB64UrlNoPaddingText . runPutS . encodeMerkleLogHash
 {-# INLINE merkleLogHashToText #-}
@@ -145,7 +135,7 @@ merkleLogHashFromText
     => T.Text
     -> m (MerkleLogHash a)
 merkleLogHashFromText t = either (throwM . TextFormatException . sshow) return
-        $ runGet decodeMerkleLogHash =<< decodeB64UrlNoPaddingText t
+        $ runGetS decodeMerkleLogHash =<< decodeB64UrlNoPaddingText t
 {-# INLINE merkleLogHashFromText #-}
 
 instance MerkleHashAlgorithm a => HasTextRepresentation (MerkleLogHash a) where
@@ -156,7 +146,9 @@ instance MerkleHashAlgorithm a => HasTextRepresentation (MerkleLogHash a) where
 
 instance MerkleHashAlgorithm a => ToJSON (MerkleLogHash a) where
     toJSON = toJSON . toText
+    toEncoding = toEncoding . toText
     {-# INLINE toJSON #-}
+    {-# INLINE toEncoding #-}
 
 instance MerkleHashAlgorithm a => ToJSONKey (MerkleLogHash a) where
     toJSONKey = toJSONKeyText toText

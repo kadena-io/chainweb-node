@@ -39,10 +39,10 @@ module Allocations
 import GHC.Generics
 
 import Data.ByteString (ByteString)
+import qualified Data.ByteString.Lazy as BL
 import qualified Data.Csv as CSV
 import Data.FileEmbed (embedFile)
 import qualified Data.Map.Strict as M
-import Data.String.Conv (toS)
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.IO as T
@@ -78,7 +78,7 @@ genTxs
     => (a -> b)
     -> ByteString
     -> Vector b
-genTxs f bs = case CSV.decode CSV.HasHeader (toS bs) of
+genTxs f bs = case CSV.decode CSV.HasHeader (BL.fromStrict bs) of
     Left e -> error
       $ "cannot construct genesis allocations: "
       <> sshow e

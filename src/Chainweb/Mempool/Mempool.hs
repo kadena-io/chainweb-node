@@ -3,11 +3,13 @@
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE TemplateHaskell #-}
 
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 
@@ -67,6 +69,10 @@ module Chainweb.Mempool.Mempool
   , HighwaterMark
   , InsertType(..)
   , InsertError(..)
+  , BlockFill(..)
+  , bfGasLimit
+  , bfTxHashes
+  , bfCount
 
   , chainwebTransactionConfig
   , mockCodec
@@ -80,11 +86,12 @@ module Chainweb.Mempool.Mempool
   , syncMempools'
   , GasLimit(..)
   , GasPrice(..)
+  , requestKeyToTransactionHash
   ) where
 ------------------------------------------------------------------------------
 import Control.DeepSeq (NFData)
 import Control.Exception
-import Control.Lens
+import Control.Lens hiding ((.=))
 import Control.Monad (replicateM, unless)
 
 import Crypto.Hash (hash)
@@ -93,8 +100,6 @@ import Crypto.Hash.Algorithms (SHA512t_256)
 import Data.Aeson
 import Data.Bits (bit, shiftL, shiftR, (.&.))
 import Data.ByteArray (convert)
-import Data.Bytes.Get
-import Data.Bytes.Put
 import qualified Data.ByteString.Base64.URL as B64
 import Data.ByteString.Char8 (ByteString)
 import qualified Data.ByteString.Char8 as B
@@ -107,9 +112,9 @@ import qualified Data.HashSet as HashSet
 import Data.Int (Int64)
 import Data.IORef
 import Data.List (unfoldr)
+import qualified Data.Set as S
 import Data.Text (Text)
 import qualified Data.Text as T
-import Data.Tuple.Strict (T2)
 import Data.Vector (Vector)
 import qualified Data.Vector as V
 import Data.Word (Word64)
@@ -134,13 +139,33 @@ import Chainweb.Time (Micros(..), Time(..), TimeSpan(..))
 import qualified Chainweb.Time as Time
 import Chainweb.Transaction
 import Chainweb.Utils
+import Chainweb.Utils.Serialization
+import Chainweb.Version (ChainwebVersion(..))
 import Data.LogMessage (LogFunctionText)
 
 ------------------------------------------------------------------------------
 data LookupResult t = Missing
                     | Pending t
-  deriving (Show, Generic)
-  deriving anyclass (ToJSON, FromJSON, NFData) -- TODO: a handwritten instance
+  deriving (Show, Generic, Eq)
+  deriving anyclass (NFData)
+
+-- This instance is a bit strange. It's for backward compatibility.
+--
+instance ToJSON t => ToJSON (LookupResult t) where
+    toJSON Missing = object [ "tag" .= ("Missing" :: String) ]
+    toJSON (Pending t) = object [ "tag" .= ("Pending" :: String), "contents" .= t ]
+    {-# INLINE toJSON #-}
+
+    toEncoding Missing = pairs $ "tag" .= ("Missing" :: String)
+    toEncoding (Pending t) = pairs $ "tag" .= ("Pending" :: String) <> "contents" .= t
+    {-# INLINE toEncoding #-}
+
+instance FromJSON t => FromJSON (LookupResult t) where
+    parseJSON = withObject "LookupResult" $ \o -> o .: "tag" >>= \case
+        "Missing" -> return Missing
+        "Pending" -> Pending <$> o .: "contents"
+        t -> fail $ "Unrecognized lookup result tag: " <> t
+    {-# INLINE parseJSON #-}
 
 instance Functor LookupResult where
     fmap _ Missing = Missing
@@ -205,6 +230,8 @@ data InsertError = InsertErrorDuplicate
                  | InsertErrorBuyGas Text
                  | InsertErrorCompilationFailed Text
                  | InsertErrorOther Text
+                 | InsertErrorInvalidHash
+                 | InsertErrorInvalidSigs
   deriving (Generic, Eq, NFData)
 
 instance Show InsertError
@@ -222,8 +249,21 @@ instance Show InsertError
     show (InsertErrorBuyGas msg) = "Attempt to buy gas failed with: " <> T.unpack msg
     show (InsertErrorCompilationFailed msg) = "Transaction compilation failed: " <> T.unpack msg
     show (InsertErrorOther m) = "insert error: " <> T.unpack m
+    show InsertErrorInvalidHash = "Invalid transaction hash"
+    show InsertErrorInvalidSigs = "Invalid transaction sigs"
 
 instance Exception InsertError
+
+-- | Parameterizes Mempool get-block calls.
+data BlockFill = BlockFill
+  { _bfGasLimit :: !GasLimit
+    -- ^ Fetch pending transactions up to this limit.
+  , _bfTxHashes :: !(S.Set TransactionHash)
+    -- ^ Fetch only transactions not in set.
+  , _bfCount :: {-# UNPACK #-} !Word64
+    -- ^ "Round count" of fetching for a given new block.
+  } deriving (Eq,Show)
+
 
 ------------------------------------------------------------------------------
 -- | Mempool backend API. Here @t@ is the transaction payload type.
@@ -249,7 +289,7 @@ data MempoolBackend t = MempoolBackend {
   , mempoolMarkValidated :: Vector t -> IO ()
 
     -- | Mark a transaction as bad.
-  , mempoolAddToBadList :: TransactionHash -> IO ()
+  , mempoolAddToBadList :: Vector TransactionHash -> IO ()
 
     -- | Returns 'True' if the transaction is badlisted.
   , mempoolCheckBadList :: Vector TransactionHash -> IO (Vector Bool)
@@ -258,7 +298,7 @@ data MempoolBackend t = MempoolBackend {
     -- for mining.
     --
   , mempoolGetBlock
-      :: MempoolPreBlockCheck t -> BlockHeight -> BlockHash -> IO (Vector t)
+      :: BlockFill -> MempoolPreBlockCheck t -> BlockHeight -> BlockHash -> IO (Vector t)
 
     -- | Discard any expired transactions.
   , mempoolPrune :: IO ()
@@ -312,15 +352,18 @@ noopMempool = do
     noopMV = const $ return ()
     noopAddToBadList = const $ return ()
     noopCheckBadList v = return $ V.replicate (V.length v) False
-    noopGetBlock _ _ _ = return V.empty
+    noopGetBlock _ _ _ _ = return V.empty
     noopGetPending = const $ const $ return (0,0)
     noopClear = return ()
 
 
 ------------------------------------------------------------------------------
-chainwebTransactionConfig :: TransactionConfig ChainwebTransaction
-chainwebTransactionConfig = TransactionConfig
-    { txCodec = chainwebPayloadCodec
+
+chainwebTransactionConfig
+    :: Maybe (ChainwebVersion, BlockHeight)
+    -> TransactionConfig ChainwebTransaction
+chainwebTransactionConfig chainCtx = TransactionConfig
+    { txCodec = chainwebPayloadCodec chainCtx
     , txHasher = commandHash
     , txHashMeta = chainwebTestHashMeta
     , txGasPrice = getGasPrice
@@ -328,13 +371,14 @@ chainwebTransactionConfig = TransactionConfig
     , txMetadata = txmeta
     }
 
+
   where
-    getGasPrice = gasPriceOf . fmap payloadObj
-    getGasLimit = gasLimitOf . fmap payloadObj
-    getTimeToLive = timeToLiveOf . fmap payloadObj
-    getCreationTime = creationTimeOf . fmap payloadObj
+    getGasPrice = view cmdGasPrice . fmap payloadObj
+    getGasLimit = view cmdGasLimit . fmap payloadObj
+    getTimeToLive = view cmdTimeToLive . fmap payloadObj
+    getCreationTime = view cmdCreationTime . fmap payloadObj
     commandHash c = let (H.Hash !h) = H.toUntypedHash $ _cmdHash c
-                    in TransactionHash $! SB.toShort $ h
+                    in TransactionHash h
     txmeta t =
         TransactionMetadata
         (toMicros ct)
@@ -531,7 +575,7 @@ instance Show TransactionHash where
 instance Hashable TransactionHash where
   hashWithSalt s (TransactionHash h) = hashWithSalt s (hashCode :: Int)
     where
-      hashCode = either error id $ runGetS (fromIntegral <$> getWord64host) (B.take 8 $ SB.fromShort h)
+      hashCode = either error id $ runGetEitherS (fromIntegral <$> getWord64le) (B.take 8 $ SB.fromShort h)
   {-# INLINE hashWithSalt #-}
 
 instance ToJSON TransactionHash where
@@ -546,13 +590,34 @@ instance HasTextRepresentation TransactionHash where
   toText (TransactionHash th) = encodeB64UrlNoPaddingText $ SB.fromShort th
   fromText = (TransactionHash . SB.toShort <$>) . decodeB64UrlNoPaddingText
 
+requestKeyToTransactionHash :: RequestKey -> TransactionHash
+requestKeyToTransactionHash = TransactionHash . H.unHash . unRequestKey
+
 ------------------------------------------------------------------------------
 data TransactionMetadata = TransactionMetadata {
     txMetaCreationTime :: {-# UNPACK #-} !(Time Micros)
   , txMetaExpiryTime :: {-# UNPACK #-} !(Time Micros)
   } deriving (Eq, Ord, Show, Generic)
-    deriving anyclass (FromJSON, ToJSON, NFData)
+    deriving anyclass (NFData)
 
+transactionMetadataProperties :: KeyValue kv => TransactionMetadata -> [kv]
+transactionMetadataProperties o =
+    [ "txMetaCreationTime" .= txMetaCreationTime o
+    , "txMetaExpiryTime" .= txMetaExpiryTime o
+    ]
+{-# INLINE transactionMetadataProperties #-}
+
+instance ToJSON TransactionMetadata where
+    toJSON = object . transactionMetadataProperties
+    toEncoding = pairs . mconcat . transactionMetadataProperties
+    {-# INLINE toJSON #-}
+    {-# INLINE toEncoding #-}
+
+instance FromJSON TransactionMetadata where
+    parseJSON = withObject "TransactionMetadata" $ \o -> TransactionMetadata
+        <$> o .: "txMetaCreationTime"
+        <*> o .: "txMetaExpiryTime"
+    {-# INLINE parseJSON #-}
 
 ------------------------------------------------------------------------------
 -- | Mempools will check these values match in APIs
@@ -573,9 +638,29 @@ data ValidatedTransaction t = ValidatedTransaction
     , validatedHash :: {-# UNPACK #-} !BlockHash
     , validatedTransaction :: !t
     }
-  deriving (Show, Generic)
-  deriving anyclass (ToJSON, FromJSON, NFData) -- TODO: a handwritten instance
+  deriving (Show, Eq, Generic)
+  deriving anyclass (NFData)
 
+validatedTransactionProperties :: ToJSON t => KeyValue kv => ValidatedTransaction t -> [kv]
+validatedTransactionProperties o =
+    [ "validatedHeight" .= validatedHeight o
+    , "validatedHash" .= validatedHash o
+    , "validatedTransaction" .= validatedTransaction o
+    ]
+{-# INLINE validatedTransactionProperties #-}
+
+instance ToJSON t => ToJSON (ValidatedTransaction t) where
+    toJSON = object . validatedTransactionProperties
+    toEncoding = pairs . mconcat . validatedTransactionProperties
+    {-# INLINE toJSON #-}
+    {-# INLINE toEncoding #-}
+
+instance FromJSON t => FromJSON (ValidatedTransaction t) where
+    parseJSON = withObject "ValidatedTransaction" $ \o -> ValidatedTransaction
+        <$> o .: "validatedHeight"
+        <*> o .: "validatedHash"
+        <*> o .: "validatedTransaction"
+    {-# INLINE parseJSON #-}
 
 ------------------------------------------------------------------------------
 -- | Mempool only cares about a few projected values from the transaction type
@@ -587,12 +672,33 @@ data MockTx = MockTx {
   , mockGasLimit :: !GasLimit
   , mockMeta :: {-# UNPACK #-} !TransactionMetadata
   } deriving (Eq, Ord, Show, Generic)
-    deriving anyclass (FromJSON, ToJSON, NFData)
+    deriving anyclass (NFData)
 
+mockTxProperties :: KeyValue kv => MockTx -> [kv]
+mockTxProperties o =
+    [ "mockNonce" .= mockNonce o
+    , "mockGasPrice" .= mockGasPrice o
+    , "mockGasLimit" .= mockGasLimit o
+    , "mockMeta" .= mockMeta o
+    ]
+{-# INLINE mockTxProperties #-}
+
+instance ToJSON MockTx where
+    toJSON = object . mockTxProperties
+    toEncoding = pairs . mconcat . mockTxProperties
+    {-# INLINE toJSON #-}
+    {-# INLINE toEncoding #-}
+
+instance FromJSON MockTx where
+    parseJSON = withObject "MockTx" $ \o -> MockTx
+        <$> o .: "mockNonce"
+        <*> o .: "mockGasPrice"
+        <*> o .: "mockGasLimit"
+        <*> o .: "mockMeta"
+    {-# INLINE parseJSON #-}
 
 mockBlockGasLimit :: GasLimit
 mockBlockGasLimit = 100_000_000
-
 
 -- | A codec for transactions when sending them over the wire.
 mockCodec :: Codec MockTx
@@ -610,7 +716,7 @@ mockEncode (MockTx nonce (GasPrice (ParsedDecimal price)) limit meta) =
     Time.encodeTime $ txMetaExpiryTime meta
 
 
-putDecimal :: MonadPut m => Decimal -> m ()
+putDecimal :: Decimal -> Put
 putDecimal (Decimal places mantissa) = do
     putWord8 places
     putWord8 $ if mantissa >= 0 then 0 else 1
@@ -626,7 +732,7 @@ putDecimal (Decimal places mantissa) = do
                               in Just (a, d')
 
 
-getDecimal :: MonadGet m => m Decimal
+getDecimal :: Get Decimal
 getDecimal = do
     !places <- getWord8
     !negative <- getWord8
@@ -645,9 +751,12 @@ getDecimal = do
 mockDecode :: ByteString -> Either String MockTx
 mockDecode s = do
     s' <- B64.decode s
-    runGetS (MockTx <$> getI64 <*> getPrice <*> getGL <*> getMeta) s'
+    runGetEitherS (MockTx <$> getI64 <*> getPrice <*> getGL <*> getMeta) s'
   where
     getPrice = GasPrice . ParsedDecimal <$> getDecimal
     getGL = GasLimit . ParsedInteger . fromIntegral <$> getWord64le
     getI64 = fromIntegral <$> getWord64le
     getMeta = TransactionMetadata <$> Time.decodeTime <*> Time.decodeTime
+
+
+makeLenses ''BlockFill

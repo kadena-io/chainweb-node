@@ -1,6 +1,6 @@
-{-# LANGUAGE CPP #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE ExistentialQuantification #-}
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -32,12 +32,9 @@ import Control.Monad.Trans.Maybe
 
 import Data.Aeson
 import Data.Function
-#if ! MIN_VERSION_vector(0,12,2)
-import qualified Data.Maybe as M
-#endif
+import Data.Maybe
 import Data.Proxy
 import qualified Data.Text.IO as T
-import qualified Data.Vector as V
 
 import Prelude hiding (lookup)
 
@@ -52,27 +49,16 @@ import Chainweb.Payload.PayloadStore
 import Chainweb.Payload.RestAPI
 import Chainweb.RestAPI.Orphans ()
 import Chainweb.RestAPI.Utils
+import Chainweb.Utils (int)
 import Chainweb.Version
 
-import Data.CAS
+import Chainweb.Storage.Table
 
 -- -------------------------------------------------------------------------- --
 -- Utils
 
--- | The maximum number of items that are returned in a batch
---
-payloadBatchLimit :: Int
-payloadBatchLimit = 1000
-
 err404Msg :: ToJSON msg  => msg -> ServerError
-err404Msg msg = err404 { errBody = encode msg }
-
-catMaybes :: V.Vector (Maybe a) -> V.Vector a
-#if MIN_VERSION_vector(0,12,2)
-catMaybes = V.catMaybes
-#else
-catMaybes = V.fromList . M.catMaybes . V.toList
-#endif
+err404Msg msg = setErrJSON msg err404
 
 -- -------------------------------------------------------------------------- --
 -- GET Payload Handler
@@ -80,9 +66,8 @@ catMaybes = V.fromList . M.catMaybes . V.toList
 -- | Query the 'BlockPayload' by its 'BlockPayloadHash'
 --
 payloadHandler
-    :: forall cas
-    . PayloadCasLookup cas
-    => PayloadDb cas
+    :: CanReadablePayloadCas tbl
+    => PayloadDb tbl
     -> BlockPayloadHash
     -> Handler PayloadData
 payloadHandler db k = run >>= \case
@@ -93,10 +78,10 @@ payloadHandler db k = run >>= \case
     Just e -> return e
   where
     run = runMaybeT $ do
-        payload <- MaybeT $ liftIO $ casLookup
+        payload <- MaybeT $ liftIO $ tableLookup
             (_transactionDbBlockPayloads $ _transactionDb db)
             k
-        txs <- MaybeT $ liftIO $ casLookup
+        txs <- MaybeT $ liftIO $ tableLookup
             (_transactionDbBlockTransactions $ _transactionDb db)
             (_blockPayloadTransactionsHash payload)
         return $ payloadData txs payload
@@ -105,18 +90,18 @@ payloadHandler db k = run >>= \case
 -- POST Payload Batch Handler
 
 payloadBatchHandler
-    :: forall cas
-    . PayloadCasLookup cas
-    => PayloadDb cas
+    :: CanReadablePayloadCas tbl
+    => PayloadBatchLimit
+    -> PayloadDb tbl
     -> [BlockPayloadHash]
     -> Handler [PayloadData]
-payloadBatchHandler db ks = liftIO $ do
+payloadBatchHandler batchLimit db ks = liftIO $ do
     payloads <- catMaybes
-        <$> casLookupBatch payloadsDb (V.fromList $ take payloadBatchLimit ks)
-    txs <- V.zipWith (\a b -> payloadData <$> a <*> pure b)
-        <$> casLookupBatch txsDb (_blockPayloadTransactionsHash <$> payloads)
+        <$> tableLookupBatch payloadsDb (take (int batchLimit) ks)
+    txs <- zipWith (\a b -> payloadData <$> a <*> pure b)
+        <$> tableLookupBatch txsDb (_blockPayloadTransactionsHash <$> payloads)
         <*> pure payloads
-    return $ V.toList $ catMaybes txs
+    return $ catMaybes txs
   where
     payloadsDb = _transactionDbBlockPayloads $ _transactionDb db
     txsDb = _transactionDbBlockTransactions $ _transactionDb db
@@ -127,12 +112,11 @@ payloadBatchHandler db ks = liftIO $ do
 -- | Query the 'PayloadWithOutputs' by its 'BlockPayloadHash'
 --
 outputsHandler
-    :: forall cas
-    . PayloadCasLookup cas
-    => PayloadDb cas
+    :: CanReadablePayloadCas tbl
+    => PayloadDb tbl
     -> BlockPayloadHash
     -> Handler PayloadWithOutputs
-outputsHandler db k = liftIO (casLookup db k) >>= \case
+outputsHandler db k = liftIO (tableLookup db k) >>= \case
     Nothing -> throwError $ err404Msg $ object
         [ "reason" .= ("key not found" :: String)
         , "key" .= k
@@ -143,62 +127,68 @@ outputsHandler db k = liftIO (casLookup db k) >>= \case
 -- POST Outputs Batch Handler
 
 outputsBatchHandler
-    :: forall cas
-    . PayloadCasLookup cas
-    => PayloadDb cas
+    :: CanReadablePayloadCas tbl
+    => PayloadBatchLimit
+    -> PayloadDb tbl
     -> [BlockPayloadHash]
     -> Handler [PayloadWithOutputs]
-outputsBatchHandler db ks = liftIO
-    $ fmap (V.toList . catMaybes)
-    $ casLookupBatch db
-    $ V.fromList
-    $ take payloadBatchLimit ks
+outputsBatchHandler batchLimit db ks = liftIO
+    $ fmap catMaybes
+    $ tableLookupBatch db
+    $ take (int batchLimit) ks
 
 -- -------------------------------------------------------------------------- --
 -- Payload API Server
 
 payloadServer
-    :: forall cas v (c :: ChainIdT)
-    . PayloadCasLookup cas
-    => PayloadDb' cas v c
+    :: forall tbl v c 
+    . CanReadablePayloadCas tbl
+    => PayloadBatchLimit
+    -> PayloadDb' tbl v c
     -> Server (PayloadApi v c)
-payloadServer (PayloadDb' db)
-    = payloadHandler @cas db
-    :<|> outputsHandler @cas db
-    :<|> payloadBatchHandler @cas db
-    :<|> outputsBatchHandler @cas db
+payloadServer batchLimit (PayloadDb' db)
+    = payloadHandler @tbl db
+    :<|> outputsHandler @tbl db
+    :<|> payloadBatchHandler @tbl batchLimit db
+    :<|> outputsBatchHandler @tbl batchLimit db
 
 -- -------------------------------------------------------------------------- --
 -- Application for a single PayloadDb
 
 payloadApp
-    :: forall cas v c
-    . PayloadCasLookup cas
+    :: forall tbl v c
+    . CanReadablePayloadCas tbl
     => KnownChainwebVersionSymbol v
     => KnownChainIdSymbol c
-    => PayloadDb' cas v c
+    => PayloadBatchLimit
+    -> PayloadDb' tbl v c
     -> Application
-payloadApp db = serve (Proxy @(PayloadApi v c)) (payloadServer db)
+payloadApp batchLimit db = serve (Proxy @(PayloadApi v c)) (payloadServer batchLimit db)
 
 payloadApiLayout
-    :: forall cas v c
+    :: forall tbl v c
     . KnownChainwebVersionSymbol v
     => KnownChainIdSymbol c
-    => PayloadDb' cas v c
+    => PayloadDb' tbl v c
     -> IO ()
 payloadApiLayout _ = T.putStrLn $ layout (Proxy @(PayloadApi v c))
 
 -- -------------------------------------------------------------------------- --
 -- Multichain Server
 
-somePayloadServer :: PayloadCasLookup cas => SomePayloadDb cas -> SomeServer
-somePayloadServer (SomePayloadDb (db :: PayloadDb' cas v c))
-    = SomeServer (Proxy @(PayloadApi v c)) (payloadServer db)
+somePayloadServer
+    :: CanReadablePayloadCas tbl
+    => PayloadBatchLimit
+    -> SomePayloadDb tbl
+    -> SomeServer
+somePayloadServer batchLimit (SomePayloadDb (db :: PayloadDb' tbl v c))
+    = SomeServer (Proxy @(PayloadApi v c)) (payloadServer batchLimit db)
 
 somePayloadServers
-    :: PayloadCasLookup cas
+    :: CanReadablePayloadCas tbl
     => ChainwebVersion
-    -> [(ChainId, PayloadDb cas)]
+    -> PayloadBatchLimit
+    -> [(ChainId, PayloadDb tbl)]
     -> SomeServer
-somePayloadServers v
-    = mconcat . fmap (somePayloadServer . uncurry (somePayloadDbVal v))
+somePayloadServers v batchLimit
+    = mconcat . fmap (somePayloadServer batchLimit . uncurry (somePayloadDbVal v))

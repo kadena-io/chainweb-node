@@ -1,0 +1,5 @@
+codeFile: ../ns.pact
+nonce: load-ns-v2-mainnet
+signers:
+  - public: 56ff9e5c1b5ec3e98172a76aa3cdc03d3ec664f147267fd99eee4dd09763c853
+  - public: a241430816f0112add2179e3e3939ebab5336ab024be990960e684e38eb87d80

@@ -42,6 +42,7 @@ import System.LogLevel
 ------------------------------------------------------------------------------
 import Chainweb.BlockHeader
 import Chainweb.BlockHeaderDB
+import Chainweb.BlockHeight
 import Chainweb.Mempool.InMem
 import Chainweb.Mempool.Mempool
 import Chainweb.Payload
@@ -50,8 +51,9 @@ import Chainweb.Time
 import Chainweb.Transaction
 import Chainweb.TreeDB
 import Chainweb.Utils
+import Chainweb.Version
 
-import Data.CAS
+import Chainweb.Storage.Table
 import Data.LogMessage (JsonLog(..), LogFunction)
 
 ------------------------------------------------------------------------------
@@ -59,9 +61,7 @@ data MempoolConsensus = MempoolConsensus
     { mpcMempool :: !(MempoolBackend ChainwebTransaction)
     , mpcLastNewBlockParent :: !(IORef (Maybe BlockHeader))
     , mpcProcessFork
-          :: LogFunction
-          -> BlockHeader
-          -> IO (Vector ChainwebTransaction, Vector ChainwebTransaction)
+        :: LogFunction -> BlockHeader -> IO (Vector ChainwebTransaction, Vector ChainwebTransaction)
     }
 
 data ReintroducedTxsLog = ReintroducedTxsLog
@@ -81,10 +81,10 @@ instance Exception MempoolException
 
 ------------------------------------------------------------------------------
 mkMempoolConsensus
-    :: PayloadCasLookup cas
+    :: CanReadablePayloadCas tbl
     => MempoolBackend ChainwebTransaction
     -> BlockHeaderDb
-    -> Maybe (PayloadDb cas)
+    -> Maybe (PayloadDb tbl)
     -> IO MempoolConsensus
 mkMempoolConsensus mempool blockHeaderDb payloadStore = do
     lastParentRef <- newIORef Nothing :: IO (IORef (Maybe BlockHeader))
@@ -98,9 +98,9 @@ mkMempoolConsensus mempool blockHeaderDb payloadStore = do
 
 ------------------------------------------------------------------------------
 processFork
-    :: PayloadCasLookup cas
+    :: CanReadablePayloadCas tbl
     => BlockHeaderDb
-    -> Maybe (PayloadDb cas)
+    -> Maybe (PayloadDb tbl)
     -> IORef (Maybe BlockHeader)
     -> LogFunction
     -> BlockHeader
@@ -108,17 +108,22 @@ processFork
 processFork blockHeaderDb payloadStore lastHeaderRef logFun newHeader = do
     now <- getCurrentTimeIntegral
     lastHeader <- readIORef lastHeaderRef
+    let v = _chainwebVersion newHeader
+        height = _blockHeight newHeader
     (a, b) <- processFork' logFun blockHeaderDb newHeader lastHeader
                            (payloadLookup payloadStore)
-                           (processForkCheckTTL now)
+                           (processForkCheckTTL (Just (v, height)) now)
     return (V.map unHashable a, V.map unHashable b)
 
 
 ------------------------------------------------------------------------------
-processForkCheckTTL :: Time Micros -> HashableTrans PayloadWithText -> Bool
-processForkCheckTTL now (HashableTrans t) =
+processForkCheckTTL
+    :: Maybe (ChainwebVersion, BlockHeight)
+    -> Time Micros
+    -> HashableTrans PayloadWithText -> Bool
+processForkCheckTTL chainCtx now (HashableTrans t) =
     either (const False) (const True) $
-    txTTLCheck chainwebTransactionConfig now t
+    txTTLCheck (chainwebTransactionConfig chainCtx) now t
 
 
 ------------------------------------------------------------------------------
@@ -164,8 +169,8 @@ processFork' logFun db newHeader lastHeaderM plLookup flt =
 
 ------------------------------------------------------------------------------
 payloadLookup
-    :: forall cas . PayloadCasLookup cas
-    => Maybe (PayloadDb cas)
+    :: CanReadablePayloadCas tbl
+    => Maybe (PayloadDb tbl)
     -> BlockHeader
     -> IO (HashSet (HashableTrans PayloadWithText))
 payloadLookup payloadStore bh =
@@ -173,18 +178,21 @@ payloadLookup payloadStore bh =
         Nothing -> return mempty
         Just s -> do
             pd <- casLookupM' (view transactionDb s) (_blockPayloadHash bh)
-            chainwebTxsFromPd pd
+            chainwebTxsFromPd (Just (_chainwebVersion bh, _blockHeight bh)) pd
   where
     casLookupM' s h = do
-        x <- casLookup s h
+        x <- tableLookup s h
         case x of
             Nothing -> throwIO $ PayloadNotFoundException h
             Just pd -> return pd
 
 
 ------------------------------------------------------------------------------
-chainwebTxsFromPd :: PayloadData -> IO (HashSet (HashableTrans PayloadWithText))
-chainwebTxsFromPd pd = do
+chainwebTxsFromPd
+    :: Maybe (ChainwebVersion, BlockHeight)
+    -> PayloadData
+    -> IO (HashSet (HashableTrans PayloadWithText))
+chainwebTxsFromPd chainCtx pd = do
     let transSeq = _payloadDataTransactions pd
     let bytes = _transactionBytes <$> transSeq
     let eithers = toCWTransaction <$> bytes
@@ -193,4 +201,4 @@ chainwebTxsFromPd pd = do
     let theRights  =  rights $ toList eithers
     return $! HS.fromList $ HashableTrans <$!> theRights
   where
-    toCWTransaction = codecDecode chainwebPayloadCodec
+    toCWTransaction = codecDecode (chainwebPayloadCodec chainCtx)

@@ -56,7 +56,7 @@ import Chainweb.Utils
 import Chainweb.Utils.Paging
 import Chainweb.Version
 
-import Data.CAS.RocksDB
+import Chainweb.Storage.Table.RocksDB
 
 import Servant.Client_
 
@@ -114,7 +114,7 @@ tests_ rdb tls =
 
 -- | The type of 'TestClientEnv' that is used everywhere in this file
 --
-type TestClientEnv_ = TestClientEnv MockTx RocksDbCas
+type TestClientEnv_ = TestClientEnv MockTx RocksDbTable
 
 noMempool :: [(ChainId, MempoolBackend MockTx)]
 noMempool = []
@@ -122,7 +122,7 @@ noMempool = []
 simpleSessionTests :: RocksDb -> Bool -> ChainwebVersion -> TestTree
 simpleSessionTests rdb tls version =
     withBlockHeaderDbsResource rdb version $ \dbs ->
-        withBlockHeaderDbsServer tls version dbs (return noMempool)
+        withBlockHeaderDbsServer ValidateSpec tls version dbs (return noMempool)
         $ \env -> testGroup "client session tests"
             $ httpHeaderTests env (head $ toList $ chainIds version)
             : (simpleClientSession env <$> toList (chainIds version))
@@ -328,7 +328,7 @@ simpleClientSession envIO cid =
 
 pagingTests :: RocksDb -> Bool -> ChainwebVersion -> TestTree
 pagingTests rdb tls version =
-    withBlockHeaderDbsServer tls version
+    withBlockHeaderDbsServer ValidateSpec tls version
             (starBlockHeaderDbs 6 $ testBlockHeaderDbs rdb version)
             (return noMempool)
     $ \env -> testGroup "paging tests"
@@ -375,7 +375,7 @@ pagingTest name getDbItems getKey fin request envIO = testGroup name
             session step es cid Nothing (Just . Inclusive . getKey . head $ es)
         assertBool ("test limit and next failed: " <> sshow res) (isRight res)
 
-    , testCaseSteps "test limit and next paramter" $ \step -> do
+    , testCaseSteps "test limit and next parameter" $ \step -> do
         BlockHeaderDbsTestClientEnv env [(cid, db)] _ <- envIO
         ents <- getDbItems db
         let l = len ents

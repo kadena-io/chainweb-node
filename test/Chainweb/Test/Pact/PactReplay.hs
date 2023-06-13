@@ -14,14 +14,11 @@ import Control.Monad.Reader
 import Control.Monad.State
 import Control.Lens
 
-import Data.CAS.RocksDB
 import Data.IORef
 import qualified Data.Text as T
-import Data.Tuple.Strict (T3(..))
 import qualified Data.Vector as V
 import Data.Word
 
-import System.LogLevel
 import System.Timeout
 
 import Test.Tasty
@@ -45,12 +42,14 @@ import Chainweb.Test.Pact.Utils
 import Chainweb.Test.Utils
 import Chainweb.Time
 import Chainweb.TreeDB
-import Chainweb.Utils (sshow, tryAllSynchronous, catchAllSynchronous)
+import Chainweb.Utils (sshow, tryAllSynchronous, catchAllSynchronous, T3(..))
 import Chainweb.Version
 import Chainweb.Version.Utils
 
-import Data.CAS
 import Chainweb.BlockHeaderDB.Internal (_chainDbCas, RankedBlockHeader(..))
+
+import Chainweb.Storage.Table
+import Chainweb.Storage.Table.RocksDB
 
 testVer :: ChainwebVersion
 testVer = FastTimedCPM peterson
@@ -66,20 +65,20 @@ tests rdb =
         mpio = fst <$> dmp
     in
     testGroup label
-        [ withPactTestBlockDb testVer cid Warn rdb mp (forkLimit 100_000)
+        [ withPactTestBlockDb testVer cid rdb mp (forkLimit 100_000)
             (testCase "initial-playthrough" . firstPlayThrough mpio genblock)
         , after AllSucceed "initial-playthrough" $
-            withPactTestBlockDb testVer cid Warn rdb mp (forkLimit 100_000)
-                (testCase "serivce-init-after-fork" . serviceInitializationAfterFork mpio genblock)
-        , after AllSucceed "serivce-init-after-fork" $
-            withPactTestBlockDb testVer cid Warn rdb mp (forkLimit 100_000)
+            withPactTestBlockDb testVer cid rdb mp (forkLimit 100_000)
+                (testCase "service-init-after-fork" . serviceInitializationAfterFork mpio genblock)
+        , after AllSucceed "service-init-after-fork" $
+            withPactTestBlockDb testVer cid rdb mp (forkLimit 100_000)
                 (testCaseSteps "on-restart" . onRestart mpio)
         , after AllSucceed "on-restart" $
-            withPactTestBlockDb testVer cid Quiet rdb mp (forkLimit 100_000)
+            withPactTestBlockDb testVer cid rdb mp (forkLimit 100_000)
             (testCase "reject-dupes" . testDupes mpio genblock)
         , after AllSucceed "reject-dupes" $
             let deepForkLimit = 4
-            in withPactTestBlockDb testVer cid Quiet rdb mp (forkLimit deepForkLimit)
+            in withPactTestBlockDb testVer cid rdb mp (forkLimit deepForkLimit)
                 (testCaseSteps "deep-fork-limit" . testDeepForkLimit mpio (fromIntegral deepForkLimit))
         ]
   where
@@ -95,7 +94,7 @@ onRestart
     -> (String -> IO ())
     -> Assertion
 onRestart mpio iop step = do
-    setMempool mpio testMemPoolAccess
+    setOneShotMempool mpio testMemPoolAccess
     bdb <- snd <$> iop
     bhdb' <- getBlockHeaderDb cid bdb
     block <- maxEntry bhdb'
@@ -107,7 +106,7 @@ onRestart mpio iop step = do
 
 testMemPoolAccess :: MemPoolAccess
 testMemPoolAccess = mempty
-    { mpaGetBlock = \validate bh hash ph -> do
+    { mpaGetBlock = \_g validate bh hash ph -> do
         let (BlockCreationTime t) = _blockCreationTime ph
         getTestBlock t validate bh hash
     }
@@ -133,28 +132,33 @@ testMemPoolAccess = mempty
       return outtxs
 
 
-dupegenMemPoolAccess :: MemPoolAccess
-dupegenMemPoolAccess = mempty
-    { mpaGetBlock = \validate bHeight bHash _parentHeader -> do
-        outtxs <- fmap V.singleton $
-          buildCwCmd $
-          set cbSigners [mkSigner' sender00 []] $
-          mkCmd "0" $
-          mkExec' "1"
-        oks <- validate bHeight bHash outtxs
-        unless (V.and oks) $ fail $ mconcat
-            [ "dupegenMemPoolAccess: tx failed validation! input list: \n"
-            , show outtxs
-            , "\n\noks: "
-            , show oks
-            ]
-        return outtxs
+dupegenMemPoolAccess :: IO MemPoolAccess
+dupegenMemPoolAccess = do
+  hs <- newIORef []
+  return $ mempty
+    { mpaGetBlock = \_g validate bHeight bHash _parentHeader -> do
+        hs' <- readIORef hs
+        if bHeight `elem` hs' then return mempty else do
+          writeIORef hs (bHeight:hs')
+          outtxs <- fmap V.singleton $
+            buildCwCmd $
+            set cbSigners [mkSigner' sender00 []] $
+            mkCmd "0" $
+            mkExec' "1"
+          oks <- validate bHeight bHash outtxs
+          unless (V.and oks) $ fail $ mconcat
+              [ "dupegenMemPoolAccess: tx failed validation! input list: \n"
+              , show outtxs
+              , "\n\noks: "
+              , show oks
+              ]
+          return outtxs
     }
 
 -- | This is a regression test for correct initialization of the checkpointer
 -- during pact service initialization.
 --
--- Removing the call to 'initializeLatestBlock' in 'initPactService' causes
+-- Removing the call to 'initializeLatestBlock' in 'runPactService' causes
 -- this test to fail.
 --
 serviceInitializationAfterFork
@@ -163,7 +167,7 @@ serviceInitializationAfterFork
     -> IO (PactQueue,TestBlockDb)
     -> Assertion
 serviceInitializationAfterFork mpio genesisBlock iop = do
-    setMempool mpio testMemPoolAccess
+    setOneShotMempool mpio testMemPoolAccess
     nonceCounter <- newIORef (1 :: Word64)
     mainlineblocks <- mineLine genesisBlock nonceCounter 10
     -- Delete latest block from block header db. This simulates the situation
@@ -195,7 +199,7 @@ serviceInitializationAfterFork mpio genesisBlock iop = do
         dbs <- snd <$> iop
         db <- getBlockHeaderDb c dbs
         h <- maxEntry db
-        casDelete (_chainDbCas db) (casKey $ RankedBlockHeader h)
+        tableDelete (_chainDbCas db) (casKey $ RankedBlockHeader h)
 
     cids = chainIds testVer
 
@@ -205,7 +209,7 @@ firstPlayThrough
     -> IO (PactQueue,TestBlockDb)
     -> Assertion
 firstPlayThrough mpio genesisBlock iop = do
-    setMempool mpio testMemPoolAccess
+    setOneShotMempool mpio testMemPoolAccess
     nonceCounter <- newIORef (1 :: Word64)
     mainlineblocks <- mineLine genesisBlock nonceCounter 7
     let T3 _ startline1 _ = head mainlineblocks
@@ -231,7 +235,7 @@ testDupes
   -> IO (PactQueue,TestBlockDb)
   -> Assertion
 testDupes mpio genesisBlock iop = do
-    setMempool mpio dupegenMemPoolAccess
+    setMempool mpio =<< dupegenMemPoolAccess
     (T3 _ newblock payload) <- liftIO $ mineBlock (ParentHeader genesisBlock) (Nonce 1) iop
     expectException newblock payload $ liftIO $
         mineBlock (ParentHeader newblock) (Nonce 3) iop
@@ -263,7 +267,7 @@ testDeepForkLimit
   -> (String -> IO ())
   -> Assertion
 testDeepForkLimit mpio deepForkLimit iop step = do
-    setMempool mpio testMemPoolAccess
+    setOneShotMempool mpio testMemPoolAccess
     bdb <- snd <$> iop
     bhdb <- getBlockHeaderDb cid bdb
     step "query max db entry"

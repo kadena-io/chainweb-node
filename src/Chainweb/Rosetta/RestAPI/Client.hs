@@ -21,7 +21,13 @@ module Chainweb.Rosetta.RestAPI.Client
 , rosettaBlockTransactionApiClient
 , rosettaBlockApiClient
   -- * Construction Endpoints
+, rosettaConstructionDeriveApiClient
+, rosettaConstructionPreprocessApiClient 
 , rosettaConstructionMetadataApiClient
+, rosettaConstructionPayloadsApiClient
+, rosettaConstructionParseApiClient
+, rosettaConstructionCombineApiClient
+, rosettaConstructionHashApiClient
 , rosettaConstructionSubmitApiClient
   -- * Mempool Endpoints
 , rosettaMempoolApiClient
@@ -107,6 +113,36 @@ rosettaBlockApiClient
 -- -------------------------------------------------------------------------- --
 -- Construction Endpoints
 
+rosettaConstructionDeriveApiClient_
+    :: forall (v :: ChainwebVersionT)
+    . KnownChainwebVersionSymbol v
+    => ConstructionDeriveReq
+    -> ClientM ConstructionDeriveResp
+rosettaConstructionDeriveApiClient_ = client (rosettaConstructionDeriveApi @v)
+
+rosettaConstructionDeriveApiClient
+    :: ChainwebVersion
+    -> ConstructionDeriveReq
+    -> ClientM ConstructionDeriveResp
+rosettaConstructionDeriveApiClient
+  (FromSingChainwebVersion (SChainwebVersion :: Sing v))
+    = rosettaConstructionDeriveApiClient_ @v
+
+rosettaConstructionPreprocessApiClient_
+    :: forall (v :: ChainwebVersionT)
+    . KnownChainwebVersionSymbol v
+    => ConstructionPreprocessReq
+    -> ClientM ConstructionPreprocessResp
+rosettaConstructionPreprocessApiClient_ = client (rosettaConstructionPreprocessApi @v)
+
+rosettaConstructionPreprocessApiClient
+    :: ChainwebVersion
+    -> ConstructionPreprocessReq
+    -> ClientM ConstructionPreprocessResp
+rosettaConstructionPreprocessApiClient
+  (FromSingChainwebVersion (SChainwebVersion :: Sing v))
+    = rosettaConstructionPreprocessApiClient_ @v
+
 rosettaConstructionMetadataApiClient_
     :: forall (v :: ChainwebVersionT)
     . KnownChainwebVersionSymbol v
@@ -123,8 +159,68 @@ rosettaConstructionMetadataApiClient
         -- metadata to return.
     -> ClientM ConstructionMetadataResp
 rosettaConstructionMetadataApiClient
-    (FromSingChainwebVersion (SChainwebVersion :: Sing v))
+  (FromSingChainwebVersion (SChainwebVersion :: Sing v))
     = rosettaConstructionMetadataApiClient_ @v
+
+rosettaConstructionPayloadsApiClient_
+    :: forall (v :: ChainwebVersionT)
+    . KnownChainwebVersionSymbol v
+    => ConstructionPayloadsReq
+    -> ClientM ConstructionPayloadsResp
+rosettaConstructionPayloadsApiClient_ = client (rosettaConstructionPayloadsApi @v)
+
+rosettaConstructionPayloadsApiClient
+    :: ChainwebVersion
+    -> ConstructionPayloadsReq
+    -> ClientM ConstructionPayloadsResp
+rosettaConstructionPayloadsApiClient
+  (FromSingChainwebVersion (SChainwebVersion :: Sing v))
+    = rosettaConstructionPayloadsApiClient_ @v
+
+rosettaConstructionParseApiClient_
+    :: forall (v :: ChainwebVersionT)
+    . KnownChainwebVersionSymbol v
+    => ConstructionParseReq
+    -> ClientM ConstructionParseResp
+rosettaConstructionParseApiClient_ = client (rosettaConstructionParseApi @v)
+
+rosettaConstructionParseApiClient
+    :: ChainwebVersion
+    -> ConstructionParseReq
+    -> ClientM ConstructionParseResp
+rosettaConstructionParseApiClient
+  (FromSingChainwebVersion (SChainwebVersion :: Sing v))
+    = rosettaConstructionParseApiClient_ @v
+
+rosettaConstructionCombineApiClient_
+    :: forall (v :: ChainwebVersionT)
+    . KnownChainwebVersionSymbol v
+    => ConstructionCombineReq
+    -> ClientM ConstructionCombineResp
+rosettaConstructionCombineApiClient_ = client (rosettaConstructionCombineApi @v)
+
+rosettaConstructionCombineApiClient
+    :: ChainwebVersion
+    -> ConstructionCombineReq
+    -> ClientM ConstructionCombineResp
+rosettaConstructionCombineApiClient
+  (FromSingChainwebVersion (SChainwebVersion :: Sing v))
+    = rosettaConstructionCombineApiClient_ @v
+
+rosettaConstructionHashApiClient_
+    :: forall (v :: ChainwebVersionT)
+    . KnownChainwebVersionSymbol v
+    => ConstructionHashReq
+    -> ClientM TransactionIdResp
+rosettaConstructionHashApiClient_ = client (rosettaConstructionHashApi @v)
+
+rosettaConstructionHashApiClient
+    :: ChainwebVersion
+    -> ConstructionHashReq
+    -> ClientM TransactionIdResp
+rosettaConstructionHashApiClient
+  (FromSingChainwebVersion (SChainwebVersion :: Sing v))
+    = rosettaConstructionHashApiClient_ @v
 
 rosettaConstructionSubmitApiClient_
     :: forall (v :: ChainwebVersionT)

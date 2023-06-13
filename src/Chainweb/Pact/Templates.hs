@@ -132,7 +132,7 @@ mkCoinbaseTerm (MinerId mid) (MinerKeys ks) reward = (populatedTerm, execMsg)
 buildExecParsedCode :: Maybe Value -> Text -> IO (ExecMsg ParsedCode)
 buildExecParsedCode value code = maybe (go Null) go value
   where
-    go v = case ParsedCode code <$> parseExprs code of
+    go v = case parsePact code of
       Right !t -> pure $! ExecMsg t v
       -- if we can't construct coin contract calls, this should
       -- fail fast

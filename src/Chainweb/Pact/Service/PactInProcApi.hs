@@ -3,11 +3,12 @@
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeFamilies #-}
-{-# LANGUAGE TypeOperators #-}
+
 -- |
 -- Module: Chainweb.Pact.Service.PactInProcApi
 -- Copyright: Copyright © 2018 Kadena LLC.
@@ -23,13 +24,9 @@ module Chainweb.Pact.Service.PactInProcApi
     ) where
 
 import Control.Concurrent.Async
-import Control.Monad.STM
 
-import qualified Data.ByteString.Short as SB
 import Data.IORef
 import Data.Vector (Vector)
-
-import qualified Pact.Types.Hash as Pact
 
 import System.LogLevel
 
@@ -53,16 +50,18 @@ import Chainweb.Version (ChainwebVersion)
 
 import Data.LogMessage
 
+import GHC.Stack (HasCallStack)
+
 -- | Initialization for Pact (in process) Api
 withPactService
-    :: PayloadCasLookup cas
+    :: CanReadablePayloadCas tbl
     => Logger logger
     => ChainwebVersion
     -> ChainId
     -> logger
     -> MempoolConsensus
     -> BlockHeaderDb
-    -> PayloadDb cas
+    -> PayloadDb tbl
     -> FilePath
     -> PactServiceConfig
     -> (PactQueue -> IO a)
@@ -76,28 +75,40 @@ withPactService ver cid logger mpc bhdb pdb pactDbDir config action =
 -- | Alternate Initialization for Pact (in process) Api, only used directly in
 --   tests to provide memPool with test transactions
 withPactService'
-    :: PayloadCasLookup cas
+    :: CanReadablePayloadCas tbl
     => Logger logger
+    => HasCallStack
     => ChainwebVersion
     -> ChainId
     -> logger
     -> MemPoolAccess
     -> BlockHeaderDb
-    -> PayloadDb cas
+    -> PayloadDb tbl
     -> SQLiteEnv
     -> PactServiceConfig
     -> (PactQueue -> IO a)
     -> IO a
 withPactService' ver cid logger memPoolAccess bhDb pdb sqlenv config action = do
-    reqQ <- atomically $ newPactQueue (_pactQueueSize config)
-    race (server reqQ) (client reqQ) >>= \case
-        Left () -> error "pact service terminated unexpectedly"
+    reqQ <- newPactQueue (_pactQueueSize config)
+    race (concurrently_ (monitor reqQ) (server reqQ)) (action reqQ) >>= \case
+        Left () -> error "Chainweb.Pact.Service.PactInProcApi: pact service terminated unexpectedly"
         Right a -> return a
   where
-    client reqQ = action reqQ
     server reqQ = runForever logg "pact-service"
-        $ PS.initPactService ver cid logger reqQ memPoolAccess bhDb pdb sqlenv config
+        $ PS.runPactService ver cid logger reqQ memPoolAccess bhDb pdb sqlenv config
     logg = logFunction logger
+    monitor = runPactServiceQueueMonitor $ addLabel ("sub-component", "PactQueue") logger
+
+runPactServiceQueueMonitor :: Logger logger => logger ->  PactQueue -> IO ()
+runPactServiceQueueMonitor l pq = do
+    let lf = logFunction l
+    logFunctionText l Info "Initialized PactQueueMonitor"
+    runForeverThrottled lf "Chainweb.Pact.Service.PactInProcApi.runPactServiceQueueMonitor" 10 (10 * mega) $ do
+            queueStats <- getPactQueueStats pq
+            logFunctionText l Debug "got latest set of stats from PactQueueMonitor"
+            logFunctionJson l Info queueStats
+            resetPactQueueStats pq
+            approximateThreadDelay 60_000_000 {- 1 minute -}
 
 pactMemPoolAccess
     :: Logger logger
@@ -108,24 +119,23 @@ pactMemPoolAccess mpc logger = MemPoolAccess
     { mpaGetBlock = pactMemPoolGetBlock mpc logger
     , mpaSetLastHeader = pactMempoolSetLastHeader mpc logger
     , mpaProcessFork = pactProcessFork mpc logger
-    , mpaBadlistTx = mempoolAddToBadList (mpcMempool mpc) . fromPactHash
+    , mpaBadlistTx = mempoolAddToBadList (mpcMempool mpc)
     }
-  where
-    fromPactHash (Pact.TypedHash h) = TransactionHash (SB.toShort h)
 
 pactMemPoolGetBlock
     :: Logger logger
     => MempoolConsensus
     -> logger
+    -> BlockFill
     -> (MempoolPreBlockCheck ChainwebTransaction
             -> BlockHeight
             -> BlockHash
             -> BlockHeader
             -> IO (Vector ChainwebTransaction))
-pactMemPoolGetBlock mpc theLogger validate height hash _bHeader = do
+pactMemPoolGetBlock mpc theLogger bf validate height hash _bHeader = do
     logFn theLogger Info $! "pactMemPoolAccess - getting new block of transactions for "
         <> "height = " <> sshow height <> ", hash = " <> sshow hash
-    mempoolGetBlock (mpcMempool mpc) validate height hash
+    mempoolGetBlock (mpcMempool mpc) bf validate height hash
   where
    logFn :: Logger l => l -> LogFunctionText -- just for giving GHC some type hints
    logFn l = logFunction l
@@ -139,8 +149,8 @@ pactProcessFork
 pactProcessFork mpc theLogger bHeader = do
     let forkFunc = (mpcProcessFork mpc) (logFunction theLogger)
     (reintroTxs, validatedTxs) <- forkFunc bHeader
-    (logFn theLogger) Info $! "pactMemPoolAccess - " <> sshow (length reintroTxs)
-                           <> " transactions to reintroduce"
+    logFn theLogger Debug $!
+        "pactMemPoolAccess - " <> sshow (length reintroTxs) <> " transactions to reintroduce"
     -- No need to run pre-insert check here -- we know these are ok, and
     -- calling the pre-check would block here (it calls back into pact service)
     mempoolInsert (mpcMempool mpc) UncheckedInsert reintroTxs

@@ -17,10 +17,12 @@
 module Chainweb.Miner.Config
 ( MiningConfig(..)
 , defaultMining
+, pMiningConfig
 , miningCoordination
 , miningInNode
 , validateMinerConfig
 , CoordinationConfig(..)
+, pCoordinationConfig
 , coordinationEnabled
 , coordinationMiners
 , NodeMiningConfig(..)
@@ -45,11 +47,13 @@ import GHC.Generics (Generic)
 
 import Numeric.Natural (Natural)
 
-import Pact.Types.Term (mkKeySet)
+import Options.Applicative
+
+import Pact.Types.Term (mkKeySet, PublicKeyText(..))
 
 -- internal modules
 
-import Chainweb.Miner.Pact (Miner(..), MinerKeys(..), minerId)
+import Chainweb.Miner.Pact (Miner(..), MinerKeys(..), MinerId(..), minerId)
 import Chainweb.Time (Seconds)
 
 ---
@@ -59,6 +63,9 @@ import Chainweb.Time (Seconds)
 newtype MinerCount = MinerCount { _minerCount :: Natural }
     deriving stock (Eq, Ord, Show)
     deriving newtype (FromJSON)
+
+-- -------------------------------------------------------------------------- --
+-- Mining Config
 
 validateMinerConfig :: ConfigValidation MiningConfig []
 validateMinerConfig c = do
@@ -97,10 +104,23 @@ instance FromJSON (MiningConfig -> MiningConfig) where
         <$< miningCoordination %.: "coordination" % o
         <*< miningInNode %.: "nodeMining" % o
 
+instance FromJSON MiningConfig where
+    parseJSON v = do
+        f <- parseJSON v
+        return $ f defaultMining
+
+pMiningConfig :: MParser MiningConfig
+pMiningConfig = id
+    <$< miningCoordination %:: pCoordinationConfig
+    <*< miningInNode %:: pNodeMiningConfig
+
 defaultMining :: MiningConfig
 defaultMining = MiningConfig
     { _miningCoordination = defaultCoordination
     , _miningInNode = defaultNodeMining }
+
+-- -------------------------------------------------------------------------- --
+-- Mining Coordination Config
 
 -- | Configuration for Mining Coordination.
 data CoordinationConfig = CoordinationConfig
@@ -149,7 +169,7 @@ instance FromJSON (CoordinationConfig -> CoordinationConfig) where
     parseJSON = withObject "CoordinationConfig" $ \o -> id
         <$< coordinationEnabled ..: "enabled" % o
         <*< coordinationLimit ..: "limit" % o
-        <*< coordinationMiners ..: "miners" % o
+        <*< coordinationMiners .fromLeftMonoidalUpdate %.: "miners" % o
         <*< coordinationUpdateStreamLimit ..: "updateStreamLimit" % o
         <*< coordinationUpdateStreamTimeout ..: "updateStreamTimeout" % o
 
@@ -161,6 +181,35 @@ defaultCoordination = CoordinationConfig
     , _coordinationUpdateStreamLimit = 2000
     , _coordinationUpdateStreamTimeout = 240
     }
+
+pCoordinationConfig :: MParser CoordinationConfig
+pCoordinationConfig = id
+    <$< coordinationEnabled .:: enableDisableFlag
+        % long "mining-coordination"
+        <> help "whether to enable the mining coordination API"
+    <*< coordinationMiners %:: pLeftMonoidalUpdate (S.singleton <$> pMiner "")
+    <*< coordinationLimit .:: jsonOption
+        % long "mining-request-limit"
+        <> help "Number of /mining/work requests that can be made within a 5min period"
+    <*< coordinationUpdateStreamLimit .:: jsonOption
+        % long "mining-update-stream-limit"
+        <> help "maximum number of concurrent update streams that is supported"
+    <*< coordinationUpdateStreamTimeout .:: jsonOption
+        % long "mining-update-stream-timeout"
+        <> help "duration that an update stream is kept open in seconds"
+
+pMiner :: String -> Parser Miner
+pMiner prefix = pkToMiner <$> pPk
+  where
+    pkToMiner pk = Miner
+        (MinerId $ "k:" <> _pubKey pk)
+        (MinerKeys $ mkKeySet [pk] "keys-all")
+    pPk = strOption
+        % long (prefix <> "mining-public-key")
+        <> help "public key of a miner in hex decimal encoding. The account name is the public key prefix by 'k:'. (This option can be provided multiple times.)"
+
+-- -------------------------------------------------------------------------- --
+-- Node Mining Config
 
 data NodeMiningConfig = NodeMiningConfig
     { _nodeMiningEnabled :: !Bool
@@ -185,19 +234,28 @@ nodeTestMiners = lens _nodeTestMiners (\m c -> m { _nodeTestMiners = c })
 instance ToJSON NodeMiningConfig where
     toJSON o = object
         [ "enabled" .= _nodeMiningEnabled o
-        , "miner" .= _nodeMiner o ]
+        , "miner" .= _nodeMiner o
+        ]
 
 instance FromJSON (NodeMiningConfig -> NodeMiningConfig) where
     parseJSON = withObject "NodeMiningConfig" $ \o -> id
         <$< nodeMiningEnabled ..: "enabled" % o
         <*< nodeMiner ..: "miner" % o
-        <*< nodeTestMiners ..: "testMiners" % o
+
+pNodeMiningConfig :: MParser NodeMiningConfig
+pNodeMiningConfig = id
+    <$< nodeMiningEnabled .:: enableDisableFlag
+        % long "node-mining"
+        <> help "ONLY FOR TESTING NETWORKS: whether to enable in node mining"
+    <*< nodeMiner .:: pMiner "node-"
 
 defaultNodeMining :: NodeMiningConfig
 defaultNodeMining = NodeMiningConfig
     { _nodeMiningEnabled = False
     , _nodeMiner = invalidMiner
-    , _nodeTestMiners = MinerCount 10 }
+    , _nodeTestMiners = MinerCount 10
+    }
 
 invalidMiner :: Miner
 invalidMiner = Miner "" . MinerKeys $ mkKeySet [] "keys-all"
+

@@ -1,8 +1,9 @@
 {-# LANGUAGE AllowAmbiguousTypes #-}
-{-# LANGUAGE NumericUnderscores #-}
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE ConstraintKinds #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -38,7 +39,6 @@ import qualified Data.ByteString.Base64.URL as B64U
 import qualified Data.ByteString.Char8 as B8
 
 import Data.ByteString.Lazy (toStrict)
-import Data.CAS (casLookupM)
 import qualified Data.HashMap.Strict as HM
 import Data.IORef
 import Data.List (isInfixOf)
@@ -79,6 +79,7 @@ import Chainweb.BlockHeight
 import Chainweb.ChainId
 import Chainweb.Cut
 import Chainweb.Graph
+import Chainweb.Miner.Pact
 import Chainweb.Pact.Backend.Types
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
@@ -92,6 +93,8 @@ import Chainweb.Transaction
 import Chainweb.Utils hiding (check)
 import Chainweb.Version as Chainweb
 import Chainweb.WebPactExecutionService
+
+import Chainweb.Storage.Table (casLookupM)
 
 import Data.LogMessage
 
@@ -118,6 +121,8 @@ testVer = FastTimedCPM triangleChainGraph
 bridgeVer :: ChainwebVersion
 bridgeVer = FastTimedCPM pairChainGraph
 
+-- Only use for debugging. Do not use in tests in the test suite!
+--
 logg :: LogMessage a => LogLevel -> a -> IO ()
 logg l
   | l <= Warn = T.putStrLn . logText
@@ -230,7 +235,7 @@ getCutOutputs (TestBlockDb _ pdb cmv) = do
 -- service to produce a new block, add it
 runCut' :: ChainwebVersion -> TestBlockDb -> WebPactExecutionService -> IO CutOutputs
 runCut' v bdb pact = do
-  runCut v bdb pact (offsetBlockTime second) zeroNoncer
+  runCut v bdb pact (offsetBlockTime second) zeroNoncer noMiner
   getCutOutputs bdb
 
 
@@ -258,10 +263,11 @@ roundtrip'
     -> CreatesGenerator
       -- ^ create tx generator
     -> (String -> IO ())
+      -- ^ logging backend
     -> IO (CutOutputs, CutOutputs)
 roundtrip' v sid0 tid0 burn create step = withTestBlockDb v $ \bdb -> do
   tg <- newMVar mempty
-  withWebPactExecutionService v bdb (chainToMPA' tg) $ \pact -> do
+  withWebPactExecutionService step v defaultPactServiceConfig bdb (chainToMPA' tg) freeGasModel $ \(pact,_) -> do
 
     sid <- mkChainId v maxBound sid0
     tid <- mkChainId v maxBound tid0
@@ -299,7 +305,7 @@ roundtrip' v sid0 tid0 burn create step = withTestBlockDb v $ \bdb -> do
     return (co1,co2)
 
 
-_debugCut :: PayloadCasLookup cas => String -> Cut -> PayloadDb cas -> IO ()
+_debugCut :: CanReadablePayloadCas tbl => String -> Cut -> PayloadDb tbl -> IO ()
 _debugCut msg c pdb = do
   putStrLn $ "CUT: =============== " ++ msg
   outs <- cutToPayloadOutputs c pdb
@@ -311,9 +317,9 @@ _debugCut msg c pdb = do
 type CutOutputs = HM.HashMap Chainweb.ChainId (Vector (Command Text, CommandResult Hash))
 
 cutToPayloadOutputs
-  :: PayloadCasLookup cas
+  :: CanReadablePayloadCas tbl
   => Cut
-  -> PayloadDb cas
+  -> PayloadDb tbl
   -> IO CutOutputs
 cutToPayloadOutputs c pdb = do
   forM (_cutMap c) $ \bh -> do
@@ -327,7 +333,7 @@ cutToPayloadOutputs c pdb = do
 
 chainToMPA' :: MVar TransactionGenerator -> MemPoolAccess
 chainToMPA' f = mempty
-    { mpaGetBlock = \_pc hi ha he -> do
+    { mpaGetBlock = \_g _pc hi ha he -> do
         tg <- readMVar f
         tg (_blockChainId he) hi ha he
     }
@@ -483,7 +489,8 @@ createVerify bridge code mdata time (TestBlockDb wdb pdb _c) _pidv sid tid bhe =
                   mkExec
                     code
                     (object [("proof",q),("data",mdata)])
-                return $ Vector.singleton cmd
+                return (Vector.singleton cmd)
+                    `finally` writeIORef ref True
 
 -- | Generate a tx to run 'verify-spv' tests.
 --
@@ -507,7 +514,8 @@ createVerifyEth code time (TestBlockDb _wdb _pdb _c) _pidv _sid tid _bhe = do
                   mkExec
                     code
                     (object [("proof", toJSON q)])
-                return $ Vector.singleton cmd
+                return (Vector.singleton cmd)
+                    `finally` writeIORef ref True
 
 receiptProofTest :: Int -> IO ReceiptProof
 receiptProofTest i = do
