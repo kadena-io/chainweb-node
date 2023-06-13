@@ -327,7 +327,7 @@ withDiscardedBatch act = do
 -- should consider merging it with 'restoreCheckpointer' and always rewind.
 --
 -- Rewinds the pact state to the given parent in a single database transactions.
--- Rewinds to the genesis block if he parent is 'Nothing'.
+-- Rewinds to the genesis block if the parent is 'Nothing'.
 --
 -- If the rewind is deeper than the optionally provided rewind limit, an
 -- exception is raised.

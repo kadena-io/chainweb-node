@@ -68,6 +68,8 @@ data PactServiceConfig = PactServiceConfig
   { _pactReorgLimit :: !Natural
     -- ^ Maximum allowed reorg depth, implemented as a rewind limit in validate. New block
     -- hardcodes this to 8 currently.
+  , _pactLocalRewindDepthLimit :: !Natural
+    -- ^ Maximum allowed rewind depth in the local command.
   , _pactRevalidate :: !Bool
     -- ^ Re-validate payload hashes during transaction replay
   , _pactAllowReadsInLocal :: !Bool
@@ -187,6 +189,10 @@ data PactException
   | BuyGasFailure !GasPurchaseFailure
   | MempoolFillFailure !Text
   | BlockGasLimitExceeded !Gas
+  | LocalRewindLimitExceeded
+    { _localRewindExceededLimit :: !Natural
+    , _localRewindRequestedDepth :: !BlockHeight }
+  | LocalRewindGenesisExceeded
   deriving (Eq,Generic)
 
 instance Show PactException where
@@ -211,6 +217,11 @@ instance J.Encode PactException where
   build (BuyGasFailure failure) = tagged "BuyGasFailure" failure
   build (MempoolFillFailure msg) = tagged "MempoolFillFailure" msg
   build (BlockGasLimitExceeded gas) = tagged "BlockGasLimitExceeded" gas
+  build o@(LocalRewindLimitExceeded {}) = tagged "LocalRewindLimitExceeded" $ J.object
+    [ "_localRewindExceededLimit" J..= J.Aeson (_localRewindExceededLimit o)
+    , "_localRewindRequestedDepth" J..= J.Aeson @Int (fromIntegral $ _localRewindRequestedDepth o)
+    ]
+  build LocalRewindGenesisExceeded = tagged "LocalRewindGenesisExceeded" J.null
 
 tagged :: J.Encode v => Text -> v -> J.Builder
 tagged t v = J.object
