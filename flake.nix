@@ -3,12 +3,20 @@
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs?rev=4d2b37a84fad1091b9de401eb450aae66f1a741e";
-    haskellNix.url = "github:input-output-hk/haskell.nix";
+    hackage = {
+      #url = "github:input-output-hk/hackage.nix";
+      url = "github:kadena-io/hackage.nix/257b8f758d2b0f62173a72cb279cc865793a9c50";
+      flake = false;
+    };
+    haskellNix = {
+      url = "github:input-output-hk/haskell.nix";
+      inputs.hackage.follows = "hackage";
+    };
     flake-utils.url = "github:numtide/flake-utils";
     nix-filter.url = "github:numtide/nix-filter";
   };
 
-  outputs = { self, nixpkgs, flake-utils, haskellNix, nix-filter }:
+  outputs = { self, nixpkgs, flake-utils, haskellNix, nix-filter, ... }:
     flake-utils.lib.eachSystem
       [ "x86_64-linux" "x86_64-darwin"
         "aarch64-linux" "aarch64-darwin" ] (system:
@@ -18,7 +26,7 @@
         inherit (haskellNix) config;
         overlays = [ haskellNix.overlay ];
       };
-      defaultNix = import ./default-flake.nix {
+      defaultNix = import ./default.nix {
         inherit pkgs nix-filter;
         flakePath = self.outPath;
       };
