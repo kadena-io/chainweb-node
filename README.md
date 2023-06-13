@@ -143,12 +143,6 @@ cabal update
 cabal build
 ```
 
-To install a runnable binary to `~/.cabal/bin/`:
-
-```bash
-cabal install
-```
-
 ### Building with Nix
 
 Another way to build and run chainweb is to use the Nix package manager which
