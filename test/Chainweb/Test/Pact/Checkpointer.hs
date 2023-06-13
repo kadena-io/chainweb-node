@@ -13,7 +13,7 @@ import Control.Exception
 import Control.Lens hiding ((.=))
 import Control.Monad.Reader
 
-import Data.Aeson (Value(..), object, (.=), Key)
+import Data.Aeson (Value(..), object, toJSON, (.=))
 import Data.Default (def)
 import Data.Function
 import qualified Data.HashMap.Strict as HM
@@ -66,8 +66,8 @@ tests = testGroupSch "Checkpointer"
     [ testRelational
     , testKeyset
     , testModuleName
-    , testCase "PactDb Regression" testRegress
-    , testCase "readRow unitTest" readRowUnitTest
+    , testCaseSteps "PactDb Regression" testRegress
+    , testCaseSteps "readRow unitTest" readRowUnitTest
     ]
 
 -- -------------------------------------------------------------------------- --
