@@ -176,7 +176,7 @@ execBlock currHeader plData pdbenv = do
 
     isGenesisBlock = isGenesisBlockHeader currHeader
 
-    go m txs = if isGenesisBlock
+    go m txs = tracePactServiceM "execBlock.execTransactions" () 0 $ if isGenesisBlock
       then do
         -- GENESIS VALIDATE COINBASE: Reject bad coinbase, use date rule for precompilation
         execTransactions True m txs

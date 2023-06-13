@@ -520,7 +520,7 @@ execNewBlock mpAccess parent miner = do
         newTrans <- getBlockTxs initState
 
         -- NEW BLOCK COINBASE: Reject bad coinbase, always use precompilation
-        (Transactions pairs cb) <- execTransactions False miner newTrans
+        (Transactions pairs cb) <- tracePactServiceM "newBlock.execTransactions" () 0 $ execTransactions False miner newTrans
           (EnforceCoinbaseFailure True)
           (CoinbaseUsePrecompiled True)
           pdbenv
