@@ -407,6 +407,7 @@ jobs:
       with:
         os: ${{ matrix.os }}
         ghc: ${{ matrix.ghc }}
+        use-freeze-file: ${{ matrix.use-freeze-file }}
     - name: Run slow tests
       timeout-minutes: 20
       run: |
@@ -440,6 +441,7 @@ jobs:
       with:
         os: ${{ matrix.os }}
         ghc: ${{ matrix.ghc }}
+        use-freeze-file: ${{ matrix.use-freeze-file }}
     - name: Run all benchmarks
       timeout-minutes: 12
       run: bench --json $BENCH_FILE +RTS -N
@@ -477,6 +479,7 @@ jobs:
       with:
         os: ${{ matrix.os }}
         ghc: ${{ matrix.ghc }}
+        use-freeze-file: ${{ matrix.use-freeze-file }}
     - name: Write chainweb-node configuration
       run: |
         cat >> config.yaml <<EOF
@@ -563,6 +566,7 @@ jobs:
       with:
         os: ${{ matrix.os }}
         ghc: ${{ matrix.ghc }}
+        use-freeze-file: ${{ matrix.use-freeze-file }}
     - name: Run Tests
       id: tests
       timeout-minutes: 10
