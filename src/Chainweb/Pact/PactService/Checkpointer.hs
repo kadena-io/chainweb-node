@@ -320,8 +320,6 @@ withDiscardedBatch act = do
         (liftIO $ _cpDiscardCheckpointerBatch cp)
         act
 
-data ShouldValidateHashesOnFastForward = ValidateHashesOnFastForward | DoNotValidateHashesOnFastForward
-
 -- | INTERNAL FUNCTION. USE 'withCheckpointer' instead.
 --
 -- TODO: The performance overhead is relatively low if there is no fork. We
@@ -416,6 +414,8 @@ rewindTo rewindLimit (Just (ParentHeader parent)) = do
                           & S.length_
             logInfo $ "rewindTo.playFork: replayed " <> sshow c <> " blocks"
 
+data ShouldValidateHashesOnFastForward = ValidateHashesOnFastForward | DoNotValidateHashesOnFastForward
+
 -- | INTERNAL UTILITY FUNCTION. DON'T EXPORT FROM THIS MODULE.
 --
 -- Fast forward a block within a 'rewindTo' loop.
@@ -439,6 +439,8 @@ fastForward shouldValidateHashes (target, block) =
                 <> ". Block: "<> encodeToText (ObjectEncoded block)
             Just x -> return $ payloadWithOutputsToPayloadData x
         pwo <- execBlock block payload pdbenv
+        -- As an optimization, we only validate the payload hash of a block during a
+        -- Pact replay, and not during normal operation.
         case shouldValidateHashes of
             ValidateHashesOnFastForward -> either throwM (\_ -> return ()) pwo
             DoNotValidateHashesOnFastForward -> return ()

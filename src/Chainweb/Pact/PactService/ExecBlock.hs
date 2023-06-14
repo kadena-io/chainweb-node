@@ -148,6 +148,7 @@ execBlock currHeader plData pdbenv = do
 
     modify' $ set psStateValidated $ Just currHeader
 
+    -- validate hashes only on evaluation of the result
     return $
       validateHashes currHeader plData miner results
 
