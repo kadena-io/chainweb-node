@@ -141,8 +141,7 @@ cabal update
 
 # Build the project.
 #
-# Note: This will print the path of the chainweb-node binary to stdout, which you can copy elsewhere.
-#       `cabal install` is not currently supported by chainweb-node.
+# After this, a runnable binary can be found by running `cabal list-bin chainweb-node`.
 cabal build
 ```
 
