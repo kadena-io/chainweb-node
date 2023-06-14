@@ -628,7 +628,6 @@ testPactCtxSQLite logBackend v cid bhdb pdb sqlenv conf gasmodel = do
         , _psLocalRewindDepthLimit = fromIntegral $ _pactLocalRewindDepthLimit conf
         , _psOnFatalError = defaultOnFatalError mempty
         , _psVersion = v
-        , _psValidateHashesOnReplay = _pactRevalidate conf
         , _psAllowReadsInLocal = _pactAllowReadsInLocal conf
         , _psIsBatch = False
         , _psCheckpointerDepth = 0

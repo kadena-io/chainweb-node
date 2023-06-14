@@ -143,7 +143,6 @@ runPactService' ver cid chainwebLogger bhDb pdb sqlenv config act =
                     , _psLocalRewindDepthLimit = fromIntegral $ _pactLocalRewindDepthLimit config
                     , _psOnFatalError = defaultOnFatalError (logFunctionText chainwebLogger)
                     , _psVersion = ver
-                    , _psValidateHashesOnReplay = _pactRevalidate config
                     , _psAllowReadsInLocal = _pactAllowReadsInLocal config
                     , _psIsBatch = False
                     , _psCheckpointerDepth = 0
@@ -734,12 +733,10 @@ execValidateBlock memPoolAccess currHeader plData = do
     target <- getTarget
     psEnv <- ask
     let reorgLimit = fromIntegral $ view psReorgLimit psEnv
-    T2 miner transactions <- exitOnRewindLimitExceeded $ withBatch $ do
+    result <- exitOnRewindLimitExceeded $ withBatch $ do
         withCheckpointerRewind (Just reorgLimit) target "execValidateBlock" $ \pdbenv -> do
-            !result <- execBlock currHeader plData pdbenv
+            !result <- either throwM return =<< execBlock currHeader plData pdbenv
             return $! Save currHeader result
-    result <- either throwM return $!
-        validateHashes currHeader plData miner transactions
 
     -- update mempool
     --

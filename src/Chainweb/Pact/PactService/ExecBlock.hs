@@ -111,7 +111,7 @@ execBlock
         -- instead.
     -> PayloadData
     -> PactDbEnv'
-    -> PactServiceM tbl (T2 Miner (Transactions (P.CommandResult [P.TxLog A.Value])))
+    -> PactServiceM tbl (Either PactException PayloadWithOutputs)
 execBlock currHeader plData pdbenv = do
 
     unlessM ((> 0) <$> asks _psCheckpointerDepth) $ do
@@ -148,12 +148,8 @@ execBlock currHeader plData pdbenv = do
 
     modify' $ set psStateValidated $ Just currHeader
 
-    -- Validate hashes if requested
-    asks _psValidateHashesOnReplay >>= \x -> when x $
-        either throwM (void . return) $!
-        validateHashes currHeader plData miner results
-
-    return $! T2 miner results
+    return $
+      validateHashes currHeader plData miner results
 
   where
     blockGasLimit =

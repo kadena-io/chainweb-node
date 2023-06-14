@@ -410,7 +410,6 @@ withChainwebInternal conf logger peer serviceSock rocksDb pactDbDir backupDir re
     pactConfig maxGasLimit = PactServiceConfig
       { _pactReorgLimit = _configReorgLimit conf
       , _pactLocalRewindDepthLimit = _configLocalRewindDepthLimit conf
-      , _pactRevalidate = _configValidateHashesOnReplay conf
       , _pactQueueSize = _configPactQueueSize conf
       , _pactResetDb = resetDb
       , _pactAllowReadsInLocal = _configAllowReadsInLocal conf

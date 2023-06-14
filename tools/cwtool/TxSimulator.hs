@@ -155,7 +155,7 @@ simulate sc@(SimConfig dbDir txIdx' _ _ cid ver gasLog doTypecheck) = do
           withRocksDb "txsim-rocksdb" modernDefaultOptions $ \rdb ->
             withBlockHeaderDb rdb ver cid $ \bdb -> do
               let pse = PactServiceEnv Nothing cpe paydb bdb getGasModel readRewards 100 0 ferr
-                        ver True False logger gasLogger (pactLoggers cwLogger) False 1 defaultBlockGasLimit cid
+                        ver False logger gasLogger (pactLoggers cwLogger) False 1 defaultBlockGasLimit cid
                   pss = PactServiceState Nothing mempty (ParentHeader parent) noSPVSupport
               evalPactServiceM pss pse $ doBlock True parent (zip hdrs pwos)
 
@@ -188,8 +188,8 @@ simulate sc@(SimConfig dbDir txIdx' _ _ cid ver gasLog doTypecheck) = do
         updateInitCache mc
       psParentHeader .= ParentHeader parent
       liftIO (spvSim sc hdr pwo) >>= assign psSpvSupport
-      _r <- trace (logFunction cwLogger) "execBlock" () 1 $
-          execBlock hdr (payloadWithOutputsToPayloadData pwo) pde'
+      either throwM (\_ -> return ()) =<< trace (logFunction cwLogger) "execBlock" () 1
+        (execBlock hdr (payloadWithOutputsToPayloadData pwo) pde')
       liftIO $ _cpSave cp (_blockHash hdr)
       doBlock False hdr rest
 

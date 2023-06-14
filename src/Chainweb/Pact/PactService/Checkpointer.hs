@@ -320,6 +320,7 @@ withDiscardedBatch act = do
         (liftIO $ _cpDiscardCheckpointerBatch cp)
         act
 
+data ShouldValidateHashesOnFastForward = ValidateHashesOnFastForward | DoNotValidateHashesOnFastForward
 
 -- | INTERNAL FUNCTION. USE 'withCheckpointer' instead.
 --
@@ -409,7 +410,7 @@ rewindTo rewindLimit (Just (ParentHeader parent)) = do
                     withAsync (heightProgress (_blockHeight commonAncestor) heightRef (logInfo_ progressLogger)) $ \_ ->
                       s
                           & S.scanM
-                              (\ !p !c -> runPact (fastForward (ParentHeader p, c)) >> writeIORef heightRef (_blockHeight c) >> return c)
+                              (\ !p !c -> runPact (fastForward DoNotValidateHashesOnFastForward (ParentHeader p, c)) >> writeIORef heightRef (_blockHeight c) >> return c)
                               (return h) -- initial parent
                               return
                           & S.length_
@@ -423,9 +424,10 @@ fastForward
     :: forall tbl
     . HasCallStack
     => CanReadablePayloadCas tbl
-    => (ParentHeader, BlockHeader)
+    => ShouldValidateHashesOnFastForward
+    -> (ParentHeader, BlockHeader)
     -> PactServiceM tbl ()
-fastForward (target, block) =
+fastForward shouldValidateHashes (target, block) =
     -- This does a restore, i.e. it rewinds the checkpointer back in
     -- history, if needed.
     withCheckpointerWithoutRewind (Just target) "fastForward" $ \pdbenv -> do
@@ -436,7 +438,10 @@ fastForward (target, block) =
                 <> ". BlockPayloadHash: " <> encodeToText bpHash
                 <> ". Block: "<> encodeToText (ObjectEncoded block)
             Just x -> return $ payloadWithOutputsToPayloadData x
-        void $ execBlock block payload pdbenv
+        pwo <- execBlock block payload pdbenv
+        case shouldValidateHashes of
+            ValidateHashesOnFastForward -> either throwM (\_ -> return ()) pwo
+            DoNotValidateHashesOnFastForward -> return ()
         return $! Save block ()
     -- double check output hash here?
   where
@@ -625,7 +630,7 @@ rewindToIncremental rewindLimit (Just (ParentHeader parent)) = do
                     -- transactions (withBatchIO).
                     let playChunk :: IORef BlockHeight -> BlockHeader -> Stream (Of BlockHeader) IO r -> IO (Of BlockHeader r)
                         playChunk heightRef cur s = withBatchIO runPact $ \runPactLocal -> S.foldM
-                            (\c x -> x <$ (runPactLocal (fastForward (ParentHeader c, x)) >> writeIORef heightRef (_blockHeight c)))
+                            (\c x -> x <$ (runPactLocal (fastForward ValidateHashesOnFastForward (ParentHeader c, x)) >> writeIORef heightRef (_blockHeight c)))
                             (return cur)
                             return
                             s
