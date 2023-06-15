@@ -62,13 +62,13 @@ import Chainweb.Version
 -- | Value that represents a limitation for some operation.
 newtype Limit = Limit { _limit :: Word64 }
   deriving (Eq, Ord)
-  deriving newtype (FromJSON, ToJSON, Num, Integral, Real, Enum, Bounded)
+  deriving newtype (FromJSON, ToJSON, Enum, Bounded)
 instance Show Limit where show (Limit l) = show l
 
 -- | Value that represents how far to go backwards.
 newtype Depth = Depth { _depth :: Word64 }
   deriving (Eq, Ord)
-  deriving newtype (FromJSON, ToJSON, Num, Integral, Real, Enum, Bounded)
+  deriving newtype (FromJSON, ToJSON, Enum, Bounded)
 instance Show Depth where show (Depth d) = show d
 
 -- | Externally-injected PactService properties.
