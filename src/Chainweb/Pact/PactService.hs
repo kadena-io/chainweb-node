@@ -211,21 +211,19 @@ initializeCoinContract
     -> PactServiceM tbl ()
 initializeCoinContract _logger memPoolAccess v cid pwo = do
     cp <- getCheckpointer
-    genesisExists <- liftIO
-      $ _cpLookupBlockInCheckpointer cp (genesisHeight v cid, genesisHash)
-    if genesisExists
-      then do
-        logError "initializeCoinContract: (genesisExists is true)"
-        liftIO (_cpGetLatestBlock cp) >>= \case
-          Nothing -> do
-            logError "initializeCoinContract: No latest block!"
-          Just block -> do
-            logError $ T.unpack $ "initializeCoinContract: Latest block: " <> sshow block
-        readContracts
-      else do
-        logError "initializeCoinContract: (genesisExists is false)"
+    latestBlock <- liftIO $ _cpGetLatestBlock cp
+    case latestBlock of
+      Nothing -> do
+        logError "initializeCoinContract: we are at genesis"
         validateGenesis
-
+      Just (currentBlockHeight, currentBlockHash) -> do
+        if currentBlockHeight > genesisHeight v cid && currentBlockHash /= genesisHash
+        then do
+          logError "initializeCoinContract: we are past genesis"
+          readContracts
+        else do
+          logError "initializeCoinContract: we are at genesis"
+          validateGenesis
   where
     validateGenesis = void $! do
       logError $ ("initializeCoinContract.validateGenesis: calling execValidateBlock with arguments:" <>) $
