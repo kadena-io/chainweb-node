@@ -246,17 +246,17 @@ pactLocalDepthTest = do
         assertTxGas "Coin post-fork" 1583
     ]
 
-  runLocalWithDepth (Just $ Depth 0) cid getSender00Balance >>= \r ->
+  runLocalWithDepth (Just $ RewindDepth 0) cid getSender00Balance >>= \r ->
     checkLocalResult r $ assertTxSuccess "Should get the current balance" (pDecimal 99999997.6834)
 
-  -- checking that `Just $ Depth 0` has the same behaviour as `Nothing`
+  -- checking that `Just $ RewindDepth 0` has the same behaviour as `Nothing`
   runLocalWithDepth Nothing cid getSender00Balance >>= \r ->
     checkLocalResult r $ assertTxSuccess "Should get the current balance as well" (pDecimal 99999997.6834)
 
-  runLocalWithDepth (Just $ Depth 1) cid getSender00Balance >>= \r ->
+  runLocalWithDepth (Just $ RewindDepth 1) cid getSender00Balance >>= \r ->
     checkLocalResult r $ assertTxSuccess "Should get the balance one block before" (pDecimal 99999998.8417)
 
-  runLocalWithDepth (Just $ Depth 2) cid getSender00Balance >>= \r ->
+  runLocalWithDepth (Just $ RewindDepth 2) cid getSender00Balance >>= \r ->
     checkLocalResult r $ assertTxSuccess "Should get the balance two blocks before" (pDecimal 100000000)
 
   -- the negative depth turns into 18446744073709551611 and we expect the `LocalRewindLimitExceeded` exception
@@ -266,11 +266,11 @@ pactLocalDepthTest = do
       LocalRewindLimitExceeded _ _ -> return ()
       err -> liftIO $ assertFailure $ "Expected LocalRewindLimitExceeded, but got " ++ show err)
     (do
-      runLocalWithDepth (Just $ Depth (-5)) cid getSender00Balance >>= \_ ->
+      runLocalWithDepth (Just $ RewindDepth (-5)) cid getSender00Balance >>= \_ ->
         liftIO $ assertFailure "Expected LocalRewindLimitExceeded, but block succeeded")
 
   -- the genesis depth
-  runLocalWithDepth (Just $ Depth 55) cid getSender00Balance >>= \r ->
+  runLocalWithDepth (Just $ RewindDepth 55) cid getSender00Balance >>= \r ->
     checkLocalResult r $ assertTxSuccess "Should get the balance at the genesis block" (pDecimal 100000000)
 
   -- depth that goes after the genesis block should trigger the `LocalRewindLimitExceeded` exception
@@ -279,7 +279,7 @@ pactLocalDepthTest = do
       LocalRewindGenesisExceeded -> return ()
       err -> liftIO $ assertFailure $ "Expected LocalRewindGenesisExceeded, but got " ++ show err)
     (do
-      runLocalWithDepth (Just $ Depth 56) cid getSender00Balance >>= \_ ->
+      runLocalWithDepth (Just $ RewindDepth 56) cid getSender00Balance >>= \_ ->
         liftIO $ assertFailure "Expected LocalRewindGenesisExceeded, but block succeeded")
 
   where
@@ -354,7 +354,7 @@ pact45UpgradeTest = do
 runLocal :: ChainId -> CmdBuilder -> PactTestM (Either PactException LocalResult)
 runLocal cid' cmd = runLocalWithDepth Nothing cid' cmd
 
-runLocalWithDepth :: Maybe Depth -> ChainId -> CmdBuilder -> PactTestM (Either PactException LocalResult)
+runLocalWithDepth :: Maybe RewindDepth -> ChainId -> CmdBuilder -> PactTestM (Either PactException LocalResult)
 runLocalWithDepth depth cid' cmd = do
   HM.lookup cid' <$> view menvPacts >>= \case
     Just pact -> buildCwCmd cmd >>=

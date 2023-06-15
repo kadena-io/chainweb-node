@@ -127,7 +127,7 @@ localWithQueryParams
     -> ClientEnv
     -> Maybe LocalPreflightSimulation
     -> Maybe LocalSignatureVerification
-    -> Maybe Depth
+    -> Maybe RewindDepth
     -> Command Text
     -> IO LocalResult
 localWithQueryParams sid cenv pf sv rd cmd =

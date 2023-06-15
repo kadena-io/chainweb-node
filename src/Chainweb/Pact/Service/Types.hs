@@ -59,25 +59,25 @@ import Chainweb.Transaction
 import Chainweb.Utils (T2, encodeToText)
 import Chainweb.Version
 
--- | Value that represents a limitation for some operation.
-newtype Limit = Limit { _limit :: Word64 }
+-- | Value that represents a limitation for rewinding.
+newtype RewindLimit = RewindLimit { _rewindLimit :: Word64 }
   deriving (Eq, Ord)
   deriving newtype (FromJSON, ToJSON, Enum, Bounded)
-instance Show Limit where show (Limit l) = show l
+instance Show RewindLimit where show (RewindLimit l) = show l
 
--- | Value that represents how far to go backwards.
-newtype Depth = Depth { _depth :: Word64 }
+-- | Value that represents how far to go backwards while rewinding.
+newtype RewindDepth = RewindDepth { _rewindDepth :: Word64 }
   deriving (Eq, Ord)
   deriving newtype (FromJSON, ToJSON, Enum, Bounded)
-instance Show Depth where show (Depth d) = show d
+instance Show RewindDepth where show (RewindDepth d) = show d
 
 -- | Externally-injected PactService properties.
 --
 data PactServiceConfig = PactServiceConfig
-  { _pactReorgLimit :: !Limit
+  { _pactReorgLimit :: !RewindLimit
     -- ^ Maximum allowed reorg depth, implemented as a rewind limit in validate. New block
     -- hardcodes this to 8 currently.
-  , _pactLocalRewindDepthLimit :: !Limit
+  , _pactLocalRewindDepthLimit :: !RewindLimit
     -- ^ Maximum allowed rewind depth in the local command.
   , _pactRevalidate :: !Bool
     -- ^ Re-validate payload hashes during transaction replay
@@ -170,7 +170,7 @@ data PactException
   | PactDuplicateTableError !Text
   | TransactionDecodeFailure !Text
   | RewindLimitExceeded
-      { _rewindExceededLimit :: !Limit
+      { _rewindExceededLimit :: !RewindLimit
           -- ^ Rewind limit
       , _rewindExceededLastHeight :: !BlockHeight
           -- ^ current height
@@ -184,8 +184,8 @@ data PactException
   | MempoolFillFailure !Text
   | BlockGasLimitExceeded !Gas
   | LocalRewindLimitExceeded
-    { _localRewindExceededLimit :: !Limit
-    , _localRewindRequestedDepth :: !Depth }
+    { _localRewindExceededLimit :: !RewindLimit
+    , _localRewindRequestedDepth :: !RewindDepth }
   | LocalRewindGenesisExceeded
   deriving (Eq,Generic)
 
@@ -249,7 +249,7 @@ data LocalReq = LocalReq
     { _localRequest :: !ChainwebTransaction
     , _localPreflight :: !(Maybe LocalPreflightSimulation)
     , _localSigVerification :: !(Maybe LocalSignatureVerification)
-    , _localRewindDepth :: !(Maybe Depth)
+    , _localRewindDepth :: !(Maybe RewindDepth)
     , _localResultVar :: !(PactExMVar LocalResult)
     }
 instance Show LocalReq where show LocalReq{..} = show _localRequest

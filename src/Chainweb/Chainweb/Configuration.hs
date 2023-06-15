@@ -105,7 +105,7 @@ import qualified Chainweb.Mempool.Mempool as Mempool
 import Chainweb.Mempool.P2pConfig
 import Chainweb.Miner.Config
 import Chainweb.Pact.Types (defaultReorgLimit, defaultModuleCacheLimit, defaultLocalRewindDepthLimit)
-import Chainweb.Pact.Service.Types (Limit)
+import Chainweb.Pact.Service.Types (RewindLimit(RewindLimit))
 import Chainweb.Payload.RestAPI (PayloadBatchLimit(..), defaultServicePayloadBatchLimit)
 import Chainweb.Utils
 import Chainweb.Version
@@ -379,8 +379,8 @@ data ChainwebConfiguration = ChainwebConfiguration
     , _configLogGas :: !Bool
     , _configMinGasPrice :: !Mempool.GasPrice
     , _configPactQueueSize :: !Natural
-    , _configReorgLimit :: !Limit
-    , _configLocalRewindDepthLimit :: !Limit
+    , _configReorgLimit :: !RewindLimit
+    , _configLocalRewindDepthLimit :: !RewindLimit
     , _configValidateHashesOnReplay :: !Bool
         -- ^ Re-validate payload hashes during replay.
     , _configAllowReadsInLocal :: !Bool
@@ -433,8 +433,8 @@ defaultChainwebConfiguration v = ChainwebConfiguration
     , _configLogGas = False
     , _configMinGasPrice = 1e-8
     , _configPactQueueSize = 2000
-    , _configReorgLimit = defaultReorgLimit
-    , _configLocalRewindDepthLimit = defaultLocalRewindDepthLimit
+    , _configReorgLimit = RewindLimit defaultReorgLimit
+    , _configLocalRewindDepthLimit = RewindLimit defaultLocalRewindDepthLimit
     , _configValidateHashesOnReplay = False
     , _configAllowReadsInLocal = False
     , _configRosetta = False

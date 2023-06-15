@@ -136,7 +136,7 @@ type PactLocalWithQueryApi_
     = "local"
     :> QueryParam "preflight" LocalPreflightSimulation
     :> QueryParam "signatureVerification" LocalSignatureVerification
-    :> QueryParam "rewindDepth" Depth
+    :> QueryParam "rewindDepth" RewindDepth
     :> ReqBody '[JSON] (Pact.Command Text)
     :> Post '[JSON] LocalResult
 

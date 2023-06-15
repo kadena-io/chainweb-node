@@ -47,7 +47,7 @@ import Chainweb.ChainId
 import Chainweb.HostAddress
 import Chainweb.TreeDB
 import Chainweb.Utils
-import Chainweb.Utils.Paging as Paging
+import Chainweb.Utils.Paging
 import Chainweb.Utils.Serialization
 import Chainweb.Version
 import Chainweb.Pact.Service.Types
@@ -132,11 +132,11 @@ instance FromHttpApiData Eos where
 instance ToHttpApiData Eos where
     toUrlPiece (Eos b) = toUrlPiece b
 
-instance FromHttpApiData Paging.Limit where
-    parseUrlPiece = fmap Paging.Limit . parseUrlPiece
+instance FromHttpApiData Limit where
+    parseUrlPiece = fmap Limit . parseUrlPiece
 
-instance ToHttpApiData Paging.Limit where
-    toUrlPiece (Paging.Limit k) = toUrlPiece k
+instance ToHttpApiData Limit where
+    toUrlPiece (Limit k) = toUrlPiece k
 
 instance ToHttpApiData (NextItem BlockHash) where
     toUrlPiece = toText
@@ -190,8 +190,8 @@ instance ToHttpApiData LocalSignatureVerification where
 instance FromHttpApiData LocalSignatureVerification where
     parseUrlPiece = fmap (bool NoVerify Verify) . parseUrlPiece
 
-instance FromHttpApiData Depth where
-    parseUrlPiece = fmap Depth . parseUrlPiece
+instance FromHttpApiData RewindDepth where
+    parseUrlPiece = fmap RewindDepth . parseUrlPiece
 
-instance ToHttpApiData Depth where
-    toUrlPiece (Depth k) = toUrlPiece k
+instance ToHttpApiData RewindDepth where
+    toUrlPiece (RewindDepth k) = toUrlPiece k

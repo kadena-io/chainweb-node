@@ -341,7 +341,7 @@ localHandler
       -- ^ Preflight flag
     -> Maybe LocalSignatureVerification
       -- ^ No sig verification flag
-    -> Maybe Depth
+    -> Maybe RewindDepth
       -- ^ Rewind depth
     -> Command Text
     -> Handler LocalResult

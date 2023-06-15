@@ -157,7 +157,7 @@ pactLocalWithQueryApiClient_
     => KnownChainIdSymbol c
     => Maybe LocalPreflightSimulation
     -> Maybe LocalSignatureVerification
-    -> Maybe Depth
+    -> Maybe RewindDepth
     -> Command T.Text
     -> ClientM LocalResult
 pactLocalWithQueryApiClient_ = client (pactLocalWithQueryApi @v @c)
@@ -167,7 +167,7 @@ pactLocalWithQueryApiClient
     -> ChainId
     -> Maybe LocalPreflightSimulation
     -> Maybe LocalSignatureVerification
-    -> Maybe Depth
+    -> Maybe RewindDepth
     -> Command T.Text
     -> ClientM LocalResult
 pactLocalWithQueryApiClient

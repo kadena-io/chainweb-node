@@ -63,7 +63,7 @@ data PactExecutionService = PactExecutionService
     , _pactLocal :: !(
         Maybe LocalPreflightSimulation ->
         Maybe LocalSignatureVerification ->
-        Maybe Depth ->
+        Maybe RewindDepth ->
         ChainwebTransaction ->
         IO (Either PactException LocalResult))
       -- ^ Directly execute a single transaction in "local" mode (all DB interactions rolled back).

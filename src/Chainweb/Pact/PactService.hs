@@ -177,7 +177,7 @@ initializeLatestBlock unlimitedRewind = findLatestValidBlock >>= \case
     Nothing -> return ()
     Just b -> withBatch $ rewindTo initialRewindLimit (Just $ ParentHeader b)
   where
-    initialRewindLimit = 1000 <$ guard (not unlimitedRewind)
+    initialRewindLimit = RewindLimit 1000 <$ guard (not unlimitedRewind)
 
 initialPayloadState
     :: Logger logger
@@ -485,7 +485,7 @@ execNewBlock mpAccess parent miner = do
     -- This is intended to mitigate mining attempts during replay.
     -- In theory we shouldn't need to rewind much ever, but values
     -- less than this are failing in PactReplay test.
-    newblockRewindLimit = Just 8
+    newblockRewindLimit = Just $ RewindLimit 8
 
     getBlockTxs :: BlockFill -> PactServiceM tbl (Vector ChainwebTransaction)
     getBlockTxs bfState = do
@@ -634,7 +634,7 @@ execLocal
       -- ^ preflight flag
     -> Maybe LocalSignatureVerification
       -- ^ turn off signature verification checks?
-    -> Maybe Depth
+    -> Maybe RewindDepth
       -- ^ rewind depth
     -> PactServiceM tbl LocalResult
 execLocal cwtx preflight sigVerify rdepth = withDiscardedBatch $ do
@@ -652,18 +652,18 @@ execLocal cwtx preflight sigVerify rdepth = withDiscardedBatch $ do
     -- when no depth is defined, treat
     -- withCheckpointerRewind as withCurrentCheckpointer
     -- (i.e. setting rewind to 0).
-    let rewindDepth = fromMaybe 0 rdepth
+    let rewindDepth = fromMaybe (RewindDepth 0) rdepth
 
-    when (_depth rewindDepth > _limit _psLocalRewindDepthLimit) $ do
+    when (_rewindDepth rewindDepth > _rewindLimit _psLocalRewindDepthLimit) $ do
         throwM $ LocalRewindLimitExceeded _psLocalRewindDepthLimit rewindDepth
 
     let parentBlockHeader = _parentHeader parent
 
     -- we fail if the requested depth is bigger than the current parent block height
     -- because we can't go after the genesis block
-    when (_depth rewindDepth > _height (_blockHeight parentBlockHeader)) $ throwM LocalRewindGenesisExceeded
+    when (_rewindDepth rewindDepth > _height (_blockHeight parentBlockHeader)) $ throwM LocalRewindGenesisExceeded
 
-    let ancestorRank = fromIntegral $ (_height $ _blockHeight parentBlockHeader) - _depth rewindDepth
+    let ancestorRank = fromIntegral $ (_height $ _blockHeight parentBlockHeader) - _rewindDepth rewindDepth
     ancestor <- liftIO $ seekAncestor _psBlockHeaderDb parentBlockHeader ancestorRank
 
     rewindHeader <- case ancestor of
@@ -680,7 +680,7 @@ execLocal cwtx preflight sigVerify rdepth = withDiscardedBatch $ do
         initialGas = initialGasOf $ P._cmdPayload cwtx
 
     -- In this case the rewind limit is the same as rewind depth
-    let rewindLimit = Limit $ _depth rewindDepth
+    let rewindLimit = RewindLimit $ _rewindDepth rewindDepth
     withCheckpointerRewind (Just rewindLimit) rewindHeader "execLocal" $
       \(PactDbEnv' pdbenv) -> do
         --

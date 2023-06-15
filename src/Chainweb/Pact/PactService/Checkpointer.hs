@@ -243,7 +243,7 @@ withCurrentCheckpointer caller act = do
     ph <- syncParentHeader "withCurrentCheckpointer"
         -- discover the header for the latest block that is stored in the
         -- checkpointer.
-    withCheckpointerRewind (Just 0) (Just ph) caller act
+    withCheckpointerRewind (Just $ RewindLimit 0) (Just ph) caller act
 
 -- | Execute an action in the context of an @Block@ that is provided by the
 -- checkpointer. The checkpointer is rewinded and restored to the state to the
@@ -257,7 +257,7 @@ withCurrentCheckpointer caller act = do
 withCheckpointerRewind
     :: HasCallStack
     => CanReadablePayloadCas tbl
-    => Maybe Limit
+    => Maybe RewindLimit
         -- ^ if set, limit rewinds to this delta
     -> Maybe ParentHeader
         -- ^ The parent header to which the checkpointer is restored
@@ -335,7 +335,7 @@ rewindTo
     :: forall tbl
     . HasCallStack
     => CanReadablePayloadCas tbl
-    => Maybe Limit
+    => Maybe RewindLimit
         -- ^ if set, limit rewinds to this delta
     -> Maybe ParentHeader
         -- ^ The parent header which is the rewind target
@@ -545,7 +545,7 @@ rewindToIncremental
     :: forall tbl
     . HasCallStack
     => CanReadablePayloadCas tbl
-    => Maybe Limit
+    => Maybe RewindLimit
         -- ^ if set, limit rewinds to this delta
     -> Maybe ParentHeader
         -- ^ The parent header which is the rewind target
@@ -645,14 +645,14 @@ failOnTooLowRequestedHeight
     . HasCallStack
     => CanReadablePayloadCas tbl
     => BlockHeader
-    -> Maybe Limit
+    -> Maybe RewindLimit
     -> BlockHeader
     -> PactServiceM tbl ()
 failOnTooLowRequestedHeight parent (Just limit) lastHeader
     | parentHeight + 1 + limitHeight < lastHeight = -- need to stick with addition because Word64
         throwM $ RewindLimitExceeded limit parentHeight lastHeight parent
   where
-    limitHeight = BlockHeight $ _limit Limit
+    limitHeight = BlockHeight $ _rewindLimit limit
     parentHeight = _blockHeight parent
     lastHeight = _blockHeight lastHeader
 failOnTooLowRequestedHeight _ _ _ = return ()

@@ -72,7 +72,7 @@ validateBlock bHeader plData reqQ = do
 local
     :: Maybe LocalPreflightSimulation
     -> Maybe LocalSignatureVerification
-    -> Maybe Depth
+    -> Maybe RewindDepth
     -> ChainwebTransaction
     -> PactQueue
     -> IO (MVar (Either PactException LocalResult))

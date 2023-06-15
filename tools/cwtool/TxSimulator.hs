@@ -38,7 +38,7 @@ import Chainweb.Pact.Backend.Utils
 import Chainweb.Pact.PactService
 import Chainweb.Pact.PactService.ExecBlock
 import Chainweb.Pact.RestAPI.Server
-import Chainweb.Pact.Service.Types
+import Chainweb.Pact.Service.Types as Pact
 import Chainweb.Pact.TransactionExec
 import Chainweb.Pact.Types
 import Chainweb.Payload
@@ -162,8 +162,8 @@ simulate sc@(SimConfig dbDir txIdx' _ _ cid ver gasLog doTypecheck) = do
                   , _psBlockHeaderDb = bdb
                   , _psGasModel = getGasModel
                   , _psMinerRewards = readRewards
-                  , _psLocalRewindDepthLimit = 100
-                  , _psReorgLimit = 0
+                  , _psLocalRewindDepthLimit = RewindLimit 100
+                  , _psReorgLimit = RewindLimit 0
                   , _psOnFatalError = ferr
                   , _psVersion = ver
                   , _psValidateHashesOnReplay = True
