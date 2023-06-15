@@ -84,6 +84,7 @@ addRequest q msg =  do
     atomically $ writeTBQueue priority (T2 msg entranceTime)
   where
     priority = case msg of
+        LookupPactTxsMsg {} -> _pactQueueValidateBlock q
         ValidateBlockMsg {} -> _pactQueueValidateBlock q
         NewBlockMsg {} -> _pactQueueNewBlock q
         _ -> _pactQueueOtherMsg q
