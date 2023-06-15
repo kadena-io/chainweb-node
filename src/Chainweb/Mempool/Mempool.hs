@@ -358,15 +358,19 @@ noopMempool = do
 
 
 ------------------------------------------------------------------------------
+
 chainwebTransactionConfig
     :: Maybe (ChainwebVersion, BlockHeight)
     -> TransactionConfig ChainwebTransaction
-chainwebTransactionConfig chainCtx = TransactionConfig (chainwebPayloadCodec chainCtx)
-    commandHash
-    chainwebTestHashMeta
-    getGasPrice
-    getGasLimit
-    txmeta
+chainwebTransactionConfig chainCtx = TransactionConfig
+    { txCodec = chainwebPayloadCodec chainCtx
+    , txHasher = commandHash
+    , txHashMeta = chainwebTestHashMeta
+    , txGasPrice = getGasPrice
+    , txGasLimit = getGasLimit
+    , txMetadata = txmeta
+    }
+
 
   where
     getGasPrice = view cmdGasPrice . fmap payloadObj
