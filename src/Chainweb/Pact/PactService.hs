@@ -55,6 +55,8 @@ import qualified Data.Text as T
 import Data.Vector (Vector)
 import qualified Data.Vector as V
 
+import qualified Data.ByteString.Lazy.Char8 as BLC8
+
 import System.IO
 
 import Prelude hiding (lookup)
@@ -210,17 +212,32 @@ initializeCoinContract
 initializeCoinContract _logger memPoolAccess v cid pwo = do
     cp <- getCheckpointer
     genesisExists <- liftIO
-        $ _cpLookupBlockInCheckpointer cp (genesisHeight v cid, ghash)
+      $ _cpLookupBlockInCheckpointer cp (genesisHeight v cid, genesisHash)
     if genesisExists
-      then readContracts
-      else validateGenesis
+      then do
+        logError "initializeCoinContract: (genesisExists is true)"
+        liftIO (_cpGetLatestBlock cp) >>= \case
+          Nothing -> do
+            logError "initializeCoinContract: No latest block!"
+          Just block -> do
+            logError $ T.unpack $ "initializeCoinContract: Latest block: " <> sshow block
+        readContracts
+      else do
+        logError "initializeCoinContract: (genesisExists is false)"
+        validateGenesis
 
   where
-    validateGenesis = void $!
-        execValidateBlock memPoolAccess genesisHeader inputPayloadData
+    validateGenesis = void $! do
+      logError $ ("initializeCoinContract.validateGenesis: calling execValidateBlock with arguments:" <>) $
+        BLC8.unpack $ A.encode $ A.object
+          [ "memPoolAccess" A..= ("<memPoolAccess>" :: Text)
+          , "genesisHeader" A..= genesisHeader
+          , "inputPayloadData" A..= inputPayloadData
+          ]
+      execValidateBlock memPoolAccess genesisHeader inputPayloadData
 
-    ghash :: BlockHash
-    ghash = _blockHash genesisHeader
+    genesisHash :: BlockHash
+    genesisHash = _blockHash genesisHeader
 
     inputPayloadData :: PayloadData
     inputPayloadData = payloadWithOutputsToPayloadData pwo
@@ -229,10 +246,13 @@ initializeCoinContract _logger memPoolAccess v cid pwo = do
     genesisHeader = genesisBlockHeader v cid
 
     readContracts = withDiscardedBatch $ do
+      logError "initializeCoinContract.readContracts: syncParentHeader"
       parent <- syncParentHeader "initializeCoinContract.readContracts"
+      logError $ T.unpack $ "initializeCoinContract.readContracts: parent = " <> sshow parent
       withCheckpointerRewind Nothing (Just parent) "initializeCoinContract.readContracts" $ \(PactDbEnv' pdbenv) -> do
         PactServiceEnv{..} <- ask
         pd <- getTxContext def
+        --logError "initializeCoinContract.readContracts: txContext: " <> sshow pd
         !mc <- liftIO $ readInitModules _psLogger pdbenv pd
         updateInitCache mc
         return $! Discard ()
@@ -715,6 +735,11 @@ execValidateBlock memPoolAccess currHeader plData = do
     psEnv <- ask
     let reorgLimit = fromIntegral $ view psReorgLimit psEnv
     T2 miner transactions <- exitOnRewindLimitExceeded $ withBatch $ do
+        logError $ ("execValidateOnBlock: calling withCheckpointerRewind with arguments: " <>) $
+          BLC8.unpack $ A.encode $ A.object
+            [ "reorgLimit" A..= Just reorgLimit
+            , "target" A..= (sshow target :: Text)
+            ]
         withCheckpointerRewind (Just reorgLimit) target "execValidateBlock" $ \pdbenv -> do
             !result <- execBlock currHeader plData pdbenv
             return $! Save currHeader result

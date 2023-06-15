@@ -71,6 +71,8 @@ import Chainweb.Utils
 import Chainweb.Utils.Serialization
 import Chainweb.Version
 
+import Chainweb.Pact.Types (logError_)
+
 initRelationalCheckpointer
     :: BlockState
     -> SQLiteEnv
@@ -122,7 +124,7 @@ initRelationalCheckpointer' bstate sqlenv loggr v cid = do
         { _cpeCheckpointer =
             Checkpointer
             {
-                _cpRestore = doRestore v cid db
+                _cpRestore = doRestore loggr v cid db
               , _cpSave = doSave db
               , _cpDiscard = doDiscard db
               , _cpGetLatestBlock = doGetLatest db
@@ -141,8 +143,9 @@ initRelationalCheckpointer' bstate sqlenv loggr v cid = do
 
 type Db = MVar (BlockEnv SQLiteEnv)
 
-doRestore :: ChainwebVersion -> ChainId -> Db -> Maybe (BlockHeight, ParentHash) -> IO PactDbEnv'
-doRestore v cid dbenv (Just (bh, hash)) = runBlockEnv dbenv $ do
+doRestore :: Logger -> ChainwebVersion -> ChainId -> Db -> Maybe (BlockHeight, ParentHash) -> IO PactDbEnv'
+doRestore loggr v cid dbenv (Just (bh, hash)) = runBlockEnv dbenv $ do
+    logError_ loggr "doRestore: NOT genesis"
     setModuleNameFix
     setSortedKeys
     setLowerCaseTables
@@ -155,7 +158,8 @@ doRestore v cid dbenv (Just (bh, hash)) = runBlockEnv dbenv $ do
     setModuleNameFix = bsModuleNameFix .= enableModuleNameFix v bh
     setSortedKeys = bsSortedKeys .= pact420Upgrade v bh
     setLowerCaseTables = bsLowerCaseTables .= chainweb217Pact After v bh
-doRestore _ _ dbenv Nothing = runBlockEnv dbenv $ do
+doRestore loggr _ _ dbenv Nothing = runBlockEnv dbenv $ do
+    logError_ loggr "doRestore: genesis"
     clearPendingTxState
     withSavepoint DbTransaction $
       callDb "doRestoreInitial: resetting tables" $ \db -> do

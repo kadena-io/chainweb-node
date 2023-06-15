@@ -99,7 +99,7 @@ setParentHeader msg ph@(ParentHeader bh) = do
 -- /NOTE:/
 --
 -- Any call of this function must occur within a dedicated call to
--- 'withChwithCheckpointerRewind', 'withCurrentCheckpointer' or
+-- 'withCheckpointerRewind', 'withCurrentCheckpointer' or
 -- 'withCheckPointerWithoutRewind'.
 --
 execBlock
