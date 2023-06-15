@@ -85,6 +85,7 @@ addRequest q msg =  do
   where
     priority = case msg of
         LookupPactTxsMsg {} -> _pactQueueValidateBlock q
+        PreInsertCheckMsg {} -> _pactQueueValidateBlock q
         ValidateBlockMsg {} -> _pactQueueValidateBlock q
         NewBlockMsg {} -> _pactQueueNewBlock q
         _ -> _pactQueueOtherMsg q
