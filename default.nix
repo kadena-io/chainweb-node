@@ -8,7 +8,7 @@ let flakeDefaultNix = (import (
     inputs = flakeDefaultNix.inputs;
     pkgsDef = import inputs.nixpkgs {
       config = inputs.haskellNix.config;
-      overlays = [ inputs.haskellNix.overlay] ;
+      overlays = [ inputs.haskellNix.overlay ];
     };
 in
 { pkgs ? pkgsDef
