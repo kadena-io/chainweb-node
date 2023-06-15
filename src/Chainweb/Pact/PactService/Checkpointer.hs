@@ -649,9 +649,10 @@ failOnTooLowRequestedHeight
     -> BlockHeader
     -> PactServiceM tbl ()
 failOnTooLowRequestedHeight parent (Just limit) lastHeader
-    | parentHeight + 1 + (BlockHeight $ _limit limit) < lastHeight = -- need to stick with addition because Word64
+    | parentHeight + 1 + limitHeight < lastHeight = -- need to stick with addition because Word64
         throwM $ RewindLimitExceeded limit parentHeight lastHeight parent
   where
+    limitHeight = BlockHeight $ _limit Limit
     parentHeight = _blockHeight parent
     lastHeight = _blockHeight lastHeader
 failOnTooLowRequestedHeight _ _ _ = return ()
