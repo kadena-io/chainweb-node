@@ -72,9 +72,9 @@ module Chainweb.Pact.PactService.Checkpointer
 
 import Control.Concurrent
 import Control.Concurrent.Async
-import Control.Exception.Safe
 import Control.Lens
 import Control.Monad
+import Control.Monad.Catch
 import Control.Monad.Reader
 import Control.Monad.State.Strict
 
@@ -327,7 +327,7 @@ withDiscardedBatch act = do
 -- should consider merging it with 'restoreCheckpointer' and always rewind.
 --
 -- Rewinds the pact state to the given parent in a single database transactions.
--- Rewinds to the genesis block if he parent is 'Nothing'.
+-- Rewinds to the genesis block if the parent is 'Nothing'.
 --
 -- If the rewind is deeper than the optionally provided rewind limit, an
 -- exception is raised.
@@ -530,7 +530,7 @@ lookupBlockHeader bhash ctx = do
       then return cur
       else do
         bhdb <- asks _psBlockHeaderDb
-        liftIO $! lookupM bhdb bhash `catchAny` \e ->
+        liftIO $! lookupM bhdb bhash `catchAllSynchronous` \e ->
             throwM $ BlockHeaderLookupFailure $
                 "failed lookup of parent header in " <> ctx <> ": " <> sshow e
 

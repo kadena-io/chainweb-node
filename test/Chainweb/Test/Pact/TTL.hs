@@ -19,8 +19,6 @@ import qualified Data.Vector as V
 
 import Pact.Types.ChainMeta
 
-import System.LogLevel
-
 import Test.Tasty
 import Test.Tasty.HUnit
 
@@ -282,7 +280,7 @@ withTestPact
     -> TestTree
 withTestPact rdb test =
   withResource newEmptyMVar (const $ return ()) $ \mempoolVarIO ->
-    withPactTestBlockDb testVer cid Quiet rdb (mempool mempoolVarIO) defaultPactServiceConfig $ \ios ->
+    withPactTestBlockDb testVer cid rdb (mempool mempoolVarIO) defaultPactServiceConfig $ \ios ->
       test $ do
         (pq,bdb) <- ios
         mp <- mempoolVarIO

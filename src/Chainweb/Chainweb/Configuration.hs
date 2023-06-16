@@ -108,7 +108,7 @@ import Chainweb.HostAddress
 import qualified Chainweb.Mempool.Mempool as Mempool
 import Chainweb.Mempool.P2pConfig
 import Chainweb.Miner.Config
-import Chainweb.Pact.Types (defaultReorgLimit, defaultModuleCacheLimit)
+import Chainweb.Pact.Types (defaultReorgLimit, defaultModuleCacheLimit, defaultLocalRewindDepthLimit)
 import Chainweb.Payload.RestAPI (PayloadBatchLimit(..), defaultServicePayloadBatchLimit)
 import Chainweb.Utils
 import Chainweb.Version
@@ -386,6 +386,7 @@ data ChainwebConfiguration = ChainwebConfiguration
     , _configMinGasPrice :: !Mempool.GasPrice
     , _configPactQueueSize :: !Natural
     , _configReorgLimit :: !Natural
+    , _configLocalRewindDepthLimit :: !Natural
     , _configValidateHashesOnReplay :: !Bool
         -- ^ Re-validate payload hashes during replay.
     , _configAllowReadsInLocal :: !Bool
@@ -446,6 +447,7 @@ defaultChainwebConfiguration v = ChainwebConfiguration
     , _configMinGasPrice = 1e-8
     , _configPactQueueSize = 2000
     , _configReorgLimit = int defaultReorgLimit
+    , _configLocalRewindDepthLimit = int defaultLocalRewindDepthLimit
     , _configValidateHashesOnReplay = False
     , _configAllowReadsInLocal = False
     , _configRosetta = False
@@ -471,6 +473,7 @@ instance ToJSON ChainwebConfiguration where
         , "minGasPrice" .= _configMinGasPrice o
         , "pactQueueSize" .= _configPactQueueSize o
         , "reorgLimit" .= _configReorgLimit o
+        , "localRewindDepthLimit" .= _configLocalRewindDepthLimit o
         , "validateHashesOnReplay" .= _configValidateHashesOnReplay o
         , "allowReadsInLocal" .= _configAllowReadsInLocal o
         , "rosetta" .= _configRosetta o
@@ -485,30 +488,30 @@ instance FromJSON ChainwebConfiguration where
     parseJSON = fmap ($ defaultChainwebConfiguration Mainnet01) . parseJSON
 
 instance FromJSON (ChainwebConfiguration -> ChainwebConfiguration) where
-    parseJSON = withObject "ChainwebConfiguration" $ \o -> do
-        id
-            <$< setProperty configChainwebVersion "chainwebVersion"
-                (findKnownVersion <=< parseJSON) o
-            <*< configCuts %.: "cuts" % o
-            <*< configMining %.: "mining" % o
-            <*< configHeaderStream ..: "headerStream" % o
-            <*< configReintroTxs ..: "reintroTxs" % o
-            <*< configP2p %.: "p2p" % o
-            <*< configThrottling %.: "throttling" % o
-            <*< configMempoolP2p %.: "mempoolP2p" % o
-            <*< configBlockGasLimit ..: "gasLimitOfBlock" % o
-            <*< configLogGas ..: "logGas" % o
-            <*< configMinGasPrice ..: "minGasPrice" % o
-            <*< configPactQueueSize ..: "pactQueueSize" % o
-            <*< configReorgLimit ..: "reorgLimit" % o
-            <*< configValidateHashesOnReplay ..: "validateHashesOnReplay" % o
-            <*< configAllowReadsInLocal ..: "allowReadsInLocal" % o
-            <*< configRosetta ..: "rosetta" % o
-            <*< configServiceApi %.: "serviceApi" % o
-            <*< configOnlySyncPact ..: "onlySyncPact" % o
-            <*< configSyncPactChains ..: "syncPactChains" % o
-            <*< configBackup %.: "backup" % o
-            <*< configModuleCacheLimit ..: "moduleCacheLimit" % o
+    parseJSON = withObject "ChainwebConfig" $ \o -> id
+        <$< setProperty configChainwebVersion "chainwebVersion"
+            (findKnownVersion <=< parseJSON) o
+        <*< configCuts %.: "cuts" % o
+        <*< configMining %.: "mining" % o
+        <*< configHeaderStream ..: "headerStream" % o
+        <*< configReintroTxs ..: "reintroTxs" % o
+        <*< configP2p %.: "p2p" % o
+        <*< configThrottling %.: "throttling" % o
+        <*< configMempoolP2p %.: "mempoolP2p" % o
+        <*< configBlockGasLimit ..: "gasLimitOfBlock" % o
+        <*< configLogGas ..: "logGas" % o
+        <*< configMinGasPrice ..: "minGasPrice" % o
+        <*< configPactQueueSize ..: "pactQueueSize" % o
+        <*< configReorgLimit ..: "reorgLimit" % o
+        <*< configLocalRewindDepthLimit ..: "localRewindDepthLimit" % o
+        <*< configValidateHashesOnReplay ..: "validateHashesOnReplay" % o
+        <*< configAllowReadsInLocal ..: "allowReadsInLocal" % o
+        <*< configRosetta ..: "rosetta" % o
+        <*< configServiceApi %.: "serviceApi" % o
+        <*< configOnlySyncPact ..: "onlySyncPact" % o
+        <*< configSyncPactChains ..: "syncPactChains" % o
+        <*< configBackup %.: "backup" % o
+        <*< configModuleCacheLimit ..: "moduleCacheLimit" % o
 
 pChainwebConfiguration :: MParser ChainwebConfiguration
 pChainwebConfiguration = id
@@ -539,6 +542,9 @@ pChainwebConfiguration = id
         <> help "Max allowed reorg depth.\
                 \ Consult https://github.com/kadena-io/chainweb-node/blob/master/docs/RecoveringFromDeepForks.md for\
                 \ more information. "
+    <*< configLocalRewindDepthLimit .:: jsonOption
+        % long "local-rewind-depth-limit"
+        <> help "Max allowed rewind depth for the local command."
     <*< configValidateHashesOnReplay .:: boolOption_
         % long "validateHashesOnReplay"
         <> help "Re-validate payload hashes during transaction replay."

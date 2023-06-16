@@ -28,7 +28,7 @@ module Chainweb.Pact.TransactionExec
 , readInitModules
 , enablePactEvents'
 , enforceKeysetFormats'
-, disablePact40Natives
+, disableReturnRTC
 
   -- * Gas Execution
 , buyGas
@@ -65,7 +65,7 @@ import qualified Data.ByteString as B
 import qualified Data.ByteString.Short as SB
 import Data.Decimal (Decimal, roundTo)
 import Data.Default (def)
-import Data.Foldable (fold, for_, foldl')
+import Data.Foldable (fold, for_)
 import Data.IORef
 import qualified Data.HashMap.Strict as HM
 import Data.Maybe
@@ -90,7 +90,7 @@ import Pact.Types.Logger hiding (logError)
 import Pact.Types.PactValue
 import Pact.Types.Pretty
 import Pact.Types.RPC
-import Pact.Types.Runtime
+import Pact.Types.Runtime hiding (catchesPactError)
 import Pact.Types.Server
 import Pact.Types.SPV
 
@@ -130,6 +130,11 @@ magic_GAS = mkMagicCapSlot "GAS"
 magic_GENESIS :: CapSlot UserCapability
 magic_GENESIS = mkMagicCapSlot "GENESIS"
 
+onChainErrorPrintingFor :: TxContext -> UnexpectedErrorPrinting
+onChainErrorPrintingFor txCtx =
+  if chainweb219Pact (ctxVersion txCtx) (ctxChainId txCtx) (ctxCurrentBlockHeight txCtx)
+  then CensorsUnexpectedError
+  else PrintsUnexpectedError
 
 -- | The main entry point to executing transactions. From here,
 -- 'applyCmd' assembles the command environment for a command and
@@ -209,7 +214,7 @@ applyCmd v logger gasLogger pdbenv miner gasModel txCtx spv cmd initialGas mcach
       applyRedeem r
 
     applyBuyGas =
-      catchesPactError (buyGas isPactBackCompatV16 cmd miner) >>= \case
+      catchesPactError logger (onChainErrorPrintingFor txCtx) (buyGas isPactBackCompatV16 cmd miner) >>= \case
         Left e -> view txRequestKey >>= \rk ->
           throwM $ BuyGasFailure $ GasPurchaseFailure (requestKeyToTransactionHash rk) e
         Right _ -> checkTooBigTx initialGas gasLimit applyPayload redeemAllGas
@@ -230,7 +235,7 @@ applyCmd v logger gasLogger pdbenv miner gasModel txCtx spv cmd initialGas mcach
       if chainweb217Pact' then txGasUsed += initialGas
       else txGasUsed .= initialGas
 
-      cr <- catchesPactError $! runPayload cmd managedNamespacePolicy
+      cr <- catchesPactError logger (onChainErrorPrintingFor txCtx) $! runPayload cmd managedNamespacePolicy
       case cr of
         Left e
           -- 2.19 onwards errors return on chain
@@ -246,7 +251,7 @@ applyCmd v logger gasLogger pdbenv miner gasModel txCtx spv cmd initialGas mcach
     applyRedeem cr = do
       txGasModel .= (_geGasModel freeGasEnv)
 
-      r <- catchesPactError $! redeemGas cmd
+      r <- catchesPactError logger (onChainErrorPrintingFor txCtx) $! redeemGas cmd
       case r of
         Left e ->
           -- redeem gas failure is fatal (block-failing) so miner doesn't lose coins
@@ -307,7 +312,8 @@ applyGenesisCmd logger dbEnv spv cmd =
       $ initCapabilities [magic_GENESIS, magic_COINBASE]
 
     go = do
-      cr <- catchesPactError $! runGenesis cmd permissiveNamespacePolicy interp
+      -- TODO: fix with version recordification so that this matches the flags at genesis heights.
+      cr <- catchesPactError logger PrintsUnexpectedError $! runGenesis cmd permissiveNamespacePolicy interp
       case cr of
         Left e -> fatal $ "Genesis command failed: " <> sshow e
         Right r -> r <$ debug "successful genesis tx for request key"
@@ -326,6 +332,7 @@ flagsFor v cid bh = S.fromList $ concat
   , enableNewTrans v cid bh
   , enablePact46 v cid bh
   , enablePact47 v cid bh
+  , disableReturnRTC v cid bh
   ]
 
 applyCoinbase
@@ -383,7 +390,7 @@ applyCoinbase v logger dbEnv (Miner mid mks@(MinerKeys mk)) reward@(ParsedDecima
         -- NOTE: chash includes the /quoted/ text of the parent header.
 
     go interp cexec = evalTransactionM tenv txst $! do
-      cr <- catchesPactError $!
+      cr <- catchesPactError logger (onChainErrorPrintingFor txCtx) $
         applyExec' 0 interp cexec mempty chash managedNamespacePolicy
 
       case cr of
@@ -453,7 +460,7 @@ applyLocal logger gasLogger dbEnv gasModel txCtx spv cmdIn mc execConfig =
 
     applyPayload m = do
       interp <- gasInterpreter gas0
-      cr <- catchesPactError $! case m of
+      cr <- catchesPactError logger PrintsUnexpectedError $! case m of
         Exec em ->
           applyExec gas0 interp em signers chash managedNamespacePolicy
         Continuation cm ->
@@ -500,7 +507,7 @@ readInitModules logger dbEnv txCtx
     die msg = throwM $ PactInternalError $ "readInitModules: " <> msg
     mkCmd = buildExecParsedCode (pactParserVersion v cid h) Nothing
     run msg cmd = do
-      er <- catchesPactError $!
+      er <- catchesPactError logger (onChainErrorPrintingFor txCtx) $!
         applyExec' 0 interp cmd [] chash permissiveNamespacePolicy
       case er of
         Left e -> die $ msg <> ": failed: " <> sshow e
@@ -702,14 +709,8 @@ applyExec' initialGas interp (ExecMsg parsedCode execData) senderSigs hsh nsp
     | null (_pcExps parsedCode) = throwCmdEx "No expressions found"
     | otherwise = do
 
-      pactFlags <- asks _txExecutionConfig
-
       eenv <- mkEvalEnv nsp (MsgData execData Nothing hsh senderSigs)
-          <&> disablePact40Natives pactFlags
-          <&> disablePact420Natives pactFlags
-          <&> disablePact43Natives pactFlags
-          <&> disablePact431Natives pactFlags
-          <&> disablePact46Natives pactFlags
+
       setEnvGas initialGas eenv
 
       er <- liftIO $! evalExec interp eenv parsedCode
@@ -759,6 +760,10 @@ enablePact46 v cid bh = [FlagDisablePact46 | not (chainweb218Pact v cid bh)]
 enablePact47 :: ChainwebVersion -> V.ChainId -> BlockHeight -> [ExecutionFlag]
 enablePact47 v cid bh = [FlagDisablePact47 | not (chainweb219Pact v cid bh)]
 
+-- | Even though this is not forking, abstracting for future shutoffs
+disableReturnRTC :: ChainwebVersion -> V.ChainId -> BlockHeight -> [ExecutionFlag]
+disableReturnRTC _v _cid _bh = [FlagDisableRuntimeReturnTypeChecking]
+
 -- | Execute a 'ContMsg' and return the command result and module cache
 --
 applyContinuation
@@ -799,13 +804,8 @@ applyContinuation'
     -> TransactionM p EvalResult
 applyContinuation' initialGas interp cm@(ContMsg pid s rb d _) senderSigs hsh nsp = do
 
-    pactFlags <- asks _txExecutionConfig
-
     eenv <- mkEvalEnv nsp (MsgData d pactStep hsh senderSigs)
-          <&> disablePact40Natives pactFlags
-          <&> disablePact420Natives pactFlags
-          <&> disablePact43Natives pactFlags
-          <&> disablePact46Natives pactFlags
+
     setEnvGas initialGas eenv
 
     er <- liftIO $! evalContinuation interp eenv cm
@@ -1013,39 +1013,6 @@ txSizeAccelerationFee costPerByte = total
     power :: Integer = 7
 {-# INLINE txSizeAccelerationFee #-}
 
--- | Disable certain natives around pact 4 / coin v3 upgrade
---
-disablePact40Natives :: ExecutionConfig -> EvalEnv e -> EvalEnv e
-disablePact40Natives =
-  disablePactNatives ["enumerate" , "distinct" , "emit-event" , "concat" , "str-to-list"] FlagDisablePact40
-{-# INLINE disablePact40Natives #-}
-
-disablePactNatives :: [Text] -> ExecutionFlag -> ExecutionConfig -> EvalEnv e -> EvalEnv e
-disablePactNatives bannedNatives flag ec = if has (ecFlags . ix flag) ec
-    then over (eeRefStore . rsNatives) (\k -> foldl' (flip HM.delete) k bannedNatives)
-    else id
-{-# INLINE disablePactNatives #-}
-
--- | Disable certain natives around pact 4.2.0
---
-disablePact420Natives :: ExecutionConfig -> EvalEnv e -> EvalEnv e
-disablePact420Natives = disablePactNatives ["zip", "fold-db"] FlagDisablePact420
-{-# INLINE disablePact420Natives #-}
-
--- | Disable certain natives around pact 4.2.0
---
-disablePact43Natives :: ExecutionConfig -> EvalEnv e -> EvalEnv e
-disablePact43Natives = disablePactNatives ["create-principal", "validate-principal", "continue"] FlagDisablePact43
-{-# INLINE disablePact43Natives #-}
-
-disablePact431Natives :: ExecutionConfig -> EvalEnv e -> EvalEnv e
-disablePact431Natives = disablePactNatives ["is-principal", "typeof-principal"] FlagDisablePact431
-{-# INLINE disablePact431Natives #-}
-
-disablePact46Natives :: ExecutionConfig -> EvalEnv e -> EvalEnv e
-disablePact46Natives = disablePactNatives ["point-add", "scalar-mult", "pairing-check"] FlagDisablePact46
-{-# INLINE disablePact46Natives #-}
-
 -- | Set the module cache of a pact 'EvalState'
 --
 setModuleCache
@@ -1079,7 +1046,7 @@ mkEvalEnv nsp msg = do
       <*> view txGasPrice
       <*> use txGasModel
     liftIO $ setupEvalEnv (_txDbEnv tenv) Nothing (_txMode tenv)
-      msg initRefStore genv
+      msg (versionedNativesRefStore (_txExecutionConfig tenv)) genv
       nsp (_txSpvSupport tenv) (_txPublicData tenv) (_txExecutionConfig tenv)
 
 -- | Managed namespace policy CAF

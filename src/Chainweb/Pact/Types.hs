@@ -10,6 +10,7 @@
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE StrictData #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeFamilies #-}
 -- |
@@ -75,6 +76,7 @@ module Chainweb.Pact.Types
   , psGasModel
   , psMinerRewards
   , psReorgLimit
+  , psLocalRewindDepthLimit
   , psOnFatalError
   , psVersion
   , psValidateHashesOnReplay
@@ -138,18 +140,20 @@ module Chainweb.Pact.Types
   -- * miscellaneous
   , defaultOnFatalError
   , defaultReorgLimit
+  , defaultLocalRewindDepthLimit
   , defaultPactServiceConfig
   , defaultBlockGasLimit
   , defaultModuleCacheLimit
+  , catchesPactError
+  , UnexpectedErrorPrinting(..)
   ) where
 
 import Control.DeepSeq
-import Control.Exception (asyncExceptionFromException, asyncExceptionToException, throw)
+import Control.Exception (asyncExceptionFromException, asyncExceptionToException)
+import Control.Exception.Safe
 import Control.Lens
-import Control.Monad.Catch
 import Control.Monad.Reader
 import Control.Monad.State.Strict
-
 
 import Data.Aeson hiding (Error,(.=))
 import Data.Default (def)
@@ -176,7 +180,8 @@ import Pact.Types.Gas
 import qualified Pact.Types.Logger as P
 import Pact.Types.Names
 import Pact.Types.Persistence (ExecutionMode, TxLog)
-import Pact.Types.Runtime (ExecutionConfig(..), ModuleData(..), PactWarning)
+import Pact.Types.Pretty (viaShow)
+import Pact.Types.Runtime (ExecutionConfig(..), ModuleData(..), PactWarning, PactError(..), PactErrorType(..))
 import Pact.Types.SPV
 import Pact.Types.Term
 
@@ -355,7 +360,10 @@ data PactServiceEnv tbl = PactServiceEnv
     , _psBlockHeaderDb :: !BlockHeaderDb
     , _psGasModel :: TxContext -> GasModel
     , _psMinerRewards :: !MinerRewards
-    , _psReorgLimit :: {-# UNPACK #-} !Word64
+    , _psLocalRewindDepthLimit :: !Word64
+    -- ^ The limit of rewind's depth in the `execLocal` command.
+    , _psReorgLimit :: !Word64
+    -- ^ The limit of checkpointer's rewind in the `execValidationBlock` command.
     , _psOnFatalError :: forall a. PactException -> Text -> IO a
     , _psVersion :: ChainwebVersion
     , _psValidateHashesOnReplay :: !Bool
@@ -393,6 +401,9 @@ instance HasChainId (PactServiceEnv c) where
 defaultReorgLimit :: Word64
 defaultReorgLimit = 480
 
+defaultLocalRewindDepthLimit :: Word64
+defaultLocalRewindDepthLimit = 1000
+
 -- | Default limit for the per chain size of the decoded module cache.
 --
 -- default limit: 60 MiB per chain
@@ -404,6 +415,7 @@ defaultModuleCacheLimit = DbCacheLimitBytes (60 * mebi)
 defaultPactServiceConfig :: PactServiceConfig
 defaultPactServiceConfig = PactServiceConfig
       { _pactReorgLimit = fromIntegral defaultReorgLimit
+      , _pactLocalRewindDepthLimit = fromIntegral defaultLocalRewindDepthLimit
       , _pactRevalidate = True
       , _pactQueueSize = 1000
       , _pactResetDb = True
@@ -648,3 +660,16 @@ logError msg = view psLogger >>= \l -> logError_ l msg
 
 logDebug :: String -> PactServiceM tbl ()
 logDebug msg = view psLogger >>= \l -> logDebug_ l msg
+
+data UnexpectedErrorPrinting = PrintsUnexpectedError | CensorsUnexpectedError
+
+catchesPactError :: (MonadCatch m, MonadIO m) => P.Logger -> UnexpectedErrorPrinting -> m a -> m (Either PactError a)
+catchesPactError logger exnPrinting action = catches (Right <$> action)
+  [ Handler $ \(e :: PactError) -> return $ Left e
+  , Handler $ \(e :: SomeException) -> do
+      liftIO $ logWarn_ logger ("catchesPactError: unknown error: " <> sshow e)
+      return $ Left $ PactError EvalError def def $
+        case exnPrinting of
+          PrintsUnexpectedError -> viaShow e
+          CensorsUnexpectedError -> "unknown error"
+  ]
