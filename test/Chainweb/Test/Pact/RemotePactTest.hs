@@ -92,7 +92,6 @@ import Chainweb.Utils hiding (check)
 import Chainweb.Version
 import Chainweb.Storage.Table.RocksDB
 
-
 -- -------------------------------------------------------------------------- --
 -- Global Settings
 
@@ -346,10 +345,14 @@ localPreflightSimTest iot nio = testCaseSteps "local preflight sim test" $ \step
         assertFailure "Preflight /local call produced legacy result"
       Right MetadataValidationFailure{} ->
         assertFailure "Preflight produced an impossible result"
-      Right (LocalResultWithWarns _ ws) -> case ws of
-        [w] | "decimal/integer operator overload" `T.isInfixOf` w ->
-          pure ()
-        ws' -> assertFailure $ "Incorrect warns: " ++ show ws'
+      Right (LocalResultWithWarns cr ws) -> do
+        -- check the presence of metadata
+        assertBool "Preflight result should have metadata" $ isJust $ _crMetaData cr
+
+        case ws of
+          [w] | "decimal/integer operator overload" `T.isInfixOf` w ->
+            pure ()
+          ws' -> assertFailure $ "Incorrect warns: " ++ show ws'
   where
     runLocalPreflightClient sid e cmd = flip runClientM e $
       pactLocalWithQueryApiClient v sid
