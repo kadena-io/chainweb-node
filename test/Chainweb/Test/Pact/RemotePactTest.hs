@@ -346,9 +346,9 @@ localPreflightSimTest iot nio = testCaseSteps "local preflight sim test" $ \step
         assertFailure "Preflight /local call produced legacy result"
       Right MetadataValidationFailure{} ->
         assertFailure "Preflight produced an impossible result"
-      Right (LocalResultWithWarns cr ws) -> do
+      Right (LocalResultWithWarns cr' ws) -> do
         -- check the presence of metadata
-        assertBool "Preflight result should have metadata" $ isJust $ _crMetaData cr
+        assertBool "Preflight result should have metadata" $ isJust $ _crMetaData cr'
 
         case ws of
           [w] | "decimal/integer operator overload" `T.isInfixOf` w ->
