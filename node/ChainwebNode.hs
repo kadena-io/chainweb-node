@@ -338,7 +338,15 @@ node conf logger = do
     rocksDbDir <- getRocksDbDir conf
     pactDbDir <- getPactDbDir conf
     dbBackupsDir <- getBackupsDir conf
-    withRocksDb rocksDbDir modernDefaultOptions $ \rocksDb -> do
+    withRocksDb' <-
+        if _configOnlySyncPact cwConf
+        then
+            if _cutPruneChainDatabase (_configCuts cwConf) == GcNone
+            then withReadOnlyRocksDb <$ logFunctionText logger Info "Opening RocksDB in read-only mode"
+            else withRocksDb <$ logFunctionText logger Info "Opening RocksDB in read-write mode, if this wasn't intended, ensure that cuts.pruneChainDatabase is set to none"
+        else
+            return withRocksDb
+    withRocksDb' rocksDbDir modernDefaultOptions $ \rocksDb -> do
         logFunctionText logger Info $ "opened rocksdb in directory " <> sshow rocksDbDir
         logFunctionText logger Info $ "backup config: " <> sshow (_configBackup cwConf)
         withChainweb cwConf logger rocksDb pactDbDir dbBackupsDir (_nodeConfigResetChainDbs conf) $ \case

@@ -363,7 +363,8 @@ withChainwebInternal
     -> IO ()
 withChainwebInternal conf logger peer serviceSock rocksDb pactDbDir backupDir resetDb inner = do
 
-    initializePayloadDb v payloadDb
+    unless (_configOnlySyncPact conf) $
+        initializePayloadDb v payloadDb
 
     -- Garbage Collection
     -- performed before PayloadDb and BlockHeaderDb used by other components
