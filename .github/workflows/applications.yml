@@ -197,7 +197,7 @@ jobs:
       matrix: ${{ fromJson(needs.config.outputs.matrix) }}
 
     env:
-      ARTIFACTS_ARCHIVE: chainweb.${{ matrix.ghc }}.${{ matrix.os }}.${{ needs.config.outputs.git-sha-short }}${{ needs.config.outputs.tag-suffix }}.tar.gz
+      ARTIFACTS_ARCHIVE: chainweb.${{ matrix.use-freeze-file }}.${{ matrix.ghc }}.${{ matrix.os }}.${{ needs.config.outputs.git-sha-short }}${{ needs.config.outputs.tag-suffix }}.tar.gz
       ARTIFACTS_NAME: chainweb-applications.${{ matrix.use-freeze-file }}.${{ matrix.ghc }}.${{ matrix.os }}
 
     steps:
@@ -407,6 +407,7 @@ jobs:
       with:
         os: ${{ matrix.os }}
         ghc: ${{ matrix.ghc }}
+        use-freeze-file: ${{ matrix.use-freeze-file }}
     - name: Run slow tests
       timeout-minutes: 20
       run: |
@@ -440,6 +441,7 @@ jobs:
       with:
         os: ${{ matrix.os }}
         ghc: ${{ matrix.ghc }}
+        use-freeze-file: ${{ matrix.use-freeze-file }}
     - name: Run all benchmarks
       timeout-minutes: 12
       run: bench --json $BENCH_FILE +RTS -N
@@ -477,6 +479,7 @@ jobs:
       with:
         os: ${{ matrix.os }}
         ghc: ${{ matrix.ghc }}
+        use-freeze-file: ${{ matrix.use-freeze-file }}
     - name: Write chainweb-node configuration
       run: |
         cat >> config.yaml <<EOF
@@ -563,6 +566,7 @@ jobs:
       with:
         os: ${{ matrix.os }}
         ghc: ${{ matrix.ghc }}
+        use-freeze-file: ${{ matrix.use-freeze-file }}
     - name: Run Tests
       id: tests
       timeout-minutes: 10
@@ -595,7 +599,7 @@ jobs:
       fail-fast: false
       matrix: ${{ fromJson(needs.config.outputs.matrix) }}
     env:
-      ARTIFACTS_ARCHIVE: chainweb.${{ matrix.ghc }}.${{ matrix.os }}.${{ needs.config.outputs.git-sha-short }}${{ needs.config.outputs.tag-suffix }}.tar.gz
+      ARTIFACTS_ARCHIVE: chainweb.${{ matrix.use-freeze-file }}.${{ matrix.ghc }}.${{ matrix.os }}.${{ needs.config.outputs.git-sha-short }}${{ needs.config.outputs.tag-suffix }}.tar.gz
       ARTIFACTS_NAME: chainweb-applications.${{ matrix.use-freeze-file }}.${{ matrix.ghc }}.${{ matrix.os }}
     steps:
     - name: Download build artifacts
@@ -630,7 +634,7 @@ jobs:
     env:
       OS: ${{ matrix.os }}
       ARTIFACTS_NAME: chainweb-applications.${{ matrix.use-freeze-file }}.${{ matrix.ghc }}.${{ matrix.os }}
-      ARTIFACTS_ARCHIVE: chainweb.${{ matrix.ghc }}.${{ matrix.os }}.${{ needs.config.outputs.git-sha-short }}${{ needs.config.outputs.tag-suffix }}.tar.gz
+      ARTIFACTS_ARCHIVE: chainweb.${{ matrix.use-freeze-file }}.${{ matrix.ghc }}.${{ matrix.os }}.${{ needs.config.outputs.git-sha-short }}${{ needs.config.outputs.tag-suffix }}.tar.gz
 
     steps:
     - name: Get build artifacts
