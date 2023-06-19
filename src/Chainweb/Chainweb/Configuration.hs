@@ -417,7 +417,7 @@ validateChainwebConfiguration c = do
     validateChainwebVersion (_configChainwebVersion c)
 
 validateChainwebVersion :: ConfigValidation ChainwebVersion []
-validateChainwebVersion v = unless (_versionCode v == _versionCode devnet) $
+validateChainwebVersion v = unless (_versionCode v == _versionCode devnet || elem v knownVersions) $
     throwError $ T.unwords
         [ "Specifying version properties is only legal with chainweb-version"
         , "set to development, but version is set to"
