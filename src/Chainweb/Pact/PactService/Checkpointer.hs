@@ -408,13 +408,12 @@ rewindTo rewindLimit (Just (ParentHeader parent)) = do
                     withAsync (heightProgress (_blockHeight commonAncestor) heightRef (logInfo_ progressLogger)) $ \_ ->
                       s
                           & S.scanM
-                              (\ !p !c -> runPact (fastForward DoNotValidateHashesOnFastForward (ParentHeader p, c)) >> writeIORef heightRef (_blockHeight c) >> return c)
+                              -- no need to re-validate hashes, because these blocks have already been validated
+                              (\ !p !c -> runPact (local (psValidateHashesOnReplay .~ False) $ fastForward (ParentHeader p, c)) >> writeIORef heightRef (_blockHeight c) >> return c)
                               (return h) -- initial parent
                               return
                           & S.length_
             logInfo $ "rewindTo.playFork: replayed " <> sshow c <> " blocks"
-
-data ShouldValidateHashesOnFastForward = ValidateHashesOnFastForward | DoNotValidateHashesOnFastForward
 
 -- | INTERNAL UTILITY FUNCTION. DON'T EXPORT FROM THIS MODULE.
 --
@@ -424,10 +423,9 @@ fastForward
     :: forall tbl
     . HasCallStack
     => CanReadablePayloadCas tbl
-    => ShouldValidateHashesOnFastForward
-    -> (ParentHeader, BlockHeader)
+    => (ParentHeader, BlockHeader)
     -> PactServiceM tbl ()
-fastForward shouldValidateHashes (target, block) =
+fastForward (target, block) =
     -- This does a restore, i.e. it rewinds the checkpointer back in
     -- history, if needed.
     withCheckpointerWithoutRewind (Just target) "fastForward" $ \pdbenv -> do
@@ -438,12 +436,7 @@ fastForward shouldValidateHashes (target, block) =
                 <> ". BlockPayloadHash: " <> encodeToText bpHash
                 <> ". Block: "<> encodeToText (ObjectEncoded block)
             Just x -> return $ payloadWithOutputsToPayloadData x
-        pwo <- execBlock block payload pdbenv
-        -- As an optimization, we only validate the payload hash of a block during a
-        -- Pact replay, and not during normal operation.
-        case shouldValidateHashes of
-            ValidateHashesOnFastForward -> either throwM (\_ -> return ()) pwo
-            DoNotValidateHashesOnFastForward -> return ()
+        void $ execBlock block payload pdbenv
         return $! Save block ()
     -- double check output hash here?
   where
@@ -632,7 +625,7 @@ rewindToIncremental rewindLimit (Just (ParentHeader parent)) = do
                     -- transactions (withBatchIO).
                     let playChunk :: IORef BlockHeight -> BlockHeader -> Stream (Of BlockHeader) IO r -> IO (Of BlockHeader r)
                         playChunk heightRef cur s = withBatchIO runPact $ \runPactLocal -> S.foldM
-                            (\c x -> x <$ (runPactLocal (fastForward ValidateHashesOnFastForward (ParentHeader c, x)) >> writeIORef heightRef (_blockHeight c)))
+                            (\c x -> x <$ (runPactLocal (fastForward (ParentHeader c, x)) >> writeIORef heightRef (_blockHeight c)))
                             (return cur)
                             return
                             s

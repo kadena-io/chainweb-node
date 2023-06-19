@@ -78,6 +78,7 @@ module Chainweb.Pact.Types
   , psLocalRewindDepthLimit
   , psOnFatalError
   , psVersion
+  , psValidateHashesOnReplay
   , psLogger
   , psGasLogger
   , psLoggers
@@ -361,6 +362,7 @@ data PactServiceEnv tbl = PactServiceEnv
     -- ^ The limit of checkpointer's rewind in the `execValidationBlock` command.
     , _psOnFatalError :: forall a. PactException -> Text -> IO a
     , _psVersion :: ChainwebVersion
+    , _psValidateHashesOnReplay :: !Bool
     , _psAllowReadsInLocal :: !Bool
     , _psLogger :: !P.Logger
     , _psGasLogger :: !(Maybe P.Logger)
@@ -410,6 +412,7 @@ defaultPactServiceConfig :: PactServiceConfig
 defaultPactServiceConfig = PactServiceConfig
       { _pactReorgLimit = fromIntegral defaultReorgLimit
       , _pactLocalRewindDepthLimit = fromIntegral defaultLocalRewindDepthLimit
+      , _pactRevalidate = True
       , _pactQueueSize = 1000
       , _pactResetDb = True
       , _pactAllowReadsInLocal = False

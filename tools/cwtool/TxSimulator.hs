@@ -154,9 +154,34 @@ simulate sc@(SimConfig dbDir txIdx' _ _ cid ver gasLog doTypecheck) = do
           paydb <- newPayloadDb
           withRocksDb "txsim-rocksdb" modernDefaultOptions $ \rdb ->
             withBlockHeaderDb rdb ver cid $ \bdb -> do
-              let pse = PactServiceEnv Nothing cpe paydb bdb getGasModel readRewards 100 0 ferr
-                        ver False logger gasLogger (pactLoggers cwLogger) False 1 defaultBlockGasLimit cid
-                  pss = PactServiceState Nothing mempty (ParentHeader parent) noSPVSupport
+              let
+                pse = PactServiceEnv
+                  { _psMempoolAccess = Nothing
+                  , _psCheckpointEnv = cpe
+                  , _psPdb = paydb
+                  , _psBlockHeaderDb = bdb
+                  , _psGasModel = getGasModel
+                  , _psMinerRewards = readRewards
+                  , _psLocalRewindDepthLimit = 100
+                  , _psReorgLimit = 0
+                  , _psOnFatalError = ferr
+                  , _psVersion = ver
+                  , _psValidateHashesOnReplay = True
+                  , _psAllowReadsInLocal = False
+                  , _psLogger = logger
+                  , _psGasLogger = gasLogger
+                  , _psLoggers = pactLoggers cwLogger
+                  , _psIsBatch = False
+                  , _psCheckpointerDepth = 1
+                  , _psBlockGasLimit = defaultBlockGasLimit
+                  , _psChainId = cid
+                  }
+                pss = PactServiceState
+                  { _psStateValidated = Nothing
+                  , _psInitCache = mempty
+                  , _psParentHeader = ParentHeader parent
+                  , _psSpvSupport = noSPVSupport
+                  }
               evalPactServiceM pss pse $ doBlock True parent (zip hdrs pwos)
 
 
@@ -188,8 +213,8 @@ simulate sc@(SimConfig dbDir txIdx' _ _ cid ver gasLog doTypecheck) = do
         updateInitCache mc
       psParentHeader .= ParentHeader parent
       liftIO (spvSim sc hdr pwo) >>= assign psSpvSupport
-      either throwM (\_ -> return ()) =<< trace (logFunction cwLogger) "execBlock" () 1
-        (execBlock hdr (payloadWithOutputsToPayloadData pwo) pde')
+      _r <- trace (logFunction cwLogger) "execBlock" () 1 $
+          execBlock hdr (payloadWithOutputsToPayloadData pwo) pde'
       liftIO $ _cpSave cp (_blockHash hdr)
       doBlock False hdr rest
 
