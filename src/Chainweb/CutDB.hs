@@ -228,7 +228,7 @@ defaultCutDbParams v ft = CutDbParams
 -- mining. It should be at least the diameter of the chain graph.
 --
 farAheadThreshold :: BlockHeight
-farAheadThreshold = 40
+farAheadThreshold = 20
 
 -- -------------------------------------------------------------------------- --
 -- CutHashes Table
@@ -240,6 +240,16 @@ cutHashesTable rdb = Casify $ newTable rdb valueCodec keyCodec ["CutHashes"]
         (\(a,b,c) -> runPutS $ encodeCutHeightBe a >> encodeBlockWeightBe b >> encodeCutId c)
         (runGetS $ (,,) <$> decodeCutHeightBe <*> decodeBlockWeightBe <*> decodeCutId)
     valueCodec = Codec encodeToByteString decodeStrictOrThrow'
+
+-- -------------------------------------------------------------------------- --
+-- Exceptions
+
+data CutDbStopped = CutDbStopped
+    deriving (Eq, Show, Generic)
+
+instance Exception CutDbStopped where
+  fromException = asyncExceptionFromException
+  toException = asyncExceptionToException
 
 -- -------------------------------------------------------------------------- --
 -- Cut DB
@@ -493,7 +503,7 @@ stopCutDb db = do
     currentCut <- readTVarIO (_cutDbCut db)
     unless (_cutDbReadOnly db) $
         casInsert (_cutDbCutStore db) (cutToCutHashes Nothing currentCut)
-    cancel (_cutDbAsync db)
+    cancelWith (_cutDbAsync db) CutDbStopped
 
 -- | Lookup the BlockHeaders for a CutHashes structure. Throws an exception if
 -- the lookup for some BlockHash in the input CutHashes.

@@ -1,5 +1,7 @@
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 
 -- |
@@ -30,6 +32,7 @@ module Data.TaskMap
 , delete
 , lookup
 , await
+, uninterruptibleCancelTask
 , size
 , null
 , clear
@@ -39,7 +42,6 @@ module Data.TaskMap
 import Control.Concurrent
 import Control.Concurrent.Async
 import Control.Exception
-    (evaluate, finally, SomeAsyncException(..), SomeException(..), fromException, mask, throwIO, catch)
 import Control.Monad
 
 import Data.Hashable
@@ -50,10 +52,35 @@ import GHC.Generics
 import Prelude hiding (lookup, null)
 
 -- -------------------------------------------------------------------------- --
+-- Exceptions
+
+-- | Exception that is raised when tasks in the map a cancelled. Using a
+-- dedicated exception type allows users to distinguish between the case when a
+-- task is cancelled explicitely or due to an external exception.
+--
+data TaskCancelled = TaskCancelled
+    deriving (Eq, Show, Generic)
+
+instance Exception TaskCancelled where
+  fromException = asyncExceptionFromException
+  toException = asyncExceptionToException
+
+-- -------------------------------------------------------------------------- --
 -- Task Map
 
-newtype TaskMap k v = TaskMap (MVar (HM.HashMap k (Async v)))
-    deriving (Generic)
+-- | A memoization table for sharing long running tasks. It guarantees that only
+-- a single instance of a potentiall expensive operations is running at a time.
+-- Tasks are identified by unique keys.
+--
+-- Unlike classic memoization tables only the task for producing a result is
+-- shared but not the result itself. Once a task is complete all computations
+-- that await the task are notified and receive the result. However, subsequent
+-- requests for the same task cause a new task to be created.
+--
+-- This TaskMap is inteded to be used with another layer for caching the actual
+-- results of running tasks.
+--
+newtype TaskMap k v = TaskMap (MVar (HM.HashMap k (Async v))) deriving (Generic)
 
 new :: Eq k => Hashable k => IO (TaskMap k v)
 new = TaskMap <$> newMVar mempty
@@ -64,9 +91,15 @@ insert tm@(TaskMap var) k t = modifyMVarMasked var $ \m -> do
     m' <- evaluate $ HM.insert k a m
     return (m', a)
 
+-- | Delete a task from the map. This does not cancel the task. Any users that
+-- holds a reference to the task continuous to await it.
+--
 delete :: Eq k => Hashable k => TaskMap k v -> k -> IO ()
 delete (TaskMap var) k = modifyMVar_ var $ evaluate . HM.delete k
 
+-- | Lookup a task in the map. Returns 'Nothing' if there is not task for the
+-- given key.
+--
 lookup :: Eq k => Hashable k => TaskMap k v -> k -> IO (Maybe (Async v))
 lookup (TaskMap var) k = HM.lookup k <$!> readMVar var
 
@@ -76,19 +109,60 @@ lookup (TaskMap var) k = HM.lookup k <$!> readMVar var
 await :: Eq k => Hashable k => TaskMap k v -> k -> IO (Maybe v)
 await t = traverse wait <=< lookup t
 
+-- | Tne number of tasks in the map.
+--
+-- Complexity: \(O(n)\)
+--
 size :: TaskMap k v -> IO Int
 size (TaskMap var) = HM.size <$!> readMVar var
 
+-- | Check whether the map is is empty.
+--
 null :: TaskMap k v -> IO Bool
 null (TaskMap var) = HM.null <$!> readMVar var
 
--- | Clear the content of the map. This cancels all tasks
+-- | Cancel a task in the map and wait for the task to be removed from the map.
+--
+-- The removed task raises a 'TaskCancelled' exception on all waiting
+-- computations.
+--
+-- Note that the finalizer of a task aquires a lock on the task map in order to
+-- remove itself from the map.
+--
+uninterruptibleCancelTask :: Eq k => Hashable k => TaskMap k v -> k -> IO ()
+uninterruptibleCancelTask t k = lookup t k >>= \case
+    Nothing -> return ()
+    Just a -> uninterruptibleMask_ $ cancelWith a TaskCancelled
+
+-- | Cancel all tasks in the map at the time that this function is called.
+-- Termination of each task is awaited under an uninterruptible mask.
+--
+-- The operation is not atomic. Tasks are cancelled on by one and the map can be
+-- queried and modified concurrently. When this operation completes all tasks
+-- that existed when the operation started have been canceled. But new tasks may
+-- have been added in the meantime.
 --
 clear :: Eq k => Hashable k => TaskMap k v -> IO ()
-clear (TaskMap var) = modifyMVar_ var $ \m -> do
-    mapM_ cancel m
-    return mempty
+clear (TaskMap var) = do
 
+    -- This can be done under a lock, because the finalizers on individual tasks
+    -- aquire a lock on the map and remove themself. As a consequence this
+    -- operation is not transactional
+    --
+    m <- readMVar var
+    forM_ m $ \a -> uninterruptibleMask_ $ cancelWith a TaskCancelled
+
+-- | Wait for a task for a given key to complete. If the task for the given key
+-- doesn not yet exist in the map a new task is created.
+--
+-- When a task completes it is removed from the map. Any caller that was waiting
+-- for the task is notified and receives the result.
+--
+-- Subsequent requests for the same key cause a new task to be created.
+--
+-- If an exception occurs while a tasks is processed that exception is rethrown
+-- by this function.
+--
 memo
     :: Eq k
     => Hashable k
@@ -97,29 +171,19 @@ memo
     -> (k -> IO v)
         -- ^ an action that is used to produce the value if the key isn't in the map.
     -> IO v
-memo tm@(TaskMap var) k task = bracketOnError_ query onError wait
-  where
-    query = do
-        -- NOTE: should we insert another lookup here? It depends on how optimistic
-        -- we are that the lookup is successful.
-        modifyMVarMasked var $ \m -> case HM.lookup k m of
+memo tm@(TaskMap var) k task = do
+
+    -- Optimistically try without taking a lock:
+    t <- (HM.lookup k <$> readMVar var) >>= \case
+        Just !a -> do
+            -- print $ "MEMO: hit " <> show (asyncThreadId a)
+            return a
+
+        -- Aquire lock and try again
+        Nothing -> modifyMVarMasked var $ \m -> case HM.lookup k m of
             Nothing -> do
                 !a <- asyncWithUnmask $ \umask -> umask (task k) `finally` delete tm k
                 m' <- evaluate $ HM.insert k a m
                 return (m', a)
             (Just !a) -> return (m, a)
-    onError e a = case fromException e of
-      Just (_ :: SomeAsyncException) -> cancelWith a e
-      Nothing -> cancel a
-
-bracketOnError_
-    :: IO a
-    -> (SomeException -> a -> IO b)
-    -> (a -> IO c)
-    -> IO c
-bracketOnError_ before onError act = mask $ \restore -> do
-    a <- before
-    restore (act a) `catch` \e -> do
-        _ <- onError e a
-        throwIO e
-
+    wait t

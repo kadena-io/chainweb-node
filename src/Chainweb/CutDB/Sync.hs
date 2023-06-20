@@ -81,7 +81,7 @@ getCut (CutClientEnv v env) h = runClientThrowM (cutGetClientLimit v (int h)) en
 -- times the number of chains.
 --
 catchupStepSize :: CutHeight
-catchupStepSize = 160
+catchupStepSize = 100
 
 syncSession
     :: ChainwebVersion

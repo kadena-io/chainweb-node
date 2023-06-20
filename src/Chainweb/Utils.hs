@@ -1353,14 +1353,6 @@ unsafeManagerWithSettings settings = HTTP.newTlsManagerWith
 setManagerRequestTimeout :: Int -> HTTP.ManagerSettings -> HTTP.ManagerSettings
 setManagerRequestTimeout micros settings = settings
     { HTTP.managerResponseTimeout = HTTP.responseTimeoutMicro micros
-        -- timeout connection-attempts after 10 sec instead of the default of 30 sec
-    , HTTP.managerModifyRequest = \req -> do
-        HTTP.managerModifyRequest settings req
-            { HTTP.responseTimeout = HTTP.responseTimeoutMicro micros
-                -- overwrite the explicit connection timeout from servant-client
-                -- (If the request has a timeout configured, the global timeout of
-                -- the manager is ignored)
-            }
     }
 
 -- -------------------------------------------------------------------------- --
