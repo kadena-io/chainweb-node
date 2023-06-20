@@ -320,14 +320,13 @@ withDiscardedBatch act = do
         (liftIO $ _cpDiscardCheckpointerBatch cp)
         act
 
-
 -- | INTERNAL FUNCTION. USE 'withCheckpointer' instead.
 --
 -- TODO: The performance overhead is relatively low if there is no fork. We
 -- should consider merging it with 'restoreCheckpointer' and always rewind.
 --
 -- Rewinds the pact state to the given parent in a single database transactions.
--- Rewinds to the genesis block if he parent is 'Nothing'.
+-- Rewinds to the genesis block if the parent is 'Nothing'.
 --
 -- If the rewind is deeper than the optionally provided rewind limit, an
 -- exception is raised.
@@ -409,7 +408,8 @@ rewindTo rewindLimit (Just (ParentHeader parent)) = do
                     withAsync (heightProgress (_blockHeight commonAncestor) heightRef (logInfo_ progressLogger)) $ \_ ->
                       s
                           & S.scanM
-                              (\ !p !c -> runPact (fastForward (ParentHeader p, c)) >> writeIORef heightRef (_blockHeight c) >> return c)
+                              -- no need to re-validate hashes, because these blocks have already been validated
+                              (\ !p !c -> runPact (local (psValidateHashesOnReplay .~ False) $ fastForward (ParentHeader p, c)) >> writeIORef heightRef (_blockHeight c) >> return c)
                               (return h) -- initial parent
                               return
                           & S.length_

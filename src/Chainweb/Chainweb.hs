@@ -362,7 +362,8 @@ withChainwebInternal
     -> IO ()
 withChainwebInternal conf logger peer serviceSock rocksDb pactDbDir backupDir resetDb inner = do
 
-    initializePayloadDb v payloadDb
+    unless (_configOnlySyncPact conf) $
+        initializePayloadDb v payloadDb
 
     -- Garbage Collection
     -- performed before PayloadDb and BlockHeaderDb used by other components
@@ -409,7 +410,8 @@ withChainwebInternal conf logger peer serviceSock rocksDb pactDbDir backupDir re
   where
     pactConfig maxGasLimit = PactServiceConfig
       { _pactReorgLimit = _configReorgLimit conf
-      , _pactRevalidate = _configValidateHashesOnReplay conf
+      , _pactLocalRewindDepthLimit = _configLocalRewindDepthLimit conf
+      , _pactRevalidate = True
       , _pactQueueSize = _configPactQueueSize conf
       , _pactResetDb = resetDb
       , _pactAllowReadsInLocal = _configAllowReadsInLocal conf
