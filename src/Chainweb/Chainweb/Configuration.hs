@@ -380,8 +380,6 @@ data ChainwebConfiguration = ChainwebConfiguration
     , _configPactQueueSize :: !Natural
     , _configReorgLimit :: !Natural
     , _configLocalRewindDepthLimit :: !Natural
-    , _configValidateHashesOnReplay :: !Bool
-        -- ^ Re-validate payload hashes during replay.
     , _configAllowReadsInLocal :: !Bool
     , _configRosetta :: !Bool
     , _configBackup :: !BackupConfig
@@ -434,7 +432,6 @@ defaultChainwebConfiguration v = ChainwebConfiguration
     , _configPactQueueSize = 2000
     , _configReorgLimit = int defaultReorgLimit
     , _configLocalRewindDepthLimit = int defaultLocalRewindDepthLimit
-    , _configValidateHashesOnReplay = False
     , _configAllowReadsInLocal = False
     , _configRosetta = False
     , _configServiceApi = defaultServiceApiConfig
@@ -460,7 +457,6 @@ instance ToJSON ChainwebConfiguration where
         , "pactQueueSize" .= _configPactQueueSize o
         , "reorgLimit" .= _configReorgLimit o
         , "localRewindDepthLimit" .= _configLocalRewindDepthLimit o
-        , "validateHashesOnReplay" .= _configValidateHashesOnReplay o
         , "allowReadsInLocal" .= _configAllowReadsInLocal o
         , "rosetta" .= _configRosetta o
         , "serviceApi" .= _configServiceApi o
@@ -491,7 +487,6 @@ instance FromJSON (ChainwebConfiguration -> ChainwebConfiguration) where
         <*< configPactQueueSize ..: "pactQueueSize" % o
         <*< configReorgLimit ..: "reorgLimit" % o
         <*< configLocalRewindDepthLimit ..: "localRewindDepthLimit" % o
-        <*< configValidateHashesOnReplay ..: "validateHashesOnReplay" % o
         <*< configAllowReadsInLocal ..: "allowReadsInLocal" % o
         <*< configRosetta ..: "rosetta" % o
         <*< configServiceApi %.: "serviceApi" % o
@@ -535,9 +530,6 @@ pChainwebConfiguration = id
     <*< configLocalRewindDepthLimit .:: jsonOption
         % long "local-rewind-depth-limit"
         <> help "Max allowed rewind depth for the local command."
-    <*< configValidateHashesOnReplay .:: boolOption_
-        % long "validateHashesOnReplay"
-        <> help "Re-validate payload hashes during transaction replay."
     <*< configAllowReadsInLocal .:: boolOption_
         % long "allowReadsInLocal"
         <> help "Enable direct database reads of smart contract tables in local queries."
