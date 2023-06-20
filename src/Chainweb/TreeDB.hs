@@ -513,6 +513,8 @@ chainBranchEntries db k l mir mar@(Just (MaxRank (Max m))) lower upper f = do
 -- in @upper@ and not predecessors of any node in @lower@. Entries are returned
 -- in descending order.
 --
+-- For remote databases it is more efficient to call 'branchEntries' instead.
+--
 getBranch
     :: forall db
     . TreeDb db

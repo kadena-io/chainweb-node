@@ -78,6 +78,7 @@ module Chainweb.Utils
 , alignWithV
 , (&)
 , IxedGet(..)
+, catMaybesVector
 , minusOrZero
 , interleaveIO
 , mutableVectorFromList
@@ -434,6 +435,11 @@ alignWithV f a b = V.zipWith (\a' -> f . These a') a b <> case (V.length a,V.len
   (la,lb) | la == lb -> mempty
           | la > lb -> V.map (f . This) $ V.drop lb a
           | otherwise -> V.map (f . That) $ V.drop la b
+
+-- | Backward compatibility for 'V.catMaybes'
+--
+catMaybesVector :: V.Vector (Maybe a) -> V.Vector a
+catMaybesVector = V.catMaybes
 
 -- | Substraction that returns 0 when the second argument is larger than the
 -- first. This can be in particular useful when substracting 'Natural' numbers.

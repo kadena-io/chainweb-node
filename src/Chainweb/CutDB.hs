@@ -154,6 +154,7 @@ import qualified Data.TaskMap as TM
 import P2P.TaskQueue
 
 import Utils.Logging.Trace
+import Chainweb.BlockHeader.Genesis (genesisBlockHeader)
 
 -- -------------------------------------------------------------------------- --
 -- Cut DB Configuration
@@ -535,7 +536,7 @@ processCuts conf logFun headerStore payloadStore cutHashesStore queue cutVar = d
         & S.filterM (fmap not . isOld)
         & S.filterM (fmap not . isCurrent)
         & S.chain (\c -> loggc Debug c "fetch all prerequesites")
-        & S.mapM (cutHashesToBlockHeaderMap conf logFun headerStore payloadStore)
+        & S.mapM (\h -> cutHashesToBlockHeaderMap conf logFun headerStore payloadStore h =<< readTVarIO cutVar)
         & S.chain (either
             (\(T2 hsid c) -> loggc Warn hsid $ "failed to get prerequesites for some blocks. Missing: " <> encodeToText c)
             (\c -> loggc Info c "got all prerequesites")
@@ -734,11 +735,13 @@ cutHashesToBlockHeaderMap
     -> WebBlockHeaderStore
     -> WebBlockPayloadStore tbl
     -> CutHashes
-    -> IO (Either (T2 CutId (HM.HashMap ChainId BlockHash)) (HM.HashMap ChainId BlockHeader))
+    -> Cut
+        -- ^ current Cut
+    -> IO (Either (T2 CutId (HM.HashMap ChainId (BlockHeight, BlockHash))) (HM.HashMap ChainId BlockHeader))
         -- ^ The 'Left' value holds missing hashes, the 'Right' value holds
         -- a 'Cut'.
-cutHashesToBlockHeaderMap conf logfun headerStore payloadStore hs =
-    timeout (_cutDbParamsFetchTimeout conf) go >>= \case
+cutHashesToBlockHeaderMap conf logfun headerStore payloadStore hs curCut =
+    timeout (_cutDbParamsFetchTimeout conf) go >>= \case -- FIXME make the timeout dependent on the expected depth
         Nothing -> do
             logfun Warn
                 $ "Timeout while processing cut "
@@ -758,7 +761,7 @@ cutHashesToBlockHeaderMap conf logfun headerStore payloadStore hs =
             casInsertBatch hdrs $ HM.elems $ _cutHashesHeaders hs
 
             (headers :> missing) <- S.each (HM.toList $ _cutHashes hs)
-                & S.map (fmap _bhwhHash)
+                & S.map (fmap (\x -> (_bhwhHeight x, _bhwhHash x)))
                 & S.mapM (tryGetBlockHeader hdrs plds)
                 & S.partitionEithers
                 & S.fold_ (\x (cid, h) -> HM.insert cid h x) mempty id
@@ -770,12 +773,22 @@ cutHashesToBlockHeaderMap conf logfun headerStore payloadStore hs =
     origin = _cutOrigin hs
     priority = Priority (- int (_cutHashesHeight hs))
 
+    v = _chainwebVersion headerStore
+
     tryGetBlockHeader hdrs plds cv@(cid, _) =
-        (Right <$> mapM (getBlockHeader headerStore payloadStore hdrs plds cid priority origin) cv)
+        (Right <$> mapM (\h -> getBlockHeader headerStore payloadStore hdrs plds cid priority origin h curHdr) cv)
             `catch` \case
                 (TreeDbKeyNotFound{} :: TreeDbException BlockHeaderDb) ->
                     return (Left cv)
                 e -> throwM e
+      where
+        -- This assumes that the only reason for lookupCutM to fail is that
+        -- the chain @cid@ doesn't yet exist in the current cut @curCut@
+        curHdr = case lookupCutM cid curCut of
+            -- this is somewhat expensive but only relevant during chaingraph
+            -- transitions
+            Nothing -> genesisBlockHeader v cid
+            Just h -> h
 
 -- -------------------------------------------------------------------------- --
 -- Membership Queries

@@ -126,6 +126,7 @@ import qualified Data.Text as T
 import Data.Word
 
 import GHC.Generics (Generic)
+import GHC.Stack
 
 -- Internal imports
 
@@ -406,7 +407,7 @@ epochStart ph@(ParentHeader p) adj (BlockCreationTime bt)
     --
     -- The result is guaranteed to be non-empty
     --
-    adjCreationTimes = fmap (_blockCreationTime)
+    adjCreationTimes = fmap _blockCreationTime
         $ HM.insert cid (_parentHeader ph)
         $ HM.filter (not . isGenesisBlockHeader)
         $ fmap _parentHeader adj
@@ -801,11 +802,18 @@ blockAdjacentChainIds = to _blockAdjacentChainIds
 -- throws a @ChainNotAdjacentException@ if @cid@ is not adajcent with @_chainId
 -- h@ in the chain graph of @h@.
 --
-getAdjacentHash :: MonadThrow m => HasChainId p => p -> BlockHeader -> m BlockHash
+getAdjacentHash
+    :: HasCallStack
+    => MonadThrow m
+    => HasChainId p
+    => p
+    -> BlockHeader
+    -> m BlockHash
 getAdjacentHash p b = firstOf (blockAdjacentHashes . ixg (_chainId p)) b
     ??? ChainNotAdjacentException
         (Expected $ _chainId p)
         (Actual $ _blockAdjacentChainIds b)
+        (Just callStack)
 {-# INLINE getAdjacentHash #-}
 
 computeBlockHash :: BlockHeader -> BlockHash

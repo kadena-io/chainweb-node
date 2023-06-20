@@ -112,6 +112,7 @@ import Chainweb.BlockHeaderDB.RestAPI
 import Chainweb.BlockHeight
 import Chainweb.BlockWeight
 import Chainweb.ChainId
+import Chainweb.ChainValue
 import Chainweb.Chainweb
 import Chainweb.Chainweb.Configuration
 import Chainweb.Crypto.MerkleLog
@@ -202,6 +203,9 @@ instance Arbitrary ChainwebVersion where
 instance MerkleHashAlgorithm a => Arbitrary (MerkleLogHash a) where
     arbitrary = unsafeMerkleLogHash . B.pack
         <$> vector (int merkleLogHashBytesCount)
+
+instance Arbitrary a => Arbitrary (ChainValue a) where
+    arbitrary = ChainValue <$> arbitrary <*> arbitrary
 
 -- A somewhat boring instance. Mostly the default value.
 --

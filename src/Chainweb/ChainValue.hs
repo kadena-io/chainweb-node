@@ -32,14 +32,17 @@ module Chainweb.ChainValue
 
 import Control.DeepSeq
 import Control.Lens
+import Control.Monad.Catch
 
 import Data.Hashable
+import qualified Data.Text as T
 
 import GHC.Generics
 
 -- internal modules
 
 import Chainweb.ChainId
+import Chainweb.Utils
 
 import Chainweb.Storage.Table
 
@@ -75,6 +78,15 @@ instance IsCasValue a => IsCasValue (ChainValue a) where
 instance HasChainId (ChainValue a) where
     _chainId (ChainValue cid _) = cid
     {-# INLINE _chainId #-}
+
+instance HasTextRepresentation a => HasTextRepresentation (ChainValue a) where
+    toText (ChainValue cid a) = toText cid <> ":" <> toText a
+    fromText t = case T.break (== ':') t of
+        (a, "") -> throwM $ TextFormatException $ "failed to parse ChainValue value: " <> a
+        (a, ":") -> throwM $ TextFormatException $ "failed to parse ChainValue value: " <> a
+        (cid, a) -> ChainValue
+            <$> fromText cid
+            <*> fromText (T.drop 1 a)
 
 chainValue :: HasChainId a => a -> ChainValue a
 chainValue a = ChainValue (_chainId a) a

@@ -34,15 +34,19 @@ module Data.TaskMap
 , null
 , clear
 , memo
+, memoBatch
+, memoBatchWait
 ) where
 
 import Control.Concurrent
 import Control.Concurrent.Async
-import Control.Exception (evaluate, finally, bracket)
+import Control.Exception (evaluate)
 import Control.Monad
+import Control.Monad.Catch
 
 import Data.Hashable
 import qualified Data.HashMap.Strict as HM
+import Data.Typeable
 
 import GHC.Generics
 
@@ -107,3 +111,74 @@ memo tm@(TaskMap var) k task = bracket query cancel wait
                 m' <- evaluate $ HM.insert k a m
                 return (m', a)
             (Just !a) -> return (m, a)
+
+-- -------------------------------------------------------------------------- --
+-- Batch Tasks
+
+newtype NoBatchResultException k = NoBatchResultException k
+    deriving (Show, Eq, Ord, Generic)
+
+instance (Typeable k, Show k) => Exception (NoBatchResultException k)
+
+-- | Schedule a task that computes a batch of task map entries, that can be
+-- awaited as indiviual tasks.
+--
+-- This function immediately returns the 'Async' handle to the assynchronous
+-- task.
+--
+memoBatchAsync
+    :: Eq k
+    => Hashable k
+    => Typeable k
+    => Show k
+    => TaskMap k v
+    -> [k]
+    -> ([k] -> IO (HM.HashMap k v))
+        -- ^ an action that is used to produce the value if the key isn't in the map.
+    -> IO (Async (HM.HashMap k v))
+memoBatchAsync tm@(TaskMap var) ks batchTask = do
+    modifyMVarMasked var $ \m -> do
+        let missing = filter (not . (`HM.member` m)) ks
+        t <- asyncWithUnmask $ \umask -> umask (batchTask missing)
+        let insertTask m' k = do
+                !a <- asyncWithUnmask $ \umask -> umask (task t k) `finally` delete tm k
+                evaluate $ HM.insert k a m'
+        m' <- foldM insertTask m missing
+        return (m', t)
+  where
+    task t k = wait t >>= \r -> case HM.lookup k r of
+        Nothing -> throwM $ NoBatchResultException k
+        Just x -> return x
+
+-- | Schedule a task that computes a batch of task map entries, that can be
+-- awaited as indiviual tasks.
+--
+-- This function doesn't await any result and returns immediately after the
+-- batch task is created and inserted into the 'TaskMap'.
+--
+memoBatch
+    :: Eq k
+    => Hashable k
+    => Typeable k
+    => Show k
+    => TaskMap k v
+    -> [k]
+    -> ([k] -> IO (HM.HashMap k v))
+        -- ^ an action that is used to produce the value if the key isn't in the map.
+    -> IO ()
+memoBatch m ks t = void $ memoBatchAsync m ks t
+
+-- | Schedule a task that computes a batch of task map entries, that can be
+-- awaited as indiviual tasks.
+--
+memoBatchWait
+    :: Eq k
+    => Hashable k
+    => Typeable k
+    => Show k
+    => TaskMap k v
+    -> [k]
+    -> ([k] -> IO (HM.HashMap k v))
+        -- ^ an action that is used to produce the value if the key isn't in the map.
+    -> IO (HM.HashMap k v)
+memoBatchWait m ks t = memoBatchAsync m ks t >>= wait
