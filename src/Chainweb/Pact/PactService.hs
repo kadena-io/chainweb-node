@@ -738,7 +738,7 @@ execValidateBlock memPoolAccess currHeader plData = do
         withCheckpointerRewind (Just reorgLimit) target "execValidateBlock" $ \pdbenv -> do
             !result <- execBlock currHeader plData pdbenv
             return $! Save currHeader result
-    result <- either throwM return $!
+    !result <- either throwM return $
         validateHashes currHeader plData miner transactions
 
     -- update mempool

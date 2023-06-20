@@ -320,7 +320,6 @@ withDiscardedBatch act = do
         (liftIO $ _cpDiscardCheckpointerBatch cp)
         act
 
-
 -- | INTERNAL FUNCTION. USE 'withCheckpointer' instead.
 --
 -- TODO: The performance overhead is relatively low if there is no fork. We
@@ -409,7 +408,8 @@ rewindTo rewindLimit (Just (ParentHeader parent)) = do
                     withAsync (heightProgress (_blockHeight commonAncestor) heightRef (logInfo_ progressLogger)) $ \_ ->
                       s
                           & S.scanM
-                              (\ !p !c -> runPact (fastForward (ParentHeader p, c)) >> writeIORef heightRef (_blockHeight c) >> return c)
+                              -- no need to re-validate hashes, because these blocks have already been validated
+                              (\ !p !c -> runPact (local (psValidateHashesOnReplay .~ False) $ fastForward (ParentHeader p, c)) >> writeIORef heightRef (_blockHeight c) >> return c)
                               (return h) -- initial parent
                               return
                           & S.length_
