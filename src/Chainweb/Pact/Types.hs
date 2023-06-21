@@ -161,7 +161,6 @@ import Data.Set (Set)
 import qualified Data.Map.Strict as M
 import Data.Text (pack, unpack, Text)
 import Data.Vector (Vector)
-import Data.Word
 
 import GHC.Generics (Generic)
 
@@ -356,9 +355,9 @@ data PactServiceEnv tbl = PactServiceEnv
     , _psBlockHeaderDb :: !BlockHeaderDb
     , _psGasModel :: TxContext -> GasModel
     , _psMinerRewards :: !MinerRewards
-    , _psLocalRewindDepthLimit :: !Word64
+    , _psLocalRewindDepthLimit :: !RewindLimit
     -- ^ The limit of rewind's depth in the `execLocal` command.
-    , _psReorgLimit :: !Word64
+    , _psReorgLimit :: !RewindLimit
     -- ^ The limit of checkpointer's rewind in the `execValidationBlock` command.
     , _psOnFatalError :: forall a. PactException -> Text -> IO a
     , _psVersion :: ChainwebVersion
@@ -394,11 +393,11 @@ instance HasChainId (PactServiceEnv c) where
     _chainId = _chainId . _psBlockHeaderDb
     {-# INLINE _chainId #-}
 
-defaultReorgLimit :: Word64
-defaultReorgLimit = 480
+defaultReorgLimit :: RewindLimit
+defaultReorgLimit = RewindLimit 480
 
-defaultLocalRewindDepthLimit :: Word64
-defaultLocalRewindDepthLimit = 1000
+defaultLocalRewindDepthLimit :: RewindLimit
+defaultLocalRewindDepthLimit = RewindLimit 1000
 
 -- | Default limit for the per chain size of the decoded module cache.
 --
@@ -410,8 +409,8 @@ defaultModuleCacheLimit = DbCacheLimitBytes (60 * mebi)
 -- | NOTE this is only used for tests/benchmarks. DO NOT USE IN PROD
 defaultPactServiceConfig :: PactServiceConfig
 defaultPactServiceConfig = PactServiceConfig
-      { _pactReorgLimit = fromIntegral defaultReorgLimit
-      , _pactLocalRewindDepthLimit = fromIntegral defaultLocalRewindDepthLimit
+      { _pactReorgLimit = defaultReorgLimit
+      , _pactLocalRewindDepthLimit = defaultLocalRewindDepthLimit
       , _pactRevalidate = True
       , _pactQueueSize = 1000
       , _pactResetDb = True

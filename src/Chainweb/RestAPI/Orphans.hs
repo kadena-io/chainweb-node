@@ -189,3 +189,9 @@ instance ToHttpApiData LocalSignatureVerification where
 
 instance FromHttpApiData LocalSignatureVerification where
     parseUrlPiece = fmap (bool NoVerify Verify) . parseUrlPiece
+
+instance FromHttpApiData RewindDepth where
+    parseUrlPiece = fmap RewindDepth . parseUrlPiece
+
+instance ToHttpApiData RewindDepth where
+    toUrlPiece (RewindDepth k) = toUrlPiece k

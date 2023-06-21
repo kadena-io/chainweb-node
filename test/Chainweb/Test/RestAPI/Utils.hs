@@ -59,7 +59,6 @@ import Servant.Client
 
 -- internal chainweb modules
 
-import Chainweb.BlockHeight
 import Chainweb.ChainId
 import Chainweb.Graph
 import Chainweb.Pact.RestAPI.Client
@@ -128,7 +127,7 @@ localWithQueryParams
     -> ClientEnv
     -> Maybe LocalPreflightSimulation
     -> Maybe LocalSignatureVerification
-    -> Maybe BlockHeight
+    -> Maybe RewindDepth
     -> Command Text
     -> IO LocalResult
 localWithQueryParams sid cenv pf sv rd cmd =
