@@ -44,6 +44,7 @@ import Data.Decimal
 import Data.Default (def)
 import Data.Either
 import Data.Foldable (toList)
+import qualified Data.HashMap.Strict as HashMap
 import qualified Data.Map as Map
 import Data.Text (Text)
 import qualified Data.Text as T
@@ -225,7 +226,7 @@ validateChainwebTxs logger v cid cp txValidationTime bh txs doBuyGas
 
     checkUnique :: ChainwebTransaction -> IO (Either InsertError ChainwebTransaction)
     checkUnique t = do
-      found <- _cpLookupProcessedTx cp (P._cmdHash t)
+      found <- HashMap.lookup (P._cmdHash t) <$> _cpLookupProcessedTx cp Nothing (V.singleton $ P._cmdHash t)
       case found of
         Nothing -> pure $ Right t
         Just _ -> pure $ Left InsertErrorDuplicate

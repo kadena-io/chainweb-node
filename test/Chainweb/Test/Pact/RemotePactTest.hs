@@ -151,6 +151,8 @@ tests rdb = testGroupSch "Chainweb.Test.Pact.RemotePactTest"
                       [ caplistTest iot net ]
                     , after AllSucceed "caplistTests" $
                       localContTest iot net
+                    , after AllSucceed "caplistTests" $
+                      pollingConfirmDepth iot net
                     , after AllSucceed "local continuation test" $
                       pollBadKeyTest net
                     , after AllSucceed "poll bad key test" $
@@ -203,6 +205,7 @@ localContTest iot nio = testCaseSteps "local continuation test" $ \step -> do
       Left err -> assertFailure (show err)
       Right (PLiteral (LDecimal a)) | a == 2 -> return ()
       Right p -> assertFailure $ "unexpected cont return value: " ++ show p
+
   where
     sid = unsafeChainId 0
     tx =
@@ -226,6 +229,38 @@ localContTest iot nio = testCaseSteps "local continuation test" $ \step -> do
         $ mkCmd "nonce-cont-2"
         $ mkCont
         $ mkContMsg pid 1
+
+pollingConfirmDepth :: IO (Time Micros) -> IO ChainwebNetwork -> TestTree
+pollingConfirmDepth iot nio = testCaseSteps "poll confirmation depth test" $ \step -> do
+    cenv <- _getServiceClientEnv <$> nio
+
+    step "execute /send with initial pact continuation tx"
+    cmd1 <- firstStep
+    rks <- sending sid cenv (SubmitBatch $ pure cmd1)
+
+    step "check /poll responses to extract pact id for continuation"
+
+    beforePolling <- getCurrentBlockHeight v cenv sid
+    PollResponses m <- pollingWithDepth sid cenv rks (Just $ ConfirmationDepth 70) ExpectPactResult
+    afterPolling <- getCurrentBlockHeight v cenv sid
+
+    case (beforePolling, afterPolling) of
+      (Just bf, Just af) ->
+        assertBool "the difference between heights should be no less than the confirmation depth" $ (af - bf) >= 70
+      _ -> assertFailure "couldn't get block heights"
+  where
+    sid = unsafeChainId 0
+    tx =
+      "(namespace 'free)(module m G (defcap G () true) (defpact p () (step (yield { \"a\" : (+ 1 1) })) (step (resume { \"a\" := a } a))))(free.m.p)"
+    firstStep = do
+      t <- toTxCreationTime <$> iot
+      buildTextCmd
+        $ set cbSigners [mkSigner' sender00 []]
+        $ set cbCreationTime t
+        $ set cbNetworkId (Just v)
+        $ set cbGasLimit 70000
+        $ mkCmd "nonce-cont-1"
+        $ mkExec' tx
 
 localChainDataTest :: IO (Time Micros) -> IO ChainwebNetwork -> IO ()
 localChainDataTest iot nio = do

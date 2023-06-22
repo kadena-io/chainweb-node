@@ -29,6 +29,8 @@ module Chainweb.Pact.RestAPI.Client
 , pactLocalApiClient
 , pactLocalWithQueryApiClient_
 , pactLocalWithQueryApiClient
+, pactPollWithQueryApiClient_
+, pactPollWithQueryApiClient
 ) where
 
 
@@ -237,3 +239,23 @@ pactPollApiClient
     (FromSingChainwebVersion (SChainwebVersion :: Sing v))
     (FromSingChainId (SChainId :: Sing c))
     = pactPollApiClient_ @v @c
+
+pactPollWithQueryApiClient_
+    :: forall (v :: ChainwebVersionT) (c :: ChainIdT)
+    . KnownChainwebVersionSymbol v
+    => KnownChainIdSymbol c
+    => Maybe ConfirmationDepth
+    -> Poll
+    -> ClientM PollResponses
+pactPollWithQueryApiClient_ = client (pactPollWithQueryApi @v @c)
+
+pactPollWithQueryApiClient
+    :: ChainwebVersion
+    -> ChainId
+    -> Maybe ConfirmationDepth
+    -> Poll
+    -> ClientM PollResponses
+pactPollWithQueryApiClient
+    (FromSingChainwebVersion (SChainwebVersion :: Sing v))
+    (FromSingChainId (SChainId :: Sing c))
+    = pactPollWithQueryApiClient_ @v @c

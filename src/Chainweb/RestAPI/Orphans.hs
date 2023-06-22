@@ -195,3 +195,9 @@ instance FromHttpApiData RewindDepth where
 
 instance ToHttpApiData RewindDepth where
     toUrlPiece (RewindDepth k) = toUrlPiece k
+
+instance FromHttpApiData ConfirmationDepth where
+    parseUrlPiece = fmap ConfirmationDepth . parseUrlPiece
+
+instance ToHttpApiData ConfirmationDepth where
+    toUrlPiece (ConfirmationDepth k) = toUrlPiece k

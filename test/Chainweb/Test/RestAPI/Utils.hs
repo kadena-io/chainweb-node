@@ -19,6 +19,8 @@ module Chainweb.Test.RestAPI.Utils
 , ethSpv
 , sending
 , polling
+, pollingWithDepth
+, getCurrentBlockHeight
 
   -- * Rosetta client DSL
 , RosettaTestException(..)
@@ -48,6 +50,7 @@ import Control.Retry
 import Data.Either
 import Data.Foldable (toList)
 import Data.Text (Text)
+import qualified Data.HashMap.Strict as HM
 import qualified Data.Text as T
 
 import Rosetta
@@ -56,8 +59,11 @@ import Servant.Client
 
 -- internal chainweb modules
 
+import Chainweb.BlockHeight
 import Chainweb.ChainId
 import Chainweb.Graph
+import Chainweb.Cut.CutHashes (_cutHashes, _bhwhHeight)
+import Chainweb.CutDB.RestAPI.Client
 import Chainweb.Pact.RestAPI.Client
 import Chainweb.Pact.RestAPI.EthSpv
 import Chainweb.Pact.Service.Types
@@ -230,13 +236,23 @@ sending sid cenv batch =
 --
 data PollingExpectation = ExpectPactError | ExpectPactResult
 
+
 polling
     :: ChainId
     -> ClientEnv
     -> RequestKeys
     -> PollingExpectation
     -> IO PollResponses
-polling sid cenv rks pollingExpectation =
+polling sid cenv rks pollingExpectation = pollingWithDepth sid cenv rks Nothing pollingExpectation
+
+pollingWithDepth
+    :: ChainId
+    -> ClientEnv
+    -> RequestKeys
+    -> Maybe ConfirmationDepth
+    -> PollingExpectation
+    -> IO PollResponses
+pollingWithDepth sid cenv rks confirmationDepth pollingExpectation =
     recovering testRetryPolicy [h] $ \s -> do
       debug
         $ "polling for requestkeys " <> show (toList rs)
@@ -246,9 +262,9 @@ polling sid cenv rks pollingExpectation =
       -- by making sure results are successful and request keys
       -- are sane
 
-      runClientM (pactPollApiClient v sid $ Poll rs) cenv >>= \case
+      runClientM (pactPollWithQueryApiClient v sid confirmationDepth $ Poll rs) cenv >>= \case
         Left e -> throwM $ PollingFailure (show e)
-        Right r@(PollResponses mp) ->
+        Right r@(PollResponses mp) -> do
           if all (go mp) (toList rs)
           then return r
           else throwM $ PollingFailure $ T.unpack $ "polling check failed: " <> encodeToText r
@@ -267,6 +283,10 @@ polling sid cenv rks pollingExpectation =
       Just cr ->  _crReqKey cr == rk && validate (_crResult cr)
       Nothing -> False
 
+getCurrentBlockHeight :: ChainwebVersion -> ClientEnv -> ChainId -> IO (Maybe BlockHeight)
+getCurrentBlockHeight v cenv cid = do
+  cuts <- either (const $ error "failed to get cuts") id <$> runClientM (cutGetClient v) cenv
+  return $ _bhwhHeight <$> HM.lookup cid (_cutHashes cuts)
 
 -- ------------------------------------------------------------------ --
 -- Rosetta api client utils w/ retry
