@@ -317,7 +317,7 @@ library
         , Utils.Logging.Trace
 
     build-depends:
-          Decimal >= 0.4.2
+        , Decimal >= 0.4.2
         , aeson >= 1.4.3
         , asn1-encoding >=0.9
         , asn1-types >=0.3
@@ -382,6 +382,7 @@ library
         , servant-client >= 0.18.2
         , servant-client-core >= 0.18.2
         , servant-server >= 0.18.2
+        , sqlite-simple >= 0.4
         , stm >= 2.4
         , stm-chans
         , stopwatch >= 0.1

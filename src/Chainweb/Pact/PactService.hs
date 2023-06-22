@@ -212,6 +212,7 @@ initializeCoinContract
 initializeCoinContract _logger memPoolAccess v cid pwo = do
     cp <- getCheckpointer
     latestBlock <- liftIO $ _cpGetLatestBlock cp
+    logError $ T.unpack $ "initializeCoinContract.latestBlock: " <> sshow latestBlock
     case latestBlock of
       Nothing -> do
         logError "initializeCoinContract: we are at genesis"
