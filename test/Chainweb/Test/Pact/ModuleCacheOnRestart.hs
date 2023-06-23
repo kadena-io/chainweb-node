@@ -35,8 +35,8 @@ import Pact.Types.Term
 -- chainweb imports
 
 import Chainweb.BlockHeader
-import Chainweb.BlockHeader.Genesis
 import Chainweb.ChainId
+import Chainweb.Graph
 import Chainweb.Logger
 import Chainweb.Miner.Pact
 import Chainweb.Pact.Backend.Types
@@ -49,6 +49,7 @@ import Chainweb.Test.Cut
 import Chainweb.Test.Cut.TestBlockDb
 import Chainweb.Test.Utils
 import Chainweb.Test.Pact.Utils
+import Chainweb.Test.TestVersions(fastForkingCpmTestVersion)
 import Chainweb.Utils (T2(..))
 import Chainweb.Version
 import Chainweb.WebBlockHeaderDB
@@ -56,7 +57,7 @@ import Chainweb.WebBlockHeaderDB
 import Chainweb.Storage.Table.RocksDB
 
 testVer :: ChainwebVersion
-testVer = FastTimedCPM singleton
+testVer = fastForkingCpmTestVersion singletonChainGraph
 
 testChainId :: ChainId
 testChainId = unsafeChainId 0
@@ -205,7 +206,7 @@ testCw217CoinOnly iobdb _rewindM = (go, go')
   where
     go = do
       initPayloadState
-      void $ doNextCoinbaseN_ 9 iobdb
+      void $ doNextCoinbaseN_ 8 iobdb
 
     go' ioa initCache = do
       snapshotCache ioa initCache
@@ -279,7 +280,7 @@ withPact' bdbio ioSqlEnv r (ps, cacheTest) tastylog = do
     bhdb <- getWebBlockHeaderDb (_bdbWebBlockHeaderDb bdb) testChainId
     let pdb = _bdbPayloadDb bdb
     sqlEnv <- ioSqlEnv
-    T2 _ pstate <- runPactService'
+    T2 _ pstate <- withPactService
         testVer testChainId logger bhdb pdb sqlEnv defaultPactServiceConfig ps
     cacheTest r (_psInitCache pstate)
   where

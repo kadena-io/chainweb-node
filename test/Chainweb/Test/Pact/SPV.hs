@@ -76,7 +76,6 @@ import Chainweb.BlockCreationTime
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
 import Chainweb.BlockHeight
-import Chainweb.ChainId
 import Chainweb.Cut
 import Chainweb.Graph
 import Chainweb.Miner.Pact
@@ -88,6 +87,7 @@ import Chainweb.Test.Cut
 import Chainweb.Test.Cut.TestBlockDb
 import Chainweb.Test.Pact.Utils
 import Chainweb.Test.Utils
+import Chainweb.Test.TestVersions
 import Chainweb.Time
 import Chainweb.Transaction
 import Chainweb.Utils hiding (check)
@@ -116,10 +116,10 @@ tests = testGroup "Chainweb.Test.Pact.SPV"
     ]
 
 testVer :: ChainwebVersion
-testVer = FastTimedCPM triangleChainGraph
+testVer = noBridgeCpmTestVersion triangleChainGraph
 
 bridgeVer :: ChainwebVersion
-bridgeVer = FastTimedCPM pairChainGraph
+bridgeVer = fastForkingCpmTestVersion pairChainGraph
 
 -- Only use for debugging. Do not use in tests in the test suite!
 --
@@ -240,9 +240,9 @@ runCut' v bdb pact = do
 
 
 roundtrip
-    :: Int
+    :: Word32
       -- ^ source chain id
-    -> Int
+    -> Word32
       -- ^ target chain id
     -> BurnGenerator
       -- ^ burn tx generator
@@ -254,9 +254,9 @@ roundtrip = roundtrip' testVer
 
 roundtrip'
     :: ChainwebVersion
-    -> Int
+    -> Word32
       -- ^ source chain id
-    -> Int
+    -> Word32
       -- ^ target chain id
     -> BurnGenerator
       -- ^ burn tx generator

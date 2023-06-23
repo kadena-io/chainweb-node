@@ -4,11 +4,8 @@
 {-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE OverloadedStrings #-}
 module Chainweb.Test.RestAPI.Utils
-( -- * Retry Policies
-  testRetryPolicy
-
   -- * Debugging
-, debug
+( debug
 
   -- * Utils
 , repeatUntil
@@ -67,6 +64,8 @@ import Chainweb.Pact.Service.Types
 import Chainweb.Rosetta.RestAPI.Client
 import Chainweb.Utils
 import Chainweb.Version
+import Chainweb.Test.TestVersions
+import Chainweb.Test.Utils
 
 -- internal pact modules
 
@@ -85,18 +84,7 @@ debug = const $ return ()
 #endif
 
 v :: ChainwebVersion
-v = FastTimedCPM petersonChainGraph
-
--- | Backoff up to a constant 250ms, limiting to ~40s
--- (actually saw a test have to wait > 22s)
-testRetryPolicy :: RetryPolicy
-testRetryPolicy = stepped <> limitRetries 150
-  where
-    stepped = retryPolicy $ \rs -> case rsIterNumber rs of
-      0 -> Just 20_000
-      1 -> Just 50_000
-      2 -> Just 100_000
-      _ -> Just 250_000
+v = fastForkingCpmTestVersion petersonChainGraph
 
 -- ------------------------------------------------------------------ --
 -- Pact api client utils w/ retry
@@ -107,7 +95,6 @@ data PactTestFailure
     | SendFailure String
     | LocalFailure String
     | SpvFailure String
-    | SlowChain String
     deriving Show
 
 instance Exception PactTestFailure

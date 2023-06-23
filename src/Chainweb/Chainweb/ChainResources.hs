@@ -110,13 +110,6 @@ withChainResources
                 , _chainResPact = pex
                 }
   where
-    pes requestQ = case v of
-        Test{} -> emptyPactExecutionService
-        TimedConsensus{} -> emptyPactExecutionService
-        PowConsensus{} -> emptyPactExecutionService
-        TimedCPM{} -> mkPactExecutionService requestQ
-        FastTimedCPM{} -> mkPactExecutionService requestQ
-        Development -> mkPactExecutionService requestQ
-        Testnet04 -> mkPactExecutionService requestQ
-        Mainnet01 -> mkPactExecutionService requestQ
-
+    pes requestQ
+        | v ^. versionCheats . disablePact = emptyPactExecutionService
+        | otherwise = mkPactExecutionService requestQ

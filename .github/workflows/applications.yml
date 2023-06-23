@@ -532,12 +532,11 @@ jobs:
         EOF
     - name: Validate database and replay pact transactions
       timeout-minutes: 6
-      env:
-        DISABLE_POW_VALIDATION: 1
       run: |
         chainweb-node +RTS -T -H1G -A64M -RTS \
           --config-file=config.yaml \
-          --log-level=info
+          --log-level=info \
+          --disable-pow
 
   # ########################################################################## #
   # Run Unit Tests

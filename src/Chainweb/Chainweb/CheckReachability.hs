@@ -15,6 +15,7 @@
 module Chainweb.Chainweb.CheckReachability
 ( ReachabilityException(..)
 , checkReachability
+, peerServerSettings
 ) where
 
 import Configuration.Utils hiding (Error, Lens')
@@ -144,9 +145,6 @@ checkReachability sock mgr v logger pdb peers peer threshold = do
     loggServerError (Just r) e = "HTTP server error: " <> sshow e <> ". Request: " <> sshow r
     loggServerError Nothing e = "HTTP server error: " <> sshow e
 
--- TODO move that elsewhere and unify with method from
--- Chainweb.Chainweb.PeerResources
---
 peerServerSettings :: Peer -> W.Settings
 peerServerSettings peer
     = W.setPort (int . _hostAddressPort . _peerAddr $ _peerInfo peer)
