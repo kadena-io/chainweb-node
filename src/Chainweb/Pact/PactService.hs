@@ -140,8 +140,8 @@ withPactService ver cid chainwebLogger bhDb pdb sqlenv config act =
                     , _psBlockHeaderDb = bhDb
                     , _psGasModel = getGasModel
                     , _psMinerRewards = rs
-                    , _psReorgLimit = fromIntegral $ _pactReorgLimit config
-                    , _psLocalRewindDepthLimit = fromIntegral $ _pactLocalRewindDepthLimit config
+                    , _psReorgLimit = _pactReorgLimit config
+                    , _psLocalRewindDepthLimit = _pactLocalRewindDepthLimit config
                     , _psOnFatalError = defaultOnFatalError (logFunctionText chainwebLogger)
                     , _psVersion = ver
                     , _psValidateHashesOnReplay = _pactRevalidate config
@@ -178,7 +178,7 @@ initializeLatestBlock unlimitedRewind = findLatestValidBlock >>= \case
     Nothing -> return ()
     Just b -> withBatch $ rewindTo initialRewindLimit (Just $ ParentHeader b)
   where
-    initialRewindLimit = 1000 <$ guard (not unlimitedRewind)
+    initialRewindLimit = RewindLimit 1000 <$ guard (not unlimitedRewind)
 
 initialPayloadState
     :: Logger logger
@@ -477,7 +477,7 @@ execNewBlock mpAccess parent miner = do
     -- This is intended to mitigate mining attempts during replay.
     -- In theory we shouldn't need to rewind much ever, but values
     -- less than this are failing in PactReplay test.
-    newblockRewindLimit = Just 8
+    newblockRewindLimit = Just $ RewindLimit 8
 
     getBlockTxs :: BlockFill -> PactServiceM tbl (Vector ChainwebTransaction)
     getBlockTxs bfState = do
@@ -626,8 +626,8 @@ execLocal
       -- ^ preflight flag
     -> Maybe LocalSignatureVerification
       -- ^ turn off signature verification checks?
-    -> Maybe BlockHeight
-      -- ^ rewind depth (note: this is a *depth*, not an absolute height)
+    -> Maybe RewindDepth
+      -- ^ rewind depth
     -> PactServiceM tbl LocalResult
 execLocal cwtx preflight sigVerify rdepth = withDiscardedBatch $ do
     parent <- syncParentHeader "execLocal"
@@ -641,23 +641,21 @@ execLocal cwtx preflight sigVerify rdepth = withDiscardedBatch $ do
     ctx <- getTxContext pm
     spv <- use psSpvSupport
 
-    let rewindHeight
-          | Just d <- rdepth = d
-          -- when no height is defined, treat
-          -- withCheckpointerRewind as withCurrentCheckpointer
-          -- (i.e. setting rewind to 0).
-          | otherwise = 0
+    -- when no depth is defined, treat
+    -- withCheckpointerRewind as withCurrentCheckpointer
+    -- (i.e. setting rewind to 0).
+    let rewindDepth = fromMaybe (RewindDepth 0) rdepth
 
-    when (getBlockHeight rewindHeight > _psLocalRewindDepthLimit) $ do
-        throwM $ LocalRewindLimitExceeded (fromIntegral _psLocalRewindDepthLimit) rewindHeight
+    when (_rewindDepth rewindDepth > _rewindLimit _psLocalRewindDepthLimit) $ do
+        throwM $ LocalRewindLimitExceeded _psLocalRewindDepthLimit rewindDepth
 
     let parentBlockHeader = _parentHeader parent
 
     -- we fail if the requested depth is bigger than the current parent block height
     -- because we can't go after the genesis block
-    when (fromMaybe 0 rdepth > _blockHeight parentBlockHeader) $ throwM LocalRewindGenesisExceeded
+    when (_rewindDepth rewindDepth > getBlockHeight (_blockHeight parentBlockHeader)) $ throwM LocalRewindGenesisExceeded
 
-    let ancestorRank = fromIntegral $ getBlockHeight $ _blockHeight parentBlockHeader - fromMaybe 0 rdepth
+    let ancestorRank = fromIntegral $ (getBlockHeight $ _blockHeight parentBlockHeader) - _rewindDepth rewindDepth
     ancestor <- liftIO $ seekAncestor _psBlockHeaderDb parentBlockHeader ancestorRank
 
     rewindHeader <- case ancestor of
@@ -673,7 +671,9 @@ execLocal cwtx preflight sigVerify rdepth = withDiscardedBatch $ do
         logger = P.newLogger _psLoggers "execLocal"
         initialGas = initialGasOf $ P._cmdPayload cwtx
 
-    withCheckpointerRewind (Just rewindHeight) rewindHeader "execLocal" $
+    -- In this case the rewind limit is the same as rewind depth
+    let rewindLimit = RewindLimit $ _rewindDepth rewindDepth
+    withCheckpointerRewind (Just rewindLimit) rewindHeader "execLocal" $
       \(PactDbEnv' pdbenv) -> do
         --
         -- if the ?preflight query parameter is set to True, we run the `applyCmd` workflow
@@ -725,7 +725,7 @@ execValidateBlock memPoolAccess currHeader plData = do
     -- The parent block header must be available in the block header database
     target <- getTarget
     psEnv <- ask
-    let reorgLimit = fromIntegral $ view psReorgLimit psEnv
+    let reorgLimit = view psReorgLimit psEnv
     T2 miner transactions <- exitOnRewindLimitExceeded $ withBatch $ do
         withCheckpointerRewind (Just reorgLimit) target "execValidateBlock" $ \pdbenv -> do
             !result <- execBlock currHeader plData pdbenv
