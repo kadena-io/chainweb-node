@@ -1,6 +1,8 @@
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -43,6 +45,7 @@ import Data.Functor.Of
 import Data.IORef
 import Data.Proxy
 import Data.Text.Encoding (decodeUtf8)
+import Numeric.Natural(Natural)
 
 import Network.Wai.EventSource (ServerEvent(..), eventSourceAppIO)
 
@@ -126,16 +129,20 @@ defaultEntryLimit = 360
 p2pEntryLimit :: Num a => a
 p2pEntryLimit = 20
 
+newtype BranchBoundsLimit
+    = BranchBoundsLimit { getBranchBoundsLimit :: Natural }
+    deriving newtype (Show, Eq, Ord)
+
 -- | Default limit for the number of bounds in the request of a branch query
 --
-defaultBoundsLimit :: Int
-defaultBoundsLimit = 32
+defaultBoundsLimit :: BranchBoundsLimit
+defaultBoundsLimit = BranchBoundsLimit 32
 
 -- | Limit for the number of bounds in the request of a branch query on the P2P
 -- API.
 --
-p2pBoundsLimit :: Int
-p2pBoundsLimit = 4
+p2pBoundsLimit :: BranchBoundsLimit
+p2pBoundsLimit = BranchBoundsLimit 4
 
 -- | Query Branch Hashes of the database.
 --
@@ -152,10 +159,10 @@ branchHashesHandler
     -> BranchBounds db
     -> Handler (Page (NextItem (DbKey db)) (DbKey db))
 branchHashesHandler db limit next minr maxr bounds
-    | length (_branchBoundsUpper bounds) > defaultBoundsLimit = throwError $ err400Msg $
+    | fromIntegral (length (_branchBoundsUpper bounds)) > getBranchBoundsLimit defaultBoundsLimit = throwError $ err400Msg $
         "upper branch bound limit exceeded. Only " <> show defaultBoundsLimit <> " values are supported."
-    | length (_branchBoundsLower bounds) > defaultBoundsLimit = throwError $ err400Msg $
-        "upper branch bound limit exceeded. Only " <> show defaultBoundsLimit <> " values are supported."
+    | fromIntegral (length (_branchBoundsLower bounds)) > getBranchBoundsLimit defaultBoundsLimit = throwError $ err400Msg $
+        "lower branch bound limit exceeded. Only " <> show defaultBoundsLimit <> " values are supported."
     | otherwise = do
         nextChecked <- traverse (traverse $ checkKey db) next
         checkedBounds <- checkBounds db bounds
@@ -175,8 +182,7 @@ branchHeadersHandler
     :: TreeDb db
     => ToJSON (DbKey db)
     => db
-    -> Int
-        -- ^ bounds limit
+    -> BranchBoundsLimit
     -> Limit
         -- ^ max limit
     -> Maybe Limit
@@ -185,11 +191,11 @@ branchHeadersHandler
     -> Maybe MaxRank
     -> BranchBounds db
     -> Handler (Page (NextItem (DbKey db)) (DbEntry db))
-branchHeadersHandler db boundsLimit maxLimit limit next minr maxr bounds
-    | length (_branchBoundsUpper bounds) > boundsLimit = throwError $ err400Msg $
+branchHeadersHandler db (BranchBoundsLimit boundsLimit) maxLimit limit next minr maxr bounds
+    | fromIntegral (length (_branchBoundsUpper bounds)) > boundsLimit = throwError $ err400Msg $
         "upper branch bound limit exceeded. Only " <> show boundsLimit <> " values are supported."
-    | length (_branchBoundsLower bounds) > boundsLimit = throwError $ err400Msg $
-        "upper branch bound limit exceeded. Only " <> show boundsLimit <> " values are supported."
+    | fromIntegral (length (_branchBoundsLower bounds)) > boundsLimit = throwError $ err400Msg $
+        "lower branch bound limit exceeded. Only " <> show boundsLimit <> " values are supported."
     | otherwise = do
         nextChecked <- traverse (traverse $ checkKey db) next
         checkedBounds <- checkBounds db bounds

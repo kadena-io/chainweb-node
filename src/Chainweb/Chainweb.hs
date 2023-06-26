@@ -794,11 +794,11 @@ runChainweb cw = do
     -- other protocol changes, like additional HTTP request headers or changes
     -- in the mempool protocol.
     --
-    -- FIXME: is 8K enough for the mempool?
+    -- FIXME: can we make this smaller and still let the mempool work?
     --
     p2pRequestSizeLimit :: Middleware
     p2pRequestSizeLimit = requestSizeLimitMiddleware $
-        setMaxLengthForRequest (\_req -> pure $ Just $ 8 * 1024) -- 8KB
+        setMaxLengthForRequest (\_req -> pure $ Just $ 2 * 1024 * 1024) -- 2MB
         defaultRequestSizeLimitSettings
 
     httpLog :: Middleware
