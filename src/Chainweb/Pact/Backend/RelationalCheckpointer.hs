@@ -2,6 +2,7 @@
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TupleSections #-}
 
 -- |
@@ -119,9 +120,10 @@ initRelationalCheckpointer' bstate sqlenv loggr v cid = do
         { _cpeCheckpointer =
             Checkpointer
               { _cpRestore = doRestore loggr v cid db,
-                _cpSave = \bh ->
-                  doSave db bh
-                    `onException` logError_ loggr ("_cpSave threw an exception on BlockHash: " ++ show bh),
+                _cpSave = (\bh ->
+                  catch (doSave db bh) $ \(e :: SomeException) -> do
+                    logError_ loggr $ "_cpSave on BlockHash (" ++ show bh ++ "): " ++ displayException e
+                    throwM e),
                 _cpDiscard = doDiscard db,
                 _cpGetLatestBlock = doGetLatest db,
                 _cpBeginCheckpointerBatch = doBeginBatch db,
