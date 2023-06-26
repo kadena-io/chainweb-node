@@ -134,6 +134,7 @@ mkPayload gen@(Genesis v _ cidr@(ChainIdRange l u) c k a ns cc) = do
     printf ("Generating Genesis Payload for %s on " <> show_ cidr <> "...\n") $ show v
     payloadModules <- for [l..u] $ \cid ->
         genPayloadModule v (fullGenesisTag gen) (unsafeChainId cid) =<< mkChainwebTxs txs
+    -- checks that the modules on each chain are the same
     evaluate $ the payloadModules
   where
     -- final tx list.
@@ -211,7 +212,7 @@ mkChainwebTxs :: [FilePath] -> IO [ChainwebTransaction]
 mkChainwebTxs txFiles = mkChainwebTxs' =<< traverse mkTx txFiles
 
 mkChainwebTxs' :: [Command Text] -> IO [ChainwebTransaction]
-mkChainwebTxs' rawTxs = do
+mkChainwebTxs' rawTxs =
     forM rawTxs $ \cmd -> do
         let cmdBS = fmap TE.encodeUtf8 cmd
             procCmd = verifyCommand cmdBS

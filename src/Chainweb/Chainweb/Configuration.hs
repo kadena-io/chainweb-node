@@ -420,7 +420,7 @@ validateChainwebVersion :: ConfigValidation ChainwebVersion []
 validateChainwebVersion v = unless (isDevelopment || elem v knownVersions) $
     throwError $ T.unwords
         [ "Specifying version properties is only legal with chainweb-version"
-        , "set to development, but version is set to"
+        , "set to development or fast-development, but version is set to"
         , sshow (_versionName v)
         ]
     where

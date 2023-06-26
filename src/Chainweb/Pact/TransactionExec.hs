@@ -297,8 +297,8 @@ applyGenesisCmd logger dbEnv spv txCtx cmd =
           -- TODO this is very ugly. Genesis blocks need to install keysets
           -- outside of namespaces so we need to disable Pact 4.4. It would be
           -- preferable to have a flag specifically for the namespaced keyset
-          -- stuff so that we retain the super cow powers in genesis and
-          -- upgrade txs.
+          -- stuff so that we retain this power in genesis and upgrade txs even
+          -- after the block height where pact4.4 is on.
           <> S.fromList [ FlagDisableInlineMemCheck, FlagDisablePact44 ]
         }
     txst = TransactionState
