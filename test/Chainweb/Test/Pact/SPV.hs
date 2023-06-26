@@ -76,7 +76,6 @@ import Chainweb.BlockCreationTime
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
 import Chainweb.BlockHeight
-import Chainweb.ChainId
 import Chainweb.Cut
 import Chainweb.Graph
 import Chainweb.Miner.Pact
@@ -88,6 +87,7 @@ import Chainweb.Test.Cut
 import Chainweb.Test.Cut.TestBlockDb
 import Chainweb.Test.Pact.Utils
 import Chainweb.Test.Utils
+import Chainweb.Test.TestVersions
 import Chainweb.Time
 import Chainweb.Transaction
 import Chainweb.Utils hiding (check)
@@ -116,11 +116,13 @@ tests = testGroup "Chainweb.Test.Pact.SPV"
     ]
 
 testVer :: ChainwebVersion
-testVer = FastTimedCPM triangleChainGraph
+testVer = noBridgeCpmTestVersion triangleChainGraph
 
 bridgeVer :: ChainwebVersion
-bridgeVer = FastTimedCPM pairChainGraph
+bridgeVer = fastForkingCpmTestVersion pairChainGraph
 
+-- Only use for debugging. Do not use in tests in the test suite!
+--
 logg :: LogMessage a => LogLevel -> a -> IO ()
 logg l
   | l <= Warn = T.putStrLn . logText
@@ -238,9 +240,9 @@ runCut' v bdb pact = do
 
 
 roundtrip
-    :: Int
+    :: Word32
       -- ^ source chain id
-    -> Int
+    -> Word32
       -- ^ target chain id
     -> BurnGenerator
       -- ^ burn tx generator
@@ -252,19 +254,20 @@ roundtrip = roundtrip' testVer
 
 roundtrip'
     :: ChainwebVersion
-    -> Int
+    -> Word32
       -- ^ source chain id
-    -> Int
+    -> Word32
       -- ^ target chain id
     -> BurnGenerator
       -- ^ burn tx generator
     -> CreatesGenerator
       -- ^ create tx generator
     -> (String -> IO ())
+      -- ^ logging backend
     -> IO (CutOutputs, CutOutputs)
 roundtrip' v sid0 tid0 burn create step = withTestBlockDb v $ \bdb -> do
   tg <- newMVar mempty
-  withWebPactExecutionService v defaultPactServiceConfig bdb (chainToMPA' tg) freeGasModel $ \(pact,_) -> do
+  withWebPactExecutionService step v defaultPactServiceConfig bdb (chainToMPA' tg) freeGasModel $ \(pact,_) -> do
 
     sid <- mkChainId v maxBound sid0
     tid <- mkChainId v maxBound tid0

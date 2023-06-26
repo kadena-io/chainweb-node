@@ -44,6 +44,7 @@ import Control.Monad.Trans.Maybe
 import Data.Aeson as Aeson
 import Data.Bifunctor (second)
 import Data.ByteString (ByteString)
+import qualified Data.ByteString.Lazy as BSL
 import qualified Data.ByteString.Lazy.Char8 as BSL8
 import qualified Data.ByteString.Short as SB
 import Data.Default (def)
@@ -231,10 +232,10 @@ sendHandler logger mempool (SubmitBatch cmds) = Handler $ do
            liftIO (mempoolInsertCheck mempool txs) >>= checkResult
            liftIO (mempoolInsert mempool UncheckedInsert txs)
            return $! RequestKeys $ NEL.map cmdToRequestKey enriched
-       Left err -> failWith $ "Validation failed: " <> err
+       Left err -> failWith $ "Validation failed: " <> T.pack err
   where
-    failWith :: String -> ExceptT ServerError IO a
-    failWith err = throwError $ err400 { errBody = BSL8.pack err }
+    failWith :: Text -> ExceptT ServerError IO a
+    failWith err = throwError $ setErrText err err400
 
     logg = logFunctionJson (setComponent "send-handler" logger)
 
@@ -243,12 +244,12 @@ sendHandler logger mempool (SubmitBatch cmds) = Handler $ do
 
     checkResult :: Either (T2 TransactionHash InsertError) () -> ExceptT ServerError IO ()
     checkResult (Right _) = pure ()
-    checkResult (Left (T2 hash insErr)) =
-        failWith $ concat [ "Validation failed for hash "
-                          , show $ toPactHash hash
-                          , ": "
-                          , show insErr
-                          ]
+    checkResult (Left (T2 hash insErr)) = failWith $ fold
+        [ "Validation failed for hash "
+        , sshow $ toPactHash hash
+        , ": "
+        , sshow insErr
+        ]
 -- -------------------------------------------------------------------------- --
 -- Poll Handler
 
@@ -340,7 +341,7 @@ localHandler
       -- ^ Preflight flag
     -> Maybe LocalSignatureVerification
       -- ^ No sig verification flag
-    -> Maybe BlockHeight
+    -> Maybe RewindDepth
       -- ^ Rewind depth
     -> Command Text
     -> Handler LocalResult
@@ -349,16 +350,16 @@ localHandler logger pact preflight sigVerify rewindDepth cmd = do
     cmd' <- case doCommandValidation cmd of
       Right c -> return c
       Left err ->
-        throwError $ err400 { errBody = "Validation failed: " <> BSL8.pack err }
+        throwError $ setErrText ("Validation failed: " <> T.pack err) err400
 
     r <- liftIO $ _pactLocal pact preflight sigVerify rewindDepth cmd'
     case r of
-      Left err -> throwError $ err400
-        { errBody = "Execution failed: " <> BSL8.pack (show err) }
+      Left err -> throwError $ setErrText
+        ("Execution failed: " <> T.pack (show err)) err400
       Right (MetadataValidationFailure e) -> do
-        throwError $ err400
-          { errBody = "Metadata validation failed: " <> Aeson.encode e }
-      Right lr -> pure lr
+        throwError $ setErrText
+          ("Metadata validation failed: " <> decodeUtf8 (BSL.toStrict (Aeson.encode e))) err400
+      Right lr -> return $! lr
   where
     logg = logFunctionJson (setComponent "local-handler" logger)
 
@@ -422,10 +423,11 @@ spvHandler l cdb cid (SpvRequest rk (Pact.ChainId ptid)) = do
     tid <- chainIdFromText ptid
     p <- liftIO (try $ createTransactionOutputProof cdb tid cid bhe idx) >>= \case
       Left e@SpvExceptionTargetNotReachable{} ->
-        toErr $ "SPV target not reachable: " <> spvErrOf e
+        toErr $ "SPV target not reachable: " <> _spvExceptionMsg e
       Left e@SpvExceptionVerificationFailed{} ->
-        toErr $ "SPV verification failed: " <> spvErrOf e
-      Left e -> toErr $ "Internal error: SPV verification failed: " <> spvErrOf e
+        toErr $ "SPV verification failed: " <> _spvExceptionMsg e
+      Left e ->
+        toErr $ "Internal error: SPV verification failed: " <> _spvExceptionMsg e
       Right q -> return q
 
     return $! b64 p
@@ -442,11 +444,7 @@ spvHandler l cdb cid (SpvRequest rk (Pact.ChainId ptid)) = do
     logg = logFunctionJson (setComponent "spv-handler" l) Info
       . PactCmdLogSpv
 
-    toErr e = throwError $ err400 { errBody = e }
-
-    spvErrOf = BSL8.fromStrict
-      . encodeUtf8
-      . _spvExceptionMsg
+    toErr e = throwError $ setErrText e err400
 
 -- -------------------------------------------------------------------------- --
 -- SPV2 Handler
@@ -495,7 +493,7 @@ spv2Handler l cdb cid r = case _spvSubjectIdType sid of
                 Nothing -> toErr $ "Transaction hash not found: " <> sshow ph
                 Just t -> return t
 
-        let confDepth = fromMaybe (diameter (chainGraphAt_ cdb bhe)) $ _spv2ReqMinimalProofDepth r
+        let confDepth = fromMaybe (diameter (chainGraphAt cdb bhe)) $ _spv2ReqMinimalProofDepth r
 
         liftIO (tryAllSynchronous $ f bdb pdb confDepth bha rk) >>= \case
             Left e -> toErr $ "SPV proof creation failed:" <> sshow e
@@ -666,15 +664,13 @@ validateCommand cmdText = case verifyCommand cmdBS of
 validateRequestKey :: RequestKey -> Handler ()
 validateRequestKey (RequestKey h'@(Hash h))
     | keyLength == blakeHashLength = return ()
-    | otherwise = throwError err400
-      { errBody = "Request Key "
-        <> keyString
+    | otherwise = throwError $ setErrText
+        ( "Request Key "
+        <> Pact.hashToText h'
         <> " has incorrect hash of length "
-        <> BSL8.pack (show keyLength)
-      }
+        <> sshow keyLength
+        ) err400
   where
-    keyString = BSL8.pack $ T.unpack $ Pact.hashToText h'
-
     -- length of the encoded request key hash
     --
     keyLength = SB.length h

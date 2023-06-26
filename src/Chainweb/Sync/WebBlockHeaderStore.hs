@@ -59,7 +59,6 @@ import System.LogLevel
 
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
-import Chainweb.BlockHeader.Genesis
 import Chainweb.BlockHeader.Validation
 import Chainweb.BlockHeaderDB
 import Chainweb.ChainId
@@ -273,7 +272,7 @@ getBlockHeaderInternal
     -> IO (ChainValue BlockHeader)
 getBlockHeaderInternal headerStore payloadStore candidateHeaderCas candidatePayloadCas priority maybeOrigin h = do
     logg Debug $ "getBlockHeaderInternal: " <> sshow h
-    bh <- memoInsert cas memoMap h $ \k@(ChainValue cid k') -> do
+    !bh <- memoInsert cas memoMap h $ \k@(ChainValue cid k') -> do
 
         -- query BlockHeader via
         --
@@ -345,7 +344,7 @@ getBlockHeaderInternal headerStore payloadStore candidateHeaderCas candidatePayl
                 chainDb <- getWebBlockHeaderDb (_webBlockHeaderStoreCas headerStore) header
                 validateInductiveChainM (tableLookup chainDb) header
 
-        p <- runConcurrently
+        !p <- runConcurrently
             -- query payload
             $ Concurrently
                 (getBlockPayload payloadStore candidatePayloadCas priority maybeOrigin' header)

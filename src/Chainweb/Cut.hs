@@ -124,7 +124,6 @@ import qualified Streaming.Prelude as S
 
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
-import Chainweb.BlockHeader.Genesis
 import Chainweb.BlockHeight
 import Chainweb.BlockWeight
 import Chainweb.ChainId

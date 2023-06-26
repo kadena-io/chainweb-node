@@ -35,6 +35,7 @@ import qualified Pact.Types.SQLite as PSQL
 -- chainweb imports
 
 import Chainweb.BlockHash
+import Chainweb.BlockHeader
 import Chainweb.BlockHeight
 import Chainweb.Graph
 import Chainweb.MerkleLogHash
@@ -42,12 +43,13 @@ import Chainweb.Pact.Backend.RelationalCheckpointer
 import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.Backend.Utils
 import Chainweb.Pact.Types
+import Chainweb.Test.TestVersions
 import Chainweb.Utils.Bench
 import Chainweb.Utils (sshow)
 import Chainweb.Version
 
 v :: ChainwebVersion
-v = FastTimedCPM petersonChainGraph
+v = fastForkingCpmTestVersion petersonChainGraph
 
 bench :: C.Benchmark
 bench = C.bgroup "pact-backend" $

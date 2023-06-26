@@ -243,7 +243,7 @@ withCurrentCheckpointer caller act = do
     ph <- syncParentHeader "withCurrentCheckpointer"
         -- discover the header for the latest block that is stored in the
         -- checkpointer.
-    withCheckpointerRewind (Just 0) (Just ph) caller act
+    withCheckpointerRewind (Just $ RewindLimit 0) (Just ph) caller act
 
 -- | Execute an action in the context of an @Block@ that is provided by the
 -- checkpointer. The checkpointer is rewinded and restored to the state to the
@@ -257,7 +257,7 @@ withCurrentCheckpointer caller act = do
 withCheckpointerRewind
     :: HasCallStack
     => CanReadablePayloadCas tbl
-    => Maybe BlockHeight
+    => Maybe RewindLimit
         -- ^ if set, limit rewinds to this delta
     -> Maybe ParentHeader
         -- ^ The parent header to which the checkpointer is restored
@@ -320,14 +320,13 @@ withDiscardedBatch act = do
         (liftIO $ _cpDiscardCheckpointerBatch cp)
         act
 
-
 -- | INTERNAL FUNCTION. USE 'withCheckpointer' instead.
 --
 -- TODO: The performance overhead is relatively low if there is no fork. We
 -- should consider merging it with 'restoreCheckpointer' and always rewind.
 --
 -- Rewinds the pact state to the given parent in a single database transactions.
--- Rewinds to the genesis block if he parent is 'Nothing'.
+-- Rewinds to the genesis block if the parent is 'Nothing'.
 --
 -- If the rewind is deeper than the optionally provided rewind limit, an
 -- exception is raised.
@@ -336,7 +335,7 @@ rewindTo
     :: forall tbl
     . HasCallStack
     => CanReadablePayloadCas tbl
-    => Maybe BlockHeight
+    => Maybe RewindLimit
         -- ^ if set, limit rewinds to this delta
     -> Maybe ParentHeader
         -- ^ The parent header which is the rewind target
@@ -364,19 +363,12 @@ rewindTo rewindLimit (Just (ParentHeader parent)) = do
             <> "; target height: " <> sshow parentHeight
             <> "; target hash: " <> blockHashToText parentHash
 
-        failOnTooLowRequestedHeight rewindLimit lastHeader
+        failOnTooLowRequestedHeight parent rewindLimit lastHeader
         playFork lastHeader
 
   where
     parentHeight = _blockHeight parent
     parentHash = _blockHash parent
-
-    failOnTooLowRequestedHeight (Just limit) lastHeader
-        | parentHeight + 1 + limit < lastHeight = -- need to stick with addition because Word64
-            throwM $ RewindLimitExceeded (int limit) parentHeight lastHeight parent
-      where
-        lastHeight = _blockHeight lastHeader
-    failOnTooLowRequestedHeight _ _ = return ()
 
     failNonGenesisOnEmptyDb = error "impossible: playing non-genesis block to empty DB"
 
@@ -409,7 +401,8 @@ rewindTo rewindLimit (Just (ParentHeader parent)) = do
                     withAsync (heightProgress (_blockHeight commonAncestor) heightRef (logInfo_ progressLogger)) $ \_ ->
                       s
                           & S.scanM
-                              (\ !p !c -> runPact (fastForward (ParentHeader p, c)) >> writeIORef heightRef (_blockHeight c) >> return c)
+                              -- no need to re-validate hashes, because these blocks have already been validated
+                              (\ !p !c -> runPact (local (psValidateHashesOnReplay .~ False) $ fastForward (ParentHeader p, c)) >> writeIORef heightRef (_blockHeight c) >> return c)
                               (return h) -- initial parent
                               return
                           & S.length_
@@ -552,7 +545,7 @@ rewindToIncremental
     :: forall tbl
     . HasCallStack
     => CanReadablePayloadCas tbl
-    => Maybe BlockHeight
+    => Maybe RewindLimit
         -- ^ if set, limit rewinds to this delta
     -> Maybe ParentHeader
         -- ^ The parent header which is the rewind target
@@ -580,19 +573,12 @@ rewindToIncremental rewindLimit (Just (ParentHeader parent)) = do
             <> "; target height: " <> sshow parentHeight
             <> "; target hash: " <> blockHashToText parentHash
 
-        failOnTooLowRequestedHeight rewindLimit lastHeader
+        failOnTooLowRequestedHeight parent rewindLimit lastHeader
         playFork lastHeader
 
   where
     parentHeight = _blockHeight parent
     parentHash = _blockHash parent
-
-    failOnTooLowRequestedHeight (Just limit) lastHeader
-        | parentHeight + 1 + limit < lastHeight = -- need to stick with addition because Word64
-            throwM $ RewindLimitExceeded (int limit) parentHeight lastHeight parent
-      where
-        lastHeight = _blockHeight lastHeader
-    failOnTooLowRequestedHeight _ _ = return ()
 
     failNonGenesisOnEmptyDb = error "impossible: playing non-genesis block to empty DB"
 
@@ -654,3 +640,19 @@ heightProgress initialHeight ref logFun = forever $ do
       <> ", current height: " <> sshow h
     threadDelay (20 * 1_000000)
 
+failOnTooLowRequestedHeight
+    :: forall tbl
+    . HasCallStack
+    => CanReadablePayloadCas tbl
+    => BlockHeader
+    -> Maybe RewindLimit
+    -> BlockHeader
+    -> PactServiceM tbl ()
+failOnTooLowRequestedHeight parent (Just limit) lastHeader
+    | parentHeight + 1 + limitHeight < lastHeight = -- need to stick with addition because Word64
+        throwM $ RewindLimitExceeded limit parentHeight lastHeight parent
+  where
+    limitHeight = BlockHeight $ _rewindLimit limit
+    parentHeight = _blockHeight parent
+    lastHeight = _blockHeight lastHeader
+failOnTooLowRequestedHeight _ _ _ = return ()

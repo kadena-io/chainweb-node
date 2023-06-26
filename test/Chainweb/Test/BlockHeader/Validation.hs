@@ -49,10 +49,14 @@ import Chainweb.Difficulty
 import Chainweb.Graph hiding (AdjacentChainMismatch)
 import Chainweb.Test.Orphans.Internal ()
 import Chainweb.Test.Utils.TestHeader
+import Chainweb.Test.TestVersions
 import Chainweb.Time
 import Chainweb.Utils hiding ((==>))
 import Chainweb.Utils.Serialization
 import Chainweb.Version
+import Chainweb.Version.Development
+import Chainweb.Version.Mainnet
+import Chainweb.Version.Testnet
 
 import Numeric.AffineSpace
 
@@ -66,7 +70,7 @@ tests = testGroup "Chainweb.Test.Blockheader.Validation"
     , prop_fail_validate
     , prop_da_validate
     , prop_legacy_da_validate
-    , prop_featureFlag (Test petersonChainGraph) 10
+    , prop_featureFlag (barebonesTestVersion petersonChainGraph) 10
     , testProperty "validate arbitrary test header" prop_validateArbitrary
     , testProperty "validate arbitrary test header for mainnet" $ prop_validateArbitrary Mainnet01
     , testProperty "validate arbitrary test header for testnet" $ prop_validateArbitrary Testnet04
@@ -83,7 +87,7 @@ prop_featureFlag :: ChainwebVersion -> BlockHeight -> TestTree
 prop_featureFlag v h = testCase ("Invalid feature flags fail validation for " <> sshow v) $ do
     hdr <- (blockHeight .~ h)
         . (blockFlags .~ fromJuste (decode "1"))
-        . (blockChainwebVersion .~ v)
+        . (blockChainwebVersion .~ _versionCode v)
         <$> generate arbitrary
     let r = prop_block_featureFlags hdr
     assertBool
@@ -234,7 +238,7 @@ validationFailures =
     , ( hdr & testHeaderHdr . blockChainId .~ unsafeChainId 1
       , [IncorrectHash, IncorrectPow, ChainMismatch, AdjacentChainMismatch]
       )
-    , ( hdr & testHeaderHdr . blockChainwebVersion .~ Development
+    , ( hdr & testHeaderHdr . blockChainwebVersion .~ _versionCode Development
       , [IncorrectHash, IncorrectPow, VersionMismatch, InvalidFeatureFlags, CreatedBeforeParent, AdjacentChainMismatch, InvalidAdjacentVersion]
       )
     , ( hdr & testHeaderHdr . blockWeight .~ 10
@@ -269,7 +273,7 @@ validationFailures =
     , ( hdr & testHeaderHdr . blockAdjacentHashes .~ BlockHashRecord mempty
       , [IncorrectHash, IncorrectPow, AdjacentChainMismatch]
       )
-    , ( hdr & testHeaderAdjs . each . parentHeader . blockChainwebVersion .~ Development
+    , ( hdr & testHeaderAdjs . each . parentHeader . blockChainwebVersion .~ _versionCode Development
       , [InvalidAdjacentVersion]
       )
     , ( hdr & testHeaderAdjs . ix 0 . parentHeader . blockChainId .~ unsafeChainId 0
@@ -351,19 +355,19 @@ daValidation =
     expected = [IncorrectHash, IncorrectPow, AdjacentChainMismatch]
 
     -- From mainnet
-    hdr = set (h . blockChainwebVersion) Development
+    hdr = set (h . blockChainwebVersion) (_versionCode Development)
         $ set (h . blockFlags) mkFeatureFlags
         $ set (h . blockHeight) 600000
         $ set (h . blockEpochStart) (EpochStartTime (hour ^+. epoch))
         $ set (h . blockTarget) ((view (p . blockTarget) hdr'))
         $ set (h . blockCreationTime) (BlockCreationTime (scaleTimeSpan @Int 2 hour ^+. epoch))
 
-        $ set (p . blockChainwebVersion) Development
+        $ set (p . blockChainwebVersion) (_versionCode Development)
         $ set (p . blockCreationTime) (BlockCreationTime (hour ^+. epoch))
         $ set (p . blockEpochStart) (EpochStartTime epoch)
         $ set (p . blockHeight) 599999
 
-        $ set (a . blockChainwebVersion) Development
+        $ set (a . blockChainwebVersion) (_versionCode Development)
         $ set (a . blockCreationTime) (BlockCreationTime (hour ^+. epoch))
         $ set (a . blockTarget) (view (p . blockTarget) hdr')
         $ set (a . blockEpochStart) (EpochStartTime epoch)

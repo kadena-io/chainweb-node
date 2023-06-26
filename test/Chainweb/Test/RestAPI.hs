@@ -41,7 +41,6 @@ import Text.Read (readEither)
 -- internal modules
 
 import Chainweb.BlockHeader
-import Chainweb.BlockHeader.Genesis (genesisBlockHeader)
 import Chainweb.BlockHeaderDB
 import Chainweb.BlockHeaderDB.Internal (unsafeInsertBlockHeaderDb)
 import Chainweb.ChainId
@@ -51,6 +50,7 @@ import Chainweb.RestAPI
 import Chainweb.Test.RestAPI.Client_
 import Chainweb.Test.Utils
 import Chainweb.Test.Utils.BlockHeader
+import Chainweb.Test.TestVersions (barebonesTestVersion)
 import Chainweb.TreeDB
 import Chainweb.Utils
 import Chainweb.Utils.Paging
@@ -103,11 +103,12 @@ tests rdb = testGroup "REST API tests"
 
 tests_ :: RocksDb -> Bool -> [TestTree]
 tests_ rdb tls =
-    [ simpleSessionTests rdb tls version
-    , pagingTests rdb tls version
+    [ simpleSessionTests rdb tls
+    , pagingTests rdb tls
     ]
-  where
-    version = Test singletonChainGraph
+
+version :: ChainwebVersion
+version = barebonesTestVersion singletonChainGraph
 
 -- -------------------------------------------------------------------------- --
 -- Test all endpoints on each chain
@@ -119,10 +120,10 @@ type TestClientEnv_ = TestClientEnv MockTx RocksDbTable
 noMempool :: [(ChainId, MempoolBackend MockTx)]
 noMempool = []
 
-simpleSessionTests :: RocksDb -> Bool -> ChainwebVersion -> TestTree
-simpleSessionTests rdb tls version =
+simpleSessionTests :: RocksDb -> Bool -> TestTree
+simpleSessionTests rdb tls =
     withBlockHeaderDbsResource rdb version $ \dbs ->
-        withBlockHeaderDbsServer tls version dbs (return noMempool)
+        withBlockHeaderDbsServer ValidateSpec tls version dbs (return noMempool)
         $ \env -> testGroup "client session tests"
             $ httpHeaderTests env (head $ toList $ chainIds version)
             : (simpleClientSession env <$> toList (chainIds version))
@@ -140,7 +141,7 @@ httpHeaderTests envIO cid =
         ]
       where
         go name run = testCase name $ do
-            BlockHeaderDbsTestClientEnv env _ version <- liftIO envIO
+            BlockHeaderDbsTestClientEnv env _ _ <- liftIO envIO
             res <- flip runClientM_ env $ modifyResponse checkHeader $
                 run version (genesisBlockHeader version cid)
             assertBool ("test failed: " <> sshow res) (isRight res)
@@ -162,12 +163,12 @@ httpHeaderTests envIO cid =
 simpleClientSession :: IO TestClientEnv_ -> ChainId -> TestTree
 simpleClientSession envIO cid =
     testCaseSteps ("simple session for chain " <> sshow cid) $ \step -> do
-        BlockHeaderDbsTestClientEnv env dbs version <- envIO
-        res <- runClientM (session version dbs step) env
+        BlockHeaderDbsTestClientEnv env dbs _ <- envIO
+        res <- runClientM (session dbs step) env
         assertBool ("test failed: " <> sshow res) (isRight res)
   where
 
-    session version dbs step = do
+    session dbs step = do
 
         let gbh0 = genesisBlockHeader version cid
 
@@ -326,14 +327,14 @@ simpleClientSession envIO cid =
 -- -------------------------------------------------------------------------- --
 -- Paging Tests
 
-pagingTests :: RocksDb -> Bool -> ChainwebVersion -> TestTree
-pagingTests rdb tls version =
-    withBlockHeaderDbsServer tls version
+pagingTests :: RocksDb -> Bool -> TestTree
+pagingTests rdb tls =
+    withBlockHeaderDbsServer ValidateSpec tls version
             (starBlockHeaderDbs 6 $ testBlockHeaderDbs rdb version)
             (return noMempool)
     $ \env -> testGroup "paging tests"
-        [ testPageLimitHeadersClient version env
-        , testPageLimitHashesClient version env
+        [ testPageLimitHeadersClient env
+        , testPageLimitHashesClient env
         ]
 
 pagingTest
@@ -375,7 +376,7 @@ pagingTest name getDbItems getKey fin request envIO = testGroup name
             session step es cid Nothing (Just . Inclusive . getKey . head $ es)
         assertBool ("test limit and next failed: " <> sshow res) (isRight res)
 
-    , testCaseSteps "test limit and next paramter" $ \step -> do
+    , testCaseSteps "test limit and next parameter" $ \step -> do
         BlockHeaderDbsTestClientEnv env [(cid, db)] _ <- envIO
         ents <- getDbItems db
         let l = len ents
@@ -417,12 +418,12 @@ pagingTest name getDbItems getKey fin request envIO = testGroup name
         | n >= len ents = Exclusive . getKey <$> (Just $ last ents)
         | otherwise = Inclusive . getKey <$> listToMaybe (drop (int n) ents)
 
-testPageLimitHeadersClient :: ChainwebVersion -> IO TestClientEnv_ -> TestTree
-testPageLimitHeadersClient version = pagingTest "headersClient" headers key False request
+testPageLimitHeadersClient :: IO TestClientEnv_ -> TestTree
+testPageLimitHeadersClient = pagingTest "headersClient" headers key False request
   where
     request cid l n = headersClient version cid l n Nothing Nothing
 
-testPageLimitHashesClient :: ChainwebVersion -> IO TestClientEnv_ -> TestTree
-testPageLimitHashesClient version = pagingTest "hashesClient" hashes id False request
+testPageLimitHashesClient :: IO TestClientEnv_ -> TestTree
+testPageLimitHashesClient = pagingTest "hashesClient" hashes id False request
   where
     request cid l n = hashesClient version cid l n Nothing Nothing

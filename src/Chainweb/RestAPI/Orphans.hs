@@ -90,10 +90,10 @@ instance FromHttpApiData BlockPayloadHash where
 instance ToHttpApiData BlockPayloadHash where
     toUrlPiece = encodeB64UrlNoPaddingText . runPutS . encodeBlockPayloadHash
 
-instance FromHttpApiData ChainwebVersion where
+instance FromHttpApiData ChainwebVersionName where
     parseUrlPiece = first T.pack . eitherFromText
 
-instance ToHttpApiData ChainwebVersion where
+instance ToHttpApiData ChainwebVersionName where
     toUrlPiece = toText
 
 instance FromHttpApiData ChainId where
@@ -189,3 +189,9 @@ instance ToHttpApiData LocalSignatureVerification where
 
 instance FromHttpApiData LocalSignatureVerification where
     parseUrlPiece = fmap (bool NoVerify Verify) . parseUrlPiece
+
+instance FromHttpApiData RewindDepth where
+    parseUrlPiece = fmap RewindDepth . parseUrlPiece
+
+instance ToHttpApiData RewindDepth where
+    toUrlPiece (RewindDepth k) = toUrlPiece k

@@ -68,7 +68,7 @@ payloadGetClient'
     -> BlockPayloadHash
     -> ClientM_ PayloadData
 payloadGetClient' v c = runIdentity $ do
-    (SomeSing (SChainwebVersion :: Sing v)) <- return $ toSing v
+    (SomeSing (SChainwebVersion :: Sing v)) <- return $ toSing (_versionName v)
     (SomeSing (SChainId :: Sing c)) <- return $ toSing c
     return $ client_ @(PayloadGetApi v c)
 
@@ -78,7 +78,7 @@ outputsGetClient'
     -> BlockPayloadHash
     -> ClientM_ PayloadWithOutputs
 outputsGetClient' v c = runIdentity $ do
-    (SomeSing (SChainwebVersion :: Sing v)) <- return $ toSing v
+    (SomeSing (SChainwebVersion :: Sing v)) <- return $ toSing (_versionName v)
     (SomeSing (SChainId :: Sing c)) <- return $ toSing c
     return $ client_ @(OutputsGetApi v c)
 
@@ -90,7 +90,7 @@ cutGetClient'
     -> Maybe MaxRank
     -> ClientM_ CutHashes
 cutGetClient' v = runIdentity $ do
-    (SomeSing (SChainwebVersion :: Sing v)) <- return $ toSing v
+    (SomeSing (SChainwebVersion :: Sing v)) <- return $ toSing (_versionName v)
     return $ client_ @(CutGetApi v)
 
 cutPutClient'
@@ -98,7 +98,7 @@ cutPutClient'
     -> CutHashes
     -> ClientM_ NoContent
 cutPutClient' v = runIdentity $ do
-    (SomeSing (SChainwebVersion :: Sing v)) <- return $ toSing v
+    (SomeSing (SChainwebVersion :: Sing v)) <- return $ toSing (_versionName v)
     return $ client_ @(CutPutApi v)
 
 -- -------------------------------------------------------------------------- --
@@ -106,7 +106,7 @@ cutPutClient' v = runIdentity $ do
 
 headerClient' :: ChainwebVersion -> ChainId -> BlockHash -> ClientM_ BlockHeader
 headerClient' v c = runIdentity $ do
-    (SomeSing (SChainwebVersion :: Sing v)) <- return $ toSing v
+    (SomeSing (SChainwebVersion :: Sing v)) <- return $ toSing (_versionName v)
     (SomeSing (SChainId :: Sing c)) <- return $ toSing c
     return $ client_ @(HeaderApi v c)
 
@@ -119,7 +119,7 @@ headersClient'
     -> Maybe MaxRank
     -> ClientM_ (Page (NextItem BlockHash) BlockHeader)
 headersClient' v c = runIdentity $ do
-    (SomeSing (SChainwebVersion :: Sing v)) <- return $ toSing v
+    (SomeSing (SChainwebVersion :: Sing v)) <- return $ toSing (_versionName v)
     (SomeSing (SChainId :: Sing c)) <- return $ toSing c
     return $ client_ @(HeadersApi v c)
 
@@ -132,7 +132,7 @@ hashesClient'
     -> Maybe MaxRank
     -> ClientM_ (Page (NextItem BlockHash) BlockHash)
 hashesClient' v c = runIdentity $ do
-    (SomeSing (SChainwebVersion :: Sing v)) <- return $ toSing v
+    (SomeSing (SChainwebVersion :: Sing v)) <- return $ toSing (_versionName v)
     (SomeSing (SChainId :: Sing c)) <- return $ toSing c
     return $ client_ @(HashesApi v c)
 
@@ -146,7 +146,7 @@ branchHashesClient'
     -> BranchBounds BlockHeaderDb
     -> ClientM_ (Page (NextItem BlockHash) BlockHash)
 branchHashesClient' v c = runIdentity $ do
-    (SomeSing (SChainwebVersion :: Sing v)) <- return $ toSing v
+    (SomeSing (SChainwebVersion :: Sing v)) <- return $ toSing (_versionName v)
     (SomeSing (SChainId :: Sing c)) <- return $ toSing c
     return $ client_ @(BranchHashesApi v c)
 
@@ -160,6 +160,6 @@ branchHeadersClient'
     -> BranchBounds BlockHeaderDb
     -> ClientM_ (Page (NextItem BlockHash) BlockHeader)
 branchHeadersClient' v c = runIdentity $ do
-    (SomeSing (SChainwebVersion :: Sing v)) <- return $ toSing v
+    (SomeSing (SChainwebVersion :: Sing v)) <- return $ toSing (_versionName v)
     (SomeSing (SChainId :: Sing c)) <- return $ toSing c
     return $ client_ @(BranchHeadersApi v c)

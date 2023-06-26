@@ -10,7 +10,9 @@
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE StrictData #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE TypeFamilies #-}
 -- |
 -- Module: Chainweb.Pact.Types
 -- Copyright: Copyright © 2018 Kadena LLC.
@@ -74,6 +76,7 @@ module Chainweb.Pact.Types
   , psGasModel
   , psMinerRewards
   , psReorgLimit
+  , psLocalRewindDepthLimit
   , psOnFatalError
   , psVersion
   , psValidateHashesOnReplay
@@ -93,6 +96,7 @@ module Chainweb.Pact.Types
   , ctxToPublicData
   , ctxToPublicData'
   , ctxCurrentBlockHeight
+  , ctxChainId
   , ctxVersion
   , getTxContext
 
@@ -136,18 +140,20 @@ module Chainweb.Pact.Types
   -- * miscellaneous
   , defaultOnFatalError
   , defaultReorgLimit
+  , defaultLocalRewindDepthLimit
   , defaultPactServiceConfig
   , defaultBlockGasLimit
   , defaultModuleCacheLimit
+  , catchesPactError
+  , UnexpectedErrorPrinting(..)
   ) where
 
 import Control.DeepSeq
-import Control.Exception (asyncExceptionFromException, asyncExceptionToException, throw)
+import Control.Exception (asyncExceptionFromException, asyncExceptionToException)
+import Control.Exception.Safe
 import Control.Lens
-import Control.Monad.Catch
 import Control.Monad.Reader
 import Control.Monad.State.Strict
-
 
 import Data.Aeson hiding (Error,(.=))
 import Data.Default (def)
@@ -157,7 +163,6 @@ import Data.Set (Set)
 import qualified Data.Map.Strict as M
 import Data.Text (pack, unpack, Text)
 import Data.Vector (Vector)
-import Data.Word
 
 import GHC.Generics (Generic)
 
@@ -174,7 +179,8 @@ import Pact.Types.Gas
 import qualified Pact.Types.Logger as P
 import Pact.Types.Names
 import Pact.Types.Persistence (ExecutionMode, TxLog)
-import Pact.Types.Runtime (ExecutionConfig(..), ModuleData(..), PactWarning)
+import Pact.Types.Pretty (viaShow)
+import Pact.Types.Runtime (ExecutionConfig(..), ModuleData(..), PactWarning, PactError(..), PactErrorType(..))
 import Pact.Types.SPV
 import Pact.Types.Term
 
@@ -185,6 +191,7 @@ import Chainweb.BlockHash
 import Chainweb.BlockHeader
 import Chainweb.BlockHeight
 import Chainweb.BlockHeaderDB
+import Chainweb.ChainId
 import Chainweb.Mempool.Mempool (TransactionHash)
 import Chainweb.Miner.Pact
 import Chainweb.Logger
@@ -196,6 +203,7 @@ import Chainweb.Time
 import Chainweb.Transaction
 import Chainweb.Utils
 import Chainweb.Version
+import Chainweb.Version.Guards
 
 
 data Transactions r = Transactions
@@ -351,7 +359,10 @@ data PactServiceEnv tbl = PactServiceEnv
     , _psBlockHeaderDb :: !BlockHeaderDb
     , _psGasModel :: TxContext -> GasModel
     , _psMinerRewards :: !MinerRewards
-    , _psReorgLimit :: {-# UNPACK #-} !Word64
+    , _psLocalRewindDepthLimit :: !RewindLimit
+    -- ^ The limit of rewind's depth in the `execLocal` command.
+    , _psReorgLimit :: !RewindLimit
+    -- ^ The limit of checkpointer's rewind in the `execValidationBlock` command.
     , _psOnFatalError :: forall a. PactException -> Text -> IO a
     , _psVersion :: ChainwebVersion
     , _psValidateHashesOnReplay :: !Bool
@@ -386,8 +397,11 @@ instance HasChainId (PactServiceEnv c) where
     _chainId = _chainId . _psBlockHeaderDb
     {-# INLINE _chainId #-}
 
-defaultReorgLimit :: Word64
-defaultReorgLimit = 480
+defaultReorgLimit :: RewindLimit
+defaultReorgLimit = RewindLimit 480
+
+defaultLocalRewindDepthLimit :: RewindLimit
+defaultLocalRewindDepthLimit = RewindLimit 1000
 
 -- | Default limit for the per chain size of the decoded module cache.
 --
@@ -399,7 +413,8 @@ defaultModuleCacheLimit = DbCacheLimitBytes (60 * mebi)
 -- | NOTE this is only used for tests/benchmarks. DO NOT USE IN PROD
 defaultPactServiceConfig :: PactServiceConfig
 defaultPactServiceConfig = PactServiceConfig
-      { _pactReorgLimit = fromIntegral defaultReorgLimit
+      { _pactReorgLimit = defaultReorgLimit
+      , _pactLocalRewindDepthLimit = defaultLocalRewindDepthLimit
       , _pactRevalidate = True
       , _pactQueueSize = 1000
       , _pactResetDb = True
@@ -477,7 +492,7 @@ updateInitCache mc = get >>= \PactServiceState{..} -> do
     psInitCache .= case M.lookupLE pbh _psInitCache of
       Nothing -> M.singleton pbh mc
       Just (_,before)
-        | chainweb217Pact After v pbh || chainweb217Pact At v pbh ->
+        | cleanModuleCache v (_chainId $ _psParentHeader) pbh ->
           M.insert pbh mc _psInitCache
         | otherwise -> M.insert pbh (HM.union mc before) _psInitCache
 
@@ -527,8 +542,11 @@ ctxBlockHeader = _parentHeader . _tcParentHeader
 ctxCurrentBlockHeight :: TxContext -> BlockHeight
 ctxCurrentBlockHeight = succ . _blockHeight . ctxBlockHeader
 
+ctxChainId :: TxContext -> ChainId
+ctxChainId = _blockChainId . ctxBlockHeader
+
 ctxVersion :: TxContext -> ChainwebVersion
-ctxVersion = _blockChainwebVersion . ctxBlockHeader
+ctxVersion = _chainwebVersion . ctxBlockHeader
 
 -- | Assemble tx context from transaction metadata and parent header.
 getTxContext :: PublicMeta -> PactServiceM tbl TxContext
@@ -641,3 +659,16 @@ logError msg = view psLogger >>= \l -> logError_ l msg
 
 logDebug :: String -> PactServiceM tbl ()
 logDebug msg = view psLogger >>= \l -> logDebug_ l msg
+
+data UnexpectedErrorPrinting = PrintsUnexpectedError | CensorsUnexpectedError
+
+catchesPactError :: (MonadCatch m, MonadIO m) => P.Logger -> UnexpectedErrorPrinting -> m a -> m (Either PactError a)
+catchesPactError logger exnPrinting action = catches (Right <$> action)
+  [ Handler $ \(e :: PactError) -> return $ Left e
+  , Handler $ \(e :: SomeException) -> do
+      liftIO $ logWarn_ logger ("catchesPactError: unknown error: " <> sshow e)
+      return $ Left $ PactError EvalError def def $
+        case exnPrinting of
+          PrintsUnexpectedError -> viaShow e
+          CensorsUnexpectedError -> "unknown error"
+  ]

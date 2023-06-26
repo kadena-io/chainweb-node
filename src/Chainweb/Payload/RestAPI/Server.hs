@@ -58,7 +58,7 @@ import Chainweb.Storage.Table
 -- Utils
 
 err404Msg :: ToJSON msg  => msg -> ServerError
-err404Msg msg = err404 { errBody = encode msg }
+err404Msg msg = setErrJSON msg err404
 
 -- -------------------------------------------------------------------------- --
 -- GET Payload Handler
@@ -141,7 +141,7 @@ outputsBatchHandler batchLimit db ks = liftIO
 -- Payload API Server
 
 payloadServer
-    :: forall tbl v c 
+    :: forall tbl v c
     . CanReadablePayloadCas tbl
     => PayloadBatchLimit
     -> PayloadDb' tbl v c

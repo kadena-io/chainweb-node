@@ -111,9 +111,8 @@ peerPutHandler
     -> PeerInfo
     -> Handler NoContent
 peerPutHandler db v nid e = liftIO (guardPeerDb v nid db e) >>= \case
-    Left failure -> throwError $ err400
-        { errBody = "Invalid hostaddress: " <> sshow failure
-        }
+    Left failure ->
+        throwError $ setErrText ("Invalid hostaddress: " <> sshow failure) err400
     Right _ -> NoContent <$ liftIO (peerDbInsert db nid e)
 
 -- -------------------------------------------------------------------------- --
@@ -136,7 +135,7 @@ p2pServer (PeerDbT db) = case sing @_ @n of
         -> peerGetHandler db (MempoolNetwork $ FromSing cid)
         :<|> peerPutHandler db v (MempoolNetwork $ FromSing cid)
   where
-    v = FromSing (SChainwebVersion :: Sing v)
+    v = _chainwebVersion db
 
 -- -------------------------------------------------------------------------- --
 -- Application for a single P2P Network

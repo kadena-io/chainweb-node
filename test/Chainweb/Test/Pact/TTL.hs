@@ -19,8 +19,6 @@ import qualified Data.Vector as V
 
 import Pact.Types.ChainMeta
 
-import System.LogLevel
-
 import Test.Tasty
 import Test.Tasty.HUnit
 
@@ -28,7 +26,6 @@ import Test.Tasty.HUnit
 
 import Chainweb.BlockCreationTime
 import Chainweb.BlockHeader
-import Chainweb.BlockHeader.Genesis
 import Chainweb.BlockHeaderDB hiding (withBlockHeaderDb)
 import Chainweb.BlockHeaderDB.Internal (unsafeInsertBlockHeaderDb)
 import Chainweb.Miner.Pact
@@ -42,6 +39,7 @@ import Chainweb.Payload.PayloadStore
 import Chainweb.Test.Cut.TestBlockDb
 import Chainweb.Test.Pact.Utils
 import Chainweb.Test.Utils
+import Chainweb.Test.TestVersions
 import Chainweb.Time
 import Chainweb.Utils
 import Chainweb.Version
@@ -53,7 +51,7 @@ import Chainweb.Storage.Table.RocksDB
 -- Settings
 
 testVer :: ChainwebVersion
-testVer = FastTimedCPM peterson
+testVer = fastForkingCpmTestVersion peterson
 
 genblock :: BlockHeader
 genblock = genesisBlockHeader testVer (someChainId testVer)
@@ -282,7 +280,7 @@ withTestPact
     -> TestTree
 withTestPact rdb test =
   withResource newEmptyMVar (const $ return ()) $ \mempoolVarIO ->
-    withPactTestBlockDb testVer cid Quiet rdb (mempool mempoolVarIO) defaultPactServiceConfig $ \ios ->
+    withPactTestBlockDb testVer cid rdb (mempool mempoolVarIO) defaultPactServiceConfig $ \ios ->
       test $ do
         (pq,bdb) <- ios
         mp <- mempoolVarIO

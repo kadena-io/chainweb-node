@@ -68,9 +68,6 @@ module P2P.Peer
 , unsafeCreatePeer
 , getPeerCertificate
 
--- * Bootstrap Peer Infos
-, bootstrapPeerInfos
-
 ) where
 
 import Configuration.Utils hiding (Lens')
@@ -104,11 +101,8 @@ import Servant.Client
 
 import Chainweb.HostAddress
 import Chainweb.Utils hiding (check)
-import Chainweb.Version
 
 import Network.X509.SelfSigned
-
-import P2P.BootstrapNodes
 
 -- -------------------------------------------------------------------------- --
 -- Peer Id
@@ -476,47 +470,3 @@ instance FromJSON Peer where
         <*> o .: "key"
     {-# INLINE parseJSON #-}
 
--- -------------------------------------------------------------------------- --
--- Bootstrap Peer Info
-
--- | For each chainweb version there is a hardcoded set of bootstrap nodes for
--- the P2P network.
---
--- If a bootstrap node has an public DNS name with an official TLS certificate
--- the peer-id should be omitted. For bootstrap nodes without an proper
--- certificate, the peer id is the SHA256 hash of the X509 certificate.
---
-bootstrapPeerInfos :: ChainwebVersion -> [PeerInfo]
-bootstrapPeerInfos Test{} = [testBootstrapPeerInfos]
-bootstrapPeerInfos TimedConsensus{} = [testBootstrapPeerInfos]
-bootstrapPeerInfos PowConsensus{} = [testBootstrapPeerInfos]
-bootstrapPeerInfos TimedCPM{} = [testBootstrapPeerInfos]
-bootstrapPeerInfos FastTimedCPM{} = [testBootstrapPeerInfos]
-bootstrapPeerInfos Development = []
-bootstrapPeerInfos Testnet04 = domainAddr2PeerInfo testnetBootstrapHosts
-bootstrapPeerInfos Mainnet01 = domainAddr2PeerInfo mainnetBootstrapHosts
-
-testBootstrapPeerInfos :: PeerInfo
-testBootstrapPeerInfos =
-    PeerInfo
-#if WITH_ED25519
-        { _peerId = Just $ unsafeFromText "BMe2hSdSEGCzLwvoYXPuB1BqYEH5wiV5AvacutSGWmg"
-#else
-        { _peerId = Just $ unsafeFromText "9LkpIG95q5cs0YJg0d-xdR2YLeW_puv1PjS2kEfmEuQ"
-#endif
-            -- this is the fingerprint of the certificate and key that is stored
-            -- in ./scripts/test-bootstrap-node.config". For programatic use of
-            -- the same certificate is also available at
-            -- "Chainweb.Test.P2P.Peer.BootstrapConfig". It is intended for
-            -- testing purposes only.
-
-        , _peerAddr = HostAddress
-            { _hostAddressHost = localhost
-            , _hostAddressPort = 1789
-            }
-        }
-
--- | Official testnet bootstrap nodes
---
-domainAddr2PeerInfo :: [HostAddress] -> [PeerInfo]
-domainAddr2PeerInfo = fmap (PeerInfo Nothing)

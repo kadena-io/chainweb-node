@@ -18,7 +18,7 @@ import Control.Monad.IO.Class
 import qualified Data.HashMap.Strict as HM
 import qualified Data.Map.Strict as M
 import Data.List (intercalate)
-import qualified Data.Text.IO as T
+import qualified Data.Text as T
 
 import GHC.Generics
 
@@ -35,8 +35,8 @@ import Pact.Types.Term
 -- chainweb imports
 
 import Chainweb.BlockHeader
-import Chainweb.BlockHeader.Genesis
 import Chainweb.ChainId
+import Chainweb.Graph
 import Chainweb.Logger
 import Chainweb.Miner.Pact
 import Chainweb.Pact.Backend.Types
@@ -49,6 +49,7 @@ import Chainweb.Test.Cut
 import Chainweb.Test.Cut.TestBlockDb
 import Chainweb.Test.Utils
 import Chainweb.Test.Pact.Utils
+import Chainweb.Test.TestVersions(fastForkingCpmTestVersion)
 import Chainweb.Utils (T2(..))
 import Chainweb.Version
 import Chainweb.WebBlockHeaderDB
@@ -56,7 +57,7 @@ import Chainweb.WebBlockHeaderDB
 import Chainweb.Storage.Table.RocksDB
 
 testVer :: ChainwebVersion
-testVer = FastTimedCPM singleton
+testVer = fastForkingCpmTestVersion singletonChainGraph
 
 testChainId :: ChainId
 testChainId = unsafeChainId 0
@@ -79,31 +80,31 @@ tests rdb =
       withTestBlockDbTest testVer rdb $ \bdbio ->
       withTempSQLiteResource $ \ioSqlEnv ->
       testGroup label
-      [ testCase "testInitial" $ withPact' bdbio ioSqlEnv iom testInitial
+      [ testCaseSteps "testInitial" $ withPact' bdbio ioSqlEnv iom testInitial
       , after AllSucceed "testInitial" $
-        testCase "testRestart1" $ withPact' bdbio ioSqlEnv iom testRestart
+        testCaseSteps "testRestart1" $ withPact' bdbio ioSqlEnv iom testRestart
       , after AllSucceed "testRestart1" $
         -- wow, Tasty thinks there's a "loop" if the following test is called "testCoinbase"!!
-        testCase "testDoUpgrades" $ withPact' bdbio ioSqlEnv iom (testCoinbase bdbio)
+        testCaseSteps "testDoUpgrades" $ withPact' bdbio ioSqlEnv iom (testCoinbase bdbio)
       , after AllSucceed "testDoUpgrades" $
-        testCase "testRestart2" $ withPact' bdbio ioSqlEnv iom testRestart
+        testCaseSteps "testRestart2" $ withPact' bdbio ioSqlEnv iom testRestart
       , after AllSucceed "testRestart2" $
-        testCase "testV3" $ withPact' bdbio ioSqlEnv iom (testV3 bdbio rewindDataM)
+        testCaseSteps "testV3" $ withPact' bdbio ioSqlEnv iom (testV3 bdbio rewindDataM)
       , after AllSucceed "testV3" $
-        testCase "testRestart3"$ withPact' bdbio ioSqlEnv iom testRestart
+        testCaseSteps "testRestart3"$ withPact' bdbio ioSqlEnv iom testRestart
       , after AllSucceed "testRestart3" $
-        testCase "testV4" $ withPact' bdbio ioSqlEnv iom (testV4 bdbio rewindDataM)
+        testCaseSteps "testV4" $ withPact' bdbio ioSqlEnv iom (testV4 bdbio rewindDataM)
       , after AllSucceed "testV4" $
-        testCase "testRestart4" $ withPact' bdbio ioSqlEnv iom testRestart
+        testCaseSteps "testRestart4" $ withPact' bdbio ioSqlEnv iom testRestart
       , after AllSucceed "testRestart4" $
-        testCase "testRewindAfterFork" $ withPact' bdbio ioSqlEnv iom (testRewindAfterFork bdbio rewindDataM)
+        testCaseSteps "testRewindAfterFork" $ withPact' bdbio ioSqlEnv iom (testRewindAfterFork bdbio rewindDataM)
       , after AllSucceed "testRewindAfterFork" $
-        testCase "testRewindBeforeFork" $ withPact' bdbio ioSqlEnv iom (testRewindBeforeFork bdbio rewindDataM)
+        testCaseSteps "testRewindBeforeFork" $ withPact' bdbio ioSqlEnv iom (testRewindBeforeFork bdbio rewindDataM)
       , after AllSucceed "testRewindBeforeFork" $
-        testCase "testCw217CoinOnly" $ withPact' bdbio ioSqlEnv iom $
+        testCaseSteps "testCw217CoinOnly" $ withPact' bdbio ioSqlEnv iom $
           testCw217CoinOnly bdbio rewindDataM
       , after AllSucceed "testCw217CoinOnly" $
-        testCase "testRestartCw217" $
+        testCaseSteps "testRestartCw217" $
         withPact' bdbio ioSqlEnv iom testRestart
       ]
   where
@@ -205,7 +206,7 @@ testCw217CoinOnly iobdb _rewindM = (go, go')
   where
     go = do
       initPayloadState
-      void $ doNextCoinbaseN_ 9 iobdb
+      void $ doNextCoinbaseN_ 8 iobdb
 
     go' ioa initCache = do
       snapshotCache ioa initCache
@@ -272,14 +273,15 @@ withPact'
     -> IO SQLiteEnv
     -> IO (MVar ModuleInitCache)
     -> CacheTest RocksDbTable
+    -> (String -> IO ())
     -> Assertion
-withPact' bdbio ioSqlEnv r (ps, cacheTest) = do
+withPact' bdbio ioSqlEnv r (ps, cacheTest) tastylog = do
     bdb <- bdbio
     bhdb <- getWebBlockHeaderDb (_bdbWebBlockHeaderDb bdb) testChainId
     let pdb = _bdbPayloadDb bdb
     sqlEnv <- ioSqlEnv
-    T2 _ pstate <- runPactService'
+    T2 _ pstate <- withPactService
         testVer testChainId logger bhdb pdb sqlEnv defaultPactServiceConfig ps
     cacheTest r (_psInitCache pstate)
   where
-    logger = genericLogger Quiet T.putStrLn
+    logger = genericLogger Quiet (tastylog . T.unpack)

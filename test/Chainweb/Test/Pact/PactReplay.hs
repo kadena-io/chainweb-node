@@ -19,7 +19,6 @@ import qualified Data.Text as T
 import qualified Data.Vector as V
 import Data.Word
 
-import System.LogLevel
 import System.Timeout
 
 import Test.Tasty
@@ -29,8 +28,8 @@ import Test.Tasty.HUnit
 
 import Chainweb.BlockCreationTime
 import Chainweb.BlockHeader
-import Chainweb.BlockHeader.Genesis
 import Chainweb.BlockHeaderDB.Internal (unsafeInsertBlockHeaderDb)
+import Chainweb.Graph
 import Chainweb.Test.Cut.TestBlockDb
 import Chainweb.Miner.Pact
 import Chainweb.Pact.Backend.Types
@@ -41,6 +40,7 @@ import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
 import Chainweb.Test.Pact.Utils
 import Chainweb.Test.Utils
+import Chainweb.Test.TestVersions
 import Chainweb.Time
 import Chainweb.TreeDB
 import Chainweb.Utils (sshow, tryAllSynchronous, catchAllSynchronous, T3(..))
@@ -53,7 +53,7 @@ import Chainweb.Storage.Table
 import Chainweb.Storage.Table.RocksDB
 
 testVer :: ChainwebVersion
-testVer = FastTimedCPM peterson
+testVer = fastForkingCpmTestVersion petersonChainGraph
 
 cid :: ChainId
 cid = someChainId testVer
@@ -66,21 +66,21 @@ tests rdb =
         mpio = fst <$> dmp
     in
     testGroup label
-        [ withPactTestBlockDb testVer cid Warn rdb mp (forkLimit 100_000)
+        [ withPactTestBlockDb testVer cid rdb mp (forkLimit $ RewindLimit 100_000)
             (testCase "initial-playthrough" . firstPlayThrough mpio genblock)
         , after AllSucceed "initial-playthrough" $
-            withPactTestBlockDb testVer cid Warn rdb mp (forkLimit 100_000)
+            withPactTestBlockDb testVer cid rdb mp (forkLimit $ RewindLimit 100_000)
                 (testCase "service-init-after-fork" . serviceInitializationAfterFork mpio genblock)
         , after AllSucceed "service-init-after-fork" $
-            withPactTestBlockDb testVer cid Warn rdb mp (forkLimit 100_000)
+            withPactTestBlockDb testVer cid rdb mp (forkLimit $ RewindLimit 100_000)
                 (testCaseSteps "on-restart" . onRestart mpio)
         , after AllSucceed "on-restart" $
-            withPactTestBlockDb testVer cid Quiet rdb mp (forkLimit 100_000)
+            withPactTestBlockDb testVer cid rdb mp (forkLimit $ RewindLimit 100_000)
             (testCase "reject-dupes" . testDupes mpio genblock)
         , after AllSucceed "reject-dupes" $
-            let deepForkLimit = 4
-            in withPactTestBlockDb testVer cid Quiet rdb mp (forkLimit deepForkLimit)
-                (testCaseSteps "deep-fork-limit" . testDeepForkLimit mpio (fromIntegral deepForkLimit))
+            let deepForkLimit = RewindLimit 4
+            in withPactTestBlockDb testVer cid rdb mp (forkLimit deepForkLimit)
+                (testCaseSteps "deep-fork-limit" . testDeepForkLimit mpio deepForkLimit)
         ]
   where
     genblock = genesisBlockHeader testVer cid
@@ -263,11 +263,11 @@ testDupes mpio genesisBlock iop = do
 
 testDeepForkLimit
   :: IO (IORef MemPoolAccess)
-  -> Word64
+  -> RewindLimit
   -> IO (PactQueue,TestBlockDb)
   -> (String -> IO ())
   -> Assertion
-testDeepForkLimit mpio deepForkLimit iop step = do
+testDeepForkLimit mpio (RewindLimit deepForkLimit) iop step = do
     setOneShotMempool mpio testMemPoolAccess
     bdb <- snd <$> iop
     bhdb <- getBlockHeaderDb cid bdb

@@ -3,38 +3,40 @@ packages: chainweb.cabal
 debug-info: True
 
 -- -------------------------------------------------------------------------- --
+-- Platform specific locations of external libraries
+
+if os(darwin)
+    if arch(aarch64)
+        package *
+            extra-include-dirs:
+                /opt/homebrew/include
+                /opt/homebrew/opt/openssl/include
+            extra-lib-dirs:
+                /opt/homebrew/lib
+                /opt/homebrew/opt/openssl/lib
+    else
+        package *
+            extra-include-dirs:
+                /opt/local/include
+                /usr/local/opt/openssl/include
+            extra-lib-dirs:
+                /opt/local/lib
+                /usr/local/opt/openssl/lib/
+
+-- -------------------------------------------------------------------------- --
 -- Package Specific Build Settings
 
 package chainweb
     tests: True
     benchmarks: True
-    extra-include-dirs:
-      /opt/local/include
-      /usr/local/opt/openssl/include
-    extra-lib-dirs:
-      /opt/local/lib
-      /usr/local/opt/openssl/lib/
 
 package pact
     ghc-options: -Wwarn
     -- avoid conflict with cryptonite during linking
-    flags: +cryptonite-ed25519 -build-tool +no-advice
+    flags: +cryptonite-ed25519 -build-tool
 
-package ethereum
-    extra-include-dirs:
-      /opt/local/include
-      /usr/local/opt/openssl/include
-    extra-lib-dirs:
-      /opt/local/lib
-      /usr/local/opt/openssl/lib/
-
-package hashes
-    extra-include-dirs:
-      /opt/local/include
-      /usr/local/opt/openssl/include
-    extra-lib-dirs:
-      /opt/local/lib
-      /usr/local/opt/openssl/lib/
+package rocksdb-haskell-kadena
+    ghc-options: -Wwarn -optc-w -optcxx-w
 
 package aeson
     flags: +cffi
@@ -50,31 +52,47 @@ package yet-another-logger
 
 -- -------------------------------------------------------------------------- --
 -- Source Repository Packages
+--
+-- In order to determine proper sha256 value each time the revision is
+-- changed, please run the following command:
+--
+--   nix-prefetch-git --url <location> --rev <tag>
 
 source-repository-package
     type: git
     location: https://github.com/kadena-io/pact.git
-    tag: 842fbc4256b3cbbde337dbeaa393b649a26f1574
+    tag: 456aa65ef45596458488ed59e7167621b40e6139
+    --sha256: sha256-J2Rh2EXczT4QzOM/agOzxq1UPdU6aNPDo3fnfeoVRbA=
 
 source-repository-package
     type: git
     location: https://github.com/kadena-io/chainweb-storage.git
-    tag: af9f42c78bcd703ac382cfd8101c6d1c66a035f1
+    tag: 4b45c1ab9c070c6d16a058bcbab0c06ac0fb6d4e
+    --sha256: 0m6c7kl6x5a3k02q2i7qzfx91kxz19dzav0piqfxra52bq0x3sm6
 
 source-repository-package
     type: git
     location: https://github.com/kadena-io/rocksdb-haskell.git
-    tag: c2b3dd8bb714a12ea6763565d168a03df38fcc58
+    tag: b35d82bad2194a916c821457069388410662b58c
+    --sha256: 0p60xjqv7ayy6vh263id6l2fpa4rr95vnhisa691ix9h8rnwc7hk
 
 source-repository-package
     type: git
     location: https://github.com/kadena-io/rosetta.git
     tag: 6c8dd2eea1f6d0dba925646dbcb6e07feeccbfd5
+    --sha256: sha256-EE8A/5wJYqIfx1uz/v3QjWCFgaeVLf/fi1r03A3w8qY=
 
 source-repository-package
     type: git
     location: https://github.com/kadena-io/kadena-ethereum-bridge.git
-    tag: 10f21e96af1dce4f13e261be9dfad8c28cd299f7
+    tag: a0fde0d7066e676288ee3f6e52cdc7edbd48af9d
+    --sha256: 1ph65jak6188yrfp519pi18gdjgprmgi07z9s8sld7mn1dw8sc9g
+
+source-repository-package
+    type: git
+    location: https://github.com/kadena-io/wai-middleware-validation.git
+    tag: f783ba7fc52e161b245d82acadffc4517bc8cdf5
+    --sha256: 182yffj2rbv2asmq589r16mb45q9d0gvdhsxvsnmjyw89dcpyadn
 
 -- Required for GHC-9:
 
@@ -83,6 +101,7 @@ source-repository-package
     type: git
     location: https://github.com/larskuhtz/ixset-typed
     tag: d8019c3404d6f3b3c0b0416e9899cfdf614ef425
+    --sha256: sha256-AwS/uqzUQrTUgxEHNjpX65JKFcaOuZN+03mI16JXuiY=
 
 -- -------------------------------------------------------------------------- --
 -- Relaxed Bounds
@@ -92,6 +111,14 @@ source-repository-package
 allow-newer: token-bucket:*
 allow-newer: ixset-typed:*
 allow-newer: hashable:*
+
+-- wai-middleware-validation dependencies
+
+allow-newer: wai-middleware-validation:*
+allow-newer: validation:*
+allow-newer: these:*
+allow-newer: regex-base:*
+allow-newer: regex-tdfa:*
 
 -- -------------------------------------------------------------------------- --
 -- Upper Bounds

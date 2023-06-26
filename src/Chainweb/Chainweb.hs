@@ -110,7 +110,6 @@ import Control.Monad
 import Control.Monad.Catch (fromException, throwM)
 import Control.Monad.Writer
 
-import Data.Bifunctor (second)
 import Data.Foldable
 import Data.Function (on)
 import qualified Data.HashMap.Strict as HM
@@ -158,6 +157,7 @@ import qualified Chainweb.Mempool.InMemTypes as Mempool
 import qualified Chainweb.Mempool.Mempool as Mempool
 import Chainweb.Mempool.P2pConfig
 import Chainweb.Miner.Config
+import qualified Chainweb.OpenAPIValidation as OpenAPIValidation
 import Chainweb.Pact.RestAPI.Server (PactServerData(..))
 import Chainweb.Pact.Service.Types (PactServiceConfig(..))
 import Chainweb.Pact.Validations
@@ -169,6 +169,7 @@ import Chainweb.Transaction
 import Chainweb.Utils
 import Chainweb.Utils.RequestLog
 import Chainweb.Version
+import Chainweb.Version.Guards
 import Chainweb.WebBlockHeaderDB
 import Chainweb.WebPactExecutionService
 
@@ -254,7 +255,7 @@ withChainweb c logger rocksDb pactDbDir backupDir resetDb inner =
     confWithBootstraps
         | _p2pConfigIgnoreBootstrapNodes (_configP2p c) = c
         | otherwise = configP2p . p2pConfigKnownPeers
-            %~ (\x -> L.nub $ x <> bootstrapPeerInfos v) $ c
+            %~ (\x -> L.nub $ x <> _versionBootstraps v) $ c
 
 -- TODO: The type InMempoolConfig contains parameters that should be
 -- configurable as well as parameters that are determined by the chainweb
@@ -278,7 +279,7 @@ validatingMempoolConfig cid v gl gp mv = Mempool.InMemConfig
     , Mempool._inmemCurrentTxsSize = currentTxsSize
     }
   where
-    txcfg = Mempool.chainwebTransactionConfig Nothing
+    txcfg = Mempool.chainwebTransactionConfig (maxBound :: PactParserVersion)
         -- The mempool doesn't provide a chain context to the codec which means
         -- that the latest version of the parser is used.
 
@@ -362,7 +363,8 @@ withChainwebInternal
     -> IO ()
 withChainwebInternal conf logger peer serviceSock rocksDb pactDbDir backupDir resetDb inner = do
 
-    initializePayloadDb v payloadDb
+    unless (_configOnlySyncPact conf) $
+        initializePayloadDb v payloadDb
 
     -- Garbage Collection
     -- performed before PayloadDb and BlockHeaderDb used by other components
@@ -385,7 +387,7 @@ withChainwebInternal conf logger peer serviceSock rocksDb pactDbDir backupDir re
         (\cid x -> do
             let mcfg = validatingMempoolConfig cid v (_configBlockGasLimit conf) (_configMinGasPrice conf)
             -- NOTE: the gas limit may be set based on block height in future, so this approach may not be valid.
-            let maxGasLimit = fromIntegral <$> maxBlockGasLimit v cid maxBound
+            let maxGasLimit = fromIntegral <$> maxBlockGasLimit v maxBound
             when (Just (_configBlockGasLimit conf) > maxGasLimit) $
                 logg Warn "configured block gas limit is greater than the maximum for this chain; the maximum will be used instead"
             withChainResources
@@ -409,7 +411,8 @@ withChainwebInternal conf logger peer serviceSock rocksDb pactDbDir backupDir re
   where
     pactConfig maxGasLimit = PactServiceConfig
       { _pactReorgLimit = _configReorgLimit conf
-      , _pactRevalidate = _configValidateHashesOnReplay conf
+      , _pactLocalRewindDepthLimit = _configLocalRewindDepthLimit conf
+      , _pactRevalidate = True
       , _pactQueueSize = _configPactQueueSize conf
       , _pactResetDb = resetDb
       , _pactAllowReadsInLocal = _configAllowReadsInLocal conf
@@ -636,21 +639,45 @@ runChainweb
     -> IO ()
 runChainweb cw = do
     logg Info "start chainweb node"
+    mkValidationMiddleware <- interleaveIO $
+        OpenAPIValidation.mkValidationMiddleware (_chainwebLogger cw) (_chainwebVersion cw) (_chainwebManager cw)
+    p2pValidationMiddleware <-
+        if _p2pConfigValidateSpec (_configP2p $ _chainwebConfig cw)
+        then do
+            logg Warn $ "OpenAPI spec validation enabled on P2P API, make sure this is what you want"
+            mkValidationMiddleware
+        else return id
+    serviceApiValidationMiddleware <-
+        if _serviceApiConfigValidateSpec (_configServiceApi $ _chainwebConfig cw)
+        then do
+            logg Warn $ "OpenAPI spec validation enabled on service API, make sure this is what you want"
+            mkValidationMiddleware
+        else return id
+
     concurrentlies_
-        -- 1. Start serving P2P API
+
+        -- 1. Start serving Rest API
         [ (if tls then serve else servePlain)
             $ httpLog
             . throttle (_chainwebPutPeerThrottler cw)
             . throttle (_chainwebMempoolThrottler cw)
             . throttle (_chainwebThrottler cw)
             . p2pRequestSizeLimit
+            . p2pValidationMiddleware
+
         -- 2. Start Clients (with a delay of 500ms)
         , threadDelay 500000 >> clients
-        -- 3. Start serving the service API
-        , threadDelay 500000 >> serveServiceApi (serviceHttpLog . serviceRequestSizeLimit)
+
+        -- 3. Start serving local API
+        , threadDelay 500000 >> do
+            serveServiceApi
+                $ serviceHttpLog
+                . serviceRequestSizeLimit
+                . serviceApiValidationMiddleware
         ]
 
   where
+
     tls = _p2pConfigTls $ _configP2p $ _chainwebConfig cw
 
     clients :: IO ()
@@ -674,7 +701,7 @@ runChainweb cw = do
 
     -- collect server resources
     proj :: forall a . (ChainResources logger -> a) -> [(ChainId, a)]
-    proj f = map (second f) chains
+    proj f = chains & mapped . _2 %~ f
 
     chainDbsToServe :: [(ChainId, BlockHeaderDb)]
     chainDbsToServe = proj _chainResBlockHeaderDb
@@ -846,15 +873,9 @@ runChainweb cw = do
     mempoolSyncClients :: IO [IO ()]
     mempoolSyncClients = case enabledConfig mempoolP2pConfig of
         Nothing -> disabled
-        Just c -> case _chainwebVersion cw of
-            Test{} -> disabled
-            TimedConsensus{} -> disabled
-            PowConsensus{} -> disabled
-            TimedCPM{} -> enabled c
-            FastTimedCPM{} -> enabled c
-            Development -> enabled c
-            Testnet04 -> enabled c
-            Mainnet01 -> enabled c
+        Just c
+            | cw ^. chainwebVersion . versionDefaults . disableMempoolSync -> disabled
+            | otherwise -> enabled c
       where
         disabled = do
             logg Info "Mempool p2p sync disabled"

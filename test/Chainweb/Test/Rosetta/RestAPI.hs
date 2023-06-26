@@ -10,7 +10,6 @@ module Chainweb.Test.Rosetta.RestAPI
 ( tests
 ) where
 
-
 import Control.Concurrent.Async
 import Control.Concurrent.MVar
 import Control.Lens
@@ -46,13 +45,17 @@ import qualified Pact.Types.PactValue as P
 
 -- internal chainweb modules
 
+import Chainweb.BlockHeight
 import Chainweb.Graph
 import Chainweb.Pact.Utils (aeson)
-import Chainweb.Pact.Transactions.UpgradeTransactions
+import qualified Chainweb.Pact.Transactions.OtherTransactions as Other
+import qualified Chainweb.Pact.Transactions.CoinV3Transactions as CoinV3
+import qualified Chainweb.Pact.Transactions.MainnetKADTransactions as MNKAD
 import Chainweb.Rosetta.Utils
 import Chainweb.Test.Pact.Utils
 import Chainweb.Test.RestAPI.Utils
 import Chainweb.Test.Utils
+import Chainweb.Test.TestVersions
 import Chainweb.Time (Time(..), Micros(..))
 import Chainweb.Utils
 import Chainweb.Version
@@ -68,7 +71,7 @@ import System.IO.Unsafe (unsafePerformIO)
 -- Global Settings
 
 v :: ChainwebVersion
-v = FastTimedCPM petersonChainGraph
+v = fastForkingCpmTestVersion petersonChainGraph
 
 nodes :: Natural
 nodes = 1
@@ -96,6 +99,9 @@ gasCost units = realToFrac units * defGasPrice
 defMiningReward :: Decimal
 defMiningReward = 2.304523
 
+transferGasCost :: Decimal
+transferGasCost = gasCost 700
+
 type RosettaTest = IO (Time Micros) -> IO ClientEnv -> ScheduledTest
 
 -- -------------------------------------------------------------------------- --
@@ -105,7 +111,7 @@ tests :: RocksDb -> ScheduledTest
 tests rdb = testGroupSch "Chainweb.Test.Rosetta.RestAPI" go
   where
     go = return $
-      withNodes v "rosettaRemoteTests-" rdb nodes $ \envIo ->
+      withNodesAtLatestBehavior v "rosettaRemoteTests-" rdb nodes $ \envIo ->
       withTime $ \tio -> testGroup "Rosetta Api tests" $
         schedule Sequential (tgroup tio $ _getServiceClientEnv <$> envIo)
 
@@ -122,9 +128,7 @@ tests rdb = testGroupSch "Chainweb.Test.Rosetta.RestAPI" go
     --
 
     tgroup tio envIo = fmap (\test -> test tio envIo)
-      [ blockTests "Block Test with transfer and potential coin v2 remediation"
-      , blockTests "Block Test with transfer and potential chain 20 remediation"
-      , blockTransactionTests
+      [ blockTransactionTests
       , blockCoinV2RemediationTests
       , block20ChainRemediationTests
       , blockTests "Block Test without potential remediation"
@@ -136,8 +140,6 @@ tests rdb = testGroupSch "Chainweb.Test.Rosetta.RestAPI" go
       , blockKAccountAfterPact420
       , constructionTransferTests
       , blockCoinV3RemediationTests
-      -- Note (linda): The order of the above tests matters.
-      -- So when adding new tests, add to the bottom of the list if possible.
       ]
 
 -- | Rosetta account balance endpoint tests
@@ -148,14 +150,15 @@ accountBalanceTests tio envIo =
       step "check initial balance"
       cenv <- envIo
       resp0 <- accountBalance cenv req
-      checkBalance resp0 99999995.7812
+      let startBal = 99999997.8600
+      checkBalance resp0 startBal
 
       step "send 1.0 tokens to sender00 from sender01"
       void $! transferOneAsync_ cid tio cenv (void . return)
 
       step "check post-transfer and gas fees balance"
       resp1 <- accountBalance cenv req
-      checkBalance resp1 99999994.7265
+      checkBalance resp1 (startBal - transferGasCost - 1)
   where
     req = AccountBalanceReq nid (AccountId "sender00" Nothing Nothing) Nothing
 
@@ -226,8 +229,6 @@ blockTransactionTests tio envIo =
       validateOp 4 "GasPayment" noMinerks Successful transferGasCost reward
 
   where
-    transferGasCost = gasCost 547
-
     mkTxReq rkmv prs = do
       rk <- NEL.head . _rkRequestKeys <$> takeMVar rkmv
       meta <- extractMetadata rk prs
@@ -262,7 +263,6 @@ blockTests testname tio envIo = testCaseSchSteps testname $ \step -> do
     validateTransferResp bh resp1
   where
     req h = BlockReq nid $ PartialBlockId (Just h) Nothing
-    transferGasCost = gasCost 547
 
     validateTransferResp bh resp = do
       _blockResp_otherTransactions resp @?= Nothing
@@ -274,23 +274,6 @@ blockTests testname tio envIo = testCaseSchSteps testname $ \step -> do
             _blockId_index (_block_parentBlockId b) @?= (bh - 1)
 
             case _block_transactions b of
-              [x,r1,r2,y] -> do
-                -- coin v2 remediation block.
-                -- No coin table remediation for this version.
-                let ops = _transaction_operations x <> _transaction_operations r1 <>
-                          _transaction_operations r2 <> _transaction_operations y
-                case ops of
-                  [a,b',c,d,e,f] -> validateTxs Nothing a b' c d e f
-                  _ -> assertFailure "should have 6 ops: coinbase + 5 for transfer tx"
-
-              [x,r1,y] -> do
-                -- 20 chain remediation block
-                let ops = _transaction_operations x <> _transaction_operations r1 <>
-                          _transaction_operations y
-                case ops of
-                  [a,rop1, b',c,d,e,f] -> validateTxs (Just rop1) a b' c d e f
-                  _ -> assertFailure "should have 7 ops: coinbase + 20 chain rem + 5 for transfer tx"
-
               [x,y] -> do
                 -- not a remediation block
                 let ops = _transaction_operations x <> _transaction_operations y
@@ -302,7 +285,7 @@ blockTests testname tio envIo = testCaseSchSteps testname $ \step -> do
 
       validateBlock $ _blockResp_block resp
 
-    validateTxs remeds cbase fundtx cred deb redeem reward = do
+    validateTxs remeds cbase fundtx cred deb gasRedeem gasReward = do
 
       -- coinbase is considered a separate tx list
       validateOp 0 "CoinbaseReward" noMinerks Successful defMiningReward cbase
@@ -316,8 +299,8 @@ blockTests testname tio envIo = testCaseSchSteps testname $ \step -> do
       validateOp 0 "FundTx" sender00ks Successful (negate defFundGas) fundtx
       validateOp 1 "TransferOrCreateAcct" sender01ks Successful 1.0 cred
       validateOp 2 "TransferOrCreateAcct" sender00ks Successful (negate 1.0) deb
-      validateOp 3 "GasPayment" sender00ks Successful (defFundGas - transferGasCost) redeem
-      validateOp 4 "GasPayment" noMinerks Successful transferGasCost reward
+      validateOp 3 "GasPayment" sender00ks Successful (defFundGas - transferGasCost) gasRedeem
+      validateOp 4 "GasPayment" noMinerks Successful transferGasCost gasReward
 
 blockCoinV2RemediationTests :: RosettaTest
 blockCoinV2RemediationTests _ envIo =
@@ -337,7 +320,7 @@ blockCoinV2RemediationTests _ envIo =
     case _block_transactions b of
       x:y:z:_ -> do
         step "check remediation transactions' request keys"
-        [ycmd, zcmd] <- upgradeTransactions v cid
+        [ycmd, zcmd] <- return Other.transactions
         _transaction_transactionId y @?= pactHashToTransactionId (_cmdHash ycmd)
         _transaction_transactionId z @?= pactHashToTransactionId (_cmdHash zcmd)
 
@@ -353,7 +336,7 @@ blockCoinV2RemediationTests _ envIo =
       _ -> assertFailure $ "coin v2 remediation block should have at least 3 transactions:"
            ++ " coinbase + 2 remediations"
   where
-    bhCoinV2Rem = 1
+    bhCoinV2Rem = v ^?! versionForks . at CoinV2 . _Just . onChain cid . to getBlockHeight
     req h = BlockReq nid $ PartialBlockId (Just h) Nothing
 
 block20ChainRemediationTests :: RosettaTest
@@ -374,7 +357,7 @@ block20ChainRemediationTests _ envIo =
     case _block_transactions b of
       x:y:_ -> do
         step "check remediation transactions' request keys"
-        [ycmd] <- twentyChainUpgradeTransactions v cidChain3
+        [ycmd] <- return MNKAD.transactions
         _transaction_transactionId y @?= pactHashToTransactionId (_cmdHash ycmd)
 
         step "check remediation transactions' operations"
@@ -388,13 +371,10 @@ block20ChainRemediationTests _ envIo =
       _ -> assertFailure $ "20 chain remediation block should have at least 2 transactions:"
            ++ " coinbase + 1 remediations"
   where
-    {-- NOTE: FastTimedCPM 20 chain remediations occurs on chain 3 and block height 2.
-              See Chainweb.Pact.Transactions.UpgradeTransactions and Chainweb.Version. --}
-    cidChain3 = unsafeChainId 3
     bhChain20Rem = 2
     nidChain3 = NetworkId
       { _networkId_blockchain = "kadena"
-      , _networkId_network = "fastTimedCPM-peterson"
+      , _networkId_network = "fastfork-CPM-peterson"
       , _networkId_subNetworkId = Just (SubNetworkId "3" Nothing)
       }
     req h = BlockReq nidChain3 $ PartialBlockId (Just h) Nothing
@@ -417,7 +397,7 @@ blockCoinV3RemediationTests _ envIo =
     case _block_transactions b of
       x:y:_ -> do
         step "check remediation transactions' request keys"
-        [ycmd] <- coinV3Transactions
+        [ycmd] <- return CoinV3.transactions
         _transaction_transactionId y @?= pactHashToTransactionId (_cmdHash ycmd)
 
         step "check remediation transactions' operations"
@@ -431,7 +411,7 @@ blockCoinV3RemediationTests _ envIo =
       _ -> assertFailure $ "coin v3 remediation block should have at least 3 transactions:"
            ++ " coinbase + 2 remediations"
   where
-    bhCoinV3Rem = 20
+    bhCoinV3Rem = v ^?! versionForks . at Pact4Coin3 . _Just . onChain cid . to getBlockHeight
     req h = BlockReq nid $ PartialBlockId (Just h) Nothing
 
 -- | Rosetta construction endpoints tests (i.e. tx formatting and submission)
@@ -662,7 +642,7 @@ networkListTests _ envIo =
 
       for_ (_networkListResp_networkIds resp) $ \n -> do
          _networkId_blockchain n @=? "kadena"
-         _networkId_network n @=? "fastTimedCPM-peterson"
+         _networkId_network n @=? "fastfork-CPM-peterson"
          assertBool "chain id of subnetwork is valid"
            $ maybe False (\a -> _subNetworkId_network a `elem` cids)
            $ _networkId_subNetworkId n
@@ -731,12 +711,12 @@ kda = Currency "KDA" 12 Nothing
 nid :: NetworkId
 nid = NetworkId
     { _networkId_blockchain = "kadena"
-    , _networkId_network = "fastTimedCPM-peterson"
+    , _networkId_network = "fastfork-CPM-peterson"
     , _networkId_subNetworkId = Just (SubNetworkId (chainIdToText cid) Nothing)
     }
 
 genesisId :: BlockId
-genesisId = BlockId 0 "gl2bDgfL9ZRJCe0VkGZq8pfCl1PazbfYsSAZNHp8giI"
+genesisId = BlockId 0 "dqdUQNqEXcdMDeb6xWXuv1_KvLvDXysgsaEU8ZfLs9Q"
 
 rosettaVersion :: RosettaNodeVersion
 rosettaVersion = RosettaNodeVersion
@@ -745,7 +725,7 @@ rosettaVersion = RosettaNodeVersion
     , _version_middlewareVersion = Nothing
     , _version_metadata = Just $ HM.fromList
       [ "node-api-version" A..= ("0.0" :: Text)
-      , "chainweb-version" A..= ("fastTimedCPM-peterson" :: Text)
+      , "chainweb-version" A..= ("fastfork-CPM-peterson" :: Text)
       , "rosetta-chainweb-version" A..= ("2.0.0" :: Text)
       ]
     }

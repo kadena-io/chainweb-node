@@ -63,7 +63,6 @@ import Servant
 
 -- internal modules
 
-import Chainweb.BlockHeight
 import Chainweb.ChainId
 import Chainweb.Pact.RestAPI.EthSpv
 import Chainweb.Pact.RestAPI.SPV
@@ -137,7 +136,7 @@ type PactLocalWithQueryApi_
     = "local"
     :> QueryParam "preflight" LocalPreflightSimulation
     :> QueryParam "signatureVerification" LocalSignatureVerification
-    :> QueryParam "rewindDepth" BlockHeight
+    :> QueryParam "rewindDepth" RewindDepth
     :> ReqBody '[JSON] (Pact.Command Text)
     :> Post '[JSON] LocalResult
 

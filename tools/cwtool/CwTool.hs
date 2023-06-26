@@ -1,6 +1,9 @@
 {-# LANGUAGE OverloadedStrings #-}
 module Main where
 
+import Chainweb.Version.Development
+import Chainweb.Version.Registry
+
 import System.Environment
 import System.Exit
 import Text.Printf
@@ -18,6 +21,7 @@ import qualified TxSimulator
 
 main :: IO ()
 main = do
+    registerVersion Development
     args <- getArgs
     case args of
       [] -> printHelp topLevelCommands

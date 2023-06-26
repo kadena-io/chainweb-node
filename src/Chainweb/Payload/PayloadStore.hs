@@ -77,7 +77,7 @@ import GHC.Generics
 
 -- internal modules
 
-import Chainweb.BlockHeader.Genesis (genesisBlockPayload)
+import Chainweb.ChainId
 import Chainweb.Crypto.MerkleLog
 import Chainweb.MerkleUniverse
 import Chainweb.Payload
@@ -127,10 +127,10 @@ type CanReadableTransactionDbCas_ a tbl =
 
 instance (pk ~ CasKeyType (PayloadData_ a), CanReadableTransactionDbCas_ a tbl) => ReadableTable (TransactionDb_ a tbl) pk (PayloadData_ a) where
     tableLookup db k = runMaybeT $ do
-        pd <- MaybeT $ tableLookup (_transactionDbBlockPayloads db) k 
+        pd <- MaybeT $ tableLookup (_transactionDbBlockPayloads db) k
         let txsHash = _blockPayloadTransactionsHash pd
         let outsHash = _blockPayloadOutputsHash pd
-        txs <- MaybeT $ tableLookup (_transactionDbBlockTransactions db) txsHash 
+        txs <- MaybeT $ tableLookup (_transactionDbBlockTransactions db) txsHash
         return $ PayloadData
             { _payloadDataTransactions = _blockTransactions txs
             , _payloadDataMiner = _blockMinerData txs
@@ -222,7 +222,7 @@ initializePayloadDb
 initializePayloadDb v db = traverse_ initForChain $ chainIds v
   where
     initForChain cid =
-        addNewPayload db $ genesisBlockPayload v cid
+        addNewPayload db $ v ^?! versionGenesis . genesisBlockPayload . onChain cid
 
 -- -------------------------------------------------------------------------- --
 -- Insert new Payload
@@ -239,11 +239,11 @@ addPayload
     -> OutputTree_ a
     -> IO ()
 addPayload db txs txTree outs outTree = do
-    casInsert (_transactionDbBlockPayloads $ _transactionDb db) payload 
-    casInsert (_transactionDbBlockTransactions $ _transactionDb db) txs 
-    casInsert (_payloadCacheBlockOutputs $ _payloadCache db) outs 
-    casInsert (_payloadCacheTransactionTrees $ _payloadCache db) txTree 
-    casInsert (_payloadCacheOutputTrees $ _payloadCache db) outTree 
+    casInsert (_transactionDbBlockPayloads $ _transactionDb db) payload
+    casInsert (_transactionDbBlockTransactions $ _transactionDb db) txs
+    casInsert (_payloadCacheBlockOutputs $ _payloadCache db) outs
+    casInsert (_payloadCacheTransactionTrees $ _payloadCache db) txTree
+    casInsert (_payloadCacheOutputTrees $ _payloadCache db) outTree
   where
     payload = blockPayload txs outs
 
@@ -303,7 +303,7 @@ instance (pk ~ CasKeyType (PayloadWithOutputs_ a), MerkleHashAlgorithm a, CanPay
     tableInsert db _ v = addNewPayload db v
     {-# INLINE tableInsert #-}
 
-    tableDelete db k = 
+    tableDelete db k =
         tableLookup (_transactionDbBlockPayloads $ _transactionDb db) k >>= \case
             Just pd -> do
                 tableDelete

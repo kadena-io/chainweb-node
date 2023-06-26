@@ -327,7 +327,7 @@ checkAdjacentChainIds g cid expectedAdj = do
 -- | Graphs which have known, specific, intended meaning for Chainweb.
 --
 data KnownGraph = Singleton | Pair | Triangle | Peterson | Twenty | HoffmanSingleton
-    deriving (Generic)
+    deriving (Generic, Enum, Bounded)
     deriving anyclass (NFData)
 
 instance HasTextRepresentation KnownGraph where
