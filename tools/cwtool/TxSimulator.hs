@@ -50,6 +50,9 @@ import Chainweb.Transaction
 import Chainweb.Utils
 import Chainweb.Utils.Paging
 import Chainweb.Version
+import Chainweb.Version.Guards
+import Chainweb.Version.Mainnet
+import Chainweb.Version.Registry
 
 import Network.Connection
 import Network.HTTP.Client.TLS
@@ -154,12 +157,35 @@ simulate sc@(SimConfig dbDir txIdx' _ _ cid ver gasLog doTypecheck) = do
           paydb <- newPayloadDb
           withRocksDb "txsim-rocksdb" modernDefaultOptions $ \rdb ->
             withBlockHeaderDb rdb ver cid $ \bdb -> do
-              let pse = PactServiceEnv Nothing cpe paydb bdb getGasModel readRewards 100 0 ferr
-                        ver True False logger gasLogger (pactLoggers cwLogger) False 1 defaultBlockGasLimit cid
-                  pss = PactServiceState Nothing mempty (ParentHeader parent) noSPVSupport
+              let
+                pse = PactServiceEnv
+                  { _psMempoolAccess = Nothing
+                  , _psCheckpointEnv = cpe
+                  , _psPdb = paydb
+                  , _psBlockHeaderDb = bdb
+                  , _psGasModel = getGasModel
+                  , _psMinerRewards = readRewards
+                  , _psLocalRewindDepthLimit = RewindLimit 100
+                  , _psReorgLimit = RewindLimit 0
+                  , _psOnFatalError = ferr
+                  , _psVersion = ver
+                  , _psValidateHashesOnReplay = True
+                  , _psAllowReadsInLocal = False
+                  , _psLogger = logger
+                  , _psGasLogger = gasLogger
+                  , _psLoggers = pactLoggers cwLogger
+                  , _psIsBatch = False
+                  , _psCheckpointerDepth = 1
+                  , _psBlockGasLimit = defaultBlockGasLimit
+                  , _psChainId = cid
+                  }
+                pss = PactServiceState
+                  { _psStateValidated = Nothing
+                  , _psInitCache = mempty
+                  , _psParentHeader = ParentHeader parent
+                  , _psSpvSupport = noSPVSupport
+                  }
               evalPactServiceM pss pse $ doBlock True parent (zip hdrs pwos)
-
-
 
 
   where
@@ -204,7 +230,7 @@ spvSim sc bh pwo = do
     go mv cp = modifyMVar mv $ searchOuts cp
     searchOuts _ [] = return ([],Left "spv: proof not found")
     searchOuts cp@(ContProof pf) ((Transaction ti,TransactionOutput _o):txs) =
-      case codecDecode (chainwebPayloadCodec (Just (scVersion sc,_blockHeight bh))) ti of
+      case codecDecode (chainwebPayloadCodec (pactParserVersion (scVersion sc) (_chainId bh) (_blockHeight bh))) ti of
         Left {} -> internalError "input decode failed"
         Right cmd -> case _pPayload $ payloadObj $ _cmdPayload cmd of
           Continuation cm | _cmProof cm == Just cp -> do
@@ -252,7 +278,7 @@ fetchOutputs sc cenv bhs = do
 simulateMain :: IO ()
 simulateMain = do
   execParser opts >>= \(d,s,e,i,h,c,v,g,r) -> do
-    vv <- chainwebVersionFromText (T.pack v)
+    vv <- findKnownVersion $ ChainwebVersionName (T.pack v)
     cc <- chainIdFromText (T.pack c)
     u <- parseBaseUrl h
     let rng = (fromIntegral @Integer s,fromIntegral @Integer (fromMaybe s e))

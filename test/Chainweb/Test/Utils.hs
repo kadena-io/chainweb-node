@@ -59,13 +59,8 @@ module Chainweb.Test.Utils
 , singleton
 , peterson
 , testBlockHeaderDbs
-, petersonGenesisBlockHeaderDbs
-, singletonGenesisBlockHeaderDbs
 , linearBlockHeaderDbs
 , starBlockHeaderDbs
-
--- * Toy Server Interaction
-, withChainServer
 
 -- * Tasty TestTree Server and ClientEnv
 , testHost
@@ -120,8 +115,10 @@ module Chainweb.Test.Utils
 
 -- * Multi-node testing utils
 , ChainwebNetwork(..)
+, withNodesAtLatestBehavior
 , withNodes
 , withNodes_
+, awaitBlockHeight
 , runTestNodes
 , node
 , deadbeef
@@ -133,6 +130,7 @@ module Chainweb.Test.Utils
 , withTime
 , withMVarResource
 , withEmptyMVarResource
+, testRetryPolicy
 ) where
 
 import Control.Concurrent
@@ -142,8 +140,9 @@ import Control.Exception (evaluate)
 #endif
 import Control.Lens
 import Control.Monad
-import Control.Monad.Catch (MonadThrow, finally, bracket)
+import Control.Monad.Catch (MonadThrow(..), finally, bracket)
 import Control.Monad.IO.Class
+import Control.Retry
 
 import Data.Aeson (FromJSON, ToJSON)
 import Data.Bifunctor hiding (second)
@@ -157,7 +156,7 @@ import qualified Data.Text.Encoding as T
 import Data.Tree
 import qualified Data.Tree.Lens as LT
 import qualified Data.Vector as V
-import Data.Word (Word64)
+import Data.Word
 
 import qualified Network.Connection as HTTP
 import qualified Network.HTTP.Client as HTTP
@@ -169,7 +168,7 @@ import Network.Wai.Handler.WarpTLS as W (runTLSSocket)
 
 import Numeric.Natural
 
-import Servant.Client (BaseUrl(..), ClientEnv, Scheme(..), mkClientEnv)
+import Servant.Client (BaseUrl(..), ClientEnv, Scheme(..), mkClientEnv, runClientM)
 
 import System.Environment (withArgs)
 import System.IO
@@ -194,7 +193,6 @@ import Data.List (sortOn,isInfixOf)
 
 import Chainweb.BlockCreationTime
 import Chainweb.BlockHeader
-import Chainweb.BlockHeader.Genesis (genesisBlockHeader)
 import Chainweb.BlockHeaderDB
 import Chainweb.BlockHeaderDB.Internal
 import Chainweb.BlockHeight
@@ -205,7 +203,9 @@ import Chainweb.Chainweb.ChainResources
 import Chainweb.Chainweb.Configuration
 import Chainweb.Chainweb.PeerResources
 import Chainweb.Crypto.MerkleLog hiding (header)
+import Chainweb.Cut.CutHashes
 import Chainweb.CutDB
+import Chainweb.CutDB.RestAPI.Client
 import Chainweb.Difficulty (targetToDifficulty)
 import Chainweb.Graph
 import Chainweb.HostAddress
@@ -220,12 +220,13 @@ import Chainweb.Payload.PayloadStore
 import Chainweb.RestAPI
 import Chainweb.RestAPI.NetworkID
 import Chainweb.Test.P2P.Peer.BootstrapConfig
-    (bootstrapCertificate, bootstrapKey, bootstrapPeerConfig)
+    (testBootstrapCertificate, testBootstrapKey, testBootstrapPeerConfig)
 import Chainweb.Test.Utils.BlockHeader
 import Chainweb.Time
 import Chainweb.TreeDB
 import Chainweb.Utils
 import Chainweb.Utils.Serialization
+import Chainweb.Test.TestVersions
 import Chainweb.Version
 import Chainweb.Version.Utils
 
@@ -331,7 +332,7 @@ withInMemSQLiteResource = withSQLiteResource ":memory:"
 -- chainweb version!
 
 toyVersion :: ChainwebVersion
-toyVersion = Test singletonChainGraph
+toyVersion = barebonesTestVersion singletonChainGraph
 
 toyChainId :: ChainId
 toyChainId = someChainId toyVersion
@@ -365,9 +366,8 @@ mockBlockFill = BlockFill mockBlockGasLimit mempty 0
 genesisBlockHeaderForChain
     :: MonadThrow m
     => HasChainwebVersion v
-    => Integral i
     => v
-    -> i
+    -> Word32
     -> m BlockHeader
 genesisBlockHeaderForChain v i
     = genesisBlockHeader (_chainwebVersion v) <$> mkChainId v maxBound i
@@ -441,7 +441,7 @@ tree v g = do
 -- | Generate a sane, legal genesis block for 'Test' chainweb instance
 --
 genesis :: ChainwebVersion -> Gen BlockHeader
-genesis v = either (error . sshow) return $ genesisBlockHeaderForChain v (0 :: Int)
+genesis v = either (error . sshow) return $ genesisBlockHeaderForChain v 0
 
 forest :: Growth -> BlockHeader -> Gen (Forest BlockHeader)
 forest Randomly h = randomTrunk h
@@ -483,14 +483,14 @@ header p = do
             :+: _chainId p
             :+: BlockWeight (targetToDifficulty target) + _blockWeight p
             :+: succ (_blockHeight p)
-            :+: v
+            :+: _versionCode v
             :+: epochStart (ParentHeader p) mempty t'
             :+: nonce
             :+: MerkleLogBody mempty
    where
     BlockCreationTime t = _blockCreationTime p
     target = powTarget (ParentHeader p) mempty t'
-    v = _blockChainwebVersion p
+    v = _chainwebVersion p
     t' = BlockCreationTime (scaleTimeSpan (10 :: Int) second `add` t)
 
 -- | get arbitrary value for seed.
@@ -513,14 +513,6 @@ testBlockHeaderDbs rdb v = mapM toEntry $ toList $ chainIds v
     toEntry c = do
         d <- testBlockHeaderDb rdb (genesisBlockHeader v c)
         return (c, d)
-
-petersonGenesisBlockHeaderDbs
-    :: RocksDb -> IO [(ChainId, BlockHeaderDb)]
-petersonGenesisBlockHeaderDbs rdb = testBlockHeaderDbs rdb (Test petersonChainGraph)
-
-singletonGenesisBlockHeaderDbs
-    :: RocksDb -> IO [(ChainId, BlockHeaderDb)]
-singletonGenesisBlockHeaderDbs rdb = testBlockHeaderDbs rdb (Test singletonChainGraph)
 
 linearBlockHeaderDbs
     :: Natural
@@ -549,33 +541,6 @@ starBlockHeaderDbs n genDbs = do
         traverse_ (\i -> unsafeInsertBlockHeaderDb db . newEntry i $ ParentHeader gbh0) [0 .. (int n-1)]
 
     newEntry i h = head $ testBlockHeadersWithNonce (Nonce i) h
-
--- -------------------------------------------------------------------------- --
--- Toy Server Interaction
-
---
--- | Spawn a server that acts as a peer node for the purpose of querying / syncing.
---
-withChainServer
-    :: forall t tbl a
-    .  Show t
-    => ToJSON t
-    => FromJSON t
-    => CanReadablePayloadCas tbl
-    => ChainwebServerDbs t tbl
-    -> (ClientEnv -> IO a)
-    -> IO a
-withChainServer dbs f = W.testWithApplication (pure app) work
-  where
-    app :: W.Application
-    app = chainwebApplication conf dbs
-
-    work :: Int -> IO a
-    work port = do
-        mgr <- HTTP.newManager HTTP.defaultManagerSettings
-        f $ mkClientEnv mgr (BaseUrl Http "localhost" port "")
-
-    conf = defaultChainwebConfiguration (Test singletonChainGraph)
 
 -- -------------------------------------------------------------------------- --
 -- Tasty TestTree Server and Client Environment
@@ -620,12 +585,11 @@ pattern PayloadTestClientEnv { _pEnvClientEnv, _pEnvCutDb, _pEnvPayloadDbs, _eEn
 
 withTestAppServer
     :: Bool
-    -> ChainwebVersion
     -> IO W.Application
     -> (Int -> IO a)
     -> (a -> IO b)
     -> IO b
-withTestAppServer tls v appIO envIO userFunc = bracket start stop go
+withTestAppServer tls appIO envIO userFunc = bracket start stop go
   where
     warpOnException _ _ = return ()
     start = do
@@ -637,8 +601,8 @@ withTestAppServer tls v appIO envIO userFunc = bracket start stop go
                            W.setBeforeMainLoop (putMVar readyVar ()) W.defaultSettings
             if
                 | tls -> do
-                    let certBytes = bootstrapCertificate v
-                    let keyBytes = bootstrapKey v
+                    let certBytes = testBootstrapCertificate
+                    let keyBytes = testBootstrapKey
                     let tlsSettings = tlsServerSettings certBytes keyBytes
                     W.runTLSSocket tlsSettings settings sock app
                 | otherwise ->
@@ -680,8 +644,8 @@ withChainwebTestServer shouldValidateSpec tls v appIO envIO test =
             let settings = W.setBeforeMainLoop (putMVar readyVar ()) W.defaultSettings
             if
                 | tls -> do
-                    let certBytes = bootstrapCertificate v
-                    let keyBytes = bootstrapKey v
+                    let certBytes = testBootstrapCertificate
+                    let keyBytes = testBootstrapKey
                     let tlsSettings = tlsServerSettings certBytes keyBytes
                     W.runTLSSocket tlsSettings settings sock app
                 | otherwise ->
@@ -1050,6 +1014,54 @@ withNodes = withNodes_ (genericLogger Error (error . T.unpack))
     -- anything. A message at log level error means that the test harness itself
     -- failed and with thus abort the test.
 
+withNodesAtLatestBehavior
+    :: ChainwebVersion
+    -> B.ByteString
+    -> RocksDb
+    -> Natural
+    -> (IO ChainwebNetwork -> TestTree)
+    -> TestTree
+withNodesAtLatestBehavior v testLabel rdb n f = withNodes v testLabel rdb n $ \net ->
+    withResource (awaitBlockHeight v putStrLn (_getClientEnv <$> net) (latestBehaviorAt v)) (const (return ())) $ \_ ->
+        f net
+
+-- | Network initialization takes some time. Within my ghci session it took
+-- about 10 seconds. Once initialization is complete even large numbers of empty
+-- blocks were mined almost instantaneously.
+--
+awaitBlockHeight
+    :: ChainwebVersion
+    -> (String -> IO ())
+    -> IO ClientEnv
+    -> BlockHeight
+    -> IO ()
+awaitBlockHeight v step cenvIo i = do
+    cenv <- cenvIo
+    result <- retrying testRetryPolicy checkRetry
+        $ const $ runClientM (cutGetClient v) cenv
+    case result of
+        Left e -> throwM e
+        Right x
+            | all (\bh -> _bhwhHeight bh >= i) (_cutHashes x) -> return ()
+            | otherwise -> error
+                $ "retries exhausted: waiting for cut height " <> sshow i
+                <> " but only got " <> sshow (_cutHashesHeight x)
+  where
+    checkRetry s (Left e) = do
+        step $ "awaiting cut of height " <> show i
+            <> ". No result from node: " <> show e
+            <> " [" <> show (view rsIterNumberL s) <> "]"
+        return True
+    checkRetry s (Right c)
+        | all (\bh -> _bhwhHeight bh >= i) (_cutHashes c) = return False
+        | otherwise = do
+            step
+                $ "awaiting cut with all block heights >= " <> show i
+                <> ". Current cut height: " <> show (_cutHashesHeight c)
+                <> ". Current block heights: " <> show (_bhwhHeight <$> _cutHashes c)
+                <> " [" <> show (view rsIterNumberL s) <> "]"
+            return True
+
 runTestNodes
     :: Logger logger
     => B.ByteString
@@ -1141,14 +1153,13 @@ bootstrapConfig conf = conf
     & set (configP2p . p2pConfigPeer) peerConfig
     & set (configP2p . p2pConfigKnownPeers) []
   where
-    peerConfig = head (bootstrapPeerConfig $ _configChainwebVersion conf)
+    peerConfig = head (testBootstrapPeerConfig $ _configChainwebVersion conf)
         & set peerConfigPort 0
         & set peerConfigHost host
 
 setBootstrapPeerInfo :: PeerInfo -> ChainwebConfiguration -> ChainwebConfiguration
 setBootstrapPeerInfo =
     over (configP2p . p2pConfigKnownPeers) . (:)
-
 
 host :: Hostname
 -- host = unsafeHostnameFromText "::1"
@@ -1173,3 +1184,14 @@ withTime = withResource getCurrentTimeIntegral mempty
 
 withEmptyMVarResource :: (IO (MVar a) -> TestTree) -> TestTree
 withEmptyMVarResource = withResource newEmptyMVar mempty
+
+-- | Backoff up to a constant 250ms, limiting to ~40s
+-- (actually saw a test have to wait > 22s)
+testRetryPolicy :: RetryPolicy
+testRetryPolicy = stepped <> limitRetries 150
+  where
+    stepped = retryPolicy $ \rs -> case rsIterNumber rs of
+      0 -> Just 20_000
+      1 -> Just 50_000
+      2 -> Just 100_000
+      _ -> Just 250_000

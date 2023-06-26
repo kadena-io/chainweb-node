@@ -43,8 +43,8 @@ import Servant.Server
 
 -- internal modules
 
-import Chainweb.BlockHeader (BlockHeader(..))
-import Chainweb.BlockHeader.Genesis (genesisBlockHeader)
+import Chainweb.BlockHeader
+import Chainweb.ChainId
 import Chainweb.Cut (_cutMap)
 import Chainweb.CutDB
 import Chainweb.HostAddress
@@ -246,7 +246,7 @@ constructionPreprocessH v req = do
     either throwRosettaError pure work
   where
     ConstructionPreprocessReq net ops someMeta someMaxFee someMult = req
-    
+
     work :: Either RosettaError ConstructionPreprocessResp
     work = do
       _ <- annotate rosettaError' (validateNetwork v net)
@@ -286,7 +286,7 @@ constructionMetadataH
 constructionMetadataH v cutDb pacts (ConstructionMetadataReq net opts someKeys) =
     runExceptT work >>= either throwRosettaError pure
   where
-    
+
     work :: ExceptT RosettaError Handler ConstructionMetadataResp
     work = do
       cid <- hoistEither $ annotate rosettaError' (validateNetwork v net)
@@ -302,7 +302,7 @@ constructionMetadataH v cutDb pacts (ConstructionMetadataReq net opts someKeys) 
       expectedAccts <- toSignerAcctsMap tx payer cid pacts cutDb
       signersAndAccts <- hoistEither $!
                          createSigners availableSigners expectedAccts
-      
+
       pure $! ConstructionMetadataResp
         { _constructionMetadataResp_metadata = toObject $! PayloadsMetaData
             { _payloadsMetaData_signers = signersAndAccts
@@ -425,7 +425,7 @@ constructionSubmitH v ms (ConstructionSubmitReq net tx) =
       $ "Validation failed for hash "
       ++ (show $! hsh) ++ ": "
       ++ show insErr
-    
+
     work :: ExceptT RosettaError Handler TransactionIdResp
     work = do
         cid <- hoistEither $ annotate rosettaError' (validateNetwork v net)
@@ -520,7 +520,7 @@ networkListH v cutDb _ = runExceptT work >>= either throwRosetta pure
     f :: ChainId -> NetworkId
     f cid =  NetworkId
       { _networkId_blockchain = "kadena"
-      , _networkId_network = chainwebVersionToText v
+      , _networkId_network = getChainwebVersionName $ _versionName v
       , _networkId_subNetworkId = Just (SubNetworkId (chainIdToText cid) Nothing)
       }
 
@@ -541,7 +541,7 @@ networkOptionsH v (NetworkReq nid _) = runExceptT work >>= either throwRosetta p
     -- TODO: Document this meta data
     metaPairs =
       [ "node-api-version" .= prettyApiVersion
-      , "chainweb-version" .= chainwebVersionToText v
+      , "chainweb-version" .= getChainwebVersionName (_versionName v)
       , "rosetta-chainweb-version" .= rosettaImplementationVersion
       --  The version of the rosetta implementation.
       --  Meant to capture if something about the internal
