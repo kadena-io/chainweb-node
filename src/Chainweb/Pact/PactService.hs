@@ -36,9 +36,10 @@ module Chainweb.Pact.PactService
 
 import Control.Concurrent.Async
 import Control.Concurrent.MVar
-import Control.Exception.Safe
+import Control.Exception (SomeAsyncException)
 import Control.Lens
 import Control.Monad
+import Control.Monad.Catch
 import Control.Monad.Reader
 import Control.Monad.State.Strict
 
@@ -46,6 +47,7 @@ import qualified Data.Aeson as A
 import Data.Default (def)
 import qualified Data.DList as DL
 import Data.Either
+import Data.Maybe (fromMaybe)
 import Data.Foldable (toList)
 import qualified Data.Map.Strict as M
 import qualified Data.Set as S
@@ -90,7 +92,7 @@ import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
 import Chainweb.Time
 import Chainweb.Transaction
-import Chainweb.TreeDB (lookupM)
+import Chainweb.TreeDB (lookupM, seekAncestor)
 import Chainweb.Utils hiding (check)
 import Chainweb.Version
 import Chainweb.Version.Guards
@@ -138,7 +140,8 @@ withPactService ver cid chainwebLogger bhDb pdb sqlenv config act =
                     , _psBlockHeaderDb = bhDb
                     , _psGasModel = getGasModel
                     , _psMinerRewards = rs
-                    , _psReorgLimit = fromIntegral $ _pactReorgLimit config
+                    , _psReorgLimit = _pactReorgLimit config
+                    , _psLocalRewindDepthLimit = _pactLocalRewindDepthLimit config
                     , _psOnFatalError = defaultOnFatalError (logFunctionText chainwebLogger)
                     , _psVersion = ver
                     , _psValidateHashesOnReplay = _pactRevalidate config
@@ -175,7 +178,7 @@ initializeLatestBlock unlimitedRewind = findLatestValidBlock >>= \case
     Nothing -> return ()
     Just b -> withBatch $ rewindTo initialRewindLimit (Just $ ParentHeader b)
   where
-    initialRewindLimit = 1000 <$ guard (not unlimitedRewind)
+    initialRewindLimit = RewindLimit 1000 <$ guard (not unlimitedRewind)
 
 initialPayloadState
     :: Logger logger
@@ -247,7 +250,7 @@ lookupBlockHeader bhash ctx = do
       then return cur
       else do
         bhdb <- view psBlockHeaderDb
-        liftIO $ lookupM bhdb bhash `catchAny` \e ->
+        liftIO $! lookupM bhdb bhash `catchAllSynchronous` \e ->
             throwM $ BlockHeaderLookupFailure $
                 "failed lookup of parent header in " <> ctx <> ": " <> sshow e
 
@@ -388,38 +391,40 @@ attemptBuyGas
     -> PactServiceM tbl (Vector (Either InsertError ChainwebTransaction))
 attemptBuyGas miner (PactDbEnv' dbEnv) txs = do
         mc <- getInitCache
-        V.fromList . toList . sfst <$> V.foldM f (T2 mempty mc) txs
+        l <- P.newLogger <$> view psLoggers <*> pure "attemptBuyGas"
+        V.fromList . toList . sfst <$> V.foldM (f l) (T2 mempty mc) txs
   where
-    f (T2 dl mcache) cmd = do
-        T2 mcache' !res <- runBuyGas dbEnv mcache cmd
+    f l (T2 dl mcache) cmd = do
+        T2 mcache' !res <- runBuyGas l dbEnv mcache cmd
         pure $! T2 (DL.snoc dl res) mcache'
 
     createGasEnv
-        :: P.PactDbEnv db
+        :: P.Logger
+        -> P.PactDbEnv db
         -> P.Command (P.Payload P.PublicMeta P.ParsedCode)
         -> P.GasPrice
         -> P.Gas
         -> PactServiceM tbl (TransactionEnv db)
-    createGasEnv db cmd gp gl = do
-        l <- P.newLogger <$> view psLoggers <*> pure "attemptBuyGas"
-
+    createGasEnv l db cmd gp gl = do
         pd <- getTxContext (publicMetaOf cmd)
         spv <- use psSpvSupport
-        let ec = P.mkExecutionConfig
+        let ec = P.mkExecutionConfig $
               [ P.FlagDisableModuleInstall
-              , P.FlagDisableHistoryInTransactionalMode ]
+              , P.FlagDisableHistoryInTransactionalMode ] ++
+              disableReturnRTC (ctxVersion pd) (ctxChainId pd) (ctxCurrentBlockHeight pd)
         return $! TransactionEnv P.Transactional db l Nothing (ctxToPublicData pd) spv nid gp rk gl ec
       where
         !nid = networkIdOf cmd
         !rk = P.cmdToRequestKey cmd
 
     runBuyGas
-        :: P.PactDbEnv a
+        :: P.Logger
+        -> P.PactDbEnv a
         -> ModuleCache
         -> Either InsertError ChainwebTransaction
         -> PactServiceM tbl (T2 ModuleCache (Either InsertError ChainwebTransaction))
-    runBuyGas _db mcache l@Left {} = return (T2 mcache l)
-    runBuyGas db mcache (Right tx) = do
+    runBuyGas _l _db mcache l@Left {} = return (T2 mcache l)
+    runBuyGas l db mcache (Right tx) = do
         let cmd = payloadObj <$> tx
             gasPrice = view cmdGasPrice cmd
             gasLimit = fromIntegral $ view cmdGasLimit cmd
@@ -432,10 +437,10 @@ attemptBuyGas miner (PactDbEnv' dbEnv) txs = do
                 , _txWarnings = mempty
                 }
 
-        buyGasEnv <- createGasEnv db cmd gasPrice gasLimit
+        buyGasEnv <- createGasEnv l db cmd gasPrice gasLimit
 
         cr <- liftIO
-          $! P.catchesPactError
+          $! catchesPactError l CensorsUnexpectedError
           $! execTransactionM buyGasEnv txst
           $! buyGas False cmd miner
 
@@ -472,7 +477,7 @@ execNewBlock mpAccess parent miner = do
     -- This is intended to mitigate mining attempts during replay.
     -- In theory we shouldn't need to rewind much ever, but values
     -- less than this are failing in PactReplay test.
-    newblockRewindLimit = Just 8
+    newblockRewindLimit = Just $ RewindLimit 8
 
     getBlockTxs :: BlockFill -> PactServiceM tbl (Vector ChainwebTransaction)
     getBlockTxs bfState = do
@@ -621,10 +626,12 @@ execLocal
       -- ^ preflight flag
     -> Maybe LocalSignatureVerification
       -- ^ turn off signature verification checks?
-    -> Maybe BlockHeight
-      -- ^ rewind depth (note: this is a *depth*, not an absolute height)
+    -> Maybe RewindDepth
+      -- ^ rewind depth
     -> PactServiceM tbl LocalResult
 execLocal cwtx preflight sigVerify rdepth = withDiscardedBatch $ do
+    parent <- syncParentHeader "execLocal"
+
     PactServiceEnv{..} <- ask
 
     let !cmd = payloadObj <$> cwtx
@@ -634,22 +641,39 @@ execLocal cwtx preflight sigVerify rdepth = withDiscardedBatch $ do
     ctx <- getTxContext pm
     spv <- use psSpvSupport
 
-    let rewindHeight
-          | Just d <- rdepth = Just d
-          -- when no height is defined, treat
-          -- withCheckpointerRewind as withCurrentCheckpointer
-          -- (i.e. setting rewind to 0).
-          | otherwise = Just 0
-        rewindHeader = Just $ _tcParentHeader ctx
+    -- when no depth is defined, treat
+    -- withCheckpointerRewind as withCurrentCheckpointer
+    -- (i.e. setting rewind to 0).
+    let rewindDepth = fromMaybe (RewindDepth 0) rdepth
+
+    when (_rewindDepth rewindDepth > _rewindLimit _psLocalRewindDepthLimit) $ do
+        throwM $ LocalRewindLimitExceeded _psLocalRewindDepthLimit rewindDepth
+
+    let parentBlockHeader = _parentHeader parent
+
+    -- we fail if the requested depth is bigger than the current parent block height
+    -- because we can't go after the genesis block
+    when (_rewindDepth rewindDepth > getBlockHeight (_blockHeight parentBlockHeader)) $ throwM LocalRewindGenesisExceeded
+
+    let ancestorRank = fromIntegral $ (getBlockHeight $ _blockHeight parentBlockHeader) - _rewindDepth rewindDepth
+    ancestor <- liftIO $ seekAncestor _psBlockHeaderDb parentBlockHeader ancestorRank
+
+    rewindHeader <- case ancestor of
+        Just a -> pure $ Just $ ParentHeader a
+        Nothing -> throwM $ BlockHeaderLookupFailure $
+            "failed seekAncestor of parent header with ancestorRank " <> sshow ancestorRank
 
     let execConfig = P.mkExecutionConfig $
             [ P.FlagAllowReadInLocal | _psAllowReadsInLocal ] ++
             enablePactEvents' (ctxVersion ctx) (ctxChainId ctx) (ctxCurrentBlockHeight ctx) ++
-            enforceKeysetFormats' (ctxVersion ctx) (ctxChainId ctx) (ctxCurrentBlockHeight ctx)
+            enforceKeysetFormats' (ctxVersion ctx) (ctxChainId ctx) (ctxCurrentBlockHeight ctx) ++
+            disableReturnRTC (ctxVersion ctx) (ctxChainId ctx) (ctxCurrentBlockHeight ctx)
         logger = P.newLogger _psLoggers "execLocal"
         initialGas = initialGasOf $ P._cmdPayload cwtx
 
-    withCheckpointerRewind rewindHeight rewindHeader "execLocal" $
+    -- In this case the rewind limit is the same as rewind depth
+    let rewindLimit = RewindLimit $ _rewindDepth rewindDepth
+    withCheckpointerRewind (Just rewindLimit) rewindHeader "execLocal" $
       \(PactDbEnv' pdbenv) -> do
         --
         -- if the ?preflight query parameter is set to True, we run the `applyCmd` workflow
@@ -701,12 +725,12 @@ execValidateBlock memPoolAccess currHeader plData = do
     -- The parent block header must be available in the block header database
     target <- getTarget
     psEnv <- ask
-    let reorgLimit = fromIntegral $ view psReorgLimit psEnv
+    let reorgLimit = view psReorgLimit psEnv
     T2 miner transactions <- exitOnRewindLimitExceeded $ withBatch $ do
         withCheckpointerRewind (Just reorgLimit) target "execValidateBlock" $ \pdbenv -> do
             !result <- execBlock currHeader plData pdbenv
             return $! Save currHeader result
-    result <- either throwM return $!
+    !result <- either throwM return $
         validateHashes currHeader plData miner transactions
 
     -- update mempool

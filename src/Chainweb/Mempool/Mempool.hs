@@ -357,15 +357,19 @@ noopMempool = do
 
 
 ------------------------------------------------------------------------------
+
 chainwebTransactionConfig
     :: PactParserVersion
     -> TransactionConfig ChainwebTransaction
-chainwebTransactionConfig ppv = TransactionConfig (chainwebPayloadCodec ppv)
-    commandHash
-    chainwebTestHashMeta
-    getGasPrice
-    getGasLimit
-    txmeta
+chainwebTransactionConfig ppv = TransactionConfig
+    { txCodec = chainwebPayloadCodec ppv
+    , txHasher = commandHash
+    , txHashMeta = chainwebTestHashMeta
+    , txGasPrice = getGasPrice
+    , txGasLimit = getGasLimit
+    , txMetadata = txmeta
+    }
+
 
   where
     getGasPrice = view cmdGasPrice . fmap payloadObj

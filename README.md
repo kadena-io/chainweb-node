@@ -140,13 +140,9 @@ To build a `chainweb-node` binary:
 cabal update
 
 # Build the project.
+#
+# After this, a runnable binary can be found by running `cabal list-bin chainweb-node`.
 cabal build
-```
-
-To install a runnable binary to `~/.cabal/bin/`:
-
-```bash
-cabal install
 ```
 
 ### Building with Nix

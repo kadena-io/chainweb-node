@@ -363,7 +363,8 @@ withChainwebInternal
     -> IO ()
 withChainwebInternal conf logger peer serviceSock rocksDb pactDbDir backupDir resetDb inner = do
 
-    initializePayloadDb v payloadDb
+    unless (_configOnlySyncPact conf) $
+        initializePayloadDb v payloadDb
 
     -- Garbage Collection
     -- performed before PayloadDb and BlockHeaderDb used by other components
@@ -387,7 +388,7 @@ withChainwebInternal conf logger peer serviceSock rocksDb pactDbDir backupDir re
             let mcfg = validatingMempoolConfig cid v (_configBlockGasLimit conf) (_configMinGasPrice conf)
             -- NOTE: the gas limit may be set based on block height in future, so this approach may not be valid.
             let maxGasLimit = fromIntegral <$> maxBlockGasLimit v maxBound
-            when (maybe False (\limit -> _configBlockGasLimit conf > limit) maxGasLimit) $
+            unless (maybe True (\limit -> _configBlockGasLimit conf <= limit) maxGasLimit) $
                 logg Warn "configured block gas limit is greater than the maximum for this chain; the maximum will be used instead"
             withChainResources
                 v
@@ -410,7 +411,8 @@ withChainwebInternal conf logger peer serviceSock rocksDb pactDbDir backupDir re
   where
     pactConfig maxGasLimit = PactServiceConfig
       { _pactReorgLimit = _configReorgLimit conf
-      , _pactRevalidate = _configValidateHashesOnReplay conf
+      , _pactLocalRewindDepthLimit = _configLocalRewindDepthLimit conf
+      , _pactRevalidate = True
       , _pactQueueSize = _configPactQueueSize conf
       , _pactResetDb = resetDb
       , _pactAllowReadsInLocal = _configAllowReadsInLocal conf
@@ -651,7 +653,9 @@ runChainweb cw = do
             logg Warn $ "OpenAPI spec validation enabled on service API, make sure this is what you want"
             mkValidationMiddleware
         else return id
+
     concurrentlies_
+
         -- 1. Start serving Rest API
         [ (if tls then serve else servePlain)
             $ httpLog
@@ -660,10 +664,16 @@ runChainweb cw = do
             . throttle (_chainwebThrottler cw)
             . requestSizeLimit
             . p2pValidationMiddleware
+
         -- 2. Start Clients (with a delay of 500ms)
         , threadDelay 500000 >> clients
+
         -- 3. Start serving local API
-        , threadDelay 500000 >> serveServiceApi (serviceHttpLog . requestSizeLimit . serviceApiValidationMiddleware)
+        , threadDelay 500000 >> do
+            serveServiceApi
+                $ serviceHttpLog
+                . requestSizeLimit
+                . serviceApiValidationMiddleware
         ]
 
   where

@@ -257,8 +257,7 @@ genTxModule tag txFiles = do
     putStrLn $ "Generating tx module for " ++ show tag
     cwTxs <- mkChainwebTxs txFiles
 
-    let
-        encTxs = map quoteTx cwTxs
+    let encTxs = map quoteTx cwTxs
         quoteTx tx = "    \"" <> encTx tx <> "\""
         encTx = encodeB64UrlNoPaddingText . codecEncode (chainwebPayloadCodec maxBound)
         modl = T.unlines $ startTxModule tag <> [T.intercalate "\n    ,\n" encTxs] <> endTxModule

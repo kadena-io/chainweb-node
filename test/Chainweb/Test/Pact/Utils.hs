@@ -134,8 +134,8 @@ import Data.IORef
 import qualified Data.Map.Strict as M
 import Data.Maybe
 import Data.Text (Text)
+import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
-import qualified Data.Text.IO as T
 import Data.String
 import qualified Data.Vector as V
 
@@ -567,8 +567,8 @@ toApiKp (CmdSigner Signer{..} privKey) = do
 -- Service creation utilities
 
 
-pactTestLogger :: Bool -> Loggers
-pactTestLogger showAll = initLoggers putStrLn f def
+pactTestLogger :: (String -> IO ()) -> Bool -> Loggers
+pactTestLogger backend showAll = initLoggers backend f def
   where
     f _ b "ERROR" d = doLog (\_ -> return ()) b "ERROR" d
     f _ b "DEBUG" d | not showAll = doLog (\_ -> return ()) b "DEBUG" d
@@ -596,7 +596,9 @@ destroyTestPactCtx = void . takeMVar . _testPactCtxState
 -- Use 'withPactCtxSQLite' in tests.
 testPactCtxSQLite
   :: CanReadablePayloadCas tbl
-  => ChainwebVersion
+  => (String -> IO ())
+    -- ^ logging backend
+  -> ChainwebVersion
   -> Version.ChainId
   -> BlockHeaderDb
   -> PayloadDb tbl
@@ -604,7 +606,7 @@ testPactCtxSQLite
   -> PactServiceConfig
   -> (TxContext -> GasModel)
   -> IO (TestPactCtx tbl, PactDbEnv')
-testPactCtxSQLite v cid bhdb pdb sqlenv conf gasmodel = do
+testPactCtxSQLite logBackend v cid bhdb pdb sqlenv conf gasmodel = do
     (dbSt,cpe) <- initRelationalCheckpointer' initialBlockState sqlenv cpLogger v cid
     let rs = readRewards
         ph = ParentHeader $ genesisBlockHeader v cid
@@ -615,7 +617,7 @@ testPactCtxSQLite v cid bhdb pdb sqlenv conf gasmodel = do
     return (ctx, PactDbEnv' dbSt)
   where
     initialBlockState = initBlockState defaultModuleCacheLimit $ genesisHeight v cid
-    loggers = pactTestLogger False -- toggle verbose pact test logging
+    loggers = pactTestLogger logBackend False -- toggle verbose pact test logging
     cpLogger = newLogger loggers $ LogName ("Checkpointer" ++ show cid)
     pactServiceEnv cpe rs = PactServiceEnv
         { _psMempoolAccess = Nothing
@@ -624,7 +626,8 @@ testPactCtxSQLite v cid bhdb pdb sqlenv conf gasmodel = do
         , _psBlockHeaderDb = bhdb
         , _psGasModel = gasmodel
         , _psMinerRewards = rs
-        , _psReorgLimit = fromIntegral $ _pactReorgLimit conf
+        , _psReorgLimit = _pactReorgLimit conf
+        , _psLocalRewindDepthLimit = _pactLocalRewindDepthLimit conf
         , _psOnFatalError = defaultOnFatalError mempty
         , _psVersion = v
         , _psValidateHashesOnReplay = _pactRevalidate conf
@@ -645,14 +648,16 @@ freeGasModel = const $ constGasModel 0
 -- | A queue-less WebPactExecutionService (for all chains)
 -- with direct chain access map for local.
 withWebPactExecutionService
-    :: ChainwebVersion
+    :: (String -> IO ())
+        -- ^ logging backend
+    -> ChainwebVersion
     -> PactServiceConfig
     -> TestBlockDb
     -> MemPoolAccess
     -> (TxContext -> GasModel)
     -> ((WebPactExecutionService,HM.HashMap ChainId PactExecutionService) -> IO a)
     -> IO a
-withWebPactExecutionService v pactConfig bdb mempoolAccess gasmodel act =
+withWebPactExecutionService logBackend v pactConfig bdb mempoolAccess gasmodel act =
   withDbs $ \sqlenvs -> do
     pacts <- fmap HM.fromList
            $ traverse mkPact
@@ -666,7 +671,7 @@ withWebPactExecutionService v pactConfig bdb mempoolAccess gasmodel act =
 
     mkPact (sqlenv, c) = do
         bhdb <- getBlockHeaderDb c bdb
-        (ctx,_) <- testPactCtxSQLite v c bhdb (_bdbPayloadDb bdb) sqlenv pactConfig gasmodel
+        (ctx,_) <- testPactCtxSQLite logBackend v c bhdb (_bdbPayloadDb bdb) sqlenv pactConfig gasmodel
         return $ (c,) $ PactExecutionService
           { _pactNewBlock = \m p ->
               evalPactServiceM_ ctx $ execNewBlock mempoolAccess p m
@@ -749,7 +754,7 @@ withPactCtxSQLite v bhdbIO pdbIO conf f =
         bhdb <- bhdbIO
         pdb <- pdbIO
         s <- ios
-        testPactCtxSQLite v cid bhdb pdb s conf freeGasModel
+        testPactCtxSQLite (\_ -> return ()) v cid bhdb pdb s conf freeGasModel
 
 toTxCreationTime :: Integral a => Time a -> TxCreationTime
 toTxCreationTime (Time timespan) = TxCreationTime $ fromIntegral $ timeSpanToSeconds timespan
@@ -824,13 +829,12 @@ withTestBlockDbTest v rdb = withResource (mkTestBlockDb v rdb) mempty
 withPactTestBlockDb
     :: ChainwebVersion
     -> ChainId
-    -> LogLevel
     -> RocksDb
     -> (IO MemPoolAccess)
     -> PactServiceConfig
     -> (IO (PactQueue,TestBlockDb) -> TestTree)
     -> TestTree
-withPactTestBlockDb version cid logLevel rdb mempoolIO pactConfig f =
+withPactTestBlockDb version cid rdb mempoolIO pactConfig f =
   withTemporaryDir $ \iodir ->
   withTestBlockDbTest version rdb $ \bdbio ->
   withResource (startPact bdbio iodir) stopPact $ f . fmap (view _3)
@@ -849,10 +853,15 @@ withPactTestBlockDb version cid logLevel rdb mempoolIO pactConfig f =
 
     stopPact (a, sqlEnv, _) = cancel a >> stopSqliteDb sqlEnv
 
-    logger = genericLogger logLevel T.putStrLn
+    -- Ideally, we should throw 'error' when the logger is invoked, because
+    -- error logs should not happen in production and should always be resolved.
+    -- Unfortunately, that's not yet always the case. So we just drop the
+    -- message.
+    --
+    logger = genericLogger Error (\_ -> return ())
 
 dummyLogger :: GenericLogger
-dummyLogger = genericLogger Quiet T.putStrLn
+dummyLogger = genericLogger Error (error . T.unpack)
 
 someTestVersion :: ChainwebVersion
 someTestVersion = fastForkingCpmTestVersion petersonChainGraph

@@ -121,6 +121,8 @@ testVer = noBridgeCpmTestVersion triangleChainGraph
 bridgeVer :: ChainwebVersion
 bridgeVer = fastForkingCpmTestVersion pairChainGraph
 
+-- Only use for debugging. Do not use in tests in the test suite!
+--
 logg :: LogMessage a => LogLevel -> a -> IO ()
 logg l
   | l <= Warn = T.putStrLn . logText
@@ -261,10 +263,11 @@ roundtrip'
     -> CreatesGenerator
       -- ^ create tx generator
     -> (String -> IO ())
+      -- ^ logging backend
     -> IO (CutOutputs, CutOutputs)
 roundtrip' v sid0 tid0 burn create step = withTestBlockDb v $ \bdb -> do
   tg <- newMVar mempty
-  withWebPactExecutionService v defaultPactServiceConfig bdb (chainToMPA' tg) freeGasModel $ \(pact,_) -> do
+  withWebPactExecutionService step v defaultPactServiceConfig bdb (chainToMPA' tg) freeGasModel $ \(pact,_) -> do
 
     sid <- mkChainId v maxBound sid0
     tid <- mkChainId v maxBound tid0

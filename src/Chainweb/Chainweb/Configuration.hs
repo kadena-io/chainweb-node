@@ -108,7 +108,8 @@ import Chainweb.HostAddress
 import qualified Chainweb.Mempool.Mempool as Mempool
 import Chainweb.Mempool.P2pConfig
 import Chainweb.Miner.Config
-import Chainweb.Pact.Types (defaultReorgLimit, defaultModuleCacheLimit)
+import Chainweb.Pact.Types (defaultReorgLimit, defaultModuleCacheLimit, defaultLocalRewindDepthLimit)
+import Chainweb.Pact.Service.Types (RewindLimit(..))
 import Chainweb.Payload.RestAPI (PayloadBatchLimit(..), defaultServicePayloadBatchLimit)
 import Chainweb.Utils
 import Chainweb.Version
@@ -386,9 +387,8 @@ data ChainwebConfiguration = ChainwebConfiguration
     , _configLogGas :: !Bool
     , _configMinGasPrice :: !Mempool.GasPrice
     , _configPactQueueSize :: !Natural
-    , _configReorgLimit :: !Natural
-    , _configValidateHashesOnReplay :: !Bool
-        -- ^ Re-validate payload hashes during replay.
+    , _configReorgLimit :: !RewindLimit
+    , _configLocalRewindDepthLimit :: !RewindLimit
     , _configAllowReadsInLocal :: !Bool
     , _configRosetta :: !Bool
     , _configBackup :: !BackupConfig
@@ -417,12 +417,14 @@ validateChainwebConfiguration c = do
     validateChainwebVersion (_configChainwebVersion c)
 
 validateChainwebVersion :: ConfigValidation ChainwebVersion []
-validateChainwebVersion v = unless (_versionCode v `elem` map _versionCode [devnet, fastDevnet]) $
+validateChainwebVersion v = unless (isDevelopment || elem v knownVersions) $
     throwError $ T.unwords
         [ "Specifying version properties is only legal with chainweb-version"
         , "set to development, but version is set to"
         , sshow (_versionName v)
         ]
+    where
+    isDevelopment = _versionCode v `elem` [_versionCode dv | dv <- [devnet, fastDevnet]]
 
 validateBackupConfig :: ConfigValidation BackupConfig []
 validateBackupConfig c =
@@ -446,8 +448,8 @@ defaultChainwebConfiguration v = ChainwebConfiguration
     , _configLogGas = False
     , _configMinGasPrice = 1e-8
     , _configPactQueueSize = 2000
-    , _configReorgLimit = int defaultReorgLimit
-    , _configValidateHashesOnReplay = False
+    , _configReorgLimit = defaultReorgLimit
+    , _configLocalRewindDepthLimit = defaultLocalRewindDepthLimit
     , _configAllowReadsInLocal = False
     , _configRosetta = False
     , _configServiceApi = defaultServiceApiConfig
@@ -472,7 +474,7 @@ instance ToJSON ChainwebConfiguration where
         , "minGasPrice" .= _configMinGasPrice o
         , "pactQueueSize" .= _configPactQueueSize o
         , "reorgLimit" .= _configReorgLimit o
-        , "validateHashesOnReplay" .= _configValidateHashesOnReplay o
+        , "localRewindDepthLimit" .= _configLocalRewindDepthLimit o
         , "allowReadsInLocal" .= _configAllowReadsInLocal o
         , "rosetta" .= _configRosetta o
         , "serviceApi" .= _configServiceApi o
@@ -486,30 +488,28 @@ instance FromJSON ChainwebConfiguration where
     parseJSON = fmap ($ defaultChainwebConfiguration Mainnet01) . parseJSON
 
 instance FromJSON (ChainwebConfiguration -> ChainwebConfiguration) where
-    parseJSON = withObject "ChainwebConfiguration" $ \o -> do
-        id
-            <$< setProperty configChainwebVersion "chainwebVersion"
-                (findKnownVersion <=< parseJSON) o
-            <*< configCuts %.: "cuts" % o
-            <*< configMining %.: "mining" % o
-            <*< configHeaderStream ..: "headerStream" % o
-            <*< configReintroTxs ..: "reintroTxs" % o
-            <*< configP2p %.: "p2p" % o
-            <*< configThrottling %.: "throttling" % o
-            <*< configMempoolP2p %.: "mempoolP2p" % o
-            <*< configBlockGasLimit ..: "gasLimitOfBlock" % o
-            <*< configLogGas ..: "logGas" % o
-            <*< configMinGasPrice ..: "minGasPrice" % o
-            <*< configPactQueueSize ..: "pactQueueSize" % o
-            <*< configReorgLimit ..: "reorgLimit" % o
-            <*< configValidateHashesOnReplay ..: "validateHashesOnReplay" % o
-            <*< configAllowReadsInLocal ..: "allowReadsInLocal" % o
-            <*< configRosetta ..: "rosetta" % o
-            <*< configServiceApi %.: "serviceApi" % o
-            <*< configOnlySyncPact ..: "onlySyncPact" % o
-            <*< configSyncPactChains ..: "syncPactChains" % o
-            <*< configBackup %.: "backup" % o
-            <*< configModuleCacheLimit ..: "moduleCacheLimit" % o
+    parseJSON = withObject "ChainwebConfiguration" $ \o -> id
+        <$< setProperty configChainwebVersion "chainwebVersion"
+            (findKnownVersion <=< parseJSON) o
+        <*< configCuts %.: "cuts" % o
+        <*< configMining %.: "mining" % o
+        <*< configHeaderStream ..: "headerStream" % o
+        <*< configReintroTxs ..: "reintroTxs" % o
+        <*< configP2p %.: "p2p" % o
+        <*< configThrottling %.: "throttling" % o
+        <*< configMempoolP2p %.: "mempoolP2p" % o
+        <*< configBlockGasLimit ..: "gasLimitOfBlock" % o
+        <*< configLogGas ..: "logGas" % o
+        <*< configMinGasPrice ..: "minGasPrice" % o
+        <*< configPactQueueSize ..: "pactQueueSize" % o
+        <*< configReorgLimit ..: "reorgLimit" % o
+        <*< configAllowReadsInLocal ..: "allowReadsInLocal" % o
+        <*< configRosetta ..: "rosetta" % o
+        <*< configServiceApi %.: "serviceApi" % o
+        <*< configOnlySyncPact ..: "onlySyncPact" % o
+        <*< configSyncPactChains ..: "syncPactChains" % o
+        <*< configBackup %.: "backup" % o
+        <*< configModuleCacheLimit ..: "moduleCacheLimit" % o
 
 pChainwebConfiguration :: MParser ChainwebConfiguration
 pChainwebConfiguration = id
@@ -540,9 +540,9 @@ pChainwebConfiguration = id
         <> help "Max allowed reorg depth.\
                 \ Consult https://github.com/kadena-io/chainweb-node/blob/master/docs/RecoveringFromDeepForks.md for\
                 \ more information. "
-    <*< configValidateHashesOnReplay .:: boolOption_
-        % long "validateHashesOnReplay"
-        <> help "Re-validate payload hashes during transaction replay."
+    <*< configLocalRewindDepthLimit .:: jsonOption
+        % long "local-rewind-depth-limit"
+        <> help "Max allowed rewind depth for the local command."
     <*< configAllowReadsInLocal .:: boolOption_
         % long "allowReadsInLocal"
         <> help "Enable direct database reads of smart contract tables in local queries."
