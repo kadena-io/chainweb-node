@@ -73,6 +73,8 @@ import Chainweb.TreeDB
 import Chainweb.TreeDB.RemoteDB
 import Chainweb.Utils
 import Chainweb.Version
+import Chainweb.Version.Development
+import Chainweb.Version.Registry
 import Chainweb.Version.Utils
 
 import Data.LogMessage
@@ -106,19 +108,17 @@ defaultConfig = Config
     { _configLogHandle = Y.StdOut
     , _configLogLevel = Y.Info
     , _configChainwebVersion = Development
-    , _configChainId = someChainId devVersion
+    , _configChainId = someChainId Development
     , _configNode = HostAddress (unsafeHostnameFromText "us1.tn1.chainweb.com") 443
     , _configPretty = True
     , _configOutputs = True
     }
-  where
-    devVersion = Development
 
 instance ToJSON Config where
     toJSON o = object
         [ "logHandle" .= _configLogHandle o
         , "logLevel" .= _configLogLevel o
-        , "chainwebVersion" .= _configChainwebVersion o
+        , "chainwebVersion" .= _versionName (_configChainwebVersion o)
         , "chainId" .= _configChainId o
         , "node" .= _configNode o
         , "pretty" .= _configPretty o
@@ -126,20 +126,22 @@ instance ToJSON Config where
         ]
 
 instance FromJSON (Config -> Config) where
-    parseJSON = withObject "Config" $ \o -> id
-        <$< configLogHandle ..: "logHandle" % o
-        <*< configLogLevel ..: "logLevel" % o
-        <*< configChainwebVersion ..: "ChainwebVersion" % o
-        <*< configChainId ..: "chainId" % o
-        <*< configNode ..: "node" % o
-        <*< configPretty ..: "pretty" % o
-        <*< configOutputs ..: "outputs" % o
+    parseJSON = withObject "Config" $ \o -> do
+        id
+            <$< configLogHandle ..: "logHandle" % o
+            <*< configLogLevel ..: "logLevel" % o
+            <*< setProperty configChainwebVersion "chainwebVersion"
+                (findKnownVersion <=< parseJSON) o
+            <*< configChainId ..: "chainId" % o
+            <*< configNode ..: "node" % o
+            <*< configPretty ..: "pretty" % o
+            <*< configOutputs ..: "outputs" % o
 
 pConfig :: MParser Config
 pConfig = id
     <$< configLogHandle .:: Y.pLoggerHandleConfig
     <*< configLogLevel .:: Y.pLogLevel
-    <*< configChainwebVersion .:: option textReader
+    <*< configChainwebVersion .:: option (findKnownVersion =<< textReader)
         % long "chainweb-version"
         <> help "chainweb version identifier"
     <*< configChainId .:: option textReader
@@ -364,7 +366,7 @@ mainWithConfig config = withLog $ \logger -> do
     let logg :: LogFunction
         logg = logFunction $ logger
             & addLabel ("host", toText $ _configNode config)
-            & addLabel ("version", toText $ _configChainwebVersion config)
+            & addLabel ("version", toText $ _versionName $ _configChainwebVersion config)
             & addLabel ("chain", toText $ _configChainId config)
     liftIO $ if _configOutputs config
         then runOutputs config logg

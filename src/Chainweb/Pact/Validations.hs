@@ -43,14 +43,12 @@ import Data.Word (Word8)
 
 import Chainweb.BlockHeader (ParentCreationTime(..), BlockHeader(..), ParentHeader(..))
 import Chainweb.BlockCreationTime (BlockCreationTime(..))
-import Chainweb.ChainId (ChainId, chainIdToText)
 import Chainweb.Pact.Types
 import Chainweb.Pact.Utils (fromPactChainId)
 import Chainweb.Pact.Service.Types
 import Chainweb.Time (Seconds(..), Time(..), secondsToTimeSpan, scaleTimeSpan, second, add)
 import Chainweb.Transaction (cmdTimeToLive, cmdCreationTime)
-import Chainweb.Version (ChainwebVersion)
-import Chainweb.Utils (HasTextRepresentation(..),)
+import Chainweb.Version
 
 import qualified Pact.Types.Gas as P
 import qualified Pact.Types.Hash as P
@@ -135,7 +133,7 @@ assertBlockGasLimit bgl tgl = bgl >= tgl
 --
 assertNetworkId :: ChainwebVersion -> Maybe P.NetworkId -> Bool
 assertNetworkId _ Nothing = False
-assertNetworkId v (Just (P.NetworkId nid)) = fromText @ChainwebVersion nid == Just v
+assertNetworkId v (Just (P.NetworkId nid)) = ChainwebVersionName nid == _versionName v
 
 -- | Check and assert that the number of signatures in a 'Command' is
 -- at most 100.

@@ -51,13 +51,13 @@ import Pact.Types.Persistence
 import Chainweb.BlockHash ( BlockHash )
 import Chainweb.BlockHeader
 import Chainweb.BlockHeight
+import Chainweb.ChainId
 import Chainweb.Mempool.Mempool (InsertError(..),TransactionHash)
 import Chainweb.Miner.Pact
 import Chainweb.Pact.Backend.DbCache
 import Chainweb.Payload
 import Chainweb.Transaction
 import Chainweb.Utils (T2, encodeToText)
-import Chainweb.Version
 
 -- | Value that represents a limitation for rewinding.
 newtype RewindLimit = RewindLimit { _rewindLimit :: Word64 }

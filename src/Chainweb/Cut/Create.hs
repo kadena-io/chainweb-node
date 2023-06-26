@@ -185,7 +185,7 @@ getCutExtension c cid = do
     v = _chainwebVersion c
     parentHeight = _blockHeight p
     targetHeight = parentHeight + 1
-    parentGraph = chainGraphAt_ p parentHeight
+    parentGraph = chainGraphAt p parentHeight
     isGraphTransitionPost = isGraphChange c parentHeight
     isGraphTransitionCut = isTransitionCut c
 

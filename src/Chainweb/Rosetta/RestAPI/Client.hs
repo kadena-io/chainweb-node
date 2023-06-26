@@ -22,7 +22,7 @@ module Chainweb.Rosetta.RestAPI.Client
 , rosettaBlockApiClient
   -- * Construction Endpoints
 , rosettaConstructionDeriveApiClient
-, rosettaConstructionPreprocessApiClient 
+, rosettaConstructionPreprocessApiClient
 , rosettaConstructionMetadataApiClient
 , rosettaConstructionPayloadsApiClient
 , rosettaConstructionParseApiClient

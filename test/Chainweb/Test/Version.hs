@@ -27,13 +27,17 @@ import Test.Tasty.QuickCheck (testProperty)
 
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
-import Chainweb.BlockHeader.Genesis
+import Chainweb.BlockHeight
 import Chainweb.Graph
 import Chainweb.Test.Orphans.Internal
 import Chainweb.Test.Orphans.Internal ()
 import Chainweb.Utils
+import Chainweb.Utils.Rule
 import Chainweb.Utils.Serialization
 import Chainweb.Version
+import Chainweb.Version.Development
+import Chainweb.Version.Mainnet
+import Chainweb.Version.Testnet
 
 tests :: TestTree
 tests = testGroup "ChainwebVersion properties"
@@ -57,30 +61,26 @@ propForVersions desc prop = testGroup desc
 
 graphTests :: TestTree
 graphTests = testGroup "Graphs"
-    [ propForVersions "chainwebGraphs are sorted" prop_chainGraphs_sorted
-    , propForVersions "chainGraphs history starts at 0" $ prop_chainGraphs_0
-    , propForVersions "gensisHeight is greater or equal than 0 for all chains" prop_genesisHeight
+    [ propForVersions "versionGraphs are sorted" prop_chainGraphs_sorted
+    , propForVersions "genesisHeight is greater or equal than 0 for all chains" prop_genesisHeight
     , propForVersions "chain graphs order ordered by order" prop_chainGraphs_order
     , propForVersions "chainIds are chains of latest graph" prop_chainIds
     ]
 
 prop_chainGraphs_sorted :: ChainwebVersion -> Property
 prop_chainGraphs_sorted v
-    = (NE.reverse $ NE.sort $ chainwebGraphs v) === chainwebGraphs v
-
-prop_chainGraphs_0 :: ChainwebVersion -> Property
-prop_chainGraphs_0 = (===) 0 . fst . NE.last . chainwebGraphs
+    = property (ruleValid (_versionGraphs v))
 
 prop_chainGraphs_order :: ChainwebVersion -> Property
 prop_chainGraphs_order v = orders === NE.reverse (NE.sort orders)
   where
-    orders = fmap (order . snd) $ chainwebGraphs v
+    orders = ruleElems (BlockHeight 0) $ fmap order $ _versionGraphs v
 
 prop_genesisHeight :: ChainwebVersion -> Property
 prop_genesisHeight v = property $ all ((>= 0) . genesisHeight v) $ chainIds v
 
 prop_chainIds :: ChainwebVersion -> Property
-prop_chainIds v = chainIds v === graphChainIds (snd $ NE.head $ chainwebGraphs v)
+prop_chainIds v = chainIds v === graphChainIds (snd $ ruleHead $ _versionGraphs v)
 
 -- -------------------------------------------------------------------------- --
 --  Header Sizes
@@ -90,7 +90,6 @@ headerSizeTests = testGroup "HeaderSize"
     [ propForVersions "base size golden" prop_headerBaseSizeBytes_golden
     , propForVersions "base size" prop_headerBaseSizeBytes
     , propForVersions "sizes sorted" prop_headerSizes_sorted
-    , propForVersions "sizes 0" prop_headerSizes_0
     , propForVersions "sizes order" prop_headerSizes_order
     , propForVersions "genesis header size bytes" prop_headerSizeBytes_gen
     , propForVersions "header size bytes" prop_headerSizeBytes
@@ -101,7 +100,7 @@ headerSizeTests = testGroup "HeaderSize"
 -- be manually updated. This protectes against accidentally changing this value.
 --
 prop_headerBaseSizeBytes_golden :: ChainwebVersion -> Property
-prop_headerBaseSizeBytes_golden v = headerBaseSizeBytes v === 208
+prop_headerBaseSizeBytes_golden v = _versionHeaderBaseSizeBytes v === 208
 
 prop_headerBaseSizeBytes :: ChainwebVersion -> Property
 prop_headerBaseSizeBytes v = property $ do
@@ -109,19 +108,16 @@ prop_headerBaseSizeBytes v = property $ do
     let genHdr = genesisBlockHeader v cid
         gen = runPutS $ encodeBlockHeader genHdr
         as = runPutS $ encodeBlockHashRecord (_blockAdjacentHashes genHdr)
-    return $ headerBaseSizeBytes v === int (B.length gen - B.length as)
+    return $ _versionHeaderBaseSizeBytes v === int (B.length gen - B.length as)
 
 prop_headerSizes_sorted :: ChainwebVersion -> Property
 prop_headerSizes_sorted v
-    = (NE.reverse $ NE.sort $ headerSizes v) === headerSizes v
-
-prop_headerSizes_0 :: ChainwebVersion -> Property
-prop_headerSizes_0 = (===) 0 . fst . NE.last . headerSizes
+    = NE.reverse (NE.sort (ruleElems (BlockHeight 0) (headerSizes v))) === ruleElems (BlockHeight 0) (headerSizes v)
 
 prop_headerSizes_order :: ChainwebVersion -> Property
 prop_headerSizes_order v = orders === NE.reverse (NE.sort orders)
   where
-    orders = fmap (order . snd) $ chainwebGraphs v
+    orders = ruleElems (BlockHeight 0) $ fmap order $ _versionGraphs v
 
 prop_headerSizeBytes_gen :: ChainwebVersion -> Property
 prop_headerSizeBytes_gen v = property $ do

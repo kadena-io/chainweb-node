@@ -173,10 +173,10 @@ import Pact.Types.Util (parseB16TextOnly)
 
 import Chainweb.BlockCreationTime
 import Chainweb.BlockHeader
-import Chainweb.BlockHeader.Genesis
 import Chainweb.BlockHeaderDB hiding (withBlockHeaderDb)
 import Chainweb.BlockHeight
 import Chainweb.ChainId
+import Chainweb.Graph
 import Chainweb.Logger
 import Chainweb.Miner.Pact
 import Chainweb.Pact.Backend.RelationalCheckpointer
@@ -195,6 +195,7 @@ import Chainweb.Test.Cut
 import Chainweb.Test.Cut.TestBlockDb
 import Chainweb.Test.Utils
 import Chainweb.Test.Utils.BlockHeader
+import Chainweb.Test.TestVersions
 import Chainweb.Time
 import Chainweb.Transaction
 import Chainweb.Utils
@@ -213,6 +214,7 @@ import Chainweb.Storage.Table.RocksDB
 type SimpleKeyPair = (Text,Text)
 
 -- | Legacy; better to use 'CmdSigner'/'CmdBuilder'.
+-- if caps are empty, gas cap is implicit. otherwise it must be included
 testKeyPairs :: SimpleKeyPair -> Maybe [SigCapability] -> IO [SomeKeyPairCaps]
 testKeyPairs skp capsm = do
   kp <- toApiKp $ mkSigner' skp (fromMaybe [] capsm)
@@ -614,7 +616,7 @@ testPactCtxSQLite logBackend v cid bhdb pdb sqlenv conf gasmodel = do
     evalPactServiceM_ ctx (initialPayloadState dummyLogger mempty v cid)
     return (ctx, PactDbEnv' dbSt)
   where
-    initialBlockState = initBlockState defaultModuleCacheLimit $ Version.genesisHeight v cid
+    initialBlockState = initBlockState defaultModuleCacheLimit $ genesisHeight v cid
     loggers = pactTestLogger logBackend False -- toggle verbose pact test logging
     cpLogger = newLogger loggers $ LogName ("Checkpointer" ++ show cid)
     pactServiceEnv cpe rs = PactServiceEnv
@@ -862,7 +864,7 @@ dummyLogger :: GenericLogger
 dummyLogger = genericLogger Error (error . T.unpack)
 
 someTestVersion :: ChainwebVersion
-someTestVersion = FastTimedCPM peterson
+someTestVersion = fastForkingCpmTestVersion petersonChainGraph
 
 someTestVersionHeader :: BlockHeader
 someTestVersionHeader = someBlockHeader someTestVersion 10
