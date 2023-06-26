@@ -140,7 +140,6 @@ import qualified Chainweb.Time as Time
 import Chainweb.Transaction
 import Chainweb.Utils
 import Chainweb.Utils.Serialization
-import Chainweb.Version (ChainwebVersion(..))
 import Data.LogMessage (LogFunctionText)
 
 ------------------------------------------------------------------------------
@@ -360,10 +359,10 @@ noopMempool = do
 ------------------------------------------------------------------------------
 
 chainwebTransactionConfig
-    :: Maybe (ChainwebVersion, BlockHeight)
+    :: PactParserVersion
     -> TransactionConfig ChainwebTransaction
-chainwebTransactionConfig chainCtx = TransactionConfig
-    { txCodec = chainwebPayloadCodec chainCtx
+chainwebTransactionConfig ppv = TransactionConfig
+    { txCodec = chainwebPayloadCodec ppv
     , txHasher = commandHash
     , txHashMeta = chainwebTestHashMeta
     , txGasPrice = getGasPrice

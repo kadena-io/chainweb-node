@@ -66,7 +66,6 @@ import qualified Streaming.Prelude as S
 
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
-import Chainweb.BlockHeader.Genesis (genesisBlockHeader)
 import Chainweb.BlockHeader.Validation
 import Chainweb.BlockHeight
 import Chainweb.ChainId
@@ -292,7 +291,7 @@ instance TreeDb BlockHeaderDb where
 
     lookup db h = runMaybeT $ do
         -- lookup rank
-        r <- MaybeT $ tableLookup (_chainDbRankTable db) h 
+        r <- MaybeT $ tableLookup (_chainDbRankTable db) h
         MaybeT $ lookupRanked db (int r) h
     {-# INLINEABLE lookup #-}
 
@@ -402,6 +401,6 @@ insertBlockHeaderDb db = dbAddChecked db . _validatedHeader
 {-# INLINE insertBlockHeaderDb #-}
 
 unsafeInsertBlockHeaderDb :: BlockHeaderDb -> BlockHeader -> IO ()
-unsafeInsertBlockHeaderDb = dbAddChecked 
+unsafeInsertBlockHeaderDb = dbAddChecked
 {-# INLINE unsafeInsertBlockHeaderDb #-}
 

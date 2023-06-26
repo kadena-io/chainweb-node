@@ -44,7 +44,7 @@ import Chainweb.Payload
 import Chainweb.RestAPI.NodeInfo
 import Chainweb.Test.Orphans.Internal
 import Chainweb.Utils.Paging
-import Chainweb.Version
+import Chainweb.Version.Mainnet
 
 -- -------------------------------------------------------------------------- --
 -- Main

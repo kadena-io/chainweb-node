@@ -6,10 +6,10 @@ module RunNodes ( main, runNodesOpts ) where
 
 import Chainweb.Graph (petersonChainGraph)
 import Chainweb.Version
+import Chainweb.Version.Registry
 
 import Control.Concurrent
 import Control.Concurrent.Async
-import Control.Error.Util (note)
 import Control.Exception
 
 import qualified Data.Text as T
@@ -22,6 +22,7 @@ import System.Process (callProcess)
 
 -- internal modules
 
+import Chainweb.Test.TestVersions
 import Chainweb.Utils
 
 ---
@@ -48,14 +49,10 @@ pNodes = option auto
    <> help "Number of Nodes to run (default: 10)")
 
 pVersion :: Parser ChainwebVersion
-pVersion = option cver
+pVersion = option (findKnownVersion =<< textReader)
   (long "chainweb-version" <> metavar "CHAINWEB_VERSION"
-   <> value (TimedCPM petersonChainGraph)
+   <> value (fastForkingCpmTestVersion petersonChainGraph)
    <> help "Chainweb Version to run the Nodes with (default: timedCPM-peterson)")
-  where
-    cver :: ReadM ChainwebVersion
-    cver = eitherReader $ \s ->
-        note "Illegal ChainwebVersion" . chainwebVersionFromText $ T.pack s
 
 pConfig :: Parser FilePath
 pConfig = strOption
@@ -73,7 +70,7 @@ runNode nid mconf (Env e ns v _ ps) = callProcess e (T.unpack <$> ops)
     ops = [ "--hostname=127.0.0.1"
           , "--node-id=" <> sshow nid
           , "--test-miners=" <> sshow ns
-          , "--chainweb-version=" <> chainwebVersionToText v
+          , "--chainweb-version=" <> getChainwebVersionName (_versionName v)
           , "--interface=127.0.0.1"
           ]
           <> maybe [] (\c -> ["--config-file=" <> T.pack c]) mconf

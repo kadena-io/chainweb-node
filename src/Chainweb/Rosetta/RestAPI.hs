@@ -56,7 +56,7 @@ module Chainweb.Rosetta.RestAPI
   ) where
 
 import Control.Error.Util
-import Control.Monad (when)
+import Control.Monad
 
 import Rosetta
 
@@ -64,9 +64,9 @@ import Servant
 
 -- internal modules
 
+import Chainweb.ChainId
 import Chainweb.Rosetta.Utils
 import Chainweb.RestAPI.Utils
-import Chainweb.Utils
 import Chainweb.Version
 
 ---
@@ -320,6 +320,6 @@ throwRosettaError e = throwError $ setErrJSON e err500
 validateNetwork :: ChainwebVersion -> NetworkId -> Either RosettaFailure ChainId
 validateNetwork v (NetworkId bc n msni) = do
     when (bc /= "kadena") $ Left RosettaInvalidBlockchainName
-    when (Just v /= fromText n) $ Left RosettaMismatchNetworkName
+    when (_versionName v /= ChainwebVersionName n) $ Left RosettaMismatchNetworkName
     SubNetworkId cid _ <- note RosettaChainUnspecified msni
     note RosettaInvalidChain $ readChainIdText v cid

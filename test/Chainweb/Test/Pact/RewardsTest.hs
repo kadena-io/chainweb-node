@@ -14,11 +14,11 @@ import Chainweb.Graph
 import Chainweb.Miner.Pact
 import Chainweb.Pact.PactService.ExecBlock
 import Chainweb.Test.Utils
+import Chainweb.Test.TestVersions
 import Chainweb.Version
 
-
 v :: ChainwebVersion
-v = FastTimedCPM petersonChainGraph
+v = fastForkingCpmTestVersion petersonChainGraph
 
 tests :: ScheduledTest
 tests = ScheduledTest "Chainweb.Test.Pact.RewardsTest" $

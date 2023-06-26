@@ -29,7 +29,7 @@ module Chainweb.Pact.PactService
     , execHistoricalLookup
     , execSyncToBlock
     , runPactService
-    , runPactService'
+    , withPactService
     , execNewGenesisBlock
     , getGasModel
     ) where
@@ -73,9 +73,9 @@ import qualified Pact.Types.Pretty as P
 
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
-import Chainweb.BlockHeader.Genesis (genesisBlockHeader, genesisBlockPayload)
 import Chainweb.BlockHeaderDB
 import Chainweb.BlockHeight
+import Chainweb.ChainId
 import Chainweb.Logger
 import Chainweb.Mempool.Mempool as Mempool
 import Chainweb.Miner.Pact
@@ -95,6 +95,7 @@ import Chainweb.Transaction
 import Chainweb.TreeDB (lookupM, seekAncestor)
 import Chainweb.Utils hiding (check)
 import Chainweb.Version
+import Chainweb.Version.Guards
 import Data.LogMessage
 import Utils.Logging.Trace
 
@@ -112,11 +113,11 @@ runPactService
     -> PactServiceConfig
     -> IO ()
 runPactService ver cid chainwebLogger reqQ mempoolAccess bhDb pdb sqlenv config =
-    void $ runPactService' ver cid chainwebLogger bhDb pdb sqlenv config $ do
+    void $ withPactService ver cid chainwebLogger bhDb pdb sqlenv config $ do
         initialPayloadState chainwebLogger mempoolAccess ver cid
         serviceRequests (logFunction chainwebLogger) mempoolAccess reqQ
 
-runPactService'
+withPactService
     :: Logger logger
     => CanReadablePayloadCas tbl
     => ChainwebVersion
@@ -128,7 +129,7 @@ runPactService'
     -> PactServiceConfig
     -> PactServiceM tbl a
     -> IO (T2 a PactServiceState)
-runPactService' ver cid chainwebLogger bhDb pdb sqlenv config act =
+withPactService ver cid chainwebLogger bhDb pdb sqlenv config act =
     withProdRelationalCheckpointer checkpointerLogger initialBlockState sqlenv cplogger ver cid $ \checkpointEnv -> do
         let !rs = readRewards
             !initialParentHeader = ParentHeader $ genesisBlockHeader ver cid
@@ -139,8 +140,8 @@ runPactService' ver cid chainwebLogger bhDb pdb sqlenv config act =
                     , _psBlockHeaderDb = bhDb
                     , _psGasModel = getGasModel
                     , _psMinerRewards = rs
-                    , _psReorgLimit = fromIntegral $ _pactReorgLimit config
-                    , _psLocalRewindDepthLimit = fromIntegral $ _pactLocalRewindDepthLimit config
+                    , _psReorgLimit = _pactReorgLimit config
+                    , _psLocalRewindDepthLimit = _pactLocalRewindDepthLimit config
                     , _psOnFatalError = defaultOnFatalError (logFunctionText chainwebLogger)
                     , _psVersion = ver
                     , _psValidateHashesOnReplay = _pactRevalidate config
@@ -177,7 +178,7 @@ initializeLatestBlock unlimitedRewind = findLatestValidBlock >>= \case
     Nothing -> return ()
     Just b -> withBatch $ rewindTo initialRewindLimit (Just $ ParentHeader b)
   where
-    initialRewindLimit = 1000 <$ guard (not unlimitedRewind)
+    initialRewindLimit = RewindLimit 1000 <$ guard (not unlimitedRewind)
 
 initialPayloadState
     :: Logger logger
@@ -187,19 +188,10 @@ initialPayloadState
     -> ChainwebVersion
     -> ChainId
     -> PactServiceM tbl ()
-initialPayloadState _ _ Test{} _ = pure ()
-initialPayloadState _ _ TimedConsensus{} _ = pure ()
-initialPayloadState _ _ PowConsensus{} _ = pure ()
-initialPayloadState logger mpa v@TimedCPM{} cid =
-    initializeCoinContract logger mpa v cid $ genesisBlockPayload v cid
-initialPayloadState logger mpa v@FastTimedCPM{} cid =
-    initializeCoinContract logger mpa v cid $ genesisBlockPayload v cid
-initialPayloadState logger mpa v@Development cid =
-    initializeCoinContract logger mpa v cid $ genesisBlockPayload v cid
-initialPayloadState logger mpa v@Testnet04 cid =
-    initializeCoinContract logger mpa v cid $ genesisBlockPayload v cid
-initialPayloadState logger mpa v@Mainnet01 cid =
-    initializeCoinContract logger mpa v cid $ genesisBlockPayload v cid
+initialPayloadState logger mpa v cid
+    | v ^. versionCheats . disablePact = pure ()
+    | otherwise = initializeCoinContract logger mpa v cid $
+        v ^?! versionGenesis . genesisBlockPayload . onChain cid
 
 initializeCoinContract
     :: forall tbl logger. (CanReadablePayloadCas tbl, Logger logger)
@@ -212,7 +204,7 @@ initializeCoinContract
 initializeCoinContract _logger memPoolAccess v cid pwo = do
     cp <- getCheckpointer
     genesisExists <- liftIO
-        $ _cpLookupBlockInCheckpointer cp (genesisHeight v cid, ghash)
+        $ _cpLookupBlockInCheckpointer cp (_blockHeight genesisHeader, ghash)
     if genesisExists
       then readContracts
       else validateGenesis
@@ -419,7 +411,7 @@ attemptBuyGas miner (PactDbEnv' dbEnv) txs = do
         let ec = P.mkExecutionConfig $
               [ P.FlagDisableModuleInstall
               , P.FlagDisableHistoryInTransactionalMode ] ++
-              disableReturnRTC pd
+              disableReturnRTC (ctxVersion pd) (ctxChainId pd) (ctxCurrentBlockHeight pd)
         return $! TransactionEnv P.Transactional db l Nothing (ctxToPublicData pd) spv nid gp rk gl ec
       where
         !nid = networkIdOf cmd
@@ -485,7 +477,7 @@ execNewBlock mpAccess parent miner = do
     -- This is intended to mitigate mining attempts during replay.
     -- In theory we shouldn't need to rewind much ever, but values
     -- less than this are failing in PactReplay test.
-    newblockRewindLimit = Just 8
+    newblockRewindLimit = Just $ RewindLimit 8
 
     getBlockTxs :: BlockFill -> PactServiceM tbl (Vector ChainwebTransaction)
     getBlockTxs bfState = do
@@ -634,8 +626,8 @@ execLocal
       -- ^ preflight flag
     -> Maybe LocalSignatureVerification
       -- ^ turn off signature verification checks?
-    -> Maybe BlockHeight
-      -- ^ rewind depth (note: this is a *depth*, not an absolute height)
+    -> Maybe RewindDepth
+      -- ^ rewind depth
     -> PactServiceM tbl LocalResult
 execLocal cwtx preflight sigVerify rdepth = withDiscardedBatch $ do
     parent <- syncParentHeader "execLocal"
@@ -649,23 +641,21 @@ execLocal cwtx preflight sigVerify rdepth = withDiscardedBatch $ do
     ctx <- getTxContext pm
     spv <- use psSpvSupport
 
-    let rewindHeight
-          | Just d <- rdepth = d
-          -- when no height is defined, treat
-          -- withCheckpointerRewind as withCurrentCheckpointer
-          -- (i.e. setting rewind to 0).
-          | otherwise = 0
+    -- when no depth is defined, treat
+    -- withCheckpointerRewind as withCurrentCheckpointer
+    -- (i.e. setting rewind to 0).
+    let rewindDepth = fromMaybe (RewindDepth 0) rdepth
 
-    when ((_height rewindHeight) > _psLocalRewindDepthLimit) $ do
-        throwM $ LocalRewindLimitExceeded (fromIntegral _psLocalRewindDepthLimit) rewindHeight
+    when (_rewindDepth rewindDepth > _rewindLimit _psLocalRewindDepthLimit) $ do
+        throwM $ LocalRewindLimitExceeded _psLocalRewindDepthLimit rewindDepth
 
     let parentBlockHeader = _parentHeader parent
 
     -- we fail if the requested depth is bigger than the current parent block height
     -- because we can't go after the genesis block
-    when (fromMaybe 0 rdepth > _blockHeight parentBlockHeader) $ throwM LocalRewindGenesisExceeded
+    when (_rewindDepth rewindDepth > getBlockHeight (_blockHeight parentBlockHeader)) $ throwM LocalRewindGenesisExceeded
 
-    let ancestorRank = fromIntegral $ _height $ _blockHeight parentBlockHeader - fromMaybe 0 rdepth
+    let ancestorRank = fromIntegral $ (getBlockHeight $ _blockHeight parentBlockHeader) - _rewindDepth rewindDepth
     ancestor <- liftIO $ seekAncestor _psBlockHeaderDb parentBlockHeader ancestorRank
 
     rewindHeader <- case ancestor of
@@ -675,13 +665,15 @@ execLocal cwtx preflight sigVerify rdepth = withDiscardedBatch $ do
 
     let execConfig = P.mkExecutionConfig $
             [ P.FlagAllowReadInLocal | _psAllowReadsInLocal ] ++
-            enablePactEvents' ctx ++
-            enforceKeysetFormats' ctx ++
-            disableReturnRTC ctx
+            enablePactEvents' (ctxVersion ctx) (ctxChainId ctx) (ctxCurrentBlockHeight ctx) ++
+            enforceKeysetFormats' (ctxVersion ctx) (ctxChainId ctx) (ctxCurrentBlockHeight ctx) ++
+            disableReturnRTC (ctxVersion ctx) (ctxChainId ctx) (ctxCurrentBlockHeight ctx)
         logger = P.newLogger _psLoggers "execLocal"
         initialGas = initialGasOf $ P._cmdPayload cwtx
 
-    withCheckpointerRewind (Just rewindHeight) rewindHeader "execLocal" $
+    -- In this case the rewind limit is the same as rewind depth
+    let rewindLimit = RewindLimit $ _rewindDepth rewindDepth
+    withCheckpointerRewind (Just rewindLimit) rewindHeader "execLocal" $
       \(PactDbEnv' pdbenv) -> do
         --
         -- if the ?preflight query parameter is set to True, we run the `applyCmd` workflow
@@ -733,7 +725,7 @@ execValidateBlock memPoolAccess currHeader plData = do
     -- The parent block header must be available in the block header database
     target <- getTarget
     psEnv <- ask
-    let reorgLimit = fromIntegral $ view psReorgLimit psEnv
+    let reorgLimit = view psReorgLimit psEnv
     T2 miner transactions <- exitOnRewindLimitExceeded $ withBatch $ do
         withCheckpointerRewind (Just reorgLimit) target "execValidateBlock" $ \pdbenv -> do
             !result <- execBlock currHeader plData pdbenv
@@ -851,5 +843,5 @@ chainweb213GasModel = modifiedGasModel
 
 getGasModel :: TxContext -> P.GasModel
 getGasModel ctx
-    | chainweb213Pact (ctxVersion ctx) (ctxCurrentBlockHeight ctx) = chainweb213GasModel
+    | chainweb213Pact (ctxVersion ctx) (ctxChainId ctx) (ctxCurrentBlockHeight ctx) = chainweb213GasModel
     | otherwise = freeModuleLoadGasModel

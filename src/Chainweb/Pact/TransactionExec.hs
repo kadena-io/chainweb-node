@@ -65,7 +65,7 @@ import qualified Data.ByteString as B
 import qualified Data.ByteString.Short as SB
 import Data.Decimal (Decimal, roundTo)
 import Data.Default (def)
-import Data.Foldable (for_, traverse_)
+import Data.Foldable (fold, for_)
 import Data.IORef
 import qualified Data.HashMap.Strict as HM
 import Data.Maybe
@@ -98,15 +98,16 @@ import Pact.Types.SPV
 
 import Chainweb.BlockHeader
 import Chainweb.BlockHeight
+import qualified Chainweb.ChainId as Chainweb
 import Chainweb.Mempool.Mempool (requestKeyToTransactionHash)
 import Chainweb.Miner.Pact
 import Chainweb.Pact.Service.Types
 import Chainweb.Pact.Templates
-import Chainweb.Pact.Transactions.UpgradeTransactions
 import Chainweb.Pact.Types hiding (logError)
 import Chainweb.Transaction
 import Chainweb.Utils (encodeToByteString, sshow, tryAllSynchronous, T2(..), T3(..))
 import Chainweb.Version as V
+import Chainweb.Version.Guards as V
 
 
 -- -------------------------------------------------------------------------- --
@@ -131,7 +132,7 @@ magic_GENESIS = mkMagicCapSlot "GENESIS"
 
 onChainErrorPrintingFor :: TxContext -> UnexpectedErrorPrinting
 onChainErrorPrintingFor txCtx =
-  if chainweb219Pact (ctxVersion txCtx) (ctxCurrentBlockHeight txCtx)
+  if chainweb219Pact (ctxVersion txCtx) (ctxChainId txCtx) (ctxCurrentBlockHeight txCtx)
   then CensorsUnexpectedError
   else PrintsUnexpectedError
 
@@ -178,24 +179,13 @@ applyCmd v logger gasLogger pdbenv miner gasModel txCtx spv cmd initialGas mcach
     txst = TransactionState mcache0 mempty 0 Nothing stGasModel mempty
 
 
-    executionConfigNoHistory = mkExecutionConfig
-      $ FlagDisableHistoryInTransactionalMode
-      : ( [ FlagOldReadOnlyBehavior | isPactBackCompatV16 ]
-          ++ [ FlagPreserveModuleNameBug | not isModuleNameFix ]
-          ++ [ FlagPreserveNsModuleInstallBug | not isModuleNameFix2 ]
-          ++ enablePactEvents' txCtx
-          ++ enablePact40 txCtx
-          ++ enablePact420 txCtx
-          ++ enforceKeysetFormats' txCtx
-          ++ enablePactModuleMemcheck txCtx
-          ++ enablePact43 txCtx
-          ++ enablePact431 txCtx
-          ++ enablePact44 txCtx
-          ++ enablePact45 txCtx
-          ++ enableNewTrans txCtx
-          ++ enablePact46 txCtx
-          ++ enablePact47 txCtx
-          ++ disableReturnRTC txCtx)
+    executionConfigNoHistory = ExecutionConfig
+      $ S.singleton FlagDisableHistoryInTransactionalMode
+      <> S.fromList
+        ([ FlagOldReadOnlyBehavior | isPactBackCompatV16 ]
+        ++ [ FlagPreserveModuleNameBug | not isModuleNameFix ]
+        ++ [ FlagPreserveNsModuleInstallBug | not isModuleNameFix2 ])
+      <> flagsFor v (ctxChainId txCtx) (ctxCurrentBlockHeight txCtx)
 
     cenv = TransactionEnv Transactional pdbenv logger gasLogger (ctxToPublicData txCtx) spv nid gasPrice
       requestKey (fromIntegral gasLimit) executionConfigNoHistory
@@ -205,12 +195,13 @@ applyCmd v logger gasLogger pdbenv miner gasModel txCtx spv cmd initialGas mcach
     gasLimit = view cmdGasLimit cmd
     nid = networkIdOf cmd
     currHeight = ctxCurrentBlockHeight txCtx
-    isModuleNameFix = enableModuleNameFix v currHeight
-    isModuleNameFix2 = enableModuleNameFix2 v currHeight
-    isPactBackCompatV16 = pactBackCompat_v16 v currHeight
-    chainweb213Pact' = chainweb213Pact (ctxVersion txCtx) (ctxCurrentBlockHeight txCtx)
-    chainweb217Pact' = chainweb217Pact After (ctxVersion txCtx) (ctxCurrentBlockHeight txCtx)
-    chainweb219Pact' = chainweb219Pact (ctxVersion txCtx) (ctxCurrentBlockHeight txCtx)
+    cid = ctxChainId txCtx
+    isModuleNameFix = enableModuleNameFix v cid currHeight
+    isModuleNameFix2 = enableModuleNameFix2 v cid currHeight
+    isPactBackCompatV16 = pactBackCompat_v16 v cid currHeight
+    chainweb213Pact' = chainweb213Pact v cid currHeight
+    chainweb217Pact' = chainweb217Pact v cid currHeight
+    chainweb219Pact' = chainweb219Pact v cid currHeight
     toEmptyPactError (PactError errty _ _ _) = PactError errty def [] mempty
 
     toOldListErr pe = pe { peDoc = listErrMsg }
@@ -327,6 +318,23 @@ applyGenesisCmd logger dbEnv spv cmd =
         Left e -> fatal $ "Genesis command failed: " <> sshow e
         Right r -> r <$ debug "successful genesis tx for request key"
 
+flagsFor :: ChainwebVersion -> V.ChainId -> BlockHeight -> S.Set ExecutionFlag
+flagsFor v cid bh = S.fromList $ concat
+  [ enablePactEvents' v cid bh
+  , enablePact40 v cid bh
+  , enablePact420 v cid bh
+  , enforceKeysetFormats' v cid bh
+  , enablePactModuleMemcheck v cid bh
+  , enablePact43 v cid bh
+  , enablePact431 v cid bh
+  , enablePact44 v cid bh
+  , enablePact45 v cid bh
+  , enableNewTrans v cid bh
+  , enablePact46 v cid bh
+  , enablePact47 v cid bh
+  , disableReturnRTC v cid bh
+  ]
+
 applyCoinbase
     :: ChainwebVersion
     -> Logger
@@ -360,21 +368,14 @@ applyCoinbase v logger dbEnv (Miner mid mks@(MinerKeys mk)) reward@(ParsedDecima
     let interp = initStateInterpreter initState
     go interp cexec
   where
-    chainweb213Pact' = chainweb213Pact v bh
+    chainweb213Pact' = chainweb213Pact v cid bh
     fork1_3InEffect = vuln797Fix v cid bh
     throwCritical = fork1_3InEffect || enfCBFailure
-    ec = mkExecutionConfig $
-      [ FlagDisableModuleInstall
-      , FlagDisableHistoryInTransactionalMode ] ++
-      enablePactEvents' txCtx ++
-      enablePact40 txCtx ++
-      enablePact420 txCtx ++
-      enablePactModuleMemcheck txCtx ++
-      enablePact43 txCtx ++
-      enablePact431 txCtx ++
-      enablePact44 txCtx ++
-      enablePact45 txCtx ++
-      enablePact47 txCtx
+    ec = ExecutionConfig $ S.delete FlagEnforceKeyFormats $ fold
+      [ S.singleton FlagDisableModuleInstall
+      , S.singleton FlagDisableHistoryInTransactionalMode
+      , flagsFor v (ctxChainId txCtx) (ctxCurrentBlockHeight txCtx)
+      ]
     tenv = TransactionEnv Transactional dbEnv logger Nothing (ctxToPublicData txCtx) noSPVSupport
            Nothing 0.0 rk 0 ec
     txst = TransactionState mc mempty 0 Nothing (_geGasModel freeGasEnv) mempty
@@ -383,7 +384,7 @@ applyCoinbase v logger dbEnv (Miner mid mks@(MinerKeys mk)) reward@(ParsedDecima
     parent = _tcParentHeader txCtx
 
     bh = ctxCurrentBlockHeight txCtx
-    cid = V._chainId parent
+    cid = Chainweb._chainId parent
     chash = Pact.Hash $ SB.toShort $ encodeToByteString $ _blockHash $ _parentHeader parent
         -- NOTE: it holds that @ _pdPrevBlockHash pd == encode _blockHash@
         -- NOTE: chash includes the /quoted/ text of the parent header.
@@ -404,7 +405,6 @@ applyCoinbase v logger dbEnv (Miner mid mks@(MinerKeys mk)) reward@(ParsedDecima
             <> sshow mid
 
           upgradedModuleCache <- applyUpgrades v cid bh
-          void $! applyTwentyChainUpgrade v cid bh
 
           -- NOTE (linda): When adding new forking transactions that are injected
           -- into a block's coinbase transaction, please add a corresponding case
@@ -489,12 +489,13 @@ readInitModules logger dbEnv txCtx
     -- cache purging everything but coin and its
     -- dependencies.
     chainweb217Pact' = chainweb217Pact
-      After
       (ctxVersion txCtx)
+      (ctxChainId txCtx)
       (ctxCurrentBlockHeight txCtx)
 
     parent = _tcParentHeader txCtx
-    v = _chainwebVersion parent
+    v = ctxVersion txCtx
+    cid = ctxChainId txCtx
     h = _blockHeight (_parentHeader parent) + 1
     rk = RequestKey chash
     nid = Nothing
@@ -504,7 +505,7 @@ readInitModules logger dbEnv txCtx
     txst = TransactionState mempty mempty 0 Nothing (_geGasModel freeGasEnv) mempty
     interp = defaultInterpreter
     die msg = throwM $ PactInternalError $ "readInitModules: " <> msg
-    mkCmd = buildExecParsedCode (Just (v, h)) Nothing
+    mkCmd = buildExecParsedCode (pactParserVersion v cid h) Nothing
     run msg cmd = do
       er <- catchesPactError logger (onChainErrorPrintingFor txCtx) $!
         applyExec' 0 interp cmd [] chash permissiveNamespacePolicy
@@ -567,33 +568,24 @@ readInitModules logger dbEnv txCtx
 --
 applyUpgrades
   :: ChainwebVersion
-  -> V.ChainId
+  -> Chainweb.ChainId
   -> BlockHeight
   -> TransactionM p (Maybe ModuleCache)
 applyUpgrades v cid height
-     | coinV2Upgrade v cid height = applyCoinV2
-     | pact4coin3Upgrade At v height = applyCoinV3
-     | chainweb214Pact At v height = applyCoinV4
-     | chainweb215Pact At v height = applyCoinV5
-     | chainweb217Pact At v height = filterModuleCache
+     | Just upg <-
+         v ^? versionUpgrades . onChain cid . at height . _Just = applyUpgrade upg
+     | cleanModuleCache v cid height = filterModuleCache
      | otherwise = return Nothing
   where
     installCoinModuleAdmin = set (evalCapabilities . capModuleAdmin) $ S.singleton (ModuleName "coin" Nothing)
-
-    applyCoinV2 = applyTxs (upgradeTransactions v cid) [FlagDisableInlineMemCheck, FlagDisablePact43, FlagDisablePact45]
-
-    applyCoinV3 = applyTxs coinV3Transactions [FlagDisableInlineMemCheck, FlagDisablePact43, FlagDisablePact45]
-
-    applyCoinV4 = applyTxs coinV4Transactions [FlagDisablePact45]
-    applyCoinV5 = applyTxs coinV5Transactions [FlagDisablePact45]
 
     filterModuleCache = do
       mc <- use txCache
       pure $ Just $ HM.filterWithKey (\k _ -> k == "coin") mc
 
-    applyTxs txsIO flags = do
+    applyUpgrade upg = do
       infoLog "Applying upgrade!"
-      txs <- map (fmap payloadObj) <$> liftIO txsIO
+      let payloads = map (fmap payloadObj) $ _upgradeTransactions upg
 
       --
       -- In order to prime the module cache with all new modules for subsequent
@@ -601,8 +593,11 @@ applyUpgrades v cid height
       -- those caches is returned. The calling code adds this new cache to the
       -- init cache in the pact service state (_psInitCache).
       --
-      let execConfig = mkExecutionConfig flags
-      caches <- local (set txExecutionConfig execConfig) $ mapM applyTx txs
+
+      let flags = flagsFor v cid (if _legacyUpgradeIsPrecocious upg then height + 1 else height)
+      caches <- local
+        (txExecutionConfig .~ ExecutionConfig flags)
+        (mapM applyTx payloads)
       return $ Just (HM.unions caches)
 
     interp = initStateInterpreter
@@ -617,43 +612,6 @@ applyUpgrades v cid height
         Left e -> do
           logError $ "Upgrade transaction failed! " <> sshow e
           throwM e
-
-applyTwentyChainUpgrade
-    :: ChainwebVersion
-    -> V.ChainId
-    -> BlockHeight
-    -> TransactionM p ()
-applyTwentyChainUpgrade v cid bh
-    | to20ChainRebalance v cid bh = do
-      txlist <- liftIO $ twentyChainUpgradeTransactions v cid
-
-      infoLog $ "Applying 20-chain upgrades on chain " <> sshow cid
-
-      let txs = fmap payloadObj <$> txlist
-
-      --
-      -- Note (emily): This function does not need to care about
-      -- module caching, because it is already seeded with the correct cache
-      -- state, and is not updating the module cache, unlike 'applyUpgrades'.
-      --
-
-      traverse_ applyTx txs
-    | otherwise = return ()
-  where
-    applyTx tx = do
-      infoLog $ "Running 20-chain upgrade tx " <> sshow (_cmdHash tx)
-
-      let i = initStateInterpreter
-            $ initCapabilities [mkMagicCapSlot "REMEDIATE"]
-
-      r <- tryAllSynchronous (runGenesis tx permissiveNamespacePolicy i)
-      case r of
-        Left e -> do
-          logError $ "Upgrade transaction failed: " <> sshow e
-          void $! throwM e
-        Right _ -> return ()
-
-
 
 jsonErrorResult
     :: PactError
@@ -766,70 +724,45 @@ applyExec' initialGas interp (ExecMsg parsedCode execData) senderSigs hsh nsp
 
       return er
 
-enablePactEvents' :: TxContext -> [ExecutionFlag]
-enablePactEvents' tc
-    | enablePactEvents (ctxVersion tc) (ctxCurrentBlockHeight tc) = []
-    | otherwise = [FlagDisablePactEvents]
+enablePactEvents' :: ChainwebVersion -> V.ChainId -> BlockHeight -> [ExecutionFlag]
+enablePactEvents' v cid bh = [FlagDisablePactEvents | not (enablePactEvents v cid bh)]
 
-enforceKeysetFormats' :: TxContext -> [ExecutionFlag]
-enforceKeysetFormats' tc
-    | enforceKeysetFormats (ctxVersion tc) (ctxCurrentBlockHeight tc) = [FlagEnforceKeyFormats]
-    | otherwise = []
+enforceKeysetFormats' :: ChainwebVersion -> V.ChainId -> BlockHeight -> [ExecutionFlag]
+enforceKeysetFormats' v cid bh = [FlagEnforceKeyFormats | enforceKeysetFormats v cid bh]
 
+enablePact40 :: ChainwebVersion -> V.ChainId -> BlockHeight -> [ExecutionFlag]
+enablePact40 v cid bh = [FlagDisablePact40 | not (pact4Coin3 v cid bh)]
 
-enablePact40 :: TxContext -> [ExecutionFlag]
-enablePact40 tc
-    | pact4coin3Upgrade After (ctxVersion tc) (ctxCurrentBlockHeight tc) = []
-    | otherwise = [FlagDisablePact40]
+enablePact420 :: ChainwebVersion -> V.ChainId -> BlockHeight -> [ExecutionFlag]
+enablePact420 v cid bh = [FlagDisablePact420 | not (pact420 v cid bh)]
 
-enablePact420 :: TxContext -> [ExecutionFlag]
-enablePact420 tc
-    | pact420Upgrade (ctxVersion tc) (ctxCurrentBlockHeight tc) = []
-    | otherwise = [FlagDisablePact420]
+enablePactModuleMemcheck :: ChainwebVersion -> V.ChainId -> BlockHeight -> [ExecutionFlag]
+enablePactModuleMemcheck v cid bh = [FlagDisableInlineMemCheck | not (chainweb213Pact v cid bh)]
 
-enablePactModuleMemcheck :: TxContext -> [ExecutionFlag]
-enablePactModuleMemcheck tc
-    | chainweb213Pact (ctxVersion tc) (ctxCurrentBlockHeight tc) = []
-    | otherwise = [FlagDisableInlineMemCheck]
+enablePact43 :: ChainwebVersion -> V.ChainId -> BlockHeight -> [ExecutionFlag]
+enablePact43 v cid bh = [FlagDisablePact43 | not (chainweb214Pact v cid bh)]
 
-enablePact43 :: TxContext -> [ExecutionFlag]
-enablePact43 tc
-    | chainweb214Pact After (ctxVersion tc) (ctxCurrentBlockHeight tc) = []
-    | otherwise = [FlagDisablePact43]
+enablePact431 :: ChainwebVersion -> V.ChainId -> BlockHeight -> [ExecutionFlag]
+enablePact431 v cid bh = [FlagDisablePact431 | not (chainweb215Pact v cid bh)]
 
-enablePact431 :: TxContext -> [ExecutionFlag]
-enablePact431 tc
-    | chainweb215Pact After (ctxVersion tc) (ctxCurrentBlockHeight tc) = []
-    | otherwise = [FlagDisablePact431]
+enablePact44 :: ChainwebVersion -> V.ChainId -> BlockHeight -> [ExecutionFlag]
+enablePact44 v cid bh = [FlagDisablePact44 | not (chainweb216Pact v cid bh)]
 
-enablePact44 :: TxContext -> [ExecutionFlag]
-enablePact44 tc
-    | chainweb216Pact After (ctxVersion tc) (ctxCurrentBlockHeight tc) = []
-    | otherwise = [FlagDisablePact44]
+enablePact45 :: ChainwebVersion -> V.ChainId -> BlockHeight -> [ExecutionFlag]
+enablePact45 v cid bh = [FlagDisablePact45 | not (chainweb217Pact v cid bh)]
 
-enablePact45 :: TxContext -> [ExecutionFlag]
-enablePact45 tc
-    | chainweb217Pact After (ctxVersion tc) (ctxCurrentBlockHeight tc) = []
-    | otherwise = [FlagDisablePact45]
+enableNewTrans :: ChainwebVersion -> V.ChainId -> BlockHeight -> [ExecutionFlag]
+enableNewTrans v cid bh = [FlagDisableNewTrans | not (pact44NewTrans v cid bh)]
 
-enableNewTrans :: TxContext -> [ExecutionFlag]
-enableNewTrans tc
-    | pact44NewTrans (ctxVersion tc) (ctxCurrentBlockHeight tc) = []
-    | otherwise = [FlagDisableNewTrans]
+enablePact46 :: ChainwebVersion -> V.ChainId -> BlockHeight -> [ExecutionFlag]
+enablePact46 v cid bh = [FlagDisablePact46 | not (chainweb218Pact v cid bh)]
 
-enablePact46 :: TxContext -> [ExecutionFlag]
-enablePact46 tc
-    | chainweb218Pact (ctxVersion tc) (ctxCurrentBlockHeight tc) = []
-    | otherwise = [FlagDisablePact46]
-
-enablePact47 :: TxContext -> [ExecutionFlag]
-enablePact47 tc
-    | chainweb219Pact (ctxVersion tc) (ctxCurrentBlockHeight tc) = []
-    | otherwise = [FlagDisablePact47]
+enablePact47 :: ChainwebVersion -> V.ChainId -> BlockHeight -> [ExecutionFlag]
+enablePact47 v cid bh = [FlagDisablePact47 | not (chainweb219Pact v cid bh)]
 
 -- | Even though this is not forking, abstracting for future shutoffs
-disableReturnRTC :: TxContext -> [ExecutionFlag]
-disableReturnRTC _tc = [FlagDisableRuntimeReturnTypeChecking]
+disableReturnRTC :: ChainwebVersion -> V.ChainId -> BlockHeight -> [ExecutionFlag]
+disableReturnRTC _v _cid _bh = [FlagDisableRuntimeReturnTypeChecking]
 
 -- | Execute a 'ContMsg' and return the command result and module cache
 --
@@ -855,7 +788,7 @@ applyContinuation initialGas interp cm senderSigs hsh nsp = do
       _erGas (Just logs) _erExec Nothing) _erEvents
 
 
-setEnvGas ::  Gas -> EvalEnv e -> TransactionM p ()
+setEnvGas :: Gas -> EvalEnv e -> TransactionM p ()
 setEnvGas initialGas = liftIO . views eeGas (`writeIORef` initialGas)
 
 -- | Execute a 'ContMsg' and return just eval result, not wrapped in a
@@ -1138,13 +1071,13 @@ mkMagicCapSlot c = CapSlot CapCallStack cap []
 -- the 'ExecMsg'.
 --
 buildExecParsedCode
-    :: Maybe (ChainwebVersion, BlockHeight)
+    :: PactParserVersion
     -> Maybe Value
     -> Text
     -> IO (ExecMsg ParsedCode)
-buildExecParsedCode chainCtx value code = maybe (go Null) go value
+buildExecParsedCode ppv value code = maybe (go Null) go value
   where
-    go val = case parsePact chainCtx code of
+    go val = case parsePact ppv code of
       Right !t -> pure $! ExecMsg t val
       -- if we can't construct coin contract calls, this should
       -- fail fast

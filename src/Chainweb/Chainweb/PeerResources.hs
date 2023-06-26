@@ -61,7 +61,6 @@ import GHC.Generics
 
 import qualified Network.HTTP.Client as HTTP
 import Network.Socket (Socket)
-import Network.Wai.Handler.Warp (Settings, defaultSettings, setHost, setPort)
 
 import Prelude hiding (log)
 
@@ -155,12 +154,6 @@ withPeerResources v conf logger inner = withPeerSocket conf $ \(conf', sock) -> 
 
                 inner logger' (PeerResources conf'' peer sock localDb mgr logger')
 
-peerServerSettings :: Peer -> Settings
-peerServerSettings peer
-    = setPort (int . _hostAddressPort . _peerAddr $ _peerInfo peer)
-    . setHost (_peerInterface peer)
-    $ defaultSettings
-
 -- | Setup the local hostname.
 --
 -- If the configured hostname is "0.0.0.0" (i.e. 'anyIpv4'), the hostname is
@@ -214,7 +207,7 @@ getHost
     -> IO (Either T.Text Hostname)
 getHost mgr ver logger peers = do
     nis <- forConcurrently peers $ \p ->
-        tryAllSynchronous (requestRemoteNodeInfo mgr ver (_peerAddr p) Nothing) >>= \case
+        tryAllSynchronous (requestRemoteNodeInfo mgr (_versionName ver) (_peerAddr p) Nothing) >>= \case
             Right x -> Just x <$ do
                 logFunctionText logger Info
                     $ "got remote info from " <> toText (_peerAddr p)
@@ -245,7 +238,7 @@ withPeerSocket conf act = withSocket port interface $ \(p, s) ->
 -- Run PeerDb for a Chainweb Version
 
 startPeerDb_ :: ChainwebVersion -> P2pConfiguration -> IO PeerDb
-startPeerDb_ v = startPeerDb nids
+startPeerDb_ v = startPeerDb v nids
   where
     nids = HS.singleton CutNetwork
         `HS.union` HS.map MempoolNetwork cids
