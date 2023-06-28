@@ -52,6 +52,7 @@ module Chainweb.BlockHash
 , blockHashRecordFromVector
 , blockHashRecordChainIdx
 
+, blockHashToBase64Padded
 -- * Exceptions
 ) where
 
@@ -154,6 +155,9 @@ nullBlockHash = BlockHash nullHashBytes
 blockHashToText :: BlockHash_ a -> T.Text
 blockHashToText = encodeB64UrlNoPaddingText . runPutS . encodeBlockHash
 {-# INLINE blockHashToText #-}
+
+blockHashToBase64Padded :: BlockHash_ a -> T.Text
+blockHashToBase64Padded = encodeB64Text . runPutS . encodeBlockHash
 
 blockHashFromText
     :: MerkleHashAlgorithm a
