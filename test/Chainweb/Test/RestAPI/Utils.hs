@@ -236,7 +236,6 @@ sending sid cenv batch =
 --
 data PollingExpectation = ExpectPactError | ExpectPactResult
 
-
 polling
     :: ChainId
     -> ClientEnv
@@ -284,8 +283,8 @@ pollingWithDepth sid cenv rks confirmationDepth pollingExpectation =
       Nothing -> False
 
 getCurrentBlockHeight :: ChainwebVersion -> ClientEnv -> ChainId -> IO (Maybe BlockHeight)
-getCurrentBlockHeight v cenv cid = do
-  cuts <- either (const $ error "failed to get cuts") id <$> runClientM (cutGetClient v) cenv
+getCurrentBlockHeight сv cenv cid = do
+  cuts <- either (const $ error "failed to get cuts") id <$> runClientM (cutGetClient сv) cenv
   return $ _bhwhHeight <$> HM.lookup cid (_cutHashes cuts)
 
 -- ------------------------------------------------------------------ --

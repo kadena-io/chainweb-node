@@ -241,7 +241,7 @@ pollingConfirmDepth iot nio = testCaseSteps "poll confirmation depth test" $ \st
     step "check /poll responses to extract pact id for continuation"
 
     beforePolling <- getCurrentBlockHeight v cenv sid
-    PollResponses m <- pollingWithDepth sid cenv rks (Just $ ConfirmationDepth 70) ExpectPactResult
+    PollResponses _ <- pollingWithDepth sid cenv rks (Just $ ConfirmationDepth 70) ExpectPactResult
     afterPolling <- getCurrentBlockHeight v cenv sid
 
     case (beforePolling, afterPolling) of

@@ -429,7 +429,7 @@ library
 -- -------------------------------------------------------------------------- --
 
 test-suite chainweb-tests
-    import: debugging-flags
+    import: warning-flags, debugging-flags
     default-language: Haskell2010
     ghc-options:
         -threaded
