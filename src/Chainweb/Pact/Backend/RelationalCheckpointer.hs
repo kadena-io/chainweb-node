@@ -314,19 +314,19 @@ doLookupSuccessful dbenv confDepth hashes = runBlockEnv dbenv $ do
             _ -> fail "impossible"
 
       let
-        depthval = maybe [] (\d -> [SInt d]) blockheight
-        qvals = [ SBlob (BS.fromShort hash) | (TypedHash hash) <- V.toList hashes ] ++ depthval
-        qtypes = RInt : [ RBlob | _ <- V.toList hashes ] ++ maybe [] (const [RInt]) confDepth
+        blockheightval = maybe [] (\bh -> [SInt bh]) blockheight
+        qvals = [ SBlob (BS.fromShort hash) | (TypedHash hash) <- V.toList hashes ] ++ blockheightval
+        qtypes = RInt : [ RBlob | _ <- V.toList hashes ] ++ maybe [] (const [RInt]) blockheight
 
       qry db qtext qvals qtypes >>= mapM go
     return $ HashMap.fromList (zip (V.toList hashes) r)
   where
     qtext = "SELECT blockheight, hash FROM \
             \TransactionIndex INNER JOIN BlockHistory \
-            \USING (blockheight) WHERE txhash IN (" <> qmarks <> ")"
+            \USING (blockheight) WHERE txhash IN (" <> hashesParams <> ")"
             <> maybe "" (const " AND blockheight <= ?") confDepth
             <> ";"
-    qmarks = Utf8 $ intercalate "," [ "?" | _ <- V.toList hashes]
+    hashesParams = Utf8 $ intercalate "," [ "?" | _ <- V.toList hashes]
 
     go ((SInt h):(SBlob blob):_) = do
         !hsh <- either fail return $ runGetEitherS decodeBlockHash blob
