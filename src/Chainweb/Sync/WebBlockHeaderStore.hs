@@ -108,7 +108,7 @@ pullOriginResponseTimeout = HTTP.responseTimeoutMicro 1_000_000
 --
 setResponseTimeout :: HTTP.ResponseTimeout -> ClientEnv -> ClientEnv
 setResponseTimeout t env =  env
-    { makeClientRequest = \u r -> return (defaultMakeClientRequest u r)
+    { makeClientRequest = \u r -> (defaultMakeClientRequest u r)
         { HTTP.responseTimeout = t
         }
     }
