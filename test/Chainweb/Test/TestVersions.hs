@@ -135,7 +135,7 @@ fastForks = tabulateHashMap $ \case
     Chainweb216Pact -> AllChains (BlockHeight 11)
     Chainweb217Pact -> AllChains (BlockHeight 20)
     Chainweb218Pact -> AllChains (BlockHeight 20)
-    Chainweb219Pact -> AllChains (BlockHeight 26)
+    Chainweb219Pact -> AllChains (BlockHeight 27)
 
 -- | A test version without Pact or PoW, with only one chain graph.
 barebonesTestVersion :: ChainGraph -> ChainwebVersion
