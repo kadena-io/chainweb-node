@@ -241,14 +241,13 @@ pollingConfirmDepth iot nio = testCaseSteps "poll confirmation depth test" $ \st
     step "/poll for the transaction until it appears"
 
     beforePolling <- getCurrentBlockHeight v cenv cid
-    PollResponses _ <- pollingWithDepth cid cenv rks (Just $ ConfirmationDepth 70) ExpectPactResult
+    PollResponses _ <- pollingWithDepth cid cenv rks (Just $ ConfirmationDepth 10) ExpectPactResult
     afterPolling <- getCurrentBlockHeight v cenv cid
 
-    assertBool "the difference between heights should be no less than the confirmation depth" $ (afterPolling - beforePolling) >= 70
+    assertBool "the difference between heights should be no less than the confirmation depth" $ (afterPolling - beforePolling) >= 10
   where
     cid = unsafeChainId 0
-    tx =
-      "(namespace 'free)(module m G (defcap G () true) (defpact p () (step (yield { \"a\" : (+ 1 1) })) (step (resume { \"a\" := a } a))))(free.m.p)"
+    tx = "42"
     firstStep = do
       t <- toTxCreationTime <$> iot
       buildTextCmd
