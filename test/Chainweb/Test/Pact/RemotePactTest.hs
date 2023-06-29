@@ -186,10 +186,10 @@ localContTest iot nio = testCaseSteps "local continuation test" $ \step -> do
 
     step "execute /send with initial pact continuation tx"
     cmd1 <- firstStep
-    rks <- sending cid cenv (SubmitBatch $ pure cmd1)
+    rks <- sending cid' cenv (SubmitBatch $ pure cmd1)
 
     step "check /poll responses to extract pact id for continuation"
-    PollResponses m <- polling cid cenv rks ExpectPactResult
+    PollResponses m <- polling cid' cenv rks ExpectPactResult
     pid <- case NEL.toList (_rkRequestKeys rks) of
       [rk] -> case HashMap.lookup rk m of
         Nothing -> assertFailure "impossible"
@@ -200,14 +200,14 @@ localContTest iot nio = testCaseSteps "local continuation test" $ \step -> do
 
     step "execute /local continuation dry run"
     cmd2 <- secondStep pid
-    r <- _pactResult . _crResult <$> local cid cenv cmd2
+    r <- _pactResult . _crResult <$> local cid' cenv cmd2
     case r of
       Left err -> assertFailure (show err)
       Right (PLiteral (LDecimal a)) | a == 2 -> return ()
       Right p -> assertFailure $ "unexpected cont return value: " ++ show p
 
   where
-    cid = unsafeChainId 0
+    cid' = unsafeChainId 0
     tx =
       "(namespace 'free)(module m G (defcap G () true) (defpact p () (step (yield { \"a\" : (+ 1 1) })) (step (resume { \"a\" := a } a))))(free.m.p)"
     firstStep = do
@@ -236,18 +236,18 @@ pollingConfirmDepth iot nio = testCaseSteps "poll confirmation depth test" $ \st
 
     step "/send a transaction"
     cmd1 <- firstStep
-    rks <- sending cid cenv (SubmitBatch $ pure cmd1)
+    rks <- sending cid' cenv (SubmitBatch $ pure cmd1)
 
     step "/poll for the transaction until it appears"
 
-    beforePolling <- getCurrentBlockHeight v cenv cid
-    PollResponses _ <- pollingWithDepth cid cenv rks (Just $ ConfirmationDepth 10) ExpectPactResult
-    afterPolling <- getCurrentBlockHeight v cenv cid
+    beforePolling <- getCurrentBlockHeight v cenv cid'
+    PollResponses _ <- pollingWithDepth cid' cenv rks (Just $ ConfirmationDepth 10) ExpectPactResult
+    afterPolling <- getCurrentBlockHeight v cenv cid'
 
     -- we are checking that we have waited at least 10 blocks using /poll for the transaction
     assertBool "the difference between heights should be no less than the confirmation depth" $ (afterPolling - beforePolling) >= 10
   where
-    cid = unsafeChainId 0
+    cid' = unsafeChainId 0
     tx = "42"
     firstStep = do
       t <- toTxCreationTime <$> iot
