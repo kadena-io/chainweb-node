@@ -105,17 +105,13 @@ instance FromHttpApiData ChainId where
 instance ToHttpApiData ChainId where
     toUrlPiece = chainIdToText
 
-instance FromHttpApiData BlockHeight where
-    parseUrlPiece = fmap BlockHeight . parseUrlPiece
+deriving newtype instance FromHttpApiData BlockHeight
 
-instance ToHttpApiData BlockHeight where
-    toUrlPiece (BlockHeight k) = toUrlPiece k
+deriving newtype instance ToHttpApiData BlockHeight
 
-instance FromHttpApiData CutHeight where
-    parseUrlPiece = fmap CutHeight . parseUrlPiece
+deriving newtype instance FromHttpApiData CutHeight
 
-instance ToHttpApiData CutHeight where
-    toUrlPiece (CutHeight k) = toUrlPiece k
+deriving newtype instance ToHttpApiData CutHeight
 
 instance FromHttpApiData MinRank where
     parseUrlPiece = fmap (MinRank . Min) . parseUrlPiece
@@ -129,11 +125,9 @@ instance FromHttpApiData MaxRank where
 instance ToHttpApiData MaxRank where
     toUrlPiece (MaxRank (Max k)) = toUrlPiece k
 
-instance FromHttpApiData Eos where
-    parseUrlPiece = fmap Eos . parseUrlPiece
+deriving newtype instance FromHttpApiData Eos
 
-instance ToHttpApiData Eos where
-    toUrlPiece (Eos b) = toUrlPiece b
+deriving newtype instance ToHttpApiData Eos
 
 instance FromHttpApiData Limit where
     parseUrlPiece = fmap Limit . parseUrlPiece
