@@ -244,6 +244,7 @@ pollingConfirmDepth iot nio = testCaseSteps "poll confirmation depth test" $ \st
     PollResponses _ <- pollingWithDepth cid cenv rks (Just $ ConfirmationDepth 10) ExpectPactResult
     afterPolling <- getCurrentBlockHeight v cenv cid
 
+    -- we are checking that we have waited at least 10 blocks using /poll for the transaction
     assertBool "the difference between heights should be no less than the confirmation depth" $ (afterPolling - beforePolling) >= 10
   where
     cid = unsafeChainId 0
