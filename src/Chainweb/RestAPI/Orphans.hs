@@ -1,7 +1,10 @@
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeOperators #-}
@@ -190,14 +193,10 @@ instance ToHttpApiData LocalSignatureVerification where
 instance FromHttpApiData LocalSignatureVerification where
     parseUrlPiece = fmap (bool NoVerify Verify) . parseUrlPiece
 
-instance FromHttpApiData RewindDepth where
-    parseUrlPiece = fmap RewindDepth . parseUrlPiece
+deriving newtype instance FromHttpApiData RewindDepth
 
-instance ToHttpApiData RewindDepth where
-    toUrlPiece (RewindDepth k) = toUrlPiece k
+deriving newtype instance ToHttpApiData RewindDepth
 
-instance FromHttpApiData ConfirmationDepth where
-    parseUrlPiece = fmap ConfirmationDepth . parseUrlPiece
+deriving newtype instance FromHttpApiData ConfirmationDepth
 
-instance ToHttpApiData ConfirmationDepth where
-    toUrlPiece (ConfirmationDepth k) = toUrlPiece k
+deriving newtype instance ToHttpApiData ConfirmationDepth
