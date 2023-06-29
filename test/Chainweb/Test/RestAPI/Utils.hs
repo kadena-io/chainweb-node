@@ -50,6 +50,7 @@ import Control.Retry
 import Data.Either
 import Data.Foldable (toList)
 import Data.Text (Text)
+import Data.Maybe (fromJust)
 import qualified Data.HashMap.Strict as HM
 import qualified Data.Text as T
 
@@ -282,10 +283,10 @@ pollingWithDepth sid cenv rks confirmationDepth pollingExpectation =
       Just cr ->  _crReqKey cr == rk && validate (_crResult cr)
       Nothing -> False
 
-getCurrentBlockHeight :: ChainwebVersion -> ClientEnv -> ChainId -> IO (Maybe BlockHeight)
+getCurrentBlockHeight :: ChainwebVersion -> ClientEnv -> ChainId -> IO BlockHeight
 getCurrentBlockHeight сv cenv cid = do
   cuts <- either (const $ error "failed to get cuts") id <$> runClientM (cutGetClient сv) cenv
-  return $ _bhwhHeight <$> HM.lookup cid (_cutHashes cuts)
+  return $ fromJust $ _bhwhHeight <$> HM.lookup cid (_cutHashes cuts)
 
 -- ------------------------------------------------------------------ --
 -- Rosetta api client utils w/ retry

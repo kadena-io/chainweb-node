@@ -316,9 +316,8 @@ doLookupSuccessful dbenv confDepth hashes = runBlockEnv dbenv $ do
       let
         blockheightval = maybe [] (\bh -> [SInt bh]) blockheight
         qvals = [ SBlob (BS.fromShort hash) | (TypedHash hash) <- V.toList hashes ] ++ blockheightval
-        qtypes = RInt : [ RBlob | _ <- V.toList hashes ] ++ maybe [] (const [RInt]) blockheight
 
-      qry db qtext qvals qtypes >>= mapM go
+      qry db qtext qvals [RInt, RBlob] >>= mapM go
     return $ HashMap.fromList (zip (V.toList hashes) r)
   where
     qtext = "SELECT blockheight, hash FROM \
