@@ -234,11 +234,11 @@ pollingConfirmDepth :: IO (Time Micros) -> IO ChainwebNetwork -> TestTree
 pollingConfirmDepth iot nio = testCaseSteps "poll confirmation depth test" $ \step -> do
     cenv <- _getServiceClientEnv <$> nio
 
-    step "execute /send with initial pact continuation tx"
+    step "/send a transaction"
     cmd1 <- firstStep
     rks <- sending sid cenv (SubmitBatch $ pure cmd1)
 
-    step "check /poll responses to extract pact id for continuation"
+    step "/poll for the transaction until it appears"
 
     beforePolling <- getCurrentBlockHeight v cenv sid
     PollResponses _ <- pollingWithDepth sid cenv rks (Just $ ConfirmationDepth 70) ExpectPactResult
