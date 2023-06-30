@@ -39,7 +39,6 @@ import GHC.Stack
 import Chainweb.BlockCreationTime
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
-import Chainweb.BlockHeader.Genesis
 import Chainweb.ChainValue
 import Chainweb.Payload
 import Chainweb.Time
@@ -69,7 +68,7 @@ testPayload n = newPayloadWithOutputs
 --
 testBlockPayloadFromParent :: ParentHeader -> PayloadWithOutputs
 testBlockPayloadFromParent (ParentHeader b) = testPayload $ B8.intercalate ","
-    [ sshow (_blockChainwebVersion b)
+    [ sshow (_chainwebVersion b)
     , sshow (_blockHeight b + 1)
     ]
 
@@ -81,7 +80,7 @@ testBlockPayloadFromParent (ParentHeader b) = testPayload $ B8.intercalate ","
 --
 testBlockPayload :: BlockHeader -> PayloadWithOutputs
 testBlockPayload b = testPayload $ B8.intercalate ","
-    [ sshow (_blockChainwebVersion b)
+    [ sshow (_chainwebVersion b)
     , sshow (_blockHeight b)
     ]
 
@@ -94,7 +93,7 @@ testBlockPayload b = testPayload $ B8.intercalate ","
 --
 testBlockPayloadFromParent_ :: Nonce -> ParentHeader -> PayloadWithOutputs
 testBlockPayloadFromParent_ n (ParentHeader b) = testPayload $ B8.intercalate ","
-    [ sshow (_blockChainwebVersion b)
+    [ sshow (_chainwebVersion b)
     , sshow (_blockHeight b + 1)
     , sshow n
     ]
@@ -107,7 +106,7 @@ testBlockPayloadFromParent_ n (ParentHeader b) = testPayload $ B8.intercalate ",
 --
 testBlockPayload_ :: BlockHeader -> PayloadWithOutputs
 testBlockPayload_ b = testPayload $ B8.intercalate ","
-    [ sshow (_blockChainwebVersion b)
+    [ sshow (_chainwebVersion b)
     , sshow (_blockHeight b)
     , sshow (_blockNonce b)
     ]

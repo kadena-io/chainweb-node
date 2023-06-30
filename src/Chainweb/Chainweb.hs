@@ -169,6 +169,7 @@ import Chainweb.Transaction
 import Chainweb.Utils
 import Chainweb.Utils.RequestLog
 import Chainweb.Version
+import Chainweb.Version.Guards
 import Chainweb.WebBlockHeaderDB
 import Chainweb.WebPactExecutionService
 
@@ -254,7 +255,7 @@ withChainweb c logger rocksDb pactDbDir backupDir resetDb inner =
     confWithBootstraps
         | _p2pConfigIgnoreBootstrapNodes (_configP2p c) = c
         | otherwise = configP2p . p2pConfigKnownPeers
-            %~ (\x -> L.nub $ x <> bootstrapPeerInfos v) $ c
+            %~ (\x -> L.nub $ x <> _versionBootstraps v) $ c
 
 -- TODO: The type InMempoolConfig contains parameters that should be
 -- configurable as well as parameters that are determined by the chainweb
@@ -278,7 +279,7 @@ validatingMempoolConfig cid v gl gp mv = Mempool.InMemConfig
     , Mempool._inmemCurrentTxsSize = currentTxsSize
     }
   where
-    txcfg = Mempool.chainwebTransactionConfig Nothing
+    txcfg = Mempool.chainwebTransactionConfig (maxBound :: PactParserVersion)
         -- The mempool doesn't provide a chain context to the codec which means
         -- that the latest version of the parser is used.
 
@@ -362,7 +363,8 @@ withChainwebInternal
     -> IO ()
 withChainwebInternal conf logger peer serviceSock rocksDb pactDbDir backupDir resetDb inner = do
 
-    initializePayloadDb v payloadDb
+    unless (_configOnlySyncPact conf) $
+        initializePayloadDb v payloadDb
 
     -- Garbage Collection
     -- performed before PayloadDb and BlockHeaderDb used by other components
@@ -385,7 +387,7 @@ withChainwebInternal conf logger peer serviceSock rocksDb pactDbDir backupDir re
         (\cid x -> do
             let mcfg = validatingMempoolConfig cid v (_configBlockGasLimit conf) (_configMinGasPrice conf)
             -- NOTE: the gas limit may be set based on block height in future, so this approach may not be valid.
-            let maxGasLimit = fromIntegral <$> maxBlockGasLimit v cid maxBound
+            let maxGasLimit = fromIntegral <$> maxBlockGasLimit v maxBound
             when (Just (_configBlockGasLimit conf) > maxGasLimit) $
                 logg Warn "configured block gas limit is greater than the maximum for this chain; the maximum will be used instead"
             withChainResources
@@ -409,7 +411,8 @@ withChainwebInternal conf logger peer serviceSock rocksDb pactDbDir backupDir re
   where
     pactConfig maxGasLimit = PactServiceConfig
       { _pactReorgLimit = _configReorgLimit conf
-      , _pactRevalidate = _configValidateHashesOnReplay conf
+      , _pactLocalRewindDepthLimit = _configLocalRewindDepthLimit conf
+      , _pactRevalidate = True
       , _pactQueueSize = _configPactQueueSize conf
       , _pactResetDb = resetDb
       , _pactAllowReadsInLocal = _configAllowReadsInLocal conf
@@ -855,15 +858,9 @@ runChainweb cw = do
     mempoolSyncClients :: IO [IO ()]
     mempoolSyncClients = case enabledConfig mempoolP2pConfig of
         Nothing -> disabled
-        Just c -> case _chainwebVersion cw of
-            Test{} -> disabled
-            TimedConsensus{} -> disabled
-            PowConsensus{} -> disabled
-            TimedCPM{} -> enabled c
-            FastTimedCPM{} -> enabled c
-            Development -> enabled c
-            Testnet04 -> enabled c
-            Mainnet01 -> enabled c
+        Just c
+            | cw ^. chainwebVersion . versionDefaults . disableMempoolSync -> disabled
+            | otherwise -> enabled c
       where
         disabled = do
             logg Info "Mempool p2p sync disabled"

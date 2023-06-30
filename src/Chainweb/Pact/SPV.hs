@@ -68,6 +68,7 @@ import Chainweb.SPV.VerifyProof
 import Chainweb.TreeDB
 import Chainweb.Utils
 import qualified Chainweb.Version as CW
+import qualified Chainweb.Version.Guards as CW
 
 import Chainweb.Storage.Table
 
@@ -81,7 +82,7 @@ import Pact.Types.SPV
 
 catchAndDisplaySPVError :: BlockHeader -> ExceptT Text IO a -> ExceptT Text IO a
 catchAndDisplaySPVError bh =
-  if CW.chainweb219Pact (_blockChainwebVersion bh) (_blockHeight bh)
+  if CW.chainweb219Pact (CW._chainwebVersion bh) (_blockChainId bh) (_blockHeight bh)
   then flip catch $ \case
     SpvExceptionVerificationFailed m -> throwError ("spv verification failed: " <> m)
     spvErr -> throwM spvErr
@@ -89,7 +90,7 @@ catchAndDisplaySPVError bh =
 
 forkedThrower :: BlockHeader -> Text -> ExceptT Text IO a
 forkedThrower bh =
-  if CW.chainweb219Pact (_blockChainwebVersion bh) (_blockHeight bh)
+  if CW.chainweb219Pact (CW._chainwebVersion bh) (_blockChainId bh) (_blockHeight bh)
   then throwError
   else internalError
 
@@ -121,7 +122,7 @@ verifySPV
 verifySPV bdb bh typ proof = runExceptT $ go typ proof
   where
     cid = CW._chainId bdb
-    enableBridge = CW.enableSPVBridge (_blockChainwebVersion bh) (_blockHeight bh)
+    enableBridge = CW.enableSPVBridge (CW._chainwebVersion bh) cid (_blockHeight bh)
 
     mkSPVResult' cr j
         | enableBridge =

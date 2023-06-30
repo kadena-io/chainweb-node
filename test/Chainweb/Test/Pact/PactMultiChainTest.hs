@@ -58,6 +58,7 @@ import Chainweb.Test.Cut
 import Chainweb.Test.Cut.TestBlockDb
 import Chainweb.Test.Pact.Utils
 import Chainweb.Test.Utils
+import Chainweb.Test.TestVersions
 import Chainweb.Time
 import Chainweb.Utils
 import Chainweb.Version
@@ -67,7 +68,7 @@ import Chainweb.WebPactExecutionService
 import Chainweb.Storage.Table (casLookupM)
 
 testVersion :: ChainwebVersion
-testVersion = FastTimedCPM peterson
+testVersion = slowForkingCpmTestVersion peterson
 
 cid :: ChainId
 cid = someChainId testVersion
@@ -87,7 +88,8 @@ type PactTestM = ReaderT MultiEnv IO
 
 data MempoolInput = MempoolInput
     { _miBlockFill :: BlockFill
-    , _miBlockHeader :: BlockHeader }
+    , _miBlockHeader :: BlockHeader
+    }
 
 newtype MempoolCmdBuilder = MempoolCmdBuilder
     { _mempoolCmdBuilder :: MempoolInput -> CmdBuilder
@@ -100,7 +102,8 @@ newtype MempoolBlock = MempoolBlock
 
 -- | Mempool with an ordered list of fillers.
 newtype PactMempool = PactMempool
-  { _pactMempool :: [MempoolBlock] }
+  { _pactMempool :: [MempoolBlock]
+  }
   deriving (Semigroup,Monoid)
 
 
@@ -127,6 +130,7 @@ tests = ScheduledTest testName go
          , test generousConfig getGasModel "pact45UpgradeTest" pact45UpgradeTest
          , test generousConfig getGasModel "pact46UpgradeTest" pact46UpgradeTest
          , test generousConfig getGasModel "chainweb219UpgradeTest" chainweb219UpgradeTest
+         , test generousConfig getGasModel "pactLocalDepthTest" pactLocalDepthTest
          ]
       where
           -- This is way more than what is used in production, but during testing
@@ -233,6 +237,65 @@ chainweb213Test = do
         , "(create-table tbl)"
         ]
 
+pactLocalDepthTest :: PactTestM ()
+pactLocalDepthTest = do
+  runToHeight 53
+  runBlockTest
+    [ PactTxTest (buildCoinXfer "(coin.transfer 'sender00 'sender01 1.0)") $
+        assertTxGas "Coin transfer pre-fork" 1583
+    ]
+  runBlockTest
+    [ PactTxTest (buildCoinXfer "(coin.transfer 'sender00 'sender01 1.0)") $
+        assertTxGas "Coin post-fork" 1583
+    ]
+
+  runLocalWithDepth (Just $ RewindDepth 0) cid getSender00Balance >>= \r ->
+    checkLocalResult r $ assertTxSuccess "Should get the current balance" (pDecimal 99999997.6834)
+
+  -- checking that `Just $ RewindDepth 0` has the same behaviour as `Nothing`
+  runLocalWithDepth Nothing cid getSender00Balance >>= \r ->
+    checkLocalResult r $ assertTxSuccess "Should get the current balance as well" (pDecimal 99999997.6834)
+
+  runLocalWithDepth (Just $ RewindDepth 1) cid getSender00Balance >>= \r ->
+    checkLocalResult r $ assertTxSuccess "Should get the balance one block before" (pDecimal 99999998.8417)
+
+  runLocalWithDepth (Just $ RewindDepth 2) cid getSender00Balance >>= \r ->
+    checkLocalResult r $ assertTxSuccess "Should get the balance two blocks before" (pDecimal 100000000)
+
+  -- the negative depth turns into 18446744073709551611 and we expect the `LocalRewindLimitExceeded` exception
+  -- since `Depth` is a wrapper around `Word64`
+  handle
+    (\case
+      LocalRewindLimitExceeded _ _ -> return ()
+      err -> liftIO $ assertFailure $ "Expected LocalRewindLimitExceeded, but got " ++ show err)
+    (do
+      runLocalWithDepth (Just $ RewindDepth (-5)) cid getSender00Balance >>= \_ ->
+        liftIO $ assertFailure "Expected LocalRewindLimitExceeded, but block succeeded")
+
+  -- the genesis depth
+  runLocalWithDepth (Just $ RewindDepth 55) cid getSender00Balance >>= \r ->
+    checkLocalResult r $ assertTxSuccess "Should get the balance at the genesis block" (pDecimal 100000000)
+
+  -- depth that goes after the genesis block should trigger the `LocalRewindLimitExceeded` exception
+  handle
+    (\case
+      LocalRewindGenesisExceeded -> return ()
+      err -> liftIO $ assertFailure $ "Expected LocalRewindGenesisExceeded, but got " ++ show err)
+    (do
+      runLocalWithDepth (Just $ RewindDepth 56) cid getSender00Balance >>= \_ ->
+        liftIO $ assertFailure "Expected LocalRewindGenesisExceeded, but block succeeded")
+
+  where
+  checkLocalResult r checkResult = case r of
+    Right (LocalResultLegacy cr) -> checkResult cr
+    res -> liftIO $ assertFailure $ "Expected LocalResultLegacy, but got: " ++ show res
+  getSender00Balance = set cbGasLimit 700 $ mkCmd "nonce" $ mkExec' "(coin.get-balance \"sender00\")"
+  buildCoinXfer code = buildBasic'
+    (set cbSigners [mkSigner' sender00 coinCaps] . set cbGasLimit 3000)
+    $ mkExec' code
+    where
+    coinCaps = [ mkGasCap, mkTransferCap "sender00" "sender01" 1.0 ]
+
 pact45UpgradeTest :: PactTestM ()
 pact45UpgradeTest = do
   runToHeight 53 -- 2 before fork
@@ -247,7 +310,7 @@ pact45UpgradeTest = do
     , PactTxTest (buildSimpleCmd "(enforce true (format  \"{}-{}\" [12345, 657859]))") $
         assertTxGas "Enforce pre-fork evaluates the string with gas" 34
     , PactTxTest (buildSimpleCmd "(enumerate 0 10) (str-to-list 'hi) (make-list 10 'hi)") $
-        assertTxGas "List functions pre-fork gas" 20
+        assertTxGas "List functions pre-fork gas" 19
     , PactTxTest
       (buildBasicGas 70000 $ tblModule "Tbl") $
       assertTxSuccess "mod53 table update succeeds" $ pString "TableCreated"
@@ -261,7 +324,7 @@ pact45UpgradeTest = do
     , PactTxTest (buildSimpleCmd "(enforce true (format  \"{}-{}\" [12345, 657859]))") $
         assertTxGas "Enforce post fork does not eval the string" (14 + coinTxBuyTransferGas)
     , PactTxTest (buildSimpleCmd "(enumerate 0 10) (str-to-list 'hi) (make-list 10 'hi)") $
-        assertTxGas "List functions post-fork change gas" (40 + coinTxBuyTransferGas)
+        assertTxGas "List functions post-fork change gas" (39 + coinTxBuyTransferGas)
     , PactTxTest
       (buildBasicGas 70000 $ tblModule "tBl") $
       assertTxFailure "mod53 table update fails after fork" ""
@@ -292,10 +355,13 @@ pact45UpgradeTest = do
       $ mkExec' code
 
 runLocal :: ChainId -> CmdBuilder -> PactTestM (Either PactException LocalResult)
-runLocal cid' cmd = do
+runLocal cid' cmd = runLocalWithDepth Nothing cid' cmd
+
+runLocalWithDepth :: Maybe RewindDepth -> ChainId -> CmdBuilder -> PactTestM (Either PactException LocalResult)
+runLocalWithDepth depth cid' cmd = do
   HM.lookup cid' <$> view menvPacts >>= \case
     Just pact -> buildCwCmd cmd >>=
-      liftIO . _pactLocal pact Nothing Nothing Nothing
+      liftIO . _pactLocal pact Nothing Nothing depth
     Nothing -> liftIO $ assertFailure $ "No pact service found at chain id " ++ show cid'
 
 assertLocalFailure
@@ -787,7 +853,7 @@ pact46UpgradeTest :: PactTestM ()
 pact46UpgradeTest = do
 
   -- run past genesis, upgrades
-  runToHeight 59
+  runToHeight 58
 
   -- Note: no error messages on-chain, so the error message is empty
   runBlockTest

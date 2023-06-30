@@ -101,7 +101,7 @@ requestTimeoutMicros = 4 * 1000000
 
 getNodeVersion
     :: HTTP.Manager
-    -> ChainwebVersion
+    -> ChainwebVersionName
     -> HostAddress
     -> Maybe T.Text
     -> IO (Either T.Text NodeVersion)
@@ -125,7 +125,7 @@ getNodeVersion mgr ver addr maybeReq = do
         Just e -> req ver addr e
 
 req
-    :: ChainwebVersion
+    :: ChainwebVersionName
     -> HostAddress
     -> T.Text
     -> HTTP.Request
@@ -137,7 +137,7 @@ req ver addr endpoint = HTTP.defaultRequest
     , HTTP.path = T.encodeUtf8 $ T.intercalate "/"
         [ "/chainweb"
         , prettyApiVersion
-        , sshow ver
+        , getChainwebVersionName ver
         , endpoint
         ]
     , HTTP.responseTimeout = HTTP.responseTimeoutMicro requestTimeoutMicros
@@ -146,7 +146,7 @@ req ver addr endpoint = HTTP.defaultRequest
     }
 
 cutReq
-    :: ChainwebVersion
+    :: ChainwebVersionName
     -> HostAddress
     -> HTTP.Request
 cutReq ver addr = HTTP.defaultRequest
@@ -157,7 +157,7 @@ cutReq ver addr = HTTP.defaultRequest
     , HTTP.path = T.encodeUtf8 $ T.intercalate "/"
         [ "/chainweb"
         , prettyApiVersion
-        , sshow ver
+        , getChainwebVersionName ver
         , "cut"
         ]
     , HTTP.responseTimeout = HTTP.responseTimeoutMicro requestTimeoutMicros
@@ -218,7 +218,7 @@ instance ToJSON RemoteNodeInfo where
 --
 requestRemoteNodeInfo
     :: HTTP.Manager
-    -> ChainwebVersion
+    -> ChainwebVersionName
     -> HostAddress
     -> Maybe T.Text
     -> IO RemoteNodeInfo

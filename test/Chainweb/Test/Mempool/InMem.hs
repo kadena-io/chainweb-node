@@ -13,8 +13,8 @@ import Chainweb.Mempool.InMemTypes (InMemConfig(..))
 import Chainweb.Mempool.Mempool
 import Chainweb.Test.Mempool (InsertCheck, MempoolWithFunc(..))
 import qualified Chainweb.Test.Mempool
+import Chainweb.Test.TestVersions
 import Chainweb.Utils (Codec(..))
-import Chainweb.Version (ChainwebVersion(..))
 ------------------------------------------------------------------------------
 
 tests :: TestTree
@@ -26,7 +26,7 @@ tests = testGroup "Chainweb.Test.Mempool"
     wf f = do
         mv <- newMVar (pure . V.map Right)
         let cfg = InMemConfig txcfg mockBlockGasLimit 0 2048 Right (checkMv mv) (1024 * 10)
-        InMem.withInMemoryMempool cfg (Test singletonChainGraph) $ f mv
+        InMem.withInMemoryMempool cfg (barebonesTestVersion singletonChainGraph) $ f mv
 
     checkMv :: MVar (t -> IO b) -> t -> IO b
     checkMv mv xs = do
