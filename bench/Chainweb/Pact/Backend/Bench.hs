@@ -402,7 +402,7 @@ cpBenchLookupProcessedTx transactionCount cp = C.env (setup' cp) $ \ ~(ut) ->
     hash01 = BlockHash $ unsafeMerkleLogHash "0000000000000000000000000000001a"
     hash02 = BlockHash $ unsafeMerkleLogHash "0000000000000000000000000000002a"
 
-    go CheckpointEnv{..} (NoopNFData ut) = do
+    go CheckpointEnv{..} (NoopNFData _) = do
         _cpRestore _cpeCheckpointer (Just (BlockHeight 2, hash02)) >>= \case
-          PactDbEnv' db ->
+          PactDbEnv' _ ->
             _cpLookupProcessedTx _cpeCheckpointer Nothing (V.fromList [Pact.TypedHash "" | _ <- [1..transactionCount]])
