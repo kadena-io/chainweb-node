@@ -102,6 +102,7 @@ data PactTestFailure
     | SendFailure String
     | LocalFailure String
     | SpvFailure String
+    | GetBlockHeightFailure String
     deriving Show
 
 instance Exception PactTestFailure
@@ -264,7 +265,7 @@ pollingWithDepth sid cenv rks confirmationDepth pollingExpectation =
 
       runClientM (pactPollWithQueryApiClient v sid confirmationDepth $ Poll rs) cenv >>= \case
         Left e -> throwM $ PollingFailure (show e)
-        Right r@(PollResponses mp) -> do
+        Right r@(PollResponses mp) ->
           if all (go mp) (toList rs)
           then return r
           else throwM $ PollingFailure $ T.unpack $ "polling check failed: " <> encodeToText r
@@ -284,9 +285,10 @@ pollingWithDepth sid cenv rks confirmationDepth pollingExpectation =
       Nothing -> False
 
 getCurrentBlockHeight :: ChainwebVersion -> ClientEnv -> ChainId -> IO BlockHeight
-getCurrentBlockHeight сv cenv cid = do
-  cuts <- either (const $ error "failed to get cuts") id <$> runClientM (cutGetClient сv) cenv
-  return $ fromJust $ _bhwhHeight <$> HM.lookup cid (_cutHashes cuts)
+getCurrentBlockHeight сv cenv cid =
+  runClientM (cutGetClient сv) cenv >>= \case
+    Left e -> throwM $ GetBlockHeightFailure $ "Failed to get cuts: " ++ show e
+    Right cuts -> return $ fromJust $ _bhwhHeight <$> HM.lookup cid (_cutHashes cuts)
 
 -- ------------------------------------------------------------------ --
 -- Rosetta api client utils w/ retry

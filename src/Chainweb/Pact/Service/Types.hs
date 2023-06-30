@@ -63,19 +63,16 @@ import Chainweb.Utils (T2, encodeToText)
 -- | Value that represents a limitation for rewinding.
 newtype RewindLimit = RewindLimit { _rewindLimit :: Word64 }
   deriving (Eq, Ord)
-  deriving newtype (FromJSON, ToJSON, Enum, Bounded)
-instance Show RewindLimit where show (RewindLimit l) = show l
+  deriving newtype (Show, FromJSON, ToJSON, Enum, Bounded)
 
 -- | Value that represents how far to go backwards while rewinding.
 newtype RewindDepth = RewindDepth { _rewindDepth :: Word64 }
   deriving (Eq, Ord)
-  deriving newtype (FromJSON, ToJSON, Enum, Bounded)
-instance Show RewindDepth where show (RewindDepth d) = show d
+  deriving newtype (Show, FromJSON, ToJSON, Enum, Bounded)
 
 newtype ConfirmationDepth = ConfirmationDepth { _confirmationDepth :: Word64 }
   deriving (Eq, Ord)
-  deriving newtype (FromJSON, ToJSON, Enum, Bounded)
-instance Show ConfirmationDepth where show (ConfirmationDepth d) = show d
+  deriving newtype (Show, FromJSON, ToJSON, Enum, Bounded)
 
 -- | Externally-injected PactService properties.
 --
