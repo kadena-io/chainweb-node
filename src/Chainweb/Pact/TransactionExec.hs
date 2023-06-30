@@ -258,7 +258,17 @@ applyCmd v logger gasLogger pdbenv miner gasModel txCtx spv cmd initialGas mcach
           fatal $ "tx failure for request key while redeeming gas: " <> sshow e
         Right es -> do
           logs <- use txLogs
-          return $! set crLogs (Just logs) $ over crEvents (es ++) cr
+
+          -- /local requires enriched results with metadata, while /send strips them.
+          -- when ?preflight=true is set, make sure that metadata occurs in result.
+
+          let !cr' = case callCtx of
+                ApplySend -> set crLogs (Just logs) $ over crEvents (es ++) cr
+                ApplyLocal -> set crMetaData (Just $ toJSON $ ctxToPublicData' txCtx)
+                  $ set crLogs (Just logs)
+                  $ over crEvents (es ++) cr
+
+          return cr'
 
 listErrMsg :: Doc
 listErrMsg =

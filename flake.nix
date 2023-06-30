@@ -4,8 +4,7 @@
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs?rev=4d2b37a84fad1091b9de401eb450aae66f1a741e";
     hackage = {
-      #url = "github:input-output-hk/hackage.nix";
-      url = "github:kadena-io/hackage.nix/257b8f758d2b0f62173a72cb279cc865793a9c50";
+      url = "github:input-output-hk/hackage.nix";
       flake = false;
     };
     haskellNix = {
