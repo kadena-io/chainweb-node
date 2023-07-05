@@ -1,0 +1,7 @@
+code: |-
+  (map (lambda (m) {"module": m, "tc": (typecheck m) }) (list-modules))
+nonce: repl-em-all-2023
+publicMeta:
+  gasLimit: 1000
+  gasPrice: 0.00000001
+keyPairs: []
