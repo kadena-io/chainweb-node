@@ -102,12 +102,13 @@ lookupPactTxs restorePoint confDepth txs reqQ = do
     return resultVar
 
 pactPreInsertCheck
-    :: Vector ChainwebTransaction
+    :: BlockHeader
+    -> Vector ChainwebTransaction
     -> PactQueue
     -> IO (MVar (Either PactException (Vector (Either InsertError ()))))
-pactPreInsertCheck txs reqQ = do
+pactPreInsertCheck bh txs reqQ = do
     resultVar <- newEmptyMVar
-    let !req = PreInsertCheckReq txs resultVar
+    let !req = PreInsertCheckReq (DoRewind bh) txs resultVar
     let !msg = PreInsertCheckMsg req
     addRequest reqQ msg
     return resultVar

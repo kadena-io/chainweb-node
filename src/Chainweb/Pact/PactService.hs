@@ -314,11 +314,11 @@ serviceRequests logFn memPoolAccess reqQ = do
                     tryOne "execLookupPactTxs" resultVar $
                         execLookupPactTxs restorePoint confDepth txHashes
                 go
-            PreInsertCheckMsg (PreInsertCheckReq txs resultVar) -> do
+            PreInsertCheckMsg (PreInsertCheckReq bh txs resultVar) -> do
                 trace logFn "Chainweb.Pact.PactService.execPreInsertCheckReq" ()
                     (length txs) $
                     tryOne "execPreInsertCheckReq" resultVar $
-                        V.map (() <$) <$> execPreInsertCheckReq txs
+                        V.map (() <$) <$> execPreInsertCheckReq bh txs
                 go
             BlockTxHistoryMsg (BlockTxHistoryReq bh d resultVar) -> do
                 trace logFn "Chainweb.Pact.PactService.execBlockTxHistory" bh 1 $
@@ -808,17 +808,18 @@ execHistoricalLookup bh (Domain' d) k = do
 
 execPreInsertCheckReq
     :: CanReadablePayloadCas tbl
-    => Vector ChainwebTransaction
+    => Rewind
+    -> Vector ChainwebTransaction
     -> PactServiceM tbl (Vector (Either Mempool.InsertError ChainwebTransaction))
-execPreInsertCheckReq txs = withDiscardedBatch $ do
-    parent <- use psParentHeader
-    let currHeight = succ $ _blockHeight $ _parentHeader parent
+execPreInsertCheckReq (DoRewind currentBlockHeader) txs = withDiscardedBatch $ do
+    let currHeight = succ $ _blockHeight currentBlockHeader
     psEnv <- ask
     psState <- get
-    let parentTime = ParentCreationTime $ _blockCreationTime $ _parentHeader parent
+    let parentTime = ParentCreationTime $ _blockCreationTime currentBlockHeader
     cp <- getCheckpointer
     logger <- view psLogger
-    withCurrentCheckpointer "execPreInsertCheckReq" $ \pdb -> do
+
+    withCheckpointerRewind Nothing (Just $ ParentHeader currentBlockHeader) "execPreInsertCheckReq" $ \pdb -> do
       let v = _chainwebVersion psEnv
           cid = _chainId psEnv
       liftIO $ fmap Discard $
@@ -838,11 +839,9 @@ execLookupPactTxs restorePoint confDepth txs
     | otherwise = go
   where
     go = getCheckpointer >>= \(!cp) -> case restorePoint of
-      NoRewind _ ->
-        liftIO $! _cpLookupProcessedTx cp confDepth txs
       DoRewind parent -> withDiscardedBatch $ do
         withCheckpointerRewind Nothing (Just $ ParentHeader parent) "lookupPactTxs" $ \_ ->
-          liftIO $ Discard <$> _cpLookupProcessedTx cp confDepth txs
+          liftIO $ Discard <$> _cpLookupProcessedTx cp (_blockHeight parent) confDepth txs
 
 -- | Modified table gas module with free module loads
 --

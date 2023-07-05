@@ -39,6 +39,7 @@ import Numeric.Natural
 
 -- internal imports
 
+import Chainweb.BlockHeader
 import Chainweb.Mempool.CurrentTxs
 import Chainweb.Mempool.Mempool
 import Chainweb.Time (Micros(..), Time(..))
@@ -66,7 +67,8 @@ data InMemConfig t = InMemConfig {
   , _inmemMaxRecentItems :: {-# UNPACK #-} !Int
   , _inmemPreInsertPureChecks :: t -> Either InsertError t
   , _inmemPreInsertBatchChecks
-        :: V.Vector (T2 TransactionHash t)
+        :: BlockHeader
+        -> V.Vector (T2 TransactionHash t)
         -> IO (V.Vector (Either (T2 TransactionHash InsertError) (T2 TransactionHash t)))
   , _inmemCurrentTxsSize :: !Natural
     -- ^ The number of active transactions in validated blocks that can be

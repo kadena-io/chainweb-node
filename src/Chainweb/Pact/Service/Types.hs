@@ -259,7 +259,6 @@ instance Show LocalReq where show LocalReq{..} = show _localRequest
 
 data LookupPactTxsReq = LookupPactTxsReq
     { _lookupRestorePoint :: !Rewind
-        -- here if the restore point is "Nothing" it means "we don't care"
     , _lookupConfirmationDepth :: !(Maybe ConfirmationDepth)
     , _lookupKeys :: !(Vector PactHash)
     , _lookupResultVar :: !(PactExMVar (HashMap PactHash (T2 BlockHeight BlockHash)))
@@ -269,11 +268,12 @@ instance Show LookupPactTxsReq where
         "LookupPactTxsReq@" ++ show m
 
 data PreInsertCheckReq = PreInsertCheckReq
-    { _preInsCheckTxs :: !(Vector ChainwebTransaction)
+    { _preInsCheckBlockHeader :: !Rewind
+    , _preInsCheckTxs :: !(Vector ChainwebTransaction)
     , _preInsCheckResult :: !(PactExMVar (Vector (Either InsertError ())))
     }
 instance Show PreInsertCheckReq where
-    show (PreInsertCheckReq v _) =
+    show (PreInsertCheckReq _ v _) =
         "PreInsertCheckReq@" ++ show v
 
 -- | Existential wrapper for a Pact persistence domain.
@@ -334,18 +334,11 @@ newtype TransactionOutputProofB64 = TransactionOutputProofB64 Text
     deriving stock (Eq, Show, Generic)
     deriving newtype (ToJSON, FromJSON)
 
--- | This data type marks whether or not a particular header is
--- expected to rewind or not. In the case of 'NoRewind', no
--- header data is given, and a chain id is given instead for
--- routing purposes
---
-data Rewind
-    = DoRewind !BlockHeader
-    | NoRewind {-# UNPACK #-} !ChainId
-    deriving (Eq, Show)
+-- | This data type marks the particular header for rewinding.
+newtype Rewind = DoRewind BlockHeader
+  deriving (Eq, Show)
 
 instance HasChainId Rewind where
     _chainId = \case
       DoRewind !bh -> _chainId bh
-      NoRewind !cid -> cid
     {-# INLINE _chainId #-}

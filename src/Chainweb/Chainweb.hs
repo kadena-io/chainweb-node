@@ -314,12 +314,13 @@ validatingMempoolConfig cid v gl gp mv = Mempool.InMemConfig
     -- is gossiped to us from a peer's mempool.
     --
     preInsertBatch
-        :: V.Vector (T2 Mempool.TransactionHash ChainwebTransaction)
+        :: BlockHeader
+        -> V.Vector (T2 Mempool.TransactionHash ChainwebTransaction)
         -> IO (V.Vector (Either (T2 Mempool.TransactionHash Mempool.InsertError)
                                 (T2 Mempool.TransactionHash ChainwebTransaction)))
-    preInsertBatch txs = do
+    preInsertBatch bh txs = do
         pex <- readMVar mv
-        rs <- _pactPreInsertCheck pex cid (V.map ssnd txs) >>= either throwM pure
+        rs <- _pactPreInsertCheck pex cid bh (V.map ssnd txs) >>= either throwM pure
         pure $ alignWithV f rs txs
       where
         f (These r (T2 h t)) = case r of

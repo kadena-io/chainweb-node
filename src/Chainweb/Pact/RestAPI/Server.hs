@@ -187,7 +187,7 @@ pactServer d =
       = sendHandler logger mempool
       :<|> pollHandler logger cdb cid pact mempool
       :<|> listenHandler logger cdb cid pact mempool
-      :<|> localHandler logger pact
+      :<|> localHandler logger cdb pact
 
     pactSpvHandler = spvHandler logger cdb cid
     pactSpv2Handler = spv2Handler logger cdb cid
@@ -408,7 +408,12 @@ spvHandler l cdb cid (SpvRequest rk (Pact.ChainId ptid)) = do
 
     liftIO $! logg (sshow ph)
 
-    T2 bhe _bha <- liftIO (_pactLookup pe (NoRewind cid) Nothing (pure ph)) >>= \case
+    -- get current best cut
+    cut <- liftIO $! CutDB._cut cdb
+    -- get leaf block header for our chain from current best cut
+    chainLeaf <- lookupCutM cid cut
+
+    T2 bhe _bha <- liftIO (_pactLookup pe (DoRewind chainLeaf) Nothing (pure ph)) >>= \case
       Left e ->
         toErr $ "Internal error: transaction hash lookup failed: " <> sshow e
       Right v -> case HM.lookup ph v of
@@ -487,7 +492,13 @@ spv2Handler l cdb cid r = case _spvSubjectIdType sid of
     proof f = SomePayloadProof <$> do
         validateRequestKey rk
         liftIO $! logg (sshow ph)
-        T2 bhe bha <- liftIO (_pactLookup pe (NoRewind cid) Nothing (pure ph)) >>= \case
+
+        -- get current best cut
+        cut <- liftIO $! CutDB._cut cdb
+        -- get leaf block header for our chain from current best cut
+        chainLeaf <- lookupCutM cid cut
+
+        T2 bhe bha <- liftIO (_pactLookup pe (DoRewind chainLeaf) Nothing (pure ph)) >>= \case
             Left e ->
                 toErr $ "Internal error: transaction hash lookup failed: " <> sshow e
             Right v -> case HM.lookup ph v of

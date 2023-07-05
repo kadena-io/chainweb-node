@@ -38,23 +38,20 @@ module Chainweb.Pact.PactService.Checkpointer
     -- which the parent block, which is the latest block that was commit to the
     -- block chain before the new transaction code is evaluated.
     --
-    -- There are two function for restoring the checkpointer for evaluation of back
+    -- There is a function for restoring the checkpointer for evaluation of back
     -- code:
     --
-    -- * 'withCheckPointerRewind' and
-    -- * 'withCurrentCheckpointer'.
+    -- * 'withCheckPointerRewind'
     --
     -- 'withCheckPointerRewind' rewinds the checkpointer to the provided parent
-    -- header. 'withCurrentCheckpointer' evaluates the pact transaction within the
-    -- context of the current checkpointer state. Both functions update the value of
-    -- '_psParentHeader' at the beginning and the end of each call.
+    -- header. The function updates the value of '_psParentHeader' at the beginning
+    -- and the end of each call.
     --
     -- The result of the evaluation indicates whether the result of the evaluation
     -- is persisted, i.e. is commited as a new block, or is discarded, i.e.
     -- subsequent evaluation are performed the same context as the current one.
     --
     , withCheckpointerRewind
-    , withCurrentCheckpointer
     , WithCheckpointerResult(..)
 
     -- * Low Level Pact Service Checkpointer Tools
@@ -172,7 +169,7 @@ data WithCheckpointerResult a
 -- This function assumes that '_psParentHeader' has been updated to match the
 -- latest block in the checkpointers. This is guaranteed to be the case after
 -- calling any of 'rewindTo', 'syncParentHeader', 'withCheckPointerRewind',
--- 'withCheckPointerWithoutRewind', or 'withCurrentCheckpointer'.
+-- or 'withCheckPointerWithoutRewind'.
 --
 -- /NOTE:/
 --
@@ -232,19 +229,6 @@ withCheckpointerWithoutRewind target caller act = do
         modify' $ set psStateValidated (Just header)
         setParentHeader (caller <> ".withCheckpointerWithoutRewind.saveTx") (ParentHeader header)
 
--- | 'withCheckpointer' but using the cached parent header for target.
---
-withCurrentCheckpointer
-    :: CanReadablePayloadCas tbl
-    => String
-    -> (PactDbEnv' -> PactServiceM tbl (WithCheckpointerResult a))
-    -> PactServiceM tbl a
-withCurrentCheckpointer caller act = do
-    ph <- syncParentHeader "withCurrentCheckpointer"
-        -- discover the header for the latest block that is stored in the
-        -- checkpointer.
-    withCheckpointerRewind (Just $ RewindLimit 0) (Just ph) caller act
-
 -- | Execute an action in the context of an @Block@ that is provided by the
 -- checkpointer. The checkpointer is rewinded and restored to the state to the
 -- provided target.
@@ -275,9 +259,8 @@ withCheckpointerRewind rewindLimit p caller act = do
 
 -- | Run a batch of checkpointer operations, possibly involving the evaluation
 -- transactions accross several blocks using more than a single call of
--- 'withCheckPointerRewind' or 'withCurrentCheckpointer', and persist the final
--- state. In case of an failure, the checkpointer is reverted to the initial
--- state.
+-- 'withCheckPointerRewind' and persist the final state. In case of an failure,
+-- the checkpointer is reverted to the initial state.
 --
 withBatch :: PactServiceM tbl a -> PactServiceM tbl a
 withBatch act = do
@@ -310,8 +293,7 @@ withBatchIO runPact act = mask $ \umask -> do
 
 -- | Run a batch of checkpointer operations, possibly involving the evaluation
 -- transactions accross several blocks using more than a single call of
--- 'withCheckPointerRewind' or 'withCurrentCheckpointer', and discard the final
--- state at the end.
+-- 'withCheckPointerRewind' and discard the final state at the end.
 --
 withDiscardedBatch :: PactServiceM tbl a -> PactServiceM tbl a
 withDiscardedBatch act = do

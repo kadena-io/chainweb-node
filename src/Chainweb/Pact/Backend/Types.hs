@@ -318,7 +318,7 @@ data Checkpointer = Checkpointer
     , _cpRegisterProcessedTx :: !(P.PactHash -> IO ())
 
     , _cpLookupProcessedTx ::
-        !(Maybe ConfirmationDepth -> Vector P.PactHash -> IO (HashMap P.PactHash (T2 BlockHeight BlockHash)))
+        !(BlockHeight -> Maybe ConfirmationDepth -> Vector P.PactHash -> IO (HashMap P.PactHash (T2 BlockHeight BlockHash)))
     , _cpGetBlockHistory :: !(
         forall k v . (FromJSON v) => BlockHeader -> Domain k v -> IO BlockTxHistory)
     , _cpGetHistoricalLookup :: !(

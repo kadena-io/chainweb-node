@@ -296,28 +296,15 @@ doRegisterSuccessful :: Db -> PactHash -> IO ()
 doRegisterSuccessful dbenv (TypedHash hash) =
     runBlockEnv dbenv (indexPactTransaction $ BS.fromShort hash)
 
-doLookupSuccessful :: Db -> Maybe ConfirmationDepth -> V.Vector PactHash -> IO (HashMap.HashMap PactHash (T2 BlockHeight BlockHash))
-doLookupSuccessful dbenv confDepth hashes = runBlockEnv dbenv $ do
+doLookupSuccessful :: Db -> BlockHeight -> Maybe ConfirmationDepth -> V.Vector PactHash -> IO (HashMap.HashMap PactHash (T2 BlockHeight BlockHash))
+doLookupSuccessful dbenv (BlockHeight currentHeight) confDepth hashes = runBlockEnv dbenv $ do
     withSavepoint DbTransaction $ do
       r <- callDb "doLookupSuccessful" $ \db -> do
         let
-          currentHeightQ = "SELECT blockheight FROM BlockHistory \
-              \ ORDER BY blockheight DESC LIMIT 1"
-
-        -- if there is a confirmation depth, we get the current height and calculate
-        -- the block height, to look for the transactions in range [0, current block height - confirmation depth]
-        blockheight <- case confDepth of
-          Nothing -> pure Nothing
-          Just (ConfirmationDepth cd) -> do
-            currentHeight <- qry_ db currentHeightQ [RInt]
-            case currentHeight of
-              [[SInt bh]] -> pure $ Just (bh - fromIntegral cd)
-              _ -> fail "impossible"
-
-        let
-          blockheightval = maybe [] (\bh -> [SInt bh]) blockheight
-          qvals = [ SBlob (BS.fromShort hash) | (TypedHash hash) <- V.toList hashes ] ++ blockheightval
-
+          -- if there is a confirmation depth, we calculate the block height,
+          -- to look for the transactions in range [0, current block height - confirmation depth]
+          blockheight = maybe [] (\(ConfirmationDepth cd) -> [SInt $ fromIntegral currentHeight - fromIntegral cd]) confDepth
+          qvals = [ SBlob (BS.fromShort hash) | (TypedHash hash) <- V.toList hashes ] ++ blockheight
         qry db qtext qvals [RInt, RBlob] >>= mapM go
       return $ HashMap.fromList (zip (V.toList hashes) r)
   where

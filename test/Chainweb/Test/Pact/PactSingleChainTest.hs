@@ -442,8 +442,10 @@ mempoolCreationTimeTest mpRefIO reqIO = testCase "mempoolCreationTimeTest" $ do
 
   -- do pre-insert check with transaction at start + 15s
   tx <- makeTx "tx-now" (add s15 start)
+
+  ph <- getParentTestBlockDb bdb cid
   void $ forSuccess "mempoolCreationTimeTest: pre-insert tx" $
-    pactPreInsertCheck (V.singleton tx) q
+    pactPreInsertCheck ph (V.singleton tx) q
 
   setOneShotMempool mpRefIO $ mp tx
   -- b2 will be made at start + 30s

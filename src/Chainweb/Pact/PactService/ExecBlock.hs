@@ -101,8 +101,7 @@ setParentHeader msg ph@(ParentHeader bh) = do
 -- /NOTE:/
 --
 -- Any call of this function must occur within a dedicated call to
--- 'withChwithCheckpointerRewind', 'withCurrentCheckpointer' or
--- 'withCheckPointerWithoutRewind'.
+-- 'withCheckpointerRewind' or 'withCheckPointerWithoutRewind'.
 --
 execBlock
     :: CanReadablePayloadCas tbl
@@ -226,7 +225,7 @@ validateChainwebTxs logger v cid cp txValidationTime bh txs doBuyGas
 
     checkUnique :: ChainwebTransaction -> IO (Either InsertError ChainwebTransaction)
     checkUnique t = do
-      found <- HashMap.lookup (P._cmdHash t) <$> _cpLookupProcessedTx cp Nothing (V.singleton $ P._cmdHash t)
+      found <- HashMap.lookup (P._cmdHash t) <$> _cpLookupProcessedTx cp bh Nothing (V.singleton $ P._cmdHash t)
       case found of
         Nothing -> pure $ Right t
         Just _ -> pure $ Left InsertErrorDuplicate
