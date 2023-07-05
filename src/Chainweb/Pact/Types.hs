@@ -429,7 +429,7 @@ defaultPactServiceConfig = PactServiceConfig
 -- is initialized from the @_configBlockGasLimit@ value of @ChainwebConfiguration@.
 --
 defaultBlockGasLimit :: GasLimit
-defaultBlockGasLimit = 10000
+defaultBlockGasLimit = 20000
 
 newtype ReorgLimitExceeded = ReorgLimitExceeded Text
 
