@@ -323,13 +323,14 @@ execTransactionsOnly
     :: Miner
     -> Vector ChainwebTransaction
     -> PactDbEnv'
+    -> Maybe P.Gas
     -> Maybe Micros
     -> PactServiceM tbl
        (Vector (ChainwebTransaction, Either GasPurchaseFailure (P.CommandResult [P.TxLog A.Value])))
-execTransactionsOnly miner ctxs (PactDbEnv' pactdbenv) txTimeLimit = do
+execTransactionsOnly miner ctxs (PactDbEnv' pactdbenv) gasLimit txTimeLimit = do
     mc <- getInitCache
-    txOuts <- applyPactCmds False pactdbenv ctxs miner mc Nothing txTimeLimit
-    return $! V.zip ctxs txOuts
+    txOuts <- applyPactCmds False pactdbenv ctxs miner mc gasLimit txTimeLimit
+    return $! V.force (V.zip ctxs txOuts)
 
 runCoinbase
     :: Bool

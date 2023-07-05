@@ -239,7 +239,7 @@ doNextCoinbase iobdb = do
       pwo <- execNewBlock mempty (ParentHeader prevH) noMiner
       liftIO $ addTestBlockDb bdb (Nonce 0) (offsetBlockTime second) testChainId pwo
       nextH <- liftIO $ getParentTestBlockDb bdb testChainId
-      valPWO <- execValidateBlock mempty nextH (payloadWithOutputsToPayloadData pwo)
+      (valPWO, _g) <- execValidateBlock mempty nextH (payloadWithOutputsToPayloadData pwo)
       return (nextH, valPWO)
 
 doNextCoinbaseN_

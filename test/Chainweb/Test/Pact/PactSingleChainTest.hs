@@ -349,11 +349,10 @@ mempoolRefillTest mpRefIO reqIO = testCase "mempoolRefillTest" $ do
   runBlock q bdb second "mempoolRefillTest-3" >>= checkCount 2
 
   mp supply [ ( 0, [badTx] ), ( 1, [goodTx, goodTx] ) ]
-  runBlock q bdb second "mempoolRefillTest-3" >>= checkCount 2
+  runBlock q bdb second "mempoolRefillTest-4" >>= checkCount 2
 
   mp supply [ ( 0, [goodTx, goodTx] ), ( 1, [badTx, badTx] ) ]
-  runBlock q bdb second "mempoolRefillTest-3" >>= checkCount 2
-
+  runBlock q bdb second "mempoolRefillTest-5" >>= checkCount 2
 
   where
 

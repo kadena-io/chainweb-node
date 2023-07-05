@@ -676,7 +676,7 @@ withWebPactExecutionService logBackend v pactConfig bdb mempoolAccess gasmodel a
           { _pactNewBlock = \m p ->
               evalPactServiceM_ ctx $ execNewBlock mempoolAccess p m
           , _pactValidateBlock = \h d ->
-              evalPactServiceM_ ctx $ execValidateBlock mempoolAccess h d
+              evalPactServiceM_ ctx $ fst <$> execValidateBlock mempoolAccess h d
           , _pactLocal = \pf sv rd cmd ->
               evalPactServiceM_ ctx $ Right <$> execLocal cmd pf sv rd
           , _pactLookup = \rp hashes ->
