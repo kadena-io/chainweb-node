@@ -81,6 +81,7 @@ module Chainweb.Pact.Types
   , psVersion
   , psValidateHashesOnReplay
   , psLogger
+  , psTraceLogger
   , psGasLogger
   , psLoggers
   , psAllowReadsInLocal
@@ -121,6 +122,7 @@ module Chainweb.Pact.Types
     -- * Logging with Pact logger
 
   , tracePactServiceM
+  , tracePactServiceM'
   , pactLoggers
   , logg_
   , logInfo_
@@ -466,11 +468,14 @@ data PactServiceState = PactServiceState
 makeLenses ''PactServiceState
 
 tracePactServiceM :: ToJSON param => Text -> param -> Int -> PactServiceM tbl a -> PactServiceM tbl a
-tracePactServiceM label param weight a = do
+tracePactServiceM label param weight a = tracePactServiceM' label param (const weight) a
+
+tracePactServiceM' :: ToJSON param => Text -> param -> (a -> Int) -> PactServiceM tbl a -> PactServiceM tbl a
+tracePactServiceM' label param calcWeight a = do
     e <- ask
     s <- get
-    T2 r s <- liftIO $ trace (_psTraceLogger e) label param weight (runPactServiceM s e a)
-    put s
+    T2 r s' <- liftIO $ trace' (_psTraceLogger e) label param (calcWeight . sfst) (runPactServiceM s e a)
+    put s'
     return r
 
 _debugMC :: Text -> PactServiceM tbl ()
