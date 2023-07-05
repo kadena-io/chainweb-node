@@ -426,7 +426,10 @@ applyPactCmd isGenesis env miner txTimeLimit cmd = StateT $ \(T2 mcache maybeBlo
             Nothing -> id
             Just limit ->
                maybe (throwM timeoutError) return <=< timeout (fromIntegral limit)
-        T3 r c _warns <- liftIO $! txTimeout $ applyCmd v logger gasLogger env miner (gasModel pd) pd spv gasLimitedCmd initialGas mcache ApplySend
+        let txGas (T3 r _ _) = fromIntegral $ P._crGas r
+        T3 r c _warns <-
+          tracePactServiceM' "applyCmd" () txGas $
+            liftIO $ txTimeout $ applyCmd v logger gasLogger env miner (gasModel pd) pd spv gasLimitedCmd initialGas mcache ApplySend
         pure $ T2 r c
 
     if isGenesis
