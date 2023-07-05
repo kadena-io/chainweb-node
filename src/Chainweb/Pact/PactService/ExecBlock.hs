@@ -377,8 +377,9 @@ applyPactCmds
     -> Maybe Micros
     -> PactServiceM tbl (Vector (Either GasPurchaseFailure (P.CommandResult [P.TxLog A.Value])))
 applyPactCmds isGenesis env cmds miner mc blockGas txTimeLimit = do
-    (txs, _) <- tracePactServiceM' "applyPactCmds" () (\(_, T2 _ gasUsed) -> maybe 0 fromIntegral gasUsed) $
-      runStateT (V.mapM (applyPactCmd isGenesis env miner txTimeLimit) cmds) (T2 mc blockGas)
+    let txsGas txs = fromIntegral $ sumOf (traversed . _Right . to P._crGas) txs
+    txs <- tracePactServiceM' "applyPactCmds" () txsGas $
+      evalStateT (V.mapM (applyPactCmd isGenesis env miner txTimeLimit) cmds) (T2 mc blockGas)
     return txs
 
 applyPactCmd
