@@ -89,7 +89,7 @@ module Chainweb.Test.Pact.Utils
 , freeSQLiteResource
 , freeGasModel
 , withTestBlockDbTest
-, defaultPactServiceConfig
+, testPactServiceConfig
 , withMVarResource
 , withTime
 , withPayloadDb

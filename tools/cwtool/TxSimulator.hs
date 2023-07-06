@@ -177,7 +177,7 @@ simulate sc@(SimConfig dbDir txIdx' _ _ cid ver gasLog doTypecheck) = do
                   , _psLoggers = pactLoggers cwLogger
                   , _psIsBatch = False
                   , _psCheckpointerDepth = 1
-                  , _psBlockGasLimit = defaultBlockGasLimit
+                  , _psBlockGasLimit = testBlockGasLimit
                   , _psChainId = cid
                   }
                 pss = PactServiceState

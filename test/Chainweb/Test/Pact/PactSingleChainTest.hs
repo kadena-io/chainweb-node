@@ -103,7 +103,7 @@ tests rdb = ScheduledTest testName go
       where
         test f =
           withDelegateMempool $ \dm ->
-          withPactTestBlockDb testVersion cid rdb (snd <$> dm) defaultPactServiceConfig $
+          withPactTestBlockDb testVersion cid rdb (snd <$> dm) testPactServiceConfig $
           f (fst <$> dm)
 
         testHistLookup1 = getHistoricalLookupNoTxs "sender00"

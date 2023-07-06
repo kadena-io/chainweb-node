@@ -144,8 +144,8 @@ module Chainweb.Pact.Types
   , defaultOnFatalError
   , defaultReorgLimit
   , defaultLocalRewindDepthLimit
-  , defaultPactServiceConfig
-  , defaultBlockGasLimit
+  , testPactServiceConfig
+  , testBlockGasLimit
   , defaultModuleCacheLimit
   , catchesPactError
   , UnexpectedErrorPrinting(..)
@@ -417,8 +417,8 @@ defaultModuleCacheLimit :: DbCacheLimitBytes
 defaultModuleCacheLimit = DbCacheLimitBytes (60 * mebi)
 
 -- | NOTE this is only used for tests/benchmarks. DO NOT USE IN PROD
-defaultPactServiceConfig :: PactServiceConfig
-defaultPactServiceConfig = PactServiceConfig
+testPactServiceConfig :: PactServiceConfig
+testPactServiceConfig = PactServiceConfig
       { _pactReorgLimit = defaultReorgLimit
       , _pactLocalRewindDepthLimit = defaultLocalRewindDepthLimit
       , _pactRevalidate = True
@@ -426,7 +426,7 @@ defaultPactServiceConfig = PactServiceConfig
       , _pactResetDb = True
       , _pactAllowReadsInLocal = False
       , _pactUnlimitedInitialRewind = False
-      , _pactBlockGasLimit = defaultBlockGasLimit
+      , _pactBlockGasLimit = testBlockGasLimit
       , _pactLogGas = False
       , _pactModuleCacheLimit = defaultModuleCacheLimit
       }
@@ -434,8 +434,8 @@ defaultPactServiceConfig = PactServiceConfig
 -- | This default value is only relevant for testing. In a chainweb-node the @GasLimit@
 -- is initialized from the @_configBlockGasLimit@ value of @ChainwebConfiguration@.
 --
-defaultBlockGasLimit :: GasLimit
-defaultBlockGasLimit = 20000
+testBlockGasLimit :: GasLimit
+testBlockGasLimit = 20000
 
 newtype ReorgLimitExceeded = ReorgLimitExceeded Text
 
