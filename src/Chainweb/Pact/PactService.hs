@@ -525,7 +525,7 @@ execNewBlock mpAccess parent miner = do
           (EnforceCoinbaseFailure True)
           (CoinbaseUsePrecompiled True)
           pdbenv
-          (Just $ fromIntegral blockGasLimit)
+          Nothing
           (Just txTimeLimit) `catch` handleTimeout
 
         (BlockFilling _ successPairs failures) <-
@@ -554,7 +554,6 @@ execNewBlock mpAccess parent miner = do
         if V.null newTrans then pure unchanged else do
 
           pairs <- execTransactionsOnly miner newTrans pdbenv
-            (Just (fromIntegral $ _bfGasLimit bfState))
             (Just txTimeLimit) `catch` handleTimeout
 
           newFill@(BlockFilling newState newPairs newFails) <-
