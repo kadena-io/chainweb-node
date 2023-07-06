@@ -255,7 +255,7 @@ pollingConfirmDepth iot nio = testCaseSteps "poll confirmation depth test" $ \st
       "(namespace 'free)(module m G (defcap G () true) (defpact p () (step (yield { \"a\" : (+ 1 1) })) (step (resume { \"a\" := a } a))))(free.m.p)"
     tx' =
       "(namespace 'free)(module m G (defcap G () true) (defpact p () (step (yield { \"a\" : (+ 1 2) })) (step (resume { \"a\" := a } a))))(free.m.p)"
-    firstStep tx = do
+    firstStep transaction = do
       t <- toTxCreationTime <$> iot
       buildTextCmd
         $ set cbSigners [mkSigner' sender00 []]
@@ -263,7 +263,7 @@ pollingConfirmDepth iot nio = testCaseSteps "poll confirmation depth test" $ \st
         $ set cbNetworkId (Just v)
         $ set cbGasLimit 70000
         $ mkCmd "nonce-cont-1"
-        $ mkExec' tx
+        $ mkExec' transaction
 
 localChainDataTest :: IO (Time Micros) -> IO ChainwebNetwork -> IO ()
 localChainDataTest iot nio = do
