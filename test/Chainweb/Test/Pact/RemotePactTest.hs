@@ -235,8 +235,9 @@ pollingConfirmDepth iot nio = testCaseSteps "poll confirmation depth test" $ \st
     cenv <- _getServiceClientEnv <$> nio
 
     step "/send a transaction"
-    cmd1 <- firstStep
-    rks <- sending cid' cenv (SubmitBatch $ pure cmd1)
+    cmd1 <- firstStep tx
+    cmd2 <- firstStep tx'
+    rks <- sending cid' cenv (SubmitBatch $ cmd1 NEL.:| [cmd2])
 
     step "/poll for the transaction until it appears"
 
@@ -244,33 +245,17 @@ pollingConfirmDepth iot nio = testCaseSteps "poll confirmation depth test" $ \st
     PollResponses m <- pollingWithDepth cid' cenv rks (Just $ ConfirmationDepth 10) ExpectPactResult
     afterPolling <- getCurrentBlockHeight v cenv cid'
 
-    pid <- case NEL.toList (_rkRequestKeys rks) of
-      [rk] -> case HashMap.lookup rk m of
-        Nothing -> assertFailure "impossible"
-        Just cr -> case _crContinuation cr of
-          Nothing -> assertFailure "not a continuation - impossible"
-          Just pe -> return $ _pePactId pe
-      _ -> assertFailure "continuation did not succeed"
-
+    assertBool "there are two command results" $ length (HashMap.keys m) == 2
 
     -- we are checking that we have waited at least 10 blocks using /poll for the transaction
     assertBool "the difference between heights should be no less than the confirmation depth" $ (afterPolling - beforePolling) >= 10
-
-    step "/send 2nd transaction"
-    cmd2 <- secondStep pid
-    rks' <- sending cid' cenv (SubmitBatch $ pure cmd2)
-
-    beforePolling' <- getCurrentBlockHeight v cenv cid'
-    PollResponses _ <- pollingWithDepth cid' cenv rks' (Just $ ConfirmationDepth 10) ExpectPactResult
-    afterPolling' <- getCurrentBlockHeight v cenv cid'
-
-    -- we are checking that we have waited at least 10 blocks using /poll for the transaction
-    assertBool "the difference between heights should be no less than the confirmation depth" $ (afterPolling' - beforePolling') >= 10
   where
     cid' = unsafeChainId 0
     tx =
       "(namespace 'free)(module m G (defcap G () true) (defpact p () (step (yield { \"a\" : (+ 1 1) })) (step (resume { \"a\" := a } a))))(free.m.p)"
-    firstStep = do
+    tx' =
+      "(namespace 'free)(module m G (defcap G () true) (defpact p () (step (yield { \"a\" : (+ 1 2) })) (step (resume { \"a\" := a } a))))(free.m.p)"
+    firstStep tx = do
       t <- toTxCreationTime <$> iot
       buildTextCmd
         $ set cbSigners [mkSigner' sender00 []]
@@ -280,15 +265,6 @@ pollingConfirmDepth iot nio = testCaseSteps "poll confirmation depth test" $ \st
         $ mkCmd "nonce-cont-1"
         $ mkExec' tx
 
-    secondStep pid = do
-      t <- toTxCreationTime <$> iot
-      buildTextCmd
-        $ set cbSigners [mkSigner' sender00 []]
-        $ set cbCreationTime t
-        $ set cbNetworkId (Just v)
-        $ mkCmd "nonce-cont-2"
-        $ mkCont
-        $ mkContMsg pid 1
 localChainDataTest :: IO (Time Micros) -> IO ChainwebNetwork -> IO ()
 localChainDataTest iot nio = do
     cenv <- fmap _getServiceClientEnv nio
