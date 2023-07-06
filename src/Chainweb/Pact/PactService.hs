@@ -582,13 +582,15 @@ execNewBlock mpAccess parent miner = do
       sshow (length good) <> ", bad=" <> sshow (length bad)
 
     splitResults (BlockFilling (BlockFill g rks i) success fails) (t,r) = case r of
-      Right cr -> enforceUnique rks (requestKeyToTransactionHash $ P._crReqKey cr) >>= \(!rks') -> do
+      Right cr -> do
+        !rks' <- enforceUnique rks (requestKeyToTransactionHash $ P._crReqKey cr)
         -- Decrement actual gas used from block limit
         let !g' = g - fromIntegral (P._crGas cr)
         return $ BlockFilling (BlockFill g' rks' i)
         -- TODO: optimize use of `snoc`
           (V.snoc success (t,cr)) fails
-      Left f -> enforceUnique rks (gasPurchaseFailureHash f) >>= \(!rks') ->
+      Left f -> do
+        !rks' <- enforceUnique rks (gasPurchaseFailureHash f)
         -- Gas buy failure adds failed request key to fail list only
         return $ BlockFilling (BlockFill g rks' i) success (V.snoc fails f)
 
@@ -752,7 +754,7 @@ execValidateBlock memPoolAccess currHeader plData = do
             mpaProcessFork memPoolAccess p
             mpaSetLastHeader memPoolAccess p
 
-    let !totalGasUsed = sumOf (traversed . to P._crGas) transactions
+    let !totalGasUsed = sumOf (folded . to P._crGas) transactions
     return (result, totalGasUsed)
   where
     getTarget
