@@ -32,6 +32,8 @@ module Chainweb.Pact.RestAPI
 , pactPollApi
 , PactLocalWithQueryApi
 , pactLocalWithQueryApi
+, PactPollWithQueryApi
+, pactPollWithQueryApi
 -- * Pact Spv Api
 , PactSpvApi
 , pactSpvApi
@@ -58,7 +60,7 @@ import Data.Text (Text)
 
 import qualified Pact.Types.Command as Pact
 import Pact.Server.API as API
-
+import Pact.Types.API (Poll, PollResponses)
 import Servant
 
 -- internal modules
@@ -80,7 +82,7 @@ type PactApi_
     :> "api"
     :> "v1"
     :> ( ApiSend
-       :<|> ApiPoll
+       :<|> PactPollWithQueryApi_
        :<|> ApiListen
        :<|> PactLocalWithQueryApi_
        )
@@ -146,6 +148,22 @@ pactLocalWithQueryApi
   :: forall (v :: ChainwebVersionT) (c :: ChainIdT)
   . Proxy (PactLocalWithQueryApi v c)
 pactLocalWithQueryApi = Proxy
+
+-- -------------------------------------------------------------------------- --
+-- POST Queries for Pact Poll
+
+type PactPollWithQueryApi_
+    = "poll"
+    :> QueryParam "confirmationDepth" ConfirmationDepth
+    :> ReqBody '[JSON] Poll
+    :> Post '[JSON] PollResponses
+
+type PactPollWithQueryApi v c = PactV1ApiEndpoint v c PactPollWithQueryApi_
+
+pactPollWithQueryApi
+  :: forall (v :: ChainwebVersionT) (c :: ChainIdT)
+  . Proxy (PactPollWithQueryApi v c)
+pactPollWithQueryApi = Proxy
 
 -- -------------------------------------------------------------------------- --
 -- POST Pact Spv Transaction Proof

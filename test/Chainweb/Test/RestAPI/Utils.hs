@@ -19,6 +19,8 @@ module Chainweb.Test.RestAPI.Utils
 , ethSpv
 , sending
 , polling
+, pollingWithDepth
+, getCurrentBlockHeight
 
   -- * Rosetta client DSL
 , RosettaTestException(..)
@@ -48,6 +50,8 @@ import Control.Retry
 import Data.Either
 import Data.Foldable (toList)
 import Data.Text (Text)
+import Data.Maybe (fromJust)
+import qualified Data.HashMap.Strict as HM
 import qualified Data.Text as T
 
 import Rosetta
@@ -56,8 +60,11 @@ import Servant.Client
 
 -- internal chainweb modules
 
+import Chainweb.BlockHeight
 import Chainweb.ChainId
 import Chainweb.Graph
+import Chainweb.Cut.CutHashes (_cutHashes, _bhwhHeight)
+import Chainweb.CutDB.RestAPI.Client
 import Chainweb.Pact.RestAPI.Client
 import Chainweb.Pact.RestAPI.EthSpv
 import Chainweb.Pact.Service.Types
@@ -95,6 +102,7 @@ data PactTestFailure
     | SendFailure String
     | LocalFailure String
     | SpvFailure String
+    | GetBlockHeightFailure String
     deriving Show
 
 instance Exception PactTestFailure
@@ -236,7 +244,16 @@ polling
     -> RequestKeys
     -> PollingExpectation
     -> IO PollResponses
-polling sid cenv rks pollingExpectation =
+polling sid cenv rks pollingExpectation = pollingWithDepth sid cenv rks Nothing pollingExpectation
+
+pollingWithDepth
+    :: ChainId
+    -> ClientEnv
+    -> RequestKeys
+    -> Maybe ConfirmationDepth
+    -> PollingExpectation
+    -> IO PollResponses
+pollingWithDepth sid cenv rks confirmationDepth pollingExpectation =
     recovering testRetryPolicy [h] $ \s -> do
       debug
         $ "polling for requestkeys " <> show (toList rs)
@@ -246,7 +263,7 @@ polling sid cenv rks pollingExpectation =
       -- by making sure results are successful and request keys
       -- are sane
 
-      runClientM (pactPollApiClient v sid $ Poll rs) cenv >>= \case
+      runClientM (pactPollWithQueryApiClient v sid confirmationDepth $ Poll rs) cenv >>= \case
         Left e -> throwM $ PollingFailure (show e)
         Right r@(PollResponses mp) ->
           if all (go mp) (toList rs)
@@ -267,6 +284,11 @@ polling sid cenv rks pollingExpectation =
       Just cr ->  _crReqKey cr == rk && validate (_crResult cr)
       Nothing -> False
 
+getCurrentBlockHeight :: ChainwebVersion -> ClientEnv -> ChainId -> IO BlockHeight
+getCurrentBlockHeight сv cenv cid =
+  runClientM (cutGetClient сv) cenv >>= \case
+    Left e -> throwM $ GetBlockHeightFailure $ "Failed to get cuts: " ++ show e
+    Right cuts -> return $ fromJust $ _bhwhHeight <$> HM.lookup cid (_cutHashes cuts)
 
 -- ------------------------------------------------------------------ --
 -- Rosetta api client utils w/ retry
