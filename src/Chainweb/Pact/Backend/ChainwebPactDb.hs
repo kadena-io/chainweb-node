@@ -604,7 +604,7 @@ createTransactionIndexTable = callDb "createTransactionIndexTable" $ \db -> do
 
 indexPactTransaction :: BS.ByteString -> BlockHandler SQLiteEnv ()
 indexPactTransaction h = modify' $
-    over (bsPendingBlock . pendingSuccessfulTxs) $! HashSet.insert h
+    over (bsPendingBlock . pendingSuccessfulTxs) $ HashSet.insert h
 
 
 indexPendingPactTransactions :: BlockHandler SQLiteEnv ()

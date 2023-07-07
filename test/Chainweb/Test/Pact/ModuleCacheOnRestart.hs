@@ -239,7 +239,7 @@ doNextCoinbase iobdb = do
       pwo <- execNewBlock mempty (ParentHeader prevH) noMiner
       liftIO $ addTestBlockDb bdb (Nonce 0) (offsetBlockTime second) testChainId pwo
       nextH <- liftIO $ getParentTestBlockDb bdb testChainId
-      valPWO <- execValidateBlock mempty nextH (payloadWithOutputsToPayloadData pwo)
+      (valPWO, _g) <- execValidateBlock mempty nextH (payloadWithOutputsToPayloadData pwo)
       return (nextH, valPWO)
 
 doNextCoinbaseN_
@@ -281,7 +281,7 @@ withPact' bdbio ioSqlEnv r (ps, cacheTest) tastylog = do
     let pdb = _bdbPayloadDb bdb
     sqlEnv <- ioSqlEnv
     T2 _ pstate <- withPactService
-        testVer testChainId logger bhdb pdb sqlEnv defaultPactServiceConfig ps
+        testVer testChainId logger bhdb pdb sqlEnv testPactServiceConfig ps
     cacheTest r (_psInitCache pstate)
   where
     logger = genericLogger Quiet (tastylog . T.unpack)

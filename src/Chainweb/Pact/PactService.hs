@@ -149,6 +149,7 @@ withPactService ver cid chainwebLogger bhDb pdb sqlenv config act =
                     , _psAllowReadsInLocal = _pactAllowReadsInLocal config
                     , _psIsBatch = False
                     , _psCheckpointerDepth = 0
+                    , _psTraceLogger = logFunction chainwebLogger
                     , _psLogger = pactLogger
                     , _psGasLogger = gasLogger <$ guard (_pactLogGas config)
                     , _psLoggers = loggers
@@ -284,11 +285,11 @@ serviceRequests logFn memPoolAccess reqQ = do
                         execNewBlock memPoolAccess _newBlockHeader _newMiner
                 go
             ValidateBlockMsg ValidateBlockReq {..} -> do
-                trace logFn "Chainweb.Pact.PactService.execValidateBlock"
+                tryOne "execValidateBlock" _valResultVar $
+                  fmap fst $ trace' logFn "Chainweb.Pact.PactService.execValidateBlock"
                     _valBlockHeader
-                    (length (_payloadDataTransactions _valPayloadData)) $
-                    tryOne "execValidateBlock" _valResultVar $
-                        execValidateBlock memPoolAccess _valBlockHeader _valPayloadData
+                    (\(_, g) -> fromIntegral g)
+                    (execValidateBlock memPoolAccess _valBlockHeader _valPayloadData)
                 go
             LookupPactTxsMsg (LookupPactTxsReq restorePoint confDepth txHashes resultVar) -> do
                 trace logFn "Chainweb.Pact.PactService.execLookupPactTxs" ()
@@ -521,7 +522,7 @@ execNewBlock mpAccess parent miner = do
         newTrans <- getBlockTxs initState
 
         -- NEW BLOCK COINBASE: Reject bad coinbase, always use precompilation
-        (Transactions pairs cb) <- execTransactions False miner newTrans
+        Transactions pairs cb <- execTransactions False miner newTrans
           (EnforceCoinbaseFailure True)
           (CoinbaseUsePrecompiled True)
           pdbenv
@@ -553,7 +554,8 @@ execNewBlock mpAccess parent miner = do
         newTrans <- getBlockTxs bfState
         if V.null newTrans then pure unchanged else do
 
-          pairs <- execTransactionsOnly miner newTrans pdbenv (Just txTimeLimit) `catch` handleTimeout
+          pairs <- execTransactionsOnly miner newTrans pdbenv
+            (Just txTimeLimit) `catch` handleTimeout
 
           newFill@(BlockFilling newState newPairs newFails) <-
                 foldM splitResults unchanged pairs
@@ -580,13 +582,16 @@ execNewBlock mpAccess parent miner = do
       "Block fill: count=" <> sshow c <> ", gaslimit=" <> sshow g <> ", good=" <>
       sshow (length good) <> ", bad=" <> sshow (length bad)
 
-
     splitResults (BlockFilling (BlockFill g rks i) success fails) (t,r) = case r of
-      Right cr -> enforceUnique rks (requestKeyToTransactionHash $ P._crReqKey cr) >>= \rks' ->
+      Right cr -> do
+        !rks' <- enforceUnique rks (requestKeyToTransactionHash $ P._crReqKey cr)
         -- Decrement actual gas used from block limit
-        return $ BlockFilling (BlockFill (g - fromIntegral (P._crGas cr)) rks' i)
+        let !g' = g - fromIntegral (P._crGas cr)
+        return $ BlockFilling (BlockFill g' rks' i)
+        -- TODO: optimize use of `snoc`
           (V.snoc success (t,cr)) fails
-      Left f -> enforceUnique rks (gasPurchaseFailureHash f) >>= \rks' ->
+      Left f -> do
+        !rks' <- enforceUnique rks (gasPurchaseFailureHash f)
         -- Gas buy failure adds failed request key to fail list only
         return $ BlockFilling (BlockFill g rks' i) success (V.snoc fails f)
 
@@ -721,7 +726,7 @@ execValidateBlock
     => MemPoolAccess
     -> BlockHeader
     -> PayloadData
-    -> PactServiceM tbl PayloadWithOutputs
+    -> PactServiceM tbl (PayloadWithOutputs, P.Gas)
 execValidateBlock memPoolAccess currHeader plData = do
     -- The parent block header must be available in the block header database
     target <- getTarget
@@ -750,7 +755,8 @@ execValidateBlock memPoolAccess currHeader plData = do
             mpaProcessFork memPoolAccess p
             mpaSetLastHeader memPoolAccess p
 
-    return result
+    let !totalGasUsed = sumOf (folded . to P._crGas) transactions
+    return (result, totalGasUsed)
   where
     getTarget
         | isGenesisBlockHeader currHeader = return Nothing

@@ -23,6 +23,7 @@
 --
 module Utils.Logging.Trace
 ( trace
+, trace'
 , Trace
 ) where
 
@@ -73,16 +74,28 @@ instance ToJSON Trace where
 trace
     :: MonadIO m
     => ToJSON param
-    => LogFunction
+    => (LogLevel -> JsonLog Trace -> IO ())
     -> T.Text
     -> param
     -> Int
     -> m a
     -> m a
-trace logg label param weight a = do
+trace logg label param weight a =
+    trace' logg label param (const weight) a
+
+trace'
+    :: MonadIO m
+    => ToJSON param
+    => (LogLevel -> JsonLog Trace -> IO ())
+    -> T.Text
+    -> param
+    -> (a -> Int)
+    -> m a
+    -> m a
+trace' logg label param calcWeight a = do
     (!r, t) <- stopWatch a
     liftIO $ logg Info $ JsonLog $ Trace label
         (toJSON param)
-        weight
+        (calcWeight r)
         (fromIntegral $ toNanoSecs t `div` 1000)
     return r
