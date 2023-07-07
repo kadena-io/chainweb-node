@@ -34,7 +34,7 @@ import Control.Applicative
 import Control.Concurrent.STM (atomically, retry)
 import Control.Concurrent.STM.TVar
 import Control.DeepSeq
-import Control.Lens (set, view, preview, (^?!), _head)
+import Control.Lens (set, view, preview)
 import Control.Monad.Catch hiding (Handler)
 import Control.Monad.Reader
 import Control.Monad.State.Strict
@@ -262,15 +262,16 @@ pollHandler
     -> ChainId
     -> PactExecutionService
     -> MempoolBackend ChainwebTransaction
+    -> Maybe ConfirmationDepth
     -> Poll
     -> Handler PollResponses
-pollHandler logger cdb cid pact mem (Poll request) = do
+pollHandler logger cdb cid pact mem confDepth (Poll request) = do
     traverse_ validateRequestKey request
 
     liftIO $! logg Info $ PactCmdLogPoll $ fmap requestKeyToB16Text request
     -- get current best cut
     cut <- liftIO $! CutDB._cut cdb
-    PollResponses <$!> liftIO (internalPoll pdb bdb mem pact cut request)
+    PollResponses <$!> liftIO (internalPoll pdb bdb mem pact cut confDepth request)
   where
     pdb = view CutDB.cutDbPayloadDb cdb
     bdb = fromJuste $ preview (CutDB.cutDbBlockHeaderDb cid) cdb
@@ -310,7 +311,7 @@ listenHandler logger cdb cid pact mem (ListenerRequest key) = do
 
         poll :: Cut -> IO ListenResponse
         poll cut = do
-            hm <- internalPoll pdb bdb mem pact cut (pure key)
+            hm <- internalPoll pdb bdb mem pact cut Nothing (pure key)
             if HM.null hm
               then go (Just cut)
               else return $! ListenResponse $ snd $ head $ HM.toList hm
@@ -407,10 +408,10 @@ spvHandler l cdb cid (SpvRequest rk (Pact.ChainId ptid)) = do
 
     liftIO $! logg (sshow ph)
 
-    T2 bhe _bha <- liftIO (_pactLookup pe (NoRewind cid) (pure ph)) >>= \case
+    T2 bhe _bha <- liftIO (_pactLookup pe (NoRewind cid) Nothing (pure ph)) >>= \case
       Left e ->
         toErr $ "Internal error: transaction hash lookup failed: " <> sshow e
-      Right v -> case v ^?! _head of
+      Right v -> case HM.lookup ph v of
         Nothing -> toErr $ "Transaction hash not found: " <> sshow ph
         Just t -> return t
 
@@ -486,10 +487,10 @@ spv2Handler l cdb cid r = case _spvSubjectIdType sid of
     proof f = SomePayloadProof <$> do
         validateRequestKey rk
         liftIO $! logg (sshow ph)
-        T2 bhe bha <- liftIO (_pactLookup pe (NoRewind cid) (pure ph)) >>= \case
+        T2 bhe bha <- liftIO (_pactLookup pe (NoRewind cid) Nothing (pure ph)) >>= \case
             Left e ->
                 toErr $ "Internal error: transaction hash lookup failed: " <> sshow e
-            Right v -> case v ^?! _head of
+            Right v -> case HM.lookup ph v of
                 Nothing -> toErr $ "Transaction hash not found: " <> sshow ph
                 Just t -> return t
 
@@ -573,15 +574,16 @@ internalPoll
     -> MempoolBackend ChainwebTransaction
     -> PactExecutionService
     -> Cut
+    -> Maybe ConfirmationDepth
     -> NonEmpty RequestKey
     -> IO (HashMap RequestKey (CommandResult Hash))
-internalPoll pdb bhdb mempool pactEx cut requestKeys0 = do
+internalPoll pdb bhdb mempool pactEx cut confDepth requestKeys0 = do
     -- get leaf block header for our chain from current best cut
     chainLeaf <- lookupCutM cid cut
-    results0 <- _pactLookup pactEx (DoRewind chainLeaf) requestKeys >>= either throwM return
+    results0 <- _pactLookup pactEx (DoRewind chainLeaf) confDepth requestKeys >>= either throwM return
         -- TODO: are we sure that all of these are raised locally. This will cause the
         -- server to shut down the connection without returning a result to the user.
-    let results1 = V.zip requestKeysV results0
+    let results1 = V.map (\rk -> (rk, HM.lookup (Pact.fromUntypedHash $ unRequestKey rk) results0)) requestKeysV
     let (present0, missing) = V.unstablePartition (isJust . snd) results1
     let present = V.map (second fromJuste) present0
     lookedUp <- catMaybes . V.toList <$> mapM lookup present

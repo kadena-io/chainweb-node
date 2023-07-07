@@ -12,6 +12,7 @@ import Control.Monad
 import Control.Monad.Catch
 import qualified Criterion.Main as C
 
+import qualified Data.Vector as V
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Char8 as B8
 import qualified Data.Map.Strict as M
@@ -28,6 +29,7 @@ import Pact.Types.Persistence
 import Pact.Types.RowData
 import Pact.Types.Term
 import Pact.Types.Util
+import qualified Pact.Types.Hash as Pact
 import qualified Pact.Interpreter as PI
 import qualified Pact.Persist.SQLite as PSQL
 import qualified Pact.Types.SQLite as PSQL
@@ -60,6 +62,7 @@ bench = C.bgroup "pact-backend" $
              , cpWithBench . cpBenchNoRewindOverBlock
              , cpWithBench . cpBenchOverBlock
              , cpWithBench . cpBenchSampleKeys
+             , cpWithBench . cpBenchLookupProcessedTx
              -- , cpWithBench . cpBenchKeys
              ]
   where
@@ -372,3 +375,34 @@ cpBenchSampleKeys numSampleEvents cp =
                     writeRow db Update ut f rowkeya b
                     writeRow db Update ut f rowkeyb a
         void $ _cpSave _cpeCheckpointer hash02
+
+
+cpBenchLookupProcessedTx :: Int -> CheckpointEnv -> C.Benchmark
+cpBenchLookupProcessedTx transactionCount cp = C.env (setup' cp) $ \ ~(ut) ->
+    C.bench benchname $ C.nfIO (go cp ut)
+  where
+    benchname = "lookupProcessedTx/transactionCount=" ++ show transactionCount
+    transaction (NoopNFData ut) db = incIntegerAtKey db ut f k 1
+    setup' CheckpointEnv{..} = do
+        usertablename <- _cpRestore _cpeCheckpointer Nothing >>= \case
+            PactDbEnv' db ->
+              setupUserTable db $ \ut -> writeRow db Insert ut f k 1
+        _cpSave _cpeCheckpointer hash01
+
+        _cpRestore _cpeCheckpointer (Just (BlockHeight 1, hash01)) >>= \case
+            PactDbEnv' pactdbenv ->
+              replicateM_ transactionCount (transaction usertablename pactdbenv)
+        void $ _cpSave _cpeCheckpointer hash02
+
+        return usertablename
+
+    f = "f"
+    k = "k"
+
+    hash01 = BlockHash $ unsafeMerkleLogHash "0000000000000000000000000000001a"
+    hash02 = BlockHash $ unsafeMerkleLogHash "0000000000000000000000000000002a"
+
+    go CheckpointEnv{..} (NoopNFData _) = do
+        _cpRestore _cpeCheckpointer (Just (BlockHeight 2, hash02)) >>= \case
+          PactDbEnv' _ ->
+            _cpLookupProcessedTx _cpeCheckpointer Nothing (V.fromList [Pact.TypedHash "" | _ <- [1..transactionCount]])

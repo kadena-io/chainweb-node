@@ -680,8 +680,8 @@ withWebPactExecutionService logBackend v pactConfig bdb mempoolAccess gasmodel a
               evalPactServiceM_ ctx $ fst <$> execValidateBlock mempoolAccess h d
           , _pactLocal = \pf sv rd cmd ->
               evalPactServiceM_ ctx $ Right <$> execLocal cmd pf sv rd
-          , _pactLookup = \rp hashes ->
-              evalPactServiceM_ ctx $ Right <$> execLookupPactTxs rp hashes
+          , _pactLookup = \rp cd hashes ->
+              evalPactServiceM_ ctx $ Right <$> execLookupPactTxs rp cd hashes
           , _pactPreInsertCheck = \_ txs ->
               evalPactServiceM_ ctx $ (Right . V.map (() <$)) <$> execPreInsertCheckReq txs
           , _pactBlockTxHistory = \h d ->

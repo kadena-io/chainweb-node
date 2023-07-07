@@ -49,6 +49,7 @@ import qualified Data.DList as DL
 import Data.Either
 import Data.Maybe (fromMaybe)
 import Data.Foldable (toList)
+import qualified Data.HashMap.Strict as HM
 import qualified Data.Map.Strict as M
 import qualified Data.Set as S
 import Data.Text (Text)
@@ -290,11 +291,11 @@ serviceRequests logFn memPoolAccess reqQ = do
                     (\(_, g) -> fromIntegral g)
                     (execValidateBlock memPoolAccess _valBlockHeader _valPayloadData)
                 go
-            LookupPactTxsMsg (LookupPactTxsReq restorePoint txHashes resultVar) -> do
+            LookupPactTxsMsg (LookupPactTxsReq restorePoint confDepth txHashes resultVar) -> do
                 trace logFn "Chainweb.Pact.PactService.execLookupPactTxs" ()
                     (length txHashes) $
                     tryOne "execLookupPactTxs" resultVar $
-                        execLookupPactTxs restorePoint txHashes
+                        execLookupPactTxs restorePoint confDepth txHashes
                 go
             PreInsertCheckMsg (PreInsertCheckReq txs resultVar) -> do
                 trace logFn "Chainweb.Pact.PactService.execPreInsertCheckReq" ()
@@ -799,18 +800,19 @@ execPreInsertCheckReq txs = withDiscardedBatch $ do
 execLookupPactTxs
     :: CanReadablePayloadCas tbl
     => Rewind
+    -> Maybe ConfirmationDepth
     -> Vector P.PactHash
-    -> PactServiceM tbl (Vector (Maybe (T2 BlockHeight BlockHash)))
-execLookupPactTxs restorePoint txs
+    -> PactServiceM tbl (HM.HashMap P.PactHash (T2 BlockHeight BlockHash))
+execLookupPactTxs restorePoint confDepth txs
     | V.null txs = return mempty
     | otherwise = go
   where
     go = getCheckpointer >>= \(!cp) -> case restorePoint of
       NoRewind _ ->
-        liftIO $! V.mapM (_cpLookupProcessedTx cp) txs
+        liftIO $! _cpLookupProcessedTx cp confDepth txs
       DoRewind parent -> withDiscardedBatch $ do
         withCheckpointerRewind Nothing (Just $ ParentHeader parent) "lookupPactTxs" $ \_ ->
-          liftIO $ Discard <$> V.mapM (_cpLookupProcessedTx cp) txs
+          liftIO $ Discard <$> _cpLookupProcessedTx cp confDepth txs
 
 -- | Modified table gas module with free module loads
 --
