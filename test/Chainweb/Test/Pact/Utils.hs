@@ -89,7 +89,7 @@ module Chainweb.Test.Pact.Utils
 , freeSQLiteResource
 , freeGasModel
 , withTestBlockDbTest
-, defaultPactServiceConfig
+, testPactServiceConfig
 , withMVarResource
 , withTime
 , withPayloadDb
@@ -634,6 +634,7 @@ testPactCtxSQLite logBackend v cid bhdb pdb sqlenv conf gasmodel = do
         , _psAllowReadsInLocal = _pactAllowReadsInLocal conf
         , _psIsBatch = False
         , _psCheckpointerDepth = 0
+        , _psTraceLogger = \_ _ -> return ()
         , _psLogger = newLogger loggers $ LogName ("PactService" ++ show cid)
         , _psGasLogger = Nothing
         , _psLoggers = loggers
@@ -676,7 +677,7 @@ withWebPactExecutionService logBackend v pactConfig bdb mempoolAccess gasmodel a
           { _pactNewBlock = \m p ->
               evalPactServiceM_ ctx $ execNewBlock mempoolAccess p m
           , _pactValidateBlock = \h d ->
-              evalPactServiceM_ ctx $ execValidateBlock mempoolAccess h d
+              evalPactServiceM_ ctx $ fst <$> execValidateBlock mempoolAccess h d
           , _pactLocal = \pf sv rd cmd ->
               evalPactServiceM_ ctx $ Right <$> execLocal cmd pf sv rd
           , _pactLookup = \rp cd hashes ->

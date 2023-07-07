@@ -135,8 +135,8 @@ tests = ScheduledTest testName go
       where
           -- This is way more than what is used in production, but during testing
           -- we can be generous.
-        generousConfig = defaultPactServiceConfig { _pactBlockGasLimit = 300_000 }
-        timeoutConfig = defaultPactServiceConfig { _pactBlockGasLimit = 100_000 }
+        generousConfig = testPactServiceConfig { _pactBlockGasLimit = 300_000 }
+        timeoutConfig = testPactServiceConfig { _pactBlockGasLimit = 100_000 }
         test pactConfig gasmodel tname f =
           withDelegateMempool $ \dmpio -> testCaseSteps tname $ \step ->
             withTestBlockDb testVersion $ \bdb -> do
