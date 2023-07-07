@@ -348,6 +348,7 @@ library
         , direct-sqlite >= 2.3.27
         , directory >= 1.3
         , dlist >= 0.8
+        , dyna >= 0.1
         , errors >= 2.3
         , ethereum >= 0.1
         , exceptions >= 0.8
