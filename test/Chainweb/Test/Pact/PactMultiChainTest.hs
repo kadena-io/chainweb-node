@@ -269,7 +269,7 @@ pactLocalDepthTest = do
       LocalRewindLimitExceeded _ _ -> return ()
       err -> liftIO $ assertFailure $ "Expected LocalRewindLimitExceeded, but got " ++ show err)
     (do
-      runLocalWithDepth (Just $ RewindDepth (-5)) cid getSender00Balance >>= \_ ->
+      runLocalWithDepth (Just $ RewindDepth (fromIntegral (-5 :: Int))) cid getSender00Balance >>= \_ ->
         liftIO $ assertFailure "Expected LocalRewindLimitExceeded, but block succeeded")
 
   -- the genesis depth
