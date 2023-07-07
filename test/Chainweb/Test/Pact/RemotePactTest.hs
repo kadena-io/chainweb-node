@@ -234,12 +234,12 @@ pollingConfirmDepth :: IO (Time Micros) -> IO ChainwebNetwork -> TestTree
 pollingConfirmDepth iot nio = testCaseSteps "poll confirmation depth test" $ \step -> do
     cenv <- _getServiceClientEnv <$> nio
 
-    step "/send a transaction"
+    step "/send transactions"
     cmd1 <- firstStep tx
     cmd2 <- firstStep tx'
     rks <- sending cid' cenv (SubmitBatch $ cmd1 NEL.:| [cmd2])
 
-    step "/poll for the transaction until it appears"
+    step "/poll for the transactions until they appear"
 
     beforePolling <- getCurrentBlockHeight v cenv cid'
     PollResponses m <- pollingWithDepth cid' cenv rks (Just $ ConfirmationDepth 10) ExpectPactResult
@@ -252,9 +252,9 @@ pollingConfirmDepth iot nio = testCaseSteps "poll confirmation depth test" $ \st
   where
     cid' = unsafeChainId 0
     tx =
-      "(namespace 'free)(module m G (defcap G () true) (defpact p () (step (yield { \"a\" : (+ 1 1) })) (step (resume { \"a\" := a } a))))(free.m.p)"
+      "42"
     tx' =
-      "(namespace 'free)(module m G (defcap G () true) (defpact p () (step (yield { \"a\" : (+ 1 2) })) (step (resume { \"a\" := a } a))))(free.m.p)"
+      "43"
     firstStep transaction = do
       t <- toTxCreationTime <$> iot
       buildTextCmd
