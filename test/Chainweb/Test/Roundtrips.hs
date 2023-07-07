@@ -1,6 +1,7 @@
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
+{-# OPTIONS_GHC -Wno-orphans #-}
 
 -- |
 -- Module: Chainweb.Test.Roundtrips
@@ -103,8 +104,8 @@ tests = testGroup "roundtrip tests"
 
 encodeDecodeTests :: TestTree
 encodeDecodeTests = testGroup "Encode-Decode roundtrips"
-    [ testProperty "ChainwebVersion"
-        $ prop_encodeDecode decodeChainwebVersion encodeChainwebVersion
+    [ testProperty "ChainwebVersionCode"
+        $ prop_encodeDecode decodeChainwebVersionCode encodeChainwebVersionCode
     , testProperty "ChainId"
         $ prop_encodeDecode decodeChainId encodeChainId
     , testProperty "MerkleLogHash"
@@ -230,6 +231,9 @@ pactJsonTestCases f =
         ]
     ]
 
+instance Arbitrary MockTx where
+    arbitrary = MockTx <$> arbitrary <*> arbitrary <*> arbitrary <*> arbitrary
+
 jsonTestCases
     :: (forall a . Arbitrary a => Show a => ToJSON a => FromJSON a => Eq a => a -> Property)
     -> [TestTree]
@@ -239,7 +243,7 @@ jsonTestCases f =
     , testProperty "Seconds" $ f @Seconds
     , testProperty "Micros" $ f @Micros
     , testProperty "ChainId" $ f @ChainId
-    , testProperty "ChainwebVersion" $ f @ChainwebVersion
+    , testProperty "ChainwebVersionName" $ f @ChainwebVersionName
     , testProperty "Nonce" $ f @Nonce
     , testProperty "HashDifficulty" $ f @HashDifficulty
     , testProperty "HashTarget" $ f @HashTarget
@@ -457,8 +461,7 @@ base64RoundtripTests = testGroup "Base64 encoding roundtrips"
 
 hasTextRepresentationTests :: TestTree
 hasTextRepresentationTests = testGroup "HasTextRepresentation roundtrips"
-    [ testProperty "ChainwebVersion" $ prop_iso' @_ @ChainwebVersion fromText toText
-    , testProperty "ChainwebVersion" $ prop_iso' @_ @ChainwebVersion eitherFromText toText
+    [ testProperty "ChainwebVersionName" $ prop_iso' @_ @ChainwebVersionName eitherFromText toText
     , testProperty "ChainId" $ prop_iso' @_ @ChainId fromText toText
     , testProperty "BlockHash" $ prop_iso' @_ @BlockHash fromText toText
     , testProperty "Seconds" $ prop_iso' @_ @Seconds fromText toText

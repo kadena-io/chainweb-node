@@ -4,11 +4,8 @@
 {-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE OverloadedStrings #-}
 module Chainweb.Test.RestAPI.Utils
-( -- * Retry Policies
-  testRetryPolicy
-
   -- * Debugging
-, debug
+( debug
 
   -- * Utils
 , repeatUntil
@@ -22,6 +19,8 @@ module Chainweb.Test.RestAPI.Utils
 , ethSpv
 , sending
 , polling
+, pollingWithDepth
+, getCurrentBlockHeight
 
   -- * Rosetta client DSL
 , RosettaTestException(..)
@@ -51,6 +50,8 @@ import Control.Retry
 import Data.Either
 import Data.Foldable (toList)
 import Data.Text (Text)
+import Data.Maybe (fromJust)
+import qualified Data.HashMap.Strict as HM
 import qualified Data.Text as T
 
 import Rosetta
@@ -62,12 +63,16 @@ import Servant.Client
 import Chainweb.BlockHeight
 import Chainweb.ChainId
 import Chainweb.Graph
+import Chainweb.Cut.CutHashes (_cutHashes, _bhwhHeight)
+import Chainweb.CutDB.RestAPI.Client
 import Chainweb.Pact.RestAPI.Client
 import Chainweb.Pact.RestAPI.EthSpv
 import Chainweb.Pact.Service.Types
 import Chainweb.Rosetta.RestAPI.Client
 import Chainweb.Utils
 import Chainweb.Version
+import Chainweb.Test.TestVersions
+import Chainweb.Test.Utils
 
 -- internal pact modules
 
@@ -86,18 +91,7 @@ debug = const $ return ()
 #endif
 
 v :: ChainwebVersion
-v = FastTimedCPM petersonChainGraph
-
--- | Backoff up to a constant 250ms, limiting to ~40s
--- (actually saw a test have to wait > 22s)
-testRetryPolicy :: RetryPolicy
-testRetryPolicy = stepped <> limitRetries 150
-  where
-    stepped = retryPolicy $ \rs -> case rsIterNumber rs of
-      0 -> Just 20_000
-      1 -> Just 50_000
-      2 -> Just 100_000
-      _ -> Just 250_000
+v = fastForkingCpmTestVersion petersonChainGraph
 
 -- ------------------------------------------------------------------ --
 -- Pact api client utils w/ retry
@@ -108,7 +102,7 @@ data PactTestFailure
     | SendFailure String
     | LocalFailure String
     | SpvFailure String
-    | SlowChain String
+    | GetBlockHeightFailure String
     deriving Show
 
 instance Exception PactTestFailure
@@ -128,7 +122,7 @@ localWithQueryParams
     -> ClientEnv
     -> Maybe LocalPreflightSimulation
     -> Maybe LocalSignatureVerification
-    -> Maybe BlockHeight
+    -> Maybe RewindDepth
     -> Command Text
     -> IO LocalResult
 localWithQueryParams sid cenv pf sv rd cmd =
@@ -250,7 +244,16 @@ polling
     -> RequestKeys
     -> PollingExpectation
     -> IO PollResponses
-polling sid cenv rks pollingExpectation =
+polling sid cenv rks pollingExpectation = pollingWithDepth sid cenv rks Nothing pollingExpectation
+
+pollingWithDepth
+    :: ChainId
+    -> ClientEnv
+    -> RequestKeys
+    -> Maybe ConfirmationDepth
+    -> PollingExpectation
+    -> IO PollResponses
+pollingWithDepth sid cenv rks confirmationDepth pollingExpectation =
     recovering testRetryPolicy [h] $ \s -> do
       debug
         $ "polling for requestkeys " <> show (toList rs)
@@ -260,7 +263,7 @@ polling sid cenv rks pollingExpectation =
       -- by making sure results are successful and request keys
       -- are sane
 
-      runClientM (pactPollApiClient v sid $ Poll rs) cenv >>= \case
+      runClientM (pactPollWithQueryApiClient v sid confirmationDepth $ Poll rs) cenv >>= \case
         Left e -> throwM $ PollingFailure (show e)
         Right r@(PollResponses mp) ->
           if all (go mp) (toList rs)
@@ -281,6 +284,11 @@ polling sid cenv rks pollingExpectation =
       Just cr ->  _crReqKey cr == rk && validate (_crResult cr)
       Nothing -> False
 
+getCurrentBlockHeight :: ChainwebVersion -> ClientEnv -> ChainId -> IO BlockHeight
+getCurrentBlockHeight сv cenv cid =
+  runClientM (cutGetClient сv) cenv >>= \case
+    Left e -> throwM $ GetBlockHeightFailure $ "Failed to get cuts: " ++ show e
+    Right cuts -> return $ fromJust $ _bhwhHeight <$> HM.lookup cid (_cutHashes cuts)
 
 -- ------------------------------------------------------------------ --
 -- Rosetta api client utils w/ retry

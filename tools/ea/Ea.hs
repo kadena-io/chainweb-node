@@ -28,7 +28,7 @@
 module Ea
   ( main ) where
 
-import Control.Lens (set)
+import Control.Lens
 
 import Data.Foldable
 import Data.Functor
@@ -62,7 +62,7 @@ import Chainweb.Time
 import Chainweb.Transaction
     (ChainwebTransaction, chainwebPayloadCodec, mkPayloadWithTextOld)
 import Chainweb.Utils
-import Chainweb.Version (ChainwebVersion(..))
+import Chainweb.Version
 import Chainweb.Version.Utils (someChainId)
 
 import Ea.Genesis
@@ -188,7 +188,7 @@ genPayloadModule' v tag cwTxs =
         pdb <- newPayloadDb
         withSystemTempDirectory "ea-pact-db" $ \pactDbDir -> do
             T2 payloadWO _ <- withSqliteDb cid logger pactDbDir False $ \env ->
-                runPactService' v cid logger bhdb pdb env defaultPactServiceConfig $
+                withPactService v cid logger bhdb pdb env defaultPactServiceConfig $
                     execNewGenesisBlock noMiner (V.fromList cwTxs)
             TL.writeFile
                 path
@@ -317,7 +317,7 @@ genTxModule tag txFiles = do
 
   let encTxs = map quoteTx cwTxs
       quoteTx tx = "    \"" <> encTx tx <> "\""
-      encTx = encodeB64UrlNoPaddingText . codecEncode (chainwebPayloadCodec Nothing)
+      encTx = encodeB64UrlNoPaddingText . codecEncode (chainwebPayloadCodec maxBound)
       modl = T.unlines $ startTxModule tag <> [T.intercalate "\n    ,\n" encTxs] <> endTxModule
       fileName = "src/Chainweb/Pact/Transactions/" <> tag <> "Transactions.hs"
 
@@ -332,15 +332,16 @@ startTxModule tag =
     , "module Chainweb.Pact.Transactions." <> tag <> "Transactions ( transactions ) where"
     , ""
     , "import Data.Bifunctor (first)"
+    , "import System.IO.Unsafe"
     , ""
     , "import Chainweb.Transaction"
     , "import Chainweb.Utils"
     , ""
-    , "transactions :: IO [ChainwebTransaction]"
+    , "transactions :: [ChainwebTransaction]"
     , "transactions ="
     , "  let decodeTx t ="
-    , "        fromEitherM . (first (userError . show)) . codecDecode (chainwebPayloadCodec Nothing) =<< decodeB64UrlNoPaddingText t"
-    , "  in mapM decodeTx ["
+    , "        fromEitherM . (first (userError . show)) . codecDecode (chainwebPayloadCodec maxBound) =<< decodeB64UrlNoPaddingText t"
+    , "  in unsafePerformIO $ mapM decodeTx ["
     ]
 
 endTxModule :: [Text]

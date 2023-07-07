@@ -52,8 +52,7 @@ import Pact.JSON.Yaml
 
 import Chainweb.BlockCreationTime
 import Chainweb.BlockHeader
-import Chainweb.BlockHeader.Genesis
-import Chainweb.ChainId
+import Chainweb.Graph
 import Chainweb.Mempool.Mempool
 import Chainweb.Miner.Pact
 import Chainweb.Pact.Backend.Types
@@ -62,10 +61,12 @@ import Chainweb.Pact.Service.PactQueue (PactQueue)
 import Chainweb.Pact.Service.Types
 import Chainweb.Pact.PactService.ExecBlock
 import Chainweb.Pact.Types
+import Chainweb.Pact.Utils (emptyPayload)
 import Chainweb.Payload
 import Chainweb.Test.Cut.TestBlockDb
 import Chainweb.Test.Pact.Utils
 import Chainweb.Test.Utils
+import Chainweb.Test.TestVersions
 import Chainweb.Time
 import Chainweb.Utils
 import Chainweb.Version
@@ -74,7 +75,7 @@ import Chainweb.Version.Utils
 import Chainweb.Storage.Table.RocksDB
 
 testVersion :: ChainwebVersion
-testVersion = FastTimedCPM peterson
+testVersion = slowForkingCpmTestVersion petersonChainGraph
 
 cid :: ChainId
 cid = someChainId testVersion

@@ -25,7 +25,6 @@ import GHC.Stack
 
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
-import Chainweb.BlockHeader.Genesis (emptyPayload)
 import Chainweb.BlockHeight
 import Chainweb.ChainId
 import Chainweb.Mempool.Mempool (InsertError)
@@ -33,6 +32,7 @@ import Chainweb.Miner.Pact
 import Chainweb.Pact.Service.BlockValidation
 import Chainweb.Pact.Service.PactQueue
 import Chainweb.Pact.Service.Types
+import Chainweb.Pact.Utils
 import Chainweb.Payload
 import Chainweb.Transaction
 import Chainweb.Utils (T2)
@@ -63,7 +63,7 @@ data PactExecutionService = PactExecutionService
     , _pactLocal :: !(
         Maybe LocalPreflightSimulation ->
         Maybe LocalSignatureVerification ->
-        Maybe BlockHeight ->
+        Maybe RewindDepth ->
         ChainwebTransaction ->
         IO (Either PactException LocalResult))
       -- ^ Directly execute a single transaction in "local" mode (all DB interactions rolled back).
@@ -71,9 +71,11 @@ data PactExecutionService = PactExecutionService
     , _pactLookup :: !(
         Rewind
         -- restore point, either a block header or the current "head" of the pact service.
+        -> Maybe ConfirmationDepth
+        -- confirmation depth
         -> Vector PactHash
         -- txs to lookup
-        -> IO (Either PactException (Vector (Maybe (T2 BlockHeight BlockHash))))
+        -> IO (Either PactException (HM.HashMap PactHash (T2 BlockHeight BlockHash)))
         )
       -- ^ Lookup pact hashes as of a block header to detect duplicates
     , _pactPreInsertCheck :: !(
@@ -131,7 +133,7 @@ mkWebPactExecutionService hm = WebPactExecutionService $ PactExecutionService
     { _pactValidateBlock = \h pd -> withChainService (_chainId h) $ \p -> _pactValidateBlock p h pd
     , _pactNewBlock = \m h -> withChainService (_chainId h) $ \p -> _pactNewBlock p m h
     , _pactLocal = \_pf _sv _rd _ct -> throwM $ userError "Chainweb.WebPactExecutionService.mkPactExecutionService: No web-level local execution supported"
-    , _pactLookup = \h txs -> withChainService (_chainId h) $ \p -> _pactLookup p h txs
+    , _pactLookup = \h cd txs -> withChainService (_chainId h) $ \p -> _pactLookup p h cd txs
     , _pactPreInsertCheck = \cid txs -> withChainService cid $ \p -> _pactPreInsertCheck p cid txs
     , _pactBlockTxHistory = \h d -> withChainService (_chainId h) $ \p -> _pactBlockTxHistory p h d
     , _pactHistoricalLookup = \h d k -> withChainService (_chainId h) $ \p -> _pactHistoricalLookup p h d k
@@ -160,8 +162,8 @@ mkPactExecutionService q = PactExecutionService
         either throwM evaluate r
     , _pactLocal = \pf sv rd ct ->
         local pf sv rd ct q >>= takeMVar
-    , _pactLookup = \h txs ->
-        lookupPactTxs h txs q >>= takeMVar
+    , _pactLookup = \h cd txs ->
+        lookupPactTxs h cd txs q >>= takeMVar
     , _pactPreInsertCheck = \_ txs ->
         pactPreInsertCheck txs q >>= takeMVar
     , _pactBlockTxHistory = \h d ->
@@ -181,7 +183,7 @@ emptyPactExecutionService = PactExecutionService
     { _pactValidateBlock = \_ _ -> pure emptyPayload
     , _pactNewBlock = \_ _ -> pure emptyPayload
     , _pactLocal = \_ _ _ _ -> throwM (userError "emptyPactExecutionService: attempted `local` call")
-    , _pactLookup = \_ v -> return $! Right $! V.map (const Nothing) v
+    , _pactLookup = \_ _ _ -> return $! Right $! HM.empty
     , _pactPreInsertCheck = \_ txs -> return $ Right $ V.map (const (Right ())) txs
     , _pactBlockTxHistory = \_ _ -> throwM (userError "Chainweb.WebPactExecutionService.emptyPactExecutionService: pactBlockTxHistory unsupported")
     , _pactHistoricalLookup = \_ _ _ -> throwM (userError "Chainweb.WebPactExecutionService.emptyPactExecutionService: pactHistoryLookup unsupported")

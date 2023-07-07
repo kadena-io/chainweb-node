@@ -42,6 +42,7 @@ import Test.Tasty.HUnit
 
 -- internal imports
 import Chainweb.BlockHash
+import Chainweb.BlockHeader
 import Chainweb.BlockHeight (BlockHeight(..))
 import Chainweb.MerkleLogHash (merkleLogHash)
 import Chainweb.MerkleUniverse
@@ -54,6 +55,7 @@ import Chainweb.Pact.TransactionExec
 import Chainweb.Pact.Types
 import Chainweb.Test.Pact.Utils
 import Chainweb.Test.Utils
+import Chainweb.Test.TestVersions
 import Chainweb.Utils (catchAllSynchronous)
 import Chainweb.Version
 
@@ -551,7 +553,7 @@ runRegression pactdb e schemaInit = do
 -- Chainweb Settings
 
 testVer :: ChainwebVersion
-testVer = FastTimedCPM peterson
+testVer = slowForkingCpmTestVersion peterson
 
 testChainId :: ChainId
 testChainId = unsafeChainId 0
@@ -612,7 +614,7 @@ runSQLite' runTest sqlEnvIO = runTest $ do
 
 runExec :: CheckpointEnv -> PactDbEnv'-> Maybe Value -> Text -> IO EvalResult
 runExec cp (PactDbEnv' pactdbenv) eData eCode = do
-    execMsg <- buildExecParsedCode Nothing {- use latest parser version -} eData eCode
+    execMsg <- buildExecParsedCode maxBound {- use latest parser version -} eData eCode
     evalTransactionM cmdenv cmdst $
       applyExec' 0 defaultInterpreter execMsg [] h' permissiveNamespacePolicy
   where

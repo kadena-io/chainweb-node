@@ -32,6 +32,8 @@ module Chainweb.Pact.RestAPI
 , pactPollApi
 , PactLocalWithQueryApi
 , pactLocalWithQueryApi
+, PactPollWithQueryApi
+, pactPollWithQueryApi
 -- * Pact Spv Api
 , PactSpvApi
 , pactSpvApi
@@ -58,13 +60,13 @@ import Data.Text (Text)
 
 import qualified Pact.Types.Command as Pact
 import Pact.Server.API as API
+import Pact.Types.API (Poll, PollResponses)
 import Pact.Utils.Servant
 
 import Servant
 
 -- internal modules
 
-import Chainweb.BlockHeight
 import Chainweb.ChainId
 import Chainweb.Pact.RestAPI.EthSpv
 import Chainweb.Pact.RestAPI.SPV
@@ -82,7 +84,7 @@ type PactApi_
     :> "api"
     :> "v1"
     :> ( ApiSend
-       :<|> ApiPoll
+       :<|> PactPollWithQueryApi_
        :<|> ApiListen
        :<|> PactLocalWithQueryApi_
        )
@@ -138,7 +140,7 @@ type PactLocalWithQueryApi_
     = "local"
     :> QueryParam "preflight" LocalPreflightSimulation
     :> QueryParam "signatureVerification" LocalSignatureVerification
-    :> QueryParam "rewindDepth" BlockHeight
+    :> QueryParam "rewindDepth" RewindDepth
     :> ReqBody '[PactJson] (Pact.Command Text)
     :> Post '[PactJson] LocalResult
 
@@ -148,6 +150,22 @@ pactLocalWithQueryApi
   :: forall (v :: ChainwebVersionT) (c :: ChainIdT)
   . Proxy (PactLocalWithQueryApi v c)
 pactLocalWithQueryApi = Proxy
+
+-- -------------------------------------------------------------------------- --
+-- POST Queries for Pact Poll
+
+type PactPollWithQueryApi_
+    = "poll"
+    :> QueryParam "confirmationDepth" ConfirmationDepth
+    :> ReqBody '[JSON] Poll
+    :> Post '[JSON] PollResponses
+
+type PactPollWithQueryApi v c = PactV1ApiEndpoint v c PactPollWithQueryApi_
+
+pactPollWithQueryApi
+  :: forall (v :: ChainwebVersionT) (c :: ChainIdT)
+  . Proxy (PactPollWithQueryApi v c)
+pactPollWithQueryApi = Proxy
 
 -- -------------------------------------------------------------------------- --
 -- POST Pact Spv Transaction Proof

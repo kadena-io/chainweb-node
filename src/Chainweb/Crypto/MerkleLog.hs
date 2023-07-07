@@ -211,9 +211,6 @@ expectedTreeNodeException = MerkleLogWrongNodeTypeException
 -- -------------------------------------------------------------------------- --
 -- Internal Utils
 
-uncurry3 :: (t1 -> t2 -> t3 -> t4) -> (t1, t2, t3) -> t4
-uncurry3 f (a,b,c) = f a b c
-
 fromWordBE :: forall w b . BA.ByteArray b => ByteSwap w => w -> b
 fromWordBE w = BA.allocAndFreeze (sizeOf (undefined :: w)) $ \ptr -> poke ptr (BA.toBE w)
 

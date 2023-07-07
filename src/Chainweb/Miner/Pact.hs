@@ -58,7 +58,7 @@ import Data.Word
 -- internal modules
 
 import Chainweb.BlockHeight (BlockHeight(..))
-import Chainweb.Payload (MinerData(..))
+import Chainweb.Payload
 import Chainweb.Utils
 
 import qualified Pact.JSON.Encode as J

@@ -138,11 +138,16 @@ import Chainweb.SPV.OutputProof
 import Chainweb.SPV.PayloadProof
 import Chainweb.Test.Orphans.Pact
 import Chainweb.Test.Orphans.Time ()
+import Chainweb.Test.TestVersions
 import Chainweb.Time
 import Chainweb.Utils
 import Chainweb.Utils.Paging
 import Chainweb.Utils.Serialization
 import Chainweb.Version
+import Chainweb.Version.Development
+import Chainweb.Version.Mainnet
+import Chainweb.Version.Registry
+import Chainweb.Version.Testnet
 import Chainweb.Version.Utils
 
 import Data.Singletons
@@ -176,26 +181,24 @@ instance Arbitrary Utf8Encoded where
 -- -------------------------------------------------------------------------- --
 -- Basics
 
--- FIXME: This doesn't throw pattern-match warnings when a new `ChainwebVersion`
--- constructor is invented!
 instance Arbitrary ChainwebVersion where
     arbitrary = elements
-        [ Test singletonChainGraph
-        , Test petersonChainGraph
-        , TimedConsensus singletonChainGraph singletonChainGraph
-        , TimedConsensus petersonChainGraph petersonChainGraph
-        , TimedConsensus singletonChainGraph pairChainGraph
-        , TimedConsensus petersonChainGraph twentyChainGraph
-        , PowConsensus singletonChainGraph
-        , PowConsensus petersonChainGraph
-        , TimedCPM singletonChainGraph
-        , TimedCPM petersonChainGraph
-        , FastTimedCPM singletonChainGraph
-        , FastTimedCPM petersonChainGraph
+        [ barebonesTestVersion singletonChainGraph
+        , barebonesTestVersion petersonChainGraph
+        , timedConsensusVersion singletonChainGraph singletonChainGraph
+        , timedConsensusVersion petersonChainGraph petersonChainGraph
+        , timedConsensusVersion singletonChainGraph pairChainGraph
+        , timedConsensusVersion petersonChainGraph twentyChainGraph
         , Development
         , Testnet04
         , Mainnet01
         ]
+
+instance Arbitrary ChainwebVersionName where
+    arbitrary = _versionName <$> arbitrary
+
+instance Arbitrary ChainwebVersionCode where
+    arbitrary = _versionCode <$> arbitrary
 
 instance MerkleHashAlgorithm a => Arbitrary (MerkleLogHash a) where
     arbitrary = unsafeMerkleLogHash . B.pack
@@ -204,7 +207,7 @@ instance MerkleHashAlgorithm a => Arbitrary (MerkleLogHash a) where
 -- A somewhat boring instance. Mostly the default value.
 --
 instance Arbitrary ChainwebConfiguration where
-    arbitrary = defaultChainwebConfiguration <$> arbitrary
+    arbitrary = defaultChainwebConfiguration <$> elements knownVersions
 
 -- -------------------------------------------------------------------------- --
 -- POW
@@ -282,11 +285,12 @@ instance Arbitrary NodeInfo where
             curGraph = head $ dropWhile (\(h,_) -> h > curHeight) graphs
             curChains = map fst $ snd curGraph
         return $ NodeInfo
-            { nodeVersion = v
+            { nodeVersion = _versionName v
             , nodeApiVersion = prettyApiVersion
             , nodeChains = T.pack . show <$> curChains
             , nodeNumberOfChains = length curChains
             , nodeGraphHistory = graphs
+            , nodeLatestBehaviorHeight = latestBehaviorAt v
             }
 
 -- -------------------------------------------------------------------------- --
@@ -371,7 +375,7 @@ arbitraryBlockHeaderVersionHeightChain v h cid
         $ liftA2 (:+:) (pure cid) -- chain id
         $ liftA2 (:+:) arbitrary -- weight
         $ liftA2 (:+:) (pure h) -- height
-        $ liftA2 (:+:) (pure v) -- version
+        $ liftA2 (:+:) (pure (_versionCode v)) -- version
         $ liftA2 (:+:) (EpochStartTime <$> chooseEnum (toEnum 0, t)) -- epoch start
         $ liftA2 (:+:) (Nonce <$> chooseAny) -- nonce
         $ fmap (MerkleLogBody . blockHashRecordToVector)
@@ -937,9 +941,6 @@ instance Arbitrary PendingTransactions where
 
 instance Arbitrary TransactionMetadata where
     arbitrary = TransactionMetadata <$> arbitrary <*> arbitrary
-
-instance Arbitrary MockTx where
-    arbitrary = MockTx <$> arbitrary <*> arbitrary <*> arbitrary <*> arbitrary
 
 instance Arbitrary t => Arbitrary (ValidatedTransaction t) where
     arbitrary = ValidatedTransaction <$> arbitrary <*> arbitrary <*> arbitrary

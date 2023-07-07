@@ -72,7 +72,6 @@ import Pact.Types.Util hiding (unwrap)
 
 import Chainweb.BlockCreationTime
 import Chainweb.BlockHeader
-import Chainweb.BlockHeader.Genesis
 import Chainweb.BlockHeaderDB
 import Chainweb.BlockHeaderDB.Internal
 import Chainweb.ChainId
@@ -90,6 +89,7 @@ import Chainweb.Pact.Utils (toTxCreationTime)
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
 import Chainweb.Payload.PayloadStore.InMemory
+import Chainweb.Test.TestVersions
 import Chainweb.Time
 import Chainweb.Transaction
 import Chainweb.Utils
@@ -380,7 +380,7 @@ cid :: ChainId
 cid = someChainId testVer
 
 testVer :: ChainwebVersion
-testVer = FastTimedCPM petersonChainGraph
+testVer = slowForkingCpmTestVersion petersonChainGraph
 
 assertNotLeft :: (MonadThrow m, Exception e) => Either e a -> m a
 assertNotLeft (Left l) = throwM l
@@ -551,14 +551,20 @@ createCoinContractRequest v meta ks request =
               object
                 [ "create-account-guard" .= fmap (formatB16PubKey . fst) guardd
                 ]
-        mkExec (T.pack theCode) theData meta (NEL.toList ks) (Just $ Pact.NetworkId $ toText v) Nothing
+        mkExec (T.pack theCode) theData meta
+          (NEL.toList ks)
+          (Just $ Pact.NetworkId $ toText $ _versionName v)
+          Nothing
       CoinAccountBalance (Account account) -> do
         let theData = Null
             theCode =
               printf
               "(coin.get-balance \"%s\")"
               account
-        mkExec (T.pack theCode) theData meta (NEL.toList ks) (Just $ Pact.NetworkId $ toText v) Nothing
+        mkExec (T.pack theCode) theData meta
+          (NEL.toList ks)
+          (Just $ Pact.NetworkId $ toText $ _versionName v)
+          Nothing
       CoinTransferAndCreate (SenderName (Account sn)) (ReceiverName (Account rn)) (Guard guardd) (Amount amount) -> do
         let theCode =
               printf
@@ -571,7 +577,10 @@ createCoinContractRequest v meta ks request =
               object
                 [ "receiver-guard" .= fmap (formatB16PubKey . fst) guardd
                 ]
-        mkExec (T.pack theCode) theData meta (NEL.toList ks) (Just $ Pact.NetworkId $ toText v) Nothing
+        mkExec (T.pack theCode) theData meta
+          (NEL.toList ks)
+          (Just $ Pact.NetworkId $ toText $ _versionName v)
+          Nothing
 
       CoinTransfer (SenderName (Account sn)) (ReceiverName (Account rn)) (Amount amount) -> do
         let theCode =
@@ -582,7 +591,10 @@ createCoinContractRequest v meta ks request =
               -- Super janky, but gets the job done for now
               (fromRational @Double $ toRational amount)
             theData = object []
-        mkExec (T.pack theCode) theData meta (NEL.toList ks) (Just $ Pact.NetworkId $ toText v) Nothing
+        mkExec (T.pack theCode) theData meta
+          (NEL.toList ks)
+          (Just $ Pact.NetworkId $ toText $ _versionName v)
+          Nothing
 
 makeMetaWithSender :: String -> ChainId -> IO PublicMeta
 makeMetaWithSender sender c =

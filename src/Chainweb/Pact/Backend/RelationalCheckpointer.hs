@@ -27,7 +27,7 @@ import Control.Monad.Catch
 import Control.Monad.IO.Class
 import Control.Monad.State (gets)
 
-import Data.ByteString (ByteString)
+import Data.ByteString (ByteString, intercalate)
 import qualified Data.ByteString.Short as BS
 import qualified Data.DList as DL
 import Data.Foldable (toList,foldl')
@@ -70,6 +70,7 @@ import Chainweb.Pact.Service.Types
 import Chainweb.Utils
 import Chainweb.Utils.Serialization
 import Chainweb.Version
+import Chainweb.Version.Guards
 
 initRelationalCheckpointer
     :: BlockState
@@ -152,9 +153,9 @@ doRestore v cid dbenv (Just (bh, hash)) = runBlockEnv dbenv $ do
     return $! PactDbEnv' $! PactDbEnv chainwebPactDb dbenv
   where
     -- Module name fix follows the restore call to checkpointer.
-    setModuleNameFix = bsModuleNameFix .= enableModuleNameFix v bh
-    setSortedKeys = bsSortedKeys .= pact420Upgrade v bh
-    setLowerCaseTables = bsLowerCaseTables .= chainweb217Pact After v bh
+    setModuleNameFix = bsModuleNameFix .= enableModuleNameFix v cid bh
+    setSortedKeys = bsSortedKeys .= pact420 v cid bh
+    setLowerCaseTables = bsLowerCaseTables .= chainweb217Pact v cid bh
 doRestore _ _ dbenv Nothing = runBlockEnv dbenv $ do
     clearPendingTxState
     withSavepoint DbTransaction $
@@ -295,19 +296,39 @@ doRegisterSuccessful :: Db -> PactHash -> IO ()
 doRegisterSuccessful dbenv (TypedHash hash) =
     runBlockEnv dbenv (indexPactTransaction $ BS.fromShort hash)
 
+doLookupSuccessful :: Db -> Maybe ConfirmationDepth -> V.Vector PactHash -> IO (HashMap.HashMap PactHash (T2 BlockHeight BlockHash))
+doLookupSuccessful dbenv confDepth hashes = runBlockEnv dbenv $ do
+    withSavepoint DbTransaction $ do
+      r <- callDb "doLookupSuccessful" $ \db -> do
+        let
+          currentHeightQ = "SELECT blockheight FROM BlockHistory \
+              \ ORDER BY blockheight DESC LIMIT 1"
 
-doLookupSuccessful :: Db -> PactHash -> IO (Maybe (T2 BlockHeight BlockHash))
-doLookupSuccessful dbenv (TypedHash hash) = runBlockEnv dbenv $ do
-    r <- callDb "doLookupSuccessful" $ \db ->
-         qry db qtext [ SBlob (BS.fromShort hash) ] [RInt, RBlob] >>= mapM go
-    case r of
-        [] -> return Nothing
-        (!o:_) -> return (Just o)
+        -- if there is a confirmation depth, we get the current height and calculate
+        -- the block height, to look for the transactions in range [0, current block height - confirmation depth]
+        blockheight <- case confDepth of
+          Nothing -> pure Nothing
+          Just (ConfirmationDepth cd) -> do
+            currentHeight <- qry_ db currentHeightQ [RInt]
+            case currentHeight of
+              [[SInt bh]] -> pure $ Just (bh - fromIntegral cd)
+              _ -> fail "impossible"
+
+        let
+          blockheightval = maybe [] (\bh -> [SInt bh]) blockheight
+          qvals = [ SBlob (BS.fromShort hash) | (TypedHash hash) <- V.toList hashes ] ++ blockheightval
+
+        qry db qtext qvals [RInt, RBlob] >>= mapM go
+      return $ HashMap.fromList (zip (V.toList hashes) r)
   where
     qtext = "SELECT blockheight, hash FROM \
             \TransactionIndex INNER JOIN BlockHistory \
-            \USING (blockheight) WHERE txhash = ?;"
-    go [SInt h, SBlob blob] = do
+            \USING (blockheight) WHERE txhash IN (" <> hashesParams <> ")"
+            <> maybe "" (const " AND blockheight <= ?") confDepth
+            <> ";"
+    hashesParams = Utf8 $ intercalate "," [ "?" | _ <- V.toList hashes]
+
+    go ((SInt h):(SBlob blob):_) = do
         !hsh <- either fail return $ runGetEitherS decodeBlockHash blob
         return $! T2 (fromIntegral h) hsh
     go _ = fail "impossible"
@@ -325,7 +346,7 @@ doGetBlockHistory dbenv blockHeader d = runBlockEnv dbenv $ do
     !prev <- M.fromList . catMaybes <$> mapM (queryPrev db tname startTxId) (S.toList hkeys)
     return $ BlockTxHistory tmap prev
   where
-    v = _blockChainwebVersion blockHeader
+    v = _chainwebVersion blockHeader
     cid = _blockChainId blockHeader
     bHeight = _blockHeight blockHeader
 

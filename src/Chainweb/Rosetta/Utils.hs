@@ -21,7 +21,7 @@ import Data.Foldable (foldl')
 import Data.Decimal ( Decimal, DecimalRaw(Decimal) )
 import Data.Hashable (Hashable(..))
 import Data.List (sortOn, inits)
-import Data.Word (Word64)
+import Data.Word (Word32, Word64)
 import Text.Read (readMaybe)
 import Text.Printf ( printf )
 
@@ -55,8 +55,9 @@ import Rosetta
 
 import Chainweb.BlockCreationTime (BlockCreationTime(..))
 import Chainweb.BlockHash ( blockHashToText )
-import Chainweb.BlockHeader (BlockHeader(..))
+import Chainweb.BlockHeader
 import Chainweb.BlockHeight (BlockHeight(..))
+import Chainweb.ChainId
 import Chainweb.Pact.Utils
 import Chainweb.Time
 import Chainweb.Utils ( sshow, int, T2(..) )
@@ -435,7 +436,7 @@ getSuggestedFee tx someMaxFees someMult = do
     -- - https://explorer.chainweb.com/mainnet/txdetail/EUiZfeHHeisKMP2uHpzyAcMOIqZJVsJB6sT_ABpBUsQ
     -- - https://explorer.chainweb.com/mainnet/txdetail/-cb0Pz6rKb1NVhAFQ_Bcz2V2dGPjTmIiVBl-gXMLGRQ
     -- - https://explorer.chainweb.com/mainnet/txdetail/2riuW2nBmbN2dzmyAh5b2lUns5SPARb44-QN_EKzzmk
-    defGasUnitsTransferCreate = 1000
+    defGasUnitsTransferCreate = 4000
 
     -- See Chainweb.Chainweb.Configuration for latest min gas
     minGasPrice = Decimal 8 1
@@ -702,7 +703,7 @@ createUnsignedCmd v meta = do
     PayloadsMetaData signers nonce pubMeta txInfo = meta
     signerAccts = map snd signers
     pactSigners = map fst signers
-    networkId = Just $ P.NetworkId $! chainwebVersionToText v
+    networkId = Just $! P.NetworkId $! getChainwebVersionName $ _versionName v
     pactRPC = constructionTxToPactRPC txInfo
 
 
@@ -852,15 +853,15 @@ parentBlockId bh
   where
     bHeight = _blockHeight bh
     cid = _blockChainId bh
-    v = _blockChainwebVersion bh
+    v = _chainwebVersion bh
     parent = BlockId
-      { _blockId_index = _height (pred $ _blockHeight bh)
+      { _blockId_index = getBlockHeight (pred $ _blockHeight bh)
       , _blockId_hash = blockHashToText (_blockParent bh)
       }
 
 blockId :: BlockHeader -> BlockId
 blockId bh = BlockId
-  { _blockId_index = _height (_blockHeight bh)
+  { _blockId_index = getBlockHeight (_blockHeight bh)
   , _blockId_hash = blockHashToText (_blockHash bh)
   }
 
@@ -1206,7 +1207,7 @@ extractMetaData = toRosettaError RosettaUnparsableMetaData
 --
 readChainIdText :: ChainwebVersion -> T.Text -> Maybe ChainId
 readChainIdText v c = do
-  cid <- readMaybe @Word (T.unpack c)
+  cid <- readMaybe @Word32 (T.unpack c)
   mkChainId v maxBound cid
 
 -- TODO: document

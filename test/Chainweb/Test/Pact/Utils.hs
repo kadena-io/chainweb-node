@@ -174,10 +174,10 @@ import Pact.Types.Util (parseB16TextOnly)
 
 import Chainweb.BlockCreationTime
 import Chainweb.BlockHeader
-import Chainweb.BlockHeader.Genesis
 import Chainweb.BlockHeaderDB hiding (withBlockHeaderDb)
 import Chainweb.BlockHeight
 import Chainweb.ChainId
+import Chainweb.Graph
 import Chainweb.Logger
 import Chainweb.Miner.Pact
 import Chainweb.Pact.Backend.RelationalCheckpointer
@@ -196,6 +196,7 @@ import Chainweb.Test.Cut
 import Chainweb.Test.Cut.TestBlockDb
 import Chainweb.Test.Utils
 import Chainweb.Test.Utils.BlockHeader
+import Chainweb.Test.TestVersions
 import Chainweb.Time
 import Chainweb.Transaction
 import Chainweb.Utils
@@ -214,6 +215,7 @@ import Chainweb.Storage.Table.RocksDB
 type SimpleKeyPair = (Text,Text)
 
 -- | Legacy; better to use 'CmdSigner'/'CmdBuilder'.
+-- if caps are empty, gas cap is implicit. otherwise it must be included
 testKeyPairs :: SimpleKeyPair -> Maybe [SigCapability] -> IO [SomeKeyPairCaps]
 testKeyPairs skp capsm = do
   kp <- toApiKp $ mkSigner' skp (fromMaybe [] capsm)
@@ -615,7 +617,7 @@ testPactCtxSQLite logBackend v cid bhdb pdb sqlenv conf gasmodel = do
     evalPactServiceM_ ctx (initialPayloadState dummyLogger mempty v cid)
     return (ctx, PactDbEnv' dbSt)
   where
-    initialBlockState = initBlockState defaultModuleCacheLimit $ Version.genesisHeight v cid
+    initialBlockState = initBlockState defaultModuleCacheLimit $ genesisHeight v cid
     loggers = pactTestLogger logBackend False -- toggle verbose pact test logging
     cpLogger = newLogger loggers $ LogName ("Checkpointer" ++ show cid)
     pactServiceEnv cpe rs = PactServiceEnv
@@ -625,8 +627,8 @@ testPactCtxSQLite logBackend v cid bhdb pdb sqlenv conf gasmodel = do
         , _psBlockHeaderDb = bhdb
         , _psGasModel = gasmodel
         , _psMinerRewards = rs
-        , _psReorgLimit = fromIntegral $ _pactReorgLimit conf
-        , _psLocalRewindDepthLimit = fromIntegral $ _pactLocalRewindDepthLimit conf
+        , _psReorgLimit = _pactReorgLimit conf
+        , _psLocalRewindDepthLimit = _pactLocalRewindDepthLimit conf
         , _psOnFatalError = defaultOnFatalError mempty
         , _psVersion = v
         , _psValidateHashesOnReplay = _pactRevalidate conf
@@ -678,8 +680,8 @@ withWebPactExecutionService logBackend v pactConfig bdb mempoolAccess gasmodel a
               evalPactServiceM_ ctx $ execValidateBlock mempoolAccess h d
           , _pactLocal = \pf sv rd cmd ->
               evalPactServiceM_ ctx $ Right <$> execLocal cmd pf sv rd
-          , _pactLookup = \rp hashes ->
-              evalPactServiceM_ ctx $ Right <$> execLookupPactTxs rp hashes
+          , _pactLookup = \rp cd hashes ->
+              evalPactServiceM_ ctx $ Right <$> execLookupPactTxs rp cd hashes
           , _pactPreInsertCheck = \_ txs ->
               evalPactServiceM_ ctx $ (Right . V.map (() <$)) <$> execPreInsertCheckReq txs
           , _pactBlockTxHistory = \h d ->
@@ -863,7 +865,7 @@ dummyLogger :: GenericLogger
 dummyLogger = genericLogger Error (error . T.unpack)
 
 someTestVersion :: ChainwebVersion
-someTestVersion = FastTimedCPM peterson
+someTestVersion = fastForkingCpmTestVersion petersonChainGraph
 
 someTestVersionHeader :: BlockHeader
 someTestVersionHeader = someBlockHeader someTestVersion 10

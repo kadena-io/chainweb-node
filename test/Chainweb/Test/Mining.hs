@@ -43,7 +43,7 @@ import Chainweb.Miner.Config
 import Chainweb.Miner.Coordinator
 import Chainweb.Miner.Pact
 import Chainweb.Test.CutDB hiding (tests)
-import Chainweb.Version
+import Chainweb.Test.TestVersions (barebonesTestVersion)
 
 import Chainweb.Storage.Table.RocksDB
 
@@ -58,7 +58,7 @@ tests rdb = testGroup "Mining"
 -- -------------------------------------------------------------------------- --
 -- Test Mining Coordinator
 
-withTestCoordiantor
+withTestCoordinator
     :: HasCallStack
     => RocksDb
     -> (String -> IO ())
@@ -67,7 +67,7 @@ withTestCoordiantor
         -- set to enabled before the coordinator is initialized.
     -> (forall tbl logger . Logger logger => logger -> MiningCoordination logger tbl -> IO ())
     -> IO ()
-withTestCoordiantor rdb logg maybeConf a = do
+withTestCoordinator rdb logg maybeConf a = do
     var <- newEmptyMVar
     x <- race (takeMVar var) $
         withTestCutDb rdb v id 0 (\_ _ -> return fakePact) (logFunction logger) $ \_ cdb ->
@@ -77,11 +77,11 @@ withTestCoordiantor rdb logg maybeConf a = do
                     a logger coord
                     putMVar var ()
     case x of
-        Left () -> logFunctionText logger Info "withTestCoordiantor: action finished"
-        Right () -> logFunctionText logger Info "withTestCoordiantor: coordinator service stopped"
+        Left () -> logFunctionText logger Info "withTestCoordinator: action finished"
+        Right () -> logFunctionText logger Info "withTestCoordinator: coordinator service stopped"
 
   where
-    v = Test pairChainGraph
+    v = barebonesTestVersion pairChainGraph
     logger = genericLogger Warn (logg . T.unpack)
     conf = fromMaybe defaultMining maybeConf
         & miningCoordination . coordinationEnabled .~ True
@@ -90,7 +90,7 @@ withTestCoordiantor rdb logg maybeConf a = do
 -- Tests
 
 nonEmptyMiningAccount :: HasCallStack => RocksDb -> (String -> IO ()) -> Assertion
-nonEmptyMiningAccount rdb logg = withTestCoordiantor rdb logg Nothing $ \_logger coord -> do
+nonEmptyMiningAccount rdb logg = withTestCoordinator rdb logg Nothing $ \_logger coord -> do
     PrimedWork w <- readTVarIO (_coordPrimedWork coord)
     forM_ (HM.keys w) $ \(MinerId k) ->
         assertBool "miner account name must not be the empty string" (not (T.null k))

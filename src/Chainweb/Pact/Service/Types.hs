@@ -29,10 +29,12 @@ import Control.Monad.Catch
 import Control.Applicative
 
 import Data.Aeson
+import Data.HashMap.Strict (HashMap)
 import Data.Map (Map)
 import qualified Data.List.NonEmpty as NE
 import Data.Text (Text, pack, unpack)
 import Data.Vector (Vector)
+import Data.Word (Word64)
 
 import GHC.Generics
 import Numeric.Natural (Natural)
@@ -54,21 +56,35 @@ import qualified Pact.JSON.Encode as J
 import Chainweb.BlockHash ( BlockHash )
 import Chainweb.BlockHeader
 import Chainweb.BlockHeight
+import Chainweb.ChainId
 import Chainweb.Mempool.Mempool (InsertError(..),TransactionHash)
 import Chainweb.Miner.Pact
 import Chainweb.Pact.Backend.DbCache
 import Chainweb.Payload
 import Chainweb.Transaction
 import Chainweb.Utils (T2)
-import Chainweb.Version
+
+-- | Value that represents a limitation for rewinding.
+newtype RewindLimit = RewindLimit { _rewindLimit :: Word64 }
+  deriving (Eq, Ord)
+  deriving newtype (Show, FromJSON, ToJSON, Enum, Bounded)
+
+-- | Value that represents how far to go backwards while rewinding.
+newtype RewindDepth = RewindDepth { _rewindDepth :: Word64 }
+  deriving (Eq, Ord)
+  deriving newtype (Show, FromJSON, ToJSON, Enum, Bounded)
+
+newtype ConfirmationDepth = ConfirmationDepth { _confirmationDepth :: Word64 }
+  deriving (Eq, Ord)
+  deriving newtype (Show, FromJSON, ToJSON, Enum, Bounded)
 
 -- | Externally-injected PactService properties.
 --
 data PactServiceConfig = PactServiceConfig
-  { _pactReorgLimit :: !Natural
+  { _pactReorgLimit :: !RewindLimit
     -- ^ Maximum allowed reorg depth, implemented as a rewind limit in validate. New block
     -- hardcodes this to 8 currently.
-  , _pactLocalRewindDepthLimit :: !Natural
+  , _pactLocalRewindDepthLimit :: !RewindLimit
     -- ^ Maximum allowed rewind depth in the local command.
   , _pactRevalidate :: !Bool
     -- ^ Re-validate payload hashes during transaction replay
@@ -176,7 +192,7 @@ data PactException
   | PactDuplicateTableError !Text
   | TransactionDecodeFailure !Text
   | RewindLimitExceeded
-      { _rewindExceededLimit :: !Natural
+      { _rewindExceededLimit :: !RewindLimit
           -- ^ Rewind limit
       , _rewindExceededLastHeight :: !BlockHeight
           -- ^ current height
@@ -190,8 +206,8 @@ data PactException
   | MempoolFillFailure !Text
   | BlockGasLimitExceeded !Gas
   | LocalRewindLimitExceeded
-    { _localRewindExceededLimit :: !Natural
-    , _localRewindRequestedDepth :: !BlockHeight }
+    { _localRewindExceededLimit :: !RewindLimit
+    , _localRewindRequestedDepth :: !RewindDepth }
   | LocalRewindGenesisExceeded
   deriving (Eq,Generic)
 
@@ -208,7 +224,7 @@ instance J.Encode PactException where
   build (PactDuplicateTableError msg) = tagged "PactDuplicateTableError" msg
   build (TransactionDecodeFailure msg) = tagged "TransactionDecodeFailure" msg
   build o@(RewindLimitExceeded{}) = tagged "RewindLimitExceeded" $ J.object
-    [ "_rewindExceededLimit" J..= J.Aeson (_rewindExceededLimit o)
+    [ "_rewindExceededLimit" J..= J.Aeson (_rewindLimit $ _rewindExceededLimit o)
     , "_rewindExceededLastHeight" J..= J.Aeson @Int (fromIntegral $ _rewindExceededLastHeight o)
     , "_rewindExceededForkHeight" J..= J.Aeson @Int (fromIntegral $ _rewindExceededForkHeight o)
     , "_rewindExceededTarget" J..= J.encodeWithAeson (_rewindExceededTarget o)
@@ -218,8 +234,8 @@ instance J.Encode PactException where
   build (MempoolFillFailure msg) = tagged "MempoolFillFailure" msg
   build (BlockGasLimitExceeded gas) = tagged "BlockGasLimitExceeded" gas
   build o@(LocalRewindLimitExceeded {}) = tagged "LocalRewindLimitExceeded" $ J.object
-    [ "_localRewindExceededLimit" J..= J.Aeson (_localRewindExceededLimit o)
-    , "_localRewindRequestedDepth" J..= J.Aeson @Int (fromIntegral $ _localRewindRequestedDepth o)
+    [ "_localRewindExceededLimit" J..= J.Aeson (_rewindLimit $ _localRewindExceededLimit o)
+    , "_localRewindRequestedDepth" J..= J.Aeson @Int (fromIntegral $ _rewindDepth $ _localRewindRequestedDepth o)
     ]
   build LocalRewindGenesisExceeded = tagged "LocalRewindGenesisExceeded" J.null
 
@@ -292,7 +308,7 @@ data LocalReq = LocalReq
     { _localRequest :: !ChainwebTransaction
     , _localPreflight :: !(Maybe LocalPreflightSimulation)
     , _localSigVerification :: !(Maybe LocalSignatureVerification)
-    , _localRewindDepth :: !(Maybe BlockHeight)
+    , _localRewindDepth :: !(Maybe RewindDepth)
     , _localResultVar :: !(PactExMVar LocalResult)
     }
 instance Show LocalReq where show LocalReq{..} = show _localRequest
@@ -300,11 +316,12 @@ instance Show LocalReq where show LocalReq{..} = show _localRequest
 data LookupPactTxsReq = LookupPactTxsReq
     { _lookupRestorePoint :: !Rewind
         -- here if the restore point is "Nothing" it means "we don't care"
+    , _lookupConfirmationDepth :: !(Maybe ConfirmationDepth)
     , _lookupKeys :: !(Vector PactHash)
-    , _lookupResultVar :: !(PactExMVar (Vector (Maybe (T2 BlockHeight BlockHash))))
+    , _lookupResultVar :: !(PactExMVar (HashMap PactHash (T2 BlockHeight BlockHash)))
     }
 instance Show LookupPactTxsReq where
-    show (LookupPactTxsReq m _ _) =
+    show (LookupPactTxsReq m _ _ _) =
         "LookupPactTxsReq@" ++ show m
 
 data PreInsertCheckReq = PreInsertCheckReq
