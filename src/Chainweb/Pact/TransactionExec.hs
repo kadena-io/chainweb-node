@@ -258,7 +258,17 @@ applyCmd v logger gasLogger pdbenv miner gasModel txCtx spv cmd initialGas mcach
           fatal $ "tx failure for request key while redeeming gas: " <> sshow e
         Right es -> do
           logs <- use txLogs
-          return $! set crLogs (Just logs) $ over crEvents (es ++) cr
+
+          -- /local requires enriched results with metadata, while /send strips them.
+          -- when ?preflight=true is set, make sure that metadata occurs in result.
+
+          let !cr' = case callCtx of
+                ApplySend -> set crLogs (Just logs) $ over crEvents (es ++) cr
+                ApplyLocal -> set crMetaData (Just $ toJSON $ ctxToPublicData' txCtx)
+                  $ set crLogs (Just logs)
+                  $ over crEvents (es ++) cr
+
+          return cr'
 
 listErrMsg :: Doc
 listErrMsg =
@@ -407,17 +417,6 @@ applyCoinbase v logger dbEnv (Miner mid mks@(MinerKeys mk)) reward@(ParsedDecima
             <> sshow mid
 
           upgradedModuleCache <- applyUpgrades v cid bh
-
-          -- NOTE (linda): When adding new forking transactions that are injected
-          -- into a block's coinbase transaction, please add a corresponding case
-          -- in Rosetta's `matchLogs` function and follow the coinv3 pattern.
-          --
-          -- Otherwise, Rosetta tooling has no idea that these upgrade transactions
-          -- occurred.
-          -- This is especially important if the transaction changes an account's balance.
-          -- Rosetta tooling will error out if an account's balance changed and it
-          -- didn't see the transaction that caused the change.
-          --
 
           logs <- use txLogs
 

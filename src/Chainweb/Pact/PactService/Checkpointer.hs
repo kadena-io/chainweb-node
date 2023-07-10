@@ -214,8 +214,8 @@ withCheckpointerWithoutRewind target caller act = do
 
         try (restore (act cenv)) >>= \case
             Left !e -> discardTx checkPointer >> throwM @_ @SomeException e
-            Right (Discard !result) -> discardTx checkPointer >> return result
-            Right (Save header !result) -> saveTx checkPointer header >> return result
+            Right (Discard !result) -> tracePactServiceM "withCheckpointerWithoutRewind.discardTx" () 0 (discardTx checkPointer) >> return result
+            Right (Save header !result) -> tracePactServiceM "withCheckpointerWithoutRewind.saveTx" () 0 (saveTx checkPointer header) >> return result
   where
     checkpointerTarget = case target of
         Nothing -> Nothing
@@ -268,7 +268,8 @@ withCheckpointerRewind
     -> (PactDbEnv' -> PactServiceM tbl (WithCheckpointerResult a))
     -> PactServiceM tbl a
 withCheckpointerRewind rewindLimit p caller act = do
-    rewindTo rewindLimit p
+    tracePactServiceM "withCheckpointerRewind.rewindTo" (_parentHeader <$> p) 0 $
+        rewindTo rewindLimit p
         -- This updates '_psParentHeader'
     withCheckpointerWithoutRewind p caller act
 

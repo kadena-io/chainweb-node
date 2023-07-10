@@ -135,8 +135,8 @@ tests = ScheduledTest testName go
       where
           -- This is way more than what is used in production, but during testing
           -- we can be generous.
-        generousConfig = defaultPactServiceConfig { _pactBlockGasLimit = 300_000 }
-        timeoutConfig = defaultPactServiceConfig { _pactBlockGasLimit = 100_000 }
+        generousConfig = testPactServiceConfig { _pactBlockGasLimit = 300_000 }
+        timeoutConfig = testPactServiceConfig { _pactBlockGasLimit = 100_000 }
         test pactConfig gasmodel tname f =
           withDelegateMempool $ \dmpio -> testCaseSteps tname $ \step ->
             withTestBlockDb testVersion $ \bdb -> do
@@ -269,7 +269,7 @@ pactLocalDepthTest = do
       LocalRewindLimitExceeded _ _ -> return ()
       err -> liftIO $ assertFailure $ "Expected LocalRewindLimitExceeded, but got " ++ show err)
     (do
-      runLocalWithDepth (Just $ RewindDepth (-5)) cid getSender00Balance >>= \_ ->
+      runLocalWithDepth (Just $ RewindDepth (fromIntegral (-5 :: Int))) cid getSender00Balance >>= \_ ->
         liftIO $ assertFailure "Expected LocalRewindLimitExceeded, but block succeeded")
 
   -- the genesis depth

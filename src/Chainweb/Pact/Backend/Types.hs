@@ -317,8 +317,8 @@ data Checkpointer = Checkpointer
     , _cpGetBlockParent :: !((BlockHeight, BlockHash) -> IO (Maybe BlockHash))
     , _cpRegisterProcessedTx :: !(P.PactHash -> IO ())
 
-      -- TODO: this would be nicer as a batch lookup :(
-    , _cpLookupProcessedTx :: !(P.PactHash -> IO (Maybe (T2 BlockHeight BlockHash)))
+    , _cpLookupProcessedTx ::
+        !(Maybe ConfirmationDepth -> Vector P.PactHash -> IO (HashMap P.PactHash (T2 BlockHeight BlockHash)))
     , _cpGetBlockHistory :: !(
         forall k v . (FromJSON v) => BlockHeader -> Domain k v -> IO BlockTxHistory)
     , _cpGetHistoricalLookup :: !(

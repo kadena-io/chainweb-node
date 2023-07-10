@@ -385,10 +385,10 @@ library
         , safe-exceptions >= 0.1
         , scheduler >= 1.4
         , semigroupoids >= 5.3.7
-        , servant >= 0.18.2
-        , servant-client >= 0.18.2
-        , servant-client-core >= 0.18.2
-        , servant-server >= 0.18.2
+        , servant >= 0.20
+        , servant-client >= 0.20
+        , servant-client-core >= 0.20
+        , servant-server >= 0.20
         , stm >= 2.4
         , stopwatch >= 0.1
         , streaming >= 0.2

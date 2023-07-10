@@ -44,6 +44,7 @@ import Data.Decimal
 import Data.Default (def)
 import Data.Either
 import Data.Foldable (toList)
+import qualified Data.HashMap.Strict as HashMap
 import qualified Data.Map as Map
 import Data.Text (Text)
 import qualified Data.Text as T
@@ -225,7 +226,7 @@ validateChainwebTxs logger v cid cp txValidationTime bh txs doBuyGas
 
     checkUnique :: ChainwebTransaction -> IO (Either InsertError ChainwebTransaction)
     checkUnique t = do
-      found <- _cpLookupProcessedTx cp (P._cmdHash t)
+      found <- HashMap.lookup (P._cmdHash t) <$> _cpLookupProcessedTx cp Nothing (V.singleton $ P._cmdHash t)
       case found of
         Nothing -> pure $ Right t
         Just _ -> pure $ Left InsertErrorDuplicate
@@ -329,7 +330,7 @@ execTransactionsOnly
 execTransactionsOnly miner ctxs (PactDbEnv' pactdbenv) txTimeLimit = do
     mc <- getInitCache
     txOuts <- applyPactCmds False pactdbenv ctxs miner mc Nothing txTimeLimit
-    return $! V.zip ctxs txOuts
+    return $! V.force (V.zip ctxs txOuts)
 
 runCoinbase
     :: Bool
@@ -376,7 +377,10 @@ applyPactCmds
     -> Maybe Micros
     -> PactServiceM tbl (Vector (Either GasPurchaseFailure (P.CommandResult [P.TxLog A.Value])))
 applyPactCmds isGenesis env cmds miner mc blockGas txTimeLimit = do
-    evalStateT (V.mapM (applyPactCmd isGenesis env miner txTimeLimit) cmds) (T2 mc blockGas)
+    let txsGas txs = fromIntegral $ sumOf (traversed . _Right . to P._crGas) txs
+    txs <- tracePactServiceM' "applyPactCmds" () txsGas $
+      evalStateT (V.mapM (applyPactCmd isGenesis env miner txTimeLimit) cmds) (T2 mc blockGas)
+    return txs
 
 applyPactCmd
   :: Bool
@@ -422,7 +426,10 @@ applyPactCmd isGenesis env miner txTimeLimit cmd = StateT $ \(T2 mcache maybeBlo
             Nothing -> id
             Just limit ->
                maybe (throwM timeoutError) return <=< timeout (fromIntegral limit)
-        T3 r c _warns <- liftIO $! txTimeout $ applyCmd v logger gasLogger env miner (gasModel pd) pd spv gasLimitedCmd initialGas mcache ApplySend
+        let txGas (T3 r _ _) = fromIntegral $ P._crGas r
+        T3 r c _warns <-
+          tracePactServiceM' "applyCmd" (P._cmdHash cmd) txGas $
+            liftIO $ txTimeout $ applyCmd v logger gasLogger env miner (gasModel pd) pd spv gasLimitedCmd initialGas mcache ApplySend
         pure $ T2 r c
 
     if isGenesis
