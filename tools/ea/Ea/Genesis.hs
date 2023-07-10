@@ -1,11 +1,13 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE TemplateHaskell #-}
 
 module Ea.Genesis
 ( -- * Genesis tx data
   Genesis(..)
 , ChainIdRange
+, pattern ChainIdRange
 , mkChainIdRange
 , onlyChainId
 , chainIdRangeTag
@@ -53,6 +55,7 @@ module Ea.Genesis
 
 
 import Control.Lens
+import Control.Monad
 
 import Data.Text
 import Data.Word
@@ -71,12 +74,16 @@ import Chainweb.Version.Testnet
 
 -- A range of chain IDs [l,r]
 data ChainIdRange
-    = ChainIdRange !Word32 !Word32
+    = UnsafeChainIdRange !Word32 !Word32
     deriving (Eq, Ord)
+
+{-# COMPLETE ChainIdRange #-}
+pattern ChainIdRange :: Word32 -> Word32 -> ChainIdRange
+pattern ChainIdRange l r <- UnsafeChainIdRange l r
 
 mkChainIdRange :: Word32 -> Word32 -> ChainIdRange
 mkChainIdRange l u
-  | l <= u = ChainIdRange l u
+  | l <= u = UnsafeChainIdRange l u
   | otherwise = error "mkChainIdRange: chain IDs are not in order"
 
 onlyChainId :: Word32 -> ChainIdRange
@@ -178,7 +185,7 @@ fastDevelopment0 :: Genesis
 fastDevelopment0 = Genesis
     { _version = FastDevelopment
     , _tag = "FastDevelopment"
-    , _txChainIds = onlyChainId 0 0
+    , _txChainIds = onlyChainId 0
     , _coinbase = Just dev0Grants
     , _keysets = Just devKeysets
     , _allocations = Just devAllocations
@@ -219,7 +226,7 @@ fastTimedCPM0 :: Genesis
 fastTimedCPM0 = Genesis
     { _version = fastForkingCpmTestVersion petersonChainGraph
     , _tag = "FastTimedCPM"
-    , _txChainIds = onlyChainId 0 0
+    , _txChainIds = onlyChainId 0
     , _coinbase = Just fast0Grants
     , _keysets = Just fastKeysets
     , _allocations = Just fastAllocations
@@ -289,7 +296,7 @@ mainnet0 :: Genesis
 mainnet0 = Genesis
     { _version = Mainnet01
     , _tag = "Mainnet"
-    , _txChainIds = onlyChainId 0 0
+    , _txChainIds = onlyChainId 0
     , _coinbase = Nothing
     , _keysets = Just mainnetKeysets
     , _allocations = Just mainnetAllocations0
@@ -299,47 +306,47 @@ mainnet0 = Genesis
 
 mainnet1 :: Genesis
 mainnet1 = mainnet0
-    & txChainIds .~ onlyChainId 1 1
+    & txChainIds .~ onlyChainId 1
     & allocations .~ (Just mainnetAllocations1)
 
 mainnet2 :: Genesis
 mainnet2 = mainnet0
-    & txChainIds .~ onlyChainId 2 2
+    & txChainIds .~ onlyChainId 2
     & allocations .~ (Just mainnetAllocations2)
 
 mainnet3 :: Genesis
 mainnet3 = mainnet0
-    & txChainIds .~ onlyChainId 3 3
+    & txChainIds .~ onlyChainId 3
     & allocations .~ (Just mainnetAllocations3)
 
 mainnet4 :: Genesis
 mainnet4 = mainnet0
-    & txChainIds .~ onlyChainId 4 4
+    & txChainIds .~ onlyChainId 4
     & allocations .~ (Just mainnetAllocations4)
 
 mainnet5 :: Genesis
 mainnet5 = mainnet0
-    & txChainIds .~ onlyChainId 5 5
+    & txChainIds .~ onlyChainId 5
     & allocations .~ (Just mainnetAllocations5)
 
 mainnet6 :: Genesis
 mainnet6 = mainnet0
-    & txChainIds .~ onlyChainId 6 6
+    & txChainIds .~ onlyChainId 6
     & allocations .~ (Just mainnetAllocations6)
 
 mainnet7 :: Genesis
 mainnet7 = mainnet0
-    & txChainIds .~ onlyChainId 7 7
+    & txChainIds .~ onlyChainId 7
     & allocations .~ (Just mainnetAllocations7)
 
 mainnet8 :: Genesis
 mainnet8 = mainnet0
-    & txChainIds .~ onlyChainId 8 8
+    & txChainIds .~ onlyChainId 8
     & allocations .~ (Just mainnetAllocations8)
 
 mainnet9 :: Genesis
 mainnet9 = mainnet0
-    & txChainIds .~ onlyChainId 9 9
+    & txChainIds .~ onlyChainId 9
     & allocations .~ (Just mainnetAllocations9)
 
 mainnetKAD :: Genesis
