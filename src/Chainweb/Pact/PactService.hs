@@ -540,8 +540,6 @@ execNewBlock mpAccess parent miner = do
           Nothing
           (Just txTimeLimit) `catch` handleTimeout
 
-        --initialBlockFilling <- liftIO $ BlockFilling initState <$> Dyna.new <*> Dyna.new
-        --
         successes <- liftIO $ Dyna.new @_ @Array @_ @(ChainwebTransaction, P.CommandResult [P.TxLog A.Value])
         failures <- liftIO $ Dyna.new @_ @Array @_ @GasPurchaseFailure
         _ <- refill fetchLimit txTimeLimit pdbenv successes failures =<<
@@ -562,9 +560,9 @@ execNewBlock mpAccess parent miner = do
         go :: BlockFill -> PactServiceM tbl BlockFill
         go unchanged@bfState = do
 
-          (goodLength, badLength) <- liftIO $ (,) <$> Dyna.length successes <*> Dyna.length failures
           case unchanged of
-            (BlockFill g _ c) -> do
+            BlockFill g _ c -> do
+              (goodLength, badLength) <- liftIO $ (,) <$> Dyna.length successes <*> Dyna.length failures
               logDebug $ "Block fill: count=" <> sshow c
                 <> ", gaslimit=" <> sshow g <> ", good="
                 <> sshow goodLength <> ", bad=" <> sshow badLength
