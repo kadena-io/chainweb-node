@@ -213,18 +213,27 @@ initializeCoinContract
     -> PactServiceM tbl ()
 initializeCoinContract _logger memPoolAccess v cid pwo = do
     cp <- getCheckpointer
-    genesisExists <- liftIO
-        $ _cpLookupBlockInCheckpointer cp (_blockHeight genesisHeader, ghash)
-    if genesisExists
-      then readContracts
-      else validateGenesis
-
+    latestBlock <- liftIO $ _cpGetLatestBlock cp
+    case latestBlock of
+      Nothing -> do
+        logWarn "initializeCoinContract: Checkpointer returned no latest block. Starting from genesis."
+        validateGenesis
+      Just (_currentBlockHeight, currentBlockHash) -> do
+        -- We check the block hash because it's more principled and
+        -- we don't have to compute it, so the comparison is still relatively
+        -- cheap. We could also check the height but that would be redundant.
+        if currentBlockHash /= genesisHash
+        then do
+          readContracts
+        else do
+          logWarn "initializeCoinContract: Starting from genesis."
+          validateGenesis
   where
     validateGenesis = void $!
         execValidateBlock memPoolAccess genesisHeader inputPayloadData
 
-    ghash :: BlockHash
-    ghash = _blockHash genesisHeader
+    genesisHash :: BlockHash
+    genesisHash = _blockHash genesisHeader
 
     inputPayloadData :: PayloadData
     inputPayloadData = payloadWithOutputsToPayloadData pwo
