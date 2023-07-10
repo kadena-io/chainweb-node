@@ -40,7 +40,7 @@ module Chainweb.Pact.Backend.Compaction
 import Control.Concurrent.Async (forConcurrently_)
 import Control.Exception (Exception, SomeException(..))
 import Control.Lens (makeLenses, set, over, view)
-import Control.Monad (forM, when, void)
+import Control.Monad (forM_, forM, when, void)
 import Control.Monad.Catch (MonadCatch(catch), MonadThrow(throwM))
 import Control.Monad.IO.Class (MonadIO(liftIO))
 import Control.Monad.Reader (MonadReader, ReaderT, runReaderT, local)
@@ -59,8 +59,10 @@ import Options.Applicative
 import System.FilePath ((</>))
 
 import Chainweb.BlockHeight (BlockHeight)
-import Chainweb.Utils (sshow)
-import Chainweb.Version (ChainId, ChainwebVersion(..), chainwebVersionFromText, unsafeChainId, chainIdToText)
+import Chainweb.Utils (sshow, HasTextRepresentation, fromText, toText)
+import Chainweb.Version (ChainId, ChainwebVersion(..), ChainwebVersionName, unsafeChainId, chainIdToText)
+import Chainweb.Version.Mainnet (mainnet)
+import Chainweb.Version.Registry (lookupVersionByName)
 import Chainweb.Version.Utils (chainIdsAt)
 import Chainweb.Pact.Backend.Types (SQLiteEnv(..))
 import Chainweb.Pact.Backend.Utils (withSqliteDb)
@@ -397,12 +399,10 @@ dropNewTables = do
 -- | Delete all rows from Checkpointer system tables that are not for the target blockheight.
 compactSystemTables :: CompactM ()
 compactSystemTables = do
-  execM'
-      " DELETE FROM BlockHistory WHERE blockheight != ?1; \
-      \ DELETE FROM VersionedTableMutation WHERE blockheight != ?1; \
-      \ DELETE FROM TransactionIndex WHERE blockheight != ?1; \
-      \ DELETE FROM VersionedTableCreation WHERE createBlockheight != ?1; "
-      [blockheight]
+  let systemTables = ["BlockHistory", "VersionedTableMutation", "TransactionIndex", "VersionedTableCreation"]
+  forM_ systemTables $ \tbl -> do
+    logg Info $ "Compacting system table " <> tbl
+    execM' ("DELETE FROM " <> tbl <> " WHERE blockheight != ?1;") [blockheight]
 
 dropCompactTables :: CompactM ()
 dropCompactTables = do
@@ -444,17 +444,17 @@ compact = do
         return gh
 
 
-data CompactConfig v = CompactConfig
+data CompactConfig = CompactConfig
   { ccBlockHeight :: BlockHeight
   , ccDbDir :: FilePath
-  , ccVersion :: v
+  , ccVersion :: ChainwebVersion
   , ccFlags :: [CompactFlag]
   , ccChain :: Maybe ChainId
   , logDir :: FilePath
   }
-  deriving stock (Eq, Show, Functor, Foldable, Traversable)
+  deriving stock (Eq, Show)
 
-compactAll :: CompactConfig ChainwebVersion -> IO ()
+compactAll :: CompactConfig -> IO ()
 compactAll CompactConfig{..} = do
   forConcurrently_ cids $ \cid -> do
     withDefaultLogger logDir cid Debug $ \logger' -> do
@@ -474,14 +474,14 @@ compactAll CompactConfig{..} = do
 
 compactMain :: IO ()
 compactMain = do
-  execParser opts >>= \cc -> do
-    traverse chainwebVersionFromText cc >>= compactAll
+  config <- execParser opts
+  compactAll config
   where
-    opts :: ParserInfo (CompactConfig Text)
+    opts :: ParserInfo CompactConfig
     opts = info (parser <**> helper)
         (fullDesc <> progDesc "Pact DB Compaction tool")
 
-    parser :: Parser (CompactConfig Text)
+    parser :: Parser CompactConfig
     parser = CompactConfig
         <$> (fromIntegral @Int <$> option auto
              (short 'b'
@@ -493,12 +493,12 @@ compactMain = do
               <> long "pact-database-dir"
               <> metavar "DBDIR"
               <> help "Pact database directory")
-        <*> (Text.pack <$> strOption
+        <*> ((lookupVersionByName . fromTextSilly @ChainwebVersionName) <$> strOption
               (short 'v'
                <> long "graph-version"
                <> metavar "VERSION"
                <> help "Chainweb version for graph. Only needed for non-standard graphs."
-               <> value (show Mainnet01)
+               <> value (toText (_versionName mainnet))
                <> showDefault))
         <*> (foldr (\x y -> (++) <$> x <*> y) (pure [])
                [ flag [] [Flag_KeepCompactTables]
@@ -520,3 +520,8 @@ compactMain = do
                <> metavar "DIRECTORY"
                <> help "Directory where logs will be placed"
                <> value ".")
+
+fromTextSilly :: HasTextRepresentation a => Text -> a
+fromTextSilly t = case fromText t of
+  Just a -> a
+  Nothing -> error "fromText failed"
