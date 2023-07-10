@@ -7,6 +7,7 @@
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 
 -- |
@@ -48,6 +49,7 @@ import qualified Data.Aeson as A
 import Data.Default (def)
 import qualified Data.DList as DL
 import Data.Either
+import Data.Word (Word64)
 import Data.Maybe (fromMaybe)
 import Data.Foldable (toList)
 import qualified Data.HashMap.Strict as HM
@@ -103,6 +105,7 @@ import Utils.Logging.Trace
 
 import Dyna (Vec)
 import Dyna qualified
+import Control.Monad.Primitive (PrimState)
 import Data.Primitive (Array)
 
 runPactService
@@ -455,12 +458,6 @@ attemptBuyGas miner (PactDbEnv' dbEnv) txs = do
             Left err -> return (T2 mcache (Left (InsertErrorBuyGas (T.pack $ show err))))
             Right t -> return (T2 (_txCache t) (Right tx))
 
-data BlockFilling s = BlockFilling
-    { _bfState :: BlockFill
-    , _bfSuccessPairs :: Vec Array s (ChainwebTransaction,P.CommandResult [P.TxLog A.Value])
-    , _bfFailures :: Vec Array s GasPurchaseFailure
-    }
-
 -- | Note: The BlockHeader param here is the PARENT HEADER of the new
 -- block-to-be
 --
@@ -534,83 +531,90 @@ execNewBlock mpAccess parent miner = do
           Nothing
           (Just txTimeLimit) `catch` handleTimeout
 
-        (BlockFilling _ successPairs failures) <- do
-          initialBlockFilling <- liftIO $ BlockFilling initState <$> Dyna.new <*> Dyna.new
-          refill fetchLimit txTimeLimit pdbenv =<<
-            foldM splitResults (incCount initialBlockFilling) pairs
+        --initialBlockFilling <- liftIO $ BlockFilling initState <$> Dyna.new <*> Dyna.new
+        --
+        successes <- liftIO $ Dyna.new @_ @Array @_ @(ChainwebTransaction, P.CommandResult [P.TxLog A.Value])
+        failures <- liftIO $ Dyna.new @_ @Array @_ @GasPurchaseFailure
+        _ <- refill fetchLimit txTimeLimit pdbenv successes failures =<<
+          foldM (splitResults successes failures) (incCount initState) pairs
 
         liftIO $ do
           txHashes <- Dyna.toLiftedVectorWith (\_ failure -> pure (gasPurchaseFailureHash failure)) failures
           mpaBadlistTx mpAccess txHashes
 
         !pwo <- liftIO $ do
-          txs <- Dyna.toLiftedVector successPairs
+          txs <- Dyna.toLiftedVector successes
           pure (toPayloadWithOutputs miner (Transactions txs cb))
         return $! Discard pwo
 
-    refill fetchLimit txTimeLimit pdbenv unchanged@(BlockFilling bfState oldPairs oldFails) = do
+    refill :: Word64 -> Micros -> PactDbEnv' -> GrowableVec (ChainwebTransaction, P.CommandResult [P.TxLog A.Value]) -> GrowableVec GasPurchaseFailure -> BlockFill -> PactServiceM tbl BlockFill
+    refill fetchLimit txTimeLimit pdbenv successes failures = go
+      where
+        go :: BlockFill -> PactServiceM tbl BlockFill
+        go unchanged@bfState = do
 
-      logDebug =<< liftIO (describeBF unchanged)
+          (goodLength, badLength) <- liftIO $ (,) <$> Dyna.length successes <*> Dyna.length failures
+          case unchanged of
+            (BlockFill g _ c) -> do
+              logDebug $ "Block fill: count=" <> sshow c
+                <> ", gaslimit=" <> sshow g <> ", good="
+                <> sshow goodLength <> ", bad=" <> sshow badLength
 
-      -- LOOP INVARIANT: limit absolute recursion count
-      when (_bfCount bfState > fetchLimit) $
-        throwM $ MempoolFillFailure $ "Refill fetch limit exceeded (" <> sshow fetchLimit <> ")"
+          -- LOOP INVARIANT: limit absolute recursion count
+          when (_bfCount bfState > fetchLimit) $
+            throwM $ MempoolFillFailure $ "Refill fetch limit exceeded (" <> sshow fetchLimit <> ")"
 
-      when (_bfGasLimit bfState < 0) $
-          throwM $ MempoolFillFailure $ "Internal error, negative gas limit: " <> sshow bfState
+          when (_bfGasLimit bfState < 0) $
+            throwM $ MempoolFillFailure $ "Internal error, negative gas limit: " <> sshow bfState
 
-      if _bfGasLimit bfState == 0 then pure unchanged else do
+          if _bfGasLimit bfState == 0 then pure unchanged else do
 
-        newTrans <- getBlockTxs bfState
-        if V.null newTrans then pure unchanged else do
+            newTrans <- getBlockTxs bfState
+            if V.null newTrans then pure unchanged else do
 
-          pairs <- execTransactionsOnly miner newTrans pdbenv
-            (Just txTimeLimit) `catch` handleTimeout
+              pairs <- execTransactionsOnly miner newTrans pdbenv
+                (Just txTimeLimit) `catch` handleTimeout
 
-          newFill@(BlockFilling newState newPairs newFails) <-
-                foldM splitResults unchanged pairs
+              (oldPairsLength, oldFailsLength) <- liftIO $ (,)
+                <$> Dyna.length successes
+                <*> Dyna.length failures
 
-          -- LOOP INVARIANT: gas must not increase
-          when (_bfGasLimit newState > _bfGasLimit bfState) $
-              throwM $ MempoolFillFailure $ "Gas must not increase: " <> sshow (bfState,newState)
+              newState <- foldM (splitResults successes failures) unchanged pairs
 
-          (newPairsLength, oldPairsLength, newFailsLength, oldFailsLength) <- liftIO $ (,,,)
-            <$> Dyna.length newPairs
-            <*> Dyna.length oldPairs
-            <*> Dyna.length newFails
-            <*> Dyna.length oldFails
-          let newSuccessCount = newPairsLength - oldPairsLength
-          let newFailCount = newFailsLength - oldFailsLength
+              -- LOOP INVARIANT: gas must not increase
+              when (_bfGasLimit newState > _bfGasLimit bfState) $
+                throwM $ MempoolFillFailure $ "Gas must not increase: " <> sshow (bfState,newState)
 
-          -- LOOP INVARIANT: gas must decrease ...
-          if (_bfGasLimit newState < _bfGasLimit bfState)
-              -- ... OR only non-zero failures were returned.
-             || (newSuccessCount == 0  && newFailCount > 0)
-              then refill fetchLimit txTimeLimit pdbenv (incCount newFill)
-              else throwM $ MempoolFillFailure $ "Invariant failure: " <>
-                   sshow (bfState,newState,V.length newTrans
-                         ,newPairsLength,newFailsLength)
+              (newPairsLength, newFailsLength) <- liftIO $ (,)
+                <$> Dyna.length successes
+                <*> Dyna.length failures
+              let newSuccessCount = newPairsLength - oldPairsLength
+              let newFailCount = newFailsLength - oldFailsLength
 
-    incCount b = b { _bfState = over bfCount succ (_bfState b) }
+              -- LOOP INVARIANT: gas must decrease ...
+              if (_bfGasLimit newState < _bfGasLimit bfState)
+                  -- ... OR only non-zero failures were returned.
+                 || (newSuccessCount == 0  && newFailCount > 0)
+                  then go (incCount newState)
+                  else throwM $ MempoolFillFailure $ "Invariant failure: " <>
+                       sshow (bfState,newState,V.length newTrans
+                             ,newPairsLength,newFailsLength)
 
-    describeBF (BlockFilling (BlockFill g _ c) good bad) = do
-      goodLength <- Dyna.length good
-      badLength <- Dyna.length bad
-      pure $ "Block fill: count=" <> sshow c <> ", gaslimit=" <> sshow g <> ", good="
-             <> sshow goodLength <> ", bad=" <> sshow badLength
+    incCount :: BlockFill -> BlockFill
+    incCount b = over bfCount succ b
 
-    splitResults (BlockFilling (BlockFill g rks i) success fails) (t,r) = case r of
+    splitResults success fails (BlockFill g rks i) (t,r) = case r of
       Right cr -> do
         !rks' <- enforceUnique rks (requestKeyToTransactionHash $ P._crReqKey cr)
         -- Decrement actual gas used from block limit
         let !g' = g - fromIntegral (P._crGas cr)
         liftIO $ Dyna.push success (t, cr)
-        return $ BlockFilling (BlockFill g' rks' i) success fails
+        return $ BlockFill g' rks' i
       Left f -> do
         !rks' <- enforceUnique rks (gasPurchaseFailureHash f)
-        liftIO $ Dyna.push fails f
         -- Gas buy failure adds failed request key to fail list only
-        return $ BlockFilling (BlockFill g rks' i) success fails
+        liftIO $ Dyna.push fails f
+        return $ BlockFill g rks' i
 
     enforceUnique rks rk
       | S.member rk rks =
@@ -624,6 +628,8 @@ execNewBlock mpAccess parent miner = do
       mpaProcessFork mpAccess $ _parentHeader parent
       mpaSetLastHeader mpAccess $ _parentHeader parent
 
+
+type GrowableVec = Vec Array (PrimState IO)
 
 -- | only for use in generating genesis blocks in tools
 --
