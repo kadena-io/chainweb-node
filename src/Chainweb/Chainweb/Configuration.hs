@@ -575,11 +575,11 @@ parseVersion = constructVersion
             <> help "the chainweb version that this node is using"
         )
     <*> optional (textOption @Fork (long "fork-upper-bound" <> help "(development mode only) the latest fork the node will enable"))
-    <*> optional (BlockRate <$> textOption (long "block-rate" <> help "(development mode only) the block rate in seconds per block"))
+    <*> optional (BlockDelay <$> textOption (long "block-delay" <> help "(development mode only) the block delay in seconds per block"))
     <*> switch (long "disable-pow" <> help "(development mode only) disable proof of work check")
     where
     constructVersion cliVersion fub br disablePow' oldVersion = winningVersion
-        & versionBlockRate .~ fromMaybe (_versionBlockRate winningVersion) br
+        & versionBlockDelay .~ fromMaybe (_versionBlockDelay winningVersion) br
         & versionForks %~ HM.filterWithKey (\fork _ -> fork <= fromMaybe maxBound fub)
         & versionUpgrades .~
             maybe (_versionUpgrades winningVersion) (\fub' ->

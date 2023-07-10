@@ -143,7 +143,7 @@ barebonesTestVersion :: ChainGraph -> ChainwebVersion
 barebonesTestVersion g = buildTestVersion $ \v ->
     testVersionTemplate v
         & versionWindow .~ WindowWidth 120
-        & versionBlockRate .~ BlockRate 1_000_000
+        & versionBlockDelay .~ BlockDelay 1_000_000
         & versionName .~ ChainwebVersionName ("test-" <> toText g)
         & versionGraphs .~ End g
         & versionCheats .~ VersionCheats
@@ -168,7 +168,7 @@ timedConsensusVersion :: ChainGraph -> ChainGraph -> ChainwebVersion
 timedConsensusVersion g1 g2 = buildTestVersion $ \v -> v
     & testVersionTemplate
     & versionName .~ ChainwebVersionName ("timedConsensus-" <> toText g1 <> "-" <> toText g2)
-    & versionBlockRate .~ BlockRate 1_000_000
+    & versionBlockDelay .~ BlockDelay 1_000_000
     & versionWindow .~ WindowWidth 120
     & versionForks .~ tabulateHashMap (\case
         SkipTxTimingValidation -> AllChains $ ForkAtBlockHeight (BlockHeight 2)
@@ -199,7 +199,7 @@ cpmTestVersion :: ChainGraph -> VersionBuilder
 cpmTestVersion g v = v
     & testVersionTemplate
     & versionWindow .~ WindowWidth 120
-    & versionBlockRate .~ BlockRate (Micros 100_000)
+    & versionBlockDelay .~ BlockDelay (Micros 100_000)
     & versionGraphs .~ End g
     & versionCheats .~ VersionCheats
         { _disablePow = True

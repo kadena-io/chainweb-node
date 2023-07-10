@@ -143,7 +143,7 @@ mainnet = ChainwebVersion
     , _versionGraphs =
         (to20ChainsMainnet, twentyChainGraph) `Above`
         End petersonChainGraph
-    , _versionBlockRate = BlockRate 30_000_000
+    , _versionBlockDelay = BlockDelay 30_000_000
     , _versionWindow = WindowWidth 120
     , _versionHeaderBaseSizeBytes = 318 - 110
     , _versionMaxBlockGasLimit =

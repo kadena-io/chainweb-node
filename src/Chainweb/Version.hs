@@ -50,7 +50,7 @@ module Chainweb.Version
     , Upgrade(..)
     , upgrade
     , versionForks
-    , versionBlockRate
+    , versionBlockDelay
     , versionCheats
     , versionDefaults
     , versionUpgrades
@@ -332,8 +332,8 @@ data ChainwebVersion
     , _versionUpgrades :: ChainMap (HashMap BlockHeight Upgrade)
         -- ^ The upgrade transactions to execute on each chain at certain block
         -- heights.
-    , _versionBlockRate :: BlockRate
-        -- ^ The Proof-of-Work `BlockRate` for each `ChainwebVersion`. This is
+    , _versionBlockDelay :: BlockDelay
+        -- ^ The Proof-of-Work `BlockDelay` for each `ChainwebVersion`. This is
         -- the number of microseconds we expect to pass while a miner mines on
         -- various chains, eventually succeeding on one.
     , _versionWindow :: WindowWidth
@@ -369,7 +369,7 @@ instance Ord ChainwebVersion where
         , _versionForks v `compare` _versionForks v'
         -- upgrades cannot be ordered because Payload in Pact cannot be ordered
         -- , _versionUpgrades v `compare` _versionUpgrades v'
-        , _versionBlockRate v `compare` _versionBlockRate v'
+        , _versionBlockDelay v `compare` _versionBlockDelay v'
         , _versionWindow v `compare` _versionWindow v'
         , _versionHeaderBaseSizeBytes v `compare` _versionHeaderBaseSizeBytes v'
         , _versionMaxBlockGasLimit v `compare` _versionMaxBlockGasLimit v'
