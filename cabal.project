@@ -135,11 +135,14 @@ constraints: base16-bytestring <1
 constraints: prettyprinter <1.6.1
 constraints: hashable <1.3.1
 constraints: base64-bytestring <1.1
-constraints: contiguous == 0.6.2.0
-constraints: run-st == 0.1.1.0
 
 -- other pact induced bounds (not relevant for on-chain semantics)
 constraints: megaparsec <9.3
+
+-- contiguous depends on primitive-unlifted, newer versions of which
+-- require GHC >= 9.4
+constraints: contiguous == 0.6.2.0
+constraints: run-st == 0.1.1.0
 
 -- -------------------------------------------------------------------------- --
 -- direct-sqlite 2.3.27
