@@ -66,6 +66,7 @@ import Chainweb.Version.Registry (lookupVersionByName)
 import Chainweb.Version.Utils (chainIdsAt)
 import Chainweb.Pact.Backend.Types (SQLiteEnv(..))
 import Chainweb.Pact.Backend.Utils (withSqliteDb)
+import Chainweb.Utils (encodeB64Text)
 
 import System.Logger
 import Data.LogMessage
@@ -467,7 +468,7 @@ compactAll CompactConfig{..} = do
             _ -> do
               logg Info $ "Beginning compaction"
               h <- compact
-              logg Info $ "Compaction complete, hash=" <> sshow h
+              logg Info $ "Compaction complete, hash=" <> encodeB64Text h
 
   where
     cids = List.sort $ F.toList $ chainIdsAt ccVersion ccBlockHeight
