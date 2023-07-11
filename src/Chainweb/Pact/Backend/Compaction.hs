@@ -403,7 +403,11 @@ compactSystemTables = do
   let systemTables = ["BlockHistory", "VersionedTableMutation", "TransactionIndex", "VersionedTableCreation"]
   forM_ systemTables $ \tbl -> do
     logg Info $ "Compacting system table " <> tbl
-    execM' ("DELETE FROM " <> tbl <> " WHERE blockheight != ?1;") [blockheight]
+    let column =
+          if tbl == "VersionedTableCreation"
+          then "createBlockheight"
+          else "blockheight"
+    execM' ("DELETE FROM " <> tbl <> " WHERE " <> column <> " != ?1;") [blockheight]
 
 dropCompactTables :: CompactM ()
 dropCompactTables = do
