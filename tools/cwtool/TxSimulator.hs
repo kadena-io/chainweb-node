@@ -102,7 +102,7 @@ simulate sc@(SimConfig dbDir txIdx' _ _ cid ver gasLog doTypecheck) = do
   pwos <- fetchOutputs sc cenv hdrs
   withSqliteDb cid cwLogger dbDir False $ \sqlenv -> do
     cpe@(CheckpointEnv cp _) <-
-      initRelationalCheckpointer (initBlockState defaultModuleCacheLimit 0) sqlenv logger ver cid
+      initRelationalCheckpointer DoJournal (initBlockState defaultModuleCacheLimit 0) sqlenv logger ver cid
     bracket_
       (_cpBeginCheckpointerBatch cp)
       (_cpDiscardCheckpointerBatch cp) $ case (txIdx',doTypecheck) of

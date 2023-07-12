@@ -45,6 +45,7 @@ import Chainweb.Pact.Backend.RelationalCheckpointer
 import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.Backend.Utils
 import Chainweb.Pact.Types
+import Chainweb.Pact.Service.Types
 import Chainweb.Test.TestVersions
 import Chainweb.Utils.Bench
 import Chainweb.Utils (sshow)
@@ -116,7 +117,7 @@ cpWithBench torun =
         !sqliteEnv <- openSQLiteConnection dbFile chainwebPragmas
         let nolog = newLogger neverLog ""
         !cenv <-
-          initRelationalCheckpointer initialBlockState sqliteEnv nolog v cid
+          initRelationalCheckpointer DoJournal initialBlockState sqliteEnv nolog v cid
         return $ NoopNFData (sqliteEnv, cenv)
 
     teardown (NoopNFData (sqliteEnv, _cenv)) = closeSQLiteConnection sqliteEnv

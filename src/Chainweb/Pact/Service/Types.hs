@@ -74,6 +74,10 @@ newtype ConfirmationDepth = ConfirmationDepth { _confirmationDepth :: Word64 }
   deriving (Eq, Ord)
   deriving newtype (Show, FromJSON, ToJSON, Enum, Bounded)
 
+-- Whether to maintain old values of Pact rows for efficient rewinds.
+data ShouldJournal = DoJournal | DoNotJournal
+  deriving (Eq, Ord, Show)
+
 -- | Externally-injected PactService properties.
 --
 data PactServiceConfig = PactServiceConfig
@@ -98,6 +102,8 @@ data PactServiceConfig = PactServiceConfig
     -- ^ whether to write transaction gas logs at INFO
   , _pactModuleCacheLimit :: !DbCacheLimitBytes
     -- ^ limit of the database module cache in bytes of corresponding row data
+  , _pactShouldJournal :: !ShouldJournal
+    -- ^ whether to include
   } deriving (Eq,Show)
 
 data GasPurchaseFailure = GasPurchaseFailure TransactionHash PactError

@@ -73,18 +73,20 @@ import Chainweb.Version
 import Chainweb.Version.Guards
 
 initRelationalCheckpointer
-    :: BlockState
+    :: ShouldJournal
+    -> BlockState
     -> SQLiteEnv
     -> Logger
     -> ChainwebVersion
     -> ChainId
     -> IO CheckpointEnv
-initRelationalCheckpointer bstate sqlenv loggr v cid =
-    snd <$!> initRelationalCheckpointer' bstate sqlenv loggr v cid
+initRelationalCheckpointer shouldJournal bstate sqlenv loggr v cid =
+    snd <$!> initRelationalCheckpointer' shouldJournal bstate sqlenv loggr v cid
 
 withProdRelationalCheckpointer
     :: C.Logger logger
     => logger
+    -> ShouldJournal
     -> BlockState
     -> SQLiteEnv
     -> Logger
@@ -92,8 +94,8 @@ withProdRelationalCheckpointer
     -> ChainId
     -> (CheckpointEnv -> IO a)
     -> IO a
-withProdRelationalCheckpointer logger bstate sqlenv pactLogger v cid inner = do
-    (dbenv, cpenv) <- initRelationalCheckpointer' bstate sqlenv pactLogger v cid
+withProdRelationalCheckpointer logger shouldJournal bstate sqlenv pactLogger v cid inner = do
+    (dbenv, cpenv) <- initRelationalCheckpointer' shouldJournal bstate sqlenv pactLogger v cid
     withAsync (logModuleCacheStats dbenv) $ \_ -> inner cpenv
   where
     logFun = C.logFunctionText logger
@@ -107,13 +109,14 @@ withProdRelationalCheckpointer logger bstate sqlenv pactLogger v cid inner = do
 
 -- for testing
 initRelationalCheckpointer'
-    :: BlockState
+    :: ShouldJournal
+    -> BlockState
     -> SQLiteEnv
     -> Logger
     -> ChainwebVersion
     -> ChainId
     -> IO (PactDbEnv (BlockEnv SQLiteEnv), CheckpointEnv)
-initRelationalCheckpointer' bstate sqlenv loggr v cid = do
+initRelationalCheckpointer' shouldJournal bstate sqlenv loggr v cid = do
     let dbenv = BlockDbEnv sqlenv loggr
     db <- newMVar (BlockEnv dbenv bstate)
     runBlockEnv db initSchema
@@ -124,7 +127,7 @@ initRelationalCheckpointer' bstate sqlenv loggr v cid = do
             Checkpointer
             {
                 _cpRestore = doRestore v cid db
-              , _cpSave = doSave db
+              , _cpSave = doSave shouldJournal db
               , _cpDiscard = doDiscard db
               , _cpGetLatestBlock = doGetLatest db
               , _cpBeginCheckpointerBatch = doBeginBatch db
@@ -176,8 +179,8 @@ doRestore _ _ dbenv Nothing = runBlockEnv dbenv $ do
     assign bsTxId 0
     return $! PactDbEnv' $ PactDbEnv chainwebPactDb dbenv
 
-doSave :: Db -> BlockHash -> IO ()
-doSave dbenv hash = runBlockEnv dbenv $ do
+doSave :: ShouldJournal -> Db -> BlockHash -> IO ()
+doSave shouldJournal dbenv hash = runBlockEnv dbenv $ do
     height <- gets _bsBlockHeight
     runPending height
     nextTxId <- gets _bsTxId
@@ -194,7 +197,7 @@ doSave dbenv hash = runBlockEnv dbenv $ do
         writes <- use $ bsPendingBlock . pendingWrites
         createNewTables bh $ toList newTables
         writeV <- toVectorChunks writes
-        callDb "save" $ backendWriteUpdateBatch bh writeV
+        callDb "save" $ backendWriteUpdateBatch shouldJournal bh writeV
         indexPendingPactTransactions
 
     prepChunk [] = error "impossible: empty chunk from groupBy"

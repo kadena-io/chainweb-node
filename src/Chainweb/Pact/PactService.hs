@@ -139,7 +139,7 @@ withPactService
     -> PactServiceM tbl a
     -> IO (T2 a PactServiceState)
 withPactService ver cid chainwebLogger bhDb pdb sqlenv config act =
-    withProdRelationalCheckpointer checkpointerLogger initialBlockState sqlenv cplogger ver cid $ \checkpointEnv -> do
+    withProdRelationalCheckpointer checkpointerLogger (_pactShouldJournal config) initialBlockState sqlenv cplogger ver cid $ \checkpointEnv -> do
         let !rs = readRewards
             !initialParentHeader = ParentHeader $ genesisBlockHeader ver cid
             !pse = PactServiceEnv

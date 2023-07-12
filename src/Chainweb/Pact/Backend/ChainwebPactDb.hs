@@ -80,7 +80,7 @@ import Chainweb.BlockHeight
 import Chainweb.Pact.Backend.DbCache
 import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.Backend.Utils
-import Chainweb.Pact.Service.Types (PactException(..), internalError)
+import Chainweb.Pact.Service.Types
 import Chainweb.Version
 import Chainweb.Utils (encodeToByteString, sshow)
 import Chainweb.Utils.Serialization
@@ -245,15 +245,19 @@ recordPendingUpdate (Utf8 key) (Utf8 tn) txid v = modifyPendingData modf
 
 
 backendWriteUpdateBatch
-    :: BlockHeight
+    :: ShouldJournal
+    -> BlockHeight
     -> [(Utf8, V.Vector SQLiteRowDelta)]    -- ^ updates chunked on table name
     -> Database
     -> IO ()
-backendWriteUpdateBatch bh writesByTable db = mapM_ writeTable writesByTable
+backendWriteUpdateBatch shouldJournal bh writesByTable db = mapM_ writeTable writesByTable
   where
-    prepRow (SQLiteRowDelta _ txid rowkey rowdata) =
+    txidOf (SQLiteRowDelta _ txid _ _) = case shouldJournal of
+        DoJournal -> SInt (fromIntegral txid)
+        DoNotJournal -> SInt 0
+    prepRow rd@(SQLiteRowDelta _ _ rowkey rowdata) =
         [ SText (Utf8 rowkey)
-        , SInt (fromIntegral txid)
+        , txidOf rd
         , SBlob rowdata
         ]
 
