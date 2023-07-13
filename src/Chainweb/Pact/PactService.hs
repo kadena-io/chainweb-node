@@ -50,7 +50,6 @@ import Data.Default (def)
 import qualified Data.DList as DL
 import Data.Either
 import Data.Word (Word64)
-import Data.Maybe (fromMaybe)
 import Data.Foldable (toList)
 import qualified Data.HashMap.Strict as HM
 import qualified Data.Map.Strict as M
@@ -96,7 +95,7 @@ import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
 import Chainweb.Time
 import Chainweb.Transaction
-import Chainweb.TreeDB (lookupM, seekAncestor)
+import Chainweb.TreeDB (lookupM) --, seekAncestor)
 import Chainweb.Utils hiding (check)
 import Chainweb.Version
 import Chainweb.Version.Guards
@@ -290,10 +289,10 @@ serviceRequests logFn memPoolAccess reqQ = do
         logDebug $ "serviceRequests: " <> sshow msg
         case msg of
             CloseMsg -> return ()
-            LocalMsg (LocalReq localRequest preflight sigVerify rewindDepth localResultVar)  -> do
+            LocalMsg (LocalReq blockheader localRequest preflight sigVerify localResultVar)  -> do
                 trace logFn "Chainweb.Pact.PactService.execLocal" () 0 $
                     tryOne "execLocal" localResultVar $
-                        execLocal localRequest preflight sigVerify rewindDepth
+                        execLocal blockheader localRequest preflight sigVerify
                 go
             NewBlockMsg NewBlockReq {..} -> do
                 trace logFn "Chainweb.Pact.PactService.execNewBlock"
@@ -657,17 +656,14 @@ execNewGenesisBlock miner newTrans = withDiscardedBatch $
 
 execLocal
     :: CanReadablePayloadCas tbl
-    => ChainwebTransaction
+    => BlockHeader
+    -> ChainwebTransaction
     -> Maybe LocalPreflightSimulation
       -- ^ preflight flag
     -> Maybe LocalSignatureVerification
       -- ^ turn off signature verification checks?
-    -> Maybe RewindDepth
-      -- ^ rewind depth
     -> PactServiceM tbl LocalResult
-execLocal cwtx preflight sigVerify rdepth = withDiscardedBatch $ do
-    parent <- syncParentHeader "execLocal"
-
+execLocal blockheader cwtx preflight sigVerify = withDiscardedBatch $ do
     PactServiceEnv{..} <- ask
 
     let !cmd = payloadObj <$> cwtx
@@ -677,27 +673,22 @@ execLocal cwtx preflight sigVerify rdepth = withDiscardedBatch $ do
     ctx <- getTxContext pm
     spv <- use psSpvSupport
 
-    -- when no depth is defined, treat
-    -- withCheckpointerRewind as withCurrentCheckpointer
-    -- (i.e. setting rewind to 0).
-    let rewindDepth = fromMaybe (RewindDepth 0) rdepth
+    -- when (_rewindDepth rewindDepth > _rewindLimit _psLocalRewindDepthLimit) $ do
+    --     throwM $ LocalRewindLimitExceeded _psLocalRewindDepthLimit rewindDepth
 
-    when (_rewindDepth rewindDepth > _rewindLimit _psLocalRewindDepthLimit) $ do
-        throwM $ LocalRewindLimitExceeded _psLocalRewindDepthLimit rewindDepth
+    let parentBlockHeader = ParentHeader blockheader
 
-    let parentBlockHeader = _parentHeader parent
+    -- -- we fail if the requested depth is bigger than the current parent block height
+    -- -- because we can't go after the genesis block
+    -- when (_rewindDepth rewindDepth > getBlockHeight (_blockHeight parentBlockHeader)) $ throwM LocalRewindGenesisExceeded
 
-    -- we fail if the requested depth is bigger than the current parent block height
-    -- because we can't go after the genesis block
-    when (_rewindDepth rewindDepth > getBlockHeight (_blockHeight parentBlockHeader)) $ throwM LocalRewindGenesisExceeded
+    -- let ancestorRank = fromIntegral $ (getBlockHeight $ _blockHeight parentBlockHeader) - _rewindDepth rewindDepth
+    -- ancestor <- liftIO $ seekAncestor _psBlockHeaderDb parentBlockHeader ancestorRank
 
-    let ancestorRank = fromIntegral $ (getBlockHeight $ _blockHeight parentBlockHeader) - _rewindDepth rewindDepth
-    ancestor <- liftIO $ seekAncestor _psBlockHeaderDb parentBlockHeader ancestorRank
-
-    rewindHeader <- case ancestor of
-        Just a -> pure $ Just $ ParentHeader a
-        Nothing -> throwM $ BlockHeaderLookupFailure $
-            "failed seekAncestor of parent header with ancestorRank " <> sshow ancestorRank
+    -- rewindHeader <- case ancestor of
+    --     Just a -> pure $ Just $ ParentHeader a
+    --     Nothing -> throwM $ BlockHeaderLookupFailure $
+    --         "failed seekAncestor of parent header with ancestorRank " <> sshow ancestorRank
 
     let execConfig = P.mkExecutionConfig $
             [ P.FlagAllowReadInLocal | _psAllowReadsInLocal ] ++
@@ -707,9 +698,7 @@ execLocal cwtx preflight sigVerify rdepth = withDiscardedBatch $ do
         logger = P.newLogger _psLoggers "execLocal"
         initialGas = initialGasOf $ P._cmdPayload cwtx
 
-    -- In this case the rewind limit is the same as rewind depth
-    let rewindLimit = RewindLimit $ _rewindDepth rewindDepth
-    withCheckpointerRewind (Just rewindLimit) rewindHeader "execLocal" $
+    withCheckpointerRewind Nothing (Just parentBlockHeader) "execLocal" $
       \(PactDbEnv' pdbenv) -> do
         --
         -- if the ?preflight query parameter is set to True, we run the `applyCmd` workflow
@@ -808,18 +797,19 @@ execHistoricalLookup bh (Domain' d) k = do
 
 execPreInsertCheckReq
     :: CanReadablePayloadCas tbl
-    => Rewind
+    => BlockHeader
     -> Vector ChainwebTransaction
     -> PactServiceM tbl (Vector (Either Mempool.InsertError ChainwebTransaction))
-execPreInsertCheckReq (DoRewind currentBlockHeader) txs = withDiscardedBatch $ do
-    let currHeight = succ $ _blockHeight currentBlockHeader
+execPreInsertCheckReq _ txs = withDiscardedBatch $ do
+    parent <- use psParentHeader
+    let currHeight = succ $ _blockHeight $ _parentHeader parent
     psEnv <- ask
     psState <- get
-    let parentTime = ParentCreationTime $ _blockCreationTime currentBlockHeader
+    let parentTime = ParentCreationTime $ _blockCreationTime $ _parentHeader parent
     cp <- getCheckpointer
     logger <- view psLogger
 
-    withCheckpointerRewind Nothing (Just $ ParentHeader currentBlockHeader) "execPreInsertCheckReq" $ \pdb -> do
+    withCheckpointerRewind Nothing (Just $ parent) "execPreInsertCheckReq" $ \pdb -> do
       let v = _chainwebVersion psEnv
           cid = _chainId psEnv
       liftIO $ fmap Discard $
@@ -830,7 +820,7 @@ execPreInsertCheckReq (DoRewind currentBlockHeader) txs = withDiscardedBatch $ d
 
 execLookupPactTxs
     :: CanReadablePayloadCas tbl
-    => Rewind
+    => BlockHeader
     -> Maybe ConfirmationDepth
     -> Vector P.PactHash
     -> PactServiceM tbl (HM.HashMap P.PactHash (T2 BlockHeight BlockHash))
@@ -838,10 +828,9 @@ execLookupPactTxs restorePoint confDepth txs
     | V.null txs = return mempty
     | otherwise = go
   where
-    go = getCheckpointer >>= \(!cp) -> case restorePoint of
-      DoRewind parent -> withDiscardedBatch $ do
-        withCheckpointerRewind Nothing (Just $ ParentHeader parent) "lookupPactTxs" $ \_ ->
-          liftIO $ Discard <$> _cpLookupProcessedTx cp (_blockHeight parent) confDepth txs
+    go = getCheckpointer >>= \(!cp) -> withDiscardedBatch $
+        withCheckpointerRewind Nothing (Just $ ParentHeader restorePoint) "lookupPactTxs" $ \_ ->
+          liftIO $ Discard <$> _cpLookupProcessedTx cp (_blockHeight restorePoint) confDepth txs
 
 -- | Modified table gas module with free module loads
 --

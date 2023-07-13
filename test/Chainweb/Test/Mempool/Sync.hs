@@ -20,6 +20,7 @@ import Test.QuickCheck hiding ((.&.))
 import Test.QuickCheck.Monadic
 import Test.Tasty
 ------------------------------------------------------------------------------
+import Chainweb.BlockHeader
 import Chainweb.Graph (singletonChainGraph)
 import Chainweb.Mempool.InMem
 import Chainweb.Mempool.InMemTypes
@@ -38,14 +39,14 @@ tests = testGroup "Chainweb.Mempool.sync"
   where
     wf :: (InsertCheck -> MempoolBackend MockTx -> IO a) -> IO a
     wf f = do
-        mv <- newMVar (pure . V.map Right)
+        mv <- newMVar (const $ pure . V.map Right)
         let cfg = InMemConfig txcfg mockBlockGasLimit 0 2048 Right (checkMv mv) (1024 * 10)
         withInMemoryMempool cfg (barebonesTestVersion singletonChainGraph) $ f mv
 
-    checkMv :: MVar (t -> IO b) -> t -> IO b
-    checkMv mv xs = do
+    checkMv :: MVar (BlockHeader -> t -> IO b) -> BlockHeader -> t -> IO b
+    checkMv mv bh xs = do
         f <- readMVar mv
-        f xs
+        f bh xs
 
     gen :: PropertyM IO (Set MockTx, Set MockTx, Set MockTx)
     gen = do
@@ -67,7 +68,7 @@ txcfg = TransactionConfig mockCodec hasher hashmeta mockGasPrice
 
 testInMemCfg :: InMemConfig MockTx
 testInMemCfg =
-    InMemConfig txcfg mockBlockGasLimit 0 2048 Right (pure . V.map Right) (1024 * 10)
+    InMemConfig txcfg mockBlockGasLimit 0 2048 Right (const $ pure . V.map Right) (1024 * 10)
 
 propSync
     :: (Set MockTx, Set MockTx , Set MockTx)
@@ -76,9 +77,9 @@ propSync
     -> IO (Either String ())
 propSync (txs, missing, later) _ localMempool' =
     withInMemoryMempool testInMemCfg (barebonesTestVersion singletonChainGraph) $ \remoteMempool -> do
-        mempoolInsert localMempool' CheckedInsert txsV
-        mempoolInsert remoteMempool CheckedInsert txsV
-        mempoolInsert remoteMempool CheckedInsert missingV
+        mempoolInsert localMempool' undefined CheckedInsert txsV
+        mempoolInsert remoteMempool undefined CheckedInsert txsV
+        mempoolInsert remoteMempool undefined CheckedInsert missingV
 
         doneVar <- newEmptyMVar
         syncFinished <- newEmptyMVar
@@ -103,7 +104,7 @@ propSync (txs, missing, later) _ localMempool' =
                 -- We should now be subscribed and waiting for V.length laterV
                 -- more transactions before getting killed. Transactions
                 -- inserted into remote should get synced to us.
-                mempoolInsert remoteMempool CheckedInsert laterV
+                mempoolInsert remoteMempool undefined CheckedInsert laterV
 
                 -- wait until time bomb 2 goes off
                 takeMVar doneVar
@@ -133,8 +134,8 @@ timebomb k act mp = do
     ref <- newIORef k
     return $! mp { mempoolInsert = ins ref }
   where
-    ins ref t v = do
-        mempoolInsert mp t v
+    ins ref bh t v = do
+        mempoolInsert mp bh t v
         c <- atomicModifyIORef' ref (\x -> let !x' = x - V.length v
                                            in (x', x'))
         when (c == 0) $ void act     -- so that the bomb only triggers once

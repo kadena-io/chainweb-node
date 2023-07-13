@@ -24,6 +24,7 @@ import qualified Data.Text as T
 import qualified Data.Vector as V
 import Test.Tasty
 import Test.Tasty.HUnit
+import Numeric.Natural
 
 -- internal modules
 
@@ -54,6 +55,7 @@ import Chainweb.Pact.TransactionExec (listErrMsg)
 import Chainweb.Pact.Types (TxTimeout(..))
 import Chainweb.Payload
 import Chainweb.SPV.CreateProof
+import Chainweb.TreeDB (seekAncestor)
 import Chainweb.Test.Cut
 import Chainweb.Test.Cut.TestBlockDb
 import Chainweb.Test.Pact.Utils
@@ -63,6 +65,7 @@ import Chainweb.Time
 import Chainweb.Utils
 import Chainweb.Version
 import Chainweb.Version.Utils
+import Chainweb.WebBlockHeaderDB
 import Chainweb.WebPactExecutionService
 
 import Chainweb.Storage.Table (casLookupM)
@@ -249,41 +252,26 @@ pactLocalDepthTest = do
         assertTxGas "Coin post-fork" 1583
     ]
 
-  runLocalWithDepth (Just $ RewindDepth 0) cid getSender00Balance >>= \r ->
+  bh <- getHeader cid
+
+  runLocal cid bh getSender00Balance >>= \r ->
     checkLocalResult r $ assertTxSuccess "Should get the current balance" (pDecimal 99999997.6834)
 
-  -- checking that `Just $ RewindDepth 0` has the same behaviour as `Nothing`
-  runLocalWithDepth Nothing cid getSender00Balance >>= \r ->
-    checkLocalResult r $ assertTxSuccess "Should get the current balance as well" (pDecimal 99999997.6834)
+  bh1 <- getHeaderAtDepth cid 1
 
-  runLocalWithDepth (Just $ RewindDepth 1) cid getSender00Balance >>= \r ->
+  runLocal cid bh1 getSender00Balance >>= \r ->
     checkLocalResult r $ assertTxSuccess "Should get the balance one block before" (pDecimal 99999998.8417)
 
-  runLocalWithDepth (Just $ RewindDepth 2) cid getSender00Balance >>= \r ->
+  bh2 <- getHeaderAtDepth cid 2
+
+  runLocal cid bh2 getSender00Balance >>= \r ->
     checkLocalResult r $ assertTxSuccess "Should get the balance two blocks before" (pDecimal 100000000)
 
-  -- the negative depth turns into 18446744073709551611 and we expect the `LocalRewindLimitExceeded` exception
-  -- since `Depth` is a wrapper around `Word64`
-  handle
-    (\case
-      LocalRewindLimitExceeded _ _ -> return ()
-      err -> liftIO $ assertFailure $ "Expected LocalRewindLimitExceeded, but got " ++ show err)
-    (do
-      runLocalWithDepth (Just $ RewindDepth (fromIntegral (-5 :: Int))) cid getSender00Balance >>= \_ ->
-        liftIO $ assertFailure "Expected LocalRewindLimitExceeded, but block succeeded")
+  bh55 <- getHeaderAtDepth cid 55
 
   -- the genesis depth
-  runLocalWithDepth (Just $ RewindDepth 55) cid getSender00Balance >>= \r ->
+  runLocal cid bh55 getSender00Balance >>= \r ->
     checkLocalResult r $ assertTxSuccess "Should get the balance at the genesis block" (pDecimal 100000000)
-
-  -- depth that goes after the genesis block should trigger the `LocalRewindLimitExceeded` exception
-  handle
-    (\case
-      LocalRewindGenesisExceeded -> return ()
-      err -> liftIO $ assertFailure $ "Expected LocalRewindGenesisExceeded, but got " ++ show err)
-    (do
-      runLocalWithDepth (Just $ RewindDepth 56) cid getSender00Balance >>= \_ ->
-        liftIO $ assertFailure "Expected LocalRewindGenesisExceeded, but block succeeded")
 
   where
   checkLocalResult r checkResult = case r of
@@ -332,7 +320,8 @@ pact45UpgradeTest = do
         assertTxGas "Coin post-fork" 709
     ]
   -- run local to check error
-  lr <- runLocal cid $ set cbGasLimit 70000 $ mkCmd "nonce" (tblModule "tBl")
+  bh <- getHeader cid
+  lr <- runLocal cid bh $ set cbGasLimit 70000 $ mkCmd "nonce" (tblModule "tBl")
   assertLocalFailure "mod53 table update error"
     (pretty $ show $ PactDuplicateTableError "free.mod53_tBl")
     lr
@@ -354,14 +343,11 @@ pact45UpgradeTest = do
   buildSimpleCmd code = buildBasicGas 3000
       $ mkExec' code
 
-runLocal :: ChainId -> CmdBuilder -> PactTestM (Either PactException LocalResult)
-runLocal cid' cmd = runLocalWithDepth Nothing cid' cmd
-
-runLocalWithDepth :: Maybe RewindDepth -> ChainId -> CmdBuilder -> PactTestM (Either PactException LocalResult)
-runLocalWithDepth depth cid' cmd = do
+runLocal :: ChainId -> BlockHeader -> CmdBuilder -> PactTestM (Either PactException LocalResult)
+runLocal cid' bh cmd = do
   HM.lookup cid' <$> view menvPacts >>= \case
     Just pact -> buildCwCmd cmd >>=
-      liftIO . _pactLocal pact Nothing Nothing depth
+      liftIO . _pactLocal pact bh Nothing Nothing
     Nothing -> liftIO $ assertFailure $ "No pact service found at chain id " ++ show cid'
 
 assertLocalFailure
@@ -999,8 +985,9 @@ chainweb219UpgradeTest = do
         (pDecimal 1.0)
       ]
 
+  bh <- getHeader cid
   -- run local on RTC check
-  lr <- runLocal cid $ set cbGasLimit 70000 $ mkCmd "nonce" runIllTypedFunctionExec
+  lr <- runLocal cid bh $ set cbGasLimit 70000 $ mkCmd "nonce" runIllTypedFunctionExec
   assertLocalSuccess
     "User function return value types should not be checked in local"
     (pDecimal 1.0)
@@ -1385,6 +1372,20 @@ getHeader chid = do
   (TestBlockDb _ _ cmv) <- view menvBdb
   c <- liftIO $ readMVar cmv
   fromMaybeM (userError $ "chain lookup failed for " ++ show chid) $ HM.lookup chid (_cutMap c)
+
+getHeaderAtDepth :: ChainId -> Natural -> PactTestM BlockHeader
+getHeaderAtDepth chid depth = do
+  (TestBlockDb wbhdb _ cmv) <- view menvBdb
+  c <- liftIO $ readMVar cmv
+  bh <- fromMaybeM (userError $ "chain lookup failed for " ++ show chid) $ HM.lookup chid (_cutMap c)
+
+  bhdb <- getWebBlockHeaderDb wbhdb cid
+  let ancestorRank = fromIntegral $ (getBlockHeight $ _blockHeight bh) - fromIntegral depth
+
+  dbEntry <- liftIO $ seekAncestor bhdb bh ancestorRank
+  case dbEntry of
+    Just v -> pure v
+    Nothing -> liftIO $ assertFailure $ "Couldn't get the ancestor at the given depth: " ++ show depth
 
 -- | Get tx at index from output
 txResult :: HasCallStack => Int -> PactTestM (CommandResult Hash)

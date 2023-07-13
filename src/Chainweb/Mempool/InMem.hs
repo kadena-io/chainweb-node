@@ -61,6 +61,7 @@ import System.Random
 -- internal imports
 
 import Chainweb.BlockHash
+import Chainweb.BlockHeader
 import Chainweb.BlockHeight
 import Chainweb.Logger
 import Chainweb.Mempool.CurrentTxs
@@ -303,9 +304,10 @@ insertCheckInMem
     .  NFData t
     => InMemConfig t    -- ^ in-memory config
     -> MVar (InMemoryMempoolData t)  -- ^ in-memory state
+    -> BlockHeader
     -> Vector t  -- ^ new transactions
     -> IO (Either (T2 TransactionHash InsertError) ())
-insertCheckInMem cfg lock txs
+insertCheckInMem cfg lock bh txs
   | V.null txs = pure $ Right ()
   | otherwise = do
     now <- getCurrentTimeIntegral
@@ -321,7 +323,8 @@ insertCheckInMem cfg lock txs
 
     case withHashes of
         Left _ -> pure $! void withHashes
-        Right r -> void . sequenceA <$!> _inmemPreInsertBatchChecks cfg r
+        -- TODO: pass blockheader
+        Right r -> void . sequenceA <$!> _inmemPreInsertBatchChecks cfg bh r
   where
     hasher :: t -> TransactionHash
     hasher = txHasher (_inmemTxCfg cfg)
@@ -432,9 +435,10 @@ insertCheckInMem'
     .  NFData t
     => InMemConfig t    -- ^ in-memory config
     -> MVar (InMemoryMempoolData t)  -- ^ in-memory state
+    -> BlockHeader
     -> Vector t  -- ^ new transactions
     -> IO (Vector (T2 TransactionHash t))
-insertCheckInMem' cfg lock txs
+insertCheckInMem' cfg lock bh txs
   | V.null txs = pure V.empty
   | otherwise = do
     now <- getCurrentTimeIntegral
@@ -446,7 +450,8 @@ insertCheckInMem' cfg lock txs
           let !h = hasher tx
           in (T2 h) <$> hush (validateOne cfg badmap curTxIdx now tx h)
 
-    V.mapMaybe hush <$!> _inmemPreInsertBatchChecks cfg withHashes
+    -- TODO: pass blockheader
+    V.mapMaybe hush <$!> _inmemPreInsertBatchChecks cfg bh withHashes
   where
     txcfg = _inmemTxCfg cfg
     hasher = txHasher txcfg
@@ -456,10 +461,11 @@ insertInMem
     .  NFData t
     => InMemConfig t    -- ^ in-memory config
     -> MVar (InMemoryMempoolData t)  -- ^ in-memory state
+    -> BlockHeader
     -> InsertType
     -> Vector t  -- ^ new transactions
     -> IO ()
-insertInMem cfg lock runCheck txs0 = do
+insertInMem cfg lock bh runCheck txs0 = do
     txhashes <- insertCheck
     withMVarMasked lock $ \mdata -> do
         pending <- readIORef (_inmemPending mdata)
@@ -473,7 +479,7 @@ insertInMem cfg lock runCheck txs0 = do
   where
     insertCheck :: IO (Vector (T2 TransactionHash t))
     insertCheck = if runCheck == CheckedInsert
-                  then insertCheckInMem' cfg lock txs0
+                  then insertCheckInMem' cfg lock bh txs0
                   else return $! V.map (\tx -> T2 (hasher tx) tx) txs0
 
     txcfg = _inmemTxCfg cfg

@@ -52,7 +52,6 @@ import Pact.Types.Persistence
 import Chainweb.BlockHash ( BlockHash )
 import Chainweb.BlockHeader
 import Chainweb.BlockHeight
-import Chainweb.ChainId
 import Chainweb.Mempool.Mempool (InsertError(..),TransactionHash)
 import Chainweb.Miner.Pact
 import Chainweb.Pact.Backend.DbCache
@@ -249,16 +248,16 @@ data ValidateBlockReq = ValidateBlockReq
 instance Show ValidateBlockReq where show ValidateBlockReq{..} = show (_valBlockHeader, _valPayloadData)
 
 data LocalReq = LocalReq
-    { _localRequest :: !ChainwebTransaction
+    { _localBlockHeader :: !BlockHeader
+    , _localRequest :: !ChainwebTransaction
     , _localPreflight :: !(Maybe LocalPreflightSimulation)
     , _localSigVerification :: !(Maybe LocalSignatureVerification)
-    , _localRewindDepth :: !(Maybe RewindDepth)
     , _localResultVar :: !(PactExMVar LocalResult)
     }
 instance Show LocalReq where show LocalReq{..} = show _localRequest
 
 data LookupPactTxsReq = LookupPactTxsReq
-    { _lookupRestorePoint :: !Rewind
+    { _lookupRestorePoint :: !BlockHeader
     , _lookupConfirmationDepth :: !(Maybe ConfirmationDepth)
     , _lookupKeys :: !(Vector PactHash)
     , _lookupResultVar :: !(PactExMVar (HashMap PactHash (T2 BlockHeight BlockHash)))
@@ -268,7 +267,7 @@ instance Show LookupPactTxsReq where
         "LookupPactTxsReq@" ++ show m
 
 data PreInsertCheckReq = PreInsertCheckReq
-    { _preInsCheckBlockHeader :: !Rewind
+    { _preInsCheckBlockHeader :: BlockHeader
     , _preInsCheckTxs :: !(Vector ChainwebTransaction)
     , _preInsCheckResult :: !(PactExMVar (Vector (Either InsertError ())))
     }
@@ -333,12 +332,3 @@ instance FromJSON SpvRequest where
 newtype TransactionOutputProofB64 = TransactionOutputProofB64 Text
     deriving stock (Eq, Show, Generic)
     deriving newtype (ToJSON, FromJSON)
-
--- | This data type marks the particular header for rewinding.
-newtype Rewind = DoRewind BlockHeader
-  deriving (Eq, Show)
-
-instance HasChainId Rewind where
-    _chainId = \case
-      DoRewind !bh -> _chainId bh
-    {-# INLINE _chainId #-}

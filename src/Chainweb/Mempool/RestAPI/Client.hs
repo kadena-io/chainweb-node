@@ -57,7 +57,7 @@ toMempool version chain txcfg env =
     , mempoolMember = member
     , mempoolLookup = lookup
     , mempoolInsert = insert
-    , mempoolInsertCheck = const unsupported
+    , mempoolInsertCheck = const $ const unsupported
     , mempoolMarkValidated = const unsupported
     , mempoolAddToBadList = const unsupported
     , mempoolCheckBadList = const unsupported
@@ -71,7 +71,7 @@ toMempool version chain txcfg env =
 
     member v = V.fromList <$> go (memberClient version chain (V.toList v))
     lookup v = V.fromList <$> go (lookupClient txcfg version chain (V.toList v))
-    insert _ v = void $ go (insertClient txcfg version chain (V.toList v))
+    insert _ _ v = void $ go (insertClient txcfg version chain (V.toList v))
 
     getPending hw cb = do
         runClientM (getPendingClient version chain hw) env >>= \case

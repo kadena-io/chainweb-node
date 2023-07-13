@@ -50,6 +50,7 @@ import Test.Tasty.QuickCheck hiding ((.&.))
 import Pact.Parse (ParsedDecimal(..))
 
 import Chainweb.BlockHash
+import Chainweb.BlockHeader
 import Chainweb.Mempool.Mempool
 import Chainweb.Test.Utils
 import qualified Chainweb.Time as Time
@@ -129,7 +130,8 @@ instance Arbitrary MockTx where
       zero = Time.Time (Time.TimeSpan (Time.Micros 0))
 
 type BatchCheck =
-    Vector (T2 TransactionHash MockTx)
+    BlockHeader
+    -> Vector (T2 TransactionHash MockTx)
     -> IO (V.Vector (Either (T2 TransactionHash InsertError)
                             (T2 TransactionHash MockTx)))
 
@@ -184,7 +186,7 @@ propOverlarge (txs, overlarge0) _ mempool = runExceptT $ do
   where
     txcfg = mempoolTxConfig mempool
     hash = txHasher txcfg
-    insert v = mempoolInsert mempool CheckedInsert $ V.fromList v
+    insert v = mempoolInsert mempool undefined CheckedInsert $ V.fromList v
     lookup = mempoolLookup mempool . V.fromList . map hash
     overlarge = setOverlarge overlarge0
     setOverlarge = map (\x -> x { mockGasLimit = mockBlockGasLimit + 100 })
@@ -217,7 +219,7 @@ propBadlistPreblock (txs, badTxs) _ mempool = runExceptT $ do
 
     txcfg = mempoolTxConfig mempool
     hash = txHasher txcfg
-    insert v = mempoolInsert mempool CheckedInsert $ V.fromList v
+    insert v = mempoolInsert mempool undefined CheckedInsert $ V.fromList v
     lookup = mempoolLookup mempool . V.fromList . map hash
 
 propAddToBadList
@@ -242,7 +244,7 @@ propAddToBadList tx _ mempool = runExceptT $ do
   where
     txcfg = mempoolTxConfig mempool
     hash = txHasher txcfg
-    insert v = mempoolInsert mempool CheckedInsert $ V.fromList v
+    insert v = mempoolInsert mempool undefined CheckedInsert $ V.fromList v
     lookup = mempoolLookup mempool . V.fromList . map hash
     getBlock = liftIO
       $ V.toList <$> mempoolGetBlock mempool mockBlockFill noopMempoolPreBlockCheck 1 nullBlockHash
@@ -260,13 +262,13 @@ propPreInsert (txs, badTxs) gossipMV mempool =
 
   where
     go = runExceptT $ do
-        liftIO $ modifyMVar_ gossipMV $ const $ return checkNotBad
+        liftIO $ modifyMVar_ gossipMV $ const $ return $ const checkNotBad
         liftIO $ insert $ txs ++ badTxs
         liftIO (lookup txs) >>= V.mapM_ lookupIsPending
         liftIO (lookup badTxs) >>= V.mapM_ lookupIsMissing
     txcfg = mempoolTxConfig mempool
     hash = txHasher txcfg
-    insert v = mempoolInsert mempool CheckedInsert $ V.fromList v
+    insert v = mempoolInsert mempool undefined CheckedInsert $ V.fromList v
     lookup = mempoolLookup mempool . V.fromList . map hash
 
     checkOne :: MockTx -> Either InsertError MockTx
@@ -299,7 +301,7 @@ propTrivial txs _ mempool = runExceptT $ do
                   in V.and ffs
     txcfg = mempoolTxConfig mempool
     hash = txHasher txcfg
-    insert v = mempoolInsert mempool CheckedInsert $ V.fromList v
+    insert v = mempoolInsert mempool undefined CheckedInsert $ V.fromList v
     lookup = mempoolLookup mempool . V.fromList . map hash
 
     getBlock = mempoolGetBlock mempool mockBlockFill noopMempoolPreBlockCheck 0 nullBlockHash
@@ -331,7 +333,7 @@ propGetPending txs0 _ mempool = runExceptT $ do
     onFees x = (Down (mockGasPrice x), mockGasLimit x, mockNonce x)
     hash = txHasher $ mempoolTxConfig mempool
     getPending = mempoolGetPendingTransactions mempool
-    insert v = mempoolInsert mempool CheckedInsert $ V.fromList v
+    insert v = mempoolInsert mempool undefined CheckedInsert $ V.fromList v
 
 propHighWater
     :: ([MockTx], [MockTx])
@@ -363,7 +365,7 @@ propHighWater (txs0, txs1) _ mempool = runExceptT $ do
     txdata = sort $ map hash txs1
     hash = txHasher $ mempoolTxConfig mempool
     getPending = mempoolGetPendingTransactions mempool
-    insert txs = mempoolInsert mempool CheckedInsert $ V.fromList txs
+    insert txs = mempoolInsert mempool undefined CheckedInsert $ V.fromList txs
 
 
 uniq :: Eq a => [a] -> [a]

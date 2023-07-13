@@ -6,7 +6,9 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TupleSections #-}
 {-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE RecordWildCards #-}
 
 -- |
 -- Module: Chainweb.Test.Pact
@@ -23,6 +25,7 @@ module Chainweb.Test.Pact.PactExec
 
 import Control.Lens hiding ((.=))
 import Control.Monad
+import Control.Monad.State.Strict
 import Data.Aeson
 import Data.Aeson.Encode.Pretty
 import qualified Data.ByteString.Lazy.Char8 as BL
@@ -39,7 +42,7 @@ import Test.Tasty.HUnit
 
 -- internal modules
 
-import Chainweb.BlockHeader (genesisBlockHeader)
+import Chainweb.BlockHeader (genesisBlockHeader, _parentHeader)
 import Chainweb.BlockHeaderDB (BlockHeaderDb)
 import Chainweb.Graph
 import Chainweb.Miner.Pact
@@ -543,8 +546,9 @@ execLocalTest runPact name (trans',check) = testCaseSch name (go >>= check)
   where
     go = do
       trans <- trans'
-      results' <- tryAllSynchronous $ runPact $ \_ ->
-        execLocal trans Nothing Nothing Nothing
+      results' <- tryAllSynchronous $ runPact $ \_ -> do
+        bh <- get >>= \PactServiceState{..} -> pure $ _parentHeader _psParentHeader
+        execLocal bh trans Nothing Nothing
       case results' of
         Right (MetadataValidationFailure e) ->
           return $ Left $ show e

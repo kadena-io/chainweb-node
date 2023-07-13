@@ -34,7 +34,7 @@ import Control.Applicative
 import Control.Concurrent.STM (atomically, retry)
 import Control.Concurrent.STM.TVar
 import Control.DeepSeq
-import Control.Lens (set, view, preview)
+import Control.Lens (set, view, preview, (^?!))
 import Control.Monad.Catch hiding (Handler)
 import Control.Monad.Reader
 import Control.Monad.State.Strict
@@ -187,7 +187,7 @@ pactServer d =
       = sendHandler logger mempool
       :<|> pollHandler logger cdb cid pact mempool
       :<|> listenHandler logger cdb cid pact mempool
-      :<|> localHandler logger cdb pact
+      :<|> localHandler logger cdb cid pact
 
     pactSpvHandler = spvHandler logger cdb cid
     pactSpv2Handler = spv2Handler logger cdb cid
@@ -229,8 +229,8 @@ sendHandler logger mempool (SubmitBatch cmds) = Handler $ do
        Right enriched -> do
            let txs = V.fromList $ NEL.toList enriched
            -- If any of the txs in the batch fail validation, we reject them all.
-           liftIO (mempoolInsertCheck mempool txs) >>= checkResult
-           liftIO (mempoolInsert mempool UncheckedInsert txs)
+           liftIO (mempoolInsertCheck mempool undefined txs) >>= checkResult
+           liftIO (mempoolInsert mempool undefined UncheckedInsert txs)
            return $! RequestKeys $ NEL.map cmdToRequestKey enriched
        Left err -> failWith $ "Validation failed: " <> T.pack err
   where
@@ -337,6 +337,8 @@ listenHandler logger cdb cid pact mem (ListenerRequest key) = do
 localHandler
     :: Logger logger
     => logger
+    -> CutDB.CutDb tbl
+    -> ChainId
     -> PactExecutionService
     -> Maybe LocalPreflightSimulation
       -- ^ Preflight flag
@@ -346,14 +348,32 @@ localHandler
       -- ^ Rewind depth
     -> Command Text
     -> Handler LocalResult
-localHandler logger pact preflight sigVerify rewindDepth cmd = do
+localHandler logger cdb cid pact preflight sigVerify rewindDepth cmd = do
     liftIO $ logg Info $ PactCmdLogLocal cmd
     cmd' <- case doCommandValidation cmd of
       Right c -> return c
       Left err ->
         throwError $ setErrText ("Validation failed: " <> T.pack err) err400
 
-    r <- liftIO $ _pactLocal pact preflight sigVerify rewindDepth cmd'
+    -- get current best cut
+    cut <- liftIO $! CutDB._cut cdb
+    -- get leaf block header for our chain from current best cut
+    chainLeaf <- lookupCutM cid cut
+
+    rewindHeader <-
+      case rewindDepth of
+        Nothing -> pure chainLeaf
+        Just (RewindDepth rd) -> do
+          let
+            chainDb = cdb ^?! CutDB.cutDbWebBlockHeaderDb . ixg cid
+            ancestorRank = fromIntegral $ (getBlockHeight $ _blockHeight chainLeaf) - rd
+          ancestor <- liftIO $ TreeDB.seekAncestor chainDb chainLeaf ancestorRank
+          case ancestor of
+              Just a -> pure a
+              Nothing -> throwM $ BlockHeaderLookupFailure $
+                  "failed seekAncestor of parent header with ancestorRank " <> sshow ancestorRank
+
+    r <- liftIO $ _pactLocal pact rewindHeader preflight sigVerify cmd'
     case r of
       Left err -> throwError $ setErrText
         ("Execution failed: " <> T.pack (show err)) err400
@@ -413,7 +433,7 @@ spvHandler l cdb cid (SpvRequest rk (Pact.ChainId ptid)) = do
     -- get leaf block header for our chain from current best cut
     chainLeaf <- lookupCutM cid cut
 
-    T2 bhe _bha <- liftIO (_pactLookup pe (DoRewind chainLeaf) Nothing (pure ph)) >>= \case
+    T2 bhe _bha <- liftIO (_pactLookup pe chainLeaf Nothing (pure ph)) >>= \case
       Left e ->
         toErr $ "Internal error: transaction hash lookup failed: " <> sshow e
       Right v -> case HM.lookup ph v of
@@ -498,7 +518,7 @@ spv2Handler l cdb cid r = case _spvSubjectIdType sid of
         -- get leaf block header for our chain from current best cut
         chainLeaf <- lookupCutM cid cut
 
-        T2 bhe bha <- liftIO (_pactLookup pe (DoRewind chainLeaf) Nothing (pure ph)) >>= \case
+        T2 bhe bha <- liftIO (_pactLookup pe chainLeaf Nothing (pure ph)) >>= \case
             Left e ->
                 toErr $ "Internal error: transaction hash lookup failed: " <> sshow e
             Right v -> case HM.lookup ph v of
@@ -591,7 +611,7 @@ internalPoll
 internalPoll pdb bhdb mempool pactEx cut confDepth requestKeys0 = do
     -- get leaf block header for our chain from current best cut
     chainLeaf <- lookupCutM cid cut
-    results0 <- _pactLookup pactEx (DoRewind chainLeaf) confDepth requestKeys >>= either throwM return
+    results0 <- _pactLookup pactEx chainLeaf confDepth requestKeys >>= either throwM return
         -- TODO: are we sure that all of these are raised locally. This will cause the
         -- server to shut down the connection without returning a result to the user.
     let results1 = V.map (\rk -> (rk, HM.lookup (Pact.fromUntypedHash $ unRequestKey rk) results0)) requestKeysV

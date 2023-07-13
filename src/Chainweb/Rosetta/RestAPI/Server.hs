@@ -440,8 +440,8 @@ constructionSubmitH v ms (ConstructionSubmitReq net tx) =
           Right validated -> do
             let txs = V.fromList [validated]
             -- If any of the txs in the batch fail validation, we reject them all.
-            liftIO (mempoolInsertCheck mempool txs) >>= checkResult
-            liftIO (mempoolInsert mempool UncheckedInsert txs)
+            liftIO (mempoolInsertCheck mempool undefined txs) >>= checkResult
+            liftIO (mempoolInsert mempool undefined UncheckedInsert txs)
             pure $ TransactionIdResp (cmdToTransactionId cmd) Nothing
           Left e -> throwE $ stringRosettaError RosettaInvalidTx
             $ "Validation failed: " ++ show e

@@ -61,16 +61,16 @@ data PactExecutionService = PactExecutionService
         )
       -- ^ Request a new block to be formed using mempool
     , _pactLocal :: !(
+        BlockHeader ->
         Maybe LocalPreflightSimulation ->
         Maybe LocalSignatureVerification ->
-        Maybe RewindDepth ->
         ChainwebTransaction ->
         IO (Either PactException LocalResult))
       -- ^ Directly execute a single transaction in "local" mode (all DB interactions rolled back).
       -- Corresponds to `local` HTTP endpoint.
     , _pactLookup :: !(
-        Rewind
-        -- restore point, either a block header or the current "head" of the pact service.
+        BlockHeader
+        -- restore point
         -> Maybe ConfirmationDepth
         -- confirmation depth
         -> Vector PactHash
@@ -133,7 +133,7 @@ mkWebPactExecutionService
 mkWebPactExecutionService hm = WebPactExecutionService $ PactExecutionService
     { _pactValidateBlock = \h pd -> withChainService (_chainId h) $ \p -> _pactValidateBlock p h pd
     , _pactNewBlock = \m h -> withChainService (_chainId h) $ \p -> _pactNewBlock p m h
-    , _pactLocal = \_pf _sv _rd _ct -> throwM $ userError "Chainweb.WebPactExecutionService.mkPactExecutionService: No web-level local execution supported"
+    , _pactLocal = \_bh _pf _sv _ct -> throwM $ userError "Chainweb.WebPactExecutionService.mkPactExecutionService: No web-level local execution supported"
     , _pactLookup = \h cd txs -> withChainService (_chainId h) $ \p -> _pactLookup p h cd txs
     , _pactPreInsertCheck = \cid bh txs -> withChainService cid $ \p -> _pactPreInsertCheck p cid bh txs
     , _pactBlockTxHistory = \h d -> withChainService (_chainId h) $ \p -> _pactBlockTxHistory p h d
@@ -161,8 +161,8 @@ mkPactExecutionService q = PactExecutionService
         mv <- newBlock m h q
         r <- takeMVar mv
         either throwM evaluate r
-    , _pactLocal = \pf sv rd ct ->
-        local pf sv rd ct q >>= takeMVar
+    , _pactLocal = \bh pf sv ct ->
+        local bh pf sv ct q >>= takeMVar
     , _pactLookup = \h cd txs ->
         lookupPactTxs h cd txs q >>= takeMVar
     , _pactPreInsertCheck = \_ bh txs ->

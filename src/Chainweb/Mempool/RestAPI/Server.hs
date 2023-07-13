@@ -53,7 +53,7 @@ insertHandler mempool txsT = handleErrs (NoContent <$ begin)
     begin = do
         txs <- mapM go txsT
         let txV = V.fromList txs
-        liftIO $ mempoolInsert mempool CheckedInsert txV
+        liftIO $ mempoolInsert mempool undefined CheckedInsert txV
 
 
 memberHandler :: Show t => MempoolBackend t -> [TransactionHash] -> Handler [Bool]

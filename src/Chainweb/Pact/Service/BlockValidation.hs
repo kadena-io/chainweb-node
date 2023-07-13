@@ -71,25 +71,25 @@ validateBlock bHeader plData reqQ = do
     return resultVar
 
 local
-    :: Maybe LocalPreflightSimulation
+    :: BlockHeader
+    -> Maybe LocalPreflightSimulation
     -> Maybe LocalSignatureVerification
-    -> Maybe RewindDepth
     -> ChainwebTransaction
     -> PactQueue
     -> IO (MVar (Either PactException LocalResult))
-local preflight sigVerify rd ct reqQ = do
+local blockHeader preflight sigVerify ct reqQ = do
     !resultVar <- newEmptyMVar
     let !msg = LocalMsg LocalReq
-          { _localRequest = ct
+          { _localBlockHeader = blockHeader
+          , _localRequest = ct
           , _localPreflight = preflight
           , _localSigVerification = sigVerify
-          , _localRewindDepth = rd
           , _localResultVar = resultVar }
     addRequest reqQ msg
     return resultVar
 
 lookupPactTxs
-    :: Rewind
+    :: BlockHeader
     -> Maybe ConfirmationDepth
     -> Vector PactHash
     -> PactQueue
@@ -108,7 +108,7 @@ pactPreInsertCheck
     -> IO (MVar (Either PactException (Vector (Either InsertError ()))))
 pactPreInsertCheck bh txs reqQ = do
     resultVar <- newEmptyMVar
-    let !req = PreInsertCheckReq (DoRewind bh) txs resultVar
+    let !req = PreInsertCheckReq bh txs resultVar
     let !msg = PreInsertCheckMsg req
     addRequest reqQ msg
     return resultVar

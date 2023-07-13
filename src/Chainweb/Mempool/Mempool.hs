@@ -134,6 +134,7 @@ import Pact.Types.Gas (GasLimit(..), GasPrice(..))
 import qualified Pact.Types.Hash as H
 
 import Chainweb.BlockHash
+import Chainweb.BlockHeader
 import Chainweb.BlockHeight
 import Chainweb.Time (Micros(..), Time(..), TimeSpan(..))
 import qualified Chainweb.Time as Time
@@ -276,13 +277,14 @@ data MempoolBackend t = MempoolBackend {
   , mempoolLookup :: Vector TransactionHash -> IO (Vector (LookupResult t))
 
     -- | Insert the given transactions into the mempool.
-  , mempoolInsert :: InsertType      -- run pre-gossip check? Ignored at remote pools.
+  , mempoolInsert :: BlockHeader
+                  -> InsertType      -- run pre-gossip check? Ignored at remote pools.
                   -> Vector t
                   -> IO ()
 
     -- | Perform the pre-insert check for the given transactions. Short-circuits
     -- on the first Transaction that fails.
-  , mempoolInsertCheck :: Vector t -> IO (Either (T2 TransactionHash InsertError) ())
+  , mempoolInsertCheck :: BlockHeader -> Vector t -> IO (Either (T2 TransactionHash InsertError) ())
 
     -- | Remove the given hashes from the pending set.
   , mempoolMarkValidated :: Vector t -> IO ()
@@ -346,8 +348,8 @@ noopMempool = do
                               noopMeta
     noopMember v = return $ V.replicate (V.length v) False
     noopLookup v = return $ V.replicate (V.length v) Missing
-    noopInsert = const $ const $ return ()
-    noopInsertCheck _ = fail "unsupported"
+    noopInsert = const $ const $ const $ return ()
+    noopInsertCheck _ _ = fail "unsupported"
     noopMV = const $ return ()
     noopAddToBadList = const $ return ()
     noopCheckBadList v = return $ V.replicate (V.length v) False
@@ -473,7 +475,7 @@ syncMempools' log0 us localMempool remoteMempool = sync
     fetchMissing chunk = do
         res <- mempoolLookup remoteMempool chunk
         let !newTxs = V.map fromPending $ V.filter isPending res
-        mempoolInsert localMempool CheckedInsert newTxs
+        mempoolInsert localMempool undefined CheckedInsert newTxs
 
     deb :: Text -> IO ()
     deb = log0 Debug
@@ -545,7 +547,7 @@ syncMempools' log0 us localMempool remoteMempool = sync
     --
     sendChunk chunk = do
         v <- (V.map fromPending . V.filter isPending) <$> mempoolLookup localMempool chunk
-        unless (V.null v) $ mempoolInsert remoteMempool CheckedInsert v
+        unless (V.null v) $ mempoolInsert remoteMempool undefined CheckedInsert v
 
 
 syncMempools
