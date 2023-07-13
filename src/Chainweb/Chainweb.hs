@@ -423,7 +423,7 @@ withChainwebInternal conf logger peer serviceSock rocksDb pactDbDir backupDir re
       , _pactLogGas = _configLogGas conf
       , _pactModuleCacheLimit = _configModuleCacheLimit conf
       , _pactShouldJournal =
-          if _configOnlySyncPact conf then DoNotJournal else DoJournal
+          if _configNoPactJournal conf then DoNotJournal else DoJournal
       }
 
     pruningLogger :: T.Text -> logger

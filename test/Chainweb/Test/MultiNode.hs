@@ -32,7 +32,7 @@
 -- The configuration defines a scaled down, accelerated chain that tries to
 -- similulate a full-scale chain in a miniaturized settings.
 --
-module Chainweb.Test.MultiNode ( test, replayTest ) where
+module Chainweb.Test.MultiNode ( test, replayTest, noJournalReplayTest ) where
 
 import Control.Concurrent
 import Control.Concurrent.Async
@@ -345,6 +345,52 @@ replayTest loglevel v n = after AllFinish "ConsensusNetwork" $ testCaseSteps nam
         tastylog "done."
     where
     name = "Replay network"
+
+noJournalReplayTest
+    :: LogLevel
+    -> ChainwebVersion
+    -> Natural
+    -> TestTree
+noJournalReplayTest loglevel v n = after AllFinish "Replay network" $ testCaseSteps name $ \step ->
+    withTempRocksDb "replay-test-rocks" $ \rdb ->
+    withSystemTempDirectory "replay-test-pact" $ \pactDbDir -> do
+        let tastylog = step . T.unpack
+        let logFun = step . T.unpack
+        tastylog "phase 1..."
+        stateVar <- newMVar $ emptyConsensusState v
+        let ct = harvestConsensusState (genericLogger loglevel logFun) stateVar
+        runNodesForSeconds loglevel logFun (multiConfig v n) 2 60 rdb pactDbDir ct
+        Just stats1 <- consensusStateSummary <$> swapMVar stateVar (emptyConsensusState v)
+        assertGe "maximum cut height before reset" (Actual $ _statMaxHeight stats1) (Expected $ 10)
+        tastylog $ sshow stats1
+        tastylog $ "phase 2... resetting"
+        runNodesForSeconds loglevel logFun (multiConfig v 2 & set (configCuts . cutInitialBlockHeightLimit) (Just 5)) n 30 rdb pactDbDir ct
+        state2 <- swapMVar stateVar (emptyConsensusState v)
+        let stats2 = fromJuste $ consensusStateSummary state2
+        tastylog $ sshow stats2
+        assertGe "block count after reset" (Actual $ _statBlockCount stats2) (Expected $ _statBlockCount stats1)
+        tastylog $ "phase 3... replaying"
+        let replayInitialHeight = 5
+        firstReplayCompleteRef <- newIORef False
+        runNodesForSeconds loglevel logFun
+            (multiConfig v n
+                & set (configCuts . cutInitialBlockHeightLimit) (Just replayInitialHeight)
+                & set configOnlySyncPact True
+                & set configNoPactJournal True)
+            n (Seconds 20) rdb pactDbDir $ \nid cw -> case cw of
+                Replayed l u -> do
+                    writeIORef firstReplayCompleteRef True
+                    _ <- flip HM.traverseWithKey (_cutMap l) $ \cid bh ->
+                        assertEqual ("lower chain " <> sshow cid) replayInitialHeight (_blockHeight bh)
+                    assertEqual "upper cut" (_stateCutMap state2 HM.! nid) u
+                    _ <- flip HM.traverseWithKey (_cutMap u) $ \cid bh ->
+                        assertGe ("upper chain " <> sshow cid) (Actual $ _blockHeight bh) (Expected replayInitialHeight)
+                    return ()
+                _ -> error "noJournalReplayTest: not a replay"
+        assertEqual "first replay completion" True =<< readIORef firstReplayCompleteRef
+        tastylog "done."
+    where
+    name = "No-journal replay network"
 
 -- -------------------------------------------------------------------------- --
 -- Test

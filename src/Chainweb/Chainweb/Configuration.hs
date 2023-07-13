@@ -69,6 +69,7 @@ module Chainweb.Chainweb.Configuration
 , configBackup
 , configServiceApi
 , configOnlySyncPact
+, configNoPactJournal
 , configSyncPactChains
 , defaultChainwebConfiguration
 , pChainwebConfiguration
@@ -394,6 +395,8 @@ data ChainwebConfiguration = ChainwebConfiguration
     , _configServiceApi :: !ServiceApiConfig
     , _configOnlySyncPact :: !Bool
         -- ^ exit after synchronizing pact dbs to the latest cut
+    , _configNoPactJournal :: !Bool
+        -- ^ do not write journal rows to the pact db
     , _configSyncPactChains :: !(Maybe [ChainId])
         -- ^ the only chains to be synchronized on startup to the latest cut.
         --   if unset, all chains will be synchronized.
@@ -451,6 +454,7 @@ defaultChainwebConfiguration v = ChainwebConfiguration
     , _configRosetta = False
     , _configServiceApi = defaultServiceApiConfig
     , _configOnlySyncPact = False
+    , _configNoPactJournal = False
     , _configSyncPactChains = Nothing
     , _configBackup = defaultBackupConfig
     , _configModuleCacheLimit = defaultModuleCacheLimit
@@ -476,6 +480,7 @@ instance ToJSON ChainwebConfiguration where
         , "rosetta" .= _configRosetta o
         , "serviceApi" .= _configServiceApi o
         , "onlySyncPact" .= _configOnlySyncPact o
+        , "noPactJournal" .= _configNoPactJournal o
         , "syncPactChains" .= _configSyncPactChains o
         , "backup" .= _configBackup o
         , "moduleCacheLimit" .= _configModuleCacheLimit o
@@ -505,6 +510,7 @@ instance FromJSON (ChainwebConfiguration -> ChainwebConfiguration) where
         <*< configRosetta ..: "rosetta" % o
         <*< configServiceApi %.: "serviceApi" % o
         <*< configOnlySyncPact ..: "onlySyncPact" % o
+        <*< configNoPactJournal ..: "noPactJournal" % o
         <*< configSyncPactChains ..: "syncPactChains" % o
         <*< configBackup %.: "backup" % o
         <*< configModuleCacheLimit ..: "moduleCacheLimit" % o
@@ -553,6 +559,10 @@ pChainwebConfiguration = id
     <*< configOnlySyncPact .:: boolOption_
         % long "only-sync-pact"
         <> help "Terminate after synchronizing the pact databases to the latest cut"
+    <*< configNoPactJournal .:: boolOption_
+        % long "no-pact-journal"
+        <> help "Do not use pact journal"
+        <> internal
     <*< configSyncPactChains .:: fmap Just % jsonOption
         % long "sync-pact-chains"
         <> help "The only Pact databases to synchronize. If empty or unset, all chains will be synchronized."
