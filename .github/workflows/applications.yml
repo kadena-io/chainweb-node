@@ -486,6 +486,7 @@ jobs:
           databaseDirectory: "db"
           chainweb:
             onlySyncPact: true
+            noPactJournal: true
             chainwebVersion: development
             validateHashesOnReplay: true
             p2p:
