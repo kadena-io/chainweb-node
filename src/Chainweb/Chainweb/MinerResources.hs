@@ -59,7 +59,7 @@ import Chainweb.Logger (Logger, logFunction)
 import Chainweb.Miner.Config
 import Chainweb.Miner.Coordinator
 import Chainweb.Miner.Miners
-import Chainweb.Miner.Pact (Miner(..))
+import Chainweb.Miner.Pact (Miner(..), minerId)
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
 import Chainweb.Sync.WebBlockHeaderStore
