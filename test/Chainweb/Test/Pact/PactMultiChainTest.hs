@@ -51,7 +51,6 @@ import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.PactService
 import Chainweb.Pact.Service.Types
 import Chainweb.Pact.TransactionExec (listErrMsg)
-import Chainweb.Pact.Types (TxTimeout(..))
 import Chainweb.Payload
 import Chainweb.SPV.CreateProof
 import Chainweb.Test.Cut
@@ -170,7 +169,11 @@ txTimeoutTest :: PactTestM ()
 txTimeoutTest = do
   -- get access to `enumerate`
   runToHeight 20
-  handle (\(TxTimeout _) -> return ()) $ do
+  let
+    handleErr = \case
+      TimeoutFailure _ -> return ()
+      e -> throwM e
+  handle handleErr $ do
     runBlockTest
       -- deliberately time out in newblock
       [PactTxTest (buildBasicGas 1000 $ mkExec' "(enumerate 0 999999999999)") (\_ -> assertFailure "tx succeeded")]

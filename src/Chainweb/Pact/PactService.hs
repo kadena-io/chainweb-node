@@ -485,7 +485,7 @@ execNewBlock mpAccess parent miner = do
     handleTimeout (TxTimeout h) = do
       logError $ "execNewBlock: timed out on " <> sshow h
       liftIO $ mpaBadlistTx mpAccess (V.singleton h)
-      throwM (TxTimeout h)
+      throwM $ TimeoutFailure (TxTimeout h)
 
     -- This is intended to mitigate mining attempts during replay.
     -- In theory we shouldn't need to rewind much ever, but values

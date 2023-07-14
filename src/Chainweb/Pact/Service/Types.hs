@@ -109,6 +109,13 @@ instance Show GasPurchaseFailure where show = unpack . encodeToText
 gasPurchaseFailureHash :: GasPurchaseFailure -> TransactionHash
 gasPurchaseFailureHash (GasPurchaseFailure h _) = h
 
+newtype TxTimeout = TxTimeout TransactionHash
+    deriving (Eq,Generic)
+instance ToJSON TxTimeout
+instance FromJSON TxTimeout
+instance Show TxTimeout where show = unpack . encodeToText
+instance Exception TxTimeout
+
 -- | Used by /local to trigger user signature verification
 --
 data LocalSignatureVerification
@@ -184,6 +191,7 @@ data PactException
       }
   | BlockHeaderLookupFailure !Text
   | BuyGasFailure !GasPurchaseFailure
+  | TimeoutFailure !TxTimeout
   | MempoolFillFailure !Text
   | BlockGasLimitExceeded !Gas
   | LocalRewindLimitExceeded

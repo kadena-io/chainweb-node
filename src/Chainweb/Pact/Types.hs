@@ -136,7 +136,6 @@ module Chainweb.Pact.Types
   , logDebug
 
     -- * types
-  , TxTimeout(..)
   , ApplyCmdExecutionContext(..)
   , ModuleCache
 
@@ -196,7 +195,6 @@ import Chainweb.BlockHeader
 import Chainweb.BlockHeight
 import Chainweb.BlockHeaderDB
 import Chainweb.ChainId
-import Chainweb.Mempool.Mempool (TransactionHash)
 import Chainweb.Miner.Pact
 import Chainweb.Logger
 import Chainweb.Pact.Backend.DbCache
@@ -445,10 +443,6 @@ instance Show ReorgLimitExceeded where
 instance Exception ReorgLimitExceeded where
     fromException = asyncExceptionFromException
     toException = asyncExceptionToException
-
-newtype TxTimeout = TxTimeout TransactionHash
-    deriving Show
-instance Exception TxTimeout
 
 defaultOnFatalError :: forall a. (LogLevel -> Text -> IO ()) -> PactException -> Text -> IO a
 defaultOnFatalError lf pex t = do

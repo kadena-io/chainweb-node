@@ -59,7 +59,7 @@ import Chainweb.Logger (Logger, logFunction)
 import Chainweb.Miner.Config
 import Chainweb.Miner.Coordinator
 import Chainweb.Miner.Miners
-import Chainweb.Miner.Pact (Miner(..), minerId)
+import Chainweb.Miner.Pact (Miner(..))
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
 import Chainweb.Sync.WebBlockHeaderStore
@@ -95,7 +95,7 @@ withMiningCoordination logger conf cdb inner
         l <- newIORef (_coordinationUpdateStreamLimit coordConf)
         fmap thd . runConcurrently $ (,,)
             <$> Concurrently (prune t m c503 c403)
-            <*> Concurrently (mapConcurrently_ (primeWork m cut) cids)
+            <*> Concurrently (mapConcurrently_ (primeWork m) cids)
             <*> Concurrently (inner . Just $ MiningCoordination
                 { _coordLogger = logger
                 , _coordCutDb = cdb
@@ -121,24 +121,26 @@ withMiningCoordination logger conf cdb inner
     -- that when they request new work, the block can be instantly constructed
     -- without interacting with the Pact Queue.
     --
-    primeWork :: TVar PrimedWork -> Cut -> ChainId -> IO ()
-    primeWork tpw c cid = runForever (logFunction logger) "primeWork" $ go c
+    primeWork :: TVar PrimedWork -> ChainId -> IO ()
+    primeWork tpw cid = runForever (logFunction logger) "primeWork" $ go Nothing
       where
-        go :: Cut -> IO a
-        go cut = do
-            -- Even if the `cut` passed to the function is old, this call here will
-            -- immediately detect the newest `BlockHeader` on the given chain.
-            new <- awaitNewCutByChainId cdb cid cut
+        go :: Maybe Cut -> IO a
+        go oldCut = do
+            -- This call here will immediately detect the newest `BlockHeader`
+            -- on the given chain. We start with the current cut if it's our
+            -- first run, so that we can recover from errors when nobody else
+            -- is mining a block either.
+            newCut <- maybe (_cut cdb) (awaitNewCutByChainId cdb cid) oldCut
             -- Temporarily block this chain from being considered for queries --
             atomically $ modifyTVar' tpw (silenceChain cid)
             -- Generate new payloads, one for each Miner we're managing --
-            let !newParent = ParentHeader . fromJuste . HM.lookup cid $ _cutMap new
+            let !newParent = ParentHeader . fromJuste . HM.lookup cid $ _cutMap newCut
                 !newParentHash = _blockHash $ _parentHeader newParent
             payloads <- traverse (\m -> T2 m <$> getPayload newParent m) miners
             -- Update the cache in a single step --
             atomically $ modifyTVar' tpw $ \pw ->
                 foldl' (updateCache cid newParentHash) pw payloads
-            go new
+            go (Just newCut)
 
     -- | Declare that a particular Chain is temporarily unavailable for new work
     -- requests while a new payload is being formed.
