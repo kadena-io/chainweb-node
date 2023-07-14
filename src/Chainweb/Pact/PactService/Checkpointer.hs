@@ -639,7 +639,7 @@ heightProgress initialHeight ref logFun = forever $ do
     logFun
       $ "processed blocks: " <> sshow (h - initialHeight)
       <> ", current height: " <> sshow h
-    threadDelay (20 * 1_000000)
+    threadDelay (10 * 1_000000)
 
 failOnTooLowRequestedHeight
     :: forall tbl

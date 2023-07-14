@@ -252,16 +252,16 @@ backendWriteUpdateBatch
     -> IO ()
 backendWriteUpdateBatch shouldJournal bh writesByTable db = mapM_ writeTable writesByTable
   where
-    prepRow (SQLiteRowDelta _ txid rowkey rowdata) =
-        [ SText (Utf8 rowkey)
-        , SInt (fromIntegral txid)
-        , SBlob rowdata
-        ]
-
     writeTable (tableName, writes) = do
         when (shouldJournal == DoNotJournal) $
-            execMulti db deleteQ [ [SText (Utf8 rowkey)] | SQLiteRowDelta _ _ rowkey _ <- V.toList writes ]
-        execMulti db insertQ (prepRow <$> V.toList writes)
+            execMulti db deleteQ
+                [ [SText (Utf8 rowkey)]
+                | SQLiteRowDelta _ _ rowkey _ <- V.toList writes
+                ]
+        execMulti db insertQ
+            [ [SText (Utf8 rowkey), SInt (fromIntegral txid), SBlob rowdata]
+            | SQLiteRowDelta _ txid rowkey rowdata <- V.toList writes
+            ]
         when (shouldJournal == DoJournal) $
             markTableMutation tableName bh db
       where
