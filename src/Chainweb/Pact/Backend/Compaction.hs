@@ -37,7 +37,7 @@ module Chainweb.Pact.Backend.Compaction
   , withDefaultLogger
   ) where
 
-import Control.Concurrent.Async (forConcurrently_)
+import UnliftIO.Async (pooledMapConcurrentlyN_)
 import Control.Exception (Exception, SomeException(..))
 import Control.Lens (makeLenses, set, over, view)
 import Control.Monad (forM_, forM, when, void)
@@ -456,12 +456,13 @@ data CompactConfig = CompactConfig
   , ccFlags :: [CompactFlag]
   , ccChain :: Maybe ChainId
   , logDir :: FilePath
+  , ccThreads :: Int
   }
   deriving stock (Eq, Show)
 
 compactAll :: CompactConfig -> IO ()
 compactAll CompactConfig{..} = do
-  forConcurrently_ cids $ \cid -> do
+  flip (pooledMapConcurrentlyN_ ccThreads) cids $ \cid -> do
     withDefaultLogger logDir cid Debug $ \logger' -> do
       let logger = over setLoggerScope (("chain",sshow cid):) logger'
       let resetDb = False
@@ -525,6 +526,12 @@ compactMain = do
                <> metavar "DIRECTORY"
                <> help "Directory where logs will be placed"
                <> value ".")
+        <*> (fromIntegral @Int <$> option auto
+             (short 't'
+              <> long "threads"
+              <> metavar "THREADS"
+              <> value 4
+              <> help "Number of threads for compaction processing"))
 
 fromTextSilly :: HasTextRepresentation a => Text -> a
 fromTextSilly t = case fromText t of

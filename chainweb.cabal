@@ -402,6 +402,7 @@ library
         , tls-session-manager >= 0.0
         , token-bucket >= 0.1
         , transformers >= 0.5
+        , unliftio ^>= 0.2
         , unordered-containers == 0.2.15.0
         , wai >= 3.2.2.1
         , wai-app-static >= 3.1.6.3
