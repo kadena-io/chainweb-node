@@ -1,5 +1,23 @@
 # `chainweb-node` Changelog
 
+## 2.19.2 (2023-07-17)
+
+**NOTE: THIS VERSION SUPERSEDES 2.19.1. PLEASE UPDATE AS SOON AS POSSIBLE.**
+
+This version replaces all previous versions. Node administrators must upgrade to
+this version before 2023-06-01T00:00:00Z.
+
+This version will expire on 2023-09-07.
+
+To upgrade, pull the latest docker image or download the binary and restart the node.
+
+Changes:
+
+*   Add rewind support to /poll and /local. (#1653, #1686)
+*   Add some leniency to mempool creation time checks. (#1255)
+*   Return metadata from /local with preflight set to true. (#1612)
+*   Optimize new block creation. (#1691)
+
 ## 2.19.1 (2023-05-22)
 
 **NOTE: THIS VERSION SUPERSEDES 2.19. PLEASE UPDATE AS SOON AS POSSIBLE.**
