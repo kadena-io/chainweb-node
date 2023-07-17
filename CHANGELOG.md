@@ -4,8 +4,7 @@
 
 **NOTE: THIS VERSION SUPERSEDES 2.19.1. PLEASE UPDATE AS SOON AS POSSIBLE.**
 
-This version replaces all previous versions. Node administrators must upgrade to
-this version before 2023-06-01T00:00:00Z.
+This version replaces all previous versions. 
 
 This version will expire on 2023-09-07.
 
