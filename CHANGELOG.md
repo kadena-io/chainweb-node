@@ -4,7 +4,7 @@
 
 **NOTE: THIS VERSION SUPERSEDES 2.19.1. PLEASE UPDATE AS SOON AS POSSIBLE.**
 
-This version replaces all previous versions. 
+This version replaces all previous versions.
 
 This version will expire on 2023-09-07.
 
@@ -33,7 +33,7 @@ Changes:
 *   Disable user function return value typechecking (#1661)
 *   Add typechecking option to tx-sim. (#1656)
 
-## 2.19 (2023-05-25)
+## 2.19 (2023-05-17)
 
 **NOTE: THIS VERSION IS OBSOLETE. IT IS REPLACED BY 2.19.1. PLEASE UPDATE AS SOON
 AS POSSIBLE.**
