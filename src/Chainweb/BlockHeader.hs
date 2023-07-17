@@ -424,11 +424,11 @@ slowEpoch (ParentHeader p) (BlockCreationTime ct) = actual > (expected * 5)
   where
     EpochStartTime es = _blockEpochStart p
     v = _chainwebVersion p
-    BlockDelay br = _versionBlockDelay v
+    BlockDelay bd = _versionBlockDelay v
     WindowWidth ww = _versionWindow v
 
     expected :: Micros
-    expected = br * int ww
+    expected = bd * int ww
 
     actual :: Micros
     actual = timeSpanToMicros $ ct .-. es

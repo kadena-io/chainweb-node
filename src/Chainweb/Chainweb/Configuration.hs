@@ -578,15 +578,15 @@ parseVersion = constructVersion
     <*> optional (BlockDelay <$> textOption (long "block-delay" <> help "(development mode only) the block delay in seconds per block"))
     <*> switch (long "disable-pow" <> help "(development mode only) disable proof of work check")
     where
-    constructVersion cliVersion fub br disablePow' oldVersion = winningVersion
-        & versionBlockDelay .~ fromMaybe (_versionBlockDelay winningVersion) br
+    constructVersion cliVersion fub bd disablePow' oldVersion = winningVersion
+        & versionBlockDelay .~ fromMaybe (_versionBlockDelay winningVersion) bd
         & versionForks %~ HM.filterWithKey (\fork _ -> fork <= fromMaybe maxBound fub)
         & versionUpgrades .~
             maybe (_versionUpgrades winningVersion) (\fub' ->
                 OnChains $ HM.mapWithKey
                     (\cid _ ->
                         case winningVersion ^?! versionForks . at fub' . _Just . onChain cid of
-                            ForkNever -> error "the fork upper bound never occurs"
+                            ForkNever -> error "Chainweb.Chainweb.Configuration.parseVersion: the fork upper bound never occurs in this version."
                             ForkAtBlockHeight fubHeight -> HM.filterWithKey (\bh _ -> bh <= fubHeight) (winningVersion ^?! versionUpgrades . onChain cid)
                             ForkAtGenesis -> winningVersion ^?! versionUpgrades . onChain cid
                     )

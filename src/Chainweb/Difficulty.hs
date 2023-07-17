@@ -308,10 +308,10 @@ adjust
         -- the last header in the (previous) epoch
     -> HashTarget
         -- ^ the hash target of the new epoch
-adjust (BlockDelay br) (WindowWidth ww) (TimeSpan delta) (HashTarget oldTarget) = newTarget
+adjust (BlockDelay bd) (WindowWidth ww) (TimeSpan delta) (HashTarget oldTarget) = newTarget
   where
     targetedEpochTime :: Rational
-    targetedEpochTime = int ww * int br
+    targetedEpochTime = int ww * int bd
 
     actualEpochTime :: Rational
     actualEpochTime = int delta
@@ -338,10 +338,10 @@ legacyAdjust
         -- the last header in the (previous) epoch
     -> HashTarget
         -- ^ the hash target of the new epoch
-legacyAdjust (BlockDelay br) (WindowWidth ww) (TimeSpan delta) (HashTarget oldTarget) = newTarget
+legacyAdjust (BlockDelay bd) (WindowWidth ww) (TimeSpan delta) (HashTarget oldTarget) = newTarget
   where
     newDiff :: Rational
-    newDiff = oldDiff * int br * int ww / int delta
+    newDiff = oldDiff * int bd * int ww / int delta
 
     oldDiff :: Rational
     oldDiff = int maxTargetWord / int oldTarget
