@@ -98,6 +98,12 @@ source-repository-package
     tag: f783ba7fc52e161b245d82acadffc4517bc8cdf5
     --sha256: 182yffj2rbv2asmq589r16mb45q9d0gvdhsxvsnmjyw89dcpyadn
 
+source-repository-package
+  type: git
+  location: https://github.com/chessai/dyna
+  tag: f596ea2cc23908fe364569499948c58061fbaa74
+  --sha256: 16p28bgcadnd9dimny1syias3bap0v6x8dz15bqrxg7ws63ay1rz
+
 -- Required for GHC-9:
 
 -- ixset-typed FIX (no PR yet)
@@ -183,3 +189,4 @@ allow-newer: base16-bytestring:*
 -- constraints: megaparsec <9.3
 allow-newer: prettyprinter:*
 
+-- allow-newer: pact:direct-sqlite
