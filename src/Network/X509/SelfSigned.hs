@@ -146,10 +146,6 @@ import Network.TLS.Extra (ciphersuite_default)
 import Network.Wai.Handler.WarpTLS as WARP
     (TLSSettings(..), tlsSettingsChainMemory, tlsSettingsMemory)
 
-#if !MIN_VERSION_base(4,16,0)
-import Numeric.Natural (Natural)
-#endif
-
 import System.Hourglass (dateCurrent)
 import System.X509 (getSystemCertificateStore)
 

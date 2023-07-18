@@ -86,10 +86,6 @@ import Foreign.Storable
 import GHC.Generics (Generic)
 import GHC.TypeNats
 
-#if !MIN_VERSION_base(4,16,0)
-import Numeric.Natural
-#endif
-
 import System.IO.Unsafe
 
 -- internal modules

@@ -122,22 +122,18 @@ jobs:
 
     # BUILD MATRIX
     #
-    # Note that the build for 9.4 is temporarly disabled until 
-    # https://gitlab.haskell.org/ghc/ghc/-/issues/22998 is resolved for this version
-    # (which will hopefully be the case for GHC-9.4.5).
-    #
     - name: Create matrix
       id: set-matrix
       run: |
         MATRIX="$(jq -c '.' <<EOF
         {
-          "ghc": ["8.10.7", "9.0.2", "9.2.7", "9.6.1"],
+          "ghc": ["9.6.1"],
           "cabal": ["3.10"],
           "os": ["ubuntu-20.04", "ubuntu-22.04"],
           "use-freeze-file": ["false"],
           "include": [
             {
-              "ghc": "8.10.7",
+              "ghc": "9.6.1",
               "cabal": "3.10",
               "os" : "ubuntu-20.04",
               "use-freeze-file": "true"
@@ -286,14 +282,6 @@ jobs:
         cat >> cabal.project.local <<EOF
         package chainweb
           ghc-options: -debug
-        EOF
-
-    - name: Set GHC Eventlog Flag
-      if: needs.config.outputs.eventlog == 'True'
-      run: |
-        cat >> cabal.project.local <<EOF
-        package chainweb
-          ghc-options: -eventlog
         EOF
 
     # dist cache
@@ -634,7 +622,7 @@ jobs:
         - ghc: "9.6.1"
           os: "ubuntu-20.04"
           use-freeze-file: "false"
-        - ghc: "8.10.7"
+        - ghc: "9.6.1"
           os: "ubuntu-20.04"
           use-freeze-file: "true"
     env:

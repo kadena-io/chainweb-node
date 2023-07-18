@@ -39,7 +39,7 @@ package pact
 package rocksdb-haskell-kadena
     ghc-options: -Wwarn -optc-w -optcxx-w
 
-package cryptonite
+package crypton
     flags: +support_pclmuldq
 
 package vault
@@ -104,7 +104,7 @@ source-repository-package
   tag: f596ea2cc23908fe364569499948c58061fbaa74
   --sha256: 16p28bgcadnd9dimny1syias3bap0v6x8dz15bqrxg7ws63ay1rz
 
--- Required for GHC-9:
+-- Required for backward compatibility:
 
 -- ixset-typed FIX (no PR yet)
 source-repository-package
@@ -119,15 +119,6 @@ source-repository-package
     location: https://github.com/hackage-package-forks/trifecta
     tag: f991ffb74a1a1ab86f14e751d7c4f4ba549785b3
     --sha256: 0flnwyjm40zcssq5xfn9h5p24f07npgapr6cx1ni43vx0sbjkqlv
-
--- Required for GHC-9.6
-
--- patch merged to master. Will be available in the next version of streaming
-source-repository-package
-    type: git
-    location: https://github.com/haskell-streaming/streaming
-    tag: 0c815bf9043d0f0cbda92b80ef791892e2b7fb43
-    --sha256: 0q01mvag2f2xw8dnk6v7dq26gw8zvskgax39ljbf7pblm6n2c4wk
 
 -- Patch merged into master (upcoming verison 10.0). We are currently using 9.2
 source-repository-package
@@ -155,7 +146,6 @@ allow-newer: servant-client-core:*
 allow-newer: servant-client:*
 allow-newer: servant:*
 
--- GHC-9.6
 -- these are more liberal than necessary, but since everything works fine
 -- with this there's no reason to constrain it more than necessary.
 allow-newer: *:base
@@ -181,7 +171,7 @@ constraints: prettyprinter <1.6.1
 constraints: base64-bytestring <1.1
 
 -- we have to add these because the old versions that we use would prevent
--- use to use recent versions of other packages
+-- us to use recent versions of other packages
 allow-newer: base64-bytestring:*
 allow-newer: base16-bytestring:*
 
@@ -189,4 +179,3 @@ allow-newer: base16-bytestring:*
 -- constraints: megaparsec <9.3
 allow-newer: prettyprinter:*
 
--- allow-newer: pact:direct-sqlite

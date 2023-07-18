@@ -136,10 +136,6 @@ import Data.Word
 import GHC.Generics(Generic)
 import GHC.TypeLits
 
-#if !MIN_VERSION_base(4,16,0)
-import Numeric.Natural
-#endif
-
 -- internal modules
 
 import Chainweb.BlockCreationTime

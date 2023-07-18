@@ -71,11 +71,7 @@ import Data.Functor.Of
 import qualified Data.HashSet as HS
 import Data.LogMessage
 import Data.Maybe
-#if MIN_VERSION_base(4,16,0)
 import Data.Semigroup
-#else
-import Data.Semigroup hiding (option)
-#endif
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
 import qualified Data.Text.IO as T
