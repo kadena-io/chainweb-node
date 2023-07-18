@@ -31,4 +31,4 @@ jobs:
       timeout-minutes: 740
       run: |
         echo Building the project and its devShell
-        nix build .#check
+        nix build -L --show-trace .#check
