@@ -89,6 +89,10 @@ data PactServiceConfig = PactServiceConfig
     -- ^ Maximum allowed rewind depth in the local command.
   , _pactPreInsertCheckTimeout :: !Micros
     -- ^ Maximum allowed execution time for the transactions validation.
+  , _pactLocalMaxGasLimit :: !(Maybe GasLimit)
+    -- ^ Maximum allowed gas limit in the local command.
+  , _pactRevalidate :: !Bool
+    -- ^ Re-validate payload hashes during transaction replay
   , _pactAllowReadsInLocal :: !Bool
     -- ^ Allow direct database reads in local mode
   , _pactQueueSize :: !Natural
@@ -210,6 +214,10 @@ data PactException
     { _localRewindExceededLimit :: !RewindLimit
     , _localRewindRequestedDepth :: !RewindDepth }
   | LocalRewindGenesisExceeded
+  | LocalGasLimitExceeded
+    { _localMaxGasLimit :: !GasLimit
+    , _localRequestedGasLimit :: !GasLimit
+    }
   deriving (Eq,Generic)
 
 instance Show PactException where

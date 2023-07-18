@@ -80,6 +80,7 @@ module Chainweb.Pact.Types
   , psReorgLimit
   , psLocalRewindDepthLimit
   , psPreInsertCheckTimeout
+  , psLocalMaxGasLimit
   , psOnFatalError
   , psVersion
   , psLogger
@@ -419,6 +420,8 @@ data PactServiceEnv logger tbl = PactServiceEnv
     -- ^ The limit of rewind's depth in the `execLocal` command.
     , _psPreInsertCheckTimeout :: !Micros
     -- ^ Maximum allowed execution time for the transactions validation.
+    , _psLocalMaxGasLimit :: !(Maybe GasLimit)
+    -- ^ The max gas limit in the `execLocal` command.
     , _psReorgLimit :: !RewindLimit
     -- ^ The limit of checkpointer's rewind in the `execValidationBlock` command.
     , _psOnFatalError :: !(forall a. PactException -> Text -> IO a)
@@ -472,6 +475,8 @@ testPactServiceConfig = PactServiceConfig
       { _pactReorgLimit = defaultReorgLimit
       , _pactLocalRewindDepthLimit = defaultLocalRewindDepthLimit
       , _pactPreInsertCheckTimeout = defaultPreInsertCheckTimeout
+      , _pactLocalMaxGasLimit = Nothing
+      , _pactRevalidate = True
       , _pactQueueSize = 1000
       , _pactResetDb = True
       , _pactAllowReadsInLocal = False

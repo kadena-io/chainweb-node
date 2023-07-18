@@ -49,6 +49,7 @@ import Control.Monad.Primitive (PrimState)
 
 import Data.Default (def)
 import qualified Data.DList as DL
+import Data.Foldable (for_)
 import Data.Either
 import Data.Word (Word64)
 import Data.Maybe (fromMaybe)
@@ -153,6 +154,7 @@ withPactService ver cid chainwebLogger bhDb pdb sqlenv config act =
                     , _psReorgLimit = _pactReorgLimit config
                     , _psLocalRewindDepthLimit = _pactLocalRewindDepthLimit config
                     , _psPreInsertCheckTimeout = _pactPreInsertCheckTimeout config
+                    , _psLocalMaxGasLimit = _pactLocalMaxGasLimit config
                     , _psOnFatalError = defaultOnFatalError (logFunctionText chainwebLogger)
                     , _psVersion = ver
                     , _psAllowReadsInLocal = _pactAllowReadsInLocal config
@@ -677,6 +679,10 @@ execLocal cwtx preflight sigVerify rdepth = pactLabel "execLocal" $ withDiscarde
 
     mc <- getInitCache
     spv <- use psSpvSupport
+
+    for_ _psLocalMaxGasLimit $ \maxGasLimit ->
+        when (view cmdGasLimit cmd > maxGasLimit) $
+            throwM $ LocalGasLimitExceeded maxGasLimit (view cmdGasLimit cmd)
 
     -- when no depth is defined, treat
     -- withCheckpointerRewind as withCurrentCheckpointer

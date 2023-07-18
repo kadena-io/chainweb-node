@@ -393,6 +393,7 @@ data ChainwebConfiguration = ChainwebConfiguration
     , _configReorgLimit :: !RewindLimit
     , _configLocalRewindDepthLimit :: !RewindLimit
     , _configPreInsertCheckTimeout :: !Micros
+    , _configLocalMaxGasLimit :: !(Maybe Mempool.GasLimit)
     , _configAllowReadsInLocal :: !Bool
     , _configRosetta :: !Bool
     , _configBackup :: !BackupConfig
@@ -455,6 +456,7 @@ defaultChainwebConfiguration v = ChainwebConfiguration
     , _configReorgLimit = defaultReorgLimit
     , _configLocalRewindDepthLimit = defaultLocalRewindDepthLimit
     , _configPreInsertCheckTimeout = defaultPreInsertCheckTimeout
+    , _configLocalMaxGasLimit = Nothing
     , _configAllowReadsInLocal = False
     , _configRosetta = False
     , _configServiceApi = defaultServiceApiConfig
@@ -481,6 +483,7 @@ instance ToJSON ChainwebConfiguration where
         , "reorgLimit" .= _configReorgLimit o
         , "localRewindDepthLimit" .= _configLocalRewindDepthLimit o
         , "preInsertCheckTimeout" .= _configPreInsertCheckTimeout o
+        , "localMaxGasLimit" .= _configLocalMaxGasLimit o
         , "allowReadsInLocal" .= _configAllowReadsInLocal o
         , "rosetta" .= _configRosetta o
         , "serviceApi" .= _configServiceApi o
@@ -509,6 +512,8 @@ instance FromJSON (ChainwebConfiguration -> ChainwebConfiguration) where
         <*< configMinGasPrice ..: "minGasPrice" % o
         <*< configPactQueueSize ..: "pactQueueSize" % o
         <*< configReorgLimit ..: "reorgLimit" % o
+        <*< configLocalRewindDepthLimit ..: "localRewindDepthLimit" % o
+        <*< configLocalMaxGasLimit ..: "localMaxGasLimit" % o
         <*< configAllowReadsInLocal ..: "allowReadsInLocal" % o
         <*< configPreInsertCheckTimeout ..: "preInsertCheckTimeout" % o
         <*< configRosetta ..: "rosetta" % o
@@ -553,6 +558,9 @@ pChainwebConfiguration = id
     <*< configPreInsertCheckTimeout .:: jsonOption
         % long "pre-insert-check-timeout"
         <> help "Max allowed time in microseconds for the transactions validation in the PreInsertCheck command."
+    <*< configLocalMaxGasLimit .:: jsonOption
+        % long "local-max-gas-limit"
+        <> help "Max allowed gas limit for the local command."
     <*< configAllowReadsInLocal .:: boolOption_
         % long "allowReadsInLocal"
         <> help "Enable direct database reads of smart contract tables in local queries."

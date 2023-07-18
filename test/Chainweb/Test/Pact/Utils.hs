@@ -629,6 +629,7 @@ testPactCtxSQLite logger v cid bhdb pdb sqlenv conf gasmodel = do
         , _psReorgLimit = _pactReorgLimit conf
         , _psLocalRewindDepthLimit = _pactLocalRewindDepthLimit conf
         , _psPreInsertCheckTimeout = _pactPreInsertCheckTimeout conf
+        , _psLocalMaxGasLimit = _pactLocalMaxGasLimit conf
         , _psOnFatalError = defaultOnFatalError mempty
         , _psVersion = v
         , _psAllowReadsInLocal = _pactAllowReadsInLocal conf
