@@ -267,7 +267,8 @@ roundtrip'
     -> IO (CutOutputs, CutOutputs)
 roundtrip' v sid0 tid0 burn create step = withTestBlockDb v $ \bdb -> do
   tg <- newMVar mempty
-  withWebPactExecutionService step v testPactServiceConfig bdb (chainToMPA' tg) freeGasModel $ \(pact,_) -> do
+  let logger = hunitDummyLogger step
+  withWebPactExecutionService logger step v testPactServiceConfig bdb (chainToMPA' tg) freeGasModel $ \(pact,_) -> do
 
     sid <- mkChainId v maxBound sid0
     tid <- mkChainId v maxBound tid0
