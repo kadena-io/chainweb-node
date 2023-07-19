@@ -70,7 +70,6 @@ import qualified Pact.Interpreter as P
 import qualified Pact.Types.ChainMeta as P
 import qualified Pact.Types.Command as P
 import qualified Pact.Types.Hash as P
-import qualified Pact.Types.Logger as P
 import qualified Pact.Types.Runtime as P
 import qualified Pact.Types.SPV as P
 import qualified Pact.Types.Pretty as P
@@ -136,15 +135,15 @@ withPactService
     -> PayloadDb tbl
     -> SQLiteEnv
     -> PactServiceConfig
-    -> PactServiceM tbl a
+    -> PactServiceM logger tbl a
     -> IO (T2 a PactServiceState)
 withPactService ver cid chainwebLogger bhDb pdb sqlenv config act =
-    withProdRelationalCheckpointer checkpointerLogger initialBlockState sqlenv cplogger ver cid $ \checkpointEnv -> do
+    withProdRelationalCheckpointer checkpointerLogger initialBlockState sqlenv ver cid $ \checkpointer -> do
         let !rs = readRewards
             !initialParentHeader = ParentHeader $ genesisBlockHeader ver cid
             !pse = PactServiceEnv
                     { _psMempoolAccess = Nothing
-                    , _psCheckpointEnv = checkpointEnv
+                    , _psCheckpointer = checkpointer
                     , _psPdb = pdb
                     , _psBlockHeaderDb = bhDb
                     , _psGasModel = getGasModel
@@ -157,10 +156,9 @@ withPactService ver cid chainwebLogger bhDb pdb sqlenv config act =
                     , _psAllowReadsInLocal = _pactAllowReadsInLocal config
                     , _psIsBatch = False
                     , _psCheckpointerDepth = 0
-                    , _psTraceLogger = logFunction chainwebLogger
-                    , _psLogger = pactLogger
+                    , _psLogger = pactServiceLogger
                     , _psGasLogger = gasLogger <$ guard (_pactLogGas config)
-                    , _psLoggers = loggers
+                    , _psPactLoggerFactory = pactLoggers chainwebLogger
                     , _psBlockGasLimit = _pactBlockGasLimit config
                     , _psChainId = cid
                     }
@@ -176,14 +174,11 @@ withPactService ver cid chainwebLogger bhDb pdb sqlenv config act =
             act
   where
     initialBlockState = initBlockState (_pactModuleCacheLimit config) $ genesisHeight ver cid
-    loggers = pactLoggers chainwebLogger
-    cplogger = P.newLogger loggers $ P.LogName "Checkpointer"
-    pactLogger = P.newLogger loggers $ P.LogName "PactService"
-    gasLogger = P.newLogger loggers $ P.LogName "GasLogs"
-
     checkpointerLogger = addLabel ("sub-component", "checkpointer") chainwebLogger
+    pactServiceLogger = addLabel ("sub-component", "pact") chainwebLogger
+    gasLogger = addLabel ("transaction", "GasLogs") chainwebLogger
 
-initializeLatestBlock :: CanReadablePayloadCas tbl => Bool -> PactServiceM tbl ()
+initializeLatestBlock :: (Logger logger) => CanReadablePayloadCas tbl => Bool -> PactServiceM logger tbl ()
 initializeLatestBlock unlimitedRewind = findLatestValidBlock >>= \case
     Nothing -> return ()
     Just b -> withBatch $ rewindTo initialRewindLimit (Just $ ParentHeader b)
@@ -197,7 +192,7 @@ initialPayloadState
     -> MemPoolAccess
     -> ChainwebVersion
     -> ChainId
-    -> PactServiceM tbl ()
+    -> PactServiceM logger tbl ()
 initialPayloadState logger mpa v cid
     | v ^. versionCheats . disablePact = pure ()
     | otherwise = initializeCoinContract logger mpa v cid $
@@ -210,7 +205,7 @@ initializeCoinContract
     -> ChainwebVersion
     -> ChainId
     -> PayloadWithOutputs
-    -> PactServiceM tbl ()
+    -> PactServiceM logger tbl ()
 initializeCoinContract _logger memPoolAccess v cid pwo = do
     cp <- getCheckpointer
     latestBlock <- liftIO $ _cpGetLatestBlock cp
@@ -262,7 +257,7 @@ initializeCoinContract _logger memPoolAccess v cid pwo = do
 -- 2. the header gets orphaned and the next 'execValidateBlock' call would cause
 --    a rewind to an ancestor, which is available in the db.
 --
-lookupBlockHeader :: BlockHash -> Text -> PactServiceM tbl BlockHeader
+lookupBlockHeader :: BlockHash -> Text -> PactServiceM logger tbl BlockHeader
 lookupBlockHeader bhash ctx = do
     ParentHeader cur <- use psParentHeader
     if (bhash == _blockHash cur)
@@ -275,11 +270,11 @@ lookupBlockHeader bhash ctx = do
 
 -- | Loop forever, serving Pact execution requests and reponses from the queues
 serviceRequests
-    :: CanReadablePayloadCas tbl
+    :: forall logger tbl. (Logger logger, CanReadablePayloadCas tbl)
     => LogFunction
     -> MemPoolAccess
     -> PactQueue
-    -> PactServiceM tbl ()
+    -> PactServiceM logger tbl ()
 serviceRequests logFn memPoolAccess reqQ = do
     logInfo "Starting service"
     go `finally` logInfo "Stopping service"
@@ -339,27 +334,27 @@ serviceRequests logFn memPoolAccess reqQ = do
     toPactInternalError e = Left $ PactInternalError $ T.pack $ show e
 
     tryOne
-        :: String
+        :: Text
         -> MVar (Either PactException a)
-        -> PactServiceM tbl a
-        -> PactServiceM tbl ()
+        -> PactServiceM logger tbl a
+        -> PactServiceM logger tbl ()
     tryOne which mvar = tryOne' which mvar Right
 
     tryOne'
-        :: String
+        :: Text
         -> MVar (Either PactException b)
         -> (a -> Either PactException b)
-        -> PactServiceM tbl a
-        -> PactServiceM tbl ()
+        -> PactServiceM logger tbl a
+        -> PactServiceM logger tbl ()
     tryOne' which mvar post m =
         (evalPactOnThread (post <$> m) >>= (liftIO . putMVar mvar))
         `catches`
             [ Handler $ \(e :: SomeAsyncException) -> do
-                logWarn $ mconcat
+                logWarn $ T.concat
                     [ "Received asynchronous exception running pact service ("
                     , which
                     , "): "
-                    , show e
+                    , sshow e
                     ]
                 liftIO $ do
                     void $ tryPutMVar mvar $! toPactInternalError e
@@ -369,7 +364,7 @@ serviceRequests logFn memPoolAccess reqQ = do
                     [ "Received exception running pact service ("
                     , which
                     , "): "
-                    , show e
+                    , sshow e
                     ]
                 liftIO $ do
                     void $ tryPutMVar mvar $! toPactInternalError e
@@ -392,7 +387,7 @@ serviceRequests logFn memPoolAccess reqQ = do
         -- No mask is needed here. Asynchronous exceptions are handled
         -- by the outer handlers and cause an abort. So no state is lost.
         --
-        evalPactOnThread :: PactServiceM tbl a -> PactServiceM tbl a
+        evalPactOnThread :: PactServiceM logger tbl a -> PactServiceM logger tbl a
         evalPactOnThread act = do
             e <- ask
             s <- get
@@ -404,26 +399,31 @@ serviceRequests logFn memPoolAccess reqQ = do
 -- | Performs a dry run of PactExecution's `buyGas` function for transactions being validated.
 --
 attemptBuyGas
-    :: Miner
-    -> PactDbEnv'
+    :: forall logger tbl. (Logger logger)
+    => Miner
+    -> (PactDbEnv' logger)
     -> Vector (Either InsertError ChainwebTransaction)
-    -> PactServiceM tbl (Vector (Either InsertError ChainwebTransaction))
-attemptBuyGas miner (PactDbEnv' dbEnv) txs = do
+    -> PactServiceM logger tbl (Vector (Either InsertError ChainwebTransaction))
+attemptBuyGas miner (PactDbEnv' dbEnv) txs = localLabel ("transaction", "attemptBuyGas") $ do
         mc <- getInitCache
-        l <- P.newLogger <$> view psLoggers <*> pure "attemptBuyGas"
+        l <- view psLogger
         V.fromList . toList . sfst <$> V.foldM (f l) (T2 mempty mc) txs
   where
+    f :: logger
+      -> T2 (DL.DList (Either InsertError ChainwebTransaction)) ModuleCache
+      -> Either InsertError ChainwebTransaction
+      -> PactServiceM logger tbl (T2 (DL.DList (Either InsertError ChainwebTransaction)) ModuleCache)
     f l (T2 dl mcache) cmd = do
         T2 mcache' !res <- runBuyGas l dbEnv mcache cmd
         pure $! T2 (DL.snoc dl res) mcache'
 
     createGasEnv
-        :: P.Logger
+        :: logger
         -> P.PactDbEnv db
         -> P.Command (P.Payload P.PublicMeta P.ParsedCode)
         -> P.GasPrice
         -> P.Gas
-        -> PactServiceM tbl (TransactionEnv db)
+        -> PactServiceM logger tbl (TransactionEnv logger db)
     createGasEnv l db cmd gp gl = do
         pd <- getTxContext (publicMetaOf cmd)
         spv <- use psSpvSupport
@@ -437,11 +437,11 @@ attemptBuyGas miner (PactDbEnv' dbEnv) txs = do
         !rk = P.cmdToRequestKey cmd
 
     runBuyGas
-        :: P.Logger
+        :: logger
         -> P.PactDbEnv a
         -> ModuleCache
         -> Either InsertError ChainwebTransaction
-        -> PactServiceM tbl (T2 ModuleCache (Either InsertError ChainwebTransaction))
+        -> PactServiceM logger tbl (T2 ModuleCache (Either InsertError ChainwebTransaction))
     runBuyGas _l _db mcache l@Left {} = return (T2 mcache l)
     runBuyGas l db mcache (Right tx) = do
         let cmd = payloadObj <$> tx
@@ -471,17 +471,17 @@ attemptBuyGas miner (PactDbEnv' dbEnv) txs = do
 -- block-to-be
 --
 execNewBlock
-    :: CanReadablePayloadCas tbl
+    :: forall logger tbl. (Logger logger, CanReadablePayloadCas tbl)
     => MemPoolAccess
     -> ParentHeader
     -> Miner
-    -> PactServiceM tbl PayloadWithOutputs
-execNewBlock mpAccess parent miner = do
+    -> PactServiceM logger tbl PayloadWithOutputs
+execNewBlock mpAccess parent miner = localLabel ("pact-request", "execNewBlock") $ do
     updateMempool
     withDiscardedBatch $ do
       withCheckpointerRewind newblockRewindLimit (Just parent) "execNewBlock" doNewBlock
   where
-    handleTimeout :: TxTimeout -> PactServiceM cas a
+    handleTimeout :: TxTimeout -> PactServiceM logger cas a
     handleTimeout (TxTimeout h) = do
       logError $ "execNewBlock: timed out on " <> sshow h
       liftIO $ mpaBadlistTx mpAccess (V.singleton h)
@@ -492,7 +492,7 @@ execNewBlock mpAccess parent miner = do
     -- less than this are failing in PactReplay test.
     newblockRewindLimit = Just $ RewindLimit 8
 
-    getBlockTxs :: BlockFill -> PactServiceM tbl (Vector ChainwebTransaction)
+    getBlockTxs :: BlockFill -> PactServiceM logger tbl (Vector ChainwebTransaction)
     getBlockTxs bfState = do
       cp <- getCheckpointer
       psEnv <- ask
@@ -554,10 +554,10 @@ execNewBlock mpAccess parent miner = do
           pure (toPayloadWithOutputs miner (Transactions txs cb))
         return $! Discard pwo
 
-    refill :: Word64 -> Micros -> PactDbEnv' -> GrowableVec (ChainwebTransaction, P.CommandResult [P.TxLog A.Value]) -> GrowableVec GasPurchaseFailure -> BlockFill -> PactServiceM tbl BlockFill
+    refill :: Word64 -> Micros -> PactDbEnv' logger -> GrowableVec (ChainwebTransaction, P.CommandResult [P.TxLog A.Value]) -> GrowableVec GasPurchaseFailure -> BlockFill -> PactServiceM logger tbl BlockFill
     refill fetchLimit txTimeLimit pdbenv successes failures = go
       where
-        go :: BlockFill -> PactServiceM tbl BlockFill
+        go :: BlockFill -> PactServiceM logger tbl BlockFill
         go unchanged@bfState = do
 
           case unchanged of
@@ -641,11 +641,11 @@ type GrowableVec = Vec Array (PrimState IO)
 -- | only for use in generating genesis blocks in tools
 --
 execNewGenesisBlock
-    :: CanReadablePayloadCas tbl
+    :: (Logger logger, CanReadablePayloadCas tbl)
     => Miner
     -> Vector ChainwebTransaction
-    -> PactServiceM tbl PayloadWithOutputs
-execNewGenesisBlock miner newTrans = withDiscardedBatch $
+    -> PactServiceM logger tbl PayloadWithOutputs
+execNewGenesisBlock miner newTrans = pactLabel "execNewGenesisBlock" $ withDiscardedBatch $
     withCheckpointerRewind Nothing Nothing "execNewGenesisBlock" $ \pdbenv -> do
 
         -- NEW GENESIS COINBASE: Reject bad coinbase, use date rule for precompilation
@@ -656,7 +656,7 @@ execNewGenesisBlock miner newTrans = withDiscardedBatch $
         return $! Discard (toPayloadWithOutputs miner results)
 
 execLocal
-    :: CanReadablePayloadCas tbl
+    :: (Logger logger, CanReadablePayloadCas tbl)
     => ChainwebTransaction
     -> Maybe LocalPreflightSimulation
       -- ^ preflight flag
@@ -664,8 +664,8 @@ execLocal
       -- ^ turn off signature verification checks?
     -> Maybe RewindDepth
       -- ^ rewind depth
-    -> PactServiceM tbl LocalResult
-execLocal cwtx preflight sigVerify rdepth = withDiscardedBatch $ do
+    -> PactServiceM logger tbl LocalResult
+execLocal cwtx preflight sigVerify rdepth = pactLabel "execLocal" $ withDiscardedBatch $ do
     parent <- syncParentHeader "execLocal"
 
     PactServiceEnv{..} <- ask
@@ -704,8 +704,8 @@ execLocal cwtx preflight sigVerify rdepth = withDiscardedBatch $ do
             enablePactEvents' (ctxVersion ctx) (ctxChainId ctx) (ctxCurrentBlockHeight ctx) ++
             enforceKeysetFormats' (ctxVersion ctx) (ctxChainId ctx) (ctxCurrentBlockHeight ctx) ++
             disableReturnRTC (ctxVersion ctx) (ctxChainId ctx) (ctxCurrentBlockHeight ctx)
-        logger = P.newLogger _psLoggers "execLocal"
-        initialGas = initialGasOf $ P._cmdPayload cwtx
+    let logger = _psLogger
+    let initialGas = initialGasOf $ P._cmdPayload cwtx
 
     -- In this case the rewind limit is the same as rewind depth
     let rewindLimit = RewindLimit $ _rewindDepth rewindDepth
@@ -742,22 +742,23 @@ execLocal cwtx preflight sigVerify rdepth = withDiscardedBatch $ do
         return $ Discard r
 
 execSyncToBlock
-    :: CanReadablePayloadCas tbl
+    :: (CanReadablePayloadCas tbl, Logger logger)
     => BlockHeader
-    -> PactServiceM tbl ()
-execSyncToBlock hdr = rewindToIncremental Nothing (Just $ ParentHeader hdr)
+    -> PactServiceM logger tbl ()
+execSyncToBlock hdr = pactLabel "execSyncToBlock" $
+  rewindToIncremental Nothing (Just $ ParentHeader hdr)
 
 -- | Validate a mined block. Execute the transactions in Pact again as
 -- validation. Note: The BlockHeader here is the header of the block being
 -- validated.
 --
 execValidateBlock
-    :: CanReadablePayloadCas tbl
+    :: (CanReadablePayloadCas tbl, Logger logger)
     => MemPoolAccess
     -> BlockHeader
     -> PayloadData
-    -> PactServiceM tbl (PayloadWithOutputs, P.Gas)
-execValidateBlock memPoolAccess currHeader plData = do
+    -> PactServiceM logger tbl (PayloadWithOutputs, P.Gas)
+execValidateBlock memPoolAccess currHeader plData = pactLabel "execValidateBlock" $ do
     -- The parent block header must be available in the block header database
     target <- getTarget
     psEnv <- ask
@@ -796,21 +797,21 @@ execValidateBlock memPoolAccess currHeader plData = do
                 -- succeeds. If this fails it usually means that the block
                 -- header database is corrupted.
 
-execBlockTxHistory :: BlockHeader -> Domain' -> PactServiceM tbl BlockTxHistory
-execBlockTxHistory bh (Domain' d) = do
+execBlockTxHistory :: (Logger logger) => BlockHeader -> Domain' -> PactServiceM logger tbl BlockTxHistory
+execBlockTxHistory bh (Domain' d) = pactLabel "execBlockTxHistory" $ do
   !cp <- getCheckpointer
   liftIO $ _cpGetBlockHistory cp bh d
 
-execHistoricalLookup :: BlockHeader -> Domain' -> P.RowKey -> PactServiceM tbl (Maybe (P.TxLog A.Value))
-execHistoricalLookup bh (Domain' d) k = do
+execHistoricalLookup :: (Logger logger) => BlockHeader -> Domain' -> P.RowKey -> PactServiceM logger tbl (Maybe (P.TxLog A.Value))
+execHistoricalLookup bh (Domain' d) k = pactLabel "execHistoricalLookup" $ do
   !cp <- getCheckpointer
   liftIO $ _cpGetHistoricalLookup cp bh d k
 
 execPreInsertCheckReq
-    :: CanReadablePayloadCas tbl
+    :: (CanReadablePayloadCas tbl, Logger logger)
     => Vector ChainwebTransaction
-    -> PactServiceM tbl (Vector (Either Mempool.InsertError ChainwebTransaction))
-execPreInsertCheckReq txs = withDiscardedBatch $ do
+    -> PactServiceM logger tbl (Vector (Either Mempool.InsertError ChainwebTransaction))
+execPreInsertCheckReq txs = localLabel ("pact-request", "execPreInsertCheckReq") $ withDiscardedBatch $ do
     parent <- use psParentHeader
     let currHeight = succ $ _blockHeight $ _parentHeader parent
     psEnv <- ask
@@ -828,14 +829,13 @@ execPreInsertCheckReq txs = withDiscardedBatch $ do
         evalPactServiceM pst penv (attemptBuyGas noMiner pdb ts)
 
 execLookupPactTxs
-    :: CanReadablePayloadCas tbl
+    :: (CanReadablePayloadCas tbl, Logger logger)
     => Rewind
     -> Maybe ConfirmationDepth
     -> Vector P.PactHash
-    -> PactServiceM tbl (HM.HashMap P.PactHash (T2 BlockHeight BlockHash))
-execLookupPactTxs restorePoint confDepth txs
-    | V.null txs = return mempty
-    | otherwise = go
+    -> PactServiceM logger tbl (HM.HashMap P.PactHash (T2 BlockHeight BlockHash))
+execLookupPactTxs restorePoint confDepth txs = pactLabel "execLookupPactTxs" $ do
+  if V.null txs then return mempty else go
   where
     go = getCheckpointer >>= \(!cp) -> case restorePoint of
       NoRewind _ ->
@@ -883,3 +883,6 @@ getGasModel :: TxContext -> P.GasModel
 getGasModel ctx
     | chainweb213Pact (ctxVersion ctx) (ctxChainId ctx) (ctxCurrentBlockHeight ctx) = chainweb213GasModel
     | otherwise = freeModuleLoadGasModel
+
+pactLabel :: (Logger logger) => Text -> PactServiceM logger tbl x -> PactServiceM logger tbl x
+pactLabel lbl x = localLabel ("pact-request", lbl) x
