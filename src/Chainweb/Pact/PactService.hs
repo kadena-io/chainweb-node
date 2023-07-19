@@ -175,7 +175,7 @@ withPactService ver cid chainwebLogger bhDb pdb sqlenv config act =
   where
     initialBlockState = initBlockState (_pactModuleCacheLimit config) $ genesisHeight ver cid
     checkpointerLogger = addLabel ("sub-component", "checkpointer") chainwebLogger
-    pactServiceLogger = addLabel ("sub-component", "pact") chainwebLogger
+    pactServiceLogger = addLabel ("component", "pact") chainwebLogger
     gasLogger = addLabel ("transaction", "GasLogs") chainwebLogger
 
 initializeLatestBlock :: (Logger logger) => CanReadablePayloadCas tbl => Bool -> PactServiceM logger tbl ()
@@ -811,7 +811,7 @@ execPreInsertCheckReq
     :: (CanReadablePayloadCas tbl, Logger logger)
     => Vector ChainwebTransaction
     -> PactServiceM logger tbl (Vector (Either Mempool.InsertError ChainwebTransaction))
-execPreInsertCheckReq txs = localLabel ("pact-request", "execPreInsertCheckReq") $ withDiscardedBatch $ do
+execPreInsertCheckReq txs = pactLabel "execPreInsertCheckReq" $ withDiscardedBatch $ do
     parent <- use psParentHeader
     let currHeight = succ $ _blockHeight $ _parentHeader parent
     psEnv <- ask
