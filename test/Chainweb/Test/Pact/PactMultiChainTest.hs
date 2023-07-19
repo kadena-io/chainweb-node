@@ -131,12 +131,14 @@ tests = ScheduledTest testName go
          , test generousConfig getGasModel "pact46UpgradeTest" pact46UpgradeTest
          , test generousConfig getGasModel "chainweb219UpgradeTest" chainweb219UpgradeTest
          , test generousConfig getGasModel "pactLocalDepthTest" pactLocalDepthTest
+         , test maxGasLimitConfig getGasModel "pactLocalMaxGasLimitTest" pactLocalMaxGasLimitTest
          ]
       where
           -- This is way more than what is used in production, but during testing
           -- we can be generous.
         generousConfig = testPactServiceConfig { _pactBlockGasLimit = 300_000 }
         timeoutConfig = testPactServiceConfig { _pactBlockGasLimit = 100_000 }
+        maxGasLimitConfig = generousConfig { _pactLocalMaxGasLimit = Just 1000 }
 
         test pactConfig gasmodel tname f =
           withDelegateMempool $ \dmpio -> testCaseSteps tname $ \step ->
@@ -238,6 +240,27 @@ chainweb213Test = do
         , "(create-table tbl)"
         ]
 
+pactLocalMaxGasLimitTest :: PactTestM ()
+pactLocalMaxGasLimitTest = do
+  runToHeight 53
+
+  -- fails the max gas limit check
+  handle
+    (\case
+      LocalGasLimitExceeded (GasLimit 1000) (GasLimit 1100) -> return ()
+      err -> liftIO $ assertFailure $ "Expected LocalGasLimitExceeded, but got " ++ show err)
+    (do
+      runLocalWithDepth Nothing cid (getSender00Balance 1100) >>= \_ ->
+        liftIO $ assertFailure "Expected LocalGasLimitExceeded, but block succeeded"
+    )
+
+  -- works fine, passes the max gas limit check
+  runLocalWithDepth Nothing cid (getSender00Balance 700) >>= \r ->
+    checkLocalResult r $ assertTxSuccess "Should get the current balance" (pDecimal 100000000)
+
+  where
+    getSender00Balance gl = set cbGasLimit gl $ mkCmd "nonce" $ mkExec' "(coin.get-balance \"sender00\")"
+
 pactLocalDepthTest :: PactTestM ()
 pactLocalDepthTest = do
   runToHeight 53
@@ -287,9 +310,6 @@ pactLocalDepthTest = do
         liftIO $ assertFailure "Expected LocalRewindGenesisExceeded, but block succeeded")
 
   where
-  checkLocalResult r checkResult = case r of
-    Right (LocalResultLegacy cr) -> checkResult cr
-    res -> liftIO $ assertFailure $ "Expected LocalResultLegacy, but got: " ++ show res
   getSender00Balance = set cbGasLimit 700 $ mkCmd "nonce" $ mkExec' "(coin.get-balance \"sender00\")"
   buildCoinXfer code = buildBasic'
     (set cbSigners [mkSigner' sender00 coinCaps] . set cbGasLimit 3000)
@@ -1408,3 +1428,8 @@ cbResult = do
   (o,_h) <- getPWO chid
   liftIO $
     decodeStrictOrThrow @_ @(CommandResult Hash) (_coinbaseOutput $ _payloadWithOutputsCoinbase o)
+
+checkLocalResult :: Either PactException LocalResult -> (CommandResult Hash -> PactTestM ()) -> PactTestM ()
+checkLocalResult r checkResult = case r of
+  Right (LocalResultLegacy cr) -> checkResult cr
+  res -> liftIO $ assertFailure $ "Expected LocalResultLegacy, but got: " ++ show res
