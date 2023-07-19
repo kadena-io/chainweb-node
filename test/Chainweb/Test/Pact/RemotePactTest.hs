@@ -363,6 +363,7 @@ localPreflightSimTest iot nio = testCaseSteps "local preflight sim test" $ \step
 
     step "Execute preflight /local tx - collect warnings"
     cmd7 <- mkRawTx' mv pcid sigs0 "(+ 1 2.0)"
+
     runLocalPreflightClient sid cenv cmd7 >>= \case
       Left e -> assertFailure $ show e
       Right LocalResultLegacy{} ->
@@ -370,8 +371,26 @@ localPreflightSimTest iot nio = testCaseSteps "local preflight sim test" $ \step
       Right MetadataValidationFailure{} ->
         assertFailure "Preflight produced an impossible result"
       Right (LocalResultWithWarns cr' ws) -> do
-        -- check the presence of metadata
-        assertBool "Preflight result should have metadata" $ isJust $ _crMetaData cr'
+        currentBlockHeight <- getCurrentBlockHeight v cenv sid
+        assertEqual "Preflight's metadata should have increment block height"
+          (Just $ fromIntegral $ 1 + fromIntegral currentBlockHeight) (getBlockHeight cr')
+
+        case ws of
+          [w] | "decimal/integer operator overload" `T.isInfixOf` w ->
+            pure ()
+          ws' -> assertFailure $ "Incorrect warns: " ++ show ws'
+
+    let rewindDepth = 10
+    runLocalPreflightClientWithDepth sid cenv cmd7 rewindDepth >>= \case
+      Left e -> assertFailure $ show e
+      Right LocalResultLegacy{} ->
+        assertFailure "Preflight /local call produced legacy result"
+      Right MetadataValidationFailure{} ->
+        assertFailure "Preflight produced an impossible result"
+      Right (LocalResultWithWarns cr' ws) -> do
+        currentBlockHeight <- getCurrentBlockHeight v cenv sid
+        assertEqual "Preflight's metadata block height should reflect the rewind depth"
+          (Just $ fromIntegral $ 1 + (fromIntegral currentBlockHeight) - rewindDepth) (getBlockHeight cr')
 
         case ws of
           [w] | "decimal/integer operator overload" `T.isInfixOf` w ->
@@ -382,6 +401,11 @@ localPreflightSimTest iot nio = testCaseSteps "local preflight sim test" $ \step
       pactLocalWithQueryApiClient v sid
         (Just PreflightSimulation)
         (Just Verify) Nothing cmd
+
+    runLocalPreflightClientWithDepth sid e cmd d = flip runClientM e $
+      pactLocalWithQueryApiClient v sid
+        (Just PreflightSimulation)
+        (Just Verify) (Just $ RewindDepth d) cmd
 
     runClientFailureAssertion sid e cmd msg =
       runLocalPreflightClient sid e cmd >>= \case
@@ -809,10 +833,6 @@ allocationTest iot nio = testCaseSteps "genesis allocation tests" $ \step -> do
     localAfterBlockHeight bh cr =
       getBlockHeight cr > Just bh
 
-    -- avoiding `scientific` dep here
-    getBlockHeight :: CommandResult a -> Maybe Decimal
-    getBlockHeight = preview (crMetaData . _Just . key "blockHeight" . _Number . to (fromRational . toRational))
-
     accountInfo = Right
       $ PObject
       $ ObjectMap
@@ -914,3 +934,7 @@ testBatch iot mnonce = testBatch' iot ttl mnonce
 pactDeadBeef :: RequestKey
 pactDeadBeef = let (TransactionHash b) = deadbeef
                in RequestKey $ Hash b
+
+-- avoiding `scientific` dep here
+getBlockHeight :: CommandResult a -> Maybe Decimal
+getBlockHeight = preview (crMetaData . _Just . key "blockHeight" . _Number . to (fromRational . toRational))
