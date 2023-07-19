@@ -59,6 +59,7 @@ import Test.Tasty
 import Test.Tasty.HUnit
 
 import qualified Pact.ApiReq as Pact
+import qualified Pact.JSON.Encode as J
 import Pact.Types.API
 import Pact.Types.Capability
 import qualified Pact.Types.ChainId as Pact
@@ -167,7 +168,7 @@ responseGolden networkIO rksIO = golden "remote-golden" $ do
     PollResponses theMap <- polling cid cenv rks ExpectPactResult
     let values = mapMaybe (\rk -> _crResult <$> HashMap.lookup rk theMap)
                           (NEL.toList $ _rkRequestKeys rks)
-    return $! foldMap A.encode values
+    return $! foldMap J.encode values
 
 localTest :: IO (Time Micros) -> IO ChainwebNetwork -> IO ()
 localTest iot nio = do
@@ -597,7 +598,7 @@ spvTest iot nio = testCaseSteps "spv client tests" $ \step -> do
 
     txdata = A.object
         [ "sender01-keyset" A..= [fst sender01]
-        , "target-chain-id" A..= tid
+        , "target-chain-id" A..= J.toJsonViaEncode tid
         ]
 
 txTooBigGasTest :: IO (Time Micros) -> IO ChainwebNetwork -> TestTree
@@ -834,7 +835,7 @@ allocationTest iot nio = testCaseSteps "genesis allocation tests" $ \step -> do
         d = mkKeySet
           ["0c8212a903f6442c84acd0069acc263c69434b5af37b2997b16d6348b53fcd0a"]
           "keys-all"
-      in PactTransaction c $ Just (A.object [ "allocation02-keyset" A..= d ])
+      in PactTransaction c $ Just (A.object [ "allocation02-keyset" A..= J.toJsonViaEncode d ])
     tx4 = PactTransaction "(coin.release-allocation \"allocation02\")" Nothing
     tx5 = PactTransaction "(coin.details \"allocation02\")" Nothing
 

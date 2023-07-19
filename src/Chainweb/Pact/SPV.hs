@@ -74,6 +74,7 @@ import Chainweb.Storage.Table
 
 -- internal pact modules
 
+import qualified Pact.JSON.Encode as J
 import Pact.Types.Command
 import Pact.Types.Hash
 import Pact.Types.PactValue
@@ -218,7 +219,7 @@ extractProof False o = toPactValue (TObject o def) >>= k
   where
     k = aeson (Left . pack) Right
       . fromJSON
-      . toJSON
+      . J.toJsonViaEncode
 extractProof True (Object (ObjectMap o) _ _ _) = case M.lookup "proof" o of
   Just (TLitString proof) -> do
     j <- first (const "Base64 decode failed") (decodeB64UrlNoPaddingText proof)

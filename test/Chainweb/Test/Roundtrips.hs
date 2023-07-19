@@ -229,6 +229,12 @@ pactJsonTestCases f =
         [ testProperty "MinerId" $ f @MinerId
         , testProperty "Miner" $ f @Miner
         ]
+    , testGroup "Mempool"
+        [ testProperty "GasLimit" $ f @GasLimit
+        , testProperty "GasPrice" $ f @GasPrice
+        , testProperty "ParsedDecimal" $ f @ParsedDecimal
+        , testProperty "ParsedInteger" $ f @ParsedInteger
+        ]
     ]
 
 instance Arbitrary MockTx where
@@ -310,10 +316,6 @@ jsonTestCases f =
         , testProperty "TransactionMetadata" $ f @TransactionMetadata
         , testProperty "ValidatedTransaction" $ f @(ValidatedTransaction T.Text)
         , testProperty "MockTx" $ f @MockTx
-        , testProperty "GasLimit" $ f @GasLimit
-        , testProperty "GasPrice" $ f @GasPrice
-        , testProperty "ParsedDecimal" $ f @ParsedDecimal
-        , testProperty "ParsedInteger" $ f @ParsedInteger
         ]
 
     -- Chainweb.Payload

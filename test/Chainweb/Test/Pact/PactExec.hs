@@ -146,7 +146,7 @@ data TestResponse a = TestResponse
     { _trOutputs :: ![(a, CommandResult Hash)]
     , _trCoinBaseOutput :: !(CommandResult Hash)
     }
-    deriving (Generic, ToJSON, Show)
+    deriving (Generic, Show)
 
 type TxsTest = (IO (V.Vector ChainwebTransaction), Either String (TestResponse String) -> Assertion)
 
@@ -577,11 +577,11 @@ fileCompareTxLogs label respIO = goldenSch label $ do
         : (result <$> _trOutputs resp)
   where
     result (cmd, out) = object
-        [ "output" .= _crLogs out
+        [ "output" .= J.toJsonViaEncode (_crLogs out)
         , "cmd" .= cmd
         ]
     coinbase out = object
-        [ "output" .= _crLogs out
+        [ "output" .= J.toJsonViaEncode (_crLogs out)
         , "cmd" .= ("coinbase" :: String)
         ]
 

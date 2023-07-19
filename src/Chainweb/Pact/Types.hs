@@ -175,6 +175,7 @@ import System.LogLevel
 -- internal pact modules
 
 import Pact.Interpreter (PactDbEnv)
+import qualified Pact.JSON.Encode as J
 import Pact.Parse (ParsedDecimal)
 import Pact.Types.ChainId (NetworkId)
 import Pact.Types.ChainMeta
@@ -229,8 +230,11 @@ makeLenses ''PactDbStatePersist
 -- | Indicates a computed gas charge (gas amount * gas price)
 newtype GasSupply = GasSupply { _gasSupply :: ParsedDecimal }
    deriving (Eq,Ord)
-   deriving newtype (Num,Real,Fractional, ToJSON,FromJSON)
+   deriving newtype (Num,Real,Fractional,FromJSON)
 instance Show GasSupply where show (GasSupply g) = show g
+
+instance J.Encode GasSupply where
+    build = J.build . _gasSupply
 
 newtype GasId = GasId PactId deriving (Eq, Show)
 

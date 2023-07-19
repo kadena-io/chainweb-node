@@ -112,9 +112,9 @@ import Chainweb.Version.Registry
 import Chainweb.Storage.Table
 import Chainweb.Storage.Table.RocksDB
 
+import qualified Pact.JSON.Encode as J
 import Pact.Types.Command
 import Pact.Types.PactError
-import qualified Pact.JSON.Encode as J
 
 -- -------------------------------------------------------------------------- --
 
@@ -426,6 +426,7 @@ run config logger = withBlockHeaders logger config $ \pdb x -> x
         OutputCoinebaseResult -> s
             & payloadsCid pdb id
             & coinbaseResult cdData
+            & S.map (fmap J.toJsonViaEncode)
             & S.map encodeJson
             & S.mapM_ T.putStrLn
         CoinbaseFailure -> s
@@ -433,6 +434,7 @@ run config logger = withBlockHeaders logger config $ \pdb x -> x
             & coinbaseResult cdData
             & failures cdData
             & S.filter (isJust . view cdData)
+            & S.map (fmap J.toJsonViaEncode)
             & S.map encodeJson
             & S.mapM_ T.putStrLn
         OutputPayload -> s
@@ -603,19 +605,19 @@ transactionsWithOutputs l = S.mapM $ l
 
 commandWithOutputsValue :: (Command T.Text, CommandResult T.Text) -> Value
 commandWithOutputsValue (c, o) = object
-    [ "sigs" .= _cmdSigs c
-    , "hash" .= _cmdHash c
+    [ "sigs" .= fmap J.toJsonViaEncode (_cmdSigs c)
+    , "hash" .= J.toJsonViaEncode (_cmdHash c)
     , "payload" .= either
         (const $ String $ _cmdPayload c)
         (id @Value)
         (eitherDecodeStrict' $ T.encodeUtf8 $ _cmdPayload c)
-    , "output" .= o
+    , "output" .= J.toJsonViaEncode o
     ]
 
 commandValue :: Command T.Text -> Value
 commandValue c = object
-    [ "sigs" .= _cmdSigs c
-    , "hash" .= _cmdHash c
+    [ "sigs" .= fmap J.toJsonViaEncode (_cmdSigs c)
+    , "hash" .= J.toJsonViaEncode (_cmdHash c)
     , "payload" .= either
         (const $ String $ _cmdPayload c)
         (id @Value)

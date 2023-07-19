@@ -17,6 +17,7 @@ import Control.Error.Util
 import Data.Aeson
 import Data.Aeson.Types (Pair)
 import qualified Data.Aeson.KeyMap as KM
+import Data.Bifunctor (first)
 import Data.Foldable (foldl')
 import Data.Decimal ( Decimal, DecimalRaw(Decimal) )
 import Data.Hashable (Hashable(..))
@@ -145,7 +146,7 @@ data ContinuationMetaData = ContinuationMetaData
 instance ToObject ContinuationMetaData where
   toPairs (ContinuationMetaData curr next rk total) =
     [ "current-step" .= toObject curr
-    , "first-step-request-key" .= rk
+    , "first-step-request-key" .= toLegacyJsonViaEncode rk
     , "total-steps" .= total ]
     <> omitNextIfMissing
     where
@@ -265,10 +266,10 @@ instance ToJSON ConstructionTx where
   toJSON (ConstructTransfer from fromGuard to toGuard amt) =
     object [ "tx_type" .= ("transfer" :: T.Text)
            , "sender_account" .= from
-           , "sender_ownership" .= fromGuard
+           , "sender_ownership" .= toLegacyJsonViaEncode fromGuard
            , "receiver_account" .= to
-           , "receiver_ownership" .= toGuard
-           , "transfer_amount" .= amt ]
+           , "receiver_ownership" .= toLegacyJsonViaEncode toGuard
+           , "transfer_amount" .= toLegacyJsonViaEncode amt ]
 instance FromJSON ConstructionTx where
   parseJSON = withObject "ConstructionTx" $ \o -> do
     typ :: T.Text <- o .: "tx_type"
@@ -350,7 +351,7 @@ newtype DeriveRespMetaData = DeriveRespMetaData
   { _deriveRespMetaData_ownership :: P.KeySet }
 instance ToObject DeriveRespMetaData where
   toPairs (DeriveRespMetaData ownership) =
-    [ "ownership" .= ownership ]
+    [ "ownership" .= toLegacyJsonViaEncode ownership ]
   toObject m = KM.fromList (toPairs m)
 instance FromJSON DeriveRespMetaData where
   parseJSON = withObject "DeriveRespMetaData" $ \o -> do
@@ -370,8 +371,8 @@ instance ToObject PreprocessRespMetaData where
     [ "preprocess_request_metadata" .= reqMeta
     , "tx_info" .= txInfo
     , "suggested_fee" .= fee
-    , "gas_limit" .= gasLimit
-    , "gas_price" .= gasPrice ]
+    , "gas_limit" .= toLegacyJsonViaEncode gasLimit
+    , "gas_price" .= toLegacyJsonViaEncode gasPrice ]
   toObject m = KM.fromList (toPairs m)
 instance FromJSON PreprocessRespMetaData where
   parseJSON = withObject "PreprocessRespMetaData" $ \o -> do
@@ -618,9 +619,9 @@ data PayloadsMetaData = PayloadsMetaData
   } deriving (Show)
 instance ToObject PayloadsMetaData where
   toPairs (PayloadsMetaData signers nonce pm tx) =
-    [ "signers" .= signers
+    [ "signers" .= fmap (first toLegacyJsonViaEncode) signers
     , "nonce" .= nonce
-    , "public_meta" .= pm
+    , "public_meta" .= toLegacyJsonViaEncode pm
     , "tx" .= tx
     ]
   toObject m = KM.fromList (toPairs m)
@@ -645,7 +646,7 @@ data EnrichedCommand = EnrichedCommand
   } deriving (Show)
 instance ToJSON EnrichedCommand where
   toJSON (EnrichedCommand cmd tx accts) = object
-    [ "cmd" .= cmd
+    [ "cmd" .= toLegacyJsonViaEncode cmd
     , "tx_info" .= tx
     , "signer_accounts" .= accts ]
 instance FromJSON EnrichedCommand where
@@ -672,8 +673,8 @@ transferCreateCode from (to, toGuard) amt =
             "(coin.transfer-create %s %s (read-keyset %s) (read-decimal %s))"
             (acctTostr from) (acctTostr to) (show guardName) (show amountName)
       rdata = object
-            [ guardName .= toGuard
-            , amountName .= amt ]
+            [ guardName .= toLegacyJsonViaEncode toGuard
+            , amountName .= toLegacyJsonViaEncode amt ]
   in (code, rdata)
   where
     acctTostr = show . T.unpack . _accountId_address
@@ -733,8 +734,8 @@ createSigningPayloads (EnrichedCommand cmd _ _) = map f
 txToOps :: ConstructionTx -> [Operation]
 txToOps txInfo = case txInfo of
   ConstructTransfer from fromGuard to toGuard (P.ParsedDecimal amt) ->
-    [ op (_accountId_address from) (negate amt) fromGuard 0
-    , op (_accountId_address to) amt toGuard 1
+    [ op (_accountId_address from) (negate amt) (toLegacyJsonViaEncode fromGuard) 0
+    , op (_accountId_address to) amt (toLegacyJsonViaEncode toGuard) 1
     ]
 
   where
@@ -1237,7 +1238,7 @@ rowDataToAccountLog (currKey, currBal, currGuard) prev = do
 -- | Parse TxLog Value into fungible asset account columns
 txLogToAccountRow :: P.TxLog P.RowData -> Maybe AccountRow
 txLogToAccountRow (P.TxLog _ key (P.RowData _ (P.ObjectMap row))) = do
-  guard :: Value <- toJSON . P.rowDataToPactValue <$> M.lookup "guard" row
+  LegacyValue guard <- toLegacyJsonViaEncode . P.rowDataToPactValue <$> M.lookup "guard" row
   case M.lookup "balance" row of
     Just (P.RDLiteral (LDecimal bal)) -> pure (key, bal, guard)
     _ -> Nothing

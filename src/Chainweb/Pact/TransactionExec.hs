@@ -78,6 +78,7 @@ import qualified Data.Text as T
 import Pact.Eval (eval, liftTerm)
 import Pact.Gas (freeGasEnv)
 import Pact.Interpreter
+import qualified Pact.JSON.Encode as J
 import Pact.JSON.Legacy.Value
 import Pact.Native.Capabilities (evalCap)
 import Pact.Parse (ParsedDecimal(..))
@@ -109,6 +110,7 @@ import Chainweb.Transaction
 import Chainweb.Utils (encodeToByteString, sshow, tryAllSynchronous, T2(..), T3(..))
 import Chainweb.Version as V
 import Chainweb.Version.Guards as V
+import Pact.JSON.Encode (toJsonViaEncode)
 
 
 -- -------------------------------------------------------------------------- --
@@ -265,7 +267,7 @@ applyCmd v logger gasLogger pdbenv miner gasModel txCtx spv cmd initialGas mcach
 
           let !cr' = case callCtx of
                 ApplySend -> set crLogs (Just logs) $ over crEvents (es ++) cr
-                ApplyLocal -> set crMetaData (Just $ toJSON $ ctxToPublicData' txCtx)
+                ApplyLocal -> set crMetaData (Just $ J.toJsonViaEncode $ ctxToPublicData' txCtx)
                   $ set crLogs (Just logs)
                   $ over crEvents (es ++) cr
 
@@ -468,7 +470,7 @@ applyLocal logger gasLogger dbEnv gasModel txCtx spv cmdIn mc execConfig =
 
       case cr of
         Left e -> jsonErrorResult e "applyLocal"
-        Right r -> return $! r { _crMetaData = Just (toJSON $ ctxToPublicData' txCtx) }
+        Right r -> return $! r { _crMetaData = Just (J.toJsonViaEncode $ ctxToPublicData' txCtx) }
 
     go = checkTooBigTx gas0 gasLimit (applyPayload $ _pPayload $ _cmdPayload cmd) return
 
@@ -904,11 +906,11 @@ enrichedMsgBody cmd = case (_pPayload $ _cmdPayload cmd) of
            , "exec-user-data" A..= pactFriendlyUserData (_getLegacyValue userData) ]
   Continuation (ContMsg pid step isRollback userData proof) ->
     object [ "tx-type" A..= ("cont" :: Text)
-           , "cont-pact-id" A..= pid
-           , "cont-step" A..= (LInteger $ toInteger step)
-           , "cont-is-rollback" A..= LBool isRollback
+           , "cont-pact-id" A..= toJsonViaEncode pid
+           , "cont-step" A..= toJsonViaEncode (LInteger $ toInteger step)
+           , "cont-is-rollback" A..= toJsonViaEncode (LBool isRollback)
            , "cont-user-data" A..= pactFriendlyUserData (_getLegacyValue userData)
-           , "cont-has-proof" A..= (LBool $ isJust proof)
+           , "cont-has-proof" A..= toJsonViaEncode (isJust proof)
            ]
   where
     pactFriendlyUserData Null = object []
@@ -939,7 +941,7 @@ redeemGas cmd = do
       $ initCapabilities [magic_GAS]
 
     redeemGasCmd fee (GasId pid) =
-      ContMsg pid 1 False (toLegacyJson $ object [ "fee" A..= fee ]) Nothing
+      ContMsg pid 1 False (toLegacyJson $ object [ "fee" A..= toJsonViaEncode fee ]) Nothing
 
 
 -- ---------------------------------------------------------------------------- --

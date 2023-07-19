@@ -786,3 +786,4 @@ benchmark bench
         , streaming-commons >= 0.2
         , unordered-containers >= 0.2.16
         , yet-another-logger >= 0.4.1
+        , pact-json >= 0.1

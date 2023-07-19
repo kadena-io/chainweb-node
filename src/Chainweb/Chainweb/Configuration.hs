@@ -96,6 +96,8 @@ import Network.Wai.Handler.Warp hiding (Port)
 
 import Numeric.Natural (Natural)
 
+import qualified Pact.JSON.Encode as J
+
 import Prelude hiding (log)
 
 import System.Directory
@@ -466,9 +468,9 @@ instance ToJSON ChainwebConfiguration where
         , "p2p" .= _configP2p o
         , "throttling" .= _configThrottling o
         , "mempoolP2p" .= _configMempoolP2p o
-        , "gasLimitOfBlock" .= _configBlockGasLimit o
+        , "gasLimitOfBlock" .= J.toJsonViaEncode (_configBlockGasLimit o)
         , "logGas" .= _configLogGas o
-        , "minGasPrice" .= _configMinGasPrice o
+        , "minGasPrice" .= J.toJsonViaEncode (_configMinGasPrice o)
         , "pactQueueSize" .= _configPactQueueSize o
         , "reorgLimit" .= _configReorgLimit o
         , "localRewindDepthLimit" .= _configLocalRewindDepthLimit o

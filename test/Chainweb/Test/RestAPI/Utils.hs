@@ -69,13 +69,13 @@ import Chainweb.Pact.RestAPI.Client
 import Chainweb.Pact.RestAPI.EthSpv
 import Chainweb.Pact.Service.Types
 import Chainweb.Rosetta.RestAPI.Client
-import Chainweb.Utils
 import Chainweb.Version
 import Chainweb.Test.TestVersions
 import Chainweb.Test.Utils
 
 -- internal pact modules
 
+import qualified Pact.JSON.Encode as J
 import Pact.Types.API
 import Pact.Types.Command
 import Pact.Types.Hash
@@ -268,7 +268,7 @@ pollingWithDepth sid cenv rks confirmationDepth pollingExpectation =
         Right r@(PollResponses mp) ->
           if all (go mp) (toList rs)
           then return r
-          else throwM $ PollingFailure $ T.unpack $ "polling check failed: " <> encodeToText r
+          else throwM $ PollingFailure $ T.unpack $ "polling check failed: " <> J.encodeText r
   where
     h _ = Handler $ \case
       PollingFailure _ -> return True

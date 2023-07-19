@@ -61,6 +61,7 @@ import Test.Tasty.HUnit
 
 -- internal pact modules
 
+import qualified Pact.JSON.Encode as J
 import Pact.Types.Command
 import Pact.Types.Exp
 import Pact.Types.Hash
@@ -409,7 +410,7 @@ burnGen time pidv sid tid = do
             "keys-all"
 
       in object
-         [ "sender01-keyset" .= ks
+         [ "sender01-keyset" .= J.toJsonViaEncode ks
          , "target-chain-id" .= chainIdToText tid
          ]
 

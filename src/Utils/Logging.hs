@@ -2,6 +2,7 @@
 {-# LANGUAGE DeriveFunctor #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DerivingStrategies #-}
+{-# LANGUAGE DerivingVia #-}
 {-# LANGUAGE ExistentialQuantification #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
@@ -500,8 +501,7 @@ configureHandler logger config inner
 
 -- | Format a Log Message as JSON.
 --
-newtype JsonLogMessage a = JsonLogMessage
-    { _getJsonLogMessage :: L.LogMessage a }
+newtype JsonLogMessage a = JsonLogMessage (L.LogMessage a)
     deriving (Generic)
 
 instance ToJSON a => ToJSON (JsonLogMessage a) where

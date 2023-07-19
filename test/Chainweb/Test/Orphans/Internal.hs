@@ -84,6 +84,7 @@ import GHC.Stack
 
 import Numeric.Natural
 
+import qualified Pact.JSON.Encode as J
 import Pact.Types.Command
 import Pact.Types.PactValue
 import Pact.Types.Runtime (PactEvent(..), Literal(..))
@@ -679,7 +680,7 @@ arbitraryPayloadWithStructuredOutputs = resize 10 $ do
     payloads <- newPayloadWithOutputs
         <$> arbitrary
         <*> arbitrary
-        <*> pure (fmap (TransactionOutput . encodeToByteString) <$> txs)
+        <*> pure (fmap (TransactionOutput . J.encodeStrict) <$> txs)
     return (_crReqKey . snd <$> txs, payloads)
   where
     genResult = arbitraryCommandResultWithEvents arbitraryProofPactEvent
@@ -856,7 +857,11 @@ instance Arbitrary OutputEvents where
 --
 newtype ProofPactEvent = ProofPactEvent { getProofPactEvent :: PactEvent }
     deriving (Show)
-    deriving newtype (Eq, ToJSON, FromJSON)
+    deriving newtype (Eq, FromJSON)
+
+instance ToJSON ProofPactEvent where
+    toJSON = J.toJsonViaEncode . getProofPactEvent
+    {-# INLINEABLE toJSON #-}
 
 instance Arbitrary ProofPactEvent where
     arbitrary = ProofPactEvent <$> arbitraryProofPactEvent

@@ -22,8 +22,6 @@ module Chainweb.Pact.Templates
 
 
 import Control.Lens
-import Data.Aeson hiding ((.=))
-import qualified Data.Aeson as A
 import Data.Default (def)
 import Data.Text (Text, pack)
 
@@ -31,6 +29,7 @@ import Text.Trifecta.Delta (Delta(..))
 
 -- internal modules
 
+import qualified Pact.JSON.Encode as J
 import Pact.JSON.Legacy.Value
 import Pact.Parse
 import Pact.Types.Command
@@ -94,10 +93,10 @@ mkBuyGasTerm
 mkBuyGasTerm (MinerId mid) (MinerKeys ks) sender total = (populatedTerm, execMsg)
   where (term, senderS, minerS) = buyGasTemplate
         populatedTerm = set senderS sender $ set minerS mid term
-        execMsg = ExecMsg dummyParsedCode (toLegacyJson buyGasData)
-        buyGasData = object
-          [ "miner-keyset" A..= ks
-          , "total" A..= total
+        execMsg = ExecMsg dummyParsedCode (toLegacyJsonViaEncode buyGasData)
+        buyGasData = J.object
+          [ "miner-keyset" J..= ks
+          , "total" J..= total
           ]
 {-# INLINABLE mkBuyGasTerm #-}
 
@@ -119,39 +118,39 @@ mkCoinbaseTerm (MinerId mid) (MinerKeys ks) reward = (populatedTerm, execMsg)
   where
     (term, minerS) = coinbaseTemplate
     populatedTerm = set minerS mid term
-    execMsg = ExecMsg dummyParsedCode (toLegacyJson coinbaseData)
-    coinbaseData = object
-      [ "miner-keyset" A..= ks
-      , "reward" A..= reward
+    execMsg = ExecMsg dummyParsedCode (toLegacyJsonViaEncode coinbaseData)
+    coinbaseData = J.object
+      [ "miner-keyset" J..= ks
+      , "reward" J..= reward
       ]
 {-# INLINABLE mkCoinbaseTerm #-}
-
--- | Build the 'ExecMsg' for some pact code fed to the function. The 'value'
--- parameter is for any possible environmental data that needs to go into
--- the 'ExecMsg'.
---
-buildExecParsedCode :: Maybe Value -> Text -> IO (ExecMsg ParsedCode)
-buildExecParsedCode value code = maybe (go Null) go value
-  where
-    go v = case parsePact code of
-      Right !t -> pure $! ExecMsg t (toLegacyJson v)
-      -- if we can't construct coin contract calls, this should
-      -- fail fast
-      Left err -> internalError $ "buildExecParsedCode: parse failed: " <> pack err
 
 -- | "Old method" to build a coinbase 'ExecMsg' for back-compat.
 --
 mkCoinbaseCmd :: MinerId -> MinerKeys -> ParsedDecimal -> IO (ExecMsg ParsedCode)
 mkCoinbaseCmd (MinerId mid) (MinerKeys ks) reward =
-    buildExecParsedCode coinbaseData $ mconcat
+    buildExecParsedCode $ mconcat
       [ "(coin.coinbase"
       , " \"" <> mid <> "\""
       , " (read-keyset \"miner-keyset\")"
       , " (read-decimal \"reward\"))"
       ]
   where
-    coinbaseData = Just $ object
-      [ "miner-keyset" A..= ks
-      , "reward" A..= reward
+
+    coinbaseData = J.object
+      [ "miner-keyset" J..= ks
+      , "reward" J..= reward
       ]
+
+    -- | Build the 'ExecMsg' for some pact code fed to the function. The 'value'
+    -- parameter is for any possible environmental data that needs to go into
+    -- the 'ExecMsg'.
+    --
+    buildExecParsedCode :: Text -> IO (ExecMsg ParsedCode)
+    buildExecParsedCode code = case parsePact code of
+        Right !t -> pure $! ExecMsg t (toLegacyJsonViaEncode coinbaseData)
+        -- if we can't construct coin contract calls, this should
+        -- fail fast
+        Left err -> internalError $ "buildExecParsedCode: parse failed: " <> pack err
+
 {-# INLINABLE mkCoinbaseCmd #-}

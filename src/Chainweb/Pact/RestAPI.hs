@@ -157,8 +157,8 @@ pactLocalWithQueryApi = Proxy
 type PactPollWithQueryApi_
     = "poll"
     :> QueryParam "confirmationDepth" ConfirmationDepth
-    :> ReqBody '[JSON] Poll
-    :> Post '[JSON] PollResponses
+    :> ReqBody '[PactJson] Poll
+    :> Post '[PactJson] PollResponses
 
 type PactPollWithQueryApi v c = PactV1ApiEndpoint v c PactPollWithQueryApi_
 

@@ -36,6 +36,7 @@ import Test.Tasty.HUnit
 
 -- internal pact modules
 
+import qualified Pact.JSON.Encode as J
 import Pact.Types.API
 import Pact.Types.Command
 
@@ -484,8 +485,8 @@ constructionTransferTests _ envIo =
     toAcctLog name delta guard = AccountLog
       { _accountLogKey = name
       , _accountLogBalanceDelta = BalanceDelta delta
-      , _accountLogCurrGuard = A.toJSON guard
-      , _accountLogPrevGuard = A.toJSON guard
+      , _accountLogCurrGuard = J.toJsonViaEncode guard
+      , _accountLogPrevGuard = J.toJsonViaEncode guard
       }
 
     ks (TestKeySet _ Nothing pred') = P.mkKeySet [] pred'

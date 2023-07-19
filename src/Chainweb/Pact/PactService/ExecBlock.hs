@@ -38,7 +38,6 @@ import Control.Monad.Reader
 import Control.Monad.State.Strict
 
 import qualified Data.Aeson as A
-import qualified Data.ByteString.Lazy as BL
 import qualified Data.ByteString.Short as SB
 import Data.Decimal
 import Data.Default (def)
@@ -430,7 +429,7 @@ applyPactCmd isGenesis env miner txTimeLimit cmd = StateT $ \(T2 mcache maybeBlo
                maybe (throwM timeoutError) return <=< timeout (fromIntegral limit)
         let txGas (T3 r _ _) = fromIntegral $ P._crGas r
         T3 r c _warns <-
-          tracePactServiceM' "applyCmd" (P._cmdHash cmd) txGas $
+          tracePactServiceM' "applyCmd" (J.toJsonViaEncode (P._cmdHash cmd)) txGas $
             liftIO $ txTimeout $ applyCmd v logger gasLogger env miner (gasModel pd) pd spv gasLimitedCmd initialGas mcache ApplySend
         pure $ T2 r c
 
@@ -592,7 +591,7 @@ validateHashes bHeader pData miner transactions =
 
     addTxOuts :: (ChainwebTransaction, P.CommandResult [P.TxLogJson]) -> J.Builder
     addTxOuts (tx,cr) = J.object
-        [ "tx" J..= J.encodeWithAeson (fmap (fmap _pcCode . payloadObj) tx)
+        [ "tx" J..= fmap (fmap _pcCode . payloadObj) tx
         , "result" J..= toPairCR cr
         ]
 
@@ -609,14 +608,14 @@ validateHashes bHeader pData miner transactions =
 
 toTransactionBytes :: P.Command Text -> Transaction
 toTransactionBytes cwTrans =
-    let plBytes = encodeToByteString cwTrans
+    let plBytes = J.encodeStrict cwTrans
     in Transaction { _transactionBytes = plBytes }
 
 
 toOutputBytes :: P.CommandResult P.Hash -> TransactionOutput
 toOutputBytes cr =
-    let outBytes = A.encode cr
-    in TransactionOutput { _transactionOutputBytes = BL.toStrict outBytes }
+    let outBytes = J.encodeStrict cr
+    in TransactionOutput { _transactionOutputBytes = outBytes }
 
 toPayloadWithOutputs :: Miner -> Transactions (P.CommandResult [P.TxLogJson]) -> PayloadWithOutputs
 toPayloadWithOutputs mi ts =
@@ -625,7 +624,7 @@ toPayloadWithOutputs mi ts =
         transOuts = toOutputBytes . toHashCommandResult . snd <$> oldSeq
 
         miner = toMinerData mi
-        cb = CoinbaseOutput $ encodeToByteString $ toHashCommandResult $ _transactionCoinbase ts
+        cb = CoinbaseOutput $ J.encodeStrict $ toHashCommandResult $ _transactionCoinbase ts
         blockTrans = snd $ newBlockTransactions miner trans
         cmdBSToTx = toTransactionBytes
           . fmap (T.decodeUtf8 . SB.fromShort . payloadBytes)

@@ -513,22 +513,22 @@ runRegression pactdb e schemaInit = do
         [ encodeTxLog TxLog
             { _txDomain = "SYS:KeySets"
             , _txKey = "ks1"
-            , _txValue = toLegacyJson ks
+            , _txValue = ks
             }
         , encodeTxLog TxLog
             { _txDomain = "SYS:Modules"
             , _txKey = asString modName
-            , _txValue = toLegacyJson mod'
+            , _txValue = mod'
             }
         , encodeTxLog TxLog
             { _txDomain = "user1"
             , _txKey = "key1"
-            , _txValue = toLegacyJson row
+            , _txValue = row
             }
         , encodeTxLog TxLog
             { _txDomain = "user1"
             , _txKey = "key1"
-            , _txValue = toLegacyJson row'
+            , _txValue = row'
             }
         ]
         (commit pactdb conn)
