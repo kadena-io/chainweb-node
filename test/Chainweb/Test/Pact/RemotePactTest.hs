@@ -9,6 +9,8 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 
+{-# OPTIONS_GHC -fno-warn-type-defaults #-}
+
 -- |
 -- Module: Chainweb.Test.RemotePactTest
 -- Copyright: Copyright © 2018 - 2020 Kadena LLC.
@@ -40,7 +42,7 @@ import Data.Aeson.Lens hiding (values)
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as LBS
 import qualified Data.ByteString.Short as SB
-import Data.Decimal
+import Data.Word (Word64)
 import Data.Default (def)
 import Data.Foldable (toList)
 import qualified Data.HashMap.Strict as HashMap
@@ -373,7 +375,7 @@ localPreflightSimTest iot nio = testCaseSteps "local preflight sim test" $ \step
       Right (LocalResultWithWarns cr' ws) -> do
         currentBlockHeight <- getCurrentBlockHeight v cenv sid
         assertEqual "Preflight's metadata should have increment block height"
-          (Just $ fromIntegral $ 1 + fromIntegral currentBlockHeight) (getBlockHeight cr')
+          (Just $ 1 + fromIntegral currentBlockHeight) (getBlockHeight cr')
 
         case ws of
           [w] | "decimal/integer operator overload" `T.isInfixOf` w ->
@@ -390,7 +392,7 @@ localPreflightSimTest iot nio = testCaseSteps "local preflight sim test" $ \step
       Right (LocalResultWithWarns cr' ws) -> do
         currentBlockHeight <- getCurrentBlockHeight v cenv sid
         assertEqual "Preflight's metadata block height should reflect the rewind depth"
-          (Just $ fromIntegral $ 1 + (fromIntegral currentBlockHeight) - rewindDepth) (getBlockHeight cr')
+          (Just $ 1 + (fromIntegral currentBlockHeight) - rewindDepth) (getBlockHeight cr')
 
         case ws of
           [w] | "decimal/integer operator overload" `T.isInfixOf` w ->
@@ -936,5 +938,5 @@ pactDeadBeef = let (TransactionHash b) = deadbeef
                in RequestKey $ Hash b
 
 -- avoiding `scientific` dep here
-getBlockHeight :: CommandResult a -> Maybe Decimal
-getBlockHeight = preview (crMetaData . _Just . key "blockHeight" . _Number . to (fromRational . toRational))
+getBlockHeight :: CommandResult a -> Maybe Word64
+getBlockHeight = preview (crMetaData . _Just . key "blockHeight" . _Number . to (fromIntegral . round . toRational))
