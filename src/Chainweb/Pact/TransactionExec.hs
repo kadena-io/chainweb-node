@@ -345,6 +345,7 @@ flagsFor v cid bh = S.fromList $ concat
   , enableNewTrans v cid bh
   , enablePact46 v cid bh
   , enablePact47 v cid bh
+  , enablePact48 v cid bh
   , disableReturnRTC v cid bh
   ]
 
@@ -761,6 +762,9 @@ enablePact46 v cid bh = [FlagDisablePact46 | not (chainweb218Pact v cid bh)]
 
 enablePact47 :: ChainwebVersion -> V.ChainId -> BlockHeight -> [ExecutionFlag]
 enablePact47 v cid bh = [FlagDisablePact47 | not (chainweb219Pact v cid bh)]
+
+enablePact48 :: ChainwebVersion -> V.ChainId -> BlockHeight -> [ExecutionFlag]
+enablePact48 v cid bh = [FlagDisablePact48 | not (chainweb220Pact v cid bh)]
 
 -- | Even though this is not forking, abstracting for future shutoffs
 disableReturnRTC :: ChainwebVersion -> V.ChainId -> BlockHeight -> [ExecutionFlag]
