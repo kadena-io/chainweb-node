@@ -9,8 +9,6 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 
-{-# OPTIONS_GHC -fno-warn-type-defaults #-}
-
 -- |
 -- Module: Chainweb.Test.RemotePactTest
 -- Copyright: Copyright © 2018 - 2020 Kadena LLC.
@@ -939,4 +937,4 @@ pactDeadBeef = let (TransactionHash b) = deadbeef
 
 -- avoiding `scientific` dep here
 getBlockHeight :: CommandResult a -> Maybe Word64
-getBlockHeight = preview (crMetaData . _Just . key "blockHeight" . _Number . to (fromIntegral . round . toRational))
+getBlockHeight = preview (crMetaData . _Just . key "blockHeight" . _Number . to ((fromIntegral :: Integer -> Word64 ) . round . toRational))
