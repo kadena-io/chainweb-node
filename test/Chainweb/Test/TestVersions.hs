@@ -256,6 +256,7 @@ slowForkingCpmTestVersion g = buildTestVersion $ \v -> v
         , (Chainweb217Pact, AllChains (BlockHeight 55))
         , (Chainweb218Pact, AllChains (BlockHeight 60))
         , (Chainweb219Pact, AllChains (BlockHeight 71))
+        , (Chainweb220Pact, AllChains (BlockHeight maxBound))
         ]
 
 -- | CPM version (see `cpmTestVersion`) with forks and upgrades quickly enabled.
