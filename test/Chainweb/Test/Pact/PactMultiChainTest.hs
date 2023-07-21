@@ -143,10 +143,9 @@ tests = ScheduledTest testName go
             withTestBlockDb testVersion $ \bdb -> do
               (iompa,mpa) <- dmpio
               let logger = hunitDummyLogger step
-              withWebPactExecutionService logger step testVersion pactConfig bdb mpa gasmodel $ \(pact,pacts) ->
+              withWebPactExecutionService logger testVersion pactConfig bdb mpa gasmodel $ \(pact,pacts) ->
                 runReaderT f $
                 MultiEnv bdb pact pacts (return iompa) noMiner cid
-
 
 minerKeysetTest :: PactTestM ()
 minerKeysetTest = do

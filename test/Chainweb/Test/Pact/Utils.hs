@@ -577,9 +577,6 @@ pactTestLogger backend showAll = P.initLoggers backend f def
     f _ b "DDL" d | not showAll = P.doLog (\_ -> return ()) b "DDL" d
     f a b c d = P.doLog a b c d
 
---pactTestLogger :: (String -> IO ()) -> GenericLogger
---pactTestLogger
-
 -- | Test Pact Execution Context for running inside 'PactServiceM'.
 -- Only used internally.
 data TestPactCtx logger tbl = TestPactCtx
@@ -600,7 +597,6 @@ destroyTestPactCtx = void . takeMVar . _testPactCtxState
 testPactCtxSQLite
   :: forall logger tbl. (Logger logger, CanReadablePayloadCas tbl)
   => logger
-  -> (String -> IO ())
   -> ChainwebVersion
   -> Version.ChainId
   -> BlockHeaderDb
@@ -609,7 +605,7 @@ testPactCtxSQLite
   -> PactServiceConfig
   -> (TxContext -> GasModel)
   -> IO (TestPactCtx logger tbl, PactDbEnv' logger)
-testPactCtxSQLite logger logBackend v cid bhdb pdb sqlenv conf gasmodel = do
+testPactCtxSQLite logger v cid bhdb pdb sqlenv conf gasmodel = do
     (dbSt,cp) <- initRelationalCheckpointer' initialBlockState sqlenv cpLogger v cid
     let rs = readRewards
     let ph = ParentHeader $ genesisBlockHeader v cid
@@ -621,7 +617,6 @@ testPactCtxSQLite logger logBackend v cid bhdb pdb sqlenv conf gasmodel = do
   where
     initialBlockState = initBlockState defaultModuleCacheLimit $ genesisHeight v cid
     cpLogger = addLabel ("chain-id", chainIdToText cid) $ addLabel ("sub-component", "checkpointer") $ logger
-    --newLogger loggers $ LogName ("Checkpointer" ++ show cid)
     pactServiceEnv :: Checkpointer logger -> MinerRewards -> PactServiceEnv logger tbl
     pactServiceEnv cp rs = PactServiceEnv
         { _psMempoolAccess = Nothing
@@ -640,7 +635,6 @@ testPactCtxSQLite logger logBackend v cid bhdb pdb sqlenv conf gasmodel = do
         , _psCheckpointerDepth = 0
         , _psLogger = addLabel ("chain-id", chainIdToText cid) $ addLabel ("component", "pact") $ _cpLogger cp
         , _psGasLogger = Nothing
-        , _psPactLoggerFactory = pactTestLogger logBackend False
         , _psBlockGasLimit = _pactBlockGasLimit conf
         , _psChainId = cid
         }
@@ -653,8 +647,6 @@ freeGasModel = const $ constGasModel 0
 withWebPactExecutionService
     :: (Logger logger)
     => logger
-    -> (String -> IO ())
-        -- ^ logging backend
     -> ChainwebVersion
     -> PactServiceConfig
     -> TestBlockDb
@@ -662,7 +654,7 @@ withWebPactExecutionService
     -> (TxContext -> GasModel)
     -> ((WebPactExecutionService,HM.HashMap ChainId PactExecutionService) -> IO a)
     -> IO a
-withWebPactExecutionService logger logBackend v pactConfig bdb mempoolAccess gasmodel act =
+withWebPactExecutionService logger v pactConfig bdb mempoolAccess gasmodel act =
   withDbs $ \sqlenvs -> do
     pacts <- fmap HM.fromList
            $ traverse mkPact
@@ -677,7 +669,7 @@ withWebPactExecutionService logger logBackend v pactConfig bdb mempoolAccess gas
     mkPact :: (SQLiteEnv, ChainId) -> IO (ChainId, PactExecutionService)
     mkPact (sqlenv, c) = do
         bhdb <- getBlockHeaderDb c bdb
-        (ctx,_) <- testPactCtxSQLite logger logBackend v c bhdb (_bdbPayloadDb bdb) sqlenv pactConfig gasmodel
+        (ctx,_) <- testPactCtxSQLite logger v c bhdb (_bdbPayloadDb bdb) sqlenv pactConfig gasmodel
         return $ (c,) $ PactExecutionService
           { _pactNewBlock = \m p ->
               evalPactServiceM_ ctx $ execNewBlock mempoolAccess p m
@@ -696,7 +688,6 @@ withWebPactExecutionService logger logBackend v pactConfig bdb mempoolAccess gas
           , _pactSyncToBlock = \h ->
               evalPactServiceM_ ctx $ execSyncToBlock h
           }
-
 
 -- | Noncer for 'runCut'
 type Noncer = ChainId -> IO Nonce
@@ -761,14 +752,13 @@ withPactCtxSQLite logger v bhdbIO pdbIO conf f =
         bhdb <- bhdbIO
         pdb <- pdbIO
         s <- ios
-        testPactCtxSQLite logger (\_ -> return ()) v cid bhdb pdb s conf freeGasModel
+        testPactCtxSQLite logger v cid bhdb pdb s conf freeGasModel
 
 toTxCreationTime :: Integral a => Time a -> TxCreationTime
 toTxCreationTime (Time timespan) = TxCreationTime $ fromIntegral $ timeSpanToSeconds timespan
 
 withPayloadDb :: (IO (PayloadDb HashMapTable) -> TestTree) -> TestTree
 withPayloadDb = withResource newPayloadDb mempty
-
 
 -- | 'MemPoolAccess' that delegates all calls to the contents of provided `IORef`.
 delegateMemPoolAccess :: IORef MemPoolAccess -> MemPoolAccess

@@ -81,7 +81,7 @@ import Chainweb.Pact.Backend.DbCache
 import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.Backend.Utils
 import Chainweb.Pact.Service.Types (PactException(..), internalError)
-import Chainweb.Pact.Types (logWarn_, logError_)
+import Chainweb.Pact.Types (logInfo_, logError_)
 import Chainweb.Version
 import Chainweb.Utils (encodeToByteString, sshow)
 import Chainweb.Utils.Serialization
@@ -855,8 +855,7 @@ initSchema = do
   where
     create tablename = do
       logger <- view bdbenvLogger
-      -- TODO: should this be WARN?
-      logWarn_ logger $ "initSchema: "  <> fromUtf8 tablename
+      logInfo_ logger $ "initSchema: "  <> fromUtf8 tablename
       callDb "initSchema" $ createVersionedTable tablename
 
 getEndingTxId :: ChainwebVersion -> ChainId -> BlockHeight -> BlockHandler logger SQLiteEnv TxId

@@ -82,7 +82,6 @@ module Chainweb.Pact.Types
   , psValidateHashesOnReplay
   , psLogger
   , psGasLogger
-  , psPactLoggerFactory
   , psAllowReadsInLocal
   , psIsBatch
   , psCheckpointerDepth
@@ -376,12 +375,6 @@ data PactServiceEnv logger tbl = PactServiceEnv
     , _psAllowReadsInLocal :: !Bool
     , _psLogger :: !logger
     , _psGasLogger :: !(Maybe logger)
-    , _psPactLoggerFactory :: !P.Loggers
-    -- ^ A Pact logger factory. A new logger can be created via
-    --   @P.newLogger _psPactLoggerFactory "myLogger"
-    --
-    --   This should only be used inside of Pact transactions, because
-    --   it does not give us any telemtry.
 
     -- The following two fields are used to enforce invariants for using the
     -- checkpointer. These would better be enforced on the type level. But that

@@ -158,7 +158,6 @@ withPactService ver cid chainwebLogger bhDb pdb sqlenv config act =
                     , _psCheckpointerDepth = 0
                     , _psLogger = pactServiceLogger
                     , _psGasLogger = gasLogger <$ guard (_pactLogGas config)
-                    , _psPactLoggerFactory = pactLoggers chainwebLogger
                     , _psBlockGasLimit = _pactBlockGasLimit config
                     , _psChainId = cid
                     }
@@ -704,7 +703,6 @@ execLocal cwtx preflight sigVerify rdepth = pactLabel "execLocal" $ withDiscarde
             enablePactEvents' (ctxVersion ctx) (ctxChainId ctx) (ctxCurrentBlockHeight ctx) ++
             enforceKeysetFormats' (ctxVersion ctx) (ctxChainId ctx) (ctxCurrentBlockHeight ctx) ++
             disableReturnRTC (ctxVersion ctx) (ctxChainId ctx) (ctxCurrentBlockHeight ctx)
-    let logger = _psLogger
     let initialGas = initialGasOf $ P._cmdPayload cwtx
 
     -- In this case the rewind limit is the same as rewind depth
@@ -722,7 +720,7 @@ execLocal cwtx preflight sigVerify rdepth = pactLabel "execLocal" $ withDiscarde
             assertLocalMetadata cmd ctx sigVerify >>= \case
               Right{} -> do
                 T3 cr _mc warns <- liftIO $ applyCmd
-                  _psVersion logger _psGasLogger pdbenv
+                  _psVersion _psLogger _psGasLogger pdbenv
                   noMiner chainweb213GasModel ctx spv cmd
                   initialGas mc ApplyLocal
 
@@ -732,7 +730,7 @@ execLocal cwtx preflight sigVerify rdepth = pactLabel "execLocal" $ withDiscarde
               Left e -> pure $ MetadataValidationFailure e
           _ ->  liftIO $ do
             cr <- applyLocal
-              logger _psGasLogger pdbenv
+              _psLogger _psGasLogger pdbenv
               chainweb213GasModel ctx spv
               cwtx mc execConfig
 

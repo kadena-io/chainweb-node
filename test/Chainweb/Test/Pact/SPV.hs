@@ -224,8 +224,6 @@ checkResult' co ci expect = case HM.lookup (unsafeChainId ci) co of
     [(_,cr)] -> assertEqual "pact results match" expect (_crResult cr)
     _ -> assertFailure $ "expected single result, got " ++ show v
 
-
-
 getCutOutputs :: TestBlockDb -> IO CutOutputs
 getCutOutputs (TestBlockDb _ pdb cmv) = do
   c <- readMVar cmv
@@ -237,7 +235,6 @@ runCut' :: ChainwebVersion -> TestBlockDb -> WebPactExecutionService -> IO CutOu
 runCut' v bdb pact = do
   runCut v bdb pact (offsetBlockTime second) zeroNoncer noMiner
   getCutOutputs bdb
-
 
 roundtrip
     :: Word32
@@ -268,7 +265,7 @@ roundtrip'
 roundtrip' v sid0 tid0 burn create step = withTestBlockDb v $ \bdb -> do
   tg <- newMVar mempty
   let logger = hunitDummyLogger step
-  withWebPactExecutionService logger step v testPactServiceConfig bdb (chainToMPA' tg) freeGasModel $ \(pact,_) -> do
+  withWebPactExecutionService logger v testPactServiceConfig bdb (chainToMPA' tg) freeGasModel $ \(pact,_) -> do
 
     sid <- mkChainId v maxBound sid0
     tid <- mkChainId v maxBound tid0
