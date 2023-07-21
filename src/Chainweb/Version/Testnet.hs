@@ -36,7 +36,7 @@ import qualified Chainweb.Pact.Transactions.Mainnet8Transactions as MN8
 import qualified Chainweb.Pact.Transactions.Mainnet9Transactions as MN9
 import qualified Chainweb.Pact.Transactions.MainnetKADTransactions as MNKAD
 import qualified Chainweb.BlockHeader.Genesis.Testnet0Payload as PN0
-import qualified Chainweb.BlockHeader.Genesis.TestnetNPayload as PNN
+import qualified Chainweb.BlockHeader.Genesis.Testnet1to19Payload as PNN
 
 -- | Initial hash target for testnet 20-chain transition. Based on the following
 -- header from devnet running with 5 GPUs hash power. Using this target unchanged
@@ -92,42 +92,42 @@ testnet = ChainwebVersion
     { _versionCode = ChainwebVersionCode 0x00000007
     , _versionName = ChainwebVersionName "testnet04"
     , _versionForks = tabulateHashMap $ \case
-        SlowEpoch -> AllChains 0
-        Vuln797Fix -> AllChains 0
+        SlowEpoch -> AllChains ForkAtGenesis
+        Vuln797Fix -> AllChains ForkAtGenesis
         CoinV2 -> onChains $ concat
-            [ [(unsafeChainId i, BlockHeight 1) | i <- [0..9]]
-            , [(unsafeChainId i, BlockHeight 337_000) | i <- [10..19]]
+            [ [(unsafeChainId i, ForkAtBlockHeight $ BlockHeight 1) | i <- [0..9]]
+            , [(unsafeChainId i, ForkAtBlockHeight $ BlockHeight 337_000) | i <- [10..19]]
             ]
-        PactBackCompat_v16 -> AllChains 0
-        ModuleNameFix -> AllChains 2
-        SkipTxTimingValidation -> AllChains 1
-        OldTargetGuard -> AllChains 0
-        SkipFeatureFlagValidation -> AllChains 0
-        ModuleNameFix2 -> AllChains 289_966 -- ~ 2020-07-13
-        OldDAGuard -> AllChains 318_204 -- ~ 2020-07-23 16:00:00
-        PactEvents -> AllChains 660_000
-        SPVBridge -> AllChains 820_000 -- 2021-01-14T17:12:02
-        Pact4Coin3 -> AllChains 1_261_000  -- 2021-06-17T15:54:14
-        EnforceKeysetFormats -> AllChains 1_701_000 -- 2021-11-18T17:54:36
-        Pact420 -> AllChains 1_862_000  -- 2021-06-19T03:34:05
-        CheckTxHash -> AllChains 1_889_000 -- 2022-01-24T04:19:24
-        Chainweb213Pact -> AllChains 1_974_556  -- 2022-02-25 00:00:00
-        Chainweb214Pact -> AllChains 2_134_331  -- 2022-04-21T12:00:00Z
-        Chainweb215Pact -> AllChains 2_295_437  -- 2022-06-16T12:00:00+00:00
-        Pact44NewTrans -> AllChains 2_500_369 -- Todo: add date
-        Chainweb216Pact -> AllChains 2_516_739  -- 2022-09-01 12:00:00+00:00
-        Chainweb217Pact -> AllChains 2_777_367  -- 2022-12-01 12:00:00+00:00
-        Chainweb218Pact -> AllChains 3_038_343  -- 2023-03-02 12:00:00+00:00
-        Chainweb219Pact -> AllChains 3_299_753 -- 2023-06-01 12:00:00+00:00
+        PactBackCompat_v16 -> AllChains $ ForkAtBlockHeight $ BlockHeight 0
+        ModuleNameFix -> AllChains $ ForkAtBlockHeight $ BlockHeight 2
+        SkipTxTimingValidation -> AllChains $ ForkAtBlockHeight $ BlockHeight 1
+        OldTargetGuard -> AllChains $ ForkAtBlockHeight $ BlockHeight 0
+        SkipFeatureFlagValidation -> AllChains $ ForkAtBlockHeight $ BlockHeight 0
+        ModuleNameFix2 -> AllChains $ ForkAtBlockHeight $ BlockHeight 289_966 -- ~ 2020-07-13
+        OldDAGuard -> AllChains $ ForkAtBlockHeight $ BlockHeight 318_204 -- ~ 2020-07-23 16:00:00
+        PactEvents -> AllChains $ ForkAtBlockHeight $ BlockHeight 660_000
+        SPVBridge -> AllChains $ ForkAtBlockHeight $ BlockHeight 820_000 -- 2021-01-14T17:12:02
+        Pact4Coin3 -> AllChains $ ForkAtBlockHeight $ BlockHeight 1_261_000  -- 2021-06-17T15:54:14
+        EnforceKeysetFormats -> AllChains $ ForkAtBlockHeight $ BlockHeight 1_701_000 -- 2021-11-18T17:54:36
+        Pact420 -> AllChains $ ForkAtBlockHeight $ BlockHeight 1_862_000  -- 2021-06-19T03:34:05
+        CheckTxHash -> AllChains $ ForkAtBlockHeight $ BlockHeight 1_889_000 -- 2022-01-24T04:19:24
+        Chainweb213Pact -> AllChains $ ForkAtBlockHeight $ BlockHeight 1_974_556  -- 2022-02-25 00:00:00
+        Chainweb214Pact -> AllChains $ ForkAtBlockHeight $ BlockHeight 2_134_331  -- 2022-04-21T12:00:00Z
+        Chainweb215Pact -> AllChains $ ForkAtBlockHeight $ BlockHeight 2_295_437  -- 2022-06-16T12:00:00+00:00
+        Pact44NewTrans -> AllChains $ ForkAtBlockHeight $ BlockHeight 2_500_369 -- Todo: add date
+        Chainweb216Pact -> AllChains $ ForkAtBlockHeight $ BlockHeight 2_516_739  -- 2022-09-01 12:00:00+00:00
+        Chainweb217Pact -> AllChains $ ForkAtBlockHeight $ BlockHeight 2_777_367  -- 2022-12-01 12:00:00+00:00
+        Chainweb218Pact -> AllChains $ ForkAtBlockHeight $ BlockHeight 3_038_343  -- 2023-03-02 12:00:00+00:00
+        Chainweb219Pact -> AllChains $ ForkAtBlockHeight $ BlockHeight 3_299_753 -- 2023-06-01 12:00:00+00:00
 
     , _versionGraphs =
         (to20ChainsTestnet, twentyChainGraph) `Above`
         End petersonChainGraph
-    , _versionBlockRate = BlockRate 30_000_000
+    , _versionBlockDelay = BlockDelay 30_000_000
     , _versionWindow = WindowWidth 120
     , _versionHeaderBaseSizeBytes = 318 - 110
     , _versionMaxBlockGasLimit =
-        (succ $ testnet ^?! versionForks . at Chainweb216Pact . _Just . onChain (unsafeChainId 0), Just 180_000) `Above`
+        (succ $ testnet ^?! versionForks . at Chainweb216Pact . _Just . onChain (unsafeChainId 0) . _ForkAtBlockHeight, Just 180_000) `Above`
         End Nothing
     , _versionBootstraps = domainAddr2PeerInfo testnetBootstrapHosts
     , _versionGenesis = VersionGenesis

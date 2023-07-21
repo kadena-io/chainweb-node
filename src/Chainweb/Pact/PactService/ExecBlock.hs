@@ -316,8 +316,8 @@ execTransactions isGenesis miner ctxs enfCBFail usePrecomp (PactDbEnv' pactdbenv
           then return mempty
           else do
             l <- asks _psLogger
-            pd <- getTxContext def
-            mc <- liftIO (readInitModules l pactdbenv pd)
+            txCtx <- getTxContext def
+            mc <- liftIO (readInitModules l pactdbenv txCtx)
             updateInitCache mc
             return mc
         Just (_,mc) -> return mc
@@ -349,14 +349,14 @@ runCoinbase False dbEnv miner enfCBFail usePrecomp mc = do
     logger <- view psLogger
     rs <- view psMinerRewards
     v <- view chainwebVersion
-    pd <- getTxContext def
+    txCtx <- getTxContext def
 
-    let !bh = ctxCurrentBlockHeight pd
+    let !bh = ctxCurrentBlockHeight txCtx
 
     reward <- liftIO $! minerReward v rs bh
 
     (T2 cr upgradedCacheM) <-
-      liftIO $! applyCoinbase v logger dbEnv miner reward pd enfCBFail usePrecomp mc
+      liftIO $! applyCoinbase v logger dbEnv miner reward txCtx enfCBFail usePrecomp mc
     mapM_ upgradeInitCache upgradedCacheM
     debugResult "runCoinbase" cr
     return $! cr
@@ -421,9 +421,9 @@ applyPactCmd isGenesis env miner txTimeLimit cmd = StateT $ \(T2 mcache maybeBlo
     initialGas = initialGasOf (P._cmdPayload cmd)
   handle onBuyGasFailure $ do
     T2 result mcache' <- do
-      pd <- getTxContext (publicMetaOf gasLimitedCmd)
+      txCtx <- getTxContext (publicMetaOf gasLimitedCmd)
       if isGenesis
-      then liftIO $! applyGenesisCmd logger env P.noSPVSupport gasLimitedCmd
+      then liftIO $! applyGenesisCmd logger env P.noSPVSupport txCtx gasLimitedCmd
       else do
         spv <- use psSpvSupport
         let
@@ -435,7 +435,7 @@ applyPactCmd isGenesis env miner txTimeLimit cmd = StateT $ \(T2 mcache maybeBlo
         let txGas (T3 r _ _) = fromIntegral $ P._crGas r
         T3 r c _warns <-
           tracePactServiceM' "applyCmd" (P._cmdHash cmd) txGas $
-            liftIO $ txTimeout $ applyCmd v logger gasLogger env miner (gasModel pd) pd spv gasLimitedCmd initialGas mcache ApplySend
+            liftIO $ txTimeout $ applyCmd v logger gasLogger env miner (gasModel txCtx) txCtx spv gasLimitedCmd initialGas mcache ApplySend
         pure $ T2 r c
 
     if isGenesis

@@ -94,6 +94,7 @@ module Chainweb.Pact.Types
   , TxContext(..)
   , ctxToPublicData
   , ctxToPublicData'
+  , ctxBlockHeader
   , ctxCurrentBlockHeight
   , ctxChainId
   , ctxVersion
@@ -352,7 +353,7 @@ execTransactionM tenv txst act
 data TxContext = TxContext
   { _tcParentHeader :: ParentHeader
   , _tcPublicMeta :: PublicMeta
-  }
+  } deriving Show
 
 
 -- -------------------------------------------------------------------- --

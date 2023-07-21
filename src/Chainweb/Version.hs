@@ -30,6 +30,10 @@ module Chainweb.Version
     (
     -- * Properties of Chainweb Version
       Fork(..)
+    , ForkHeight(..)
+    , _ForkAtBlockHeight
+    , _ForkAtGenesis
+    , _ForkNever
     , VersionGenesis(..)
     , VersionCheats(..)
     , VersionDefaults(..)
@@ -46,7 +50,7 @@ module Chainweb.Version
     , Upgrade(..)
     , upgrade
     , versionForks
-    , versionBlockRate
+    , versionBlockDelay
     , versionCheats
     , versionDefaults
     , versionUpgrades
@@ -251,6 +255,12 @@ instance FromJSON Fork where
 instance FromJSONKey Fork where
     fromJSONKey = FromJSONKeyTextParser $ either fail return . eitherFromText
 
+data ForkHeight = ForkAtBlockHeight !BlockHeight | ForkAtGenesis | ForkNever
+    deriving stock (Generic, Eq, Ord)
+    deriving anyclass (Hashable, NFData)
+
+makePrisms ''ForkHeight
+
 newtype ChainwebVersionName =
     ChainwebVersionName { getChainwebVersionName :: T.Text }
     deriving stock (Generic, Eq, Ord)
@@ -315,15 +325,15 @@ data ChainwebVersion
         -- ^ The textual name of the Version, used in almost all REST endpoints.
     , _versionGraphs :: Rule BlockHeight ChainGraph
         -- ^ The chain graphs in the history and at which block heights they apply.
-    , _versionForks :: HashMap Fork (ChainMap BlockHeight)
+    , _versionForks :: HashMap Fork (ChainMap ForkHeight)
         -- ^ The block heights on each chain to apply behavioral changes.
         -- Interpretation of these is up to the functions in
         -- `Chainweb.Version.Guards`.
     , _versionUpgrades :: ChainMap (HashMap BlockHeight Upgrade)
         -- ^ The upgrade transactions to execute on each chain at certain block
         -- heights.
-    , _versionBlockRate :: BlockRate
-        -- ^ The Proof-of-Work `BlockRate` for each `ChainwebVersion`. This is
+    , _versionBlockDelay :: BlockDelay
+        -- ^ The Proof-of-Work `BlockDelay` for each `ChainwebVersion`. This is
         -- the number of microseconds we expect to pass while a miner mines on
         -- various chains, eventually succeeding on one.
     , _versionWindow :: WindowWidth
@@ -359,7 +369,7 @@ instance Ord ChainwebVersion where
         , _versionForks v `compare` _versionForks v'
         -- upgrades cannot be ordered because Payload in Pact cannot be ordered
         -- , _versionUpgrades v `compare` _versionUpgrades v'
-        , _versionBlockRate v `compare` _versionBlockRate v'
+        , _versionBlockDelay v `compare` _versionBlockDelay v'
         , _versionWindow v `compare` _versionWindow v'
         , _versionHeaderBaseSizeBytes v `compare` _versionHeaderBaseSizeBytes v'
         , _versionMaxBlockGasLimit v `compare` _versionMaxBlockGasLimit v'
@@ -546,7 +556,7 @@ forkUpgrades v = OnChains . foldl' go (HM.empty <$ HS.toMap (chainIds v))
             | cid <- HM.keys acc
             , Just upg <- [txsPerChain ^? onChain cid]
             , not (null $ _upgradeTransactions upg) || emptyUpgradeError fork
-            , let forkHeight = v ^?! versionForks . at fork . _Just . onChain cid
+            , ForkAtBlockHeight forkHeight <- [v ^?! versionForks . at fork . _Just . onChain cid]
             , forkHeight /= maxBound
             ]
 
@@ -556,7 +566,7 @@ latestBehaviorAt :: ChainwebVersion -> BlockHeight
 latestBehaviorAt v = foldlOf' behaviorChanges max 0 v + 1
     where
     behaviorChanges = fold
-        [ versionForks . folded . folded
+        [ versionForks . folded . folded . _ForkAtBlockHeight
         , versionUpgrades . folded . ifolded . asIndex
         , versionGraphs . to ruleHead . _1 . _Just
-        ] . filtered (/= maxBound)
+        ]
