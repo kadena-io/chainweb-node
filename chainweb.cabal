@@ -637,7 +637,19 @@ executable cwtool
         -threaded
         -rtsopts
         "-with-rtsopts=-N -H1G -A64M"
-    hs-source-dirs: tools/cwtool tools/ea tools/encode-decode tools/genconf tools/run-nodes tools/txstream tools/header-dump tools/db-checksum tools/known-graphs node test
+    hs-source-dirs:
+        tools/cwtool
+        tools/ea
+        tools/encode-decode
+        tools/genconf
+        tools/run-nodes
+        tools/txstream
+        tools/header-dump
+        tools/db-checksum
+        tools/known-graphs
+        tools/calculate-release
+        node
+        test
     main-is: CwTool.hs
     other-modules:
         Allocations
@@ -662,6 +674,7 @@ executable cwtool
         SlowTests
         TxStream
         TxSimulator
+        CalculateRelease
 
     build-depends:
         -- internal
@@ -707,6 +720,7 @@ executable cwtool
         , quickcheck-instances >= 0.3
         , random >= 1.2
         , retry >= 0.9
+        , wreq >= 0.5
         , rocksdb-haskell-kadena >= 1.1.0
         , safe-exceptions >= 0.1
         , servant-client >= 0.18.2
@@ -719,6 +733,7 @@ executable cwtool
         , tasty-quickcheck >= 0.9
         , temporary >= 1.3
         , text >= 1.2
+        , time >= 1.9
         , unordered-containers == 0.2.15.0
         , vector >= 0.12.2
         , wai >= 3.2
