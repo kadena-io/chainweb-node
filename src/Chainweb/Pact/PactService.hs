@@ -475,7 +475,7 @@ execNewBlock
     -> ParentHeader
     -> Miner
     -> PactServiceM logger tbl PayloadWithOutputs
-execNewBlock mpAccess parent miner = localLabel ("pact-request", "execNewBlock") $ do
+execNewBlock mpAccess parent miner = pactLabel "execNewBlock" $ do
     updateMempool
     withDiscardedBatch $ do
       withCheckpointerRewind newblockRewindLimit (Just parent) "execNewBlock" doNewBlock
