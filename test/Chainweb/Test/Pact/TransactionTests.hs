@@ -31,6 +31,7 @@ import Data.Function (on)
 import Data.List (intercalate)
 import Data.Text (Text,isInfixOf,unpack)
 import Data.Default
+import qualified System.LogLevel as L
 
 -- internal pact modules
 
@@ -41,7 +42,6 @@ import Pact.Repl
 import Pact.Repl.Types
 import Pact.Types.Command
 import qualified Pact.Types.Hash as H
-import Pact.Types.Logger
 import Pact.Types.PactValue
 import Pact.Types.RPC
 import Pact.Types.Runtime
@@ -53,6 +53,7 @@ import Pact.Types.SPV
 import Chainweb.BlockCreationTime
 import Chainweb.BlockHeader
 import Chainweb.BlockHeight
+import Chainweb.Logger
 import Chainweb.Miner.Pact
 import Chainweb.Pact.Templates
 import Chainweb.Pact.TransactionExec
@@ -88,11 +89,11 @@ nsReplV1 = "pact/namespaces/v1/ns.repl"
 nsReplV2 :: FilePath
 nsReplV2 = "pact/namespaces/ns.repl"
 
-logger :: Logger
+logger :: GenericLogger
 #if DEBUG_TEST
-logger = newLogger alwaysLog ""
+logger = genericLogger L.Info (step . T.unpack)
 #else
-logger = newLogger neverLog ""
+logger = genericLogger L.Error (\_ -> return ())
 #endif
 
 -- ---------------------------------------------------------------------- --

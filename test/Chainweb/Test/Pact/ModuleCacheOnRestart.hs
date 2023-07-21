@@ -110,16 +110,20 @@ tests rdb =
   where
     label = "Chainweb.Test.Pact.ModuleCacheOnRestart"
 
-type CacheTest tbl =
-  (PactServiceM tbl ()
+type CacheTest logger tbl =
+  (PactServiceM logger tbl ()
   ,IO (MVar ModuleInitCache) -> ModuleInitCache -> Assertion)
 
 -- | Do genesis load, snapshot cache.
-testInitial :: CanReadablePayloadCas tbl => CacheTest tbl
+testInitial
+  :: (CanReadablePayloadCas tbl, Logger logger, logger ~ GenericLogger)
+  => CacheTest logger tbl
 testInitial = (initPayloadState,snapshotCache)
 
 -- | Do restart load, test results of 'initialPayloadState' against snapshotted cache.
-testRestart :: CanReadablePayloadCas tbl => CacheTest tbl
+testRestart
+  :: (CanReadablePayloadCas tbl, Logger logger, logger ~ GenericLogger)
+  => CacheTest logger tbl
 testRestart = (initPayloadState,checkLoadedCache)
   where
     checkLoadedCache ioa initCache = do
@@ -127,7 +131,10 @@ testRestart = (initPayloadState,checkLoadedCache)
       (justModuleHashes a) `assertNoCacheMismatch` (justModuleHashes initCache)
 
 -- | Run coinbase to do upgrade to v2, snapshot cache.
-testCoinbase :: CanReadablePayloadCas tbl => IO TestBlockDb -> CacheTest tbl
+testCoinbase
+  :: (CanReadablePayloadCas tbl, Logger logger, logger ~ GenericLogger)
+  => IO TestBlockDb
+  -> CacheTest logger tbl
 testCoinbase iobdb = (initPayloadState >> doCoinbase,snapshotCache)
   where
     doCoinbase = do
@@ -137,7 +144,11 @@ testCoinbase iobdb = (initPayloadState >> doCoinbase,snapshotCache)
       nextH <- liftIO $ getParentTestBlockDb bdb testChainId
       void $ execValidateBlock mempty nextH (payloadWithOutputsToPayloadData pwo)
 
-testV3 :: CanReadablePayloadCas tbl => IO TestBlockDb -> IO (MVar RewindData) -> CacheTest tbl
+testV3
+  :: (CanReadablePayloadCas tbl, Logger logger, logger ~ GenericLogger)
+  => IO TestBlockDb
+  -> IO (MVar RewindData)
+  -> CacheTest logger tbl
 testV3 iobdb rewindM = (go,grabAndSnapshotCache)
   where
     go = do
@@ -150,9 +161,11 @@ testV3 iobdb rewindM = (go,grabAndSnapshotCache)
       rewindM >>= \rewind -> modifyMVar_ rewind $ \old -> pure $ old { v3Cache = justModuleHashes initCache }
       snapshotCache ioa initCache
 
-
-
-testV4 :: CanReadablePayloadCas tbl => IO TestBlockDb -> IO (MVar RewindData) -> CacheTest tbl
+testV4
+  :: (CanReadablePayloadCas tbl, Logger logger, logger ~ GenericLogger)
+  => IO TestBlockDb
+  -> IO (MVar RewindData)
+  -> CacheTest logger tbl
 testV4 iobdb rewindM = (go,snapshotCache)
   where
     go = do
@@ -166,7 +179,11 @@ testV4 iobdb rewindM = (go,snapshotCache)
       void $ doNextCoinbase iobdb
       void $ doNextCoinbase iobdb
 
-testRewindAfterFork :: CanReadablePayloadCas tbl => IO TestBlockDb -> IO (MVar RewindData) -> CacheTest tbl
+testRewindAfterFork
+  :: (CanReadablePayloadCas tbl, Logger logger, logger ~ GenericLogger)
+  => IO TestBlockDb
+  -> IO (MVar RewindData)
+  -> CacheTest logger tbl
 testRewindAfterFork iobdb rewindM = (go, checkLoadedCache)
   where
     go = do
@@ -180,7 +197,11 @@ testRewindAfterFork iobdb rewindM = (go, checkLoadedCache)
         Nothing -> assertFailure "Cache not found at height 6"
         Just c -> (justModuleHashes a) `assertNoCacheMismatch` (justModuleHashes' c)
 
-testRewindBeforeFork :: CanReadablePayloadCas tbl => IO TestBlockDb -> IO (MVar RewindData) -> CacheTest tbl
+testRewindBeforeFork
+  :: (CanReadablePayloadCas tbl, Logger logger, logger ~ GenericLogger)
+  => IO TestBlockDb
+  -> IO (MVar RewindData)
+  -> CacheTest logger tbl
 testRewindBeforeFork iobdb rewindM = (go, checkLoadedCache)
   where
     go = do
@@ -198,10 +219,10 @@ testRewindBeforeFork iobdb rewindM = (go, checkLoadedCache)
         _ -> assertFailure "Failed to lookup either block 4 or 5."
 
 testCw217CoinOnly
-    :: CanReadablePayloadCas cas
+    :: (Logger logger, CanReadablePayloadCas cas, logger ~ GenericLogger)
     => IO TestBlockDb
     -> IO (MVar RewindData)
-    -> CacheTest cas
+    -> CacheTest logger cas
 testCw217CoinOnly iobdb _rewindM = (go, go')
   where
     go = do
@@ -229,10 +250,10 @@ assertNoCacheMismatch c1 c2 = assertBool msg $ c1 == c2
       , showCache c2
       ]
 
-rewindToBlock :: CanReadablePayloadCas tbl => RewindPoint -> PactServiceM tbl ()
+rewindToBlock :: (Logger logger) => CanReadablePayloadCas tbl => RewindPoint -> PactServiceM logger tbl ()
 rewindToBlock (rewindHeader, pwo) = void $ execValidateBlock mempty rewindHeader (payloadWithOutputsToPayloadData pwo)
 
-doNextCoinbase :: CanReadablePayloadCas tbl => IO TestBlockDb -> PactServiceM tbl (BlockHeader, PayloadWithOutputs)
+doNextCoinbase :: (Logger logger, CanReadablePayloadCas tbl) => IO TestBlockDb -> PactServiceM logger tbl (BlockHeader, PayloadWithOutputs)
 doNextCoinbase iobdb = do
       bdb <- liftIO iobdb
       prevH <- liftIO $ getParentTestBlockDb bdb testChainId
@@ -243,10 +264,10 @@ doNextCoinbase iobdb = do
       return (nextH, valPWO)
 
 doNextCoinbaseN_
-    :: CanReadablePayloadCas cas
+    :: (Logger logger, CanReadablePayloadCas cas)
     => Int
     -> IO TestBlockDb
-    -> PactServiceM cas (BlockHeader, PayloadWithOutputs)
+    -> PactServiceM logger cas (BlockHeader, PayloadWithOutputs)
 doNextCoinbaseN_ n iobdb = fmap last $ forM [1..n] $ \_ ->
     doNextCoinbase iobdb
 
@@ -260,7 +281,9 @@ justModuleHashes' = HM.map $ \v -> preview (_1 . mdModule . _MDModule . mHash) v
 genblock :: BlockHeader
 genblock = genesisBlockHeader testVer testChainId
 
-initPayloadState :: CanReadablePayloadCas tbl => PactServiceM tbl ()
+initPayloadState
+  :: (CanReadablePayloadCas tbl, Logger logger, logger ~ GenericLogger)
+  => PactServiceM logger tbl ()
 initPayloadState = initialPayloadState dummyLogger mempty testVer testChainId
 
 snapshotCache :: IO (MVar ModuleInitCache) -> ModuleInitCache -> IO ()
@@ -269,10 +292,11 @@ snapshotCache iomcache initCache = do
   modifyMVar_ mcache (const (pure initCache))
 
 withPact'
-    :: IO TestBlockDb
+    :: (Logger logger, logger ~ GenericLogger)
+    => IO TestBlockDb
     -> IO SQLiteEnv
     -> IO (MVar ModuleInitCache)
-    -> CacheTest RocksDbTable
+    -> CacheTest logger RocksDbTable
     -> (String -> IO ())
     -> Assertion
 withPact' bdbio ioSqlEnv r (ps, cacheTest) tastylog = do
