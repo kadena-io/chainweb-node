@@ -261,7 +261,7 @@ testnet0 :: Genesis
 testnet0 = Genesis
     { _version = Testnet04
     , _tag = "Testnet"
-    , _txChainIds = mkChainIdRange 0 0
+    , _txChainIds = onlyChainId 0
     , _coinbase = Just test0Grants
     , _keysets = Just testnetKeysets
     , _allocations = Just testnetAllocations
