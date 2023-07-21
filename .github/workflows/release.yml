@@ -34,7 +34,7 @@ on:
       dry_run:
         description: "dry run (debugging)"
         type: boolean
-        default: true
+        default: false 
   
 jobs:
   Finalize-release:

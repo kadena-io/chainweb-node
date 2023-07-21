@@ -19,6 +19,8 @@ on:
         description: link with -eventlog
         default: 'False'
   push:
+    paths-ignore:
+    - '.github/**'
 
 env:
   AWS_ACCESS_KEY_ID: ${{ secrets.kadena_cabal_cache_aws_access_key_id }}

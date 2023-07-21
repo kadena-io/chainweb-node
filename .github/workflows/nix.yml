@@ -3,6 +3,9 @@ name: Build and cache with Nix
 on:
   workflow_dispatch:
   push:
+    paths-ignore:
+    - '.github/**'
+
 
 jobs:
   build-and-cache:
