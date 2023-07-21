@@ -7,20 +7,28 @@ module CalculateRelease(main) where
 import Control.Lens
 import Control.Monad
 import Data.Aeson.Lens
+import qualified Data.ByteString.Lazy.Char8 as LBSC
 import Data.Time
 
 import Network.Wreq
 import System.Exit
-import System.IO
+import Text.Regex.TDFA
 
 import Chainweb.BlockHeight
 
 main :: IO ()
 main = do
-    let prompt l = putStr l >> hFlush stdout >> getLine
-    serviceDate :: Day <- parseTimeM True defaultTimeLocale "%Y-%-m-%-d" =<<
-        prompt "Current service date (YYYY-MM-DD): "
-    let serviceDateTime = UTCTime { utctDay = serviceDate, utctDayTime = 0 }
+    -- fetch current service date
+    nodeMainModule <- get "https://raw.githubusercontent.com/kadena-io/chainweb-node/master/node/ChainwebNode.hs" <&> (^. responseBody . to LBSC.unpack)
+    let serviceDateRegex :: String = "^\\s*serviceDate = Just \"([0-9]+-[0-9]+-[0-9]+)(T[0-9:]+Z)?\""
+    let serviceDateMatch :: (String, String, String, [String]) =
+            (nodeMainModule =~ serviceDateRegex)
+    serviceDateDay <- parseTimeM True defaultTimeLocale "%Y-%-m-%-d" $
+        (serviceDateMatch ^?! _4 . _head)
+    putStrLn $ "Current service date detected: " <> show serviceDateDay
+    let serviceDateTime = UTCTime { utctDay = serviceDateDay, utctDayTime = 0 }
+
+    -- check current time difference from service date
     now <- getCurrentTime
     when (serviceDateTime `diffUTCTime` now > 30 * 24 * 60 * 60) $
         putStrLn $ unlines
@@ -40,8 +48,8 @@ main = do
 
     putStrLn $ "Mainnet fork height (at " <> show mainnetForkTime <> "): " <> show mainnetForkHeight
     putStrLn $ "Testnet fork height (at " <> show testnetForkTime <> "): " <> show testnetForkHeight
-    let nextServiceDate = addGregorianMonthsClip 4 serviceDate
-    putStrLn $ "Next service date (+4 months): " <> show nextServiceDate
+    let nextServiceDateDay = addGregorianMonthsClip 4 serviceDateDay
+    putStrLn $ "Next service date (+4 months): " <> show nextServiceDateDay
     where
     heightOfChain0 :: String -> IO BlockHeight
     heightOfChain0 cutUrl =
