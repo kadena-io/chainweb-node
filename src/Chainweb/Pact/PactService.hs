@@ -674,7 +674,6 @@ execLocal cwtx preflight sigVerify rdepth = withDiscardedBatch $ do
         !pm = publicMetaOf cmd
 
     mc <- getInitCache
-    ctx <- getTxContext pm
     spv <- use psSpvSupport
 
     -- when no depth is defined, treat
@@ -695,22 +694,19 @@ execLocal cwtx preflight sigVerify rdepth = withDiscardedBatch $ do
     ancestor <- liftIO $ seekAncestor _psBlockHeaderDb parentBlockHeader ancestorRank
 
     rewindHeader <- case ancestor of
-        Just a -> pure $ Just $ ParentHeader a
+        Just a -> pure $ ParentHeader a
         Nothing -> throwM $ BlockHeaderLookupFailure $
             "failed seekAncestor of parent header with ancestorRank " <> sshow ancestorRank
 
-    let execConfig = P.mkExecutionConfig $
-            [ P.FlagAllowReadInLocal | _psAllowReadsInLocal ] ++
-            enablePactEvents' (ctxVersion ctx) (ctxChainId ctx) (ctxCurrentBlockHeight ctx) ++
-            enforceKeysetFormats' (ctxVersion ctx) (ctxChainId ctx) (ctxCurrentBlockHeight ctx) ++
-            disableReturnRTC (ctxVersion ctx) (ctxChainId ctx) (ctxCurrentBlockHeight ctx)
-        logger = P.newLogger _psLoggers "execLocal"
-        initialGas = initialGasOf $ P._cmdPayload cwtx
-
     -- In this case the rewind limit is the same as rewind depth
     let rewindLimit = RewindLimit $ _rewindDepth rewindDepth
-    withCheckpointerRewind (Just rewindLimit) rewindHeader "execLocal" $
+    withCheckpointerRewind (Just rewindLimit) (Just rewindHeader) "execLocal" $
       \(PactDbEnv' pdbenv) -> do
+
+        let ctx = TxContext rewindHeader pm
+            gasModel = getGasModel ctx
+            logger = P.newLogger _psLoggers "execLocal"
+
         --
         -- if the ?preflight query parameter is set to True, we run the `applyCmd` workflow
         -- otherwise, we prefer the old (default) behavior. When no preflight flag is
@@ -721,19 +717,26 @@ execLocal cwtx preflight sigVerify rdepth = withDiscardedBatch $ do
           Just PreflightSimulation -> do
             assertLocalMetadata cmd ctx sigVerify >>= \case
               Right{} -> do
+                let initialGas = initialGasOf $ P._cmdPayload cwtx
                 T3 cr _mc warns <- liftIO $ applyCmd
                   _psVersion logger _psGasLogger pdbenv
-                  noMiner chainweb213GasModel ctx spv cmd
+                  noMiner gasModel ctx spv cmd
                   initialGas mc ApplyLocal
 
                 let cr' = toHashCommandResult cr
                     warns' = P.renderCompactText <$> toList warns
                 pure $ LocalResultWithWarns cr' warns'
               Left e -> pure $ MetadataValidationFailure e
-          _ ->  liftIO $ do
+          _ -> liftIO $ do
+            let execConfig = P.mkExecutionConfig $
+                    [ P.FlagAllowReadInLocal | _psAllowReadsInLocal ] ++
+                    enablePactEvents' (ctxVersion ctx) (ctxChainId ctx) (ctxCurrentBlockHeight ctx) ++
+                    enforceKeysetFormats' (ctxVersion ctx) (ctxChainId ctx) (ctxCurrentBlockHeight ctx) ++
+                    disableReturnRTC (ctxVersion ctx) (ctxChainId ctx) (ctxCurrentBlockHeight ctx)
+
             cr <- applyLocal
               logger _psGasLogger pdbenv
-              chainweb213GasModel ctx spv
+              gasModel ctx spv
               cwtx mc execConfig
 
             let cr' = toHashCommandResult cr
