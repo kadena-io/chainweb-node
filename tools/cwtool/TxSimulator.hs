@@ -69,7 +69,7 @@ import Pact.Typechecker
 import Pact.Types.Command
 import Pact.Types.Hash
 import Pact.Types.Info
-import Pact.Types.Logger
+--import Pact.Types.Logger
 import Pact.Types.Namespace
 import Pact.Types.Persistence
 import Pact.Types.Pretty
@@ -101,7 +101,7 @@ simulate sc@(SimConfig dbDir txIdx' _ _ cid ver gasLog doTypecheck) = do
   (parent:hdrs) <- fetchHeaders sc cenv
   pwos <- fetchOutputs sc cenv hdrs
   withSqliteDb cid cwLogger dbDir False $ \sqlenv -> do
-    cpe@(CheckpointEnv cp _) <-
+    cp <-
       initRelationalCheckpointer (initBlockState defaultModuleCacheLimit 0) sqlenv logger ver cid
     bracket_
       (_cpBeginCheckpointerBatch cp)
@@ -160,7 +160,7 @@ simulate sc@(SimConfig dbDir txIdx' _ _ cid ver gasLog doTypecheck) = do
               let
                 pse = PactServiceEnv
                   { _psMempoolAccess = Nothing
-                  , _psCheckpointEnv = cpe
+                  , _psCheckpointer = cp
                   , _psPdb = paydb
                   , _psBlockHeaderDb = bdb
                   , _psGasModel = getGasModel
@@ -171,10 +171,8 @@ simulate sc@(SimConfig dbDir txIdx' _ _ cid ver gasLog doTypecheck) = do
                   , _psVersion = ver
                   , _psValidateHashesOnReplay = True
                   , _psAllowReadsInLocal = False
-                  , _psTraceLogger = \_ _ -> return ()
                   , _psLogger = logger
                   , _psGasLogger = gasLogger
-                  , _psLoggers = pactLoggers cwLogger
                   , _psIsBatch = False
                   , _psCheckpointerDepth = 1
                   , _psBlockGasLimit = testBlockGasLimit
@@ -193,18 +191,18 @@ simulate sc@(SimConfig dbDir txIdx' _ _ cid ver gasLog doTypecheck) = do
 
     cwLogger = genericLogger Debug T.putStrLn
     initGas cmd = initialGasOf (_cmdPayload cmd)
-    logger = newLogger (pactLoggers cwLogger) "TxSimulator"
-    gasLogger | gasLog = Just logger
+    logger = addLabel ("cwtool", "TxSimulator") $ cwLogger
+    gasLogger | gasLog = Just cwLogger
               | otherwise = Nothing
     txContext parent cmd = TxContext (ParentHeader parent) $ publicMetaOf cmd
     ferr e _ = throwM e
 
     doBlock
-        :: CanReadablePayloadCas cas
+        :: (CanReadablePayloadCas cas, Logger logger)
         => Bool
         -> BlockHeader
         -> [(BlockHeader,PayloadWithOutputs)]
-        -> PactServiceM cas ()
+        -> PactServiceM logger cas ()
     doBlock _ _ [] = return ()
     doBlock initMC parent ((hdr,pwo):rest) = do
       !cp <- getCheckpointer

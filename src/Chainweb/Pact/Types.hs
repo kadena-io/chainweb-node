@@ -70,7 +70,7 @@ module Chainweb.Pact.Types
     -- * Pact Service Env
   , PactServiceEnv(..)
   , psMempoolAccess
-  , psCheckpointEnv
+  , psCheckpointer
   , psPdb
   , psBlockHeaderDb
   , psGasModel
@@ -81,9 +81,7 @@ module Chainweb.Pact.Types
   , psVersion
   , psValidateHashesOnReplay
   , psLogger
-  , psTraceLogger
   , psGasLogger
-  , psLoggers
   , psAllowReadsInLocal
   , psIsBatch
   , psCheckpointerDepth
@@ -135,6 +133,9 @@ module Chainweb.Pact.Types
   , logWarn
   , logError
   , logDebug
+  , logJsonTrace_
+  , logJsonTrace
+  , localLabel
 
     -- * types
   , TxTimeout(..)
@@ -181,13 +182,13 @@ import Pact.Types.ChainId (NetworkId)
 import Pact.Types.ChainMeta
 import Pact.Types.Command
 import Pact.Types.Gas
-import qualified Pact.Types.Logger as P
 import Pact.Types.Names
 import Pact.Types.Persistence (ExecutionMode, TxLog)
 import Pact.Types.Pretty (viaShow)
 import Pact.Types.Runtime (ExecutionConfig(..), ModuleData(..), PactWarning, PactError(..), PactErrorType(..))
 import Pact.Types.SPV
 import Pact.Types.Term
+import qualified Pact.Types.Logger as P
 
 -- internal chainweb modules
 
@@ -268,11 +269,11 @@ makeLenses ''TransactionState
 
 -- | Transaction execution env
 --
-data TransactionEnv db = TransactionEnv
+data TransactionEnv logger db = TransactionEnv
     { _txMode :: !ExecutionMode
     , _txDbEnv :: PactDbEnv db
-    , _txLogger :: !P.Logger
-    , _txGasLogger :: !(Maybe P.Logger)
+    , _txLogger :: !logger
+    , _txGasLogger :: !(Maybe logger)
     , _txPublicData :: !PublicData
     , _txSpvSupport :: !SPVSupport
     , _txNetworkId :: !(Maybe NetworkId)
@@ -288,12 +289,12 @@ makeLenses ''TransactionEnv
 -- tx logs, and transaction state consists of a module cache, gas env,
 -- and log values.
 --
-newtype TransactionM db a = TransactionM
+newtype TransactionM logger db a = TransactionM
     { _unTransactionM
-        :: ReaderT (TransactionEnv db) (StateT TransactionState IO) a
+        :: ReaderT (TransactionEnv logger db) (StateT TransactionState IO) a
     } deriving newtype
       ( Functor, Applicative, Monad
-      , MonadReader (TransactionEnv db)
+      , MonadReader (TransactionEnv logger db)
       , MonadState TransactionState
       , MonadThrow, MonadCatch, MonadMask
       , MonadIO
@@ -304,12 +305,12 @@ newtype TransactionM db a = TransactionM
 -- results in a strict tuple
 --
 runTransactionM
-    :: forall db a
-    . TransactionEnv db
+    :: forall logger db a
+    . TransactionEnv logger db
       -- ^ initial reader env
     -> TransactionState
       -- ^ initial state
-    -> TransactionM db a
+    -> TransactionM logger db a
       -- ^ computation to execute
     -> IO (T2 a TransactionState)
 runTransactionM tenv txst act
@@ -320,12 +321,12 @@ runTransactionM tenv txst act
 -- reader and state values, discarding the final state.
 --
 evalTransactionM
-    :: forall db a
-    . TransactionEnv db
+    :: forall logger db a
+    . TransactionEnv logger db
       -- ^ initial reader env
     -> TransactionState
       -- ^ initial state
-    -> TransactionM db a
+    -> TransactionM logger db a
     -> IO a
 evalTransactionM tenv txst act
     = evalStateT (runReaderT (_unTransactionM act) tenv) txst
@@ -334,12 +335,12 @@ evalTransactionM tenv txst act
 -- reader and state values, returning just the final state.
 --
 execTransactionM
-    :: forall db a
-    . TransactionEnv db
+    :: forall logger db a
+    . TransactionEnv logger db
       -- ^ initial reader env
     -> TransactionState
       -- ^ initial state
-    -> TransactionM db a
+    -> TransactionM logger db a
     -> IO TransactionState
 execTransactionM tenv txst act
     = execStateT (runReaderT (_unTransactionM act) tenv) txst
@@ -358,9 +359,9 @@ data TxContext = TxContext
 -- -------------------------------------------------------------------- --
 -- Pact Service Monad
 
-data PactServiceEnv tbl = PactServiceEnv
+data PactServiceEnv logger tbl = PactServiceEnv
     { _psMempoolAccess :: !(Maybe MemPoolAccess)
-    , _psCheckpointEnv :: !CheckpointEnv
+    , _psCheckpointer :: !(Checkpointer logger)
     , _psPdb :: !(PayloadDb tbl)
     , _psBlockHeaderDb :: !BlockHeaderDb
     , _psGasModel :: TxContext -> GasModel
@@ -373,13 +374,8 @@ data PactServiceEnv tbl = PactServiceEnv
     , _psVersion :: ChainwebVersion
     , _psValidateHashesOnReplay :: !Bool
     , _psAllowReadsInLocal :: !Bool
-    , _psTraceLogger :: !(LogLevel -> JsonLog Trace -> IO ())
-    , _psLogger :: !P.Logger
-    , _psGasLogger :: !(Maybe P.Logger)
-    , _psLoggers :: !P.Loggers
-        -- ^ logger factory. A new logger can be created via
-        --
-        -- P.newLogger loggers (P.LogName "myLogger")
+    , _psLogger :: !logger
+    , _psGasLogger :: !(Maybe logger)
 
     -- The following two fields are used to enforce invariants for using the
     -- checkpointer. These would better be enforced on the type level. But that
@@ -396,11 +392,11 @@ data PactServiceEnv tbl = PactServiceEnv
     }
 makeLenses ''PactServiceEnv
 
-instance HasChainwebVersion (PactServiceEnv c) where
+instance HasChainwebVersion (PactServiceEnv logger c) where
     _chainwebVersion = _chainwebVersion . _psBlockHeaderDb
     {-# INLINE _chainwebVersion #-}
 
-instance HasChainId (PactServiceEnv c) where
+instance HasChainId (PactServiceEnv logger c) where
     _chainId = _chainId . _psBlockHeaderDb
     {-# INLINE _chainId #-}
 
@@ -468,26 +464,19 @@ data PactServiceState = PactServiceState
     }
 makeLenses ''PactServiceState
 
-tracePactServiceM :: ToJSON param => Text -> param -> Int -> PactServiceM tbl a -> PactServiceM tbl a
+tracePactServiceM :: (Logger logger, ToJSON param) => Text -> param -> Int -> PactServiceM logger tbl a -> PactServiceM logger tbl a
 tracePactServiceM label param weight a = tracePactServiceM' label param (const weight) a
 
-tracePactServiceM' :: ToJSON param => Text -> param -> (a -> Int) -> PactServiceM tbl a -> PactServiceM tbl a
+tracePactServiceM' :: (Logger logger, ToJSON param) => Text -> param -> (a -> Int) -> PactServiceM logger tbl a -> PactServiceM logger tbl a
 tracePactServiceM' label param calcWeight a = do
     e <- ask
     s <- get
-    T2 r s' <- liftIO $ trace' (_psTraceLogger e) label param (calcWeight . sfst) (runPactServiceM s e a)
+    T2 r s' <- liftIO $ trace' (logJsonTrace_ (_psLogger e)) label param (calcWeight . sfst) (runPactServiceM s e a)
     put s'
     return r
 
-_debugMC :: Text -> PactServiceM tbl ()
-_debugMC t = do
-  mc <- fmap (fmap instr) <$> use psInitCache
-  liftIO $ print (t,mc)
-  where
-    instr (ModuleData{..},_) = preview (_MDModule . mHash) _mdModule
-
 -- | Look up an init cache that is stored at or before the height of the current parent header.
-getInitCache :: PactServiceM tbl ModuleCache
+getInitCache :: PactServiceM logger tbl ModuleCache
 getInitCache = get >>= \PactServiceState{..} ->
     case M.lookupLE (pbh _psParentHeader) _psInitCache of
       Just (_,mc) -> return mc
@@ -498,7 +487,7 @@ getInitCache = get >>= \PactServiceState{..} ->
 -- | Update init cache at adjusted parent block height (APBH).
 -- Contents are merged with cache found at or before APBH.
 -- APBH is 0 for genesis and (parent block height + 1) thereafter.
-updateInitCache :: ModuleCache -> PactServiceM tbl ()
+updateInitCache :: ModuleCache -> PactServiceM logger tbl ()
 updateInitCache mc = get >>= \PactServiceState{..} -> do
     let bf 0 = 0
         bf h = succ h
@@ -566,16 +555,16 @@ ctxVersion :: TxContext -> ChainwebVersion
 ctxVersion = _chainwebVersion . ctxBlockHeader
 
 -- | Assemble tx context from transaction metadata and parent header.
-getTxContext :: PublicMeta -> PactServiceM tbl TxContext
+getTxContext :: PublicMeta -> PactServiceM logger tbl TxContext
 getTxContext pm = use psParentHeader >>= \ph -> return (TxContext ph pm)
 
 
-newtype PactServiceM tbl a = PactServiceM
+newtype PactServiceM logger tbl a = PactServiceM
   { _unPactServiceM ::
-       ReaderT (PactServiceEnv tbl) (StateT PactServiceState IO) a
+       ReaderT (PactServiceEnv logger tbl) (StateT PactServiceState IO) a
   } deriving newtype
     ( Functor, Applicative, Monad
-    , MonadReader (PactServiceEnv tbl)
+    , MonadReader (PactServiceEnv logger tbl)
     , MonadState PactServiceState
     , MonadThrow, MonadCatch, MonadMask
     , MonadIO
@@ -587,8 +576,8 @@ newtype PactServiceM tbl a = PactServiceM
 --
 runPactServiceM
     :: PactServiceState
-    -> PactServiceEnv tbl
-    -> PactServiceM tbl a
+    -> PactServiceEnv logger tbl
+    -> PactServiceM logger tbl a
     -> IO (T2 a PactServiceState)
 runPactServiceM st env act
     = view (from _T2)
@@ -600,8 +589,8 @@ runPactServiceM st env act
 --
 evalPactServiceM
     :: PactServiceState
-    -> PactServiceEnv tbl
-    -> PactServiceM tbl a
+    -> PactServiceEnv logger tbl
+    -> PactServiceM logger tbl a
     -> IO a
 evalPactServiceM st env act
     = evalStateT (runReaderT (_unPactServiceM act) env) st
@@ -611,15 +600,15 @@ evalPactServiceM st env act
 --
 execPactServiceM
     :: PactServiceState
-    -> PactServiceEnv tbl
-    -> PactServiceM tbl a
+    -> PactServiceEnv logger tbl
+    -> PactServiceM logger tbl a
     -> IO PactServiceState
 execPactServiceM st env act
     = execStateT (runReaderT (_unPactServiceM act) env) st
 
 
-getCheckpointer :: PactServiceM tbl Checkpointer
-getCheckpointer = view (psCheckpointEnv . cpeCheckpointer)
+getCheckpointer :: PactServiceM logger tbl (Checkpointer logger)
+getCheckpointer = view psCheckpointer
 
 -- -------------------------------------------------------------------------- --
 -- Pact Logger
@@ -643,43 +632,53 @@ pactLoggers logger = P.Loggers $ P.mkLogger (error "ignored") fun def
 
 -- | Write log message
 --
-logg_ :: MonadIO m => P.Logger -> String -> String -> m ()
-logg_ logger level msg = liftIO $ P.logLog logger level msg
+logg_ :: (MonadIO m, Logger logger) => logger -> LogLevel -> Text -> m ()
+logg_ logger level msg = liftIO $ logFunction logger level msg
 
 -- | Write log message using the logger in Checkpointer environment
 
-logInfo_ :: MonadIO m => P.Logger -> String -> m ()
-logInfo_ l = logg_ l "INFO"
+logInfo_ :: (MonadIO m, Logger logger) => logger -> Text -> m ()
+logInfo_ l = logg_ l Info
 
-logWarn_ :: MonadIO m => P.Logger -> String -> m ()
-logWarn_ l = logg_ l "WARN"
+logWarn_ :: (MonadIO m, Logger logger) => logger -> Text -> m ()
+logWarn_ l = logg_ l Warn
 
-logError_ :: MonadIO m => P.Logger -> String -> m ()
-logError_ l = logg_ l "ERROR"
+logError_ :: (MonadIO m, Logger logger) => logger -> Text -> m ()
+logError_ l = logg_ l Error
 
-logDebug_ :: MonadIO m => P.Logger -> String -> m ()
-logDebug_ l = logg_ l "DEBUG"
+logDebug_ :: (MonadIO m, Logger logger) => logger -> Text -> m ()
+logDebug_ l = logg_ l Debug
+
+logJsonTrace_ :: (MonadIO m, ToJSON a, Typeable a, NFData a, Logger logger) => logger -> LogLevel -> JsonLog a -> m ()
+logJsonTrace_ logger level msg = liftIO $ logFunctionJson logger level msg
 
 -- | Write log message using the logger in Checkpointer environment
 --
-logg :: String -> String -> PactServiceM tbl ()
+logg :: (Logger logger) => LogLevel -> Text -> PactServiceM logger tbl ()
 logg level msg = view psLogger >>= \l -> logg_ l level msg
 
-logInfo :: String -> PactServiceM tbl ()
+logInfo :: (Logger logger) => Text -> PactServiceM logger tbl ()
 logInfo msg = view psLogger >>= \l -> logInfo_ l msg
 
-logWarn :: String -> PactServiceM tbl ()
+logWarn :: (Logger logger) => Text -> PactServiceM logger tbl ()
 logWarn msg = view psLogger >>= \l -> logWarn_ l msg
 
-logError :: String -> PactServiceM tbl ()
+logError :: (Logger logger) => Text -> PactServiceM logger tbl ()
 logError msg = view psLogger >>= \l -> logError_ l msg
 
-logDebug :: String -> PactServiceM tbl ()
+logDebug :: (Logger logger) => Text -> PactServiceM logger tbl ()
 logDebug msg = view psLogger >>= \l -> logDebug_ l msg
+
+logJsonTrace :: (ToJSON a, Typeable a, NFData a, Logger logger) => LogLevel -> JsonLog a -> PactServiceM logger tbl ()
+logJsonTrace level msg = view psLogger >>= \l -> logJsonTrace_ l level msg
+
+localLabel :: (Logger logger) => (Text, Text) -> PactServiceM logger tbl x -> PactServiceM logger tbl x
+localLabel lbl x = do
+  locally psLogger (addLabel lbl) x
 
 data UnexpectedErrorPrinting = PrintsUnexpectedError | CensorsUnexpectedError
 
-catchesPactError :: (MonadCatch m, MonadIO m) => P.Logger -> UnexpectedErrorPrinting -> m a -> m (Either PactError a)
+catchesPactError :: (MonadCatch m, MonadIO m, Logger logger) => logger -> UnexpectedErrorPrinting -> m a -> m (Either PactError a)
 catchesPactError logger exnPrinting action = catches (Right <$> action)
   [ Handler $ \(e :: PactError) -> return $ Left e
   , Handler $ \(e :: SomeException) -> do
