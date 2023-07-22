@@ -421,11 +421,11 @@ slowEpoch (ParentHeader p) (BlockCreationTime ct) = actual > (expected * 5)
   where
     EpochStartTime es = _blockEpochStart p
     v = _chainwebVersion p
-    BlockRate br = _versionBlockRate v
+    BlockDelay bd = _versionBlockDelay v
     WindowWidth ww = _versionWindow v
 
     expected :: Micros
-    expected = br * int ww
+    expected = bd * int ww
 
     actual :: Micros
     actual = timeSpanToMicros $ ct .-. es
@@ -467,12 +467,12 @@ powTarget p@(ParentHeader ph) as bct = case effectiveWindow ph of
 
     activeAdjust w
         | oldDaGuard ver (_chainId ph) (_blockHeight ph + 1)
-            = legacyAdjust (_versionBlockRate ver) w (t .-. _blockEpochStart ph) (_blockTarget ph)
+            = legacyAdjust (_versionBlockDelay ver) w (t .-. _blockEpochStart ph) (_blockTarget ph)
         | otherwise
             = avgTarget $ adjustForParent w <$> (p : HM.elems as)
 
     adjustForParent w (ParentHeader a)
-        = adjust (_versionBlockRate ver) w (toEpochStart a .-. _blockEpochStart a) (_blockTarget a)
+        = adjust (_versionBlockDelay ver) w (toEpochStart a .-. _blockEpochStart a) (_blockTarget a)
 
     toEpochStart = EpochStartTime . _bct . _blockCreationTime
 

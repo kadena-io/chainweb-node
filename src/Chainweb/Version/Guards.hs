@@ -62,13 +62,28 @@ import Chainweb.Transaction
 import Chainweb.Version
 import Chainweb.Utils.Rule
 
-getForkHeight :: Fork -> ChainwebVersion -> ChainId -> BlockHeight
+getForkHeight :: Fork -> ChainwebVersion -> ChainId -> ForkHeight
 getForkHeight fork v cid = v ^?! versionForks . at fork . _Just . onChain cid
 
 checkFork
-    :: (BlockHeight -> BlockHeight -> Bool)
+    :: (BlockHeight -> ForkHeight -> Bool)
     -> Fork -> ChainwebVersion -> ChainId -> BlockHeight -> Bool
 checkFork p f v cid h = p h (getForkHeight f v cid)
+
+after :: BlockHeight -> ForkHeight -> Bool
+after bh (ForkAtBlockHeight bh') = bh > bh'
+after _ ForkAtGenesis = True
+after _ ForkNever = False
+
+atOrAfter :: BlockHeight -> ForkHeight -> Bool
+atOrAfter bh (ForkAtBlockHeight bh') = bh >= bh'
+atOrAfter _ ForkAtGenesis = True
+atOrAfter _ ForkNever = False
+
+before :: BlockHeight -> ForkHeight -> Bool
+before bh (ForkAtBlockHeight bh') = bh < bh'
+before _ ForkAtGenesis = False
+before _ ForkNever = True
 
 -- -------------------------------------------------------------------------- --
 -- Header Validation Guards
@@ -115,7 +130,7 @@ slowEpochGuard
     -> BlockHeight
         -- ^ BlockHeight of parent Header
     -> Bool
-slowEpochGuard = checkFork (<) SlowEpoch
+slowEpochGuard = checkFork before SlowEpoch
 
 -- | Use the current block time for computing epoch start date and
 -- target.
@@ -125,7 +140,7 @@ slowEpochGuard = checkFork (<) SlowEpoch
 -- are marginal.
 --
 oldTargetGuard :: ChainwebVersion -> ChainId -> BlockHeight -> Bool
-oldTargetGuard = checkFork (<) OldTargetGuard
+oldTargetGuard = checkFork before OldTargetGuard
 
 -- | Skip validation of feature flags.
 --
@@ -135,20 +150,20 @@ oldTargetGuard = checkFork (<) OldTargetGuard
 -- historical blocks for which both the Nonce and Flags could be anything.
 --
 skipFeatureFlagValidationGuard :: ChainwebVersion -> ChainId -> BlockHeight -> Bool
-skipFeatureFlagValidationGuard = checkFork (<) SkipFeatureFlagValidation
+skipFeatureFlagValidationGuard = checkFork before SkipFeatureFlagValidation
 
 oldDaGuard :: ChainwebVersion -> ChainId -> BlockHeight -> Bool
-oldDaGuard = checkFork (<) OldDAGuard
+oldDaGuard = checkFork before OldDAGuard
 
 -----------------
 -- Payload validation guards
 
 vuln797Fix :: ChainwebVersion -> ChainId -> BlockHeight -> Bool
-vuln797Fix = checkFork (>=) Vuln797Fix
+vuln797Fix = checkFork atOrAfter Vuln797Fix
 
 -- | Preserve Pact bugs pre-1.6 chainweb.
 pactBackCompat_v16 :: ChainwebVersion -> ChainId -> BlockHeight -> Bool
-pactBackCompat_v16 = checkFork (<) PactBackCompat_v16
+pactBackCompat_v16 = checkFork before PactBackCompat_v16
 
 -- | Early versions of chainweb used the creation time of the current header
 -- for validation of pact tx creation time and TTL. Nowadays the times of
@@ -157,68 +172,68 @@ pactBackCompat_v16 = checkFork (<) PactBackCompat_v16
 -- When this guard is enabled timing validation is skipped.
 --
 skipTxTimingValidation :: ChainwebVersion -> ChainId -> BlockHeight -> Bool
-skipTxTimingValidation = checkFork (<) SkipTxTimingValidation
+skipTxTimingValidation = checkFork before SkipTxTimingValidation
 
 -- | Checks height after which module name fix in effect.
 --
 enableModuleNameFix :: ChainwebVersion -> ChainId -> BlockHeight -> Bool
-enableModuleNameFix = checkFork (>=) ModuleNameFix
+enableModuleNameFix = checkFork atOrAfter ModuleNameFix
 
 -- | Related, later fix (Pact #801).
 --
 enableModuleNameFix2 :: ChainwebVersion -> ChainId -> BlockHeight -> Bool
-enableModuleNameFix2 = checkFork (>=) ModuleNameFix2
+enableModuleNameFix2 = checkFork atOrAfter ModuleNameFix2
 
 -- | Turn on pact events in command output.
 enablePactEvents :: ChainwebVersion -> ChainId -> BlockHeight -> Bool
-enablePactEvents = checkFork (>=) PactEvents
+enablePactEvents = checkFork atOrAfter PactEvents
 
 -- | Bridge support: ETH and event SPV.
 enableSPVBridge :: ChainwebVersion -> ChainId -> BlockHeight -> Bool
-enableSPVBridge = checkFork (>=) SPVBridge
+enableSPVBridge = checkFork atOrAfter SPVBridge
 
 enforceKeysetFormats :: ChainwebVersion -> ChainId -> BlockHeight -> Bool
-enforceKeysetFormats = checkFork (>=) EnforceKeysetFormats
+enforceKeysetFormats = checkFork atOrAfter EnforceKeysetFormats
 
 doCheckTxHash :: ChainwebVersion -> ChainId -> BlockHeight -> Bool
-doCheckTxHash = checkFork (>=) CheckTxHash
+doCheckTxHash = checkFork atOrAfter CheckTxHash
 
 -- | Fork for musl trans funs
 pact44NewTrans :: ChainwebVersion -> ChainId -> BlockHeight -> Bool
-pact44NewTrans = checkFork (>=) Pact44NewTrans
+pact44NewTrans = checkFork atOrAfter Pact44NewTrans
 
 pact4Coin3 :: ChainwebVersion -> ChainId -> BlockHeight -> Bool
-pact4Coin3 = checkFork (>) Pact4Coin3
+pact4Coin3 = checkFork after Pact4Coin3
 
 pact420 :: ChainwebVersion -> ChainId -> BlockHeight -> Bool
-pact420 = checkFork (>=) Pact420
+pact420 = checkFork atOrAfter Pact420
 
 chainweb213Pact :: ChainwebVersion -> ChainId -> BlockHeight -> Bool
-chainweb213Pact = checkFork (>=) Chainweb213Pact
+chainweb213Pact = checkFork atOrAfter Chainweb213Pact
 
 chainweb214Pact :: ChainwebVersion -> ChainId -> BlockHeight -> Bool
-chainweb214Pact = checkFork (>) Chainweb214Pact
+chainweb214Pact = checkFork after Chainweb214Pact
 
 chainweb215Pact :: ChainwebVersion -> ChainId -> BlockHeight -> Bool
-chainweb215Pact = checkFork (>) Chainweb215Pact
+chainweb215Pact = checkFork after Chainweb215Pact
 
 chainweb216Pact :: ChainwebVersion -> ChainId -> BlockHeight -> Bool
-chainweb216Pact = checkFork (>) Chainweb216Pact
+chainweb216Pact = checkFork after Chainweb216Pact
 
 chainweb217Pact :: ChainwebVersion -> ChainId -> BlockHeight -> Bool
-chainweb217Pact = checkFork (>) Chainweb217Pact
+chainweb217Pact = checkFork after Chainweb217Pact
 
 cleanModuleCache :: ChainwebVersion -> ChainId -> BlockHeight -> Bool
-cleanModuleCache = checkFork (==) Chainweb217Pact
+cleanModuleCache = checkFork atOrAfter Chainweb217Pact
 
 chainweb218Pact :: ChainwebVersion -> ChainId -> BlockHeight -> Bool
-chainweb218Pact = checkFork (>=) Chainweb218Pact
+chainweb218Pact = checkFork atOrAfter Chainweb218Pact
 
 chainweb219Pact :: ChainwebVersion -> ChainId -> BlockHeight -> Bool
-chainweb219Pact = checkFork (>=) Chainweb219Pact
+chainweb219Pact = checkFork atOrAfter Chainweb219Pact
 
 chainweb220Pact :: ChainwebVersion -> ChainId -> BlockHeight -> Bool
-chainweb220Pact = checkFork (>=) Chainweb220Pact
+chainweb220Pact = checkFork atOrAfter Chainweb220Pact
 
 pactParserVersion :: ChainwebVersion -> ChainId -> BlockHeight -> PactParserVersion
 pactParserVersion v cid bh

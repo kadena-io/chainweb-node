@@ -41,6 +41,7 @@ import Test.Tasty.HUnit
 import Chainweb.BlockHeader (genesisBlockHeader)
 import Chainweb.BlockHeaderDB (BlockHeaderDb)
 import Chainweb.Graph
+import Chainweb.Logger
 import Chainweb.Miner.Pact
 import Chainweb.Pact.PactService
 import Chainweb.Pact.PactService.ExecBlock
@@ -82,33 +83,33 @@ tests = ScheduledTest label $
     -- fungible-v2 is installed at that block height 1. Because applying the
     -- update twice resuls in an validaton failures, we have to run each test on
     -- a fresh pact environment. Unfortunately, that's a bit slow.
-    [ withPactCtxSQLite testVersion (bhdbIO rocksIO) pdb testPactServiceConfig $
+    [ withPactCtxSQLite logger testVersion (bhdbIO rocksIO) pdb testPactServiceConfig $
         \ctx -> _schTest $ execTest ctx testReq2
-    , withPactCtxSQLite testVersion (bhdbIO rocksIO) pdb testPactServiceConfig $
+    , withPactCtxSQLite logger testVersion (bhdbIO rocksIO) pdb testPactServiceConfig $
         \ctx -> _schTest $ execTest ctx testReq3
-    , withPactCtxSQLite testVersion (bhdbIO rocksIO) pdb testPactServiceConfig $
+    , withPactCtxSQLite logger testVersion (bhdbIO rocksIO) pdb testPactServiceConfig $
         \ctx -> _schTest $ execTest ctx testReq4
-    , withPactCtxSQLite testVersion (bhdbIO rocksIO) pdb testPactServiceConfig $
+    , withPactCtxSQLite logger testVersion (bhdbIO rocksIO) pdb testPactServiceConfig $
         \ctx -> _schTest $ execTest ctx testReq5
-    , withPactCtxSQLite testEventsVersion (bhdbIO rocksIO) pdb testPactServiceConfig $
+    , withPactCtxSQLite logger testEventsVersion (bhdbIO rocksIO) pdb testPactServiceConfig $
         \ctx -> _schTest $ execTxsTest ctx "testTfrGas" testTfrGas
-    , withPactCtxSQLite testVersion (bhdbIO rocksIO) pdb testPactServiceConfig $
+    , withPactCtxSQLite logger testVersion (bhdbIO rocksIO) pdb testPactServiceConfig $
         \ctx -> _schTest $ execTxsTest ctx "testGasPayer" testGasPayer
-    , withPactCtxSQLite testVersion (bhdbIO rocksIO) pdb testPactServiceConfig $
+    , withPactCtxSQLite logger testVersion (bhdbIO rocksIO) pdb testPactServiceConfig $
         \ctx -> _schTest $ execTxsTest ctx "testContinuationGasPayer" testContinuationGasPayer
-    , withPactCtxSQLite testVersion (bhdbIO rocksIO) pdb testPactServiceConfig $
+    , withPactCtxSQLite logger testVersion (bhdbIO rocksIO) pdb testPactServiceConfig $
         \ctx -> _schTest $ execTxsTest ctx "testExecGasPayer" testExecGasPayer
-    , withPactCtxSQLite testVersion (bhdbIO rocksIO) pdb testPactServiceConfig $
+    , withPactCtxSQLite logger testVersion (bhdbIO rocksIO) pdb testPactServiceConfig $
       \ctx -> _schTest $ execTest ctx testReq6
-    , withPactCtxSQLite testVersion (bhdbIO rocksIO) pdb testPactServiceConfig $
+    , withPactCtxSQLite logger testVersion (bhdbIO rocksIO) pdb testPactServiceConfig $
       \ctx -> _schTest $ execTxsTest ctx "testTfrNoGasFails" testTfrNoGasFails
-    , withPactCtxSQLite testVersion (bhdbIO rocksIO) pdb testPactServiceConfig $
+    , withPactCtxSQLite logger testVersion (bhdbIO rocksIO) pdb testPactServiceConfig $
       \ctx -> _schTest $ execTxsTest ctx "testBadSenderFails" testBadSenderFails
-    , withPactCtxSQLite testVersion (bhdbIO rocksIO) pdb testPactServiceConfig $
+    , withPactCtxSQLite logger testVersion (bhdbIO rocksIO) pdb testPactServiceConfig $
       \ctx -> _schTest $ execTxsTest ctx "testFailureRedeem" testFailureRedeem
-    , withPactCtxSQLite testVersion (bhdbIO rocksIO) pdb testPactServiceConfig $
+    , withPactCtxSQLite logger testVersion (bhdbIO rocksIO) pdb testPactServiceConfig $
       \ctx -> _schTest $ execLocalTest ctx "testAllowReadsLocalFails" testAllowReadsLocalFails
-    , withPactCtxSQLite testVersion (bhdbIO rocksIO) pdb allowReads $
+    , withPactCtxSQLite logger testVersion (bhdbIO rocksIO) pdb allowReads $
       \ctx -> _schTest $ execLocalTest ctx "testAllowReadsLocalSuccess" testAllowReadsLocalSuccess
     ]
   where
@@ -122,6 +123,8 @@ tests = ScheduledTest label $
     killPdb _ = return ()
     cid = someChainId testVersion
     allowReads = testPactServiceConfig { _pactAllowReadsInLocal = True }
+
+    logger = dummyLogger
 
 -- -------------------------------------------------------------------------- --
 -- Pact test datatypes
@@ -482,7 +485,8 @@ testAllowReadsLocalSuccess = (tx,test)
 -- Utils
 
 execTest
-    :: WithPactCtxSQLite tbl
+    :: (Logger logger)
+    => WithPactCtxSQLite logger tbl
     -> TestRequest
     -> ScheduledTest
 execTest runPact request = _trEval request $ do
@@ -509,7 +513,8 @@ execTest runPact request = _trEval request $ do
       mkKeySetData "test-admin-keyset" [sender00]
 
 execTxsTest
-    :: WithPactCtxSQLite tbl
+    :: (Logger logger)
+    => WithPactCtxSQLite logger tbl
     -> String
     -> TxsTest
     -> ScheduledTest
@@ -534,8 +539,8 @@ execTxsTest runPact name (trans',check) = testCaseSch name (go >>= check)
 type LocalTest = (IO ChainwebTransaction,Either String (CommandResult Hash) -> Assertion)
 
 execLocalTest
-    :: CanReadablePayloadCas tbl
-    => WithPactCtxSQLite tbl
+    :: (Logger logger, CanReadablePayloadCas tbl)
+    => WithPactCtxSQLite logger tbl
     -> String
     -> LocalTest
     -> ScheduledTest

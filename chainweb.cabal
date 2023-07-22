@@ -121,12 +121,14 @@ library
         , Chainweb.BlockHash
         , Chainweb.BlockHeader
         , Chainweb.BlockHeader.Genesis.Development0Payload
-        , Chainweb.BlockHeader.Genesis.DevelopmentKADPayload
-        , Chainweb.BlockHeader.Genesis.DevelopmentNPayload
+        , Chainweb.BlockHeader.Genesis.Development1to9Payload
+        , Chainweb.BlockHeader.Genesis.Development10to19Payload
+        , Chainweb.BlockHeader.Genesis.FastDevelopment0Payload
+        , Chainweb.BlockHeader.Genesis.FastDevelopment1to19Payload
         , Chainweb.BlockHeader.Genesis.FastTimedCPM0Payload
-        , Chainweb.BlockHeader.Genesis.FastTimedCPMNPayload
+        , Chainweb.BlockHeader.Genesis.FastTimedCPM1to9Payload
         , Chainweb.BlockHeader.Genesis.Testnet0Payload
-        , Chainweb.BlockHeader.Genesis.TestnetNPayload
+        , Chainweb.BlockHeader.Genesis.Testnet1to19Payload
         , Chainweb.BlockHeader.Genesis.Mainnet0Payload
         , Chainweb.BlockHeader.Genesis.Mainnet1Payload
         , Chainweb.BlockHeader.Genesis.Mainnet2Payload
@@ -137,7 +139,7 @@ library
         , Chainweb.BlockHeader.Genesis.Mainnet7Payload
         , Chainweb.BlockHeader.Genesis.Mainnet8Payload
         , Chainweb.BlockHeader.Genesis.Mainnet9Payload
-        , Chainweb.BlockHeader.Genesis.MainnetKADPayload
+        , Chainweb.BlockHeader.Genesis.Mainnet10to19Payload
         , Chainweb.BlockHeader.Validation
         , Chainweb.BlockHeaderDB
         , Chainweb.BlockHeaderDB.Internal
@@ -237,6 +239,7 @@ library
         , Chainweb.Utils.Serialization
         , Chainweb.Version
         , Chainweb.Version.Development
+        , Chainweb.Version.FastDevelopment
         , Chainweb.Version.Guards
         , Chainweb.Version.Mainnet
         , Chainweb.Version.Registry
