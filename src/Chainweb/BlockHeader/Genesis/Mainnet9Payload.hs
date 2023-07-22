@@ -2,9 +2,7 @@
 
 -- This module is auto-generated. DO NOT EDIT IT MANUALLY.
 
-module Chainweb.BlockHeader.Genesis.Mainnet9Payload
-( payloadBlock
-) where
+module Chainweb.BlockHeader.Genesis.Mainnet9Payload ( payloadBlock ) where
 
 import qualified Data.Text as T
 import qualified Data.Vector as V
