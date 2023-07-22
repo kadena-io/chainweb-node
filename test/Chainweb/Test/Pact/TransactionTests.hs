@@ -158,7 +158,7 @@ loadScript fp = do
             (view (rEnv . eePactDb) rst)
             (view (rEnv . eePactDbVar) rst)
       mc = view (rEvalState . evalRefs . rsLoadedModules) rst
-  return (pdb,mc)
+  return (pdb, moduleCacheFromHashMap mc)
 
 -- ---------------------------------------------------------------------- --
 -- Template vuln tests

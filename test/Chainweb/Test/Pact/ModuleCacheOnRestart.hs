@@ -211,7 +211,7 @@ testCw217CoinOnly iobdb _rewindM = (go, go')
     go' ioa initCache = do
       snapshotCache ioa initCache
       case M.lookup 20 initCache of
-        Just a -> assertEqual "module init cache contains only coin" ["coin"] $ HM.keys a
+        Just a -> assertEqual "module init cache contains only coin" ["coin"] (moduleCacheKeys a)
         Nothing -> assertFailure "failed to lookup block at 20"
 
 assertNoCacheMismatch
@@ -255,7 +255,8 @@ justModuleHashes :: ModuleInitCache -> HM.HashMap ModuleName (Maybe ModuleHash)
 justModuleHashes = justModuleHashes' . snd . last . M.toList
 
 justModuleHashes' :: ModuleCache -> HM.HashMap ModuleName (Maybe ModuleHash)
-justModuleHashes' = HM.map $ \v -> preview (_1 . mdModule . _MDModule . mHash) v
+justModuleHashes' =
+    fmap (\v -> preview (_1 . mdModule . _MDModule . mHash) v) . moduleCacheToHashMap
 
 genblock :: BlockHeader
 genblock = genesisBlockHeader testVer testChainId

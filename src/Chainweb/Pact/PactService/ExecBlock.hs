@@ -163,7 +163,7 @@ execBlock currHeader plData pdbenv = do
       fromIntegral <$> maxBlockGasLimit v (_blockHeight currHeader)
 
     logInitCache = do
-      mc <- fmap (fmap instr) <$> use psInitCache
+      mc <- fmap (fmap instr . _getModuleCache) <$> use psInitCache
       logDebug $ "execBlock: initCache: " <> sshow mc
 
     instr (md,_) = preview (P._MDModule . P.mHash) $ P._mdModule md

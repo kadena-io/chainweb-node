@@ -1,16 +1,17 @@
-{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DeriveAnyClass #-}
-{-# LANGUAGE DeriveTraversable #-}
 {-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE DeriveTraversable #-}
 {-# LANGUAGE DerivingStrategies #-}
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE RecordWildCards #-}
-{-# LANGUAGE StrictData #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE StandaloneDeriving #-}
+{-# LANGUAGE StrictData #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeFamilies #-}
 -- |
@@ -109,6 +110,11 @@ module Chainweb.Pact.Types
   , psSpvSupport
 
   -- * Module cache
+  , ModuleCache(..)
+  , filterModuleCacheByKey
+  , moduleCacheToHashMap
+  , moduleCacheFromHashMap
+  , moduleCacheKeys
   , ModuleInitCache
   , getInitCache
   , updateInitCache
@@ -138,7 +144,6 @@ module Chainweb.Pact.Types
     -- * types
   , TxTimeout(..)
   , ApplyCmdExecutionContext(..)
-  , ModuleCache
 
   -- * miscellaneous
   , defaultOnFatalError
@@ -160,7 +165,6 @@ import Control.Monad.State.Strict
 
 import Data.Aeson hiding (Error,(.=))
 import Data.Default (def)
-import Data.HashMap.Strict (HashMap)
 import qualified Data.HashMap.Strict as HM
 import Data.LogMessage
 import Data.Set (Set)
@@ -176,6 +180,7 @@ import System.LogLevel
 
 import Pact.Interpreter (PactDbEnv)
 import qualified Pact.JSON.Encode as J
+import qualified Pact.JSON.Legacy.HashMap as LHM
 import Pact.Parse (ParsedDecimal)
 import Pact.Types.ChainId (NetworkId)
 import Pact.Types.ChainMeta
@@ -247,7 +252,37 @@ newtype EnforceCoinbaseFailure = EnforceCoinbaseFailure Bool
 -- | Always use precompiled templates in coinbase or use date rule.
 newtype CoinbaseUsePrecompiled = CoinbaseUsePrecompiled Bool
 
-type ModuleCache = HashMap ModuleName (ModuleData Ref, Bool)
+-- -------------------------------------------------------------------------- --
+-- Module Cache
+
+-- | Block scoped Module Cache
+--
+newtype ModuleCache = ModuleCache { _getModuleCache :: LHM.HashMap ModuleName (ModuleData Ref, Bool) }
+    deriving newtype (Semigroup, Monoid, NFData)
+
+filterModuleCacheByKey
+    :: (ModuleName -> Bool)
+    -> ModuleCache
+    -> ModuleCache
+filterModuleCacheByKey f (ModuleCache c) = ModuleCache $
+    LHM.fromList $ filter (f . fst) $ LHM.toList c
+{-# INLINE filterModuleCacheByKey #-}
+
+moduleCacheToHashMap
+    :: ModuleCache
+    -> HM.HashMap ModuleName (ModuleData Ref, Bool)
+moduleCacheToHashMap (ModuleCache c) = HM.fromList $ LHM.toList c
+{-# INLINE moduleCacheToHashMap #-}
+
+moduleCacheFromHashMap
+    :: HM.HashMap ModuleName (ModuleData Ref, Bool)
+    -> ModuleCache
+moduleCacheFromHashMap = ModuleCache . LHM.fromList . HM.toList
+{-# INLINE moduleCacheFromHashMap #-}
+
+moduleCacheKeys :: ModuleCache -> [ModuleName]
+moduleCacheKeys (ModuleCache a) = fst <$> LHM.toList a
+{-# INLINE moduleCacheKeys #-}
 
 -- -------------------------------------------------------------------- --
 -- Local vs. Send execution context flag
@@ -484,7 +519,7 @@ tracePactServiceM' label param calcWeight a = do
 
 _debugMC :: Text -> PactServiceM tbl ()
 _debugMC t = do
-  mc <- fmap (fmap instr) <$> use psInitCache
+  mc <- fmap (fmap instr . _getModuleCache) <$> use psInitCache
   liftIO $ print (t,mc)
   where
     instr (ModuleData{..},_) = preview (_MDModule . mHash) _mdModule
@@ -514,7 +549,7 @@ updateInitCache mc = get >>= \PactServiceState{..} -> do
       Just (_,before)
         | cleanModuleCache v (_chainId $ _psParentHeader) pbh ->
           M.insert pbh mc _psInitCache
-        | otherwise -> M.insert pbh (HM.union mc before) _psInitCache
+        | otherwise -> M.insert pbh (before <> mc) _psInitCache
 
 -- | Convert context to datatype for Pact environment.
 --

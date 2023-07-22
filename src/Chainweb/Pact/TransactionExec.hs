@@ -584,7 +584,7 @@ applyUpgrades v cid height
 
     filterModuleCache = do
       mc <- use txCache
-      pure $ Just $ HM.filterWithKey (\k _ -> k == "coin") mc
+      pure $ Just $ filterModuleCacheByKey (== "coin") mc
 
     applyUpgrade upg = do
       infoLog "Applying upgrade!"
@@ -601,7 +601,7 @@ applyUpgrades v cid height
       caches <- local
         (txExecutionConfig .~ ExecutionConfig flags)
         (mapM applyTx payloads)
-      return $ Just (HM.unions caches)
+      return $ Just $ mconcat $ reverse caches
 
     interp = initStateInterpreter
         $ installCoinModuleAdmin
@@ -1026,8 +1026,10 @@ setModuleCache
   -> EvalState
   -> EvalState
 setModuleCache mcache es =
-  let allDeps = foldMap (allModuleExports . fst) mcache
-  in set (evalRefs . rsQualifiedDeps) allDeps $ set (evalRefs . rsLoadedModules) mcache es
+  let allDeps = foldMap (allModuleExports . fst) $ _getModuleCache mcache
+  in set (evalRefs . rsQualifiedDeps) allDeps $ set (evalRefs . rsLoadedModules) c es
+ where
+  c = moduleCacheToHashMap mcache
 {-# INLINE setModuleCache #-}
 
 -- | Set tx result state
@@ -1035,7 +1037,7 @@ setModuleCache mcache es =
 setTxResultState :: EvalResult -> TransactionM db ()
 setTxResultState er = do
     txLogs <>= (_erLogs er)
-    txCache .= (_erLoadedModules er)
+    txCache .= moduleCacheFromHashMap (_erLoadedModules er)
     txGasUsed .= (_erGas er)
 {-# INLINE setTxResultState #-}
 
