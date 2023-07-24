@@ -482,7 +482,7 @@ execNewBlock mpAccess parent miner = pactLabel "execNewBlock" $ do
   where
     handleTimeout :: TxTimeout -> PactServiceM logger cas a
     handleTimeout (TxTimeout h) = do
-      logError $ "execNewBlock: timed out on " <> sshow h
+      logError $ "timed out on " <> sshow h
       liftIO $ mpaBadlistTx mpAccess (V.singleton h)
       throwM (TxTimeout h)
 
@@ -512,8 +512,7 @@ execNewBlock mpAccess parent miner = pactLabel "execNewBlock" $ do
         mpaGetBlock mpAccess bfState validate (pHeight + 1) pHash (_parentHeader parent)
 
     doNewBlock pdbenv = do
-        logInfo $ "execNewBlock: "
-                <> " (parent height = " <> sshow pHeight <> ")"
+        logInfo $ "(parent height = " <> sshow pHeight <> ")"
                 <> " (parent hash = " <> sshow pHash <> ")"
 
         blockGasLimit <- view psBlockGasLimit
@@ -544,8 +543,7 @@ execNewBlock mpAccess parent miner = pactLabel "execNewBlock" $ do
         BlockFill _ requestKeys _ <- refill fetchLimit txTimeLimit pdbenv successes failures =<<
           foldM (splitResults successes failures) (incCount initState) pairs
 
-        logInfo $ "execNewBlock: "
-                <> " (request keys = " <> sshow requestKeys <> ")"
+        logInfo $ "(request keys = " <> sshow requestKeys <> ")"
 
         liftIO $ do
           txHashes <- Dyna.toLiftedVectorWith (\_ failure -> pure (gasPurchaseFailureHash failure)) failures
