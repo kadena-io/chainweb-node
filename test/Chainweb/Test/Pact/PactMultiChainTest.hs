@@ -242,8 +242,6 @@ chainweb213Test = do
 
 pactLocalMaxGasLimitTest :: PactTestM ()
 pactLocalMaxGasLimitTest = do
-  runToHeight 53
-
   -- fails the max gas limit check
   handle
     (\case
