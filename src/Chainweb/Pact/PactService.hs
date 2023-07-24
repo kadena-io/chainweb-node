@@ -816,6 +816,9 @@ execPreInsertCheckReq
     => Vector ChainwebTransaction
     -> PactServiceM logger tbl (Vector (Either Mempool.InsertError ChainwebTransaction))
 execPreInsertCheckReq txs = pactLabel "execPreInsertCheckReq" $ withDiscardedBatch $ do
+    let requestKeys = V.map P._cmdHash txs
+    logInfo $ "(request keys = " <> sshow requestKeys <> ")"
+
     parent <- use psParentHeader
     let currHeight = succ $ _blockHeight $ _parentHeader parent
     psEnv <- ask
