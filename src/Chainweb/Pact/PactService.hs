@@ -59,6 +59,8 @@ import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Vector (Vector)
 import qualified Data.Vector as V
+import qualified Data.UUID as UUID
+import qualified Data.UUID.V4 as UUID
 
 import System.IO
 
@@ -99,7 +101,6 @@ import Chainweb.TreeDB (lookupM, seekAncestor)
 import Chainweb.Utils hiding (check)
 import Chainweb.Version
 import Chainweb.Version.Guards
-import Data.LogMessage
 import Utils.Logging.Trace
 
 import Dyna (Vec)
@@ -123,7 +124,7 @@ runPactService
 runPactService ver cid chainwebLogger reqQ mempoolAccess bhDb pdb sqlenv config =
     void $ withPactService ver cid chainwebLogger bhDb pdb sqlenv config $ do
         initialPayloadState chainwebLogger mempoolAccess ver cid
-        serviceRequests (logFunction chainwebLogger) mempoolAccess reqQ
+        serviceRequests chainwebLogger mempoolAccess reqQ
 
 withPactService
     :: Logger logger
@@ -270,17 +271,19 @@ lookupBlockHeader bhash ctx = do
 -- | Loop forever, serving Pact execution requests and reponses from the queues
 serviceRequests
     :: forall logger tbl. (Logger logger, CanReadablePayloadCas tbl)
-    => LogFunction
+    => logger
     -> MemPoolAccess
     -> PactQueue
     -> PactServiceM logger tbl ()
-serviceRequests logFn memPoolAccess reqQ = do
+serviceRequests chainwebLogger memPoolAccess reqQ = do
     logInfo "Starting service"
     go `finally` logInfo "Stopping service"
   where
     go = do
         logDebug "serviceRequests: wait"
         msg <- liftIO $ getNextRequest reqQ
+        requestId <- liftIO $ UUID.toText <$> UUID.nextRandom
+        let logFn = logFunction $ addLabel ("pact-request-id", requestId) chainwebLogger
         logDebug $ "serviceRequests: " <> sshow msg
         case msg of
             CloseMsg -> return ()
