@@ -60,13 +60,13 @@ source-repository-package
     type: git
     location: https://github.com/kadena-io/pact.git
     tag: ab7f63938e31ede245c505197be5ff02cd3f549f
-    --sha256: 0r267y2c5ycpli1zr1q21z2dv4qqackcx8cnq55w9xpk2v64axva
+    --sha256: sha256-andFzBbz9sRLwZahziZTGJPdxA8Ch/xDpJf5woQ/RmQ=
 
 source-repository-package
     type: git
     location: https://github.com/kadena-io/pact-json.git
     tag: 1d260bfaa48312b54851057885de4c43c420e35f
-    --sha256: 0fzq4mzaszj5clvixx9mn1x6r4dcrnwvbl2znd0p5mmy5h2jr0hh
+    --sha256: sha256-EIIsBSy+1nJBs1/QtbnNrJFserA19R43ZUV+rX4l+Ds=
 
 source-repository-package
     type: git

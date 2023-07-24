@@ -65,7 +65,6 @@ import Text.Printf (printf)
 
 import Pact.Persist
 import Pact.PersistPactDb hiding (db)
-import Pact.Types.Logger
 import Pact.Types.Persistence
 import Pact.Types.RowData
 import Pact.Types.SQLite
@@ -80,10 +79,12 @@ import qualified Pact.JSON.Legacy.HashMap as LHM
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
 import Chainweb.BlockHeight
+import Chainweb.Logger
 import Chainweb.Pact.Backend.DbCache
 import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.Backend.Utils
 import Chainweb.Pact.Service.Types (PactException(..), internalError)
+import Chainweb.Pact.Types (logInfo_, logError_)
 import Chainweb.Version
 import Chainweb.Utils (sshow)
 import Chainweb.Utils.Serialization
@@ -93,7 +94,7 @@ tbl t@(Utf8 b)
     | B8.elem ']' b =  error $ "Chainweb.Pact.Backend.ChainwebPactDb: Code invariant violation. Illegal SQL table name " <> sshow b <> ". Please report this as a bug."
     | otherwise = "[" <> t <> "]"
 
-chainwebPactDb :: PactDb (BlockEnv SQLiteEnv)
+chainwebPactDb :: (Logger logger) => PactDb (BlockEnv logger SQLiteEnv)
 chainwebPactDb = PactDb
     { _readRow = \d k e -> runBlockEnv e $ doReadRow d k
     , _writeRow = \wt d k v e -> runBlockEnv e $ doWriteRow wt d k v
@@ -107,21 +108,21 @@ chainwebPactDb = PactDb
     , _getTxLog = \d tid e -> runBlockEnv e $ doGetTxLog d tid
     }
 
-getPendingData :: BlockHandler SQLiteEnv [SQLitePendingData]
+getPendingData :: BlockHandler logger SQLiteEnv [SQLitePendingData]
 getPendingData = do
     pb <- use bsPendingBlock
     ptx <- maybeToList <$> use bsPendingTx
     -- lookup in pending transactions first
     return $ ptx ++ [pb]
 
-forModuleNameFix :: (Bool -> BlockHandler e a) -> BlockHandler e a
+forModuleNameFix :: (Bool -> BlockHandler logger e a) -> BlockHandler logger e a
 forModuleNameFix f = use bsModuleNameFix >>= f
 
 doReadRow
     :: (IsString k, FromJSON v)
     => Domain k v
     -> k
-    -> BlockHandler SQLiteEnv (Maybe v)
+    -> BlockHandler logger SQLiteEnv (Maybe v)
 doReadRow d k = forModuleNameFix $ \mnFix ->
     case d of
         KeySets -> lookupWithKey (convKeySetName k) noCache
@@ -139,10 +140,10 @@ doReadRow d k = forModuleNameFix $ \mnFix ->
         "SELECT rowdata FROM " <> tbl tableName <> " WHERE rowkey = ? ORDER BY txid DESC LIMIT 1;"
 
     lookupWithKey
-        :: forall v . FromJSON v
+        :: forall logger v . FromJSON v
         => Utf8
-        -> (Utf8 -> BS.ByteString -> MaybeT (BlockHandler SQLiteEnv) v)
-        -> BlockHandler SQLiteEnv (Maybe v)
+        -> (Utf8 -> BS.ByteString -> MaybeT (BlockHandler logger SQLiteEnv) v)
+        -> BlockHandler logger SQLiteEnv (Maybe v)
     lookupWithKey key checkCache = do
         pds <- getPendingData
         let lookPD = foldr1 (<|>) $ map (lookupInPendingData key) pds
@@ -150,10 +151,10 @@ doReadRow d k = forModuleNameFix $ \mnFix ->
         runMaybeT (lookPD <|> lookDB)
 
     lookupInPendingData
-        :: forall v . FromJSON v
+        :: forall logger v . FromJSON v
         => Utf8
         -> SQLitePendingData
-        -> MaybeT (BlockHandler SQLiteEnv) v
+        -> MaybeT (BlockHandler logger SQLiteEnv) v
     lookupInPendingData (Utf8 rowkey) p = do
         let deltaKey = SQLiteDeltaKey tableNameBS rowkey
         ddata <- fmap _deltaData <$> MaybeT (return $ HashMap.lookup deltaKey (_pendingWrites p))
@@ -165,10 +166,10 @@ doReadRow d k = forModuleNameFix $ \mnFix ->
             else MaybeT $ return $! decodeStrict' $ DL.head ddata
 
     lookupInDb
-        :: forall v . FromJSON v
+        :: forall logger v . FromJSON v
         => Utf8
-        -> (Utf8 -> BS.ByteString -> MaybeT (BlockHandler SQLiteEnv) v)
-        -> MaybeT (BlockHandler SQLiteEnv) v
+        -> (Utf8 -> BS.ByteString -> MaybeT (BlockHandler logger SQLiteEnv) v)
+        -> MaybeT (BlockHandler logger SQLiteEnv) v
     lookupInDb rowkey checkCache = do
         -- First, check: did we create this table during this block? If so,
         -- there's no point in looking up the key.
@@ -193,11 +194,11 @@ doReadRow d k = forModuleNameFix $ \mnFix ->
         :: FromJSON v
         => Utf8
         -> BS.ByteString
-        -> MaybeT (BlockHandler SQLiteEnv) v
+        -> MaybeT (BlockHandler logger SQLiteEnv) v
     noCache _key rowdata = MaybeT $ return $! decodeStrict' rowdata
 
 
-checkDbTableExists :: Utf8 -> MaybeT (BlockHandler SQLiteEnv) ()
+checkDbTableExists :: Utf8 -> MaybeT (BlockHandler logger SQLiteEnv) ()
 checkDbTableExists tableName = do
     pds <- lift getPendingData
     forM_ pds $ \p ->
@@ -210,7 +211,7 @@ writeSys
     => Domain k v
     -> k
     -> v
-    -> BlockHandler SQLiteEnv ()
+    -> BlockHandler logger SQLiteEnv ()
 writeSys d k v = gets _bsTxId >>= go
   where
     go txid = do
@@ -234,7 +235,7 @@ recordPendingUpdate
     -> Utf8
     -> TxId
     -> v
-    -> BlockHandler SQLiteEnv ()
+    -> BlockHandler logger SQLiteEnv ()
 recordPendingUpdate (Utf8 key) (Utf8 tn) txid v = modifyPendingData modf
   where
     !vs = J.encodeStrict v
@@ -277,7 +278,7 @@ checkInsertIsOK
     :: WriteType
     -> Domain RowKey RowData
     -> RowKey
-    -> BlockHandler SQLiteEnv (Maybe RowData)
+    -> BlockHandler logger SQLiteEnv (Maybe RowData)
 checkInsertIsOK wt d k = do
     olds <- doReadRow d k
     case (olds, wt) of
@@ -295,7 +296,7 @@ writeUser
     -> Domain RowKey RowData
     -> RowKey
     -> RowData
-    -> BlockHandler SQLiteEnv ()
+    -> BlockHandler logger SQLiteEnv ()
 writeUser wt d k rowdata@(RowData _ row) = gets _bsTxId >>= go
   where
     toTableName = TableName . fromUtf8
@@ -325,7 +326,7 @@ doWriteRow
     -> Domain k v
     -> k
     -> v
-    -> BlockHandler SQLiteEnv ()
+    -> BlockHandler logger SQLiteEnv ()
 doWriteRow wt d k v = case d of
     (UserTables _) -> writeUser wt d k v
     _ -> writeSys d k v
@@ -333,7 +334,7 @@ doWriteRow wt d k v = case d of
 doKeys
     :: (IsString k)
     => Domain k v
-    -> BlockHandler SQLiteEnv [k]
+    -> BlockHandler logger SQLiteEnv [k]
 doKeys d = do
     msort <- uses bsSortedKeys (\c -> if c then sort else id)
     dbKeys <- getDbKeys
@@ -371,7 +372,7 @@ doKeys d = do
 {-# INLINE doKeys #-}
 
 -- tid is non-inclusive lower bound for the search
-doTxIds :: TableName -> TxId -> BlockHandler SQLiteEnv [TxId]
+doTxIds :: TableName -> TxId -> BlockHandler logger SQLiteEnv [TxId]
 doTxIds (TableName tn) _tid@(TxId tid) = do
     dbOut <- getFromDb
 
@@ -417,7 +418,7 @@ recordTxLog
     -> Domain k v
     -> k
     -> v
-    -> BlockHandler SQLiteEnv ()
+    -> BlockHandler logger SQLiteEnv ()
 recordTxLog tt d k v = do
     -- are we in a tx?
     mptx <- use bsPendingTx
@@ -431,14 +432,14 @@ recordTxLog tt d k v = do
 
 modifyPendingData
     :: (SQLitePendingData -> SQLitePendingData)
-    -> BlockHandler SQLiteEnv ()
+    -> BlockHandler logger SQLiteEnv ()
 modifyPendingData f = do
     m <- use bsPendingTx
     modify' $ case m of
       Just d -> set bsPendingTx (Just $! f d)
       Nothing -> over bsPendingBlock f
 
-doCreateUserTable :: TableName -> ModuleName -> BlockHandler SQLiteEnv ()
+doCreateUserTable :: TableName -> ModuleName -> BlockHandler logger SQLiteEnv ()
 doCreateUserTable tn@(TableName ttxt) mn = do
     -- first check if tablename already exists in pending queues
     m <- runMaybeT $ checkDbTableExists (Utf8 $ T.encodeUtf8 ttxt)
@@ -472,12 +473,12 @@ doCreateUserTable tn@(TableName ttxt) mn = do
     txlogs = DL.singleton $ encodeTxLog $ TxLog txlogKey stn uti
 {-# INLINE doCreateUserTable #-}
 
-doRollback :: BlockHandler SQLiteEnv ()
+doRollback :: BlockHandler logger SQLiteEnv ()
 doRollback = modify'
     $ set bsMode Nothing
     . set bsPendingTx Nothing
 
-doCommit :: BlockHandler SQLiteEnv [TxLogJson]
+doCommit :: BlockHandler logger SQLiteEnv [TxLogJson]
 doCommit = use bsMode >>= \case
     Nothing -> doRollback >> internalError "doCommit: Not in transaction"
     Just m -> do
@@ -507,18 +508,19 @@ doCommit = use bsMode >>= \case
         (x:_) -> DL.cons x b
 {-# INLINE doCommit #-}
 
-clearPendingTxState :: BlockHandler SQLiteEnv ()
+clearPendingTxState :: BlockHandler logger SQLiteEnv ()
 clearPendingTxState = do
     modify'
         $ set bsPendingBlock emptySQLitePendingData
         . set bsPendingTx Nothing
     resetTemp
 
-doBegin :: ExecutionMode -> BlockHandler SQLiteEnv (Maybe TxId)
+doBegin :: (Logger logger) => ExecutionMode -> BlockHandler logger SQLiteEnv (Maybe TxId)
 doBegin m = do
+    logger <- view bdbenvLogger
     use bsMode >>= \case
         Just {} -> do
-            logError "beginTx: In transaction, rolling back"
+            logError_ logger "beginTx: In transaction, rolling back"
             doRollback
         Nothing -> return ()
     resetTemp
@@ -530,13 +532,13 @@ doBegin m = do
         Local -> pure Nothing
 {-# INLINE doBegin #-}
 
-resetTemp :: BlockHandler SQLiteEnv ()
+resetTemp :: BlockHandler logger SQLiteEnv ()
 resetTemp = modify'
     $ set bsMode Nothing
     -- clear out txlog entries
     . set (bsPendingBlock . pendingTxLogMap) mempty
 
-doGetTxLog :: Domain k RowData -> TxId -> BlockHandler SQLiteEnv [TxLog RowData]
+doGetTxLog :: Domain k RowData -> TxId -> BlockHandler logger SQLiteEnv [TxLog RowData]
 doGetTxLog d txid = do
     -- try to look up this tx from pending log -- if we find it there it can't
     -- possibly be in the db.
@@ -581,7 +583,7 @@ toTxLog d key value =
             Just v ->
               return $! TxLog (asString d) (fromUtf8 key) v
 
-blockHistoryInsert :: BlockHeight -> BlockHash -> TxId -> BlockHandler SQLiteEnv ()
+blockHistoryInsert :: BlockHeight -> BlockHash -> TxId -> BlockHandler logger SQLiteEnv ()
 blockHistoryInsert bh hsh t =
     callDb "blockHistoryInsert" $ \db ->
         exec' db stmt
@@ -593,7 +595,7 @@ blockHistoryInsert bh hsh t =
     stmt =
       "INSERT INTO BlockHistory ('blockheight','hash','endingtxid') VALUES (?,?,?);"
 
-createTransactionIndexTable :: BlockHandler SQLiteEnv ()
+createTransactionIndexTable :: BlockHandler logger SQLiteEnv ()
 createTransactionIndexTable = callDb "createTransactionIndexTable" $ \db -> do
     exec_ db "CREATE TABLE IF NOT EXISTS TransactionIndex \
              \ (txhash BLOB NOT NULL, \
@@ -602,12 +604,12 @@ createTransactionIndexTable = callDb "createTransactionIndexTable" $ \db -> do
     exec_ db "CREATE INDEX IF NOT EXISTS \
              \ transactionIndexByBH ON TransactionIndex(blockheight)";
 
-indexPactTransaction :: BS.ByteString -> BlockHandler SQLiteEnv ()
+indexPactTransaction :: BS.ByteString -> BlockHandler logger SQLiteEnv ()
 indexPactTransaction h = modify' $
     over (bsPendingBlock . pendingSuccessfulTxs) $ HashSet.insert h
 
 
-indexPendingPactTransactions :: BlockHandler SQLiteEnv ()
+indexPendingPactTransactions :: BlockHandler logger SQLiteEnv ()
 indexPendingPactTransactions = do
     txs <- _pendingSuccessfulTxs <$> gets _bsPendingBlock
     dbIndexTransactions txs
@@ -621,14 +623,14 @@ indexPendingPactTransactions = do
             execMulti db "INSERT INTO TransactionIndex (txhash, blockheight) \
                          \ VALUES (?, ?)" rows
 
-clearTxIndex :: BlockHandler SQLiteEnv ()
+clearTxIndex :: BlockHandler logger SQLiteEnv ()
 clearTxIndex = do
     bh <- gets _bsBlockHeight
     callDb "clearTxIndex" $ \db -> do
         exec' db "DELETE FROM TransactionIndex WHERE blockheight >= ?;"
               [ SInt (fromIntegral bh) ]
 
-createBlockHistoryTable :: BlockHandler SQLiteEnv ()
+createBlockHistoryTable :: BlockHandler logger SQLiteEnv ()
 createBlockHistoryTable =
     callDb "createBlockHistoryTable" $ \db -> exec_ db
         "CREATE TABLE IF NOT EXISTS BlockHistory \
@@ -637,7 +639,7 @@ createBlockHistoryTable =
         \ endingtxid UNSIGNED BIGINT NOT NULL, \
         \ CONSTRAINT blockHashConstraint UNIQUE (blockheight));"
 
-createTableCreationTable :: BlockHandler SQLiteEnv ()
+createTableCreationTable :: BlockHandler logger SQLiteEnv ()
 createTableCreationTable =
     callDb "createTableCreationTable" $ \db -> exec_ db
       "CREATE TABLE IF NOT EXISTS VersionedTableCreation\
@@ -645,7 +647,7 @@ createTableCreationTable =
       \, createBlockheight UNSIGNED BIGINT NOT NULL\
       \, CONSTRAINT creation_unique UNIQUE(createBlockheight, tablename));"
 
-createTableMutationTable :: BlockHandler SQLiteEnv ()
+createTableMutationTable :: BlockHandler logger SQLiteEnv ()
 createTableMutationTable =
     callDb "createTableMutationTable" $ \db -> do
         exec_ db "CREATE TABLE IF NOT EXISTS VersionedTableMutation\
@@ -653,7 +655,7 @@ createTableMutationTable =
                  \, blockheight UNSIGNED BIGINT NOT NULL\
                  \, CONSTRAINT mutation_unique UNIQUE(blockheight, tablename));"
 
-createUserTable :: Utf8 -> BlockHeight -> BlockHandler SQLiteEnv ()
+createUserTable :: Utf8 -> BlockHeight -> BlockHandler logger SQLiteEnv ()
 createUserTable tablename bh =
     callDb "createUserTable" $ \db -> do
         createVersionedTable tablename db
@@ -699,7 +701,7 @@ handlePossibleRewind
         -- of the respective block is one less than the height provided in the
         -- previous argument.
 
-    -> BlockHandler SQLiteEnv TxId
+    -> BlockHandler logger SQLiteEnv TxId
 handlePossibleRewind v cid bRestore hsh = do
     bCurrent <- getBCurrentHeight
     checkHistoryInvariant (bCurrent + 1)
@@ -824,7 +826,7 @@ vacuumTablesAtRewind bh endingtx droppedtbls db = do
     exec' db "DELETE FROM VersionedTableMutation WHERE blockheight >= ?;"
           [SInt (fromIntegral bh)]
 
-tableMaintenanceRowsVersionedSystemTables :: TxId -> BlockHandler SQLiteEnv ()
+tableMaintenanceRowsVersionedSystemTables :: TxId -> BlockHandler logger SQLiteEnv ()
 tableMaintenanceRowsVersionedSystemTables endingtx = do
     callDb "tableMaintenanceRowsVersionedSystemTables" $ \db -> do
         exec' db "DELETE FROM [SYS:KeySets] WHERE txid >= ?" tx
@@ -834,13 +836,13 @@ tableMaintenanceRowsVersionedSystemTables endingtx = do
   where
     tx = [SInt $! fromIntegral endingtx]
 
-deleteHistory :: BlockHeight -> BlockHandler SQLiteEnv ()
+deleteHistory :: BlockHeight -> BlockHandler logger SQLiteEnv ()
 deleteHistory bh = do
     callDb "Deleting from BlockHistory, VersionHistory" $ \db -> do
         exec' db "DELETE FROM BlockHistory WHERE blockheight >= ?"
               [SInt (fromIntegral bh)]
 
-initSchema :: BlockHandler SQLiteEnv ()
+initSchema :: (Logger logger) => BlockHandler logger SQLiteEnv ()
 initSchema = do
     withSavepoint DbTransaction $ do
         createBlockHistoryTable
@@ -853,10 +855,11 @@ initSchema = do
         create (domainTableName Pacts)
   where
     create tablename = do
-        log "DDL" $ "initSchema: "  ++ (T.unpack . fromUtf8) tablename
-        callDb "initSchema" $ createVersionedTable tablename
+      logger <- view bdbenvLogger
+      logInfo_ logger $ "initSchema: "  <> fromUtf8 tablename
+      callDb "initSchema" $ createVersionedTable tablename
 
-getEndingTxId :: ChainwebVersion -> ChainId -> BlockHeight -> BlockHandler SQLiteEnv TxId
+getEndingTxId :: ChainwebVersion -> ChainId -> BlockHeight -> BlockHandler logger SQLiteEnv TxId
 getEndingTxId v cid bh = callDb "getEndingTxId" $ \db -> do
     if bh == genesisHeight v cid
       then return 0
@@ -871,5 +874,5 @@ getEndingTxId v cid bh = callDb "getEndingTxId" $ \db -> do
 
 -- Careful doing this! It's expensive and for our use case, probably pointless.
 -- We should reserve vacuuming for an offline process
-vacuumDb :: BlockHandler SQLiteEnv ()
+vacuumDb :: BlockHandler logger SQLiteEnv ()
 vacuumDb = callDb "vacuumDb" (`exec_` "VACUUM;")

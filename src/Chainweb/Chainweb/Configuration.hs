@@ -116,6 +116,7 @@ import Chainweb.Payload.RestAPI (PayloadBatchLimit(..), defaultServicePayloadBat
 import Chainweb.Utils
 import Chainweb.Version
 import Chainweb.Version.Development
+import Chainweb.Version.FastDevelopment
 import Chainweb.Version.Mainnet
 import Chainweb.Version.Registry
 
@@ -418,12 +419,14 @@ validateChainwebConfiguration c = do
     validateChainwebVersion (_configChainwebVersion c)
 
 validateChainwebVersion :: ConfigValidation ChainwebVersion []
-validateChainwebVersion v = unless (_versionCode v == _versionCode devnet || elem v knownVersions) $
+validateChainwebVersion v = unless (isDevelopment || elem v knownVersions) $
     throwError $ T.unwords
         [ "Specifying version properties is only legal with chainweb-version"
-        , "set to development, but version is set to"
+        , "set to development or fast-development, but version is set to"
         , sshow (_versionName v)
         ]
+    where
+    isDevelopment = _versionCode v `elem` [_versionCode dv | dv <- [devnet, fastDevnet]]
 
 validateBackupConfig :: ConfigValidation BackupConfig []
 validateBackupConfig c =
@@ -487,7 +490,7 @@ instance FromJSON ChainwebConfiguration where
     parseJSON = fmap ($ defaultChainwebConfiguration Mainnet01) . parseJSON
 
 instance FromJSON (ChainwebConfiguration -> ChainwebConfiguration) where
-    parseJSON = withObject "ChainwebConfig" $ \o -> id
+    parseJSON = withObject "ChainwebConfiguration" $ \o -> id
         <$< setProperty configChainwebVersion "chainwebVersion"
             (findKnownVersion <=< parseJSON) o
         <*< configCuts %.: "cuts" % o
@@ -502,7 +505,6 @@ instance FromJSON (ChainwebConfiguration -> ChainwebConfiguration) where
         <*< configMinGasPrice ..: "minGasPrice" % o
         <*< configPactQueueSize ..: "pactQueueSize" % o
         <*< configReorgLimit ..: "reorgLimit" % o
-        <*< configLocalRewindDepthLimit ..: "localRewindDepthLimit" % o
         <*< configAllowReadsInLocal ..: "allowReadsInLocal" % o
         <*< configRosetta ..: "rosetta" % o
         <*< configServiceApi %.: "serviceApi" % o
@@ -575,18 +577,21 @@ parseVersion = constructVersion
             <> help "the chainweb version that this node is using"
         )
     <*> optional (textOption @Fork (long "fork-upper-bound" <> help "(development mode only) the latest fork the node will enable"))
-    <*> optional (BlockRate <$> textOption (long "block-rate" <> help "(development mode only) the block rate in seconds per block"))
+    <*> optional (BlockDelay <$> textOption (long "block-delay" <> help "(development mode only) the block delay in seconds per block"))
     <*> switch (long "disable-pow" <> help "(development mode only) disable proof of work check")
     where
-    constructVersion cliVersion fub br disablePow' oldVersion = winningVersion
-        & versionBlockRate .~ fromMaybe (_versionBlockRate winningVersion) br
+    constructVersion cliVersion fub bd disablePow' oldVersion = winningVersion
+        & versionBlockDelay .~ fromMaybe (_versionBlockDelay winningVersion) bd
         & versionForks %~ HM.filterWithKey (\fork _ -> fork <= fromMaybe maxBound fub)
         & versionUpgrades .~
             maybe (_versionUpgrades winningVersion) (\fub' ->
                 OnChains $ HM.mapWithKey
                     (\cid _ ->
-                        let fubHeight = winningVersion ^?! versionForks . at fub' . _Just . onChain cid
-                        in HM.filterWithKey (\bh _ -> bh <= fubHeight) (winningVersion ^?! versionUpgrades . onChain cid))
+                        case winningVersion ^?! versionForks . at fub' . _Just . onChain cid of
+                            ForkNever -> error "Chainweb.Chainweb.Configuration.parseVersion: the fork upper bound never occurs in this version."
+                            ForkAtBlockHeight fubHeight -> HM.filterWithKey (\bh _ -> bh <= fubHeight) (winningVersion ^?! versionUpgrades . onChain cid)
+                            ForkAtGenesis -> winningVersion ^?! versionUpgrades . onChain cid
+                    )
                     (HS.toMap (chainIds winningVersion))
             ) fub
         & versionCheats . disablePow .~ disablePow'
