@@ -482,7 +482,7 @@ execNewBlock mpAccess parent miner = pactLabel "execNewBlock" $ do
   where
     handleTimeout :: TxTimeout -> PactServiceM logger cas a
     handleTimeout (TxTimeout h) = do
-      logError $ "execNewBlock: timed out on " <> sshow h
+      logError $ "timed out on " <> sshow h
       liftIO $ mpaBadlistTx mpAccess (V.singleton h)
       throwM (TxTimeout h)
 
@@ -512,8 +512,7 @@ execNewBlock mpAccess parent miner = pactLabel "execNewBlock" $ do
         mpaGetBlock mpAccess bfState validate (pHeight + 1) pHash (_parentHeader parent)
 
     doNewBlock pdbenv = do
-        logInfo $ "execNewBlock: "
-                <> " (parent height = " <> sshow pHeight <> ")"
+        logInfo $ "(parent height = " <> sshow pHeight <> ")"
                 <> " (parent hash = " <> sshow pHash <> ")"
 
         blockGasLimit <- view psBlockGasLimit
@@ -541,8 +540,10 @@ execNewBlock mpAccess parent miner = pactLabel "execNewBlock" $ do
 
         successes <- liftIO $ Dyna.new @_ @Array @_ @(ChainwebTransaction, P.CommandResult [P.TxLog A.Value])
         failures <- liftIO $ Dyna.new @_ @Array @_ @GasPurchaseFailure
-        _ <- refill fetchLimit txTimeLimit pdbenv successes failures =<<
+        BlockFill _ requestKeys _ <- refill fetchLimit txTimeLimit pdbenv successes failures =<<
           foldM (splitResults successes failures) (incCount initState) pairs
+
+        logInfo $ "(request keys = " <> sshow requestKeys <> ")"
 
         liftIO $ do
           txHashes <- Dyna.toLiftedVectorWith (\_ failure -> pure (gasPurchaseFailureHash failure)) failures
@@ -813,6 +814,9 @@ execPreInsertCheckReq
     => Vector ChainwebTransaction
     -> PactServiceM logger tbl (Vector (Either Mempool.InsertError ChainwebTransaction))
 execPreInsertCheckReq txs = pactLabel "execPreInsertCheckReq" $ withDiscardedBatch $ do
+    let requestKeys = V.map P._cmdHash txs
+    logInfo $ "(request keys = " <> sshow requestKeys <> ")"
+
     parent <- use psParentHeader
     let currHeight = succ $ _blockHeight $ _parentHeader parent
     psEnv <- ask
