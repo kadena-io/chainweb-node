@@ -539,14 +539,13 @@ execNewBlock mpAccess parent miner = pactLabel "execNewBlock" $ do
           Nothing
           (Just txTimeLimit) `catch` handleTimeout
 
-        let requestKeys = map P._crReqKey $ rights $ map snd $ V.toList pairs
-        logInfo $ "execNewBlock: "
-                <> " (request keys = " <> sshow requestKeys <> ")"
-
         successes <- liftIO $ Dyna.new @_ @Array @_ @(ChainwebTransaction, P.CommandResult [P.TxLog A.Value])
         failures <- liftIO $ Dyna.new @_ @Array @_ @GasPurchaseFailure
-        _ <- refill fetchLimit txTimeLimit pdbenv successes failures =<<
+        BlockFill _ requestKeys _ <- refill fetchLimit txTimeLimit pdbenv successes failures =<<
           foldM (splitResults successes failures) (incCount initState) pairs
+
+        logInfo $ "execNewBlock: "
+                <> " (request keys = " <> sshow requestKeys <> ")"
 
         liftIO $ do
           txHashes <- Dyna.toLiftedVectorWith (\_ failure -> pure (gasPurchaseFailureHash failure)) failures
