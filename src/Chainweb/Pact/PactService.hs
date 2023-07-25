@@ -3,6 +3,7 @@
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE ImportQualifiedPost #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE NamedFieldPuns #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE RecordWildCards #-}
@@ -123,8 +124,8 @@ runPactService
     -> IO ()
 runPactService ver cid chainwebLogger reqQ mempoolAccess bhDb pdb sqlenv config =
     void $ withPactService ver cid chainwebLogger bhDb pdb sqlenv config $ do
-        initialPayloadState chainwebLogger mempoolAccess ver cid
-        serviceRequests chainwebLogger mempoolAccess reqQ
+        initialPayloadState mempoolAccess ver cid
+        serviceRequests mempoolAccess reqQ
 
 withPactService
     :: Logger logger
@@ -188,25 +189,23 @@ initializeLatestBlock unlimitedRewind = findLatestValidBlock >>= \case
 initialPayloadState
     :: Logger logger
     => CanReadablePayloadCas tbl
-    => logger
-    -> MemPoolAccess
+    => MemPoolAccess
     -> ChainwebVersion
     -> ChainId
     -> PactServiceM logger tbl ()
-initialPayloadState logger mpa v cid
+initialPayloadState mpa v cid
     | v ^. versionCheats . disablePact = pure ()
-    | otherwise = initializeCoinContract logger mpa v cid $
+    | otherwise = initializeCoinContract mpa v cid $
         v ^?! versionGenesis . genesisBlockPayload . onChain cid
 
 initializeCoinContract
     :: forall tbl logger. (CanReadablePayloadCas tbl, Logger logger)
-    => logger
-    -> MemPoolAccess
+    => MemPoolAccess
     -> ChainwebVersion
     -> ChainId
     -> PayloadWithOutputs
     -> PactServiceM logger tbl ()
-initializeCoinContract _logger memPoolAccess v cid pwo = do
+initializeCoinContract memPoolAccess v cid pwo = do
     cp <- getCheckpointer
     latestBlock <- liftIO $ _cpGetLatestBlock cp
     case latestBlock of
@@ -271,19 +270,19 @@ lookupBlockHeader bhash ctx = do
 -- | Loop forever, serving Pact execution requests and reponses from the queues
 serviceRequests
     :: forall logger tbl. (Logger logger, CanReadablePayloadCas tbl)
-    => logger
-    -> MemPoolAccess
+    => MemPoolAccess
     -> PactQueue
     -> PactServiceM logger tbl ()
-serviceRequests chainwebLogger memPoolAccess reqQ = do
+serviceRequests memPoolAccess reqQ = do
     logInfo "Starting service"
     go `finally` logInfo "Stopping service"
   where
     go = do
+        PactServiceEnv{_psLogger} <- ask
         logDebug "serviceRequests: wait"
         msg <- liftIO $ getNextRequest reqQ
         requestId <- liftIO $ UUID.toText <$> UUID.nextRandom
-        let logFn = logFunction $ addLabel ("pact-request-id", requestId) chainwebLogger
+        let logFn = logFunction $ addLabel ("pact-request-id", requestId) _psLogger
         logDebug $ "serviceRequests: " <> sshow msg
         case msg of
             CloseMsg -> return ()
