@@ -2,7 +2,7 @@
 
 -- This module is auto-generated. DO NOT EDIT IT MANUALLY.
 
-module Chainweb.BlockHeader.Genesis.DevelopmentKADPayload ( payloadBlock ) where
+module Chainweb.BlockHeader.Genesis.Development10to19Payload ( payloadBlock ) where
 
 import Data.Text.Encoding (encodeUtf8)
 import qualified Data.Text as T

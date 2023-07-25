@@ -27,7 +27,7 @@
 -- target value divided by the hash target for the block.
 --
 module Chainweb.Difficulty
-( BlockRate(..)
+( BlockDelay(..)
 , WindowWidth(..)
 -- * PowHashNat
 , PowHashNat(..)
@@ -100,7 +100,7 @@ instance NFData Word256
 -- | The gap in MICROSECONDS that we desire between the Creation Time of subsequent
 -- blocks in some chain.
 --
-newtype BlockRate = BlockRate { _getBlockRate :: Micros }
+newtype BlockDelay = BlockDelay { _getBlockDelay :: Micros }
     deriving stock (Eq, Generic, Ord, Show)
     deriving newtype (Hashable, NFData, ToJSON, FromJSON)
 
@@ -298,7 +298,7 @@ targetToDifficulty (HashTarget (PowHashNat target)) =
 -- smaller or equal than 2^256-1.
 --
 adjust
-    :: BlockRate
+    :: BlockDelay
     -> WindowWidth
     -> TimeSpan Micros
         -- ^ the actual time of the last epoch: creation time minus the epoch
@@ -308,10 +308,10 @@ adjust
         -- the last header in the (previous) epoch
     -> HashTarget
         -- ^ the hash target of the new epoch
-adjust (BlockRate br) (WindowWidth ww) (TimeSpan delta) (HashTarget oldTarget) = newTarget
+adjust (BlockDelay bd) (WindowWidth ww) (TimeSpan delta) (HashTarget oldTarget) = newTarget
   where
     targetedEpochTime :: Rational
-    targetedEpochTime = int ww * int br
+    targetedEpochTime = int ww * int bd
 
     actualEpochTime :: Rational
     actualEpochTime = int delta
@@ -328,7 +328,7 @@ adjust (BlockRate br) (WindowWidth ww) (TimeSpan delta) (HashTarget oldTarget) =
 -- This is used when 'oldDaGuard' is active.
 --
 legacyAdjust
-    :: BlockRate
+    :: BlockDelay
     -> WindowWidth
     -> TimeSpan Micros
         -- ^ the actual time of the last epoch: creation time minus the epoch
@@ -338,10 +338,10 @@ legacyAdjust
         -- the last header in the (previous) epoch
     -> HashTarget
         -- ^ the hash target of the new epoch
-legacyAdjust (BlockRate br) (WindowWidth ww) (TimeSpan delta) (HashTarget oldTarget) = newTarget
+legacyAdjust (BlockDelay bd) (WindowWidth ww) (TimeSpan delta) (HashTarget oldTarget) = newTarget
   where
     newDiff :: Rational
-    newDiff = oldDiff * int br * int ww / int delta
+    newDiff = oldDiff * int bd * int ww / int delta
 
     oldDiff :: Rational
     oldDiff = int maxTargetWord / int oldTarget

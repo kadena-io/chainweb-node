@@ -137,14 +137,15 @@ tests = ScheduledTest testName go
           -- we can be generous.
         generousConfig = testPactServiceConfig { _pactBlockGasLimit = 300_000 }
         timeoutConfig = testPactServiceConfig { _pactBlockGasLimit = 100_000 }
+
         test pactConfig gasmodel tname f =
           withDelegateMempool $ \dmpio -> testCaseSteps tname $ \step ->
             withTestBlockDb testVersion $ \bdb -> do
               (iompa,mpa) <- dmpio
-              withWebPactExecutionService step testVersion pactConfig bdb mpa gasmodel $ \(pact,pacts) ->
+              let logger = hunitDummyLogger step
+              withWebPactExecutionService logger testVersion pactConfig bdb mpa gasmodel $ \(pact,pacts) ->
                 runReaderT f $
                 MultiEnv bdb pact pacts (return iompa) noMiner cid
-
 
 minerKeysetTest :: PactTestM ()
 minerKeysetTest = do

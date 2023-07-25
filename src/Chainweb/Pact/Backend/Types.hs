@@ -23,10 +23,7 @@
 --
 -- Chainweb / Pact Types module for various database backends
 module Chainweb.Pact.Backend.Types
-    ( CheckpointEnv(..)
-    , cpeCheckpointer
-    , cpeLogger
-    , Checkpointer(..)
+    ( Checkpointer(..)
     , Env'(..)
     , EnvPersist'(..)
     , PactDbConfig(..)
@@ -75,6 +72,7 @@ module Chainweb.Pact.Backend.Types
     , ParentHash
     , BlockDbEnv(..)
     , bdbenvDb
+    , bdbenvLogger
     , SQLiteFlag(..)
 
       -- * mempool
@@ -110,7 +108,6 @@ import Pact.Interpreter (PactDbEnv(..))
 import Pact.Persist.SQLite (Pragma(..), SQLiteConfig(..))
 import Pact.PersistPactDb (DbEnv(..))
 import qualified Pact.Types.Hash as P
-import Pact.Types.Logger (Logger(..), Logging(..))
 import Pact.Types.Persistence
 import Pact.Types.Runtime (TableName)
 
@@ -122,9 +119,7 @@ import Chainweb.Pact.Backend.DbCache
 import Chainweb.Pact.Service.Types
 import Chainweb.Transaction
 import Chainweb.Utils (T2)
-
 import Chainweb.Mempool.Mempool (MempoolPreBlockCheck,TransactionHash,BlockFill)
-
 
 data Env' = forall a. Env' (PactDbEnv (DbEnv a))
 
@@ -252,29 +247,29 @@ initBlockState cl initialBlockHeight = BlockState
 
 makeLenses ''BlockState
 
-data BlockDbEnv p = BlockDbEnv
+data BlockDbEnv logger p = BlockDbEnv
     { _bdbenvDb :: !p
-    , _logger :: !Logger
+    , _bdbenvLogger :: !logger
     }
 
 makeLenses ''BlockDbEnv
 
-data BlockEnv p = BlockEnv
-    { _benvDb :: !(BlockDbEnv p)
+data BlockEnv logger p = BlockEnv
+    { _benvDb :: !(BlockDbEnv logger p)
     , _benvBlockState :: !BlockState -- ^ The current block state.
     }
 
 makeLenses ''BlockEnv
 
 
-runBlockEnv :: MVar (BlockEnv SQLiteEnv) -> BlockHandler SQLiteEnv a -> IO a
+runBlockEnv :: MVar (BlockEnv logger SQLiteEnv) -> BlockHandler logger SQLiteEnv a -> IO a
 runBlockEnv e m = modifyMVar e $
   \(BlockEnv dbenv bs) -> do
     (!a,!s) <- runStateT (runReaderT (runBlockHandler m) dbenv) bs
     return (BlockEnv dbenv s, a)
 
-newtype BlockHandler p a = BlockHandler
-    { runBlockHandler :: ReaderT (BlockDbEnv p) (StateT BlockState IO) a
+newtype BlockHandler logger p a = BlockHandler
+    { runBlockHandler :: ReaderT (BlockDbEnv logger p) (StateT BlockState IO) a
     } deriving newtype
         ( Functor
         , Applicative
@@ -284,19 +279,17 @@ newtype BlockHandler p a = BlockHandler
         , MonadCatch
         , MonadMask
         , MonadIO
-        , MonadReader (BlockDbEnv p)
+        , MonadReader (BlockDbEnv logger p)
+
         )
 
-newtype PactDbEnv' = PactDbEnv' (PactDbEnv (BlockEnv SQLiteEnv))
-
-instance Logging (BlockHandler p) where
-    log c s = view logger >>= \l -> liftIO $ logLog l c s
+newtype PactDbEnv' logger = PactDbEnv' (PactDbEnv (BlockEnv logger SQLiteEnv))
 
 type ParentHash = BlockHash
 
-data Checkpointer = Checkpointer
+data Checkpointer logger = Checkpointer
     {
-      _cpRestore :: !(Maybe (BlockHeight, ParentHash) -> IO PactDbEnv')
+      _cpRestore :: !(Maybe (BlockHeight, ParentHash) -> IO (PactDbEnv' logger))
       -- ^ prerequisite: (BlockHeight - 1, ParentHash) is a direct ancestor of
       -- the "latest block"
     , _cpSave :: !(BlockHash -> IO ())
@@ -323,14 +316,8 @@ data Checkpointer = Checkpointer
         forall k v . (FromJSON v) => BlockHeader -> Domain k v -> IO BlockTxHistory)
     , _cpGetHistoricalLookup :: !(
         forall k v . (FromJSON v) => BlockHeader -> Domain k v -> RowKey -> IO (Maybe (TxLog Value)))
+    , _cpLogger :: !logger
     }
-
-data CheckpointEnv = CheckpointEnv
-    { _cpeCheckpointer :: !Checkpointer
-    , _cpeLogger :: !Logger
-    }
-
-makeLenses ''CheckpointEnv
 
 newtype SQLiteFlag = SQLiteFlag { getFlag :: CInt }
   deriving newtype (Eq, Ord, Bits, Num)
