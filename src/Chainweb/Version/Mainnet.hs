@@ -139,7 +139,7 @@ mainnet = ChainwebVersion
         Chainweb217Pact -> AllChains (ForkAtBlockHeight $ BlockHeight 3_250_348) -- 2022-12-02T00:00:00+00:00
         Chainweb218Pact -> AllChains (ForkAtBlockHeight $ BlockHeight 3_512_363) -- 2023-03-03 00:00:00+00:00
         Chainweb219Pact -> AllChains (ForkAtBlockHeight $ BlockHeight 3_774_423) -- 2023-06-02 00:00:00+00:00
-        Chainweb220Pact -> AllChains (ForkAtBlockHeight $ BlockHeight maxBound)
+        Chainweb220Pact -> AllChains ForkNever
 
     , _versionGraphs =
         (to20ChainsMainnet, twentyChainGraph) `Above`
