@@ -765,34 +765,41 @@ execValidateBlock
 execValidateBlock memPoolAccess currHeader plData = pactLabel "execValidateBlock" $ do
     -- The parent block header must be available in the block header database
     target <- getTarget
-    psEnv <- ask
-    let reorgLimit = view psReorgLimit psEnv
-    T2 miner transactions <- exitOnRewindLimitExceeded $ withBatch $ do
-        withCheckpointerRewind (Just reorgLimit) target "execValidateBlock" $ \pdbenv -> do
-            !result <- execBlock currHeader plData pdbenv
-            return $! Save currHeader result
-    !result <- either throwM return $
-        validateHashes currHeader plData miner transactions
 
-    -- update mempool
-    --
-    -- Using the parent isn't optimal, since it doesn't delete the txs of
-    -- `currHeader` from the set of pending tx. The reason for this is that the
-    -- implementation 'mpaProcessFork' uses the chain database and at this point
-    -- 'currHeader' is generally not yet available in the database. It would be
-    -- possible to extract the txs from the result and remove them from the set
-    -- of pending txs. However, that would add extra complexity and at little
-    -- gain.
-    --
-    case target of
-        Nothing -> return ()
-        Just (ParentHeader p) -> liftIO $ do
-            mpaProcessFork memPoolAccess p
-            mpaSetLastHeader memPoolAccess p
-
-    let !totalGasUsed = sumOf (folded . to P._crGas) transactions
-    return (result, totalGasUsed)
+    -- Add block-hash to the logs if presented
+    case _blockHash . _parentHeader <$> target of
+        Just bh -> localLabel ("block-hash", blockHashToText bh) (act target)
+        Nothing -> act target
   where
+    act target = do
+        psEnv <- ask
+        let reorgLimit = view psReorgLimit psEnv
+        T2 miner transactions <- exitOnRewindLimitExceeded $ withBatch $ do
+            withCheckpointerRewind (Just reorgLimit) target "execValidateBlock" $ \pdbenv -> do
+                !result <- execBlock currHeader plData pdbenv
+                return $! Save currHeader result
+        !result <- either throwM return $
+            validateHashes currHeader plData miner transactions
+
+        -- update mempool
+        --
+        -- Using the parent isn't optimal, since it doesn't delete the txs of
+        -- `currHeader` from the set of pending tx. The reason for this is that the
+        -- implementation 'mpaProcessFork' uses the chain database and at this point
+        -- 'currHeader' is generally not yet available in the database. It would be
+        -- possible to extract the txs from the result and remove them from the set
+        -- of pending txs. However, that would add extra complexity and at little
+        -- gain.
+        --
+        case target of
+            Nothing -> return ()
+            Just (ParentHeader p) -> liftIO $ do
+                mpaProcessFork memPoolAccess p
+                mpaSetLastHeader memPoolAccess p
+
+        let !totalGasUsed = sumOf (folded . to P._crGas) transactions
+        return (result, totalGasUsed)
+
     getTarget
         | isGenesisBlockHeader currHeader = return Nothing
         | otherwise = Just . ParentHeader
