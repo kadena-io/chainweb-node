@@ -612,7 +612,7 @@ testPactCtxSQLite logger v cid bhdb pdb sqlenv conf gasmodel = do
     !ctx <- TestPactCtx
       <$!> newMVar (PactServiceState Nothing mempty ph noSPVSupport)
       <*> pure (pactServiceEnv cp rs)
-    evalPactServiceM_ ctx (initialPayloadState logger mempty v cid)
+    evalPactServiceM_ ctx (initialPayloadState mempty v cid)
     return (ctx, PactDbEnv' dbSt)
   where
     initialBlockState = initBlockState defaultModuleCacheLimit $ genesisHeight v cid

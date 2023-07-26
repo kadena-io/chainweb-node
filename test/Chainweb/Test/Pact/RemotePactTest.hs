@@ -364,6 +364,7 @@ localPreflightSimTest iot nio = testCaseSteps "local preflight sim test" $ \step
     step "Execute preflight /local tx - collect warnings"
     cmd7 <- mkRawTx' mv pcid sigs0 "(+ 1 2.0)"
 
+    currentBlockHeight <- getCurrentBlockHeight v cenv sid
     runLocalPreflightClient sid cenv cmd7 >>= \case
       Left e -> assertFailure $ show e
       Right LocalResultLegacy{} ->
@@ -371,7 +372,6 @@ localPreflightSimTest iot nio = testCaseSteps "local preflight sim test" $ \step
       Right MetadataValidationFailure{} ->
         assertFailure "Preflight produced an impossible result"
       Right (LocalResultWithWarns cr' ws) -> do
-        currentBlockHeight <- getCurrentBlockHeight v cenv sid
         assertEqual "Preflight's metadata should have increment block height"
           (Just $ 1 + fromIntegral currentBlockHeight) (getBlockHeight cr')
 
@@ -381,6 +381,7 @@ localPreflightSimTest iot nio = testCaseSteps "local preflight sim test" $ \step
           ws' -> assertFailure $ "Incorrect warns: " ++ show ws'
 
     let rewindDepth = 10
+    currentBlockHeight' <- getCurrentBlockHeight v cenv sid
     runLocalPreflightClientWithDepth sid cenv cmd7 rewindDepth >>= \case
       Left e -> assertFailure $ show e
       Right LocalResultLegacy{} ->
@@ -388,9 +389,8 @@ localPreflightSimTest iot nio = testCaseSteps "local preflight sim test" $ \step
       Right MetadataValidationFailure{} ->
         assertFailure "Preflight produced an impossible result"
       Right (LocalResultWithWarns cr' ws) -> do
-        currentBlockHeight <- getCurrentBlockHeight v cenv sid
         assertEqual "Preflight's metadata block height should reflect the rewind depth"
-          (Just $ 1 + (fromIntegral currentBlockHeight) - rewindDepth) (getBlockHeight cr')
+          (Just $ 1 + (fromIntegral currentBlockHeight') - rewindDepth) (getBlockHeight cr')
 
         case ws of
           [w] | "decimal/integer operator overload" `T.isInfixOf` w ->
