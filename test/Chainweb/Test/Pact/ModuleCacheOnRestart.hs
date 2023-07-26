@@ -286,7 +286,7 @@ genblock = genesisBlockHeader testVer testChainId
 initPayloadState
   :: (CanReadablePayloadCas tbl, Logger logger, logger ~ GenericLogger)
   => PactServiceM logger tbl ()
-initPayloadState = initialPayloadState dummyLogger mempty testVer testChainId
+initPayloadState = initialPayloadState mempty testVer testChainId
 
 snapshotCache :: IO (MVar ModuleInitCache) -> ModuleInitCache -> IO ()
 snapshotCache iomcache initCache = do

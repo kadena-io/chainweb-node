@@ -3,6 +3,7 @@
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE ImportQualifiedPost #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE NamedFieldPuns #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE RecordWildCards #-}
@@ -58,6 +59,8 @@ import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Vector (Vector)
 import qualified Data.Vector as V
+import qualified Data.UUID as UUID
+import qualified Data.UUID.V4 as UUID
 
 import System.IO
 
@@ -99,7 +102,6 @@ import Chainweb.TreeDB (lookupM, seekAncestor)
 import Chainweb.Utils hiding (check)
 import Chainweb.Version
 import Chainweb.Version.Guards
-import Data.LogMessage
 import Utils.Logging.Trace
 
 import Dyna (Vec)
@@ -122,8 +124,8 @@ runPactService
     -> IO ()
 runPactService ver cid chainwebLogger reqQ mempoolAccess bhDb pdb sqlenv config =
     void $ withPactService ver cid chainwebLogger bhDb pdb sqlenv config $ do
-        initialPayloadState chainwebLogger mempoolAccess ver cid
-        serviceRequests (logFunction chainwebLogger) mempoolAccess reqQ
+        initialPayloadState mempoolAccess ver cid
+        serviceRequests mempoolAccess reqQ
 
 withPactService
     :: Logger logger
@@ -187,25 +189,23 @@ initializeLatestBlock unlimitedRewind = findLatestValidBlock >>= \case
 initialPayloadState
     :: Logger logger
     => CanReadablePayloadCas tbl
-    => logger
-    -> MemPoolAccess
+    => MemPoolAccess
     -> ChainwebVersion
     -> ChainId
     -> PactServiceM logger tbl ()
-initialPayloadState logger mpa v cid
+initialPayloadState mpa v cid
     | v ^. versionCheats . disablePact = pure ()
-    | otherwise = initializeCoinContract logger mpa v cid $
+    | otherwise = initializeCoinContract mpa v cid $
         v ^?! versionGenesis . genesisBlockPayload . onChain cid
 
 initializeCoinContract
     :: forall tbl logger. (CanReadablePayloadCas tbl, Logger logger)
-    => logger
-    -> MemPoolAccess
+    => MemPoolAccess
     -> ChainwebVersion
     -> ChainId
     -> PayloadWithOutputs
     -> PactServiceM logger tbl ()
-initializeCoinContract _logger memPoolAccess v cid pwo = do
+initializeCoinContract memPoolAccess v cid pwo = do
     cp <- getCheckpointer
     latestBlock <- liftIO $ _cpGetLatestBlock cp
     case latestBlock of
@@ -270,17 +270,19 @@ lookupBlockHeader bhash ctx = do
 -- | Loop forever, serving Pact execution requests and reponses from the queues
 serviceRequests
     :: forall logger tbl. (Logger logger, CanReadablePayloadCas tbl)
-    => LogFunction
-    -> MemPoolAccess
+    => MemPoolAccess
     -> PactQueue
     -> PactServiceM logger tbl ()
-serviceRequests logFn memPoolAccess reqQ = do
+serviceRequests memPoolAccess reqQ = do
     logInfo "Starting service"
     go `finally` logInfo "Stopping service"
   where
     go = do
+        PactServiceEnv{_psLogger} <- ask
         logDebug "serviceRequests: wait"
         msg <- liftIO $ getNextRequest reqQ
+        requestId <- liftIO $ UUID.toText <$> UUID.nextRandom
+        let logFn = logFunction $ addLabel ("pact-request-id", requestId) _psLogger
         logDebug $ "serviceRequests: " <> sshow msg
         case msg of
             CloseMsg -> return ()
@@ -763,34 +765,41 @@ execValidateBlock
 execValidateBlock memPoolAccess currHeader plData = pactLabel "execValidateBlock" $ do
     -- The parent block header must be available in the block header database
     target <- getTarget
-    psEnv <- ask
-    let reorgLimit = view psReorgLimit psEnv
-    T2 miner transactions <- exitOnRewindLimitExceeded $ withBatch $ do
-        withCheckpointerRewind (Just reorgLimit) target "execValidateBlock" $ \pdbenv -> do
-            !result <- execBlock currHeader plData pdbenv
-            return $! Save currHeader result
-    !result <- either throwM return $
-        validateHashes currHeader plData miner transactions
 
-    -- update mempool
-    --
-    -- Using the parent isn't optimal, since it doesn't delete the txs of
-    -- `currHeader` from the set of pending tx. The reason for this is that the
-    -- implementation 'mpaProcessFork' uses the chain database and at this point
-    -- 'currHeader' is generally not yet available in the database. It would be
-    -- possible to extract the txs from the result and remove them from the set
-    -- of pending txs. However, that would add extra complexity and at little
-    -- gain.
-    --
-    case target of
-        Nothing -> return ()
-        Just (ParentHeader p) -> liftIO $ do
-            mpaProcessFork memPoolAccess p
-            mpaSetLastHeader memPoolAccess p
-
-    let !totalGasUsed = sumOf (folded . to P._crGas) transactions
-    return (result, totalGasUsed)
+    -- Add block-hash to the logs if presented
+    case _blockHash . _parentHeader <$> target of
+        Just bh -> localLabel ("block-hash", blockHashToText bh) (act target)
+        Nothing -> act target
   where
+    act target = do
+        psEnv <- ask
+        let reorgLimit = view psReorgLimit psEnv
+        T2 miner transactions <- exitOnRewindLimitExceeded $ withBatch $ do
+            withCheckpointerRewind (Just reorgLimit) target "execValidateBlock" $ \pdbenv -> do
+                !result <- execBlock currHeader plData pdbenv
+                return $! Save currHeader result
+        !result <- either throwM return $
+            validateHashes currHeader plData miner transactions
+
+        -- update mempool
+        --
+        -- Using the parent isn't optimal, since it doesn't delete the txs of
+        -- `currHeader` from the set of pending tx. The reason for this is that the
+        -- implementation 'mpaProcessFork' uses the chain database and at this point
+        -- 'currHeader' is generally not yet available in the database. It would be
+        -- possible to extract the txs from the result and remove them from the set
+        -- of pending txs. However, that would add extra complexity and at little
+        -- gain.
+        --
+        case target of
+            Nothing -> return ()
+            Just (ParentHeader p) -> liftIO $ do
+                mpaProcessFork memPoolAccess p
+                mpaSetLastHeader memPoolAccess p
+
+        let !totalGasUsed = sumOf (folded . to P._crGas) transactions
+        return (result, totalGasUsed)
+
     getTarget
         | isGenesisBlockHeader currHeader = return Nothing
         | otherwise = Just . ParentHeader
