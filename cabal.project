@@ -120,7 +120,7 @@ source-repository-package
     tag: f991ffb74a1a1ab86f14e751d7c4f4ba549785b3
     --sha256: 0flnwyjm40zcssq5xfn9h5p24f07npgapr6cx1ni43vx0sbjkqlv
 
--- Patch merged into master (upcoming verison 10.0). We are currently using 9.2
+-- Patch merged into master (upcoming version 10.0). We are currently using 9.2
 source-repository-package
     type: git
     location: https://github.com/larskuhtz/sbv

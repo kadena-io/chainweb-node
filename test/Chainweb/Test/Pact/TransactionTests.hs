@@ -401,6 +401,5 @@ logResults = fmap go
       , _txKey l
       -- This lens is because some of the transacctions happen post 420 fork
       -- So the object representation changes due to the RowData type.
-      , l ^? txValue . _Object . ix "balance"
-        <|> l ^? txValue . _Object . ix "$d" . _Object . ix "balance"
+      , l ^? txValue . _Object . (ix "balance" `failing` ix "$d" . _Object . ix "balance")
       )

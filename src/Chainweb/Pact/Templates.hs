@@ -142,9 +142,7 @@ mkCoinbaseCmd (MinerId mid) (MinerKeys ks) reward =
       , "reward" J..= reward
       ]
 
-    -- | Build the 'ExecMsg' for some pact code fed to the function. The 'value'
-    -- parameter is for any possible environmental data that needs to go into
-    -- the 'ExecMsg'.
+    -- | Build the 'ExecMsg' for some pact code fed to the function.
     --
     buildExecParsedCode :: Text -> IO (ExecMsg ParsedCode)
     buildExecParsedCode code = case parsePact code of

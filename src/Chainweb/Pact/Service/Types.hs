@@ -133,7 +133,7 @@ newtype BlockValidationFailureMsg = BlockValidationFailureMsg J.JsonText
     deriving newtype (J.Encode)
 
 -- | Intended only for use in Testing and Debugging. This doesn't
--- roundtrip and my result in missleading failure messages.
+-- roundtrip and may result in misleading failure messages.
 --
 instance FromJSON BlockValidationFailureMsg where
     parseJSON = pure . BlockValidationFailureMsg . J.encodeWithAeson

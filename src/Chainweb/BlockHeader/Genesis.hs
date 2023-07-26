@@ -343,16 +343,3 @@ genesisBlockHeadersAtHeight v h = HM.filter
     (\hdr -> _blockHeight hdr <= h)
     $ genesisBlockHeaders v
 
--- -------------------------------------------------------------------------- --
--- Memoize genesis headers for the production networks
-
-genesisBlockHeadersMainnet01 :: HM.HashMap ChainId BlockHeader
-genesisBlockHeadersMainnet01 = genesisBlockHeaders' Mainnet01
-{-# NOINLINE genesisBlockHeadersMainnet01 #-}
-genesisBlockHeadersTestnet04 :: HM.HashMap ChainId BlockHeader
-genesisBlockHeadersTestnet04 = genesisBlockHeaders' Testnet04
-{-# NOINLINE genesisBlockHeadersTestnet04 #-}
-genesisBlockHeadersDevelopment :: HM.HashMap ChainId BlockHeader
-genesisBlockHeadersDevelopment = genesisBlockHeaders' Development
-{-# NOINLINE genesisBlockHeadersDevelopment #-}
-

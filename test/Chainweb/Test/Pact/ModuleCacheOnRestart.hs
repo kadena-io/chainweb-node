@@ -278,7 +278,7 @@ justModuleHashes = justModuleHashes' . snd . last . M.toList
 
 justModuleHashes' :: ModuleCache -> HM.HashMap ModuleName (Maybe ModuleHash)
 justModuleHashes' =
-    fmap (\v -> preview (_1 . mdModule . _MDModule . mHash) v) . moduleCacheToHashMap
+    fmap (preview (_1 . mdModule . _MDModule . mHash)) . moduleCacheToHashMap
 
 genblock :: BlockHeader
 genblock = genesisBlockHeader testVer testChainId
