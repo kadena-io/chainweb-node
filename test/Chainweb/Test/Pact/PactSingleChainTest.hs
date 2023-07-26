@@ -101,12 +101,16 @@ tests rdb = ScheduledTest testName go
          , test moduleNameFork
          , test mempoolRefillTest
          , test blockGasLimitTest
+         , testTimeout preInsertCheckTimeoutTest
          ]
       where
-        test f =
+        testWithConf f conf =
           withDelegateMempool $ \dm ->
-          withPactTestBlockDb testVersion cid rdb (snd <$> dm) testPactServiceConfig $
+          withPactTestBlockDb testVersion cid rdb (snd <$> dm) conf $
           f (fst <$> dm)
+
+        test f = testWithConf f testPactServiceConfig
+        testTimeout f = testWithConf f (testPactServiceConfig { _pactPreInsertCheckTimeout = 10 })
 
         testHistLookup1 = getHistoricalLookupNoTxs "sender00"
           (assertSender00Bal 100_000_000 "check latest entry for sender00 after a no txs block")
@@ -124,6 +128,7 @@ forSuccess msg mvio = (`catchAllSynchronous` handler) $ do
     Right v -> return v
   where
     handler e = assertFailure $ msg ++ ": exception thrown: " ++ show e
+
 
 runBlock :: PactQueue -> TestBlockDb -> TimeSpan Micros -> String -> IO PayloadWithOutputs
 runBlock q bdb timeOffset msg = do
@@ -477,6 +482,19 @@ mempoolCreationTimeTest mpRefIO reqIO = testCase "mempoolCreationTimeTest" $ do
       unless (V.and oks) $ throwM $ userError "Insert failed"
       return txs
 
+preInsertCheckTimeoutTest :: IO (IORef MemPoolAccess) -> IO (PactQueue,TestBlockDb) -> TestTree
+preInsertCheckTimeoutTest _ reqIO = testCase "preInsertCheckTimeoutTest" $ do
+  (q,_) <- reqIO
+
+  tx <- buildCwCmd
+        $ signSender00
+        $ set cbChainId cid
+        $ set cbTTL 300
+        $ mkCmd "tx-now"
+        $ mkExec' "(+ 1 1)"
+
+  rs <- forSuccess "preInsertCheckTimeoutTest" $ pactPreInsertCheck (V.singleton tx) q
+  assertBool "should be InsertErrorTimedOut" $ V.and $ V.map (== Left InsertErrorTimedOut) rs
 
 badlistNewBlockTest :: IO (IORef MemPoolAccess) -> IO (PactQueue,TestBlockDb) -> TestTree
 badlistNewBlockTest mpRefIO reqIO = testCase "badlistNewBlockTest" $ do
