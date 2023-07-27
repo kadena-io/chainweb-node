@@ -34,7 +34,7 @@ package pact
     ghc-options: -Wwarn
     optimization: True
     -- avoid conflict with cryptonite during linking
-    flags: +cryptonite-ed25519 -build-tool
+    flags: +cryptonite-ed25519 +build-tool
 
 package rocksdb-haskell-kadena
     ghc-options: -Wwarn -optc-w -optcxx-w
