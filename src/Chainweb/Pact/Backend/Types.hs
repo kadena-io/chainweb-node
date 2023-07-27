@@ -109,6 +109,7 @@ import Pact.Persist.SQLite (Pragma(..), SQLiteConfig(..))
 import Pact.PersistPactDb (DbEnv(..))
 import qualified Pact.Types.Hash as P
 import Pact.Types.Persistence
+import Pact.Types.RowData (RowData)
 import Pact.Types.Runtime (TableName)
 
 -- internal modules
@@ -124,8 +125,8 @@ import Chainweb.Mempool.Mempool (MempoolPreBlockCheck,TransactionHash,BlockFill)
 data Env' = forall a. Env' (PactDbEnv (DbEnv a))
 
 data PactDbEnvPersist p = PactDbEnvPersist
-    { _pdepPactDb :: PactDb (DbEnv p)
-    , _pdepEnv :: DbEnv p
+    { _pdepPactDb :: !(PactDb (DbEnv p))
+    , _pdepEnv :: !(DbEnv p)
     }
 
 makeLenses ''PactDbEnvPersist
@@ -138,11 +139,11 @@ newtype PactDbState = PactDbState { _pdbsDbEnv :: EnvPersist' }
 makeLenses ''PactDbState
 
 data PactDbConfig = PactDbConfig
-    { _pdbcPersistDir :: Maybe FilePath
-    , _pdbcLogDir :: FilePath
-    , _pdbcPragmas :: [Pragma]
-    , _pdbcGasLimit :: Maybe Int
-    , _pdbcGasRate :: Maybe Int
+    { _pdbcPersistDir :: !(Maybe FilePath)
+    , _pdbcLogDir :: !FilePath
+    , _pdbcPragmas :: ![Pragma]
+    , _pdbcGasLimit :: !(Maybe Int)
+    , _pdbcGasRate :: !(Maybe Int)
     } deriving (Eq, Show, Generic)
 
 instance FromJSON PactDbConfig
@@ -178,7 +179,7 @@ data SQLiteDeltaKey = SQLiteDeltaKey
 
 -- | A map from table name to a list of 'TxLog' entries. This is maintained in
 -- 'BlockState' and is cleared upon pact transaction commit.
-type TxLogMap = Map TableName (DList (TxLog Value))
+type TxLogMap = Map TableName (DList TxLogJson)
 
 -- | Between a @restore..save@ bracket, we also need to record which tables
 -- were created during this block (so the necessary @CREATE TABLE@ statements
@@ -219,10 +220,10 @@ data BlockState = BlockState
     , _bsBlockHeight :: !BlockHeight
     , _bsPendingBlock :: !SQLitePendingData
     , _bsPendingTx :: !(Maybe SQLitePendingData)
-    , _bsModuleNameFix :: Bool
-    , _bsSortedKeys :: Bool
-    , _bsLowerCaseTables :: Bool
-    , _bsModuleCache :: DbCache PersistModuleData
+    , _bsModuleNameFix :: !Bool
+    , _bsSortedKeys :: !Bool
+    , _bsLowerCaseTables :: !Bool
+    , _bsModuleCache :: !(DbCache PersistModuleData)
     }
 
 emptySQLitePendingData :: SQLitePendingData
@@ -294,17 +295,17 @@ data Checkpointer logger = Checkpointer
       -- the "latest block"
     , _cpSave :: !(BlockHash -> IO ())
       -- ^ commits pending modifications to block, with the given blockhash
-    , _cpDiscard :: IO ()
+    , _cpDiscard :: !(IO ())
       -- ^ discard pending block changes
-    , _cpGetLatestBlock :: IO (Maybe (BlockHeight, BlockHash))
+    , _cpGetLatestBlock :: !(IO (Maybe (BlockHeight, BlockHash)))
       -- ^ get the checkpointer's idea of the latest block. The block height is
       -- is the height of the block of the block hash.
       --
       -- TODO: Under which circumstances does this return 'Nothing'?
 
-    , _cpBeginCheckpointerBatch :: IO ()
-    , _cpCommitCheckpointerBatch :: IO ()
-    , _cpDiscardCheckpointerBatch :: IO ()
+    , _cpBeginCheckpointerBatch :: !(IO ())
+    , _cpCommitCheckpointerBatch :: !(IO ())
+    , _cpDiscardCheckpointerBatch :: !(IO ())
     , _cpLookupBlockInCheckpointer :: !((BlockHeight, BlockHash) -> IO Bool)
       -- ^ is the checkpointer aware of the given block?
     , _cpGetBlockParent :: !((BlockHeight, BlockHash) -> IO (Maybe BlockHash))
@@ -312,10 +313,10 @@ data Checkpointer logger = Checkpointer
 
     , _cpLookupProcessedTx ::
         !(Maybe ConfirmationDepth -> Vector P.PactHash -> IO (HashMap P.PactHash (T2 BlockHeight BlockHash)))
-    , _cpGetBlockHistory :: !(
-        forall k v . (FromJSON v) => BlockHeader -> Domain k v -> IO BlockTxHistory)
-    , _cpGetHistoricalLookup :: !(
-        forall k v . (FromJSON v) => BlockHeader -> Domain k v -> RowKey -> IO (Maybe (TxLog Value)))
+    , _cpGetBlockHistory ::
+        !(BlockHeader -> Domain RowKey RowData -> IO BlockTxHistory)
+    , _cpGetHistoricalLookup ::
+        !(BlockHeader -> Domain RowKey RowData -> RowKey -> IO (Maybe (TxLog RowData)))
     , _cpLogger :: !logger
     }
 
@@ -325,15 +326,16 @@ newtype SQLiteFlag = SQLiteFlag { getFlag :: CInt }
 -- TODO: get rid of this shim, it's probably not necessary
 data MemPoolAccess = MemPoolAccess
   { mpaGetBlock
-        :: BlockFill
+        :: !(BlockFill
         -> MempoolPreBlockCheck ChainwebTransaction
         -> BlockHeight
         -> BlockHash
         -> BlockHeader
         -> IO (Vector ChainwebTransaction)
-  , mpaSetLastHeader :: BlockHeader -> IO ()
-  , mpaProcessFork :: BlockHeader -> IO ()
-  , mpaBadlistTx :: Vector TransactionHash -> IO ()
+        )
+  , mpaSetLastHeader :: !(BlockHeader -> IO ())
+  , mpaProcessFork :: !(BlockHeader -> IO ())
+  , mpaBadlistTx :: !(Vector TransactionHash -> IO ())
   }
 
 instance Semigroup MemPoolAccess where
@@ -345,8 +347,8 @@ instance Monoid MemPoolAccess where
 
 
 data PactServiceException = PactServiceIllegalRewind
-    { _attemptedRewindTo :: Maybe (BlockHeight, BlockHash)
-    , _latestBlock :: Maybe (BlockHeight, BlockHash)
+    { _attemptedRewindTo :: !(Maybe (BlockHeight, BlockHash))
+    , _latestBlock :: !(Maybe (BlockHeight, BlockHash))
     } deriving (Generic)
 
 instance Show PactServiceException where

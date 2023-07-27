@@ -19,7 +19,6 @@ module Chainweb.Test.Pact.TransactionTests ( tests ) where
 import Test.Tasty
 import Test.Tasty.HUnit
 
-import Control.Applicative((<|>))
 import Control.Concurrent (readMVar)
 import Control.Lens hiding ((.=))
 import Control.Monad
@@ -159,7 +158,7 @@ loadScript fp = do
             (view (rEnv . eePactDb) rst)
             (view (rEnv . eePactDbVar) rst)
       mc = view (rEvalState . evalRefs . rsLoadedModules) rst
-  return (pdb,mc)
+  return (pdb, moduleCacheFromHashMap mc)
 
 -- ---------------------------------------------------------------------- --
 -- Template vuln tests
@@ -355,7 +354,7 @@ testUpgradeScript
     :: FilePath
     -> V.ChainId
     -> BlockHeight
-    -> (T2 (CommandResult [TxLog Value]) (Maybe ModuleCache) -> IO ())
+    -> (T2 (CommandResult [TxLogJson]) (Maybe ModuleCache) -> IO ())
     -> IO ()
 testUpgradeScript script cid bh test = do
     (pdb, mc) <- loadScript script
@@ -370,7 +369,7 @@ testUpgradeScript script cid bh test = do
 matchLogs :: [(Text, Text, Maybe Value)] -> [(Text, Text, Maybe Value)] -> IO ()
 matchLogs expectedResults actualResults
     | length actualResults /= length expectedResults = void $
-      assertFailure $ intercalate "\n" $
+      assertFailure $ intercalate "\n"
         [ "matchLogs: length mismatch "
           <> show (length actualResults) <> " /= " <> show (length expectedResults)
         , "actual: " ++ show actualResults
@@ -390,13 +389,16 @@ parent bh cid = ParentHeader (someBlockHeader v bh)
     , _blockHeight = pred bh
     }
 
-logResults :: [TxLog Value] -> [(Text, Text, Maybe Value)]
-logResults = fmap f
+logResults :: [TxLogJson] -> [(Text, Text, Maybe Value)]
+logResults = fmap go
   where
+    go x = case decodeTxLogJson x of
+        Left e -> error $ "unable to parse TxLog: " <> show e
+        Right (r :: TxLog Value) -> f r
     f l =
       ( _txDomain l
       , _txKey l
       -- This lens is because some of the transacctions happen post 420 fork
       -- So the object representation changes due to the RowData type.
-      , l ^? txValue . _Object . ix "balance" <|> l ^? txValue . _Object . ix "$d" . _Object . ix "balance"
+      , l ^? txValue . _Object . (ix "balance" `failing` ix "$d" . _Object . ix "balance")
       )

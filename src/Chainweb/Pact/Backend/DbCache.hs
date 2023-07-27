@@ -55,6 +55,11 @@ import Numeric.Natural
 
 import Pact.Types.Persistence
 
+-- internal modules
+
+import Chainweb.Utils (ix')
+
+
 -- -------------------------------------------------------------------------- --
 -- ModuleCacheLimitBytes
 
@@ -173,7 +178,7 @@ checkDbCache key rowdata txid = runStateT $ do
     readCache txid addy >>= \case
 
         -- Cache hit
-        Just x -> do
+        Just !x -> do
             modify' (dcHits +~ 1)
             return $ Just x
 
@@ -216,8 +221,8 @@ readCache txid ca = do
     mc <- use dcStore
     forM (HM.lookup ca mc) $ \e -> do
         modify'
-            $ (dcStore . ix ca . ceTxId .~ txid)
-            . (dcStore . ix ca . ceHits +~ 1)
+            $ (dcStore . ix' ca . ceTxId .~ txid)
+            . (dcStore . ix' ca . ceHits +~ 1)
         return $ _ceData e
 
 -- | Add item to module cache

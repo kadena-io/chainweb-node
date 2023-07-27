@@ -1,6 +1,7 @@
 {-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE ConstraintKinds #-}
+{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DerivingStrategies #-}
@@ -19,7 +20,6 @@
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
-{-# LANGUAGE TypeInType #-}
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE UndecidableInstances #-}
 
@@ -179,9 +179,6 @@ import Text.Read (readEither)
 -- -------------------------------------------------------------------------- --
 -- Nonce
 
--- | FIXME: is 64 bit enough for the nonce. It seems that it may not be
--- sufficient for the current hashpower of the bitcoin network.
---
 newtype Nonce = Nonce Word64
     deriving stock (Show, Eq, Ord, Generic)
     deriving anyclass (NFData)

@@ -28,6 +28,7 @@ import GHC.Generics
 import Numeric.Natural
 
 import Pact.Types.Command
+import Pact.JSON.Legacy.Value
 
 -- internal modules
 
@@ -93,7 +94,7 @@ spvSubjectIdentifierProperties :: KeyValue kv => SpvSubjectIdentifier -> [kv]
 spvSubjectIdentifierProperties o =
     [ "type" .= _spvSubjectIdType o
     , "chain" .= _spvSubjectIdChain o
-    , "requestKey" .= _spvSubjectIdReqKey o
+    , "requestKey" .= toLegacyJsonViaEncode (_spvSubjectIdReqKey o)
     ]
 {-# INLINE spvSubjectIdentifierProperties #-}
 

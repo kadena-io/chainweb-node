@@ -78,13 +78,14 @@ import Control.Monad.Catch
 import Control.Monad.Reader
 import Control.Monad.State.Strict
 
-import qualified Data.Aeson as A
 import Data.Either
 import Data.IORef
 import Data.Text (Text)
 import qualified Data.Text as T
 
 import GHC.Stack
+
+import qualified Pact.JSON.Encode as J
 
 import Prelude hiding (lookup)
 
@@ -135,12 +136,12 @@ exitOnRewindLimitExceeded :: PactServiceM logger tbl a -> PactServiceM logger tb
 exitOnRewindLimitExceeded = handle $ \case
     e@RewindLimitExceeded{} -> do
         killFunction <- asks (\x -> _psOnFatalError x)
-        liftIO $ killFunction e (encodeToText $ msg e)
+        liftIO $ killFunction e (J.encodeText $ msg e)
     e -> throwM e
   where
-    msg e = A.object
-        [ "details" A..= e
-        , "message" A..= id @T.Text "Your node is part of a losing fork longer than your\
+    msg e = J.object
+        [ "details" J..= e
+        , "message" J..= J.text "Your node is part of a losing fork longer than your\
             \ reorg-limit, which is a situation that requires manual\
             \ intervention.\
             \ For information on recovering from this, please consult:\
