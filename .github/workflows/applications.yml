@@ -350,6 +350,12 @@ jobs:
           echo "Inconsistent genesis headers detected. Did you forget to run ea?" 1>&2
           exit 1
         fi
+    - name: Run pact to test namespace and coin contracts
+      run: |
+        # eventually the latest coin contract will be at pact/coin-contract,
+        # not in a version folder
+        cabal run pact:exe:pact -- pact/coin-contract/v5/coin-v5.repl
+        cabal run pact:exe:pact -- pact/namespaces/ns.repl
 
     # Archive Artifacts
     - name: Prepare artifacts
@@ -665,7 +671,7 @@ jobs:
           libbz2-1.0 \
           libgflags2.2 \
           zstd \
-          locales && 
+          locales &&
           rm -rf /var/lib/apt/lists/* &&
           locale-gen en_US.UTF-8 &&
           update-locale LC_ALL=en_US.UTF-8 LANG=en_US.UTF-8
