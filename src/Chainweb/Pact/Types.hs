@@ -1,16 +1,17 @@
-{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DeriveAnyClass #-}
-{-# LANGUAGE DeriveTraversable #-}
 {-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE DeriveTraversable #-}
 {-# LANGUAGE DerivingStrategies #-}
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE RecordWildCards #-}
-{-# LANGUAGE StrictData #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE StandaloneDeriving #-}
+{-# LANGUAGE StrictData #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeFamilies #-}
 -- |
@@ -108,6 +109,11 @@ module Chainweb.Pact.Types
   , psSpvSupport
 
   -- * Module cache
+  , ModuleCache(..)
+  , filterModuleCacheByKey
+  , moduleCacheToHashMap
+  , moduleCacheFromHashMap
+  , moduleCacheKeys
   , ModuleInitCache
   , getInitCache
   , updateInitCache
@@ -140,7 +146,6 @@ module Chainweb.Pact.Types
     -- * types
   , TxTimeout(..)
   , ApplyCmdExecutionContext(..)
-  , ModuleCache
 
   -- * miscellaneous
   , defaultOnFatalError
@@ -162,7 +167,6 @@ import Control.Monad.State.Strict
 
 import Data.Aeson hiding (Error,(.=))
 import Data.Default (def)
-import Data.HashMap.Strict (HashMap)
 import qualified Data.HashMap.Strict as HM
 import Data.LogMessage
 import Data.Set (Set)
@@ -177,13 +181,15 @@ import System.LogLevel
 -- internal pact modules
 
 import Pact.Interpreter (PactDbEnv)
+import qualified Pact.JSON.Encode as J
+import qualified Pact.JSON.Legacy.HashMap as LHM
 import Pact.Parse (ParsedDecimal)
 import Pact.Types.ChainId (NetworkId)
 import Pact.Types.ChainMeta
 import Pact.Types.Command
 import Pact.Types.Gas
 import Pact.Types.Names
-import Pact.Types.Persistence (ExecutionMode, TxLog)
+import Pact.Types.Persistence (ExecutionMode, TxLogJson)
 import Pact.Types.Pretty (viaShow)
 import Pact.Types.Runtime (ExecutionConfig(..), ModuleData(..), PactWarning, PactError(..), PactErrorType(..))
 import Pact.Types.SPV
@@ -215,7 +221,7 @@ import Utils.Logging.Trace
 
 data Transactions r = Transactions
     { _transactionPairs :: !(Vector (ChainwebTransaction, r))
-    , _transactionCoinbase :: !(CommandResult [TxLog Value])
+    , _transactionCoinbase :: !(CommandResult [TxLogJson])
     } deriving (Functor, Foldable, Traversable, Eq, Show, Generic, NFData)
 makeLenses 'Transactions
 
@@ -231,8 +237,11 @@ makeLenses ''PactDbStatePersist
 -- | Indicates a computed gas charge (gas amount * gas price)
 newtype GasSupply = GasSupply { _gasSupply :: ParsedDecimal }
    deriving (Eq,Ord)
-   deriving newtype (Num,Real,Fractional, ToJSON,FromJSON)
+   deriving newtype (Num,Real,Fractional,FromJSON)
 instance Show GasSupply where show (GasSupply g) = show g
+
+instance J.Encode GasSupply where
+    build = J.build . _gasSupply
 
 newtype GasId = GasId PactId deriving (Eq, Show)
 
@@ -245,7 +254,37 @@ newtype EnforceCoinbaseFailure = EnforceCoinbaseFailure Bool
 -- | Always use precompiled templates in coinbase or use date rule.
 newtype CoinbaseUsePrecompiled = CoinbaseUsePrecompiled Bool
 
-type ModuleCache = HashMap ModuleName (ModuleData Ref, Bool)
+-- -------------------------------------------------------------------------- --
+-- Module Cache
+
+-- | Block scoped Module Cache
+--
+newtype ModuleCache = ModuleCache { _getModuleCache :: LHM.HashMap ModuleName (ModuleData Ref, Bool) }
+    deriving newtype (Semigroup, Monoid, NFData)
+
+filterModuleCacheByKey
+    :: (ModuleName -> Bool)
+    -> ModuleCache
+    -> ModuleCache
+filterModuleCacheByKey f (ModuleCache c) = ModuleCache $
+    LHM.fromList $ filter (f . fst) $ LHM.toList c
+{-# INLINE filterModuleCacheByKey #-}
+
+moduleCacheToHashMap
+    :: ModuleCache
+    -> HM.HashMap ModuleName (ModuleData Ref, Bool)
+moduleCacheToHashMap (ModuleCache c) = HM.fromList $ LHM.toList c
+{-# INLINE moduleCacheToHashMap #-}
+
+moduleCacheFromHashMap
+    :: HM.HashMap ModuleName (ModuleData Ref, Bool)
+    -> ModuleCache
+moduleCacheFromHashMap = ModuleCache . LHM.fromList . HM.toList
+{-# INLINE moduleCacheFromHashMap #-}
+
+moduleCacheKeys :: ModuleCache -> [ModuleName]
+moduleCacheKeys (ModuleCache a) = fst <$> LHM.toList a
+{-# INLINE moduleCacheKeys #-}
 
 -- -------------------------------------------------------------------- --
 -- Local vs. Send execution context flag
@@ -258,12 +297,12 @@ data ApplyCmdExecutionContext = ApplyLocal | ApplySend
 -- | Transaction execution state
 --
 data TransactionState = TransactionState
-    { _txCache :: ModuleCache
-    , _txLogs :: [TxLog Value]
+    { _txCache :: !ModuleCache
+    , _txLogs :: ![TxLogJson]
     , _txGasUsed :: !Gas
     , _txGasId :: !(Maybe GasId)
     , _txGasModel :: !GasModel
-    , _txWarnings :: Set PactWarning
+    , _txWarnings :: !(Set PactWarning)
     }
 makeLenses ''TransactionState
 
@@ -271,7 +310,7 @@ makeLenses ''TransactionState
 --
 data TransactionEnv logger db = TransactionEnv
     { _txMode :: !ExecutionMode
-    , _txDbEnv :: PactDbEnv db
+    , _txDbEnv :: !(PactDbEnv db)
     , _txLogger :: !logger
     , _txGasLogger :: !(Maybe logger)
     , _txPublicData :: !PublicData
@@ -351,10 +390,9 @@ execTransactionM tenv txst act
 -- In cases where there is no transaction/Command, 'PublicMeta'
 -- default value is used.
 data TxContext = TxContext
-  { _tcParentHeader :: ParentHeader
-  , _tcPublicMeta :: PublicMeta
+  { _tcParentHeader :: !ParentHeader
+  , _tcPublicMeta :: !PublicMeta
   } deriving Show
-
 
 -- -------------------------------------------------------------------- --
 -- Pact Service Monad
@@ -364,14 +402,14 @@ data PactServiceEnv logger tbl = PactServiceEnv
     , _psCheckpointer :: !(Checkpointer logger)
     , _psPdb :: !(PayloadDb tbl)
     , _psBlockHeaderDb :: !BlockHeaderDb
-    , _psGasModel :: TxContext -> GasModel
+    , _psGasModel :: !(TxContext -> GasModel)
     , _psMinerRewards :: !MinerRewards
     , _psLocalRewindDepthLimit :: !RewindLimit
     -- ^ The limit of rewind's depth in the `execLocal` command.
     , _psReorgLimit :: !RewindLimit
     -- ^ The limit of checkpointer's rewind in the `execValidationBlock` command.
-    , _psOnFatalError :: forall a. PactException -> Text -> IO a
-    , _psVersion :: ChainwebVersion
+    , _psOnFatalError :: !(forall a. PactException -> Text -> IO a)
+    , _psVersion :: !ChainwebVersion
     , _psValidateHashesOnReplay :: !Bool
     , _psAllowReadsInLocal :: !Bool
     , _psLogger :: !logger
@@ -388,7 +426,7 @@ data PactServiceEnv logger tbl = PactServiceEnv
     , _psCheckpointerDepth :: !Int
         -- ^ Number of nested checkpointer calls
     , _psBlockGasLimit :: !GasLimit
-    , _psChainId :: ChainId
+    , _psChainId :: !ChainId
     }
 makeLenses ''PactServiceEnv
 
@@ -500,7 +538,7 @@ updateInitCache mc = get >>= \PactServiceState{..} -> do
       Just (_,before)
         | cleanModuleCache v (_chainId $ _psParentHeader) pbh ->
           M.insert pbh mc _psInitCache
-        | otherwise -> M.insert pbh (HM.union mc before) _psInitCache
+        | otherwise -> M.insert pbh (before <> mc) _psInitCache
 
 -- | Convert context to datatype for Pact environment.
 --

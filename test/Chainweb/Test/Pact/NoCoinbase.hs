@@ -14,6 +14,7 @@ module Chainweb.Test.Pact.NoCoinbase
 ( tests
 ) where
 
+import qualified Pact.JSON.Encode as J
 import Pact.Types.Command
 import Pact.Types.Hash
 
@@ -23,7 +24,6 @@ import Test.Tasty.HUnit
 
 import Chainweb.Pact.NoCoinbase
 import Chainweb.Payload
-import Chainweb.Utils
 import Chainweb.Test.Utils
 
 tests :: ScheduledTest
@@ -34,4 +34,4 @@ test_noCoinbase :: Assertion
 test_noCoinbase =
     noCoinbaseOutput
     @=?
-    CoinbaseOutput (encodeToByteString (noCoinbase :: CommandResult Hash))
+    CoinbaseOutput (J.encodeStrict (noCoinbase :: CommandResult Hash))

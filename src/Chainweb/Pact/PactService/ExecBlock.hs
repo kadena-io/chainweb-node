@@ -38,7 +38,6 @@ import Control.Monad.Reader
 import Control.Monad.State.Strict
 
 import qualified Data.Aeson as A
-import qualified Data.ByteString.Lazy as BL
 import qualified Data.ByteString.Short as SB
 import Data.Decimal
 import Data.Default (def)
@@ -46,6 +45,7 @@ import Data.Either
 import Data.Foldable (toList)
 import qualified Data.HashMap.Strict as HashMap
 import qualified Data.Map as Map
+import Data.Maybe (catMaybes)
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
@@ -59,6 +59,7 @@ import Prelude hiding (lookup)
 
 import Pact.Compile (compileExps)
 import qualified Pact.Interpreter as P
+import qualified Pact.JSON.Encode as J
 import qualified Pact.Parse as P
 import qualified Pact.Types.Command as P
 import Pact.Types.Exp (ParsedCode(..))
@@ -113,11 +114,11 @@ execBlock
         -- instead.
     -> PayloadData
     -> PactDbEnv' logger
-    -> PactServiceM logger tbl (T2 Miner (Transactions (P.CommandResult [P.TxLog A.Value])))
+    -> PactServiceM logger tbl (T2 Miner (Transactions (P.CommandResult [P.TxLogJson])))
 execBlock currHeader plData pdbenv = do
 
     unlessM ((> 0) <$> asks _psCheckpointerDepth) $ do
-        error $ "Code invariant violation: execBlock must be called with withCheckpointer. Please report this as a bug."
+        error "Code invariant violation: execBlock must be called with withCheckpointer. Please report this as a bug."
 
     miner <- decodeStrictOrThrow' (_minerData $ _payloadDataMiner plData)
     trans <- liftIO $ transactionsFromPayload
@@ -142,7 +143,7 @@ execBlock currHeader plData pdbenv = do
 
     case foldr handleValids [] valids of
       [] -> return ()
-      errs -> throwM $ TransactionValidationException $ errs
+      errs -> throwM $ TransactionValidationException errs
 
     logInitCache
 
@@ -162,7 +163,7 @@ execBlock currHeader plData pdbenv = do
       fromIntegral <$> maxBlockGasLimit v (_blockHeight currHeader)
 
     logInitCache = do
-      mc <- fmap (fmap instr) <$> use psInitCache
+      mc <- fmap (fmap instr . _getModuleCache) <$> use psInitCache
       logDebug $ "execBlock: initCache: " <> sshow mc
 
     instr (md,_) = preview (P._MDModule . P.mHash) $ P._mdModule md
@@ -242,7 +243,7 @@ validateChainwebTxs logger v cid cp txValidationTime bh txs doBuyGas
     checkTxHash t =
         case P.verifyHash (P._cmdHash t) (SB.fromShort $ payloadBytes $ P._cmdPayload t) of
             Left _
-                | doCheckTxHash v cid bh -> return $ Left $ InsertErrorInvalidHash
+                | doCheckTxHash v cid bh -> return $ Left InsertErrorInvalidHash
                 | otherwise -> do
                     logDebug_ logger "ignored legacy tx-hash failure"
                     return $ Right t
@@ -301,7 +302,7 @@ execTransactions
     -> PactDbEnv' logger
     -> Maybe P.Gas
     -> Maybe Micros
-    -> PactServiceM logger tbl (Transactions (Either GasPurchaseFailure (P.CommandResult [P.TxLog A.Value])))
+    -> PactServiceM logger tbl (Transactions (Either GasPurchaseFailure (P.CommandResult [P.TxLogJson])))
 execTransactions isGenesis miner ctxs enfCBFail usePrecomp (PactDbEnv' pactdbenv) gasLimit timeLimit = do
     mc <- getCache
 
@@ -329,7 +330,7 @@ execTransactionsOnly
     -> PactDbEnv' logger
     -> Maybe Micros
     -> PactServiceM logger tbl
-       (Vector (ChainwebTransaction, Either GasPurchaseFailure (P.CommandResult [P.TxLog A.Value])))
+       (Vector (ChainwebTransaction, Either GasPurchaseFailure (P.CommandResult [P.TxLogJson])))
 execTransactionsOnly miner ctxs (PactDbEnv' pactdbenv) txTimeLimit = do
     mc <- getInitCache
     txOuts <- applyPactCmds False pactdbenv ctxs miner mc Nothing txTimeLimit
@@ -343,7 +344,7 @@ runCoinbase
     -> EnforceCoinbaseFailure
     -> CoinbaseUsePrecompiled
     -> ModuleCache
-    -> PactServiceM logger tbl (P.CommandResult [P.TxLog A.Value])
+    -> PactServiceM logger tbl (P.CommandResult [P.TxLogJson])
 runCoinbase True _ _ _ _ _ = return noCoinbase
 runCoinbase False dbEnv miner enfCBFail usePrecomp mc = do
     logger <- view psLogger
@@ -358,7 +359,7 @@ runCoinbase False dbEnv miner enfCBFail usePrecomp mc = do
     (T2 cr upgradedCacheM) <-
       liftIO $! applyCoinbase v logger dbEnv miner reward txCtx enfCBFail usePrecomp mc
     mapM_ upgradeInitCache upgradedCacheM
-    debugResult "runCoinbase" cr
+    debugResult "runCoinbase" (P.crLogs %~ fmap J.Array $ cr)
     return $! cr
 
   where
@@ -380,7 +381,7 @@ applyPactCmds
     -> ModuleCache
     -> Maybe P.Gas
     -> Maybe Micros
-    -> PactServiceM logger tbl (Vector (Either GasPurchaseFailure (P.CommandResult [P.TxLog A.Value])))
+    -> PactServiceM logger tbl (Vector (Either GasPurchaseFailure (P.CommandResult [P.TxLogJson])))
 applyPactCmds isGenesis env cmds miner mc blockGas txTimeLimit = do
     let txsGas txs = fromIntegral $ sumOf (traversed . _Right . to P._crGas) txs
     txs <- tracePactServiceM' "applyPactCmds" () txsGas $
@@ -397,7 +398,7 @@ applyPactCmd
   -> StateT
       (T2 ModuleCache (Maybe P.Gas))
       (PactServiceM logger tbl)
-      (Either GasPurchaseFailure (P.CommandResult [P.TxLog A.Value]))
+      (Either GasPurchaseFailure (P.CommandResult [P.TxLogJson]))
 applyPactCmd isGenesis env miner txTimeLimit cmd = StateT $ \(T2 mcache maybeBlockGasRemaining) -> do
   logger <- view psLogger
   gasLogger <- view psGasLogger
@@ -434,13 +435,13 @@ applyPactCmd isGenesis env miner txTimeLimit cmd = StateT $ \(T2 mcache maybeBlo
                maybe (throwM timeoutError) return <=< timeout (fromIntegral limit)
         let txGas (T3 r _ _) = fromIntegral $ P._crGas r
         T3 r c _warns <-
-          tracePactServiceM' "applyCmd" (P._cmdHash cmd) txGas $
+          tracePactServiceM' "applyCmd" (J.toJsonViaEncode (P._cmdHash cmd)) txGas $
             liftIO $ txTimeout $ applyCmd v logger gasLogger env miner (gasModel txCtx) txCtx spv gasLimitedCmd initialGas mcache ApplySend
         pure $ T2 r c
 
     if isGenesis
     then updateInitCache mcache'
-    else debugResult "applyPactCmd" result
+    else debugResult "applyPactCmd" (P.crLogs %~ fmap J.Array $ result)
 
     cp <- getCheckpointer
 
@@ -458,8 +459,8 @@ applyPactCmd isGenesis env miner txTimeLimit cmd = StateT $ \(T2 mcache maybeBlo
     let maybeBlockGasRemaining' = (\g -> g - P._crGas result) <$> maybeBlockGasRemaining
     pure (Right result, T2 mcache' maybeBlockGasRemaining')
 
-toHashCommandResult :: P.CommandResult [P.TxLog A.Value] -> P.CommandResult P.Hash
-toHashCommandResult = over (P.crLogs . _Just) $ P.pactHash . encodeToByteString
+toHashCommandResult :: P.CommandResult [P.TxLogJson] -> P.CommandResult P.Hash
+toHashCommandResult = over (P.crLogs . _Just) $ P.pactHash . P.encodeTxLogJsonArray
 
 transactionsFromPayload
     :: PactParserVersion
@@ -479,9 +480,9 @@ transactionsFromPayload ppv plData = do
     toCWTransaction bs = evaluate (force (codecDecode (chainwebPayloadCodec ppv) $
                                           _transactionBytes bs))
 
-debugResult :: (A.ToJSON a, Logger logger) => Text -> a -> PactServiceM logger tbl ()
+debugResult :: J.Encode a => Logger logger => Text -> a -> PactServiceM logger tbl ()
 debugResult msg result =
-  logDebug $ trunc $ msg <> " result: " <> encodeToText result
+  logDebug $ trunc $ msg <> " result: " <> J.encodeText result
   where
     trunc t | T.length t < limit = t
             | otherwise = T.take limit t <> " [truncated]"
@@ -509,112 +510,116 @@ minerReward v (MinerRewards rs) bh =
 {-# INLINE minerReward #-}
 
 
-data CRLogPair = CRLogPair P.Hash [P.TxLog A.Value]
+data CRLogPair = CRLogPair P.Hash [P.TxLogJson]
 
-crLogPairProperties :: A.KeyValue kv => CRLogPair -> [kv]
-crLogPairProperties (CRLogPair h logs) =
-  [ "hash" A..= h
-  , "rawLogs" A..= logs
-  ]
-{-# INLINE crLogPairProperties #-}
 
-instance A.ToJSON CRLogPair where
-  toJSON = A.object . crLogPairProperties
-  toEncoding = A.pairs . mconcat . crLogPairProperties
-  {-# INLINE toJSON #-}
-  {-# INLINE toEncoding #-}
+
+instance J.Encode CRLogPair where
+  build (CRLogPair h logs) = J.object
+    [ "hash" J..= h
+    , "rawLogs" J..= J.Array logs
+    ]
+  {-# INLINE build #-}
 
 validateHashes
     :: BlockHeader
         -- ^ Current Header
     -> PayloadData
     -> Miner
-    -> Transactions (P.CommandResult [P.TxLog A.Value])
+    -> Transactions (P.CommandResult [P.TxLogJson])
     -> Either PactException PayloadWithOutputs
 validateHashes bHeader pData miner transactions =
     if newHash == prevHash
-    then Right pwo
-    else Left $ BlockValidationFailure $ A.object
-         [ "mismatch" A..= errorMsg "Payload hash" prevHash newHash
-         , "details" A..= details
-         ]
-    where
+      then Right pwo
+      else Left $ BlockValidationFailure $ BlockValidationFailureMsg $
+        J.encodeJsonText $ J.object
+            [ "mismatch" J..= errorMsg "Payload hash" prevHash newHash
+            , "details" J..= details
+            ]
+  where
 
-      pwo = toPayloadWithOutputs miner transactions
+    pwo = toPayloadWithOutputs miner transactions
 
-      newHash = _payloadWithOutputsPayloadHash pwo
-      prevHash = _blockPayloadHash bHeader
+    newHash = _payloadWithOutputsPayloadHash pwo
+    prevHash = _blockPayloadHash bHeader
 
-      newTransactions = V.map fst (_payloadWithOutputsTransactions pwo)
-      prevTransactions = _payloadDataTransactions pData
+    newTransactions = toList $ fst <$> (_payloadWithOutputsTransactions pwo)
+    prevTransactions = toList $ _payloadDataTransactions pData
 
-      newMiner = _payloadWithOutputsMiner pwo
-      prevMiner = _payloadDataMiner pData
+    newMiner = _payloadWithOutputsMiner pwo
+    prevMiner = _payloadDataMiner pData
 
-      newTransactionsHash = _payloadWithOutputsTransactionsHash pwo
-      prevTransactionsHash = _payloadDataTransactionsHash pData
+    newTransactionsHash = _payloadWithOutputsTransactionsHash pwo
+    prevTransactionsHash = _payloadDataTransactionsHash pData
 
-      newOutputsHash = _payloadWithOutputsOutputsHash pwo
-      prevOutputsHash = _payloadDataOutputsHash pData
+    newOutputsHash = _payloadWithOutputsOutputsHash pwo
+    prevOutputsHash = _payloadDataOutputsHash pData
 
-      check desc extra expect actual
-        | expect == actual = []
-        | otherwise =
-          [A.object $ "mismatch" A..= errorMsg desc expect actual :  extra]
+    -- The following JSON encodings are used in the BlockValidationFailure message
 
-      errorMsg desc expect actual = A.object
-        [ "type" A..= (desc :: Text)
-        , "actual" A..= actual
-        , "expected" A..= expect
+    check :: Eq a => A.ToJSON a => T.Text -> [Maybe J.KeyValue] -> a -> a -> Maybe J.Builder
+    check desc extra expect actual
+        | expect == actual = Nothing
+        | otherwise = Just $ J.object
+            $ "mismatch" J..= errorMsg desc expect actual
+            : extra
+
+    errorMsg :: A.ToJSON a => T.Text -> a -> a -> J.Builder
+    errorMsg desc expect actual = J.object
+        [ "type" J..= J.text desc
+        , "actual" J..= J.encodeWithAeson actual
+        , "expected" J..= J.encodeWithAeson expect
         ]
 
-      checkTransactions prev new =
-        ["txs" A..= concatMap (uncurry (check "Tx" [])) (V.zip prev new)]
-
-      addOutputs (Transactions pairs coinbase) =
-        [ "outputs" A..= A.object
-         [ "coinbase" A..= toPairCR coinbase
-         , "txs" A..= (addTxOuts <$> pairs)
-         ]
+    checkTransactions :: [Transaction] -> [Transaction] -> [Maybe J.KeyValue]
+    checkTransactions prev new =
+        [ "txs" J..?=
+            (J.Array <$> traverse (uncurry $ check "Tx" []) (zip prev new))
         ]
 
-      addTxOuts :: (ChainwebTransaction, P.CommandResult [P.TxLog A.Value]) -> A.Value
-      addTxOuts (tx,cr) = A.object
-        [ "tx" A..= fmap (fmap _pcCode . payloadObj) tx
-        , "result" A..= toPairCR cr
+    addOutputs (Transactions pairs coinbase) =
+        [ "outputs" J..= J.object
+            [ "coinbase" J..=  toPairCR coinbase
+            , "txs" J..= J.array (addTxOuts <$> pairs)
+            ]
         ]
 
-      toPairCR cr = over (P.crLogs . _Just)
+    addTxOuts :: (ChainwebTransaction, P.CommandResult [P.TxLogJson]) -> J.Builder
+    addTxOuts (tx,cr) = J.object
+        [ "tx" J..= fmap (fmap _pcCode . payloadObj) tx
+        , "result" J..= toPairCR cr
+        ]
+
+    toPairCR cr = over (P.crLogs . _Just)
         (CRLogPair (fromJuste $ P._crLogs (toHashCommandResult cr))) cr
 
-      details = concat
+    details = J.Array $ catMaybes
         [ check "Miner" [] prevMiner newMiner
         , check "TransactionsHash" (checkTransactions prevTransactions newTransactions)
-          prevTransactionsHash newTransactionsHash
+            prevTransactionsHash newTransactionsHash
         , check "OutputsHash" (addOutputs transactions)
-          prevOutputsHash newOutputsHash
+            prevOutputsHash newOutputsHash
         ]
-
 
 toTransactionBytes :: P.Command Text -> Transaction
 toTransactionBytes cwTrans =
-    let plBytes = encodeToByteString cwTrans
+    let plBytes = J.encodeStrict cwTrans
     in Transaction { _transactionBytes = plBytes }
 
 
 toOutputBytes :: P.CommandResult P.Hash -> TransactionOutput
 toOutputBytes cr =
-    let outBytes = A.encode cr
-    in TransactionOutput { _transactionOutputBytes = BL.toStrict outBytes }
+    let outBytes = J.encodeStrict cr
+    in TransactionOutput { _transactionOutputBytes = outBytes }
 
-toPayloadWithOutputs :: Miner -> Transactions (P.CommandResult [P.TxLog A.Value]) -> PayloadWithOutputs
+toPayloadWithOutputs :: Miner -> Transactions (P.CommandResult [P.TxLogJson]) -> PayloadWithOutputs
 toPayloadWithOutputs mi ts =
     let oldSeq = _transactionPairs ts
         trans = cmdBSToTx . fst <$> oldSeq
         transOuts = toOutputBytes . toHashCommandResult . snd <$> oldSeq
 
         miner = toMinerData mi
-        cb = CoinbaseOutput $ encodeToByteString $ toHashCommandResult $ _transactionCoinbase ts
+        cb = CoinbaseOutput $ J.encodeStrict $ toHashCommandResult $ _transactionCoinbase ts
         blockTrans = snd $ newBlockTransactions miner trans
         cmdBSToTx = toTransactionBytes
           . fmap (T.decodeUtf8 . SB.fromShort . payloadBytes)

@@ -119,6 +119,7 @@ import Chainweb.WebPactExecutionService
 
 import Chainweb.Storage.Table
 
+import qualified Pact.JSON.Encode as J
 import qualified Pact.Parse as Pact
 import Pact.Types.API
 import qualified Pact.Types.ChainId as Pact
@@ -207,12 +208,35 @@ somePactServers v =
     mconcat . fmap (somePactServer . uncurry (somePactServerData v))
 
 data PactCmdLog
-  = PactCmdLogSend (NonEmpty (Command Text))
-  | PactCmdLogPoll (NonEmpty Text)
-  | PactCmdLogListen Text
-  | PactCmdLogLocal (Command Text)
-  | PactCmdLogSpv Text
-  deriving (Show, Generic, ToJSON, NFData)
+    = PactCmdLogSend (NonEmpty (Command Text))
+    | PactCmdLogPoll (NonEmpty Text)
+    | PactCmdLogListen Text
+    | PactCmdLogLocal (Command Text)
+    | PactCmdLogSpv Text
+    deriving (Show, Generic, NFData)
+
+instance ToJSON PactCmdLog where
+    toJSON (PactCmdLogSend x) = object
+        [ "tag" .= ("PactCmdLogSend" :: T.Text)
+        , "contents" .= fmap J.toJsonViaEncode x
+        ]
+    toJSON (PactCmdLogPoll x) = object
+        [ "tag" .= ("PactCmdLogPoll" :: T.Text)
+        , "contents" .= x
+        ]
+    toJSON (PactCmdLogListen x) = object
+        [ "tag" .= ("PactCmdLogListen" :: T.Text)
+        , "contents" .= x
+        ]
+    toJSON (PactCmdLogLocal x) = object
+        [ "tag" .= ("PactCmdLogLocal" :: T.Text)
+        , "contents" .= J.toJsonViaEncode x
+        ]
+    toJSON (PactCmdLogSpv x) = object
+        [ "tag" .= ("PactCmdLogSpv" :: T.Text)
+        , "contents" .= x
+        ]
+    {-# INLINEABLE toJSON #-}
 
 -- -------------------------------------------------------------------------- --
 -- Send Handler
@@ -250,6 +274,7 @@ sendHandler logger mempool (SubmitBatch cmds) = Handler $ do
         , ": "
         , sshow insErr
         ]
+
 -- -------------------------------------------------------------------------- --
 -- Poll Handler
 

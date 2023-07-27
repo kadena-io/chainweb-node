@@ -89,7 +89,6 @@ import Chainweb.Utils
 import Chainweb.Utils.Serialization
 
 import Numeric.Additive
-import Numeric.Natural
 
 -- -------------------------------------------------------------------------- --
 -- Large Word Orphans

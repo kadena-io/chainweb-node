@@ -46,7 +46,6 @@ import Control.Monad.Catch
 import Control.Monad.Reader
 import Control.Monad.State.Strict
 
-import qualified Data.Aeson as A
 import Data.Default (def)
 import qualified Data.DList as DL
 import Data.Either
@@ -73,6 +72,7 @@ import qualified Pact.Interpreter as P
 import qualified Pact.Types.ChainMeta as P
 import qualified Pact.Types.Command as P
 import qualified Pact.Types.Hash as P
+import qualified Pact.Types.RowData as P
 import qualified Pact.Types.Runtime as P
 import qualified Pact.Types.SPV as P
 import qualified Pact.Types.Pretty as P
@@ -540,7 +540,7 @@ execNewBlock mpAccess parent miner = pactLabel "execNewBlock" $ do
           Nothing
           (Just txTimeLimit) `catch` handleTimeout
 
-        successes <- liftIO $ Dyna.new @_ @Array @_ @(ChainwebTransaction, P.CommandResult [P.TxLog A.Value])
+        successes <- liftIO $ Dyna.new @_ @Array @_ @(ChainwebTransaction, P.CommandResult [P.TxLogJson])
         failures <- liftIO $ Dyna.new @_ @Array @_ @GasPurchaseFailure
         BlockFill _ requestKeys _ <- refill fetchLimit txTimeLimit pdbenv successes failures =<<
           foldM (splitResults successes failures) (incCount initState) pairs
@@ -556,7 +556,7 @@ execNewBlock mpAccess parent miner = pactLabel "execNewBlock" $ do
           pure (toPayloadWithOutputs miner (Transactions txs cb))
         return $! Discard pwo
 
-    refill :: Word64 -> Micros -> PactDbEnv' logger -> GrowableVec (ChainwebTransaction, P.CommandResult [P.TxLog A.Value]) -> GrowableVec GasPurchaseFailure -> BlockFill -> PactServiceM logger tbl BlockFill
+    refill :: Word64 -> Micros -> PactDbEnv' logger -> GrowableVec (ChainwebTransaction, P.CommandResult [P.TxLogJson]) -> GrowableVec GasPurchaseFailure -> BlockFill -> PactServiceM logger tbl BlockFill
     refill fetchLimit txTimeLimit pdbenv successes failures = go
       where
         go :: BlockFill -> PactServiceM logger tbl BlockFill
@@ -808,13 +808,22 @@ execValidateBlock memPoolAccess currHeader plData = pactLabel "execValidateBlock
                 -- succeeds. If this fails it usually means that the block
                 -- header database is corrupted.
 
-execBlockTxHistory :: (Logger logger) => BlockHeader -> Domain' -> PactServiceM logger tbl BlockTxHistory
-execBlockTxHistory bh (Domain' d) = pactLabel "execBlockTxHistory" $ do
+execBlockTxHistory
+    :: Logger logger
+    => BlockHeader
+    -> P.Domain P.RowKey P.RowData
+    -> PactServiceM logger tbl BlockTxHistory
+execBlockTxHistory bh d = pactLabel "execBlockTxHistory" $ do
   !cp <- getCheckpointer
   liftIO $ _cpGetBlockHistory cp bh d
 
-execHistoricalLookup :: (Logger logger) => BlockHeader -> Domain' -> P.RowKey -> PactServiceM logger tbl (Maybe (P.TxLog A.Value))
-execHistoricalLookup bh (Domain' d) k = pactLabel "execHistoricalLookup" $ do
+execHistoricalLookup
+    :: Logger logger
+    => BlockHeader
+    -> P.Domain P.RowKey P.RowData
+    -> P.RowKey
+    -> PactServiceM logger tbl (Maybe (P.TxLog P.RowData))
+execHistoricalLookup bh d k = pactLabel "execHistoricalLookup" $ do
   !cp <- getCheckpointer
   liftIO $ _cpGetHistoricalLookup cp bh d k
 

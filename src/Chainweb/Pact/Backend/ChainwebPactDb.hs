@@ -71,6 +71,9 @@ import Pact.Types.SQLite
 import Pact.Types.Term (ModuleName(..), ObjectMap(..), TableName(..))
 import Pact.Types.Util (AsString(..))
 
+import qualified Pact.JSON.Encode as J
+import qualified Pact.JSON.Legacy.HashMap as LHM
+
 -- chainweb
 
 import Chainweb.BlockHash
@@ -83,7 +86,7 @@ import Chainweb.Pact.Backend.Utils
 import Chainweb.Pact.Service.Types (PactException(..), internalError)
 import Chainweb.Pact.Types (logInfo_, logError_)
 import Chainweb.Version
-import Chainweb.Utils (encodeToByteString, sshow)
+import Chainweb.Utils (sshow)
 import Chainweb.Utils.Serialization
 
 tbl :: HasCallStack => Utf8 -> Utf8
@@ -98,7 +101,7 @@ chainwebPactDb = PactDb
     , _keys = \d e -> runBlockEnv e $ doKeys d
     , _txids = \t txid e -> runBlockEnv e $ doTxIds t txid
     , _createUserTable = \tn mn e -> runBlockEnv e $ doCreateUserTable tn mn
-    , _getUserTableInfo = error "WILL BE DEPRECATED!"
+    , _getUserTableInfo = \_ -> error "WILL BE DEPRECATED!"
     , _beginTx = \m e -> runBlockEnv e $ doBegin m
     , _commitTx = \e -> runBlockEnv e doCommit
     , _rollbackTx = \e -> runBlockEnv e doRollback
@@ -181,7 +184,7 @@ doReadRow d k = forModuleNameFix $ \mnFix ->
                      T.pack (show err)
 
     checkModuleCache u b = MaybeT $ do
-        txid <- use bsTxId -- cache priority
+        !txid <- use bsTxId -- cache priority
         mc <- use bsModuleCache
         (r, mc') <- liftIO $ checkDbCache u b txid mc
         modify' (bsModuleCache .~ mc')
@@ -204,7 +207,7 @@ checkDbTableExists tableName = do
     (Utf8 tableNameBS) = tableName
 
 writeSys
-    :: (AsString k, ToJSON v)
+    :: (AsString k, J.Encode v)
     => Domain k v
     -> k
     -> v
@@ -227,7 +230,7 @@ writeSys d k v = gets _bsTxId >>= go
         UserTables _ -> error "impossible"
 
 recordPendingUpdate
-    :: ToJSON v
+    :: J.Encode v
     => Utf8
     -> Utf8
     -> TxId
@@ -235,7 +238,7 @@ recordPendingUpdate
     -> BlockHandler logger SQLiteEnv ()
 recordPendingUpdate (Utf8 key) (Utf8 tn) txid v = modifyPendingData modf
   where
-    !vs = encodeToByteString v
+    !vs = J.encodeStrict v
     delta = SQLiteRowDelta tn txid key vs
     deltaKey = SQLiteDeltaKey tn key
 
@@ -318,7 +321,7 @@ writeUser wt d k rowdata@(RowData _ row) = gets _bsTxId >>= go
             return rowdata
 
 doWriteRow
-  :: (AsString k, ToJSON v)
+  :: (AsString k, J.Encode v)
     => WriteType
     -> Domain k v
     -> k
@@ -342,11 +345,10 @@ doKeys d = do
                   fmap (B8.unpack . _deltaRowKey) $
                   collect pb `DL.append` maybe DL.empty collect mptx
 
-    let allKeys = map fromString $
-                  msort $
-                  HashSet.toList $
-                  HashSet.fromList $
-                  dbKeys ++ memKeys
+    let !allKeys = fmap fromString
+                  $ msort -- becomes available with pact420Upgrade
+                  $ LHM.sort
+                  $ dbKeys ++ memKeys
     return allKeys
 
   where
@@ -411,7 +413,7 @@ doTxIds (TableName tn) _tid@(TxId tid) = do
 {-# INLINE doTxIds #-}
 
 recordTxLog
-    :: (AsString k, ToJSON v)
+    :: (AsString k, J.Encode v)
     => TableName
     -> Domain k v
     -> k
@@ -426,7 +428,7 @@ recordTxLog tt d k v = do
 
   where
     !upd = M.insertWith DL.append tt txlogs
-    !txlogs = DL.singleton (TxLog (asString d) (asString k) (toJSON v))
+    !txlogs = DL.singleton $! encodeTxLog $ TxLog (asString d) (asString k) v
 
 modifyPendingData
     :: (SQLitePendingData -> SQLitePendingData)
@@ -468,7 +470,7 @@ doCreateUserTable tn@(TableName ttxt) mn = do
     txlogKey = "SYS:usertables"
     stn = asString tn
     uti = UserTableInfo mn
-    txlogs = DL.singleton (TxLog txlogKey stn (toJSON uti))
+    txlogs = DL.singleton $ encodeTxLog $ TxLog txlogKey stn uti
 {-# INLINE doCreateUserTable #-}
 
 doRollback :: BlockHandler logger SQLiteEnv ()
@@ -476,7 +478,7 @@ doRollback = modify'
     $ set bsMode Nothing
     . set bsPendingTx Nothing
 
-doCommit :: BlockHandler logger SQLiteEnv [TxLog Value]
+doCommit :: BlockHandler logger SQLiteEnv [TxLogJson]
 doCommit = use bsMode >>= \case
     Nothing -> doRollback >> internalError "doCommit: Not in transaction"
     Just m -> do
@@ -496,7 +498,7 @@ doCommit = use bsMode >>= \case
     merge Nothing a = a
     merge (Just a) b = SQLitePendingData
         { _pendingTableCreation = HashSet.union (_pendingTableCreation a) (_pendingTableCreation b)
-        , _pendingWrites = HashMap.unionWith mergeW  (_pendingWrites a) (_pendingWrites b)
+        , _pendingWrites = HashMap.unionWith mergeW (_pendingWrites a) (_pendingWrites b)
         , _pendingTxLogMap = _pendingTxLogMap a
         , _pendingSuccessfulTxs = _pendingSuccessfulTxs b
         }
@@ -504,7 +506,6 @@ doCommit = use bsMode >>= \case
     mergeW a b = case take 1 (DL.toList a) of
         [] -> b
         (x:_) -> DL.cons x b
-
 {-# INLINE doCommit #-}
 
 clearPendingTxState :: BlockHandler logger SQLiteEnv ()
@@ -537,7 +538,7 @@ resetTemp = modify'
     -- clear out txlog entries
     . set (bsPendingBlock . pendingTxLogMap) mempty
 
-doGetTxLog :: FromJSON v => Domain k v -> TxId -> BlockHandler logger SQLiteEnv [TxLog v]
+doGetTxLog :: Domain k RowData -> TxId -> BlockHandler logger SQLiteEnv [TxLog RowData]
 doGetTxLog d txid = do
     -- try to look up this tx from pending log -- if we find it there it can't
     -- possibly be in the db.
@@ -573,8 +574,8 @@ doGetTxLog d txid = do
     stmt = "SELECT rowkey, rowdata FROM " <> tbl tableName <> " WHERE txid = ?"
 
 
-toTxLog :: (MonadThrow m, FromJSON v, FromJSON l) =>
-           Domain k v -> Utf8 -> BS.ByteString -> m (TxLog l)
+toTxLog :: MonadThrow m =>
+           Domain k v -> Utf8 -> BS.ByteString -> m (TxLog RowData)
 toTxLog d key value =
         case Data.Aeson.decodeStrict' value of
             Nothing -> internalError
@@ -768,7 +769,7 @@ handlePossibleRewind v cid bRestore hsh = do
               "SELECT endingtxid FROM BlockHistory WHERE blockheight = ?;"
               [SInt (fromIntegral bCurrent)]
               [RInt]
-        txid <- case r of
+        !txid <- case r of
             SInt x -> return x
             _ -> error "Chainweb.Pact.ChainwebPactDb.handlePossibleRewind.newChildBlock: failed to match SInt"
         assign bsTxId (fromIntegral txid)
@@ -777,7 +778,7 @@ handlePossibleRewind v cid bRestore hsh = do
 
     rewindBlock bh = do
         assign bsBlockHeight bh
-        endingtx <- getEndingTxId v cid bh
+        !endingtx <- getEndingTxId v cid bh
         tableMaintenanceRowsVersionedSystemTables endingtx
         callDb "rewindBlock" $ \db -> do
             droppedtbls <- dropTablesAtRewind bh db

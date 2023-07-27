@@ -23,6 +23,8 @@ module Chainweb.Miner.RestAPI
 
 import Data.Proxy (Proxy(..))
 
+import Pact.Utils.Servant
+
 import Servant.API
 
 -- internal modules
@@ -45,7 +47,7 @@ import Chainweb.Version
 type MiningApi_ =
     "mining" :> "work"
              :> QueryParam "chain" ChainId
-             :> ReqBody '[JSON] Miner
+             :> ReqBody '[PactJson] Miner
              :> Get '[OctetStream] WorkBytes
     :<|> "mining" :> "solved"
                   :> ReqBody '[OctetStream] HeaderBytes

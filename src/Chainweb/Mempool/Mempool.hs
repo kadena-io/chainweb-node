@@ -127,6 +127,7 @@ import System.LogLevel
 
 -- internal modules
 
+import qualified Pact.JSON.Encode as J
 import Pact.Parse (ParsedDecimal(..), ParsedInteger(..))
 import Pact.Types.ChainMeta (TTLSeconds(..), TxCreationTime(..))
 import Pact.Types.Command
@@ -578,7 +579,13 @@ instance Hashable TransactionHash where
   {-# INLINE hashWithSalt #-}
 
 instance ToJSON TransactionHash where
-  toJSON (TransactionHash x) = toJSON $! encodeB64UrlNoPaddingText $ SB.fromShort x
+  toJSON = toJSON . toText
+  {-# INLINE toJSON #-}
+
+instance J.Encode TransactionHash where
+  build = J.text . toText
+  {-# INLINE build #-}
+
 instance FromJSON TransactionHash where
   parseJSON = withText "TransactionHash" (either (fail . show) return . p)
     where
@@ -588,15 +595,19 @@ instance FromJSON TransactionHash where
 instance HasTextRepresentation TransactionHash where
   toText (TransactionHash th) = encodeB64UrlNoPaddingText $ SB.fromShort th
   fromText = (TransactionHash . SB.toShort <$>) . decodeB64UrlNoPaddingText
+  {-# INLINE toText #-}
+  {-# INLINE fromText #-}
 
 requestKeyToTransactionHash :: RequestKey -> TransactionHash
 requestKeyToTransactionHash = TransactionHash . H.unHash . unRequestKey
 
 ------------------------------------------------------------------------------
-data TransactionMetadata = TransactionMetadata {
-    txMetaCreationTime :: {-# UNPACK #-} !(Time Micros)
-  , txMetaExpiryTime :: {-# UNPACK #-} !(Time Micros)
-  } deriving (Eq, Ord, Show, Generic)
+--
+data TransactionMetadata = TransactionMetadata
+    { txMetaCreationTime :: {-# UNPACK #-} !(Time Micros)
+    , txMetaExpiryTime :: {-# UNPACK #-} !(Time Micros)
+    }
+    deriving (Eq, Ord, Show, Generic)
     deriving anyclass (NFData)
 
 transactionMetadataProperties :: KeyValue kv => TransactionMetadata -> [kv]
@@ -611,6 +622,13 @@ instance ToJSON TransactionMetadata where
     toEncoding = pairs . mconcat . transactionMetadataProperties
     {-# INLINE toJSON #-}
     {-# INLINE toEncoding #-}
+
+instance J.Encode TransactionMetadata where
+    build o = J.object
+        [ "txMetaCreationTime" J..= txMetaCreationTime o
+        , "txMetaExpiryTime" J..= txMetaExpiryTime o
+        ]
+    {-# INLINE build #-}
 
 instance FromJSON TransactionMetadata where
     parseJSON = withObject "TransactionMetadata" $ \o -> TransactionMetadata
@@ -673,20 +691,19 @@ data MockTx = MockTx {
   } deriving (Eq, Ord, Show, Generic)
     deriving anyclass (NFData)
 
-mockTxProperties :: KeyValue kv => MockTx -> [kv]
-mockTxProperties o =
-    [ "mockNonce" .= mockNonce o
-    , "mockGasPrice" .= mockGasPrice o
-    , "mockGasLimit" .= mockGasLimit o
-    , "mockMeta" .= mockMeta o
-    ]
-{-# INLINE mockTxProperties #-}
+instance J.Encode MockTx where
+    build o = J.object
+        [ "mockNonce" J..= J.Aeson (mockNonce o)
+        , "mockGasPrice" J..= mockGasPrice o
+        , "mockGasLimit" J..= mockGasLimit o
+        , "mockMeta" J..= mockMeta o
+        ]
+    {-# INLINE build #-}
 
+-- Only for testing
+--
 instance ToJSON MockTx where
-    toJSON = object . mockTxProperties
-    toEncoding = pairs . mconcat . mockTxProperties
-    {-# INLINE toJSON #-}
-    {-# INLINE toEncoding #-}
+    toJSON = J.toJsonViaEncode
 
 instance FromJSON MockTx where
     parseJSON = withObject "MockTx" $ \o -> MockTx

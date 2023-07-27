@@ -40,13 +40,14 @@ import qualified Pact.Types.Term as P
 import Pact.Types.ChainMeta
 import Pact.Types.KeySet (validateKeyFormat)
 
+import qualified Pact.JSON.Encode as J
+
 -- Internal modules
 
 import Chainweb.ChainId
 import Chainweb.Miner.Pact
 import Chainweb.Payload
 import Chainweb.Time
-import Chainweb.Utils
 
 fromPactChainId :: MonadThrow m => P.ChainId -> m ChainId
 fromPactChainId (P.ChainId t) = chainIdFromText t
@@ -111,5 +112,5 @@ emptyPayload :: PayloadWithOutputs
 emptyPayload = PayloadWithOutputs mempty miner coinbase h i o
   where
     BlockPayload h i o = newBlockPayload miner coinbase mempty
-    miner = MinerData $ encodeToByteString noMiner
+    miner = MinerData $ J.encodeStrict noMiner
     coinbase = noCoinbaseOutput

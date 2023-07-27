@@ -124,7 +124,7 @@ import Control.Monad
 import Control.Monad.Catch
 import Control.Monad.IO.Class
 
-import Data.Aeson (Value(..), object, (.=))
+import Data.Aeson (Value(..), object, (.=), Key)
 import Data.ByteString (ByteString)
 import qualified Data.ByteString.Short as BS
 import Data.Decimal
@@ -152,6 +152,7 @@ import Test.Tasty
 
 import Pact.ApiReq (ApiKeyPair(..), mkKeyPairs)
 import Pact.Gas
+import Pact.JSON.Legacy.Value
 import Pact.Types.Capability
 import qualified Pact.Types.ChainId as P
 import Pact.Types.ChainMeta
@@ -241,7 +242,7 @@ allocation00KeyPair =
 
 
 -- | Make trivial keyset data
-mkKeySetData :: Text  -> [SimpleKeyPair] -> Value
+mkKeySetData :: Key  -> [SimpleKeyPair] -> Value
 mkKeySetData name keys = object [ name .= map fst keys ]
 
 sender00Ks :: KeySet
@@ -493,7 +494,7 @@ mkExec' ecode = mkExec ecode Null
 
 -- | Make Exec PactRPC
 mkExec :: Text -> Value -> PactRPC Text
-mkExec ecode edata = Exec $ ExecMsg ecode edata
+mkExec ecode edata = Exec $ ExecMsg ecode (toLegacyJson edata)
 
 mkCont :: ContMsg -> PactRPC Text
 mkCont = Continuation
@@ -503,7 +504,7 @@ mkContMsg pid step = ContMsg
   { _cmPactId = pid
   , _cmStep = step
   , _cmRollback = False
-  , _cmData = Null
+  , _cmData = toLegacyJson Null
   , _cmProof = Nothing }
 
 -- | Default builder.
@@ -827,7 +828,7 @@ withPactTestBlockDb
     :: ChainwebVersion
     -> ChainId
     -> RocksDb
-    -> (IO MemPoolAccess)
+    -> IO MemPoolAccess
     -> PactServiceConfig
     -> (IO (PactQueue,TestBlockDb) -> TestTree)
     -> TestTree

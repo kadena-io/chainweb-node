@@ -79,6 +79,7 @@ import Chainweb.Version.Utils
 
 import Data.LogMessage
 
+import qualified Pact.JSON.Encode as J
 import Pact.Types.Command
 
 -- -------------------------------------------------------------------------- --
@@ -233,8 +234,8 @@ prettyCommand p (bh, c) = T.decodeUtf8
     $ (if p then encodePretty else encode)
     $ object
         [ "height" .= bh
-        , "sigs" .= _cmdSigs c
-        , "hash" .= _cmdHash c
+        , "sigs" .= fmap J.toJsonViaEncode (_cmdSigs c)
+        , "hash" .= J.toJsonViaEncode (_cmdHash c)
         , "payload" .= either
             (const $ String $ _cmdPayload c)
             (id @Value)
@@ -287,13 +288,13 @@ prettyCommandWithOutputs p (bh, c, o) = T.decodeUtf8
     $ (if p then encodePretty else encode)
     $ object
         [ "height" .= bh
-        , "sigs" .= _cmdSigs c
-        , "hash" .= _cmdHash c
+        , "sigs" .= fmap J.toJsonViaEncode (_cmdSigs c)
+        , "hash" .= J.toJsonViaEncode (_cmdHash c)
         , "payload" .= either
             (const $ String $ _cmdPayload c)
             (id @Value)
             (eitherDecodeStrict' $ T.encodeUtf8 $ _cmdPayload $ c)
-        , "output" .= o
+        , "output" .= J.toJsonViaEncode o
         ]
 
 txOutputsStream

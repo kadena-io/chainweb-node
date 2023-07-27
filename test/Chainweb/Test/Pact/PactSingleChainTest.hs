@@ -1,14 +1,13 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DerivingVia #-}
 {-# LANGUAGE FlexibleContexts #-}
-{-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE ImportQualifiedPost #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE ViewPatterns #-}
@@ -18,26 +17,25 @@ module Chainweb.Test.Pact.PactSingleChainTest
 ) where
 
 import Control.Arrow ((&&&))
-import Control.DeepSeq
 import Control.Concurrent.MVar
+import Control.DeepSeq
 import Control.Lens hiding ((.=))
 import Control.Monad
 import Control.Monad.Catch
 
-
-import Data.Aeson (object, (.=), Value(..), decode)
-import Data.Either (isRight)
+import Data.Aeson (object, (.=), Value(..), decodeStrict, eitherDecode)
 import qualified Data.ByteString.Lazy as BL
+import Data.Either (isRight)
 import Data.IORef
 import qualified Data.Map.Strict as M
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
 import qualified Data.Vector as V
-import qualified Data.Yaml as Y
+
+import GHC.Stack
 
 import Test.Tasty
 import Test.Tasty.HUnit
-
 
 -- internal modules
 
@@ -46,7 +44,11 @@ import Pact.Types.Hash
 import Pact.Types.Info
 import Pact.Types.Persistence
 import Pact.Types.PactError
+import Pact.Types.RowData
 import Pact.Types.RPC
+
+import Pact.JSON.Encode qualified as J
+import Pact.JSON.Yaml
 
 import Chainweb.BlockCreationTime
 import Chainweb.BlockHeader
@@ -143,6 +145,13 @@ newBlockAndValidate refIO reqIO = testCase "newBlockAndValidate" $ do
   setOneShotMempool refIO goldenMemPool
   void $ runBlock q bdb second "newBlockAndValidate"
 
+toRowData :: HasCallStack => Value -> RowData
+toRowData v = case eitherDecode encV of
+    Left e -> error $
+        "toRowData: failed to encode as row data. " <> e <> "\n" <> show encV
+    Right r -> r
+  where
+    encV = J.encode v
 
 getHistory :: IO (IORef MemPoolAccess) -> IO (PactQueue,TestBlockDb) -> TestTree
 getHistory refIO reqIO = testCase "getHistory" $ do
@@ -150,13 +159,13 @@ getHistory refIO reqIO = testCase "getHistory" $ do
   setOneShotMempool refIO goldenMemPool
   void $ runBlock q bdb second "getHistory"
   h <- getParentTestBlockDb bdb cid
-  mv <- pactBlockTxHistory h (Domain' (UserTables "coin_coin-table")) q
+  mv <- pactBlockTxHistory h (UserTables "coin_coin-table") q
 
   (BlockTxHistory hist prevBals) <- forSuccess "getHistory" (return mv)
   -- just check first one here
   assertEqual "check first entry of history"
     (Just [TxLog "coin_coin-table" "sender00"
-      (object
+      (toRowData $ object
        [ "guard" .= object
          [ "pred" .= ("keys-all" :: T.Text)
          , "keys" .=
@@ -174,7 +183,7 @@ getHistory refIO reqIO = testCase "getHistory" $ do
     (M.fromList
      [(RowKey "sender00",
        (TxLog "coin_coin-table" "sender00"
-        (object
+        (toRowData $ object
          [ "guard" .= object
            [ "pred" .= ("keys-all" :: T.Text)
            , "keys" .=
@@ -188,7 +197,7 @@ getHistory refIO reqIO = testCase "getHistory" $ do
 
 getHistoricalLookupNoTxs
     :: T.Text
-    -> (Maybe (TxLog Value) -> IO ())
+    -> (Maybe (TxLog RowData) -> IO ())
     -> IO (IORef MemPoolAccess)
     -> IO (PactQueue,TestBlockDb)
     -> TestTree
@@ -202,7 +211,7 @@ getHistoricalLookupNoTxs key assertF refIO reqIO = testCase msg $ do
 
 getHistoricalLookupWithTxs
     :: T.Text
-    -> (Maybe (TxLog Value) -> IO ())
+    -> (Maybe (TxLog RowData) -> IO ())
     -> IO (IORef MemPoolAccess)
     -> IO (PactQueue,TestBlockDb)
     -> TestTree
@@ -215,16 +224,16 @@ getHistoricalLookupWithTxs key assertF refIO reqIO = testCase msg $ do
   where msg = T.unpack $ "getHistoricalLookupWithTxs: " <> key
 
 
-histLookup :: PactQueue -> BlockHeader -> T.Text -> IO (Maybe (TxLog Value))
+histLookup :: PactQueue -> BlockHeader -> T.Text -> IO (Maybe (TxLog RowData))
 histLookup q bh k = do
-  mv <- pactHistoricalLookup bh (Domain' (UserTables "coin_coin-table")) (RowKey k) q
+  mv <- pactHistoricalLookup bh (UserTables "coin_coin-table") (RowKey k) q
   forSuccess "histLookup" (return mv)
 
-assertSender00Bal :: Rational -> String -> Maybe (TxLog Value) -> Assertion
+assertSender00Bal :: Rational -> String -> Maybe (TxLog RowData) -> Assertion
 assertSender00Bal bal msg hist =
   assertEqual msg
     (Just (TxLog "coin_coin-table" "sender00"
-      (object
+      (toRowData $ object
         [ "guard" .= object
           [ "pred" .= ("keys-all" :: T.Text)
           , "keys" .=
@@ -275,10 +284,10 @@ setFromHeader bh =
 
 pattern BlockGasLimitError :: forall b. Either PactException b
 pattern BlockGasLimitError <-
-  Left (PactInternalError (decode . BL.fromStrict . T.encodeUtf8 -> Just (BlockGasLimitExceeded _)))
+  Left (PactInternalError (decodeStrict . T.encodeUtf8 -> Just (PactExceptionTag "BlockGasLimitExceeded")))
 
 -- this test relies on block gas errors being thrown before other Pact errors.
-blockGasLimitTest :: IO (IORef MemPoolAccess) -> IO (PactQueue, TestBlockDb) -> TestTree
+blockGasLimitTest :: HasCallStack => IO (IORef MemPoolAccess) -> IO (PactQueue, TestBlockDb) -> TestTree
 blockGasLimitTest _ reqIO = testCase "blockGasLimitTest" $ do
   (q,_) <- reqIO
 
@@ -288,7 +297,7 @@ blockGasLimitTest _ reqIO = testCase "blockGasLimitTest" $ do
       let
         cr = CommandResult
           (RequestKey (Hash "0")) Nothing
-          (PactResult $ Left $ PactError EvalError (Pact.Types.Info.Info $ Nothing) [] mempty)
+          (PactResult $ Left $ PactError EvalError (Pact.Types.Info.Info Nothing) [] mempty)
           (fromIntegral g) Nothing Nothing Nothing []
         block = Transactions
           (V.singleton (bigTx, cr))
@@ -454,7 +463,7 @@ mempoolCreationTimeTest mpRefIO reqIO = testCase "mempoolCreationTimeTest" $ do
     makeTx nonce t = buildCwCmd
         $ signSender00
         $ set cbChainId cid
-        $ set cbCreationTime (toTxCreationTime $ t)
+        $ set cbCreationTime (toTxCreationTime t)
         $ set cbTTL 300
         $ mkCmd (sshow t <> nonce)
         $ mkExec' "1"
@@ -506,7 +515,7 @@ goldenNewBlock name mp mpRefIO reqIO = golden name $ do
     goldenBytes resp
   where
     goldenBytes :: PayloadWithOutputs -> IO BL.ByteString
-    goldenBytes a = return $ BL.fromStrict $ Y.encode $ object
+    goldenBytes a = return $ BL.fromStrict $ encodeYaml $ object
       [ "test-group" .= ("new-block" :: T.Text)
       , "results" .= a
       ]

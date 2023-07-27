@@ -29,7 +29,6 @@ import Control.Monad.State (gets)
 
 import Data.ByteString (ByteString, intercalate)
 import qualified Data.ByteString.Short as BS
-import Data.Aeson hiding (encode,(.=))
 import qualified Data.DList as DL
 import Data.Foldable (toList,foldl')
 import Data.Int
@@ -54,6 +53,7 @@ import System.LogLevel
 import Pact.Interpreter (PactDbEnv(..))
 import Pact.Types.Hash (PactHash, TypedHash(..))
 import Pact.Types.Persistence
+import Pact.Types.RowData
 import Pact.Types.SQLite
 
 -- chainweb
@@ -335,7 +335,7 @@ doLookupSuccessful dbenv confDepth hashes = runBlockEnv dbenv $ do
         return $! T2 (fromIntegral h) hsh
     go _ = fail "impossible"
 
-doGetBlockHistory :: FromJSON v => Db logger -> BlockHeader -> Domain k v -> IO BlockTxHistory
+doGetBlockHistory :: Db logger -> BlockHeader -> Domain RowKey RowData -> IO BlockTxHistory
 doGetBlockHistory dbenv blockHeader d = runBlockEnv dbenv $ do
   callDb "doGetBlockHistory" $ \db -> do
     endTxId <- getEndTxId db bHeight (_blockHash blockHeader)
@@ -353,14 +353,14 @@ doGetBlockHistory dbenv blockHeader d = runBlockEnv dbenv $ do
     bHeight = _blockHeight blockHeader
 
     procTxHist
-      :: (S.Set Utf8, M.Map TxId [TxLog Value])
-      -> (Utf8,TxId,TxLog Value)
-      -> (S.Set Utf8,M.Map TxId [TxLog Value])
+      :: (S.Set Utf8, M.Map TxId [TxLog RowData])
+      -> (Utf8,TxId,TxLog RowData)
+      -> (S.Set Utf8,M.Map TxId [TxLog RowData])
     procTxHist (ks,r) (uk,t,l) = (S.insert uk ks, M.insertWith (++) t [l] r)
 
     -- Start index is inclusive, while ending index is not.
     -- `endingtxid` in a block is the beginning txid of the following block.
-    queryHistory :: Database -> Utf8 -> Int64 -> Int64 -> IO [(Utf8,TxId,TxLog Value)]
+    queryHistory :: Database -> Utf8 -> Int64 -> Int64 -> IO [(Utf8,TxId,TxLog RowData)]
     queryHistory db tableName s e = do
       let sql = "SELECT txid, rowkey, rowdata FROM [" <> tableName <>
                 "] WHERE txid >= ? AND txid < ?"
@@ -374,7 +374,7 @@ doGetBlockHistory dbenv blockHeader d = runBlockEnv dbenv $ do
                \result, got: " <> T.pack (show err)
 
     -- Get last tx data, if any, for key before start index.
-    queryPrev :: Database -> Utf8 -> Int64 -> Utf8 -> IO (Maybe (RowKey,TxLog Value))
+    queryPrev :: Database -> Utf8 -> Int64 -> Utf8 -> IO (Maybe (RowKey,TxLog RowData))
     queryPrev db tableName s k@(Utf8 sk) = do
       let sql = "SELECT rowdata FROM [" <> tableName <>
                 "] WHERE rowkey = ? AND txid < ? " <>
@@ -401,12 +401,11 @@ getEndTxId db bhi bha = do
     _ -> internalError $ "doGetBlockHistory: expected single-row int result, got " <> sshow r
 
 doGetHistoricalLookup
-    :: FromJSON v
-    => Db logger
+    :: Db logger
     -> BlockHeader
-    -> Domain k v
+    -> Domain RowKey RowData
     -> RowKey
-    -> IO (Maybe (TxLog Value))
+    -> IO (Maybe (TxLog RowData))
 doGetHistoricalLookup dbenv blockHeader d k = runBlockEnv dbenv $ do
   callDb "doGetHistoricalLookup" $ \db -> do
     endTxId <- getEndTxId db bHeight (_blockHash blockHeader)
@@ -415,7 +414,7 @@ doGetHistoricalLookup dbenv blockHeader d k = runBlockEnv dbenv $ do
   where
     bHeight = _blockHeight blockHeader
 
-    queryHistoryLookup :: Database -> Utf8 -> Int64 -> Utf8 -> IO (Maybe (TxLog Value))
+    queryHistoryLookup :: Database -> Utf8 -> Int64 -> Utf8 -> IO (Maybe (TxLog RowData))
     queryHistoryLookup db tableName e rowKeyName = do
       let sql = "SELECT rowKey, rowdata FROM [" <> tableName <>
                 "] WHERE txid < ? AND rowkey = ? ORDER BY txid DESC LIMIT 1;"

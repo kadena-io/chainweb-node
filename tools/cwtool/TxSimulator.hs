@@ -79,6 +79,7 @@ import Pact.Types.SPV
 import Pact.Types.Term
 import Pact.Types.Typecheck
 
+import qualified Pact.JSON.Encode as J
 
 import Utils.Logging.Trace
 
@@ -123,7 +124,7 @@ simulate sc@(SimConfig dbDir txIdx' _ _ cid ver gasLog doTypecheck) = do
                 trace (logFunction cwLogger) "applyCmd" () 1 $
                   applyCmd ver logger gasLogger pde miner (getGasModel txc)
                   txc noSPVSupport cmd (initGas cmdPwt) mc ApplySend
-              T.putStrLn (encodeToText cr)
+              T.putStrLn (J.encodeText (J.Array <$> cr))
         (_,True) -> do
           PactDbEnv' pde <-
               _cpRestore cp $ Just (succ (_blockHeight parent), _blockHash parent)
