@@ -119,6 +119,8 @@ import Control.Monad.STM
 import Control.Monad.Trans.Control
 
 import Data.Aeson.Encoding hiding (int, bool)
+import qualified Data.Aeson.Key as A
+import Data.Bifunctor
 import qualified Data.ByteString.Builder as BB
 import qualified Data.ByteString.Lazy.Char8 as BL8
 import Data.IORef
@@ -498,8 +500,7 @@ configureHandler logger config inner
 
 -- | Format a Log Message as JSON.
 --
-newtype JsonLogMessage a = JsonLogMessage
-    { _getJsonLogMessage :: L.LogMessage a }
+newtype JsonLogMessage a = JsonLogMessage (L.LogMessage a)
     deriving (Generic)
 
 instance ToJSON a => ToJSON (JsonLogMessage a) where
@@ -516,7 +517,7 @@ jsonLogMessageEncoding (JsonLogMessage a) =
     , "message" .= L._logMsg a
     ]
   where
-    scopeToJson = object . map (uncurry (.=)) . reverse
+    scopeToJson = object . map (uncurry (.=) . first A.fromText) . reverse
 {-# INLINE jsonLogMessageEncoding #-}
 
 -- | Format a Log Message for Usage in Elasticsearch DataStreams
@@ -539,7 +540,7 @@ esJsonLogMessageEncoding (EsJsonLogMessage a) =
     , "message" .= L._logMsg a
     ]
   where
-    scopeToJson = object . map (uncurry (.=)) . reverse
+    scopeToJson = object . map (uncurry (.=) . first A.fromText) . reverse
 {-# INLINE esJsonLogMessageEncoding #-}
 
 -- -------------------------------------------------------------------------- --

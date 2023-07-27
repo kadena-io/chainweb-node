@@ -162,7 +162,7 @@ data MiningStats = MiningStats
 --
 newtype PrevTime = PrevTime BlockCreationTime
 
-data ChainChoice = Anything | TriedLast ChainId | Suggestion ChainId
+data ChainChoice = Anything | TriedLast !ChainId | Suggestion !ChainId
 
 -- | Construct a new `BlockHeader` to mine on.
 --

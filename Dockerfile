@@ -47,7 +47,7 @@
 # images.
 
 ARG UBUNTU_VERSION=20.04
-ARG GHC_VERSION=8.10.7
+ARG GHC_VERSION=9.6.2
 
 # ############################################################################ #
 # Chainweb Application Runtime Image

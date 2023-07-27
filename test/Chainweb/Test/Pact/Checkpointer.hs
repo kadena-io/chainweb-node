@@ -1,10 +1,11 @@
-{-# LANGUAGE TupleSections #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TupleSections #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE TypeOperators #-}
 
 module Chainweb.Test.Pact.Checkpointer (tests) where
 
@@ -14,7 +15,7 @@ import Control.Exception
 import Control.Lens hiding ((.=))
 import Control.Monad.Reader
 
-import Data.Aeson (Value(..), object, toJSON, (.=))
+import Data.Aeson (Value(..), object, (.=), Key)
 import Data.Default (def)
 import Data.Function
 import qualified Data.HashMap.Strict as HM
@@ -24,6 +25,7 @@ import qualified Data.Text as T
 
 import Pact.Gas
 import Pact.Interpreter (EvalResult(..), PactDbEnv(..), defaultInterpreter)
+import Pact.JSON.Legacy.Value
 import Pact.Native (nativeDefs)
 import Pact.Repl
 import Pact.Repl.Types
@@ -34,6 +36,7 @@ import Pact.Types.RowData
 import Pact.Types.Runtime hiding (ChainId)
 import Pact.Types.SPV (noSPVSupport)
 import Pact.Types.SQLite
+import qualified Pact.JSON.Encode as J
 
 import Test.Tasty
 import Test.Tasty.HUnit
@@ -407,7 +410,7 @@ checkpointerTest name relational cenvIO = testCaseSteps name $ \next -> do
       where
         msg = "The table duplication somehow went through. Investigate this error."
 
-    ksData :: Text -> Value
+    ksData :: Key -> Value
     ksData idx = object
         [ ("k" <> idx) .= object
             [ "keys" .= ([] :: [Text])
@@ -484,11 +487,11 @@ runRegression pactdb e schemaInit = do
         toPV = pactValueToRowData . toPactValueLenient . toTerm'
     _createUserTable pactdb user1 "someModule" conn
     assertEquals' "output of commit2"
-        [ TxLog "SYS:usertables" "user1" $
-            object
-                [ "utModule" .= object
-                    [ "name" .= String "someModule"
-                    , "namespace" .= Null
+        [ encodeTxLog $ TxLog "SYS:usertables" "user1" $
+            J.object
+                [ "utModule" J..= J.object
+                    [ "namespace" J..= J.null
+                    , "name" J..= J.text "someModule"
                     ]
                ]
         ]
@@ -510,25 +513,25 @@ runRegression pactdb e schemaInit = do
     assertEquals "module native repopulation" (Right modRef) $
       traverse (traverse (fromPersistDirect nativeLookup)) mod'
     assertEquals' "result of commit 3"
-        [ TxLog
+        [ encodeTxLog TxLog
             { _txDomain = "SYS:KeySets"
             , _txKey = "ks1"
-            , _txValue = toJSON ks
+            , _txValue = ks
             }
-        , TxLog
+        , encodeTxLog TxLog
             { _txDomain = "SYS:Modules"
             , _txKey = asString modName
-            , _txValue = toJSON mod'
+            , _txValue = mod'
             }
-        , TxLog
+        , encodeTxLog TxLog
             { _txDomain = "user1"
             , _txKey = "key1"
-            , _txValue = toJSON row
+            , _txValue = row
             }
-        , TxLog
+        , encodeTxLog TxLog
             { _txDomain = "user1"
             , _txKey = "key1"
-            , _txValue = toJSON row'
+            , _txValue = row'
             }
         ]
         (commit pactdb conn)
@@ -631,7 +634,7 @@ runCont cp (PactDbEnv' pactdbenv) pactId step = do
     evalTransactionM cmdenv cmdst $
       applyContinuation' 0 defaultInterpreter contMsg [] h' permissiveNamespacePolicy
   where
-    contMsg = ContMsg pactId step False Null Nothing
+    contMsg = ContMsg pactId step False (toLegacyJson Null) Nothing
 
     h' = H.toUntypedHash (H.hash "" :: H.PactHash)
     cmdenv = TransactionEnv Transactional pactdbenv (_cpLogger cp) Nothing def
@@ -658,7 +661,7 @@ begin :: PactDb e -> Method e (Maybe TxId)
 begin pactdb = _beginTx pactdb Transactional
 
 {- this should be moved to pact -}
-commit :: PactDb e -> Method e [TxLog Value]
+commit :: PactDb e -> Method e [TxLogJson]
 commit pactdb = _commitTx pactdb
 
 loadModule :: IO (ModuleName, ModuleData Ref, PersistModuleData)

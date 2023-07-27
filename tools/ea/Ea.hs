@@ -1,3 +1,4 @@
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
@@ -35,12 +36,11 @@ import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
 import qualified Data.Text.IO as TIO
+import qualified Data.Text.Lazy as TL
+import qualified Data.Text.Lazy.Builder as TB
 import Data.Traversable
 import qualified Data.Vector as V
-import qualified Data.Yaml as Yaml
 import GHC.Exts(the)
-
-import Ea.Genesis
 
 import System.IO.Temp
 import System.LogLevel (LogLevel(..))
@@ -56,14 +56,16 @@ import Chainweb.Pact.Backend.Utils
 import Chainweb.Pact.PactService
 import Chainweb.Pact.Types (testPactServiceConfig)
 import Chainweb.Pact.Utils (toTxCreationTime)
+import Chainweb.Payload
 import Chainweb.Payload.PayloadStore.InMemory
+import Chainweb.Storage.Table.RocksDB
 import Chainweb.Time
 import Chainweb.Transaction
     (ChainwebTransaction, chainwebPayloadCodec, mkPayloadWithTextOld)
 import Chainweb.Utils
 import Chainweb.Version
 
-import Chainweb.Storage.Table.RocksDB
+import Ea.Genesis
 
 import Pact.ApiReq
 import Pact.Types.ChainMeta
@@ -170,43 +172,7 @@ genPayloadModule v tag cid cwTxs =
             T2 payloadWO _ <- withSqliteDb cid logger pactDbDir False $ \env ->
                 withPactService v cid logger bhdb pdb env testPactServiceConfig $
                     execNewGenesisBlock noMiner (V.fromList cwTxs)
-
-            let
-                payloadYaml = TE.decodeUtf8 $ Yaml.encode payloadWO
-
-                -- Encode yaml as list of Haskell string literals. The extra empty line
-                -- at the end is for backward compatibility.
-                payloadHaskell
-                    = "    [ "
-                    <> T.intercalate "\n    , " (quoted <$> (T.lines payloadYaml <> [""]))
-                    <> "\n    ]"
-            return $! T.unlines $ startModule tag <> [payloadHaskell]
-    -- cid = someChainId v
-  where
-    quoted t = "\"" <> t <> "\""
-
-
-startModule :: Text -> [Text]
-startModule tag =
-    [ "{-# LANGUAGE OverloadedStrings #-}"
-    , ""
-    , "-- This module is auto-generated. DO NOT EDIT IT MANUALLY."
-    , ""
-    , "module Chainweb.BlockHeader.Genesis." <> tag <> "Payload ( payloadBlock ) where"
-    , ""
-    , "import Data.Text.Encoding (encodeUtf8)"
-    , "import qualified Data.Text as T"
-    , "import Data.Yaml (decodeThrow)"
-    , ""
-    , "import Chainweb.Payload (PayloadWithOutputs)"
-    , "import Chainweb.Utils (fromJuste)"
-    , ""
-    , "payloadBlock :: PayloadWithOutputs"
-    , "payloadBlock = fromJuste $ decodeThrow $ encodeUtf8 $ T.unlines"
-    ]
-
-mkTx :: FilePath -> IO (Command Text)
-mkTx yamlFile = snd <$> mkApiReq yamlFile
+            return $ TL.toStrict $ TB.toLazyText $ payloadModuleCode tag payloadWO
 
 mkChainwebTxs :: [FilePath] -> IO [ChainwebTransaction]
 mkChainwebTxs txFiles = mkChainwebTxs' =<< traverse mkTx txFiles
@@ -224,6 +190,72 @@ mkChainwebTxs' rawTxs =
   where
     setTxTime = set (cmdPayload . pMeta . pmCreationTime)
     setTTL = set (cmdPayload . pMeta . pmTTL)
+
+mkTx :: FilePath -> IO (Command Text)
+mkTx yamlFile = snd <$> mkApiReq yamlFile
+
+-- -------------------------------------------------------------------------- --
+-- Payload Module
+
+payloadModuleCode :: Text -> PayloadWithOutputs -> TB.Builder
+payloadModuleCode t p = foldMap (<> "\n")
+    [ "{-# LANGUAGE OverloadedStrings #-}"
+    , ""
+    , "-- This module is auto-generated. DO NOT EDIT IT MANUALLY."
+    , ""
+    , "module Chainweb.BlockHeader.Genesis." <> tag <> "Payload ( payloadBlock ) where"
+    , ""
+    , "import qualified Data.Text as T"
+    , "import qualified Data.Vector as V"
+    , "import GHC.Stack"
+    , ""
+    , "import Chainweb.Payload"
+    , "import Chainweb.Utils (unsafeFromText, toText)"
+    , ""
+    , "payloadBlock :: HasCallStack => PayloadWithOutputs"
+    , "payloadBlock"
+    , "    | actualHash == expectedHash = payload"
+    , "    | otherwise = error"
+    , "        $ \"inconsistent genesis payload detected. THIS IS A BUG in chainweb-node\""
+    , "        <> \". Expected: \" <> T.unpack (toText expectedHash)"
+    , "        <> \", actual: \" <> T.unpack (toText actualHash)"
+    , "  where"
+    , "    actualHash, expectedHash :: BlockPayloadHash"
+    , "    actualHash = _payloadWithOutputsPayloadHash payload"
+    , "    expectedHash = " <> hash
+    , ""
+    , "    payload = newPayloadWithOutputs minerData coinbase txs"
+    , "    minerData = " <> minerData
+    , "    coinbase = " <> coinbase
+    , "    txs = V.fromList"
+    , "        [ " <> sep "\n        , " tuple (_payloadWithOutputsTransactions p)
+    , "        ]"
+    ]
+  where
+    tag :: TB.Builder
+    tag = TB.fromText t
+
+    hash :: TB.Builder
+    hash = asText (_payloadWithOutputsPayloadHash p)
+
+    minerData :: TB.Builder
+    minerData = asText (_payloadWithOutputsMiner p)
+
+    coinbase :: TB.Builder
+    coinbase = asText (_payloadWithOutputsCoinbase p)
+
+tuple :: HasTextRepresentation a => HasTextRepresentation b => (a, b) -> TB.Builder
+tuple (a, b) = "(" <> asText a <> ", " <> asText b <> ")"
+
+asText :: HasTextRepresentation a => a -> TB.Builder
+asText x = "unsafeFromText \"" <> TB.fromText (toText x) <> "\""
+
+sep :: Foldable l => TB.Builder -> (a -> TB.Builder) -> l a -> TB.Builder
+sep s f = go . toList
+  where
+    go [] = mempty
+    go [h] = f h
+    go (h:t) = f h <> s <> go t
 
 ------------------------------------------------------
 -- Transaction Generation for coin v2 and remediations

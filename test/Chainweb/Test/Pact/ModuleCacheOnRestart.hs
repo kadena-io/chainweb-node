@@ -6,6 +6,7 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TupleSections #-}
 {-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE TypeOperators #-}
 
 module Chainweb.Test.Pact.ModuleCacheOnRestart (tests) where
 
@@ -232,7 +233,7 @@ testCw217CoinOnly iobdb _rewindM = (go, go')
     go' ioa initCache = do
       snapshotCache ioa initCache
       case M.lookup 20 initCache of
-        Just a -> assertEqual "module init cache contains only coin" ["coin"] $ HM.keys a
+        Just a -> assertEqual "module init cache contains only coin" ["coin"] (moduleCacheKeys a)
         Nothing -> assertFailure "failed to lookup block at 20"
 
 assertNoCacheMismatch
@@ -276,7 +277,8 @@ justModuleHashes :: ModuleInitCache -> HM.HashMap ModuleName (Maybe ModuleHash)
 justModuleHashes = justModuleHashes' . snd . last . M.toList
 
 justModuleHashes' :: ModuleCache -> HM.HashMap ModuleName (Maybe ModuleHash)
-justModuleHashes' = HM.map $ \v -> preview (_1 . mdModule . _MDModule . mHash) v
+justModuleHashes' =
+    fmap (preview (_1 . mdModule . _MDModule . mHash)) . moduleCacheToHashMap
 
 genblock :: BlockHeader
 genblock = genesisBlockHeader testVer testChainId
@@ -284,7 +286,7 @@ genblock = genesisBlockHeader testVer testChainId
 initPayloadState
   :: (CanReadablePayloadCas tbl, Logger logger, logger ~ GenericLogger)
   => PactServiceM logger tbl ()
-initPayloadState = initialPayloadState dummyLogger mempty testVer testChainId
+initPayloadState = initialPayloadState mempty testVer testChainId
 
 snapshotCache :: IO (MVar ModuleInitCache) -> ModuleInitCache -> IO ()
 snapshotCache iomcache initCache = do

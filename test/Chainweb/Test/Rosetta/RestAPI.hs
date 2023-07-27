@@ -5,6 +5,7 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE TypeOperators #-}
 
 module Chainweb.Test.Rosetta.RestAPI
 ( tests
@@ -15,6 +16,7 @@ import Control.Concurrent.MVar
 import Control.Lens
 
 import qualified Data.Aeson as A
+import qualified Data.Aeson.KeyMap as KM
 import qualified Data.ByteString.Short as BS
 import Data.Decimal
 import Data.Functor (void)
@@ -34,6 +36,7 @@ import Test.Tasty.HUnit
 
 -- internal pact modules
 
+import qualified Pact.JSON.Encode as J
 import Pact.Types.API
 import Pact.Types.Command
 
@@ -88,7 +91,7 @@ nonceRef = unsafePerformIO $ newIORef 0
 
 defGasLimit, defGasPrice :: Decimal
 defGasLimit = realToFrac $ _cbGasLimit defaultCmd
-defGasPrice = realToFrac $_cbGasPrice defaultCmd
+defGasPrice = realToFrac $ _cbGasPrice defaultCmd
 
 defFundGas :: Decimal
 defFundGas = defGasLimit * defGasPrice
@@ -183,7 +186,7 @@ blockKAccountAfterPact420 tio envIo =
     step "send transaction"
     prs <- mkOneKCoinAccountAsync cid tio cenv (putMVar rkmv)
     rk <- NEL.head . _rkRequestKeys <$> takeMVar rkmv
-    cmdMeta <- extractMetadata rk prs
+    cmdMeta <- KM.toMap <$> extractMetadata rk prs
     bh <- cmdMeta ^?! mix "blockHeight"
 
     step "check that block endpoint doesn't return TxLog parse error"
@@ -231,7 +234,7 @@ blockTransactionTests tio envIo =
   where
     mkTxReq rkmv prs = do
       rk <- NEL.head . _rkRequestKeys <$> takeMVar rkmv
-      meta <- extractMetadata rk prs
+      meta <- KM.toMap <$> extractMetadata rk prs
       bh <- meta ^?! mix "blockHeight"
       bhash <- meta ^?! mix "blockHash"
 
@@ -255,7 +258,7 @@ blockTests testname tio envIo = testCaseSchSteps testname $ \step -> do
     step "send transaction"
     prs <- transferOneAsync cid tio cenv (putMVar rkmv)
     rk <- NEL.head . _rkRequestKeys <$> takeMVar rkmv
-    cmdMeta <- extractMetadata rk prs
+    cmdMeta <- KM.toMap <$> extractMetadata rk prs
     bh <- cmdMeta ^?! mix "blockHeight"
 
     step "check tx at block height matches sent tx + remediations"
@@ -482,8 +485,8 @@ constructionTransferTests _ envIo =
     toAcctLog name delta guard = AccountLog
       { _accountLogKey = name
       , _accountLogBalanceDelta = BalanceDelta delta
-      , _accountLogCurrGuard = A.toJSON guard
-      , _accountLogPrevGuard = A.toJSON guard
+      , _accountLogCurrGuard = J.toJsonViaEncode guard
+      , _accountLogPrevGuard = J.toJsonViaEncode guard
       }
 
     ks (TestKeySet _ Nothing pred') = P.mkKeySet [] pred'
@@ -563,7 +566,7 @@ submitToConstructionAPI expectOps chainId' payer getKeys expectResult cenv step 
     Just cr -> isCorrectResult rk cr
 
   step "confirm that intended operations occurred"
-  cmdMeta <- extractMetadata rk (PollResponses prs)
+  cmdMeta <- KM.toMap <$> extractMetadata rk (PollResponses prs)
   bheight <- cmdMeta ^?! mix "blockHeight"
   bhash <- cmdMeta ^?! mix "blockHash"
   let blockTxReq = BlockTransactionReq netId (BlockId bheight bhash) (TransactionId tid)
@@ -723,7 +726,7 @@ rosettaVersion = RosettaNodeVersion
     { _version_rosettaVersion = "1.4.4"
     , _version_nodeVersion = VERSION_chainweb
     , _version_middlewareVersion = Nothing
-    , _version_metadata = Just $ HM.fromList
+    , _version_metadata = Just $ KM.fromList
       [ "node-api-version" A..= ("0.0" :: Text)
       , "chainweb-version" A..= ("fastfork-CPM-peterson" :: Text)
       , "rosetta-chainweb-version" A..= ("2.0.0" :: Text)
@@ -875,7 +878,7 @@ transferOneAsync_ sid tio cenv callback
 
 -- | Extract poll response metadata at some request key
 --
-extractMetadata :: RequestKey -> PollResponses -> IO (HM.HashMap Text A.Value)
+extractMetadata :: RequestKey -> PollResponses -> IO (KM.KeyMap A.Value)
 extractMetadata rk (PollResponses pr) = case HM.lookup rk pr of
     Just cr -> case _crMetaData cr of
       Just (A.Object o) -> return o

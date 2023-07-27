@@ -95,6 +95,7 @@ import Chainweb.Pact.RestAPI.Server (PactCmdLog(..))
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
 import Chainweb.Time
+import Data.Time.Format.ISO8601
 import Chainweb.Utils
 import Chainweb.Utils.RequestLog
 import Chainweb.Version
@@ -267,11 +268,6 @@ runBlockUpdateMonitor logger db = L.withLoggerLabel ("component", "block-update-
 
 -- This instances are OK, since this is the "Main" module of an application
 --
-#if !MIN_VERSION_base(4,15,0)
-deriving instance Generic GCDetails
-deriving instance Generic RTSStats
-#endif
-
 deriving instance NFData GCDetails
 deriving instance NFData RTSStats
 
@@ -547,8 +543,6 @@ main = do
                 , Handler $ \(e :: SomeException) ->
                     logFunctionJson logger Error (ProcessDied $ show e) >> throwIO e
                 ] $ do
-                kt <- mapM (parseTimeM False defaultTimeLocale timeFormat) serviceDate
+                kt <- mapM iso8601ParseM serviceDate
                 withServiceDate (logFunctionText logger) kt $
                     node conf logger
-  where
-    timeFormat = iso8601DateFormat (Just "%H:%M:%SZ")
