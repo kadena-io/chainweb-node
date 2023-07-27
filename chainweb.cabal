@@ -514,7 +514,7 @@ test-suite chainweb-tests
         , aeson >= 1.4.3
         , async >= 2.2
         , base >= 4.12 && < 5
-        , base64-bytestring >= 1.0 && < 1.1
+        , base64-bytestring >= 1.0
             -- due to change in error message that is inlined in pact
         , bytestring >= 0.10
         , case-insensitive >= 1.2

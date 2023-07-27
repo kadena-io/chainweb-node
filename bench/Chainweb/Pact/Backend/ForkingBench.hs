@@ -229,7 +229,7 @@ data Resources
     , blockHeaderDb :: !BlockHeaderDb
     , pactService :: !(Async (), PactQueue)
     , mainTrunkBlocks :: ![T3 ParentHeader BlockHeader PayloadWithOutputs]
-    , coinAccounts :: !(MVar (Map Account (NonEmpty SomeKeyPairCaps)))
+    , coinAccounts :: !(MVar (Map Account (NonEmpty Ed25519KeyPairCaps)))
     , nonceCounter :: !(IORef Word64)
     , txPerBlock :: !(IORef Int)
     , sqlEnv :: !SQLiteEnv
@@ -314,7 +314,7 @@ withResources rdb trunkLength logLevel f = C.envWithCleanup create destroy unwra
 
 -- | Mempool Access
 --
-testMemPoolAccess :: IORef Int -> MVar (Map Account (NonEmpty SomeKeyPairCaps)) -> IO MemPoolAccess
+testMemPoolAccess :: IORef Int -> MVar (Map Account (NonEmpty Ed25519KeyPairCaps)) -> IO MemPoolAccess
 testMemPoolAccess txsPerBlock accounts = do
   hs <- newIORef []
   return $ mempty
@@ -363,7 +363,7 @@ testMemPoolAccess txsPerBlock accounts = do
                   Right tx -> return tx
             return $! txs
 
-    mkTransferCaps :: ReceiverName -> Amount -> (Account, NonEmpty SomeKeyPairCaps) -> (Account, NonEmpty SomeKeyPairCaps)
+    mkTransferCaps :: ReceiverName -> Amount -> (Account, NonEmpty Ed25519KeyPairCaps) -> (Account, NonEmpty Ed25519KeyPairCaps)
     mkTransferCaps (ReceiverName (Account r)) (Amount m) (s@(Account ss),ks) = (s, (caps <$) <$> ks)
       where
         caps = [gas,tfr]
@@ -392,7 +392,7 @@ createCoinAccount
     :: ChainwebVersion
     -> PublicMeta
     -> String
-    -> IO (NonEmpty SomeKeyPairCaps, Command Text)
+    -> IO (NonEmpty Ed25519KeyPairCaps, Command Text)
 createCoinAccount v meta name = do
     sender00Keyset <- NEL.fromList <$> getKeyset "sender00"
     nameKeyset <- NEL.fromList <$> getKeyset name
@@ -405,12 +405,12 @@ createCoinAccount v meta name = do
     isSenderAccount name' =
       elem name' (map getAccount coinAccountNames)
 
-    getKeyset :: String -> IO [SomeKeyPairCaps]
+    getKeyset :: String -> IO [Ed25519KeyPairCaps]
     getKeyset s
       | isSenderAccount s = do
           keypair <- stockKey (T.pack s)
           mkKeyPairs [keypair]
-      | otherwise = (\k -> [(k, [])]) <$> genKeyPair defaultScheme
+      | otherwise = (\k -> [(k, [])]) <$> genKeyPair
 
     attachCaps s rcvr m ks = (caps <$) <$> ks
       where
@@ -435,7 +435,7 @@ stockKey s = do
 stockKeyFile :: ByteString
 stockKeyFile = $(embedFile "pact/genesis/devnet/keys.yaml")
 
-createCoinAccounts :: ChainwebVersion -> PublicMeta -> IO (NonEmpty (Account, NonEmpty SomeKeyPairCaps, Command Text))
+createCoinAccounts :: ChainwebVersion -> PublicMeta -> IO (NonEmpty (Account, NonEmpty Ed25519KeyPairCaps, Command Text))
 createCoinAccounts v meta = traverse (go <*> createCoinAccount v meta) names
   where
     go a m = do
@@ -448,8 +448,8 @@ names = NEL.map safeCapitalize . NEL.fromList $ Prelude.take 2 $ words "mary eli
 accountNames :: NonEmpty Account
 accountNames = Account <$> names
 
-formatB16PubKey :: SomeKeyPair -> Text
-formatB16PubKey = toB16Text . formatPublicKey
+formatB16PubKey :: Ed25519KeyPair -> Text
+formatB16PubKey = toB16Text . getPublic
 
 safeCapitalize :: String -> String
 safeCapitalize = maybe [] (uncurry (:) . bimap toUpper (Prelude.map toLower)) . Data.List.uncons
@@ -464,7 +464,7 @@ validateCommand cmdText = case verifyCommand cmdBS of
 
 mkRandomCoinContractRequest
     :: Bool
-    -> M.Map Account (NonEmpty SomeKeyPairCaps)
+    -> M.Map Account (NonEmpty Ed25519KeyPairCaps)
     -> IO CoinContractRequest
 mkRandomCoinContractRequest transfersPred kacts = do
     request <- bool (randomRIO @Int (0, 1)) (return 1) transfersPred
@@ -495,7 +495,7 @@ data CoinContractRequest
   | CoinTransferAndCreate SenderName ReceiverName Guard Amount
   deriving Show
 
-newtype Guard = Guard (NonEmpty SomeKeyPairCaps)
+newtype Guard = Guard (NonEmpty Ed25519KeyPairCaps)
 newtype SenderName = SenderName Account
 newtype ReceiverName = ReceiverName Account
 
@@ -536,7 +536,7 @@ distinctAccounts xs = pick xs >>= go
 createCoinContractRequest
     :: ChainwebVersion
     -> PublicMeta
-    -> NEL.NonEmpty SomeKeyPairCaps
+    -> NEL.NonEmpty Ed25519KeyPairCaps
     -> CoinContractRequest
     -> IO (Command Text)
 createCoinContractRequest v meta ks request =

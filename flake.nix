@@ -2,14 +2,9 @@
   description = "Chainweb";
 
   inputs = {
-    nixpkgs.url = "github:NixOS/nixpkgs?rev=4d2b37a84fad1091b9de401eb450aae66f1a741e";
-    hackage = {
-      url = "github:input-output-hk/hackage.nix";
-      flake = false;
-    };
+    nixpkgs.follows = "haskellNix/nixpkgs";
     haskellNix = {
       url = "github:input-output-hk/haskell.nix";
-      inputs.hackage.follows = "hackage";
     };
     flake-utils.url = "github:numtide/flake-utils";
     nix-filter.url = "github:numtide/nix-filter";
