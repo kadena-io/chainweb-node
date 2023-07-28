@@ -166,16 +166,9 @@ allow-newer: base-compat-batteries:*
 
 -- required by pact
 -- these upper bounds are required in order to not break payload validation
-constraints: base16-bytestring <1
 constraints: prettyprinter <1.6.1
-constraints: base64-bytestring <1.1
-
--- we have to add these because the old versions that we use would prevent
--- us to use recent versions of other packages
-allow-newer: base64-bytestring:*
-allow-newer: base16-bytestring:*
 
 -- other pact induced bounds (not relevant for on-chain semantics)
 -- constraints: megaparsec <9.3
 allow-newer: prettyprinter:*
-
+allow-newer: webauthn:time
