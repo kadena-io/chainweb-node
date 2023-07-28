@@ -688,7 +688,7 @@ logDebug_ :: (MonadIO m, Logger logger) => logger -> Text -> m ()
 logDebug_ l = logg_ l Debug
 
 logJsonTrace_ :: (MonadIO m, ToJSON a, Typeable a, NFData a, Logger logger) => logger -> LogLevel -> JsonLog a -> m ()
-logJsonTrace_ logger level msg = liftIO $ logFunctionJson logger level msg
+logJsonTrace_ logger level msg = liftIO $ logFunction logger level msg
 
 -- | Write log message using the logger in Checkpointer environment
 --
