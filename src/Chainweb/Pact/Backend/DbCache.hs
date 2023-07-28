@@ -27,6 +27,7 @@ module Chainweb.Pact.Backend.DbCache
 ) where
 
 import Control.Lens hiding ((.=))
+import Control.Monad (forM, unless)
 import Control.Monad.State.Strict
 
 import qualified Crypto.Hash as C (hash)
