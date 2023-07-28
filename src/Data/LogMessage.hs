@@ -166,6 +166,8 @@ aNoLog = ALogFunction $ \_ _ -> return ()
 
 -- | A newtype wrapper for log messages types with a 'ToJSON' instance.
 --
+-- This type must not have a `ToJSON` instance.
+--
 newtype JsonLog a = JsonLog { unJsonLog :: a }
     deriving newtype (NFData)
 
