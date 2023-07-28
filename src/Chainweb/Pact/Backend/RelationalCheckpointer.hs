@@ -103,7 +103,7 @@ withProdRelationalCheckpointer logger bstate sqlenv v cid inner = do
                 !db' = set (benvBlockState . bsModuleCache) mc' db
             return (db', s)
         logFunctionJson logger Info stats
-        threadDelay (60_000_000) {- 1 minute -}
+        threadDelay 60_000_000 {- 1 minute -}
 
 -- for testing
 initRelationalCheckpointer'
