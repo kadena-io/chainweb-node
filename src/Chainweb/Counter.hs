@@ -215,7 +215,7 @@ logFunctionCounter
     :: Logger l
     => l
     -> LogFunctionCounter
-logFunctionCounter logger level = logFunction logger level
+logFunctionCounter logger level = logFunctionJson logger level
     . CounterLog
     . V.fromList
     . toList
