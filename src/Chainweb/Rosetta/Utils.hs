@@ -38,7 +38,6 @@ import qualified Pact.Types.RPC as P
 import qualified Pact.Types.Command as P
 import qualified Pact.Types.Scheme as P
 import qualified Pact.Parse as P
-import qualified Pact.Types.Crypto as P
 import qualified Data.Set as S
 import Data.Maybe ( fromMaybe )
 import qualified Pact.Types.RowData as P
@@ -567,21 +566,16 @@ rosettaPubKeyTokAccount (RosettaPublicKey pubKey curve) = do
 
 toPactPubKeyAddr
     :: T.Text
-    -> P.PPKScheme
     -> Either RosettaError T.Text
-toPactPubKeyAddr pk sk = do
-  let scheme = P.toScheme sk
+toPactPubKeyAddr pk = do
   bs <- toRosettaError RosettaInvalidPublicKey $! P.parseB16TextOnly pk
-  addrBS <- toRosettaError RosettaInvalidPublicKey $!
-            P.formatPublicKeyBS scheme (P.PubBS bs)
-  pure $! P.toB16Text addrBS
+  pure $! P.toB16Text bs
 
 
 signerToAddr :: Signer -> Either RosettaError T.Text
-signerToAddr (Signer someScheme pk someAddr _) = do
-  let sk = fromMaybe P.ED25519 someScheme
-      addr = fromMaybe pk someAddr
-  toPactPubKeyAddr addr sk
+signerToAddr (Signer _ pk someAddr _) = do
+  let addr = fromMaybe pk someAddr
+  toPactPubKeyAddr addr
 
 
 getScheme :: CurveType -> Either RosettaError P.PPKScheme
@@ -726,7 +720,7 @@ createSigningPayloads (EnrichedCommand cmd _ _) = map f
 
     toRosettaSigType Nothing = Just RosettaEd25519
     toRosettaSigType (Just P.ED25519) = Just RosettaEd25519
-    toRosettaSigType (Just P.ETH) = Just RosettaEcdsa -- TODO: unsupport this
+    toRosettaSigType (Just P.WebAuthn) = Just RosettaEd25519 -- TODO Ok?
 
 --------------------------------------------------------------------------------
 -- /parse
@@ -796,7 +790,7 @@ matchSigs sigs signers = do
          "Expected the same Signature and PublicKey type for Signature=" ++ show sig)
 
       let userSig = P.UserSig sig
-      addr <- toPactPubKeyAddr pk pkScheme
+      addr <- toPactPubKeyAddr pk
       pure (addr, userSig)
 
 --------------------------------------------------------------------------------
