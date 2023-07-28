@@ -175,9 +175,9 @@ withPactService ver cid chainwebLogger bhDb pdb sqlenv config act =
             act
   where
     initialBlockState = initBlockState (_pactModuleCacheLimit config) $ genesisHeight ver cid
-    checkpointerLogger = addLabel ("sub-component", "checkpointer") chainwebLogger
-    pactServiceLogger = addLabel ("component", "pact") chainwebLogger
-    gasLogger = addLabel ("transaction", "GasLogs") chainwebLogger
+    pactServiceLogger = setComponent "pact" chainwebLogger
+    checkpointerLogger = addLabel ("sub-component", "checkpointer") pactServiceLogger
+    gasLogger = addLabel ("transaction", "GasLogs") pactServiceLogger
 
 initializeLatestBlock :: (Logger logger) => CanReadablePayloadCas tbl => Bool -> PactServiceM logger tbl ()
 initializeLatestBlock unlimitedRewind = findLatestValidBlock >>= \case
