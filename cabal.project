@@ -94,8 +94,8 @@ source-repository-package
 
 source-repository-package
     type: git
-    location: https://github.com/hackage-package-forks/wai-middleware-validation.git
-    tag: 34494a8ce82b6b2ed7621a6d2d8e9767f4d1bc11
+    location: https://github.com/kadena-io/wai-middleware-validation.git
+    tag: e0437bf82e9b4d3fec5ad42ef6e860f4bd04e1b4
     --sha256: 1az7jcggcj275djnfsvhdg3n7hjrj6vp8rj137fxrg4hazh0hyzv
 
 source-repository-package
